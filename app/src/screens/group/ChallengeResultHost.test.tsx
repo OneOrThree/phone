@@ -71,10 +71,20 @@ const mockGetMyChallengeResults = getMyChallengeResults as jest.MockedFunction<
 jest.mock('./challengeResultClaim', () => ({
   claimChallengeResult: jest.fn(),
   ackChallengeResult: jest.fn(),
+  pendingAckChallengeResults: jest.fn(),
+  reconcileChallengeResultAck: jest.fn(),
 }));
-const { claimChallengeResult: mockClaim, ackChallengeResult: mockAck } = jest.requireMock(
-  './challengeResultClaim',
-) as { claimChallengeResult: jest.Mock; ackChallengeResult: jest.Mock };
+const {
+  claimChallengeResult: mockClaim,
+  ackChallengeResult: mockAck,
+  pendingAckChallengeResults: mockPendingAck,
+  reconcileChallengeResultAck: mockReconcileAck,
+} = jest.requireMock('./challengeResultClaim') as {
+  claimChallengeResult: jest.Mock;
+  ackChallengeResult: jest.Mock;
+  pendingAckChallengeResults: jest.Mock;
+  reconcileChallengeResultAck: jest.Mock;
+};
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 
@@ -181,9 +191,12 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   resetChallengeResultGateForTests();
   mockGetMyChallengeResults.mockResolvedValue([]);
-  // 기본은 "선점 성공 · 확인 성공" — 이 축이 관심사가 아닌 테스트가 그대로 돌게 한다.
+  // 기본은 "선점·재검증 성공 · 확인 성공 · 복구 대상 없음" — 이 축이 관심사가 아닌 테스트가
+  // 그대로 돌게 한다.
   mockClaim.mockResolvedValue({ ok: true, claimToken: 'token-1' });
   mockAck.mockResolvedValue(true);
+  mockPendingAck.mockResolvedValue([]);
+  mockReconcileAck.mockResolvedValue(true);
 });
 
 describe('그룹 흐름 라우트에서만 연다', () => {
@@ -200,18 +213,31 @@ describe('그룹 흐름 라우트에서만 연다', () => {
 
   test('GroupRoom이 push된 상태에서도 뜬다 — 이 배치의 존재 이유', async () => {
     // 예전 소유자(GroupRoomScreen)는 루트 스택 sibling 위로 뜰 수 없었다.
+    // 결과 딥링크 착지 그대로 재현한다: 그룹 흐름 **밖**에서 곧장 그룹방으로 들어간다.
     mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
-    await renderHost({ initialRoute: '그룹' });
-    await closeModal();
-
-    // 다른 결과가 도착한 뒤 그룹방으로 들어간다.
-    mockGetMyChallengeResults.mockResolvedValue([
-      resultEntry({ sessionId: 's2', sessionDate: '2026-07-30' }),
-    ]);
+    await renderHost({ initialRoute: '홈' });
     await navigate('GroupRoom', { groupId: GROUP_ID, challengeId: undefined });
 
     expect(navigationRef.getCurrentRoute()?.name).toBe('GroupRoom');
     expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+  });
+
+  // 재조회 계기는 정본이 셋으로 못 박았다(policy §D3 · HLD): 셸 활성화 · 포그라운드 복귀 ·
+  // BET_RESULT 수신. 그룹 흐름 **내부** 이동은 계기가 아니다 — 화면을 오갈 때마다 조회가
+  // 추가로 나가면 그룹 탭을 왔다 갔다 하는 것만으로 서버 부하가 배로 뛴다.
+  test('그룹 흐름 **내부** 화면 전환으로는 재조회하지 않는다', async () => {
+    await renderHost({ initialRoute: '그룹' });
+    expect(mockGetMyChallengeResults).toHaveBeenCalledTimes(1);
+
+    await navigate('GroupRoom', { groupId: GROUP_ID, challengeId: undefined });
+    await navigate('그룹');
+
+    expect(mockGetMyChallengeResults).toHaveBeenCalledTimes(1);
+
+    // 그룹 흐름을 벗어났다 다시 들어오는 것(셸 활성화)은 계기가 맞다.
+    await navigate('홈');
+    await navigate('그룹');
+    expect(mockGetMyChallengeResults).toHaveBeenCalledTimes(2);
   });
 
   test('그룹 흐름 밖(홈 탭)에서는 조회도 노출도 하지 않는다', async () => {
@@ -285,16 +311,18 @@ describe('다른 전면 오버레이와의 배타', () => {
   });
 });
 
-// ── D8 순서: slot → 선점(claim) → 활성 claim 검증 → 노출 → ack ──────────────────
+// ── D8 순서: slot → 선점(claim) → **활성 claim 재검증** → 노출 → ack ─────────────
 // ⚠️ 이 스위트가 없으면 W2·W3가 다 머지돼도 **호출부가 비어 기능이 안 켜진다** — 그리고 그
 //    상태에서도 다른 테스트는 전부 초록이다(조정자 사전 게이트가 잡은 실패 모드).
-// ⚠️ 호출 **여부**만 보지 않는다. ack가 노출보다 앞서면 렌더가 끊겼을 때 어느 기기에서도 못 본다.
-describe('선점·확인 배선(claim → 노출 → ack)', () => {
-  test('모달이 뜨기 **전에** claim, 뜬 **뒤에** ack 한다', async () => {
-    const order: string[] = [];
-    mockClaim.mockImplementation(async (sessionId: string) => {
-      order.push(`claim:${sessionId}`);
-      return { ok: true as const, claimToken: 'token-1' };
+// ⚠️ 호출 **여부**만 보지 않는다. 순서가 계약이다.
+describe('선점·재검증·확인 배선(claim → verify → 노출 → ack)', () => {
+  // 호출 순서를 한 배열에 모아 **그 배열 전체**를 단언한다 — 단계 하나가 빠지면 바로 드러난다.
+  function recordOrder(order: string[]) {
+    mockClaim.mockImplementation(async (sessionId: string, currentToken?: string) => {
+      order.push(
+        currentToken === undefined ? `claim:${sessionId}` : `verify:${sessionId}:${currentToken}`,
+      );
+      return { ok: true as const, claimToken: currentToken === undefined ? 'token-1' : 'token-2' };
     });
     mockAck.mockImplementation(async (sessionId: string, token: string) => {
       order.push(`ack:${sessionId}:${token}`);
@@ -303,16 +331,52 @@ describe('선점·확인 배선(claim → 노출 → ack)', () => {
     (logGroupChallengeResultShown as jest.Mock).mockImplementation(() => {
       order.push('shown');
     });
+  }
+
+  test('선점 → 그 토큰으로 재검증 → 노출 → ack 순서로 부른다', async () => {
+    const order: string[] = [];
+    recordOrder(order);
 
     mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
     await renderHost();
     expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
 
-    // 노출 시점까지 ack는 아직 없다.
-    expect(order).toEqual(['claim:s1', 'shown']);
+    // 재검증은 **첫 응답의 토큰을 실어** 불러야 하고, 저장·ack에 쓰이는 것은 **갱신된 토큰**이다.
+    // 재검증 단계가 빠지면 여기서 'verify:…'가 사라져 즉시 실패한다.
+    await waitFor(() =>
+      expect(order).toEqual(['claim:s1', 'verify:s1:token-1', 'shown', 'ack:s1:token-2']),
+    );
+  });
 
-    await closeModal();
-    await waitFor(() => expect(order).toEqual(['claim:s1', 'shown', 'ack:s1:token-1']));
+  // 사용자가 모달을 본 뒤 **닫기 전에 강제 종료·크래시**하면 서버엔 미확인으로 남는데, 로컬
+  // 마커는 이미 노출 시점에 찍혀(D2) 다음 실행에서 후보가 걸러진다 — ack가 다시 시작될 계기가
+  // 없다. 그래서 ack는 닫기가 아니라 **노출이 커밋된 순간**에 시작한다.
+  test('닫기 전에 이미 ack를 보낸다 — 닫히지 않아도 서버에 확인이 남는다', async () => {
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await renderHost();
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+
+    // 아직 아무것도 닫지 않았다.
+    await waitFor(() => expect(mockAck).toHaveBeenCalledTimes(1));
+    expect(mockAck).toHaveBeenCalledWith('s1', 'token-1');
+  });
+
+  test('재검증이 실패하면(다른 기기가 lease를 가져갔다) 모달을 띄우지 않는다', async () => {
+    // 첫 선점은 성공했는데 렌더 직전 재검증에서 보유자가 아님이 드러난 경우 —
+    // 낡은 성공 응답을 믿고 노출하면 두 기기가 같은 결과를 동시에 본다.
+    mockClaim.mockImplementation(async (_sessionId: string, currentToken?: string) =>
+      currentToken === undefined
+        ? { ok: true as const, claimToken: 'token-1' }
+        : { ok: false as const, retryAfterMs: 60_000 },
+    );
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await renderHost();
+
+    await waitFor(() => expect(mockClaim).toHaveBeenCalledWith('s1', 'token-1'));
+    expect(
+      screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
+    ).toBeNull();
+    expect(mockAck).not.toHaveBeenCalled();
   });
 
   test('선점에 실패하면(다른 기기가 열고 있다) 모달을 띄우지 않는다', async () => {
@@ -329,6 +393,38 @@ describe('선점·확인 배선(claim → 노출 → ack)', () => {
     expect(mockAck).not.toHaveBeenCalled();
   });
 
+  // 대기하는 사이 다른 기기가 그 결과를 ack 했을 수 있다. 메모리에 있는 stale head를 그대로
+  // 다시 선점하면 RESULT_ALREADY_ACKED만 돌아오며 **뒤의 결과까지 영영 막힌다**
+  // (제한적 재조회 5회가 이미 끝났다면 이 자리가 유일한 갱신 계기다).
+  test('선점 재시도 전에 서버 큐를 다시 판정한다', async () => {
+    jest.useFakeTimers();
+    try {
+      mockClaim.mockResolvedValue({ ok: false, retryAfterMs: 1_000 });
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+      await renderHost();
+      expect(mockGetMyChallengeResults).toHaveBeenCalledTimes(1);
+
+      // 그 사이 다른 기기가 s1을 소비했고, 뒤에 있던 s2가 큐의 새 머리가 됐다.
+      mockGetMyChallengeResults.mockResolvedValue([
+        resultEntry({ sessionId: 's2', sessionDate: '2026-07-30' }),
+      ]);
+      mockClaim.mockResolvedValue({ ok: true, claimToken: 'token-2' });
+
+      await act(async () => {
+        jest.advanceTimersByTime(1_200);
+      });
+      await act(async () => {});
+      await act(async () => {});
+
+      // 재시도가 같은 후보를 다시 claim 하는 것이 아니라 **먼저 조회**했다.
+      expect(mockGetMyChallengeResults).toHaveBeenCalledTimes(2);
+      // 1회차 = 실패한 s1 선점, 2회차 = 갱신된 머리 s2 선점(3회차는 그 토큰의 재검증).
+      expect(mockClaim).toHaveBeenNthCalledWith(2, 's2');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('ack가 실패하면 **모달을 다시 띄우지 않고** ack만 재시도한다(N51)', async () => {
     // 재시도 지연(5초)을 실제로 기다리지 않으려고 이 테스트만 가짜 타이머로 돈다.
     jest.useFakeTimers();
@@ -337,9 +433,6 @@ describe('선점·확인 배선(claim → 노출 → ack)', () => {
       mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
       await renderHost();
       expect(screen.getByTestId('group.challengeResult')).toBeOnTheScreen();
-
-      await closeModal();
-      await act(async () => {});
       expect(mockAck).toHaveBeenCalledTimes(1);
 
       await act(async () => {
@@ -350,10 +443,43 @@ describe('선점·확인 배선(claim → 노출 → ack)', () => {
       expect(mockAck).toHaveBeenCalledTimes(2);
       expect(mockAck).toHaveBeenLastCalledWith('s1', 'token-1');
       // 재시도는 ack만이다 — 사용자에게 같은 결과를 두 번 보여주지 않는다.
+      expect(screen.getByTestId('group.challengeResult')).toBeOnTheScreen();
+      await closeModal();
       expect(screen.queryByTestId('group.challengeResult')).toBeNull();
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+// ── ack 복구(N51) — 로컬 마커로 걸러진 회차가 서버엔 미확인으로 남는 구멍 ────────────
+// 로컬 마커는 노출 시점에 찍히는데(D2) ack는 그 뒤에 실패할 수 있다. 그러면 다음 실행에서
+// filterUnseenChallengeResults가 그 후보를 **버려** claim·ack 경로가 다시 열리지 않는다.
+describe('ack 복구', () => {
+  test('마커로 걸러진 회차라도 서버가 미확인이면 조용히 ack만 다시 보낸다', async () => {
+    // 이미 본 회차 — 마커가 있어 큐에는 오르지 않는다.
+    await AsyncStorage.setItem('gromo:sessionResult:me:s1', '2026-07-31');
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    mockPendingAck.mockResolvedValue([{ sessionId: 's1' }]);
+
+    await renderHost();
+
+    // 재노출은 없다 — 이미 본 것이 확실하다.
+    expect(
+      screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
+    ).toBeNull();
+    // 그러나 서버 확인은 다시 시도한다.
+    await waitFor(() => expect(mockPendingAck).toHaveBeenCalledWith('me', expect.any(Array)));
+    await waitFor(() => expect(mockReconcileAck).toHaveBeenCalledWith('s1'));
+  });
+
+  test('복구가 실패해도 화면에 영향이 없다 — 조용한 수렴이다', async () => {
+    mockPendingAck.mockRejectedValue(new Error('network'));
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+
+    await renderHost();
+
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
   });
 });
 

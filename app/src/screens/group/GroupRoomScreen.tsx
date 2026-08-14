@@ -269,6 +269,16 @@ export default function GroupRoomScreen({
   // 구독을 신원 고정으로 유지하려고 onLeft를 ref에 담는다(가장 최근 콜백을 쓴다).
   const onLeftRef = useRef(onLeft);
   onLeftRef.current = onLeft;
+  // 이탈은 **이 그룹에 대해 한 번뿐**이다. 이제 이탈을 부를 수 있는 입구가 둘이라
+  // (직접 판정 · gate 구독) 같은 사건으로 두 번 부를 수 있는데, 프로덕션의 onLeft는
+  // goBack이라 두 번 부르면 스택을 두 장 팝한다.
+  const leftRef = useRef(false);
+  const leaveRoom = useCallback(() => {
+    if (leftRef.current) return;
+    leftRef.current = true;
+    pendingLeaveRef.current = false;
+    onLeftRef.current();
+  }, []);
 
   // 이 화면이 지금 그리고 있는 그룹. 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면
   // (React Navigation이 params만 병합해) **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
@@ -287,6 +297,7 @@ export default function GroupRoomScreen({
     // 새 그룹의 첫 서명은 비교 대상이 없다 — 이전 그룹의 서명과 비교하면 남의 정산으로 잔액을 다시 받는다.
     settledSigRef.current = null;
     pendingLeaveRef.current = false; // 이전 그룹의 이탈 유예도 함께 접는다(새 그룹 판단은 새로)
+    leftRef.current = false; // 이탈 1회 래치도 그룹 단위다
     // 이전 그룹 카드들의 시트 열림도 함께 접는다 — 그 카드들은 곧 언마운트되며 false를
     // 보고하지만, 그 사이 대기하던 전면 오버레이가 이전 방의 열림 때문에 계속 막히면 안 된다.
     setSheetOpenCardIds([]);
@@ -354,8 +365,7 @@ export default function GroupRoomScreen({
       // 유예를 걸어 두면 호스트가 큐를 비우는 순간(마지막 모달을 닫거나, 성공 조회가 0건을
       // 확정하는 순간) 아래 구독이 onLeft로 잇는다.
       if (getChallengeResultGate() === 'none') {
-        pendingLeaveRef.current = false;
-        onLeft();
+        leaveRoom();
         return false;
       }
       pendingLeaveRef.current = true;
@@ -391,8 +401,10 @@ export default function GroupRoomScreen({
 
     if (resolvedDetail !== null) {
       // 최신 상세 성공은 현재 멤버십을 다시 증명한다. 앞선 실패에서 결과 모달 뒤 이탈을
-      // 예약했더라도 낡은 예약으로 방을 나가지 않게 해제한다.
+      // 예약했더라도 낡은 예약으로 방을 나가지 않게 해제한다(1회 래치도 함께 푼다 — 멤버십이
+      // 다시 증명된 뒤의 새 부재 판정은 새 사건이다).
       pendingLeaveRef.current = false;
+      leftRef.current = false;
       // 환불 안내 래치도 같은 근거로 푼다(codex 사전 게이트 P2). 이 래치는 groupId가 바뀔 때만
       // 풀렸는데, 다른 기기에서 같은 그룹에 재가입한 뒤 포그라운드로 돌아오거나 같은 라우트가
       // 결과 푸시로 갱신되면 상세 조회가 성공해도 조기 반환이 계속 환불 안내를 그렸다.
@@ -458,9 +470,11 @@ export default function GroupRoomScreen({
       setChallengeError(true); // 기존 챌린지는 그대로 둔다
     }
     return true;
+    // onLeft 대신 leaveRoom(신원 고정)을 본다 — 최신 콜백은 onLeftRef가 들고 있으므로
+    // 부모가 콜백을 새로 만들어도 load 신원이 갈려 포커스 재조회가 다시 돌지 않는다.
   }, [
     groupId,
-    onLeft,
+    leaveRoom,
     userId,
     refreshCoins,
     entrySource,
@@ -501,10 +515,9 @@ export default function GroupRoomScreen({
     () =>
       subscribeChallengeResultGate((state) => {
         if (!pendingLeaveRef.current || state !== 'none') return;
-        pendingLeaveRef.current = false;
-        onLeftRef.current();
+        leaveRoom();
       }),
-    [],
+    [leaveRoom],
   );
 
   // 포그라운드 복귀 — 포커스는 유지된 채라 useFocusEffect가 다시 돌지 않는다.

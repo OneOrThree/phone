@@ -26,9 +26,6 @@ export const navigationRef = createNavigationContainerRef<V2RootStackParamList>(
 // (@react-navigation/core의 createNavigationContainerRef · BaseNavigationContainer).
 export interface CurrentRouteSnapshot {
   name: string;
-  // 라우트 인스턴스 키 — 같은 이름이라도 새로 push 되면 갈린다. "화면이 바뀌었다"를 이름보다
-  // 정확하게 말해 주므로 재조회 계기로 쓴다.
-  key: string;
   params: Record<string, unknown> | undefined;
 }
 
@@ -37,11 +34,7 @@ export function readCurrentRoute(): CurrentRouteSnapshot | null {
   if (!navigationRef.isReady()) return null;
   const route = navigationRef.getCurrentRoute?.();
   if (!route) return null;
-  return {
-    name: route.name,
-    key: route.key,
-    params: route.params as Record<string, unknown> | undefined,
-  };
+  return { name: route.name, params: route.params as Record<string, unknown> | undefined };
 }
 
 export function subscribeCurrentRoute(listener: () => void): () => void {

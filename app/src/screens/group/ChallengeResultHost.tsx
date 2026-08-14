@@ -43,6 +43,8 @@ import { setChallengeResultGate } from './challengeResultGate';
 import {
   ackChallengeResult,
   claimChallengeResult,
+  pendingAckChallengeResults,
+  reconcileChallengeResultAck,
   type ChallengeResultClaim,
 } from './challengeResultClaim';
 import { isGroupFlowRoute } from './groupFlowRoute';
@@ -67,21 +69,37 @@ const REFETCH_MAX = 5;
 
 interface GroupFlowRouteState {
   inFlow: boolean;
-  // 지금 서 있는 라우트의 키. **화면이 바뀔 때마다 재조회하는 계기**다 — 화면들이 쓰던
-  // useFocusEffect 재조회를 루트에서 대신한다(그룹 탭 → 그룹방 push → 목록 복귀 …).
-  routeKey: string | null;
   // 종료 푸시가 지목한 챌린지(GROMO-1088) — 딥링크가 GroupRoom 라우트 파라미터로 싣는다.
   focusChallengeId: string | null;
   // 지목의 신원(그룹+챌린지). 같은 방에서 다른 챌린지 푸시를 탭하면 이 값만 갈린다.
   focusKey: string | null;
 }
 
+// ⚠️ 라우트 **키**는 일부러 보지 않는다. 재조회 계기는 정본이 셋으로 못 박았다(policy §D3 · HLD):
+//    셸 활성화(그룹 흐름 진입) · 포그라운드 복귀 · BET_RESULT 수신. 그룹 흐름 **내부** 이동
+//    (목록 → 그룹방 → 설정 → 복귀)은 계기가 아니다 — 키를 계기로 삼으면 화면을 오갈 때마다
+//    `GET /me/challenge-results`가 추가로 나간다.
 const NOT_IN_FLOW: GroupFlowRouteState = {
   inFlow: false,
-  routeKey: null,
   focusChallengeId: null,
   focusKey: null,
 };
+
+// 이전 실행에서 ack가 끝내 실패한 회차를 조용히 수렴시킨다(N51). 노출 경로와 완전히 분리돼
+// 있어 실패해도 화면에 아무 영향이 없다 — 다음 조회가 같은 대상을 다시 집어 온다.
+async function reconcilePendingAcks(
+  userId: string,
+  candidates: ChallengeResultCandidate[],
+): Promise<void> {
+  try {
+    const pending = await pendingAckChallengeResults(userId, candidates);
+    await Promise.all(
+      pending.map((entry) => reconcileChallengeResultAck(entry.sessionId).catch(() => false)),
+    );
+  } catch {
+    // 조용한 복구다 — 실패는 다음 조회로 미룬다.
+  }
+}
 
 function readGroupFlowRoute(): GroupFlowRouteState {
   const route = readCurrentRoute();
@@ -94,7 +112,6 @@ function readGroupFlowRoute(): GroupFlowRouteState {
   const groupId = typeof params?.groupId === 'string' ? params.groupId : '';
   return {
     inFlow: true,
-    routeKey: route === null ? null : route.key,
     focusChallengeId: challengeId,
     focusKey: challengeId === null ? null : `${groupId}:${challengeId}`,
   };
@@ -156,13 +173,7 @@ export default function ChallengeResultHost() {
     const sync = () => {
       setFlow((prev) => {
         const next = readGroupFlowRoute();
-        if (
-          prev.inFlow === next.inFlow &&
-          prev.routeKey === next.routeKey &&
-          prev.focusKey === next.focusKey
-        ) {
-          return prev;
-        }
+        if (prev.inFlow === next.inFlow && prev.focusKey === next.focusKey) return prev;
         return next;
       });
     };
@@ -189,6 +200,13 @@ export default function ChallengeResultHost() {
       return;
     }
     const seq = ++seqRef.current;
+    // ⚠️ **판정을 시작하는 순간 먼저 미확정으로 되돌린다.**
+    //    이전 조회가 'none'이었더라도 이 조회가 끝나기 전까지는 "없다"가 아니라 "모른다"다.
+    //    되돌리지 않으면: 탈퇴자가 결과 딥링크로 GroupRoom에 진입할 때 이 비동기 조회가 도는
+    //    사이 방의 getGroupDetail이 MEMBER_ONLY로 먼저 도착하고, 방은 낡은 'none'을 보고
+    //    **즉시 onLeft** 한다 — 뒤늦게 결과를 찾아도 이미 그룹 흐름 밖이라 모달이 갈 곳이 없다.
+    //    (이미 큐가 있으면 'pending'은 지금도 참이므로 그대로 둔다.)
+    publishUnknown();
     let entries: MyChallengeResultEntry[] | null = null;
     try {
       const value = await getMyChallengeResults();
@@ -206,6 +224,14 @@ export default function ChallengeResultHost() {
     const candidates = pickChallengeResults(entries);
     // 성공 응답은 **빈 배열도 정본**이다 — 대기하던 결과가 서버에서 제외되면(다른 기기에서
     // 챌린지 삭제 → FR-44-4) 큐에서도 사라져야 한다. 안 그러면 N48이 금지하는 이중 통지가 된다.
+    // ── ack 복구(N51) — **노출과 무관한 조용한 수렴이다.** ──
+    // 로컬 마커는 노출 시점에 찍히는데(D2) ack는 그 뒤에 실패할 수 있다. 그러면 다음 실행에서
+    // filterUnseenChallengeResults가 마커를 보고 그 후보를 **버리므로** claim·ack 경로가 다시
+    // 열리지 않고, 서버에는 영원히 미확인으로 남는다(그 회차의 푸시 클레임도 안 닫힌다).
+    // 그래서 거르기 **전**에 "마커는 있는데 서버는 미확인"인 것을 골라 ack만 다시 보낸다.
+    // 재노출은 하지 않는다 — 이미 본 것이 확실하다. 실패·예외는 삼킨다(다음 조회가 또 집는다).
+    reconcilePendingAcks(userId, candidates).catch(() => undefined);
+
     let next: ChallengeResultCandidate[] = [];
     if (candidates.length > 0) {
       const unseen = await filterUnseenChallengeResults(userId, candidates);
@@ -243,6 +269,11 @@ export default function ChallengeResultHost() {
     applyQueue(merged);
   }, [applyQueue, publishUnknown, userId]);
 
+  // 타이머 콜백이 렌더 클로저 대신 읽는 최신 load — 선점 재시도 이펙트가 load 신원 변화로
+  // 재실행되지 않게 한다(재실행되면 진행 중인 선점이 취소된다).
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   // 계정 경계 — 이전 계정의 큐·노출 상태를 새 계정으로 물려주지 않는다. 마운트에도 돈다
   // (App.tsx가 userId로 트리를 가르므로 마운트 = 새 계정 트리의 시작이고, gate는 모듈 상태라
   // 이전 트리의 판정이 남아 있다).
@@ -255,13 +286,13 @@ export default function ChallengeResultHost() {
     setChallengeResultGate('unknown');
   }, [userId]);
 
-  // 그룹 흐름 진입 · 지목 변경 → 조회. 그룹 흐름 밖에서는 아무것도 하지 않는다.
+  // 그룹 흐름 **진입**(셸 활성화) · 지목 변경 → 조회. 그룹 흐름 밖에서는 아무것도 하지 않는다.
+  // ⚠️ 그룹 흐름 **내부** 이동(목록 → 그룹방 → 설정 → 복귀)은 계기가 아니다 — 정본이 못 박은
+  //    계기는 셋뿐이다(policy §D3 · HLD): 셸 활성화 · 포그라운드 복귀 · BET_RESULT 수신.
   useEffect(() => {
     if (!flow.inFlow) return;
     load();
-    // routeKey를 함께 본다 — 그룹 흐름 안에서 화면이 바뀔 때마다(목록 → 방 push → 복귀)
-    // 재조회한다. 화면들이 쓰던 useFocusEffect 재조회를 루트에서 대신하는 자리다.
-  }, [flow.inFlow, flow.routeKey, flow.focusKey, load]);
+  }, [flow.inFlow, flow.focusKey, load]);
 
   // 포그라운드 복귀 — 백그라운드에 있는 동안 정산이 끝났을 수 있다.
   useEffect(() => {
@@ -303,9 +334,13 @@ export default function ChallengeResultHost() {
   });
   const granted = current !== null && flow.inFlow && slot === 'granted';
 
-  // ── D8 순서: slot → 선점(claim) → 활성 claim 검증 → 노출 → ack ──────────────
-  // 선점에 **성공한 회차만** 렌더한다. 다른 기기가 같은 회차를 열고 있으면(ok:false) 여기서
-  // 멈추고 retryAfterMs 뒤에 다시 시도한다 — 큐에서 빼지 않는다(그 기기가 못 보고 끝날 수 있다).
+  // ── D8 순서: slot → 선점(claim) → **활성 claim 재검증** → 노출 → ack ──────────
+  // 선점에 성공하고 **그 토큰으로 재검증까지 통과한** 회차만 렌더한다.
+  // ⚠️ 재검증이 왜 별도 단계인가(계약 §4 · N53): A가 선점하고 백그라운드로 내려간 사이
+  //    lease(2분)가 만료돼 B가 재선점하면, A가 복귀했을 때 **A가 들고 있던 성공 응답은 여전히
+  //    ok:true**다. 그것을 믿고 노출하면 두 기기가 같은 결과를 동시에 본다. 그래서 렌더 직전에
+  //    현재 토큰을 실어 되묻고, **갱신된 토큰**만 저장한다.
+  // 놓쳤으면(ok:false) 큐에서 빼지 않는다 — 그 기기가 끝까지 못 보고 닫을 수도 있다.
   // ⚠️ ack를 노출 앞에 두면 렌더가 중단됐을 때 **어느 기기에서도 못 본다**(N58 · IA §4.3).
   const currentSessionId = current?.sessionId ?? null;
   useEffect(() => {
@@ -314,21 +349,34 @@ export default function ChallengeResultHost() {
     if (claimingRef.current === currentSessionId) return; // 진행 중
     claimingRef.current = currentSessionId;
     let canceled = false;
+
+    const failed = (): ChallengeResultClaim => ({ ok: false, retryAfterMs: null });
+    // 선점 → 같은 토큰으로 재검증. 둘 다 통과해야 노출 후보가 된다.
     claimChallengeResult(currentSessionId)
-      .catch((): ChallengeResultClaim => ({ ok: false, retryAfterMs: null }))
-      .then((result) => {
+      .catch(failed)
+      .then((acquired) => {
+        if (canceled || !mountedRef.current) return acquired;
+        if (!acquired.ok) return acquired;
+        return claimChallengeResult(currentSessionId, acquired.claimToken).catch(failed);
+      })
+      .then((verified) => {
         if (claimingRef.current === currentSessionId) claimingRef.current = null;
         if (canceled || !mountedRef.current) return;
-        if (result.ok) {
-          setClaim({ sessionId: currentSessionId, token: result.claimToken });
+        if (verified.ok) {
+          setClaim({ sessionId: currentSessionId, token: verified.claimToken });
           return;
         }
-        // 놓쳤다(다른 기기가 같은 회차를 열고 있다) — 지연 뒤 같은 회차를 다시 시도한다.
-        // 큐에서 빼지 않는다: 그 기기가 끝까지 못 보고 닫을 수도 있다.
+        // 상대 지연 뒤 재시도한다. ⚠️ **먼저 서버 큐를 다시 판정한다** — 기다리는 사이 다른
+        // 기기가 그 결과를 ack 했을 수 있고, 그러면 이 stale head를 아무리 다시 선점해도
+        // RESULT_ALREADY_ACKED만 돌아오며 뒤의 결과까지 영영 막힌다(제한적 재조회 5회가
+        // 이미 끝났다면 이 자리가 유일한 갱신 계기다).
         const timer = setTimeout(() => {
           if (!mountedRef.current) return;
-          setClaimTick((tick) => tick + 1);
-        }, result.retryAfterMs ?? CLAIM_RETRY_FALLBACK_MS);
+          loadRef.current().finally(() => {
+            if (!mountedRef.current) return;
+            setClaimTick((tick) => tick + 1);
+          });
+        }, verified.retryAfterMs ?? CLAIM_RETRY_FALLBACK_MS);
         timersRef.current.push(timer);
       });
     return () => {
@@ -338,8 +386,23 @@ export default function ChallengeResultHost() {
 
   const visible = granted && current !== null && claim?.sessionId === current.sessionId;
 
-  // 노출 이벤트 + 1회 가드 기록 — **모달이 실제로 뜬 순간** 결과당 1회.
+  // ack 재시도 — **모달을 다시 띄우지 않는다**(N51). 로컬 가드는 노출 시점에 이미 찍혔으므로,
+  // 여기서 포기하면 서버에는 영영 미확인으로 남아 다른 기기·재설치에서 다시 뜬다.
+  const runAck = useCallback((sessionId: string, token: string, attempt: number) => {
+    ackChallengeResult(sessionId, token)
+      .catch(() => false)
+      .then((done) => {
+        if (done || !mountedRef.current || attempt + 1 >= ACK_MAX_ATTEMPTS) return;
+        const timer = setTimeout(() => runAck(sessionId, token, attempt + 1), ACK_RETRY_MS);
+        timersRef.current.push(timer);
+      });
+  }, []);
+
+  // 노출 이벤트 + 1회 가드 기록 + **ack 시작** — 모달이 실제로 뜬 순간 결과당 1회.
   // ⚠️ 가드를 닫을 때 기록하면 모달이 떠 있는 사이의 재조회가 같은 결과를 큐에 또 넣는다(계약 D2).
+  // ⚠️ ack도 **닫을 때가 아니라 여기서** 시작한다: 사용자가 모달을 본 뒤 닫기 전에 강제 종료·
+  //    크래시하면 서버엔 미확인으로 남는데, 로컬 마커는 이미 찍혀 다음 실행에서 후보가 걸러져
+  //    ack가 다시 시작될 계기가 없다. D8의 "노출 → ack"는 이 커밋 시점이 곧 노출이다.
   useEffect(() => {
     if (!visible || current === null) return;
     const key = current.sessionId;
@@ -359,34 +422,20 @@ export default function ChallengeResultHost() {
       achiever_count: current.achievers.length,
       member_count: current.memberCount,
     });
-  }, [visible, current, userId, refreshCoins]);
-
-  // ack 재시도 — **모달을 다시 띄우지 않는다**(N51). 로컬 가드는 이미 찍혔고 그 회차는 큐에서
-  // 빠졌으므로, 여기서 포기하면 서버에는 영영 미확인으로 남아 다른 기기·재설치에서 다시 뜬다.
-  const runAck = useCallback((sessionId: string, token: string, attempt: number) => {
-    ackChallengeResult(sessionId, token)
-      .catch(() => false)
-      .then((done) => {
-        if (done || !mountedRef.current || attempt + 1 >= ACK_MAX_ATTEMPTS) return;
-        const timer = setTimeout(() => runAck(sessionId, token, attempt + 1), ACK_RETRY_MS);
-        timersRef.current.push(timer);
-      });
-  }, []);
+    // 노출이 커밋된 **이 순간**이 D8의 마지막 단계다. 토큰은 재검증을 통과한 최신 것이다.
+    const token = claimRef.current;
+    if (token !== null && token.sessionId === key) runAck(key, token.token, 0);
+  }, [visible, current, userId, refreshCoins, runAck]);
 
   const onClose = useCallback(() => {
     const shownAt = shownAtRef.current;
-    const shownKey = shownKeyRef.current;
     shownAtRef.current = null;
     shownKeyRef.current = null;
     if (shownAt !== null) logGroupChallengeResultClosed({ dwell_ms: Date.now() - shownAt });
-    // 노출을 마친 **뒤**에 ack 한다(D8 순서의 마지막).
-    const token = claimRef.current;
-    if (shownKey !== null && token !== null && token.sessionId === shownKey) {
-      runAck(shownKey, token.token, 0);
-    }
+    // ack는 여기서 시작하지 않는다 — 노출 이펙트가 이미 보냈다(위 ⚠️). 닫기는 큐를 넘길 뿐이다.
     setClaim(null);
     applyQueue(queueRef.current.slice(1));
-  }, [applyQueue, runAck]);
+  }, [applyQueue]);
 
   if (!visible || current === null) return null;
   // props는 그대로다(계약 D7) — MenuScreen의 dev 미리보기가 같은 시그니처를 쓴다.

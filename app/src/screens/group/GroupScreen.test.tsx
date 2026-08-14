@@ -17,7 +17,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StyleSheet } from 'react-native';
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
-import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
+import {
+  clearPendingInvite,
+  peekPendingInvite,
+  setGroupInviteListener,
+} from '@/navigation/navigationRef';
 import {
   clearPendingGroupEntry,
   peekGroupEntry,
@@ -28,6 +32,7 @@ import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
 import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
+import { OVERLAY_PRIORITY, OverlaySlotProvider, useOverlaySlot } from '@/store/OverlaySlotContext';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View: RNView } = require('react-native');
@@ -220,6 +225,9 @@ jest.mock('./components/GroupInviteSheet', () => {
 const mockGetMyGroups = getMyGroups as jest.MockedFunction<typeof getMyGroups>;
 const mockPeek = peekPendingInvite as jest.MockedFunction<typeof peekPendingInvite>;
 const mockClear = clearPendingInvite as jest.MockedFunction<typeof clearPendingInvite>;
+const mockSetInviteListener = setGroupInviteListener as jest.MockedFunction<
+  typeof setGroupInviteListener
+>;
 const mockLogGroupViewed = logGroupViewed as jest.MockedFunction<typeof logGroupViewed>;
 const mockLogGroupFindOpened = logGroupFindOpened as jest.MockedFunction<typeof logGroupFindOpened>;
 
@@ -758,6 +766,53 @@ describe('초대 링크 목적지(onInviteJoined)', () => {
     await press('초대-참여완료');
 
     expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID_2, 'invite'));
+  });
+});
+
+// ── 외부 진입 시트는 slot 승인을 기다린다(GROMO-1576) ──────────────────────────
+// 초대 프리뷰는 **사용자 터치 없이** 열린다 — 딥링크가 navigationRef 리스너로 밀어 넣는다.
+// 그래서 루트의 결과 모달이 떠 있는 순간에도 도착할 수 있고, 조정자는 보유자를 뺏지 않으므로
+// 그대로 렌더하면 RN Modal 두 개가 겹친다(이 조정자를 만든 이유가 사라지는 자리).
+// ⚠️ 찾기 시트는 이 규칙의 대상이 아니다 — 사용자가 버튼을 눌러야 열리고, 전면 모달이 떠 있으면
+//    그 버튼을 누를 수 없다.
+describe('외부 진입 초대 프리뷰의 slot 대기', () => {
+  // 결과 모달과 같은 자리를 먼저 차지한 보유자.
+  function Holder({ active }: { active: boolean }) {
+    useOverlaySlot('test:result', { priority: OVERLAY_PRIORITY.challengeResult, active });
+    return null;
+  }
+
+  test('결과 모달이 slot을 쥔 뒤 도착한 초대는 마운트하지 않고, 놓으면 그때 뜬다', async () => {
+    mockGetMyGroups.mockResolvedValue([]);
+    mockPendingInvite = null; // 아직 초대는 없다 — 결과 모달이 먼저 자리를 잡는다
+    const tree = (holderActive: boolean) => (
+      <OverlaySlotProvider>
+        <Holder active={holderActive} />
+        <GroupScreen />
+      </OverlaySlotProvider>
+    );
+    const view = await render(tree(true));
+    await act(async () => {});
+
+    // 이제 **딥링크가** 초대를 밀어 넣는다 — 사용자 터치가 없는 그 경로 그대로다.
+    const notify = mockSetInviteListener.mock.calls.at(-1)?.[0] as
+      | ((invite: { groupId: string; slug: string | null; entry: 'link' }) => void)
+      | undefined;
+    expect(notify).toBeDefined();
+    await act(async () => {
+      notify?.({ groupId: GROUP_ID, slug: null, entry: 'link' });
+    });
+    await act(async () => {});
+
+    // 가려진 것이 아니라 트리에 없다.
+    expect(screen.queryByText('초대-닫기', { includeHiddenElements: true })).toBeNull();
+    // 버퍼는 비우지 않는다 — 기다리는 동안 초대가 증발하면 §6-6이 깨진다.
+    expect(mockClear).not.toHaveBeenCalled();
+
+    await act(async () => {
+      view.rerender(tree(false));
+    });
+    await waitFor(() => expect(screen.getByText('초대-닫기')).toBeOnTheScreen());
   });
 });
 

@@ -25,7 +25,8 @@ import {
   getMyChallengeResults,
 } from '@/services/groupApi';
 import { resolveGroupRoomNotFound } from './groupRoomNotFound';
-import { resetChallengeResultGateForTests } from './challengeResultGate';
+import { notifyBetResultPush } from '@/services/betResultSignal';
+import { getChallengeResultGate, resetChallengeResultGateForTests } from './challengeResultGate';
 import type {
   GroupAnnouncementResponse,
   GroupDetailResponse,
@@ -246,12 +247,66 @@ describe('탈퇴자(MEMBER_ONLY)의 결과 소비 후 이탈', () => {
     expect(onLeft).not.toHaveBeenCalled();
 
     // 회복된 조회가 '정말 없다'를 확정하면 그때 나간다 — 방이 다시 조회하지 않아도 된다.
+    // 재조회 계기는 정본이 못 박은 셋 중 하나(BET_RESULT 수신)를 쓴다.
     mockGetMyChallengeResults.mockResolvedValue([]);
     await act(async () => {
-      navigationRef.navigate('그룹' as never);
+      notifyBetResultPush();
     });
     await act(async () => {});
 
     await waitFor(() => expect(onLeft).toHaveBeenCalledTimes(1));
   });
+});
+
+// P1 ① — 새 판정이 도는 동안 이전 판정('없다')이 남아 있으면, 탈퇴자가 결과 딥링크로 방에
+// 들어올 때 MEMBER_ONLY가 먼저 도착해 **즉시** 방이 내려간다. 뒤늦게 결과를 찾아도 이미
+// 그룹 흐름 밖이라 모달이 갈 곳이 없다 — D1이 지키려던 바로 그 경로다.
+test('이전 판정이 "없다"였어도 새 조회가 도는 동안에는 방을 내리지 않는다', async () => {
+  // 1) 그룹 흐름 밖에서 시작해 "결과 없음"이 확정된 상태를 만든다.
+  mockGetGroupDetail.mockResolvedValue(detail());
+  mockGetMyChallengeResults.mockResolvedValue([]);
+  const view = await render(
+    <OverlaySlotProvider>
+      <ChallengeResultHost />
+      <NavigationContainer ref={navigationRef}>
+        <Stack.Navigator initialRouteName="그룹" screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="그룹" component={Blank} />
+          <Stack.Screen name="GroupRoom" component={Room} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </OverlaySlotProvider>,
+  );
+  await act(async () => {});
+  expect(getChallengeResultGate()).toBe('none');
+
+  // 2) 결과 조회는 느리고, 방의 MEMBER_ONLY는 즉시 도착한다(딥링크 착지의 실제 순서).
+  let releaseResults: (entries: MyChallengeResultEntry[]) => void = () => undefined;
+  mockGetMyChallengeResults.mockReturnValue(
+    new Promise<MyChallengeResultEntry[]>((resolve) => {
+      releaseResults = resolve;
+    }),
+  );
+  memberOnly();
+
+  await act(async () => {
+    (navigationRef.navigate as unknown as (name: string, params?: object) => void)('GroupRoom', {
+      groupId: GROUP_ID,
+      challengeId: 'c1',
+    });
+  });
+  await act(async () => {});
+
+  // 조회가 도는 동안은 '모른다'다 — 방이 나가면 안 된다.
+  expect(getChallengeResultGate()).toBe('unknown');
+  expect(onLeft).not.toHaveBeenCalled();
+
+  // 3) 뒤늦게 결과가 도착한다 — 방은 아직 살아 있고 모달이 그 위에 뜬다.
+  await act(async () => {
+    releaseResults([resultEntry()]);
+  });
+  await act(async () => {});
+
+  expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+  expect(onLeft).not.toHaveBeenCalled();
+  view.unmount();
 });

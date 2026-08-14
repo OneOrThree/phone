@@ -17,7 +17,7 @@ import { T } from '@/constants/theme';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { useUser } from '@/store/UserContext';
-import { useOverlayBlocker } from '@/store/OverlaySlotContext';
+import { OVERLAY_PRIORITY, useOverlayBlocker, useOverlaySlot } from '@/store/OverlaySlotContext';
 import { getMyGroups } from '@/services/groupApi';
 import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -487,8 +487,21 @@ export default function GroupScreen() {
   //    **조정자에 등록**한다 — 코치마크를 막는 것이 이 두 시트만이 아니기 때문이다(루트의 결과
   //    모달·그룹방 시트). prop은 자기 자식에게만 말할 수 있어 그 셋을 실어 나를 수 없고,
   //    prop과 조정자를 함께 두면 같은 개념의 정본이 둘이 된다.
+  //
+  // ⚠️ 두 시트의 규칙이 다르다 — **누가 열었는가**로 갈린다.
+  //  · 찾기 시트: 사용자가 방금 손으로 눌러 연다. 전면 모달이 떠 있으면 그 버튼을 누를 수
+  //    없으므로 겹칠 수 없다 — 등록만 하고(blocker) 승인은 기다리지 않는다.
+  //  · 초대 프리뷰: **외부 딥링크가 리스너로 연다**(navigationRef.notifyGroupInvite). 사용자
+  //    터치가 없으니 결과 모달이 떠 있는 순간에도 도착할 수 있고, 조정자는 보유자를 뺏지
+  //    않으므로 그대로 렌더하면 RN Modal 두 개가 겹친다 — 이 조정자를 만든 이유가 사라지는
+  //    자리다. 그래서 **승인(granted)을 받은 뒤에만** 마운트한다.
+  //    버퍼는 읽어도 지워지지 않으므로(navigationRef §6-6) 기다리는 동안 초대가 증발하지
+  //    않고, 결과 모달이 닫히는 순간 같은 프리뷰가 뜬다.
   useOverlayBlocker('group.findSheet', findOpen);
-  useOverlayBlocker('group.inviteSheet', invite !== null);
+  const inviteSlot = useOverlaySlot('group.inviteSheet', {
+    priority: OVERLAY_PRIORITY.sheet,
+    active: invite !== null,
+  });
 
   const openFind = useCallback((entryPoint: 'list' | 'header' | 'end_card') => {
     logGroupFindOpened({ entry_point: entryPoint });
@@ -506,20 +519,21 @@ export default function GroupScreen() {
     />
   ) : null;
 
-  const inviteSheet = invite ? (
-    // ⚠️ key로 초대별 인스턴스를 분리한다. 초대 A의 퇴장(220ms) 안에 B가 도착하면 세대 검증이
-    //    B의 상태는 지켜 주지만, key가 없으면 B가 **퇴장을 마친 같은 SheetShell을 재사용**한다
-    //    — translateY는 화면 밖, dim 0, closingRef=true, pointerEvents='none' 상태 그대로라
-    //    B가 보이지도 닫히지도 않는다(codex 리뷰).
-    <GroupInviteSheet
-      key={invite.groupId}
-      groupId={invite.groupId}
-      slug={invite.slug}
-      entry={invite.entry}
-      onClose={() => closeInvite(invite)}
-      onJoined={onInviteJoined}
-    />
-  ) : null;
+  const inviteSheet =
+    invite && inviteSlot === 'granted' ? (
+      // ⚠️ key로 초대별 인스턴스를 분리한다. 초대 A의 퇴장(220ms) 안에 B가 도착하면 세대 검증이
+      //    B의 상태는 지켜 주지만, key가 없으면 B가 **퇴장을 마친 같은 SheetShell을 재사용**한다
+      //    — translateY는 화면 밖, dim 0, closingRef=true, pointerEvents='none' 상태 그대로라
+      //    B가 보이지도 닫히지도 않는다(codex 리뷰).
+      <GroupInviteSheet
+        key={invite.groupId}
+        groupId={invite.groupId}
+        slug={invite.slug}
+        entry={invite.entry}
+        onClose={() => closeInvite(invite)}
+        onJoined={onInviteJoined}
+      />
+    ) : null;
 
   // 기존 데이터가 있는 재조회 실패 — 화면을 갈아엎지 않고 인라인 배너로 알린다.
   // 무음으로 두면 방금 만든/참여한 그룹이 없는 화면을 보고 같은 동작을 반복하게 된다.
