@@ -545,7 +545,7 @@ class ScreenTimeModule: NSObject {
                             "applications": selection.applicationTokens.count,
                             "categories": selection.categoryTokens.count,
                             "webDomains": selection.webDomainTokens.count,
-                            "selectionSignature": selectionSignature(selection),
+                            "selectionSignature": self.selectionSignature(selection),
                             // ⚠️ JS가 **이 바이너리가 dismiss 완료 뒤에 resolve하는지** 판별하는
                             //    표식. hot-updater로 새 JS만 받은 구 바이너리는 이 키가 없어
                             //    undefined이고, 그쪽은 아직 모달이 떠 있는 채로 resolve하므로
