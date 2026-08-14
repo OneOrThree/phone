@@ -439,10 +439,13 @@ export default function GroupScreen() {
 
   // 그룹 만들기 진입 — 돌아왔을 때의 포커스 재조회를 전이로 취급한다.
   // 만들지 않고 돌아온 경우에도 손해는 없다(조회에 성공하면 그대로 0건 목록으로 돌아간다).
-  const openCreate = useCallback(() => {
-    setTransitioning(true);
-    navigation.navigate('GroupCreate');
-  }, [navigation]);
+  const openCreate = useCallback(
+    (entryPoint: 'header') => {
+      setTransitioning(true);
+      navigation.navigate('GroupCreate', { entry_point: entryPoint });
+    },
+    [navigation],
+  );
 
   const myGroups = useMemo(() => groups ?? [], [groups]);
   const previewSnapshot = useMemo(

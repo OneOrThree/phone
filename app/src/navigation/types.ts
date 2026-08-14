@@ -10,7 +10,7 @@ export type V2RootStackParamList = {
   Stats: undefined; // 통계 상세 (홈 '자세히'에서 진입)
   UsageDetail: undefined; // 앱별 사용시간 상세 (홈 '핸드폰 사용' 탭에서 진입)
   Notifications: undefined; // 알림 보관함 (홈 우측 상단 종에서 진입 — GROMO-661)
-  CurrencyHistory: undefined; // 시간조각(재화) 거래 내역 (전체 탭 잔액 행에서 진입)
+  CurrencyHistory: { entry?: 'home_chip' | 'menu_chip' } | undefined; // 시간조각 거래 내역
   // 02 과목 선택 (홈 ● 집중 FAB에서 진입). initialGroupId: 그룹방 FAB에서 진입 시 — 세션까지 넘겨
   // 집중 세션이 그 그룹의 '그룹: {그룹명}' 페이지로 기본 진입하게 한다(F2 Part2).
   FocusCategory:
@@ -55,7 +55,7 @@ export type V2RootStackParamList = {
   }; // 승격/유지/강등 연출 — 리그 탭 포커스 시 미확인 last-result가 있으면 진입 (GROMO-831)
 
   // 그룹(A안, docs/app/group-plan.md §9) — 진입점은 '그룹' 탭(GroupScreen), 아래는 스택 push.
-  GroupCreate: undefined; // 그룹 생성 (빈 상태 '그룹 만들기'에서 진입)
+  GroupCreate: { entry_point?: 'empty' | 'list' | 'header' }; // 그룹 생성 진입점
   // 그룹방 — 2차에서 라우트로 승격(docs/app/group-plan-2.md §0-2). A-9(3차) 이후 **라우트 진입
   // 전용**이다: 소속 수와 무관하게 목록이 그룹 탭의 기본 화면이고, 여기로 push 해야 방이 열린다.
   GroupRoom: {

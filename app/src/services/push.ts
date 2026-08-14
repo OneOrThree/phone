@@ -13,6 +13,7 @@ import {
   logNotificationOpened,
   logNotificationPermissionResult,
   logPushOpened,
+  logPokeReceived,
   type NotificationType,
   type PushOpenedType,
 } from '@/services/analyticsEvents';
@@ -265,6 +266,8 @@ export function setupPushListeners(): () => void {
       // 들어와 그 방에 머무르는 구간에는 재조회 계기가 하나도 없어, 정산이 끝나도 화면이
       // 종전 상태로 멈춰 있다. 배너 표시(아래)와는 독립이다.
       if (rawTypeFromData(msg?.data) === 'BET_RESULT') notifyBetResultPush();
+      // 콕 찌르기 수신 계측(GROMO-1194, PR #650) — 위 신호와 축이 달라 나란히 둔다.
+      if (notificationTypeFromData(msg?.data) === 'poke') logPokeReceived();
       try {
         await Notifications.scheduleNotificationAsync({
           content: {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import ScreenTimeModule, {
   nativeSupportsPendingApplyDate,
 } from '@/services/ScreenTimeModule';
 import { updateScreenTimePermission } from '@/services/userApi';
+import { logScreenTimeSettingsChanged } from '@/services/analyticsEvents';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
 import { todayStr, tomorrowStr, yesterdayStr } from '@/utils/localDate';
 import { useUser } from '@/store/UserContext';
@@ -65,6 +66,7 @@ export default function ScreenTimePermissionScreen() {
   const [status, setStatus] = useState<AuthorizationStatus | null>(null);
   const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
+  const statusBeforeSettingsRef = useRef<AuthorizationStatus | null>(null);
   // A안(GROMO-942) — 측정 대상 변경이 '내일 적용'으로 예약돼 있으면 측정 대상 행에 배지로 표시.
   // 예약 적용일이 아직 미래(내일)일 때만 노출 — 자정에 승격되면 ScreenTimeSyncer가 마커를 지운다.
   const [pendingApply, setPendingApply] = useState(false);
@@ -74,7 +76,17 @@ export default function ScreenTimePermissionScreen() {
     useCallback(() => {
       let cancelled = false;
       ScreenTimeModule.getAuthorizationStatus()
-        .then((st) => !cancelled && setStatus(st))
+        .then((st) => {
+          if (cancelled) return;
+          setStatus(st);
+          if (statusBeforeSettingsRef.current !== null && statusBeforeSettingsRef.current !== st) {
+            logScreenTimeSettingsChanged({
+              setting: 'permission',
+              setting_value: st === 'approved' ? 'granted' : 'denied',
+            });
+          }
+          statusBeforeSettingsRef.current = null;
+        })
         .catch(() => !cancelled && setStatus(null));
       AsyncStorage.getItem(STORAGE_KEYS.screentimeLastSyncedDate)
         .then((raw) => !cancelled && setLastSynced(raw ? syncLabel(raw) : null))
@@ -96,7 +108,21 @@ export default function ScreenTimePermissionScreen() {
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
       ScreenTimeModule.getAuthorizationStatus()
-        .then((st) => setStatus(st))
+        .then((st) => {
+          setStatus((previous) => {
+            if (
+              statusBeforeSettingsRef.current !== null &&
+              statusBeforeSettingsRef.current !== st
+            ) {
+              logScreenTimeSettingsChanged({
+                setting: 'permission',
+                setting_value: st === 'approved' ? 'granted' : 'denied',
+              });
+            }
+            statusBeforeSettingsRef.current = null;
+            return st ?? previous;
+          });
+        })
         .catch(() => {});
     });
     return () => sub.remove();
@@ -116,6 +142,10 @@ export default function ScreenTimePermissionScreen() {
       }
       const st = await ScreenTimeModule.getAuthorizationStatus();
       setStatus(st);
+      logScreenTimeSettingsChanged({
+        setting: 'permission',
+        setting_value: granted ? 'granted' : 'denied',
+      });
       if (granted) {
         await editScreenTimeTargets();
       } else {
@@ -134,6 +164,7 @@ export default function ScreenTimePermissionScreen() {
   async function reopenAndroidUsageAccess() {
     if (requesting) return;
     setRequesting(true);
+    const statusBeforeRequest = status;
     try {
       const granted = await ScreenTimeModule.requestAuthorization();
       try {
@@ -143,6 +174,12 @@ export default function ScreenTimePermissionScreen() {
       }
       const st = await ScreenTimeModule.getAuthorizationStatus();
       setStatus(st);
+      if (statusBeforeRequest !== null && statusBeforeRequest !== st) {
+        logScreenTimeSettingsChanged({
+          setting: 'permission',
+          setting_value: st === 'approved' ? 'granted' : 'denied',
+        });
+      }
     } catch (e) {
       Alert.alert('권한 처리 실패', e instanceof Error ? e.message : String(e));
     } finally {
@@ -265,6 +302,7 @@ export default function ScreenTimePermissionScreen() {
     } else if (Platform.OS === 'android' && androidNativeModuleAvailable()) {
       reopenAndroidUsageAccess();
     } else {
+      statusBeforeSettingsRef.current = status;
       Linking.openSettings();
     }
   }

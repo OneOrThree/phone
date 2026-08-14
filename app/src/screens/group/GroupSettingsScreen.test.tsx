@@ -56,6 +56,7 @@ jest.mock('@/store/UserContext', () => ({
 // 하므로 목으로 막지 않으면 스위트가 로드 단계에서 죽는다. 허브 화면 자체는 계측을 쓰지 않는다.
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeDeleted: jest.fn(),
+  logGroupLeft: jest.fn(),
 }));
 
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).

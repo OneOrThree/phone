@@ -54,6 +54,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeDeleted: jest.fn(),
   // 예약 성공도 참여 계측을 발행한다(#570 codex ⑧) — 카드가 여는 시트가 부른다.
   logGroupBetJoined: jest.fn(),
+  logGroupChallengeJoined: jest.fn(),
 }));
 // 잔액은 CoinContext가 정본 — 철회 성공 후 환불 반영을 위한 refresh 호출만 본다.
 const mockRefreshCoins = jest.fn(async () => true);

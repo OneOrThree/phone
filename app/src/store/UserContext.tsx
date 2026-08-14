@@ -84,7 +84,9 @@ export function UserProvider({
   // userId는 로그인/게스트 진입 시 1회 정해지고, 로그아웃 시 트리가 리마운트된다.
   useEffect(() => {
     setUserId(userId); // 게스트 포함 항상 JWT sub의 UUID(디코드 실패 시에만 null) — 게스트 구분은 is_guest
-    setIdentityProps({ is_guest: isGuest });
+    // 계정 경계에서 이전 계정의 잔액 버킷을 해제해, 새 계정의 조회 실패 시에도
+    // 이전 계정의 user property가 이어지지 않게 한다.
+    setIdentityProps({ is_guest: isGuest, currency_balance_bucket: null });
   }, [userId, isGuest]);
 
   return (
