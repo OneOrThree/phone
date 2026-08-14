@@ -2934,6 +2934,150 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
 });
 
 // ── 챌린지 v2 — 진행 중 삭제 2단계 경고(GROMO-1425, N29·N49·FR-12-1) ────────────
+// ── 시트 열림 보고(GROMO-1578) ──
+// 카드가 여는 시트 4종은 전부 SheetShell asModal(RN 네이티브 Modal)이라, 부모(GroupRoomScreen)의
+// 결과 모달과 겹치면 딤이 2겹으로 포개지고 표시 순서가 플랫폼 재량이 된다. 열림은 **카드 state**라
+// 부모가 알 수 있는 통로는 이 콜백뿐이다 — 여기가 끊기면 부모의 배타 조건이 조용히 무력해진다.
+describe('시트 열림 보고 (GROMO-1578)', () => {
+  test('지난 결과 시트를 여닫으면 열림/닫힘을 그대로 올린다', async () => {
+    const onSheetVisibilityChange = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge({ bet: null, lastSettledBet: lastSettledBet() })}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onSheetVisibilityChange={onSheetVisibilityChange}
+      />,
+    );
+    // 마운트 직후엔 닫힘 보고 1회 — 부모의 집합에 이 카드가 들어가지 않는다.
+    expect(onSheetVisibilityChange).toHaveBeenLastCalledWith(CHALLENGE_ID, false);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+    expect(onSheetVisibilityChange).toHaveBeenLastCalledWith(CHALLENGE_ID, true);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.result.close'));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400)); // 퇴장 애니메이션(220ms)
+    });
+    expect(onSheetVisibilityChange).toHaveBeenLastCalledWith(CHALLENGE_ID, false);
+  });
+
+  // 이펙트만으로는 늦다(codex 사전 게이트 P2). 시트의 네이티브 Modal은 여는 커밋에 이미
+  // 마운트되는데 열림 보고 이펙트는 그 커밋이 끝난 **뒤에** 돈다 — 그 사이에 부모의 결과 큐가
+  // 채워지면(BET_RESULT 포그라운드 재조회, GROMO-1580) 두 Modal이 같은 프레임에 뜬다.
+  // 그래서 여는 핸들러가 openSheet()로 먼저 보고한다. 그 호출이 빠지면 열림 보고가 이펙트 1회로
+  // 줄어 아래 단언이 깨진다 — 이 테스트가 지키는 것은 "보고가 오는가"가 아니라 "언제 오는가"다.
+  test('시트를 여는 이벤트에서 먼저 보고한다 — 이펙트를 기다리지 않는다', async () => {
+    const onSheetVisibilityChange = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge({ bet: null, lastSettledBet: lastSettledBet() })}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onSheetVisibilityChange={onSheetVisibilityChange}
+      />,
+    );
+    onSheetVisibilityChange.mockClear();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+
+    const openReports = onSheetVisibilityChange.mock.calls.filter(([, open]) => open === true);
+    expect(openReports.length).toBeGreaterThanOrEqual(2); // 핸들러 1 + 이펙트 1
+  });
+
+  test('다음 활성일 예약 시트도 같은 보고를 한다', async () => {
+    const onSheetVisibilityChange = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          repeatDays: ['MON', 'WED', 'FRI'],
+          activeToday: false,
+          nextSessionAt: NEXT_MON_AT,
+          memberProgress: null,
+          bet: bet({ enabled: true, session: null, myJoined: false, participants: [] }),
+        })}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onSheetVisibilityChange={onSheetVisibilityChange}
+      />,
+    );
+    expect(onSheetVisibilityChange).toHaveBeenLastCalledWith(CHALLENGE_ID, false);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.joinNext.${CHALLENGE_ID}`));
+    });
+    expect(onSheetVisibilityChange).toHaveBeenLastCalledWith(CHALLENGE_ID, true);
+  });
+
+  test('삭제 경고 시트도 같은 보고를 한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const onSheetVisibilityChange = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          repeatDays: ['MON', 'WED', 'FRI'],
+          activeToday: false,
+          nextSessionAt: NEXT_MON_AT,
+        })}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onSheetVisibilityChange={onSheetVisibilityChange}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.challenge.delete.${CHALLENGE_ID}`));
+    });
+    const calls = alertSpy.mock.calls;
+    await act(async () => {
+      (calls[calls.length - 1][2] as AlertButton[] | undefined)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    expect(screen.getByTestId('group.challenge.delete.confirm')).toBeOnTheScreen();
+    expect(onSheetVisibilityChange).toHaveBeenLastCalledWith(CHALLENGE_ID, true);
+  });
+
+  // 시트를 문 채 카드가 사라지면(재조회로 챌린지가 목록에서 빠짐) 부모의 열림 집합에 이 카드가
+  // 영영 남아 결과 모달이 다시는 뜨지 않는다 — 언마운트에서 반드시 닫힘을 보고해야 한다.
+  test('시트가 열린 채 언마운트되면 닫힘을 보고한다', async () => {
+    const onSheetVisibilityChange = jest.fn();
+    const { unmount } = await render(
+      <ChallengeCard
+        challenge={challenge({ bet: null, lastSettledBet: lastSettledBet() })}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onSheetVisibilityChange={onSheetVisibilityChange}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+    expect(onSheetVisibilityChange).toHaveBeenLastCalledWith(CHALLENGE_ID, true);
+
+    await act(async () => {
+      unmount();
+    });
+    expect(onSheetVisibilityChange).toHaveBeenLastCalledWith(CHALLENGE_ID, false);
+  });
+});
+
 describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
   const v2Over: Partial<GroupChallengeResponse> = {
     repeatDays: ['MON', 'WED', 'FRI'],
