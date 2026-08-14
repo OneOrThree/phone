@@ -359,10 +359,30 @@ describe('claimChallengeResult · ackChallengeResult (GROMO-1577)', () => {
   // ⚠️ ack 실패를 던지면 호출부가 '노출 실패'로 읽어 같은 결과를 다시 띄운다 — 사용자는 방금
   // 본 결과를 또 본다. ack 실패는 재노출이 아니라 ack 재시도로만 메우는 창이다(IA §4.3).
   test('ack는 실패해도 throw하지 않는다 — 재노출로 번지지 않는다', async () => {
-    mockApi.post.mockRejectedValue(axiosErrorWith(409, { code: 'RESULT_CLAIM_STALE' }));
-    await expect(ackChallengeResult('s1', 'ct-1')).resolves.toBeUndefined();
-
     mockApi.post.mockRejectedValue(new Error('network'));
-    await expect(ackChallengeResult('s1', 'ct-1')).resolves.toBeUndefined();
+    await expect(ackChallengeResult('s1', 'ct-1')).resolves.toBe(false);
+  });
+
+  // ⚠️ 그렇다고 실패를 삼켜 void로 두면 **재시도할 방법이 사라진다.** 로컬 마커는 이미 기록됐고
+  // 그 회차는 큐에서 빠지므로 서버는 영영 미확인으로 남는다 — 다른 기기·재설치에서 그대로 다시
+  // 뜨고 대기 중인 결과 푸시도 안 닫힌다. 재노출은 막되 ack만 재시도할 수 있어야 한다(IA §4.3).
+  test('ack 실패는 false로 알린다 — 호출부가 ack만 재시도할 수 있다', async () => {
+    mockApi.post.mockRejectedValue(new Error('network'));
+    expect(await ackChallengeResult('s1', 'ct-1')).toBe(false);
+
+    mockApi.post.mockRejectedValue(axiosErrorWith(500, {}));
+    expect(await ackChallengeResult('s1', 'ct-1')).toBe(false);
+  });
+
+  // 토큰이 낡았으면 재시도해도 같은 답이다 — 다른 기기가 이미 확인했거나 lease가 넘어간 것이라
+  // **서버 상태는 이미 옳다.** 성공으로 접어 재시도를 끊는다(무한 재시도 방지).
+  test('RESULT_CLAIM_STALE은 성공으로 접는다 — 서버 상태가 이미 옳다', async () => {
+    mockApi.post.mockRejectedValue(axiosErrorWith(409, { code: 'RESULT_CLAIM_STALE' }));
+    expect(await ackChallengeResult('s1', 'ct-1')).toBe(true);
+  });
+
+  test('ack 성공은 true다', async () => {
+    mockApi.post.mockResolvedValue({ data: undefined });
+    expect(await ackChallengeResult('s1', 'ct-1')).toBe(true);
   });
 });

@@ -14,8 +14,10 @@
 //     마커가 항상 더 오래 산다(30일 프룬이면 마커가 먼저 지워진 회차가 이미 본 모달로 재생된다).
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  RESULT_CLAIM_STALE,
   ackMyChallengeResult,
   claimMyChallengeResult,
+  groupErrorCode,
   groupErrorRetryAfterMs,
 } from '@/services/groupApi';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -250,9 +252,21 @@ export async function claimChallengeResult(
 }
 
 // 확인 보고 — **노출 후**에 부른다(D8). 서버에서 멱등이라 중복 호출은 no-op이다.
-// **실패해도 던지지 않는다.** 호출부가 이 실패를 '노출 실패'로 읽어 같은 결과를 다시 띄우면,
-// 사용자는 방금 본 결과를 또 보게 된다 — ack 실패는 재노출이 아니라 **ack 재시도로만** 메우는
-// 창이고(IA §4.3이 수용한 바로 그 창), 그 사이 같은 기기의 중복은 로컬 마커가 막는다.
-export async function ackChallengeResult(sessionId: string, claimToken: string): Promise<void> {
-  await ackMyChallengeResult(sessionId, claimToken).catch(() => {});
+//
+// **던지지는 않되 성공 여부는 돌려준다.** 두 가지가 동시에 성립해야 한다(IA §4.3):
+//   · 실패를 예외로 올리면 호출부가 '노출 실패'로 읽어 같은 결과를 다시 띄운다 → 방금 본 것을 또 본다
+//   · 실패를 삼켜 void 로 두면 **재시도할 방법이 사라진다.** 로컬 마커는 이미 기록됐고 그 회차는
+//     큐에서 빠지므로, 서버는 영영 미확인으로 남는다 — 다른 기기·재설치에서 그대로 다시 뜨고
+//     대기 중인 결과 푸시도 안 닫힌다(N58 이 막으려던 재생이 그 자리에서 되살아난다).
+// 그래서 **재노출은 막고 ack 만 재시도**한다: 실패를 false 로 알리고, 재시도 주기는 호출부가 쥔다.
+export async function ackChallengeResult(sessionId: string, claimToken: string): Promise<boolean> {
+  try {
+    await ackMyChallengeResult(sessionId, claimToken);
+    return true;
+  } catch (e) {
+    // 토큰이 낡았으면(RESULT_CLAIM_STALE) 재시도해도 같은 답이다 — 다른 기기가 이미 확인했거나
+    // lease 가 넘어간 것이라 **서버 상태는 이미 옳다**. 성공으로 접어 재시도를 끊는다.
+    if (groupErrorCode(e) === RESULT_CLAIM_STALE) return true;
+    return false;
+  }
 }
