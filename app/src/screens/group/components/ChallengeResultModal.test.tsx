@@ -9,7 +9,8 @@ import ChallengeResultModal, {
   resultDeltaText,
   settlementNotice,
 } from './ChallengeResultModal';
-import type { ChallengeResultCandidate } from '../challengeResult';
+import { pickChallengeResults, type ChallengeResultCandidate } from '../challengeResult';
+import type { MyChallengeResultEntry } from '@/types/dto/group';
 
 // jest 프리셋의 ScrollView 목은 flashScrollIndicators를 **프로토타입 공유 jest.fn**으로
 // 둔다(@react-native/jest-preset mockComponent.instanceMethods) — ref 인스턴스를 밖에서
@@ -39,6 +40,38 @@ function candidate(
     memberCount: 2,
     ...over,
   };
+}
+
+// 서버 응답(DTO) → pickChallengeResults → 모달까지 **실제로 흘린다**. 후보를 손으로 만들면
+// 미션 스냅샷이 DTO에서 후보로 옮겨지는 배선(GROMO-1583)이 빠져도 테스트가 통과한다.
+function resultFromServer(over: Partial<MyChallengeResultEntry> = {}): ChallengeResultCandidate {
+  const entry: MyChallengeResultEntry = {
+    sessionId: 's1',
+    groupId: 'g1',
+    groupName: '아침 6시 집중방',
+    challengeId: 'c1',
+    challengeDeleted: false,
+    challengeEnded: false,
+    sessionDate: '2026-08-01',
+    stake: 30,
+    pot: 60,
+    status: 'SETTLED',
+    voidReason: null,
+    goalMinutes: 60,
+    missionCategory: 'FOCUS',
+    missionType: 'TIME_WINDOW',
+    windowStart: '06:00',
+    windowEnd: '08:00',
+    myAchieved: true,
+    myPayout: 60,
+    // 55분인데 달성 — 창형 집중의 5분 관용치가 실제로 적용된 모양(설명이 없으면 모순으로 읽힌다).
+    results: [
+      { userId: 'u1', nickname: '재영', achieved: true, payout: 60, progressMinutes: 55 },
+      { userId: 'u2', nickname: '수빈', achieved: false, payout: 0, progressMinutes: 23 },
+    ],
+    ...over,
+  };
+  return pickChallengeResults([entry])[0];
 }
 
 const CHARACTER = 'group.challengeResult.character';
@@ -192,6 +225,42 @@ describe('ChallengeResultModal 정산 결말', () => {
     ).toBeOnTheScreen();
   });
 
+  // GROMO-1581 — 헤드라인과 정산 문구가 **다른 축**으로 갈려 서로를 부정하던 자리.
+  // 정산 문구는 status 축이라 FORFEITED 분기가 있었는데 헤드라인은 myAchieved 축뿐이어서,
+  // 판정이 없는(null) 몰수 회차에서 "결과를 판정하지 못했어요"(미판정)와
+  // "아무도 달성하지 못해 적립금 60코인이 사라졌어요"(확정)가 한 화면에 동시에 떴다.
+  test('FORFEITED + myAchieved=null이어도 헤드라인이 정산 문구와 같은 사실을 말한다', async () => {
+    await render(
+      <ChallengeResultModal
+        result={candidate(null, { status: 'FORFEITED', myPayout: null })}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(shown('아무도 달성하지 못했어요')).toBeOnTheScreen();
+    expect(shown('아무도 달성하지 못해 적립금 60코인이 사라졌어요')).toBeOnTheScreen();
+    expect(
+      screen.queryByText('결과를 판정하지 못했어요', { includeHiddenElements: true }),
+    ).toBeNull();
+  });
+
+  // 몰수는 서버가 붙이는 조건 자체가 '달성자 0명'이라(GroupBetPayoutCalculator) 승패 축을 타지
+  // 않는다 — myAchieved가 무엇이든(부분 정산 실패로 true가 들어오는 방어 케이스 포함) 같은 말을
+  // 해야 한다. 승패 헤드라인이 서면 "아무도 달성하지 못해…" 문구와 정면으로 어긋난다.
+  test.each([[true], [false]])(
+    'FORFEITED는 myAchieved=%s여도 승패 헤드라인을 세우지 않는다',
+    async (myAchieved) => {
+      await render(
+        <ChallengeResultModal
+          result={candidate(myAchieved, { status: 'FORFEITED', myPayout: 0 })}
+          onClose={jest.fn()}
+        />,
+      );
+      expect(shown('아무도 달성하지 못했어요')).toBeOnTheScreen();
+      expect(screen.queryByText('목표를 달성했어요!', { includeHiddenElements: true })).toBeNull();
+      expect(screen.queryByText('아쉽게 놓쳤어요', { includeHiddenElements: true })).toBeNull();
+    },
+  );
+
   test('VOIDED(SHORT_PARTICIPANTS)는 인원 부족 문구를 쓰고 명단은 그리지 않는다', async () => {
     await render(
       <ChallengeResultModal
@@ -233,6 +302,85 @@ describe('ChallengeResultModal 정산 결말', () => {
     await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
     expect(shown('아침 6시 집중방')).toBeOnTheScreen();
     expect(shown('8월 1일 결과')).toBeOnTheScreen();
+  });
+});
+
+// 창형 집중(FOCUS × TIME_WINDOW) 5분 관용치 고지(GROMO-1217 → 1583 복원) — 이 고지가 없으면
+// 55/60분인 사람이 달성 명단에 선 것이 모순으로 읽힌다. 조건·문구는 형제 화면과 동일해야 한다
+// (GROMO-1207: "결과 모달과 동일 문구·조건"). 여기 케이스는 전부 DTO를 실제로 흘려 만든다.
+describe('ChallengeResultModal 창형 집중 관용치 고지', () => {
+  const toleranceNotice = () =>
+    screen.queryByTestId('group.challengeResult.toleranceNotice', { includeHiddenElements: true });
+
+  test('FOCUS × TIME_WINDOW는 관용치를 고지한다 — 목표 60분에 실측 55분이 달성으로 찍힌 회차', async () => {
+    await render(<ChallengeResultModal result={resultFromServer()} onClose={jest.fn()} />);
+    expect(shown('55/60분')).toBeOnTheScreen(); // 모순으로 읽힐 숫자가 실제로 그려진다
+    expect(toleranceNotice()).toBeOnTheScreen();
+    expect(shown('목표에서 5분 모자라도 달성으로 인정돼요')).toBeOnTheScreen();
+  });
+
+  // 관용치는 창형 집중에만 있다 — DURATION(정확 임계)·SCREEN_TIME(이하 판정)에 붙이면 거짓말이다.
+  test.each([
+    ['DURATION' as const, 'FOCUS' as const],
+    ['TIME_WINDOW' as const, 'SCREEN_TIME' as const],
+    ['DURATION' as const, 'SCREEN_TIME' as const],
+  ])(
+    'missionType=%s · missionCategory=%s에는 고지하지 않는다',
+    async (missionType, missionCategory) => {
+      await render(
+        <ChallengeResultModal
+          result={resultFromServer({ missionType, missionCategory })}
+          onClose={jest.fn()}
+        />,
+      );
+      expect(toleranceNotice()).toBeNull();
+    },
+  );
+
+  // 미션 스냅샷은 나중에 붙은 additive 필드다 — 구서버 응답엔 통째로 없다(undefined).
+  // 그때 조건이 서지 않아 고지만 빠질 뿐, 명단·정산 문구는 그대로 나와야 한다.
+  test('미션 메타가 없는 구서버 응답에서도 크래시 없이 고지만 빠진다', async () => {
+    await render(
+      <ChallengeResultModal
+        result={resultFromServer({
+          missionCategory: undefined,
+          missionType: undefined,
+          windowStart: undefined,
+          windowEnd: undefined,
+        })}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(toleranceNotice()).toBeNull();
+    expect(shown('55/60분')).toBeOnTheScreen();
+    expect(shown('내 정산 +30코인')).toBeOnTheScreen();
+  });
+
+  // 형제 화면의 세 번째 조건('실측 분이 실제로 그려질 때만')이 이 화면에서 갈라지는 두 자리.
+  test('전원 미집계면 모순으로 읽힐 숫자가 없어 고지하지 않는다', async () => {
+    await render(
+      <ChallengeResultModal
+        result={resultFromServer({
+          myAchieved: null,
+          myPayout: null,
+          results: [
+            { userId: 'u1', nickname: '재영', achieved: null, payout: null, progressMinutes: null },
+          ],
+        })}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(toleranceNotice()).toBeNull();
+  });
+
+  test('명단 자체를 그리지 않는 무산 회차에는 고지하지 않는다', async () => {
+    await render(
+      <ChallengeResultModal
+        result={resultFromServer({ status: 'VOIDED', voidReason: 'INSUFFICIENT_PARTICIPANTS' })}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(toleranceNotice()).toBeNull();
   });
 });
 
