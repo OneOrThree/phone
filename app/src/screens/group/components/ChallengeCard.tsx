@@ -263,6 +263,18 @@ export interface ChallengeCardProps {
   //    포기를 알리지 않으면 반대로, 나중에 승인이 떨어져 **사라진 카드**가 자기 id를 부모의
   //    열림 집합에 넣고 되돌릴 주체가 없어 전면 오버레이가 영구히 막힌다.
   onAbandonSheetSlot?: (challengeId: string) => void;
+  // 이 카드가 **네이티브 Alert를 쥐고 있는 구간**의 보고(GROMO-1576).
+  //
+  // 왜 필요한가: 부모(GroupRoomScreen)는 딥링크로 groupId가 갈릴 때 이 카드의 승인·요청을
+  // 접는데(그룹 전환 블록), 그 판단은 **렌더 중**에 내려진다. 반면 카드의 언마운트 정리는
+  // **커밋 뒤**라, "나 유예 중이다"를 그때 알려서는 이미 늦다. 그래서 유예의 근거가 되는
+  // 사실 — "지금 네이티브 Alert를 들고 있다" — 를 **뜨는 순간** 올린다.
+  // 부모는 이 값으로 **곧 보고할 카드**와 **영영 안 올 카드**를 구분한다: 전자의 승인만
+  // 남기고 나머지는 종전대로 접는다. 근거 없이 남기면 빈 등록이 영구 점유가 된다.
+  // ⚠️ 열림 보고(onSheetVisibilityChange)로 대신할 수 없다 — 그 신호는 "이 카드의 시트가
+  //    떠 있다"는 뜻이고, 삭제 확인 Alert는 **시트를 열지 않은 채** 승인만 쥐고 있다.
+  // ⚠️ **콜백 신원을 고정해서 넘겨라**(useCallback) — 다른 슬롯 콜백과 같은 이유다.
+  onAlertHoldChange?: (challengeId: string, held: boolean) => void;
 }
 
 export default function ChallengeCard({
@@ -276,6 +288,7 @@ export default function ChallengeCard({
   onSheetVisibilityChange,
   onRequestSheetSlot,
   onAbandonSheetSlot,
+  onAlertHoldChange,
 }: ChallengeCardProps) {
   // 내기 참가 철회의 API·잔액 갱신을 카드가 직접 쥔다 — 시트(BetSheet)는 참가자
   // 상태에선 부모(GroupRoomScreen)의 stale 검사가 즉시 닫아 버려 진입 자체가 불가능하고,
@@ -767,12 +780,16 @@ export default function ChallengeCard({
     options?: Parameters<typeof Alert.alert>[3],
   ) {
     openAlertCountRef.current += 1;
+    // 0 → 1 전이에서만 알린다(겹쳐 뜬 둘째는 이미 참인 사실을 다시 말할 뿐이다).
+    if (openAlertCountRef.current === 1) onAlertHoldChange?.(challenge.id, true);
     let closed = false;
     const close = () => {
       if (closed) return; // 한 Alert당 한 번만
       closed = true;
       openAlertCountRef.current = Math.max(0, openAlertCountRef.current - 1);
       if (openAlertCountRef.current > 0) return; // 겹쳐 뜬 Alert가 아직 남았다
+      // 마지막이 닫혔다 — 부모의 "유예 중" 표식을 먼저 걷고, 그 다음 미뤄 둔 정리를 흘린다.
+      onAlertHoldChange?.(challenge.id, false);
       const deferred = deferredCleanupRef.current;
       deferredCleanupRef.current = null;
       deferred?.();

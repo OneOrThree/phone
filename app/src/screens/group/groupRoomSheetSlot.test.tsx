@@ -85,6 +85,8 @@ const gateResults: Record<string, 'pending' | 'granted' | 'denied'> = {};
 let reportOpen: ((challengeId: string, open: boolean) => void) | null = null;
 // 카드가 사라진다고 알리는 콜백 — 실제 카드의 언마운트 정리에 해당한다.
 let reportGone: ((challengeId: string) => void) | null = null;
+// 카드가 **네이티브 Alert를 쥐었다/놓았다**를 알리는 콜백(실제 카드의 alertOverCardSlot).
+let reportAlertHold: ((challengeId: string, held: boolean) => void) | null = null;
 // 카드별 요청 트리거 — 프레스 이벤트를 거치지 않고 **같은 tick 안에서** 요청을 겹치게 할 때 쓴다.
 const requestSlotFor: Record<string, () => Promise<boolean>> = {};
 // 승인받으면 곧바로 열림을 보고할 것인가(실제 카드의 openSheet()에 해당).
@@ -96,14 +98,17 @@ jest.mock('./components/ChallengeCard', () => {
     onRequestSheetSlot,
     onSheetVisibilityChange,
     onAbandonSheetSlot,
+    onAlertHoldChange,
   }: {
     challenge: { id: string };
     onRequestSheetSlot?: (challengeId: string) => Promise<boolean>;
     onSheetVisibilityChange?: (challengeId: string, open: boolean) => void;
     onAbandonSheetSlot?: (challengeId: string) => void;
+    onAlertHoldChange?: (challengeId: string, held: boolean) => void;
   }) {
     reportOpen = onSheetVisibilityChange ?? null;
     reportGone = onAbandonSheetSlot ?? null;
+    reportAlertHold = onAlertHoldChange ?? null;
     requestSlotFor[card.id] = () => {
       gateResult = 'pending';
       gateResults[card.id] = 'pending';
@@ -237,6 +242,7 @@ beforeEach(async () => {
   Object.keys(gateResults).forEach((key) => delete gateResults[key]);
   reportOpen = null;
   reportGone = null;
+  reportAlertHold = null;
   mockAutoOpenOnGrant = false;
   Object.keys(requestSlotFor).forEach((key) => delete requestSlotFor[key]);
   resetChallengeResultGateForTests();
@@ -370,6 +376,110 @@ test('그룹이 바뀌면 대기 중인 시트 요청을 거절한다', async ()
 
   // A의 요청은 승인되지 않는다 — 승인됐다면 B 화면에 A의 열림이 영구히 남는다.
   await waitFor(() => expect(gateResults.c1).toBe('denied'));
+});
+
+// ⚠️ 위 테스트의 **반대 축**이다. 그룹 전환에서 취소해야 하는 것은 **대기 중인 요청**뿐이고,
+//    **이미 떠 있는 것이 쥔 등록은 유지해야 한다.** 카드의 삭제 확인 Alert가 떠 있으면
+//    alertOverCardSlot이 언마운트 정리를 유예하는데(그 Alert는 네이티브라 카드가 사라져도
+//    새 그룹 화면 위에 그대로 남는다), 부모가 열림 집합을 직접 비우면 그 유예가 무의미해지고
+//    결과 모달이 **Alert 뒤에서** 마운트·seen/ack 된다.
+//    ⚠️ 유지만 단정하면 이 파일의 다른 테스트들이 경고하는 **영구 차단**을 새로 만들고도
+//       초록이다 — 미뤄 둔 보고가 도착했을 때 실제로 풀리는 것까지 함께 본다.
+test('떠 있는 시트의 등록은 그룹이 바뀌어도 유지되고, 미뤄 둔 닫힘 보고가 오면 풀린다', async () => {
+  mockAutoOpenOnGrant = true;
+  const roomTree = (groupId: string) => (
+    <OverlaySlotProvider>
+      <LiveProbe />
+      <View>
+        <GroupRoomScreen groupId={groupId} onLeft={onLeft} />
+      </View>
+    </OverlaySlotProvider>
+  );
+  const view = await render(roomTree(GROUP_ID));
+  await act(async () => {});
+  expect(liveMaxPriority()).toBe(-1);
+
+  // 카드가 승인을 받아 시트를 열었다(= 삭제 확인 Alert가 뜬 상태에 해당).
+  await act(async () => {
+    requestSlotFor.c1().then(() => undefined);
+  });
+  await act(async () => {});
+  const closeSheet = reportOpen; // 카드가 붙들고 있는 클로저 — 유예된 정리가 나중에 이걸 부른다
+  await waitFor(() => expect(gateResults.c1).toBe('granted'));
+  // 이 등록이 서 있는 동안 결과 호스트는 스스로 물러난다(yieldsSlot이 보는 값이 이것이다).
+  expect(liveMaxPriority()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 딥링크가 같은 라우트의 groupId를 B로 갈아 끼웠다. 카드는 언마운트되지만 그 Alert는
+  // 새 화면 위에 그대로 떠 있어, 정리(=닫힘 보고)가 아직 오지 않는다.
+  // ⚠️ B의 챌린지 목록은 A와 다르다(실제로 challengeId는 그룹마다 다르다) — 같은 id가 다시
+  //    마운트돼 우연히 막히는 것이 아님을 분명히 한다.
+  mockGetChallenges.mockResolvedValue([challenge('c9')]);
+  await act(async () => {
+    view.rerender(roomTree(OTHER_GROUP_ID));
+  });
+  await act(async () => {});
+
+  // 아직 떠 있는 Alert 뒤로 결과가 들어오면 안 된다.
+  expect(liveMaxPriority()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 사용자가 그 Alert를 닫으면 카드가 미뤄 둔 보고가 그때 도착한다 — 영구 점유가 아니다.
+  await act(async () => {
+    closeSheet?.('c1', false);
+  });
+  await act(async () => {});
+  await waitFor(() => expect(liveMaxPriority()).toBe(-1));
+});
+
+// ⚠️ **위 테스트가 안 지나는 경로가 하나 더 있다.** 삭제 확인 Alert는 시트를 **열지 않은 채**
+//    승인만 쥐고 뜬다(`confirmDelete`는 claimSheetSlot 뒤 곧바로 Alert를 띄우고, openSheet()는
+//    사용자가 `삭제`를 눌러야 불린다). 그래서 그 순간 부모의 열림 집합에는 이 카드가 **없고**,
+//    등록을 살려 두는 것은 `sheetSlotRequested`·`sheetGrantInFlightRef` 쪽이다. 그룹 전환이
+//    그 둘을 접으면 Alert는 새 화면 위에 그대로 뜬 채 등록만 사라진다.
+//    ⚠️ 그렇다고 무조건 남기면 「빈 등록의 영구 점유」를 새로 만든다 — 그래서 부모는 카드가
+//       올린 **"지금 네이티브 Alert를 쥐고 있다"**를 판정 근거로 쓴다. 유지와 반납을 함께 본다.
+test('열림 보고 없이 승인만 쥔 Alert도 그룹 전환에서 등록이 유지되고, 닫히면 풀린다', async () => {
+  mockAutoOpenOnGrant = false; // 시트를 열지 않는다 — 삭제 확인 Alert의 실제 모양이다
+  const roomTree = (groupId: string) => (
+    <OverlaySlotProvider>
+      <LiveProbe />
+      <View>
+        <GroupRoomScreen groupId={groupId} onLeft={onLeft} />
+      </View>
+    </OverlaySlotProvider>
+  );
+  const view = await render(roomTree(GROUP_ID));
+  await act(async () => {});
+
+  // 프리플라이트가 끝나 승인을 받고, 그 자리에서 확인 Alert를 띄운다(열림 보고는 없다).
+  await act(async () => {
+    requestSlotFor.c1().then(() => undefined);
+  });
+  await act(async () => {});
+  await waitFor(() => expect(gateResults.c1).toBe('granted'));
+  const holdChange = reportAlertHold;
+  const abandon = reportGone;
+  await act(async () => {
+    holdChange?.('c1', true);
+  });
+  expect(liveMaxPriority()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 딥링크가 groupId를 B로 갈아 끼운다 — 카드는 언마운트되지만 Alert는 새 화면 위에 남는다.
+  mockGetChallenges.mockResolvedValue([challenge('c9')]);
+  await act(async () => {
+    view.rerender(roomTree(OTHER_GROUP_ID));
+  });
+  await act(async () => {});
+
+  // 아직 떠 있는 Alert 뒤로 결과가 들어오면 안 된다.
+  expect(liveMaxPriority()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 사용자가 Alert를 닫으면 유예 정리가 그때 흐른다 — 영구 점유가 아니다.
+  await act(async () => {
+    holdChange?.('c1', false);
+    abandon?.('c1');
+  });
+  await act(async () => {});
+  await waitFor(() => expect(liveMaxPriority()).toBe(-1));
 });
 
 // ⚠️ 그룹 전환과 달리 **같은 그룹 안에서 카드만 사라지는** 경우가 있다(재조회에서 그 챌린지가

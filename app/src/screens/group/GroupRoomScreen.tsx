@@ -366,6 +366,22 @@ export default function GroupRoomScreen({
   // 승인은 했는데 아직 열림 보고가 오지 않은 카드 — 그 사이에 다음 요청을 승인하면 두 시트가
   // 함께 마운트된다. 그 카드가 열지 못하고 사라질 수도 있어 **신원으로** 들고 있는다.
   const sheetGrantInFlightRef = useRef<string | null>(null);
+  // 지금 **네이티브 Alert를 쥐고 있는** 카드들(카드의 onAlertHoldChange 주석).
+  // 이 집합이 있어야 그룹 전환에서 **곧 보고할 카드**와 **영영 안 올 카드**를 구분할 수 있다.
+  const alertHoldCardsRef = useRef<Set<string>>(new Set());
+  const onCardAlertHoldChange = useCallback((challengeId: string, held: boolean) => {
+    if (held) alertHoldCardsRef.current.add(challengeId);
+    else alertHoldCardsRef.current.delete(challengeId);
+  }, []);
+  // 지금 승인을 쥔 카드가 **네이티브 Alert를 들고 있는가** — 접을지 남길지의 유일한 판정이다.
+  // ⚠️ 이 판정이 참인 동안에만 남긴다. 근거 없이 남기면 아래 "요청 해제" 이펙트가 경고하는
+  //    **빈 등록의 영구 점유**가 된다(반납할 주체가 없는 등록).
+  const sheetGrantHeldByAlert = useCallback(
+    () =>
+      sheetGrantInFlightRef.current !== null &&
+      alertHoldCardsRef.current.has(sheetGrantInFlightRef.current),
+    [],
+  );
 
   // 대기열이 바뀔 때마다 올린다 — 대기열은 ref라, 아래 "요청 해제" 이펙트가 다시 돌 계기가
   // 필요하다.
@@ -484,17 +500,38 @@ export default function GroupRoomScreen({
     pendingLeaveRef.current = false; // 이전 그룹의 이탈 유예도 함께 접는다(새 그룹 판단은 새로)
     leftRef.current = false; // 이탈 1회 래치도 그룹 단위다
     leaveWhenFocusedRef.current = false; // 미뤄 둔 이탈 예약도 그룹 단위다
-    // 이전 그룹 카드들의 시트 열림도 함께 접는다 — 그 카드들은 곧 언마운트되며 false를
-    // 보고하지만, 그 사이 대기하던 전면 오버레이가 이전 방의 열림 때문에 계속 막히면 안 된다.
-    setSheetOpenCardIds([]);
+    // ⚠️ **이전 그룹 카드들의 열림 집합은 여기서 비우지 않는다.** 비우면 이 배치가 여섯 번
+    //    적용한 축("떠 있는 것은 유지, 대기 중인 것은 취소")이 부모 쪽에서만 깨진다: 카드의
+    //    삭제 확인 Alert가 떠 있으면 alertOverCardSlot이 언마운트 정리를 **유예**해 두는데,
+    //    부모가 자식 정리를 거치지 않고 점유 상태를 직접 폐기하면 그 유예가 무의미해진다.
+    //    네이티브 Alert는 새 그룹 화면 위에 그대로 남고 등록만 사라져, 결과 모달이 **그 뒤에서**
+    //    마운트·seen/ack 된다.
+    //    비우지 않아도 집합은 스스로 마른다 — 아래 setChallenges(null)이 같은 커밋에 카드들을
+    //    언마운트시키고, 각 카드의 정리가 `onSheetVisibilityChange(id, false)`를 보고한다.
+    //    Alert를 쥔 카드만 그 보고를 **닫힐 때까지** 미룬다(그것이 정확히 유지하려는 대상이다).
+    //    ⤷ 반납이 실제로 도착하는 근거: 그룹 전환은 언마운트가 아니라 **같은 인스턴스**의 prop
+    //      교체다. 부모가 살아 있고 `onCardSheetVisibilityChange`는 의존성 없는 useCallback이라
+    //      신원이 고정돼, 카드가 붙들고 있던 클로저가 그대로 이 컴포넌트에 보고한다.
+    //      (부모까지 언마운트되면 화면의 등록 자체가 함께 사라지므로 잠길 것이 남지 않는다.)
     // ⚠️ **승인을 기다리던 시트 요청도 여기서 거절한다.** 그룹 전환은 언마운트가 아니다 —
     //    같은 인스턴스가 살아 있어서 blur·언마운트 정리가 걸리지 않는다. 그대로 두면 나중에
     //    slot이 풀렸을 때 **이미 언마운트된 A 카드**가 true를 받아 openSheet()로 A의 id를
     //    B 화면의 sheetOpenCardIds에 다시 넣고, 그것을 false로 되돌릴 카드가 없어
     //    **결과 오버레이가 영구히 차단**된다.
-    sheetGrantInFlightRef.current = null;
+    //    ⤷ 승인·요청도 같은 축으로 가른다. **네이티브 Alert를 쥔 카드가 보유자면 남긴다** —
+    //      그 카드는 시트를 열지 않은 채 승인만 쥐고 있어(삭제 확인 Alert) 열림 집합에는
+    //      없고, 등록을 살려 두는 것은 `sheetSlotRequested` 쪽이다. 여기서 접으면 Alert는
+    //      새 그룹 화면 위에 그대로 뜬 채 등록만 사라진다.
+    //      반납은 반드시 온다: 그 Alert가 닫히면 카드의 유예 정리가 onAbandonSheetSlot을
+    //      부르고(cancelSheetWaitersFor가 승인을 풀며 bump), 아래 "요청 해제" 이펙트가
+    //      조건 셋을 만족해 sheetSlotRequested를 스스로 내린다.
+    //      Alert를 쥐지 않은 보유자는 종전대로 접는다 — 그쪽이 위 ⚠️의 영구 차단 위험이다.
+    if (!sheetGrantHeldByAlert()) {
+      sheetGrantInFlightRef.current = null;
+      setSheetSlotRequested(false);
+    }
+    // 대기자는 언제나 거절한다 — 유예 중인 카드는 이미 승인을 받았으므로 대기자가 아니다.
     settleSheetSlotWaiters(false);
-    setSheetSlotRequested(false);
     setRefundBlocked(false); // 환불 안내는 그 진입의 판단이다 — 새 그룹으로 옮기지 않는다
     setDetail(null);
     setNotices(null);
@@ -707,11 +744,22 @@ export default function GroupRoomScreen({
         focusedRef.current = false;
         requestSeqRef.current++;
         invalidateCardInteraction(interactionId);
-        // 승인 대기 중인 카드 시트를 접는다 — 이 화면을 떠난 뒤 승인이 떨어지면
+        // 승인 **대기 중인** 카드 시트는 접는다 — 이 화면을 떠난 뒤 승인이 떨어지면
         // 그 시트가 **새 화면 위로** 뜬다(RN Modal은 라우트를 넘어 보인다).
-        sheetGrantInFlightRef.current = null;
+        // ⚠️ 반대로 **이미 승인을 받아 네이티브 Alert를 띄운 카드**의 자리는 유지한다.
+        //    삭제 확인 Alert는 시트를 열지 않은 채 승인만 쥐고 뜨므로 열림 집합에는 없고,
+        //    등록을 살리는 것은 이 `sheetSlotRequested` 쪽이다. 여기서 접으면 Alert는 새 화면
+        //    위에 그대로 뜬 채 등록만 사라져, 결과 모달이 그 뒤에서 마운트·seen/ack 된다.
+        //    (이 정리는 blur만이 아니라 **groupId 교체로 reload 신원이 바뀔 때도** 돈다 —
+        //     그래서 그룹 전환의 실제 반납 지점이 여기다.)
+        //    반납은 반드시 온다: Alert가 닫히면 카드의 유예 정리가 onAbandonSheetSlot을 부르고
+        //    (승인이 풀리며 bump) 아래 "요청 해제" 이펙트가 스스로 등록을 내린다.
+        if (!sheetGrantHeldByAlert()) {
+          sheetGrantInFlightRef.current = null;
+          setSheetSlotRequested(false);
+        }
+        // 대기자는 언제나 거절한다 — 유예 중인 카드는 이미 승인을 받았으므로 대기자가 아니다.
         settleSheetSlotWaiters(false);
-        setSheetSlotRequested(false);
         // 승인을 **기다리던** 공유 요청은 접는다 — 떠난 화면의 시트가 새 화면 위로 뜨지 않게.
         // ⚠️ 반대로 **이미 떠 있는** 공유 시트의 자리는 유지한다. 네이티브 시트는 이 화면이
         //    blur돼도(푸시·딥링크로 다른 화면이 쌓여도) 사용자 앞에 그대로 남아 있어서,
@@ -720,7 +768,7 @@ export default function GroupRoomScreen({
         //    Share.share는 어떻게 끝나든 settle되므로 아래 finally가 반드시 돈다.
         if (!shareSheetOpenRef.current) overlayActionsRef.current?.release(SHARE_SLOT_ID);
       };
-    }, [reload, interactionId, settleSheetSlotWaiters, leaveRoom]),
+    }, [reload, interactionId, settleSheetSlotWaiters, leaveRoom, sheetGrantHeldByAlert]),
   );
 
   // 탈퇴 유예의 종결 — 호스트가 "보여줄 것이 없다"를 확정하는 순간 이탈을 잇는다(N53·C8).
@@ -1311,6 +1359,7 @@ export default function GroupRoomScreen({
                     // 카드가 사라지면 승인 대기 중이던 요청을 접는다 — 안 그러면 나중에 승인이
                     // 떨어져 **사라진 카드**가 열림 집합에 자기 id를 영구히 남긴다.
                     onAbandonSheetSlot={cancelSheetWaitersFor}
+                    onAlertHoldChange={onCardAlertHoldChange}
                     // 철회·취소 직후 목록을 다시 받는다 — 마지막 참가자가 빠져도 서버는 챌린지를
                     // 지우지 않고 휴면으로 남기므로(GROMO-1201) 재조회가 없으면 닫힌 내기·휴면
                     // 표시가 반영되지 않은 낡은 카드가 화면에 남는다.
