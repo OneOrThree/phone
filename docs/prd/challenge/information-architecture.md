@@ -416,9 +416,21 @@ flowchart LR
 | `CHALLENGE_ENDED` (일 목표형 하루 마감) | `type` · `groupId` · `challengeId` | **채움** (창형과 같은 형태) | 착지 화면 (미확인 결과가 있으면 그 위에 결과 모달 — N56) | ❌ |
 | `BET_WON` | `type` · `groupId` · `challengeId` | **null** | 그룹방 — 앱이 `groupId`로 합성 | ✅ |
 | `BET_RESULT` | `type` · `groupId` *(단건만 `challengeId`)* | **채움** `gromo://group?g=…` | 착지 화면 (미확인 결과가 있으면 그 위에 결과 모달 — N56) | ✅ |
-| `BET_VOID_REFUND` | `type` · `groupId` · `voidReason`? *(단건만 `challengeId`)* | **null** | 그룹방 — 앱이 `groupId`로 합성. **모달은 열지 않는다** (N48 — 이중 통지) | ✅ |
+| `BET_VOID_REFUND` | `type` · `groupId` · `voidReason`? *(단건만 `challengeId`)* | **null** | 그룹방 — 앱이 `groupId`로 합성. **이 푸시의 수신은 재조회 계기가 아니다** (N48 — 이중 통지). ⚠️ **단 「모달이 안 뜬다」는 보장은 삭제 환불에서만 성립한다** — 아래 참조 | ✅ |
 | *(사일런트 — `data.type` **없음**)* | `silent=flush` · `groupId` | **null** | **없음** — 큐 flush 전용 | — |
 
+> ⚠️ **`BET_VOID_REFUND`의 「모달 미노출」은 수신을 계기에서 빼는 것만으로 보장되지 않는다.**
+> 그 푸시를 **그룹 흐름 밖에서 탭하면 `GroupRoom` 진입 자체가 §4.3의 셸 활성화 계기**이고, 앱
+> 필터는 **`voidReason === 'CHALLENGE_DELETED'` 하나만** 거른다(`challengeResult.ts:107`). 즉
+> **`INSUFFICIENT_PARTICIPANTS`·`REFUND_DEADLINE` 무효 회차는 큐에 그대로 들어와 착지 즉시
+> 모달이 열린다.** 보장이 자동으로 성립하는 것은 **쿼리·앱 양쪽에서 이미 빠지는 삭제 환불뿐이다.**
+>
+> **GROMO-1577이 둘 중 하나를 정한다** — ⓐ **보장을 삭제 환불로 한정**하고 나머지 두 사유는
+> **모달이 열리는 것을 정상 동작으로 받아들인다**(환불 알림은 사실을, 모달은 회차 결과를 말하므로
+> 이중이 아니라고 볼 여지가 있다 — 그렇게 정하면 N48의 적용 범위를 좁히는 것이므로 결정문에
+> 남긴다). ⓑ **방금 통지한 결과를 진입 조회에서 억제하는 계약**을 만든다(무엇을 키로 억제할지·
+> 얼마나 억제할지를 함께 정해야 하고, 억제 창을 잘못 잡으면 **결과를 영영 못 보게 된다**).
+>
 > **`CHALLENGE_SESSION_END`는 존재하지 않는 타입이다.** `back/` 전체 grep 0건 — 이전 판의 이 행은
 > 서버에 없는 문자열을 문서가 지어낸 것이었다. 실제 종료 알림은 **`CHALLENGE_WINDOW_END`**(창형,
 > `ChallengeWindowEndNotificationService`)와 **`CHALLENGE_ENDED`**(일 목표형,
