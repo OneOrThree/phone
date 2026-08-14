@@ -52,6 +52,10 @@ test('안내 문구·형태는 GROMO-1241 정본 그대로다(취소 없는 단�
   );
   // 안내가 떴다고 로그아웃되지는 않는다 — 사용자가 읽고 확인한 뒤다.
   expect(mockTriggerLogout).not.toHaveBeenCalled();
+  // ⚠️ **띄운 안내는 반드시 닫는다.** 반납은 모듈 스코프 카운트로 세므로(sessionErrors.ts),
+  //    안 닫고 끝내면 그 카운트가 1로 남아 **다음 테스트의 마지막 닫힘이 자리를 못 놓는다.**
+  //    이 파일엔 Provider가 없어 지금은 무해하지만, 규약을 어기는 테스트를 남기면 안 된다.
+  pressConfirm(alertSpy);
   alertSpy.mockRestore();
 });
 

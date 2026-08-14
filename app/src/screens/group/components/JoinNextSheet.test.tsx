@@ -5,6 +5,11 @@
 //  3) N46 잔액 표기 형식(「참가비 N · 내 잔액 M」)은 공용 컴포넌트가 쥔다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
+import {
+  OVERLAY_PRIORITY,
+  OverlaySlotProvider,
+  useOverlayMaxPriority,
+} from '@/store/OverlaySlotContext';
 import { AxiosError, AxiosHeaders } from 'axios';
 import JoinNextSheet from './JoinNextSheet';
 import { joinNextSession } from '@/services/groupApi';
@@ -217,6 +222,8 @@ test('제출 직전 KST 기준일이 바뀌었으면 요청을 보내지 않고 
   expect(alertSpy).toHaveBeenCalledWith(
     '날짜가 바뀌었어요',
     '자정이 지나 예약할 날짜가 달라졌을 수 있어요. 최신 상태로 다시 열어 주세요.',
+    expect.anything(),
+    expect.anything(),
   );
   expect(onDone).toHaveBeenCalled();
 });
@@ -230,6 +237,8 @@ test('응답 날짜가 화면과 다르면 실제 예약된 날짜를 알린다 
   expect(alertSpy).toHaveBeenCalledWith(
     '예약된 날짜가 바뀌었어요',
     expect.stringContaining('8/5(수)로 예약됐어요'),
+    expect.anything(),
+    expect.anything(),
   );
   expect(onDone).toHaveBeenCalled();
 });
@@ -252,6 +261,8 @@ test('BET_SCREENTIME_PERMISSION_REQUIRED — 권한 안내로 알리고 닫는�
   expect(alertSpy).toHaveBeenCalledWith(
     '참여할 수 없어요',
     '스크린타임 권한을 허용해야 참여할 수 있어요.',
+    expect.anything(),
+    expect.anything(),
   );
   expect(onDone).toHaveBeenCalled();
 });
@@ -293,5 +304,50 @@ test('낡은 세대의 유저 부재 — 안내 없이 버리되 시트는 닫�
   // 스피너·잠금이 풀려 있어야 한다 — 여기가 4라운드에 실제로 깨졌던 자리다.
   expect(screen.getByTestId('group.bet.joinNext.close')).not.toBeDisabled();
   expect(screen.getByTestId('group.bet.joinNext.submit')).toHaveTextContent('8/3(월) 참여하기');
+  alertSpy.mockRestore();
+});
+
+// ── 실패 통보는 자리를 쥐고 뜬다(GROMO-1576) ─────────────────────────────────
+// ⚠️ `failAndReload`는 Alert를 띄운 **직후 `onDone()`으로 시트를 닫는다.** 그 순간 이 시트가
+//    쥐고 있던 등록이 끊기는데 네이티브 Alert는 사용자 앞에 그대로 남는다. 그 틈에 결과가
+//    도착하면 자리가 비었다고 보고 **이 Alert 뒤에서** 마운트되며 seen/ack이 나간다.
+//    (창을 연 것은 이 파일이 아니라 이 배치의 나머지다 — 예전엔 결과 모달이 방 진입 1회에만
+//     떠서 채우러 올 것이 없었다.)
+// 호출부가 여럿이어도 `failAndReload` **함수 하나**가 전부를 덮으므로 대표 1건만 잠근다.
+// ⚠️ 유지만 단정하면 영구 점유를 못 잡는다 — 닫으면 반납되는 것까지 함께 본다.
+function OverlayProbe({ onValue }: { onValue: (value: number) => void }) {
+  onValue(useOverlayMaxPriority());
+  return null;
+}
+
+test('실패 통보가 떠 있는 동안 자리를 쥐고, 닫으면 반납한다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  const values: number[] = [];
+  const latest = () => values[values.length - 1];
+  await render(
+    <OverlaySlotProvider>
+      <OverlayProbe onValue={(v) => values.push(v)} />
+      {nextElement()}
+    </OverlaySlotProvider>,
+  );
+  await act(async () => {});
+  expect(latest()).toBe(-1);
+
+  // ⚠️ 기준일 변경은 **렌더 뒤**여야 한다 — 마운트 시점에 캡처한 openedTodayKst와 비교하므로
+  //    렌더 전에 바꾸면 드리프트가 성립하지 않는다.
+  mockTodayKst = '2026-08-02'; // 자정 경과
+  await submit();
+
+  // 시트는 이미 닫히는 중인데(onDone) 통보는 아직 떠 있다 — 그 사이 자리가 비면 안 된다.
+  expect(onDone).toHaveBeenCalled();
+  expect(latest()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 반납 주체는 시트가 아니라 통보 자신이다 — 사용자가 닫으면 그때 풀린다.
+  const buttons = alertSpy.mock.calls[0][2] as { text: string; onPress?: () => void }[] | undefined;
+  await act(async () => {
+    buttons?.[0]?.onPress?.();
+  });
+  await act(async () => {});
+  expect(latest()).toBe(-1);
   alertSpy.mockRestore();
 });

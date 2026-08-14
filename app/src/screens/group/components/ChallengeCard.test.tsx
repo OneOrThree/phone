@@ -2098,6 +2098,8 @@ describe('다음 활성일 참여 (GROMO-1419)', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '예약된 날짜가 바뀌었어요',
       expect.stringContaining('8/5(수)로 예약됐어요'),
+      expect.anything(),
+      expect.anything(),
     );
     // 성공은 성공대로 — 재조회를 태워 카드가 실제 예약 상태로 갈아 끼워진다.
     expect(onBetChanged).toHaveBeenCalled();

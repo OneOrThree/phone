@@ -5,6 +5,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import { Alert } from 'react-native';
+import {
+  OVERLAY_PRIORITY,
+  OverlaySlotProvider,
+  useOverlayMaxPriority,
+} from '@/store/OverlaySlotContext';
 import JoinWeekSheet, { type JoinWeekEntry } from './JoinWeekSheet';
 import { joinWeekSessions } from '@/services/groupApi';
 import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
@@ -228,6 +233,8 @@ test('INVALID_SESSION_DATES — 낡은 화면임을 알리고 닫는다', async 
   expect(alertSpy).toHaveBeenCalledWith(
     '참여할 수 있는 날이 바뀌었어요',
     '최신 상태로 새로고침할게요.',
+    expect.anything(),
+    expect.anything(),
   );
   expect(onDone).toHaveBeenCalled();
 });
@@ -370,5 +377,50 @@ test('낡은 세대의 유저 부재 — 안내 없이 버리되 시트는 닫�
   expect(mockTriggerLogout).not.toHaveBeenCalled();
   expect(screen.getByTestId('group.bet.week.close')).not.toBeDisabled();
   expect(screen.getByTestId('group.bet.week.submit')).not.toBeDisabled();
+  alertSpy.mockRestore();
+});
+
+// ── 실패 통보는 자리를 쥐고 뜬다(GROMO-1576) ─────────────────────────────────
+// ⚠️ `failAndReload`는 Alert를 띄운 **직후 `onDone()`으로 시트를 닫는다.** 그 순간 이 시트가
+//    쥐고 있던 등록이 끊기는데 네이티브 Alert는 사용자 앞에 그대로 남는다. 그 틈에 결과가
+//    도착하면 자리가 비었다고 보고 **이 Alert 뒤에서** 마운트되며 seen/ack이 나간다.
+//    (창을 연 것은 이 파일이 아니라 이 배치의 나머지다 — 예전엔 결과 모달이 방 진입 1회에만
+//     떠서 채우러 올 것이 없었다.)
+// 호출부가 여럿이어도 `failAndReload` **함수 하나**가 전부를 덮으므로 대표 1건만 잠근다.
+// ⚠️ 유지만 단정하면 영구 점유를 못 잡는다 — 닫으면 반납되는 것까지 함께 본다.
+function OverlayProbe({ onValue }: { onValue: (value: number) => void }) {
+  onValue(useOverlayMaxPriority());
+  return null;
+}
+
+test('실패 통보가 떠 있는 동안 자리를 쥐고, 닫으면 반납한다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  const values: number[] = [];
+  const latest = () => values[values.length - 1];
+  mockJoinWeek.mockRejectedValueOnce(axiosErrorWith(400, 'INVALID_SESSION_DATES'));
+  await render(
+    <OverlaySlotProvider>
+      <OverlayProbe onValue={(v) => values.push(v)} />
+      {weekElement()}
+    </OverlaySlotProvider>,
+  );
+  await act(async () => {});
+  expect(latest()).toBe(-1);
+
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+  });
+
+  // 시트는 이미 닫히는 중인데(onDone) 통보는 아직 떠 있다 — 그 사이 자리가 비면 안 된다.
+  expect(onDone).toHaveBeenCalled();
+  expect(latest()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 반납 주체는 시트가 아니라 통보 자신이다 — 사용자가 닫으면 그때 풀린다.
+  const buttons = alertSpy.mock.calls[0][2] as { text: string; onPress?: () => void }[] | undefined;
+  await act(async () => {
+    buttons?.[0]?.onPress?.();
+  });
+  await act(async () => {});
+  expect(latest()).toBe(-1);
   alertSpy.mockRestore();
 });
