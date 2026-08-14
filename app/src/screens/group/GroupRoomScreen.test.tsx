@@ -34,10 +34,14 @@ import {
 import { todayStrKst } from '@/utils/localDate';
 import { resolveGroupRoomNotFound } from './groupRoomNotFound';
 import { resetCardInteractionStateForTest } from '@/services/cardInteraction';
+// 정산 결과 푸시 신호(GROMO-1580 ④) — **실물 모듈**을 그대로 쓴다. 화면이 실제로 구독했는지
+// (배선)를 보는 것이 목적이라 스텁으로 갈아끼우면 검증 대상이 사라진다.
+import { notifyBetResultPush } from '@/services/betResultSignal';
 import type {
   GroupAnnouncementResponse,
   GroupChallengeResponse,
   GroupDetailResponse,
+  LastSettledBet,
   MyChallengeResultEntry,
 } from '@/types/dto/group';
 
@@ -233,6 +237,67 @@ function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeRe
     lastSettledBet: null,
     ...over,
   };
+}
+
+// 참가자 스코프 결과 1건(/me/challenge-results) — 결과 모달 큐의 원천.
+// 모듈 스코프에 둔다: 결과 모달 스위트뿐 아니라 카드 시트 배타 스위트도 같은 픽스처를 쓴다.
+function resultEntry(over: Partial<MyChallengeResultEntry> = {}): MyChallengeResultEntry {
+  return {
+    sessionId: 's1',
+    groupId: GROUP_ID,
+    groupName: '아침 6시 집중방',
+    challengeId: 'c1',
+    challengeDeleted: false,
+    challengeEnded: false,
+    sessionDate: '2026-07-31',
+    stake: 30,
+    pot: 60,
+    status: 'SETTLED',
+    voidReason: null,
+    goalMinutes: 60,
+    myAchieved: true,
+    myPayout: 60,
+    results: [
+      { userId: 'me', nickname: '나', achieved: true, payout: 60, progressMinutes: 70 },
+      { userId: 'u2', nickname: '수빈', achieved: false, payout: 0, progressMinutes: 20 },
+    ],
+    ...over,
+  };
+}
+
+// 지난 회차가 있는 챌린지 — 카드에 '지난 내기' 줄이 서고, 그 줄을 누르면 카드가 자기 시트를
+// 연다(LastBetResultSheet). 결과 모달 배타(GROMO-1578)의 **실물 레버**로 쓴다: 시임을 스텁으로
+// 갈아끼우지 않고 실제 카드 상태를 움직여야 배선 누락이 드러난다.
+function lastSettledBet(over: Partial<LastSettledBet> = {}): LastSettledBet {
+  return {
+    betDate: '2026-07-31',
+    stake: 30,
+    pot: 60,
+    status: 'SETTLED',
+    results: [
+      { userId: 'me', nickname: '나', achieved: true, payout: 60 },
+      { userId: 'u2', nickname: '수빈', achieved: false, payout: 0 },
+    ],
+    ...over,
+  };
+}
+
+// 카드 시트를 실제로 여닫는다 — 부모는 카드가 올리는 콜백으로만 이 사실을 알 수 있다.
+async function openCardSheet(challengeId = 'c1') {
+  await act(async () => {
+    fireEvent.press(screen.getByTestId(`group.bet.last.${challengeId}`));
+  });
+  expect(screen.getByTestId('group.bet.result.sheet')).toBeOnTheScreen();
+}
+
+async function closeCardSheet() {
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.result.close'));
+  });
+  // 확인 CTA는 SheetShell 퇴장 애니메이션(220ms)을 태운 뒤에 onClose를 부른다(GROMO-1381).
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  });
 }
 
 async function renderRoom() {
@@ -536,30 +601,90 @@ describe('당겨서 새로고침', () => {
   });
 });
 
-describe('초대 시트 ↔ 그룹방 시트 배타(§6-6)', () => {
-  test('초대 링크가 도착하면 챌린지 만들기 시트도 내린다 — 메뉴와 같은 배타 규칙', async () => {
+// ── 챌린지 카드가 소유한 시트 ↔ 결과 모달 배타(GROMO-1578) ──
+// 카드의 시트 4종(지난 결과·다음 활성일·주간·삭제)은 전부 SheetShell asModal이라 결과 모달과
+// 겹치면 딤이 포개지고 표시 순서가 플랫폼 재량이 된다. 카드가 자기 state로 여닫으므로 부모는
+// 콜백(onSheetVisibilityChange) 없이는 이 사실을 알 수 없었다 — 배선이 빠지면 아래가 깨진다.
+describe('카드 시트 ↔ 결과 모달 배타', () => {
+  test('카드 시트가 떠 있으면 결과 모달을 미루고, 닫으면 그때 띄운다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge({ lastSettledBet: lastSettledBet() })]);
+    // 첫 조회에는 결과가 없다 — 시트를 먼저 열어 두는 상태를 만든다(사용자가 지난 결과를
+    // 보고 있는 사이 정산이 끝나 새 결과가 도착하는 실제 순서다).
+    mockGetMyChallengeResults.mockResolvedValue([]);
+    await renderRoom();
+
+    await openCardSheet();
+
+    // 정산이 끝나 결과가 도착했다 — 큐에는 실리지만 시트에 가려 뜨지 않는다.
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await blur();
+    await focus();
+    expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+    // 시트를 닫는 순간 대기하던 결과가 뜬다.
+    await closeCardSheet();
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+  });
+
+  test('시트를 연 카드가 사라져도 모달이 영영 막히지 않는다 — 언마운트에서 열림을 정리한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge({ lastSettledBet: lastSettledBet() })]);
+    mockGetMyChallengeResults.mockResolvedValue([]);
+    await renderRoom();
+
+    await openCardSheet();
+
+    // 재조회에서 그 챌린지가 목록에서 빠졌다(삭제·종료) — 카드가 시트를 문 채 언마운트된다.
     mockGetChallenges.mockResolvedValue([]);
-    const { rerender } = await renderRoom();
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await blur();
+    await focus();
 
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('group.challenge.add'));
-    });
-    // '챌린지 만들기'는 헤더 ＋ 의 접근성 라벨과도 겹친다 — 시트 안에만 있는 CTA로 판정한다.
-    expect(screen.getByTestId('group.challenge.submit')).toBeOnTheScreen();
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+  });
+});
 
-    // 딥링크로 초대가 도착 — 작성 시트와 초대 시트가 동시에 뜨면 딤이 2겹이 된다.
-    await act(async () => {
-      rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />);
-    });
-    expect(screen.queryByTestId('group.challenge.submit')).toBeNull();
+// ── 정산 결과 푸시 수신 → 전경 재조회(GROMO-1580 ④) ──
+// 종료 푸시는 정산 전에 온다 — 그것을 탭해 들어와 방에 머무르는 동안에는 재조회 계기가
+// useFocusEffect·AppState 복귀·지목 변경 셋뿐이라 하나도 발화하지 않는다. 정산이 끝나
+// BET_RESULT가 도착해도 화면이 종전 상태로 멈춰 있던 자리를 이 배선이 닫는다.
+// 신호 모듈(betResultSignal)은 목이 아니라 실물이다 — 스텁으로 갈아끼우면 배선 누락을 못 잡는다.
+describe('정산 결과 푸시 수신', () => {
+  test('포그라운드 체류 중 BET_RESULT를 받으면 재조회하고 결과 모달까지 연다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    // 종료 푸시로 들어온 직후 — 아직 정산 전이라 결과가 없다.
+    mockGetMyChallengeResults.mockResolvedValue([]);
+    await render(<GroupRoomScreen groupId={GROUP_ID} focusChallengeId="c1" onLeft={onLeft} />);
+    await act(async () => {});
+    expect(mockGetGroupDetail).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('group.challengeResult')).toBeNull();
 
-    // 초대 시트가 닫혀도 되살아나지 않는다(가리기만 한 게 아니라 state까지 내려간다).
+    // 정산이 끝나 서버가 결과 푸시를 보냈다(앱은 포그라운드, 이 방에 머무는 중).
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
     await act(async () => {
-      rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
+      notifyBetResultPush();
     });
-    expect(screen.queryByTestId('group.challenge.submit')).toBeNull();
+
+    expect(mockGetGroupDetail).toHaveBeenCalledTimes(2);
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+  });
+
+  test('화면이 안 보이면 재조회하지 않는다 — 다음 포커스가 어차피 같은 조회를 한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    await renderRoom();
+    expect(mockGetGroupDetail).toHaveBeenCalledTimes(1);
+
+    await blur();
+    await act(async () => {
+      notifyBetResultPush();
+    });
+
+    expect(mockGetGroupDetail).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1748,30 +1873,6 @@ describe('초대 링크 공유', () => {
 //  4) 무산·환불도 결과다(IA §4.3) — 단 삭제 챌린지의 회차는 띄우지 않는다(N48 이중 통지 금지).
 //  5) sessionDate 내림차순 순차 큐 — 최근 것부터 하나씩.
 describe('챌린지 결과 모달(GROMO-1279)', () => {
-  function resultEntry(over: Partial<MyChallengeResultEntry> = {}): MyChallengeResultEntry {
-    return {
-      sessionId: 's1',
-      groupId: GROUP_ID,
-      groupName: '아침 6시 집중방',
-      challengeId: 'c1',
-      challengeDeleted: false,
-      challengeEnded: false,
-      sessionDate: '2026-07-31',
-      stake: 30,
-      pot: 60,
-      status: 'SETTLED',
-      voidReason: null,
-      goalMinutes: 60,
-      myAchieved: true,
-      myPayout: 60,
-      results: [
-        { userId: 'me', nickname: '나', achieved: true, payout: 60, progressMinutes: 70 },
-        { userId: 'u2', nickname: '수빈', achieved: false, payout: 0, progressMinutes: 20 },
-      ],
-      ...over,
-    };
-  }
-
   test('정산 결과가 있으면 모달을 띄우고, 같은 회차는 다시 띄우지 않는다(1회 가드)', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
@@ -1969,13 +2070,22 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
     });
 
     test('시트 뒤에서 보류한 결과가 최신 성공 조회에서 사라지면 이탈을 완료한다', async () => {
+      // 카드 시트를 열어 두려면 카드가 있어야 한다 — 방에 들어와 지난 결과를 보던 중
+      // 추방당하는(다음 조회가 MEMBER_ONLY) 실제 순서를 그대로 만든다.
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      mockGetChallenges.mockResolvedValue([challenge({ lastSettledBet: lastSettledBet() })]);
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await renderRoom();
+      await openCardSheet();
+
+      // 추방 + 정산 결과 도착 — 결과는 큐에 실리지만 시트에 가려 뜨지 않고, 이탈은 보류된다.
       mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
       mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
       mockGetChallenges.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
       mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
-
-      await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />);
-      await act(async () => {});
+      await blur();
+      await focus();
       expect(screen.queryByTestId('group.challengeResult')).toBeNull();
       expect(onLeft).not.toHaveBeenCalled();
 
@@ -2000,6 +2110,61 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
     });
   });
 
+  // ── 환불 푸시 착지(GROMO-1579) ──
+  // BET_VOID_REFUND의 삭제 환불 회차는 결과 큐에서 제외된다(N48 이중 통지 금지의 구현체) —
+  // 그래서 탈퇴자가 그 푸시를 탭하면 위 '보여줄 결과가 없으면 즉시 onLeft'가 그대로 걸려
+  // 그룹 목록으로 되돌아갔다. GROMO-1421이 정한 착지점("해당 그룹 화면")이 깨진 것이다.
+  describe('환불 푸시로 들어온 비멤버(refundNotice)', () => {
+    async function renderRefundLanding() {
+      const result = await render(
+        <GroupRoomScreen groupId={GROUP_ID} refundNotice onLeft={onLeft} />,
+      );
+      await act(async () => {});
+      return result;
+    }
+
+    test('결과가 0건이어도 목록으로 튕기지 않고 환불 안내를 세운다', async () => {
+      mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetChallenges.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      // 삭제 회차는 서버·앱 양쪽에서 결과 목록에 실리지 않는다(FR-44-4 · N48).
+      mockGetMyChallengeResults.mockResolvedValue([]);
+
+      await renderRefundLanding();
+
+      expect(onLeft).not.toHaveBeenCalled();
+      expect(screen.getByTestId('group.room.refundNotice')).toBeOnTheScreen();
+      expect(screen.getByText('참가비가 환불됐어요')).toBeOnTheScreen();
+      // 결과 모달은 열지 않는다 — 이 푸시가 이미 알린 사건이다(N48 · 결정 N05).
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+      // '그룹을 불러오지 못했어요'로 떨어뜨리지 않는다 — 조회는 성공했고 멤버가 아닐 뿐이라
+      // 재시도를 권하면 영원히 같은 실패를 반복한다.
+      expect(screen.queryByText('그룹을 불러오지 못했어요')).toBeNull();
+    });
+
+    test('나가기는 사용자가 누를 때만 — 확인을 눌러야 onLeft', async () => {
+      mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetChallenges.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await renderRefundLanding();
+
+      await press('확인');
+      expect(onLeft).toHaveBeenCalledTimes(1);
+    });
+
+    test('멤버라면 안내를 세우지 않는다 — 방을 그대로 연다', async () => {
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      mockGetMyChallengeResults.mockResolvedValue([]);
+
+      await renderRefundLanding();
+
+      expect(screen.queryByTestId('group.room.refundNotice')).toBeNull();
+      expect(screen.getByText('아침 6시 집중방')).toBeOnTheScreen();
+    });
+  });
+
   // 성공 응답은 빈 배열도 정본이다(codex 후속 리뷰 P2). 예전엔 후보 0건이면 큐 반영 자체를
   // 건너뛰어, 시트에 가려 대기하던 결과가 서버에서 제외된 뒤에도 살아남았다 — 시트를 닫는
   // 순간 **서버가 이미 지운 과거 결과**가 뜨고, 삭제 환불 푸시와 겹치면 N48이 금지하는
@@ -2008,13 +2173,15 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
     test('시트에 가려 대기하던 결과가 서버에서 빠지면 큐에서도 사라진다(N48)', async () => {
       mockGetGroupDetail.mockResolvedValue(detail());
       mockGetAnnouncements.mockResolvedValue([]);
-      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+      mockGetChallenges.mockResolvedValue([challenge({ lastSettledBet: lastSettledBet() })]);
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await renderRoom();
 
-      // 초대 시트가 떠 있어 결과가 큐에서 대기만 하는 상태.
-      const { rerender } = await render(
-        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />,
-      );
-      await act(async () => {});
+      // 카드 시트가 떠 있어 결과가 큐에서 대기만 하는 상태.
+      await openCardSheet();
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+      await blur();
+      await focus();
       expect(screen.queryByTestId('group.challengeResult')).toBeNull();
 
       // 그 사이 다른 기기에서 챌린지가 삭제돼 서버가 이 회차를 응답에서 제외했다(FR-44-4).
@@ -2023,9 +2190,7 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
       await focus();
 
       // 시트를 닫아도 사라진 결과가 되살아나선 안 된다 — 환불 푸시가 이미 알린 사건이다.
-      await act(async () => {
-        rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
-      });
+      await closeCardSheet();
       expect(screen.queryByTestId('group.challengeResult')).toBeNull();
     });
 
@@ -2052,21 +2217,21 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
     test('조회 실패는 대기 큐를 건드리지 않는다 — 네트워크 실패로 결과를 잃지 않는다', async () => {
       mockGetGroupDetail.mockResolvedValue(detail());
       mockGetAnnouncements.mockResolvedValue([]);
-      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+      mockGetChallenges.mockResolvedValue([challenge({ lastSettledBet: lastSettledBet() })]);
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await renderRoom();
 
-      const { rerender } = await render(
-        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />,
-      );
-      await act(async () => {});
+      await openCardSheet();
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+      await blur();
+      await focus();
 
       mockGetMyChallengeResults.mockRejectedValue(new Error('network'));
       await blur();
       await focus();
 
       // 시트를 닫으면 대기하던 결과가 그대로 뜬다.
-      await act(async () => {
-        rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
-      });
+      await closeCardSheet();
       expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
     });
   });
@@ -2175,14 +2340,17 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
     test('시트에 가려 대기 중인 결과보다 새 지목을 앞세운다', async () => {
       mockGetGroupDetail.mockResolvedValue(detail());
       mockGetAnnouncements.mockResolvedValue([]);
-      // 초대 시트가 떠 있어 결과 모달이 눌려 있는 상태로 시작한다.
+      mockGetChallenges.mockResolvedValue([challenge({ lastSettledBet: lastSettledBet() })]);
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      const { rerender } = await renderRoom();
+
+      // 카드 시트를 열어 결과 모달이 눌려 있는 상태를 만든다.
+      await openCardSheet();
       mockGetMyChallengeResults.mockResolvedValue([
         resultEntry({ sessionId: 's-other', challengeId: 'c-other', sessionDate: '2026-07-31' }),
       ]);
-      const { rerender } = await render(
-        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />,
-      );
-      await act(async () => {});
+      await blur();
+      await focus();
       expect(screen.queryByTestId('group.challengeResult')).toBeNull();
 
       // 시트가 떠 있는 사이 다른 챌린지 알림을 탭했다 — 파라미터만 갈린다.
@@ -2192,21 +2360,13 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
       ]);
       await act(async () => {
         rerender(
-          <GroupRoomScreen
-            groupId={GROUP_ID}
-            focusChallengeId="c-target"
-            onLeft={onLeft}
-            inviteOpen
-          />,
-        );
-      });
-
-      // 시트를 닫으면 사용자가 탭한 결과가 먼저 열려야 한다.
-      await act(async () => {
-        rerender(
           <GroupRoomScreen groupId={GROUP_ID} focusChallengeId="c-target" onLeft={onLeft} />,
         );
       });
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+      // 시트를 닫으면 사용자가 탭한 결과가 먼저 열려야 한다.
+      await closeCardSheet();
 
       expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
       expect(screen.getByText('7월 30일 결과')).toBeOnTheScreen();
