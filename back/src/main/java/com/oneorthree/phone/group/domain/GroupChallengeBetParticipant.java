@@ -84,9 +84,43 @@ public class GroupChallengeBetParticipant {
     @Column(name = "progress_minutes")
     private Integer progressMinutes;
 
+    /**
+     * 결과 모달 확인 표시(GROMO-1577, N58 · V49) — 1회 노출 가드의 <b>정본</b>이다. 앱 로컬 seen
+     * 마커는 ack 실패 창의 보완재로 잔류할 뿐이고, 기기 교체·재설치를 넘어 가드가 유지되는 것은
+     * 이 컬럼이다. 세팅 경로는 {@code acknowledged_at IS NULL} 조건부 원자 UPDATE 하나뿐이라
+     * (리포지토리 {@code acknowledge}) 중복·동시 호출에도 최초 1회만 박힌다.
+     *
+     * <p><b>정산 시각이 아니다</b> — "언제 결과가 났나"는 회차의 {@code settled_at} 이고, 여기는
+     * "사용자가 그 결과를 봤나"다.
+     */
+    @Column(name = "acknowledged_at")
+    private Instant acknowledgedAt;
+
+    /**
+     * 표시 선점(lease) 시각(GROMO-1577, B17 · V49) — 이 시각 + 리스 수명까지가 유효 점유다.
+     * 만료 판정을 <b>서버 시각으로만</b> 한다(응답에 절대 만료 시각을 싣지 않는다) — 기기 시계가
+     * 서버보다 빠르면 살아 있는 남의 lease 를 즉시 다시 요청해 1회 기회를 태우고, 느리면 만료된
+     * 뒤에도 한참 결과를 안 띄운다({@code ShedLockConfig.usingDbTime()} 과 같은 이유).
+     */
+    @Column(name = "display_claimed_at")
+    private Instant displayClaimedAt;
+
+    /**
+     * 표시 선점 토큰(버전)(GROMO-1577, B17 · V49) — 선점할 때마다 새로 발급된다. 앱은 렌더 직전
+     * 이 토큰으로 자기 선점이 아직 활성인지 확인하고, ack 은 토큰이 일치할 때만 성사된다.
+     * 시각 비교만으로는 "만료 후 남이 재선점" 과 "내 선점이 아직 살아 있음"이 구분되지 않는다.
+     */
+    @Column(name = "display_claim_token")
+    private UUID displayClaimToken;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
+
+    /** 결과 모달 확인 여부 — 조회 응답의 {@code acknowledged} 병기용(N58). */
+    public boolean isAcknowledged() {
+        return acknowledgedAt != null;
+    }
 
     /**
      * 정산 결과 기록. 재실행은 내기 status 가드로 막으므로 여기서는 덮어쓰기만 한다.

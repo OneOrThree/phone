@@ -148,6 +148,55 @@ public class BetEventNotificationService {
                 sessionId, claimed.targets(), claimed.claimed());
     }
 
+    /**
+     * 결과 확인(ack) 연동 — 그 회차의 {@code BET_RESULT} 푸시를 <b>영구히</b> 억제한다
+     * (GROMO-1577 · policy B17). 호출측(결과 ack)의 트랜잭션에 참여하므로 ack 이 롤백되면 이것도
+     * 함께 롤백된다.
+     *
+     * <p>없으면 나는 일: 15분 묶음 슬롯이 닫히기 전이나 조용한 시간 이월(N44) 중에 사용자가 조회로
+     * 먼저 결과를 보고 ack 해도 {@link #flushClaims} 는 참가자의 ack 여부를 보지 않아 <b>이미 본
+     * 결과의 푸시가 나중에 도착</b>한다 — 탭하면 결과 없이 그룹방만 열리는 낡은 알림이다.
+     *
+     * <p><b>이미 있는 클레임을 닫는 것만으로는 부족하다.</b> 클레임을 만드는 리스너는
+     * {@code AFTER_COMMIT} + {@code @Async}({@code BetSessionClosedNotificationListener}) 라
+     * <b>ack 이 먼저 끝날 수 있다</b>: 정산 커밋 → (클레임 아직 없음) → 사용자가 조회로 보고 ack →
+     * 그제야 리스너가 {@code PENDING} 삽입 → flush 가 발송. 순서만 뒤집혔을 뿐 같은 증상이다.
+     * 15분 재훑기도 같은 경로다.
+     *
+     * <p>그래서 <b>tombstone</b> 을 남긴다 — 사건 유니크 {@code (user_id, kind, subject_id)} 를 미리
+     * 점유해 {@code SENT}(소비 확정)로 닫아 두면, 나중에 오는
+     * {@code INSERT ... ON CONFLICT DO NOTHING} 이 <b>자연히 튕기고</b>({@link #claimEvent} 가 0을
+     * 받아 스킵) {@link NotificationSentLogRepository#reclaimExpired} 도 {@code PENDING} 만 집으므로
+     * 되살아나지 않는다. 이미 있는 선점 메커니즘이 그대로 하는 일이라 {@link #flushClaims} 를
+     * 건드리지 않는다 — 재훑기·이월 계약이 그대로 남는다.
+     *
+     * <p><b>INSERT 를 먼저, 소비를 나중에</b> 한다. 순서를 뒤집으면 "소비 이후 · INSERT 이전"의 틈에
+     * 리스너가 커밋한 {@code PENDING} 이 그대로 살아남는다(우리 INSERT 는 충돌로 아무 일도 하지
+     * 않는다). 이 순서면 어느 쪽이 먼저 커밋하든 유니크 인덱스가 직렬화해 준다: 우리가 먼저면
+     * 리스너가 튕기고, 리스너가 먼저면 우리 INSERT 가 충돌한 뒤 소비가 그 행을 닫는다.
+     *
+     * <p>{@code BET_VOID_REFUND} 는 대상이 아니다 — 무효화 환불은 결과 모달과 별개의 통지 사건이고
+     * (N48), 결과를 봤다는 사실이 "환불이 있었다"는 통지를 대신하지 않는다. 그래서 tombstone 도
+     * <b>결과 알림이 실제로 나갈 회차</b>({@code kindOf(status) == BET_RESULT})에만 남긴다 — 환불
+     * 회차에 쓸모없는 행을 쌓지 않는다.
+     */
+    @Transactional
+    public void suppressResultPushOnAck(UUID userId, UUID sessionId, Instant now) {
+        GroupChallengeBetSession session =
+                groupChallengeBetSessionRepository.findById(sessionId).orElse(null);
+        if (session != null
+                && NotificationSentLog.TYPE_BET_RESULT.equals(kindOf(session.getStatus()))) {
+            Instant eventAt = session.getSettledAt() == null ? now : session.getSettledAt();
+            notificationSentLogRepository.insertPendingClaim(
+                    Generators.timeBasedEpochRandomGenerator().generate(), userId,
+                    NotificationSentLog.TYPE_BET_RESULT, sessionId,
+                    session.getGroup().getId(), slotOf(eventAt), now);
+        }
+        // 방금 박은 tombstone 과 이미 있던 미발송 클레임을 한 번에 SENT 로 닫는다.
+        notificationSentLogRepository.consumeUnsentClaims(
+                userId, NotificationSentLog.TYPE_BET_RESULT, sessionId, now);
+    }
+
     /** 5분 flush 크론 진입점 — 슬롯이 닫힌 클레임 + 이월분을 묶어 보낸다. */
     @Transactional
     public PushDispatchSummaryResponse flushDueBundles() {

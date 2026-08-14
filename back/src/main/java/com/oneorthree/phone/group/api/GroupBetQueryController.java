@@ -56,9 +56,13 @@ public class GroupBetQueryController {
         return ResponseEntity.ok(groupBetQueryService.getMyOpenBetSessions(userId));
     }
 
-    @Operation(summary = "내 정산 완료 회차 (그룹 무관) — 결과 모달 큐의 유일한 소스",
-            description = "내가 참가자인 정산 완료 회차(SETTLED·FORFEITED·VOIDED·REFUNDED)를 회차일"
-                    + " 내림차순으로 돌려준다(N53). 그룹 멤버십·챌린지 상태를 보지 않아 탈퇴자·종료"
+    @Operation(summary = "내 미확인 정산 완료 회차 (그룹 무관) — 결과 모달 큐의 유일한 소스",
+            description = "내가 참가자인 정산 완료 회차(SETTLED·FORFEITED·VOIDED·REFUNDED) 중"
+                    + " 아직 확인(ack)하지 않은 것을 회차일 내림차순으로 돌려준다(N53·N58)."
+                    + " 미확인 필터는 limit 보다 먼저 걸린다 — 확인된 행까지 실으면 결과가 11건 이상인"
+                    + " 사용자는 확인된 10건이 상한을 점유해 11번째 미확인 결과를 영영 못 본다."
+                    + " 그래서 응답의 acknowledged 는 항상 false 다(계약 표면으로 유지)."
+                    + " 그룹 멤버십·챌린지 상태를 보지 않아 탈퇴자·종료"
                     + " 챌린지도 실린다. 삭제된 챌린지의 회차는 제외(FR-44-4 — 삭제 환불은"
                     + " BET_VOID_REFUND 푸시가 알린다), UNUSED(0명 종료)도 제외(N52)."
                     + " since 는 settledAt 하한(생략 시 최근 30일 — 30일보다 과거는 30일로 보정),"
