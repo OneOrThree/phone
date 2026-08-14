@@ -72,19 +72,27 @@
 | 내기 | `group_bet_created` | result·C | `createBet` 2xx 직후 (`BetSheet.tsx:330`) | `stake`, `mission_type`, `mission_category` |
 | 내기 | `group_bet_joined` | result·C | 단건 참가(`BetSheet.tsx:357`) · 다음 회차 예약(`JoinNextSheet.tsx:130`) · 주간 예약(`JoinWeekSheet.tsx:164`) 각 2xx 직후 | `stake`(**하루치**), `session_count?`, `mission_type`, `mission_category` |
 | 내기 | `group_bet_canceled` | result·C | 내기가 **통째로 닫힐 때만** — 개설자 취소(`ChallengeCard.tsx:923`) · 마지막 참가자 철회(`ChallengeCard.tsx:860`, `participantsCount === 1`). **서버는 이때 회차 행 자체를 삭제한다** — 아래 각주 | `stake`, `participants_count` |
+| 내기 | `group_challenge_joined` | result·C | 참여 성공 경로에서 `group_bet_joined`와 **나란히** 발행 (`BetSheet.tsx:352` · `JoinNextSheet.tsx` · `JoinWeekSheet.tsx`) — 내기 참여와 별도로 **챌린지 참여 퍼널**을 집계한다 | `session_count?`, `mission_type`, `mission_category` |
+| 결과 | `group_challenge_settled` | result·C | 정산 결과 조회 시 (`groupApi.ts:381-394`) | `status` ∈ `SETTLED \| FORFEITED \| VOIDED \| REFUNDED` |
 | 결과 | **`group_challenge_result_shown`** | exposure·C | **결과 모달이 실제로 뜬 순간** 결과당 1회 (`GroupRoomScreen.tsx:672`) | `status`, `achieved?`, `achiever_count`, `member_count` (+ `mission_type?`·`mission_category?` — §2.1) |
 | 결과 | **`group_challenge_result_closed`** | action·C | 결과 모달을 닫은 순간 (`GroupRoomScreen.tsx:687`) | `dwell_ms` |
 | 결과 | `push_opened` | action·C | 백그라운드 배너 탭(`push.ts:226`)·종료 상태 콜드스타트(`push.ts:252`) | `type` ∈ `BET_RESULT \| CHALLENGE_WINDOW_END` |
 | 보고 | `screentime_window_reported` | result·C | 창 사용분 업로드 **API 성공 시에만** (`screentimeSync.ts:844`) | `minutes`, `is_final` |
 | 보고 | `screentime_window_unsupported` | result·C | 구 바이너리 가드로 업로드를 전체 스킵할 때 **JS 런타임당 1회** (`screentimeSync.ts:691-692`) — 아래 각주 | 없음 |
 
-> **각주 1 — `group_bet_canceled`에는 `CANCELED` 상태가 없다.**
-> `ChallengeCard.tsx:855-858` 주석이 "서버가 내기를 CANCELED로 닫는다"고 적었지만
-> **`GroupBetStatus`에 `CANCELED`는 존재하지 않는다**(`OPEN`·`SETTLED`·`REFUNDED`·`FORFEITED`·
-> `VOIDED`·`UNUSED` 6종). 실제로 `GroupBetService.leaveBet`은 마지막 참가자가 빠지면
-> `groupChallengeBetSessionRepository.delete(session)`으로 **회차 행을 지운다.**
-> 이벤트 이름은 유지하되(구 데이터 연속성) 의미는 "**회차가 사라졌다**"로 읽는다.
-> 코드 주석 정정은 후속이다 — §6 G7.
+> **각주 1 — `GroupBetStatus`는 이름이 같은 타입이 둘이다. 섞어 읽지 않는다.**
+> - 앱 `app/src/types/dto/group.ts:271` — `OPEN`·`SETTLED`·`REFUNDED`·`FORFEITED`·**`CANCELED`**
+> - 서버 `GroupBetStatus.java` — `OPEN`·`SETTLED`·`REFUNDED`·`FORFEITED`·`VOIDED`·`UNUSED`
+>
+> `ChallengeCard.tsx:855-858`이 "서버가 내기를 `CANCELED`로 닫는다"고 적은 것은 **앱 타입 축이라
+> 그 자체로 틀리지 않았다.** 이 각주의 앞선 판이 서버 enum만 보고 "`CANCELED`는 존재하지 않는다"고
+> 단정했는데, 그건 두 타입을 섞어 읽은 것이었다(codex 리뷰가 잡았다).
+>
+> 다만 **서버가 실제로 무엇을 하는지는 따로 확인해야 한다.** `GroupBetService.leaveBet`은 마지막
+> 참가자가 빠지면 `groupChallengeBetSessionRepository.delete(session)`으로 **회차 행을 지운다.**
+> 회차(session)와 내기(bet)는 다른 축이므로 "내기는 `CANCELED`로 닫히고 회차 행은 지워진다"가
+> 동시에 참일 수 있다. **이 이벤트가 어느 축의 사건을 세는지는 확정하지 않는다** — §6 G7.
+> 그때까지 이 행은 "**내기가 통째로 닫혔다**"로만 읽고, 회차 존속 여부를 파생하지 않는다.
 >
 > **각주 2 — `screentime_window_unsupported`는 세션당 1회가 아니다.**
 > 가드 `windowUnsupportedLogged`(`screentimeSync.ts:674`)가 **모듈 전역 boolean**이고
@@ -327,7 +335,8 @@ export function logGroupChallengeResultInterrupted(p: {
 | # | 지표 | 왜 못 재나 | 어디에 걸려 있나 |
 | --- | --- | --- | --- |
 | G1 | **참여 취소율** (`취소 / 참여`) | 마지막 참가자가 아닌 **일반 철회는 대응 이벤트가 없다.** `group_bet_canceled`는 내기가 **통째로 닫힐 때만** 나간다(`ChallengeCard.tsx:855-860`) | `policy.md` §12·`prd.md` §5가 "전용 GA4 이벤트 신설"로 남겨 둔 갭 |
-| G7 | — (측정 갭이 아니라 **코드 주석 오류**) | `ChallengeCard.tsx:855-858`이 "서버가 내기를 CANCELED로 닫는다"고 쓰는데 `GroupBetStatus`에 `CANCELED`가 없고 `leaveBet`은 회차 행을 **삭제**한다(§2 각주 1) | 주석 정정 후속. `analyticsEvents.ts` 죽은 정본 주소 정정(§7-9)과 같은 PR로 묶으면 된다 |
+| G7 | `group_bet_canceled`가 **어느 축의 사건**을 세는가 | 앱 `GroupBetStatus`에는 `CANCELED`가 있고 서버 것에는 없다(§2 각주 1 — 이름만 같은 다른 타입). 그런데 `leaveBet`은 회차 행을 **삭제**한다. 내기가 닫히는 것과 회차가 사라지는 것이 같은 사건인지 확정되지 않았다 | 서버 축 확인 후 각주 1과 이 행을 함께 닫는다 |
+| G8 | **미노출 사유의 정밀도** — 분모 정교화 · `dwell_ms` 백그라운드 편향 · 결과 중복 제거 키 · 이미 노출된 결과의 `blocking_overlay` 제외 · 빈 주간 예약 발화 조건 · 백그라운드 `shown` 확정 | PR #666 리뷰에서 나온 P2 6건. 계약 표면은 성립하지만 **집계 정밀도**를 더 조일 여지가 있다 | 미노출 사유 이벤트를 **실제로 구현할 때** 함께 정한다 — 구현 없이 문서로만 정밀도를 올리면 검증할 수단이 없다 |
 | G2 | `prd.md` §5가 측정 소스로 적은 **`group_bet_left`가 코드에 없다** | 앱 전체 grep 0건. 문서만 있고 helper도 호출부도 없다 | 이름을 `group_bet_left`로 확정할지 포함해 G1과 함께 결정해야 한다. **이 문서가 임의로 정하지 않는다** |
 | G3 | 미션 조합별 **결과 노출** 분포 | `group_challenge_result_shown`의 `mission_*`에 값이 안 실린다(§2.1) | GROMO-1583(앱 DTO 확장) |
 | G4 | **생성 시트 진입 → 생성 성공** 전환 | `challenge_create_started` 호출부 0건 | 미배선 |
