@@ -4,8 +4,10 @@
 // method/path도 함께 잠근다 — 오타 하나가 런타임 404로만 드러나고 타입 검사에는 걸리지 않는다.
 import { AxiosError, AxiosHeaders } from 'axios';
 import {
+  ackMyChallengeResult,
   cancelBet,
   challengeGroupId,
+  claimMyChallengeResult,
   createAnnouncement,
   createBet,
   createChallenge,
@@ -18,9 +20,11 @@ import {
   getGroupChallengeHistory,
   getGroupDetail,
   getGroupOverview,
+  getMyChallengeResults,
   getMyGroups,
   getMyOpenBetSessionsWithToken,
   groupErrorCode,
+  groupErrorRetryAfterMs,
   joinBet,
   joinGroup,
   leaveBet,
@@ -28,18 +32,28 @@ import {
   updateAnnouncement,
   withdrawGroup,
 } from './groupApi';
-import { api } from '@/services/api';
+import {
+  api,
+  getAuthSessionGeneration,
+  getFreshAccessToken,
+  getUserIdFromToken,
+} from '@/services/api';
 import { logGroupChallengeDeleted } from '@/services/analyticsEvents';
 import { todayStrKst } from '@/utils/localDate';
 
 jest.mock('@/services/api', () => ({
   api: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
+  // /me/challenge-results는 토큰을 직접 실어 계정을 박제한다 — 그 세 함수도 목 표면이다.
+  getFreshAccessToken: jest.fn(),
+  getUserIdFromToken: jest.fn(),
+  getAuthSessionGeneration: jest.fn(() => 1),
 }));
 
 // 삭제 계측(group_challenge_deleted)은 groupApi가 발행 지점이다 — 파이어베이스 네이티브 모듈이
 // jest에 없기도 하고, '언제 발행되는가'를 여기서 직접 검증한다.
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeDeleted: jest.fn(),
+  logGroupChallengeSettled: jest.fn(),
 }));
 
 const mockApi = api as unknown as {
@@ -48,6 +62,13 @@ const mockApi = api as unknown as {
   put: jest.Mock;
   delete: jest.Mock;
 };
+const mockGetFreshAccessToken = getFreshAccessToken as jest.MockedFunction<
+  typeof getFreshAccessToken
+>;
+const mockGetUserIdFromToken = getUserIdFromToken as jest.MockedFunction<typeof getUserIdFromToken>;
+const mockGetAuthSessionGeneration = getAuthSessionGeneration as jest.MockedFunction<
+  typeof getAuthSessionGeneration
+>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const NOTICE_ID = 'a1';
@@ -73,6 +94,9 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
     mockApi.post.mockResolvedValue({ data: { groupId: GROUP_ID } });
     mockApi.put.mockResolvedValue({ data: undefined });
     mockApi.delete.mockResolvedValue({ data: undefined });
+    // claim·ack은 전송 직전에 계정을 고정한다(PR #672 P1) — 세션을 못 읽으면 아예 안 나간다.
+    mockGetFreshAccessToken.mockResolvedValue('token-u1');
+    mockGetUserIdFromToken.mockReturnValue('u1');
   });
 
   test('POST /api/v1/groups — 생성 바디를 그대로 보낸다(비밀번호 없음)', async () => {
@@ -290,6 +314,107 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
       _noAuthRetry: true,
     });
   });
+
+  // 노출 선점·확인(GROMO-1577 · 계약 §4). 두 경로가 한 단어 차이라 오타는 런타임 404로만
+  // 드러난다 — joinGroup과 같은 이유로 claim의 빈 바디도 함께 잠근다(생략 시 서버 415).
+  test('POST /me/challenge-results/{sessionId}/claim — 빈 바디를 반드시 싣는다', async () => {
+    mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
+    await expect(claimMyChallengeResult('s1')).resolves.toEqual({ claimToken: 'ct-1' });
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/api/v1/me/challenge-results/s1/claim',
+      {},
+      { headers: { Authorization: 'Bearer token-u1' }, _noAuthRetry: true },
+    );
+  });
+
+  test('POST /me/challenge-results/{sessionId}/ack — claimToken을 바디로 보낸다', async () => {
+    mockApi.post.mockResolvedValue({ data: undefined });
+    await ackMyChallengeResult('s1', 'ct-1');
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/api/v1/me/challenge-results/s1/ack',
+      { claimToken: 'ct-1' },
+      { headers: { Authorization: 'Bearer token-u1' }, _noAuthRetry: true },
+    );
+  });
+});
+
+// GET /me/challenge-results — 결과 모달 큐의 유일한 소스(N53). 여기서 잠그는 것은 **실패를
+// 실패로 말하는가**다: 호출부(GroupRoomScreen)는 성공한 빈 배열을 '결과 없음 정본'으로 읽어
+// 대기 중인 큐까지 비운다.
+describe('GET /me/challenge-results — 토큰 실패는 "결과 없음"이 아니다(G11)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetAuthSessionGeneration.mockReturnValue(1);
+    mockGetUserIdFromToken.mockReturnValue('u1');
+    mockGetFreshAccessToken.mockResolvedValue('token-u1');
+    mockApi.get.mockResolvedValue({ data: { results: [] } });
+  });
+
+  // ⚠️ 이 테스트가 무너지면 사용자는 "결과가 없다"를 보고 지표에는 아무 흔적도 남지 않는다.
+  // getFreshAccessToken은 갱신 실패(네트워크·5xx)를 **던진다** — 그 throw를 삼켜 빈 배열로
+  // 접으면 대기 중인 결과 큐가 통째로 비워진다. 호출부는 allSettled로 감싸 rejected를
+  // resultsUnknown(모르겠다)으로 다루므로, 실패 전파가 올바른 신호다.
+  test('토큰 갱신 실패는 reject한다 — 빈 배열로 접지 않는다', async () => {
+    mockGetFreshAccessToken.mockRejectedValue(new Error('network'));
+    await expect(getMyChallengeResults()).rejects.toThrow();
+    expect(mockApi.get).not.toHaveBeenCalled();
+  });
+
+  // 저장된 토큰이 없는 것도(null) 마찬가지다 — 세션이 있을 때만 부르는 조회라(게스트는 호출부가
+  // 걸러 낸다) 여기서 토큰이 비면 '결과가 없다'가 아니라 '세션을 못 읽었다'다.
+  test('저장된 토큰이 없어도 reject한다 — 세션 부재는 결과 부재가 아니다', async () => {
+    mockGetFreshAccessToken.mockResolvedValue(null);
+    mockGetUserIdFromToken.mockReturnValue(null);
+    await expect(getMyChallengeResults()).rejects.toThrow();
+    expect(mockApi.get).not.toHaveBeenCalled();
+  });
+
+  test('정상 경로 — 검증한 토큰을 직접 싣고 재발급 재시도를 끈다', async () => {
+    await expect(getMyChallengeResults()).resolves.toEqual([]);
+    expect(mockApi.get).toHaveBeenCalledWith('/api/v1/me/challenge-results', {
+      params: { since: undefined, limit: undefined },
+      headers: { Authorization: 'Bearer token-u1' },
+      _noAuthRetry: true,
+    });
+  });
+});
+
+// claim·ack의 **전송 시점** 계정 고정(PR #672 리뷰 P1). 호출 시점을 막는 것은 호스트(W1)
+// 몫이고 여기는 전송 시점을 막는다 — 둘 다 필요하다.
+describe('claim·ack은 조회 계정에 고정된다(P1 — 계정 전환 창)', () => {
+  const SESSION = 'sess-owned-by-u1';
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    mockGetAuthSessionGeneration.mockReturnValue(1);
+    mockGetUserIdFromToken.mockReturnValue('u1');
+    mockGetFreshAccessToken.mockResolvedValue('token-u1');
+    // u1이 이 회차를 조회했다 — 소유 계정이 여기서 기록된다.
+    mockApi.get.mockResolvedValue({ data: { results: [{ sessionId: SESSION, status: 'OPEN' }] } });
+    await getMyChallengeResults();
+    mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
+  });
+
+  // ⚠️ 이 테스트가 무너지면 두 계정이 같은 회차에 참가했을 때 **새 계정이 못 본 결과가
+  // 확인 처리돼 영구히 누락**된다. 인터셉터는 전송 시점의 저장 토큰을 붙이므로, 조회 뒤
+  // 전환된 계정의 토큰으로 claim·ack이 나가는 것을 여기서 끊는다.
+  test('조회 뒤 계정이 바뀌면 아예 보내지 않는다', async () => {
+    mockGetUserIdFromToken.mockReturnValue('u2');
+    mockGetFreshAccessToken.mockResolvedValue('token-u2');
+
+    await expect(claimMyChallengeResult(SESSION)).rejects.toThrow();
+    await expect(ackMyChallengeResult(SESSION, 'ct-1')).rejects.toThrow();
+    expect(mockApi.post).not.toHaveBeenCalled();
+  });
+
+  test('같은 계정이면 그 계정 토큰을 직접 싣고 나간다', async () => {
+    await claimMyChallengeResult(SESSION);
+    expect(mockApi.post).toHaveBeenCalledWith(
+      `/api/v1/me/challenge-results/${SESSION}/claim`,
+      {},
+      { headers: { Authorization: 'Bearer token-u1' }, _noAuthRetry: true },
+    );
+  });
 });
 
 // 챌린지 메타 캐시 — 삭제 계측(파라미터 포함 발행)과 카드 취소의 groupId 역참조가 이 캐시에 기댄다.
@@ -375,5 +500,23 @@ describe('groupErrorCode', () => {
   test('axios 에러가 아니면 null', () => {
     expect(groupErrorCode(new Error('boom'))).toBeNull();
     expect(groupErrorCode(null)).toBeNull();
+  });
+});
+
+// 409 RESULT_CLAIM_HELD의 상대 지연(계약 §4) — 절대 시각은 계약이 금지한다.
+describe('groupErrorRetryAfterMs', () => {
+  test('409 바디의 retryAfterMs를 그대로 돌려준다', () => {
+    const e = axiosErrorWith(409, { code: 'RESULT_CLAIM_HELD', retryAfterMs: 45_000 });
+    expect(groupErrorRetryAfterMs(e)).toBe(45_000);
+  });
+
+  test('값이 없거나 수가 아니거나 음수면 null — "말하지 않았다"와 "0ms 뒤"를 뭉개지 않는다', () => {
+    expect(
+      groupErrorRetryAfterMs(axiosErrorWith(409, { code: 'RESULT_ALREADY_ACKED' })),
+    ).toBeNull();
+    expect(groupErrorRetryAfterMs(axiosErrorWith(409, { retryAfterMs: '3000' }))).toBeNull();
+    expect(groupErrorRetryAfterMs(axiosErrorWith(409, { retryAfterMs: -1 }))).toBeNull();
+    expect(groupErrorRetryAfterMs(new Error('boom'))).toBeNull();
+    expect(groupErrorRetryAfterMs(axiosErrorWith(409, { retryAfterMs: 0 }))).toBe(0);
   });
 });
