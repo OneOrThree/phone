@@ -34,6 +34,20 @@
 
 ---
 
+## 0.1 ⚠️ 이 문서가 지금 보장하지 못하는 것 — 먼저 읽는다
+
+**여기 적힌 이벤트 대부분은 「발생했다」를 세지만, PRD가 요구하는 지표는 「비율」이다.** 그 둘 사이에
+**분모·조인 키·서버 소스**가 빠져 있어 **현재 데이터로 계산되는 비율 지표가 사실상 없다.**
+
+| 못 재는 것 | 왜 |
+|---|---|
+| PRD §5 KPI 3종 | 복귀율·내기 켜짐 비율·회차 달성률 — §6 **G12·G13·G14** |
+| 결과 모달 미노출률 | 분모가 없고 **episode 조인 키도 없다** — §6 **G5·G15** |
+| 회차 단위 정산 도달 | payload에 회차 키가 없고 조회 상한에 걸린다 — §6 **G8·G16** |
+
+**그래서 이 문서의 이벤트는 「장애 감지와 추세 관찰」에 쓰고, 비율 KPI는 갭이 닫힌 뒤에 만든다.**
+개별 이벤트 설명에 붙은 ⚠️는 전부 이 표의 어느 행으로 이어진다.
+
 ## 1. 측정 원칙
 
 그룹 공통 계약의 원칙을 **그대로 상속**한다(`C`=앱 typed helper, `S`=서버 MP, `A`=GA4 자동).
@@ -76,7 +90,7 @@
 | 내기 | `group_bet_joined` | result·C | **기존 회차 참가에서만** — 개설 경로(`requestCreate`)는 이 이벤트를 발행하지 않는다(각주 4). `BetSheet.tsx` — `requestJoin` · 다음 회차 예약(`JoinNextSheet.tsx`) · 주간 예약(`JoinWeekSheet.tsx`, `actual.length > 0`일 때만) 각 2xx 직후. **개설 경로에서는 나가지 않는다** — 아래 각주 4 | `stake`(**하루치**), `session_count?`(**키가 없으면 단건 `1`로 읽는다** — `BetSheet`의 기존 회차 참가는 이 키를 안 보내고 `JoinNextSheet`는 `1`, `JoinWeekSheet`는 실제 예약 일수를 보낸다. 합계를 낼 때 없는 것을 0으로 두면 단건 참가가 통째로 빠진다), `mission_type`, `mission_category` |
 | 내기 | `group_bet_canceled` | result·C | 내기가 **통째로 닫힐 때만** — 개설자 취소 · 마지막 참가자 철회(`ChallengeCard.tsx`, `participantsCount === 1`). **서버는 이때 회차 행 자체를 삭제한다** — 아래 각주 | `stake`, `participants_count` |
 | 내기 | `group_challenge_joined` | result·C | 참여 성공 경로에서 `group_bet_joined`와 **나란히** 발행 (`BetSheet.tsx` `requestCreate` · `JoinNextSheet.tsx` · `JoinWeekSheet.tsx`) — 내기 참여와 별도로 **챌린지 참여 퍼널**을 집계한다 | `session_count?`, `mission_type`, `mission_category` |
-| 결과 | `group_challenge_settled` | result·C | **참가자 각자가** 정산 결과를 조회했을 때 (`groupApi.ts` `getMyChallengeResults`, `userId:sessionId` 키로 1회) — 아래 각주 3 | `status` ∈ `SETTLED \| FORFEITED \| VOIDED \| REFUNDED` |
+| 결과 | `group_challenge_settled` | result·C | ⚠️ **1회 보장이 아니다(best-effort)** — 마커 읽기/쓰기가 실패하면 재시작 뒤 같은 `userId:sessionId`가 다시 발행되고, payload에 회차 키가 없어 **export에서 중복 제거도 못 한다**(§6 G16). **참가자 각자가** 정산 결과를 조회했을 때 (`groupApi.ts` `getMyChallengeResults`, `userId:sessionId` 키로 1회) — 아래 각주 3 | `status` ∈ `SETTLED \| FORFEITED \| VOIDED \| REFUNDED` |
 | 결과 | **`group_challenge_result_shown`** | exposure·C | **결과 모달이 실제로 뜬 순간** 결과당 1회 (`GroupRoomScreen.tsx` — 노출 이펙트) | `status`, `achieved?`, `achiever_count`, `member_count` (+ `mission_type?`·`mission_category?` — §2.1) |
 | 결과 | **`group_challenge_result_closed`** | action·C | 결과 모달을 닫은 순간 (`GroupRoomScreen.tsx` — `onResultClose`) | `dwell_ms` |
 | 결과 | `push_opened` | action·C | 백그라운드 배너 탭·종료 상태 콜드스타트(`push.ts` — `logPushOpened` 호출부 2곳) | `type` ∈ `BET_RESULT \| CHALLENGE_WINDOW_END` |
@@ -374,6 +388,8 @@ export function logGroupChallengeResultInterrupted(p: {
 | --- | --- | --- | --- |
 | G1 | **참여 취소율** (`취소 / 참여`) | 마지막 참가자가 아닌 **일반 철회는 대응 이벤트가 없다.** `group_bet_canceled`는 내기가 **통째로 닫힐 때만** 나간다(`ChallengeCard.tsx`) | `policy.md` §12·`prd.md` §5가 "전용 GA4 이벤트 신설"로 남겨 둔 갭 |
 | G7 | `group_bet_canceled`가 **어느 축의 사건**을 세는가 | 앱 `GroupBetStatus`에는 `CANCELED`가 있고 서버 것에는 없다(§2 각주 1 — 이름만 같은 다른 타입). 그런데 `leaveBet`은 회차 행을 **삭제**한다. 내기가 닫히는 것과 회차가 사라지는 것이 같은 사건인지 확정되지 않았다 | 서버 축 확인 후 각주 1과 이 행을 함께 닫는다 |
+| G15 | **미노출률의 조인 키가 없다** | `group_challenge_result_interrupted`에 `reason`·`candidate_count`뿐이고 분모인 `group_room_viewed`의 `group_id`·`interaction_id` 같은 **episode 상관키가 양쪽 어디에도 없다.** 내부 ref로 게이트해도 **export에는 연결 정보가 안 남는다** — 사용자·시간 근접 조인은 다른 방문의 실패를 잘못 붙인다 | 양쪽에 **같은 비영속 episode 상관키**를 싣거나, 비율 계산이 가능하다는 서술을 지운다. **GROMO-1585** |
+| G16 | **`group_challenge_settled`의 중복·누락** | ⑴ 1회 보장이 best-effort라 마커 실패 시 재발행되는데 payload에 회차 키가 없어 **중복 제거 불가** ⑵ 서버가 최신 `PageRequest.of(0, 10)`만 주고 **커서가 없어** 30일 내 정산이 10건을 넘으면 **11번째 이하는 이 이벤트가 영구히 발행되지 않는다**(`GroupRoomScreen`은 인자 없이 한 번 호출) — 고빈도 참가자가 체계적으로 빠진다 | 비식별 회차 상관키 + 페이지 처리, 또는 **회차 단위는 서버 소스로만**. **GROMO-1585** |
 | G12 | **푸시 복귀율(PRD §5 30%)** | 분모가 실제 FCM 묶음 수여야 하는데 서버가 묶음 성공 건수를 따로 세지 않는다(`sendBundles`가 `sent += claims.size()`) — 복원할 로그·식별자·카운터가 없다 | 서버에 **묶음 성공 카운터** 추가 |
 | G13 | **내기 켜짐 비율(PRD §5)** | 그 지표는 `내기가 켜진 챌린지 / 활성 챌린지`라는 **현재 시점 재고**인데 `group_bet_enabled`는 **생성 시 1회 발행되는 흐름**이다. 챌린지가 ENDED·삭제돼도 취소되지 않고, `group_challenge_deleted`에는 챌린지를 잇는 키가 없으며 캐시 미적중이면 이벤트 자체가 생략된다 | **생성 cohort의 내기 채택률로 재정의**하거나 **활성 챌린지 서버 스냅샷**을 소스로 지정 — PRD와 함께 정한다 |
 | G14 | **회차 달성률(PRD §5 50%)** | `achiever_count`·`member_count`는 **결과를 연 참가자마다 같은 회차 집계를 반복 전송**해 많이 복귀한 회차에 가중치가 붙고 아무도 안 연 회차는 빠진다. `GroupBetSettler`의 정산 요약 로그도 `status`·`pot`·참가자 수만 남기고 **달성자 수를 기록하지 않는다** | 정산 시점의 **달성자 수와 판정 대상 수를 회차당 한 번** 남기는 서버 소스 |
