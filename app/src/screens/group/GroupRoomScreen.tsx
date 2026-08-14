@@ -29,7 +29,11 @@ import {
 import { USER_NOT_FOUND } from '@/services/sessionErrors';
 import { subscribeBetResultPush } from '@/services/betResultSignal';
 import { logGroupInviteShared, logGroupRoomViewed } from '@/services/analyticsEvents';
-import { OVERLAY_PRIORITY, useOverlaySlot } from '@/store/OverlaySlotContext';
+import {
+  OVERLAY_PRIORITY,
+  useOverlaySlot,
+  useOverlaySlotActions,
+} from '@/store/OverlaySlotContext';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import {
   consumeCardInteraction,
@@ -192,6 +196,9 @@ export interface GroupRoomScreenProps {
   onBack?: () => void;
 }
 
+// 공유 시트가 떠 있는 동안 점유할 자리의 이름.
+const SHARE_SLOT_ID = 'groupRoom.shareSheet';
+
 export default function GroupRoomScreen({
   groupId,
   entrySource: rawEntrySource,
@@ -309,6 +316,8 @@ export default function GroupRoomScreen({
   // 지금 **실제로 떠 있는** 시트가 있는가. slot 보유 여부와 다르다 — slot은 이 화면 전체가
   // 공유하는 하나뿐이라, 그것이 granted라는 사실만으로는 "지금 새 시트를 하나 더 열어도
   // 된다"가 되지 않는다.
+  // 공유 시트처럼 **명령형으로 여는** 네이티브 오버레이가 자리를 잡을 때 쓴다.
+  const overlayActions = useOverlaySlotActions();
   const sheetOpen = betSheet !== null || composeOpen || sheetOpenCardIds.length > 0;
 
   const [sheetSlotRequested, setSheetSlotRequested] = useState(false);
@@ -808,6 +817,7 @@ export default function GroupRoomScreen({
       showAlert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
+    overlayActions?.request(SHARE_SLOT_ID, OVERLAY_PRIORITY.sheet);
     try {
       const result = await Share.share({
         message: buildInviteShareMessage(name, invite.url),
@@ -825,8 +835,10 @@ export default function GroupRoomScreen({
       }
     } catch {
       // 공유 시트를 못 띄운 경우 — 사용자에게 알릴 것이 없어 조용히 무시한다.
+    } finally {
+      overlayActions?.release(SHARE_SLOT_ID);
     }
-  }, [groupId, name, showAlert]);
+  }, [groupId, name, overlayActions, showAlert]);
 
   const openNotice = useCallback(() => {
     navigation.navigate('GroupNotice', { groupId, canWrite: canWriteNotice });

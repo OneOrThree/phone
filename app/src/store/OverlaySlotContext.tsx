@@ -61,6 +61,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -101,22 +102,38 @@ const OverlaySlotActionsContext = createContext<OverlaySlotActions | null>(null)
 
 interface OverlaySlotState {
   holderId: string | null;
+  // 지금 이 순간 등록돼 있는 최고 우선순위를 **동기로** 읽는다(아래 maxPriority는 커밋된 값).
+  liveMaxPriority: () => number;
   // 지금 등록돼 있는 요청 중 가장 높은 우선순위(없으면 -1). 보유자가 **스스로 물러날지**를
   // 판단하는 소비자가 읽는다 — 조정자는 뺏지 않지만, 소비자가 자기 도메인 규칙으로 양보하는
   // 것까지 막지는 않는다(그룹 덱 코치마크가 사용자 시트에 자리를 내주는 경우).
   maxPriority: number;
 }
 
-const EMPTY_STATE: OverlaySlotState = { holderId: null, maxPriority: -1 };
+const EMPTY_STATE: OverlaySlotState = {
+  holderId: null,
+  liveMaxPriority: () => -1,
+  maxPriority: -1,
+};
 
 const OverlaySlotStateContext = createContext<OverlaySlotState>(EMPTY_STATE);
 
 export function OverlaySlotProvider({ children }: { children: ReactNode }) {
   const registryRef = useRef<Map<string, OverlaySlotRegistration>>(new Map());
+  // 등록 즉시(동기) 갱신되는 최고 우선순위 — state는 마이크로태스크 뒤에 따라온다.
+  // 양보 판단(결과 호스트의 `yieldsSlot`)은 **이 값**을 봐야 한 박자도 늦지 않는다.
+  const liveMaxPriorityRef = useRef(-1);
   const seqRef = useRef(0);
   // 보유자는 렌더에 쓰이므로 state이고, 판정은 이펙트 안에서 즉시 이뤄지므로 ref 사본도 둔다.
-  const stateRef = useRef<OverlaySlotState>(EMPTY_STATE);
-  const [state, setState] = useState<OverlaySlotState>(EMPTY_STATE);
+  // ⚠️ 초기값에도 **살아 있는 값을 읽는 함수**를 심는다. 기본 EMPTY_STATE의 것은 항상 -1이라,
+  //    첫 판정이 돌기 전에 명령형으로 잡은 자리를 못 읽는다(그게 바로 이 훅이 막으려는 창이다).
+  const initialState = useRef<OverlaySlotState>({
+    holderId: null,
+    liveMaxPriority: () => liveMaxPriorityRef.current,
+    maxPriority: -1,
+  }).current;
+  const stateRef = useRef<OverlaySlotState>(initialState);
+  const [state, setState] = useState<OverlaySlotState>(initialState);
 
   const mountedRef = useRef(true);
   const scheduledRef = useRef(false);
@@ -126,6 +143,8 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  const readLiveMaxPriority = useCallback(() => liveMaxPriorityRef.current, []);
 
   const resolveSlot = useCallback(() => {
     const entries = Array.from(registryRef.current.values());
@@ -150,10 +169,10 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
     if (stateRef.current.holderId === nextHolder && stateRef.current.maxPriority === maxPriority) {
       return;
     }
-    const next = { holderId: nextHolder, maxPriority };
+    const next = { holderId: nextHolder, maxPriority, liveMaxPriority: readLiveMaxPriority };
     stateRef.current = next;
     setState(next);
-  }, []);
+  }, [readLiveMaxPriority]);
 
   // ⚠️ 판정은 **한 커밋의 등록을 모두 모은 뒤** 한 번만 한다(마이크로태스크로 미룬다).
   //    등록은 각 소비자의 이펙트에서 일어나고 이펙트는 트리 순서대로 도는데, 등록될 때마다
@@ -178,6 +197,7 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
       // 같은 id의 재등록(우선순위만 바뀐 경우)은 등록 순서를 보존한다 — 재등록으로 순번이
       // 뒤로 밀리면 같은 우선순위 경쟁에서 이유 없이 진다.
       registryRef.current.set(id, { id, priority, seq: previous?.seq ?? ++seqRef.current });
+      if (priority > liveMaxPriorityRef.current) liveMaxPriorityRef.current = priority;
       settle();
     },
     [settle],
@@ -186,6 +206,10 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
   const release = useCallback(
     (id: string) => {
       if (!registryRef.current.delete(id)) return;
+      liveMaxPriorityRef.current = Array.from(registryRef.current.values()).reduce(
+        (max, entry) => (entry.priority > max ? entry.priority : max),
+        -1,
+      );
       settle();
     },
     [settle],
@@ -218,7 +242,12 @@ export function useOverlaySlot(
   const actions = useContext(OverlaySlotActionsContext);
   const { holderId } = useContext(OverlaySlotStateContext);
 
-  useEffect(() => {
+  // ⚠️ **passive effect가 아니라 layout effect다.** RN Modal은 커밋 때 이미 네이티브에 붙는데,
+  //    passive effect는 그 **뒤에**(paint 이후) 돈다. 그 창에서 결과 호스트가 claim을 끝내면
+  //    "아직 아무도 자리를 요구하지 않았다"고 보고 모달을 **같이** 마운트한다.
+  //    layout effect는 같은 커밋 안에서 paint 전에 돌아 그 창을 닫는다.
+  //    (그래도 **같은 커밋에서 호스트가 먼저 렌더된 경우**는 남는다 — 파일 하단 한계 주석.)
+  useLayoutEffect(() => {
     if (actions === null || !active) return;
     actions.request(id, priority);
     return () => actions.release(id);
@@ -227,6 +256,18 @@ export function useOverlaySlot(
   if (!active) return 'idle';
   if (actions === null) return 'granted';
   return holderId === id ? 'granted' : 'pending';
+}
+
+/**
+ * 조정자에 **명령형으로** 자리를 요청·반납한다.
+ *
+ * 선언형(`useOverlaySlot`)은 상태가 바뀌고 → 렌더 → layout effect 순서라, **오버레이를 여는
+ * 그 호출 안에서** 자리를 먼저 잡아야 하는 것(네이티브 `Alert.alert` · `Share.share`)에는 늦다.
+ * 그런 자리는 이 훅으로 **여는 줄 바로 앞에서** 잡고, 닫히는 자리에서 반납한다.
+ * ⚠️ 반납을 빠뜨리면 자리가 영영 잠긴다 — `try/finally`나 모든 종료 콜백에서 부른다.
+ */
+export function useOverlaySlotActions(): OverlaySlotActions | null {
+  return useContext(OverlaySlotActionsContext);
 }
 
 /**
@@ -249,6 +290,18 @@ export function useOverlaySlotHolder(): string | null {
  * 이 값은 그 판단의 재료다. 지금 이것을 읽는 곳은 그룹 덱 코치마크 하나이고, 규칙은
  * "사용자가 방금 연 시트에는 물러난다(다시 큐에 남는다)"이다.
  */
+/**
+ * 지금 이 순간 등록된 최고 우선순위를 **렌더와 무관하게** 읽는 함수를 돌려준다.
+ * 명령형 경로(네이티브 Alert·공유 시트)가 "자리를 잡았는가"를 그 자리에서 확인할 때 쓴다.
+ */
+export function useOverlayLiveMaxPriority(): () => number {
+  return useContext(OverlaySlotStateContext).liveMaxPriority;
+}
+
 export function useOverlayMaxPriority(): number {
-  return useContext(OverlaySlotStateContext).maxPriority;
+  const { maxPriority, liveMaxPriority } = useContext(OverlaySlotStateContext);
+  // ⚠️ state와 **살아 있는 값** 중 큰 쪽을 쓴다. state는 마이크로태스크 뒤에 따라오므로,
+  //    그것만 보면 "자리를 요구한 오버레이가 이미 붙었는데 아직 안 보이는" 창이 생긴다.
+  //    그 창에서 결과 모달이 아래에 함께 마운트되는 것이 이 배치의 반복된 실패 모드다.
+  return Math.max(maxPriority, liveMaxPriority());
 }

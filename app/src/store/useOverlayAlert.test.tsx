@@ -6,7 +6,12 @@
 // 각 화면 테스트가 Alert 호출 형태로 확인한다.
 import { act, render } from '@testing-library/react-native';
 import { Alert, type AlertButton } from 'react-native';
-import { OVERLAY_PRIORITY, OverlaySlotProvider, useOverlayMaxPriority } from './OverlaySlotContext';
+import {
+  OVERLAY_PRIORITY,
+  OverlaySlotProvider,
+  useOverlayLiveMaxPriority,
+  useOverlayMaxPriority,
+} from './OverlaySlotContext';
 import { useOverlayAlert } from './useOverlayAlert';
 
 // 조정자에 지금 무엇이 등록돼 있는지를 그대로 읽는 관찰자.
@@ -15,6 +20,13 @@ import { useOverlayAlert } from './useOverlayAlert';
 //    바로 이 최고 우선순위 값이다(ChallengeResultHost의 `yieldsSlot`). 그래서 그 값을 본다.
 function PriorityProbe({ onValue }: { onValue: (value: number) => void }) {
   onValue(useOverlayMaxPriority());
+  return null;
+}
+
+// 렌더를 기다리지 않고 **지금 이 순간** 등록 상태를 읽는 통로 — 동기 점유를 확인할 때 쓴다.
+let liveMaxPriority: () => number = () => -1;
+function LiveProbe() {
+  liveMaxPriority = useOverlayLiveMaxPriority();
   return null;
 }
 
@@ -40,6 +52,7 @@ beforeEach(async () => {
     <OverlaySlotProvider>
       <AlertOwner />
       <PriorityProbe onValue={(v) => priorities.push(v)} />
+      <LiveProbe />
     </OverlaySlotProvider>,
   );
   await act(async () => {});
@@ -52,6 +65,56 @@ afterEach(() => {
 function latest(): number {
   return priorities[priorities.length - 1];
 }
+
+// ⚠️ 조정자가 약속한 배타가 새는 자리다 — 열거 문제가 아니라 **계약 자체**의 문제라 잠근다.
+//    자리를 state로 잡으면 `setState → 렌더 → effect` 순서라 `Alert.alert()`이 **이미 뜬 뒤에**
+//    등록된다. 그 창에서 claim이 끝나면 결과 모달이 아래에 함께 마운트된다.
+test('자리는 Alert가 뜨기 **전에** 잡힌다 — 같은 호출 안에서 동기로', () => {
+  let priorityWhenShown = -1;
+  alertSpy.mockImplementation(() => {
+    // Alert가 실제로 떠 있는 그 순간의 등록 상태를 읽는다.
+    priorityWhenShown = liveMaxPriority();
+  });
+
+  // ⚠️ act로 감싸지 않는다 — 감싸면 렌더·이펙트가 함께 흘러가 "동기인가"를 못 본다.
+  showAlert?.('삭제할까요?', '되돌릴 수 없어요.', [{ text: '확인' }]);
+
+  expect(priorityWhenShown).toBe(OVERLAY_PRIORITY.sheet);
+});
+
+// Android의 DialogModule은 새 Alert를 띄우며 기존 것을 dismissExisting()으로 닫는데,
+// 그때 **버튼 콜백 대신 onDismiss만** 부른다. 이걸 안 이으면 대체된 Alert의 자리가 영영 남는다.
+test('버튼 없이 onDismiss로 닫혀도 자리를 반납한다(Android 대체 경로)', async () => {
+  await act(async () => {
+    showAlert?.('첫 번째', '내용');
+  });
+  expect(latest()).toBe(OVERLAY_PRIORITY.sheet);
+
+  const options = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][3] as {
+    onDismiss?: () => void;
+  };
+  expect(options.onDismiss).toBeDefined();
+
+  await act(async () => {
+    options.onDismiss?.();
+  });
+  expect(latest()).toBe(-1);
+});
+
+test('호출부가 준 onDismiss도 함께 불린다', async () => {
+  const onDismiss = jest.fn();
+  await act(async () => {
+    showAlert?.('제목', '내용', [{ text: '확인' }], { onDismiss });
+  });
+  const options = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][3] as {
+    onDismiss?: () => void;
+  };
+  await act(async () => {
+    options.onDismiss?.();
+  });
+  expect(onDismiss).toHaveBeenCalledTimes(1);
+  expect(latest()).toBe(-1);
+});
 
 test('Alert가 떠 있는 동안 sheet 우선순위로 자리를 점유한다', async () => {
   expect(latest()).toBe(-1); // 아무것도 등록돼 있지 않다

@@ -284,6 +284,7 @@ describe('삭제', () => {
       '삭제 실패',
       '이미 삭제된 공지예요.',
       expect.anything(),
+      expect.anything(),
     );
   });
 });

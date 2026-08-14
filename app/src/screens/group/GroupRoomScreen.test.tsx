@@ -167,6 +167,12 @@ const mockResolveGroupRoomNotFound = resolveGroupRoomNotFound as jest.MockedFunc
   typeof resolveGroupRoomNotFound
 >;
 
+// 조정자에 지금 무엇이 등록돼 있는지를 그대로 읽는 관찰자 — 카드 시트·공유 시트 둘 다 쓴다.
+function BlockerProbe({ onValue }: { onValue: (value: number) => void }) {
+  onValue(useOverlayMaxPriority());
+  return null;
+}
+
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const INVITE_URL = `https://link.oneorthree.world/l/${SLUG}?g=${GROUP_ID}`;
 const onLeft = jest.fn();
@@ -612,11 +618,6 @@ describe('당겨서 새로고침', () => {
 describe('카드 시트 → 조정자 blocker 등록', () => {
   // 조정자에 무엇이 등록돼 있는지를 그대로 읽는 관찰자. 시트가 등록되면 최고 우선순위가
   // sheet(300)로 올라가고, 아무도 없으면 -1이다.
-  function BlockerProbe({ onValue }: { onValue: (value: number) => void }) {
-    onValue(useOverlayMaxPriority());
-    return null;
-  }
-
   async function renderRoomWithProbe(values: number[]) {
     const view = await render(
       <OverlaySlotProvider>
@@ -903,6 +904,7 @@ describe('챌린지 섹션', () => {
       '챌린지를 삭제할 수 없어요',
       '진행 중인 내기가 있어 삭제할 수 없어요.',
       expect.anything(),
+      expect.anything(),
     );
     // 실패했으므로 목록을 다시 받지 않는다(카드는 그대로 살아 있다) — 최초 조회의 오늘 1콜뿐.
     expect(mockGetChallenges).toHaveBeenCalledTimes(1);
@@ -1044,6 +1046,7 @@ describe('내기 배선', () => {
       '내기가 바뀌었어요',
       '최신 내기로 다시 열어 주세요.',
       expect.anything(),
+      expect.anything(),
     );
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
@@ -1083,6 +1086,7 @@ describe('내기 배선', () => {
       '마감된 내기예요',
       '이미 마감돼 참가할 수 없어요.',
       expect.anything(),
+      expect.anything(),
     );
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
@@ -1114,6 +1118,7 @@ describe('내기 배선', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '이미 참가한 내기예요',
       '최신 상태로 새로고침했어요.',
+      expect.anything(),
       expect.anything(),
     );
     expect(mockJoinBet).not.toHaveBeenCalled();
@@ -1150,6 +1155,7 @@ describe('내기 배선', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '이미 오늘 내기가 열려 있어요',
       '최신 상태예요. 참가하려면 다시 열어 주세요.',
+      expect.anything(),
       expect.anything(),
     );
     expect(mockCreateBet).not.toHaveBeenCalled();
@@ -1189,6 +1195,7 @@ describe('내기 배선', () => {
       '이미 내일 내기가 열려 있어요',
       '최신 상태예요. 참가하려면 다시 열어 주세요.',
       expect.anything(),
+      expect.anything(),
     );
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
@@ -1213,6 +1220,7 @@ describe('내기 배선', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '끝난 챌린지예요',
       '종료된 챌린지에는 내기를 열 수 없어요.',
+      expect.anything(),
       expect.anything(),
     );
     expect(mockCreateBet).not.toHaveBeenCalled();
@@ -1250,6 +1258,7 @@ describe('내기 배선', () => {
       '끝난 챌린지예요',
       '종료된 챌린지의 내기에는 참가할 수 없어요.',
       expect.anything(),
+      expect.anything(),
     );
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
@@ -1273,6 +1282,7 @@ describe('내기 배선', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '내기를 열 수 없어요',
       '지금은 내기를 이용할 수 없어요. 잠시 후 다시 시도해 주세요.',
+      expect.anything(),
       expect.anything(),
     );
     expect(mockCreateBet).not.toHaveBeenCalled();
@@ -1865,6 +1875,37 @@ describe('초대 링크 공유', () => {
     });
   });
 
+  // ⚠️ 공유 시트도 네이티브 오버레이다 — 떠 있는 동안 결과가 도착하면 결과 모달이 그
+  //    **아래에서** 마운트되며 seen 마커와 ack이 나간다(렌더 커밋 시점에 찍힌다).
+  test('공유 시트가 떠 있는 동안 자리를 점유하고, 끝나면 반납한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const values: number[] = [];
+    let releaseShare: (value: { action: string }) => void = () => undefined;
+    jest.spyOn(Share, 'share').mockReturnValue(
+      new Promise((resolve) => {
+        releaseShare = resolve as (value: { action: string }) => void;
+      }) as ReturnType<typeof Share.share>,
+    );
+
+    await render(
+      <OverlaySlotProvider>
+        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />
+        <BlockerProbe onValue={(v) => values.push(v)} />
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+    expect(values[values.length - 1]).toBe(-1);
+
+    await press('초대');
+    await waitFor(() => expect(values[values.length - 1]).toBe(OVERLAY_PRIORITY.sheet));
+
+    await act(async () => {
+      releaseShare({ action: Share.dismissedAction });
+    });
+    await waitFor(() => expect(values[values.length - 1]).toBe(-1));
+  });
+
   test('발급 실패면 공유 시트를 띄우지 않고 안내한다(폴백 링크 없음)', async () => {
     mockIssueInviteLink.mockRejectedValueOnce(new Error('network'));
     mockGetGroupDetail.mockResolvedValue(detail());
@@ -1877,6 +1918,7 @@ describe('초대 링크 공유', () => {
     expect(Alert.alert).toHaveBeenCalledWith(
       '초대 링크를 만들지 못했어요',
       expect.any(String),
+      expect.anything(),
       expect.anything(),
     );
     expect(logGroupInviteShared).not.toHaveBeenCalled();

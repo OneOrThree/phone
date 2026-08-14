@@ -198,6 +198,7 @@ describe('멤버 관리(강퇴)', () => {
       '내보내기',
       expect.stringContaining('다시 들어올 수 없어요'),
       expect.any(Array),
+      expect.anything(),
     );
 
     await confirmKick(alertSpy);

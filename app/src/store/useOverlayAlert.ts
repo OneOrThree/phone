@@ -22,9 +22,9 @@
 //    결과가 먼저 slot을 쥘 수 있으므로 **승인을 받고 띄워야** 한다. 그 경로는 호출부가
 //    `onRequestSheetSlot` 같은 승인 게이트를 직접 태운다(ChallengeCard의 삭제 확인).
 //    판단 기준은 OverlaySlotContext 헤더의 A/B 문단과 같다: **여는 시점이 동기인가.**
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Alert, type AlertButton } from 'react-native';
-import { OVERLAY_PRIORITY, useOverlaySlot } from './OverlaySlotContext';
+import { OVERLAY_PRIORITY, useOverlaySlotActions } from './OverlaySlotContext';
 
 /**
  * `Alert.alert`과 **같은 시그니처**를 돌려준다 — 호출부는 함수 이름만 바꾸면 된다.
@@ -35,31 +35,58 @@ import { OVERLAY_PRIORITY, useOverlaySlot } from './OverlaySlotContext';
  * @param id 조정자에 등록할 이름 — 화면마다 다르게 준다(같은 이름이 겹치면 서로를 덮는다).
  */
 export function useOverlayAlert(id: string): typeof Alert.alert {
-  // 떠 있는 Alert 수 — 0보다 크면 slot을 점유한다. 카운트인 이유: 실패 통보가 겹쳐 뜨는 경우
-  // (요청 둘이 각각 실패) 하나를 닫았다고 나머지가 떠 있는데 자리를 놓으면 안 된다.
-  const [openCount, setOpenCount] = useState(0);
-  useOverlaySlot(id, { priority: OVERLAY_PRIORITY.sheet, active: openCount > 0 });
+  // ⚠️ 점유는 **명령형**이다. state로 잡으면 `setState → 렌더 → layout effect` 순서라
+  //    `Alert.alert()`이 이미 떠 있는 뒤에 등록된다 — 그 창이 정확히 이 배치가 반복해서
+  //    물린 자리다. 그래서 **여는 줄 바로 앞에서** 동기로 잡는다.
+  const actions = useOverlaySlotActions();
+  // 떠 있는 Alert 수. 카운트인 이유: 실패 통보가 겹쳐 뜨는 경우(요청 둘이 각각 실패)
+  // 하나를 닫았다고 나머지가 떠 있는데 자리를 놓으면 안 된다.
+  const openCountRef = useRef(0);
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
 
-  return useCallback((title, message, buttons, options) => {
-    setOpenCount((count) => count + 1);
-    let released = false;
-    const release = () => {
-      if (released) return; // 버튼 하나당 한 번만 — 중복 반납이 카운트를 음수로 만들지 않게
-      released = true;
-      setOpenCount((count) => Math.max(0, count - 1));
-    };
-    // 버튼이 없으면 RN이 확인 하나를 그린다 — 우리가 같은 것을 명시해 **닫힘 콜백을 얻는다.**
-    const list: AlertButton[] = buttons && buttons.length > 0 ? buttons : [{ text: '확인' }];
-    const wrapped = list.map((button) => ({
-      ...button,
-      onPress: (value?: string) => {
-        release();
-        (button.onPress as ((value?: string) => void) | undefined)?.(value);
-      },
-    }));
-    // ⚠️ `options`는 **호출부가 준 경우에만** 넘긴다. 없는데 지어내면 호출 인자 수가 바뀌어,
-    //    Alert 호출을 단언하는 기존 테스트가 무더기로 깨진다(동작은 그대로인데).
-    if (options === undefined) Alert.alert(title, message, wrapped);
-    else Alert.alert(title, message, wrapped, options);
-  }, []);
+  // 화면이 사라지면 남은 점유를 접는다 — Alert만 떠 있고 화면이 없는 상태가 자리를 잠근다.
+  useEffect(
+    () => () => {
+      if (openCountRef.current > 0) {
+        openCountRef.current = 0;
+        actionsRef.current?.release(id);
+      }
+    },
+    [id],
+  );
+
+  return useCallback(
+    (title, message, buttons, options) => {
+      openCountRef.current += 1;
+      actionsRef.current?.request(id, OVERLAY_PRIORITY.sheet);
+      let released = false;
+      const release = () => {
+        if (released) return; // 한 Alert당 한 번만 — 중복 반납이 카운트를 음수로 만들지 않게
+        released = true;
+        openCountRef.current = Math.max(0, openCountRef.current - 1);
+        if (openCountRef.current === 0) actionsRef.current?.release(id);
+      };
+      // 버튼이 없으면 RN이 확인 하나를 그린다 — 우리가 같은 것을 명시해 **닫힘 콜백을 얻는다.**
+      const list: AlertButton[] = buttons && buttons.length > 0 ? buttons : [{ text: '확인' }];
+      const wrapped = list.map((button) => ({
+        ...button,
+        onPress: (value?: string) => {
+          release();
+          (button.onPress as ((value?: string) => void) | undefined)?.(value);
+        },
+      }));
+      // ⚠️ `onDismiss`도 **항상** 잇는다. Android의 DialogModule은 새 Alert를 띄울 때 기존 것을
+      //    `dismissExisting()`으로 닫는데, 그때 **버튼 콜백 대신 onDismiss만** 부른다. 이걸
+      //    안 이으면 대체된 첫 Alert의 카운트가 영영 안 줄어 자리가 남는다.
+      Alert.alert(title, message, wrapped, {
+        ...options,
+        onDismiss: () => {
+          release();
+          options?.onDismiss?.();
+        },
+      });
+    },
+    [id],
+  );
 }

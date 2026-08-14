@@ -480,6 +480,7 @@ describe('요청이 떠 있는 구간(§6-2)', () => {
       '초대 링크를 만들지 못했어요',
       expect.any(String),
       expect.anything(),
+      expect.anything(),
     );
     expect(logGroupInviteShared).not.toHaveBeenCalled();
   });
@@ -525,10 +526,12 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
       '더 이상 만들 수 없어요',
       '참여할 수 있는 그룹 수를 초과했어요(최대 10개)',
       expect.anything(),
+      expect.anything(),
     );
     expect(Alert.alert).not.toHaveBeenCalledWith(
       '그룹을 만들지 못했어요',
       expect.any(String),
+      expect.anything(),
       expect.anything(),
     );
   });
@@ -559,6 +562,7 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
         '그룹을 만들지 못했어요',
         expect.any(String),
         expect.anything(),
+        expect.anything(),
       );
 
       // 로그아웃은 Alert 확인 버튼에서만 — 알럿이 뜬 것만으론 아직 불리지 않는다.
@@ -585,6 +589,7 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
     expect(Alert.alert).toHaveBeenCalledWith(
       '그룹을 만들지 못했어요',
       '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
       expect.anything(),
     );
   });

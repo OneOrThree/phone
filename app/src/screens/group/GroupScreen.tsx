@@ -18,7 +18,12 @@ import { requestChallengeResultRefresh } from './challengeResultGate';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { useUser } from '@/store/UserContext';
-import { OVERLAY_PRIORITY, useOverlayBlocker, useOverlaySlot } from '@/store/OverlaySlotContext';
+import {
+  OVERLAY_PRIORITY,
+  useOverlayBlocker,
+  useOverlaySlot,
+  useOverlaySlotActions,
+} from '@/store/OverlaySlotContext';
 import { getMyGroups } from '@/services/groupApi';
 import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -166,6 +171,9 @@ function emptyGuideSnapshot(userId: string): GroupCardSummarySnapshot<LeagueMemb
     },
   };
 }
+
+// 공유 시트가 떠 있는 동안 점유할 자리의 이름.
+const SHARE_SLOT_ID = 'group.shareSheet';
 
 export default function GroupScreen() {
   // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
@@ -409,6 +417,10 @@ export default function GroupScreen() {
     [navigation],
   );
 
+  // ⚠️ 공유 시트도 네이티브 오버레이다 — 떠 있는 동안 결과가 도착하면 결과 모달이 그
+  //    **아래에서** 마운트되며 seen 마커와 ack이 나간다(렌더 커밋 시점에 찍힌다).
+  //    그래서 여는 줄 바로 앞에서 자리를 잡고, 어떻게 끝나든 finally 에서 반납한다.
+  const overlayActions = useOverlaySlotActions();
   const onInviteToGroup = useCallback(
     async (groupId: string, groupName: string) => {
       let issuedInvite: { slug: string; url: string };
@@ -418,6 +430,7 @@ export default function GroupScreen() {
         showAlert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
         return;
       }
+      overlayActions?.request(SHARE_SLOT_ID, OVERLAY_PRIORITY.sheet);
       try {
         const result = await Share.share({
           message: buildInviteShareMessage(groupName, issuedInvite.url),
@@ -432,9 +445,11 @@ export default function GroupScreen() {
         }
       } catch {
         // 공유 시트를 띄우지 못한 경우 화면 상태는 그대로 유지한다.
+      } finally {
+        overlayActions?.release(SHARE_SLOT_ID);
       }
     },
-    [showAlert],
+    [overlayActions, showAlert],
   );
 
   // 찾기 시트의 '참여 중' 행 탭 — 참여가 아니라 이동이라 목록 카드 탭과 같은 분기(그룹방 push)를 탄다.
