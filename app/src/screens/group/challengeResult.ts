@@ -13,6 +13,11 @@
 //   · 값은 sessionDate — 60일 지난 마커를 기록 시점에 정리한다. 서버 큐가 최근 30일 경계라
 //     마커가 항상 더 오래 산다(30일 프룬이면 마커가 먼저 지워진 회차가 이미 본 모달로 재생된다).
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  ackMyChallengeResult,
+  claimMyChallengeResult,
+  groupErrorRetryAfterMs,
+} from '@/services/groupApi';
 import { STORAGE_KEYS } from '@/types/storage';
 import { kstDateStr } from '@/utils/localDate';
 import type {
@@ -69,6 +74,10 @@ export interface ChallengeResultCandidate {
   myAchieved: boolean | null;
   myPayout: number | null;
   memberCount: number;
+  // 서버 확인 표시(GROMO-1577 · N58) — 다른 기기에서 이미 본 회차. 중복 노출의 **1차 필터**다.
+  // 선택 필드인 이유는 미션 스냅샷과 같다 — 손으로 후보를 만드는 화면(MenuScreen 디자인
+  // 프리뷰)이 생략할 수 있어야 하고, undefined는 '아직 확인 안 됨'으로 접어 읽는다.
+  acknowledged?: boolean;
 }
 
 // 모달을 만들 수 있는 정산 결말 — 이 밖의 상태(OPEN·UNUSED·미래의 신설값)는 방어적으로 버린다.
@@ -131,6 +140,9 @@ export function pickChallengeResults(
       myAchieved: e.myAchieved ?? null,
       myPayout: e.myPayout ?? null,
       memberCount: e.results.length,
+      // 구서버 응답엔 없다(undefined) — '아직 확인 안 됨'으로 접는다. 여기서 거르지 않는 이유는
+      // filterUnseenChallengeResults 주석 참조(서버 표시와 로컬 마커를 한 자리에서 합친다).
+      acknowledged: e.acknowledged === true,
     }))
     .sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1));
 }
@@ -139,8 +151,19 @@ function guardKey(userId: string, sessionId: string): string {
   return `${STORAGE_KEYS.sessionResultSeen}:${userId}:${sessionId}`;
 }
 
-// 이미 보여준 결과를 걸러낸다. 가드를 못 읽으면 아무것도 노출하지 않되, 그 사실을 **null로
-// 구분해서** 돌려준다(codex 후속 리뷰 P2).
+// 이미 보여준 결과를 걸러낸다 — **서버 확인 표시와 로컬 마커를 합치는 유일한 자리**다.
+//
+// 합치는 방식(GROMO-1577 · N58):
+//   1차 = 서버 `acknowledged` — 계정 축이라 **기기를 건너서** 성립한다(다른 기기에서 본 결과).
+//   2차 = 로컬 마커 — ack 실패 창의 **보완재**다(노출은 됐는데 ack가 못 나간 회차).
+// 서버 표시를 **저장소를 읽기 전에** 적용한다. 순서가 뒤집히면 안 되는 이유:
+//   · 서버가 "이미 봤다"고 말한 것은 저장소를 못 읽어도 **확정된 사실**이다. 나중에 거르면
+//     그 사실이 가드 읽기 실패에 함께 묻혀 null(모르겠다)로 강등된다.
+//   · 남는 후보가 없으면 저장소를 아예 읽지 않아 null 창 자체가 줄어든다 — null은 탈퇴자
+//     화면이 이탈을 미루고 오류를 띄우는 값이라, 좁을수록 좋다.
+// 마커는 계속 기록한다(markChallengeResultSeen) — ack가 실패해도 그 기기에서는 다시 안 뜬다.
+//
+// 가드를 못 읽으면 아무것도 노출하지 않되, 그 사실을 **null로 구분해서** 돌려준다(codex 후속 리뷰 P2).
 //
 // ⚠️ 예전엔 읽기 실패도 `[]`(= 볼 것이 없다)로 뭉갰다. 그러면 탈퇴자가 결과 푸시로 들어온
 // 경우가 무너진다: 화면(GroupRoomScreen)은 MEMBER_ONLY를 받고 "보여줄 결과가 0건"이라 읽어
@@ -153,11 +176,12 @@ export async function filterUnseenChallengeResults(
   userId: string,
   candidates: ChallengeResultCandidate[],
 ): Promise<ChallengeResultCandidate[] | null> {
-  if (candidates.length === 0) return candidates;
+  const unacked = candidates.filter((c) => c.acknowledged !== true);
+  if (unacked.length === 0) return unacked;
   try {
-    const pairs = await AsyncStorage.multiGet(candidates.map((c) => guardKey(userId, c.sessionId)));
+    const pairs = await AsyncStorage.multiGet(unacked.map((c) => guardKey(userId, c.sessionId)));
     const seen = new Set(pairs.filter(([, value]) => value !== null).map(([key]) => key));
-    return candidates.filter((c) => !seen.has(guardKey(userId, c.sessionId)));
+    return unacked.filter((c) => !seen.has(guardKey(userId, c.sessionId)));
   } catch {
     return null; // 가드 읽기 실패 = 판정 불가
   }
@@ -195,4 +219,40 @@ async function writeSeenGuard(userId: string, sessionId: string, date: string): 
     .map(([key]) => key);
   const remove = [...legacy, ...stale];
   if (remove.length > 0) await AsyncStorage.multiRemove(remove);
+}
+
+// ── 기기 간 1회 노출 — 선점(claim) · 확인(ack) (GROMO-1577 · N58 · 계약 §3) ──────────
+// 로컬 마커는 **그 기기 안에서만** 유효하다. 같은 계정으로 폰·태블릿을 쓰면 두 기기가 같은 큐를
+// 들고 있어 같은 결과가 두 번 뜬다 — 그 축을 서버가 닫는다.
+// 호출 순서는 D8이 정한다: slot → **선점** → 활성 claim 검증 → 노출 → **ack**.
+
+// 선점 시도. **409를 예외로 던지지 않는다** — 다른 기기가 쥐고 있거나(RESULT_CLAIM_HELD) 이미
+// 확인된 결과(RESULT_ALREADY_ACKED)인 것은 사고가 아니라 정상 흐름의 판정 결과다.
+// 네트워크·5xx도 같은 실패 값으로 접는다: 어느 쪽이든 답은 '지금은 띄우지 않는다' 하나뿐이고,
+// 다시 시도할지는 호출부의 재조회 타이머(V2 — 30초 간격·최대 5회)가 쥔다. 이미 확인된 결과는
+// 그 재조회 응답에서 acknowledged=true로 내려와 후보에서 빠지므로 여기서 구분할 필요가 없다.
+// retryAfterMs는 서버가 준 **상대 지연**만 싣는다(없으면 null — 절대 시각은 계약이 금지).
+export async function claimChallengeResult(
+  sessionId: string,
+): Promise<{ ok: true; claimToken: string } | { ok: false; retryAfterMs: number | null }> {
+  try {
+    const data = await claimMyChallengeResult(sessionId);
+    const claimToken = data?.claimToken;
+    // 토큰 없는 200은 계약 위반이다 — 빈 토큰으로 노출까지 가면 ack가 반드시 STALE로 튕겨
+    // 서버 확인이 영영 안 남는다. 선점 실패로 접는다.
+    if (typeof claimToken !== 'string' || claimToken.length === 0) {
+      return { ok: false, retryAfterMs: null };
+    }
+    return { ok: true, claimToken };
+  } catch (e) {
+    return { ok: false, retryAfterMs: groupErrorRetryAfterMs(e) };
+  }
+}
+
+// 확인 보고 — **노출 후**에 부른다(D8). 서버에서 멱등이라 중복 호출은 no-op이다.
+// **실패해도 던지지 않는다.** 호출부가 이 실패를 '노출 실패'로 읽어 같은 결과를 다시 띄우면,
+// 사용자는 방금 본 결과를 또 보게 된다 — ack 실패는 재노출이 아니라 **ack 재시도로만** 메우는
+// 창이고(IA §4.3이 수용한 바로 그 창), 그 사이 같은 기기의 중복은 로컬 마커가 막는다.
+export async function ackChallengeResult(sessionId: string, claimToken: string): Promise<void> {
+  await ackMyChallengeResult(sessionId, claimToken).catch(() => {});
 }

@@ -462,10 +462,28 @@ export interface MyChallengeResultEntry {
   myAchieved: boolean | null;
   myPayout: number | null;
   results: MyChallengeResultRow[];
+  // 서버 확인 표시(GROMO-1577 · N58) — **다른 기기에서 이미 본** 회차다. 결과 모달의 1차
+  // 중복 필터가 이 값이고, 로컬 마커(gromo:sessionResult:*)는 ack가 못 남은 창을 메우는
+  // 보완재로 남는다(filterUnseenChallengeResults가 둘을 합친다).
+  // 아래 둘은 미션 스냅샷 4필드와 같은 이유로 **선택 필드다** — 나중에 붙은 additive 필드라
+  // 구서버 응답·손으로 만든 픽스처에는 통째로 없다(undefined). undefined는 '아직 확인 안 됨'
+  // 으로 접어 읽는다: 모르면 한 번 더 보여주는 쪽이 안전하고(안 보여주면 영영 못 본다),
+  // 그 중복은 로컬 마커가 받는다.
+  acknowledged?: boolean;
+  // 정산 시각(ISO instant) — 10건 상한을 넘길 때 쓸 `since` 커서의 재료(V5).
+  // ⚠️ **이번 배치는 싣기만 하고 소비하지 않는다.** 지금 응답에 이 값이 없어 앱이 커서를
+  // 만들 수단 자체가 없었다 — 상한에 걸린 사용자의 11번째 결과는 조회할 방법이 없었다.
+  settledAt?: string;
 }
 
 export interface MyChallengeResultsResponse {
   results: MyChallengeResultEntry[];
+}
+
+// POST /me/challenge-results/{sessionId}/claim 200 — 이 기기가 결과 1건의 노출을 선점했다.
+// claimToken은 ack 바디에 그대로 돌려준다(서버가 현재 claim과 대조 — 다르면 RESULT_CLAIM_STALE).
+export interface ChallengeResultClaimResponse {
+  claimToken: string;
 }
 
 // GET /me/bet-sessions?status=OPEN 항목 — 내가 참가비를 건 진행 중 회차(그룹 무관).

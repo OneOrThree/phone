@@ -20,6 +20,7 @@ import { todayStrKst } from '@/utils/localDate';
 import { STORAGE_KEYS } from '@/types/storage';
 import type {
   ChallengeDeletionPreviewResponse,
+  ChallengeResultClaimResponse,
   CreateAnnouncementRequest,
   CreateBetRequest,
   CreateBetResponse,
@@ -72,6 +73,10 @@ export const BET_SESSION_CLOSED = 'BET_SESSION_CLOSED'; // 409 참가 마감(now
 export const BET_SCREENTIME_PERMISSION_REQUIRED = 'BET_SCREENTIME_PERMISSION_REQUIRED'; // 409 (N50)
 export const BET_INSUFFICIENT_BALANCE = 'BET_INSUFFICIENT_BALANCE'; // 409 잔액 부족(join-week은 총액)
 export const INVALID_SESSION_DATES = 'INVALID_SESSION_DATES'; // 400 join-week 지정 날짜 무효·중복
+// 결과 모달 노출 선점·확인(GROMO-1577 · N58 — 계약 §4).
+export const RESULT_CLAIM_HELD = 'RESULT_CLAIM_HELD'; // 409 다른 기기가 선점 중({ retryAfterMs })
+export const RESULT_ALREADY_ACKED = 'RESULT_ALREADY_ACKED'; // 409 이미 확인된 결과(재선점 불가)
+export const RESULT_CLAIM_STALE = 'RESULT_CLAIM_STALE'; // 409 ack 토큰이 현재 claim과 다름
 
 // POST /api/v1/groups — 그룹 생성. password·description은 보내지 않는다(§3-1-3).
 export async function createGroup(body: CreateGroupRequest): Promise<CreateGroupResponse> {
@@ -358,9 +363,19 @@ export async function getMyChallengeResults(page?: {
   // axios 인터셉터가 새 토큰을 붙이거나, 응답 후 저장소에서 새 userId를 읽어 옛 결과를
   // 새 계정에 귀속시킬 수 있다(코드리뷰 반영).
   const requestGeneration = getAuthSessionGeneration();
-  const accessToken = await getFreshAccessToken().catch(() => null);
+  // ⚠️ 토큰 실패를 삼키지 않는다(GROMO-1577). getFreshAccessToken은 **갱신 실패(네트워크·5xx)를
+  // 던지고** null은 저장된 토큰이 아예 없을 때만이다. 예전엔 `.catch(() => null)`로 둘을 접어
+  // 빈 배열을 돌려줬는데, 호출부(GroupRoomScreen)는 그것을 **성공한 빈 응답**으로 읽어
+  // 대기 중인 결과 큐까지 비운다 — 사용자에겐 "결과가 없다"로 보이고 지표엔 흔적도 안 남는다.
+  // 호출부는 이미 Promise.allSettled로 감싸 rejected를 resultsUnknown(=모르겠다)으로 다루므로,
+  // 실패를 그대로 올리는 것이 올바른 신호다. '모르겠다'와 '없다'를 같은 값으로 말하지 않는다.
+  const accessToken = await getFreshAccessToken();
   const userId = getUserIdFromToken(accessToken ?? '');
-  if (!accessToken || !userId) return [];
+  if (!accessToken || !userId) {
+    // 세션이 있을 때만 부르는 조회다(게스트는 호출부가 걸러 낸다) — 여기서 토큰·userId가 비면
+    // 세션 상태를 읽지 못한 것이지 '결과가 없다'가 아니다. 역시 실패로 올린다.
+    throw new Error('CHALLENGE_RESULTS_NO_SESSION');
+  }
   const { data } = await api.get<MyChallengeResultsResponse>(
     '/api/v1/me/challenge-results',
     // undefined 값 키는 axios가 직렬화하지 않는다 — 생략 시 서버 기본(최근 30일·10건)을 탄다.
@@ -398,6 +413,31 @@ export async function getMyChallengeResults(page?: {
     }
   }
   return results;
+}
+
+// POST /api/v1/me/challenge-results/{sessionId}/claim — 결과 1건의 **노출 선점**(GROMO-1577 · N58).
+// 여러 기기가 같은 큐를 들고 있어도 한 곳에서만 모달이 뜨게 한다(순서는 D8:
+// slot → 선점 → 활성 claim 검증 → 노출 → ack. ack를 노출 앞에 두면 렌더가 끊겼을 때
+// **어느 기기에서도 못 본다**).
+// 바디는 항상 {} 다 — joinGroup·joinBet과 같은 이유로 생략하면 서버가 415를 준다.
+// 200 { claimToken } · 409 RESULT_CLAIM_HELD { retryAfterMs } · 409 RESULT_ALREADY_ACKED ·
+// 404 USER_NOT_FOUND/그 회차의 내 참가 행 없음. 409 판정은 challengeResult.claimChallengeResult가 쥔다.
+export async function claimMyChallengeResult(
+  sessionId: string,
+): Promise<ChallengeResultClaimResponse> {
+  const { data } = await api.post<ChallengeResultClaimResponse>(
+    `/api/v1/me/challenge-results/${sessionId}/claim`,
+    {},
+  );
+  return data;
+}
+
+// POST /api/v1/me/challenge-results/{sessionId}/ack — 확인 보고(멱등). 200만 나온다:
+// 대상 없음·이미 확인됨·중복 호출 전부 no-op. 토큰이 낡았으면 409 RESULT_CLAIM_STALE.
+// 노출 **후**에 부른다 — 서버는 이 호출로 남은 claim과 (user, BET_RESULT, sessionId) 알림
+// 클레임까지 닫는다(안 닫으면 이미 본 결과의 푸시가 나중에 도착한다).
+export async function ackMyChallengeResult(sessionId: string, claimToken: string): Promise<void> {
+  await api.post<void>(`/api/v1/me/challenge-results/${sessionId}/ack`, { claimToken });
 }
 
 // GET /api/v1/me/bet-sessions?status=OPEN — 내가 참가비를 건 진행 중 회차(그룹 무관, N43).
@@ -523,4 +563,16 @@ export function groupErrorCode(e: unknown): string | null {
   if (!axios.isAxiosError(e)) return null;
   const body = e.response?.data as { code?: string } | undefined;
   return body?.code ?? null;
+}
+
+// 서버 에러 바디의 `retryAfterMs`(409 RESULT_CLAIM_HELD) — **상대 지연**만 읽는다.
+// 절대 만료 시각은 계약이 금지한다(인스턴스 간 시계가 어긋나면 락이 조기 만료된다 —
+// ShedLockConfig.usingDbTime()과 같은 근거). 값이 없거나 수가 아니거나 음수·무한대면 null:
+// '서버가 언제 다시 오라고 말하지 않았다'와 '0ms 뒤 즉시'를 같은 값으로 말하지 않는다.
+export function groupErrorRetryAfterMs(e: unknown): number | null {
+  if (!axios.isAxiosError(e)) return null;
+  const body = e.response?.data as { retryAfterMs?: unknown } | undefined;
+  const value = body?.retryAfterMs;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  return value;
 }
