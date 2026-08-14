@@ -60,6 +60,7 @@
 | 금지 접미사 | `_skipped`·`_blocked`는 이 코드베이스에 **없다.** 새로 만들지 않는다 |
 | 카운트 | `*_count` (`achiever_count`·`member_count`·`session_count`·`participants_count`) |
 | 시간 | `*_ms` / `*_minutes` (`dwell_ms`·`duration_minutes`) |
+| **boolean** | **GA4에는 문자열 `'true'`/`'false'`로 나간다** — `analytics.ts`의 `sanitizeParams`가 변환한다. `has_window`·`is_final`·`achieved`가 해당한다. **BigQuery 스키마를 boolean으로 잡거나 boolean 조건으로 필터하면 값이 통째로 빠진다** |
 | **금지 키** | **`value`** — GA4 예약 파라미터(숫자 이벤트 값)라 사용 금지(`logNotificationSettingChanged` 주석). **`source`** — 공통 파라미터(클라/서버 출처 `client`)와 이름이 겹쳐 덮어쓴다(`logFriendRequestSent` 주석) |
 
 ---
@@ -72,14 +73,14 @@
 | 생성 | `group_bet_enabled` | result·C | 같은 성공 경로에서 참가비를 정했을 때만 (`ChallengeComposeSheet.tsx` — 같은 핸들러의 참가비 분기) | `stake`, `mission_type`, `mission_category` |
 | 생성 | `group_challenge_deleted` | result·C | `DELETE .../challenges/{id}` 2xx 직후 (`groupApi.ts` — `deleteChallenge`) | `mission_type`, `mission_category` — 메타는 API 층 캐시에서 꺼내며, **캐시 미적중이면 이벤트 자체가 안 나간다** |
 | 내기 | `group_bet_created` | result·C | `createBet` 2xx 직후 (`BetSheet.tsx` — `requestCreate`) | `stake`, `mission_type`, `mission_category` |
-| 내기 | `group_bet_joined` | result·C | 기존 회차 참가(`BetSheet.tsx` — `requestJoin`) · 다음 회차 예약(`JoinNextSheet.tsx`) · 주간 예약(`JoinWeekSheet.tsx`, `actual.length > 0`일 때만) 각 2xx 직후. **개설 경로에서는 나가지 않는다** — 아래 각주 4 | `stake`(**하루치**), `session_count?`, `mission_type`, `mission_category` |
+| 내기 | `group_bet_joined` | result·C | **기존 회차 참가에서만** — 개설 경로(`requestCreate`)는 이 이벤트를 발행하지 않는다(각주 4). `BetSheet.tsx` — `requestJoin` · 다음 회차 예약(`JoinNextSheet.tsx`) · 주간 예약(`JoinWeekSheet.tsx`, `actual.length > 0`일 때만) 각 2xx 직후. **개설 경로에서는 나가지 않는다** — 아래 각주 4 | `stake`(**하루치**), `session_count?`(**키가 없으면 단건 `1`로 읽는다** — `BetSheet`의 기존 회차 참가는 이 키를 안 보내고 `JoinNextSheet`는 `1`, `JoinWeekSheet`는 실제 예약 일수를 보낸다. 합계를 낼 때 없는 것을 0으로 두면 단건 참가가 통째로 빠진다), `mission_type`, `mission_category` |
 | 내기 | `group_bet_canceled` | result·C | 내기가 **통째로 닫힐 때만** — 개설자 취소 · 마지막 참가자 철회(`ChallengeCard.tsx`, `participantsCount === 1`). **서버는 이때 회차 행 자체를 삭제한다** — 아래 각주 | `stake`, `participants_count` |
 | 내기 | `group_challenge_joined` | result·C | 참여 성공 경로에서 `group_bet_joined`와 **나란히** 발행 (`BetSheet.tsx` `requestCreate` · `JoinNextSheet.tsx` · `JoinWeekSheet.tsx`) — 내기 참여와 별도로 **챌린지 참여 퍼널**을 집계한다 | `session_count?`, `mission_type`, `mission_category` |
 | 결과 | `group_challenge_settled` | result·C | **참가자 각자가** 정산 결과를 조회했을 때 (`groupApi.ts` `getMyChallengeResults`, `userId:sessionId` 키로 1회) — 아래 각주 3 | `status` ∈ `SETTLED \| FORFEITED \| VOIDED \| REFUNDED` |
 | 결과 | **`group_challenge_result_shown`** | exposure·C | **결과 모달이 실제로 뜬 순간** 결과당 1회 (`GroupRoomScreen.tsx` — 노출 이펙트) | `status`, `achieved?`, `achiever_count`, `member_count` (+ `mission_type?`·`mission_category?` — §2.1) |
 | 결과 | **`group_challenge_result_closed`** | action·C | 결과 모달을 닫은 순간 (`GroupRoomScreen.tsx` — `onResultClose`) | `dwell_ms` |
 | 결과 | `push_opened` | action·C | 백그라운드 배너 탭·종료 상태 콜드스타트(`push.ts` — `logPushOpened` 호출부 2곳) | `type` ∈ `BET_RESULT \| CHALLENGE_WINDOW_END` |
-| 보고 | `screentime_window_reported` | result·C | 창 사용분 업로드 **API 성공 시에만** (`screentimeSync.ts` — `syncWindowUsage` 업로드 성공 분기) | `minutes`, `is_final` |
+| 보고 | `screentime_window_reported` | result·C | **서버가 요청을 받았을 때**(2xx). ⚠️ **저장·판정에 실제로 쓰였다는 뜻이 아니다** — `reportWindowUsage`는 참가 전 측정값·정산 후 도착·허용 시각 밖·더 오래된 `measuredAt`을 **저장하지 않고도 조용히 204**로 끝낸다. 실제 반영 수로 집계하면 부푼다. 창 사용분 업로드 **API 성공 시에만** (`screentimeSync.ts` — `syncWindowUsage` 업로드 성공 분기) | `minutes`, `is_final` |
 | 보고 | `screentime_window_unsupported` | result·C | **iOS에서만** — 구 바이너리 가드로 업로드를 전체 스킵할 때 **JS 런타임당 1회** (`screentimeSync.ts` — `syncWindowUsage` 구 바이너리 가드) — 아래 각주 | 없음 |
 
 > **각주 1 — `GroupBetStatus`는 이름이 같은 타입이 둘이다. 섞어 읽지 않는다.**
@@ -119,7 +120,10 @@
 > 그래서 참가자 5명의 같은 회차는 **최대 5건**이 되고, 앱을 열지 않은 참가자의 건은 **아예 남지
 > 않는다.** 이 값을 회차 정산 수로 집계하면 참가자 수와 앱 복귀율에 따라 부풀거나 누락된다.
 > **회차 단위 정산 지표는 서버 로그가 정본이고, 이 이벤트는 「정산 결과가 사용자에게 도달했는가」의
-> 앱 축 신호로만 쓴다.** 회차 단위로 보려면 `session_id` 중복 제거가 선행이다(미구현 — §6 G8).
+> 앱 축 신호로만 쓴다.** ⚠️ **회차 단위 집계는 지금 불가능하다.** 실제 호출은 `logGroupChallengeSettled({ status })`뿐이라
+> payload에 회차를 가리키는 값이 없어 중복 제거할 키 자체가 없다. **회차 단위 분석은 식별자가 있는
+> 서버 로그로만 한다.** 앱 축에서 하려면 비식별 회차 상관키를 payload에 더해야 하고, 그건 raw ID를
+> 넣지 않는 그룹 공통 원칙과 함께 판단해야 한다 — §6 G8.
 >
 > `challenge_create_started`(`analyticsEvents.ts` `logChallengeCreateStarted`)는 **호출부가 0건**이다(앱 전체 grep).
 > 챌린지 만들기 시트 진입은 지금 아무 이벤트도 남기지 않으므로,
@@ -147,7 +151,7 @@
 > 호출부(`GroupRoomScreen.tsx` 노출 이펙트)는 두 키를 **넘기지 않는다.** 구 데이터 연속성을 위해
 > 시그니처만 옵셔널로 남긴 상태다(`logGroupChallengeResultShown` 시그니처 주석).
 > 서버는 이미 준다 — `MyChallengeResultResponse`에 `missionCategory`·`missionType`이 있고
-> `GroupBetQueryService`가 채운다(커밋 `ef47da7d5`, PR #573). **남은 갭은 앱 DTO뿐이며 GROMO-1583이 가져간다.**
+> `GroupBetQueryService`가 채운다(커밋 `ef47da7d5`, PR #573). **앱 DTO는 이미 들어왔다**(`MyChallengeResultEntry`에 두 필드 존재 — GROMO-1583, PR #665 머지). **남은 갭은 호출부다** — `GroupRoomScreen`의 `logGroupChallengeResultShown` 호출이 그 값을 넘기지 않는다. 완료된 티켓을 기다리지 말고 **GROMO-1585에서 호출부를 배선한다.**
 > 그때까지 **결과 노출을 미션 조합별로 쪼개는 분석은 불가능하다** — 지금 데이터로 그 축을 그리면 전부 빈 값이다.
 
 **발화 1회 가드**(`GroupRoomScreen.tsx` 노출 이펙트)
@@ -219,7 +223,7 @@ flowchart LR
     Shown --> Closed["group_challenge_result_closed(dwell_ms)"]
 ```
 
-- `push_opened(BET_RESULT)` → 30% 복귀는 PRD §5의 목표치다. 다만 **이 이벤트는 백그라운드 탭과
+- `push_opened(BET_RESULT)` → 30% 복귀는 PRD §5의 목표치다. ⚠️ **분모는 발송 claim 행이 아니라 실제 FCM 묶음 수여야 한다** — `sendBundles`가 `(userId, groupId, slotAt)`로 여러 claim을 한 건으로 묶어 보내면서 모든 행을 `SENT`로 바꾸고 요약 로그의 `sent`도 claim 수만큼 올리는데, 탭은 묶음당 한 번이라 **결과가 많은 사용자일수록 복귀율이 인위적으로 낮아진다.** 다만 **이 이벤트는 백그라운드 탭과
   콜드스타트만 센다** — 포그라운드에서 표시한 로컬 알림을 탭한 경로(`push.ts`)는 딥링크만 타고
   `push_opened`를 발행하지 않는다. 복귀율은 **하한**으로 읽어야 한다.
 - 정산과 노출 사이에 **끊기는 구간이 세 군데** 있는데(§5) 지금 계측으로는 전부 보이지 않는다.
@@ -292,7 +296,7 @@ export function logGroupChallengeResultInterrupted(p: {
 | --- | --- | --- | --- | --- |
 | `guard_read_failed` | 노출 마커(AsyncStorage) 읽기 실패로 "이미 본 결과인지"를 판정하지 못했다. 안전을 위해 아무것도 띄우지 않는다 | `GroupRoomScreen.tsx` — `filterUnseenChallengeResults`가 `null`을 돌려준 자리 — `filterUnseenChallengeResults`가 `null`을 돌려준 자리 | `candidates.length` — **검사 대상 수(상한)**. 위 각주 | 기기 저장소 장애. 0에 가까워야 정상. 늘면 마커 전략 자체를 다시 봐야 한다 |
 | `fetch_failed` | `/me/challenge-results` 조회가 실패해 후보 목록을 못 만들었다 | `GroupRoomScreen.tsx` — `resultEntries === null && userId`인 자리 — `resultEntries === null && userId`인 자리 | **생략** (후보 목록이 없어 알 수 없다) | 네트워크·서버 축. **비율이 아니라 절대 건수로 읽는다** — 아래 분모 절 |
-| `blocking_overlay` | 후보는 있고 판정도 됐는데 다른 시트가 떠 있어 **미뤘다**. 시트가 닫히면 뜬다 | `GroupRoomScreen.tsx` — `currentResult !== null && !resultVisible`인 자리 — `currentResult !== null && !resultVisible`인 자리 | `resultQueue.length` (**안다**) | 지연이지 유실이 아니다. **①②와 절대 합산하지 않는다.** 이 값이 크면 시트 배타 규칙(N04)을 다시 볼 근거가 된다 |
+| `blocking_overlay` | 후보는 있고 판정도 됐는데 다른 오버레이가 떠 있어 **미뤘다**. 닫히면 뜬다. **차단 조건은 PR #669 기준으로 `betSheet`·`composeOpen`·`sheetOpenCardIds`(카드 소유 시트 4종: 지난 결과·다음 활성일·주간·삭제)다** — `⋯`는 라우트 push라 대상이 아니고 `inviteOpen`은 제거됐다(동시에 존재할 수 없다) | `GroupRoomScreen.tsx` — `currentResult !== null && !resultVisible`인 자리 — `currentResult !== null && !resultVisible`인 자리 | `resultQueue.length` (**안다**) | 지연이지 유실이 아니다. **①②와 절대 합산하지 않는다.** 이 값이 크면 시트 배타 규칙(N04)을 다시 볼 근거가 된다 |
 
 **발화 가드 — 이게 없으면 숫자가 거짓말한다**
 
@@ -356,6 +360,7 @@ export function logGroupChallengeResultInterrupted(p: {
 | --- | --- | --- | --- |
 | G1 | **참여 취소율** (`취소 / 참여`) | 마지막 참가자가 아닌 **일반 철회는 대응 이벤트가 없다.** `group_bet_canceled`는 내기가 **통째로 닫힐 때만** 나간다(`ChallengeCard.tsx`) | `policy.md` §12·`prd.md` §5가 "전용 GA4 이벤트 신설"로 남겨 둔 갭 |
 | G7 | `group_bet_canceled`가 **어느 축의 사건**을 세는가 | 앱 `GroupBetStatus`에는 `CANCELED`가 있고 서버 것에는 없다(§2 각주 1 — 이름만 같은 다른 타입). 그런데 `leaveBet`은 회차 행을 **삭제**한다. 내기가 닫히는 것과 회차가 사라지는 것이 같은 사건인지 확정되지 않았다 | 서버 축 확인 후 각주 1과 이 행을 함께 닫는다 |
+| G10 | **일 목표형 종료 푸시의 반응** | `push_opened`가 `CHALLENGE_WINDOW_END`만 싣는다 — `pushOpenedTypeFromData`가 `CHALLENGE_ENDED`를 제외해(PR #669 기준) 라우팅은 정상인데 **계측만 빠진다.** 종료 푸시 반응을 보면 일 목표형 표본이 조용히 누락된다 | `PushOpenedType` 유니온 한 줄 — **GROMO-1585** |
 | G9 | **퍼널의 마지막 칸 「재참여」가 이어지지 않는다** | §2.1이 정의한 퍼널은 `생성 → 내기 → 결과 확인 → 재참여`인데, **어느 이벤트도 "이 결과를 본 뒤의 재참여"를 직전 결과와 연결하지 않는다** — `group_bet_joined`에 직전 결과를 가리키는 값이 없다. 결과 노출이 재참여로 이어졌는지가 곧 이 모달의 존재 이유인데 그 칸이 비어 있다 | 새 파라미터 설계가 필요하다(raw ID를 넣지 않는 그룹 공통 원칙과 함께 봐야 한다). GROMO-1585에서 미노출 이벤트와 함께 판단 |
 | G8 | **미노출 사유의 정밀도** — 분모 정교화 · `dwell_ms` 백그라운드 편향 · 결과 중복 제거 키 · 이미 노출된 결과의 `blocking_overlay` 제외 · 빈 주간 예약 발화 조건 · 백그라운드 `shown` 확정 | PR #666 리뷰에서 나온 P2 6건. 계약 표면은 성립하지만 **집계 정밀도**를 더 조일 여지가 있다 | 미노출 사유 이벤트를 **실제로 구현할 때** 함께 정한다 — 구현 없이 문서로만 정밀도를 올리면 검증할 수단이 없다 |
 | G2 | `prd.md` §5가 측정 소스로 적은 **`group_bet_left`가 코드에 없다** | 앱 전체 grep 0건. 문서만 있고 helper도 호출부도 없다 | 이름을 `group_bet_left`로 확정할지 포함해 G1과 함께 결정해야 한다. **이 문서가 임의로 정하지 않는다** |
@@ -376,7 +381,9 @@ export function logGroupChallengeResultInterrupted(p: {
 4. `achieved`가 `null`인 결과에서 payload에 `achieved` **키 자체가 없는지** 확인한다
    (`'null'`·`false`로 나가면 미판정과 미달성이 뭉개진다).
 5. `group_challenge_result_closed`는 `shown` 없이 단독으로 나가지 않아야 한다.
-   `closed` 수는 항상 `shown` 이하다.
+   ⚠️ **`closed ≤ shown`은 「앱 수명 전체의 호출 순서」에만 성립하고 일별·실험별 구간에는 성립하지
+   않는다.** 23:59에 뜬 모달을 자정 뒤에 닫으면 다음 날 구간은 `closed=1, shown=0`이다 — 정상
+   데이터가 이 게이트를 위반한다. **같은 기간 단순 건수 비교로 쓰지 말고 누적 호출 관계로만 본다.**
 6. §5의 `blocking_overlay`는 **한 view episode당 1건**을 넘지 않아야 한다 — 시트를 여러 번
    여닫아도, 큐에 결과가 여러 건 쌓여 연속으로 가려져도 1건이다(§5.3의 게이트와 같은 단위).
 7. 미노출 이벤트를 도입한 뒤에는 `shown` 발화 수가 **변하지 않아야 한다** —
