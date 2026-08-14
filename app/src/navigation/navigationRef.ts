@@ -95,6 +95,9 @@ export function navigateToDeepLink(link: string): void {
     pendingLink = link; // 컨테이너 준비 전 → 버퍼링
     return;
   }
+  // 컨테이너 준비 전 버퍼에 남아 있던 링크가 있더라도, 준비 후 도착한 새 링크가
+  // 최신 목적지다. onReady가 초기화를 기다리는 동안 오래된 링크를 다시 소비하지 않게 한다.
+  pendingLink = null;
   // 새 딥링크는 **종류·파라미터 유효성과 무관하게** 진행 중인 그룹 목록 조회를 무효화한다
   // (코덱스 리뷰). 그룹 링크를 탭해 조회가 도는 동안 보관함에서 home·friends나 g가 깨진 링크를
   // 다시 탭하면, 세대를 여기서 올리지 않을 경우 먼저 시작한 조회가 뒤늦게 끝나며 최신 목적지

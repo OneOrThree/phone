@@ -7,6 +7,12 @@ export type FocusEntrySource =
   | 'group_find'
   | 'invite'
   | 'home_fab'
+  | 'home'
+  | 'stats_compare'
+  | 'league'
+  | 'friend'
+  | 'group'
+  | 'notification'
   | 'unknown';
 
 export interface CardInteractionContext {

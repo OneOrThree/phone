@@ -28,6 +28,7 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
     >
       <CharacterCreator
         userId={userId}
+        entrySource="character_select"
         onSaved={(uri) => (onComplete ? onComplete(uri) : navigation.goBack())}
       />
     </SettingsScaffold>

@@ -13,6 +13,7 @@ import {
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useToast } from '@/store/ToastContext';
 import { T } from '@/constants/theme';
+import { logAllowedAppsUpdated } from '@/services/analyticsEvents';
 
 // SET·집중 중 허용 앱 관리 화면.
 // 집중 세션 실드에서 예외로 열어줄 앱들을 고른다.
@@ -112,12 +113,15 @@ export default function AllowedAppsScreen() {
       // 편집 전 스냅샷과 앱/카테고리/웹도메인 개수가 모두 같으면 실제 변경이 없는 것으로 본다.
       if (
         before != null &&
-        before.applications === result.applications &&
-        before.categories === result.categories &&
-        before.webDomains === result.webDomains
+        (before.selectionSignature && result.selectionSignature
+          ? before.selectionSignature === result.selectionSignature
+          : before.applications === result.applications &&
+            before.categories === result.categories &&
+            before.webDomains === result.webDomains)
       ) {
         return;
       }
+      logAllowedAppsUpdated({ app_count: result.applications });
       // 성공 통보(선택지 없음) → 토스트. 실패·확인 알럿은 Alert 그대로 둔다(정책 D8).
       // ⚠️ 단, **구 바이너리에서는 Alert를 유지한다.** 그쪽 네이티브는 모달 dismiss 완료를
       //    기다리지 않고 promise를 풀어서, 토스트가 아직 떠 있는 모달 아래에서 등장 연출과

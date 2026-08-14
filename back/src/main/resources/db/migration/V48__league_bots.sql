@@ -477,7 +477,6 @@ END $$;
 INSERT INTO user_wallets (user_id, balance, version, updated_at)
 SELECT id, 0, 0, now() FROM users WHERE is_bot = true
 ON CONFLICT (user_id) DO NOTHING;
-
 INSERT INTO user_focus_time_settings (user_id, daily_focus_time_goal_minutes, updated_at)
 SELECT id, 0, now() FROM users WHERE is_bot = true
 ON CONFLICT (user_id) DO NOTHING;
@@ -1794,4 +1793,3 @@ FROM (
     GROUP BY island.user_id
 ) summary
 ON CONFLICT (user_id) DO NOTHING;
-
