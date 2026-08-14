@@ -5,7 +5,7 @@
 | 상위 | [챌린지 지도](./README.md) · [정책 정본](./policy.md) · [PRD §5 성공 지표](./prd.md) |
 | 역할 | 챌린지·내기의 **생성·참여·결과** 이벤트 이름, 발행 주체, 파라미터, 발화 조건의 단일 정본 |
 | 제외 | 그룹 공통 이벤트(`group_viewed`·`group_room_viewed`·카드 덱)는 [그룹 공통 분석 계약](../group/shared/analytics.md)이 소유한다. 화면 구조는 [IA](./information-architecture.md), 구현 위치는 [LLD](./low-level-design.md) |
-| 기준 | 2026-08-14 `origin/main`(`1d8295006`). 표의 모든 행은 `app/src/services/analyticsEvents.ts`의 실제 정의·호출부와 대조해 적었다 |
+| 기준 | 2026-08-14 `origin/main`(`e78d689ec` — PR #650 병합 후). 표의 모든 행은 `app/src/services/analyticsEvents.ts`의 실제 정의·호출부와 대조해 적었다 |
 
 ---
 
@@ -20,15 +20,16 @@
 `prd.md` §5의 서술이 이벤트 이름 몇 개를 나열할 뿐이었다.
 
 **게다가 코드가 가리키는 주소가 저장소에 없다.**
-`analyticsEvents.ts:590`·`:623`·`:672`와 `types/dto/group.ts:261`이
+`analyticsEvents.ts:631`과 `types/dto/group.ts:261`이
 `docs/app/challenge-impl-2026-08/contract.md §계측`을 정본으로 인용하는데,
 저장소에 **`docs/app/` 디렉터리 자체가 없다**(개인 스크래치라 gitignore 대상).
 같은 파일의 `event-logging-design.md`(`:33`·`:388`·`:412`·`:689` 등) 인용도 마찬가지로 실재하지 않는다.
 
 > **이제 챌린지 계측의 정본은 이 문서다.**
-> 코드 주석의 죽은 주소를 이 문서로 고치는 작업은 **후속**이다 —
-> PR #650이 `analyticsEvents.ts`를 +223/−21로 바꾸는 중이라 이번 배치에서는 이 파일을
-> 아무도 건드리지 않는다(배치 결정 로그 N07). 주석 정정은 #650 머지 후에 한다.
+> 코드 주석의 죽은 주소를 이 문서로 고치는 작업은 **후속**이다 — 이 배치가 계측 코드를 문서로만
+> 남긴 이유는 PR #650이 같은 파일을 +223/−21로 바꾸고 있었기 때문인데(배치 결정 로그 N07),
+> **그 #650은 2026-08-13에 머지됐다**(`e78d689ec`). 즉 이 문서의 기준 트리에는 이미 반영돼 있고
+> 코드 배선은 지금 열려 있다 — **GROMO-1585**가 가져간다.
 
 ---
 
@@ -52,13 +53,13 @@
 | 규칙 | 내용 |
 | --- | --- |
 | 이름 | `snake_case`, `<도메인>_<서브도메인>_<행위>`. 40자를 넘기면 `sanitizeName`(`analytics.ts:92`)이 잘라 **다른 이벤트로 뭉갠다** |
-| 사유 있는 중단 | `_interrupted` 접미사 + `reason` enum. 선례 `group_deck_guide_interrupted`(`analyticsEvents.ts:487-490`) |
-| 실패 | `_failed` 접미사. 선례 `focus_marker_start_failed`(`:160`)·`group_deck_guide_read_failed`(`:485`)·`guide_complete_write_failed`(`:493`)·`onboarding_signup_failed`(`:102`) |
-| 미지원 | `_unsupported`. 선례 `screentime_window_unsupported`(`:683`) |
+| 사유 있는 중단 | `_interrupted` 접미사 + `reason` enum. 선례 `group_deck_guide_interrupted`(`analyticsEvents.ts:530-534`) |
+| 실패 | `_failed` 접미사. 선례 `focus_marker_start_failed`(`:186`)·`group_deck_guide_read_failed`(`:527`)·`guide_complete_write_failed`(`:535`)·`onboarding_signup_failed`(`:100`) |
+| 미지원 | `_unsupported`. 선례 `screentime_window_unsupported`(`:746`) |
 | 금지 접미사 | `_skipped`·`_blocked`는 이 코드베이스에 **없다.** 새로 만들지 않는다 |
 | 카운트 | `*_count` (`achiever_count`·`member_count`·`session_count`·`participants_count`) |
 | 시간 | `*_ms` / `*_minutes` (`dwell_ms`·`duration_minutes`) |
-| **금지 키** | **`value`** — GA4 예약 파라미터(숫자 이벤트 값)라 사용 금지(`analyticsEvents.ts:361`). **`source`** — 공통 파라미터(클라/서버 출처 `client`)와 이름이 겹쳐 덮어쓴다(`:278`) |
+| **금지 키** | **`value`** — GA4 예약 파라미터(숫자 이벤트 값)라 사용 금지(`analyticsEvents.ts:387`). **`source`** — 공통 파라미터(클라/서버 출처 `client`)와 이름이 겹쳐 덮어쓴다(`:278`) |
 
 ---
 
@@ -73,12 +74,12 @@
 | 내기 | `group_bet_joined` | result·C | 단건 참가(`BetSheet.tsx:357`) · 다음 회차 예약(`JoinNextSheet.tsx:130`) · 주간 예약(`JoinWeekSheet.tsx:164`) 각 2xx 직후 | `stake`(**하루치**), `session_count?`, `mission_type`, `mission_category` |
 | 내기 | `group_bet_canceled` | result·C | 내기가 **통째로 닫힐 때만** — 개설자 취소(`ChallengeCard.tsx:923`) · 마지막 참가자 철회(`ChallengeCard.tsx:860`, `participantsCount === 1`). **서버는 이때 회차 행 자체를 삭제한다** — 아래 각주 | `stake`, `participants_count` |
 | 내기 | `group_challenge_joined` | result·C | 참여 성공 경로에서 `group_bet_joined`와 **나란히** 발행 (`BetSheet.tsx:352` · `JoinNextSheet.tsx` · `JoinWeekSheet.tsx`) — 내기 참여와 별도로 **챌린지 참여 퍼널**을 집계한다 | `session_count?`, `mission_type`, `mission_category` |
-| 결과 | `group_challenge_settled` | result·C | 정산 결과 조회 시 (`groupApi.ts:381-394`) | `status` ∈ `SETTLED \| FORFEITED \| VOIDED \| REFUNDED` |
+| 결과 | `group_challenge_settled` | result·C | **참가자 각자가** 정산 결과를 조회했을 때 (`groupApi.ts:391`, `userId:sessionId` 키로 1회) — 아래 각주 3 | `status` ∈ `SETTLED \| FORFEITED \| VOIDED \| REFUNDED` |
 | 결과 | **`group_challenge_result_shown`** | exposure·C | **결과 모달이 실제로 뜬 순간** 결과당 1회 (`GroupRoomScreen.tsx:672`) | `status`, `achieved?`, `achiever_count`, `member_count` (+ `mission_type?`·`mission_category?` — §2.1) |
 | 결과 | **`group_challenge_result_closed`** | action·C | 결과 모달을 닫은 순간 (`GroupRoomScreen.tsx:687`) | `dwell_ms` |
 | 결과 | `push_opened` | action·C | 백그라운드 배너 탭(`push.ts:226`)·종료 상태 콜드스타트(`push.ts:252`) | `type` ∈ `BET_RESULT \| CHALLENGE_WINDOW_END` |
 | 보고 | `screentime_window_reported` | result·C | 창 사용분 업로드 **API 성공 시에만** (`screentimeSync.ts:844`) | `minutes`, `is_final` |
-| 보고 | `screentime_window_unsupported` | result·C | 구 바이너리 가드로 업로드를 전체 스킵할 때 **JS 런타임당 1회** (`screentimeSync.ts:691-692`) — 아래 각주 | 없음 |
+| 보고 | `screentime_window_unsupported` | result·C | 구 바이너리 가드로 업로드를 전체 스킵할 때 **JS 런타임당 1회** (`screentimeSync.ts:754-755`) — 아래 각주 | 없음 |
 
 > **각주 1 — `GroupBetStatus`는 이름이 같은 타입이 둘이다. 섞어 읽지 않는다.**
 > - 앱 `app/src/types/dto/group.ts:271` — `OPEN`·`SETTLED`·`REFUNDED`·`FORFEITED`·**`CANCELED`**
@@ -95,13 +96,20 @@
 > 그때까지 이 행은 "**내기가 통째로 닫혔다**"로만 읽고, 회차 존속 여부를 파생하지 않는다.
 >
 > **각주 2 — `screentime_window_unsupported`는 세션당 1회가 아니다.**
-> 가드 `windowUnsupportedLogged`(`screentimeSync.ts:674`)가 **모듈 전역 boolean**이고
+> 가드 `windowUnsupportedLogged`(`screentimeSync.ts:697`)가 **모듈 전역 boolean**이고
 > 리셋 지점이 없다. 앱 프로세스가 여러 GA4 세션에 걸쳐 살아 있으면 그 사이 전부 1건으로 접힌다.
 > **하한도 상한도 아니다.** 한 런타임이 여러 GA4 세션에 걸치면 과소 집계되고, 반대로 크래시나
 > 강제 종료 후 재실행되면 같은 GA4 세션 안에서 다시 발행된다. **JS 런타임 단위 진단값**으로만
 > 읽는다 — "미지원 사용자가 존재하는가"와 그 추세를 보는 값이지, 세션·사용자 수로 환산하지 않는다.
 
-> `challenge_create_started`(`analyticsEvents.ts:691`)는 **호출부가 0건**이다(앱 전체 grep).
+> **각주 3 — `group_challenge_settled`는 회차 수가 아니라 「참가자가 결과를 조회한 횟수」다.**
+> `getMyChallengeResults` 응답을 받은 **각 계정에서** `userId:sessionId` 키로 한 번씩 발행된다.
+> 그래서 참가자 5명의 같은 회차는 **최대 5건**이 되고, 앱을 열지 않은 참가자의 건은 **아예 남지
+> 않는다.** 이 값을 회차 정산 수로 집계하면 참가자 수와 앱 복귀율에 따라 부풀거나 누락된다.
+> **회차 단위 정산 지표는 서버 로그가 정본이고, 이 이벤트는 「정산 결과가 사용자에게 도달했는가」의
+> 앱 축 신호로만 쓴다.** 회차 단위로 보려면 `session_id` 중복 제거가 선행이다(미구현 — §6 G8).
+>
+> `challenge_create_started`(`analyticsEvents.ts:739`)는 **호출부가 0건**이다(앱 전체 grep).
 > 챌린지 만들기 시트 진입은 지금 아무 이벤트도 남기지 않으므로,
 > "생성 시트 진입 → 생성 성공" 전환율은 현재 계산할 수 없다.
 
@@ -111,7 +119,7 @@
 정산이 끝났다는 사실은 서버가 알지만, 그걸 **사용자가 실제로 봤는지**는 이 이벤트만 안다.
 `push_opened(BET_RESULT)`가 "푸시를 눌러 들어왔다"까지라면 이 이벤트는 "결과가 눈앞에 떴다"이다.
 
-정의 `analyticsEvents.ts:648-656` · 호출 `GroupRoomScreen.tsx:672-680`.
+정의 `analyticsEvents.ts:696-704` · 호출 `GroupRoomScreen.tsx:672-680`.
 
 | 파라미터 | 값 | 왜 싣는가 |
 | --- | --- | --- |
@@ -125,7 +133,7 @@
 > **각주 — 미션 메타 2종은 정의만 있고 값이 없다.**
 > v2에서 결과 소스가 `/me/challenge-results`로 바뀌며(N53) 응답에 미션 메타가 없어졌고,
 > 호출부(`GroupRoomScreen.tsx:672-680`)는 두 키를 **넘기지 않는다.** 구 데이터 연속성을 위해
-> 시그니처만 옵셔널로 남긴 상태다(`analyticsEvents.ts:645-647` 주석).
+> 시그니처만 옵셔널로 남긴 상태다(`analyticsEvents.ts:693-695` 주석).
 > 서버는 이미 준다 — `MyChallengeResultResponse`에 `missionCategory`·`missionType`이 있고
 > `GroupBetQueryService`가 채운다(커밋 `ef47da7d5`, PR #573). **남은 갭은 앱 DTO뿐이며 GROMO-1583이 가져간다.**
 > 그때까지 **결과 노출을 미션 조합별로 쪼개는 분석은 불가능하다** — 지금 데이터로 그 축을 그리면 전부 빈 값이다.
@@ -150,7 +158,7 @@
 **왜 재는가.** 결과를 **읽는지 바로 넘기는지**를 가른다. 노출만 세면 "떴다"까지밖에 모른다.
 체류가 1초 미만으로 몰리면 결과 화면이 읽히지 않는다는 뜻이고, 그건 카피·정보 배치 문제다.
 
-정의 `analyticsEvents.ts:660-662` · 호출 `GroupRoomScreen.tsx:687`.
+정의 `analyticsEvents.ts:708-710` · 호출 `GroupRoomScreen.tsx:687`.
 
 | 파라미터 | 값 | 왜 싣는가 |
 | --- | --- | --- |
@@ -210,8 +218,8 @@ flowchart LR
 ## 5. 미구현 — 미노출 사유 이벤트 (설계)
 
 > **상태: 설계만. 코드는 아직 쓰지 않는다.**
-> `analyticsEvents.ts`는 PR #650이 바꾸는 중이라 이번 배치에서 아무도 건드리지 않는다(N07).
-> 구현은 #650 머지 후 후속 티켓으로 간다.
+> 이 배치가 계측 코드를 건드리지 않은 이유는 PR #650이 같은 파일을 바꾸고 있었기 때문인데(N07),
+> **#650은 이미 머지됐다**(`e78d689ec`). 구현은 **GROMO-1585**가 가져간다.
 
 ### 5.1 왜 필요한가
 
@@ -240,7 +248,7 @@ flowchart LR
 
 `<도메인>_<서브도메인>_<행위>` + 사유 있는 중단은 `_interrupted` + `reason` enum.
 선례 `logGroupDeckGuideInterrupted({ reason: 'background' | 'route' | 'groups_changed' | 'blocking_overlay' | 'unmount' })`
-(`analyticsEvents.ts:487-490`)의 형태를 그대로 따른다. `blocking_overlay`는 그 선례가
+(`analyticsEvents.ts:530-534`)의 형태를 그대로 따른다. `blocking_overlay`는 그 선례가
 **"다른 오버레이에 막혔다"에 쓰는 값 그대로**를 재사용한 것이다.
 
 ```ts
