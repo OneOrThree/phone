@@ -69,6 +69,8 @@ import {
   logTodaySummaryViewed,
   logHomeButtonTapped,
   logHomeRefreshed,
+  logCurrencyRewardShown,
+  logCurrencyChipTapped,
 } from '@/services/analyticsEvents';
 
 // v2 홈 화면 (GROMO-552) — Claude Design "01 홈" 시안 기반.
@@ -346,6 +348,22 @@ export default function HomeScreen() {
     days: number;
     goalMinutes?: number;
   } | null>(null);
+  useEffect(() => {
+    if (!isFocused || goalCelebration?.goalMinutes == null) return;
+    logCurrencyRewardShown({
+      surface: 'goal_modal',
+      amount: focusGoalReward(goalCelebration.goalMinutes),
+      reward_type: 'focus_goal',
+    });
+  }, [goalCelebration?.goalMinutes, isFocused]);
+  useEffect(() => {
+    if (!isFocused || screenTimeCelebration?.goalMinutes == null || goalCelebration != null) return;
+    logCurrencyRewardShown({
+      surface: 'screentime_modal',
+      amount: screenTimeGoalReward(screenTimeCelebration.goalMinutes),
+      reward_type: 'screentime_goal',
+    });
+  }, [goalCelebration, screenTimeCelebration?.goalMinutes, isFocused]);
   // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).
   const todayFocusSecondsRef = useRef(todayFocusSeconds);
   todayFocusSecondsRef.current = todayFocusSeconds;
@@ -718,7 +736,16 @@ export default function HomeScreen() {
               {/* 시간조각 잔액 칩 — 폭이 빠듯해 라벨 생략(모래시계 N). 미로드 시에도 '0'을 그대로 보여
                   준다(GROMO-1073): 지갑은 가입 시 함께 생기므로 신규 유저의 정답도 0이고, 여기서
                   '–'는 잔액을 잠금 판정에 쓰지 않는 자리라 정보 없는 기호일 뿐이다. */}
-              <View style={s.streakChip}>
+              <TouchableOpacity
+                style={s.streakChip}
+                activeOpacity={0.75}
+                onPress={() => {
+                  logCurrencyChipTapped({ location: 'home' });
+                  navigation.navigate('CurrencyHistory', { entry: 'home_chip' });
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="시간조각 내역"
+              >
                 <CurrencyIcon size={11} />
                 {/* 보간 중인 **소수값**이 format에 들어온다 — 반올림·천단위 구분은 여기서 한다 */}
                 <AnimatedNumber
@@ -727,7 +754,7 @@ export default function HomeScreen() {
                   format={(n) => Math.round(n).toLocaleString()}
                   style={s.streakChipText}
                 />
-              </View>
+              </TouchableOpacity>
               {/* 연속 공부(GROMO-630) — 하루 10분 스트릭. 0일이면 생략 */}
               {streakDays > 0 && (
                 <View style={s.streakChip}>

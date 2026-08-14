@@ -65,6 +65,7 @@ export const STORAGE_KEYS = {
   inviteAttribution: 'gromo:deferredInvite:attribution', // 복원한 초대 {slug, groupId, claimed} — 로그인 직후 claim 호출에 쓴다
   challengeResultSeen: 'gromo:challengeResult', // (구) 챌린지 결과 모달 마커 프리픽스 `:{challengeId}:{date}` — v2에서 sessionResultSeen으로 대체, 잔존 키는 challengeResult.ts가 기록 시점에 정리
   sessionResultSeen: 'gromo:sessionResult', // 회차 결과 모달 1회 노출 마커 프리픽스 — 실제 키는 `:{userId}:{sessionId}`, 값은 sessionDate(60일 프룬 기준 — IA §8)
+  groupChallengeSettlementReported: 'gromo:groupChallengeSettlement', // 정산 이벤트 발행 마커 프리픽스 — 실제 키는 `:{userId}:{sessionId}`
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

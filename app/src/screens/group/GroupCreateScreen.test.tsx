@@ -48,12 +48,15 @@ jest.mock('@react-navigation/native', () => ({
     navigate: mockNav.navigate,
     addListener: mockAddListener,
   }),
+  useRoute: () => ({ params: { entry_point: 'list' } }),
 }));
 
 jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: 'user-1' }) }));
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardIconSaveResult: jest.fn(),
+  logGroupCreateSubmitted: jest.fn(),
+  logGroupCreated: jest.fn(),
   logGroupCreateStarted: jest.fn(),
   logGroupInviteShared: jest.fn(),
 }));

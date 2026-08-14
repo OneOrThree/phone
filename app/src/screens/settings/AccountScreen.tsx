@@ -9,6 +9,7 @@ import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
 import { getSocialLinks, unlinkSocialAccount, withdraw } from '@/services/userApi';
+import { logSocialAccountUnlinked } from '@/services/analyticsEvents';
 import { getMyGroups, groupErrorCode } from '@/services/groupApi';
 import { triggerLogout, triggerRelogin } from '@/services/api';
 import {
@@ -183,6 +184,7 @@ export default function AccountScreen() {
     setUnlinking(true);
     try {
       await unlinkSocialAccount(provider);
+      logSocialAccountUnlinked({ method: provider.toLowerCase() });
       await loadLinks();
       setModal(null); // 성공 경로에서만 닫는다
     } catch (e) {

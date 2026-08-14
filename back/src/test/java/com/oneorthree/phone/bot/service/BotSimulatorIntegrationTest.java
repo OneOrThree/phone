@@ -118,7 +118,7 @@ class BotSimulatorIntegrationTest extends IntegrationTestBase {
         for (String name : List.of("이론-" + suffix, "문제-" + suffix, "복습-" + suffix)) {
             DefaultTag defaultTag = defaultTagRepository.save(DefaultTag.builder().name(name).build());
             tags.add(userFocusTagRepository.save(
-                    UserFocusTag.builder().user(bot).defaultTag(defaultTag).build()));
+                UserFocusTag.builder().user(bot).defaultTag(defaultTag).build()));
         }
     }
 
