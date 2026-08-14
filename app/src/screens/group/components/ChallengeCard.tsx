@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, Text, TouchableOpacity, View, type AlertButton } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -730,22 +730,71 @@ export default function ChallengeCard({
     onAbandonSheetSlot?.(challenge.id);
   }
 
-  // ── 명령형 승인의 소유자 표식(GROMO-1576) ──────────────────────────────────
-  // 승인을 받은 뒤 **네이티브 확인 Alert가 자리를 쥐고 있는 구간**이라는 뜻이다. 이 구간은
-  // 카드의 생명주기와 어긋난다 — Alert가 떠 있는 동안 BET_RESULT 재조회로 챌린지가 목록에서
-  // 빠지면 카드는 언마운트되지만 **Alert는 사용자 앞에 그대로 남는다.** 그때 언마운트 정리가
-  // 자리를 반납하면 결과 호스트가 그 Alert **뒤에서** 모달을 마운트하고, 사용자가 못 본 회차에
-  // seen/ack이 찍힌다. 그래서 이 표식이 서 있는 동안에는 언마운트가 반납하지 않는다.
-  // (승인 **대기** 중인 요청은 반대로 언마운트에서 취소해야 한다 — 그 둘을 가르는 것이 이 표식이다.
-  //  useOverlayAlert가 openCount/pendingCancels로 가른 것과 같은 모양.)
-  const alertHoldsSlotRef = useRef(false);
+  // ── 카드의 자리 위에 얹힌 네이티브 Alert(GROMO-1576) ────────────────────────
+  //
+  // ⚠️ **이 부류가 사는 곳을 가르는 축은 "명령형인가"가 아니다.** 진짜 축은 둘의 곱이다:
+  //    ① 자리를 쥔 주체가 **네이티브 표면**이라 React 생명주기 밖에 있는가,
+  //    ② 그 자리를 놓는 계기가 **사용자 조작 말고 배경 이벤트로도** 일어나는가.
+  //    대조가 그것을 보여 준다 — GroupCreateScreen의 공유 다이얼로그도 이미 쥔 자리 안에서
+  //    네이티브 시트를 열지만 **안전하다.** 그 다이얼로그는 사용자가 버튼을 눌러야만 닫히고
+  //    beforeRemove가 이탈까지 막아, 배경 이벤트가 소유자를 없앨 수 없기 때문이다(②가 거짓).
+  //    반면 이 카드는 **부모의 배경 재조회가 사용자 조작과 무관하게 카드를 없앤다.**
+  //    선언형이라도 ②가 참이면 같은 결함이 난다 — 실제로 아래 세 Alert가 그랬다.
+  //
+  // 그래서 이 표식의 뜻은 "명령형 승인을 쥐고 있다"가 아니라 **"이 카드의 등록 위에 네이티브
+  // Alert가 떠 있다"**이다. 그 동안 카드가 사라져도 부모의 등록을 **꺼뜨리지 않고**, 마지막
+  // Alert가 닫힐 때 미뤄 둔 정리를 실행한다(useOverlayAlert의 openCount와 같은 모양).
+  const openAlertCountRef = useRef(0);
   const cardUnmountedRef = useRef(false);
+  // 언마운트가 미뤄 둔 정리 — 마지막 Alert가 닫히는 순간 실행한다.
+  const deferredCleanupRef = useRef<(() => void) | null>(null);
   useEffect(
     () => () => {
       cardUnmountedRef.current = true;
     },
     [],
   );
+
+  // 이 카드의 등록 위에 얹히는 raw Alert의 **유일한 입구.** 자리마다 반납을 적으면 반드시
+  // 한 곳을 빠뜨린다(이 배치에서 세 번 빠뜨렸다) — 닫힘 경로를 여기 한 곳으로 모은다.
+  // ⚠️ 버튼을 안 넘기면 `확인` 하나를 명시한다. RN의 기본 버튼도 같은 모양이지만, 명시하지
+  //    않으면 **닫힘 콜백을 얻을 수 없어** 미뤄 둔 정리를 영영 못 돌린다.
+  // ⚠️ `onDismiss`도 항상 잇는다 — Android의 dismissExisting은 버튼 콜백을 건너뛴다.
+  function alertOverCardSlot(
+    title: string,
+    message?: string,
+    buttons?: AlertButton[],
+    options?: Parameters<typeof Alert.alert>[3],
+  ) {
+    openAlertCountRef.current += 1;
+    let closed = false;
+    const close = () => {
+      if (closed) return; // 한 Alert당 한 번만
+      closed = true;
+      openAlertCountRef.current = Math.max(0, openAlertCountRef.current - 1);
+      if (openAlertCountRef.current > 0) return; // 겹쳐 뜬 Alert가 아직 남았다
+      const deferred = deferredCleanupRef.current;
+      deferredCleanupRef.current = null;
+      deferred?.();
+    };
+    const list: AlertButton[] = buttons && buttons.length > 0 ? buttons : [{ text: '확인' }];
+    const wrapped = list.map((button) => ({
+      ...button,
+      // 호출부의 동작을 **먼저** 실행한다 — 그 안에서 시트를 여는 경우(삭제 확인) 미뤄 둔
+      // 정리보다 앞서야 열림 보고와 정정의 순서가 뒤집히지 않는다.
+      onPress: (value?: string) => {
+        (button.onPress as ((value?: string) => void) | undefined)?.(value);
+        close();
+      },
+    }));
+    Alert.alert(title, message, wrapped, {
+      ...options,
+      onDismiss: () => {
+        options?.onDismiss?.();
+        close();
+      },
+    });
+  }
 
   function openJoinNextSheet() {
     if (cachedGroupId === null) {
@@ -1100,7 +1149,9 @@ export default function ChallengeCard({
         if (!(await claimSheetSlot())) return;
         openSheet();
         setDeletePreview(fresh);
-        Alert.alert('걸린 돈이 생겼어요', '방금 참여한 사람이 있어요. 내용을 확인해 주세요.');
+        // ⚠️ **이미 세운 등록(deletePreview) 위에 얹히는 Alert다.** 그냥 띄우면 카드가 사라질 때
+        //    언마운트 정리의 열림 보고(false)가 살아 있는 등록을 꺼뜨린다 — 위 alertOverCardSlot.
+        alertOverCardSlot('걸린 돈이 생겼어요', '방금 참여한 사람이 있어요. 내용을 확인해 주세요.');
         return;
       }
       await runDelete(false);
@@ -1142,13 +1193,14 @@ export default function ChallengeCard({
       //    이 배치에서 같은 뿌리가 네 번째다 — 코치마크 · 비동기 시트 · 비활성 구간 · 그리고
       //    이 Alert. OS 얼럿 일반은 앱이 막을 수 없지만, **우리가 띄우는 것**은 막을 수 있다.
       if (!(await claimSheetSlot())) return;
-      // 이 순간부터 자리를 쥐고 있는 것은 **카드가 아니라 이 Alert**다(아래 finishConfirm).
-      alertHoldsSlotRef.current = true;
       // 확인 Alert가 닫히는 **모든 경로**의 단일 출구. 경로가 넷이라(그만두기 · 삭제 ·
       // onDismiss · 카드 언마운트) 각자 반납을 적으면 한 곳을 빠뜨린다 — 실제로 빠뜨렸다.
+      // ⚠️ 자리를 붙들어 두는 일 자체는 alertOverCardSlot이 한다 — 여기서는 **확보한 승인을
+      //    어떻게 마무리할지**(열거나 돌려주거나)만 정한다. 두 축이 다르다.
+      let finished = false;
       const finishConfirm = (proceed: boolean) => {
-        if (!alertHoldsSlotRef.current) return; // 한 Alert당 한 번만
-        alertHoldsSlotRef.current = false;
+        if (finished) return; // 한 Alert당 한 번만
+        finished = true;
         // ⚠️ 카드가 이미 사라졌으면 **열림을 보고하면 안 된다.** 부모의 열림 집합에 죽은
         //    challengeId가 들어가고 그것을 false로 되돌릴 카드가 없어, 방을 떠날 때까지
         //    결과 모달이 영영 못 뜬다(부모 sheetOpenCardIds 주석의 바로 그 사고).
@@ -1160,7 +1212,9 @@ export default function ChallengeCard({
         setDeletePreview(preview);
       };
       // 물러나는 버튼은 위 1단계 확인과 같은 `그만두기`다(policy §A8).
-      Alert.alert(
+      // ⚠️ **버튼을 안 거치고 닫히는 경로**가 있다(Android의 dismissExisting). 그 처리와
+      //    "떠 있는 동안 카드가 사라져도 등록을 유지" 둘 다 alertOverCardSlot이 맡는다.
+      alertOverCardSlot(
         '챌린지 삭제',
         '이 챌린지를 삭제할까요?',
         [
@@ -1173,12 +1227,6 @@ export default function ChallengeCard({
             onPress: () => finishConfirm(true),
           },
         ],
-        // ⚠️ **버튼을 안 거치고 닫히는 경로**가 있다. Android의 DialogModule은 새 Alert를 띄우며
-        //    기존 것을 dismissExisting()으로 닫는데, 그때 버튼 콜백 대신 onDismiss만 부른다.
-        //    반납 경로가 `그만두기`뿐이면 시트가 하나도 없는데 승인과 등록이 남아, 방을 떠날
-        //    때까지 결과 모달과 다른 카드 시트가 전부 막힌다. useOverlayAlert가 같은 이유로
-        //    이미 하는 처리를, 이 raw Alert에도 그대로 넣는다.
-        //    (`삭제`를 눌러 닫힌 경우에는 안 불린다 — RN이 버튼 콜백과 배타로 처리한다.)
         { onDismiss: () => finishConfirm(false) },
       );
     } catch {
@@ -1232,13 +1280,16 @@ export default function ChallengeCard({
       }
       if (!samePreview(shown, fresh)) {
         setDeletePreview(fresh);
-        Alert.alert('걸린 돈이 바뀌었어요', '바뀐 내용을 확인하고 다시 눌러 주세요.');
+        // 2단계 시트가 떠 있는 상태의 통보다 — 등록 위에 얹힌다(위 alertOverCardSlot).
+        alertOverCardSlot('걸린 돈이 바뀌었어요', '바뀐 내용을 확인하고 다시 눌러 주세요.');
         return;
       }
       setDeletePreview(null);
       await runDelete(true);
     } catch {
-      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
+      // ⚠️ 이 실패는 **2단계 시트가 떠 있는 채로** 난다(확정을 그 시트에서 눌렀다).
+      //    등록 위에 얹히므로 같은 입구를 쓴다 — 승인이 필요 없다는 것과 별개 축이다.
+      alertOverCardSlot('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
     } finally {
       deleteLock.current = false;
     }
@@ -1281,13 +1332,22 @@ export default function ChallengeCard({
   // (콜백은 부모가 useCallback으로 고정) 실제로 언마운트에서만 돈다.
   useEffect(() => {
     return () => {
-      onSheetVisibilityChange?.(challenge.id, false);
-      // ⚠️ **표시 중인 확인 Alert가 쥔 자리는 유지한다.** 반납 주체는 카드가 아니라 Alert다
-      //    (위 alertHoldsSlotRef 주석). 카드가 사라져도 Alert는 남아 있고, 사용자가 그것을
-      //    닫는 순간 finishConfirm이 반납한다 — 영구 점유가 아니다.
-      if (alertHoldsSlotRef.current) return;
-      // 승인 대기 중이던 비동기 시트 요청은 접는다(위 onAbandonSheetSlot 주석).
-      onAbandonSheetSlot?.(challenge.id);
+      const cleanup = () => {
+        onSheetVisibilityChange?.(challenge.id, false);
+        onAbandonSheetSlot?.(challenge.id);
+      };
+      // ⚠️ **네이티브 Alert가 이 카드의 등록 위에 떠 있으면 정리를 통째로 미룬다**(위 주석).
+      //    열림 보고(false)까지 미뤄야 한다 — 그 호출은 예전엔 무조건 나갔는데, 시트를 이미
+      //    연 뒤에 뜬 Alert(걸린 돈이 생겼어요 · 바뀌었어요 · 확인 실패)에서는 **살아 있는
+      //    등록을 실제로 꺼뜨린다.** 그러면 부모는 비었다고 믿고, 아직 떠 있는 Alert 뒤에서
+      //    결과가 마운트·확인 처리된다 — 이 배치가 처음부터 막으려던 그 사고다.
+      //    영구 점유가 아니다: 모든 Alert는 사용자가 닫아야 사라지고, 그 닫힘이 alertOverCardSlot의
+      //    close()를 지나 여기 미뤄 둔 정리를 정확히 한 번 실행한다.
+      if (openAlertCountRef.current > 0) {
+        deferredCleanupRef.current = cleanup;
+        return;
+      }
+      cleanup();
     };
   }, [onSheetVisibilityChange, onAbandonSheetSlot, challenge.id]);
 

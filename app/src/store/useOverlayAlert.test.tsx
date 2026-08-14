@@ -222,6 +222,42 @@ describe('비동기 변형(afterSlot)', () => {
     view.unmount();
   });
 
+  // ⚠️ **기준선을 부른 시점에 잡으면 늦다.** 저장을 누른 뒤 요청이 끝나기 전에 뒤로 가면
+  //    (GroupProfileEditScreen), 뒤늦게 실패한 continuation이 **새로 보이는 화면**을 기준선으로
+  //    잡아 그 위에 이전 화면의 실패 통보를 띄운다. "대기 중 blur" 방어는 이 구간을 못 잡는다 —
+  //    대기가 **시작되기 전에** 이미 라우트가 바뀌었기 때문이다.
+  test('대기가 시작되기도 전에 화면을 떠났으면 통보를 띄우지 않는다', async () => {
+    const Stack = createNativeStackNavigator();
+    function Blank() {
+      return null;
+    }
+    const view = await render(
+      <OverlaySlotProvider>
+        <NavigationContainer ref={navigationRef}>
+          <Stack.Navigator initialRouteName="A" screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="A" component={AlertOwner} />
+            <Stack.Screen name="B" component={Blank} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+
+    // 저장 요청이 도는 사이 사용자가 다음 화면으로 갔다(아직 afterSlot을 부르지 않았다).
+    await act(async () => {
+      (navigationRef.navigate as unknown as (name: string) => void)('B');
+    });
+    await act(async () => {});
+
+    // 이제서야 요청이 실패한다 — 자리를 쥔 오버레이가 없어 예전이라면 **곧바로** 떴다.
+    await act(async () => {
+      await showAlert?.afterSlot('저장하지 못했어요', '잠시 후 다시 시도해 주세요.');
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    view.unmount();
+  });
+
   // ⚠️ **키만 보면 놓치는 전환이 있다.** `GroupRoom`은 딥링크로 그룹이 바뀌어도 같은 인스턴스를
   //    재사용하며 `groupId`만 갈아 끼운다 — 라우트 key가 그대로다. A 그룹의 실패가 대기하는
   //    동안 B로 전환하면 자리가 풀릴 때 **A의 통보가 B 화면 위에** 뜬다.

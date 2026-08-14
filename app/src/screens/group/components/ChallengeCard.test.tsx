@@ -3447,6 +3447,118 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     expect(onAbandonSheetSlot).toHaveBeenCalledWith(CHALLENGE_ID);
   });
 
+  // ── 세 번째 범주: **이미 쥔 등록 위에 얹히는 raw Alert**(GROMO-1576) ──────────
+  // ⚠️ 위 확인 Alert와 결정적으로 다르다. 저 Alert는 뜰 때 `deletePreview`가 아직 null이라
+  //    언마운트 정리의 열림 보고(false)가 false→false로 무해했다. **아래 셋은 시트를 이미
+  //    연 뒤에 뜬다** — non-null이라 그 무조건 호출이 **살아 있는 등록을 실제로 꺼뜨린다.**
+  //    부모는 비었다고 믿고, 아직 떠 있는 Alert 뒤에서 결과가 마운트·확인 처리된다.
+  //    안전 여부를 가르는 축은 "명령형인가"가 아니라 **"닫힘이 배경 이벤트로도 일어나는가"**다
+  //    — 여기서는 부모의 배경 재조회가 사용자 조작과 무관하게 카드를 없앤다.
+  function renderOwnerWatched(visibility: jest.Mock) {
+    return render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => true}
+        onSheetVisibilityChange={visibility}
+      />,
+    );
+  }
+
+  // Alert가 떠 있는 채 카드가 사라져도 등록이 유지되고, 닫으면 그때 정정된다.
+  async function expectRegistrationHeldUntilAlertCloses(
+    view: { unmount: () => void },
+    visibility: jest.Mock,
+    alertSpy: jest.SpyInstance,
+  ) {
+    const buttons = lastAlertButtons(alertSpy);
+    visibility.mockClear();
+
+    // 배경 재조회가 이 챌린지를 목록에서 뺐다 — 카드만 사라지고 Alert는 남는다.
+    await act(async () => {
+      view.unmount();
+    });
+    expect(visibility).not.toHaveBeenCalledWith(CHALLENGE_ID, false);
+
+    // 사용자가 Alert를 닫으면 그때 정정된다 — 영구 점유가 아니다.
+    await act(async () => {
+      buttons?.[0]?.onPress?.();
+    });
+    expect(visibility).toHaveBeenCalledWith(CHALLENGE_ID, false);
+  }
+
+  test('「걸린 돈이 생겼어요」가 떠 있는 채 카드가 사라져도 등록이 유지되고, 닫으면 정정된다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const visibility = jest.fn();
+    mockGetDeletionPreview.mockResolvedValueOnce({ openSessions: [], totalRefund: 0 });
+    const view = await renderOwnerWatched(visibility);
+    await pressDeleteX();
+
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-03', participantCount: 1, pot: 30 }],
+      totalRefund: 30,
+    });
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    await expectRegistrationHeldUntilAlertCloses(view, visibility, alertSpy);
+  });
+
+  test('「걸린 돈이 바뀌었어요」가 떠 있는 채 카드가 사라져도 등록이 유지되고, 닫으면 정정된다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const visibility = jest.fn();
+    mockGetDeletionPreview.mockResolvedValueOnce({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const view = await renderOwnerWatched(visibility);
+    await pressDeleteX();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    // 확정 직전 수치가 달라졌다.
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 4, pot: 120 }],
+      totalRefund: 120,
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
+    });
+
+    await expectRegistrationHeldUntilAlertCloses(view, visibility, alertSpy);
+  });
+
+  test('확정 실패 통보가 떠 있는 채 카드가 사라져도 등록이 유지되고, 닫으면 정정된다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const visibility = jest.fn();
+    mockGetDeletionPreview.mockResolvedValueOnce({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const view = await renderOwnerWatched(visibility);
+    await pressDeleteX();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    mockGetDeletionPreview.mockRejectedValue(axiosErrorWith(500));
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
+    });
+
+    await expectRegistrationHeldUntilAlertCloses(view, visibility, alertSpy);
+  });
+
   test('참가비가 걸린 날이 있으면 1단계 뒤 수치 경고 시트를 거쳐야 삭제된다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockGetDeletionPreview.mockResolvedValue({
@@ -3590,9 +3702,12 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     });
 
     expect(onDelete).not.toHaveBeenCalled();
+    // 카드의 등록 위에 얹히는 Alert라 alertOverCardSlot을 지난다 — 버튼·onDismiss가 채워진다.
     expect(alertSpy).toHaveBeenCalledWith(
       '걸린 돈이 바뀌었어요',
       '바뀐 내용을 확인하고 다시 눌러 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     // 시트는 새 수치로 갈아 끼워진 채 남는다 — 다시 누르면 그때 삭제된다.
     expect(screen.getByText('4명 · 120코인')).toBeOnTheScreen();
@@ -3646,9 +3761,12 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     });
 
     expect(onDelete).not.toHaveBeenCalled();
+    // 카드의 등록 위에 얹히는 Alert라 alertOverCardSlot을 지난다 — 버튼·onDismiss가 채워진다.
     expect(alertSpy).toHaveBeenCalledWith(
       '걸린 돈이 생겼어요',
       '방금 참여한 사람이 있어요. 내용을 확인해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(screen.getByText('1명 · 30코인')).toBeOnTheScreen();
   });
@@ -3688,12 +3806,15 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     });
 
     expect(onDelete).not.toHaveBeenCalled();
-    // ⚠️ 여기(confirmDeleteFinal)는 **성공 경로에도 게이트가 없다** — 시트가 이미 떠서 자리를
-    //    쥐고 있는 상태의 확정이라 새로 승인받을 것이 없다. 그래서 이 통보는 종전대로 raw
-    //    Alert다. 게이트를 탄 실패 경로(위 두 assertion)와 인자 수가 다른 것이 그 경계다.
+    // ⚠️ 여기(confirmDeleteFinal)는 **승인 게이트는 안 탄다** — 시트가 이미 떠서 자리를 쥐고
+    //    있는 상태의 확정이라 새로 승인받을 것이 없다. 하지만 그것과 **언마운트가 그 자리를
+    //    조용히 반납하는가**는 별개 축이고, 이 통보는 살아 있는 등록 위에 얹히므로
+    //    alertOverCardSlot을 지난다(버튼·onDismiss가 채워진다).
     expect(alertSpy).toHaveBeenCalledWith(
       '삭제 영향을 확인하지 못했어요',
       '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
   });
 

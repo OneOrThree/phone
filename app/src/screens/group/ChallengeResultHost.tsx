@@ -283,21 +283,47 @@ export default function ChallengeResultHost() {
   //      "지금 사용자가 그 모달을 읽고 있다"인데, 흐름을 벗어난 순간 그 전제가 거짓이 된다.
   //      (다른 딥링크가 홈으로 데려간 사이 다른 기기가 그 결과를 ack 한 경우가 정확히 이것이다.)
   //   ② 낡은 claim을 **재검증 없이 재사용**해 이미 확인한 모달을 다시 띄운다.
+  //
+  // ⚠️ **그런데 버릴 범위가 틀렸었다 — 노출 중인 것까지 버렸다.** 모달이 떠 있는 상태에서
+  //    포그라운드 알림 배너를 눌러 비그룹 라우트(gromo://friends 등)로 가면, 이 정리가 노출
+  //    중인 큐와 claim을 즉시 지운다. 그런데 **ack는 노출 시점에 이미 나갔다**(D8 — 닫기 전에
+  //    ack). 서버는 그 결과를 미확인 목록에서 빼므로, 돌아와서 다시 조회해도 후보에 없다 —
+  //    **사용자가 읽던 금융 결과가 영구히 사라진다.** 이 배치가 처음부터 막으려던 유실이다.
+  //    그래서 두 상태를 가른다:
+  //      · **노출 전**(대기 큐 · 미노출 claim · 지목 · 선점 재시도) → 버린다. 위 ①②가 그대로 참이다.
+  //      · **노출된 결과** → `onClose` 전까지 흐름 이탈과 무관하게 **보존**한다. 재진입하면
+  //        같은 모달을 이어서 보여준다(노출 이펙트는 shownKeyRef가 같아 다시 발화하지 않으므로
+  //        seen·ack·계측이 중복되지 않는다). load()의 shown-head 병합도 같은 근거로 그 한 건을
+  //        지켜 준다 — 그 병합의 전제("사용자가 그 모달을 읽고 있다")는 **아직 안 닫았다**는
+  //        뜻이고, 흐름을 잠시 벗어난 것이 그 사실을 뒤집지는 않는다.
   useEffect(() => {
     if (flow.inFlow) return;
     // 예약된 선점 재시도를 먼저 끊는다 — 흐름 밖에서 load()가 나가면 큐와 전역 gate가 되살아난다.
     clearClaimTimers();
     focusKeyRef.current = null;
     focusPendingRef.current = null;
-    queueRef.current = [];
-    setQueue([]);
-    setClaim(null);
-    shownAtRef.current = null;
-    shownKeyRef.current = null;
     claimFailStreakRef.current = 0;
-    // '없다'가 아니라 '모른다'다 — 우리가 로컬 상태를 버렸을 뿐 서버 사실은 그대로다.
-    // ('none'으로 말하면 그룹방의 탈퇴 유예가 근거 없이 풀린다.)
-    setChallengeResultGate('unknown');
+    // 지금 **실제로 떠 있는** 결과(노출 이펙트가 세운 shownKeyRef가 기준이다 — 다른 오버레이에
+    // 밀려 대기 중인 것은 노출된 것이 아니다).
+    const head = queueRef.current[0];
+    const exposed = head !== undefined && shownKeyRef.current === head.sessionId ? head : null;
+    if (exposed === null) {
+      queueRef.current = [];
+      setQueue([]);
+      setClaim(null);
+      shownAtRef.current = null;
+      shownKeyRef.current = null;
+      // '없다'가 아니라 '모른다'다 — 우리가 로컬 상태를 버렸을 뿐 서버 사실은 그대로다.
+      // ('none'으로 말하면 그룹방의 탈퇴 유예가 근거 없이 풀린다.)
+      setChallengeResultGate('unknown');
+      return;
+    }
+    // 노출된 한 건만 남기고 뒤는 버린다. claim·노출 표식은 그대로 둔다 —
+    // 그것이 재진입 때 이 모달을 다시 세우는 유일한 근거다(visible = granted && claim === current).
+    queueRef.current = [exposed];
+    setQueue([exposed]);
+    // 보여줄 것이 **있다**는 사실은 여전히 참이다 — 'unknown'으로 말하면 근거 없이 약해진다.
+    setChallengeResultGate('pending');
   }, [flow.inFlow, clearClaimTimers]);
 
   // ── 현재 라우트 추적 ──

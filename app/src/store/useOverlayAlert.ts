@@ -62,6 +62,33 @@ export function useOverlayAlert(id: string): typeof Alert.alert & {
     if (openCountRef.current === 0) actionsRef.current?.release(id);
   }, [id]);
 
+  // ── 이 훅이 붙어 있는 화면의 신원(발신 라우트) ──────────────────────────────
+  // ⚠️ 기준선을 **afterSlot을 부른 시점**에 잡으면 늦다. 저장을 누른 뒤 요청이 끝나기 전에
+  //    뒤로 가면(GroupProfileEditScreen), 화면 정리가 먼저 끝나고 **뒤늦게 실패한 continuation이
+  //    새로 보이는 화면을 기준선으로 잡아** 그 위에 이전 화면의 실패 통보를 띄운다.
+  //    "대기 중 blur" 방어는 이 구간을 못 잡는다 — **대기가 시작되기 전에** 이미 라우트가 바뀌었다.
+  //    그래서 신원은 **마운트 시점**에 잡고, 이후에는 **우리 라우트 위에서 일어난 변화**만
+  //    반영한다: 같은 key의 params 교체(GroupRoom의 그룹 전환) · 위에 쌓였던 화면이 걷혀 우리가
+  //    다시 맨 위가 된 경우. 다른 key가 올라온 동안에는 기준선을 갱신하지 않는다.
+  const ownRouteRef = useRef<string | null>(null);
+  const ownRouteKeyRef = useRef<string | null>(null);
+  const unmountedRef = useRef(false);
+  useEffect(() => {
+    const routeKeyOf = (identity: string | null) =>
+      identity === null ? null : identity.slice(0, identity.indexOf('|'));
+    ownRouteRef.current = readCurrentRouteIdentity();
+    ownRouteKeyRef.current = routeKeyOf(ownRouteRef.current);
+    const unsubscribe = subscribeCurrentRoute(() => {
+      const identity = readCurrentRouteIdentity();
+      if (routeKeyOf(identity) !== ownRouteKeyRef.current) return; // 남의 화면이 올라와 있다
+      ownRouteRef.current = identity;
+    });
+    return () => {
+      unmountedRef.current = true;
+      unsubscribe();
+    };
+  }, []);
+
   // ── 화면이 사라질 때 ────────────────────────────────────────────────────────
   // ⚠️ **떠 있는 Alert의 자리는 유지한다.** `showAlert(...)` 직후 `goBack()`을 부르는 화면이
   //    있는데(GroupOwnerTransferScreen의 실패 경로), 네이티브 Alert는 화면이 언마운트돼도
@@ -143,6 +170,9 @@ export function useOverlayAlert(id: string): typeof Alert.alert & {
       buttons?: AlertButton[],
       options?: Parameters<typeof Alert.alert>[3],
     ): Promise<void> => {
+      // 화면이 이미 사라진 뒤 도착한 실패는 **띄우지 않는다** — 그 통보가 갈 화면이 없다
+      // (위 ownRouteRef 주석의 GroupProfileEditScreen 경로).
+      if (unmountedRef.current) return;
       const slotActions = actionsRef.current;
       if (slotActions === null) {
         show(title, message, buttons, options);
@@ -155,7 +185,8 @@ export function useOverlayAlert(id: string): typeof Alert.alert & {
         releaseIfIdle();
       };
       pendingCancelsRef.current.add(cancel);
-      const routeAtRequest = readCurrentRouteIdentity();
+      // ⚠️ 기준선은 **부른 시점의 현재 라우트가 아니라 이 훅의 발신 라우트**다(위 주석).
+      const routeAtRequest = ownRouteRef.current;
       const unsubscribe = subscribeCurrentRoute(() => {
         if (canceled || readCurrentRouteIdentity() === routeAtRequest) return;
         cancel();

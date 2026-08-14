@@ -923,28 +923,63 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
   });
 });
 
-// ── 그룹 흐름 이탈은 이 진입의 상태를 통째로 끝낸다 ──────────────────────────────
+// ── 그룹 흐름 이탈은 이 진입의 상태를 끝낸다 — 단, **노출 전인 것만** ─────────────
 // 모달이 떠 있는 중에 다른 딥링크가 홈으로 데려갈 수 있다. 그 사이 다른 기기가 그 결과를
-// ack 하면, 돌아왔을 때 서버는 그 회차를 더 이상 주지 않는다. 그런데 노출·선점 상태를 들고
+// ack 하면, 돌아왔을 때 서버는 그 회차를 더 이상 주지 않는다. 그런데 **노출 전** 상태를 들고
 // 있으면 `load()`의 shown-head 병합이 그것을 되살리고, 낡은 claim을 재검증 없이 재사용한다.
+// ⚠️ 반대로 **노출된 결과까지 버리면 안 된다** — ack는 노출 시점에 이미 나갔으므로(D8) 서버는
+//    그것을 미확인 목록에서 뺐고, 버리면 다시 조회해도 없어 **읽던 금융 결과가 영구히 사라진다.**
 describe('그룹 흐름 이탈 시 상태 폐기', () => {
-  test('서버가 더 이상 주지 않는 결과는 재진입 때 되살아나지 않는다', async () => {
+  test('노출 전 큐는 그대로 버린다 — 서버가 더 이상 주지 않는 결과는 되살아나지 않는다', async () => {
+    // 시트가 자리를 쥐고 있어 결과는 **큐에만 있고 아직 뜨지 않았다** — 폐기 대상이다.
     mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
-    await renderHost({ initialRoute: '그룹' });
-    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    const view = await renderHost({ initialRoute: '그룹', sheetOpen: true });
+    await waitFor(() => expect(getChallengeResultGate()).toBe('pending'));
+    expect(
+      screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
+    ).toBeNull();
 
-    // 다른 딥링크가 그룹 흐름 밖으로 데려갔다 — 모달은 내려간다.
+    // 다른 딥링크가 그룹 흐름 밖으로 데려갔다.
     await navigate('홈');
-    expect(screen.queryByTestId('group.challengeResult')).toBeNull();
 
     // 그 사이 다른 기기가 이 결과를 확인했다 — 서버 큐에서 빠진다.
     mockGetMyChallengeResults.mockResolvedValue([]);
     await navigate('그룹');
 
-    // shown-head 병합이 살아 있었다면 여기서 되살아났을 것이다.
+    // 시트를 닫아 자리를 비운다 — 낡은 큐가 살아 있었다면 지금 떴을 것이다.
+    await act(async () => {
+      view.rerender(<Harness initialRoute="그룹" sheetOpen={false} />);
+    });
+    await act(async () => {});
     expect(
       screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
     ).toBeNull();
+  });
+
+  // ⚠️ P1 — 앞선 라운드의 폐기는 **범위가 넓어** 노출 중인 것까지 버렸다. 모달을 읽는 중에
+  //    포그라운드 알림 배너를 눌러 비그룹 라우트로 가면, ack는 이미 나간 채 화면만 사라져
+  //    **돌아와도 다시 볼 방법이 없었다.** 노출된 결과는 onClose 전까지 보존한다.
+  test('노출된 결과는 흐름을 벗어났다 돌아와도 다시 볼 수 있다 — ack가 나간 채 사라지지 않는다', async () => {
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await renderHost({ initialRoute: '그룹' });
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    // 노출 시점에 ack가 이미 나갔다(D8) — 서버는 이 회차를 미확인 목록에서 뺀다.
+    await waitFor(() => expect(mockAck).toHaveBeenCalledTimes(1));
+    const claimsBeforeLeave = mockClaim.mock.calls.length;
+
+    // 포그라운드 알림 배너를 눌러 비그룹 라우트로 이동했다 — 모달은 내려간다.
+    await navigate('홈');
+    expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+    // 서버는 이미 제외했다. 그래도 **읽던 그 결과**는 돌아오면 다시 보여야 한다.
+    mockGetMyChallengeResults.mockResolvedValue([]);
+    await navigate('그룹');
+
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    expect(screen.getByText('7월 31일 결과')).toBeOnTheScreen();
+    // 같은 노출이 이어진 것이다 — seen·ack·선점이 다시 돌지 않는다.
+    expect(mockAck).toHaveBeenCalledTimes(1);
+    expect(mockClaim.mock.calls.length).toBe(claimsBeforeLeave);
   });
 
   // ⚠️ 이탈 시 폐기(위)는 **이탈 시점의 상태**를 버린다. 그런데 그 전에 날아간 조회의 응답은
@@ -979,24 +1014,23 @@ describe('그룹 흐름 이탈 시 상태 폐기', () => {
     ).toBeNull();
   });
 
-  test('재진입하면 선점을 처음부터 다시 검증한다 — 낡은 claim을 재사용하지 않는다', async () => {
-    // 같은 회차가 재진입 뒤에도 서버 큐에 남아 있어야 이 경로가 성립한다. 그 조건은 실제로
-    // 있다 — **로컬 마커 쓰기가 실패한 경우**다(markChallengeResultSeen은 실패를 삼킨다).
-    // 그때 낡은 claim을 재사용하면 재검증 없이 그대로 다시 띄운다.
-    (AsyncStorage.setItem as jest.Mock).mockRejectedValueOnce(new Error('storage'));
+  // ⚠️ **아직 뜨지 않은** 결과의 선점은 이탈에서 버린다 — 돌아왔을 때 재검증 없이 재사용하면
+  //    그 사이 다른 기기가 가져간 lease를 우리 것이라고 믿는다. (노출된 것은 위 테스트가
+  //    보존을 단정한다 — 그쪽은 ack가 이미 나가 재검증할 대상 자체가 없다.)
+  test('노출 전 선점은 이탈에서 버린다 — 재진입하면 처음부터 다시 획득한다', async () => {
     mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
-    await renderHost({ initialRoute: '그룹' });
-    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
-    await waitFor(() =>
-      expect(AsyncStorage.getItem('gromo:sessionResult:me:s1')).resolves.toBeNull(),
-    );
+    const view = await renderHost({ initialRoute: '그룹', sheetOpen: true });
+    await waitFor(() => expect(getChallengeResultGate()).toBe('pending'));
     const beforeLeave = mockClaim.mock.calls.length;
 
     await navigate('홈');
     await navigate('그룹');
+    await act(async () => {
+      view.rerender(<Harness initialRoute="그룹" sheetOpen={false} />);
+    });
 
     expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
-    // 획득 + 재검증이 새로 돌았다 — 낡은 토큰을 그대로 쓰면 호출이 늘지 않는다.
+    // 획득이 새로 돌았다 — 낡은 토큰을 그대로 쓰면 호출이 늘지 않는다.
     expect(mockClaim.mock.calls.length).toBeGreaterThan(beforeLeave);
     expect(mockClaim).toHaveBeenLastCalledWith('s1', expect.any(String));
   });

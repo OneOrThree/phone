@@ -94,6 +94,9 @@ jest.mock('@/navigation/navigationRef', () => ({
   setGroupInviteListener: jest.fn(),
   peekPendingInvite: jest.fn(),
   clearPendingInvite: jest.fn(),
+  // useOverlayAlert가 발신 라우트 신원을 잡을 때 쓴다 — 이 스위트엔 네비게이터가 없어 null이다.
+  readCurrentRouteIdentity: () => null,
+  subscribeCurrentRoute: () => () => undefined,
 }));
 
 // 목록 본체(카드·CTA 규격)는 GroupListScreen.test.tsx가 맡는다 —
