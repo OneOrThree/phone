@@ -22,6 +22,7 @@ import {
 import { logGroupBetCanceled } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { useToast } from '@/store/ToastContext';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { todayStrKst } from '@/utils/localDate';
 import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
 import type {
@@ -283,6 +284,16 @@ export default function ChallengeCard({
   // prop이 아니라 groupApi의 조회 캐시(challengeGroupId)에서 역참조한다.
   const { refresh: refreshCoins } = useCoins();
   const { show } = useToast();
+  // ── 게이트를 타는 함수의 **실패 경로** 전용 Alert(GROMO-1576) ──────────────────
+  // 아래 세 함수(openWeekSheet · confirmDelete · confirmDeleteZeroFinal)는 조회를 기다렸다
+  // 시트를 열기 때문에 성공 경로가 `claimSheetSlot()`을 지난다. 그런데 **실패 경로는 그냥
+  // 뚫려 있었다** — 기다리는 사이 결과 모달이 먼저 자리를 얻어 노출된 뒤 요청이 실패하면,
+  // `catch`의 Alert가 그 위를 즉시 덮어 사용자가 못 본 회차에 seen/ack이 남는다.
+  // 성공 경로에 게이트를 단 함수는 **실패 경로도 탄다** — 그 비대칭만 닫는다.
+  // ⚠️ 이 카드의 나머지 raw Alert(참여 실패·취소 실패 등, 성공 경로에도 게이트가 없던 것)는
+  //    그대로 둔다. 여기서 열거를 시작하지 않는다 — 그 부류는 별도 후속이다.
+  // ⚠️ id에 챌린지를 실는다. 한 방에 카드가 여럿이라 고정 문자열을 쓰면 서로의 등록을 덮는다.
+  const showGatedAlert = useOverlayAlert(`group.card.alert:${challenge.id}`);
   const [leaveBusy, setLeaveBusy] = useState(false);
   // 철회·취소 성공의 낙관 반영 — 재조회 응답이 도착하기 전까지는 카드가 스스로 '빠짐/닫힘'을
   // 그린다(onBetChanged를 받지 못한 카드는 다음 자연 재조회까지). betId를 쥐므로 같은 내기를
@@ -765,7 +776,11 @@ export default function ChallengeCard({
       setWeekSheetDates(targets);
     } catch {
       // 예약 현황을 모른 채 열면 이미 낸 날의 참가비까지 합계에 싣는다 — 열지 않는다.
-      Alert.alert('참여 정보를 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
+      // 성공 경로가 claimSheetSlot()을 지나므로 **이 실패 경로도 승인을 받고** 띄운다.
+      await showGatedAlert.afterSlot(
+        '참여 정보를 확인하지 못했어요',
+        '잠시 후 다시 시도해 주세요.',
+      );
     } finally {
       weekOpenLock.current = false;
     }
@@ -1073,7 +1088,11 @@ export default function ChallengeCard({
       }
       await runDelete(false);
     } catch {
-      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
+      // 성공 경로가 claimSheetSlot()을 지나므로 이 실패 경로도 승인을 받고 띄운다(위 훅 주석).
+      await showGatedAlert.afterSlot(
+        '삭제 영향을 확인하지 못했어요',
+        '잠시 후 다시 시도해 주세요.',
+      );
     } finally {
       deleteLock.current = false;
     }
@@ -1107,21 +1126,36 @@ export default function ChallengeCard({
       //    이 Alert. OS 얼럿 일반은 앱이 막을 수 없지만, **우리가 띄우는 것**은 막을 수 있다.
       if (!(await claimSheetSlot())) return;
       // 물러나는 버튼은 위 1단계 확인과 같은 `그만두기`다(policy §A8).
-      Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
-        // 물러나면 확보한 자리를 즉시 돌려준다 — 안 그러면 이 화면을 나갈 때까지 자리가 잠긴다.
-        { text: '그만두기', style: 'cancel', onPress: releaseSheetSlot },
-        {
-          text: '삭제',
-          style: 'destructive',
-          // 이미 승인을 쥐고 있으므로 곧바로 연다(부모는 열림 보고로 승인을 마무리한다).
-          onPress: () => {
-            openSheet();
-            setDeletePreview(preview);
+      Alert.alert(
+        '챌린지 삭제',
+        '이 챌린지를 삭제할까요?',
+        [
+          // 물러나면 확보한 자리를 즉시 돌려준다 — 안 그러면 이 화면을 나갈 때까지 자리가 잠긴다.
+          { text: '그만두기', style: 'cancel', onPress: releaseSheetSlot },
+          {
+            text: '삭제',
+            style: 'destructive',
+            // 이미 승인을 쥐고 있으므로 곧바로 연다(부모는 열림 보고로 승인을 마무리한다).
+            onPress: () => {
+              openSheet();
+              setDeletePreview(preview);
+            },
           },
-        },
-      ]);
+        ],
+        // ⚠️ **버튼을 안 거치고 닫히는 경로**가 있다. Android의 DialogModule은 새 Alert를 띄우며
+        //    기존 것을 dismissExisting()으로 닫는데, 그때 버튼 콜백 대신 onDismiss만 부른다.
+        //    반납 경로가 `그만두기`뿐이면 시트가 하나도 없는데 승인과 등록이 남아, 방을 떠날
+        //    때까지 결과 모달과 다른 카드 시트가 전부 막힌다. useOverlayAlert가 같은 이유로
+        //    이미 하는 처리를, 이 raw Alert에도 그대로 넣는다.
+        //    (`삭제`를 눌러 닫힌 경우에는 안 불린다 — RN이 버튼 콜백과 배타로 처리한다.)
+        { onDismiss: releaseSheetSlot },
+      );
     } catch {
-      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
+      // 성공 경로가 claimSheetSlot()을 지나므로 이 실패 경로도 승인을 받고 띄운다(위 훅 주석).
+      await showGatedAlert.afterSlot(
+        '삭제 영향을 확인하지 못했어요',
+        '잠시 후 다시 시도해 주세요.',
+      );
     } finally {
       deleteLock.current = false;
     }

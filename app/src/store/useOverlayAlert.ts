@@ -24,7 +24,7 @@
 //    판단 기준은 OverlaySlotContext 헤더의 A/B 문단과 같다: **여는 시점이 동기인가.**
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Alert, type AlertButton } from 'react-native';
-import { readCurrentRouteKey, subscribeCurrentRoute } from '@/navigation/navigationRef';
+import { readCurrentRouteIdentity, subscribeCurrentRoute } from '@/navigation/navigationRef';
 import { OVERLAY_PRIORITY, useOverlaySlotActions } from './OverlaySlotContext';
 
 /**
@@ -130,9 +130,12 @@ export function useOverlayAlert(id: string): typeof Alert.alert & {
   // ⚠️ 그런데 **native-stack은 위로 화면이 쌓여도 아래 화면을 언마운트하지 않는다.** 대기 도중
   //    푸시·딥링크가 새 화면을 push하면 이 훅의 정리 함수는 돌지 않고, 나중에 자리가 풀리면
   //    **이미 떠난 화면의 실패 Alert가 지금 화면 위에** 뜬다. 공유 시트에서 호출부마다 막았던
-  //    것과 같은 결함이라, 여기서는 수단 자신이 막는다 — 요청 시점의 **라우트 키**를 들고 있다가
-  //    (push마다 새로 발급된다) 달라지면 대기를 취소한다. 승인과 이동이 같은 틱에 겹칠 수 있어
-  //    띄우기 **직전에 한 번 더** 본다.
+  //    것과 같은 결함이라, 여기서는 수단 자신이 막는다 — 요청 시점의 **라우트 신원**을 들고
+  //    있다가 달라지면 대기를 취소한다. 승인과 이동이 같은 틱에 겹칠 수 있어 띄우기
+  //    **직전에 한 번 더** 본다.
+  // ⚠️ 신원은 key가 아니라 `key + params`다. `GroupRoom`은 딥링크로 그룹을 바꿔도 **같은
+  //    인스턴스를 재사용해 key가 그대로**라, key만 보면 A 그룹의 실패 통보가 B 그룹 화면 위로
+  //    뜬다 — 이 헬퍼가 세운 계약("떠난 화면의 Alert는 안 뜬다")이 바로 그 경로에서 깨졌다.
   const showAfterSlot = useCallback(
     async (
       title: string,
@@ -152,9 +155,9 @@ export function useOverlayAlert(id: string): typeof Alert.alert & {
         releaseIfIdle();
       };
       pendingCancelsRef.current.add(cancel);
-      const routeAtRequest = readCurrentRouteKey();
+      const routeAtRequest = readCurrentRouteIdentity();
       const unsubscribe = subscribeCurrentRoute(() => {
-        if (canceled || readCurrentRouteKey() === routeAtRequest) return;
+        if (canceled || readCurrentRouteIdentity() === routeAtRequest) return;
         cancel();
       });
       try {
@@ -163,7 +166,7 @@ export function useOverlayAlert(id: string): typeof Alert.alert & {
           if (granted) releaseIfIdle();
           return;
         }
-        if (readCurrentRouteKey() !== routeAtRequest) {
+        if (readCurrentRouteIdentity() !== routeAtRequest) {
           releaseIfIdle();
           return;
         }

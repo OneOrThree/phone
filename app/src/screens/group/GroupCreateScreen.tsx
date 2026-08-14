@@ -125,6 +125,25 @@ export default function GroupCreateScreen() {
   const createdRef = useRef(false);
   createdRef.current = created !== null;
   const createdDialogVisible = created !== null && createdSlot === 'granted';
+  // 비동기 함수가 `await` 뒤에 읽으므로 렌더 값이 아니라 ref로 본다(createdRef와 같은 이유).
+  const createdSlotRef = useRef(createdSlot);
+  createdSlotRef.current = createdSlot;
+
+  // 링크 복사·공유 실패를 알리는 통로.
+  //
+  // ⚠️ "`await` 뒤면 무조건 `afterSlot`"이 여기서는 틀린다. 이 실패는 **완료 다이얼로그가 이미
+  //    자리를 쥐고 떠 있을 때만** 날 수 있는데(복사·공유 버튼이 그 안에 있다), 그 상태에서
+  //    승인을 기다리면 다이얼로그가 닫힐 때까지 아무 안내도 안 뜬다. 사용자는 원인을 모른 채
+  //    같은 버튼을 반복해 누르고, 확인을 눌러 화면을 닫으면 **라우트가 바뀌며 대기까지 취소돼**
+  //    실패 원인을 끝내 못 본다. 자기가 이미 자리를 쥐고 있으면 기다릴 이유가 없다.
+  //    승인 전(pending)이라면 결과 모달이 떠 있다는 뜻이므로 그때는 종전대로 기다린다.
+  function notifyLinkFailure(title: string, message: string): Promise<void> | void {
+    if (createdSlotRef.current === 'granted') {
+      showAlert(title, message);
+      return;
+    }
+    return showAlert.afterSlot(title, message);
+  }
 
   // '복사했어요' 되돌리기 타이머 — 언마운트 시 정리한다.
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -270,7 +289,7 @@ export default function GroupCreateScreen() {
       inviteRef.current = issued;
       return issued;
     } catch {
-      await showAlert.afterSlot('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+      await notifyLinkFailure('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return null;
     }
   }
@@ -313,7 +332,7 @@ export default function GroupCreateScreen() {
         });
       }
     } catch {
-      await showAlert.afterSlot('공유하지 못했어요', '링크 복사로 대신 공유해 주세요.');
+      await notifyLinkFailure('공유하지 못했어요', '링크 복사로 대신 공유해 주세요.');
     }
   }
 

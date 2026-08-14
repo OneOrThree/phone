@@ -221,6 +221,59 @@ describe('비동기 변형(afterSlot)', () => {
 
     view.unmount();
   });
+
+  // ⚠️ **키만 보면 놓치는 전환이 있다.** `GroupRoom`은 딥링크로 그룹이 바뀌어도 같은 인스턴스를
+  //    재사용하며 `groupId`만 갈아 끼운다 — 라우트 key가 그대로다. A 그룹의 실패가 대기하는
+  //    동안 B로 전환하면 자리가 풀릴 때 **A의 통보가 B 화면 위에** 뜬다.
+  test('같은 라우트라도 파라미터가 갈리면 그 대기를 취소한다', async () => {
+    const Stack = createNativeStackNavigator();
+    let slotActions: ReturnType<typeof useOverlaySlotActions> = null;
+    function Grab() {
+      slotActions = useOverlaySlotActions();
+      return null;
+    }
+    const view = await render(
+      <OverlaySlotProvider>
+        <Grab />
+        <NavigationContainer ref={navigationRef}>
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="Room" component={AlertOwner} initialParams={{ groupId: 'a' }} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+
+    await act(async () => {
+      slotActions?.request('test:result', OVERLAY_PRIORITY.challengeResult);
+    });
+    let done = false;
+    await act(async () => {
+      showAlert
+        ?.afterSlot('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.')
+        .then(() => {
+          done = true;
+        });
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    // 딥링크로 같은 화면이 **다른 그룹**을 그린다 — key는 그대로고 params만 바뀐다.
+    await act(async () => {
+      (navigationRef.navigate as unknown as (name: string, params?: object) => void)('Room', {
+        groupId: 'b',
+      });
+    });
+    await act(async () => {});
+    expect(done).toBe(true);
+
+    await act(async () => {
+      slotActions?.release('test:result');
+    });
+    await act(async () => {});
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    view.unmount();
+  });
 });
 
 test('Alert가 떠 있는 동안 sheet 우선순위로 자리를 점유한다', async () => {

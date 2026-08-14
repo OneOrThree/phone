@@ -37,11 +37,27 @@ export function readCurrentRoute(): CurrentRouteSnapshot | null {
   return { name: route.name, params: route.params as Record<string, unknown> | undefined };
 }
 
-// 라우트의 **키**는 이름·파라미터와 달리 push마다 새로 발급돼, 같은 화면을 한 번 더 쌓아도
-// 달라진다. "요청한 그 화면이 아직 맨 위인가"를 판정하는 데는 이 값이 정확하다(useOverlayAlert).
-export function readCurrentRouteKey(): string | null {
+// "요청한 그 화면이 아직 그대로 맨 위인가"를 한 문자열로 만든 신원(useOverlayAlert).
+// **키만으로는 부족하다** — 라우트 key는 push마다 새로 발급되지만, `GroupRoom`처럼 같은
+// 인스턴스를 재사용하며 `groupId`만 갈아 끼우는 화면에서는 key가 그대로다. 그때 A 그룹의
+// 실패 통보가 B 그룹 화면 위로 떠 버려서, 파라미터까지 신원에 넣는다.
+// ⚠️ 값은 키 순서를 고정해 직렬화한다(중첩 객체의 내부 순서까지는 보지 않는다 — 같은 호출부가
+//    만든 params라 실제로는 순서가 같고, 어긋나 오탐이 나더라도 결과는 "통보를 띄우지 않는다"
+//    쪽이라 안전한 방향으로 틀린다).
+export function readCurrentRouteIdentity(): string | null {
   if (!navigationRef.isReady()) return null;
-  return navigationRef.getCurrentRoute?.()?.key ?? null;
+  const route = navigationRef.getCurrentRoute?.();
+  if (!route) return null;
+  const params = route.params as Record<string, unknown> | undefined;
+  const sorted: Record<string, unknown> = {};
+  if (params) {
+    Object.keys(params)
+      .sort()
+      .forEach((key) => {
+        sorted[key] = params[key];
+      });
+  }
+  return `${route.key}|${JSON.stringify(sorted)}`;
 }
 
 export function subscribeCurrentRoute(listener: () => void): () => void {

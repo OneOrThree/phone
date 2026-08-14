@@ -21,6 +21,11 @@ import {
   leaveSession,
 } from '@/services/groupApi';
 import { logGroupBetCanceled, logGroupBetJoined } from '@/services/analyticsEvents';
+import {
+  OVERLAY_PRIORITY,
+  OverlaySlotProvider,
+  useOverlaySlotActions,
+} from '@/store/OverlaySlotContext';
 import { todayStrKst } from '@/utils/localDate';
 import { T } from '@/constants/theme';
 import type {
@@ -70,6 +75,9 @@ jest.mock('react-native-safe-area-context', () => ({
 // 실제 스택 없이 navigate 호출만 붙잡는다(NoticeScreen.test의 홀더 관행).
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
+  // 실제 모듈을 깔고 필요한 것만 덮는다 — navigationRef가 createNavigationContainerRef를
+  // 모듈 로드 시점에 부르기 때문에, 빠뜨리면 이 컴포넌트를 import하는 것만으로 스위트가 죽는다.
+  ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => ({ navigate: mockNavigate }),
 }));
 // 철회 버튼의 '시작 전' 판정이 시간에 기댄다 — '오늘'과 KST 벽시계를 테스트가 직접 고정한다.
@@ -2816,6 +2824,54 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
     ).toBeNull();
   });
 
+  // ⚠️ **성공 경로가 게이트를 타는 함수는 실패 경로도 탄다.** 위 두 테스트가 승인 게이트를
+  //    잠갔지만 그것은 성공 경로뿐이었다 — 조회를 기다리는 사이 결과 모달이 먼저 자리를 얻어
+  //    노출된 뒤 요청이 실패하면, `catch`의 Alert가 그 위를 즉시 덮어 사용자가 못 본 회차에
+  //    seen/ack이 남는다. 게이트를 절반만 달면 막은 셈이 되지 않는다.
+  test('예약 현황 조회 실패 통보도 자리가 풀린 뒤에 뜬다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetMyOpenBetSessions.mockRejectedValue(new Error('network'));
+    let slotActions: ReturnType<typeof useOverlaySlotActions> = null;
+    function Grab() {
+      slotActions = useOverlaySlotActions();
+      return null;
+    }
+    await render(
+      <OverlaySlotProvider>
+        <Grab />
+        <ChallengeCard
+          challenge={challenge(weekendOver())}
+          isOwner={false}
+          onDelete={onDelete}
+          onOpenBet={onOpenBet}
+        />
+      </OverlaySlotProvider>,
+    );
+    // 결과 모달이 먼저 자리를 쥔 상태를 만든다.
+    await act(async () => {
+      slotActions?.request('test:result', OVERLAY_PRIORITY.challengeResult);
+    });
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+    await act(async () => {});
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    // 결과 모달이 닫히면 그때 뜬다 — 통보가 증발하지도 않는다.
+    await act(async () => {
+      slotActions?.release('test:result');
+    });
+    await act(async () => {});
+    expect(alertSpy).toHaveBeenCalledWith(
+      '참여 정보를 확인하지 못했어요',
+      '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
+    );
+    alertSpy.mockRestore();
+  });
+
   // #570 codex ⑧ — 예약도 '참여를 결심한 한 번의 행동'이라 1건으로 세고, 규모는 파라미터로.
   test('주간 예약 성공은 참여 계측 1건 + 일수를 남긴다', async () => {
     await renderCard(weekendOver());
@@ -2987,9 +3043,12 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
       fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
     });
 
+    // 게이트를 타는 함수의 실패 경로라 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다.
     expect(alertSpy).toHaveBeenCalledWith(
       '참여 정보를 확인하지 못했어요',
       '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(screen.queryByTestId('group.bet.week.submit')).toBeNull();
   });
@@ -3275,6 +3334,41 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     expect(onAbandonSheetSlot).toHaveBeenCalledWith(CHALLENGE_ID);
   });
 
+  // ⚠️ 버튼을 안 거치고 닫히는 경로가 있다 — Android의 DialogModule은 새 Alert를 띄우며 기존
+  //    것을 dismissExisting()으로 닫는데, 그때 **버튼 콜백 대신 onDismiss만** 부른다. 반납
+  //    경로가 `그만두기`뿐이면 시트가 하나도 없는데 승인과 등록이 남아, 방을 떠날 때까지
+  //    결과 모달과 다른 카드 시트가 전부 막힌다(useOverlayAlert가 같은 이유로 이미 하는 처리).
+  test('버튼 없이 닫혀도(Android 대체) 확보한 자리를 돌려준다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const onAbandonSheetSlot = jest.fn();
+
+    await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => true}
+        onAbandonSheetSlot={onAbandonSheetSlot}
+      />,
+    );
+    await pressDeleteX();
+
+    const options = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][3] as {
+      onDismiss?: () => void;
+    };
+    expect(options?.onDismiss).toBeDefined();
+    await act(async () => {
+      options.onDismiss?.();
+    });
+
+    expect(onAbandonSheetSlot).toHaveBeenCalledWith(CHALLENGE_ID);
+  });
+
   test('참가비가 걸린 날이 있으면 1단계 뒤 수치 경고 시트를 거쳐야 삭제된다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockGetDeletionPreview.mockResolvedValue({
@@ -3516,6 +3610,9 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     });
 
     expect(onDelete).not.toHaveBeenCalled();
+    // ⚠️ 여기(confirmDeleteFinal)는 **성공 경로에도 게이트가 없다** — 시트가 이미 떠서 자리를
+    //    쥐고 있는 상태의 확정이라 새로 승인받을 것이 없다. 그래서 이 통보는 종전대로 raw
+    //    Alert다. 게이트를 탄 실패 경로(위 두 assertion)와 인자 수가 다른 것이 그 경계다.
     expect(alertSpy).toHaveBeenCalledWith(
       '삭제 영향을 확인하지 못했어요',
       '잠시 후 다시 시도해 주세요.',
@@ -3549,9 +3646,12 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     await renderOwner();
     await pressDeleteX();
 
+    // 게이트를 타는 함수의 실패 경로라 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다.
     expect(alertSpy).toHaveBeenCalledWith(
       '삭제 영향을 확인하지 못했어요',
       '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDelete).not.toHaveBeenCalled();
   });

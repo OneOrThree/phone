@@ -140,6 +140,25 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
     acquireWaitersRef.current = waiters.filter((waiter) => waiter.id !== id);
     matched.forEach((waiter) => waiter.resolve(granted));
   }, []);
+  // ── 명령형 승인은 **id당 한 번에 하나** ────────────────────────────────────────
+  // registry는 id 하나에 항목 하나다. 그래서 같은 id로 두 승인이 동시에 살아 있으면,
+  // **먼저 끝난 쪽의 반납이 그 하나뿐인 항목을 지운다** — 두 번째 시트가 아직 떠 있는데
+  // 자리는 비어, 결과 모달이 그 아래에서 노출·ack된다. 초대 버튼을 빠르게 두 번 누르면
+  // 실제로 그렇게 된다(두 번째 `acquire`가 "이미 내가 보유자"라 즉시 승인되던 경로).
+  // 그래서 승인이 살아 있는 동안에는 같은 id의 다음 요청을 **대기열에 세운다.**
+  // ⚠️ 대기 중이던 두 번째는 반납 시점에 `false`로 깨어나 **조용히 접힌다**(승계하지 않는다).
+  //    연타의 두 번째 탭을 몇 초 뒤에 되살려 공유 시트를 다시 여는 것은 사용자가 기대한 바가
+  //    아니다 — 그 사이 사용자는 이미 공유를 마쳤다.
+  const grantedRef = useRef(new Set<string>());
+  const settleOneAcquireWaiter = useCallback((id: string) => {
+    if (grantedRef.current.has(id)) return; // 살아 있는 승인이 있다 — 다음 요청은 계속 기다린다.
+    const waiters = acquireWaitersRef.current;
+    const index = waiters.findIndex((waiter) => waiter.id === id);
+    if (index === -1) return;
+    const [waiter] = waiters.splice(index, 1);
+    grantedRef.current.add(id);
+    waiter.resolve(true);
+  }, []);
   const seqRef = useRef(0);
   // 보유자는 렌더에 쓰이므로 state이고, 판정은 이펙트 안에서 즉시 이뤄지므로 ref 사본도 둔다.
   // ⚠️ 초기값에도 **살아 있는 값을 읽는 함수**를 심는다. 기본 EMPTY_STATE의 것은 항상 -1이라,
@@ -189,8 +208,8 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
     const next = { holderId: nextHolder, maxPriority, liveMaxPriority: readLiveMaxPriority };
     stateRef.current = next;
     setState(next);
-    if (nextHolder !== null) settleAcquireWaiters(nextHolder, true);
-  }, [readLiveMaxPriority, settleAcquireWaiters]);
+    if (nextHolder !== null) settleOneAcquireWaiter(nextHolder);
+  }, [readLiveMaxPriority, settleOneAcquireWaiter]);
 
   // ⚠️ 판정은 **한 커밋의 등록을 모두 모은 뒤** 한 번만 한다(마이크로태스크로 미룬다).
   //    등록은 각 소비자의 이펙트에서 일어나고 이펙트는 트리 순서대로 도는데, 등록될 때마다
@@ -223,6 +242,7 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
 
   const release = useCallback(
     (id: string) => {
+      grantedRef.current.delete(id);
       // 승인 전에 접힌 요청은 기다리던 쪽에 그 사실을 알린다 — 안 그러면 영원히 매달린다.
       settleAcquireWaiters(id, false);
       if (!registryRef.current.delete(id)) return;
@@ -238,7 +258,12 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
   const acquire = useCallback(
     (id: string, priority: number) => {
       request(id, priority);
-      if (stateRef.current.holderId === id) return Promise.resolve(true);
+      // ⚠️ 보유자가 나여도 **살아 있는 승인이 있으면 즉시 승인하지 않는다**(위 grantedRef 주석).
+      //    연타의 두 번째 탭이 정확히 이 경로로 들어와 두 시트를 동시에 열던 자리다.
+      if (stateRef.current.holderId === id && !grantedRef.current.has(id)) {
+        grantedRef.current.add(id);
+        return Promise.resolve(true);
+      }
       return new Promise<boolean>((resolve) => {
         acquireWaitersRef.current.push({ id, resolve });
       });

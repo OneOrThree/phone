@@ -12,6 +12,7 @@ import {
   OverlaySlotProvider,
   useOverlayMaxPriority,
   useOverlaySlot,
+  useOverlaySlotActions,
   type OverlaySlotStatus,
 } from './OverlaySlotContext';
 
@@ -176,5 +177,45 @@ describe('slot 판정', () => {
       view.rerender(tree(true));
     });
     expect(values[values.length - 1]).toBe(OVERLAY_PRIORITY.sheet);
+  });
+
+  // ⚠️ registry는 id 하나에 항목 하나다. 그래서 같은 id로 두 승인이 동시에 살아 있으면
+  //    **먼저 끝난 쪽의 반납이 그 하나뿐인 항목을 지운다** — 두 번째 시트가 아직 떠 있는데
+  //    자리는 비어, 결과 모달이 그 아래에서 노출·ack된다. 초대 버튼 연타가 정확히 그 경로다
+  //    (두 번째 acquire가 "이미 내가 보유자"라 즉시 승인되던 자리).
+  test('같은 id의 명령형 승인은 한 번에 하나 — 연타의 두 번째는 함께 승인되지 않는다', async () => {
+    let actions: ReturnType<typeof useOverlaySlotActions> = null;
+    function Grab() {
+      actions = useOverlaySlotActions();
+      return null;
+    }
+    await render(
+      <OverlaySlotProvider>
+        <Grab />
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+
+    const settled: (boolean | 'pending')[] = ['pending', 'pending'];
+    await act(async () => {
+      actions?.acquire('share', OVERLAY_PRIORITY.sheet).then((granted) => {
+        settled[0] = granted;
+      });
+    });
+    // 첫 탭이 승인된 **뒤** 두 번째 탭 — 예전에는 보유자가 자기라서 즉시 승인됐다.
+    expect(settled[0]).toBe(true);
+    await act(async () => {
+      actions?.acquire('share', OVERLAY_PRIORITY.sheet).then((granted) => {
+        settled[1] = granted;
+      });
+    });
+    expect(settled[1]).toBe('pending');
+
+    // 첫 공유가 끝나 반납하면 두 번째는 조용히 접힌다 — 뒤늦게 시트를 다시 열지 않는다.
+    await act(async () => {
+      actions?.release('share');
+    });
+    await act(async () => {});
+    expect(settled[1]).toBe(false);
   });
 });

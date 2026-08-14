@@ -488,6 +488,37 @@ describe('요청이 떠 있는 구간(§6-2)', () => {
     expect(logGroupInviteShared).not.toHaveBeenCalled();
   });
 
+  // ⚠️ "`await` 뒤면 무조건 승인을 기다린다"가 **여기서는 틀린다.** 이 실패는 완료 다이얼로그가
+  //    이미 자리를 쥐고 떠 있을 때만 날 수 있는데(복사·공유 버튼이 그 안에 있다), 그 상태에서
+  //    기다리면 다이얼로그가 닫힐 때까지 아무 안내도 안 뜬다. 사용자는 원인을 모른 채 같은
+  //    버튼을 반복해 누르고, 확인을 눌러 화면을 닫으면 라우트가 바뀌며 **대기까지 취소돼**
+  //    실패 원인을 끝내 못 본다. 자기가 이미 자리를 쥐고 있으면 기다릴 이유가 없다.
+  test('다이얼로그가 이미 자리를 쥐고 있으면 실패 안내를 곧바로 띄운다', async () => {
+    mockIssueInviteLink.mockRejectedValueOnce(new Error('network'));
+    await render(
+      <OverlaySlotProvider>
+        <GroupCreateScreen />
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+
+    await typeName('아침 6시 집중방');
+    await press('비공개');
+    await press('만들기');
+    // 다이얼로그가 실제로 승인을 받아 떠 있는 상태다 — 결과 모달은 이미 막혀 있다.
+    expect(await screen.findByText('비공개 그룹을 만들었어요 🎉')).toBeOnTheScreen();
+
+    await press('공유하기');
+
+    // 다이얼로그가 닫히기를 기다리지 않는다 — 그 자리에서 원인을 말한다.
+    expect(Alert.alert).toHaveBeenCalledWith(
+      '초대 링크를 만들지 못했어요',
+      expect.any(String),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   test('생성 요청이 떠 있는 동안에는 이탈을 막는다', async () => {
     let resolveCreate: (v: CreateGroupResponse) => void = () => {};
     mockCreateGroup.mockImplementation(
