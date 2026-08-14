@@ -18,6 +18,7 @@ import { createGroup } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import type { CreateGroupResponse } from '@/types/dto/group';
 import { __resetGroupCardEmojiQueueForTest, readGroupCardEmoji } from './groupCardEmojiStore';
+import { OVERLAY_PRIORITY, OverlaySlotProvider, useOverlaySlot } from '@/store/OverlaySlotContext';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -296,6 +297,47 @@ describe('전송 계약 — 챌린지 없이 만든다(3차 §D18)', () => {
     await press('만들기');
 
     expect(mockCreateGroup).not.toHaveBeenCalled();
+  });
+});
+
+// ── 완료 다이얼로그도 전면 오버레이 조정자에 참여한다(GROMO-1576) ──────────────
+// 이 화면은 그룹 흐름 라우트라 루트의 챌린지 결과 모달이 뜰 수 있는 자리다. 둘 다 RN Modal이라
+// 등록하지 않으면 동시에 마운트되고, 어느 쪽이 위로 갈지는 플랫폼 재량이다. 결과 모달이 가려진
+// 채 마운트되면 **사용자는 못 봤는데 seen/ack 이 찍힌다**(D2 · N51) — 이 배치의 핵심 실패 모드.
+// ⚠️ 여는 계기가 생성 요청의 **비동기 응답**이라 blocker 등록만으로는 부족하다. 응답이 오는
+//    사이 결과 모달이 먼저 slot을 가져갈 수 있고, 그때 무조건 렌더하면 이쪽이 결과를 덮는다.
+describe('완료 다이얼로그의 slot 대기', () => {
+  // 결과 모달과 같은 자리를 먼저 차지한 보유자.
+  function Holder({ active }: { active: boolean }) {
+    useOverlaySlot('test:result', { priority: OVERLAY_PRIORITY.challengeResult, active });
+    return null;
+  }
+
+  test('다른 전면 오버레이가 slot을 쥐고 있으면 띄우지 않고, 놓으면 그때 띄운다', async () => {
+    const tree = (holderActive: boolean) => (
+      <OverlaySlotProvider>
+        <Holder active={holderActive} />
+        <GroupCreateScreen />
+      </OverlaySlotProvider>
+    );
+    const view = await render(tree(true));
+    await act(async () => {});
+
+    await typeName('아침 6시 집중방');
+    await press('비공개');
+    await press('만들기');
+
+    // 생성은 성공했지만 다이얼로그는 아직 뜨지 않는다 — 결과 모달을 덮으면 안 된다.
+    expect(mockCreateGroup).toHaveBeenCalled();
+    expect(
+      screen.queryByText('비공개 그룹을 만들었어요 🎉', { includeHiddenElements: true }),
+    ).toBeNull();
+
+    // 결과 모달이 닫히면 그때 뜬다 — 기다리는 동안 사라지지 않는다.
+    await act(async () => {
+      view.rerender(tree(false));
+    });
+    await waitFor(() => expect(screen.getByText('비공개 그룹을 만들었어요 🎉')).toBeOnTheScreen());
   });
 });
 

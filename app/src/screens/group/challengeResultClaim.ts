@@ -15,9 +15,14 @@
 //
 // 대역의 반환값은 **지금 동작을 그대로 유지하는 값**이다 — 서버(W2)가 배포되기 전에 이 코드가
 // 실려 나가도 결과 모달이 멈추지 않아야 한다:
-//   · claim/재검증 : 항상 성공(토큰은 로컬 합성). 즉 "선점 개념이 없던 시절"과 같은 흐름.
+//   · claim/재검증 : 항상 성공. 즉 "선점 개념이 없던 시절"과 같은 흐름.
 //   · ack          : 항상 성공(no-op). 로컬 1회 가드(D2)가 재노출을 막던 종전 그대로다.
 //   · ack 복구     : 대상 0건(서버 acknowledged 필드가 없으면 판정 자체가 불가능하다).
+//
+// ⚠️ **토큰은 회전하지 않는다** — 서버(W2)가 확정한 계약이고 대역도 같아야 한다.
+//    회전시키면 갱신 응답이 유실됐을 때 앱이 든 토큰이 영구히 낡은 값이 되어 ack까지 막히고,
+//    그 회차는 리스 만료 전까지 어느 경로로도 회복하지 못한다. 비회전이면 갱신 재시도가
+//    그대로 멱등이다. 그래서 새 토큰은 **최초 획득에서만** 만든다.
 import type { ChallengeResultCandidate } from './challengeResult';
 
 export interface ChallengeResultClaimOk {
@@ -39,17 +44,23 @@ let localTokenSeq = 0;
  * 선점 획득 **및 재검증**(계약 §4 — N53 개정).
  *
  * `currentToken`을 실어 부르면 "내가 아직 이 회차의 활성 claim 보유자인가"를 서버에 되묻고,
- * 맞으면 lease를 갱신한 **새 토큰**을 돌려준다. 아니면 `ok:false`다.
+ * 맞으면 lease를 갱신한 뒤 **같은 토큰**을 돌려준다(비회전 — 파일 헤더 ⚠️). 아니면 `ok:false`
+ * (`RESULT_CLAIM_HELD` + `retryAfterMs`)다.
  *
  * ⚠️ 이 인자가 있는 이유가 곧 이 경로의 존재 이유다: A가 선점하고 백그라운드로 내려간 사이
  *    lease(2분)가 만료돼 B가 재선점하면, A가 복귀했을 때 **A의 낡은 성공 응답**은 여전히
  *    `ok:true`다. 그것을 믿고 노출하면 두 기기가 같은 결과를 동시에 본다. 그래서 호출부는
  *    **렌더 직전에** 반드시 이 재검증을 한 번 더 통과해야 한다.
+ *
+ * 소유 판정 축은 **토큰 일치 하나**다(서버 확정) — 만료 여부를 따로 보지 않는다. "만료됐지만
+ * 아무도 안 가져간" 정상 복귀를 이유 없이 튕기지 않기 위해서이고, 남이 회수했으면 토큰이 새로
+ * 발급돼 불일치로 걸린다.
  */
 export async function claimChallengeResult(
   sessionId: string,
-  _currentToken?: string,
+  currentToken?: string,
 ): Promise<ChallengeResultClaim> {
+  if (currentToken !== undefined) return { ok: true, claimToken: currentToken };
   localTokenSeq += 1;
   return { ok: true, claimToken: `local:${sessionId}:${localTokenSeq}` };
 }

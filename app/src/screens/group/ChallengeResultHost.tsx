@@ -54,7 +54,13 @@ export const CHALLENGE_RESULT_OVERLAY_ID = 'challenge:result';
 
 // 선점을 놓쳤을 때(다른 기기가 같은 회차를 열고 있다) 다시 시도하기까지의 기본 지연.
 // 서버가 `retryAfterMs`를 주면 그것을 쓴다 — 절대 시각은 받지 않는다(시계 어긋남).
+// 서버가 그 값에 **리스 수명 상한**을 걸어 두었으므로 앱은 받은 값을 그대로 쓴다.
 const CLAIM_RETRY_FALLBACK_MS = 30_000;
+// 재시도에는 **상한을 두지 않는다** — 그룹 흐름 안에 머무는 동안만 도는 루프이고, 상한을 두면
+// 오래 머무는 사용자가 결과를 영영 못 받는다. 대신 연속 실패가 이 횟수를 넘으면 간격을 2배로
+// 늘려 조회 부하만 낮춘다(재시도마다 load()를 동반하므로 부하가 붙는다).
+const CLAIM_BACKOFF_AFTER_FAILURES = 5;
+const CLAIM_BACKOFF_FACTOR = 2;
 // ack 재시도 — **모달을 다시 띄우지 않고 ack만** 재시도한다(N51 · IA §4.3). 로컬 1회 가드는
 // 노출 시점에 이미 찍혔으므로(D2) 여기서 실패를 삼키면 그 회차는 다른 기기·재설치에서 다시 뜬다.
 const ACK_RETRY_MS = 5_000;
@@ -135,6 +141,15 @@ export default function ChallengeResultHost() {
   const claimRef = useRef<{ sessionId: string; token: string } | null>(null);
   claimRef.current = claim;
   const claimingRef = useRef<string | null>(null);
+  // 연속 선점 실패 횟수 — 백오프 판정용. 성공하면 0으로 되돌린다.
+  const claimFailStreakRef = useRef(0);
+  // ── 앱 활동 세대(generation) ──────────────────────────────────────────────
+  // AppState가 바뀔 때마다 올린다. 선점·재검증 응답이 **비활성 구간을 건너뛰어** 도착하면
+  // 그 값은 이미 낡았다: JS가 정지한 사이 lease(2분)가 만료되고 다른 기기가 재선점했을 수
+  // 있는데, 우리가 든 응답은 여전히 ok:true다. 그것을 믿고 노출하면 두 기기가 같은 결과를
+  // 동시에 본다 — ②가 만든 재검증 단계도 **비활성 구간을 건너뛴 응답에는 무의미**하다.
+  // (같은 모양의 세대 가드가 groupApi.getMyChallengeResults의 requestGeneration에도 있다.)
+  const activityGenRef = useRef(0);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const mountedRef = useRef(true);
   useEffect(
@@ -159,12 +174,24 @@ export default function ChallengeResultHost() {
   const focusPendingRef = useRef<string | null>(null);
   const focusKeyRef = useRef<string | null>(null);
 
-  // 지목 무장 — 렌더 중 조정(GroupRoomScreen이 쓰던 것과 같은 패턴). 라우트 파라미터가 갈리면
-  // 다시 무장한다.
-  if (focusKeyRef.current !== flow.focusKey) {
+  // 지목 무장 — 렌더 중 조정(GroupRoomScreen이 쓰던 것과 같은 패턴).
+  // ⚠️ **새 지목이 왔을 때만** 다시 무장한다. 지목이 없는 라우트로 옮겼다고 지우지 않는다:
+  //    결과 푸시로 GroupRoom에 들어온 뒤 정산 전에 GroupSettings 같은 하위 화면으로 이동하면
+  //    challengeId가 사라지는데, 그때 지목을 버리면 뒤늦게 정산이 끝났을 때 **사용자가 탭한
+  //    챌린지가 아니라 다른 최신 결과가 먼저** 뜬다. 내부 이동은 상태를 리셋할 사건이 아니다
+  //    (routeKey를 재조회 계기에서 들어낸 것과 같은 축). 지목은 **소비되거나 그룹 흐름을
+  //    완전히 벗어날 때** 사라진다(아래 이펙트).
+  if (flow.focusKey !== null && focusKeyRef.current !== flow.focusKey) {
     focusKeyRef.current = flow.focusKey;
     focusPendingRef.current = flow.focusChallengeId;
   }
+
+  // 그룹 흐름을 완전히 벗어나면 지목을 버린다 — 다음 진입은 새 사건이다.
+  useEffect(() => {
+    if (flow.inFlow) return;
+    focusKeyRef.current = null;
+    focusPendingRef.current = null;
+  }, [flow.inFlow]);
 
   // ── 현재 라우트 추적 ──
   // 루트에 있어 useIsFocused를 못 쓴다. navigationRef의 'state' 이벤트로 대신한다.
@@ -295,9 +322,19 @@ export default function ChallengeResultHost() {
   }, [flow.inFlow, flow.focusKey, load]);
 
   // 포그라운드 복귀 — 백그라운드에 있는 동안 정산이 끝났을 수 있다.
+  // 그리고 **활동 세대를 올린다**: 이 전환을 건너뛴 선점·재검증 응답을 폐기하기 위해서다.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state !== 'active' || !inFlowRef.current) return;
+      activityGenRef.current += 1;
+      if (state !== 'active') return;
+      // 아직 노출되지 않은 선점은 복귀 시점에 버리고 다시 검증한다 — 비활성 구간 동안
+      // lease(2분)가 만료돼 다른 기기가 가져갔을 수 있고, 그 사실은 재검증으로만 알 수 있다.
+      const held = claimRef.current;
+      if (held !== null && shownKeyRef.current !== held.sessionId) {
+        setClaim(null);
+        setClaimTick((tick) => tick + 1);
+      }
+      if (!inFlowRef.current) return;
       load();
     });
     return () => sub.remove();
@@ -339,7 +376,11 @@ export default function ChallengeResultHost() {
   // ⚠️ 재검증이 왜 별도 단계인가(계약 §4 · N53): A가 선점하고 백그라운드로 내려간 사이
   //    lease(2분)가 만료돼 B가 재선점하면, A가 복귀했을 때 **A가 들고 있던 성공 응답은 여전히
   //    ok:true**다. 그것을 믿고 노출하면 두 기기가 같은 결과를 동시에 본다. 그래서 렌더 직전에
-  //    현재 토큰을 실어 되묻고, **갱신된 토큰**만 저장한다.
+  //    현재 토큰을 실어 되묻고, 통과한 응답의 토큰만 저장한다(서버는 같은 토큰을 돌려준다 —
+  //    비회전. 회전시키면 갱신 응답 유실이 곧 영구 불일치가 되어 ack까지 막힌다).
+  // ⚠️ 그리고 그 재검증조차 **비활성 구간을 건너뛴 응답에는 무의미**하다 — 응답이 오는 사이
+  //    JS가 정지했다면 그 뒤 무슨 일이 있었는지 알 수 없다. 활동 세대로 그런 응답을 폐기하고
+  //    포그라운드에서 처음부터 다시 검증한다(AppState 이펙트가 claimTick을 올린다).
   // 놓쳤으면(ok:false) 큐에서 빼지 않는다 — 그 기기가 끝까지 못 보고 닫을 수도 있다.
   // ⚠️ ack를 노출 앞에 두면 렌더가 중단됐을 때 **어느 기기에서도 못 본다**(N58 · IA §4.3).
   const currentSessionId = current?.sessionId ?? null;
@@ -348,6 +389,7 @@ export default function ChallengeResultHost() {
     if (claimRef.current?.sessionId === currentSessionId) return; // 이미 이 회차를 쥐고 있다
     if (claimingRef.current === currentSessionId) return; // 진행 중
     claimingRef.current = currentSessionId;
+    const generation = activityGenRef.current;
     let canceled = false;
 
     const failed = (): ChallengeResultClaim => ({ ok: false, retryAfterMs: null });
@@ -362,7 +404,15 @@ export default function ChallengeResultHost() {
       .then((verified) => {
         if (claimingRef.current === currentSessionId) claimingRef.current = null;
         if (canceled || !mountedRef.current) return;
+        // 비활성 구간을 건너뛴 응답 — 폐기하고 **처음부터 다시** 검증한다. 여기서 그냥
+        // return만 하면 이 회차는 재시도 계기를 잃는다(진행 중 표시 때문에 복귀 시점의
+        // claimTick 증가가 이미 한 번 삼켜졌다).
+        if (activityGenRef.current !== generation) {
+          setClaimTick((tick) => tick + 1);
+          return;
+        }
         if (verified.ok) {
+          claimFailStreakRef.current = 0;
           setClaim({ sessionId: currentSessionId, token: verified.claimToken });
           return;
         }
@@ -370,13 +420,20 @@ export default function ChallengeResultHost() {
         // 기기가 그 결과를 ack 했을 수 있고, 그러면 이 stale head를 아무리 다시 선점해도
         // RESULT_ALREADY_ACKED만 돌아오며 뒤의 결과까지 영영 막힌다(제한적 재조회 5회가
         // 이미 끝났다면 이 자리가 유일한 갱신 계기다).
+        claimFailStreakRef.current += 1;
+        const base = verified.retryAfterMs ?? CLAIM_RETRY_FALLBACK_MS;
+        // 상한은 두지 않는다 — 늘리는 것은 간격뿐이다(상수 주석 참고).
+        const delay =
+          claimFailStreakRef.current > CLAIM_BACKOFF_AFTER_FAILURES
+            ? base * CLAIM_BACKOFF_FACTOR
+            : base;
         const timer = setTimeout(() => {
           if (!mountedRef.current) return;
           loadRef.current().finally(() => {
             if (!mountedRef.current) return;
             setClaimTick((tick) => tick + 1);
           });
-        }, verified.retryAfterMs ?? CLAIM_RETRY_FALLBACK_MS);
+        }, delay);
         timersRef.current.push(timer);
       });
     return () => {

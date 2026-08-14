@@ -32,6 +32,7 @@ import {
   logGroupInviteShared,
 } from '@/services/analyticsEvents';
 import { useUser } from '@/store/UserContext';
+import { OVERLAY_PRIORITY, useOverlaySlot } from '@/store/OverlaySlotContext';
 import { buildInviteShareMessage } from './inviteShare';
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
@@ -97,6 +98,22 @@ export default function GroupCreateScreen() {
   // 서버로 보낸 그 이름을 그대로 굳혀 둔다.
   const [created, setCreated] = useState<{ id: string; name: string } | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // ── 이 다이얼로그도 전면 오버레이 조정자에 등록한다(GROMO-1576) ──────────────
+  // 이 화면(GroupCreate)은 그룹 흐름 라우트라 루트의 챌린지 결과 모달이 뜰 수 있는 자리다.
+  // 둘 다 RN Modal이므로 등록하지 않으면 **동시에 마운트**되고, 어느 쪽이 위로 갈지는 플랫폼
+  // 재량이다. 그 결과가 이 배치의 핵심 실패 모드다 — 결과 모달이 **가려진 채 seen/ack** 되어
+  // 사용자는 한 번도 못 봤는데 서버는 봤다고 기록한다(로컬 마커와 ack가 둘 다 노출 시점에
+  // 찍히기 때문 — D2 · N51).
+  // ⚠️ blocker 등록만으로는 부족하다. 여는 계기가 **생성 요청의 비동기 응답**이라, 사용자가
+  //    만들기를 누른 뒤 응답이 오는 사이 결과 모달이 먼저 slot을 가져갈 수 있다. 그때
+  //    무조건 렌더하면 이 다이얼로그가 결과 모달을 덮어 같은 사고가 난다. 그래서 **승인을
+  //    받았을 때만** 띄운다. 못 받아도 사라지지 않는다 — 결과 모달이 닫히는 순간 뜬다.
+  const createdSlot = useOverlaySlot('groupCreate.inviteDialog', {
+    priority: OVERLAY_PRIORITY.sheet,
+    active: created !== null,
+  });
+  const createdDialogVisible = created !== null && createdSlot === 'granted';
 
   // '복사했어요' 되돌리기 타이머 — 언마운트 시 정리한다.
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -439,7 +456,7 @@ export default function GroupCreateScreen() {
 
       {/* 초대 링크 다이얼로그 — 비공개방은 링크 없이는 아무도 못 들어오므로 생성 직후 반드시 띄운다(§6-2) */}
       <Modal
-        visible={created !== null}
+        visible={createdDialogVisible}
         transparent
         animationType="fade"
         onRequestClose={() => navigation.goBack()}

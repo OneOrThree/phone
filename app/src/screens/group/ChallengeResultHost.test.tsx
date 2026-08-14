@@ -9,7 +9,7 @@
 //     계약이다(원본: GroupRoomScreen.test.tsx의 '챌린지 결과 모달(GROMO-1279)' describe).
 //  3) 다른 전면 오버레이가 slot을 쥐고 있으면 **마운트 자체를 하지 않는다.**
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { View } from 'react-native';
+import { AppState, View, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -136,8 +136,10 @@ function TestGuide({ active, onStatus }: { active: boolean; onStatus: (s: string
   return null;
 }
 
+type TestRoute = '홈' | '그룹' | 'GroupRoom' | 'GroupSettings';
+
 interface HostHarnessProps {
-  initialRoute?: '홈' | '그룹' | 'GroupRoom';
+  initialRoute?: TestRoute;
   sheetOpen?: boolean;
 }
 
@@ -152,6 +154,7 @@ function Harness({ initialRoute = '그룹', sheetOpen = false }: HostHarnessProp
           <Stack.Screen name="홈" component={Blank} />
           <Stack.Screen name="그룹" component={Blank} />
           <Stack.Screen name="GroupRoom" component={Blank} />
+          <Stack.Screen name="GroupSettings" component={Blank} />
         </Stack.Navigator>
       </NavigationContainer>
     </OverlaySlotProvider>
@@ -164,7 +167,7 @@ async function renderHost(props: HostHarnessProps = {}) {
   return view;
 }
 
-async function navigate(route: '홈' | '그룹' | 'GroupRoom', params?: object) {
+async function navigate(route: TestRoute, params?: object) {
   await act(async () => {
     // 테스트 전용 스택이라 앱의 라우트 타입(V2RootStackParamList)과 맞지 않는다.
     (navigationRef.navigate as unknown as (name: string, params?: object) => void)(route, params);
@@ -186,14 +189,25 @@ async function closeModal() {
   });
 }
 
+// AppState 전환을 테스트가 직접 굴린다 — 호스트의 활동 세대 가드가 그 전환을 본다.
+let appStateHandler: ((state: AppStateStatus) => void) | null = null;
+
 beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
+  appStateHandler = null;
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
+    appStateHandler = handler as (state: AppStateStatus) => void;
+    return { remove: jest.fn() } as never;
+  });
   resetChallengeResultGateForTests();
   mockGetMyChallengeResults.mockResolvedValue([]);
   // 기본은 "선점·재검증 성공 · 확인 성공 · 복구 대상 없음" — 이 축이 관심사가 아닌 테스트가
-  // 그대로 돌게 한다.
-  mockClaim.mockResolvedValue({ ok: true, claimToken: 'token-1' });
+  // 그대로 돌게 한다. 재검증은 서버 계약대로 **같은 토큰**을 돌려준다(비회전).
+  mockClaim.mockImplementation(async (sessionId: string, currentToken?: string) => ({
+    ok: true as const,
+    claimToken: currentToken ?? `tok-${sessionId}`,
+  }));
   mockAck.mockResolvedValue(true);
   mockPendingAck.mockResolvedValue([]);
   mockReconcileAck.mockResolvedValue(true);
@@ -317,12 +331,20 @@ describe('다른 전면 오버레이와의 배타', () => {
 // ⚠️ 호출 **여부**만 보지 않는다. 순서가 계약이다.
 describe('선점·재검증·확인 배선(claim → verify → 노출 → ack)', () => {
   // 호출 순서를 한 배열에 모아 **그 배열 전체**를 단언한다 — 단계 하나가 빠지면 바로 드러난다.
+  // 각 줄에 **실제로 오간 토큰**을 함께 적어, 단언이 값이 아니라 관계를 보게 한다.
+  // 재검증은 서버 계약대로 **같은 토큰**을 돌려준다(비회전) — 대역도 그래야 통합이 재수출
+  // 한 줄로 끝난다.
   function recordOrder(order: string[]) {
+    let issued = 0;
     mockClaim.mockImplementation(async (sessionId: string, currentToken?: string) => {
-      order.push(
-        currentToken === undefined ? `claim:${sessionId}` : `verify:${sessionId}:${currentToken}`,
-      );
-      return { ok: true as const, claimToken: currentToken === undefined ? 'token-1' : 'token-2' };
+      if (currentToken !== undefined) {
+        order.push(`verify:${sessionId}:${currentToken}:${currentToken}`);
+        return { ok: true as const, claimToken: currentToken };
+      }
+      issued += 1;
+      const claimToken = `tok-${issued}`;
+      order.push(`claim:${sessionId}:${claimToken}`);
+      return { ok: true as const, claimToken };
     });
     mockAck.mockImplementation(async (sessionId: string, token: string) => {
       order.push(`ack:${sessionId}:${token}`);
@@ -341,11 +363,20 @@ describe('선점·재검증·확인 배선(claim → verify → 노출 → ack)'
     await renderHost();
     expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
 
-    // 재검증은 **첫 응답의 토큰을 실어** 불러야 하고, 저장·ack에 쓰이는 것은 **갱신된 토큰**이다.
-    // 재검증 단계가 빠지면 여기서 'verify:…'가 사라져 즉시 실패한다.
-    await waitFor(() =>
-      expect(order).toEqual(['claim:s1', 'verify:s1:token-1', 'shown', 'ack:s1:token-2']),
-    );
+    // ⚠️ 토큰 값을 **문자열로 박지 않는다.** 계약은 "ack가 재검증 결과의 토큰을 쓴다"이지
+    //    그 값이 무엇이냐가 아니다. 서버는 지금 같은 토큰을 돌려주지만(비회전), 그 정책이
+    //    바뀌어도 이 단언은 계속 옳아야 한다 — 값을 박으면 대역의 동작을 박제하게 된다.
+    await waitFor(() => expect(order).toHaveLength(4));
+    const acquired = order[0].split(':')[2]; // claim:s1:<token>
+    const verified = order[1].split(':')[3]; // verify:s1:<sent>:<token>
+    expect(order).toEqual([
+      `claim:s1:${acquired}`,
+      // 재검증은 **첫 응답의 토큰을 실어** 부른다. 이 단계가 빠지면 배열 길이부터 어긋난다.
+      `verify:s1:${acquired}:${verified}`,
+      'shown',
+      // ack는 **재검증이 돌려준 토큰**을 쓴다.
+      `ack:s1:${verified}`,
+    ]);
   });
 
   // 사용자가 모달을 본 뒤 **닫기 전에 강제 종료·크래시**하면 서버엔 미확인으로 남는데, 로컬
@@ -356,9 +387,11 @@ describe('선점·재검증·확인 배선(claim → verify → 노출 → ack)'
     await renderHost();
     expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
 
-    // 아직 아무것도 닫지 않았다.
+    // 아직 아무것도 닫지 않았다. 토큰은 **재검증이 돌려준 값**이면 되고, 그 값이 무엇인지는
+    // 계약이 아니다(위 순서 테스트와 같은 이유).
     await waitFor(() => expect(mockAck).toHaveBeenCalledTimes(1));
-    expect(mockAck).toHaveBeenCalledWith('s1', 'token-1');
+    const verified = mockClaim.mock.results.at(-1)?.value;
+    expect(mockAck).toHaveBeenCalledWith('s1', (await verified).claimToken);
   });
 
   test('재검증이 실패하면(다른 기기가 lease를 가져갔다) 모달을 띄우지 않는다', async () => {
@@ -366,13 +399,13 @@ describe('선점·재검증·확인 배선(claim → verify → 노출 → ack)'
     // 낡은 성공 응답을 믿고 노출하면 두 기기가 같은 결과를 동시에 본다.
     mockClaim.mockImplementation(async (_sessionId: string, currentToken?: string) =>
       currentToken === undefined
-        ? { ok: true as const, claimToken: 'token-1' }
+        ? { ok: true as const, claimToken: 'tok-a' }
         : { ok: false as const, retryAfterMs: 60_000 },
     );
     mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
     await renderHost();
 
-    await waitFor(() => expect(mockClaim).toHaveBeenCalledWith('s1', 'token-1'));
+    await waitFor(() => expect(mockClaim).toHaveBeenCalledWith('s1', 'tok-a'));
     expect(
       screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
     ).toBeNull();
@@ -408,7 +441,10 @@ describe('선점·재검증·확인 배선(claim → verify → 노출 → ack)'
       mockGetMyChallengeResults.mockResolvedValue([
         resultEntry({ sessionId: 's2', sessionDate: '2026-07-30' }),
       ]);
-      mockClaim.mockResolvedValue({ ok: true, claimToken: 'token-2' });
+      mockClaim.mockImplementation(async (_sessionId: string, currentToken?: string) => ({
+        ok: true as const,
+        claimToken: currentToken ?? 'tok-s2',
+      }));
 
       await act(async () => {
         jest.advanceTimersByTime(1_200);
@@ -441,7 +477,8 @@ describe('선점·재검증·확인 배선(claim → verify → 노출 → ack)'
       await act(async () => {});
 
       expect(mockAck).toHaveBeenCalledTimes(2);
-      expect(mockAck).toHaveBeenLastCalledWith('s1', 'token-1');
+      // 재시도는 **같은 세션·같은 토큰**으로 간다(멱등) — 값 자체는 계약이 아니다.
+      expect(mockAck.mock.calls[1]).toEqual(mockAck.mock.calls[0]);
       // 재시도는 ack만이다 — 사용자에게 같은 결과를 두 번 보여주지 않는다.
       expect(screen.getByTestId('group.challengeResult')).toBeOnTheScreen();
       await closeModal();
@@ -729,5 +766,113 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
 
       expect(screen.queryByTestId('group.challengeResult')).toBeNull();
     });
+
+    // 결과 푸시로 들어온 뒤 **정산 전에** 하위 화면으로 이동하면 라우트에서 challengeId가
+    // 사라진다. 그때 지목을 버리면 뒤늦게 정산이 끝났을 때 사용자가 탭한 챌린지가 아니라
+    // 다른 최신 결과가 먼저 뜬다 — 내부 이동은 상태를 리셋할 사건이 아니다.
+    test('그룹 흐름 **내부**로 이동해도 지목을 잃지 않는다', async () => {
+      mockGetMyChallengeResults.mockResolvedValue([]); // 아직 정산 전
+      await renderHost({ initialRoute: '홈' });
+      await navigate('GroupRoom', { groupId: GROUP_ID, challengeId: 'c-target' });
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+      // 방에서 그룹 설정으로 들어갔다 — challengeId가 없는 라우트다.
+      await navigate('GroupSettings', { groupId: GROUP_ID });
+
+      // 그 사이 정산이 끝났다. 최신순으로는 s-other(7/31)가 앞이지만, 사용자가 탭한 것은
+      // c-target(7/30)이다.
+      mockGetMyChallengeResults.mockResolvedValue([
+        resultEntry({ sessionId: 's-other', challengeId: 'c-other', sessionDate: '2026-07-31' }),
+        resultEntry({ sessionId: 's-target', challengeId: 'c-target', sessionDate: '2026-07-30' }),
+      ]);
+      await betResultPush();
+
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      expect(screen.getByText('7월 30일 결과')).toBeOnTheScreen();
+    });
+
+    // 반대 축 — 그룹 흐름을 **완전히** 벗어나면 지목은 그 진입의 사건과 함께 끝난다.
+    test('그룹 흐름을 벗어나면 지목을 버린다 — 다음 진입은 새 사건이다', async () => {
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await renderHost({ initialRoute: '홈' });
+      await navigate('GroupRoom', { groupId: GROUP_ID, challengeId: 'c-target' });
+      await navigate('홈');
+
+      mockGetMyChallengeResults.mockResolvedValue([
+        resultEntry({ sessionId: 's-other', challengeId: 'c-other', sessionDate: '2026-07-31' }),
+        resultEntry({ sessionId: 's-target', challengeId: 'c-target', sessionDate: '2026-07-30' }),
+      ]);
+      await navigate('그룹');
+
+      // 지목이 살아 있었다면 7/30이 먼저 떴을 것이다 — 이제는 평범한 최신순이다.
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      expect(screen.getByText('7월 31일 결과')).toBeOnTheScreen();
+    });
+  });
+});
+
+// ── 가려진 채 seen/ack 되지 않는다 ─────────────────────────────────────────────
+// 이 배치의 핵심 실패 모드다. 로컬 마커와 ack는 **둘 다 노출 시점**에 찍히므로(D2 · N51),
+// 다른 RN Modal에 덮인 채 마운트되면 사용자는 한 번도 못 봤는데 서버·로컬 모두 "봤다"가 된다.
+// 그래서 slot을 못 얻은 결과는 **마운트 자체가 없어야** 하고, 그 사실을 부작용으로도 확인한다.
+describe('가려진 채 확인 처리되지 않는다', () => {
+  test('slot을 못 얻으면 마운트도 seen 마커도 ack도 없다', async () => {
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    const view = await renderHost({ initialRoute: '그룹', sheetOpen: true });
+
+    expect(
+      screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
+    ).toBeNull();
+    // 노출의 부작용 셋 중 어느 것도 일어나지 않았다.
+    expect(await AsyncStorage.getItem('gromo:sessionResult:me:s1')).toBeNull();
+    expect(mockAck).not.toHaveBeenCalled();
+    expect(logGroupChallengeResultShown).not.toHaveBeenCalled();
+
+    // 가린 것이 사라지면 그때 정상적으로 노출·확인된다.
+    await act(async () => {
+      view.rerender(<Harness initialRoute="그룹" sheetOpen={false} />);
+    });
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    await waitFor(() => expect(mockAck).toHaveBeenCalledTimes(1));
+  });
+});
+
+// ── 비활성 구간을 건너뛴 선점 응답 ────────────────────────────────────────────
+// 재검증 응답이 도착한 **직후 JS가 백그라운드에서 정지**하면, 2분 lease가 만료되고 다른 기기가
+// 재선점한 뒤에도 복귀 시 그 낡은 값을 그대로 믿게 된다 — 재검증 단계가 그 구간에는 무의미하다.
+describe('포그라운드 복귀 시 선점 재검증', () => {
+  test('비활성 구간을 건너뛴 응답은 폐기하고 다시 검증한다', async () => {
+    let releaseClaim: (value: { ok: true; claimToken: string }) => void = () => undefined;
+    // 첫 라운드는 응답을 손으로 붙잡는다.
+    mockClaim.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: true; claimToken: string }>((resolve) => {
+          releaseClaim = resolve;
+        }),
+    );
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await renderHost();
+    await waitFor(() => expect(mockClaim).toHaveBeenCalledTimes(1));
+
+    // 응답을 기다리는 사이 앱이 내려갔다 올라왔다 — 그 구간에 lease가 만료됐을 수 있다.
+    await act(async () => {
+      appStateHandler?.('background');
+    });
+    await act(async () => {
+      appStateHandler?.('active');
+    });
+
+    // 이제 낡은 응답이 도착한다. 이것을 믿고 노출하면 두 기기가 같은 결과를 동시에 본다.
+    await act(async () => {
+      releaseClaim({ ok: true, claimToken: 'stale-token' });
+    });
+    await act(async () => {});
+
+    // 낡은 토큰으로는 ack 하지 않는다 — 처음부터 다시 검증한 뒤에야 노출한다.
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    await waitFor(() => expect(mockAck).toHaveBeenCalledTimes(1));
+    expect(mockAck).not.toHaveBeenCalledWith('s1', 'stale-token');
+    // 폐기 → 재시도이므로 선점이 다시 돌았다(첫 라운드 1회 + 새 라운드의 획득·재검증).
+    expect(mockClaim.mock.calls.length).toBeGreaterThan(2);
   });
 });
