@@ -77,6 +77,11 @@ export const INVALID_SESSION_DATES = 'INVALID_SESSION_DATES'; // 400 join-week �
 export const RESULT_CLAIM_HELD = 'RESULT_CLAIM_HELD'; // 409 다른 기기가 선점 중({ retryAfterMs })
 export const RESULT_ALREADY_ACKED = 'RESULT_ALREADY_ACKED'; // 409 이미 확인된 결과(재선점 불가)
 export const RESULT_CLAIM_STALE = 'RESULT_CLAIM_STALE'; // 409 ack 토큰이 현재 claim과 다름
+// 409 정산 전(OPEN) 회차에 claim·ack를 불렀다 — **재시도 대상이 아니다**(retryAfterMs 없음).
+// 서버가 막는 이유: 정산 전에 acknowledged_at이 찍히면 그 회차가 나중에 정산됐을 때
+// **어느 기기에서도 안 뜬다.** 결과 4종만 큐에 실리므로 정상 흐름에서는 나올 수 없다 —
+// 나오면 그 자체가 앱 버그 신호다(claimChallengeResult가 사유를 실어 호출부에 올린다).
+export const RESULT_NOT_SETTLED = 'RESULT_NOT_SETTLED';
 
 // POST /api/v1/groups — 그룹 생성. password·description은 보내지 않는다(§3-1-3).
 export async function createGroup(body: CreateGroupRequest): Promise<CreateGroupResponse> {
@@ -351,9 +356,15 @@ export async function leaveBet(groupId: string, betId: string): Promise<void> {
 
 // ── 챌린지 v2 — 참가자 스코프 /me 엔드포인트 (LLD §2.1, 서버 병렬 구현 중) ──────────
 
-// GET /api/v1/me/challenge-results?since=&limit= — 내 정산 완료 회차(그룹 무관, N53).
+// GET /api/v1/me/challenge-results?since=&limit= — 내 **미확인** 정산 완료 회차(그룹 무관, N53).
 // 결과 모달 큐의 유일한 소스다 — 카드 조회(getChallenges)와 분리됐다: 탈퇴자도 자기 결과를
 // 봐야 하고(C8), 안 본 결과 여럿이 최신 1건으로 접히면 안 된다. 최근 30일·최대 10건은 서버 계약.
+//
+// ⚠️ **응답에 실렸다는 것 자체가 "아직 확인 안 됨"이라는 뜻이다**(서버 술어에
+// `acknowledgedAt IS NULL` — 계약 개정). 확인된 행을 앱은 어디서도 쓰지 않으면서 10건 상한만
+// 점유해, 결과가 11건 이상인 사용자의 **11번째 미확인 결과가 영영 조회되지 않았다.**
+// `acknowledged` 필드는 계약 표면으로 남지만 실서버에서는 항상 false다 — 앱의 필터를 그대로
+// 두는 것은 구서버 응답 방어이자, 서버가 술어를 되돌려도 화면이 안 깨지게 하는 이중 안전장치다.
 // 방어: results 키가 없거나 배열이 아니면 빈 배열 — 큐가 없을 뿐 화면은 무영향.
 export async function getMyChallengeResults(page?: {
   since?: string;
@@ -421,6 +432,7 @@ export async function getMyChallengeResults(page?: {
 // **어느 기기에서도 못 본다**).
 // 바디는 항상 {} 다 — joinGroup·joinBet과 같은 이유로 생략하면 서버가 415를 준다.
 // 200 { claimToken } · 409 RESULT_CLAIM_HELD { retryAfterMs } · 409 RESULT_ALREADY_ACKED ·
+// 409 RESULT_NOT_SETTLED(정산 전 회차 — 재시도 불가) ·
 // 404 USER_NOT_FOUND/그 회차의 내 참가 행 없음. 409 판정은 challengeResult.claimChallengeResult가 쥔다.
 // claimToken 을 실으면 **재검증 + lease 갱신**이다(계약 §4 개정 N53) — 없으면 최초 획득.
 // 렌더 직전에 이걸 부르지 않으면, 백그라운드에서 lease 를 잃은 기기가 낡은 성공 응답만 믿고

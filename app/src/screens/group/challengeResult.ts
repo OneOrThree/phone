@@ -15,6 +15,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   RESULT_CLAIM_STALE,
+  RESULT_NOT_SETTLED,
   ackMyChallengeResult,
   claimMyChallengeResult,
   groupErrorCode,
@@ -156,7 +157,11 @@ function guardKey(userId: string, sessionId: string): string {
 // 이미 보여준 결과를 걸러낸다 — **서버 확인 표시와 로컬 마커를 합치는 유일한 자리**다.
 //
 // 합치는 방식(GROMO-1577 · N58):
-//   1차 = 서버 `acknowledged` — 계정 축이라 **기기를 건너서** 성립한다(다른 기기에서 본 결과).
+//   1차 = 서버 확인 — 계정 축이라 **기기를 건너서** 성립한다(다른 기기에서 본 결과).
+//     ⚠️ 이 축은 이제 **응답 자체가 표현한다**: 서버가 미확인 회차만 내려주므로(계약 개정 —
+//     확인된 행이 10건 상한을 점유해 11번째 미확인 결과가 영영 안 내려오던 것을 막았다)
+//     확인된 회차는 애초에 후보로 들어오지 않는다. 아래 `acknowledged` 필터는 구서버 응답
+//     방어로 남긴다 — 무해하고, 서버가 술어를 되돌려도 중복 노출이 새지 않는다.
 //   2차 = 로컬 마커 — ack 실패 창의 **보완재**다(노출은 됐는데 ack가 못 나간 회차).
 // 서버 표시를 **저장소를 읽기 전에** 적용한다. 순서가 뒤집히면 안 되는 이유:
 //   · 서버가 "이미 봤다"고 말한 것은 저장소를 못 읽어도 **확정된 사실**이다. 나중에 거르면
@@ -187,6 +192,48 @@ export async function filterUnseenChallengeResults(
   } catch {
     return null; // 가드 읽기 실패 = 판정 불가
   }
+}
+
+// **로컬로는 봤는데 서버에는 확인이 안 남은 회차** — ack 재시도 대상이다.
+//
+// 왜 따로 필요한가: `ackChallengeResult` 가 실패를 boolean 으로 알려도(N51) 그 재시도는 **세션
+// 안에서만** 산다. 노출 직후 ack 가 네트워크로 실패하고 앱이 재시작되면, 로컬 마커가 그 회차를
+// 후보에서 걸러 내므로 **재시도할 기회 자체가 사라진다.** 서버는 영영 `acknowledged=false` 로
+// 남아 다른 기기·재설치에서 같은 결과가 다시 뜨고, 대기 중인 결과 푸시도 안 닫힌다
+// (IA §4.3 — "ack 실패 시 재노출 없이 **ack 만 재시도**").
+//
+// 두 신호가 겹치는 순간이 정확히 그 상태다: **로컬 마커가 있다**(= 이 기기에서 이미 보여 줬다)
+// **그리고 서버가 아직 확인을 못 받았다**. 그러면 다시 띄우지 않고 claim → ack 만 조용히
+// 재시도하면 된다 — 이미 본 것이 확실하므로 노출 없이 수렴시켜도 안전하다.
+//
+// ⚠️ 뒤쪽 신호는 이제 **응답에 실렸다는 것 자체**다(계약 개정 — 서버가 미확인만 내려준다).
+// `acknowledged !== true` 필터는 그래서 실서버에서 통과만 하지만 그대로 둔다: 구서버 응답
+// 방어이자, 손으로 만든 후보가 섞여도 대상이 잘못 잡히지 않게 하는 이중 안전장치다.
+//
+// 읽기 실패는 **빈 배열**이다(`null` 아님). 여기서의 '모르겠다'는 노출 판정이 아니라 보정 대상
+// 판정이라, 못 읽으면 이번엔 보정을 건너뛰는 것으로 충분하다 — 다음 조회가 다시 시도한다.
+export async function pendingAckChallengeResults(
+  userId: string,
+  candidates: ChallengeResultCandidate[],
+): Promise<ChallengeResultCandidate[]> {
+  const unacked = candidates.filter((c) => c.acknowledged !== true);
+  if (unacked.length === 0) return [];
+  try {
+    const pairs = await AsyncStorage.multiGet(unacked.map((c) => guardKey(userId, c.sessionId)));
+    const seen = new Set(pairs.filter(([, value]) => value !== null).map(([key]) => key));
+    return unacked.filter((c) => seen.has(guardKey(userId, c.sessionId)));
+  } catch {
+    return [];
+  }
+}
+
+// 위 대상 1건을 조용히 수렴시킨다 — **노출하지 않는다.** claim 을 새로 받아 ack 까지 보낸다.
+// 선점에 실패하면(다른 기기가 쥐고 있거나 이미 확인됨) 그냥 넘어간다: 어느 쪽이든 서버 상태는
+// 곧 옳아진다. 성공 여부를 돌려주므로 호출부가 재시도 주기를 쥔다.
+export async function reconcileChallengeResultAck(sessionId: string): Promise<boolean> {
+  const claimed = await claimChallengeResult(sessionId);
+  if (!claimed.ok) return false;
+  return ackChallengeResult(sessionId, claimed.claimToken);
 }
 
 // 노출 마커 기록(1회 가드) — **모달이 뜬 순간** 부른다. 닫을 때 기록하면 모달이 떠 있는 사이의
@@ -228,12 +275,26 @@ async function writeSeenGuard(userId: string, sessionId: string, date: string): 
 // 들고 있어 같은 결과가 두 번 뜬다 — 그 축을 서버가 닫는다.
 // 호출 순서는 D8이 정한다: slot → **선점** → 활성 claim 검증 → 노출 → **ack**.
 
+// 선점 결과. 실패 갈래에 **사유를 선택 필드로** 싣는다 — 없으면 '그냥 이번엔 실패'다.
+// `reason: 'NOT_SETTLED'` 하나만 정의한 이유는 아래 claimChallengeResult 주석에 있다.
+export type ChallengeResultClaim =
+  | { ok: true; claimToken: string }
+  | { ok: false; retryAfterMs: number | null; reason?: 'NOT_SETTLED' };
+
 // 선점 시도. **409를 예외로 던지지 않는다** — 다른 기기가 쥐고 있거나(RESULT_CLAIM_HELD) 이미
 // 확인된 결과(RESULT_ALREADY_ACKED)인 것은 사고가 아니라 정상 흐름의 판정 결과다.
 // 네트워크·5xx도 같은 실패 값으로 접는다: 어느 쪽이든 답은 '지금은 띄우지 않는다' 하나뿐이고,
 // 다시 시도할지는 호출부의 재조회 타이머(V2 — 30초 간격·최대 5회)가 쥔다. 이미 확인된 결과는
-// 그 재조회 응답에서 acknowledged=true로 내려와 후보에서 빠지므로 여기서 구분할 필요가 없다.
+// 그 재조회 응답에서 아예 빠져 내려오므로(서버가 미확인만 준다) 여기서 구분할 필요가 없다.
 // retryAfterMs는 서버가 준 **상대 지연**만 싣는다(없으면 null — 절대 시각은 계약이 금지).
+//
+// ⚠️ **`RESULT_NOT_SETTLED`(정산 전 회차)만은 사유를 실어 올린다.** 다른 실패와 성질이 다르다:
+//   · `RESULT_ALREADY_ACKED`는 "다음 재조회에서 후보가 사라진다"로 **저절로 해소**된다
+//   · `RESULT_NOT_SETTLED`는 **애초에 후보가 되면 안 되는 것**이다(결과 4종만 큐에 실린다) —
+//     나오면 그 자체가 앱 버그 신호이고, 재조회해도 같은 후보가 같은 답을 받아 **헛돈다**
+// `{ok:false, retryAfterMs:null}`로만 접으면 이 신호가 **가장 흔한 실패(네트워크)와 같은 값**이
+// 되어 사라진다. 호출부는 reason을 보고 재시도가 아니라 **후보에서 제외**해야 한다.
+// (`retryAfterMs`는 여전히 null이라, 사유를 안 읽는 호출부도 최소한 즉시 재시도는 하지 않는다.)
 //
 // **`currentToken` 을 주면 「렌더 직전 재검증」이다**(D8의 세 번째 단계). 이 인자가 없던 판에는
 // 구멍이 있었다: A가 선점한 뒤 백그라운드로 가 lease 가 만료되고 B가 재선점했는데, A가 복귀해
@@ -242,7 +303,7 @@ async function writeSeenGuard(userId: string, sessionId: string, date: string): 
 export async function claimChallengeResult(
   sessionId: string,
   currentToken?: string,
-): Promise<{ ok: true; claimToken: string } | { ok: false; retryAfterMs: number | null }> {
+): Promise<ChallengeResultClaim> {
   try {
     const data = await claimMyChallengeResult(sessionId, currentToken);
     const claimToken = data?.claimToken;
@@ -253,6 +314,9 @@ export async function claimChallengeResult(
     }
     return { ok: true, claimToken };
   } catch (e) {
+    if (groupErrorCode(e) === RESULT_NOT_SETTLED) {
+      return { ok: false, retryAfterMs: null, reason: 'NOT_SETTLED' };
+    }
     return { ok: false, retryAfterMs: groupErrorRetryAfterMs(e) };
   }
 }

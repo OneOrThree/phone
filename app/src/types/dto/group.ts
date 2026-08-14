@@ -462,9 +462,12 @@ export interface MyChallengeResultEntry {
   myAchieved: boolean | null;
   myPayout: number | null;
   results: MyChallengeResultRow[];
-  // 서버 확인 표시(GROMO-1577 · N58) — **다른 기기에서 이미 본** 회차다. 결과 모달의 1차
-  // 중복 필터가 이 값이고, 로컬 마커(gromo:sessionResult:*)는 ack가 못 남은 창을 메우는
-  // 보완재로 남는다(filterUnseenChallengeResults가 둘을 합친다).
+  // 서버 확인 표시(GROMO-1577 · N58) — 다른 기기에서 이미 본 회차인가.
+  // ⚠️ **실서버에서는 항상 false다**: 응답 술어에 `acknowledgedAt IS NULL`이 들어가
+  // **응답에 실렸다는 것 자체가 "아직 확인 안 됨"이라는 뜻**이 됐다(계약 개정). 확인된 행을
+  // 앱이 어디서도 쓰지 않으면서 10건 상한만 점유해, 결과가 11건 이상인 사용자의 11번째
+  // 미확인 결과가 영영 조회되지 않던 것을 막은 것이다. 필드는 계약 표면으로 남고, 앱의
+  // 필터(filterUnseenChallengeResults)도 구서버 응답 방어로 그대로 둔다.
   // 아래 둘은 미션 스냅샷 4필드와 같은 이유로 **선택 필드다** — 나중에 붙은 additive 필드라
   // 구서버 응답·손으로 만든 픽스처에는 통째로 없다(undefined). undefined는 '아직 확인 안 됨'
   // 으로 접어 읽는다: 모르면 한 번 더 보여주는 쪽이 안전하고(안 보여주면 영영 못 본다),
@@ -473,6 +476,8 @@ export interface MyChallengeResultEntry {
   // 정산 시각(ISO instant) — 10건 상한을 넘길 때 쓸 `since` 커서의 재료(V5).
   // ⚠️ **이번 배치는 싣기만 하고 소비하지 않는다.** 지금 응답에 이 값이 없어 앱이 커서를
   // 만들 수단 자체가 없었다 — 상한에 걸린 사용자의 11번째 결과는 조회할 방법이 없었다.
+  // (서버가 확인된 행을 응답에서 빼면서 상한 압박은 크게 줄었지만, 미확인만 11건인 경우는
+  //  여전히 남아 커서 자리는 열어 둔다.)
   settledAt?: string;
 }
 

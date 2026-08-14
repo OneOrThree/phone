@@ -7,7 +7,9 @@ import {
   claimChallengeResult,
   filterUnseenChallengeResults,
   markChallengeResultSeen,
+  pendingAckChallengeResults,
   pickChallengeResults,
+  reconcileChallengeResultAck,
   type ChallengeResultCandidate,
 } from './challengeResult';
 import { api } from '@/services/api';
@@ -280,6 +282,35 @@ describe('서버 확인 표시 × 로컬 마커 — 중복 노출 필터 합류(
     await AsyncStorage.clear();
   });
 
+  // ── ack 실패 뒤 재시작 — 로컬 마커에 가려 영영 미확인으로 남는 것을 막는다 ──
+  // ⚠️ ackChallengeResult가 false를 돌려줘도 그 재시도는 **세션 안에서만** 산다. 노출 직후 ack가
+  // 네트워크로 실패하고 앱이 재시작되면, 로컬 마커가 그 회차를 후보에서 걸러 **재시도 기회 자체가
+  // 사라진다.** 서버는 영영 acknowledged=false로 남아 다른 기기·재설치에서 같은 결과가 다시 뜨고
+  // 대기 중인 결과 푸시도 안 닫힌다(IA §4.3 — 재노출 없이 ack만 재시도).
+  test('로컬로는 봤는데 서버가 미확인이면 ack 재시도 대상이다', async () => {
+    await AsyncStorage.setItem(`gromo:sessionResult:${USER_ID}:s1`, '2026-07-31');
+    const targets = await pendingAckChallengeResults(USER_ID, [
+      candidate('s1', { acknowledged: false }),
+      candidate('s2', { acknowledged: false }),
+    ]);
+    expect(targets.map((c) => c.sessionId)).toEqual(['s1']);
+  });
+
+  test('서버가 이미 확인했으면 재시도 대상이 아니다', async () => {
+    await AsyncStorage.setItem(`gromo:sessionResult:${USER_ID}:s1`, '2026-07-31');
+    const targets = await pendingAckChallengeResults(USER_ID, [
+      candidate('s1', { acknowledged: true }),
+    ]);
+    expect(targets).toEqual([]);
+  });
+
+  test('아직 안 본 회차는 재시도 대상이 아니다 — 그건 노출 경로가 처리한다', async () => {
+    const targets = await pendingAckChallengeResults(USER_ID, [
+      candidate('s1', { acknowledged: false }),
+    ]);
+    expect(targets).toEqual([]);
+  });
+
   test('acknowledged=true 인 결과는 후보에서 걸러진다 — 다른 기기에서 이미 봤다', async () => {
     const out = await filterUnseenChallengeResults(USER_ID, [
       candidate('s-acked', { acknowledged: true }),
@@ -336,11 +367,47 @@ describe('claimChallengeResult · ackChallengeResult (GROMO-1577)', () => {
   });
 
   test('이미 확인된 결과·네트워크 실패도 같은 실패 값 — 지연을 지어내지 않는다(null)', async () => {
+    // 이 둘은 사유 없이 접어도 된다: ALREADY_ACKED 는 다음 재조회에서 후보가 사라져 저절로
+    // 해소되고, 네트워크 실패는 그냥 다시 시도하면 되는 것이다.
     mockApi.post.mockRejectedValueOnce(axiosErrorWith(409, { code: 'RESULT_ALREADY_ACKED' }));
     await expect(claimChallengeResult('s1')).resolves.toEqual({ ok: false, retryAfterMs: null });
 
     mockApi.post.mockRejectedValueOnce(new Error('network'));
     await expect(claimChallengeResult('s1')).resolves.toEqual({ ok: false, retryAfterMs: null });
+  });
+
+  // ⚠️ 정산 전 회차는 **애초에 후보가 되면 안 되는 것**이라(결과 4종만 큐에 실린다) 나오면 그
+  // 자체가 앱 버그 신호다. 재조회해도 같은 후보가 같은 답을 받아 헛돈다 — 사유 없이
+  // { ok:false, retryAfterMs:null }로만 접으면 **가장 흔한 실패(네트워크)와 같은 값**이 되어
+  // 그 신호가 사라진다. 호출부가 후보에서 제외할 수 있도록 사유를 실어 올린다.
+  test('RESULT_NOT_SETTLED 는 재시도 값으로 접히지 않는다 — 사유를 실어 올린다', async () => {
+    mockApi.post.mockRejectedValueOnce(axiosErrorWith(409, { code: 'RESULT_NOT_SETTLED' }));
+    await expect(claimChallengeResult('s1')).resolves.toEqual({
+      ok: false,
+      retryAfterMs: null,
+      reason: 'NOT_SETTLED',
+    });
+
+    // 사유가 붙는 것은 이 코드뿐이다 — 네트워크 실패까지 '후보 제외'로 읽히면 안 된다.
+    mockApi.post.mockRejectedValueOnce(new Error('network'));
+    const other = await claimChallengeResult('s1');
+    expect(other.ok).toBe(false);
+    expect(other).not.toHaveProperty('reason');
+  });
+
+  test('보정은 노출 없이 claim → ack 만 한다', async () => {
+    mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
+    expect(await reconcileChallengeResultAck('s1')).toBe(true);
+    expect(mockApi.post).toHaveBeenNthCalledWith(1, '/api/v1/me/challenge-results/s1/claim', {});
+    expect(mockApi.post).toHaveBeenNthCalledWith(2, '/api/v1/me/challenge-results/s1/ack', {
+      claimToken: 'ct-1',
+    });
+  });
+
+  test('보정 중 선점에 실패하면 조용히 넘어간다 — ack를 부르지 않는다', async () => {
+    mockApi.post.mockRejectedValue(axiosErrorWith(409, { code: 'RESULT_CLAIM_HELD' }));
+    expect(await reconcileChallengeResultAck('s1')).toBe(false);
+    expect(mockApi.post).toHaveBeenCalledTimes(1);
   });
 
   // ── 렌더 직전 재검증 (D8 세 번째 단계 · 계약 §4 개정 N53) ──
