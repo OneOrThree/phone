@@ -343,6 +343,33 @@ describe('claimChallengeResult · ackChallengeResult (GROMO-1577)', () => {
     await expect(claimChallengeResult('s1')).resolves.toEqual({ ok: false, retryAfterMs: null });
   });
 
+  // ── 렌더 직전 재검증 (D8 세 번째 단계 · 계약 §4 개정 N53) ──
+  // ⚠️ 이 인자가 없으면 구멍이 열린다: A가 선점 → 백그라운드 → lease 만료 → B가 재선점 → A 복귀.
+  // A가 최초 성공 응답만 믿고 띄우면 **두 기기가 모두 모달을 본다.**
+  test('토큰 없이 부르면 최초 획득 — 빈 바디를 보낸다', async () => {
+    mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
+    await claimChallengeResult('s1');
+    expect(mockApi.post).toHaveBeenCalledWith('/api/v1/me/challenge-results/s1/claim', {});
+  });
+
+  test('토큰을 실으면 재검증 — 바디에 claimToken이 실린다', async () => {
+    mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
+    await claimChallengeResult('s1', 'ct-1');
+    expect(mockApi.post).toHaveBeenCalledWith('/api/v1/me/challenge-results/s1/claim', {
+      claimToken: 'ct-1',
+    });
+  });
+
+  test('재검증이 막히면 노출로 가지 않는다 — lease를 잃은 기기가 낡은 토큰으로 띄우지 못한다', async () => {
+    mockApi.post.mockRejectedValue(
+      axiosErrorWith(409, { code: 'RESULT_CLAIM_HELD', retryAfterMs: 30_000 }),
+    );
+    await expect(claimChallengeResult('s1', 'ct-stale')).resolves.toEqual({
+      ok: false,
+      retryAfterMs: 30_000,
+    });
+  });
+
   test('토큰 없는 200은 선점 실패로 접는다 — 빈 토큰의 ack는 반드시 STALE로 튕긴다', async () => {
     mockApi.post.mockResolvedValue({ data: { claimToken: '' } });
     await expect(claimChallengeResult('s1')).resolves.toEqual({ ok: false, retryAfterMs: null });

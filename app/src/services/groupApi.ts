@@ -422,12 +422,17 @@ export async function getMyChallengeResults(page?: {
 // 바디는 항상 {} 다 — joinGroup·joinBet과 같은 이유로 생략하면 서버가 415를 준다.
 // 200 { claimToken } · 409 RESULT_CLAIM_HELD { retryAfterMs } · 409 RESULT_ALREADY_ACKED ·
 // 404 USER_NOT_FOUND/그 회차의 내 참가 행 없음. 409 판정은 challengeResult.claimChallengeResult가 쥔다.
+// claimToken 을 실으면 **재검증 + lease 갱신**이다(계약 §4 개정 N53) — 없으면 최초 획득.
+// 렌더 직전에 이걸 부르지 않으면, 백그라운드에서 lease 를 잃은 기기가 낡은 성공 응답만 믿고
+// 띄워 두 기기가 모두 모달을 본다.
 export async function claimMyChallengeResult(
   sessionId: string,
+  claimToken?: string,
 ): Promise<ChallengeResultClaimResponse> {
   const { data } = await api.post<ChallengeResultClaimResponse>(
     `/api/v1/me/challenge-results/${sessionId}/claim`,
-    {},
+    // 값 없는 키를 보내지 않는다 — 서버가 "재검증 요청"으로 오독하면 최초 획득이 막힌다.
+    claimToken === undefined ? {} : { claimToken },
   );
   return data;
 }

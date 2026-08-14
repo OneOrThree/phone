@@ -234,11 +234,17 @@ async function writeSeenGuard(userId: string, sessionId: string, date: string): 
 // 다시 시도할지는 호출부의 재조회 타이머(V2 — 30초 간격·최대 5회)가 쥔다. 이미 확인된 결과는
 // 그 재조회 응답에서 acknowledged=true로 내려와 후보에서 빠지므로 여기서 구분할 필요가 없다.
 // retryAfterMs는 서버가 준 **상대 지연**만 싣는다(없으면 null — 절대 시각은 계약이 금지).
+//
+// **`currentToken` 을 주면 「렌더 직전 재검증」이다**(D8의 세 번째 단계). 이 인자가 없던 판에는
+// 구멍이 있었다: A가 선점한 뒤 백그라운드로 가 lease 가 만료되고 B가 재선점했는데, A가 복귀해
+// **최초 성공 응답만 믿고** 띄우면 두 기기가 모두 모달을 본다. 서버가 토큰 일치를 원자적으로
+// 확인하고 lease 를 연장해 주므로, 렌더 직전에 한 번 더 부르면 그 창이 닫힌다.
 export async function claimChallengeResult(
   sessionId: string,
+  currentToken?: string,
 ): Promise<{ ok: true; claimToken: string } | { ok: false; retryAfterMs: number | null }> {
   try {
-    const data = await claimMyChallengeResult(sessionId);
+    const data = await claimMyChallengeResult(sessionId, currentToken);
     const claimToken = data?.claimToken;
     // 토큰 없는 200은 계약 위반이다 — 빈 토큰으로 노출까지 가면 ack가 반드시 STALE로 튕겨
     // 서버 확인이 영영 안 남는다. 선점 실패로 접는다.
