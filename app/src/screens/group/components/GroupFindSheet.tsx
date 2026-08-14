@@ -22,6 +22,7 @@ import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
 import type { GroupSearchResponse, GroupSummaryResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 
 // 그룹 찾기 시트 — 명세 docs/app/group-plan.md §6-3 + 2차 docs/app/group-plan-2.md §3-3.
@@ -76,6 +77,8 @@ export default function GroupFindSheet({
   onOpenGroup,
 }: GroupFindSheetProps) {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  // 이 시트가 닫힌 **뒤에도** 떠 있을 수 있는 안내는 자리를 스스로 쥔다(goLogin 주석).
+  const showAlert = useOverlayAlert('group.findSheet.alert');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GroupSearchResponse[]>([]);
   // 열리자마자 공개방 기본 목록을 부르므로(A-10) 첫 렌더는 로딩으로 시작한다 —
@@ -207,13 +210,17 @@ export default function GroupFindSheet({
   }, [q, runSearch]);
 
   // 게스트는 GroupScreen이 앞단에서 막지만, 서버가 403을 주면 시트를 닫고 로그인으로 보낸다(§5-3).
+  // ⚠️ 순서가 뒤집혀 있었다 — `onClose()`를 **먼저** 부르면 이 시트의 등록이 내려간 뒤에
+  //    Alert가 뜬다. 그 창에서 결과 모달이 이 안내 **뒤에** 마운트되고, 사용자가 못 본 회차에
+  //    seen/ack이 찍힌다. 안내를 먼저 띄워 자리가 끊기지 않게 한다 — Alert 자신이 sheet
+  //    우선순위로 자리를 이어받고(useOverlayAlert), 그 다음에 시트를 닫는다.
   const goLogin = useCallback(() => {
-    onClose();
-    Alert.alert('로그인이 필요해요', '로그인하면 그룹에 참여할 수 있어요.', [
+    showAlert('로그인이 필요해요', '로그인하면 그룹에 참여할 수 있어요.', [
       { text: '나중에', style: 'cancel' },
       { text: '로그인하기', onPress: () => navigation.navigate('SettingsAccount') },
     ]);
-  }, [navigation, onClose]);
+    onClose();
+  }, [navigation, onClose, showAlert]);
 
   async function join(group: GroupSearchResponse) {
     // 참여는 앱 전체에서 한 번에 하나만 나간다(joinLock.ts) — 초대 시트의 참여와 같은 잠금을 쓴다.

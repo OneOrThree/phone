@@ -590,7 +590,8 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
         '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
         [expect.objectContaining({ text: '확인', onPress: expect.any(Function) })],
         // 취소 불가 — 무콜백 닫힘(로그아웃 미실행 잔류) 방지 의도를 계약으로 고정(#530 codex).
-        { cancelable: false },
+        // onDismiss가 붙는다 — 안내가 자리를 쥐고 있어 닫힘 경로 둘 다 반납해야 한다(GROMO-1576).
+        expect.objectContaining({ cancelable: false }),
       );
       expect(Alert.alert).not.toHaveBeenCalledWith(
         '그룹을 만들지 못했어요',

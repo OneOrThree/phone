@@ -348,7 +348,8 @@ test('유저 부재(USER_NOT_FOUND) — 사라진 챌린지로 위장하지 않�
     '로그인이 필요해요',
     '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
     [expect.objectContaining({ text: '확인' })],
-    { cancelable: false },
+    // onDismiss가 붙는다 — 안내가 자리를 쥐고 있어 닫힘 경로 둘 다 반납해야 한다(GROMO-1576).
+    expect.objectContaining({ cancelable: false }),
   );
   expect(onDone).not.toHaveBeenCalled();
   alertSpy.mockRestore();

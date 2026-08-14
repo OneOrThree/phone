@@ -310,7 +310,8 @@ describe('위임 실패 통보', () => {
       '로그인이 필요해요',
       '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
-      { cancelable: false },
+      // onDismiss가 붙는다 — 안내가 자리를 쥐고 있어 닫힘 경로 둘 다 반납해야 한다(GROMO-1576).
+      expect.objectContaining({ cancelable: false }),
     );
     // 로그아웃은 **요청을 띄운 세션**에만 적용된다 — 안내를 읽는 사이 세션이 교체되면
     // App.tsx 핸들러가 이 세대를 대조해 무시한다(GROMO-1247 P1).
@@ -332,7 +333,8 @@ describe('위임 실패 통보', () => {
       '로그인이 필요해요',
       '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
-      { cancelable: false },
+      // onDismiss가 붙는다 — 안내가 자리를 쥐고 있어 닫힘 경로 둘 다 반납해야 한다(GROMO-1576).
+      expect.objectContaining({ cancelable: false }),
     );
     pressReloginConfirm(alertSpy);
     expect(mockTriggerLogout).toHaveBeenCalledWith(6);

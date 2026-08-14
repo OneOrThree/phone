@@ -1121,15 +1121,44 @@ export default function ChallengeCard({
   //
   // 물러나는 버튼은 `그만두기`다(policy §A8) — 여기서 `취소`를 쓰면 같은 카드의 **참여 취소**와
   // 겹쳐, 돈을 무르는 버튼과 창을 닫는 버튼이 같은 단어가 된다.
-  function confirmDeleteOneStep(revalidate: boolean) {
-    Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
-      { text: '그만두기', style: 'cancel' },
+  //
+  // ⚠️ **이 함수는 두 성질을 겸한다** — 부르는 자리가 둘이고 그 앞에 창이 있는지가 다르다.
+  //   · 구서버 분기(`confirmDelete`의 `repeatDays === null`) — 탭 핸들러에서 **동기로** 부른다.
+  //     `await`가 없어 전면 모달이 떠 있을 수 없다(조정자 헤더의 A축) → 자리를 새로 안 잡는다.
+  //   · 0건 분기(`confirmDelete`의 프리플라이트 응답 뒤) — **`await` 뒤**다(B축). 기다리는 사이
+  //     결과 모달이 노출될 수 있어, 그대로 띄우면 그 위를 덮고 사용자가 못 읽은 채 seen·ack이
+  //     나간다. 형제 분기(`openSessions > 0`)는 이미 승인을 받는다 — **한쪽만 두면 막은 것이
+  //     아니다.** 그래서 "어떻게 띄울지"를 호출부가 `gated`로 정해 넘긴다.
+  function confirmDeleteOneStep(revalidate: boolean, gated: boolean) {
+    // 승인을 받고 띄운 경우에만 닫힘에서 그 자리를 돌려준다 — 경로 셋(그만두기·삭제·onDismiss)의
+    // 단일 출구다. 언마운트 유예는 alertOverCardSlot이 함께 맡는다.
+    let finished = false;
+    const finish = () => {
+      if (!gated || finished) return;
+      finished = true;
+      releaseSheetSlot();
+    };
+    const buttons: AlertButton[] = [
+      { text: '그만두기', style: 'cancel', onPress: finish },
       {
         text: '삭제',
         style: 'destructive',
-        onPress: () => (revalidate ? confirmDeleteZeroFinal() : onDelete(challenge.id)),
+        onPress: () => {
+          // ⚠️ 확보한 자리를 **여기서 돌려준다.** 이어지는 재검증이 프리뷰를 **다시 조회**하므로
+          //    (confirmDeleteZeroFinal) 여는 시점은 그 응답이 정한다 — 그 시점에 스스로 새로
+          //    승인을 받는다. 지금 자리를 쥔 채로 넘기면 그 함수의 claim이 자기 자신과 겹친다.
+          //    "승인을 받으면 반드시 연다"(:직렬화 계약)는 **열지 않을 거면 돌려주라**는 뜻이고,
+          //    releaseSheetSlot이 그 반납 경로다 — 계약을 깨는 것이 아니라 그대로 따르는 것이다.
+          finish();
+          return revalidate ? confirmDeleteZeroFinal() : onDelete(challenge.id);
+        },
       },
-    ]);
+    ];
+    if (gated) {
+      alertOverCardSlot('챌린지 삭제', '이 챌린지를 삭제할까요?', buttons, { onDismiss: finish });
+      return;
+    }
+    Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', buttons);
   }
 
   // 0건 프리뷰의 확정 — 다시 받아 새 참여가 생겼는지 본다.
@@ -1173,7 +1202,8 @@ export default function ChallengeCard({
   async function confirmDelete() {
     if (!isOwner) return;
     if (repeatDays === null) {
-      confirmDeleteOneStep(false); // 프리뷰 엔드포인트가 없는 구서버 — 재검증할 수단이 없다.
+      // 동기 경로다 — 탭과 Alert 사이에 await가 없어 창이 없다(위 confirmDeleteOneStep 주석).
+      confirmDeleteOneStep(false, false); // 프리뷰 엔드포인트가 없는 구서버 — 재검증할 수단이 없다.
       return;
     }
     if (deleteLock.current) return; // 프리플라이트가 도는 동안의 연타 방지(leaveLock 관행)
@@ -1182,7 +1212,11 @@ export default function ChallengeCard({
       if (cachedGroupId === null) throw new Error('unknown groupId'); // 캐시 미적중 — 공통 실패로.
       const preview = await getChallengeDeletionPreview(cachedGroupId, challenge.id);
       if (preview.openSessions.length === 0) {
-        confirmDeleteOneStep(true);
+        // ⚠️ 형제 분기(아래 `openSessions > 0`)와 **같은 창** 안에 있다 — 바로 위 `await`가 그
+        //    창을 열었다. 한쪽 분기만 게이트를 두면 막은 것이 아니다: 프리플라이트를 기다리는
+        //    사이 결과 모달이 노출되면 이 확인창이 그 위를 덮고 seen·ack이 나간다.
+        if (!(await claimSheetSlot())) return;
+        confirmDeleteOneStep(true, true);
         return;
       }
       // ⚠️ **확인 Alert를 띄우기 전에** slot을 확보하고, 닫힐 때까지 쥐고 있는다.

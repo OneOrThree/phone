@@ -388,7 +388,8 @@ describe('그룹 나가기', () => {
       '로그인이 필요해요',
       '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
-      { cancelable: false },
+      // onDismiss가 붙는다 — 안내가 자리를 쥐고 있어 닫힘 경로 둘 다 반납해야 한다(GROMO-1576).
+      expect.objectContaining({ cancelable: false }),
     );
     alertSpy.mockRestore();
   });
@@ -506,7 +507,8 @@ describe('그룹 나가기', () => {
       '로그인이 필요해요',
       '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
-      { cancelable: false },
+      // onDismiss가 붙는다 — 안내가 자리를 쥐고 있어 닫힘 경로 둘 다 반납해야 한다(GROMO-1576).
+      expect.objectContaining({ cancelable: false }),
     );
     // 안내와 별개로 화면은 실패 상태로 남는다 — 로그아웃 언마운트 전까지 성공처럼 보이면 안 된다.
     expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();

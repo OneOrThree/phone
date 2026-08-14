@@ -47,7 +47,8 @@ test('안내 문구·형태는 GROMO-1241 정본 그대로다(취소 없는 단�
     '로그인이 필요해요',
     '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
     [expect.objectContaining({ text: '확인' })],
-    { cancelable: false },
+    // onDismiss가 붙는다 — 버튼을 안 거치고 닫히는 경로(Android)에서도 자리를 반납해야 한다.
+    expect.objectContaining({ cancelable: false }),
   );
   // 안내가 떴다고 로그아웃되지는 않는다 — 사용자가 읽고 확인한 뒤다.
   expect(mockTriggerLogout).not.toHaveBeenCalled();

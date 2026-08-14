@@ -3235,9 +3235,11 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     await pressDeleteX();
 
     expect(mockGetDeletionPreview).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID);
+    // 0건 분기도 승인을 받고 띄우므로 alertOverCardSlot을 지난다 — onDismiss가 채워진다.
     expect(alertSpy).toHaveBeenCalledWith(
       '챌린지 삭제',
       '이 챌린지를 삭제할까요?',
+      expect.anything(),
       expect.anything(),
     );
     await act(async () => {
@@ -3279,6 +3281,51 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     );
     await pressDeleteX();
 
+    expect(order).toEqual(['claim', 'alert']);
+  });
+
+  // ⚠️ **한 함수가 두 분기를 겸하면 한쪽만 게이트가 빠진다.** 실제로 그랬다 — `confirmDelete`는
+  //    `openSessions > 0`만 승인을 받고, `=== 0`은 같은 `await` 뒤인데 그냥 띄웠다. 두 분기를
+  //    **한 카드에서 이어 눌러 대조**해 두면 비대칭이 다시 생겨도 여기서 걸린다.
+  test('두 분기 모두 승인을 받은 뒤에 확인창을 띄운다 — 0건도 >0과 같다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const order: string[] = [];
+    const onRequestSheetSlot = jest.fn(async () => {
+      order.push('claim');
+      return true;
+    });
+    alertSpy.mockImplementation(() => {
+      order.push('alert');
+    });
+
+    // ① 걸린 돈이 없는 0건 프리플라이트 — 이번에 닫은 분기.
+    mockGetDeletionPreview.mockResolvedValue({ openSessions: [], totalRefund: 0 });
+    await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={onRequestSheetSlot}
+      />,
+    );
+    await pressDeleteX();
+    expect(order).toEqual(['claim', 'alert']);
+
+    // 확인창에서 물러나 자리를 돌려주고, **같은 카드**에서 다른 분기를 눌러 본다.
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '그만두기')
+        ?.onPress?.();
+    });
+
+    // ② 걸린 돈이 있는 분기 — 종전 계약. 순서가 같다.
+    order.length = 0;
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    await pressDeleteX();
     expect(order).toEqual(['claim', 'alert']);
   });
 

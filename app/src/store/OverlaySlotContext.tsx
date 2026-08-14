@@ -152,6 +152,20 @@ const EMPTY_STATE: OverlaySlotState = {
 
 const OverlaySlotStateContext = createContext<OverlaySlotState>(EMPTY_STATE);
 
+// ── React 밖에서 자리를 쥐는 통로 ─────────────────────────────────────────────
+// 네이티브 Alert를 띄우는 것이 컴포넌트만은 아니다 — `services/sessionErrors.ts`의
+// `promptSessionExpired`는 **모듈 함수**라 훅을 쓸 수 없는데, 그 Alert도 화면 위에 떠서
+// 결과 모달을 가린다(위 "자리를 놓을 때의 축" 절의 ①이 참인 표면이다).
+// 그래서 Provider가 마운트돼 있는 동안 자기 actions를 여기 걸어 둔다.
+// ⚠️ Provider 밖(로그인 전 트리 등)에서는 null이다 — 호출부는 그때 종전대로 그냥 띄운다.
+//    경쟁 상대가 존재할 수 없으므로 그것이 옳다.
+let moduleActions: OverlaySlotActions | null = null;
+
+/** 훅을 쓸 수 없는 모듈 함수가 자리를 잡을 때 쓴다. Provider가 없으면 null. */
+export function getOverlaySlotActions(): OverlaySlotActions | null {
+  return moduleActions;
+}
+
 export function OverlaySlotProvider({ children }: { children: ReactNode }) {
   const registryRef = useRef<Map<string, OverlaySlotRegistration>>(new Map());
   // 등록 즉시(동기) 갱신되는 최고 우선순위 — state는 마이크로태스크 뒤에 따라온다.
@@ -301,6 +315,14 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
     () => ({ request, release, acquire }),
     [request, release, acquire],
   );
+
+  // React 밖의 호출자(아래 getOverlaySlotActions)에게 이 Provider의 통로를 열어 둔다.
+  useEffect(() => {
+    moduleActions = actions;
+    return () => {
+      if (moduleActions === actions) moduleActions = null;
+    };
+  }, [actions]);
 
   return (
     <OverlaySlotActionsContext.Provider value={actions}>
