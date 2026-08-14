@@ -30,9 +30,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,9 +45,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.oneorthree.phone.group.service.ChallengeResultAckService.DISPLAY_CLAIM_LEASE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
  * 결과 모달 표시 선점(claim) · 확인 표시(ack)의 통합 회귀 (GROMO-1577 · policy N58·B17 · IA §4.3).
@@ -87,6 +92,8 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     BetEventNotificationService betEventNotificationService;
     @Autowired
     UserRepository userRepository;
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final LocalDate TODAY = LocalDate.now(KST);
@@ -171,7 +178,7 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
                 return;
             }
             try {
-                challengeResultAckService.claimDisplay(me.getId(), sessionId, null);
+                challengeResultAckService.claimDisplay(me.getId(), sessionId, (UUID) null);
                 won.incrementAndGet();
             } catch (ChallengeResultClaimHeldException e) {
                 held.incrementAndGet();
@@ -187,17 +194,17 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     void claimIsRejectedAfterAcknowledge() {
         GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
         joinSettled(session, me);
-        ChallengeResultClaimResponse claim = claimAt(session, NOW);
+        ChallengeResultClaimResponse claim = claim(session);
         challengeResultAckService.acknowledge(me.getId(), session.getId(), claim.claimToken(), NOW);
 
-        // 리스는 이미 만료된 시각이다 — 회수 조건만 보면 통과하므로, 막는 것은 acknowledged_at 조건뿐이다.
-        assertThatThrownBy(() -> claimAt(session, NOW.plusSeconds(600)))
+        // ack 가 선점을 비웠으므로 리스 조건은 통과한다 — 막는 것은 acknowledged_at 조건뿐이다.
+        assertThatThrownBy(() -> claim(session))
                 .isInstanceOf(GroupException.class)
                 .extracting(e -> ((GroupException) e).getErrorCode())
                 .isEqualTo(GroupErrorCode.RESULT_ALREADY_ACKED);
 
         // 재검증 경로에도 같은 조건이 들어 있다 — 확인이 끝난 뒤에는 내 토큰이어도 되살릴 수 없다.
-        assertThatThrownBy(() -> renewAt(session, claim.claimToken(), NOW.plusSeconds(1)))
+        assertThatThrownBy(() -> renew(session, claim.claimToken()))
                 .isInstanceOf(GroupException.class)
                 .extracting(e -> ((GroupException) e).getErrorCode())
                 .isEqualTo(GroupErrorCode.RESULT_ALREADY_ACKED);
@@ -210,22 +217,43 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     void expiredLeaseIsReclaimable() {
         GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
         joinSettled(session, me);
-        ChallengeResultClaimResponse first = claimAt(session, NOW);
+        ChallengeResultClaimResponse first = claim(session);
 
-        Instant beforeExpiry = NOW.plus(ChallengeResultAckService.DISPLAY_CLAIM_LEASE).minusSeconds(1);
-        assertThatThrownBy(() -> claimAt(session, beforeExpiry))
+        assertThatThrownBy(() -> claim(session))
+                .as("리스가 살아 있는 동안에는 회수되지 않는다")
                 .isInstanceOf(ChallengeResultClaimHeldException.class);
 
-        Instant afterExpiry = NOW.plus(ChallengeResultAckService.DISPLAY_CLAIM_LEASE).plusSeconds(1);
-        ChallengeResultClaimResponse reclaimed = claimAt(session, afterExpiry);
+        // 시간은 DB 행을 늙혀서 민다 — 리스의 시계가 DB 라서 호출자가 시각을 줄 자리가 없다.
+        ageLease(session, DISPLAY_CLAIM_LEASE.plusSeconds(1));
+        ChallengeResultClaimResponse reclaimed = claim(session);
         assertThat(reclaimed.claimToken()).isNotEqualTo(first.claimToken());
 
         // 재선점된 뒤에는 낡은 토큰의 ack 가 통하지 않는다 — 띄우지도 못한 결과를 삼키면 안 된다.
         assertThatThrownBy(() -> challengeResultAckService
-                .acknowledge(me.getId(), session.getId(), first.claimToken(), afterExpiry))
+                .acknowledge(me.getId(), session.getId(), first.claimToken(), NOW))
                 .isInstanceOf(GroupException.class)
                 .extracting(e -> ((GroupException) e).getErrorCode())
                 .isEqualTo(GroupErrorCode.RESULT_CLAIM_STALE);
+    }
+
+    @Test
+    @DisplayName("리스 시각은 DB 시계로 찍힌다 — 호출자가 준 시각이 아니다(인스턴스 간 시계 어긋남 차단)")
+    void leaseIsStampedWithDatabaseClock() {
+        GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
+        joinSettled(session, me);
+
+        Instant dbBefore = dbNow();
+        claim(session);
+        Instant dbAfter = dbNow();
+
+        assertThat(displayClaimedAt(session))
+                .as("인스턴스 시각으로 찍으면 시계가 빠른 쪽이 남의 방금 만든 선점을 즉시 회수한다")
+                .isBetween(dbBefore, dbAfter);
+        // 확인 시각도 같은 시계다 — 두 값이 다른 시계면 "선점보다 이른 확인"이 남는다.
+        UUID token = displayClaimToken(session);
+        Instant ackBefore = dbNow();
+        challengeResultAckService.acknowledge(me.getId(), session.getId(), token, NOW);
+        assertThat(acknowledgedAt(session)).isBetween(ackBefore, dbNow());
     }
 
     // ── ⑧ 렌더 직전 재검증 ──────────────────────────────────────────────
@@ -236,21 +264,23 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
         GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
         joinSettled(session, me);
         // A 가 선점하고 렌더 전에 정지된다.
-        ChallengeResultClaimResponse deviceA = claimAt(session, NOW);
+        ChallengeResultClaimResponse deviceA = claim(session);
         // 리스가 만료되고 B 가 회수해 지금 표시 중이다.
-        Instant afterExpiry = NOW.plus(ChallengeResultAckService.DISPLAY_CLAIM_LEASE).plusSeconds(1);
-        ChallengeResultClaimResponse deviceB = claimAt(session, afterExpiry);
+        ageLease(session, DISPLAY_CLAIM_LEASE.plusSeconds(1));
+        ChallengeResultClaimResponse deviceB = claim(session);
 
         // A 가 깨어나 렌더 직전에 자기 선점을 확인한다 — 여기서 막혀야 두 기기가 함께 뜨지 않는다.
-        assertThatThrownBy(() -> renewAt(session, deviceA.claimToken(), afterExpiry.plusSeconds(1)))
+        ChallengeResultClaimHeldException held = catchThrowableOfType(
+                () -> renew(session, deviceA.claimToken()), ChallengeResultClaimHeldException.class);
+        assertThat(held)
                 .as("낡은 claimant 가 최초 성공 응답만 믿고 띄우면 두 기기가 모두 모달을 본다")
-                .isInstanceOf(ChallengeResultClaimHeldException.class)
-                .extracting(e -> ((ChallengeResultClaimHeldException) e).getRetryAfterMs())
-                .isEqualTo(ChallengeResultAckService.DISPLAY_CLAIM_LEASE.toMillis() - 1000);
+                .isNotNull();
+        // 지연은 현 소유자(B)의 남은 리스다 — DB 가 계산하므로 방금 선점분에 거의 가득 차 있다.
+        assertThat(held.getRetryAfterMs())
+                .isBetween(DISPLAY_CLAIM_LEASE.toMillis() - 5_000, DISPLAY_CLAIM_LEASE.toMillis());
 
         // 현 소유자 B 의 재검증은 통과한다.
-        assertThat(renewAt(session, deviceB.claimToken(), afterExpiry.plusSeconds(1)).claimToken())
-                .isEqualTo(deviceB.claimToken());
+        assertThat(renew(session, deviceB.claimToken()).claimToken()).isEqualTo(deviceB.claimToken());
     }
 
     @Test
@@ -258,21 +288,21 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     void reverificationExtendsLeaseAtomically() {
         GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
         joinSettled(session, me);
-        UUID token = claimAt(session, NOW).claimToken();
+        UUID token = claim(session).claimToken();
 
-        Instant renewedAt = NOW.plusSeconds(90);
+        ageLease(session, Duration.ofSeconds(90));   // 리스 절반 이상 경과 — 아직 유효
         // 토큰은 회전시키지 않는다 — 갱신 응답이 유실돼도 앱이 든 토큰으로 ack 까지 갈 수 있어야 한다.
-        assertThat(renewAt(session, token, renewedAt).claimToken()).isEqualTo(token);
+        assertThat(renew(session, token).claimToken()).isEqualTo(token);
 
-        // 최초 선점 기준 만료(NOW + 2분)를 지난 시각 — 연장이 없었다면 회수됐어야 한다.
-        Instant afterOriginalExpiry = NOW.plus(ChallengeResultAckService.DISPLAY_CLAIM_LEASE).plusSeconds(10);
-        assertThatThrownBy(() -> claimAt(session, afterOriginalExpiry))
+        // 갱신 시점부터 90초 — 연장이 없었다면 최초 선점 기준 180초로 이미 만료다.
+        ageLease(session, Duration.ofSeconds(90));
+        assertThatThrownBy(() -> claim(session))
                 .as("검증과 연장이 갈리면 모달이 마운트되기 전에 리스가 만료돼 다른 기기가 재선점한다")
                 .isInstanceOf(ChallengeResultClaimHeldException.class);
 
-        // 갱신 기준 만료(renewedAt + 2분) 뒤에는 정상적으로 회수된다.
-        Instant afterRenewedExpiry = renewedAt.plus(ChallengeResultAckService.DISPLAY_CLAIM_LEASE).plusSeconds(1);
-        assertThat(claimAt(session, afterRenewedExpiry).claimToken()).isNotEqualTo(token);
+        // 갱신 기준으로도 만료되면(총 130초) 정상적으로 회수된다.
+        ageLease(session, Duration.ofSeconds(40));
+        assertThat(claim(session).claimToken()).isNotEqualTo(token);
     }
 
     @Test
@@ -280,10 +310,10 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     void acknowledgeWorksWithTokenCarriedThroughReverification() {
         GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
         joinSettled(session, me);
-        UUID token = claimAt(session, NOW).claimToken();
-        UUID renewed = renewAt(session, token, NOW.plusSeconds(30)).claimToken();
+        UUID token = claim(session).claimToken();
+        UUID renewed = renew(session, token).claimToken();
 
-        challengeResultAckService.acknowledge(me.getId(), session.getId(), renewed, NOW.plusSeconds(31));
+        challengeResultAckService.acknowledge(me.getId(), session.getId(), renewed, NOW);
 
         assertThat(acknowledgedAt(session)).isNotNull();
     }
@@ -295,7 +325,7 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     void acknowledgeIsIdempotent() throws Exception {
         GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
         joinSettled(session, me);
-        UUID token = claimAt(session, NOW).claimToken();
+        UUID token = claim(session).claimToken();
 
         CountDownLatch start = new CountDownLatch(1);
         List<CompletableFuture<Void>> callers = List.of(
@@ -432,7 +462,7 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
         GroupChallengeBetSession open = openSession(TODAY);
         join(open, me);   // 참가 행은 있다 — 앱이 /me/bet-sessions 로 이 회차 id 를 들고 있다
 
-        assertThatThrownBy(() -> claimAt(open, NOW))
+        assertThatThrownBy(() -> claim(open))
                 .isInstanceOf(GroupException.class)
                 .extracting(e -> ((GroupException) e).getErrorCode())
                 .isEqualTo(GroupErrorCode.RESULT_NOT_SETTLED);
@@ -500,26 +530,52 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
 
     /** 선점 → ack 한 벌 — 앱의 순서(D8: slot → 선점 → 검증 → 노출 → ack)를 그대로 따른다. */
     private void ackFully(GroupChallengeBetSession session) {
-        UUID token = claimAt(session, NOW).claimToken();
+        UUID token = claim(session).claimToken();
         challengeResultAckService.acknowledge(me.getId(), session.getId(), token, NOW);
     }
 
     /** 최초 획득 — 바디 없는 호출(토큰 null)과 같은 경로다. */
-    private ChallengeResultClaimResponse claimAt(GroupChallengeBetSession session, Instant now) {
-        return challengeResultAckService.claimDisplay(me.getId(), session.getId(), null, now);
+    private ChallengeResultClaimResponse claim(GroupChallengeBetSession session) {
+        return challengeResultAckService.claimDisplay(me.getId(), session.getId(), null);
     }
 
     /** 렌더 직전 재검증 + 리스 연장 — 바디에 내 토큰을 실은 호출. */
-    private ChallengeResultClaimResponse renewAt(
-            GroupChallengeBetSession session, UUID token, Instant now) {
-        return challengeResultAckService.claimDisplay(me.getId(), session.getId(), token, now);
+    private ChallengeResultClaimResponse renew(GroupChallengeBetSession session, UUID token) {
+        return challengeResultAckService.claimDisplay(me.getId(), session.getId(), token);
+    }
+
+    /**
+     * 선점을 <b>DB 안에서</b> 늙힌다 — 리스의 시계가 DB 라서 호출자가 시각을 주는 자리가 없다.
+     * 시간을 미는 유일한 방법은 행을 과거로 옮기는 것이고, 그게 이 경로의 계약이기도 하다.
+     */
+    private void ageLease(GroupChallengeBetSession session, Duration by) {
+        jdbcTemplate.update("UPDATE group_challenge_bet_participants"
+                + " SET display_claimed_at = display_claimed_at - make_interval(secs => ?)"
+                + " WHERE session_id = ? AND user_id = ?",
+                (double) by.toSeconds(), session.getId(), me.getId());
+    }
+
+    private Instant dbNow() {
+        OffsetDateTime now = jdbcTemplate.queryForObject("SELECT now()", OffsetDateTime.class);
+        return now == null ? null : now.toInstant();
     }
 
     private Instant acknowledgedAt(GroupChallengeBetSession session) {
+        return participant(session).getAcknowledgedAt();
+    }
+
+    private Instant displayClaimedAt(GroupChallengeBetSession session) {
+        return participant(session).getDisplayClaimedAt();
+    }
+
+    private UUID displayClaimToken(GroupChallengeBetSession session) {
+        return participant(session).getDisplayClaimToken();
+    }
+
+    private GroupChallengeBetParticipant participant(GroupChallengeBetSession session) {
         return groupChallengeBetParticipantRepository
                 .findBySessionIdAndUserId(session.getId(), me.getId())
-                .map(GroupChallengeBetParticipant::getAcknowledgedAt)
-                .orElse(null);
+                .orElseThrow();
     }
 
     private UUID pendingClaim(User user, GroupChallengeBetSession session) {

@@ -105,25 +105,38 @@ public interface GroupChallengeBetParticipantRepository
 
     /**
      * 선점·확인 실패 사유 판정용 <b>스냅샷</b>(GROMO-1577) — 조건부 UPDATE 가 0행을 돌려줬을 때
-     * 그 이유를 가르는 읽기다. 엔티티 대신 스칼라 셋만 뽑는 이유: 회차 상태를 보려고 엔티티를
-     * 읽으면 {@code session} 이 지연 프록시라 트랜잭션 밖 호출에서 터진다(시각 주입 오버로드가
-     * 그 경로다). 조인 하나로 한 번에 읽는다.
+     * 그 이유를 가르는 읽기다. 엔티티 대신 스칼라만 뽑는 이유: 회차 상태를 보려고 엔티티를 읽으면
+     * {@code session} 이 지연 프록시라 트랜잭션 밖 호출에서 터진다. 조인 하나로 한 번에 읽는다.
+     *
+     * <p><b>남은 리스도 DB 가 계산한다</b> — 인스턴스의 시계를 섞지 않는다. 애플리케이션에서
+     * {@code claimedAt + 리스 − Instant.now()} 를 하면 선점 시각은 DB 시계인데 빼는 값은 그 인스턴스의
+     * 시계라, 시계가 어긋난 인스턴스가 계산하면 지연이 음수(즉시 재시도)나 과대(한참 안 띄움)로 나온다.
+     * 상한·하한도 SQL 에서 건다({@code display_claimed_at} 이 비어 있으면 0 — 지금 바로 다시 시도해도
+     * 좋다는 뜻이다).
      */
-    @Query("SELECT p.acknowledgedAt AS acknowledgedAt, p.displayClaimedAt AS displayClaimedAt, "
-            + "s.status AS sessionStatus "
-            + "FROM GroupChallengeBetParticipant p JOIN p.session s "
-            + "WHERE p.session.id = :sessionId AND p.user.id = :userId")
+    @Query(value = "SELECT p.acknowledged_at AS \"acknowledgedAt\", s.status AS \"sessionStatus\", "
+            + "CASE WHEN p.display_claimed_at IS NULL THEN 0 ELSE "
+            + "GREATEST(0, LEAST(:leaseSeconds * 1000, CAST(EXTRACT(EPOCH FROM "
+            + "(p.display_claimed_at + make_interval(secs => :leaseSeconds) - now())) * 1000 AS bigint))) "
+            + "END AS \"retryAfterMs\" "
+            + "FROM group_challenge_bet_participants p "
+            + "JOIN group_challenge_bet_sessions s ON s.id = p.session_id "
+            + "WHERE p.session_id = :sessionId AND p.user_id = :userId", nativeQuery = true)
     Optional<ClaimStateView> findClaimStateBySessionIdAndUserId(
             @Param("sessionId") UUID sessionId,
-            @Param("userId") UUID userId);
+            @Param("userId") UUID userId,
+            @Param("leaseSeconds") long leaseSeconds);
 
-    /** {@link #findClaimStateBySessionIdAndUserId} 프로젝션 — 확인 시각 · 선점 시각 · 회차 상태. */
+    /**
+     * {@link #findClaimStateBySessionIdAndUserId} 프로젝션 — 확인 시각 · 회차 상태 · <b>DB 가 계산한</b>
+     * 남은 리스(밀리초, 상대 지연).
+     */
     interface ClaimStateView {
         Instant getAcknowledgedAt();
 
-        Instant getDisplayClaimedAt();
+        String getSessionStatus();
 
-        GroupBetStatus getSessionStatus();
+        long getRetryAfterMs();
     }
 
     /**
@@ -142,9 +155,16 @@ public interface GroupChallengeBetParticipantRepository
      * 선점·확인이 찍히고 그 회차가 나중에 정산됐을 때 처음부터 확인된 것으로 조회돼 <b>어느
      * 기기에서도 안 뜬다</b> — V49 백필을 결과 4종으로 좁힌 것과 같은 사고를 런타임에서 막는다.
      *
-     * @param leaseCutoff 리스 만료 컷오프({@code now − 리스 수명}) — 이보다 오래된 선점은 죽은
-     *                    것으로 보고 회수한다. <b>서버 시각으로만</b> 계산한다
-     * @param statuses    결과로 치는 회차 상태({@link com.oneorthree.phone.group.domain.GroupBetStatus#RESULT_STATUSES})
+     * <p><b>리스의 시계는 DB 다</b>({@code now()}) — 기록도 만료 비교도 한 시계에서 한다. 각
+     * 인스턴스의 {@code Instant.now()} 로 찍고 비교하면, 시계가 빠른 인스턴스가 느린 인스턴스의
+     * <b>방금 만든 선점을 이미 만료로 보고 즉시 회수</b>한다. 그러면 렌더 직전 재검증을 통과한 뒤에도
+     * 다른 기기가 재선점해 중복 노출이 난다 — ShedLock 이 {@code usingDbTime()} 을 쓰는 것과 같은
+     * 이유다("인스턴스 간 시계가 어긋나면 락이 조기 만료되거나 영원히 잡혀 있는 것처럼 보인다").
+     * 그래서 이 세 UPDATE 는 <b>네이티브</b>다 — JPQL 로는 DB 함수와 interval 연산을 표현할 수 없다.
+     *
+     * @param leaseSeconds 리스 수명(초) — 만료 컷오프는 {@code now() − leaseSeconds} 로 <b>DB 가</b> 뺀다
+     * @param statuses     결과로 치는 회차 상태 이름
+     *                     ({@link com.oneorthree.phone.group.domain.GroupBetStatus#RESULT_STATUS_NAMES})
      * @return 1 = 이 호출이 표시를 선점했다, 0 = 이미 확인됨 · 남의 리스가 살아 있음 · 아직 결과가
      *     아님 · 대상 행 없음 (구분은 호출측이 행을 다시 읽어 판정한다)
      */
@@ -152,20 +172,20 @@ public interface GroupChallengeBetParticipantRepository
     // 호출측이 트랜잭션을 열지 않아도 이 조건부 UPDATE 자체는 원자다.
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
-    @Query("UPDATE GroupChallengeBetParticipant p "
-            + "SET p.displayClaimedAt = :now, p.displayClaimToken = :token "
-            + "WHERE p.session.id = :sessionId AND p.user.id = :userId "
-            + "AND p.acknowledgedAt IS NULL "
-            + "AND (p.displayClaimedAt IS NULL OR p.displayClaimedAt < :leaseCutoff) "
-            + "AND EXISTS (SELECT 1 FROM GroupChallengeBetSession s "
-            + "WHERE s.id = p.session.id AND s.status IN :statuses)")
+    @Query(value = "UPDATE group_challenge_bet_participants p "
+            + "SET display_claimed_at = now(), display_claim_token = :token "
+            + "WHERE p.session_id = :sessionId AND p.user_id = :userId "
+            + "AND p.acknowledged_at IS NULL "
+            + "AND (p.display_claimed_at IS NULL "
+            + "OR p.display_claimed_at < now() - make_interval(secs => :leaseSeconds)) "
+            + "AND EXISTS (SELECT 1 FROM group_challenge_bet_sessions s "
+            + "WHERE s.id = p.session_id AND s.status IN (:statuses))", nativeQuery = true)
     int claimDisplay(
             @Param("sessionId") UUID sessionId,
             @Param("userId") UUID userId,
             @Param("token") UUID token,
-            @Param("leaseCutoff") Instant leaseCutoff,
-            @Param("statuses") Collection<GroupBetStatus> statuses,
-            @Param("now") Instant now);
+            @Param("leaseSeconds") long leaseSeconds,
+            @Param("statuses") Collection<String> statuses);
 
     /**
      * 결과 표시 선점 <b>재검증 + 리스 연장</b> — 렌더 직전에 "내 선점이 아직 내 것인가"를 묻고
@@ -189,19 +209,18 @@ public interface GroupChallengeBetParticipantRepository
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
-    @Query("UPDATE GroupChallengeBetParticipant p "
-            + "SET p.displayClaimedAt = :now "
-            + "WHERE p.session.id = :sessionId AND p.user.id = :userId "
-            + "AND p.acknowledgedAt IS NULL "
-            + "AND p.displayClaimToken = :token "
-            + "AND EXISTS (SELECT 1 FROM GroupChallengeBetSession s "
-            + "WHERE s.id = p.session.id AND s.status IN :statuses)")
+    @Query(value = "UPDATE group_challenge_bet_participants p "
+            + "SET display_claimed_at = now() "
+            + "WHERE p.session_id = :sessionId AND p.user_id = :userId "
+            + "AND p.acknowledged_at IS NULL "
+            + "AND p.display_claim_token = :token "
+            + "AND EXISTS (SELECT 1 FROM group_challenge_bet_sessions s "
+            + "WHERE s.id = p.session_id AND s.status IN (:statuses))", nativeQuery = true)
     int renewDisplayClaim(
             @Param("sessionId") UUID sessionId,
             @Param("userId") UUID userId,
             @Param("token") UUID token,
-            @Param("statuses") Collection<GroupBetStatus> statuses,
-            @Param("now") Instant now);
+            @Param("statuses") Collection<String> statuses);
 
     /**
      * 결과 확인 표시(ack) — {@code acknowledged_at IS NULL} 조건부 원자 UPDATE 라 중복·동시 호출에도
@@ -218,21 +237,22 @@ public interface GroupChallengeBetParticipantRepository
      * @return 1 = 이 호출이 확인 처리했다, 0 = 대상 행 없음 · 이미 확인됨 · 토큰 불일치 · 아직 결과가 아님
      */
     // flushAutomatically 도 함께 켠다(GROMO-801 예방) — 리그 acknowledge 와 같은 이유.
+    // 확인 시각도 선점과 같은 시계(DB)로 찍는다 — 두 값이 다른 시계면 "선점보다 이른 확인" 같은
+    // 뒤집힌 이력이 남는다.
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
-    @Query("UPDATE GroupChallengeBetParticipant p "
-            + "SET p.acknowledgedAt = :now, p.displayClaimedAt = null, p.displayClaimToken = null "
-            + "WHERE p.session.id = :sessionId AND p.user.id = :userId "
-            + "AND p.acknowledgedAt IS NULL "
-            + "AND p.displayClaimToken = :token "
-            + "AND EXISTS (SELECT 1 FROM GroupChallengeBetSession s "
-            + "WHERE s.id = p.session.id AND s.status IN :statuses)")
+    @Query(value = "UPDATE group_challenge_bet_participants p "
+            + "SET acknowledged_at = now(), display_claimed_at = NULL, display_claim_token = NULL "
+            + "WHERE p.session_id = :sessionId AND p.user_id = :userId "
+            + "AND p.acknowledged_at IS NULL "
+            + "AND p.display_claim_token = :token "
+            + "AND EXISTS (SELECT 1 FROM group_challenge_bet_sessions s "
+            + "WHERE s.id = p.session_id AND s.status IN (:statuses))", nativeQuery = true)
     int acknowledge(
             @Param("sessionId") UUID sessionId,
             @Param("userId") UUID userId,
             @Param("token") UUID token,
-            @Param("statuses") Collection<GroupBetStatus> statuses,
-            @Param("now") Instant now);
+            @Param("statuses") Collection<String> statuses);
 
     /**
      * 내 <b>미확인</b> 정산 완료 회차(GROMO-1415, N53 결과 모달 큐의 단일 소스) — 참가자 스코프.

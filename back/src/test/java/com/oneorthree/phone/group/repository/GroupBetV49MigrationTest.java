@@ -107,6 +107,57 @@ class GroupBetV49MigrationTest {
                         + " OR display_claim_token IS NOT NULL", Integer.class)).isZero();
     }
 
+    @Test
+    @DisplayName("백필한 회차의 대기 중 결과 알림이 종결된다 — tombstone 이 나중 클레임까지 막고, 환불 축은 그대로")
+    void closesAndTombstonesBetResultClaimsForBackfilledSessions() {
+        seedAt("48");
+        UUID settled = sessionOn(TODAY.minusDays(1), "SETTLED");
+        UUID forfeited = sessionOn(TODAY.minusDays(2), "FORFEITED");
+        UUID noClaim = sessionOn(TODAY.minusDays(3), "SETTLED");
+        UUID voided = sessionOn(TODAY.minusDays(4), "VOIDED");
+        insertParticipant(settled);
+        insertParticipant(forfeited);
+        insertParticipant(noClaim);
+        insertParticipant(voided);
+        // 배포 시점에 남아 있던 미발송 클레임 — 그대로 두면 이미 숨겨진 결과의 푸시가 도착한다.
+        UUID pending = insertClaim(settled, "BET_RESULT", "PENDING");
+        UUID deferred = insertClaim(forfeited, "BET_RESULT", "DEFERRED");
+        // 환불 통지는 별개 사건이다(N48) — 건드리면 안 된다.
+        UUID refundClaim = insertClaim(voided, "BET_VOID_REFUND", "PENDING");
+
+        migrate("49");
+
+        assertThat(claimStatus(pending)).as("남아 있던 PENDING 이 그대로 발송되면 안 된다").isEqualTo("SENT");
+        assertThat(claimStatus(deferred)).as("조용한 시간 이월분도 같이 닫는다").isEqualTo("SENT");
+        assertThat(claimStatus(refundClaim))
+                .as("BET_VOID_REFUND 는 결과 모달과 별개의 통지라 손대지 않는다").isEqualTo("PENDING");
+
+        // 클레임이 아직 없던 회차에는 tombstone 이 생겨, 48시간 재훑기가 새로 만들려 해도 튕긴다.
+        assertThat(claimStatusOf(noClaim, "BET_RESULT")).isEqualTo("SENT");
+        // 환불 회차에는 결과 알림이 애초에 안 나가므로 쓸모없는 tombstone 을 만들지 않는다.
+        assertThat(claimStatusOf(voided, "BET_RESULT")).isNull();
+    }
+
+    private UUID insertClaim(UUID sessionId, String kind, String status) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO notification_sent_logs"
+                + " (id, user_id, type, kind, subject_id, group_id, slot_at, status, claimed_at)"
+                + " VALUES (?, ?, ?, ?, ?, ?, now(), ?, now())",
+                id, userId, kind, kind, sessionId, groupId, status);
+        return id;
+    }
+
+    private String claimStatus(UUID rowId) {
+        return jdbc.queryForObject(
+                "SELECT status FROM notification_sent_logs WHERE id = ?", String.class, rowId);
+    }
+
+    private String claimStatusOf(UUID sessionId, String kind) {
+        return jdbc.query("SELECT status FROM notification_sent_logs"
+                        + " WHERE subject_id = ? AND kind = ? AND user_id = ?",
+                rs -> rs.next() ? rs.getString(1) : null, sessionId, kind, userId);
+    }
+
     private OffsetDateTime acknowledgedAt(UUID participantId) {
         return jdbc.queryForObject(
                 "SELECT acknowledged_at FROM " + TABLE + " WHERE id = ?",

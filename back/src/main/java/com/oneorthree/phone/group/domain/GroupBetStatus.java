@@ -54,4 +54,12 @@ public enum GroupBetStatus {
      */
     public static final List<GroupBetStatus> RESULT_STATUSES =
             List.of(SETTLED, REFUNDED, FORFEITED, VOIDED);
+
+    /**
+     * 같은 목록의 <b>이름</b> 판 — 선점·확인의 조건부 UPDATE 는 리스를 DB 시계로 재려고 네이티브
+     * 쿼리라, enum 이 아니라 컬럼에 저장된 문자열로 비교해야 한다. 목록을 손으로 다시 적지 않고
+     * {@link #RESULT_STATUSES} 에서 파생시켜 둘이 갈릴 여지를 없앤다.
+     */
+    public static final List<String> RESULT_STATUS_NAMES =
+            RESULT_STATUSES.stream().map(Enum::name).toList();
 }

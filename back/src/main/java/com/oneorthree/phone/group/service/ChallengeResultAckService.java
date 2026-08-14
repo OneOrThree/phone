@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -71,36 +72,35 @@ public class ChallengeResultAckService {
      * {@link #renewClaim} 참조). 없으면 지금까지와 같은 최초 획득이다 — 바디 없는 호출이 그대로
      * 동작해야 한다(additive).
      *
+     * <p><b>시각 인자가 없다.</b> 리스의 기록·만료·남은 지연을 전부 DB 시계가 정하므로 호출자가
+     * 시계를 줄 자리가 없다(그게 이 경로의 계약이다 — 인스턴스 시계가 섞이면 시계가 빠른 쪽이 남의
+     * 방금 만든 선점을 즉시 회수한다).
+     *
      * @param currentToken 렌더 직전 재검증할 내 선점 토큰 — {@code null} 이면 최초 획득
      * @throws UserException                     {@code USER_NOT_FOUND} — 요청자 유저 부재(재로그인)
      * @throws GroupException                    {@code BET_NOT_FOUND} — 그 회차의 내 참가 행 없음 /
-     *                                           {@code RESULT_ALREADY_ACKED} — 이미 확인된 결과
+     *                                           {@code RESULT_ALREADY_ACKED} — 이미 확인된 결과 /
+     *                                           {@code RESULT_NOT_SETTLED} — 아직 정산 전
      * @throws ChallengeResultClaimHeldException {@code RESULT_CLAIM_HELD} — 남의 리스가 살아 있거나
      *                                           내 선점이 이미 남에게 넘어갔음
      */
     @Transactional
     public ChallengeResultClaimResponse claimDisplay(UUID userId, UUID sessionId, UUID currentToken) {
-        return claimDisplay(userId, sessionId, currentToken, Instant.now());
-    }
-
-    /** 테스트에서 고정 시각을 주입하기 위한 package-private 오버로드. 트랜잭션은 public 진입점이 연다. */
-    @Transactional
-    ChallengeResultClaimResponse claimDisplay(UUID userId, UUID sessionId, UUID currentToken, Instant now) {
         requireActiveUser(userId);
-        return currentToken == null ? acquireClaim(userId, sessionId, now)
-                : renewClaim(userId, sessionId, currentToken, now);
+        return currentToken == null ? acquireClaim(userId, sessionId)
+                : renewClaim(userId, sessionId, currentToken);
     }
 
     /** 최초 획득 — 비어 있거나 리스가 만료된 선점을, <b>이미 결과가 된 회차에 한해</b> 가져온다. */
-    private ChallengeResultClaimResponse acquireClaim(UUID userId, UUID sessionId, Instant now) {
+    private ChallengeResultClaimResponse acquireClaim(UUID userId, UUID sessionId) {
         UUID token = Generators.timeBasedEpochRandomGenerator().generate();
         int claimed = groupChallengeBetParticipantRepository.claimDisplay(
-                sessionId, userId, token, now.minus(DISPLAY_CLAIM_LEASE),
-                GroupBetStatus.RESULT_STATUSES, now);
+                sessionId, userId, token, DISPLAY_CLAIM_LEASE.toSeconds(),
+                GroupBetStatus.RESULT_STATUS_NAMES);
         if (claimed == 1) {
             return new ChallengeResultClaimResponse(token);
         }
-        return failClaim(userId, sessionId, now);
+        return failClaim(userId, sessionId);
     }
 
     /**
@@ -115,14 +115,13 @@ public class ChallengeResultAckService {
      * <p>성공 시 <b>같은 토큰</b>을 돌려준다(회전하지 않는다) — 회전시키면 갱신 응답이 유실됐을 때
      * 앱이 든 토큰이 영구히 낡은 값이 되어 ack 까지 막힌다.
      */
-    private ChallengeResultClaimResponse renewClaim(
-            UUID userId, UUID sessionId, UUID currentToken, Instant now) {
+    private ChallengeResultClaimResponse renewClaim(UUID userId, UUID sessionId, UUID currentToken) {
         int renewed = groupChallengeBetParticipantRepository.renewDisplayClaim(
-                sessionId, userId, currentToken, GroupBetStatus.RESULT_STATUSES, now);
+                sessionId, userId, currentToken, GroupBetStatus.RESULT_STATUS_NAMES);
         if (renewed == 1) {
             return new ChallengeResultClaimResponse(currentToken);
         }
-        return failClaim(userId, sessionId, now);
+        return failClaim(userId, sessionId);
     }
 
     /**
@@ -134,9 +133,8 @@ public class ChallengeResultAckService {
      * {@code RESULT_CLAIM_HELD} 로 접으면 {@code retryAfterMs} 가 "곧 다시 시도하라"는 신호가 돼
      * 앱이 헛된 재시도를 한다(선점자가 없으니 지연은 0으로 계산된다).
      */
-    private ChallengeResultClaimResponse failClaim(UUID userId, UUID sessionId, Instant now) {
-        ClaimStateView state = groupChallengeBetParticipantRepository
-                .findClaimStateBySessionIdAndUserId(sessionId, userId)
+    private ChallengeResultClaimResponse failClaim(UUID userId, UUID sessionId) {
+        ClaimStateView state = readClaimState(userId, sessionId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
         if (state.getAcknowledgedAt() != null) {
             throw new GroupException(GroupErrorCode.RESULT_ALREADY_ACKED);
@@ -144,12 +142,18 @@ public class ChallengeResultAckService {
         if (!isResult(state)) {
             throw new GroupException(GroupErrorCode.RESULT_NOT_SETTLED);
         }
-        throw new ChallengeResultClaimHeldException(retryAfterMs(state.getDisplayClaimedAt(), now));
+        // 남은 리스는 DB 가 계산해 준 값이다 — 여기서 Instant.now() 를 섞으면 시계 축이 다시 갈린다.
+        throw new ChallengeResultClaimHeldException(state.getRetryAfterMs());
+    }
+
+    private Optional<ClaimStateView> readClaimState(UUID userId, UUID sessionId) {
+        return groupChallengeBetParticipantRepository.findClaimStateBySessionIdAndUserId(
+                sessionId, userId, DISPLAY_CLAIM_LEASE.toSeconds());
     }
 
     /** 결과로 치는 회차인가 — OPEN(정산 전)·UNUSED(0명 종료)는 선점·확인 대상이 아니다. */
     private boolean isResult(ClaimStateView state) {
-        return GroupBetStatus.RESULT_STATUSES.contains(state.getSessionStatus());
+        return GroupBetStatus.RESULT_STATUS_NAMES.contains(state.getSessionStatus());
     }
 
     /**
@@ -163,20 +167,24 @@ public class ChallengeResultAckService {
         acknowledge(userId, sessionId, claimToken, Instant.now());
     }
 
-    /** 테스트에서 고정 시각을 주입하기 위한 package-private 오버로드. 트랜잭션은 public 진입점이 연다. */
+    /**
+     * 테스트에서 고정 시각을 주입하기 위한 package-private 오버로드. 트랜잭션은 public 진입점이 연다.
+     *
+     * <p><b>{@code now} 의 범위가 좁다</b> — 확인 시각({@code acknowledged_at})은 선점과 같은 DB
+     * 시계로 찍히므로 이 값이 아니다. 여기 쓰이는 곳은 <b>알림 클레임 종결·tombstone</b> 뿐이고,
+     * 그쪽은 알림 파이프라인이 원래 인스턴스 시각을 쓰는 축이라 그대로 둔다.
+     */
     @Transactional
     void acknowledge(UUID userId, UUID sessionId, UUID claimToken, Instant now) {
         int acknowledged = claimToken == null ? 0 : groupChallengeBetParticipantRepository
-                .acknowledge(sessionId, userId, claimToken, GroupBetStatus.RESULT_STATUSES, now);
+                .acknowledge(sessionId, userId, claimToken, GroupBetStatus.RESULT_STATUS_NAMES);
         if (acknowledged == 0) {
             // 대상이 없거나 이미 확인된 경우는 멱등 no-op(중복·동시 호출 포함). 나머지 둘만 거절한다:
             // ① 아직 결과가 아닌 회차 — 여기서 확인 표시가 찍히면 나중에 정산됐을 때 그 결과를 어느
             //    기기에서도 못 본다(V49 백필을 결과 4종으로 좁힌 것과 같은 사고).
             // ② 행이 살아 있는데 토큰이 다르다 — 내 선점이 만료돼 다른 기기가 재선점한 상황이라,
             //    여기서 확인 처리하면 그 기기가 띄우려던 결과를 삼킨다.
-            ClaimStateView state = groupChallengeBetParticipantRepository
-                    .findClaimStateBySessionIdAndUserId(sessionId, userId)
-                    .orElse(null);
+            ClaimStateView state = readClaimState(userId, sessionId).orElse(null);
             if (state == null || state.getAcknowledgedAt() != null) {
                 return;
             }
@@ -188,27 +196,6 @@ public class ChallengeResultAckService {
         // AFTER_COMMIT + @Async 라 ack 이 먼저 끝날 수 있어, "지금 있는 것"만 닫으면 순서가
         // 뒤집힌 경우에 이미 본 결과의 푸시가 그대로 나간다.
         betEventNotificationService.suppressResultPushOnAck(userId, sessionId, now);
-    }
-
-    /**
-     * 남은 리스를 <b>상대 지연</b>으로 환산한다 — 절대 만료 시각을 내보내지 않는 이유는 기기 시계가
-     * 서버와 어긋나면 살아 있는 리스를 즉시 다시 요청하거나(1회 기회 소진) 만료 뒤에도 한참 안
-     * 띄우기 때문이다({@code ShedLockConfig.usingDbTime()} 과 같은 근거).
-     *
-     * <p>선점 시각이 비어 있으면(판정용 재조회 사이에 ack·회수가 일어난 경우) 0 — 지금 바로 다시
-     * 시도해도 좋다는 뜻이다.
-     *
-     * <p><b>리스 수명으로 상한을 건다.</b> 동시 요청에서 진 쪽은 <b>행 락을 기다린 시간만큼</b>
-     * 자기 기준 시각({@code now})이 낡는다 — 승자가 그 뒤에 찍은 {@code claimed_at} 으로 빼면
-     * 남은 리스가 수명보다 커진다(실측 120,001ms). 정의상 남은 리스는 수명을 넘을 수 없고, 넘겨
-     * 돌려주면 앱의 1회 재시도가 실제 만료보다 뒤에 떨어진다.
-     */
-    private long retryAfterMs(Instant claimedAt, Instant now) {
-        if (claimedAt == null) {
-            return 0L;
-        }
-        long remaining = claimedAt.plus(DISPLAY_CLAIM_LEASE).toEpochMilli() - now.toEpochMilli();
-        return Math.max(0L, Math.min(remaining, DISPLAY_CLAIM_LEASE.toMillis()));
     }
 
     /** 조회 축과 같은 락 없는 활성 검증(GROMO-1230) — 잠글 대상은 참가 행이지 유저 행이 아니다. */

@@ -77,7 +77,8 @@ public class ChallengeResultAckController {
             @LoginUser UUID userId
     ) {
         UUID currentToken = body == null ? null : body.claimToken();
-        return ResponseEntity.ok(challengeResultAckService.claimDisplay(userId, sessionId, currentToken));
+        return ResponseEntity.ok(
+                challengeResultAckService.claimDisplay(userId, sessionId, currentToken));
     }
 
     @Operation(summary = "결과 확인 표시 (ack)",

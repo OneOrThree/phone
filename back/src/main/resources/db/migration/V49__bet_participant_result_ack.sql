@@ -33,6 +33,43 @@ FROM public.group_challenge_bet_sessions s
 WHERE p.session_id = s.id
   AND s.status IN ('SETTLED', 'FORFEITED', 'VOIDED', 'REFUNDED');
 
+-- ── 백필한 결과의 대기 중 결과 알림 종결 (GROMO-1577 · B17) ──────────
+-- 위 백필은 "이미 본 것으로 친다"인데 그 회차의 BET_RESULT 푸시 클레임을 그대로 두면, 배포 직후
+-- ① 남아 있던 PENDING·DEFERRED 가 그대로 발송되고 ② 48시간 재훑기가 새 클레임을 만든다 —
+-- 큐에서 이미 숨겨진 회차의 푸시가 도착해 탭하면 결과 없이 그룹방만 열린다. 런타임 ack 이
+-- tombstone 으로 막는 바로 그 증상이 배포 경로에 남는 것이라, 같은 처방을 여기서도 한다.
+--
+-- ⚠️ BET_VOID_REFUND 축은 건드리지 않는다 — 무효화 환불은 결과 모달과 별개의 통지 사건이다(N48).
+--
+-- INSERT 를 먼저, 종결을 나중에 한다(런타임과 같은 순서). 롤링 배포 중 구 인스턴스가 같은 키로
+-- PENDING 을 만들 수 있는데, 순서를 뒤집으면 "종결 이후 · INSERT 이전"에 들어온 행이 그대로 살아
+-- 남는다. 이 순서면 유니크 인덱스가 직렬화해 준다.
+
+-- (1) tombstone — 결과 알림이 실제로 나갈 회차(kind = BET_RESULT)에만. 백필 대상 중
+--     VOIDED·REFUNDED 는 kind 가 BET_VOID_REFUND 라 여기서 빠진다(쓸모없는 행을 쌓지 않는다).
+--     slot_at 은 런타임과 같은 15분 내림(BetEventNotificationService.slotOf).
+INSERT INTO public.notification_sent_logs
+    (id, user_id, type, kind, subject_id, group_id, slot_at, status, claimed_at, sent_at)
+SELECT gen_random_uuid(), p.user_id, 'BET_RESULT', 'BET_RESULT', p.session_id, s.group_id,
+       to_timestamp(floor(extract(epoch FROM COALESCE(s.settled_at, now())) / 900) * 900),
+       'SENT', now(), now()
+FROM public.group_challenge_bet_participants p
+JOIN public.group_challenge_bet_sessions s ON s.id = p.session_id
+WHERE s.status IN ('SETTLED', 'FORFEITED')
+ON CONFLICT (user_id, kind, subject_id) DO NOTHING;
+
+-- (2) 이미 있던 미발송 클레임 종결 — 대상 집합은 위 백필과 같다(결과 4종). 축은 BET_RESULT 하나뿐이라
+--     VOIDED·REFUNDED 회차에 BET_RESULT 행이 남아 있는 이력만 함께 닫힌다.
+UPDATE public.notification_sent_logs l
+SET status = 'SENT', sent_at = now(), next_attempt_at = NULL
+FROM public.group_challenge_bet_participants p
+JOIN public.group_challenge_bet_sessions s ON s.id = p.session_id
+WHERE l.user_id = p.user_id
+  AND l.subject_id = p.session_id
+  AND l.kind = 'BET_RESULT'
+  AND l.status IN ('PENDING', 'DEFERRED')
+  AND s.status IN ('SETTLED', 'FORFEITED', 'VOIDED', 'REFUNDED');
+
 -- 인덱스는 더하지 않는다 — claim·ack 은 (session_id, user_id) 유니크를,
 -- 결과 조회는 V44 의 (user_id, session_id) 를 그대로 탄다. 새 컬럼은 어느 술어에서도 선두가
 -- 아니고(유저당 참가 행은 수십~수백 행 규모라 잔여 필터가 싸다), 미확인 개수 배지도 같은
