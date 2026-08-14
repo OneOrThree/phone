@@ -31,6 +31,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -43,6 +44,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.oneorthree.phone.group.service.ChallengeResultAckService.DISPLAY_CLAIM_LEASE;
@@ -94,6 +96,8 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     UserRepository userRepository;
     @Autowired
     JdbcTemplate jdbcTemplate;
+    @Autowired
+    TransactionTemplate transactionTemplate;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final LocalDate TODAY = LocalDate.now(KST);
@@ -414,6 +418,58 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
                 .doesNotContain(session.getId());
     }
 
+    @Test
+    @DisplayName("ack 이 커밋되기 전에 리스너가 같은 키를 INSERT 하면 블록됐다가 튕긴다 — 유니크 인덱스가 직렬화한다")
+    void concurrentListenerInsertBlocksUntilAckCommitsThenConflicts() throws Exception {
+        GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
+        joinSettled(session, me);
+        UUID token = claim(session).claimToken();
+
+        CountDownLatch tombstoneInserted = new CountDownLatch(1);
+        CountDownLatch listenerStarted = new CountDownLatch(1);
+        CountDownLatch listenerFinished = new CountDownLatch(1);
+        AtomicBoolean listenerSlippedThrough = new AtomicBoolean(false);
+
+        // A — ack 트랜잭션을 <b>열어 둔 채</b> tombstone 만 박아 둔 상태로 리스너를 기다린다.
+        CompletableFuture<Void> ackTx = CompletableFuture.runAsync(() ->
+                transactionTemplate.executeWithoutResult(status -> {
+                    challengeResultAckService.acknowledge(me.getId(), session.getId(), token, NOW);
+                    tombstoneInserted.countDown();
+                    try {
+                        listenerStarted.await(10, TimeUnit.SECONDS);
+                        // 이 사이 리스너는 유니크 인덱스에서 <b>블록</b>돼 있어야 한다.
+                        Thread.sleep(500);
+                        listenerSlippedThrough.set(listenerFinished.getCount() == 0);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }));
+        assertThat(tombstoneInserted.await(10, TimeUnit.SECONDS)).isTrue();
+
+        // B — 뒤늦게 도착한 리스너(프로덕션 배선). 우리 커밋 전까지 INSERT 가 풀리지 않아야 한다.
+        CompletableFuture<Void> listener = CompletableFuture.runAsync(() -> {
+            listenerStarted.countDown();
+            betEventNotificationService.notifySessionClosed(session.getId(), NOW.plusSeconds(5));
+            listenerFinished.countDown();
+        });
+
+        CompletableFuture.allOf(ackTx, listener).get(30, TimeUnit.SECONDS);
+
+        assertThat(listenerSlippedThrough.get())
+                .as("ack 커밋 전에 리스너 INSERT 가 통과하면 그 PENDING 이 살아남아 이미 본 결과가 발송된다")
+                .isFalse();
+        List<NotificationSentLog> rows = notificationSentLogRepository
+                .findByUserIdAndKindAndSubjectId(
+                        me.getId(), NotificationSentLog.TYPE_BET_RESULT, session.getId())
+                .stream().toList();
+        rows.forEach(row -> notificationRows.add(row.getId()));
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getStatus())
+                .as("리스너의 INSERT 는 충돌로 DO NOTHING — tombstone 이 SENT 로 남는다")
+                .isEqualTo(NotificationSendStatus.SENT);
+        assertThat(acknowledgedAt(session)).isNotNull();
+    }
+
     // ── 조회 병기 ───────────────────────────────────────────────────────
 
     @Test
@@ -452,6 +508,36 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
         assertThat(results).extracting(MyChallengeResultResponse::getSessionId)
                 .as("미확인 필터가 limit 뒤에 오면 이 결과는 영영 조회되지 않는다")
                 .containsExactly(oldestUnseen.getId());
+    }
+
+    // ── 삭제된 챌린지 차단 ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("조회 뒤 챌린지가 삭제되면 선점·재검증이 거부된다 — ack 은 거부하지 않는다(이미 본 것의 기록)")
+    void deletedChallengeResultCannotBeClaimedButAckStillRecords() {
+        GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
+        joinSettled(session, me);
+        // 앱이 결과를 받아 두고 모달을 띄우기 전에 그룹장이 챌린지를 삭제한다.
+        UUID token = claim(session).claimToken();
+        challenge.softDelete();
+        groupChallengeRepository.save(challenge);
+
+        // 캐시된 sessionId 로 다시 선점하면 삭제된 챌린지의 결과가 노출된다 — 막아야 한다(N48).
+        assertThatThrownBy(() -> claim(session))
+                .as("삭제 환불은 BET_VOID_REFUND 푸시가 알린다 — 모달까지 열면 이중 통지")
+                .isInstanceOf(GroupException.class)
+                .extracting(e -> ((GroupException) e).getErrorCode())
+                .isEqualTo(GroupErrorCode.BET_NOT_FOUND);
+        // 렌더 직전 재검증도 같은 관문이다 — 선점과 노출 사이의 삭제를 여기서 잡는다.
+        assertThatThrownBy(() -> renew(session, token))
+                .isInstanceOf(GroupException.class)
+                .extracting(e -> ((GroupException) e).getErrorCode())
+                .isEqualTo(GroupErrorCode.BET_NOT_FOUND);
+
+        // ack 은 막지 않는다 — 모달이 떠 있는 사이 삭제됐어도 사용자는 분명히 봤고, 거절하면
+        // acknowledged_at 이 영영 비고 선점만 리스 만료까지 남는다.
+        challengeResultAckService.acknowledge(me.getId(), session.getId(), token, NOW);
+        assertThat(acknowledgedAt(session)).isNotNull();
     }
 
     // ── 정산 전 회차 차단 ───────────────────────────────────────────────

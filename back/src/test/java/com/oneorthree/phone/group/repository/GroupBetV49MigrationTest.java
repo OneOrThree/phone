@@ -91,6 +91,11 @@ class GroupBetV49MigrationTest {
         UUID refunded = insertParticipant(sessionOn(TODAY.minusDays(4), "REFUNDED"));
         // 아직 결과가 아니다 — 여기까지 칠하면 나중에 정산됐을 때 아무도 못 본 결과가 유실된다.
         UUID open = insertParticipant(sessionOn(TODAY, "OPEN"));
+        // 롤링 배포 중 구 인스턴스가 마이그레이션 시작 <b>이후</b>에 커밋한 정산(미래 settled_at 으로
+        // 그 창을 결정적으로 표현한다) — 상태로만 좁히면 이 행까지 확인 처리돼 영영 못 본다.
+        UUID justSettledSession =
+                sessionSettledAt(TODAY.minusDays(5), "SETTLED", OffsetDateTime.now().plusHours(1));
+        UUID justSettled = insertParticipant(justSettledSession);
 
         migrate("49");
 
@@ -100,6 +105,13 @@ class GroupBetV49MigrationTest {
         assertThat(acknowledgedAt(refunded)).isNotNull();
         assertThat(acknowledgedAt(open))
                 .as("아직 정산되지 않은 회차의 참가 행은 백필 대상이 아니다 — 칠하면 그 결과를 영영 못 본다")
+                .isNull();
+        assertThat(acknowledgedAt(justSettled))
+                .as("마이그레이션 시작 이후 정산된 결과 — 롤링 배포 중 구 인스턴스가 커밋한 건이다."
+                        + " 칠하면 모달로도 푸시로도 영영 못 받는다")
+                .isNull();
+        assertThat(claimStatusOf(justSettledSession, "BET_RESULT"))
+                .as("그 결과의 푸시는 그대로 나가야 한다 — tombstone 술어도 같은 시간 기준이다")
                 .isNull();
         // 선점 컬럼은 백필하지 않는다 — 확인과 선점은 다른 상태다(IA §4.3).
         assertThat(jdbc.queryForObject(
@@ -194,6 +206,11 @@ class GroupBetV49MigrationTest {
     }
 
     private UUID sessionOn(LocalDate date, String status) {
+        return sessionSettledAt(date, status,
+                "OPEN".equals(status) ? null : OffsetDateTime.now());
+    }
+
+    private UUID sessionSettledAt(LocalDate date, String status, OffsetDateTime settledAt) {
         UUID sessionId = UUID.randomUUID();
         jdbc.update("INSERT INTO group_challenge_bet_sessions (id, bet_id, group_id, challenge_id,"
                 + " session_date, stake, goal_minutes, mission_category, mission_type, status,"
@@ -201,8 +218,7 @@ class GroupBetV49MigrationTest {
                 + " settled_at, created_at, updated_at)"
                 + " VALUES (?, ?, ?, ?, ?, 30, 120, 'FOCUS', 'DURATION', ?,"
                 + " now(), now(), now(), now(), 0, ?, now(), now())",
-                sessionId, configId, groupId, challengeId, date, status,
-                "OPEN".equals(status) ? null : OffsetDateTime.now());
+                sessionId, configId, groupId, challengeId, date, status, settledAt);
         return sessionId;
     }
 

@@ -136,6 +136,13 @@ public class ChallengeResultAckService {
     private ChallengeResultClaimResponse failClaim(UUID userId, UUID sessionId) {
         ClaimStateView state = readClaimState(userId, sessionId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+        if (state.getChallengeDeletedAt() != null) {
+            // 삭제된 챌린지의 회차는 조회에 아예 실리지 않는다(N48) — 앱 입장에서 이 후보는
+            // "없는 것"이라 참가 행 부재와 같은 404 로 접는다. 새 코드를 만들지 않는 이유:
+            // 어느 쪽이든 앱의 처리가 "큐에서 뺀다"로 같고, 409+retryAfterMs 로 접으면 오히려
+            // 헛된 재시도를 부른다.
+            throw new GroupException(GroupErrorCode.BET_NOT_FOUND);
+        }
         if (state.getAcknowledgedAt() != null) {
             throw new GroupException(GroupErrorCode.RESULT_ALREADY_ACKED);
         }

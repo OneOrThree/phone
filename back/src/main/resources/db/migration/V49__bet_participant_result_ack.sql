@@ -27,11 +27,23 @@ ALTER TABLE public.group_challenge_bet_participants
 -- REFUNDED)인 참가 행만 백필한다. OPEN 회차의 참가 행까지 ack 로 칠하면 배포 시점에 진행 중이던
 -- 회차가 나중에 정산됐을 때 그 결과를 어느 기기에서도 못 보게 된다(아직 아무도 못 본 결과를
 -- 유실한다). 결과 조회(GET /me/challenge-results)가 싣는 집합과 정확히 같은 술어다.
+--
+-- ⚠️ 상태만으로는 "배포 이전"이라는 의도를 표현하지 못한다 — <b>시간 축</b>도 함께 좁힌다.
+-- 롤링 배포 중 구 인스턴스의 정산 트랜잭션이 이 마이그레이션의 테이블 락보다 먼저 시작해
+-- 대기 중인 DDL 보다 먼저 커밋되면, 마이그레이션 시작 이후 <b>처음 생긴 결과</b>도 상태 조건에
+-- 걸린다. 그 행까지 칠하면 아래 알림 종결까지 함께 걸려 사용자는 그 결과를 모달로도 푸시로도
+-- 영구히 못 받는다(OPEN 을 제외한 것과 같은 사고의 시간 축 판).
+--   · 기준은 now() — Flyway 는 마이그레이션 1개를 <b>한 트랜잭션</b>으로 감싸므로 이 파일의 세
+--     문장에서 now() 는 전부 같은 값(마이그레이션 시작 시각)이다. 세 술어가 같은 기준이어야
+--     한쪽으로 새지 않는다.
+--   · settled_at 이 비어 있는 행은 제외된다(비교가 NULL) — 결과 조회도 settled_at 하한으로 거르므로
+--     애초에 큐에 없고, 안전한 방향(못 본 결과를 잃지 않는 쪽)이다.
 UPDATE public.group_challenge_bet_participants p
 SET acknowledged_at = now()
 FROM public.group_challenge_bet_sessions s
 WHERE p.session_id = s.id
-  AND s.status IN ('SETTLED', 'FORFEITED', 'VOIDED', 'REFUNDED');
+  AND s.status IN ('SETTLED', 'FORFEITED', 'VOIDED', 'REFUNDED')
+  AND s.settled_at < now();
 
 -- ── 백필한 결과의 대기 중 결과 알림 종결 (GROMO-1577 · B17) ──────────
 -- 위 백필은 "이미 본 것으로 친다"인데 그 회차의 BET_RESULT 푸시 클레임을 그대로 두면, 배포 직후
@@ -56,6 +68,7 @@ SELECT gen_random_uuid(), p.user_id, 'BET_RESULT', 'BET_RESULT', p.session_id, s
 FROM public.group_challenge_bet_participants p
 JOIN public.group_challenge_bet_sessions s ON s.id = p.session_id
 WHERE s.status IN ('SETTLED', 'FORFEITED')
+  AND s.settled_at < now()   -- 백필과 같은 기준(마이그레이션 시작 시각) — 갈리면 한쪽으로 샌다
 ON CONFLICT (user_id, kind, subject_id) DO NOTHING;
 
 -- (2) 이미 있던 미발송 클레임 종결 — 대상 집합은 위 백필과 같다(결과 4종). 축은 BET_RESULT 하나뿐이라
@@ -68,7 +81,8 @@ WHERE l.user_id = p.user_id
   AND l.subject_id = p.session_id
   AND l.kind = 'BET_RESULT'
   AND l.status IN ('PENDING', 'DEFERRED')
-  AND s.status IN ('SETTLED', 'FORFEITED', 'VOIDED', 'REFUNDED');
+  AND s.status IN ('SETTLED', 'FORFEITED', 'VOIDED', 'REFUNDED')
+  AND s.settled_at < now();   -- 백필과 같은 기준 — 배포 이후 처음 생긴 결과의 푸시는 그대로 나가야 한다
 
 -- 인덱스는 더하지 않는다 — claim·ack 은 (session_id, user_id) 유니크를,
 -- 결과 조회는 V44 의 (user_id, session_id) 를 그대로 탄다. 새 컬럼은 어느 술어에서도 선두가

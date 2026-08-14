@@ -115,12 +115,14 @@ public interface GroupChallengeBetParticipantRepository
      * 좋다는 뜻이다).
      */
     @Query(value = "SELECT p.acknowledged_at AS \"acknowledgedAt\", s.status AS \"sessionStatus\", "
+            + "c.deleted_at AS \"challengeDeletedAt\", "
             + "CASE WHEN p.display_claimed_at IS NULL THEN 0 ELSE "
             + "GREATEST(0, LEAST(:leaseSeconds * 1000, CAST(EXTRACT(EPOCH FROM "
             + "(p.display_claimed_at + make_interval(secs => :leaseSeconds) - now())) * 1000 AS bigint))) "
             + "END AS \"retryAfterMs\" "
             + "FROM group_challenge_bet_participants p "
             + "JOIN group_challenge_bet_sessions s ON s.id = p.session_id "
+            + "JOIN group_challenges c ON c.id = s.challenge_id "
             + "WHERE p.session_id = :sessionId AND p.user_id = :userId", nativeQuery = true)
     Optional<ClaimStateView> findClaimStateBySessionIdAndUserId(
             @Param("sessionId") UUID sessionId,
@@ -135,6 +137,9 @@ public interface GroupChallengeBetParticipantRepository
         Instant getAcknowledgedAt();
 
         String getSessionStatus();
+
+        /** 챌린지 소프트 삭제 시각 — 값이 있으면 이 결과는 큐에 있어서는 안 된다(N48·FR-44-4). */
+        Instant getChallengeDeletedAt();
 
         long getRetryAfterMs();
     }
@@ -154,6 +159,12 @@ public interface GroupChallengeBetParticipantRepository
      * {@code /me/bet-sessions} 로 <b>OPEN 회차 id</b> 도 들고 있어서, 이 조건이 없으면 정산 전 회차에
      * 선점·확인이 찍히고 그 회차가 나중에 정산됐을 때 처음부터 확인된 것으로 조회돼 <b>어느
      * 기기에서도 안 뜬다</b> — V49 백필을 결과 4종으로 좁힌 것과 같은 사고를 런타임에서 막는다.
+     *
+     * <p><b>삭제된 챌린지의 회차도 같은 조건에서 막는다</b>({@code c.deleted_at IS NULL}) — 조회는
+     * 이미 삭제 회차를 빼는데(N48·FR-44-4: 삭제 환불은 {@code BET_VOID_REFUND} 푸시가 알리므로
+     * 모달까지 열면 이중 통지) 선점이 상태만 보면, 결과를 받아 둔 앱이 <b>모달을 띄우기 전에 삭제된</b>
+     * 챌린지의 결과를 캐시된 sessionId 로 선점해 그대로 노출한다. 삭제해도 기존 정산 회차는 남으므로
+     * 실제로 성립하는 경합이다.
      *
      * <p><b>리스의 시계는 DB 다</b>({@code now()}) — 기록도 만료 비교도 한 시계에서 한다. 각
      * 인스턴스의 {@code Instant.now()} 로 찍고 비교하면, 시계가 빠른 인스턴스가 느린 인스턴스의
@@ -179,7 +190,9 @@ public interface GroupChallengeBetParticipantRepository
             + "AND (p.display_claimed_at IS NULL "
             + "OR p.display_claimed_at < now() - make_interval(secs => :leaseSeconds)) "
             + "AND EXISTS (SELECT 1 FROM group_challenge_bet_sessions s "
-            + "WHERE s.id = p.session_id AND s.status IN (:statuses))", nativeQuery = true)
+            + "JOIN group_challenges c ON c.id = s.challenge_id "
+            + "WHERE s.id = p.session_id AND s.status IN (:statuses) "
+            + "AND c.deleted_at IS NULL)", nativeQuery = true)
     int claimDisplay(
             @Param("sessionId") UUID sessionId,
             @Param("userId") UUID userId,
@@ -204,8 +217,11 @@ public interface GroupChallengeBetParticipantRepository
      * 토큰이 영구히 낡은 값이 되어 ack 까지 막힌다(그 회차는 리스가 만료될 때까지 어느 경로로도
      * 회복하지 못한다). 같은 값을 유지하면 갱신 재시도가 그대로 멱등이다.
      *
+     * <p>삭제 가드({@code c.deleted_at IS NULL})가 <b>여기에도</b> 있다 — 재검증은 "지금 띄워도 되나"를
+     * 묻는 마지막 관문이라, 선점과 노출 사이에 챌린지가 삭제되면 그 결과는 뜨면 안 된다(N48).
+     *
      * @return 1 = 내 선점이 유효하고 리스를 연장했다, 0 = 이미 확인됨 · 남이 재선점함 · 아직 결과가
-     *     아님 · 대상 행 없음
+     *     아님 · 챌린지가 삭제됨 · 대상 행 없음
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
@@ -215,7 +231,9 @@ public interface GroupChallengeBetParticipantRepository
             + "AND p.acknowledged_at IS NULL "
             + "AND p.display_claim_token = :token "
             + "AND EXISTS (SELECT 1 FROM group_challenge_bet_sessions s "
-            + "WHERE s.id = p.session_id AND s.status IN (:statuses))", nativeQuery = true)
+            + "JOIN group_challenges c ON c.id = s.challenge_id "
+            + "WHERE s.id = p.session_id AND s.status IN (:statuses) "
+            + "AND c.deleted_at IS NULL)", nativeQuery = true)
     int renewDisplayClaim(
             @Param("sessionId") UUID sessionId,
             @Param("userId") UUID userId,
@@ -234,6 +252,12 @@ public interface GroupChallengeBetParticipantRepository
      * <p>선점과 마찬가지로 <b>회차가 이미 결과일 때만</b> 성사된다 — 정산 전 회차에 확인 표시가
      * 찍히면 그 회차의 결과를 어느 기기에서도 못 본다.
      *
+     * <p><b>삭제 가드는 여기에만 없다</b>(의도된 비대칭). ack 은 "띄워도 되나"가 아니라 <b>이미 본
+     * 것을 기록</b>하는 연산이다 — 모달이 떠 있는 사이에 챌린지가 삭제됐다고 확인 표시를 거절하면,
+     * 사용자는 분명히 봤는데 {@code acknowledged_at} 이 영영 비고 선점만 리스 만료까지 남는다.
+     * 삭제 회차는 조회에서 이미 빠지므로(N48) 확인을 기록해도 다시 뜨지 않는다. 토큰은 삭제 전
+     * 선점에서만 얻을 수 있어 이 경로로 새로 노출되는 것도 없다.
+     *
      * @return 1 = 이 호출이 확인 처리했다, 0 = 대상 행 없음 · 이미 확인됨 · 토큰 불일치 · 아직 결과가 아님
      */
     // flushAutomatically 도 함께 켠다(GROMO-801 예방) — 리그 acknowledge 와 같은 이유.
@@ -246,6 +270,7 @@ public interface GroupChallengeBetParticipantRepository
             + "WHERE p.session_id = :sessionId AND p.user_id = :userId "
             + "AND p.acknowledged_at IS NULL "
             + "AND p.display_claim_token = :token "
+            // 삭제 가드 없음(의도) — 위 javadoc 참조. group_challenges 조인도 그래서 없다.
             + "AND EXISTS (SELECT 1 FROM group_challenge_bet_sessions s "
             + "WHERE s.id = p.session_id AND s.status IN (:statuses))", nativeQuery = true)
     int acknowledge(
