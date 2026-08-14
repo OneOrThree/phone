@@ -379,7 +379,7 @@ flowchart TB
 flowchart LR
     E1["탭: 그룹"] -->|"소속 1개 이상"| GD
     E2["묶음 푸시: 오늘 챌린지 N개"] -->|"딥링크 groupId"| GR
-    E3["묶음 푸시: 결과 N건"] -->|"groupId"| GD
+    E3["묶음 푸시: 결과 N건"] -->|"groupId + result=1<br/>멤버십 게이트 우회"| GR
     E4["푸시: 승리 확정"] -->|"groupId + challengeId"| GR
     E5["푸시: CHALLENGE_CREATED"] -->|"groupId"| GR
     E6["초대 링크"] --> GJ["그룹 참여"] --> GR
