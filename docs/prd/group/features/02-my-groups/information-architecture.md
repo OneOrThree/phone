@@ -54,6 +54,11 @@ flowchart LR
 └── Tab: 홈 | 리그 | [그룹] | 전체
        └── GroupScreen  (그룹 탭 진입점 · 상태 소유)
               ├── (공통) 미확인 정산 결과 있음 → 읽기 전용 결과 모달 — **0개 분기에도 뜬다**
+              │    ⚠️ 이 모달을 **그리는 주체는 GroupScreen이 아니다.** `GroupRoom`은 이 탭이 아니라
+              │       root Stack의 sibling이라(RootNavigator), 탭 화면이 그리면 방이 push된 동안
+              │       그 위에 뜨지 못한다 — 방에서 결과를 못 보거나 뒤에서 ack된다.
+              │       소유자는 **root 오버레이 계층**이고, 활성 조건만 그룹 흐름 focus다
+              │       (챌린지 IA §4.3 · policy §D3).
               ├── 그룹 0개: [그룹 만들기] → GroupCreate → 성공 뒤 덱
               │             [그룹 찾기] → GroupFindSheet → (검색은 선택) → 가입 성공 뒤 덱
               │             초대 링크 수신 → Invite preview sheet → 가입 성공 뒤 덱
