@@ -298,6 +298,20 @@ export function logGroupChallengeResultInterrupted(p: {
 | `fetch_failed` | `/me/challenge-results` 조회가 실패해 후보 목록을 못 만들었다 | `GroupRoomScreen.tsx` — `resultEntries === null && userId`인 자리 — `resultEntries === null && userId`인 자리 | **생략** (후보 목록이 없어 알 수 없다) | 네트워크·서버 축. **비율이 아니라 절대 건수로 읽는다** — 아래 분모 절 |
 | `blocking_overlay` | 후보는 있고 판정도 됐는데 다른 오버레이가 떠 있어 **미뤘다**. 닫히면 뜬다. **차단 조건은 PR #669 기준으로 `betSheet`·`composeOpen`·`sheetOpenCardIds`(카드 소유 시트 4종: 지난 결과·다음 활성일·주간·삭제)다** — `⋯`는 라우트 push라 대상이 아니고 `inviteOpen`은 제거됐다(동시에 존재할 수 없다) | `GroupRoomScreen.tsx` — `currentResult !== null && !resultVisible`인 자리 — `currentResult !== null && !resultVisible`인 자리 | `resultQueue.length` (**안다**) | 지연이지 유실이 아니다. **①②와 절대 합산하지 않는다.** 이 값이 크면 시트 배타 규칙(N04)을 다시 볼 근거가 된다 |
 
+> **각주 5 — 토큰 갱신 실패가 「결과 없음」으로 위장된다.**
+> `getMyChallengeResults`는 `getFreshAccessToken().catch(() => null)` 뒤 토큰이나 `userId`가 없으면
+> **`[]`를 반환한다**(실패를 던지지 않는다). 그래서 로그인 상태인데 갱신이 네트워크 오류·5xx로
+> 실패하면 Promise는 fulfilled이고 `resultEntries`는 `null`이 아니라 빈 배열이 된다 —
+> **`fetch_failed` 발화 지점에 도달하지 않는다.**
+>
+> 계측만의 문제가 아니다. **빈 목록을 정본으로 반영해 대기 중인 결과 큐까지 비운다.** 사용자는
+> "결과가 없다"를 보고 지표에는 아무 흔적도 안 남는다 — 이 이벤트가 재려던 바로 그 유실이
+> 측정 밖에 있다.
+>
+> **고칠 곳은 계측이 아니라 그 함수다** — 토큰 획득 실패를 실패로 전파해야 `fetch_failed`가 걸리고
+> 큐도 안 비워진다. GROMO-1585에서 함께 처리한다(§6 G11). 그때까지 `fetch_failed`는
+> **네트워크 실패 전체가 아니라 「서버까지 갔다가 실패한 것」만** 센다고 읽는다.
+
 **발화 가드 — 이게 없으면 숫자가 거짓말한다**
 
 세 사유 **전부** view episode 단위로 게이트한다. "판정 시도당 1회"로는 부족하다 —
@@ -360,6 +374,7 @@ export function logGroupChallengeResultInterrupted(p: {
 | --- | --- | --- | --- |
 | G1 | **참여 취소율** (`취소 / 참여`) | 마지막 참가자가 아닌 **일반 철회는 대응 이벤트가 없다.** `group_bet_canceled`는 내기가 **통째로 닫힐 때만** 나간다(`ChallengeCard.tsx`) | `policy.md` §12·`prd.md` §5가 "전용 GA4 이벤트 신설"로 남겨 둔 갭 |
 | G7 | `group_bet_canceled`가 **어느 축의 사건**을 세는가 | 앱 `GroupBetStatus`에는 `CANCELED`가 있고 서버 것에는 없다(§2 각주 1 — 이름만 같은 다른 타입). 그런데 `leaveBet`은 회차 행을 **삭제**한다. 내기가 닫히는 것과 회차가 사라지는 것이 같은 사건인지 확정되지 않았다 | 서버 축 확인 후 각주 1과 이 행을 함께 닫는다 |
+| G11 | **토큰 갱신 실패가 유실로 잡히지 않는다** | `getMyChallengeResults`가 토큰 실패에 `[]`를 반환해(실패를 던지지 않음) `fetch_failed`가 안 걸리고 **대기 중인 큐까지 비워진다**(§5.3 각주 5) | 계측이 아니라 함수를 고쳐야 한다 — 실패 전파. **GROMO-1585** |
 | G10 | **일 목표형 종료 푸시의 반응** | `push_opened`가 `CHALLENGE_WINDOW_END`만 싣는다 — `pushOpenedTypeFromData`가 `CHALLENGE_ENDED`를 제외해(PR #669 기준) 라우팅은 정상인데 **계측만 빠진다.** 종료 푸시 반응을 보면 일 목표형 표본이 조용히 누락된다 | `PushOpenedType` 유니온 한 줄 — **GROMO-1585** |
 | G9 | **퍼널의 마지막 칸 「재참여」가 이어지지 않는다** | §2.1이 정의한 퍼널은 `생성 → 내기 → 결과 확인 → 재참여`인데, **어느 이벤트도 "이 결과를 본 뒤의 재참여"를 직전 결과와 연결하지 않는다** — `group_bet_joined`에 직전 결과를 가리키는 값이 없다. 결과 노출이 재참여로 이어졌는지가 곧 이 모달의 존재 이유인데 그 칸이 비어 있다 | 새 파라미터 설계가 필요하다(raw ID를 넣지 않는 그룹 공통 원칙과 함께 봐야 한다). GROMO-1585에서 미노출 이벤트와 함께 판단 |
 | G8 | **미노출 사유의 정밀도** — 분모 정교화 · `dwell_ms` 백그라운드 편향 · 결과 중복 제거 키 · 이미 노출된 결과의 `blocking_overlay` 제외 · 빈 주간 예약 발화 조건 · 백그라운드 `shown` 확정 | PR #666 리뷰에서 나온 P2 6건. 계약 표면은 성립하지만 **집계 정밀도**를 더 조일 여지가 있다 | 미노출 사유 이벤트를 **실제로 구현할 때** 함께 정한다 — 구현 없이 문서로만 정밀도를 올리면 검증할 수단이 없다 |
