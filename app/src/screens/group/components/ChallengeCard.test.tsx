@@ -2754,6 +2754,68 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
     expect(onBetChanged).toHaveBeenCalled();
   });
 
+  // ── await 뒤에 여는 시트의 승인 게이트(GROMO-1576) ──────────────────────────
+  // 이 시트는 탭과 마운트 사이에 예약 현황 조회가 끼어 있어서 **여는 시점을 응답이 정한다.**
+  // 그 사이 루트의 챌린지 결과 모달이 slot을 얻어 노출까지 갈 수 있는데, 조정자는 보유자를
+  // 뺏지 않으므로 그대로 마운트하면 RN Modal 두 개가 겹친다. 그러면 결과 모달이 **사실상 안
+  // 보인 채** seen 마커와 ack이 나간다(둘 다 렌더 커밋 시점에 찍힌다 — 인지 시점이 아니다).
+  test('승인을 받기 전에는 주간 시트를 마운트하지 않는다', async () => {
+    let allow: (granted: boolean) => void = () => undefined;
+    const onRequestSheetSlot = jest.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          allow = resolve;
+        }),
+    );
+    await render(
+      <ChallengeCard
+        challenge={challenge(weekendOver())}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={onRequestSheetSlot}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+
+    // 조회는 끝났지만 승인 전이다 — 트리에 없다(가려진 것이 아니다).
+    expect(onRequestSheetSlot).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByTestId('group.bet.week.total', { includeHiddenElements: true }),
+    ).toBeNull();
+
+    // 승인이 떨어지면 그때 연다 — 사용자의 탭이 증발하지 않는다.
+    await act(async () => {
+      allow(true);
+    });
+    expect(screen.getByTestId('group.bet.week.total')).toBeOnTheScreen();
+  });
+
+  test('승인이 거절되면(화면을 떠났다) 주간 시트를 열지 않는다', async () => {
+    const onRequestSheetSlot = jest.fn(async () => false);
+    await render(
+      <ChallengeCard
+        challenge={challenge(weekendOver())}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={onRequestSheetSlot}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+
+    expect(onRequestSheetSlot).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByTestId('group.bet.week.total', { includeHiddenElements: true }),
+    ).toBeNull();
+  });
+
   // #570 codex ⑧ — 예약도 '참여를 결심한 한 번의 행동'이라 1건으로 세고, 규모는 파라미터로.
   test('주간 예약 성공은 참여 계측 1건 + 일수를 남긴다', async () => {
     await renderCard(weekendOver());

@@ -238,6 +238,19 @@ export interface ChallengeCardProps {
   // ⚠️ **콜백 신원을 고정해서 넘겨라**(useCallback) — 매 렌더 새 함수를 주면 아래 정리 이펙트가
   //    렌더마다 재등록되며 false를 흘려, 시트가 떠 있는데도 열림이 취소된다.
   onSheetVisibilityChange?: (challengeId: string, open: boolean) => void;
+  // **await 뒤에 여는 시트**(주간 예약·삭제 프리플라이트)의 승인 게이트(GROMO-1576).
+  //
+  // 왜 위 보고만으로 부족한가: 저 콜백은 시트가 **열린 뒤**의 사실을 알린다. 그런데 이 카드의
+  // 시트 일부는 탭과 마운트 사이에 조회가 끼어 있어서, **여는 시점을 응답이 정한다.** 그 사이에
+  // 루트의 챌린지 결과 모달이 slot을 얻어 노출까지 갈 수 있고, 조정자는 보유자를 뺏지 않으므로
+  // 그대로 마운트하면 RN Modal 두 개가 겹친다. 그러면 결과 모달이 **사실상 안 보인 채**
+  // seen 마커와 ack이 나간다(그 둘은 렌더 커밋 시점에 찍힌다 — 사용자가 인지한 시점이 아니다).
+  //
+  // 그래서 그 시트들만 이 게이트를 통과한 뒤에 마운트한다. `false`면 열지 않는다(화면이 blur
+  // 됐거나 부모가 요청을 접었다). 미전달이면 종전대로 곧바로 연다.
+  // ⚠️ 동기로 열리는 시트(지난 결과·다음 활성일)는 이 게이트를 타지 않는다 — 전면 모달이 떠
+  //    있으면 그 버튼을 누를 수 없어 겹칠 수 없다(OverlaySlotContext의 A/B 판단).
+  onRequestSheetSlot?: () => Promise<boolean>;
 }
 
 export default function ChallengeCard({
@@ -249,6 +262,7 @@ export default function ChallengeCard({
   betLocked,
   onBetChanged,
   onSheetVisibilityChange,
+  onRequestSheetSlot,
 }: ChallengeCardProps) {
   // 내기 참가 철회의 API·잔액 갱신을 카드가 직접 쥔다 — 시트(BetSheet)는 참가자
   // 상태에선 부모(GroupRoomScreen)의 stale 검사가 즉시 닫아 버려 진입 자체가 불가능하고,
@@ -682,6 +696,11 @@ export default function ChallengeCard({
     onSheetVisibilityChange?.(challenge.id, true);
   }
 
+  // await 뒤에 여는 시트의 승인 게이트(위 onRequestSheetSlot 주석). 부모가 미전달이면 통과.
+  async function claimSheetSlot(): Promise<boolean> {
+    return (await onRequestSheetSlot?.()) ?? true;
+  }
+
   function openJoinNextSheet() {
     if (cachedGroupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·히스토리와 같은 공통 문구 결.
@@ -722,6 +741,8 @@ export default function ChallengeCard({
         onBetChanged?.();
         return;
       }
+      // 조회가 끝난 지금이 **실제로 여는 시점**이다 — 승인을 받고 마운트한다.
+      if (!(await claimSheetSlot())) return;
       openSheet();
       setWeekSheetDates(targets);
     } catch {
@@ -1022,6 +1043,9 @@ export default function ChallengeCard({
       const fresh = await getChallengeDeletionPreview(cachedGroupId, challenge.id);
       if (seq !== deleteSeqRef.current) return; // 사용자가 그 사이 다른 동작을 했다 — 폐기.
       if (fresh.openSessions.length > 0) {
+        // 프리플라이트가 끝난 지금이 실제로 여는 시점이다(위 openWeekSheet와 같은 근거).
+        if (!(await claimSheetSlot())) return;
+        if (seq !== deleteSeqRef.current) return; // 승인을 기다리는 사이 다른 동작이 끼어들었다
         openSheet();
         setDeletePreview(fresh);
         Alert.alert('걸린 돈이 생겼어요', '방금 참여한 사람이 있어요. 내용을 확인해 주세요.');
@@ -1060,9 +1084,14 @@ export default function ChallengeCard({
         {
           text: '삭제',
           style: 'destructive',
+          // 이 Alert 자체가 프리플라이트 **응답 뒤에** 뜬 것이라, 여기서 여는 시트도 비동기
+          // 경로다(네이티브 Alert는 RN Modal 위에 떠서 결과 모달을 가려도 눌린다).
           onPress: () => {
-            openSheet();
-            setDeletePreview(preview);
+            claimSheetSlot().then((allowed) => {
+              if (!allowed) return;
+              openSheet();
+              setDeletePreview(preview);
+            });
           },
         },
       ]);

@@ -643,6 +643,10 @@ describe('카드 시트 → 조정자 blocker 등록', () => {
     await waitFor(() => expect(values[values.length - 1]).toBe(-1));
   });
 
+  // ⚠️ **await 뒤에 여는 시트**는 등록만으로 부족하다. 여는 시점을 응답이 정하므로 그 사이
+  //    루트의 결과 모달이 slot을 얻어 **노출까지** 갈 수 있는데, 조정자는 보유자를 뺏지 않는다.
+  //    그대로 마운트하면 두 RN Modal이 겹치고, 결과 모달은 사실상 안 보인 채 seen/ack이 나간다
+  //    (둘 다 렌더 커밋 시점에 찍힌다 — 사용자가 인지한 시점이 아니다).
   test('시트를 연 카드가 사라져도 등록이 영영 남지 않는다 — 언마운트에서 열림을 정리한다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);

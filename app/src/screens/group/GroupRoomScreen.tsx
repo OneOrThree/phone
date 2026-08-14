@@ -29,7 +29,7 @@ import {
 import { USER_NOT_FOUND } from '@/services/sessionErrors';
 import { subscribeBetResultPush } from '@/services/betResultSignal';
 import { logGroupInviteShared, logGroupRoomViewed } from '@/services/analyticsEvents';
-import { useOverlayBlocker } from '@/store/OverlaySlotContext';
+import { OVERLAY_PRIORITY, useOverlaySlot } from '@/store/OverlaySlotContext';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import {
   consumeCardInteraction,
@@ -280,6 +280,64 @@ export default function GroupRoomScreen({
     onLeftRef.current();
   }, []);
 
+  // ── 이 화면이 띄우는 전면 오버레이를 조정자에 알린다(GROMO-1576) ──
+  // 대상은 지금 이 화면 위에 **RN Modal로** 뜰 수 있는 것 전부다:
+  //  · 이 화면이 쥔 것 — 챌린지 만들기(composeOpen) · 내기 개설/참가(betSheet)
+  //  · 챌린지 카드가 스스로 쥔 것 — 지난 결과·다음 활성일·주간·삭제 시트(sheetOpenCardIds,
+  //    GROMO-1578). 카드 state라 콜백(onCardSheetVisibilityChange) 없이는 부모가 알 수 없다.
+  // 이 시트들은 **status를 보지 않고 그대로 렌더한다**(useOverlayBlocker) — 사용자가 방금 손으로
+  // 연 것이라 뜨는 것이 옳고, 등록의 목적은 그 위에 결과 모달이 마운트되는 것을 막는 데 있다.
+  // ⚠️ '⋯'는 모달이 아니다 — GroupSettings 라우트 push라 이 화면이 가려질 뿐 겹치지 않는다.
+  //    초대 시트도 대상이 아니다: 그룹방이 별도 라우트가 된 뒤로는 목록(GroupScreen)이 소유한
+  //    그 시트와 이 화면이 동시에 뜰 수 없다.
+  //
+  // ⚠️ 카드 시트 중 **await 뒤에 열리는 것**(주간 예약·삭제 프리플라이트)은 blocker 등록만으로
+  //    부족하다. 여는 시점을 응답이 정하므로 그 사이 루트의 결과 모달이 slot을 얻어 노출까지
+  //    갈 수 있고, 조정자는 보유자를 뺏지 않으니 그대로 마운트하면 두 Modal이 겹친다. 그러면
+  //    결과 모달이 **사실상 안 보인 채** seen 마커와 ack이 나간다(둘 다 렌더 커밋 시점에
+  //    찍힌다 — 사용자가 인지한 시점이 아니다). 그래서 그 시트들은 아래 requestCardSheetSlot로
+  //    승인을 받고 연다. 동기로 열리는 시트는 종전대로 등록만 한다.
+
+  const [sheetSlotRequested, setSheetSlotRequested] = useState(false);
+  const sheetSlot = useOverlaySlot('groupRoom:sheet', {
+    priority: OVERLAY_PRIORITY.sheet,
+    active: betSheet !== null || composeOpen || sheetOpenCardIds.length > 0 || sheetSlotRequested,
+  });
+
+  // 승인을 기다리는 카드들 — 승인되면 true로, 화면을 벗어나면 false로 깨운다.
+  const sheetSlotWaitersRef = useRef<((granted: boolean) => void)[]>([]);
+  const sheetSlotRef = useRef(sheetSlot);
+  sheetSlotRef.current = sheetSlot;
+
+  const settleSheetSlotWaiters = useCallback((granted: boolean) => {
+    const waiters = sheetSlotWaitersRef.current;
+    if (waiters.length === 0) return;
+    sheetSlotWaitersRef.current = [];
+    waiters.forEach((resolve) => resolve(granted));
+  }, []);
+
+  useEffect(() => {
+    if (sheetSlot !== 'granted') return;
+    settleSheetSlotWaiters(true);
+  }, [sheetSlot, settleSheetSlotWaiters]);
+
+  // 화면을 벗어나거나 언마운트되면 대기를 접는다 — 안 그러면 결과 모달이 닫히는 순간
+  // **이미 떠난 화면의** 시트가 새 화면 위로 뜬다(시트는 RN Modal이라 라우트를 넘어 보인다).
+  useEffect(
+    () => () => {
+      settleSheetSlotWaiters(false);
+    },
+    [settleSheetSlotWaiters],
+  );
+
+  const requestCardSheetSlot = useCallback(() => {
+    if (sheetSlotRef.current === 'granted') return Promise.resolve(true);
+    setSheetSlotRequested(true);
+    return new Promise<boolean>((resolve) => {
+      sheetSlotWaitersRef.current.push(resolve);
+    });
+  }, []);
+
   // 이 화면이 지금 그리고 있는 그룹. 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면
   // (React Navigation이 params만 병합해) **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
   // (A 방을 보다 B 방 초대/딥링크로 같은 라우트에 재진입한 경우 등) — 그러면 A의 챌린지·시트가 남은 채
@@ -503,8 +561,12 @@ export default function GroupRoomScreen({
         focusedRef.current = false;
         requestSeqRef.current++;
         invalidateCardInteraction(interactionId);
+        // 승인 대기 중인 카드 시트를 접는다 — 이 화면을 떠난 뒤 승인이 떨어지면
+        // 그 시트가 **새 화면 위로** 뜬다(RN Modal은 라우트를 넘어 보인다).
+        settleSheetSlotWaiters(false);
+        setSheetSlotRequested(false);
       };
-    }, [reload, interactionId]),
+    }, [reload, interactionId, settleSheetSlotWaiters]),
   );
 
   // 탈퇴 유예의 종결 — 호스트가 "보여줄 것이 없다"를 확정하는 순간 이탈을 잇는다(N53·C8).
@@ -587,24 +649,12 @@ export default function GroupRoomScreen({
     Alert.alert(stale[0], stale[1]);
   }, [betSheet, challenges, betChallenge]);
 
-  // ── 이 화면이 띄우는 전면 오버레이를 조정자에 알린다(GROMO-1576) ──
-  // 대상은 지금 이 화면 위에 **RN Modal로** 뜰 수 있는 것 전부다:
-  //  · 이 화면이 쥔 것 — 챌린지 만들기(composeOpen) · 내기 개설/참가(betSheet)
-  //  · 챌린지 카드가 스스로 쥔 것 — 지난 결과·다음 활성일·주간·삭제 시트(sheetOpenCardIds,
-  //    GROMO-1578). 카드 state라 콜백(onCardSheetVisibilityChange) 없이는 부모가 알 수 없다.
-  // 이 시트들은 **status를 보지 않고 그대로 렌더한다**(useOverlayBlocker) — 사용자가 방금 손으로
-  // 연 것이라 뜨는 것이 옳고, 등록의 목적은 그 위에 결과 모달이 마운트되는 것을 막는 데 있다.
-  // ⚠️ '⋯'는 모달이 아니다 — GroupSettings 라우트 push라 이 화면이 가려질 뿐 겹치지 않는다.
-  //    초대 시트도 대상이 아니다: 그룹방이 별도 라우트가 된 뒤로는 목록(GroupScreen)이 소유한
-  //    그 시트와 이 화면이 동시에 뜰 수 없다.
-  useOverlayBlocker(
-    'groupRoom:sheet',
-    betSheet !== null || composeOpen || sheetOpenCardIds.length > 0,
-  );
-
   // 카드가 올리는 시트 열림 보고(GROMO-1578) — 신원을 고정한다. 매 렌더 새 함수를 주면 카드의
   // 정리 이펙트가 렌더마다 재등록되며 false를 흘려, 시트가 떠 있는데도 열림이 취소된다.
   const onCardSheetVisibilityChange = useCallback((challengeId: string, open: boolean) => {
+    // 요청이 실제 열림으로 바뀌었다 — 같은 호출에서 함께 갱신해야 두 state가 한 배치로 묶여
+    // `active`가 한 프레임도 false로 내려가지 않는다(내려가면 그 틈에 결과가 slot을 가져간다).
+    if (open) setSheetSlotRequested(false);
     setSheetOpenCardIds((prev) => {
       const had = prev.includes(challengeId);
       if (had === open) return prev; // 같은 값 재보고는 리렌더를 만들지 않는다
@@ -1036,6 +1086,9 @@ export default function GroupRoomScreen({
                     // 카드가 자기 시트를 열고 닫을 때마다 알려 준다 — 이 보고가 없으면 조정자가
                     // 카드 시트를 보지 못해 그 위로 결과 모달이 겹친다(GROMO-1578).
                     onSheetVisibilityChange={onCardSheetVisibilityChange}
+                    // await 뒤에 여는 시트(주간 예약·삭제 프리플라이트)의 승인 게이트 —
+                    // 위 sheetSlot 주석. 동기 시트는 이 게이트를 타지 않는다.
+                    onRequestSheetSlot={requestCardSheetSlot}
                     // 철회·취소 직후 목록을 다시 받는다 — 마지막 참가자가 빠져도 서버는 챌린지를
                     // 지우지 않고 휴면으로 남기므로(GROMO-1201) 재조회가 없으면 닫힌 내기·휴면
                     // 표시가 반영되지 않은 낡은 카드가 화면에 남는다.

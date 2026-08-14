@@ -835,6 +835,38 @@ describe('그룹 흐름 이탈 시 상태 폐기', () => {
     ).toBeNull();
   });
 
+  // ⚠️ 이탈 시 폐기(위)는 **이탈 시점의 상태**를 버린다. 그런데 그 전에 날아간 조회의 응답은
+  //    그 뒤에 도착한다. seq만 보면 그 요청은 여전히 '최신'이라 큐와 **모듈 전역** gate를
+  //    되살린다. gate가 전역이라는 점이 특히 위험하다 — 탈퇴 유예 중인 GroupRoom이 다른 화면
+  //    **아래에** 남아 있으면, 죽은 요청이 세운 'none'이 그 방의 구독을 깨워 goBack()을 부르고
+  //    지금 보고 있는 화면을 팝한다.
+  test('조회 도중 그룹 흐름을 벗어나면 늦게 도착한 응답이 gate를 바꾸지 않는다', async () => {
+    // 조회를 손으로 붙잡아 "요청은 날아갔고 응답은 아직"인 구간을 만든다.
+    let releaseResults: (entries: MyChallengeResultEntry[]) => void = () => undefined;
+    mockGetMyChallengeResults.mockReturnValue(
+      new Promise<MyChallengeResultEntry[]>((resolve) => {
+        releaseResults = resolve;
+      }),
+    );
+    await renderHost({ initialRoute: '그룹' });
+    await waitFor(() => expect(mockGetMyChallengeResults).toHaveBeenCalledTimes(1));
+    expect(getChallengeResultGate()).toBe('unknown');
+
+    // 사용자가 그룹 흐름을 벗어났다 — 이 시점에 상태는 이미 폐기됐다.
+    await navigate('홈');
+
+    // 이제 죽은 요청의 응답이 도착한다. '없다'(none)도 '있다'(pending)도 말하면 안 된다.
+    await act(async () => {
+      releaseResults([]);
+    });
+    await act(async () => {});
+
+    expect(getChallengeResultGate()).toBe('unknown');
+    expect(
+      screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
+    ).toBeNull();
+  });
+
   test('재진입하면 선점을 처음부터 다시 검증한다 — 낡은 claim을 재사용하지 않는다', async () => {
     // 같은 회차가 재진입 뒤에도 서버 큐에 남아 있어야 이 경로가 성립한다. 그 조건은 실제로
     // 있다 — **로컬 마커 쓰기가 실패한 경우**다(markChallengeResultSeen은 실패를 삼킨다).

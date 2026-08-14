@@ -178,6 +178,27 @@ export default function ChallengeResultHost() {
   const focusPendingRef = useRef<string | null>(null);
   const focusKeyRef = useRef<string | null>(null);
 
+  // ── 흐름 세대(generation) ────────────────────────────────────────────────────
+  // 그룹 흐름 진입·이탈과 계정 교체마다 올린다. 진행 중이던 `getMyChallengeResults()`는 그 경계를
+  // 넘어도 **요청 번호(seq)만 보면 여전히 최신**이라, 늦게 도착한 응답이 큐와 **모듈 전역**
+  // gate를 되살린다. gate가 전역이라는 점이 특히 위험하다: 탈퇴 유예 중인 GroupRoom이 다른
+  // 화면 **아래에** 남아 있으면, 죽은 요청이 세운 'none'이 그 방의 구독을 깨워 goBack()을
+  // 부르고 **지금 보고 있는 화면을 팝한다.**
+  // 렌더 중에 올린다(위 지목 무장과 같은 패턴) — 이펙트로 미루면 같은 커밋의 load()가
+  // 낡은 세대를 캡처한다.
+  const flowGenRef = useRef(0);
+  const flowIdentityRef = useRef<{ inFlow: boolean; userId: string | null }>({
+    inFlow: flow.inFlow,
+    userId: userId ?? null,
+  });
+  if (
+    flowIdentityRef.current.inFlow !== flow.inFlow ||
+    flowIdentityRef.current.userId !== (userId ?? null)
+  ) {
+    flowIdentityRef.current = { inFlow: flow.inFlow, userId: userId ?? null };
+    flowGenRef.current += 1;
+  }
+
   // 지목 무장 — 렌더 중 조정(GroupRoomScreen이 쓰던 것과 같은 패턴).
   // ⚠️ **새 지목이 왔을 때만** 다시 무장한다. 지목이 없는 라우트로 옮겼다고 지우지 않는다:
   //    결과 푸시로 GroupRoom에 들어온 뒤 정산 전에 GroupSettings 같은 하위 화면으로 이동하면
@@ -247,6 +268,14 @@ export default function ChallengeResultHost() {
       return;
     }
     const seq = ++seqRef.current;
+    // 이 요청이 속한 흐름·계정 세대. 응답을 **적용하기 전에** 매번 다시 확인한다 —
+    // seq만 보면 그룹 흐름을 벗어나거나 계정이 갈린 뒤에도 이 요청은 계속 '최신'이다.
+    const flowGen = flowGenRef.current;
+    // 죽은 요청인가 — 언마운트됐거나 흐름·계정 경계를 넘었으면 아무것도 반영하지 않는다.
+    // ⚠️ gate는 **모듈 전역**이라 특히 위험하다: 죽은 요청이 세운 'none'이 다른 화면 아래에
+    //    남아 있던 GroupRoom의 구독을 깨워 goBack()을 부르고 지금 보고 있는 화면을 팝한다.
+    const stale = () =>
+      !mountedRef.current || seq !== seqRef.current || flowGenRef.current !== flowGen;
     // ⚠️ **판정을 시작하는 순간 먼저 미확정으로 되돌린다.**
     //    이전 조회가 'none'이었더라도 이 조회가 끝나기 전까지는 "없다"가 아니라 "모른다"다.
     //    되돌리지 않으면: 탈퇴자가 결과 딥링크로 GroupRoom에 진입할 때 이 비동기 조회가 도는
@@ -262,7 +291,7 @@ export default function ChallengeResultHost() {
     } catch {
       entries = null;
     }
-    if (seq !== seqRef.current) return;
+    if (stale()) return;
     if (entries === null) {
       publishUnknown();
       return;
@@ -286,7 +315,7 @@ export default function ChallengeResultHost() {
     let next: ChallengeResultCandidate[] = [];
     if (candidates.length > 0) {
       const unseen = await filterUnseenChallengeResults(userId, candidates);
-      if (seq !== seqRef.current) return;
+      if (stale()) return;
       // null = 가드 읽기 실패(계약 D1). '빈 정본'으로 반영하지 않는다.
       if (unseen === null) {
         publishUnknown();
