@@ -236,6 +236,7 @@ flowchart LR
 | [`information-architecture.md`](./information-architecture.md) | 화면 구조 · 진입 경로 · 정보 배치 | 앱 화면을 만들 때 |
 | [`high-level-design.md`](./high-level-design.md) | 컴포넌트가 어떻게 협력하나 | 흐름 전체를 볼 때 |
 | [`low-level-design.md`](./low-level-design.md) | 스키마 · 엔드포인트 · 시퀀스 | 실제로 코드를 쓸 때 |
+| [`analytics.md`](./analytics.md) | 어떤 이벤트를 · 언제 · 무슨 파라미터로 쏘나 | **계측 정본.** 지표를 만들거나 이벤트를 추가할 때 |
 | [`ux.html`](./ux.html) | 화면 시안 · 카피 | 브라우저로 열어볼 것 |
 | [`diagrams/`](./diagrams/) | 조건 다이어그램 5종 (draw.io) | PRD가 임베드한다 |
 
