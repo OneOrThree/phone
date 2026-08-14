@@ -397,6 +397,13 @@ export async function getMyChallengeResults(page?: {
     } as Parameters<typeof api.get>[1],
   );
   const results = Array.isArray(data?.results) ? data.results : [];
+  // 이 회차들을 **누가 읽었는지** 기록한다 — claim·ack이 전송 직전에 소유자를 검증한다.
+  // 조회가 채우고 뮤테이션이 읽는 결은 challengeMetaCache(삭제 계측)와 같다.
+  // 아래 계정 재검증보다 **앞에** 둔다: 요청 중 계정이 바뀌었더라도 이 결과의 소유자는
+  // 여전히 조회를 건 userId이고, 그 사실을 적어 둬야 뒤이은 claim이 올바로 거절된다.
+  for (const result of results) {
+    if (result?.sessionId) challengeResultOwners.set(result.sessionId, userId);
+  }
   const currentToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken).catch(() => null);
   if (
     getAuthSessionGeneration() !== requestGeneration ||
@@ -426,6 +433,38 @@ export async function getMyChallengeResults(page?: {
   return results;
 }
 
+// 회차 → 그 결과를 내려받은 계정. claim·ack의 소유자 검증에 쓴다(아래 주석).
+const challengeResultOwners = new Map<string, string>();
+
+// claim·ack의 **전송 시점** 계정 고정(PR #672 리뷰 P1).
+// `api` 인터셉터가 붙이는 것은 조회 시점이 아니라 **전송 시점의 저장 토큰**이다. 결과를 조회한
+// 뒤 계정이 전환되면 그 새 계정 토큰으로 요청이 나가고, 그때 두 가지가 무너진다:
+//   · 두 계정이 **같은 회차에 참가**했다면 새 계정의 결과를 선점해 버리고,
+//   · 이전 계정용 모달을 띄운 것만으로 **새 계정이 못 본 결과를 확인 처리**해 영구히 누락시킨다.
+// 같은 회차에 두 계정이 참가하는 것은 실제로 가능하다 — 로컬 마커를 계정 스코프
+// (`gromo:sessionResult:{userId}:{sessionId}`)로 둔 이유가 정확히 그것이다.
+// 그래서 둘 다 한다: ① 검증한 토큰을 직접 싣고 401 재발급 재시도를 끈다(재발급 토큰은 전환된
+// 계정 것일 수 있어 재시도가 곧 계정 오귀속이다 — getMyOpenBetSessionsWithToken과 같은 규칙),
+// ② 그 회차를 내려준 계정과 다르면 **아예 보내지 않는다**.
+// 호출 시점을 막는 것은 호스트(W1) 몫이고 여기는 전송 시점을 막는다 — 둘 다 필요하다.
+async function challengeResultRequestConfig(
+  sessionId: string,
+): Promise<Parameters<typeof api.post>[2]> {
+  const accessToken = await getFreshAccessToken();
+  const userId = getUserIdFromToken(accessToken ?? '');
+  if (!accessToken || !userId) throw new Error('CHALLENGE_RESULT_NO_SESSION');
+  const owner = challengeResultOwners.get(sessionId);
+  // 소유자를 모르는 회차(이 앱 실행에서 조회한 적 없음)는 검증할 근거가 없다 — 토큰 고정만
+  // 적용한다. 인터셉터에 맡기던 종전보다 나쁠 수 없고, 큐의 후보는 전부 조회를 거쳐 들어온다.
+  if (owner !== undefined && owner !== userId) {
+    throw new Error('CHALLENGE_RESULT_ACCOUNT_SWITCHED');
+  }
+  return {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    _noAuthRetry: true,
+  } as Parameters<typeof api.post>[2];
+}
+
 // POST /api/v1/me/challenge-results/{sessionId}/claim — 결과 1건의 **노출 선점**(GROMO-1577 · N58).
 // 여러 기기가 같은 큐를 들고 있어도 한 곳에서만 모달이 뜨게 한다(순서는 D8:
 // slot → 선점 → 활성 claim 검증 → 노출 → ack. ack를 노출 앞에 두면 렌더가 끊겼을 때
@@ -441,10 +480,12 @@ export async function claimMyChallengeResult(
   sessionId: string,
   claimToken?: string,
 ): Promise<ChallengeResultClaimResponse> {
+  const config = await challengeResultRequestConfig(sessionId);
   const { data } = await api.post<ChallengeResultClaimResponse>(
     `/api/v1/me/challenge-results/${sessionId}/claim`,
     // 값 없는 키를 보내지 않는다 — 서버가 "재검증 요청"으로 오독하면 최초 획득이 막힌다.
     claimToken === undefined ? {} : { claimToken },
+    config,
   );
   return data;
 }
@@ -454,7 +495,8 @@ export async function claimMyChallengeResult(
 // 노출 **후**에 부른다 — 서버는 이 호출로 남은 claim과 (user, BET_RESULT, sessionId) 알림
 // 클레임까지 닫는다(안 닫으면 이미 본 결과의 푸시가 나중에 도착한다).
 export async function ackMyChallengeResult(sessionId: string, claimToken: string): Promise<void> {
-  await api.post<void>(`/api/v1/me/challenge-results/${sessionId}/ack`, { claimToken });
+  const config = await challengeResultRequestConfig(sessionId);
+  await api.post<void>(`/api/v1/me/challenge-results/${sessionId}/ack`, { claimToken }, config);
 }
 
 // GET /api/v1/me/bet-sessions?status=OPEN — 내가 참가비를 건 진행 중 회차(그룹 무관, N43).

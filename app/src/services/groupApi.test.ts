@@ -94,6 +94,9 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
     mockApi.post.mockResolvedValue({ data: { groupId: GROUP_ID } });
     mockApi.put.mockResolvedValue({ data: undefined });
     mockApi.delete.mockResolvedValue({ data: undefined });
+    // claim·ack은 전송 직전에 계정을 고정한다(PR #672 P1) — 세션을 못 읽으면 아예 안 나간다.
+    mockGetFreshAccessToken.mockResolvedValue('token-u1');
+    mockGetUserIdFromToken.mockReturnValue('u1');
   });
 
   test('POST /api/v1/groups — 생성 바디를 그대로 보낸다(비밀번호 없음)', async () => {
@@ -317,15 +320,21 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
   test('POST /me/challenge-results/{sessionId}/claim — 빈 바디를 반드시 싣는다', async () => {
     mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
     await expect(claimMyChallengeResult('s1')).resolves.toEqual({ claimToken: 'ct-1' });
-    expect(mockApi.post).toHaveBeenCalledWith('/api/v1/me/challenge-results/s1/claim', {});
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/api/v1/me/challenge-results/s1/claim',
+      {},
+      { headers: { Authorization: 'Bearer token-u1' }, _noAuthRetry: true },
+    );
   });
 
   test('POST /me/challenge-results/{sessionId}/ack — claimToken을 바디로 보낸다', async () => {
     mockApi.post.mockResolvedValue({ data: undefined });
     await ackMyChallengeResult('s1', 'ct-1');
-    expect(mockApi.post).toHaveBeenCalledWith('/api/v1/me/challenge-results/s1/ack', {
-      claimToken: 'ct-1',
-    });
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/api/v1/me/challenge-results/s1/ack',
+      { claimToken: 'ct-1' },
+      { headers: { Authorization: 'Bearer token-u1' }, _noAuthRetry: true },
+    );
   });
 });
 
@@ -367,6 +376,44 @@ describe('GET /me/challenge-results — 토큰 실패는 "결과 없음"이 아�
       headers: { Authorization: 'Bearer token-u1' },
       _noAuthRetry: true,
     });
+  });
+});
+
+// claim·ack의 **전송 시점** 계정 고정(PR #672 리뷰 P1). 호출 시점을 막는 것은 호스트(W1)
+// 몫이고 여기는 전송 시점을 막는다 — 둘 다 필요하다.
+describe('claim·ack은 조회 계정에 고정된다(P1 — 계정 전환 창)', () => {
+  const SESSION = 'sess-owned-by-u1';
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    mockGetAuthSessionGeneration.mockReturnValue(1);
+    mockGetUserIdFromToken.mockReturnValue('u1');
+    mockGetFreshAccessToken.mockResolvedValue('token-u1');
+    // u1이 이 회차를 조회했다 — 소유 계정이 여기서 기록된다.
+    mockApi.get.mockResolvedValue({ data: { results: [{ sessionId: SESSION, status: 'OPEN' }] } });
+    await getMyChallengeResults();
+    mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
+  });
+
+  // ⚠️ 이 테스트가 무너지면 두 계정이 같은 회차에 참가했을 때 **새 계정이 못 본 결과가
+  // 확인 처리돼 영구히 누락**된다. 인터셉터는 전송 시점의 저장 토큰을 붙이므로, 조회 뒤
+  // 전환된 계정의 토큰으로 claim·ack이 나가는 것을 여기서 끊는다.
+  test('조회 뒤 계정이 바뀌면 아예 보내지 않는다', async () => {
+    mockGetUserIdFromToken.mockReturnValue('u2');
+    mockGetFreshAccessToken.mockResolvedValue('token-u2');
+
+    await expect(claimMyChallengeResult(SESSION)).rejects.toThrow();
+    await expect(ackMyChallengeResult(SESSION, 'ct-1')).rejects.toThrow();
+    expect(mockApi.post).not.toHaveBeenCalled();
+  });
+
+  test('같은 계정이면 그 계정 토큰을 직접 싣고 나간다', async () => {
+    await claimMyChallengeResult(SESSION);
+    expect(mockApi.post).toHaveBeenCalledWith(
+      `/api/v1/me/challenge-results/${SESSION}/claim`,
+      {},
+      { headers: { Authorization: 'Bearer token-u1' }, _noAuthRetry: true },
+    );
   });
 });
 

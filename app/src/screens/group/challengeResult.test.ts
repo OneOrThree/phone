@@ -12,7 +12,7 @@ import {
   reconcileChallengeResultAck,
   type ChallengeResultCandidate,
 } from './challengeResult';
-import { api } from '@/services/api';
+import { api, getFreshAccessToken, getUserIdFromToken } from '@/services/api';
 import type { MyChallengeResultEntry } from '@/types/dto/group';
 
 // claim·ack은 groupApi의 실제 래퍼를 그대로 통과시킨다 — 시임(groupApi)을 통째로 목으로 덮으면
@@ -30,6 +30,14 @@ jest.mock('@/services/analyticsEvents', () => ({
 }));
 
 const mockApi = api as unknown as { post: jest.Mock };
+const mockGetFreshAccessToken = getFreshAccessToken as jest.MockedFunction<
+  typeof getFreshAccessToken
+>;
+const mockGetUserIdFromToken = getUserIdFromToken as jest.MockedFunction<typeof getUserIdFromToken>;
+
+// claim·ack은 전송 직전에 계정을 고정한다(PR #672 P1) — 검증한 토큰을 직접 싣고 재발급
+// 재시도를 끈다. 요청 config 가 통째로 계약이라 경로·바디와 함께 잠근다.
+const PINNED = { headers: { Authorization: 'Bearer token-me' }, _noAuthRetry: true };
 
 // 서버 GlobalExceptionHandler의 { code, retryAfterMs } 바디를 실은 axios 에러.
 function axiosErrorWith(status: number, data: unknown): AxiosError {
@@ -349,12 +357,44 @@ describe('서버 확인 표시 × 로컬 마커 — 중복 노출 필터 합류(
 describe('claimChallengeResult · ackChallengeResult (GROMO-1577)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetFreshAccessToken.mockResolvedValue('token-me');
+    mockGetUserIdFromToken.mockReturnValue(USER_ID);
   });
 
   test('선점 성공 — 서버 claimToken을 그대로 돌려준다', async () => {
     mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
     await expect(claimChallengeResult('s1')).resolves.toEqual({ ok: true, claimToken: 'ct-1' });
-    expect(mockApi.post).toHaveBeenCalledWith('/api/v1/me/challenge-results/s1/claim', {});
+    expect(mockApi.post).toHaveBeenCalledWith('/api/v1/me/challenge-results/s1/claim', {}, PINNED);
+  });
+
+  // ⚠️ 인터셉터가 붙이는 것은 **전송 시점**의 저장 토큰이다 — 조회 뒤 계정이 바뀌면 새 계정
+  // 토큰으로 나간다. 두 계정이 같은 회차에 참가했다면(가능하다 — 로컬 마커를 계정 스코프로
+  // 둔 이유가 그것이다) 새 계정의 결과를 선점하거나, 이전 계정 모달을 띄운 것만으로 새 계정이
+  // 못 본 결과를 확인 처리해 **영구히 누락**시킨다.
+  test('claim·ack은 검증한 토큰을 직접 싣고 재발급 재시도를 끈다', async () => {
+    mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
+    await claimChallengeResult('s1');
+    await ackChallengeResult('s1', 'ct-1');
+    expect(mockApi.post).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/me/challenge-results/s1/claim',
+      {},
+      PINNED,
+    );
+    expect(mockApi.post).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/me/challenge-results/s1/ack',
+      { claimToken: 'ct-1' },
+      PINNED,
+    );
+  });
+
+  test('세션을 못 읽으면 아예 보내지 않는다 — 토큰 없이 나가지 않는다', async () => {
+    mockGetFreshAccessToken.mockResolvedValue(null);
+    mockGetUserIdFromToken.mockReturnValue(null);
+    await expect(claimChallengeResult('s1')).resolves.toEqual({ ok: false, retryAfterMs: null });
+    expect(await ackChallengeResult('s1', 'ct-1')).toBe(false);
+    expect(mockApi.post).not.toHaveBeenCalled();
   });
 
   // ⚠️ 선점 실패는 사고가 아니라 정상 흐름이다 — 예외로 던지면 호출부(오버레이 호스트)가
@@ -398,10 +438,18 @@ describe('claimChallengeResult · ackChallengeResult (GROMO-1577)', () => {
   test('보정은 노출 없이 claim → ack 만 한다', async () => {
     mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
     expect(await reconcileChallengeResultAck('s1')).toBe(true);
-    expect(mockApi.post).toHaveBeenNthCalledWith(1, '/api/v1/me/challenge-results/s1/claim', {});
-    expect(mockApi.post).toHaveBeenNthCalledWith(2, '/api/v1/me/challenge-results/s1/ack', {
-      claimToken: 'ct-1',
-    });
+    expect(mockApi.post).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/me/challenge-results/s1/claim',
+      {},
+      PINNED,
+    );
+    expect(mockApi.post).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/me/challenge-results/s1/ack',
+      { claimToken: 'ct-1' },
+      PINNED,
+    );
   });
 
   test('보정 중 선점에 실패하면 조용히 넘어간다 — ack를 부르지 않는다', async () => {
@@ -416,15 +464,17 @@ describe('claimChallengeResult · ackChallengeResult (GROMO-1577)', () => {
   test('토큰 없이 부르면 최초 획득 — 빈 바디를 보낸다', async () => {
     mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
     await claimChallengeResult('s1');
-    expect(mockApi.post).toHaveBeenCalledWith('/api/v1/me/challenge-results/s1/claim', {});
+    expect(mockApi.post).toHaveBeenCalledWith('/api/v1/me/challenge-results/s1/claim', {}, PINNED);
   });
 
   test('토큰을 실으면 재검증 — 바디에 claimToken이 실린다', async () => {
     mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-1' } });
     await claimChallengeResult('s1', 'ct-1');
-    expect(mockApi.post).toHaveBeenCalledWith('/api/v1/me/challenge-results/s1/claim', {
-      claimToken: 'ct-1',
-    });
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/api/v1/me/challenge-results/s1/claim',
+      { claimToken: 'ct-1' },
+      PINNED,
+    );
   });
 
   test('재검증이 막히면 노출로 가지 않는다 — lease를 잃은 기기가 낡은 토큰으로 띄우지 못한다', async () => {
@@ -445,9 +495,11 @@ describe('claimChallengeResult · ackChallengeResult (GROMO-1577)', () => {
   test('ack는 claimToken을 바디로 보낸다', async () => {
     mockApi.post.mockResolvedValue({ data: undefined });
     await ackChallengeResult('s1', 'ct-1');
-    expect(mockApi.post).toHaveBeenCalledWith('/api/v1/me/challenge-results/s1/ack', {
-      claimToken: 'ct-1',
-    });
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/api/v1/me/challenge-results/s1/ack',
+      { claimToken: 'ct-1' },
+      PINNED,
+    );
   });
 
   // ⚠️ ack 실패를 던지면 호출부가 '노출 실패'로 읽어 같은 결과를 다시 띄운다 — 사용자는 방금
@@ -468,11 +520,32 @@ describe('claimChallengeResult · ackChallengeResult (GROMO-1577)', () => {
     expect(await ackChallengeResult('s1', 'ct-1')).toBe(false);
   });
 
-  // 토큰이 낡았으면 재시도해도 같은 답이다 — 다른 기기가 이미 확인했거나 lease가 넘어간 것이라
-  // **서버 상태는 이미 옳다.** 성공으로 접어 재시도를 끊는다(무한 재시도 방지).
-  test('RESULT_CLAIM_STALE은 성공으로 접는다 — 서버 상태가 이미 옳다', async () => {
+  // ⚠️ 종전 판단을 뒤집은 자리다(PR #672 리뷰 P2). STALE은 "내 토큰이 현재 claim과 다르다"일
+  // 뿐 **상대가 ack 했다는 뜻이 아니다** — 앱이 잠깐 멈추거나 lease(2분)가 만료돼 다른 기기가
+  // 재선점만 해도 온다. 성공으로 접으면 호출부가 재시도를 끝내는데 acknowledged_at은 여전히
+  // 비어 있어, 같은 결과가 다른 기기에서 다시 뜨고 이미 본 결과의 푸시도 뒤늦게 도착한다.
+  // 무한 재시도는 서버 계약이 끝낸다 — 상대가 실제로 ack 하면 그 회차가 다음 조회 응답에서
+  // 빠져(서버는 미확인만 준다) 재시도 대상 자체가 사라진다. 아래 보정 테스트가 그 경로다.
+  test('RESULT_CLAIM_STALE은 성공으로 접지 않는다 — 재시도가 계속 가능해야 한다', async () => {
     mockApi.post.mockRejectedValue(axiosErrorWith(409, { code: 'RESULT_CLAIM_STALE' }));
-    expect(await ackChallengeResult('s1', 'ct-1')).toBe(true);
+    expect(await ackChallengeResult('s1', 'ct-1')).toBe(false);
+  });
+
+  // 낡은 토큰으로는 영영 ack가 안 되지만, 보정은 **새 claim을 받아** ack 한다 — 낡은 토큰
+  // 문제 자체가 사라진다. STALE을 실패로 알리는 것이 헛돌지 않는 이유가 이 경로다.
+  test('STALE 뒤 보정은 새 claim을 받아 ack 한다 — 낡은 토큰을 다시 쓰지 않는다', async () => {
+    mockApi.post.mockRejectedValueOnce(axiosErrorWith(409, { code: 'RESULT_CLAIM_STALE' }));
+    expect(await ackChallengeResult('s1', 'ct-old')).toBe(false);
+
+    mockApi.post.mockReset();
+    mockApi.post.mockResolvedValue({ data: { claimToken: 'ct-new' } });
+    expect(await reconcileChallengeResultAck('s1')).toBe(true);
+    expect(mockApi.post).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/me/challenge-results/s1/ack',
+      { claimToken: 'ct-new' },
+      PINNED,
+    );
   });
 
   test('ack 성공은 true다', async () => {

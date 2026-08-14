@@ -14,7 +14,6 @@
 //     마커가 항상 더 오래 산다(30일 프룬이면 마커가 먼저 지워진 회차가 이미 본 모달로 재생된다).
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  RESULT_CLAIM_STALE,
   RESULT_NOT_SETTLED,
   ackMyChallengeResult,
   claimMyChallengeResult,
@@ -329,14 +328,26 @@ export async function claimChallengeResult(
 //     큐에서 빠지므로, 서버는 영영 미확인으로 남는다 — 다른 기기·재설치에서 그대로 다시 뜨고
 //     대기 중인 결과 푸시도 안 닫힌다(N58 이 막으려던 재생이 그 자리에서 되살아난다).
 // 그래서 **재노출은 막고 ack 만 재시도**한다: 실패를 false 로 알리고, 재시도 주기는 호출부가 쥔다.
+//
+// ⚠️ **`RESULT_CLAIM_STALE` 도 실패다**(PR #672 리뷰 P2 — 종전 판단을 뒤집었다).
+// 전에는 "토큰이 낡았다 = 다른 기기가 이미 확인했다 = 서버 상태는 이미 옳다"로 보고 성공으로
+// 접었는데, **그 전제가 성립하지 않는다.** STALE 은 "내 토큰이 현재 claim 과 다르다"는 뜻일 뿐
+// **상대가 ack 했다는 뜻이 아니다** — 모달을 띄운 뒤 앱이 잠깐 멈추거나 lease(2분)가 만료돼
+// 다른 기기가 재선점만 해도 STALE 이 온다. 여기서 true 를 돌려주면 호출부가 재시도를 끝내는데
+// `acknowledged_at` 은 여전히 비어 있어, 같은 결과가 다른 기기에서 다시 뜨고 이미 본 결과의
+// 푸시도 뒤늦게 도착한다 — N58 이 막으려던 재생이 그대로 되살아난다.
+//
+// **무한 재시도는 서버 계약이 끝낸다.** 낡은 토큰으로는 영영 ack 가 안 되지만, 재시도의 대상
+// 목록은 `pendingAckChallengeResults`(로컬 마커 ∩ 응답에 실린 회차)이고 서버는 **미확인만**
+// 내려준다. 그러므로 ①다른 기기가 실제로 ack 했으면 그 회차는 다음 조회 응답에서 빠져 대상이
+// 사라지고, ②아무도 ack 하지 않았으면 `reconcileChallengeResultAck` 가 **새 claim 을 받아**
+// ack 하므로 낡은 토큰 문제 자체가 없어진다(claim 이 막히면 상대의 lease 가 살아 있다는 뜻이라
+// 2분 안에 ①이나 ②로 수렴한다). 어느 쪽이든 끝난다 — 여기서 거짓 성공을 만들 이유가 없다.
 export async function ackChallengeResult(sessionId: string, claimToken: string): Promise<boolean> {
   try {
     await ackMyChallengeResult(sessionId, claimToken);
     return true;
-  } catch (e) {
-    // 토큰이 낡았으면(RESULT_CLAIM_STALE) 재시도해도 같은 답이다 — 다른 기기가 이미 확인했거나
-    // lease 가 넘어간 것이라 **서버 상태는 이미 옳다**. 성공으로 접어 재시도를 끊는다.
-    if (groupErrorCode(e) === RESULT_CLAIM_STALE) return true;
+  } catch {
     return false;
   }
 }
