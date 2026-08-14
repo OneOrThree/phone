@@ -339,6 +339,42 @@ describe('완료 다이얼로그의 slot 대기', () => {
     });
     await waitFor(() => expect(screen.getByText('비공개 그룹을 만들었어요 🎉')).toBeOnTheScreen());
   });
+
+  // ⚠️ 승인 게이트를 넣으면서 생긴 부작용을 막는다. 예전엔 성공 즉시 다이얼로그가 떠서 폼이
+  //    가려졌는데, 대기 구간에는 다이얼로그가 숨겨진 채 `submitting`이 풀린다. 그때 폼이 살아
+  //    있으면 사용자가 **중복 그룹을 만들거나**, 화면을 나가 **비공개 그룹의 유일한 입구인
+  //    초대 안내를 영영 잃는다.**
+  test('승인 대기 중에도 폼과 이탈을 잠근다 — 중복 생성·안내 유실 방지', async () => {
+    const tree = (holderActive: boolean) => (
+      <OverlaySlotProvider>
+        <Holder active={holderActive} />
+        <GroupCreateScreen />
+      </OverlaySlotProvider>
+    );
+    await render(tree(true));
+    await act(async () => {});
+
+    await typeName('아침 6시 집중방');
+    await press('비공개');
+    await press('만들기');
+    expect(mockCreateGroup).toHaveBeenCalledTimes(1);
+
+    // 다이얼로그는 아직 안 떴다 — 그런데도 폼은 잠겨 있어야 한다.
+    expect(
+      screen.queryByText('비공개 그룹을 만들었어요 🎉', { includeHiddenElements: true }),
+    ).toBeNull();
+
+    // 다시 만들기를 눌러도 두 번째 요청이 나가지 않는다.
+    await press('만들기');
+    expect(mockCreateGroup).toHaveBeenCalledTimes(1);
+
+    // 이탈도 막힌다 — 뒤로가기 이벤트가 preventDefault 된다.
+    const back = { preventDefault: jest.fn() };
+    await act(async () => {
+      mockNav.beforeRemove?.(back);
+    });
+    expect(back.preventDefault).toHaveBeenCalled();
+  });
 });
 
 describe('요청이 떠 있는 구간(§6-2)', () => {

@@ -106,6 +106,7 @@ jest.mock('./components/ChallengeCard', () => {
 });
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 const onLeft = jest.fn();
 
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
@@ -279,6 +280,34 @@ test('이미 떠 있는 시트가 있으면 승인하지 않는다', async () =>
     reportOpen?.('c1', false);
   });
   await waitFor(() => expect(gateResults.c1).toBe('granted'));
+});
+
+// ⚠️ 그룹 전환은 **언마운트가 아니다** — 같은 GroupRoom 인스턴스가 살아서 groupId만 갈린다.
+//    그래서 blur·언마운트 정리가 걸리지 않는다. 대기하던 A 카드의 요청을 그대로 두면, 나중에
+//    slot이 풀렸을 때 **이미 언마운트된 A 카드**가 true를 받아 openSheet()로 A의 id를 B 화면의
+//    열림 집합에 다시 넣고, 그것을 false로 되돌릴 카드가 없어 결과 오버레이가 영구히 막힌다.
+test('그룹이 바뀌면 대기 중인 시트 요청을 거절한다', async () => {
+  const view = await render(tree(true));
+  await act(async () => {});
+
+  await openAsyncSheet('c1');
+  expect(gateResults.c1).toBe('pending');
+
+  // 딥링크가 같은 라우트의 groupId를 B로 갈아 끼웠다(같은 인스턴스가 살아 있다).
+  await act(async () => {
+    view.rerender(
+      <OverlaySlotProvider>
+        <Holder active={false} />
+        <View>
+          <GroupRoomScreen groupId={OTHER_GROUP_ID} onLeft={onLeft} />
+        </View>
+      </OverlaySlotProvider>,
+    );
+  });
+  await act(async () => {});
+
+  // A의 요청은 승인되지 않는다 — 승인됐다면 B 화면에 A의 열림이 영구히 남는다.
+  await waitFor(() => expect(gateResults.c1).toBe('denied'));
 });
 
 test('가릴 것이 없으면 곧바로 승인한다 — 평소 경로에 지연을 넣지 않는다', async () => {

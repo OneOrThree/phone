@@ -20,6 +20,22 @@
 //    claim/ack 구현은 W3(GROMO-1577) 소유다. 이 워크트리에 아직 없어서 같은 시그니처의 임시
 //    대역(`./challengeResultClaim`)을 두고 **호출부는 진짜로 배선해 두었다** — 통합은 그 파일의
 //    본문을 재수출 한 줄로 바꾸면 끝난다. TODO 주석으로 남기지 않은 이유는 그 파일 헤더 참고.
+//
+// ── ⚠️ 이 파일이 지켜야 하는 전제: **claim·ack 앞에는 항상 같은 실행의 조회가 선행한다** ──
+// 데이터층(PR #672)의 계정 고정은 두 겹이다. 두 번째 겹인 **소유자 검증**은
+// `getMyChallengeResults` 응답을 받은 자리에서 채우는 **메모리 맵**이라, 조회 없이 저장해 둔
+// sessionId로 바로 claim·ack을 걸면 맵이 비어 그 겹이 통째로 무력화된다(토큰 고정만 남는다).
+// 그래서 데이터층은 "claim·ack 앞에 항상 최근 조회가 있다"는 전제 위에서만 안전하고,
+// **그 전제를 지키는 것은 이 호스트의 배선 책임**이다.
+//
+// 지금 claim·ack이 나가는 자리는 넷이고, 넷 다 그 전제를 지킨다:
+//   1. 최초 선점·재검증  — 큐 머리에서 출발한다. 큐는 `load()`의 조회 응답으로만 채워진다.
+//   2. 선점 재시도       — 지연 뒤 **먼저 `loadRef.current()`로 다시 조회하고** 재시도한다.
+//   3. 노출 직후 ack     — 1이 통과한 그 회차다(같은 조회에서 나온 sessionId·토큰).
+//   4. ack 복구          — 대상이 **이번 `load()`가 방금 받은 candidates**에서만 나온다
+//                          (reconcilePendingAcks가 그 집합으로 한 번 더 자른다).
+// ⚠️ **저장해 둔 sessionId로 바로 claim·ack을 거는 경로를 새로 만들지 마라.** 만들려면 그 앞에
+//    조회를 세워야 한다 — 안 그러면 소유자 검증이 조용히 꺼지고, 그 사실은 테스트로도 안 보인다.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useUser } from '@/store/UserContext';
@@ -109,16 +125,24 @@ async function reconcilePendingAcks(
   candidates: ChallengeResultCandidate[],
   isCurrentAccount: () => boolean,
 ): Promise<void> {
+  // ⚠️ **이번 조회가 실제로 돌려준 회차로 대상을 한정한다**(계약 §4 — 데이터층 PR #672 리뷰).
+  //    데이터층의 소유자 검증은 `getMyChallengeResults` 응답을 받은 자리에서 채우는 **메모리 맵**
+  //    이라, 그 조회에 없던 sessionId로 claim·ack을 걸면 맵이 비어 **소유자 검증이 무력화**되고
+  //    토큰 고정만 남는다. 선정 함수가 저장소를 넓게 훑어 후보 밖 id를 돌려주더라도 여기서 자른다
+  //    — 이 배선이 그 전제를 지키는 마지막 지점이다.
+  const fetched = new Set(candidates.map((candidate) => candidate.sessionId));
   try {
     const pending = await pendingAckChallengeResults(userId, candidates);
     if (!isCurrentAccount()) return;
     await Promise.all(
-      pending.map((entry) =>
-        // 각 실행 직전에도 다시 확인한다 — 목록이 길면 그 사이에도 갈릴 수 있다.
-        isCurrentAccount()
-          ? reconcileChallengeResultAck(entry.sessionId).catch(() => false)
-          : Promise.resolve(false),
-      ),
+      pending
+        .filter((entry) => fetched.has(entry.sessionId))
+        .map((entry) =>
+          // 각 실행 직전에도 다시 확인한다 — 목록이 길면 그 사이에도 갈릴 수 있다.
+          isCurrentAccount()
+            ? reconcileChallengeResultAck(entry.sessionId).catch(() => false)
+            : Promise.resolve(false),
+        ),
     );
   } catch {
     // 조용한 복구다 — 실패는 다음 조회로 미룬다.
@@ -147,6 +171,17 @@ export default function ChallengeResultHost() {
   // coinRefreshSignal은 트리 **밖**(push.ts·navigationRef 등)의 모듈이 쓰는 우회로이고,
   // 여기서 그것을 거치면 "반영됐는가"(GROMO-1024의 boolean)를 잃고 한 단계 늦어질 뿐이다.
   const { refresh: refreshCoins } = useCoins();
+
+  // ── 앱이 지금 화면에 떠 있는가 ────────────────────────────────────────────────
+  // ⚠️ 이 배치에서 **같은 뿌리의 결함이 세 번** 나왔다: 코치마크에 가린 채 ack · 비동기 시트가
+  //    한 프레임 뒤에 덮음 · 그리고 비활성 구간 노출. 셋 다 **"사용자가 봤다"를 렌더 커밋으로
+  //    근사**한 데서 온다. 렌더가 커밋돼도 앱이 `inactive`·`background`면 사용자는 아무것도 못
+  //    본다 — 그 상태에서 seen 마커와 서버 ack이 기록되면 그 결과는 영영 사라진다.
+  //    그래서 claim 시작과 노출을 **`active`일 때로만** 제한하고, 복귀가 재시도를 깨운다.
+  // 초기값은 보수적으로 읽는다: 명시적 비활성만 false로 본다(테스트·구버전에서 null일 수 있다).
+  const [appActive, setAppActive] = useState(
+    () => AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+  );
 
   const [flow, setFlow] = useState<GroupFlowRouteState>(readGroupFlowRoute);
   const [queue, setQueue] = useState<ChallengeResultCandidate[]>([]);
@@ -416,6 +451,7 @@ export default function ChallengeResultHost() {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       activityGenRef.current += 1;
+      setAppActive(state === 'active');
       if (state !== 'active') return;
       // 아직 노출되지 않은 선점은 복귀 시점에 버리고 다시 검증한다 — 비활성 구간 동안
       // lease(2분)가 만료돼 다른 기기가 가져갔을 수 있고, 그 사실은 재검증으로만 알 수 있다.
@@ -476,7 +512,12 @@ export default function ChallengeResultHost() {
     priority: OVERLAY_PRIORITY.challengeResult,
     active: current !== null && flow.inFlow && !yieldsSlot,
   });
-  const granted = current !== null && flow.inFlow && slot === 'granted';
+  // ⚠️ `appActive`가 여기 들어가는 것이 P1 ①의 핵심이다(위 appActive 주석). 이 값이 claim 시작
+  //    조건이자 노출 조건이라, 비활성 구간에서는 선점도 시작하지 않고 모달도 마운트되지 않는다
+  //    — 따라서 seen 마커·서버 ack·노출 계측 **어느 것도** 기록되지 않는다.
+  //    slot 등록 자체는 유지한다: 잠깐 비활성이 됐다고 자리를 내주면 복귀했을 때 코치마크가
+  //    먼저 들어와 결과가 뒤로 밀린다.
+  const granted = current !== null && flow.inFlow && appActive && slot === 'granted';
 
   // ── D8 순서: slot → 선점(claim) → **활성 claim 재검증** → 노출 → ack ──────────
   // 선점에 성공하고 **그 토큰으로 재검증까지 통과한** 회차만 렌더한다.
@@ -509,11 +550,14 @@ export default function ChallengeResultHost() {
       })
       .then((verified) => {
         if (claimingRef.current === currentSessionId) claimingRef.current = null;
-        if (canceled || !mountedRef.current) return;
-        // 비활성 구간을 건너뛴 응답 — 폐기하고 **처음부터 다시** 검증한다. 여기서 그냥
-        // return만 하면 이 회차는 재시도 계기를 잃는다(진행 중 표시 때문에 복귀 시점의
-        // claimTick 증가가 이미 한 번 삼켜졌다).
-        if (activityGenRef.current !== generation) {
+        if (!mountedRef.current) return;
+        // 버려야 하는 응답 둘 — 같은 처방이다.
+        //  · canceled  : 기다리는 사이 조건이 바뀌어 이펙트가 정리됐다(비활성 전환·slot 반납 등).
+        //  · 세대 불일치: 비활성 구간을 건너뛴 응답이라 그 뒤 무슨 일이 있었는지 알 수 없다.
+        // ⚠️ 여기서 그냥 return만 하면 이 회차는 **재시도 계기를 잃는다** — 진행 중 표시 때문에
+        //    복귀 시점의 claimTick 증가가 이미 한 번 삼켜졌기 때문이다. 그래서 다시 무장한다
+        //    (조건이 아직 안 맞으면 이펙트가 곧바로 조기 반환하므로 루프가 되지 않는다).
+        if (canceled || activityGenRef.current !== generation) {
           setClaimTick((tick) => tick + 1);
           return;
         }
@@ -561,6 +605,12 @@ export default function ChallengeResultHost() {
 
   // ack 재시도 — **모달을 다시 띄우지 않는다**(N51). 로컬 가드는 노출 시점에 이미 찍혔으므로,
   // 여기서 포기하면 서버에는 영영 미확인으로 남아 다른 기기·재설치에서 다시 뜬다.
+  //
+  // 전제(파일 헤더): 이 재시도는 **같은 실행 안**에서만 산다 — 타이머는 프로세스와 함께 죽고,
+  // sessionId·토큰은 이 실행의 조회에서 나온 것이라 데이터층의 소유자 맵에 이미 들어 있다.
+  // 그래서 재시도가 조회를 다시 거치지 않아도 소유자 검증이 살아 있다.
+  // ⚠️ 이 재시도를 **저장했다가 다음 실행에서 이어 하도록 바꾸면 그 전제가 깨진다.** 그때는
+  //    ack 복구(reconcile) 경로로 보내야 한다 — 그쪽은 조회 뒤에 돌기 때문이다.
   const runAck = useCallback((sessionId: string, token: string, attempt: number) => {
     ackChallengeResult(sessionId, token)
       .catch(() => false)

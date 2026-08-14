@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -109,10 +109,17 @@ export default function GroupCreateScreen() {
   //    만들기를 누른 뒤 응답이 오는 사이 결과 모달이 먼저 slot을 가져갈 수 있다. 그때
   //    무조건 렌더하면 이 다이얼로그가 결과 모달을 덮어 같은 사고가 난다. 그래서 **승인을
   //    받았을 때만** 띄운다. 못 받아도 사라지지 않는다 — 결과 모달이 닫히는 순간 뜬다.
+  //    ⚠️ 그 대신 **폼과 이탈은 `created !== null`인 순간부터 잠근다** — 승인 여부와 무관하게.
+  //       예전엔 성공 즉시 다이얼로그가 떠서 폼이 가려졌는데, 승인 게이트를 넣으면서 대기 구간에
+  //       폼이 다시 살아났다: 그 사이 사용자가 **중복 그룹을 만들거나**, 화면을 나가
+  //       **비공개 그룹의 유일한 입구인 초대 안내를 영영 잃을** 수 있다.
   const createdSlot = useOverlaySlot('groupCreate.inviteDialog', {
     priority: OVERLAY_PRIORITY.sheet,
     active: created !== null,
   });
+  // 이탈 차단 리스너가 리렌더 없이 읽어야 해서 state와 별도로 둔다(submittingRef와 같은 이유).
+  const createdRef = useRef(false);
+  createdRef.current = created !== null;
   const createdDialogVisible = created !== null && createdSlot === 'granted';
 
   // '복사했어요' 되돌리기 타이머 — 언마운트 시 정리한다.
@@ -132,7 +139,9 @@ export default function GroupCreateScreen() {
   useEffect(
     () =>
       navigation.addListener('beforeRemove', (e) => {
-        if (submittingRef.current) e.preventDefault();
+        // 생성 요청 중 + **완료 다이얼로그가 살아 있는 동안**(승인 대기 포함) 이탈을 막는다.
+        // 다이얼로그의 확인·닫기는 closeCreatedDialog로 나가며 이 래치를 먼저 내린다.
+        if (submittingRef.current || createdRef.current) e.preventDefault();
       }),
     [navigation],
   );
@@ -147,7 +156,15 @@ export default function GroupCreateScreen() {
 
   const trimmedName = name.trim();
   const trimmedDescription = description.trim();
-  const canSubmit = trimmedName.length > 0 && !submitting;
+  // 완료 다이얼로그가 살아 있으면(승인 대기 포함) 다시 만들 수 없다 — 중복 생성 방지.
+  const canSubmit = trimmedName.length > 0 && !submitting && created === null;
+
+  // 다이얼로그를 닫고 화면을 뜬다 — **이탈 래치를 먼저 내린다**(beforeRemove가 이 ref를 본다).
+  const closeCreatedDialog = useCallback(() => {
+    createdRef.current = false;
+    setCreated(null);
+    navigation.goBack();
+  }, [navigation]);
 
   function bumpMembers(dir: 1 | -1) {
     setMaxMembers((prev) => Math.max(MEMBERS_MIN, Math.min(MEMBERS_MAX, prev + dir)));
@@ -301,10 +318,10 @@ export default function GroupCreateScreen() {
       <View style={s.header}>
         {/* 생성 요청 중에는 비활성 — 눌러도 beforeRemove가 막으므로 버튼도 함께 잠가 이유를 보여준다 */}
         <TouchableOpacity
-          style={[s.backBtn, submitting ? s.backBtnOff : null]}
+          style={[s.backBtn, submitting || created !== null ? s.backBtnOff : null]}
           onPress={() => navigation.goBack()}
           activeOpacity={0.7}
-          disabled={submitting}
+          disabled={submitting || created !== null}
           accessibilityLabel="뒤로"
         >
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
@@ -459,7 +476,7 @@ export default function GroupCreateScreen() {
         visible={createdDialogVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => navigation.goBack()}
+        onRequestClose={closeCreatedDialog}
       >
         <View style={s.overlay}>
           <View style={s.card}>
@@ -481,7 +498,7 @@ export default function GroupCreateScreen() {
             <TouchableOpacity
               style={s.cardConfirmBtn}
               activeOpacity={0.7}
-              onPress={() => navigation.goBack()}
+              onPress={closeCreatedDialog}
             >
               <Text style={s.cardConfirmText}>확인</Text>
             </TouchableOpacity>

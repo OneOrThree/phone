@@ -574,6 +574,34 @@ describe('ack 복구', () => {
     expect(mockReconcileAck).not.toHaveBeenCalled();
   });
 
+  // ⚠️ 데이터층(PR #672)의 소유자 검증은 `getMyChallengeResults` 응답을 받은 자리에서 채우는
+  //    **메모리 맵**이다. 그 조회에 없던 sessionId로 claim·ack을 걸면 맵이 비어 소유자 검증이
+  //    무력화된다(토큰 고정만 남는다). 그래서 복구 대상은 **이번 조회가 돌려준 회차**로 자른다 —
+  //    선정 함수가 저장소를 넓게 훑어 후보 밖 id를 돌려주더라도 호스트가 마지막에 막는다.
+  test('복구 대상은 이번 조회가 돌려준 회차로 한정한다', async () => {
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]); // 이번 조회 = s1 하나
+    mockPendingAck.mockResolvedValue([{ sessionId: 's1' }, { sessionId: 's-not-fetched' }]);
+
+    await renderHost();
+
+    await waitFor(() => expect(mockReconcileAck).toHaveBeenCalledWith('s1'));
+    expect(mockReconcileAck).not.toHaveBeenCalledWith('s-not-fetched');
+    expect(mockReconcileAck).toHaveBeenCalledTimes(1);
+  });
+
+  // 복구는 노출과 무관하게 서버를 수렴시키는 일이다 — 노출 ack 재시도 상한(5회)에 묶이면 안 된다.
+  // 타이머 통도 분리돼 있다: 선점 재시도는 그룹 흐름에 묶이고(이탈 시 취소), ack·복구는 아니다.
+  test('복구는 조회마다 새로 돈다 — 노출 재시도 상한에 묶이지 않는다', async () => {
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await renderHost();
+    await waitFor(() => expect(mockPendingAck).toHaveBeenCalledTimes(1));
+
+    // 상한(5)을 넘겨 조회를 반복한다.
+    for (let i = 0; i < 6; i += 1) await betResultPush();
+
+    expect(mockPendingAck).toHaveBeenCalledTimes(7);
+  });
+
   test('복구가 실패해도 화면에 영향이 없다 — 조용한 수렴이다', async () => {
     mockPendingAck.mockRejectedValue(new Error('network'));
     mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
@@ -1048,6 +1076,66 @@ describe('가려진 채 확인 처리되지 않는다', () => {
 // ── 비활성 구간을 건너뛴 선점 응답 ────────────────────────────────────────────
 // 재검증 응답이 도착한 **직후 JS가 백그라운드에서 정지**하면, 2분 lease가 만료되고 다른 기기가
 // 재선점한 뒤에도 복귀 시 그 낡은 값을 그대로 믿게 된다 — 재검증 단계가 그 구간에는 무의미하다.
+// ── 비활성 구간에서는 아무것도 기록하지 않는다 ─────────────────────────────────
+// 같은 뿌리의 결함이 이 배치에서 세 번 나왔다: 코치마크에 가린 채 ack · 비동기 시트가 한 프레임
+// 뒤에 덮음 · 그리고 이것. 셋 다 **"사용자가 봤다"를 렌더 커밋으로 근사**한 데서 온다.
+// 렌더가 커밋돼도 앱이 inactive·background면 사용자는 아무것도 못 본다.
+describe('비활성 상태에서는 노출·확인이 없다', () => {
+  test('비활성 중에 큐가 채워져도 마커도 ack도 계측도 기록되지 않는다', async () => {
+    mockGetMyChallengeResults.mockResolvedValue([]);
+    await renderHost({ initialRoute: '그룹' });
+
+    // 앱이 화면에서 내려갔다.
+    await act(async () => {
+      appStateHandler?.('background');
+    });
+
+    // 그 사이 진행 중이던 조회가 결과를 가져온다(주기 재조회·BET_RESULT 수신 등).
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await betResultPush();
+
+    // 선점조차 시작하지 않는다 — 노출의 부작용 셋 중 어느 것도 없다.
+    expect(mockClaim).not.toHaveBeenCalled();
+    expect(
+      screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
+    ).toBeNull();
+    expect(await AsyncStorage.getItem('gromo:sessionResult:me:s1')).toBeNull();
+    expect(mockAck).not.toHaveBeenCalled();
+    expect(logGroupChallengeResultShown).not.toHaveBeenCalled();
+
+    // 복귀가 재시도를 깨운다 — 결과를 잃지 않는다.
+    await act(async () => {
+      appStateHandler?.('active');
+    });
+    await act(async () => {});
+
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    await waitFor(() => expect(mockAck).toHaveBeenCalledTimes(1));
+  });
+
+  test('노출 중 비활성이 되면 모달을 내리고, 복귀해도 다시 확인 처리하지 않는다', async () => {
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await renderHost({ initialRoute: '그룹' });
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    await waitFor(() => expect(mockAck).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      appStateHandler?.('inactive');
+    });
+    expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+    await act(async () => {
+      appStateHandler?.('active');
+    });
+    await act(async () => {});
+
+    // 같은 회차를 두 번 확인 처리하지 않는다(노출 1회 가드는 그대로다).
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    expect(mockAck).toHaveBeenCalledTimes(1);
+    expect(logGroupChallengeResultShown).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('포그라운드 복귀 시 선점 재검증', () => {
   test('비활성 구간을 건너뛴 응답은 폐기하고 다시 검증한다', async () => {
     let releaseClaim: (value: { ok: true; claimToken: string }) => void = () => undefined;

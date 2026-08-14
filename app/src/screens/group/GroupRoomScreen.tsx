@@ -384,6 +384,14 @@ export default function GroupRoomScreen({
     // 이전 그룹 카드들의 시트 열림도 함께 접는다 — 그 카드들은 곧 언마운트되며 false를
     // 보고하지만, 그 사이 대기하던 전면 오버레이가 이전 방의 열림 때문에 계속 막히면 안 된다.
     setSheetOpenCardIds([]);
+    // ⚠️ **승인을 기다리던 시트 요청도 여기서 거절한다.** 그룹 전환은 언마운트가 아니다 —
+    //    같은 인스턴스가 살아 있어서 blur·언마운트 정리가 걸리지 않는다. 그대로 두면 나중에
+    //    slot이 풀렸을 때 **이미 언마운트된 A 카드**가 true를 받아 openSheet()로 A의 id를
+    //    B 화면의 sheetOpenCardIds에 다시 넣고, 그것을 false로 되돌릴 카드가 없어
+    //    **결과 오버레이가 영구히 차단**된다.
+    sheetGrantInFlightRef.current = false;
+    settleSheetSlotWaiters(false);
+    setSheetSlotRequested(false);
     setRefundBlocked(false); // 환불 안내는 그 진입의 판단이다 — 새 그룹으로 옮기지 않는다
     setDetail(null);
     setNotices(null);
