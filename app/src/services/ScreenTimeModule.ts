@@ -22,6 +22,8 @@ export interface AppSelectionCounts {
   applications: number;
   categories: number;
   webDomains: number;
+  // 선택 토큰 자체를 노출하지 않고 변경 여부 비교에만 쓰는 네이티브 SHA-256 서명.
+  selectionSignature?: string;
   /**
    * 네이티브가 **모달 dismiss가 끝난 뒤에** 이 promise를 풀었는가.
    *

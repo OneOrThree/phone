@@ -75,10 +75,12 @@ import {
   logFocusSessionResumed,
   logFocusSessionCompleted,
   logFocusSessionAbandoned,
+  logFocusDistractionDetected,
   logFocusMenuOpened,
   logFocusViewChanged,
   logFocusOrientationChanged,
   logFocusMarkerStartFailed,
+  subjectKeyOf,
   type FocusViewName,
 } from '@/services/analyticsEvents';
 import {
@@ -385,6 +387,7 @@ export default function FocusSessionScreen() {
       mode,
       goal_minutes: goalSecondsForLog != null ? Math.round(goalSecondsForLog / 60) : undefined,
       entry_source: entrySource,
+      subject_key: subjectKeyOf(subjectId),
       interaction_id: attributedInteractionId,
     });
   }, [
@@ -954,6 +957,19 @@ export default function FocusSessionScreen() {
       const away = Math.max(0, Math.round((Date.now() - leftAtMs) / 1000));
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
+      const distractionTimedOut =
+        leftPhaseRef.current === 'focus' && !shieldedRef.current && away > LEAVE_END_S;
+      // AppState만으로는 실드가 실제로 외부 앱을 차단했는지 알 수 없다. 실드 세션은
+      // 홈 이동·기기 잠금·허용 앱 사용도 같은 콜백으로 들어오므로 차단 성공으로 기록하지 않고,
+      // 차단 결과를 관측할 수 있는 일반 세션만 이탈 이벤트를 발행한다.
+      if (leftPhaseRef.current === 'focus' && !shieldedRef.current && !distractionTimedOut) {
+        logFocusDistractionDetected({
+          reason: 'app_backgrounded',
+          app_category: 'other',
+          blocked: false,
+          returned_to_focus: true,
+        });
+      }
       // 복귀 = 연결이 돌아왔을 가능성이 큰 시점 — 회전 중 실패한 마커 취소 재시도(코덱스 리뷰)
       flushPendingMarkerCancels(userIdRef.current).catch(() => {});
       if (__DEV__)
@@ -1052,6 +1068,12 @@ export default function FocusSessionScreen() {
           // 폴백(실드 없음) — 15초 초과 시 자동 종료(나가기 직전까지만 저장)
           // 정상 완료가 아닌 중도 이탈 종료이므로 abandoned 계측(reason: leave_timeout).
           abandonedRef.current = true;
+          logFocusDistractionDetected({
+            reason: 'leave_timeout',
+            app_category: 'other',
+            blocked: false,
+            returned_to_focus: false,
+          });
           logFocusSessionAbandoned({
             elapsed_seconds: Math.floor(sessionRef.current.elapsed),
             reason: 'leave_timeout',

@@ -7,7 +7,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { growUp, pop } from '@/constants/motion';
+import { growUp, M, pop } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { Enter } from '@/components/Enter';
 import { whenReduceMotionReady } from '@/hooks/useReduceMotion';
@@ -35,6 +35,7 @@ import { useFocus } from '@/store/FocusContext';
 import { useUser } from '@/store/UserContext';
 import { subscribeSessionSaveVerdict, getSessionSaveVerdict } from './sessionSaveVerdict';
 import {
+  logCurrencyRewardShown,
   logFocusResultCompareAxisChanged,
   logFocusResultComparePeriodChanged,
 } from '@/services/analyticsEvents';
@@ -261,6 +262,19 @@ export default function FocusResultScreen() {
   // 같은 지급 1건이 두 화면에 두 번 보였다(지급은 1회라 잔액은 정상).
   // 응답 도착 전이거나 서버 미지급이면 0 → 배지 미표기.
   const rewardCoins = verdict?.awardedCoins ?? 0;
+  useEffect(() => {
+    if (rewardCoins <= 0 || !m.ready) return;
+    const timer = setTimeout(
+      () =>
+        logCurrencyRewardShown({
+          surface: 'focus_result',
+          amount: rewardCoins,
+          reward_type: 'session_complete',
+        }),
+      m.reduce ? 0 : STREAK_POP_DELAY_MS + M.dur.slow,
+    );
+    return () => clearTimeout(timer);
+  }, [m.ready, m.reduce, rewardCoins]);
   // 방금 끝낸 세션은 업로드 직후라 서버 집계(week·heatmap)에 아직 없을 수 있다(리뷰 반영).
   // 오늘 값은 max(서버 집계, 방금 세션 분, 저장 응답의 그날 누적)로 바닥을 깔고, 주간 합계에도
   // 그 차이만큼 더해 결과 화면이 0/이전 값으로 보이지 않게 한다(이중 집계 없음 — max라 서버

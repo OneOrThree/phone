@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
@@ -26,6 +26,8 @@ import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import {
   logGroupCardIconSaveResult,
+  logGroupCreateSubmitted,
+  logGroupCreated,
   logGroupCreateStarted,
   logGroupInviteShared,
 } from '@/services/analyticsEvents';
@@ -74,7 +76,9 @@ const VISIBILITY_CAPTION = {
 
 export default function GroupCreateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  const route = useRoute<RouteProp<V2RootStackParamList, 'GroupCreate'>>();
   const { userId } = useUser();
+  const entryPoint = route.params?.entry_point ?? 'list';
 
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
@@ -118,11 +122,11 @@ export default function GroupCreateScreen() {
 
   // 진입 계측 — 폼을 실제로 연 횟수(생성 완료율의 분모).
   useEffect(() => {
-    logGroupCreateStarted();
+    logGroupCreateStarted({ entry_point: entryPoint });
     return () => {
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
     };
-  }, []);
+  }, [entryPoint]);
 
   const trimmedName = name.trim();
   const trimmedDescription = description.trim();
@@ -172,6 +176,7 @@ export default function GroupCreateScreen() {
     submittingRef.current = true;
     setSubmitting(true);
     setNameError(null);
+    logGroupCreateSubmitted({ entry_point: entryPoint, is_private: isPrivate });
     // 요청을 띄우기 직전의 인증 세대 — 응답이 오는 사이(그리고 안내를 확인하는 사이) 세션이
     // 교체되면 이 응답의 로그아웃은 새 세션에 적용되면 안 된다(sessionErrors.ts 주석).
     const requestSessionGeneration = getAuthSessionGeneration();
@@ -183,6 +188,7 @@ export default function GroupCreateScreen() {
         maxMembers,
         isPrivate,
       });
+      logGroupCreated({ entry_point: entryPoint, is_private: isPrivate });
       // 서버가 실제 groupId를 준 뒤에만 계정×그룹 로컬 설정을 만든다. 저장 실패는 이미 성공한
       // 그룹 생성을 취소하거나 create API body를 바꾸지 않는다.
       let localSaveFailed = false;

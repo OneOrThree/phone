@@ -18,6 +18,7 @@ jest.mock('react-native-safe-area-context', () => ({
 
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ goBack: jest.fn() }),
+  useRoute: () => ({ params: undefined }),
   // 포커스 effect는 마운트 effect로 대체한다(GroupSettingsScreen.test 관행).
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');

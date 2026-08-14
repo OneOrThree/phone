@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -21,6 +21,7 @@ import { useMotion } from '@/hooks/useMotion';
 import { hapticSuccess } from '@/utils/haptics';
 import { ackLastResult } from '@/services/leagueApi';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { logCurrencyRewardShown, logLeagueResultViewed } from '@/services/analyticsEvents';
 
 // 강등 시 '깨진 뱃지' 중간 연출 이미지 — 강등 전(from) 티어별(tierNdown.png)
 const DOWN_IMAGES: Record<number, ImageSourcePropType> = {
@@ -61,11 +62,26 @@ export default function LeagueResultScreen() {
   const route = useRoute<RouteProp<V2RootStackParamList, 'LeagueResult'>>();
   const { type, fromLevel, toLevel, weekHours, weekStartAt, promotionBonusCoins } = route.params;
   const cfg = TYPE_CFG[type];
+  useEffect(() => {
+    logLeagueResultViewed({
+      result: type === 'promote' ? 'promoted' : type === 'demote' ? 'demoted' : 'maintain',
+    });
+  }, [type]);
   // 승급 보상 시간조각 — 서버가 실어 보낸 값만 쓴다(GROMO-1193). 클라 공식 폴백은 BE 머지 전
   // 임시 조치였는데, BE가 값을 내리는 지금은 **서버가 진짜 0을 준 경우**(지급 실패·미지급)에도
   // 공식으로 금액을 지어내 유령 배지를 띄운다.
   const bonusCoins = promotionBonusCoins ?? 0;
   const showBonus = type === 'promote' && bonusCoins > 0;
+  const rewardShownRef = useRef(false);
+  const reportBonusShown = useCallback((): void => {
+    if (!showBonus || rewardShownRef.current) return;
+    rewardShownRef.current = true;
+    logCurrencyRewardShown({
+      surface: 'league_result',
+      amount: bonusCoins,
+      reward_type: 'league_tier_bonus',
+    });
+  }, [bonusCoins, showBonus]);
 
   // 닫힐 때(CTA·제스처 모두 unmount 경유) 확인 처리 — 실패하면 리그 탭 재포커스 때
   // useLeagueLastResult가 미확인 상태를 감지해 재노출 없이 ack만 재시도한다(멱등)
@@ -188,17 +204,18 @@ export default function LeagueResultScreen() {
           // 남은 단계(티어명 팝 → 타이틀 팝 → 하단 안내)를 **최종 상태로 즉시 대입**한다.
           // 시퀀스는 여기서 끝나므로 뒤에 남는 단계가 없다 — 화면이 중간에 멈추지 않는다.
           [nameAnim, titleAnim, line3].forEach((v) => v.setValue(1));
+          reportBonusShown();
           return;
         }
-        // 티어명 팝인
-        Animated.spring(nameAnim, {
-          toValue: 1,
-          friction: 5,
-          tension: 120,
-          useNativeDriver: true,
-        }).start();
-        // 티어명 팝 0.2초 뒤 타이틀 팝 → 하단 안내
+        // 티어명 팝 0.2초 뒤 타이틀 팝 → 하단 안내. 하나의 sequence로 묶어 단계 순서를
+        // 명시하고, 마지막 단계가 실제로 완료된 뒤 보상 노출을 기록한다.
         Animated.sequence([
+          Animated.spring(nameAnim, {
+            toValue: 1,
+            friction: 5,
+            tension: 120,
+            useNativeDriver: true,
+          }),
           Animated.delay(200),
           Animated.timing(titleAnim, {
             toValue: 1,
@@ -206,8 +223,16 @@ export default function LeagueResultScreen() {
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
           }),
-          Animated.spring(line3, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
-        ]).start();
+          Animated.spring(line3, {
+            toValue: 1,
+            friction: 5,
+            tension: 150,
+            useNativeDriver: true,
+          }),
+        ]).start(({ finished: sequenceFinished }) => {
+          if (!sequenceFinished || cancelled) return;
+          reportBonusShown();
+        });
       });
     });
     return () => {
@@ -218,7 +243,7 @@ export default function LeagueResultScreen() {
     //    확정되는 경우 포함) 이 effect가 다시 돌아 **이미 끝난 화면의 시퀀스를 처음부터 재생**하고,
     //    승급이면 hapticSuccess·컨페티까지 다시 발생한다 — 보상 피드백이 중복된다(codex 리뷰).
     //    대기 값은 delayRef로 타이머를 걸 때의 최신 값을 읽고, 축하는 celebratedRef로 1회만 낸다.
-  }, [ready, type, hasTransition, demote, badgeAnim, titleAnim, nameAnim, line3]);
+  }, [ready, type, hasTransition, demote, badgeAnim, titleAnim, nameAnim, line3, reportBonusShown]);
 
   // '동작 줄이기'가 **재생 도중** 켜진 경우 — 위 시퀀스 effect는 다시 돌지 않고(의존성에서 뺐다),
   // delayRef는 **앞으로 새로 만들 단계**의 대기만 줄인다. 이미 시작된 delay·timing·spring은
