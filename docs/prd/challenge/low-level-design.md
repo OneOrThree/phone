@@ -706,6 +706,7 @@ SCREEN_TIME은 작을수록 이기는 지표라 그대로 부당 승리·지급�
     "missionCategory": "FOCUS", "missionType": "TIME_WINDOW",   // 미션 스냅샷 (회차 박제값)
     "windowStart": "06:00", "windowEnd": "08:00",               // 창형만 — DURATION 은 둘 다 null
     "myAchieved": true, "myPayout": 45,
+    "acknowledged": false,               // 1회 가드의 정본 (N58) — ack 하면 true. 아래 ack 엔드포인트 · GROMO-1577
     "results": [{ "userId": "uuid", "nickname": "민지", "achieved": true, "payout": 45, "progressMinutes": 102 }]
 }] }
 ```
@@ -732,6 +733,25 @@ SCREEN_TIME은 작을수록 이기는 지표라 그대로 부당 승리·지급�
   참가자 스코프 엔드포인트 하나로 셋을 같이 닫는다. 신규 엔드포인트라 구앱에도 additive다.
 - 카드 응답의 `mySettledSessions`는 **폐기**하고 `lastSettledSession`(카드의 "지난 결과" 한 줄
   표시용)만 남긴다.
+
+#### `POST /me/challenge-results/{sessionId}/ack` — 결과 확인 처리 · **1회 가드의 정본** (N58)
+
+| 축 | 규칙 |
+|---|---|
+| 호출 시점 | **모달이 뜬 순간**(닫을 때가 아니다) — 떠 있는 사이의 재조회가 같은 회차를 큐에 다시 넣는 것을 막는다 |
+| 대상 | **GET으로 받은 그 `sessionId`** — ack 시점에 최신 회차를 다시 찾지 않는다(리그가 `weekStartAt`을 실어 보내는 것과 같은 이유: 그 사이 정산된 못 본 결과를 삼키지 않는다) |
+| 멱등 | `acknowledged_at IS NULL` 조건부 원자적 UPDATE. 중복·동시 호출도 최초 1회만 세팅되고, 대상 없음·이미 확인은 **0행 no-op** |
+| 권한 | 참가자 스코프 — 그룹 멤버십을 보지 않는다(탈퇴자도 자기 결과를 ack 할 수 있어야 한다) |
+
+- 선례는 리그다 — 위 「1회 가드」 문단의 `LeagueWeeklyResult`·`LeagueWeeklyResultRepository.acknowledge`·
+  `LeagueController` 3점 세트를 그대로 옮긴다.
+- **응답의 `acknowledged`는 서버 필터링을 대신하지 않는다(선례 기준)**: 리그는 GET이 행을 그대로
+  주고 **클라가 `hasResult && !acknowledged`로 노출을 판단**한다(`LeagueController:107-108`).
+  같은 모양이면 구앱에 additive다 — 구앱은 이 필드를 무시하고 로컬 마커로 계속 동작한다.
+  큐에서 아예 빼는 서버 필터링으로 갈지는 **GROMO-1577이 정한다.**
+- ⚠️ **여기까지가 계약이고 상세는 GROMO-1577 몫이다** — ack 요청 실패 시 재시도 흐름, 오프라인
+  큐잉, 로컬 마커와의 우선순위는 이 문서에서 정하지 않는다. **현재 구현은 아직 로컬 마커 단독**이다
+  (`challengeResult.ts` — §6 앱 파일 표).
 
 #### `GET /me/bet-sessions?status=OPEN` — 내 OPEN 회차 (그룹 무관)
 
@@ -1672,8 +1692,30 @@ classDiagram
 | `challengeResult.ts` | 결과 모달 후보 선정 | **전면 단순화** — `GET /me/challenge-results`(N53) 응답을 로컬 seen set(`{userId}:{sessionId}`)으로 필터. 날짜 역산이 사라지고, 자정 걸침 창 자체가 없어져 그 분기도 **만들지 않는다**. ⚠️ 이 로컬 마커는 **현재 구현**이고, 1회 가드의 정본은 서버 ack다(N58 · §2.1 「1회 가드」 문단) — ack 배선은 GROMO-1577 |
 | `progressFormat.ts` | 3상 표기 · 관용치 문구 | 유지 |
 | `pendingFocusUploads.ts` | 업로드 재시도 큐 | **사일런트 푸시 수신 시 flush 추가** |
-| `push.ts` | 푸시 수신·딥링크 라우팅 | **신규 타입 배선 필요** — 현재 `groupId`로 딥링크를 합성하는 분기가 `CHALLENGE_WINDOW_END` 하나뿐이라, `CHALLENGE_*`·`BET_WON`·`BET_RESULT`·**`BET_VOID_REFUND`** 를 탭해도 그룹방으로 못 간다. 서버가 `link`를 안 싣는 계약이므로(IA §푸시) **앱에서 `data.groupId` → 그룹방 라우팅**을 추가한다 |
+| `push.ts` | 푸시 수신·딥링크 라우팅 | **`link`가 없는 타입만 합성한다** — 서버는 타입마다 `link` 유무가 갈린다(아래 표). 합성이 필요한 것은 `CHALLENGE_SESSION_OPEN`·`BET_WON`·`BET_VOID_REFUND` **셋뿐**이고, 나머지는 서버가 준 경로를 **재합성하지 않고** 표식(`result=1`/`refund=1`)만 덧붙인다(`withPushFlags`). 서버에 없는 `CHALLENGE_SESSION_END` 분기는 제거한다 |
 | `screentimeSync.ts` | 일·창 사용분 보고 | 비활성 요일 스킵 · **보고 대상 탐색축 교체** — `getMyGroups()`→그룹별 ACTIVE 챌린지 순회에서 **내 OPEN 회차 목록** 기준으로 (탈퇴·챌린지 종료 후에도 진행 중 회차엔 보고해야 한다 — N43) |
+
+**푸시 `link` 계약 — 타입마다 갈린다 (앱이 합성할 대상을 여기서 정한다)**
+
+서버 `PushMessage` 생성 지점 전수 대조 결과다. `PushMessage.toDataPayload()`는 **`link`가 null이면
+키 자체를 뺀다** — 앱은 `data.link` 유무로 갈라야 하고, 타입 이름으로 추측하면 안 된다.
+
+| 타입 | `link` | 근거 |
+|---|---|---|
+| `CHALLENGE_CREATED` | 채움 `?g=` | `ChallengeCreatedNotificationService:195-199` |
+| `CHALLENGE_SESSION_OPEN` (단건·묶음) | **null** | `SessionOpenNotificationService:390,394` |
+| `CHALLENGE_WINDOW_END` · `CHALLENGE_ENDED` | 채움 `?g=…&challenge=` | `ChallengeEndPushDispatcher.compose:200-206` + `resultDeepLink:61-63` |
+| `BET_WON` | **null** | `BetWonNotificationService:108` |
+| `BET_RESULT` (단건·묶음) | 채움 `?g=` | `BetEventNotificationService:434,438,482` |
+| `BET_VOID_REFUND` (단건·묶음) | **null** | `BetEventNotificationService:428,471` |
+| 사일런트 | **null** (`data.type` 자체가 없다) | 아래 수신 배선 |
+
+⚠️ **전 타입을 `groupId`로 합성하면 종료 2종이 깨진다.** `CHALLENGE_WINDOW_END`·`CHALLENGE_ENDED`의
+`link`에는 **`&challenge=`** 가 실려 있고 그게 결과 모달을 여는 목적지인데, 앱이 `?g=`만으로
+경로를 다시 만들면 그 상세 목적지를 덮어써 **결과 모달 자동 오픈이 죽는다**. 그래서 규칙은
+"`link`가 없을 때만 합성, 있으면 표식만 덧붙인다"이다.
+📌 2026-08-14 정정. 종전 서술("서버가 `link`를 안 싣는 계약이므로 전 타입을 앱에서 합성한다")은
+**사실과 반대**였다. 같은 문단이 근거로 든 `CHALLENGE_SESSION_END`는 **서버에 존재하지 않는 타입**이다.
 
 **사일런트 푸시 수신 배선**
 
