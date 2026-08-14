@@ -78,6 +78,26 @@ async function renderMenu() {
   });
 }
 
+// 렌더 트리의 텍스트를 DFS(= 화면에 나타나는) 순서로 모은다.
+// `JSON.stringify(...).indexOf(...)` 로 순서를 보면 안 된다 — indexOf 는 **첫 등장만** 보므로
+// 같은 문구가 접근성 라벨 등으로 한 번 더 나타나는 순간 엉뚱한 위치를 조용히 비교한다.
+// 실패하지 않고 틀린 걸 통과시키는 종류의 취약함이라 트리를 직접 훑는다.
+type RenderedNode = { children?: unknown } | string | number | null;
+
+function textsInRenderOrder(node: RenderedNode): string[] {
+  if (node === null || node === undefined) return [];
+  if (typeof node === 'string') return [node];
+  if (typeof node === 'number') return [String(node)];
+  const children = (node as { children?: unknown }).children;
+  if (!Array.isArray(children)) return [];
+  return children.flatMap((child) => textsInRenderOrder(child as RenderedNode));
+}
+
+/** 화면에 나타나는 순서에서의 위치. 없으면 -1. */
+function positionOf(texts: string[], needle: string): number {
+  return texts.findIndex((t) => t.includes(needle));
+}
+
 beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
@@ -108,11 +128,11 @@ describe('1:1 문의 진입점', () => {
   test('개발 전용 섹션보다 앞에 있다 (릴리즈 빌드에서 사라지지 않는다)', async () => {
     await renderMenu();
 
-    const tree = JSON.stringify(screen.toJSON());
-    const inquiryAt = tree.indexOf('1:1 문의');
-    const accountAt = tree.indexOf('계정 설정');
-    const privacyAt = tree.indexOf('개인정보 처리방침');
-    const devSectionAt = tree.indexOf('개발 (dev)');
+    const texts = textsInRenderOrder(screen.toJSON() as RenderedNode);
+    const inquiryAt = positionOf(texts, '1:1 문의');
+    const accountAt = positionOf(texts, '계정 설정');
+    const privacyAt = positionOf(texts, '개인정보 처리방침');
+    const devSectionAt = positionOf(texts, '개발 (dev)');
 
     expect(devSectionAt).toBeGreaterThan(-1); // dev 섹션이 실제로 렌더된 런에서만 의미가 있다
     expect(inquiryAt).toBeGreaterThan(-1);
