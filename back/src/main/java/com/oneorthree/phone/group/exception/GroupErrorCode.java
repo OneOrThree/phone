@@ -100,6 +100,11 @@ public enum GroupErrorCode {
     // ack 토큰이 현재 선점과 다르다 — 내 선점이 만료돼 다른 기기가 재선점했다. 확인 처리하지 않는다
     // (띄우지도 못한 결과를 삼키면 어느 기기에서도 다시 못 본다).
     RESULT_CLAIM_STALE(HttpStatus.CONFLICT, "표시 선점이 만료됐어요"),
+    // 아직 정산되지 않은 회차(OPEN)에 선점·확인을 시도했다. 앱은 /me/bet-sessions 로 OPEN 회차 id 도
+    // 들고 있어 오호출이 가능한데, 여기서 확인 표시가 찍히면 그 회차가 나중에 정산됐을 때 처음부터
+    // 확인된 것으로 조회돼 어느 기기에서도 안 뜬다. RESULT_CLAIM_HELD 로 접지 않는 이유는 그 코드가
+    // retryAfterMs 로 "곧 다시 시도하라"는 뜻이라 즉시 재시도를 부르기 때문이다.
+    RESULT_NOT_SETTLED(HttpStatus.CONFLICT, "아직 결과가 나오지 않았어요"),
 
     // 동시성 — 낙관락(@Version: Group 정원·UserWallet 잔액) 충돌의 전역 폴백(GlobalExceptionHandler).
     // 트랜잭션 전체가 롤백된 일시 충돌이라 클라이언트가 재시도하면 풀린다. 구앱은 이 코드를 모르므로

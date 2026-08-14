@@ -1,11 +1,12 @@
 package com.oneorthree.phone.group.service;
 
-import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.dto.ChallengeResultClaimResponse;
 import com.oneorthree.phone.group.exception.ChallengeResultClaimHeldException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository.ClaimStateView;
 import com.oneorthree.phone.notification.service.BetEventNotificationService;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -90,11 +91,12 @@ public class ChallengeResultAckService {
                 : renewClaim(userId, sessionId, currentToken, now);
     }
 
-    /** 최초 획득 — 비어 있거나 리스가 만료된 선점을 가져온다. */
+    /** 최초 획득 — 비어 있거나 리스가 만료된 선점을, <b>이미 결과가 된 회차에 한해</b> 가져온다. */
     private ChallengeResultClaimResponse acquireClaim(UUID userId, UUID sessionId, Instant now) {
         UUID token = Generators.timeBasedEpochRandomGenerator().generate();
         int claimed = groupChallengeBetParticipantRepository.claimDisplay(
-                sessionId, userId, token, now.minus(DISPLAY_CLAIM_LEASE), now);
+                sessionId, userId, token, now.minus(DISPLAY_CLAIM_LEASE),
+                GroupBetStatus.RESULT_STATUSES, now);
         if (claimed == 1) {
             return new ChallengeResultClaimResponse(token);
         }
@@ -115,8 +117,8 @@ public class ChallengeResultAckService {
      */
     private ChallengeResultClaimResponse renewClaim(
             UUID userId, UUID sessionId, UUID currentToken, Instant now) {
-        int renewed = groupChallengeBetParticipantRepository
-                .renewDisplayClaim(sessionId, userId, currentToken, now);
+        int renewed = groupChallengeBetParticipantRepository.renewDisplayClaim(
+                sessionId, userId, currentToken, GroupBetStatus.RESULT_STATUSES, now);
         if (renewed == 1) {
             return new ChallengeResultClaimResponse(currentToken);
         }
@@ -127,15 +129,27 @@ public class ChallengeResultAckService {
      * 0 행의 이유를 갈라 던진다 — 판정용 읽기일 뿐, 선점 자체는 조건부 UPDATE 하나로 이미 끝났다.
      * 재검증 경로의 <b>토큰 불일치</b>도 여기로 온다: 내 선점이 남에게 넘어갔다는 뜻이라
      * {@code RESULT_CLAIM_HELD} 다(현 소유자의 남은 리스가 상대 지연이 된다).
+     *
+     * <p>순서가 의미를 정한다 — <b>아직 결과가 아님</b>을 리스 판정보다 먼저 본다. 정산 전 회차를
+     * {@code RESULT_CLAIM_HELD} 로 접으면 {@code retryAfterMs} 가 "곧 다시 시도하라"는 신호가 돼
+     * 앱이 헛된 재시도를 한다(선점자가 없으니 지연은 0으로 계산된다).
      */
     private ChallengeResultClaimResponse failClaim(UUID userId, UUID sessionId, Instant now) {
-        GroupChallengeBetParticipant participant = groupChallengeBetParticipantRepository
-                .findBySessionIdAndUserId(sessionId, userId)
+        ClaimStateView state = groupChallengeBetParticipantRepository
+                .findClaimStateBySessionIdAndUserId(sessionId, userId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
-        if (participant.getAcknowledgedAt() != null) {
+        if (state.getAcknowledgedAt() != null) {
             throw new GroupException(GroupErrorCode.RESULT_ALREADY_ACKED);
         }
-        throw new ChallengeResultClaimHeldException(retryAfterMs(participant.getDisplayClaimedAt(), now));
+        if (!isResult(state)) {
+            throw new GroupException(GroupErrorCode.RESULT_NOT_SETTLED);
+        }
+        throw new ChallengeResultClaimHeldException(retryAfterMs(state.getDisplayClaimedAt(), now));
+    }
+
+    /** 결과로 치는 회차인가 — OPEN(정산 전)·UNUSED(0명 종료)는 선점·확인 대상이 아니다. */
+    private boolean isResult(ClaimStateView state) {
+        return GroupBetStatus.RESULT_STATUSES.contains(state.getSessionStatus());
     }
 
     /**
@@ -153,18 +167,21 @@ public class ChallengeResultAckService {
     @Transactional
     void acknowledge(UUID userId, UUID sessionId, UUID claimToken, Instant now) {
         int acknowledged = claimToken == null ? 0 : groupChallengeBetParticipantRepository
-                .acknowledge(sessionId, userId, claimToken, now);
+                .acknowledge(sessionId, userId, claimToken, GroupBetStatus.RESULT_STATUSES, now);
         if (acknowledged == 0) {
-            // 대상이 없거나 이미 확인된 경우는 멱등 no-op(중복·동시 호출 포함). 남은 한 가지 —
-            // 행이 살아 있는데 토큰이 다르다 — 만 거절한다: 내 선점이 만료돼 다른 기기가 재선점한
-            // 상황이라, 여기서 확인 처리하면 그 기기가 띄우려던 결과를 삼킨다.
-            GroupChallengeBetParticipant participant = groupChallengeBetParticipantRepository
-                    .findBySessionIdAndUserId(sessionId, userId)
+            // 대상이 없거나 이미 확인된 경우는 멱등 no-op(중복·동시 호출 포함). 나머지 둘만 거절한다:
+            // ① 아직 결과가 아닌 회차 — 여기서 확인 표시가 찍히면 나중에 정산됐을 때 그 결과를 어느
+            //    기기에서도 못 본다(V49 백필을 결과 4종으로 좁힌 것과 같은 사고).
+            // ② 행이 살아 있는데 토큰이 다르다 — 내 선점이 만료돼 다른 기기가 재선점한 상황이라,
+            //    여기서 확인 처리하면 그 기기가 띄우려던 결과를 삼킨다.
+            ClaimStateView state = groupChallengeBetParticipantRepository
+                    .findClaimStateBySessionIdAndUserId(sessionId, userId)
                     .orElse(null);
-            if (participant != null && participant.getAcknowledgedAt() == null) {
-                throw new GroupException(GroupErrorCode.RESULT_CLAIM_STALE);
+            if (state == null || state.getAcknowledgedAt() != null) {
+                return;
             }
-            return;
+            throw new GroupException(isResult(state)
+                    ? GroupErrorCode.RESULT_CLAIM_STALE : GroupErrorCode.RESULT_NOT_SETTLED);
         }
         // 확인한 결과의 미발송 푸시 클레임을 함께 닫는다(B17) — 안 닫으면 이미 본 결과의 푸시가
         // 묶음 슬롯이 닫힌 뒤나 조용한 시간 이월 뒤에 도착한다.

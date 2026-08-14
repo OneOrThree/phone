@@ -58,6 +58,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *   <li>ack 가 <b>대기 중인 PENDING·DEFERRED 알림 클레임을 닫는다</b>(B17 원자성 ②)</li>
  *   <li><b>렌더 직전 재검증</b> — 정지됐다 깨어난 낡은 claimant 는 409 로 막히고, 현 소유자의
  *       재검증은 <b>같은 쓰기로 리스를 연장</b>한다(IA §4.3 TOCTOU)</li>
+ *   <li><b>미확인 필터가 페이지 상한보다 먼저</b> 걸린다 — 확인된 10건이 상한을 채워도 11번째
+ *       미확인 결과가 조회된다</li>
+ *   <li><b>정산 전(OPEN) 회차는 선점·확인이 거부</b>된다 — 찍히면 나중에 정산된 그 결과를 어느
+ *       기기에서도 못 본다</li>
  * </ol>
  */
 class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
@@ -353,8 +357,8 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     // ── 조회 병기 ───────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("조회는 acknowledged·settledAt 을 병기하고, 확인된 항목도 응답에서 빼지 않는다(N58)")
-    void resultsCarryAcknowledgedAndSettledAt() {
+    @DisplayName("조회는 미확인만 싣고 settledAt 을 병기한다 — 확인된 회차는 빠진다(N58)")
+    void resultsCarryOnlyUnacknowledgedWithSettledAt() {
         GroupChallengeBetSession acked = settledSession(TODAY.minusDays(1));
         GroupChallengeBetSession unseen = settledSession(TODAY.minusDays(2));
         joinSettled(acked, me);
@@ -365,11 +369,55 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
                 groupBetQueryService.getMyChallengeResults(me.getId(), null, null).results();
 
         assertThat(results).extracting(MyChallengeResultResponse::getSessionId)
-                .as("확인된 항목도 실린다 — 앱이 로컬 마커와 대조하고 미확인 개수를 세려면 전체가 필요하다")
-                .containsExactly(acked.getId(), unseen.getId());
-        assertThat(results.get(0).isAcknowledged()).isTrue();
-        assertThat(results.get(1).isAcknowledged()).isFalse();
+                .containsExactly(unseen.getId());
+        assertThat(results.get(0).isAcknowledged()).as("미확인만 실리므로 계약 필드는 항상 false").isFalse();
         assertThat(results.get(0).getSettledAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("확인된 결과가 상한(10건)을 채워도 11번째 미확인 결과가 조회된다 — 상한이 ack 보다 먼저 걸리는 데드락")
+    void unacknowledgedResultSurvivesPageLimitFilledByAckedOnes() {
+        // 가장 오래된 1건이 미확인 — 확인된 10건이 앞자리(최신순)를 전부 차지한다.
+        GroupChallengeBetSession oldestUnseen = settledSession(TODAY.minusDays(11));
+        joinSettled(oldestUnseen, me);
+        for (int day = 1; day <= 10; day++) {
+            GroupChallengeBetSession acked = settledSession(TODAY.minusDays(day));
+            joinSettled(acked, me);
+            ackFully(acked);
+        }
+
+        List<MyChallengeResultResponse> results =
+                groupBetQueryService.getMyChallengeResults(me.getId(), null, null).results();
+
+        assertThat(results).extracting(MyChallengeResultResponse::getSessionId)
+                .as("미확인 필터가 limit 뒤에 오면 이 결과는 영영 조회되지 않는다")
+                .containsExactly(oldestUnseen.getId());
+    }
+
+    // ── 정산 전 회차 차단 ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("정산 전(OPEN) 회차는 선점·확인이 모두 거부되고 행이 그대로다 — 나중에 정산된 결과를 잃지 않는다")
+    void openSessionCannotBeClaimedOrAcknowledged() {
+        GroupChallengeBetSession open = openSession(TODAY);
+        join(open, me);   // 참가 행은 있다 — 앱이 /me/bet-sessions 로 이 회차 id 를 들고 있다
+
+        assertThatThrownBy(() -> claimAt(open, NOW))
+                .isInstanceOf(GroupException.class)
+                .extracting(e -> ((GroupException) e).getErrorCode())
+                .isEqualTo(GroupErrorCode.RESULT_NOT_SETTLED);
+        assertThatThrownBy(() -> challengeResultAckService
+                .acknowledge(me.getId(), open.getId(), UUID.randomUUID(), NOW))
+                .isInstanceOf(GroupException.class)
+                .extracting(e -> ((GroupException) e).getErrorCode())
+                .isEqualTo(GroupErrorCode.RESULT_NOT_SETTLED);
+
+        GroupChallengeBetParticipant participant = groupChallengeBetParticipantRepository
+                .findBySessionIdAndUserId(open.getId(), me.getId()).orElseThrow();
+        assertThat(participant.getAcknowledgedAt())
+                .as("정산 전에 확인 표시가 찍히면 그 회차가 정산됐을 때 어느 기기에서도 안 뜬다").isNull();
+        assertThat(participant.getDisplayClaimedAt()).isNull();
+        assertThat(participant.getDisplayClaimToken()).isNull();
     }
 
     // ── 픽스처 ──────────────────────────────────────────────────────────
@@ -381,6 +429,15 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     }
 
     private GroupChallengeBetSession settledSession(LocalDate date) {
+        return sessionOn(date, GroupBetStatus.SETTLED);
+    }
+
+    /** 정산 전 회차 — 앱은 {@code /me/bet-sessions} 로 이 회차 id 도 들고 있다. */
+    private GroupChallengeBetSession openSession(LocalDate date) {
+        return sessionOn(date, GroupBetStatus.OPEN);
+    }
+
+    private GroupChallengeBetSession sessionOn(LocalDate date, GroupBetStatus status) {
         Instant startsAt = date.atStartOfDay(KST).toInstant();
         Instant closesAt = date.plusDays(1).atStartOfDay(KST).toInstant();
         GroupChallengeBetSession saved = groupChallengeBetSessionRepository.save(
@@ -389,10 +446,10 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
                         .sessionDate(date).stake(STAKE).goalMinutes(90)
                         .missionCategory(challenge.getCategory())
                         .missionType(challenge.getType())
-                        .status(GroupBetStatus.SETTLED)
+                        .status(status)
                         .startsAt(startsAt)
                         .joinClosesAt(closesAt).closesAt(closesAt).settleAfter(closesAt)
-                        .settledAt(Instant.now())
+                        .settledAt(status == GroupBetStatus.OPEN ? null : Instant.now())
                         .build());
         sessions.add(saved);
         return saved;
@@ -403,6 +460,12 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
                 GroupChallengeBetParticipant.builder().session(session).user(user).build());
         participant.recordSettlement(true, STAKE, 120);
         groupChallengeBetParticipantRepository.save(participant);
+    }
+
+    /** 참가만 — 정산 판정 없음(OPEN 회차의 정상 상태). */
+    private void join(GroupChallengeBetSession session, User user) {
+        groupChallengeBetParticipantRepository.save(
+                GroupChallengeBetParticipant.builder().session(session).user(user).build());
     }
 
     /** 선점 → ack 한 벌 — 앱의 순서(D8: slot → 선점 → 검증 → 노출 → ack)를 그대로 따른다. */

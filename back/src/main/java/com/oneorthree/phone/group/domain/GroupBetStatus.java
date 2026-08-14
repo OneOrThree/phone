@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.domain;
 
+import java.util.List;
+
 /**
  * 그룹 챌린지 내기 <b>회차</b> 상태 (GROMO-1262 2계층 재편 이후).
  *
@@ -36,5 +38,20 @@ public enum GroupBetStatus {
      * 참가자 0명 전용 종료(N52) — 아무도 돈을 걸지 않은 회차. 결과 큐·내역·알림 어디에도
      * 싣지 않는다("결과"가 아니다). {@code VOIDED} 로 접으면 0명 무산이 진짜 결과를 밀어낸다.
      */
-    UNUSED
+    UNUSED;
+
+    /**
+     * <b>"결과"로 치는 종료 상태 4종</b> — 결과 조회({@code /me/challenge-results})·결과 모달 큐·
+     * 표시 선점·확인 표시(ack)가 공유하는 단일 정의다(N52·N53 · GROMO-1577).
+     *
+     * <p>여기 없는 둘이 핵심이다: {@code OPEN} 은 <b>아직 결과가 아니고</b>, {@code UNUSED} 는
+     * <b>결과가 아니다</b>(0명 종료). 특히 {@code OPEN} 을 빠뜨리면 정산 전 회차에 확인 표시가 찍혀
+     * 그 회차가 나중에 정산됐을 때 <b>어느 기기에서도 안 뜬다</b> — 아무도 못 본 결과의 유실이다
+     * (V49 백필이 같은 이유로 결과 4종만 칠한다).
+     *
+     * <p>목록을 각 계층이 따로 들면 한쪽만 고쳐졌을 때 조회에는 실리는데 ack 은 거부되는 식으로
+     * 갈린다 — 그래서 상태의 주인인 이 enum 이 정의를 소유한다.
+     */
+    public static final List<GroupBetStatus> RESULT_STATUSES =
+            List.of(SETTLED, REFUNDED, FORFEITED, VOIDED);
 }

@@ -104,6 +104,29 @@ public interface GroupChallengeBetParticipantRepository
     List<GroupChallengeBetParticipant> findOpenSessionParticipationsByUserId(@Param("userId") UUID userId);
 
     /**
+     * 선점·확인 실패 사유 판정용 <b>스냅샷</b>(GROMO-1577) — 조건부 UPDATE 가 0행을 돌려줬을 때
+     * 그 이유를 가르는 읽기다. 엔티티 대신 스칼라 셋만 뽑는 이유: 회차 상태를 보려고 엔티티를
+     * 읽으면 {@code session} 이 지연 프록시라 트랜잭션 밖 호출에서 터진다(시각 주입 오버로드가
+     * 그 경로다). 조인 하나로 한 번에 읽는다.
+     */
+    @Query("SELECT p.acknowledgedAt AS acknowledgedAt, p.displayClaimedAt AS displayClaimedAt, "
+            + "s.status AS sessionStatus "
+            + "FROM GroupChallengeBetParticipant p JOIN p.session s "
+            + "WHERE p.session.id = :sessionId AND p.user.id = :userId")
+    Optional<ClaimStateView> findClaimStateBySessionIdAndUserId(
+            @Param("sessionId") UUID sessionId,
+            @Param("userId") UUID userId);
+
+    /** {@link #findClaimStateBySessionIdAndUserId} 프로젝션 — 확인 시각 · 선점 시각 · 회차 상태. */
+    interface ClaimStateView {
+        Instant getAcknowledgedAt();
+
+        Instant getDisplayClaimedAt();
+
+        GroupBetStatus getSessionStatus();
+    }
+
+    /**
      * 결과 표시 <b>선점</b>(lease) 획득·회수 — 조건부 원자 UPDATE 하나로 "비어 있음"과 "만료된 남의
      * 선점 회수"를 함께 집는다(GROMO-1577 · B17). 알림 클레임의
      * {@code NotificationSentLogRepository.reclaimExpired} 와 같은 모양이다.
@@ -114,10 +137,16 @@ public interface GroupChallengeBetParticipantRepository
      * 보지 않으면 B 가 <b>유효한 새 선점</b>을 받아 같은 결과를 다시 렌더한다 — IA §4.3 이 수용한
      * 것은 ack 가 <b>실패</b>했을 때의 좁은 창이지 성공한 뒤의 중복이 아니다.
      *
+     * <p><b>회차가 이미 결과인 것도 같은 조건에 넣는다</b>({@code statuses} = 결과 4종). 앱은
+     * {@code /me/bet-sessions} 로 <b>OPEN 회차 id</b> 도 들고 있어서, 이 조건이 없으면 정산 전 회차에
+     * 선점·확인이 찍히고 그 회차가 나중에 정산됐을 때 처음부터 확인된 것으로 조회돼 <b>어느
+     * 기기에서도 안 뜬다</b> — V49 백필을 결과 4종으로 좁힌 것과 같은 사고를 런타임에서 막는다.
+     *
      * @param leaseCutoff 리스 만료 컷오프({@code now − 리스 수명}) — 이보다 오래된 선점은 죽은
      *                    것으로 보고 회수한다. <b>서버 시각으로만</b> 계산한다
-     * @return 1 = 이 호출이 표시를 선점했다, 0 = 이미 확인됨 · 남의 리스가 살아 있음 · 대상 행 없음
-     *     (셋의 구분은 호출측이 행을 다시 읽어 판정한다)
+     * @param statuses    결과로 치는 회차 상태({@link com.oneorthree.phone.group.domain.GroupBetStatus#RESULT_STATUSES})
+     * @return 1 = 이 호출이 표시를 선점했다, 0 = 이미 확인됨 · 남의 리스가 살아 있음 · 아직 결과가
+     *     아님 · 대상 행 없음 (구분은 호출측이 행을 다시 읽어 판정한다)
      */
     // 리포지토리 자체에 트랜잭션을 건다(NotificationSentLogRepository 클레임 메서드와 같은 관례) —
     // 호출측이 트랜잭션을 열지 않아도 이 조건부 UPDATE 자체는 원자다.
@@ -127,12 +156,15 @@ public interface GroupChallengeBetParticipantRepository
             + "SET p.displayClaimedAt = :now, p.displayClaimToken = :token "
             + "WHERE p.session.id = :sessionId AND p.user.id = :userId "
             + "AND p.acknowledgedAt IS NULL "
-            + "AND (p.displayClaimedAt IS NULL OR p.displayClaimedAt < :leaseCutoff)")
+            + "AND (p.displayClaimedAt IS NULL OR p.displayClaimedAt < :leaseCutoff) "
+            + "AND EXISTS (SELECT 1 FROM GroupChallengeBetSession s "
+            + "WHERE s.id = p.session.id AND s.status IN :statuses)")
     int claimDisplay(
             @Param("sessionId") UUID sessionId,
             @Param("userId") UUID userId,
             @Param("token") UUID token,
             @Param("leaseCutoff") Instant leaseCutoff,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
             @Param("now") Instant now);
 
     /**
@@ -152,7 +184,8 @@ public interface GroupChallengeBetParticipantRepository
      * 토큰이 영구히 낡은 값이 되어 ack 까지 막힌다(그 회차는 리스가 만료될 때까지 어느 경로로도
      * 회복하지 못한다). 같은 값을 유지하면 갱신 재시도가 그대로 멱등이다.
      *
-     * @return 1 = 내 선점이 유효하고 리스를 연장했다, 0 = 이미 확인됨 · 남이 재선점함 · 대상 행 없음
+     * @return 1 = 내 선점이 유효하고 리스를 연장했다, 0 = 이미 확인됨 · 남이 재선점함 · 아직 결과가
+     *     아님 · 대상 행 없음
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
@@ -160,11 +193,14 @@ public interface GroupChallengeBetParticipantRepository
             + "SET p.displayClaimedAt = :now "
             + "WHERE p.session.id = :sessionId AND p.user.id = :userId "
             + "AND p.acknowledgedAt IS NULL "
-            + "AND p.displayClaimToken = :token")
+            + "AND p.displayClaimToken = :token "
+            + "AND EXISTS (SELECT 1 FROM GroupChallengeBetSession s "
+            + "WHERE s.id = p.session.id AND s.status IN :statuses)")
     int renewDisplayClaim(
             @Param("sessionId") UUID sessionId,
             @Param("userId") UUID userId,
             @Param("token") UUID token,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
             @Param("now") Instant now);
 
     /**
@@ -176,7 +212,10 @@ public interface GroupChallengeBetParticipantRepository
      * 성사시키는 이유는, 내 선점이 만료돼 다른 기기가 재선점한 뒤 깨어난 기기가 자기가 띄우지도
      * 못한 결과를 확인 처리해 버리는 것을 막기 위해서다(IA §4.3 TOCTOU).
      *
-     * @return 1 = 이 호출이 확인 처리했다, 0 = 대상 행 없음 · 이미 확인됨 · 토큰 불일치
+     * <p>선점과 마찬가지로 <b>회차가 이미 결과일 때만</b> 성사된다 — 정산 전 회차에 확인 표시가
+     * 찍히면 그 회차의 결과를 어느 기기에서도 못 본다.
+     *
+     * @return 1 = 이 호출이 확인 처리했다, 0 = 대상 행 없음 · 이미 확인됨 · 토큰 불일치 · 아직 결과가 아님
      */
     // flushAutomatically 도 함께 켠다(GROMO-801 예방) — 리그 acknowledge 와 같은 이유.
     @Modifying(clearAutomatically = true, flushAutomatically = true)
@@ -185,23 +224,33 @@ public interface GroupChallengeBetParticipantRepository
             + "SET p.acknowledgedAt = :now, p.displayClaimedAt = null, p.displayClaimToken = null "
             + "WHERE p.session.id = :sessionId AND p.user.id = :userId "
             + "AND p.acknowledgedAt IS NULL "
-            + "AND p.displayClaimToken = :token")
+            + "AND p.displayClaimToken = :token "
+            + "AND EXISTS (SELECT 1 FROM GroupChallengeBetSession s "
+            + "WHERE s.id = p.session.id AND s.status IN :statuses)")
     int acknowledge(
             @Param("sessionId") UUID sessionId,
             @Param("userId") UUID userId,
             @Param("token") UUID token,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
             @Param("now") Instant now);
 
     /**
-     * 내 정산 완료 회차(GROMO-1415, N53 결과 모달 큐의 단일 소스) — 참가자 스코프. 멤버십·챌린지
-     * ACTIVE 를 보지 않아 탈퇴자·종료 챌린지 회차도 실린다. 단 <b>삭제된 챌린지의 회차는 제외</b>
-     * (FR-44-4·N48 — 삭제 환불은 BET_VOID_REFUND 푸시가 알리므로 모달까지 띄우면 이중 통지),
-     * UNUSED 는 statuses 에서 이미 빠져 있다(N52). since 는 settled_at 하한(최근 30일 바닥은
-     * 호출측이 보정). 응답 조립에 그룹 이름·챌린지 상태가 필요해 함께 fetch 한다.
+     * 내 <b>미확인</b> 정산 완료 회차(GROMO-1415, N53 결과 모달 큐의 단일 소스) — 참가자 스코프.
+     * 멤버십·챌린지 ACTIVE 를 보지 않아 탈퇴자·종료 챌린지 회차도 실린다. 단 <b>삭제된 챌린지의
+     * 회차는 제외</b>(FR-44-4·N48 — 삭제 환불은 BET_VOID_REFUND 푸시가 알리므로 모달까지 띄우면
+     * 이중 통지), UNUSED 는 statuses 에서 이미 빠져 있다(N52). since 는 settled_at 하한(최근 30일
+     * 바닥은 호출측이 보정). 응답 조립에 그룹 이름·챌린지 상태가 필요해 함께 fetch 한다.
+     *
+     * <p><b>{@code acknowledged_at IS NULL} 이 페이지 상한보다 <u>먼저</u> 걸리는 것이 계약이다</b>
+     * (GROMO-1577). 확인된 행까지 실어 놓고 앱이 거르면, 최근 30일에 결과가 11건 이상인 사용자는
+     * 확인된 10건이 상한을 통째로 점유해 <b>11번째 미확인 결과가 영영 조회되지 않는다</b> — 상한이
+     * ack 보다 먼저 걸리는 데드락이다. {@code since} 는 하한({@code >=})이지 이전 페이지를 가져오는
+     * 커서가 아니라서 그 자리를 메우지 못한다.
      */
     @Query("SELECT p FROM GroupChallengeBetParticipant p "
             + "JOIN FETCH p.session s JOIN FETCH s.group JOIN FETCH s.challenge c "
             + "WHERE p.user.id = :userId AND s.status IN :statuses "
+            + "AND p.acknowledgedAt IS NULL "
             + "AND c.deletedAt IS NULL AND s.settledAt >= :since "
             + "ORDER BY s.sessionDate DESC, s.id DESC")
     List<GroupChallengeBetParticipant> findSettledParticipationsByUserId(

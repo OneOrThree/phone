@@ -63,7 +63,9 @@ public class ChallengeResultAckController {
                 description = "선점 성공(최초 획득 시 신규 claimToken / 재검증 시 같은 토큰 + 리스 연장)"),
         @ApiResponse(responseCode = "409",
                 description = "RESULT_CLAIM_HELD(다른 기기가 표시 중이거나 내 선점이 남에게 넘어감"
-                        + " — 바디에 retryAfterMs) / RESULT_ALREADY_ACKED(이미 확인된 결과)"),
+                        + " — 바디에 retryAfterMs) / RESULT_ALREADY_ACKED(이미 확인된 결과)"
+                        + " / RESULT_NOT_SETTLED(아직 정산 전인 OPEN 회차 — 여기서 확인 표시가 찍히면"
+                        + " 나중에 정산된 그 결과를 어느 기기에서도 못 본다)"),
         @ApiResponse(responseCode = "404",
                 description = "BET_NOT_FOUND(그 회차의 내 참가 행 없음)"
                         + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
@@ -89,7 +91,9 @@ public class ChallengeResultAckController {
                     + " 묶음 슬롯이 닫힌 뒤나 조용한 시간 이월 뒤에 도착한다.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "확인 처리 성공(멱등)"),
-        @ApiResponse(responseCode = "409", description = "RESULT_CLAIM_STALE(토큰이 현재 선점과 다름)")
+        @ApiResponse(responseCode = "409",
+                description = "RESULT_CLAIM_STALE(토큰이 현재 선점과 다름)"
+                        + " / RESULT_NOT_SETTLED(아직 정산 전인 OPEN 회차)")
     })
     @PostMapping("/me/challenge-results/{sessionId}/ack")
     public ResponseEntity<Void> acknowledge(
