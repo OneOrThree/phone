@@ -450,6 +450,15 @@ export interface MyChallengeResultEntry {
   status: BetSessionStatus; // SETTLED | FORFEITED | VOIDED | REFUNDED
   voidReason: BetSessionVoidReason | null; // VOIDED만
   goalMinutes: number | null; // 미션 스냅샷 — null이면 분모를 지어내지 않는다
+  // 미션 스냅샷 나머지 — 회차 행(group_challenge_bet_sessions)의 비정규화 컬럼이라 챌린지가
+  // 종료·삭제돼도 남는다. 결과 모달의 FOCUS 창 관용치 고지 판단에 쓴다(GROMO-1415·1583).
+  // **선택 필드다** — 이 4개는 /me/challenge-results에 나중에 붙은 additive 필드라, 구서버
+  // 응답에는 통째로 없다(undefined). '모른다'는 null과 같은 뜻으로 접어 읽는다 —
+  // 조건이 서지 않아 고지만 빠질 뿐 화면이 죽지 않는다(MyOpenBetSession은 처음부터 있어 필수).
+  missionCategory?: MissionCategory | null;
+  missionType?: MissionType | null;
+  windowStart?: string | null; // "HH:mm(:ss)" KST — TIME_WINDOW만(자정 걸침 없음 — N25)
+  windowEnd?: string | null;
   myAchieved: boolean | null;
   myPayout: number | null;
   results: MyChallengeResultRow[];
