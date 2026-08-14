@@ -30,7 +30,11 @@ import {
   logGroupChallengeResultClosed,
   logGroupChallengeResultShown,
 } from '@/services/analyticsEvents';
-import { OVERLAY_PRIORITY, useOverlaySlot } from '@/store/OverlaySlotContext';
+import {
+  OVERLAY_PRIORITY,
+  useOverlayMaxPriority,
+  useOverlaySlot,
+} from '@/store/OverlaySlotContext';
 import { readCurrentRoute, subscribeCurrentRoute } from '@/navigation/navigationRef';
 import type { MyChallengeResultEntry } from '@/types/dto/group';
 import {
@@ -186,11 +190,27 @@ export default function ChallengeResultHost() {
     focusPendingRef.current = flow.focusChallengeId;
   }
 
-  // 그룹 흐름을 완전히 벗어나면 지목을 버린다 — 다음 진입은 새 사건이다.
+  // 그룹 흐름을 완전히 벗어나면 **이 진입의 상태를 통째로** 버린다 — 다음 진입은 새 사건이고,
+  // 그때 받은 응답으로만 렌더해야 한다.
+  //
+  // ⚠️ 버릴 것이 지목만이 아니다. 큐·선점·노출 표식을 남겨 두면 재진입 때 두 가지가 깨진다:
+  //   ① `load()`의 shown-head 병합이 **서버가 이미 제외한 결과를 되살린다** — 그 병합의 전제는
+  //      "지금 사용자가 그 모달을 읽고 있다"인데, 흐름을 벗어난 순간 그 전제가 거짓이 된다.
+  //      (다른 딥링크가 홈으로 데려간 사이 다른 기기가 그 결과를 ack 한 경우가 정확히 이것이다.)
+  //   ② 낡은 claim을 **재검증 없이 재사용**해 이미 확인한 모달을 다시 띄운다.
   useEffect(() => {
     if (flow.inFlow) return;
     focusKeyRef.current = null;
     focusPendingRef.current = null;
+    queueRef.current = [];
+    setQueue([]);
+    setClaim(null);
+    shownAtRef.current = null;
+    shownKeyRef.current = null;
+    claimFailStreakRef.current = 0;
+    // '없다'가 아니라 '모른다'다 — 우리가 로컬 상태를 버렸을 뿐 서버 사실은 그대로다.
+    // ('none'으로 말하면 그룹방의 탈퇴 유예가 근거 없이 풀린다.)
+    setChallengeResultGate('unknown');
   }, [flow.inFlow]);
 
   // ── 현재 라우트 추적 ──
@@ -248,6 +268,10 @@ export default function ChallengeResultHost() {
       return;
     }
 
+    // 서버는 이제 `GET /me/challenge-results`에서 **미확인 회차만** 돌려준다(W2 확정) —
+    // 확인된 행이 10건 상한을 점유해 11번째 미확인 결과가 영영 안 나오던 데드락 때문이다.
+    // 그래서 이 호스트에는 `acknowledged` 필터가 없다. W3의 후보에 그 필드가 실려 와도
+    // 걸러 내는 것은 무해하지만 **더는 정본이 아니다** — 정본은 서버 응답 자체다.
     const candidates = pickChallengeResults(entries);
     // 성공 응답은 **빈 배열도 정본**이다 — 대기하던 결과가 서버에서 제외되면(다른 기기에서
     // 챌린지 삭제 → FR-44-4) 큐에서도 사라져야 한다. 안 그러면 N48이 금지하는 이중 통지가 된다.
@@ -364,10 +388,27 @@ export default function ChallengeResultHost() {
   }, [flow.inFlow, load]);
 
   const current = queue.length > 0 ? queue[0] : null;
+  const currentSessionId = current?.sessionId ?? null;
+
+  // ── 아직 노출 전이면 시트에 자리를 내준다 ────────────────────────────────────
+  // 시트 중에는 **탭과 마운트 사이에 await가 있는 것**들이 있다(ChallengeCard.openWeekSheet의
+  // 예약 현황 조회, 진행 중 삭제의 프리플라이트). 사용자가 누른 것은 맞지만 **여는 시점은 응답이
+  // 정하므로**, 그 사이에 우리가 slot을 먼저 얻을 수 있다. 조정자는 보유자를 뺏지 않으니
+  // 우리가 물러나지 않으면 RN Modal 두 개가 겹치고, 그 아래에서 seen/ack이 찍힌다 —
+  // 사용자는 한 번도 못 봤는데 확인 처리되는 이 배치의 핵심 실패 모드다.
+  //
+  // ⚠️ **노출한 뒤에는 물러나지 않는다.** 그때는 사용자가 실제로 보고 있고 확인도 끝난 상태라,
+  //    걷어내는 것이 오히려 사고다(선점 유지 규칙과 같은 근거).
+  // 이것은 시트 쪽 분류(OverlaySlotContext의 A/B)가 틀렸을 때를 대비한 **안전망**이기도 하다 —
+  // 잃을 것이 가장 큰 소비자가 스스로 한 겹 더 물러선다.
+  const overlayMaxPriority = useOverlayMaxPriority();
+  const exposed = currentSessionId !== null && shownKeyRef.current === currentSessionId;
+  const yieldsSlot = !exposed && overlayMaxPriority >= OVERLAY_PRIORITY.sheet;
+
   // slot을 얻은 것만 마운트한다 — 그룹 시트·코치마크와 겹치지 않는 유일한 방법이다.
   const slot = useOverlaySlot(CHALLENGE_RESULT_OVERLAY_ID, {
     priority: OVERLAY_PRIORITY.challengeResult,
-    active: current !== null && flow.inFlow,
+    active: current !== null && flow.inFlow && !yieldsSlot,
   });
   const granted = current !== null && flow.inFlow && slot === 'granted';
 
@@ -383,7 +424,6 @@ export default function ChallengeResultHost() {
   //    포그라운드에서 처음부터 다시 검증한다(AppState 이펙트가 claimTick을 올린다).
   // 놓쳤으면(ok:false) 큐에서 빼지 않는다 — 그 기기가 끝까지 못 보고 닫을 수도 있다.
   // ⚠️ ack를 노출 앞에 두면 렌더가 중단됐을 때 **어느 기기에서도 못 본다**(N58 · IA §4.3).
-  const currentSessionId = current?.sessionId ?? null;
   useEffect(() => {
     if (!granted || currentSessionId === null) return;
     if (claimRef.current?.sessionId === currentSessionId) return; // 이미 이 회차를 쥐고 있다
@@ -416,6 +456,14 @@ export default function ChallengeResultHost() {
           setClaim({ sessionId: currentSessionId, token: verified.claimToken });
           return;
         }
+        // RESULT_NOT_SETTLED — 정산 전 회차다. **재시도가 아니라 제외**다(대역 헤더 참고):
+        // 기다린다고 열리지 않고, 큐 머리를 붙들면 뒤의 결과까지 막는다. 정산이 끝난 뒤의
+        // 조회가 다시 데려온다. 로컬 가드도 찍지 않는다 — 본 적이 없는 회차다.
+        if (verified.notSettled === true) {
+          claimFailStreakRef.current = 0;
+          applyQueue(queueRef.current.filter((c) => c.sessionId !== currentSessionId));
+          return;
+        }
         // 상대 지연 뒤 재시도한다. ⚠️ **먼저 서버 큐를 다시 판정한다** — 기다리는 사이 다른
         // 기기가 그 결과를 ack 했을 수 있고, 그러면 이 stale head를 아무리 다시 선점해도
         // RESULT_ALREADY_ACKED만 돌아오며 뒤의 결과까지 영영 막힌다(제한적 재조회 5회가
@@ -439,7 +487,7 @@ export default function ChallengeResultHost() {
     return () => {
       canceled = true;
     };
-  }, [granted, currentSessionId, claimTick]);
+  }, [granted, currentSessionId, claimTick, applyQueue]);
 
   const visible = granted && current !== null && claim?.sessionId === current.sessionId;
 

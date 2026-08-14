@@ -33,7 +33,13 @@ export interface ChallengeResultClaimOk {
 export interface ChallengeResultClaimHeld {
   ok: false;
   // 서버가 계산한 **상대 지연**(절대 시각 금지 — 인스턴스 간 시계가 어긋난다). 모르면 null.
+  // 서버가 이 값에 리스 수명 상한을 걸어 두므로 앱은 받은 값을 그대로 쓴다.
   retryAfterMs: number | null;
+  // `RESULT_NOT_SETTLED`(409) — 정산 전(OPEN) 회차에 claim·ack을 시도했다.
+  // ⚠️ **재시도 대상이 아니다.** 기다린다고 이 회차가 지금 열리지 않는다(정산은 서버 배치가
+  //    한다). 큐에서 빼고, 정산이 끝난 뒤의 조회가 다시 데려오게 둔다. 재시도로 돌리면
+  //    그 회차가 큐 머리를 붙든 채 **뒤의 결과까지 막는다**. `retryAfterMs`도 오지 않는다.
+  notSettled?: boolean;
 }
 
 export type ChallengeResultClaim = ChallengeResultClaimOk | ChallengeResultClaimHeld;

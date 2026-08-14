@@ -811,11 +811,123 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
   });
 });
 
+// ── 그룹 흐름 이탈은 이 진입의 상태를 통째로 끝낸다 ──────────────────────────────
+// 모달이 떠 있는 중에 다른 딥링크가 홈으로 데려갈 수 있다. 그 사이 다른 기기가 그 결과를
+// ack 하면, 돌아왔을 때 서버는 그 회차를 더 이상 주지 않는다. 그런데 노출·선점 상태를 들고
+// 있으면 `load()`의 shown-head 병합이 그것을 되살리고, 낡은 claim을 재검증 없이 재사용한다.
+describe('그룹 흐름 이탈 시 상태 폐기', () => {
+  test('서버가 더 이상 주지 않는 결과는 재진입 때 되살아나지 않는다', async () => {
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await renderHost({ initialRoute: '그룹' });
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+
+    // 다른 딥링크가 그룹 흐름 밖으로 데려갔다 — 모달은 내려간다.
+    await navigate('홈');
+    expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+    // 그 사이 다른 기기가 이 결과를 확인했다 — 서버 큐에서 빠진다.
+    mockGetMyChallengeResults.mockResolvedValue([]);
+    await navigate('그룹');
+
+    // shown-head 병합이 살아 있었다면 여기서 되살아났을 것이다.
+    expect(
+      screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
+    ).toBeNull();
+  });
+
+  test('재진입하면 선점을 처음부터 다시 검증한다 — 낡은 claim을 재사용하지 않는다', async () => {
+    // 같은 회차가 재진입 뒤에도 서버 큐에 남아 있어야 이 경로가 성립한다. 그 조건은 실제로
+    // 있다 — **로컬 마커 쓰기가 실패한 경우**다(markChallengeResultSeen은 실패를 삼킨다).
+    // 그때 낡은 claim을 재사용하면 재검증 없이 그대로 다시 띄운다.
+    (AsyncStorage.setItem as jest.Mock).mockRejectedValueOnce(new Error('storage'));
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await renderHost({ initialRoute: '그룹' });
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    await waitFor(() =>
+      expect(AsyncStorage.getItem('gromo:sessionResult:me:s1')).resolves.toBeNull(),
+    );
+    const beforeLeave = mockClaim.mock.calls.length;
+
+    await navigate('홈');
+    await navigate('그룹');
+
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    // 획득 + 재검증이 새로 돌았다 — 낡은 토큰을 그대로 쓰면 호출이 늘지 않는다.
+    expect(mockClaim.mock.calls.length).toBeGreaterThan(beforeLeave);
+    expect(mockClaim).toHaveBeenLastCalledWith('s1', expect.any(String));
+  });
+});
+
+// ── RESULT_NOT_SETTLED(409) — 정산 전 회차 ──────────────────────────────────────
+// 재시도 대상이 **아니다.** 기다린다고 열리지 않고(정산은 서버 배치다), 큐 머리를 붙들면
+// 뒤의 결과까지 막는다.
+describe('정산 전 회차는 후보에서 제외한다', () => {
+  test('재시도하지 않고 큐에서 빼며, 뒤의 결과가 곧바로 뜬다', async () => {
+    mockGetMyChallengeResults.mockResolvedValue([
+      resultEntry({ sessionId: 's-open', sessionDate: '2026-07-31' }),
+      resultEntry({ sessionId: 's-done', sessionDate: '2026-07-30' }),
+    ]);
+    mockClaim.mockImplementation(async (sessionId: string, currentToken?: string) =>
+      sessionId === 's-open'
+        ? { ok: false as const, retryAfterMs: null, notSettled: true }
+        : { ok: true as const, claimToken: currentToken ?? 'tok-done' },
+    );
+
+    await renderHost();
+
+    // 정산 전 회차(7/31)는 건너뛰고 뒤의 결과(7/30)가 뜬다 — 기다리지 않는다.
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    expect(screen.getByText('7월 30일 결과')).toBeOnTheScreen();
+    // 본 적이 없는 회차이므로 로컬 가드도 찍지 않는다.
+    expect(await AsyncStorage.getItem('gromo:sessionResult:me:s-open')).toBeNull();
+  });
+});
+
 // ── 가려진 채 seen/ack 되지 않는다 ─────────────────────────────────────────────
 // 이 배치의 핵심 실패 모드다. 로컬 마커와 ack는 **둘 다 노출 시점**에 찍히므로(D2 · N51),
 // 다른 RN Modal에 덮인 채 마운트되면 사용자는 한 번도 못 봤는데 서버·로컬 모두 "봤다"가 된다.
 // 그래서 slot을 못 얻은 결과는 **마운트 자체가 없어야** 하고, 그 사실을 부작용으로도 확인한다.
 describe('가려진 채 확인 처리되지 않는다', () => {
+  // ⚠️ 시트 중에는 **탭과 마운트 사이에 await가 있는 것**이 있다(ChallengeCard.openWeekSheet).
+  //    그 사이 우리가 slot을 먼저 얻으면, 조정자는 보유자를 뺏지 않으므로 시트가 그대로 우리
+  //    위에 마운트되고 그 아래에서 seen/ack이 찍힌다. 그래서 **아직 노출 전이면 물러난다.**
+  test('이미 slot을 쥔 뒤에 시트가 등록해도 — 노출 전이면 물러나 두 Modal이 겹치지 않는다', async () => {
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    // 선점 응답을 붙잡아 "slot은 얻었지만 아직 노출 전"인 구간을 만든다 —
+    // 비동기로 열리는 시트가 끼어드는 바로 그 창이다.
+    let releaseClaim: (value: { ok: true; claimToken: string }) => void = () => undefined;
+    mockClaim.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: true; claimToken: string }>((resolve) => {
+          releaseClaim = resolve;
+        }),
+    );
+    const view = await renderHost({ initialRoute: '그룹', sheetOpen: false });
+    await waitFor(() => expect(mockClaim).toHaveBeenCalledTimes(1));
+
+    // 시트가 자기 조회를 마치고 이제서야 등록한다(우리는 이미 보유자다).
+    await act(async () => {
+      view.rerender(<Harness initialRoute="그룹" sheetOpen />);
+    });
+    await act(async () => {
+      releaseClaim({ ok: true, claimToken: 'tok-late' });
+    });
+    await act(async () => {});
+
+    // 물러났으므로 모달은 마운트되지 않고, 그 아래에서 확인 처리되지도 않는다.
+    expect(
+      screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
+    ).toBeNull();
+    expect(await AsyncStorage.getItem('gromo:sessionResult:me:s1')).toBeNull();
+    expect(mockAck).not.toHaveBeenCalled();
+
+    // 시트가 닫히면 그때 정상적으로 뜬다 — 결과를 잃지 않는다.
+    await act(async () => {
+      view.rerender(<Harness initialRoute="그룹" sheetOpen={false} />);
+    });
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+  });
+
   test('slot을 못 얻으면 마운트도 seen 마커도 ack도 없다', async () => {
     mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
     const view = await renderHost({ initialRoute: '그룹', sheetOpen: true });
