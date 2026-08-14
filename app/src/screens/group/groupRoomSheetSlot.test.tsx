@@ -12,7 +12,12 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { View } from 'react-native';
 import GroupRoomScreen from './GroupRoomScreen';
-import { OVERLAY_PRIORITY, OverlaySlotProvider, useOverlaySlot } from '@/store/OverlaySlotContext';
+import {
+  OVERLAY_PRIORITY,
+  OverlaySlotProvider,
+  useOverlayLiveMaxPriority,
+  useOverlaySlot,
+} from '@/store/OverlaySlotContext';
 import { getAnnouncements, getChallenges, getGroupDetail } from '@/services/groupApi';
 import { resetChallengeResultGateForTests } from './challengeResultGate';
 import type { GroupChallengeResponse, GroupDetailResponse } from '@/types/dto/group';
@@ -172,6 +177,13 @@ function challenge(id = 'c1'): GroupChallengeResponse {
   };
 }
 
+// 렌더를 기다리지 않고 **지금 이 순간** 등록 상태를 읽는 통로.
+let liveMaxPriority: () => number = () => -1;
+function LiveProbe() {
+  liveMaxPriority = useOverlayLiveMaxPriority();
+  return null;
+}
+
 // 결과 모달과 같은 자리를 **먼저** 차지한 보유자.
 function Holder({ active }: { active: boolean }) {
   useOverlaySlot('test:result', { priority: OVERLAY_PRIORITY.challengeResult, active });
@@ -190,6 +202,7 @@ function tree(holderActive: boolean) {
   return (
     <OverlaySlotProvider>
       <Holder active={holderActive} />
+      <LiveProbe />
       <View>
         <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />
       </View>
@@ -227,6 +240,21 @@ beforeEach(async () => {
   mockGetGroupDetail.mockResolvedValue(detail());
   mockGetAnnouncements.mockResolvedValue([]);
   mockGetChallenges.mockResolvedValue([challenge()]);
+});
+
+// ⚠️ 선언형 등록(layout effect)은 **커밋 뒤**다. `active`가 참이 된 렌더의 커밋에서 RN Modal은
+//    이미 마운트되므로, 시트 열기와 결과 claim 완료가 **같은 React 배치**에 들어가면 호스트는
+//    아직 없는 blocker를 못 보고 결과 모달을 함께 커밋한다. 그래서 **여는 이벤트에서** 먼저 잡는다.
+test('시트 열기 보고는 커밋 전에 자리를 잡는다 — 같은 배치의 결과 커밋을 막는다', async () => {
+  await render(tree(false));
+  await act(async () => {});
+  expect(liveMaxPriority()).toBe(-1);
+
+  await act(async () => {
+    // 카드가 여는 그 이벤트다. 이 호출이 돌아온 **직후**(= 아직 커밋 전)에 이미 잡혀 있어야 한다.
+    reportOpen?.('c1', true);
+    expect(liveMaxPriority()).toBe(OVERLAY_PRIORITY.sheet);
+  });
 });
 
 test('보유자가 놓을 때까지 승인하지 않는다 — 놓으면 그때 승인한다', async () => {

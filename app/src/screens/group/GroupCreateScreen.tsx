@@ -182,7 +182,8 @@ export default function GroupCreateScreen() {
       // 공통 문구로 떨어뜨리면 '잠시 후 다시 시도'가 되는데, 시간이 지나도 절대 풀리지 않는
       // 조건이라 사용자가 재시도만 반복한다 — 상한이라는 사실과 숫자를 그대로 알려준다.
       case 'GROUP_LIMIT_EXCEEDED':
-        showAlert(
+        // ⚠️ `await` 뒤 실패 처리에서 여는 Alert다 — 승인을 받고 띄운다.
+        showAlert.afterSlot(
           '더 이상 만들 수 없어요',
           `참여할 수 있는 그룹 수를 초과했어요(최대 ${GROUP_LIMIT}개)`,
         );
@@ -202,7 +203,7 @@ export default function GroupCreateScreen() {
           setNameError('그룹 이름을 다시 확인해 주세요');
           return;
         }
-        showAlert('그룹을 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+        showAlert.afterSlot('그룹을 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       }
     }
   }
@@ -269,7 +270,7 @@ export default function GroupCreateScreen() {
       inviteRef.current = issued;
       return issued;
     } catch {
-      showAlert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+      await showAlert.afterSlot('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return null;
     }
   }
@@ -312,7 +313,7 @@ export default function GroupCreateScreen() {
         });
       }
     } catch {
-      showAlert('공유하지 못했어요', '링크 복사로 대신 공유해 주세요.');
+      await showAlert.afterSlot('공유하지 못했어요', '링크 복사로 대신 공유해 주세요.');
     }
   }
 

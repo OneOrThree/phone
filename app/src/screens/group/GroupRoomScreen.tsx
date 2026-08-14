@@ -31,6 +31,7 @@ import { subscribeBetResultPush } from '@/services/betResultSignal';
 import { logGroupInviteShared, logGroupRoomViewed } from '@/services/analyticsEvents';
 import {
   OVERLAY_PRIORITY,
+  useOverlayPreclaim,
   useOverlaySlot,
   useOverlaySlotActions,
 } from '@/store/OverlaySlotContext';
@@ -318,7 +319,18 @@ export default function GroupRoomScreen({
   // 된다"가 되지 않는다.
   // 공유 시트처럼 **명령형으로 여는** 네이티브 오버레이가 자리를 잡을 때 쓴다.
   const overlayActions = useOverlaySlotActions();
+  const overlayActionsRef = useRef(overlayActions);
+  overlayActionsRef.current = overlayActions;
   const sheetOpen = betSheet !== null || composeOpen || sheetOpenCardIds.length > 0;
+
+  // ⚠️ 여는 이벤트에서 **먼저** 자리를 잡는다 — 선언형 등록은 커밋 **뒤**라, 시트 열기와
+  //    결과 claim 완료가 같은 배치에 들어가면 호스트가 아직 없는 blocker를 못 보고
+  //    결과 모달을 함께 커밋한다(useOverlayPreclaim 주석).
+  const preclaimSheet = useOverlayPreclaim('groupRoom:sheet');
+  // 아래 onCardSheetVisibilityChange는 신원이 고정돼야 해서(카드의 정리 이펙트가 매달려 있다)
+  // 의존성을 비워 둔다 — 최신 함수는 ref로 읽는다.
+  const preclaimSheetRef = useRef(preclaimSheet);
+  preclaimSheetRef.current = preclaimSheet;
 
   const [sheetSlotRequested, setSheetSlotRequested] = useState(false);
   const sheetSlot = useOverlaySlot('groupRoom:sheet', {
@@ -674,6 +686,8 @@ export default function GroupRoomScreen({
         sheetGrantInFlightRef.current = null;
         settleSheetSlotWaiters(false);
         setSheetSlotRequested(false);
+        // 승인을 기다리던 공유 요청도 접는다 — 떠난 화면의 시트가 새 화면 위로 뜨지 않게.
+        overlayActionsRef.current?.release(SHARE_SLOT_ID);
       };
     }, [reload, interactionId, settleSheetSlotWaiters]),
   );
@@ -768,13 +782,16 @@ export default function GroupRoomScreen({
     const stale = staleBetSheetAlert(betSheet, betChallenge);
     if (stale === null) return;
     setBetSheet(null);
-    showAlert(stale[0], stale[1]);
+    // 재조회 응답이 여는 Alert다(사용자 탭이 아니다) — 승인을 받고 띄운다.
+    showAlert.afterSlot(stale[0], stale[1]);
   }, [betSheet, challenges, betChallenge, showAlert]);
 
   // 카드가 올리는 시트 열림 보고(GROMO-1578) — 신원을 고정한다. 매 렌더 새 함수를 주면 카드의
   // 정리 이펙트가 렌더마다 재등록되며 false를 흘려, 시트가 떠 있는데도 열림이 취소된다.
   const onCardSheetVisibilityChange = useCallback(
     (challengeId: string, open: boolean) => {
+      // 카드가 **여는 그 이벤트에서** 올리는 보고다 — 커밋 전에 자리를 먼저 잡는다.
+      if (open) preclaimSheetRef.current();
       // ⚠️ 여기서 `sheetGrantInFlightRef`를 비우지 않는다. 비우면 가드 둘의 갱신 시점이 어긋난다:
       //    이 ref는 **즉시** 바뀌는데 `sheetOpenRef`는 **다음 렌더까지 여전히 false**다. 그 사이에
       //    다른 카드의 프리플라이트가 끝나 요청하면 grantOneSheetWaiter가 두 가드를 모두 통과해
@@ -814,12 +831,23 @@ export default function GroupRoomScreen({
       invite = await issueInviteLink(groupId);
     } catch {
       // 폴백 링크는 두지 않는다 — slug 없는 링크는 서버가 모르는 주소라 404로 끝난다.
-      showAlert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+      // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다.
+      await showAlert.afterSlot('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     // ⚠️ 요청만 하고 넘어가면 안 된다 — 기다리는 사이 결과 모달이 먼저 노출되면
     //    공유 시트가 그 위를 덮어 사용자가 못 본 결과에 seen/ack이 남는다.
-    if ((await overlayActions?.acquire(SHARE_SLOT_ID, OVERLAY_PRIORITY.sheet)) === false) return;
+    // ⚠️ 승인을 기다리는 사이 사용자가 이 화면을 떠날 수 있다(푸시·딥링크). 그때 자리를
+    //    반납하지 않으면, 결과 모달이 닫히는 순간 **이미 떠난 화면의** 공유 시트가
+    //    지금 보고 있는 화면 위로 뜬다. 그래서 blur·언마운트에서 반납하고(아래 이펙트),
+    //    승인 뒤에도 **여전히 이 화면이 활성인지** 다시 확인한다.
+    if ((await overlayActions?.acquire(SHARE_SLOT_ID, OVERLAY_PRIORITY.sheet)) === false) {
+      return;
+    }
+    if (!focusedRef.current) {
+      overlayActions?.release(SHARE_SLOT_ID);
+      return;
+    }
     try {
       const result = await Share.share({
         message: buildInviteShareMessage(name, invite.url),
@@ -852,7 +880,8 @@ export default function GroupRoomScreen({
   const alertIfCurrent = useCallback(
     (targetGroupId: string, title: string, message: string) => {
       if (renderedGroupIdRef.current !== targetGroupId) return;
-      showAlert(title, message);
+      // 이 헬퍼를 부르는 자리는 전부 mutation 실패(= `await` 뒤)다 — 승인을 받고 띄운다.
+      showAlert.afterSlot(title, message);
     },
     [showAlert],
   );
@@ -1171,7 +1200,10 @@ export default function GroupRoomScreen({
                 <TouchableOpacity
                   style={s.addBtn}
                   activeOpacity={0.7}
-                  onPress={() => setComposeOpen(true)}
+                  onPress={() => {
+                    preclaimSheet();
+                    setComposeOpen(true);
+                  }}
                   hitSlop={12}
                   accessibilityLabel="챌린지 만들기"
                   testID="group.challenge.add"
@@ -1200,7 +1232,10 @@ export default function GroupRoomScreen({
                   <TouchableOpacity
                     style={s.writeBtn}
                     activeOpacity={0.85}
-                    onPress={() => setComposeOpen(true)}
+                    onPress={() => {
+                      preclaimSheet();
+                      setComposeOpen(true);
+                    }}
                   >
                     <Text style={s.writeText}>챌린지 만들기</Text>
                   </TouchableOpacity>
@@ -1235,9 +1270,10 @@ export default function GroupRoomScreen({
                     // 지우지 않고 휴면으로 남기므로(GROMO-1201) 재조회가 없으면 닫힌 내기·휴면
                     // 표시가 반영되지 않은 낡은 카드가 화면에 남는다.
                     onBetChanged={load}
-                    onOpenBet={(mode) =>
-                      setBetSheet({ challengeId: c.id, mode, betId: c.bet?.betId ?? null })
-                    }
+                    onOpenBet={(mode) => {
+                      preclaimSheet();
+                      setBetSheet({ challengeId: c.id, mode, betId: c.bet?.betId ?? null });
+                    }}
                   />
                 ))}
               </View>

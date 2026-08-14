@@ -15,7 +15,7 @@ import { T } from '@/constants/theme';
 import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
-import { useOverlayBlocker } from '@/store/OverlaySlotContext';
+import { useOverlayBlocker, useOverlayPreclaim } from '@/store/OverlaySlotContext';
 import { useUser } from '@/store/UserContext';
 import { useToast } from '@/store/ToastContext';
 import { getAuthSessionGeneration } from '@/services/api';
@@ -113,6 +113,10 @@ export default function GroupOwnerTransferScreen() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   // 위임 확인 카드도 RN Modal이다 — 위 GroupSettingsScreen과 같은 근거로 등록한다.
   useOverlayBlocker('groupOwnerTransfer.confirm', confirmOpen);
+  // ⚠️ 여는 이벤트에서 **먼저** 자리를 잡는다 — 선언형 등록은 커밋 **뒤**라, 시트 열기와
+  //    결과 claim 완료가 같은 배치에 들어가면 호스트가 아직 없는 blocker를 못 보고
+  //    결과 모달을 함께 커밋한다(useOverlayPreclaim 주석).
+  const preclaimConfirm = useOverlayPreclaim('groupOwnerTransfer.confirm');
 
   // 마운트 시 1회(재시도 시 재호출) — 멤버 목록만 있으면 되므로 date 없이 부른다(오늘 집중분은 안 쓴다).
   const load = useCallback(async () => {
@@ -230,8 +234,9 @@ export default function GroupOwnerTransferScreen() {
   // 앱 컨셉 카드로 바꿨다(GROMO-1251). 문구는 그대로다.
   const onSubmit = useCallback(() => {
     if (submitting || selectedMember === null) return;
+    preclaimConfirm();
     setConfirmOpen(true);
-  }, [submitting, selectedMember]);
+  }, [submitting, selectedMember, preclaimConfirm]);
 
   // withdraw 경로는 위임 뒤 곧바로 나가므로 그 사실을 확인 문구에 함께 알린다.
   const withdrawNote = source === 'withdraw' ? '\n넘긴 뒤 그룹에서 나가요.' : '';

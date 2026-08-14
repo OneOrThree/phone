@@ -37,6 +37,7 @@ import {
   OVERLAY_PRIORITY,
   OverlaySlotProvider,
   useOverlayMaxPriority,
+  useOverlaySlot,
 } from '@/store/OverlaySlotContext';
 // 결과 큐의 소유자는 루트 호스트다(GROMO-1576) — 이 화면은 호스트가 공표하는 신호만 읽는다.
 // 그 신호를 테스트가 직접 세워 화면의 반응을 본다. 호스트가 이 신호를 **실제로** 세우는지는
@@ -1904,6 +1905,67 @@ describe('초대 링크 공유', () => {
       releaseShare({ action: Share.dismissedAction });
     });
     await waitFor(() => expect(values[values.length - 1]).toBe(-1));
+  });
+
+  // ⚠️ `await` 뒤에 여는 Alert다 — 결과 모달은 **노출된 뒤에는 양보하지 않으므로**, 그냥 띄우면
+  //    이 Alert가 그 위를 덮고 사용자는 못 읽은 채 확인 처리된다. 승인을 받고 띄워야 한다.
+  test('발급 실패 Alert는 다른 오버레이가 자리를 놓을 때까지 뜨지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockIssueInviteLink.mockRejectedValue(new Error('network'));
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+
+    function Holder({ active }: { active: boolean }) {
+      useOverlaySlot('test:result', { priority: OVERLAY_PRIORITY.challengeResult, active });
+      return null;
+    }
+    const tree = (holderActive: boolean) => (
+      <OverlaySlotProvider>
+        <Holder active={holderActive} />
+        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />
+      </OverlaySlotProvider>
+    );
+    const view = await render(tree(true));
+    await act(async () => {});
+
+    await press('초대');
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      view.rerender(tree(false));
+    });
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+  });
+
+  // ⚠️ 승인을 기다리는 사이 사용자가 화면을 떠나면(blur) 그 요청을 접어야 한다. 안 접으면
+  //    결과 모달이 닫히는 순간 **이미 떠난 화면의** 공유 시트가 지금 화면 위로 뜬다.
+  test('승인 대기 중 화면을 벗어나면 공유 시트를 열지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    function Holder({ active }: { active: boolean }) {
+      useOverlaySlot('test:result', { priority: OVERLAY_PRIORITY.challengeResult, active });
+      return null;
+    }
+    const tree = (holderActive: boolean) => (
+      <OverlaySlotProvider>
+        <Holder active={holderActive} />
+        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />
+      </OverlaySlotProvider>
+    );
+    const view = await render(tree(true));
+    await act(async () => {});
+
+    await press('초대');
+    expect(Share.share).not.toHaveBeenCalled();
+
+    // 사용자가 다른 화면으로 갔다 — 대기 중인 요청은 접힌다.
+    await blur();
+    await act(async () => {
+      view.rerender(tree(false));
+    });
+    await act(async () => {});
+
+    expect(Share.share).not.toHaveBeenCalled();
   });
 
   test('발급 실패면 공유 시트를 띄우지 않고 안내한다(폴백 링크 없음)', async () => {

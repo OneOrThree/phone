@@ -102,7 +102,8 @@ export default function GroupNoticePermissionScreen() {
         setGrants((prev) =>
           prev ? prev.map((g) => (g.userId === userId ? { ...g, granted: !next } : g)) : prev,
         );
-        showAlert('저장 실패', '잠시 후 다시 시도해 주세요.');
+        // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다.
+        await showAlert.afterSlot('저장 실패', '잠시 후 다시 시도해 주세요.');
       } finally {
         setSavingIds((prev) => {
           const set = new Set(prev);

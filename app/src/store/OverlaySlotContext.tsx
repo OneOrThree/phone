@@ -305,8 +305,27 @@ export function useOverlaySlotActions(): OverlaySlotActions | null {
 }
 
 /**
+ * **여는 이벤트에서 먼저 자리를 잡는다.**
+ *
+ * ⚠️ 선언형 등록(`useOverlaySlot`의 layout effect)만으로는 한 창이 남는다: `active`가 참이 된
+ *    렌더의 **커밋에서 RN Modal은 이미 마운트**되고, 등록은 그 뒤다. 사용자의 시트 열기와
+ *    결과 claim 완료가 **같은 React 배치**에 들어가면 호스트는 아직 없는 blocker를 못 보고
+ *    결과 모달을 함께 커밋하며 seen/ack까지 남긴다.
+ *    그래서 시트를 여는 그 이벤트(= setState를 부르는 자리)에서 이것을 먼저 부른다.
+ *    선언형 등록은 그대로 두어도 된다 — 같은 id의 재등록은 순번을 보존하는 no-op이고,
+ *    **반납은 여전히 선언형 쪽 정리(cleanup)가 책임진다.**
+ */
+export function useOverlayPreclaim(id: string): () => void {
+  const actions = useContext(OverlaySlotActionsContext);
+  return useCallback(() => {
+    actions?.request(id, OVERLAY_PRIORITY.sheet);
+  }, [actions, id]);
+}
+
+/**
  * 자기는 무조건 렌더하지만 **다른 전면 오버레이를 막아야 하는** UI(사용자가 방금 연 시트)용.
  * 반환값이 없다 — 상태를 보고 렌더를 가르지 않기 때문이다(OVERLAY_PRIORITY.sheet 주석).
+ * ⚠️ **여는 이벤트에서 `useOverlayPreclaim`을 함께 부르라** — 이유는 그 훅 주석.
  */
 export function useOverlayBlocker(id: string, active: boolean): void {
   useOverlaySlot(id, { priority: OVERLAY_PRIORITY.sheet, active });

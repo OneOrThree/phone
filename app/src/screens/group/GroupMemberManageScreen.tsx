@@ -151,10 +151,11 @@ export default function GroupMemberManageScreen() {
         // 본인 강퇴 방어(CANNOT_KICK_SELF) — 본인은 애초에 목록에서 빠져 도달 불가지만, 서버
         // 계약을 존중해 사유를 그대로 알린다.
         if (code === 'CANNOT_KICK_SELF') {
-          showAlert('내보낼 수 없어요', '자기 자신은 내보낼 수 없어요.');
+          // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다.
+          await showAlert.afterSlot('내보낼 수 없어요', '자기 자신은 내보낼 수 없어요.');
           return;
         }
-        showAlert('내보내기 실패', '잠시 후 다시 시도해 주세요.');
+        await showAlert.afterSlot('내보내기 실패', '잠시 후 다시 시도해 주세요.');
       }
     },
     [groupId, removeMember, unlockMember, showAlert],

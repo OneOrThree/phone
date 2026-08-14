@@ -21,6 +21,7 @@ import { useUser } from '@/store/UserContext';
 import {
   OVERLAY_PRIORITY,
   useOverlayBlocker,
+  useOverlayPreclaim,
   useOverlaySlot,
   useOverlaySlotActions,
 } from '@/store/OverlaySlotContext';
@@ -421,18 +422,45 @@ export default function GroupScreen() {
   //    **아래에서** 마운트되며 seen 마커와 ack이 나간다(렌더 커밋 시점에 찍힌다).
   //    그래서 여는 줄 바로 앞에서 자리를 잡고, 어떻게 끝나든 finally 에서 반납한다.
   const overlayActions = useOverlaySlotActions();
+  // 화면이 떠 있는가 — 승인을 기다리던 공유 요청이 뒤늦게 성사됐을 때의 판단 근거.
+  const screenFocusedRef = useRef(isScreenFocused);
+  screenFocusedRef.current = isScreenFocused;
+  // 화면을 벗어나거나 사라지면 대기 중인 공유 요청을 접는다.
+  useEffect(() => {
+    if (isScreenFocused) return;
+    overlayActions?.release(SHARE_SLOT_ID);
+  }, [isScreenFocused, overlayActions]);
+  useEffect(
+    () => () => {
+      overlayActionsRef.current?.release(SHARE_SLOT_ID);
+    },
+    [],
+  );
+  const overlayActionsRef = useRef(overlayActions);
+  overlayActionsRef.current = overlayActions;
   const onInviteToGroup = useCallback(
     async (groupId: string, groupName: string) => {
       let issuedInvite: { slug: string; url: string };
       try {
         issuedInvite = await issueInviteLink(groupId);
       } catch {
-        showAlert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+        // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다(useOverlayAlert.afterSlot 주석).
+        await showAlert.afterSlot('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
         return;
       }
       // ⚠️ 요청만 하고 넘어가면 안 된다 — 기다리는 사이 결과 모달이 먼저 노출되면
       //    공유 시트가 그 위를 덮어 사용자가 못 본 결과에 seen/ack이 남는다.
-      if ((await overlayActions?.acquire(SHARE_SLOT_ID, OVERLAY_PRIORITY.sheet)) === false) return;
+      // ⚠️ 승인을 기다리는 사이 사용자가 이 화면을 떠날 수 있다(푸시·딥링크). 그때 자리를
+      //    반납하지 않으면, 결과 모달이 닫히는 순간 **이미 떠난 화면의** 공유 시트가
+      //    지금 보고 있는 화면 위로 뜬다. 그래서 blur·언마운트에서 반납하고(아래 이펙트),
+      //    승인 뒤에도 **여전히 이 화면이 활성인지** 다시 확인한다.
+      if ((await overlayActions?.acquire(SHARE_SLOT_ID, OVERLAY_PRIORITY.sheet)) === false) {
+        return;
+      }
+      if (!screenFocusedRef.current) {
+        overlayActions?.release(SHARE_SLOT_ID);
+        return;
+      }
       try {
         const result = await Share.share({
           message: buildInviteShareMessage(groupName, issuedInvite.url),
@@ -522,6 +550,10 @@ export default function GroupScreen() {
   //    자리다. 그래서 **승인(granted)을 받은 뒤에만** 마운트한다.
   //    버퍼는 읽어도 지워지지 않으므로(navigationRef §6-6) 기다리는 동안 초대가 증발하지
   //    않고, 결과 모달이 닫히는 순간 같은 프리뷰가 뜬다.
+  // ⚠️ 여는 이벤트에서 **먼저** 자리를 잡는다 — 선언형 등록은 커밋 **뒤**라, 시트 열기와
+  //    결과 claim 완료가 같은 배치에 들어가면 호스트가 아직 없는 blocker를 못 보고
+  //    결과 모달을 함께 커밋한다(useOverlayPreclaim 주석).
+  const preclaimFindSheet = useOverlayPreclaim('group.findSheet');
   useOverlayBlocker('group.findSheet', findOpen);
   const inviteSlot = useOverlaySlot('group.inviteSheet', {
     priority: OVERLAY_PRIORITY.sheet,
@@ -538,10 +570,14 @@ export default function GroupScreen() {
     await fetchGroups();
   }, [fetchGroups]);
 
-  const openFind = useCallback((entryPoint: 'list' | 'header' | 'end_card') => {
-    logGroupFindOpened({ entry_point: entryPoint });
-    setFindOpen(true);
-  }, []);
+  const openFind = useCallback(
+    (entryPoint: 'list' | 'header' | 'end_card') => {
+      logGroupFindOpened({ entry_point: entryPoint });
+      preclaimFindSheet();
+      setFindOpen(true);
+    },
+    [preclaimFindSheet],
+  );
 
   // 찾기 시트는 헤더·덱 마지막 카드 진입점에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
   // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.
