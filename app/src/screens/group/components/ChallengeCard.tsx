@@ -255,11 +255,12 @@ export interface ChallengeCardProps {
   //    않으면 나중에 승인이 떨어져 **사라진 카드**가 자기 id를 부모의 열림 집합에 넣고,
   //    되돌릴 카드가 없어 전면 오버레이가 영구히 막힌다.
   onRequestSheetSlot?: (challengeId: string) => Promise<boolean>;
-  // 이 카드가 **사라진다**는 신호 — 승인을 기다리던 요청을 부모가 취소한다.
+  // 이 카드가 시트 요청/승인을 **포기한다**는 신호 — 부모가 대기를 거절하고 자리를 푼다.
+  // 부르는 자리 둘: 카드가 사라질 때(언마운트) · 확인 Alert에서 사용자가 물러났을 때.
   // ⚠️ 위 `onSheetVisibilityChange(id, false)`로 대신할 수 없다. 그 신호는 "시트가 닫혔다"와
-  //    "카드가 사라졌다"를 구분하지 못해, 닫힘 보고가 멀쩡히 대기 중인 요청까지 취소한다.
-  //    취소하지 않으면 반대로, 나중에 승인이 떨어져 **사라진 카드**가 자기 id를 부모의 열림
-  //    집합에 넣고 되돌릴 주체가 없어 전면 오버레이가 영구히 막힌다.
+  //    "카드가 포기했다"를 구분하지 못해, 닫힘 보고가 멀쩡히 대기 중인 요청까지 취소한다.
+  //    포기를 알리지 않으면 반대로, 나중에 승인이 떨어져 **사라진 카드**가 자기 id를 부모의
+  //    열림 집합에 넣고 되돌릴 주체가 없어 전면 오버레이가 영구히 막힌다.
   onAbandonSheetSlot?: (challengeId: string) => void;
 }
 
@@ -712,6 +713,12 @@ export default function ChallengeCard({
     return (await onRequestSheetSlot?.(challenge.id)) ?? true;
   }
 
+  // 확보한 자리를 **열지 않고** 돌려준다(사용자가 확인 Alert에서 물러난 경우).
+  // 돌려주지 않으면 부모가 다음 요청을 승인하지 못하고 slot도 계속 물고 있는다.
+  function releaseSheetSlot() {
+    onAbandonSheetSlot?.(challenge.id);
+  }
+
   function openJoinNextSheet() {
     if (cachedGroupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·히스토리와 같은 공통 문구 결.
@@ -1091,20 +1098,25 @@ export default function ChallengeCard({
         confirmDeleteOneStep(true);
         return;
       }
+      // ⚠️ **확인 Alert를 띄우기 전에** slot을 확보하고, 닫힐 때까지 쥐고 있는다.
+      //    버튼 콜백에서 확보하면 늦다: 네이티브 Alert는 RN Modal **위에** 떠서 그 아래에
+      //    결과 모달이 마운트돼도 사용자는 못 보는데, 마운트되는 순간 seen 마커와 ack이
+      //    나간다(둘 다 렌더 커밋 시점에 찍힌다). 그 상태로 앱이 종료되면 사용자는 결과를
+      //    **못 본 채 재노출까지 막힌다.**
+      //    이 배치에서 같은 뿌리가 네 번째다 — 코치마크 · 비동기 시트 · 비활성 구간 · 그리고
+      //    이 Alert. OS 얼럿 일반은 앱이 막을 수 없지만, **우리가 띄우는 것**은 막을 수 있다.
+      if (!(await claimSheetSlot())) return;
       // 물러나는 버튼은 위 1단계 확인과 같은 `그만두기`다(policy §A8).
       Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
-        { text: '그만두기', style: 'cancel' },
+        // 물러나면 확보한 자리를 즉시 돌려준다 — 안 그러면 이 화면을 나갈 때까지 자리가 잠긴다.
+        { text: '그만두기', style: 'cancel', onPress: releaseSheetSlot },
         {
           text: '삭제',
           style: 'destructive',
-          // 이 Alert 자체가 프리플라이트 **응답 뒤에** 뜬 것이라, 여기서 여는 시트도 비동기
-          // 경로다(네이티브 Alert는 RN Modal 위에 떠서 결과 모달을 가려도 눌린다).
+          // 이미 승인을 쥐고 있으므로 곧바로 연다(부모는 열림 보고로 승인을 마무리한다).
           onPress: () => {
-            claimSheetSlot().then((allowed) => {
-              if (!allowed) return;
-              openSheet();
-              setDeletePreview(preview);
-            });
+            openSheet();
+            setDeletePreview(preview);
           },
         },
       ]);

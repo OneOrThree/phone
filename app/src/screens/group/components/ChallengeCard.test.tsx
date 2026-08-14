@@ -3190,6 +3190,91 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     expect(screen.queryByTestId('group.challenge.delete.confirm')).toBeNull();
   });
 
+  // ⚠️ 네이티브 Alert는 RN Modal **위에** 뜬다. 확인 Alert가 떠 있는 동안 결과가 도착하면
+  //    결과 모달이 그 **아래에서** 마운트되며 seen 마커와 ack이 나가는데(둘 다 렌더 커밋
+  //    시점에 찍힌다) 사용자는 아무것도 못 본다. 그 상태로 앱이 종료되면 결과를 못 본 채
+  //    재노출까지 막힌다. 그래서 slot은 **버튼 콜백이 아니라 Alert를 띄우기 전에** 잡는다.
+  test('확인 Alert를 띄우기 **전에** slot을 확보한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const order: string[] = [];
+    const onRequestSheetSlot = jest.fn(async () => {
+      order.push('claim');
+      return true;
+    });
+    alertSpy.mockImplementation(() => {
+      order.push('alert');
+    });
+
+    await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={onRequestSheetSlot}
+      />,
+    );
+    await pressDeleteX();
+
+    expect(order).toEqual(['claim', 'alert']);
+  });
+
+  test('slot을 못 받으면 확인 Alert 자체를 띄우지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+
+    await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => false}
+      />,
+    );
+    await pressDeleteX();
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  test('확인 Alert에서 물러나면 확보한 자리를 돌려준다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const onAbandonSheetSlot = jest.fn();
+
+    await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => true}
+        onAbandonSheetSlot={onAbandonSheetSlot}
+      />,
+    );
+    await pressDeleteX();
+
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '그만두기')
+        ?.onPress?.();
+    });
+
+    // 돌려주지 않으면 이 화면을 나갈 때까지 자리가 잠긴다.
+    expect(onAbandonSheetSlot).toHaveBeenCalledWith(CHALLENGE_ID);
+  });
+
   test('참가비가 걸린 날이 있으면 1단계 뒤 수치 경고 시트를 거쳐야 삭제된다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockGetDeletionPreview.mockResolvedValue({

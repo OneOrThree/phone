@@ -163,6 +163,14 @@ function Holder({ active }: { active: boolean }) {
   return null;
 }
 
+// 결과 모달과 같은 우선순위로 자리를 노리는 관찰자 — "이 화면이 slot을 물고 있는가"를 본다.
+function SlotProbe({ onStatus }: { onStatus: (status: string) => void }) {
+  onStatus(
+    useOverlaySlot('probe:result', { priority: OVERLAY_PRIORITY.challengeResult, active: true }),
+  );
+  return null;
+}
+
 function tree(holderActive: boolean) {
   return (
     <OverlaySlotProvider>
@@ -345,6 +353,43 @@ test('대기 중 카드가 사라지면 그 요청은 거절되고 slot이 풀�
 
   await openAsyncSheet('c1');
   await waitFor(() => expect(gateResults.c1).toBe('granted'));
+});
+
+// ⚠️ 취소가 waiter만 걷어내고 등록(`sheetSlotRequested`)을 남기면, 보유자가 놓았을 때
+//    **빈 `groupRoom:sheet` 등록이 slot을 영구 점유**해 방을 나갈 때까지 결과 모달도 코치마크도
+//    못 뜬다. 앞 테스트("다시 요청하면 곧바로 승인")는 **누군가 다시 요청하는** 경우만 봐서
+//    이 자리를 놓친다 — 아무도 다시 요청하지 않는 경우를 본다.
+test('취소로 대기가 비면 등록도 풀린다 — 아무도 다시 요청하지 않아도 slot이 열린다', async () => {
+  const statuses: string[] = [];
+  const tree2 = (holderActive: boolean) => (
+    <OverlaySlotProvider>
+      <Holder active={holderActive} />
+      <SlotProbe onStatus={(s) => statuses.push(s)} />
+      <View>
+        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />
+      </View>
+    </OverlaySlotProvider>
+  );
+  const view = await render(tree2(true));
+  await act(async () => {});
+
+  await openAsyncSheet('c1');
+  expect(gateResults.c1).toBe('pending');
+
+  // 카드가 사라져 그 요청이 취소된다 — 이제 이 화면에는 열린 시트도 대기도 없다.
+  await act(async () => {
+    reportGone?.('c1');
+  });
+  await act(async () => {});
+  expect(gateResults.c1).toBe('denied');
+
+  // 보유자가 놓는다. 아무도 새로 요청하지 않는다 — 그래도 결과 우선순위가 승인받아야 한다.
+  await act(async () => {
+    view.rerender(tree2(false));
+  });
+  await act(async () => {});
+
+  await waitFor(() => expect(statuses[statuses.length - 1]).toBe('granted'));
 });
 
 test('가릴 것이 없으면 곧바로 승인한다 — 평소 경로에 지연을 넣지 않는다', async () => {

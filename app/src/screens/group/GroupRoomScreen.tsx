@@ -323,22 +323,51 @@ export default function GroupRoomScreen({
   // 함께 마운트된다. 그 카드가 열지 못하고 사라질 수도 있어 **신원으로** 들고 있는다.
   const sheetGrantInFlightRef = useRef<string | null>(null);
 
-  const settleSheetSlotWaiters = useCallback((granted: boolean) => {
-    const waiters = sheetSlotWaitersRef.current;
-    if (waiters.length === 0) return;
-    sheetSlotWaitersRef.current = [];
-    waiters.forEach((waiter) => waiter.resolve(granted));
-  }, []);
+  // 대기열이 바뀔 때마다 올린다 — 대기열은 ref라, 아래 "요청 해제" 이펙트가 다시 돌 계기가
+  // 필요하다.
+  const [sheetWaiterRevision, setSheetWaiterRevision] = useState(0);
+  const bumpSheetWaiters = useCallback(() => setSheetWaiterRevision((n) => n + 1), []);
 
-  // 사라진 카드의 요청을 거절하고, 그 카드가 쥐고 있던 승인 자리도 푼다.
-  const cancelSheetWaitersFor = useCallback((challengeId: string) => {
-    if (sheetGrantInFlightRef.current === challengeId) sheetGrantInFlightRef.current = null;
-    const waiters = sheetSlotWaitersRef.current;
-    const canceled = waiters.filter((waiter) => waiter.id === challengeId);
-    if (canceled.length === 0) return;
-    sheetSlotWaitersRef.current = waiters.filter((waiter) => waiter.id !== challengeId);
-    canceled.forEach((waiter) => waiter.resolve(false));
-  }, []);
+  const settleSheetSlotWaiters = useCallback(
+    (granted: boolean) => {
+      const waiters = sheetSlotWaitersRef.current;
+      if (waiters.length === 0) return;
+      sheetSlotWaitersRef.current = [];
+      waiters.forEach((waiter) => waiter.resolve(granted));
+      bumpSheetWaiters();
+    },
+    [bumpSheetWaiters],
+  );
+
+  // 요청을 접은 카드(사라졌거나 스스로 포기했다)의 대기를 거절하고, 그 카드가 쥐고 있던
+  // 승인 자리도 푼다.
+  const cancelSheetWaitersFor = useCallback(
+    (challengeId: string) => {
+      const heldGrant = sheetGrantInFlightRef.current === challengeId;
+      if (heldGrant) sheetGrantInFlightRef.current = null;
+      const waiters = sheetSlotWaitersRef.current;
+      const canceled = waiters.filter((waiter) => waiter.id === challengeId);
+      if (canceled.length > 0) {
+        sheetSlotWaitersRef.current = waiters.filter((waiter) => waiter.id !== challengeId);
+        canceled.forEach((waiter) => waiter.resolve(false));
+      }
+      if (heldGrant || canceled.length > 0) bumpSheetWaiters();
+    },
+    [bumpSheetWaiters],
+  );
+
+  // ⚠️ **비어 버린 요청은 반드시 해제한다.** 취소가 waiter만 걷어내고 `sheetSlotRequested`를
+  //    true로 남기면, 기존 보유자가 놓았을 때 **빈 `groupRoom:sheet` 등록이 slot을 영구 점유**해
+  //    방을 나갈 때까지 결과 모달도 코치마크도 못 뜬다. 이번 라운드가 고치려던 것과 같은 증상이
+  //    "빈 승인"에서 "빈 등록"으로 한 칸 옮겨간 것뿐이다.
+  // 남은 조건이 하나도 없을 때만 내린다: 열린 시트 없음 · 대기 없음 · 진행 중 승인 없음.
+  useEffect(() => {
+    if (!sheetSlotRequested) return;
+    if (sheetOpen) return;
+    if (sheetSlotWaitersRef.current.length > 0) return;
+    if (sheetGrantInFlightRef.current !== null) return;
+    setSheetSlotRequested(false);
+  }, [sheetSlotRequested, sheetOpen, sheetWaiterRevision]);
 
   // ⚠️ **한 요청씩 직렬화한다.** slot이 granted라는 이유로 모든 대기자를 한꺼번에 깨우면,
   //    서로 다른 카드의 프리플라이트가 겹치거나 이미 열린 시트가 있는 상태에서 늦은 응답이
@@ -352,7 +381,8 @@ export default function GroupRoomScreen({
     if (next === undefined) return;
     sheetGrantInFlightRef.current = next.id;
     next.resolve(true);
-  }, []);
+    bumpSheetWaiters();
+  }, [bumpSheetWaiters]);
 
   useEffect(() => {
     grantOneSheetWaiter();
@@ -373,11 +403,12 @@ export default function GroupRoomScreen({
       setSheetSlotRequested(true);
       return new Promise<boolean>((resolve) => {
         sheetSlotWaitersRef.current.push({ id: challengeId, resolve });
+        bumpSheetWaiters();
         // 지금 바로 가능한 경우를 위해 한 번 본다 — 이펙트를 기다리며 한 프레임 늦추지 않는다.
         grantOneSheetWaiter();
       });
     },
-    [grantOneSheetWaiter],
+    [bumpSheetWaiters, grantOneSheetWaiter],
   );
 
   // 이 화면이 지금 그리고 있는 그룹. 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면
@@ -702,23 +733,23 @@ export default function GroupRoomScreen({
 
   // 카드가 올리는 시트 열림 보고(GROMO-1578) — 신원을 고정한다. 매 렌더 새 함수를 주면 카드의
   // 정리 이펙트가 렌더마다 재등록되며 false를 흘려, 시트가 떠 있는데도 열림이 취소된다.
-  const onCardSheetVisibilityChange = useCallback((challengeId: string, open: boolean) => {
-    // 요청이 실제 열림으로 바뀌었다 — 같은 호출에서 함께 갱신해야 두 state가 한 배치로 묶여
-    // `active`가 한 프레임도 false로 내려가지 않는다(내려가면 그 틈에 결과가 slot을 가져간다).
-    // 승인 한 건이 열림으로 마무리됐으므로 다음 요청을 받을 수 있다 — 다만 이 시트가 닫혀야
-    // 실제로 승인된다(sheetOpen 조건).
-    if (open) {
-      if (sheetGrantInFlightRef.current === challengeId) sheetGrantInFlightRef.current = null;
-      // ⚠️ 아직 기다리는 요청이 남아 있으면 등록을 유지한다 — 여기서 내리면 이 시트가 닫히는
-      //    순간 slot까지 함께 풀려, 남은 요청은 승인 조건(slot 보유)을 영영 못 채운다.
-      if (sheetSlotWaitersRef.current.length === 0) setSheetSlotRequested(false);
-    }
-    setSheetOpenCardIds((prev) => {
-      const had = prev.includes(challengeId);
-      if (had === open) return prev; // 같은 값 재보고는 리렌더를 만들지 않는다
-      return open ? [...prev, challengeId] : prev.filter((id) => id !== challengeId);
-    });
-  }, []);
+  const onCardSheetVisibilityChange = useCallback(
+    (challengeId: string, open: boolean) => {
+      // 승인 한 건이 열림으로 마무리됐다 — 다음 요청을 받을 수 있다(다만 이 시트가 닫혀야 실제로
+      // 승인된다 — sheetOpen 조건). `sheetSlotRequested` 해제는 위 "요청 해제" 이펙트가 한 곳에서
+      // 판단한다: 여기서 따로 내리면 조건이 둘로 갈려 빈 등록이 남는 창이 다시 생긴다.
+      if (open && sheetGrantInFlightRef.current === challengeId) {
+        sheetGrantInFlightRef.current = null;
+        bumpSheetWaiters();
+      }
+      setSheetOpenCardIds((prev) => {
+        const had = prev.includes(challengeId);
+        if (had === open) return prev; // 같은 값 재보고는 리렌더를 만들지 않는다
+        return open ? [...prev, challengeId] : prev.filter((id) => id !== challengeId);
+      });
+    },
+    [bumpSheetWaiters],
+  );
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
   const me = userId ? detail?.members.find((m) => m.userId === userId) : undefined;
