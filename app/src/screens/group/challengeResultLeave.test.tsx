@@ -280,6 +280,42 @@ describe('탈퇴자(MEMBER_ONLY)의 결과 소비 후 이탈', () => {
 
     await waitFor(() => expect(onLeft).toHaveBeenCalledTimes(1));
   });
+
+  // ⚠️ 소유자가 루트로 옮겨 가며 gate는 **모듈 전역**이 됐다 — 방이 다른 화면 아래에 깔려
+  //    있어도 구독은 그대로 울린다. 그때 이탈하면 goBack()이 **지금 보고 있는 화면**을 팝한다.
+  //    그렇다고 무시하면 이탈 계기를 잃어 탈퇴자가 방에 갇힌다 — 미뤘다가 재포커스 때 잇는다.
+  test('방이 다른 화면 아래에 있으면 이탈을 미루고, 다시 포커스될 때 나간다', async () => {
+    memberOnly();
+    mockGetMyChallengeResults.mockRejectedValue(new Error('network'));
+
+    await renderRoom();
+    expect(onLeft).not.toHaveBeenCalled();
+
+    // 방 위로 다른 화면을 push — 방은 마운트된 채 포커스만 잃는다.
+    await act(async () => {
+      (navigationRef.navigate as unknown as (name: string) => void)('그룹');
+    });
+    await act(async () => {});
+
+    // 그 사이 결과가 "정말 없다"로 확정된다.
+    mockGetMyChallengeResults.mockResolvedValue([]);
+    await act(async () => {
+      notifyBetResultPush();
+    });
+    await act(async () => {});
+
+    expect(getChallengeResultGate()).toBe('none');
+    // 지금 보고 있는 화면을 팝하면 안 된다.
+    expect(onLeft).not.toHaveBeenCalled();
+
+    // 방으로 돌아오는 순간 미뤄 둔 이탈을 잇는다.
+    await act(async () => {
+      navigationRef.goBack();
+    });
+    await act(async () => {});
+
+    await waitFor(() => expect(onLeft).toHaveBeenCalledTimes(1));
+  });
 });
 
 // P1 ① — 새 판정이 도는 동안 이전 판정('없다')이 남아 있으면, 탈퇴자가 결과 딥링크로 방에

@@ -282,6 +282,8 @@ export default function GroupRoomScreen({
   //    이 화면이 결과를 **다시 조회하지 않는** 이유: 같은 엔드포인트를 두 곳에서 부르면 두
   //    판정이 갈려, 호스트가 모달을 띄우는 사이 방이 "결과 0건"으로 판단해 스스로 내려간다.
   const pendingLeaveRef = useRef(false);
+  // 포커스가 아닌 동안 gate가 '없다'로 확정됐다 — 다시 포커스될 때 그 시점의 gate로 재판정한다.
+  const leaveWhenFocusedRef = useRef(false);
   // 구독을 신원 고정으로 유지하려고 onLeft를 ref에 담는다(가장 최근 콜백을 쓴다).
   const onLeftRef = useRef(onLeft);
   onLeftRef.current = onLeft;
@@ -468,6 +470,7 @@ export default function GroupRoomScreen({
     settledSigRef.current = null;
     pendingLeaveRef.current = false; // 이전 그룹의 이탈 유예도 함께 접는다(새 그룹 판단은 새로)
     leftRef.current = false; // 이탈 1회 래치도 그룹 단위다
+    leaveWhenFocusedRef.current = false; // 미뤄 둔 이탈 예약도 그룹 단위다
     // 이전 그룹 카드들의 시트 열림도 함께 접는다 — 그 카드들은 곧 언마운트되며 false를
     // 보고하지만, 그 사이 대기하던 전면 오버레이가 이전 방의 열림 때문에 계속 막히면 안 된다.
     setSheetOpenCardIds([]);
@@ -676,7 +679,17 @@ export default function GroupRoomScreen({
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true;
-      reload();
+      // 포커스가 아닌 동안 gate가 '없다'로 확정돼 미뤄 둔 이탈을 여기서 잇는다(위 구독 주석).
+      // ⚠️ 그때의 판정을 그대로 쓰지 않고 **지금의 gate로 다시 본다** — 그 사이 새 결과가
+      //    도착했으면(pending) 나가면 안 된다.
+      const resumeLeave =
+        leaveWhenFocusedRef.current &&
+        pendingLeaveRef.current &&
+        getChallengeResultGate() === 'none';
+      leaveWhenFocusedRef.current = false;
+      // 나갈 것이라면 조회하지 않는다 — 곧 사라질 화면에 응답을 되씌우지 않는다.
+      if (resumeLeave) leaveRoom();
+      else reload();
       return () => {
         focusedRef.current = false;
         requestSeqRef.current++;
@@ -689,17 +702,28 @@ export default function GroupRoomScreen({
         // 승인을 기다리던 공유 요청도 접는다 — 떠난 화면의 시트가 새 화면 위로 뜨지 않게.
         overlayActionsRef.current?.release(SHARE_SLOT_ID);
       };
-    }, [reload, interactionId, settleSheetSlotWaiters]),
+    }, [reload, interactionId, settleSheetSlotWaiters, leaveRoom]),
   );
 
   // 탈퇴 유예의 종결 — 호스트가 "보여줄 것이 없다"를 확정하는 순간 이탈을 잇는다(N53·C8).
   // 그 순간은 둘이다: 사용자가 **마지막 결과 모달을 닫았을 때**, 그리고 성공한 재조회가
   // **0건을 확정했을 때**(모달이 한 번도 뜨지 못한 채 서버에서 결과가 빠진 경우).
   // 구독은 마운트 1회 — onLeft는 ref로 최신 것을 쓴다.
+  //
+  // ⚠️ **포커스를 확인한다.** 이 방은 설정·내역 등으로 push된 뒤에도 **다른 화면 아래에** 살아
+  //    있다. 그 상태에서 gate가 'none'으로 전이하면 leaveRoom()의 goBack()이 **지금 보고 있는
+  //    화면을 팝한다.** gate는 모듈 전역이라 다른 인스턴스가 세운 전이에도 이 구독이 반응한다
+  //    (load()에 넣은 흐름·계정·마운트 세대 가드는 이 콜백에는 걸리지 않는다).
+  // ⚠️ 그렇다고 **무시하면 안 된다** — 이탈 계기를 영영 잃어 탈퇴자가 방에 갇힌다. 예약해 두고
+  //    다시 포커스됐을 때 **그 시점의 gate로** 다시 판정한다(아래 useFocusEffect).
   useEffect(
     () =>
       subscribeChallengeResultGate((state) => {
         if (!pendingLeaveRef.current || state !== 'none') return;
+        if (!focusedRef.current) {
+          leaveWhenFocusedRef.current = true;
+          return;
+        }
         leaveRoom();
       }),
     [leaveRoom],
