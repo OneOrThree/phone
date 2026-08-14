@@ -354,6 +354,7 @@ describe('위임 실패 통보', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '방장을 넘기지 못했어요',
       '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
     );
     expect(mockToastShow).not.toHaveBeenCalled();
   });

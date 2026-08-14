@@ -280,6 +280,10 @@ describe('삭제', () => {
     });
 
     await waitFor(() => expect(mockGetAnnouncements).toHaveBeenCalledTimes(2));
-    expect(Alert.alert).toHaveBeenLastCalledWith('삭제 실패', '이미 삭제된 공지예요.');
+    expect(Alert.alert).toHaveBeenLastCalledWith(
+      '삭제 실패',
+      '이미 삭제된 공지예요.',
+      expect.anything(),
+    );
   });
 });

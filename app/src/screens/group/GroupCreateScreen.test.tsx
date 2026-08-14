@@ -476,7 +476,11 @@ describe('요청이 떠 있는 구간(§6-2)', () => {
     await press('공유하기');
 
     expect(Share.share).not.toHaveBeenCalled();
-    expect(Alert.alert).toHaveBeenCalledWith('초대 링크를 만들지 못했어요', expect.any(String));
+    expect(Alert.alert).toHaveBeenCalledWith(
+      '초대 링크를 만들지 못했어요',
+      expect.any(String),
+      expect.anything(),
+    );
     expect(logGroupInviteShared).not.toHaveBeenCalled();
   });
 
@@ -520,8 +524,13 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
     expect(Alert.alert).toHaveBeenCalledWith(
       '더 이상 만들 수 없어요',
       '참여할 수 있는 그룹 수를 초과했어요(최대 10개)',
+      expect.anything(),
     );
-    expect(Alert.alert).not.toHaveBeenCalledWith('그룹을 만들지 못했어요', expect.any(String));
+    expect(Alert.alert).not.toHaveBeenCalledWith(
+      '그룹을 만들지 못했어요',
+      expect.any(String),
+      expect.anything(),
+    );
   });
 
   // 유저 행 부재(탈퇴 후 토큰 잔존 등) — #516이 403→404 NOT_FOUND로 정정한 판정(GROMO-1241).
@@ -546,7 +555,11 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
         // 취소 불가 — 무콜백 닫힘(로그아웃 미실행 잔류) 방지 의도를 계약으로 고정(#530 codex).
         { cancelable: false },
       );
-      expect(Alert.alert).not.toHaveBeenCalledWith('그룹을 만들지 못했어요', expect.any(String));
+      expect(Alert.alert).not.toHaveBeenCalledWith(
+        '그룹을 만들지 못했어요',
+        expect.any(String),
+        expect.anything(),
+      );
 
       // 로그아웃은 Alert 확인 버튼에서만 — 알럿이 뜬 것만으론 아직 불리지 않는다.
       expect(triggerLogout).not.toHaveBeenCalled();
@@ -572,6 +585,7 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
     expect(Alert.alert).toHaveBeenCalledWith(
       '그룹을 만들지 못했어요',
       '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
     );
   });
 

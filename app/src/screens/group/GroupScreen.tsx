@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   Platform,
   Share,
   StyleSheet,
@@ -14,6 +13,8 @@ import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/n
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
+import { requestChallengeResultRefresh } from './challengeResultGate';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { useUser } from '@/store/UserContext';
@@ -167,6 +168,10 @@ function emptyGuideSnapshot(userId: string): GroupCardSummarySnapshot<LeagueMemb
 }
 
 export default function GroupScreen() {
+  // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
+  // 마운트되면 사용자는 못 봤는데 seen 마커와 ack이 찍힌다. 이 훅이 Alert 수명 동안
+  // 조정자 slot을 점유해 그걸 막는다(store/useOverlayAlert 헤더).
+  const showAlert = useOverlayAlert('group.alert');
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [loadingDeckViewportHeight, setLoadingDeckViewportHeight] = useState(() =>
@@ -404,30 +409,33 @@ export default function GroupScreen() {
     [navigation],
   );
 
-  const onInviteToGroup = useCallback(async (groupId: string, groupName: string) => {
-    let issuedInvite: { slug: string; url: string };
-    try {
-      issuedInvite = await issueInviteLink(groupId);
-    } catch {
-      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
-      return;
-    }
-    try {
-      const result = await Share.share({
-        message: buildInviteShareMessage(groupName, issuedInvite.url),
-      });
-      if (result.action === Share.sharedAction) {
-        logGroupInviteShared({
-          share_method: 'share_sheet',
-          confirmed: Platform.OS === 'ios',
-          slug: issuedInvite.slug,
-          group_id: groupId,
-        });
+  const onInviteToGroup = useCallback(
+    async (groupId: string, groupName: string) => {
+      let issuedInvite: { slug: string; url: string };
+      try {
+        issuedInvite = await issueInviteLink(groupId);
+      } catch {
+        showAlert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+        return;
       }
-    } catch {
-      // 공유 시트를 띄우지 못한 경우 화면 상태는 그대로 유지한다.
-    }
-  }, []);
+      try {
+        const result = await Share.share({
+          message: buildInviteShareMessage(groupName, issuedInvite.url),
+        });
+        if (result.action === Share.sharedAction) {
+          logGroupInviteShared({
+            share_method: 'share_sheet',
+            confirmed: Platform.OS === 'ios',
+            slug: issuedInvite.slug,
+            group_id: groupId,
+          });
+        }
+      } catch {
+        // 공유 시트를 띄우지 못한 경우 화면 상태는 그대로 유지한다.
+      }
+    },
+    [showAlert],
+  );
 
   // 찾기 시트의 '참여 중' 행 탭 — 참여가 아니라 이동이라 목록 카드 탭과 같은 분기(그룹방 push)를 탄다.
   const onOpenGroup = useCallback(
@@ -503,6 +511,16 @@ export default function GroupScreen() {
     active: invite !== null,
   });
 
+  // 사용자가 **직접 요청한** 새로고침 — 목록만 다시 받으면 부족하다.
+  // ⚠️ 결과 모달의 소유자가 루트 호스트로 옮겨 가며 방·목록과 호스트의 재조회 계기가 갈렸다.
+  //    결과 조회와 제한적 재조회가 모두 실패한 뒤 네트워크가 복구돼도, 여기서 당겨 새로고침하면
+  //    `fetchGroups`만 돌고 결과는 계속 누락된다. 그룹방의 「다시 시도」에 붙인 것과 같은 기준이다
+  //    (사용자가 직접 한 재시도에만 붙인다 — 포커스 복귀 같은 내부 사건에는 붙이지 않는다).
+  const refreshAll = useCallback(async () => {
+    requestChallengeResultRefresh();
+    await fetchGroups();
+  }, [fetchGroups]);
+
   const openFind = useCallback((entryPoint: 'list' | 'header' | 'end_card') => {
     logGroupFindOpened({ entry_point: entryPoint });
     setFindOpen(true);
@@ -541,7 +559,7 @@ export default function GroupScreen() {
     error && !transitioning && groups !== null ? (
       <View style={s.banner}>
         <Text style={s.bannerText}>목록을 새로고침하지 못했어요</Text>
-        <TouchableOpacity onPress={() => fetchGroups()} hitSlop={12} activeOpacity={0.7}>
+        <TouchableOpacity onPress={() => refreshAll()} hitSlop={12} activeOpacity={0.7}>
           <Text style={s.bannerRetry}>다시 시도</Text>
         </TouchableOpacity>
       </View>
@@ -610,7 +628,7 @@ export default function GroupScreen() {
         <View style={[s.body, { paddingBottom: tabBarSafeBottom(insets.bottom) }]}>
           <Text style={s.title}>그룹을 불러오지 못했어요</Text>
           <Text style={s.desc}>잠시 후 다시 시도해 주세요.</Text>
-          <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchGroups()}>
+          <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => refreshAll()}>
             <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>
         </View>
@@ -633,7 +651,7 @@ export default function GroupScreen() {
           onSelect={() => undefined}
           onCreate={openCreate}
           onFind={(entryPoint) => openFind(entryPoint)}
-          onRefresh={fetchGroups}
+          onRefresh={refreshAll}
           guideScreenFocused={isScreenFocused}
           guideEpisode={viewEpisodeRef.current.id}
           groupEntry={viewEpisodeRef.current.source}
@@ -668,7 +686,7 @@ export default function GroupScreen() {
         onStartFocus={onStartGroupFocus}
         onOpenSettings={onOpenGroupSettings}
         onInvite={onInviteToGroup}
-        onRefresh={fetchGroups}
+        onRefresh={refreshAll}
         guideScreenFocused={isScreenFocused}
         guideEpisode={viewEpisodeRef.current.id}
         groupEntry={viewEpisodeRef.current.source}

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   AppState,
   Platform,
   RefreshControl,
@@ -16,6 +15,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
 import { useCoins } from '@/store/CoinContext';
@@ -202,6 +202,10 @@ export default function GroupRoomScreen({
   onLeft,
   onBack,
 }: GroupRoomScreenProps) {
+  // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
+  // 마운트되면 사용자는 못 봤는데 seen 마커와 ack이 찍힌다. 이 훅이 Alert 수명 동안
+  // 조정자 slot을 점유해 그걸 막는다(store/useOverlayAlert 헤더).
+  const showAlert = useOverlayAlert('groupRoom.alert');
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { userId } = useUser();
@@ -755,8 +759,8 @@ export default function GroupRoomScreen({
     const stale = staleBetSheetAlert(betSheet, betChallenge);
     if (stale === null) return;
     setBetSheet(null);
-    Alert.alert(stale[0], stale[1]);
-  }, [betSheet, challenges, betChallenge]);
+    showAlert(stale[0], stale[1]);
+  }, [betSheet, challenges, betChallenge, showAlert]);
 
   // 카드가 올리는 시트 열림 보고(GROMO-1578) — 신원을 고정한다. 매 렌더 새 함수를 주면 카드의
   // 정리 이펙트가 렌더마다 재등록되며 false를 흘려, 시트가 떠 있는데도 열림이 취소된다.
@@ -801,7 +805,7 @@ export default function GroupRoomScreen({
       invite = await issueInviteLink(groupId);
     } catch {
       // 폴백 링크는 두지 않는다 — slug 없는 링크는 서버가 모르는 주소라 404로 끝난다.
-      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+      showAlert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     try {
@@ -822,7 +826,7 @@ export default function GroupRoomScreen({
     } catch {
       // 공유 시트를 못 띄운 경우 — 사용자에게 알릴 것이 없어 조용히 무시한다.
     }
-  }, [groupId, name]);
+  }, [groupId, name, showAlert]);
 
   const openNotice = useCallback(() => {
     navigation.navigate('GroupNotice', { groupId, canWrite: canWriteNotice });
@@ -831,10 +835,13 @@ export default function GroupRoomScreen({
   // 전환 뒤 늦게 도착한 실패 Alert가 지금 보고 있는 다른 그룹 화면 위에 뜨는 것을 막는다
   // (A-7, GROMO-1027·1028). 액션을 건 그룹(targetGroupId)이 여전히 화면에 떠 있을 때만 Alert를 낸다 —
   // renderedGroupIdRef는 렌더 중 groupId 리셋과 같은 기준(지금 그리고 있는 그룹).
-  const alertIfCurrent = useCallback((targetGroupId: string, title: string, message: string) => {
-    if (renderedGroupIdRef.current !== targetGroupId) return;
-    Alert.alert(title, message);
-  }, []);
+  const alertIfCurrent = useCallback(
+    (targetGroupId: string, title: string, message: string) => {
+      if (renderedGroupIdRef.current !== targetGroupId) return;
+      showAlert(title, message);
+    },
+    [showAlert],
+  );
 
   // 챌린지 삭제 — 확인 Alert는 카드가 이미 거쳤다(ChallengeCard). 여기선 호출과 재조회만 한다.
   // 서버가 soft delete로 바꿔 이미 지워진 챌린지를 또 지우면 NOT_FOUND가 오는데,

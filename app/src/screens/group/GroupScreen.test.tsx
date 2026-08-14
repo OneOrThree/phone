@@ -32,6 +32,7 @@ import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
 import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
+import { subscribeChallengeResultRefresh } from './challengeResultGate';
 import { OVERLAY_PRIORITY, OverlaySlotProvider, useOverlaySlot } from '@/store/OverlaySlotContext';
 
 jest.mock('react-native-safe-area-context', () => {
@@ -563,6 +564,30 @@ describe('일반 재조회 실패', () => {
     mockGetMyGroups.mockResolvedValueOnce([summary()]);
     await press('다시 시도');
     await waitFor(() => expect(screen.queryByText('목록을 새로고침하지 못했어요')).toBeNull());
+  });
+
+  // ⚠️ 결과 모달의 소유자가 루트 호스트로 옮겨 가며 이 화면과 호스트의 재조회 계기가 갈렸다.
+  //    결과 조회와 제한적 재조회가 모두 실패한 뒤 네트워크가 복구돼도, 여기서 당겨 새로고침하면
+  //    `fetchGroups`만 돌고 결과는 계속 누락된다 — 사용자가 직접 한 재시도인데 아무 일도 없다.
+  test('사용자가 직접 한 새로고침은 결과 호스트도 깨운다', async () => {
+    const refreshed = jest.fn();
+    const unsubscribe = subscribeChallengeResultRefresh(refreshed);
+    try {
+      mockGetMyGroups.mockResolvedValueOnce([summary()]);
+      await renderScreen();
+      expect(refreshed).not.toHaveBeenCalled(); // 첫 진입은 재시도가 아니다
+
+      mockGetMyGroups.mockRejectedValueOnce(new Error('network'));
+      await refocus();
+      expect(refreshed).not.toHaveBeenCalled(); // 포커스 복귀도 계기가 아니다
+
+      mockGetMyGroups.mockResolvedValueOnce([summary()]);
+      await press('다시 시도');
+
+      expect(refreshed).toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
   });
 });
 

@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Switch,
@@ -15,6 +14,7 @@ import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { useUser } from '@/store/UserContext';
 import { useToast } from '@/store/ToastContext';
 import { getGroupDetail, groupErrorCode, updateGroup } from '@/services/groupApi';
@@ -46,6 +46,10 @@ interface FormBase {
 }
 
 export default function GroupProfileEditScreen() {
+  // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
+  // 마운트되면 사용자는 못 봤는데 seen 마커와 ack이 찍힌다. 이 훅이 Alert 수명 동안
+  // 조정자 slot을 점유해 그걸 막는다(store/useOverlayAlert 헤더).
+  const showAlert = useOverlayAlert('groupProfileEdit.alert');
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { groupId } = useRoute<GroupProfileEditRoute>().params;
@@ -162,9 +166,9 @@ export default function GroupProfileEditScreen() {
     } catch (e) {
       // 정원을 현재 인원 미만으로 줄인 경우 — 사유를 그대로 알려준다(§3-2 code 분기).
       if (groupErrorCode(e) === 'MAX_MEMBERS_TOO_SMALL') {
-        Alert.alert('정원을 줄일 수 없어요', '현재 멤버 수보다 적게 정할 수 없어요.');
+        showAlert('정원을 줄일 수 없어요', '현재 멤버 수보다 적게 정할 수 없어요.');
       } else {
-        Alert.alert('저장하지 못했어요', '잠시 후 다시 시도해 주세요.');
+        showAlert('저장하지 못했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       setSaving(false);

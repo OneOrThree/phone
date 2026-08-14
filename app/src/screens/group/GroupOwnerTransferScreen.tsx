@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +12,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
 import { useUser } from '@/store/UserContext';
@@ -90,6 +90,10 @@ function TransferRow({ member, selected, disabled, onPress }: TransferRowProps) 
 }
 
 export default function GroupOwnerTransferScreen() {
+  // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
+  // 마운트되면 사용자는 못 봤는데 seen 마커와 ack이 찍힌다. 이 훅이 Alert 수명 동안
+  // 조정자 slot을 점유해 그걸 막는다(store/useOverlayAlert 헤더).
+  const showAlert = useOverlayAlert('groupOwnerTransfer.alert');
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { params } = useRoute<GroupOwnerTransferRoute>();
@@ -164,7 +168,7 @@ export default function GroupOwnerTransferScreen() {
               return;
             }
             // 위임은 이미 끝났다 — 나가기만 실패했음을 따로 알린다(재시도는 그룹방에서).
-            Alert.alert(
+            showAlert(
               '그룹 나가기 실패',
               '방장은 넘겼지만 나가기에 실패했어요. 그룹에서 직접 나가 주세요.',
             );
@@ -209,13 +213,13 @@ export default function GroupOwnerTransferScreen() {
             break;
           default:
             // 재시도가 유효한 실패라 Alert 유지(D8). 위 USER_NOT_FOUND 와 같은 이유로 카드는 연 채다.
-            Alert.alert('방장을 넘기지 못했어요', '잠시 후 다시 시도해 주세요.');
+            showAlert('방장을 넘기지 못했어요', '잠시 후 다시 시도해 주세요.');
         }
       } finally {
         setSubmitting(false);
       }
     },
-    [groupId, source, submitting, navigation, show],
+    [groupId, source, submitting, navigation, show, showAlert],
   );
 
   // '넘기기' 탭 — 확인 카드를 거친 뒤에만 위임한다(되돌릴 수 없는 동작).

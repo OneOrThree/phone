@@ -227,7 +227,11 @@ describe('저장 — 바뀐 필드만 PATCH(부분 수정)', () => {
     });
     await press('group.profile.save');
 
-    expect(Alert.alert).toHaveBeenCalledWith('정원을 줄일 수 없어요', expect.any(String));
+    expect(Alert.alert).toHaveBeenCalledWith(
+      '정원을 줄일 수 없어요',
+      expect.any(String),
+      expect.anything(),
+    );
   });
 });
 

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   RefreshControl,
   StyleSheet,
@@ -14,6 +13,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { deleteAnnouncement, getAnnouncements, groupErrorCode } from '@/services/groupApi';
 import type { GroupAnnouncementResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -71,6 +71,10 @@ function deleteErrorMessage(e: unknown): string {
 }
 
 export default function NoticeScreen() {
+  // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
+  // 마운트되면 사용자는 못 봤는데 seen 마커와 ack이 찍힌다. 이 훅이 Alert 수명 동안
+  // 조정자 slot을 점유해 그걸 막는다(store/useOverlayAlert 헤더).
+  const showAlert = useOverlayAlert('groupNotice.alert');
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { groupId, canWrite } = useRoute<NoticeRoute>().params;
@@ -170,7 +174,7 @@ export default function NoticeScreen() {
 
   function confirmDelete(notice: GroupAnnouncementResponse) {
     // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
-    Alert.alert('공지 삭제', `${notice.title} 공지를 삭제할까요?`, [
+    showAlert('공지 삭제', `${notice.title} 공지를 삭제할까요?`, [
       { text: '취소', style: 'cancel' },
       {
         text: '삭제',
@@ -185,7 +189,7 @@ export default function NoticeScreen() {
             // 남고, 사용자는 당겨서 새로고침하기 전까지 같은 카드를 계속 열어 지우려 든다.
             // (그룹 자체가 사라진 404여도 재조회가 '사라진 그룹이에요.'로 화면을 맞춰 준다.)
             if (groupErrorCode(e) === 'NOT_FOUND') fetchNotices();
-            Alert.alert('삭제 실패', deleteErrorMessage(e));
+            showAlert('삭제 실패', deleteErrorMessage(e));
           }
         },
       },
@@ -194,7 +198,7 @@ export default function NoticeScreen() {
 
   // 카드 롱프레스 액션 — 수정·삭제(§6-5). canWrite일 때만 붙는다.
   function openCardMenu(notice: GroupAnnouncementResponse) {
-    Alert.alert(notice.title, '이 공지를 어떻게 할까요?', [
+    showAlert(notice.title, '이 공지를 어떻게 할까요?', [
       { text: '수정', onPress: () => openCompose(notice) },
       { text: '삭제', style: 'destructive', onPress: () => confirmDelete(notice) },
       { text: '취소', style: 'cancel' },

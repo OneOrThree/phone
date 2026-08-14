@@ -902,6 +902,7 @@ describe('챌린지 섹션', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '챌린지를 삭제할 수 없어요',
       '진행 중인 내기가 있어 삭제할 수 없어요.',
+      expect.anything(),
     );
     // 실패했으므로 목록을 다시 받지 않는다(카드는 그대로 살아 있다) — 최초 조회의 오늘 1콜뿐.
     expect(mockGetChallenges).toHaveBeenCalledTimes(1);
@@ -1039,7 +1040,11 @@ describe('내기 배선', () => {
     await foreground();
 
     await waitFor(() => expect(screen.queryByText('참가하기')).toBeNull());
-    expect(alertSpy).toHaveBeenLastCalledWith('내기가 바뀌었어요', '최신 내기로 다시 열어 주세요.');
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '내기가 바뀌었어요',
+      '최신 내기로 다시 열어 주세요.',
+      expect.anything(),
+    );
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
 
@@ -1074,7 +1079,11 @@ describe('내기 배선', () => {
     await foreground();
 
     await waitFor(() => expect(screen.queryByText('참가하기')).toBeNull());
-    expect(alertSpy).toHaveBeenLastCalledWith('마감된 내기예요', '이미 마감돼 참가할 수 없어요.');
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '마감된 내기예요',
+      '이미 마감돼 참가할 수 없어요.',
+      expect.anything(),
+    );
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
 
@@ -1105,6 +1114,7 @@ describe('내기 배선', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '이미 참가한 내기예요',
       '최신 상태로 새로고침했어요.',
+      expect.anything(),
     );
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
@@ -1140,6 +1150,7 @@ describe('내기 배선', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '이미 오늘 내기가 열려 있어요',
       '최신 상태예요. 참가하려면 다시 열어 주세요.',
+      expect.anything(),
     );
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
@@ -1177,6 +1188,7 @@ describe('내기 배선', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '이미 내일 내기가 열려 있어요',
       '최신 상태예요. 참가하려면 다시 열어 주세요.',
+      expect.anything(),
     );
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
@@ -1201,6 +1213,7 @@ describe('내기 배선', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '끝난 챌린지예요',
       '종료된 챌린지에는 내기를 열 수 없어요.',
+      expect.anything(),
     );
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
@@ -1236,6 +1249,7 @@ describe('내기 배선', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '끝난 챌린지예요',
       '종료된 챌린지의 내기에는 참가할 수 없어요.',
+      expect.anything(),
     );
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
@@ -1259,6 +1273,7 @@ describe('내기 배선', () => {
     expect(alertSpy).toHaveBeenLastCalledWith(
       '내기를 열 수 없어요',
       '지금은 내기를 이용할 수 없어요. 잠시 후 다시 시도해 주세요.',
+      expect.anything(),
     );
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
@@ -1859,7 +1874,11 @@ describe('초대 링크 공유', () => {
     await press('초대');
 
     expect(Share.share).not.toHaveBeenCalled();
-    expect(Alert.alert).toHaveBeenCalledWith('초대 링크를 만들지 못했어요', expect.any(String));
+    expect(Alert.alert).toHaveBeenCalledWith(
+      '초대 링크를 만들지 못했어요',
+      expect.any(String),
+      expect.anything(),
+    );
     expect(logGroupInviteShared).not.toHaveBeenCalled();
   });
 

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Clipboard,
   Modal,
   Platform,
@@ -19,6 +18,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { T, withAlpha } from '@/constants/theme';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { getAuthSessionGeneration } from '@/services/api';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
@@ -76,6 +76,10 @@ const VISIBILITY_CAPTION = {
 } as const;
 
 export default function GroupCreateScreen() {
+  // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
+  // 마운트되면 사용자는 못 봤는데 seen 마커와 ack이 찍힌다. 이 훅이 Alert 수명 동안
+  // 조정자 slot을 점유해 그걸 막는다(store/useOverlayAlert 헤더).
+  const showAlert = useOverlayAlert('groupCreate.alert');
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const route = useRoute<RouteProp<V2RootStackParamList, 'GroupCreate'>>();
   const { userId } = useUser();
@@ -178,7 +182,7 @@ export default function GroupCreateScreen() {
       // 공통 문구로 떨어뜨리면 '잠시 후 다시 시도'가 되는데, 시간이 지나도 절대 풀리지 않는
       // 조건이라 사용자가 재시도만 반복한다 — 상한이라는 사실과 숫자를 그대로 알려준다.
       case 'GROUP_LIMIT_EXCEEDED':
-        Alert.alert(
+        showAlert(
           '더 이상 만들 수 없어요',
           `참여할 수 있는 그룹 수를 초과했어요(최대 ${GROUP_LIMIT}개)`,
         );
@@ -198,7 +202,7 @@ export default function GroupCreateScreen() {
           setNameError('그룹 이름을 다시 확인해 주세요');
           return;
         }
-        Alert.alert('그룹을 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+        showAlert('그룹을 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       }
     }
   }
@@ -265,7 +269,7 @@ export default function GroupCreateScreen() {
       inviteRef.current = issued;
       return issued;
     } catch {
-      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+      showAlert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return null;
     }
   }
@@ -308,7 +312,7 @@ export default function GroupCreateScreen() {
         });
       }
     } catch {
-      Alert.alert('공유하지 못했어요', '링크 복사로 대신 공유해 주세요.');
+      showAlert('공유하지 못했어요', '링크 복사로 대신 공유해 주세요.');
     }
   }
 

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Switch,
@@ -14,6 +13,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { getGroupSettings, updateGroupSettings } from '@/services/groupApi';
 import { logGroupNoticeGrantChanged } from '@/services/analyticsEvents';
 import { useUser } from '@/store/UserContext';
@@ -34,6 +34,10 @@ import type { V2RootStackParamList } from '@/navigation/types';
 type PermissionRoute = RouteProp<V2RootStackParamList, 'GroupNoticePermission'>;
 
 export default function GroupNoticePermissionScreen() {
+  // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
+  // 마운트되면 사용자는 못 봤는데 seen 마커와 ack이 찍힌다. 이 훅이 Alert 수명 동안
+  // 조정자 slot을 점유해 그걸 막는다(store/useOverlayAlert 헤더).
+  const showAlert = useOverlayAlert('groupNoticePermission.alert');
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { groupId } = useRoute<PermissionRoute>().params;
@@ -98,7 +102,7 @@ export default function GroupNoticePermissionScreen() {
         setGrants((prev) =>
           prev ? prev.map((g) => (g.userId === userId ? { ...g, granted: !next } : g)) : prev,
         );
-        Alert.alert('저장 실패', '잠시 후 다시 시도해 주세요.');
+        showAlert('저장 실패', '잠시 후 다시 시도해 주세요.');
       } finally {
         setSavingIds((prev) => {
           const set = new Set(prev);
@@ -107,7 +111,7 @@ export default function GroupNoticePermissionScreen() {
         });
       }
     },
-    [groupId, myUserId, savingIds],
+    [groupId, myUserId, savingIds, showAlert],
   );
 
   // 백버튼은 로딩·에러·목록 모든 분기에 세운다 — 루트 스택은 headerShown:false라 이 화면엔
