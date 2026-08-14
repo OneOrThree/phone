@@ -17,6 +17,7 @@ import { T } from '@/constants/theme';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { useUser } from '@/store/UserContext';
+import { useOverlayBlocker } from '@/store/OverlaySlotContext';
 import { getMyGroups } from '@/services/groupApi';
 import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -480,6 +481,15 @@ export default function GroupScreen() {
     };
   }, [groups, successfulListEpisode, userId]);
 
+  // 이 화면이 띄우는 전면 오버레이를 조정자에 알린다(GROMO-1576) — 둘 다 SheetShell asModal이라
+  // 결과 모달·덱 코치마크와 겹칠 수 있다.
+  // ⚠️ 예전엔 이 사실을 `guideBlocked` prop으로 GroupListScreen에 직접 내려보냈다. 지금은
+  //    **조정자에 등록**한다 — 코치마크를 막는 것이 이 두 시트만이 아니기 때문이다(루트의 결과
+  //    모달·그룹방 시트). prop은 자기 자식에게만 말할 수 있어 그 셋을 실어 나를 수 없고,
+  //    prop과 조정자를 함께 두면 같은 개념의 정본이 둘이 된다.
+  useOverlayBlocker('group.findSheet', findOpen);
+  useOverlayBlocker('group.inviteSheet', invite !== null);
+
   const openFind = useCallback((entryPoint: 'list' | 'header' | 'end_card') => {
     logGroupFindOpened({ entry_point: entryPoint });
     setFindOpen(true);
@@ -610,7 +620,6 @@ export default function GroupScreen() {
           onCreate={openCreate}
           onFind={(entryPoint) => openFind(entryPoint)}
           onRefresh={fetchGroups}
-          guideBlocked={findOpen || invite !== null}
           guideScreenFocused={isScreenFocused}
           guideEpisode={viewEpisodeRef.current.id}
           groupEntry={viewEpisodeRef.current.source}
@@ -646,7 +655,6 @@ export default function GroupScreen() {
         onOpenSettings={onOpenGroupSettings}
         onInvite={onInviteToGroup}
         onRefresh={fetchGroups}
-        guideBlocked={findOpen || invite !== null}
         guideScreenFocused={isScreenFocused}
         guideEpisode={viewEpisodeRef.current.id}
         groupEntry={viewEpisodeRef.current.source}

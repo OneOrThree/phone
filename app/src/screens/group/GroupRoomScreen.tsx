@@ -24,17 +24,12 @@ import {
   getAnnouncements,
   getChallenges,
   getGroupDetail,
-  getMyChallengeResults,
   groupErrorCode,
 } from '@/services/groupApi';
 import { USER_NOT_FOUND } from '@/services/sessionErrors';
 import { subscribeBetResultPush } from '@/services/betResultSignal';
-import {
-  logGroupChallengeResultClosed,
-  logGroupChallengeResultShown,
-  logGroupInviteShared,
-  logGroupRoomViewed,
-} from '@/services/analyticsEvents';
+import { logGroupInviteShared, logGroupRoomViewed } from '@/services/analyticsEvents';
+import { useOverlayBlocker } from '@/store/OverlaySlotContext';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import {
   consumeCardInteraction,
@@ -50,22 +45,15 @@ import type {
   GroupDetailMemberResponse,
   GroupDetailResponse,
   GroupSummaryResponse,
-  MyChallengeResultEntry,
 } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { buildInviteShareMessage } from './inviteShare';
 import { fmtNoticeDate } from './noticeDate';
 import { settledSignatureOf } from './lastSettledView';
-import {
-  filterUnseenChallengeResults,
-  markChallengeResultSeen,
-  pickChallengeResults,
-  type ChallengeResultCandidate,
-} from './challengeResult';
+import { getChallengeResultGate, subscribeChallengeResultGate } from './challengeResultGate';
 import BetSheet from './components/BetSheet';
 import ChallengeCard, { type BetSheetMode } from './components/ChallengeCard';
 import ChallengeComposeSheet from './components/ChallengeComposeSheet';
-import ChallengeResultModal from './components/ChallengeResultModal';
 import MemberTile from './components/MemberTile';
 import { GroupRoomBottomBar, GROUP_BOTTOM_BAR_SPACE } from './components/GroupRoomBottomBar';
 import { resolveGroupRoomNotFound } from './groupRoomNotFound';
@@ -183,9 +171,10 @@ export interface GroupRoomScreenProps {
   entrySource?: FocusEntrySource;
   interactionId?: string;
   interactionAcceptedAt?: number;
-  // 챌린지 종료 푸시가 지목한 챌린지(GROMO-1088) — 진입 직후 이 챌린지의 결과 모달을 자동으로 연다.
-  // 딥링크 진입에만 실린다(목록 탭 진입은 undefined). 자세한 규칙은 아래 focusPendingRef 주석.
-  focusChallengeId?: string;
+  // ⚠️ 챌린지 종료 푸시가 지목한 챌린지(focusChallengeId)는 **이 화면의 관심사가 아니다**
+  //    (GROMO-1576). 결과 모달의 소유자가 루트 호스트(ChallengeResultHost)로 옮겨 갔고,
+  //    호스트가 GroupRoom 라우트 파라미터의 challengeId를 직접 읽는다. 라우트 파라미터
+  //    자체는 그대로 남아 있다(navigation/types.ts).
   // 탭 진입점이 가진 요약(getMyGroups[0]) — 상세 응답 도착 전 헤더를 먼저 그리는 용도(선택).
   summary?: GroupSummaryResponse;
   // 환불 푸시(refund=1)로 열린 진입인가(GROMO-1579) — 멤버십 부재가 확정돼도 목록으로
@@ -204,7 +193,6 @@ export default function GroupRoomScreen({
   entrySource: rawEntrySource,
   interactionId: rawInteractionId,
   interactionAcceptedAt: rawInteractionAcceptedAt,
-  focusChallengeId,
   summary,
   refundNotice,
   onLeft,
@@ -246,15 +234,10 @@ export default function GroupRoomScreen({
   // '내기 이전' 모습이라 다시 누르면 같은 내기를 또 열려 한다. 시트가 한 번에 하나뿐이라
   // 챌린지별 플래그 대신 화면 단위 하나로 둔다.
   const [betBusy, setBetBusy] = useState(false);
-  // 챌린지 결과 모달 큐 — load()가 /me/challenge-results(참가자 스코프, N53)에서 미노출분을
-  // 골라 채운다. 맨 앞 한 장만 띄우고, 닫으면 다음 장으로(가드 키가 세션 단위라 큐도 그 단위).
-  const [resultQueue, setResultQueue] = useState<ChallengeResultCandidate[]>([]);
   // 챌린지 카드가 스스로 연 시트(지난 결과·다음 활성일·주간·삭제)가 떠 있는 카드들(GROMO-1578).
   // 카드는 이 시트들을 자기 state로 여닫으므로 부모가 알 방법이 콜백밖에 없다 — 넷 다
-  // SheetShell asModal(RN 네이티브 Modal)이라 결과 모달과 겹치면 딤이 포개지고 표시 순서가
-  // 플랫폼 재량이 된다(아래 resultVisible 주석과 같은 이유).
-  // ⚠️ 공용 오버레이 큐를 만들지 않는다(결정 N04) — IA §"겹치면 하나만 표시"는 문장으로만 있고
-  //    앱에 구현체가 없다. 여기서는 기존 애드혹 배타를 카드 시트까지 넓히는 선에서 끝낸다.
+  // SheetShell asModal(RN 네이티브 Modal)이라 다른 전면 오버레이와 겹치면 딤이 포개지고
+  // 표시 순서가 플랫폼 재량이 된다.
   // boolean 하나가 아니라 챌린지 id 집합인 이유: 카드가 여럿이라 한 카드가 닫을 때 다른 카드의
   // 시트까지 닫힌 것으로 뭉개면 안 된다.
   const [sheetOpenCardIds, setSheetOpenCardIds] = useState<string[]>([]);
@@ -275,28 +258,17 @@ export default function GroupRoomScreen({
   // 그룹방 방문 결과의 view episode — 같은 route의 새로고침·비카드 source 갱신에는 재발행하지 않는다.
   // 같은 그룹이라도 새 카드 CTA ID라면 별도 episode이고, ID 소비는 전역 exact-once 가드가 맡는다.
   const roomViewedRef = useRef<{ groupId: string; interactionId?: string } | null>(null);
-  // 지금 떠 있는 결과 모달의 노출 시각·키 — dwell_ms 계산과 노출 이벤트/가드 1회 실행용.
-  const resultShownAtRef = useRef<number | null>(null);
-  const resultShownKeyRef = useRef<string | null>(null);
-  // ── 챌린지 종료 푸시가 지목한 결과(GROMO-1088) ──
-  // focusPendingRef = 아직 큐에 올리지 못한 대상. 큐에 실린 순간 비운다(1회 소비) —
-  // 비우지 않으면 포커스·포그라운드 복귀·당겨서 새로고침이 부르는 재조회마다 사용자가 닫은
-  // 모달이 다시 뜬다(1회 가드를 일부러 건너뛰는 대상이라 가드가 막아 주지 못한다).
-  // 반대로 **아직 결과가 없으면(집계 전) 소비하지 않는다** — 창형은 앱 진입이 사용분 업로드를
-  // 트리거하는 구조라 진입 직후엔 전원 미확정일 수 있고, 그때는 다음 조회가 이어받아야 한다.
-  // focusKeyRef = 지금 무장한 대상의 신원(그룹+챌린지). 라우트 파라미터가 갈리면(같은 방에서
-  // 다른 챌린지 푸시를 탭) 다시 무장한다.
-  const focusPendingRef = useRef<string | null>(null);
-  const focusKeyRef = useRef<string | null>(null);
-  // 탈퇴 감지(MEMBER_ONLY 또는 NOT_FOUND scope 재확인 완료) 시 이탈(onLeft)을 결과 모달 소비
-  // 뒤로 미루는 플래그
-  // (PR #566 리뷰 ② — 탈퇴자도 자기 정산 결과는 본다, N53·C8). 마지막 결과를 닫을 때 발화한다.
+  // 탈퇴 감지(MEMBER_ONLY 또는 NOT_FOUND scope 재확인 완료) 시 이탈(onLeft)을 **결과 소비 뒤로**
+  // 미루는 플래그(PR #566 리뷰 ② — 탈퇴자도 자기 정산 결과는 본다, N53·C8).
+  //
+  // ⚠️ 결과 큐는 이제 이 화면이 쥐고 있지 않다(GROMO-1576 — 루트 ChallengeResultHost). 그래서
+  //    "지금 보여줄 결과가 있는가"는 호스트가 공표하는 신호(challengeResultGate)로만 안다.
+  //    이 화면이 결과를 **다시 조회하지 않는** 이유: 같은 엔드포인트를 두 곳에서 부르면 두
+  //    판정이 갈려, 호스트가 모달을 띄우는 사이 방이 "결과 0건"으로 판단해 스스로 내려간다.
   const pendingLeaveRef = useRef(false);
-  // 지목 변경을 재조회로 잇기 위한 직전 값 — 아래 이펙트 주석 참고.
-  const focusSeenRef = useRef<{ groupId: string; challengeId?: string }>({
-    groupId,
-    challengeId: focusChallengeId,
-  });
+  // 구독을 신원 고정으로 유지하려고 onLeft를 ref에 담는다(가장 최근 콜백을 쓴다).
+  const onLeftRef = useRef(onLeft);
+  onLeftRef.current = onLeft;
 
   // 이 화면이 지금 그리고 있는 그룹. 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면
   // (React Navigation이 params만 병합해) **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
@@ -314,13 +286,9 @@ export default function GroupRoomScreen({
     loadedDateRef.current = null;
     // 새 그룹의 첫 서명은 비교 대상이 없다 — 이전 그룹의 서명과 비교하면 남의 정산으로 잔액을 다시 받는다.
     settledSigRef.current = null;
-    // 이전 그룹의 결과 모달도 즉시 접는다 — 전환 중 남의 그룹 결과가 새 화면 위에 뜨면 안 된다.
-    resultShownAtRef.current = null;
-    resultShownKeyRef.current = null;
     pendingLeaveRef.current = false; // 이전 그룹의 이탈 유예도 함께 접는다(새 그룹 판단은 새로)
-    setResultQueue([]);
     // 이전 그룹 카드들의 시트 열림도 함께 접는다 — 그 카드들은 곧 언마운트되며 false를
-    // 보고하지만, 그 사이 새 그룹의 결과 모달이 이전 방의 열림 때문에 막히면 안 된다.
+    // 보고하지만, 그 사이 대기하던 전면 오버레이가 이전 방의 열림 때문에 계속 막히면 안 된다.
     setSheetOpenCardIds([]);
     setRefundBlocked(false); // 환불 안내는 그 진입의 판단이다 — 새 그룹으로 옮기지 않는다
     setDetail(null);
@@ -333,14 +301,6 @@ export default function GroupRoomScreen({
     setNoticeError(false);
     setChallengeError(false);
     setLoading(true);
-  }
-
-  // 딥링크 대상 무장 — 렌더 중 조정(위 groupId 리셋과 같은 패턴). 그룹이 바뀌어도 신원이 갈리므로
-  // 이전 그룹의 챌린지를 새 방에서 찾는 일은 없다.
-  const focusKey = focusChallengeId ? `${groupId}:${focusChallengeId}` : null;
-  if (focusKeyRef.current !== focusKey) {
-    focusKeyRef.current = focusKey;
-    focusPendingRef.current = focusChallengeId ?? null;
   }
 
   // 상세 + 공지 + 챌린지 병렬 조회. 세 요청의 실패를 **각각** 다룬다(allSettled) —
@@ -359,103 +319,22 @@ export default function GroupRoomScreen({
     // 서버 KST 고정이라, 기기 로컬 날짜를 보내면 비KST 기기에서 하루 어긋난 조회가 된다.
     const date = todayStrKst();
     setError(false);
-    // 결과 모달의 소스는 참가자 스코프 /me/challenge-results 1콜이다(GROMO-1279 · N53) —
-    // 어제 date 챌린지 재조회로 결과를 역산하던 구 구조는 폐기(challengeResult.ts 파일 주석).
-    // 게스트(userId 없음)는 참가 회차가 있을 수 없어 부르지 않는다. 실패해도 화면 무영향(allSettled).
-    const [detailResult, noticeResult, challengeResult, myResultsResult] = await Promise.allSettled(
-      [
-        getGroupDetail(groupId, date),
-        getAnnouncements(groupId),
-        getChallenges(groupId, date),
-        userId ? getMyChallengeResults() : Promise.resolve<MyChallengeResultEntry[]>([]),
-      ],
-    );
+    // ⚠️ /me/challenge-results 는 **여기서 부르지 않는다**(GROMO-1576). 결과 큐의 소유자는 루트
+    //    ChallengeResultHost 하나이고, 이 화면은 그 판정(challengeResultGate)만 읽는다. 같은
+    //    엔드포인트를 두 곳에서 부르면 두 판정이 갈려, 호스트가 모달을 띄우는 사이 이 방이
+    //    "결과 0건"으로 판단해 스스로 내려가는 경합이 생긴다.
+    const [detailResult, noticeResult, challengeResult] = await Promise.allSettled([
+      getGroupDetail(groupId, date),
+      getAnnouncements(groupId),
+      getChallenges(groupId, date),
+    ]);
     if (seq !== requestSeqRef.current) return false;
-
-    // ── 챌린지 결과 모달 후보 산출(GROMO-1279) — 성공한 조회만으로 계산한다(부분 실패 무영향). ──
-    // 상세 처리보다 **먼저** 둔다(PR #566 리뷰 ②) — 탈퇴자(MEMBER_ONLY)의 onLeft 판단이 "지금
-    // 보여줄 결과가 있는가"를 알아야 하기 때문. 큐는 참가자 스코프라 멤버십과 무관하게 성립한다.
-    // Array.isArray 방어: allSettled는 mock·구서버의 비정상 값도 fulfilled로 통과시킨다.
-    let queuedResults = 0; // 이번 조회로 큐에 실린 결과 수 — 아래 탈퇴 분기의 이탈 유예 근거
-    // '보여줄 결과가 없다'와 **'있는지 모르겠다'**를 가르는 값(codex 후속 리뷰 P2). 결과 조회
-    // 실패·가드 읽기 실패가 여기 해당한다 — 모르는 채로 탈퇴자를 방에서 내보내면(onLeft) 다른
-    // 소속 그룹이 없는 사용자에겐 '다음 조회'가 없어 정산 결과를 영영 못 본다(N53·C8).
-    let resultsUnknown = false;
-    const resultEntries =
-      myResultsResult.status === 'fulfilled' && Array.isArray(myResultsResult.value)
-        ? myResultsResult.value
-        : null;
-    if (resultEntries !== null && userId) {
-      const candidates = pickChallengeResults(resultEntries);
-      // 성공 응답은 **빈 배열도 정본**이다(codex 후속 리뷰 P2). 예전엔 후보가 0건이면 분기를
-      // 통째로 건너뛰어 기존 큐가 그대로 남았다 — 다른 시트에 가려 대기하던 결과가 그 사이
-      // 서버에서 제외되면(다른 기기에서 챌린지 삭제 → FR-44-4로 응답에서 빠짐) 시트를 닫는
-      // 순간 **서버가 이미 지운 과거 결과**가 뜬다. 삭제 환불 푸시와 겹치면 같은 사건 이중
-      // 통지(N48이 금지하는 형태)가 된다. 실패 응답은 여기 오지 않는다(resultEntries === null) —
-      // 네트워크 실패로 대기 결과를 잃지 않는다.
-      let next: ChallengeResultCandidate[] = [];
-      // 가드를 읽어 판정까지 마쳤는가 — null(읽기 실패)이면 '빈 정본'으로 반영하지 않는다.
-      let unseenKnown = true;
-      if (candidates.length > 0) {
-        const unseen = await filterUnseenChallengeResults(userId, candidates);
-        // 가드 조회를 기다리는 사이 새 조회·그룹 전환이 끼어들었으면 이 결과는 낡았다.
-        if (seq !== requestSeqRef.current) return false;
-        if (unseen === null) unseenKnown = false;
-        else {
-          // 푸시가 지목한 챌린지(GROMO-1088)는 같은 challengeId의 **최신 1건이 unseen일 때만**
-          // 큐 앞자리에 세우고 소비한다(PR #566 리뷰 ③). SESSION_END 푸시는 정산 **전**에 오므로
-          // 방금 끝난 회차는 아직 이 큐에 없다 — 이때 seen 우회로 지난 회차를 재노출하며 지목까지
-          // 소비하면, 정작 새 결과가 정산돼 도착했을 때 지목이 죽어 있다. 매치가 전부 본 결과뿐이면
-          // 소비하지 않고 유지한다("후보에 없으면 소비하지 않는다"와 같은 원리 — 다음 재조회가
-          // 이어받는다). candidates는 sessionDate 내림차순이라 첫 매치가 최신이다.
-          const focusId = focusPendingRef.current;
-          let focused: ChallengeResultCandidate[] = [];
-          if (focusId) {
-            const newest = candidates.find((c) => c.challengeId === focusId);
-            if (newest && unseen.some((u) => u.sessionId === newest.sessionId)) {
-              focused = [newest];
-              focusPendingRef.current = null;
-            }
-          }
-          next = [
-            ...focused,
-            ...unseen.filter((c) => !focused.some((f) => f.sessionId === c.sessionId)),
-          ];
-        }
-      }
-      // 가드를 못 읽었으면 큐를 건드리지 않는다 — '빈 정본'은 판정에 성공했을 때만 성립한다.
-      if (!unseenKnown) {
-        resultsUnknown = true;
-      } else {
-        queuedResults = next.length;
-        setResultQueue((prev) => {
-          // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
-          // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
-          // **빈 정본이 와도 이 헤드만은 남긴다** — 사용자가 읽고 있는 모달을 응답 하나로
-          // 걷어내는 것도 사고다. 닫는 순간 큐에서 빠지고(onResultClose) 그 뒤엔 정본만 남는다.
-          // ⚠️ 유지하는 것은 **실제로 떠 있는** 모달뿐이다(코덱스 리뷰). 다른 시트(⋯ 메뉴·만들기·
-          //    내기·초대)에 가려 대기 중인 결과까지 맨 앞에 붙들면, 그 사이 탭한 지목이 뒤로 밀려
-          //    시트를 닫았을 때 사용자가 누른 결과가 아니라 무관한 결과가 먼저 열린다.
-          //    '떠 있는가'의 기준은 노출 이펙트가 세우고 닫을 때 비우는 resultShownKeyRef다.
-          //    가려져 있던 결과는 서버가 여전히 내려 주는 한 unseen에 그대로 남아 next로 돌아온다 —
-          //    돌아오지 않았다면 서버가 제외한 것이므로 여기서 함께 사라지는 것이 옳다.
-          const head = prev[0];
-          if (!head) return next;
-          if (resultShownKeyRef.current !== head.sessionId) return next;
-          return [head, ...next.filter((c) => c.sessionId !== head.sessionId)];
-        });
-      }
-    } else if (userId) {
-      // 결과 조회 자체가 실패했다 — 역시 '없다'가 아니라 '모른다'다(게스트는 참가 회차가
-      // 있을 수 없어 해당 없음). 큐는 그대로 두고 아래 탈퇴 분기가 이탈을 미룬다.
-      resultsUnknown = true;
-    }
 
     let resolvedDetail: GroupDetailResponse | null =
       detailResult.status === 'fulfilled' ? detailResult.value : null;
 
     // 멤버십 부재가 확정돼도 참가자 스코프 결과가 남아 있으면 먼저 소비한다(N53·C8).
-    // 결과 유무를 모르는 회차에는 성공 이탈로 단정하지 않고 다음 명시 재시도에 남긴다.
+    // 결과 유무를 모르는 회차에는 성공 이탈로 단정하지 않고 호스트의 다음 판정에 남긴다.
     const convergeMembershipAbsence = (): boolean => {
       // 환불 푸시로 들어온 착지는 **어떤 경우에도 튕기지 않는다**(GROMO-1579 · GROMO-1421).
       // 삭제·무산 환불 회차는 결과 큐에서 빠지므로(challengeResult의 voidReason 필터 — N48이
@@ -469,20 +348,19 @@ export default function GroupRoomScreen({
         setError(true);
         return true;
       }
-      if (queuedResults > 0 || resultShownKeyRef.current !== null) {
-        pendingLeaveRef.current = true;
-        setError(true);
-        return true;
+      // 호스트가 "보여줄 것이 없다"를 **확정했을 때만** 방을 내린다.
+      // 'pending'(아직 남았다)과 'unknown'(조회·가드 읽기 실패, 아직 조회 전)은 둘 다 유예다 —
+      // 모르는 채로 탈퇴자를 내보내면 다른 소속 그룹이 없는 사용자는 정산 결과를 영영 못 본다.
+      // 유예를 걸어 두면 호스트가 큐를 비우는 순간(마지막 모달을 닫거나, 성공 조회가 0건을
+      // 확정하는 순간) 아래 구독이 onLeft로 잇는다.
+      if (getChallengeResultGate() === 'none') {
+        pendingLeaveRef.current = false;
+        onLeft();
+        return false;
       }
-      if (resultsUnknown) {
-        setError(true);
-        return true;
-      }
-      // 이전 조회에서 결과 소비 뒤 이탈을 보류했더라도 최신 성공 응답이 결과 부재를 확정했고
-      // 실제 모달도 없다면 더 이상 onResultClose가 올 수 없다. 보류를 풀고 즉시 수렴한다.
-      pendingLeaveRef.current = false;
-      onLeft();
-      return false;
+      pendingLeaveRef.current = true;
+      setError(true);
+      return true;
     };
 
     if (detailResult.status === 'rejected') {
@@ -615,18 +493,19 @@ export default function GroupRoomScreen({
     }, [reload, interactionId]),
   );
 
-  // 지목이 바뀌면 재조회한다(GROMO-1088, 코덱스 리뷰) — 이 방이 이미 떠 있는 채로 **같은 그룹의
-  // 다른 챌린지** 푸시를 탭하면 라우트 파라미터만 갈리고 포커스는 유지돼 useFocusEffect가 다시
-  // 돌지 않는다. 그러면 새 지목이 다음 수동 새로고침까지 전혀 처리되지 않는다.
-  // (백그라운드에서 탭한 경우는 AppState 복귀가 재조회를 부르지만, 포그라운드 탭엔 그 계기가 없다.)
-  // ⚠️ 그룹이 함께 바뀌었으면 발사하지 않는다 — load 신원이 갈려 useFocusEffect가 이미 다시 돈다.
-  useEffect(() => {
-    const prev = focusSeenRef.current;
-    focusSeenRef.current = { groupId, challengeId: focusChallengeId };
-    if (prev.groupId !== groupId) return;
-    if (prev.challengeId === focusChallengeId || !focusChallengeId) return;
-    reload();
-  }, [groupId, focusChallengeId, reload]);
+  // 탈퇴 유예의 종결 — 호스트가 "보여줄 것이 없다"를 확정하는 순간 이탈을 잇는다(N53·C8).
+  // 그 순간은 둘이다: 사용자가 **마지막 결과 모달을 닫았을 때**, 그리고 성공한 재조회가
+  // **0건을 확정했을 때**(모달이 한 번도 뜨지 못한 채 서버에서 결과가 빠진 경우).
+  // 구독은 마운트 1회 — onLeft는 ref로 최신 것을 쓴다.
+  useEffect(
+    () =>
+      subscribeChallengeResultGate((state) => {
+        if (!pendingLeaveRef.current || state !== 'none') return;
+        pendingLeaveRef.current = false;
+        onLeftRef.current();
+      }),
+    [],
+  );
 
   // 포그라운드 복귀 — 포커스는 유지된 채라 useFocusEffect가 다시 돌지 않는다.
   // 화면이 떠 있으면 재조회하고, 자정을 넘겼으면 포커스 여부와 무관하게 새 date로 다시 부른다.
@@ -695,61 +574,20 @@ export default function GroupRoomScreen({
     Alert.alert(stale[0], stale[1]);
   }, [betSheet, challenges, betChallenge]);
 
-  // ── 챌린지 결과 모달(A3) ──
-  // 다른 시트가 떠 있으면 미룬다 — 전부 SheetShell asModal(RN 네이티브 Modal)이라 겹치면 딤이
-  // 포개지고 표시 순서도 플랫폼 재량이다. 큐는 상태로 남아 있어 시트가 닫히면 그때 뜬다.
-  // 배타 대상은 지금 이 화면 위에 **모달로** 뜰 수 있는 것 전부다:
+  // ── 이 화면이 띄우는 전면 오버레이를 조정자에 알린다(GROMO-1576) ──
+  // 대상은 지금 이 화면 위에 **RN Modal로** 뜰 수 있는 것 전부다:
   //  · 이 화면이 쥔 것 — 챌린지 만들기(composeOpen) · 내기 개설/참가(betSheet)
   //  · 챌린지 카드가 스스로 쥔 것 — 지난 결과·다음 활성일·주간·삭제 시트(sheetOpenCardIds,
-  //    GROMO-1578). 카드 state라 콜백(onSheetVisibilityChange) 없이는 부모가 알 수 없었고,
-  //    그래서 이 넷은 결과 모달과 그대로 겹쳤다.
-  // ⚠️ '⋯'는 더 이상 모달이 아니다 — GroupSettings 라우트 push라(헤더 onPress) 이 화면이
-  //    가려질 뿐 겹치지 않는다. 초대 시트도 대상이 아니다: 그룹방이 별도 라우트가 된 뒤로는
-  //    목록(GroupScreen)이 소유한 그 시트와 이 화면이 동시에 뜰 수 없다(결정 N03 — 죽어 있던
-  //    inviteOpen prop을 되살리지 않고 제거했다).
-  const currentResult = resultQueue.length > 0 ? resultQueue[0] : null;
-  const resultVisible =
-    currentResult !== null && betSheet === null && !composeOpen && sheetOpenCardIds.length === 0;
-
-  // 노출 이벤트 + 1회 가드 기록 — **모달이 실제로 뜬 순간** 결과당 1회.
-  // 가드를 닫을 때 기록하면 모달이 떠 있는 사이의 재조회가 같은 결과를 큐에 또 넣는다.
-  useEffect(() => {
-    if (!resultVisible || currentResult === null) return;
-    const key = currentResult.sessionId;
-    if (resultShownKeyRef.current === key) return;
-    resultShownKeyRef.current = key;
-    resultShownAtRef.current = Date.now();
-    // 가드 키는 계정 스코프다(IA §8) — userId 없이는 큐 자체가 만들어지지 않아(load의 userId
-    // 가드) 여기 도달하지 않지만, 방어적으로 있을 때만 기록한다.
-    if (userId) markChallengeResultSeen(userId, currentResult.sessionId, currentResult.date);
-    // 정산 결과를 보여주는 순간 잔액도 맞춘다(PR #566 리뷰 ⑤) — 결과 큐가 그룹 무관 소스(N53)가
-    // 되며 다른 그룹·ENDED 챌린지의 정산은 현재 방의 settledBetSignature가 감지하지 못한다.
-    // 중복 호출 무해(서버 재조회일 뿐)·실패 무해(refreshCoins는 throw 없이 false — 다음 조회 재시도).
-    refreshCoins();
-    logGroupChallengeResultShown({
-      // 소스가 /me/challenge-results로 바뀌며(N53) 미션 메타가 응답에 없다 — 대신 정산 결말을
-      // 싣는다(무산·환불 노출도 이 이벤트가 세야 한다).
-      status: currentResult.status,
-      // null(미판정)은 파라미터를 아예 싣지 않는다 — false(미달성)와 뭉개지 않는다.
-      achieved: currentResult.myAchieved ?? undefined,
-      achiever_count: currentResult.achievers.length,
-      member_count: currentResult.memberCount,
-    });
-  }, [resultVisible, currentResult, userId, refreshCoins]);
-
-  const onResultClose = useCallback(() => {
-    const shownAt = resultShownAtRef.current;
-    resultShownAtRef.current = null;
-    resultShownKeyRef.current = null;
-    if (shownAt !== null) logGroupChallengeResultClosed({ dwell_ms: Date.now() - shownAt });
-    setResultQueue((queue) => queue.slice(1));
-    // 탈퇴 감지로 미뤄 둔 이탈(PR #566 리뷰 ②) — 마지막 결과를 닫는 순간 부모에게 넘긴다.
-    // resultQueue.length는 이 콜백의 클로저 값(방금 닫은 장 포함)이라 1 이하 = 이번이 마지막.
-    if (pendingLeaveRef.current && resultQueue.length <= 1) {
-      pendingLeaveRef.current = false;
-      onLeft();
-    }
-  }, [resultQueue.length, onLeft]);
+  //    GROMO-1578). 카드 state라 콜백(onCardSheetVisibilityChange) 없이는 부모가 알 수 없다.
+  // 이 시트들은 **status를 보지 않고 그대로 렌더한다**(useOverlayBlocker) — 사용자가 방금 손으로
+  // 연 것이라 뜨는 것이 옳고, 등록의 목적은 그 위에 결과 모달이 마운트되는 것을 막는 데 있다.
+  // ⚠️ '⋯'는 모달이 아니다 — GroupSettings 라우트 push라 이 화면이 가려질 뿐 겹치지 않는다.
+  //    초대 시트도 대상이 아니다: 그룹방이 별도 라우트가 된 뒤로는 목록(GroupScreen)이 소유한
+  //    그 시트와 이 화면이 동시에 뜰 수 없다.
+  useOverlayBlocker(
+    'groupRoom:sheet',
+    betSheet !== null || composeOpen || sheetOpenCardIds.length > 0,
+  );
 
   // 카드가 올리는 시트 열림 보고(GROMO-1578) — 신원을 고정한다. 매 렌더 새 함수를 주면 카드의
   // 정리 이펙트가 렌더마다 재등록되며 false를 흘려, 시트가 떠 있는데도 열림이 취소된다.
@@ -866,14 +704,10 @@ export default function GroupRoomScreen({
     </TouchableOpacity>
   ) : null;
 
-  // 상세 도착 전(로딩·에러) 분기에도 결과 모달은 그린다(PR #566 리뷰 ②) — 탈퇴자(MEMBER_ONLY)는
-  // detail이 영영 없어서, 본문 분기에만 모달을 두면 참가자 스코프 결과 큐가 화면에 닿지 못한다.
-  // ⚠️ 로딩 전용 분기는 이 브랜치에서 사라졌다(스켈레톤이 본문 안에 있다) — 로딩 중에는 본문이
-  //    그려지므로 모달도 본문 쪽에서 함께 나간다. 남은 조기 반환은 에러 분기 하나뿐이다.
-  const resultModal =
-    resultVisible && currentResult !== null ? (
-      <ChallengeResultModal result={currentResult} onClose={onResultClose} />
-    ) : null;
+  // ⚠️ 결과 모달은 이 화면의 어느 분기에도 없다(GROMO-1576) — 루트의 ChallengeResultHost가
+  //    그린다. 예전엔 상세 도착 전(로딩·에러) 분기에도 일부러 그렸는데, 탈퇴자(MEMBER_ONLY)는
+  //    detail이 영영 없어 본문에만 두면 참가자 스코프 결과가 화면에 닿지 못했기 때문이다.
+  //    호스트가 루트로 올라가며 그 문제 자체가 사라졌다.
 
   // 헤더 — 로딩 분기와 본문이 **같은 노드**를 쓴다. name·인원은 이미 summary 폴백이 있어
   // (위 `detail?.name ?? summary?.name` — 상세 도착 전 헤더를 먼저 그리려고 둔 장치다)
@@ -955,9 +789,9 @@ export default function GroupRoomScreen({
   // ⚠️ 여기는 로딩과 달리 화면을 통째로 바꾼다 — 포커스를 유지할 대상 자체가 없기 때문이다.
   //    이 분기에는 그룹 설정 버튼도 제목도 없고(백버튼만 남는다) 남길 본문도 없다. 로딩→성공은
   //    "같은 화면이 채워지는" 전환이지만, 로딩→실패는 "다른 화면으로 가는" 전환이다.
-  // 탈퇴 유예(pendingLeaveRef) 중에는 이 화면이 결과 모달의 배경이다 — 전면 다크 모달 뒤라
-  // 보이지 않고, 마지막 결과를 닫으면 onResultClose가 onLeft로 잇는다(PR #566 리뷰 ②).
-  // 그래서 이 분기에도 resultModal을 반드시 그린다.
+  // 탈퇴 유예(pendingLeaveRef) 중에는 이 화면이 결과 모달의 **배경**이다 — 모달 자체는 루트
+  // 호스트가 그리고(GROMO-1576), 마지막 결과를 소비하면 challengeResultGate가 'none'으로
+  // 바뀌며 위 구독이 onLeft로 잇는다(PR #566 리뷰 ②).
   // ── 환불 푸시 착지의 멤버십 부재(GROMO-1579) ──
   // 목록으로 튕기지 않고 **여기서 사건을 마무리한다.** 이 화면이 서는 조건은 딱 하나 —
   // 환불 푸시(refund=1)로 들어왔고 서버가 멤버십 부재를 확정했을 때다(convergeMembershipAbsence).
@@ -988,9 +822,8 @@ export default function GroupRoomScreen({
             <Text style={s.retryText}>확인</Text>
           </TouchableOpacity>
         </View>
-        {/* 환불과 무관한 다른 정산 결과가 큐에 남아 있으면 이 안내 위에 그대로 뜬다(N53·C8) —
-            이 화면은 그 모달의 배경이다(아래 에러 분기가 resultModal을 그리는 것과 같은 이유). */}
-        {resultModal}
+        {/* 환불과 무관한 다른 정산 결과가 큐에 남아 있으면 루트 호스트가 이 안내 **위에** 띄운다
+            (N53·C8) — 이 화면은 그 모달의 배경일 뿐이라 여기서 그리지 않는다. */}
       </View>
     );
   }
@@ -1006,7 +839,6 @@ export default function GroupRoomScreen({
             <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>
         </View>
-        {resultModal}
       </View>
     );
   }
@@ -1188,8 +1020,8 @@ export default function GroupRoomScreen({
                     // 오류 응답 분기로는 못 잡는 '잘못된 사전 표시'라 진입 자체를 막고,
                     // 다음 성공 조회(setChallengeError(false))가 다시 연다.
                     betLocked={betBusy || challengeError}
-                    // 카드가 자기 시트를 열고 닫을 때마다 알려 준다 — 결과 모달 배타 조건
-                    // (위 resultVisible)이 이 보고 없이는 카드 시트를 보지 못한다(GROMO-1578).
+                    // 카드가 자기 시트를 열고 닫을 때마다 알려 준다 — 이 보고가 없으면 조정자가
+                    // 카드 시트를 보지 못해 그 위로 결과 모달이 겹친다(GROMO-1578).
                     onSheetVisibilityChange={onCardSheetVisibilityChange}
                     // 철회·취소 직후 목록을 다시 받는다 — 마지막 참가자가 빠져도 서버는 챌린지를
                     // 지우지 않고 휴면으로 남기므로(GROMO-1201) 재조회가 없으면 닫힌 내기·휴면
@@ -1336,9 +1168,6 @@ export default function GroupRoomScreen({
           }}
         />
       )}
-
-      {/* ── 챌린지 결과 모달(A3) — 큐 맨 앞 한 장. 닫으면 다음 결과로 넘어간다 ── */}
-      {resultModal}
     </>
   );
 }

@@ -45,6 +45,8 @@ import { CharacterProvider, transferCharacter } from '@/store/CharacterContext';
 import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
 import { ToastProvider } from '@/store/ToastContext';
+import { OverlaySlotProvider } from '@/store/OverlaySlotContext';
+import ChallengeResultHost from '@/screens/group/ChallengeResultHost';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { clearPendingGroupEntry } from '@/navigation/groupEntrySource';
 import { clearPendingInvite } from '@/navigation/navigationRef';
@@ -518,17 +520,29 @@ function App() {
             <CharacterProvider initialCustomUri={onboardingCutoutUri ?? undefined}>
               <FocusProvider>
                 <SubjectProvider>
-                  {/* 강제 종료된 세션 정산 — 라이브 레코드가 있으면 적립 후 삭제 */}
-                  <OrphanFocusSettler />
-                  {/* 업로드 실패로 대기열에 남은 집중 세션 재전송(앱 시작·포그라운드 복귀) */}
-                  <PendingFocusUploader />
-                  {/* 로그인 상태에서 푸시 권한·토큰 등록·수신 배선 */}
-                  <PushGate />
-                  {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}
-                  <PendingGoalApplier />
-                  {/* 스크린타임 사용량 서버 동기화(어제 마감 + 오늘 중간값, 앱 시작·포그라운드 복귀) */}
-                  <ScreenTimeSyncer />
-                  <RootNavigator initialAppEntry={mainEntryRef.current} />
+                  {/* 전면 오버레이 조정자(GROMO-1576) — 결과 모달·그룹 덱 코치마크·그룹 시트가
+                      같은 순간에 RN Modal로 뜨지 않도록 slot을 하나만 준다. RootNavigator를
+                      **감싸야** 화면 안의 시트·코치마크도 같은 조정자를 쓴다.
+                      ⚠️ ToastProvider 자리(SafeAreaProvider 바로 안)를 쓰지 않는다 — 이 조정자는
+                         로그인 트리 안의 그룹 화면만 다루고, 결과 큐가 userId·CoinProvider에
+                         의존한다. */}
+                  <OverlaySlotProvider>
+                    {/* 강제 종료된 세션 정산 — 라이브 레코드가 있으면 적립 후 삭제 */}
+                    <OrphanFocusSettler />
+                    {/* 업로드 실패로 대기열에 남은 집중 세션 재전송(앱 시작·포그라운드 복귀) */}
+                    <PendingFocusUploader />
+                    {/* 로그인 상태에서 푸시 권한·토큰 등록·수신 배선 */}
+                    <PushGate />
+                    {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}
+                    <PendingGoalApplier />
+                    {/* 스크린타임 사용량 서버 동기화(어제 마감 + 오늘 중간값, 앱 시작·포그라운드 복귀) */}
+                    <ScreenTimeSyncer />
+                    {/* 미확인 정산 결과를 **그룹 흐름에서 도달한 화면 위에** 연다(GROMO-1576).
+                        화면(GroupRoomScreen)이 아니라 여기가 소유자다 — 탈퇴자는 그룹방에 못
+                        들어가고, 카드 덱 랜딩은 방을 열지 않는다. */}
+                    <ChallengeResultHost />
+                    <RootNavigator initialAppEntry={mainEntryRef.current} />
+                  </OverlaySlotProvider>
                 </SubjectProvider>
               </FocusProvider>
             </CharacterProvider>
