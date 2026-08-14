@@ -36,6 +36,7 @@ import {
   ProfileEditScreen,
   OccupationScreen,
   AccountScreen,
+  InquiryScreen,
   GoalsScreen,
   AllowedAppsScreen,
   ScreenTimePermissionScreen,
@@ -279,6 +280,9 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
         <Stack.Screen name="SettingsProfileEdit" component={ProfileEditScreen} />
         <Stack.Screen name="SettingsOccupation" component={OccupationScreen} />
         <Stack.Screen name="SettingsAccount" component={AccountScreen} />
+        {/* 딥링크(navigationRef.ts)에는 등록하지 않는다 — 외부 링크로 이 화면에 직행하는 경로가
+             생기면 사용자가 고르지 않은 담당자의 카카오톡 이동이 트리거될 수 있다(IA §4.1). */}
+        <Stack.Screen name="SettingsInquiry" component={InquiryScreen} />
         <Stack.Screen name="SettingsGoals" component={GoalsScreen} />
         <Stack.Screen name="SettingsAllowedApps" component={AllowedAppsScreen} />
         <Stack.Screen name="SettingsScreenTimePermission" component={ScreenTimePermissionScreen} />

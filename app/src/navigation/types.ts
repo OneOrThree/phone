@@ -120,6 +120,7 @@ export type V2RootStackParamList = {
   SettingsProfileEdit: undefined; // 프로필 편집 (닉네임 · 스킨[준비중])
   SettingsOccupation: undefined; // 준비 시험 변경 (focusCategory)
   SettingsAccount: undefined; // 계정 설정 (소셜 연동 · 로그아웃 · 회원 탈퇴)
+  SettingsInquiry: undefined; // 1:1 문의 (카카오톡 오픈채팅 안내)
   SettingsGoals: undefined; // 개인 목표 수정 (집중 · 사용시간, 내일부터 적용)
   SettingsAllowedApps: undefined; // 집중 중 허용 앱 관리
   SettingsScreenTimePermission: undefined; // 스크린타임 권한 관리
