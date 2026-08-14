@@ -18,6 +18,8 @@ import { kstDateStr } from '@/utils/localDate';
 import type {
   BetSessionStatus,
   BetSessionVoidReason,
+  MissionCategory,
+  MissionType,
   MyChallengeResultEntry,
 } from '@/types/dto/group';
 
@@ -50,6 +52,15 @@ export interface ChallengeResultCandidate {
   pot: number;
   // 판정 기준(분) — 미션 스냅샷. null이면 분모를 지어내지 않고 기록 분만 적는다.
   goalMinutes: number | null;
+  // 미션 스냅샷 나머지(GROMO-1583) — 모달의 FOCUS 창 관용치 고지 조건이 읽는다.
+  // 스냅샷은 **한 덩어리로** 옮긴다: 창 시각은 지금 모달이 쓰지 않지만, 조각내면 다음 소비자가
+  // DTO→후보 배선을 또 해야 하고 그 사이 두 필드가 서로 다른 회차의 값이 될 여지가 생긴다.
+  // 전부 선택 필드다 — 구서버 응답에는 없고(undefined), 손으로 후보를 만드는 화면(MenuScreen
+  // 디자인 프리뷰)도 생략할 수 있어야 한다. 조건은 '모른다'면 서지 않는다.
+  missionCategory?: MissionCategory | null;
+  missionType?: MissionType | null;
+  windowStart?: string | null;
+  windowEnd?: string | null;
   // 달성(achieved=true) · 미달성(false) · 미판정(null) 명단 — 3상을 뭉개지 않는다.
   achievers: ChallengeResultMember[];
   failed: ChallengeResultMember[];
@@ -108,6 +119,12 @@ export function pickChallengeResults(
       stake: e.stake,
       pot: e.pot,
       goalMinutes: e.goalMinutes,
+      // undefined(구서버)와 null(창형이 아닌 회차)을 여기서 null로 합친다 — 소비자는 '모른다'
+      // 하나만 보면 된다(LastBetResultSheet가 goalMinutes에 쓰는 규칙과 같다).
+      missionCategory: e.missionCategory ?? null,
+      missionType: e.missionType ?? null,
+      windowStart: e.windowStart ?? null,
+      windowEnd: e.windowEnd ?? null,
       achievers: members(e.results, true),
       failed: members(e.results, false),
       pending: members(e.results, null),
