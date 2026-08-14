@@ -368,7 +368,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    E1["탭: 그룹"] --> GD
+    E1["탭: 그룹"] -->|"소속 1개 이상"| GD
     E2["묶음 푸시: 오늘 챌린지 N개"] -->|"딥링크 groupId"| GR
     E3["묶음 푸시: 결과 N건"] -->|"groupId"| GD
     E4["푸시: 승리 확정"] -->|"groupId + challengeId"| GR
@@ -378,15 +378,20 @@ flowchart LR
 
     GD["그룹 탭 랜딩<br/>(내 그룹 카드 덱)"] --> GR
     GR["GroupRoomScreen"]
+    GZ["소속 0개 빈 상태<br/>(전원 탈퇴)"]
     GD -.->|"미확인 결과가 있으면"| RM
     GR -.->|"미확인 결과가 있으면"| RM
-    RM["결과 모달<br/>(도달한 화면 위 오버레이)"]
+    GZ -.->|"미확인 결과가 있으면"| RM
+    E1 -->|"소속 0개"| GZ
+    RM["결과 모달<br/>(그룹 탭 셸이 얹는 오버레이)"]
 ```
 
 > **결과 모달은 특정 화면에 매이지 않는다 (N56).** 그룹 3차 이후 그룹 탭 랜딩은 그룹방이 아니라
 > **카드 덱**이라, 모달을 그룹방에만 두면 카드 덱만 보고 나가는 사용자와 **그룹방에 못 들어가는
 > 탈퇴자**가 자기 결과를 못 본다. 위 그림의 점선은 "화면 이동"이 아니라 **도달한 화면 위에 열린다**는
-> 뜻이다.
+> 뜻이고, **얹는 주체는 개별 화면이 아니라 그룹 탭 셸**이다(HLD §1). **소속 0개 빈 상태(`GZ`)까지
+> 점선이 닿는 것이 핵심** — 모든 그룹에서 탈퇴하면 카드가 0장이라, 이 화면을 빼면 결과 푸시를
+> 열지 않는 한 자기 결과를 볼 인앱 경로가 사라진다.
 
 ### 4.2 알림 → 화면 라우팅
 
@@ -402,7 +407,7 @@ flowchart LR
 | `BET_WON` | `type` · `groupId` · `challengeId` | **null** | 그룹방 — 앱이 `groupId`로 합성 | ✅ |
 | `BET_RESULT` | `type` · `groupId` *(단건만 `challengeId`)* | **채움** `gromo://group?g=…` | 착지 화면 (미확인 결과가 있으면 그 위에 결과 모달 — N56) | ✅ |
 | `BET_VOID_REFUND` | `type` · `groupId` · `voidReason`? *(단건만 `challengeId`)* | **null** | 그룹방 — 앱이 `groupId`로 합성. **모달은 열지 않는다** (N48 — 이중 통지) | ✅ |
-| `BET_SILENT_FLUSH` *(사일런트)* | `content-available` / data-only | — | **없음** — 큐 flush 전용 | — |
+| *(사일런트 — `data.type` **없음**)* | `silent=flush` · `groupId` | **null** | **없음** — 큐 flush 전용 | — |
 
 > **`CHALLENGE_SESSION_END`는 존재하지 않는 타입이다.** `back/` 전체 grep 0건 — 이전 판의 이 행은
 > 서버에 없는 문자열을 문서가 지어낸 것이었다. 실제 종료 알림은 **`CHALLENGE_WINDOW_END`**(창형,
@@ -418,6 +423,14 @@ flowchart LR
 > `BET_VOID_REFUND`뿐**이고, 이 셋은 앱이 `data.groupId`로 딥링크를 합성해야 착지한다.
 > 합성이 없으면 **탭해도 아무 데도 안 간다** (LLD §6.2 앱 파일 표).
 
+> **사일런트 푸시에는 `data.type`이 없다 — 판정 키는 `data.silent === 'flush'`다.**
+> `SilentFlushPushService`가 보내는 payload는 `{silent: 'flush', groupId}` 둘뿐이고
+> `PushMessage.silent()`가 title·link를 비워 FCM에서 notification 블록이 빠진다(iOS
+> `content-available`). **`BET_SILENT_FLUSH`는 payload 값이 아니라 `notification_sent_logs`의
+> 클레임 타입**(회차당 1회 발송을 선점하는 축)이다. 두 축을 섞어 `data.type === 'BET_SILENT_FLUSH'`
+> 로 수신기를 만들면 **큐 flush가 한 번도 실행되지 않는다** — 앱의 판정도
+> `isSilentFlush(data) = data?.silent === 'flush'` 하나다.
+
 **묶음 발송의 페이로드 규칙**: 여러 건이 한 푸시에 묶이면 **`challengeId`를 아예 빼고**(요약
 배열도 싣지 않는다) 딥링크는 그룹방까지만 보낸다. 특정 챌린지로 스크롤하지 않는다 — 어느 것을
 고를지 서버가 정할 근거가 없다. 같은 원리로 `BET_VOID_REFUND` 묶음의 `voidReason`은 **사유가
@@ -431,6 +444,8 @@ flowchart LR
 | 축 | 규칙 |
 |---|---|
 | **트리거** | **미확인 결과 1건 이상.** 그룹 탭 랜딩(카드 덱)·그룹방·결과 푸시 착지 — 어디로 도달했든 그 화면 위에 연다. 화면 좌표에 매지 않는다 (N56) |
+| **소유자** | **그룹 탭 셸** — 개별 화면이 아니라 셸이 오버레이를 얹는다. 화면이 바뀌어도 큐는 살아 있다 (HLD §1 · 구현은 후속 GROMO-1575·1576) |
+| **소속 0개** | **빈 상태 화면 위에도 띄운다.** 카드가 0장이라고 조회를 끄지 않는다 — 전원 탈퇴자의 유일한 인앱 경로다. 수명은 큐 소진(전건 ack)까지 |
 | **대상** | `GET /me/challenge-results` 응답 전부 (참가자 스코프 — N53) |
 | **데이터** | **조회 1건** — `GET /me/challenge-results`. 날짜를 따로 부르지 않고 카드 조회에도 기대지 않는다 |
 | **순서** | `sessionDate` 내림차순 → 동률이면 챌린지 `startedAt` 순. 최근 것부터 |

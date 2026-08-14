@@ -241,7 +241,11 @@ journey
 | 승리 확정 | `BET_WON` | 목표를 채운 순간 | 본인 | ✅ | FR-43 |
 | 결과 | `BET_RESULT` | 정산 완료 | 참가자 | ✅ | FR-43 |
 | **무효화 환불** | **`BET_VOID_REFUND`** | **회차 무효화 + 환불 커밋 직후** (챌린지 삭제 · 인원 미달 무산 · 24h 자동 환불) | 해당 회차 참가자 | ✅ | FR-44-4 · **K3 해소** |
-| 사일런트 | `BET_SILENT_FLUSH` | 정산 직전 (`settle_after` − 15분) | 해당 회차 참가자 | 무음 | FR-22 · 설계 |
+| 사일런트 | **`type` 없음** — `silent=flush` | 정산 직전 (`settle_after` − 15분) | 해당 회차 참가자 | 무음 | FR-22 · 설계 |
+
+> **사일런트만 `data.type`이 없다.** payload는 `{silent: 'flush', groupId}` 둘뿐이고 앱은
+> `data.silent === 'flush'`로 판정한다. `BET_SILENT_FLUSH`는 payload 값이 아니라 발송 로그
+> (`notification_sent_logs`)의 **클레임 타입**이라 이 열에 적으면 수신기가 안 걸린다 (IA §4.2).
 
 > ⚠️ **위 다이어그램(`cond-04-notify-timeline`)은 아직 `CHALLENGE_SESSION_END`를 그리고 있다** —
 > 서버에 없는 타입이다(§4.8의 주). 다이어그램 자산은 별도 후속으로 다시 그린다. 타입명의 정본은
@@ -579,7 +583,7 @@ flowchart TB
 | 승리 확정 | `BET_WON` | 목표 달성 순간 | 본인 | ✅ |
 | 결과 | `BET_RESULT` | 정산 완료 | 참가자 | ✅ |
 | 무효화·환불 | `BET_VOID_REFUND` | 무효화+환불 커밋 직후 | 참가자 | ✅ |
-| 사일런트 | `BET_SILENT_FLUSH` | 정산 직전 | 참가자 | 무음 (큐 flush 전용) |
+| 사일런트 | **`type` 없음** — `silent=flush` | 정산 직전 | 참가자 | 무음 (큐 flush 전용) |
 
 > **종료 알림은 타입이 둘로 갈린다.** `CHALLENGE_SESSION_END`라는 타입은 **서버에 없다** —
 > 창형은 `CHALLENGE_WINDOW_END`, 일 목표형은 `CHALLENGE_ENDED`다. 같은 사건인데 문자열을
