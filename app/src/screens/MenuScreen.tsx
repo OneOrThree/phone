@@ -427,6 +427,16 @@ export default function MenuScreen() {
             sub="소셜 연동 · 로그아웃 · 회원 탈퇴"
             onPress={() => navigation.navigate('SettingsAccount')}
           />
+          {/* 앱의 유일한 문의 창구다(docs/prd/inquiry/information-architecture.md §5).
+               다른 진입점이 생기면 inquiry_screen_viewed 의 entry_point 를 함께 넓혀야 한다. */}
+          <SettingsRow
+            icon="chatbubble-ellipses-outline"
+            iconColor={T.inkSub}
+            iconBg={T.sandLight}
+            label="1:1 문의"
+            sub="궁금한 점 · 오류 신고"
+            onPress={() => navigation.navigate('SettingsInquiry')}
+          />
           <SettingsRow
             icon="document-text-outline"
             iconColor={T.inkSub}
