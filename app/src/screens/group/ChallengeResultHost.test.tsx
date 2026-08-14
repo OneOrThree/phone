@@ -883,6 +883,26 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
       expect(screen.getByText('7월 30일 결과')).toBeOnTheScreen();
     });
 
+    // ⚠️ 지목은 유지하되 **그 변화 자체는 재조회 계기가 아니다.** 내부 화면으로 갈 때 값 → null,
+    //    돌아올 때 null → 값으로 두 번 바뀌는데, 그것을 계기로 삼으면 지목된 푸시 진입마다
+    //    결과 API 호출이 두 번씩 덧붙는다(정본이 정한 계기 셋에 내부 이동은 없다).
+    test('지목이 있는 채 내부 화면을 오가도 조회 횟수가 늘지 않는다', async () => {
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await renderHost({ initialRoute: '홈' });
+      await navigate('GroupRoom', { groupId: GROUP_ID, challengeId: 'c-target' });
+      expect(mockGetMyChallengeResults).toHaveBeenCalledTimes(1);
+
+      // 지목 없는 내부 화면으로 갔다가(값 → null) 돌아온다(null → 값).
+      await navigate('GroupSettings', { groupId: GROUP_ID });
+      await navigate('GroupRoom', { groupId: GROUP_ID, challengeId: 'c-target' });
+
+      expect(mockGetMyChallengeResults).toHaveBeenCalledTimes(1);
+
+      // **새** 지목은 여전히 계기다 — 같은 방에서 다른 챌린지 푸시를 탭한 경우.
+      await navigate('GroupRoom', { groupId: GROUP_ID, challengeId: 'c-other' });
+      expect(mockGetMyChallengeResults).toHaveBeenCalledTimes(2);
+    });
+
     // 반대 축 — 그룹 흐름을 **완전히** 벗어나면 지목은 그 진입의 사건과 함께 끝난다.
     test('그룹 흐름을 벗어나면 지목을 버린다 — 다음 진입은 새 사건이다', async () => {
       mockGetMyChallengeResults.mockResolvedValue([]);

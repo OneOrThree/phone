@@ -250,7 +250,17 @@ export interface ChallengeCardProps {
   // 됐거나 부모가 요청을 접었다). 미전달이면 종전대로 곧바로 연다.
   // ⚠️ 동기로 열리는 시트(지난 결과·다음 활성일)는 이 게이트를 타지 않는다 — 전면 모달이 떠
   //    있으면 그 버튼을 누를 수 없어 겹칠 수 없다(OverlaySlotContext의 A/B 판단).
-  onRequestSheetSlot?: () => Promise<boolean>;
+  // ⚠️ 카드 신원을 실어 부른다 — 부모가 **요청을 카드에 묶어** 두어야, 승인을 기다리는 사이
+  //    이 카드가 사라졌을 때(재조회에서 챌린지가 빠짐) 그 요청을 취소할 수 있다. 취소하지
+  //    않으면 나중에 승인이 떨어져 **사라진 카드**가 자기 id를 부모의 열림 집합에 넣고,
+  //    되돌릴 카드가 없어 전면 오버레이가 영구히 막힌다.
+  onRequestSheetSlot?: (challengeId: string) => Promise<boolean>;
+  // 이 카드가 **사라진다**는 신호 — 승인을 기다리던 요청을 부모가 취소한다.
+  // ⚠️ 위 `onSheetVisibilityChange(id, false)`로 대신할 수 없다. 그 신호는 "시트가 닫혔다"와
+  //    "카드가 사라졌다"를 구분하지 못해, 닫힘 보고가 멀쩡히 대기 중인 요청까지 취소한다.
+  //    취소하지 않으면 반대로, 나중에 승인이 떨어져 **사라진 카드**가 자기 id를 부모의 열림
+  //    집합에 넣고 되돌릴 주체가 없어 전면 오버레이가 영구히 막힌다.
+  onAbandonSheetSlot?: (challengeId: string) => void;
 }
 
 export default function ChallengeCard({
@@ -263,6 +273,7 @@ export default function ChallengeCard({
   onBetChanged,
   onSheetVisibilityChange,
   onRequestSheetSlot,
+  onAbandonSheetSlot,
 }: ChallengeCardProps) {
   // 내기 참가 철회의 API·잔액 갱신을 카드가 직접 쥔다 — 시트(BetSheet)는 참가자
   // 상태에선 부모(GroupRoomScreen)의 stale 검사가 즉시 닫아 버려 진입 자체가 불가능하고,
@@ -698,7 +709,7 @@ export default function ChallengeCard({
 
   // await 뒤에 여는 시트의 승인 게이트(위 onRequestSheetSlot 주석). 부모가 미전달이면 통과.
   async function claimSheetSlot(): Promise<boolean> {
-    return (await onRequestSheetSlot?.()) ?? true;
+    return (await onRequestSheetSlot?.(challenge.id)) ?? true;
   }
 
   function openJoinNextSheet() {
@@ -1192,8 +1203,12 @@ export default function ChallengeCard({
   // 열림 집합에 이 카드가 영원히 남아 결과 모달이 다시는 뜨지 않는다. 의존성은 신원뿐이라
   // (콜백은 부모가 useCallback으로 고정) 실제로 언마운트에서만 돈다.
   useEffect(() => {
-    return () => onSheetVisibilityChange?.(challenge.id, false);
-  }, [onSheetVisibilityChange, challenge.id]);
+    return () => {
+      onSheetVisibilityChange?.(challenge.id, false);
+      // 승인 대기 중이던 비동기 시트 요청도 함께 접는다(위 onAbandonSheetSlot 주석).
+      onAbandonSheetSlot?.(challenge.id);
+    };
+  }, [onSheetVisibilityChange, onAbandonSheetSlot, challenge.id]);
 
   return (
     // 카드 자체는 더 이상 아무 제스처도 받지 않는다(GROMO-1101 — 롱프레스 삭제 제거).

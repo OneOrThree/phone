@@ -426,6 +426,10 @@ export default function ChallengeResultHost() {
   const loadRef = useRef(load);
   loadRef.current = load;
 
+  // 이 흐름 진입에서 이미 조회했는가 / 이미 소비한 지목은 무엇인가(아래 진입 이펙트가 쓴다).
+  const enteredFlowRef = useRef(false);
+  const loadedFocusKeyRef = useRef<string | null>(null);
+
   // 계정 경계 — 이전 계정의 큐·노출 상태를 새 계정으로 물려주지 않는다. 마운트에도 돈다
   // (App.tsx가 userId로 트리를 가르므로 마운트 = 새 계정 트리의 시작이고, gate는 모듈 상태라
   // 이전 트리의 판정이 남아 있다).
@@ -436,14 +440,30 @@ export default function ChallengeResultHost() {
     shownAtRef.current = null;
     shownKeyRef.current = null;
     setChallengeResultGate('unknown');
+    // 계정이 갈리면 "이 흐름에서 이미 조회했다"는 사실도 무효다 — 아래 진입 이펙트가 다시 부른다.
+    enteredFlowRef.current = false;
+    loadedFocusKeyRef.current = null;
   }, [userId]);
 
-  // 그룹 흐름 **진입**(셸 활성화) · 지목 변경 → 조회. 그룹 흐름 밖에서는 아무것도 하지 않는다.
+  // 그룹 흐름 **진입**(셸 활성화) · **새 지목 도착** → 조회. 그룹 흐름 밖에서는 아무것도 하지 않는다.
   // ⚠️ 그룹 흐름 **내부** 이동(목록 → 그룹방 → 설정 → 복귀)은 계기가 아니다 — 정본이 못 박은
   //    계기는 셋뿐이다(policy §D3 · HLD): 셸 활성화 · 포그라운드 복귀 · BET_RESULT 수신.
+  // ⚠️ 그래서 `focusKey`를 **의존성으로만** 두면 안 된다. 지목을 유지하도록 고친 뒤로 그 값은
+  //    파라미터 없는 내부 화면(GroupSettings 등)으로 갈 때 값 → null, 돌아올 때 null → 값으로
+  //    두 번 바뀐다. 그대로 두면 지목된 푸시 진입마다 **결과 API 호출이 두 번씩** 덧붙는다.
+  //    지목은 유지하되(위 무장 블록) **그 변화 자체는 계기가 아니다** — 아직 조회한 적 없는
+  //    **새 non-null 지목**일 때만 부른다.
   useEffect(() => {
-    if (!flow.inFlow) return;
-    load();
+    if (!flow.inFlow) {
+      enteredFlowRef.current = false;
+      loadedFocusKeyRef.current = null;
+      return;
+    }
+    const enteredNow = !enteredFlowRef.current;
+    enteredFlowRef.current = true;
+    const newFocus = flow.focusKey !== null && flow.focusKey !== loadedFocusKeyRef.current;
+    if (newFocus) loadedFocusKeyRef.current = flow.focusKey;
+    if (enteredNow || newFocus) load();
   }, [flow.inFlow, flow.focusKey, load]);
 
   // 포그라운드 복귀 — 백그라운드에 있는 동안 정산이 끝났을 수 있다.

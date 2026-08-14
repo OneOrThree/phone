@@ -75,25 +75,30 @@ let gateResult: 'pending' | 'granted' | 'denied' | 'idle' = 'idle';
 const gateResults: Record<string, 'pending' | 'granted' | 'denied'> = {};
 // 승인받은 카드가 "열었다"고 부모에 보고하는 콜백 — 실제 카드의 openSheet()에 해당한다.
 let reportOpen: ((challengeId: string, open: boolean) => void) | null = null;
+// 카드가 사라진다고 알리는 콜백 — 실제 카드의 언마운트 정리에 해당한다.
+let reportGone: ((challengeId: string) => void) | null = null;
 jest.mock('./components/ChallengeCard', () => {
   const { Text: RNText, TouchableOpacity: RNTouchable } = require('react-native');
   return function MockCard({
     challenge: card,
     onRequestSheetSlot,
     onSheetVisibilityChange,
+    onAbandonSheetSlot,
   }: {
     challenge: { id: string };
-    onRequestSheetSlot?: () => Promise<boolean>;
+    onRequestSheetSlot?: (challengeId: string) => Promise<boolean>;
     onSheetVisibilityChange?: (challengeId: string, open: boolean) => void;
+    onAbandonSheetSlot?: (challengeId: string) => void;
   }) {
     reportOpen = onSheetVisibilityChange ?? null;
+    reportGone = onAbandonSheetSlot ?? null;
     return (
       <RNTouchable
         testID={`card.asyncSheet.open.${card.id}`}
         onPress={() => {
           gateResult = 'pending';
           gateResults[card.id] = 'pending';
-          onRequestSheetSlot?.().then((granted) => {
+          onRequestSheetSlot?.(card.id).then((granted) => {
             gateResult = granted ? 'granted' : 'denied';
             gateResults[card.id] = granted ? 'granted' : 'denied';
           });
@@ -192,6 +197,7 @@ beforeEach(async () => {
   gateResult = 'idle';
   Object.keys(gateResults).forEach((key) => delete gateResults[key]);
   reportOpen = null;
+  reportGone = null;
   resetChallengeResultGateForTests();
   mockGetGroupDetail.mockResolvedValue(detail());
   mockGetAnnouncements.mockResolvedValue([]);
@@ -308,6 +314,37 @@ test('그룹이 바뀌면 대기 중인 시트 요청을 거절한다', async ()
 
   // A의 요청은 승인되지 않는다 — 승인됐다면 B 화면에 A의 열림이 영구히 남는다.
   await waitFor(() => expect(gateResults.c1).toBe('denied'));
+});
+
+// ⚠️ 그룹 전환과 달리 **같은 그룹 안에서 카드만 사라지는** 경우가 있다(재조회에서 그 챌린지가
+//    삭제·종료로 빠짐). 그때 요청을 취소하지 않으면, 나중에 slot이 풀렸을 때 **언마운트된 카드**의
+//    비동기 함수가 true를 받아 openSheet()로 사라진 challengeId를 열림 집합에 넣는다.
+//    그걸 false로 되돌릴 카드가 없으니 `sheetOpen`과 overlay slot이 **영구히 잠긴다.**
+test('대기 중 카드가 사라지면 그 요청은 거절되고 slot이 풀린다', async () => {
+  const view = await render(tree(true));
+  await act(async () => {});
+
+  await openAsyncSheet('c1');
+  expect(gateResults.c1).toBe('pending');
+
+  // 재조회에서 그 챌린지가 목록에서 빠졌다 — 카드가 요청을 문 채 언마운트된다.
+  await act(async () => {
+    reportGone?.('c1');
+  });
+  await act(async () => {});
+
+  // 요청은 거절된다 — 사라진 카드가 나중에 열림 집합을 오염시키지 못한다.
+  expect(gateResults.c1).toBe('denied');
+
+  // 그리고 **승인 자리가 잠기지 않는다.** 보유자를 놓고 다시 요청하면 곧바로 승인된다 —
+  // 사라진 카드가 자리를 문 채로 남아 있었다면 여기서 영영 막힌다.
+  await act(async () => {
+    view.rerender(tree(false));
+  });
+  await act(async () => {});
+
+  await openAsyncSheet('c1');
+  await waitFor(() => expect(gateResults.c1).toBe('granted'));
 });
 
 test('가릴 것이 없으면 곧바로 승인한다 — 평소 경로에 지연을 넣지 않는다', async () => {
