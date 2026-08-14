@@ -83,6 +83,37 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
             @Param("cutoff") Instant cutoff,
             @Param("now") Instant now);
 
+    /**
+     * <b>미발송 클레임 소비</b> — 사용자가 인앱에서 그 사건을 이미 확인해 푸시를 보낼 이유가 사라진
+     * 경우, 아직 안 나간 {@code PENDING}·{@code DEFERRED} 클레임을 {@code SENT}(소비 확정)로 닫는다
+     * (GROMO-1577 · policy B17).
+     *
+     * <p>결과 모달 ack 이 첫 사용처다. 15분 묶음 슬롯이 닫히기 전이나 조용한 시간 이월(N44) 중에
+     * 사용자가 조회로 먼저 결과를 보고 ack 하면, 이걸 닫지 않는 한 <b>이미 본 결과의 푸시가 나중에
+     * 도착</b>하고 탭하면 결과 없이 그룹방만 열린다.
+     *
+     * <p><b>삭제가 아니라 {@code SENT} 인 이유</b>: 지우면 48시간 재훑기가 같은 사건을 다시 선점해
+     * 푸시가 되살아난다. {@code SENT} 는 이 파이프라인에서 "다시 나가지 않음"을 뜻하고,
+     * 재조립 불가 건을 소비 확정할 때 이미 같은 방식을 쓰고 있다({@code flushClaims}).
+     * 이미 발송된({@code SENT}) 건은 조건에서 빠져 {@code sent_at} 이 덮이지 않는다.
+     *
+     * @return 닫은 클레임 수(0 = 애초에 없었거나 이미 발송·소비됨)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE NotificationSentLog l SET "
+            + "l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.SENT, "
+            + "l.sentAt = :now, l.nextAttemptAt = null "
+            + "WHERE l.userId = :userId AND l.kind = :kind AND l.subjectId = :subjectId "
+            + "AND l.status IN ("
+            + "com.oneorthree.phone.notification.domain.NotificationSendStatus.PENDING, "
+            + "com.oneorthree.phone.notification.domain.NotificationSendStatus.DEFERRED)")
+    int consumeUnsentClaims(
+            @Param("userId") UUID userId,
+            @Param("kind") String kind,
+            @Param("subjectId") UUID subjectId,
+            @Param("now") Instant now);
+
     /** 사건 클레임 행 단건 — 재클레임 성공 후 행 id·묶음 메타를 다시 읽는 용도. */
     Optional<NotificationSentLog> findByUserIdAndKindAndSubjectId(UUID userId, String kind, UUID subjectId);
 

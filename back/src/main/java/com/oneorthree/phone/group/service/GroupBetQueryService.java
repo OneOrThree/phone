@@ -171,6 +171,10 @@ public class GroupBetQueryService {
                             .myAchieved(my.getAchieved())
                             .myPayout(my.getPayout())
                             .results(GroupBetService.toResultParticipants(participants))
+                            // 확인된 결과도 그대로 싣는다(N58) — 앱이 로컬 마커와 대조하고 ack 을
+                            // 재시도하려면 전체 집합이 필요하다. 큐에서 거르는 것은 앱의 몫이다.
+                            .acknowledged(my.isAcknowledged())
+                            .settledAt(session.getSettledAt())
                             .build();
                 })
                 .toList();

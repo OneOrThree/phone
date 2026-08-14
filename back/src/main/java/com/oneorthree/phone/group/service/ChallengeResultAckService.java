@@ -1,0 +1,200 @@
+package com.oneorthree.phone.group.service;
+
+import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.dto.ChallengeResultClaimResponse;
+import com.oneorthree.phone.group.exception.ChallengeResultClaimHeldException;
+import com.oneorthree.phone.group.exception.GroupErrorCode;
+import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
+import com.oneorthree.phone.notification.service.BetEventNotificationService;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.user.repository.UserRepository;
+import com.fasterxml.uuid.Generators;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
+
+/**
+ * 결과 모달의 <b>표시 선점(claim)과 확인 표시(ack)</b> — 쓰기 축 (GROMO-1577 · policy N58·B17 ·
+ * IA §4.3). 조회 축({@link GroupBetQueryService})과 분리한 이유는 여기가 순수 읽기가 아니라
+ * <b>조건부 원자 UPDATE 로 경쟁을 판정하는</b> 경로이고, 그 규율(무엇을 같은 UPDATE 조건에 넣는가)이
+ * 이 클래스의 존재 이유 전부이기 때문이다.
+ *
+ * <p><b>선점과 확인은 다른 상태다 — 하나로 합치면 어느 쪽으로도 샌다(IA §4.3).</b>
+ * <ul>
+ *   <li><b>노출 먼저, ack 나중</b>만 두면 {@code acknowledged_at IS NULL} 원자 UPDATE 가 쓰기 하나를
+ *       막을 뿐 이미 뜬 모달 둘을 되돌리지 못한다 — 서버 가드를 두고도 결과가 두 번 보인다.</li>
+ *   <li><b>ack 먼저, 노출 나중</b>이면 CAS 성공 직후 렌더가 중단될 때 서버에는 확인된 것으로 남아
+ *       <b>어느 기기에서도 다시 못 본다</b>. ack 는 되돌릴 수 없어 이쪽이 더 나쁘다.</li>
+ * </ul>
+ * 그래서 만료가 있는 <b>선점</b>(이 클래스의 {@code claimDisplay})으로 렌더할 기기를 하나로 좁히고,
+ * <b>확인</b>은 노출이 실제로 일어난 뒤에 한다.
+ *
+ * <p><b>선점 성공은 시간이 지나면 무효가 된다</b> — 그래서 {@code claimDisplay} 는 토큰을 함께 받으면
+ * <b>렌더 직전 재검증 + 리스 연장</b>으로 동작한다(같은 쓰기 하나). 정지됐다 깨어난 기기가 낡은
+ * 성공 응답만 믿고 모달을 띄우는 경로를 여기서 막는다.
+ *
+ * <p><b>둘 다 {@code acknowledged_at IS NULL} 을 같은 UPDATE 조건에 넣는다</b>(B17) — 두 기기가 함께
+ * {@code acknowledged=false} 를 조회한 뒤 A 가 {@code claim → 노출 → ack} 를 끝내도 B 의 메모리에는
+ * 미확인 DTO 가 남아 나중에 claim 을 부를 수 있다. 선점에서 ack 여부를 보지 않으면 B 가 <b>유효한
+ * 새 선점</b>을 받아 같은 결과를 다시 렌더한다. IA §4.3 이 수용한 것은 ack 가 <b>실패</b>했을 때의
+ * 좁은 창이지 성공한 뒤의 중복이 아니다.
+ */
+@Service
+@RequiredArgsConstructor
+public class ChallengeResultAckService {
+
+    /**
+     * 표시 선점(lease) 수명 — <b>2분</b>(계약 V1). 알림 클레임의 10분
+     * ({@code BetEventNotificationService.CLAIM_LEASE})은 <b>워커</b> 축이라 죽은 배치를 회수하는 데
+     * 그만큼 걸려도 사람이 기다리지 않지만, 결과 모달은 <b>사람이 보는 것</b>이라 선점한 기기가
+     * 렌더 전에 죽으면 다른 기기가 빨리 회수해야 한다. 반대로 렌더~ack 왕복(수 초)보다는 넉넉히 길다.
+     */
+    static final Duration DISPLAY_CLAIM_LEASE = Duration.ofMinutes(2);
+
+    private final UserRepository userRepository;
+    private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+    private final BetEventNotificationService betEventNotificationService;
+
+    /**
+     * 결과 표시 선점 — 성공한 기기만 모달을 렌더한다. 실패는 영구 거절이 아니라 "이번엔 건너뛴다"이고
+     * (리스가 만료되면 다시 후보), 응답에 <b>상대 지연</b>을 실어 앱이 폴링 없이 그 시점 1회만 다시
+     * 시도하게 한다.
+     *
+     * <p>{@code currentToken} 이 있으면 <b>최초 획득이 아니라 재검증 + 리스 연장</b>이다(아래
+     * {@link #renewClaim} 참조). 없으면 지금까지와 같은 최초 획득이다 — 바디 없는 호출이 그대로
+     * 동작해야 한다(additive).
+     *
+     * @param currentToken 렌더 직전 재검증할 내 선점 토큰 — {@code null} 이면 최초 획득
+     * @throws UserException                     {@code USER_NOT_FOUND} — 요청자 유저 부재(재로그인)
+     * @throws GroupException                    {@code BET_NOT_FOUND} — 그 회차의 내 참가 행 없음 /
+     *                                           {@code RESULT_ALREADY_ACKED} — 이미 확인된 결과
+     * @throws ChallengeResultClaimHeldException {@code RESULT_CLAIM_HELD} — 남의 리스가 살아 있거나
+     *                                           내 선점이 이미 남에게 넘어갔음
+     */
+    @Transactional
+    public ChallengeResultClaimResponse claimDisplay(UUID userId, UUID sessionId, UUID currentToken) {
+        return claimDisplay(userId, sessionId, currentToken, Instant.now());
+    }
+
+    /** 테스트에서 고정 시각을 주입하기 위한 package-private 오버로드. 트랜잭션은 public 진입점이 연다. */
+    @Transactional
+    ChallengeResultClaimResponse claimDisplay(UUID userId, UUID sessionId, UUID currentToken, Instant now) {
+        requireActiveUser(userId);
+        return currentToken == null ? acquireClaim(userId, sessionId, now)
+                : renewClaim(userId, sessionId, currentToken, now);
+    }
+
+    /** 최초 획득 — 비어 있거나 리스가 만료된 선점을 가져온다. */
+    private ChallengeResultClaimResponse acquireClaim(UUID userId, UUID sessionId, Instant now) {
+        UUID token = Generators.timeBasedEpochRandomGenerator().generate();
+        int claimed = groupChallengeBetParticipantRepository.claimDisplay(
+                sessionId, userId, token, now.minus(DISPLAY_CLAIM_LEASE), now);
+        if (claimed == 1) {
+            return new ChallengeResultClaimResponse(token);
+        }
+        return failClaim(userId, sessionId, now);
+    }
+
+    /**
+     * 렌더 직전 재검증 + 리스 연장 — <b>선점 성공은 시간이 지나면 무효가 된다</b>(IA §4.3).
+     * A 가 선점 직후 OS 에 정지돼 렌더 전에 멈추고 리스가 만료된 뒤 B 가 재선점했는데, A 가 깨어나
+     * <b>최초 성공 응답만 믿고</b> 모달을 띄우면 두 기기가 모두 렌더한다 — 그 뒤의
+     * {@code acknowledged_at IS NULL} 은 이미 뜬 모달을 되돌리지 못한다.
+     *
+     * <p>검증과 연장은 <b>한 번의 쓰기</b>다 — 검증 응답을 받은 뒤 모달이 실제로 마운트되기까지도
+     * 시간이 있어, 따로 두면 그 사이에 리스가 만료되는 TOCTOU 가 그대로 남는다.
+     *
+     * <p>성공 시 <b>같은 토큰</b>을 돌려준다(회전하지 않는다) — 회전시키면 갱신 응답이 유실됐을 때
+     * 앱이 든 토큰이 영구히 낡은 값이 되어 ack 까지 막힌다.
+     */
+    private ChallengeResultClaimResponse renewClaim(
+            UUID userId, UUID sessionId, UUID currentToken, Instant now) {
+        int renewed = groupChallengeBetParticipantRepository
+                .renewDisplayClaim(sessionId, userId, currentToken, now);
+        if (renewed == 1) {
+            return new ChallengeResultClaimResponse(currentToken);
+        }
+        return failClaim(userId, sessionId, now);
+    }
+
+    /**
+     * 0 행의 이유를 갈라 던진다 — 판정용 읽기일 뿐, 선점 자체는 조건부 UPDATE 하나로 이미 끝났다.
+     * 재검증 경로의 <b>토큰 불일치</b>도 여기로 온다: 내 선점이 남에게 넘어갔다는 뜻이라
+     * {@code RESULT_CLAIM_HELD} 다(현 소유자의 남은 리스가 상대 지연이 된다).
+     */
+    private ChallengeResultClaimResponse failClaim(UUID userId, UUID sessionId, Instant now) {
+        GroupChallengeBetParticipant participant = groupChallengeBetParticipantRepository
+                .findBySessionIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+        if (participant.getAcknowledgedAt() != null) {
+            throw new GroupException(GroupErrorCode.RESULT_ALREADY_ACKED);
+        }
+        throw new ChallengeResultClaimHeldException(retryAfterMs(participant.getDisplayClaimedAt(), now));
+    }
+
+    /**
+     * 결과 확인 표시(ack) — <b>노출이 실제로 일어난 뒤</b>에 호출된다(D8: slot → 선점 → 검증 →
+     * 노출 → ack). 대상 행 없음·이미 확인됨·중복 호출은 전부 no-op 으로 성공 처리한다(멱등).
+     *
+     * @throws GroupException {@code RESULT_CLAIM_STALE} — 토큰이 현재 선점과 다르다(만료 후 재선점)
+     */
+    @Transactional
+    public void acknowledge(UUID userId, UUID sessionId, UUID claimToken) {
+        acknowledge(userId, sessionId, claimToken, Instant.now());
+    }
+
+    /** 테스트에서 고정 시각을 주입하기 위한 package-private 오버로드. 트랜잭션은 public 진입점이 연다. */
+    @Transactional
+    void acknowledge(UUID userId, UUID sessionId, UUID claimToken, Instant now) {
+        int acknowledged = claimToken == null ? 0 : groupChallengeBetParticipantRepository
+                .acknowledge(sessionId, userId, claimToken, now);
+        if (acknowledged == 0) {
+            // 대상이 없거나 이미 확인된 경우는 멱등 no-op(중복·동시 호출 포함). 남은 한 가지 —
+            // 행이 살아 있는데 토큰이 다르다 — 만 거절한다: 내 선점이 만료돼 다른 기기가 재선점한
+            // 상황이라, 여기서 확인 처리하면 그 기기가 띄우려던 결과를 삼킨다.
+            GroupChallengeBetParticipant participant = groupChallengeBetParticipantRepository
+                    .findBySessionIdAndUserId(sessionId, userId)
+                    .orElse(null);
+            if (participant != null && participant.getAcknowledgedAt() == null) {
+                throw new GroupException(GroupErrorCode.RESULT_CLAIM_STALE);
+            }
+            return;
+        }
+        // 확인한 결과의 미발송 푸시 클레임을 함께 닫는다(B17) — 안 닫으면 이미 본 결과의 푸시가
+        // 묶음 슬롯이 닫힌 뒤나 조용한 시간 이월 뒤에 도착한다.
+        betEventNotificationService.consumeResultClaimOnAck(userId, sessionId, now);
+    }
+
+    /**
+     * 남은 리스를 <b>상대 지연</b>으로 환산한다 — 절대 만료 시각을 내보내지 않는 이유는 기기 시계가
+     * 서버와 어긋나면 살아 있는 리스를 즉시 다시 요청하거나(1회 기회 소진) 만료 뒤에도 한참 안
+     * 띄우기 때문이다({@code ShedLockConfig.usingDbTime()} 과 같은 근거).
+     *
+     * <p>선점 시각이 비어 있으면(판정용 재조회 사이에 ack·회수가 일어난 경우) 0 — 지금 바로 다시
+     * 시도해도 좋다는 뜻이다.
+     *
+     * <p><b>리스 수명으로 상한을 건다.</b> 동시 요청에서 진 쪽은 <b>행 락을 기다린 시간만큼</b>
+     * 자기 기준 시각({@code now})이 낡는다 — 승자가 그 뒤에 찍은 {@code claimed_at} 으로 빼면
+     * 남은 리스가 수명보다 커진다(실측 120,001ms). 정의상 남은 리스는 수명을 넘을 수 없고, 넘겨
+     * 돌려주면 앱의 1회 재시도가 실제 만료보다 뒤에 떨어진다.
+     */
+    private long retryAfterMs(Instant claimedAt, Instant now) {
+        if (claimedAt == null) {
+            return 0L;
+        }
+        long remaining = claimedAt.plus(DISPLAY_CLAIM_LEASE).toEpochMilli() - now.toEpochMilli();
+        return Math.max(0L, Math.min(remaining, DISPLAY_CLAIM_LEASE.toMillis()));
+    }
+
+    /** 조회 축과 같은 락 없는 활성 검증(GROMO-1230) — 잠글 대상은 참가 행이지 유저 행이 아니다. */
+    private void requireActiveUser(UUID userId) {
+        userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+    }
+}

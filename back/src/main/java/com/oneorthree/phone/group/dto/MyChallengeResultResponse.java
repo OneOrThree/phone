@@ -7,6 +7,7 @@ import com.oneorthree.phone.group.domain.MissionType;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
@@ -74,4 +75,21 @@ public class MyChallengeResultResponse {
 
     /** 인별 달성·payout·실측(IA §4.3) — 탈퇴자는 닉네임만 치환된다(계약 §1). */
     private List<GroupBetResultParticipantResponse> results;
+
+    /**
+     * 결과 모달 확인 여부(GROMO-1577, N58 — additive). 1회 노출 가드의 <b>정본</b>이라 기기 교체·앱
+     * 재설치를 넘어 유지된다.
+     *
+     * <p><b>{@code true} 인 항목도 응답에서 빼지 않는다</b> — 앱이 로컬 seen 마커와 대조해야 하고
+     * (마커만 있고 ack 이 안 된 항목은 ack 을 재시도한다), 미확인 개수 배지도 전체 집합이 있어야
+     * 만들 수 있다. 큐에서 거르는 것은 앱의 몫이다.
+     */
+    private boolean acknowledged;
+
+    /**
+     * 회차 정산 시각(GROMO-1577 — additive). 결과 큐의 시간 커서를 열어 두기 위한 값이다(계약 V5):
+     * 최근 30일·10건 상한에 걸려 잘린 뒤에도 앱이 "어디까지 봤는지"를 이 값으로 이어 물을 수 있다.
+     * 표시 정렬축은 여전히 {@code sessionDate} 다(N24).
+     */
+    private Instant settledAt;
 }

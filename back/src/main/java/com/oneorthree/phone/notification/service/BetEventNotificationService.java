@@ -148,6 +148,26 @@ public class BetEventNotificationService {
                 sessionId, claimed.targets(), claimed.claimed());
     }
 
+    /**
+     * 결과 확인(ack) 연동 — 그 회차의 <b>아직 안 나간</b> {@code BET_RESULT} 클레임을 소비 확정한다
+     * (GROMO-1577 · policy B17). 호출측(결과 ack)의 트랜잭션에 참여하므로 ack 이 롤백되면 이것도
+     * 함께 롤백된다.
+     *
+     * <p>없으면 나는 일: 15분 묶음 슬롯이 닫히기 전이나 조용한 시간 이월(N44) 중에 사용자가 조회로
+     * 먼저 결과를 보고 ack 해도 {@link #flushClaims} 는 참가자의 ack 여부를 보지 않아 <b>이미 본
+     * 결과의 푸시가 나중에 도착</b>한다 — 탭하면 결과 없이 그룹방만 열리는 낡은 알림이다.
+     *
+     * <p>{@code BET_VOID_REFUND} 는 대상이 아니다 — 무효화 환불은 결과 모달과 별개의 통지 사건이고
+     * (N48), 결과를 봤다는 사실이 "환불이 있었다"는 통지를 대신하지 않는다.
+     *
+     * @return 닫은 클레임 수(0 = 이미 발송됐거나 애초에 클레임이 없었다)
+     */
+    @Transactional
+    public int consumeResultClaimOnAck(UUID userId, UUID sessionId, Instant now) {
+        return notificationSentLogRepository.consumeUnsentClaims(
+                userId, NotificationSentLog.TYPE_BET_RESULT, sessionId, now);
+    }
+
     /** 5분 flush 크론 진입점 — 슬롯이 닫힌 클레임 + 이월분을 묶어 보낸다. */
     @Transactional
     public PushDispatchSummaryResponse flushDueBundles() {

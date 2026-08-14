@@ -6,6 +6,7 @@ import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.common.auth.LoginUserResolutionException;
 import com.oneorthree.phone.currency.exception.CurrencyException;
 import com.oneorthree.phone.focus.exception.FocusException;
+import com.oneorthree.phone.group.exception.ChallengeResultClaimHeldException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.friend.exception.FriendException;
@@ -57,6 +58,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleAuth(AuthException e) {
         return ResponseEntity.status(e.getErrorCode().getStatus())
                 .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    /**
+     * 결과 표시 선점 실패(GROMO-1577 · B17) — {@link GroupException} 의 하위 타입이라 이 핸들러가
+     * 없어도 아래 {@code handleGroup} 이 같은 상태·코드를 돌려준다(지연 힌트만 빠진다). 여기서는
+     * <b>서버가 계산한 상대 지연</b>을 함께 실어, 앱이 폴링 없이 그 시점 1회만 다시 시도하게 한다.
+     */
+    @ExceptionHandler(ChallengeResultClaimHeldException.class)
+    public ResponseEntity<RetryAfterErrorResponse> handleChallengeResultClaimHeld(
+            ChallengeResultClaimHeldException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new RetryAfterErrorResponse(
+                        e.getErrorCode().name(), e.getMessage(), e.getRetryAfterMs()));
     }
 
     @ExceptionHandler(GroupException.class)

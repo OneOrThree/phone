@@ -91,6 +91,16 @@ public enum GroupErrorCode {
     // 종료는 진행 중(OPEN 회차 존재) 불가(FR-11 · §A8) — 남의 돈이 걸린 회차를 대가 없이 마감하는 경로 차단.
     CHALLENGE_END_BLOCKED(HttpStatus.CONFLICT, "진행 중인 내기 회차가 끝나야 종료할 수 있어요"),
 
+    // 결과 모달 표시 선점·확인(GROMO-1577 · B17) — 앱이 응답의 code 문자열로 분기한다. 이름 변경 금지.
+    // 다른 기기가 지금 그 결과를 표시 중이다(리스 유효). 영구 거절이 아니라 "이번엔 건너뛴다" —
+    // 응답 바디에 상대 지연(retryAfterMs)을 실어 앱이 폴링 없이 그 시점 1회만 다시 시도한다.
+    RESULT_CLAIM_HELD(HttpStatus.CONFLICT, "다른 기기에서 결과를 보고 있어요"),
+    // 이미 확인 처리된 결과 — 선점 자체가 성립하지 않는다(ack 성공 뒤의 중복 렌더 차단, B17).
+    RESULT_ALREADY_ACKED(HttpStatus.CONFLICT, "이미 확인한 결과예요"),
+    // ack 토큰이 현재 선점과 다르다 — 내 선점이 만료돼 다른 기기가 재선점했다. 확인 처리하지 않는다
+    // (띄우지도 못한 결과를 삼키면 어느 기기에서도 다시 못 본다).
+    RESULT_CLAIM_STALE(HttpStatus.CONFLICT, "표시 선점이 만료됐어요"),
+
     // 동시성 — 낙관락(@Version: Group 정원·UserWallet 잔액) 충돌의 전역 폴백(GlobalExceptionHandler).
     // 트랜잭션 전체가 롤백된 일시 충돌이라 클라이언트가 재시도하면 풀린다. 구앱은 이 코드를 모르므로
     // 공통 재시도 문구로 강하한다 — 의미가 같아 안전하다.

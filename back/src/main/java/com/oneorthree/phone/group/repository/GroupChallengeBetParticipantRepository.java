@@ -5,8 +5,10 @@ import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -100,6 +102,95 @@ public interface GroupChallengeBetParticipantRepository
             + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
             + "ORDER BY s.sessionDate, s.id")
     List<GroupChallengeBetParticipant> findOpenSessionParticipationsByUserId(@Param("userId") UUID userId);
+
+    /**
+     * 결과 표시 <b>선점</b>(lease) 획득·회수 — 조건부 원자 UPDATE 하나로 "비어 있음"과 "만료된 남의
+     * 선점 회수"를 함께 집는다(GROMO-1577 · B17). 알림 클레임의
+     * {@code NotificationSentLogRepository.reclaimExpired} 와 같은 모양이다.
+     *
+     * <p><b>{@code acknowledged_at IS NULL} 이 같은 UPDATE 조건에 들어 있는 것이 핵심이다.</b>
+     * 두 기기가 함께 {@code acknowledged=false} 를 조회한 뒤 A 가 {@code claim → 노출 → ack} 를
+     * 끝내도, B 의 메모리에는 미확인 DTO 가 남아 나중에 claim 을 부를 수 있다. 여기서 ack 여부를
+     * 보지 않으면 B 가 <b>유효한 새 선점</b>을 받아 같은 결과를 다시 렌더한다 — IA §4.3 이 수용한
+     * 것은 ack 가 <b>실패</b>했을 때의 좁은 창이지 성공한 뒤의 중복이 아니다.
+     *
+     * @param leaseCutoff 리스 만료 컷오프({@code now − 리스 수명}) — 이보다 오래된 선점은 죽은
+     *                    것으로 보고 회수한다. <b>서버 시각으로만</b> 계산한다
+     * @return 1 = 이 호출이 표시를 선점했다, 0 = 이미 확인됨 · 남의 리스가 살아 있음 · 대상 행 없음
+     *     (셋의 구분은 호출측이 행을 다시 읽어 판정한다)
+     */
+    // 리포지토리 자체에 트랜잭션을 건다(NotificationSentLogRepository 클레임 메서드와 같은 관례) —
+    // 호출측이 트랜잭션을 열지 않아도 이 조건부 UPDATE 자체는 원자다.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE GroupChallengeBetParticipant p "
+            + "SET p.displayClaimedAt = :now, p.displayClaimToken = :token "
+            + "WHERE p.session.id = :sessionId AND p.user.id = :userId "
+            + "AND p.acknowledgedAt IS NULL "
+            + "AND (p.displayClaimedAt IS NULL OR p.displayClaimedAt < :leaseCutoff)")
+    int claimDisplay(
+            @Param("sessionId") UUID sessionId,
+            @Param("userId") UUID userId,
+            @Param("token") UUID token,
+            @Param("leaseCutoff") Instant leaseCutoff,
+            @Param("now") Instant now);
+
+    /**
+     * 결과 표시 선점 <b>재검증 + 리스 연장</b> — 렌더 직전에 "내 선점이 아직 내 것인가"를 묻고
+     * <b>같은 쓰기 하나로</b> 리스를 렌더·ack 구간까지 밀어 둔다(GROMO-1577 · B17 · IA §4.3).
+     *
+     * <p><b>검증과 연장이 두 번의 쓰기로 갈리면 안 된다.</b> 검증 응답을 받은 뒤 실제 모달이
+     * 마운트되기까지도 시간이 있어, 그 사이 앱이 잠시 멈추면 리스가 만료되고 다른 기기가 재선점한다
+     * — 검증만으로는 TOCTOU 가 그대로 남는다.
+     *
+     * <p><b>소유 판정은 토큰 일치 하나다</b>(만료 여부를 보지 않는다). 리스가 만료됐어도 <b>아무도
+     * 가져가지 않았다면</b> 토큰은 여전히 내 것이라 그대로 이어 쓰는 게 맞고, 남이 회수했다면 그
+     * 순간 토큰이 새로 발급돼 <b>불일치</b>로 걸린다 — 만료 시각을 따로 보면 "만료됐지만 아무도 안
+     * 가져간" 정상 복귀를 이유 없이 거절한다.
+     *
+     * <p><b>토큰은 회전시키지 않는다.</b> 회전시키면 갱신 응답이 네트워크에서 유실됐을 때 앱이 든
+     * 토큰이 영구히 낡은 값이 되어 ack 까지 막힌다(그 회차는 리스가 만료될 때까지 어느 경로로도
+     * 회복하지 못한다). 같은 값을 유지하면 갱신 재시도가 그대로 멱등이다.
+     *
+     * @return 1 = 내 선점이 유효하고 리스를 연장했다, 0 = 이미 확인됨 · 남이 재선점함 · 대상 행 없음
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE GroupChallengeBetParticipant p "
+            + "SET p.displayClaimedAt = :now "
+            + "WHERE p.session.id = :sessionId AND p.user.id = :userId "
+            + "AND p.acknowledgedAt IS NULL "
+            + "AND p.displayClaimToken = :token")
+    int renewDisplayClaim(
+            @Param("sessionId") UUID sessionId,
+            @Param("userId") UUID userId,
+            @Param("token") UUID token,
+            @Param("now") Instant now);
+
+    /**
+     * 결과 확인 표시(ack) — {@code acknowledged_at IS NULL} 조건부 원자 UPDATE 라 중복·동시 호출에도
+     * 최초 1회만 세팅된다(리그 {@code LeagueWeeklyResultRepository.acknowledge} 선례, GROMO-1577).
+     *
+     * <p><b>선점을 함께 종결</b>한다({@code display_claimed_at}·{@code display_claim_token} 을
+     * 비운다) — 남겨 두면 만료된 lease 가 계속 판정 대상으로 남는다. 반대로 <b>토큰이 일치할 때만</b>
+     * 성사시키는 이유는, 내 선점이 만료돼 다른 기기가 재선점한 뒤 깨어난 기기가 자기가 띄우지도
+     * 못한 결과를 확인 처리해 버리는 것을 막기 위해서다(IA §4.3 TOCTOU).
+     *
+     * @return 1 = 이 호출이 확인 처리했다, 0 = 대상 행 없음 · 이미 확인됨 · 토큰 불일치
+     */
+    // flushAutomatically 도 함께 켠다(GROMO-801 예방) — 리그 acknowledge 와 같은 이유.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE GroupChallengeBetParticipant p "
+            + "SET p.acknowledgedAt = :now, p.displayClaimedAt = null, p.displayClaimToken = null "
+            + "WHERE p.session.id = :sessionId AND p.user.id = :userId "
+            + "AND p.acknowledgedAt IS NULL "
+            + "AND p.displayClaimToken = :token")
+    int acknowledge(
+            @Param("sessionId") UUID sessionId,
+            @Param("userId") UUID userId,
+            @Param("token") UUID token,
+            @Param("now") Instant now);
 
     /**
      * 내 정산 완료 회차(GROMO-1415, N53 결과 모달 큐의 단일 소스) — 참가자 스코프. 멤버십·챌린지
