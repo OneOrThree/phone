@@ -76,3 +76,50 @@ test('안내가 떠 있는 동안 배경 이벤트로 시트가 닫혀도 자리
   alertSpy.mockRestore();
   view.unmount();
 });
+
+// ⚠️ **같은 안내를 서로 다른 화면이 동시에 띄운다.** USER_NOT_FOUND는 "계정 자체가 삭제됨"이라
+//    진행 중이던 여러 요청이 나란히 이 코드를 받는다(호출부 15곳). 반납을 호출별 클로저에만
+//    두면 **먼저 닫힌 쪽이 하나뿐인 registry 항목을 지운다** — 조정자의 release(id)에는 참조
+//    카운트가 없다. Android는 dismissExisting으로 A가 닫히는데 B가 떠 있고, iOS는 A를 닫는
+//    순간 큐의 B가 등록 없이 뜬다. 둘 다 그 틈에 결과 모달이 Alert 뒤에서 마운트·ack 된다.
+//    ⚠️ 유지만 단정하면 영구 점유를 못 잡는다 — 마지막이 닫힐 때 반납되는 것까지 함께 본다.
+test('두 화면이 겹쳐 띄우면 먼저 닫힌 쪽은 자리를 놓지 않고, 마지막이 닫을 때 반납한다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  const values: number[] = [];
+  const view = await render(
+    <OverlaySlotProvider>
+      <Probe onValue={(v) => values.push(v)} />
+    </OverlaySlotProvider>,
+  );
+  await act(async () => {});
+  const latest = () => values[values.length - 1];
+  expect(latest()).toBe(-1);
+
+  // 서로 다른 두 화면의 요청이 나란히 실패해 안내가 둘 뜬다.
+  await act(async () => {
+    promptSessionExpired(0);
+    promptSessionExpired(0);
+  });
+  expect(alertSpy).toHaveBeenCalledTimes(2);
+  expect(latest()).toBe(OVERLAY_PRIORITY.sheet);
+
+  const buttonsOf = (index: number) =>
+    alertSpy.mock.calls[index][2] as unknown as { text: string; onPress?: () => void }[];
+
+  // 먼저 뜬 쪽이 닫힌다(Android의 dismissExisting이 정확히 이 순서다) — 아직 놓으면 안 된다.
+  await act(async () => {
+    buttonsOf(0)[0].onPress?.();
+  });
+  await act(async () => {});
+  expect(latest()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 마지막이 닫히는 순간 비워진다.
+  await act(async () => {
+    buttonsOf(1)[0].onPress?.();
+  });
+  await act(async () => {});
+  expect(latest()).toBe(-1);
+
+  alertSpy.mockRestore();
+  view.unmount();
+});

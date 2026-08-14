@@ -5,6 +5,26 @@ import { OVERLAY_PRIORITY, getOverlaySlotActions } from '@/store/OverlaySlotCont
 // 이 안내가 떠 있는 동안 점유할 자리의 이름.
 const SESSION_EXPIRED_SLOT_ID = 'session.expired';
 
+// 지금 떠 있는 **이 안내의 수**. 모듈 스코프인 이유가 이 결함의 전부다.
+//
+// `promptSessionExpired`는 코드베이스 15곳에서 각각 불리고, USER_NOT_FOUND는 "계정 자체가
+// 삭제됨"이라 **여러 화면의 진행 중 요청이 나란히** 이 코드를 받는다. 그러면 이 함수가
+// 겹쳐 실행되는데, 반납 플래그를 호출별 클로저에만 두면 **먼저 닫힌 쪽이 하나뿐인 registry
+// 항목을 지운다** — 조정자의 `release(id)`에는 참조 카운트가 없다.
+//   · Android: 새 Alert가 기존 것을 dismissExisting()으로 닫아 A의 onDismiss가 불리는데
+//     B는 아직 떠 있다.
+//   · iOS: 순차 present라 A를 닫는 순간 큐에 있던 B가 **등록 없이** 뜬다.
+// 둘 다 그 틈에 결과 모달이 자리를 얻어 Alert 뒤에서 마운트·seen/ack 된다.
+//
+// ⚠️ **세는 자리는 조정자가 아니라 여기다.** registry 쪽에 참조 카운트를 넣는 안은 앞서
+//    접었다 — `useOverlayAlert`는 N개 Alert에 반납을 **한 번만** 부르므로 그쪽에서 세면
+//    카운트가 안 맞아 영구 점유가 된다. 세는 주체는 언제나 **호출자 쪽**이다
+//    (useOverlayAlert의 openCountRef가 훅 인스턴스마다 하는 일을, 훅이 없는 모듈 함수라
+//     모듈 스코프에서 한다).
+// ⚠️ 호출별 `released` 플래그는 **그대로 둔다.** 확인 버튼과 onDismiss가 한 호출 안에서
+//    둘 다 불릴 수 있어 멱등이 여전히 필요하다 — 두 층이다(호출별 멱등 + 모듈 카운트).
+let openPromptCount = 0;
+
 // 유저 부재(활성 users 행 없음) 전용 서버 코드와 **그 유일한 처방**을 한자리에 둔다(GROMO-1247).
 //
 // 왜 도메인 래퍼(groupApi.ts)가 아닌가 — 이 코드는 그룹 계약이 아니라 모든 도메인의 공통 전제다.
@@ -52,7 +72,7 @@ export function promptSessionExpired(requestSessionGeneration: number): void {
   // 그때 이 Alert는 네이티브 표면이라 그대로 떠 있는데 자리는 비어, 결과 모달이 **이 안내
   // 뒤에서** 마운트되며 사용자가 못 본 회차에 seen/ack이 찍힌다.
   // 그래서 자리를 **이 안내 자신이** 쥔다 — 그러면 아래의 어떤 배경 이벤트도 창을 못 만든다.
-  // 호출부 6곳을 각각 고치지 않고 여기 한 곳에서 닫는 이유이기도 하다.
+  // 호출부 15곳을 각각 고치지 않고 여기 한 곳에서 닫는 이유이기도 하다.
   //
   // ⚠️ 승인을 **기다리지 않는다**(request이지 acquire가 아니다). 기다리면 호출부의 시트가
   //    자리를 쥔 흔한 경우에 그 시트가 닫힐 때까지 안내가 안 뜨고, 사용자는 죽은 세션에
@@ -61,11 +81,15 @@ export function promptSessionExpired(requestSessionGeneration: number): void {
   // ⚠️ 반납 경로는 둘 다 잇는다 — 확인 버튼과 `onDismiss`(Android의 dismissExisting은 버튼
   //    콜백을 건너뛴다). 네이티브 Alert는 사용자가 닫아야만 사라지므로 영구 점유가 아니다.
   const actions = getOverlaySlotActions();
+  openPromptCount += 1;
   actions?.request(SESSION_EXPIRED_SLOT_ID, OVERLAY_PRIORITY.sheet);
-  let released = false;
+  let released = false; // 호출별 멱등 — 확인과 onDismiss가 둘 다 불릴 수 있다(위 ⚠️).
   const release = () => {
     if (released) return;
     released = true;
+    openPromptCount = Math.max(0, openPromptCount - 1);
+    // 다른 화면이 띄운 같은 안내가 아직 떠 있다 — 그 자리는 마지막이 닫을 때 놓는다.
+    if (openPromptCount > 0) return;
     actions?.release(SESSION_EXPIRED_SLOT_ID);
   };
   Alert.alert(
