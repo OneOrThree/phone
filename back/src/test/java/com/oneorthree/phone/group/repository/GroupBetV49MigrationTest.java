@@ -9,9 +9,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -91,11 +96,11 @@ class GroupBetV49MigrationTest {
         UUID refunded = insertParticipant(sessionOn(TODAY.minusDays(4), "REFUNDED"));
         // 아직 결과가 아니다 — 여기까지 칠하면 나중에 정산됐을 때 아무도 못 본 결과가 유실된다.
         UUID open = insertParticipant(sessionOn(TODAY, "OPEN"));
-        // 롤링 배포 중 구 인스턴스가 마이그레이션 시작 <b>이후</b>에 커밋한 정산(미래 settled_at 으로
-        // 그 창을 결정적으로 표현한다) — 상태로만 좁히면 이 행까지 확인 처리돼 영영 못 본다.
-        UUID justSettledSession =
+        // 정산 시각이 미래인 결과(정산 인스턴스의 시계가 앞선 경우) — <b>이미 커밋돼 조회에 실리므로</b>
+        // 사용자가 볼 수 있었다. 기준은 시각이 아니라 가시성이라 이 행은 백필 대상이다.
+        UUID futureStampedSession =
                 sessionSettledAt(TODAY.minusDays(5), "SETTLED", OffsetDateTime.now().plusHours(1));
-        UUID justSettled = insertParticipant(justSettledSession);
+        UUID futureStamped = insertParticipant(futureStampedSession);
 
         migrate("49");
 
@@ -106,17 +111,70 @@ class GroupBetV49MigrationTest {
         assertThat(acknowledgedAt(open))
                 .as("아직 정산되지 않은 회차의 참가 행은 백필 대상이 아니다 — 칠하면 그 결과를 영영 못 본다")
                 .isNull();
-        assertThat(acknowledgedAt(justSettled))
-                .as("마이그레이션 시작 이후 정산된 결과 — 롤링 배포 중 구 인스턴스가 커밋한 건이다."
-                        + " 칠하면 모달로도 푸시로도 영영 못 받는다")
-                .isNull();
-        assertThat(claimStatusOf(justSettledSession, "BET_RESULT"))
-                .as("그 결과의 푸시는 그대로 나가야 한다 — tombstone 술어도 같은 시간 기준이다")
-                .isNull();
+        assertThat(acknowledgedAt(futureStamped))
+                .as("정산 시각이 미래여도 이미 커밋돼 조회에 실렸다면 사용자가 볼 수 있었다 —"
+                        + " 기준은 시각이 아니라 마이그레이션 시작 시점의 가시성이다")
+                .isNotNull();
         // 선점 컬럼은 백필하지 않는다 — 확인과 선점은 다른 상태다(IA §4.3).
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM " + TABLE + " WHERE display_claimed_at IS NOT NULL"
                         + " OR display_claim_token IS NOT NULL", Integer.class)).isZero();
+    }
+
+    @Test
+    @DisplayName("마이그레이션이 락을 기다리는 사이 커밋된 정산은 백필되지 않는다 — 기준은 타임스탬프가 아니라 가시성")
+    void settlementCommittedDuringLockWaitIsNotBackfilled() throws Exception {
+        seedAt("48");
+        // 마이그레이션 시작 시점에는 아직 OPEN 이다 — 결과가 된 것은 락 대기 중이다.
+        UUID sessionId = sessionOn(TODAY.minusDays(1), "OPEN");
+        UUID participantId = insertParticipant(sessionId);
+
+        try (Connection settling = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())) {
+            settling.setAutoCommit(false);
+            // 구 인스턴스의 정산 트랜잭션 — settled_at 은 <b>이른 시각</b>으로 찍히고 아직 미커밋이다.
+            // 참가 행도 함께 갱신한다(실제 정산과 같다) — 그래서 ALTER 가 이 테이블에서 막힌다.
+            try (PreparedStatement settle = settling.prepareStatement(
+                    "UPDATE group_challenge_bet_sessions"
+                            + " SET status = 'SETTLED', settled_at = now() - interval '1 minute'"
+                            + " WHERE id = ?")) {
+                settle.setObject(1, sessionId);
+                settle.executeUpdate();
+            }
+            try (PreparedStatement record = settling.prepareStatement(
+                    "UPDATE group_challenge_bet_participants SET achieved = true, payout = 30"
+                            + " WHERE id = ?")) {
+                record.setObject(1, participantId);
+                record.executeUpdate();
+            }
+
+            CompletableFuture<Void> migration = CompletableFuture.runAsync(() -> migrate("49"));
+            awaitAlterTableWaiting();   // 대상 집합은 이미 떠 놓았고, ALTER 가 이 트랜잭션을 기다린다
+            settling.commit();          // 이제 커밋 — 뒤 문장들의 스냅샷에는 이 행이 보인다
+            migration.get(60, TimeUnit.SECONDS);
+        }
+
+        assertThat(acknowledgedAt(participantId))
+                .as("한 번도 공개되지 않은 결과다 — 칠하면 모달로도 푸시로도 영구히 잃는다")
+                .isNull();
+        assertThat(claimStatusOf(sessionId, "BET_RESULT"))
+                .as("그 결과의 푸시는 그대로 나가야 한다 — tombstone 도 같은 고정 집합만 본다")
+                .isNull();
+    }
+
+    /** ALTER TABLE 이 참가 행 테이블 잠금을 <b>기다리는 중</b>인지 확인한다 — 커밋 순서를 결정적으로 만든다. */
+    private void awaitAlterTableWaiting() throws InterruptedException {
+        for (int attempt = 0; attempt < 300; attempt++) {
+            Integer waiting = jdbc.queryForObject(
+                    "SELECT count(*) FROM pg_locks WHERE NOT granted AND locktype = 'relation'"
+                            + " AND relation = 'public.group_challenge_bet_participants'::regclass",
+                    Integer.class);
+            if (waiting != null && waiting > 0) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        throw new IllegalStateException("ALTER TABLE 이 잠금 대기에 들어가지 않았다 — 재현 전제가 깨졌다");
     }
 
     @Test
