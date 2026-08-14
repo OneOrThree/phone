@@ -70,7 +70,7 @@
 | 축 | 이벤트 | 유형·주체 | 정확한 발행 시점 | 파라미터 |
 | --- | --- | --- | --- | --- |
 | 생성 | `group_challenge_created` | result·C | `createChallenge` 2xx 직후 (`ChallengeComposeSheet.tsx` — 생성 성공 핸들러) | `mission_type`, `mission_category`, `duration_minutes`, `has_window` |
-| 생성 | `group_bet_enabled` | result·C | 같은 성공 경로에서 참가비를 정했을 때만 (`ChallengeComposeSheet.tsx` — 같은 핸들러의 참가비 분기) | `stake`, `mission_type`, `mission_category` |
+| 생성 | `group_bet_enabled` | result·C | ⚠️ **흐름 지표다 — 재고가 아니다**(§6 G13). 같은 성공 경로에서 참가비를 정했을 때만 (`ChallengeComposeSheet.tsx` — 같은 핸들러의 참가비 분기) | `stake`, `mission_type`, `mission_category` |
 | 생성 | `group_challenge_deleted` | result·C | `DELETE .../challenges/{id}` 2xx 직후 (`groupApi.ts` — `deleteChallenge`) | `mission_type`, `mission_category` — 메타는 API 층 캐시에서 꺼내며, **캐시 미적중이면 이벤트 자체가 안 나간다** |
 | 내기 | `group_bet_created` | result·C | `createBet` 2xx 직후 (`BetSheet.tsx` — `requestCreate`) | `stake`, `mission_type`, `mission_category` |
 | 내기 | `group_bet_joined` | result·C | **기존 회차 참가에서만** — 개설 경로(`requestCreate`)는 이 이벤트를 발행하지 않는다(각주 4). `BetSheet.tsx` — `requestJoin` · 다음 회차 예약(`JoinNextSheet.tsx`) · 주간 예약(`JoinWeekSheet.tsx`, `actual.length > 0`일 때만) 각 2xx 직후. **개설 경로에서는 나가지 않는다** — 아래 각주 4 | `stake`(**하루치**), `session_count?`(**키가 없으면 단건 `1`로 읽는다** — `BetSheet`의 기존 회차 참가는 이 키를 안 보내고 `JoinNextSheet`는 `1`, `JoinWeekSheet`는 실제 예약 일수를 보낸다. 합계를 낼 때 없는 것을 0으로 두면 단건 참가가 통째로 빠진다), `mission_type`, `mission_category` |
@@ -141,7 +141,7 @@
 | --- | --- | --- |
 | `status` | `SETTLED \| FORFEITED \| VOIDED \| REFUNDED` (`challengeResult.ts` `RESULT_STATUSES`) | 정산 결말별 노출 분포. **무산·환불도 결과로 친다**(§D3)는 정책이 지표에서도 보여야 한다 |
 | `achieved?` | `true \| false` | **내 결과**다(그룹 전체가 아니다). `null`(미판정)이면 `?? undefined`로 **파라미터를 아예 생략**한다(`GroupRoomScreen.tsx` 노출 이펙트) — `false`(미달성)와 뭉개지 않는다 |
-| `achiever_count` | 정수 | 달성자 수. `member_count`와 짝으로 봐야 "혼자 이겼다/다 같이 졌다"가 갈린다 |
+| `achiever_count` | 정수 | 달성자 수. `member_count`와 짝으로 봐야 "혼자 이겼다/다 같이 졌다"가 갈린다. ⚠️ **회차 달성률의 소스로 쓰지 않는다** — 결과를 연 참가자마다 반복 전송돼 가중치가 붙는다(§6 G14) |
 | `member_count` | 정수 | 판정 대상 수 = 위 값의 분모 |
 | `mission_type?` | `DURATION \| TIME_WINDOW` | 시그니처에 **옵셔널로 있으나 지금은 값이 안 실린다** — 아래 각주 |
 | `mission_category?` | `FOCUS \| SCREEN_TIME` | 위와 같음 |
@@ -223,7 +223,7 @@ flowchart LR
     Shown --> Closed["group_challenge_result_closed(dwell_ms)"]
 ```
 
-- `push_opened(BET_RESULT)` → 30% 복귀는 PRD §5의 목표치다. ⚠️ **분모는 발송 claim 행이 아니라 실제 FCM 묶음 수여야 한다** — `sendBundles`가 `(userId, groupId, slotAt)`로 여러 claim을 한 건으로 묶어 보내면서 모든 행을 `SENT`로 바꾸고 요약 로그의 `sent`도 claim 수만큼 올리는데, 탭은 묶음당 한 번이라 **결과가 많은 사용자일수록 복귀율이 인위적으로 낮아진다.** 다만 **이 이벤트는 백그라운드 탭과
+- `push_opened(BET_RESULT)` → 30% 복귀는 PRD §5의 목표치다. ⚠️ **분모는 발송 claim 행이 아니라 실제 FCM 묶음 수여야 한다** — `sendBundles`가 `(userId, groupId, slotAt)`로 여러 claim을 한 건으로 묶어 보내면서 모든 행을 `SENT`로 바꾸고 요약 로그의 `sent`도 claim 수만큼 올리는데, 탭은 묶음당 한 번이라 **결과가 많은 사용자일수록 복귀율이 인위적으로 낮아진다.** ⚠️ **그런데 그 묶음 수를 복원할 소스가 지금 없다** — `sendBundles`는 성공한 묶음마다 카운터를 올리지 않고 `sent += claims.size()`만 반환하며 `flushClaims` 로그와 `PushDispatchSummaryResponse.sentCount`에도 그 값만 간다. **PRD §5의 30% 복귀율은 현재 계산 불가능하다**(§6 G12). 다만 **이 이벤트는 백그라운드 탭과
   콜드스타트만 센다** — 포그라운드에서 표시한 로컬 알림을 탭한 경로(`push.ts`)는 딥링크만 타고
   `push_opened`를 발행하지 않는다. 복귀율은 **하한**으로 읽어야 한다.
 - 정산과 노출 사이에 **끊기는 구간이 세 군데** 있는데(§5) 지금 계측으로는 전부 보이지 않는다.
@@ -374,6 +374,9 @@ export function logGroupChallengeResultInterrupted(p: {
 | --- | --- | --- | --- |
 | G1 | **참여 취소율** (`취소 / 참여`) | 마지막 참가자가 아닌 **일반 철회는 대응 이벤트가 없다.** `group_bet_canceled`는 내기가 **통째로 닫힐 때만** 나간다(`ChallengeCard.tsx`) | `policy.md` §12·`prd.md` §5가 "전용 GA4 이벤트 신설"로 남겨 둔 갭 |
 | G7 | `group_bet_canceled`가 **어느 축의 사건**을 세는가 | 앱 `GroupBetStatus`에는 `CANCELED`가 있고 서버 것에는 없다(§2 각주 1 — 이름만 같은 다른 타입). 그런데 `leaveBet`은 회차 행을 **삭제**한다. 내기가 닫히는 것과 회차가 사라지는 것이 같은 사건인지 확정되지 않았다 | 서버 축 확인 후 각주 1과 이 행을 함께 닫는다 |
+| G12 | **푸시 복귀율(PRD §5 30%)** | 분모가 실제 FCM 묶음 수여야 하는데 서버가 묶음 성공 건수를 따로 세지 않는다(`sendBundles`가 `sent += claims.size()`) — 복원할 로그·식별자·카운터가 없다 | 서버에 **묶음 성공 카운터** 추가 |
+| G13 | **내기 켜짐 비율(PRD §5)** | 그 지표는 `내기가 켜진 챌린지 / 활성 챌린지`라는 **현재 시점 재고**인데 `group_bet_enabled`는 **생성 시 1회 발행되는 흐름**이다. 챌린지가 ENDED·삭제돼도 취소되지 않고, `group_challenge_deleted`에는 챌린지를 잇는 키가 없으며 캐시 미적중이면 이벤트 자체가 생략된다 | **생성 cohort의 내기 채택률로 재정의**하거나 **활성 챌린지 서버 스냅샷**을 소스로 지정 — PRD와 함께 정한다 |
+| G14 | **회차 달성률(PRD §5 50%)** | `achiever_count`·`member_count`는 **결과를 연 참가자마다 같은 회차 집계를 반복 전송**해 많이 복귀한 회차에 가중치가 붙고 아무도 안 연 회차는 빠진다. `GroupBetSettler`의 정산 요약 로그도 `status`·`pot`·참가자 수만 남기고 **달성자 수를 기록하지 않는다** | 정산 시점의 **달성자 수와 판정 대상 수를 회차당 한 번** 남기는 서버 소스 |
 | G11 | **토큰 갱신 실패가 유실로 잡히지 않는다** | `getMyChallengeResults`가 토큰 실패에 `[]`를 반환해(실패를 던지지 않음) `fetch_failed`가 안 걸리고 **대기 중인 큐까지 비워진다**(§5.3 각주 5) | 계측이 아니라 함수를 고쳐야 한다 — 실패 전파. **GROMO-1585** |
 | G10 | **일 목표형 종료 푸시의 반응** | `push_opened`가 `CHALLENGE_WINDOW_END`만 싣는다 — `pushOpenedTypeFromData`가 `CHALLENGE_ENDED`를 제외해(PR #669 기준) 라우팅은 정상인데 **계측만 빠진다.** 종료 푸시 반응을 보면 일 목표형 표본이 조용히 누락된다 | `PushOpenedType` 유니온 한 줄 — **GROMO-1585** |
 | G9 | **퍼널의 마지막 칸 「재참여」가 이어지지 않는다** | §2.1이 정의한 퍼널은 `생성 → 내기 → 결과 확인 → 재참여`인데, **어느 이벤트도 "이 결과를 본 뒤의 재참여"를 직전 결과와 연결하지 않는다** — `group_bet_joined`에 직전 결과를 가리키는 값이 없다. 결과 노출이 재참여로 이어졌는지가 곧 이 모달의 존재 이유인데 그 칸이 비어 있다 | 새 파라미터 설계가 필요하다(raw ID를 넣지 않는 그룹 공통 원칙과 함께 봐야 한다). GROMO-1585에서 미노출 이벤트와 함께 판단 |
