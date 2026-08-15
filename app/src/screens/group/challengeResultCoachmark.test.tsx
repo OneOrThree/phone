@@ -57,9 +57,14 @@ jest.mock('@/services/analyticsEvents', () => ({
   logInviteLinkOpened: jest.fn(),
 }));
 
+// ⚠️ 선점·확인도 함께 목한다 — 이 테스트가 보는 것은 **자리 다툼**이지 서버 왕복이 아니다.
+//    실물 claim이 서버를 부르면 실패해 모달이 아예 안 뜨고, 그러면 이 파일의 단정이 전부
+//    "코치마크가 이겼다"로 조용히 통과하는 게 아니라 아예 못 찾는 실패가 된다.
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
   getMyChallengeResults: jest.fn(),
+  claimMyChallengeResult: jest.fn(async () => ({ claimToken: 'tok' })),
+  ackMyChallengeResult: jest.fn(async () => undefined),
 }));
 const mockGetMyChallengeResults = getMyChallengeResults as jest.MockedFunction<
   typeof getMyChallengeResults

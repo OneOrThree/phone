@@ -1047,7 +1047,7 @@ describe('정산 전 회차는 후보에서 제외한다', () => {
     ]);
     mockClaim.mockImplementation(async (sessionId: string, currentToken?: string) =>
       sessionId === 's-open'
-        ? { ok: false as const, retryAfterMs: null, notSettled: true }
+        ? { ok: false as const, retryAfterMs: null, reason: 'NOT_SETTLED' as const }
         : { ok: true as const, claimToken: currentToken ?? 'tok-done' },
     );
 

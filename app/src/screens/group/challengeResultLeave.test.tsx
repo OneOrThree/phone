@@ -69,6 +69,10 @@ jest.mock('@/services/groupApi', () => ({
   getAnnouncements: jest.fn(),
   getChallenges: jest.fn(),
   getMyChallengeResults: jest.fn(),
+  // ⚠️ 선점·확인도 목한다 — 이 파일이 보는 것은 **탈퇴 유예의 순서**지 서버 왕복이 아니다.
+  //    실물 claim이 서버를 부르면 실패해 모달이 안 뜨고, 유예 계약을 확인할 수 없다.
+  claimMyChallengeResult: jest.fn(async () => ({ claimToken: 'tok' })),
+  ackMyChallengeResult: jest.fn(async () => undefined),
 }));
 
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;

@@ -629,10 +629,13 @@ export default function ChallengeResultHost() {
           setClaim({ sessionId: currentSessionId, token: verified.claimToken });
           return;
         }
-        // RESULT_NOT_SETTLED — 정산 전 회차다. **재시도가 아니라 제외**다(대역 헤더 참고):
-        // 기다린다고 열리지 않고, 큐 머리를 붙들면 뒤의 결과까지 막는다. 정산이 끝난 뒤의
-        // 조회가 다시 데려온다. 로컬 가드도 찍지 않는다 — 본 적이 없는 회차다.
-        if (verified.notSettled === true) {
+        // RESULT_NOT_SETTLED — 정산 전 회차다. **재시도가 아니라 제외**다:
+        // 기다린다고 열리지 않고(정산은 서버 배치가 한다), 큐 머리를 붙들면 뒤의 결과까지 막는다.
+        // 정산이 끝난 뒤의 조회가 다시 데려온다. 로컬 가드도 찍지 않는다 — 본 적이 없는 회차다.
+        // ⚠️ 사유 필드는 `reason`이다(`challengeResult.ts`의 ChallengeResultClaim). 다른 실패와
+        //    **같은 값으로 접으면 안 된다** — 네트워크 실패로 오인해 재시도하면 같은 답을 받아
+        //    헛돌면서 큐 머리를 계속 붙든다. 그래서 서버가 이 하나만 사유를 실어 올린다.
+        if (verified.reason === 'NOT_SETTLED') {
           claimFailStreakRef.current = 0;
           applyQueue(queueRef.current.filter((c) => c.sessionId !== currentSessionId));
           return;

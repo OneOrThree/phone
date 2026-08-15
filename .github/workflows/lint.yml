@@ -65,3 +65,15 @@ jobs:
       - name: Check palette codegen sync
         run: npm run gen:palette:check
         working-directory: app
+
+      # 결과 선점·확인 대역이 되살아나지 않았는지 (GROMO-1576)
+      # ⚠️ 이 가드가 필요한 이유: 대역의 claim은 항상 성공하고 ack는 no-op이라, 되돌아가도
+      #    **테스트는 전부 초록인데 서버 확인이 한 건도 안 남는다.** 컴파일러도 테스트도 못 잡는
+      #    실패라 CI가 문자열로 본다.
+      - name: 결과 선점·확인 대역이 남아 있지 않은지
+        run: |
+          if grep -q '임시 대역' src/screens/group/challengeResultClaim.ts; then
+            echo '::error file=app/src/screens/group/challengeResultClaim.ts::challengeResultClaim.ts가 임시 대역으로 되돌아갔습니다 — ./challengeResult 재수출이어야 합니다.'
+            exit 1
+          fi
+        working-directory: app
