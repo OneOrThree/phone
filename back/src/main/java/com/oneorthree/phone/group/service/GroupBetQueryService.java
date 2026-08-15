@@ -73,9 +73,11 @@ public class GroupBetQueryService {
     /**
      * 내역·결과에 실리는 status — 정산 결과 4종. UNUSED(0명 종료)는 결과가 아니라 어디에도 싣지
      * 않는다(N52). VOIDED 는 신 API 부터 노출한다(레거시 3종 목록과 갈라지는 지점).
+     *
+     * <p>정의의 주인은 상태 enum 이다({@link GroupBetStatus#RESULT_STATUSES}) — 조회와 ack 이 목록을
+     * 따로 들면 한쪽만 고쳐졌을 때 "조회에는 실리는데 확인 표시는 거부되는" 결과가 생긴다.
      */
-    private static final List<GroupBetStatus> RESULT_STATUSES = List.of(
-            GroupBetStatus.SETTLED, GroupBetStatus.REFUNDED, GroupBetStatus.FORFEITED, GroupBetStatus.VOIDED);
+    private static final List<GroupBetStatus> RESULT_STATUSES = GroupBetStatus.RESULT_STATUSES;
 
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
@@ -171,6 +173,11 @@ public class GroupBetQueryService {
                             .myAchieved(my.getAchieved())
                             .myPayout(my.getPayout())
                             .results(GroupBetService.toResultParticipants(participants))
+                            // 미확인만 실리므로 항상 false 다 — 계약 표면으로 유지한다(N58).
+                            // 필터가 limit 뒤에 오면 확인된 10건이 상한을 점유해 11번째 미확인
+                            // 결과가 영영 조회되지 않는다(리포지토리 술어 주석 참조).
+                            .acknowledged(my.isAcknowledged())
+                            .settledAt(session.getSettledAt())
                             .build();
                 })
                 .toList();

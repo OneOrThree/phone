@@ -487,7 +487,7 @@ Table group_challenge_bet_sessions [note: '내기 회차 — 챌린지가 실제
   }
 }
 
-Table group_challenge_bet_participants [note: '내기 회차 참가자(V39 — 축이 내기 행에서 회차로 이동). 참가비는 참가 즉시 차감(에스크로)되고 achieved/payout/progress_minutes 는 정산 시 기록된다. 이 행의 id 가 돈 흐름 멱등키의 단일 축(FR-42). migration V19·V29·V39·V42'] {
+Table group_challenge_bet_participants [note: '내기 회차 참가자(V39 — 축이 내기 행에서 회차로 이동). 참가비는 참가 즉시 차감(에스크로)되고 achieved/payout/progress_minutes 는 정산 시 기록된다. 이 행의 id 가 돈 흐름 멱등키의 단일 축(FR-42). migration V19·V29·V39·V42·V49'] {
   id         uuid        [pk]
 
   session_id uuid        [not null, note: 'FK → group_challenge_bet_sessions.id (구 bet_id 를 V39 에서 리네임 — 값 보존)']
@@ -497,6 +497,10 @@ Table group_challenge_bet_participants [note: '내기 회차 참가자(V39 — �
   achieved_at timestamptz [note: '조기 확정 시각(V42, LLD §1.1) — confirmWin 순간 박제. 조기 확정 전용이라 정산 시점 판정은 null(회차 settled_at 이 시각 축)']
   payout     integer     [note: '정산 시 기록 — 승자 분배금(패자 0) 또는 환불금. 정산 전이면 null']
   progress_minutes integer [note: '정산 판정에 쓴 실측 분(GROMO-1207). FOCUS 무기록은 0, SCREEN_TIME 미보고는 null(미계측 — 앱 "—" 표시)']
+
+  acknowledged_at timestamptz [note: '결과 모달 확인 표시(V49, N58) — 1회 노출 가드의 정본. acknowledged_at IS NULL 조건부 원자 UPDATE 로만 세팅(리그 league_weekly_results.acknowledged_at 과 같은 모양). V49 배포 시점의 결과 4종 회차 참가 행은 now() 로 백필(이미 본 결과의 재생 방지 — OPEN 회차 행은 대상 아님)']
+  display_claimed_at timestamptz [note: '표시 선점(lease) 시각(V49, B17) — 이 시각 + 2분까지가 유효 점유. 렌더 직전 재검증이 같은 쓰기로 이 값을 갱신해 리스를 연장한다(검증·연장을 나누면 마운트 전 만료 TOCTOU 가 남는다). 만료 판정은 서버 시각으로만 하고 응답에는 상대 지연(retryAfterMs)만 싣는다. ack 시 null 로 되돌린다']
+  display_claim_token uuid [note: '표시 선점 토큰/버전(V49, B17) — 최초 획득 시에만 새로 발급되고 재검증은 회전시키지 않는다(갱신 응답 유실 시 ack 까지 막히는 것을 피한다). 소유 판정의 단일 축 — 앱이 렌더 직전 이 토큰으로 대조하고, ack 도 일치할 때만 성사(만료 후 재선점된 기기의 렌더·ack 차단)']
 
   created_at timestamptz [not null, default: `now()`]
 

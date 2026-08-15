@@ -20,6 +20,7 @@ import { todayStrKst } from '@/utils/localDate';
 import { STORAGE_KEYS } from '@/types/storage';
 import type {
   ChallengeDeletionPreviewResponse,
+  ChallengeResultClaimResponse,
   CreateAnnouncementRequest,
   CreateBetRequest,
   CreateBetResponse,
@@ -72,6 +73,15 @@ export const BET_SESSION_CLOSED = 'BET_SESSION_CLOSED'; // 409 참가 마감(now
 export const BET_SCREENTIME_PERMISSION_REQUIRED = 'BET_SCREENTIME_PERMISSION_REQUIRED'; // 409 (N50)
 export const BET_INSUFFICIENT_BALANCE = 'BET_INSUFFICIENT_BALANCE'; // 409 잔액 부족(join-week은 총액)
 export const INVALID_SESSION_DATES = 'INVALID_SESSION_DATES'; // 400 join-week 지정 날짜 무효·중복
+// 결과 모달 노출 선점·확인(GROMO-1577 · N58 — 계약 §4).
+export const RESULT_CLAIM_HELD = 'RESULT_CLAIM_HELD'; // 409 다른 기기가 선점 중({ retryAfterMs })
+export const RESULT_ALREADY_ACKED = 'RESULT_ALREADY_ACKED'; // 409 이미 확인된 결과(재선점 불가)
+export const RESULT_CLAIM_STALE = 'RESULT_CLAIM_STALE'; // 409 ack 토큰이 현재 claim과 다름
+// 409 정산 전(OPEN) 회차에 claim·ack를 불렀다 — **재시도 대상이 아니다**(retryAfterMs 없음).
+// 서버가 막는 이유: 정산 전에 acknowledged_at이 찍히면 그 회차가 나중에 정산됐을 때
+// **어느 기기에서도 안 뜬다.** 결과 4종만 큐에 실리므로 정상 흐름에서는 나올 수 없다 —
+// 나오면 그 자체가 앱 버그 신호다(claimChallengeResult가 사유를 실어 호출부에 올린다).
+export const RESULT_NOT_SETTLED = 'RESULT_NOT_SETTLED';
 
 // POST /api/v1/groups — 그룹 생성. password·description은 보내지 않는다(§3-1-3).
 export async function createGroup(body: CreateGroupRequest): Promise<CreateGroupResponse> {
@@ -346,9 +356,15 @@ export async function leaveBet(groupId: string, betId: string): Promise<void> {
 
 // ── 챌린지 v2 — 참가자 스코프 /me 엔드포인트 (LLD §2.1, 서버 병렬 구현 중) ──────────
 
-// GET /api/v1/me/challenge-results?since=&limit= — 내 정산 완료 회차(그룹 무관, N53).
+// GET /api/v1/me/challenge-results?since=&limit= — 내 **미확인** 정산 완료 회차(그룹 무관, N53).
 // 결과 모달 큐의 유일한 소스다 — 카드 조회(getChallenges)와 분리됐다: 탈퇴자도 자기 결과를
 // 봐야 하고(C8), 안 본 결과 여럿이 최신 1건으로 접히면 안 된다. 최근 30일·최대 10건은 서버 계약.
+//
+// ⚠️ **응답에 실렸다는 것 자체가 "아직 확인 안 됨"이라는 뜻이다**(서버 술어에
+// `acknowledgedAt IS NULL` — 계약 개정). 확인된 행을 앱은 어디서도 쓰지 않으면서 10건 상한만
+// 점유해, 결과가 11건 이상인 사용자의 **11번째 미확인 결과가 영영 조회되지 않았다.**
+// `acknowledged` 필드는 계약 표면으로 남지만 실서버에서는 항상 false다 — 앱의 필터를 그대로
+// 두는 것은 구서버 응답 방어이자, 서버가 술어를 되돌려도 화면이 안 깨지게 하는 이중 안전장치다.
 // 방어: results 키가 없거나 배열이 아니면 빈 배열 — 큐가 없을 뿐 화면은 무영향.
 export async function getMyChallengeResults(page?: {
   since?: string;
@@ -358,9 +374,19 @@ export async function getMyChallengeResults(page?: {
   // axios 인터셉터가 새 토큰을 붙이거나, 응답 후 저장소에서 새 userId를 읽어 옛 결과를
   // 새 계정에 귀속시킬 수 있다(코드리뷰 반영).
   const requestGeneration = getAuthSessionGeneration();
-  const accessToken = await getFreshAccessToken().catch(() => null);
+  // ⚠️ 토큰 실패를 삼키지 않는다(GROMO-1577). getFreshAccessToken은 **갱신 실패(네트워크·5xx)를
+  // 던지고** null은 저장된 토큰이 아예 없을 때만이다. 예전엔 `.catch(() => null)`로 둘을 접어
+  // 빈 배열을 돌려줬는데, 호출부(GroupRoomScreen)는 그것을 **성공한 빈 응답**으로 읽어
+  // 대기 중인 결과 큐까지 비운다 — 사용자에겐 "결과가 없다"로 보이고 지표엔 흔적도 안 남는다.
+  // 호출부는 이미 Promise.allSettled로 감싸 rejected를 resultsUnknown(=모르겠다)으로 다루므로,
+  // 실패를 그대로 올리는 것이 올바른 신호다. '모르겠다'와 '없다'를 같은 값으로 말하지 않는다.
+  const accessToken = await getFreshAccessToken();
   const userId = getUserIdFromToken(accessToken ?? '');
-  if (!accessToken || !userId) return [];
+  if (!accessToken || !userId) {
+    // 세션이 있을 때만 부르는 조회다(게스트는 호출부가 걸러 낸다) — 여기서 토큰·userId가 비면
+    // 세션 상태를 읽지 못한 것이지 '결과가 없다'가 아니다. 역시 실패로 올린다.
+    throw new Error('CHALLENGE_RESULTS_NO_SESSION');
+  }
   const { data } = await api.get<MyChallengeResultsResponse>(
     '/api/v1/me/challenge-results',
     // undefined 값 키는 axios가 직렬화하지 않는다 — 생략 시 서버 기본(최근 30일·10건)을 탄다.
@@ -371,6 +397,13 @@ export async function getMyChallengeResults(page?: {
     } as Parameters<typeof api.get>[1],
   );
   const results = Array.isArray(data?.results) ? data.results : [];
+  // 이 회차들을 **누가 읽었는지** 기록한다 — claim·ack이 전송 직전에 소유자를 검증한다.
+  // 조회가 채우고 뮤테이션이 읽는 결은 challengeMetaCache(삭제 계측)와 같다.
+  // 아래 계정 재검증보다 **앞에** 둔다: 요청 중 계정이 바뀌었더라도 이 결과의 소유자는
+  // 여전히 조회를 건 userId이고, 그 사실을 적어 둬야 뒤이은 claim이 올바로 거절된다.
+  for (const result of results) {
+    if (result?.sessionId) challengeResultOwners.set(result.sessionId, userId);
+  }
   const currentToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken).catch(() => null);
   if (
     getAuthSessionGeneration() !== requestGeneration ||
@@ -398,6 +431,72 @@ export async function getMyChallengeResults(page?: {
     }
   }
   return results;
+}
+
+// 회차 → 그 결과를 내려받은 계정. claim·ack의 소유자 검증에 쓴다(아래 주석).
+const challengeResultOwners = new Map<string, string>();
+
+// claim·ack의 **전송 시점** 계정 고정(PR #672 리뷰 P1).
+// `api` 인터셉터가 붙이는 것은 조회 시점이 아니라 **전송 시점의 저장 토큰**이다. 결과를 조회한
+// 뒤 계정이 전환되면 그 새 계정 토큰으로 요청이 나가고, 그때 두 가지가 무너진다:
+//   · 두 계정이 **같은 회차에 참가**했다면 새 계정의 결과를 선점해 버리고,
+//   · 이전 계정용 모달을 띄운 것만으로 **새 계정이 못 본 결과를 확인 처리**해 영구히 누락시킨다.
+// 같은 회차에 두 계정이 참가하는 것은 실제로 가능하다 — 로컬 마커를 계정 스코프
+// (`gromo:sessionResult:{userId}:{sessionId}`)로 둔 이유가 정확히 그것이다.
+// 그래서 둘 다 한다: ① 검증한 토큰을 직접 싣고 401 재발급 재시도를 끈다(재발급 토큰은 전환된
+// 계정 것일 수 있어 재시도가 곧 계정 오귀속이다 — getMyOpenBetSessionsWithToken과 같은 규칙),
+// ② 그 회차를 내려준 계정과 다르면 **아예 보내지 않는다**.
+// 호출 시점을 막는 것은 호스트(W1) 몫이고 여기는 전송 시점을 막는다 — 둘 다 필요하다.
+async function challengeResultRequestConfig(
+  sessionId: string,
+): Promise<Parameters<typeof api.post>[2]> {
+  const accessToken = await getFreshAccessToken();
+  const userId = getUserIdFromToken(accessToken ?? '');
+  if (!accessToken || !userId) throw new Error('CHALLENGE_RESULT_NO_SESSION');
+  const owner = challengeResultOwners.get(sessionId);
+  // 소유자를 모르는 회차(이 앱 실행에서 조회한 적 없음)는 검증할 근거가 없다 — 토큰 고정만
+  // 적용한다. 인터셉터에 맡기던 종전보다 나쁠 수 없고, 큐의 후보는 전부 조회를 거쳐 들어온다.
+  if (owner !== undefined && owner !== userId) {
+    throw new Error('CHALLENGE_RESULT_ACCOUNT_SWITCHED');
+  }
+  return {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    _noAuthRetry: true,
+  } as Parameters<typeof api.post>[2];
+}
+
+// POST /api/v1/me/challenge-results/{sessionId}/claim — 결과 1건의 **노출 선점**(GROMO-1577 · N58).
+// 여러 기기가 같은 큐를 들고 있어도 한 곳에서만 모달이 뜨게 한다(순서는 D8:
+// slot → 선점 → 활성 claim 검증 → 노출 → ack. ack를 노출 앞에 두면 렌더가 끊겼을 때
+// **어느 기기에서도 못 본다**).
+// 바디는 항상 {} 다 — joinGroup·joinBet과 같은 이유로 생략하면 서버가 415를 준다.
+// 200 { claimToken } · 409 RESULT_CLAIM_HELD { retryAfterMs } · 409 RESULT_ALREADY_ACKED ·
+// 409 RESULT_NOT_SETTLED(정산 전 회차 — 재시도 불가) ·
+// 404 USER_NOT_FOUND/그 회차의 내 참가 행 없음. 409 판정은 challengeResult.claimChallengeResult가 쥔다.
+// claimToken 을 실으면 **재검증 + lease 갱신**이다(계약 §4 개정 N53) — 없으면 최초 획득.
+// 렌더 직전에 이걸 부르지 않으면, 백그라운드에서 lease 를 잃은 기기가 낡은 성공 응답만 믿고
+// 띄워 두 기기가 모두 모달을 본다.
+export async function claimMyChallengeResult(
+  sessionId: string,
+  claimToken?: string,
+): Promise<ChallengeResultClaimResponse> {
+  const config = await challengeResultRequestConfig(sessionId);
+  const { data } = await api.post<ChallengeResultClaimResponse>(
+    `/api/v1/me/challenge-results/${sessionId}/claim`,
+    // 값 없는 키를 보내지 않는다 — 서버가 "재검증 요청"으로 오독하면 최초 획득이 막힌다.
+    claimToken === undefined ? {} : { claimToken },
+    config,
+  );
+  return data;
+}
+
+// POST /api/v1/me/challenge-results/{sessionId}/ack — 확인 보고(멱등). 200만 나온다:
+// 대상 없음·이미 확인됨·중복 호출 전부 no-op. 토큰이 낡았으면 409 RESULT_CLAIM_STALE.
+// 노출 **후**에 부른다 — 서버는 이 호출로 남은 claim과 (user, BET_RESULT, sessionId) 알림
+// 클레임까지 닫는다(안 닫으면 이미 본 결과의 푸시가 나중에 도착한다).
+export async function ackMyChallengeResult(sessionId: string, claimToken: string): Promise<void> {
+  const config = await challengeResultRequestConfig(sessionId);
+  await api.post<void>(`/api/v1/me/challenge-results/${sessionId}/ack`, { claimToken }, config);
 }
 
 // GET /api/v1/me/bet-sessions?status=OPEN — 내가 참가비를 건 진행 중 회차(그룹 무관, N43).
@@ -523,4 +622,16 @@ export function groupErrorCode(e: unknown): string | null {
   if (!axios.isAxiosError(e)) return null;
   const body = e.response?.data as { code?: string } | undefined;
   return body?.code ?? null;
+}
+
+// 서버 에러 바디의 `retryAfterMs`(409 RESULT_CLAIM_HELD) — **상대 지연**만 읽는다.
+// 절대 만료 시각은 계약이 금지한다(인스턴스 간 시계가 어긋나면 락이 조기 만료된다 —
+// ShedLockConfig.usingDbTime()과 같은 근거). 값이 없거나 수가 아니거나 음수·무한대면 null:
+// '서버가 언제 다시 오라고 말하지 않았다'와 '0ms 뒤 즉시'를 같은 값으로 말하지 않는다.
+export function groupErrorRetryAfterMs(e: unknown): number | null {
+  if (!axios.isAxiosError(e)) return null;
+  const body = e.response?.data as { retryAfterMs?: unknown } | undefined;
+  const value = body?.retryAfterMs;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  return value;
 }
