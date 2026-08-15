@@ -17,6 +17,7 @@ import { Alert } from 'react-native';
 import {
   OVERLAY_PRIORITY,
   OverlaySlotProvider,
+  markOverlayUserDismissable,
   useOverlayBlocker,
   useOverlayMaxPriority,
 } from '@/store/OverlaySlotContext';
@@ -174,4 +175,122 @@ test('Provider가 교체돼도 떠 있는 안내의 점유가 새 Provider로 �
 
   alertSpy.mockRestore();
   view.unmount();
+});
+
+// ⚠️ **덮으면 그 정산 내용을 다시 못 본다.** 결과 모달이 노출되면 ack는 그 시점에 이미 나가
+//    서버가 그 회차를 미확인 목록에서 뺀다(D8). 그 위에 이 안내를 띄우면 확인 버튼이 로그아웃을
+//    불러 **모달째 사라지고**, 어느 경로로도 그 내용을 다시 볼 수 없다.
+//    ⚠️ 그렇다고 **무조건 기다리면** 앞서 접은 결함이 돌아온다 — 호출부의 시트가 자리를 쥔
+//       흔한 경우, 그 시트는 **이 실패 때문에** 안 닫힐 수 있어 사용자가 죽은 세션에 갇힌다.
+//    판정 축은 "기다리냐"가 아니라 **"보유자가 사용자 조작으로 반드시 닫히는가"**다.
+//    ⚠️ 앞의 것만 잠그면 안내가 영영 안 떠도 초록이다 — 둘을 한 테스트에서 함께 본다.
+test('노출 중인 결과 뒤에서는 기다렸다 뜨고, 호출부가 쥔 자리 위에는 즉시 뜬다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  const view = await render(
+    <OverlaySlotProvider>
+      <Sheet active={false} />
+    </OverlaySlotProvider>,
+  );
+  await act(async () => {});
+
+  // ① 결과 모달이 노출 중이다 — 사용자가 닫아야만 사라진다.
+  await act(async () => {
+    markOverlayUserDismissable('challenge:result', true);
+  });
+  await act(async () => {
+    promptSessionExpired(0);
+  });
+  await act(async () => {});
+  expect(alertSpy).not.toHaveBeenCalled(); // 덮지 않는다
+
+  // 사용자가 결과를 닫으면 그때 뜬다 — 안내가 증발하지도 않는다.
+  await act(async () => {
+    markOverlayUserDismissable('challenge:result', false);
+  });
+  await act(async () => {});
+  expect(alertSpy).toHaveBeenCalledTimes(1);
+  const [, , buttons] = alertSpy.mock.calls[0] as unknown as [
+    string,
+    string,
+    { text: string; onPress?: () => void }[],
+  ];
+  await act(async () => {
+    buttons[0].onPress?.();
+  });
+
+  // ② 호출부 자신의 시트가 자리를 쥔 경우 — **기다리지 않는다.** 그 시트는 이 실패 때문에
+  //    안 닫힐 수 있어, 기다리면 사용자가 죽은 세션에 갇힌 채 이유를 모른다.
+  alertSpy.mockClear();
+  await act(async () => {
+    view.rerender(
+      <OverlaySlotProvider>
+        <Sheet active />
+      </OverlaySlotProvider>,
+    );
+  });
+  await act(async () => {
+    promptSessionExpired(0);
+  });
+  await act(async () => {});
+  expect(alertSpy).toHaveBeenCalledTimes(1);
+
+  const [, , confirmButtons] = alertSpy.mock.calls[0] as unknown as [
+    string,
+    string,
+    { text: string; onPress?: () => void }[],
+  ];
+  await act(async () => {
+    confirmButtons[0].onPress?.();
+  });
+  alertSpy.mockRestore();
+  view.unmount();
+});
+
+// ⚠️ Provider가 **교체가 아니라 사라지는** 경로 — App.tsx는 로그아웃 시 OverlaySlotProvider를
+//    통째로 없앤다(!user면 LoginScreen만 렌더). 그때 확인을 누르면 반납 대상이 없다.
+//    지금 코드가 안전한 이유는 반환 함수가 `nativeHolds.delete(hold)`를 **moduleActions 유무와
+//    무관하게 항상 먼저** 실행하기 때문인데, 그걸 잠근 테스트가 없었다. 다음 사람이 그 추론을
+//    다시 하지 않아도 되도록 잠근다.
+test('Provider가 사라진 뒤 확인을 눌러도 터지지 않고, 다시 마운트해도 점유가 남지 않는다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  const values: number[] = [];
+  const first = await render(
+    <OverlaySlotProvider>
+      <Probe onValue={(v) => values.push(v)} />
+    </OverlaySlotProvider>,
+  );
+  await act(async () => {});
+
+  await act(async () => {
+    promptSessionExpired(0);
+  });
+  await act(async () => {});
+  expect(values[values.length - 1]).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 로그아웃 — Provider가 통째로 사라진다(교체가 아니다).
+  await act(async () => {
+    first.unmount();
+  });
+
+  const [, , buttons] = alertSpy.mock.calls[0] as unknown as [
+    string,
+    string,
+    { text: string; onPress?: () => void }[],
+  ];
+  await act(async () => {
+    buttons[0].onPress?.(); // 반납 대상이 없다 — 터지면 안 된다
+  });
+
+  // 다시 로그인해 Provider가 새로 서면, 그 안내의 점유는 **남아 있지 않아야** 한다.
+  const values2: number[] = [];
+  const second = await render(
+    <OverlaySlotProvider>
+      <Probe onValue={(v) => values2.push(v)} />
+    </OverlaySlotProvider>,
+  );
+  await act(async () => {});
+  expect(values2[values2.length - 1]).toBe(-1);
+
+  alertSpy.mockRestore();
+  second.unmount();
 });

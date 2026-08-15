@@ -183,6 +183,42 @@ const nativeHolds = new Set<{ id: string; priority: number }>();
  * 훅 없이 자리를 점유한다 — 반환된 함수를 부르면 반납한다.
  * Provider가 교체되면 새 Provider에 자동으로 다시 등록된다(위 주석).
  */
+// ── "보유자가 사용자 조작으로 반드시 닫히는가" ───────────────────────────────
+// 네이티브 Alert를 **즉시 띄울지 기다릴지**를 가르는 축이다. 앞서 세운 규칙("이미 자기가 자리를
+// 쥐고 있으면 즉시, 아니면 기다린다")은 두 경우를 뭉갠다:
+//   · 보유자가 **호출부 자신의 시트**  → 그 시트는 **이 실패 때문에** 안 닫힐 수 있다.
+//     기다리면 사용자가 죽은 세션에 갇힌 채 이유를 모른다 → **즉시 띄운다.**
+//   · 보유자가 **노출 중인 결과 모달** → 사용자가 닫기를 누르면 **반드시** 닫힌다 →
+//     **기다린다.** 여기서 덮으면 확인 버튼이 로그아웃을 불러 모달째 사라지고, ack는 노출
+//     시점에 이미 나갔으므로(D8) **그 정산 내용을 어느 경로로도 다시 못 본다.**
+// 그래서 조정자가 "지금 사용자 조작으로만 닫히는 오버레이가 노출 중인가"를 들고 있고,
+// 모듈 함수는 그것만 보고 판단한다(그룹 모듈을 import하지 않는다 — sessionErrors 헤더의 이유).
+// ⚠️ 기다림에 **상한을 두지 않는다.** 그 오버레이는 사용자가 닫아야만 사라지므로 무한 대기가
+//    아니고, 상한을 두면 그 시점에 다시 덮는 것이라 고친 것이 없다.
+const userDismissableOverlays = new Set<string>();
+let dismissWaiters: (() => void)[] = [];
+
+/** 사용자 조작으로만 닫히는 오버레이가 **지금 노출 중**임을 알린다(노출이 끝나면 false). */
+export function markOverlayUserDismissable(id: string, exposed: boolean): void {
+  if (exposed) {
+    userDismissableOverlays.add(id);
+    return;
+  }
+  if (!userDismissableOverlays.delete(id)) return;
+  if (userDismissableOverlays.size > 0) return;
+  const waiters = dismissWaiters;
+  dismissWaiters = [];
+  waiters.forEach((resolve) => resolve());
+}
+
+/** 그런 오버레이가 하나도 노출돼 있지 않을 때까지 기다린다(없으면 즉시). */
+export function whenNoUserDismissableOverlay(): Promise<void> {
+  if (userDismissableOverlays.size === 0) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    dismissWaiters.push(resolve);
+  });
+}
+
 export function holdOverlaySlotForNativeSurface(id: string, priority: number): () => void {
   const hold = { id, priority };
   nativeHolds.add(hold);

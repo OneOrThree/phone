@@ -51,6 +51,7 @@ import {
   OVERLAY_PRIORITY,
   useOverlayMaxPriority,
   useOverlaySlot,
+  markOverlayUserDismissable,
 } from '@/store/OverlaySlotContext';
 import { readCurrentRoute, subscribeCurrentRoute } from '@/navigation/navigationRef';
 import type { MyChallengeResultEntry } from '@/types/dto/group';
@@ -668,6 +669,15 @@ export default function ChallengeResultHost() {
   }, [granted, currentSessionId, claimTick, applyQueue]);
 
   const visible = granted && current !== null && claim?.sessionId === current.sessionId;
+
+  // ⚠️ **노출 중임을 조정자에 알린다.** 이 모달은 사용자가 닫기를 눌러야만 사라지므로,
+  //    모듈 함수가 띄우는 네이티브 Alert(세션 만료 안내)는 그 닫힘을 **기다려야** 한다.
+  //    그냥 덮으면 그 확인 버튼이 로그아웃을 불러 모달째 사라지는데, ack는 노출 시점에 이미
+  //    나갔으므로(D8) 그 정산 내용을 어느 경로로도 다시 못 본다.
+  useEffect(() => {
+    markOverlayUserDismissable(CHALLENGE_RESULT_OVERLAY_ID, visible);
+    return () => markOverlayUserDismissable(CHALLENGE_RESULT_OVERLAY_ID, false);
+  }, [visible]);
 
   // ack 재시도 — **모달을 다시 띄우지 않는다**(N51). 로컬 가드는 노출 시점에 이미 찍혔으므로,
   // 여기서 포기하면 서버에는 영영 미확인으로 남아 다른 기기·재설치에서 다시 뜬다.

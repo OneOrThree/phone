@@ -1,31 +1,30 @@
 import { Alert } from 'react-native';
 import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
-import { OVERLAY_PRIORITY, holdOverlaySlotForNativeSurface } from '@/store/OverlaySlotContext';
+import {
+  OVERLAY_PRIORITY,
+  holdOverlaySlotForNativeSurface,
+  whenNoUserDismissableOverlay,
+} from '@/store/OverlaySlotContext';
 
 // 이 안내가 떠 있는 동안 점유할 자리의 이름.
 const SESSION_EXPIRED_SLOT_ID = 'session.expired';
 
-// 지금 떠 있는 **이 안내의 수**. 모듈 스코프인 이유가 이 결함의 전부다.
-//
+// ── 겹쳐 뜨는 안내를 어떻게 세는가: **세지 않는다** ──────────────────────────
 // `promptSessionExpired`는 코드베이스 15곳에서 각각 불리고, USER_NOT_FOUND는 "계정 자체가
-// 삭제됨"이라 **여러 화면의 진행 중 요청이 나란히** 이 코드를 받는다. 그러면 이 함수가
-// 겹쳐 실행되는데, 반납 플래그를 호출별 클로저에만 두면 **먼저 닫힌 쪽이 하나뿐인 registry
-// 항목을 지운다** — 조정자의 `release(id)`에는 참조 카운트가 없다.
-//   · Android: 새 Alert가 기존 것을 dismissExisting()으로 닫아 A의 onDismiss가 불리는데
-//     B는 아직 떠 있다.
-//   · iOS: 순차 present라 A를 닫는 순간 큐에 있던 B가 **등록 없이** 뜬다.
-// 둘 다 그 틈에 결과 모달이 자리를 얻어 Alert 뒤에서 마운트·seen/ack 된다.
+// 삭제됨"이라 **여러 화면의 진행 중 요청이 나란히** 이 코드를 받는다. 그래서 이 함수는 겹쳐
+// 실행되고, 그때 먼저 닫힌 쪽이 자리를 놓아 버리면 **아직 떠 있는 안내 뒤에서** 결과 모달이
+// 마운트·ack 된다(Android는 dismissExisting, iOS는 순차 present로 각각 그 창을 만든다).
 //
-// ⚠️ **세는 자리는 조정자가 아니라 여기다.** registry 쪽에 참조 카운트를 넣는 안은 앞서
-//    접었다 — `useOverlayAlert`는 N개 Alert에 반납을 **한 번만** 부르므로 그쪽에서 세면
-//    카운트가 안 맞아 영구 점유가 된다. 세는 주체는 언제나 **호출자 쪽**이다
-//    (useOverlayAlert의 openCountRef가 훅 인스턴스마다 하는 일을, 훅이 없는 모듈 함수라
-//     모듈 스코프에서 한다).
-// ⚠️ 호출별 `released` 플래그는 **그대로 둔다.** 확인 버튼과 onDismiss가 한 호출 안에서
-//    둘 다 불릴 수 있어 멱등이 여전히 필요하다 — 두 층이다(호출별 멱등 + 모듈 카운트).
-let openPromptCount = 0;
-// 그 점유의 반납 손잡이 — **첫 안내가 잡고 마지막 안내가 놓는다**(위 카운트와 한 쌍).
-let releaseHoldRef: (() => void) | null = null;
+// 한때 여기서 모듈 카운터로 직접 셌지만 **걷어냈다.** 겹침 처리는 이미 한 겹 아래에
+// 있다 — `holdOverlaySlotForNativeSurface`는 호출마다 **자기 hold 객체**를 등록하고, 반납할 때
+// "같은 id를 쥔 다른 hold가 남아 있으면 registry 등록을 유지"한다. 즉 그 Set이 곧 id별 참조
+// 카운트이고, 여기서 세던 것은 그것의 **손수 재구현**이었다.
+// ⚠️ 두 겹으로 두면 안 되는 실질적 이유: 모듈 카운터는 **hold 객체와 달리 정체성이 없어**
+//    한 번 어긋나면(닫히지 않은 안내 하나) 그 뒤 모든 반납이 조용히 틀어진다. 걷어내면
+//    그 실패 모드 자체가 사라진다.
+// ⚠️ 호출별 `released` 멱등은 **그대로 둔다** — 확인 버튼과 onDismiss가 한 호출 안에서 둘 다
+//    불릴 수 있다. 반환 함수 자신도 멱등이지만 그 성질에 기대지 않는다(걷어낸 것은
+//    **호출 간 카운트**뿐이다).
 
 // 유저 부재(활성 users 행 없음) 전용 서버 코드와 **그 유일한 처방**을 한자리에 둔다(GROMO-1247).
 //
@@ -76,47 +75,62 @@ export function promptSessionExpired(requestSessionGeneration: number): void {
   // 그래서 자리를 **이 안내 자신이** 쥔다 — 그러면 아래의 어떤 배경 이벤트도 창을 못 만든다.
   // 호출부 15곳을 각각 고치지 않고 여기 한 곳에서 닫는 이유이기도 하다.
   //
-  // ⚠️ 승인을 **기다리지 않는다**(request이지 acquire가 아니다). 기다리면 호출부의 시트가
+  // ⚠️ 자리는 **즉시** 쥔다(request이지 acquire가 아니다). 승인을 기다리면 호출부의 시트가
   //    자리를 쥔 흔한 경우에 그 시트가 닫힐 때까지 안내가 안 뜨고, 사용자는 죽은 세션에
-  //    갇힌 채 이유를 모른다. "이미 자기 쪽이 자리를 쥐고 있으면 기다릴 이유가 없다"는
-  //    GroupCreateScreen에서 세운 것과 같은 판단이다.
+  //    갇힌 채 이유를 모른다 — 그 시트는 **이 실패 때문에** 안 닫힐 수 있다.
+  // ⚠️ 다만 **띄우는 시점은 한 경우에만 미룬다**: 지금 노출 중인 오버레이가 **사용자 조작으로만
+  //    닫히는** 것일 때(= 결과 모달). 그때 덮으면 이 확인 버튼이 로그아웃을 불러 모달째
+  //    사라지는데, ack는 노출 시점에 이미 나갔으므로(D8) **그 정산 내용을 어느 경로로도 다시
+  //    못 본다.** 자리는 그대로 즉시 쥔다 — 그래야 결과가 닫힌 직후 다른 것이 끼어들지 않는다.
+  //    미루는 것은 `Alert.alert` 호출뿐이고, 상한은 두지 않는다(조정자의 같은 이름 주석).
   // ⚠️ 반납 경로는 둘 다 잇는다 — 확인 버튼과 `onDismiss`(Android의 dismissExisting은 버튼
   //    콜백을 건너뛴다). 네이티브 Alert는 사용자가 닫아야만 사라지므로 영구 점유가 아니다.
   // ⚠️ actions를 **캡처해 두지 않는다.** 안내를 읽는 사이 게스트→소셜 승격이 끝나면
   //    `<UserProvider key={userId}>`가 서브트리를 리마운트해 Provider가 교체되는데, 캡처한
   //    참조는 폐기된 registry를 가리킨다. `holdOverlaySlotForNativeSurface`가 점유를 모듈에
   //    들고 있다가 **새 Provider에 다시 등록**하고, 반납도 그 시점의 Provider에 한다.
-  openPromptCount += 1;
-  const releaseHold =
-    openPromptCount === 1
-      ? holdOverlaySlotForNativeSurface(SESSION_EXPIRED_SLOT_ID, OVERLAY_PRIORITY.sheet)
-      : null;
+  // 겹쳐 뜬 안내들은 **각자 자기 hold를 잡는다** — 마지막이 놓을 때까지 등록이 유지되는 것은
+  // hold Set이 보장한다(위 "세지 않는다" 주석).
+  const releaseHold = holdOverlaySlotForNativeSurface(
+    SESSION_EXPIRED_SLOT_ID,
+    OVERLAY_PRIORITY.sheet,
+  );
   let released = false; // 호출별 멱등 — 확인과 onDismiss가 둘 다 불릴 수 있다(위 ⚠️).
   const release = () => {
     if (released) return;
     released = true;
-    openPromptCount = Math.max(0, openPromptCount - 1);
-    // 다른 화면이 띄운 같은 안내가 아직 떠 있다 — 그 자리는 마지막이 닫을 때 놓는다.
-    if (openPromptCount > 0) return;
-    releaseHoldRef?.();
-    releaseHoldRef = null;
+    releaseHold();
   };
-  if (releaseHold !== null) releaseHoldRef = releaseHold;
-  Alert.alert(
-    '로그인이 필요해요',
-    '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
-    [
-      // ② **확인 시점** — ①을 통과했어도 안내를 읽는 사이 세션이 교체될 수 있다. 세대를 넘겨
-      //    App.tsx 로그아웃 핸들러가 스스로 대조하게 한다. 두 검사는 **다른 구간**을 막는다:
-      //    ①은 응답→표시 구간, ②는 표시→확인 구간. 하나로 합칠 수 없다.
-      {
-        text: '확인',
-        onPress: () => {
-          release();
-          triggerLogout(requestSessionGeneration);
+  const showPrompt = () => {
+    Alert.alert(
+      '로그인이 필요해요',
+      '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
+      [
+        // ② **확인 시점** — ①을 통과했어도 안내를 읽는 사이 세션이 교체될 수 있다. 세대를 넘겨
+        //    App.tsx 로그아웃 핸들러가 스스로 대조하게 한다. 두 검사는 **다른 구간**을 막는다:
+        //    ①은 응답→표시 구간, ②는 표시→확인 구간. 하나로 합칠 수 없다.
+        {
+          text: '확인',
+          onPress: () => {
+            release();
+            triggerLogout(requestSessionGeneration);
+          },
         },
-      },
-    ],
-    { cancelable: false, onDismiss: release },
-  );
+      ],
+      { cancelable: false, onDismiss: release },
+    );
+  };
+
+  // 사용자 조작으로만 닫히는 오버레이가 없으면 **그 자리에서** 뜬다(마이크로태스크 한 번).
+  // 있으면 그것이 닫힐 때까지 기다린다 — 그 사이 자리는 이미 위에서 쥐고 있다.
+  whenNoUserDismissableOverlay()
+    .then(() => {
+      // ③ 기다리는 사이 세션이 교체됐으면 ①과 같은 이유로 조용히 버린다 — 안내가 거짓말이 된다.
+      if (getAuthSessionGeneration() !== requestSessionGeneration) {
+        release();
+        return;
+      }
+      showPrompt();
+    })
+    .catch(() => release());
 }

@@ -41,9 +41,15 @@ jest.mock('@react-native-firebase/analytics', () => {
 });
 
 // AppState 초기값 — RN 테스트 목의 기본값은 실기기와 다르다(active를 주지 않는다).
-// 챌린지 결과 호스트는 **명시적 active일 때만** claim·노출을 허용하므로(보이지 않는 앱에서
-// seen/ack이 찍히는 것을 막는 게이트), 목의 기본값을 그대로 두면 그 게이트가 전부 닫혀
-// 실기기에서 정상인 동작이 테스트에서만 안 뜬다. 실기기가 마운트 시 주는 값으로 맞춘다.
-// 비활성 구간을 보는 테스트는 각자 change 이벤트를 굴려 덮는다.
+// 실기기가 마운트 시 주는 값으로 맞춘다. 비활성 구간을 보는 테스트는 각자 change 이벤트로 덮는다.
+//
+// **이 값을 읽는 자리는 7곳이고, 이 설정으로 판정이 뒤집히는 것은 그중 둘이다**(나머지 다섯은
+// 'background'·'inactive'만 비활성으로 보므로 목의 기본값에서도 이미 활성으로 읽혔다):
+//   · screens/group/ChallengeResultHost.tsx — **명시적 active일 때만** claim·노출을 허용한다
+//     (보이지 않는 앱에서 seen/ack이 찍히는 것을 막는 게이트). 이 설정이 없으면 그 게이트가
+//     전부 닫혀 결과 모달을 보는 스위트 전체가 실기기와 다르게 돈다 — 이 설정을 넣은 이유다.
+//   · navigation/RootNavigator.tsx:142 — 'active'가 아니면 다르게 분기한다.
+// 뒤집히지 않는 다섯: screens/group/useGroupCardData.ts · GroupListScreen.tsx ·
+// GroupRoomScreen.tsx · screens/focus/FocusCategoryScreen.tsx · FocusSessionScreen.tsx.
 const { AppState } = require('react-native');
 AppState.currentState = 'active';
