@@ -36,6 +36,9 @@ const mockRoute: { params: { groupId: string; challengeId?: string } } = {
   params: { groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55' },
 };
 jest.mock('@react-navigation/native', () => ({
+  // 실제 모듈을 깔고 필요한 것만 덮는다 — navigationRef가 createNavigationContainerRef를
+  // 모듈 로드 시점에 부르기 때문에, 빠뜨리면 이 화면을 import하는 것만으로 스위트가 죽는다.
+  ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => mockNavigation,
   useRoute: () => mockRoute,
   useFocusEffect: (cb: () => void | (() => void)) => {
@@ -188,37 +191,24 @@ describe('라우트 진입 계약', () => {
     expect(screen.queryByText('그룹 나가기')).toBeNull();
   });
 
-  // 챌린지 종료 푸시 딥링크(GROMO-1088) — 래퍼의 일은 파라미터를 그대로 흘리는 것뿐이지만,
-  // 여기서 끊기면 푸시 탭이 그룹방까지만 가고 결과 모달이 뜨지 않는다.
-  test('라우트 파라미터의 challengeId를 그룹방에 흘린다(결과 모달 자동 오픈)', async () => {
+  // 챌린지 종료 푸시 딥링크(GROMO-1088)의 challengeId는 **이 래퍼가 소비하지 않는다**
+  // (GROMO-1576). 결과 모달의 소유자가 루트 호스트로 옮겨 갔고, 호스트가 현재 라우트
+  // 파라미터에서 직접 읽는다 — 여기서 prop으로 내려보내면 소비자가 둘이 된다.
+  // 지목이 실제로 모달을 여는 경로는 ChallengeResultHost.test.tsx의
+  // '종료 푸시가 지목한 챌린지(라우트 challengeId)' describe가 잠근다.
+  test('challengeId는 그룹방으로 흘리지 않는다 — 지목의 소비자는 루트 호스트다', async () => {
     mockRoute.params = { groupId: GROUP_ID, challengeId: 'c1' };
-    // 결과 모달 큐의 소스는 /me/challenge-results다(GROMO-1279 · N53) — 카드 조회가 아니다.
-    mockGetMyChallengeResults.mockResolvedValue([
-      {
-        sessionId: 's1',
-        groupId: GROUP_ID,
-        groupName: '아침 6시 집중방',
-        challengeId: 'c1',
-        challengeDeleted: false,
-        challengeEnded: false,
-        sessionDate: '2026-07-31',
-        stake: 30,
-        pot: 60,
-        status: 'SETTLED',
-        voidReason: null,
-        goalMinutes: 60,
-        myAchieved: true,
-        myPayout: 60,
-        results: [
-          { userId: 'me', nickname: '나', achieved: true, payout: 60, progressMinutes: 70 },
-        ],
-      },
-    ]);
 
     await renderRoute();
 
-    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
-    expect(screen.getByText('7월 31일 결과')).toBeOnTheScreen();
+    // 방은 정상적으로 열린다(지목과 무관하게 groupId만으로 성립한다).
+    expect(await screen.findByText('아침 6시 집중방')).toBeOnTheScreen();
+    // 이 화면 어디에서도 결과 모달을 그리지 않는다.
+    expect(
+      screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
+    ).toBeNull();
+    // 결과 조회도 이 화면의 일이 아니다.
+    expect(mockGetMyChallengeResults).not.toHaveBeenCalled();
   });
 
   test('재렌더돼도 포커스 재조회가 다시 돌지 않는다(콜백 신원 고정)', async () => {

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
 import { getAuthSessionGeneration } from '@/services/api';
@@ -62,6 +63,10 @@ function KickRow({ member, disabled, onKick }: KickRowProps) {
 }
 
 export default function GroupMemberManageScreen() {
+  // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
+  // 마운트되면 사용자는 못 봤는데 seen 마커와 ack이 찍힌다. 이 훅이 Alert 수명 동안
+  // 조정자 slot을 점유해 그걸 막는다(store/useOverlayAlert 헤더).
+  const showAlert = useOverlayAlert('groupMemberManage.alert');
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { groupId } = useRoute<GroupMemberManageRoute>().params;
   const { userId } = useUser();
@@ -146,19 +151,20 @@ export default function GroupMemberManageScreen() {
         // 본인 강퇴 방어(CANNOT_KICK_SELF) — 본인은 애초에 목록에서 빠져 도달 불가지만, 서버
         // 계약을 존중해 사유를 그대로 알린다.
         if (code === 'CANNOT_KICK_SELF') {
-          Alert.alert('내보낼 수 없어요', '자기 자신은 내보낼 수 없어요.');
+          // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다.
+          await showAlert.afterSlot('내보낼 수 없어요', '자기 자신은 내보낼 수 없어요.');
           return;
         }
-        Alert.alert('내보내기 실패', '잠시 후 다시 시도해 주세요.');
+        await showAlert.afterSlot('내보내기 실패', '잠시 후 다시 시도해 주세요.');
       }
     },
-    [groupId, removeMember, unlockMember],
+    [groupId, removeMember, unlockMember, showAlert],
   );
 
   // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 되돌릴 수 없음(재가입 차단)을 함께 안내한다.
   const confirmKick = useCallback(
     (target: GroupDetailMemberResponse) => {
-      Alert.alert(
+      showAlert(
         '내보내기',
         `${target.nickname}님을 내보낼까요?\n내보낸 멤버는 다시 들어올 수 없어요.`,
         [
@@ -167,7 +173,7 @@ export default function GroupMemberManageScreen() {
         ],
       );
     },
-    [doKick],
+    [doKick, showAlert],
   );
 
   // 라우트 진입의 원형 백버튼 — 로딩·에러 분기에도 세운다(루트 스택 headerShown:false·탭바 없음이라

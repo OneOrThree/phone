@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,8 +12,10 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
+import { useOverlayBlocker, useOverlayPreclaim } from '@/store/OverlaySlotContext';
 import { useUser } from '@/store/UserContext';
 import { useToast } from '@/store/ToastContext';
 import { getAuthSessionGeneration } from '@/services/api';
@@ -90,6 +91,10 @@ function TransferRow({ member, selected, disabled, onPress }: TransferRowProps) 
 }
 
 export default function GroupOwnerTransferScreen() {
+  // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
+  // 마운트되면 사용자는 못 봤는데 seen 마커와 ack이 찍힌다. 이 훅이 Alert 수명 동안
+  // 조정자 slot을 점유해 그걸 막는다(store/useOverlayAlert 헤더).
+  const showAlert = useOverlayAlert('groupOwnerTransfer.alert');
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { params } = useRoute<GroupOwnerTransferRoute>();
@@ -106,6 +111,12 @@ export default function GroupOwnerTransferScreen() {
   const [submitting, setSubmitting] = useState(false);
   // 위임 확인 카드(GROMO-1251) — 네이티브 2버튼 Alert에서 이관.
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 위임 확인 카드도 RN Modal이다 — 위 GroupSettingsScreen과 같은 근거로 등록한다.
+  useOverlayBlocker('groupOwnerTransfer.confirm', confirmOpen);
+  // ⚠️ 여는 이벤트에서 **먼저** 자리를 잡는다 — 선언형 등록은 커밋 **뒤**라, 시트 열기와
+  //    결과 claim 완료가 같은 배치에 들어가면 호스트가 아직 없는 blocker를 못 보고
+  //    결과 모달을 함께 커밋한다(useOverlayPreclaim 주석).
+  const preclaimConfirm = useOverlayPreclaim('groupOwnerTransfer.confirm');
 
   // 마운트 시 1회(재시도 시 재호출) — 멤버 목록만 있으면 되므로 date 없이 부른다(오늘 집중분은 안 쓴다).
   const load = useCallback(async () => {
@@ -164,7 +175,7 @@ export default function GroupOwnerTransferScreen() {
               return;
             }
             // 위임은 이미 끝났다 — 나가기만 실패했음을 따로 알린다(재시도는 그룹방에서).
-            Alert.alert(
+            showAlert(
               '그룹 나가기 실패',
               '방장은 넘겼지만 나가기에 실패했어요. 그룹에서 직접 나가 주세요.',
             );
@@ -209,13 +220,13 @@ export default function GroupOwnerTransferScreen() {
             break;
           default:
             // 재시도가 유효한 실패라 Alert 유지(D8). 위 USER_NOT_FOUND 와 같은 이유로 카드는 연 채다.
-            Alert.alert('방장을 넘기지 못했어요', '잠시 후 다시 시도해 주세요.');
+            showAlert('방장을 넘기지 못했어요', '잠시 후 다시 시도해 주세요.');
         }
       } finally {
         setSubmitting(false);
       }
     },
-    [groupId, source, submitting, navigation, show],
+    [groupId, source, submitting, navigation, show, showAlert],
   );
 
   // '넘기기' 탭 — 확인 카드를 거친 뒤에만 위임한다(되돌릴 수 없는 동작).
@@ -223,8 +234,9 @@ export default function GroupOwnerTransferScreen() {
   // 앱 컨셉 카드로 바꿨다(GROMO-1251). 문구는 그대로다.
   const onSubmit = useCallback(() => {
     if (submitting || selectedMember === null) return;
+    preclaimConfirm();
     setConfirmOpen(true);
-  }, [submitting, selectedMember]);
+  }, [submitting, selectedMember, preclaimConfirm]);
 
   // withdraw 경로는 위임 뒤 곧바로 나가므로 그 사실을 확인 문구에 함께 알린다.
   const withdrawNote = source === 'withdraw' ? '\n넘긴 뒤 그룹에서 나가요.' : '';

@@ -13,6 +13,11 @@
 //  6) 재시도로 절대 안 풀리는 실패(사라진 챌린지·비멤버·게스트)를 '잠시 후 다시 시도'로 말하지 않는다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert, StyleSheet } from 'react-native';
+import {
+  OVERLAY_PRIORITY,
+  OverlaySlotProvider,
+  useOverlayMaxPriority,
+} from '@/store/OverlaySlotContext';
 import { AxiosError, AxiosHeaders } from 'axios';
 import BetSheet from './BetSheet';
 import { createBet, joinBet, joinSession } from '@/services/groupApi';
@@ -577,6 +582,8 @@ describe('에러 분기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '이미 오늘 내기가 열려 있어요',
       '이미 오늘 내기가 있어요. 새로고침해서 최신 상태를 확인해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -607,6 +614,8 @@ describe('에러 분기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '참가할 수 없어요',
       '이미 오늘 목표를 달성해서 참가할 수 없어요',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -617,7 +626,12 @@ describe('에러 분기', () => {
     await renderSheet('join', { bet: bet() });
     await submit();
 
-    expect(alertSpy).toHaveBeenCalledWith('마감된 내기예요', '이미 마감돼 참가할 수 없어요.');
+    expect(alertSpy).toHaveBeenCalledWith(
+      '마감된 내기예요',
+      '이미 마감돼 참가할 수 없어요.',
+      expect.anything(),
+      expect.anything(),
+    );
     expect(onDone).toHaveBeenCalled();
   });
 
@@ -632,6 +646,8 @@ describe('에러 분기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '오늘 내기만 열 수 있어요',
       '날짜가 바뀌었어요. 새로고침 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -647,6 +663,8 @@ describe('에러 분기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '끝난 챌린지예요',
       '종료된 챌린지에는 내기를 열 수 없어요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
     expect(screen.queryByText('내기를 열지 못했어요. 잠시 후 다시 시도해 주세요.')).toBeNull();
@@ -664,6 +682,8 @@ describe('에러 분기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '끝난 챌린지예요',
       '종료된 챌린지의 내기에는 참가할 수 없어요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -674,7 +694,12 @@ describe('에러 분기', () => {
     await renderSheet('create');
     await submit();
 
-    expect(alertSpy).toHaveBeenCalledWith('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
+    expect(alertSpy).toHaveBeenCalledWith(
+      '사라진 챌린지예요',
+      '방장이 챌린지를 없앴을 수 있어요.',
+      expect.anything(),
+      expect.anything(),
+    );
     expect(onDone).toHaveBeenCalled();
   });
 
@@ -689,6 +714,8 @@ describe('에러 분기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '사라진 내기예요',
       '이미 없어진 내기예요. 최신 상태로 새로고침할게요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -702,6 +729,8 @@ describe('에러 분기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '그룹원만 이용할 수 있어요',
       '그룹에서 나갔거나 더 이상 멤버가 아니에요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -856,6 +885,8 @@ describe('SCREEN_TIME 내기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '참가할 수 없어요',
       '이미 목표를 초과해서 참가할 수 없어요',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
 
@@ -867,6 +898,8 @@ describe('SCREEN_TIME 내기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '내기를 열 수 없어요',
       '이미 목표를 초과해서 내기를 열 수 없어요',
+      expect.anything(),
+      expect.anything(),
     );
   });
 
@@ -882,6 +915,8 @@ describe('SCREEN_TIME 내기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '아직 내기를 걸 수 없는 챌린지예요',
       '지금은 하루 목표 집중 챌린지에만 내기를 걸 수 있어요. 서버 업데이트 후 열 수 있어요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -934,6 +969,8 @@ describe('몰수 고지·창 내기 문구', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '내기를 열 수 있는 시간이 지났어요',
       '오늘 시간대가 끝나 내기를 열 수 없어요. 내일 다시 열 수 있어요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -1143,6 +1180,8 @@ describe('마감 후 내일 내기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '이미 내일 내기가 열려 있어요',
       '이미 내일 내기가 있어요. 새로고침해서 최신 상태를 확인해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -1160,6 +1199,8 @@ describe('마감 후 내일 내기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '이미 내일 내기가 열려 있어요',
       '이미 내일 내기가 있어요. 새로고침해서 최신 상태를 확인해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -1175,6 +1216,8 @@ describe('마감 후 내일 내기', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '오늘 내기만 열 수 있어요',
       '날짜가 바뀌었어요. 새로고침 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
   });
 });
@@ -1307,6 +1350,8 @@ describe('하루형 진행분 공개 (GROMO-1275)', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '이미 끝난 날이에요',
       '결과가 나왔거나 닫힌 날이라 참가할 수 없어요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -1317,7 +1362,12 @@ describe('하루형 진행분 공개 (GROMO-1275)', () => {
     await renderSheet('join', dayOver());
     await submit();
 
-    expect(alertSpy).toHaveBeenCalledWith('마감됐어요', '이미 마감돼 참가할 수 없어요.');
+    expect(alertSpy).toHaveBeenCalledWith(
+      '마감됐어요',
+      '이미 마감돼 참가할 수 없어요.',
+      expect.anything(),
+      expect.anything(),
+    );
     expect(onDone).toHaveBeenCalled();
   });
 
@@ -1332,6 +1382,8 @@ describe('하루형 진행분 공개 (GROMO-1275)', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '참가할 수 없어요',
       '스크린타임 권한을 허용해야 참여할 수 있어요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -1355,4 +1407,47 @@ describe('하루형 진행분 공개 (GROMO-1275)', () => {
     expect(mockJoinBet).toHaveBeenCalledWith(GROUP_ID, BET_ID);
     expect(mockJoinSession).not.toHaveBeenCalled();
   });
+});
+
+// ── 실패 통보는 자리를 쥐고 뜬다(GROMO-1576) ─────────────────────────────────
+// ⚠️ `failAndReload`는 Alert를 띄운 **직후 `onDone()`으로 시트를 닫는다.** 그 순간 이 시트가
+//    쥐고 있던 등록이 끊기는데 네이티브 Alert는 사용자 앞에 그대로 남는다. 그 틈에 결과가
+//    도착하면 자리가 비었다고 보고 **이 Alert 뒤에서** 마운트되며 seen/ack이 나간다.
+//    (창을 연 것은 이 파일이 아니라 이 배치의 나머지다 — 예전엔 결과 모달이 방 진입 1회에만
+//     떠서 채우러 올 것이 없었다.)
+// 호출부가 여럿이어도 `failAndReload` **함수 하나**가 전부를 덮으므로 대표 1건만 잠근다.
+// ⚠️ 유지만 단정하면 영구 점유를 못 잡는다 — 닫으면 반납되는 것까지 함께 본다.
+function OverlayProbe({ onValue }: { onValue: (value: number) => void }) {
+  onValue(useOverlayMaxPriority());
+  return null;
+}
+
+test('실패 통보가 떠 있는 동안 자리를 쥐고, 닫으면 반납한다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  const values: number[] = [];
+  const latest = () => values[values.length - 1];
+  mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_EXISTS'));
+  await render(
+    <OverlaySlotProvider>
+      <OverlayProbe onValue={(v) => values.push(v)} />
+      {sheet('create')}
+    </OverlaySlotProvider>,
+  );
+  await act(async () => {});
+  expect(latest()).toBe(-1);
+
+  await submit();
+
+  // 시트는 이미 닫히는 중인데(onDone) 통보는 아직 떠 있다 — 그 사이 자리가 비면 안 된다.
+  expect(onDone).toHaveBeenCalled();
+  expect(latest()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 반납 주체는 시트가 아니라 통보 자신이다 — 사용자가 닫으면 그때 풀린다.
+  const buttons = alertSpy.mock.calls[0][2] as { text: string; onPress?: () => void }[] | undefined;
+  await act(async () => {
+    buttons?.[0]?.onPress?.();
+  });
+  await act(async () => {});
+  expect(latest()).toBe(-1);
+  alertSpy.mockRestore();
 });

@@ -5,6 +5,11 @@
 //  3) N46 잔액 표기 형식(「참가비 N · 내 잔액 M」)은 공용 컴포넌트가 쥔다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
+import {
+  OVERLAY_PRIORITY,
+  OverlaySlotProvider,
+  useOverlayMaxPriority,
+} from '@/store/OverlaySlotContext';
 import { AxiosError, AxiosHeaders } from 'axios';
 import JoinNextSheet from './JoinNextSheet';
 import { joinNextSession } from '@/services/groupApi';
@@ -217,6 +222,8 @@ test('제출 직전 KST 기준일이 바뀌었으면 요청을 보내지 않고 
   expect(alertSpy).toHaveBeenCalledWith(
     '날짜가 바뀌었어요',
     '자정이 지나 예약할 날짜가 달라졌을 수 있어요. 최신 상태로 다시 열어 주세요.',
+    expect.anything(),
+    expect.anything(),
   );
   expect(onDone).toHaveBeenCalled();
 });
@@ -230,6 +237,8 @@ test('응답 날짜가 화면과 다르면 실제 예약된 날짜를 알린다 
   expect(alertSpy).toHaveBeenCalledWith(
     '예약된 날짜가 바뀌었어요',
     expect.stringContaining('8/5(수)로 예약됐어요'),
+    expect.anything(),
+    expect.anything(),
   );
   expect(onDone).toHaveBeenCalled();
 });
@@ -252,6 +261,8 @@ test('BET_SCREENTIME_PERMISSION_REQUIRED — 권한 안내로 알리고 닫는�
   expect(alertSpy).toHaveBeenCalledWith(
     '참여할 수 없어요',
     '스크린타임 권한을 허용해야 참여할 수 있어요.',
+    expect.anything(),
+    expect.anything(),
   );
   expect(onDone).toHaveBeenCalled();
 });
@@ -269,10 +280,17 @@ test('유저 부재(USER_NOT_FOUND) — 사라진 챌린지로 위장하지 않�
     '로그인이 필요해요',
     '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
     [expect.objectContaining({ text: '확인' })],
-    { cancelable: false },
+    // onDismiss가 붙는다 — 안내가 자리를 쥐고 있어 닫힘 경로 둘 다 반납해야 한다(GROMO-1576).
+    expect.objectContaining({ cancelable: false }),
   );
   // '사라진 챌린지예요'로 새로고침시키지 않는다.
   expect(onDone).not.toHaveBeenCalled();
+  // ⚠️ **띄운 안내는 반드시 닫는다.** 이 안내는 자리를 모듈 스코프에 쥐므로(sessionErrors.ts),
+  //    안 닫고 끝내면 그 점유가 다음 테스트의 Provider로 **물려진다**(새 Provider가 다시 등록).
+  const sessionButtons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as unknown as {
+    onPress?: () => void;
+  }[];
+  sessionButtons[0].onPress?.();
   alertSpy.mockRestore();
 });
 
@@ -292,5 +310,91 @@ test('낡은 세대의 유저 부재 — 안내 없이 버리되 시트는 닫�
   // 스피너·잠금이 풀려 있어야 한다 — 여기가 4라운드에 실제로 깨졌던 자리다.
   expect(screen.getByTestId('group.bet.joinNext.close')).not.toBeDisabled();
   expect(screen.getByTestId('group.bet.joinNext.submit')).toHaveTextContent('8/3(월) 참여하기');
+  alertSpy.mockRestore();
+});
+
+// ── 실패 통보는 자리를 쥐고 뜬다(GROMO-1576) ─────────────────────────────────
+// ⚠️ `failAndReload`는 Alert를 띄운 **직후 `onDone()`으로 시트를 닫는다.** 그 순간 이 시트가
+//    쥐고 있던 등록이 끊기는데 네이티브 Alert는 사용자 앞에 그대로 남는다. 그 틈에 결과가
+//    도착하면 자리가 비었다고 보고 **이 Alert 뒤에서** 마운트되며 seen/ack이 나간다.
+//    (창을 연 것은 이 파일이 아니라 이 배치의 나머지다 — 예전엔 결과 모달이 방 진입 1회에만
+//     떠서 채우러 올 것이 없었다.)
+// 호출부가 여럿이어도 `failAndReload` **함수 하나**가 전부를 덮으므로 대표 1건만 잠근다.
+// ⚠️ 유지만 단정하면 영구 점유를 못 잡는다 — 닫으면 반납되는 것까지 함께 본다.
+function OverlayProbe({ onValue }: { onValue: (value: number) => void }) {
+  onValue(useOverlayMaxPriority());
+  return null;
+}
+
+test('실패 통보가 떠 있는 동안 자리를 쥐고, 닫으면 반납한다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  const values: number[] = [];
+  const latest = () => values[values.length - 1];
+  await render(
+    <OverlaySlotProvider>
+      <OverlayProbe onValue={(v) => values.push(v)} />
+      {nextElement()}
+    </OverlaySlotProvider>,
+  );
+  await act(async () => {});
+  expect(latest()).toBe(-1);
+
+  // ⚠️ 기준일 변경은 **렌더 뒤**여야 한다 — 마운트 시점에 캡처한 openedTodayKst와 비교하므로
+  //    렌더 전에 바꾸면 드리프트가 성립하지 않는다.
+  mockTodayKst = '2026-08-02'; // 자정 경과
+  await submit();
+
+  // 시트는 이미 닫히는 중인데(onDone) 통보는 아직 떠 있다 — 그 사이 자리가 비면 안 된다.
+  expect(onDone).toHaveBeenCalled();
+  expect(latest()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 반납 주체는 시트가 아니라 통보 자신이다 — 사용자가 닫으면 그때 풀린다.
+  const buttons = alertSpy.mock.calls[0][2] as { text: string; onPress?: () => void }[] | undefined;
+  await act(async () => {
+    buttons?.[0]?.onPress?.();
+  });
+  await act(async () => {});
+  expect(latest()).toBe(-1);
+  alertSpy.mockRestore();
+});
+
+// ⚠️ **동기 경로에는 `afterSlot`이 가진 신원 대조가 없다** — 그 비대칭이 이 창을 만들었다.
+//    요청을 기다리는 사이 딥링크가 groupId를 바꾸면 부모가 이 시트를 언마운트하는데, 진행 중인
+//    Promise는 취소되지 않아 그 뒤에 failAndReload가 불린다. 그대로 띄우면 사라진 A 그룹 시트의
+//    Alert가 B 화면 위에 뜨고, 그 사이 B에서 노출된(이미 ack된) 결과를 덮는다.
+//    ⚠️ **막는 것만 단정하면 가드가 과하게 걸려도 초록이다** — 마운트 상태의 통보가 그대로 뜨는
+//       것까지 한 테스트에서 함께 본다(그것까지 막으면 사용자가 실패 안내를 못 받는다).
+test('언마운트 뒤 도착한 실패는 안 뜨고, 마운트 상태의 실패는 그대로 뜬다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+
+  // ① 요청을 손으로 붙잡아 "응답은 아직"인 구간을 만든 뒤 시트를 언마운트한다.
+  let rejectJoin: (reason: unknown) => void = () => undefined;
+  mockJoinNext.mockReturnValue(
+    new Promise((_resolve, reject) => {
+      rejectJoin = reject;
+    }) as ReturnType<typeof joinNextSession>,
+  );
+  const view = await renderNext();
+  await submit();
+  await act(async () => {
+    view.unmount();
+  });
+
+  await act(async () => {
+    rejectJoin(axiosErrorWith(404, 'NOT_FOUND'));
+  });
+  await act(async () => {});
+  expect(alertSpy).not.toHaveBeenCalled();
+
+  // ② 마운트된 상태의 같은 실패는 **그대로** 뜬다.
+  mockJoinNext.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+  await renderNext();
+  await submit();
+  expect(alertSpy).toHaveBeenCalledWith(
+    '사라진 챌린지예요',
+    '방장이 챌린지를 없앴을 수 있어요.',
+    expect.anything(),
+    expect.anything(),
+  );
   alertSpy.mockRestore();
 });

@@ -34,12 +34,21 @@ import {
   logGroupCardDeckViewed,
   logGroupCardReordered,
   logGroupCarouselPaged,
+  logGroupDeckGuideInterrupted,
 } from '@/services/analyticsEvents';
 import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { GROUP_CARD_USER_TEXT } from './components/groupCardLayout';
 import { GROUP_CARD_FLIP_SAFE_INSET } from './components/GroupCardFlip';
 import { hapticMedium } from '@/utils/haptics';
+import { OverlaySlotProvider, useOverlayBlocker } from '@/store/OverlaySlotContext';
+
+// 사용자가 방금 연 시트를 흉내 내는 등록자 — **실제 조정자 API**를 그대로 쓴다.
+// 프로덕션에서 이 자리를 채우는 것이 GroupScreen의 찾기·초대 시트다.
+function SheetBlocker({ open }: { open: boolean }) {
+  useOverlayBlocker('test:sheet', open);
+  return null;
+}
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardActionClicked: jest.fn(),
@@ -232,7 +241,9 @@ describe('카드 렌더', () => {
     );
   });
 
-  test('안내 중 blocking overlay가 생긴 render에서는 가이드 Modal을 즉시 내린다', async () => {
+  // 예전엔 부모가 `guideBlocked` prop으로 이 사실을 내려보냈다. 지금은 조정자에 등록된
+  // 시트(useOverlayBlocker)를 이 화면이 **직접** 보고 물러난다(GROMO-1576).
+  test('안내 중 시트가 slot을 요청하면 가이드 Modal을 즉시 내린다', async () => {
     resetGroupDeckGuideSessionForTests();
     await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
     const props = {
@@ -245,7 +256,13 @@ describe('카드 렌더', () => {
       guideEpisode: 1,
       guideDataReady: true,
     };
-    const view = await render(<GroupListScreen {...props} />);
+    const tree = (sheetOpen: boolean) => (
+      <OverlaySlotProvider>
+        <SheetBlocker open={sheetOpen} />
+        <GroupListScreen {...props} />
+      </OverlaySlotProvider>
+    );
+    const view = await render(tree(false));
 
     await act(async () => {
       fireEvent(screen.getByTestId('group.deck.guideAnchor'), 'layout', {
@@ -257,8 +274,9 @@ describe('카드 렌더', () => {
     });
     await waitFor(() => expect(screen.getByTestId('group.list.guide')).toBeOnTheScreen());
 
-    await view.rerender(<GroupListScreen {...props} guideBlocked />);
+    await view.rerender(tree(true));
     expect(screen.queryByTestId('group.list.guide')).toBeNull();
+    expect(logGroupDeckGuideInterrupted).toHaveBeenCalledWith({ reason: 'blocking_overlay' });
   });
 
   test('그룹 0개 안내용 카드는 0 bucket 문구를 쓰고 완료를 외부 빈 화면에 알린다', async () => {

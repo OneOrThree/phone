@@ -13,6 +13,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
+import { useOverlayBlocker, useOverlayPreclaim } from '@/store/OverlaySlotContext';
 import { useUser } from '@/store/UserContext';
 import { getAuthSessionGeneration } from '@/services/api';
 import { getGroupDetail, groupErrorCode, withdrawGroup } from '@/services/groupApi';
@@ -66,6 +67,14 @@ export default function GroupSettingsScreen() {
   // 나가기 확인 + 방장 블록(HOST_WITHDRAW) 안내 — 네이티브 Alert 대신 앱 컨셉 카드 모달
   // (GROMO-1210 블록 안내 · GROMO-1251 확인 이관).
   const [leaveModal, setLeaveModal] = useState<LeaveModalState | null>(null);
+  // ⚠️ 이건 **우리 트리 안의 RN Modal**이다 — 조정자가 원래 덮어야 할 대상인데 빠져 있었다.
+  //    등록하지 않으면 나가기 확인 카드가 열린 채로 결과 모달이 함께 마운트된다.
+  //    사용자 탭으로 열리므로 승인을 기다리지 않는다(A/B 기준 — OverlaySlotContext 헤더).
+  useOverlayBlocker('groupSettings.leaveConfirm', leaveModal !== null);
+  // ⚠️ 여는 이벤트에서 **먼저** 자리를 잡는다 — 선언형 등록은 커밋 **뒤**라, 시트 열기와
+  //    결과 claim 완료가 같은 배치에 들어가면 호스트가 아직 없는 blocker를 못 보고
+  //    결과 모달을 함께 커밋한다(useOverlayPreclaim 주석).
+  const preclaimLeaveConfirm = useOverlayPreclaim('groupSettings.leaveConfirm');
 
   // 요청 시퀀스 — 겹친 조회 중 늦게 온 이전 응답이 최신을 덮지 않게 한다(그룹 3화면 공통 패턴).
   const requestSeqRef = useRef(0);
@@ -287,7 +296,10 @@ export default function GroupSettingsScreen() {
     <TouchableOpacity
       style={s.leaveRow}
       activeOpacity={0.7}
-      onPress={() => setLeaveModal({ kind: 'leaveConfirm' })}
+      onPress={() => {
+        preclaimLeaveConfirm();
+        setLeaveModal({ kind: 'leaveConfirm' });
+      }}
       disabled={leaving || detail === null}
       testID="group.settings.leave"
     >

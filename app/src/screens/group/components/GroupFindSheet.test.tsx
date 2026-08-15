@@ -18,6 +18,9 @@ jest.mock('react-native-safe-area-context', () => ({
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
+  // 실제 모듈을 깔고 필요한 것만 덮는다 — navigationRef가 createNavigationContainerRef를
+  // 모듈 로드 시점에 부르기 때문에, 빠뜨리면 이 컴포넌트를 import하는 것만으로 스위트가 죽는다.
+  ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
@@ -702,11 +705,17 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     await confirmJoinAlert();
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+    // ⚠️ 안내가 **닫기보다 먼저** 떠야 한다 — 순서가 뒤집히면 이 시트의 등록이 내려간 뒤
+    //    Alert가 떠, 그 사이 결과 모달이 이 안내 **뒤에서** 마운트된다(GROMO-1576).
+    //    useOverlayAlert를 지나므로 onDismiss가 채워진다.
     expect(Alert.alert).toHaveBeenLastCalledWith(
       '로그인이 필요해요',
       expect.any(String),
       expect.any(Array),
+      expect.anything(),
     );
+    const alertOrder = (Alert.alert as jest.Mock).mock.invocationCallOrder;
+    expect(alertOrder[alertOrder.length - 1]).toBeLessThan(onClose.mock.invocationCallOrder[0]);
   });
 
   // 유저 부재는 '그 행의 실패'가 아니라 계정이 없어진 것이다 — 인라인 문구로 두면 다른 그룹을

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   Platform,
   Share,
   StyleSheet,
@@ -14,9 +13,18 @@ import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/n
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
+import { requestChallengeResultRefresh } from './challengeResultGate';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { useUser } from '@/store/UserContext';
+import {
+  OVERLAY_PRIORITY,
+  useOverlayBlocker,
+  useOverlayPreclaim,
+  useOverlaySlot,
+  useOverlaySlotActions,
+} from '@/store/OverlaySlotContext';
 import { getMyGroups } from '@/services/groupApi';
 import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -165,7 +173,14 @@ function emptyGuideSnapshot(userId: string): GroupCardSummarySnapshot<LeagueMemb
   };
 }
 
+// 공유 시트가 떠 있는 동안 점유할 자리의 이름.
+const SHARE_SLOT_ID = 'group.shareSheet';
+
 export default function GroupScreen() {
+  // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
+  // 마운트되면 사용자는 못 봤는데 seen 마커와 ack이 찍힌다. 이 훅이 Alert 수명 동안
+  // 조정자 slot을 점유해 그걸 막는다(store/useOverlayAlert 헤더).
+  const showAlert = useOverlayAlert('group.alert');
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [loadingDeckViewportHeight, setLoadingDeckViewportHeight] = useState(() =>
@@ -403,30 +418,80 @@ export default function GroupScreen() {
     [navigation],
   );
 
-  const onInviteToGroup = useCallback(async (groupId: string, groupName: string) => {
-    let issuedInvite: { slug: string; url: string };
-    try {
-      issuedInvite = await issueInviteLink(groupId);
-    } catch {
-      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
-      return;
-    }
-    try {
-      const result = await Share.share({
-        message: buildInviteShareMessage(groupName, issuedInvite.url),
-      });
-      if (result.action === Share.sharedAction) {
-        logGroupInviteShared({
-          share_method: 'share_sheet',
-          confirmed: Platform.OS === 'ios',
-          slug: issuedInvite.slug,
-          group_id: groupId,
-        });
+  // ⚠️ 공유 시트도 네이티브 오버레이다 — 떠 있는 동안 결과가 도착하면 결과 모달이 그
+  //    **아래에서** 마운트되며 seen 마커와 ack이 나간다(렌더 커밋 시점에 찍힌다).
+  //    그래서 여는 줄 바로 앞에서 자리를 잡고, 어떻게 끝나든 finally 에서 반납한다.
+  const overlayActions = useOverlaySlotActions();
+  // 화면이 떠 있는가 — 승인을 기다리던 공유 요청이 뒤늦게 성사됐을 때의 판단 근거.
+  const screenFocusedRef = useRef(isScreenFocused);
+  screenFocusedRef.current = isScreenFocused;
+  // 공유 시트가 **실제로 떠 있는** 구간 표식 — 승인 대기(접어야 할 것)와 표시 중(유지해야 할
+  // 것)을 가른다. 네이티브 시트는 화면이 blur돼도 사용자 앞에 그대로 남기 때문이다.
+  const shareSheetOpenRef = useRef(false);
+  // 화면을 벗어나거나 사라지면 **대기 중인** 공유 요청을 접는다.
+  // ⚠️ 이미 떠 있는 시트의 자리는 유지한다 — 여기서 반납하면 결과 호스트가 그 시트 **뒤에서**
+  //    모달을 마운트해 사용자가 못 본 회차에 seen/ack이 찍힌다. 반납 주체는 화면이 아니라
+  //    시트 자신이다(Share.share는 어떻게 끝나든 settle되므로 아래 finally가 반드시 돈다).
+  useEffect(() => {
+    if (isScreenFocused) return;
+    if (shareSheetOpenRef.current) return;
+    overlayActions?.release(SHARE_SLOT_ID);
+  }, [isScreenFocused, overlayActions]);
+  useEffect(
+    () => () => {
+      if (shareSheetOpenRef.current) return;
+      overlayActionsRef.current?.release(SHARE_SLOT_ID);
+    },
+    [],
+  );
+  const overlayActionsRef = useRef(overlayActions);
+  overlayActionsRef.current = overlayActions;
+  const onInviteToGroup = useCallback(
+    async (groupId: string, groupName: string) => {
+      let issuedInvite: { slug: string; url: string };
+      try {
+        issuedInvite = await issueInviteLink(groupId);
+      } catch {
+        // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다(useOverlayAlert.afterSlot 주석).
+        await showAlert.afterSlot('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+        return;
       }
-    } catch {
-      // 공유 시트를 띄우지 못한 경우 화면 상태는 그대로 유지한다.
-    }
-  }, []);
+      // ⚠️ 요청만 하고 넘어가면 안 된다 — 기다리는 사이 결과 모달이 먼저 노출되면
+      //    공유 시트가 그 위를 덮어 사용자가 못 본 결과에 seen/ack이 남는다.
+      // ⚠️ 승인을 기다리는 사이 사용자가 이 화면을 떠날 수 있다(푸시·딥링크). 그때 자리를
+      //    반납하지 않으면, 결과 모달이 닫히는 순간 **이미 떠난 화면의** 공유 시트가
+      //    지금 보고 있는 화면 위로 뜬다. 그래서 blur·언마운트에서 반납하고(아래 이펙트),
+      //    승인 뒤에도 **여전히 이 화면이 활성인지** 다시 확인한다.
+      if ((await overlayActions?.acquire(SHARE_SLOT_ID, OVERLAY_PRIORITY.sheet)) === false) {
+        return;
+      }
+      if (!screenFocusedRef.current) {
+        overlayActions?.release(SHARE_SLOT_ID);
+        return;
+      }
+      // 이 순간부터 자리를 쥐고 있는 것은 **화면이 아니라 시트**다(위 이펙트 주석).
+      shareSheetOpenRef.current = true;
+      try {
+        const result = await Share.share({
+          message: buildInviteShareMessage(groupName, issuedInvite.url),
+        });
+        if (result.action === Share.sharedAction) {
+          logGroupInviteShared({
+            share_method: 'share_sheet',
+            confirmed: Platform.OS === 'ios',
+            slug: issuedInvite.slug,
+            group_id: groupId,
+          });
+        }
+      } catch {
+        // 공유 시트를 띄우지 못한 경우 화면 상태는 그대로 유지한다.
+      } finally {
+        shareSheetOpenRef.current = false;
+        overlayActions?.release(SHARE_SLOT_ID);
+      }
+    },
+    [overlayActions, showAlert],
+  );
 
   // 찾기 시트의 '참여 중' 행 탭 — 참여가 아니라 이동이라 목록 카드 탭과 같은 분기(그룹방 push)를 탄다.
   const onOpenGroup = useCallback(
@@ -480,10 +545,50 @@ export default function GroupScreen() {
     };
   }, [groups, successfulListEpisode, userId]);
 
-  const openFind = useCallback((entryPoint: 'list' | 'header' | 'end_card') => {
-    logGroupFindOpened({ entry_point: entryPoint });
-    setFindOpen(true);
-  }, []);
+  // 이 화면이 띄우는 전면 오버레이를 조정자에 알린다(GROMO-1576) — 둘 다 SheetShell asModal이라
+  // 결과 모달·덱 코치마크와 겹칠 수 있다.
+  // ⚠️ 예전엔 이 사실을 `guideBlocked` prop으로 GroupListScreen에 직접 내려보냈다. 지금은
+  //    **조정자에 등록**한다 — 코치마크를 막는 것이 이 두 시트만이 아니기 때문이다(루트의 결과
+  //    모달·그룹방 시트). prop은 자기 자식에게만 말할 수 있어 그 셋을 실어 나를 수 없고,
+  //    prop과 조정자를 함께 두면 같은 개념의 정본이 둘이 된다.
+  //
+  // ⚠️ 두 시트의 규칙이 다르다 — **누가 열었는가**로 갈린다.
+  //  · 찾기 시트: 사용자가 방금 손으로 눌러 연다. 전면 모달이 떠 있으면 그 버튼을 누를 수
+  //    없으므로 겹칠 수 없다 — 등록만 하고(blocker) 승인은 기다리지 않는다.
+  //  · 초대 프리뷰: **외부 딥링크가 리스너로 연다**(navigationRef.notifyGroupInvite). 사용자
+  //    터치가 없으니 결과 모달이 떠 있는 순간에도 도착할 수 있고, 조정자는 보유자를 뺏지
+  //    않으므로 그대로 렌더하면 RN Modal 두 개가 겹친다 — 이 조정자를 만든 이유가 사라지는
+  //    자리다. 그래서 **승인(granted)을 받은 뒤에만** 마운트한다.
+  //    버퍼는 읽어도 지워지지 않으므로(navigationRef §6-6) 기다리는 동안 초대가 증발하지
+  //    않고, 결과 모달이 닫히는 순간 같은 프리뷰가 뜬다.
+  // ⚠️ 여는 이벤트에서 **먼저** 자리를 잡는다 — 선언형 등록은 커밋 **뒤**라, 시트 열기와
+  //    결과 claim 완료가 같은 배치에 들어가면 호스트가 아직 없는 blocker를 못 보고
+  //    결과 모달을 함께 커밋한다(useOverlayPreclaim 주석).
+  const preclaimFindSheet = useOverlayPreclaim('group.findSheet');
+  useOverlayBlocker('group.findSheet', findOpen);
+  const inviteSlot = useOverlaySlot('group.inviteSheet', {
+    priority: OVERLAY_PRIORITY.sheet,
+    active: invite !== null,
+  });
+
+  // 사용자가 **직접 요청한** 새로고침 — 목록만 다시 받으면 부족하다.
+  // ⚠️ 결과 모달의 소유자가 루트 호스트로 옮겨 가며 방·목록과 호스트의 재조회 계기가 갈렸다.
+  //    결과 조회와 제한적 재조회가 모두 실패한 뒤 네트워크가 복구돼도, 여기서 당겨 새로고침하면
+  //    `fetchGroups`만 돌고 결과는 계속 누락된다. 그룹방의 「다시 시도」에 붙인 것과 같은 기준이다
+  //    (사용자가 직접 한 재시도에만 붙인다 — 포커스 복귀 같은 내부 사건에는 붙이지 않는다).
+  const refreshAll = useCallback(async () => {
+    requestChallengeResultRefresh();
+    await fetchGroups();
+  }, [fetchGroups]);
+
+  const openFind = useCallback(
+    (entryPoint: 'list' | 'header' | 'end_card') => {
+      logGroupFindOpened({ entry_point: entryPoint });
+      preclaimFindSheet();
+      setFindOpen(true);
+    },
+    [preclaimFindSheet],
+  );
 
   // 찾기 시트는 헤더·덱 마지막 카드 진입점에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
   // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.
@@ -496,20 +601,21 @@ export default function GroupScreen() {
     />
   ) : null;
 
-  const inviteSheet = invite ? (
-    // ⚠️ key로 초대별 인스턴스를 분리한다. 초대 A의 퇴장(220ms) 안에 B가 도착하면 세대 검증이
-    //    B의 상태는 지켜 주지만, key가 없으면 B가 **퇴장을 마친 같은 SheetShell을 재사용**한다
-    //    — translateY는 화면 밖, dim 0, closingRef=true, pointerEvents='none' 상태 그대로라
-    //    B가 보이지도 닫히지도 않는다(codex 리뷰).
-    <GroupInviteSheet
-      key={invite.groupId}
-      groupId={invite.groupId}
-      slug={invite.slug}
-      entry={invite.entry}
-      onClose={() => closeInvite(invite)}
-      onJoined={onInviteJoined}
-    />
-  ) : null;
+  const inviteSheet =
+    invite && inviteSlot === 'granted' ? (
+      // ⚠️ key로 초대별 인스턴스를 분리한다. 초대 A의 퇴장(220ms) 안에 B가 도착하면 세대 검증이
+      //    B의 상태는 지켜 주지만, key가 없으면 B가 **퇴장을 마친 같은 SheetShell을 재사용**한다
+      //    — translateY는 화면 밖, dim 0, closingRef=true, pointerEvents='none' 상태 그대로라
+      //    B가 보이지도 닫히지도 않는다(codex 리뷰).
+      <GroupInviteSheet
+        key={invite.groupId}
+        groupId={invite.groupId}
+        slug={invite.slug}
+        entry={invite.entry}
+        onClose={() => closeInvite(invite)}
+        onJoined={onInviteJoined}
+      />
+    ) : null;
 
   // 기존 데이터가 있는 재조회 실패 — 화면을 갈아엎지 않고 인라인 배너로 알린다.
   // 무음으로 두면 방금 만든/참여한 그룹이 없는 화면을 보고 같은 동작을 반복하게 된다.
@@ -517,7 +623,7 @@ export default function GroupScreen() {
     error && !transitioning && groups !== null ? (
       <View style={s.banner}>
         <Text style={s.bannerText}>목록을 새로고침하지 못했어요</Text>
-        <TouchableOpacity onPress={() => fetchGroups()} hitSlop={12} activeOpacity={0.7}>
+        <TouchableOpacity onPress={() => refreshAll()} hitSlop={12} activeOpacity={0.7}>
           <Text style={s.bannerRetry}>다시 시도</Text>
         </TouchableOpacity>
       </View>
@@ -586,7 +692,7 @@ export default function GroupScreen() {
         <View style={[s.body, { paddingBottom: tabBarSafeBottom(insets.bottom) }]}>
           <Text style={s.title}>그룹을 불러오지 못했어요</Text>
           <Text style={s.desc}>잠시 후 다시 시도해 주세요.</Text>
-          <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchGroups()}>
+          <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => refreshAll()}>
             <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>
         </View>
@@ -609,8 +715,7 @@ export default function GroupScreen() {
           onSelect={() => undefined}
           onCreate={openCreate}
           onFind={(entryPoint) => openFind(entryPoint)}
-          onRefresh={fetchGroups}
-          guideBlocked={findOpen || invite !== null}
+          onRefresh={refreshAll}
           guideScreenFocused={isScreenFocused}
           guideEpisode={viewEpisodeRef.current.id}
           groupEntry={viewEpisodeRef.current.source}
@@ -645,8 +750,7 @@ export default function GroupScreen() {
         onStartFocus={onStartGroupFocus}
         onOpenSettings={onOpenGroupSettings}
         onInvite={onInviteToGroup}
-        onRefresh={fetchGroups}
-        guideBlocked={findOpen || invite !== null}
+        onRefresh={refreshAll}
         guideScreenFocused={isScreenFocused}
         guideEpisode={viewEpisodeRef.current.id}
         groupEntry={viewEpisodeRef.current.source}

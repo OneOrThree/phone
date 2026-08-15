@@ -18,6 +18,7 @@ import { createGroup } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import type { CreateGroupResponse } from '@/types/dto/group';
 import { __resetGroupCardEmojiQueueForTest, readGroupCardEmoji } from './groupCardEmojiStore';
+import { OVERLAY_PRIORITY, OverlaySlotProvider, useOverlaySlot } from '@/store/OverlaySlotContext';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -43,6 +44,9 @@ const mockAddListener = jest.fn(
   },
 );
 jest.mock('@react-navigation/native', () => ({
+  // 실제 모듈을 깔고 필요한 것만 덮는다 — navigationRef가 createNavigationContainerRef를
+  // 모듈 로드 시점에 부르기 때문에, 빠뜨리면 이 화면을 import하는 것만으로 스위트가 죽는다.
+  ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => ({
     goBack: mockNav.goBack,
     navigate: mockNav.navigate,
@@ -299,6 +303,83 @@ describe('전송 계약 — 챌린지 없이 만든다(3차 §D18)', () => {
   });
 });
 
+// ── 완료 다이얼로그도 전면 오버레이 조정자에 참여한다(GROMO-1576) ──────────────
+// 이 화면은 그룹 흐름 라우트라 루트의 챌린지 결과 모달이 뜰 수 있는 자리다. 둘 다 RN Modal이라
+// 등록하지 않으면 동시에 마운트되고, 어느 쪽이 위로 갈지는 플랫폼 재량이다. 결과 모달이 가려진
+// 채 마운트되면 **사용자는 못 봤는데 seen/ack 이 찍힌다**(D2 · N51) — 이 배치의 핵심 실패 모드.
+// ⚠️ 여는 계기가 생성 요청의 **비동기 응답**이라 blocker 등록만으로는 부족하다. 응답이 오는
+//    사이 결과 모달이 먼저 slot을 가져갈 수 있고, 그때 무조건 렌더하면 이쪽이 결과를 덮는다.
+describe('완료 다이얼로그의 slot 대기', () => {
+  // 결과 모달과 같은 자리를 먼저 차지한 보유자.
+  function Holder({ active }: { active: boolean }) {
+    useOverlaySlot('test:result', { priority: OVERLAY_PRIORITY.challengeResult, active });
+    return null;
+  }
+
+  test('다른 전면 오버레이가 slot을 쥐고 있으면 띄우지 않고, 놓으면 그때 띄운다', async () => {
+    const tree = (holderActive: boolean) => (
+      <OverlaySlotProvider>
+        <Holder active={holderActive} />
+        <GroupCreateScreen />
+      </OverlaySlotProvider>
+    );
+    const view = await render(tree(true));
+    await act(async () => {});
+
+    await typeName('아침 6시 집중방');
+    await press('비공개');
+    await press('만들기');
+
+    // 생성은 성공했지만 다이얼로그는 아직 뜨지 않는다 — 결과 모달을 덮으면 안 된다.
+    expect(mockCreateGroup).toHaveBeenCalled();
+    expect(
+      screen.queryByText('비공개 그룹을 만들었어요 🎉', { includeHiddenElements: true }),
+    ).toBeNull();
+
+    // 결과 모달이 닫히면 그때 뜬다 — 기다리는 동안 사라지지 않는다.
+    await act(async () => {
+      view.rerender(tree(false));
+    });
+    await waitFor(() => expect(screen.getByText('비공개 그룹을 만들었어요 🎉')).toBeOnTheScreen());
+  });
+
+  // ⚠️ 승인 게이트를 넣으면서 생긴 부작용을 막는다. 예전엔 성공 즉시 다이얼로그가 떠서 폼이
+  //    가려졌는데, 대기 구간에는 다이얼로그가 숨겨진 채 `submitting`이 풀린다. 그때 폼이 살아
+  //    있으면 사용자가 **중복 그룹을 만들거나**, 화면을 나가 **비공개 그룹의 유일한 입구인
+  //    초대 안내를 영영 잃는다.**
+  test('승인 대기 중에도 폼과 이탈을 잠근다 — 중복 생성·안내 유실 방지', async () => {
+    const tree = (holderActive: boolean) => (
+      <OverlaySlotProvider>
+        <Holder active={holderActive} />
+        <GroupCreateScreen />
+      </OverlaySlotProvider>
+    );
+    await render(tree(true));
+    await act(async () => {});
+
+    await typeName('아침 6시 집중방');
+    await press('비공개');
+    await press('만들기');
+    expect(mockCreateGroup).toHaveBeenCalledTimes(1);
+
+    // 다이얼로그는 아직 안 떴다 — 그런데도 폼은 잠겨 있어야 한다.
+    expect(
+      screen.queryByText('비공개 그룹을 만들었어요 🎉', { includeHiddenElements: true }),
+    ).toBeNull();
+
+    // 다시 만들기를 눌러도 두 번째 요청이 나가지 않는다.
+    await press('만들기');
+    expect(mockCreateGroup).toHaveBeenCalledTimes(1);
+
+    // 이탈도 막힌다 — 뒤로가기 이벤트가 preventDefault 된다.
+    const back = { preventDefault: jest.fn() };
+    await act(async () => {
+      mockNav.beforeRemove?.(back);
+    });
+    expect(back.preventDefault).toHaveBeenCalled();
+  });
+});
+
 describe('요청이 떠 있는 구간(§6-2)', () => {
   test('공유 문구는 생성 요청에 실어 보낸 이름을 쓴다(요청 중 이름을 고쳐도)', async () => {
     let resolveCreate: (v: CreateGroupResponse) => void = () => {};
@@ -398,8 +479,44 @@ describe('요청이 떠 있는 구간(§6-2)', () => {
     await press('공유하기');
 
     expect(Share.share).not.toHaveBeenCalled();
-    expect(Alert.alert).toHaveBeenCalledWith('초대 링크를 만들지 못했어요', expect.any(String));
+    expect(Alert.alert).toHaveBeenCalledWith(
+      '초대 링크를 만들지 못했어요',
+      expect.any(String),
+      expect.anything(),
+      expect.anything(),
+    );
     expect(logGroupInviteShared).not.toHaveBeenCalled();
+  });
+
+  // ⚠️ "`await` 뒤면 무조건 승인을 기다린다"가 **여기서는 틀린다.** 이 실패는 완료 다이얼로그가
+  //    이미 자리를 쥐고 떠 있을 때만 날 수 있는데(복사·공유 버튼이 그 안에 있다), 그 상태에서
+  //    기다리면 다이얼로그가 닫힐 때까지 아무 안내도 안 뜬다. 사용자는 원인을 모른 채 같은
+  //    버튼을 반복해 누르고, 확인을 눌러 화면을 닫으면 라우트가 바뀌며 **대기까지 취소돼**
+  //    실패 원인을 끝내 못 본다. 자기가 이미 자리를 쥐고 있으면 기다릴 이유가 없다.
+  test('다이얼로그가 이미 자리를 쥐고 있으면 실패 안내를 곧바로 띄운다', async () => {
+    mockIssueInviteLink.mockRejectedValueOnce(new Error('network'));
+    await render(
+      <OverlaySlotProvider>
+        <GroupCreateScreen />
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+
+    await typeName('아침 6시 집중방');
+    await press('비공개');
+    await press('만들기');
+    // 다이얼로그가 실제로 승인을 받아 떠 있는 상태다 — 결과 모달은 이미 막혀 있다.
+    expect(await screen.findByText('비공개 그룹을 만들었어요 🎉')).toBeOnTheScreen();
+
+    await press('공유하기');
+
+    // 다이얼로그가 닫히기를 기다리지 않는다 — 그 자리에서 원인을 말한다.
+    expect(Alert.alert).toHaveBeenCalledWith(
+      '초대 링크를 만들지 못했어요',
+      expect.any(String),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   test('생성 요청이 떠 있는 동안에는 이탈을 막는다', async () => {
@@ -442,8 +559,15 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
     expect(Alert.alert).toHaveBeenCalledWith(
       '더 이상 만들 수 없어요',
       '참여할 수 있는 그룹 수를 초과했어요(최대 10개)',
+      expect.anything(),
+      expect.anything(),
     );
-    expect(Alert.alert).not.toHaveBeenCalledWith('그룹을 만들지 못했어요', expect.any(String));
+    expect(Alert.alert).not.toHaveBeenCalledWith(
+      '그룹을 만들지 못했어요',
+      expect.any(String),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   // 유저 행 부재(탈퇴 후 토큰 잔존 등) — #516이 403→404 NOT_FOUND로 정정한 판정(GROMO-1241).
@@ -466,9 +590,15 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
         '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
         [expect.objectContaining({ text: '확인', onPress: expect.any(Function) })],
         // 취소 불가 — 무콜백 닫힘(로그아웃 미실행 잔류) 방지 의도를 계약으로 고정(#530 codex).
-        { cancelable: false },
+        // onDismiss가 붙는다 — 안내가 자리를 쥐고 있어 닫힘 경로 둘 다 반납해야 한다(GROMO-1576).
+        expect.objectContaining({ cancelable: false }),
       );
-      expect(Alert.alert).not.toHaveBeenCalledWith('그룹을 만들지 못했어요', expect.any(String));
+      expect(Alert.alert).not.toHaveBeenCalledWith(
+        '그룹을 만들지 못했어요',
+        expect.any(String),
+        expect.anything(),
+        expect.anything(),
+      );
 
       // 로그아웃은 Alert 확인 버튼에서만 — 알럿이 뜬 것만으론 아직 불리지 않는다.
       expect(triggerLogout).not.toHaveBeenCalled();
@@ -494,6 +624,8 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
     expect(Alert.alert).toHaveBeenCalledWith(
       '그룹을 만들지 못했어요',
       '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
   });
 

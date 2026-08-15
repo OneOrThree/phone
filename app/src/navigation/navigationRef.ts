@@ -18,6 +18,52 @@ import {
 
 export const navigationRef = createNavigationContainerRef<V2RootStackParamList>();
 
+// ── 현재 라우트 관찰(GROMO-1576) ──────────────────────────────────────────────
+// 루트의 전면 오버레이 호스트(ChallengeResultHost)는 NavigationContainer **밖**에 있어
+// useIsFocused·useNavigationState를 쓸 수 없다. 대신 컨테이너 ref가 뿌리는 'state' 이벤트를
+// 구독한다 — 컨테이너가 아직 붙기 전에 등록해도 ref가 리스너를 보관했다가 붙는 순간 옮겨 달고,
+// 첫 마운트에도 'state'가 한 번 발화하므로 초기값을 따로 캐낼 필요가 없다
+// (@react-navigation/core의 createNavigationContainerRef · BaseNavigationContainer).
+export interface CurrentRouteSnapshot {
+  name: string;
+  params: Record<string, unknown> | undefined;
+}
+
+// 준비 전에는 null — getCurrentRoute를 그냥 부르면 초기화 전 경고를 콘솔에 찍는다.
+export function readCurrentRoute(): CurrentRouteSnapshot | null {
+  if (!navigationRef.isReady()) return null;
+  const route = navigationRef.getCurrentRoute?.();
+  if (!route) return null;
+  return { name: route.name, params: route.params as Record<string, unknown> | undefined };
+}
+
+// "요청한 그 화면이 아직 그대로 맨 위인가"를 한 문자열로 만든 신원(useOverlayAlert).
+// **키만으로는 부족하다** — 라우트 key는 push마다 새로 발급되지만, `GroupRoom`처럼 같은
+// 인스턴스를 재사용하며 `groupId`만 갈아 끼우는 화면에서는 key가 그대로다. 그때 A 그룹의
+// 실패 통보가 B 그룹 화면 위로 떠 버려서, 파라미터까지 신원에 넣는다.
+// ⚠️ 값은 키 순서를 고정해 직렬화한다(중첩 객체의 내부 순서까지는 보지 않는다 — 같은 호출부가
+//    만든 params라 실제로는 순서가 같고, 어긋나 오탐이 나더라도 결과는 "통보를 띄우지 않는다"
+//    쪽이라 안전한 방향으로 틀린다).
+export function readCurrentRouteIdentity(): string | null {
+  if (!navigationRef.isReady()) return null;
+  const route = navigationRef.getCurrentRoute?.();
+  if (!route) return null;
+  const params = route.params as Record<string, unknown> | undefined;
+  const sorted: Record<string, unknown> = {};
+  if (params) {
+    Object.keys(params)
+      .sort()
+      .forEach((key) => {
+        sorted[key] = params[key];
+      });
+  }
+  return `${route.key}|${JSON.stringify(sorted)}`;
+}
+
+export function subscribeCurrentRoute(listener: () => void): () => void {
+  return navigationRef.addListener('state', listener);
+}
+
 let pendingLink: string | null = null;
 
 // 딥링크 요청 세대 — 그룹 링크는 getMyGroups()를 기다렸다 그룹방을 push 한다. 그 사이 다른

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, Text, TouchableOpacity, View, type AlertButton } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +22,7 @@ import {
 import { logGroupBetCanceled } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { useToast } from '@/store/ToastContext';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { todayStrKst } from '@/utils/localDate';
 import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
 import type {
@@ -238,6 +239,42 @@ export interface ChallengeCardProps {
   // ⚠️ **콜백 신원을 고정해서 넘겨라**(useCallback) — 매 렌더 새 함수를 주면 아래 정리 이펙트가
   //    렌더마다 재등록되며 false를 흘려, 시트가 떠 있는데도 열림이 취소된다.
   onSheetVisibilityChange?: (challengeId: string, open: boolean) => void;
+  // **await 뒤에 여는 시트**(주간 예약·삭제 프리플라이트)의 승인 게이트(GROMO-1576).
+  //
+  // 왜 위 보고만으로 부족한가: 저 콜백은 시트가 **열린 뒤**의 사실을 알린다. 그런데 이 카드의
+  // 시트 일부는 탭과 마운트 사이에 조회가 끼어 있어서, **여는 시점을 응답이 정한다.** 그 사이에
+  // 루트의 챌린지 결과 모달이 slot을 얻어 노출까지 갈 수 있고, 조정자는 보유자를 뺏지 않으므로
+  // 그대로 마운트하면 RN Modal 두 개가 겹친다. 그러면 결과 모달이 **사실상 안 보인 채**
+  // seen 마커와 ack이 나간다(그 둘은 렌더 커밋 시점에 찍힌다 — 사용자가 인지한 시점이 아니다).
+  //
+  // 그래서 그 시트들만 이 게이트를 통과한 뒤에 마운트한다. `false`면 열지 않는다(화면이 blur
+  // 됐거나 부모가 요청을 접었다). 미전달이면 종전대로 곧바로 연다.
+  // ⚠️ 동기로 열리는 시트(지난 결과·다음 활성일)는 이 게이트를 타지 않는다 — 전면 모달이 떠
+  //    있으면 그 버튼을 누를 수 없어 겹칠 수 없다(OverlaySlotContext의 A/B 판단).
+  // ⚠️ 카드 신원을 실어 부른다 — 부모가 **요청을 카드에 묶어** 두어야, 승인을 기다리는 사이
+  //    이 카드가 사라졌을 때(재조회에서 챌린지가 빠짐) 그 요청을 취소할 수 있다. 취소하지
+  //    않으면 나중에 승인이 떨어져 **사라진 카드**가 자기 id를 부모의 열림 집합에 넣고,
+  //    되돌릴 카드가 없어 전면 오버레이가 영구히 막힌다.
+  onRequestSheetSlot?: (challengeId: string) => Promise<boolean>;
+  // 이 카드가 시트 요청/승인을 **포기한다**는 신호 — 부모가 대기를 거절하고 자리를 푼다.
+  // 부르는 자리 둘: 카드가 사라질 때(언마운트) · 확인 Alert에서 사용자가 물러났을 때.
+  // ⚠️ 위 `onSheetVisibilityChange(id, false)`로 대신할 수 없다. 그 신호는 "시트가 닫혔다"와
+  //    "카드가 포기했다"를 구분하지 못해, 닫힘 보고가 멀쩡히 대기 중인 요청까지 취소한다.
+  //    포기를 알리지 않으면 반대로, 나중에 승인이 떨어져 **사라진 카드**가 자기 id를 부모의
+  //    열림 집합에 넣고 되돌릴 주체가 없어 전면 오버레이가 영구히 막힌다.
+  onAbandonSheetSlot?: (challengeId: string) => void;
+  // 이 카드가 **네이티브 Alert를 쥐고 있는 구간**의 보고(GROMO-1576).
+  //
+  // 왜 필요한가: 부모(GroupRoomScreen)는 딥링크로 groupId가 갈릴 때 이 카드의 승인·요청을
+  // 접는데(그룹 전환 블록), 그 판단은 **렌더 중**에 내려진다. 반면 카드의 언마운트 정리는
+  // **커밋 뒤**라, "나 유예 중이다"를 그때 알려서는 이미 늦다. 그래서 유예의 근거가 되는
+  // 사실 — "지금 네이티브 Alert를 들고 있다" — 를 **뜨는 순간** 올린다.
+  // 부모는 이 값으로 **곧 보고할 카드**와 **영영 안 올 카드**를 구분한다: 전자의 승인만
+  // 남기고 나머지는 종전대로 접는다. 근거 없이 남기면 빈 등록이 영구 점유가 된다.
+  // ⚠️ 열림 보고(onSheetVisibilityChange)로 대신할 수 없다 — 그 신호는 "이 카드의 시트가
+  //    떠 있다"는 뜻이고, 삭제 확인 Alert는 **시트를 열지 않은 채** 승인만 쥐고 있다.
+  // ⚠️ **콜백 신원을 고정해서 넘겨라**(useCallback) — 다른 슬롯 콜백과 같은 이유다.
+  onAlertHoldChange?: (challengeId: string, held: boolean) => void;
 }
 
 export default function ChallengeCard({
@@ -249,6 +286,9 @@ export default function ChallengeCard({
   betLocked,
   onBetChanged,
   onSheetVisibilityChange,
+  onRequestSheetSlot,
+  onAbandonSheetSlot,
+  onAlertHoldChange,
 }: ChallengeCardProps) {
   // 내기 참가 철회의 API·잔액 갱신을 카드가 직접 쥔다 — 시트(BetSheet)는 참가자
   // 상태에선 부모(GroupRoomScreen)의 stale 검사가 즉시 닫아 버려 진입 자체가 불가능하고,
@@ -257,6 +297,26 @@ export default function ChallengeCard({
   // prop이 아니라 groupApi의 조회 캐시(challengeGroupId)에서 역참조한다.
   const { refresh: refreshCoins } = useCoins();
   const { show } = useToast();
+  // ── 이 카드가 띄우는 **모든** Alert의 입구(GROMO-1576) ─────────────────────────
+  // 네이티브 Alert는 RN Modal **위에** 뜬다. 그래서 이 카드의 Alert가 떠 있는 동안 결과 모달이
+  // 마운트되면, 사용자는 아무것도 못 봤는데 그 회차에 seen 마커와 ack이 나간다(둘 다 렌더 커밋
+  // 시점에 찍힌다). 그 상태로 앱이 종료되면 정산 통지가 영구 유실된다.
+  //
+  // ⚠️ **왜 이 배치에서 함께 닫는가** — 예전엔 결과 모달이 GroupRoomScreen 소유라 **방 진입
+  //    1회**에만 떴고, 카드 Alert가 떠 있는 중에 결과가 도착할 경로가 사실상 없었다. 이 배치가
+  //    소유자를 루트로 옮기고 **제한적 재조회(30초×5회)**와 **BET_RESULT 포그라운드 재조회**를
+  //    붙이면서, **화면에 머무는 중에도 결과가 도착**하게 됐다 — 발생 조건을 우리가 만들었다.
+  //    "원래 있던 것"이 아니라 "이 PR이 창을 넓힌 것"이라 여기서 닫는다.
+  //
+  // 쓰는 법은 조정자 헤더의 A/B 축과 같다 — **여는 시점이 동기인가**로 갈린다.
+  //   · 탭 핸들러에서 곧바로 뜨는 것(확인창·즉시 실패) → `showGatedAlert(...)` 동기.
+  //   · `await` 뒤에 뜨는 실패 통보 → `showGatedAlert.afterSlot(...)`. 여는 시점을 응답이
+  //     정하므로 기다리는 사이 결과가 먼저 노출될 수 있고, 그러면 그 **위를** 덮는다.
+  // ⚠️ 단 **이미 자기 쪽이 자리를 쥐고 있으면 기다리지 않는다**(GroupCreateScreen에서 세운
+  //    예외). 이 카드에서는 시트를 연 뒤 얹히는 Alert가 그 경우이고, 그쪽은 별도 입구인
+  //    `alertOverCardSlot`이 맡는다(등록 유지까지 함께).
+  // ⚠️ id에 챌린지를 실는다. 한 방에 카드가 여럿이라 고정 문자열을 쓰면 서로의 등록을 덮는다.
+  const showGatedAlert = useOverlayAlert(`group.card.alert:${challenge.id}`);
   const [leaveBusy, setLeaveBusy] = useState(false);
   // 철회·취소 성공의 낙관 반영 — 재조회 응답이 도착하기 전까지는 카드가 스스로 '빠짐/닫힘'을
   // 그린다(onBetChanged를 받지 못한 카드는 다음 자연 재조회까지). betId를 쥐므로 같은 내기를
@@ -283,7 +343,7 @@ export default function ChallengeCard({
     const groupId = challengeGroupId(challenge.id);
     if (groupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·취소와 같은 공통 문구 결.
-      Alert.alert('기록을 열 수 없어요', '잠시 후 다시 시도해 주세요.');
+      showGatedAlert('기록을 열 수 없어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     // 그룹 축 내역 화면(GROMO-1277)으로 간다 — 이 진입점은 **이 챌린지만** 보는 필터다
@@ -298,7 +358,7 @@ export default function ChallengeCard({
       // 집중과 같은 뜻으로 읽힌다(codex 리뷰). 카드 본문 문구는 캡션이 맡으므로 그대로 둔다.
       challengeLabel: missionLabel(challenge, { direction: true }) ?? categoryLabel(challenge),
     });
-  }, [lastBetView, challenge, navigation]);
+  }, [lastBetView, challenge, navigation, showGatedAlert]);
 
   const label = missionLabel(challenge);
   const progress = challenge.memberProgress;
@@ -682,10 +742,91 @@ export default function ChallengeCard({
     onSheetVisibilityChange?.(challenge.id, true);
   }
 
+  // await 뒤에 여는 시트의 승인 게이트(위 onRequestSheetSlot 주석). 부모가 미전달이면 통과.
+  async function claimSheetSlot(): Promise<boolean> {
+    return (await onRequestSheetSlot?.(challenge.id)) ?? true;
+  }
+
+  // 확보한 자리를 **열지 않고** 돌려준다(사용자가 확인 Alert에서 물러난 경우).
+  // 돌려주지 않으면 부모가 다음 요청을 승인하지 못하고 slot도 계속 물고 있는다.
+  function releaseSheetSlot() {
+    onAbandonSheetSlot?.(challenge.id);
+  }
+
+  // ── 카드의 자리 위에 얹힌 네이티브 Alert(GROMO-1576) ────────────────────────
+  //
+  // ⚠️ **이 부류가 사는 곳을 가르는 축은 "명령형인가"가 아니다.** 진짜 축은 둘의 곱이다:
+  //    ① 자리를 쥔 주체가 **네이티브 표면**이라 React 생명주기 밖에 있는가,
+  //    ② 그 자리를 놓는 계기가 **사용자 조작 말고 배경 이벤트로도** 일어나는가.
+  //    대조가 그것을 보여 준다 — GroupCreateScreen의 공유 다이얼로그도 이미 쥔 자리 안에서
+  //    네이티브 시트를 열지만 **안전하다.** 그 다이얼로그는 사용자가 버튼을 눌러야만 닫히고
+  //    beforeRemove가 이탈까지 막아, 배경 이벤트가 소유자를 없앨 수 없기 때문이다(②가 거짓).
+  //    반면 이 카드는 **부모의 배경 재조회가 사용자 조작과 무관하게 카드를 없앤다.**
+  //    선언형이라도 ②가 참이면 같은 결함이 난다 — 실제로 아래 세 Alert가 그랬다.
+  //
+  // 그래서 이 표식의 뜻은 "명령형 승인을 쥐고 있다"가 아니라 **"이 카드의 등록 위에 네이티브
+  // Alert가 떠 있다"**이다. 그 동안 카드가 사라져도 부모의 등록을 **꺼뜨리지 않고**, 마지막
+  // Alert가 닫힐 때 미뤄 둔 정리를 실행한다(useOverlayAlert의 openCount와 같은 모양).
+  const openAlertCountRef = useRef(0);
+  const cardUnmountedRef = useRef(false);
+  // 언마운트가 미뤄 둔 정리 — 마지막 Alert가 닫히는 순간 실행한다.
+  const deferredCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(
+    () => () => {
+      cardUnmountedRef.current = true;
+    },
+    [],
+  );
+
+  // 이 카드의 등록 위에 얹히는 raw Alert의 **유일한 입구.** 자리마다 반납을 적으면 반드시
+  // 한 곳을 빠뜨린다(이 배치에서 세 번 빠뜨렸다) — 닫힘 경로를 여기 한 곳으로 모은다.
+  // ⚠️ 버튼을 안 넘기면 `확인` 하나를 명시한다. RN의 기본 버튼도 같은 모양이지만, 명시하지
+  //    않으면 **닫힘 콜백을 얻을 수 없어** 미뤄 둔 정리를 영영 못 돌린다.
+  // ⚠️ `onDismiss`도 항상 잇는다 — Android의 dismissExisting은 버튼 콜백을 건너뛴다.
+  function alertOverCardSlot(
+    title: string,
+    message?: string,
+    buttons?: AlertButton[],
+    options?: Parameters<typeof Alert.alert>[3],
+  ) {
+    openAlertCountRef.current += 1;
+    // 0 → 1 전이에서만 알린다(겹쳐 뜬 둘째는 이미 참인 사실을 다시 말할 뿐이다).
+    if (openAlertCountRef.current === 1) onAlertHoldChange?.(challenge.id, true);
+    let closed = false;
+    const close = () => {
+      if (closed) return; // 한 Alert당 한 번만
+      closed = true;
+      openAlertCountRef.current = Math.max(0, openAlertCountRef.current - 1);
+      if (openAlertCountRef.current > 0) return; // 겹쳐 뜬 Alert가 아직 남았다
+      // 마지막이 닫혔다 — 부모의 "유예 중" 표식을 먼저 걷고, 그 다음 미뤄 둔 정리를 흘린다.
+      onAlertHoldChange?.(challenge.id, false);
+      const deferred = deferredCleanupRef.current;
+      deferredCleanupRef.current = null;
+      deferred?.();
+    };
+    const list: AlertButton[] = buttons && buttons.length > 0 ? buttons : [{ text: '확인' }];
+    const wrapped = list.map((button) => ({
+      ...button,
+      // 호출부의 동작을 **먼저** 실행한다 — 그 안에서 시트를 여는 경우(삭제 확인) 미뤄 둔
+      // 정리보다 앞서야 열림 보고와 정정의 순서가 뒤집히지 않는다.
+      onPress: (value?: string) => {
+        (button.onPress as ((value?: string) => void) | undefined)?.(value);
+        close();
+      },
+    }));
+    Alert.alert(title, message, wrapped, {
+      ...options,
+      onDismiss: () => {
+        options?.onDismiss?.();
+        close();
+      },
+    });
+  }
+
   function openJoinNextSheet() {
     if (cachedGroupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·히스토리와 같은 공통 문구 결.
-      Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
+      showGatedAlert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     openSheet();
@@ -698,7 +839,7 @@ export default function ChallengeCard({
   // 뺀 집합으로만 시트를 연다 — 화면이 보여주는 돈과 실제 나갈 돈이 어긋나면 안 된다(N15).
   async function openWeekSheet() {
     if (cachedGroupId === null) {
-      Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
+      showGatedAlert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     if (weekOpenLock.current) return; // 조회가 도는 동안의 연타 방지(leaveLock 관행)
@@ -722,11 +863,17 @@ export default function ChallengeCard({
         onBetChanged?.();
         return;
       }
+      // 조회가 끝난 지금이 **실제로 여는 시점**이다 — 승인을 받고 마운트한다.
+      if (!(await claimSheetSlot())) return;
       openSheet();
       setWeekSheetDates(targets);
     } catch {
       // 예약 현황을 모른 채 열면 이미 낸 날의 참가비까지 합계에 싣는다 — 열지 않는다.
-      Alert.alert('참여 정보를 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
+      // 성공 경로가 claimSheetSlot()을 지나므로 **이 실패 경로도 승인을 받고** 띄운다.
+      await showGatedAlert.afterSlot(
+        '참여 정보를 확인하지 못했어요',
+        '잠시 후 다시 시도해 주세요.',
+      );
     } finally {
       weekOpenLock.current = false;
     }
@@ -782,7 +929,7 @@ export default function ChallengeCard({
           onBetChanged?.();
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -834,7 +981,7 @@ export default function ChallengeCard({
           onBetChanged?.();
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -843,7 +990,7 @@ export default function ChallengeCard({
   }
 
   function confirmLeaveToday(sessionId: string, stake: number) {
-    Alert.alert('참여 취소', `참가비 ${stake}코인을 돌려받고 오늘 참여를 취소할까요?`, [
+    showGatedAlert('참여 취소', `참가비 ${stake}코인을 돌려받고 오늘 참여를 취소할까요?`, [
       { text: '아니요', style: 'cancel' },
       { text: '참여 취소', style: 'destructive', onPress: () => doLeaveToday(sessionId) },
     ]);
@@ -852,7 +999,7 @@ export default function ChallengeCard({
   // 확인 한 겹 — 버튼 문구는 「참여 취소」다(N27 — 돈이 걸린 행동이라 무엇을 취소하는지 드러낸다).
   function confirmLeaveNext(stake: number) {
     if (nextDate === null) return;
-    Alert.alert(
+    showGatedAlert(
       '참여 취소',
       `${fmtMonthDayDow(nextDate)} 참여를 취소하고 참가비 ${stake}코인을 돌려받을까요?`,
       [
@@ -897,7 +1044,7 @@ export default function ChallengeCard({
           break;
         // ❌ 유지 — '화면을 새로고침해 주세요'는 사용자 조치를 요구한다(정책 D19).
         case BET_NOT_JOINED:
-          Alert.alert(
+          showGatedAlert.afterSlot(
             '참여 취소를 못 했어요',
             '참가 중인 내기가 아니에요. 화면을 새로고침해 주세요.',
           );
@@ -906,7 +1053,7 @@ export default function ChallengeCard({
           show({ message: '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요', tone: 'error' });
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -919,7 +1066,7 @@ export default function ChallengeCard({
   // v2 경로와 다른 동사를 쓰면 유저에겐 서로 다른 두 기능으로 읽힌다.
   function confirmLeaveBet() {
     if (!leavable || bet === null) return;
-    Alert.alert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기에서 빠질까요?`, [
+    showGatedAlert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기에서 빠질까요?`, [
       { text: '아니요', style: 'cancel' },
       {
         text: '참여 취소',
@@ -959,7 +1106,7 @@ export default function ChallengeCard({
           show({ message: '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요', tone: 'error' });
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -971,7 +1118,7 @@ export default function ChallengeCard({
   // 단독 참가자라 내 참여를 무르면 내기 자체가 닫힌다 — 그 결과를 묻는 문장에서 지우면 안 된다.
   function confirmCancelBet() {
     if (!cancelable || bet === null) return;
-    Alert.alert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
+    showGatedAlert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
       { text: '아니요', style: 'cancel' },
       {
         text: '참여 취소',
@@ -1001,15 +1148,44 @@ export default function ChallengeCard({
   //
   // 물러나는 버튼은 `그만두기`다(policy §A8) — 여기서 `취소`를 쓰면 같은 카드의 **참여 취소**와
   // 겹쳐, 돈을 무르는 버튼과 창을 닫는 버튼이 같은 단어가 된다.
-  function confirmDeleteOneStep(revalidate: boolean) {
-    Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
-      { text: '그만두기', style: 'cancel' },
+  //
+  // ⚠️ **이 함수는 두 성질을 겸한다** — 부르는 자리가 둘이고 그 앞에 창이 있는지가 다르다.
+  //   · 구서버 분기(`confirmDelete`의 `repeatDays === null`) — 탭 핸들러에서 **동기로** 부른다.
+  //     `await`가 없어 전면 모달이 떠 있을 수 없다(조정자 헤더의 A축) → 자리를 새로 안 잡는다.
+  //   · 0건 분기(`confirmDelete`의 프리플라이트 응답 뒤) — **`await` 뒤**다(B축). 기다리는 사이
+  //     결과 모달이 노출될 수 있어, 그대로 띄우면 그 위를 덮고 사용자가 못 읽은 채 seen·ack이
+  //     나간다. 형제 분기(`openSessions > 0`)는 이미 승인을 받는다 — **한쪽만 두면 막은 것이
+  //     아니다.** 그래서 "어떻게 띄울지"를 호출부가 `gated`로 정해 넘긴다.
+  function confirmDeleteOneStep(revalidate: boolean, gated: boolean) {
+    // 승인을 받고 띄운 경우에만 닫힘에서 그 자리를 돌려준다 — 경로 셋(그만두기·삭제·onDismiss)의
+    // 단일 출구다. 언마운트 유예는 alertOverCardSlot이 함께 맡는다.
+    let finished = false;
+    const finish = () => {
+      if (!gated || finished) return;
+      finished = true;
+      releaseSheetSlot();
+    };
+    const buttons: AlertButton[] = [
+      { text: '그만두기', style: 'cancel', onPress: finish },
       {
         text: '삭제',
         style: 'destructive',
-        onPress: () => (revalidate ? confirmDeleteZeroFinal() : onDelete(challenge.id)),
+        onPress: () => {
+          // ⚠️ 확보한 자리를 **여기서 돌려준다.** 이어지는 재검증이 프리뷰를 **다시 조회**하므로
+          //    (confirmDeleteZeroFinal) 여는 시점은 그 응답이 정한다 — 그 시점에 스스로 새로
+          //    승인을 받는다. 지금 자리를 쥔 채로 넘기면 그 함수의 claim이 자기 자신과 겹친다.
+          //    "승인을 받으면 반드시 연다"(:직렬화 계약)는 **열지 않을 거면 돌려주라**는 뜻이고,
+          //    releaseSheetSlot이 그 반납 경로다 — 계약을 깨는 것이 아니라 그대로 따르는 것이다.
+          finish();
+          return revalidate ? confirmDeleteZeroFinal() : onDelete(challenge.id);
+        },
       },
-    ]);
+    ];
+    if (gated) {
+      alertOverCardSlot('챌린지 삭제', '이 챌린지를 삭제할까요?', buttons, { onDismiss: finish });
+      return;
+    }
+    showGatedAlert('챌린지 삭제', '이 챌린지를 삭제할까요?', buttons);
   }
 
   // 0건 프리뷰의 확정 — 다시 받아 새 참여가 생겼는지 본다.
@@ -1022,14 +1198,25 @@ export default function ChallengeCard({
       const fresh = await getChallengeDeletionPreview(cachedGroupId, challenge.id);
       if (seq !== deleteSeqRef.current) return; // 사용자가 그 사이 다른 동작을 했다 — 폐기.
       if (fresh.openSessions.length > 0) {
+        // 프리플라이트가 끝난 지금이 실제로 여는 시점이다(위 openWeekSheet와 같은 근거).
+        // ⚠️ 승인을 받으면 **반드시 연다** — 부모는 승인 한 건이 열림으로 마무리되기를 기다렸다
+        //    다음 요청을 받으므로(직렬화), 여기서 조용히 빠져나가면 그 자리가 막힌다.
+        //    승인 대기 중 다른 삭제 동작이 끼어들 수는 없다(deleteLock이 잡고 있다).
+        if (!(await claimSheetSlot())) return;
         openSheet();
         setDeletePreview(fresh);
-        Alert.alert('걸린 돈이 생겼어요', '방금 참여한 사람이 있어요. 내용을 확인해 주세요.');
+        // ⚠️ **이미 세운 등록(deletePreview) 위에 얹히는 Alert다.** 그냥 띄우면 카드가 사라질 때
+        //    언마운트 정리의 열림 보고(false)가 살아 있는 등록을 꺼뜨린다 — 위 alertOverCardSlot.
+        alertOverCardSlot('걸린 돈이 생겼어요', '방금 참여한 사람이 있어요. 내용을 확인해 주세요.');
         return;
       }
       await runDelete(false);
     } catch {
-      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
+      // 성공 경로가 claimSheetSlot()을 지나므로 이 실패 경로도 승인을 받고 띄운다(위 훅 주석).
+      await showGatedAlert.afterSlot(
+        '삭제 영향을 확인하지 못했어요',
+        '잠시 후 다시 시도해 주세요.',
+      );
     } finally {
       deleteLock.current = false;
     }
@@ -1042,7 +1229,8 @@ export default function ChallengeCard({
   async function confirmDelete() {
     if (!isOwner) return;
     if (repeatDays === null) {
-      confirmDeleteOneStep(false); // 프리뷰 엔드포인트가 없는 구서버 — 재검증할 수단이 없다.
+      // 동기 경로다 — 탭과 Alert 사이에 await가 없어 창이 없다(위 confirmDeleteOneStep 주석).
+      confirmDeleteOneStep(false, false); // 프리뷰 엔드포인트가 없는 구서버 — 재검증할 수단이 없다.
       return;
     }
     if (deleteLock.current) return; // 프리플라이트가 도는 동안의 연타 방지(leaveLock 관행)
@@ -1051,23 +1239,63 @@ export default function ChallengeCard({
       if (cachedGroupId === null) throw new Error('unknown groupId'); // 캐시 미적중 — 공통 실패로.
       const preview = await getChallengeDeletionPreview(cachedGroupId, challenge.id);
       if (preview.openSessions.length === 0) {
-        confirmDeleteOneStep(true);
+        // ⚠️ 형제 분기(아래 `openSessions > 0`)와 **같은 창** 안에 있다 — 바로 위 `await`가 그
+        //    창을 열었다. 한쪽 분기만 게이트를 두면 막은 것이 아니다: 프리플라이트를 기다리는
+        //    사이 결과 모달이 노출되면 이 확인창이 그 위를 덮고 seen·ack이 나간다.
+        if (!(await claimSheetSlot())) return;
+        confirmDeleteOneStep(true, true);
         return;
       }
+      // ⚠️ **확인 Alert를 띄우기 전에** slot을 확보하고, 닫힐 때까지 쥐고 있는다.
+      //    버튼 콜백에서 확보하면 늦다: 네이티브 Alert는 RN Modal **위에** 떠서 그 아래에
+      //    결과 모달이 마운트돼도 사용자는 못 보는데, 마운트되는 순간 seen 마커와 ack이
+      //    나간다(둘 다 렌더 커밋 시점에 찍힌다). 그 상태로 앱이 종료되면 사용자는 결과를
+      //    **못 본 채 재노출까지 막힌다.**
+      //    이 배치에서 같은 뿌리가 네 번째다 — 코치마크 · 비동기 시트 · 비활성 구간 · 그리고
+      //    이 Alert. OS 얼럿 일반은 앱이 막을 수 없지만, **우리가 띄우는 것**은 막을 수 있다.
+      if (!(await claimSheetSlot())) return;
+      // 확인 Alert가 닫히는 **모든 경로**의 단일 출구. 경로가 넷이라(그만두기 · 삭제 ·
+      // onDismiss · 카드 언마운트) 각자 반납을 적으면 한 곳을 빠뜨린다 — 실제로 빠뜨렸다.
+      // ⚠️ 자리를 붙들어 두는 일 자체는 alertOverCardSlot이 한다 — 여기서는 **확보한 승인을
+      //    어떻게 마무리할지**(열거나 돌려주거나)만 정한다. 두 축이 다르다.
+      let finished = false;
+      const finishConfirm = (proceed: boolean) => {
+        if (finished) return; // 한 Alert당 한 번만
+        finished = true;
+        // ⚠️ 카드가 이미 사라졌으면 **열림을 보고하면 안 된다.** 부모의 열림 집합에 죽은
+        //    challengeId가 들어가고 그것을 false로 되돌릴 카드가 없어, 방을 떠날 때까지
+        //    결과 모달이 영영 못 뜬다(부모 sheetOpenCardIds 주석의 바로 그 사고).
+        if (!proceed || cardUnmountedRef.current) {
+          releaseSheetSlot();
+          return;
+        }
+        openSheet();
+        setDeletePreview(preview);
+      };
       // 물러나는 버튼은 위 1단계 확인과 같은 `그만두기`다(policy §A8).
-      Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
-        { text: '그만두기', style: 'cancel' },
-        {
-          text: '삭제',
-          style: 'destructive',
-          onPress: () => {
-            openSheet();
-            setDeletePreview(preview);
+      // ⚠️ **버튼을 안 거치고 닫히는 경로**가 있다(Android의 dismissExisting). 그 처리와
+      //    "떠 있는 동안 카드가 사라져도 등록을 유지" 둘 다 alertOverCardSlot이 맡는다.
+      alertOverCardSlot(
+        '챌린지 삭제',
+        '이 챌린지를 삭제할까요?',
+        [
+          // 물러나면 확보한 자리를 즉시 돌려준다 — 안 그러면 이 화면을 나갈 때까지 자리가 잠긴다.
+          { text: '그만두기', style: 'cancel', onPress: () => finishConfirm(false) },
+          {
+            text: '삭제',
+            style: 'destructive',
+            // 이미 승인을 쥐고 있으므로 곧바로 연다(부모는 열림 보고로 승인을 마무리한다).
+            onPress: () => finishConfirm(true),
           },
-        },
-      ]);
+        ],
+        { onDismiss: () => finishConfirm(false) },
+      );
     } catch {
-      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
+      // 성공 경로가 claimSheetSlot()을 지나므로 이 실패 경로도 승인을 받고 띄운다(위 훅 주석).
+      await showGatedAlert.afterSlot(
+        '삭제 영향을 확인하지 못했어요',
+        '잠시 후 다시 시도해 주세요.',
+      );
     } finally {
       deleteLock.current = false;
     }
@@ -1113,13 +1341,16 @@ export default function ChallengeCard({
       }
       if (!samePreview(shown, fresh)) {
         setDeletePreview(fresh);
-        Alert.alert('걸린 돈이 바뀌었어요', '바뀐 내용을 확인하고 다시 눌러 주세요.');
+        // 2단계 시트가 떠 있는 상태의 통보다 — 등록 위에 얹힌다(위 alertOverCardSlot).
+        alertOverCardSlot('걸린 돈이 바뀌었어요', '바뀐 내용을 확인하고 다시 눌러 주세요.');
         return;
       }
       setDeletePreview(null);
       await runDelete(true);
     } catch {
-      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
+      // ⚠️ 이 실패는 **2단계 시트가 떠 있는 채로** 난다(확정을 그 시트에서 눌렀다).
+      //    등록 위에 얹히므로 같은 입구를 쓴다 — 승인이 필요 없다는 것과 별개 축이다.
+      alertOverCardSlot('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
     } finally {
       deleteLock.current = false;
     }
@@ -1161,8 +1392,25 @@ export default function ChallengeCard({
   // 열림 집합에 이 카드가 영원히 남아 결과 모달이 다시는 뜨지 않는다. 의존성은 신원뿐이라
   // (콜백은 부모가 useCallback으로 고정) 실제로 언마운트에서만 돈다.
   useEffect(() => {
-    return () => onSheetVisibilityChange?.(challenge.id, false);
-  }, [onSheetVisibilityChange, challenge.id]);
+    return () => {
+      const cleanup = () => {
+        onSheetVisibilityChange?.(challenge.id, false);
+        onAbandonSheetSlot?.(challenge.id);
+      };
+      // ⚠️ **네이티브 Alert가 이 카드의 등록 위에 떠 있으면 정리를 통째로 미룬다**(위 주석).
+      //    열림 보고(false)까지 미뤄야 한다 — 그 호출은 예전엔 무조건 나갔는데, 시트를 이미
+      //    연 뒤에 뜬 Alert(걸린 돈이 생겼어요 · 바뀌었어요 · 확인 실패)에서는 **살아 있는
+      //    등록을 실제로 꺼뜨린다.** 그러면 부모는 비었다고 믿고, 아직 떠 있는 Alert 뒤에서
+      //    결과가 마운트·확인 처리된다 — 이 배치가 처음부터 막으려던 그 사고다.
+      //    영구 점유가 아니다: 모든 Alert는 사용자가 닫아야 사라지고, 그 닫힘이 alertOverCardSlot의
+      //    close()를 지나 여기 미뤄 둔 정리를 정확히 한 번 실행한다.
+      if (openAlertCountRef.current > 0) {
+        deferredCleanupRef.current = cleanup;
+        return;
+      }
+      cleanup();
+    };
+  }, [onSheetVisibilityChange, onAbandonSheetSlot, challenge.id]);
 
   return (
     // 카드 자체는 더 이상 아무 제스처도 받지 않는다(GROMO-1101 — 롱프레스 삭제 제거).

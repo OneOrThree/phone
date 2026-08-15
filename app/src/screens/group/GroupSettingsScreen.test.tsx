@@ -20,6 +20,11 @@ import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import type { GroupDetailResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
 import {
+  OVERLAY_PRIORITY,
+  OverlaySlotProvider,
+  useOverlayMaxPriority,
+} from '@/store/OverlaySlotContext';
+import {
   __resetGroupCardEmojiQueueForTest,
   preservePendingGroupCardEmoji,
 } from './groupCardEmojiStore';
@@ -274,6 +279,38 @@ describe('관리 진입 — 올바른 라우트·파라미터로 navigate', () =
   });
 });
 
+// ⚠️ 이 확인 카드는 **우리 트리 안의 RN Modal**이다 — 조정자가 원래 덮어야 할 대상인데
+//    등록이 빠져 있었다. 등록하지 않으면 카드가 열린 채로 루트의 결과 모달이 함께 마운트되고,
+//    사용자는 못 본 결과에 seen/ack이 남는다.
+describe('나가기 확인 카드의 조정자 등록', () => {
+  function PriorityProbe({ onValue }: { onValue: (value: number) => void }) {
+    onValue(useOverlayMaxPriority());
+    return null;
+  }
+
+  test('확인 카드가 떠 있는 동안 자리를 점유하고, 닫으면 반납한다', async () => {
+    const values: number[] = [];
+    await render(
+      <OverlaySlotProvider>
+        <GroupSettingsScreen />
+        <PriorityProbe onValue={(v) => values.push(v)} />
+      </OverlaySlotProvider>,
+    );
+    await screen.findByTestId('group.settings.leave');
+    expect(values[values.length - 1]).toBe(-1);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.leave'));
+    });
+    expect(values[values.length - 1]).toBe(OVERLAY_PRIORITY.sheet);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.leave.confirm.secondary'));
+    });
+    expect(values[values.length - 1]).toBe(-1);
+  });
+});
+
 describe('그룹 나가기', () => {
   test('나가기에 성공하면 목록으로 돌아간다(popToTop)', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
@@ -351,7 +388,8 @@ describe('그룹 나가기', () => {
       '로그인이 필요해요',
       '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
-      { cancelable: false },
+      // onDismiss가 붙는다 — 안내가 자리를 쥐고 있어 닫힘 경로 둘 다 반납해야 한다(GROMO-1576).
+      expect.objectContaining({ cancelable: false }),
     );
     alertSpy.mockRestore();
   });
@@ -469,7 +507,8 @@ describe('그룹 나가기', () => {
       '로그인이 필요해요',
       '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
-      { cancelable: false },
+      // onDismiss가 붙는다 — 안내가 자리를 쥐고 있어 닫힘 경로 둘 다 반납해야 한다(GROMO-1576).
+      expect.objectContaining({ cancelable: false }),
     );
     // 안내와 별개로 화면은 실패 상태로 남는다 — 로그아웃 언마운트 전까지 성공처럼 보이면 안 된다.
     expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
 import {
@@ -13,6 +13,7 @@ import { getAuthSessionGeneration } from '@/services/api';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupBetJoined, logGroupChallengeJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import type { MissionCategory, MissionType } from '@/types/dto/group';
 import { fmtMonthDayDow } from '../challengeSchedule';
 import BetBalanceRow from './BetBalanceRow';
@@ -71,6 +72,9 @@ export default function JoinWeekSheet({
   onDone,
 }: JoinWeekSheetProps) {
   const { coins, coinsLoaded, coinsVersion, latestCoinsVersion, refresh } = useCoins();
+  // 실패 통보가 자리를 쥐고 뜨게 하는 통로(아래 failAndReload 주석). id는 시트마다 다르게 —
+  // 같은 이름이 겹치면 서로의 등록을 덮는다.
+  const showAlert = useOverlayAlert('group.joinWeekSheet.alert');
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // 서버가 확정한 잔액 부족(BetSheet insufficientVerdict 패턴 그대로 — #570 codex) — refresh가
@@ -132,8 +136,19 @@ export default function JoinWeekSheet({
   const partialTotal = partialEntries.reduce((sum, e) => sum + e.stake, 0);
   const fullDisabled = submitting || insufficient || serverInsufficient;
 
+  // ⚠️ **이 통보는 자리를 쥐고 떠야 한다**(GROMO-1576). 바로 아래 `onDone()`이 **동기로 시트를
+  //    닫아** 이 시트가 쥐고 있던 등록(부모의 열림 집합·sheetOpen)이 그 자리에서 끊기는데,
+  //    네이티브 Alert는 RN Modal **위에** 뜨므로 사용자 앞에는 그대로 남는다. 그 틈에 결과가
+  //    도착하면 자리가 비었다고 보고 **이 Alert 뒤에서** 마운트되며 seen 마커와 ack이 나간다.
+  //    ⤷ 이 창을 연 것은 이 파일이 아니라 이 배치의 나머지다 — 예전엔 결과 모달이 방 진입
+  //      1회에만 떠서 그 빈자리를 채우러 올 것이 없었다. 지금은 제한적 재조회(30초x5회)와
+  //      BET_RESULT 포그라운드 재조회가 **화면에 머무는 중에도** 결과를 도착시킨다.
+  // ⚠️ `onDone()`을 뒤로 미뤄 회피하지 않는다 — 실패한 시트가 남아 있으면 사용자가 그 위에서
+  //    다시 조작한다. 닫는 것은 그대로 두고 **등록만** Alert가 닫힐 때까지 잇는다.
+  // ⚠️ 승인을 기다리지 않는다(동기) — 부르는 순간 아직 이 시트가 자리를 쥐고 있어 기다릴 이유가
+  //    없고, 기다리면 그 사이 등록이 끊겨 정확히 위 창이 열린다("이미 자리를 쥐고 있으면 즉시").
   function failAndReload(title: string, message: string) {
-    Alert.alert(title, message);
+    showAlert(title, message);
     onDone();
   }
 

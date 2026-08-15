@@ -78,6 +78,11 @@ import {
   type GroupDeckGuideReadState,
 } from './groupDeckGuide';
 import type { GroupCardSummarySnapshot } from './groupCardSummary';
+import {
+  OVERLAY_PRIORITY,
+  useOverlayMaxPriority,
+  useOverlaySlot,
+} from '@/store/OverlaySlotContext';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -323,8 +328,11 @@ export interface GroupListScreenProps {
   onInvite?: (groupId: string, groupName: string) => void;
   onRefresh: () => Promise<void>;
   onBack?: () => void;
-  // guide eligibility는 성공 목록만으로 부족하다. 인증·route·overlay queue 상태를 부모가 제공한다.
-  guideBlocked?: boolean;
+  // guide eligibility는 성공 목록만으로 부족하다. 인증·route 상태를 부모가 제공한다.
+  // ⚠️ blocking overlay 여부는 **prop이 아니다**(GROMO-1576) — 코치마크를 막는 것은 부모의
+  //    시트만이 아니라 루트의 챌린지 결과 모달과 그룹방 시트이기도 하다. prop은 자기 부모의
+  //    사실만 실어 나를 수 있어 그 셋을 표현할 수 없다. 이 화면은 조정자(OverlaySlotContext)에
+  //    직접 slot을 요청하고, 승인받았을 때만 코치마크를 마운트한다.
   guideScreenFocused?: boolean;
   guideEpisode?: number;
   groupEntry?: GroupEntry;
@@ -355,7 +363,6 @@ export default function GroupListScreen({
   onOpenSettings = () => undefined,
   onInvite = () => undefined,
   onBack,
-  guideBlocked = false,
   guideScreenFocused = true,
   guideEpisode = 0,
   groupEntry = 'unknown',
@@ -490,7 +497,9 @@ export default function GroupListScreen({
   const guideReadStateRef = useRef<GroupDeckGuideReadState | null>(null);
   const guideStartGroupsRef = useRef<string | null>(null);
   const guideVisibleRef = useRef(false);
-  const guideBlockedRef = useRef(guideBlocked);
+  // 아래 guideBlocked(조정자 판정)의 최신 사본 — 콜백·비동기 판정이 렌더 클로저 대신 읽는다.
+  // 초기값 false: 첫 렌더에는 아직 어떤 오버레이도 등록돼 있지 않다.
+  const guideBlockedRef = useRef(false);
   const guideBackGroupIdRef = useRef<string | null>(null);
   const actionPendingRef = useRef(false);
   const pendingFlipRef = useRef<{
@@ -557,6 +566,31 @@ export default function GroupListScreen({
     activeAnchorGroupId === activeGroupId &&
     guideScreenFocused &&
     appActive;
+
+  // ── 코치마크를 조정자에 편입한다(GROMO-1576) ─────────────────────────────────
+  // 안내는 큐에 올랐거나 이미 떠 있는 동안만 slot을 요청하고, 승인(`granted`)받았을 때만
+  // 시작·렌더한다. 그래서 챌린지 결과 모달과 두 RN Modal이 같은 순간에 마운트될 수 없다.
+  //
+  // 양보 규칙 — 조정자는 보유자를 **뺏지 않지만**(store/OverlaySlotContext 헤더), 소비자가
+  // 스스로 물러나는 것은 별개다. 안내의 규칙은 두 단이다:
+  //  · **아직 안 떴으면**(대기 중) 더 높은 우선순위에 자리를 내준다 — 결과 모달이 그 대상이다.
+  //    안내는 자격 판정이 로컬 저장소 한 번이라 거의 항상 네트워크보다 먼저 등록되는데, 그대로
+  //    붙들면 "결과 모달 > 코치마크"라는 우선순위가 실질적으로 사문화된다.
+  //  · **이미 떠 있으면** 사용자가 방금 연 시트(초대 프리뷰·그룹 찾기·그룹방 시트)에만 물러난다.
+  //    결과 모달에는 물러나지 않는다 — 보고 있는 안내를 한 스텝만 보여 주고 걷어내면 안내
+  //    자체가 깨진다. 결과는 안내가 끝나면 그때 뜬다.
+  // 어느 쪽이든 안내는 사라지지 않고 큐에 남아 다음 기회에 다시 뜬다(setGuideQueued).
+  const overlayMaxPriority = useOverlayMaxPriority();
+  const yieldsSlot = guideVisible
+    ? overlayMaxPriority >= OVERLAY_PRIORITY.sheet
+    : overlayMaxPriority > OVERLAY_PRIORITY.groupDeckGuide;
+  const guideSlot = useOverlaySlot(GROUP_DECK_GUIDE_ID, {
+    priority: OVERLAY_PRIORITY.groupDeckGuide,
+    active: (guideQueued || guideVisible) && guideEligible && !yieldsSlot,
+  });
+  // "지금 안내를 세울 수 없다" — 승인을 못 받았거나(대기), 스스로 물러났거나(양보).
+  // 아무것도 요청하지 않았고 경쟁자도 없으면 false다(자격 판정 시점의 기본값).
+  const guideBlocked = guideSlot !== 'granted' && (guideQueued || guideVisible || yieldsSlot);
 
   const acceptCardAction = useCallback(
     (group: GroupSummaryResponse, action: 'focus' | 'room' | 'settings') => {

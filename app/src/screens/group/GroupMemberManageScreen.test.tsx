@@ -25,6 +25,9 @@ jest.mock('react-native-safe-area-context', () => ({
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const mockGoBack = jest.fn();
 jest.mock('@react-navigation/native', () => ({
+  // 실제 모듈을 깔고 필요한 것만 덮는다 — navigationRef가 createNavigationContainerRef를
+  // 모듈 로드 시점에 부르기 때문에, 빠뜨리면 이 화면을 import하는 것만으로 스위트가 죽는다.
+  ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => ({ goBack: mockGoBack }),
   useRoute: () => ({ params: { groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55' } }),
 }));
@@ -146,7 +149,8 @@ describe('유저 부재(USER_NOT_FOUND)', () => {
       '로그인이 필요해요',
       '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
-      { cancelable: false },
+      // onDismiss가 붙는다 — 안내가 자리를 쥐고 있어 닫힘 경로 둘 다 반납해야 한다(GROMO-1576).
+      expect.objectContaining({ cancelable: false }),
     );
     alertSpy.mockRestore();
   });
@@ -198,6 +202,7 @@ describe('멤버 관리(강퇴)', () => {
       '내보내기',
       expect.stringContaining('다시 들어올 수 없어요'),
       expect.any(Array),
+      expect.anything(),
     );
 
     await confirmKick(alertSpy);

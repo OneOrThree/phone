@@ -21,6 +21,12 @@ import {
   leaveSession,
 } from '@/services/groupApi';
 import { logGroupBetCanceled, logGroupBetJoined } from '@/services/analyticsEvents';
+import {
+  OVERLAY_PRIORITY,
+  OverlaySlotProvider,
+  useOverlayMaxPriority,
+  useOverlaySlotActions,
+} from '@/store/OverlaySlotContext';
 import { todayStrKst } from '@/utils/localDate';
 import { T } from '@/constants/theme';
 import type {
@@ -70,6 +76,9 @@ jest.mock('react-native-safe-area-context', () => ({
 // 실제 스택 없이 navigate 호출만 붙잡는다(NoticeScreen.test의 홀더 관행).
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
+  // 실제 모듈을 깔고 필요한 것만 덮는다 — navigationRef가 createNavigationContainerRef를
+  // 모듈 로드 시점에 부르기 때문에, 빠뜨리면 이 컴포넌트를 import하는 것만으로 스위트가 죽는다.
+  ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => ({ navigate: mockNavigate }),
 }));
 // 철회 버튼의 '시작 전' 판정이 시간에 기댄다 — '오늘'과 KST 벽시계를 테스트가 직접 고정한다.
@@ -1045,7 +1054,13 @@ describe('지난 기록 더보기 → 히스토리 push', () => {
     });
 
     expect(mockNavigate).not.toHaveBeenCalled();
-    expect(alertSpy).toHaveBeenCalledWith('기록을 열 수 없어요', '잠시 후 다시 시도해 주세요.');
+    // 카드의 모든 Alert가 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다(GROMO-1576).
+    expect(alertSpy).toHaveBeenCalledWith(
+      '기록을 열 수 없어요',
+      '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
+    );
   });
 });
 
@@ -1190,6 +1205,110 @@ describe('참가 철회', () => {
     expect(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeOnTheScreen();
   });
 
+  // ── 이 카드의 Alert 전체가 자리를 쥔다(GROMO-1576) ──────────────────────────
+  // ⚠️ **이 배치가 이 결함의 발생 조건을 만들었다.** 예전엔 결과 모달이 GroupRoomScreen 소유라
+  //    방 진입 1회에만 떴고, 카드 Alert가 떠 있는 중에 결과가 도착할 경로가 사실상 없었다.
+  //    소유자를 루트로 옮기고 제한적 재조회(30초×5회)·BET_RESULT 포그라운드 재조회를 붙이면서
+  //    **화면에 머무는 중에도 결과가 도착**하게 됐다.
+  // 치환이 기계적이라 자리마다 잠그지 않는다 — 동기·비동기 **대표 하나씩**만 본다.
+  test('확인창이 떠 있는 동안에는 결과 모달이 자리를 얻지 못한다(동기 경로 대표)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    let slotActions: ReturnType<typeof useOverlaySlotActions> = null;
+    function Grab() {
+      slotActions = useOverlaySlotActions();
+      return null;
+    }
+    const values: number[] = [];
+    function Probe() {
+      values.push(useOverlayMaxPriority());
+      return null;
+    }
+    await render(
+      <OverlaySlotProvider>
+        <Grab />
+        <Probe />
+        {joinedCard()}
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+    expect(values[values.length - 1]).toBe(-1);
+
+    // 참여 취소 확인창을 띄운다 — 탭 핸들러에서 곧바로 뜨는 동기 경로다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`));
+    });
+    // 이 등록이 서 있는 동안 결과 호스트는 스스로 물러난다(yieldsSlot이 보는 값이 이것이다).
+    expect(values[values.length - 1]).toBe(OVERLAY_PRIORITY.sheet);
+    // 결과가 지금 도착해도 자리를 못 얻는다 — 확인창 아래에서 마운트되지 않는다.
+    let granted: boolean | null = null;
+    await act(async () => {
+      slotActions?.acquire('test:result', OVERLAY_PRIORITY.challengeResult).then((ok) => {
+        granted = ok;
+      });
+    });
+    await act(async () => {});
+    expect(granted).toBeNull();
+
+    // 사용자가 확인창을 닫으면 그때 자리가 넘어간다.
+    const buttons = alertSpy.mock.calls[0][2];
+    await act(async () => {
+      buttons?.find((b) => b.text === '아니요')?.onPress?.();
+    });
+    await act(async () => {});
+    expect(granted).toBe(true);
+    alertSpy.mockRestore();
+  });
+
+  // 비동기 대표 — `await` 뒤에 뜨는 실패 통보는 **승인을 받고** 띄운다(afterSlot).
+  test('철회 실패 통보는 결과 모달이 자리를 놓을 때까지 뜨지 않는다(비동기 경로 대표)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockLeaveBet.mockRejectedValue(new Error('network'));
+    let slotActions: ReturnType<typeof useOverlaySlotActions> = null;
+    function Grab() {
+      slotActions = useOverlaySlotActions();
+      return null;
+    }
+    await render(
+      <OverlaySlotProvider>
+        <Grab />
+        {joinedCard()}
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+
+    // 결과 모달이 먼저 자리를 쥔 상태를 만든다.
+    await act(async () => {
+      slotActions?.request('test:result', OVERLAY_PRIORITY.challengeResult);
+    });
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`));
+    });
+    const confirmButtons = alertSpy.mock.calls[0][2];
+    alertSpy.mockClear();
+    await act(async () => {
+      confirmButtons?.find((b) => b.text === '참여 취소')?.onPress?.();
+    });
+    await act(async () => {});
+
+    // 요청은 실패했지만 통보는 아직 뜨지 않는다 — 결과 모달 위를 덮지 않는다.
+    expect(mockLeaveBet).toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    // 결과 모달이 닫히면 그때 뜬다 — 통보가 증발하지도 않는다.
+    await act(async () => {
+      slotActions?.release('test:result');
+    });
+    await act(async () => {});
+    expect(alertSpy).toHaveBeenCalledWith(
+      '참여 취소를 못 했어요',
+      '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
+    );
+    alertSpy.mockRestore();
+  });
+
   test('확인 Alert를 거쳐 철회 API를 부르고, 남은 인원이 있으면 참가 진입점이 되살아난다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     await renderJoined(); // 참가자 3명
@@ -1199,9 +1318,11 @@ describe('참가 철회', () => {
     });
     // 확인 전에는 아무것도 하지 않는다 — 돈이 걸린 동작이라 한 겹 거친다.
     expect(mockLeaveBet).not.toHaveBeenCalled();
+    // 카드의 모든 Alert가 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다(GROMO-1576).
     expect(alertSpy).toHaveBeenCalledWith(
       '참여 취소',
       '참가비 30코인을 돌려받고 내기에서 빠질까요?',
+      expect.anything(),
       expect.anything(),
     );
 
@@ -1379,9 +1500,12 @@ describe('참가 철회', () => {
       buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
+    // 카드의 모든 Alert가 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다(GROMO-1576).
     expect(alertSpy).toHaveBeenLastCalledWith(
       '참여 취소를 못 했어요',
       '참가 중인 내기가 아니에요. 화면을 새로고침해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(mockToastShow).not.toHaveBeenCalled();
   });
@@ -1512,9 +1636,11 @@ describe('당일 단독 개설자 취소 carve-out', () => {
     // 확인 전에는 아무것도 하지 않는다 — 돈이 걸린 동작이라 한 겹 거친다.
     // 제목·CTA는 「참여 취소」(N27)이되, 질문은 '내기를 닫을까요' 그대로다 — 단독 참가자라
     // 내 참여를 무르면 내기 자체가 닫히고, 그 결과는 물음에서 지우면 안 된다.
+    // 카드의 모든 Alert가 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다(GROMO-1576).
     expect(alertSpy).toHaveBeenCalledWith(
       '참여 취소',
       '참가비 30코인을 돌려받고 내기를 닫을까요?',
+      expect.anything(),
       expect.anything(),
     );
 
@@ -1972,6 +2098,8 @@ describe('다음 활성일 참여 (GROMO-1419)', () => {
     expect(alertSpy).toHaveBeenCalledWith(
       '예약된 날짜가 바뀌었어요',
       expect.stringContaining('8/5(수)로 예약됐어요'),
+      expect.anything(),
+      expect.anything(),
     );
     // 성공은 성공대로 — 재조회를 태워 카드가 실제 예약 상태로 갈아 끼워진다.
     expect(onBetChanged).toHaveBeenCalled();
@@ -2754,6 +2882,116 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
     expect(onBetChanged).toHaveBeenCalled();
   });
 
+  // ── await 뒤에 여는 시트의 승인 게이트(GROMO-1576) ──────────────────────────
+  // 이 시트는 탭과 마운트 사이에 예약 현황 조회가 끼어 있어서 **여는 시점을 응답이 정한다.**
+  // 그 사이 루트의 챌린지 결과 모달이 slot을 얻어 노출까지 갈 수 있는데, 조정자는 보유자를
+  // 뺏지 않으므로 그대로 마운트하면 RN Modal 두 개가 겹친다. 그러면 결과 모달이 **사실상 안
+  // 보인 채** seen 마커와 ack이 나간다(둘 다 렌더 커밋 시점에 찍힌다 — 인지 시점이 아니다).
+  test('승인을 받기 전에는 주간 시트를 마운트하지 않는다', async () => {
+    let allow: (granted: boolean) => void = () => undefined;
+    const onRequestSheetSlot = jest.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          allow = resolve;
+        }),
+    );
+    await render(
+      <ChallengeCard
+        challenge={challenge(weekendOver())}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={onRequestSheetSlot}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+
+    // 조회는 끝났지만 승인 전이다 — 트리에 없다(가려진 것이 아니다).
+    expect(onRequestSheetSlot).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByTestId('group.bet.week.total', { includeHiddenElements: true }),
+    ).toBeNull();
+
+    // 승인이 떨어지면 그때 연다 — 사용자의 탭이 증발하지 않는다.
+    await act(async () => {
+      allow(true);
+    });
+    expect(screen.getByTestId('group.bet.week.total')).toBeOnTheScreen();
+  });
+
+  test('승인이 거절되면(화면을 떠났다) 주간 시트를 열지 않는다', async () => {
+    const onRequestSheetSlot = jest.fn(async () => false);
+    await render(
+      <ChallengeCard
+        challenge={challenge(weekendOver())}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={onRequestSheetSlot}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+
+    expect(onRequestSheetSlot).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByTestId('group.bet.week.total', { includeHiddenElements: true }),
+    ).toBeNull();
+  });
+
+  // ⚠️ **성공 경로가 게이트를 타는 함수는 실패 경로도 탄다.** 위 두 테스트가 승인 게이트를
+  //    잠갔지만 그것은 성공 경로뿐이었다 — 조회를 기다리는 사이 결과 모달이 먼저 자리를 얻어
+  //    노출된 뒤 요청이 실패하면, `catch`의 Alert가 그 위를 즉시 덮어 사용자가 못 본 회차에
+  //    seen/ack이 남는다. 게이트를 절반만 달면 막은 셈이 되지 않는다.
+  test('예약 현황 조회 실패 통보도 자리가 풀린 뒤에 뜬다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetMyOpenBetSessions.mockRejectedValue(new Error('network'));
+    let slotActions: ReturnType<typeof useOverlaySlotActions> = null;
+    function Grab() {
+      slotActions = useOverlaySlotActions();
+      return null;
+    }
+    await render(
+      <OverlaySlotProvider>
+        <Grab />
+        <ChallengeCard
+          challenge={challenge(weekendOver())}
+          isOwner={false}
+          onDelete={onDelete}
+          onOpenBet={onOpenBet}
+        />
+      </OverlaySlotProvider>,
+    );
+    // 결과 모달이 먼저 자리를 쥔 상태를 만든다.
+    await act(async () => {
+      slotActions?.request('test:result', OVERLAY_PRIORITY.challengeResult);
+    });
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+    await act(async () => {});
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    // 결과 모달이 닫히면 그때 뜬다 — 통보가 증발하지도 않는다.
+    await act(async () => {
+      slotActions?.release('test:result');
+    });
+    await act(async () => {});
+    expect(alertSpy).toHaveBeenCalledWith(
+      '참여 정보를 확인하지 못했어요',
+      '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
+    );
+    alertSpy.mockRestore();
+  });
+
   // #570 codex ⑧ — 예약도 '참여를 결심한 한 번의 행동'이라 1건으로 세고, 규모는 파라미터로.
   test('주간 예약 성공은 참여 계측 1건 + 일수를 남긴다', async () => {
     await renderCard(weekendOver());
@@ -2925,9 +3163,12 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
       fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
     });
 
+    // 게이트를 타는 함수의 실패 경로라 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다.
     expect(alertSpy).toHaveBeenCalledWith(
       '참여 정보를 확인하지 못했어요',
       '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(screen.queryByTestId('group.bet.week.submit')).toBeNull();
   });
@@ -3114,9 +3355,11 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     await pressDeleteX();
 
     expect(mockGetDeletionPreview).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID);
+    // 0건 분기도 승인을 받고 띄우므로 alertOverCardSlot을 지난다 — onDismiss가 채워진다.
     expect(alertSpy).toHaveBeenCalledWith(
       '챌린지 삭제',
       '이 챌린지를 삭제할까요?',
+      expect.anything(),
       expect.anything(),
     );
     await act(async () => {
@@ -3126,6 +3369,361 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     });
     expect(onDelete).toHaveBeenCalledWith(CHALLENGE_ID);
     expect(screen.queryByTestId('group.challenge.delete.confirm')).toBeNull();
+  });
+
+  // ⚠️ 네이티브 Alert는 RN Modal **위에** 뜬다. 확인 Alert가 떠 있는 동안 결과가 도착하면
+  //    결과 모달이 그 **아래에서** 마운트되며 seen 마커와 ack이 나가는데(둘 다 렌더 커밋
+  //    시점에 찍힌다) 사용자는 아무것도 못 본다. 그 상태로 앱이 종료되면 결과를 못 본 채
+  //    재노출까지 막힌다. 그래서 slot은 **버튼 콜백이 아니라 Alert를 띄우기 전에** 잡는다.
+  test('확인 Alert를 띄우기 **전에** slot을 확보한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const order: string[] = [];
+    const onRequestSheetSlot = jest.fn(async () => {
+      order.push('claim');
+      return true;
+    });
+    alertSpy.mockImplementation(() => {
+      order.push('alert');
+    });
+
+    await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={onRequestSheetSlot}
+      />,
+    );
+    await pressDeleteX();
+
+    expect(order).toEqual(['claim', 'alert']);
+  });
+
+  // ⚠️ **한 함수가 두 분기를 겸하면 한쪽만 게이트가 빠진다.** 실제로 그랬다 — `confirmDelete`는
+  //    `openSessions > 0`만 승인을 받고, `=== 0`은 같은 `await` 뒤인데 그냥 띄웠다. 두 분기를
+  //    **한 카드에서 이어 눌러 대조**해 두면 비대칭이 다시 생겨도 여기서 걸린다.
+  test('두 분기 모두 승인을 받은 뒤에 확인창을 띄운다 — 0건도 >0과 같다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const order: string[] = [];
+    const onRequestSheetSlot = jest.fn(async () => {
+      order.push('claim');
+      return true;
+    });
+    alertSpy.mockImplementation(() => {
+      order.push('alert');
+    });
+
+    // ① 걸린 돈이 없는 0건 프리플라이트 — 이번에 닫은 분기.
+    mockGetDeletionPreview.mockResolvedValue({ openSessions: [], totalRefund: 0 });
+    await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={onRequestSheetSlot}
+      />,
+    );
+    await pressDeleteX();
+    expect(order).toEqual(['claim', 'alert']);
+
+    // 확인창에서 물러나 자리를 돌려주고, **같은 카드**에서 다른 분기를 눌러 본다.
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '그만두기')
+        ?.onPress?.();
+    });
+
+    // ② 걸린 돈이 있는 분기 — 종전 계약. 순서가 같다.
+    order.length = 0;
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    await pressDeleteX();
+    expect(order).toEqual(['claim', 'alert']);
+  });
+
+  test('slot을 못 받으면 확인 Alert 자체를 띄우지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+
+    await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => false}
+      />,
+    );
+    await pressDeleteX();
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  test('확인 Alert에서 물러나면 확보한 자리를 돌려준다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const onAbandonSheetSlot = jest.fn();
+
+    await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => true}
+        onAbandonSheetSlot={onAbandonSheetSlot}
+      />,
+    );
+    await pressDeleteX();
+
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '그만두기')
+        ?.onPress?.();
+    });
+
+    // 돌려주지 않으면 이 화면을 나갈 때까지 자리가 잠긴다.
+    expect(onAbandonSheetSlot).toHaveBeenCalledWith(CHALLENGE_ID);
+  });
+
+  // ⚠️ 버튼을 안 거치고 닫히는 경로가 있다 — Android의 DialogModule은 새 Alert를 띄우며 기존
+  //    것을 dismissExisting()으로 닫는데, 그때 **버튼 콜백 대신 onDismiss만** 부른다. 반납
+  //    경로가 `그만두기`뿐이면 시트가 하나도 없는데 승인과 등록이 남아, 방을 떠날 때까지
+  //    결과 모달과 다른 카드 시트가 전부 막힌다(useOverlayAlert가 같은 이유로 이미 하는 처리).
+  test('버튼 없이 닫혀도(Android 대체) 확보한 자리를 돌려준다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const onAbandonSheetSlot = jest.fn();
+
+    await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => true}
+        onAbandonSheetSlot={onAbandonSheetSlot}
+      />,
+    );
+    await pressDeleteX();
+
+    const options = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][3] as {
+      onDismiss?: () => void;
+    };
+    expect(options?.onDismiss).toBeDefined();
+    await act(async () => {
+      options.onDismiss?.();
+    });
+
+    expect(onAbandonSheetSlot).toHaveBeenCalledWith(CHALLENGE_ID);
+  });
+
+  // ⚠️ 확인 Alert가 떠 있는 동안 BET_RESULT 재조회로 챌린지가 목록에서 빠지면 **카드는
+  //    언마운트되지만 네이티브 Alert는 사용자 앞에 그대로 남는다.** 그때 언마운트 정리가
+  //    자리를 반납하면 결과 호스트가 그 Alert **뒤에서** 모달을 마운트하고, 사용자가 못 본
+  //    회차에 seen/ack이 찍힌다. 반납 주체는 카드가 아니라 Alert다.
+  //    ⚠️ 유지만 단정하면 영구 점유를 못 잡는다 — 닫으면 반납되는 것까지 한 테스트에서 본다.
+  test('Alert가 떠 있는 채 카드가 사라져도 자리는 유지되고, 닫으면 그때 반납된다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const onAbandonSheetSlot = jest.fn();
+
+    const view = await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => true}
+        onAbandonSheetSlot={onAbandonSheetSlot}
+      />,
+    );
+    await pressDeleteX();
+    const buttons = lastAlertButtons(alertSpy);
+
+    // 재조회에서 이 챌린지가 빠졌다 — 카드만 사라지고 Alert는 남아 있다.
+    await act(async () => {
+      view.unmount();
+    });
+    expect(onAbandonSheetSlot).not.toHaveBeenCalled();
+
+    // 사용자가 그 Alert를 닫으면 그때 반납된다.
+    await act(async () => {
+      buttons?.find((b) => b.text === '그만두기')?.onPress?.();
+    });
+    expect(onAbandonSheetSlot).toHaveBeenCalledWith(CHALLENGE_ID);
+  });
+
+  // ⚠️ 카드가 사라진 뒤의 `삭제`는 **열림을 보고하면 안 된다.** 부모의 열림 집합에 죽은
+  //    challengeId가 들어가면 그것을 false로 되돌릴 카드가 없어, 방을 떠날 때까지 결과 모달이
+  //    영영 못 뜬다(부모 sheetOpenCardIds 주석의 바로 그 사고). 자리 유지가 만든 새 창이다.
+  test('카드가 사라진 뒤 삭제를 눌러도 열림을 보고하지 않고 반납한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const onAbandonSheetSlot = jest.fn();
+    const onSheetVisibilityChange = jest.fn();
+
+    const view = await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => true}
+        onAbandonSheetSlot={onAbandonSheetSlot}
+        onSheetVisibilityChange={onSheetVisibilityChange}
+      />,
+    );
+    await pressDeleteX();
+    const buttons = lastAlertButtons(alertSpy);
+
+    await act(async () => {
+      view.unmount();
+    });
+    onSheetVisibilityChange.mockClear();
+
+    await act(async () => {
+      buttons?.find((b) => b.text === '삭제')?.onPress?.();
+    });
+
+    expect(onSheetVisibilityChange).not.toHaveBeenCalledWith(CHALLENGE_ID, true);
+    expect(onAbandonSheetSlot).toHaveBeenCalledWith(CHALLENGE_ID);
+  });
+
+  // ── 세 번째 범주: **이미 쥔 등록 위에 얹히는 raw Alert**(GROMO-1576) ──────────
+  // ⚠️ 위 확인 Alert와 결정적으로 다르다. 저 Alert는 뜰 때 `deletePreview`가 아직 null이라
+  //    언마운트 정리의 열림 보고(false)가 false→false로 무해했다. **아래 셋은 시트를 이미
+  //    연 뒤에 뜬다** — non-null이라 그 무조건 호출이 **살아 있는 등록을 실제로 꺼뜨린다.**
+  //    부모는 비었다고 믿고, 아직 떠 있는 Alert 뒤에서 결과가 마운트·확인 처리된다.
+  //    안전 여부를 가르는 축은 "명령형인가"가 아니라 **"닫힘이 배경 이벤트로도 일어나는가"**다
+  //    — 여기서는 부모의 배경 재조회가 사용자 조작과 무관하게 카드를 없앤다.
+  function renderOwnerWatched(visibility: jest.Mock) {
+    return render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => true}
+        onSheetVisibilityChange={visibility}
+      />,
+    );
+  }
+
+  // Alert가 떠 있는 채 카드가 사라져도 등록이 유지되고, 닫으면 그때 정정된다.
+  async function expectRegistrationHeldUntilAlertCloses(
+    view: { unmount: () => void },
+    visibility: jest.Mock,
+    alertSpy: jest.SpyInstance,
+  ) {
+    const buttons = lastAlertButtons(alertSpy);
+    visibility.mockClear();
+
+    // 배경 재조회가 이 챌린지를 목록에서 뺐다 — 카드만 사라지고 Alert는 남는다.
+    await act(async () => {
+      view.unmount();
+    });
+    expect(visibility).not.toHaveBeenCalledWith(CHALLENGE_ID, false);
+
+    // 사용자가 Alert를 닫으면 그때 정정된다 — 영구 점유가 아니다.
+    await act(async () => {
+      buttons?.[0]?.onPress?.();
+    });
+    expect(visibility).toHaveBeenCalledWith(CHALLENGE_ID, false);
+  }
+
+  test('「걸린 돈이 생겼어요」가 떠 있는 채 카드가 사라져도 등록이 유지되고, 닫으면 정정된다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const visibility = jest.fn();
+    mockGetDeletionPreview.mockResolvedValueOnce({ openSessions: [], totalRefund: 0 });
+    const view = await renderOwnerWatched(visibility);
+    await pressDeleteX();
+
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-03', participantCount: 1, pot: 30 }],
+      totalRefund: 30,
+    });
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    await expectRegistrationHeldUntilAlertCloses(view, visibility, alertSpy);
+  });
+
+  test('「걸린 돈이 바뀌었어요」가 떠 있는 채 카드가 사라져도 등록이 유지되고, 닫으면 정정된다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const visibility = jest.fn();
+    mockGetDeletionPreview.mockResolvedValueOnce({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const view = await renderOwnerWatched(visibility);
+    await pressDeleteX();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    // 확정 직전 수치가 달라졌다.
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 4, pot: 120 }],
+      totalRefund: 120,
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
+    });
+
+    await expectRegistrationHeldUntilAlertCloses(view, visibility, alertSpy);
+  });
+
+  test('확정 실패 통보가 떠 있는 채 카드가 사라져도 등록이 유지되고, 닫으면 정정된다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const visibility = jest.fn();
+    mockGetDeletionPreview.mockResolvedValueOnce({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const view = await renderOwnerWatched(visibility);
+    await pressDeleteX();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    mockGetDeletionPreview.mockRejectedValue(axiosErrorWith(500));
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
+    });
+
+    await expectRegistrationHeldUntilAlertCloses(view, visibility, alertSpy);
   });
 
   test('참가비가 걸린 날이 있으면 1단계 뒤 수치 경고 시트를 거쳐야 삭제된다', async () => {
@@ -3271,9 +3869,12 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     });
 
     expect(onDelete).not.toHaveBeenCalled();
+    // 카드의 등록 위에 얹히는 Alert라 alertOverCardSlot을 지난다 — 버튼·onDismiss가 채워진다.
     expect(alertSpy).toHaveBeenCalledWith(
       '걸린 돈이 바뀌었어요',
       '바뀐 내용을 확인하고 다시 눌러 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     // 시트는 새 수치로 갈아 끼워진 채 남는다 — 다시 누르면 그때 삭제된다.
     expect(screen.getByText('4명 · 120코인')).toBeOnTheScreen();
@@ -3327,9 +3928,12 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     });
 
     expect(onDelete).not.toHaveBeenCalled();
+    // 카드의 등록 위에 얹히는 Alert라 alertOverCardSlot을 지난다 — 버튼·onDismiss가 채워진다.
     expect(alertSpy).toHaveBeenCalledWith(
       '걸린 돈이 생겼어요',
       '방금 참여한 사람이 있어요. 내용을 확인해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(screen.getByText('1명 · 30코인')).toBeOnTheScreen();
   });
@@ -3369,9 +3973,15 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     });
 
     expect(onDelete).not.toHaveBeenCalled();
+    // ⚠️ 여기(confirmDeleteFinal)는 **승인 게이트는 안 탄다** — 시트가 이미 떠서 자리를 쥐고
+    //    있는 상태의 확정이라 새로 승인받을 것이 없다. 하지만 그것과 **언마운트가 그 자리를
+    //    조용히 반납하는가**는 별개 축이고, 이 통보는 살아 있는 등록 위에 얹히므로
+    //    alertOverCardSlot을 지난다(버튼·onDismiss가 채워진다).
     expect(alertSpy).toHaveBeenCalledWith(
       '삭제 영향을 확인하지 못했어요',
       '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
   });
 
@@ -3402,9 +4012,12 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     await renderOwner();
     await pressDeleteX();
 
+    // 게이트를 타는 함수의 실패 경로라 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다.
     expect(alertSpy).toHaveBeenCalledWith(
       '삭제 영향을 확인하지 못했어요',
       '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(onDelete).not.toHaveBeenCalled();
   });

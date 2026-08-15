@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Clipboard,
   Modal,
   Platform,
@@ -19,6 +18,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { T, withAlpha } from '@/constants/theme';
+import { useOverlayAlert } from '@/store/useOverlayAlert';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { getAuthSessionGeneration } from '@/services/api';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
@@ -32,6 +32,7 @@ import {
   logGroupInviteShared,
 } from '@/services/analyticsEvents';
 import { useUser } from '@/store/UserContext';
+import { OVERLAY_PRIORITY, useOverlaySlot } from '@/store/OverlaySlotContext';
 import { buildInviteShareMessage } from './inviteShare';
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
@@ -75,6 +76,10 @@ const VISIBILITY_CAPTION = {
 } as const;
 
 export default function GroupCreateScreen() {
+  // 네이티브 Alert는 RN Modal **위에** 뜬다 — 떠 있는 동안 결과 모달이 그 아래에서
+  // 마운트되면 사용자는 못 봤는데 seen 마커와 ack이 찍힌다. 이 훅이 Alert 수명 동안
+  // 조정자 slot을 점유해 그걸 막는다(store/useOverlayAlert 헤더).
+  const showAlert = useOverlayAlert('groupCreate.alert');
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const route = useRoute<RouteProp<V2RootStackParamList, 'GroupCreate'>>();
   const { userId } = useUser();
@@ -98,6 +103,48 @@ export default function GroupCreateScreen() {
   const [created, setCreated] = useState<{ id: string; name: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // ── 이 다이얼로그도 전면 오버레이 조정자에 등록한다(GROMO-1576) ──────────────
+  // 이 화면(GroupCreate)은 그룹 흐름 라우트라 루트의 챌린지 결과 모달이 뜰 수 있는 자리다.
+  // 둘 다 RN Modal이므로 등록하지 않으면 **동시에 마운트**되고, 어느 쪽이 위로 갈지는 플랫폼
+  // 재량이다. 그 결과가 이 배치의 핵심 실패 모드다 — 결과 모달이 **가려진 채 seen/ack** 되어
+  // 사용자는 한 번도 못 봤는데 서버는 봤다고 기록한다(로컬 마커와 ack가 둘 다 노출 시점에
+  // 찍히기 때문 — D2 · N51).
+  // ⚠️ blocker 등록만으로는 부족하다. 여는 계기가 **생성 요청의 비동기 응답**이라, 사용자가
+  //    만들기를 누른 뒤 응답이 오는 사이 결과 모달이 먼저 slot을 가져갈 수 있다. 그때
+  //    무조건 렌더하면 이 다이얼로그가 결과 모달을 덮어 같은 사고가 난다. 그래서 **승인을
+  //    받았을 때만** 띄운다. 못 받아도 사라지지 않는다 — 결과 모달이 닫히는 순간 뜬다.
+  //    ⚠️ 그 대신 **폼과 이탈은 `created !== null`인 순간부터 잠근다** — 승인 여부와 무관하게.
+  //       예전엔 성공 즉시 다이얼로그가 떠서 폼이 가려졌는데, 승인 게이트를 넣으면서 대기 구간에
+  //       폼이 다시 살아났다: 그 사이 사용자가 **중복 그룹을 만들거나**, 화면을 나가
+  //       **비공개 그룹의 유일한 입구인 초대 안내를 영영 잃을** 수 있다.
+  const createdSlot = useOverlaySlot('groupCreate.inviteDialog', {
+    priority: OVERLAY_PRIORITY.sheet,
+    active: created !== null,
+  });
+  // 이탈 차단 리스너가 리렌더 없이 읽어야 해서 state와 별도로 둔다(submittingRef와 같은 이유).
+  const createdRef = useRef(false);
+  createdRef.current = created !== null;
+  const createdDialogVisible = created !== null && createdSlot === 'granted';
+  // 비동기 함수가 `await` 뒤에 읽으므로 렌더 값이 아니라 ref로 본다(createdRef와 같은 이유).
+  const createdSlotRef = useRef(createdSlot);
+  createdSlotRef.current = createdSlot;
+
+  // 링크 복사·공유 실패를 알리는 통로.
+  //
+  // ⚠️ "`await` 뒤면 무조건 `afterSlot`"이 여기서는 틀린다. 이 실패는 **완료 다이얼로그가 이미
+  //    자리를 쥐고 떠 있을 때만** 날 수 있는데(복사·공유 버튼이 그 안에 있다), 그 상태에서
+  //    승인을 기다리면 다이얼로그가 닫힐 때까지 아무 안내도 안 뜬다. 사용자는 원인을 모른 채
+  //    같은 버튼을 반복해 누르고, 확인을 눌러 화면을 닫으면 **라우트가 바뀌며 대기까지 취소돼**
+  //    실패 원인을 끝내 못 본다. 자기가 이미 자리를 쥐고 있으면 기다릴 이유가 없다.
+  //    승인 전(pending)이라면 결과 모달이 떠 있다는 뜻이므로 그때는 종전대로 기다린다.
+  function notifyLinkFailure(title: string, message: string): Promise<void> | void {
+    if (createdSlotRef.current === 'granted') {
+      showAlert(title, message);
+      return;
+    }
+    return showAlert.afterSlot(title, message);
+  }
+
   // '복사했어요' 되돌리기 타이머 — 언마운트 시 정리한다.
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -115,7 +162,9 @@ export default function GroupCreateScreen() {
   useEffect(
     () =>
       navigation.addListener('beforeRemove', (e) => {
-        if (submittingRef.current) e.preventDefault();
+        // 생성 요청 중 + **완료 다이얼로그가 살아 있는 동안**(승인 대기 포함) 이탈을 막는다.
+        // 다이얼로그의 확인·닫기는 closeCreatedDialog로 나가며 이 래치를 먼저 내린다.
+        if (submittingRef.current || createdRef.current) e.preventDefault();
       }),
     [navigation],
   );
@@ -130,7 +179,15 @@ export default function GroupCreateScreen() {
 
   const trimmedName = name.trim();
   const trimmedDescription = description.trim();
-  const canSubmit = trimmedName.length > 0 && !submitting;
+  // 완료 다이얼로그가 살아 있으면(승인 대기 포함) 다시 만들 수 없다 — 중복 생성 방지.
+  const canSubmit = trimmedName.length > 0 && !submitting && created === null;
+
+  // 다이얼로그를 닫고 화면을 뜬다 — **이탈 래치를 먼저 내린다**(beforeRemove가 이 ref를 본다).
+  const closeCreatedDialog = useCallback(() => {
+    createdRef.current = false;
+    setCreated(null);
+    navigation.goBack();
+  }, [navigation]);
 
   function bumpMembers(dir: 1 | -1) {
     setMaxMembers((prev) => Math.max(MEMBERS_MIN, Math.min(MEMBERS_MAX, prev + dir)));
@@ -144,7 +201,8 @@ export default function GroupCreateScreen() {
       // 공통 문구로 떨어뜨리면 '잠시 후 다시 시도'가 되는데, 시간이 지나도 절대 풀리지 않는
       // 조건이라 사용자가 재시도만 반복한다 — 상한이라는 사실과 숫자를 그대로 알려준다.
       case 'GROUP_LIMIT_EXCEEDED':
-        Alert.alert(
+        // ⚠️ `await` 뒤 실패 처리에서 여는 Alert다 — 승인을 받고 띄운다.
+        showAlert.afterSlot(
           '더 이상 만들 수 없어요',
           `참여할 수 있는 그룹 수를 초과했어요(최대 ${GROUP_LIMIT}개)`,
         );
@@ -164,7 +222,7 @@ export default function GroupCreateScreen() {
           setNameError('그룹 이름을 다시 확인해 주세요');
           return;
         }
-        Alert.alert('그룹을 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+        showAlert.afterSlot('그룹을 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       }
     }
   }
@@ -231,7 +289,7 @@ export default function GroupCreateScreen() {
       inviteRef.current = issued;
       return issued;
     } catch {
-      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+      await notifyLinkFailure('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return null;
     }
   }
@@ -274,7 +332,7 @@ export default function GroupCreateScreen() {
         });
       }
     } catch {
-      Alert.alert('공유하지 못했어요', '링크 복사로 대신 공유해 주세요.');
+      await notifyLinkFailure('공유하지 못했어요', '링크 복사로 대신 공유해 주세요.');
     }
   }
 
@@ -284,10 +342,10 @@ export default function GroupCreateScreen() {
       <View style={s.header}>
         {/* 생성 요청 중에는 비활성 — 눌러도 beforeRemove가 막으므로 버튼도 함께 잠가 이유를 보여준다 */}
         <TouchableOpacity
-          style={[s.backBtn, submitting ? s.backBtnOff : null]}
+          style={[s.backBtn, submitting || created !== null ? s.backBtnOff : null]}
           onPress={() => navigation.goBack()}
           activeOpacity={0.7}
-          disabled={submitting}
+          disabled={submitting || created !== null}
           accessibilityLabel="뒤로"
         >
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
@@ -439,10 +497,10 @@ export default function GroupCreateScreen() {
 
       {/* 초대 링크 다이얼로그 — 비공개방은 링크 없이는 아무도 못 들어오므로 생성 직후 반드시 띄운다(§6-2) */}
       <Modal
-        visible={created !== null}
+        visible={createdDialogVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => navigation.goBack()}
+        onRequestClose={closeCreatedDialog}
       >
         <View style={s.overlay}>
           <View style={s.card}>
@@ -464,7 +522,7 @@ export default function GroupCreateScreen() {
             <TouchableOpacity
               style={s.cardConfirmBtn}
               activeOpacity={0.7}
-              onPress={() => navigation.goBack()}
+              onPress={closeCreatedDialog}
             >
               <Text style={s.cardConfirmText}>확인</Text>
             </TouchableOpacity>
