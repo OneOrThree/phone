@@ -117,6 +117,15 @@ export function useOverlayAlert(id: string): typeof Alert.alert & {
       buttons?: AlertButton[],
       options?: Parameters<typeof Alert.alert>[3],
     ) => {
+      // ⚠️ **이 화면이 이미 사라졌으면 띄우지 않는다.** 동기 경로에는 `afterSlot`이 가진 라우트
+      //    신원 대조가 통째로 없어, 그 비대칭이 창을 만든다: 시트가 요청을 기다리는 사이
+      //    딥링크가 groupId를 바꾸면 부모가 그 시트를 언마운트하는데 **진행 중인 Promise는
+      //    취소되지 않아** 그 뒤에 실패 통보가 불린다. 그대로 띄우면 사라진 A 그룹 시트의 Alert가
+      //    B 화면 위에 뜨고, 그 사이 B에서 노출된 결과를 덮는다(이미 ack된 결과다).
+      // ⚠️ 마운트된 상태의 호출은 **막지 않는다.** 탭 핸들러가 부르는 동기 확인창·즉시 실패가
+      //    그 부류이고(카드 13곳), 그것까지 막으면 사용자가 실패 안내를 못 받는다 —
+      //    이 배치에서 이미 한 번 낸 결함과 같은 형태다. 검사는 **정리 이후**에만 참이다.
+      if (unmountedRef.current) return;
       openCountRef.current += 1;
       actionsRef.current?.request(id, OVERLAY_PRIORITY.sheet);
       let released = false;

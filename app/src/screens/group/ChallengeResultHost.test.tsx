@@ -1167,6 +1167,37 @@ describe('비활성 상태에서는 노출·확인이 없다', () => {
     await waitFor(() => expect(mockAck).toHaveBeenCalledTimes(1));
   });
 
+  // ⚠️ **확인되지 않은 초기 AppState를 활성으로 취급하면 안 된다.** 콜드 스타트에서 브리지
+  //    초기 상태가 오기 전 currentState는 null·'unknown'일 수 있고, iOS 확장 환경의
+  //    'extension'도 전면 노출이 아니다. 결과 푸시로 그룹 흐름이 먼저 복원된 상태에서 조회·claim이
+  //    초기 통지보다 빨리 끝나면 **보이지 않는 앱에서** 모달이 커밋돼 seen/ack이 기록된다.
+  //    ⚠️ 안 여는 것만 단정하면 게이트가 과하게 걸려도 초록이다 — 통지가 오면 열리는 것까지 본다.
+  test.each(['unknown', 'extension', null] as unknown as AppStateStatus[])(
+    '초기 AppState가 %s면 통지가 오기 전까지 열지 않는다',
+    async (initial) => {
+      const previous = AppState.currentState;
+      AppState.currentState = initial;
+      try {
+        mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+        await renderHost({ initialRoute: '그룹' });
+
+        expect(mockClaim).not.toHaveBeenCalled();
+        expect(
+          screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
+        ).toBeNull();
+
+        // 실제로 활성이면 곧 도착하는 change 통지가 곧바로 열어 준다 — 결과를 잃지 않는다.
+        await act(async () => {
+          appStateHandler?.('active');
+        });
+        await act(async () => {});
+        expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      } finally {
+        AppState.currentState = previous;
+      }
+    },
+  );
+
   test('노출 중 비활성이 되면 모달을 내리고, 복귀해도 다시 확인 처리하지 않는다', async () => {
     mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
     await renderHost({ initialRoute: '그룹' });

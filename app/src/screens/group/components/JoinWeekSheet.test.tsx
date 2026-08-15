@@ -359,6 +359,12 @@ test('유저 부재(USER_NOT_FOUND) — 사라진 챌린지로 위장하지 않�
     expect.objectContaining({ cancelable: false }),
   );
   expect(onDone).not.toHaveBeenCalled();
+  // ⚠️ **띄운 안내는 반드시 닫는다.** 이 안내는 자리를 모듈 스코프에 쥐므로(sessionErrors.ts),
+  //    안 닫고 끝내면 그 점유가 다음 테스트의 Provider로 **물려진다**(새 Provider가 다시 등록).
+  const sessionButtons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as unknown as {
+    onPress?: () => void;
+  }[];
+  sessionButtons[0].onPress?.();
   alertSpy.mockRestore();
 });
 

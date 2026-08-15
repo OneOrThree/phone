@@ -178,10 +178,14 @@ export default function ChallengeResultHost() {
   //    근사**한 데서 온다. 렌더가 커밋돼도 앱이 `inactive`·`background`면 사용자는 아무것도 못
   //    본다 — 그 상태에서 seen 마커와 서버 ack이 기록되면 그 결과는 영영 사라진다.
   //    그래서 claim 시작과 노출을 **`active`일 때로만** 제한하고, 복귀가 재시도를 깨운다.
-  // 초기값은 보수적으로 읽는다: 명시적 비활성만 false로 본다(테스트·구버전에서 null일 수 있다).
-  const [appActive, setAppActive] = useState(
-    () => AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
-  );
+  // ⚠️ 초기값은 **명시적 `active`일 때만** 참이다. 반대로("비활성만 false") 읽으면 세 값이
+  //    조용히 활성으로 분류된다: 콜드 스타트에서 브리지 초기 상태가 오기 전의 `null`,
+  //    RN이 아직 모르는 `unknown`, 그리고 iOS 확장 환경의 `extension`. 셋 다 전면 노출이
+  //    아닌데, 결과 푸시로 그룹 흐름이 먼저 복원된 상태에서 조회·claim이 초기 AppState 통지보다
+  //    빨리 끝나면 **보이지 않는 앱에서** 결과 모달이 커밋돼 seen 마커와 ack이 기록된다.
+  //    이 배치의 원칙대로 "헷갈리면 안 여는 쪽"으로 간다 — 실제로 활성이면 곧 도착하는
+  //    `change` 통지가 곧바로 열어 준다(아래 AppState 이펙트).
+  const [appActive, setAppActive] = useState(() => AppState.currentState === 'active');
 
   const [flow, setFlow] = useState<GroupFlowRouteState>(readGroupFlowRoute);
   const [queue, setQueue] = useState<ChallengeResultCandidate[]>([]);

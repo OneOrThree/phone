@@ -166,6 +166,38 @@ export function getOverlaySlotActions(): OverlaySlotActions | null {
   return moduleActions;
 }
 
+// ── 떠 있는 네이티브 표면의 점유(Provider 교체를 견딘다) ──────────────────────
+// ⚠️ **`getOverlaySlotActions()`의 반환값을 붙들고 있으면 안 된다.** 세션 만료 안내가 떠 있는
+//    동안 게스트→소셜 승격으로 `userId`가 바뀌면 `App.tsx`의 `<UserProvider key={userId}>`가
+//    서브트리를 통째로 리마운트해 **Provider가 교체**된다. 그때
+//      · 캡처해 둔 actions는 **폐기된 registry**를 가리키고,
+//      · 새 호스트는 점유가 없다고 판단해 그 Alert **뒤에서** 결과를 마운트하며,
+//      · 닫힘 콜백은 죽은 registry만 해제한다.
+//    (이 경로가 실재한다는 것은 `promptSessionExpired` 자신이 전제한다 — 확인 버튼의 세대
+//     대조가 바로 "안내 표시 중 세션 교체" 구간을 다룬다.)
+// 그래서 **모듈이 점유 목록을 들고**, Provider가 새로 서면 그 목록을 다시 등록한다.
+// 반납도 캡처가 아니라 **그 시점의 현재 Provider**에 한다.
+const nativeHolds = new Set<{ id: string; priority: number }>();
+
+/**
+ * 훅 없이 자리를 점유한다 — 반환된 함수를 부르면 반납한다.
+ * Provider가 교체되면 새 Provider에 자동으로 다시 등록된다(위 주석).
+ */
+export function holdOverlaySlotForNativeSurface(id: string, priority: number): () => void {
+  const hold = { id, priority };
+  nativeHolds.add(hold);
+  moduleActions?.request(id, priority);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    nativeHolds.delete(hold);
+    // 같은 id를 쥔 다른 표면이 남아 있으면 등록을 유지한다.
+    if (Array.from(nativeHolds).some((other) => other.id === id)) return;
+    moduleActions?.release(id);
+  };
+}
+
 export function OverlaySlotProvider({ children }: { children: ReactNode }) {
   const registryRef = useRef<Map<string, OverlaySlotRegistration>>(new Map());
   // 등록 즉시(동기) 갱신되는 최고 우선순위 — state는 마이크로태스크 뒤에 따라온다.
@@ -316,9 +348,12 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
     [request, release, acquire],
   );
 
-  // React 밖의 호출자(아래 getOverlaySlotActions)에게 이 Provider의 통로를 열어 둔다.
+  // React 밖의 호출자(위 getOverlaySlotActions)에게 이 Provider의 통로를 열어 둔다.
+  // ⚠️ 그리고 **아직 떠 있는 네이티브 표면의 점유를 물려받는다.** Provider가 교체돼도 그 표면은
+  //    화면에 그대로 남으므로, 새 registry에 다시 등록하지 않으면 그 뒤에서 결과가 마운트된다.
   useEffect(() => {
     moduleActions = actions;
+    nativeHolds.forEach((hold) => actions.request(hold.id, hold.priority));
     return () => {
       if (moduleActions === actions) moduleActions = null;
     };

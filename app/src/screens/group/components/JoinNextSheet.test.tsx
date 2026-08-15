@@ -285,6 +285,12 @@ test('유저 부재(USER_NOT_FOUND) — 사라진 챌린지로 위장하지 않�
   );
   // '사라진 챌린지예요'로 새로고침시키지 않는다.
   expect(onDone).not.toHaveBeenCalled();
+  // ⚠️ **띄운 안내는 반드시 닫는다.** 이 안내는 자리를 모듈 스코프에 쥐므로(sessionErrors.ts),
+  //    안 닫고 끝내면 그 점유가 다음 테스트의 Provider로 **물려진다**(새 Provider가 다시 등록).
+  const sessionButtons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as unknown as {
+    onPress?: () => void;
+  }[];
+  sessionButtons[0].onPress?.();
   alertSpy.mockRestore();
 });
 
@@ -349,5 +355,46 @@ test('실패 통보가 떠 있는 동안 자리를 쥐고, 닫으면 반납한�
   });
   await act(async () => {});
   expect(latest()).toBe(-1);
+  alertSpy.mockRestore();
+});
+
+// ⚠️ **동기 경로에는 `afterSlot`이 가진 신원 대조가 없다** — 그 비대칭이 이 창을 만들었다.
+//    요청을 기다리는 사이 딥링크가 groupId를 바꾸면 부모가 이 시트를 언마운트하는데, 진행 중인
+//    Promise는 취소되지 않아 그 뒤에 failAndReload가 불린다. 그대로 띄우면 사라진 A 그룹 시트의
+//    Alert가 B 화면 위에 뜨고, 그 사이 B에서 노출된(이미 ack된) 결과를 덮는다.
+//    ⚠️ **막는 것만 단정하면 가드가 과하게 걸려도 초록이다** — 마운트 상태의 통보가 그대로 뜨는
+//       것까지 한 테스트에서 함께 본다(그것까지 막으면 사용자가 실패 안내를 못 받는다).
+test('언마운트 뒤 도착한 실패는 안 뜨고, 마운트 상태의 실패는 그대로 뜬다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+
+  // ① 요청을 손으로 붙잡아 "응답은 아직"인 구간을 만든 뒤 시트를 언마운트한다.
+  let rejectJoin: (reason: unknown) => void = () => undefined;
+  mockJoinNext.mockReturnValue(
+    new Promise((_resolve, reject) => {
+      rejectJoin = reject;
+    }) as ReturnType<typeof joinNextSession>,
+  );
+  const view = await renderNext();
+  await submit();
+  await act(async () => {
+    view.unmount();
+  });
+
+  await act(async () => {
+    rejectJoin(axiosErrorWith(404, 'NOT_FOUND'));
+  });
+  await act(async () => {});
+  expect(alertSpy).not.toHaveBeenCalled();
+
+  // ② 마운트된 상태의 같은 실패는 **그대로** 뜬다.
+  mockJoinNext.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+  await renderNext();
+  await submit();
+  expect(alertSpy).toHaveBeenCalledWith(
+    '사라진 챌린지예요',
+    '방장이 챌린지를 없앴을 수 있어요.',
+    expect.anything(),
+    expect.anything(),
+  );
   alertSpy.mockRestore();
 });

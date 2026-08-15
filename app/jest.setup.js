@@ -39,3 +39,11 @@ jest.mock('@react-native-firebase/analytics', () => {
   }));
   return { __esModule: true, default: analytics };
 });
+
+// AppState 초기값 — RN 테스트 목의 기본값은 실기기와 다르다(active를 주지 않는다).
+// 챌린지 결과 호스트는 **명시적 active일 때만** claim·노출을 허용하므로(보이지 않는 앱에서
+// seen/ack이 찍히는 것을 막는 게이트), 목의 기본값을 그대로 두면 그 게이트가 전부 닫혀
+// 실기기에서 정상인 동작이 테스트에서만 안 뜬다. 실기기가 마운트 시 주는 값으로 맞춘다.
+// 비활성 구간을 보는 테스트는 각자 change 이벤트를 굴려 덮는다.
+const { AppState } = require('react-native');
+AppState.currentState = 'active';

@@ -178,6 +178,8 @@ function BlockerProbe({ onValue }: { onValue: (value: number) => void }) {
 }
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+// 딥링크로 갈아 끼워지는 다른 그룹 — 같은 라우트 인스턴스가 재사용되는 경로에 쓴다.
+const OTHER_ROOM_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 const INVITE_URL = `https://link.oneorthree.world/l/${SLUG}?g=${GROUP_ID}`;
 const onLeft = jest.fn();
 
@@ -1877,6 +1879,46 @@ describe('초대 링크 공유', () => {
       slug: SLUG,
       group_id: GROUP_ID,
     });
+  });
+
+  // ⚠️ **오버레이 문제가 아니다 — 비공개 링크 유출이다.** 딥링크는 같은 라우트 인스턴스의
+  //    groupId만 갈아 끼우므로 focusedRef는 계속 true다. A의 발급을 기다리는 사이 화면이 B로
+  //    바뀌면 기존 포커스 검사를 그대로 통과해, **A의 링크와 이름으로** 공유 시트가 B 화면 위에
+  //    열린다. 사용자는 B의 초대라고 믿고 A의 비공개 링크를 남에게 보낸다.
+  //    ⚠️ 계약은 "다른 링크로 열린다"가 아니라 **"아예 안 열린다"**이다 — 값을 갈아 끼우면
+  //       B의 링크에 A의 이름이 붙는 절반짜리 수정이 된다.
+  //    ⚠️ 계측으로는 못 잡는다 — slug도 group_id도 A라서 로그는 앞뒤가 맞는다. 그래서 이
+  //       테스트가 유일한 방어선이다.
+  test('발급을 기다리는 사이 그룹이 바뀌면 공유를 아예 열지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    // 발급을 손으로 붙잡아 "요청은 나갔고 응답은 아직"인 구간을 만든다.
+    let releaseIssue: (value: { slug: string; url: string }) => void = () => undefined;
+    mockIssueInviteLink.mockReturnValue(
+      new Promise<{ slug: string; url: string }>((resolve) => {
+        releaseIssue = resolve;
+      }),
+    );
+    const view = await renderRoom();
+
+    await press('초대');
+    expect(mockIssueInviteLink).toHaveBeenCalledWith(GROUP_ID);
+
+    // 딥링크가 같은 인스턴스의 groupId를 B로 갈아 끼운다(포커스는 그대로다).
+    await act(async () => {
+      view.rerender(<GroupRoomScreen groupId={OTHER_ROOM_GROUP_ID} onLeft={onLeft} />);
+    });
+    await act(async () => {});
+
+    // 이제 A의 발급이 도착한다.
+    await act(async () => {
+      releaseIssue({ slug: SLUG, url: INVITE_URL });
+    });
+    await act(async () => {});
+
+    // **열리지 않는다.** 계측도 나가지 않는다.
+    expect(Share.share).not.toHaveBeenCalled();
+    expect(logGroupInviteShared).not.toHaveBeenCalled();
   });
 
   // ⚠️ 공유 시트도 네이티브 오버레이다 — 떠 있는 동안 결과가 도착하면 결과 모달이 그

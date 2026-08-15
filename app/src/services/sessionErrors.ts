@@ -1,6 +1,6 @@
 import { Alert } from 'react-native';
 import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
-import { OVERLAY_PRIORITY, getOverlaySlotActions } from '@/store/OverlaySlotContext';
+import { OVERLAY_PRIORITY, holdOverlaySlotForNativeSurface } from '@/store/OverlaySlotContext';
 
 // 이 안내가 떠 있는 동안 점유할 자리의 이름.
 const SESSION_EXPIRED_SLOT_ID = 'session.expired';
@@ -24,6 +24,8 @@ const SESSION_EXPIRED_SLOT_ID = 'session.expired';
 // ⚠️ 호출별 `released` 플래그는 **그대로 둔다.** 확인 버튼과 onDismiss가 한 호출 안에서
 //    둘 다 불릴 수 있어 멱등이 여전히 필요하다 — 두 층이다(호출별 멱등 + 모듈 카운트).
 let openPromptCount = 0;
+// 그 점유의 반납 손잡이 — **첫 안내가 잡고 마지막 안내가 놓는다**(위 카운트와 한 쌍).
+let releaseHoldRef: (() => void) | null = null;
 
 // 유저 부재(활성 users 행 없음) 전용 서버 코드와 **그 유일한 처방**을 한자리에 둔다(GROMO-1247).
 //
@@ -80,9 +82,15 @@ export function promptSessionExpired(requestSessionGeneration: number): void {
   //    GroupCreateScreen에서 세운 것과 같은 판단이다.
   // ⚠️ 반납 경로는 둘 다 잇는다 — 확인 버튼과 `onDismiss`(Android의 dismissExisting은 버튼
   //    콜백을 건너뛴다). 네이티브 Alert는 사용자가 닫아야만 사라지므로 영구 점유가 아니다.
-  const actions = getOverlaySlotActions();
+  // ⚠️ actions를 **캡처해 두지 않는다.** 안내를 읽는 사이 게스트→소셜 승격이 끝나면
+  //    `<UserProvider key={userId}>`가 서브트리를 리마운트해 Provider가 교체되는데, 캡처한
+  //    참조는 폐기된 registry를 가리킨다. `holdOverlaySlotForNativeSurface`가 점유를 모듈에
+  //    들고 있다가 **새 Provider에 다시 등록**하고, 반납도 그 시점의 Provider에 한다.
   openPromptCount += 1;
-  actions?.request(SESSION_EXPIRED_SLOT_ID, OVERLAY_PRIORITY.sheet);
+  const releaseHold =
+    openPromptCount === 1
+      ? holdOverlaySlotForNativeSurface(SESSION_EXPIRED_SLOT_ID, OVERLAY_PRIORITY.sheet)
+      : null;
   let released = false; // 호출별 멱등 — 확인과 onDismiss가 둘 다 불릴 수 있다(위 ⚠️).
   const release = () => {
     if (released) return;
@@ -90,8 +98,10 @@ export function promptSessionExpired(requestSessionGeneration: number): void {
     openPromptCount = Math.max(0, openPromptCount - 1);
     // 다른 화면이 띄운 같은 안내가 아직 떠 있다 — 그 자리는 마지막이 닫을 때 놓는다.
     if (openPromptCount > 0) return;
-    actions?.release(SESSION_EXPIRED_SLOT_ID);
+    releaseHoldRef?.();
+    releaseHoldRef = null;
   };
+  if (releaseHold !== null) releaseHoldRef = releaseHold;
   Alert.alert(
     '로그인이 필요해요',
     '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',

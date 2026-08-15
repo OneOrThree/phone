@@ -916,9 +916,24 @@ export default function GroupRoomScreen({
   // 발급을 건너뛰면 클릭·설치·가입이 어느 링크에서 왔는지 영영 알 수 없다.
   // 발급은 멱등이라 같은 그룹·같은 사람이 여러 번 눌러도 링크가 늘어나지 않는다.
   const onInvite = useCallback(async () => {
+    // ⚠️ **이 공유가 어느 그룹의 것인가**를 요청 시점에 못 박는다. 딥링크는 같은 라우트
+    //    인스턴스의 `groupId`만 갈아 끼우므로(이 파일 상단 "렌더 중 상태 조정" 주석)
+    //    `focusedRef`는 계속 true다 — 기존 포커스 검사로는 이 전환을 **못 잡는다.**
+    //    그대로 두면 A의 발급을 기다리는 사이 화면이 B로 바뀌어도 검사를 통과해,
+    //    **A의 비공개 초대 링크와 이름으로** 공유 시트가 B 화면 위에 열린다. 사용자는 지금
+    //    보고 있는 B의 초대라고 믿고 **A의 링크를 남에게 보낸다.** 오버레이 문제가 아니라
+    //    잘못된 그룹의 비공개 링크가 새어 나가는 것이라, 어긋나면 **아예 열지 않는다.**
+    // ⚠️ **값을 갈아 끼우는 쪽으로 고치면 안 된다.** 공유 문구의 이름도 캡처값이라
+    //    (`buildInviteShareMessage(name, ...)`) 링크만 B로 바꾸면 **B의 링크에 A의 이름**이
+    //    붙는 절반짜리 수정이 된다. 대조는 **여는 것 자체를 막는다.**
+    // ⚠️ **이 대조가 없으면 계측이 사고를 감춘다.** 아래 logGroupInviteShared의 `slug`도
+    //    `group_id`도 전부 A의 값이라, 로그만 보면 "A 그룹 초대를 공유했다"로 앞뒤가 완벽히
+    //    맞는다 — 정작 사용자는 B를 보면서 A의 링크를 보낸 상태다. 이 검사를 비용으로 보고
+    //    걷어내면, 사고가 나도 지표에는 아무 흔적이 남지 않는다.
+    const targetGroupId = groupId;
     let invite: { slug: string; url: string };
     try {
-      invite = await issueInviteLink(groupId);
+      invite = await issueInviteLink(targetGroupId);
     } catch {
       // 폴백 링크는 두지 않는다 — slug 없는 링크는 서버가 모르는 주소라 404로 끝난다.
       // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다.
@@ -931,10 +946,13 @@ export default function GroupRoomScreen({
     //    반납하지 않으면, 결과 모달이 닫히는 순간 **이미 떠난 화면의** 공유 시트가
     //    지금 보고 있는 화면 위로 뜬다. 그래서 blur·언마운트에서 반납하고(아래 이펙트),
     //    승인 뒤에도 **여전히 이 화면이 활성인지** 다시 확인한다.
+    // 발급 응답이 늦게 도착한 사이 그룹이 갈렸으면 여기서 끝낸다(위 targetGroupId 주석).
+    if (renderedGroupIdRef.current !== targetGroupId) return;
     if ((await overlayActions?.acquire(SHARE_SLOT_ID, OVERLAY_PRIORITY.sheet)) === false) {
       return;
     }
-    if (!focusedRef.current) {
+    // 승인을 기다리는 사이에도 갈릴 수 있다 — 여는 줄 바로 앞에서 한 번 더 본다.
+    if (!focusedRef.current || renderedGroupIdRef.current !== targetGroupId) {
       overlayActions?.release(SHARE_SLOT_ID);
       return;
     }
@@ -952,7 +970,8 @@ export default function GroupRoomScreen({
           share_method: 'share_sheet',
           confirmed: Platform.OS === 'ios',
           slug: invite.slug,
-          group_id: groupId,
+          // 계측도 **이 공유가 속한 그룹**으로 남긴다 — 클로저의 groupId와 갈릴 수 있다.
+          group_id: targetGroupId,
         });
       }
     } catch {

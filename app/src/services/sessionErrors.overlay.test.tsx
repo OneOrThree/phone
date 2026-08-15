@@ -127,3 +127,51 @@ test('두 화면이 겹쳐 띄우면 먼저 닫힌 쪽은 자리를 놓지 않�
   alertSpy.mockRestore();
   view.unmount();
 });
+
+// ⚠️ **Provider가 교체돼도 점유가 살아남아야 한다.** 안내가 떠 있는 동안 게스트→소셜 승격으로
+//    userId가 바뀌면 App.tsx의 <UserProvider key={userId}>가 서브트리를 통째로 리마운트해
+//    OverlaySlotProvider가 **교체**된다. 이 함수가 actions를 캡처해 두면 폐기된 registry만
+//    가리켜, 새 호스트는 점유가 없다고 보고 이 Alert **뒤에서** 결과를 마운트한다.
+//    (이 경로가 실재한다는 것은 promptSessionExpired 자신이 전제한다 — 확인 버튼의 세대 대조가
+//     바로 "안내 표시 중 세션 교체" 구간을 다룬다.)
+//    ⚠️ 유지만 단정하면 영구 점유를 못 잡는다 — 새 Provider에서 닫으면 풀리는 것까지 함께 본다.
+test('Provider가 교체돼도 떠 있는 안내의 점유가 새 Provider로 이어지고, 닫으면 풀린다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  const values: number[] = [];
+  const latest = () => values[values.length - 1];
+  const tree = (key: string) => (
+    <OverlaySlotProvider key={key}>
+      <Probe onValue={(v) => values.push(v)} />
+    </OverlaySlotProvider>
+  );
+  const view = await render(tree('guest'));
+  await act(async () => {});
+
+  await act(async () => {
+    promptSessionExpired(0);
+  });
+  expect(latest()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 승격이 끝나 userId가 바뀌었다 — 서브트리가 통째로 리마운트된다.
+  await act(async () => {
+    view.rerender(tree('social'));
+  });
+  await act(async () => {});
+  // 새 registry에도 이 안내의 점유가 서 있어야 한다.
+  expect(latest()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 그리고 닫으면 **새 Provider에서** 풀린다 — 캡처한 죽은 참조를 해제하면 안 된다.
+  const [, , buttons] = alertSpy.mock.calls[0] as unknown as [
+    string,
+    string,
+    { text: string; onPress?: () => void }[],
+  ];
+  await act(async () => {
+    buttons[0].onPress?.();
+  });
+  await act(async () => {});
+  expect(latest()).toBe(-1);
+
+  alertSpy.mockRestore();
+  view.unmount();
+});
