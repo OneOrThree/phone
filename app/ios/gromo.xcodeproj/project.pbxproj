@@ -25,6 +25,8 @@
 		A4776DD92FEFAFFB0099A6F4 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4776DD82FEFAFFB0099A6F4 /* WidgetKit.framework */; };
 		A4776DDB2FEFAFFB0099A6F4 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4776DDA2FEFAFFB0099A6F4 /* SwiftUI.framework */; };
 		A4776DEC2FEFAFFC0099A6F4 /* WidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A4776DD72FEFAFFB0099A6F4 /* WidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6A11C0DE000000000000A00D /* GromoWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 6A11C0DE000000000000A002 /* GromoWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6A11C0DE000000000000A00F /* SpikeWatchWakeResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A11C0DE000000000000A00E /* SpikeWatchWakeResponder.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		D40D48312FE111100058301C /* DeviceActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D40D48302FE111100058301C /* DeviceActivity.framework */; };
 		D40D48392FE111110058301C /* GromoScreenTimeMonitor.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D40D482F2FE111100058301C /* GromoScreenTimeMonitor.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -62,6 +64,13 @@
 			remoteGlobalIDString = A4776DD62FEFAFFB0099A6F4;
 			remoteInfo = WidgetExtension;
 		};
+		6A11C0DE000000000000A00A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6A11C0DE000000000000A001;
+			remoteInfo = GromoWatch;
+		};
 		D40D48372FE111110058301C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
@@ -94,6 +103,17 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6A11C0DE000000000000A00C /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				6A11C0DE000000000000A00D /* GromoWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D463E7C52FD664D20049F07A /* Embed ExtensionKit Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -123,6 +143,8 @@
 		A4776DB32FEFAEAD0099A6F4 /* ManagedSettingsUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ManagedSettingsUI.framework; path = System/Library/Frameworks/ManagedSettingsUI.framework; sourceTree = SDKROOT; };
 		A4776DC52FEFAFB00099A6F4 /* ShieldAction.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShieldAction.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A4776DD72FEFAFFB0099A6F4 /* WidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		6A11C0DE000000000000A002 /* GromoWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GromoWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6A11C0DE000000000000A00E /* SpikeWatchWakeResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpikeWatchWakeResponder.swift; path = gromo/SpikeWatchWakeResponder.swift; sourceTree = "<group>"; };
 		A4776DD82FEFAFFB0099A6F4 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		A4776DDA2FEFAFFB0099A6F4 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = gromo/SplashScreen.storyboard; sourceTree = "<group>"; };
@@ -244,6 +266,17 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		6A11C0DE000000000000A003 /* GromoWatch */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = GromoWatch;
+			sourceTree = "<group>";
+		};
 		D40D48322FE111100058301C /* GromoScreenTimeMonitor */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -327,6 +360,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6A11C0DE000000000000A008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -337,6 +377,7 @@
 				F11748442D0722820044C1D9 /* gromo-Bridging-Header.h */,
 				5608395EE50C46F989410865 /* ScreenTimeModule.swift */,
 				69E0590C76FD4C3C982B4D57 /* ScreenTimeModule.m */,
+				6A11C0DE000000000000A00E /* SpikeWatchWakeResponder.swift */,
 				EF94279A31C9493794286431 /* ScreenTimeReportUIView.swift */,
 				C16EB51137CA4BDA8E61FA65 /* ScreenTimeReportViewManager.swift */,
 				098DA73360544CDE82D4B8D1 /* ScreenTimeReportViewManager.m */,
@@ -382,6 +423,7 @@
 				A4776DC72FEFAFB00099A6F4 /* ShieldAction */,
 				A4776DDC2FEFAFFB0099A6F4 /* Widget */,
 				AB641641C0DE6E70A1E77E01 /* Shared */,
+				6A11C0DE000000000000A003 /* GromoWatch */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				D841E8922A4931B49C1A0BD1 /* Pods */,
@@ -396,6 +438,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* gromo.app */,
+				6A11C0DE000000000000A002 /* GromoWatch.app */,
 				D463E7B42FD664D20049F07A /* screentimereport.appex */,
 				D40D482F2FE111100058301C /* GromoScreenTimeMonitor.appex */,
 				A4776DA02FEFAD560099A6F4 /* NotificationService.appex */,
@@ -457,6 +500,7 @@
 				BC5B6D6E90DD80DA74999583 /* [CP] Embed Pods Frameworks */,
 				D463E7C52FD664D20049F07A /* Embed ExtensionKit Extensions */,
 				D40D483E2FE111110058301C /* Embed Foundation Extensions */,
+				6A11C0DE000000000000A00C /* Embed Watch Content */,
 				4261F91123AE239D0B5AB59F /* [CP-User] [RNFB] Core Configuration */,
 				DF907560358940B0B58BF496 /* Upload Debug Symbols to Sentry */,
 				658925CEDCD1D9118A4CB91E /* Firebase 환경별 plist 주입 (APP_ENV=dev|prod, 기본 dev) */,
@@ -470,6 +514,7 @@
 				A4776DBB2FEFAEAD0099A6F4 /* PBXTargetDependency */,
 				A4776DCD2FEFAFB00099A6F4 /* PBXTargetDependency */,
 				A4776DEB2FEFAFFC0099A6F4 /* PBXTargetDependency */,
+				6A11C0DE000000000000A00B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				AB641641C0DE6E70A1E77E01 /* Shared */,
@@ -561,6 +606,26 @@
 			productReference = A4776DD72FEFAFFB0099A6F4 /* WidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		6A11C0DE000000000000A001 /* GromoWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6A11C0DE000000000000A004 /* Build configuration list for PBXNativeTarget "GromoWatch" */;
+			buildPhases = (
+				6A11C0DE000000000000A007 /* Sources */,
+				6A11C0DE000000000000A008 /* Frameworks */,
+				6A11C0DE000000000000A009 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				6A11C0DE000000000000A003 /* GromoWatch */,
+			);
+			name = GromoWatch;
+			productName = GromoWatch;
+			productReference = 6A11C0DE000000000000A002 /* GromoWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
 		D40D482E2FE111100058301C /* GromoScreenTimeMonitor */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = D40D483B2FE111110058301C /* Build configuration list for PBXNativeTarget "GromoScreenTimeMonitor" */;
@@ -632,6 +697,9 @@
 					D463E7B32FD664D20049F07A = {
 						CreatedOnToolsVersion = 26.5;
 					};
+					6A11C0DE000000000000A001 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 				};
 			};
 			buildConfigurationList = 83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "gromo" */;
@@ -648,6 +716,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* gromo */,
+				6A11C0DE000000000000A001 /* GromoWatch */,
 				D463E7B32FD664D20049F07A /* screentimereport */,
 				D40D482E2FE111100058301C /* GromoScreenTimeMonitor */,
 				A4776D9F2FEFAD560099A6F4 /* NotificationService */,
@@ -706,6 +775,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		D463E7B22FD664D20049F07A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6A11C0DE000000000000A009 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -968,6 +1044,7 @@
 				8B8792C0DAAF303A08360EC1 /* ExpoModulesProvider.swift in Sources */,
 				41B4D6C1B3554C6DA6C7F986 /* ScreenTimeModule.swift in Sources */,
 				38FB0014542C42768110D912 /* ScreenTimeModule.m in Sources */,
+				6A11C0DE000000000000A00F /* SpikeWatchWakeResponder.swift in Sources */,
 				28581D623B98485ABA3501EB /* ScreenTimeReportUIView.swift in Sources */,
 				3A8B86FDE1FB42A2A3F613B1 /* ScreenTimeReportViewManager.swift in Sources */,
 				E2EB2AA55F504C63A003D90E /* ScreenTimeReportViewManager.m in Sources */,
@@ -1016,6 +1093,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6A11C0DE000000000000A007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -1038,6 +1122,11 @@
 			isa = PBXTargetDependency;
 			target = A4776DD62FEFAFFB0099A6F4 /* WidgetExtension */;
 			targetProxy = A4776DEA2FEFAFFC0099A6F4 /* PBXContainerItemProxy */;
+		};
+		6A11C0DE000000000000A00B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6A11C0DE000000000000A001 /* GromoWatch */;
+			targetProxy = 6A11C0DE000000000000A00A /* PBXContainerItemProxy */;
 		};
 		D40D48382FE111110058301C /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1940,6 +2029,99 @@
 			};
 			name = Release;
 		};
+		6A11C0DE000000000000A005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=watchos*]" = P6Z68QUK9M;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = gromo;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.oneorthree.gromo;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 9.0;
+			};
+			name = Debug;
+		};
+		6A11C0DE000000000000A006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=watchos*]" = P6Z68QUK9M;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = gromo;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.oneorthree.gromo;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.gromo.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 9.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -2011,6 +2193,15 @@
 			buildConfigurations = (
 				D463E7C32FD664D20049F07A /* Debug */,
 				D463E7C42FD664D20049F07A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6A11C0DE000000000000A004 /* Build configuration list for PBXNativeTarget "GromoWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6A11C0DE000000000000A005 /* Debug */,
+				6A11C0DE000000000000A006 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

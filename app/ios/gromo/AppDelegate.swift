@@ -22,6 +22,12 @@ public class AppDelegate: ExpoAppDelegate {
     // Firebase 초기화 (GoogleService-Info.plist 기반). RN 시작 전에 먼저 설정.
     FirebaseApp.configure()
 
+#if DEBUG
+    // GROMO-1596 wake 스파이크 — 워치 ping 수신·응답 (폐기 전제, DEBUG 전용).
+    // RN 시작 전에 delegate를 잡아야 백그라운드 콜드 스타트의 수신 시각이 정확하다.
+    SpikeWatchWakeResponder.start()
+#endif
+
     let delegate = ReactNativeDelegate()
     let factory = ExpoReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
