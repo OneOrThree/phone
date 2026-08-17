@@ -947,6 +947,7 @@ export function setIdentityProps(p: {
   screen_time_permission?: boolean;
   onboarding_completed?: boolean;
   currency_balance_bucket?: '0' | '1-99' | '100-499' | '500+' | null;
+  watch_paired?: boolean;
 }): void {
   if (p.is_guest !== undefined) setUserProperty('is_guest', p.is_guest);
   if (p.signup_method !== undefined) setUserProperty('signup_method', p.signup_method);
@@ -959,4 +960,5 @@ export function setIdentityProps(p: {
     setUserProperty('onboarding_completed', p.onboarding_completed);
   if (p.currency_balance_bucket !== undefined)
     setUserProperty('currency_balance_bucket', p.currency_balance_bucket);
+  if (p.watch_paired !== undefined) setUserProperty('watch_paired', p.watch_paired);
 }

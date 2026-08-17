@@ -27,6 +27,7 @@ import {
 import { clearInbox } from '@/services/notificationInbox';
 import StudyWidgetModule from '@/services/StudyWidgetModule';
 import { recordAccessDay } from '@/services/storeReview';
+import { reportWatchPairing } from '@/services/watchPairing';
 import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
@@ -205,6 +206,12 @@ function App() {
   // 버튼 탭 효과음 프리로드 — 첫 탭에서 플레이어를 만들면 재생이 눈에 띄게 늦는다.
   useEffect(() => {
     preloadTapSound();
+  }, []);
+
+  // 워치 페어링 보급률 계측(GROMO-1598) — isPaired를 사용자 속성으로 기동마다 보고.
+  // 실패(타임아웃 등)는 서비스가 조용히 버리고 다음 기동에 재시도한다.
+  useEffect(() => {
+    reportWatchPairing();
   }, []);
 
   // 앱 전역 세로 고정(GROMO-973) — 집중 세션 화면만 가로를 허용하고 나머지는 세로로 잠근다.
