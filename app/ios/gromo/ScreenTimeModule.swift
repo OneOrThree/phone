@@ -795,12 +795,14 @@ class ScreenTimeModule: NSObject {
         }
     }
 
-    // 집중 Live Activity 시작 — 타이머는 위젯의 Text(timerInterval:)가 자체 갱신하므로
-    // 시작 시각만 넘기면 업데이트가 필요 없다. 실패해도 세션 진행엔 영향 없음(false 반환).
+    // 집중 Live Activity 시작(GROMO-1597) — stateJson(FocusActivityStatePayload)으로 모드·페이즈·
+    // 정지를 표현한다. 표시 갱신은 상태 변화 때 updateFocusActivity로만 하고, 그 사이는 위젯의
+    // Text(timerInterval:)가 자체 갱신한다. 실패해도 세션 진행엔 영향 없음.
     // otherSubjectsJson: [{"name","seconds","color"}] — 잠금화면의 다른 과목 집중 시간 표시용.
     @objc func startFocusActivity(
         _ subjectName: String,
         otherSubjectsJson: String,
+        stateJson: String,
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
@@ -813,6 +815,12 @@ class ScreenTimeModule: NSObject {
            let parsed = try? JSONDecoder().decode([GromoFocusAttributes.OtherSubject].self, from: data) {
             others = parsed
         }
+        // 상태 파싱 실패는 시작 시점 카운트업으로 폴백 — LA가 아예 안 뜨는 것보단 낫다.
+        let state = Self.decodeStatePayload(stateJson)?.contentState()
+            ?? GromoFocusAttributes.ContentState(
+                mode: "countup", phase: "focus", anchor: Date(),
+                endAt: nil, frozenSeconds: nil, revision: 0
+            )
         let prior = ScreenTimeModule.liveActivityChain
         ScreenTimeModule.liveActivityChain = Task { @MainActor in
             await prior?.value // 앞선 시작/종료 완료 대기 — await 교차로 인한 중복 생성 방지
@@ -831,16 +839,48 @@ class ScreenTimeModule: NSObject {
             do {
                 _ = try Activity.request(
                     attributes: GromoFocusAttributes(subjectName: subjectName, otherSubjects: others),
-                    content: .init(
-                        state: GromoFocusAttributes.ContentState(startedAt: Date()),
-                        staleDate: nil
-                    )
+                    content: .init(state: state, staleDate: nil)
                 )
                 resolve(true)
             } catch {
                 reject("REQUEST_FAILED", "Live Activity 시작 실패: \(error.localizedDescription)", error)
             }
         }
+    }
+
+    // 집중 Live Activity 상태 갱신(GROMO-1597) — 정지/재개·뽀모도로 페이즈 전환·복귀 리플레이 후
+    // 호출된다. revision이 현재 표시분보다 낮으면 무시(늦게 도착한 갱신이 최신 상태를 덮지 않게).
+    // 활성 액티비티가 없으면 no-op(멱등) — 시작 실패·종료 후 호출을 허용한다.
+    @objc func updateFocusActivity(
+        _ stateJson: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.2, *) else {
+            resolve(false)
+            return
+        }
+        guard let payload = Self.decodeStatePayload(stateJson) else {
+            resolve(false)
+            return
+        }
+        let state = payload.contentState()
+        let prior = ScreenTimeModule.liveActivityChain
+        ScreenTimeModule.liveActivityChain = Task { @MainActor in
+            await prior?.value // 시작/종료/갱신 직렬화 — update가 request를 앞지르지 않게
+            var applied = false
+            for activity in Activity<GromoFocusAttributes>.activities {
+                if activity.content.state.revision > state.revision { continue }
+                await activity.update(.init(state: state, staleDate: nil))
+                applied = true
+            }
+            resolve(applied)
+        }
+    }
+
+    private static func decodeStatePayload(_ json: String) -> FocusActivityStatePayload? {
+        guard let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(FocusActivityStatePayload.self, from: data)
     }
 
     // 집중 Live Activity 종료 — 세션 정지/화면 이탈 시 호출(멱등).
@@ -876,26 +916,34 @@ class ScreenTimeModule: NSObject {
     }
 }
 
-// 집중 세션 Live Activity 속성 — ⚠️ ios/Widget/WidgetLiveActivity.swift 정의와
-// 반드시 동일하게 유지할 것(타입명·필드 인코딩으로 매칭됨).
-struct GromoFocusAttributes: ActivityAttributes {
-    public struct ContentState: Codable, Hashable {
-        // 타이머 기준 시각 — 위젯의 Text(timerInterval:)가 OS에서 자체 갱신
-        var startedAt: Date
-    }
+// GromoFocusAttributes 정의는 ios/Shared/FocusActivityAttributes.swift 단일본(GROMO-1597) —
+// 종전의 메인 앱/위젯 중복 정의는 제거됐다.
 
-    // 다른 과목의 누적 집중 시간(잠금화면 표시용) — 세션 중엔 현재 과목만 증가하므로
-    // 시작 시점 스냅샷으로 고정해도 항상 정확하다.
-    struct OtherSubject: Codable, Hashable {
-        var name: String
-        var seconds: Int
-        var color: String // hex 문자열(#RRGGBB)
-    }
+// JS(FocusSessionScreen)가 넘기는 세션 상태 페이로드 — 초 단위 상대값만 싣고,
+// Date 앵커 계산은 수신 시각 기준으로 네이티브가 한다(JS·네이티브 시계 차 무시 가능).
+struct FocusActivityStatePayload: Codable {
+    var mode: String            // countup | countdown | pomodoro
+    var phase: String           // focus | break
+    var isPaused: Bool
+    var elapsedSeconds: Int     // 집중 경과(정지 제외) — countup 표시·정지 고정값의 근거
+    var remainingSeconds: Int?  // countdown·pomodoro 현 페이즈 남은 초 (countup은 nil)
+    var revision: Int
 
-    // 세션 과목명
-    var subjectName: String
-    // 현재 과목을 제외한 나머지 과목들의 누적 집중 시간
-    var otherSubjects: [OtherSubject]
+    // ContentState 변환 — 앵커·종료 시각을 '지금' 기준으로 계산한다.
+    //   countup:  anchor = now − elapsed (정지 제외 경과가 이어져 보이게)
+    //   countdown·pomodoro: anchor = now, endAt = now + remaining
+    //   일시정지: 타이머 대신 고정 표시할 값(frozenSeconds)만 채운다
+    func contentState(now: Date = Date()) -> GromoFocusAttributes.ContentState {
+        let frozen: Int? = isPaused ? (remainingSeconds ?? elapsedSeconds) : nil
+        return GromoFocusAttributes.ContentState(
+            mode: mode,
+            phase: phase,
+            anchor: remainingSeconds == nil ? now.addingTimeInterval(-Double(elapsedSeconds)) : now,
+            endAt: remainingSeconds.map { now.addingTimeInterval(Double($0)) },
+            frozenSeconds: frozen,
+            revision: revision
+        )
+    }
 }
 
 // FamilyActivityPicker를 감싸는 SwiftUI 뷰

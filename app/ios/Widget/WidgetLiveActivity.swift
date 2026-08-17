@@ -12,27 +12,8 @@ import UIKit
 
 // 집중 세션 Live Activity(GROMO-553) — 세션 중 허용앱을 쓰는 동안
 // 다이나믹 아일랜드/잠금화면에 집중 타이머 + 캐릭터를 표시한다.
-// ⚠️ GromoFocusAttributes는 메인 앱(ios/gromo/ScreenTimeModule.swift 하단)에도
-//    같은 이름·필드로 정의돼 있다 — 반드시 함께 수정할 것(타입명·인코딩으로 매칭됨).
-struct GromoFocusAttributes: ActivityAttributes {
-    public struct ContentState: Codable, Hashable {
-        // 타이머 기준 시각 — Text(timerInterval:)가 OS에서 자체 갱신하므로 업데이트 불필요
-        var startedAt: Date
-    }
-
-    // 다른 과목의 누적 집중 시간(잠금화면 표시용) — 세션 중엔 현재 과목만 증가하므로
-    // 시작 시점 스냅샷으로 고정해도 항상 정확하다.
-    struct OtherSubject: Codable, Hashable {
-        var name: String
-        var seconds: Int
-        var color: String // hex 문자열(#RRGGBB)
-    }
-
-    // 세션 과목명
-    var subjectName: String
-    // 현재 과목을 제외한 나머지 과목들의 누적 집중 시간
-    var otherSubjects: [OtherSubject]
-}
+// GromoFocusAttributes 정의는 ios/Shared/FocusActivityAttributes.swift 단일본(GROMO-1597) —
+// 종전의 메인 앱/위젯 중복 정의는 제거됐다.
 
 // gromo 팔레트 — theme.ts에서 자동 생성된 Shared/Palette.swift를 참조한다 (GROMO-641)
 // 잠금화면 배너는 앱과 같은 라이트 톤(GROMO-868). 다이나믹 아일랜드는 시스템이
@@ -126,19 +107,37 @@ private func colorFromHex(_ hex: String) -> Color {
     )
 }
 
-// 경과 타이머 — OS가 매초 자체 갱신(앱 suspend와 무관)
+// 세션 타이머 — 상태에 따라 세 갈래로 렌더한다(GROMO-1597):
+//   일시정지: frozenSeconds를 고정 표시(종전엔 정지 중에도 계속 증가하던 부정확 해소)
+//   countdown·pomodoro(endAt 있음): 페이즈 종료까지 카운트다운 — OS 자체 갱신
+//   countup: 앵커부터 카운트업 — OS 자체 갱신
 // color: 잠금화면(라이트 배경)은 ink, 다이나믹 아일랜드(검은 배경)는 cream
-private struct ElapsedTimerText: View {
-    let startedAt: Date
+private struct SessionTimerText: View {
+    let state: GromoFocusAttributes.ContentState
     var font: Font = .title2
     var color: Color = diCream
 
     var body: some View {
-        Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
-            .font(font.weight(.bold).monospacedDigit())
-            .foregroundStyle(color)
-            .multilineTextAlignment(.trailing)
+        Group {
+            if let frozen = state.frozenSeconds {
+                Text(hmsString(frozen))
+            } else if let endAt = state.endAt {
+                Text(timerInterval: state.anchor...max(state.anchor, endAt), countsDown: true)
+            } else {
+                Text(timerInterval: state.anchor...Date.distantFuture, countsDown: false)
+            }
+        }
+        .font(font.weight(.bold).monospacedDigit())
+        .foregroundStyle(color)
+        .multilineTextAlignment(.trailing)
     }
+}
+
+// 상태 문구 — 페이즈·정지에 따라 바뀐다(뽀모도로 휴식이 '집중하는 중'으로 보이던 것 해소)
+private func statusLine(_ state: GromoFocusAttributes.ContentState) -> String {
+    if state.isPaused { return "잠시 멈췄어요" }
+    if state.phase == "break" { return "쉬는 중이에요!" }
+    return "집중하는 중이에요!"
 }
 
 struct WidgetLiveActivity: Widget {
@@ -160,12 +159,12 @@ struct WidgetLiveActivity: Widget {
                                 .font(.headline.weight(.bold))
                                 .foregroundStyle(laInk)
                                 .lineLimit(1)
-                            Text("집중하는 중이에요!")
+                            Text(statusLine(context.state))
                                 .font(.footnote)
                                 .foregroundStyle(laSub)
                         }
                         Spacer()
-                        ElapsedTimerText(startedAt: context.state.startedAt, color: laInk)
+                        SessionTimerText(state: context.state, color: laInk)
                             .frame(maxWidth: 100)
                     }
                     // 다른 과목 누적 시간 — 세션 중 불변이라 정적 표시로도 정확.
@@ -217,7 +216,7 @@ struct WidgetLiveActivity: Widget {
                     CharacterView(maxWidth: 52, maxHeight: 76)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    ElapsedTimerText(startedAt: context.state.startedAt)
+                    SessionTimerText(state: context.state)
                         .frame(maxWidth: 100)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -231,7 +230,7 @@ struct WidgetLiveActivity: Widget {
                 // (옆 타이머를 밀지 않도록 상한은 유지).
                 CharacterView(maxWidth: 34, maxHeight: 26)
             } compactTrailing: {
-                ElapsedTimerText(startedAt: context.state.startedAt, font: .caption2)
+                SessionTimerText(state: context.state, font: .caption2)
                     .frame(maxWidth: 60)
             } minimal: {
                 // 미니멀은 원형 마스크라 정사각 박스를 그대로 둔다.

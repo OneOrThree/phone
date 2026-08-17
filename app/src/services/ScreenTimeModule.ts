@@ -80,8 +80,24 @@ interface NativeScreenTime {
   setFocusAllowSafariWeb(allowed: boolean): Promise<void>;
   getFocusAllowSafariWeb(): Promise<boolean>;
   saveCharacterSnapshot(base64: string): Promise<boolean>;
-  startFocusActivity(subjectName: string, otherSubjectsJson: string): Promise<boolean>;
+  startFocusActivity(
+    subjectName: string,
+    otherSubjectsJson: string,
+    stateJson: string,
+  ): Promise<boolean>;
+  updateFocusActivity(stateJson: string): Promise<boolean>;
   endFocusActivity(): Promise<void>;
+}
+
+// Live Activity 세션 상태 페이로드(GROMO-1597) — 네이티브 FocusActivityStatePayload와 1:1.
+// 초 단위 상대값만 싣는다(Date 앵커는 네이티브가 수신 시각 기준으로 계산).
+export interface FocusActivityState {
+  mode: 'countup' | 'countdown' | 'pomodoro';
+  phase: 'focus' | 'break';
+  isPaused: boolean;
+  elapsedSeconds: number;
+  remainingSeconds: number | null;
+  revision: number;
 }
 
 const NativeScreenTimeModule = NativeModules.ScreenTimeModule as NativeScreenTime;
@@ -350,12 +366,33 @@ const ScreenTimeModule = {
 
   // 집중 Live Activity(다이나믹 아일랜드/잠금화면) 시작. 실패해도 세션엔 영향 없음.
   // otherSubjects: 현재 과목 외 과목들의 누적 집중 시간 — 잠금화면에 정적 표시.
+  // state(GROMO-1597): 모드·페이즈·정지 상태 — 생략 시 카운트업 시작으로 폴백.
   startFocusActivity: async (
     subjectName: string,
     otherSubjects: { name: string; seconds: number; color: string }[] = [],
+    state?: FocusActivityState,
   ): Promise<boolean> => {
     if (Platform.OS !== 'ios') return false;
-    return NativeScreenTimeModule.startFocusActivity(subjectName, JSON.stringify(otherSubjects));
+    const fallback: FocusActivityState = {
+      mode: 'countup',
+      phase: 'focus',
+      isPaused: false,
+      elapsedSeconds: 0,
+      remainingSeconds: null,
+      revision: 0,
+    };
+    return NativeScreenTimeModule.startFocusActivity(
+      subjectName,
+      JSON.stringify(otherSubjects),
+      JSON.stringify(state ?? fallback),
+    );
+  },
+
+  // 집중 Live Activity 상태 갱신(GROMO-1597) — 정지/재개·뽀모도로 페이즈 전환 시 호출.
+  // 활성 액티비티가 없으면 네이티브가 no-op(false) — 멱등이라 아무 때나 불러도 안전.
+  updateFocusActivity: async (state: FocusActivityState): Promise<boolean> => {
+    if (Platform.OS !== 'ios') return false;
+    return NativeScreenTimeModule.updateFocusActivity(JSON.stringify(state));
   },
 
   // 집중 Live Activity 종료(멱등).
