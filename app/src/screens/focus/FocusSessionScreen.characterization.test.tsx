@@ -22,6 +22,7 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { startFocusSession } from '@/services/focusApi';
 import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker } from './pendingMarkerCancels';
+import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import {
   logFocusSessionAbandoned,
   logFocusSessionCompleted,
@@ -199,6 +200,18 @@ const fireAppState = (s: AppStateStatus) =>
   act(async () => {
     appStateHandlers.forEach((h) => h(s));
   });
+// 벽시계만 전진 — 인터벌은 돌리지 않는다. 실기기의 백그라운드(JS suspend) 재현용:
+// 폴백(실드 없음) 복귀 경로는 실드 경로와 달리 상태를 되감지 않으므로, advance로 흉내내면
+// 백그라운드에서도 틱이 쌓여 이탈 시간이 집중으로 계상돼도 못 잡는다(codex 리뷰 PR #676).
+const jumpWallClock = (ms: number) =>
+  act(async () => {
+    jest.setSystemTime(Date.now() + ms);
+  });
+// focusLiveSession 키에 대한 쓰기 호출만 추린다 — 저장 '주기' 검증용
+const liveRecordWrites = () =>
+  (AsyncStorage.setItem as unknown as jest.Mock).mock.calls.filter(
+    (c) => c[0] === STORAGE_KEYS.focusLiveSession,
+  );
 
 let view: Awaited<ReturnType<typeof render>>;
 async function renderSession(params: Record<string, unknown>) {
@@ -233,7 +246,12 @@ afterEach(() => {
 describe('카운트업 — 틱·라이브 레코드·finish', () => {
   test('1초 틱이 경과를 쌓고, 5초마다 미정산 구간을 라이브 레코드로 남긴다', async () => {
     await renderSession({ mode: 'countup' });
-    await advance(5000);
+    // 저장 '주기' 자체를 고정한다 — 4초까지는 쓰기 0, 5초에 정확히 1회(codex 리뷰: 매초
+    // 저장으로 바뀌는 회귀는 마지막 값만 봐서는 못 잡는다).
+    await advance(4000);
+    expect(liveRecordWrites()).toHaveLength(0);
+    await advance(1000);
+    expect(liveRecordWrites()).toHaveLength(1);
     const record = await readLiveRecord();
     expect(record).not.toBeNull();
     expect(record!.elapsed).toBe(5); // 미정산 구간 = 아직 서버에 안 올린 집중초
@@ -255,8 +273,10 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(body.focusType).toBe('INFINITE');
     expect(body.subject).toBe('수학');
     expect(Date.parse(body.endedAt) - Date.parse(body.startedAt)).toBe(7000);
-    // 로컬 적립도 같은 델타로
+    // 로컬 적립도 같은 델타로 — 정확히 1회(중복 적립 회귀 방지, codex 리뷰)
+    expect(mockAddFocusSeconds).toHaveBeenCalledTimes(1);
     expect(mockAddFocusSeconds).toHaveBeenCalledWith(7);
+    expect(mockAddFocusToSubject).toHaveBeenCalledTimes(1);
     expect(mockAddFocusToSubject).toHaveBeenCalledWith('s1', 7);
     // 카운트업 정지는 유일한 정상 종료 경로 — completed로 결과 화면 진입
     expect(mockedNavigationReplace()).toEqual([
@@ -339,6 +359,11 @@ describe('카운트다운 — 완료 게이트', () => {
 
 describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
   test('집중→휴식 경계마다 블록을 정산하고, 휴식→집중 경계에서 새 마커를 연다', async () => {
+    // 시작 호출마다 다른 마커 id — "회전된 새 id가 두 번째 업로드에 실리는가"까지 고정한다
+    // (같은 id를 돌려주면 이전 id 재사용 회귀를 못 잡는다 — codex 리뷰).
+    mockedStartMarker
+      .mockResolvedValueOnce({ sessionId: 'marker-1' })
+      .mockResolvedValueOnce({ sessionId: 'marker-2' });
     await renderSession({
       mode: 'pomodoro',
       pomodoro: { focusMin: 1, breakMin: 1, sets: 2 },
@@ -347,6 +372,7 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
 
     await advance(60_000); // 집중 1분 → 휴식 진입: 블록 #1 정산
     expect(mockedUpload).toHaveBeenCalledTimes(1);
+    expect(mockedUpload.mock.calls[0][0].sessionId).toBe('marker-1');
     expect(mockedUpload.mock.calls[0][0].body.focusType).toBe('POMODORO');
 
     await advance(60_000); // 휴식 1분 → 세트 2 집중: 마커 회전(새 마커)
@@ -356,10 +382,17 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     await advance(60_000); // 마지막 세트 완료 — 트레일링 휴식 없이 done + 블록 #2 정산
     expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
     expect(mockedUpload).toHaveBeenCalledTimes(2);
+    expect(mockedUpload.mock.calls[1][0].sessionId).toBe('marker-2'); // 회전된 새 id로 종료
     // 두 블록 모두 집중 60초 구간 — 휴식은 어느 블록에도 안 들어간다
     for (const call of mockedUpload.mock.calls) {
       expect(Date.parse(call[0].body.endedAt) - Date.parse(call[0].body.startedAt)).toBe(60_000);
     }
+    // 로컬·과목 적립도 블록마다 60초씩 — 업로드만 되고 로컬 누적이 빠지는 회귀 방지(codex 리뷰)
+    expect(mockAddFocusSeconds.mock.calls).toEqual([[60], [60]]);
+    expect(mockAddFocusToSubject.mock.calls).toEqual([
+      ['s1', 60],
+      ['s1', 60],
+    ]);
     await fireEvent.press(view.getByText('확인'));
     await flush();
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 120, completed: true });
@@ -380,38 +413,42 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
   });
 
-  test('실드 실패(폴백) 세션: 15초 초과 이탈은 abandoned(leave_timeout)로 자동 종료', async () => {
+  test('실드 실패(폴백) 세션: 15초 초과 이탈은 abandoned(leave_timeout)로 자동 종료 — 이탈 시간은 미적립', async () => {
     mockedShieldStart.mockResolvedValue(false);
     await renderSession({ mode: 'countup' });
     await advance(5000);
     await fireAppState('background');
-    expect(
-      (jest.requireMock('./leaveNotifications') as { scheduleLeaveNotifications: jest.Mock })
-        .scheduleLeaveNotifications,
-    ).toHaveBeenCalled();
-    await advance(20_000);
+    expect(scheduleLeaveNotifications).toHaveBeenCalled();
+    // 벽시계만 20초 전진(틱 없음 = 실기기의 JS suspend). 폴백 경로는 되감기가 없으므로
+    // 여기서 advance를 쓰면 이탈 20초가 집중으로 적립되는 회귀를 못 잡는다(codex 리뷰).
+    await jumpWallClock(20_000);
     await fireAppState('active');
     await flush();
 
+    expect(cancelLeaveNotifications).toHaveBeenCalled();
     expect(logFocusDistractionDetected).toHaveBeenCalledWith(
       expect.objectContaining({ reason: 'leave_timeout', returned_to_focus: false }),
     );
     expect(logFocusSessionAbandoned).toHaveBeenCalledWith(
-      expect.objectContaining({ reason: 'leave_timeout' }),
+      expect.objectContaining({ elapsed_seconds: 5, reason: 'leave_timeout' }),
     );
+    // 이탈 전 5초만 적립·결과에 반영 — 자리 비운 20초는 집중이 아니다
+    expect(mockAddFocusSeconds).toHaveBeenCalledTimes(1);
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(5);
     // 중도 이탈 종료 — completed=false로 결과 화면, 완료 계측은 없다(상호배타)
-    expect(mockedNavigationReplace()?.[1]).toMatchObject({ completed: false });
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: false });
     expect(logFocusSessionCompleted).not.toHaveBeenCalled();
   });
 
-  test('실드 실패 세션의 15초 이내 복귀: 이탈 계측만 남기고 세션은 이어간다', async () => {
+  test('실드 실패 세션의 15초 이내 복귀: 이탈 계측·알림 취소만 하고 세션은 이어간다', async () => {
     mockedShieldStart.mockResolvedValue(false);
     await renderSession({ mode: 'countup' });
     await advance(5000);
     await fireAppState('background');
-    await advance(10_000);
+    await jumpWallClock(10_000); // 벽시계만 — 실기기의 JS suspend 재현
     await fireAppState('active');
 
+    expect(cancelLeaveNotifications).toHaveBeenCalled(); // 복귀했으면 예약 알림을 거둔다(codex 리뷰)
     expect(logFocusDistractionDetected).toHaveBeenCalledWith(
       expect.objectContaining({ reason: 'app_backgrounded', returned_to_focus: true }),
     );
