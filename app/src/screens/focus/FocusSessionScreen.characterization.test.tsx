@@ -328,6 +328,33 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(mockCoinRefresh).not.toHaveBeenCalled(); // 지급 미확정 — 코인 재조회는 saved에서만
   });
 
+  test('첫 틱 전 즉시 정지: 업로드 없이 cancelMarker가 열린 마커를 닫는다', async () => {
+    // 델타 0이면 정산이 마커를 회전하지 않는다 — 이때 열린 마커를 닫는 유일한 주체는 finish의
+    // cancelLiveSession이다. 빠지면 0초 세션의 마커가 친구 화면에 서버 스윕(12h)까지 남는다
+    // (codex 리뷰 7차).
+    await renderSession({ mode: 'countup' });
+    await fireEvent.press(view.getByTestId('focus.stop')); // 경과 0에서 즉시 정지
+    await flush();
+
+    expect(mockedUpload).not.toHaveBeenCalled(); // 정산할 델타가 없다
+    expect(cancelMarker).toHaveBeenCalledTimes(1);
+    expect(cancelMarker).toHaveBeenCalledWith('marker-1', 'user-1');
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 0 });
+  });
+
+  test('백그라운드 진입 즉시 미정산 레코드를 저장한다 — 5초 주기를 기다리지 않는다', async () => {
+    // 진입 핸들러의 즉시 saveLive가 빠지면 첫 5초 전 이탈 직후 강제종료에서 고아 정산 근거가
+    // 전혀 남지 않아 집중 시간이 유실되고 마커도 장시간 열린다(codex 리뷰 7차).
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    expect(liveRecordWrites()).toHaveLength(0); // 5초 주기 저장은 아직
+    await fireAppState('background');
+    expect(liveRecordWrites()).toHaveLength(1); // 진입 즉시 저장
+    const bgRecord = await readLiveRecord();
+    expect(bgRecord!.elapsed).toBe(3);
+    expect(bgRecord!.serverSessionId).toBe('marker-1');
+  });
+
   test('라이브 레코드 삭제가 실패해도 종료는 계속된다 — 업로드·적립·결과 화면 이동', async () => {
     // 정산의 removeItem은 fire-and-forget(.catch 삼킴)이 현행이다 — 헤드리스화가 삭제를
     // await하고 실패를 전파하면 저장소 오류 기기에서 종료가 통째로 막힌다(codex 리뷰 6차).
@@ -763,6 +790,9 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     // 두 번의 이탈(5h+4h=9h)로 넘겨 크레딧이 8h에서 멈추고, 상한 시각으로 부분 정산 후
     // 새 블록이 열리는 것까지 고정한다(codex 리뷰 6차).
     jest.setSystemTime(new Date('2026-08-18T01:00:00+09:00')); // 자정 경계를 피해 하루 안에서 진행
+    mockedStartMarker
+      .mockResolvedValueOnce({ sessionId: 'marker-1' })
+      .mockResolvedValueOnce({ sessionId: 'marker-2' });
     await renderSession({ mode: 'countup' });
     await advance(10_000);
     await fireAppState('background');
@@ -788,6 +818,15 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     await flush();
     // 최종 경과 = 10 + 8h(크레딧 상한) + 복귀 후 2 — 9h가 아니다
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 10 + 8 * 3600 + 2 });
+    // 상한 정산 후 새 블록은 '복귀 시각'부터 회전된 마커로 열린다 — 배선이 빠지면 두 번째
+    // 업로드 구간이 상한 시각부터 시작돼 미인정 1시간이 서버 보상에 들어간다(codex 리뷰 7차).
+    expect(mockedUpload).toHaveBeenCalledTimes(2);
+    const cap1 = mockedUpload.mock.calls[0][0];
+    const cap2 = mockedUpload.mock.calls[1][0];
+    expect(cap2.sessionId).toBe('marker-2');
+    expect(Date.parse(cap2.body.endedAt) - Date.parse(cap2.body.startedAt)).toBe(2000);
+    // 상한 종료 ↔ 새 블록 시작 사이의 미인정 1시간은 어느 구간에도 없다
+    expect(Date.parse(cap2.body.startedAt) - Date.parse(cap1.body.endedAt)).toBe(3600 * 1000);
   });
 
   test('실드 실패(폴백) 세션: 15초 초과 이탈은 abandoned(leave_timeout)로 자동 종료 — 이탈 시간은 미적립', async () => {
