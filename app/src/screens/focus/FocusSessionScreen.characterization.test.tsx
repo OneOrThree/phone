@@ -25,10 +25,13 @@ import { cancelMarker, flushPendingMarkerCancels } from './pendingMarkerCancels'
 import { consumeCardInteraction } from '@/services/cardInteraction';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { publishSessionSaveVerdict } from './sessionSaveVerdict';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   logFocusSessionAbandoned,
   logFocusSessionCompleted,
   logFocusSessionStarted,
+  logFocusViewChanged,
+  logFocusOrientationChanged,
   logFocusSessionPaused,
   logFocusSessionResumed,
   logFocusDistractionDetected,
@@ -711,6 +714,30 @@ describe('카운트다운 — 완료 게이트', () => {
     expect(await readLiveRecord()).toBeNull(); // 게이트 정산이 확인 버튼 전에 이미 지웠다
   });
 
+  test('화면 방향 잠금: 마운트 DEFAULT → 완료 시 PORTRAIT_UP 복귀 → 언마운트 PORTRAIT_UP', async () => {
+    // 완료 게이트(확인 버튼)는 세로 레이아웃에만 있다 — 가로에선 FocusLandscape 조기 return이
+    // 게이트를 가리므로, 완료 시점의 세로 잠금이 빠지면 가로로 완료한 사용자가 확인 버튼을
+    // 영영 못 본다(codex 리뷰 10차 — 「완료 시엔 세로로 되돌린다」 이펙트를 고정).
+    await renderSession({ mode: 'countdown', goalSeconds: 3 });
+    expect(ScreenOrientation.lockAsync).toHaveBeenCalledTimes(1);
+    expect(ScreenOrientation.lockAsync).toHaveBeenCalledWith(
+      ScreenOrientation.OrientationLock.DEFAULT, // 마운트 — 이 화면만 자동 회전 허용
+    );
+    await advance(3000);
+    expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
+    expect(ScreenOrientation.lockAsync).toHaveBeenCalledTimes(2); // 완료 즉시 세로 복귀
+    expect(ScreenOrientation.lockAsync).toHaveBeenLastCalledWith(
+      ScreenOrientation.OrientationLock.PORTRAIT_UP,
+    );
+    await fireEvent.press(view.getByText('확인'));
+    await flush();
+    await view.unmount();
+    await act(async () => {});
+    expect(ScreenOrientation.lockAsync).toHaveBeenLastCalledWith(
+      ScreenOrientation.OrientationLock.PORTRAIT_UP, // 언마운트 — 전역 세로 잠금 복귀
+    );
+  });
+
   test('게이트에서 Android 하드웨어 뒤로가기: 이벤트를 소비하고 확인 버튼과 동일하게 finish한다', async () => {
     // 게이트가 뜨면 BackHandler를 구독해 pop 대신 finish로 보낸다 — 배선이 빠지면 화면이
     // 단순 pop돼 결과 연출·후속 처리를 건너뛴다(codex 리뷰 6차).
@@ -848,6 +875,57 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     expect(mockAddFocusSeconds).toHaveBeenCalledWith(125);
     const { body } = mockedUpload.mock.calls[0][0];
     expect(Date.parse(body.endedAt) - Date.parse(body.startedAt)).toBe(125_000);
+    // 체류 계측은 집중 인정과 별개 축 — 백그라운드 120초는 뷰·방향 체류에서 제외된다
+    // (체류 시계 전용 AppState 구독이 이탈 구간을 차감, codex 리뷰 10차)
+    expect(logFocusViewChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ view: 'character', dwell_seconds: 5 }),
+    );
+    expect(logFocusOrientationChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ orientation: 'portrait', dwell_seconds: 5 }),
+    );
+  });
+
+  test('실드 카운트다운이 백그라운드에서 목표를 지나면: 목표 경계로 정산하고 초과 이탈은 미포함', async () => {
+    // 리플레이의 next.done 분기 — 복귀 시각으로 닫으면 목표 달성 후 백그라운드 시간까지
+    // 서버 구간에 들어간다(codex 리뷰 10차).
+    await renderSession({ mode: 'countdown', goalSeconds: 60 });
+    await advance(50_000); // 목표 10초 전
+    await fireAppState('background');
+    await jumpWallClock(30_000); // 목표(+10초)를 지나 20초 더 이탈
+    await fireAppState('active');
+    await flush();
+
+    // 완료 게이트가 떠 있고, 정산은 복귀 시각이 아니라 실제 목표 경계(시작+60초)
+    expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    const doneBody = mockedUpload.mock.calls[0][0].body;
+    expect(Date.parse(doneBody.endedAt) - Date.parse(doneBody.startedAt)).toBe(60_000);
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(60);
+
+    await fireEvent.press(view.getByText('확인'));
+    await flush();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 60, completed: true });
+  });
+
+  test('inactive 전이는 세션 이탈이 아니다 — 알림 센터·앱 전환기는 15초 정책을 켜지 않는다', async () => {
+    // iOS는 화면이 가려지면 background 없이 inactive에 머문다 — 세션 이탈 정책은 background
+    // 전용이고 inactive는 체류 시계만 멈춘다. 합쳐지면 알림 센터를 15초 본 사용자가 자동
+    // 종료된다(codex 리뷰 10차).
+    mockedShieldStart.mockResolvedValue(false);
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await fireAppState('inactive');
+    await jumpWallClock(20_000); // 15초 정책을 넘는 시간 — inactive라 무시돼야 한다
+    await fireAppState('active');
+    await flush();
+
+    expect(scheduleLeaveNotifications).not.toHaveBeenCalled();
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+    expect(mockNavigation.replace).not.toHaveBeenCalled();
+    await advance(2000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5 }); // 3 + 복귀 후 2
   });
 
   test('실드 뽀모도로가 백그라운드에서 집중→휴식 경계를 넘으면: 경계 벽시계로 정산하고 휴식은 제외한다', async () => {
