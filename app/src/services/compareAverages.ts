@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { occupationForCategory } from '@/constants/focusCategories';
 import { getGlobalRanking, getMyRanking } from '@/services/leagueApi';
+import { memberLiveSeconds } from '@/utils/liveFocus';
 import { getFocusAverage } from '@/services/statsApi';
 import type { FocusAverageScope, StatsPeriod } from '@/types/dto/stats';
 
@@ -17,10 +18,14 @@ function mean(values: number[]): number | null {
 
 // 전체 평균 — 이번 주 전체 랭킹(상위 100) 집중시간 평균(분). null = 리그 미시작/실패.
 // 서버는 초 단위(totalFocusSeconds, GROMO-665)라 분으로 내려 다른 축(분)과 단위를 맞춘다.
+// 평균 값도 라이브 점수(확정 + 진행 경과, memberLiveSeconds)로 낸다(GROMO-1606) — 표본 선발이
+// 라이브 점수 기준 상위 100인데 확정값만 평균하면, 확정값 낮은 집중 중 유저가 컷오프의 확정값
+// 높은 유저를 밀어낼 때마다 평균이 체계적으로 낮아진다(코덱스 리뷰).
 export async function fetchGlobalAverage(): Promise<number | null> {
   try {
     const ranking = await getGlobalRanking();
-    return mean(ranking.map((m) => m.totalFocusSeconds / 60));
+    const now = Date.now();
+    return mean(ranking.map((m) => memberLiveSeconds(m, now) / 60));
   } catch {
     return null;
   }
@@ -36,7 +41,9 @@ export async function fetchCategoryAverage(): Promise<{
   if (!occupation) return { avg: null, label };
   try {
     const ranking = await getMyRanking(occupation);
-    return { avg: mean(ranking.map((m) => m.totalFocusSeconds / 60)), label };
+    // 전체 평균과 동일 — 표본 선발 기준(라이브 점수)과 평균 값의 축을 맞춘다(GROMO-1606).
+    const now = Date.now();
+    return { avg: mean(ranking.map((m) => memberLiveSeconds(m, now) / 60)), label };
   } catch {
     return { avg: null, label };
   }

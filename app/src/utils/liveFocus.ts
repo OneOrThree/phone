@@ -13,6 +13,28 @@ export function liveTotalSeconds(
   return base + Math.max(0, (now - Date.parse(focusStartedAt)) / 1000);
 }
 
+// 랭킹 멤버의 '화면 축' 총 집중초 (GROMO-1606) — 확정 주간초 + (집중 중이면 진행 경과).
+// 서버 랭킹 정렬이 이 값 기준이 되면서(정렬 키 = 확정 집계 + 진행 경과), 순서에서 파생되는
+// 계산(나 대비 격차, 상위 100 평균)도 같은 값으로 해야 목록 순서·행 표시와 모순되지 않는다.
+// 확정값끼리 빼면 라이브로 올라온 행(확정 600초 + 경과 3,600초)이 위에 있는데 격차가 음수로
+// 계산돼 hms가 00:00:00으로 누르는 식으로 어긋난다(GROMO-1606 코덱스 리뷰).
+// focusStartedAt은 서버가 정렬에 실제로 쓴 앵커(주 경계 세션은 주 시작으로 클램프된 값)라
+// base + (now − focusStartedAt)이 정렬 점수와 정확히 같다.
+export function memberLiveSeconds(
+  member: {
+    totalFocusSeconds: number;
+    isFocusing?: boolean;
+    focusStartedAt?: string | null;
+  },
+  now: number,
+): number {
+  return liveTotalSeconds(
+    member.totalFocusSeconds,
+    member.isFocusing === true ? member.focusStartedAt : null,
+    now,
+  );
+}
+
 // 내 그리드 셀의 오늘 총 집중초 (GROMO-1246) — 멤버 셀과 **같은 원천·같은 축**(서버 KST 오늘
 // 버킷)으로 계산하고, 아직 서버 스냅샷에 없는 이 세션 몫만 얹는다. 멤버 셀이
 // base + (now − focusStartedAt) 인 것과 같은 구조라 같은 그리드 안의 숫자가 상호 검증된다.
