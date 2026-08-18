@@ -32,8 +32,10 @@ name: Android Checks
 #    아무에게도 안 보인다.
 #
 # ⚠️ 트리거를 좁게 잡은 이유: Gradle 은 구성만으로도 RN 모듈 전체를 훑어 lint 보다 무겁다.
-#    러너가 e2-medium(2 vCPU / 4 GB) 한 대뿐이라(ticket 1513), 안드로이드 네이티브가 실제로
-#    바뀐 PR 에서만 돌게 한다. TS 만 고친 PR 은 lint.yml 이 이미 잡는다.
+#    러너가 한 대뿐이라(e2-custom-4-8192 — 4 vCPU / 8 GB, 고정 VM), 안드로이드 네이티브가
+#    실제로 바뀐 PR 에서만 돌게 한다. TS 만 고친 PR 은 lint.yml 이 이미 잡는다.
+#    (lint.yml 과 startup-script 주석은 아직 e2-medium 이라고 적혀 있다 — 실측과 다르다.
+#     GROMO-1611 에서 함께 정정한다.)
 
 on:
   push:
@@ -70,7 +72,7 @@ jobs:
     env:
       # 자격 파일 없이 도는 CI 전용 환경 — 아래 'CI 자격 생성' 단계가 만든다.
       APP_ENV: ci
-      # Gradle 데몬은 러너 메모리(4 GB)를 오래 물고 있는다. 잡이 끝나면 버릴 것이므로 끈다.
+      # Gradle 데몬은 러너 메모리(8 GB)를 오래 물고 있는다. 잡이 끝나면 버릴 것이므로 끈다.
       GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g
 
     steps:
@@ -202,9 +204,9 @@ jobs:
       # 앱 매니페스트 병합 — 모듈이 선언한 권한·서비스가 앱 매니페스트와 충돌하지 않는지 본다.
       # 집중 실드가 추가한 foregroundServiceType·specialUse 서브타입이 여기서 검증된다.
       #
-      # ⚠️ 전체 assembleDebug 를 돌리지 않는 이유: RN + Hermes 번들까지 포함되어 2 vCPU 러너에서
-      #    수십 분이 걸리고, 러너가 한 대뿐이라 다른 PR 의 CI 를 통째로 막는다. 컴파일·리소스·
-      #    매니페스트가 실패의 대부분이라 그 셋만 잡는다.
+      # ⚠️ 전체 assembleDebug 를 돌리지 않는 이유: RN + Hermes 번들까지 포함되어 수십 분이 걸리고,
+      #    러너가 한 대뿐이라 그동안 다른 PR 의 CI 를 통째로 막는다. 컴파일·리소스·매니페스트가
+      #    실패의 대부분이라 그 셋만 잡는다.
       - name: 앱 매니페스트 병합 검증
         if: steps.sdk.outputs.present == 'true'
         run: ./gradlew :app:processDebugMainManifest --no-daemon
