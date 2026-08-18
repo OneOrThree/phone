@@ -99,18 +99,20 @@ jest.mock('@/services/analyticsEvents', () => ({
   logFocusOrientationChanged: jest.fn(),
   logFocusMarkerStartFailed: jest.fn(),
   // 실구현 사용 — 목이 원문 id를 돌려주면 비식별 해시 계약(subject_key)이 검증에서 빠진다(codex 리뷰 14차)
-  subjectKeyOf: jest.requireActual<typeof import('@/services/analyticsEvents')>('@/services/analyticsEvents').subjectKeyOf,
+  subjectKeyOf: jest.requireActual<typeof import('@/services/analyticsEvents')>(
+    '@/services/analyticsEvents',
+  ).subjectKeyOf,
 }));
 jest.mock('@/services/cardInteraction', () => ({
   consumeCardInteraction: jest.fn<string | undefined, unknown[]>(() => undefined),
   invalidateCardInteraction: jest.fn(),
   // 순수 export는 실구현·실값 — 목이 바꾸면 화면이 아니라 목이 만든 동작을 고정하게 된다(codex 리뷰 14차)
-  normalizeFocusEntrySource:
-    jest.requireActual<typeof import('@/services/cardInteraction')>('@/services/cardInteraction')
-      .normalizeFocusEntrySource,
-  FOCUS_ATTRIBUTION_TTL_MS:
-    jest.requireActual<typeof import('@/services/cardInteraction')>('@/services/cardInteraction')
-      .FOCUS_ATTRIBUTION_TTL_MS,
+  normalizeFocusEntrySource: jest.requireActual<typeof import('@/services/cardInteraction')>(
+    '@/services/cardInteraction',
+  ).normalizeFocusEntrySource,
+  FOCUS_ATTRIBUTION_TTL_MS: jest.requireActual<typeof import('@/services/cardInteraction')>(
+    '@/services/cardInteraction',
+  ).FOCUS_ATTRIBUTION_TTL_MS,
 }));
 
 // ── 스토어·훅 목 — 세션 로직이 읽기만 하는 주변 상태 ──────────────────────────
@@ -356,9 +358,7 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await fireEvent.press(view.getByTestId('focus.stop'));
     await flush();
 
-    expect(mockedStartMarker).toHaveBeenCalledWith(
-      expect.objectContaining({ focusTagId: null }),
-    );
+    expect(mockedStartMarker).toHaveBeenCalledWith(expect.objectContaining({ focusTagId: null }));
     expect(mockedUpload).toHaveBeenCalledTimes(1);
     expect(mockedUpload.mock.calls[0][0].body.focusTagId).toBeNull();
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3 });
