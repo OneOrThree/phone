@@ -59,7 +59,7 @@ jest.mock('react-native-view-shot', () => ({
 }));
 jest.mock('expo-screen-orientation', () => ({
   lockAsync: jest.fn(() => Promise.resolve()),
-  OrientationLock: { DEFAULT: 0, PORTRAIT_UP: 1 },
+  OrientationLock: { DEFAULT: 0, PORTRAIT_UP: 1, LANDSCAPE: 2 },
 }));
 jest.mock('expo-linear-gradient', () => {
   const { View } = jest.requireActual<typeof import('react-native')>('react-native');
@@ -145,8 +145,10 @@ jest.mock('@/screens/league/useFocusFriends', () => ({
 jest.mock('./useSessionLeagueMembers', () => ({
   useSessionLeagueMembers: () => ({ members: [] }),
 }));
+// 서버의 KST 오늘 집중 스냅샷 — 실제 계약은 { day, minutes } | null (테스트별 갈아끼움)
+let mockMyFocus: { day: string; minutes: number } | null = null;
 jest.mock('./useSessionGroups', () => ({
-  useSessionGroups: () => ({ groups: [], myFocus: 0 }),
+  useSessionGroups: () => ({ groups: [], myFocus: mockMyFocus }),
 }));
 jest.mock('@/hooks/useFocusCategory', () => ({ useFocusCategory: () => null }));
 // '동작 줄이기' 확정 true — 실제 useMotion이 reanimated 호출 없이 즉시값 경로로 돈다.
@@ -157,7 +159,14 @@ jest.mock('@/hooks/useReduceMotion', () => ({
 }));
 
 // ── 렌더 전용 무거운 자식은 껍데기로 — 세션 로직과 무관 ───────────────────────
-jest.mock('./components/LiveFocusGrid', () => ({ LiveFocusGrid: () => null }));
+// 내 셀(me) 전달값을 붙잡는다 — 그리드 자체는 렌더하지 않되 화면→그리드 배선은 관찰한다
+const mockGridMeCaptures: Array<{ totalSeconds: number; isFocusing: boolean }> = [];
+jest.mock('./components/LiveFocusGrid', () => ({
+  LiveFocusGrid: (props: { me: { totalSeconds: number; isFocusing: boolean } }) => {
+    mockGridMeCaptures.push(props.me);
+    return null;
+  },
+}));
 jest.mock('./components/FocusMenuDrawer', () => ({ FocusMenuDrawer: () => null }));
 jest.mock('./FocusLandscape', () => ({ FocusLandscape: () => null }));
 jest.mock('@/components/TabGuideOverlay', () => ({ TabGuideOverlay: () => null }));
@@ -171,11 +180,13 @@ jest.mock('@/components/PressableScale', () => {
       children,
       onPress,
       testID,
+      accessibilityLabel,
     }: {
       children?: unknown;
       onPress?: () => void;
       testID?: string;
-    }) => mockReact.createElement(Text, { testID, onPress }, children as never),
+      accessibilityLabel?: string;
+    }) => mockReact.createElement(Text, { testID, onPress, accessibilityLabel }, children as never),
   };
 });
 jest.mock('react-native-safe-area-context', () => {
@@ -252,6 +263,8 @@ async function readLiveRecord(): Promise<LiveFocusSession | null> {
 beforeEach(async () => {
   jest.clearAllMocks();
   mockSubjectsData = [{ id: 's1', name: '수학', accumulatedSeconds: 0, color: '#FFB4A2' }];
+  mockMyFocus = null;
+  mockGridMeCaptures.length = 0;
   await AsyncStorage.clear();
   jest.useFakeTimers();
   appStateHandlers = [];
@@ -647,6 +660,20 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(mockedUpload).toHaveBeenCalledTimes(1);
     expect(mockedUpload.mock.calls[0][0].sessionId).toBeNull();
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3 });
+  });
+
+  test('네이티브 정리(실드·LA 종료)가 거부돼도 finish는 정산·결과 화면으로 진행된다', async () => {
+    // finish의 stopFocusShield/endFocusActivity는 fire-and-forget(.catch 삼킴)이 현행이다 —
+    // 헤드리스화가 이를 await·전파로 바꾸면 브리지 오류 기기에서 finishedRef만 선 채
+    // replace가 안 돌아 종료가 통째로 막히고 재시도도 불가하다(codex 리뷰 19차).
+    (ScreenTimeModule.stopFocusShield as jest.Mock).mockRejectedValueOnce(new Error('bridge'));
+    (ScreenTimeModule.endFocusActivity as jest.Mock).mockRejectedValueOnce(new Error('bridge'));
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3, completed: true });
   });
 
   test('실드는 선택한 과목명으로 걸린다 — 차단 화면 문구의 원천', async () => {
@@ -1064,6 +1091,16 @@ describe('카운트다운 — 완료 게이트', () => {
     );
   });
 
+  test('가로 전환 버튼: lockAsync(LANDSCAPE)를 호출한다', async () => {
+    // 자동 회전을 꺼 둔 사용자는 이 버튼이 유일한 가로 진입로다 — goLandscape 배선이나 잠금값이
+    // 틀려도 기존 DEFAULT·PORTRAIT_UP 단언은 통과하므로 별도로 고정한다(codex 리뷰 19차).
+    await renderSession({ mode: 'countup' });
+    await fireEvent.press(view.getByLabelText('가로 화면으로 전환'));
+    expect(ScreenOrientation.lockAsync).toHaveBeenLastCalledWith(
+      ScreenOrientation.OrientationLock.LANDSCAPE,
+    );
+  });
+
   test('게이트에서 Android 하드웨어 뒤로가기: 이벤트를 소비하고 확인 버튼과 동일하게 finish한다', async () => {
     // 게이트가 뜨면 BackHandler를 구독해 pop 대신 finish로 보낸다 — 배선이 빠지면 화면이
     // 단순 pop돼 결과 연출·후속 처리를 건너뛴다(codex 리뷰 6차).
@@ -1257,6 +1294,23 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     expect(mockedUpload).toHaveBeenCalledTimes(1); // 추가 업로드 없음
     expect(mockAddFocusSeconds.mock.calls).toEqual([[60]]); // 적립도 블록 1 한 번뿐
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 60, completed: false });
+  });
+
+  test('서버 오늘 스냅샷이 있으면 내 그리드 셀은 서버 기준+미정산 델타 — 정산분 이중 계상 없음', async () => {
+    // gridServerToday 분기(myFocus { day, minutes } 실계약)의 화면 배선 — 서버 기준을 무시하면
+    // 이 세션만(60), 정산분을 서버 기준에 또 얹으면 720으로 튄다. me.totalSeconds가 그리드로
+    // 전달되는 값 자체를 관찰한다(codex 리뷰 19차).
+    jest.setSystemTime(new Date('2026-08-18T10:00:00+09:00'));
+    mockMyFocus = { day: '2026-08-18', minutes: 10 }; // 서버 KST 오늘 600초
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    await advance(5000);
+    expect(mockGridMeCaptures.at(-1)!.totalSeconds).toBe(605); // 600 + 미정산 5
+    expect(mockGridMeCaptures.at(-1)!.isFocusing).toBe(true);
+    await advance(55_000); // 블록 1 완주 → 정산 → 휴식 진입
+    await advance(1000); // 휴식 틱 리렌더
+    // 정산 직후 총합 = 서버(600) + 정산 블록(60) — 델타는 리셋됐고 바닥(settledFloor)이 지킨다
+    expect(mockGridMeCaptures.at(-1)!.totalSeconds).toBe(660);
+    expect(mockGridMeCaptures.at(-1)!.isFocusing).toBe(false); // 휴식 — 그리드 초록 아님
   });
 });
 
