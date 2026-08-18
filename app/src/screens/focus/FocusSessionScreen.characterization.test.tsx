@@ -21,7 +21,8 @@ import { STORAGE_KEYS } from '@/types/storage';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { startFocusSession } from '@/services/focusApi';
 import { uploadFocusBlock } from './uploadFocusBlock';
-import { cancelMarker } from './pendingMarkerCancels';
+import { cancelMarker, flushPendingMarkerCancels } from './pendingMarkerCancels';
+import { consumeCardInteraction } from '@/services/cardInteraction';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { publishSessionSaveVerdict } from './sessionSaveVerdict';
 import {
@@ -94,7 +95,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   subjectKeyOf: (id?: string) => id,
 }));
 jest.mock('@/services/cardInteraction', () => ({
-  consumeCardInteraction: jest.fn(() => undefined),
+  consumeCardInteraction: jest.fn<string | undefined, unknown[]>(() => undefined),
   invalidateCardInteraction: jest.fn(),
   normalizeFocusEntrySource: (v: unknown) => v ?? 'direct',
   FOCUS_ATTRIBUTION_TTL_MS: 60_000,
@@ -374,6 +375,25 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(bgRecord!.serverSessionId).toBe('marker-1');
   });
 
+  test('그룹 카드 진입: interaction이 소비돼 시작 계측에 귀속된다', async () => {
+    // 카드 진입 파라미터 → consumeCardInteraction(TTL 판정) → interaction_id 발행의 배선을
+    // 고정한다 — 빠지면 카드 진입 퍼널이 오염된다(codex 리뷰 9차).
+    (consumeCardInteraction as jest.Mock).mockReturnValueOnce('ix-1');
+    await renderSession({
+      mode: 'countup',
+      entrySource: 'group_card',
+      interactionId: 'ix-1',
+      interactionAcceptedAt: 1_000_000,
+    });
+    expect(consumeCardInteraction).toHaveBeenCalledWith(
+      { entrySource: 'group_card', interactionId: 'ix-1', interactionAcceptedAt: 1_000_000 },
+      60_000, // FOCUS_ATTRIBUTION_TTL_MS
+    );
+    expect(logFocusSessionStarted).toHaveBeenCalledWith(
+      expect.objectContaining({ entry_source: 'group_card', interaction_id: 'ix-1' }),
+    );
+  });
+
   test('주기 저장(setItem)이 실패해도 세션은 계속된다 — 틱·정산·결과 화면 정상', async () => {
     // saveLive의 setItem은 .catch로 삼키는 게 현행이다 — 실패가 전파되면 저장소 오류 기기에서
     // 타이머·수동 종료 정산까지 중단된다(codex 리뷰 8차).
@@ -585,6 +605,38 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     });
     expect(logFocusSessionCompleted).not.toHaveBeenCalled(); // 상호배타
     expect(mockedUpload).not.toHaveBeenCalled(); // 정산은 다음 실행의 고아 정산 몫
+    // 네이티브 정리도 cleanup 몫 — 빠지면 화면을 떠났는데 Screen Time 차단·Live Activity가
+    // 계속 남는다(codex 리뷰 9차)
+    expect(ScreenTimeModule.stopFocusShield).toHaveBeenCalled();
+    expect(ScreenTimeModule.endFocusActivity).toHaveBeenCalled();
+  });
+
+  test('마커 취소가 끝난 직후 밀린 취소 대기열을 재시도한다 — 순서 보장', async () => {
+    // cancelLiveSession 체인은 이번 취소의 성패 확정 → flushPendingMarkerCancels 순서다.
+    // 순서가 뒤집히면 이번 실패로 대기열에 들어간 취소를 flush가 못 보고, 다음 앱 활성화나
+    // 서버 스윕까지 친구 화면에 마커가 남는다(codex 리뷰 9차).
+    let resolveCancel!: () => void;
+    (cancelMarker as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise<void>((r) => {
+          resolveCancel = r;
+        }),
+    );
+    await renderSession({ mode: 'countup' });
+    await advance(2000);
+    // 마운트의 마커 시작도 flush를 한 번 부른다(:410) — 이후 '신규' 호출만 계수한다
+    const flushCallsBeforeUnmount = (flushPendingMarkerCancels as jest.Mock).mock.calls.length;
+    await view.unmount(); // finish를 안 거치는 cleanup — cancelLiveSession 체인만 돈다
+    await act(async () => {});
+    expect(cancelMarker).toHaveBeenCalledWith('marker-1', 'user-1');
+    // 취소 확정 전엔 재시도 없음 — 순서가 뒤집히면 이번 실패분을 flush가 못 본다
+    expect(flushPendingMarkerCancels).toHaveBeenCalledTimes(flushCallsBeforeUnmount);
+
+    await act(async () => {
+      resolveCancel();
+    });
+    expect(flushPendingMarkerCancels).toHaveBeenCalledTimes(flushCallsBeforeUnmount + 1);
+    expect(flushPendingMarkerCancels).toHaveBeenLastCalledWith('user-1'); // 확정 직후 재시도
   });
 
   test('정상 종료 후 언마운트: finishedRef 가드가 abandoned 추가 발행을 막는다', async () => {
@@ -615,6 +667,10 @@ describe('카운트다운 — 완료 게이트', () => {
     // Live Activity도 게이트 시점에 즉시 종료 — 확인까지 미루면 게이트에 머무는 동안
     // Dynamic Island에 끝난 집중이 진행 중으로 남는다(codex 리뷰 6차).
     expect(ScreenTimeModule.endFocusActivity).toHaveBeenCalled();
+    // 초 단위 목표의 분 환산은 반올림 — 3초 목표는 0분으로 발행된다(codex 리뷰 9차)
+    expect(logFocusSessionStarted).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'countdown', goal_minutes: 0 }),
+    );
     // 로컬·과목 적립도 게이트 정산에서 같은 델타로 — 업로드만 되고 로컬 오늘 누적이 빠지는
     // 회귀는 결과 화면 경과(session.elapsed 기반)로는 못 잡는다(codex 리뷰 4차).
     expect(mockAddFocusSeconds).toHaveBeenCalledTimes(1);
@@ -700,6 +756,10 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     expect(mockedUpload.mock.calls[0][0].body.focusType).toBe('POMODORO');
     expect(mockedStartMarker).toHaveBeenCalledWith(
       expect.objectContaining({ focusType: 'POMODORO' }),
+    );
+    // 뽀모도로 목표 = 집중블록×세트 총 집중분(1분×2세트=2) — 휴식은 목표에 안 들어간다(codex 리뷰 9차)
+    expect(logFocusSessionStarted).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'pomodoro', goal_minutes: 2 }),
     );
 
     await advance(60_000); // 휴식 1분 → 세트 2 집중: 마커 회전(새 마커)
