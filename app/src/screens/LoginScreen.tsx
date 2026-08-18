@@ -24,7 +24,11 @@ import {
 import type { LoginResult } from '@/types/api';
 import { T } from '@/constants/theme';
 import { CharacterImage } from '@/components/character/CharacterImage';
-import { logOnboardingSignupFailed, logOnboardingSignupSelected } from '@/services/analyticsEvents';
+import {
+  logOnboardingSignupFailed,
+  logOnboardingSignupSelected,
+  logOnboardingStepCta,
+} from '@/services/analyticsEvents';
 
 // v2 로그인 화면 — Claude Design 온보딩 O7 시안 그대로.
 // 로직은 데이터 층(@/services/auth) 재사용, UI만 새로 구성. 색은 T 토큰만 사용.
@@ -100,7 +104,12 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
 
   async function run(method: Method, fn: () => Promise<LoginResult>) {
     if (busy) return;
-    if (isOnboarding) logOnboardingSignupSelected({ method });
+    if (isOnboarding) {
+      // 로그인은 StepScaffold 밖(자체 레이아웃)이라 공통 CTA 이벤트를 여기서 직접 발행한다 —
+      // step_viewed 대비 step_cta 전환율에서 로그인 화면만 분자가 비지 않게(코덱스 리뷰).
+      logOnboardingStepCta({ step: 'login', action: 'cta' });
+      logOnboardingSignupSelected({ method });
+    }
     setBusy(method);
     try {
       const result = await fn();
@@ -139,7 +148,10 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
   // 서버에 남거나 온보딩 선택 이벤트가 오염되지 않게 선택 계측도 runGuest 안에 둔다.
   async function runGuest() {
     if (busy !== null || guestBusy) return;
-    if (isOnboarding) logOnboardingSignupSelected({ method: 'guest' });
+    if (isOnboarding) {
+      logOnboardingStepCta({ step: 'login', action: 'secondary' });
+      logOnboardingSignupSelected({ method: 'guest' });
+    }
     setGuestBusy(true);
     try {
       const result = await guestLogin();

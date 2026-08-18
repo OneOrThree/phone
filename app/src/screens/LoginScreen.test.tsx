@@ -17,6 +17,8 @@ jest.mock('@/services/auth', () => ({
 jest.mock('@/services/analyticsEvents', () => ({
   logOnboardingSignupFailed: jest.fn(),
   logOnboardingSignupSelected: jest.fn(),
+  // 공통 CTA 계측(GROMO-1605) — 빠지면 온보딩 경로 버튼 탭에서 undefined 호출로 터진다.
+  logOnboardingStepCta: jest.fn(),
 }));
 
 const mockGuestLogin = guestLogin as jest.MockedFunction<typeof guestLogin>;

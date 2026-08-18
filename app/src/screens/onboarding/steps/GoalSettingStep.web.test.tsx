@@ -18,6 +18,8 @@ jest.mock('@/components/DrumPicker', () => ({
 jest.mock('@/services/analyticsEvents', () => ({
   logOnboardingGoalSubmitted: jest.fn(),
   logOnboardingScreentimeViewed: jest.fn(),
+  // 피커 펼침 계측(GROMO-1605) — 빠지면 헤더 탭에서 undefined 호출로 터져 피커가 안 열린다.
+  logOnboardingStepAction: jest.fn(),
 }));
 
 const onNext = jest.fn();

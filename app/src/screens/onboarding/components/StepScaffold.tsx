@@ -10,6 +10,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '@/constants/theme';
 import { useOnboardingProgress } from '@/screens/onboarding/components/OnboardingProgressContext';
+import { useOnboardingStepName } from '@/screens/onboarding/components/OnboardingStepContext';
+import { logOnboardingStepCta } from '@/services/analyticsEvents';
 
 // 온보딩 스텝 공통 레이아웃 — 상단 진행바 + 제목/부제 + 본문(children) + 하단 풀폭 CTA(+선택적 보조 액션).
 // header: 제목 위 영역(히어로 일러스트 등). center: 본문 세로 가운데 + 텍스트 가운데(히어로형 화면).
@@ -53,6 +55,12 @@ export default function StepScaffold({
   ctaTestID,
 }: StepScaffoldProps) {
   const progress = useOnboardingProgress();
+  // CTA 계측(GROMO-1605) — 12개 스텝이 공유하는 이 버튼 한 곳에서 발행한다.
+  // 스텝 이름이 없으면(온보딩 플로우 밖에서 StepScaffold를 쓰는 경우) 발행하지 않는다.
+  const stepName = useOnboardingStepName();
+  const fireCta = (action: 'cta' | 'secondary') => {
+    if (stepName) logOnboardingStepCta({ step: stepName, action });
+  };
   // 안전영역 인셋을 동기적으로 읽어 패딩으로 적용 — 네이티브 SafeAreaView는 스텝 remount마다
   // 인셋 적용 전 한 프레임이 생겨 하단 CTA가 튀므로, 첫 프레임부터 확정되는 이 방식을 쓴다.
   const insets = useSafeAreaInsets();
@@ -111,7 +119,10 @@ export default function StepScaffold({
           testID={ctaTestID ?? 'onboarding.cta'}
           activeOpacity={0.85}
           disabled={ctaDisabled || ctaHidden}
-          onPress={onCta}
+          onPress={() => {
+            fireCta('cta');
+            onCta();
+          }}
           style={[s.cta, ctaDisabled ? s.ctaDisabled : null, ctaHidden ? s.ctaHidden : null]}
         >
           <Text style={s.ctaText}>{ctaLabel}</Text>
@@ -125,7 +136,10 @@ export default function StepScaffold({
             <TouchableOpacity
               // Maestro E2E — 보조 액션 공통 식별자(GROMO-947). 스텝당 최대 1개라 고정 이름.
               testID="onboarding.secondary"
-              onPress={onSecondary}
+              onPress={() => {
+                fireCta('secondary');
+                onSecondary?.();
+              }}
               hitSlop={{ top: 14, bottom: 14, left: 20, right: 20 }}
             >
               <Text style={s.secondaryText} numberOfLines={1}>

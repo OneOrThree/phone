@@ -45,21 +45,30 @@ function randomUuid(): string {
   });
 }
 
-async function resolveDeviceId(): Promise<string> {
-  if (deviceId) return deviceId;
-  try {
-    const saved = await AsyncStorage.getItem(STORAGE_KEYS.deviceId);
-    if (saved) {
-      deviceId = saved;
-    } else {
-      deviceId = randomUuid();
-      await AsyncStorage.setItem(STORAGE_KEYS.deviceId, deviceId);
+// 진행 중 조회를 공유하는 싱글플라이트 — initAnalytics(앱 마운트)와 deferred 초대 매치가
+// 첫 실행에서 동시에 진입하면, 완료값 캐시(deviceId)만으로는 둘 다 빈 저장소를 읽고
+// 서로 다른 UUID를 만들어 GA 이벤트와 /l/match의 device_id가 갈린다(코덱스 리뷰 P1).
+let deviceIdPromise: Promise<string> | null = null;
+
+function resolveDeviceId(): Promise<string> {
+  if (deviceId) return Promise.resolve(deviceId);
+  if (deviceIdPromise) return deviceIdPromise;
+  deviceIdPromise = (async () => {
+    try {
+      const saved = await AsyncStorage.getItem(STORAGE_KEYS.deviceId);
+      if (saved) {
+        deviceId = saved;
+      } else {
+        deviceId = randomUuid();
+        await AsyncStorage.setItem(STORAGE_KEYS.deviceId, deviceId);
+      }
+    } catch {
+      // 저장 실패 시에도 최소한 세션 한정 id는 부여(전송 자체는 막지 않는다).
+      deviceId = deviceId ?? randomUuid();
     }
-  } catch {
-    // 저장 실패 시에도 최소한 세션 한정 id는 부여(전송 자체는 막지 않는다).
-    deviceId = deviceId ?? randomUuid();
-  }
-  return deviceId;
+    return deviceId;
+  })();
+  return deviceIdPromise;
 }
 
 // dev 빌드이거나 명시 토글이 켜져 있으면 콘솔에 이벤트를 출력한다.
@@ -145,11 +154,17 @@ export async function getAppInstanceId(): Promise<string | null> {
 // 커스텀 이벤트 발행. 공통 파라미터를 자동 부착한다.
 export function track(name: string, params?: Record<string, unknown>): void {
   const eventName = sanitizeName(name);
-  const payload = { ...COMMON_PARAMS, ...sanitizeParams(params) };
-  if (DEBUG) console.log('[analytics]', eventName, payload);
-  const a = getAnalytics();
-  if (!a) return;
-  a.logEvent(eventName, payload).catch(() => {});
+  // device_id 확보를 기다렸다가 발행 — 첫 실행에서 initAnalytics(비동기 저장소 조회)가 끝나기
+  // 전에 호출된 이벤트(onboarding_started·첫 step_viewed 등)에 device_id가 빠지지 않게
+  // 한다(코덱스 리뷰 P2). resolveDeviceId는 싱글플라이트 캐시라 첫 해석 뒤에는 즉시
+  // resolve되고, 같은 Promise의 then은 FIFO라 발행 순서도 호출 순서를 유지한다.
+  void resolveDeviceId().then((id) => {
+    const payload = { ...COMMON_PARAMS, device_id: id, ...sanitizeParams(params) };
+    if (DEBUG) console.log('[analytics]', eventName, payload);
+    const a = getAnalytics();
+    if (!a) return;
+    a.logEvent(eventName, payload).catch(() => {});
+  });
 }
 
 // User-ID 설정/해제. opaque UUID만 허용(PII 금지). null이면 게스트.
