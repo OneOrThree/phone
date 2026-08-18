@@ -1045,6 +1045,27 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       { name: '영어', seconds: 300, color: '#A2C4FF' },
     ]);
   });
+
+  test('600ms 지연 사이 과목 목록이 갱신되면: Live Activity는 최신 목록의 상위 2개를 싣는다', async () => {
+    // LA 시작 이펙트는 최초 렌더 클로저가 아니라 subjectsRef의 최신 값을 읽는다 — 클로저 캡처로
+    // 바뀌면 저장소·서버 복원이 캡처 지연 사이 도착한 사용자에게 세션 내내 시드/낡은 과목
+    // 시간이 표시된다(codex 리뷰 27차).
+    await renderSession({ mode: 'countup' }); // 시드 목록('수학'만)으로 마운트 — 타이머는 아직
+    mockSubjectsData = [
+      { id: 's1', name: '수학', accumulatedSeconds: 0, color: '#FFB4A2' },
+      { id: 's5', name: '한국사', accumulatedSeconds: 700, color: '#CCAAFF' },
+      { id: 's6', name: '물리', accumulatedSeconds: 200, color: '#AAFFCC' },
+    ];
+    // 600ms 발화 전에 리렌더를 일으켜 subjectsRef를 갱신한다(정지→재개는 세션에 영향 없음)
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await advance(1000); // 600ms 콜백 발화
+    await flush();
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', [
+      { name: '한국사', seconds: 700, color: '#CCAAFF' },
+      { name: '물리', seconds: 200, color: '#AAFFCC' },
+    ]);
+  });
 });
 
 describe('일시정지 의미론', () => {
@@ -2043,6 +2064,14 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     // 40초 부푼다(codex 리뷰 14차)
     expect(mockAddFocusSeconds).toHaveBeenCalledWith(80);
     expect(mockAddFocusToSubject).toHaveBeenCalledWith('s1', 80);
+    // 오늘 판정의 입력도 업로드 본문 그대로다 — 판정 날짜는 endedAt이 아니라 분포 맵의 마지막
+    // 귀속일이므로, 맵이 빠지거나 다른 값이 넘어가면 전날 저장 응답이 오늘 판정으로 발행돼
+    // 스트릭·목표 결과가 오염된다(codex 리뷰 27차).
+    const verdictBody = mockedUpload.mock.calls[0][0].body;
+    expect(isTodayVerdict).toHaveBeenCalledWith(
+      verdictBody.focusSecondsByDate,
+      verdictBody.endedAt,
+    );
   });
 
   test('실드 네이티브 호출이 거부돼도: 세션은 계속되고 폴백(15초 정책) 세션으로 취급된다', async () => {
@@ -2061,6 +2090,53 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
       expect.objectContaining({ reason: 'leave_timeout' }),
     );
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: false });
+  });
+
+  test('이탈 알림 예약·취소가 거부돼도: 이탈 판정과 자동 종료 흐름은 계속된다', async () => {
+    // scheduleLeaveNotifications·cancelLeaveNotifications는 fire-and-forget(.catch 삼킴)이
+    // 현행이다 — 전파·await로 바뀌면 알림 브리지가 고장난 기기에서 복귀 처리·15초 자동 종료가
+    // 통째로 멈춘다(codex 리뷰 27차).
+    (scheduleLeaveNotifications as jest.Mock).mockRejectedValueOnce(new Error('bridge'));
+    (cancelLeaveNotifications as jest.Mock).mockRejectedValueOnce(new Error('bridge'));
+    mockedShieldStart.mockResolvedValue(false);
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireAppState('background');
+    expect(scheduleLeaveNotifications).toHaveBeenCalledTimes(1); // 거부돼도 호출 자체는 됐다
+    await jumpWallClock(20_000);
+    await fireAppState('active'); // 복귀의 취소도 거부되지만
+    await flush();
+    expect(logFocusSessionAbandoned).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'leave_timeout' }),
+    ); // 15초 판정·finish는 그대로 진행된다
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: false });
+  });
+
+  test('실드 응답이 이탈보다 늦게 성공해도: 복귀 판정은 최신 실드 상태를 읽는다', async () => {
+    // 이탈 시점 스냅샷의 false를 고정하면 정상 차단된 사용자의 세션이 leave_timeout으로
+    // 종료된다 — 복귀는 shieldedRef의 최신 값을 읽어 크레딧 경로로 가야 한다(codex 리뷰 27차).
+    let resolveShield!: (ok: boolean) => void;
+    mockedShieldStart.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((r) => {
+          resolveShield = r;
+        }),
+    );
+    await renderSession({ mode: 'countup' }); // 실드 응답 보류 상태로 시작
+    await advance(3000);
+    await fireAppState('background'); // 이탈 시점엔 아직 무실드 — 경고 예약됨
+    expect(scheduleLeaveNotifications).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveShield(true); // 백그라운드 사이 네이티브가 차단 성공을 확정
+    });
+    await jumpWallClock(20_000); // 15초를 넘긴 이탈
+    await fireAppState('active');
+    await flush();
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled(); // 포기 아님 — 차단된 이탈
+    expect(cancelLeaveNotifications).toHaveBeenCalled(); // 복귀가 예약 경고를 거둔다
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 23 }); // 3 + 이탈 20 적립
   });
 
   test('실드가 정상적으로 false를 반환해도: 폴백(15초 정책) 세션으로 취급된다', async () => {
