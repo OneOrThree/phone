@@ -32,8 +32,21 @@ internal object UsageSessionCalculator {
   // 보존기간은 수일 수준이라 24시간 소급은 안전).
   private const val LOOKBACK_MS = 24L * 60 * 60 * 1000
 
+  /**
+   * 재구성 결과 — 패키지별 사용시간(ms)과, 그 값을 얼마나 믿을 수 있는지 판단할 두 신호.
+   *
+   * 합계(`foregroundMillis`)와 앱별 내역(`foregroundMillisByPackage`)이 **같은 스캔·같은 union
+   * 병합**을 쓰게 하려고 결과를 이 형태로 돌린다. 두 경로가 각자 병합을 구현하면 "합계는
+   * 1시간인데 앱별을 더하면 55분" 같은 어긋남이 생긴다.
+   */
+  private class ScanResult(
+    val byPackage: Map<String, Long>,
+    val sawLifecycleEventInRange: Boolean,
+    val sawUnmatchedTerminalInRange: Boolean,
+  )
+
   // [begin, end) 구간의 포그라운드 사용시간(ms) 합계.
-  // selection이 null/빈 집합이면 전체 앱을 측정한다(M2 피커 전 기본 — §8 selection 키 구조).
+  // selection이 null/빈 집합이면 전체 앱을 측정한다(§8 selection 키 구조).
   fun foregroundMillis(
     usageStatsManager: UsageStatsManager,
     selection: Set<String>?,
@@ -41,6 +54,52 @@ internal object UsageSessionCalculator {
     end: Long,
   ): Long {
     if (end <= begin) return 0L
+    val scan = scan(usageStatsManager, selection, begin, end)
+    val totalMs = scan.byPackage.values.sum()
+
+    // 미매칭 종료를 본 구간 — 재구성 합계는 부분합(잃은 세션 존재 확정)이므로 근사 폴백과
+    // 비교해 큰 쪽을 쓴다. 폴백은 버킷 경계 흔들림으로 오히려 적게 나올 수도 있어 max가 안전.
+    if (scan.sawUnmatchedTerminalInRange) {
+      return maxOf(totalMs, dailyStatsFallbackMillis(usageStatsManager, selection, begin, end))
+    }
+    // 엣지 4 — 구간 안에 앱 라이프사이클 이벤트가 아예 없으면 재구성 불가(보존기간 초과
+    // 소급 조회·구간 전에 시작된 장시간 세션)로 보고 근사 폴백.
+    // (기기를 안 써서 이벤트가 없는 날도 폴백을 타지만 그 경우 폴백도 0이라 결과는 같다.)
+    if (!scan.sawLifecycleEventInRange && totalMs == 0L) {
+      return dailyStatsFallbackMillis(usageStatsManager, selection, begin, end)
+    }
+    return totalMs
+  }
+
+  /**
+   * [begin, end) 구간의 **앱별** 포그라운드 사용시간(ms). 사용이 0인 앱은 담기지 않는다.
+   *
+   * 합계와의 관계: 폴백을 타지 않는 정상 경로에서는 이 맵의 합 == [foregroundMillis].
+   * 폴백 경로(보존기간 초과·미매칭 종료)에서는 근사값이라 합이 정확히 일치하지 않을 수 있다 —
+   * 화면은 합계를 [foregroundMillis]로 따로 받아 쓰고, 이 맵은 **비중 표시용**으로 본다.
+   */
+  fun foregroundMillisByPackage(
+    usageStatsManager: UsageStatsManager,
+    selection: Set<String>?,
+    begin: Long,
+    end: Long,
+  ): Map<String, Long> {
+    if (end <= begin) return emptyMap()
+    val scan = scan(usageStatsManager, selection, begin, end)
+    // 합계 쪽과 같은 판정 — 재구성이 불완전하면 앱별도 근사 폴백으로 대체한다. 여기서 폴백을
+    // 안 쓰면 "총 사용시간은 2시간인데 앱별 목록은 텅 빔"이 된다.
+    if (scan.byPackage.isEmpty() && !scan.sawLifecycleEventInRange) {
+      return dailyStatsFallbackByPackage(usageStatsManager, selection, begin, end)
+    }
+    return scan.byPackage
+  }
+
+  private fun scan(
+    usageStatsManager: UsageStatsManager,
+    selection: Set<String>?,
+    begin: Long,
+    end: Long,
+  ): ScanResult {
     val events = usageStatsManager.queryEvents(begin - LOOKBACK_MS, end)
 
     // 열린 구간은 '패키지/액티비티' 단위로 추적한다 — 패키지 단위 맵은 같은 앱의 화면 전환
@@ -130,9 +189,10 @@ internal object UsageSessionCalculator {
     // 패키지별 구간 union 합산 — 시작 시각 정렬 후, 다음 구간의 시작이 현재 병합 구간의 끝
     // 이하면(겹침·인접) 끝만 늘려 병합하고, 넘어서면(분리) 병합 구간을 확정·합산한다.
     // 검산: 중첩 [10,100)+[20,50)→90 · 인접 [10,20)+[20,30)→20 · 분리 [10,20)+[30,40)→10+10.
-    var totalMs = 0L
-    for (intervals in closedByPkg.values) {
+    val byPackage = HashMap<String, Long>(closedByPkg.size)
+    for ((pkg, intervals) in closedByPkg) {
       intervals.sortBy { it[0] }
+      var pkgMs = 0L
       var mergedStart = intervals[0][0]
       var mergedEnd = intervals[0][1]
       for (i in 1 until intervals.size) {
@@ -140,26 +200,17 @@ internal object UsageSessionCalculator {
         if (next[0] <= mergedEnd) {
           if (next[1] > mergedEnd) mergedEnd = next[1]
         } else {
-          totalMs += mergedEnd - mergedStart
+          pkgMs += mergedEnd - mergedStart
           mergedStart = next[0]
           mergedEnd = next[1]
         }
       }
-      totalMs += mergedEnd - mergedStart
+      pkgMs += mergedEnd - mergedStart
+      // 0ms 앱은 담지 않는다 — 앱별 목록에 "0분" 줄이 늘어서면 실제로 쓴 앱을 가린다.
+      if (pkgMs > 0L) byPackage[pkg] = pkgMs
     }
 
-    // 미매칭 종료를 본 구간 — 재구성 합계는 부분합(잃은 세션 존재 확정)이므로 근사 폴백과
-    // 비교해 큰 쪽을 쓴다. 폴백은 버킷 경계 흔들림으로 오히려 적게 나올 수도 있어 max가 안전.
-    if (sawUnmatchedTerminalInRange) {
-      return maxOf(totalMs, dailyStatsFallbackMillis(usageStatsManager, selection, begin, end))
-    }
-    // 엣지 4 — 구간 안에 앱 라이프사이클 이벤트가 아예 없으면 재구성 불가(보존기간 초과
-    // 소급 조회·구간 전에 시작된 장시간 세션)로 보고 근사 폴백.
-    // (기기를 안 써서 이벤트가 없는 날도 폴백을 타지만 그 경우 폴백도 0이라 결과는 같다.)
-    if (!sawLifecycleEventInRange && totalMs == 0L) {
-      return dailyStatsFallbackMillis(usageStatsManager, selection, begin, end)
-    }
-    return totalMs
+    return ScanResult(byPackage, sawLifecycleEventInRange, sawUnmatchedTerminalInRange)
   }
 
   // queryUsageStats(INTERVAL_DAILY) 근사 폴백 — 대상 구간과 겹치는 일 버킷의 앱별
@@ -169,16 +220,27 @@ internal object UsageSessionCalculator {
     selection: Set<String>?,
     begin: Long,
     end: Long,
-  ): Long {
+  ): Long = dailyStatsFallbackByPackage(usageStatsManager, selection, begin, end).values.sum()
+
+  // 폴백의 앱별 형태 — 합계 폴백이 이걸 더해 쓴다(같은 필터·같은 버킷 판정을 공유하려고 한 곳에 둔다).
+  private fun dailyStatsFallbackByPackage(
+    usageStatsManager: UsageStatsManager,
+    selection: Set<String>?,
+    begin: Long,
+    end: Long,
+  ): Map<String, Long> {
     val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, begin, end - 1)
-      ?: return 0L
-    var totalMs = 0L
+      ?: return emptyMap()
+    val byPackage = HashMap<String, Long>()
     for (stat in stats) {
       if (!selection.isNullOrEmpty() && stat.packageName !in selection) continue
       // 구간과 겹치지 않는 버킷(경계 흔들림으로 딸려온 이웃 날짜) 제외.
       if (stat.lastTimeStamp <= begin || stat.firstTimeStamp >= end) continue
-      totalMs += stat.totalTimeInForeground
+      if (stat.totalTimeInForeground <= 0L) continue
+      // 같은 패키지의 버킷이 여럿 걸칠 수 있어 누적한다(덮어쓰면 마지막 버킷만 남는다).
+      byPackage[stat.packageName] =
+        (byPackage[stat.packageName] ?: 0L) + stat.totalTimeInForeground
     }
-    return totalMs
+    return byPackage
   }
 }

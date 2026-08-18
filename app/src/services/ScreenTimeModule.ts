@@ -112,6 +112,22 @@ interface AndroidNativeScreenTime {
   getYesterdayUsageBucketMinutes(): Promise<number>;
   // 허용 상태에서도 사용 정보 접근 설정을 여는 전용 경로. 구 바이너리엔 없을 수 있어 옵셔널.
   openUsageAccessSettings?(): Promise<boolean>;
+  // 앱별 사용시간(GROMO-1608) — iOS는 익스텐션이 화면을 그려줄 뿐 **수치를 JS로 못 준다**.
+  // 안드로이드는 수치를 그대로 넘길 수 있어 화면을 RN이 그린다. dayOffset 0=오늘, -1=어제.
+  getUsageByApp(dayOffset: number): Promise<AppUsage[]>;
+  getAppIcon(packageName: string): Promise<string | null>;
+}
+
+/**
+ * 앱별 사용시간 1건(안드로이드 전용). 사용 많은 순으로 정렬돼 오고, 사용 0인 앱은 빠져 있다.
+ *
+ * 단위가 분이 아니라 **초**인 이유: 1분 미만 사용을 분으로 뭉개면 목록 하단이 전부 '0분'이 된다.
+ * 표시 단위 반올림은 화면이 정한다.
+ */
+export interface AppUsage {
+  packageName: string;
+  label: string;
+  seconds: number;
 }
 
 // 구 바이너리(OTA로 새 JS만 받아 네이티브 모듈이 없는 경우)는 null — 각 함수가 기존
@@ -299,6 +315,30 @@ const ScreenTimeModule = {
   getUsageBucketDebugInfo: async (): Promise<UsageBucketDebugInfo | null> => {
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.getUsageBucketDebugInfo();
+  },
+
+  // ── 앱별 사용 시간 · 안드로이드 (GROMO-1608) ──
+  // iOS는 DeviceActivityReport 익스텐션이 그린 뷰를 통째로 임베드할 뿐 수치를 JS로 못 준다.
+  // 안드로이드는 UsageStats 수치를 그대로 넘길 수 있어 목록을 RN이 그린다.
+  //
+  // 네이티브가 없으면(iOS·웹·구 바이너리) 조용한 기본값으로 폴백한다 — 호출부는
+  // supportsUsageBreakdown()이 참일 때만 부르지만, 그 가드가 빠져도 크래시는 안 난다.
+
+  /** 앱별 사용시간(사용 많은 순). dayOffset 0=오늘, -1=어제. 네이티브 없으면 빈 배열. */
+  getUsageByApp: async (dayOffset = 0): Promise<AppUsage[]> => {
+    if (!AndroidScreenTime) return [];
+    return AndroidScreenTime.getUsageByApp(dayOffset);
+  },
+
+  /**
+   * 앱 아이콘 base64 PNG(본문만, data URI 접두 없음). 없으면 null.
+   *
+   * 목록 응답에 싣지 않고 개별로 받는 이유: 수십~수백 개 비트맵을 한 번에 직렬화하면
+   * 목록의 **첫 표시**가 통째로 그만큼 늦어진다. 아이콘은 보이는 행만 뒤따라 채운다.
+   */
+  getAppIcon: async (packageName: string): Promise<string | null> => {
+    if (!AndroidScreenTime) return null;
+    return AndroidScreenTime.getAppIcon(packageName);
   },
 
   // 날짜 키('YYYY-MM-DD')의 threshold 발화 타임라인(N1) — 창 사용분 계산(A4)의 소스. 2일 보존.

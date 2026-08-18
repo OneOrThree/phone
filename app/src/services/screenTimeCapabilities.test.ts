@@ -35,14 +35,15 @@ describe('iOS — 넷 다 열려 있다', () => {
 
 // 안드로이드는 구현이 붙는 순서대로 하나씩 열린다. 지금 한꺼번에 열면 눌러도 반응이 없거나
 // 사실과 다른 안내가 나가므로, **구현이 들어오는 PR에서 그 술어만** 뒤집는다.
-test('안드로이드 — 아직 넷 다 닫혀 있다', () => {
+// 지금 열린 것: 앱별 사용시간(GROMO-1608).
+test('안드로이드 — 앱별 사용시간만 열려 있다', () => {
   setPlatform('android');
   expect([
     supportsAppSelection(),
     supportsUsageBreakdown(),
     supportsFocusShield(),
     enforcesFocusShield(),
-  ]).toEqual([false, false, false, false]);
+  ]).toEqual([false, true, false, false]);
 });
 
 // 웹엔 측정 자체가 없다 — 여기까지 true가 되면 없는 화면으로 보내게 된다.

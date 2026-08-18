@@ -1,6 +1,6 @@
 // 스크린타임 기능별 플랫폼 가용성 (GROMO-1592)
 //
-// 아래 넷은 iOS FamilyControls/DeviceActivity 전용이고 안드로이드 대응 구현이 아직 없다.
+// 아래 술어들은 **구현이 붙은 플랫폼에서만** 열린다.
 // 네이티브가 없는 쪽에서 호출하면 ScreenTimeModule의 각 함수가 null/false를 돌려주는데,
 // **호출부는 그걸 '사용자 취소'로 읽고 조용히 끝낸다.** 그래서 버튼을 눌러도 화면이 안 바뀌고
 // 에러도 없다 — 사용자에겐 그냥 고장이다.
@@ -43,7 +43,10 @@ export const enforcesFocusShield = (): boolean => Platform.OS === 'ios';
 /**
  * 앱별 사용 시간 상세(어떤 앱을 얼마나)를 볼 수 있는가.
  *
- * iOS는 DeviceActivityReport 익스텐션이 그린 네이티브 뷰를 통째로 임베드한다(수치 자체는
- * JS로 못 가져온다). 안드로이드는 아직 그릴 수단이 없어 닫아 둔다.
+ * 양쪽 다 되지만 **그리는 방식이 다르다** — iOS는 DeviceActivityReport 익스텐션이 그린
+ * 네이티브 뷰를 통째로 임베드하고(수치 자체는 JS로 못 가져온다), 안드로이드는 UsageStats
+ * 수치를 받아 RN이 그린다(GROMO-1608). 호출부는 이 술어로 '보여줄지'만 정하고, '어떻게
+ * 그리는지'는 화면이 Platform으로 갈라 쓴다.
  */
-export const supportsUsageBreakdown = (): boolean => Platform.OS === 'ios';
+export const supportsUsageBreakdown = (): boolean =>
+  Platform.OS === 'ios' || Platform.OS === 'android';
