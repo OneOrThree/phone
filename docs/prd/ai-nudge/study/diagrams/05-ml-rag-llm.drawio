@@ -1,0 +1,83 @@
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17">
+  <diagram id="aibasics" name="모델·LLM·RAG">
+    <mxGraphModel dx="1200" dy="1000" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1040" pageHeight="660" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="모델 · LLM · RAG — 세 부품이 각각 하는 일" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="8" width="500" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="zoneML" value="① 모델 학습 — 판단하는 함수를 데이터로 만든다" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=12;fontStyle=1;fontColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="30" y="44" width="980" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="ml1" value="과거 데이터&#10;특징 X + 정답 y&#10;(focus_sessions 30건+)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="84" width="190" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="ml2" value="모델 f&#10;「이 상황이면 완주 확률 몇?」&#10;(로지스틱 회귀면 충분)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="410" y="84" width="220" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="ml3" value="예측&#10;완주 확률 0.73&#10;(결정은 여전히 우리 몫)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="790" y="84" width="190" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="ml4" value="오늘의 입력&#10;화 10시 · 90분 세션 · 완주율 60%" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="410" y="168" width="220" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="eml1" value="학습 (배치 · 하루 1번)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9673a6;fontSize=10;" edge="1" parent="1" source="ml1" target="ml2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eml2" value="추론 (즉시)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9673a6;fontSize=10;" edge="1" parent="1" source="ml2" target="ml3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eml3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="ml4" target="ml2"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="zoneLLM" value="② LLM — 사실 목록 → 문장. 숫자는 절대 맡기지 않는다" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#6c8ebf;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=12;fontStyle=1;fontColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="30" y="244" width="980" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="llm1" value="프롬프트&#10;사실 목록 + 어투 지시&#10;숫자는 코드가 계산해 넣음" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="288" width="190" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="llm2" value="LLM 생성&#10;(환각 위험 — 특히 숫자)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="288" width="180" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="llm3" value="숫자 검증 게이트&#10;원본 숫자가 그대로 있는가?&#10;(코드가 검사)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="530" y="288" width="200" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="llm4" value="발송&#10;「지난주보다 47분 늘었어요…」" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="790" y="288" width="190" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="llm5" value="검증 실패 → 1차 템플릿으로 폴백 (기능은 계속 동작)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="530" y="376" width="200" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="ellm1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="llm1" target="llm2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ellm2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="llm2" target="llm3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ellm3" value="통과" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#82b366;fontSize=10;" edge="1" parent="1" source="llm3" target="llm4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ellm4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#b85450;fontSize=10;" edge="1" parent="1" source="llm3" target="llm5"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="zoneRAG" value="③ RAG — 생성 전에 내 기록을 검색해 프롬프트에 끼운다 (gromo에선 R = SQL, 벡터DB 불필요)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#82b366;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=12;fontStyle=1;fontColor=#3d7a37;" vertex="1" parent="1">
+          <mxGeometry x="30" y="444" width="980" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="rag1" value="상황&#10;「아침 루틴을 제안할 시점」" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="492" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="rag2" value="내 기록 검색&#10;focus_sessions SQL 조회&#10;(벡터 검색은 비정형 텍스트용)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="270" y="492" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="rag3" value="근거를 프롬프트에 끼움&#10;「화요일 오전 완주율 82%」" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="510" y="492" width="190" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="rag4" value="LLM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="740" y="492" width="80" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="rag5" value="근거 있는 문장&#10;「잘되던 화요일 오전으로&#10;돌아가 볼까요?」" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="850" y="486" width="150" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="erag1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="rag1" target="rag2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="erag2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="rag2" target="rag3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="erag3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="rag3" target="rag4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="erag4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="rag4" target="rag5"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="bottom" value="1차에 셋 다 없는 이유: 판단=빼기 산수 · 근거=자기 테이블 조회 · 말=템플릿 4벌 — 쓸 자리가 없다. 자리가 생기는 순간이 2차다." style="text;html=1;align=left;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="616" width="980" height="24" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="600" viewBox="0 0 1040 600" font-family="-apple-system, 'Helvetica Neue', Arial, 'Apple SD Gothic Neo', sans-serif">
+  <defs>
+    <marker id="ag" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#666666"/></marker>
+  </defs>
+  <rect width="1040" height="600" fill="#ffffff"/>
+
+  <text x="30" y="26" font-size="14" font-weight="bold" fill="#333">2차 알림 6종 — 병목은 AI가 아니라 세 갈래다</text>
+
+  <!-- column A: possible now -->
+  <rect x="40" y="44" width="305" height="280" rx="8" fill="none" stroke="#82b366"/>
+  <text x="54" y="66" font-size="12" font-weight="bold" fill="#3d7a37">✅ 지금 데이터로 가능 — 규칙만으로</text>
+  <g font-size="11" fill="#333" text-anchor="middle">
+    <rect x="62" y="86" width="260" height="56" rx="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="192" y="109" font-weight="bold">14:07 재진입</text>
+    <text x="192" y="129">마지막 세션 후 N시간 규칙</text>
+    <rect x="62" y="158" width="260" height="56" rx="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="192" y="181" font-weight="bold">21:40 성취</text>
+    <text x="192" y="201">기존 달성 알림과 중복 정리 선행</text>
+  </g>
+  <g font-size="10" fill="#3d7a37">
+    <text x="62" y="248">근거: focus_sessions ·</text>
+    <text x="62" y="264">daily_screen_time_stats 조회뿐</text>
+  </g>
+
+  <!-- column B: after data -->
+  <rect x="368" y="44" width="305" height="280" rx="8" fill="none" stroke="#9673a6"/>
+  <text x="382" y="66" font-size="12" font-weight="bold" fill="#9673a6">🕐 데이터 쌓이면 가능 — 모델 (+LLM)</text>
+  <g font-size="11" fill="#333" text-anchor="middle">
+    <rect x="390" y="86" width="260" height="56" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="520" y="109" font-weight="bold">08:00 아침 루틴 제안</text>
+    <text x="520" y="129">완주율 모델 + SQL 조회 + LLM 문구</text>
+    <rect x="390" y="158" width="260" height="56" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="520" y="181" font-weight="bold">09:58 이탈 예고</text>
+    <text x="520" y="201">이탈 예측 모델</text>
+  </g>
+  <g font-size="10" fill="#9673a6">
+    <text x="390" y="248">선행: 유저당 focus_sessions 30건+</text>
+    <text x="390" y="264">병목은 AI가 아니라 데이터 축적</text>
+  </g>
+
+  <!-- column C: blocked -->
+  <rect x="696" y="44" width="305" height="280" rx="8" fill="none" stroke="#b85450"/>
+  <text x="710" y="66" font-size="12" font-weight="bold" fill="#b85450">❌ 하트비트 공사 전엔 불가</text>
+  <g font-size="11" fill="#333" text-anchor="middle">
+    <rect x="718" y="86" width="260" height="56" rx="6" fill="#f8cecc" stroke="#b85450"/>
+    <text x="848" y="118" font-weight="bold">10:15 행동적 개입 (세션 중)</text>
+    <rect x="718" y="158" width="260" height="56" rx="6" fill="#f8cecc" stroke="#b85450"/>
+    <text x="848" y="190" font-weight="bold">10:22 정서적 개입 (세션 중)</text>
+  </g>
+  <g font-size="10" fill="#b85450">
+    <text x="718" y="248">서버는 시작·종료만 안다 — 세션 중은 깜깜</text>
+    <text x="718" y="264">+ 7분 간격 시안 = 「세션당 개입 1회」 필요</text>
+  </g>
+
+  <!-- build order -->
+  <rect x="30" y="360" width="980" height="180" rx="8" fill="none" stroke="#666666"/>
+  <text x="44" y="382" font-size="12" font-weight="bold" fill="#333">만드는 순서 — 왼쪽부터, 각 단계가 그 자체로 출시 가능</text>
+
+  <g font-size="10" fill="#333" text-anchor="middle">
+    <rect x="50" y="410" width="168" height="90" rx="6" fill="#f5f5f5" stroke="#666666"/>
+    <text x="134" y="440" font-weight="bold" font-size="11">① 데이터 분포 조사</text>
+    <text x="134" y="460">유저당 세션 수·</text>
+    <text x="134" y="476">유효일 실측</text>
+
+    <rect x="248" y="410" width="168" height="90" rx="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="332" y="440" font-weight="bold" font-size="11">② 규칙 2종 출시</text>
+    <text x="332" y="460">재진입 · 성취</text>
+    <text x="332" y="476">(AI 없음)</text>
+
+    <rect x="446" y="410" width="168" height="90" rx="6" fill="#e1d5e7" stroke="#9673a6"/>
+    <text x="530" y="436" font-weight="bold" font-size="11">③ 첫 모델: 완주율 예측</text>
+    <text x="530" y="456">특징 집계 → 학습 → 평가</text>
+    <text x="530" y="472">아침 루틴은 템플릿 문구로</text>
+
+    <rect x="644" y="410" width="168" height="90" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="728" y="436" font-weight="bold" font-size="11">④ LLM 문구 교체</text>
+    <text x="728" y="456">+ 숫자 검증 게이트</text>
+    <text x="728" y="472">실패 시 ③으로 폴백</text>
+
+    <rect x="842" y="410" width="168" height="90" rx="6" fill="#f8cecc" stroke="#b85450"/>
+    <text x="926" y="436" font-weight="bold" font-size="11">⑤ 하트비트 공사 후</text>
+    <text x="926" y="456">세션 중 개입</text>
+    <text x="926" y="472">(별도 인프라 트랙)</text>
+  </g>
+
+  <g stroke="#666666" fill="none" marker-end="url(#ag)">
+    <path d="M218,455 L246,455"/>
+    <path d="M416,455 L444,455"/>
+    <path d="M614,455 L642,455"/>
+    <path d="M812,455 L840,455"/>
+  </g>
+
+  <text x="50" y="526" font-size="10" fill="#666">판단(모델)과 표현(LLM)은 실패 모드가 다르다 — 한 번에 켜면 뭐가 틀렸는지 못 가른다. 하나씩 켜고 매 단계 1차 성공 기준을 다시 잰다.</text>
+</svg>

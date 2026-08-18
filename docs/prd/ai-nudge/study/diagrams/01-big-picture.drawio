@@ -1,0 +1,61 @@
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17">
+  <diagram id="bigpic" name="전체 파이프라인">
+    <mxGraphModel dx="1200" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1040" pageHeight="400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="AI 넛지 파이프라인 — 새로 만드는 건 ④ 하나" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="14" width="460" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="note4" value="1차에서 새로 만드는 유일한 칸" style="shape=note;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="620" y="10" width="208" height="32" as="geometry" />
+        </mxCell>
+
+        <mxCell id="s1" value="① 측정&#10;아이폰 익스텐션&#10;GromoScreenTimeMonitor" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="168" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="② 업로드&#10;RN 앱&#10;ScreenTimeSyncer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="240" y="70" width="168" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="③ 저장&#10;서버 DB&#10;daily_screen_time_stats" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="440" y="70" width="168" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="s4" value="④ 판정&#10;매일 21:00 크론&#10;「보낼 말이 있는가」" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="640" y="70" width="168" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="s5" value="⑤ 발송&#10;FCM 푸시&#10;PushNotificationService" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="840" y="70" width="168" height="72" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c1" value="✅ 이미 있음" style="text;html=1;align=center;fontSize=10;fontColor=#3d7a37;" vertex="1" parent="1"><mxGeometry x="40" y="146" width="168" height="20" as="geometry" /></mxCell>
+        <mxCell id="c2" value="✅ 이미 있음" style="text;html=1;align=center;fontSize=10;fontColor=#3d7a37;" vertex="1" parent="1"><mxGeometry x="240" y="146" width="168" height="20" as="geometry" /></mxCell>
+        <mxCell id="c3" value="✅ 이미 있음" style="text;html=1;align=center;fontSize=10;fontColor=#3d7a37;" vertex="1" parent="1"><mxGeometry x="440" y="146" width="168" height="20" as="geometry" /></mxCell>
+        <mxCell id="c4" value="❌ 이걸 만든다" style="text;html=1;align=center;fontSize=10;fontStyle=1;fontColor=#b85450;" vertex="1" parent="1"><mxGeometry x="640" y="146" width="168" height="20" as="geometry" /></mxCell>
+        <mxCell id="c5" value="✅ 이미 있음" style="text;html=1;align=center;fontSize=10;fontColor=#3d7a37;" vertex="1" parent="1"><mxGeometry x="840" y="146" width="168" height="20" as="geometry" /></mxCell>
+
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="s1" target="s2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="s2" target="s3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="s3" target="s4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="s4" target="s5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="en" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#d6b656;dashed=1;" edge="1" parent="1" source="note4" target="s4"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="p2box" value="2차 — AI 층 · 파이프라인 모양은 그대로, ④의 속만 교체된다 (규칙 → 모델, 템플릿 → LLM)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;dashed=1;verticalAlign=top;fontSize=11;fontColor=#9673a6;align=left;spacingLeft=12;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="212" width="968" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="ai1" value="패턴 예측 모델&#10;완주 확률 · 이탈 예측" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;dashed=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="70" y="256" width="270" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ai2" value="RAG&#10;내 기록을 찾아 프롬프트에 끼운다" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;dashed=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="380" y="256" width="270" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ai3" value="LLM&#10;사실 목록 → 자연어 문구" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;dashed=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="690" y="256" width="270" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ea1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9673a6;dashed=1;" edge="1" parent="1" source="ai1" target="s4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ea2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9673a6;dashed=1;" edge="1" parent="1" source="ai2" target="s4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ea3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9673a6;dashed=1;" edge="1" parent="1" source="ai3" target="s4"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

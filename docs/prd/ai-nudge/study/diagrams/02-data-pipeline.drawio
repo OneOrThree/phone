@@ -1,0 +1,59 @@
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17">
+  <diagram id="datapipe" name="데이터 파이프라인">
+    <mxGraphModel dx="1200" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1040" pageHeight="540" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="사용 시간이 서버까지 오는 길 — 가장 좋은 데이터는 못 넘어온다" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="10" width="560" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="zonePhone" value="아이폰" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="50" width="560" height="440" as="geometry" />
+        </mxCell>
+        <mxCell id="zoneServer" value="서버" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="680" y="50" width="330" height="440" as="geometry" />
+        </mxCell>
+
+        <mxCell id="report" value="screentimereport&#10;DeviceActivityReport 익스텐션&#10;앱별 이름·시간이 전부 보임" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="90" width="230" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="barrier" value="🚫 Apple이 네트워크·반출 차단 — 화면에 그리는 것만 허용" style="text;html=1;align=left;fontSize=10;fontColor=#b85450;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="174" width="280" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="statsview" value="통계 화면 (표시 전용)&#10;ScreenTimeReportViewManager&#10;네이티브 뷰를 RN에 꽂아 그림 — 숫자는 못 꺼냄" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="370" width="230" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="monitor" value="GromoScreenTimeMonitor&#10;DeviceActivityMonitor 익스텐션&#10;15분 버킷 임계 콜백만 받음" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="230" width="230" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="appgroup" value="App Group 저장소&#10;usageBucketEvents:&lt;날짜&gt;&#10;{bucket, firedAt}" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;size=12;" vertex="1" parent="1">
+          <mxGeometry x="350" y="222" width="210" height="96" as="geometry" />
+        </mxCell>
+        <mxCell id="grain" value="일 총량 = 도달한 최고 버킷 → 15분 눈금 근사" style="text;html=1;align=left;fontSize=10;fontColor=#8a6d1a;" vertex="1" parent="1">
+          <mxGeometry x="390" y="326" width="240" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="rnapp" value="RN 앱 (ScreenTimeSyncer)&#10;버킷 → 일 총량 환산&#10;앱 시작 + 포그라운드 복귀 때 업로드" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="340" y="370" width="220" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="notServer" value="서버가 끝내 모르는 것&#10;· 어떤 앱을 썼는지&#10;· 몇 시에 썼는지&#10;· 측정 대상이 바뀌었는지" style="shape=note;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="710" y="90" width="270" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="db" value="daily_screen_time_stats&#10;date · totalScreenTimeMinutes&#10;goalAchieved · finalized&#10;← ④ 판정 엔진이 읽는 곳" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;size=12;" vertex="1" parent="1">
+          <mxGeometry x="710" y="240" width="270" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="ctrl" value="POST /screen-time&#10;ScreenTimeRequest — 필드 4개뿐&#10;분 · 목표달성 · reportedAt · isFinal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="710" y="390" width="270" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edReport" value="화면에만" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#b85450;fontSize=10;" edge="1" parent="1" source="report" target="statsview"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="edMon" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="monitor" target="appgroup"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="edAg" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="appgroup" target="rnapp"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="edUp" value="소급은 「어제」 하루뿐 — 이틀 비우면 영영 결측" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" edge="1" parent="1" source="rnapp" target="ctrl"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="edDb" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="ctrl" target="db"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

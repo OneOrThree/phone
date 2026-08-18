@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 넛지 — 판정 시뮬레이터</title>
+<style>
+  :root {
+    --bg: #fafafa; --card: #ffffff; --line: #e5e7eb; --ink: #1f2937; --sub: #6b7280;
+    --accent: #4f46e5; --accent-tint: #eef2ff; --accent-line: #c7d2fe;
+    --warn: #b45309; --warn-tint: #fef3c7; --warn-line: #fcd34d;
+    --green: #15803d; --green-tint: #dcfce7; --green-line: #86efac;
+    --red: #b91c1c; --red-tint: #fee2e2; --red-line: #fca5a5;
+    --miss-a: #f3f4f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, "Helvetica Neue", Arial, "Apple SD Gothic Neo", sans-serif;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--sub); font-size: 13px; margin-bottom: 24px; }
+  h2 { font-size: 16px; margin: 34px 0 10px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+
+  /* ── 컨트롤 ─────────────────────────── */
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .presets button {
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+  }
+  .presets button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  table.week { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table.week th, table.week td { border: 1px solid var(--line); padding: 4px 6px; text-align: center; }
+  table.week th { background: var(--miss-a); font-weight: 600; }
+  table.week input {
+    width: 58px; border: none; text-align: center; font-size: 13px; padding: 4px 0;
+    background: transparent; color: var(--ink);
+  }
+  table.week input:focus { outline: 2px solid var(--accent-line); border-radius: 4px; }
+  .hint { color: var(--sub); font-size: 12px; margin-top: 6px; }
+  .toggles { display: flex; flex-wrap: wrap; gap: 22px; align-items: center; margin-top: 14px; font-size: 13px; }
+  .toggles label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .toggles input[type="range"] { width: 140px; accent-color: var(--accent); }
+  .toggles input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+  .toggles .val { font-weight: 700; color: var(--accent); min-width: 2em; }
+
+  /* ── 주간 결과 ─────────────────────── */
+  .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+  .day {
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 8px; text-align: center;
+    background: var(--card); cursor: pointer; font-size: 12px;
+  }
+  .day.sel { outline: 2px solid var(--accent); }
+  .day .dow { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+  .day .verdict { font-weight: 700; }
+  .day.warn { background: var(--warn-tint); border-color: var(--warn-line); }
+  .day.warn .verdict { color: var(--warn); }
+  .day.cheer { background: var(--green-tint); border-color: var(--green-line); }
+  .day.cheer .verdict { color: var(--green); }
+  .day.silent .verdict { color: var(--sub); }
+  .weeksum { margin-top: 10px; font-size: 13px; color: var(--sub); }
+  .weeksum b { color: var(--ink); }
+
+  /* ── 게이트 + 폰 프리뷰 ────────────── */
+  .detail { display: flex; gap: 20px; margin-top: 16px; flex-wrap: wrap; }
+  .gates { flex: 1 1 420px; }
+  .gate { display: flex; gap: 10px; align-items: baseline; padding: 6px 8px; border-bottom: 1px dashed var(--line); font-size: 13px; }
+  .gate:last-child { border-bottom: none; }
+  .gate .ok { color: var(--green); font-weight: 700; }
+  .gate .no { color: var(--red); font-weight: 700; }
+  .gate .skip { color: var(--sub); font-weight: 700; }
+  .gate .why { color: var(--sub); font-size: 12px; }
+
+  /* ── 아이폰 잠금화면 ───────────────── */
+  .iphone {
+    width: 296px; max-width: 100%; margin: 0 auto;
+    border-radius: 44px; background: #0b0b0e; padding: 10px;
+    box-shadow: inset 0 0 0 2px #2b2d35, 0 18px 40px rgba(0,0,0,.28);
+  }
+  .screen {
+    position: relative; border-radius: 36px; overflow: hidden; aspect-ratio: 9 / 19.5;
+    background: radial-gradient(120% 90% at 30% 10%, #3b4a6b 0%, #21283d 45%, #101422 100%);
+    display: flex; flex-direction: column;
+  }
+  .island { position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    width: 84px; height: 24px; border-radius: 14px; background: #000; }
+  .statusbar { display: flex; justify-content: space-between; padding: 14px 22px 0; color: #fff; font-size: 12px; font-weight: 600; }
+  .lock { text-align: center; color: #fff; margin-top: 26px; }
+  .lock .pad { font-size: 13px; opacity: .9; }
+  .lock .date { font-size: 13px; margin-top: 10px; opacity: .92; }
+  .lock .time { font-size: 60px; font-weight: 250; letter-spacing: -1px; line-height: 1.05; }
+  .noti-area { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 10px 6px; gap: 8px; }
+  .noti {
+    background: rgba(245,245,247,.92); border-radius: 16px; padding: 10px 12px;
+    display: flex; gap: 10px; align-items: flex-start; color: #111; backdrop-filter: blur(6px);
+  }
+  .noti-icon { width: 34px; height: 34px; border-radius: 8px; flex: none; }
+  .noti .txt { min-width: 0; flex: 1; }
+  .noti .row1 { display: flex; justify-content: space-between; gap: 8px; }
+  .noti .app { font-size: 11px; font-weight: 600; color: #444; }
+  .noti .when { font-size: 10px; color: #777; flex: none; }
+  .noti .title { font-size: 12.5px; font-weight: 700; margin-top: 1px; }
+  .noti .body { font-size: 12px; color: #333; margin-top: 1px; }
+  .quick { display: flex; justify-content: space-between; padding: 4px 26px 8px; }
+  .quick .btn { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,.16);
+    display: flex; align-items: center; justify-content: center; }
+  .home-bar { width: 110px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.85);
+    margin: 0 auto 8px; }
+  .phone-empty { color: #cbd5e1; text-align: center; font-size: 13px; padding: 30px 16px; }
+
+  /* ── 2차 갤러리 ────────────────────── */
+  .p2grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
+  .p2item { text-align: center; }
+  .p2item .mini { width: 220px; margin: 0 auto; }
+  .p2item .mini .screen { border-radius: 28px; }
+  .p2item .mini .lock .time { font-size: 44px; }
+  .p2item .mini .noti .title { font-size: 11.5px; }
+  .p2item .mini .noti .body { font-size: 11px; }
+  .p2item .when { font-size: 12px; color: var(--sub); margin-top: 8px; }
+  .needs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 6px; }
+  .badge { font-size: 11px; border-radius: 999px; padding: 2px 10px; border: 1px solid var(--line); color: var(--sub); }
+  .badge.ready { background: var(--green-tint); border-color: var(--green-line); color: var(--green); }
+  .badge.blocked { background: var(--red-tint); border-color: var(--red-line); color: var(--red); }
+  .tone { font-size: 12px; color: var(--accent); background: var(--accent-tint); border: 1px solid var(--accent-line);
+    border-radius: 999px; padding: 2px 10px; display: inline-block; margin-top: 6px; }
+  .foot { margin-top: 40px; font-size: 12px; color: var(--sub); border-top: 1px solid var(--line); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI 넛지 — 판정 시뮬레이터</h1>
+  <div class="sub">
+    prd.md §5의 판정 규칙이 실제로 돈다. 두 주의 분(minute) 데이터를 넣으면 매일 21:00 판정을
+    요일별로 재현한다 — 빈 칸은 <b>결측</b>(0분 아님).
+  </div>
+
+  <h2>① 주간 데이터</h2>
+  <div class="card">
+    <div class="presets" id="presets"></div>
+    <table class="week">
+      <thead><tr><th></th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th>토</th><th>일</th></tr></thead>
+      <tbody>
+        <tr><th>지난주</th><td><input id="l0"></td><td><input id="l1"></td><td><input id="l2"></td><td><input id="l3"></td><td><input id="l4"></td><td><input id="l5"></td><td><input id="l6"></td></tr>
+        <tr><th>이번 주</th><td><input id="t0"></td><td><input id="t1"></td><td><input id="t2"></td><td><input id="t3"></td><td><input id="t4"></td><td><input id="t5"></td><td><input id="t6"></td></tr>
+      </tbody>
+    </table>
+    <div class="hint">단위: 분. 빈 칸 = 결측(업로드 안 됨). 결측을 0으로 채우지 않는 게 이 기능의 규칙이다.</div>
+    <div class="toggles">
+      <label><input type="checkbox" id="selChanged"> 이번 주에 측정 대상 변경 (격려 게이트 ⑥)</label>
+      <label>오늘 다른 푸시 수 <input type="range" id="otherPush" min="0" max="6" value="1" step="1">
+        <span class="val" id="otherPushVal">1</span>건</label>
+    </div>
+  </div>
+
+  <h2>② 주간 판정 결과 <span style="font-weight:400;font-size:12px;color:var(--sub)">— 요일 카드를 누르면 게이트 상세와 알림 화면</span></h2>
+  <div class="card">
+    <div class="days" id="days"></div>
+    <div class="weeksum" id="weeksum"></div>
+    <div class="detail">
+      <div class="gates" id="gates"></div>
+      <div style="flex:0 0 300px" id="phoneSlot"></div>
+    </div>
+  </div>
+
+  <h2>③ 2차 시안 — 구현이 끝난 뒤의 하루 <span style="font-weight:400;font-size:12px;color:var(--sub)">— 1차 범위 아님 (prd §10)</span></h2>
+  <div class="card">
+    <div class="p2grid" id="p2grid"></div>
+    <div class="hint" style="margin-top:14px">
+      10:15와 10:22가 <b>7분 간격</b>인 것에 주목 — 한 세션 안에서 두 번 개입하는 그림이다.
+      2차 설계엔 「세션당 개입 1회」 규칙이 필요하다는 신호(prd §10).
+    </div>
+  </div>
+
+  <div class="foot">
+    정본: <b>prd.md</b> §5(판정 규칙)·§10(2차 시안) · 구현 노트: <b>study/</b> ·
+    임계값 상수는 이 파일의 <code>TH</code> — prd §5와 함께 바꾼다.
+  </div>
+</div>
+
+<script>
+/* ── 임계값 — 정본은 prd §5 (여긴 실행용 사본) ───────────── */
+const TH = {
+  upRatio: 1.2,          // 경고: +20% 이상
+  downRatio: 0.8,        // 격려: -20% 이상 감소
+  minDelta: 30,          // 변화량 30분 이상
+  lastWeekValidDays: 5,  // 지난주 유효일
+  pairedDays: 3,         // 짝지어진 날
+  weeklyCap: 3,          // 주간 상한 (경고+격려 합산)
+  otherPushCap: 3        // 오늘 총 푸시 임계 (자기 침묵)
+};
+const DOW = ['월','화','수','목','금','토','일'];
+
+/* ── 프리셋 ─────────────────────────────────────────────── */
+const PRESETS = [
+  { name: '평온한 주',
+    last: [180,200,190,210,170,220,240], cur: [185,195,200,205,180,225,235] },
+  { name: '폭증한 주',
+    last: [150,160,150,170,160,200,210], cur: [220,240,230,250,240,280,300] },
+  { name: '조금씩만 늘어난 주',
+    last: [180,190,185,200,190,210,220], cur: [195,205,200,215,205,228,240] },
+  { name: '주말만 폭발',
+    last: [180,185,180,190,185,170,180], cur: [185,180,185,195,190,290,300] },
+  { name: '줄어든 주',
+    last: [200,210,220,200,210,240,260], cur: [150,155,160,150,160,180,190] },
+  { name: '결측 많은 주',
+    last: [180,null,null,200,null,220,230], cur: [200,210,220,230,240,260,270] },
+  { name: '신규 가입자',
+    last: [null,null,null,null,null,null,null], cur: [180,200,190,210,200,240,250] }
+];
+
+/* ── 판정 엔진 — 게이트 ①~⑨ (study/03) ─────────────────── */
+function judge(day, last, cur, sentDays, otherPush, selectionChanged) {
+  const gates = [];
+  const push = (name, ok, detail, applies = true) =>
+    gates.push({ name, ok, detail, applies });
+
+  // ① 지난주 유효일 ≥ 5 (유효일 = 분이 null 아닌 날)
+  const validLast = last.filter(v => v != null).length;
+  const g1 = validLast >= TH.lastWeekValidDays;
+  push('① 지난주 유효일 ≥ ' + TH.lastWeekValidDays + '일', g1, validLast + '일');
+
+  // ② 짝지어진 날 ≥ 3 (월~오늘 교집합)
+  let paired = 0, sumLast = 0, sumCur = 0;
+  for (let i = 0; i <= day; i++) {
+    if (last[i] != null && cur[i] != null) { paired++; sumLast += last[i]; sumCur += cur[i]; }
+  }
+  const g2 = paired >= TH.pairedDays;
+  push('② 짝지어진 날 ≥ ' + TH.pairedDays + '일', g2, paired + '일 (교집합 비교)');
+
+  const delta = sumCur - sumLast;
+  const ratio = sumLast > 0 ? sumCur / sumLast : null;
+  const kind = delta >= 0 ? 'warn' : 'cheer';
+
+  // ③ 변화율 ±20%
+  const g3 = ratio != null && (kind === 'warn' ? ratio >= TH.upRatio : ratio <= TH.downRatio);
+  push('③ 변화율 ' + (kind === 'warn' ? '+20% 이상' : '−20% 이상 감소'), g3,
+    ratio == null ? '계산 불가' : ((ratio - 1) * 100).toFixed(0) + '%', g1 && g2);
+
+  // ④ 변화량 ±30분
+  const g4 = Math.abs(delta) >= TH.minDelta;
+  push('④ 변화량 ±' + TH.minDelta + '분 이상', g4, (delta >= 0 ? '+' : '−') + fmtMin(Math.abs(delta)), g1 && g2);
+
+  // ⑤ 격려는 일요일만
+  const g5 = kind === 'warn' || day === 6;
+  push('⑤ 격려는 일요일만', g5, kind === 'warn' ? '경고 — 건너뜀' : DOW[day] + '요일' + (day === 6 ? '' : ' — 주중 격려 금지'), kind === 'cheer');
+
+  // ⑥ 격려는 측정 대상 불변일 때만
+  const g6 = kind === 'warn' || !selectionChanged;
+  push('⑥ 측정 대상 불변 (격려 전용)', g6,
+    kind === 'warn' ? '경고 — 건너뜀' : (selectionChanged ? '이번 주 대상 변경됨' : '변경 없음'), kind === 'cheer');
+
+  // ⑦ 연속 2일 금지
+  const g7 = !sentDays.includes(day - 1);
+  push('⑦ 어제 발송 없음 (연속 2일 금지)', g7, g7 ? '어제 침묵' : '어제 발송됨');
+
+  // ⑧ 주 3회 상한 (경고+격려 합산)
+  const g8 = sentDays.length < TH.weeklyCap;
+  push('⑧ 이번 주 발송 < ' + TH.weeklyCap + '회', g8, sentDays.length + '회 발송됨');
+
+  // ⑨ 오늘 총 푸시 < 3 (자기 침묵)
+  const g9 = otherPush < TH.otherPushCap;
+  push('오늘 총 푸시', g9, otherPush + '건 / 임계 ' + TH.otherPushCap + '건',
+    true);
+  gates[gates.length - 1].name = '⑨ 오늘 총 푸시 < ' + TH.otherPushCap + '건 (자기 침묵)';
+
+  const fire = g1 && g2 && g3 && g4 && g5 && g6 && g7 && g8 && g9;
+  return { fire, kind, delta, ratio, sumLast, sumCur, paired, gates, day, last, cur };
+}
+
+/* ── 문구 축 선택 (prd §5 — 하나만) ─────────────────────── */
+function pickCopy(r) {
+  const d = r.day;
+  if (r.kind === 'cheer') {
+    return { axis: '격려', title: '이번 주 잘 지키셨어요',
+      body: '이번 주 관리 중인 앱을 지난주보다 ' + fmtMin(Math.abs(r.delta)) + ' 덜 썼어요.' };
+  }
+  if (d === 6) {
+    return { axis: '주 총합 대비', title: '이번 주 사용시간이 늘었어요',
+      body: '지난주보다 관리 중인 앱을 ' + fmtMin(r.delta) + ' 더 쓴 채로 한 주가 끝나요.' };
+  }
+  const todayInc = (r.cur[d] != null && r.last[d] != null) ? r.cur[d] - r.last[d] : 0;
+  if (todayInc > 0 && todayInc >= r.delta / 2) {
+    return { axis: '같은 요일 대비', title: '지난주보다 사용시간이 많아요',
+      body: '지난주 ' + DOW[d] + '요일보다 ' + fmtMin(todayInc) + ' 더 쓰셨어요.' };
+  }
+  return { axis: '누적 대비', title: '지난주보다 사용시간이 많아요',
+    body: '지난주 이맘때보다 관리 중인 앱을 ' + fmtMin(r.delta) + ' 더 썼어요.' };
+}
+
+function fmtMin(m) {
+  m = Math.round(m);
+  const h = Math.floor(m / 60), r = m % 60;
+  if (h && r) return h + '시간 ' + r + '분';
+  if (h) return h + '시간';
+  return r + '분';
+}
+
+/* ── 아이폰 잠금화면 ────────────────────────────────────── */
+const ICON = 'data:image/png;base64,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';
+function phoneHTML(time, title, body, mini) {
+  return '<div class="iphone' + (mini ? ' mini' : '') + '"><div class="screen">' +
+    '<div class="island"></div>' +
+    '<div class="statusbar"><span>' + time + '</span><span>📶 ﹏ 🔋</span></div>' +
+    '<div class="lock"><div class="pad">🔒</div><div class="date">8월 18일 화요일</div>' +
+    '<div class="time">' + time + '</div></div>' +
+    '<div class="noti-area"><div class="noti">' +
+    '<img class="noti-icon" src="' + ICON + '" alt="gromo">' +
+    '<div class="txt"><div class="row1"><span class="app">GROMO</span><span class="when">지금</span></div>' +
+    '<div class="title">' + title + '</div><div class="body">' + body + '</div></div>' +
+    '</div></div>' +
+    '<div class="quick"><div class="btn">🔦</div><div class="btn">📷</div></div>' +
+    '<div class="home-bar"></div>' +
+    '</div></div>';
+}
+
+/* ── 2차 시안 (prd §10 — 가능/불가는 prd가 정본) ────────── */
+const PHASE2 = [
+  { time: '08:00', when: '기상 직후 — 아침 루틴 제안', tone: '루틴 제안',
+    title: '오늘의 집중 플랜', body: '오늘은 10:00–11:30 딥워크 어때요? 화요일 오전에 가장 잘 되셨어요.',
+    needs: [{ t: '세션 30건+', k: '' }, { t: '완주율 모델', k: '' }, { t: 'LLM 문구', k: '' }] },
+  { time: '09:58', when: '평소 시작 시각 직전 — 이탈 예고', tone: '행동적 개입',
+    title: '오늘 세션, 놓칠 확률이 높아요', body: '이 시간대를 넘기면 완주율이 절반으로 떨어져요. 10분만 시작해 볼까요?',
+    needs: [{ t: '이탈 예측 모델', k: '' }] },
+  { time: '10:15', when: '세션 중 — 흔들림 감지', tone: '행동적 개입',
+    title: '집중이 흔들리고 있어요', body: '남은 45분, 폰을 뒤집어 두면 완주 확률이 올라가요.',
+    needs: [{ t: '하트비트 없음 — 불가', k: 'blocked' }] },
+  { time: '10:22', when: '세션 중 — 정서적 개입', tone: '정서적 개입',
+    title: '잘 버티고 있어요', body: '여기까지 22분. 평소의 고비를 지났어요 — 끝까지 가 봐요.',
+    needs: [{ t: '하트비트 없음 — 불가', k: 'blocked' }] },
+  { time: '14:07', when: '점심 이후 — 재진입 넛지', tone: '재진입',
+    title: '오후 집중 어때요?', body: '오전 세션 좋았어요. 오후 딥워크를 이어가면 오늘 목표까지 40분이에요.',
+    needs: [{ t: '지금 데이터로 가능', k: 'ready' }] },
+  { time: '21:40', when: '저녁 — 성취 확인', tone: '성취',
+    title: '오늘 목표 달성!', body: '관리 중인 앱을 목표 안으로 지켰어요. 이번 주 3일째예요.',
+    needs: [{ t: '지금 데이터로 가능 · 기존 달성 알림과 중복 정리', k: 'ready' }] }
+];
+
+/* ── UI 배선 ────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+let selDay = 6;
+
+function readWeek(prefix) {
+  const a = [];
+  for (let i = 0; i < 7; i++) {
+    const v = $(prefix + i).value.trim();
+    a.push(v === '' ? null : Math.max(0, parseInt(v, 10) || 0));
+  }
+  return a;
+}
+
+function runWeek() {
+  const last = readWeek('l'), cur = readWeek('t');
+  const selectionChanged = $('selChanged').checked;
+  const otherPush = parseInt($('otherPush').value, 10);
+  $('otherPushVal').textContent = otherPush;
+
+  const results = [];
+  const sentDays = [];
+  for (let d = 0; d < 7; d++) {
+    const r = judge(d, last, cur, sentDays.slice(), otherPush, selectionChanged);
+    if (r.fire) sentDays.push(d);
+    r.copy = r.fire ? pickCopy(r) : null;
+    results.push(r);
+  }
+
+  // 요일 카드
+  $('days').innerHTML = results.map((r, d) =>
+    '<div class="day ' + (r.fire ? r.kind : 'silent') + (d === selDay ? ' sel' : '') + '" data-d="' + d + '">' +
+    '<div class="dow">' + DOW[d] + '</div>' +
+    '<div class="verdict">' + (r.fire ? (r.kind === 'warn' ? '경고' : '격려') : '침묵') + '</div>' +
+    (r.copy ? '<div style="color:var(--sub)">' + r.copy.axis + '</div>' : '') +
+    '</div>').join('');
+  document.querySelectorAll('.day').forEach(el =>
+    el.addEventListener('click', () => { selDay = +el.dataset.d; runWeek(); }));
+
+  const sent = results.filter(r => r.fire).length;
+  $('weeksum').innerHTML = sent === 0
+    ? '이번 주 발송 <b>0건</b> — 한 주 내내 침묵합니다. 침묵은 정상 동작이다(prd §7).'
+    : '이번 주 발송 <b>' + sent + '건</b> (상한 ' + TH.weeklyCap + '회 · 연속 2일 금지 적용 후).';
+
+  // 게이트 상세 + 폰
+  const r = results[selDay];
+  $('gates').innerHTML =
+    '<div style="font-weight:700;margin-bottom:6px">' + DOW[selDay] + '요일 21:00 판정</div>' +
+    r.gates.map(g =>
+      '<div class="gate"><span class="' + (!g.applies ? 'skip' : g.ok ? 'ok' : 'no') + '">' +
+      (!g.applies ? '―' : g.ok ? '통과' : '침묵') + '</span><span>' + g.name +
+      '</span><span class="why">' + g.detail + '</span></div>').join('');
+  $('phoneSlot').innerHTML = r.fire
+    ? phoneHTML('21:00', r.copy.title, r.copy.body, false)
+    : '<div class="iphone"><div class="screen"><div class="island"></div>' +
+      '<div class="statusbar"><span>21:00</span><span>📶 ﹏ 🔋</span></div>' +
+      '<div class="lock"><div class="pad">🔒</div><div class="date">8월 18일 화요일</div><div class="time">21:00</div></div>' +
+      '<div class="noti-area"><div class="phone-empty">알림 없음 — 침묵 (정상 동작)</div></div>' +
+      '<div class="quick"><div class="btn">🔦</div><div class="btn">📷</div></div>' +
+      '<div class="home-bar"></div></div></div>';
+}
+
+function setPreset(i) {
+  const p = PRESETS[i];
+  for (let d = 0; d < 7; d++) {
+    $('l' + d).value = p.last[d] == null ? '' : p.last[d];
+    $('t' + d).value = p.cur[d] == null ? '' : p.cur[d];
+  }
+  document.querySelectorAll('#presets button').forEach((b, j) => b.classList.toggle('on', i === j));
+  runWeek();
+}
+
+$('presets').innerHTML = PRESETS.map((p, i) =>
+  '<button data-i="' + i + '">' + p.name + '</button>').join('');
+document.querySelectorAll('#presets button').forEach(b =>
+  b.addEventListener('click', () => setPreset(+b.dataset.i)));
+for (let d = 0; d < 7; d++) {
+  $('l' + d).addEventListener('input', runWeek);
+  $('t' + d).addEventListener('input', runWeek);
+}
+$('selChanged').addEventListener('change', runWeek);
+$('otherPush').addEventListener('input', runWeek);
+
+$('p2grid').innerHTML = PHASE2.map(p =>
+  '<div class="p2item"><div class="mini">' + phoneHTML(p.time, p.title, p.body, true) + '</div>' +
+  '<div class="when"><b>' + p.time + '</b> · ' + p.when + '</div>' +
+  '<div><span class="tone">' + p.tone + '</span></div>' +
+  '<div class="needs">' + p.needs.map(n => '<span class="badge ' + n.k + '">' + n.t + '</span>').join('') + '</div>' +
+  '</div>').join('');
+
+setPreset(1); // 폭증한 주로 시작
+</script>
+</body>
+</html>

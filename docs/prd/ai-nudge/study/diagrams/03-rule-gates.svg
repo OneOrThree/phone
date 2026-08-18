@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="1040" viewBox="0 0 880 1040" font-family="-apple-system, 'Helvetica Neue', Arial, 'Apple SD Gothic Neo', sans-serif">
+  <defs>
+    <marker id="ag" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#666666"/></marker>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#b85450"/></marker>
+  </defs>
+  <rect width="880" height="1040" fill="#ffffff"/>
+
+  <text x="40" y="30" font-size="14" font-weight="bold" fill="#333">판정 게이트 체인 — 하나라도 걸리면 침묵 (침묵이 기본값)</text>
+
+  <!-- silence lane -->
+  <rect x="580" y="206" width="250" height="638" rx="8" fill="#d5e8d4" stroke="#82b366"/>
+  <g font-size="13" font-weight="bold" fill="#333" text-anchor="middle">
+    <text x="705" y="490" font-size="18">침묵</text>
+    <text x="705" y="516">= 정상 동작</text>
+    <text x="705" y="552" font-weight="normal" font-size="12">보내지 않는 것이</text>
+    <text x="705" y="570" font-weight="normal" font-size="12">실패가 아니다</text>
+  </g>
+
+  <!-- main column -->
+  <g font-size="11" fill="#333" text-anchor="middle">
+    <rect x="60" y="50" width="440" height="44" rx="6" fill="#f5f5f5" stroke="#666666"/>
+    <text x="280" y="77" font-size="12" font-weight="bold">매일 21:00 (KST) 크론 — 유저마다 판정 시작</text>
+
+    <rect x="60" y="118" width="440" height="60" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="280" y="142">이번 주 월~오늘 누적 vs 지난주 월~같은 요일 누적</text>
+    <text x="280" y="162" font-weight="bold">양쪽에 데이터 있는 날만 짝지어 합산 (교집합 비교)</text>
+
+    <rect x="60" y="206" width="440" height="46" rx="6" fill="#fff2cc" stroke="#d6b656"/>
+    <text x="280" y="234">① 지난주 유효일 ≥ 5일?</text>
+
+    <rect x="60" y="280" width="440" height="46" rx="6" fill="#fff2cc" stroke="#d6b656"/>
+    <text x="280" y="308">② 짝지어진 날 ≥ 3일?</text>
+
+    <rect x="60" y="354" width="440" height="44" rx="6" fill="#f5f5f5" stroke="#666666"/>
+    <text x="280" y="381">Δ = 이번 주 − 지난주 → 부호가 경고/격려를 가른다</text>
+
+    <rect x="60" y="426" width="440" height="96" rx="6" fill="#fff2cc" stroke="#d6b656"/>
+    <text x="280" y="452" font-weight="bold">③④ 방향별 임계 통과?</text>
+    <text x="280" y="476">경고(Δ&gt;0): 증가율 +20% 이상 AND 증가량 +30분 이상</text>
+    <text x="280" y="498">격려(Δ&lt;0): 감소율 20% 이상 AND 감소량 30분 이상</text>
+
+    <rect x="60" y="550" width="440" height="72" rx="6" fill="#fff2cc" stroke="#d6b656"/>
+    <text x="280" y="576">⑤⑥ 격려 전용 — 오늘이 일요일? · 그 주 측정 대상 불변?</text>
+    <text x="280" y="598" fill="#8a6d1a">(경고는 이 칸을 건너뜀 = 자동 통과)</text>
+
+    <rect x="60" y="650" width="440" height="46" rx="6" fill="#fff2cc" stroke="#d6b656"/>
+    <text x="280" y="678">⑦ 어제 발송 없음? (연속 2일 금지)</text>
+
+    <rect x="60" y="724" width="440" height="46" rx="6" fill="#fff2cc" stroke="#d6b656"/>
+    <text x="280" y="752">⑧ 이번 주 발송 &lt; 3회? (경고+격려 합산 · notification_sent_logs)</text>
+
+    <rect x="60" y="798" width="440" height="46" rx="6" fill="#fff2cc" stroke="#d6b656"/>
+    <text x="280" y="826">⑨ 오늘 이 유저가 받은 총 푸시 &lt; 3건? (자기 침묵)</text>
+
+    <rect x="60" y="872" width="440" height="64" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+    <text x="280" y="898" font-weight="bold">문구 축 하나만 선택</text>
+    <text x="280" y="920">격려 → 주 총합(일요일) → 같은 요일(오늘 급증) → 누적(기본)</text>
+
+    <rect x="60" y="964" width="440" height="44" rx="6" fill="#d5e8d4" stroke="#82b366"/>
+    <text x="280" y="991" font-size="12" font-weight="bold">판정 통과 — 발송 계층으로 → 04-delivery</text>
+  </g>
+
+  <!-- pass arrows -->
+  <g stroke="#666666" fill="none" marker-end="url(#ag)">
+    <path d="M280,94 L280,116"/>
+    <path d="M280,178 L280,204"/>
+    <path d="M280,252 L280,278"/>
+    <path d="M280,326 L280,352"/>
+    <path d="M280,398 L280,424"/>
+    <path d="M280,522 L280,548"/>
+    <path d="M280,622 L280,648"/>
+    <path d="M280,696 L280,722"/>
+    <path d="M280,770 L280,796"/>
+    <path d="M280,844 L280,870"/>
+    <path d="M280,936 L280,962"/>
+  </g>
+  <g font-size="10" fill="#666" text-anchor="start">
+    <text x="288" y="270">예</text>
+    <text x="288" y="344">예</text>
+    <text x="288" y="540">예</text>
+    <text x="288" y="640">예</text>
+    <text x="288" y="714">예</text>
+    <text x="288" y="788">예</text>
+    <text x="288" y="862">예</text>
+  </g>
+
+  <!-- fail arrows -->
+  <g stroke="#b85450" fill="none" marker-end="url(#ar)">
+    <path d="M500,229 L578,229"/>
+    <path d="M500,303 L578,303"/>
+    <path d="M500,474 L578,474"/>
+    <path d="M500,586 L578,586"/>
+    <path d="M500,673 L578,673"/>
+    <path d="M500,747 L578,747"/>
+    <path d="M500,821 L578,821"/>
+  </g>
+  <g font-size="10" fill="#b85450" text-anchor="middle">
+    <text x="539" y="223">아니오</text>
+    <text x="539" y="297">아니오</text>
+    <text x="539" y="468">아니오</text>
+    <text x="539" y="580">아니오</text>
+    <text x="539" y="667">아니오</text>
+    <text x="539" y="741">아니오</text>
+    <text x="539" y="815">아니오</text>
+  </g>
+</svg>

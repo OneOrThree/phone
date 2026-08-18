@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="540" viewBox="0 0 1040 540" font-family="-apple-system, 'Helvetica Neue', Arial, 'Apple SD Gothic Neo', sans-serif">
+  <defs>
+    <marker id="ag" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#666666"/></marker>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#b85450"/></marker>
+    <marker id="ab" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#6c8ebf"/></marker>
+  </defs>
+  <rect width="1040" height="540" fill="#ffffff"/>
+
+  <text x="30" y="30" font-size="14" font-weight="bold" fill="#333">사용 시간이 서버까지 오는 길 — 가장 좋은 데이터는 못 넘어온다</text>
+
+  <!-- zones -->
+  <rect x="30" y="50" width="560" height="440" rx="8" fill="none" stroke="#666666"/>
+  <text x="44" y="72" font-size="12" font-weight="bold" fill="#333">아이폰</text>
+  <rect x="680" y="50" width="330" height="440" rx="8" fill="none" stroke="#666666"/>
+  <text x="694" y="72" font-size="12" font-weight="bold" fill="#333">서버</text>
+
+  <!-- report extension (blocked) -->
+  <rect x="60" y="90" width="230" height="80" rx="6" fill="#f8cecc" stroke="#b85450"/>
+  <g font-size="11" fill="#333" text-anchor="middle">
+    <text x="175" y="112" font-weight="bold">screentimereport</text>
+    <text x="175" y="130">DeviceActivityReport 익스텐션</text>
+    <text x="175" y="148">앱별 이름·시간이 전부 보임</text>
+  </g>
+  <text x="60" y="188" font-size="10" font-weight="bold" fill="#b85450">🚫 Apple이 네트워크·반출 차단 — 화면에 그리는 것만 허용</text>
+
+  <!-- monitor extension -->
+  <rect x="60" y="230" width="230" height="80" rx="6" fill="#f5f5f5" stroke="#666666"/>
+  <g font-size="11" fill="#333" text-anchor="middle">
+    <text x="175" y="252" font-weight="bold">GromoScreenTimeMonitor</text>
+    <text x="175" y="270">DeviceActivityMonitor 익스텐션</text>
+    <text x="175" y="288">15분 버킷 임계 콜백만 받음</text>
+  </g>
+
+  <!-- app group cylinder -->
+  <g>
+    <path d="M350,240 a105,10 0 0,0 210,0 v66 a105,10 0 0,1 -210,0 z" fill="#fff2cc" stroke="#d6b656"/>
+    <ellipse cx="455" cy="240" rx="105" ry="10" fill="#fff2cc" stroke="#d6b656"/>
+  </g>
+  <g font-size="11" fill="#333" text-anchor="middle">
+    <text x="455" y="268" font-weight="bold">App Group 저장소</text>
+    <text x="455" y="286">usageBucketEvents:&lt;날짜&gt;</text>
+    <text x="455" y="304">{bucket, firedAt}</text>
+  </g>
+  <text x="392" y="340" font-size="10" fill="#8a6d1a">일 총량 = 도달한 최고 버킷</text>
+  <text x="392" y="356" font-size="10" fill="#8a6d1a">→ 15분 눈금 근사</text>
+
+  <!-- stats view (display only) -->
+  <rect x="60" y="370" width="230" height="80" rx="6" fill="#f5f5f5" stroke="#666666"/>
+  <g font-size="10" fill="#333" text-anchor="middle">
+    <text x="175" y="392" font-weight="bold" font-size="11">통계 화면 (표시 전용)</text>
+    <text x="175" y="410">ScreenTimeReportViewManager</text>
+    <text x="175" y="426">네이티브 뷰를 RN에 꽂아 그림</text>
+    <text x="175" y="442">숫자는 못 꺼냄</text>
+  </g>
+
+  <!-- RN app -->
+  <rect x="340" y="370" width="220" height="90" rx="6" fill="#dae8fc" stroke="#6c8ebf"/>
+  <g font-size="11" fill="#333" text-anchor="middle">
+    <text x="450" y="394" font-weight="bold">RN 앱 (ScreenTimeSyncer)</text>
+    <text x="450" y="414">버킷 → 일 총량 환산</text>
+    <text x="450" y="432">앱 시작 + 포그라운드 복귀</text>
+    <text x="450" y="448">때만 업로드</text>
+  </g>
+
+  <!-- server: unknown note -->
+  <path d="M710,90 h256 l14,14 v96 h-270 z" fill="#fff2cc" stroke="#d6b656"/>
+  <path d="M966,90 v14 h14 z" fill="#ffe599" stroke="#d6b656"/>
+  <g font-size="11" fill="#333">
+    <text x="724" y="114" font-weight="bold">서버가 끝내 모르는 것</text>
+    <text x="724" y="136">· 어떤 앱을 썼는지</text>
+    <text x="724" y="156">· 몇 시에 썼는지</text>
+    <text x="724" y="176">· 측정 대상이 바뀌었는지</text>
+  </g>
+
+  <!-- server: db cylinder -->
+  <g>
+    <path d="M710,258 a135,12 0 0,0 270,0 v80 a135,12 0 0,1 -270,0 z" fill="#d5e8d4" stroke="#82b366"/>
+    <ellipse cx="845" cy="258" rx="135" ry="12" fill="#d5e8d4" stroke="#82b366"/>
+  </g>
+  <g font-size="11" fill="#333" text-anchor="middle">
+    <text x="845" y="288" font-weight="bold">daily_screen_time_stats</text>
+    <text x="845" y="306">date · totalScreenTimeMinutes</text>
+    <text x="845" y="322">goalAchieved · finalized</text>
+    <text x="845" y="342" fill="#3d7a37" font-weight="bold">← ④ 판정 엔진이 읽는 곳</text>
+  </g>
+
+  <!-- server: controller -->
+  <rect x="710" y="390" width="270" height="70" rx="6" fill="#f5f5f5" stroke="#666666"/>
+  <g font-size="11" fill="#333" text-anchor="middle">
+    <text x="845" y="410" font-weight="bold">POST /screen-time</text>
+    <text x="845" y="428">ScreenTimeRequest — 필드 4개뿐</text>
+    <text x="845" y="446">분 · 목표달성 · reportedAt · isFinal</text>
+  </g>
+
+  <!-- arrows -->
+  <g fill="none">
+    <path d="M175,170 L175,228" stroke="#b85450" marker-end="url(#ar)"/>
+    <text x="182" y="212" font-size="10" fill="#b85450">화면에만</text>
+    <path d="M290,270 L348,270" stroke="#666666" marker-end="url(#ag)"/>
+    <path d="M375,316 L375,368" stroke="#666666" marker-end="url(#ag)"/>
+    <path d="M560,415 L708,415" stroke="#6c8ebf" stroke-width="1.6" marker-end="url(#ab)"/>
+    <path d="M845,388 L845,352" stroke="#666666" marker-end="url(#ag)"/>
+  </g>
+  <text x="634" y="404" font-size="10" font-weight="bold" fill="#6c8ebf" text-anchor="middle">소급은 「어제」 하루뿐</text>
+  <text x="634" y="432" font-size="10" fill="#6c8ebf" text-anchor="middle">이틀 비우면 영영 결측</text>
+</svg>

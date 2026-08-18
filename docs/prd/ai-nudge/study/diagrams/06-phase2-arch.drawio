@@ -1,0 +1,79 @@
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17">
+  <diagram id="phase2" name="2차 아키텍처">
+    <mxGraphModel dx="1200" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1040" pageHeight="600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="2차 알림 6종 — 병목은 AI가 아니라 세 갈래다" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="8" width="560" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="colA" value="✅ 지금 데이터로 가능 — 규칙만으로" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#82b366;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=12;fontStyle=1;fontColor=#3d7a37;" vertex="1" parent="1">
+          <mxGeometry x="40" y="44" width="305" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" value="14:07 재진입&#10;마지막 세션 후 N시간 규칙" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="62" y="86" width="260" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="21:40 성취&#10;기존 달성 알림과 중복 정리 선행" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="62" y="158" width="260" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="ac" value="근거: focus_sessions ·&#10;daily_screen_time_stats 조회뿐" style="text;html=1;align=left;fontSize=10;fontColor=#3d7a37;" vertex="1" parent="1">
+          <mxGeometry x="62" y="232" width="260" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="colB" value="🕐 데이터 쌓이면 가능 — 모델 (+LLM)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673a6;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=12;fontStyle=1;fontColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="368" y="44" width="305" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="b1" value="08:00 아침 루틴 제안&#10;완주율 모델 + SQL 조회 + LLM 문구" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="390" y="86" width="260" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" value="09:58 이탈 예고&#10;이탈 예측 모델" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="390" y="158" width="260" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="bc" value="선행: 유저당 focus_sessions 30건+&#10;병목은 AI가 아니라 데이터 축적" style="text;html=1;align=left;fontSize=10;fontColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="390" y="232" width="260" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="colC" value="❌ 하트비트 공사 전엔 불가" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#b85450;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=12;fontStyle=1;fontColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="696" y="44" width="305" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="10:15 행동적 개입 (세션 중)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="718" y="86" width="260" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="10:22 정서적 개입 (세션 중)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="718" y="158" width="260" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="cc" value="서버는 시작·종료만 안다 — 세션 중은 깜깜&#10;+ 7분 간격 시안 = 「세션당 개입 1회」 필요" style="text;html=1;align=left;fontSize=10;fontColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="718" y="232" width="270" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="order" value="만드는 순서 — 왼쪽부터, 각 단계가 그 자체로 출시 가능" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="360" width="980" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="o1" value="① 데이터 분포 조사&#10;유저당 세션 수·유효일 실측" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="50" y="410" width="168" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="o2" value="② 규칙 2종 출시&#10;재진입 · 성취&#10;(AI 없음)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="248" y="410" width="168" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="o3" value="③ 첫 모델: 완주율 예측&#10;특징 집계 → 학습 → 평가&#10;아침 루틴은 템플릿 문구로" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="446" y="410" width="168" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="o4" value="④ LLM 문구 교체&#10;+ 숫자 검증 게이트&#10;실패 시 ③으로 폴백" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="644" y="410" width="168" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="o5" value="⑤ 하트비트 공사 후&#10;세션 중 개입&#10;(별도 인프라 트랙)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="842" y="410" width="168" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="onote" value="판단(모델)과 표현(LLM)은 실패 모드가 다르다 — 한 번에 켜면 뭐가 틀렸는지 못 가른다. 하나씩 켜고 매 단계 1차 성공 기준을 다시 잰다." style="text;html=1;align=left;fontSize=10;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="50" y="508" width="940" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="eo1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="o1" target="o2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eo2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="o2" target="o3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eo3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="o3" target="o4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eo4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#666666;" edge="1" parent="1" source="o4" target="o5"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
