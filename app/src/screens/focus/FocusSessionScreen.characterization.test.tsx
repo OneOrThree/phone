@@ -974,9 +974,11 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     // 완성하면 「빈 첫 렌더 → 로드 후 재실행」 경로가 검증에서 빠진다(codex 리뷰 28차).
     await renderSession({ mode: 'countup', initialGroupId: 'g2' }); // 그룹 로드 전
     expect(mockCharActiveCaptures.at(-1)).toBe(true); // 아직 캐릭터 페이지
+    const alphaMembers = [{ userId: 'a1', nickname: '알파멤버' }];
+    const betaMembers = [{ userId: 'b1', nickname: '베타멤버' }];
     mockSessionGroups = [
-      { groupId: 'g1', groupName: '알파', members: [] },
-      { groupId: 'g2', groupName: '베타', members: [] },
+      { groupId: 'g1', groupName: '알파', members: alphaMembers },
+      { groupId: 'g2', groupName: '베타', members: betaMembers },
     ];
     // 그룹 로드 완료를 재현 — 리렌더로 훅이 새 목록을 돌려주고 초기 스크롤 이펙트가 재실행된다
     await fireEvent.press(view.getByTestId('focus.pause'));
@@ -990,6 +992,10 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     // 1인 그룹에서도 내 셀은 보인다 — showMeWhenEmpty가 빠지면 멤버 0명 그룹 페이지가
     // 빈 상태로 렌더돼 자신의 집중 시간·과목이 안 보인다(codex 리뷰 28차).
     expect(lastGridProps('그룹: 베타')!.showMeWhenEmpty).toBe(true);
+    // 그룹별 멤버 목록이 각자의 그리드에 배선된다 — 재사용·뒤바뀜이면 다른 그룹 사용자가
+    // 표시된다(codex 리뷰 30차). 참조 동일성으로 단언.
+    expect(lastGridProps('그룹: 알파')!.members).toBe(alphaMembers);
+    expect(lastGridProps('그룹: 베타')!.members).toBe(betaMembers);
   });
 
   test('커스텀 캐릭터 장착 시: 캡처 대상 study 캐릭터에 activeSource가 배선된다', async () => {
@@ -1047,6 +1053,17 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(lastGridProps('전체 리그')!.members).toBe(mockLeagueMembers);
   });
 
+  test('준비 시험 미설정: 같은 시험 조회는 enabled: false로 비활성화된다', async () => {
+    // enabled가 빠지면 훅 기본값 true로 getMyRanking(undefined)를 호출해, 시험 미설정 사용자의
+    // 같은 시험 페이지가 전체 리그 데이터를 불러오고 60초 폴링까지 돈다(codex 리뷰 30차).
+    await renderSession({ mode: 'countup' }); // 카테고리 기본 null
+    expect(mockLeagueArgs).toContainEqual({
+      occupation: undefined,
+      enabled: false,
+      excludeUserId: 'user-1',
+    });
+  });
+
   test('첫 집중 안내: 화면 고유 저장 키와 4단계가 배선된다', async () => {
     // 안내 배선이 빠지면 첫 사용자가 페이저·메뉴·일시정지·정지 안내를 못 받고, 키가 다르면
     // 매 세션 안내가 반복된다(codex 리뷰 28차).
@@ -1054,6 +1071,15 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     const guide = mockGuideCaptures.at(-1)!;
     expect(guide.storageKey).toBe(STORAGE_KEYS.guideFocusSession);
     expect(guide.steps).toHaveLength(4);
+    // 단계별 앵커 배선 — 앵커가 빠지거나 뒤바뀌면 첫 사용자에게 엉뚱한 요소가 강조된다
+    // (codex 리뷰 30차). 1단계=전체 화면(무앵커), 2=페이저 점, 3=메뉴(round), 4=컨트롤(radius).
+    const steps = guide.steps as Array<{ anchor?: unknown; round?: boolean; radius?: number }>;
+    expect(steps[0].anchor).toBeUndefined();
+    expect(steps[1].anchor).toBeTruthy();
+    expect(steps[2].anchor).toBeTruthy();
+    expect(steps[2].round).toBe(true);
+    expect(steps[3].anchor).toBeTruthy();
+    expect(steps[3].radius).toBe(36);
   });
 
   test('Live Activity 시작이 거부돼도: 타이머·정산·결과 이동은 계속된다', async () => {
@@ -1567,6 +1593,26 @@ describe('카운트다운 — 완료 게이트', () => {
     );
   });
 
+  test('방향 잠금 브리지가 거부돼도: 세션·정산·결과 이동·언마운트가 계속된다', async () => {
+    // 마운트 DEFAULT·완료 PORTRAIT_UP·언마운트 잠금이 전부 fire-and-forget(.catch)이 현행이다 —
+    // 전파로 바뀌면 방향 잠금이 거부되는 기기에서 미처리 거부·세션 중단이 생긴다(codex 리뷰 30차).
+    const lockMock = ScreenOrientation.lockAsync as jest.Mock;
+    lockMock.mockRejectedValue(new Error('orientation bridge'));
+    try {
+      await renderSession({ mode: 'countdown', goalSeconds: 3 });
+      await advance(3000); // 마운트·완료 잠금 모두 거부돼도 게이트까지 정상
+      expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
+      await fireEvent.press(view.getByText('확인'));
+      await flush();
+      expect(mockedUpload).toHaveBeenCalledTimes(1);
+      expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3, completed: true });
+      await view.unmount(); // 언마운트 잠금 거부도 무해
+      await act(async () => {});
+    } finally {
+      lockMock.mockImplementation(() => Promise.resolve()); // 모듈 목 구현은 clearAllMocks로 안 돌아온다
+    }
+  });
+
   test('창이 가로가 되면 FocusLandscape로 갈리고, 복귀 콜백·방향별 체류가 배선된다', async () => {
     // lockAsync 요청만으로는 가로 분기 렌더·복귀 배선·방향 체류 정리를 못 잡는다 — 실제
     // dimensions를 뒤집어 세로→가로→세로 전환 경로를 실행한다(codex 리뷰 20차).
@@ -1641,8 +1687,13 @@ describe('카운트다운 — 완료 게이트', () => {
         mode: 'pomodoro',
         phase: 'break', // 세로와 같은 페이즈
         sets: 2,
+        setIndex: 1, // 아직 1세트의 휴식
         displaySeconds: 60, // 휴식 잔여
       });
+      // 휴식 소진 → 두 번째 집중: 세트 번호가 갱신돼야 한다 — 1로 고정되면 사용자는 계속
+      // 「세트 1」만 본다(codex 리뷰 30차).
+      await advance(60_000);
+      expect(mockLandscapeCaptures.at(-1)).toMatchObject({ phase: 'focus', setIndex: 2 });
     } finally {
       await act(async () => {
         Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
@@ -1861,6 +1912,21 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
       totalDistractionSeconds: 0,
       distractionCount: 0,
     });
+  });
+
+  test('세로 뽀모도로 리드아웃: 남은 페이즈 시간·세트 배지·휴식 표기가 세션 상태를 따른다', async () => {
+    // 정산·마커만 보면 표시 계약이 통째로 빠져도 모른다 — display 대신 elapsed 표시, 휴식 중
+    // 과목명 유지, 세트 미갱신 회귀 방어(codex 리뷰 30차).
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    await advance(5000);
+    expect(view.getByText('00:00:55')).toBeTruthy(); // 블록 남은 시간 — 경과(5)가 아니다
+    expect(view.getByText('수학')).toBeTruthy();
+    expect(view.getByText('세트 1 / 2')).toBeTruthy();
+    await advance(55_000); // 휴식 진입
+    expect(view.getByText('휴식')).toBeTruthy(); // 휴식 중엔 과목명 대신 휴식 표기
+    await advance(60_000); // 두 번째 집중
+    expect(view.getByText('세트 2 / 2')).toBeTruthy();
+    expect(view.getByText('수학')).toBeTruthy();
   });
 
   test('휴식 도중 수동 종료: 정산은 첫 블록 한 번뿐 — 휴식은 어떤 블록에도 업로드되지 않는다', async () => {
