@@ -204,7 +204,7 @@ const mockGridPropsCaptures: Array<{
 }> = [];
 jest.mock('./components/LiveFocusGrid', () => ({
   LiveFocusGrid: (props: {
-    me: { totalSeconds: number; isFocusing: boolean };
+    me: { totalSeconds: number; isFocusing: boolean; nickname: string; tagName: string };
     title: string;
     visible: boolean;
     members: unknown;
