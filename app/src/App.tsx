@@ -546,8 +546,6 @@ function App() {
                     <PushGate />
                     {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}
                     <PendingGoalApplier />
-                    {/* 앱스토어에 새 버전이 있으면 업데이트 권장 알림 */}
-                    <UpdateAlert />
                     {/* 스크린타임 사용량 서버 동기화(어제 마감 + 오늘 중간값, 앱 시작·포그라운드 복귀) */}
                     <ScreenTimeSyncer />
                     {/* 미확인 정산 결과를 **그룹 흐름에서 도달한 화면 위에** 연다(GROMO-1576).
@@ -583,6 +581,10 @@ function App() {
     >
       <ToastProvider>
         <DeepLinkGate />
+        {/* 앱스토어 새 버전 업데이트 권장 알림 — **인증 분기 밖**: 로그인·온보딩 화면에서도
+            앱 시작 시 확인이 돌아야 한다(코드리뷰). 오버레이 조정은 컴포넌트가 모듈 통로
+            (holdOverlaySlotForNativeSurface)로 직접 한다 — UpdateAlert 헤더 주석. */}
+        <UpdateAlert />
         <RageTapDetector>{content}</RageTapDetector>
       </ToastProvider>
     </SafeAreaProvider>
