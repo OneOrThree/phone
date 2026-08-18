@@ -116,6 +116,8 @@ export default function LeagueScreen() {
   const scrollY = useSharedValue(0);
   // 내 자리(포디움 블록/내 행)의 콘텐츠 y. -1은 미실측 — 실측 전엔 플로팅을 띄우지 않는다.
   const myRowYsv = useSharedValue(-1);
+  // 도킹 목적지의 높이 — 위쪽 이탈 판정용. 행이면 플로팅 행과 같지만 포디움 블록이면 훨씬 크다.
+  const dockHsv = useSharedValue(62);
   // 플로팅 행 자신의 높이(하단 클램프용) — 실측 전 근사값. 도킹 목적지 높이와 분리한다:
   // 내가 Top3면 목적지는 포디움 블록이라 행보다 훨씬 크다.
   const floatHsv = useSharedValue(62);
@@ -140,6 +142,7 @@ export default function LeagueScreen() {
   const {
     ranking: globalRanking,
     myGlobalRank,
+    myGlobalSeconds,
     error: globalError,
     refetch: refetchGlobal,
   } = useGlobalRanking();
@@ -235,6 +238,10 @@ export default function LeagueScreen() {
   // 전체 리그 100위 밖일 때의 실제 전역 순위(GROMO-1614). 직군 뷰에는 대응 API가 없어 null —
   // 그 경우 플로팅 행 대신 순위 없는 안내 카드를 띄운다(아래 JSX).
   const outOfListRank = isAll && myIdx < 0 ? myGlobalRank : null;
+  // 100위 밖 행의 시간 — 순위와 같은 스냅샷(me/rank 응답)이 우선. 순위 따로·시간 따로 짝지으면
+  // 세션 조회 실패 조합에서 정확한 순위 옆에 0/이전 시간이 붙는다(코덱스 리뷰). 응답에 시간이
+  // 없을 때만 세션 합산 권위값(mySeconds)으로 보충한다.
+  const outOfListSeconds = myGlobalSeconds ?? mySeconds;
   // ⚠️ 격차(핀 모드 나 대비 차이) 계산은 **화면에 그려지는 값과 같은 축**으로 한다 — 두 겹이다.
   //    ① 단계값: 재정렬을 한 칸씩 재생하는 동안 목록의 기록은 단계값인데 여기만 서버
   //       최종값(mySeconds)을 쓰면 아직 이전 순위가 보이는 프레임에서 차이가 음수가 된다(codex 리뷰).
@@ -246,16 +253,6 @@ export default function LeagueScreen() {
   //    값(mySeconds) 그대로다 — 그때도 유효한 값이다(useLeagueRanking 주석).
   const gapNow = Date.now();
   const myLiveSeconds = myIdx >= 0 ? memberLiveSeconds(visibleRanking[myIdx], gapNow) : mySeconds;
-
-  // 넛지 노출 — 내 실제 순위(플로팅 행)가 화면에 뜰 때(rank) 진입당 1회.
-  // 랭킹 비동기 로드로 순위가 뒤늦게 확정돼도 focusSeq 기준으로 딱 1회만 발화(중복 방지).
-  const myRankShown = myIdx >= 0 || outOfListRank != null;
-  useEffect(() => {
-    if (tab === 'league' && myRankShown && rankNudgeSeq.current !== focusSeq) {
-      rankNudgeSeq.current = focusSeq;
-      logNudgeViewed({ type: 'rank' });
-    }
-  }, [tab, myRankShown, focusSeq]);
 
   // 포디움(Top3) / 리스트(4위~ 또는 핀한 사람만)
   const top3 = visibleRanking.slice(0, 3);
@@ -270,6 +267,18 @@ export default function LeagueScreen() {
   // 도킹 목적지가 있는가 — 내 자리(포디움 칸/목록 내 행/100위 밖 편입 행)가 리스트에 실재할 때만
   // 플로팅↔도킹 전환이 성립한다. 핀 모드는 목록이 나+핀 요약이라 플로팅을 걸지 않는다.
   const hasDockTarget = !pinnedOnly && (myIdx >= 0 || outOfListRank != null);
+
+  // 넛지 노출 — 내 실제 순위가 **실제로 그려질 때만**(rank) 진입당 1회. 데이터 존재만 보면
+  // 핀 모드(내 행 미편입·플로팅 비활성)로 재진입해도 노출로 집계돼 전환율이 왜곡된다(코덱스 리뷰).
+  // 랭킹 비동기 로드로 순위가 뒤늦게 확정돼도 focusSeq 기준으로 딱 1회만 발화(중복 방지).
+  const myRankShown = hasDockTarget || (pinnedOnly && hasPinned && myIdx >= 0);
+  useEffect(() => {
+    if (tab === 'league' && myRankShown && rankNudgeSeq.current !== focusSeq) {
+      rankNudgeSeq.current = focusSeq;
+      logNudgeViewed({ type: 'rank' });
+    }
+  }, [tab, myRankShown, focusSeq]);
+
   // 플로팅 상태(JS) — UI 스레드 reaction이 경계를 넘는 순간에만 밀어 넣는다. 도킹 중에는
   // 오버레이를 아예 떼어 실제 행이 터치를 받게 한다(경계에서 두 위치가 일치해 이음새 없음).
   const [floating, setFloating] = useState(false);
@@ -277,18 +286,30 @@ export default function LeagueScreen() {
   const onListScroll = useAnimatedScrollHandler((e) => {
     scrollY.value = e.contentOffset.y;
   });
+  // 리그 탭 재진입 시 스크롤 좌표 리셋 — 탭 전환으로 ScrollView가 언마운트됐다 다시 마운트되면
+  // 네이티브 오프셋은 0인데 shared value는 이전 값을 유지해, 첫 onScroll 전까지 플로팅 판정이
+  // 어긋난다(코덱스 리뷰). 마운트 직후의 오프셋 0에 맞춰 초기화한다.
+  useEffect(() => {
+    if (tab === 'league') scrollY.value = 0;
+  }, [tab, scrollY]);
   // 내 자리 실측 — 포디움 블록(내가 Top3일 때)·목록 내 행·100위 밖 편입 행이 공유한다.
   // 포디움은 칸이 아니라 블록 단위다: 칸의 y는 부모(podium View) 기준이라 콘텐츠 좌표가 아니고,
   // 블록이 보이면 내 칸도 보이므로 '포디움 상단이 뷰포트에 있으면 도킹'으로 충분하다.
   const onMyLayout = (e: LayoutChangeEvent) => {
     myRowY.current = e.nativeEvent.layout.y;
     myRowYsv.value = e.nativeEvent.layout.y;
+    dockHsv.value = e.nativeEvent.layout.height;
   };
   useAnimatedReaction(
     () => {
       if (myRowYsv.value < 0 || listHsv.value <= 0) return false; // 미실측 — 판정 보류
       const raw = myRowYsv.value - scrollY.value;
-      return raw < FLOAT_INSET - 1 || raw > listHsv.value - floatBottomPad - floatHsv.value + 1;
+      // 위쪽 이탈은 목적지 '하단'이 (상단에 붙을) 오버레이 하단보다 위로 지나갔는가로 본다 —
+      // 행(목적지 높이 == 플로팅 높이)은 상단 여백 판정과 동일하게 이어지고, 포디움처럼 목적지가
+      // 더 큰 경우엔 콘텐츠 최상단(y≈0)에 있어도 플로팅이 뜨지 않는다(코덱스 리뷰 — Top3에서
+      // 첫 화면부터 포디움 위에 겹치던 문제).
+      const topGone = raw + dockHsv.value < FLOAT_INSET + floatHsv.value - 1;
+      return topGone || raw > listHsv.value - floatBottomPad - floatHsv.value + 1;
     },
     (now, prev) => {
       if (now !== prev) runOnJS(setFloating)(now);
@@ -656,7 +677,7 @@ export default function LeagueScreen() {
                     rank={outOfListRank}
                     nickname={myNickname || '나'}
                     tierLevel={tier.tierLevel ?? 1}
-                    seconds={mySeconds}
+                    seconds={outOfListSeconds}
                     isMe
                     onPress={openMyProfileOutOfList}
                   />
@@ -711,7 +732,7 @@ export default function LeagueScreen() {
                 rank={myMember != null ? myIdx + 1 : outOfListRank}
                 nickname={myMember?.nickname ?? (myNickname || '나')}
                 tierLevel={myMember?.tierLevel ?? tier.tierLevel ?? 1}
-                seconds={myMember?.totalFocusSeconds ?? mySeconds}
+                seconds={myMember?.totalFocusSeconds ?? outOfListSeconds}
                 isMe
                 isFocusing={myMember?.isFocusing}
                 focusStartedAt={myMember?.focusStartedAt}

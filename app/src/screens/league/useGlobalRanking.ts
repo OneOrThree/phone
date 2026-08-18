@@ -15,10 +15,15 @@ export function useGlobalRanking() {
 
   // 서버 멤버 원본. null이면 미조회/실패.
   const [members, setMembers] = useState<RankedMember[] | null>(null);
-  // 내 전역 순위(1-base) — top-100 밖에서도 정확한 값(GET /league/me/rank, GROMO-1613에서
-  // 호출당 활동 로그를 제거해 화면 포커스마다 불러도 계측이 부풀지 않는다).
+  // 내 전역 순위(1-base)와 그 시점의 내 주간 집중초 — top-100 밖에서도 정확한 값
+  // (GET /league/me/rank, GROMO-1613에서 호출당 활동 로그를 제거해 화면 포커스마다 불러도
+  // 계측이 부풀지 않는다). 순위와 시간은 같은 랭킹 쿼리 스냅샷에서 나오므로 **함께** 보관한다 —
+  // 순위만 남기면 100위 밖 행이 다른 원천(세션 합산)의 시간과 짝지어져, 세션 조회 실패 조합에서
+  // 정확한 순위 옆에 0/이전 시간이 붙는다(코덱스 리뷰).
   // null = 미배정/미조회/실패. 이 값만 실패해도 리스트는 정상 표시한다(refetch의 개별 catch).
-  const [myGlobalRank, setMyGlobalRank] = useState<number | null>(null);
+  const [myRankInfo, setMyRankInfo] = useState<{ rank: number; seconds: number | null } | null>(
+    null,
+  );
   // 마지막 조회 실패 여부 — 실패가 "리그에 아무도 없음" 빈 상태로 오인되지 않게 UI에서 구분
   // (GROMO-922, 친구 목록 GROMO-621과 동일 패턴)
   const [error, setError] = useState(false);
@@ -40,7 +45,11 @@ export function useGlobalRanking() {
       // 이 응답을 기다리는 동안 더 새로운 요청이 시작됐으면 stale 결과라 버린다
       if (seq !== requestSeqRef.current) return;
       setMembers(toRankingMembers(res, userId, myNickname, null));
-      setMyGlobalRank(rankRes?.assigned === true ? rankRes.myRank : null);
+      setMyRankInfo(
+        rankRes?.assigned === true && rankRes.myRank != null
+          ? { rank: rankRes.myRank, seconds: rankRes.totalFocusSeconds }
+          : null,
+      );
       setError(false);
     } catch {
       // 일시 실패 시 기존 랭킹 유지 — 당겨서 새로고침 실패로 보이던 목록이 사라지지 않게 한다
@@ -56,5 +65,11 @@ export function useGlobalRanking() {
   );
 
   // 데이터 없으면 빈 배열. refetch는 당겨서 새로고침(GROMO-887)용.
-  return { ranking: members ?? [], myGlobalRank, error, refetch };
+  return {
+    ranking: members ?? [],
+    myGlobalRank: myRankInfo?.rank ?? null,
+    myGlobalSeconds: myRankInfo?.seconds ?? null,
+    error,
+    refetch,
+  };
 }
