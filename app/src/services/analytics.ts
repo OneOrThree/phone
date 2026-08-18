@@ -45,21 +45,30 @@ function randomUuid(): string {
   });
 }
 
-async function resolveDeviceId(): Promise<string> {
-  if (deviceId) return deviceId;
-  try {
-    const saved = await AsyncStorage.getItem(STORAGE_KEYS.deviceId);
-    if (saved) {
-      deviceId = saved;
-    } else {
-      deviceId = randomUuid();
-      await AsyncStorage.setItem(STORAGE_KEYS.deviceId, deviceId);
+// 진행 중 조회를 공유하는 싱글플라이트 — initAnalytics(앱 마운트)와 deferred 초대 매치가
+// 첫 실행에서 동시에 진입하면, 완료값 캐시(deviceId)만으로는 둘 다 빈 저장소를 읽고
+// 서로 다른 UUID를 만들어 GA 이벤트와 /l/match의 device_id가 갈린다(코덱스 리뷰 P1).
+let deviceIdPromise: Promise<string> | null = null;
+
+function resolveDeviceId(): Promise<string> {
+  if (deviceId) return Promise.resolve(deviceId);
+  if (deviceIdPromise) return deviceIdPromise;
+  deviceIdPromise = (async () => {
+    try {
+      const saved = await AsyncStorage.getItem(STORAGE_KEYS.deviceId);
+      if (saved) {
+        deviceId = saved;
+      } else {
+        deviceId = randomUuid();
+        await AsyncStorage.setItem(STORAGE_KEYS.deviceId, deviceId);
+      }
+    } catch {
+      // 저장 실패 시에도 최소한 세션 한정 id는 부여(전송 자체는 막지 않는다).
+      deviceId = deviceId ?? randomUuid();
     }
-  } catch {
-    // 저장 실패 시에도 최소한 세션 한정 id는 부여(전송 자체는 막지 않는다).
-    deviceId = deviceId ?? randomUuid();
-  }
-  return deviceId;
+    return deviceId;
+  })();
+  return deviceIdPromise;
 }
 
 // dev 빌드이거나 명시 토글이 켜져 있으면 콘솔에 이벤트를 출력한다.

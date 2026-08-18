@@ -117,7 +117,7 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
                           logOnboardingStepAction({
                             step: 'focus_category',
                             action: 'category_select',
-                            value: o.displayName,
+                            action_value: o.displayName,
                           });
                           update({ focusCategory: o.displayName, subjects: [] });
                         }

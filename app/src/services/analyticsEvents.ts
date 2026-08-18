@@ -75,7 +75,8 @@ export function logOnboardingStepCta(p: {
 
 // 스텝 안의 보조 인터랙션 — 칩 선택·피커 열기·재시도·모달 닫기 등(GROMO-1605).
 // 이벤트를 종류마다 새로 파지 않고 action으로 구분한다(이벤트 목록 비대화 방지).
-// value: 선택값 등 부가 정보. **PII 금지** — 비식별 라벨만(카테고리 표시명 등).
+// action_value: 선택값 등 부가 정보. **PII 금지** — 비식별 라벨만(카테고리 표시명 등).
+// ('value'는 GA4 예약 파라미터(숫자 이벤트 값)라 사용 금지 — 이 파일 설정 섹션 계약과 동일)
 export type OnboardingStepActionName =
   | 'category_select' // 집중 카테고리 칩 선택
   | 'category_retry' // 카테고리 목록 조회 실패 후 재시도
@@ -89,7 +90,7 @@ export type OnboardingStepActionName =
 export function logOnboardingStepAction(p: {
   step: OnboardingStepName;
   action: OnboardingStepActionName;
-  value?: string;
+  action_value?: string;
 }): void {
   track('onboarding_step_action', p);
 }
