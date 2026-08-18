@@ -776,6 +776,9 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(logFocusViewChanged).toHaveBeenLastCalledWith(
       expect.objectContaining({ view: 'character', dwell_seconds: 3 }),
     );
+    // 캐릭터 페이지를 떠나면 호흡 애니메이션도 멈춘다 — 페이저는 캐릭터 페이지를 계속 마운트
+    // 하므로 page === 0 조건이 빠지면 다른 페이지를 보는 내내 숨은 호흡이 돈다(codex 리뷰 23차).
+    expect(mockCharActiveCaptures.at(-1)).toBe(false);
     await advance(4000); // 친구 페이지 4초
     await act(async () => {
       pager.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: pagerWidth * 2 } } });
@@ -796,6 +799,7 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(logFocusViewChanged).toHaveBeenLastCalledWith(
       expect.objectContaining({ view: 'my_league', dwell_seconds: 2 }),
     );
+    expect(mockCharActiveCaptures.at(-1)).toBe(true); // 캐릭터 페이지 복귀 — 호흡 재개
   });
 
   test('메뉴 버튼: 계측 1회와 드로어 열림이 함께 배선돼 있다', async () => {
@@ -1214,6 +1218,15 @@ describe('카운트다운 — 완료 게이트', () => {
     expect(logFocusOrientationChanged).toHaveBeenCalledTimes(1);
   });
 
+  test('카운트다운 화면: 남은 시간(display)과 목표 문구가 표시된다', async () => {
+    // 큰 숫자가 display 대신 elapsed에 물리면 완료·정산은 멀쩡해도 사용자는 남은 7초 대신
+    // 경과 3초를 본다 — 카운트다운의 핵심 화면 계약(codex 리뷰 23차).
+    await renderSession({ mode: 'countdown', goalSeconds: 10 });
+    await advance(3000);
+    expect(view.getByText('00:00:07')).toBeTruthy(); // 남은 시간 — 경과(00:00:03)가 아니다
+    expect(view.getByText('목표 00:00:10')).toBeTruthy();
+  });
+
   test('5초를 넘는 목표: 게이트 즉시 정산이 라이브 레코드를 제거한다', async () => {
     // 목표 3초짜리 테스트는 5초 주기 레코드가 아예 안 생겨 삭제 누락을 못 잡는다. 게이트가
     // 레코드를 남기면 다음 실행의 OrphanFocusSettler가 죽은 세션으로 또 정산해 로컬 시간이
@@ -1396,6 +1409,10 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     expect(mockedStartMarker).toHaveBeenCalledTimes(1);
 
     await advance(60_000); // 집중 1분 → 휴식 진입: 블록 #1 정산
+    // 페이즈 경계는 진동 2회 패턴으로 알린다 — 화면을 안 보는 사용자가 휴식 시작을 놓치지
+    // 않게 하는 유일한 신호다(codex 리뷰 23차). iOS 패턴 = [0, 500].
+    expect(Vibration.vibrate).toHaveBeenCalledTimes(1);
+    expect(Vibration.vibrate).toHaveBeenCalledWith([0, 500]);
     expect(mockedUpload).toHaveBeenCalledTimes(1);
     expect(mockedUpload.mock.calls[0][0].sessionId).toBe('marker-1');
     expect(mockedUpload.mock.calls[0][0].body.focusType).toBe('POMODORO');
@@ -1409,6 +1426,7 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
 
     await advance(60_000); // 휴식 1분 → 세트 2 집중: 마커 회전(새 마커)
     await flush();
+    expect(Vibration.vibrate).toHaveBeenCalledTimes(2); // 휴식→집중 경계도 진동
     expect(mockedStartMarker).toHaveBeenCalledTimes(2);
 
     // 블록 2 초반 5초 시점의 레코드 — 미정산분(5초)과 회전된 마커만 담아야 한다. 전체 누적(65)을
