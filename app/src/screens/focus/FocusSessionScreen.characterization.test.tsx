@@ -24,7 +24,7 @@ import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker, flushPendingMarkerCancels } from './pendingMarkerCancels';
 import { consumeCardInteraction } from '@/services/cardInteraction';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
-import { publishSessionSaveVerdict } from './sessionSaveVerdict';
+import { isTodayVerdict, publishSessionSaveVerdict } from './sessionSaveVerdict';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   logFocusSessionAbandoned,
@@ -378,6 +378,25 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(bgRecord!.serverSessionId).toBe('marker-1');
   });
 
+  test('정지 버튼 연속 두 번: finish는 멱등 — 업로드·적립·계측·이동 전부 1회', async () => {
+    // finishedRef가 진입 즉시(동기) 걸리는 게 현행이다 — 가드가 비동기 뒤로 밀리면 빠른 더블
+    // 탭에 종료 체인이 두 번 돌아 replace·적립이 중복된다(codex 리뷰 11차).
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    // 같은 동기 구간에서 두 번 탭 — 첫 finish가 removeItem await에 걸려 있는 사이의 재진입을
+    // 재현한다(press 사이를 await하면 첫 finish가 이미 await를 지나 변이 창이 닫힌다).
+    await act(async () => {
+      void fireEvent.press(view.getByTestId('focus.stop'));
+      void fireEvent.press(view.getByTestId('focus.stop'));
+    });
+    await flush();
+
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    expect(mockAddFocusSeconds).toHaveBeenCalledTimes(1);
+    expect(logFocusSessionCompleted).toHaveBeenCalledTimes(1);
+    expect(mockNavigation.replace).toHaveBeenCalledTimes(1);
+  });
+
   test('그룹 카드 진입: interaction이 소비돼 시작 계측에 귀속된다', async () => {
     // 카드 진입 파라미터 → consumeCardInteraction(TTL 판정) → interaction_id 발행의 배선을
     // 고정한다 — 빠지면 카드 진입 퍼널이 오염된다(codex 리뷰 9차).
@@ -426,6 +445,36 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: true });
   });
 
+  test('업로드가 failed(대기열 저장까지 실패)여도 현행은 레코드를 이미 지웠다 — 알려진 유실 공백', async () => {
+    // ⚠️ uploadFocusBlock의 failed 계약은 「호출부가 레코드를 보존해 다음 실행에 재시도」인데,
+    // 화면 경로는 정산이 업로드 결과 전에 레코드를 지우고 finishedRef가 재저장을 막는다 —
+    // 로컬 적립만 남고 서버·대기열·레코드 어디에도 바디가 없는 유실이 현행이다(codex 리뷰
+    // 11차). 특성화는 이 현행을 그대로 고정한다 — 수리는 헤드리스화(1600)의 정산 저널 몫.
+    mockedUpload.mockResolvedValueOnce({ status: 'failed' });
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(5); // 로컬 적립은 반영
+    expect(await readLiveRecord()).toBeNull(); // 그러나 재시도 근거(레코드)는 이미 삭제됨
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5 }); // 종료 UX는 진행
+    expect(mockCoinRefresh).not.toHaveBeenCalled(); // saved 전용 후처리는 없음
+  });
+
+  test('저장 응답이 오늘 판정이 아니면(publishSessionSaveVerdict) 발행하지 않는다', async () => {
+    // isTodayVerdict 게이트의 화면 배선 — 전날 귀속 응답을 발행하면 전날 누적이 오늘 판정으로
+    // 저장되고 단조증가 가드가 진짜 오늘 판정까지 막는다(codex 리뷰 11차).
+    (isTodayVerdict as jest.Mock).mockReturnValueOnce(false);
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+
+    expect(mockCoinRefresh).toHaveBeenCalledTimes(1); // 코인 재조회는 판정 게이트와 무관
+    expect(publishSessionSaveVerdict).not.toHaveBeenCalled();
+  });
+
   test('업로드가 마커를 못 닫으면(onMarkerStillOpen) 화면이 cancelMarker로 닫는다', async () => {
     // PATCH가 클램프 창 밖이거나 재시도 가능 오류로 실패하면 uploadFocusBlock이 열린 마커 id를
     // 이 콜백으로 넘기고, 화면 쪽 배선이 cancelMarker를 불러야 친구 화면의 '집중 중'이 서버
@@ -459,6 +508,10 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await fireEvent.press(view.getByTestId('focus.stop'));
     await flush();
     expect(mockedUpload).not.toHaveBeenCalled(); // 응답 대기 — 업로드는 id 확정까지 미룬다
+    // 종료 UX는 마커 응답을 기다리지 않는다 — 응답이 영영 안 와도 사용자는 화면을 빠져나간다
+    // (codex 리뷰 11차: 업로드만 보류, 적립·이동은 즉시)
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(3);
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3 });
 
     await act(async () => {
       resolveMarker({ sessionId: 'marker-late' });
@@ -817,6 +870,13 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     await fireEvent.press(view.getByText('확인'));
     await flush();
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 120, completed: true });
+    // 완료 계측의 전체 페이로드 — core WAU·완료 퍼널의 기준 이벤트라 모드·집중분·태그가
+    // 오염되면 수만 맞는 지표가 된다(codex 리뷰 11차)
+    expect(logFocusSessionCompleted).toHaveBeenCalledWith({
+      mode: 'pomodoro',
+      focus_minutes: 2,
+      has_tag: true,
+    });
   });
 
   test('블록 1의 일시정지 방해초는 블록 2 업로드에 다시 실리지 않는다', async () => {
