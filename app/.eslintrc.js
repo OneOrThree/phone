@@ -32,8 +32,14 @@ module.exports = {
           '워클릿 안에서 M.…을 읽지 마세요 — M 전체가 UI 런타임으로 복사되며 CubicBezierEasing에서 죽습니다(GROMO-1601). 값을 모듈 스코프 상수로 꺼내 쓰세요.',
       },
       {
+        // 명시적 'worklet' 지시어 함수 — runOnUI 등에 직접 넘기는 워클릿.
+        // ⚠️ esquery 는 :has() 안의 **선행 자식 결합자**(:has(> …))를 함수 노드에서 못 푼다 —
+        // :function:has(> BlockStatement > …) 는 어떤 워클릿에도 매치되지 않아 CI 를 그냥
+        // 통과시켰다(코덱스 리뷰). BlockStatement 를 앵커로 잡으면 :has(> …) 가 정상 동작하고,
+        // 함수 자신의 본문 지시어만 보므로 워클릿을 품은 바깥 일반 함수는 오탐하지 않는다
+        // (자손 전체를 훑는 :has(BlockStatement > …) 는 바깥 함수까지 잡는다 — 검증 완료).
         selector:
-          ":function:has(> BlockStatement > ExpressionStatement > Literal[value='worklet']) MemberExpression[object.name='M']",
+          ":function > BlockStatement:has(> ExpressionStatement[directive='worklet']) MemberExpression[object.name='M']",
         message:
           '워클릿 안에서 M.…을 읽지 마세요 — M 전체가 UI 런타임으로 복사되며 CubicBezierEasing에서 죽습니다(GROMO-1601). 값을 모듈 스코프 상수로 꺼내 쓰세요.',
       },
