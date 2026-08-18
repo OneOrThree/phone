@@ -22,6 +22,8 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { startFocusSession } from '@/services/focusApi';
 import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker, flushPendingMarkerCancels } from './pendingMarkerCancels';
+import { ensureFocusTagId } from './tagSync';
+import { captureRef } from 'react-native-view-shot';
 import { consumeCardInteraction } from '@/services/cardInteraction';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { isTodayVerdict, publishSessionSaveVerdict } from './sessionSaveVerdict';
@@ -36,6 +38,7 @@ import {
   logFocusSessionResumed,
   logFocusDistractionDetected,
   logFocusMarkerStartFailed,
+  subjectKeyOf,
 } from '@/services/analyticsEvents';
 import type { LiveFocusSession } from './types';
 
@@ -95,13 +98,19 @@ jest.mock('@/services/analyticsEvents', () => ({
   logFocusViewChanged: jest.fn(),
   logFocusOrientationChanged: jest.fn(),
   logFocusMarkerStartFailed: jest.fn(),
-  subjectKeyOf: (id?: string) => id,
+  // 실구현 사용 — 목이 원문 id를 돌려주면 비식별 해시 계약(subject_key)이 검증에서 빠진다(codex 리뷰 14차)
+  subjectKeyOf: jest.requireActual<typeof import('@/services/analyticsEvents')>('@/services/analyticsEvents').subjectKeyOf,
 }));
 jest.mock('@/services/cardInteraction', () => ({
   consumeCardInteraction: jest.fn<string | undefined, unknown[]>(() => undefined),
   invalidateCardInteraction: jest.fn(),
-  normalizeFocusEntrySource: (v: unknown) => v ?? 'direct',
-  FOCUS_ATTRIBUTION_TTL_MS: 60_000,
+  // 순수 export는 실구현·실값 — 목이 바꾸면 화면이 아니라 목이 만든 동작을 고정하게 된다(codex 리뷰 14차)
+  normalizeFocusEntrySource:
+    jest.requireActual<typeof import('@/services/cardInteraction')>('@/services/cardInteraction')
+      .normalizeFocusEntrySource,
+  FOCUS_ATTRIBUTION_TTL_MS:
+    jest.requireActual<typeof import('@/services/cardInteraction')>('@/services/cardInteraction')
+      .FOCUS_ATTRIBUTION_TTL_MS,
 }));
 
 // ── 스토어·훅 목 — 세션 로직이 읽기만 하는 주변 상태 ──────────────────────────
@@ -308,8 +317,8 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       expect.objectContaining({
         mode: 'countup',
         has_tag: true,
-        subject_key: 's1',
-        entry_source: 'direct',
+        subject_key: subjectKeyOf('s1'), // 실구현 해시(s_…) — 원문 id 노출이면 실패
+        entry_source: 'unknown', // 출처 미지정의 실제 정규화 — 목이 지어낸 'direct'가 아니다
       }),
     );
     // Live Activity 시작 배선(600ms 지연 캡처 후) — 종료 단언만으로는 시작 누락을 못 잡는다(codex 리뷰 8차)
@@ -334,6 +343,34 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(ScreenTimeModule.stopFocusShield).toHaveBeenCalled();
     expect(ScreenTimeModule.endFocusActivity).toHaveBeenCalled();
     expect(await readLiveRecord()).toBeNull();
+  });
+
+  test('과목 태그 해석이 실패해도: 마커 시작·정산 업로드는 무태그(null)로 계속된다', async () => {
+    // 오프라인·조회 실패 시 focusTagId=null로 두 요청을 계속하는 게 현행 계약 — 중단되면
+    // 로컬 적립만 남고 서버 기록·보상이 유실된다(codex 리뷰 14차).
+    (ensureFocusTagId as jest.Mock)
+      .mockRejectedValueOnce(new Error('offline')) // 마커 시작의 해석
+      .mockRejectedValueOnce(new Error('offline')); // 정산의 해석
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+
+    expect(mockedStartMarker).toHaveBeenCalledWith(
+      expect.objectContaining({ focusTagId: null }),
+    );
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    expect(mockedUpload.mock.calls[0][0].body.focusTagId).toBeNull();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3 });
+  });
+
+  test('캐릭터 캡처가 실패해도: Live Activity는 기본 마스코트 폴백으로 시작된다', async () => {
+    // 캡처 거부·타임아웃에도 LA는 시작하는 게 현행이다 — 시작이 캡처 성공 분기 안으로 들어가면
+    // 해당 기기에서 잠금화면 활동이 통째로 사라진다(codex 리뷰 14차).
+    (captureRef as jest.Mock).mockRejectedValueOnce(new Error('capture denied'));
+    await renderSession({ mode: 'countup' });
+    await advance(2000); // 600ms 지연 시작 경과
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []);
   });
 
   test('업로드가 대기열행(queued)이어도 종료는 그대로 진행된다 — 로컬 적립·레코드 삭제·결과 화면', async () => {
@@ -413,7 +450,7 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     });
     expect(consumeCardInteraction).toHaveBeenCalledWith(
       { entrySource: 'group_card', interactionId: 'ix-1', interactionAcceptedAt: 1_000_000 },
-      60_000, // FOCUS_ATTRIBUTION_TTL_MS
+      600_000, // FOCUS_ATTRIBUTION_TTL_MS 실값(10분)
     );
     expect(logFocusSessionStarted).toHaveBeenCalledWith(
       expect.objectContaining({ entry_source: 'group_card', interaction_id: 'ix-1' }),
@@ -1158,6 +1195,10 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     expect(focusSecondsByDate['2026-08-18'] + focusSecondsByDate['2026-08-19']).toBe(120);
     expect(focusSecondsByDate['2026-08-18']).toBe(40); // 30(포그라운드) + 자정 전 리플레이 10
     expect(focusSecondsByDate['2026-08-19']).toBe(80);
+    // 로컬 '오늘' 적립도 자정 이후 몫(80)만 — 전체 델타(120)를 더하면 홈·과목 오늘 통계가
+    // 40초 부푼다(codex 리뷰 14차)
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(80);
+    expect(mockAddFocusToSubject).toHaveBeenCalledWith('s1', 80);
   });
 
   test('실드 네이티브 호출이 거부돼도: 세션은 계속되고 폴백(15초 정책) 세션으로 취급된다', async () => {
