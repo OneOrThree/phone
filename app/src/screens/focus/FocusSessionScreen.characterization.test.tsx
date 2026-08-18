@@ -195,6 +195,7 @@ const mockGridPropsCaptures: Array<{
   visible: boolean;
   members: unknown;
   pinnedIds: unknown;
+  showMeWhenEmpty: boolean | undefined;
 }> = [];
 jest.mock('./components/LiveFocusGrid', () => ({
   LiveFocusGrid: (props: {
@@ -203,6 +204,7 @@ jest.mock('./components/LiveFocusGrid', () => ({
     visible: boolean;
     members: unknown;
     pinnedIds: unknown;
+    showMeWhenEmpty?: boolean;
   }) => {
     mockGridMeCaptures.push(props.me);
     mockGridPropsCaptures.push({
@@ -210,6 +212,7 @@ jest.mock('./components/LiveFocusGrid', () => ({
       visible: props.visible,
       members: props.members,
       pinnedIds: props.pinnedIds,
+      showMeWhenEmpty: props.showMeWhenEmpty,
     });
     return null;
   },
@@ -257,7 +260,14 @@ jest.mock('./FocusLandscape', () => ({
     return null;
   },
 }));
-jest.mock('@/components/TabGuideOverlay', () => ({ TabGuideOverlay: () => null }));
+// 첫 집중 안내의 전달값을 붙잡는다 — 저장 키·단계 배선 관찰용
+const mockGuideCaptures: Array<{ storageKey: string; steps: unknown[] }> = [];
+jest.mock('@/components/TabGuideOverlay', () => ({
+  TabGuideOverlay: (props: { storageKey: string; steps: unknown[] }) => {
+    mockGuideCaptures.push({ storageKey: props.storageKey, steps: props.steps });
+    return null;
+  },
+}));
 // 호흡 애니메이션 활성 플래그를 붙잡는다 — 게이트·페이지 전환의 절전 배선 관찰용.
 // children(캡처 대상 캐릭터 뷰)은 통과시켜야 CharacterImage 배선도 함께 관찰된다.
 const mockCharActiveCaptures: boolean[] = [];
@@ -383,6 +393,7 @@ beforeEach(async () => {
   mockGroupArgs.length = 0;
   mockLeagueMembers = [];
   mockExamMembers = [];
+  mockGuideCaptures.length = 0;
   await AsyncStorage.clear();
   jest.useFakeTimers();
   appStateHandlers = [];
@@ -951,17 +962,26 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
 
   test('그룹 FAB 진입(initialGroupId): 해당 그룹 페이지로 초기 스크롤·해당 그리드만 활성화된다', async () => {
     // 빈 groups fixture로는 검색·scrollTo·페이지 상태 배선 제거를 못 잡는다(codex 리뷰 24차).
+    // 실제 useSessionGroups는 빈 배열로 시작해 비동기 조회 후 갱신된다 — 렌더 전 fixture를
+    // 완성하면 「빈 첫 렌더 → 로드 후 재실행」 경로가 검증에서 빠진다(codex 리뷰 28차).
+    await renderSession({ mode: 'countup', initialGroupId: 'g2' }); // 그룹 로드 전
+    expect(mockCharActiveCaptures.at(-1)).toBe(true); // 아직 캐릭터 페이지
     mockSessionGroups = [
       { groupId: 'g1', groupName: '알파', members: [] },
       { groupId: 'g2', groupName: '베타', members: [] },
     ];
-    await renderSession({ mode: 'countup', initialGroupId: 'g2' });
+    // 그룹 로드 완료를 재현 — 리렌더로 훅이 새 목록을 돌려주고 초기 스크롤 이펙트가 재실행된다
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await fireEvent.press(view.getByTestId('focus.pause'));
     await flush();
     // 두 번째 그룹 = 페이지 3 (캐릭터0·친구1·그룹×N)
     expect(lastGridProps('그룹: 베타')).toMatchObject({ visible: true });
     expect(lastGridProps('그룹: 알파')).toMatchObject({ visible: false });
     expect(lastGridProps('내 친구')).toMatchObject({ visible: false });
     expect(mockCharActiveCaptures.at(-1)).toBe(false); // 캐릭터 페이지를 떠났다 — 호흡 정지
+    // 1인 그룹에서도 내 셀은 보인다 — showMeWhenEmpty가 빠지면 멤버 0명 그룹 페이지가
+    // 빈 상태로 렌더돼 자신의 집중 시간·과목이 안 보인다(codex 리뷰 28차).
+    expect(lastGridProps('그룹: 베타')!.showMeWhenEmpty).toBe(true);
   });
 
   test('커스텀 캐릭터 장착 시: 캡처 대상 study 캐릭터에 activeSource가 배선된다', async () => {
@@ -1017,6 +1037,29 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     // (codex 리뷰 26차). 참조 동일성으로 단언한다(Set/undefined 함정 회피와 동일 원칙).
     expect(lastGridProps('수능·N수 리그')!.members).toBe(mockExamMembers);
     expect(lastGridProps('전체 리그')!.members).toBe(mockLeagueMembers);
+  });
+
+  test('첫 집중 안내: 화면 고유 저장 키와 4단계가 배선된다', async () => {
+    // 안내 배선이 빠지면 첫 사용자가 페이저·메뉴·일시정지·정지 안내를 못 받고, 키가 다르면
+    // 매 세션 안내가 반복된다(codex 리뷰 28차).
+    await renderSession({ mode: 'countup' });
+    const guide = mockGuideCaptures.at(-1)!;
+    expect(guide.storageKey).toBe(STORAGE_KEYS.guideFocusSession);
+    expect(guide.steps).toHaveLength(4);
+  });
+
+  test('Live Activity 시작이 거부돼도: 타이머·정산·결과 이동은 계속된다', async () => {
+    // startFocusActivity는 fire-and-forget(.catch 삼킴)이 현행이다 — 전파로 바뀌면 LA 브리지가
+    // 고장난 기기에서 미처리 거부 또는 세션 중단이 생긴다(codex 리뷰 28차).
+    (ScreenTimeModule.startFocusActivity as jest.Mock).mockRejectedValueOnce(
+      new Error('activity bridge'),
+    );
+    await renderSession({ mode: 'countup' });
+    await advance(3000); // 600ms 발화 → 시작 거부 — 그래도 틱은 계속
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3, completed: true });
   });
 
   test('실드는 선택한 과목명으로 걸린다 — 차단 화면 문구의 원천', async () => {
