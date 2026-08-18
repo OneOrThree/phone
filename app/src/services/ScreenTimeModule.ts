@@ -124,9 +124,18 @@ interface AndroidNativeScreenTime {
   getInstalledApps?(): Promise<InstalledApp[]>;
   getSelectionPackages?(): Promise<string[]>;
   setSelectionPackages?(packages: string[]): Promise<void>;
-  // 집중 중 허용앱 — 저장은 피커가 하고, 읽는 쪽(실드)은 후속 티켓에서 붙는다.
+  // 집중 중 허용앱 — 피커가 저장하고, 실드가 예외 목록으로 읽는다.
   getAllowedPackages(): Promise<string[]>;
   setAllowedPackages(packages: string[]): Promise<void>;
+  // 집중 실드(GROMO-1604) — 폴링 + 가림막. iOS의 OS 위임과 달리 우리가 직접 돌린다.
+  canDrawOverlay(): Promise<boolean>;
+  requestOverlayPermission(): Promise<void>;
+  startFocusShield(subjectName: string): Promise<boolean>;
+  stopFocusShield(): Promise<void>;
+  // 상시 알림(iOS Live Activity 대응) — 캐릭터 스냅샷 + 과목·다른 과목 누적.
+  saveCharacterSnapshot(base64: string): Promise<boolean>;
+  startFocusActivity(subjectName: string, otherSubjectsJson: string): Promise<boolean>;
+  endFocusActivity(): Promise<void>;
 }
 
 /** 측정 대상 피커에 뿌릴 설치 앱 1건(안드로이드 전용). 아이콘은 getAppIcon으로 따로 받는다. */
@@ -413,6 +422,22 @@ const ScreenTimeModule = {
     return AndroidScreenTime.setAllowedPackages(packages);
   },
 
+  // ── 가림막 권한 · 안드로이드 (GROMO-1604) ──
+  // '다른 앱 위에 표시'는 시스템 팝업이 없는 특수 권한이라, iOS의 권한 요청 팝업과 달리
+  // 설정 화면으로 보내고 돌아왔을 때 다시 확인하는 흐름이 된다(Usage Access와 같은 모양).
+
+  /** 가림막을 띄울 수 있는가. iOS는 실드에 별도 권한이 없어 항상 true. */
+  canDrawOverlay: async (): Promise<boolean> => {
+    if (AndroidScreenTime) return AndroidScreenTime.canDrawOverlay();
+    return Platform.OS === 'ios';
+  },
+
+  /** '다른 앱 위에 표시' 설정 화면 열기(안드로이드 전용). */
+  requestOverlayPermission: async (): Promise<void> => {
+    if (!AndroidScreenTime) return;
+    return AndroidScreenTime.requestOverlayPermission();
+  },
+
   // 날짜 키('YYYY-MM-DD')의 threshold 발화 타임라인(N1) — 창 사용분 계산(A4)의 소스. 2일 보존.
   // 오래된 순 [{bucket, firedAt}] — bucket은 하루 누적 환산분(단조 증가). iOS 외·구 바이너리는 빈 배열.
   getUsageBucketEvents: async (dayKey: string): Promise<UsageBucketEvent[]> => {
@@ -457,18 +482,26 @@ const ScreenTimeModule = {
 
   // 저장된 허용앱 선택 개수. 미설정이면 null.
   getAllowedSelectionCounts: async (): Promise<AppSelectionCounts | null> => {
+    // 안드로이드는 패키지 목록을 그대로 알 수 있어 개수를 직접 센다
+    // (categories·webDomains는 안드로이드에 없는 개념이라 0 — 계약 형태만 맞춘다).
+    if (AndroidScreenTime) {
+      const packages = await AndroidScreenTime.getAllowedPackages();
+      return { applications: packages.length, categories: 0, webDomains: 0 };
+    }
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.getAllowedSelectionCounts();
   },
 
   // 집중 세션 실드 켜기 — 허용앱 외 전부 차단. 반환값: 적용 여부(권한 없으면 false).
   startFocusShield: async (subjectName: string): Promise<boolean> => {
+    if (AndroidScreenTime) return AndroidScreenTime.startFocusShield(subjectName);
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startFocusShield(subjectName);
   },
 
   // 집중 세션 실드 끄기 — 세션 정지·고아 세션 정리 시 호출(멱등).
   stopFocusShield: async (): Promise<void> => {
+    if (AndroidScreenTime) return AndroidScreenTime.stopFocusShield();
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.stopFocusShield();
   },
@@ -487,6 +520,7 @@ const ScreenTimeModule = {
 
   // 캐릭터 스냅샷(base64 PNG)을 App Group에 저장 — Live Activity·가림막이 읽어 표시.
   saveCharacterSnapshot: async (base64: string): Promise<boolean> => {
+    if (AndroidScreenTime) return AndroidScreenTime.saveCharacterSnapshot(base64);
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.saveCharacterSnapshot(base64);
   },
@@ -499,6 +533,10 @@ const ScreenTimeModule = {
     otherSubjects: { name: string; seconds: number; color: string }[] = [],
     state?: FocusActivityState,
   ): Promise<boolean> => {
+    // 안드로이드는 Live Activity가 없어 실드 서비스의 상시 알림이 그 자리를 대신한다(GROMO-1604).
+    if (AndroidScreenTime) {
+      return AndroidScreenTime.startFocusActivity(subjectName, JSON.stringify(otherSubjects));
+    }
     if (Platform.OS !== 'ios') return false;
     const fallback: FocusActivityState = {
       mode: 'countup',
@@ -524,6 +562,7 @@ const ScreenTimeModule = {
 
   // 집중 Live Activity 종료(멱등).
   endFocusActivity: async (): Promise<void> => {
+    if (AndroidScreenTime) return AndroidScreenTime.endFocusActivity();
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.endFocusActivity();
   },

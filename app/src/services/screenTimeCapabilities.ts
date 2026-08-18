@@ -48,21 +48,23 @@ export const supportsAppSelection = (): boolean => {
 };
 
 /** 집중 중 **허용앱 목록을 고르고 관리**할 수 있는가. */
-export const supportsFocusShield = (): boolean => Platform.OS === 'ios';
+export const supportsFocusShield = (): boolean =>
+  Platform.OS === 'ios' || Platform.OS === 'android';
 
 /**
  * 고른 허용앱이 **실제로 차단에 쓰이는가**(집중 중 다른 앱이 잠기는가).
  *
- * 목록 관리(위)와 굳이 나눠 둔다 — 두 플랫폼의 차단 방식이 근본적으로 다르기 때문이다.
- * iOS는 OS에 위임(ManagedSettingsStore)이라 권한만 있으면 항상 걸리지만, 안드로이드에는
- * 대응 API가 없어 우리가 직접 돌려야 하고 그때는 "고를 수는 있는데 이번 세션엔 차단이 안 걸린"
- * 상태가 정상적으로 존재하게 된다.
+ * 목록 관리(위)와 나눠 둔 이유는 구현이 붙은 뒤에도 유효하다 — 두 플랫폼의 차단 방식이
+ * 근본적으로 다르기 때문이다.
+ *   - iOS: OS에 위임(ManagedSettingsStore). 권한만 있으면 항상 걸린다.
+ *   - Android: 우리가 폴링 + 가림막으로 직접 돌린다(GROMO-1604). '다른 앱 위에 표시' 권한이
+ *     꺼져 있으면 가림막을 못 올려 **고를 수는 있는데 이번 세션엔 차단이 안 걸린** 상태가 된다.
  *
- * 둘을 하나로 합치면 둘 중 하나가 반드시 거짓이 된다:
- *   - 합쳐서 false → 화면을 숨겨 목록을 확인조차 못 한다
- *   - 합쳐서 true  → "집중 중 모든 앱이 잠겨요"라고 **안 잠기는 걸 잠긴다고** 안내한다
+ * 그래서 이 술어는 "이 플랫폼이 차단을 **할 줄 아는가**"만 답한다. 이번 세션에 **실제로
+ * 걸렸는지**는 `startFocusShield()`의 반환값이 정본이다 — 화면은 그 값으로 이탈 정책을 가른다.
  */
-export const enforcesFocusShield = (): boolean => Platform.OS === 'ios';
+export const enforcesFocusShield = (): boolean =>
+  Platform.OS === 'ios' || Platform.OS === 'android';
 
 /**
  * 앱별 사용 시간 상세(어떤 앱을 얼마나)를 볼 수 있는가.

@@ -15,6 +15,7 @@ import android.os.Process
 import android.provider.Settings
 import android.util.Base64
 import java.io.ByteArrayOutputStream
+import java.io.File
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
@@ -77,6 +78,10 @@ class ScreenTimeModule : Module() {
 
     // 피커 목록 아이콘 한 변(px). 행에 그려지는 크기(약 40dp)의 고밀도 대비 여유분.
     private const val ICON_PX = 96
+
+    // 캐릭터 스냅샷 파일명 — iOS가 App Group 컨테이너에 쓰는 focusCharacter.png와 같은 역할.
+    // FocusShieldService·ShieldOverlay가 같은 이름으로 읽으므로 바꾸면 셋을 같이 고칠 것.
+    const val CHARACTER_FILE = "focusCharacter.png"
   }
 
   private val context: Context
@@ -265,6 +270,112 @@ class ScreenTimeModule : Module() {
         editor.putStringSet(KEY_SELECTION_PACKAGES, packages.toSet())
       }
       editor.apply()
+    }
+
+    // ── 집중 실드 (GROMO-996) ────────────────────────────────────────────────────
+    // iOS는 OS가 차단을 대신해 주지만(ManagedSettingsStore), 안드로이드는 우리가 직접
+    // 폴링+가림막으로 흉내낸다. 구조·한계는 FocusShieldService 주석 참고.
+
+    /** '다른 앱 위에 표시' 권한 보유 여부 — 이게 없으면 실드가 아예 불가능하다. */
+    AsyncFunction("canDrawOverlay") {
+      canDrawOverlays(context)
+    }
+
+    /** 권한 설정 화면 열기. 시스템 팝업이 없는 특수 권한이라 설정으로 보내는 수밖에 없다. */
+    AsyncFunction("requestOverlayPermission") {
+      val intent = Intent(
+        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+        Uri.parse("package:${context.packageName}"),
+      )
+      val activity = appContext.currentActivity
+      if (activity != null) {
+        activity.startActivity(intent)
+      } else {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+      }
+    }
+
+    /**
+     * 실드 시작. 반환값은 **실제로 차단이 걸렸는지**다(iOS 계약과 동일).
+     *
+     * 권한이 없으면 false — 호출부(FocusSessionScreen)는 이 값으로 이탈 정책을 가른다.
+     * 여기서 true를 돌려주면 차단도 안 되는데 이탈 판정만 느슨해져 부정 사용이 열린다.
+     */
+    AsyncFunction("startFocusShield") { subjectName: String ->
+      if (!canDrawOverlays(context)) {
+        false
+      } else {
+        val allowed = prefs.getStringSet(KEY_ALLOWED_PACKAGES, null)?.toTypedArray() ?: emptyArray()
+        val intent = Intent(context, FocusShieldService::class.java).apply {
+          action = FocusShieldService.ACTION_START
+          putExtra(FocusShieldService.EXTRA_SUBJECT, subjectName)
+          putExtra(FocusShieldService.EXTRA_ALLOWED, allowed)
+        }
+        // 세션 시작은 항상 사용자가 앱 안에서 누르는 순간이라 백그라운드 FGS 시작 제약에
+        // 걸리지 않는다(Android 12+ 제약은 백그라운드에서 띄울 때만 적용).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          context.startForegroundService(intent)
+        } else {
+          context.startService(intent)
+        }
+        true
+      }
+    }
+
+    /** 실드 해제 — 멱등. 세션이 이미 끝났는데 또 불려도 무해해야 한다(화면이 여러 경로로 부른다). */
+    AsyncFunction("stopFocusShield") {
+      val intent = Intent(context, FocusShieldService::class.java).apply {
+        action = FocusShieldService.ACTION_STOP
+      }
+      try {
+        context.startService(intent)
+      } catch (_: Exception) {
+        // 서비스가 이미 죽어 있으면 시작 자체가 실패할 수 있다 — 목표(정지)는 이미 달성이다.
+      }
+    }
+
+    // ── 잠금화면 타이머(iOS Live Activity 대응) ──────────────────────────────────
+    // iOS는 Live Activity가 실드와 **별개**로 돈다. 안드로이드는 상시 알림이 그 자리를 대신하는데
+    // 알림의 주인이 실드 서비스라, 여기서도 같은 서비스에 정보만 얹는다.
+    // 차단 권한이 없어 실드가 못 돌 때도 타이머는 의미가 있으므로 서비스는 뜬다(차단만 꺼진 채).
+
+    /** 캐릭터 스냅샷 저장 — 알림 큰 아이콘·가림막 아이콘이 읽는다(iOS는 App Group 파일). */
+    AsyncFunction("saveCharacterSnapshot") { base64: String ->
+      runCatching {
+        val bytes = Base64.decode(base64, Base64.DEFAULT)
+        File(context.filesDir, CHARACTER_FILE).writeBytes(bytes)
+        true
+      }.getOrDefault(false)
+    }
+
+    /** 세션 정보(과목·다른 과목 누적)를 알림에 반영. otherSubjectsJson은 iOS와 같은 형태. */
+    AsyncFunction("startFocusActivity") { subjectName: String, otherSubjectsJson: String ->
+      val intent = Intent(context, FocusShieldService::class.java).apply {
+        action = FocusShieldService.ACTION_ACTIVITY
+        putExtra(FocusShieldService.EXTRA_SUBJECT, subjectName)
+        putExtra(FocusShieldService.EXTRA_OTHERS, otherSubjectsJson)
+      }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        context.startForegroundService(intent)
+      } else {
+        context.startService(intent)
+      }
+      true
+    }
+
+    /**
+     * 타이머 정보만 종료 — **차단은 유지된다**(iOS와 같은 계약).
+     *
+     * 화면이 실드까지 내릴 땐 stopFocusShield를 따로 부른다. 여기서 서비스를 통째로 내리면
+     * 과목 변경처럼 이펙트가 다시 도는 경우에 차단이 조용히 풀린다.
+     */
+    AsyncFunction("endFocusActivity") {
+      val intent = Intent(context, FocusShieldService::class.java).apply {
+        action = FocusShieldService.ACTION_ACTIVITY_END
+      }
+      runCatching { context.startService(intent) }
+      Unit
     }
 
     // ── 집중 중 허용앱 (GROMO-1603) ──────────────────────────────────────────────
