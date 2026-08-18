@@ -30,6 +30,7 @@ import { usePinned } from './usePinned';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { MY_USER_ID, type RankedMember } from './mock';
 import { hms, fmtMinutes } from './format';
+import { memberLiveSeconds } from '@/utils/liveFocus';
 import type { FriendResponse } from '@/types/api';
 import { RankRow } from './components/RankRow';
 import { RankRowShell } from './components/RankRowShell';
@@ -210,12 +211,19 @@ export default function LeagueScreen() {
   // 내 순위 — 위 리스트와 같은 파생값에서만 계산
   const myIdx = visibleRanking.findIndex((r) => r.userId === MY_USER_ID);
   const above = myIdx > 0 ? visibleRanking[myIdx - 1] : null;
-  // ⚠️ 격차 계산에는 **단계별 내 기록**을 쓴다. 재정렬을 한 칸씩 재생하는 동안 목록의 기록은
-  //    단계값인데 여기만 서버 최종값(mySeconds)을 쓰면, 아직 4위·3위가 보이는 프레임에서
-  //    `above - my`가 음수가 되고 hms가 0으로 눌러 `▲ N위까지 00:00:00`이 뜬다(codex 리뷰).
-  //    목록 밖(top-100 밖)이면 애초에 단계화 대상이 아니므로 최종값 그대로다 — mySeconds는
-  //    목록이 아니라 내 세션 합산에서 오기 때문에 그때도 유효한 값이다(useLeagueRanking 주석).
-  const stagedMySeconds = myIdx >= 0 ? visibleRanking[myIdx].totalFocusSeconds : mySeconds;
+  // ⚠️ 격차 계산은 **화면에 그려지는 값과 같은 축**으로 한다 — 두 겹이다.
+  //    ① 단계값: 재정렬을 한 칸씩 재생하는 동안 목록의 기록은 단계값인데 여기만 서버
+  //       최종값(mySeconds)을 쓰면, 아직 4위·3위가 보이는 프레임에서 `above - my`가 음수가
+  //       되고 hms가 0으로 눌러 `▲ N위까지 00:00:00`이 뜬다(codex 리뷰).
+  //    ② 라이브 경과: 서버 정렬이 '확정 집계 + 진행 경과' 기준이 되면서(GROMO-1606) 확정값
+  //       끼리 빼면 같은 문제가 다시 생긴다 — 확정 600초 + 경과 1시간으로 내 위에 올라온
+  //       행과의 격차가 음수다. 행 표시(LiveFocusTime)가 단계값 + 경과이므로 격차도
+  //       memberLiveSeconds(단계값 + 경과)끼리 뺀다(GROMO-1606 코덱스 리뷰).
+  //    시계는 렌더 시점 스냅샷 — 격차는 보조 수치라 초 단위 틱은 걸지 않는다(스테이징·재조회
+  //    렌더마다 갱신). 목록 밖(top-100 밖)이면 애초에 단계화 대상이 아니므로 내 세션 합산
+  //    값(mySeconds) 그대로다 — 그때도 유효한 값이다(useLeagueRanking 주석).
+  const gapNow = Date.now();
+  const myLiveSeconds = myIdx >= 0 ? memberLiveSeconds(visibleRanking[myIdx], gapNow) : mySeconds;
 
   // 넛지 노출 — '내 순위 스트립'(▲ N위까지 M분)이 실제 순위와 함께 뜰 때(rank) 진입당 1회.
   // 랭킹 비동기 로드로 myIdx가 뒤늦게 확정돼도 focusSeq 기준으로 딱 1회만 발화(중복 방지).
@@ -534,7 +542,7 @@ export default function LeagueScreen() {
                       지키려던 순위·시간 수치가 다시 말줄임된다(코덱스 리뷰). */}
                   <Text style={s.myStripGap}>
                     {above
-                      ? `▲ ${myIdx}위까지 ${hms(above.totalFocusSeconds - stagedMySeconds)}`
+                      ? `▲ ${myIdx}위까지 ${hms(memberLiveSeconds(above, gapNow) - myLiveSeconds)}`
                       : '지금 1위예요'}
                   </Text>
                   <Ionicons name="chevron-down" size={13} color={T.accentDeep} />
@@ -612,9 +620,9 @@ export default function LeagueScreen() {
                   seconds={row.totalFocusSeconds}
                   isMe={isMe}
                   pinned={pinned.has(row.userId)}
-                  // row.totalFocusSeconds가 단계값이므로 비교 대상도 단계값이어야 한다(위 주석).
+                  // 행 표시가 단계값 + 라이브 경과이므로 비교도 같은 축이어야 한다(위 주석).
                   deltaSeconds={
-                    pinnedOnly && !isMe ? row.totalFocusSeconds - stagedMySeconds : undefined
+                    pinnedOnly && !isMe ? memberLiveSeconds(row, gapNow) - myLiveSeconds : undefined
                   }
                   isFocusing={row.isFocusing}
                   focusStartedAt={row.focusStartedAt}

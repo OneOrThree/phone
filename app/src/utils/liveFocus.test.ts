@@ -1,5 +1,28 @@
 // 내 그리드 셀 표시값 결합 규칙(GROMO-1246) — 서버 KST 버킷 + 진행 델타, 정산 기준점.
-import { myLiveTotalSeconds } from './liveFocus';
+import { memberLiveSeconds, myLiveTotalSeconds } from './liveFocus';
+
+// 랭킹 파생 계산(격차·평균)의 '화면 축' 총초(GROMO-1606) — 서버 정렬 점수와 같은 값이어야 한다.
+describe('memberLiveSeconds', () => {
+  const NOW = Date.parse('2026-08-18T12:00:00Z');
+
+  it('집중 중이면 확정 주간초에 진행 경과를 더한다 — 서버 정렬 점수와 동일', () => {
+    const m = { totalFocusSeconds: 600, isFocusing: true, focusStartedAt: '2026-08-18T11:00:00Z' };
+    expect(memberLiveSeconds(m, NOW)).toBe(600 + 3600);
+  });
+
+  it('미집중이면 확정값 그대로 — focusStartedAt 잔재가 있어도 무시', () => {
+    const m = {
+      totalFocusSeconds: 3000,
+      isFocusing: false,
+      focusStartedAt: '2026-08-18T11:00:00Z',
+    };
+    expect(memberLiveSeconds(m, NOW)).toBe(3000);
+  });
+
+  it('라이브 필드 없는 응답(구 서버·목데이터)은 확정값 그대로', () => {
+    expect(memberLiveSeconds({ totalFocusSeconds: 1200 }, NOW)).toBe(1200);
+  });
+});
 
 // 대부분의 케이스는 KR 기기(동축) 기준 — 축이 갈린 케이스만 sameAxis:false 를 명시한다.
 const base = {
