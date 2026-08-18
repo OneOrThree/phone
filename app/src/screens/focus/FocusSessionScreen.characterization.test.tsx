@@ -14,6 +14,7 @@
 //    리플레이가 이탈 시점 스냅샷(leftSessionRef)에서 다시 계산해 덮어쓰므로 결과는 결정적이다
 //    — 그 덮어쓰기 자체가 여기서 고정하는 동작이다.
 import { act, fireEvent, render } from '@testing-library/react-native';
+import { AxiosError, type AxiosResponse } from 'axios';
 import { AppState, BackHandler, Vibration, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import FocusSessionScreen from './FocusSessionScreen';
@@ -24,7 +25,7 @@ import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker, flushPendingMarkerCancels } from './pendingMarkerCancels';
 import { ensureFocusTagId } from './tagSync';
 import { captureRef } from 'react-native-view-shot';
-import { consumeCardInteraction } from '@/services/cardInteraction';
+import { consumeCardInteraction, invalidateCardInteraction } from '@/services/cardInteraction';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { isTodayVerdict, publishSessionSaveVerdict } from './sessionSaveVerdict';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -455,6 +456,36 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(logFocusSessionStarted).toHaveBeenCalledWith(
       expect.objectContaining({ entry_source: 'group_card', interaction_id: 'ix-1' }),
     );
+    expect(invalidateCardInteraction).not.toHaveBeenCalled(); // 활성 마운트는 폐기 없이 소비
+  });
+
+  test('비활성(background) 상태로 마운트되면: consume 전에 interaction을 폐기한다', async () => {
+    // 카드 수락 뒤 앱이 비활성화된 사이 내비게이션이 완료된 경우 — 사용자가 화면을 못 본
+    // 진입이므로 invalidateCardInteraction이 consume보다 먼저 돌아 의도를 폐기해야 한다.
+    // 이 배선이 빠지면 폐기됐어야 할 의도가 focus_session_started.interaction_id로 귀속돼
+    // 그룹 카드 퍼널이 부푼다(codex 리뷰 15차). id 미발행 자체는 실제 cardInteraction 저장소가
+    // 폐기된 항목의 consume에 undefined를 돌려줘 보장한다(그 계약은 저장소 유닛 테스트 몫) —
+    // 여기서는 화면이 폐기를 부르는 배선과 호출 순서를 고정한다.
+    const appStateOwner = AppState as unknown as { currentState: AppStateStatus };
+    const originalAppState = appStateOwner.currentState;
+    appStateOwner.currentState = 'background';
+    try {
+      await renderSession({
+        mode: 'countup',
+        entrySource: 'group_card',
+        interactionId: 'ix-2',
+        interactionAcceptedAt: 1_000_000,
+      });
+    } finally {
+      appStateOwner.currentState = originalAppState;
+    }
+    expect(invalidateCardInteraction).toHaveBeenCalledWith('ix-2');
+    expect(
+      (invalidateCardInteraction as jest.Mock).mock.invocationCallOrder[0],
+    ).toBeLessThan((consumeCardInteraction as jest.Mock).mock.invocationCallOrder[0]);
+    expect(logFocusSessionStarted).toHaveBeenCalledWith(
+      expect.objectContaining({ interaction_id: undefined }),
+    );
   });
 
   test('주기 저장(setItem)이 실패해도 세션은 계속된다 — 틱·정산·결과 화면 정상', async () => {
@@ -561,6 +592,26 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(mockedUpload).toHaveBeenCalledTimes(1);
     expect(mockedUpload.mock.calls[0][0].sessionId).toBe('marker-late'); // 늦은 id로 PATCH
     expect(cancelMarker).not.toHaveBeenCalled(); // 버리는 게 아니라 종료로 닫는다
+  });
+
+  test('마커 시작 실패(Axios 무응답): reason=network로 분류해 계측한다', async () => {
+    // 원인 분류가 전부 unknown으로 뭉개지면 마커 실패 지표에서 연결 장애와 서버 장애를 구분할
+    // 수 없다 — 응답 없는 Axios 오류는 network다(codex 리뷰 15차).
+    mockedStartMarker.mockRejectedValueOnce(new AxiosError('Network Error'));
+    await renderSession({ mode: 'countup' });
+    expect(logFocusMarkerStartFailed).toHaveBeenCalledWith({ reason: 'network' });
+  });
+
+  test('마커 시작 실패(HTTP 응답): reason=http_상태코드로 분류해 계측한다', async () => {
+    // 상태 코드가 있는 Axios 오류는 http_<status> — 5xx 급증 같은 서버측 장애 신호가
+    // 그대로 지표에 남아야 한다(codex 리뷰 15차).
+    mockedStartMarker.mockRejectedValueOnce(
+      new AxiosError('Service Unavailable', 'ERR_BAD_RESPONSE', undefined, undefined, {
+        status: 503,
+      } as AxiosResponse),
+    );
+    await renderSession({ mode: 'countup' });
+    expect(logFocusMarkerStartFailed).toHaveBeenCalledWith({ reason: 'http_503' });
   });
 
   test('마커 시작 실패 — 계측만 남기고 세션은 진행, 종료 업로드는 POST 폴백(sessionId null)', async () => {
@@ -710,6 +761,20 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     // 고아 정산 근거도 없고, 이후에도 마지막 주기 저장 뒤 최대 4초는 유실된다(codex 리뷰 12차).
     // 「지금의 동작」으로 고정 — 개선은 1600의 영속 상태 머신 몫.
     expect(await readLiveRecord()).toBeNull();
+  });
+
+  test('600ms 지연 콜백 발화 전 언마운트: Live Activity 시작 자체가 없다 — 유령 LA 방지', async () => {
+    // LA 시작은 캐릭터 캡처를 기다리는 600ms 지연 콜백이다(cleanup이 clearTimeout+cancelled로
+    // 취소). 이 취소가 빠지면 진입 후 600ms 안에 떠난 화면에서 endFocusActivity '뒤에'
+    // 지연된 startFocusActivity가 실행돼, 종료할 주체가 없는 Live Activity가 잠금화면에
+    // 남는다(codex 리뷰 15차).
+    await renderSession({ mode: 'countup' }); // flush는 마이크로태스크만 — 600ms 타이머는 아직
+    expect(ScreenTimeModule.startFocusActivity).not.toHaveBeenCalled();
+    await view.unmount();
+    await act(async () => {});
+    await advance(2000); // 지연 콜백 시각을 한참 지나도
+    expect(ScreenTimeModule.startFocusActivity).not.toHaveBeenCalled(); // 시작은 끝내 없다
+    expect(ScreenTimeModule.endFocusActivity).toHaveBeenCalled(); // 종료(멱등)는 cleanup 몫
   });
 
   test('마커 응답이 언마운트보다 늦어도: 보류 프라미스를 이어받아 늦은 마커를 취소한다', async () => {
@@ -920,6 +985,11 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     const block2Record = await readLiveRecord();
     expect(block2Record!.elapsed).toBe(5);
     expect(block2Record!.serverSessionId).toBe('marker-2');
+    // 레코드의 startedAt도 블록 2의 시작(= 회전 마커의 startedAt)이어야 한다 — 세션 최초 시각을
+    // 재사용하면 이 사이 강제종료 시 고아 정산이 updatedAt−startedAt−elapsed로 방해초를 역산해
+    // 이미 정산된 블록 1·휴식까지 방해 구간에 섞이고 POST 폴백 구간도 같은 값으로 오염된다
+    // (codex 리뷰 15차).
+    expect(block2Record!.startedAt).toBe(mockedStartMarker.mock.calls[1][0].startedAt);
 
     await advance(55_000); // 마지막 세트 완료 — 트레일링 휴식 없이 done + 블록 #2 정산
     expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
@@ -1089,6 +1159,15 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     await fireEvent.press(view.getByTestId('focus.stop'));
     await flush();
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5 }); // 3 + 복귀 후 2
+    // 체류 시계는 inactive에서도 멈춘다 — background만 제외하면 알림 센터를 20초 본 시간이
+    // 뷰·방향 체류에 통째로 섞여 dwell_seconds가 25로 부푼다(codex 리뷰 15차). 세션 이탈
+    // 정책(위)과 체류 계측은 같은 inactive를 다르게 다루는 별개 축이다.
+    expect(logFocusViewChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ view: 'character', dwell_seconds: 5 }),
+    );
+    expect(logFocusOrientationChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ orientation: 'portrait', dwell_seconds: 5 }),
+    );
   });
 
   test('실드 뽀모도로가 백그라운드에서 집중→휴식 경계를 넘으면: 경계 벽시계로 정산하고 휴식은 제외한다', async () => {
