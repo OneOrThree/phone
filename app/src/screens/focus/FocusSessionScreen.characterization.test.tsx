@@ -299,12 +299,20 @@ jest.mock('@/components/PressableScale', () => {
       onPress,
       testID,
       accessibilityLabel,
+      ref,
     }: {
       children?: unknown;
       onPress?: () => void;
       testID?: string;
       accessibilityLabel?: string;
-    }) => mockReact.createElement(Text, { testID, onPress, accessibilityLabel }, children as never),
+      // React 19 ref-as-prop — 앵커 ref가 호스트에 실제로 연결되는지 관찰(codex 리뷰 31차)
+      ref?: unknown;
+    }) =>
+      mockReact.createElement(
+        Text,
+        { testID, onPress, accessibilityLabel, ref } as never,
+        children as never,
+      ),
   };
 });
 jest.mock('react-native-safe-area-context', () => {
@@ -478,6 +486,13 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       expect.objectContaining({ focusTagId: 'tag-1' }),
     );
     expect(body.focusTagId).toBe('tag-1');
+    // 완료 계측의 카운트업 페이로드 — 뽀모도로 테스트만으로는 모드별 오배선(고정값 발행)을
+    // 못 잡는다(codex 리뷰 31차). 7초 세션 → focus_minutes 반올림 0.
+    expect(logFocusSessionCompleted).toHaveBeenCalledWith({
+      mode: 'countup',
+      focus_minutes: 0,
+      has_tag: true,
+    });
     // 시작 계측 1회 + 페이로드 — 화면 배선이 빠지면 시작·완료 퍼널에서 세션이 사라진다(codex 리뷰 8차)
     expect(logFocusSessionStarted).toHaveBeenCalledTimes(1);
     expect(logFocusSessionStarted).toHaveBeenCalledWith(
@@ -580,6 +595,11 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await renderSession({ mode: 'countup' });
     await advance(1000); // 600ms 경과 — 캡처 완료, 저장 대기
     expect(ScreenTimeModule.saveCharacterSnapshot).toHaveBeenCalledWith('b64');
+    // 캡처 대상·옵션 배선 — ref가 호스트에 연결돼 있고 PNG base64 옵션이어야 네이티브
+    // Data(base64Encoded:)가 받는다. 기본 파일 URI로 바뀌면 저장이 조용히 실패한다(codex 리뷰 31차).
+    const [capTarget, capOpts] = (captureRef as jest.Mock).mock.calls[0];
+    expect(capTarget.current).toBeTruthy();
+    expect(capOpts).toMatchObject({ format: 'png', result: 'base64' });
     expect(ScreenTimeModule.startFocusActivity).not.toHaveBeenCalled(); // 저장 완료 전
     await act(async () => {
       resolveSave();
@@ -925,6 +945,33 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(mockCharActiveCaptures.at(-1)).toBe(true); // 캐릭터 페이지 복귀 — 호흡 재개
   });
 
+  test('체류 중 그룹 수가 바뀌어도: 직전 체류는 진입 시점의 뷰 이름으로 발행된다', async () => {
+    // activeViewRef는 진입 시점에 고정된다 — flush 시점의 최신 그룹 수로 재계산하면 리그
+    // 페이지를 보는 사이 그룹 로드가 끝났을 때 그 체류가 groups로 오귀속된다(codex 리뷰 31차).
+    await renderSession({ mode: 'countup' });
+    const pagerWidth = Dimensions.get('window').width;
+    const pager = view.container.queryAll(
+      (n) => n.props?.horizontal === true && n.props?.pagingEnabled === true,
+    )[0];
+    await act(async () => {
+      pager.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: pagerWidth * 2 } } });
+    });
+    // 그룹 0개 시점의 2페이지 = my_league 진입. 보고 있는 사이 그룹 로드가 완료된다.
+    mockSessionGroups = [
+      { groupId: 'g1', groupName: '알파', members: [] },
+      { groupId: 'g2', groupName: '베타', members: [] },
+    ];
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await fireEvent.press(view.getByTestId('focus.pause')); // 리렌더 — 이제 2페이지는 groups
+    await advance(4000);
+    await act(async () => {
+      pager.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: 0 } } });
+    });
+    expect(logFocusViewChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: 'my_league', dwell_seconds: 4 }), // 진입 시점 이름 유지
+    );
+  });
+
   test('메뉴 버튼: 계측 1회와 드로어 열림이 함께 배선돼 있다', async () => {
     // onPress에서 logFocusMenuOpened·setDrawerOpen 어느 쪽이 빠져도 스위트가 몰랐다 —
     // 메뉴 접근 불능·실험 지표 누락 회귀 방어(codex 리뷰 22차).
@@ -1073,13 +1120,22 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(guide.steps).toHaveLength(4);
     // 단계별 앵커 배선 — 앵커가 빠지거나 뒤바뀌면 첫 사용자에게 엉뚱한 요소가 강조된다
     // (codex 리뷰 30차). 1단계=전체 화면(무앵커), 2=페이저 점, 3=메뉴(round), 4=컨트롤(radius).
-    const steps = guide.steps as Array<{ anchor?: unknown; round?: boolean; radius?: number }>;
+    const steps = guide.steps as Array<{
+      anchor?: { current: unknown };
+      round?: boolean;
+      radius?: number;
+    }>;
     expect(steps[0].anchor).toBeUndefined();
     expect(steps[1].anchor).toBeTruthy();
     expect(steps[2].anchor).toBeTruthy();
     expect(steps[2].round).toBe(true);
     expect(steps[3].anchor).toBeTruthy();
     expect(steps[3].radius).toBe(36);
+    // ref 객체 존재만으로는 부족하다 — 실제 호스트에 연결돼 있어야 강조 위치를 잴 수 있다
+    // (codex 리뷰 31차). 메뉴 버튼(PressableScale)의 ref 전달이 빠지면 current가 비어 있다.
+    expect(steps[1].anchor!.current).toBeTruthy(); // 페이저 점
+    expect(steps[2].anchor!.current).toBeTruthy(); // 메뉴 버튼
+    expect(steps[3].anchor!.current).toBeTruthy(); // 컨트롤
   });
 
   test('Live Activity 시작이 거부돼도: 타이머·정산·결과 이동은 계속된다', async () => {
@@ -1504,6 +1560,12 @@ describe('카운트다운 — 완료 게이트', () => {
     expect(cancelMarker).not.toHaveBeenCalled();
     expect(Vibration.vibrate).toHaveBeenCalled();
     expect(logFocusSessionCompleted).toHaveBeenCalledTimes(1);
+    // 카운트다운 완료 페이로드 — 모드별 값이 고정값으로 오배선되면 완료 퍼널이 오염된다(codex 리뷰 31차)
+    expect(logFocusSessionCompleted).toHaveBeenCalledWith({
+      mode: 'countdown',
+      focus_minutes: 0, // 3초 → 반올림 0분
+      has_tag: true,
+    });
     expect(mockNavigation.replace).not.toHaveBeenCalled();
     // 뷰·방향 체류는 게이트가 화면을 덮는 시점에 1회 발행된다(dwellDoneRef) — 빠지면 완료
     // 순간의 체류가 유실되고, finish에서 다시 발행되면 게이트에 머문 시간까지 포함해 체류
