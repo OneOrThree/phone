@@ -36,6 +36,7 @@ import ScreenTimeModule, {
   androidNativeModuleAvailable,
   type AuthorizationStatus,
 } from '@/services/ScreenTimeModule';
+import { supportsUsageBreakdown } from '@/services/screenTimeCapabilities';
 import { updateScreenTimePermission } from '@/services/userApi';
 import { AnimatedCharacter } from '@/components/character/AnimatedCharacter';
 import { CharacterImage } from '@/components/character/CharacterImage';
@@ -223,7 +224,11 @@ function PhoneUsageRow({
           <Text style={s.metricLabel} allowFontScaling={false}>
             핸드폰 사용
           </Text>
-          <Ionicons name="chevron-forward" size={12} color={T.inkMuted} />
+          {/* 상세(앱별 사용 시간)가 없는 플랫폼에선 화살표를 뺀다 — 총 사용시간은 이 카드에
+              멀쩡히 뜨는데 화살표만 따라가면 '볼 수 없어요' 빈 화면이 나온다(GROMO-1592). */}
+          {supportsUsageBreakdown() ? (
+            <Ionicons name="chevron-forward" size={12} color={T.inkMuted} />
+          ) : null}
         </View>
         {needsPermission ? (
           // 권한 미허용 — 안내 문구 + 권한 켜기 CTA. 탭은 아래 행 전체 오버레이가 받는다.
@@ -278,6 +283,9 @@ function PhoneUsageRow({
       <TouchableOpacity
         style={StyleSheet.absoluteFill}
         activeOpacity={0.6}
+        // 권한 요청도 상세 이동도 할 게 없으면 탭 타깃 자체를 끈다 — 누르면 소리가 나고
+        // 눌린 티는 나는데 아무 일도 안 일어나는 게 제일 고장처럼 보인다(GROMO-1592).
+        disabled={!needsPermission && !supportsUsageBreakdown()}
         onPressIn={playTapSound}
         onPress={needsPermission ? onEnablePermission : onPress}
         accessibilityLabel={needsPermission ? '스크린타임 권한 켜기' : '핸드폰 앱별 사용시간 보기'}
