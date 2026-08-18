@@ -1,15 +1,39 @@
-name: Android Build
+name: Android Checks
 
-# 안드로이드 네이티브 빌드 게이트 (GROMO-1602)
+# 안드로이드 네이티브 검사 (GROMO-1602)
 #
 # lint.yml 은 ESLint·Prettier·tsc·jest 만 돈다 — **Kotlin·Gradle·매니페스트·리소스가 깨져도
 # PR 은 전부 초록이고, 로컬에서 빌드해 본 사람만 안다.** 2026-08-18 집중 실드 작업에서
 # Kotlin 컴파일 에러와 XML 주석 오류(`--` 를 주석 안에 넣어 리소스 파싱 실패)가 둘 다
 # 앱 CI 를 그대로 통과했다.
 #
-# ⚠️ 트리거를 좁게 잡은 이유: 이 잡은 Gradle 구성만으로도 RN 모듈 전체를 훑어 lint 보다
-#    무겁다. 러너가 e2-medium(2 vCPU / 4 GB) 한 대뿐이라(ticket 1513), 안드로이드 네이티브가
-#    실제로 바뀐 PR 에서만 돌게 한다. TS 만 고친 PR 은 lint.yml 이 이미 잡는다.
+# ## 두 단으로 나눈 이유 — Gradle 검사는 NDK 4.8 GB 를 요구한다
+#
+# React Native 루트 플러그인이 **구성 단계에서** NDK 를 요구한다. 태스크가 C++ 를 한 줄도
+# 컴파일하지 않아도(태스크 그래프 220개에 cmake/externalNative 가 하나도 없다) 프로젝트
+# 구성 자체가 실패한다:
+#
+#     > Failed to apply plugin 'com.facebook.react.rootproject'.
+#        > NDK not configured. Preferred NDK version is '27.0.12077973'.
+#
+# `-Pandroid.builder.sdkDownload=false` 로 자동 설치를 끄면 위 에러로 죽고, 켜두면 NDK 두
+# 버전(27.0.12077973 · 27.1.12297006)을 **4.8 GB** 받는다. 실측 결과:
+#
+#   | 구성 | 크기 |
+#   | --- | --- |
+#   | platforms/android-36 | 134 MB |
+#   | build-tools/36.0.0 | 188 MB |
+#   | **NDK ×2** | **4.8 GB** |
+#
+# 그래서 러너에 SDK 가 없으면 **Gradle 단은 건너뛰고 XML 단만** 돌린다. SDK 가 깔리는 순간
+# 이 파일을 고치지 않아도 전체 검사가 자동으로 켜진다.
+#
+# ⚠️ 건너뛸 때는 **경고를 남긴다.** 조용히 통과하면 검사가 돈 것처럼 보여서, 안 돈다는 사실이
+#    아무에게도 안 보인다.
+#
+# ⚠️ 트리거를 좁게 잡은 이유: Gradle 은 구성만으로도 RN 모듈 전체를 훑어 lint 보다 무겁다.
+#    러너가 e2-medium(2 vCPU / 4 GB) 한 대뿐이라(ticket 1513), 안드로이드 네이티브가 실제로
+#    바뀐 PR 에서만 돌게 한다. TS 만 고친 PR 은 lint.yml 이 이미 잡는다.
 
 on:
   push:
@@ -35,11 +59,11 @@ on:
 # 같은 PR 에 연속 푸시가 나면 앞 실행을 버린다 — 러너가 한 대뿐이라 큐가 밀리면
 # 뒤따르는 다른 PR 까지 통째로 기다리게 된다.
 concurrency:
-  group: android-build-${{ github.ref }}
+  group: android-checks-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  checks:
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 30
 
@@ -53,24 +77,66 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 러너에 안드로이드 SDK 가 없으면 Gradle 이 "SDK location not found" 로 죽는데, 그
-      # 메시지만 보면 코드 문제로 오인하기 쉽다. 원인을 먼저 못박고 멈춘다.
-      - name: 안드로이드 SDK 확인
+      # ── 1단: XML 정합 (SDK 불필요) ─────────────────────────────────────────────
+      # 안드로이드 리소스·매니페스트가 XML 로서 성립하는지만 본다. 가볍지만 실제로 겪은 사고를
+      # 잡는다 — XML 주석 안에는 하이픈 두 개를 못 쓰는데, 표를 그리려고 `---` 를 넣어
+      # 리소스 파싱이 통째로 실패했다.
+      #
+      # 이 단은 SDK 가 없어도 항상 돈다.
+      - name: XML 정합 검사
         run: |
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          if [ -z "$SDK" ] || [ ! -d "$SDK" ]; then
-            echo "::error::러너에 안드로이드 SDK가 없습니다 (ANDROID_HOME/ANDROID_SDK_ROOT 미설정). 코드 문제가 아니라 러너 환경 문제입니다 — 러너에 commandline-tools + platforms/android-36 + build-tools/36.0.0 를 설치하거나, 이 잡을 SDK가 있는 러너로 옮기세요."
+          if ! command -v python3 >/dev/null 2>&1; then
+            echo "::error::python3 가 없어 XML 검사를 못 했습니다 — 러너에 python3 를 설치하세요."
             exit 1
           fi
-          echo "ANDROID_HOME=$SDK"
+          python3 - <<'PY'
+          import sys, glob, xml.etree.ElementTree as ET
+
+          patterns = [
+              'app/android/**/src/**/*.xml',
+              'app/modules/*/android/src/**/*.xml',
+          ]
+          files = sorted({f for p in patterns for f in glob.glob(p, recursive=True)})
+          if not files:
+              print('검사 대상 XML 없음')
+              sys.exit(0)
+
+          bad = []
+          for f in files:
+              try:
+                  ET.parse(f)
+              except ET.ParseError as e:
+                  bad.append((f, e))
+
+          for f, e in bad:
+              # 주석 안 `--` 가 가장 흔한 원인이라 힌트를 함께 남긴다.
+              print(f'::error file={f}::XML 파싱 실패: {e} (주석 안에 하이픈 두 개 `--` 가 있는지 확인하세요)')
+          print(f'{len(files)}개 검사, {len(bad)}개 실패')
+          sys.exit(1 if bad else 0)
+          PY
+
+      # ── 2단: Gradle 검사 (SDK 필요) ────────────────────────────────────────────
+      - name: 안드로이드 SDK 확인
+        id: sdk
+        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -n "$SDK" ] && [ -d "$SDK/platforms" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "ANDROID_HOME=$SDK"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::러너에 안드로이드 SDK가 없어 Gradle 검사(Kotlin 컴파일·리소스·매니페스트 병합)를 건너뜁니다. XML 정합만 검사했습니다. 켜려면 러너에 platforms/android-36 + build-tools/36.0.0 + NDK(약 5 GB — RN 루트 플러그인이 구성 단계에서 요구)를 설치하세요."
+          fi
 
       - name: Setup Java
+        if: steps.sdk.outputs.present == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Node.js
+        if: steps.sdk.outputs.present == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -79,6 +145,7 @@ jobs:
 
       # Expo 자동링크가 node_modules 를 읽어 Gradle 프로젝트를 구성하므로 설치가 선행이다.
       - name: Install dependencies
+        if: steps.sdk.outputs.present == 'true'
         run: npm ci
         working-directory: app
 
@@ -86,6 +153,7 @@ jobs:
       # 실제 자격을 CI 에 둘 이유가 없으므로(서명된 산출물을 만들지 않는다) 일회용 디버그 키와
       # 최소 google-services.json 을 그때그때 만든다. 저장하지 않고 잡이 끝나면 사라진다.
       - name: CI 자격 생성 (일회용)
+        if: steps.sdk.outputs.present == 'true'
         working-directory: app/android
         run: |
           mkdir -p credentials/ci
@@ -124,9 +192,10 @@ jobs:
           }
           EOF
 
-      # 로컬 모듈이 앱보다 먼저 깨진다 — 여기서 Kotlin 컴파일과 **리소스 파싱**이 함께 돈다
-      # (parseDebugLocalResources). XML 주석에 `--` 를 넣어 리소스가 깨진 사고가 이 단계에서 잡힌다.
+      # 로컬 모듈이 앱보다 먼저 깨진다 — 여기서 Kotlin 컴파일과 안드로이드 리소스 처리가
+      # 함께 돈다(단순 XML 정합을 넘어 참조·속성까지 본다).
       - name: screen-time 모듈 컴파일
+        if: steps.sdk.outputs.present == 'true'
         run: ./gradlew :screen-time:compileDebugKotlin --no-daemon
         working-directory: app/android
 
@@ -135,8 +204,8 @@ jobs:
       #
       # ⚠️ 전체 assembleDebug 를 돌리지 않는 이유: RN + Hermes 번들까지 포함되어 2 vCPU 러너에서
       #    수십 분이 걸리고, 러너가 한 대뿐이라 다른 PR 의 CI 를 통째로 막는다. 컴파일·리소스·
-      #    매니페스트가 실패의 대부분이라 그 셋만 잡는다. 전체 빌드가 필요해지면(예: ProGuard
-      #    규칙 회귀) 러너를 늘린 뒤 단계를 추가할 것.
+      #    매니페스트가 실패의 대부분이라 그 셋만 잡는다.
       - name: 앱 매니페스트 병합 검증
+        if: steps.sdk.outputs.present == 'true'
         run: ./gradlew :app:processDebugMainManifest --no-daemon
         working-directory: app/android
