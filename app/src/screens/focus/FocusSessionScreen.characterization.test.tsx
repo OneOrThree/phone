@@ -666,6 +666,33 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     // 계속 남는다(codex 리뷰 9차)
     expect(ScreenTimeModule.stopFocusShield).toHaveBeenCalled();
     expect(ScreenTimeModule.endFocusActivity).toHaveBeenCalled();
+    // ⚠️ 현행 cleanup엔 saveLive가 없다 — 첫 주기 저장(5초) 전 언마운트면 레코드가 아예 없어
+    // 고아 정산 근거도 없고, 이후에도 마지막 주기 저장 뒤 최대 4초는 유실된다(codex 리뷰 12차).
+    // 「지금의 동작」으로 고정 — 개선은 1600의 영속 상태 머신 몫.
+    expect(await readLiveRecord()).toBeNull();
+  });
+
+  test('마커 응답이 언마운트보다 늦어도: 보류 프라미스를 이어받아 늦은 마커를 취소한다', async () => {
+    // cleanup의 cancelLiveSession이 현재 id가 아니라 liveStartPromiseRef 체인을 취소하는 계약 —
+    // 현재 id만 읽으면 늦게 발급된 마커가 서버 스윕까지 친구 화면에 남는다(codex 리뷰 12차).
+    let resolveMarker!: (v: { sessionId: string }) => void;
+    mockedStartMarker.mockImplementationOnce(
+      () =>
+        new Promise<{ sessionId: string }>((r) => {
+          resolveMarker = r;
+        }),
+    );
+    await renderSession({ mode: 'countup' });
+    await advance(2000);
+    await view.unmount(); // 응답 전 시스템 뒤로가기
+    await act(async () => {});
+    expect(cancelMarker).not.toHaveBeenCalled(); // 아직 취소할 id가 없다
+
+    await act(async () => {
+      resolveMarker({ sessionId: 'marker-late' });
+    });
+    expect(cancelMarker).toHaveBeenCalledWith('marker-late', 'user-1'); // 늦은 마커도 닫는다
+    expect(flushPendingMarkerCancels).toHaveBeenLastCalledWith('user-1');
   });
 
   test('마커 취소가 끝난 직후 밀린 취소 대기열을 재시도한다 — 순서 보장', async () => {
@@ -862,6 +889,11 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     for (const call of mockedUpload.mock.calls) {
       expect(Date.parse(call[0].body.endedAt) - Date.parse(call[0].body.startedAt)).toBe(60_000);
     }
+    // 회전 마커의 시작 시각 = 그 블록 업로드 구간의 시작 — PATCH는 startedAt을 다시 안 보내므로
+    // 마커가 세션 최초 시각을 재사용하면 블록 2가 휴식·블록 1까지 포함해 저장된다(codex 리뷰 12차)
+    expect(mockedStartMarker.mock.calls[1][0].startedAt).toBe(
+      mockedUpload.mock.calls[1][0].body.startedAt,
+    );
     // 로컬·과목 적립도 블록마다 60초씩 — 업로드만 되고 로컬 누적이 빠지는 회귀 방지(codex 리뷰)
     expect(mockAddFocusSeconds.mock.calls).toEqual([[60], [60]]);
     expect(mockAddFocusToSubject.mock.calls).toEqual([
@@ -1236,6 +1268,32 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     // 경과는 정지 전 3 + 재개 후 2, 이탈 20초는 방해초(닫힌 정지 구간)로만 실린다
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5 });
     expect(mockedUpload.mock.calls[0][0].body.totalDistractionSeconds).toBe(20);
+  });
+
+  test('뽀모도로 휴식 중 짧은 이탈: 남은 휴식만 이어지고 경계 전엔 새 마커를 열지 않는다', async () => {
+    // away < 남은 휴식 분기 — 깨지면 짧은 이탈에도 휴식이 조기 종료되거나 다음 블록이
+    // 불필요하게 일시정지 대기로 넘어간다(codex 리뷰 12차).
+    await renderSession({
+      mode: 'pomodoro',
+      pomodoro: { focusMin: 1, breakMin: 1, sets: 2 },
+    });
+    await advance(60_000); // 블록 1 완료 → 휴식
+    await advance(10_000); // 휴식 10초 소진(남은 50초)
+    await fireAppState('background');
+    await jumpWallClock(20_000); // 남은 휴식(50초)보다 짧은 이탈
+    await fireAppState('active');
+    await flush();
+
+    expect(mockedStartMarker).toHaveBeenCalledTimes(1); // 경계 전 — 새 마커 없음
+    await advance(29_000); // 남은 휴식 30초 중 29초
+    expect(mockedStartMarker).toHaveBeenCalledTimes(1); // 여전히 휴식 — 조기 종료 아님
+    await advance(1000); // 휴식 종료 → 블록 2 자동 시작(일시정지 대기 아님)
+    await flush();
+    expect(mockedStartMarker).toHaveBeenCalledTimes(2);
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 63 }); // 60 + 블록 2 3초
   });
 
   test('뽀모도로 휴식 중 이탈: 휴식만 소진하고, 남은 휴식을 넘겨 복귀하면 다음 블록을 일시정지 대기시킨다', async () => {
