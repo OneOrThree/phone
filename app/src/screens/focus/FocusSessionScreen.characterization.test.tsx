@@ -339,6 +339,25 @@ describe('일시정지 의미론', () => {
     expect(Date.parse(body.endedAt) - Date.parse(body.startedAt)).toBe(15_000);
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5 });
   });
+
+  test('정지 상태에서 곧바로 종료: 열린 정지 구간도 종료 시각까지 방해초로 실린다', async () => {
+    // 재개 없이 정지 버튼 → 아직 안 닫힌 정지 구간을 endedAt까지 계산하는 게 현행 계약이다
+    // (blockPauseSeconds의 openMs). 헤드리스 구현이 방해초를 재개 시점에만 확정하도록 바뀌면
+    // 이 경로에서 정지 시간이 빠져 서버가 그 구간을 집중으로 보상한다(codex 리뷰 4차).
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await advance(4000); // 정지 4초 — 재개하지 않는다
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+
+    const { body } = mockedUpload.mock.calls[0][0];
+    expect(body.totalDistractionSeconds).toBe(4); // 열린 구간이 endedAt까지 포함
+    expect(body.distractionCount).toBe(1);
+    expect(Date.parse(body.endedAt) - Date.parse(body.startedAt)).toBe(9000);
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(5); // 경과는 정지 시점에 동결
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5 });
+  });
 });
 
 describe('중도 정지의 completed 판정 — 카운트업만 완료 취급', () => {
@@ -379,6 +398,12 @@ describe('카운트다운 — 완료 게이트', () => {
     expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
     expect(mockedUpload).toHaveBeenCalledTimes(1);
     expect(mockedUpload.mock.calls[0][0].body.focusType).toBe('RANGE');
+    // 로컬·과목 적립도 게이트 정산에서 같은 델타로 — 업로드만 되고 로컬 오늘 누적이 빠지는
+    // 회귀는 결과 화면 경과(session.elapsed 기반)로는 못 잡는다(codex 리뷰 4차).
+    expect(mockAddFocusSeconds).toHaveBeenCalledTimes(1);
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(3);
+    expect(mockAddFocusToSubject).toHaveBeenCalledTimes(1);
+    expect(mockAddFocusToSubject).toHaveBeenCalledWith('s1', 3);
     expect(ScreenTimeModule.stopFocusShield).toHaveBeenCalled();
     // 마커는 취소가 아니라 정산 업로드(PATCH, sessionId 동봉)가 '종료'로 닫는다 — 정산이 참조를
     // 회전시켜 게이트의 cancelLiveSession은 no-op(GROMO-1214의 지급 경로 보존).
@@ -399,6 +424,18 @@ describe('카운트다운 — 완료 게이트', () => {
       { focusSeconds: 3, subjectId: 's1', subjectName: '수학', completed: true },
     ]);
     expect(logFocusSessionCompleted).toHaveBeenCalledTimes(1); // 게이트·finish 이중 발행 없음
+  });
+
+  test('5초를 넘는 목표: 게이트 즉시 정산이 라이브 레코드를 제거한다', async () => {
+    // 목표 3초짜리 테스트는 5초 주기 레코드가 아예 안 생겨 삭제 누락을 못 잡는다. 게이트가
+    // 레코드를 남기면 다음 실행의 OrphanFocusSettler가 죽은 세션으로 또 정산해 로컬 시간이
+    // 중복 적립된다(codex 리뷰 4차).
+    await renderSession({ mode: 'countdown', goalSeconds: 7 });
+    await advance(5000);
+    expect(await readLiveRecord()).not.toBeNull(); // 5초 주기 레코드가 실제로 생겼고
+    await advance(2000); // 7초 — 완료 게이트
+    expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
+    expect(await readLiveRecord()).toBeNull(); // 게이트 정산이 확인 버튼 전에 이미 지웠다
   });
 });
 
@@ -424,7 +461,14 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     await flush();
     expect(mockedStartMarker).toHaveBeenCalledTimes(2);
 
-    await advance(60_000); // 마지막 세트 완료 — 트레일링 휴식 없이 done + 블록 #2 정산
+    // 블록 2 초반 5초 시점의 레코드 — 미정산분(5초)과 회전된 마커만 담아야 한다. 전체 누적(65)을
+    // 실으면 이 사이 강제종료 시 고아 정산이 블록 1의 60초를 중복 적립한다(codex 리뷰 4차).
+    await advance(5000);
+    const block2Record = await readLiveRecord();
+    expect(block2Record!.elapsed).toBe(5);
+    expect(block2Record!.serverSessionId).toBe('marker-2');
+
+    await advance(55_000); // 마지막 세트 완료 — 트레일링 휴식 없이 done + 블록 #2 정산
     expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
     expect(mockedUpload).toHaveBeenCalledTimes(2);
     expect(mockedUpload.mock.calls[1][0].sessionId).toBe('marker-2'); // 회전된 새 id로 종료
@@ -496,6 +540,49 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     expect(mockAddFocusSeconds).toHaveBeenCalledWith(125);
     const { body } = mockedUpload.mock.calls[0][0];
     expect(Date.parse(body.endedAt) - Date.parse(body.startedAt)).toBe(125_000);
+  });
+
+  test('실드 뽀모도로가 백그라운드에서 집중→휴식 경계를 넘으면: 경계 벽시계로 정산하고 휴식은 제외한다', async () => {
+    // 리플레이가 최종 상태만 맞추고 endedAt을 복귀 시각으로 쓰면 블록 1 업로드가 휴식까지
+    // 삼키고, 경계 정산을 생략하면 마커 회전도 빠진다 — countup 리플레이 테스트로는 못 잡는
+    // 모드 경계 계약(codex 리뷰 4차).
+    mockedStartMarker
+      .mockResolvedValueOnce({ sessionId: 'marker-1' })
+      .mockResolvedValueOnce({ sessionId: 'marker-2' });
+    await renderSession({
+      mode: 'pomodoro',
+      pomodoro: { focusMin: 1, breakMin: 1, sets: 2 },
+    });
+    await advance(50_000); // 블록 1 집중 50초
+    await fireAppState('background');
+    await jumpWallClock(30_000); // 벽시계 30초 — 집중 잔여 10초 + 휴식 20초를 백그라운드로 통과
+    await fireAppState('active');
+    await flush();
+
+    // 블록 1은 '복귀 시각'이 아니라 실제 경계 벽시계(시작+60초)로 정산됐다
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    const replayBody = mockedUpload.mock.calls[0][0];
+    expect(replayBody.sessionId).toBe('marker-1');
+    expect(Date.parse(replayBody.body.endedAt) - Date.parse(replayBody.body.startedAt)).toBe(
+      60_000,
+    );
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(60); // 크레딧 10초 포함 블록 몫만
+    expect(mockedStartMarker).toHaveBeenCalledTimes(1); // 휴식 중 복귀 — 새 마커는 아직
+
+    await advance(40_000); // 남은 휴식 40초 소진 → 블록 2 시작: 마커 회전
+    await flush();
+    expect(mockedStartMarker).toHaveBeenCalledTimes(2);
+    await advance(60_000); // 블록 2 완주 — 게이트 + 정산
+    expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
+    expect(mockedUpload).toHaveBeenCalledTimes(2);
+    expect(mockedUpload.mock.calls[1][0].sessionId).toBe('marker-2'); // 회전된 마커로 종료
+    expect(
+      Date.parse(mockedUpload.mock.calls[1][0].body.endedAt) -
+        Date.parse(mockedUpload.mock.calls[1][0].body.startedAt),
+    ).toBe(60_000); // 블록 2도 자기 60초만 — 휴식·이탈은 어느 블록에도 없다
+    await fireEvent.press(view.getByText('확인'));
+    await flush();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 120, completed: true });
   });
 
   test('실드 실패(폴백) 세션: 15초 초과 이탈은 abandoned(leave_timeout)로 자동 종료 — 이탈 시간은 미적립', async () => {
