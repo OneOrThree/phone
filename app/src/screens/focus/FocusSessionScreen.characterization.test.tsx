@@ -14,7 +14,7 @@
 //    리플레이가 이탈 시점 스냅샷(leftSessionRef)에서 다시 계산해 덮어쓰므로 결과는 결정적이다
 //    — 그 덮어쓰기 자체가 여기서 고정하는 동작이다.
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { AppState, Vibration, type AppStateStatus } from 'react-native';
+import { AppState, BackHandler, Vibration, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import FocusSessionScreen from './FocusSessionScreen';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -23,6 +23,7 @@ import { startFocusSession } from '@/services/focusApi';
 import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker } from './pendingMarkerCancels';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
+import { publishSessionSaveVerdict } from './sessionSaveVerdict';
 import {
   logFocusSessionAbandoned,
   logFocusSessionCompleted,
@@ -282,6 +283,14 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     const { sessionId, body } = mockedUpload.mock.calls[0][0];
     expect(sessionId).toBe('marker-1');
     expect(body.focusType).toBe('INFINITE');
+    // 마커 '시작' 요청에도 모드가 실린다 — PATCH는 focusType을 다시 안 보내므로 시작 값이
+    // 최종 세션 유형으로 남는다(codex 리뷰 6차).
+    expect(mockedStartMarker).toHaveBeenCalledWith(
+      expect.objectContaining({ focusType: 'INFINITE' }),
+    );
+    // saved 전용 후처리 — 지급 확정 후 코인 재조회 + 서버 스트릭 판정 발행(codex 리뷰 6차)
+    expect(mockCoinRefresh).toHaveBeenCalledTimes(1);
+    expect(publishSessionSaveVerdict).toHaveBeenCalledWith({});
     expect(body.subject).toBe('수학');
     expect(Date.parse(body.endedAt) - Date.parse(body.startedAt)).toBe(7000);
     // 로컬 적립도 같은 델타로 — 정확히 1회(중복 적립 회귀 방지, codex 리뷰)
@@ -317,6 +326,20 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(await readLiveRecord()).toBeNull();
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: true });
     expect(mockCoinRefresh).not.toHaveBeenCalled(); // 지급 미확정 — 코인 재조회는 saved에서만
+  });
+
+  test('라이브 레코드 삭제가 실패해도 종료는 계속된다 — 업로드·적립·결과 화면 이동', async () => {
+    // 정산의 removeItem은 fire-and-forget(.catch 삼킴)이 현행이다 — 헤드리스화가 삭제를
+    // await하고 실패를 전파하면 저장소 오류 기기에서 종료가 통째로 막힌다(codex 리뷰 6차).
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    (AsyncStorage.removeItem as unknown as jest.Mock).mockRejectedValueOnce(new Error('disk'));
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(5);
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: true });
   });
 
   test('업로드가 마커를 못 닫으면(onMarkerStillOpen) 화면이 cancelMarker로 닫는다', async () => {
@@ -414,6 +437,41 @@ describe('일시정지 의미론', () => {
     expect(mockAddFocusSeconds).toHaveBeenCalledWith(5); // 경과는 정지 시점에 동결
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5 });
   });
+
+  test('24시간을 넘긴 정지에서 재개: 블록을 정지 시작 시점에서 끊고 재개 시점부터 새 마커로 연다', async () => {
+    // 방해초는 DTO 상한(24h)을 넘길 수 없다 — 값만 자르면 초과분이 서버에서 집중으로 계상되므로
+    // 현행은 pauseCutAt으로 블록 자체를 끊는다: 정산은 정지 시작까지, 재개부터 새 블록·새 마커.
+    // 정지 구간은 어느 블록에도 안 들어간다(codex 리뷰 6차).
+    mockedStartMarker
+      .mockResolvedValueOnce({ sessionId: 'marker-1' })
+      .mockResolvedValueOnce({ sessionId: 'marker-2' });
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await jumpWallClock(24 * 3600 * 1000 + 60_000); // 24시간 + 1분 정지
+    await fireEvent.press(view.getByTestId('focus.pause')); // 재개 — 컷 분기
+    await flush();
+
+    // 블록 1은 정지 시작 시점(시작+5초)에서 끊겨 즉시 정산됐다 — 방해초 0(구간 밖)
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    const cutBody = mockedUpload.mock.calls[0][0];
+    expect(cutBody.sessionId).toBe('marker-1');
+    expect(Date.parse(cutBody.body.endedAt) - Date.parse(cutBody.body.startedAt)).toBe(5000);
+    expect(cutBody.body.totalDistractionSeconds).toBe(0);
+    expect(mockedStartMarker).toHaveBeenCalledTimes(2); // 재개 시점의 새 마커
+
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    // 블록 2는 재개 시각부터 3초 — 24시간 정지는 어디에도 없다
+    expect(mockedUpload).toHaveBeenCalledTimes(2);
+    expect(mockedUpload.mock.calls[1][0].sessionId).toBe('marker-2');
+    expect(
+      Date.parse(mockedUpload.mock.calls[1][0].body.endedAt) -
+        Date.parse(mockedUpload.mock.calls[1][0].body.startedAt),
+    ).toBe(3000);
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 8 });
+  });
 });
 
 describe('중도 정지의 completed 판정 — 카운트업만 완료 취급', () => {
@@ -478,6 +536,10 @@ describe('카운트다운 — 완료 게이트', () => {
     expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
     expect(mockedUpload).toHaveBeenCalledTimes(1);
     expect(mockedUpload.mock.calls[0][0].body.focusType).toBe('RANGE');
+    expect(mockedStartMarker).toHaveBeenCalledWith(expect.objectContaining({ focusType: 'RANGE' }));
+    // Live Activity도 게이트 시점에 즉시 종료 — 확인까지 미루면 게이트에 머무는 동안
+    // Dynamic Island에 끝난 집중이 진행 중으로 남는다(codex 리뷰 6차).
+    expect(ScreenTimeModule.endFocusActivity).toHaveBeenCalled();
     // 로컬·과목 적립도 게이트 정산에서 같은 델타로 — 업로드만 되고 로컬 오늘 누적이 빠지는
     // 회귀는 결과 화면 경과(session.elapsed 기반)로는 못 잡는다(codex 리뷰 4차).
     expect(mockAddFocusSeconds).toHaveBeenCalledTimes(1);
@@ -517,6 +579,31 @@ describe('카운트다운 — 완료 게이트', () => {
     expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
     expect(await readLiveRecord()).toBeNull(); // 게이트 정산이 확인 버튼 전에 이미 지웠다
   });
+
+  test('게이트에서 Android 하드웨어 뒤로가기: 이벤트를 소비하고 확인 버튼과 동일하게 finish한다', async () => {
+    // 게이트가 뜨면 BackHandler를 구독해 pop 대신 finish로 보낸다 — 배선이 빠지면 화면이
+    // 단순 pop돼 결과 연출·후속 처리를 건너뛴다(codex 리뷰 6차).
+    const backHandlers: Array<() => boolean> = [];
+    jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_e, h) => {
+      backHandlers.push(h as () => boolean);
+      return { remove: jest.fn() } as never;
+    });
+    await renderSession({ mode: 'countdown', goalSeconds: 3 });
+    await advance(3000);
+    expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
+    expect(backHandlers.length).toBeGreaterThan(0); // 게이트가 구독을 걸었다
+
+    let consumed = false;
+    await act(async () => {
+      consumed = backHandlers.at(-1)!();
+    });
+    await flush();
+    expect(consumed).toBe(true); // 이벤트 소비 — 시스템 pop 차단
+    expect(mockedNavigationReplace()).toEqual([
+      'FocusResult',
+      { focusSeconds: 3, subjectId: 's1', subjectName: '수학', completed: true },
+    ]);
+  });
 });
 
 describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
@@ -536,6 +623,9 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     expect(mockedUpload).toHaveBeenCalledTimes(1);
     expect(mockedUpload.mock.calls[0][0].sessionId).toBe('marker-1');
     expect(mockedUpload.mock.calls[0][0].body.focusType).toBe('POMODORO');
+    expect(mockedStartMarker).toHaveBeenCalledWith(
+      expect.objectContaining({ focusType: 'POMODORO' }),
+    );
 
     await advance(60_000); // 휴식 1분 → 세트 2 집중: 마커 회전(새 마커)
     await flush();
@@ -601,6 +691,9 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     await renderSession({ mode: 'countup' });
     await advance(5000);
     await fireAppState('background');
+    // 실드 세션은 이탈이 차단된 상태라 경고 알림을 예약하지 않는다 — !shielded 가드가 빠지면
+    // 보호된 세션에도 이탈 알림이 간다(codex 리뷰 6차).
+    expect(scheduleLeaveNotifications).not.toHaveBeenCalled();
     // 벽시계만 전진 — 리플레이가 유일한 적립 경로임을 강제한다. advance(틱 동반)로 흉내내면
     // creditFocusTicks·focusDays 누락 회귀를 못 잡는다(codex 리뷰: 정산·고아 정산이 5초로 축소).
     await jumpWallClock(120_000);
@@ -665,6 +758,38 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 120, completed: true });
   });
 
+  test('실드 이탈 크레딧은 세션 누적 8시간 상한 — 왕복해도 다시 차지 않고, 상한 시각에 부분 정산한다', async () => {
+    // 상한이 '복귀 1회당'으로 회귀하면 왕복마다 8시간씩 새로 붙는다(GROMO-1253의 34시간 사례).
+    // 두 번의 이탈(5h+4h=9h)로 넘겨 크레딧이 8h에서 멈추고, 상한 시각으로 부분 정산 후
+    // 새 블록이 열리는 것까지 고정한다(codex 리뷰 6차).
+    jest.setSystemTime(new Date('2026-08-18T01:00:00+09:00')); // 자정 경계를 피해 하루 안에서 진행
+    await renderSession({ mode: 'countup' });
+    await advance(10_000);
+    await fireAppState('background');
+    await jumpWallClock(5 * 3600 * 1000); // 이탈 1: 5h — 전부 크레딧
+    await fireAppState('active');
+    expect((await readLiveRecord())!.elapsed).toBe(10 + 5 * 3600);
+
+    await fireAppState('background');
+    await jumpWallClock(4 * 3600 * 1000); // 이탈 2: 4h — 잔여 3h만 크레딧
+    await fireAppState('active');
+    await flush();
+
+    // 상한 시각(시작+10초+8h)으로 부분 정산 — 미인정 1h는 어느 구간에도 없다
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    const capBody = mockedUpload.mock.calls[0][0];
+    expect(Date.parse(capBody.body.endedAt) - Date.parse(capBody.body.startedAt)).toBe(
+      (10 + 8 * 3600) * 1000,
+    );
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(10 + 8 * 3600);
+
+    await advance(2000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    // 최종 경과 = 10 + 8h(크레딧 상한) + 복귀 후 2 — 9h가 아니다
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 10 + 8 * 3600 + 2 });
+  });
+
   test('실드 실패(폴백) 세션: 15초 초과 이탈은 abandoned(leave_timeout)로 자동 종료 — 이탈 시간은 미적립', async () => {
     mockedShieldStart.mockResolvedValue(false);
     await renderSession({ mode: 'countup' });
@@ -724,6 +849,50 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     await fireEvent.press(view.getByTestId('focus.stop'));
     await flush();
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 7 }); // 5 + 복귀 후 2
+  });
+
+  test('폴백 세션의 정확히 15초 복귀: 경계값은 계속이다 — 종료는 15초 초과부터', async () => {
+    // 현행 종료 조건은 away > LEAVE_END_S(엄격 초과)다 — >= 로 바뀌면 정확히 15초에 돌아온
+    // 사용자가 자동 종료된다. 10초·20초 케이스 사이의 경계를 고정한다(codex 리뷰 6차).
+    mockedShieldStart.mockResolvedValue(false);
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireAppState('background');
+    await jumpWallClock(15_000); // 정확히 경계값
+    await fireAppState('active');
+    await flush();
+
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+    expect(mockNavigation.replace).not.toHaveBeenCalled();
+    await advance(2000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 7 }); // 5 + 복귀 후 2
+  });
+
+  test('일시정지 중 이탈은 무시된다 — 알림 예약·자동 종료 없이 정지 상태만 유지', async () => {
+    // 백그라운드 핸들러의 pausedRef 가드가 현행이다 — 빠지면 정지 중 15초 초과 이탈이 일반
+    // 집중 이탈로 취급돼 복귀 즉시 자동 종료되거나 이탈 알림이 간다(codex 리뷰 6차).
+    mockedShieldStart.mockResolvedValue(false);
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await fireAppState('background');
+    await jumpWallClock(20_000); // 15초 정책을 넘는 이탈 — 정지 중이라 무시돼야 한다
+    await fireAppState('active');
+    await flush();
+
+    expect(scheduleLeaveNotifications).not.toHaveBeenCalled();
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+    expect(mockNavigation.replace).not.toHaveBeenCalled();
+
+    await fireEvent.press(view.getByTestId('focus.pause')); // 재개
+    await advance(2000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    // 경과는 정지 전 3 + 재개 후 2, 이탈 20초는 방해초(닫힌 정지 구간)로만 실린다
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5 });
+    expect(mockedUpload.mock.calls[0][0].body.totalDistractionSeconds).toBe(20);
   });
 
   test('뽀모도로 휴식 중 이탈: 휴식만 소진하고, 남은 휴식을 넘겨 복귀하면 다음 블록을 일시정지 대기시킨다', async () => {
