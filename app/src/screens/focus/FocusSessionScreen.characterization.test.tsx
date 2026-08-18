@@ -30,6 +30,7 @@ import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNot
 import { isTodayVerdict, publishSessionSaveVerdict } from './sessionSaveVerdict';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import {
+  logFocusMenuOpened,
   logFocusSessionAbandoned,
   logFocusSessionCompleted,
   logFocusSessionStarted,
@@ -142,15 +143,22 @@ jest.mock('@/store/CharacterContext', () => ({ useCharacter: () => ({ activeSour
 jest.mock('@/screens/league/useFocusFriends', () => ({
   useFocusFriends: () => ({ friends: [], pinnedIds: new Set() }),
 }));
+// 리그 훅 호출 인자를 붙잡는다 — 나 제외·시험 필터 배선 관찰용
+const mockLeagueArgs: unknown[] = [];
 jest.mock('./useSessionLeagueMembers', () => ({
-  useSessionLeagueMembers: () => ({ members: [] }),
+  useSessionLeagueMembers: (args: unknown) => {
+    mockLeagueArgs.push(args);
+    return { members: [] };
+  },
 }));
 // 서버의 KST 오늘 집중 스냅샷 — 실제 계약은 { day, minutes } | null (테스트별 갈아끼움)
 let mockMyFocus: { day: string; minutes: number } | null = null;
 jest.mock('./useSessionGroups', () => ({
   useSessionGroups: () => ({ groups: [], myFocus: mockMyFocus }),
 }));
-jest.mock('@/hooks/useFocusCategory', () => ({ useFocusCategory: () => null }));
+// 준비 시험 카테고리 — 기본 null(미설정), 시험 필터 테스트에서 갈아끼움
+let mockFocusCategory: string | null = null;
+jest.mock('@/hooks/useFocusCategory', () => ({ useFocusCategory: () => mockFocusCategory }));
 // '동작 줄이기' 확정 true — 실제 useMotion이 reanimated 호출 없이 즉시값 경로로 돈다.
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => true,
@@ -167,7 +175,14 @@ jest.mock('./components/LiveFocusGrid', () => ({
     return null;
   },
 }));
-jest.mock('./components/FocusMenuDrawer', () => ({ FocusMenuDrawer: () => null }));
+// 드로어 열림 상태 전달을 붙잡는다 — 메뉴 버튼→드로어 배선 관찰용
+const mockDrawerOpenCaptures: boolean[] = [];
+jest.mock('./components/FocusMenuDrawer', () => ({
+  FocusMenuDrawer: (props: { open: boolean }) => {
+    mockDrawerOpenCaptures.push(props.open);
+    return null;
+  },
+}));
 // 가로 분기 전달값을 붙잡는다 — 레이아웃은 렌더하지 않되 화면→가로 컴포넌트 배선은 관찰한다
 const mockLandscapeCaptures: Array<{ subjectName: string; onRotatePortrait: () => void }> = [];
 jest.mock('./FocusLandscape', () => ({
@@ -177,7 +192,14 @@ jest.mock('./FocusLandscape', () => ({
   },
 }));
 jest.mock('@/components/TabGuideOverlay', () => ({ TabGuideOverlay: () => null }));
-jest.mock('@/components/character/AnimatedCharacter', () => ({ AnimatedCharacter: () => null }));
+// 호흡 애니메이션 활성 플래그를 붙잡는다 — 게이트·페이지 전환의 절전 배선 관찰용
+const mockCharActiveCaptures: boolean[] = [];
+jest.mock('@/components/character/AnimatedCharacter', () => ({
+  AnimatedCharacter: (props: { active: boolean }) => {
+    mockCharActiveCaptures.push(props.active);
+    return null;
+  },
+}));
 jest.mock('@/components/character/CharacterImage', () => ({ CharacterImage: () => null }));
 jest.mock('@/components/PressableScale', () => {
   const mockReact = jest.requireActual<typeof import('react')>('react');
@@ -271,8 +293,12 @@ beforeEach(async () => {
   jest.clearAllMocks();
   mockSubjectsData = [{ id: 's1', name: '수학', accumulatedSeconds: 0, color: '#FFB4A2' }];
   mockMyFocus = null;
+  mockFocusCategory = null;
   mockGridMeCaptures.length = 0;
   mockLandscapeCaptures.length = 0;
+  mockDrawerOpenCaptures.length = 0;
+  mockCharActiveCaptures.length = 0;
+  mockLeagueArgs.length = 0;
   await AsyncStorage.clear();
   jest.useFakeTimers();
   appStateHandlers = [];
@@ -735,6 +761,66 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3, completed: true });
   });
 
+  test('세로 페이지 스와이프: 직전 페이지의 체류가 정확한 이름·시간으로 발행된다', async () => {
+    // onMomentumScrollEnd → flushViewDwell + viewForPage 매핑의 배선 — 빠지면 GROMO-987
+    // 실험 지표가 전부 character로 귀속되거나 누락된다(codex 리뷰 22차).
+    await renderSession({ mode: 'countup' });
+    const pagerWidth = Dimensions.get('window').width;
+    const pager = view.container.queryAll(
+      (n) => n.props?.horizontal === true && n.props?.pagingEnabled === true,
+    )[0];
+    await advance(3000); // 캐릭터 페이지 3초
+    await act(async () => {
+      pager.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: pagerWidth } } });
+    });
+    expect(logFocusViewChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: 'character', dwell_seconds: 3 }),
+    );
+    await advance(4000); // 친구 페이지 4초
+    await act(async () => {
+      pager.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: pagerWidth * 2 } } });
+    });
+    expect(logFocusViewChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: 'friends', dwell_seconds: 4 }),
+    );
+    await advance(2000);
+    await act(async () => {
+      // 같은 페이지로 끝난 스크롤 — 미계측이 계약이다
+      pager.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: pagerWidth * 2 } } });
+    });
+    expect(logFocusViewChanged).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      pager.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: 0 } } });
+    });
+    // 그룹 0개 fixture — 2페이지는 viewForPage 매핑상 my_league다
+    expect(logFocusViewChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: 'my_league', dwell_seconds: 2 }),
+    );
+  });
+
+  test('메뉴 버튼: 계측 1회와 드로어 열림이 함께 배선돼 있다', async () => {
+    // onPress에서 logFocusMenuOpened·setDrawerOpen 어느 쪽이 빠져도 스위트가 몰랐다 —
+    // 메뉴 접근 불능·실험 지표 누락 회귀 방어(codex 리뷰 22차).
+    await renderSession({ mode: 'countup' });
+    expect(mockDrawerOpenCaptures.at(-1)).toBe(false);
+    await fireEvent.press(view.getByLabelText('집중 메뉴 열기'));
+    expect(logFocusMenuOpened).toHaveBeenCalledTimes(1);
+    expect(mockDrawerOpenCaptures.at(-1)).toBe(true);
+  });
+
+  test('리그 그리드 훅: 전체 리그는 나 제외, 같은 시험은 occupation 필터·enabled 게이트', async () => {
+    // 인자를 버리는 목으로는 excludeUserId 누락·시험 필터 오배선을 못 잡는다 — 본인 행 중복,
+    // 다른 시험 준비생 혼입 회귀 방어(codex 리뷰 22차).
+    mockFocusCategory = '수능·N수'; // CATEGORY_TO_OCCUPATION 실매핑 → CSAT
+    await renderSession({ mode: 'countup' });
+    expect(mockLeagueArgs).toContainEqual({ excludeUserId: 'user-1' });
+    expect(mockLeagueArgs).toContainEqual({
+      occupation: 'CSAT',
+      enabled: true,
+      excludeUserId: 'user-1',
+    });
+  });
+
   test('실드는 선택한 과목명으로 걸린다 — 차단 화면 문구의 원천', async () => {
     // startFocusShield의 인자는 네이티브가 차단 화면 문구로 저장·표시한다(ScreenTimeModule.swift
     // :594-610) — subjectId나 이전 세션의 과목명이 넘어가면 다른 과목으로 집중하는 사용자가
@@ -769,9 +855,13 @@ describe('일시정지 의미론', () => {
     await advance(3000);
     await fireEvent.press(view.getByTestId('focus.pause'));
     expect(logFocusSessionPaused).toHaveBeenCalledWith({ elapsed_seconds: 3 });
+    // 정지 중 내 그리드 셀은 비집중 — !paused 조건이 빠지면 정지한 사용자가 친구 그리드에
+    // 계속 초록(집중 중)으로 보인다(codex 리뷰 22차).
+    expect(mockGridMeCaptures.at(-1)!.isFocusing).toBe(false);
     await advance(10_000); // 정지 10초 — 경과는 3초에 머문다
     await fireEvent.press(view.getByTestId('focus.pause'));
     expect(logFocusSessionResumed).toHaveBeenCalledTimes(1);
+    expect(mockGridMeCaptures.at(-1)!.isFocusing).toBe(true); // 재개 즉시 복귀
     await advance(2000);
     await fireEvent.press(view.getByTestId('focus.stop'));
     await flush();
@@ -1245,6 +1335,17 @@ describe('카운트다운 — 완료 게이트', () => {
     await view.unmount();
     await act(async () => {});
     for (const remove of backRemoves) expect(remove).toHaveBeenCalled();
+  });
+
+  test('완료 게이트가 뜨면 캐릭터 호흡 애니메이션이 멈춘다 — active=false', async () => {
+    // 게이트가 화면을 덮은 뒤에도 가려진 캐릭터의 무한 호흡이 돌면 확인을 누를 때까지 UI
+    // 스레드·배터리를 소비한다 — active의 !doneGate 조건을 고정한다(codex 리뷰 22차).
+    await renderSession({ mode: 'countdown', goalSeconds: 3 });
+    await advance(2000);
+    expect(mockCharActiveCaptures.at(-1)).toBe(true); // 진행 중·캐릭터 페이지 — 호흡 활성
+    await advance(1000); // 목표 도달 — 게이트
+    expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
+    expect(mockCharActiveCaptures.at(-1)).toBe(false); // 가려진 캐릭터 — 절전
   });
 
   test('게이트가 뜬 뒤의 백그라운드 진입: 이탈 알림·이탈 처리가 없다 — done 가드', async () => {
