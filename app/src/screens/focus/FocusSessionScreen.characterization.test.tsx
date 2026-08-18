@@ -1039,6 +1039,11 @@ describe('카운트다운 — 완료 게이트', () => {
     // 완료 게이트(확인 버튼)는 세로 레이아웃에만 있다 — 가로에선 FocusLandscape 조기 return이
     // 게이트를 가리므로, 완료 시점의 세로 잠금이 빠지면 가로로 완료한 사용자가 확인 버튼을
     // 영영 못 본다(codex 리뷰 10차 — 「완료 시엔 세로로 되돌린다」 이펙트를 고정).
+    // ⚠️ 이 테스트는 LANDSCAPE_ENABLED(Platform.OS === 'ios')의 iOS 절반만 고정한다 —
+    // Android 절반(게이트 제거 시 lockAsync(DEFAULT)가 매니페스트 세로 설정을 덮는 회귀)은
+    // jest.isolateModules·동적 import 모두 react 재평가로 dual-React 훅 크래시가 나서 현
+    // jest 단일 프로젝트 구성에선 검증 불가(codex 리뷰 6차·18차에서 두 번 시도). 별도
+    // android jest 프로젝트가 필요해 헤드리스화(1600)의 테스트 인프라 항목으로 백로그.
     await renderSession({ mode: 'countdown', goalSeconds: 3 });
     expect(ScreenOrientation.lockAsync).toHaveBeenCalledTimes(1);
     expect(ScreenOrientation.lockAsync).toHaveBeenCalledWith(
