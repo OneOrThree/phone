@@ -13,6 +13,7 @@ import {
   logOnboardingPermissionRequested,
   logOnboardingPermissionResulted,
   logOnboardingScreentimeViewed,
+  logOnboardingStepAction,
 } from '@/services/analyticsEvents';
 import type { StepProps } from '@/screens/onboarding/types';
 
@@ -125,7 +126,13 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
       setGuideVisible(false);
       Alert.alert('앱에서 바로 요청할 수 없어요', '설정에서 스크린 타임 권한을 켜 주세요.', [
         { text: '취소', style: 'cancel' },
-        { text: '설정 열기', onPress: openSettings },
+        {
+          text: '설정 열기',
+          onPress: () => {
+            logOnboardingStepAction({ step: 'screentime_denied', action: 'open_settings' });
+            openSettings();
+          },
+        },
       ]);
     } finally {
       setRequesting(false);

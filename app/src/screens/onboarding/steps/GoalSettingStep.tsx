@@ -9,6 +9,7 @@ import { formatDuration } from '@/screens/onboarding/format';
 import {
   logOnboardingGoalSubmitted,
   logOnboardingScreentimeViewed,
+  logOnboardingStepAction,
 } from '@/services/analyticsEvents';
 import type { StepProps } from '@/screens/onboarding/types';
 
@@ -47,6 +48,20 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
   const [focusOpen, setFocusOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false);
 
+  // 피커 펼침 계측(GROMO-1605) — 두 목표를 다 정해야 CTA가 열리므로, 어느 쪽을 안 건드려서
+  // 막히는지 보려면 '펼쳤다'가 필요하다. 접는 동작은 세지 않는다(의미가 흐려짐).
+  // ⚠️ 발행은 setState 업데이터 밖에서 — 업데이터는 순수해야 하고, StrictMode에서 두 번 불린다.
+  const toggleFocus = () => {
+    if (!focusOpen) logOnboardingStepAction({ step: 'goal_setting', action: 'goal_picker_focus' });
+    setFocusOpen((v) => !v);
+  };
+  const toggleScreen = () => {
+    if (!screenOpen) {
+      logOnboardingStepAction({ step: 'goal_setting', action: 'goal_picker_screentime' });
+    }
+    setScreenOpen((v) => !v);
+  };
+
   // 권한 승인 사용자는 과거 전날 사용시간 화면에서 발행하던 스크린타임 퍼널 이벤트를
   // 목표 설정 진입 시 이어서 발행한다. 거부 사용자는 직전 ScreenTimeDeniedStep이
   // has_data:false를 발행하므로 여기서는 승인 경로만 처리한다.
@@ -78,7 +93,7 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
           <TouchableOpacity
             style={[s.head, focusOpen ? s.headOpen : null]}
             activeOpacity={0.7}
-            onPress={() => setFocusOpen((v) => !v)}
+            onPress={() => toggleFocus()}
           >
             <Text style={s.label}>하루 집중 목표</Text>
             <View style={s.valueWrap}>
@@ -104,7 +119,7 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
           <TouchableOpacity
             style={[s.head, screenOpen ? s.headOpen : null]}
             activeOpacity={0.7}
-            onPress={() => setScreenOpen((v) => !v)}
+            onPress={() => toggleScreen()}
           >
             <Text style={s.label}>하루 스크린타임 목표</Text>
             <View style={s.valueWrap}>

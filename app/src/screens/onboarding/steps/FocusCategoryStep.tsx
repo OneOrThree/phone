@@ -6,7 +6,10 @@ import { hapticLight } from '@/utils/haptics';
 import { OCCUPATION_GROUPS, getDefaultSubjects } from '@/constants/focusCategories';
 import { getOccupations } from '@/services/userApi';
 import { getDefaultTags } from '@/services/focusApi';
-import { logOnboardingFocusCategorySubmitted } from '@/services/analyticsEvents';
+import {
+  logOnboardingFocusCategorySubmitted,
+  logOnboardingStepAction,
+} from '@/services/analyticsEvents';
 import type { OccupationResponse } from '@/types/dto/user';
 import type { StepProps } from '@/screens/onboarding/types';
 
@@ -38,6 +41,7 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
   }, [reloadKey]);
 
   const retry = () => {
+    logOnboardingStepAction({ step: 'focus_category', action: 'category_retry' });
     setOccupations(null);
     setReloadKey((k) => k + 1);
   };
@@ -45,7 +49,7 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
   // 선택 카테고리의 추천 과목을 서버에서 받아 data.subjects에 채운 뒤 진행. 실패 시 정적 폴백.
   const proceed = async () => {
     if (!selected || submitting) return;
-    logOnboardingFocusCategorySubmitted();
+    logOnboardingFocusCategorySubmitted({ category: selected });
     setSubmitting(true);
     const code = occupations?.find((o) => o.displayName === selected)?.code ?? null;
     try {
@@ -109,6 +113,12 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
                       onPress={() => {
                         hapticLight();
                         if (o.displayName !== selected) {
+                          // 선택 분포·변심을 보기 위해 '바뀔 때만' 발행한다(같은 칩 재탭은 무발행).
+                          logOnboardingStepAction({
+                            step: 'focus_category',
+                            action: 'category_select',
+                            value: o.displayName,
+                          });
                           update({ focusCategory: o.displayName, subjects: [] });
                         }
                       }}

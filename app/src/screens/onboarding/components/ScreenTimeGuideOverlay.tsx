@@ -1,6 +1,8 @@
 import { useCallback, useRef } from 'react';
 import { Modal, View, Text, TouchableOpacity, Animated, StyleSheet } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
+import { useOnboardingStepName } from '@/screens/onboarding/components/OnboardingStepContext';
+import { logOnboardingStepAction } from '@/services/analyticsEvents';
 import type { SystemColorScheme } from '@/services/ScreenTimeModule';
 
 // 시스템 스크린타임 권한창 리허설 오버레이 (GROMO-934)
@@ -85,6 +87,7 @@ export default function ScreenTimeGuideOverlay({
   onDismissed,
 }: Props) {
   const c = ALERT_COLORS[scheme];
+  const stepName = useOnboardingStepName();
   // '허용 안 함'(오답) 탭 → 좌우 흔들림 (진행 없음)
   const shakeX = useRef(new Animated.Value(0)).current;
   const shakeDeny = () => {
@@ -126,7 +129,14 @@ export default function ScreenTimeGuideOverlay({
                   // Maestro E2E — 오버레이가 실제 권한창보다 먼저 뜨므로 대본이 이 버튼을 눌러 진행
                   testID="onboarding.screentime.guide.continue"
                   activeOpacity={0.8}
-                  onPress={onConfirm}
+                  onPress={() => {
+                    // 가이드 통과율 계측(GROMO-1605) — 이 오버레이는 권한 요청/거부 두 스텝이
+                    // 공유하므로 스텝 이름은 컨텍스트에서 받는다.
+                    if (stepName) {
+                      logOnboardingStepAction({ step: stepName, action: 'guide_continue' });
+                    }
+                    onConfirm();
+                  }}
                   style={[
                     s.pill,
                     s.pillRing,
@@ -138,7 +148,14 @@ export default function ScreenTimeGuideOverlay({
                 <Animated.View style={[s.flex1, { transform: [{ translateX: shakeX }] }]}>
                   <TouchableOpacity
                     activeOpacity={0.9}
-                    onPress={shakeDeny}
+                    onPress={() => {
+                      // 이 오버레이의 존재 이유가 '파란 버튼 누르는 실수' 방지다(GROMO-934).
+                      // 오답 탭 수 = 가이드가 실제로 막아낸 거부 건수 — 효과 측정의 분자.
+                      if (stepName) {
+                        logOnboardingStepAction({ step: stepName, action: 'guide_deny_tapped' });
+                      }
+                      shakeDeny();
+                    }}
                     style={[s.pill, { backgroundColor: c.denyBg }]}
                   >
                     <Text style={[s.pillText, s.denyText]}>허용 안 함</Text>

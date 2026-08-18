@@ -14,6 +14,7 @@ import {
   setReloginHandler,
 } from '@/services/api';
 import { setAccountSwitchHandler, logout } from '@/services/auth';
+import { initAnalytics } from '@/services/analytics';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
 import { todayStr } from '@/utils/localDate';
 import {
@@ -158,6 +159,15 @@ function App() {
   // applyStoredSession이 [] effect에서 1회 등록돼 user 클로저가 낡는다 — 현재 userId는 ref로 참조.
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = user?.userId ?? null;
+
+  // GA4 초기화 — 앱 마운트 시 1회(GROMO-1605). 원래 RootNavigator의 NavigationContainer
+  // onReady에서만 불렀는데, RootNavigator는 user가 있을 때만 렌더되는 분기라 **신규 유저는
+  // 온보딩을 다 끝낼 때까지 init이 돌지 않았다** → 온보딩 전 구간 이벤트에 device_id가 빠졌다.
+  // (device_id는 deferredInvite가 서버로 보내는 값과 같아야 '초대→설치→온보딩'이 조인된다.)
+  // RootNavigator의 호출은 그대로 둬도 무해하다 — resolveDeviceId가 캐시를 타서 멱등.
+  useEffect(() => {
+    initAnalytics();
+  }, []);
 
   useEffect(() => {
     (async () => {
