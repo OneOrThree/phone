@@ -9,27 +9,46 @@
 
 ## A. 출시 차단 항목 (이게 안 되면 올릴 수 없다)
 
-### A-1. 릴리즈 서명 키가 없다 🔴
+### A-1. 릴리즈 업로드 키가 없다 🔴
 
-`android/app/build.gradle` 의 release 빌드가 **디버그 키로 서명**되고 있다.
+**빌드 설정은 이미 준비돼 있다.** `android/app/build.gradle` 의 서명 설정은 이름만 `debug` 일 뿐
+`credentials/<APP_ENV>/keystore.properties` 가 가리키는 키를 읽고, 릴리즈 빌드가 그 설정을 쓴다.
 
 ```gradle
-release {
-    // Caution! In production, you need to generate your own keystore file.
-    signingConfig signingConfigs.debug   // ← 디버그 키
+signingConfigs {
+    debug {   // ← 이름만 debug. 실제 키는 credentials/<APP_ENV>/ 에서 온다
+        storeFile new File(credsDir, ksProps.getProperty('storeFile', 'debug.keystore'))
+        ...
+    }
 }
 ```
 
-Play는 디버그 키로 서명된 AAB를 거부한다. 업로드 키를 새로 만들어
-`android/credentials/prod/` 에 두고 release가 그걸 쓰도록 고쳐야 한다.
+즉 **`credentials/prod/` 를 채우기만 하면** 그 키로 서명된다. 지금 없는 건 키 자체다
+(dev 폴더에는 debug.keystore 만 있다). Play는 디버그 키로 서명된 AAB를 거부한다.
 
 ```bash
-keytool -genkeypair -v -keystore app/android/credentials/prod/upload.keystore \
+keytool -genkeypair -v \
+  -keystore app/android/credentials/prod/upload.keystore \
   -alias gromo-upload -keyalg RSA -keysize 2048 -validity 10000
 ```
 
+같은 폴더에 `keystore.properties` 를 둔다:
+
+```properties
+storeFile=upload.keystore
+storePassword=<위에서 정한 비밀번호>
+keyAlias=gromo-upload
+keyPassword=<위에서 정한 키 비밀번호>
+```
+
+빌드: `APP_ENV=prod ./gradlew bundleRelease`
+
 ⚠️ **이 키를 잃어버리면 같은 앱을 다시 못 올린다.** 1Password 등에 백업할 것.
-(관련 티켓이 이미 있다 — PR #390 `achore/GROMO-1001-release-signing`.)
+(서명 설정 정리 티켓이 이미 있다 — PR #390 `achore/GROMO-1001-release-signing`, 안수빈 담당.
+ 키를 만들기 전에 그 PR과 겹치지 않는지 확인할 것.)
+
+> 이름이 `debug` 인 서명 설정을 그대로 쓰는 건 읽는 사람을 헷갈리게 한다. 별도 설정으로
+> 나누는 정리는 PR #390 소관으로 남긴다.
 
 ### A-2. prod Firebase 자격 🔴
 
