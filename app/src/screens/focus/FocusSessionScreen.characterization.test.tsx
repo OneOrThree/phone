@@ -155,12 +155,15 @@ let mockPinnedIds: Set<string> = new Set();
 jest.mock('@/screens/league/useFocusFriends', () => ({
   useFocusFriends: () => ({ friends: mockFriends, pinnedIds: mockPinnedIds }),
 }));
-// 리그 훅 호출 인자를 붙잡는다 — 나 제외·시험 필터 배선 관찰용
+// 리그 훅 호출 인자를 붙잡고, 호출 종류(시험/전체)별로 다른 목록을 돌려준다 —
+// 두 목록이 두 그리드에 뒤바뀌어 배선되는 회귀를 값으로 가른다
 const mockLeagueArgs: unknown[] = [];
+let mockLeagueMembers: unknown[] = [];
+let mockExamMembers: unknown[] = [];
 jest.mock('./useSessionLeagueMembers', () => ({
-  useSessionLeagueMembers: (args: unknown) => {
+  useSessionLeagueMembers: (args: { occupation?: string }) => {
     mockLeagueArgs.push(args);
-    return { members: [] };
+    return { members: args?.occupation != null ? mockExamMembers : mockLeagueMembers };
   },
 }));
 // 서버의 KST 오늘 집중 스냅샷 — 실제 계약은 { day, minutes } | null (테스트별 갈아끼움)
@@ -214,14 +217,25 @@ jest.mock('./components/LiveFocusGrid', () => ({
 // 특정 그리드의 마지막 전달값 — 페이저에 같은 제목 그리드는 하나뿐이라 제목으로 찾는다
 const lastGridProps = (title: string) =>
   mockGridPropsCaptures.filter((p) => p.title === title).at(-1);
-// 드로어 전달값을 붙잡는다 — 메뉴 버튼→드로어·미정산 오늘 집중 배선 관찰용
-const mockDrawerCaptures: Array<{ open: boolean; liveSubjectId: string; liveSeconds: number }> = [];
+// 드로어 전달값을 붙잡는다 — 메뉴 버튼→드로어·미정산 오늘 집중·닫기 배선 관찰용
+const mockDrawerCaptures: Array<{
+  open: boolean;
+  liveSubjectId: string;
+  liveSeconds: number;
+  onClose: () => void;
+}> = [];
 jest.mock('./components/FocusMenuDrawer', () => ({
-  FocusMenuDrawer: (props: { open: boolean; liveSubjectId: string; liveSeconds: number }) => {
+  FocusMenuDrawer: (props: {
+    open: boolean;
+    liveSubjectId: string;
+    liveSeconds: number;
+    onClose: () => void;
+  }) => {
     mockDrawerCaptures.push({
       open: props.open,
       liveSubjectId: props.liveSubjectId,
       liveSeconds: props.liveSeconds,
+      onClose: props.onClose,
     });
     return null;
   },
@@ -367,6 +381,8 @@ beforeEach(async () => {
   mockCharImageCaptures.length = 0;
   mockLeagueArgs.length = 0;
   mockGroupArgs.length = 0;
+  mockLeagueMembers = [];
+  mockExamMembers = [];
   await AsyncStorage.clear();
   jest.useFakeTimers();
   appStateHandlers = [];
@@ -415,6 +431,9 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await advance(5000);
     expect(liveRecordWrites()).toHaveLength(2);
     expect((await readLiveRecord())!.elapsed).toBe(10);
+    // 화면의 큰 타이머도 경과를 그대로 보여준다 — 렌더 연결이 빠지면 정산·저장은 멀쩡해도
+    // 사용자가 진행 시간을 볼 수 없다(codex 리뷰 26차).
+    expect(view.getByText('00:00:10')).toBeTruthy();
   });
 
   test('정지 버튼 finish — 블록 정산 업로드·마커 취소·레코드 제거·FocusResult(completed=true) replace', async () => {
@@ -507,6 +526,18 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await renderSession({ mode: 'countup' });
     await advance(2000); // 600ms 지연 시작 경과
     expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []);
+  });
+
+  test('스냅샷 저장(네이티브)이 거부돼도: Live Activity는 기본 마스코트 폴백으로 시작된다', async () => {
+    // 캡처 성공 후 App Group 저장이 실패하는 경로 — 저장 오류가 캡처 오류와 같은 catch로
+    // 삼켜지지 않으면(전파되면) 해당 기기의 LA가 통째로 사라진다(codex 리뷰 26차).
+    (ScreenTimeModule.saveCharacterSnapshot as jest.Mock).mockRejectedValueOnce(
+      new Error('app group write denied'),
+    );
+    await renderSession({ mode: 'countup' });
+    await advance(2000);
+    expect(ScreenTimeModule.saveCharacterSnapshot).toHaveBeenCalledWith('b64'); // 캡처는 성공
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []); // 폴백 시작
   });
 
   test('캡처가 영영 pending이어도: 1.5초 타임아웃 폴백으로 Live Activity는 시작된다', async () => {
@@ -885,6 +916,12 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await fireEvent.press(view.getByLabelText('집중 메뉴 열기'));
     expect(logFocusMenuOpened).toHaveBeenCalledTimes(1);
     expect(mockDrawerCaptures.at(-1)!.open).toBe(true);
+    // 닫기 배선 — onClose가 빠지거나 오배선되면 메뉴를 연 사용자가 집중 화면으로 못 돌아온다
+    // (codex 리뷰 26차).
+    await act(async () => {
+      mockDrawerCaptures.at(-1)!.onClose();
+    });
+    expect(mockDrawerCaptures.at(-1)!.open).toBe(false);
   });
 
   test('친구 그리드: members·pinnedIds가 전달되고 visible은 친구 페이지에서만 켜진다', async () => {
@@ -967,6 +1004,8 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     // 인자를 버리는 목으로는 excludeUserId 누락·시험 필터 오배선을 못 잡는다 — 본인 행 중복,
     // 다른 시험 준비생 혼입 회귀 방어(codex 리뷰 22차).
     mockFocusCategory = '수능·N수'; // CATEGORY_TO_OCCUPATION 실매핑 → CSAT
+    mockLeagueMembers = [{ userId: 'L1', nickname: '리그유저' }];
+    mockExamMembers = [{ userId: 'E1', nickname: '시험유저' }];
     await renderSession({ mode: 'countup' });
     expect(mockLeagueArgs).toContainEqual({ excludeUserId: 'user-1' });
     expect(mockLeagueArgs).toContainEqual({
@@ -974,6 +1013,10 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       enabled: true,
       excludeUserId: 'user-1',
     });
+    // 두 목록이 각자의 그리드에 배선된다 — 뒤바뀌면 같은 시험 페이지에 전체 리그 유저가 섞인다
+    // (codex 리뷰 26차). 참조 동일성으로 단언한다(Set/undefined 함정 회피와 동일 원칙).
+    expect(lastGridProps('수능·N수 리그')!.members).toBe(mockExamMembers);
+    expect(lastGridProps('전체 리그')!.members).toBe(mockLeagueMembers);
   });
 
   test('실드는 선택한 과목명으로 걸린다 — 차단 화면 문구의 원천', async () => {
