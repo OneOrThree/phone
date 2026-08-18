@@ -290,6 +290,22 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(await readLiveRecord()).toBeNull();
   });
 
+  test('업로드가 마커를 못 닫으면(onMarkerStillOpen) 화면이 cancelMarker로 닫는다', async () => {
+    // PATCH가 클램프 창 밖이거나 재시도 가능 오류로 실패하면 uploadFocusBlock이 열린 마커 id를
+    // 이 콜백으로 넘기고, 화면 쪽 배선이 cancelMarker를 불러야 친구 화면의 '집중 중'이 서버
+    // 스윕(12h)까지 남지 않는다 — 헤드리스화가 이 콜백 전달을 빠뜨리면 잡을 수 없던 구멍
+    // (codex 리뷰 PR #676 3차).
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    const { onMarkerStillOpen } = mockedUpload.mock.calls[0][0];
+    await act(async () => {
+      onMarkerStillOpen('marker-1');
+    });
+    expect(cancelMarker).toHaveBeenCalledWith('marker-1', 'user-1');
+  });
+
   test('마커 시작 실패 — 계측만 남기고 세션은 진행, 종료 업로드는 POST 폴백(sessionId null)', async () => {
     mockedStartMarker.mockRejectedValueOnce(new Error('offline'));
     await renderSession({ mode: 'countup' });
@@ -326,15 +342,21 @@ describe('일시정지 의미론', () => {
 });
 
 describe('중도 정지의 completed 판정 — 카운트업만 완료 취급', () => {
-  test('카운트다운 목표 전 정지: completed=false로 결과 화면 진입', async () => {
+  // completed는 별점 게이트일 뿐 계측 기준이 아니다 — 유저 주도 정지는 목표 미달이어도
+  // completed 계측 1회·abandoned 0회다(finish의 logCompletedOnce, abandoned와 상호배타).
+  // 헤드리스 구현이 completed=false에서 계측까지 생략하면 완료율 지표에서 세션이 사라진다
+  // (codex 리뷰 PR #676 3차).
+  test('카운트다운 목표 전 정지: completed=false로 결과 화면 진입, 완료 계측은 1회 발행', async () => {
     await renderSession({ mode: 'countdown', goalSeconds: 10 });
     await advance(3000);
     await fireEvent.press(view.getByTestId('focus.stop'));
     await flush();
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3, completed: false });
+    expect(logFocusSessionCompleted).toHaveBeenCalledTimes(1);
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
   });
 
-  test('뽀모도로 세트 도중 정지: completed=false로 결과 화면 진입', async () => {
+  test('뽀모도로 세트 도중 정지: completed=false로 결과 화면 진입, 완료 계측은 1회 발행', async () => {
     await renderSession({
       mode: 'pomodoro',
       pomodoro: { focusMin: 1, breakMin: 1, sets: 2 },
@@ -343,6 +365,8 @@ describe('중도 정지의 completed 판정 — 카운트업만 완료 취급', 
     await fireEvent.press(view.getByTestId('focus.stop'));
     await flush();
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 10, completed: false });
+    expect(logFocusSessionCompleted).toHaveBeenCalledTimes(1);
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
   });
 });
 
@@ -496,6 +520,14 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     // 이탈 전 5초만 적립·결과에 반영 — 자리 비운 20초는 집중이 아니다
     expect(mockAddFocusSeconds).toHaveBeenCalledTimes(1);
     expect(mockAddFocusSeconds).toHaveBeenCalledWith(5);
+    // ⚠️ 서버 업로드 구간은 현행이 [시작, 복귀 시각]이다 — 타임아웃 경로의 finish가 endedAt을
+    // 지정하지 않아 settle이 Date.now()(복귀 시각)로 닫고, 일시정지가 없었으므로 방해초도 0.
+    // 즉 로컬(5초)과 서버 구간(25초)이 불일치하고, 서버 지급이 구간 기준이면 이탈분까지 지급될
+    // 수 있다 — "옳은 동작"이 아니라 "지금의 동작"으로 고정한다(codex 리뷰 PR #676 3차).
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    const { body: fallbackBody } = mockedUpload.mock.calls[0][0];
+    expect(Date.parse(fallbackBody.endedAt) - Date.parse(fallbackBody.startedAt)).toBe(25_000);
+    expect(fallbackBody.totalDistractionSeconds).toBe(0);
     // 중도 이탈 종료 — completed=false로 결과 화면, 완료 계측은 없다(상호배타)
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: false });
     expect(logFocusSessionCompleted).not.toHaveBeenCalled();
