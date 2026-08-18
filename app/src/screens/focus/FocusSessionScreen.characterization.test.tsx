@@ -189,7 +189,12 @@ jest.mock('@/hooks/useReduceMotion', () => ({
 
 // ── 렌더 전용 무거운 자식은 껍데기로 — 세션 로직과 무관 ───────────────────────
 // 내 셀(me)과 그리드별 전달 props를 붙잡는다 — 그리드 자체는 렌더하지 않되 화면→그리드 배선은 관찰한다
-const mockGridMeCaptures: Array<{ totalSeconds: number; isFocusing: boolean }> = [];
+const mockGridMeCaptures: Array<{
+  totalSeconds: number;
+  isFocusing: boolean;
+  nickname: string;
+  tagName: string;
+}> = [];
 const mockGridPropsCaptures: Array<{
   title: string;
   visible: boolean;
@@ -430,6 +435,7 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(record).not.toBeNull();
     expect(record!.elapsed).toBe(5); // 미정산 구간 = 아직 서버에 안 올린 집중초
     expect(record!.subjectId).toBe('s1');
+    expect(record!.subjectName).toBe('수학'); // 고아 정산의 태그 해석·업로드 과목명 원천(codex 리뷰 29차)
     expect(record!.userId).toBe('user-1');
     expect(record!.serverSessionId).toBe('marker-1'); // 강제종료 시 서버 스윕 대상
     // 시간 범위도 고아 정산의 입력이다 — OrphanFocusSettler는 (updatedAt−startedAt)−elapsed로
@@ -950,6 +956,8 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(friendsProps.members).toBe(mockFriends);
     expect(friendsProps.pinnedIds).toBe(mockPinnedIds);
     expect(friendsProps.visible).toBe(false); // 캐릭터 페이지에선 꺼져 있다(숨은 그리드 시계 정지)
+    // 내 셀의 정체성 배선 — 닉네임·집중 과목이 그리드 셀에 그대로 표시된다(codex 리뷰 29차)
+    expect(mockGridMeCaptures.at(-1)).toMatchObject({ nickname: 'nick', tagName: '수학' });
     const pagerWidth = Dimensions.get('window').width;
     const pager = view.container.queryAll(
       (n) => n.props?.horizontal === true && n.props?.pagingEnabled === true,
@@ -1295,6 +1303,21 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     // 고아 정산 근거도 없고, 이후에도 마지막 주기 저장 뒤 최대 4초는 유실된다(codex 리뷰 12차).
     // 「지금의 동작」으로 고정 — 개선은 1600의 영속 상태 머신 몫.
     expect(await readLiveRecord()).toBeNull();
+  });
+
+  test('언마운트 정리의 네이티브 해제가 거부돼도: 종결 계측·마커 취소는 계속된다', async () => {
+    // finish를 안 거치는 언마운트에서 실드·LA 해제 브리지가 거부되는 기기 — 정리 이펙트들이
+    // 서로 독립(fire-and-forget)이라 abandoned·마커 취소는 그대로 돌아야 한다(codex 리뷰 29차).
+    (ScreenTimeModule.stopFocusShield as jest.Mock).mockRejectedValueOnce(new Error('bridge'));
+    (ScreenTimeModule.endFocusActivity as jest.Mock).mockRejectedValueOnce(new Error('bridge'));
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await view.unmount();
+    await act(async () => {});
+    expect(logFocusSessionAbandoned).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'system_back' }),
+    );
+    expect(cancelMarker).toHaveBeenCalledWith('marker-1', 'user-1');
   });
 
   test('언마운트 후 AppState 이벤트: 핸들러가 전부 해제돼 부작용이 없다', async () => {
@@ -1856,6 +1879,16 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 60, completed: false });
   });
 
+  test('전날 서버 스냅샷은 무효 — 내 셀은 로컬 폴백으로 내려간다', async () => {
+    // KST 자정 뒤 폴링이 실패해 전날 값이 남으면 day 검사가 이를 걸러야 한다 — 빠지면 어제
+    // 600초가 오늘 serverBase로 얹혀 내 셀이 부푼다(codex 리뷰 29차).
+    jest.setSystemTime(new Date('2026-08-18T10:00:00+09:00'));
+    mockMyFocus = { day: '2026-08-17', minutes: 10 }; // 어제 기준일의 잔존 스냅샷
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    await advance(5000);
+    expect(mockGridMeCaptures.at(-1)!.totalSeconds).toBe(5); // 서버 600이 얹히면 605
+  });
+
   test('서버 오늘 스냅샷이 있으면 내 그리드 셀은 서버 기준+미정산 델타 — 정산분 이중 계상 없음', async () => {
     // gridServerToday 분기(myFocus { day, minutes } 실계약)의 화면 배선 — 서버 기준을 무시하면
     // 이 세션만(60), 정산분을 서버 기준에 또 얹으면 720으로 튄다. me.totalSeconds가 그리드로
@@ -2135,6 +2168,45 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: false });
   });
 
+  test('무실드 짧은 이탈(15초 이내): app_backgrounded 이탈 계측의 전체 페이로드가 정확하다', async () => {
+    // objectContaining만으로는 blocked가 true로 뒤집히거나 app_category가 오배선돼도 못 잡는다 —
+    // 차단 안 된 이탈이 차단 성공으로 집계되면 실드 효과 지표가 왜곡된다(codex 리뷰 29차).
+    mockedShieldStart.mockResolvedValue(false);
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await fireAppState('background');
+    await jumpWallClock(5000);
+    await fireAppState('active');
+    await flush();
+    expect(logFocusDistractionDetected).toHaveBeenCalledWith({
+      reason: 'app_backgrounded',
+      app_category: 'other',
+      blocked: false,
+      returned_to_focus: true,
+    });
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+  });
+
+  test('inactive를 거쳐 background로 이어지는 이탈: 체류 시작점은 inactive 시각으로 유지된다', async () => {
+    // 두 이벤트에서 시작 시각을 무조건 덮어쓰면 inactive~background 사이 시간이 화면 체류로
+    // 잘못 들어가 dwell_seconds가 부푼다 — null 가드가 계약이다(codex 리뷰 29차).
+    mockedShieldStart.mockResolvedValue(false);
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireAppState('inactive');
+    await jumpWallClock(7000); // 앱 전환기에서 7초
+    await fireAppState('background'); // 이어지는 background — 시작점을 덮어쓰면 안 된다
+    await jumpWallClock(13_000);
+    await fireAppState('active'); // 세션 이탈은 background 기준 13초 — 15초 정책 미발동
+    await flush();
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(logFocusViewChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ view: 'character', dwell_seconds: 5 }), // 이탈 20초 전체 제외
+    );
+  });
+
   test('이탈 알림 예약·취소가 거부돼도: 이탈 판정과 자동 종료 흐름은 계속된다', async () => {
     // scheduleLeaveNotifications·cancelLeaveNotifications는 fire-and-forget(.catch 삼킴)이
     // 현행이다 — 전파·await로 바뀌면 알림 브리지가 고장난 기기에서 복귀 처리·15초 자동 종료가
@@ -2197,6 +2269,13 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     expect(logFocusSessionAbandoned).toHaveBeenCalledWith(
       expect.objectContaining({ reason: 'leave_timeout' }),
     );
+    // 타임아웃 이탈 계측도 전체 페이로드 — blocked가 뒤집히면 차단 지표 오염(codex 리뷰 29차)
+    expect(logFocusDistractionDetected).toHaveBeenCalledWith({
+      reason: 'leave_timeout',
+      app_category: 'other',
+      blocked: false,
+      returned_to_focus: false,
+    });
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: false });
   });
 
