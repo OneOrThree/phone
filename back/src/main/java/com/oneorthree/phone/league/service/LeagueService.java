@@ -4,8 +4,6 @@ import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
-import com.oneorthree.phone.focus.dto.FocusLiveInfo;
-import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
@@ -53,7 +51,6 @@ public class LeagueService {
     private final UserRepository userRepository;
     private final UserActivityEventLogger userActivityEventLogger;
     private final PinnedUserRepository pinnedUserRepository;
-    private final FocusLiveInfoLookup focusLiveInfoLookup;
     private final LeagueWeek leagueWeek;
 
     public LeagueTierResponse getMyTier(UUID userId) {
@@ -77,20 +74,21 @@ public class LeagueService {
 
     /**
      * category가 없으면 활성 유저 전체, 있으면 해당 직군의 주간 집중 시간 상위 100명을 반환한다.
-     * 각 멤버의 집중 라이브 정보(당일 집중분·진행중 여부·시작시각·태그명)를 date 기준으로 1회 배치 조회해 채운다(GROMO-824).
+     * 라이브 4필드(당일 집중분·진행중 여부·시작시각·태그명)는 전부 랭킹 쿼리의 같은 행에서 나온다
+     * (GROMO-824 → 코드리뷰 반영으로 배치 조회 제거 — 별도 조회와 섞으면 그 사이 세션이
+     * 시작·종료·전환된 유저의 순위·경과·태그·당일분이 서로 다른 시점을 가리킨다).
+     *
+     * @param date 서버 판정 축(KST) 기준 오늘 — API 계약(required 파라미터)은 유지하지만 당일분
+     *             집계는 이제 랭킹 쿼리의 :toDate(서버 KST 오늘)를 쓰므로 값은 참조하지 않는다.
      */
     public List<LeagueMemberResponse> getMyRanking(UUID userId, Occupation category, LocalDate date) {
         Instant now = Instant.now();
         List<LeagueRankingRow> ranked = leagueRankingQueryRepository.findTop(
-                leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), category, MY_RANKING_LIMIT);
+                leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), category, MY_RANKING_LIMIT, now);
         if (ranked.isEmpty()) {
             return List.of();
         }
-        // GROMO-824: ranked userId 들의 집중 라이브 정보를 1회 배치 조회(FocusLiveInfoLookup 공용, N+1 방지).
-        // date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘. 미조회 유저는 맵에 없어 toResponses 가 기본값(0/false/null) 처리.
-        List<UUID> userIds = ranked.stream().map(LeagueRankingRow::userId).toList();
-        Map<UUID, FocusLiveInfo> liveInfo = focusLiveInfoLookup.liveInfoByUserId(userIds, date);
-        return toResponses(ranked, pinnedUserRepository.findPinnedUserIdsByUserId(userId), liveInfo);
+        return toResponses(ranked, pinnedUserRepository.findPinnedUserIdsByUserId(userId));
     }
 
     /**
@@ -106,18 +104,26 @@ public class LeagueService {
         int clamped = Math.max(1, Math.min(limit, MAX_RANKING_LIMIT));
         Instant now = Instant.now();
         List<LeagueRankingRow> ranked = leagueRankingQueryRepository.findTop(
-                leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), null, clamped);
+                leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), null, clamped, now);
         // 전역 랭킹은 per-caller 핀 없음, 후속 개선 여지 — isPinned=false (빈 핀 집합).
-        // 라이브 필드는 /me/ranking 스코프 — 전역은 빈 맵으로 기본값(false/0/null) 전달(GROMO-824, 전역 라이브는 별도 티켓).
-        return toResponses(ranked, Set.of(), Map.of());
+        // 라이브 필드는 여기서도 채운다: 정렬이 '확정 집계 + 진행 중 경과' 기준이 되면서(findTop)
+        // 라이브를 안 실으면 클라가 확정값만 그려 "위 행이 아래 행보다 시간이 적은" 목록이 된다.
+        return toResponses(ranked, Set.of());
     }
 
-    private List<LeagueMemberResponse> toResponses(List<LeagueRankingRow> ranked, Set<UUID> pinnedIds,
-                                                   Map<UUID, FocusLiveInfo> liveInfo) {
+    /**
+     * 랭킹 행을 응답으로 변환한다. <b>라이브 4필드가 전부 랭킹 쿼리의 같은 행(같은 SQL 스냅샷)에서
+     * 나온다</b>(코드리뷰 반영) — 정렬 점수·isFocusing·focusStartedAt(정렬에 쓴 앵커)·태그명·당일
+     * 집중분이 한 시점을 가리키므로, 조회 사이에 세션이 시작·종료·전환돼도 "순위는 라이브인데
+     * 표시는 확정값" · "A 세션 경과 + B 세션 태그" · "완료분 포함 당일분 + 살아있는 앵커의 이중
+     * 계상" 같은 조합이 생기지 않는다. 클라가 그리는 base + (now − focusStartedAt) 이 정렬
+     * 점수와 정확히 같다.
+     */
+    private List<LeagueMemberResponse> toResponses(List<LeagueRankingRow> ranked, Set<UUID> pinnedIds) {
         List<LeagueMemberResponse> responses = new ArrayList<>();
         for (int i = 0; i < ranked.size(); i++) {
             LeagueRankingRow row = ranked.get(i);
-            FocusLiveInfo info = liveInfo.get(row.userId());
+            Instant liveStartedAt = row.liveStartedAt();
             responses.add(new LeagueMemberResponse(
                     i + 1,
                     row.userId(),
@@ -125,10 +131,10 @@ public class LeagueService {
                     row.tierLevel(),
                     row.totalFocusSeconds(),
                     pinnedIds.contains(row.userId()),
-                    info != null && info.isFocusing(),
-                    info != null ? info.focusTimeMinutes() : 0,
-                    info != null ? info.focusStartedAt() : null,
-                    info != null ? info.focusTagName() : null));
+                    liveStartedAt != null,
+                    row.todayFocusSeconds() / 60,
+                    liveStartedAt,
+                    liveStartedAt != null ? row.liveTagName() : null));
         }
         return responses;
     }
@@ -141,7 +147,7 @@ public class LeagueService {
     LeagueRankResponse getMyRank(UUID userId, Instant now) {
         LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
         LocalDate toDate = leagueWeek.currentDate(now);
-        return leagueRankingQueryRepository.findRankOf(userId, fromDate, toDate)
+        return leagueRankingQueryRepository.findRankOf(userId, fromDate, toDate, now)
                 .map(this::toRankResponse)
                 .orElseGet(() -> new LeagueRankResponse(false, null, null));
     }
