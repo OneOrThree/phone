@@ -325,6 +325,27 @@ describe('일시정지 의미론', () => {
   });
 });
 
+describe('중도 정지의 completed 판정 — 카운트업만 완료 취급', () => {
+  test('카운트다운 목표 전 정지: completed=false로 결과 화면 진입', async () => {
+    await renderSession({ mode: 'countdown', goalSeconds: 10 });
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3, completed: false });
+  });
+
+  test('뽀모도로 세트 도중 정지: completed=false로 결과 화면 진입', async () => {
+    await renderSession({
+      mode: 'pomodoro',
+      pomodoro: { focusMin: 1, breakMin: 1, sets: 2 },
+    });
+    await advance(10_000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 10, completed: false });
+  });
+});
+
 describe('카운트다운 — 완료 게이트', () => {
   test('목표 도달 시 결과 직행 대신 게이트: 즉시 정산·실드 해제·진동, 마커는 PATCH가 닫음, 확인 후 replace', async () => {
     await renderSession({ mode: 'countdown', goalSeconds: 3 });
@@ -397,20 +418,60 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     await flush();
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 120, completed: true });
   });
+
+  test('블록 1의 일시정지 방해초는 블록 2 업로드에 다시 실리지 않는다', async () => {
+    await renderSession({
+      mode: 'pomodoro',
+      pomodoro: { focusMin: 1, breakMin: 1, sets: 2 },
+    });
+    await advance(10_000);
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await advance(5000); // 블록 1에서 5초 정지
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await advance(50_000); // 블록 1 잔여 집중 완주 → 휴식 진입 정산
+
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    expect(mockedUpload.mock.calls[0][0].body).toMatchObject({
+      totalDistractionSeconds: 5,
+      distractionCount: 1,
+    });
+
+    await advance(60_000); // 휴식
+    await advance(60_000); // 블록 2 — 중단 없음
+    await flush();
+    expect(mockedUpload).toHaveBeenCalledTimes(2);
+    // 방해 카운터가 블록 경계에서 리셋 — 안 되면 서버가 블록 2에서도 5초를 또 차감한다
+    expect(mockedUpload.mock.calls[1][0].body).toMatchObject({
+      totalDistractionSeconds: 0,
+      distractionCount: 0,
+    });
+  });
 });
 
 describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
-  test('실드 세션: 자리 비운 시간을 집중으로 인정(전진)하고 즉시 저장한다', async () => {
+  test('실드 세션: 자리 비운 시간을 집중 인정(전진)·날짜별 적립하고, 정산까지 그대로 흐른다', async () => {
     await renderSession({ mode: 'countup' });
     await advance(5000);
     await fireAppState('background');
-    await advance(120_000); // 2분 자리 비움
+    // 벽시계만 전진 — 리플레이가 유일한 적립 경로임을 강제한다. advance(틱 동반)로 흉내내면
+    // creditFocusTicks·focusDays 누락 회귀를 못 잡는다(codex 리뷰: 정산·고아 정산이 5초로 축소).
+    await jumpWallClock(120_000);
     await fireAppState('active');
 
     const record = await readLiveRecord();
     expect(record!.elapsed).toBe(125); // 5 + away 120 전진, 복귀 즉시 저장
+    // 리플레이 tick이 날짜 맵에도 적립됐는가 — 고아 정산·서버 분포의 근거
+    const localSum = Object.values(record!.focusDays!.local).reduce((a, b) => a + b, 0);
+    expect(localSum).toBe(125);
     expect(mockNavigation.replace).not.toHaveBeenCalled(); // 세션은 계속
     expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+
+    // 종료 정산 — 인정분 전체가 로컬 적립·업로드 구간에 실린다
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(125);
+    const { body } = mockedUpload.mock.calls[0][0];
+    expect(Date.parse(body.endedAt) - Date.parse(body.startedAt)).toBe(125_000);
   });
 
   test('실드 실패(폴백) 세션: 15초 초과 이탈은 abandoned(leave_timeout)로 자동 종료 — 이탈 시간은 미적립', async () => {
@@ -454,6 +515,39 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     );
     expect(mockNavigation.replace).not.toHaveBeenCalled();
     expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+
+    // "이어간다" = 복귀 후 타이머가 실제로 다시 전진한다(codex 리뷰 — 동결 회귀 방지)
+    await advance(2000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 7 }); // 5 + 복귀 후 2
+  });
+
+  test('뽀모도로 휴식 중 이탈: 휴식만 소진하고, 남은 휴식을 넘겨 복귀하면 다음 블록을 일시정지 대기시킨다', async () => {
+    await renderSession({
+      mode: 'pomodoro',
+      pomodoro: { focusMin: 1, breakMin: 1, sets: 2 },
+    });
+    await advance(60_000); // 블록 1 완료 → 휴식 진입
+    expect(mockedStartMarker).toHaveBeenCalledTimes(1);
+    await advance(10_000); // 휴식 10초 소진(남은 50초)
+    await fireAppState('background');
+    await jumpWallClock(80_000); // 남은 휴식(50초)을 넘겨서 복귀
+    await fireAppState('active');
+    await flush();
+
+    // 집중 경과는 동결(60), 자동 종료 없음, 다음 집중 블록은 일시정지 대기 — 마커도 안 연다
+    expect(mockNavigation.replace).not.toHaveBeenCalled();
+    expect(mockedStartMarker).toHaveBeenCalledTimes(1); // 사용자가 없는 동안 새 마커 금지
+    await advance(10_000); // 대기 중 시간이 흘러도
+    await fireEvent.press(view.getByTestId('focus.pause')); // 재개
+    await flush();
+    expect(mockedStartMarker).toHaveBeenCalledTimes(2); // 재개 시점에야 다음 블록 마커
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    // 60(블록1) + 재개 후 3 — 휴식·대기·이탈은 한 초도 집중으로 안 들어간다
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 63 });
   });
 });
 
