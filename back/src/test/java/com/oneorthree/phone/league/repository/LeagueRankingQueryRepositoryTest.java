@@ -1,6 +1,9 @@
 package com.oneorthree.phone.league.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
+import com.oneorthree.phone.common.util.ZonePolicy;
+import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
@@ -12,6 +15,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
@@ -23,6 +28,8 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
 
     private static final LocalDate MONDAY = LocalDate.of(2026, 7, 13);
     private static final LocalDate TUESDAY = LocalDate.of(2026, 7, 14);
+    // 라이브 경과 산정 기준 시각 — TUESDAY 12:00 KST. 진행 중 세션 픽스처는 이 시각에서 역산한다.
+    private static final Instant NOW = TUESDAY.atTime(12, 0).atZone(ZonePolicy.KST).toInstant();
 
     @Autowired
     LeagueRankingQueryRepository leagueRankingQueryRepository;
@@ -30,6 +37,8 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     UserRepository userRepository;
     @Autowired
     DailyFocusStatRepository dailyFocusStatRepository;
+    @Autowired
+    FocusSessionRepository focusSessionRepository;
 
     @Test
     @DisplayName("활성 유저 LEFT JOIN 집계는 0초 유저를 포함하고 total DESC/user.id ASC로 정렬한다")
@@ -45,7 +54,7 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
         saveStat(deleted, MONDAY, 9999);
         flushFixtures();
 
-        List<LeagueRankingRow> result = leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100);
+        List<LeagueRankingRow> result = leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100, NOW);
 
         List<UUID> tiedIds = List.of(tiedA.getId(), tiedB.getId()).stream()
                 // PostgreSQL uuid ASC는 16바이트 unsigned 순서이며 UUID.compareTo의 signed 순서와 다를 수 있다.
@@ -71,7 +80,7 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
         flushFixtures();
 
         List<LeagueRankingRow> result = leagueRankingQueryRepository.findTop(
-                MONDAY, TUESDAY, Occupation.CODING, 100);
+                MONDAY, TUESDAY, Occupation.CODING, 100, NOW);
 
         assertThat(result).extracting(LeagueRankingRow::userId)
                 .containsExactly(codingActive.getId(), codingZero.getId());
@@ -89,7 +98,7 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
         saveStat(tieA, MONDAY, 100);
         saveStat(tieB, MONDAY, 100);
         flushFixtures();
-        List<LeagueRankingRow> expected = leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 10);
+        List<LeagueRankingRow> expected = leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 10, NOW);
 
         List<LeagueRankingRow> firstPage = leagueRankingQueryRepository.findGlobalRankingPage(
                 MONDAY, TUESDAY, null, null, 2);
@@ -112,11 +121,11 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
         saveStat(firstTie, MONDAY, 120);
         saveStat(secondTie, MONDAY, 120);
         flushFixtures();
-        List<LeagueRankingRow> ranking = leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100);
+        List<LeagueRankingRow> ranking = leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100, NOW);
         User target = ranking.get(2).userId().equals(firstTie.getId()) ? firstTie : secondTie;
 
         LeagueRankingPosition position = leagueRankingQueryRepository
-                .findRankOf(target.getId(), MONDAY, TUESDAY)
+                .findRankOf(target.getId(), MONDAY, TUESDAY, NOW)
                 .orElseThrow();
 
         assertThat(position.rank()).isEqualTo(3);
@@ -129,8 +138,8 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
         User deleted = saveUser("deletedTarget", Occupation.CODING, true);
         flushFixtures();
 
-        assertThat(leagueRankingQueryRepository.findRankOf(deleted.getId(), MONDAY, TUESDAY)).isEmpty();
-        assertThat(leagueRankingQueryRepository.findRankOf(UUID.randomUUID(), MONDAY, TUESDAY)).isEmpty();
+        assertThat(leagueRankingQueryRepository.findRankOf(deleted.getId(), MONDAY, TUESDAY, NOW)).isEmpty();
+        assertThat(leagueRankingQueryRepository.findRankOf(UUID.randomUUID(), MONDAY, TUESDAY, NOW)).isEmpty();
     }
 
     @Test
@@ -194,19 +203,19 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
         saveStat(unicodeBlankLegacy, MONDAY, 7777);
         flushFixtures();
 
-        assertThat(leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100))
+        assertThat(leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100, NOW))
                 .extracting(LeagueRankingRow::userId)
                 .containsExactly(guestWithNickname.getId());
         assertThat(leagueRankingQueryRepository.findWeeklyTotalsForSettlement(MONDAY, TUESDAY, null, 100))
                 .extracting(LeagueRankingRow::userId)
                 .containsExactly(guestWithNickname.getId());
-        assertThat(leagueRankingQueryRepository.findRankOf(guestWithNickname.getId(), MONDAY, TUESDAY))
+        assertThat(leagueRankingQueryRepository.findRankOf(guestWithNickname.getId(), MONDAY, TUESDAY, NOW))
                 .isPresent();
-        assertThat(leagueRankingQueryRepository.findRankOf(onboardingDropout.getId(), MONDAY, TUESDAY))
+        assertThat(leagueRankingQueryRepository.findRankOf(onboardingDropout.getId(), MONDAY, TUESDAY, NOW))
                 .isEmpty();
-        assertThat(leagueRankingQueryRepository.findRankOf(blankNicknameLegacy.getId(), MONDAY, TUESDAY))
+        assertThat(leagueRankingQueryRepository.findRankOf(blankNicknameLegacy.getId(), MONDAY, TUESDAY, NOW))
                 .isEmpty();
-        assertThat(leagueRankingQueryRepository.findRankOf(unicodeBlankLegacy.getId(), MONDAY, TUESDAY))
+        assertThat(leagueRankingQueryRepository.findRankOf(unicodeBlankLegacy.getId(), MONDAY, TUESDAY, NOW))
                 .isEmpty();
     }
 
@@ -220,10 +229,87 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
         saveStat(overseas, MONDAY.minusDays(1), 300);
         flushFixtures();
 
-        LeagueRankingRow row = leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 10).get(0);
+        LeagueRankingRow row = leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 10, NOW).get(0);
 
         assertThat(row.userId()).isEqualTo(overseas.getId());
         assertThat(row.totalFocusSeconds()).isZero();
+    }
+
+    @Test
+    @DisplayName("진행 중 세션의 경과분이 정렬에 반영된다 — 확정 집계가 적어도 위로 올라간다")
+    void findTopRanksLiveElapsedAboveConfirmedTotals() {
+        User confirmed = saveUser("confirmed", Occupation.CODING, false);
+        User live = saveUser("live", Occupation.CODING, false);
+        saveStat(confirmed, MONDAY, 3_000);
+        saveStat(live, MONDAY, 600);
+        // 1시간째 진행 중 — 확정 600초 + 라이브 3,600초 = 4,200초로 confirmed(3,000초)를 앞선다.
+        saveLiveSession(live, NOW.minus(Duration.ofHours(1)));
+        flushFixtures();
+
+        List<LeagueRankingRow> result = leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100, NOW);
+
+        assertThat(result).extracting(LeagueRankingRow::userId)
+                .containsExactly(live.getId(), confirmed.getId());
+        // 응답 값은 확정 집계 그대로 — 여기에 경과분이 실리면 앱(LiveFocusTime)이 같은 구간을 또 더한다.
+        assertThat(result.get(0).totalFocusSeconds()).isEqualTo(600);
+        assertThat(leagueRankingQueryRepository.findRankOf(live.getId(), MONDAY, TUESDAY, NOW).orElseThrow())
+                .satisfies(position -> {
+                    assertThat(position.rank()).isEqualTo(1);
+                    assertThat(position.totalFocusSeconds()).isEqualTo(600);
+                });
+        assertThat(leagueRankingQueryRepository.findRankOf(confirmed.getId(), MONDAY, TUESDAY, NOW).orElseThrow()
+                .rank()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("세션이 끝나면 라이브 가산이 사라지고 확정 집계 기준 순위로 정정된다")
+    void findTopDropsLiveElapsedOnceSessionEnded() {
+        User confirmed = saveUser("confirmed", Occupation.CODING, false);
+        User ended = saveUser("ended", Occupation.CODING, false);
+        saveStat(confirmed, MONDAY, 3_000);
+        // 1시간 집중했지만 방해(일시정지)를 빼고 600초만 확정 집계에 귀속된 세션.
+        // 종료(endedAt 채움) 순간 라이브 가산이 사라지므로 confirmed 아래로 정정돼야 한다.
+        saveStat(ended, MONDAY, 600);
+        saveEndedSession(ended, NOW.minus(Duration.ofHours(1)), NOW.minus(Duration.ofMinutes(1)));
+        flushFixtures();
+
+        assertThat(leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100, NOW))
+                .extracting(LeagueRankingRow::userId)
+                .containsExactly(confirmed.getId(), ended.getId());
+        assertThat(leagueRankingQueryRepository.findRankOf(ended.getId(), MONDAY, TUESDAY, NOW).orElseThrow()
+                .rank()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("12시간을 넘긴 미종료(orphan) 세션은 라이브로 세지 않는다")
+    void findTopIgnoresOrphanSessionsBeyondLiveWindow() {
+        User confirmed = saveUser("confirmed", Occupation.CODING, false);
+        User orphan = saveUser("orphan", Occupation.CODING, false);
+        saveStat(confirmed, MONDAY, 100);
+        // 13시간째 미종료 — 스윕 전 버려진 세션. 통계에도 반영되지 않으므로(FocusService.sweepOrphanSessions)
+        // 순위에 세면 하루의 절반을 1위로 점거한다.
+        saveLiveSession(orphan, NOW.minus(Duration.ofHours(13)));
+        flushFixtures();
+
+        assertThat(leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100, NOW))
+                .extracting(LeagueRankingRow::userId)
+                .containsExactly(confirmed.getId(), orphan.getId());
+    }
+
+    @Test
+    @DisplayName("주 경계를 걸쳐 진행 중인 세션은 주 시작 이후 몫만 센다")
+    void findTopClampsLiveElapsedToWeekStart() {
+        User crossing = saveUser("crossing", Occupation.CODING, false);
+        User rival = saveUser("rival", Occupation.CODING, false);
+        // 지난 주 일요일 저녁에 시작해 아직 진행 중 — 주 시작(MONDAY 00:00 KST)부터 NOW 까지가 36시간.
+        saveLiveSession(crossing, MONDAY.minusDays(1).atTime(18, 0).atZone(ZonePolicy.KST).toInstant());
+        // 클램프가 없으면 crossing 의 라이브가 42시간(151,200초)이라 rival 을 앞선다.
+        saveStat(rival, MONDAY, 40 * 3_600);
+        flushFixtures();
+
+        assertThat(leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100, NOW))
+                .extracting(LeagueRankingRow::userId)
+                .containsExactly(rival.getId(), crossing.getId());
     }
 
     private User saveUser(String nickname, Occupation occupation, boolean deleted) {
@@ -243,8 +329,26 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
                 .build());
     }
 
+    /** 진행 중(미종료) 세션 픽스처 — endedAt 이 비어 있는 라이브 마커. */
+    private void saveLiveSession(User user, Instant startedAt) {
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(startedAt)
+                .build());
+    }
+
+    /** 종료된 세션 픽스처 — 라이브에서 빠지고 확정 집계(DailyFocusStat)만 남는 상태. */
+    private void saveEndedSession(User user, Instant startedAt, Instant endedAt) {
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(startedAt)
+                .endedAt(endedAt)
+                .build());
+    }
+
     private void flushFixtures() {
         userRepository.flush();
         dailyFocusStatRepository.flush();
+        focusSessionRepository.flush();
     }
 }

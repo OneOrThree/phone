@@ -82,7 +82,7 @@ public class LeagueService {
     public List<LeagueMemberResponse> getMyRanking(UUID userId, Occupation category, LocalDate date) {
         Instant now = Instant.now();
         List<LeagueRankingRow> ranked = leagueRankingQueryRepository.findTop(
-                leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), category, MY_RANKING_LIMIT);
+                leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), category, MY_RANKING_LIMIT, now);
         if (ranked.isEmpty()) {
             return List.of();
         }
@@ -106,10 +106,18 @@ public class LeagueService {
         int clamped = Math.max(1, Math.min(limit, MAX_RANKING_LIMIT));
         Instant now = Instant.now();
         List<LeagueRankingRow> ranked = leagueRankingQueryRepository.findTop(
-                leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), null, clamped);
+                leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), null, clamped, now);
+        if (ranked.isEmpty()) {
+            return List.of();
+        }
         // 전역 랭킹은 per-caller 핀 없음, 후속 개선 여지 — isPinned=false (빈 핀 집합).
-        // 라이브 필드는 /me/ranking 스코프 — 전역은 빈 맵으로 기본값(false/0/null) 전달(GROMO-824, 전역 라이브는 별도 티켓).
-        return toResponses(ranked, Set.of(), Map.of());
+        // 라이브 필드는 여기서도 채운다: 정렬이 '확정 집계 + 진행 중 경과' 기준이 되면서(findTop)
+        // 라이브를 안 실으면 클라가 확정값만 그려 "위 행이 아래 행보다 시간이 적은" 목록이 된다.
+        // date 는 /me/ranking 과 같은 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘.
+        List<UUID> userIds = ranked.stream().map(LeagueRankingRow::userId).toList();
+        Map<UUID, FocusLiveInfo> liveInfo = focusLiveInfoLookup.liveInfoByUserId(
+                userIds, leagueWeek.currentDate(now));
+        return toResponses(ranked, Set.of(), liveInfo);
     }
 
     private List<LeagueMemberResponse> toResponses(List<LeagueRankingRow> ranked, Set<UUID> pinnedIds,
@@ -141,7 +149,7 @@ public class LeagueService {
     LeagueRankResponse getMyRank(UUID userId, Instant now) {
         LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
         LocalDate toDate = leagueWeek.currentDate(now);
-        return leagueRankingQueryRepository.findRankOf(userId, fromDate, toDate)
+        return leagueRankingQueryRepository.findRankOf(userId, fromDate, toDate, now)
                 .map(this::toRankResponse)
                 .orElseGet(() -> new LeagueRankResponse(false, null, null));
     }
