@@ -288,6 +288,9 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     const { sessionId, body } = mockedUpload.mock.calls[0][0];
     expect(sessionId).toBe('marker-1');
     expect(body.focusType).toBe('INFINITE');
+    // 소유 계정 — null로 대기열에 들어가면 다음 flush가 계정 불일치로 폐기해 영구 유실된다
+    // (codex 리뷰 13차)
+    expect(mockedUpload.mock.calls[0][0].userId).toBe('user-1');
     // 마커 '시작' 요청에도 모드가 실린다 — PATCH는 focusType을 다시 안 보내므로 시작 값이
     // 최종 세션 유형으로 남는다(codex 리뷰 6차).
     expect(mockedStartMarker).toHaveBeenCalledWith(
@@ -912,6 +915,36 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     });
   });
 
+  test('블록 1 마커 응답이 회전 뒤에 도착해도: 라이브 레코드는 현재 마커(marker-2)를 유지한다', async () => {
+    // startLiveSession의 동일성 가드(liveStartPromiseRef === promise) — 없으면 늦은 응답이
+    // liveIdRef를 되살려, 종료된 marker-1이 블록 2의 serverSessionId로 저장되고 강제종료
+    // 복구가 이미 닫힌 마커에 귀속된다(codex 리뷰 13차).
+    let resolveFirst!: (v: { sessionId: string }) => void;
+    mockedStartMarker
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ sessionId: string }>((r) => {
+            resolveFirst = r;
+          }),
+      )
+      .mockResolvedValueOnce({ sessionId: 'marker-2' });
+    await renderSession({
+      mode: 'pomodoro',
+      pomodoro: { focusMin: 1, breakMin: 1, sets: 2 },
+    });
+    await advance(60_000); // 블록 1 정산 — 첫 마커 응답은 아직 보류(업로드 대기)
+    await advance(60_000); // 휴식 종료 → marker-2 즉시 발급
+    await flush();
+    expect(mockedStartMarker).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveFirst({ sessionId: 'marker-1' }); // 회전이 끝난 뒤에야 도착한 첫 응답
+    });
+    await advance(5000); // 블록 2 주기 저장
+    expect((await readLiveRecord())!.serverSessionId).toBe('marker-2'); // 늦은 응답이 안 되살림
+    expect(mockedUpload.mock.calls[0][0].sessionId).toBe('marker-1'); // 블록 1 업로드는 늦은 id로 PATCH
+  });
+
   test('블록 1의 일시정지 방해초는 블록 2 업로드에 다시 실리지 않는다', async () => {
     await renderSession({
       mode: 'pomodoro',
@@ -1161,6 +1194,67 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     await flush();
     // 크레딧은 여전히 8시간 상한 — 역행이 잔량을 되돌렸다면 9시간이 전부 인정됐을 것
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 10 + 8 * 3600 });
+  });
+
+  test('실드 뽀모도로가 백그라운드에서 두 경계(집중→휴식→집중)를 넘으면: 블록 정산·과거 경계 마커·2블록 적립까지', async () => {
+    // 리플레이가 최종 페이즈만 비교하면 같은 페이즈 복귀(focus→…→focus)에서 경계 처리를
+    // 통째로 건너뛴다 — 휴식이 집중으로 귀속되거나 새 마커가 안 열린다(codex 리뷰 13차).
+    mockedStartMarker
+      .mockResolvedValueOnce({ sessionId: 'marker-1' })
+      .mockResolvedValueOnce({ sessionId: 'marker-2' });
+    await renderSession({
+      mode: 'pomodoro',
+      pomodoro: { focusMin: 1, breakMin: 1, sets: 2 },
+    });
+    await advance(50_000); // 블록 1 집중 50초
+    await fireAppState('background');
+    await jumpWallClock(80_000); // 집중 잔여 10 + 휴식 60 + 블록 2 집중 10을 전부 백그라운드로
+    await fireAppState('active');
+    await flush();
+
+    // 블록 1 정산(구간 60초·marker-1) + 과거 휴식 종료 시각으로 새 마커
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    const multi1 = mockedUpload.mock.calls[0][0];
+    expect(multi1.sessionId).toBe('marker-1');
+    expect(Date.parse(multi1.body.endedAt) - Date.parse(multi1.body.startedAt)).toBe(60_000);
+    expect(mockedStartMarker).toHaveBeenCalledTimes(2);
+    // 새 마커의 시작 = 휴식 종료의 실제 벽시계(블록 1 종료 + 60초) — 복귀 시각이 아니다
+    expect(
+      Date.parse(mockedStartMarker.mock.calls[1][0].startedAt) - Date.parse(multi1.body.endedAt),
+    ).toBe(60_000);
+
+    await advance(2000); // 복귀 후 블록 2 계속
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedUpload).toHaveBeenCalledTimes(2);
+    expect(mockedUpload.mock.calls[1][0].sessionId).toBe('marker-2');
+    // 블록 2 구간 = 리플레이 10초 + 복귀 후 2초 — 휴식은 어느 쪽에도 없다
+    expect(
+      Date.parse(mockedUpload.mock.calls[1][0].body.endedAt) -
+        Date.parse(mockedUpload.mock.calls[1][0].body.startedAt),
+    ).toBe(12_000);
+    expect(mockAddFocusSeconds.mock.calls).toEqual([[60], [12]]);
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 72 });
+  });
+
+  test('서스펜드 직전에 틱이 더 돌아도: 복귀 리플레이는 이탈 시점 스냅샷에서 다시 계산한다', async () => {
+    // 실기기는 background 이벤트 뒤에도 JS가 몇 틱 더 돈다 — 최신 상태에서 away 전체를 또
+    // 전진시키면 그 틱들이 이중 적립된다. 리플레이는 leftSessionRef 스냅샷 기준 덮어쓰기가
+    // 현행 계약이다(codex 리뷰 13차).
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireAppState('background');
+    await advance(3000); // 서스펜드 전 잔여 틱 3개(경과 8) — 벽시계도 3초 전진
+    await jumpWallClock(117_000); // 나머지는 JS 정지 — 총 이탈 120초
+    await fireAppState('active');
+    await flush();
+
+    // 5(스냅샷) + 120(away) = 125 — 최신 상태(8)에서 다시 전진한 128이 아니다
+    expect((await readLiveRecord())!.elapsed).toBe(125);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(125);
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 125 });
   });
 
   test('실드 실패(폴백) 세션: 15초 초과 이탈은 abandoned(leave_timeout)로 자동 종료 — 이탈 시간은 미적립', async () => {
