@@ -480,9 +480,9 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       appStateOwner.currentState = originalAppState;
     }
     expect(invalidateCardInteraction).toHaveBeenCalledWith('ix-2');
-    expect(
-      (invalidateCardInteraction as jest.Mock).mock.invocationCallOrder[0],
-    ).toBeLessThan((consumeCardInteraction as jest.Mock).mock.invocationCallOrder[0]);
+    expect((invalidateCardInteraction as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (consumeCardInteraction as jest.Mock).mock.invocationCallOrder[0],
+    );
     expect(logFocusSessionStarted).toHaveBeenCalledWith(
       expect.objectContaining({ interaction_id: undefined }),
     );
@@ -625,6 +625,14 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(mockedUpload.mock.calls[0][0].sessionId).toBeNull();
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3 });
   });
+
+  test('실드는 선택한 과목명으로 걸린다 — 차단 화면 문구의 원천', async () => {
+    // startFocusShield의 인자는 네이티브가 차단 화면 문구로 저장·표시한다(ScreenTimeModule.swift
+    // :594-610) — subjectId나 이전 세션의 과목명이 넘어가면 다른 과목으로 집중하는 사용자가
+    // 잘못된 문구를 본다(codex 리뷰 16차).
+    await renderSession({ mode: 'countup', subjectName: '영어' });
+    expect(mockedShieldStart).toHaveBeenCalledWith('영어');
+  });
 });
 
 describe('일시정지 의미론', () => {
@@ -701,6 +709,52 @@ describe('일시정지 의미론', () => {
     ).toBe(3000);
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 8 });
   });
+
+  test('한 블록의 여러 정지 구간: 방해초 합계·횟수가 모두 누적된다', async () => {
+    // 두 번째 pauseStart가 이전 구간을 덮어써 마지막 구간만 남으면 방해초·횟수가 줄어 정지
+    // 시간이 집중으로 보상된다 — 순수 헬퍼(blockPause.test.ts)가 아니라 화면이 구간을 이어
+    // 붙이는 배선을 고정한다(codex 리뷰 16차).
+    await renderSession({ mode: 'countup' });
+    await advance(2000);
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await advance(3000); // 정지 1: 3초
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await advance(2000);
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await advance(7000); // 정지 2: 7초 — 길이가 달라야 덮어쓰기 회귀가 값으로 드러난다
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await advance(1000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+
+    const { body } = mockedUpload.mock.calls[0][0];
+    expect(body.totalDistractionSeconds).toBe(10); // 3 + 7 — 마지막 구간(7)만이 아니다
+    expect(body.distractionCount).toBe(2);
+    expect(Date.parse(body.endedAt) - Date.parse(body.startedAt)).toBe(15_000);
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5 });
+    expect(logFocusSessionPaused).toHaveBeenCalledTimes(2);
+    expect(logFocusSessionResumed).toHaveBeenCalledTimes(2);
+  });
+
+  test('첫 틱 전 정지가 24시간을 넘겨 재개: 정산 델타 0이어도 기존 마커를 닫고 새 마커를 연다', async () => {
+    // 델타가 있으면 settleFocusBlock의 회전이 기존 마커를 PATCH로 닫지만, 0초 블록은 정산이
+    // 조기 반환한다 — 이때 별도의 cancelLiveSession이 빠지면 marker-1이 열린 채 marker-2가
+    // 또 열려 친구 화면에 '집중 중'이 서버 스윕(12h)까지 중복 노출된다(codex 리뷰 16차).
+    mockedStartMarker
+      .mockResolvedValueOnce({ sessionId: 'marker-1' })
+      .mockResolvedValueOnce({ sessionId: 'marker-2' });
+    await renderSession({ mode: 'countup' });
+    await fireEvent.press(view.getByTestId('focus.pause')); // 경과 0에서 곧바로 정지
+    await jumpWallClock(24 * 3600 * 1000 + 60_000); // 24시간 + 1분
+    await fireEvent.press(view.getByTestId('focus.pause')); // 재개 — 컷 분기, 정산 델타 0
+    await flush();
+
+    expect(mockedUpload).not.toHaveBeenCalled(); // 0초 블록 — 올릴 게 없다
+    expect(cancelMarker).toHaveBeenCalledWith('marker-1', 'user-1'); // 회전 대신 명시 취소
+    expect(mockedStartMarker).toHaveBeenCalledTimes(2); // 재개 시점의 새 마커
+    await advance(5000);
+    expect((await readLiveRecord())!.serverSessionId).toBe('marker-2');
+  });
 });
 
 describe('중도 정지의 completed 판정 — 카운트업만 완료 취급', () => {
@@ -775,6 +829,31 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     await advance(2000); // 지연 콜백 시각을 한참 지나도
     expect(ScreenTimeModule.startFocusActivity).not.toHaveBeenCalled(); // 시작은 끝내 없다
     expect(ScreenTimeModule.endFocusActivity).toHaveBeenCalled(); // 종료(멱등)는 cleanup 몫
+  });
+
+  test('캡처 대기 중 언마운트: cancelled 가드가 늦은 캡처 해결 후의 LA 시작을 막는다', async () => {
+    // clearTimeout은 콜백 시작 전 언마운트만 막는다 — 콜백이 이미 captureRef를 기다리는
+    // 중이면 cancelled 가드가 유일한 방어다. 빠지면 cleanup의 endFocusActivity 뒤에 캡처가
+    // 해결되며 startFocusActivity가 돌아 종료 주체 없는 LA가 남는다(codex 리뷰 16차).
+    let resolveCapture!: (v: string) => void;
+    (captureRef as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise<string>((r) => {
+          resolveCapture = r;
+        }),
+    );
+    await renderSession({ mode: 'countup' });
+    await advance(1000); // 600ms 경과 — 콜백은 시작됐고 captureRef 응답 대기 중
+    expect(captureRef).toHaveBeenCalled();
+    expect(ScreenTimeModule.startFocusActivity).not.toHaveBeenCalled();
+    await view.unmount(); // 캡처가 느린 기기에서 화면을 떠나는 경로
+    await act(async () => {});
+    await act(async () => {
+      resolveCapture('b64'); // 언마운트 뒤에야 캡처가 해결된다
+    });
+    await flush();
+    expect(ScreenTimeModule.startFocusActivity).not.toHaveBeenCalled();
+    expect(ScreenTimeModule.saveCharacterSnapshot).not.toHaveBeenCalled(); // 저장도 가드 몫
   });
 
   test('마커 응답이 언마운트보다 늦어도: 보류 프라미스를 이어받아 늦은 마커를 취소한다', async () => {
@@ -948,6 +1027,21 @@ describe('카운트다운 — 완료 게이트', () => {
       { focusSeconds: 3, subjectId: 's1', subjectName: '수학', completed: true },
     ]);
   });
+
+  test('게이트가 뜬 채 화면이 언마운트되면: completed 1회 유지·abandoned 없음', async () => {
+    // 게이트에서 확인을 누르기 전 내비게이션 리셋 등으로 화면이 제거될 수 있다 — finishedRef는
+    // 아직 false라 cleanup의 종결 계측 분기가 도는데, 이미 발행된 완료와의 상호배타는
+    // completedLoggedRef 가드가 지킨다. 가드가 빠지면 한 세션에 completed와 system_back
+    // abandoned가 같이 찍혀 퍼널이 오염된다(codex 리뷰 16차).
+    await renderSession({ mode: 'countdown', goalSeconds: 3 });
+    await advance(3000);
+    expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
+    expect(logFocusSessionCompleted).toHaveBeenCalledTimes(1);
+    await view.unmount(); // 확인 없이 화면 제거
+    await act(async () => {});
+    expect(logFocusSessionCompleted).toHaveBeenCalledTimes(1);
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+  });
 });
 
 describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
@@ -1079,6 +1173,22 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
       distractionCount: 0,
     });
   });
+
+  test('휴식 도중 수동 종료: 정산은 첫 블록 한 번뿐 — 휴식은 어떤 블록에도 업로드되지 않는다', async () => {
+    // 휴식에서 finish의 정산은 델타 0이라 추가 업로드가 없어야 한다 — 남은 휴식이나 휴식 체류가
+    // 새 블록으로 올라가면 서버 통계·보상이 부풀고, 이미 정산된 블록 1이 중복될 수 있다
+    // (codex 리뷰 16차).
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    await advance(60_000); // 블록 1 완주 → 경계 정산 → 휴식 진입
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    await advance(10_000); // 휴식 10초
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+
+    expect(mockedUpload).toHaveBeenCalledTimes(1); // 추가 업로드 없음
+    expect(mockAddFocusSeconds.mock.calls).toEqual([[60]]); // 적립도 블록 1 한 번뿐
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 60, completed: false });
+  });
 });
 
 describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
@@ -1170,6 +1280,23 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     );
   });
 
+  test('백그라운드에서 복귀 없이 언마운트: cleanup이 예약된 이탈 알림을 거둔다', async () => {
+    // 무실드 세션이 background에서 즉시·15초 알림을 예약한 뒤 내비게이션 리셋 등으로 화면이
+    // 제거되면, active 복귀 핸들러가 아니라 이펙트 cleanup의 취소가 유일한 회수 경로다 —
+    // 빠지면 세션이 사라진 뒤에도 잘못된 종료 경고가 발송된다(codex 리뷰 16차).
+    mockedShieldStart.mockResolvedValue(false);
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await fireAppState('background');
+    expect(scheduleLeaveNotifications).toHaveBeenCalledTimes(1);
+    const cancelsBefore = (cancelLeaveNotifications as jest.Mock).mock.calls.length;
+    await view.unmount(); // 복귀 없이 화면 제거
+    await act(async () => {});
+    expect((cancelLeaveNotifications as jest.Mock).mock.calls.length).toBeGreaterThan(
+      cancelsBefore,
+    );
+  });
+
   test('실드 뽀모도로가 백그라운드에서 집중→휴식 경계를 넘으면: 경계 벽시계로 정산하고 휴식은 제외한다', async () => {
     // 리플레이가 최종 상태만 맞추고 endedAt을 복귀 시각으로 쓰면 블록 1 업로드가 휴식까지
     // 삼키고, 경계 정산을 생략하면 마커 회전도 빠진다 — countup 리플레이 테스트로는 못 잡는
@@ -1196,6 +1323,10 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     );
     expect(mockAddFocusSeconds).toHaveBeenCalledWith(60); // 크레딧 10초 포함 블록 몫만
     expect(mockedStartMarker).toHaveBeenCalledTimes(1); // 휴식 중 복귀 — 새 마커는 아직
+    // 라이브 레코드도 비어 있어야 한다 — 경계 정산이 지운 레코드를 리플레이 끝의 saveLive가
+    // 전체 누적으로 되살리면(미정산 가드 부재) 휴식 중 강제종료 시 고아 정산이 블록 1의
+    // 60초를 다시 적립·업로드한다(codex 리뷰 16차).
+    expect(await readLiveRecord()).toBeNull();
 
     await advance(40_000); // 남은 휴식 40초 소진 → 블록 2 시작: 마커 회전
     await flush();
