@@ -295,6 +295,11 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     // 누락·고정되면 복구 구간과 보상이 통째로 어긋난다(codex 리뷰 17차).
     expect(record!.startedAt).toBe(mockedStartMarker.mock.calls[0][0].startedAt);
     expect(Date.parse(record!.updatedAt) - Date.parse(record!.startedAt)).toBe(5000);
+    // 주기는 반복돼야 한다 — 일회성(elapsed === 5) 저장으로 바뀌면 긴 집중의 강제종료에서
+    // 레코드가 5초에 멈춰 이후 구간이 통째로 유실된다(codex 리뷰 18차).
+    await advance(5000);
+    expect(liveRecordWrites()).toHaveLength(2);
+    expect((await readLiveRecord())!.elapsed).toBe(10);
   });
 
   test('정지 버튼 finish — 블록 정산 업로드·마커 취소·레코드 제거·FocusResult(completed=true) replace', async () => {
@@ -380,6 +385,16 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await renderSession({ mode: 'countup' });
     await advance(2000); // 600ms 지연 시작 경과
     expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []);
+  });
+
+  test('캡처가 영영 pending이어도: 1.5초 타임아웃 폴백으로 Live Activity는 시작된다', async () => {
+    // 즉시 reject 테스트(위)는 Promise.race 타임아웃이 제거돼도 통과한다 — 캡처가 응답 없이
+    // 멈춘 기기에선 이 타임아웃만이 기본 마스코트 폴백으로 LA를 살린다(codex 리뷰 18차).
+    (captureRef as jest.Mock).mockImplementationOnce(() => new Promise(() => {}));
+    await renderSession({ mode: 'countup' });
+    await advance(2200); // 600ms 지연 + 1.5초 캡처 타임아웃 경과
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []);
+    expect(ScreenTimeModule.saveCharacterSnapshot).not.toHaveBeenCalled(); // 스냅샷 없이 폴백
   });
 
   test('업로드가 대기열행(queued)이어도 종료는 그대로 진행된다 — 로컬 적립·레코드 삭제·결과 화면', async () => {
@@ -980,6 +995,17 @@ describe('카운트다운 — 완료 게이트', () => {
     expect(Vibration.vibrate).toHaveBeenCalled();
     expect(logFocusSessionCompleted).toHaveBeenCalledTimes(1);
     expect(mockNavigation.replace).not.toHaveBeenCalled();
+    // 뷰·방향 체류는 게이트가 화면을 덮는 시점에 1회 발행된다(dwellDoneRef) — 빠지면 완료
+    // 순간의 체류가 유실되고, finish에서 다시 발행되면 게이트에 머문 시간까지 포함해 체류
+    // 지표가 부푼다(codex 리뷰 18차).
+    expect(logFocusViewChanged).toHaveBeenCalledTimes(1);
+    expect(logFocusViewChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ view: 'character', dwell_seconds: 3 }),
+    );
+    expect(logFocusOrientationChanged).toHaveBeenCalledTimes(1);
+    expect(logFocusOrientationChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ orientation: 'portrait', dwell_seconds: 3 }),
+    );
 
     // 게이트에 머문 시간은 집중으로 계상되지 않는다 — 재정산 없음, 경과 동결
     await advance(10_000);
@@ -992,6 +1018,9 @@ describe('카운트다운 — 완료 게이트', () => {
       { focusSeconds: 3, subjectId: 's1', subjectName: '수학', completed: true },
     ]);
     expect(logFocusSessionCompleted).toHaveBeenCalledTimes(1); // 게이트·finish 이중 발행 없음
+    // 확인의 finish는 체류를 다시 발행하지 않는다 — 게이트에 머문 10초는 가려진 화면이다
+    expect(logFocusViewChanged).toHaveBeenCalledTimes(1);
+    expect(logFocusOrientationChanged).toHaveBeenCalledTimes(1);
   });
 
   test('5초를 넘는 목표: 게이트 즉시 정산이 라이브 레코드를 제거한다', async () => {
@@ -1034,9 +1063,12 @@ describe('카운트다운 — 완료 게이트', () => {
     // 게이트가 뜨면 BackHandler를 구독해 pop 대신 finish로 보낸다 — 배선이 빠지면 화면이
     // 단순 pop돼 결과 연출·후속 처리를 건너뛴다(codex 리뷰 6차).
     const backHandlers: Array<() => boolean> = [];
+    const backRemoves: jest.Mock[] = [];
     jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_e, h) => {
       backHandlers.push(h as () => boolean);
-      return { remove: jest.fn() } as never;
+      const remove = jest.fn();
+      backRemoves.push(remove);
+      return { remove } as never;
     });
     await renderSession({ mode: 'countdown', goalSeconds: 3 });
     await advance(3000);
@@ -1053,6 +1085,11 @@ describe('카운트다운 — 완료 게이트', () => {
       'FocusResult',
       { focusSeconds: 3, subjectId: 's1', subjectName: '수학', completed: true },
     ]);
+    // 구독은 남김없이 해제돼야 한다 — cleanup이 빠지면 결과 화면 전환 뒤에도 리스너가 남아
+    // 항상 true를 돌려주며 이후 화면의 하드웨어 뒤로가기를 가로막는다(codex 리뷰 18차).
+    await view.unmount();
+    await act(async () => {});
+    for (const remove of backRemoves) expect(remove).toHaveBeenCalled();
   });
 
   test('게이트가 뜬 채 화면이 언마운트되면: completed 1회 유지·abandoned 없음', async () => {
@@ -1238,6 +1275,9 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     expect(localSum).toBe(125);
     expect(mockNavigation.replace).not.toHaveBeenCalled(); // 세션은 계속
     expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+    // 실드 복귀는 이탈(distraction) 이벤트가 아니다 — !shielded 가드가 빠지면 차단된 120초
+    // 이탈이 blocked:false 일반 이탈로 발행돼 차단 효과·이탈률 지표가 왜곡된다(codex 리뷰 18차).
+    expect(logFocusDistractionDetected).not.toHaveBeenCalled();
 
     // 종료 정산 — 인정분 전체가 로컬 적립·업로드 구간에 실린다
     await fireEvent.press(view.getByTestId('focus.stop'));
@@ -1710,6 +1750,39 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
       Date.parse(mockedUpload.mock.calls[1][0].body.endedAt) -
         Date.parse(mockedUpload.mock.calls[1][0].body.startedAt),
     ).toBe(3000);
+  });
+
+  test('8시간 상한이 휴식→집중 경계와 정확히 겹치면: 경계 마커를 명시 취소하고 복귀 시각의 새 마커를 연다', async () => {
+    // 상한 부분 정산의 델타가 0인 유일한 경우 — 상한이 경계 직후에 떨어지면 settle이 마커를
+    // 회전하지 않으므로, 별도 cancelLiveSession이 없으면 경계 시각에 연 과거 마커가 복귀
+    // 시각의 새 마커에 참조만 덮여 서버 스윕(12h)까지 '집중 중'으로 남는다(codex 리뷰 18차).
+    // 이탈을 t=0(집중 시작 직후)에 걸면 상한 28,800초 = 120초 주기(집중60+휴식60)의 배수라
+    // 정확히 240번째 휴식→집중 경계에 떨어진다.
+    jest.setSystemTime(new Date('2026-08-18T01:00:00+09:00'));
+    let markerSeq = 0;
+    mockedStartMarker.mockImplementation(() =>
+      Promise.resolve({ sessionId: `marker-${(markerSeq += 1)}` }),
+    );
+    await renderSession({
+      mode: 'pomodoro',
+      pomodoro: { focusMin: 1, breakMin: 1, sets: 250 },
+    });
+    await fireAppState('background'); // 경과 0에서 이탈
+    await jumpWallClock((28_800 + 600) * 1000); // 상한 초과 이탈
+    await fireAppState('active');
+    await flush();
+
+    // 리플레이: 240개 집중 블록 정산 + 240번의 경계 마커 오픈(2~241) + 상한 후 재시작(242)
+    expect(mockedUpload).toHaveBeenCalledTimes(240);
+    expect(mockedStartMarker).toHaveBeenCalledTimes(242);
+    // 상한이 경계와 겹쳐 정산 델타 0 — 경계에 연 marker-241은 명시 취소로 닫힌다
+    expect(cancelMarker).toHaveBeenCalledTimes(1);
+    expect(cancelMarker).toHaveBeenCalledWith('marker-241', 'user-1');
+    // 복귀 시각부터 새 블록·새 마커
+    await advance(5000);
+    const capRecord = (await readLiveRecord())!;
+    expect(capRecord.elapsed).toBe(5);
+    expect(capRecord.serverSessionId).toBe('marker-242');
   });
 });
 
