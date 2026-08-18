@@ -154,11 +154,17 @@ export async function getAppInstanceId(): Promise<string | null> {
 // 커스텀 이벤트 발행. 공통 파라미터를 자동 부착한다.
 export function track(name: string, params?: Record<string, unknown>): void {
   const eventName = sanitizeName(name);
-  const payload = { ...COMMON_PARAMS, ...sanitizeParams(params) };
-  if (DEBUG) console.log('[analytics]', eventName, payload);
-  const a = getAnalytics();
-  if (!a) return;
-  a.logEvent(eventName, payload).catch(() => {});
+  // device_id 확보를 기다렸다가 발행 — 첫 실행에서 initAnalytics(비동기 저장소 조회)가 끝나기
+  // 전에 호출된 이벤트(onboarding_started·첫 step_viewed 등)에 device_id가 빠지지 않게
+  // 한다(코덱스 리뷰 P2). resolveDeviceId는 싱글플라이트 캐시라 첫 해석 뒤에는 즉시
+  // resolve되고, 같은 Promise의 then은 FIFO라 발행 순서도 호출 순서를 유지한다.
+  void resolveDeviceId().then((id) => {
+    const payload = { ...COMMON_PARAMS, device_id: id, ...sanitizeParams(params) };
+    if (DEBUG) console.log('[analytics]', eventName, payload);
+    const a = getAnalytics();
+    if (!a) return;
+    a.logEvent(eventName, payload).catch(() => {});
+  });
 }
 
 // User-ID 설정/해제. opaque UUID만 허용(PII 금지). null이면 게스트.
