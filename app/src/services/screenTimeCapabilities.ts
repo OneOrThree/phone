@@ -83,3 +83,15 @@ export const supportsUsageBreakdown = (): boolean => {
   //    둘 다 '진입점은 열려 있는데 화면이 거짓을 말하는' 상태다 — 1592 가 없앤 바로 그것.
   return androidNativeHas('getUsageBreakdown');
 };
+
+/**
+ * 앱 프로세스가 죽으면 **차단도 함께 풀리는가**.
+ *
+ * 위 셋과 달리 '무엇을 보여줄지'가 아니라 '무엇을 알려야 하는지'를 가른다.
+ *   - iOS: `ManagedSettingsStore`로 OS에 위임한다 — 앱이 죽어도 차단은 그대로 남는다.
+ *   - Android: 우리 포그라운드 서비스가 직접 돌린다 — 강제 종료되면 차단도 사라진다.
+ *
+ * 그래서 "집중 중이었는데 차단이 꺼져 있었어요" 같은 안내는 **안드로이드에서만 사실**이다.
+ * iOS에서 같은 말을 하면 거짓이 된다.
+ */
+export const shieldDiesWithApp = (): boolean => Platform.OS === 'android';

@@ -12,6 +12,7 @@ import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker } from './pendingMarkerCancels';
 import { ensureFocusTagId } from './tagSync';
 import { cancelStaleCompletionNotifications } from './completionNotification';
+import { notifyShieldInterrupted } from './shieldInterruptedNotification';
 
 // 죽은(강제 종료된) 세션 정산 — 앱 시작 시 라이브 레코드가 남아 있으면
 // 마지막 저장 시점까지의 집중시간을 적립하고, 서버 업로드까지 끝나야 레코드를 지운다.
@@ -63,6 +64,16 @@ export function OrphanFocusSettler() {
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
         return;
       }
+      // 여기까지 왔다 = 내 계정의 실제 세션이 정산도 못 하고 죽었다.
+      // 안드로이드에서는 그 순간부터 **차단도 함께 풀려 있었다** — 사용자는 잠긴 줄 알고
+      // 집중을 시작했으므로 사실을 알린다.
+      //
+      // ⚠️ **세션을 자동 재개하지 않는다.** 죽은 뒤 얼마나 지났는지 알 수 없고, 사용자가
+      //    의도적으로 껐을 수도 있다. 세션 없이 실드만 되살리면 아무 세션도 없는 상태에서
+      //    남의 앱을 덮게 된다(FocusShieldService가 START_NOT_STICKY인 것과 같은 이유).
+      //
+      // await 하지 않는 이유: 알림 발행이 늦어져도 정산을 붙잡아 둘 이유가 없다.
+      void notifyShieldInterrupted();
       // 로컬 적립은 1회만 — 중복 적립 방지로 적립 전에 먼저 마킹해 되쓴다.
       // 레코드는 업로드/인계가 끝나기 전까지 지우지 않는다(먼저 지우면 실패 시 기록이 영구 유실).
       // 코인은 여기서 세지 않는다(GROMO-1049) — 지급도 잔액도 서버가 정본이라, 업로드가 끝난 뒤
