@@ -418,6 +418,27 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(ScreenTimeModule.saveCharacterSnapshot).not.toHaveBeenCalled(); // 스냅샷 없이 폴백
   });
 
+  test('캐릭터 캡처 성공: 스냅샷 저장(b64) 완료 후에야 Live Activity를 시작한다', async () => {
+    // 저장 완료를 기다리지 않고 LA를 먼저 시작하면 위젯이 파일 부재·과거 캐릭터 시점에 그린다 —
+    // 캡처값 전달과 저장→시작 순서가 계약이다(codex 리뷰 21차).
+    let resolveSave!: () => void;
+    (ScreenTimeModule.saveCharacterSnapshot as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise<void>((r) => {
+          resolveSave = r;
+        }),
+    );
+    await renderSession({ mode: 'countup' });
+    await advance(1000); // 600ms 경과 — 캡처 완료, 저장 대기
+    expect(ScreenTimeModule.saveCharacterSnapshot).toHaveBeenCalledWith('b64');
+    expect(ScreenTimeModule.startFocusActivity).not.toHaveBeenCalled(); // 저장 완료 전
+    await act(async () => {
+      resolveSave();
+    });
+    await flush();
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []);
+  });
+
   test('업로드가 대기열행(queued)이어도 종료는 그대로 진행된다 — 로컬 적립·레코드 삭제·결과 화면', async () => {
     // 네트워크 장애로 서버 저장이 대기열에 남아도 종료 UX는 막히지 않는 게 현행 계약이다 —
     // 로컬 적립·레코드 삭제·FocusResult 이동은 업로드 결과와 무관하고, saved 전용 후처리
@@ -924,6 +945,21 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     expect(await readLiveRecord()).toBeNull();
   });
 
+  test('언마운트 후 AppState 이벤트: 핸들러가 전부 해제돼 부작용이 없다', async () => {
+    // 체류·이탈 이펙트의 sub.remove()가 빠지면 떠난 화면의 핸들러가 다음 전환에 다시 돌아
+    // 죽은 화면이 이탈 알림을 예약하거나 finish·replace를 부른다(codex 리뷰 21차).
+    mockedShieldStart.mockResolvedValue(false);
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await view.unmount();
+    await act(async () => {});
+    expect(appStateHandlers).toHaveLength(0); // 구독이 남김없이 해제됐다
+    const writesBefore = liveRecordWrites().length;
+    await fireAppState('background'); // 남은 핸들러가 없으니 어떤 부작용도 없어야 한다
+    expect(scheduleLeaveNotifications).not.toHaveBeenCalled();
+    expect(liveRecordWrites().length).toBe(writesBefore);
+  });
+
   test('600ms 지연 콜백 발화 전 언마운트: Live Activity 시작 자체가 없다 — 유령 LA 방지', async () => {
     // LA 시작은 캐릭터 캡처를 기다리는 600ms 지연 콜백이다(cleanup이 clearTimeout+cancelled로
     // 취소). 이 취소가 빠지면 진입 후 600ms 안에 떠난 화면에서 endFocusActivity '뒤에'
@@ -1209,6 +1245,24 @@ describe('카운트다운 — 완료 게이트', () => {
     await view.unmount();
     await act(async () => {});
     for (const remove of backRemoves) expect(remove).toHaveBeenCalled();
+  });
+
+  test('게이트가 뜬 뒤의 백그라운드 진입: 이탈 알림·이탈 처리가 없다 — done 가드', async () => {
+    // 게이트 시점에 실드는 이미 해제돼 있다 — 이탈 핸들러의 session.done 가드가 빠지면 끝난
+    // 세션에 폴백 이탈 알림이 예약되고 복귀 시 불필요한 이탈 처리가 돈다(codex 리뷰 21차).
+    await renderSession({ mode: 'countdown', goalSeconds: 3 });
+    await advance(3000);
+    expect(view.getByText('집중이 끝났어요!')).toBeTruthy();
+    await fireAppState('background');
+    expect(scheduleLeaveNotifications).not.toHaveBeenCalled();
+    await jumpWallClock(20_000);
+    await fireAppState('active');
+    await flush();
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+    expect(view.getByText('집중이 끝났어요!')).toBeTruthy(); // 게이트 유지
+    await fireEvent.press(view.getByText('확인'));
+    await flush();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3, completed: true });
   });
 
   test('게이트가 뜬 채 화면이 언마운트되면: completed 1회 유지·abandoned 없음', async () => {
@@ -1642,6 +1696,41 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
       expect.objectContaining({ reason: 'leave_timeout' }),
     );
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: false });
+  });
+
+  test('실드가 정상적으로 false를 반환해도: 폴백(15초 정책) 세션으로 취급된다', async () => {
+    // 브리지 거부(위)와 별개 경로 — 권한 없음·미지원 플랫폼의 정상 false 반환. 반환값을 무시하고
+    // resolve만 보고 실드 성공으로 표시하면, 차단 안 된 사용자의 이탈이 집중으로 적립되고
+    // 경고 알림·15초 자동 종료가 통째로 빠진다(codex 리뷰 21차).
+    mockedShieldStart.mockResolvedValueOnce(false);
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireAppState('background');
+    expect(scheduleLeaveNotifications).toHaveBeenCalledTimes(1); // 폴백 세션의 이탈 경고
+    await jumpWallClock(20_000);
+    await fireAppState('active');
+    await flush();
+    expect(logFocusSessionAbandoned).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'leave_timeout' }),
+    );
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: false });
+  });
+
+  test('무실드 세션의 휴식 이탈: 15초 정책 없이 휴식으로 처리된다 — 넘기면 일시정지 대기', async () => {
+    // 폴백 15초 자동 종료는 집중 페이즈 전용이다 — 모든 페이즈에 적용되면 권한 없는 사용자가
+    // 휴식에 잠깐 나갔다 와도 세션이 포기 처리되거나 이탈 경고가 발송된다(codex 리뷰 21차).
+    mockedShieldStart.mockResolvedValue(false);
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    await advance(60_000); // 블록 1 완주 → 휴식 진입
+    await advance(10_000); // 휴식 10초 소진
+    await fireAppState('background');
+    expect(scheduleLeaveNotifications).not.toHaveBeenCalled(); // 휴식 이탈은 경고 없음
+    await jumpWallClock(80_000); // 남은 휴식(50초)을 넘겨 복귀
+    await fireAppState('active');
+    await flush();
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+    expect(mockNavigation.replace).not.toHaveBeenCalled();
+    expect(mockedStartMarker).toHaveBeenCalledTimes(1); // 다음 블록은 일시정지 대기 — 새 마커 없음
   });
 
   test('이탈 중 시계가 뒤로 가도: 크레딧 잔량이 늘지 않고 상한은 8시간에 고정된다', async () => {
