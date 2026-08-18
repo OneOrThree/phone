@@ -27,6 +27,7 @@ import { publishSessionSaveVerdict } from './sessionSaveVerdict';
 import {
   logFocusSessionAbandoned,
   logFocusSessionCompleted,
+  logFocusSessionStarted,
   logFocusSessionPaused,
   logFocusSessionResumed,
   logFocusDistractionDetected,
@@ -288,6 +289,24 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(mockedStartMarker).toHaveBeenCalledWith(
       expect.objectContaining({ focusType: 'INFINITE' }),
     );
+    // 과목 태그 해석 결과가 시작·정산 양쪽에 실린다 — 빠지면 서버 세션이 미분류로 저장돼
+    // 과목별 통계가 유실된다(codex 리뷰 8차).
+    expect(mockedStartMarker).toHaveBeenCalledWith(
+      expect.objectContaining({ focusTagId: 'tag-1' }),
+    );
+    expect(body.focusTagId).toBe('tag-1');
+    // 시작 계측 1회 + 페이로드 — 화면 배선이 빠지면 시작·완료 퍼널에서 세션이 사라진다(codex 리뷰 8차)
+    expect(logFocusSessionStarted).toHaveBeenCalledTimes(1);
+    expect(logFocusSessionStarted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'countup',
+        has_tag: true,
+        subject_key: 's1',
+        entry_source: 'direct',
+      }),
+    );
+    // Live Activity 시작 배선(600ms 지연 캡처 후) — 종료 단언만으로는 시작 누락을 못 잡는다(codex 리뷰 8차)
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []);
     // saved 전용 후처리 — 지급 확정 후 코인 재조회 + 서버 스트릭 판정 발행(codex 리뷰 6차)
     expect(mockCoinRefresh).toHaveBeenCalledTimes(1);
     expect(publishSessionSaveVerdict).toHaveBeenCalledWith({});
@@ -353,6 +372,21 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     const bgRecord = await readLiveRecord();
     expect(bgRecord!.elapsed).toBe(3);
     expect(bgRecord!.serverSessionId).toBe('marker-1');
+  });
+
+  test('주기 저장(setItem)이 실패해도 세션은 계속된다 — 틱·정산·결과 화면 정상', async () => {
+    // saveLive의 setItem은 .catch로 삼키는 게 현행이다 — 실패가 전파되면 저장소 오류 기기에서
+    // 타이머·수동 종료 정산까지 중단된다(codex 리뷰 8차).
+    await renderSession({ mode: 'countup' });
+    await advance(4000);
+    (AsyncStorage.setItem as unknown as jest.Mock).mockRejectedValueOnce(new Error('disk'));
+    await advance(1000); // 5초 주기 저장이 거부됨
+    await advance(2000); // 그래도 틱은 계속
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(7);
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 7 });
   });
 
   test('라이브 레코드 삭제가 실패해도 종료는 계속된다 — 업로드·적립·결과 화면 이동', async () => {
@@ -551,6 +585,20 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     });
     expect(logFocusSessionCompleted).not.toHaveBeenCalled(); // 상호배타
     expect(mockedUpload).not.toHaveBeenCalled(); // 정산은 다음 실행의 고아 정산 몫
+  });
+
+  test('정상 종료 후 언마운트: finishedRef 가드가 abandoned 추가 발행을 막는다', async () => {
+    // 실제 내비게이션에선 FocusResult replace 직후 cleanup이 돈다 — 가드가 빠지면 완료 세션에
+    // system_back abandoned가 겹쳐 완료·포기 상호배타 지표가 깨진다(codex 리뷰 8차).
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(logFocusSessionCompleted).toHaveBeenCalledTimes(1);
+    await view.unmount(); // replace 직후의 화면 cleanup 재현
+    await act(async () => {});
+    expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+    expect(cancelMarker).not.toHaveBeenCalled(); // 마커는 정산 PATCH가 이미 닫았다 — 취소 없음
   });
 });
 
@@ -829,12 +877,69 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     expect(Date.parse(cap2.body.startedAt) - Date.parse(cap1.body.endedAt)).toBe(3600 * 1000);
   });
 
+  test('자정을 넘는 실드 리플레이: 업로드 바디의 날짜별 집중초가 실제 벽시계 날짜로 분할된다', async () => {
+    // focusSecondsByDate 전달이 빠지거나 축이 뭉개지면 서버 일별 통계·스트릭 귀속이 조용히
+    // 오염된다 — 이 파일에 이 필드 단언이 없었다(codex 리뷰 8차).
+    jest.setSystemTime(new Date('2026-08-18T23:59:20+09:00'));
+    await renderSession({ mode: 'countup' });
+    await advance(30_000); // 23:59:50까지 30초 집중
+    await fireAppState('background');
+    await jumpWallClock(90_000); // 자정을 넘겨 00:00:50 복귀 — 리플레이가 90초 크레딧
+    await fireAppState('active');
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+
+    const { focusSecondsByDate } = mockedUpload.mock.calls[0][0].body;
+    expect(Object.keys(focusSecondsByDate).sort()).toEqual(['2026-08-18', '2026-08-19']);
+    expect(focusSecondsByDate['2026-08-18'] + focusSecondsByDate['2026-08-19']).toBe(120);
+    expect(focusSecondsByDate['2026-08-18']).toBe(40); // 30(포그라운드) + 자정 전 리플레이 10
+    expect(focusSecondsByDate['2026-08-19']).toBe(80);
+  });
+
+  test('실드 네이티브 호출이 거부돼도: 세션은 계속되고 폴백(15초 정책) 세션으로 취급된다', async () => {
+    // startFocusShield의 false 반환만이 아니라 브리지 거부(.catch)도 폴백이어야 한다 —
+    // catch가 빠지면 미처리 거부로 죽거나, 실드 성공으로 오인해 이탈 정책이 뒤바뀐다(codex 리뷰 8차).
+    mockedShieldStart.mockRejectedValueOnce(new Error('native bridge'));
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireAppState('background');
+    expect(scheduleLeaveNotifications).toHaveBeenCalled(); // 폴백 세션의 이탈 경고
+    await jumpWallClock(20_000);
+    await fireAppState('active');
+    await flush();
+    // 폴백 정책 그대로 — 15초 초과 이탈은 자동 종료, 이탈 시간 미적립
+    expect(logFocusSessionAbandoned).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'leave_timeout' }),
+    );
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: false });
+  });
+
+  test('이탈 중 시계가 뒤로 가도: 크레딧 잔량이 늘지 않고 상한은 8시간에 고정된다', async () => {
+    // away 계산의 0 하한이 빠지면 음수 크레딧이 누적을 되돌려 세션당 상한을 초과한다(codex 리뷰 8차).
+    jest.setSystemTime(new Date('2026-08-18T01:00:00+09:00'));
+    await renderSession({ mode: 'countup' });
+    await advance(10_000);
+    await fireAppState('background');
+    await jumpWallClock(-3600 * 1000); // 시계 역행 1시간 — 크레딧 변화 없어야 한다
+    await fireAppState('active');
+    await fireAppState('background');
+    await jumpWallClock(10 * 3600 * 1000); // 이후 10시간 이탈(역행 1시간 상쇄 후 실경과 9시간)
+    await fireAppState('active');
+    await flush();
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    // 크레딧은 여전히 8시간 상한 — 역행이 잔량을 되돌렸다면 9시간이 전부 인정됐을 것
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 10 + 8 * 3600 });
+  });
+
   test('실드 실패(폴백) 세션: 15초 초과 이탈은 abandoned(leave_timeout)로 자동 종료 — 이탈 시간은 미적립', async () => {
     mockedShieldStart.mockResolvedValue(false);
     await renderSession({ mode: 'countup' });
     await advance(5000);
     await fireAppState('background');
-    expect(scheduleLeaveNotifications).toHaveBeenCalled();
+    // 과목명·15초 지연까지 정확히 — 지연이 짧아지면 허용된 15초 안에 복귀할 수 있는데도
+    // 종료 안내가 먼저 발송된다(codex 리뷰 8차)
+    expect(scheduleLeaveNotifications).toHaveBeenCalledWith('수학', 15);
     // 벽시계만 20초 전진(틱 없음 = 실기기의 JS suspend). 폴백 경로는 되감기가 없으므로
     // 여기서 advance를 쓰면 이탈 20초가 집중으로 적립되는 회귀를 못 잡는다(codex 리뷰).
     await jumpWallClock(20_000);
