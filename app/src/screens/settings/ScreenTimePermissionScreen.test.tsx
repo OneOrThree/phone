@@ -10,7 +10,7 @@
 //  3) '측정 대상을 비웠어요'는 성공이지만 측정 중단을 반드시 읽어야 하는 경고성 장문이라
 //     2200ms 배너로 옮기지 않는다 — Alert로 남는다(정책 D8).
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenTimePermissionScreen from './ScreenTimePermissionScreen';
 import ScreenTimeModule, { nativeSupportsPendingApplyDate } from '@/services/ScreenTimeModule';
@@ -22,8 +22,12 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
 }));
 
+// navigate 는 단언 대상이라 호출마다 새로 만들면 안 된다 — 화면이 부른 목과 테스트가 보는
+// 목이 달라져, 이동하지 않아도 통과하는 테스트가 된다.
+const mockNavigate = jest.fn();
+
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn(), isFocused: () => true }),
+  useNavigation: () => ({ navigate: mockNavigate, goBack: jest.fn(), isFocused: () => true }),
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     useEffect(() => {
@@ -136,6 +140,66 @@ describe("측정 대상 '다음날 적용' 예약 통보", () => {
       '오늘은 기존 대상, 내일부터 앱·카테고리 3개로 측정해요',
     );
     expect(mockToastShow).not.toHaveBeenCalled();
+  });
+});
+
+// 측정 대상 선택은 양쪽 다 되지만 **가는 길이 다르다**(GROMO-995) — iOS는 네이티브 시스템
+// 피커를 띄우고, 안드로이드는 RN 화면으로 이동한다. 안드로이드에서 iOS 경로를 타면
+// presentAppPicker가 null을 돌려주고 호출부가 '취소'로 읽어 조용히 끝난다(= 죽은 버튼).
+describe('측정 대상 선택 — 플랫폼별 진입 경로', () => {
+  const originalPlatformOS = Platform.OS;
+  const setPlatform = (os: typeof Platform.OS) =>
+    Object.defineProperty(Platform, 'OS', { value: os, configurable: true });
+
+  afterEach(() => setPlatform(originalPlatformOS));
+
+  // 안드로이드엔 대응 피커가 없다. 행을 남겨 두면 탭해도 아무 일이 없어 고장으로 보이므로
+  // 섹션째 감춘다 — 무반응 진입점을 없애는 게 이 티켓의 본론이다.
+  test('안드로이드에서는 측정 대상 섹션이 그려지지 않는다', async () => {
+    setPlatform('android');
+
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+
+    expect(screen.queryByText('측정 대상 앱 설정')).toBeNull();
+    // 부제만 남아 없는 항목을 찾아 들어가게 만들지도 않는다.
+    expect(screen.queryByText('사용시간을 잴 앱·카테고리 선택')).toBeNull();
+  });
+
+  // 피커가 없으면 허용 상태에서 상태 카드를 눌러도 갈 곳이 없다 — 무반응으로 두지 않고
+  // 권한을 끄러 갈 수 있는 시스템 설정으로 보낸다.
+  test('안드로이드에서 허용 상태 카드는 시스템 설정으로 보낸다', async () => {
+    setPlatform('android');
+
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.press(screen.getByText('스크린타임 접근'));
+    });
+
+    expect(mockPresentAppPicker).not.toHaveBeenCalled();
+    expect(Linking.openSettings).toHaveBeenCalled();
+  });
+
+  // 권한 끄러 갈 곳은 OS마다 다르다 — 안드로이드에 'iOS 설정 앱'이라고 하면 안 된다.
+  test('안드로이드 안내는 iOS 설정 앱을 가리키지 않는다', async () => {
+    setPlatform('android');
+
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+
+    expect(screen.queryByText(/iOS 설정 앱/)).toBeNull();
+    expect(screen.getByText(/사용 정보 접근/)).toBeTruthy();
+  });
+
+  test('iOS는 네이티브 피커를 그대로 띄운다', async () => {
+    setPlatform('ios');
+    mockPresentAppPicker.mockResolvedValue({ applications: 1, categories: 0, webDomains: 0 });
+
+    await openPicker();
+
+    expect(mockPresentAppPicker).toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalledWith('SettingsAppPicker', { mode: 'measured' });
   });
 });
 

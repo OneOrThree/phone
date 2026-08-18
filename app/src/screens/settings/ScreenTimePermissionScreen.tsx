@@ -18,6 +18,7 @@ import ScreenTimeModule, {
   androidNativeModuleAvailable,
   nativeSupportsPendingApplyDate,
 } from '@/services/ScreenTimeModule';
+import { supportsAppSelection } from '@/services/screenTimeCapabilities';
 import { updateScreenTimePermission } from '@/services/userApi';
 import { logScreenTimeSettingsChanged } from '@/services/analyticsEvents';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
@@ -297,8 +298,13 @@ export default function ScreenTimePermissionScreen() {
   function onStatusCardPress() {
     if (status === 'notDetermined') {
       requestPermission();
-    } else if (status === 'approved') {
+    } else if (status === 'approved' && supportsAppSelection()) {
       editScreenTimeTargets();
+    } else if (status === 'approved') {
+      // 피커가 없는 플랫폼 — 허용 상태에서 탭할 곳이 피커뿐이라 그대로 두면 무반응이다.
+      // 권한을 끄고 싶을 때 갈 곳(사용 정보 접근)으로 보낸다(GROMO-1592).
+      statusBeforeSettingsRef.current = status;
+      Linking.openSettings();
     } else if (Platform.OS === 'android' && androidNativeModuleAvailable()) {
       reopenAndroidUsageAccess();
     } else {
@@ -340,21 +346,27 @@ export default function ScreenTimePermissionScreen() {
         <Ionicons name="chevron-forward" size={17} color={T.inkFaint} />
       </TouchableOpacity>
 
-      {/* 관리 — 측정 대상 앱 설정 (실제 조작 기능이라 접근 카드 바로 아래) */}
-      <SettingsSection title="관리">
-        <SettingsRow
-          icon="apps-outline"
-          iconColor={T.accent}
-          iconBg={T.accentBg}
-          label="측정 대상 앱 설정"
-          sub={
-            pendingApply ? '변경한 대상은 내일 0시부터 적용돼요' : '사용시간을 잴 앱·카테고리 선택'
-          }
-          value={pendingApply ? '내일 적용 예정' : undefined}
-          valueColor={T.accentDeep}
-          onPress={editScreenTimeTargets}
-        />
-      </SettingsSection>
+      {/* 관리 — 측정 대상 앱 설정 (실제 조작 기능이라 접근 카드 바로 아래).
+          피커가 없는 플랫폼에서는 섹션째 감춘다 — 행을 남기면 탭해도 아무 일이 없어
+          고장으로 보인다(GROMO-1592). 안드로이드는 전체 앱을 측정하므로 고를 대상도 없다. */}
+      {supportsAppSelection() ? (
+        <SettingsSection title="관리">
+          <SettingsRow
+            icon="apps-outline"
+            iconColor={T.accent}
+            iconBg={T.accentBg}
+            label="측정 대상 앱 설정"
+            sub={
+              pendingApply
+                ? '변경한 대상은 내일 0시부터 적용돼요'
+                : '사용시간을 잴 앱·카테고리 선택'
+            }
+            value={pendingApply ? '내일 적용 예정' : undefined}
+            valueColor={T.accentDeep}
+            onPress={editScreenTimeTargets}
+          />
+        </SettingsSection>
+      ) : null}
 
       {/* 남는 공간 밀어내기 — 아래 안내문들을 화면 하단에 정렬 */}
       <View style={s.flex1} />
@@ -377,8 +389,17 @@ export default function ScreenTimePermissionScreen() {
           <Ionicons name="lock-closed-outline" size={16} color={T.successInk} />
           <Text style={s.noteStrong}>기기에서만 처리 · 서버 미전송</Text>
         </View>
+        {/* 권한을 끄러 가는 곳은 OS마다 다르다 — 안드로이드에 'iOS 설정 앱'이라고 안내하면
+            찾아갈 수 없는 곳을 가리킨다(GROMO-1592).
+            ⚠️ Platform.select가 아니라 Platform.OS 비교인 이유: select는 번들 시점에 플랫폼별
+            구현이 박혀 테스트에서 OS를 바꿔도 분기가 따라오지 않는다(검증 불가). */}
         <Text style={s.noteBody}>
-          권한을 끄면 사용시간 통계가 멈춰요. iOS 설정 앱에서도 바꿀 수 있어요.
+          권한을 끄면 사용시간 통계가 멈춰요.{' '}
+          {Platform.OS === 'ios'
+            ? 'iOS 설정 앱에서도 바꿀 수 있어요.'
+            : Platform.OS === 'android'
+              ? '설정 → 사용 정보 접근에서도 바꿀 수 있어요.'
+              : '기기 설정에서도 바꿀 수 있어요.'}
         </Text>
       </View>
     </SettingsScaffold>
