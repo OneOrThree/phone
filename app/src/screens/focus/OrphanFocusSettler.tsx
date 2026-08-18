@@ -73,7 +73,7 @@ export function OrphanFocusSettler() {
       //    남의 앱을 덮게 된다(FocusShieldService가 START_NOT_STICKY인 것과 같은 이유).
       //
       // await 하지 않는 이유: 알림 발행이 늦어져도 정산을 붙잡아 둘 이유가 없다.
-      void notifyShieldInterrupted();
+      notifyShieldInterrupted().catch(() => {});
       // 로컬 적립은 1회만 — 중복 적립 방지로 적립 전에 먼저 마킹해 되쓴다.
       // 레코드는 업로드/인계가 끝나기 전까지 지우지 않는다(먼저 지우면 실패 시 기록이 영구 유실).
       // 코인은 여기서 세지 않는다(GROMO-1049) — 지급도 잔액도 서버가 정본이라, 업로드가 끝난 뒤
