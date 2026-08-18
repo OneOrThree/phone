@@ -130,9 +130,11 @@ jest.mock('@/store/FocusContext', () => ({
 // '복귀 시 취소' 단언이 공허해진다(codex 리뷰 5차).
 const mockCoinRefresh = jest.fn();
 jest.mock('@/store/CoinContext', () => ({ useCoins: () => ({ refresh: mockCoinRefresh }) }));
+// 과목 목록은 테스트별로 갈아끼울 수 있게 모듈 범위 — 기본은 선택 과목 하나(beforeEach 리셋)
+let mockSubjectsData = [{ id: 's1', name: '수학', accumulatedSeconds: 0, color: '#FFB4A2' }];
 jest.mock('@/store/SubjectContext', () => ({
   useSubjects: () => ({
-    subjects: [{ id: 's1', name: '수학', accumulatedSeconds: 0, color: '#FFB4A2' }],
+    subjects: mockSubjectsData,
     addFocusToSubject: mockAddFocusToSubject,
   }),
 }));
@@ -249,6 +251,7 @@ async function readLiveRecord(): Promise<LiveFocusSession | null> {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockSubjectsData = [{ id: 's1', name: '수학', accumulatedSeconds: 0, color: '#FFB4A2' }];
   await AsyncStorage.clear();
   jest.useFakeTimers();
   appStateHandlers = [];
@@ -287,6 +290,11 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(record!.subjectId).toBe('s1');
     expect(record!.userId).toBe('user-1');
     expect(record!.serverSessionId).toBe('marker-1'); // 강제종료 시 서버 스윕 대상
+    // 시간 범위도 고아 정산의 입력이다 — OrphanFocusSettler는 (updatedAt−startedAt)−elapsed로
+    // 방해초를 역산하고 updatedAt을 복구 업로드의 endedAt으로 쓴다(:101-112). 두 시각이
+    // 누락·고정되면 복구 구간과 보상이 통째로 어긋난다(codex 리뷰 17차).
+    expect(record!.startedAt).toBe(mockedStartMarker.mock.calls[0][0].startedAt);
+    expect(Date.parse(record!.updatedAt) - Date.parse(record!.startedAt)).toBe(5000);
   });
 
   test('정지 버튼 finish — 블록 정산 업로드·마커 취소·레코드 제거·FocusResult(completed=true) replace', async () => {
@@ -632,6 +640,25 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     // 잘못된 문구를 본다(codex 리뷰 16차).
     await renderSession({ mode: 'countup', subjectName: '영어' });
     expect(mockedShieldStart).toHaveBeenCalledWith('영어');
+  });
+
+  test('Live Activity 페이로드: 다른 과목을 누적시간 내림차순 상위 2개만 싣는다', async () => {
+    // 선택 과목 제외 필터 + 내림차순 정렬 + 상위 2개 슬라이스의 배선 — 과목이 하나뿐인 기본
+    // fixture로는 항상 []라 이 로직이 통째로 빠져도 통과한다. 잠금화면 위젯이 표시하는 다른
+    // 과목 기록(WidgetLiveActivity.swift:174-176)의 원천이다(codex 리뷰 17차).
+    mockSubjectsData = [
+      { id: 's1', name: '수학', accumulatedSeconds: 900, color: '#FFB4A2' }, // 선택 — 최댓값이어도 제외
+      { id: 's2', name: '영어', accumulatedSeconds: 300, color: '#A2C4FF' },
+      { id: 's3', name: '과학', accumulatedSeconds: 500, color: '#B2E2B2' },
+      { id: 's4', name: '국어', accumulatedSeconds: 100, color: '#EEDD88' },
+    ];
+    await renderSession({ mode: 'countup' });
+    await advance(1000); // 600ms 캡처 지연 경과
+    await flush();
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', [
+      { name: '과학', seconds: 500, color: '#B2E2B2' },
+      { name: '영어', seconds: 300, color: '#A2C4FF' },
+    ]);
   });
 });
 
@@ -1397,6 +1424,13 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     await fireAppState('background');
     await jumpWallClock(90_000); // 자정을 넘겨 00:00:50 복귀 — 리플레이가 90초 크레딧
     await fireAppState('active');
+    await flush();
+    // 영속 레코드의 날짜 맵도 같은 귀속이어야 한다 — 자정 후 강제종료 시 고아 정산은 이 레코드의
+    // server 맵을 그대로 업로드하고(OrphanFocusSettler:114-118) local 맵으로 오늘 몫을 정한다.
+    // 합계·메모리 값만 보면 날짜 키가 복귀일로 뭉개지는 영속 회귀를 못 잡는다(codex 리뷰 17차).
+    const midnightRecord = (await readLiveRecord())!;
+    expect(midnightRecord.focusDays!.local).toEqual({ '2026-08-18': 40, '2026-08-19': 80 });
+    expect(midnightRecord.focusDays!.server).toEqual({ '2026-08-18': 40, '2026-08-19': 80 });
     await fireEvent.press(view.getByTestId('focus.stop'));
     await flush();
 
@@ -1666,6 +1700,16 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     await flush();
     // 60(블록1) + 재개 후 3 — 휴식·대기·이탈은 한 초도 집중으로 안 들어간다
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 63 });
+    // 새 블록의 구간은 재개 시각부터다 — markerDeferred 분기가 startBlockAt(재개 시각)을
+    // 빠뜨리면 시작점이 복귀 시각에 남아 대기 10초가 두 번째 마커·업로드 구간에 섞인다
+    // (codex 리뷰 17차).
+    expect(mockedStartMarker.mock.calls[1][0].startedAt).toBe(
+      mockedUpload.mock.calls[1][0].body.startedAt,
+    );
+    expect(
+      Date.parse(mockedUpload.mock.calls[1][0].body.endedAt) -
+        Date.parse(mockedUpload.mock.calls[1][0].body.startedAt),
+    ).toBe(3000);
   });
 });
 
