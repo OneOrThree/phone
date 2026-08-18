@@ -120,12 +120,24 @@ public class LeagueService {
         return toResponses(ranked, Set.of(), liveInfo);
     }
 
+    /**
+     * 랭킹 행 + 라이브 정보를 응답으로 합친다.
+     *
+     * <p><b>isFocusing·focusStartedAt 은 랭킹 쿼리가 돌려준 앵커에서 나온다</b>(코드리뷰 반영).
+     * 정렬은 findTop 이 읽은 진행 중 세션으로 하는데 표시용 시작 시각을 뒤이은 liveInfoByUserId
+     * 에서 다시 읽으면, 두 조회 사이에 세션을 시작·종료한 유저가 "순위는 라이브 기준인데 표시는
+     * 확정값"인 채로 한 응답에 섞인다. 같은 스냅샷의 앵커를 그대로 실어 클라가 그리는
+     * base + (now − focusStartedAt) 이 정렬 점수와 정확히 같아지게 한다.
+     *
+     * <p>focusTimeMinutes(당일 집중분)·focusTagName 은 순위와 무관한 값이라 배치 조회 결과를 쓴다.
+     */
     private List<LeagueMemberResponse> toResponses(List<LeagueRankingRow> ranked, Set<UUID> pinnedIds,
                                                    Map<UUID, FocusLiveInfo> liveInfo) {
         List<LeagueMemberResponse> responses = new ArrayList<>();
         for (int i = 0; i < ranked.size(); i++) {
             LeagueRankingRow row = ranked.get(i);
             FocusLiveInfo info = liveInfo.get(row.userId());
+            Instant liveStartedAt = row.liveStartedAt();
             responses.add(new LeagueMemberResponse(
                     i + 1,
                     row.userId(),
@@ -133,9 +145,9 @@ public class LeagueService {
                     row.tierLevel(),
                     row.totalFocusSeconds(),
                     pinnedIds.contains(row.userId()),
-                    info != null && info.isFocusing(),
+                    liveStartedAt != null,
                     info != null ? info.focusTimeMinutes() : 0,
-                    info != null ? info.focusStartedAt() : null,
+                    liveStartedAt,
                     info != null ? info.focusTagName() : null));
         }
         return responses;

@@ -106,6 +106,11 @@ class LeagueServiceTest {
         return new LeagueRankingRow(userId, nickname, 3, focusSeconds);
     }
 
+    /** 정렬에 쓴 라이브 앵커까지 담은 랭킹 행 — findTop 이 실제로 돌려주는 형태. */
+    private LeagueRankingRow liveRankingRow(UUID userId, String nickname, int focusSeconds, Instant liveStartedAt) {
+        return new LeagueRankingRow(userId, nickname, 3, focusSeconds, liveStartedAt);
+    }
+
     private FocusLiveInfo liveInfo(int minutes, boolean focusing, Instant startedAt, String tagName) {
         return new FocusLiveInfo(minutes, focusing, startedAt, tagName);
     }
@@ -248,9 +253,9 @@ class LeagueServiceTest {
     @Test
     @DisplayName("category 미지정 랭킹 — ranked userId로 라이브 정보 1회 배치 조회해 4필드를 채운다(없는 유저는 기본값)")
     void getMyRankingWithoutCategoryFillsLiveFocusInfo() {
-        LeagueRankingRow top = rankingRow(U2, "top", 300);
-        LeagueRankingRow me = rankingRow(USER_ID, "me", 200);
         Instant start = Instant.parse("2026-06-24T01:00:00Z");
+        LeagueRankingRow top = liveRankingRow(U2, "top", 300, start);
+        LeagueRankingRow me = rankingRow(USER_ID, "me", 200);
         given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt(), any()))
                 .willReturn(List.of(top, me));
         given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
@@ -275,8 +280,8 @@ class LeagueServiceTest {
     @Test
     @DisplayName("occupation 지정 시 같은 직군 전역 상위 100명을 조회하고 라이브 4필드를 채운다")
     void getMyRankingWithCategoryReturnsFilteredRanking() {
-        LeagueRankingRow row = rankingRow(U2, "labor", 300);
         Instant start = Instant.parse("2026-06-24T02:00:00Z");
+        LeagueRankingRow row = liveRankingRow(U2, "labor", 300, start);
         given(leagueRankingQueryRepository.findTop(
                 any(), any(), eq(Occupation.LABOR_ATTORNEY), eq(100), any())).willReturn(List.of(row));
         given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
@@ -291,6 +296,30 @@ class LeagueServiceTest {
             assertThat(resp.focusTimeMinutes()).isEqualTo(15);
             assertThat(resp.focusStartedAt()).isEqualTo(start);
             assertThat(resp.focusTagName()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("라이브 표시는 정렬에 쓴 행의 앵커를 따른다 — 뒤이은 라이브 조회와 어긋나도 순위와 정합")
+    void getMyRankingUsesRankingRowAnchorNotLaterLookup() {
+        // 정렬 쿼리는 U2 를 집중 중으로 보고 위로 올렸는데, 그 사이 세션이 끝나 두 번째 조회는
+        // 미집중으로 온 상황. 표시가 두 번째 조회를 따르면 "순위는 라이브 기준, 시간은 확정값"이
+        // 한 응답에 섞여 이번 수정이 없애려던 불일치가 되살아난다(코드리뷰 반영).
+        Instant start = Instant.parse("2026-06-24T01:00:00Z");
+        LeagueRankingRow ranked = liveRankingRow(U2, "top", 300, start);
+        given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt(), any()))
+                .willReturn(List.of(ranked));
+        given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
+        given(focusLiveInfoLookup.liveInfoByUserId(List.of(U2), DATE))
+                .willReturn(Map.of(U2, liveInfo(42, false, null, null)));
+
+        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, null, DATE);
+
+        assertThat(ranking).singleElement().satisfies(resp -> {
+            assertThat(resp.isFocusing()).isTrue();
+            assertThat(resp.focusStartedAt()).isEqualTo(start);
+            // 순위와 무관한 당일 집중분은 배치 조회 값 그대로.
+            assertThat(resp.focusTimeMinutes()).isEqualTo(42);
         });
     }
 
@@ -310,9 +339,9 @@ class LeagueServiceTest {
     @Test
     @DisplayName("전역 랭킹 조회는 read model 순서대로 rank를 부여하고 라이브 필드를 채운다(핀은 스코프 밖)")
     void getGlobalRanking_returnsGlobalRanking() {
-        LeagueRankingRow top = rankingRow(U2, "top", 500);
-        LeagueRankingRow mid = rankingRow(USER_ID, "mid", 300);
         Instant start = Instant.parse("2026-06-24T02:00:00Z");
+        LeagueRankingRow top = liveRankingRow(U2, "top", 500, start);
+        LeagueRankingRow mid = rankingRow(USER_ID, "mid", 300);
         given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100), any()))
                 .willReturn(List.of(top, mid));
         given(focusLiveInfoLookup.liveInfoByUserId(eq(List.of(U2, USER_ID)), any()))

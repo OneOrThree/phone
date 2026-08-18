@@ -79,13 +79,25 @@ public class LeagueRankingQueryRepository {
              ORDER BY user_id, started_at DESC
             """;
 
-    // 라이브 경과 초. 주 경계를 걸친 세션(일요일 밤 시작 → 월요일 진행 중)은 주 시작부터만 센다.
-    // GREATEST(0, ...)는 시계 오차로 started_at 이 now 를 아주 살짝 앞설 때의 음수 방어.
+    // 라이브 기준 시각(앵커). 주 경계를 걸친 세션(일요일 밤 시작 → 월요일 진행 중)은 주 시작으로
+    // 클램프한다 — 지난 주 몫이 이번 주 순위에 실리면 안 된다.
     //
     // ⚠️ NULL 분기를 COALESCE 가 아니라 CASE 로 하는 이유: Postgres 의 GREATEST/LEAST 는 대부분의
     // 함수와 달리 **NULL 인자를 그냥 건너뛴다**. 진행 중 세션이 없어 live.started_at 이 NULL 이면
     // GREATEST(NULL, :weekStartAt) 가 NULL 이 아니라 :weekStartAt 을 돌려줘서, 집중하지도 않은
     // 유저 전원에게 '주 시작부터 지금까지' 가 통째로 붙는다(= 라이브 유저가 오히려 밀린다).
+    private static final String LIVE_ANCHOR = """
+            CASE WHEN live.started_at IS NULL THEN NULL
+                 ELSE GREATEST(live.started_at, :weekStartAt)
+            END""";
+
+    // 라이브 경과 초 = now − 앵커. GREATEST(0, ...)는 시계 오차로 앵커가 now 를 아주 살짝 앞설 때의
+    // 음수 방어. 앵커가 NULL(미집중)이면 0.
+    //
+    // ⚠️ 이 값과 앵커는 반드시 **한 쿼리에서 함께** 나와야 한다(코드리뷰 반영). 정렬은 이 경과로
+    // 하는데 응답의 focusStartedAt 을 뒤이은 별도 조회에서 다시 읽으면, 두 조회 사이에 세션이
+    // 시작·종료된 유저가 "순위는 라이브 기준인데 표시는 확정값"인 채로 한 응답에 섞인다.
+    // findTop 이 앵커를 같이 돌려주고 LeagueService 가 그걸 그대로 응답에 싣는 이유다.
     private static final String LIVE_SECONDS = """
             CASE WHEN live.started_at IS NULL THEN 0
                  ELSE GREATEST(0, EXTRACT(EPOCH FROM :now - GREATEST(live.started_at, :weekStartAt)))
@@ -107,7 +119,8 @@ public class LeagueRankingQueryRepository {
         }
 
         String occupationCondition = occupation == null ? "" : " AND u.occupation = :occupation\n";
-        String sql = "SELECT t.user_id, t.nickname, t.tier_level, t.total_focus_seconds FROM ("
+        String sql = "SELECT t.user_id, t.nickname, t.tier_level, t.total_focus_seconds,"
+                + " " + LIVE_ANCHOR + " AS live_started_at FROM ("
                 + WEEKLY_TOTALS + occupationCondition + GROUP_BY_USER + ") t"
                 + " LEFT JOIN (" + LIVE_SESSIONS + ") live ON live.user_id = t.user_id"
                 + " ORDER BY t.total_focus_seconds + " + LIVE_SECONDS + " DESC, t.user_id ASC"
@@ -117,7 +130,7 @@ public class LeagueRankingQueryRepository {
         if (occupation != null) {
             parameters.addValue("occupation", occupation.name());
         }
-        return jdbcTemplate.query(sql, parameters, this::mapRankingRow);
+        return jdbcTemplate.query(sql, parameters, this::mapRankingRowWithLiveAnchor);
     }
 
     /**
@@ -297,6 +310,20 @@ public class LeagueRankingQueryRepository {
         return new MapSqlParameterSource()
                 .addValue("fromDate", fromDate)
                 .addValue("toDate", toDate);
+    }
+
+    /**
+     * {@link #findTop} 전용 매퍼 — 정렬에 쓴 라이브 앵커까지 담는다. 다른 조회는 이 컬럼을
+     * SELECT 하지 않으므로 {@link #mapRankingRow}(앵커 null)를 쓴다.
+     */
+    private LeagueRankingRow mapRankingRowWithLiveAnchor(ResultSet resultSet, int rowNumber) throws SQLException {
+        Timestamp liveStartedAt = resultSet.getTimestamp("live_started_at");
+        return new LeagueRankingRow(
+                resultSet.getObject("user_id", UUID.class),
+                resultSet.getString("nickname"),
+                resultSet.getInt("tier_level"),
+                Math.toIntExact(resultSet.getLong("total_focus_seconds")),
+                liveStartedAt == null ? null : liveStartedAt.toInstant());
     }
 
     private LeagueRankingRow mapRankingRow(ResultSet resultSet, int rowNumber) throws SQLException {

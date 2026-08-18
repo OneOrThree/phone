@@ -30,6 +30,10 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     private static final LocalDate TUESDAY = LocalDate.of(2026, 7, 14);
     // 라이브 경과 산정 기준 시각 — TUESDAY 12:00 KST. 진행 중 세션 픽스처는 이 시각에서 역산한다.
     private static final Instant NOW = TUESDAY.atTime(12, 0).atZone(ZonePolicy.KST).toInstant();
+    // 주 경계 클램프가 실제로 걸리는 유일한 구간 — 월요일 오전. 라이브 창이 12시간이라 주 시작
+    // 이전에 시작한 세션이 아직 살아 있으려면 지금이 월요일 00~12시(KST)여야 한다.
+    private static final Instant MONDAY_MORNING = MONDAY.atTime(3, 0).atZone(ZonePolicy.KST).toInstant();
+    private static final Instant WEEK_START = MONDAY.atStartOfDay(ZonePolicy.KST).toInstant();
 
     @Autowired
     LeagueRankingQueryRepository leagueRankingQueryRepository;
@@ -262,6 +266,24 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
+    @DisplayName("정렬에 쓴 라이브 앵커를 함께 돌려준다 — 주 경계 세션은 주 시작으로 클램프된 값")
+    void findTopReturnsClampedLiveAnchor() {
+        User crossing = saveUser("crossing", Occupation.CODING, false);
+        User idle = saveUser("idle", Occupation.CODING, false);
+        // 일요일 23시 시작, 월요일 03시 현재까지 진행 중 — 실제 경과 4시간, 이번 주 몫은 3시간.
+        saveLiveSession(crossing, WEEK_START.minus(Duration.ofHours(1)));
+        flushFixtures();
+
+        List<LeagueRankingRow> result = leagueRankingQueryRepository.findTop(
+                MONDAY, MONDAY, null, 100, MONDAY_MORNING);
+
+        // 앵커는 실제 시작 시각이 아니라 주 시작 — 클라가 base + (now − 앵커) 를 그리면 정렬 점수와 같아진다.
+        // 앵커를 안 깎으면 화면엔 4시간이 뜨는데 정렬은 3시간이라 이번 수정이 없애려던 불일치가 남는다.
+        assertThat(rowOf(result, crossing).liveStartedAt()).isEqualTo(WEEK_START);
+        assertThat(rowOf(result, idle).liveStartedAt()).isNull();
+    }
+
+    @Test
     @DisplayName("세션이 끝나면 라이브 가산이 사라지고 확정 집계 기준 순위로 정정된다")
     void findTopDropsLiveElapsedOnceSessionEnded() {
         User confirmed = saveUser("confirmed", Occupation.CODING, false);
@@ -301,13 +323,13 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     void findTopClampsLiveElapsedToWeekStart() {
         User crossing = saveUser("crossing", Occupation.CODING, false);
         User rival = saveUser("rival", Occupation.CODING, false);
-        // 지난 주 일요일 저녁에 시작해 아직 진행 중 — 주 시작(MONDAY 00:00 KST)부터 NOW 까지가 36시간.
-        saveLiveSession(crossing, MONDAY.minusDays(1).atTime(18, 0).atZone(ZonePolicy.KST).toInstant());
-        // 클램프가 없으면 crossing 의 라이브가 42시간(151,200초)이라 rival 을 앞선다.
-        saveStat(rival, MONDAY, 40 * 3_600);
+        // 일요일 23시 시작, 월요일 03시 현재 진행 중 — 이번 주 몫 3시간(10,800초).
+        saveLiveSession(crossing, WEEK_START.minus(Duration.ofHours(1)));
+        // 클램프가 없으면 crossing 의 라이브가 4시간(14,400초)이라 rival 을 앞선다.
+        saveStat(rival, MONDAY, 12_000);
         flushFixtures();
 
-        assertThat(leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100, NOW))
+        assertThat(leagueRankingQueryRepository.findTop(MONDAY, MONDAY, null, 100, MONDAY_MORNING))
                 .extracting(LeagueRankingRow::userId)
                 .containsExactly(rival.getId(), crossing.getId());
     }
@@ -327,6 +349,10 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
                 .date(date)
                 .totalFocusSeconds(seconds)
                 .build());
+    }
+
+    private LeagueRankingRow rowOf(List<LeagueRankingRow> rows, User user) {
+        return rows.stream().filter(row -> row.userId().equals(user.getId())).findFirst().orElseThrow();
     }
 
     /** 진행 중(미종료) 세션 픽스처 — endedAt 이 비어 있는 라이브 마커. */
