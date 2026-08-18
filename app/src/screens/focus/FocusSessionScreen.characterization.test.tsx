@@ -139,9 +139,16 @@ jest.mock('@/store/SubjectContext', () => ({
     addFocusToSubject: mockAddFocusToSubject,
   }),
 }));
-jest.mock('@/store/CharacterContext', () => ({ useCharacter: () => ({ activeSource: null }) }));
+// 커스텀 캐릭터 소스 — 기본 null(기본 캐릭터), 배선 테스트에서 갈아끼움
+let mockActiveSource: string | null = null;
+jest.mock('@/store/CharacterContext', () => ({
+  useCharacter: () => ({ activeSource: mockActiveSource }),
+}));
+// 친구 그리드 fixture — 기본 빈 목록
+let mockFriends: unknown[] = [];
+let mockPinnedIds: Set<string> = new Set();
 jest.mock('@/screens/league/useFocusFriends', () => ({
-  useFocusFriends: () => ({ friends: [], pinnedIds: new Set() }),
+  useFocusFriends: () => ({ friends: mockFriends, pinnedIds: mockPinnedIds }),
 }));
 // 리그 훅 호출 인자를 붙잡는다 — 나 제외·시험 필터 배선 관찰용
 const mockLeagueArgs: unknown[] = [];
@@ -153,8 +160,10 @@ jest.mock('./useSessionLeagueMembers', () => ({
 }));
 // 서버의 KST 오늘 집중 스냅샷 — 실제 계약은 { day, minutes } | null (테스트별 갈아끼움)
 let mockMyFocus: { day: string; minutes: number } | null = null;
+// 참여 그룹 fixture — 기본 빈 목록
+let mockSessionGroups: Array<{ groupId: string; groupName: string; members: unknown[] }> = [];
 jest.mock('./useSessionGroups', () => ({
-  useSessionGroups: () => ({ groups: [], myFocus: mockMyFocus }),
+  useSessionGroups: () => ({ groups: mockSessionGroups, myFocus: mockMyFocus }),
 }));
 // 준비 시험 카테고리 — 기본 null(미설정), 시험 필터 테스트에서 갈아끼움
 let mockFocusCategory: string | null = null;
@@ -167,14 +176,35 @@ jest.mock('@/hooks/useReduceMotion', () => ({
 }));
 
 // ── 렌더 전용 무거운 자식은 껍데기로 — 세션 로직과 무관 ───────────────────────
-// 내 셀(me) 전달값을 붙잡는다 — 그리드 자체는 렌더하지 않되 화면→그리드 배선은 관찰한다
+// 내 셀(me)과 그리드별 전달 props를 붙잡는다 — 그리드 자체는 렌더하지 않되 화면→그리드 배선은 관찰한다
 const mockGridMeCaptures: Array<{ totalSeconds: number; isFocusing: boolean }> = [];
+const mockGridPropsCaptures: Array<{
+  title: string;
+  visible: boolean;
+  members: unknown;
+  pinnedIds: unknown;
+}> = [];
 jest.mock('./components/LiveFocusGrid', () => ({
-  LiveFocusGrid: (props: { me: { totalSeconds: number; isFocusing: boolean } }) => {
+  LiveFocusGrid: (props: {
+    me: { totalSeconds: number; isFocusing: boolean };
+    title: string;
+    visible: boolean;
+    members: unknown;
+    pinnedIds: unknown;
+  }) => {
     mockGridMeCaptures.push(props.me);
+    mockGridPropsCaptures.push({
+      title: props.title,
+      visible: props.visible,
+      members: props.members,
+      pinnedIds: props.pinnedIds,
+    });
     return null;
   },
 }));
+// 특정 그리드의 마지막 전달값 — 페이저에 같은 제목 그리드는 하나뿐이라 제목으로 찾는다
+const lastGridProps = (title: string) =>
+  mockGridPropsCaptures.filter((p) => p.title === title).at(-1);
 // 드로어 열림 상태 전달을 붙잡는다 — 메뉴 버튼→드로어 배선 관찰용
 const mockDrawerOpenCaptures: boolean[] = [];
 jest.mock('./components/FocusMenuDrawer', () => ({
@@ -192,15 +222,23 @@ jest.mock('./FocusLandscape', () => ({
   },
 }));
 jest.mock('@/components/TabGuideOverlay', () => ({ TabGuideOverlay: () => null }));
-// 호흡 애니메이션 활성 플래그를 붙잡는다 — 게이트·페이지 전환의 절전 배선 관찰용
+// 호흡 애니메이션 활성 플래그를 붙잡는다 — 게이트·페이지 전환의 절전 배선 관찰용.
+// children(캡처 대상 캐릭터 뷰)은 통과시켜야 CharacterImage 배선도 함께 관찰된다.
 const mockCharActiveCaptures: boolean[] = [];
 jest.mock('@/components/character/AnimatedCharacter', () => ({
-  AnimatedCharacter: (props: { active: boolean }) => {
+  AnimatedCharacter: (props: { active: boolean; children?: unknown }) => {
     mockCharActiveCaptures.push(props.active);
+    return (props.children as never) ?? null;
+  },
+}));
+// 캡처 대상 캐릭터의 전달 props를 붙잡는다 — 커스텀 소스 배선 관찰용
+const mockCharImageCaptures: Array<{ variant?: string; sourceUri?: string }> = [];
+jest.mock('@/components/character/CharacterImage', () => ({
+  CharacterImage: (props: { variant?: string; sourceUri?: string }) => {
+    mockCharImageCaptures.push({ variant: props.variant, sourceUri: props.sourceUri });
     return null;
   },
 }));
-jest.mock('@/components/character/CharacterImage', () => ({ CharacterImage: () => null }));
 jest.mock('@/components/PressableScale', () => {
   const mockReact = jest.requireActual<typeof import('react')>('react');
   const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
@@ -294,10 +332,16 @@ beforeEach(async () => {
   mockSubjectsData = [{ id: 's1', name: '수학', accumulatedSeconds: 0, color: '#FFB4A2' }];
   mockMyFocus = null;
   mockFocusCategory = null;
+  mockActiveSource = null;
+  mockSessionGroups = [];
+  mockFriends = [];
+  mockPinnedIds = new Set();
   mockGridMeCaptures.length = 0;
+  mockGridPropsCaptures.length = 0;
   mockLandscapeCaptures.length = 0;
   mockDrawerOpenCaptures.length = 0;
   mockCharActiveCaptures.length = 0;
+  mockCharImageCaptures.length = 0;
   mockLeagueArgs.length = 0;
   await AsyncStorage.clear();
   jest.useFakeTimers();
@@ -405,6 +449,13 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     // 실드·Live Activity 해제 + 라이브 레코드 제거
     expect(ScreenTimeModule.stopFocusShield).toHaveBeenCalled();
     expect(ScreenTimeModule.endFocusActivity).toHaveBeenCalled();
+    expect(await readLiveRecord()).toBeNull();
+    // 종료 후 다음 저장 경계를 넘겨도 레코드는 재생성되지 않는다 — saveLive의 finishedRef
+    // 가드가 빠지면 화면 해제가 늦은 사이 틱이 레코드를 되살려 다음 실행의 고아 정산이
+    // 끝난 세션을 다시 적립한다(codex 리뷰 24차).
+    const writesAfterFinish = liveRecordWrites().length;
+    await advance(10_000);
+    expect(liveRecordWrites().length).toBe(writesAfterFinish);
     expect(await readLiveRecord()).toBeNull();
   });
 
@@ -812,6 +863,55 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(mockDrawerOpenCaptures.at(-1)).toBe(true);
   });
 
+  test('친구 그리드: members·pinnedIds가 전달되고 visible은 친구 페이지에서만 켜진다', async () => {
+    // 항상 빈 fixture로는 sessionFriends·핀 집합·visible 배선 제거를 못 잡는다 — 친구가 있는
+    // 사용자의 그리드 공백, 핀 정렬·숨은 페이지 시계 정지 회귀 방어(codex 리뷰 24차).
+    mockFriends = [
+      { userId: 'f1', nickname: '친구1', isFocusing: true },
+      { userId: 'f2', nickname: '친구2', isFocusing: false },
+    ];
+    mockPinnedIds = new Set(['f2']);
+    await renderSession({ mode: 'countup' });
+    // ⚠️ toMatchObject는 기대값이 Set일 때 received undefined와도 통과한다(jest 함정 — 돌연변이
+    // 검증에서 발각). 통과 경로가 아니라 참조 동일성(toBe)으로 단언한다.
+    const friendsProps = lastGridProps('내 친구')!;
+    expect(friendsProps.members).toBe(mockFriends);
+    expect(friendsProps.pinnedIds).toBe(mockPinnedIds);
+    expect(friendsProps.visible).toBe(false); // 캐릭터 페이지에선 꺼져 있다(숨은 그리드 시계 정지)
+    const pagerWidth = Dimensions.get('window').width;
+    const pager = view.container.queryAll(
+      (n) => n.props?.horizontal === true && n.props?.pagingEnabled === true,
+    )[0];
+    await act(async () => {
+      pager.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: pagerWidth } } });
+    });
+    expect(lastGridProps('내 친구')).toMatchObject({ visible: true }); // 친구 페이지 진입
+  });
+
+  test('그룹 FAB 진입(initialGroupId): 해당 그룹 페이지로 초기 스크롤·해당 그리드만 활성화된다', async () => {
+    // 빈 groups fixture로는 검색·scrollTo·페이지 상태 배선 제거를 못 잡는다(codex 리뷰 24차).
+    mockSessionGroups = [
+      { groupId: 'g1', groupName: '알파', members: [] },
+      { groupId: 'g2', groupName: '베타', members: [] },
+    ];
+    await renderSession({ mode: 'countup', initialGroupId: 'g2' });
+    await flush();
+    // 두 번째 그룹 = 페이지 3 (캐릭터0·친구1·그룹×N)
+    expect(lastGridProps('그룹: 베타')).toMatchObject({ visible: true });
+    expect(lastGridProps('그룹: 알파')).toMatchObject({ visible: false });
+    expect(lastGridProps('내 친구')).toMatchObject({ visible: false });
+    expect(mockCharActiveCaptures.at(-1)).toBe(false); // 캐릭터 페이지를 떠났다 — 호흡 정지
+  });
+
+  test('커스텀 캐릭터 장착 시: 캡처 대상 study 캐릭터에 activeSource가 배선된다', async () => {
+    // activeSource가 항상 null인 fixture로는 sourceUri 배선 제거를 못 잡는다 — 커스텀 캐릭터
+    // 사용자가 화면·잠금화면 스냅샷에서 기본 캐릭터를 보게 되는 회귀 방어(codex 리뷰 24차).
+    mockActiveSource = 'file:///custom-character.png';
+    await renderSession({ mode: 'countup' });
+    const studyCapture = mockCharImageCaptures.filter((c) => c.variant === 'study').at(-1);
+    expect(studyCapture).toMatchObject({ sourceUri: 'file:///custom-character.png' });
+  });
+
   test('리그 그리드 훅: 전체 리그는 나 제외, 같은 시험은 occupation 필터·enabled 게이트', async () => {
     // 인자를 버리는 목으로는 excludeUserId 누락·시험 필터 오배선을 못 잡는다 — 본인 행 중복,
     // 다른 시험 준비생 혼입 회귀 방어(codex 리뷰 22차).
@@ -1129,7 +1229,15 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     );
     await renderSession({ mode: 'countup' });
     await advance(2000);
-    // 마운트의 마커 시작도 flush를 한 번 부른다(:410) — 이후 '신규' 호출만 계수한다
+    // 마운트의 마커 시작이 밀린 취소부터 재시도한다 — 이전 세션의 취소 실패가 대기열에 남은
+    // 채 새 집중을 시작하면 옛 마커와 새 마커가 함께 노출되므로, 재시도가 실제로 1회 이상
+    // 현재 사용자로 호출됐고 새 마커 등록보다 먼저임을 직접 단언한다(codex 리뷰 24차 — 상대
+    // 횟수 기준값만 잡으면 호출 자체가 제거돼도 못 잡는다).
+    expect(flushPendingMarkerCancels).toHaveBeenCalledWith('user-1');
+    expect((flushPendingMarkerCancels as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      mockedStartMarker.mock.invocationCallOrder[0],
+    );
+    // 이후 '신규' 호출만 계수한다
     const flushCallsBeforeUnmount = (flushPendingMarkerCancels as jest.Mock).mock.calls.length;
     await view.unmount(); // finish를 안 거치는 cleanup — cancelLiveSession 체인만 돈다
     await act(async () => {});
