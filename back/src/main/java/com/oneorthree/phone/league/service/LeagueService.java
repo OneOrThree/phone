@@ -1,11 +1,8 @@
 package com.oneorthree.phone.league.service;
 
-import com.oneorthree.phone.common.logging.UserActivityEvent;
-import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
-import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
@@ -30,7 +27,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -49,7 +45,6 @@ public class LeagueService {
     private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
     private final CurrencyTransactionRepository currencyTransactionRepository;
     private final UserRepository userRepository;
-    private final UserActivityEventLogger userActivityEventLogger;
     private final PinnedUserRepository pinnedUserRepository;
     private final LeagueWeek leagueWeek;
 
@@ -147,17 +142,11 @@ public class LeagueService {
     LeagueRankResponse getMyRank(UUID userId, Instant now) {
         LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
         LocalDate toDate = leagueWeek.currentDate(now);
+        // 활동 로그(LEAGUE_RANK_VIEWED)는 남기지 않는다 — 클라가 리그 화면 포커스마다 호출해도
+        // 계측이 부풀지 않아야 화면에서 이 API를 쓸 수 있다(구 계측은 사용처가 없어 함께 제거).
         return leagueRankingQueryRepository.findRankOf(userId, fromDate, toDate, now)
-                .map(this::toRankResponse)
+                .map(position -> new LeagueRankResponse(true, position.rank(), position.totalFocusSeconds()))
                 .orElseGet(() -> new LeagueRankResponse(false, null, null));
-    }
-
-    private LeagueRankResponse toRankResponse(LeagueRankingPosition position) {
-        userActivityEventLogger.log(UserActivityEvent.LEAGUE_RANK_VIEWED,
-                Map.of("my_rank", position.rank(),
-                        "tier_level", position.tierLevel(),
-                        "total_focus_seconds", position.totalFocusSeconds()));
-        return new LeagueRankResponse(true, position.rank(), position.totalFocusSeconds());
     }
 
     /**

@@ -17,7 +17,6 @@ public enum UserActivityEvent implements ActivityEvent {
     GROUP_JOINED("group_joined", "group"),
     GROUP_LEFT("group_left", "group"),
     INVITE_LINK_CREATED("invite_link_created", "group"),
-    LEAGUE_RANK_VIEWED("league_rank_viewed", "league"),
     FRIEND_REQUEST_SENT("friend_request_sent", "friend"),
     FRIEND_ADDED("friend_added", "friend"),
     ITEM_EQUIPPED("item_equipped", "character"),
