@@ -58,6 +58,7 @@ import { beginTagEditTransition } from '@/screens/focus/tagSync';
 import { abortFocusRestore } from '@/screens/focus/focusRestore';
 import { PendingFocusUploader } from '@/screens/focus/PendingFocusUploader';
 import { PushGate } from '@/components/PushGate';
+import { UpdateAlert } from '@/components/UpdateAlert';
 import { PendingGoalApplier } from '@/components/PendingGoalApplier';
 import { ScreenTimeSyncer } from '@/components/ScreenTimeSyncer';
 import LoginScreen from '@/screens/LoginScreen';
@@ -545,6 +546,8 @@ function App() {
                     <PushGate />
                     {/* 예약된 목표('내일부터 적용')가 발효일 지나면 반영 */}
                     <PendingGoalApplier />
+                    {/* 앱스토어에 새 버전이 있으면 업데이트 권장 알림 */}
+                    <UpdateAlert />
                     {/* 스크린타임 사용량 서버 동기화(어제 마감 + 오늘 중간값, 앱 시작·포그라운드 복귀) */}
                     <ScreenTimeSyncer />
                     {/* 미확인 정산 결과를 **그룹 흐름에서 도달한 화면 위에** 연다(GROMO-1576).
