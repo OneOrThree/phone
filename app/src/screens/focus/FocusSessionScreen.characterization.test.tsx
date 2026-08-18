@@ -123,8 +123,13 @@ const mockAddFocusToSubject = jest.fn();
 jest.mock('@/store/UserContext', () => ({
   useUser: () => ({ userId: 'user-1', nickname: 'nick' }),
 }));
+// 세션 전 오늘 누적 — 기본 0, 로컬 폴백 테스트에서 갈아끼움
+let mockTodayFocusSeconds = 0;
 jest.mock('@/store/FocusContext', () => ({
-  useFocus: () => ({ addFocusSeconds: mockAddFocusSeconds, todayFocusSeconds: 0 }),
+  useFocus: () => ({
+    addFocusSeconds: mockAddFocusSeconds,
+    todayFocusSeconds: mockTodayFocusSeconds,
+  }),
 }));
 // refresh는 모듈 범위로 고정한다 — 렌더마다 새 함수를 주면 이를 의존하는 settleFocusBlock·
 // finish·AppState 이펙트가 매 틱 재생성되고, cleanup의 cancelLeaveNotifications가 계속 불려
@@ -160,10 +165,14 @@ jest.mock('./useSessionLeagueMembers', () => ({
 }));
 // 서버의 KST 오늘 집중 스냅샷 — 실제 계약은 { day, minutes } | null (테스트별 갈아끼움)
 let mockMyFocus: { day: string; minutes: number } | null = null;
-// 참여 그룹 fixture — 기본 빈 목록
+// 참여 그룹 fixture — 기본 빈 목록. 호출 인자도 수집한다(나 제외 배선 관찰)
 let mockSessionGroups: Array<{ groupId: string; groupName: string; members: unknown[] }> = [];
+const mockGroupArgs: unknown[] = [];
 jest.mock('./useSessionGroups', () => ({
-  useSessionGroups: () => ({ groups: mockSessionGroups, myFocus: mockMyFocus }),
+  useSessionGroups: (args: unknown) => {
+    mockGroupArgs.push(args);
+    return { groups: mockSessionGroups, myFocus: mockMyFocus };
+  },
 }));
 // 준비 시험 카테고리 — 기본 null(미설정), 시험 필터 테스트에서 갈아끼움
 let mockFocusCategory: string | null = null;
@@ -205,18 +214,31 @@ jest.mock('./components/LiveFocusGrid', () => ({
 // 특정 그리드의 마지막 전달값 — 페이저에 같은 제목 그리드는 하나뿐이라 제목으로 찾는다
 const lastGridProps = (title: string) =>
   mockGridPropsCaptures.filter((p) => p.title === title).at(-1);
-// 드로어 열림 상태 전달을 붙잡는다 — 메뉴 버튼→드로어 배선 관찰용
-const mockDrawerOpenCaptures: boolean[] = [];
+// 드로어 전달값을 붙잡는다 — 메뉴 버튼→드로어·미정산 오늘 집중 배선 관찰용
+const mockDrawerCaptures: Array<{ open: boolean; liveSubjectId: string; liveSeconds: number }> = [];
 jest.mock('./components/FocusMenuDrawer', () => ({
-  FocusMenuDrawer: (props: { open: boolean }) => {
-    mockDrawerOpenCaptures.push(props.open);
+  FocusMenuDrawer: (props: { open: boolean; liveSubjectId: string; liveSeconds: number }) => {
+    mockDrawerCaptures.push({
+      open: props.open,
+      liveSubjectId: props.liveSubjectId,
+      liveSeconds: props.liveSeconds,
+    });
     return null;
   },
 }));
 // 가로 분기 전달값을 붙잡는다 — 레이아웃은 렌더하지 않되 화면→가로 컴포넌트 배선은 관찰한다
-const mockLandscapeCaptures: Array<{ subjectName: string; onRotatePortrait: () => void }> = [];
+const mockLandscapeCaptures: Array<{
+  subjectName: string;
+  onRotatePortrait: () => void;
+  mode: string;
+  format: string;
+  displaySeconds: number;
+  phase: string;
+  setIndex: number;
+  sets: number;
+}> = [];
 jest.mock('./FocusLandscape', () => ({
-  FocusLandscape: (props: { subjectName: string; onRotatePortrait: () => void }) => {
+  FocusLandscape: (props: (typeof mockLandscapeCaptures)[number]) => {
     mockLandscapeCaptures.push(props);
     return null;
   },
@@ -336,13 +358,15 @@ beforeEach(async () => {
   mockSessionGroups = [];
   mockFriends = [];
   mockPinnedIds = new Set();
+  mockTodayFocusSeconds = 0;
   mockGridMeCaptures.length = 0;
   mockGridPropsCaptures.length = 0;
   mockLandscapeCaptures.length = 0;
-  mockDrawerOpenCaptures.length = 0;
+  mockDrawerCaptures.length = 0;
   mockCharActiveCaptures.length = 0;
   mockCharImageCaptures.length = 0;
   mockLeagueArgs.length = 0;
+  mockGroupArgs.length = 0;
   await AsyncStorage.clear();
   jest.useFakeTimers();
   appStateHandlers = [];
@@ -857,10 +881,10 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     // onPress에서 logFocusMenuOpened·setDrawerOpen 어느 쪽이 빠져도 스위트가 몰랐다 —
     // 메뉴 접근 불능·실험 지표 누락 회귀 방어(codex 리뷰 22차).
     await renderSession({ mode: 'countup' });
-    expect(mockDrawerOpenCaptures.at(-1)).toBe(false);
+    expect(mockDrawerCaptures.at(-1)!.open).toBe(false);
     await fireEvent.press(view.getByLabelText('집중 메뉴 열기'));
     expect(logFocusMenuOpened).toHaveBeenCalledTimes(1);
-    expect(mockDrawerOpenCaptures.at(-1)).toBe(true);
+    expect(mockDrawerCaptures.at(-1)!.open).toBe(true);
   });
 
   test('친구 그리드: members·pinnedIds가 전달되고 visible은 친구 페이지에서만 켜진다', async () => {
@@ -910,6 +934,33 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await renderSession({ mode: 'countup' });
     const studyCapture = mockCharImageCaptures.filter((c) => c.variant === 'study').at(-1);
     expect(studyCapture).toMatchObject({ sourceUri: 'file:///custom-character.png' });
+  });
+
+  test('그룹 조회에도 나 제외 인자가 전달된다 — me 중복·서버 기준 추출의 전제', async () => {
+    // useSessionGroups의 excludeUserId는 그룹 그리드의 본인 행 제거와 myFocus 서버 기준 추출을
+    // 겸한다 — 빠지면 me 중복 표시 + 내 셀이 로컬 폴백으로 강등된다(codex 리뷰 25차).
+    await renderSession({ mode: 'countup' });
+    expect(mockGroupArgs).toContainEqual({ excludeUserId: 'user-1' });
+  });
+
+  test('서버 스냅샷이 없으면: 세션 전 오늘 누적(todayFocusSeconds)이 로컬 폴백에 보존된다', async () => {
+    // gridPreSessionRef 기준값이 빠지면 그룹 미가입·조회 실패 사용자의 내 셀이 기존 오늘
+    // 누적(예: 30분)을 잃고 이번 세션 경과만 표시한다(codex 리뷰 25차).
+    mockTodayFocusSeconds = 1800; // 세션 전 오늘 30분
+    await renderSession({ mode: 'countup' }); // myFocus 없음 — 로컬 폴백 경로
+    await advance(5000);
+    expect(mockGridMeCaptures.at(-1)!.totalSeconds).toBe(1805); // 1800 + 이번 세션 5초
+  });
+
+  test('드로어의 오늘 집중: 미정산 델타만 전달된다 — 정산 블록은 빠진다', async () => {
+    // liveSeconds에 전체 elapsed가 실리면 정산 후 과목 누적과 같은 60초가 이중 표기된다
+    // (codex 리뷰 25차). liveSubjectId 배선도 함께 고정한다.
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    await advance(5000);
+    expect(mockDrawerCaptures.at(-1)).toMatchObject({ liveSubjectId: 's1', liveSeconds: 5 });
+    await advance(55_000); // 블록 1 정산 → 휴식
+    await advance(1000); // 휴식 틱 리렌더
+    expect(mockDrawerCaptures.at(-1)!.liveSeconds).toBe(0); // 정산분은 빠진 미정산 델타만
   });
 
   test('리그 그리드 훅: 전체 리그는 나 제외, 같은 시험은 occupation 필터·enabled 게이트', async () => {
@@ -1423,6 +1474,50 @@ describe('카운트다운 — 완료 게이트', () => {
     expect(logFocusOrientationChanged).toHaveBeenCalledWith(
       expect.objectContaining({ orientation: 'landscape', dwell_seconds: 4 }),
     );
+  });
+
+  test('가로 화면(카운트다운): 남은 시간·모드·포맷이 전달되고 틱마다 갱신된다', async () => {
+    // 가로 목이 subjectName만 수집하면 남은 시간 대신 elapsed가 실려도 못 잡는다 — 세로와 다른
+    // 시간을 보는 회귀 방어(codex 리뷰 25차).
+    await renderSession({ mode: 'countdown', goalSeconds: 10 });
+    await advance(3000);
+    await act(async () => {
+      Dimensions.set({ window: { width: 800, height: 400, scale: 2, fontScale: 1 } });
+    });
+    try {
+      expect(mockLandscapeCaptures.at(-1)).toMatchObject({
+        mode: 'countdown',
+        format: 'mmss', // 1시간 미만 목표
+        displaySeconds: 7, // 남은 시간 — 경과(3)가 아니다
+        phase: 'focus',
+      });
+      await advance(2000);
+      expect(mockLandscapeCaptures.at(-1)!.displaySeconds).toBe(5); // 가로에서도 틱 갱신
+    } finally {
+      await act(async () => {
+        Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
+      });
+    }
+  });
+
+  test('가로 화면(뽀모도로): 페이즈·세트 구성·잔여 시간이 전달된다', async () => {
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    await advance(60_000); // 블록 1 완주 → 휴식 진입
+    await act(async () => {
+      Dimensions.set({ window: { width: 800, height: 400, scale: 2, fontScale: 1 } });
+    });
+    try {
+      expect(mockLandscapeCaptures.at(-1)).toMatchObject({
+        mode: 'pomodoro',
+        phase: 'break', // 세로와 같은 페이즈
+        sets: 2,
+        displaySeconds: 60, // 휴식 잔여
+      });
+    } finally {
+      await act(async () => {
+        Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
+      });
+    }
   });
 
   test('게이트에서 Android 하드웨어 뒤로가기: 이벤트를 소비하고 확인 버튼과 동일하게 finish한다', async () => {
