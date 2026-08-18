@@ -9,6 +9,8 @@ buildscript {
     classpath('com.android.tools.build:gradle')
     classpath('com.facebook.react:react-native-gradle-plugin')
     classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
+    // Firebase(RNFB) — google-services.json을 읽어 네이티브 Firebase 앱을 초기화하는 플러그인
+    classpath('com.google.gms:google-services:4.4.3')
   }
 }
 
@@ -17,6 +19,8 @@ allprojects {
     google()
     mavenCentral()
     maven { url 'https://www.jitpack.io' }
+    // 카카오 안드로이드 SDK는 카카오 전용 저장소에서만 배포됨 (@react-native-kakao 요구사항)
+    maven { url 'https://devrepo.kakao.com/nexus/content/groups/public/' }
   }
 }
 

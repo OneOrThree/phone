@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["SubjectMaskModule"]
+  },
+  "android": {
+    "modules": ["com.oneorthree.gromo.subjectmask.SubjectMaskModule"]
+  }
+}

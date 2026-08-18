@@ -2,12 +2,12 @@ package com.oneorthree.phone.group.repository;
 
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
-import com.oneorthree.phone.group.domain.MissionCategory;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -16,18 +16,44 @@ public interface GroupChallengeWindowRepository extends JpaRepository<GroupChall
 
     List<GroupChallengeWindow> findByChallengeIdIn(Collection<UUID> challengeIds);
 
-    // 동일 그룹·카테고리의 ACTIVE TIME_WINDOW 챌린지와 [start, end) 가 겹치는지 (맞닿음(끝==시작)은 허용).
-    // window 상세 행 존재 자체가 type=TIME_WINDOW 를 의미하므로(CTI) 별도 type 조건은 두지 않는다.
-    @Query("SELECT COUNT(w) > 0 FROM GroupChallengeWindow w"
-            + " JOIN w.challenge c"
+    /**
+     * 그룹의 ACTIVE 창형 상세를 배타 락(SELECT … FOR UPDATE)으로 읽는다 — 창형 생성의 겹침
+     * 검사(CHALLENGE_WINDOW_OVERLAP)를 동시 생성·삭제와 직렬화하기 위한 것이다(deleteChallenge 의
+     * 챌린지 행 락 관행 재사용). 창형은 겹치지만 않으면 카테고리 무관하게 여럿 존재할 수 있으므로
+     * (FR-3 · GROMO-1422 로 V20 부분 유니크가 하루형에만 남았다) 행 수는 활성 상한(4)까지 늘어난다.
+     *
+     * <p><b>{@code JOIN FETCH}</b> 인 이유(GROMO-1270): 겹침 판정이 요일 교집합까지 보게 되면서
+     * 부모 챌린지의 {@code repeatDays} 를 함께 읽어야 한다. LAZY 프록시를 루프에서 깨우면 행마다
+     * 추가 쿼리(N+1)가 나간다 — 활성 상한 4행이면 최대 4번이다. 같은 쿼리에서 부모 컬럼까지
+     * 끌어오면 왕복이 사라진다.
+     *
+     * <p>⚠️ <b>이건 성능 이유지 정합성 구멍을 막는 게 아니다.</b> 종전 주석은 "지연 로딩은
+     * {@code FOR UPDATE} 밖의 별도 스냅샷이라 다른 값을 읽는다"고 적었는데 과장이다. 근거는
+     * 잠금 범위가 아니라 <b>{@code repeatDays} 의 불변성</b>이다 — 생성 이후 갱신 경로 자체가
+     * 없다(챌린지 수정 API 없음). 잠금이 어디까지 걸리든 값이 변할 수 없다. 게다가 이 변경
+     * 이전에도 {@code WHERE} 가 {@code c.status}·{@code c.deletedAt} 을 읽고 있었으므로
+     * {@code JOIN} → {@code JOIN FETCH} 는 <b>읽는 대상을 늘리지도 줄이지도 않는다.</b>
+     *
+     * <p>⚠️ <b>부모 행이 실제로 잠기는지는 확인하지 못했다 — 어느 쪽으로도 단정하지 마라.</b>
+     * {@code @Lock(PESSIMISTIC_WRITE)} 의 JPA 계약({@code PessimisticLockScope.NORMAL})은
+     * 조회 루트에만 걸린다. Hibernate 가 alias 없이 {@code FOR UPDATE} 를 내면 PostgreSQL 은
+     * 문장의 모든 테이블을 잠그지만, {@code FOR ... OF <alias>} 로 내면 루트만 잠근다.
+     * 발행 SQL 확인을 두 번 시도했으나 {@code logback-spring.xml} 의 {@code <root level="INFO">}
+     * 가 {@code org.hibernate.SQL} DEBUG 를 삼켜 실패했다. 동시 {@code endChallenge}/
+     * {@code deleteChallenge} 와의 직렬화를 논하려면 <b>먼저 발행 SQL 을 볼 것</b>.
+     * 근거 없는 "이 변경이 경합을 고쳤다"는 서술을 남기면 다음 사람이 있지도 않은 레이스를
+     * 전제로 코드를 짠다(리뷰 지적 ×2).
+     *
+     * <p>겹침 판정 자체는 KST 벽시계 시각(time-of-day)과 요일 비트 연산이라 SQL 이 아니라
+     * 서비스({@code GroupChallengeService})에서 한다. window 상세 행 존재 자체가 type=TIME_WINDOW
+     * 를 의미하고(CTI), 삭제된 챌린지의 상세 행은 남아 있으므로 c.deletedAt IS NULL 을 빼면
+     * 삭제한 시간대와 겹치는 창을 다시 못 만든다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT w FROM GroupChallengeWindow w"
+            + " JOIN FETCH w.challenge c"
             + " WHERE c.group = :group"
-            + " AND c.category = :category"
             + " AND c.status = 'ACTIVE'"
-            + " AND w.windowStartAt < :end"
-            + " AND w.windowEndAt > :start")
-    boolean existsOverlappingTimeWindow(
-            @Param("group") Group group,
-            @Param("category") MissionCategory category,
-            @Param("start") Instant start,
-            @Param("end") Instant end);
+            + " AND c.deletedAt IS NULL")
+    List<GroupChallengeWindow> findActiveByGroupForUpdate(@Param("group") Group group);
 }

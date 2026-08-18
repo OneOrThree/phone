@@ -20,7 +20,7 @@ public enum FocusSessionStatus {
     /**
      * orphan 자동 종료(GROMO-804). 앱 강제종료 등으로 미종료로 남은 세션을 스케줄러가 '시작+상한'으로 종료할 때
      * 부여한다. 종료 시각 신뢰도가 낮아(유저 미확정) <b>통계·스트릭에 미반영</b>하며, by-category 실시간 집계에서도
-     * 제외된다({@code FocusSessionRepository.findCompletedSessionsInPeriod}) — 사전집계 {@code /stats/focus} 와 총합 정합.
+     * 제외된다({@code FocusSessionRepository.findCompletedSessionsOverlappingPeriod}) — 사전집계 {@code /stats/focus} 와 총합 정합.
      */
     AUTO_CLOSED
 }

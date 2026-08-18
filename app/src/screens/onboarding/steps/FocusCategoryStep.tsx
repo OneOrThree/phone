@@ -6,7 +6,10 @@ import { hapticLight } from '@/utils/haptics';
 import { OCCUPATION_GROUPS, getDefaultSubjects } from '@/constants/focusCategories';
 import { getOccupations } from '@/services/userApi';
 import { getDefaultTags } from '@/services/focusApi';
-import { logOnboardingFocusCategorySubmitted } from '@/services/analyticsEvents';
+import {
+  logOnboardingFocusCategorySubmitted,
+  logOnboardingStepAction,
+} from '@/services/analyticsEvents';
 import type { OccupationResponse } from '@/types/dto/user';
 import type { StepProps } from '@/screens/onboarding/types';
 
@@ -38,6 +41,7 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
   }, [reloadKey]);
 
   const retry = () => {
+    logOnboardingStepAction({ step: 'focus_category', action: 'category_retry' });
     setOccupations(null);
     setReloadKey((k) => k + 1);
   };
@@ -45,7 +49,7 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
   // 선택 카테고리의 추천 과목을 서버에서 받아 data.subjects에 채운 뒤 진행. 실패 시 정적 폴백.
   const proceed = async () => {
     if (!selected || submitting) return;
-    logOnboardingFocusCategorySubmitted();
+    logOnboardingFocusCategorySubmitted({ category: selected });
     setSubmitting(true);
     const code = occupations?.find((o) => o.displayName === selected)?.code ?? null;
     try {
@@ -61,8 +65,13 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
     onNext();
   };
 
+  // Maestro E2E — 직군 선택 항목 전역 인덱스(그룹 구분 없이 화면 표시 순서, 0부터).
+  // 렌더마다 0으로 초기화되고 항목 렌더 순서대로 증가한다.
+  let categoryItemIndex = 0;
+
   return (
     <StepScaffold
+      testID="onboarding.step.category"
       title="무엇에 집중할까요?"
       subtitle="같은 목표를 가진 사람들과 리그에서 만나요."
       ctaLabel={submitting ? '불러오는 중…' : '다음'}
@@ -98,11 +107,18 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
                   return (
                     <TouchableOpacity
                       key={o.code}
+                      testID={`onboarding.category.item.${categoryItemIndex++}`}
                       activeOpacity={0.85}
                       // 카테고리 변경 시 과목도 리셋 — 이전 카테고리 과목이 남지 않도록.
                       onPress={() => {
                         hapticLight();
                         if (o.displayName !== selected) {
+                          // 선택 분포·변심을 보기 위해 '바뀔 때만' 발행한다(같은 칩 재탭은 무발행).
+                          logOnboardingStepAction({
+                            step: 'focus_category',
+                            action: 'category_select',
+                            action_value: o.displayName,
+                          });
                           update({ focusCategory: o.displayName, subjects: [] });
                         }
                       }}

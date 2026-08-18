@@ -19,11 +19,19 @@ shop items. Company `oneorthree`; iOS bundle id `com.oneorthree.gromo`.
 | `back/`              | Spring Boot 4 + Java 17 + PostgreSQL REST API. See `back/CLAUDE.md`. |
 | `loadtest/`          | k6 load-testing harness (scenarios, GCP runner terraform, trigger dashboard). See `loadtest/README.md`. |
 | `observability/`     | Prometheus / Grafana / Loki / Datadog configs for the dev observability overlay. See `observability/README.md`. |
+| `docs/`              | **Team-shared** feature docs, tracked in git: `docs/prd/<feature>/` with PRD, policy, IA, high-level/low-level design, diagrams. See `docs/README.md`. |
 | `.github/workflows/` | CI/CD pipelines (see below). |
 
-Gitignored local-only dirs (machine-specific, not in git): `docs/` (planning
-scratch — tickets, reports, specs), `logs/` (work journals), `back/docs/`
-(schema.dbml + legacy migration scripts), `app/.docs/` (planning/design docs).
+**`docs/` vs `.docs/`**: `docs/` is the team-shared, committed documentation space
+(`docs/prd/<feature>/` — PRD · policy · IA · high-level/low-level design · diagrams). `.docs/`
+is the owner's personal planning scratch (tickets, reports, specs, drafts) —
+gitignored, never committed. Team-facing docs go in `docs/`; everything personal
+stays in `.docs/`.
+
+Gitignored local-only dirs (machine-specific, not in git): `.docs/` (personal
+planning scratch — tickets, reports, specs), `logs/` (work journals), `back/docs/`
+(local planning scratch, **except `back/docs/db/` which is tracked** — schema.dbml),
+`app/.docs/` (app-side personal planning/design docs).
 
 The frontend and backend share almost no tooling — work in the relevant subtree
 and let its nested `CLAUDE.md` guide the specifics.
@@ -41,6 +49,8 @@ Korean. Keep code identifiers (types, functions, variables) in English.
   work prepends `a`** (`afeat/`, `afix/`, `arefactor/`, `achore/`). Bare `feat/`·`fix/`·
   `refactor/`·`chore/` are reserved for cross-cutting/tooling work that is neither backend-
   nor app-specific. e.g. a backend refactor is `brefactor/`, never bare `refactor/`.
+  **Docs work** (`docs/`) uses the `doc/` prefix: new docs `doc/prd-<feature>`, edits
+  `doc/fix-prd-<feature>`.
 - **Commit / PR title**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT` / `FIX` / `CHORE` / `REFACTOR`, `GROMO-####` is the Jira ticket.
 - **PR body** follows `.github/pull_request_template.md`: Jira link, change type,
   summary, change details, and **DB schema changes** if any.
@@ -48,6 +58,11 @@ Korean. Keep code identifiers (types, functions, variables) in English.
   key (`GROMO-####`) — the full key makes the Jira integration attach this PR's history to
   that ticket. For **related/reference tickets** the PR does not implement, write the
   **number only** so no PR history is attached (e.g. `GROMO-455` → "ticket 455").
+- **Creating Jira tickets**: follow `docs/jira-conventions.md` — every task/bug/subtask
+  needs exactly one **`도메인`** value (the domain axis, a dropdown custom field);
+  **epics do not get it** (their `[도메인]` name prefix plays that role). Epic is only for
+  time-boxed initiatives and may be left empty; no `[Tag]` prefixes in task summaries
+  (that info lives in `도메인`/Label).
 - `main` is the integration branch. **`git add`, `git commit`, and `git push` are the
   user's to run** — never stage, commit, or push without an explicit, per-action request,
   and ask right before each one. One approval does not carry to the next action. (Creating
@@ -82,6 +97,8 @@ iOS builds/deploys are **not in CI** — they run manually via fastlane
 
 ## Key docs
 
-- `back/docs/db/schema.dbml` — canonical DB schema (DBML, local-only/gitignored; keep it in sync). Schema deltas are applied by **Flyway** migrations in `back/src/main/resources/db/migration/` (`V1__baseline.sql` onward); the `run-migration-v*.sh` scripts next to it are a legacy archive.
+- `docs/prd/<feature>/` — team-shared per-feature docs (PRD / policy / IA / high-level / low-level design / diagrams); structure in `docs/README.md`.
+- `docs/jira-conventions.md` — Jira 4-axis convention (`도메인` dropdown = domain, Label = platform, Epic = time-boxed initiative, fixVersion = release). Read before creating or triaging tickets.
+- `back/docs/db/schema.dbml` — canonical DB schema (DBML, **tracked** — the `docs/db/` whitelist in `back/.gitignore`, GROMO-735; keep it in sync and commit it with its migration). Schema deltas are applied by **Flyway** migrations in `back/src/main/resources/db/migration/` (`V1__baseline.sql` onward); the `run-migration-v*.sh` scripts next to it are a legacy archive.
 - `loadtest/README.md` — load-testing harness guide. `observability/README.md` — dev observability stack guide.
 - `back/HELP.md` — Spring Boot reference notes.

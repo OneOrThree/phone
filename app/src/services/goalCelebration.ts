@@ -4,11 +4,21 @@
 // 저장 완료 시 구독자(홈)에 알려 그 자리에서 모달이 뜨게 한다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
+import { todayStrKst } from '@/utils/localDate';
 
 export interface PendingCelebration {
-  date: string; // 달성한 날짜(YYYY-MM-DD) — 모달을 닫을 때 이 날짜로 기록한다
+  date: string; // 달성한 날짜(YYYY-MM-DD, KST — celebrationDayKey) — 모달을 닫을 때 이 날짜로 기록한다
   days: number; // 연속 목표달성 일수
   goalMinutes?: number;
+}
+
+// 목표 달성 축하의 dedup 기준일 — 달성 판정이 서버 KST 일 버킷으로 내려지므로, '하루 1회' 가드
+// 키도 같은 축이어야 한다(GROMO-1236 P2 6라운드). 로컬 날짜로 걸면 한 KST 하루가 로컬 이틀에
+// 걸리는 기기에서 같은 달성이 두 번 축하된다. 예약 date(위 PendingCelebration)·소비 측 비교
+// (HomeScreen)·노출 완료 기록(focusGoalCelebratedDate) 전부 이 키에서 파생한다 — 반쪽 이전은
+// dedup을 반대로 깨뜨리므로 체인 전체가 한 축이어야 한다.
+export function celebrationDayKey(): string {
+  return todayStrKst();
 }
 
 type CelebrationListener = () => void;

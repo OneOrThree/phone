@@ -1,0 +1,143 @@
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17">
+  <diagram id="cond02" name="회차 타임라인 — 4조합">
+    <mxGraphModel dx="1400" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1110" pageHeight="600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="시작·종료·정산 조건 — 회차의 네 시각을 4조합에 겹쳐 본 것" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="16" width="700" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="열 = 회차 행의 네 시각 필드 · 행 = 카테고리 × 방식" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="30" y="42" width="700" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="hA" value="starts_at&#10;회차 시작" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="255" y="70" width="190" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="hB" value="join_closes_at&#10;참가 마감" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="465" y="70" width="190" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="hC" value="closes_at&#10;회차 종료" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="675" y="70" width="190" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="hD" value="settle_after&#10;정산 시점" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="885" y="70" width="190" height="38" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lane1bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#e0e0e0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="120" width="1050" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="l1n" value="FOCUS × DURATION" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#1f5c99;" vertex="1" parent="1">
+          <mxGeometry x="40" y="134" width="220" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="l1e" value="평일 하루 60분 집중" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="154" width="220" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="l1s" value="회차 = KST 자정~자정" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#777777;" vertex="1" parent="1">
+          <mxGeometry x="40" y="172" width="220" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="l1line" value="" style="endArrow=none;html=1;strokeColor=#bbbbbb;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="285" y="170" as="sourcePoint" /><mxPoint x="1070" y="170" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="l1cA" value="" style="ellipse;html=1;fillColor=#6c8ebf;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="344" y="164" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l1cB" value="" style="ellipse;html=1;fillColor=#d79b00;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="554" y="164" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l1cC" value="" style="ellipse;html=1;fillColor=#666666;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="764" y="164" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l1cD" value="" style="ellipse;html=1;fillColor=#82b366;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="974" y="164" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l1tA" value="00:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="290" y="142" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l1tB" value="24:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="500" y="142" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l1tC" value="24:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="710" y="142" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l1tD" value="24:00 · 즉시" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#2d6a2d;" vertex="1" parent="1"><mxGeometry x="920" y="142" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l1sB" value="종일 참가" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#777777;" vertex="1" parent="1"><mxGeometry x="490" y="178" width="140" height="16" as="geometry" /></mxCell>
+        <mxCell id="l1sD" value="그레이스 0분" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#777777;" vertex="1" parent="1"><mxGeometry x="910" y="178" width="140" height="16" as="geometry" /></mxCell>
+        <mxCell id="l1gBC" value="동시" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#999999;" vertex="1" parent="1"><mxGeometry x="610" y="144" width="110" height="16" as="geometry" /></mxCell>
+
+        <mxCell id="lane2bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#e0e0e0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="210" width="1050" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="l2n" value="FOCUS × TIME_WINDOW" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#1f5c99;" vertex="1" parent="1">
+          <mxGeometry x="40" y="224" width="220" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="l2e" value="월·수·금 09:00~12:00 에 90분" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="244" width="220" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="l2s" value="회차 = 그날의 창" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#777777;" vertex="1" parent="1">
+          <mxGeometry x="40" y="262" width="220" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="l2line" value="" style="endArrow=none;html=1;strokeColor=#bbbbbb;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="285" y="260" as="sourcePoint" /><mxPoint x="1070" y="260" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="l2cA" value="" style="ellipse;html=1;fillColor=#6c8ebf;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="344" y="254" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l2cB" value="" style="ellipse;html=1;fillColor=#d79b00;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="554" y="254" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l2cC" value="" style="ellipse;html=1;fillColor=#666666;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="764" y="254" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l2cD" value="" style="ellipse;html=1;fillColor=#82b366;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="974" y="254" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l2tA" value="09:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="290" y="232" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l2tB" value="09:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="500" y="232" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l2tC" value="12:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="710" y="232" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l2tD" value="12:30" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#2d6a2d;" vertex="1" parent="1"><mxGeometry x="920" y="232" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l2sB" value="창 열리는 순간 잠김" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#777777;" vertex="1" parent="1"><mxGeometry x="490" y="268" width="140" height="16" as="geometry" /></mxCell>
+        <mxCell id="l2gAB" value="동시" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#999999;" vertex="1" parent="1"><mxGeometry x="400" y="234" width="110" height="16" as="geometry" /></mxCell>
+        <mxCell id="l2gCD" value="+30분 그레이스" style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontColor=#2d6a2d;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="820" y="234" width="110" height="16" as="geometry" /></mxCell>
+
+        <mxCell id="lane3bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#e0e0e0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="300" width="1050" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="l3n" value="SCREEN_TIME × DURATION" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#a35c00;" vertex="1" parent="1">
+          <mxGeometry x="40" y="314" width="220" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="l3e" value="매일 스크린타임 120분 이하" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="334" width="220" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="l3s" value="회차 = KST 자정~자정" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#777777;" vertex="1" parent="1">
+          <mxGeometry x="40" y="352" width="220" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="l3line" value="" style="endArrow=none;html=1;strokeColor=#bbbbbb;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="285" y="350" as="sourcePoint" /><mxPoint x="1070" y="350" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="l3cA" value="" style="ellipse;html=1;fillColor=#6c8ebf;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="344" y="344" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l3cB" value="" style="ellipse;html=1;fillColor=#d79b00;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="554" y="344" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l3cC" value="" style="ellipse;html=1;fillColor=#666666;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="764" y="344" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l3cD" value="" style="ellipse;html=1;fillColor=#82b366;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="974" y="344" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l3tA" value="00:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="290" y="322" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l3tB" value="24:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="500" y="322" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l3tC" value="24:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="710" y="322" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l3tD" value="익일 12:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#2d6a2d;" vertex="1" parent="1"><mxGeometry x="920" y="322" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l3sB" value="종일 참가" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#777777;" vertex="1" parent="1"><mxGeometry x="490" y="358" width="140" height="16" as="geometry" /></mxCell>
+        <mxCell id="l3gBC" value="동시" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#999999;" vertex="1" parent="1"><mxGeometry x="610" y="324" width="110" height="16" as="geometry" /></mxCell>
+        <mxCell id="l3gCD" value="보고 대기 12시간" style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontColor=#a35c00;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="820" y="324" width="110" height="16" as="geometry" /></mxCell>
+
+        <mxCell id="lane4bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#e0e0e0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="390" width="1050" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="l4n" value="SCREEN_TIME × TIME_WINDOW" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#a35c00;" vertex="1" parent="1">
+          <mxGeometry x="40" y="404" width="230" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="l4e" value="22:00~23:45 에 30분 이하" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="424" width="230" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="l4s" value="회차 = 그날의 창 · iOS만 가능" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#777777;" vertex="1" parent="1">
+          <mxGeometry x="40" y="442" width="230" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="l4line" value="" style="endArrow=none;html=1;strokeColor=#bbbbbb;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="285" y="440" as="sourcePoint" /><mxPoint x="1070" y="440" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="l4cA" value="" style="ellipse;html=1;fillColor=#6c8ebf;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="344" y="434" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l4cB" value="" style="ellipse;html=1;fillColor=#d79b00;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="554" y="434" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l4cC" value="" style="ellipse;html=1;fillColor=#666666;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="764" y="434" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l4cD" value="" style="ellipse;html=1;fillColor=#82b366;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="974" y="434" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="l4tA" value="22:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="290" y="412" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l4tB" value="22:00" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="500" y="412" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l4tC" value="23:45" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="710" y="412" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l4tD" value="익일 00:15" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#2d6a2d;" vertex="1" parent="1"><mxGeometry x="920" y="412" width="120" height="18" as="geometry" /></mxCell>
+        <mxCell id="l4sB" value="창 열리는 순간 잠김" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#777777;" vertex="1" parent="1"><mxGeometry x="490" y="448" width="140" height="16" as="geometry" /></mxCell>
+        <mxCell id="l4gAB" value="동시" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#999999;" vertex="1" parent="1"><mxGeometry x="400" y="414" width="110" height="16" as="geometry" /></mxCell>
+        <mxCell id="l4gCD" value="+30분 그레이스" style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontColor=#2d6a2d;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="820" y="414" width="110" height="16" as="geometry" /></mxCell>
+
+        <mxCell id="note" value="· 회차 행은 KST 00:05 크론 + 「이번 주 남은 날 전부」 예약 시 lazy 생성 — 개설 API가 없다 (설계)&#10;· 창은 자정을 걸칠 수 없다 (시작 &lt; 종료) — 심야 목표는 자정 앞에서 끊는다&#10;· 그레이스 30분 = 창을 걸친 세션은 끝나야 서버가 안다 (진행 중 세션은 서버에 없다)&#10;· SCREEN_TIME 하루형만 익일 12:00 — 자정에 마감하면 기기가 자고 있어 보고가 못 온다&#10;· 정산이 24시간을 넘기면 회차를 무효화하고 전원 환불한다 (FR-45)&#10;· 가로축은 도식이며 시간 비율이 아니다" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="30" y="488" width="1050" height="111" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

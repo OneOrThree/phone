@@ -1,12 +1,12 @@
 package com.oneorthree.phone.friend.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.friend.dto.PinnedUserResponse;
 import com.oneorthree.phone.friend.service.FriendService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -42,8 +42,7 @@ public class PinController {
     @PostMapping("/pins/{userId}")
     public ResponseEntity<Void> pin(
             @PathVariable UUID userId,
-            HttpServletRequest httpServletRequest) {
-        UUID me = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID me) {
         friendService.pinFriend(me, userId);
         return ResponseEntity.noContent().build();
     }
@@ -56,15 +55,14 @@ public class PinController {
     @DeleteMapping("/pins/{userId}")
     public ResponseEntity<Void> unpin(
             @PathVariable UUID userId,
-            HttpServletRequest httpServletRequest) {
-        UUID me = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID me) {
         friendService.unpinFriend(me, userId);
         return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "핀한 유저 조회",
             description = "내가 핀한 유저 목록(친구 아님 포함). 캐릭터 표시정보 + 오늘 집중분 + 현재 집중 여부 포함."
-                    + " date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD).")
+                    + " date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(YYYY-MM-DD) — 기기 로컬 날짜가 아니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "date 누락·형식 오류")
@@ -72,8 +70,7 @@ public class PinController {
     @GetMapping("/pins")
     public ResponseEntity<List<PinnedUserResponse>> getPins(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            HttpServletRequest httpServletRequest) {
-        UUID me = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID me) {
         return ResponseEntity.ok(friendService.getPinnedFriends(me, date));
     }
 }

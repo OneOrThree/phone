@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- 앱 설치 직후 ML Kit 피사체 분할 모델을 백그라운드로 선다운로드시킨다.
+         첫 누끼 시도에서 model_downloading 폴백이 뜰 확률을 줄여준다(iOS Vision은 OS 내장이라 불필요). -->
+    <meta-data
+      android:name="com.google.mlkit.vision.DEPENDENCIES"
+      android:value="subject_segment" />
+  </application>
+</manifest>

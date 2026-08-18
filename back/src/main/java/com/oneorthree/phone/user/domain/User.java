@@ -47,6 +47,15 @@ public class User {
     @Builder.Default
     private boolean isGuest = false;
 
+    // 리그 콜드스타트용 스크립트 유저 여부 (GROMO-1565, migration V48).
+    // 리그 랭킹·친구 검색에는 실유저와 똑같이 노출되고, 이 플래그는 실유저 통계를 분리하거나
+    // 나중에 봇을 회수할 때 대상을 특정하는 근거로만 쓴다. 성향은 bot_profiles 가 들고 있다.
+    // columnDefinition 으로 DB default 를 주는 이유는 stat_visibility(v22) 선례와 같다 —
+    // ddl-auto=update 환경에서 마이그레이션 선적용 없이 배포돼도 기존 row ALTER 가 실패하지 않는다.
+    @Column(name = "is_bot", nullable = false, columnDefinition = "boolean not null default false")
+    @Builder.Default
+    private boolean isBot = false;
+
     private String nickname;
 
     @Column(name = "country_code")
@@ -70,7 +79,7 @@ public class User {
     @Column(length = 512)
     private String deviceToken;
 
-    private String refreshToken;
+    private String refreshTokenHash;
 
     @CreationTimestamp
     private Instant createdAt;
@@ -91,6 +100,12 @@ public class User {
             columnDefinition = "timestamptz not null default now()")
     @Builder.Default
     private Instant lastActiveAt = Instant.now();
+
+    // 누끼 생성 trial(7일 무제한)의 기준 시각 — 유저가 쿼터를 처음 조회할 때 한 번 박힌다(migration v26).
+    // 배포 날짜 상수 대신 유저별 "첫 접촉"을 쓰는 이유는, 앱 업데이트 시점이 유저마다 달라도 trial 7일을
+    // 온전히 받게 하기 위함이다. NULL = 아직 이 기능을 만난 적 없음.
+    @Column(name = "character_trial_anchor_at")
+    private Instant characterTrialAnchorAt;
 
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)

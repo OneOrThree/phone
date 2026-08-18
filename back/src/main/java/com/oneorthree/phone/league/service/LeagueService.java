@@ -2,12 +2,15 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
+import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
+import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.league.dto.LeagueLastResultResponse;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
@@ -46,6 +49,7 @@ public class LeagueService {
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
     private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
+    private final CurrencyTransactionRepository currencyTransactionRepository;
     private final UserRepository userRepository;
     private final UserActivityEventLogger userActivityEventLogger;
     private final PinnedUserRepository pinnedUserRepository;
@@ -59,8 +63,10 @@ public class LeagueService {
     LeagueTierResponse getMyTier(UUID userId, Instant now) {
         return userRepository.findById(userId)
                 .filter(user -> !user.isDeleted())
-                // 게스트는 온보딩 전 리그 미참가 — assigned=false(중립)로 반환해 클라이언트가 미배정으로 처리한다.
-                .filter(user -> !user.isGuest())
+                // 온보딩 미완주(닉네임 없음)는 리그 미참가 — assigned=false(중립)로 반환해 클라이언트가
+                // 미배정으로 처리한다. 게스트라도 닉네임까지 등록했으면 참가한다 (GROMO-1508).
+                // 빈 문자열까지 보는 이유는 랭킹 쿼리와 동일 — GROMO-1215 이전 "" 레거시 행 (코드리뷰 반영).
+                .filter(user -> user.getNickname() != null && !user.getNickname().isBlank())
                 .map(user -> new LeagueTierResponse(
                         true,
                         user.getTierLevel(),
@@ -81,7 +87,7 @@ public class LeagueService {
             return List.of();
         }
         // GROMO-824: ranked userId 들의 집중 라이브 정보를 1회 배치 조회(FocusLiveInfoLookup 공용, N+1 방지).
-        // date 는 클라 로컬 타임존 기준 오늘. 미조회 유저는 맵에 없어 toResponses 가 기본값(0/false/null) 처리.
+        // date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘. 미조회 유저는 맵에 없어 toResponses 가 기본값(0/false/null) 처리.
         List<UUID> userIds = ranked.stream().map(LeagueRankingRow::userId).toList();
         Map<UUID, FocusLiveInfo> liveInfo = focusLiveInfoLookup.liveInfoByUserId(userIds, date);
         return toResponses(ranked, pinnedUserRepository.findPinnedUserIdsByUserId(userId), liveInfo);
@@ -185,8 +191,15 @@ public class LeagueService {
                         result.getPreviousTierLevel(),
                         result.getNewTierLevel(),
                         result.getFocusSeconds(),
-                        result.getAcknowledgedAt() != null))
-                .orElseGet(() -> new LeagueLastResultResponse(false, null, null, null, null, null, false));
+                        result.getAcknowledgedAt() != null,
+                        // 승급 보너스 — 배치가 실제로 원장에 지급(멱등키 league:{주차}:{uid})한 경우에만 보고한다.
+                        // 배포 전 승급 결과는 그 지급이 없어 오보고를 막는다(코드리뷰 반영). 산정은 배치와 동일 공식.
+                        result.getResult() == LeagueWeeklyResultType.PROMOTED
+                                && currencyTransactionRepository.existsByIdempotencyKey(
+                                        "league:" + result.getWeekStartAt() + ":" + userId)
+                                ? CurrencyRewardPolicy.leaguePromotionReward(result.getNewTierLevel())
+                                : 0))
+                .orElseGet(() -> new LeagueLastResultResponse(false, null, null, null, null, null, false, 0));
     }
 
     /**

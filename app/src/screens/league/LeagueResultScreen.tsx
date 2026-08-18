@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -14,9 +14,14 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T, withAlpha } from '@/constants/theme';
+import { CURRENCY } from '@/constants/currency';
 import { tierByLevel } from '@/constants/tiers';
+import { ConfettiBurst } from '@/components/ConfettiBurst';
+import { useMotion } from '@/hooks/useMotion';
+import { hapticSuccess } from '@/utils/haptics';
 import { ackLastResult } from '@/services/leagueApi';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { logCurrencyRewardShown, logLeagueResultViewed } from '@/services/analyticsEvents';
 
 // 강등 시 '깨진 뱃지' 중간 연출 이미지 — 강등 전(from) 티어별(tierNdown.png)
 const DOWN_IMAGES: Record<number, ImageSourcePropType> = {
@@ -32,6 +37,11 @@ const DOWN_IMAGES: Record<number, ImageSourcePropType> = {
 // 뱃지 큰 일러스트는 tiers.ts image 공용. 전환형(승격·강등)은 이전→새 티어 크로스페이드,
 // 유지형은 전환 없이 현재 티어 단일 등장.
 
+// 컨페티가 실제로 화면에 남아 있는 시간(ms) — ConfettiBurst 조각의 최대 수명에서 계산했다.
+// 시작 지연 BASE_DELAY 250 + 흔들림 350 + 낙하 duration 최대 2500 = 3100, 여기에 여유 100.
+// 장애물(obstacle)을 주지 않으므로 조각은 전부 바닥까지 떨어지고 쌓이는 조각이 없다.
+const CONFETTI_LIFE_MS = 3200;
+
 // 타입별 연출 텍스트 — 티어·시간은 params 실데이터, 여기는 표시 문구만
 const TYPE_CFG = {
   promote: { caption: 'PROMOTED', title: '승격했어요!', cta: '새 리그 보러가기' },
@@ -41,9 +51,37 @@ const TYPE_CFG = {
 
 export default function LeagueResultScreen() {
   const navigation = useNavigation();
+  // '동작 줄이기' 게이트 (GROMO-1381). 이 화면은 **단계 시퀀스**라 타이머를 걷어내면 안 된다 —
+  // m.delay()는 대기 시간을 0으로 만들 뿐 타이머 자체는 남겨서 시퀀스가 끝까지 완주한다.
+  //
+  // ⚠️ 이 화면의 LayoutAnimation(아래 티어명 등장)은 이번에 걷어내지 않는다 (결정 D-26).
+  //    단계 시퀀스·레거시 Animated와 얽혀 있어 같은 PR에서 제거하면 승급/강등 연출 회귀 위험이
+  //    크다. 대신 이 화면에는 Reanimated 레이아웃 애니메이션을 **추가하지 않아**(랭킹 행의
+  //    rankSwap 같은 것) 두 시스템이 같은 트리에서 부딪히는 조건 자체를 만들지 않는다.
+  const m = useMotion();
   const route = useRoute<RouteProp<V2RootStackParamList, 'LeagueResult'>>();
-  const { type, fromLevel, toLevel, weekHours, weekStartAt } = route.params;
+  const { type, fromLevel, toLevel, weekHours, weekStartAt, promotionBonusCoins } = route.params;
   const cfg = TYPE_CFG[type];
+  useEffect(() => {
+    logLeagueResultViewed({
+      result: type === 'promote' ? 'promoted' : type === 'demote' ? 'demoted' : 'maintain',
+    });
+  }, [type]);
+  // 승급 보상 시간조각 — 서버가 실어 보낸 값만 쓴다(GROMO-1193). 클라 공식 폴백은 BE 머지 전
+  // 임시 조치였는데, BE가 값을 내리는 지금은 **서버가 진짜 0을 준 경우**(지급 실패·미지급)에도
+  // 공식으로 금액을 지어내 유령 배지를 띄운다.
+  const bonusCoins = promotionBonusCoins ?? 0;
+  const showBonus = type === 'promote' && bonusCoins > 0;
+  const rewardShownRef = useRef(false);
+  const reportBonusShown = useCallback((): void => {
+    if (!showBonus || rewardShownRef.current) return;
+    rewardShownRef.current = true;
+    logCurrencyRewardShown({
+      surface: 'league_result',
+      amount: bonusCoins,
+      reward_type: 'league_tier_bonus',
+    });
+  }, [bonusCoins, showBonus]);
 
   // 닫힐 때(CTA·제스처 모두 unmount 경유) 확인 처리 — 실패하면 리그 탭 재포커스 때
   // useLeagueLastResult가 미확인 상태를 감지해 재노출 없이 ack만 재시도한다(멱등)
@@ -74,41 +112,110 @@ export default function LeagueResultScreen() {
   const nameAnim = useRef(new Animated.Value(0)).current;
   const line3 = useRef(new Animated.Value(0)).current;
   const [showTo, setShowTo] = useState(false);
+  // 승급 축하 파티클 — 결과 뱃지가 완전히 도착한 뒤에만 터진다(시퀀스 후).
+  const [celebrate, setCelebrate] = useState(false);
+  // ⚠️ m을 effect 의존성에 넣지 않는다 — 아래 시퀀스 effect 주석 참고. 대신 최신 delay를 ref로 읽는다.
+  // ready는 **한 번 true가 되면 다시 false가 되지 않는다** — 그래서 deps에 넣어도 시퀀스가
+  // 중복 재생되지 않는다(m 전체를 넣으면 reduce 토글마다 다시 돈다).
+  const ready = m.ready;
+  const delayRef = useRef(m.delay);
+  delayRef.current = m.delay;
+  // ⚠️ m.delay만으로는 부족하다 — 그건 **대기 시간**만 0으로 만든다. 뒤이어 걸리는 원시
+  //    애니메이션(LayoutAnimation 500 · nameAnim 스프링 · 200ms 지연 · 420ms 타이틀 · line3
+  //    스프링)은 게이트 밖이라 '동작 줄이기'가 처음부터 켜져 있어도 그대로 재생됐다. 그때는
+  //    아래 '재생 도중 켜짐' effect도 꺼짐→켜짐 전이가 아니라 돌지 않아, 사용자는 티어명·
+  //    타이틀·하단 안내의 확대·페이드를 전부 보게 된다(codex 리뷰).
+  //    그래서 단계가 **실제로 실행되는 시점의** reduce 값을 여기서 읽어, 시퀀스는 완주시키되
+  //    값만 최종 상태로 대입한다(정책 D6 — 끄는 것은 시각 효과지 시퀀스가 아니다).
+  const reduceRef = useRef(m.reduce);
+  reduceRef.current = m.reduce;
+  // 축하(햅틱·컨페티)는 화면당 1회. 시퀀스가 어떤 이유로 다시 돌더라도 보상 피드백은 반복하지 않는다.
+  const celebratedRef = useRef(false);
+  // 조각이 전부 화면 밖으로 나가면 컨페티를 **언마운트**한다. 남겨 두면 조각이 안 보이는 뒤로도
+  // 중력 센서 구독과 매 프레임 적분(useFrameCallback)이 CTA를 누를 때까지 계속 돈다(codex 리뷰).
+  //
+  // ⚠️ 이 대기에는 m.delay()를 통과시키지 않는다 — 연출을 기다리는 호흡이 아니라 연출이 **끝나는
+  //    시각**이라, 0으로 눌리면 컨페티가 뜨자마자 사라진다. reduce에서는 ConfettiBurst가 스스로
+  //    렌더하지 않으므로 이 타이머가 헛돌아도 보이는 것이 없다.
   useEffect(() => {
+    if (!celebrate) return undefined;
+    const t = setTimeout(() => setCelebrate(false), CONFETTI_LIFE_MS);
+    // 화면을 떠난 뒤에 타이머가 돌지 않게 반드시 걷는다.
+    return () => clearTimeout(t);
+  }, [celebrate]);
+  useEffect(() => {
+    // ⚠️ '동작 줄이기' 값이 **확정되기 전에는 시작하지 않는다.** useReduceMotion은 확정 전을
+    //    보수적으로 true로 읽는데, 그 값으로 시퀀스를 시작하면 대기가 전부 0으로 눌린다.
+    //    이후 false로 확정돼도 이 effect는 (중복 재생 방지를 위해) 다시 돌지 않으므로,
+    //    설정을 켜지 않은 사용자도 300/1100ms 대기와 뱃지 전환을 통째로 잃는다(codex 리뷰).
+    if (!ready) return undefined;
     let cancelled = false;
     setShowTo(false);
+    setCelebrate(false);
     [badgeAnim, titleAnim, nameAnim, line3].forEach((v) => v.setValue(0));
-    const hold = Animated.delay(hasTransition ? 1100 : 300);
+    // 대기 시간(1100·300)·뱃지 전환 길이(2000·1200)·강등 지연(1500)은 연출 호흡이라 값을 그대로 둔다.
+    // reduce일 때만 m.delay가 0으로 눌러 단계가 즉시 이어진다(타이머는 남는다).
+    const hold = Animated.delay(delayRef.current(hasTransition ? 1100 : 300));
     hold.start(({ finished }) => {
       if (!finished || cancelled) return;
       // 뱃지 전환/등장 시작 (배경 병렬) — 강등은 3단계라 더 길게·균등하게
       Animated.timing(badgeAnim, {
         toValue: 1,
-        duration: demote ? 2000 : 1200,
+        duration: delayRef.current(demote ? 2000 : 1200),
         easing: demote ? Easing.inOut(Easing.ease) : Easing.out(Easing.back(1.2)),
         useNativeDriver: true,
-      }).start();
+      }).start(({ finished: fb }) => {
+        // 승급만 축하한다 — 결과 뱃지가 다 뜬 순간이 이 화면의 정점이다.
+        // hapticSuccess는 notification 계열 "따-단" 2박자라 **축하 표면 전용**이다.
+        // (파티클은 '동작 줄이기'에서 ConfettiBurst가 스스로 생략한다 — 여기서 다시 분기하지 않는다.)
+        // ⚠️ **이미 축하가 난 화면이면 파티클도 켜지 않는다.** 전환 effect가 시퀀스를 완료해도
+        //    예약된 hold 콜백은 취소되지 않아 나중에 실행된다 — 그때 파티클만 1회 가드 밖에
+        //    있으면 끝난 화면에서 컨페티가 뒤늦게 재생된다(codex 리뷰).
+        if (!fb || cancelled || type !== 'promote' || celebratedRef.current) return;
+        // ⚠️ **축하 시점에 모션이 허용된 경우에만 파티클을 켠다.** ConfettiBurst의 생략은 바깥
+        //    컴포넌트가 남아 있는 채 안쪽만 비우는 방식이라, 켜 두면 그 3.2초 사이에 사용자가
+        //    '동작 줄이기'를 끌 때 안쪽이 새로 마운트돼 **이미 끝난 화면에서 컨페티가 뒤늦게**
+        //    시작되고 기존 수명 타이머에 잘린다(codex 리뷰).
+        //    햅틱·문구는 그대로 낸다 — 축하가 사라지는 게 아니라 파티클만 사라진다(정책 D7).
+        // 위 가드가 이미 1회를 보장하므로 여기서는 바로 세운다.
+        celebratedRef.current = true;
+        if (!reduceRef.current) setCelebrate(true);
+        hapticSuccess();
+      });
       // 결과 티어명 등장 — 승격·유지는 전환과 동시에, 강등은 결과(to) 뱃지가 뜨는 시점(≈1.5초)에 맞춰
-      Animated.delay(demote ? 1500 : 0).start(({ finished: f2 }) => {
+      Animated.delay(delayRef.current(demote ? 1500 : 0)).start(({ finished: f2 }) => {
         if (!f2 || cancelled) return;
-        // 티어명(화살표/단일) 등장 — 레이아웃 페이드
-        LayoutAnimation.configureNext(
-          LayoutAnimation.create(
-            500,
-            LayoutAnimation.Types.easeInEaseOut,
-            LayoutAnimation.Properties.opacity,
-          ),
-        );
+        // 이 단계가 실제로 도는 시점의 '동작 줄이기' 값 — 마운트 시점 값이 아니다.
+        const reduce = reduceRef.current;
+        // 티어명(화살표/단일) 등장 — 레이아웃 페이드.
+        // reduce면 이 설정 자체를 걸지 않는다(=500ms 페이드가 생기지 않는다). D-26으로
+        // LayoutAnimation을 이번에 걷어내지는 않지만, 게이트는 씌운다.
+        if (!reduce) {
+          LayoutAnimation.configureNext(
+            LayoutAnimation.create(
+              500,
+              LayoutAnimation.Types.easeInEaseOut,
+              LayoutAnimation.Properties.opacity,
+            ),
+          );
+        }
         setShowTo(true);
-        // 티어명 팝인
-        Animated.spring(nameAnim, {
-          toValue: 1,
-          friction: 5,
-          tension: 120,
-          useNativeDriver: true,
-        }).start();
-        // 티어명 팝 0.2초 뒤 타이틀 팝 → 하단 안내
+        if (reduce) {
+          // 남은 단계(티어명 팝 → 타이틀 팝 → 하단 안내)를 **최종 상태로 즉시 대입**한다.
+          // 시퀀스는 여기서 끝나므로 뒤에 남는 단계가 없다 — 화면이 중간에 멈추지 않는다.
+          [nameAnim, titleAnim, line3].forEach((v) => v.setValue(1));
+          reportBonusShown();
+          return;
+        }
+        // 티어명 팝 0.2초 뒤 타이틀 팝 → 하단 안내. 하나의 sequence로 묶어 단계 순서를
+        // 명시하고, 마지막 단계가 실제로 완료된 뒤 보상 노출을 기록한다.
         Animated.sequence([
+          Animated.spring(nameAnim, {
+            toValue: 1,
+            friction: 5,
+            tension: 120,
+            useNativeDriver: true,
+          }),
           Animated.delay(200),
           Animated.timing(titleAnim, {
             toValue: 1,
@@ -116,15 +223,60 @@ export default function LeagueResultScreen() {
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
           }),
-          Animated.spring(line3, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
-        ]).start();
+          Animated.spring(line3, {
+            toValue: 1,
+            friction: 5,
+            tension: 150,
+            useNativeDriver: true,
+          }),
+        ]).start(({ finished: sequenceFinished }) => {
+          if (!sequenceFinished || cancelled) return;
+          reportBonusShown();
+        });
       });
     });
     return () => {
       cancelled = true;
       hold.stop();
     };
-  }, [route.params.type, hasTransition, demote, badgeAnim, titleAnim, nameAnim, line3]);
+    // ⚠️ m을 의존성에서 뺀다. 넣으면 '동작 줄이기'가 바뀔 때(초기 비동기 조회가 true→false로
+    //    확정되는 경우 포함) 이 effect가 다시 돌아 **이미 끝난 화면의 시퀀스를 처음부터 재생**하고,
+    //    승급이면 hapticSuccess·컨페티까지 다시 발생한다 — 보상 피드백이 중복된다(codex 리뷰).
+    //    대기 값은 delayRef로 타이머를 걸 때의 최신 값을 읽고, 축하는 celebratedRef로 1회만 낸다.
+  }, [ready, type, hasTransition, demote, badgeAnim, titleAnim, nameAnim, line3, reportBonusShown]);
+
+  // '동작 줄이기'가 **재생 도중** 켜진 경우 — 위 시퀀스 effect는 다시 돌지 않고(의존성에서 뺐다),
+  // delayRef는 **앞으로 새로 만들 단계**의 대기만 줄인다. 이미 시작된 delay·timing·spring은
+  // 그대로 끝까지 돈다. 그래서 여기서 진행 중인 것을 세우고 최종 상태로 점프시킨다.
+  //
+  // ⚠️ **꺼짐 → 켜짐 전이에서만** 동작한다(첫 실행은 건너뛴다). useReduceMotion은 비동기 조회가
+  //    끝나기 전 구간을 보수적으로 true로 읽으므로, 마운트 시점의 true까지 '즉시 완료'로 처리하면
+  //    설정을 켜지 않은 사용자도 확정(true→false) 전에 연출을 통째로 잃는다.
+  // ⚠️ 축하 피드백은 재발행하지 않는다 — celebratedRef가 이미 서 있으면 건너뛴다. 다만 진행 중이던
+  //    뱃지 전환을 세우면 그 완료 콜백이 finished:false로 끝나 승급 축하 경로가 **끊기므로**,
+  //    아직 안 냈다면 여기서 한 번 낸다(정책 D7 — 축하는 reduce에서도 유지되고 파티클만 생략된다.
+  //    파티클 생략은 ConfettiBurst가 스스로 처리하므로 여기서 분기하지 않는다).
+  const prevReduceRef = useRef(m.reduce);
+  useEffect(() => {
+    const turnedOn = !prevReduceRef.current && m.reduce;
+    prevReduceRef.current = m.reduce;
+    if (!turnedOn) return;
+    // 모든 값의 목표는 1이다(뱃지 전환·티어명 팝·타이틀 팝·하단 안내). 이미 끝난 뒤라면 no-op.
+    [badgeAnim, titleAnim, nameAnim, line3].forEach((v) => {
+      v.stopAnimation();
+      v.setValue(1);
+    });
+    setShowTo(true);
+    // ⚠️ **이 축하의 수명을 여기서 끝낸다.** ConfettiBurst의 생략은 안쪽만 비우는 방식이라,
+    //    celebrate를 true로 둔 채 3.2초 타이머가 남아 있으면 그 사이 설정을 다시 끌 때 안쪽이
+    //    새로 마운트돼 컨페티가 처음부터 재생되고 남은 타이머에 잘린다(codex 리뷰).
+    //    파티클만 끝내는 것이고 햅틱·문구는 그대로다(정책 D7).
+    setCelebrate(false);
+    if (type === 'promote' && !celebratedRef.current) {
+      celebratedRef.current = true;
+      hapticSuccess();
+    }
+  }, [m.reduce, type, badgeAnim, titleAnim, nameAnim, line3]);
 
   // 뱃지 전환 보간 — 이전 티어(fade out·축소) → 결과 티어(fade in·팝)
   const fromOpacity = badgeAnim.interpolate({
@@ -285,6 +437,15 @@ export default function LeagueResultScreen() {
           </View>
         </View>
 
+        {/* 승급 보상 시간조각 배지 — 하단 안내와 같은 등장 애니메이션(line3) */}
+        {showBonus ? (
+          <Animated.View style={[s.bonusBadge, lineStyle(line3)]}>
+            <Text style={s.bonusText}>
+              +{bonusCoins.toLocaleString()} {CURRENCY.label}
+            </Text>
+          </Animated.View>
+        ) : null}
+
         {/* 다음 티어까지 한 줄 안내 — CTA 바로 위 */}
         <Animated.Text style={[s.goalHint, lineStyle(line3)]}>
           {nextUp == null ? (
@@ -307,6 +468,10 @@ export default function LeagueResultScreen() {
           <Text style={s.ctaText}>{cfg.cta}</Text>
         </TouchableOpacity>
       </SafeAreaView>
+
+      {/* 승급 축하 종이폭죽 — 뱃지 전환이 끝난 뒤 화면 전체에 흩뿌린다(장애물 없음).
+          기존 컴포넌트를 그대로 재사용한다. pointerEvents는 ConfettiBurst 내부에서 none. */}
+      {celebrate && <ConfettiBurst />}
     </View>
   );
 }
@@ -370,8 +535,20 @@ const s = StyleSheet.create({
   },
   goalStrong: { fontWeight: '800', color: T.night.gold },
 
+  // 승급 보상 시간조각 배지(+N 시간조각) — 골드 pill(다크 배경 대비)
+  bonusBadge: {
+    alignSelf: 'center',
+    backgroundColor: withAlpha(T.night.gold, 0.16),
+    borderRadius: 999,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.sm,
+    marginBottom: T.space.md,
+  },
+  bonusText: { ...T.text.label, fontWeight: '800', color: T.night.gold },
+
   cta: {
-    height: 56,
+    minHeight: 56,
+    paddingVertical: T.space.md,
     borderRadius: 18,
     backgroundColor: T.accent,
     alignItems: 'center',

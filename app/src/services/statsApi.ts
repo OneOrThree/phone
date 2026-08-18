@@ -1,9 +1,10 @@
 // stats 도메인 API 래퍼 (StatsController, base /api/v1).
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
-// date는 서버 필수 파라미터(GROMO-643 — '오늘' 기준을 클라 로컬 날짜로 산정).
-// 미전송 시 400으로 통계 전체가 떨어지므로 기본값으로 항상 로컬 오늘을 채운다.
+// date는 서버 필수 파라미터(GROMO-643) — 미전송 시 400으로 통계 전체가 떨어진다.
+// 서버는 이 값을 그대로 KST(country_code 파생 존) 일별 버킷에 equality 조회하므로, 기본값은
+// 로컬이 아니라 KST 오늘이다(GROMO-1236 — 비KST 기기에서 로컬 날짜를 보내면 하루 오귀속).
 import { api } from '@/services/api';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 import type {
   TodayStatsResponse,
   StreakResponse,
@@ -20,7 +21,7 @@ import type {
 // friends 지정 시 해당 대상(ACCEPTED 친구 또는 전체공개 PUBLIC 유저) 조회, 미지정 시 본인.
 export async function getTodayStats(
   friends?: string,
-  date: string = todayStr(),
+  date: string = todayStrKst(),
 ): Promise<TodayStatsResponse> {
   const { data } = await api.get<TodayStatsResponse>('/api/v1/stats/today', {
     params: { date, friends },
@@ -32,7 +33,7 @@ export async function getTodayStats(
 // friends 지정 시 해당 친구(ACCEPTED)의 스트릭 조회, 미지정 시 본인.
 export async function getStreak(
   friends?: string,
-  date: string = todayStr(),
+  date: string = todayStrKst(),
 ): Promise<StreakResponse> {
   const { data } = await api.get<StreakResponse>('/api/v1/stats/streak', {
     params: { date, friends },
@@ -53,7 +54,7 @@ export async function getHeatmap(from: string, to: string): Promise<HeatmapCellR
 export async function getFocusPeriodStats(
   period: StatsPeriod,
   friends?: string,
-  date: string = todayStr(),
+  date: string = todayStrKst(),
 ): Promise<FocusPeriodStatsResponse> {
   const { data } = await api.get<FocusPeriodStatsResponse>('/api/v1/stats/focus', {
     params: { period, date, friends },
@@ -66,7 +67,7 @@ export async function getFocusPeriodStats(
 export async function getFocusStatsByCategory(
   period: StatsPeriod,
   friends?: string,
-  date: string = todayStr(),
+  date: string = todayStrKst(),
 ): Promise<CategoryFocusStatsResponse> {
   const { data } = await api.get<CategoryFocusStatsResponse>('/api/v1/stats/by-category', {
     params: { period, date, friends },
@@ -77,7 +78,7 @@ export async function getFocusStatsByCategory(
 // GET /api/v1/stats/screen-time?period&date — 기간별 스크린타임 통계(DAY|WEEK|MONTH).
 export async function getScreenTimePeriodStats(
   period: StatsPeriod,
-  date: string = todayStr(),
+  date: string = todayStrKst(),
 ): Promise<ScreenTimePeriodStatsResponse> {
   const { data } = await api.get<ScreenTimePeriodStatsResponse>('/api/v1/stats/screen-time', {
     params: { period, date },
@@ -90,7 +91,7 @@ export async function getScreenTimePeriodStats(
 export async function getFocusAverage(
   scope: FocusAverageScope,
   period: StatsPeriod,
-  date: string = todayStr(),
+  date: string = todayStrKst(),
 ): Promise<FocusAverageResponse> {
   const { data } = await api.get<FocusAverageResponse>('/api/v1/stats/focus/average', {
     params: { scope, period, date },

@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="600" viewBox="0 0 1180 600" font-family="-apple-system, 'Helvetica Neue', Arial, 'Apple SD Gothic Neo', sans-serif">
+  <defs>
+    <marker id="g-s" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#888888"/></marker>
+    <marker id="g-p" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#9673a6"/></marker>
+    <marker id="g-n" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#82b366"/></marker>
+    <marker id="g-k" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#666666"/></marker>
+  </defs>
+  <rect width="1180" height="600" fill="#ffffff"/>
+
+  <text x="30" y="33" font-size="14" font-weight="bold" fill="#111111">집계 방법 — 조합마다 소스가 다르고, 판정은 한 곳에서 한다</text>
+  <text x="30" y="55" font-size="11" fill="#a35c00">주황 = 클라이언트가 보고하는 값 — 서버는 범위(0~1440)만 검증한다</text>
+
+  <rect x="20" y="242" width="510" height="140" fill="#fff4e6"/>
+
+  <text x="30" y="94" font-size="11" font-weight="bold" fill="#555555">조합</text>
+  <text x="270" y="94" font-size="11" font-weight="bold" fill="#555555">데이터 소스</text>
+  <text x="560" y="94" font-size="11" font-weight="bold" fill="#555555">판정</text>
+  <text x="850" y="94" font-size="11" font-weight="bold" fill="#555555">정산</text>
+
+  <rect x="30" y="110" width="200" height="60" rx="4" fill="#dae8fc" stroke="#6c8ebf"/>
+  <text x="130" y="134" font-size="10" font-weight="bold" text-anchor="middle" fill="#111111">FOCUS × DURATION</text>
+  <text x="130" y="152" font-size="10" text-anchor="middle" fill="#333333">당일 집중분 ≥ 목표</text>
+
+  <rect x="30" y="180" width="200" height="60" rx="4" fill="#dae8fc" stroke="#6c8ebf"/>
+  <text x="130" y="204" font-size="10" font-weight="bold" text-anchor="middle" fill="#111111">FOCUS × TIME_WINDOW</text>
+  <text x="130" y="222" font-size="10" text-anchor="middle" fill="#333333">창 내 집중분 ≥ 목표 − 5분</text>
+
+  <rect x="30" y="250" width="200" height="60" rx="4" fill="#ffe6cc" stroke="#d79b00"/>
+  <text x="130" y="274" font-size="10" font-weight="bold" text-anchor="middle" fill="#111111">SCREEN_TIME × DURATION</text>
+  <text x="130" y="292" font-size="10" text-anchor="middle" fill="#333333">당일 사용분 ≤ 목표</text>
+
+  <rect x="30" y="320" width="200" height="60" rx="4" fill="#ffe6cc" stroke="#d79b00"/>
+  <text x="130" y="344" font-size="9.5" font-weight="bold" text-anchor="middle" fill="#111111">SCREEN_TIME × TIME_WINDOW</text>
+  <text x="130" y="362" font-size="10" text-anchor="middle" fill="#333333">창 내 사용분 ≤ 목표 · iOS만</text>
+
+  <rect x="270" y="110" width="250" height="60" rx="4" fill="#f5f5f5" stroke="#666666"/>
+  <text x="395" y="134" font-size="10" font-weight="bold" text-anchor="middle" fill="#111111">daily_focus_stats</text>
+  <text x="395" y="152" font-size="10" text-anchor="middle" fill="#333333">서버 · 세션 기록 (분 단위)</text>
+
+  <rect x="270" y="180" width="250" height="60" rx="4" fill="#f5f5f5" stroke="#666666"/>
+  <text x="395" y="204" font-size="10" font-weight="bold" text-anchor="middle" fill="#111111">focus_sessions</text>
+  <text x="395" y="222" font-size="10" text-anchor="middle" fill="#333333">서버 · 창 클리핑 (분 단위)</text>
+
+  <rect x="270" y="250" width="250" height="60" rx="4" fill="#ffe6cc" stroke="#d79b00"/>
+  <text x="395" y="274" font-size="10" font-weight="bold" text-anchor="middle" fill="#111111">daily_screen_time_stats</text>
+  <text x="395" y="292" font-size="10" text-anchor="middle" fill="#333333">클라 보고 · 일 단위 집계</text>
+
+  <rect x="270" y="320" width="250" height="60" rx="4" fill="#ffe6cc" stroke="#d79b00"/>
+  <text x="395" y="344" font-size="10" font-weight="bold" text-anchor="middle" fill="#111111">group_challenge_members</text>
+  <text x="395" y="362" font-size="10" text-anchor="middle" fill="#333333">클라 보고 · 15분 눈금</text>
+
+  <rect x="560" y="110" width="250" height="270" rx="4" fill="#e1d5e7" stroke="#9673a6"/>
+  <text x="570" y="132" font-size="11" font-weight="bold" fill="#111111">BetJudge — 판정의 유일한 소유자</text>
+  <text x="570" y="158" font-size="10" fill="#111111">FOCUS · 값 없음 → 0분으로 접는다</text>
+  <text x="580" y="178" font-size="10" fill="#555555">「0분 집중」이 사실이므로</text>
+  <text x="570" y="198" font-size="10" fill="#111111">SCREEN_TIME · 값 없음 → null 유지</text>
+  <text x="580" y="218" font-size="10" fill="#555555">0으로 접으면 미보고가</text>
+  <text x="580" y="238" font-size="10" fill="#555555">「0분 사용 = 달성」으로 뒤집힌다</text>
+  <text x="570" y="258" font-size="10" fill="#111111">관용치 — 창 FOCUS만 5분</text>
+  <text x="580" y="278" font-size="10" fill="#555555">창 SCREEN_TIME은 관용치 0,</text>
+  <text x="580" y="298" font-size="10" fill="#555555">대신 목표를 15분 배수로 정렬</text>
+  <text x="570" y="318" font-size="10" fill="#111111">모든 날짜 키는 KST</text>
+  <text x="570" y="338" font-size="10" fill="#111111">자정 걸친 세션은 종료일 회차로</text>
+  <text x="570" y="358" font-size="10" fill="#111111">null(미집계)도 미달성으로 확정 (FR-21)</text>
+
+  <rect x="850" y="110" width="300" height="270" rx="4" fill="#d5e8d4" stroke="#82b366"/>
+  <text x="860" y="132" font-size="11" font-weight="bold" fill="#111111">PotDistributor — 팟 분배</text>
+  <text x="860" y="158" font-size="10" fill="#111111">팟 = 참가비 × 참가자 수</text>
+  <text x="860" y="178" font-size="10" fill="#111111">참가자 &lt; 2명 → VOIDED · 전액 환불</text>
+  <text x="860" y="198" font-size="10" fill="#111111">승자 0명 → FORFEITED · 팟 소멸 (이월 없음)</text>
+  <text x="860" y="218" font-size="10" fill="#111111">승자 ≥ 1명 → SETTLED · 달성자 균등 분배</text>
+  <text x="870" y="238" font-size="10" fill="#555555">잔여는 성과 1위에게</text>
+  <text x="870" y="258" font-size="10" fill="#555555">FOCUS 진행분 최대 / SCREEN_TIME 사용분 최소</text>
+  <text x="870" y="278" font-size="10" fill="#555555">동률이면 userId 오름차순 (결정적)</text>
+  <text x="860" y="298" font-size="10" fill="#111111">정산은 되돌리지 않는다 (FR-27)</text>
+
+  <rect x="560" y="410" width="590" height="56" rx="4" fill="#f5f5f5" stroke="#666666"/>
+  <text x="855" y="432" font-size="10" font-weight="bold" text-anchor="middle" fill="#111111">currency_transactions — 원장이 단일 진실</text>
+  <text x="855" y="450" font-size="10" text-anchor="middle" fill="#333333">멱등키 session:{sid}:stake|refund|payout:{participantId} · UNIQUE 로 차감·환불·지급이 정확히 한 번</text>
+
+  <path d="M230,140 L263,140" fill="none" stroke="#888888" marker-end="url(#g-s)"/>
+  <path d="M230,210 L263,210" fill="none" stroke="#888888" marker-end="url(#g-s)"/>
+  <path d="M230,280 L263,280" fill="none" stroke="#888888" marker-end="url(#g-s)"/>
+  <path d="M230,350 L263,350" fill="none" stroke="#888888" marker-end="url(#g-s)"/>
+
+  <path d="M520,140 L540,140 L540,245 L553,245" fill="none" stroke="#9673a6" marker-end="url(#g-p)"/>
+  <path d="M520,210 L540,210 L540,245" fill="none" stroke="#9673a6"/>
+  <path d="M520,280 L540,280 L540,245" fill="none" stroke="#9673a6"/>
+  <path d="M520,350 L540,350 L540,245" fill="none" stroke="#9673a6"/>
+
+  <path d="M810,245 L843,245" fill="none" stroke="#82b366" marker-end="url(#g-n)"/>
+  <path d="M1000,380 L1000,405" fill="none" stroke="#666666" marker-end="url(#g-k)"/>
+
+  <rect x="30" y="500" width="1120" height="80" fill="#fff2cc" stroke="#d6b656"/>
+  <text x="38" y="518" font-size="11" fill="#111111">· 판정 데이터가 정산 시각까지 도착하지 않으면 미달성으로 확정한다 (FR-21) — 회차는 닫혀야 한다</text>
+  <text x="38" y="535" font-size="11" fill="#111111">· 정산 직전 사일런트 푸시로 참가자 앱을 깨워 업로드 큐를 비운다 (FR-22)</text>
+  <text x="38" y="552" font-size="11" fill="#111111">· 몰수분은 회수 계정이 없다 — 코인이 소멸하며 원장에 지급 기입이 없다 (§8 L3)</text>
+  <text x="38" y="569" font-size="11" fill="#111111">· 창 사용분 네이티브 타임라인은 2일 보존 — 그제 이전 창은 복구 불가 (§8 L2)</text>
+</svg>

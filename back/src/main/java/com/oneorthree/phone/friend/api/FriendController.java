@@ -1,5 +1,6 @@
 package com.oneorthree.phone.friend.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.friend.dto.FriendRequestCreateRequest;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
@@ -10,7 +11,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -47,8 +47,7 @@ public class FriendController {
     @PostMapping("/friends/requests")
     public ResponseEntity<Void> createFriendRequest(
             @Valid @RequestBody FriendRequestCreateRequest request,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID userId) {
         friendService.createRequest(userId, request.getTargetUserId());
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
@@ -62,8 +61,7 @@ public class FriendController {
     @PostMapping("/friends/requests/{id}/accept")
     public ResponseEntity<Void> acceptFriendRequest(
             @PathVariable UUID id,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID userId) {
         friendService.acceptRequest(userId, id);
         return ResponseEntity.ok().build();
     }
@@ -77,8 +75,7 @@ public class FriendController {
     @PostMapping("/friends/requests/{id}/reject")
     public ResponseEntity<Void> rejectFriendRequest(
             @PathVariable UUID id,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID userId) {
         friendService.rejectRequest(userId, id);
         return ResponseEntity.ok().build();
     }
@@ -91,8 +88,7 @@ public class FriendController {
     @DeleteMapping("/friends/{friendUserId}")
     public ResponseEntity<Void> deleteFriend(
             @PathVariable UUID friendUserId,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID userId) {
         friendService.deleteFriend(userId, friendUserId);
         return ResponseEntity.noContent().build();
     }
@@ -100,7 +96,7 @@ public class FriendController {
     @Operation(summary = "친구 목록 조회",
             description = "ACCEPTED·미삭제 친구 목록. isPinned는 내가 핀한 친구면 true. 각 친구의 집중 라이브 정보"
                     + "(isFocusing·focusTimeMinutes·focusStartedAt·focusTagName) 포함. "
-                    + "date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD).")
+                    + "date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(YYYY-MM-DD) — 기기 로컬 날짜가 아니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "date 누락·형식 오류")
@@ -108,8 +104,7 @@ public class FriendController {
     @GetMapping("/friends")
     public ResponseEntity<List<FriendResponse>> getFriends(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID userId) {
         return ResponseEntity.ok(friendService.getFriends(userId, date));
     }
 
@@ -120,8 +115,7 @@ public class FriendController {
     @GetMapping("/friends/requests")
     public ResponseEntity<List<FriendRequestResponse>> getFriendRequests(
             @RequestParam String type,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID userId) {
         return ResponseEntity.ok(friendService.getRequests(userId, type));
     }
 
@@ -134,8 +128,7 @@ public class FriendController {
     public ResponseEntity<List<FriendSearchResultResponse>> searchFriends(
             @RequestParam SearchType type,
             @RequestParam String q,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID userId) {
         return ResponseEntity.ok(friendService.search(userId, type, q));
     }
 }

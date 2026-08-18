@@ -26,6 +26,15 @@ public class LeagueWeek {
         return previousWeekStartDate(now).atStartOfDay(KST).toInstant();
     }
 
+    /**
+     * {@code now}가 속한 KST 주차의 <b>다음</b> 주차 시작 (GROMO-1239) — 정산 대상 주차의 가드
+     * anchor(startedAt)·가입 컷오프 경계가 이 시각이다. KST 는 DST 가 없지만 +7일 산술 대신
+     * 달력 산법으로 계산해 경계 규칙을 한 곳에 못박는다.
+     */
+    public Instant nextWeekStart(Instant now) {
+        return currentWeekStartDate(now).plusWeeks(1).atStartOfDay(KST).toInstant();
+    }
+
     public LocalDate previousWeekStartDate(Instant now) {
         return currentWeekStartDate(now).minusWeeks(1);
     }

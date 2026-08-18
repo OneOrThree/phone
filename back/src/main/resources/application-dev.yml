@@ -16,11 +16,20 @@ spring:
     enabled: true
     baseline-on-migrate: true
     baseline-version: 1
+    # V21(초대 링크)이 V20(챌린지 스키마)보다 먼저 머지·배포돼 dev DB 가 21 선적용 상태 —
+    # 소급 도착한 V20 을 적용하려면 out-of-order 허용 필요 (2026-08-02, PR #412·#414 순서 역전 수습).
+    # 병렬 브랜치에서 마이그레이션 번호가 역전 도착하는 dev 특성상 상시 켜둔다. prod 는 미적용.
+    out-of-order: true
 
 jwt:
   secret: ${JWT_SECRET}
-  access-expiration: 3600
+  # dev 전용 장수명 access (GROMO-714) — refresh 토큰의 /api/* 직접 인증이 막히면서 dev 에서 API 를
+  # 찔러볼 때 1시간마다 재발급해야 하는 불편이 생긴다. dev 만 30일로 두고 prod 는 3600(1시간) 유지.
+  access-expiration: 2592000
   refresh-expiration: 2592000
+  # 게스트 전용 refresh 수명(GROMO-1509) — 소셜은 만료돼도 재로그인으로 같은 계정에 돌아오지만
+  # 게스트는 돌아갈 곳이 없어 만료가 곧 계정 소실이다. 사실상 '이 기간 안 켜면 계정 삭제'.
+  guest-refresh-expiration: 7776000   # 90일
 
 apple:
   jwks-url: https://appleid.apple.com/auth/keys
@@ -75,3 +84,24 @@ logging:
     org.hibernate.orm.jdbc.bind: WARN
     org.springframework.web.servlet.DispatcherServlet: WARN
     org.springframework.web.filter: WARN
+
+# 활동 시각(last_active_at) 갱신 스로틀 창 (GROMO-903) — 같은 유저에게 write 를 허용하는 최소 간격.
+# 짧을수록 last_active_at 이 정확해지고 write 가 늘어난다. 이 값만큼 실제 마지막 활동보다 과거일 수 있어
+# 미접속 복귀 푸시의 "정확히 N일째" 판정이 하루 당겨질 수 있다(자정 직후 창 안에 그날 첫 활동을 한 유저).
+app:
+  user-activity:
+    touch-interval: 2h
+
+# 그룹 초대 링크 (deferred deep link). base-url 은 실제 링크 도메인 — 앱·랜딩·AASA 가 이 값을 전제한다.
+# ip-salt 는 클릭 IP 해시용 비밀값(원본 IP 는 저장하지 않는다) — dev 는 기본값, prod 는 Secrets Manager.
+link:
+  base-url: ${LINK_BASE_URL:https://oneorthree.dev.mooo.com}
+  match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
+  ip-salt: ${LINK_IP_SALT:dev-salt}
+  # dev 는 앞단 프록시가 없다(docker-compose.dev.yml 은 app·db 뿐) — 전달 헤더가 정당할 수 없는
+  # 구성인데 app 이 0.0.0.0:8080 으로 열려 있어, 헤더를 읽으면 호출자가 자기 신원을 골라
+  # 게스트 생성 레이트리밋(GROMO-1510)을 우회할 수 있다. 그래서 빈 목록 = 헤더 무시, remoteAddr 만.
+  trusted-ip-headers: ${LINK_TRUSTED_IP_HEADERS:}
+  # 실제 출시 App Store 링크 (GROMO-1086). 기본값 자체가 유효한 링크라 env 미설정이어도 정상 동작한다 —
+  # 플레이스홀더 id 를 기본값으로 두었던 탓에 미설치 유저가 "사용할 수 없는 앱" 화면을 만났다.
+  store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}

@@ -1,5 +1,6 @@
 package com.oneorthree.phone.currency.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.currency.service.InGameCurrencyService;
 import com.oneorthree.phone.currency.dto.CurrencyRequest;
 import com.oneorthree.phone.currency.dto.TransactionsResponse;
@@ -7,7 +8,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,8 +33,7 @@ public class InGameCurrencyController {
         @ApiResponse(responseCode = "404", description = "유저 없음")
     })
     @GetMapping("/currency")
-    public ResponseEntity<Integer> getCurrencyBalance(HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+    public ResponseEntity<Integer> getCurrencyBalance(@LoginUser UUID userId) {
         return ResponseEntity.ok(inGameCurrencyService.getCurrencyBalance(userId));
     }
 
@@ -45,22 +44,21 @@ public class InGameCurrencyController {
     })
     @GetMapping("/currency/transactions")
     public ResponseEntity<List<TransactionsResponse>> getCurrencyTransactions(
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         return ResponseEntity.ok(inGameCurrencyService.getCurrencyTransactions(userId));
     }
 
-    @Operation(summary = "적립", description = "인게임 재화 증가")
+    @Operation(summary = "적립 (폐쇄 — no-op)",
+            description = "currency 폐쇄: 클라 주도 적립은 코인 민팅 악용 벡터라 무효화됐다. 세션 보상은 세션 저장"
+                    + "(POST /api/v1/focus-session)에서 서버가 직접 지급하고 awardedCoins 로 응답한다. "
+                    + "구앱 호환을 위해 204 는 유지하되 잔액·원장에 아무것도 반영하지 않는다.")
     @ApiResponses({
-        @ApiResponse(responseCode = "204", description = "적립 성공"),
-        @ApiResponse(responseCode = "400", description = "유효하지 않은 요청"),
-        @ApiResponse(responseCode = "404", description = "유저 없음")
+        @ApiResponse(responseCode = "204", description = "no-op 성공(항상 — 잔액 무변화)")
     })
     @PostMapping("/currency/earn")
     public ResponseEntity<Void> earnCurrency(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @RequestBody CurrencyRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         inGameCurrencyService.earnCurrency(userId, body.getType(), body.getAmount());
         return ResponseEntity.noContent().build();
     }
@@ -73,9 +71,8 @@ public class InGameCurrencyController {
     })
     @PostMapping("/currency/spend")
     public ResponseEntity<Void> spendCurrency(
-            HttpServletRequest request,
+            @LoginUser UUID userId,
             @RequestBody CurrencyRequest body) {
-        UUID userId = (UUID) request.getAttribute("userId");
         inGameCurrencyService.spendCurrency(userId, body.getType(), body.getAmount());
         return ResponseEntity.noContent().build();
     }

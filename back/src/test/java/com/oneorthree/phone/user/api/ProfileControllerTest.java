@@ -1,5 +1,6 @@
 package com.oneorthree.phone.user.api;
 
+import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
@@ -8,6 +9,7 @@ import com.oneorthree.phone.user.dto.UserStatsResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.service.ProfileService;
+import net.bytebuddy.asm.Advice;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +23,7 @@ import java.util.UUID;
 
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
@@ -97,6 +100,9 @@ class ProfileControllerTest {
     @Test
     @DisplayName("통계 조회 - 친구O → 200, isFriend=true, today/heatmap 포함")
     void getUserStatsReturns200ForFriend() throws Exception {
+        UUID callerId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 7, 3);
+
         StreakResponse streak = new StreakResponse(7, 14, LocalDate.of(2026, 7, 1));
         TodayStatsResponse today = new TodayStatsResponse(
                 new TodayStatsResponse.FocusStat(60, 90, false, 67),
@@ -104,9 +110,12 @@ class ProfileControllerTest {
         HeatmapCellResponse cell = new HeatmapCellResponse(
                 LocalDate.of(2026, 7, 1), 60, 1, false, 30, true);
         UserStatsResponse response = new UserStatsResponse(true, streak, today, List.of(cell));
-        given(profileService.getUserStats(any(), any(), any())).willReturn(response);
+        given(profileService.getUserStats(eq(callerId), eq(targetUserId), eq(date)))
+                .willReturn(response);
 
-        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId).param("date", "2026-07-03"))
+        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId)
+                        .param("date", date.toString())
+                        .requestAttr(AuthAttributes.USER_ID, callerId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isFriend").value(true))
                 .andExpect(jsonPath("$.streak.currentStreak").value(7))
@@ -118,6 +127,9 @@ class ProfileControllerTest {
     @Test
     @DisplayName("통계 조회 - 친구X → 200, isFriend=false, today 채움·heatmap 만 null (GROMO-746)")
     void getUserStatsReturns200ForNonFriend() throws Exception {
+        UUID callerId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 7, 3);
+
         StreakResponse streak = new StreakResponse(3, 10, LocalDate.of(2026, 6, 30));
         TodayStatsResponse today = new TodayStatsResponse(
                 new TodayStatsResponse.FocusStat(45, 90, false, 50),
@@ -125,7 +137,9 @@ class ProfileControllerTest {
         UserStatsResponse response = new UserStatsResponse(false, streak, today, null);
         given(profileService.getUserStats(any(), any(), any())).willReturn(response);
 
-        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId).param("date", "2026-07-03"))
+        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId)
+                        .param("date", date.toString())
+                        .requestAttr(AuthAttributes.USER_ID, callerId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isFriend").value(false))
                 .andExpect(jsonPath("$.streak.currentStreak").value(3))
@@ -138,10 +152,15 @@ class ProfileControllerTest {
     @Test
     @DisplayName("통계 조회 - 존재하지 않는 userId → 404")
     void getUserStatsNotFoundReturns404() throws Exception {
+        UUID callerId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 7, 3);
+
         given(profileService.getUserStats(any(), any(), any()))
                 .willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
-        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId).param("date", "2026-07-03"))
+        mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId)
+                        .param("date", date.toString())
+                        .requestAttr(AuthAttributes.USER_ID, callerId))
                 .andExpect(status().isNotFound())
                 .andDo(print());
     }

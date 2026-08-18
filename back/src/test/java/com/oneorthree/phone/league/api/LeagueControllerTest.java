@@ -1,5 +1,6 @@
 package com.oneorthree.phone.league.api;
 
+import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.league.dto.LeagueLastResultResponse;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
@@ -36,6 +37,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = LeagueController.class)
 class LeagueControllerTest {
 
+    private static final UUID LOGIN_USER_ID = UUID.fromString("00000000-0000-0000-0000-0000000000ca");
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -49,7 +52,8 @@ class LeagueControllerTest {
                 .willReturn(new LeagueTierResponse(true, 3,
                         Instant.parse("2026-06-22T00:00:00Z"), "hyperfocus"));
 
-        mockMvc.perform(get("/api/v1/league/me/tier"))
+        mockMvc.perform(get("/api/v1/league/me/tier")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.assigned").value(true))
                 .andExpect(jsonPath("$.tierLevel").value(3))
@@ -63,7 +67,8 @@ class LeagueControllerTest {
         given(leagueService.getMyTier(any()))
                 .willReturn(new LeagueTierResponse(false, null, null, null));
 
-        mockMvc.perform(get("/api/v1/league/me/tier"))
+        mockMvc.perform(get("/api/v1/league/me/tier")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.assigned").value(false))
                 .andExpect(jsonPath("$.tierLevel").value(nullValue()))
@@ -80,7 +85,8 @@ class LeagueControllerTest {
                         new LeagueMemberResponse(2, UUID.randomUUID(), "me", 2, 200, false,
                                 false, 0, null, null)));
 
-        mockMvc.perform(get("/api/v1/league/me/ranking").param("date", "2026-06-24"))
+        mockMvc.perform(get("/api/v1/league/me/ranking").param("date", "2026-06-24")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].rank").value(1))
                 .andExpect(jsonPath("$[0].nickname").value("top"))
@@ -111,7 +117,8 @@ class LeagueControllerTest {
 
         mockMvc.perform(get("/api/v1/league/me/ranking")
                         .param("category", "LABOR_ATTORNEY")
-                        .param("date", "2026-06-24"))
+                        .param("date", "2026-06-24")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].rank").value(1))
                 .andExpect(jsonPath("$[0].nickname").value("global-top"))
@@ -124,7 +131,8 @@ class LeagueControllerTest {
     void getMyRankingWithInvalidCategoryReturns400() throws Exception {
         mockMvc.perform(get("/api/v1/league/me/ranking")
                         .param("category", "INVALID_OCCUPATION")
-                        .param("date", "2026-06-24"))
+                        .param("date", "2026-06-24")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
                 .andDo(print());
@@ -133,7 +141,8 @@ class LeagueControllerTest {
     @Test
     @DisplayName("랭킹 조회 — date 누락 시 400 (required 계약)")
     void getMyRankingMissingDateReturns400() throws Exception {
-        mockMvc.perform(get("/api/v1/league/me/ranking"))
+        mockMvc.perform(get("/api/v1/league/me/ranking")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -196,7 +205,8 @@ class LeagueControllerTest {
         given(leagueService.getMyRank(any()))
                 .willReturn(new LeagueRankResponse(true, 2, 200));
 
-        mockMvc.perform(get("/api/v1/league/me/rank"))
+        mockMvc.perform(get("/api/v1/league/me/rank")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.assigned").value(true))
                 .andExpect(jsonPath("$.myRank").value(2))
@@ -210,7 +220,8 @@ class LeagueControllerTest {
         given(leagueService.getMySchedule(any()))
                 .willReturn(new LeagueScheduleResponse(nextReset, 388800L));
 
-        mockMvc.perform(get("/api/v1/league/me/schedule"))
+        mockMvc.perform(get("/api/v1/league/me/schedule")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextResetAt").value("2026-06-28T15:00:00Z"))
                 .andExpect(jsonPath("$.remainingSeconds").value(388800))
@@ -222,9 +233,10 @@ class LeagueControllerTest {
     void getLastResultReturns200() throws Exception {
         given(leagueService.getLastResult(any()))
                 .willReturn(new LeagueLastResultResponse(true,
-                        Instant.parse("2026-06-15T00:00:00Z"), "PROMOTED", 2, 3, 50400, false));
+                        Instant.parse("2026-06-15T00:00:00Z"), "PROMOTED", 2, 3, 50400, false, 100));
 
-        mockMvc.perform(get("/api/v1/league/me/last-result"))
+        mockMvc.perform(get("/api/v1/league/me/last-result")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.hasResult").value(true))
                 .andExpect(jsonPath("$.weekStartAt").value("2026-06-15T00:00:00Z"))
@@ -240,9 +252,10 @@ class LeagueControllerTest {
     @DisplayName("주간 마감 결과 조회 - 결과 없음 → 200 hasResult=false, 나머지 필드 null/false")
     void getLastResultNoneReturns200() throws Exception {
         given(leagueService.getLastResult(any()))
-                .willReturn(new LeagueLastResultResponse(false, null, null, null, null, null, false));
+                .willReturn(new LeagueLastResultResponse(false, null, null, null, null, null, false, 0));
 
-        mockMvc.perform(get("/api/v1/league/me/last-result"))
+        mockMvc.perform(get("/api/v1/league/me/last-result")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.hasResult").value(false))
                 .andExpect(jsonPath("$.weekStartAt").value(nullValue()))
@@ -261,7 +274,8 @@ class LeagueControllerTest {
 
         mockMvc.perform(post("/api/v1/league/me/last-result/ack")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"weekStartAt\":\"2026-06-15T00:00:00Z\"}"))
+                        .content("{\"weekStartAt\":\"2026-06-15T00:00:00Z\"}")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andDo(print());
 

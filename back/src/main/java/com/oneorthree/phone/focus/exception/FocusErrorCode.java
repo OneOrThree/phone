@@ -12,6 +12,10 @@ public enum FocusErrorCode {
     INVALID_PAGE_REQUEST(HttpStatus.BAD_REQUEST, "유효하지 않은 페이지 요청입니다."),
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 집중 세션입니다."),
     SESSION_ALREADY_ENDED(HttpStatus.CONFLICT, "이미 종료된 집중 세션입니다."),
+    // GROMO-1214 코드리뷰: 취소(CANCELED)·자동마감(AUTO_CLOSED) 마커의 종료 시도. 같은 409지만 위와 의미가 다르다 —
+    // 저쪽은 '통계·지급이 이미 커밋됨'(재시도 금지)이고, 이쪽은 '이 마커는 통계에 한 번도 반영되지 않았음'이다.
+    // 앱은 이 코드를 보고 그 시간을 POST /focus-session 으로 살려 올린다(폴백해도 이중 지급이 아니다).
+    SESSION_DISCARDED(HttpStatus.CONFLICT, "취소·자동마감된 집중 세션입니다."),
     OCCUPATION_REQUIRED(HttpStatus.BAD_REQUEST, "직업 정보가 없습니다."),
     OCCUPATION_TAG_NOT_RENAMABLE(HttpStatus.BAD_REQUEST, "직군 프리셋 태그는 이름을 변경할 수 없습니다.");
 

@@ -145,12 +145,6 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
 
     let totalDuration = hasSelection ? selectedSum : segmentTotal
 
-    // App Group UserDefaults에 총 사용 시간 저장 (메인 앱에서 읽을 수 있도록)
-    if let sharedDefaults = sharedDefaults {
-        sharedDefaults.set(totalDuration, forKey: "gromo:screentime:totalDuration")
-        sharedDefaults.set(Date(), forKey: "gromo:screentime:lastUpdated")
-    }
-
     // 메인 앱이 App Group에 쓴 목표 시간을 읽어서 "남은 시간" 계산에 사용
     let goalSeconds = sharedDefaults?.double(forKey: "gromo:user:goalSeconds") ?? -1
 

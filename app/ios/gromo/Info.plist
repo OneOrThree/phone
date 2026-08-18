@@ -61,7 +61,7 @@
 			<string>Facebook</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>fb990121817063522</string>
+				<string>fb$(FACEBOOK_APP_ID)</string>
 			</array>
 		</dict>
 		<dict>
@@ -76,9 +76,9 @@
 	<key>CFBundleVersion</key>
 	<string>1784537216</string>
 	<key>FacebookAppID</key>
-	<string>990121817063522</string>
+	<string>$(FACEBOOK_APP_ID)</string>
 	<key>FacebookClientToken</key>
-	<string>7ed99476de7a19056835e56b628574bb</string>
+	<string>$(FACEBOOK_CLIENT_TOKEN)</string>
 	<key>FacebookDisplayName</key>
 	<string>gromo</string>
 	<key>SKAdNetworkItems</key>
@@ -120,10 +120,14 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>사진을 찍어 나만의 캐릭터를 만들 때 카메라를 사용해요.</string>
 	<key>NSFamilyControlsUsageDescription</key>
 	<string>폰 사용 시간을 측정해 스크린타임 목표 달성 확인과 사용 통계 제공에 사용합니다.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>타임테이블 등 통계 이미지를 사진에 저장하기 위해 필요합니다.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>사진 속 물건으로 캐릭터를 만들기 위해 앨범에서 사진을 고를 때 필요합니다.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSUserTrackingUsageDescription</key>
@@ -141,13 +145,15 @@
 		<string>arm64</string>
 	</array>
 	<key>UIRequiresFullScreen</key>
-	<false/>
+	<true/>
 	<key>UIStatusBarStyle</key>
 	<string>UIStatusBarStyleDefault</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>

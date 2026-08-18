@@ -9,11 +9,14 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
+import { playTapSound } from '@/utils/sound';
 import { hmsCompact } from '../format';
 import type { Subject } from '../types';
 import { glassSlide, glassPill } from '@/components/liquidGlass';
+import { useMotion } from '@/hooks/useMotion';
 
 // 순수 RN(PanResponder+Animated) 드래그 정렬 리스트.
 // ⋮ 를 잡고 위아래로 움직이면 순서 변경. 화면 가장자리 근처로 끌면 자동 스크롤.
@@ -45,6 +48,32 @@ export function DraggableSubjectRows({
   onOpenMenu,
   footer,
 }: Props) {
+  // 화면이 SafeAreaView edges={['top']}이라 하단 인셋은 여기서 직접 챙긴다 —
+  // 없으면 끝까지 스크롤해도 footer(새 과목 추가)가 홈 인디케이터에 가려 잘린다(GROMO-886).
+  const insets = useSafeAreaInsets();
+  // '동작 줄이기'면 선택 알약이 미끄러지지 않고 활성 행에 즉시 놓인다(위치·표시는 그대로).
+  const m = useMotion();
+  // ⚠️ 정렬 타이밍은 **실행 시점의** 값으로 판정한다. m을 의존성에 넣으면 드래그 중 재구독이
+  //    걸려 PanResponder가 갈아끼워진다(D-29). 확정 전(ready=false)의 보수적 true로 "즉시
+  //    완료"를 굳히면 설정을 켜지 않은 사용자가 정렬 연출을 잃는다(D-30).
+  const settleInstantRef = useRef(false);
+  settleInstantRef.current = m.ready && m.reduce;
+  // ⚠️ **진행 중인 안착도 멈춘다.** 위 ref는 앞으로의 호출만 즉시 처리할 뿐, 이미 시작된
+  //    160ms Animated.timing은 계속 돈다 — 재정렬 도중 접근성 단축키로 설정을 켜면 행이
+  //    그대로 미끄러진다(codex 리뷰). 켜지는 순간 모든 행을 지금 순서의 제자리로 확정한다.
+  //    ⚠️ 단, **지금 손가락이 잡고 있는 행은 건너뛴다.** 그 행은 안착 애니메이션 중이 아니라
+  //       손가락을 추종하는 중이다. 여기서 슬롯으로 밀면 손가락 아래에서 제자리로 튄 뒤 다음
+  //       move 이벤트에 다시 손가락 위치로 돌아온다(codex 리뷰). settleOthers()가 드래그 행을
+  //       빼는 것과 같은 이유다 — 확정 대상은 **실제로 Animated.timing 중인 나머지 행**이다.
+  useEffect(() => {
+    if (!settleInstantRef.current) return;
+    orderRef.current.forEach((id, i) => {
+      if (id === dragIdRef.current) return;
+      const v = tops.current[id];
+      if (!v) return;
+      v.stopAnimation(() => v.setValue(i * SLOT));
+    });
+  }, [m.ready, m.reduce]);
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0); // 현재 스크롤 오프셋
   const viewportH = useRef(0); // 스크롤 보이는 높이
@@ -87,6 +116,12 @@ export function DraggableSubjectRows({
   function settleOthers() {
     orderRef.current.forEach((id, i) => {
       if (id === dragIdRef.current) return;
+      // ⚠️ 드래그 **추종**은 끄지 않는다(손가락을 따라오는 건 직접 조작이다). 끄는 건 손을 뗀
+      //    뒤의 **안착·정렬 타이밍**뿐이다 — 그건 시간 기반 애니메이션이다.
+      if (settleInstantRef.current) {
+        tops.current[id].setValue(i * SLOT);
+        return;
+      }
       Animated.timing(tops.current[id], {
         toValue: i * SLOT,
         duration: 160,
@@ -162,11 +197,16 @@ export function DraggableSubjectRows({
     stopAuto();
     const pos = orderRef.current.indexOf(id);
     if (pos >= 0) {
-      Animated.timing(tops.current[id], {
-        toValue: pos * SLOT,
-        duration: 160,
-        useNativeDriver: false,
-      }).start();
+      // 놓은 행의 안착도 같은 규칙 — '동작 줄이기'면 미끄러지지 않고 제자리에 놓인다.
+      if (settleInstantRef.current) {
+        tops.current[id].setValue(pos * SLOT);
+      } else {
+        Animated.timing(tops.current[id], {
+          toValue: pos * SLOT,
+          duration: 160,
+          useNativeDriver: false,
+        }).start();
+      }
     }
     const byId = new Map(subjectsRef.current.map((x) => [x.id, x]));
     const next = orderRef.current.map((oid) => byId.get(oid)).filter((x): x is Subject => !!x);
@@ -197,20 +237,30 @@ export function DraggableSubjectRows({
           listTop.current = y;
         });
       }}
-      contentContainerStyle={s.content}
+      contentContainerStyle={[s.content, { paddingBottom: insets.bottom + T.space.lg }]}
     >
       <View style={{ height: contentH }}>
-        {subjects.map((sub) => {
+        {subjects.map((sub, i) => {
           const selected = sub.id === activeId;
           const isDrag = dragId === sub.id;
           return (
             <Animated.View
               key={sub.id}
-              style={[s.rowWrap, { top: tops.current[sub.id], zIndex: isDrag ? 10 : 1 }]}
+              style={[
+                s.rowWrap,
+                isDrag ? s.rowWrapDrag : s.rowWrapIdle,
+                { top: tops.current[sub.id] },
+              ]}
             >
               <TouchableOpacity
+                testID={`focus.subject.item.${i}`}
                 style={[s.row, selected && s.rowSelected, isDrag && s.rowActive]}
                 activeOpacity={0.85}
+                // 행 계열은 스케일 없이 사운드만 — transform은 드래그 PanResponder의 좌표
+                // 계산과 간섭하고, 같은 터치 영역이 롱프레스 메뉴·순서 드래그도 받으므로
+                // 햅틱을 주면 '주요 CTA' 신호가 잘못 나간다(집중 시작 햅틱은 방식 선택 시트의
+                // 시작 버튼에만). 발화 시점은 PressableScale과 맞춰 press-in.
+                onPressIn={playTapSound}
                 onPress={() => onPressRow(sub)}
                 // 행 길게 누르기 — ⋮ 위치를 앵커로 이름편집/삭제 팝오버
                 onLongPress={() =>
@@ -237,11 +287,16 @@ export function DraggableSubjectRows({
                   <TouchableOpacity
                     hitSlop={6}
                     activeOpacity={0.7}
+                    // 중첩 터처블이라 부모 행의 onPressIn이 오지 않는다 — 실제 동작이 있는
+                    // 버튼이므로 여기서 직접 사운드를 낸다(행 계열이라 스케일·햅틱은 없음)
+                    onPressIn={playTapSound}
                     onPress={() =>
                       chipRefs.current[sub.id]?.measureInWindow((x, y, w, h) =>
                         onOpenColor(sub.id, { x, y, w, h }),
                       )
                     }
+                    accessibilityRole="button"
+                    accessibilityLabel={`${sub.name} 대표색 변경`}
                     style={[s.colorChip, { backgroundColor: sub.color }]}
                   />
                 </View>
@@ -257,11 +312,16 @@ export function DraggableSubjectRows({
                   <TouchableOpacity
                     hitSlop={8}
                     activeOpacity={0.6}
+                    // 같은 이유로 사운드만 — 이 영역은 PanResponder(순서 드래그)도 받으므로
+                    // transform(스케일)을 얹으면 드래그 좌표 계산과 간섭한다
+                    onPressIn={playTapSound}
                     onPress={() =>
                       dotRefs.current[sub.id]?.measureInWindow((x, y, w, h) =>
                         onOpenMenu(sub.id, { x, y, w, h }),
                       )
                     }
+                    accessibilityRole="button"
+                    accessibilityLabel={`${sub.name} 메뉴`}
                   >
                     <Ionicons name="ellipsis-vertical" size={16} color={T.inkMuted} />
                   </TouchableOpacity>
@@ -277,7 +337,7 @@ export function DraggableSubjectRows({
               s.glass,
               glassPill,
               { transform: [{ translateY: activeIndex * SLOT }] },
-              glassSlide,
+              m.css(glassSlide),
             ]}
           />
         )}
@@ -291,6 +351,9 @@ const s = StyleSheet.create({
   flex1: { flex: 1 },
   content: { paddingHorizontal: T.space.xxl, paddingTop: T.space.sm },
   rowWrap: { position: 'absolute', left: 0, right: 0, height: ROW_H },
+  // 드래그 중인 행만 다른 행 위로 떠오르게
+  rowWrapDrag: { zIndex: 10 },
+  rowWrapIdle: { zIndex: 1 },
   row: {
     flex: 1,
     flexDirection: 'row',

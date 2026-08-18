@@ -1,5 +1,6 @@
 package com.oneorthree.phone.user.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.user.dto.PublicProfileResponse;
 import com.oneorthree.phone.user.dto.UserStatsResponse;
 import com.oneorthree.phone.user.service.ProfileService;
@@ -7,7 +8,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -57,8 +57,7 @@ public class ProfileController {
     public ResponseEntity<UserStatsResponse> getUserStats(
             @PathVariable UUID userId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         return ResponseEntity.ok(profileService.getUserStats(callerId, userId, date));
     }
 }

@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
+import { markRefundIntentFromInbox } from '@/services/refundPushIntent';
 import { getInbox, markRead, type InboxNotification } from '@/services/notificationInbox';
 
 // 알림 화면 (GROMO-661) — 보관함(notificationInbox)에 저장된 푸시를 최신순 목록으로 보여준다.
@@ -94,7 +95,12 @@ export default function NotificationsScreen() {
               activeOpacity={0.85}
               disabled={!n.link}
               onPress={() => {
-                if (n.link) navigateToDeepLink(n.link);
+                if (!n.link) return;
+                // 환불 푸시를 보관함에서 다시 열 때도 착지가 성립해야 한다(GROMO-1579).
+                // 이 경로는 푸시 계층을 거치지 않아 표식 없이 링크만 흘러갔고, 그러면 비멤버가
+                // 여기서 열었을 때 안내가 서지 않아 목록으로 튕기는 결함이 이 경로에만 남는다.
+                markRefundIntentFromInbox(n.type, n.link);
+                navigateToDeepLink(n.link);
               }}
             >
               <View style={s.cardIcon}>

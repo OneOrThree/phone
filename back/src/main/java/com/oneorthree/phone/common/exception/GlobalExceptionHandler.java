@@ -3,17 +3,21 @@ package com.oneorthree.phone.common.exception;
 import com.oneorthree.phone.analytics.exception.AnalyticsException;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
+import com.oneorthree.phone.common.auth.LoginUserResolutionException;
 import com.oneorthree.phone.currency.exception.CurrencyException;
 import com.oneorthree.phone.focus.exception.FocusException;
+import com.oneorthree.phone.group.exception.ChallengeResultClaimHeldException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.friend.exception.FriendException;
+import com.oneorthree.phone.invitelink.exception.InviteLinkException;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.stats.exception.StatsException;
 import com.oneorthree.phone.user.exception.UserException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -56,8 +60,27 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
     }
 
+    /**
+     * 결과 표시 선점 실패(GROMO-1577 · B17) — {@link GroupException} 의 하위 타입이라 이 핸들러가
+     * 없어도 아래 {@code handleGroup} 이 같은 상태·코드를 돌려준다(지연 힌트만 빠진다). 여기서는
+     * <b>서버가 계산한 상대 지연</b>을 함께 실어, 앱이 폴링 없이 그 시점 1회만 다시 시도하게 한다.
+     */
+    @ExceptionHandler(ChallengeResultClaimHeldException.class)
+    public ResponseEntity<RetryAfterErrorResponse> handleChallengeResultClaimHeld(
+            ChallengeResultClaimHeldException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new RetryAfterErrorResponse(
+                        e.getErrorCode().name(), e.getMessage(), e.getRetryAfterMs()));
+    }
+
     @ExceptionHandler(GroupException.class)
     public ResponseEntity<ErrorResponse> handleGroup(GroupException e) {
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(InviteLinkException.class)
+    public ResponseEntity<ErrorResponse> handleInviteLink(InviteLinkException e) {
         return ResponseEntity.status(e.getErrorCode().getStatus())
                 .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
     }
@@ -95,6 +118,15 @@ public class GlobalExceptionHandler {
                         "요청 파라미터 '" + e.getName() + "' 형식이 올바르지 않습니다."));
     }
 
+    // @LoginUser 주입 실패 (GROMO-363) — 클라이언트가 재시도해도 고쳐지지 않는 서버 배선 오류라 500 이다.
+    // 원인(어느 핸들러인지)은 로그에만 남기고 응답 본문에는 넣지 않는다 — 내부 클래스·메서드명 노출 방지.
+    @ExceptionHandler(LoginUserResolutionException.class)
+    public ResponseEntity<ErrorResponse> handleLoginUserResolution(LoginUserResolutionException e) {
+        log.error("@LoginUser 주입 실패 — 배선 오류", e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("LOGIN_USER_RESOLUTION_FAILED", "서버 설정 오류로 요청을 처리하지 못했습니다."));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
@@ -119,12 +151,27 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("DATA_INTEGRITY_VIOLATION", "요청이 기존 데이터와 충돌합니다."));
     }
 
-    /*
-    @todo 낙관적락 exception 추후 분기 필요
-     */
+    // 낙관락(@Version — Group 정원·UserWallet 잔액) 충돌 → 409 CONCURRENT_UPDATE.
+    // 예전엔 ROOM_FULL 로 응답했는데, 내기 참가·정산이 같은 지갑을 두고 경합하는 경로가 생기면서
+    // 그룹 참가와 무관한 충돌까지 "정원 초과"로 보이는 오매핑이 됐다 — 전용 재시도 코드로 분리.
+    // 트랜잭션은 이미 전체 롤백된 상태라 재시도하면 풀린다.
     @ExceptionHandler(OptimisticLockingFailureException.class)
     public ResponseEntity<ErrorResponse> handleOptimisticLock(OptimisticLockingFailureException e) {
-        return ResponseEntity.status(GroupErrorCode.ROOM_FULL.getStatus())
-                .body(new ErrorResponse(GroupErrorCode.ROOM_FULL.name(), GroupErrorCode.ROOM_FULL.getMessage()));
+        return ResponseEntity.status(GroupErrorCode.CONCURRENT_UPDATE.getStatus())
+                .body(new ErrorResponse(GroupErrorCode.CONCURRENT_UPDATE.name(),
+                        GroupErrorCode.CONCURRENT_UPDATE.getMessage()));
+    }
+
+    // 비관락(내기 행 FOR UPDATE — 참가·취소·정산·그룹 탈퇴 연동) 획득 실패/데드락 감지 → 같은
+    // 409 CONCURRENT_UPDATE. 잠금 순서(내기 행 전부 → 지갑)를 코드로 고정해 데드락이 없도록 설계했지만,
+    // DB 가 감지해 한쪽을 끊는 경우(CannotAcquireLockException 등)에도 원인 불명 500 대신 재시도 가능
+    // 응답으로 강하시킨다. 트랜잭션은 전체 롤백된 상태라 재시도하면 풀린다. 설계상 없어야 할 충돌이므로
+    // warn 을 남겨 모니터링에서 보이게 한다.
+    @ExceptionHandler(PessimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handlePessimisticLock(PessimisticLockingFailureException e) {
+        log.warn("PessimisticLockingFailureException → 409 응답 (행 잠금 충돌/데드락 감지)", e);
+        return ResponseEntity.status(GroupErrorCode.CONCURRENT_UPDATE.getStatus())
+                .body(new ErrorResponse(GroupErrorCode.CONCURRENT_UPDATE.name(),
+                        GroupErrorCode.CONCURRENT_UPDATE.getMessage()));
     }
 }

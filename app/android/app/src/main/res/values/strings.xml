@@ -1,3 +1,11 @@
 <resources>
   <string name="app_name">gromo</string>
+  <string name="facebook_app_id">990121817063522</string>
+  <string name="facebook_client_token">7ed99476de7a19056835e56b628574bb</string>
+  <string name="fb_login_protocol_scheme">fb990121817063522</string>
+  <!-- 홈 위젯(GROMO-1006) — 오늘 공부시간 상위 2과목 -->
+  <string name="widget_study_label">오늘의 공부시간</string>
+  <string name="widget_study_description">오늘 공부시간이 가장 많은 두 과목을 보여줘요.</string>
+  <string name="widget_study_title">오늘의 공부시간</string>
+  <string name="widget_study_empty">아직 오늘 공부 기록이 없어요</string>
 </resources>

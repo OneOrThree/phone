@@ -3,11 +3,13 @@ import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Polyline } from 'react-native-svg';
 import { T } from '@/constants/theme';
 import { axisCeil, fmtAxis } from '@/utils/timeFormat';
+import { kstTodayWeekdayIndex } from '@/screens/stats/format';
 import type { CompareByDay } from '../mock';
 
 // 요일별 나/상대 비교 카드 — 프로필 상세의 집중시간·폰 사용시간 비교 공용(색만 교체).
 // 이중 막대 → 두 선그래프(GROMO-849): 시리즈당 폴리라인+점(통계 LineChart와 동일 기법).
 // 아직 안 온 요일은 라벨만 남기고 선·점에서 제외 — 0으로 이으면 급락처럼 보인다.
+// soloMine(GROMO-940): 내 프로필 — 나:나 비교는 무의미해 상대 선·범례를 생략하고 내 선만.
 
 interface Props {
   title: string;
@@ -15,6 +17,7 @@ interface Props {
   mineColor: string;
   theirsColor: string;
   opponentName: string;
+  soloMine?: boolean;
 }
 
 const DAYS = ['월', '화', '수', '목', '금', '토', '일'];
@@ -22,11 +25,21 @@ const DAYS = ['월', '화', '수', '목', '금', '토', '일'];
 const AREA_H = 72;
 const DOT_PAD = 6; // 점(r 3)이 캔버스 경계에서 잘리지 않게 사방 여유
 
-export function DuoDayChart({ title, data, mineColor, theirsColor, opponentName }: Props) {
+export function DuoDayChart({
+  title,
+  data,
+  mineColor,
+  theirsColor,
+  opponentName,
+  soloMine,
+}: Props) {
   const [plotW, setPlotW] = useState(0);
-  const axisMax = axisCeil(Math.max(...data.mine, ...data.theirs, 1));
-  // 이번 주(월~일) 고정이라 오늘 요일까지만 점을 찍는다(월=0)
-  const todayIdx = (new Date().getDay() + 6) % 7;
+  const axisMax = axisCeil(Math.max(...data.mine, ...(soloMine ? [] : data.theirs), 1));
+  // 이번 주(월~일) 고정이라 오늘 요일까지만 점을 찍는다(월=0).
+  // 축은 KST(GROMO-1254) — data는 heatmapRange('WEEK')(KST)로 받은 셀을 byWeekday로 접은 배열이라
+  // 마커만 로컬 요일이면(종전 new Date().getDay()) 비KST 기기에서 오늘 칸이 한 칸 어긋나고,
+  // slice(0, todayIdx+1)가 이미 온 요일을 잘라 버리거나 안 온 요일을 0으로 이어 급락처럼 그린다.
+  const todayIdx = kstTodayWeekdayIndex();
   const step = plotW / DAYS.length;
   const pts = (series: number[]) =>
     DAYS.slice(0, todayIdx + 1).map((_, i) => ({
@@ -39,7 +52,7 @@ export function DuoDayChart({ title, data, mineColor, theirsColor, opponentName 
   return (
     <View style={s.card}>
       <Text style={s.title}>{title}</Text>
-      <Text style={s.sub}>나와 비교</Text>
+      <Text style={s.sub}>{soloMine ? '내 기록' : '나와 비교'}</Text>
 
       <View style={s.plotRow}>
         {/* 세로축 — 상한·절반 눈금 라벨 (그리드라인 높이에 맞춰 절대 배치) */}
@@ -61,11 +74,14 @@ export function DuoDayChart({ title, data, mineColor, theirsColor, opponentName 
             // 점이 캔버스 경계에서 잘리지 않게 (SVG는 자기 영역 밖을 클리핑)
             <Svg width={plotW + DOT_PAD * 2} height={AREA_H + DOT_PAD * 2} style={s.lineSvg}>
               {/* 상대 선을 먼저 그려 내 선이 겹침에서 위로 오게 */}
-              <Polyline points={line(theirs)} fill="none" stroke={theirsColor} strokeWidth={2} />
+              {!soloMine && (
+                <Polyline points={line(theirs)} fill="none" stroke={theirsColor} strokeWidth={2} />
+              )}
               <Polyline points={line(mine)} fill="none" stroke={mineColor} strokeWidth={2} />
-              {theirs.map((p, i) => (
-                <Circle key={`t${i}`} cx={p.x} cy={p.y} r={3} fill={theirsColor} />
-              ))}
+              {!soloMine &&
+                theirs.map((p, i) => (
+                  <Circle key={`t${i}`} cx={p.x} cy={p.y} r={3} fill={theirsColor} />
+                ))}
               {mine.map((p, i) => (
                 <Circle key={`m${i}`} cx={p.x} cy={p.y} r={3} fill={mineColor} />
               ))}
@@ -85,18 +101,20 @@ export function DuoDayChart({ title, data, mineColor, theirsColor, opponentName 
         </View>
       </View>
 
-      <View style={s.legendRow}>
-        <View style={s.legendItem}>
-          <View style={[s.legendDot, { backgroundColor: mineColor }]} />
-          <Text style={s.legendText}>나</Text>
+      {!soloMine && (
+        <View style={s.legendRow}>
+          <View style={s.legendItem}>
+            <View style={[s.legendDot, { backgroundColor: mineColor }]} />
+            <Text style={s.legendText}>나</Text>
+          </View>
+          <View style={s.legendItem}>
+            <View style={[s.legendDot, { backgroundColor: theirsColor }]} />
+            <Text style={s.legendText} numberOfLines={1}>
+              {opponentName}
+            </Text>
+          </View>
         </View>
-        <View style={s.legendItem}>
-          <View style={[s.legendDot, { backgroundColor: theirsColor }]} />
-          <Text style={s.legendText} numberOfLines={1}>
-            {opponentName}
-          </Text>
-        </View>
-      </View>
+      )}
     </View>
   );
 }

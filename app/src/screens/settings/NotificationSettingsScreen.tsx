@@ -304,7 +304,7 @@ const s = StyleSheet.create({
 
   // 시각 피커 모달
   overlay: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.5) },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   sheet: {
     backgroundColor: T.paperLight,
     borderTopLeftRadius: 28,
@@ -330,7 +330,8 @@ const s = StyleSheet.create({
   pickerCol: { flex: 1 },
   colon: { ...T.text.title, color: T.inkSub, marginHorizontal: T.space.xs },
   confirmBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

@@ -6,7 +6,9 @@
 .vs_code
 .idea/
 .superpowers/
-docs/
+# 개인 기획 스크래치(.docs)만 무시 — 팀 공유 문서 /docs 는 추적
+# (back/docs 는 back/.gitignore 가 관리 — GROMO-735)
+/.docs/
 # 앱 아이콘 로컬 스테이징 (레포 루트)
 /assets/
 # 작업 일지 (로컬 전용)

@@ -17,18 +17,37 @@ Read in this order when you first pick up the project:
 Other work logs: see `.claude/*_WorkLog.md` — one per feature; the set grows, so
 glob instead of trusting any list here.
 
+### Team-shared feature docs (repo-root `docs/`)
+
+Team-facing feature docs — **PRD · policy · IA · high-level/low-level design ·
+diagrams** per feature — live in the repo-root `docs/prd/<feature>/` (tracked in
+git; see `docs/README.md`). Anything meant for teammates goes there, not in the
+local-only folders below.
+
+**이관 완료 (2026-08-09)** — `currency` · `league` · `object-character` · `onboarding` ·
+`screentime`. 새 기능 설계서도 `docs/prd/<기능-영문-kebab>/`에 만든다. 4종을 한 파일로
+합칠 때는 **기능 이름을 딴 파일명**(`screentime.md`) — `design.md` 금지. 문서 브랜치는
+`doc/` 프리픽스. `challenge` · `focus-session` · `group-carousel`은 공유 보류 상태로
+`app/.docs/features/`에 남아 있다.
+
 ### Planning/design reference docs (`app/.docs/`)
 
 Original planning/design source docs live in `app/.docs/`. **This folder is in `.gitignore`
-(local-only)** — they're working references, not for external sharing.
+(local-only)** — personal working references, not for external sharing.
 
-| Doc                                      | Purpose                                                                  |
-| ---------------------------------------- | ------------------------------------------------------------------------ |
-| `MVP_화면설계_브리프.md`                 | Screen-design brief for the design AI (concept, target, screen flow)     |
-| `기능명세.md`                            | Feature spec (screen/feature definitions; was `app/.claude/기능명세.md`) |
-| `01-information-architecture.drawio.xml` | Information architecture (IA) diagram (draw.io)                          |
+**[`app/.docs/README.md`](../.docs/README.md) is the index** — read it before hunting for a doc.
+Folder map (그 README가 정본, 이 표는 요약):
 
-> When you receive a new planning/design source doc, put it in `app/.docs/` and add a row above.
+| Folder                                                                      | Purpose                                                                                                           |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `features/`                                                                 | 공유 보류분(`challenge/` · `focus-session/` · `group-carousel/`) — 공유된 기능 설계서는 `docs/prd/<기능>/`이 정본 |
+| `product/`                                                                  | Product-wide planning — 기획서, 기능명세, IA diagram, user funnel, event taxonomy                                 |
+| `qa/` · `ops/`                                                              | QA scenarios/verification · ops refs (release/OTA, data map, schema.dbml)                                         |
+| `design/` · `marketing/` · `store/` · `presentations/` · `troubleshooting/` | 시안 · 마케팅 · 스토어 · 발표자료 · 트러블슈팅                                                                    |
+| `pr/` · `tickets/` · `archive/`                                             | PR 초안 · 티켓 초안 · 지난 문서 보존(현행 아님)                                                                   |
+
+> New docs go in one of these folders — **never at `.docs/` root**. 단 기능 설계서는 예외로
+> 팀 공유 `docs/prd/<기능-영문-kebab>/`에 만든다 (위 섹션).
 
 ### Feature work logs
 
@@ -40,8 +59,9 @@ problem→cause→fix, build/deploy notes, checklist). Promote it into "Doc navi
 
 ## Stack
 
-- React Native 0.81 / Expo SDK 54 / React 19, written in **TypeScript** (`strict` mode).
-- React Navigation — bottom tab navigator (`홈` / `리그` / `그룹`(커밍순) / `전체`), with
+- React Native 0.86 / Expo SDK 57 / React 19, written in **TypeScript** (`strict` mode).
+  최소 지원 iOS **16.4** (SDK 57 요구사항).
+- React Navigation — bottom tab navigator (`홈` / `리그` / `그룹` / `전체`), with
   Stats / UsageDetail / Focus\* / Friend\* / League\* / Settings\* screens registered on the
   root stack (tab bar hidden).
 - AsyncStorage for local persistence; Kakao + Apple login; JWT auth.
@@ -53,8 +73,8 @@ problem→cause→fix, build/deploy notes, checklist). Promote it into "Doc navi
 | ------------ | --------- | ------------------------ |
 | Node.js      | `24.x`    | `node --version`         |
 | npm          | `10.x`    | `npm --version`          |
-| Expo         | `~54.0.0` | (see package.json)       |
-| React Native | `^0.81.5` | (see package.json)       |
+| Expo         | `^57.0.8` | (see package.json)       |
+| React Native | `0.86.0`  | (see package.json)       |
 | Xcode        | `15.0+`   | `xcode-select --version` |
 | CocoaPods    | `1.14+`   | `pod --version`          |
 
@@ -199,7 +219,7 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 
 ### Navigation
 
-- Visible bottom tabs (via the custom `TabBar`): `홈` | `리그` | `그룹`(커밍순) | `전체`.
+- Visible bottom tabs (via the custom `TabBar`): `홈` | `리그` | `그룹` | `전체`.
 - Root-stack screens (tab bar hidden, reached via navigation): `Stats`, `UsageDetail`,
   `FocusCategory`/`FocusSession`/`FocusResult`, `FriendAdd`/`FriendProfile`/`TierGuide`/
   `LeagueResult`, `Settings*` 계열.
@@ -239,9 +259,10 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 ### Screen Time integration
 
 - **Main-app module**: `ios/gromo/ScreenTimeModule.swift` — `requestAuthorization()`,
-  `getAuthorizationStatus()`, `getTotalScreenTime()` (via App Group).
+  `getAuthorizationStatus()`, 사용량 버킷·목표 모니터링, 집중 실드/Live Activity 등.
 - **Extension**: `ios/screentimereport/` — `TotalActivityReport.swift` (data) +
-  `TotalActivityView.swift` (UI); writes to App Group `UserDefaults`.
+  `TotalActivityView.swift` (UI). (익스텐션 → App Group 쓰기는 iOS가 차단 —
+  `ScreenTime_WorkLog.md` 원인 3 참고.)
 
 ### App Groups
 
@@ -319,12 +340,23 @@ npm run typecheck
 
 ### PR workflow
 
-Claude does not open PRs. Instead, write a `.md` draft the user copies into GitHub.
+Claude opens PRs directly with `gh pr create`, as a **ready PR — never `--draft`** (team
+convention, 2026-08-14). The team's codex auto-review only attaches to ready PRs, so a
+draft PR gets zero automated review.
 
-1. **Draft location**: `app/.docs/PR_GROMO-####.md` (`.docs` is gitignored, so drafts aren't committed).
-2. **Title**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT`/`FIX`/`CHORE`/`REFACTOR` (e.g. `[FEAT] GROMO-206 인게임 재화 관리 기능 구현`).
-3. **Body**: follow the root [`.github/pull_request_template.md`](../../.github/pull_request_template.md) — `## Jira` (`[GROMO-####]()`), `## 변경 유형`, `## Summary` (what/why, 2–3 lines), `## Changes`, `## DB 변경` (only if schema changed), `## 주의사항` (migrations/side-effects, drop if none).
-4. Share the draft path; the user reviews and opens the PR.
+1. **Title**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT`/`FIX`/`CHORE`/`REFACTOR` (e.g.
+   `[FEAT] GROMO-206 인게임 재화 관리 기능 구현`).
+2. **Body**: follow the root [`.github/pull_request_template.md`](../../.github/pull_request_template.md)
+   — `## Jira` (`[GROMO-####]()`), `## 변경 유형`, `## Summary` (what/why, 2–3 lines), `## Changes`,
+   `## DB 변경` (only if schema changed), `## 주의사항` (migrations/side-effects, drop if none).
+3. **Ticket references**: only the ticket this PR **directly implements** gets the full key
+   (`GROMO-####`) — the full key attaches this PR's history to that ticket in Jira. Related or
+   reference tickets the PR does not implement get the **number only** (e.g. "ticket 455"), so
+   no PR history attaches to them.
+4. Never append a claude.ai/code session link to the PR body.
+
+Commits/pushes leading up to the PR still need explicit user approval — see
+"### Commit / push rule" above; opening the PR itself does not.
 
 ---
 
@@ -341,8 +373,17 @@ Claude does not open PRs. Instead, write a `.md` draft the user copies into GitH
 
 ## Testing
 
-There are **no automated frontend tests**. Don't assume or claim coverage — verify changes by
-running the app (simulator/device) or an `npx expo export` bundle check.
+- **유닛·컴포넌트 테스트 (jest)**: `npm test` — jest-expo 프리셋, `src/**/*.test.ts(x)` (GROMO-945·946·948).
+  KST 고정(`jest.config.js`), AsyncStorage 공식 mock(`jest.setup.js`). CI(lint.yml)에서도 돈다.
+- **E2E (Maestro)**: `./scripts/e2e.sh` — Release 시뮬 자립 빌드(dev URL 주입·서명 보정) 후
+  `.maestro/flows/` 01→02→03 순서 실행. 01이 게스트 계정을 만들고 02가 집중 기록을 만들며
+  03이 그 기록을 조회하는 체이닝 구조(GROMO-947). 대본 셀렉터는 **testID만** 사용 — 시스템
+  알럿(권한 등)만 문구 매칭 예외. 로컬 배포 전 관문이며 CI에는 연결돼 있지 않다.
+  실행이 만든 게스트 계정은 종료 시 탈퇴 API로 자동 정리된다(게스트는 앱 UI에 탈퇴 경로가
+  없어 e2e.sh가 시뮬 컨테이너의 토큰으로 직접 호출).
+- E2E 빌드 플래그 `EXPO_PUBLIC_E2E=1`(e2e.sh가 주입): hot-updater OTA 게이트 우회(App.tsx) +
+  푸시 권한 요청 스킵(services/push.ts). 운영/일반 빌드엔 영향 없음.
+- 시각 품질(레이아웃·색상)은 자동화로 못 잡는다 — QA 시나리오 수동 테스트 유지.
 
 ---
 
@@ -363,4 +404,4 @@ running the app (simulator/device) or an `npx expo export` bundle check.
 
 ---
 
-**Last updated**: 2026-07-20 (harness refresh — added `src/mocks/`, removed dead `eas.json`, work-log list → glob pointer)
+**Last updated**: 2026-08-14 (PR workflow — Claude opens ready PRs directly via `gh pr create`, replacing the old `.md` draft handoff)

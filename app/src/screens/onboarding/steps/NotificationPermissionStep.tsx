@@ -1,5 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
-import messaging from '@react-native-firebase/messaging';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
@@ -29,6 +28,13 @@ export default function NotificationPermissionStep({ update, onNext }: StepProps
   const allow = async () => {
     let granted = false;
     try {
+      if (Platform.OS === 'web') {
+        update({ notificationGranted: false });
+        onNext();
+        return;
+      }
+      const { default: messaging } =
+        require('@react-native-firebase/messaging') as typeof import('@react-native-firebase/messaging');
       const status = await messaging().requestPermission();
       granted =
         status === messaging.AuthorizationStatus.AUTHORIZED ||

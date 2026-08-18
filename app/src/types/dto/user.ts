@@ -37,9 +37,6 @@ export interface OccupationResponse {
   sortOrder: number;
 }
 
-// 성별 (Java enum Gender).
-export type Gender = 'MALE' | 'FEMALE' | 'UNKNOWN';
-
 // 통계 공개 범위 (Java enum StatVisibility). PUBLIC=리그 전체, FRIENDS=친구만.
 export type StatVisibility = 'PUBLIC' | 'FRIENDS';
 
@@ -83,47 +80,49 @@ export interface UpdateScreenTimePermissionRequest {
 }
 
 // POST /users/me 요청 — 신규 유저 프로필 최초 등록.
+// 서버 필수는 nickname뿐(@NotBlank) — 온보딩이 수집한 필드만 부분 바디로 보낸다(목표 미전송 시 서버 기본 0).
 export interface UserProfileSetupRequest {
   nickname: string;
-  birthDate: string; // LocalDate
-  gender: Gender;
-  occupation: Occupation;
-  dailyScreenTimeGoalMinutes: number;
-  dailyFocusTimeGoalMinutes: number;
-  countryCode: string; // ISO 3166-1 alpha-2
-  reportTime: string;
+  occupation?: Occupation;
+  dailyScreenTimeGoalMinutes?: number;
+  dailyFocusTimeGoalMinutes?: number;
+  countryCode?: string; // ISO 3166-1 alpha-2
 }
 
 // PATCH /users/me 요청 — 유저 프로필 부분 수정(전 필드 선택).
 export interface UserProfileUpdateRequest {
   nickname?: string;
-  birthDate?: string; // LocalDate
-  gender?: Gender;
   dailyScreenTimeGoalMinutes?: number;
   dailyFocusTimeGoalMinutes?: number;
   countryCode?: string; // ISO 3166-1 alpha-2
-  reportTime?: string;
 }
 
-// GET /users/me 응답 — 본인 프로필.
+// GET /users/me 응답 — 본인 프로필. 백엔드 record 필드와 1:1(gender·birthDate 등은 응답에 없음).
 export interface UserProfileResponse {
   id: string; // UUID
   nickname: string;
-  gender: string;
-  birthDate: string; // LocalDate
   currency: number;
-  currentTier: number | null; // 리그 미소속 시 null
   dailyScreenTimeGoalMinutes: number;
   dailyFocusTimeGoalMinutes: number;
-  countryCode: string;
-  reportTime: string;
+  countryCode: string | null; // ISO 3166-1 alpha-2 — 미설정 null
+  statVisibility: StatVisibility | null; // 미설정 null
+  occupation: Occupation | null; // 준비 시험 코드(enum name) — 미설정 null (GROMO-757)
+  // 서버가 이 유저의 날짜 버킷을 자르는 IANA 존(GROMO-1252) — countryCode 파생, 미지정·미지원은
+  // 'Asia/Seoul'. 자정 걸친 세션의 업로드 날짜 키를 이 축으로 만든다(utils/serverZone).
+  // 구버전 서버는 미전송 → undefined → 앱 폴백('Asia/Seoul') 유지.
+  timeZone?: string;
   // ↓ 설정 화면 표시용 — 백엔드 응답 확장 예정(GROMO-559 짝 BE). 도착 전까진 undefined → 로컬 캐시·기본값 폴백.
-  statVisibility?: StatVisibility;
   notificationEnabled?: boolean;
   soundEnabled?: boolean;
   nightModeEnabled?: boolean;
   nightStartTime?: string; // 'HH:mm'
   nightEndTime?: string; // 'HH:mm'
+}
+
+// GET /users/nickname/check 응답 — 닉네임 사용 가능 여부(GROMO-1215).
+// 항상 200 — 형식 위반(trim 후 2~10자 밖)도 available=false로 온다(별도 4xx 없음).
+export interface NicknameCheckResponse {
+  available: boolean;
 }
 
 // GET /users/me/social-links 응답 — 연동된 소셜 계정.

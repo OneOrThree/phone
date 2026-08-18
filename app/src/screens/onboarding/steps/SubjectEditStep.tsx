@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
+import InfoNote, { NoteStrong } from '@/screens/onboarding/components/InfoNote';
 import { T } from '@/constants/theme';
 import { eunNeun } from '@/screens/onboarding/format';
 import type { StepProps } from '@/screens/onboarding/types';
@@ -15,8 +16,9 @@ export default function SubjectEditStep({ data, onNext }: StepProps) {
 
   return (
     <StepScaffold
-      title={`${category}${eunNeun(category)} 보통\n이 과목들을 공부해요`}
-      ctaLabel="이대로 시작"
+      testID="onboarding.step.subjectEdit"
+      title={`${category}${eunNeun(category)} 이 과목들로\n공부 시간을 비교해요`}
+      ctaLabel="좋아요!"
       onCta={onNext}
       scrollable
     >
@@ -27,6 +29,13 @@ export default function SubjectEditStep({ data, onNext }: StepProps) {
             <Text style={s.name}>{name}</Text>
           </View>
         ))}
+      </View>
+      {/* GROMO-970 — 공통 과목=비교용·직접 추가=기록용 안내(추가 부담 완화) */}
+      <View style={s.note}>
+        <InfoNote>
+          과목은 <NoteStrong>언제든 추가</NoteStrong>할 수 있어요.{'\n'}직접 추가한 과목은{' '}
+          <NoteStrong>비교 없이 내 기록용</NoteStrong>으로 쓰여요
+        </InfoNote>
       </View>
     </StepScaffold>
   );
@@ -53,4 +62,5 @@ const s = StyleSheet.create({
   // ▶아이콘 대체 — 작은 점 마커(누르는 버튼 어포던스 제거)
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.accent },
   name: { ...T.text.label, color: T.ink, flex: 1 },
+  note: { marginTop: T.space.md },
 });

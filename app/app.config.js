@@ -23,6 +23,8 @@ export default {
         {
           nativeAppKey: 'af3ff0c5b4fb9cd38b78428b88add65d',
           ios: { handleKakaoOpenUrl: true },
+          // 로그인 후 kakao{앱키}://oauth 복귀 액티비티 — prebuild 재생성 시 Manifest에 자동 주입 (수동 관리 중인 android/에도 동일 설정 반영돼 있음)
+          android: { authCodeHandlerActivity: true },
         },
       ],
       '@react-native-community/datetimepicker',
@@ -40,6 +42,9 @@ export default {
       ],
       // Facebook SDK 플러그인은 appID 가 있을 때만 추가한다.
       // (appID 가 비어 있으면 플러그인이 'missing appID' 로 throw 하므로 미설정 시 skip)
+      // 주의: prebuild 시 이 플러그인이 Info.plist를 단일 값으로 재생성해, 네이티브의
+      // Debug/Release별 변수 치환($(FACEBOOK_APP_ID) — dev/prod 데이터 세트 분리)이 사라진다.
+      // ios/는 수동 관리를 유지하고, prebuild 했다면 Info.plist 3곳(AppID·ClientToken·URL스킴)을 복원할 것.
       ...(facebookAppId
         ? [
             [
@@ -56,30 +61,73 @@ export default {
     ],
     slug: 'gromo-kr',
     scheme: 'gromo',
-    version: '1.0.0',
+    version: '1.1.0',
+    // 앱 전역은 세로. 안드로이드 prebuild가 매니페스트를 세로로 잠그도록 top-level은 'portrait'로
+    // 둔다('default'는 안드로이드를 screenOrientation="unspecified"로 풀어버림, 코덱스 리뷰).
+    // iOS만 집중 화면(GROMO-973)에서 가로가 필요한데, 아래 ios.infoPlist.UISupportedInterfaceOrientations를
+    // 직접 지정하면 Expo orientation mod의 속성 가드가 이 값을 존중해(prebuild 경고만 남음) iOS는
+    // 4방향을 유지한다. iOS 런타임은 App.tsx 전역 세로 잠금으로 집중 화면 밖에서 세로를 지킨다.
     orientation: 'portrait',
     userInterfaceStyle: 'light',
     newArchEnabled: true,
     assetBundlePatterns: ['**/*', 'src/assets/models/*'],
     ios: {
       supportsTablet: true,
+      // iPad 멀티태스킹(Split View)에선 expo-screen-orientation 잠금이 무시돼, 집중 완료 시
+      // 세로 전환이 실패하고 정지 버튼이 없는 가로 화면에 갇힌다(코덱스 리뷰). 전체화면을 요구해
+      // 방향 잠금이 정상 동작하게 한다 — 대신 iPad 화면 분할(Split View)은 미지원.
+      requireFullScreen: true,
       bundleIdentifier: 'com.oneorthree.gromo',
       buildNumber: '1',
+      // Universal Links(그룹 초대 링크) — 정본은 ios/gromo/gromo.entitlements 다.
+      // ios/ 는 커밋된 prebuilt 이고 prebuild 를 돌리지 않으므로 이 값은 문서화 패리티용이며,
+      // 실제 서명에 들어가는 것은 entitlements 파일 쪽이다. 둘을 항상 같이 고칠 것.
+      associatedDomains: ['applinks:link.oneorthree.world'],
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
+        // 집중 화면(GROMO-973)만 가로 허용 — iPhone·iPad 모두 4방향 명시. 이 값이 있으면 Expo
+        // orientation mod(top-level 'portrait')가 이 키를 건드리지 않는다(속성 가드). 안드로이드는
+        // top-level 'portrait'로 세로 유지되고, iOS만 여기서 가로를 더한다(코덱스 리뷰).
+        UISupportedInterfaceOrientations: [
+          'UIInterfaceOrientationPortrait',
+          'UIInterfaceOrientationPortraitUpsideDown',
+          'UIInterfaceOrientationLandscapeLeft',
+          'UIInterfaceOrientationLandscapeRight',
+        ],
+        'UISupportedInterfaceOrientations~ipad': [
+          'UIInterfaceOrientationPortrait',
+          'UIInterfaceOrientationPortraitUpsideDown',
+          'UIInterfaceOrientationLandscapeLeft',
+          'UIInterfaceOrientationLandscapeRight',
+        ],
         // Firebase 자동 화면추적 끄기 — RN에선 네이티브 뷰컨트롤러명(RNSScreen 등)만 잡혀 노이즈.
         // 화면 계측은 우리가 발행하는 커스텀 이벤트로만 관리한다.
         FirebaseAutomaticScreenReportingEnabled: false,
         // Screen Time(FamilyControls) 권한 사용 목적 — 시스템 팝업엔 안 뜨지만 심사 대비 명시
         NSFamilyControlsUsageDescription:
           '폰 사용 시간을 측정해 스크린타임 목표 달성 확인과 사용 통계 제공에 사용합니다.',
+        // 카메라로 사진 찍어 캐릭터 만들기(오브젝트 캐릭터) — 네이티브 plist와 동기 유지
+        NSCameraUsageDescription: '사진을 찍어 나만의 캐릭터를 만들 때 카메라를 사용해요.',
         // 공유 시트 '이미지 저장'(타임테이블 공유) — 네이티브 plist와 동기 유지(prebuild 시 유실 방지, 리뷰 반영)
         NSPhotoLibraryAddUsageDescription:
           '타임테이블 등 통계 이미지를 사진에 저장하기 위해 필요합니다.',
+        // 앨범에서 사진 고르기(오브젝트 캐릭터 스파이크) — 네이티브 plist와 동기 유지
+        NSPhotoLibraryUsageDescription:
+          '사진 속 물건으로 캐릭터를 만들기 위해 앨범에서 사진을 고를 때 필요합니다.',
       },
     },
     android: {
       package: 'com.oneorthree.gromo',
+      // 어댑티브 아이콘(prebuild 시 네이티브 반영) — 전경은 세이프존(중앙 66%)에 아트를 두고
+      // 여백은 투명, 배경색은 icon.png 테두리 평균색(보라). 수동 관리 중인 android/ res에도 동일 반영돼 있음.
+      adaptiveIcon: {
+        foregroundImage: './src/assets/adaptive-icon.png',
+        backgroundColor: '#9288CB',
+      },
+      // Play 는 같은 versionCode 재업로드를 거부한다 — 네이티브 버전(expo-audio 포함)을 새로
+      // 올리려면 versionName 과 함께 반드시 올릴 것. iOS 는 fastlane 이 빌드번호를 자동 증가시키지만
+      // Android 는 자동화가 없어 이 값이 유일한 출처다(android/app/build.gradle 과 동기 유지).
+      versionCode: 3,
     },
     web: {
       bundler: 'metro',

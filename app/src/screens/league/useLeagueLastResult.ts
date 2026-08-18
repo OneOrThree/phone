@@ -42,6 +42,8 @@ export function useLeagueLastResult() {
             toLevel: res.newTierLevel ?? res.previousTierLevel ?? 1,
             weekHours: (res.focusSeconds ?? 0) / 3600,
             weekStartAt: res.weekStartAt,
+            // 승급 보상 시간조각 — 서버 응답의 promotionBonusCoins를 화면까지 그대로 전달(승급 아닐 땐 미표기)
+            promotionBonusCoins: res.promotionBonusCoins ?? 0,
           });
         } catch {
           // 조회 실패는 조용히 무시 — 결과 노출은 부가 기능이라 리그 화면을 막지 않고 다음 포커스에 재시도

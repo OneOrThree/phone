@@ -4,9 +4,9 @@
     "strict": true,
     "allowJs": false,
     "jsx": "react-jsx",
-    "baseUrl": ".",
+    "types": ["jest"],
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx"],

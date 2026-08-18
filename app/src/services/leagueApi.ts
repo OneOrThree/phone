@@ -2,7 +2,7 @@
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
 // 타입은 기존 공용 타입(@/types/api)을 재사용한다(중복 DTO 방지 — 리뷰 반영).
 import { api } from '@/services/api';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 import type {
   LeagueTierResponse,
   LeagueMemberResponse,
@@ -22,11 +22,16 @@ export async function getMyTier(): Promise<LeagueTierResponse> {
 
 // GET /api/v1/league/me/ranking?category&date — 주간 랭킹 상위 100명. category 미지정: 전역(활성 유저 전체),
 // 지정: 같은 직군. ⚠️ 어느 쪽도 '나를 포함'을 보장하지 않는다(top-100 리스트일 뿐 — GROMO-818에서 아레나 응답 제거).
-// date는 필수(누락 시 서버 400) — 라이브 필드의 '당일 집중분' 기준일로, 클라 로컬 오늘을 보낸다
-// (GROMO-824/854, friendsApi.fetchFriends와 동일 패턴).
-export async function getMyRanking(category?: OccupationCategory): Promise<LeagueMemberResponse[]> {
+// date는 필수(누락 시 서버 400) — 라이브 필드의 '당일 집중분' 기준일로, KST 오늘을 보낸다
+// (GROMO-824/854 도입, GROMO-1236에서 KST 이전 — 서버 버킷이 KST고 주 경계도 이미 KST라
+// 일 축만 로컬이던 내부 모순 해소. friendsApi.fetchFriends와 동일 패턴).
+export async function getMyRanking(
+  category?: OccupationCategory,
+  date = todayStrKst(),
+): Promise<LeagueMemberResponse[]> {
+  const params = category ? { category, date } : { date };
   const { data } = await api.get<LeagueMemberResponse[]>('/api/v1/league/me/ranking', {
-    params: { category, date: todayStr() },
+    params,
   });
   return data;
 }

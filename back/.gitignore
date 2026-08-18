@@ -51,3 +51,11 @@ norm.sh
 norm.sh
 reset-db.sh
 run-migration-v8.sh
+
+# 문서 — back/docs 는 로컬 전용(기획 스크래치)이지만, DB 스키마 정본 docs/db 만 추적 (GROMO-735)
+docs/*
+!docs/db/
+# docs/db 안에서도 로컬 운영 스크립트·백업·OS 파일은 계속 제외 (schema.dbml / ChartDB 익스포트만 추적)
+docs/db/*.sh
+docs/db/*_backup.json
+docs/db/.DS_Store

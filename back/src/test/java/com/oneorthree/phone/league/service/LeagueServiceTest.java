@@ -17,6 +17,7 @@ import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
+import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
@@ -77,6 +78,9 @@ class LeagueServiceTest {
     @Mock
     private FocusLiveInfoLookup focusLiveInfoLookup;
 
+    @Mock
+    private CurrencyTransactionRepository currencyTransactionRepository;
+
     @Spy
     private LeagueWeek leagueWeek = new LeagueWeek();
 
@@ -122,7 +126,7 @@ class LeagueServiceTest {
     @DisplayName("내 티어 조회 성공 → 활성 User 티어와 설정 배지를 호환 DTO에 매핑")
     void getMyTierAssigned() {
         given(userRepository.findById(USER_ID))
-                .willReturn(Optional.of(User.builder().id(USER_ID).tierLevel(3).build()));
+                .willReturn(Optional.of(User.builder().id(USER_ID).nickname("나").tierLevel(3).build()));
         given(leagueTierConfigRepository.findById(3))
                 .willReturn(Optional.of(tierConfig(3, "hyperfocus")));
 
@@ -138,7 +142,7 @@ class LeagueServiceTest {
     @DisplayName("내 티어 조회 - 티어 설정 누락 → badgeId=null 로 방어")
     void getMyTierBadgeConfigMissing() {
         given(userRepository.findById(USER_ID))
-                .willReturn(Optional.of(User.builder().id(USER_ID).tierLevel(3).build()));
+                .willReturn(Optional.of(User.builder().id(USER_ID).nickname("나").tierLevel(3).build()));
         given(leagueTierConfigRepository.findById(3))
                 .willReturn(Optional.empty());
 
@@ -165,6 +169,7 @@ class LeagueServiceTest {
     void getMyTierDeletedUserIsUnassigned() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
                 .id(USER_ID)
+                .nickname("탈퇴자")
                 .tierLevel(3)
                 .isDeleted(true)
                 .build()));
@@ -176,12 +181,11 @@ class LeagueServiceTest {
     }
 
     @Test
-    @DisplayName("내 티어 조회 - 게스트 유저 → assigned=false(온보딩 전 리그 미참가)")
-    void getMyTierGuestIsUnassigned() {
+    @DisplayName("내 티어 조회 - 온보딩 미완주(nickname null) → assigned=false")
+    void getMyTierWithoutNicknameIsUnassigned() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
                 .id(USER_ID)
                 .tierLevel(3)
-                .isGuest(true)
                 .build()));
 
         LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
@@ -189,6 +193,37 @@ class LeagueServiceTest {
         assertThat(response.assigned()).isFalse();
         assertThat(response.tierLevel()).isNull();
         verify(leagueTierConfigRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("내 티어 조회 - 공백-only 닉네임 레거시 행 → assigned=false (유니코드 공백 포함, 랭킹 쿼리와 동일 판정)")
+    void getMyTierBlankNicknameIsUnassigned() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
+                .id(USER_ID)
+                .nickname("\u2003\u2003")
+                .tierLevel(3)
+                .build()));
+
+        LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
+
+        assertThat(response.assigned()).isFalse();
+        verify(leagueTierConfigRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("내 티어 조회 - 닉네임 등록한 게스트 → assigned=true(온보딩 완주자는 리그 참가)")
+    void getMyTierGuestWithNicknameIsAssigned() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
+                .id(USER_ID)
+                .nickname("닉네임게스트")
+                .tierLevel(3)
+                .isGuest(true)
+                .build()));
+
+        LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
+
+        assertThat(response.assigned()).isTrue();
+        assertThat(response.tierLevel()).isEqualTo(3);
     }
 
     // ── getMyRanking ──────────────────────────────────────────────────────
@@ -450,6 +485,8 @@ class LeagueServiceTest {
     void getLastResultUnacknowledged() {
         given(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(USER_ID))
                 .willReturn(Optional.of(weeklyResult(PREVIOUS_WEEK_START, LeagueWeeklyResultType.PROMOTED)));
+        given(currencyTransactionRepository.existsByIdempotencyKey(
+                "league:" + PREVIOUS_WEEK_START + ":" + USER_ID)).willReturn(true);
 
         LeagueLastResultResponse response = leagueService.getLastResult(USER_ID);
 
@@ -460,6 +497,8 @@ class LeagueServiceTest {
         assertThat(response.newTierLevel()).isEqualTo(3);
         assertThat(response.focusSeconds()).isEqualTo(200);
         assertThat(response.acknowledged()).isFalse();
+        // 승급 보너스는 원장에 실제 지급(멱등키)이 있을 때만 보고 — tier 3 도달 → +100
+        assertThat(response.promotionBonusCoins()).isEqualTo(100);
     }
 
     @Test

@@ -10,15 +10,23 @@
 //   await ScreenTimeModule.requestAuthorization();
 
 import Foundation
+import CryptoKit
 import ActivityKit     // 집중 세션 Live Activity(다이나믹 아일랜드)
 import FamilyControls  // 스크린 타임 권한 요청에 필요한 Apple 프레임워크
 import DeviceActivity  // DeviceActivityCenter, DeviceActivitySchedule, DeviceActivityEvent
 import ManagedSettings // 집중 세션 중 앱 차단(shield)
 import SwiftUI         // FamilyActivityPicker 표시용
+import WidgetKit       // 캐릭터 스냅샷 변경 시 홈 위젯 타임라인 새로고침
 
 // @objc: Objective-C 런타임에 노출 (React Native 브릿지가 ObjC 기반이라 필요)
 @objc(ScreenTimeModule)
 class ScreenTimeModule: NSObject {
+
+    // FamilyActivitySelection 토큰은 외부로 내보내지 않고 변경 여부 비교용 서명만 반환한다.
+    private func selectionSignature(_ selection: FamilyActivitySelection) -> String {
+        guard let data = try? JSONEncoder().encode(selection) else { return "" }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
 
     // React Native 브릿지에 이 모듈을 등록할 때 사용하는 이름
     // JS에서 NativeModules.ScreenTimeModule로 접근 가능
@@ -89,16 +97,18 @@ class ScreenTimeModule: NSObject {
         }
     }
 
-    // 총 스크린 타임 조회 (App Group을 통해 익스텐션에서 저장된 값 읽기)
-    // JS에서 await ScreenTimeModule.getTotalScreenTime() 로 호출
-    // 반환값: 초 단위 숫자 (예: 9157 = 2시간 32분 37초)
-    @objc func getTotalScreenTime(
+    // 기기(시스템) 다크모드 설정 조회 — "dark" | "light" 반환 (GROMO-934)
+    // 앱은 Info.plist UIUserInterfaceStyle=Light로 라이트 고정이라 RN Appearance가 항상 light지만,
+    // 시스템이 띄우는 스크린타임 권한창은 기기 설정을 따른다. 권한창 복제본(리허설 안내)의
+    // 외형을 실제 창과 맞추기 위해 앱 오버라이드의 영향을 받지 않는 UIScreen 트레이트에서 읽는다.
+    @objc func getSystemColorScheme(
         _ resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
-        let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-        let totalDuration = sharedDefaults?.double(forKey: "gromo:screentime:totalDuration") ?? 0
-        resolve(totalDuration)
+        DispatchQueue.main.async {
+            let style = UIScreen.main.traitCollection.userInterfaceStyle
+            resolve(style == .dark ? "dark" : "light")
+        }
     }
 
     // 목표 시간을 App Group에 저장 (익스텐션에서 읽어서 "남은 시간" 계산에 사용)
@@ -113,101 +123,38 @@ class ScreenTimeModule: NSObject {
         resolve(nil)
     }
 
-    // 매일 자정 기준으로 스크린 타임 목표 달성 여부를 모니터링 시작
-    // goalSeconds를 threshold로 설정 — 초과하면 Monitor 익스텐션의 eventDidReachThreshold가 호출됨
-    // goalSeconds 변경 시 재호출하면 이전 모니터링을 교체함
-    @objc func startGoalMonitoring(
-        _ goalSecondsValue: Double,
-        resolver resolve: @escaping RCTPromiseResolveBlock,
+    // (GROMO-942) 목표 달성 판정을 버킷 사용시간으로 일원화 — 별도 목표 모니터(gromo.daily)를
+    // 폐지한다. 기존 설치에 남아있는 gromo.daily 등록을 한 번 정리하는 용도(앱이 마이그레이션으로
+    // 1회 호출). 새 등록은 하지 않는다.
+    @objc func stopGoalMonitoring(
+        _ resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         guard #available(iOS 16.0, *) else {
-            resolve(nil)
-            return
-        }
-
-        let center = DeviceActivityCenter()
-        let activityName = DeviceActivityName("gromo.daily")
-
-        var startComponents = DateComponents()
-        startComponents.hour = 0
-        startComponents.minute = 0
-
-        var endComponents = DateComponents()
-        endComponents.hour = 23
-        endComponents.minute = 59
-
-        let schedule = DeviceActivitySchedule(
-            intervalStart: startComponents,
-            intervalEnd: endComponents,
-            repeats: true
-        )
-
-        // 기존 모니터를 먼저 중지 — 선택을 비운 경우에도 옛 대상 측정이 계속 남지 않게
-        // guard보다 앞에서 수행한다(GROMO-633 리뷰 반영).
-        center.stopMonitoring([activityName])
-
-        // App Group에 저장된 "측정 대상"(picker로 선택한 앱/카테고리) 로드
-        // 이게 있어야 threshold 이벤트가 실제로 발화함 (빈 배열이면 발화 안 함)
-        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-        guard
-            let data = defaults?.data(forKey: "gromo:goal:selection"),
-            let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data),
-            !(selection.applicationTokens.isEmpty
-                && selection.categoryTokens.isEmpty
-                && selection.webDomainTokens.isEmpty)
-        else {
-            // 아직 측정 대상 미선택 → 모니터링 시작 불가 (picker 먼저 띄워야 함)
-            resolve(false)
-            return
-        }
-
-        // 달성 = 목표 '이내'(<=, 서버 분 단위 판정과 동일) — threshold는 '도달(>=) 시 초과 플래그'라
-        // 목표값을 그대로 걸면 정확히 목표에서 멈춘 유저까지 fail로 판정된다. +60초를 초과 판정선으로
-        // 등록해 분 단위 기준 '목표를 넘긴' 경우에만 fail이 되게 한다(GROMO-633 리뷰 반영).
-        let totalSeconds = Int(goalSecondsValue) + 60
-        var threshold = DateComponents()
-        threshold.hour = totalSeconds / 3600
-        threshold.minute = (totalSeconds % 3600) / 60
-        threshold.second = totalSeconds % 60
-
-        // 선택한 앱/카테고리의 누적 사용시간이 threshold(목표시간)에 도달하면
-        // Monitor 익스텐션의 eventDidReachThreshold가 호출됨
-        // 웹 도메인 시간은 브라우저 앱 시간에 이미 포함돼, 브라우저를 덮는 선택과 함께 걸면 같은
-        // 시간이 두 번 세진다(예: 사파리로 유튜브 웹 30분 = 사파리 30분 + youtube.com 30분 → 60분).
-        // 토큰이 불투명해 도메인별 '덮임' 판별은 불가 — 카테고리 선택이 있으면(브라우저가 포함됐을
-        // 가능성이 높음) 도메인을 제외하고, 개별 앱만 고른 선택은 도메인을 유지한다(혼합 선택 보존,
-        // PR 리뷰 반영 — 이때 브라우저 앱을 직접 고른 경우의 중복은 한계로 남는다).
-        let goalWebDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
-        let event = DeviceActivityEvent(
-            applications: selection.applicationTokens,
-            categories: selection.categoryTokens,
-            webDomains: goalWebDomains,
-            threshold: threshold
-        )
-
-        // 등록 시각·등록 threshold 기록(GROMO-871) — Monitor 익스텐션 오발화 가드의 기준점.
-        // (재)등록 직후 iOS가 threshold 이벤트를 즉시 연쇄 오발화하는 버그가 있어, 익스텐션이
-        // "등록 후 경과 시간보다 큰 사용량은 물리적으로 불가능" 불변식으로 거를 때 읽는다.
-        // startMonitoring 호출 즉시 콜백이 올 수 있으므로 반드시 호출 '전'에 기록한다(코드리뷰 P1).
-        // 시작 실패 시에도 기록이 남지만, 위에서 기존 모니터를 이미 중지해 이벤트가 오지 않아 무해.
-        defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:goalRegisteredAt")
-        defaults?.set(totalSeconds, forKey: "gromo:screentime:goalThresholdSeconds")
-
-        do {
-            try center.startMonitoring(
-                activityName,
-                during: schedule,
-                events: [DeviceActivityEvent.Name("gromo.goal.threshold"): event]
-            )
             resolve(true)
-        } catch {
-            reject("MONITOR_ERROR", "모니터링 시작 실패: \(error.localizedDescription)", error)
+            return
         }
+        DeviceActivityCenter().stopMonitoring([DeviceActivityName("gromo.daily")])
+        resolve(true)
     }
 
-    // 30분 버킷 사용량 모니터링 시작 — 보상 판정(gromo.daily)과 분리된 별도 스케줄.
-    // 하루 스케줄(00:00~23:59)에 30·60·90…분 threshold 이벤트를 촘촘히 박아,
+    // 버킷 디버그 이벤트 로그(개발 확인용, GROMO-931) — Monitor 익스텐션과 같은 App Group 키에
+    // 최근 50줄만 유지. 등록/실패 시점을 남겨 익스텐션 콜백 순서와 대조할 수 있게 한다.
+    // Release에선 no-op — 패널이 dev 빌드 전용이라 볼 수 없는 순수 비용이기 때문(코드리뷰 반영).
+    private func appendDebugLog(_ line: String) {
+        #if DEBUG
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm:ss"
+        var log = defaults?.stringArray(forKey: "gromo:screentime:debugEventLog") ?? []
+        log.append("\(f.string(from: Date())) \(line)")
+        if log.count > 50 { log.removeFirst(log.count - 50) }
+        defaults?.set(log, forKey: "gromo:screentime:debugEventLog")
+        #endif
+    }
+
+    // 15분 버킷 사용량 모니터링 시작 — 보상 판정(gromo.daily)과 분리된 별도 스케줄.
+    // 하루 스케줄(00:00~23:59)에 15·30·45…분 threshold 이벤트를 촘촘히 박아,
     // Monitor 익스텐션이 "도달한 최고 눈금(분)"을 App Group에 기록 → 메인 앱이 읽어 사용량 근사치로 표시.
     // (Report 익스텐션의 App Group 쓰기 차단(원인 3)을 우회하는 정석 경로)
     @objc func startUsageBucketMonitoring(
@@ -250,17 +197,19 @@ class ScreenTimeModule: NSObject {
                 && selection.categoryTokens.isEmpty
                 && selection.webDomainTokens.isEmpty)
         else {
+            appendDebugLog("버킷 재등록 실패 — 측정 대상 없음")
             resolve(false)
             return
         }
 
-        // 30분 간격 눈금(30,60,…). 이벤트 과다(RAM 6MB)·경계 뭉갬 방지로 900분(15h·30개)로 상한.
+        // 15분 간격 눈금(15,30,…) — 서버 전송 버킷 세분화(GROMO-931, 30분→15분).
+        // 이벤트 과다(Monitor 익스텐션 RAM 6MB)·경계 뭉갬 방지로 900분(15h·60개)로 상한.
         // 웹 도메인 시간은 브라우저 앱 시간에 이미 포함 — 브라우저를 덮는 선택과 함께 걸면 같은
         // 시간이 두 번 세져 버킷이 실사용량(설정 스크린타임)보다 크게 잡힌다. 목표 threshold와
         // 동일하게 카테고리 선택이 있으면 도메인을 제외하고, 개별 앱만 고른 선택은 도메인을
         // 유지한다(혼합 선택 보존, PR 리뷰 반영).
         let bucketWebDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
-        let step = 30
+        let step = 15
         let maxMinutes = min(max(Int(maxMinutesValue), step), 900)
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
         var m = step
@@ -297,8 +246,10 @@ class ScreenTimeModule: NSObject {
 
         do {
             try center.startMonitoring(activityName, during: schedule, events: events)
+            appendDebugLog("버킷 모니터 등록 — 눈금 \(step)분·베이스 \(baseMinutes)분")
             resolve(true)
         } catch {
+            appendDebugLog("버킷 모니터 등록 실패: \(error.localizedDescription)")
             reject("MONITOR_ERROR", "버킷 모니터링 시작 실패: \(error.localizedDescription)", error)
         }
     }
@@ -351,33 +302,64 @@ class ScreenTimeModule: NSObject {
         resolve(result)
     }
 
-    // 어제 날짜의 스크린 타임 목표 달성 결과를 App Group에서 읽어 반환
-    // 반환값: "success" | "fail" | nil (어제 결과 없음 — 첫 설치 또는 모니터링 미실행)
-    @objc func getYesterdayResult(
+    // 버킷 발화 타임라인 조회 — Monitor 익스텐션이 threshold 발화마다 App Group 키
+    // "usageBucketEvents:{yyyy-MM-dd}"(기기 로컬 날짜)에 기록한 [{bucket, firedAt}] 배열을 반환.
+    // bucket = 발화 시점의 하루 누적 환산분(단조 증가), firedAt = epoch 초. 기록이 없으면 빈 배열.
+    // JS(A4)가 창 경계(A~B시)의 버킷 차로 창 내 사용분을 계산하는 데 쓴다(±15분 눈금 오차).
+    // 익스텐션이 오늘+어제 2일만 보존하므로 그 밖의 dayKey는 자연히 빈 배열이 된다.
+    @objc func getUsageBucketEvents(
+        _ dayKey: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        let events = defaults?.array(forKey: "usageBucketEvents:\(dayKey)") as? [[String: Any]]
+        resolve(events ?? [])
+    }
+
+    // 사용량 버킷 측정 상태 디버그 조회(개발용, GROMO-931) — App Group 기록 원본을 그대로 반환.
+    // 전체 탭 dev 패널이 15분 눈금 동작을 실기기에서 확인하는 용도이며 판정 로직에는 쓰지 않는다.
+    @objc func getUsageBucketDebugInfo(
         _ resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
-        let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
-
-        let calendar = Calendar.current
-        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: Date()) else {
-            resolve(nil)
-            return
-        }
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let yesterdayStr = formatter.string(from: yesterday)
-
-        let lastResultDate = sharedDefaults?.string(forKey: "gromo:screentime:lastResultDate") ?? ""
-        let lastResult = sharedDefaults?.string(forKey: "gromo:screentime:lastResult") ?? ""
-
-        if lastResultDate == yesterdayStr {
-            resolve(lastResult)
-        } else {
-            resolve(nil)
-        }
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        resolve([
+            "bucketMinutes": defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0,
+            "bucketDate": defaults?.string(forKey: "gromo:screentime:usageBucketDate") ?? "",
+            "baseMinutes": defaults?.integer(forKey: "gromo:screentime:bucketBaseMinutes") ?? 0,
+            "baseDate": defaults?.string(forKey: "gromo:screentime:bucketBaseDate") ?? "",
+            "registeredAt": defaults?.double(forKey: "gromo:screentime:bucketRegisteredAt") ?? 0,
+            "prevBucketMinutes": defaults?.integer(forKey: "gromo:screentime:prevBucketMinutes")
+                ?? 0,
+            "prevBucketDate": defaults?.string(forKey: "gromo:screentime:prevBucketDate") ?? "",
+            // 익스텐션이 자정에 승격+버킷 등록에 성공한 날짜 — 앱 백업 경로의 재등록 스킵 판단용.
+            "promotedOkDate": defaults?.string(forKey: "gromo:goal:selectionPromotedOkDate") ?? "",
+            "log": defaults?.stringArray(forKey: "gromo:screentime:debugEventLog") ?? [],
+        ] as [String: Any])
     }
+
+    // A안(GROMO-942) — 측정 대상 변경을 '다음날 적용'으로 예약. 설정 화면에서 이미 측정 대상이
+    // 설정된 상태로 변경 시 호출한다. picker가 저장한 pending 선택은 그대로 두고, 적용 예정일만
+    // App Group에 기록해 익스텐션 자정 콜백(promotePendingSelectionIfDue)이 승격 여부를 판단하게
+    // 한다. dateString은 'YYYY-MM-DD'(로컬) — 보통 내일. 빈 문자열이면 예약 취소(키 제거).
+    @objc func setPendingSelectionApplyDate(
+        _ dateString: NSString,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
+        let value = dateString as String
+        if value.isEmpty {
+            defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
+        } else {
+            defaults?.set(value, forKey: "gromo:goal:selectionApplyDate")
+        }
+        resolve(true)
+    }
+
+    // (GROMO-942) getYesterdayResult(어제 목표 달성 네이티브 판정)는 폐지 — 달성은 앱이 버킷
+    // 사용시간으로 판정한다.
 
     // [테스트] FamilyActivityPicker를 띄워 "측정에 포함할 앱/카테고리"를 선택받음
     // 목적: picker 동선 확인 + 선택 결과를 App Group에 저장
@@ -415,12 +397,18 @@ class ScreenTimeModule: NSObject {
                     if let data = try? JSONEncoder().encode(selection) {
                         defaults?.set(data, forKey: "gromo:goal:selectionPending")
                     }
-                    top.dismiss(animated: true)
-                    resolve([
-                        "applications": selection.applicationTokens.count,
-                        "categories": selection.categoryTokens.count,
-                        "webDomains": selection.webDomainTokens.count
-                    ])
+                    // ⚠️ dismiss **완료 뒤에** resolve한다 — 허용 앱 관리자와 같은 계약이다.
+                    //    즉시 풀면 JS가 아직 떠 있는 피커 아래에서 토스트 등장과 2200ms 타이머를
+                    //    시작해 실제 노출 시간이 줄어든다(codex 리뷰).
+                    top.dismiss(animated: true) {
+                        resolve([
+                            "applications": selection.applicationTokens.count,
+                            "categories": selection.categoryTokens.count,
+                            "webDomains": selection.webDomainTokens.count,
+                            // 구 바이너리는 이 키가 없다 — JS가 그때는 Alert로 폴백한다.
+                            "dismissed": true
+                        ])
+                    }
                 },
                 onCancel: {
                     top.dismiss(animated: true)
@@ -549,12 +537,23 @@ class ScreenTimeModule: NSObject {
                     if let data = try? JSONEncoder().encode(selection) {
                         defaults?.set(data, forKey: "gromo:focus:allowedSelection")
                     }
-                    top.dismiss(animated: true)
-                    resolve([
-                        "applications": selection.applicationTokens.count,
-                        "categories": selection.categoryTokens.count,
-                        "webDomains": selection.webDomainTokens.count
-                    ])
+                    // ⚠️ dismiss **완료 뒤에** resolve한다. 즉시 풀면 JS가 아직 떠 있는 네이티브 모달
+                    //    아래에서 토스트 등장과 2200ms 노출 타이머를 시작해, 사용자는 모달이 사라진 뒤
+                    //    토스트가 갑자기 나타나는 데다 실제 노출 시간도 짧아진다(codex 리뷰).
+                    top.dismiss(animated: true) {
+                        resolve([
+                            "applications": selection.applicationTokens.count,
+                            "categories": selection.categoryTokens.count,
+                            "webDomains": selection.webDomainTokens.count,
+                            "selectionSignature": self.selectionSignature(selection),
+                            // ⚠️ JS가 **이 바이너리가 dismiss 완료 뒤에 resolve하는지** 판별하는
+                            //    표식. hot-updater로 새 JS만 받은 구 바이너리는 이 키가 없어
+                            //    undefined이고, 그쪽은 아직 모달이 떠 있는 채로 resolve하므로
+                            //    등장 연출이 있는 UI(토스트)를 쓰면 안 된다(codex 리뷰).
+                            //    새 메서드를 추가하는 대신 응답으로 알리면 능력 판별 왕복이 없다.
+                            "dismissed": true
+                        ])
+                    }
                 }
             )
 
@@ -585,7 +584,8 @@ class ScreenTimeModule: NSObject {
         resolve([
             "applications": selection.applicationTokens.count,
             "categories": selection.categoryTokens.count,
-            "webDomains": selection.webDomainTokens.count
+            "webDomains": selection.webDomainTokens.count,
+            "selectionSignature": selectionSignature(selection)
         ])
     }
 
@@ -738,6 +738,13 @@ class ScreenTimeModule: NSObject {
     // 캐릭터 스냅샷(base64 PNG)을 App Group 컨테이너에 저장.
     // Live Activity(Widget)와 가림막(ShieldConfiguration)이 이 파일을 읽어 표시한다.
     // 익스텐션 메모리 예산이 빡빡하므로 저장 전에 최대 256px로 다운스케일한다.
+    //
+    // GROMO-1199: 다운스케일 전에 투명 여백을 잘라 실제 비율로 정규화한다.
+    // 캡처 원본은 정사각 박스(CharacterImage: size×size + contain)라 비정사각 캐릭터
+    // (누끼는 물론 309×340인 기본 마스코트도)는 여백이 같이 구워진다. 가림막은 아이콘을
+    // 후처리 없이 그대로 OS에 넘기므로, 여백이 남으면 아이콘 자리를 여백이 차지해
+    // 캐릭터만 작게 보였다. 원천에서 잘라 두면 가림막·Live Activity가 모두 해결되고,
+    // 256px 예산도 여백이 아니라 캐릭터에 쓰여 더 선명해진다.
     @objc func saveCharacterSnapshot(
         _ base64: String,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -754,17 +761,22 @@ class ScreenTimeModule: NSObject {
             return
         }
 
+        let trimmed = trimmingTransparentEdges(image)
+
         // 긴 변 256px 초과 시 축소(스케일 1로 렌더해 @3x 부풀림 방지)
         let maxSide: CGFloat = 256
-        let longest = max(image.size.width, image.size.height)
-        var output = image
+        let longest = max(trimmed.size.width, trimmed.size.height)
+        var output = trimmed
         if longest > maxSide, longest > 0 {
             let ratio = maxSide / longest
-            let newSize = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+            let newSize = CGSize(
+                width: trimmed.size.width * ratio,
+                height: trimmed.size.height * ratio
+            )
             let format = UIGraphicsImageRendererFormat()
             format.scale = 1
             output = UIGraphicsImageRenderer(size: newSize, format: format).image { _ in
-                image.draw(in: CGRect(origin: .zero, size: newSize))
+                trimmed.draw(in: CGRect(origin: .zero, size: newSize))
             }
         }
 
@@ -774,6 +786,9 @@ class ScreenTimeModule: NSObject {
         }
         do {
             try png.write(to: container.appendingPathComponent("focusCharacter.png"))
+            // 스냅샷 파일이 바뀌었으니 홈 위젯 타임라인을 새로고침해 새 캐릭터를 즉시 반영한다.
+            // Live Activity·가림막(실드)은 다음 표시 때 파일을 다시 읽으므로 추가 호출이 필요 없다.
+            WidgetCenter.shared.reloadAllTimelines()
             resolve(true)
         } catch {
             resolve(false)

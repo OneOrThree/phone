@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { useUser } from '@/store/UserContext';
@@ -64,7 +64,9 @@ function leagueWeekStart(): Date {
 // 리스트라 나를 포함한다는 보장이 없다(GROMO-818에서 아레나 로스터 응답이 사라져 구 가정
 // "getMyRanking() = 내 아레나, 항상 나 포함"이 깨짐 — PR 285 Codex 리뷰 반영). top-100 밖이면
 // 내 분이 0으로 떨어져 TierGuide 진행바·핀 격차가 조용히 틀어진다.
-// 서버 주간 집계(DailyFocusStat)도 세션의 순수 경과초(endedAt−startedAt) 누적이라 정의가 일치한다.
+// 서버 주간 집계(DailyFocusStat)도 방해(일시정지) 초를 뺀 순수 집중 시간이라 정의가 일치한다
+// — sessionFocusSeconds가 같은 공식으로 깎는다(GROMO-1214 코드리뷰 ⑥). 안 깎으면 일시정지가
+// 낀 주에 내 시간만 부풀어 서버 랭킹 값과 어긋난다.
 // ※ getMyRank(/league/me/rank)는 호출마다 LEAGUE_RANK_VIEWED 계측을 남겨 화면 포커스마다 못 쓴다.
 // 초 원본을 반환한다 — 리그 화면은 실초(HH:MM:SS) 격차/델타, 티어가이드는 파생 분(secToMin)을 쓴다.
 async function fetchMyWeekSeconds(): Promise<number> {
@@ -93,53 +95,74 @@ export function useLeagueRanking() {
   const { nickname: myNickname, userId } = useUser();
 
   // 리스트(직군 top-100)·리그 라벨·내 권위 주간분을 원자적으로 함께 보관한다.
-  // 전체가 null이면 미조회/게스트/실패 → 화면은 빈 상태.
+  // 전체가 null이면 미조회/실패 → 화면은 빈 상태.
+  // forCategory: 이 데이터를 조회한 시점의 내 카테고리 — 실패 시 유지/폐기 판단 기준(아래 catch).
   const [state, setState] = useState<{
     members: RankedMember[];
     label: string | null;
     mySeconds: number;
+    forCategory: string | null;
   } | null>(null);
+  // 마지막 조회 실패 여부 — 실패가 "리그에 아무도 없음" 빈 상태로 오인되지 않게 UI에서 구분
+  // (GROMO-922, 친구 목록 GROMO-621과 동일 패턴)
+  const [error, setError] = useState(false);
+  // 요청 시퀀스 — 당겨서 새로고침(GROMO-887)과 포커스 재조회가 겹칠 때, 늦게 온 이전 응답이
+  // 최신 상태를 덮지 않게 최신 요청만 반영한다(useFriends 패턴).
+  const requestSeqRef = useRef(0);
+
+  // 직군 랭킹·내 주간분 재조회 — 포커스 effect와 당겨서 새로고침(GROMO-887)이 공유한다.
+  const refetch = useCallback(async () => {
+    if (!userId) {
+      setState(null);
+      setError(false); // 세션 없음(JWT 디코드 실패)은 조회 실패가 아니다 — 안내를 띄우지 않는다
+      return;
+    }
+    // 카테고리 저장값을 아직 읽는 중(undefined) — 확정(null/string) 후 한 번만 조회한다.
+    // 로딩 순간을 무직군으로 오판해 전역 랭킹을 먼저 그렸다가 다시 그리는 이중 조회 방지.
+    if (myCategory === undefined) return;
+    const seq = ++requestSeqRef.current;
+    try {
+      // 직군 top-100(표시용 리스트)과 내 주간 집중초(세션 합산 권위 값)를 병렬 조회한다.
+      const occupation = occupationForCategory(myCategory);
+      const [occRanking, myWeekSeconds] = await Promise.all([
+        getMyRanking(occupation ?? undefined),
+        fetchMyWeekSeconds(),
+      ]);
+      let res = occRanking;
+      let label: string | null = occupation != null ? (myCategory ?? null) : null;
+      // 직군 랭킹이 비면(신규·직군 미설정, GROMO-657) 전역 랭킹으로 폴백해 화면이 비지 않게 한다.
+      // 전역 랭킹은 혼합 직군이라 라벨을 붙이지 않는다(전체 리그로 정직하게 표기).
+      if (res.length === 0) {
+        res = await getGlobalRanking();
+        label = null;
+      }
+      // 이 응답을 기다리는 동안 더 새로운 요청이 시작됐으면 stale 결과라 버린다
+      if (seq !== requestSeqRef.current) return;
+      setState({
+        label,
+        members: toRankingMembers(res, userId, myNickname, label),
+        mySeconds: myWeekSeconds,
+        forCategory: myCategory ?? null,
+      });
+      setError(false);
+    } catch {
+      // 일시 실패 시 기존 랭킹 유지 — 당겨서 새로고침 실패로 보이던 목록이 사라지지 않게 한다
+      // (친구 목록과 동일 정책, 코드리뷰 반영). 단 같은 카테고리로 받은 데이터일 때만 —
+      // 시험(카테고리) 변경 후 첫 조회가 실패하면 이전 카테고리 리그가 '내 리그'로 계속 보이므로
+      // 비운다(코드리뷰 반영). 이전 데이터가 없으면 그대로 빈 상태.
+      if (seq === requestSeqRef.current) {
+        setState((prev) =>
+          prev != null && prev.forCategory !== (myCategory ?? null) ? null : prev,
+        );
+        setError(true);
+      }
+    }
+  }, [userId, myCategory, myNickname]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!userId) {
-        setState(null);
-        return;
-      }
-      // 카테고리 저장값을 아직 읽는 중(undefined) — 확정(null/string) 후 한 번만 조회한다.
-      // 로딩 순간을 무직군으로 오판해 전역 랭킹을 먼저 그렸다가 다시 그리는 이중 조회 방지.
-      if (myCategory === undefined) return;
-      let cancelled = false;
-      (async () => {
-        try {
-          // 직군 top-100(표시용 리스트)과 내 주간 집중초(세션 합산 권위 값)를 병렬 조회한다.
-          const occupation = occupationForCategory(myCategory);
-          const [occRanking, myWeekSeconds] = await Promise.all([
-            getMyRanking(occupation ?? undefined),
-            fetchMyWeekSeconds(),
-          ]);
-          let res = occRanking;
-          let label: string | null = occupation != null ? (myCategory ?? null) : null;
-          // 직군 랭킹이 비면(신규·직군 미설정, GROMO-657) 전역 랭킹으로 폴백해 화면이 비지 않게 한다.
-          // 전역 랭킹은 혼합 직군이라 라벨을 붙이지 않는다(전체 리그로 정직하게 표기).
-          if (res.length === 0) {
-            res = await getGlobalRanking();
-            label = null;
-          }
-          if (cancelled) return;
-          setState({
-            label,
-            members: toRankingMembers(res, userId, myNickname, label),
-            mySeconds: myWeekSeconds,
-          });
-        } catch {
-          if (!cancelled) setState(null); // 네트워크/인증 실패 → 빈 상태
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }, [userId, myCategory, myNickname]),
+      refetch();
+    }, [refetch]),
   );
 
   // 데이터 없으면 빈 배열.
@@ -160,5 +183,21 @@ export function useLeagueRanking() {
         1
       : null;
 
-  return { ranking, me, myLeagueLabel, myMinutes, mySeconds, myLeagueRank };
+  // 조회 '의도' 라벨 — 카테고리에서 직접 파생하므로 조회 성패와 무관하게 확정된다. 실패로
+  // myLeagueLabel을 못 받았을 때도 화면이 '내 리그'가 무엇인지 알 수 있게 노출한다(GROMO-922
+  // 코드리뷰 반영). 빈 성공의 전역 폴백(GROMO-657) label=null과 달리 직군 미배정일 때만 null.
+  const intendedLeagueLabel =
+    occupationForCategory(myCategory) != null ? (myCategory ?? null) : null;
+
+  return {
+    ranking,
+    me,
+    myLeagueLabel,
+    intendedLeagueLabel,
+    myMinutes,
+    mySeconds,
+    myLeagueRank,
+    error,
+    refetch,
+  };
 }

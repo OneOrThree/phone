@@ -46,7 +46,15 @@ import java.util.stream.Collectors;
 public class RankOvertakeNotificationService {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    /** 주간 마감 임박 억제 창 — 아래 LIVE_SESSION_MAX_AGE 와 값만 같고 의미는 무관하다(합치지 말 것). */
     private static final Duration DEADLINE_SUPPRESS_WINDOW = Duration.ofHours(12);
+    /**
+     * 라이브(진행 중) 세션으로 인정하는 최대 경과 — 이보다 오래된 미종료 세션은 아직 청소 안 된 orphan(버려진 세션)으로 보고 제외.
+     * FocusService.ORPHAN_TIMEOUT(GROMO-804)과 동일해야 한다 — orphan sweeper 가 이 경과 이후 AUTO_CLOSED 처리하는데,
+     * 스윕이 늦으면 미종료로 남은 버려진 세션을 '라이브'로 오인해 과억제하기 때문
+     * (LeagueReengagementNotificationService·FocusLiveInfoLookup 과 같은 기준·같은 사본).
+     */
+    private static final Duration LIVE_SESSION_MAX_AGE = Duration.ofHours(12);
     private static final Duration RIVAL_COOLDOWN = Duration.ofHours(48);
     private static final int WEEKLY_CAP = 2;
     static final int NOTIFICATION_PAGE_SIZE = 200;
@@ -141,8 +149,17 @@ public class RankOvertakeNotificationService {
         Map<UUID, Integer> yesterdayRanks = !compareWithYesterday ? Map.of()
                 : leagueRankSnapshotRepository.findByCreatedAtAndUserIdIn(yesterday, userIds).stream()
                         .collect(Collectors.toMap(LeagueRankSnapshot::getUserId, LeagueRankSnapshot::getRank));
+        // 오늘 이미 집중한 유저 = 오늘(KST 하루)에 종료된 완료 세션 ∪ 지금 진행 중(라이브) 세션 (GROMO-851).
+        // startedAt 기준을 쓰지 않는다 — 고아 자동종료(AUTO_CLOSED)·사용자 취소(CANCELED) 세션은 실집중 0분인데도
+        // '오늘 집중함'으로 오판돼, 오늘 아무것도 안 한 유저가 추월 넛지를 못 받았다(GROMO-841 과 같은 결함).
+        // 완료 판정은 endedAt 이 KST 오늘 구간에 든 세션으로 본다 — 자정을 넘겨 끝난 세션도 종료일 기준이라
+        // 포함되기 때문. 사전집계(DailyFocusStat.date) 조회로 바꾸지 말 것.
+        // (도입 당시엔 "DailyFocusStat.date 가 country_code 존 버킷이라 KST 오늘과 어긋난다"는 근거도 있었으나,
+        //  GROMO-1259 의 저장축 KST 고정으로 그 근거는 해소됐다. 위 자정 경계 이유만으로 이 윈도우를 유지한다.)
         Set<UUID> focusedTodayUserIds = new HashSet<>(focusSessionRepository
-                .findUserIdsWithSessionStartedBetween(userIds, startOfTodayKst, startOfTomorrowKst));
+                .findUserIdsWithCompletedFocusEndedBetween(userIds, startOfTodayKst, startOfTomorrowKst));
+        focusedTodayUserIds.addAll(focusSessionRepository
+                .findUserIdsWithLiveSession(userIds, now.minus(LIVE_SESSION_MAX_AGE)));
         List<NotificationSentLog> logs = notificationSentLogRepository.findByTypeAndUserIdInSince(
                 NotificationSentLog.TYPE_RANK_OVERTAKE, userIds, sinceForLogs);
         Map<UUID, Integer> weeklySentCount = weeklySentCount(logs, weekStart);

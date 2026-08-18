@@ -1,6 +1,7 @@
 // 백엔드 API 응답/요청 및 화면 간 전달에 쓰이는 공용 DTO 타입.
 // 네비게이션 파라미터·컨텍스트로 넘어가는 형태 위주로 정의하고,
 // 특정 화면 내부에서만 쓰는 응답 형태는 각 화면에서 로컬로 선언한다.
+import type { UserProfileResponse } from '@/types/dto/user';
 // 캐릭터 상태/코스튬 슬롯 — 상점·장비 도메인 값.
 // (구 components/character/characterTypes.ts에서 이전 — 파츠 캐릭터 폐기 후 타입만 유지)
 export type Variant = 'default' | 'focus' | 'reading' | 'yoga' | 'exercise' | 'study';
@@ -50,17 +51,18 @@ export interface Group {
   members?: GroupMember[];
 }
 
-// 사용자 프로필 (서버 /api/v1/user 응답 + 로컬 캐시 병합 결과)
-export interface UserProfile {
+// 사용자 세션 (로컬 저장 토큰·플래그 + GET /users/me 응답 병합 캐시 — App.tsx 게이트 전용).
+// 서버 프로필과 겹치는 필드는 UserProfileResponse에서 파생해 이중 정의를 피한다(GROMO-921).
+export interface UserProfile extends Partial<
+  Pick<UserProfileResponse, 'nickname' | 'dailyScreenTimeGoalMinutes' | 'dailyFocusTimeGoalMinutes'>
+> {
   userId?: string | null;
-  nickname?: string;
   accessToken?: string;
   refreshToken?: string;
   isNewUser?: boolean;
   isGuest?: boolean; // 게스트 세션 여부 — 로그인 시점 태깅(서버 isGuest 응답 시 그 값 우선)
-  dailyScreenTimeGoalMinutes?: number;
-  dailyFocusTimeGoalMinutes?: number;
-  occupation?: string | null; // 준비 시험 코드(enum name) — /users/me 확장(757) 배포 후 채워짐, 백필용(GROMO-758)
+  // 준비 시험 코드(enum name), 백필용(GROMO-758) — LoginResult 병합 경로도 있어 string 유지(Occupation 아님)
+  occupation?: string | null;
   // 서버 응답에 추가 필드가 섞여 들어올 수 있음
   [key: string]: unknown;
 }
@@ -143,6 +145,8 @@ export interface LeagueLastResultResponse {
   newTierLevel: number | null; // 정산 후 티어
   focusSeconds: number | null; // 해당 주차 집중 시간(초)
   acknowledged: boolean; // 확인 처리 여부 — true면 결과 화면 재노출 안 함
+  // ⚠️ additive — 현재 백엔드 응답엔 없다(undefined로 도착). 서버가 승급 보상을 붙이면 이름 그대로 소비한다.
+  promotionBonusCoins?: number | null; // 승급 보상 시간조각(승급 아닐 땐 0/null)
 }
 
 // ─────────────────────────────────────────────────────────────

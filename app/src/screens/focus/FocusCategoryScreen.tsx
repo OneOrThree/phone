@@ -5,12 +5,13 @@ import {
   TouchableOpacity,
   Pressable,
   Alert,
+  AppState,
   StyleSheet,
   useWindowDimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
@@ -21,11 +22,14 @@ import { occupationForCategory } from '@/constants/focusCategories';
 import { getDefaultTags } from '@/services/focusApi';
 import { STORAGE_KEYS } from '@/types/storage';
 import { TabGuideOverlay } from '@/components/TabGuideOverlay';
+import { PressableScale } from '@/components/PressableScale';
+import { playTapSound } from '@/utils/sound';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
 import { DraggableSubjectRows } from './components/DraggableSubjectRows';
 import { TimerMethodSheet } from './components/TimerMethodSheet';
 import { SLIDE_MS } from '@/components/liquidGlass';
+import { useMotion } from '@/hooks/useMotion';
 import { CountdownSetupSheet } from './components/CountdownSetupSheet';
 import { PomodoroSetupSheet } from './components/PomodoroSetupSheet';
 import {
@@ -33,6 +37,11 @@ import {
   logFocusTagUpdated,
   logFocusTagDeleted,
 } from '@/services/analyticsEvents';
+import {
+  invalidateCardInteraction,
+  normalizeFocusEntrySource,
+  resolveFocusSessionRouteContext,
+} from '@/services/cardInteraction';
 
 // 02 과목 선택 — 홈 ● 집중 FAB → 이 화면. 행 탭 → 타이머 방식 시트(03) → 설정(04/05) → 세션.
 // 각 행: 과목명 + 누적 집중시간 + ⋮(탭=이름편집/삭제 팝오버, 잡고 위아래=순서 변경).
@@ -43,6 +52,41 @@ type MenuAnchor = { id: string; x: number; y: number; w: number; h: number } | n
 
 export default function FocusCategoryScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  // 그룹방 FAB로 진입했으면 initialGroupId를 세션까지 넘겨 그 그룹 페이지를 기본으로 연다(F2 Part2).
+  const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusCategory'>>();
+  const initialGroupId = params?.initialGroupId;
+  const entrySource = normalizeFocusEntrySource(params?.entrySource);
+  const interactionId = entrySource === 'group_card' ? params?.interactionId : undefined;
+  const interactionAcceptedAt =
+    entrySource === 'group_card' ? params?.interactionAcceptedAt : undefined;
+  const interactionTransferredRef = useRef(false);
+  const startTransitionRef = useRef(false);
+  const navigationCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    interactionTransferredRef.current = false;
+    startTransitionRef.current = false;
+    // CTA 직후 화면이 마운트되기 전에 background/inactive 이벤트가 지나간 경우에도
+    // 중단된 intent를 다음 포그라운드 세션에 귀속하지 않는다.
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
+      invalidateCardInteraction(interactionId);
+    }
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') invalidateCardInteraction(interactionId);
+    });
+    const blurSub = navigation.addListener('blur', () => {
+      if (!startTransitionRef.current) invalidateCardInteraction(interactionId);
+    });
+    const focusSub = navigation.addListener('focus', () => {
+      startTransitionRef.current = false;
+    });
+    return () => {
+      sub.remove();
+      blurSub();
+      focusSub();
+      if (navigationCheckTimerRef.current) clearTimeout(navigationCheckTimerRef.current);
+      if (!interactionTransferredRef.current) invalidateCardInteraction(interactionId);
+    };
+  }, [navigation, entrySource, interactionId, interactionAcceptedAt]);
   const { width: winW } = useWindowDimensions();
   const { subjects, addSubject, renameSubject, deleteSubject, reorderSubjects, setSubjectColor } =
     useSubjects();
@@ -122,30 +166,85 @@ export default function FocusCategoryScreen() {
 
   // 다른 과목을 고르면 유리 알약 슬라이드(GROMO-848)가 보이도록 시트를 슬라이드 뒤에 연다.
   // 같은 과목 재탭은 이동이 없으니 바로 연다. 언마운트 시 예약 취소는 아래 useEffect.
+  // ⚠️ 알약을 실제로 그리는 건 DraggableSubjectRows다(glassSlide). 연출과 이 대기 타이머는
+  //    한 쌍이라 '동작 줄이기' 처리도 짝을 맞춰야 한다 — 아래 m.delay 참고.
+  const m = useMotion();
   const methodTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 예약된 시트 열기 취소 — 어느 분기든 새 인터랙션(재탭·팝오버)이 시작되면 먼저 부른다.
-  // 스테일 콜백이 남으면 닫은 시트가 뒤늦게 다시 열린다(코덱스 리뷰, PR 301).
-  function cancelPendingMethodSheet() {
+  // '동작 줄이기' 값이 **확정되기 전**(콜드 스타트의 비동기 조회 구간)에 들어온 탭을 담아 둔다.
+  // 미확정 구간의 useMotion은 보수적으로 reduce=true라, 그대로 시작하면 대기가 0으로 눌려
+  // 설정을 켜지 않은 사용자도 알약 슬라이드를 통째로 잃는다 — 일회성 시퀀스라 나중에 설정이
+  // false로 확정돼도 되돌릴 수 없다(codex 리뷰). 탭 자체는 씹지 않고 여기 보관했다가
+  // 확정된 값으로 시작한다. ready는 조회가 실패해도 반드시 확정되므로 영영 대기하지 않는다.
+  const [pendingSubject, setPendingSubject] = useState<Subject | null>(null);
+  function clearMethodTimer() {
     if (methodTimer.current) {
       clearTimeout(methodTimer.current);
       methodTimer.current = null;
     }
   }
-  useEffect(() => cancelPendingMethodSheet, []);
+  // 예약된 시트 열기 취소 — 어느 분기든 새 인터랙션(재탭·팝오버)이 시작되면 먼저 부른다.
+  // 스테일 콜백이 남으면 닫은 시트가 뒤늦게 다시 열린다(코덱스 리뷰, PR 301).
+  // 아직 시작 전인 보류 탭도 함께 버린다 — 팝오버를 연 뒤 시퀀스가 뒤늦게 터지면 같은 사고다.
+  function cancelPendingMethodSheet() {
+    clearMethodTimer();
+    setPendingSubject(null);
+  }
+  // 언마운트 정리는 타이머만 — 여기서 setState까지 부를 필요가 없다.
+  useEffect(() => clearMethodTimer, []);
 
-  function openMethod(sub: Subject) {
+  // 시퀀스 본체: 선택 반영 → (이동했으면) 알약이 미끄러질 시간만큼 대기 → 시트.
+  // delayMs는 **확정된** 설정으로 계산해 넘긴다.
+  function startMethodSequence(sub: Subject, delayMs: number) {
     const moved = sub.id !== active?.id;
     setSelectedId(sub.id);
-    cancelPendingMethodSheet();
     if (!moved) {
       setSheet('method');
       return;
     }
+    // 이 대기는 알약이 미끄러지는 걸 보여주기 위한 시간이다 — reduce면 알약이 이미 제자리에
+    // 놓이므로 기다릴 연출이 없다. delayMs가 0이어도 setTimeout은 남으므로,
+    // 예약 취소(cancelPendingMethodSheet)·스테일 콜백 방어가 그대로 성립한다.
     methodTimer.current = setTimeout(() => {
       methodTimer.current = null;
       setSheet('method');
-    }, SLIDE_MS + 60);
+    }, delayMs);
   }
+
+  function openMethod(sub: Subject) {
+    cancelPendingMethodSheet();
+    // 같은 과목 재탭은 알약이 움직이지 않으므로 기다릴 연출이 없다 — 설정 확정과 무관하게
+    // 곧바로 연다. 여기까지 보류하면 콜드 스타트에서 탭이 무반응으로 보인다(codex 리뷰).
+    if (sub.id === active?.id) {
+      startMethodSequence(sub, 0);
+      return;
+    }
+    if (!m.ready) {
+      // 설정 미확정 — 탭은 받아 두고 시작만 미룬다(선택 반영도 함께 미룬다: 알약을 먼저
+      // 옮겨 버리면 확정 후엔 이미 이동이 끝나 슬라이드가 재생될 자리가 없다).
+      setPendingSubject(sub);
+      return;
+    }
+    startMethodSequence(sub, m.delay(SLIDE_MS + 60));
+  }
+
+  // ⚠️ 재생 도중 '동작 줄이기'가 켜지면 **남은 대기를 버리고 즉시 시트를 연다.** 대기 시간은
+  //    예약할 때 한 번 계산되므로, 그대로 두면 알약은 이미 제자리에 놓였는데 아무 일도 없는
+  //    410ms가 그대로 남는다(codex 리뷰).
+  useEffect(() => {
+    if (!m.reduce || !methodTimer.current) return;
+    clearMethodTimer();
+    setSheet('method');
+  }, [m.reduce]);
+
+  // 설정이 확정되면 보류해 둔 탭의 시퀀스를 확정된 값으로 시작한다.
+  // ⚠️ 의존성에 m(useMotion 반환 객체)을 넣지 말 것 — reduce/ready가 바뀔 때마다 새 객체라
+  //    일회성 시퀀스가 중복 실행된다. 원시값 m.ready만 넣고, 지연은 이 렌더의 m으로 계산한다.
+  useEffect(() => {
+    if (!m.ready || !pendingSubject) return;
+    setPendingSubject(null);
+    startMethodSequence(pendingSubject, m.delay(SLIDE_MS + 60));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- m(useMotion 객체)은 의존성에서 제외
+  }, [m.ready, pendingSubject]);
 
   function editSubject(sub: Subject) {
     setMenu(null);
@@ -184,7 +283,7 @@ export default function FocusCategoryScreen() {
       doDelete(sub);
       return;
     }
-    Alert.alert('과목 삭제', '해당 과목에 기록된 집중 시간이 사라집니다!', [
+    Alert.alert('과목 삭제', '해당 과목에 기록된 집중 시간이 사라져요!', [
       { text: '취소', style: 'cancel' },
       { text: '삭제', style: 'destructive', onPress: () => doDelete(sub) },
     ]);
@@ -215,23 +314,53 @@ export default function FocusCategoryScreen() {
     mode: FocusTimerMode,
     extra?: { goalSeconds?: number; pomodoro?: PomodoroConfig },
   ) {
-    if (!active) return;
+    if (!active || startTransitionRef.current) return;
     setSheet(null);
-    navigation.navigate('FocusSession', {
-      subjectId: active.id,
-      subjectName: active.name,
-      mode,
-      goalSeconds: extra?.goalSeconds,
-      pomodoro: extra?.pomodoro,
-    });
+    const firstRouteTransfer = !interactionTransferredRef.current;
+    const sessionContext = resolveFocusSessionRouteContext(
+      { entrySource, interactionId, interactionAcceptedAt },
+      firstRouteTransfer,
+    );
+    startTransitionRef.current = true;
+    interactionTransferredRef.current = true;
+    try {
+      navigation.navigate('FocusSession', {
+        subjectId: active.id,
+        subjectName: active.name,
+        mode,
+        goalSeconds: extra?.goalSeconds,
+        pomodoro: extra?.pomodoro,
+        initialGroupId,
+        entrySource: sessionContext.entrySource,
+        interactionId: sessionContext.interactionId,
+        interactionAcceptedAt: sessionContext.interactionAcceptedAt,
+      });
+      navigationCheckTimerRef.current = setTimeout(() => {
+        navigationCheckTimerRef.current = null;
+        const state = navigation.getState();
+        if (state.routes[state.index]?.name === 'FocusSession') return;
+        startTransitionRef.current = false;
+        invalidateCardInteraction(sessionContext.interactionId);
+      }, 500);
+    } catch (error) {
+      startTransitionRef.current = false;
+      invalidateCardInteraction(sessionContext.interactionId);
+      throw error;
+    }
   }
 
   return (
-    <SafeAreaView style={s.root} edges={['top']}>
+    <SafeAreaView testID="focus.category.screen" style={s.root} edges={['top']}>
       <View style={s.header}>
-        <TouchableOpacity style={s.backBtn} activeOpacity={0.7} onPress={() => navigation.goBack()}>
+        {/* 뒤로가기는 취소 동작이라 소리를 내지 않는다 — 눌림 스케일만 */}
+        <PressableScale
+          style={s.backBtn}
+          scaleTo={0.9}
+          sound={false}
+          onPress={() => navigation.goBack()}
+        >
           <Ionicons name="chevron-back" size={22} color={T.ink} />
-        </TouchableOpacity>
+        </PressableScale>
       </View>
 
       <Text style={s.title}>무엇에 집중할까요?</Text>
@@ -244,26 +373,28 @@ export default function FocusCategoryScreen() {
         onOpenColor={(id, a) => {
           cancelPendingMethodSheet(); // 팝오버 위로 예약 시트가 뒤늦게 뜨는 것 방지
           setMenu(null);
-          setColorMenu((m) => (m?.id === id ? null : { id, ...a }));
+          setColorMenu((prev) => (prev?.id === id ? null : { id, ...a }));
         }}
         onOpenMenu={(id, a) => {
           cancelPendingMethodSheet();
           setColorMenu(null);
-          setMenu((m) => (m?.id === id ? null : { id, ...a }));
+          setMenu((prev) => (prev?.id === id ? null : { id, ...a }));
         }}
         footer={
           <>
-            <TouchableOpacity style={s.addBtn} activeOpacity={0.8} onPress={handleAddSubject}>
+            <PressableScale style={s.addBtn} onPress={handleAddSubject}>
               <Ionicons name="add" size={16} color={T.inkMuted} />
               <Text style={s.addText}>새 과목 추가</Text>
-            </TouchableOpacity>
+            </PressableScale>
             {/* 추천 과목 유도 — 탭하면 바로 과목으로 추가되고 목록에서 사라진다.
                 헤더 탭으로 접기/펼치기(상태는 AsyncStorage에 저장) */}
             {recommended.length > 0 && (
               <View style={s.recoSection}>
+                {/* 행 계열 규칙 — 스케일 없이 사운드만(발화 시점은 PressableScale과 동일한 press-in) */}
                 <TouchableOpacity
                   style={s.recoHeader}
                   activeOpacity={0.7}
+                  onPressIn={playTapSound}
                   onPress={toggleRecoHidden}
                 >
                   <Text style={s.recoLabel}>{category} 추천 과목</Text>
@@ -279,6 +410,7 @@ export default function FocusCategoryScreen() {
                       key={name}
                       style={s.recoRow}
                       activeOpacity={0.8}
+                      onPressIn={playTapSound}
                       onPress={() => {
                         cancelPendingMethodSheet(); // 추천 추가 중 예약 시트 발화 방지
                         addSubject(name);
@@ -311,11 +443,14 @@ export default function FocusCategoryScreen() {
             {/* 서버에서 내려준 기본(추천) 과목은 이름 변경 불가 — 삭제/등록만 허용(GROMO-855).
                 판정은 현재 카테고리 추천 과목명과의 일치 기준(재로그인 복원 뒤에도 유지됨).
                 추천 목록 도착 전엔 판별 불가라 편집을 숨긴다(defaultsReady). */}
+            {/* 팝오버 메뉴 항목도 행 계열 규칙 — 위 추천 과목 행과 같이 스케일 없이 사운드만 */}
             {defaultsReady && !defaultTags.includes(menuSubject.name) && (
               <>
                 <TouchableOpacity
                   style={s.menuItem}
                   activeOpacity={0.7}
+                  onPressIn={playTapSound}
+                  accessibilityRole="button"
                   onPress={() => editSubject(menuSubject)}
                 >
                   <Ionicons name="pencil" size={14} color={T.inkSub} />
@@ -327,6 +462,8 @@ export default function FocusCategoryScreen() {
             <TouchableOpacity
               style={s.menuItem}
               activeOpacity={0.7}
+              onPressIn={playTapSound}
+              accessibilityRole="button"
               onPress={() => confirmDelete(menuSubject)}
             >
               <Ionicons name="trash" size={14} color={T.accentAlt} />
@@ -347,7 +484,9 @@ export default function FocusCategoryScreen() {
             ]}
           >
             <View style={s.colorRow}>
-              {T.subjectPalette.map((c) => (
+              {/* 색 점은 라벨이 될 텍스트가 없어 VoiceOver가 읽을 게 없었다 — 번호로 라벨을
+                  주고 선택 상태를 함께 알린다. 피드백은 팝오버 메뉴와 같은 사운드만. */}
+              {T.subjectPalette.map((c, i) => (
                 <TouchableOpacity
                   key={c}
                   style={[
@@ -356,6 +495,10 @@ export default function FocusCategoryScreen() {
                     colorSubject.color === c && s.colorDotOn,
                   ]}
                   activeOpacity={0.8}
+                  onPressIn={playTapSound}
+                  accessibilityRole="button"
+                  accessibilityLabel={`색상 ${i + 1}`}
+                  accessibilityState={{ selected: colorSubject.color === c }}
                   onPress={() => {
                     setSubjectColor(colorSubject.id, c);
                     setColorMenu(null);
@@ -372,11 +515,11 @@ export default function FocusCategoryScreen() {
         storageKey={STORAGE_KEYS.guideFocus}
         steps={[
           {
-            text: '집중할 과목을 골라줘!\n과목을 탭하면 무제한·타이머·뽀모도로 중 집중 방식을 고를 수 있어.',
+            text: '집중할 과목을 골라 주세요!\n과목을 탭하면 무제한·타이머·뽀모도로 중 집중 방식을 고를 수 있어요.',
             character: require('@/assets/character_hi.png'),
           },
           {
-            text: '집중을 마치면 공부 시간이 과목별로 기록되고 리그 순위에도 반영돼.\n그럼 시작해보자!',
+            text: '집중을 마치면 시간이 과목별로 기록되고 리그 순위에도 반영돼요.\n그럼 시작해 봐요!',
             character: require('@/assets/character_study.png'),
           },
         ]}

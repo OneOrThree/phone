@@ -1,0 +1,95 @@
+# HLD — 그룹 활동
+
+| 항목      | 내용                                                                                                              |
+| --------- | ----------------------------------------------------------------------------------------------------------------- |
+| 시작      | [구현 착수 카드](./README.md)                                                                                     |
+| 상위 정본 | [그룹 PRD](../../prd.md) · [그룹 IA](../../information-architecture.md)                                           |
+| 범위      | 그룹방, 멤버 현황, 공지, 그룹 맥락의 집중 진입                                                                    |
+| 구현 상태 | [공통 상태 정본](../../shared/implementation-status.md)의 `GRP-03`을 따른다.                                      |
+| 별도 문서 | **챌린지는 그룹방 안에 노출되지만 상세 정책·설계·구현은 [챌린지 문서 세트](../../../challenge/README.md)가 소유** |
+
+카드 덱은 02, 초대 링크 발급·공유는 01, 역할·멤버십 관리는 04가 소유한다. 이 문서는 챌린지의 상세 정책과 구현을 정의하지 않는다.
+
+## 1. 사용자 약속
+
+```mermaid
+flowchart LR
+    Room["그룹방"] --> Members["멤버 현황"]
+    Room --> Notice["공지"]
+    Room --> Focus["이 그룹으로 집중"]
+    Room --> Challenge["챌린지 진입<br/>상세는 별도 PRD"]
+    Room --> Invite["초대 링크 공유<br/>01 그룹 획득"]
+    Room --> Settings["그룹 설정<br/>04 그룹 운영"]
+```
+
+- 그룹원은 전체 방에서 현재 멤버와 공지를 확인하고, 같은 `groupId` 맥락으로 집중을 시작한다.
+- 공지는 방장 또는 서버가 허용한 멤버가 작성·수정·삭제한다.
+- 챌린지는 그룹방의 하위 기능으로 보이지만, 내부 정책과 성공 기준은 이 문서에서 판단하지 않는다.
+
+## 2. 책임과 정보 정본
+
+```mermaid
+flowchart TB
+    App["앱"] --> Room["그룹방 화면"]
+    Room --> Detail["그룹 상세 · 멤버"]
+    Room --> Announce["공지"]
+    Room --> FocusRoute["집중 화면으로 이동"]
+    Room --> ChallengeBoundary["챌린지 기능 경계"]
+
+    Detail --> Server[("서버 그룹 정본")]
+    Announce --> Server
+    FocusRoute --> Focus[("기존 집중 세션")]
+    ChallengeBoundary -.-> Separate["별도 챌린지 PRD · HLD · LLD"]
+```
+
+| 영역           | 정본과 책임                                                  | 앱이 해서는 안 되는 일                                            |
+| -------------- | ------------------------------------------------------------ | ----------------------------------------------------------------- |
+| 소속·역할·멤버 | 서버 상세의 현재 그룹원과 역할                               | 과거 목록이나 로컬 설정으로 소속·권한 추정                        |
+| 공지           | 서버 최신 목록과 쓰기 권한                                   | 실패한 쓰기를 성공으로 표시하거나 임의 재정렬                     |
+| 집중 진입      | 기존 집중 흐름에 전달한 `groupId`와 `entrySource=group_room` | 그룹방에서 FocusSession 진입을 미리 가정하거나 source를 ID로 추론 |
+| 챌린지         | 별도 챌린지 문서                                             | 이 문서에서 상세 정책 재정의                                      |
+
+## 3. 독립 조회와 실패 격리
+
+```mermaid
+flowchart TD
+    Enter["방 진입 · 복귀 · 새로고침"] --> Load["상세 · 공지 · 하위 활동 병렬 조회"]
+    Load --> D["상세 · 멤버\n방 shell 선행 조회"]
+    Load --> N["공지"]
+    Load --> Child["하위 활동 기능"]
+    D -->|성공| Core["그룹방 핵심 화면 · 집중 FAB"]
+    D -->|MEMBER_ONLY| MemberOnly["활성 인증 뒤 미소속 사후조건\n목록·탐색으로 안전 복귀"]
+    D -->|NOT_FOUND| AuthCheck["인증 상태 재확인"]
+    AuthCheck -->|비활성 · 탈퇴 계정| SessionRecover["세션 안전 복구\n성공 처리 없음"]
+    AuthCheck -->|인증 유효| ScopeCheck["최신 detail · 성공한 전체 목록 재확인"]
+    ScopeCheck -->|그룹 부재 · 미소속 확인| SafeReturn["목록·탐색으로 안전 복귀"]
+    ScopeCheck -->|detail 성공| Core
+    ScopeCheck -->|의미 불명 · 재확인 실패| DetailError["현재 안전 상태 유지\n오류 · 재시도"]
+    D -->|그 밖의 실패·기존 detail 없음| DetailError
+
+    N --> NoticeState["독립 로딩 · 오류 표시"]
+    Child --> ChildState["독립 로딩 · 오류 표시"]
+    NoticeState -.-> Core
+    ChildState -.-> Core
+    NoticeState --> Retry["현행 다시 시도<br/>공용 방 재조회"]
+    ChildState --> Retry
+    Retry --> Load
+```
+
+- 상세는 그룹방 shell과 집중 FAB를 표시하기 위한 선행 데이터다. 최초 상세 조회가 실패하고 기존 detail도 없으면 전체 오류와 재시도만 표시한다.
+- 상세·공지·하위 활동 요청은 함께 시작할 수 있지만, detail 성공 전에는 방 shell·공지·집중 FAB를 표시하지 않는다.
+- 상세가 성공한 뒤 공지와 하위 활동은 서로 독립적으로 성공하거나 실패할 수 있다. 이 하위 영역의 실패는 다른 성공 영역과 집중 진입을 막지 않는다.
+- 여기서 독립은 **오류 표시와 응답 반영의 격리**를 뜻한다. 현재 각 영역의 `다시 시도`는 공용 방 재조회를 실행하며, 해당 요청만 보내는 영역별 retry는 [구현 상태 정본](../../shared/implementation-status.md)의 남은 작업이다.
+- 하위 활동 기능의 오류는 detail이 준비된 그룹방 전체를 거짓 빈 상태로 만들지 않는다.
+- 현재 서버 `getGroupDetail`은 활성 사용자 조회 실패와 그룹 부재에 모두 `NOT_FOUND`를 쓰고, 활성 사용자·그룹 확인 뒤 멤버십 부재에는 `MEMBER_ONLY`를 쓴다. 현행 `GroupRoomScreen`은 두 code 모두 즉시 `onLeft`로 처리하므로, `NOT_FOUND`의 scope 재확인·세션 복구는 미구현이다.
+- 목표 계약에서 `MEMBER_ONLY`는 서버가 활성 인증 뒤 반환한 요청자 미소속 사후조건일 때만 직접 수렴할 수 있다. `NOT_FOUND`와 네트워크·재확인 실패는 탈퇴·강퇴의 증거가 아니며 즉시 `onLeft`하지 않는다.
+- 인증 유효 뒤 최신 detail이 성공하면 방을 유지한다. 성공한 최신 전체 그룹 목록 또는 명확한 최신 membership scope가 group 부재·미소속을 확인할 때만 상위 탐색으로 안전하게 돌아간다. 이 확인이 실패하거나 의미가 불명하면 기존 detail이 있으면 이를 유지하고, 없으면 전체 오류·재시도를 표시한다.
+
+## 4. 구현 경계
+
+- 그룹방은 선택한 `groupId`의 서버 정보를 직접 조회한다. 카드 요약 캐시를 방의 정본으로 사용하지 않는다.
+- 카드 CTA가 Room route를 열면 수락 시 만든 비식별 `interaction_id`를 `entrySource=group_card`와 함께 해당 route context에만 보존한다. Room은 최초 성공 렌더에 같은 값을 한 번만 전달하고, route 재사용·취소·실패 뒤의 stale 값은 소비하지 않는다. 첫 결과 전 app background·예상 route chain 이탈·target unmount에는 pending 키를 제거하며 재개 결과에는 싣지 않는다. 그룹방 FAB·외부 진입처럼 `group_card`가 아닌 source에는 `interaction_id`가 없다. 이름·형식·귀속 window는 [공통 분석 계약](../../shared/analytics.md)이 정본이다.
+- 집중 버튼은 `initialGroupId`와 `entrySource=group_room`을 기존 집중 흐름에 함께 전달한다. 공통 Focus route/helper는 source를 `FocusSession`까지 그대로 보존하고 최초 화면 진입·세션 시작 처리 시 `focus_session_started(entry_source=group_room)`를 1회 발행한다. 이 이벤트는 marker API 성공과 독립이며 rerender에서 다시 발행하지 않는다. 같은 공통 경계가 글로벌 FAB의 `home_fab`와 source 없는 구버전·외부 진입의 `unknown`도 정규화하고, `group_card`는 02 작업 패키지가 전달한다. `initialGroupId`로 source를 추론하지 않는다. 집중이 끝나면 시작한 그룹방 맥락으로 돌아와 필요한 정보를 다시 확인한다.
+- 카드 CTA가 Focus를 연 경우에만 공통 Focus route/helper가 같은 `interaction_id`를 `FocusCategory → FocusSession` 결과까지 보존한다. Room FAB의 `group_room`, 글로벌 FAB의 `home_fab`, source 없는 `unknown`은 이 값을 전달하지 않으며 route 재사용 시 이전 카드 값을 남기지 않는다.
+- 공지 변경은 서버 성공 뒤 목록을 다시 확인한다. 권한은 요청 시 서버가 최종 검증한다.
+- 챌린지 관련 화면·API·동시성·계측·테스트는 [챌린지 PRD](../../../challenge/prd.md)·[HLD](../../../challenge/high-level-design.md)·[LLD](../../../challenge/low-level-design.md)를 정본으로 연결한다.

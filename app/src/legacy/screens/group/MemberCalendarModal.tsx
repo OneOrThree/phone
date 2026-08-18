@@ -130,11 +130,7 @@ export default function MemberCalendarModal({
   return (
     <Modal visible={visible} transparent={false} animationType="fade" onRequestClose={onClose}>
       <View style={s.container}>
-        <TouchableOpacity
-          style={StyleSheet.absoluteFillObject}
-          activeOpacity={1}
-          onPress={onClose}
-        />
+        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
         <View
           style={[s.sheet, { paddingBottom: Math.max(bottomInset, 16) + 16 }]}
           onStartShouldSetResponder={() => true}
@@ -211,7 +207,7 @@ export default function MemberCalendarModal({
 
           {/* 달력 그리드 */}
           {loading ? (
-            <ActivityIndicator size="small" color={T.inkMed} style={{ marginVertical: 20 }} />
+            <ActivityIndicator size="small" color={T.inkMed} style={s.loadingSpinner} />
           ) : (
             <View style={{ gap: CELL_GAP }}>
               {rows.map((row, ri) => (
@@ -269,7 +265,7 @@ export default function MemberCalendarModal({
               <Text style={s.legendTxt}>집중 있음</Text>
             </View>
             <View style={s.legendItem}>
-              <Text style={[s.check, { fontSize: 11 }]}>✓</Text>
+              <Text style={[s.check, s.checkSmall]}>✓</Text>
               <Text style={s.legendTxt}>챌린지</Text>
             </View>
           </View>
@@ -280,6 +276,8 @@ export default function MemberCalendarModal({
 }
 
 const s = StyleSheet.create({
+  loadingSpinner: { marginVertical: 20 },
+  checkSmall: { fontSize: 11 },
   container: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

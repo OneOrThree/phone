@@ -1,17 +1,21 @@
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, InteractionManager } from 'react-native';
+import { Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { CharacterImage } from '@/components/character/CharacterImage';
-import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
-import { T, withAlpha } from '@/constants/theme';
+import { CelebrationModal, CelebrationPill } from '@/components/CelebrationModal';
+import { T } from '@/constants/theme';
+import { CurrencyIcon } from '@/components/CurrencyIcon';
+import { CURRENCY } from '@/constants/currency';
 
 // 스크린타임 목표 달성 축하 모달(GROMO-629) — 어제 사용 시간이 목표 이내였으면 그날 첫 홈 진입에
-// 1회 노출. 코인/재화 지급 없음(축하 + 스트릭 정책). 모양은 포커스 목표 축하(GoalCelebrationModal)
-// 와 동일 — 문구만 스크린타임용. '연속 목표달성'만 표시한다.
+// 1회 노출. 목표 보상으로 지급된 시간조각을 rewardCoins로 받아 +N 한 줄로 표시한다(>0일 때만) —
+// 값은 호출자가 넘긴다. 모양은 포커스 목표 축하(GoalCelebrationModal)와 동일, 문구만 스크린타임용.
+// '연속 목표달성'만 표시한다.
+//
+// 연출·타이밍·게이트는 전부 CelebrationModal(공통 껍데기)에 있다 — 여기는 문구와 pill만 정한다.
 interface Props {
   visible: boolean;
   streakDays: number; // 어제 포함 연속 목표달성 일수
   goalMinutes?: number; // 어제 목표 사용 시간(분) — "N시간 이내로 사용하기 성공" 문구용
+  rewardCoins?: number; // 목표 보상 시간조각 — >0일 때만 +N ⏳ 표기
   onClose: () => void;
 }
 
@@ -24,84 +28,54 @@ function goalLabel(minutes: number): string {
   return `${m}분`;
 }
 
-export function ScreenTimeCelebrationModal({ visible, streakDays, goalMinutes, onClose }: Props) {
-  const [cardRect, setCardRect] = useState<ConfettiObstacle | null>(null);
-  // 색종이는 캐릭터가 그려지고 UI가 한가해진 뒤 시작(GROMO-848) — GoalCelebrationModal과 동일 가드
-  const [charReady, setCharReady] = useState(false);
-  const [uiIdle, setUiIdle] = useState(false);
-  useEffect(() => {
-    if (!visible) return;
-    const task = InteractionManager.runAfterInteractions(() => setUiIdle(true));
-    return () => task.cancel();
-  }, [visible]);
+export function ScreenTimeCelebrationModal({
+  visible,
+  streakDays,
+  goalMinutes,
+  rewardCoins,
+  onClose,
+}: Props) {
+  const goalLine = goalMinutes
+    ? `${goalLabel(goalMinutes)} 이내로 사용하기 성공했어요.`
+    : '목표 이내로 사용하기 성공했어요.';
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={s.overlay}>
-        <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={onClose} />
-        <View
-          style={s.card}
-          onLayout={(e) => {
-            const { x, y, width } = e.nativeEvent.layout;
-            setCardRect((prev) => prev ?? { x, y, width });
-          }}
-        >
-          <View style={s.streakBox}>
-            <Ionicons name="ribbon" size={15} color={T.accentDeep} />
-            <Text style={s.streakText}>
-              연속 목표달성 <Text style={s.streakDays}>{streakDays}일</Text>
-            </Text>
-          </View>
-          <CharacterImage size={104} onLoad={() => setCharReady(true)} />
-          <Text style={s.title}>어제 핸드폰 사용 시간 목표를 달성했군요!</Text>
-          <Text style={s.sub}>
-            {goalMinutes
-              ? `${goalLabel(goalMinutes)} 이내로 사용하기 성공했어요.`
-              : '목표 이내로 사용하기 성공했어요.'}
-            {'\n'}오늘도 화이팅!
+    <CelebrationModal
+      visible={visible}
+      onClose={onClose}
+      testIDPrefix="screenTimeCelebration"
+      badge={
+        <CelebrationPill>
+          <Ionicons name="flame" size={15} color={T.accentDeep} />
+          <Text style={s.streakText}>
+            연속 목표달성 <Text style={s.streakDays}>{streakDays}일</Text>
           </Text>
-          <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={onClose}>
-            <Text style={s.ctaText}>좋아요!</Text>
-          </TouchableOpacity>
-        </View>
-        {cardRect && charReady && uiIdle ? <ConfettiBurst obstacle={cardRect} /> : null}
-      </View>
-    </Modal>
+        </CelebrationPill>
+      }
+      title="어제 핸드폰 사용 시간 목표를 달성했군요!"
+      sub={`${goalLine}\n오늘도 화이팅!`}
+      /* 목표 보상 시간조각 — 호출자가 넘긴 rewardCoins>0일 때만 */
+      footer={
+        (rewardCoins ?? 0) > 0 ? (
+          <CelebrationPill style={s.coinBox}>
+            {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
+            <Text
+              style={s.coinText}
+              accessibilityLabel={`${CURRENCY.label} ${rewardCoins?.toLocaleString()} 획득!`}
+            >
+              +{rewardCoins?.toLocaleString()} <CurrencyIcon size={14} /> 획득!
+            </Text>
+          </CelebrationPill>
+        ) : null
+      }
+      ctaLabel="좋아요!"
+    />
   );
 }
 
 const s = StyleSheet.create({
-  overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: withAlpha(T.night.bottom, 0.5) },
-  card: {
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    backgroundColor: T.white,
-    borderRadius: 24,
-    paddingHorizontal: T.space.xxl,
-    paddingTop: 28,
-    paddingBottom: T.space.xl,
-    gap: T.space.sm,
-  },
-  title: { ...T.text.subtitle, fontSize: 20, color: T.ink, marginTop: T.space.md },
-  sub: { ...T.text.label, fontWeight: '500', color: T.inkSub, textAlign: 'center' },
-  streakBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: T.space.sm,
-    backgroundColor: T.accentBg,
-    borderRadius: 999,
-    paddingHorizontal: T.space.lg,
-    paddingVertical: T.space.sm,
-  },
   streakText: { ...T.text.label, fontWeight: '600', color: T.accentDeep },
   streakDays: { fontWeight: '800' },
-  cta: {
-    alignSelf: 'stretch',
-    backgroundColor: T.accent,
-    borderRadius: 14,
-    paddingVertical: T.space.lg,
-    alignItems: 'center',
-    marginTop: T.space.lg,
-  },
-  ctaText: { ...T.text.subtitle, color: T.white },
+  // 목표 보상 시간조각 pill(+N ⏳)
+  coinBox: { marginTop: T.space.xs },
+  coinText: { ...T.text.label, fontWeight: '800', color: T.accentDeep },
 });

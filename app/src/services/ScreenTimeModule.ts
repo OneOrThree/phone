@@ -1,32 +1,75 @@
 // ScreenTimeModule.ts
-// ScreenTimeModule.swift 네이티브 모듈의 JS 래퍼
+// 스크린타임 네이티브 모듈의 JS 래퍼
 //
-// 역할: Swift로 만든 네이티브 모듈을 JS에서 편하게 쓸 수 있게 감싸는 유틸
+// 역할: 네이티브 모듈을 JS에서 편하게 쓸 수 있게 감싸는 유틸
 // NativeModules에서 직접 꺼내 쓰는 것보다 이 파일을 import해서 쓰는 게 깔끔함
+//  - iOS: ScreenTimeModule.swift (구식 브릿지, NativeModules) — 함수 계약 20개 전체 구현
+//  - Android: app/modules/screen-time (Expo 모듈, GROMO-994) — M1 범위(권한·오늘/어제 조회·
+//    목표 저장)만 구현. 나머지 함수는 기존 기본값 가드를 유지한다(M2~M4에서 확장).
 
 import { NativeModules, Platform } from 'react-native';
+import { requireOptionalNativeModule } from 'expo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '@/types/storage';
 
 export type AuthorizationStatus = 'approved' | 'denied' | 'notDetermined';
-export type YesterdayResult = 'success' | 'fail' | null;
+
+// 기기(시스템) 다크모드 설정 — 권한창 복제본 외형 분기용(GROMO-934)
+export type SystemColorScheme = 'light' | 'dark';
 
 // presentAppPicker가 반환하는 선택 개수
 export interface AppSelectionCounts {
   applications: number;
   categories: number;
   webDomains: number;
+  // 선택 토큰 자체를 노출하지 않고 변경 여부 비교에만 쓰는 네이티브 SHA-256 서명.
+  selectionSignature?: string;
+  /**
+   * 네이티브가 **모달 dismiss가 끝난 뒤에** 이 promise를 풀었는가.
+   *
+   * ⚠️ hot-updater로 새 JS만 받은 **구 바이너리는 이 키가 없다(undefined).** 그쪽은 아직
+   *    모달이 떠 있는 채로 resolve하므로, 등장 연출이 있는 UI(토스트)를 쓰면 사용자는 모달이
+   *    사라진 뒤 토스트가 갑자기 나타나는 걸 보고 노출 시간도 짧아진다(codex 리뷰).
+   *    새 메서드를 추가해 능력을 판별하는 대신 **응답으로 알린다** — 왕복이 없다.
+   */
+  dismissed?: boolean;
+}
+
+// Monitor 익스텐션 threshold 발화 타임라인 항목(N1) — App Group "usageBucketEvents:{yyyy-MM-dd}".
+// bucket은 원시 threshold 눈금이 아니라 '베이스+눈금' 하루 누적 환산분(단조 증가)이다 —
+// 분 단위 값 그대로 쓴다(×15 같은 변환 금지, N1 계약 확정). 2일 보존.
+export interface UsageBucketEvent {
+  bucket: number; // 그 발화 시점의 하루 누적 사용분
+  firedAt: number; // 발화 시각(epoch 초)
+}
+
+// 사용량 버킷 측정 상태 디버그 정보(개발용, GROMO-931) — App Group 기록 원본.
+// 전체 탭 dev 패널이 15분 눈금 동작 확인에 쓴다. 판정 로직에는 쓰지 않는다.
+export interface UsageBucketDebugInfo {
+  bucketMinutes: number; // 오늘 도달 최고 눈금(재등록 베이스 합산)
+  bucketDate: string; // 눈금이 기록된 날짜 'YYYY-MM-DD'
+  baseMinutes: number; // 재등록 베이스(등록 전 오늘 기록)
+  baseDate: string;
+  registeredAt: number; // 버킷 모니터 등록 시각(epoch 초, 0=기록 없음)
+  prevBucketMinutes: number; // 하루 경계에 보존된 전일 최종 눈금
+  prevBucketDate: string;
+  promotedOkDate: string; // 익스텐션이 자정 승격+버킷 등록에 성공한 날짜(백업 재등록 스킵 판단용)
+  log: string[]; // 콜백·등록 이벤트 로그(시각+내용, 오래된 순, 최대 50줄)
 }
 
 // Swift 네이티브 모듈 인터페이스 (실기기 iOS에서만 실제 구현 존재)
 interface NativeScreenTime {
   requestAuthorization(): Promise<boolean>;
   getAuthorizationStatus(): Promise<AuthorizationStatus>;
-  getTotalScreenTime(): Promise<number>;
+  getSystemColorScheme(): Promise<SystemColorScheme>;
   setGoalSeconds(seconds: number): Promise<void>;
-  startGoalMonitoring(goalSeconds: number): Promise<boolean>;
+  stopGoalMonitoring(): Promise<boolean>;
   startUsageBucketMonitoring(maxMinutes: number): Promise<boolean>;
   getTodayUsageBucketMinutes(): Promise<number>;
   getYesterdayUsageBucketMinutes(): Promise<number>;
-  getYesterdayResult(): Promise<YesterdayResult>;
+  getUsageBucketDebugInfo(): Promise<UsageBucketDebugInfo>;
+  getUsageBucketEvents(dayKey: string): Promise<UsageBucketEvent[]>;
+  setPendingSelectionApplyDate(dateString: string): Promise<boolean>;
   presentAppPicker(): Promise<AppSelectionCounts | null>;
   promoteSelection(): Promise<boolean>;
   presentAllowedAppPicker(): Promise<AppSelectionCounts | null>;
@@ -43,63 +86,203 @@ interface NativeScreenTime {
 
 const NativeScreenTimeModule = NativeModules.ScreenTimeModule as NativeScreenTime;
 
-// iOS 전용 기능이므로 Android에서 호출 시 에러 대신 기본값 반환
+// 안드로이드 Expo 모듈 인터페이스(GROMO-994) — M1 범위 함수만 네이티브 구현이 있다.
+// startUsageBucketMonitoring은 예약 개념이 없어 네이티브 없이 TS에서 no-op true(§4 매핑).
+interface AndroidNativeScreenTime {
+  requestAuthorization(): Promise<boolean>;
+  getAuthorizationStatus(): Promise<AuthorizationStatus>;
+  setGoalSeconds(seconds: number): Promise<void>;
+  getTodayUsageBucketMinutes(): Promise<number>;
+  getYesterdayUsageBucketMinutes(): Promise<number>;
+}
+
+// 구 바이너리(OTA로 새 JS만 받아 네이티브 모듈이 없는 경우)는 null — 각 함수가 기존
+// 기본값 가드로 폴백해 크래시 없이 동작한다(iOS의 메서드 존재 판별과 같은 취지).
+const AndroidScreenTime =
+  Platform.OS === 'android'
+    ? requireOptionalNativeModule<AndroidNativeScreenTime>('ScreenTimeModule')
+    : null;
+
+// 안드로이드 네이티브 스크린타임 모듈 가용 여부 — OTA로 새 JS만 받은 구 바이너리는 모듈이
+// 없어 false. 이 경우 requestAuthorization도 설정 화면을 못 열므로, 화면 쪽은 권한 CTA 같은
+// M1 UI 대신 M1 이전 placeholder를 유지해야 한다(코드리뷰 반영).
+export const androidNativeModuleAvailable = (): boolean => AndroidScreenTime != null;
+
+// 네이티브 바이너리가 15분 눈금(GROMO-931) 빌드인지 — 같은 빌드에 추가된
+// getUsageBucketDebugInfo 존재로 판별한다. OTA로 새 JS만 받은 구 바이너리는 여전히 30분
+// 눈금을 등록하므로, 등록 마커가 실제 눈금과 어긋나지 않게 하는 데 쓴다(코드리뷰 반영).
+export const nativeRegistersBucketStep15 = (): boolean =>
+  Platform.OS === 'ios' &&
+  typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)
+    ?.getUsageBucketDebugInfo === 'function';
+
+// 네이티브 바이너리가 threshold 발화 타임라인(N1, getUsageBucketEvents)을 지원하는지 — OTA로
+// 새 JS만 받은 구 바이너리는 메서드가 없어 false. 이 경우 창 사용분 업로드(A4)는 전체 스킵한다
+// (서버 memberProgress null = 판정불가가 정상 상태).
+export const nativeSupportsUsageBucketEvents = (): boolean =>
+  Platform.OS === 'ios' &&
+  typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)?.getUsageBucketEvents ===
+    'function';
+
+// 네이티브 바이너리가 A안(GROMO-942, 측정 대상 '다음날 적용')을 지원하는지 — 같은 빌드에 추가된
+// setPendingSelectionApplyDate 존재로 판별. OTA로 새 JS만 받은 구 바이너리는 이 메서드도, 자정
+// 승격 로직도 없으므로 설정 화면이 '다음날 적용'을 예약하면 영영 적용되지 않는다. 이 경우 설정
+// 화면은 예약 대신 즉시 적용으로 폴백한다(코드리뷰 반영).
+export const nativeSupportsPendingApplyDate = (): boolean =>
+  Platform.OS === 'ios' &&
+  typeof (NativeModules.ScreenTimeModule as NativeScreenTime | undefined)
+    ?.setPendingSelectionApplyDate === 'function';
+
+// iOS 콜드런치 quirk 보정용 승인 이력 캐시.
+// AuthorizationCenter.authorizationStatus 는 앱 프로세스가 막 뜬 직후 실제로는 승인된 상태인데도
+// 'notDetermined' 를 돌려줄 때가 있다. 그러면 홈 '핸드폰 사용' 칸이 권한 켜기 안내로 바뀌어 버린다
+// (v1 홈에 있던 이 방어가 화면 재작성 때 함께 삭제돼 재발했다 — 키만 남고 로직이 사라져 있었다).
+// 원칙: 확정 답('approved'/'denied')만 신뢰해 캐시를 갱신하고, 'notDetermined' 인데 승인 이력이
+// 있으면 quirk 로 보고 승인으로 보정한다.
+// ⚠️ 한계: 설정에서 권한을 껐을 때 'denied' 가 아니라 'notDetermined' 로 오는 기기가 있으면
+//    캐시가 승인으로 눌러앉는다. v1 에서 'denied' 로 오는 것을 확인해 그 전제를 그대로 따르되,
+//    어긋나는 사례가 나오면 캐시에 TTL 을 주는 게 다음 수순이다.
+// 캐시 값은 3상태다: '1'=승인 확정 / '0'=거부 확정 / 없음=아직 확정 답을 받은 적 없음.
+// 거부를 '키 삭제'가 아니라 '0' 으로 남기는 이유는 아래 업그레이드 코호트 폴백 때문이다 —
+// 삭제해 버리면 "확정 거부"와 "기록 없음"이 구분되지 않아, 폴백이 거부를 덮고 승인으로
+// 되살아난다(코드리뷰 반영).
+// 호출부가 await 한다 — 기록이 끝나기 전에 결과를 돌려주면, 그 직후 앱이 종료됐을 때 캐시가
+// 비어 있어 다음 콜드런치에서 quirk 보정이 못 걸린다(코드리뷰 반영).
+// 같은 값을 다시 쓰는 경우가 있지만 1바이트 로컬 쓰기라 조회 경로에서도 부담이 없다.
+const markAuthGranted = async (granted: boolean): Promise<void> => {
+  await AsyncStorage.setItem(STORAGE_KEYS.screentimeAuthGranted, granted ? '1' : '0').catch(
+    () => {},
+  );
+};
+
+const readAuthCache = (): Promise<string | null> =>
+  AsyncStorage.getItem(STORAGE_KEYS.screentimeAuthGranted).catch(() => null);
+
+const hasAuthGrantedHistory = async (): Promise<boolean> => {
+  const cached = await readAuthCache();
+  // 확정 답이 한 번이라도 기록됐으면 그것만 믿는다 — 거부('0')면 폴백을 보지 않는다.
+  if (cached != null) return cached === '1';
+  // 업그레이드 코호트 폴백 — 캐시 로직이 없던 빌드에서 이미 권한을 허용하고 측정까지 돌던
+  // 유저는 이 캐시 키가 아예 없다. 그 상태로 업데이트 후 첫 콜드런치에 quirk 가 걸리면 이력이
+  // 없어 보정이 못 걸리고, 홈은 권한 켜기를 그대로 띄운다.
+  // 버킷 모니터 등록 마커는 registerUsageBucketMonitoring 이 'approved' 가 아니면 즉시 빠지므로
+  // (screentimeSync.ts) 존재 자체가 "과거에 승인됐었다"는 증거다 — 진짜 최초 유저는 가질 수 없다.
+  // 확정 답을 한 번이라도 받으면 위에서 걸러지므로 이 폴백은 사실상 1회성이다.
+  const measured = await AsyncStorage.getItem(STORAGE_KEYS.screentimeBucketMonitorRegistered).catch(
+    () => null,
+  );
+  return measured != null;
+};
+
+// 플랫폼 라우팅 — iOS는 Swift 브릿지, 안드로이드 M1 범위는 Expo 모듈, 그 외(미구현 함수·
+// 구 바이너리)는 에러 대신 기본값 반환. 화면 코드 호출부는 플랫폼을 몰라도 된다.
 const ScreenTimeModule = {
   // 스크린 타임 접근 권한 요청. 반환값: true(승인) | false(거부)
+  // 안드로이드는 시스템 팝업이 없어 Usage Access 설정을 열고 복귀 시 재확인한 결과로 resolve.
   requestAuthorization: async (): Promise<boolean> => {
+    if (AndroidScreenTime) return AndroidScreenTime.requestAuthorization();
     if (Platform.OS !== 'ios') return false;
-    return NativeScreenTimeModule.requestAuthorization();
+    const granted = await NativeScreenTimeModule.requestAuthorization();
+    // 요청 결과는 네이티브가 현재 권한 상태에서 뽑아낸 확정 답이라 양쪽 다 기록한다.
+    // 승인도 반드시 기록해야 한다 — 온보딩 권한 스텝은 승인되면 곧장 측정 대상 picker 로 넘어가
+    // getAuthorizationStatus 를 한 번도 부르지 않는다(ScreenTimePermissionStep). 그 상태로 앱이
+    // 종료되면 다음 콜드런치에서 quirk 로 notDetermined 가 오고, 이력이 없어 위 보정이 못 걸린다.
+    // 거부 기록도 그대로 필요하다 — 보정이 옛 승인에 눌러앉지 않게.
+    await markAuthGranted(granted);
+    return granted;
   },
 
-  // 현재 권한 상태 확인
+  // 현재 권한 상태 확인 (안드로이드: AppOps 체크 + '설정 보낸 적' 플래그로 notDetermined 구분)
   getAuthorizationStatus: async (): Promise<AuthorizationStatus> => {
+    if (AndroidScreenTime) return AndroidScreenTime.getAuthorizationStatus();
     if (Platform.OS !== 'ios') return 'denied';
-    return NativeScreenTimeModule.getAuthorizationStatus();
+    let live = await NativeScreenTimeModule.getAuthorizationStatus();
+    // 거부로 기록된 유저가 설정에서 권한을 다시 켠 경우 — 아래 보정은 거부 기록을 신뢰해 눌러앉으므로
+    // quirk 에 걸리면 다시 켠 사실을 못 본다. 이 조합(거부 기록 + notDetermined)에서만 한 번 더
+    // 물어본다(코드리뷰 반영). 다른 경로에는 추가 호출을 주지 않는다.
+    if (live === 'notDetermined' && (await readAuthCache()) === '0') {
+      live = await NativeScreenTimeModule.getAuthorizationStatus();
+    }
+    if (live === 'approved' || live === 'denied') {
+      await markAuthGranted(live === 'approved');
+      return live;
+    }
+    // notDetermined — 승인 이력이 있으면 콜드런치 quirk 로 보고 승인 유지.
+    return (await hasAuthGrantedHistory()) ? 'approved' : 'notDetermined';
   },
 
-  // 총 스크린 타임 조회 (초 단위)
-  getTotalScreenTime: async (): Promise<number> => {
-    if (Platform.OS !== 'ios') return 0;
-    return NativeScreenTimeModule.getTotalScreenTime();
+  // 기기(시스템) 다크모드 설정 조회 — 앱이 라이트 고정(Info.plist)이라 RN Appearance는 항상
+  // light. 시스템 권한창 복제본(GROMO-934)의 외형 분기에 쓴다. iOS 외/구 바이너리(OTA로
+  // 메서드 없음)는 'dark' 폴백 — 실기기로 확인된 외형 기준이고, 틀려도 안내 내용은 유효하다.
+  getSystemColorScheme: async (): Promise<SystemColorScheme> => {
+    if (Platform.OS !== 'ios') return 'dark';
+    if (typeof NativeScreenTimeModule.getSystemColorScheme !== 'function') return 'dark';
+    return NativeScreenTimeModule.getSystemColorScheme();
   },
 
-  // 목표 시간을 App Group에 저장 (익스텐션에서 "남은 시간" 계산에 사용)
+  // 목표 시간 저장 — iOS는 App Group(익스텐션 "남은 시간" 계산용), 안드로이드는 모듈 로컬
+  // 저장만(판정 계산은 M4).
   setGoalSeconds: async (seconds: number): Promise<void> => {
+    if (AndroidScreenTime) return AndroidScreenTime.setGoalSeconds(seconds);
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.setGoalSeconds(seconds);
   },
 
-  // 매일 자정 기준 스크린 타임 목표 달성 모니터링 등록 — 어제 판정(getYesterdayResult)의 소스.
-  // 측정 대상 미선택이면 false. 목표 변경 시 재호출하면 이전 모니터링을 교체한다.
-  startGoalMonitoring: async (goalSeconds: number): Promise<boolean> => {
-    if (Platform.OS !== 'ios') return false;
-    return NativeScreenTimeModule.startGoalMonitoring(goalSeconds);
+  // (GROMO-942) 목표 판정 모니터(gromo.daily) 폐지 — 기존 설치에 남은 등록을 1회 중지하는
+  // 마이그레이션용. 반환 true = "정리 완료(또는 정리할 대상 없음)"로 호출부가 1회 마커를 남긴다.
+  // iOS 외(gromo.daily가 애초에 없음)는 true. **구 바이너리(OTA로 메서드 없음)는 실제로 중지하지
+  // 못하므로 false** — 마커를 안 남겨 새 바이너리 설치 후 재시도되게 한다(코드리뷰 반영).
+  stopGoalMonitoring: async (): Promise<boolean> => {
+    if (Platform.OS !== 'ios') return true;
+    if (typeof NativeScreenTimeModule.stopGoalMonitoring !== 'function') return false;
+    return NativeScreenTimeModule.stopGoalMonitoring();
   },
 
-  // 30분 버킷 사용량 모니터링 등록 (maxMinutes까지 30분 간격 threshold).
+  // 15분 버킷 사용량 모니터링 등록 (maxMinutes까지 15분 간격 threshold).
   // 측정 대상 미선택이면 false. 반환값: 등록 성공 여부.
+  // 안드로이드는 조회형이라 예약 개념이 없음 — 모듈이 있으면 no-op true(등록 마커·측정 시작
+  // 앵커는 그대로 유효), 구 바이너리(모듈 없음)는 측정 불가라 false.
   startUsageBucketMonitoring: async (maxMinutes: number): Promise<boolean> => {
+    if (Platform.OS === 'android') return AndroidScreenTime != null;
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startUsageBucketMonitoring(maxMinutes);
   },
 
-  // 오늘의 사용량(분) — Monitor가 기록한 도달 최고 30분 눈금. iOS 외/미측정 시 0.
+  // 오늘의 사용량(분) — iOS는 Monitor가 기록한 도달 최고 15분 눈금, 안드로이드는 오늘
+  // 0시~지금 queryEvents 정확값. 미측정·미구현 시 0.
   getTodayUsageBucketMinutes: async (): Promise<number> => {
+    if (AndroidScreenTime) return AndroidScreenTime.getTodayUsageBucketMinutes();
     if (Platform.OS !== 'ios') return 0;
     return NativeScreenTimeModule.getTodayUsageBucketMinutes();
   },
 
-  // 어제의 최종 사용량(분) — Monitor가 하루 경계에 보존한 전일 눈금(GROMO-633).
-  // iOS 외/보존 날짜가 어제가 아니면 0.
+  // 어제의 최종 사용량(분) — iOS는 Monitor가 하루 경계에 보존한 전일 눈금(GROMO-633),
+  // 안드로이드는 어제 0시~오늘 0시 queryEvents 정확값(소급 조회). 미측정·미구현 시 0.
   getYesterdayUsageBucketMinutes: async (): Promise<number> => {
+    if (AndroidScreenTime) return AndroidScreenTime.getYesterdayUsageBucketMinutes();
     if (Platform.OS !== 'ios') return 0;
     return NativeScreenTimeModule.getYesterdayUsageBucketMinutes();
   },
 
-  // 어제 목표 달성 결과 조회. 반환값: "success" | "fail" | null
-  getYesterdayResult: async (): Promise<YesterdayResult> => {
+  // 사용량 버킷 측정 상태 디버그 조회(개발용) — App Group 기록 원본. iOS 외에는 null.
+  getUsageBucketDebugInfo: async (): Promise<UsageBucketDebugInfo | null> => {
     if (Platform.OS !== 'ios') return null;
-    return NativeScreenTimeModule.getYesterdayResult();
+    return NativeScreenTimeModule.getUsageBucketDebugInfo();
+  },
+
+  // 날짜 키('YYYY-MM-DD')의 threshold 발화 타임라인(N1) — 창 사용분 계산(A4)의 소스. 2일 보존.
+  // 오래된 순 [{bucket, firedAt}] — bucket은 하루 누적 환산분(단조 증가). iOS 외·구 바이너리는 빈 배열.
+  getUsageBucketEvents: async (dayKey: string): Promise<UsageBucketEvent[]> => {
+    if (!nativeSupportsUsageBucketEvents()) return [];
+    return NativeScreenTimeModule.getUsageBucketEvents(dayKey);
+  },
+
+  // A안(GROMO-942) 측정 대상 변경 '다음날 적용' 예약 — App Group에 적용 예정일을 기록해
+  // 익스텐션 자정 콜백이 승격 여부를 판단하게 한다. dateString은 'YYYY-MM-DD'(로컬, 보통 내일),
+  // 빈 문자열이면 예약 취소. iOS 외/구 바이너리(OTA로 메서드 없음)에는 no-op(false).
+  setPendingSelectionApplyDate: async (dateString: string): Promise<boolean> => {
+    if (!nativeSupportsPendingApplyDate()) return false;
+    return NativeScreenTimeModule.setPendingSelectionApplyDate(dateString);
   },
 
   // 측정 대상(앱/카테고리) 선택 picker 표시. 취소 시 null.

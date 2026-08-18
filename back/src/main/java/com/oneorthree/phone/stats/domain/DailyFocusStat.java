@@ -43,8 +43,9 @@ public class DailyFocusStat {
     @JoinColumn(name = "user_id")
     private User user;
 
-    // 일별 집계 버킷 날짜 = 유저 country_code 파생 존 로컬 날짜 (GROMO-803, screentime 561과 동일 기준).
-    // FocusService.statDate(endedAt, zone) 가 endedAt 을 유저 국가 존으로 환산해 채운다(미지원·null 은 UTC 폴백).
+    // 일별 집계 버킷 날짜 = KST 로컬 날짜 (GROMO-1259 — 저장축 KST 고정, 스크린타임과 동일 기준).
+    // GROMO-1252: 세션 구간을 유저 국가 존의 로컬 자정으로 잘라(FocusService.splitByLocalDay) 날짜별로 나눠
+    // 채운다 — 자정 걸친 세션도 실제로 집중한 날에 귀속된다(미지원·null 존은 Asia/Seoul 폴백).
     @Column(nullable = false)
     private LocalDate date;
 

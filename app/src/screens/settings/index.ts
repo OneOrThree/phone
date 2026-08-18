@@ -2,6 +2,7 @@
 export { default as ProfileEditScreen } from './ProfileEditScreen';
 export { default as OccupationScreen } from './OccupationScreen';
 export { default as AccountScreen } from './AccountScreen';
+export { default as InquiryScreen } from './InquiryScreen';
 export { default as GoalsScreen } from './GoalsScreen';
 export { default as AllowedAppsScreen } from './AllowedAppsScreen';
 export { default as ScreenTimePermissionScreen } from './ScreenTimePermissionScreen';

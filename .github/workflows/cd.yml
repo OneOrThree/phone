@@ -1,18 +1,87 @@
+# GROMO dev 서버 — CD (이미지 빌드 → GAR push → 앱 서버 배포)
+#
+# 구조는 prod(prod-ci → prod-cd)와 같다: CI가 이미지를 만들어 레지스트리에 올리고,
+# CD가 그걸 받아 배포한다. 예전에는 dev 서버 한 대가 빌드와 실행을 겸해서
+# 레지스트리를 거치지 않았는데, 러너를 빌드 서버로 분리하면서 통로가 필요해졌다.
+#
+# prod와 다른 점 — dev는 프로덕션이 아니라 롤백하지 않는다:
+#   - 태그가 latest 하나뿐이다. SHA·SemVer 태그를 남기지 않는다.
+#   - 따라서 이전 이미지로 되돌릴 수 없고, 복구는 재빌드가 유일한 경로다.
+#   - 레지스트리도 ECR이 아니라 GAR을 쓴다(러너와 같은 리전이라 왕복이 없다).
+
 name: CD
 
 on:
   push:
     branches: [main]
     paths:
-      - 'back/**'
+      - "back/**"
   workflow_dispatch:
 
 concurrency:
   group: cd-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+  ENV_SECRET_ID: gromo/dev/env
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  APP_IMAGE: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest
+  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+
 jobs:
+  build:
+    name: 빌드 · GAR push
+    runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 30 # self-hosted 기본 360분 — 러너 장기 점유 방지
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud도 키 파일도 필요 없다
+      - name: GAR 인증
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 이미지 빌드 및 push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./back
+          file: ./back/Dockerfile
+          push: true
+          # platforms 미지정 = 러너 네이티브(amd64). prod는 t4g라 arm64를 명시하지만
+          # dev 앱 서버도 같은 amd64라 맞출 필요가 없다.
+          provenance: false # attestation 매니페스트(태그 없는 이미지) 생성 방지
+          tags: ${{ env.APP_IMAGE }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          # 캐시는 러너와 같은 리전의 GAR(ci-cache)를 사용한다.
+          # prod의 arm64 캐시와 태그를 분리해 아키텍처별 캐시를 덮어쓰지 않는다.
+          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64
+          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64,mode=max
+
+      - name: 결과 요약
+        run: |
+          echo "### dev 이미지 push 완료 :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.APP_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 태그는 latest 단일 — 롤백 불가(재빌드로만 복구)" >> $GITHUB_STEP_SUMMARY
+
   deploy:
+    name: 앱 서버 배포
+    needs: build
     runs-on: [self-hosted, dev]
     environment: production
     timeout-minutes: 20
@@ -22,55 +91,77 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: AWS 자격증명 설정
+      - name: AWS 자격증명 (OIDC, keyless)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-phone
-          aws-region: ap-northeast-2
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gromo-dev-${{ github.run_id }}
+          unset-current-credentials: true
+          mask-aws-account-id: true
 
-      - name: AWS Secrets Manager에서 시크릿 로드
-        run: |
-          SECRET=$(aws secretsmanager get-secret-value \
-            --secret-id oneorthree/phone \
-            --region ap-northeast-2 \
-            --query SecretString --output text)
-          echo "POSTGRES_DB=$(echo $SECRET | jq -r '.POSTGRES_DB')" >> $GITHUB_ENV
-          echo "POSTGRES_USER=$(echo $SECRET | jq -r '.POSTGRES_USER')" >> $GITHUB_ENV
-          echo "POSTGRES_PASSWORD=$(echo $SECRET | jq -r '.POSTGRES_PASSWORD')" >> $GITHUB_ENV
-          echo "JWT_SECRET=$(echo $SECRET | jq -r '.JWT_SECRET')" >> $GITHUB_ENV
-          echo "GOOGLE_CLIENT_ID=$(echo $SECRET | jq -r '.GOOGLE_CLIENT_ID')" >> $GITHUB_ENV
-          echo "APPLE_CLIENT_ID=$(echo $SECRET | jq -r '.APPLE_CLIENT_ID')" >> $GITHUB_ENV
-          # FCM 발송 (GROMO-528) — 서비스 계정 JSON 은 base64 인코딩 문자열로 저장돼 있음 (시크릿 선등록 완료)
-          echo "FCM_PROJECT_ID=$(echo $SECRET | jq -r '.FCM_PROJECT_ID')" >> $GITHUB_ENV
-          echo "FCM_SERVICE_ACCOUNT_JSON=$(echo $SECRET | jq -r '.FCM_SERVICE_ACCOUNT_JSON')" >> $GITHUB_ENV
+      - name: AWS 계정 경계 확인
+        run: test "$(aws sts get-caller-identity --query Account --output text)" = 808715036056
 
-      - name: Docker Buildx 설정
-        uses: docker/setup-buildx-action@v3
-
-      - name: Docker 이미지 빌드
-        uses: docker/build-push-action@v6
-        with:
-          context: ./back
-          file: ./back/Dockerfile
-          push: false
-          load: true
-          tags: |
-            phone-app:${{ github.sha }}
-            phone-app:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Docker Compose 배포
+      # checkout sibling은 actions/checkout의 git clean 범위 밖이다. 배포 뒤 수동 compose와
+      # dev-monitor/dev-datadog도 같은 0600 파일을 --env-file로 명시해 사용한다.
+      - name: 런타임 값 로드 (Secrets Manager → checkout 외부 env)
         env:
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_DIGEST: ${{ needs.build.outputs.image-digest }}
         run: |
-          docker compose -f docker-compose.dev.yml up -d app
-          docker compose -f docker-compose.dev.yml ps
+          set -euo pipefail
+          test -n "$IMAGE_DIGEST"
+          IMAGE_REPOSITORY="${APP_IMAGE%:*}"
+          aws secretsmanager get-secret-value \
+            --secret-id "$ENV_SECRET_ID" \
+            --query SecretString --output text \
+          | python3 .github/scripts/write-compose-env.py \
+              --output "$RUNTIME_ENV_FILE" \
+              --app-image "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+
+      - name: GAR 인증
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+
+      - name: 배포
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          IMAGE_VERSION: ${{ github.sha }}
+          IMAGE_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
+          if docker ps --format '{{.Names}}' | grep -Fxq gromo-datadog-agent; then
+            test -n "$DD_API_KEY"
+            compose+=(-f docker-compose.datadog.yml)
+            echo "DATADOG_OVERLAY_ENABLED=1" >> "$GITHUB_ENV"
+          else
+            echo "DATADOG_OVERLAY_ENABLED=0" >> "$GITHUB_ENV"
+          fi
+          "${compose[@]}" pull app
+          "${compose[@]}" up -d app
+          "${compose[@]}" ps
 
       - name: 헬스체크
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          IMAGE_VERSION: ${{ github.sha }}
+          IMAGE_REVISION: ${{ github.sha }}
         run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
+          if [ "${DATADOG_OVERLAY_ENABLED:-0}" = 1 ]; then
+            compose+=(-f docker-compose.datadog.yml)
+          fi
           echo "앱 기동 대기 중..."
-          for i in $(seq 1 12); do
+          # Datadog -javaagent 콜드스타트까지 포함한 직전 운영 계약: 최대 300초.
+          for i in $(seq 1 60); do
             sleep 5
             if curl -sf http://localhost:8080/health; then
               echo "헬스체크 통과"
@@ -78,7 +169,7 @@ jobs:
             fi
             echo "대기 중... ($((i*5))s)"
           done
-          docker compose -f docker-compose.dev.yml logs app
+          "${compose[@]}" logs app
           exit 1
 
       - name: 배포 실패 리포트

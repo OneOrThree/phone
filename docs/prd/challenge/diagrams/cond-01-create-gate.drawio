@@ -1,0 +1,111 @@
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17">
+  <diagram id="cond01" name="개설 조건 — 검증 게이트">
+    <mxGraphModel dx="1100" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="760" pageHeight="840" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="개설 조건 — 검증 게이트 (통과 순서가 곧 에러 우선순위)" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="560" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="start" value="POST /groups/{groupId}/challenges" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="62" width="300" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g1" value="1. 그룹 OWNER인가" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="132" width="300" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="NOT_OWNER · 403" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="137" width="300" height="34" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g2" value="2. repeatDays 최소 1개 (기본값 없음)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="194" width="300" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="CHALLENGE_REPEAT_DAYS_REQUIRED · 400" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="199" width="300" height="34" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g3" value="3. 활성 챌린지 &lt; 4개" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="256" width="300" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="CHALLENGE_LIMIT_EXCEEDED · 409" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="261" width="300" height="34" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g4" value="4. 하루형이면 — 같은 카테고리 활성 챌린지 없음" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="318" width="300" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="CHALLENGE_DUPLICATE · 409" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="323" width="300" height="34" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g5" value="5. 창형이면 — 시작 &lt; 종료&#10;(자정을 걸칠 수 없다)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="380" width="300" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="INVALID_MISSION_PARAMS · 400" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="385" width="300" height="34" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g6" value="6. 창형이면 — 0 &lt; 목표분 ≤ 창 길이" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="442" width="300" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="INVALID_MISSION_PARAMS · 400" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="447" width="300" height="34" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g7" value="7. 창형 SCREEN_TIME이면 — 목표분이 15분 배수" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="504" width="300" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="CHALLENGE_GOAL_NOT_ALIGNED · 400" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="509" width="300" height="34" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g8" value="8. 창형이면 — 기존 창과 안 겹침&#10;(요일 교집합 ≠ ∅ ∧ 간격 &lt; 15분 → 겹침)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="566" width="300" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="CHALLENGE_WINDOW_OVERLAP · 409" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="571" width="300" height="34" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g9" value="9. 내기를 켰다면 — 1 ≤ 참가비 ≤ 3,000&#10;(프리셋 = 상한의 10/30/50/100% · 자유 입력)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="628" width="300" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="BET_INVALID_STAKE · 400" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="633" width="300" height="34" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ok" value="201 · status = ACTIVE&#10;(만든 뒤로는 통째로 불변 — 바꾸려면 삭제 후 재생성)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="692" width="300" height="52" as="geometry" />
+        </mxCell>
+
+        <mxCell id="note" value="· 게스트는 전 경로 차단 — GUEST_FORBIDDEN · 403&#10;· 파랑 = 공통 · 주황 = 창형(TIME_WINDOW) 전용 · 보라 = 내기&#10;· 게이트는 서비스 검증 — 진짜 방어선은 DB (이중 방어)&#10;&#160;&#160;부분 UNIQUE(group_id, category)&#10;&#160;&#160;WHERE type='DURATION'&#10;&#160;&#160;CHECK (window_start &lt; window_end) · 게이트 5&#10;&#160;&#160;CHECK (stake BETWEEN 1 AND 3000) · 게이트 9" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="420" y="692" width="300" height="127" as="geometry" />
+        </mxCell>
+
+        <mxCell id="s0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="start" target="g1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="s1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="g1" target="g2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="s2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="g2" target="g3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="s3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="g3" target="g4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="s4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="g4" target="g5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="s5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="g5" target="g6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="s6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="g6" target="g7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="s7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="g7" target="g8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="s8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#666666;" edge="1" parent="1" source="g8" target="g9"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="s9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#82b366;" edge="1" parent="1" source="g9" target="ok"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="f1" value="✗" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#b85450;dashed=1;fontSize=11;fontColor=#b85450;" edge="1" parent="1" source="g1" target="e1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f2" value="✗" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#b85450;dashed=1;fontSize=11;fontColor=#b85450;" edge="1" parent="1" source="g2" target="e2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f3" value="✗" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#b85450;dashed=1;fontSize=11;fontColor=#b85450;" edge="1" parent="1" source="g3" target="e3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f4" value="✗" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#b85450;dashed=1;fontSize=11;fontColor=#b85450;" edge="1" parent="1" source="g4" target="e4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f5" value="✗" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#b85450;dashed=1;fontSize=11;fontColor=#b85450;" edge="1" parent="1" source="g5" target="e5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f6" value="✗" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#b85450;dashed=1;fontSize=11;fontColor=#b85450;" edge="1" parent="1" source="g6" target="e6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f7" value="✗" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#b85450;dashed=1;fontSize=11;fontColor=#b85450;" edge="1" parent="1" source="g7" target="e7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f8" value="✗" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#b85450;dashed=1;fontSize=11;fontColor=#b85450;" edge="1" parent="1" source="g8" target="e8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f9" value="✗" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#b85450;dashed=1;fontSize=11;fontColor=#b85450;" edge="1" parent="1" source="g9" target="e9"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -32,9 +32,10 @@
 ```
 
 > ⚠️ `gromo:screentime:totalDuration` App Group 저장(`buildActivityReport()` 내부)과
-> `getTotalScreenTime()`/`screenTimeSeconds`는 **원인 3**에서 밝혀진 샌드박스 제약으로
-> 실제로는 항상 `0`을 반환함 (익스텐션 → App Group 쓰기 차단). 현재는 Android/미승인
-> 상태의 fallback 텍스트 계산용으로만 남아있는 legacy 경로.
+> `getTotalScreenTime()`는 **원인 3**에서 밝혀진 샌드박스 제약으로 실제로는 항상 `0`을
+> 반환하는 죽은 경로였고, **GROMO-938에서 3층(JS 래퍼·Swift 메서드·익스텐션 쓰기) 모두
+> 제거됨**. 아래 2.2의 관련 코드 블록은 구현 당시 기록임. 사용량 조회의 실사용 경로는
+> 버킷 모니터(`getTodayUsageBucketMinutes`)다.
 
 ---
 

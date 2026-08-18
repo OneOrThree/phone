@@ -48,6 +48,11 @@ public class Group {
     @Builder.Default
     private GroupStatus status = GroupStatus.WAITING;
 
+    // 공개/비공개 구분 — true 면 이름 검색에서 제외되고 초대 링크(groupId)로만 참여한다.
+    @Column(name = "is_private", nullable = false)
+    @Builder.Default
+    private boolean isPrivate = false;
+
     // GROMO-671: dbml 은 version 을 누락했으나 낙관락(동시성)이 필요해 유지(UserWallet 과 동일 판단).
     @Version
     private Long version;
@@ -88,6 +93,11 @@ public class Group {
 
     public void updateDescription(String description) {
         this.description = description;
+    }
+
+    /** 공개/비밀 전환 (A-1) — 비밀방은 검색 제외, 초대 링크 전용. */
+    public void updateIsPrivate(boolean isPrivate) {
+        this.isPrivate = isPrivate;
     }
 
     public void updateSettings(Boolean chatEnabled, Integer chatLimitPerPerson,

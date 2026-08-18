@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import type { FocusTimerMode } from '../types';
-import { SheetShell } from '@/components/SheetShell';
+import { SheetShell, useSheetClosing } from '@/components/SheetShell';
 import { SLIDE_MS, glassSlide, glassPill } from '@/components/liquidGlass';
+import { useMotion } from '@/hooks/useMotion';
 
 // 03 타이머 방식 — 카운트업/카운트다운/뽀모도로 중 선택.
 const OPTIONS: {
@@ -31,42 +32,119 @@ export function TimerMethodSheet({
   onSelect: (mode: FocusTimerMode) => void;
   onClose: () => void;
 }) {
+  // ⚠️ 본문을 하위 컴포넌트로 분리한 이유 — 예약 취소 신호(useSheetClosing)는 SheetShell **자식
+  //    트리**에서만 잡힌다. 이 함수 본문은 SheetShell보다 위에서 실행되므로 여기서는 못 쓴다.
+  //    렌더 결과(호스트 뷰·testID)는 종전과 같다 — Maestro가 testID 셀렉터만 쓰기 때문이다.
+  return (
+    <SheetShell onClose={onClose}>
+      <TimerMethodBody subjectName={subjectName} onSelect={onSelect} />
+    </SheetShell>
+  );
+}
+
+function TimerMethodBody({
+  subjectName,
+  onSelect,
+}: {
+  subjectName: string;
+  onSelect: (mode: FocusTimerMode) => void;
+}) {
   // 알약을 누른 행 위로 보내기 위한 행별 y/높이 측정값
   const [rowRects, setRowRects] = useState<
     Partial<Record<FocusTimerMode, { y: number; h: number }>>
   >({});
   const [picked, setPicked] = useState<FocusTimerMode | null>(null);
+  // '동작 줄이기' 값이 **확정되기 전**(콜드 스타트의 비동기 조회 구간)에 들어온 탭.
+  // 미확정 구간의 useMotion은 보수적으로 reduce=true라, 그대로 시작하면 대기가 0으로 눌려
+  // 설정을 켜지 않은 사용자도 알약 슬라이드를 잃는다 — 일회성 진행이라 나중에 false로
+  // 확정돼도 되돌릴 수 없다(codex 리뷰). 탭은 여기 담아 두고 확정된 값으로 시작한다.
+  // (picked를 먼저 세우면 알약이 이미 이동해 버려 슬라이드가 재생될 자리가 없으므로 함께 미룬다)
+  const [queued, setQueued] = useState<FocusTimerMode | null>(null);
   const proceedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closing = useSheetClosing();
+  // '동작 줄이기'면 알약이 미끄러지지 않고 누른 행에 즉시 나타난다(위치·표시 여부는 그대로).
+  // ⚠️ 아래 진행 타이머(SLIDE_MS + 60)는 **알약이 미끄러지는 걸 보여주기 위한 대기**다.
+  //    그래서 m.delay()를 통과시킨다 — reduce면 알약이 이미 제자리에 있으므로 기다릴 게 없고,
+  //    게이트하지 않으면 빈 410ms 정지 화면이 남는다. 타이머 자체는 남으므로 세션 시작 흐름
+  //    (onSelect → navigate)의 순서 계약은 그대로다.
+  const m = useMotion();
 
-  // 딤 탭 등으로 시트가 닫히면 예약된 진행을 취소 (늦은 onSelect 방지)
-  useEffect(
-    () => () => {
-      if (proceedRef.current) clearTimeout(proceedRef.current);
-    },
-    [],
-  );
+  const cancelProceed = useCallback(() => {
+    if (proceedRef.current) {
+      clearTimeout(proceedRef.current);
+      proceedRef.current = null;
+    }
+  }, []);
+
+  // 언마운트 시 예약된 진행을 취소 (늦은 onSelect 방지)
+  useEffect(() => cancelProceed, [cancelProceed]);
+
+  // ⚠️ 퇴장이 **시작되는 즉시** 취소한다. 종전에는 딤 탭이 곧 언마운트라 위 cleanup이 그 자리에서
+  //    돌았지만, 이제 onClose는 퇴장 220ms 뒤에야 불려 언마운트도 그만큼 늦는다. 선택 250ms 뒤에
+  //    닫으면 410ms(SLIDE_MS+60) 예약이 470ms인 퇴장 완료보다 **먼저** 발화해, 사용자가 취소했는데
+  //    세션이 시작되거나 다음 설정 시트가 열린다(codex 리뷰).
+  useEffect(() => {
+    if (closing) cancelProceed();
+  }, [closing, cancelProceed]);
+
+  // 진행 본체 — delayMs는 **확정된** 설정으로 계산해 넘긴다.
+  // 이 대기는 알약이 미끄러지는 걸 보여주기 위한 시간이다 — reduce면 알약이 이미 제자리에
+  // 놓이므로 기다릴 연출이 없다. delayMs가 0이어도 setTimeout은 남으므로 진행은 완주한다.
+  const startProceed = (mode: FocusTimerMode, delayMs: number) => {
+    setPicked(mode);
+    proceedRef.current = setTimeout(() => onSelect(mode), delayMs);
+  };
 
   const pick = (mode: FocusTimerMode) => {
-    if (picked) return; // 슬라이드 중 중복 탭 방지
+    // 슬라이드 중(picked)·설정 확정 대기 중(queued)·퇴장 중(closing) 모두 새 예약을 막는다.
+    // 셋은 서로 다른 사유다 — 앞의 둘은 중복 탭, 마지막은 취소한 뒤 세션이 시작되는 것을 막는다.
+    if (picked || queued || closing) return;
     if (!rowRects[mode]) {
       onSelect(mode); // 측정 전 탭 — 연출 생략하고 바로 진행
       return;
     }
-    setPicked(mode);
-    proceedRef.current = setTimeout(() => onSelect(mode), SLIDE_MS + 60);
+    if (!m.ready) {
+      // 설정 미확정 — 탭은 받아 두고 시작만 미룬다. ready는 조회가 실패해도 반드시
+      // 확정되므로(useReduceMotion) 여기서 영영 멈추지 않는다.
+      setQueued(mode);
+      return;
+    }
+    startProceed(mode, m.delay(SLIDE_MS + 60));
   };
+
+  // ⚠️ 재생 도중 '동작 줄이기'가 켜지면 **남은 대기를 버리고 즉시 진행**한다. 대기 시간은
+  //    예약할 때 한 번 계산되므로, 그대로 두면 알약은 이미 제자리인데 아무 일도 없는 410ms가
+  //    남는다(codex 리뷰).
+  useEffect(() => {
+    if (!m.reduce || !picked || !proceedRef.current) return;
+    clearTimeout(proceedRef.current);
+    proceedRef.current = null;
+    onSelect(picked);
+  }, [m.reduce, picked, onSelect]);
+
+  // 설정이 확정되면 보류해 둔 탭을 확정된 값으로 진행시킨다.
+  // ⚠️ 의존성에 m(useMotion 반환 객체)을 넣지 말 것 — reduce/ready가 바뀔 때마다 새 객체라
+  //    일회성 진행이 중복 실행된다. 원시값 m.ready만 넣고, 지연은 이 렌더의 m으로 계산한다.
+  useEffect(() => {
+    if (!m.ready || !queued) return;
+    setQueued(null);
+    startProceed(queued, m.delay(SLIDE_MS + 60));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- m(useMotion 객체)은 의존성에서 제외
+  }, [m.ready, queued]);
 
   // 대기 위치는 첫 행 — 누르면 그 자리에서 누른 행으로 미끄러지며 나타난다
   const glassRect = (picked && rowRects[picked]) || rowRects.countup;
 
   return (
-    <SheetShell onClose={onClose}>
+    <>
       <Text style={s.title}>{subjectName} · 타이머 방식</Text>
       <Text style={s.sub}>어떻게 집중할지 골라요.</Text>
       <View style={s.list}>
         {OPTIONS.map((o) => (
           <TouchableOpacity
             key={o.mode}
+            // Maestro E2E — 대본이 쓰는 카운트업 옵션만 식별(GROMO-947)
+            testID={o.mode === 'countup' ? 'focus.mode.countup' : undefined}
             style={s.row}
             activeOpacity={0.8}
             onPress={() => pick(o.mode)}
@@ -91,17 +169,17 @@ export function TimerMethodSheet({
             style={[
               s.glass,
               glassPill,
+              picked ? s.glassShown : s.glassHidden,
               {
                 height: glassRect.h,
-                opacity: picked ? 1 : 0,
                 transform: [{ translateY: glassRect.y }],
               },
-              glassSlide,
+              m.css(glassSlide),
             ]}
           />
         )}
       </View>
-    </SheetShell>
+    </>
   );
 }
 
@@ -146,4 +224,6 @@ const s = StyleSheet.create({
     top: 0,
     borderRadius: 15,
   },
+  glassShown: { opacity: 1 },
+  glassHidden: { opacity: 0 },
 });

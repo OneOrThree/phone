@@ -25,6 +25,9 @@ jwt:
   secret: ${JWT_SECRET}     # GCP Secret Manager(loadtest-jwt-secret) 주입 — AWS dev 시크릿과 무관
   access-expiration: 3600   # 로그인 미사용 — 부하 토큰은 mint 로 사전 발급(exp +30d), 필터 파싱 비용만 측정에 포함
   refresh-expiration: 2592000
+  # 게스트 전용 refresh 수명(GROMO-1509) — 소셜은 만료돼도 재로그인으로 같은 계정에 돌아오지만
+  # 게스트는 돌아갈 곳이 없어 만료가 곧 계정 소실이다. 사실상 '이 기간 안 켜면 계정 삭제'.
+  guest-refresh-expiration: 7776000   # 90일
 
 # 소셜 로그인은 부하 대상이 아님(JWT 사전 발급) — 부팅용 더미 기본값, 실검증 필요 시 env 로 대체
 apple:
@@ -80,3 +83,19 @@ logging:
     org.hibernate.orm.jdbc.bind: WARN
     org.springframework.web.servlet.DispatcherServlet: WARN
     org.springframework.web.filter: WARN
+
+# 초대 링크 — 부하 시나리오가 /l/* 를 때리지 않아도 컨텍스트 기동에 필요하다.
+link:
+  base-url: ${LINK_BASE_URL:https://oneorthree.dev.mooo.com}
+  match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
+  ip-salt: ${LINK_IP_SALT:loadtest-salt}
+  store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}
+
+# 게스트 생성 레이트리밋(GROMO-1510) — 부하 시나리오(k6 recipes/auth_guestLogin.json)는 소수의
+# 러너 IP 에서 대량 호출하므로 운영 기본값(1시간당 IP 10회·전역 300회)이면 429 만 재는 꼴이 된다.
+# 부하 측정이 목적인 프로파일이라 사실상 해제한다 — 리밋 자체를 재려면 값을 낮춰 잡으면 된다.
+auth:
+  guest:
+    rate-limit:
+      max-per-window: ${AUTH_GUEST_RATE_LIMIT_MAX:1000000}
+      max-per-window-global: ${AUTH_GUEST_RATE_LIMIT_MAX_GLOBAL:1000000}

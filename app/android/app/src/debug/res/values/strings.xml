@@ -1,0 +1,7 @@
+<resources>
+  <!-- Meta SDK dev/prod 분리 — debug 빌드는 테스트 앱(919, iOS Debug와 동일 기준) 데이터셋으로.
+       main/res의 prod 값을 debug buildType에서만 덮어쓴다. -->
+  <string name="facebook_app_id">1763833185036210</string>
+  <string name="facebook_client_token">6f78d57f62a5638b3974c4b1ed12343f</string>
+  <string name="fb_login_protocol_scheme">fb1763833185036210</string>
+</resources>

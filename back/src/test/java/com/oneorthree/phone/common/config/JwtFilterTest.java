@@ -14,6 +14,8 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,6 +26,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 class JwtFilterTest {
+
+    // 갱신이 필요한(stale) last_active_at — 슬라이딩 창 판정 자체는 UserActivityServiceTest 가 검증한다.
+    private static final Instant YESTERDAY = Instant.now().minus(1, ChronoUnit.DAYS);
 
     private final JwtProvider jwtProvider = Mockito.mock(JwtProvider.class);
     private final UserActivityService userActivityService = Mockito.mock(UserActivityService.class);
@@ -73,9 +78,11 @@ class JwtFilterTest {
     void nonWhitelistedPathWithValidTokenPasses() throws Exception {
         UUID userId = UUID.randomUUID();
         given(jwtProvider.isTokenValid("valid-token")).willReturn(true);
+        given(jwtProvider.extractType("valid-token")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("valid-token")).willReturn(userId);
-        // 활성 유저(is_deleted=false) — 소프트딜리트 차단 존재 조회에서 true 반환
-        given(userRepository.existsByIdAndIsDeletedFalse(userId)).willReturn(true);
+        // 활성 유저(is_deleted=false) — 탈퇴 차단 조회가 last_active_at 을 반환(GROMO-903)
+        given(userRepository.findLastActiveAtIfActive(userId)).willReturn(Optional.of(YESTERDAY));
+        given(userActivityService.needsTouch(any(), any(Instant.class))).willReturn(true);
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/users/me");
         request.addHeader("Authorization", "Bearer valid-token");
@@ -95,9 +102,10 @@ class JwtFilterTest {
     void softDeletedUserWithValidTokenReturns401() throws Exception {
         UUID userId = UUID.randomUUID();
         given(jwtProvider.isTokenValid("valid-token")).willReturn(true);
+        given(jwtProvider.extractType("valid-token")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("valid-token")).willReturn(userId);
-        // 탈퇴 유저(is_deleted=true) — 활성 유저 존재 조회에서 false 반환
-        given(userRepository.existsByIdAndIsDeletedFalse(userId)).willReturn(false);
+        // 탈퇴 유저(is_deleted=true) — 조회가 empty (없는 유저와 동일 신호, GROMO-903)
+        given(userRepository.findLastActiveAtIfActive(userId)).willReturn(Optional.empty());
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/users/me");
         request.addHeader("Authorization", "Bearer valid-token");
@@ -120,8 +128,10 @@ class JwtFilterTest {
     void requestProceedsEvenIfLastActiveUpdateThrows() throws Exception {
         UUID userId = UUID.randomUUID();
         given(jwtProvider.isTokenValid("valid-token")).willReturn(true);
+        given(jwtProvider.extractType("valid-token")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("valid-token")).willReturn(userId);
-        given(userRepository.existsByIdAndIsDeletedFalse(userId)).willReturn(true);
+        given(userRepository.findLastActiveAtIfActive(userId)).willReturn(Optional.of(YESTERDAY));
+        given(userActivityService.needsTouch(any(), any(Instant.class))).willReturn(true);
         Mockito.doThrow(new RuntimeException("DB down"))
                 .when(userActivityService).touchLastActive(eq(userId), any(Instant.class));
 
@@ -134,5 +144,91 @@ class JwtFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_OK);
         assertThat(chain.getRequest()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("오늘 이미 갱신된 유저는 UPDATE 경로에 진입조차 하지 않는다 (GROMO-903 회귀 가드)")
+    void alreadyTouchedTodaySkipsUpdate() throws Exception {
+        UUID userId = UUID.randomUUID();
+        given(jwtProvider.isTokenValid("valid-token")).willReturn(true);
+        given(jwtProvider.extractType("valid-token")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("valid-token")).willReturn(userId);
+        given(userRepository.findLastActiveAtIfActive(userId)).willReturn(Optional.of(Instant.now()));
+        // 오늘 이미 갱신됨 → 갱신 불필요 판정
+        given(userActivityService.needsTouch(any(), any(Instant.class))).willReturn(false);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/users/me");
+        request.addHeader("Authorization", "Bearer valid-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_OK);
+        assertThat(request.getAttribute("userId")).isEqualTo(userId);
+        // 이 티켓의 핵심: 트랜잭션 UPDATE 왕복이 아예 없다(이전엔 0건 매치 UPDATE 가 매 요청 나갔다)
+        verify(userActivityService, never()).touchLastActive(any(), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("조회로 읽은 last_active_at 이 그대로 판정에 쓰이고, stale 이면 갱신한다 (GROMO-903)")
+    void staleLastActiveTriggersUpdate() throws Exception {
+        UUID userId = UUID.randomUUID();
+        given(jwtProvider.isTokenValid("valid-token")).willReturn(true);
+        given(jwtProvider.extractType("valid-token")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("valid-token")).willReturn(userId);
+        given(userRepository.findLastActiveAtIfActive(userId)).willReturn(Optional.of(YESTERDAY));
+        given(userActivityService.needsTouch(any(), any(Instant.class))).willReturn(true);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/users/me");
+        request.addHeader("Authorization", "Bearer valid-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_OK);
+        // 추가 조회 없이 조회 결과가 곧바로 판정 입력이 된다 — 왕복이 늘지 않는 근거
+        verify(userActivityService).needsTouch(eq(YESTERDAY), any(Instant.class));
+        verify(userActivityService).touchLastActive(eq(userId), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("refresh 토큰으로 /api/* 직접 인증 시도는 401로 차단한다 (GROMO-714)")
+    void refreshTokenCannotAuthenticateApiPath() throws Exception {
+        given(jwtProvider.isTokenValid("refresh-token")).willReturn(true);
+        given(jwtProvider.extractType("refresh-token")).willReturn(JwtProvider.TYPE_REFRESH);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/users/me");
+        request.addHeader("Authorization", "Bearer refresh-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = Mockito.spy(new MockFilterChain());
+
+        jwtFilter.doFilter(request, response, chain);
+
+        // 30일 RT 가 1시간 access 만료 정책을 우회하던 경로 차단 — 컨트롤러에 닿지 않는다
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(request, response);
+        // 타입 가드에서 끝나므로 유저 조회·활동 갱신까지 가지 않는다
+        Mockito.verifyNoInteractions(userRepository);
+        Mockito.verifyNoInteractions(userActivityService);
+    }
+
+    @Test
+    @DisplayName("type 클레임이 없는 구 토큰은 401로 차단한다 (fail-closed, GROMO-714)")
+    void legacyTokenWithoutTypeClaimReturns401() throws Exception {
+        given(jwtProvider.isTokenValid("legacy-token")).willReturn(true);
+        // 714 이전에 발급된 토큰은 type 클레임이 없어 extractType 이 null 을 반환한다
+        given(jwtProvider.extractType("legacy-token")).willReturn(null);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/users/me");
+        request.addHeader("Authorization", "Bearer legacy-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = Mockito.spy(new MockFilterChain());
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(request, response);
     }
 }

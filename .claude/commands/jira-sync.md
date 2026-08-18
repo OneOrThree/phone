@@ -10,7 +10,7 @@ PRD 기반 Jira 티켓 자동 생성: **$ARGUMENTS**
 
 ### 1. 인자 파싱
 `$ARGUMENTS`에서 다음을 파싱한다:
-- PRD 파일 경로 (없으면 `docs/superpowers/specs/` 아래 가장 최근 `*-prd.md` 또는 `*-sprint*-prd.md` 자동 선택)
+- PRD 파일 경로 (없으면 팀 공유 `docs/prd/*/prd.md` → 개인 스크래치 `.docs/superpowers/specs/`의 최근 `*-prd.md`/`*-sprint*-prd.md` 순으로 자동 선택)
 - `--label <값>` → 기본값 `BE`
 - `--release <값>` → 기본값 `0.0.4`
 
@@ -32,6 +32,19 @@ PRD 기반 Jira 티켓 자동 생성: **$ARGUMENTS**
 - 이슈 타입 목록 → `작업`의 ID 추출
 - 버전 목록 → `--release` 인자에 해당하는 버전 ID 추출
 - 라벨 목록 → `--label` 라벨이 존재하는지 확인
+- **`도메인` 드롭다운 옵션** → 4단계 분류와 5단계 승인에 쓸 권위 있는 목록
+
+```python
+DOMAIN_FIELD = "customfield_10342"
+_ctx = requests.get(f"{base}/field/{DOMAIN_FIELD}/context", auth=auth).json()["values"][0]["id"]
+DOMAIN_OPTS = {o["value"]: o["id"] for o in requests.get(
+    f"{base}/field/{DOMAIN_FIELD}/context/{_ctx}/option", auth=auth).json()["values"]}
+print("도메인 옵션:", sorted(DOMAIN_OPTS))
+```
+
+**여기서 조회하는 이유**: 옵션이 추가·삭제·개명될 수 있다. 승인 뒤 생성 단계에서야
+알게 되면 배치 전체가 중단되고, 새로 생긴 옵션은 후보 분류에 반영조차 못 한다.
+**분류 전에 실제 목록을 보고, 그 목록 안에서만 고른다.**
 
 버전이 없으면:
 ```
@@ -46,9 +59,13 @@ PRD 파일을 Read로 읽은 뒤 다음 규칙으로 티켓 후보를 추출한�
 2. DB 마이그레이션 섹션 (`## 5.` 또는 `마이그레이션` 키워드)이 있으면 단일 티켓으로 묶음
 3. 인프라/설정 항목 (APNs, Redis, 스케줄러 등)이 독립 섹션으로 있으면 포함
 
-**티켓 제목 포맷**: `[Domain] 동사형 한줄 설명`
-- Domain: Auth / Group / Item / Focus / League / AI / Infra 중 PRD 섹션에 맞게
+**티켓 제목 포맷**: `동사형 한줄 설명` — **대괄호 접두를 붙이지 않는다**
+- 도메인은 제목이 아니라 `도메인` 필드가 담는다 (`docs/jira-conventions.md`)
 - 동사: 구현 / 조회 API 구현 / 설정 API 구현 / 마이그레이션 / 연동
+
+**도메인**(필수): **3단계에서 조회한 `DOMAIN_OPTS` 안에서만** 고른다.
+목록을 이 문서에 하드코딩하지 않는다 — 늘어나면 곧 낡는다.
+매칭되는 값이 없으면 임의로 고르지 말고 **사용자에게 물어본다.**
 
 **티켓 설명**: 해당 PRD 섹션의 핵심 내용 (엔드포인트, 비즈니스 로직 요약, 에러 케이스, 참고 섹션 번호)
 
@@ -57,9 +74,10 @@ PRD 파일을 Read로 읽은 뒤 다음 규칙으로 티켓 후보를 추출한�
 
 ```
 📋 생성 예정 Jira 티켓 (라벨: BE | 릴리즈: 0.0.4 | 이슈타입: 작업)
+   ※ 도메인은 티켓마다 개별 지정 — 비면 생성하지 않는다
 ──────────────────────────────────────────
- 1. [Auth] 애플 로그인 API 구현
- 2. [Auth] 게스트 로그인 API 구현
+ 1. 애플 로그인 API 구현            [도메인: 인증·계정]
+ 2. 게스트 로그인 API 구현          [도메인: 인증·계정]
  ...
 ──────────────────────────────────────────
 총 N개
@@ -81,18 +99,23 @@ label  = LABEL   # 파싱된 값
 ver_id = VERSION_ID  # 조회된 버전 ID
 type_id = TASK_TYPE_ID  # 조회된 작업 이슈타입 ID
 
+# DOMAIN_FIELD · DOMAIN_OPTS 는 3단계에서 이미 조회했다 (재조회하지 않는다).
+# 규약: docs/jira-conventions.md · Component 미러는 오너 스윕이 맞춘다
+
 def adf(text):
     return {"version":1,"type":"doc","content":[
         {"type":"paragraph","content":[{"type":"text","text":text}]}]}
 
-def create(summary, desc):
+def create(summary, desc, domain):
+    assert domain in DOMAIN_OPTS, f"도메인 '{domain}' 이 옵션에 없다: {sorted(DOMAIN_OPTS)}"
     r = requests.post(f"{base}/issue", auth=auth, json={"fields":{
         "project":      {"key": os.environ["JIRA_PROJECT_KEY"]},
         "issuetype":    {"id": type_id},
-        "summary":      summary,
+        "summary":      summary,          # 대괄호 접두 없음
         "description":  adf(desc),
         "labels":       [label],
-        "fixVersions":  [{"id": ver_id}]
+        "fixVersions":  [{"id": ver_id}],
+        DOMAIN_FIELD:   {"id": DOMAIN_OPTS[domain]},
     }})
     d = r.json()
     return d.get("key"), r.status_code

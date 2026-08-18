@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="840" viewBox="0 0 760 840" font-family="-apple-system, 'Helvetica Neue', Arial, 'Apple SD Gothic Neo', sans-serif">
+  <defs>
+    <marker id="ag" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#666666"/></marker>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#b85450"/></marker>
+    <marker id="an" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#82b366"/></marker>
+  </defs>
+  <rect width="760" height="840" fill="#ffffff"/>
+
+  <text x="40" y="36" font-size="14" font-weight="bold" fill="#111111">개설 조건 — 검증 게이트 (통과 순서가 곧 에러 우선순위)</text>
+
+  <!-- start -->
+  <rect x="40" y="62" width="300" height="40" rx="4" fill="#f5f5f5" stroke="#666666"/>
+  <text x="190" y="87" font-size="12" font-weight="bold" text-anchor="middle" fill="#111111">POST /groups/{groupId}/challenges</text>
+
+  <!-- gate 1 -->
+  <rect x="40" y="132" width="300" height="44" rx="4" fill="#dae8fc" stroke="#6c8ebf"/>
+  <text x="190" y="159" font-size="12" text-anchor="middle" fill="#111111">1. 그룹 OWNER인가</text>
+  <rect x="420" y="137" width="300" height="34" rx="4" fill="#f8cecc" stroke="#b85450"/>
+  <text x="570" y="158" font-size="11" text-anchor="middle" fill="#111111">NOT_OWNER · 403</text>
+  <line x1="340" y1="154" x2="414" y2="154" stroke="#b85450" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="377" y="149" font-size="11" text-anchor="middle" fill="#b85450">✗</text>
+
+  <!-- gate 2 -->
+  <rect x="40" y="194" width="300" height="44" rx="4" fill="#dae8fc" stroke="#6c8ebf"/>
+  <text x="190" y="221" font-size="12" text-anchor="middle" fill="#111111">2. repeatDays 최소 1개 (기본값 없음)</text>
+  <rect x="420" y="199" width="300" height="34" rx="4" fill="#f8cecc" stroke="#b85450"/>
+  <text x="570" y="220" font-size="11" text-anchor="middle" fill="#111111">CHALLENGE_REPEAT_DAYS_REQUIRED · 400</text>
+  <line x1="340" y1="216" x2="414" y2="216" stroke="#b85450" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="377" y="211" font-size="11" text-anchor="middle" fill="#b85450">✗</text>
+
+  <!-- gate 3 -->
+  <rect x="40" y="256" width="300" height="44" rx="4" fill="#dae8fc" stroke="#6c8ebf"/>
+  <text x="190" y="283" font-size="12" text-anchor="middle" fill="#111111">3. 활성 챌린지 &lt; 4개</text>
+  <rect x="420" y="261" width="300" height="34" rx="4" fill="#f8cecc" stroke="#b85450"/>
+  <text x="570" y="282" font-size="11" text-anchor="middle" fill="#111111">CHALLENGE_LIMIT_EXCEEDED · 409</text>
+  <line x1="340" y1="278" x2="414" y2="278" stroke="#b85450" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="377" y="273" font-size="11" text-anchor="middle" fill="#b85450">✗</text>
+
+  <!-- gate 4 -->
+  <rect x="40" y="318" width="300" height="44" rx="4" fill="#dae8fc" stroke="#6c8ebf"/>
+  <text x="190" y="338" font-size="12" text-anchor="middle" fill="#111111">4. 하루형이면 —</text>
+  <text x="190" y="354" font-size="12" text-anchor="middle" fill="#111111">같은 카테고리 활성 챌린지 없음</text>
+  <rect x="420" y="323" width="300" height="34" rx="4" fill="#f8cecc" stroke="#b85450"/>
+  <text x="570" y="344" font-size="11" text-anchor="middle" fill="#111111">CHALLENGE_DUPLICATE · 409</text>
+  <line x1="340" y1="340" x2="414" y2="340" stroke="#b85450" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="377" y="335" font-size="11" text-anchor="middle" fill="#b85450">✗</text>
+
+  <!-- gate 5 -->
+  <rect x="40" y="380" width="300" height="44" rx="4" fill="#ffe6cc" stroke="#d79b00"/>
+  <text x="190" y="400" font-size="12" text-anchor="middle" fill="#111111">5. 창형이면 — 시작 &lt; 종료</text>
+  <text x="190" y="416" font-size="11" text-anchor="middle" fill="#444444">(자정을 걸칠 수 없다)</text>
+  <rect x="420" y="385" width="300" height="34" rx="4" fill="#f8cecc" stroke="#b85450"/>
+  <text x="570" y="406" font-size="11" text-anchor="middle" fill="#111111">INVALID_MISSION_PARAMS · 400</text>
+  <line x1="340" y1="402" x2="414" y2="402" stroke="#b85450" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="377" y="397" font-size="11" text-anchor="middle" fill="#b85450">✗</text>
+
+  <!-- gate 6 -->
+  <rect x="40" y="442" width="300" height="44" rx="4" fill="#ffe6cc" stroke="#d79b00"/>
+  <text x="190" y="469" font-size="12" text-anchor="middle" fill="#111111">6. 창형이면 — 0 &lt; 목표분 ≤ 창 길이</text>
+  <rect x="420" y="447" width="300" height="34" rx="4" fill="#f8cecc" stroke="#b85450"/>
+  <text x="570" y="468" font-size="11" text-anchor="middle" fill="#111111">INVALID_MISSION_PARAMS · 400</text>
+  <line x1="340" y1="464" x2="414" y2="464" stroke="#b85450" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="377" y="459" font-size="11" text-anchor="middle" fill="#b85450">✗</text>
+
+  <!-- gate 7 -->
+  <rect x="40" y="504" width="300" height="44" rx="4" fill="#ffe6cc" stroke="#d79b00"/>
+  <text x="190" y="524" font-size="12" text-anchor="middle" fill="#111111">7. 창형 SCREEN_TIME이면 —</text>
+  <text x="190" y="540" font-size="12" text-anchor="middle" fill="#111111">목표분이 15분 배수</text>
+  <rect x="420" y="509" width="300" height="34" rx="4" fill="#f8cecc" stroke="#b85450"/>
+  <text x="570" y="530" font-size="11" text-anchor="middle" fill="#111111">CHALLENGE_GOAL_NOT_ALIGNED · 400</text>
+  <line x1="340" y1="526" x2="414" y2="526" stroke="#b85450" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="377" y="521" font-size="11" text-anchor="middle" fill="#b85450">✗</text>
+
+  <!-- gate 8 -->
+  <rect x="40" y="566" width="300" height="44" rx="4" fill="#ffe6cc" stroke="#d79b00"/>
+  <text x="190" y="586" font-size="12" text-anchor="middle" fill="#111111">8. 창형이면 — 기존 창과 안 겹침</text>
+  <text x="190" y="602" font-size="11" text-anchor="middle" fill="#444444">(요일 교집합 ≠ ∅ ∧ 간격 &lt; 15분 → 겹침)</text>
+  <rect x="420" y="571" width="300" height="34" rx="4" fill="#f8cecc" stroke="#b85450"/>
+  <text x="570" y="592" font-size="11" text-anchor="middle" fill="#111111">CHALLENGE_WINDOW_OVERLAP · 409</text>
+  <line x1="340" y1="588" x2="414" y2="588" stroke="#b85450" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="377" y="583" font-size="11" text-anchor="middle" fill="#b85450">✗</text>
+
+  <!-- gate 9 -->
+  <rect x="40" y="628" width="300" height="44" rx="4" fill="#e1d5e7" stroke="#9673a6"/>
+  <text x="190" y="648" font-size="12" text-anchor="middle" fill="#111111">9. 내기를 켰다면 — 1 ≤ 참가비 ≤ 3,000</text>
+  <text x="190" y="664" font-size="11" text-anchor="middle" fill="#444444">(프리셋 = 상한의 10/30/50/100% · 자유 입력)</text>
+  <rect x="420" y="633" width="300" height="34" rx="4" fill="#f8cecc" stroke="#b85450"/>
+  <text x="570" y="654" font-size="11" text-anchor="middle" fill="#111111">BET_INVALID_STAKE · 400</text>
+  <line x1="340" y1="650" x2="414" y2="650" stroke="#b85450" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="377" y="645" font-size="11" text-anchor="middle" fill="#b85450">✗</text>
+
+  <!-- success -->
+  <rect x="40" y="692" width="300" height="52" rx="4" fill="#d5e8d4" stroke="#82b366"/>
+  <text x="190" y="713" font-size="12" font-weight="bold" text-anchor="middle" fill="#111111">201 · status = ACTIVE</text>
+  <text x="190" y="731" font-size="11" text-anchor="middle" fill="#333333">만든 뒤로는 통째로 불변 — 바꾸려면 삭제 후 재생성</text>
+
+  <!-- note -->
+  <rect x="420" y="692" width="300" height="127" rx="0" fill="#fff2cc" stroke="#d6b656"/>
+  <text x="428" y="711" font-size="11" fill="#111111">· 게스트는 전 경로 차단 — GUEST_FORBIDDEN · 403</text>
+  <text x="428" y="729" font-size="11" fill="#111111">· 파랑 = 공통 · 주황 = 창형 전용 · 보라 = 내기</text>
+  <text x="428" y="747" font-size="11" fill="#111111">· 게이트는 서비스 검증 — 진짜 방어선은 DB (이중 방어)</text>
+  <text x="428" y="763" font-size="11" fill="#111111">&#160;&#160;부분 UNIQUE(group_id, category)</text>
+  <text x="428" y="779" font-size="11" fill="#111111">&#160;&#160;WHERE type='DURATION'</text>
+  <text x="428" y="795" font-size="11" fill="#111111">&#160;&#160;CHECK (window_start &lt; window_end) · 게이트 5</text>
+  <text x="428" y="811" font-size="11" fill="#111111">&#160;&#160;CHECK (stake BETWEEN 1 AND 3000) · 게이트 9</text>
+
+  <!-- vertical flow -->
+  <line x1="190" y1="102" x2="190" y2="127" stroke="#666666" marker-end="url(#ag)"/>
+  <line x1="190" y1="176" x2="190" y2="189" stroke="#666666" marker-end="url(#ag)"/>
+  <line x1="190" y1="238" x2="190" y2="251" stroke="#666666" marker-end="url(#ag)"/>
+  <line x1="190" y1="300" x2="190" y2="313" stroke="#666666" marker-end="url(#ag)"/>
+  <line x1="190" y1="362" x2="190" y2="375" stroke="#666666" marker-end="url(#ag)"/>
+  <line x1="190" y1="424" x2="190" y2="437" stroke="#666666" marker-end="url(#ag)"/>
+  <line x1="190" y1="486" x2="190" y2="499" stroke="#666666" marker-end="url(#ag)"/>
+  <line x1="190" y1="548" x2="190" y2="561" stroke="#666666" marker-end="url(#ag)"/>
+  <line x1="190" y1="610" x2="190" y2="623" stroke="#666666" marker-end="url(#ag)"/>
+  <line x1="190" y1="672" x2="190" y2="687" stroke="#82b366" marker-end="url(#an)"/>
+</svg>

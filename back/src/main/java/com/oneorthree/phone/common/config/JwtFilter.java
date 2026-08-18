@@ -1,6 +1,7 @@
 package com.oneorthree.phone.common.config;
 
 import com.oneorthree.phone.auth.service.JwtProvider;
+import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserActivityService;
 import jakarta.servlet.FilterChain;
@@ -15,6 +16,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @RequiredArgsConstructor
@@ -57,30 +59,50 @@ public class JwtFilter extends OncePerRequestFilter {
             return;
         }
 
+        // access 타입만 통과 (GROMO-714) — 30일 refresh 토큰이 /api/* 를 직접 인증하던 경로를 막아
+        // access 1시간 만료 정책을 실효화한다. 상수를 왼쪽에 둬 type 클레임이 없는 구 토큰(null)도
+        // NPE 없이 거부한다(fail-closed).
+        if (!JwtProvider.TYPE_ACCESS.equals(jwtProvider.extractType(token))) {
+            sendUnauthorized(response);
+            return;
+        }
+
         UUID userId = jwtProvider.extractUserId(token);
 
         // 소프트딜리트(탈퇴) 유저 차단 (GROMO-827) — 서명이 아직 유효한 토큰이라도 is_deleted=true 면 인증 거부.
         // 탈퇴 시 소셜 연동·RT 는 파기되지만 이미 발급된 AT 는 만료까지 살아 있어, 이 PK 조회로 매 요청 최종 차단.
         // 차단 신호는 토큰 미제공/무효와 동일하게 401 로 통일(클라이언트는 401 을 재로그인 트리거로 처리).
-        // 주의(리뷰어): 매 인증요청마다 PK 인덱스 단건 조회 1회가 추가된다 — 부하 시 캐시/토큰 폐기 방식은 후속 검토.
+        // 이 조회 하나가 활동 갱신 판정까지 겸한다 (GROMO-903) — empty 면 401, 값이 있으면 그대로 스로틀 판정에 쓴다.
+        // 덕분에 인증 요청당 DB 왕복은 1회다(그날 첫 요청만 갱신 UPDATE 로 2회).
+        Optional<Instant> lastActiveAt;
         try {
-            if (!userRepository.existsByIdAndIsDeletedFalse(userId)) {
-                sendUnauthorized(response);
-                return;
-            }
+            lastActiveAt = userRepository.findLastActiveAtIfActive(userId);
         } catch (Exception e) {
             log.error("활성 유저 조회 실패 — userId={}", userId, e);
             sendUnauthorized(response);
             return;
         }
+        if (lastActiveAt.isEmpty()) {
+            sendUnauthorized(response);
+            return;
+        }
 
-        request.setAttribute("userId", userId);
+        // 인증 통과 — 이후 단계가 쓸 수 있게 userId 를 request 에 심는다 (GROMO-363).
+        // 키 정의는 AuthAttributes 에 있고, 읽는 쪽은 LoginUserArgumentResolver 와 TraceIdFilter 다.
+        request.setAttribute(AuthAttributes.USER_ID, userId);
         // last_active_at 스로틀 갱신 (GROMO-578) — 미접속 복귀 푸시용 부가 데이터.
-        // 하루 1회만 실쓰기(WHERE 가드). 갱신 실패가 요청 자체를 막지 않도록 예외 격리(요청은 그대로 진행).
-        try {
-            userActivityService.touchLastActive(userId, Instant.now());
-        } catch (Exception e) {
-            log.warn("last_active_at 갱신 실패 — userId={}", userId, e);
+        // 판정은 위 조회 결과로 이미 끝났다 — 스로틀 창을 벗어났을 때만 트랜잭션에 진입한다 (GROMO-903).
+        // 갱신 실패가 요청 자체를 막지 않도록 예외 격리(요청은 그대로 진행).
+        // orElseThrow: 위 isEmpty 가드를 통과했으므로 값은 항상 존재한다. 비어 있다면 그건 가드가 깨진
+        // 버그이므로 조용히 null 을 흘리지 않고 즉시 드러낸다(needsTouch 의 null fail-safe 는 서비스
+        // public API 로서의 방어일 뿐, 이 호출부에서 기대하는 상태가 아니다).
+        Instant now = Instant.now();
+        if (userActivityService.needsTouch(lastActiveAt.orElseThrow(), now)) {
+            try {
+                userActivityService.touchLastActive(userId, now);
+            } catch (Exception e) {
+                log.warn("last_active_at 갱신 실패 — userId={}", userId, e);
+            }
         }
         filterChain.doFilter(request, response);
     }

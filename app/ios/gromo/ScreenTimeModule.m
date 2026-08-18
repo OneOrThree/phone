@@ -25,7 +25,7 @@ RCT_EXTERN_METHOD(
 )
 
 RCT_EXTERN_METHOD(
-    getTotalScreenTime:(RCTPromiseResolveBlock)resolve
+    getSystemColorScheme:(RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject
 )
 
@@ -36,8 +36,7 @@ RCT_EXTERN_METHOD(
 )
 
 RCT_EXTERN_METHOD(
-    startGoalMonitoring:(double)goalSecondsValue
-    resolver:(RCTPromiseResolveBlock)resolve
+    stopGoalMonitoring:(RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject
 )
 
@@ -58,7 +57,19 @@ RCT_EXTERN_METHOD(
 )
 
 RCT_EXTERN_METHOD(
-    getYesterdayResult:(RCTPromiseResolveBlock)resolve
+    getUsageBucketEvents:(NSString *)dayKey
+    resolver:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+RCT_EXTERN_METHOD(
+    getUsageBucketDebugInfo:(RCTPromiseResolveBlock)resolve
+    rejecter:(RCTPromiseRejectBlock)reject
+)
+
+RCT_EXTERN_METHOD(
+    setPendingSelectionApplyDate:(NSString *)dateString
+    resolver:(RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject
 )
 

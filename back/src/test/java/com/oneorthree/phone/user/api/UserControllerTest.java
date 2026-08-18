@@ -1,6 +1,7 @@
 package com.oneorthree.phone.user.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.Provider;
 import com.oneorthree.phone.user.domain.StatVisibility;
@@ -17,6 +18,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.UUID;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
@@ -25,6 +27,7 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
@@ -40,6 +43,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = UserController.class)
 class UserControllerTest {
 
+    private static final UUID LOGIN_USER_ID = UUID.fromString("00000000-0000-0000-0000-0000000000ca");
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -49,11 +54,50 @@ class UserControllerTest {
     private UserService userService;
 
     @Test
+    @DisplayName("닉네임 체크 GET → 200 {available:true}, 로그인 유저 기준 판정 (GROMO-1215)")
+    void checkNicknameReturnsAvailableTrue() throws Exception {
+        given(userService.isNicknameAvailable(LOGIN_USER_ID, "멋진닉")).willReturn(true);
+
+        mockMvc.perform(get("/api/v1/users/nickname/check")
+                        .param("nickname", "멋진닉")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("닉네임 체크 — 중복/형식 위반도 200 {available:false} (4xx 분기 없음)")
+    void checkNicknameReturnsAvailableFalseWith200() throws Exception {
+        given(userService.isNicknameAvailable(LOGIN_USER_ID, "가")).willReturn(false);
+
+        mockMvc.perform(get("/api/v1/users/nickname/check")
+                        .param("nickname", "가")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(false))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("닉네임 체크 — 파라미터 누락도 200 {available:false} (항상 200 계약)")
+    void checkNicknameMissingParamStillReturns200() throws Exception {
+        given(userService.isNicknameAvailable(eq(LOGIN_USER_ID), isNull())).willReturn(false);
+
+        mockMvc.perform(get("/api/v1/users/nickname/check")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(false))
+                .andDo(print());
+    }
+
+    @Test
     @DisplayName("디바이스 토큰 등록 성공 → 204")
     void registerDeviceTokenReturns204() throws Exception {
         mockMvc.perform(put("/api/v1/users/me/device-token")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("deviceToken", "apns-device-token"))))
+                        .content(objectMapper.writeValueAsString(Map.of("deviceToken", "apns-device-token")))
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
@@ -67,7 +111,8 @@ class UserControllerTest {
 
         mockMvc.perform(put("/api/v1/users/me/device-token")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("deviceToken", token))))
+                        .content(objectMapper.writeValueAsString(Map.of("deviceToken", token)))
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
@@ -89,7 +134,8 @@ class UserControllerTest {
     @Test
     @DisplayName("디바이스 토큰 해제 DELETE → 204 + clearDeviceToken 호출")
     void clearDeviceTokenReturns204() throws Exception {
-        mockMvc.perform(delete("/api/v1/users/me/device-token"))
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
@@ -128,7 +174,8 @@ class UserControllerTest {
 
         mockMvc.perform(put("/api/v1/users/me/notification-settings")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(body)))
+                        .content(objectMapper.writeValueAsString(body))
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
@@ -154,7 +201,8 @@ class UserControllerTest {
     void updateOccupationReturns204() throws Exception {
         mockMvc.perform(patch("/api/v1/users/me/occupation")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("occupation", "UNIVERSITY"))))
+                        .content(objectMapper.writeValueAsString(Map.of("occupation", "UNIVERSITY")))
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
@@ -186,7 +234,8 @@ class UserControllerTest {
     void updateScreenTimeGoalReturns204() throws Exception {
         mockMvc.perform(patch("/api/v1/users/me/screen-time-goal")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("dailyScreenTimeGoalMinutes", 120))))
+                        .content(objectMapper.writeValueAsString(Map.of("dailyScreenTimeGoalMinutes", 120)))
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
@@ -218,13 +267,15 @@ class UserControllerTest {
     void updateProfileNegativeGoalReturns400() throws Exception {
         mockMvc.perform(patch("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dailyFocusTimeGoalMinutes\": -1}"))
+                        .content("{\"dailyFocusTimeGoalMinutes\": -1}")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
 
         mockMvc.perform(patch("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dailyScreenTimeGoalMinutes\": -5}"))
+                        .content("{\"dailyScreenTimeGoalMinutes\": -5}")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -234,7 +285,8 @@ class UserControllerTest {
     void setupProfileNegativeGoalReturns400() throws Exception {
         mockMvc.perform(post("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dailyFocusTimeGoalMinutes\": -1}"))
+                        .content("{\"dailyFocusTimeGoalMinutes\": -1}")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }
@@ -244,7 +296,8 @@ class UserControllerTest {
     void updateFocusTimeGoalReturns204() throws Exception {
         mockMvc.perform(patch("/api/v1/users/me/focus-time-goal")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("dailyFocusTimeGoalMinutes", 90))))
+                        .content(objectMapper.writeValueAsString(Map.of("dailyFocusTimeGoalMinutes", 90)))
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
@@ -299,7 +352,8 @@ class UserControllerTest {
 
         mockMvc.perform(put("/api/v1/users/me/notification-settings")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(body)))
+                        .content(objectMapper.writeValueAsString(body))
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
@@ -314,7 +368,8 @@ class UserControllerTest {
         given(userService.getNotificationSettings(any())).willReturn(
                 new NotificationSettingsResponse(true, false, true, "22:00", "07:00"));
 
-        mockMvc.perform(get("/api/v1/users/me/notification-settings"))
+        mockMvc.perform(get("/api/v1/users/me/notification-settings")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.notificationEnabled").value(true))
                 .andExpect(jsonPath("$.soundEnabled").value(false))
@@ -332,7 +387,8 @@ class UserControllerTest {
         willThrow(new UserException(UserErrorCode.NOT_FOUND))
                 .given(userService).getNotificationSettings(any());
 
-        mockMvc.perform(get("/api/v1/users/me/notification-settings"))
+        mockMvc.perform(get("/api/v1/users/me/notification-settings")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNotFound())
                 .andDo(print());
     }
@@ -344,7 +400,8 @@ class UserControllerTest {
     void updateStatVisibilityReturns204() throws Exception {
         mockMvc.perform(patch("/api/v1/users/me/stat-visibility")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("statVisibility", "PUBLIC"))))
+                        .content(objectMapper.writeValueAsString(Map.of("statVisibility", "PUBLIC")))
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
@@ -378,7 +435,8 @@ class UserControllerTest {
     void getSocialLinksReturnsEmptyArrayForUnlinkedUser() throws Exception {
         given(userService.getSocialLinks(any())).willReturn(List.of());
 
-        mockMvc.perform(get("/api/v1/users/me/social-links"))
+        mockMvc.perform(get("/api/v1/users/me/social-links")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$.length()").value(0))
@@ -395,7 +453,8 @@ class UserControllerTest {
                 new SocialLinkResponse("GOOGLE", Instant.parse("2025-04-10T09:30:00Z"))
         ));
 
-        mockMvc.perform(get("/api/v1/users/me/social-links"))
+        mockMvc.perform(get("/api/v1/users/me/social-links")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$.length()").value(2))
@@ -410,7 +469,8 @@ class UserControllerTest {
     @Test
     @DisplayName("소셜 연동 해제 성공 → 204")
     void unlinkSocialAccountReturns204() throws Exception {
-        mockMvc.perform(delete("/api/v1/users/me/social-links/APPLE"))
+        mockMvc.perform(delete("/api/v1/users/me/social-links/APPLE")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
@@ -423,7 +483,8 @@ class UserControllerTest {
         willThrow(new UserException(UserErrorCode.SOCIAL_ACCOUNT_NOT_FOUND))
                 .given(userService).unlinkSocialAccount(any(), eq(Provider.KAKAO));
 
-        mockMvc.perform(delete("/api/v1/users/me/social-links/KAKAO"))
+        mockMvc.perform(delete("/api/v1/users/me/social-links/KAKAO")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNotFound())
                 .andDo(print());
     }
@@ -434,7 +495,8 @@ class UserControllerTest {
         willThrow(new UserException(UserErrorCode.LAST_SOCIAL_ACCOUNT))
                 .given(userService).unlinkSocialAccount(any(), eq(Provider.GOOGLE));
 
-        mockMvc.perform(delete("/api/v1/users/me/social-links/GOOGLE"))
+        mockMvc.perform(delete("/api/v1/users/me/social-links/GOOGLE")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isConflict())
                 .andDo(print());
     }

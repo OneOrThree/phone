@@ -1,5 +1,6 @@
 package com.oneorthree.phone.stats.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusAverageResponse;
 import com.oneorthree.phone.stats.dto.FocusAverageScope;
@@ -14,7 +15,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -46,8 +46,7 @@ public class StatsController {
     public ResponseEntity<List<HeatmapCellResponse>> getHeatmap(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            HttpServletRequest request) {
-        UUID userId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID userId) {
         return ResponseEntity.ok(statsService.getHeatmap(userId, from, to));
     }
 
@@ -55,7 +54,8 @@ public class StatsController {
             description = "현재 연속일·최장 연속일·마지막 집중일. 기록 없으면 0/0/null."
                     + " currentStreak 은 read-time 으로 만료된다(GROMO-847): lastSessionDate 가 어제 이전이면"
                     + " 공백으로 끊긴 것으로 보아 0 을 반환한다(longestStreak·lastSessionDate 는 원본 유지)."
-                    + " date 는 클라 로컬 기준 '오늘'(required, GROMO-643 관례)."
+                    + " date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 '오늘'(required)"
+                    + " — 기기 로컬 날짜가 아니다. 로컬 날짜를 보내면 비-KST 기기에서 인접 버킷이 조회된다."
                     + " friends 지정 시 해당 친구(또는 PUBLIC)의 스트릭을 조회, 미지정 시 self.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
@@ -67,8 +67,7 @@ public class StatsController {
     public ResponseEntity<StreakResponse> getStreak(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
         return ResponseEntity.ok(statsService.getStreak(targetId, date));
     }
@@ -85,8 +84,7 @@ public class StatsController {
     public ResponseEntity<TodayStatsResponse> getTodayStats(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
         return ResponseEntity.ok(statsService.getTodayStats(targetId, date));
     }
@@ -105,8 +103,7 @@ public class StatsController {
             @RequestParam StatsPeriod period,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
         return ResponseEntity.ok(statsService.getFocusStatsByPeriod(targetId, period, date));
     }
@@ -127,8 +124,7 @@ public class StatsController {
             @RequestParam FocusAverageScope scope,
             @RequestParam StatsPeriod period,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         return ResponseEntity.ok(statsService.getFocusAverage(callerId, scope, period, date));
     }
 
@@ -147,8 +143,7 @@ public class StatsController {
             @RequestParam StatsPeriod period,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
         return ResponseEntity.ok(statsService.getFocusStatsByCategory(targetId, period, date));
     }
@@ -169,8 +164,7 @@ public class StatsController {
             @RequestParam StatsPeriod period,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) UUID friends,
-            HttpServletRequest request) {
-        UUID callerId = (UUID) request.getAttribute("userId");
+            @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
         return ResponseEntity.ok(statsService.getScreenTimePeriodStats(targetId, period, date));
     }

@@ -178,8 +178,12 @@ const s = StyleSheet.create({
   listScroll: { maxHeight: 320 },
   list: { gap: T.space.sm },
 
+  // 세로 패딩이 다른 CTA(12)보다 작다 — 선택이 있으면 '추가하기' + 'N개 선택됨' **두 줄**이
+  // 렌더돼 내용이 약 40pt다. 12를 주면 64pt가 돼 기본 배율에서 높이가 변하고(52 → 64) 선택
+  // 유무에 따라 시트가 튄다(코덱스 리뷰). 4면 두 줄이어도 48 < 52라 minHeight가 이긴다.
   primaryBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.xs,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',
@@ -191,7 +195,8 @@ const s = StyleSheet.create({
   btnCount: { ...T.text.caption, color: T.white, opacity: 0.75, marginTop: 1 },
   // 건너뛰기/완료하기 — 위 버튼과 같은 모양, 검은색으로 매칭
   darkBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.ink,
     alignItems: 'center',

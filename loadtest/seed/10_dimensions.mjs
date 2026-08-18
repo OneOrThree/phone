@@ -86,13 +86,13 @@ for (let n = 1; n <= N_USERS; n++) {
     uuid(`user-${n}`), isGuest, nickname, 'KR',
     rnd() < 0.1 ? null : pick(OCC),                       // occupation 10% null
     rnd() < 0.2 ? 'PUBLIC' : 'FRIENDS',                   // stat_visibility
-    null, null,                                           // device_token, refresh_token
+    null, null,                                           // device_token, refresh_token_hash
     iso(created), iso(created), rnd() < 0.02,             // created, updated, is_deleted 2%
     iso(BASE_DATE - Math.floor(rnd() * 7) * 864e5),       // last_active_at (NOT NULL)
   ]);
 }
 write('users.csv',
-  'id,is_guest,nickname,country_code,occupation,stat_visibility,device_token,refresh_token,created_at,updated_at,is_deleted,last_active_at',
+  'id,is_guest,nickname,country_code,occupation,stat_visibility,device_token,refresh_token_hash,created_at,updated_at,is_deleted,last_active_at',
   userRows);
 
 // ── groups (한글 그룹명 — Phase 3 groups/search 표적) ──

@@ -1,12 +1,12 @@
 package com.oneorthree.phone.screentime.api;
 
+import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.screentime.service.ScreenTimeService;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -34,8 +34,7 @@ public class ScreenTimeController {
     @PostMapping("/screen-time")
     public ResponseEntity<Void> saveScreenTime(
             @Valid @RequestBody ScreenTimeRequest request,
-            HttpServletRequest httpServletRequest) {
-        UUID userId = (UUID) httpServletRequest.getAttribute("userId");
+            @LoginUser UUID userId) {
         screenTimeService.saveScreenTime(userId, request);
         return ResponseEntity.noContent().build();
     }

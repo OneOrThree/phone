@@ -5,36 +5,27 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
-import Slider from '@/screens/onboarding/components/Slider';
+import { DurationDrumPicker } from '@/components/DurationDrumPicker';
 import { useUser } from '@/store/UserContext';
 import { STORAGE_KEYS } from '@/types/storage';
+import { localDateStr } from '@/utils/localDate';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { FOCUS_GOAL_MINUTES, GOAL_STEP_MINUTES, USAGE_GOAL_MINUTES } from '@/constants/goals';
+import { logGoalUpdated } from '@/services/analyticsEvents';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
-// 개인 목표 수정(SettingsGoals) — 집중(채우기)·사용(넘지 않기) 두 목표를 슬라이더로 조정.
+// 개인 목표 수정(SettingsGoals) — 집중(채우기)·사용(넘지 않기) 두 목표를 드럼(휠) 피커로 조정.
 // ★ '오늘 보상 기준은 그대로' 보장: 저장해도 컨텍스트·서버를 즉시 바꾸지 않고 goalPending에 '내일부터'
 //   예약만 남긴다. 실제 반영은 발효일이 지난 뒤 PendingGoalApplier(App 루트)가 한다.
-//   현재 예약이 있으면 그 값으로 슬라이더를 초기화하고, 현재 목표와 같게 되돌려 저장하면 예약을 취소한다.
+//   현재 예약이 있으면 그 값으로 피커를 초기화하고, 현재 목표와 같게 되돌려 저장하면 예약을 취소한다.
 
-// 목표 하한/상한(분) — 집중 1분~24시간(1분 단위 자유 설정, GROMO-630), 사용 30분~12시간(10분 단위).
-const FOCUS_MIN_MINUTES = 1;
-const FOCUS_MAX_MINUTES = 24 * 60;
-const FOCUS_STEP = 1;
-const USAGE_MIN_MINUTES = 30;
-const USAGE_MAX_MINUTES = 12 * 60;
-const USAGE_STEP = 10;
-
-// 초 → step 단위 스냅 + [하한, 상한] 클램프한 '목표 분'.
-function toGoalMinutes(seconds: number, min: number, max: number, step: number): number {
-  return snapClamp(seconds / 60, min, max, step);
-}
-
-// 분 → step 단위 스냅 + [하한, 상한] 클램프.
-function snapClamp(minutes: number, min: number, max: number, step: number): number {
-  const snapped = Math.round(minutes / step) * step;
-  return Math.min(max, Math.max(min, snapped));
+// 분 → 5분 스냅 + [하한, 상한] 클램프. 범위는 온보딩 목표 설정과 공유한다
+// (@/constants/goals — 집중 30분~24시간, 사용 30분~12시간, GROMO-1255).
+function snapClamp(minutes: number, range: { min: number; max: number }): number {
+  const snapped = Math.round(minutes / GOAL_STEP_MINUTES) * GOAL_STEP_MINUTES;
+  return Math.min(range.max, Math.max(range.min, snapped));
 }
 
 // 총 분 → '3시간 20분' / '4시간' / '30분' 표기.
@@ -46,14 +37,6 @@ function fmt(totalMinutes: number): string {
   return `${m}분`;
 }
 
-// Date → 'YYYY-MM-DD'(로컬 기준) — goalPending 발효일 저장용.
-function toISODate(d: Date): string {
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, '0');
-  const da = String(d.getDate()).padStart(2, '0');
-  return `${y}-${mo}-${da}`;
-}
-
 // ── 목표 하나(집중 또는 사용)를 편집하는 카드 ─────────────────────────────
 interface GoalCardProps {
   icon: IconName;
@@ -63,7 +46,6 @@ interface GoalCardProps {
   sub: string;
   min: number;
   max: number;
-  step: number;
   value: number;
   activeMinutes: number; // 오늘 적용 중인 목표
   onChange: (minutes: number) => void;
@@ -77,7 +59,6 @@ function GoalCard({
   sub,
   min,
   max,
-  step,
   value,
   activeMinutes,
   onChange,
@@ -96,8 +77,11 @@ function GoalCard({
         </View>
       </View>
 
-      {/* 선택값(크게) + 오늘 적용 중인 값 대비 */}
-      <Text style={s.value}>{fmt(value)}</Text>
+      <View style={s.pickerArea}>
+        <DurationDrumPicker minMinutes={min} maxMinutes={max} value={value} onChange={onChange} />
+      </View>
+
+      {/* 선택값과 오늘 적용 중인 값의 대비 */}
       {changed ? (
         <Text style={s.fromText} numberOfLines={1}>
           오늘 {fmt(activeMinutes)} · 내일부터 이 값으로 적용
@@ -105,14 +89,6 @@ function GoalCard({
       ) : (
         <Text style={s.fromText}>현재 목표</Text>
       )}
-
-      <View style={s.sliderArea}>
-        <Slider min={min} max={max} step={step} value={value} onChange={onChange} />
-        <View style={s.sliderLabels}>
-          <Text style={s.minor}>{fmt(min)}</Text>
-          <Text style={s.minor}>{fmt(max)}</Text>
-        </View>
-      </View>
     </View>
   );
 }
@@ -121,19 +97,22 @@ export default function GoalsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { userId, goalSeconds, screenTimeGoalSeconds } = useUser();
 
-  // 오늘 적용 중인 목표(비교 기준) — 저장해도 이 값은 안 바뀐다(내일 발효).
-  const activeFocusMin = useMemo(
-    () => toGoalMinutes(goalSeconds, FOCUS_MIN_MINUTES, FOCUS_MAX_MINUTES, FOCUS_STEP),
-    [goalSeconds],
-  );
+  // 오늘 적용 중인 목표(비교·표시 기준) — 저장해도 이 값은 안 바뀐다(내일 발효).
+  // 스냅하지 않은 실제 값을 쓴다: 구(1분 단위) 목표를 5분 스냅하면 피커 초기값과 같아져
+  // '변경 없음'으로 오인되고, 스냅값으로 바꾸는 저장이 영영 불가능해진다(리뷰 반영).
+  const activeFocusMin = useMemo(() => Math.round(goalSeconds / 60), [goalSeconds]);
   const activeUsageMin = useMemo(
-    () => toGoalMinutes(screenTimeGoalSeconds, USAGE_MIN_MINUTES, USAGE_MAX_MINUTES, USAGE_STEP),
+    () => Math.round(screenTimeGoalSeconds / 60),
     [screenTimeGoalSeconds],
   );
 
-  // 슬라이더 상태 — 초기엔 현재 목표, 예약이 있으면 예약값으로 덮어씀(아래 effect).
-  const [focusMinutes, setFocusMinutes] = useState(activeFocusMin);
-  const [usageMinutes, setUsageMinutes] = useState(activeUsageMin);
+  // 피커 상태 — 초기엔 현재 목표(5분 단위 스냅), 예약이 있으면 예약값으로 덮어씀(아래 effect).
+  const [focusMinutes, setFocusMinutes] = useState(() =>
+    snapClamp(activeFocusMin, FOCUS_GOAL_MINUTES),
+  );
+  const [usageMinutes, setUsageMinutes] = useState(() =>
+    snapClamp(activeUsageMin, USAGE_GOAL_MINUTES),
+  );
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -144,9 +123,13 @@ export default function GoalsScreen() {
     dailyScreenTimeGoalMinutes?: number;
     effectiveDate?: string;
   } | null>(null);
+  const valuesAtOpenRef = useRef<{ focus: number; usage: number } | null>(null);
+  const initializedRef = useRef(false);
 
-  // 발효 전 예약(goalPending)이 있으면 그 값으로 슬라이더 초기화.
+  // 발효 전 예약(goalPending)이 있으면 그 값으로 피커 초기화.
   useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
     AsyncStorage.getItem(STORAGE_KEYS.goalPending)
       .then((raw) => {
         if (raw) {
@@ -154,35 +137,31 @@ export default function GoalsScreen() {
             const p = JSON.parse(raw) as NonNullable<typeof pendingRef.current>;
             pendingRef.current = p;
             if (typeof p.dailyFocusTimeGoalMinutes === 'number') {
-              setFocusMinutes(
-                snapClamp(
-                  p.dailyFocusTimeGoalMinutes,
-                  FOCUS_MIN_MINUTES,
-                  FOCUS_MAX_MINUTES,
-                  FOCUS_STEP,
-                ),
-              );
+              setFocusMinutes(snapClamp(p.dailyFocusTimeGoalMinutes, FOCUS_GOAL_MINUTES));
             }
             if (typeof p.dailyScreenTimeGoalMinutes === 'number') {
-              setUsageMinutes(
-                snapClamp(
-                  p.dailyScreenTimeGoalMinutes,
-                  USAGE_MIN_MINUTES,
-                  USAGE_MAX_MINUTES,
-                  USAGE_STEP,
-                ),
-              );
+              setUsageMinutes(snapClamp(p.dailyScreenTimeGoalMinutes, USAGE_GOAL_MINUTES));
             }
+            valuesAtOpenRef.current = {
+              focus: snapClamp(p.dailyFocusTimeGoalMinutes ?? activeFocusMin, FOCUS_GOAL_MINUTES),
+              usage: snapClamp(p.dailyScreenTimeGoalMinutes ?? activeUsageMin, USAGE_GOAL_MINUTES),
+            };
           } catch {
             // 깨진 예약값은 무시
           }
+        } else {
+          valuesAtOpenRef.current = {
+            focus: snapClamp(activeFocusMin, FOCUS_GOAL_MINUTES),
+            usage: snapClamp(activeUsageMin, USAGE_GOAL_MINUTES),
+          };
         }
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-  }, []);
+  }, [activeFocusMin, activeUsageMin]);
 
-  // 내일(발효일).
+  // 내일(발효일). 축은 로컬 — 사용자가 체감하는 '내일'이고, 발효 판정(PendingGoalApplier)도
+  // 같은 로컬 축으로 대조한다(docs/date-axis.md 분류 ② 측정/저장).
   const tomorrow = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -218,12 +197,25 @@ export default function GoalsScreen() {
             userId,
             ...next,
             effectiveDate:
-              sameAsPending && prev.effectiveDate ? prev.effectiveDate : toISODate(tomorrow),
+              sameAsPending && prev.effectiveDate ? prev.effectiveDate : localDateStr(tomorrow),
           }),
         );
       } else {
         // 현재 목표와 동일하게 되돌림 → 기존 예약 취소.
         await AsyncStorage.removeItem(STORAGE_KEYS.goalPending);
+      }
+      const valuesAtOpen = valuesAtOpenRef.current;
+      const actuallyChanged = valuesAtOpen
+        ? {
+            focus: focusMinutes !== valuesAtOpen.focus,
+            usage: usageMinutes !== valuesAtOpen.usage,
+          }
+        : { focus: focusChanged, usage: usageChanged };
+      if (actuallyChanged.focus || actuallyChanged.usage) {
+        logGoalUpdated({
+          changed_focus: actuallyChanged.focus,
+          changed_usage: actuallyChanged.usage,
+        });
       }
     } catch {
       // 예약 저장/삭제 실패는 치명적이지 않음
@@ -252,10 +244,9 @@ export default function GoalsScreen() {
         iconColor={T.accentDeep}
         iconBg={T.accentBg}
         label="목표 집중시간"
-        sub="채우기 · 많이 채울수록 좋아요"
-        min={FOCUS_MIN_MINUTES}
-        max={FOCUS_MAX_MINUTES}
-        step={FOCUS_STEP}
+        sub="채우기"
+        min={FOCUS_GOAL_MINUTES.min}
+        max={FOCUS_GOAL_MINUTES.max}
         value={focusMinutes}
         activeMinutes={activeFocusMin}
         onChange={setFocusMinutes}
@@ -266,10 +257,9 @@ export default function GoalsScreen() {
         iconColor={T.greenDeep}
         iconBg={T.greenBg}
         label="목표 사용시간"
-        sub="넘지 않기 · 줄일수록 좋아요"
-        min={USAGE_MIN_MINUTES}
-        max={USAGE_MAX_MINUTES}
-        step={USAGE_STEP}
+        sub="넘지 않기"
+        min={USAGE_GOAL_MINUTES.min}
+        max={USAGE_GOAL_MINUTES.max}
         value={usageMinutes}
         activeMinutes={activeUsageMin}
         onChange={setUsageMinutes}
@@ -310,20 +300,15 @@ const s = StyleSheet.create({
   cardLabel: { ...T.text.label, color: T.ink },
   cardSub: { ...T.text.caption, color: T.inkMuted, marginTop: 2 },
 
-  // 값 표시
-  value: { ...T.text.display, color: T.ink, textAlign: 'center', marginTop: T.space.lg },
+  // 피커 + 값 대비 표시
+  pickerArea: { alignSelf: 'stretch', marginTop: T.space.md },
   fromText: {
     ...T.text.caption,
     fontWeight: '500',
     color: T.inkMuted,
     textAlign: 'center',
-    marginTop: T.space.xs,
+    marginTop: T.space.sm,
   },
-
-  // 슬라이더
-  sliderArea: { alignSelf: 'stretch', marginTop: T.space.lg },
-  sliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: T.space.sm },
-  minor: { ...T.text.caption, fontWeight: '500', color: T.inkMuted },
 
   // 안내 박스
   note: {
@@ -342,7 +327,8 @@ const s = StyleSheet.create({
 
   // 저장 버튼(footer)
   saveBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

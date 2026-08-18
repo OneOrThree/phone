@@ -11,15 +11,23 @@
  *       {@code FocusService.recordCompletion} 이 공통 귀속:
  *       <ul>
  *         <li>{@code DailyFocusStat} upsert — (user, date) 비관적 락 후 초 단위 += 누적(GROMO-642).
- *             버킷 날짜 = {@code statDate(endedAt, zone)} = endedAt 의 country_code 존 로컬 날짜
- *             (GROMO-803 — 스크린타임 561과 동일 기준. countryCode null·미지원은 UTC 폴백).</li>
- *         <li>스트릭 — {@code UserStreakService.updateOnSessionComplete(user, statDate)} (같은 트랜잭션).</li>
+ *             버킷 날짜 = KST 로컬 날짜
+ *             (GROMO-1259 — 저장축 KST 고정, 스크린타임과 동일 기준. 구 country_code 존은 폐지).
+ *             <b>GROMO-1252</b>: 자정을 걸친 세션은 {@code splitByLocalDay} 로 로컬 자정에서 잘라
+ *             날짜별로 나눠 가산한다(세션 행·세션 보상 코인은 1건/1회 유지, {@code sessionCount}·
+ *             {@code totalDistractionSeconds} 는 시작일에만 — 버킷을 {@code startedAt} 에서 직접 파생하므로
+ *             시작일에 tick 이 없던 세션은 그날 집중초 0 인 행이 생긴다). 앱이 날짜별 집중초를 실어 보내면 그 분포를
+ *             (날짜별 벽시계 몫을 상한으로 클램프해) 쓰고, 확정 분포는 {@code focus_sessions.focus_seconds_by_date}
+ *             에 보관해 조회 집계(by-category)·앱 복원이 같은 귀속을 쓰게 한다.</li>
+ *         <li>스트릭 — {@code UserStreakService.updateOnSessionComplete(user, 인정 날짜들)} (같은 트랜잭션).
+ *             자정 분할 시 인정 날짜를 <b>한 번에</b> 넘긴다(반영 순서는 스트릭 서비스가 결정 — 소급은
+ *             최신→과거, 미래는 과거→최신). 인정 기준(10분)은 <b>쪼갠 뒤</b> 날짜별 누적으로 판정한다.</li>
  *         <li>리그 — ACTIVE 아레나 멤버면 주간 누적 집중 초 반영(GROMO-646/665).</li>
  *       </ul>
  *       자동 종료 orphan 세션({@code sweepOrphanSessions})은 통계·스트릭에 반영하지 않으며, GROMO-804 로 상태를
  *       {@code AUTO_CLOSED} 로 표시해 by-category 실시간 집계에서도 제외된다(과거엔 ACTIVE 로 남아 leak).</li>
  *   <li><b>스크린타임</b>: 앱이 매일 전송 → {@code ScreenTimeService.saveScreenTime} 이
- *       {@code DailyScreenTimeStat} 적재. 버킷 날짜 = country_code 존 로컬 날짜(GROMO-561).
+ *       {@code DailyScreenTimeStat} 적재. 버킷 날짜 = KST 고정 날짜(GROMO-1259, {@code ZonePolicy}).
  *       목표 달성 플래그(GROMO-805): <b>최종 보고</b>(isFinal=true 또는 과거 날짜)만 <b>클라 신뢰</b>
  *       ({@code screenTimeGoalAchieved} 그대로 저장, 서버 재판정 안 함 — 과거 목표를 서버가 모름)하고 finalized 로 표시한다.
  *       <b>interim(오늘·미마감)</b>은 total 만 갱신하고 flag/finalized 는 미확정(신규 row 기본값 false, 기존 flag 보존).</li>
@@ -34,7 +42,9 @@
  *   <li>{@code GET /stats/streak} — UserStreak 조회.</li>
  *   <li>{@code GET /stats/today} — DailyFocusStat/DailyScreenTimeStat + 현재 목표로 재계산(사전집계).</li>
  *   <li>{@code GET /stats/focus} — DailyFocusStat 초합 → 분 환산(사전집계), 직전 구간 delta.</li>
- *   <li>{@code GET /stats/by-category} — FocusSession <b>실시간</b> 집계(endedAt country_code 존 윈도우, 태그별; GROMO-803).</li>
+ *   <li>{@code GET /stats/by-category} — FocusSession <b>실시간</b> 집계(KST 고정 윈도우, 태그별; GROMO-803·1259).
+ *       <b>GROMO-1252</b>: 창과 <b>겹치는</b> 세션을 모두 골라 기여분을 창으로 클리핑해 더한다(종전엔 endedAt 이
+ *       창 안인 세션의 전체 길이를 더해, 자정을 걸친 세션에서 사전집계 총합과 과목별 합이 어긋났다).</li>
  *   <li>{@code GET /stats/screen-time} — DailyScreenTimeStat 합산(사전집계), 목표 달성 정보.</li>
  * </ul>
  *
@@ -46,9 +56,9 @@
  *   </tr>
  *   <tr>
  *     <td>날짜 기준</td>
- *     <td>쓰기 버킷 = endedAt country_code 존(GROMO-803, 561과 정합)</td>
- *     <td>쓰기 버킷 = country_code 존(GROMO-561)</td>
- *     <td>조회 {@code date} = 클라 로컬(GROMO-643)</td>
+ *     <td>쓰기 버킷 = KST 고정 날짜, 자정 걸치면 날짜별 분할(GROMO-803/1252, 1259 로 KST 고정)</td>
+ *     <td>쓰기 버킷 = KST 고정(GROMO-1259)</td>
+ *     <td>조회 {@code date} = 서버 판정 축 KST 고정(GROMO-643·1259)</td>
  *   </tr>
  *   <tr>
  *     <td>단위·내림</td>
@@ -74,8 +84,10 @@
  * <ul>
  *   <li><b>803</b> — <b>해소됨</b>: 집중 쓰기 날짜 기준을 UTC → country_code 존으로 통일(스크린타임과 정합).
  *       by-category 조회 윈도우도 같은 존으로 정합. <b>forward-only</b> — 기존 UTC 버킷 row 는 재집계하지 않음.
- *       <b>수용 한계</b>: 미지원 국가·{@code countryCode==null} 은 UTC 폴백이라 자정 경계 오귀속 가능(YAGNI).
- *       여행/국가변경으로 디바이스 존 ≠ country 존인 경우도 country 존 기준으로 귀속(코드 미처리, 문서 수용).
+ *       <b>GROMO-1259 로 재개편</b>: country_code 존 파생(CountryZoneResolver)을 폐지하고 저장·조회
+ *       날짜 축을 KST 고정으로 통일(챌린지 정책 N8/FR-19 — 판정·카드·정산이 전부 KST 라 저장축이
+ *       갈리면 어긋난다). <b>수용 한계 L5</b>: 해외 유저는 "내 하루"와 앱의 하루가 어긋난다 —
+ *       한국 타깃 서비스라 수용(docs/prd/challenge/prd.md L5).
  *       <p><b>forward-only 컷오버 아티팩트(수용)</b> — 아래 두 불일치는 PR 리뷰에서 제기됐으나, 변경이
  *       forward-only 이고 현재 DB 가 리셋 가능한 개발용이라 <b>수용</b>한다(소급 보정 안 함).
  *       <ul>

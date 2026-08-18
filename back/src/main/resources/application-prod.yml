@@ -20,10 +20,19 @@ spring:
     baseline-on-migrate: true
     baseline-version: 1
 
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
 jwt:
   secret: ${JWT_SECRET}
   access-expiration: 3600
   refresh-expiration: 2592000
+  # 게스트 전용 refresh 수명(GROMO-1509) — 소셜은 만료돼도 재로그인으로 같은 계정에 돌아오지만
+  # 게스트는 돌아갈 곳이 없어 만료가 곧 계정 소실이다. 사실상 '이 기간 안 켜면 계정 삭제'.
+  guest-refresh-expiration: 7776000   # 90일
 
 apple:
   jwks-url: https://appleid.apple.com/auth/keys
@@ -51,9 +60,67 @@ decorator:
     p6spy:
       enable-logging: false
 
+# 관측 (GROMO-1489) — dev(application-dev.yml)와 같은 배선. 그전까지 prod 엔 이 블록이 없어
+# /actuator/prometheus 가 아예 안 열렸고, 그래서 RED·HikariCP·JVM 커스텀 메트릭이 prod 에만 없었다.
+# 공개 8080 이 아닌 내부 전용 관리 포트(9091)로 격리 — compose 에서 9091 을 호스트에 노출하지 않으므로
+# app-network 안의 datadog-agent 만 접근한다(nginx 도 8080 만 프록시). JwtFilter 는 /api/* 만 필터하니
+# /actuator/* 는 무인증 — 포트 격리가 유일한 방어선이다. 9091 을 절대 ports 에 올리지 말 것.
+management:
+  server:
+    port: 9091
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      application: gromo-back   # dev 와 같은 값 — 환경 구분은 Agent 가 붙이는 env 태그(dev/prod)가 한다
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true    # p95/p99(histogram_quantile) 용 버킷
+
 logging:
   level:
     root: INFO
     org.hibernate.SQL: WARN
     org.hibernate.orm.jdbc.bind: WARN
     org.springframework.web: WARN
+
+# 활동 시각(last_active_at) 갱신 스로틀 창 (GROMO-903) — 같은 유저에게 write 를 허용하는 최소 간격.
+# 짧을수록 last_active_at 이 정확해지고 write 가 늘어난다. 이 값만큼 실제 마지막 활동보다 과거일 수 있어
+# 미접속 복귀 푸시의 "정확히 N일째" 판정이 하루 당겨질 수 있다(자정 직후 창 안에 그날 첫 활동을 한 유저).
+app:
+  user-activity:
+    touch-interval: 2h
+
+# 그룹 초대 링크 (deferred deep link). ip-salt 는 Secrets Manager(gromo/prod/env)에서 주입한다 —
+# salt 가 바뀌면 그 시점 이전 클릭은 매치되지 않으므로 값 교체는 배포와 함께 신중히.
+link:
+  base-url: ${LINK_BASE_URL:https://link.oneorthree.world}
+  match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
+  ip-salt: ${LINK_IP_SALT}
+  # X-Real-IP '만' 신뢰한다. 인프라 레포의 nginx.conf 는 set_real_ip_from 으로 Cloudflare 대역을
+  # 나열하고 real_ip_header CF-Connecting-IP 를 걸어, TCP 피어가 CF 대역일 때만 그 헤더를 믿어
+  # $remote_addr 을 복원한 뒤 proxy_set_header X-Real-IP $remote_addr 로 넘긴다. 그래서
+  #   - CF 경유: X-Real-IP = 진짜 클라이언트 IP
+  #   - 오리진 직접 접속: realip 이 무시 → X-Real-IP = 접속자의 진짜 IP
+  # 이고, 클라이언트가 X-Real-IP 를 보내도 nginx 가 덮어써서 위조가 안 된다.
+  # 반대로 CF-Connecting-IP·X-Forwarded-For 는 nginx 가 덮어쓰지 않고 통과시키므로(XFF 는 뒤에
+  # 이어붙일 뿐 첫 토큰이 호출자 값) 오리진에 직접 붙으면 레이트리밋 키를 마음대로 고를 수 있다.
+  trusted-ip-headers: ${LINK_TRUSTED_IP_HEADERS:X-Real-IP}
+  store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}
+
+# GA4 Measurement Protocol 서버 이벤트 (초대 링크 퍼널, 스펙 §6-2) — prod 만 실전송.
+# dev/local 은 이 블록을 두지 않아 ga4.enabled 미설정 → no-op 구현이 뜬다(분석 노이즈·시크릿 노출 방지).
+# 시크릿 4종은 Secrets Manager(gromo/prod/env)에서 env 로 주입(위 LINK_IP_SALT 와 같은 저장소 —
+# oneorthree/phone 은 dev 배포용이다). 미주입이어도 기동은 막지 않고 기동 시 WARN 1회만 남긴다 —
+# 분석 배선 누락이 서비스 기동을 세우면 안 되기 때문(FCM 의 fail-fast 와 대비).
+ga4:
+  enabled: true
+  firebase-app-id: ${GA4_FIREBASE_APP_ID:}
+  app-api-secret: ${GA4_APP_API_SECRET:}
+  web-measurement-id: ${GA4_WEB_MEASUREMENT_ID:}
+  web-api-secret: ${GA4_WEB_API_SECRET:}

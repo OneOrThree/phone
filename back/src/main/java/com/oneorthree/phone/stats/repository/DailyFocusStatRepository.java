@@ -55,6 +55,21 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
             @Param("date") LocalDate date);
 
     /**
+     * [from, to] 중 하루 누적 집중이 {@code minSeconds} 이상인(= 스트릭 자격을 갖춘) 날짜들
+     * (GROMO-1252 코드리뷰 5차 ③ — {@code UserStreakService} 의 소급 재구성 전용).
+     *
+     * <p>판정은 <b>차감·재집계가 반영된 현재</b> {@code totalFocusSeconds} 기준이다. 구간 상한은 호출측이
+     * 정한다(무제한 스캔 금지).
+     */
+    @Query("SELECT d.date FROM DailyFocusStat d "
+            + "WHERE d.user = :user AND d.date BETWEEN :from AND :to AND d.totalFocusSeconds >= :minSeconds")
+    List<LocalDate> findQualifiedDates(
+            @Param("user") User user,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("minSeconds") int minSeconds);
+
+    /**
      * [from, to] 구간의 totalFocusSeconds 합계를 반환한다(초 — GROMO-642).
      * 데이터 없는 구간은 COALESCE → 0 반환(null 처리 불필요).
      */
@@ -84,10 +99,15 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
 
     /**
      * 전체 유저(탈퇴 유저 {@code user IS NULL} 제외) 중 기간 내 활동 유저의 집중 초 총합·활동 유저 수를 집계한다.
+     *
+     * <p>봇({@code is_bot})은 제외한다 (GROMO-1565). 봇은 리그 랭킹에는 실유저와 함께 보여야 하지만,
+     * 유저가 자기 기록과 견주는 <b>모집단 평균</b>에 섞이면 합계와 표본 수를 동시에 밀어 올려
+     * "나는 평균보다 한참 아래"라는 잘못된 인상을 준다. 랭킹 노출과 평균 모집단은 분리한다.
      */
     @Query("SELECT new com.oneorthree.phone.stats.dto.FocusAverageAggregate("
             + "COALESCE(SUM(d.totalFocusSeconds), 0), COUNT(DISTINCT d.user.id)) "
-            + "FROM DailyFocusStat d WHERE d.user.id IS NOT NULL AND d.date BETWEEN :from AND :to")
+            + "FROM DailyFocusStat d "
+            + "WHERE d.user.id IS NOT NULL AND d.user.isBot = false AND d.date BETWEEN :from AND :to")
     FocusAverageAggregate sumAndActiveCountAllInPeriod(
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
@@ -95,12 +115,32 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
     /**
      * 특정 occupation 유저 중 기간 내 활동 유저의 집중 초 총합·활동 유저 수를 집계한다.
      * (user IS NULL 인 탈퇴 row 는 occupation 조인 시 자연 제외)
+     *
+     * <p>봇 제외 이유는 {@link #sumAndActiveCountAllInPeriod} 와 같다 (GROMO-1565). 직군 평균은
+     * 직군당 봇이 10명씩이라 실유저가 적은 직군일수록 왜곡이 더 크다.
      */
     @Query("SELECT new com.oneorthree.phone.stats.dto.FocusAverageAggregate("
             + "COALESCE(SUM(d.totalFocusSeconds), 0), COUNT(DISTINCT d.user.id)) "
-            + "FROM DailyFocusStat d WHERE d.user.occupation = :occupation AND d.date BETWEEN :from AND :to")
+            + "FROM DailyFocusStat d "
+            + "WHERE d.user.occupation = :occupation AND d.user.isBot = false "
+            + "AND d.date BETWEEN :from AND :to")
     FocusAverageAggregate sumAndActiveCountByOccupationInPeriod(
             @Param("occupation") Occupation occupation,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
+
+    /**
+     * userId 집합의 전체 기간 누적 집중 초 합계를 유저별로 배치 조회한다 (A-8 그룹방 리더보드).
+     * 집중 기록이 없는 유저는 결과 행이 없으므로 호출측이 0으로 채운다.
+     */
+    @Query("SELECT d.user.id AS userId, COALESCE(SUM(d.totalFocusSeconds), 0) AS totalSeconds "
+            + "FROM DailyFocusStat d WHERE d.user.id IN :userIds GROUP BY d.user.id")
+    List<UserFocusTotal> sumTotalFocusSecondsByUserIdIn(@Param("userIds") Collection<UUID> userIds);
+
+    /** {@link #sumTotalFocusSecondsByUserIdIn} 결과 행 — 유저 id 와 전체 누적 집중 초. */
+    interface UserFocusTotal {
+        UUID getUserId();
+
+        long getTotalSeconds();
+    }
 }

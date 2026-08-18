@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 import { fetchFriends, fetchPinnedFriends } from '@/services/friendsApi';
 
-// 집중 세션 친구 그리드용 라이브 상태 — 대상은 친구 전체(GET /friends). 핀과 무관.
+// 집중 세션 친구 그리드용 라이브 상태 — 대상은 친구 전체(GET /friends).
 // GROMO-658: /friends 가 라이브 필드(오늘 집중분·집중중·시작시각·태그명)를 주면 그대로 쓰고,
 // 확장 배포 전 서버(필드 없음)에서는 종전대로 핀 응답(GET /pins)의 값으로 보강한다.
-// TODO: BE 확장 배포 후 /pins 보강 경로 제거하고 단일 호출로 교체.
+// 핀 ID 집합(pinnedIds)도 같은 /pins 응답에서 뽑아 그리드 핀 우선 정렬(932)에 쓴다 —
+// BE 확장 배포 후 보강 경로를 걷어내도 /pins 호출 자체는 정렬용으로 남겨야 한다.
 
 export interface SessionFriend {
   userId: string;
@@ -20,12 +21,20 @@ const DEFAULT_POLL_MS = 60_000;
 
 export function useFocusFriends(pollMs: number = DEFAULT_POLL_MS) {
   const [friends, setFriends] = useState<SessionFriend[]>([]);
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => new Set<string>());
   const [loaded, setLoaded] = useState(false);
 
   const refetch = useCallback(async () => {
     try {
       const [roster, pinned] = await Promise.all([fetchFriends(), fetchPinnedFriends()]);
       const liveById = new Map(pinned.map((p) => [p.userId, p]));
+      // 내용이 같으면 기존 Set 유지 — 매 폴링마다 참조가 바뀌면 pinnedIds에 의존하는
+      // 리그 훅(useSessionLeagueMembers)의 refetch가 불필요하게 같이 돈다(코덱스 리뷰 후속)
+      setPinnedIds((prev) => {
+        const next = new Set(pinned.map((p) => p.userId));
+        if (prev.size === next.size && [...next].every((id) => prev.has(id))) return prev;
+        return next;
+      });
       setFriends(
         roster.map((f) => ({
           userId: f.userId,
@@ -56,5 +65,5 @@ export function useFocusFriends(pollMs: number = DEFAULT_POLL_MS) {
     };
   }, [refetch, pollMs]);
 
-  return { friends, loaded, refetch };
+  return { friends, pinnedIds, loaded, refetch };
 }

@@ -1,14 +1,13 @@
 package com.oneorthree.phone.item.api;
 
+import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.item.dto.ItemResponse;
 import com.oneorthree.phone.item.dto.UserItemResponse;
 import com.oneorthree.phone.item.service.InventoryService;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -16,15 +15,18 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
-@AutoConfigureMockMvc(addFilters = false)
-@Disabled
-public class InventoryControllerTest {
+/**
+ * 인벤토리 API 컨트롤러 테스트 (GROMO-363 에서 부활).
+ * 조회 대상이 경로가 아니라 인증 주체에서 오는지를 확인한다.
+ */
+@WebMvcTest(controllers = InventoryController.class)
+class InventoryControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -32,35 +34,32 @@ public class InventoryControllerTest {
     @MockitoBean
     private InventoryService inventoryService;
 
-    private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
-    private static final UUID ITEM_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
-    private static final UUID UI_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID LOGIN_USER_ID = UUID.fromString("00000000-0000-0000-0000-0000000000ca");
+    private static final UUID ITEM_ID = UUID.fromString("00000000-0000-0000-0000-000000000011");
+    private static final UUID USER_ITEM_ID = UUID.fromString("00000000-0000-0000-0000-000000000031");
 
     @Test
-    @DisplayName("인벤토리 조회 성공")
-    void getInventorySuccess() throws Exception {
-        // given
-        ItemResponse itemResponse = ItemResponse.builder()
-                .id(ITEM_ID)
-                .name("테스트 모자")
-                .slotType("HAT")
-                .grade("COMMON")
-                .assetUrl("https://asset.example.com/hat.glb")
+    @DisplayName("인벤토리 조회 → 200, 인증 주체의 보유 아이템을 반환")
+    void getInventoryReturns200() throws Exception {
+        UserItemResponse userItem = UserItemResponse.builder()
+                .id(USER_ITEM_ID)
+                .item(ItemResponse.builder()
+                        .id(ITEM_ID)
+                        .name("테스트 머리")
+                        .slotType("HAIR")
+                        .grade("COMMON")
+                        .assetUrl("https://asset.example.com/hair.glb")
+                        .build())
                 .build();
+        given(inventoryService.getInventory(LOGIN_USER_ID)).willReturn(List.of(userItem));
 
-        UserItemResponse userItemResponse = UserItemResponse.builder()
-                .id(UI_ID)
-                .item(itemResponse)
-                .build();
-
-        given(inventoryService.getInventory(USER_ID)).willReturn(List.of(userItemResponse));
-
-        // when + then
-        mockMvc.perform(get("/api/inventory/" + USER_ID))
+        mockMvc.perform(get("/api/v1/inventory")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].item.name").value("테스트 모자"))
-                .andExpect(jsonPath("$[0].item.slotType").value("HAT"))
+                .andExpect(jsonPath("$[0].item.name").value("테스트 머리"))
+                .andExpect(jsonPath("$[0].item.slotType").value("HAIR"))
                 .andDo(print());
-    }
 
+        verify(inventoryService).getInventory(LOGIN_USER_ID);
+    }
 }

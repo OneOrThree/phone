@@ -1,27 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
-  LayoutAnimation,
   Modal,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { T, withAlpha } from '@/constants/theme';
+import { FIXED_BOX_FONT_SCALE_MAX, T, withAlpha } from '@/constants/theme';
+import { springify } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { tierByLevel } from '@/constants/tiers';
 import { useUser } from '@/store/UserContext';
-import { useFocus } from '@/store/FocusContext';
 import { useLeagueRanking } from './useLeagueRanking';
 import { useGlobalRanking } from './useGlobalRanking';
 import { useLeagueMeta } from './useLeagueMeta';
 import { useLeagueLastResult } from './useLeagueLastResult';
+import { useStagedRanking } from './useStagedRanking';
 import { useFriends } from './useFriends';
 import { usePinned } from './usePinned';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -29,11 +32,13 @@ import { MY_USER_ID, type RankedMember } from './mock';
 import { hms, fmtMinutes } from './format';
 import type { FriendResponse } from '@/types/api';
 import { RankRow } from './components/RankRow';
+import { RankRowShell } from './components/RankRowShell';
 import { LiveFocusTime } from './components/LiveFocusTime';
+import { LeagueDeadline } from './components/LeagueDeadline';
 import { MemberAvatar } from './components/MemberAvatar';
 import { TierBadge } from './components/TierBadge';
-import { ProfileSheet, type ProfileTarget } from './components/ProfileSheet';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { STORAGE_KEYS } from '@/types/storage';
 import {
   logLeagueViewed,
@@ -53,14 +58,26 @@ import {
 // 친구 탭: 친구 검색·추가 엔트리 + 친구 2열 그리드(카드 탭 → 프로필 상세 FriendProfile).
 // 친구 목록·받은 요청 수(./useFriends)·핀(./usePinned)은 실데이터.
 
-// 탭바가 차지하는 높이(홈 '오늘' 카드 marginBottom 선례와 동일 기준)
-const TAB_BAR_SPACE = 74;
 // 리그 드롭다운의 '전체' 항목 라벨
 const LEAGUE_ALL = '전체';
-// 자동/탭 스크롤 시 sticky 스트립에 내 행이 가리지 않게 두는 위 여유
+// 자동/탭 스크롤 시 sticky 스트립에 내 행이 가리지 않게 두는 위 여유.
+// 실측(onLayout) 전까지 쓰는 기본값 — 글자 배율을 키우면 스트립이 이보다 두꺼워지므로
+// 실제 높이를 재서 덮어쓴다(코드리뷰). 이 상수만 믿으면 배율이 큰 기기에서 내 행이
+// 스트립 밑에 깔린 채로 멈춘다.
 const MY_STRIP_SPACE = 70;
 // 포디움 메달 그라데이션 (1·2·3위 — 골드/실버/브론즈, 밝은 쪽→진한 쪽)
 const MEDAL_GRAD = [T.medalGrad.gold, T.medalGrad.silver, T.medalGrad.bronze];
+
+// 포디움 칸 — 순위가 바뀌면 칸끼리 자리를 맞바꾼다(GROMO-1381).
+// 칸 자체가 터치 대상이라 래퍼를 새로 끼우지 않고 TouchableOpacity를 그대로 애니메이션
+// 컴포넌트로 만든다(노드 수 불변 → testID 셀렉터 계약 유지).
+// ⚠️ 랭킹 행의 rankSwap을 여기 쓰지 않는다. rankSwap은 **세로 목록** 전용이다 — 위/아래 이동을
+//    보고 좌우로 비껴가게 만드는데, 포디움은 가로 배치라 두 칸이 이미 좌우로 지나간다.
+//    여기 필요한 것은 자리 이동을 그대로 따라가는 기본 트랜지션 + 같은 스프링 토큰이다.
+const AnimatedPodiumCol = Animated.createAnimatedComponent(TouchableOpacity);
+// 랭킹 행(rankSwap)과 같은 스프링 토큰. 모듈 상수로 두어 매 렌더 새 빌더가 만들어지지 않게 한다.
+// (springify 헬퍼는 빌더 **인스턴스**를 받는다 — LinearTransition.createInstance()와 같은 값이다.)
+const PODIUM_LAYOUT = springify(new LinearTransition());
 
 type TabKey = 'league' | 'friend';
 const TAB_LABEL: Record<TabKey, string> = { league: '리그', friend: '친구' };
@@ -68,9 +85,10 @@ const TAB_LABEL: Record<TabKey, string> = { league: '리그', friend: '친구' }
 export default function LeagueScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  // '동작 줄이기' 게이트 — 포디움 재정렬 트랜지션을 끈다(랭킹 행은 RankRowShell이 따로 쥔다).
+  const m = useMotion();
 
   const [tab, setTab] = useState<TabKey>('league');
-  const [selected, setSelected] = useState<ProfileTarget | null>(null);
   // 현재 선택한 리그 — null이면 기본(내 시험). 제목 드롭다운에서 전체/다른 시험으로 전환
   const [leagueFilter, setLeagueFilter] = useState<string | null>(null);
   const [leagueMenuOpen, setLeagueMenuOpen] = useState(false);
@@ -78,7 +96,7 @@ export default function LeagueScreen() {
   const [pinnedOnly, setPinnedOnly] = useState(false);
   // 핀 실데이터 — 포커스마다 서버(GET /pins) 재조회 + 낙관적 토글(./usePinned).
   // 프로필 상세·친구 탭과 같은 서버 상태를 공유해 화면 간 불일치가 없다.
-  const { pinned, togglePin, loaded: pinnedLoaded } = usePinned();
+  const { pinned, togglePin, loaded: pinnedLoaded, refetch: refetchPinned } = usePinned();
 
   const listRef = useRef<ScrollView>(null);
   // 랭킹 리스트 안 내 행의 y — 스트립 탭/진입 자동 스크롤 목적지
@@ -89,13 +107,20 @@ export default function LeagueScreen() {
   const pendingScrollToMe = useRef(true);
 
   // 내 티어·마감 스케줄 실데이터 (GROMO-538) — 티어 조회는 여기 한 곳에서만.
-  const { tier, deadlineLabel } = useLeagueMeta();
+  const { tier, deadlineAt, refetch: refetchMeta } = useLeagueMeta();
   // 미확인 주간 마감 결과가 있으면 결과 연출로 진입 (GROMO-831) — 포커스마다 last-result 조회
   useLeagueLastResult();
   // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 서버 응답 실값(GROMO-748).
-  const { ranking, myLeagueLabel, mySeconds } = useLeagueRanking();
+  const {
+    ranking,
+    myLeagueLabel,
+    intendedLeagueLabel,
+    mySeconds,
+    error: rankingError,
+    refetch: refetchRanking,
+  } = useLeagueRanking();
   // '전체' 탭 전용 진짜 전역 랭킹(직군 리스트 재사용 금지 — GROMO-644).
-  const globalRanking = useGlobalRanking();
+  const { ranking: globalRanking, error: globalError, refetch: refetchGlobal } = useGlobalRanking();
 
   // 진입(포커스)마다 증가 — 넛지 노출을 '진입당 1회'로 발화시키는 트리거. 랭킹은 비동기 로드라
   // 포커스 시점엔 myIdx가 아직 -1일 수 있어, 데이터가 채워진 뒤 이 seq 기준으로 딱 1회만 쏜다.
@@ -109,8 +134,9 @@ export default function LeagueScreen() {
       setFocusSeq((n) => n + 1);
     }, []),
   );
-  const { goalSeconds } = useUser();
-  const { todayFocusSeconds } = useFocus();
+  // 내 실 서버 ID — 랭킹 행의 userId는 MY_USER_ID 센티널로 치환돼 있어(useLeagueRanking)
+  // 내 프로필 진입 시 본인 통계 조회용 실 ID가 따로 필요하다.
+  const { userId: myUserId } = useUser();
 
   // 친구 목록·받은 요청 수 — 실데이터(포커스마다 재조회)
   const {
@@ -121,6 +147,26 @@ export default function LeagueScreen() {
     refetch: refetchFriends,
   } = useFriends();
   const friendIds = new Set(friends.map((f) => f.userId));
+
+  // ── 당겨서 새로고침 (GROMO-887) — 탭별로 그 탭 데이터만 재조회한다. refreshing 상태도 탭별로
+  //    분리 — 하나를 공유하면 리그 새로고침 중 친구 탭으로 넘어갔을 때 실행된 적 없는 친구 탭에
+  //    가짜 스피너가 돈다(코드리뷰 반영). 스피너는 살짝 늦게 내려 깜빡임을 막는다.
+  const [refreshingLeague, setRefreshingLeague] = useState(false);
+  const [refreshingFriend, setRefreshingFriend] = useState(false);
+  // 리그 탭: 티어·마감 + 직군 랭킹 + 전역 랭킹 + 핀을 함께 갱신.
+  const onRefreshLeague = useCallback(() => {
+    setRefreshingLeague(true);
+    Promise.all([refetchMeta(), refetchRanking(), refetchGlobal(), refetchPinned()]).finally(() =>
+      setTimeout(() => setRefreshingLeague(false), 500),
+    );
+  }, [refetchMeta, refetchRanking, refetchGlobal, refetchPinned]);
+  // 친구 탭: 친구 목록·받은 요청 + 핀 배지를 갱신.
+  const onRefreshFriend = useCallback(() => {
+    setRefreshingFriend(true);
+    Promise.all([refetchFriends(), refetchPinned()]).finally(() =>
+      setTimeout(() => setRefreshingFriend(false), 500),
+    );
+  }, [refetchFriends, refetchPinned]);
 
   // GROMO-658: 친구 그리드 정렬 — 핀한 친구 우선, 같은 그룹 안에선 오늘 집중 시간 내림차순.
   // 핀 여부는 배지와 동일 기준(공유 핀 상태 usePinned 우선, 미로딩 시 응답 isPinned 폴백)으로
@@ -134,19 +180,42 @@ export default function LeagueScreen() {
 
   // 현재 리그 — 기본은 내 직군, 드롭다운 선택이 있으면 그 리그.
   // '전체'는 진짜 전역 랭킹(globalRanking), 직군은 내 직군 랭킹을 라벨로 필터한다(GROMO-644).
-  const filter = leagueFilter ?? myLeagueLabel ?? LEAGUE_ALL;
+  // 직군 조회가 실패해 라벨을 못 받았을 땐 의도 라벨로 내 리그를 유지한다 — 전역 조회 성공에
+  // 묻혀 직군 실패가 조용히 전체 리그로 대체되지 않게(GROMO-922 코드리뷰 반영). 단 유지된
+  // 목록이 하나도 없을 때만 — 전역 폴백(GROMO-657) 목록을 실패 후에도 유지 중이면(label=null·
+  // exam='') 의도 라벨로 필터하는 순간 전부 걸러져 멀쩡한 목록이 실패 안내로 바뀐다(코드리뷰
+  // 반영). 빈 성공의 전역 폴백 자체는 error가 아니라서 기존대로 전체 리그.
+  const myLabel =
+    myLeagueLabel ?? (rankingError && ranking.length === 0 ? intendedLeagueLabel : null);
+  const filter = leagueFilter ?? myLabel ?? LEAGUE_ALL;
   const isAll = filter === LEAGUE_ALL;
-  const visibleRanking = isAll ? globalRanking : ranking.filter((m) => m.exam === filter);
+  // 재정렬은 **한 칸씩** 재생한다 (정본 §6). 서버가 여러 칸을 한 번에 바꿔 넣어도 중간 순서를
+  // 거쳐 가도록 useStagedRanking이 순서를 늦추고, 한 칸마다 **기록도 함께** 단계적으로 올린다
+  // (정본 "바로 위 사람을 앞지르는 값이라야 상승이 납득된다"). 마지막 단계는 서버 최종값이다.
+  // 포디움·리스트가 같은 파생값을 쓰므로 두 영역의 재정렬 호흡이 자동으로 맞는다.
+  const visibleRanking = useStagedRanking(
+    isAll ? globalRanking : ranking.filter((r) => r.exam === filter),
+  );
+  // 지금 보는 리스트의 조회 실패 여부 — 전체 탭은 전역 랭킹, 직군 탭은 직군 랭킹 기준 (GROMO-922)
+  const visibleRankingError = isAll ? globalError : rankingError;
+  // 실패 안내 표시 여부 — 실패했고 보여줄 목록도 없을 때만(기존 목록이 있으면 목록 유지)
+  const showRankingError = visibleRankingError && visibleRanking.length === 0;
   const title = isAll ? '전체 리그' : `${filter} 리그`;
 
   // 전환 가능한 리그 — 전체 + 내 직군(있을 때). 직군 랭킹은 단일 직군이라 라벨은 최대 하나.
-  const leagues = [LEAGUE_ALL, ...(myLeagueLabel ? [myLeagueLabel] : [])];
+  const leagues = [LEAGUE_ALL, ...(myLabel ? [myLabel] : [])];
 
   const myTier = tierByLevel(tier.tierLevel ?? 1);
 
   // 내 순위 — 위 리스트와 같은 파생값에서만 계산
-  const myIdx = visibleRanking.findIndex((m) => m.userId === MY_USER_ID);
+  const myIdx = visibleRanking.findIndex((r) => r.userId === MY_USER_ID);
   const above = myIdx > 0 ? visibleRanking[myIdx - 1] : null;
+  // ⚠️ 격차 계산에는 **단계별 내 기록**을 쓴다. 재정렬을 한 칸씩 재생하는 동안 목록의 기록은
+  //    단계값인데 여기만 서버 최종값(mySeconds)을 쓰면, 아직 4위·3위가 보이는 프레임에서
+  //    `above - my`가 음수가 되고 hms가 0으로 눌러 `▲ N위까지 00:00:00`이 뜬다(codex 리뷰).
+  //    목록 밖(top-100 밖)이면 애초에 단계화 대상이 아니므로 최종값 그대로다 — mySeconds는
+  //    목록이 아니라 내 세션 합산에서 오기 때문에 그때도 유효한 값이다(useLeagueRanking 주석).
+  const stagedMySeconds = myIdx >= 0 ? visibleRanking[myIdx].totalFocusSeconds : mySeconds;
 
   // 넛지 노출 — '내 순위 스트립'(▲ N위까지 M분)이 실제 순위와 함께 뜰 때(rank) 진입당 1회.
   // 랭킹 비동기 로드로 myIdx가 뒤늦게 확정돼도 focusSeq 기준으로 딱 1회만 발화(중복 방지).
@@ -162,8 +231,8 @@ export default function LeagueScreen() {
   const showPodium = !pinnedOnly && top3.length > 0;
   // '핀한 사람만': 핀한 사람이 하나라도 있으면 나+핀을 함께 보여주고(나 대비 시간 차),
   // 하나도 없으면 나만 뜨지 않도록 비운다 (GROMO-636).
-  const hasPinned = visibleRanking.some((m) => pinned.has(m.userId));
-  const pinnedRows = visibleRanking.filter((m) => m.userId === MY_USER_ID || pinned.has(m.userId));
+  const hasPinned = visibleRanking.some((r) => pinned.has(r.userId));
+  const pinnedRows = visibleRanking.filter((r) => r.userId === MY_USER_ID || pinned.has(r.userId));
   const listRows = pinnedOnly ? (hasPinned ? pinnedRows : []) : visibleRanking.slice(3);
 
   function scrollToMyRow() {
@@ -172,14 +241,20 @@ export default function LeagueScreen() {
       listRef.current?.scrollTo({ y: 0, animated: true });
       return;
     }
-    listRef.current?.scrollTo({ y: Math.max(myRowY.current - MY_STRIP_SPACE, 0), animated: true });
+    listRef.current?.scrollTo({
+      y: Math.max(myRowY.current - myStripH.current, 0),
+      animated: true,
+    });
   }
 
   // 드롭다운에서 리그 선택 — 최상단(포디움)부터 보여주고, 내 행이 화면 밖이면 자동 스크롤 예약
   function selectLeague(league: string) {
     // 이미 선택된 리그를 다시 누르면 계측 생략(탭 전환 가드와 동일 — 중복 발화 방지).
     if (league !== filter) logLeagueFilterSelected({ is_all: league === LEAGUE_ALL });
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    // 여기 있던 LayoutAnimation.configureNext는 걷어냈다 (GROMO-1381 / 컨트랙트 §7).
+    // LayoutAnimation은 JS 스레드·전역 스코프라 이 화면의 형제 뷰(포디움·스트립)까지 함께
+    // 끌고 가고, 아래 랭킹 행이 쓰는 Reanimated 레이아웃 트랜지션과 같은 트리에서 충돌한다.
+    // 목록 재배치 연출은 행 껍데기(RankRowShell)의 layout 트랜지션이 대신 맡는다.
     setLeagueFilter(league);
     setLeagueMenuOpen(false);
     listRef.current?.scrollTo({ y: 0, animated: false });
@@ -187,82 +262,72 @@ export default function LeagueScreen() {
   }
 
   function togglePinnedOnly() {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    // LayoutAnimation 제거 — 사유는 selectLeague 주석과 같다(컨트랙트 §7).
     setPinnedOnly((v) => !v);
   }
 
-  // 프로필 진입 — 타인은 프로필 상세(FriendProfile, 친구/비친구 3분기)로 이동하고,
-  // 내 행만 기존 오버레이(개인 기록·실데이터 요약)를 띄운다.
-  // 내 통계는 실데이터(오늘 목표 달성률·오늘 요일 스파크). 일별 기록이 아직 없어
-  // 과거 6일은 0, 스트릭·기록은 mock — TODO: 일별 집중 기록/리그 히스토리 도입 시 실계산.
+  // 프로필 진입 — 내 행/타인 모두 프로필 상세(FriendProfile)로 이동해 포맷을 통일한다(GROMO-940,
+  // 구 ProfileSheet 오버레이 폐기). 내 행은 isMe로 진입해 비교 없이 내 그래프만 표시.
   function openProfile(member: RankedMember) {
     const isMe = member.userId === MY_USER_ID;
     logLeagueProfileOpened({ is_me: isMe });
-    if (!isMe) {
-      // 프로필 순위 = 지금 보고 있는 목록의 순위 그대로 전달 — 서버 프로필 rank(아레나 내 순위)와
-      // 스코프가 달라 숫자가 어긋나므로, 탭한 숫자와 일치시킨다 (GROMO-685).
-      const rank = visibleRanking.indexOf(member) + 1;
+    // 프로필 순위 = 지금 보고 있는 목록의 순위 그대로 전달 — 서버 프로필 rank(아레나 내 순위)와
+    // 스코프가 달라 숫자가 어긋나므로, 탭한 숫자와 일치시킨다 (GROMO-685).
+    const rank = visibleRanking.indexOf(member) + 1;
+    if (isMe) {
+      // 랭킹 행의 userId는 MY_USER_ID 센티널이라 실 서버 ID를 넘긴다 — 본인 통계 조회용.
+      if (!myUserId) return;
       navigation.navigate('FriendProfile', {
-        userId: member.userId,
+        userId: myUserId,
         nickname: member.nickname,
         tierLevel: member.tierLevel,
-        isFriend: friendIds.has(member.userId),
-        // 핀 초기값 — 공유 핀 상태(usePinned)가 로딩된 경우에만 전달(낙관 상태 포함 최신값).
-        // 미로딩이면 undefined로 넘겨 프로필의 GET /pins 재동기화에 맡긴다 — false를 넘기면
-        // 프로필이 확정값으로 믿고 서버 동기화를 건너뛰어 핀한 유저가 꺼짐으로 보인다(PR 291 리뷰 반영).
-        isPinned: pinnedLoaded ? pinned.has(member.userId) : undefined,
+        isFriend: false,
+        isMe: true,
         rank: rank > 0 ? rank : undefined,
         rankLabel: filter,
       });
       return;
     }
-    const goal = goalSeconds ?? 0;
-    const todayRate = goal > 0 ? Math.min(todayFocusSeconds / goal, 1) : 0;
-    const weekdayIdx = (new Date().getDay() + 6) % 7; // 월요일 시작
-    setSelected({
+    navigation.navigate('FriendProfile', {
       userId: member.userId,
       nickname: member.nickname,
       tierLevel: member.tierLevel,
-      seconds: member.totalFocusSeconds,
-      bestRank: member.bestRank,
-      bestWeekMinutes: member.bestWeekMinutes,
-      achievedRate: isMe ? todayRate : member.achievedRate,
-      // 스트릭은 일별 기록 저장소가 생기기 전까지 mock 유지 — TODO: 일별 기록 도입 시 실계산
-      streakDays: member.streakDays,
-      weekSpark: isMe
-        ? Array.from({ length: 7 }, (_, i) =>
-            i === weekdayIdx ? Math.round(todayFocusSeconds / 60) : 0,
-          )
-        : undefined,
-      friendCount: member.friendCount,
       isFriend: friendIds.has(member.userId),
+      // 핀 초기값 — 공유 핀 상태(usePinned)가 로딩된 경우에만 전달(낙관 상태 포함 최신값).
+      // 미로딩이면 undefined로 넘겨 프로필의 GET /pins 재동기화에 맡긴다 — false를 넘기면
+      // 프로필이 확정값으로 믿고 서버 동기화를 건너뛰어 핀한 유저가 꺼짐으로 보인다(PR 291 리뷰 반영).
+      isPinned: pinnedLoaded ? pinned.has(member.userId) : undefined,
+      rank: rank > 0 ? rank : undefined,
+      rankLabel: filter,
     });
   }
 
   // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 리그 경쟁·티어·친구 탭을 차례로 설명
   const segmentRef = useRef<View | null>(null);
   const headerRef = useRef<View | null>(null);
+  // sticky '내 순위' 스트립의 실제 높이 — 스크롤 오프셋 계산에 쓴다(위 MY_STRIP_SPACE 주석 참고).
+  const myStripH = useRef(MY_STRIP_SPACE);
   const guideSteps: GuideStep[] = [
     {
-      text: '리그에 온 걸 환영해!\n같은 시험을 준비하는 사람들과 일주일 동안 공부 시간으로 경쟁하는 곳이야.',
+      text: '리그에 온 걸 환영해요!\n같은 시험을 준비하는 사람들과 일주일 동안 집중 시간으로 경쟁하는 곳이에요.',
       character: require('@/assets/character_hi.png'),
     },
     {
-      text: '지금 참여 중인 리그와 마감까지 남은 시간이 여기 보여.\n제목을 누르면 전체 리그도 볼 수 있어.',
+      text: '지금 참여 중인 리그와 마감까지 남은 시간이 여기 보여요.\n제목을 누르면 전체 리그도 볼 수 있어요.',
       character: require('@/assets/character_study.png'),
       anchor: headerRef,
     },
     {
-      text: '한 주가 끝나면 순위에 따라 티어가 올라가거나 내려가!\n랭킹 아래 ‘내 티어’를 누르면 티어 단계를 자세히 볼 수 있어.',
+      text: '한 주가 끝나면 순위에 따라 티어가 올라가거나 내려가요!\n랭킹 아래 ‘내 티어’를 누르면 티어 단계를 자세히 볼 수 있어요.',
       character: require('@/assets/character_happy.png'),
     },
     {
-      text: '친구 탭에서는 친구를 추가하고 서로의 공부시간을 볼 수 있어.\n같이 공부할 친구를 초대해봐!',
+      text: '친구 탭에서는 친구를 추가하고 서로의 집중 시간을 볼 수 있어요.\n같이 공부할 친구를 초대해 봐요!',
       character: require('@/assets/character_happy.png'),
       anchor: segmentRef,
     },
     {
-      text: '순위는 이번 주 집중 시간으로 정해져.\n지금 바로 집중을 시작해서 순위를 올려보자!',
+      text: '순위는 이번 주 집중 시간으로 정해져요.\n지금 바로 집중을 시작해서 순위를 올려 봐요!',
       character: require('@/assets/character_study.png'),
     },
   ];
@@ -298,15 +363,18 @@ export default function LeagueScreen() {
       {/* ── 헤더: 좌상단 마감 카운트다운 + 우측 제목(탭=리그 선택 드롭다운) ── */}
       {tab === 'league' && (
         <View style={s.header} ref={headerRef} collapsable={false}>
-          <Text style={s.deadline} allowFontScaling={false}>
-            {deadlineLabel ?? ''}
-          </Text>
+          {/* 마감·제목은 한 줄에 나란히 놓이는데 둘 다 고정 배치라, 접근성 배율에서 그대로
+              커지면 서로를 파고든다(코덱스 리뷰) — 상한을 걸고 마감 쪽은 줄어들게 둔다.
+              (상한 적용은 LeagueDeadline 안. 1초 틱을 이 화면 밖으로 뺀 이유는 그 파일 주석 참고) */}
+          <LeagueDeadline deadlineAt={deadlineAt} style={s.deadline} />
           <TouchableOpacity
             style={s.headerToggle}
             activeOpacity={0.7}
             onPress={() => setLeagueMenuOpen(true)}
           >
-            <Text style={s.headerTitle}>{title}</Text>
+            <Text style={s.headerTitle} maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}>
+              {title}
+            </Text>
             <Ionicons name="chevron-down" size={17} color={T.inkSub} />
           </TouchableOpacity>
         </View>
@@ -320,24 +388,38 @@ export default function LeagueScreen() {
             listHeight.current = e.nativeEvent.layout.height;
           }}
           stickyHeaderIndices={showPodium ? [1] : [0]}
-          contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_SPACE + 16 }}
+          contentContainerStyle={{ paddingBottom: tabBarSafeBottom(insets.bottom) + 16 }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshingLeague}
+              onRefresh={onRefreshLeague}
+              tintColor={T.accent}
+            />
+          }
         >
-          {/* ── Top3 포디움 (2위·1위·3위 배치, 1위 가운데 상단) ── */}
+          {/* ── Top3 포디움 (2위·1위·3위 배치, 1위 가운데 상단) ──
+               칸의 key는 userId라 순위가 바뀌면 **같은 노드가 자리를 옮긴다** → layout 트랜지션이
+               성립한다(메달 번호·1위 여백은 자리에 붙는 값이라 즉시 갈아끼워진다).
+               ⚠️ 포디움↔목록 **경계를 넘는 이동(3위↔4위)은 이번 범위 밖이다.** 4위 행과 3위 칸은
+                  서로 다른 컴포넌트라 노드가 언마운트/리마운트되고, 레이아웃 트랜지션은 살아남은
+                  노드에만 성립한다. 같은 노드로 잇자면 포디움과 목록을 한 트리로 합쳐야 하는데
+                  그건 이 배치가 감당할 구조 변경이 아니다 — 그 경우는 지금처럼 툭 바뀐다(후속). */}
           {showPodium && (
             <View style={s.podium}>
               {[1, 0, 2]
                 .filter((i) => top3[i] != null)
                 .map((i) => {
-                  const m = top3[i];
-                  const isMe = m.userId === MY_USER_ID;
+                  const member = top3[i];
+                  const isMe = member.userId === MY_USER_ID;
                   const first = i === 0;
                   return (
-                    <TouchableOpacity
-                      key={m.userId}
+                    <AnimatedPodiumCol
+                      key={member.userId}
+                      layout={m.css(PODIUM_LAYOUT)}
                       style={[s.podiumCol, first ? s.podiumColFirst : null]}
                       activeOpacity={0.85}
-                      onPress={() => openProfile(m)}
+                      onPress={() => openProfile(member)}
                     >
                       <View style={s.podiumMedalCol}>
                         {first && (
@@ -374,47 +456,51 @@ export default function LeagueScreen() {
                         )}
                       </View>
                       <View style={s.podiumNameRow}>
-                        <TierBadge level={m.tierLevel} size={16} />
+                        <TierBadge level={member.tierLevel} size={16} />
                         <Text
                           style={[s.podiumName, isMe ? s.podiumNameMe : null]}
                           numberOfLines={1}
                         >
-                          {m.nickname}
+                          {member.nickname}
                         </Text>
-                        {m.isFocusing && <View style={s.podiumFocusDot} />}
+                        {member.isFocusing && <View style={s.podiumFocusDot} />}
                       </View>
                       {/* GROMO-810: Top3 도 집중 중이면 과목 + 초 단위 라이브 (랭킹 행과 동일 규칙) */}
-                      {m.isFocusing && m.focusStartedAt != null ? (
+                      {member.isFocusing && member.focusStartedAt != null ? (
                         <>
                           <Text style={s.podiumFocusTag} numberOfLines={1}>
-                            {m.focusTagName != null ? `${m.focusTagName} 집중 중` : '집중 중'}
+                            {member.focusTagName != null
+                              ? `${member.focusTagName} 집중 중`
+                              : '집중 중'}
                           </Text>
                           <LiveFocusTime
-                            baseSeconds={m.totalFocusSeconds}
-                            focusStartedAt={m.focusStartedAt}
+                            baseSeconds={member.totalFocusSeconds}
+                            focusStartedAt={member.focusStartedAt}
                             format={hms}
                             style={[s.podiumTime, s.podiumTimeFocusing]}
+                            maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
                           />
                         </>
                       ) : (
-                        <Text style={s.podiumTime} allowFontScaling={false}>
-                          {hms(m.totalFocusSeconds)}
+                        // 포디움 열은 width 100 고정 — 넘치면 옆 포디움·핀 버튼과 겹친다(코덱스 리뷰)
+                        <Text style={s.podiumTime} maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}>
+                          {hms(member.totalFocusSeconds)}
                         </Text>
                       )}
                       {!isMe && (
                         <TouchableOpacity
                           style={s.podiumPin}
                           hitSlop={15}
-                          onPress={() => togglePin(m.userId)}
+                          onPress={() => togglePin(member.userId)}
                         >
                           <MaterialCommunityIcons
-                            name={pinned.has(m.userId) ? 'pin' : 'pin-outline'}
+                            name={pinned.has(member.userId) ? 'pin' : 'pin-outline'}
                             size={15}
-                            color={pinned.has(m.userId) ? T.accent : T.inkFaint}
+                            color={pinned.has(member.userId) ? T.accent : T.inkFaint}
                           />
                         </TouchableOpacity>
                       )}
-                    </TouchableOpacity>
+                    </AnimatedPodiumCol>
                   );
                 })}
             </View>
@@ -422,7 +508,12 @@ export default function LeagueScreen() {
 
           {/* ── 내 순위 스트립 — 스크롤해도 상단 고정(sticky).
                탭=내 행으로 / 내가 없는 리그에선 핀 안내 + 전체 리그 이동 ── */}
-          <View style={s.myStripWrap}>
+          <View
+            style={s.myStripWrap}
+            onLayout={(e) => {
+              myStripH.current = e.nativeEvent.layout.height;
+            }}
+          >
             <TouchableOpacity
               style={s.myStrip}
               activeOpacity={0.85}
@@ -438,12 +529,12 @@ export default function LeagueScreen() {
             >
               {myIdx >= 0 ? (
                 <>
-                  <Text style={s.myStripRank} allowFontScaling={false}>
-                    내 순위 {myIdx + 1}위
-                  </Text>
-                  <Text style={s.myStripGap} numberOfLines={1} allowFontScaling={false}>
+                  <Text style={s.myStripRank}>내 순위 {myIdx + 1}위</Text>
+                  {/* numberOfLines를 안 건다 — 접혀서 새 줄을 얻어도 한 줄로 묶으면
+                      지키려던 순위·시간 수치가 다시 말줄임된다(코덱스 리뷰). */}
+                  <Text style={s.myStripGap}>
                     {above
-                      ? `▲ ${myIdx}위까지 ${hms(above.totalFocusSeconds - mySeconds)}`
+                      ? `▲ ${myIdx}위까지 ${hms(above.totalFocusSeconds - stagedMySeconds)}`
                       : '지금 1위예요'}
                   </Text>
                   <Ionicons name="chevron-down" size={13} color={T.accentDeep} />
@@ -477,12 +568,18 @@ export default function LeagueScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* ── 랭킹 리스트 (기본: 4위~ / 핀 모드: 나+핀, 나 대비 차이) ── */}
-          {listRows.map((m) => {
-            const isMe = m.userId === MY_USER_ID;
+          {/* ── 랭킹 리스트 (기본: 4위~ / 핀 모드: 나+핀, 나 대비 차이) ──
+               행 껍데기(RankRowShell)가 곧 원래의 행 컨테이너다 — 진입 시차와 재정렬 궤적을
+               쥔다. key가 userId라 데이터 순서만 바뀌면 노드는 그대로 살아 자리를 옮긴다 —
+               재정렬 연출이 성립하는 전제다(인덱스 키였다면 성립하지 않는다).
+               ⚠️ 껍데기가 진입 시차를 **마운트 시점 인덱스**로 고정하는 이유는 그 파일 주석 참고.
+               순위 숫자는 자리에 붙는 값이라 visibleRanking 순서에서 매번 다시 매긴다. */}
+          {listRows.map((row, i) => {
+            const isMe = row.userId === MY_USER_ID;
             return (
-              <View
-                key={m.userId}
+              <RankRowShell
+                key={row.userId}
+                index={i}
                 onLayout={
                   isMe && !pinnedOnly
                     ? (e) => {
@@ -494,7 +591,7 @@ export default function LeagueScreen() {
                             const rowBottom = myRowY.current + 56; // 행 높이 근사값
                             if (listHeight.current > 0 && rowBottom > listHeight.current) {
                               listRef.current?.scrollTo({
-                                y: Math.max(myRowY.current - MY_STRIP_SPACE, 0),
+                                y: Math.max(myRowY.current - myStripH.current, 0),
                                 animated: false,
                               });
                             }
@@ -505,26 +602,48 @@ export default function LeagueScreen() {
                 }
               >
                 <RankRow
-                  rank={visibleRanking.indexOf(m) + 1}
-                  nickname={m.nickname}
-                  tierLevel={m.tierLevel}
-                  seconds={m.totalFocusSeconds}
+                  // 기본 목록은 visibleRanking.slice(3)이라 자리 번호가 인덱스로 나온다(i=0 → 4위).
+                  // 핀 모드만 원본에서 골라 담은 부분집합이라 원 위치를 찾아야 하는데, 그쪽은
+                  // 행 수가 핀 개수로 묶여 있다. 전 모드에서 indexOf를 돌리면 100행 × 100탐색이
+                  // 돼 목록이 찰수록 제곱으로 비싸진다(GROMO-1572).
+                  rank={pinnedOnly ? visibleRanking.indexOf(row) + 1 : i + 4}
+                  nickname={row.nickname}
+                  tierLevel={row.tierLevel}
+                  seconds={row.totalFocusSeconds}
                   isMe={isMe}
-                  pinned={pinned.has(m.userId)}
-                  deltaSeconds={pinnedOnly && !isMe ? m.totalFocusSeconds - mySeconds : undefined}
-                  isFocusing={m.isFocusing}
-                  focusStartedAt={m.focusStartedAt}
-                  focusTagName={m.focusTagName}
-                  onPress={() => openProfile(m)}
-                  onPin={isMe ? undefined : () => togglePin(m.userId)}
+                  pinned={pinned.has(row.userId)}
+                  // row.totalFocusSeconds가 단계값이므로 비교 대상도 단계값이어야 한다(위 주석).
+                  deltaSeconds={
+                    pinnedOnly && !isMe ? row.totalFocusSeconds - stagedMySeconds : undefined
+                  }
+                  isFocusing={row.isFocusing}
+                  focusStartedAt={row.focusStartedAt}
+                  focusTagName={row.focusTagName}
+                  onPress={() => openProfile(row)}
+                  onPin={isMe ? undefined : () => togglePin(row.userId)}
                 />
-              </View>
+              </RankRowShell>
             );
           })}
-          {visibleRanking.length === 0 && (
-            <Text style={s.emptyLeague}>아직 이 리그엔 아무도 없어요</Text>
-          )}
-          {pinnedOnly && listRows.length === 0 && (
+          {/* 조회 실패 + 보여줄 목록 없음 — "아무도 없는 리그" 빈 상태로 오인되지 않게 에러+재시도로
+               분기 (GROMO-922, 친구 탭 GROMO-621과 동일 패턴). 실패여도 기존 목록이 있으면 유지. */}
+          {visibleRanking.length === 0 &&
+            (showRankingError ? (
+              <View style={s.friendErrorWrap}>
+                <Text style={s.emptyLeague}>랭킹을 불러오지 못했어요</Text>
+                <TouchableOpacity
+                  style={s.retryBtn}
+                  activeOpacity={0.8}
+                  onPress={isAll ? refetchGlobal : refetchRanking}
+                >
+                  <Text style={s.retryBtnText}>다시 시도</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <Text style={s.emptyLeague}>아직 이 리그엔 아무도 없어요</Text>
+            ))}
+          {/* 실패 안내가 떠 있을 땐 숨긴다 — "불러오지 못했어요"와 동시에 뜨면 모순(코드리뷰 반영) */}
+          {pinnedOnly && !showRankingError && listRows.length === 0 && (
             <Text style={s.emptyLeague}>랭킹에서 핀을 누르면 여기에 담겨요</Text>
           )}
 
@@ -543,8 +662,15 @@ export default function LeagueScreen() {
         /* ── 친구 탭 — 검색·추가 엔트리 + 친구 2열 그리드 (시안 "친구 탭") ── */
         <ScrollView
           style={s.list}
-          contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_SPACE + 20 }}
+          contentContainerStyle={{ paddingBottom: tabBarSafeBottom(insets.bottom) + 20 }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshingFriend}
+              onRefresh={onRefreshFriend}
+              tintColor={T.accent}
+            />
+          }
         >
           <TouchableOpacity
             style={s.addCard}
@@ -622,10 +748,15 @@ export default function LeagueScreen() {
                               </Text>
                             </View>
                           )}
+                          {/* 카드 폭이 '48%' 고정인데 HH:MM:SS는 공백이 없어 줄바꿈이 안 된다 —
+                              배율을 안 묶으면 글자 중간에서 깨진다(코드리뷰). 정적 분기의
+                              fmtMinutes도 'HH:MM:00'이라 같은 상한을 걸어야 두 분기 높이가 맞는다
+                              (코덱스 리뷰 — '공백에서 접힌다'고 적었던 건 틀렸다). */}
                           <LiveFocusTime
                             baseSeconds={(f.focusTimeMinutes ?? 0) * 60}
                             focusStartedAt={f.focusStartedAt ?? null}
                             style={s.friendFocusTimeLive}
+                            maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
                           />
                         </>
                       ) : (
@@ -634,6 +765,7 @@ export default function LeagueScreen() {
                             s.friendFocusTime,
                             (f.focusTimeMinutes ?? 0) > 0 && s.friendFocusTimeOn,
                           ]}
+                          maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
                         >
                           {fmtMinutes(f.focusTimeMinutes ?? 0)}
                         </Text>
@@ -645,7 +777,7 @@ export default function LeagueScreen() {
               </View>
               {/* 빈 상태는 성공 응답(빈 배열)일 때만 — 첫 로드 전엔 미표시 */}
               {friendsLoaded && friends.length === 0 && (
-                <Text style={s.emptyLeague}>아직 친구가 없어요. 검색해서 추가해보세요!</Text>
+                <Text style={s.emptyLeague}>아직 친구가 없어요. 검색해서 추가해 보세요!</Text>
               )}
             </>
           )}
@@ -678,7 +810,7 @@ export default function LeagueScreen() {
                     <Text style={[s.menuText, on ? s.menuTextOn : null]}>
                       {l === LEAGUE_ALL ? '전체 리그' : `${l} 리그`}
                     </Text>
-                    {l === myLeagueLabel && <Text style={s.menuMine}>내 시험</Text>}
+                    {l === myLabel && <Text style={s.menuMine}>내 시험</Text>}
                     {on && <Ionicons name="checkmark" size={15} color={T.accent} />}
                   </TouchableOpacity>
                 );
@@ -687,9 +819,6 @@ export default function LeagueScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-
-      {/* ── 프로필 오버레이 ── */}
-      <ProfileSheet target={selected} onClose={() => setSelected(null)} />
 
       {/* 첫 진입 사용법 안내(GROMO-652) */}
       <TabGuideOverlay storageKey={STORAGE_KEYS.guideLeague} steps={guideSteps} />
@@ -700,17 +829,29 @@ export default function LeagueScreen() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
 
+  // 마감 문구와 제목이 한 줄에 못 들어가면 접는다 — 안 접으면 줄어들 수 있는 쪽(마감)만
+  // 말줄임돼 정작 남은 시간이 사라진다(코드리뷰).
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    rowGap: T.space.xs,
     paddingHorizontal: T.space.xl,
     paddingTop: T.space.md,
     paddingBottom: T.space.md,
   },
-  headerToggle: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
-  headerTitle: { ...T.text.title, color: T.ink },
-  deadline: { ...T.text.caption, color: T.inkSub },
+  // flexShrink/maxWidth 둘 다 필요 — headerTitle만 줄여 봐야 부모가 안 줄면 소용없고,
+  // header의 flexWrap은 토글을 다음 줄로 옮길 뿐 토글 자체를 줄이지 않는다(코덱스 리뷰).
+  headerToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.xs,
+    flexShrink: 1,
+    maxWidth: '100%',
+  },
+  headerTitle: { ...T.text.title, color: T.ink, flexShrink: 1 },
+  deadline: { ...T.text.caption, color: T.inkSub, flexShrink: 1 },
 
   // 리그 선택 드롭다운
   menuBackdrop: { flex: 1, backgroundColor: withAlpha(T.night.bottom, 0.25) },
@@ -773,6 +914,7 @@ const s = StyleSheet.create({
     paddingTop: T.space.xs,
     paddingBottom: T.space.md,
   },
+  // width 100은 FIXED_BOX_FONT_SCALE_MAX의 근거다 — 바꾸면 constants/theme.test.ts도 같이 고칠 것.
   podiumCol: { alignItems: 'center', gap: T.space.xs, width: 100 },
   podiumColFirst: { marginBottom: T.space.lg },
   // 메달 — 왕관(1위)+그라데이션 원형 배지를 세로로 쌓는다
@@ -845,9 +987,12 @@ const s = StyleSheet.create({
 
   // 내 순위 스트립 (sticky) — 밑 리스트가 비치지 않게 배경을 깐다
   myStripWrap: { backgroundColor: T.paperLight, paddingTop: 2, paddingBottom: T.space.sm },
+  // 글자를 키우면 순위·격차 두 문구가 한 줄에 못 들어간다. 줄여서 말줄임하면 정작 넛지
+  // 수치(격차)가 사라지므로, 자리가 모자라면 아래로 접히게 둔다(코드리뷰).
   myStrip: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: T.space.sm,
     backgroundColor: T.noteBg,
     borderWidth: 1.5,
@@ -856,10 +1001,14 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.md,
     paddingVertical: T.space.md,
   },
-  myStripRank: { ...T.text.label, fontWeight: '800', color: T.accentDeep },
+  myStripRank: { ...T.text.label, fontWeight: '800', color: T.accentDeep, flexShrink: 1 },
+  // flexBasis 'auto' — 접히기 전엔 종전처럼 남는 폭을 채워 오른쪽 정렬(flex:1과 동일),
+  // 안 들어가면 제 폭을 요구하며 다음 줄로 내려간다(flexBasis 0이면 접히지 않고 짜부라진다).
   myStripGap: {
     ...T.text.caption,
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 'auto',
     textAlign: 'right',
     color: T.inkSub,
     fontVariant: ['tabular-nums'],
@@ -988,7 +1137,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 친구 목록 조회 실패 — 빈 상태와 구분되는 에러 안내 + 재시도 (GROMO-621)
+  // 조회 실패 — 빈 상태와 구분되는 에러 안내 + 재시도 (친구 GROMO-621 · 랭킹 GROMO-922 공용)
   friendErrorWrap: { alignItems: 'center', paddingVertical: T.space.sm },
   retryBtn: {
     backgroundColor: T.accent,

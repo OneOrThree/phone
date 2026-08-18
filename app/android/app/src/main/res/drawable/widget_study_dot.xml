@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 홈 위젯 과목 대표색 점(GROMO-1006) — 표시 시 setColorFilter로 과목색 틴트 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+  <solid android:color="@color/widget_accent" />
+  <size
+      android:width="8dp"
+      android:height="8dp" />
+</shape>

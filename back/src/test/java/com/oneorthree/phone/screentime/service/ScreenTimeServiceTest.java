@@ -3,12 +3,17 @@ package com.oneorthree.phone.screentime.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.service.CurrencyLedgerService;
+import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,6 +60,12 @@ class ScreenTimeServiceTest {
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
 
+    @Mock
+    private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+
+    @Mock
+    private CurrencyLedgerService currencyLedgerService;
+
     // 재시도 래퍼(saveScreenTime)가 위임하는 self 프록시. 본 로직 테스트는 saveScreenTimeTx 를 직접 호출하므로
     // 여기 self 는 재시도 분기 테스트에서만 스텁된다.
     @Mock
@@ -65,7 +76,8 @@ class ScreenTimeServiceTest {
     @BeforeEach
     void setUp() {
         screenTimeService = new ScreenTimeService(userRepository, dailyScreenTimeStatRepository,
-                notificationPort, userActivityEventLogger, self);
+                notificationPort, userActivityEventLogger, userScreenTimeSettingsRepository,
+                currencyLedgerService, self);
     }
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -103,7 +115,7 @@ class ScreenTimeServiceTest {
     @DisplayName("최종 보고(isFinal=true) & 클라 달성=true → 서버가 이견이어도(actual 80>goal 60) 클라 신뢰로 저장 true + 이벤트 + 알림")
     void finalReportTrustsClientAchievedEvenWhenServerWouldDisagree() {
         User user = normalUser();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, PAST_DATE))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
@@ -116,6 +128,9 @@ class ScreenTimeServiceTest {
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isTrue();
+        // 락 규율 (GROMO-1237): 일 집계 upsert·지급 트랜잭션은 공유 락 활성 조회 — 무락 findById 금지.
+        verify(userRepository).findActiveByIdForShare(USER_ID);
+        verify(userRepository, never()).findById(USER_ID);
         assertThat(captor.getValue().isScreenTimeFinalized()).isTrue();
         assertThat(captor.getValue().getTotalScreenTimeMinutes()).isEqualTo(80);
         verify(userActivityEventLogger).log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED,
@@ -127,7 +142,7 @@ class ScreenTimeServiceTest {
     @DisplayName("최종 보고(isFinal=true) & 클라 달성=false → 저장 false, 이벤트·알림 미발사")
     void finalReportClientNotAchievedStoresFalseAndNoEvent() {
         User user = normalUser();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, PAST_DATE))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
@@ -148,7 +163,7 @@ class ScreenTimeServiceTest {
     @DisplayName("과거 날짜 보고(reportedAt=과거, isFinal=null) → 최종으로 추론, 클라 달성 신뢰(true) → 저장 true + 이벤트 + 알림")
     void pastDateReportInferredAsFinalUsesClientFlag() {
         User user = normalUser();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, PAST_DATE))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
@@ -170,7 +185,7 @@ class ScreenTimeServiceTest {
     @DisplayName("과거 날짜 보고(isFinal=null) & 클라 달성=false → 최종 추론이나 미달성이므로 이벤트·알림 미발사")
     void pastDateReportClientNotAchievedNoEvent() {
         User user = normalUser();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, PAST_DATE))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
@@ -193,7 +208,7 @@ class ScreenTimeServiceTest {
     void interimStoresTotalOnlyAndDoesNotSetFlag() {
         User user = normalUser();
         Instant todayAt = todayAt();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, todayDate(todayAt)))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
@@ -218,7 +233,7 @@ class ScreenTimeServiceTest {
         Instant todayAt = todayAt();
         DailyScreenTimeStat existing = DailyScreenTimeStat.builder()
                 .user(user).date(todayDate(todayAt)).isScreenTimeGoalAchieved(true).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, todayDate(todayAt)))
                 .willReturn(Optional.of(existing));
 
@@ -234,11 +249,11 @@ class ScreenTimeServiceTest {
     }
 
     @Test
-    @DisplayName("interim(오늘) & actualScreenTimeMinutes null(측정 누락) → total 0 저장, flag 미설정, 이벤트·알림 미발사")
-    void interimNullActualMinutesStoresZeroAndNoFlag() {
+    @DisplayName("interim(오늘) & actualScreenTimeMinutes null(측정 누락) → total null(미집계) 저장, flag 미설정, 이벤트·알림 미발사")
+    void interimNullActualMinutesStoresNullAndNoFlag() {
         User user = normalUser();
         Instant todayAt = todayAt();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, todayDate(todayAt)))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
@@ -248,7 +263,8 @@ class ScreenTimeServiceTest {
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
-        assertThat(captor.getValue().getTotalScreenTimeMinutes()).isEqualTo(0); // null → 0
+        // GROMO-1267(FR-16): 측정 누락은 0 으로 뭉개지 않고 null(미집계)로 남긴다 — "0분 사용"과 구분.
+        assertThat(captor.getValue().getTotalScreenTimeMinutes()).isNull();
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isFalse();
         assertThat(captor.getValue().isScreenTimeFinalized()).isFalse();
         verify(notificationPort, never()).notify(any(UUID.class), anyBoolean());
@@ -264,7 +280,7 @@ class ScreenTimeServiceTest {
         DailyScreenTimeStat existing = DailyScreenTimeStat.builder()
                 .user(user).date(PAST_DATE).totalScreenTimeMinutes(40)
                 .isScreenTimeGoalAchieved(true).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, PAST_DATE))
                 .willReturn(Optional.of(existing));
 
@@ -287,7 +303,7 @@ class ScreenTimeServiceTest {
         DailyScreenTimeStat existing = DailyScreenTimeStat.builder()
                 .user(user).date(PAST_DATE).isScreenTimeGoalAchieved(false).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, PAST_DATE))
                 .willReturn(Optional.of(existing));
 
@@ -300,17 +316,17 @@ class ScreenTimeServiceTest {
         verify(notificationPort).notify(USER_ID, true);
     }
 
-    // ── country_code 파생 ZoneId 환산 (date-bucketing) ─────────────────────
+    // ── KST 로컬 날짜 환산 (date-bucketing, GROMO-1259 KST 고정) ────────────
 
     @Test
-    @DisplayName("KST 자정 경계 → 유저 country_code(KR) 파생 ZoneId 기준 로컬 날짜로 귀속")
-    void saveScreenTimeUsesCountryZoneForLocalDate() {
+    @DisplayName("KST 자정 경계 → KST 로컬 날짜로 귀속 (GROMO-1259 저장축 KST 고정)")
+    void saveScreenTimeUsesKstForLocalDate() {
         User user = normalUser(); // KR
         // 2020-01-01T15:30:00Z == 2020-01-02 00:30 KST → 로컬 날짜 01-02 (UTC 였다면 01-01 로 오귀속)
         Instant reportedAt = Instant.parse("2020-01-01T15:30:00Z");
         LocalDate kstDate = LocalDate.of(2020, 1, 2);
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyScreenTimeStatRepository.findByUserAndDate(user, kstDate))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
@@ -325,14 +341,15 @@ class ScreenTimeServiceTest {
     }
 
     @Test
-    @DisplayName("country_code null → UTC 폴백 기준 로컬 날짜")
-    void saveScreenTimeNullCountryFallsBackToUtc() {
+    @DisplayName("country_code null 이어도 동일하게 KST 로컬 날짜 (GROMO-1259 — 날짜 축은 country_code 무관)")
+    void saveScreenTimeNullCountryStillUsesKst() {
         User user = User.builder().id(USER_ID).isGuest(false).build(); // countryCode null
-        Instant reportedAt = Instant.parse("2020-01-01T15:30:00Z"); // UTC 로컬 날짜 01-01
-        LocalDate utcDate = LocalDate.of(2020, 1, 1);
+        // 2020-01-01T15:30:00Z == 2020-01-02 00:30 KST → KST 로컬 날짜 01-02
+        Instant reportedAt = Instant.parse("2020-01-01T15:30:00Z");
+        LocalDate fallbackDate = LocalDate.of(2020, 1, 2);
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(dailyScreenTimeStatRepository.findByUserAndDate(user, utcDate))
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, fallbackDate))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
                 .willAnswer(i -> i.getArgument(0));
@@ -341,7 +358,7 @@ class ScreenTimeServiceTest {
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
-        assertThat(captor.getValue().getDate()).isEqualTo(utcDate);
+        assertThat(captor.getValue().getDate()).isEqualTo(fallbackDate);
     }
 
     // ── 에러 케이스 ────────────────────────────────────────────────────────
@@ -349,7 +366,7 @@ class ScreenTimeServiceTest {
     @Test
     @DisplayName("존재하지 않는 userId → UserException")
     void saveScreenTimeUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> screenTimeService.saveScreenTimeTx(USER_ID, request(true, 100, todayAt(), null)))
                 .isInstanceOf(UserException.class);
@@ -395,7 +412,7 @@ class ScreenTimeServiceTest {
         TransactionSynchronizationManager.initSynchronization();
         try {
             User user = normalUser();
-            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+            given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
             given(dailyScreenTimeStatRepository.findByUserAndDate(user, PAST_DATE))
                     .willReturn(Optional.empty());
             given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
@@ -417,5 +434,39 @@ class ScreenTimeServiceTest {
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
+    }
+
+    /**
+     * GROMO-1049: 어제분 마감 지급은 <b>어제 유효했던 목표</b>로 금액을 산정한다.
+     *
+     * <p>앱은 어제 목표로 달성을 판정하고 그 금액을 축하 모달에 표시하는데, 서버가 현재 목표로 산정하면
+     * 목표를 바꾼 다음 날 "보인 금액 ≠ 받은 금액"이 된다.</p>
+     */
+    @Test
+    @DisplayName("목표를 바꾼 다음 날 어제분 마감 → 직전 목표로 지급액을 산정한다")
+    void creditsYesterdayGoalUsingPreviousGoal() {
+        LocalDate today = LocalDate.now(ZONE);
+        LocalDate yesterday = today.minusDays(1);
+        Instant yesterdayAt = yesterday.atStartOfDay(ZONE).toInstant();
+
+        User user = normalUser();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, yesterday)).willReturn(Optional.empty());
+        given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
+                .willAnswer(i -> i.getArgument(0));
+        // 어제까지 목표 180분 → 오늘 60분으로 변경
+        UserScreenTimeSettings settings = UserScreenTimeSettings.builder()
+                .userId(USER_ID).dailyScreenTimeGoalMinutes(180).build();
+        settings.changeGoal(60, today);
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        int expected = CurrencyRewardPolicy.screenTimeGoalReward(180);
+        // 두 목표의 지급액이 같으면 이 테스트가 아무것도 검증하지 못한다 — 전제부터 고정한다.
+        assertThat(expected).isNotEqualTo(CurrencyRewardPolicy.screenTimeGoalReward(60));
+
+        screenTimeService.saveScreenTimeTx(USER_ID, request(true, 150, yesterdayAt, true));
+
+        verify(currencyLedgerService).credit(user, CurrencyTransactionType.SCREEN_TIME_GOAL, expected,
+                "stGoal:" + USER_ID + ":" + yesterday);
     }
 }

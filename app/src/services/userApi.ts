@@ -3,10 +3,12 @@
 // (예외: deleteDeviceToken — 세션 정리용이라 인터셉터 없는 bare axios를 쓴다. 아래 주석 참고.)
 import axios from 'axios';
 import { api, API_URL } from '@/services/api';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
+import { setServerZone } from '@/utils/serverZone';
 import type {
   DeviceTokenRegisterRequest,
   FocusTimeGoalUpdateRequest,
+  NicknameCheckResponse,
   NotificationSettingsRequest,
   OccupationResponse,
   OccupationUpdateRequest,
@@ -28,13 +30,39 @@ export async function setupProfile(body: UserProfileSetupRequest): Promise<void>
 }
 
 // PATCH /api/v1/users/me — 유저 프로필 부분 수정.
+// countryCode를 보내면 서버 날짜 버킷 존(timeZone)이 함께 바뀐다(CountryZoneResolver) — 캐시된 존을
+// 갱신하지 않으면 GB 유저가 백필된 직후에도 앱은 재시작 전까지 Asia/Seoul 날짜 키를 만들어, 두 존의
+// 자정 근처 세션이 폐기·오귀속된다(GROMO-1252 6차 ②). PATCH는 204(본문 없음)라 프로필을 다시 읽어
+// 서버가 준 존 문자열을 그대로 쓴다 — country→zone 매핑 정본은 서버 한 곳(4차 결정) 그대로다.
+// 호출부(App.tsx 백필·ProfileEditScreen 저장)마다 붙이지 않고 여기서 한 번에 처리한다.
+// 재조회 실패는 삼킨다 — 존은 직전 값이 유지되고 다음 실행의 부트스트랩이 바로잡는다.
 export async function updateProfile(body: UserProfileUpdateRequest): Promise<void> {
   await api.patch('/api/v1/users/me', body);
+  if (!body.countryCode) return;
+  const profile = await getMyProfile().catch(() => null);
+  if (profile) setServerZone(profile.timeZone);
 }
 
 // GET /api/v1/users/me — 본인 프로필 조회.
-export async function getMyProfile(): Promise<UserProfileResponse> {
-  const { data } = await api.get<UserProfileResponse>('/api/v1/users/me');
+export async function getMyProfile(options?: {
+  noAuthRetry?: boolean;
+}): Promise<UserProfileResponse> {
+  const response = options?.noAuthRetry
+    ? await api.get<UserProfileResponse>('/api/v1/users/me', { _noAuthRetry: true } as Parameters<
+        typeof api.get
+      >[1])
+    : await api.get<UserProfileResponse>('/api/v1/users/me');
+  const { data } = response;
+  return data;
+}
+
+// GET /api/v1/users/nickname/check?nickname= — 닉네임 사용 가능 여부 실시간 확인(GROMO-1215).
+// 항상 200 {available} — 형식 위반도 available=false로 온다. 문구 구분은 호출부의
+// 로컬 형식검사(2~10자)가 선행하고, 이 응답은 중복 여부의 답으로만 읽는다.
+export async function checkNickname(nickname: string): Promise<NicknameCheckResponse> {
+  const { data } = await api.get<NicknameCheckResponse>('/api/v1/users/nickname/check', {
+    params: { nickname },
+  });
   return data;
 }
 
@@ -115,11 +143,12 @@ export async function getPublicProfile(userId: string): Promise<PublicProfileRes
 }
 
 // GET /api/v1/users/{userId}/stats — 타 유저 통계 조회(본인·친구·전체공개면 상세).
-// date는 서버 필수 파라미터(GROMO-643 — '오늘'·최근 7일 기준을 클라 로컬 날짜로 산정).
-// 미전송 시 400으로 상세 통계 전체가 떨어지므로 기본값으로 항상 로컬 오늘을 채운다.
+// date는 서버 필수 파라미터(GROMO-643 — '오늘'·최근 7일의 기준일). 미전송 시 400으로 상세 통계
+// 전체가 떨어진다. 서버는 이 값을 KST 일별 버킷에 그대로 조회하므로 기본값은 KST 오늘이다
+// (GROMO-1236 — 비KST 기기에서 로컬 날짜를 보내면 하루 오귀속).
 export async function getUserStats(
   userId: string,
-  date: string = todayStr(),
+  date: string = todayStrKst(),
 ): Promise<UserStatsResponse> {
   const { data } = await api.get<UserStatsResponse>(`/api/v1/users/${userId}/stats`, {
     params: { date },

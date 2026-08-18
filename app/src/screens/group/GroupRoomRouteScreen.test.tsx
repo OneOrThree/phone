@@ -1,0 +1,227 @@
+// GroupRoomRouteScreen 진입 계약 테스트 — 명세 docs/app/group-plan-2.md §0-2·§0-3.
+//
+// 이 래퍼는 로직이 없는 대신 **계약이 전부**다. 그래서 그 계약만 잠근다:
+//  1) 뒤로가기. 루트 스택은 headerShown:false이고 이 화면엔 탭바도 없다 —
+//     백버튼을 안 그리면 목록으로 돌아갈 명시 경로가 0개가 되고, ⋯ 메뉴에 남는 항목이
+//     '그룹 나가기'(되돌릴 수 없는 파괴적 액션) 하나뿐이라 그게 탈출구처럼 보인다.
+//  2) 그룹 전환·추가 항목 없음. 라우트 진입 전용이라 ⋯ 메뉴에 그룹 전환 입구를 두지 않는다.
+//  3) 콜백 신원 고정. GroupRoomScreen의 load→reload→useFocusEffect가 이 신원에 매달려 있어
+//     인라인 함수를 넘기면 스택이 재렌더될 때마다 3콜이 한 세트씩 더 나간다.
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import GroupRoomRouteScreen from './GroupRoomRouteScreen';
+import {
+  getAnnouncements,
+  getChallenges,
+  getGroupDetail,
+  getMyChallengeResults,
+} from '@/services/groupApi';
+import type { GroupDetailResponse } from '@/types/dto/group';
+
+jest.mock('react-native-safe-area-context', () => ({
+  ...jest.requireActual('react-native-safe-area-context'),
+  useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
+}));
+
+const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+
+// 포커스 이펙트가 몇 번 돌았는지를 세어 콜백 신원 고정을 검증한다.
+const focusRuns = { count: 0 };
+const mockGoBack = jest.fn();
+const mockNavigate = jest.fn();
+// 실제 useNavigation/useRoute는 렌더마다 같은 객체를 준다 — 매번 새 객체를 주면
+// 여기서 검증하려는 '콜백 신원 고정'이 목 때문에 깨진다.
+const mockNavigation = { goBack: mockGoBack, navigate: mockNavigate };
+// challengeId는 챌린지 종료 푸시 딥링크로 들어왔을 때만 실린다(GROMO-1088) — 테스트가 직접 갈아 끼운다.
+const mockRoute: { params: { groupId: string; challengeId?: string } } = {
+  params: { groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55' },
+};
+jest.mock('@react-navigation/native', () => ({
+  // 실제 모듈을 깔고 필요한 것만 덮는다 — navigationRef가 createNavigationContainerRef를
+  // 모듈 로드 시점에 부르기 때문에, 빠뜨리면 이 화면을 import하는 것만으로 스위트가 죽는다.
+  ...jest.requireActual('@react-navigation/native'),
+  useNavigation: () => mockNavigation,
+  useRoute: () => mockRoute,
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(() => {
+      focusRuns.count++;
+      return cb();
+    }, [cb]);
+  },
+}));
+
+jest.mock('@/store/UserContext', () => ({
+  useUser: () => ({ userId: 'me' }),
+}));
+
+// 그룹방이 정산 감지 시 잔액을 다시 받는다(CoinContext) — 테스트 트리엔 Provider가 없다.
+// refresh는 **한 개를 계속 돌려준다** — 렌더마다 새 함수를 주면 load→reload 신원이 흔들려
+// 이 파일이 잠그려는 '콜백 신원 고정'이 목 때문에 깨진다(실제 Provider도 useCallback으로 고정한다).
+jest.mock('@/store/CoinContext', () => {
+  const refresh = jest.fn(async () => true);
+  const latestCoinsVersion = () => 1;
+  return {
+    useCoins: () => ({
+      coins: 100,
+      coinsLoaded: true,
+      coinsVersion: 1,
+      latestCoinsVersion,
+      refresh,
+    }),
+  };
+});
+
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupInviteShared: jest.fn(),
+  logGroupRoomViewed: jest.fn(),
+  logGroupChallengeResultShown: jest.fn(),
+  logGroupChallengeResultClosed: jest.fn(),
+}));
+
+jest.mock('@/services/groupApi', () => ({
+  ...jest.requireActual('@/services/groupApi'),
+  getGroupDetail: jest.fn(),
+  getAnnouncements: jest.fn(),
+  getChallenges: jest.fn(),
+  getMyChallengeResults: jest.fn(),
+  withdrawGroup: jest.fn(),
+}));
+
+// 방 화면·카드·결과 모달의 날짜축은 KST다(GROMO-1219) — 로컬 버전은 일부러 다른 날짜로 고정해
+// 로컬 축 호출이 섞이면 날짜 단언이 어긋나 드러나게 한다(GroupRoomScreen.test와 같은 결).
+jest.mock('@/utils/localDate', () => ({
+  todayStr: jest.fn(() => '2026-07-31'),
+  yesterdayStr: jest.fn(() => '2026-07-30'),
+  todayStrKst: jest.fn(() => '2026-08-01'),
+  yesterdayStrKst: jest.fn(() => '2026-07-31'),
+  tomorrowStrKst: jest.fn(() => '2026-08-02'),
+  localDateStr: jest.requireActual('@/utils/localDate').localDateStr,
+  kstDateStr: jest.requireActual('@/utils/localDate').kstDateStr,
+}));
+
+const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
+const mockGetAnnouncements = getAnnouncements as jest.MockedFunction<typeof getAnnouncements>;
+const mockGetChallenges = getChallenges as jest.MockedFunction<typeof getChallenges>;
+const mockGetMyChallengeResults = getMyChallengeResults as jest.MockedFunction<
+  typeof getMyChallengeResults
+>;
+
+function detail(): GroupDetailResponse {
+  return {
+    id: GROUP_ID,
+    name: '아침 6시 집중방',
+    description: null,
+    missionCategory: 'FOCUS',
+    missionType: 'DURATION',
+    durationMinutes: 60,
+    windowStart: null,
+    windowEnd: null,
+    isPrivate: false,
+    maxMembers: 5,
+    status: 'WAITING',
+    code: null,
+    codeExpiresAt: null,
+    noticeGrantedUserIds: [],
+    members: [
+      { userId: 'me', nickname: '나', role: 'OWNER', focusTimeMinutes: 30, totalFocusMinutes: 30 },
+    ],
+  };
+}
+
+async function renderRoute() {
+  const result = await render(<GroupRoomRouteScreen />);
+  await act(async () => {});
+  return result;
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  focusRuns.count = 0;
+  mockRoute.params = { groupId: GROUP_ID };
+  mockGetGroupDetail.mockResolvedValue(detail());
+  mockGetAnnouncements.mockResolvedValue([]);
+  mockGetChallenges.mockResolvedValue([]);
+  mockGetMyChallengeResults.mockResolvedValue([]);
+});
+
+describe('라우트 진입 계약', () => {
+  test('헤더에 백버튼을 세우고, 누르면 목록으로 돌아간다', async () => {
+    await renderRoute();
+
+    expect(screen.getByTestId('group.room.route')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('뒤로'));
+    });
+    expect(mockGoBack).toHaveBeenCalled();
+  });
+
+  // 백버튼이 정상 헤더에만 있으면, 첫 조회가 도는 동안·실패했을 때 화면에 남는 건
+  // 스피너 또는 '다시 시도'뿐이다 — 네이티브 헤더도 탭바도 없어 탈출구가 0개가 된다.
+  test('상세 도착 전(로딩)에도 백버튼이 있다', async () => {
+    // 영원히 끝나지 않는 상세 조회 — 로딩 분기에 머문다.
+    mockGetGroupDetail.mockReturnValue(new Promise<GroupDetailResponse>(() => {}));
+    await renderRoute();
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('뒤로'));
+    });
+    expect(mockGoBack).toHaveBeenCalled();
+  });
+
+  test('상세 조회가 실패해도 백버튼이 남는다', async () => {
+    mockGetGroupDetail.mockRejectedValue(new Error('network'));
+    await renderRoute();
+    expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('뒤로'));
+    });
+    expect(mockGoBack).toHaveBeenCalled();
+  });
+
+  test('⋯ 를 누르면 그룹 설정 화면으로 이동하고, 방 안엔 파괴적 나가기 항목이 없다', async () => {
+    await renderRoute();
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('그룹 설정'));
+    });
+    // 나가기·설정·관리는 그룹 설정 화면(GroupSettings)으로 이관됐다(A안) — ⋯ 는 그 화면을 바로 연다.
+    expect(mockNavigate).toHaveBeenCalledWith('GroupSettings', { groupId: GROUP_ID });
+    // 방 안에는 되돌릴 수 없는 '그룹 나가기'가 남아 있지 않다(탈출구 오인 방지).
+    expect(screen.queryByText('그룹 나가기')).toBeNull();
+  });
+
+  // 챌린지 종료 푸시 딥링크(GROMO-1088)의 challengeId는 **이 래퍼가 소비하지 않는다**
+  // (GROMO-1576). 결과 모달의 소유자가 루트 호스트로 옮겨 갔고, 호스트가 현재 라우트
+  // 파라미터에서 직접 읽는다 — 여기서 prop으로 내려보내면 소비자가 둘이 된다.
+  // 지목이 실제로 모달을 여는 경로는 ChallengeResultHost.test.tsx의
+  // '종료 푸시가 지목한 챌린지(라우트 challengeId)' describe가 잠근다.
+  test('challengeId는 그룹방으로 흘리지 않는다 — 지목의 소비자는 루트 호스트다', async () => {
+    mockRoute.params = { groupId: GROUP_ID, challengeId: 'c1' };
+
+    await renderRoute();
+
+    // 방은 정상적으로 열린다(지목과 무관하게 groupId만으로 성립한다).
+    expect(await screen.findByText('아침 6시 집중방')).toBeOnTheScreen();
+    // 이 화면 어디에서도 결과 모달을 그리지 않는다.
+    expect(
+      screen.queryByTestId('group.challengeResult', { includeHiddenElements: true }),
+    ).toBeNull();
+    // 결과 조회도 이 화면의 일이 아니다.
+    expect(mockGetMyChallengeResults).not.toHaveBeenCalled();
+  });
+
+  test('재렌더돼도 포커스 재조회가 다시 돌지 않는다(콜백 신원 고정)', async () => {
+    const { rerender } = await renderRoute();
+    expect(focusRuns.count).toBe(1);
+    expect(mockGetGroupDetail).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rerender(<GroupRoomRouteScreen />);
+    });
+
+    // 인라인 콜백이면 여기서 cleanup + 재실행이 일어나 상세·공지·챌린지 3콜이 한 세트 더 나간다.
+    expect(focusRuns.count).toBe(1);
+    expect(mockGetGroupDetail).toHaveBeenCalledTimes(1);
+  });
+});

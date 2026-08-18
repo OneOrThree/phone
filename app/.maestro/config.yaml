@@ -1,0 +1,11 @@
+# Maestro 워크스페이스 설정 (GROMO-947)
+# 실행: app/ 에서  JAVA_HOME=/opt/homebrew/opt/openjdk maestro test .maestro
+# 플로는 01→02→03 순서 의존 — 01이 게스트 계정 생성, 02가 집중 기록 생성, 03이 그 기록을 조회한다.
+flows:
+  - 'flows/*.yaml'
+executionOrder:
+  continueOnFailure: false
+  flowsOrder:
+    - 01-onboarding-guest
+    - 02-focus-session
+    - 03-stats-tabs

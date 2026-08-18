@@ -1,0 +1,585 @@
+// 그룹방이 카드에 넘기는 **비동기 시트 승인 게이트**(GROMO-1576).
+//
+// 카드 시트 중 `openWeekSheet()`·삭제 프리플라이트는 탭과 마운트 사이에 조회가 끼어 있어서
+// **여는 시점을 응답이 정한다.** 그 사이 루트의 챌린지 결과 모달이 slot을 얻어 노출까지 갈 수
+// 있는데, 조정자는 보유자를 뺏지 않으므로 그대로 마운트하면 RN Modal 두 개가 겹친다. 그러면
+// 결과 모달이 **사실상 안 보인 채** seen 마커와 ack이 나간다(둘 다 렌더 커밋 시점에 찍힌다 —
+// 사용자가 인지한 시점이 아니다).
+//
+// 이 파일이 보는 것은 **부모(GroupRoomScreen) 쪽 계약**이다: 승인은 보유자가 놓을 때까지
+// 미뤄지고, 화면을 벗어나면 거절로 깨어난다. 카드가 그 답을 실제로 지키는지(= 승인 전에는
+// 시트를 마운트하지 않는지)는 components/ChallengeCard.test.tsx가 잠근다 — 양쪽 다 실물이다.
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { View } from 'react-native';
+import GroupRoomScreen from './GroupRoomScreen';
+import {
+  OVERLAY_PRIORITY,
+  OverlaySlotProvider,
+  useOverlayLiveMaxPriority,
+  useOverlaySlot,
+} from '@/store/OverlaySlotContext';
+import { getAnnouncements, getChallenges, getGroupDetail } from '@/services/groupApi';
+import { resetChallengeResultGateForTests } from './challengeResultGate';
+import type { GroupChallengeResponse, GroupDetailResponse } from '@/types/dto/group';
+
+jest.mock('react-native-safe-area-context', () => ({
+  ...jest.requireActual('react-native-safe-area-context'),
+  useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
+}));
+
+// 포커스/블러를 테스트가 직접 굴린다(탭 화면이라 블러돼도 언마운트되지 않는다).
+const mockFocusEntries: { cb: () => void | (() => void); cleanup?: () => void }[] = [];
+jest.mock('@react-navigation/native', () => ({
+  // 실제 모듈을 깔고 필요한 것만 덮는다 — navigationRef가 createNavigationContainerRef를
+  // 모듈 로드 시점에 부르기 때문에, 빠뜨리면 이 화면을 import하는 것만으로 스위트가 죽는다.
+  ...jest.requireActual('@react-navigation/native'),
+  useNavigation: () => ({ navigate: jest.fn() }),
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(() => {
+      const entry: { cb: typeof cb; cleanup?: () => void } = { cb };
+      const cleanup = cb();
+      if (typeof cleanup === 'function') entry.cleanup = cleanup;
+      mockFocusEntries.push(entry);
+      return () => {
+        entry.cleanup?.();
+        const i = mockFocusEntries.indexOf(entry);
+        if (i >= 0) mockFocusEntries.splice(i, 1);
+      };
+    }, [cb]);
+  },
+}));
+
+jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: 'me' }) }));
+jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: jest.fn() }) }));
+const mockRefreshCoins = jest.fn(async () => true);
+jest.mock('@/store/CoinContext', () => ({
+  useCoins: () => ({
+    coins: 5000,
+    coinsLoaded: true,
+    coinsVersion: 1,
+    latestCoinsVersion: () => 1,
+    refresh: mockRefreshCoins,
+  }),
+}));
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupInviteShared: jest.fn(),
+  logGroupRoomViewed: jest.fn(),
+}));
+jest.mock('@/services/inviteLinkApi', () => ({ issueInviteLink: jest.fn() }));
+jest.mock('./groupRoomNotFound', () => ({ resolveGroupRoomNotFound: jest.fn() }));
+jest.mock('@/services/groupApi', () => ({
+  ...jest.requireActual('@/services/groupApi'),
+  getGroupDetail: jest.fn(),
+  getAnnouncements: jest.fn(),
+  getChallenges: jest.fn(),
+}));
+
+// 카드는 **스텁**이다 — 여기서 검증하는 것은 부모가 넘긴 게이트의 의미뿐이고, 카드가 그 답을
+// 지키는지는 카드 자신의 테스트가 본다. 스텁이 하는 일은 카드의 `await 뒤` 시점을 재현하는 것:
+// 버튼을 누르면 게이트를 부르고, 돌아온 답을 화면에 적는다.
+let gateResult: 'pending' | 'granted' | 'denied' | 'idle' = 'idle';
+// 카드별 게이트 결과 — 직렬화 검증(서로 다른 카드의 프리플라이트가 겹치는 경우)에 쓴다.
+const gateResults: Record<string, 'pending' | 'granted' | 'denied'> = {};
+// 승인받은 카드가 "열었다"고 부모에 보고하는 콜백 — 실제 카드의 openSheet()에 해당한다.
+let reportOpen: ((challengeId: string, open: boolean) => void) | null = null;
+// 카드가 사라진다고 알리는 콜백 — 실제 카드의 언마운트 정리에 해당한다.
+let reportGone: ((challengeId: string) => void) | null = null;
+// 카드가 **네이티브 Alert를 쥐었다/놓았다**를 알리는 콜백(실제 카드의 alertOverCardSlot).
+let reportAlertHold: ((challengeId: string, held: boolean) => void) | null = null;
+// 카드별 요청 트리거 — 프레스 이벤트를 거치지 않고 **같은 tick 안에서** 요청을 겹치게 할 때 쓴다.
+const requestSlotFor: Record<string, () => Promise<boolean>> = {};
+// 승인받으면 곧바로 열림을 보고할 것인가(실제 카드의 openSheet()에 해당).
+let mockAutoOpenOnGrant = false;
+jest.mock('./components/ChallengeCard', () => {
+  const { Text: RNText, TouchableOpacity: RNTouchable } = require('react-native');
+  return function MockCard({
+    challenge: card,
+    onRequestSheetSlot,
+    onSheetVisibilityChange,
+    onAbandonSheetSlot,
+    onAlertHoldChange,
+  }: {
+    challenge: { id: string };
+    onRequestSheetSlot?: (challengeId: string) => Promise<boolean>;
+    onSheetVisibilityChange?: (challengeId: string, open: boolean) => void;
+    onAbandonSheetSlot?: (challengeId: string) => void;
+    onAlertHoldChange?: (challengeId: string, held: boolean) => void;
+  }) {
+    reportOpen = onSheetVisibilityChange ?? null;
+    reportGone = onAbandonSheetSlot ?? null;
+    reportAlertHold = onAlertHoldChange ?? null;
+    requestSlotFor[card.id] = () => {
+      gateResult = 'pending';
+      gateResults[card.id] = 'pending';
+      return (onRequestSheetSlot?.(card.id) ?? Promise.resolve(true)).then((granted) => {
+        gateResult = granted ? 'granted' : 'denied';
+        gateResults[card.id] = granted ? 'granted' : 'denied';
+        // 실제 카드는 승인을 받으면 **그 자리에서** 시트를 열고 부모에 보고한다.
+        if (granted && mockAutoOpenOnGrant) onSheetVisibilityChange?.(card.id, true);
+        return granted;
+      });
+    };
+    return (
+      <RNTouchable
+        testID={`card.asyncSheet.open.${card.id}`}
+        onPress={() => {
+          gateResult = 'pending';
+          gateResults[card.id] = 'pending';
+          onRequestSheetSlot?.(card.id).then((granted) => {
+            gateResult = granted ? 'granted' : 'denied';
+            gateResults[card.id] = granted ? 'granted' : 'denied';
+          });
+        }}
+      >
+        <RNText>비동기 시트 열기</RNText>
+      </RNTouchable>
+    );
+  };
+});
+
+const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
+const onLeft = jest.fn();
+
+const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
+const mockGetAnnouncements = getAnnouncements as jest.MockedFunction<typeof getAnnouncements>;
+const mockGetChallenges = getChallenges as jest.MockedFunction<typeof getChallenges>;
+
+function detail(): GroupDetailResponse {
+  return {
+    id: GROUP_ID,
+    name: '아침 6시 집중방',
+    description: null,
+    missionCategory: 'FOCUS',
+    missionType: 'DURATION',
+    durationMinutes: 60,
+    windowStart: null,
+    windowEnd: null,
+    isPrivate: false,
+    maxMembers: 5,
+    status: 'WAITING',
+    code: null,
+    codeExpiresAt: null,
+    noticeGrantedUserIds: [],
+    members: [
+      { userId: 'me', nickname: '나', role: 'OWNER', focusTimeMinutes: 30, totalFocusMinutes: 30 },
+    ],
+  };
+}
+
+function challenge(id = 'c1'): GroupChallengeResponse {
+  return {
+    id,
+    missionType: 'DURATION',
+    missionCategory: 'FOCUS',
+    durationMinutes: 60,
+    windowStart: null,
+    windowEnd: null,
+    status: 'ACTIVE',
+    createdAt: '2026-08-01T06:00:00',
+    canParticipate: true,
+    memberProgress: [],
+    bet: null,
+    lastSettledBet: null,
+  };
+}
+
+// 렌더를 기다리지 않고 **지금 이 순간** 등록 상태를 읽는 통로.
+let liveMaxPriority: () => number = () => -1;
+function LiveProbe() {
+  liveMaxPriority = useOverlayLiveMaxPriority();
+  return null;
+}
+
+// 결과 모달과 같은 자리를 **먼저** 차지한 보유자.
+function Holder({ active }: { active: boolean }) {
+  useOverlaySlot('test:result', { priority: OVERLAY_PRIORITY.challengeResult, active });
+  return null;
+}
+
+// 결과 모달과 같은 우선순위로 자리를 노리는 관찰자 — "이 화면이 slot을 물고 있는가"를 본다.
+function SlotProbe({ onStatus }: { onStatus: (status: string) => void }) {
+  onStatus(
+    useOverlaySlot('probe:result', { priority: OVERLAY_PRIORITY.challengeResult, active: true }),
+  );
+  return null;
+}
+
+function tree(holderActive: boolean) {
+  return (
+    <OverlaySlotProvider>
+      <Holder active={holderActive} />
+      <LiveProbe />
+      <View>
+        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />
+      </View>
+    </OverlaySlotProvider>
+  );
+}
+
+async function openAsyncSheet(challengeId = 'c1') {
+  await act(async () => {
+    fireEvent.press(screen.getByTestId(`card.asyncSheet.open.${challengeId}`));
+  });
+  await act(async () => {});
+}
+
+async function blur() {
+  await act(async () => {
+    mockFocusEntries.forEach((e) => {
+      e.cleanup?.();
+      e.cleanup = undefined;
+    });
+  });
+  await act(async () => {});
+}
+
+beforeEach(async () => {
+  jest.clearAllMocks();
+  mockFocusEntries.length = 0;
+  gateResult = 'idle';
+  Object.keys(gateResults).forEach((key) => delete gateResults[key]);
+  reportOpen = null;
+  reportGone = null;
+  reportAlertHold = null;
+  mockAutoOpenOnGrant = false;
+  Object.keys(requestSlotFor).forEach((key) => delete requestSlotFor[key]);
+  resetChallengeResultGateForTests();
+  mockGetGroupDetail.mockResolvedValue(detail());
+  mockGetAnnouncements.mockResolvedValue([]);
+  mockGetChallenges.mockResolvedValue([challenge()]);
+});
+
+// ⚠️ 선언형 등록(layout effect)은 **커밋 뒤**다. `active`가 참이 된 렌더의 커밋에서 RN Modal은
+//    이미 마운트되므로, 시트 열기와 결과 claim 완료가 **같은 React 배치**에 들어가면 호스트는
+//    아직 없는 blocker를 못 보고 결과 모달을 함께 커밋한다. 그래서 **여는 이벤트에서** 먼저 잡는다.
+test('시트 열기 보고는 커밋 전에 자리를 잡는다 — 같은 배치의 결과 커밋을 막는다', async () => {
+  await render(tree(false));
+  await act(async () => {});
+  expect(liveMaxPriority()).toBe(-1);
+
+  await act(async () => {
+    // 카드가 여는 그 이벤트다. 이 호출이 돌아온 **직후**(= 아직 커밋 전)에 이미 잡혀 있어야 한다.
+    reportOpen?.('c1', true);
+    expect(liveMaxPriority()).toBe(OVERLAY_PRIORITY.sheet);
+  });
+});
+
+test('보유자가 놓을 때까지 승인하지 않는다 — 놓으면 그때 승인한다', async () => {
+  const view = await render(tree(true));
+  await act(async () => {});
+  expect(screen.getByTestId('card.asyncSheet.open.c1')).toBeOnTheScreen();
+
+  await openAsyncSheet();
+  // 결과가 slot을 쥐고 있다 — 카드는 시트를 마운트할 수 없다.
+  expect(gateResult).toBe('pending');
+
+  await act(async () => {
+    view.rerender(tree(false));
+  });
+  await waitFor(() => expect(gateResult).toBe('granted'));
+});
+
+test('화면을 벗어나면 대기를 거절로 깨운다 — 떠난 화면의 시트가 새 화면 위로 뜨지 않는다', async () => {
+  await render(tree(true));
+  await act(async () => {});
+
+  await openAsyncSheet();
+  expect(gateResult).toBe('pending');
+
+  // 사용자가 다른 화면으로 갔다. 여기서 깨우지 않으면, 나중에 결과 모달이 닫히는 순간
+  // **이미 떠난 화면의** 시트가 RN Modal로 새 화면 위에 뜬다.
+  await blur();
+
+  await waitFor(() => expect(gateResult).toBe('denied'));
+});
+
+// ⚠️ 공유 slot이 granted라는 사실만으로 **모든** 요청을 승인하면, 서로 다른 카드의 비동기
+//    프리플라이트가 겹쳤을 때 RN Modal이 여럿 함께 마운트된다. 승인은 한 요청씩이어야 한다.
+test('여러 카드가 동시에 요청해도 한 번에 하나만 승인한다', async () => {
+  mockGetChallenges.mockResolvedValue([challenge('c1'), challenge('c2')]);
+  await render(tree(false));
+  await act(async () => {});
+
+  // 두 카드의 프리플라이트가 거의 동시에 끝났다.
+  await openAsyncSheet('c1');
+  await openAsyncSheet('c2');
+
+  // 한 쪽만 승인됐다 — 나머지는 계속 기다린다.
+  const granted = Object.values(gateResults).filter((v) => v === 'granted');
+  expect(granted).toHaveLength(1);
+  expect(Object.values(gateResults).filter((v) => v === 'pending')).toHaveLength(1);
+
+  // 승인받은 쪽이 실제로 열었다고 보고해도 — 그 시트가 떠 있는 동안은 다음 차례가 오지 않는다.
+  const openedId = Object.keys(gateResults).find((id) => gateResults[id] === 'granted');
+  await act(async () => {
+    reportOpen?.(openedId as string, true);
+  });
+  await act(async () => {});
+  expect(Object.values(gateResults).filter((v) => v === 'granted')).toHaveLength(1);
+
+  // 그 시트가 닫히면 그때 다음 요청이 승인된다.
+  await act(async () => {
+    reportOpen?.(openedId as string, false);
+  });
+  await act(async () => {});
+  await waitFor(() =>
+    expect(Object.values(gateResults).filter((v) => v === 'granted')).toHaveLength(2),
+  );
+});
+
+// 동기로 열린 시트(내기·만들기·지난 결과)가 이미 떠 있으면, 비동기 요청은 그것이 닫힐 때까지
+// 기다린다 — slot은 그 시트 때문에 이미 granted지만 "하나 더 열어도 된다"는 뜻이 아니다.
+test('이미 떠 있는 시트가 있으면 승인하지 않는다', async () => {
+  await render(tree(false));
+  await act(async () => {});
+
+  // 카드가 동기 시트를 열었다고 보고한다(실제 카드의 지난 결과 시트에 해당).
+  await act(async () => {
+    reportOpen?.('c1', true);
+  });
+  await act(async () => {});
+
+  await openAsyncSheet('c1');
+  expect(gateResults.c1).toBe('pending');
+
+  await act(async () => {
+    reportOpen?.('c1', false);
+  });
+  await waitFor(() => expect(gateResults.c1).toBe('granted'));
+});
+
+// ⚠️ 그룹 전환은 **언마운트가 아니다** — 같은 GroupRoom 인스턴스가 살아서 groupId만 갈린다.
+//    그래서 blur·언마운트 정리가 걸리지 않는다. 대기하던 A 카드의 요청을 그대로 두면, 나중에
+//    slot이 풀렸을 때 **이미 언마운트된 A 카드**가 true를 받아 openSheet()로 A의 id를 B 화면의
+//    열림 집합에 다시 넣고, 그것을 false로 되돌릴 카드가 없어 결과 오버레이가 영구히 막힌다.
+test('그룹이 바뀌면 대기 중인 시트 요청을 거절한다', async () => {
+  const view = await render(tree(true));
+  await act(async () => {});
+
+  await openAsyncSheet('c1');
+  expect(gateResults.c1).toBe('pending');
+
+  // 딥링크가 같은 라우트의 groupId를 B로 갈아 끼웠다(같은 인스턴스가 살아 있다).
+  await act(async () => {
+    view.rerender(
+      <OverlaySlotProvider>
+        <Holder active={false} />
+        <View>
+          <GroupRoomScreen groupId={OTHER_GROUP_ID} onLeft={onLeft} />
+        </View>
+      </OverlaySlotProvider>,
+    );
+  });
+  await act(async () => {});
+
+  // A의 요청은 승인되지 않는다 — 승인됐다면 B 화면에 A의 열림이 영구히 남는다.
+  await waitFor(() => expect(gateResults.c1).toBe('denied'));
+});
+
+// ⚠️ 위 테스트의 **반대 축**이다. 그룹 전환에서 취소해야 하는 것은 **대기 중인 요청**뿐이고,
+//    **이미 떠 있는 것이 쥔 등록은 유지해야 한다.** 카드의 삭제 확인 Alert가 떠 있으면
+//    alertOverCardSlot이 언마운트 정리를 유예하는데(그 Alert는 네이티브라 카드가 사라져도
+//    새 그룹 화면 위에 그대로 남는다), 부모가 열림 집합을 직접 비우면 그 유예가 무의미해지고
+//    결과 모달이 **Alert 뒤에서** 마운트·seen/ack 된다.
+//    ⚠️ 유지만 단정하면 이 파일의 다른 테스트들이 경고하는 **영구 차단**을 새로 만들고도
+//       초록이다 — 미뤄 둔 보고가 도착했을 때 실제로 풀리는 것까지 함께 본다.
+test('떠 있는 시트의 등록은 그룹이 바뀌어도 유지되고, 미뤄 둔 닫힘 보고가 오면 풀린다', async () => {
+  mockAutoOpenOnGrant = true;
+  const roomTree = (groupId: string) => (
+    <OverlaySlotProvider>
+      <LiveProbe />
+      <View>
+        <GroupRoomScreen groupId={groupId} onLeft={onLeft} />
+      </View>
+    </OverlaySlotProvider>
+  );
+  const view = await render(roomTree(GROUP_ID));
+  await act(async () => {});
+  expect(liveMaxPriority()).toBe(-1);
+
+  // 카드가 승인을 받아 시트를 열었다(= 삭제 확인 Alert가 뜬 상태에 해당).
+  await act(async () => {
+    requestSlotFor.c1().then(() => undefined);
+  });
+  await act(async () => {});
+  const closeSheet = reportOpen; // 카드가 붙들고 있는 클로저 — 유예된 정리가 나중에 이걸 부른다
+  await waitFor(() => expect(gateResults.c1).toBe('granted'));
+  // 이 등록이 서 있는 동안 결과 호스트는 스스로 물러난다(yieldsSlot이 보는 값이 이것이다).
+  expect(liveMaxPriority()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 딥링크가 같은 라우트의 groupId를 B로 갈아 끼웠다. 카드는 언마운트되지만 그 Alert는
+  // 새 화면 위에 그대로 떠 있어, 정리(=닫힘 보고)가 아직 오지 않는다.
+  // ⚠️ B의 챌린지 목록은 A와 다르다(실제로 challengeId는 그룹마다 다르다) — 같은 id가 다시
+  //    마운트돼 우연히 막히는 것이 아님을 분명히 한다.
+  mockGetChallenges.mockResolvedValue([challenge('c9')]);
+  await act(async () => {
+    view.rerender(roomTree(OTHER_GROUP_ID));
+  });
+  await act(async () => {});
+
+  // 아직 떠 있는 Alert 뒤로 결과가 들어오면 안 된다.
+  expect(liveMaxPriority()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 사용자가 그 Alert를 닫으면 카드가 미뤄 둔 보고가 그때 도착한다 — 영구 점유가 아니다.
+  await act(async () => {
+    closeSheet?.('c1', false);
+  });
+  await act(async () => {});
+  await waitFor(() => expect(liveMaxPriority()).toBe(-1));
+});
+
+// ⚠️ **위 테스트가 안 지나는 경로가 하나 더 있다.** 삭제 확인 Alert는 시트를 **열지 않은 채**
+//    승인만 쥐고 뜬다(`confirmDelete`는 claimSheetSlot 뒤 곧바로 Alert를 띄우고, openSheet()는
+//    사용자가 `삭제`를 눌러야 불린다). 그래서 그 순간 부모의 열림 집합에는 이 카드가 **없고**,
+//    등록을 살려 두는 것은 `sheetSlotRequested`·`sheetGrantInFlightRef` 쪽이다. 그룹 전환이
+//    그 둘을 접으면 Alert는 새 화면 위에 그대로 뜬 채 등록만 사라진다.
+//    ⚠️ 그렇다고 무조건 남기면 「빈 등록의 영구 점유」를 새로 만든다 — 그래서 부모는 카드가
+//       올린 **"지금 네이티브 Alert를 쥐고 있다"**를 판정 근거로 쓴다. 유지와 반납을 함께 본다.
+test('열림 보고 없이 승인만 쥔 Alert도 그룹 전환에서 등록이 유지되고, 닫히면 풀린다', async () => {
+  mockAutoOpenOnGrant = false; // 시트를 열지 않는다 — 삭제 확인 Alert의 실제 모양이다
+  const roomTree = (groupId: string) => (
+    <OverlaySlotProvider>
+      <LiveProbe />
+      <View>
+        <GroupRoomScreen groupId={groupId} onLeft={onLeft} />
+      </View>
+    </OverlaySlotProvider>
+  );
+  const view = await render(roomTree(GROUP_ID));
+  await act(async () => {});
+
+  // 프리플라이트가 끝나 승인을 받고, 그 자리에서 확인 Alert를 띄운다(열림 보고는 없다).
+  await act(async () => {
+    requestSlotFor.c1().then(() => undefined);
+  });
+  await act(async () => {});
+  await waitFor(() => expect(gateResults.c1).toBe('granted'));
+  const holdChange = reportAlertHold;
+  const abandon = reportGone;
+  await act(async () => {
+    holdChange?.('c1', true);
+  });
+  expect(liveMaxPriority()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 딥링크가 groupId를 B로 갈아 끼운다 — 카드는 언마운트되지만 Alert는 새 화면 위에 남는다.
+  mockGetChallenges.mockResolvedValue([challenge('c9')]);
+  await act(async () => {
+    view.rerender(roomTree(OTHER_GROUP_ID));
+  });
+  await act(async () => {});
+
+  // 아직 떠 있는 Alert 뒤로 결과가 들어오면 안 된다.
+  expect(liveMaxPriority()).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 사용자가 Alert를 닫으면 유예 정리가 그때 흐른다 — 영구 점유가 아니다.
+  await act(async () => {
+    holdChange?.('c1', false);
+    abandon?.('c1');
+  });
+  await act(async () => {});
+  await waitFor(() => expect(liveMaxPriority()).toBe(-1));
+});
+
+// ⚠️ 그룹 전환과 달리 **같은 그룹 안에서 카드만 사라지는** 경우가 있다(재조회에서 그 챌린지가
+//    삭제·종료로 빠짐). 그때 요청을 취소하지 않으면, 나중에 slot이 풀렸을 때 **언마운트된 카드**의
+//    비동기 함수가 true를 받아 openSheet()로 사라진 challengeId를 열림 집합에 넣는다.
+//    그걸 false로 되돌릴 카드가 없으니 `sheetOpen`과 overlay slot이 **영구히 잠긴다.**
+test('대기 중 카드가 사라지면 그 요청은 거절되고 slot이 풀린다', async () => {
+  const view = await render(tree(true));
+  await act(async () => {});
+
+  await openAsyncSheet('c1');
+  expect(gateResults.c1).toBe('pending');
+
+  // 재조회에서 그 챌린지가 목록에서 빠졌다 — 카드가 요청을 문 채 언마운트된다.
+  await act(async () => {
+    reportGone?.('c1');
+  });
+  await act(async () => {});
+
+  // 요청은 거절된다 — 사라진 카드가 나중에 열림 집합을 오염시키지 못한다.
+  expect(gateResults.c1).toBe('denied');
+
+  // 그리고 **승인 자리가 잠기지 않는다.** 보유자를 놓고 다시 요청하면 곧바로 승인된다 —
+  // 사라진 카드가 자리를 문 채로 남아 있었다면 여기서 영영 막힌다.
+  await act(async () => {
+    view.rerender(tree(false));
+  });
+  await act(async () => {});
+
+  await openAsyncSheet('c1');
+  await waitFor(() => expect(gateResults.c1).toBe('granted'));
+});
+
+// ⚠️ 취소가 waiter만 걷어내고 등록(`sheetSlotRequested`)을 남기면, 보유자가 놓았을 때
+//    **빈 `groupRoom:sheet` 등록이 slot을 영구 점유**해 방을 나갈 때까지 결과 모달도 코치마크도
+//    못 뜬다. 앞 테스트("다시 요청하면 곧바로 승인")는 **누군가 다시 요청하는** 경우만 봐서
+//    이 자리를 놓친다 — 아무도 다시 요청하지 않는 경우를 본다.
+test('취소로 대기가 비면 등록도 풀린다 — 아무도 다시 요청하지 않아도 slot이 열린다', async () => {
+  const statuses: string[] = [];
+  const tree2 = (holderActive: boolean) => (
+    <OverlaySlotProvider>
+      <Holder active={holderActive} />
+      <SlotProbe onStatus={(s) => statuses.push(s)} />
+      <View>
+        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />
+      </View>
+    </OverlaySlotProvider>
+  );
+  const view = await render(tree2(true));
+  await act(async () => {});
+
+  await openAsyncSheet('c1');
+  expect(gateResults.c1).toBe('pending');
+
+  // 카드가 사라져 그 요청이 취소된다 — 이제 이 화면에는 열린 시트도 대기도 없다.
+  await act(async () => {
+    reportGone?.('c1');
+  });
+  await act(async () => {});
+  expect(gateResults.c1).toBe('denied');
+
+  // 보유자가 놓는다. 아무도 새로 요청하지 않는다 — 그래도 결과 우선순위가 승인받아야 한다.
+  await act(async () => {
+    view.rerender(tree2(false));
+  });
+  await act(async () => {});
+
+  await waitFor(() => expect(statuses[statuses.length - 1]).toBe('granted'));
+});
+
+// ⚠️ 직렬화의 가드는 둘인데 **갱신 시점이 다르다**: 진행 중 승인은 ref(즉시), 열림 여부는
+//    state(다음 렌더). 열림 보고에서 승인 ref를 즉시 비우면 그 사이가 뚫린다 —
+//    첫 카드의 열림이 **커밋되기 전에** 두 번째 요청이 들어오면 두 가드를 모두 통과해
+//    RN Modal 두 개가 함께 마운트된다. 순차 테스트로는 이 창이 안 덮인다.
+test('첫 카드의 열림이 커밋되기 전에 다음 요청이 와도 승인은 하나뿐이다', async () => {
+  mockGetChallenges.mockResolvedValue([challenge('c1'), challenge('c2')]);
+  await render(tree(false));
+  await act(async () => {});
+  // 실제 카드처럼 승인받는 즉시 열림을 보고한다.
+  mockAutoOpenOnGrant = true;
+
+  await act(async () => {
+    // 첫 카드의 열림 보고 **직후**(= 그 setState가 아직 커밋되기 전) 두 번째 카드의
+    // 프리플라이트가 끝나 요청한다. `.then` 체인이라 같은 마이크로태스크 줄에 붙는다.
+    // ⚠️ 여기서 `await`로 기다리면 안 된다 — act 콜백이 끝나야 React가 커밋하므로 교착된다.
+    requestSlotFor.c1().then(() => {
+      requestSlotFor.c2();
+    });
+  });
+  await act(async () => {});
+
+  expect(gateResults.c1).toBe('granted');
+  expect(gateResults.c2).toBe('pending');
+});
+
+test('가릴 것이 없으면 곧바로 승인한다 — 평소 경로에 지연을 넣지 않는다', async () => {
+  await render(tree(false));
+  await act(async () => {});
+
+  await openAsyncSheet();
+
+  await waitFor(() => expect(gateResult).toBe('granted'));
+});
