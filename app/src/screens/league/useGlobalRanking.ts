@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useUser } from '@/store/UserContext';
-import { getGlobalRanking } from '@/services/leagueApi';
+import { getGlobalRanking, getMyRank } from '@/services/leagueApi';
 import { toRankingMembers } from './useLeagueRanking';
 import { type RankedMember } from './mock';
 
@@ -15,6 +15,10 @@ export function useGlobalRanking() {
 
   // 서버 멤버 원본. null이면 미조회/실패.
   const [members, setMembers] = useState<RankedMember[] | null>(null);
+  // 내 전역 순위(1-base) — top-100 밖에서도 정확한 값(GET /league/me/rank, GROMO-1613에서
+  // 호출당 활동 로그를 제거해 화면 포커스마다 불러도 계측이 부풀지 않는다).
+  // null = 미배정/미조회/실패. 이 값만 실패해도 리스트는 정상 표시한다(refetch의 개별 catch).
+  const [myGlobalRank, setMyGlobalRank] = useState<number | null>(null);
   // 마지막 조회 실패 여부 — 실패가 "리그에 아무도 없음" 빈 상태로 오인되지 않게 UI에서 구분
   // (GROMO-922, 친구 목록 GROMO-621과 동일 패턴)
   const [error, setError] = useState(false);
@@ -31,10 +35,12 @@ export function useGlobalRanking() {
     }
     const seq = ++requestSeqRef.current;
     try {
-      const res = await getGlobalRanking();
+      // 내 전역 순위는 실패해도 리스트를 막지 않는다 — null로 눌러 '순위 없음' 표시로 격하.
+      const [res, rankRes] = await Promise.all([getGlobalRanking(), getMyRank().catch(() => null)]);
       // 이 응답을 기다리는 동안 더 새로운 요청이 시작됐으면 stale 결과라 버린다
       if (seq !== requestSeqRef.current) return;
       setMembers(toRankingMembers(res, userId, myNickname, null));
+      setMyGlobalRank(rankRes?.assigned === true ? rankRes.myRank : null);
       setError(false);
     } catch {
       // 일시 실패 시 기존 랭킹 유지 — 당겨서 새로고침 실패로 보이던 목록이 사라지지 않게 한다
@@ -50,5 +56,5 @@ export function useGlobalRanking() {
   );
 
   // 데이터 없으면 빈 배열. refetch는 당겨서 새로고침(GROMO-887)용.
-  return { ranking: members ?? [], error, refetch };
+  return { ranking: members ?? [], myGlobalRank, error, refetch };
 }

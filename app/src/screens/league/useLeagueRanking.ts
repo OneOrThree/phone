@@ -67,7 +67,8 @@ function leagueWeekStart(): Date {
 // 서버 주간 집계(DailyFocusStat)도 방해(일시정지) 초를 뺀 순수 집중 시간이라 정의가 일치한다
 // — sessionFocusSeconds가 같은 공식으로 깎는다(GROMO-1214 코드리뷰 ⑥). 안 깎으면 일시정지가
 // 낀 주에 내 시간만 부풀어 서버 랭킹 값과 어긋난다.
-// ※ getMyRank(/league/me/rank)는 호출마다 LEAGUE_RANK_VIEWED 계측을 남겨 화면 포커스마다 못 쓴다.
+// ※ getMyRank(/league/me/rank)의 호출당 LEAGUE_RANK_VIEWED 계측은 서버에서 제거돼 이제 화면에서도
+//   쓸 수 있다 — 단 전역(전체 리그) 순위만 준다. 여기 주간분은 세션 합산 정의라 기존 방식 유지.
 // 초 원본을 반환한다 — 리그 화면은 실초(HH:MM:SS) 격차/델타, 티어가이드는 파생 분(secToMin)을 쓴다.
 async function fetchMyWeekSeconds(): Promise<number> {
   const weekStart = leagueWeekStart();
