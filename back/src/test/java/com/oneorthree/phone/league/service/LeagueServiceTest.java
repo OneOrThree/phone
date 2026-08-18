@@ -2,8 +2,6 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.focus.dto.FocusLiveInfo;
-import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
@@ -76,9 +74,6 @@ class LeagueServiceTest {
     private PinnedUserRepository pinnedUserRepository;
 
     @Mock
-    private FocusLiveInfoLookup focusLiveInfoLookup;
-
-    @Mock
     private CurrencyTransactionRepository currencyTransactionRepository;
 
     @Spy
@@ -106,13 +101,9 @@ class LeagueServiceTest {
         return new LeagueRankingRow(userId, nickname, 3, focusSeconds);
     }
 
-    /** 정렬에 쓴 라이브 앵커·태그까지 담은 랭킹 행 — findTop 이 실제로 돌려주는 형태. */
+    /** 정렬에 쓴 라이브 앵커·태그·당일초까지 담은 랭킹 행 — findTop 이 실제로 돌려주는 형태. */
     private LeagueRankingRow liveRankingRow(UUID userId, String nickname, int focusSeconds, Instant liveStartedAt) {
-        return new LeagueRankingRow(userId, nickname, 3, focusSeconds, liveStartedAt, "행태그");
-    }
-
-    private FocusLiveInfo liveInfo(int minutes, boolean focusing, Instant startedAt, String tagName) {
-        return new FocusLiveInfo(minutes, focusing, startedAt, tagName);
+        return new LeagueRankingRow(userId, nickname, 3, focusSeconds, liveStartedAt, "행태그", 2_520);
     }
 
     private LeagueWeeklyResult weeklyResult(Instant weekStartAt, LeagueWeeklyResultType result) {
@@ -251,7 +242,7 @@ class LeagueServiceTest {
     }
 
     @Test
-    @DisplayName("category 미지정 랭킹 — ranked userId로 라이브 정보 1회 배치 조회해 4필드를 채운다(없는 유저는 기본값)")
+    @DisplayName("category 미지정 랭킹 — 라이브 4필드가 전부 랭킹 행(같은 스냅샷)에서 나온다")
     void getMyRankingWithoutCategoryFillsLiveFocusInfo() {
         Instant start = Instant.parse("2026-06-24T01:00:00Z");
         LeagueRankingRow top = liveRankingRow(U2, "top", 300, start);
@@ -259,15 +250,12 @@ class LeagueServiceTest {
         given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt(), any()))
                 .willReturn(List.of(top, me));
         given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
-        // top(U2) 은 집중 중, me(USER_ID) 는 라이브 맵에 없음 → 기본값
-        given(focusLiveInfoLookup.liveInfoByUserId(List.of(U2, USER_ID), DATE))
-                .willReturn(Map.of(U2, liveInfo(42, true, start, "전공 공부")));
 
         List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, null, DATE);
 
         LeagueMemberResponse topResp = ranking.get(0);
         assertThat(topResp.isFocusing()).isTrue();
-        assertThat(topResp.focusTimeMinutes()).isEqualTo(42);
+        assertThat(topResp.focusTimeMinutes()).isEqualTo(42); // 행의 todayFocusSeconds(2,520)/60
         assertThat(topResp.focusStartedAt()).isEqualTo(start);
         assertThat(topResp.focusTagName()).isEqualTo("행태그");
         LeagueMemberResponse meResp = ranking.get(1);
@@ -285,42 +273,36 @@ class LeagueServiceTest {
         given(leagueRankingQueryRepository.findTop(
                 any(), any(), eq(Occupation.LABOR_ATTORNEY), eq(100), any())).willReturn(List.of(row));
         given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
-        given(focusLiveInfoLookup.liveInfoByUserId(List.of(U2), DATE))
-                .willReturn(Map.of(U2, liveInfo(15, true, start, null)));
 
         List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, Occupation.LABOR_ATTORNEY, DATE);
 
         assertThat(ranking).singleElement().satisfies(resp -> {
             assertThat(resp.nickname()).isEqualTo("labor");
             assertThat(resp.isFocusing()).isTrue();
-            assertThat(resp.focusTimeMinutes()).isEqualTo(15);
+            assertThat(resp.focusTimeMinutes()).isEqualTo(42);
             assertThat(resp.focusStartedAt()).isEqualTo(start);
             assertThat(resp.focusTagName()).isEqualTo("행태그");
         });
     }
 
     @Test
-    @DisplayName("라이브 표시는 정렬에 쓴 행의 앵커를 따른다 — 뒤이은 라이브 조회와 어긋나도 순위와 정합")
-    void getMyRankingUsesRankingRowAnchorNotLaterLookup() {
-        // 정렬 쿼리는 U2 를 집중 중으로 보고 위로 올렸는데, 그 사이 세션이 끝나 두 번째 조회는
-        // 미집중으로 온 상황. 표시가 두 번째 조회를 따르면 "순위는 라이브 기준, 시간은 확정값"이
-        // 한 응답에 섞여 이번 수정이 없애려던 불일치가 되살아난다(코드리뷰 반영).
+    @DisplayName("라이브 4필드는 랭킹 행 단일 원천 — 별도 라이브 배치 조회를 하지 않는다")
+    void getMyRankingUsesRankingRowSnapshotOnly() {
+        // 종전엔 앵커(행)와 당일분·태그(배치 조회)가 다른 시점에서 나와, 두 조회 사이에 세션이
+        // 끝나면 '완료분 포함 당일분 + 살아있는 앵커'로 클라 라이브 합산이 이중 계상됐다
+        // (코드리뷰 반영). 이제 4필드 전부 행에서 나오므로 그 조합 자체가 불가능하다.
         Instant start = Instant.parse("2026-06-24T01:00:00Z");
         LeagueRankingRow ranked = liveRankingRow(U2, "top", 300, start);
         given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt(), any()))
                 .willReturn(List.of(ranked));
         given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
-        given(focusLiveInfoLookup.liveInfoByUserId(List.of(U2), DATE))
-                .willReturn(Map.of(U2, liveInfo(42, false, null, null)));
 
         List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, null, DATE);
 
         assertThat(ranking).singleElement().satisfies(resp -> {
             assertThat(resp.isFocusing()).isTrue();
             assertThat(resp.focusStartedAt()).isEqualTo(start);
-            // 태그도 같은 행에서 — 배치 조회가 다른(새) 세션의 태그를 줘도 행의 태그가 이긴다.
             assertThat(resp.focusTagName()).isEqualTo("행태그");
-            // 순위와 무관한 당일 집중분은 배치 조회 값 그대로.
             assertThat(resp.focusTimeMinutes()).isEqualTo(42);
         });
     }
@@ -333,7 +315,6 @@ class LeagueServiceTest {
 
         assertThat(leagueService.getMyRanking(USER_ID, null, DATE)).isEmpty();
         verify(pinnedUserRepository, never()).findPinnedUserIdsByUserId(any());
-        verify(focusLiveInfoLookup, never()).liveInfoByUserId(any(), any());
     }
 
     // ── getGlobalRanking ──────────────────────────────────────────────────
@@ -346,8 +327,6 @@ class LeagueServiceTest {
         LeagueRankingRow mid = rankingRow(USER_ID, "mid", 300);
         given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100), any()))
                 .willReturn(List.of(top, mid));
-        given(focusLiveInfoLookup.liveInfoByUserId(eq(List.of(U2, USER_ID)), any()))
-                .willReturn(Map.of(U2, liveInfo(15, true, start, "수학")));
 
         List<LeagueMemberResponse> ranking = leagueService.getGlobalRanking("total", 100);
 
@@ -358,7 +337,7 @@ class LeagueServiceTest {
         assertThat(ranking.get(1).userId()).isEqualTo(USER_ID);
         // 정렬이 '확정 집계 + 진행 중 경과' 기준이라(findTop) 전역도 라이브를 실어야 표시와 순서가 맞는다.
         assertThat(ranking.get(0).isFocusing()).isTrue();
-        assertThat(ranking.get(0).focusTimeMinutes()).isEqualTo(15);
+        assertThat(ranking.get(0).focusTimeMinutes()).isEqualTo(42);
         assertThat(ranking.get(0).focusStartedAt()).isEqualTo(start);
         assertThat(ranking.get(0).focusTagName()).isEqualTo("행태그");
         // 라이브 정보가 없는 행은 기본값. 핀은 여전히 전역 스코프 밖이라 전원 false.

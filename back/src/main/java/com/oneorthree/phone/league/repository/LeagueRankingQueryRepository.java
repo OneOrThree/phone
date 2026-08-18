@@ -36,11 +36,18 @@ public class LeagueRankingQueryRepository {
     // 공백만 떼서 U+2003 같은 유니코드 공백-only 닉네임을 통과시키는데, Java 쪽 getMyTier 는
     // isBlank() 로 같은 값을 걸러 "티어는 미배정인데 랭킹엔 뜨는" 불일치가 생긴다. '[^[:space:]]'
     // (= 공백 아닌 문자 1자 이상)는 유니코드 공백·탭·NBSP 경계까지 isBlank() 와 판정이 같다.
+    // today_focus_seconds: 조회 창 마지막 날(:toDate)의 당일 집중초. 랭킹 조회에서 :toDate 는
+    // KST 오늘이라 곧 '당일 집중분'이고, 라이브 앵커와 **같은 SQL 문장 = 같은 스냅샷**에서 나온다
+    // (코드리뷰 반영 — 별도 배치 조회로 당일분을 읽으면 그 사이 세션이 끝나 집계된 유저가
+    // '완료분 포함 당일분 + 아직 살아있는 앵커'로 응답돼 클라 라이브 합산이 이중 계상된다).
+    // 정산·keyset 조회에서는 계산만 되고 읽히지 않는 잉여 컬럼이다(:toDate = 정산 주 마지막 날).
     private static final String WEEKLY_TOTALS = """
             SELECT u.id AS user_id,
                    u.nickname AS nickname,
                    u.tier_level AS tier_level,
-                   COALESCE(SUM(d.total_focus_seconds), 0) AS total_focus_seconds
+                   COALESCE(SUM(d.total_focus_seconds), 0) AS total_focus_seconds,
+                   COALESCE(SUM(d.total_focus_seconds) FILTER (WHERE d.date = :toDate), 0)
+                       AS today_focus_seconds
               FROM users u
               LEFT JOIN daily_focus_stats d
                 ON d.user_id = u.id
@@ -126,7 +133,7 @@ public class LeagueRankingQueryRepository {
 
         String occupationCondition = occupation == null ? "" : " AND u.occupation = :occupation\n";
         String sql = "SELECT t.user_id, t.nickname, t.tier_level, t.total_focus_seconds,"
-                + " live.tag_name AS live_tag_name,"
+                + " t.today_focus_seconds, live.tag_name AS live_tag_name,"
                 + " " + LIVE_ANCHOR + " AS live_started_at FROM ("
                 + WEEKLY_TOTALS + occupationCondition + GROUP_BY_USER + ") t"
                 + " LEFT JOIN (" + LIVE_SESSIONS + ") live ON live.user_id = t.user_id"
@@ -331,7 +338,8 @@ public class LeagueRankingQueryRepository {
                 resultSet.getInt("tier_level"),
                 Math.toIntExact(resultSet.getLong("total_focus_seconds")),
                 liveStartedAt == null ? null : liveStartedAt.toInstant(),
-                resultSet.getString("live_tag_name"));
+                resultSet.getString("live_tag_name"),
+                Math.toIntExact(resultSet.getLong("today_focus_seconds")));
     }
 
     private LeagueRankingRow mapRankingRow(ResultSet resultSet, int rowNumber) throws SQLException {

@@ -253,8 +253,9 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
         User confirmed = saveUser("confirmed", Occupation.CODING, false);
         User live = saveUser("live", Occupation.CODING, false);
         saveStat(confirmed, MONDAY, 3_000);
+        saveStat(confirmed, TUESDAY, 500);
         saveStat(live, MONDAY, 600);
-        // 1시간째 진행 중 — 확정 600초 + 라이브 3,600초 = 4,200초로 confirmed(3,000초)를 앞선다.
+        // 1시간째 진행 중 — 확정 600초 + 라이브 3,600초 = 4,200초로 confirmed(3,500초)를 앞선다.
         saveLiveSession(live, NOW.minus(Duration.ofHours(1)));
         flushFixtures();
 
@@ -264,6 +265,9 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
                 .containsExactly(live.getId(), confirmed.getId());
         // 응답 값은 확정 집계 그대로 — 여기에 경과분이 실리면 앱(LiveFocusTime)이 같은 구간을 또 더한다.
         assertThat(result.get(0).totalFocusSeconds()).isEqualTo(600);
+        // 당일초는 조회 창 마지막 날(:toDate = TUESDAY) 몫만 — 주간 합계와 같은 문장(같은 스냅샷)에서 분리 집계.
+        assertThat(rowOf(result, confirmed).todayFocusSeconds()).isEqualTo(500);
+        assertThat(rowOf(result, live).todayFocusSeconds()).isZero();
         assertThat(leagueRankingQueryRepository.findRankOf(live.getId(), MONDAY, TUESDAY, NOW).orElseThrow())
                 .satisfies(position -> {
                     assertThat(position.rank()).isEqualTo(1);
