@@ -129,7 +129,9 @@ public class LeagueService {
      * 확정값"인 채로 한 응답에 섞인다. 같은 스냅샷의 앵커를 그대로 실어 클라가 그리는
      * base + (now − focusStartedAt) 이 정렬 점수와 정확히 같아지게 한다.
      *
-     * <p>focusTimeMinutes(당일 집중분)·focusTagName 은 순위와 무관한 값이라 배치 조회 결과를 쓴다.
+     * <p>focusTagName 도 같은 행에서 나온다 — 배치 조회의 태그를 쓰면 두 조회 사이에 세션을 바꾼
+     * 유저가 A 세션 경과 + B 세션 태그로 섞인다(코드리뷰 반영). focusTimeMinutes(당일 집중분)만
+     * 순위와 무관한 값이라 배치 조회 결과를 쓴다.
      */
     private List<LeagueMemberResponse> toResponses(List<LeagueRankingRow> ranked, Set<UUID> pinnedIds,
                                                    Map<UUID, FocusLiveInfo> liveInfo) {
@@ -148,7 +150,7 @@ public class LeagueService {
                     liveStartedAt != null,
                     info != null ? info.focusTimeMinutes() : 0,
                     liveStartedAt,
-                    info != null ? info.focusTagName() : null));
+                    liveStartedAt != null ? row.liveTagName() : null));
         }
         return responses;
     }

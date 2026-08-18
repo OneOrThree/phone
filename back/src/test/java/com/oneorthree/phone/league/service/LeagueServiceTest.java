@@ -106,9 +106,9 @@ class LeagueServiceTest {
         return new LeagueRankingRow(userId, nickname, 3, focusSeconds);
     }
 
-    /** 정렬에 쓴 라이브 앵커까지 담은 랭킹 행 — findTop 이 실제로 돌려주는 형태. */
+    /** 정렬에 쓴 라이브 앵커·태그까지 담은 랭킹 행 — findTop 이 실제로 돌려주는 형태. */
     private LeagueRankingRow liveRankingRow(UUID userId, String nickname, int focusSeconds, Instant liveStartedAt) {
-        return new LeagueRankingRow(userId, nickname, 3, focusSeconds, liveStartedAt);
+        return new LeagueRankingRow(userId, nickname, 3, focusSeconds, liveStartedAt, "행태그");
     }
 
     private FocusLiveInfo liveInfo(int minutes, boolean focusing, Instant startedAt, String tagName) {
@@ -269,7 +269,7 @@ class LeagueServiceTest {
         assertThat(topResp.isFocusing()).isTrue();
         assertThat(topResp.focusTimeMinutes()).isEqualTo(42);
         assertThat(topResp.focusStartedAt()).isEqualTo(start);
-        assertThat(topResp.focusTagName()).isEqualTo("전공 공부");
+        assertThat(topResp.focusTagName()).isEqualTo("행태그");
         LeagueMemberResponse meResp = ranking.get(1);
         assertThat(meResp.isFocusing()).isFalse();
         assertThat(meResp.focusTimeMinutes()).isZero();
@@ -295,7 +295,7 @@ class LeagueServiceTest {
             assertThat(resp.isFocusing()).isTrue();
             assertThat(resp.focusTimeMinutes()).isEqualTo(15);
             assertThat(resp.focusStartedAt()).isEqualTo(start);
-            assertThat(resp.focusTagName()).isNull();
+            assertThat(resp.focusTagName()).isEqualTo("행태그");
         });
     }
 
@@ -318,6 +318,8 @@ class LeagueServiceTest {
         assertThat(ranking).singleElement().satisfies(resp -> {
             assertThat(resp.isFocusing()).isTrue();
             assertThat(resp.focusStartedAt()).isEqualTo(start);
+            // 태그도 같은 행에서 — 배치 조회가 다른(새) 세션의 태그를 줘도 행의 태그가 이긴다.
+            assertThat(resp.focusTagName()).isEqualTo("행태그");
             // 순위와 무관한 당일 집중분은 배치 조회 값 그대로.
             assertThat(resp.focusTimeMinutes()).isEqualTo(42);
         });
@@ -358,7 +360,7 @@ class LeagueServiceTest {
         assertThat(ranking.get(0).isFocusing()).isTrue();
         assertThat(ranking.get(0).focusTimeMinutes()).isEqualTo(15);
         assertThat(ranking.get(0).focusStartedAt()).isEqualTo(start);
-        assertThat(ranking.get(0).focusTagName()).isEqualTo("수학");
+        assertThat(ranking.get(0).focusTagName()).isEqualTo("행태그");
         // 라이브 정보가 없는 행은 기본값. 핀은 여전히 전역 스코프 밖이라 전원 false.
         assertThat(ranking.get(1).isFocusing()).isFalse();
         assertThat(ranking.get(1).focusStartedAt()).isNull();

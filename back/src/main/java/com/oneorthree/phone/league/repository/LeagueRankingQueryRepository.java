@@ -71,12 +71,18 @@ public class LeagueRankingQueryRepository {
     // 유저당 최신 미종료 세션 1건. started_at 하한(now − 12h)으로 스윕 전 orphan(버려진 미종료)
     // 세션을 제외한다 — FocusLiveInfoLookup.LIVE_SESSION_MAX_AGE(=앱의 '집중 중' 표시 기준)와 같은 값이라
     // 순위와 표시가 같은 세션 집합을 본다. 부분 인덱스 idx_focus_sessions_live_marker(V47)를 그대로 탄다.
+    // 태그명(default_tags.name)까지 이 서브쿼리에서 함께 뽑는다(코드리뷰 반영) — 별도 라이브 조회
+    // (FocusLiveInfoLookup)에서 태그를 다시 읽으면, 두 조회 사이에 세션이 바뀐 유저가 A 세션의
+    // 경과 + B 세션의 태그라는 불가능한 조합으로 응답된다. 소프트 딜리트된 태그도 조인한다
+    // (FocusLiveInfoLookup 의 fetch join 과 동일 — deleted_at 무시).
     private static final String LIVE_SESSIONS = """
-            SELECT DISTINCT ON (user_id) user_id, started_at
-              FROM focus_sessions
-             WHERE ended_at IS NULL
-               AND started_at >= :liveSince
-             ORDER BY user_id, started_at DESC
+            SELECT DISTINCT ON (s.user_id) s.user_id, s.started_at, dt.name AS tag_name
+              FROM focus_sessions s
+              LEFT JOIN user_focus_tags uft ON uft.id = s.focus_tag_id
+              LEFT JOIN default_tags dt ON dt.id = uft.default_tag_id
+             WHERE s.ended_at IS NULL
+               AND s.started_at >= :liveSince
+             ORDER BY s.user_id, s.started_at DESC
             """;
 
     // 라이브 기준 시각(앵커). 주 경계를 걸친 세션(일요일 밤 시작 → 월요일 진행 중)은 주 시작으로
@@ -120,6 +126,7 @@ public class LeagueRankingQueryRepository {
 
         String occupationCondition = occupation == null ? "" : " AND u.occupation = :occupation\n";
         String sql = "SELECT t.user_id, t.nickname, t.tier_level, t.total_focus_seconds,"
+                + " live.tag_name AS live_tag_name,"
                 + " " + LIVE_ANCHOR + " AS live_started_at FROM ("
                 + WEEKLY_TOTALS + occupationCondition + GROUP_BY_USER + ") t"
                 + " LEFT JOIN (" + LIVE_SESSIONS + ") live ON live.user_id = t.user_id"
@@ -323,7 +330,8 @@ public class LeagueRankingQueryRepository {
                 resultSet.getString("nickname"),
                 resultSet.getInt("tier_level"),
                 Math.toIntExact(resultSet.getLong("total_focus_seconds")),
-                liveStartedAt == null ? null : liveStartedAt.toInstant());
+                liveStartedAt == null ? null : liveStartedAt.toInstant(),
+                resultSet.getString("live_tag_name"));
     }
 
     private LeagueRankingRow mapRankingRow(ResultSet resultSet, int rowNumber) throws SQLException {

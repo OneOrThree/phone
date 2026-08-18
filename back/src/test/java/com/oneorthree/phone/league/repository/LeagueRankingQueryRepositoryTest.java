@@ -2,8 +2,12 @@ package com.oneorthree.phone.league.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
 import com.oneorthree.phone.common.util.ZonePolicy;
+import com.oneorthree.phone.focus.domain.DefaultTag;
 import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.domain.UserFocusTag;
+import com.oneorthree.phone.focus.repository.DefaultTagRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
@@ -43,6 +47,10 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     DailyFocusStatRepository dailyFocusStatRepository;
     @Autowired
     FocusSessionRepository focusSessionRepository;
+    @Autowired
+    DefaultTagRepository defaultTagRepository;
+    @Autowired
+    UserFocusTagRepository userFocusTagRepository;
 
     @Test
     @DisplayName("활성 유저 LEFT JOIN 집계는 0초 유저를 포함하고 total DESC/user.id ASC로 정렬한다")
@@ -266,12 +274,13 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("정렬에 쓴 라이브 앵커를 함께 돌려준다 — 주 경계 세션은 주 시작으로 클램프된 값")
+    @DisplayName("정렬에 쓴 라이브 앵커·태그명을 함께 돌려준다 — 주 경계 세션은 주 시작으로 클램프된 값")
     void findTopReturnsClampedLiveAnchor() {
         User crossing = saveUser("crossing", Occupation.CODING, false);
         User idle = saveUser("idle", Occupation.CODING, false);
         // 일요일 23시 시작, 월요일 03시 현재까지 진행 중 — 실제 경과 4시간, 이번 주 몫은 3시간.
-        saveLiveSession(crossing, WEEK_START.minus(Duration.ofHours(1)));
+        FocusSession live = saveLiveSession(crossing, WEEK_START.minus(Duration.ofHours(1)));
+        attachTag(live, crossing, "수학");
         flushFixtures();
 
         List<LeagueRankingRow> result = leagueRankingQueryRepository.findTop(
@@ -279,8 +288,13 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
 
         // 앵커는 실제 시작 시각이 아니라 주 시작 — 클라가 base + (now − 앵커) 를 그리면 정렬 점수와 같아진다.
         // 앵커를 안 깎으면 화면엔 4시간이 뜨는데 정렬은 3시간이라 이번 수정이 없애려던 불일치가 남는다.
-        assertThat(rowOf(result, crossing).liveStartedAt()).isEqualTo(WEEK_START);
-        assertThat(rowOf(result, idle).liveStartedAt()).isNull();
+        LeagueRankingRow crossingRow = rowOf(result, crossing);
+        assertThat(crossingRow.liveStartedAt()).isEqualTo(WEEK_START);
+        // 태그도 같은 행에서 — 앵커와 다른 조회에서 태그를 읽으면 세션 전환 경합 시 조합이 어긋난다.
+        assertThat(crossingRow.liveTagName()).isEqualTo("수학");
+        LeagueRankingRow idleRow = rowOf(result, idle);
+        assertThat(idleRow.liveStartedAt()).isNull();
+        assertThat(idleRow.liveTagName()).isNull();
     }
 
     @Test
@@ -356,10 +370,25 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     }
 
     /** 진행 중(미종료) 세션 픽스처 — endedAt 이 비어 있는 라이브 마커. */
-    private void saveLiveSession(User user, Instant startedAt) {
-        focusSessionRepository.save(FocusSession.builder()
+    private FocusSession saveLiveSession(User user, Instant startedAt) {
+        return focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .startedAt(startedAt)
+                .build());
+    }
+
+    /** 세션에 채택 태그(user_focus_tags → default_tags)를 붙인다 — 라이브 태그명 조인 검증용. */
+    private void attachTag(FocusSession session, User user, String tagName) {
+        DefaultTag defaultTag = defaultTagRepository.save(DefaultTag.builder().name(tagName).build());
+        UserFocusTag tag = userFocusTagRepository.save(UserFocusTag.builder()
+                .user(user)
+                .defaultTag(defaultTag)
+                .build());
+        focusSessionRepository.save(FocusSession.builder()
+                .id(session.getId())
+                .user(user)
+                .startedAt(session.getStartedAt())
+                .focusTag(tag)
                 .build());
     }
 
