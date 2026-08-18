@@ -43,12 +43,15 @@ class ScreenTimeModule : Module() {
     // 측정 대상 패키지명 집합 — iOS의 selection/pending 2단계 키 구조와 1:1(§8).
     // M1은 피커가 없어 항상 미설정 = 전체 앱 측정. M2 피커가 이 키에 저장·승격한다.
     private const val KEY_SELECTION_PACKAGES = "selectionPackages"
-    // iOS의 '다음날 적용' 대기 선택 자리였다. 안드로이드는 조회 시점에 원시 이벤트를
-    // 필터링해 재계산하므로 예약이 필요 없어 쓰지 않는다.
+    // iOS의 '다음날 적용' 대기 선택 자리였다. 안드로이드는 조회 시점 재계산이라 예약이
+    // 필요 없어 쓰지 않는다 — 근거는 setSelectionPackages 주석(GROMO-995).
     @Suppress("unused")
     private const val KEY_PENDING_SELECTION_PACKAGES = "pendingSelectionPackages"
 
-    // 목록 아이콘 한 변(px). 행에 그려지는 크기(약 40dp)의 고밀도 대비 여유분.
+    // 집중 중 허용앱 — 측정 대상과 뜻이 정반대라 키를 나눈다(getAllowedPackages 주석).
+    private const val KEY_ALLOWED_PACKAGES = "allowedPackages"
+
+    // 피커 목록 아이콘 한 변(px). 행에 그려지는 크기(약 40dp)의 고밀도 대비 여유분.
     private const val ICON_PX = 96
   }
 
@@ -178,11 +181,78 @@ class ScreenTimeModule : Module() {
       }
     }
 
+    // ── 측정 대상 앱 선택 (M2, GROMO-995) ────────────────────────────────────────
+    //
+    // iOS FamilyActivityPicker는 앱을 opaque 토큰으로만 넘겨 JS가 이름조차 못 읽는다. 안드로이드는
+    // 패키지명이 그대로 보이므로 피커를 네이티브 모달로 띄울 이유가 없다 — 목록만 넘기고 화면은
+    // RN이 그린다(검색·다중선택 UX를 앱 디자인 그대로 쓸 수 있다).
+
+    // 런처에 뜨는 설치 앱 목록. 자기 자신(gromo)은 뺀다 — 측정 대상으로 고를 일이 없고,
+    // 목록 맨 위에 자기가 뜨면 "이 앱을 감시한다"로 읽힌다.
+    // 아이콘은 여기서 주지 않는다(§ getAppIcon) — 100개 넘는 앱의 비트맵을 한 번에 직렬화하면
+    // 목록 첫 표시가 통째로 느려진다. 목록은 즉시 뜨고 아이콘만 뒤따라 채우게 나눴다.
+    AsyncFunction("getInstalledApps") {
+      launchablePackages()
+        .asSequence()
+        // 자기 자신은 뺀다 — 측정 대상으로 고를 일이 없고, 목록 맨 위에 자기가 뜨면
+        // "이 앱을 감시한다"로 읽힌다. (앱별 사용시간 목록에는 반대로 포함한다 — 실제 사용이다.)
+        .filter { it != context.packageName }
+        .map { pkg -> mapOf("packageName" to pkg, "label" to appLabel(pkg)) }
+        // 정렬은 표시 이름 기준 — 패키지명 순으로 주면 사용자에겐 무작위로 보인다.
+        .sortedBy { it["label"]?.lowercase() }
+        .toList()
+    }
+
     // 앱 아이콘 1개를 base64 PNG로. 목록이 뜬 뒤 보이는 행만 요청하는 용도라 개별 호출이다.
     // 실패(패키지 삭제 등)는 예외가 아니라 null — 아이콘 하나 때문에 목록이 깨지면 안 된다.
     AsyncFunction("getAppIcon") { packageName: String ->
       runCatching { encodeIcon(context.packageManager.getApplicationIcon(packageName)) }
         .getOrNull()
+    }
+
+    // 현재 측정 대상 패키지 목록. 빈 배열 = 미설정 = 전체 앱 측정(§8 기본값과 같은 계약).
+    AsyncFunction("getSelectionPackages") {
+      // 타입 인자를 명시한다 — 람다의 반환 타입을 추론하는 중이라 emptyList() 쪽 K/T를 못 정한다.
+      prefs.getStringSet(KEY_SELECTION_PACKAGES, null)?.sorted() ?: emptyList<String>()
+    }
+
+    // 측정 대상 저장. 빈 배열이면 키를 지워 '전체 앱 측정'으로 되돌린다 — 빈 집합을 저장하면
+    // 계산기가 '아무 앱도 해당 없음'으로 읽어 사용시간이 0이 된다(같은 빈 값의 두 해석).
+    //
+    // ⚠️ iOS의 '다음날 적용'(pending 2단계) 대응물을 두지 않는다. iOS는 threshold 예약으로
+    //    측정하므로 대상을 중간에 바꾸면 그날 수치가 옛 대상과 섞인다. 안드로이드는 조회 시점에
+    //    원시 이벤트를 필터링해 재계산하므로, 바꾸는 즉시 오늘분도 새 기준으로 일관되게 다시
+    //    계산된다 — 예약할 이유가 없고, 예약하면 오히려 "오늘은 옛 기준"이라는 없는 상태가 생긴다.
+    AsyncFunction("setSelectionPackages") { packages: List<String> ->
+      val editor = prefs.edit()
+      if (packages.isEmpty()) {
+        editor.remove(KEY_SELECTION_PACKAGES)
+      } else {
+        editor.putStringSet(KEY_SELECTION_PACKAGES, packages.toSet())
+      }
+      editor.apply()
+    }
+
+    // ── 집중 중 허용앱 (GROMO-1603) ──────────────────────────────────────────────
+    // 목록을 고르고 저장하는 것까지가 여기 범위다. **실제 차단(집중 실드)은 아직 없다**
+    // (티켓 996) — 저장된 값은 실드가 붙는 순간 예외 목록으로 쓰인다.
+    //
+    // 측정 대상(KEY_SELECTION_PACKAGES)과 키를 나눈 이유: 두 목록은 뜻이 정반대다.
+    // 측정 대상은 "재는 앱", 허용앱은 "집중 중에도 열어둘 앱"이라 같은 값을 공유하면 안 된다.
+    // 빈 값의 뜻도 다르다 — 측정은 '비었으면 전체', 허용은 '비었으면 없음'이다.
+
+    AsyncFunction("getAllowedPackages") {
+      prefs.getStringSet(KEY_ALLOWED_PACKAGES, null)?.sorted() ?: emptyList<String>()
+    }
+
+    AsyncFunction("setAllowedPackages") { packages: List<String> ->
+      val editor = prefs.edit()
+      if (packages.isEmpty()) {
+        editor.remove(KEY_ALLOWED_PACKAGES)
+      } else {
+        editor.putStringSet(KEY_ALLOWED_PACKAGES, packages.toSet())
+      }
+      editor.apply()
     }
 
     // 설정을 다녀온 복귀 감지 — 대기 중인 권한 요청을 실제 AppOps 상태로 마감한다(§2).
@@ -195,14 +265,14 @@ class ScreenTimeModule : Module() {
   }
 
   // 런처에서 열 수 있는 앱의 패키지 집합 — '사용자가 앱으로 인식하는 것'의 기준이다.
-  // 앱별 사용시간이 이 기준으로 걸러진다. 측정 대상 피커가 붙을 때도 **같은 기준**을 쓰게
-  // 한 곳에 둔다: 한쪽만 바뀌면 "고를 수 없는 앱이 사용시간에 뜨거나", 반대로 "쓴 앱이
-  // 목록에 없는" 어긋남이 생긴다.
+  // 측정 대상 피커와 앱별 사용시간이 **같은 기준**을 쓰게 한 곳에 둔다: 한쪽만 바뀌면
+  // "고를 수 없는 앱이 사용시간에 뜨거나", 반대로 "쓴 앱이 목록에 없는" 어긋남이 생긴다.
   //
   // ⚠️ Android 11+ 패키지 가시성 — 이 조회가 결과를 돌려주려면 **앱 매니페스트의 queries 블록에
   //    MAIN/LAUNCHER 인텐트가 선언돼 있어야 한다.** 없으면 queryIntentActivities 가 거의 빈
   //    목록을 돌려주고, 아래 필터가 사용 기록을 통째로 걷어내 "쓴 앱이 하나도 없다"가 된다
-  //    (코드리뷰 반영 — 그 상태로 올라갈 뻔했다).
+  //    (코드리뷰 반영 — 그 상태로 올라갈 뻔했다). 피커도 같은 함수를 쓰므로 **고를 앱 목록까지
+  //    함께 빈다.**
   //    android/app/src/main/AndroidManifest.xml 에 넣어 뒀다. android/ 는 수동 관리이므로
   //    prebuild 재생성 시 함께 사라진다는 점에 주의(저장소 전반의 관례와 동일).
   //    QUERY_ALL_PACKAGES 는 쓰지 않는다 — Play 정책상 별도 소명이 필요한 제한 권한인데,

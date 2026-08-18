@@ -40,6 +40,7 @@ import {
   GoalsScreen,
   AllowedAppsScreen,
   ScreenTimePermissionScreen,
+  AppPickerScreen,
   NotificationSettingsScreen,
   StatVisibilityScreen,
   PrivacyPolicyScreen,
@@ -286,6 +287,7 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
         <Stack.Screen name="SettingsGoals" component={GoalsScreen} />
         <Stack.Screen name="SettingsAllowedApps" component={AllowedAppsScreen} />
         <Stack.Screen name="SettingsScreenTimePermission" component={ScreenTimePermissionScreen} />
+        <Stack.Screen name="SettingsAppPicker" component={AppPickerScreen} />
         <Stack.Screen name="SettingsNotification" component={NotificationSettingsScreen} />
         <Stack.Screen name="SettingsStatVisibility" component={StatVisibilityScreen} />
         <Stack.Screen name="SettingsPrivacyPolicy" component={PrivacyPolicyScreen} />

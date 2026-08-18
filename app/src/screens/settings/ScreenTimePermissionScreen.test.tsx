@@ -10,7 +10,7 @@
 //  3) '측정 대상을 비웠어요'는 성공이지만 측정 중단을 반드시 읽어야 하는 경고성 장문이라
 //     2200ms 배너로 옮기지 않는다 — Alert로 남는다(정책 D8).
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert, AppState, Linking, Platform } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenTimePermissionScreen from './ScreenTimePermissionScreen';
 import ScreenTimeModule, { nativeSupportsPendingApplyDate } from '@/services/ScreenTimeModule';
@@ -67,9 +67,6 @@ const mockGetStatus = ScreenTimeModule.getAuthorizationStatus as jest.MockedFunc
 >;
 const mockPresentAppPicker = ScreenTimeModule.presentAppPicker as jest.MockedFunction<
   typeof ScreenTimeModule.presentAppPicker
->;
-const mockOpenUsageAccess = ScreenTimeModule.openUsageAccessSettings as jest.MockedFunction<
-  typeof ScreenTimeModule.openUsageAccessSettings
 >;
 const mockPromote = ScreenTimeModule.promoteSelection as jest.MockedFunction<
   typeof ScreenTimeModule.promoteSelection
@@ -158,54 +155,39 @@ describe('측정 대상 선택 — 플랫폼별 진입 경로', () => {
 
   afterEach(() => setPlatform(originalPlatformOS));
 
-  // 안드로이드엔 대응 피커가 없다. 행을 남겨 두면 탭해도 아무 일이 없어 고장으로 보이므로
-  // 섹션째 감춘다 — 무반응 진입점을 없애는 게 이 티켓의 본론이다.
-  test('안드로이드에서는 측정 대상 섹션이 그려지지 않는다', async () => {
+  test('안드로이드는 시스템 피커 대신 앱 고르기 화면으로 이동한다', async () => {
     setPlatform('android');
 
-    await render(<ScreenTimePermissionScreen />);
-    await act(async () => {});
+    await openPicker();
 
-    expect(screen.queryByText('측정 대상 앱 설정')).toBeNull();
-    // 부제만 남아 없는 항목을 찾아 들어가게 만들지도 않는다.
-    expect(screen.queryByText('사용시간을 잴 앱·카테고리 선택')).toBeNull();
-  });
-
-  // 피커가 없으면 허용 상태에서 상태 카드를 눌러도 갈 곳이 없다 — 무반응으로 두지 않고
-  // 권한을 끄러 갈 수 있는 곳으로 보낸다.
-  //
-  // ⚠️ 그 '갈 곳'이 앱 상세 설정(Linking.openSettings)이면 안 된다(코드리뷰 반영). 거기엔
-  //    사용 정보 접근 토글이 없어서, 눌러서 이동은 하는데 정작 할 일을 못 하는 상태가 된다.
-  //    이 PR이 없애려는 '화면이 거짓말한다'와 같은 종류라 목록 딥링크를 쓴다.
-  test('안드로이드에서 허용 상태 카드는 사용 정보 접근 목록으로 보낸다', async () => {
-    setPlatform('android');
-    mockOpenUsageAccess.mockResolvedValue(true);
-
-    await render(<ScreenTimePermissionScreen />);
-    await act(async () => {});
-    await act(async () => {
-      fireEvent.press(screen.getByText('스크린타임 접근'));
-    });
-
+    expect(mockNavigate).toHaveBeenCalledWith('SettingsAppPicker', { mode: 'measured' });
+    // iOS 전용 네이티브 피커를 부르면 안 된다 — 불러봤자 null이라 아무 일도 안 일어난다.
     expect(mockPresentAppPicker).not.toHaveBeenCalled();
-    expect(mockOpenUsageAccess).toHaveBeenCalled();
-    // 목록을 열었으면 앱 상세로 또 보내지 않는다 — 두 화면이 겹쳐 뜨면 그게 더 헷갈린다.
-    expect(Linking.openSettings).not.toHaveBeenCalled();
   });
 
-  // 구 바이너리(OTA로 새 JS만 받아 네이티브에 이 함수가 없음)·설정을 못 여는 기기.
-  // 앱 상세가 완전한 답은 아니지만, 아무 일도 안 일어나는 것보다는 낫다.
-  test('목록을 못 열면 앱 상세 설정으로 폴백한다', async () => {
+  // 권한이 없으면 고를 대상 목록 자체를 못 읽는다 — 빈 화면으로 보내는 대신 먼저 안내한다.
+  test('권한이 없으면 이동하지 않고 안내한다', async () => {
     setPlatform('android');
-    mockOpenUsageAccess.mockResolvedValue(false);
+    mockGetStatus.mockResolvedValue('denied');
+
+    await openPicker();
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith(
+      '스크린타임 권한 필요',
+      '측정 대상을 고르려면 먼저 사용 정보 접근을 허용해야 해요.',
+    );
+  });
+
+  test('안드로이드 부제는 카테고리를 약속하지 않는다', async () => {
+    setPlatform('android');
 
     await render(<ScreenTimePermissionScreen />);
     await act(async () => {});
-    await act(async () => {
-      fireEvent.press(screen.getByText('스크린타임 접근'));
-    });
 
-    expect(Linking.openSettings).toHaveBeenCalled();
+    // 카테고리 묶음 선택은 iOS FamilyActivityPicker만 준다.
+    expect(screen.queryByText('사용시간을 잴 앱·카테고리 선택')).toBeNull();
+    expect(screen.getByText('사용시간을 잴 앱 선택')).toBeTruthy();
   });
 
   // 권한 끄러 갈 곳은 OS마다 다르다 — 안드로이드에 'iOS 설정 앱'이라고 하면 안 된다.

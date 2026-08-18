@@ -116,6 +116,21 @@ interface AndroidNativeScreenTime {
   // 안드로이드는 수치를 그대로 넘길 수 있어 화면을 RN이 그린다. dayOffset 0=오늘, -1=어제.
   getUsageBreakdown(dayOffset: number): Promise<AppUsageBreakdown>;
   getAppIcon(packageName: string): Promise<string | null>;
+  // 측정 대상 앱 선택(GROMO-1593) — iOS의 presentAppPicker 자리를 대신한다. iOS는 네이티브가
+  // 모달까지 띄우지만(토큰이 opaque라 JS가 못 그린다), 안드로이드는 패키지명이 그대로라
+  // 목록만 넘기고 화면은 RN이 그린다.
+  getInstalledApps(): Promise<InstalledApp[]>;
+  getSelectionPackages(): Promise<string[]>;
+  setSelectionPackages(packages: string[]): Promise<void>;
+  // 집중 중 허용앱 — 저장은 피커가 하고, 읽는 쪽(실드)은 후속 티켓에서 붙는다.
+  getAllowedPackages(): Promise<string[]>;
+  setAllowedPackages(packages: string[]): Promise<void>;
+}
+
+/** 측정 대상 피커에 뿌릴 설치 앱 1건(안드로이드 전용). 아이콘은 getAppIcon으로 따로 받는다. */
+export interface InstalledApp {
+  packageName: string;
+  label: string;
 }
 
 /**
@@ -357,6 +372,43 @@ const ScreenTimeModule = {
   getAppIcon: async (packageName: string): Promise<string | null> => {
     if (!AndroidScreenTime) return null;
     return AndroidScreenTime.getAppIcon(packageName);
+  },
+
+  // ── 측정 대상 앱 선택 · 안드로이드 (GROMO-1593) ──
+  // iOS는 presentAppPicker 하나가 '목록 표시 + 선택 + 저장'을 다 하지만(토큰이 opaque라
+  // 그럴 수밖에 없다), 안드로이드는 목록 조회와 저장이 분리된다. 화면은 RN이 그린다.
+  //
+  // 네이티브가 없으면(iOS·웹·구 바이너리) 조용한 기본값으로 폴백한다 — 호출부는
+  // supportsAppSelection()이 참일 때만 부르지만, 그 가드가 빠져도 크래시는 안 난다.
+
+  /** 런처에 뜨는 설치 앱 목록(표시 이름 순). 자기 자신은 빠져 있다. */
+  getInstalledApps: async (): Promise<InstalledApp[]> => {
+    if (!AndroidScreenTime) return [];
+    return AndroidScreenTime.getInstalledApps();
+  },
+
+  /** 현재 측정 대상 패키지들. **빈 배열 = 미설정 = 전체 앱 측정**(0개 측정이 아니다). */
+  getSelectionPackages: async (): Promise<string[]> => {
+    if (!AndroidScreenTime) return [];
+    return AndroidScreenTime.getSelectionPackages();
+  },
+
+  /** 측정 대상 저장. 빈 배열을 주면 '전체 앱 측정'으로 되돌아간다. 저장 즉시 오늘분부터 반영된다. */
+  setSelectionPackages: async (packages: string[]): Promise<void> => {
+    if (!AndroidScreenTime) return;
+    return AndroidScreenTime.setSelectionPackages(packages);
+  },
+
+  /** 집중 중 허용앱 패키지들(안드로이드). 빈 배열 = 허용앱 없음(측정 대상과 달리 '전체'가 아니다). */
+  getAllowedPackages: async (): Promise<string[]> => {
+    if (!AndroidScreenTime) return [];
+    return AndroidScreenTime.getAllowedPackages();
+  },
+
+  /** 집중 중 허용앱 저장(안드로이드). 저장된 목록은 실드가 예외로 통과시킨다. */
+  setAllowedPackages: async (packages: string[]): Promise<void> => {
+    if (!AndroidScreenTime) return;
+    return AndroidScreenTime.setAllowedPackages(packages);
   },
 
   // 날짜 키('YYYY-MM-DD')의 threshold 발화 타임라인(N1) — 창 사용분 계산(A4)의 소스. 2일 보존.

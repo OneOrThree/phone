@@ -226,6 +226,20 @@ export default function ScreenTimePermissionScreen() {
   async function editScreenTimeTargets() {
     try {
       const st = await ScreenTimeModule.getAuthorizationStatus();
+      // 안드로이드는 시스템 피커가 없어 RN 화면으로 간다(GROMO-995). 아래 iOS 경로의 '다음날
+      // 적용' 예약도 여기선 불필요하다 — 조회 시점에 원시 이벤트를 필터링해 재계산하므로
+      // 대상을 바꾸면 오늘분도 새 기준으로 일관되게 다시 계산된다(네이티브 주석과 같은 근거).
+      if (Platform.OS === 'android') {
+        if (st !== 'approved') {
+          Alert.alert(
+            '스크린타임 권한 필요',
+            '측정 대상을 고르려면 먼저 사용 정보 접근을 허용해야 해요.',
+          );
+          return;
+        }
+        navigation.navigate('SettingsAppPicker', { mode: 'measured' });
+        return;
+      }
       if (st !== 'approved') {
         Alert.alert(
           '스크린타임 권한 필요',
@@ -395,7 +409,10 @@ export default function ScreenTimePermissionScreen() {
             sub={
               pendingApply
                 ? '변경한 대상은 내일 0시부터 적용돼요'
-                : '사용시간을 잴 앱·카테고리 선택'
+                : // 카테고리 묶음 선택은 iOS FamilyActivityPicker만 준다 — 안드로이드는 앱 단위다.
+                  Platform.OS === 'android'
+                  ? '사용시간을 잴 앱 선택'
+                  : '사용시간을 잴 앱·카테고리 선택'
             }
             value={pendingApply ? '내일 적용 예정' : undefined}
             valueColor={T.accentDeep}

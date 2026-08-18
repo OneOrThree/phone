@@ -33,10 +33,12 @@ const androidNativeHas = (method: string): boolean => {
 /**
  * 측정 대상 앱 선택을 지원하는가.
  *
- * iOS는 네이티브 시스템 피커(presentAppPicker)를 띄운다. 안드로이드는 대응 피커가 없어
- * 지금은 닫아 둔다 — 열려 있으면 눌러도 아무 일도 일어나지 않는다.
+ * 양쪽 다 되지만 **가는 길이 다르다** — iOS는 네이티브 시스템 피커(presentAppPicker)를 띄우고,
+ * 안드로이드는 RN 화면(SettingsAppPicker)으로 이동한다(GROMO-1593). 호출부는 이 술어로
+ * '보여줄지'만 정하고, '어떻게 여는지'는 각 화면이 Platform으로 갈라 쓴다.
  */
-export const supportsAppSelection = (): boolean => Platform.OS === 'ios';
+export const supportsAppSelection = (): boolean =>
+  Platform.OS === 'ios' || Platform.OS === 'android';
 
 /** 집중 중 **허용앱 목록을 고르고 관리**할 수 있는가. */
 export const supportsFocusShield = (): boolean => Platform.OS === 'ios';

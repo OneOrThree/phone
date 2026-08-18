@@ -64,15 +64,16 @@ describe('iOS — 넷 다 열려 있다', () => {
 
 // 안드로이드는 구현이 붙는 순서대로 하나씩 열린다. 지금 한꺼번에 열면 눌러도 반응이 없거나
 // 사실과 다른 안내가 나가므로, **구현이 들어오는 PR에서 그 술어만** 뒤집는다.
-// 지금 열린 것: 앱별 사용시간(GROMO-1608).
-test('안드로이드 — 앱별 사용시간만 열려 있다', () => {
+// 지금 열린 것: 앱별 사용시간(GROMO-1608) · 측정 대상 선택(GROMO-1593).
+// 아직 닫힌 것: 집중 실드 — 고르기·차단 둘 다 실드 구현과 함께 열린다.
+test('안드로이드 — 사용시간·측정 대상만 열려 있다', () => {
   setPlatform('android');
   expect([
     supportsAppSelection(),
     supportsUsageBreakdown(),
     supportsFocusShield(),
     enforcesFocusShield(),
-  ]).toEqual([false, true, false, false]);
+  ]).toEqual([true, true, false, false]);
 });
 
 // 구 바이너리 — 이 JS 는 hot-updater 로 옛 안드로이드 빌드에도 그대로 내려간다.
