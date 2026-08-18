@@ -15,7 +15,7 @@
 //    — 그 덮어쓰기 자체가 여기서 고정하는 동작이다.
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { AxiosError, type AxiosResponse } from 'axios';
-import { AppState, BackHandler, Vibration, type AppStateStatus } from 'react-native';
+import { AppState, BackHandler, Dimensions, Vibration, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import FocusSessionScreen from './FocusSessionScreen';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -168,7 +168,14 @@ jest.mock('./components/LiveFocusGrid', () => ({
   },
 }));
 jest.mock('./components/FocusMenuDrawer', () => ({ FocusMenuDrawer: () => null }));
-jest.mock('./FocusLandscape', () => ({ FocusLandscape: () => null }));
+// 가로 분기 전달값을 붙잡는다 — 레이아웃은 렌더하지 않되 화면→가로 컴포넌트 배선은 관찰한다
+const mockLandscapeCaptures: Array<{ subjectName: string; onRotatePortrait: () => void }> = [];
+jest.mock('./FocusLandscape', () => ({
+  FocusLandscape: (props: { subjectName: string; onRotatePortrait: () => void }) => {
+    mockLandscapeCaptures.push(props);
+    return null;
+  },
+}));
 jest.mock('@/components/TabGuideOverlay', () => ({ TabGuideOverlay: () => null }));
 jest.mock('@/components/character/AnimatedCharacter', () => ({ AnimatedCharacter: () => null }));
 jest.mock('@/components/character/CharacterImage', () => ({ CharacterImage: () => null }));
@@ -265,6 +272,7 @@ beforeEach(async () => {
   mockSubjectsData = [{ id: 's1', name: '수학', accumulatedSeconds: 0, color: '#FFB4A2' }];
   mockMyFocus = null;
   mockGridMeCaptures.length = 0;
+  mockLandscapeCaptures.length = 0;
   await AsyncStorage.clear();
   jest.useFakeTimers();
   appStateHandlers = [];
@@ -542,15 +550,45 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
   test('라이브 레코드 삭제가 실패해도 종료는 계속된다 — 업로드·적립·결과 화면 이동', async () => {
     // 정산의 removeItem은 fire-and-forget(.catch 삼킴)이 현행이다 — 헤드리스화가 삭제를
     // await하고 실패를 전파하면 저장소 오류 기기에서 종료가 통째로 막힌다(codex 리뷰 6차).
+    // 종료 경로의 삭제는 finish 선삭제 + settleFocusBlock 내부 재삭제 두 번이다 — 둘 다
+    // 거부시켜야 두 번째 호출의 .catch 제거 회귀도 잡는다(codex 리뷰 20차).
     await renderSession({ mode: 'countup' });
     await advance(5000);
-    (AsyncStorage.removeItem as unknown as jest.Mock).mockRejectedValueOnce(new Error('disk'));
+    (AsyncStorage.removeItem as unknown as jest.Mock)
+      .mockRejectedValueOnce(new Error('disk')) // finish의 선삭제
+      .mockRejectedValueOnce(new Error('disk')); // 정산 내부의 재삭제
     await fireEvent.press(view.getByTestId('focus.stop'));
     await flush();
 
     expect(mockedUpload).toHaveBeenCalledTimes(1);
     expect(mockAddFocusSeconds).toHaveBeenCalledWith(5);
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: true });
+  });
+
+  test('업로드가 pending이어도 결과 화면 이동·로컬 적립은 기다리지 않는다 — saved 후처리만 응답 후', async () => {
+    // 종료 UX는 업로드와 분리된 fire-and-forget이 현행이다 — 헤드리스화가 uploadFocusBlock을
+    // await하면 네트워크가 오래 pending인 기기에서 정지 버튼 후 화면에 무기한 갇힌다
+    // (codex 리뷰 20차).
+    let resolveUpload!: (v: { status: string; response?: object }) => void;
+    mockedUpload.mockImplementationOnce(
+      () =>
+        new Promise<{ status: string; response?: object }>((r) => {
+          resolveUpload = r;
+        }),
+    );
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    // 업로드 미해결 상태에서 이미 이동·적립 완료
+    expect(mockNavigation.replace).toHaveBeenCalledTimes(1);
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(3);
+    expect(mockCoinRefresh).not.toHaveBeenCalled(); // saved 후처리는 응답 후에만
+
+    await act(async () => {
+      resolveUpload({ status: 'saved', response: {} });
+    });
+    expect(mockCoinRefresh).toHaveBeenCalledTimes(1); // 늦은 응답에도 후처리는 이어진다
   });
 
   test('업로드가 failed(대기열 저장까지 실패)여도 현행은 레코드를 이미 지웠다 — 알려진 유실 공백', async () => {
@@ -1101,6 +1139,45 @@ describe('카운트다운 — 완료 게이트', () => {
     );
   });
 
+  test('창이 가로가 되면 FocusLandscape로 갈리고, 복귀 콜백·방향별 체류가 배선된다', async () => {
+    // lockAsync 요청만으로는 가로 분기 렌더·복귀 배선·방향 체류 정리를 못 잡는다 — 실제
+    // dimensions를 뒤집어 세로→가로→세로 전환 경로를 실행한다(codex 리뷰 20차).
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await act(async () => {
+      Dimensions.set({ window: { width: 800, height: 400, scale: 2, fontScale: 1 } });
+    });
+    try {
+      const lp = mockLandscapeCaptures.at(-1)!;
+      expect(lp.subjectName).toBe('수학'); // 가로 분기에 세션 데이터가 전달된다
+      // 가로 진입 — 직전 세로 방향(3초)과 가려지는 뷰(3초)의 체류가 발행된다
+      expect(logFocusOrientationChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ orientation: 'portrait', dwell_seconds: 3 }),
+      );
+      expect(logFocusViewChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ view: 'character', dwell_seconds: 3 }),
+      );
+      await advance(4000); // 가로에서 4초
+      await act(async () => {
+        lp.onRotatePortrait();
+      });
+      // 복귀 버튼은 PORTRAIT_UP 강제다 — DEFAULT면 폰을 가로로 든 채 눌러도 가로가 유지된다
+      expect(ScreenOrientation.lockAsync).toHaveBeenLastCalledWith(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP,
+      );
+    } finally {
+      // 전역 Dimensions 오염 방지 — 실패해도 다음 테스트는 세로에서 시작해야 한다
+      await act(async () => {
+        Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
+      });
+    }
+    expect(view.getByTestId('focus.session.screen')).toBeTruthy(); // 세로 레이아웃 복귀
+    // 세로 복귀 — 가로 구간(4초)의 방향 체류가 발행된다
+    expect(logFocusOrientationChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ orientation: 'landscape', dwell_seconds: 4 }),
+    );
+  });
+
   test('게이트에서 Android 하드웨어 뒤로가기: 이벤트를 소비하고 확인 버튼과 동일하게 finish한다', async () => {
     // 게이트가 뜨면 BackHandler를 구독해 pop 대신 finish로 보낸다 — 배선이 빠지면 화면이
     // 단순 pop돼 결과 연출·후속 처리를 건너뛴다(codex 리뷰 6차).
@@ -1311,6 +1388,11 @@ describe('뽀모도로 — 블록 경계 정산·마커 회전', () => {
     // 정산 직후 총합 = 서버(600) + 정산 블록(60) — 델타는 리셋됐고 바닥(settledFloor)이 지킨다
     expect(mockGridMeCaptures.at(-1)!.totalSeconds).toBe(660);
     expect(mockGridMeCaptures.at(-1)!.isFocusing).toBe(false); // 휴식 — 그리드 초록 아님
+    // 다음 폴링이 방금 정산한 블록을 포함해 돌아와도(11분) 다시 더하지 않는다 — 정산분을
+    // 서버 기준 위에 또 얹는 구현이면 720으로 튄다(codex 리뷰 20차: max 수렴 계약).
+    mockMyFocus = { day: '2026-08-18', minutes: 11 };
+    await advance(1000); // 휴식 틱 리렌더 — 갱신된 스냅샷 반영
+    expect(mockGridMeCaptures.at(-1)!.totalSeconds).toBe(660);
   });
 });
 
