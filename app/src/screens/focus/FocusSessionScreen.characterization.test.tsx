@@ -386,8 +386,9 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     // 같은 동기 구간에서 두 번 탭 — 첫 finish가 removeItem await에 걸려 있는 사이의 재진입을
     // 재현한다(press 사이를 await하면 첫 finish가 이미 await를 지나 변이 창이 닫힌다).
     await act(async () => {
-      void fireEvent.press(view.getByTestId('focus.stop'));
-      void fireEvent.press(view.getByTestId('focus.stop'));
+      const first = fireEvent.press(view.getByTestId('focus.stop'));
+      const second = fireEvent.press(view.getByTestId('focus.stop'));
+      await Promise.all([first, second]);
     });
     await flush();
 
