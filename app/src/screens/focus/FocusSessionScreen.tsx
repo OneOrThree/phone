@@ -37,7 +37,7 @@ import { ensureFocusTagId } from './tagSync';
 import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker, flushPendingMarkerCancels } from './pendingMarkerCancels';
 import { isTodayVerdict, publishSessionSaveVerdict } from './sessionSaveVerdict';
-import ScreenTimeModule from '@/services/ScreenTimeModule';
+import ScreenTimeModule, { type FocusActivityState } from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
@@ -555,6 +555,23 @@ export default function FocusSessionScreen() {
     [],
   );
 
+  // Live Activity 세션 상태(GROMO-1597) — 모드·페이즈·정지를 초 단위 상대값으로 만들어
+  // 네이티브에 넘긴다(Date 앵커는 네이티브가 수신 시각 기준으로 계산). revision은 단조 증가 —
+  // 늦게 도착한 갱신이 최신 표시를 덮지 않게 네이티브가 비교한다.
+  const activityRevisionRef = useRef(0);
+  const buildActivityState = useCallback((): FocusActivityState => {
+    const s = sessionRef.current;
+    activityRevisionRef.current += 1;
+    return {
+      mode,
+      phase: s.phase,
+      isPaused: pausedRef.current,
+      elapsedSeconds: Math.floor(s.elapsed),
+      remainingSeconds: mode === 'countup' ? null : Math.max(0, Math.floor(s.display)),
+      revision: activityRevisionRef.current,
+    };
+  }, [mode]);
+
   // Live Activity(다이나믹 아일랜드) — 캐릭터 스냅샷을 App Group에 저장한 뒤 시작.
   // 화면을 떠나면 종료. 스냅샷 실패 시 위젯이 기본 마스코트로 폴백한다.
   const charShotRef = useRef<View>(null);
@@ -580,7 +597,9 @@ export default function FocusSessionScreen() {
           .sort((a, b) => b.accumulatedSeconds - a.accumulatedSeconds)
           .slice(0, 2)
           .map((x) => ({ name: x.name, seconds: x.accumulatedSeconds, color: x.color }));
-        ScreenTimeModule.startFocusActivity(subjectName, others).catch(() => {});
+        ScreenTimeModule.startFocusActivity(subjectName, others, buildActivityState()).catch(
+          () => {},
+        );
       }
     }, 600);
     return () => {
@@ -588,7 +607,18 @@ export default function FocusSessionScreen() {
       clearTimeout(t);
       ScreenTimeModule.endFocusActivity().catch(() => {});
     };
-  }, [subjectName, subjectId]);
+  }, [subjectName, subjectId, buildActivityState]);
+
+  // Live Activity 상태 동기화(GROMO-1597) — 정지/재개·뽀모도로 페이즈 전환 때만 밀어 넣고,
+  // 그 사이 틱은 위젯의 Text(timerInterval:)가 자체 갱신한다(정지 중 증가하던 부정확 해소).
+  // 렌더 뒤에 돌므로 sessionRef·pausedRef가 이 상태 변화의 최신값이다. 백그라운드 복귀
+  // 리플레이가 페이즈를 옮긴 경우도 이 이펙트가 잡는다. 활성 LA가 없으면 네이티브 no-op.
+  // 옵셔널 호출인 이유: 특성화 테스트(GROMO-1599)의 모듈 목이 이 메서드를 모르는 채로도
+  // 화면이 돌아야 한다 — 배선 누락이 아니라 목 경계다.
+  useEffect(() => {
+    if (finishedRef.current || sessionRef.current.done) return;
+    ScreenTimeModule.updateFocusActivity?.(buildActivityState()).catch(() => {});
+  }, [paused, session.phase, buildActivityState]);
 
   // 라이브 마커 마감 — 취소(통계 미귀속)로 닫아 친구 화면의 '집중 중'을 끈다. 시간 저장은
   // settleFocusBlock의 업로드가 별도로 담당하므로 취소해도 기록은 잃지 않는다.
