@@ -75,7 +75,7 @@ public class ProfileService {
         Integer currentTier = user.getTierLevel();
 
         Integer rank = leagueRankingQueryRepository.findRankOf(
-                        userId, leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now))
+                        userId, leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), now)
                 .map(position -> position.rank())
                 .orElse(null);
 

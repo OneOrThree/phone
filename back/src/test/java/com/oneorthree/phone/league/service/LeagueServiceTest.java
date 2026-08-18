@@ -233,7 +233,7 @@ class LeagueServiceTest {
     void getMyRankingWithoutCategoryReturnsGlobalRanking() {
         LeagueRankingRow top = rankingRow(U2, "top", 300);
         LeagueRankingRow me = rankingRow(USER_ID, "me", 200);
-        given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt()))
+        given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt(), any()))
                 .willReturn(List.of(top, me));
         given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of(U2));
 
@@ -242,7 +242,7 @@ class LeagueServiceTest {
         assertThat(ranking).hasSize(2);
         assertThat(ranking).extracting(LeagueMemberResponse::rank).containsExactly(1, 2);
         assertThat(ranking.get(0).isPinned()).isTrue();
-        verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(100));
+        verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(100), any());
     }
 
     @Test
@@ -251,7 +251,7 @@ class LeagueServiceTest {
         LeagueRankingRow top = rankingRow(U2, "top", 300);
         LeagueRankingRow me = rankingRow(USER_ID, "me", 200);
         Instant start = Instant.parse("2026-06-24T01:00:00Z");
-        given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt()))
+        given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt(), any()))
                 .willReturn(List.of(top, me));
         given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
         // top(U2) 은 집중 중, me(USER_ID) 는 라이브 맵에 없음 → 기본값
@@ -278,7 +278,7 @@ class LeagueServiceTest {
         LeagueRankingRow row = rankingRow(U2, "labor", 300);
         Instant start = Instant.parse("2026-06-24T02:00:00Z");
         given(leagueRankingQueryRepository.findTop(
-                any(), any(), eq(Occupation.LABOR_ATTORNEY), eq(100))).willReturn(List.of(row));
+                any(), any(), eq(Occupation.LABOR_ATTORNEY), eq(100), any())).willReturn(List.of(row));
         given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
         given(focusLiveInfoLookup.liveInfoByUserId(List.of(U2), DATE))
                 .willReturn(Map.of(U2, liveInfo(15, true, start, null)));
@@ -297,7 +297,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("전역 결과가 비어 있으면 핀·라이브 조회 없이 빈 목록을 반환한다")
     void getMyRankingEmptyDoesNotReadPins() {
-        given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt()))
+        given(leagueRankingQueryRepository.findTop(any(), any(), any(), anyInt(), any()))
                 .willReturn(List.of());
 
         assertThat(leagueService.getMyRanking(USER_ID, null, DATE)).isEmpty();
@@ -308,12 +308,15 @@ class LeagueServiceTest {
     // ── getGlobalRanking ──────────────────────────────────────────────────
 
     @Test
-    @DisplayName("전역 랭킹 조회는 read model 순서대로 rank를 부여하고 라이브 필드는 스코프 밖이라 기본값이다")
+    @DisplayName("전역 랭킹 조회는 read model 순서대로 rank를 부여하고 라이브 필드를 채운다(핀은 스코프 밖)")
     void getGlobalRanking_returnsGlobalRanking() {
         LeagueRankingRow top = rankingRow(U2, "top", 500);
         LeagueRankingRow mid = rankingRow(USER_ID, "mid", 300);
-        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100)))
+        Instant start = Instant.parse("2026-06-24T02:00:00Z");
+        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100), any()))
                 .willReturn(List.of(top, mid));
+        given(focusLiveInfoLookup.liveInfoByUserId(eq(List.of(U2, USER_ID)), any()))
+                .willReturn(Map.of(U2, liveInfo(15, true, start, "수학")));
 
         List<LeagueMemberResponse> ranking = leagueService.getGlobalRanking("total", 100);
 
@@ -322,17 +325,21 @@ class LeagueServiceTest {
         assertThat(ranking.get(0).nickname()).isEqualTo("top");
         assertThat(ranking.get(1).rank()).isEqualTo(2);
         assertThat(ranking.get(1).userId()).isEqualTo(USER_ID);
-        // 전역 랭킹은 라이브 스코프 밖 — 핀·라이브 모두 기본값, 라이브 배치 조회도 하지 않는다
-        assertThat(ranking).allMatch(row -> !row.isPinned()
-                && !row.isFocusing() && row.focusTimeMinutes() == 0
-                && row.focusStartedAt() == null && row.focusTagName() == null);
-        verify(focusLiveInfoLookup, never()).liveInfoByUserId(any(), any());
+        // 정렬이 '확정 집계 + 진행 중 경과' 기준이라(findTop) 전역도 라이브를 실어야 표시와 순서가 맞는다.
+        assertThat(ranking.get(0).isFocusing()).isTrue();
+        assertThat(ranking.get(0).focusTimeMinutes()).isEqualTo(15);
+        assertThat(ranking.get(0).focusStartedAt()).isEqualTo(start);
+        assertThat(ranking.get(0).focusTagName()).isEqualTo("수학");
+        // 라이브 정보가 없는 행은 기본값. 핀은 여전히 전역 스코프 밖이라 전원 false.
+        assertThat(ranking.get(1).isFocusing()).isFalse();
+        assertThat(ranking.get(1).focusStartedAt()).isNull();
+        assertThat(ranking).allMatch(row -> !row.isPinned());
     }
 
     @Test
     @DisplayName("전역 랭킹 조회 - scope 대소문자 무관(TOTAL) 허용")
     void getGlobalRanking_scopeCaseInsensitive() {
-        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100)))
+        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100), any()))
                 .willReturn(List.of());
 
         assertThat(leagueService.getGlobalRanking("TOTAL", 100)).isEmpty();
@@ -341,23 +348,23 @@ class LeagueServiceTest {
     @Test
     @DisplayName("전역 랭킹 조회 - limit 상한(500) 초과 시 클램프되어 조회는 정상 수행")
     void getGlobalRanking_limitClamped() {
-        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(500)))
+        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(500), any()))
                 .willReturn(List.of());
 
         leagueService.getGlobalRanking("total", 100000);
 
-        verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(500));
+        verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(500), any());
     }
 
     @Test
     @DisplayName("전역 랭킹 조회 - limit 0/음수 → 최소 1로 클램프")
     void getGlobalRanking_limitMinClamped() {
-        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(1)))
+        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(1), any()))
                 .willReturn(List.of());
 
         leagueService.getGlobalRanking("total", 0);
 
-        verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(1));
+        verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(1), any());
     }
 
     @Test
@@ -374,7 +381,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("내 순위 조회는 전역 read model의 순위·합계를 반환한다")
     void getMyRankAssigned() {
-        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
+        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any(), any()))
                 .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
 
         LeagueRankResponse response = leagueService.getMyRank(USER_ID);
@@ -387,7 +394,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("비활성 또는 존재하지 않는 유저는 기존 DTO 호환을 위해 assigned=false를 반환한다")
     void getMyRankMissingReturnsUnassigned() {
-        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
+        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any(), any()))
                 .willReturn(Optional.empty());
 
         LeagueRankResponse response = leagueService.getMyRank(USER_ID);
@@ -399,7 +406,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("내 순위 조회 시 아레나 ID 없이 전역 rank 이벤트를 발행한다")
     void getMyRankEmitsRankViewed() {
-        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
+        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any(), any()))
                 .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
 
         leagueService.getMyRank(USER_ID);
@@ -413,7 +420,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("순위가 없는 유저는 LEAGUE_RANK_VIEWED를 발행하지 않는다")
     void getMyRankMissingDoesNotEmit() {
-        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any()))
+        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any(), any()))
                 .willReturn(Optional.empty());
 
         leagueService.getMyRank(USER_ID);

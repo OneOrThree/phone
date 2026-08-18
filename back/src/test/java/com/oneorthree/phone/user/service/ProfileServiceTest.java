@@ -77,7 +77,7 @@ class ProfileServiceTest {
 
     @BeforeEach
     void setUpRankingDefault() {
-        lenient().when(leagueRankingQueryRepository.findRankOf(any(), any(), any()))
+        lenient().when(leagueRankingQueryRepository.findRankOf(any(), any(), any(), any()))
                 .thenReturn(Optional.empty());
     }
 
@@ -98,7 +98,7 @@ class ProfileServiceTest {
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(5L);
         given(leagueRankingQueryRepository.findRankOf(
-                eq(USER_ID), eq(LocalDate.of(2026, 6, 22)), eq(LocalDate.of(2026, 6, 24))))
+                eq(USER_ID), eq(LocalDate.of(2026, 6, 22)), eq(LocalDate.of(2026, 6, 24)), eq(NOW)))
                 .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
 
         PublicProfileResponse response = profileService.getPublicProfile(USER_ID, NOW);
@@ -154,7 +154,7 @@ class ProfileServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(0L);
-        given(leagueRankingQueryRepository.findRankOf(any(), any(), any()))
+        given(leagueRankingQueryRepository.findRankOf(any(), any(), any(), any()))
                 .willReturn(Optional.empty());
 
         PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
@@ -247,7 +247,7 @@ class ProfileServiceTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(3L);
-        given(leagueRankingQueryRepository.findRankOf(any(), any(), any()))
+        given(leagueRankingQueryRepository.findRankOf(any(), any(), any(), any()))
                 .willReturn(Optional.of(new LeagueRankingPosition(1, 5, 500)));
 
         PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
