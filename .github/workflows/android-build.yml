@@ -1,0 +1,142 @@
+name: Android Build
+
+# 안드로이드 네이티브 빌드 게이트 (GROMO-1602)
+#
+# lint.yml 은 ESLint·Prettier·tsc·jest 만 돈다 — **Kotlin·Gradle·매니페스트·리소스가 깨져도
+# PR 은 전부 초록이고, 로컬에서 빌드해 본 사람만 안다.** 2026-08-18 집중 실드 작업에서
+# Kotlin 컴파일 에러와 XML 주석 오류(`--` 를 주석 안에 넣어 리소스 파싱 실패)가 둘 다
+# 앱 CI 를 그대로 통과했다.
+#
+# ⚠️ 트리거를 좁게 잡은 이유: 이 잡은 Gradle 구성만으로도 RN 모듈 전체를 훑어 lint 보다
+#    무겁다. 러너가 e2-medium(2 vCPU / 4 GB) 한 대뿐이라(ticket 1513), 안드로이드 네이티브가
+#    실제로 바뀐 PR 에서만 돌게 한다. TS 만 고친 PR 은 lint.yml 이 이미 잡는다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/android/**'
+      - 'app/modules/**/android/**'
+      - 'app/package.json'
+      - 'app/app.config.js'
+      - '.github/workflows/android-build.yml'
+  pull_request:
+    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드다 (lint.yml 과 같은 패턴)
+    paths:
+      - 'app/android/**'
+      - 'app/modules/**/android/**'
+      # 네이티브 의존성·플러그인 구성이 바뀌면 Gradle 구성이 깨질 수 있다.
+      - 'app/package.json'
+      - 'app/app.config.js'
+      # 이 워크플로 자신도 트리거에 넣는다 (lint.yml 이 GROMO-1513 에서 배운 것) — 안 넣으면
+      # 이 파일만 고치는 PR 에서 검사가 아예 안 돌아, **머지해 봐야** 맞는지 알 수 있다.
+      - '.github/workflows/android-build.yml'
+
+# 같은 PR 에 연속 푸시가 나면 앞 실행을 버린다 — 러너가 한 대뿐이라 큐가 밀리면
+# 뒤따르는 다른 PR 까지 통째로 기다리게 된다.
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 30
+
+    env:
+      # 자격 파일 없이 도는 CI 전용 환경 — 아래 'CI 자격 생성' 단계가 만든다.
+      APP_ENV: ci
+      # Gradle 데몬은 러너 메모리(4 GB)를 오래 물고 있는다. 잡이 끝나면 버릴 것이므로 끈다.
+      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 러너에 안드로이드 SDK 가 없으면 Gradle 이 "SDK location not found" 로 죽는데, 그
+      # 메시지만 보면 코드 문제로 오인하기 쉽다. 원인을 먼저 못박고 멈춘다.
+      - name: 안드로이드 SDK 확인
+        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK" ] || [ ! -d "$SDK" ]; then
+            echo "::error::러너에 안드로이드 SDK가 없습니다 (ANDROID_HOME/ANDROID_SDK_ROOT 미설정). 코드 문제가 아니라 러너 환경 문제입니다 — 러너에 commandline-tools + platforms/android-36 + build-tools/36.0.0 를 설치하거나, 이 잡을 SDK가 있는 러너로 옮기세요."
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      # Expo 자동링크가 node_modules 를 읽어 Gradle 프로젝트를 구성하므로 설치가 선행이다.
+      - name: Install dependencies
+        run: npm ci
+        working-directory: app
+
+      # build.gradle 은 credentials/<APP_ENV>/keystore.properties 가 없으면 **throw** 한다.
+      # 실제 자격을 CI 에 둘 이유가 없으므로(서명된 산출물을 만들지 않는다) 일회용 디버그 키와
+      # 최소 google-services.json 을 그때그때 만든다. 저장하지 않고 잡이 끝나면 사라진다.
+      - name: CI 자격 생성 (일회용)
+        working-directory: app/android
+        run: |
+          mkdir -p credentials/ci
+          keytool -genkeypair -v \
+            -keystore credentials/ci/debug.keystore \
+            -alias androiddebugkey -storepass android -keypass android \
+            -keyalg RSA -keysize 2048 -validity 365 \
+            -dname "CN=gromo-ci, OU=ci, O=oneorthree, L=Seoul, C=KR"
+          cat > credentials/ci/keystore.properties <<'EOF'
+          storeFile=debug.keystore
+          storePassword=android
+          keyAlias=androiddebugkey
+          keyPassword=android
+          EOF
+          # google-services 플러그인은 package_name 이 맞는 항목만 찾으면 통과한다.
+          # 값은 전부 더미다 — CI 는 앱을 실행하지 않으므로 Firebase 에 붙을 일이 없다.
+          cat > credentials/ci/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "gromo-ci",
+              "storage_bucket": "gromo-ci.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+                  "android_client_info": { "package_name": "com.oneorthree.gromo" }
+                },
+                "oauth_client": [],
+                "api_key": [{ "current_key": "AIzaSyCI0000000000000000000000000000000" }],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+
+      # 로컬 모듈이 앱보다 먼저 깨진다 — 여기서 Kotlin 컴파일과 **리소스 파싱**이 함께 돈다
+      # (parseDebugLocalResources). XML 주석에 `--` 를 넣어 리소스가 깨진 사고가 이 단계에서 잡힌다.
+      - name: screen-time 모듈 컴파일
+        run: ./gradlew :screen-time:compileDebugKotlin --no-daemon
+        working-directory: app/android
+
+      # 앱 매니페스트 병합 — 모듈이 선언한 권한·서비스가 앱 매니페스트와 충돌하지 않는지 본다.
+      # 집중 실드가 추가한 foregroundServiceType·specialUse 서브타입이 여기서 검증된다.
+      #
+      # ⚠️ 전체 assembleDebug 를 돌리지 않는 이유: RN + Hermes 번들까지 포함되어 2 vCPU 러너에서
+      #    수십 분이 걸리고, 러너가 한 대뿐이라 다른 PR 의 CI 를 통째로 막는다. 컴파일·리소스·
+      #    매니페스트가 실패의 대부분이라 그 셋만 잡는다. 전체 빌드가 필요해지면(예: ProGuard
+      #    규칙 회귀) 러너를 늘린 뒤 단계를 추가할 것.
+      - name: 앱 매니페스트 병합 검증
+        run: ./gradlew :app:processDebugMainManifest --no-daemon
+        working-directory: app/android
