@@ -107,7 +107,11 @@ jest.mock('@/store/UserContext', () => ({
 jest.mock('@/store/FocusContext', () => ({
   useFocus: () => ({ addFocusSeconds: mockAddFocusSeconds, todayFocusSeconds: 0 }),
 }));
-jest.mock('@/store/CoinContext', () => ({ useCoins: () => ({ refresh: jest.fn() }) }));
+// refresh는 모듈 범위로 고정한다 — 렌더마다 새 함수를 주면 이를 의존하는 settleFocusBlock·
+// finish·AppState 이펙트가 매 틱 재생성되고, cleanup의 cancelLeaveNotifications가 계속 불려
+// '복귀 시 취소' 단언이 공허해진다(codex 리뷰 5차).
+const mockCoinRefresh = jest.fn();
+jest.mock('@/store/CoinContext', () => ({ useCoins: () => ({ refresh: mockCoinRefresh }) }));
 jest.mock('@/store/SubjectContext', () => ({
   useSubjects: () => ({
     subjects: [{ id: 's1', name: '수학', accumulatedSeconds: 0, color: '#FFB4A2' }],
@@ -231,8 +235,15 @@ beforeEach(async () => {
   jest.useFakeTimers();
   appStateHandlers = [];
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
-    appStateHandlers.push(handler as (s: AppStateStatus) => void);
-    return { remove: jest.fn() } as never;
+    const h = handler as (s: AppStateStatus) => void;
+    appStateHandlers.push(h);
+    // remove가 실제로 빼야 한다 — no-op이면 이펙트 재구독 때마다 낡은 핸들러가 쌓여
+    // 이벤트가 중복 전달되고, cleanup 횟수 기반 단언이 오염된다(codex 리뷰 5차).
+    return {
+      remove: () => {
+        appStateHandlers = appStateHandlers.filter((x) => x !== h);
+      },
+    } as never;
   });
   jest.spyOn(Vibration, 'vibrate').mockImplementation(() => {});
   mockedShieldStart.mockResolvedValue(true);
@@ -290,6 +301,24 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(await readLiveRecord()).toBeNull();
   });
 
+  test('업로드가 대기열행(queued)이어도 종료는 그대로 진행된다 — 로컬 적립·레코드 삭제·결과 화면', async () => {
+    // 네트워크 장애로 서버 저장이 대기열에 남아도 종료 UX는 막히지 않는 게 현행 계약이다 —
+    // 로컬 적립·레코드 삭제·FocusResult 이동은 업로드 결과와 무관하고, saved 전용 후처리
+    // (코인 재조회)만 생략된다. 헤드리스화가 이 동작들을 saved 분기 안으로 옮기면 오프라인
+    // 사용자의 종료·적립이 유실된다(codex 리뷰 5차).
+    mockedUpload.mockResolvedValueOnce({ status: 'queued' });
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(5);
+    expect(await readLiveRecord()).toBeNull();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: true });
+    expect(mockCoinRefresh).not.toHaveBeenCalled(); // 지급 미확정 — 코인 재조회는 saved에서만
+  });
+
   test('업로드가 마커를 못 닫으면(onMarkerStillOpen) 화면이 cancelMarker로 닫는다', async () => {
     // PATCH가 클램프 창 밖이거나 재시도 가능 오류로 실패하면 uploadFocusBlock이 열린 마커 id를
     // 이 콜백으로 넘기고, 화면 쪽 배선이 cancelMarker를 불러야 친구 화면의 '집중 중'이 서버
@@ -304,6 +333,33 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       onMarkerStillOpen('marker-1');
     });
     expect(cancelMarker).toHaveBeenCalledWith('marker-1', 'user-1');
+  });
+
+  test('마커 시작 응답이 종료보다 늦으면: 보류 프라미스를 정산에 넘겨 늦은 id로 PATCH를 태운다', async () => {
+    // 시작 요청이 느린 사이 정지하면 화면은 '현재 id'(아직 null)가 아니라 보류 중인
+    // liveStartPromiseRef를 정산에 넘긴다 — 늦게 발급된 마커도 PATCH로 닫혀 시간·코인이
+    // 귀속된다. 헤드리스 구현이 현재 id만 읽으면 POST 폴백 후 늦은 마커가 열린 채 남는다
+    // (codex 리뷰 5차).
+    let resolveMarker!: (v: { sessionId: string }) => void;
+    mockedStartMarker.mockImplementationOnce(
+      () =>
+        new Promise<{ sessionId: string }>((r) => {
+          resolveMarker = r;
+        }),
+    );
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedUpload).not.toHaveBeenCalled(); // 응답 대기 — 업로드는 id 확정까지 미룬다
+
+    await act(async () => {
+      resolveMarker({ sessionId: 'marker-late' });
+    });
+    await flush();
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    expect(mockedUpload.mock.calls[0][0].sessionId).toBe('marker-late'); // 늦은 id로 PATCH
+    expect(cancelMarker).not.toHaveBeenCalled(); // 버리는 게 아니라 종료로 닫는다
   });
 
   test('마커 시작 실패 — 계측만 남기고 세션은 진행, 종료 업로드는 POST 폴백(sessionId null)', async () => {
@@ -386,6 +442,30 @@ describe('중도 정지의 completed 판정 — 카운트업만 완료 취급', 
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 10, completed: false });
     expect(logFocusSessionCompleted).toHaveBeenCalledTimes(1);
     expect(logFocusSessionAbandoned).not.toHaveBeenCalled();
+  });
+});
+
+describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로가기', () => {
+  test('언마운트 cleanup이 마커를 취소하고 abandoned(system_back)를 1회 남긴다', async () => {
+    // 시스템 뒤로가기는 finish 없이 화면을 내린다 — cleanup만이 열린 마커를 닫고 종결 계측을
+    // 남기는 유일한 주체다. 헤드리스화에서 이 cleanup이 빠지면 친구 화면에 '집중 중'이 서버
+    // 스윕(12h)까지 남고 세션이 완료/포기 어느 쪽도 안 찍힌다(codex 리뷰 5차).
+    await renderSession({ mode: 'countup' });
+    await advance(4000);
+    // 이 저장소의 RTL은 렌더뿐 아니라 unmount도 비동기다 — await 없이 부르면 정리 작업이
+    // 다음 테스트의 render와 겹쳐 그 트리가 빈 채로 남는다(스위트 연쇄 실패).
+    await view.unmount();
+    await act(async () => {}); // cancelLiveSession의 프라미스 체인 확정
+
+    expect(cancelMarker).toHaveBeenCalledTimes(1);
+    expect(cancelMarker).toHaveBeenCalledWith('marker-1', 'user-1');
+    expect(logFocusSessionAbandoned).toHaveBeenCalledTimes(1);
+    expect(logFocusSessionAbandoned).toHaveBeenCalledWith({
+      elapsed_seconds: 4,
+      reason: 'system_back',
+    });
+    expect(logFocusSessionCompleted).not.toHaveBeenCalled(); // 상호배타
+    expect(mockedUpload).not.toHaveBeenCalled(); // 정산은 다음 실행의 고아 정산 몫
   });
 });
 
@@ -594,6 +674,9 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     // 벽시계만 20초 전진(틱 없음 = 실기기의 JS suspend). 폴백 경로는 되감기가 없으므로
     // 여기서 advance를 쓰면 이탈 20초가 집중으로 적립되는 회귀를 못 잡는다(codex 리뷰).
     await jumpWallClock(20_000);
+    // 취소는 아직 없어야 한다 — 이펙트 재구독 cleanup이 미리 불러 두면 아래 단언이 공허해진다
+    // (codex 리뷰 5차: 목 안정화로 이 사전 조건이 성립하게 됐다).
+    expect(cancelLeaveNotifications).not.toHaveBeenCalled();
     await fireAppState('active');
     await flush();
 
@@ -626,6 +709,7 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     await advance(5000);
     await fireAppState('background');
     await jumpWallClock(10_000); // 벽시계만 — 실기기의 JS suspend 재현
+    expect(cancelLeaveNotifications).not.toHaveBeenCalled(); // 사전 조건 — 취소는 복귀가 부른다
     await fireAppState('active');
 
     expect(cancelLeaveNotifications).toHaveBeenCalled(); // 복귀했으면 예약 알림을 거둔다(codex 리뷰)
