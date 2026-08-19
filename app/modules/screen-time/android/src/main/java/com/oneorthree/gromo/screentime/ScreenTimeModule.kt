@@ -79,6 +79,23 @@ class ScreenTimeModule : Module() {
       }
     }
 
+    // 사용 정보 접근 설정 화면 열기 — 권한 상태와 무관하게 **항상** 연다.
+    //
+    // requestAuthorization은 이미 허용된 상태면 설정을 열지 않고 즉시 resolve한다(위). 그래서
+    // '허용됨' 상태에서 권한을 끄러 가려는 경로로는 쓸 수 없다. 앱 상세 설정(Linking.openSettings)도
+    // 답이 아니다 — 거기엔 사용 정보 접근 토글이 없다(reopenAndroidUsageAccess 주석과 같은 이유).
+    // 그 자리를 메우는 전용 함수다(코드리뷰 반영).
+    //
+    // 여는 데 실패하면 false — 호출부가 앱 상세 설정으로 폴백한다.
+    AsyncFunction("openUsageAccessSettings") {
+      try {
+        openUsageAccessSettings()
+        true
+      } catch (_: Exception) {
+        false
+      }
+    }
+
     // 사용시간 목표(초) 저장 — iOS의 App Group 기록 대응. M1은 저장만 한다.
     AsyncFunction("setGoalSeconds") { seconds: Int ->
       prefs.edit().putInt(KEY_GOAL_SECONDS, seconds).apply()

@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { T, withAlpha } from '@/constants/theme';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import { enforcesFocusShield, supportsFocusShield } from '@/services/screenTimeCapabilities';
 import AllowedAppsListView from '@/components/AllowedAppsListView';
 import { SubjectProgressList } from '@/components/SubjectProgressList';
 import { useFocus } from '@/store/FocusContext';
@@ -15,6 +16,12 @@ import { hms } from '../format';
 // 10 집중 · 메뉴 열림 / 11 메뉴 → 허용앱 — 세션 위 우측 슬라이드 드로어.
 // level 'menu'(허용앱 진입·오늘 전체·과목별 현황) ↔ 'apps'(허용앱 안내).
 // 허용앱 토큰은 opaque라 이름/아이콘 열람 불가 → 개수 + 사용법 안내만 표시.
+//
+// ⚠️ 허용앱 관련 UI는 전부 supportsFocusShield()로 감싼다(GROMO-1592 코드리뷰 반영).
+//    안드로이드는 허용앱 개념 자체가 없어 getAllowedSelectionCounts가 null을 주는데,
+//    호출부가 그걸 0으로 읽어 '허용앱이 없어요'로 그린다 — 없는 게 아니라 기능이 없는 거다.
+//    더 나쁜 건 '허용 안 된 앱은 잠겨서 열 수 없어요' 안내다. 안드로이드엔 차단이 없으니
+//    거짓말이고, MenuScreen에서 걷어낸 문구와 정확히 같은 종류다.
 const PANEL_W = 270;
 
 export function FocusMenuDrawer({
@@ -46,9 +53,12 @@ export function FocusMenuDrawer({
   useEffect(() => {
     if (open) {
       setLevel('menu'); // 열 때마다 1단계부터
-      ScreenTimeModule.getAllowedSelectionCounts()
-        .then((c) => setAllowedApps(c?.applications ?? 0))
-        .catch(() => setAllowedApps(0));
+      // 지원하지 않는 플랫폼에선 아예 부르지 않는다 — null을 0으로 읽어 '허용앱이 없어요'가 된다.
+      if (supportsFocusShield()) {
+        ScreenTimeModule.getAllowedSelectionCounts()
+          .then((c) => setAllowedApps(c?.applications ?? 0))
+          .catch(() => setAllowedApps(0));
+      }
     }
     Animated.parallel([
       Animated.timing(tx, { toValue: open ? 0 : PANEL_W, duration: 220, useNativeDriver: true }),
@@ -91,16 +101,22 @@ export function FocusMenuDrawer({
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={s.card} activeOpacity={0.85} onPress={() => setLevel('apps')}>
-              <View style={s.cardIcon}>
-                <Ionicons name="grid-outline" size={19} color={T.accentDeep} />
-              </View>
-              <View style={s.flex1}>
-                <Text style={s.cardTitle}>허용앱 사용하기</Text>
-                <Text style={s.cardSub}>집중 중 쓸 수 있는 앱</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
-            </TouchableOpacity>
+            {supportsFocusShield() && (
+              <TouchableOpacity
+                style={s.card}
+                activeOpacity={0.85}
+                onPress={() => setLevel('apps')}
+              >
+                <View style={s.cardIcon}>
+                  <Ionicons name="grid-outline" size={19} color={T.accentDeep} />
+                </View>
+                <View style={s.flex1}>
+                  <Text style={s.cardTitle}>허용앱 사용하기</Text>
+                  <Text style={s.cardSub}>집중 중 쓸 수 있는 앱</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
+              </TouchableOpacity>
+            )}
 
             <View style={s.card}>
               <View style={s.flex1}>
@@ -152,10 +168,15 @@ export function FocusMenuDrawer({
               </Text>
             </View>
 
-            <View style={s.warnBox}>
-              <Ionicons name="ban-outline" size={14} color={T.accentAlt} />
-              <Text style={s.warnText}>허용 안 된 앱은 잠겨서 열 수 없어요</Text>
-            </View>
+            {/* 실제로 잠기는 플랫폼에서만 — 안 잠기는데 잠긴다고 하면 그게 거짓 안내다.
+                지금은 위 카드가 이미 막아 안드로이드에선 도달할 수 없지만, apps 단으로 가는
+                경로가 하나 더 생겨도 문구가 되살아나지 않게 술어를 여기에도 둔다. */}
+            {enforcesFocusShield() && (
+              <View style={s.warnBox}>
+                <Ionicons name="ban-outline" size={14} color={T.accentAlt} />
+                <Text style={s.warnText}>허용 안 된 앱은 잠겨서 열 수 없어요</Text>
+              </View>
+            )}
           </>
         )}
       </Animated.View>
