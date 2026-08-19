@@ -1400,10 +1400,22 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(update).toHaveBeenCalledTimes(1);
     // 정지 → isPaused true, 재개 → false. revision은 update·start가 한 카운터를 공유하는
     // 단조 증가 — 600ms 뒤 LA 시작이 2를 소비했으므로 정지는 3부터다.
+    // 시간도 현재 진행값이어야 한다 — 초기값(60/0)을 계속 보내면 네이티브가 frozenSeconds로
+    // 그대로 얼려 정지 화면이 00:57 대신 01:00에 멈춰 보인다(codex 리뷰 37차).
     await fireEvent.press(view.getByTestId('focus.pause'));
-    expect(update.mock.calls.at(-1)![0]).toMatchObject({ isPaused: true, revision: 3 });
+    expect(update.mock.calls.at(-1)![0]).toMatchObject({
+      isPaused: true,
+      revision: 3,
+      remainingSeconds: 57,
+      elapsedSeconds: 3,
+    });
     await fireEvent.press(view.getByTestId('focus.pause'));
-    expect(update.mock.calls.at(-1)![0]).toMatchObject({ isPaused: false, revision: 4 });
+    expect(update.mock.calls.at(-1)![0]).toMatchObject({
+      isPaused: false,
+      revision: 4,
+      remainingSeconds: 57,
+      elapsedSeconds: 3,
+    });
     // 집중 페이즈 완주 → 휴식 전환이 밀려 들어온다(휴식 잔여 60초)
     await advance(57_000);
     expect(update.mock.calls.at(-1)![0]).toMatchObject({
