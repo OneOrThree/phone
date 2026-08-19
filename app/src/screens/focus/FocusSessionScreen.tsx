@@ -63,8 +63,6 @@ import { FocusLandscape } from './FocusLandscape';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import {
   logFocusSessionStarted,
-  logFocusSessionPaused,
-  logFocusSessionResumed,
   logFocusSessionCompleted,
   logFocusSessionAbandoned,
   logFocusDistractionDetected,
@@ -157,7 +155,6 @@ export default function FocusSessionScreen() {
   userIdRef.current = userId;
 
   const [page, setPage] = useState(0);
-  const [paused, setPaused] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 완료 게이트(GROMO-864) — 카운트다운 종료 시 결과 화면 직행 대신 확인을 받는다
   const [doneGate, setDoneGate] = useState(false);
@@ -199,7 +196,6 @@ export default function FocusSessionScreen() {
   const engine = useMemo(
     () =>
       createFocusSessionEngine(machineConfig, {
-        isPaused: () => pausedRef.current,
         isFinished: () => finishedRef.current,
         identity: () => liveIdentityRef.current,
         settleDelegates: () => settleDelegatesRef.current,
@@ -212,8 +208,18 @@ export default function FocusSessionScreen() {
   // 구독은 useState 브리지로 — useSyncExternalStore의 「통지 즉시 동기 렌더」는 같은
   // 프레임의 다른 마이크로태스크(캡처 재개 등)가 미표시 tick을 선관측하게 만든다. setState는
   // 스케줄러 배칭(매크로태스크 렌더)이라 화면 시절과 관측 타이밍이 동일하다(특성화가 잡은 차이).
-  const [session, setSessionMirror] = useState(engine.getSession);
-  useEffect(() => engine.subscribe(() => setSessionMirror(engine.getSession())), [engine]);
+  const [viewState, setViewState] = useState(() => ({
+    session: engine.getSession(),
+    paused: engine.isPausedState(),
+  }));
+  useEffect(
+    () =>
+      engine.subscribe(() =>
+        setViewState({ session: engine.getSession(), paused: engine.isPausedState() }),
+      ),
+    [engine],
+  );
+  const { session, paused } = viewState;
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const pageRef = useRef(page);
@@ -786,7 +792,7 @@ export default function FocusSessionScreen() {
         if (away < cur.display) {
           engine.setSession({ ...cur, display: cur.display - away });
         } else {
-          setPaused(true);
+          engine.setPausedState(true);
           engine.setSession({
             ...cur,
             display: pomo.focusMin * 60,
@@ -802,40 +808,8 @@ export default function FocusSessionScreen() {
     };
   }, [subjectName, finish, pomo.focusMin, pomo.breakMin, pomo.sets, nextTick, mode, engine]);
 
-  // 일시정지/재개 토글 — 새 상태에 맞춰 계측. 상태 업데이터 안이 아니라 여기서 발행(중복 방지).
-  const togglePause = useCallback(() => {
-    const next = !pausedRef.current;
-    setPaused(next);
-    if (next) {
-      // 방해초(GROMO-1214 코드리뷰) — 정지 시작 시각을 찍고 횟수를 센다. 여기(유저 조작)에서만
-      // 연다: 휴식 만료 복귀가 만드는 '일시정지 대기'는 아래 markerDeferred 분기가 정산 구간
-      // 자체를 재개 시점으로 밀어 이미 제외되므로, 방해초로 또 빼면 이중 차감이다.
-      engine.pauseStartBlock();
-      logFocusSessionPaused({ elapsed_seconds: Math.floor(engine.getSession().elapsed) });
-    } else if (engine.pauseCutAtBlock() != null) {
-      // 24시간을 넘긴 정지에서 재개 — 방해값으로 실을 수 없는 구간이라 블록 자체를 끊는다
-      // (blockPause.ts pauseCutAt 주석). 정산은 정지 시작 시점까지만 올리고, 재개 시점부터
-      // 새 블록·새 마커를 연다. 정지 구간은 어느 블록에도 안 들어가 집중으로 계상되지 않는다.
-      const resumedAt = new Date().toISOString();
-      engine.settleFocusBlock();
-      // 정산할 델타가 0이면 위 정산이 마커를 회전하지 않는다 — 참조를 덮어쓰기 전에 닫는다(회전했으면 no-op).
-      engine.cancelLiveSession();
-      engine.startBlockAt(resumedAt);
-      engine.resetBlockPause(); // 열린 정지 구간은 새 블록으로 넘기지 않는다
-      engine.startLiveSession(engine.blockStartedAt());
-      logFocusSessionResumed();
-    } else {
-      engine.pauseEndBlock();
-      // 일시정지 대기로 유예해둔 다음 블록 마커 — 실제 집중이 시작되는 재개 시점부터 연다.
-      // 정산 기준(settleAt)도 재개 시점으로 — 대기 동안은 경과초가 멈춰 있어 안전(코덱스 리뷰).
-      if (engine.isMarkerDeferred()) {
-        engine.setMarkerDeferred(false);
-        engine.startBlockAt(new Date().toISOString());
-        engine.startLiveSession(engine.blockStartedAt());
-      }
-      logFocusSessionResumed();
-    }
-  }, [engine]);
+  // 일시정지/재개 토글은 엔진 명령(GROMO-1600 5단계).
+  const togglePause = useCallback(() => engine.togglePause(), [engine]);
 
   // 정지 버튼(사용자 수동 종료) — 유저가 직접 마친 세션이므로 모드 무관 completed로 계측한다
   // (GROMO-1004, abandoned는 이탈 타임아웃 전용 — finish 안에서 발행). completed 인자는 별점

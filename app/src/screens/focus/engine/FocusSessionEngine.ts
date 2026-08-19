@@ -15,7 +15,11 @@ import axios from 'axios';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { FocusType } from '@/types/dto/focus';
 import { startFocusSession } from '@/services/focusApi';
-import { logFocusMarkerStartFailed } from '@/services/analyticsEvents';
+import {
+  logFocusMarkerStartFailed,
+  logFocusSessionPaused,
+  logFocusSessionResumed,
+} from '@/services/analyticsEvents';
 import { todayStr, todayStrKst } from '@/utils/localDate';
 import { uploadFocusBlock } from '../uploadFocusBlock';
 import { cancelMarker, flushPendingMarkerCancels } from '../pendingMarkerCancels';
@@ -45,8 +49,6 @@ const FOCUS_TYPE_BY_MODE: Record<FocusTimerMode, FocusType> = {
 };
 
 export interface FocusEngineDeps {
-  /** 일시정지 여부 — 정지 상태의 소유는 아직 화면(5단계에서 명령화) */
-  isPaused(): boolean;
   /** finish 여부 — finish 명령의 소유는 아직 화면(5단계) */
   isFinished(): boolean;
   /** 소유 표식 — 과목 변경(라우트 갱신)·계정 전환을 따라가는 렌더 미러 게터 */
@@ -82,6 +84,13 @@ export interface FocusSessionEngine {
   replaceSession(next: SessionState): void;
   startTicking(): void;
   stopTicking(): void;
+
+  // ── 일시정지 — 정지 상태·토글 명령의 소유자는 엔진(5단계)
+  isPausedState(): boolean;
+  /** 상태만 바꾼다(계측·장부 없음) — 휴식 만료 복귀의 「일시정지 대기」 전용 */
+  setPausedState(v: boolean): void;
+  /** 일시정지/재개 토글 — 방해초·24h 컷·마커 유예·계측까지 한 명령 */
+  togglePause(): void;
 
   /** 세션 최초 시작 시각(ISO) — 엔진 생성 시점 */
   sessionStartedAt(): string;
@@ -164,6 +173,7 @@ export function createFocusSessionEngine(
   let liveStartPromise: Promise<string | null> = Promise.resolve(null);
   // 휴식 만료 복귀가 다음 블록을 일시정지 대기로 만든 경우 — 마커 오픈을 재개 시점까지 유예(코덱스 리뷰)
   let markerDeferred = false;
+  let paused = false;
 
   const startBlockAt = (at: string) => {
     settleAt = at;
@@ -369,7 +379,7 @@ export function createFocusSessionEngine(
     startTicking() {
       if (interval != null) return;
       interval = setInterval(() => {
-        if (deps.isPaused()) return;
+        if (paused) return;
         const prev = session;
         if (prev.done) return;
         const next = nextTick(config, prev);
@@ -385,6 +395,47 @@ export function createFocusSessionEngine(
     stopTicking() {
       if (interval != null) clearInterval(interval);
       interval = null;
+    },
+
+    isPausedState: () => paused,
+    setPausedState(v) {
+      paused = v;
+      notify();
+    },
+    // 일시정지/재개 토글 — 새 상태에 맞춰 계측. 상태 업데이터 안이 아니라 여기서 발행(중복 방지).
+    togglePause() {
+      const next = !paused;
+      paused = next;
+      notify();
+      if (next) {
+        // 방해초(GROMO-1214 코드리뷰) — 정지 시작 시각을 찍고 횟수를 센다. 여기(유저 조작)에서만
+        // 연다: 휴식 만료 복귀가 만드는 '일시정지 대기'는 markerDeferred 분기가 정산 구간
+        // 자체를 재개 시점으로 밀어 이미 제외되므로, 방해초로 또 빼면 이중 차감이다.
+        blockPause = pauseStart(blockPause);
+        logFocusSessionPaused({ elapsed_seconds: Math.floor(session.elapsed) });
+      } else if (pauseCutAt(blockPause) != null) {
+        // 24시간을 넘긴 정지에서 재개 — 방해값으로 실을 수 없는 구간이라 블록 자체를 끊는다
+        // (blockPause.ts pauseCutAt 주석). 정산은 정지 시작 시점까지만 올리고, 재개 시점부터
+        // 새 블록·새 마커를 연다. 정지 구간은 어느 블록에도 안 들어가 집중으로 계상되지 않는다.
+        const resumedAt = new Date().toISOString();
+        settleFocusBlock();
+        // 정산할 델타가 0이면 위 정산이 마커를 회전하지 않는다 — 참조를 덮어쓰기 전에 닫는다(회전했으면 no-op).
+        cancelLiveSession();
+        startBlockAt(resumedAt);
+        blockPause = newBlockPause(); // 열린 정지 구간은 새 블록으로 넘기지 않는다
+        startLiveSession(settleAt);
+        logFocusSessionResumed();
+      } else {
+        blockPause = pauseEnd(blockPause);
+        // 일시정지 대기로 유예해둔 다음 블록 마커 — 실제 집중이 시작되는 재개 시점부터 연다.
+        // 정산 기준(settleAt)도 재개 시점으로 — 대기 동안은 경과초가 멈춰 있어 안전(코덱스 리뷰).
+        if (markerDeferred) {
+          markerDeferred = false;
+          startBlockAt(new Date().toISOString());
+          startLiveSession(settleAt);
+        }
+        logFocusSessionResumed();
+      }
     },
 
     sessionStartedAt: () => startedAtIso,
