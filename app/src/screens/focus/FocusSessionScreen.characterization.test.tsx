@@ -1412,18 +1412,35 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     });
   });
 
-  test('마커 취소 거부(대기열 쓰기 실패 등)에도: finish는 결과 이동을 계속한다', async () => {
-    // 성공 해결만으론 거부 경로를 아예 안 태운다 — 취소 실패가 finish의 정산·이동을 막는
-    // 회귀 방어(codex 리뷰 35차). ⚠️ 이 경로의 미처리 거부는 jest가 감지하지 못함을 돌연변이
-    // (.catch 제거)로 확인했다 — 삼켜짐 증명은 아래 언마운트 케이스가 담당한다.
-    (cancelMarker as jest.Mock).mockRejectedValueOnce(new Error('cancel queue write failed'));
+  test('LA 상태 동기화 거부(브리지 오류)에도: 타이머·정산·결과 이동은 계속된다', async () => {
+    // 성공 목만으론 동기화 호출의 .catch 제거를 못 잡는다 — 브리지가 거부하면 미처리 거부가
+    // 남는 회귀 방어(codex 리뷰 36차). 마운트 동기화가 거부를 소비한다.
+    (ScreenTimeModule.updateFocusActivity as jest.Mock).mockRejectedValueOnce(
+      new Error('bridge dead'),
+    );
     await renderSession({ mode: 'countup' });
     await advance(3000);
+    expect(view.getByText('00:00:03')).toBeTruthy(); // 타이머는 계속 돈다
     await fireEvent.press(view.getByTestId('focus.stop'));
     await flush();
     expect(mockNavigation.replace).toHaveBeenCalledWith(
       'FocusResult',
       expect.objectContaining({ completed: true, focusSeconds: 3 }),
+    );
+  });
+
+  test('마커 취소 거부(대기열 쓰기 실패 등)에도: finish는 결과 이동을 계속하고 미처리 거부가 없다', async () => {
+    // ⚠️ 경과가 있으면 정산이 마커를 먼저 소비해 finish의 cancelLiveSession이 cancelMarker를
+    // 아예 안 부른다 — 거부 주입이 소비되지 않은 채 통과하는 무효 테스트가 된다(codex 리뷰
+    // 36차에서 발각·정정). 취소가 실제로 도는 유일한 finish 조건인 경과 0초에서 거부를 태운다.
+    (cancelMarker as jest.Mock).mockRejectedValueOnce(new Error('cancel queue write failed'));
+    await renderSession({ mode: 'countup' });
+    await fireEvent.press(view.getByTestId('focus.stop')); // 경과 0 — 델타 없음 → 취소 경로
+    await flush();
+    expect(cancelMarker).toHaveBeenCalledTimes(1); // 거부가 실제로 소비됐다
+    expect(mockNavigation.replace).toHaveBeenCalledWith(
+      'FocusResult',
+      expect.objectContaining({ completed: true, focusSeconds: 0 }),
     );
   });
 
