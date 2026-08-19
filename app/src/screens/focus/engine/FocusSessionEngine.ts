@@ -22,7 +22,7 @@ import {
   logFocusSessionPaused,
   logFocusSessionResumed,
 } from '@/services/analyticsEvents';
-import ScreenTimeModule from '@/services/ScreenTimeModule';
+import ScreenTimeModule, { type FocusActivityState } from '@/services/ScreenTimeModule';
 import { todayStr, todayStrKst } from '@/utils/localDate';
 import { uploadFocusBlock } from '../uploadFocusBlock';
 import { cancelMarker, flushPendingMarkerCancels } from '../pendingMarkerCancels';
@@ -138,6 +138,12 @@ export interface FocusSessionEngine {
   setMarkerDeferred(v: boolean): void;
   isMarkerDeferred(): boolean;
 
+  // ── Live Activity 상태(GROMO-1597) — revision 카운터의 소유자는 엔진.
+  //    시간 필드는 「마지막 렌더 시점」 상태(base)를 받는다: 600ms 캡처 콜백처럼 렌더 밖
+  //    문맥이 엔진 상태(즉시)를 읽으면 같은 프레임의 미표시 tick이 페이로드에 선반영돼
+  //    화면 표시와 어긋난다(특성화가 잡은 차이 — 페이즈 1 워치 스냅샷도 이 카운터를 쓴다).
+  buildActivityState(base: SessionState): FocusActivityState;
+
   // ── 정산·그리드 기준점
   settleFocusBlock(endedAtOverride?: string): void;
   setServerSnapshot(snap: { day: string; seconds: number } | null): void;
@@ -192,6 +198,8 @@ export function createFocusSessionEngine(
   let markerDeferred = false;
   let paused = false;
   let finished = false;
+  // Live Activity revision — 단조 증가, 늦게 도착한 갱신이 최신 표시를 덮지 않게 네이티브가 비교
+  let activityRevision = 0;
   // 이탈 타임아웃으로 abandoned를 발행한 세션 — completed 발행과 상호배타 보장(GROMO-1004)
   let abandoned = false;
   // completed를 이미 발행했는지 — 완료 게이트와 finish 두 경로의 이중 발행 방지(코덱스 리뷰)
@@ -542,6 +550,18 @@ export function createFocusSessionEngine(
       markerDeferred = v;
     },
     isMarkerDeferred: () => markerDeferred,
+
+    buildActivityState(base) {
+      activityRevision += 1;
+      return {
+        mode: config.mode,
+        phase: base.phase,
+        isPaused: paused,
+        elapsedSeconds: Math.floor(base.elapsed),
+        remainingSeconds: config.mode === 'countup' ? null : Math.max(0, Math.floor(base.display)),
+        revision: activityRevision,
+      };
+    },
 
     settleFocusBlock,
     setServerSnapshot(snap) {

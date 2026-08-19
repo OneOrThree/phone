@@ -385,27 +385,16 @@ export default function FocusSessionScreen() {
     [],
   );
 
-  // Live Activity 세션 상태(GROMO-1597) — 모드·페이즈·정지를 초 단위 상대값으로 만들어
-  // 네이티브에 넘긴다(Date 앵커는 네이티브가 수신 시각 기준으로 계산). revision은 단조 증가 —
-  // 늦게 도착한 갱신이 최신 표시를 덮지 않게 네이티브가 비교한다.
-  const activityRevisionRef = useRef(0);
   // LA 페이로드는 「마지막 렌더 시점」 상태를 읽는다 — 엔진 상태(즉시)가 아니라 렌더 미러.
   // 600ms 캡처 콜백은 렌더 밖에서 돌므로, 엔진을 직접 읽으면 같은 프레임의 미표시 tick이
   // 페이로드에 선반영돼 화면 표시와 어긋난다(엔진 이관 때 특성화가 잡은 차이).
   const renderedSessionRef = useRef(session);
   renderedSessionRef.current = session;
-  const buildActivityState = useCallback((): FocusActivityState => {
-    const s = renderedSessionRef.current;
-    activityRevisionRef.current += 1;
-    return {
-      mode,
-      phase: s.phase,
-      isPaused: pausedRef.current,
-      elapsedSeconds: Math.floor(s.elapsed),
-      remainingSeconds: mode === 'countup' ? null : Math.max(0, Math.floor(s.display)),
-      revision: activityRevisionRef.current,
-    };
-  }, [mode]);
+  // LA 페이로드 조립은 엔진(revision 소유) — 시간은 렌더 미러 기준(위 주석 참고).
+  const buildActivityState = useCallback(
+    (): FocusActivityState => engine.buildActivityState(renderedSessionRef.current),
+    [engine],
+  );
 
   // Live Activity(다이나믹 아일랜드) — 캐릭터 스냅샷을 App Group에 저장한 뒤 시작.
   // 화면을 떠나면 종료. 스냅샷 실패 시 위젯이 기본 마스코트로 폴백한다.
