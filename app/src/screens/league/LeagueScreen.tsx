@@ -8,8 +8,17 @@ import {
   Text,
   TouchableOpacity,
   View,
+  type LayoutChangeEvent,
 } from 'react-native';
-import Animated, { LinearTransition } from 'react-native-reanimated';
+import Animated, {
+  LinearTransition,
+  runOnJS,
+  useAnimatedReaction,
+  useAnimatedRef,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -52,7 +61,10 @@ import {
 
 // 리그 메인 (탭 2번째) — 포디움형 레이아웃.
 // 리그 탭: 최상단 세그먼트 + 좌 마감/우 제목(탭=리그 선택 드롭다운)
-//   + Top3 포디움 + sticky '내 순위' 스트립(탭=내 행으로) + 4위~ 랭킹(진입 시 내 행 자동 스크롤)
+//   + Top3 포디움 + 4위~ 랭킹 + 플로팅 '내 순위' 행(GROMO-1614 — 하단 탭바 위 상시 표시,
+//     스크롤로 내 자리가 화면에 들어오면 그 칸에 도킹, 지나치면 상단에 붙는 양방향 클램프.
+//     전체 리그 100위 밖은 전역 순위(GET /league/me/rank)로 목록 끝 ⋯ 아래에 내 행을 편입.
+//     구 sticky 상단 스트립은 이 행으로 대체·폐기)
 //   + '핀한 사람만' 필터(나+핀만, 나 대비 시간 차 표시). 하단 시트는 폐기.
 //   - 시안의 시험 칩은 카테고리(온보딩 16)가 많아 폐기 — 제목 드롭다운으로 전체/내 시험/다른 시험 전환.
 //   - 내 순위는 리스트와 같은 파생값 하나만 쓴다(순위 기준 이원화 방지).
@@ -61,11 +73,8 @@ import {
 
 // 리그 드롭다운의 '전체' 항목 라벨
 const LEAGUE_ALL = '전체';
-// 자동/탭 스크롤 시 sticky 스트립에 내 행이 가리지 않게 두는 위 여유.
-// 실측(onLayout) 전까지 쓰는 기본값 — 글자 배율을 키우면 스트립이 이보다 두꺼워지므로
-// 실제 높이를 재서 덮어쓴다(코드리뷰). 이 상수만 믿으면 배율이 큰 기기에서 내 행이
-// 스트립 밑에 깔린 채로 멈춘다.
-const MY_STRIP_SPACE = 70;
+// 플로팅 '내 순위' 행이 리스트 뷰포트 위/아래 가장자리에서 띄우는 여백(GROMO-1614)
+const FLOAT_INSET = 8;
 // 포디움 메달 그라데이션 (1·2·3위 — 골드/실버/브론즈, 밝은 쪽→진한 쪽)
 const MEDAL_GRAD = [T.medalGrad.gold, T.medalGrad.silver, T.medalGrad.bronze];
 
@@ -99,13 +108,21 @@ export default function LeagueScreen() {
   // 프로필 상세·친구 탭과 같은 서버 상태를 공유해 화면 간 불일치가 없다.
   const { pinned, togglePin, loaded: pinnedLoaded, refetch: refetchPinned } = usePinned();
 
-  const listRef = useRef<ScrollView>(null);
-  // 랭킹 리스트 안 내 행의 y — 스트립 탭/진입 자동 스크롤 목적지
+  const listRef = useAnimatedRef<Animated.ScrollView>();
+  // 랭킹 리스트 콘텐츠 안 내 행(내 자리)의 y — 플로팅 행 탭 스크롤 목적지(JS)
   const myRowY = useRef(0);
-  // 리스트 뷰포트 높이 — 내 행이 첫 화면 안에 보이면 자동 스크롤 생략(포디움 유지)
-  const listHeight = useRef(0);
-  // 진입·리그 전환 직후 1회 내 행으로 자동 스크롤
-  const pendingScrollToMe = useRef(true);
+  // ── 플로팅 '내 순위' 행 (GROMO-1614) — 스크롤 위치 추적은 전부 UI 스레드(shared value)로,
+  //    JS 리렌더는 플로팅↔도킹 경계를 넘는 순간에만 일어난다(GROMO-1572 매 프레임 리렌더 회피).
+  const scrollY = useSharedValue(0);
+  // 내 자리(포디움 블록/내 행)의 콘텐츠 y. -1은 미실측 — 실측 전엔 플로팅을 띄우지 않는다.
+  const myRowYsv = useSharedValue(-1);
+  // 도킹 목적지의 높이 — 위쪽 이탈 판정용. 행이면 플로팅 행과 같지만 포디움 블록이면 훨씬 크다.
+  const dockHsv = useSharedValue(62);
+  // 플로팅 행 자신의 높이(하단 클램프용) — 실측 전 근사값. 도킹 목적지 높이와 분리한다:
+  // 내가 Top3면 목적지는 포디움 블록이라 행보다 훨씬 크다.
+  const floatHsv = useSharedValue(62);
+  // 리스트 뷰포트 높이(shared) — 클램프 하한 계산용
+  const listHsv = useSharedValue(0);
 
   // 내 티어·마감 스케줄 실데이터 (GROMO-538) — 티어 조회는 여기 한 곳에서만.
   const { tier, deadlineAt, refetch: refetchMeta } = useLeagueMeta();
@@ -121,7 +138,14 @@ export default function LeagueScreen() {
     refetch: refetchRanking,
   } = useLeagueRanking();
   // '전체' 탭 전용 진짜 전역 랭킹(직군 리스트 재사용 금지 — GROMO-644).
-  const { ranking: globalRanking, error: globalError, refetch: refetchGlobal } = useGlobalRanking();
+  // myGlobalRank = 내 전역 순위(top-100 밖 포함) — 100위 밖 플로팅 행의 순위 원천(GROMO-1614).
+  const {
+    ranking: globalRanking,
+    myGlobalRank,
+    myGlobalSeconds,
+    error: globalError,
+    refetch: refetchGlobal,
+  } = useGlobalRanking();
 
   // 진입(포커스)마다 증가 — 넛지 노출을 '진입당 1회'로 발화시키는 트리거. 랭킹은 비동기 로드라
   // 포커스 시점엔 myIdx가 아직 -1일 수 있어, 데이터가 채워진 뒤 이 seq 기준으로 딱 1회만 쏜다.
@@ -137,7 +161,7 @@ export default function LeagueScreen() {
   );
   // 내 실 서버 ID — 랭킹 행의 userId는 MY_USER_ID 센티널로 치환돼 있어(useLeagueRanking)
   // 내 프로필 진입 시 본인 통계 조회용 실 ID가 따로 필요하다.
-  const { userId: myUserId } = useUser();
+  const { userId: myUserId, nickname: myNickname } = useUser();
 
   // 친구 목록·받은 요청 수 — 실데이터(포커스마다 재조회)
   const {
@@ -210,29 +234,25 @@ export default function LeagueScreen() {
 
   // 내 순위 — 위 리스트와 같은 파생값에서만 계산
   const myIdx = visibleRanking.findIndex((r) => r.userId === MY_USER_ID);
-  const above = myIdx > 0 ? visibleRanking[myIdx - 1] : null;
-  // ⚠️ 격차 계산은 **화면에 그려지는 값과 같은 축**으로 한다 — 두 겹이다.
+  const myMember = myIdx >= 0 ? visibleRanking[myIdx] : null;
+  // 전체 리그 100위 밖일 때의 실제 전역 순위(GROMO-1614). 직군 뷰에는 대응 API가 없어 null —
+  // 그 경우 플로팅 행 대신 순위 없는 안내 카드를 띄운다(아래 JSX).
+  const outOfListRank = isAll && myIdx < 0 ? myGlobalRank : null;
+  // 100위 밖 행의 시간 — 순위와 같은 스냅샷(me/rank 응답)이 우선. 순위 따로·시간 따로 짝지으면
+  // 세션 조회 실패 조합에서 정확한 순위 옆에 0/이전 시간이 붙는다(코덱스 리뷰). 응답에 시간이
+  // 없을 때만 세션 합산 권위값(mySeconds)으로 보충한다.
+  const outOfListSeconds = myGlobalSeconds ?? mySeconds;
+  // ⚠️ 격차(핀 모드 나 대비 차이) 계산은 **화면에 그려지는 값과 같은 축**으로 한다 — 두 겹이다.
   //    ① 단계값: 재정렬을 한 칸씩 재생하는 동안 목록의 기록은 단계값인데 여기만 서버
-  //       최종값(mySeconds)을 쓰면, 아직 4위·3위가 보이는 프레임에서 `above - my`가 음수가
-  //       되고 hms가 0으로 눌러 `▲ N위까지 00:00:00`이 뜬다(codex 리뷰).
+  //       최종값(mySeconds)을 쓰면 아직 이전 순위가 보이는 프레임에서 차이가 음수가 된다(codex 리뷰).
   //    ② 라이브 경과: 서버 정렬이 '확정 집계 + 진행 경과' 기준이 되면서(GROMO-1606) 확정값
-  //       끼리 빼면 같은 문제가 다시 생긴다 — 확정 600초 + 경과 1시간으로 내 위에 올라온
-  //       행과의 격차가 음수다. 행 표시(LiveFocusTime)가 단계값 + 경과이므로 격차도
-  //       memberLiveSeconds(단계값 + 경과)끼리 뺀다(GROMO-1606 코덱스 리뷰).
+  //       끼리 빼면 같은 문제가 다시 생긴다 — 행 표시(LiveFocusTime)가 단계값 + 경과이므로
+  //       격차도 memberLiveSeconds(단계값 + 경과)끼리 뺀다(GROMO-1606 코덱스 리뷰).
   //    시계는 렌더 시점 스냅샷 — 격차는 보조 수치라 초 단위 틱은 걸지 않는다(스테이징·재조회
   //    렌더마다 갱신). 목록 밖(top-100 밖)이면 애초에 단계화 대상이 아니므로 내 세션 합산
   //    값(mySeconds) 그대로다 — 그때도 유효한 값이다(useLeagueRanking 주석).
   const gapNow = Date.now();
   const myLiveSeconds = myIdx >= 0 ? memberLiveSeconds(visibleRanking[myIdx], gapNow) : mySeconds;
-
-  // 넛지 노출 — '내 순위 스트립'(▲ N위까지 M분)이 실제 순위와 함께 뜰 때(rank) 진입당 1회.
-  // 랭킹 비동기 로드로 myIdx가 뒤늦게 확정돼도 focusSeq 기준으로 딱 1회만 발화(중복 방지).
-  useEffect(() => {
-    if (tab === 'league' && myIdx >= 0 && rankNudgeSeq.current !== focusSeq) {
-      rankNudgeSeq.current = focusSeq;
-      logNudgeViewed({ type: 'rank' });
-    }
-  }, [tab, myIdx, focusSeq]);
 
   // 포디움(Top3) / 리스트(4위~ 또는 핀한 사람만)
   const top3 = visibleRanking.slice(0, 3);
@@ -243,16 +263,69 @@ export default function LeagueScreen() {
   const pinnedRows = visibleRanking.filter((r) => r.userId === MY_USER_ID || pinned.has(r.userId));
   const listRows = pinnedOnly ? (hasPinned ? pinnedRows : []) : visibleRanking.slice(3);
 
-  function scrollToMyRow() {
-    // 내가 포디움(Top3)이거나 핀 모드면 최상단으로
-    if (myIdx < 3 || pinnedOnly) {
-      listRef.current?.scrollTo({ y: 0, animated: true });
-      return;
+  // ── 플로팅 '내 순위' 행 (GROMO-1614) ─────────────────────────────────────
+  // 도킹 목적지가 있는가 — 내 자리(포디움 칸/목록 내 행/100위 밖 편입 행)가 리스트에 실재할 때만
+  // 플로팅↔도킹 전환이 성립한다. 핀 모드는 목록이 나+핀 요약이라 플로팅을 걸지 않는다.
+  const hasDockTarget = !pinnedOnly && (myIdx >= 0 || outOfListRank != null);
+
+  // 넛지 노출 — 내 실제 순위가 **실제로 그려질 때만**(rank) 진입당 1회. 데이터 존재만 보면
+  // 핀 모드(내 행 미편입·플로팅 비활성)로 재진입해도 노출로 집계돼 전환율이 왜곡된다(코덱스 리뷰).
+  // 랭킹 비동기 로드로 순위가 뒤늦게 확정돼도 focusSeq 기준으로 딱 1회만 발화(중복 방지).
+  const myRankShown = hasDockTarget || (pinnedOnly && hasPinned && myIdx >= 0);
+  useEffect(() => {
+    if (tab === 'league' && myRankShown && rankNudgeSeq.current !== focusSeq) {
+      rankNudgeSeq.current = focusSeq;
+      logNudgeViewed({ type: 'rank' });
     }
-    listRef.current?.scrollTo({
-      y: Math.max(myRowY.current - myStripH.current, 0),
-      animated: true,
-    });
+  }, [tab, myRankShown, focusSeq]);
+
+  // 플로팅 상태(JS) — UI 스레드 reaction이 경계를 넘는 순간에만 밀어 넣는다. 도킹 중에는
+  // 오버레이를 아예 떼어 실제 행이 터치를 받게 한다(경계에서 두 위치가 일치해 이음새 없음).
+  const [floating, setFloating] = useState(false);
+  const floatBottomPad = tabBarSafeBottom(insets.bottom) + FLOAT_INSET;
+  const onListScroll = useAnimatedScrollHandler((e) => {
+    scrollY.value = e.contentOffset.y;
+  });
+  // 리그 탭 재진입 시 스크롤 좌표 리셋 — 탭 전환으로 ScrollView가 언마운트됐다 다시 마운트되면
+  // 네이티브 오프셋은 0인데 shared value는 이전 값을 유지해, 첫 onScroll 전까지 플로팅 판정이
+  // 어긋난다(코덱스 리뷰). 마운트 직후의 오프셋 0에 맞춰 초기화한다.
+  useEffect(() => {
+    if (tab === 'league') scrollY.value = 0;
+  }, [tab, scrollY]);
+  // 내 자리 실측 — 포디움 블록(내가 Top3일 때)·목록 내 행·100위 밖 편입 행이 공유한다.
+  // 포디움은 칸이 아니라 블록 단위다: 칸의 y는 부모(podium View) 기준이라 콘텐츠 좌표가 아니고,
+  // 블록이 보이면 내 칸도 보이므로 '포디움 상단이 뷰포트에 있으면 도킹'으로 충분하다.
+  const onMyLayout = (e: LayoutChangeEvent) => {
+    myRowY.current = e.nativeEvent.layout.y;
+    myRowYsv.value = e.nativeEvent.layout.y;
+    dockHsv.value = e.nativeEvent.layout.height;
+  };
+  useAnimatedReaction(
+    () => {
+      if (myRowYsv.value < 0 || listHsv.value <= 0) return false; // 미실측 — 판정 보류
+      const raw = myRowYsv.value - scrollY.value;
+      // 위쪽 이탈은 목적지 '하단'이 (상단에 붙을) 오버레이 하단보다 위로 지나갔는가로 본다 —
+      // 행(목적지 높이 == 플로팅 높이)은 상단 여백 판정과 동일하게 이어지고, 포디움처럼 목적지가
+      // 더 큰 경우엔 콘텐츠 최상단(y≈0)에 있어도 플로팅이 뜨지 않는다(코덱스 리뷰 — Top3에서
+      // 첫 화면부터 포디움 위에 겹치던 문제).
+      const topGone = raw + dockHsv.value < FLOAT_INSET + floatHsv.value - 1;
+      return topGone || raw > listHsv.value - floatBottomPad - floatHsv.value + 1;
+    },
+    (now, prev) => {
+      if (now !== prev) runOnJS(setFloating)(now);
+    },
+    [floatBottomPad],
+  );
+  // 오버레이 위치 — 내 자리의 뷰포트 y를 위/아래 가장자리로 클램프. 경계 근처에선 raw≈클램프라
+  // 마운트/언마운트 순간 실제 행과 정확히 겹쳐 '자리에 딱 들어가는' 연출이 된다.
+  const floatStyle = useAnimatedStyle(() => {
+    const raw = myRowYsv.value - scrollY.value;
+    const maxY = listHsv.value - floatBottomPad - floatHsv.value;
+    return { transform: [{ translateY: Math.min(Math.max(raw, FLOAT_INSET), maxY) }] };
+  }, [floatBottomPad]);
+
+  function scrollToMyRow() {
+    listRef.current?.scrollTo({ y: Math.max(myRowY.current - FLOAT_INSET, 0), animated: true });
   }
 
   // 드롭다운에서 리그 선택 — 최상단(포디움)부터 보여주고, 내 행이 화면 밖이면 자동 스크롤 예약
@@ -266,7 +339,6 @@ export default function LeagueScreen() {
     setLeagueFilter(league);
     setLeagueMenuOpen(false);
     listRef.current?.scrollTo({ y: 0, animated: false });
-    pendingScrollToMe.current = true;
   }
 
   function togglePinnedOnly() {
@@ -310,11 +382,25 @@ export default function LeagueScreen() {
     });
   }
 
+  // 100위 밖 편입 행(전체 리그) 탭 — 목록에 원본 멤버가 없어 openProfile을 못 태우므로
+  // 같은 isMe 경로로 직접 진입한다. 순위는 전역 순위(outOfListRank)를 그대로 전달.
+  function openMyProfileOutOfList() {
+    if (!myUserId || outOfListRank == null) return;
+    logLeagueProfileOpened({ is_me: true });
+    navigation.navigate('FriendProfile', {
+      userId: myUserId,
+      nickname: myNickname || '나',
+      tierLevel: tier.tierLevel ?? 1,
+      isFriend: false,
+      isMe: true,
+      rank: outOfListRank,
+      rankLabel: filter,
+    });
+  }
+
   // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 리그 경쟁·티어·친구 탭을 차례로 설명
   const segmentRef = useRef<View | null>(null);
   const headerRef = useRef<View | null>(null);
-  // sticky '내 순위' 스트립의 실제 높이 — 스크롤 오프셋 계산에 쓴다(위 MY_STRIP_SPACE 주석 참고).
-  const myStripH = useRef(MY_STRIP_SPACE);
   const guideSteps: GuideStep[] = [
     {
       text: '리그에 온 걸 환영해요!\n같은 시험을 준비하는 사람들과 일주일 동안 집중 시간으로 경쟁하는 곳이에요.',
@@ -389,283 +475,299 @@ export default function LeagueScreen() {
       )}
 
       {tab === 'league' ? (
-        <ScrollView
-          ref={listRef}
-          style={s.list}
-          onLayout={(e) => {
-            listHeight.current = e.nativeEvent.layout.height;
-          }}
-          stickyHeaderIndices={showPodium ? [1] : [0]}
-          contentContainerStyle={{ paddingBottom: tabBarSafeBottom(insets.bottom) + 16 }}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshingLeague}
-              onRefresh={onRefreshLeague}
-              tintColor={T.accent}
-            />
-          }
-        >
-          {/* ── Top3 포디움 (2위·1위·3위 배치, 1위 가운데 상단) ──
+        <View style={s.listWrap}>
+          <Animated.ScrollView
+            ref={listRef}
+            style={s.list}
+            onLayout={(e) => {
+              listHsv.value = e.nativeEvent.layout.height;
+            }}
+            onScroll={onListScroll}
+            scrollEventThrottle={16}
+            contentContainerStyle={{ paddingBottom: tabBarSafeBottom(insets.bottom) + 16 }}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshingLeague}
+                onRefresh={onRefreshLeague}
+                tintColor={T.accent}
+              />
+            }
+          >
+            {/* ── Top3 포디움 (2위·1위·3위 배치, 1위 가운데 상단) ──
                칸의 key는 userId라 순위가 바뀌면 **같은 노드가 자리를 옮긴다** → layout 트랜지션이
                성립한다(메달 번호·1위 여백은 자리에 붙는 값이라 즉시 갈아끼워진다).
                ⚠️ 포디움↔목록 **경계를 넘는 이동(3위↔4위)은 이번 범위 밖이다.** 4위 행과 3위 칸은
                   서로 다른 컴포넌트라 노드가 언마운트/리마운트되고, 레이아웃 트랜지션은 살아남은
                   노드에만 성립한다. 같은 노드로 잇자면 포디움과 목록을 한 트리로 합쳐야 하는데
                   그건 이 배치가 감당할 구조 변경이 아니다 — 그 경우는 지금처럼 툭 바뀐다(후속). */}
-          {showPodium && (
-            <View style={s.podium}>
-              {[1, 0, 2]
-                .filter((i) => top3[i] != null)
-                .map((i) => {
-                  const member = top3[i];
-                  const isMe = member.userId === MY_USER_ID;
-                  const first = i === 0;
-                  return (
-                    <AnimatedPodiumCol
-                      key={member.userId}
-                      layout={m.css(PODIUM_LAYOUT)}
-                      style={[s.podiumCol, first ? s.podiumColFirst : null]}
-                      activeOpacity={0.85}
-                      onPress={() => openProfile(member)}
-                    >
-                      <View style={s.podiumMedalCol}>
-                        {first && (
-                          <MaterialCommunityIcons
-                            name="crown"
-                            size={18}
-                            color={T.medal.gold}
-                            style={s.podiumCrown}
-                          />
-                        )}
-                        <LinearGradient
-                          colors={MEDAL_GRAD[i]}
-                          start={{ x: 0.2, y: 0 }}
-                          end={{ x: 0.8, y: 1 }}
-                          style={[
-                            s.podiumMedal,
-                            first ? s.podiumMedalFirst : null,
-                            { shadowColor: MEDAL_GRAD[i][1] },
-                          ]}
-                        >
-                          <Text style={s.podiumMedalNum} allowFontScaling={false}>
-                            {i + 1}
-                          </Text>
-                        </LinearGradient>
-                      </View>
-                      <View style={[s.podiumAvatarWrap, isMe ? s.podiumAvatarWrapMe : null]}>
-                        <MemberAvatar size={first ? 60 : 48} />
-                        {isMe && (
-                          <View style={s.podiumMeBadge} pointerEvents="none">
-                            <Text style={s.podiumMeBadgeText} allowFontScaling={false}>
-                              나
+            {showPodium && (
+              /* 내가 Top3면 포디움 블록 자체가 플로팅 행의 도킹 목적지다(onMyLayout 주석 참고) */
+              <View style={s.podium} onLayout={myIdx >= 0 && myIdx < 3 ? onMyLayout : undefined}>
+                {[1, 0, 2]
+                  .filter((i) => top3[i] != null)
+                  .map((i) => {
+                    const member = top3[i];
+                    const isMe = member.userId === MY_USER_ID;
+                    const first = i === 0;
+                    return (
+                      <AnimatedPodiumCol
+                        key={member.userId}
+                        layout={m.css(PODIUM_LAYOUT)}
+                        style={[s.podiumCol, first ? s.podiumColFirst : null]}
+                        activeOpacity={0.85}
+                        onPress={() => openProfile(member)}
+                      >
+                        <View style={s.podiumMedalCol}>
+                          {first && (
+                            <MaterialCommunityIcons
+                              name="crown"
+                              size={18}
+                              color={T.medal.gold}
+                              style={s.podiumCrown}
+                            />
+                          )}
+                          <LinearGradient
+                            colors={MEDAL_GRAD[i]}
+                            start={{ x: 0.2, y: 0 }}
+                            end={{ x: 0.8, y: 1 }}
+                            style={[
+                              s.podiumMedal,
+                              first ? s.podiumMedalFirst : null,
+                              { shadowColor: MEDAL_GRAD[i][1] },
+                            ]}
+                          >
+                            <Text style={s.podiumMedalNum} allowFontScaling={false}>
+                              {i + 1}
                             </Text>
-                          </View>
-                        )}
-                      </View>
-                      <View style={s.podiumNameRow}>
-                        <TierBadge level={member.tierLevel} size={16} />
-                        <Text
-                          style={[s.podiumName, isMe ? s.podiumNameMe : null]}
-                          numberOfLines={1}
-                        >
-                          {member.nickname}
-                        </Text>
-                        {member.isFocusing && <View style={s.podiumFocusDot} />}
-                      </View>
-                      {/* GROMO-810: Top3 도 집중 중이면 과목 + 초 단위 라이브 (랭킹 행과 동일 규칙) */}
-                      {member.isFocusing && member.focusStartedAt != null ? (
-                        <>
-                          <Text style={s.podiumFocusTag} numberOfLines={1}>
-                            {member.focusTagName != null
-                              ? `${member.focusTagName} 집중 중`
-                              : '집중 중'}
+                          </LinearGradient>
+                        </View>
+                        <View style={[s.podiumAvatarWrap, isMe ? s.podiumAvatarWrapMe : null]}>
+                          <MemberAvatar size={first ? 60 : 48} />
+                          {isMe && (
+                            <View style={s.podiumMeBadge} pointerEvents="none">
+                              <Text style={s.podiumMeBadgeText} allowFontScaling={false}>
+                                나
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <View style={s.podiumNameRow}>
+                          <TierBadge level={member.tierLevel} size={16} />
+                          <Text
+                            style={[s.podiumName, isMe ? s.podiumNameMe : null]}
+                            numberOfLines={1}
+                          >
+                            {member.nickname}
                           </Text>
-                          <LiveFocusTime
-                            baseSeconds={member.totalFocusSeconds}
-                            focusStartedAt={member.focusStartedAt}
-                            format={hms}
-                            style={[s.podiumTime, s.podiumTimeFocusing]}
+                          {member.isFocusing && <View style={s.podiumFocusDot} />}
+                        </View>
+                        {/* GROMO-810: Top3 도 집중 중이면 과목 + 초 단위 라이브 (랭킹 행과 동일 규칙) */}
+                        {member.isFocusing && member.focusStartedAt != null ? (
+                          <>
+                            <Text style={s.podiumFocusTag} numberOfLines={1}>
+                              {member.focusTagName != null
+                                ? `${member.focusTagName} 집중 중`
+                                : '집중 중'}
+                            </Text>
+                            <LiveFocusTime
+                              baseSeconds={member.totalFocusSeconds}
+                              focusStartedAt={member.focusStartedAt}
+                              format={hms}
+                              style={[s.podiumTime, s.podiumTimeFocusing]}
+                              maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
+                            />
+                          </>
+                        ) : (
+                          // 포디움 열은 width 100 고정 — 넘치면 옆 포디움·핀 버튼과 겹친다(코덱스 리뷰)
+                          <Text
+                            style={s.podiumTime}
                             maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
-                          />
-                        </>
-                      ) : (
-                        // 포디움 열은 width 100 고정 — 넘치면 옆 포디움·핀 버튼과 겹친다(코덱스 리뷰)
-                        <Text style={s.podiumTime} maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}>
-                          {hms(member.totalFocusSeconds)}
-                        </Text>
-                      )}
-                      {!isMe && (
-                        <TouchableOpacity
-                          style={s.podiumPin}
-                          hitSlop={15}
-                          onPress={() => togglePin(member.userId)}
-                        >
-                          <MaterialCommunityIcons
-                            name={pinned.has(member.userId) ? 'pin' : 'pin-outline'}
-                            size={15}
-                            color={pinned.has(member.userId) ? T.accent : T.inkFaint}
-                          />
-                        </TouchableOpacity>
-                      )}
-                    </AnimatedPodiumCol>
-                  );
-                })}
+                          >
+                            {hms(member.totalFocusSeconds)}
+                          </Text>
+                        )}
+                        {!isMe && (
+                          <TouchableOpacity
+                            style={s.podiumPin}
+                            hitSlop={15}
+                            onPress={() => togglePin(member.userId)}
+                          >
+                            <MaterialCommunityIcons
+                              name={pinned.has(member.userId) ? 'pin' : 'pin-outline'}
+                              size={15}
+                              color={pinned.has(member.userId) ? T.accent : T.inkFaint}
+                            />
+                          </TouchableOpacity>
+                        )}
+                      </AnimatedPodiumCol>
+                    );
+                  })}
+              </View>
+            )}
+
+            {/* ── 섹션 헤더: 랭킹 라벨 + 핀한 사람만 필터 ── */}
+            <View style={s.sectionRow}>
+              <Text style={s.sectionLabel}>{pinnedOnly ? '핀한 사람' : '랭킹'}</Text>
+              <TouchableOpacity
+                style={[s.pinChip, pinnedOnly ? s.pinChipOn : null]}
+                activeOpacity={0.8}
+                onPress={togglePinnedOnly}
+              >
+                <MaterialCommunityIcons
+                  name={pinnedOnly ? 'pin' : 'pin-outline'}
+                  size={13}
+                  color={pinnedOnly ? T.white : T.inkSub}
+                />
+                <Text style={[s.pinChipText, pinnedOnly ? s.pinChipTextOn : null]}>
+                  핀한 사람만
+                </Text>
+              </TouchableOpacity>
             </View>
-          )}
 
-          {/* ── 내 순위 스트립 — 스크롤해도 상단 고정(sticky).
-               탭=내 행으로 / 내가 없는 리그에선 핀 안내 + 전체 리그 이동 ── */}
-          <View
-            style={s.myStripWrap}
-            onLayout={(e) => {
-              myStripH.current = e.nativeEvent.layout.height;
-            }}
-          >
-            <TouchableOpacity
-              style={s.myStrip}
-              activeOpacity={0.85}
-              onPress={
-                myIdx >= 0
-                  ? () => {
-                      // 유도 수치(순위·격차)를 탭 = 넛지 유도 성공.
-                      logNudgeTapped({ type: 'rank' });
-                      scrollToMyRow();
-                    }
-                  : () => selectLeague(LEAGUE_ALL)
-              }
-            >
-              {myIdx >= 0 ? (
-                <>
-                  <Text style={s.myStripRank}>내 순위 {myIdx + 1}위</Text>
-                  {/* numberOfLines를 안 건다 — 접혀서 새 줄을 얻어도 한 줄로 묶으면
-                      지키려던 순위·시간 수치가 다시 말줄임된다(코덱스 리뷰). */}
-                  <Text style={s.myStripGap}>
-                    {above
-                      ? `▲ ${myIdx}위까지 ${hms(memberLiveSeconds(above, gapNow) - myLiveSeconds)}`
-                      : '지금 1위예요'}
-                  </Text>
-                  <Ionicons name="chevron-down" size={13} color={T.accentDeep} />
-                </>
-              ) : (
-                <>
-                  <MaterialCommunityIcons name="pin-outline" size={14} color={T.accentDeep} />
-                  <Text style={s.myStripEmpty}>
-                    다른 리그 구경 중 — 핀하면 전체 리그에서 모아볼 수 있어요
-                  </Text>
-                  <Ionicons name="chevron-forward" size={13} color={T.accentDeep} />
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          {/* ── 섹션 헤더: 랭킹 라벨 + 핀한 사람만 필터 ── */}
-          <View style={s.sectionRow}>
-            <Text style={s.sectionLabel}>{pinnedOnly ? '핀한 사람' : '랭킹'}</Text>
-            <TouchableOpacity
-              style={[s.pinChip, pinnedOnly ? s.pinChipOn : null]}
-              activeOpacity={0.8}
-              onPress={togglePinnedOnly}
-            >
-              <MaterialCommunityIcons
-                name={pinnedOnly ? 'pin' : 'pin-outline'}
-                size={13}
-                color={pinnedOnly ? T.white : T.inkSub}
-              />
-              <Text style={[s.pinChipText, pinnedOnly ? s.pinChipTextOn : null]}>핀한 사람만</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* ── 랭킹 리스트 (기본: 4위~ / 핀 모드: 나+핀, 나 대비 차이) ──
+            {/* ── 랭킹 리스트 (기본: 4위~ / 핀 모드: 나+핀, 나 대비 차이) ──
                행 껍데기(RankRowShell)가 곧 원래의 행 컨테이너다 — 진입 시차와 재정렬 궤적을
                쥔다. key가 userId라 데이터 순서만 바뀌면 노드는 그대로 살아 자리를 옮긴다 —
                재정렬 연출이 성립하는 전제다(인덱스 키였다면 성립하지 않는다).
                ⚠️ 껍데기가 진입 시차를 **마운트 시점 인덱스**로 고정하는 이유는 그 파일 주석 참고.
                순위 숫자는 자리에 붙는 값이라 visibleRanking 순서에서 매번 다시 매긴다. */}
-          {listRows.map((row, i) => {
-            const isMe = row.userId === MY_USER_ID;
-            return (
-              <RankRowShell
-                key={row.userId}
-                index={i}
-                onLayout={
-                  isMe && !pinnedOnly
-                    ? (e) => {
-                        myRowY.current = e.nativeEvent.layout.y;
-                        // 진입/리그 전환 직후 1회 — 내 행이 첫 화면 밖일 때만 스크롤(포디움 유지)
-                        if (pendingScrollToMe.current) {
-                          pendingScrollToMe.current = false;
-                          requestAnimationFrame(() => {
-                            const rowBottom = myRowY.current + 56; // 행 높이 근사값
-                            if (listHeight.current > 0 && rowBottom > listHeight.current) {
-                              listRef.current?.scrollTo({
-                                y: Math.max(myRowY.current - myStripH.current, 0),
-                                animated: false,
-                              });
-                            }
-                          });
-                        }
-                      }
-                    : undefined
-                }
-              >
-                <RankRow
-                  // 기본 목록은 visibleRanking.slice(3)이라 자리 번호가 인덱스로 나온다(i=0 → 4위).
-                  // 핀 모드만 원본에서 골라 담은 부분집합이라 원 위치를 찾아야 하는데, 그쪽은
-                  // 행 수가 핀 개수로 묶여 있다. 전 모드에서 indexOf를 돌리면 100행 × 100탐색이
-                  // 돼 목록이 찰수록 제곱으로 비싸진다(GROMO-1572).
-                  rank={pinnedOnly ? visibleRanking.indexOf(row) + 1 : i + 4}
-                  nickname={row.nickname}
-                  tierLevel={row.tierLevel}
-                  seconds={row.totalFocusSeconds}
-                  isMe={isMe}
-                  pinned={pinned.has(row.userId)}
-                  // 행 표시가 단계값 + 라이브 경과이므로 비교도 같은 축이어야 한다(위 주석).
-                  deltaSeconds={
-                    pinnedOnly && !isMe ? memberLiveSeconds(row, gapNow) - myLiveSeconds : undefined
-                  }
-                  isFocusing={row.isFocusing}
-                  focusStartedAt={row.focusStartedAt}
-                  focusTagName={row.focusTagName}
-                  onPress={() => openProfile(row)}
-                  onPin={isMe ? undefined : () => togglePin(row.userId)}
-                />
-              </RankRowShell>
-            );
-          })}
-          {/* 조회 실패 + 보여줄 목록 없음 — "아무도 없는 리그" 빈 상태로 오인되지 않게 에러+재시도로
-               분기 (GROMO-922, 친구 탭 GROMO-621과 동일 패턴). 실패여도 기존 목록이 있으면 유지. */}
-          {visibleRanking.length === 0 &&
-            (showRankingError ? (
-              <View style={s.friendErrorWrap}>
-                <Text style={s.emptyLeague}>랭킹을 불러오지 못했어요</Text>
-                <TouchableOpacity
-                  style={s.retryBtn}
-                  activeOpacity={0.8}
-                  onPress={isAll ? refetchGlobal : refetchRanking}
+            {listRows.map((row, i) => {
+              const isMe = row.userId === MY_USER_ID;
+              return (
+                <RankRowShell
+                  key={row.userId}
+                  index={i}
+                  // 내 행 실측 = 플로팅 행의 도킹 목적지. 구 '진입 시 내 행 자동 스크롤'은 제거 —
+                  // 내 순위가 항상 플로팅으로 보이므로 첫 화면은 포디움부터 시작한다(GROMO-1614).
+                  onLayout={isMe && !pinnedOnly ? onMyLayout : undefined}
                 >
-                  <Text style={s.retryBtnText}>다시 시도</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <Text style={s.emptyLeague}>아직 이 리그엔 아무도 없어요</Text>
-            ))}
-          {/* 실패 안내가 떠 있을 땐 숨긴다 — "불러오지 못했어요"와 동시에 뜨면 모순(코드리뷰 반영) */}
-          {pinnedOnly && !showRankingError && listRows.length === 0 && (
-            <Text style={s.emptyLeague}>랭킹에서 핀을 누르면 여기에 담겨요</Text>
+                  <RankRow
+                    // 기본 목록은 visibleRanking.slice(3)이라 자리 번호가 인덱스로 나온다(i=0 → 4위).
+                    // 핀 모드만 원본에서 골라 담은 부분집합이라 원 위치를 찾아야 하는데, 그쪽은
+                    // 행 수가 핀 개수로 묶여 있다. 전 모드에서 indexOf를 돌리면 100행 × 100탐색이
+                    // 돼 목록이 찰수록 제곱으로 비싸진다(GROMO-1572).
+                    rank={pinnedOnly ? visibleRanking.indexOf(row) + 1 : i + 4}
+                    nickname={row.nickname}
+                    tierLevel={row.tierLevel}
+                    seconds={row.totalFocusSeconds}
+                    isMe={isMe}
+                    pinned={pinned.has(row.userId)}
+                    // 행 표시가 단계값 + 라이브 경과이므로 비교도 같은 축이어야 한다(위 주석).
+                    deltaSeconds={
+                      pinnedOnly && !isMe
+                        ? memberLiveSeconds(row, gapNow) - myLiveSeconds
+                        : undefined
+                    }
+                    isFocusing={row.isFocusing}
+                    focusStartedAt={row.focusStartedAt}
+                    focusTagName={row.focusTagName}
+                    onPress={() => openProfile(row)}
+                    onPin={isMe ? undefined : () => togglePin(row.userId)}
+                  />
+                </RankRowShell>
+              );
+            })}
+            {/* ── 전체 리그 100위 밖: 목록 끝에 실제 전역 순위로 내 행 편입 — 플로팅 행의 도킹
+               목적지(GROMO-1614). 전역 순위를 모르면(조회 실패·미배정) 편입 없이 안내 카드만. ── */}
+            {!pinnedOnly && outOfListRank != null && visibleRanking.length > 0 && (
+              <>
+                <Text style={s.listEllipsis}>⋯</Text>
+                <View onLayout={onMyLayout}>
+                  <RankRow
+                    rank={outOfListRank}
+                    nickname={myNickname || '나'}
+                    tierLevel={tier.tierLevel ?? 1}
+                    seconds={outOfListSeconds}
+                    isMe
+                    onPress={openMyProfileOutOfList}
+                  />
+                </View>
+              </>
+            )}
+            {/* 조회 실패 + 보여줄 목록 없음 — "아무도 없는 리그" 빈 상태로 오인되지 않게 에러+재시도로
+               분기 (GROMO-922, 친구 탭 GROMO-621과 동일 패턴). 실패여도 기존 목록이 있으면 유지. */}
+            {visibleRanking.length === 0 &&
+              (showRankingError ? (
+                <View style={s.friendErrorWrap}>
+                  <Text style={s.emptyLeague}>랭킹을 불러오지 못했어요</Text>
+                  <TouchableOpacity
+                    style={s.retryBtn}
+                    activeOpacity={0.8}
+                    onPress={isAll ? refetchGlobal : refetchRanking}
+                  >
+                    <Text style={s.retryBtnText}>다시 시도</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <Text style={s.emptyLeague}>아직 이 리그엔 아무도 없어요</Text>
+              ))}
+            {/* 실패 안내가 떠 있을 땐 숨긴다 — "불러오지 못했어요"와 동시에 뜨면 모순(코드리뷰 반영) */}
+            {pinnedOnly && !showRankingError && listRows.length === 0 && (
+              <Text style={s.emptyLeague}>랭킹에서 핀을 누르면 여기에 담겨요</Text>
+            )}
+
+            {/* ── 내 티어 스트립 → 티어 안내 (시안에 진입점이 없어 둔 임시 진입점) ── */}
+            <TouchableOpacity
+              style={s.tierStrip}
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate('TierGuide')}
+            >
+              <Image source={myTier.image} style={s.tierStripImg} />
+              <Text style={s.tierStripText}>내 티어 · {myTier.name}</Text>
+              <Ionicons name="chevron-forward" size={13} color={T.inkMuted} />
+            </TouchableOpacity>
+          </Animated.ScrollView>
+
+          {/* ── 플로팅 '내 순위' 행 (GROMO-1614) — 내 자리가 뷰포트 밖일 때만 마운트되어 위/아래
+             가장자리에 붙는다. 도킹 중에는 떼어내 실제 행이 그대로 보이고 터치를 받는다.
+             경계에서 두 위치가 일치하므로 마운트/언마운트가 '자리에 들어가는' 연출이 된다. */}
+          {hasDockTarget && floating && (
+            <Animated.View
+              style={[s.floatRowWrap, floatStyle]}
+              onLayout={(e) => {
+                floatHsv.value = e.nativeEvent.layout.height;
+              }}
+            >
+              <RankRow
+                rank={myMember != null ? myIdx + 1 : outOfListRank}
+                nickname={myMember?.nickname ?? (myNickname || '나')}
+                tierLevel={myMember?.tierLevel ?? tier.tierLevel ?? 1}
+                seconds={myMember?.totalFocusSeconds ?? outOfListSeconds}
+                isMe
+                isFocusing={myMember?.isFocusing}
+                focusStartedAt={myMember?.focusStartedAt}
+                focusTagName={myMember?.focusTagName}
+                style={s.floatRowShadow}
+                onPress={() => {
+                  // 유도 수치(순위) 탭 = 넛지 유도 성공 — 내 자리로 스크롤해 도킹시킨다.
+                  logNudgeTapped({ type: 'rank' });
+                  scrollToMyRow();
+                }}
+              />
+            </Animated.View>
           )}
 
-          {/* ── 내 티어 스트립 → 티어 안내 (시안에 진입점이 없어 둔 임시 진입점) ── */}
-          <TouchableOpacity
-            style={s.tierStrip}
-            activeOpacity={0.8}
-            onPress={() => navigation.navigate('TierGuide')}
-          >
-            <Image source={myTier.image} style={s.tierStripImg} />
-            <Text style={s.tierStripText}>내 티어 · {myTier.name}</Text>
-            <Ionicons name="chevron-forward" size={13} color={T.inkMuted} />
-          </TouchableOpacity>
-        </ScrollView>
+          {/* ── 순위를 모르는 100위 밖(직군 뷰 전부 · 전역 순위 조회 실패) — 안내 카드.
+             구 상단 스트립의 문구를 하단 플로팅 위치로 옮긴 것. 직군 뷰에선 탭=전체 리그 이동. */}
+          {!pinnedOnly && myIdx < 0 && outOfListRank == null && visibleRanking.length > 0 && (
+            <View style={[s.floatNoticeWrap, { bottom: floatBottomPad }]}>
+              <TouchableOpacity
+                style={s.floatNotice}
+                activeOpacity={0.85}
+                disabled={isAll}
+                onPress={() => selectLeague(LEAGUE_ALL)}
+              >
+                <MaterialCommunityIcons name="pin-outline" size={14} color={T.accentDeep} />
+                <Text style={s.floatNoticeText}>
+                  {isAll
+                    ? '아직 순위권 밖이에요 — 핀하면 모아볼 수 있어요'
+                    : '아직 순위권 밖이에요 — 핀하면 전체 리그에서 모아볼 수 있어요'}
+                </Text>
+                {!isAll && <Ionicons name="chevron-forward" size={13} color={T.accentDeep} />}
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       ) : (
         /* ── 친구 탭 — 검색·추가 엔트리 + 친구 2열 그리드 (시안 "친구 탭") ── */
         <ScrollView
@@ -911,6 +1013,8 @@ const s = StyleSheet.create({
   segText: { ...T.text.label, color: T.inkSub },
   segTextOn: { color: T.ink, fontWeight: '700' },
 
+  // 리스트 래퍼 — 플로팅 '내 순위' 행(absolute)의 배치 기준(GROMO-1614)
+  listWrap: { flex: 1 },
   list: { flex: 1, paddingHorizontal: T.space.lg },
 
   // Top3 포디움 — 2위·1위·3위, 1위 가운데가 크게
@@ -993,14 +1097,32 @@ const s = StyleSheet.create({
   podiumTimeFocusing: { color: T.greenDeep },
   podiumPin: { position: 'absolute', top: 20, right: 4 },
 
-  // 내 순위 스트립 (sticky) — 밑 리스트가 비치지 않게 배경을 깐다
-  myStripWrap: { backgroundColor: T.paperLight, paddingTop: 2, paddingBottom: T.space.sm },
-  // 글자를 키우면 순위·격차 두 문구가 한 줄에 못 들어간다. 줄여서 말줄임하면 정작 넛지
-  // 수치(격차)가 사라지므로, 자리가 모자라면 아래로 접히게 둔다(코드리뷰).
-  myStrip: {
+  // ── 플로팅 '내 순위' 행 (GROMO-1614) ──
+  // 리스트 패딩(T.space.lg)과 같은 좌우 여백 — 도킹 시 실제 행과 폭이 정확히 겹친다
+  floatRowWrap: { position: 'absolute', top: 0, left: T.space.lg, right: T.space.lg },
+  // 떠 있는 동안만 걸리는 그림자 + 행 기본 marginBottom 제거(위치 계산은 행 상단 기준)
+  floatRowShadow: {
+    marginBottom: 0,
+    shadowColor: T.shadow,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  // 100위 밖 편입 행 앞 생략(⋯) 표시
+  listEllipsis: {
+    textAlign: 'center',
+    color: T.inkFaint,
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 4,
+    paddingBottom: T.space.sm,
+  },
+  // 순위를 모르는 100위 밖 안내 카드 — 구 상단 스트립의 시각(노트 배경+액센트 테두리)을 하단으로
+  floatNoticeWrap: { position: 'absolute', left: T.space.lg, right: T.space.lg },
+  floatNotice: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
     gap: T.space.sm,
     backgroundColor: T.noteBg,
     borderWidth: 1.5,
@@ -1008,20 +1130,13 @@ const s = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: T.space.md,
     paddingVertical: T.space.md,
+    shadowColor: T.shadow,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
-  myStripRank: { ...T.text.label, fontWeight: '800', color: T.accentDeep, flexShrink: 1 },
-  // flexBasis 'auto' — 접히기 전엔 종전처럼 남는 폭을 채워 오른쪽 정렬(flex:1과 동일),
-  // 안 들어가면 제 폭을 요구하며 다음 줄로 내려간다(flexBasis 0이면 접히지 않고 짜부라진다).
-  myStripGap: {
-    ...T.text.caption,
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 'auto',
-    textAlign: 'right',
-    color: T.inkSub,
-    fontVariant: ['tabular-nums'],
-  },
-  myStripEmpty: { ...T.text.caption, flex: 1, color: T.inkSub },
+  floatNoticeText: { ...T.text.caption, flex: 1, color: T.inkSub },
 
   // 섹션 헤더 (랭킹 + 핀 필터)
   sectionRow: {

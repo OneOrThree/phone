@@ -1,4 +1,11 @@
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { FIXED_BOX_FONT_SCALE_MAX, T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
@@ -29,6 +36,8 @@ interface Props {
   onPress?: () => void;
   /** 없으면 핀 버튼은 생략하되, 총 집중시간 세로선 정렬을 위해 자리(폭)는 유지 */
   onPin?: () => void;
+  /** 행 컨테이너에 겹쳐 얹을 스타일 — 플로팅 '내 순위' 행(GROMO-1614)의 그림자·마진 보정용 */
+  style?: StyleProp<ViewStyle>;
 }
 
 export function RankRow({
@@ -44,6 +53,7 @@ export function RankRow({
   focusTagName,
   onPress,
   onPin,
+  style,
 }: Props) {
   const live = isFocusing === true && focusStartedAt != null;
   // 주간 시간 — 집중 중이면 진행 경과를 더해 초 단위 라이브, 아니면 기존 고정 표기.
@@ -64,7 +74,7 @@ export function RankRow({
   );
   return (
     <TouchableOpacity
-      style={[s.row, isMe ? s.rowMe : null]}
+      style={[s.row, isMe ? s.rowMe : null, style]}
       activeOpacity={0.8}
       onPress={onPress}
       disabled={!onPress}
@@ -134,10 +144,12 @@ const s = StyleSheet.create({
     marginBottom: T.space.sm,
   },
   rowMe: { backgroundColor: T.accentBg, borderWidth: 2, borderColor: T.accent },
+  // minWidth — 100위 밖 내 행(GROMO-1614)은 세 자리 순위(137)라 고정폭 22를 뚫는다.
+  // 두 자리까지는 종전과 같은 폭, 세 자리만 제 폭을 요구한다.
   rank: {
     ...T.text.label,
     fontWeight: '800',
-    width: 22,
+    minWidth: 22,
     textAlign: 'center',
     color: T.inkMuted,
   },
