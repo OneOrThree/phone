@@ -43,6 +43,7 @@ import {
   subjectKeyOf,
 } from '@/services/analyticsEvents';
 import type { LiveFocusSession } from './types';
+import { focusReadoutLayout } from './readoutLayout';
 
 // ── 네이티브·외부 경계 목 ──────────────────────────────────────────────────────
 jest.mock('@/services/ScreenTimeModule', () => ({
@@ -120,8 +121,10 @@ jest.mock('@/services/cardInteraction', () => ({
 // ── 스토어·훅 목 — 세션 로직이 읽기만 하는 주변 상태 ──────────────────────────
 const mockAddFocusSeconds = jest.fn();
 const mockAddFocusToSubject = jest.fn();
+// 닉네임 가변 — 항상 'nick'이면 빈 닉네임의 '나' 폴백 제거를 못 잡는다(codex 리뷰 34차)
+let mockNickname = 'nick';
 jest.mock('@/store/UserContext', () => ({
-  useUser: () => ({ userId: 'user-1', nickname: 'nick' }),
+  useUser: () => ({ userId: 'user-1', nickname: mockNickname }),
 }));
 // 세션 전 오늘 누적 — 기본 0, 로컬 폴백 테스트에서 갈아끼움
 let mockTodayFocusSeconds = 0;
@@ -283,10 +286,14 @@ jest.mock('@/components/character/AnimatedCharacter', () => ({
   },
 }));
 // 캡처 대상 캐릭터의 전달 props를 붙잡는다 — 커스텀 소스 배선 관찰용
-const mockCharImageCaptures: Array<{ variant?: string; sourceUri?: string }> = [];
+const mockCharImageCaptures: Array<{ variant?: string; sourceUri?: string; size?: number }> = [];
 jest.mock('@/components/character/CharacterImage', () => ({
-  CharacterImage: (props: { variant?: string; sourceUri?: string }) => {
-    mockCharImageCaptures.push({ variant: props.variant, sourceUri: props.sourceUri });
+  CharacterImage: (props: { variant?: string; sourceUri?: string; size?: number }) => {
+    mockCharImageCaptures.push({
+      variant: props.variant,
+      sourceUri: props.sourceUri,
+      size: props.size,
+    });
     return null;
   },
 }));
@@ -368,6 +375,17 @@ const jumpWallClock = (ms: number) =>
   act(async () => {
     jest.setSystemTime(Date.now() + ms);
   });
+// LA 시작의 3번째 인자(FocusActivityState, GROMO-1597) 기대값 — 카운트업 기준.
+// elapsedSeconds는 시작 시점까지의 경과(케이스별 상이), revision은 첫 발행이므로 1.
+const laState = (over: Partial<Record<string, unknown>> = {}) => ({
+  mode: 'countup',
+  phase: 'focus',
+  isPaused: false,
+  elapsedSeconds: 1,
+  remainingSeconds: null,
+  revision: 1,
+  ...over,
+});
 // focusLiveSession 키에 대한 쓰기 호출만 추린다 — 저장 '주기' 검증용
 const liveRecordWrites = () =>
   (AsyncStorage.setItem as unknown as jest.Mock).mock.calls.filter(
@@ -396,6 +414,7 @@ beforeEach(async () => {
   mockFriends = [];
   mockPinnedIds = new Set();
   mockTodayFocusSeconds = 0;
+  mockNickname = 'nick';
   mockGridMeCaptures.length = 0;
   mockGridPropsCaptures.length = 0;
   mockLandscapeCaptures.length = 0;
@@ -505,7 +524,7 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       interaction_id: undefined,
     });
     // Live Activity 시작 배선(600ms 지연 캡처 후) — 종료 단언만으로는 시작 누락을 못 잡는다(codex 리뷰 8차)
-    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []);
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', [], laState());
     // saved 전용 후처리 — 지급 확정 후 코인 재조회 + 서버 스트릭 판정 발행(codex 리뷰 6차)
     expect(mockCoinRefresh).toHaveBeenCalledTimes(1);
     expect(publishSessionSaveVerdict).toHaveBeenCalledWith({});
@@ -558,7 +577,11 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     (captureRef as jest.Mock).mockRejectedValueOnce(new Error('capture denied'));
     await renderSession({ mode: 'countup' });
     await advance(2000); // 600ms 지연 시작 경과
-    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []);
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith(
+      '수학',
+      [],
+      laState({ elapsedSeconds: 0 }),
+    );
   });
 
   test('스냅샷 저장(네이티브)이 거부돼도: Live Activity는 기본 마스코트 폴백으로 시작된다', async () => {
@@ -570,7 +593,7 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await renderSession({ mode: 'countup' });
     await advance(2000);
     expect(ScreenTimeModule.saveCharacterSnapshot).toHaveBeenCalledWith('b64'); // 캡처는 성공
-    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []); // 폴백 시작
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', [], laState()); // 폴백 시작
   });
 
   test('캡처가 영영 pending이어도: 1.5초 타임아웃 폴백으로 Live Activity는 시작된다', async () => {
@@ -579,7 +602,11 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     (captureRef as jest.Mock).mockImplementationOnce(() => new Promise(() => {}));
     await renderSession({ mode: 'countup' });
     await advance(2200); // 600ms 지연 + 1.5초 캡처 타임아웃 경과
-    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []);
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith(
+      '수학',
+      [],
+      laState({ elapsedSeconds: 2 }),
+    );
     expect(ScreenTimeModule.saveCharacterSnapshot).not.toHaveBeenCalled(); // 스냅샷 없이 폴백
   });
 
@@ -606,7 +633,7 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       resolveSave();
     });
     await flush();
-    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []);
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', [], laState());
   });
 
   test('업로드가 대기열행(queued)이어도 종료는 그대로 진행된다 — 로컬 적립·레코드 삭제·결과 화면', async () => {
@@ -1039,6 +1066,14 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(lastGridProps('내 친구')).toMatchObject({ visible: true }); // 친구 페이지 진입
   });
 
+  test('닉네임이 비어 있으면: 내 그리드 셀 이름은 「나」로 폴백한다', async () => {
+    // 목이 항상 'nick'을 주면 `nickname || '나'` 폴백을 제거해도 통과한다 — 닉네임 없는
+    // 사용자의 셀이 이름 없이 그려지는 회귀 방어(codex 리뷰 34차).
+    mockNickname = '';
+    await renderSession({ mode: 'countup' });
+    expect(mockGridMeCaptures.at(-1)).toMatchObject({ nickname: '나' });
+  });
+
   test('그룹 FAB 진입(initialGroupId): 해당 그룹 페이지로 초기 스크롤·해당 그리드만 활성화된다', async () => {
     // 빈 groups fixture로는 검색·scrollTo·페이지 상태 배선 제거를 못 잡는다(codex 리뷰 24차).
     // 실제 useSessionGroups는 빈 배열로 시작해 비동기 조회 후 갱신된다 — 렌더 전 fixture를
@@ -1305,10 +1340,14 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await renderSession({ mode: 'countup' });
     await advance(1000); // 600ms 캡처 지연 경과
     await flush();
-    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', [
-      { name: '과학', seconds: 500, color: '#B2E2B2' },
-      { name: '영어', seconds: 300, color: '#A2C4FF' },
-    ]);
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith(
+      '수학',
+      [
+        { name: '과학', seconds: 500, color: '#B2E2B2' },
+        { name: '영어', seconds: 300, color: '#A2C4FF' },
+      ],
+      laState(),
+    );
   });
 
   test('600ms 지연 사이 과목 목록이 갱신되면: Live Activity는 최신 목록의 상위 2개를 싣는다', async () => {
@@ -1326,10 +1365,14 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await fireEvent.press(view.getByTestId('focus.pause'));
     await advance(1000); // 600ms 콜백 발화
     await flush();
-    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', [
-      { name: '한국사', seconds: 700, color: '#CCAAFF' },
-      { name: '물리', seconds: 200, color: '#AAFFCC' },
-    ]);
+    expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith(
+      '수학',
+      [
+        { name: '한국사', seconds: 700, color: '#CCAAFF' },
+        { name: '물리', seconds: 200, color: '#AAFFCC' },
+      ],
+      laState(),
+    );
   });
 });
 
@@ -1990,6 +2033,69 @@ describe('카운트다운 — 완료 게이트', () => {
       // 「세트 1」만 본다(codex 리뷰 30차).
       await advance(60_000);
       expect(mockLandscapeCaptures.at(-1)).toMatchObject({ phase: 'focus', setIndex: 2 });
+    } finally {
+      await act(async () => {
+        Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
+      });
+    }
+  });
+
+  test('가로 화면(1시간 카운트다운): hhmmss 포맷으로 전달된다', async () => {
+    // 단시간 fixture만으론 landscapeFormat의 1시간 경계 제거(항상 mmss)를 못 잡는다 —
+    // 60분 목표가 「60:00」처럼 분 단위로 그려지는 회귀 방어(codex 리뷰 34차).
+    await renderSession({ mode: 'countdown', goalSeconds: 3600 });
+    await act(async () => {
+      Dimensions.set({ window: { width: 800, height: 400, scale: 2, fontScale: 1 } });
+    });
+    try {
+      expect(mockLandscapeCaptures.at(-1)).toMatchObject({ mode: 'countdown', format: 'hhmmss' });
+    } finally {
+      await act(async () => {
+        Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
+      });
+    }
+  });
+
+  test('가로 화면(60분 집중 뽀모도로): hhmmss 포맷으로 전달된다', async () => {
+    // 뽀모도로의 자릿수 판정은 집중·휴식 중 최대 페이즈 길이 기준 — 위 카운트다운 케이스와
+    // 별개 분기라 따로 고정한다(codex 리뷰 34차).
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 60, breakMin: 5, sets: 2 } });
+    await act(async () => {
+      Dimensions.set({ window: { width: 800, height: 400, scale: 2, fontScale: 1 } });
+    });
+    try {
+      expect(mockLandscapeCaptures.at(-1)).toMatchObject({ mode: 'pomodoro', format: 'hhmmss' });
+    } finally {
+      await act(async () => {
+        Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
+      });
+    }
+  });
+
+  test('시스템 글자 배율(fontScale)이 리드아웃 레이아웃에 배선된다 — 캐릭터가 그만큼 줄어든다', async () => {
+    // readoutLayout 단위 테스트는 순수 함수만 본다 — 화면이 fontScale 대신 1을 고정해 넘겨도
+    // 배율 1 렌더는 통과한다. 큰 글자 설정에서 타이머가 확대된 만큼 캐릭터 몫이 줄지 않아
+    // 리드아웃·도트가 겹치는 회귀 방어(codex 리뷰 34차).
+    // 배율이 실제로 캐릭터를 줄이려면 예산이 빠듯해야 한다 — 667pt(SE급) + 뽀모도로(배지·도트
+    // 예산 포함) 조합. 큰 화면·배율 1에선 예산이 남아 BASE(230) 그대로라 배선 누락이 안 보인다.
+    const pomo = { focusMin: 25, breakMin: 5, sets: 4 };
+    await act(async () => {
+      Dimensions.set({ window: { width: 375, height: 667, scale: 2, fontScale: 1 } });
+    });
+    try {
+      await renderSession({ mode: 'pomodoro', pomodoro: pomo });
+      const baseSize = mockCharImageCaptures.at(-1)!.size!;
+      await view.unmount();
+      await act(async () => {
+        Dimensions.set({ window: { width: 375, height: 667, scale: 2, fontScale: 2 } });
+      });
+      await renderSession({ mode: 'pomodoro', pomodoro: pomo });
+      const scaledSize = mockCharImageCaptures.at(-1)!.size!;
+      expect(scaledSize).toBeLessThan(baseSize);
+      // 기대값 자체를 순수 함수로 재계산해 대조 — 화면이 「실제 fontScale」을 넘기는지의 배선 검증.
+      // 47/34는 이 스위트의 safe-area 목 top/bottom.
+      const expected = focusReadoutLayout(667 - 47 - 34, 375, 2, true, false);
+      expect(scaledSize).toBe(expected.charSize);
     } finally {
       await act(async () => {
         Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
