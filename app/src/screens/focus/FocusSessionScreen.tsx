@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   View,
@@ -32,6 +32,12 @@ import { M, fadeIn, pop, transition } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T, withAlpha } from '@/constants/theme';
 import { startFocusSession } from '@/services/focusApi';
+import {
+  initialSessionState,
+  nextTick as machineNextTick,
+  type SessionMachineConfig,
+  type SessionState,
+} from './engine/machine';
 import type { FocusType } from '@/types/dto/focus';
 import { ensureFocusTagId } from './tagSync';
 import { uploadFocusBlock } from './uploadFocusBlock';
@@ -135,13 +141,8 @@ const DOT_TRANSITION = transition({
   duration: M.dur.quick,
 });
 
-interface SessionState {
-  elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
-  display: number; // 큰 숫자: countup=경과 / countdown=남음 / pomodoro=현 페이즈 남음
-  phase: 'focus' | 'break';
-  setIndex: number; // 1-based
-  done: boolean;
-}
+// 세션 상태 전이는 engine/machine.ts의 순수 계층으로 이관됐다(GROMO-1600 1단계) —
+// 화면은 config를 만들어 위임만 한다.
 
 export default function FocusSessionScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
@@ -200,13 +201,15 @@ export default function FocusSessionScreen() {
   // 그룹 페이지 개수 — 페이저 점·뷰 계측이 동적 페이지 수를 알아야 해서 ref로 최신값을 들고 있는다.
   const groupCountRef = useRef(0);
   groupCountRef.current = sessionGroups.length;
-  const [session, setSession] = useState<SessionState>(() => ({
-    elapsed: 0,
-    display: mode === 'countdown' ? goal : mode === 'pomodoro' ? pomo.focusMin * 60 : 0,
-    phase: 'focus',
-    setIndex: 1,
-    done: false,
-  }));
+  // 상태 머신 설정 — machine.ts 순수 계층의 입력. 라우트 파라미터는 세션 중 불변이다.
+  // ⚠️ deps는 스칼라로 — params.pomodoro 부재 시 pomo가 렌더마다 새 객체(?? 기본값)라
+  //    객체 참조를 걸면 config 재생성 → 틱 이펙트가 매 렌더 재구독된다(원본 nextTick과 동일 규칙).
+  const machineConfig = useMemo<SessionMachineConfig>(
+    () => ({ mode, goalSeconds: goal, pomodoro: pomo }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mode, goal, pomo.focusMin, pomo.breakMin, pomo.sets],
+  );
+  const [session, setSession] = useState<SessionState>(() => initialSessionState(machineConfig));
 
   const sessionRef = useRef(session);
   sessionRef.current = session;
@@ -449,42 +452,10 @@ export default function FocusSessionScreen() {
     startLiveSession(startedAtRef.current);
   }, [startLiveSession]);
 
-  // 한 tick 진행 — 모드별 다음 상태 계산.
+  // 한 tick 진행 — 전이 계산은 machine.ts 순수 계층에 위임.
   const nextTick = useCallback(
-    (prev: SessionState): SessionState => {
-      if (mode === 'countup') {
-        return { ...prev, elapsed: prev.elapsed + 1, display: prev.display + 1 };
-      }
-      if (mode === 'countdown') {
-        const remaining = prev.display - 1;
-        return {
-          ...prev,
-          elapsed: prev.elapsed + 1,
-          display: Math.max(0, remaining),
-          done: remaining <= 0,
-        };
-      }
-      // pomodoro
-      const elapsed = prev.phase === 'focus' ? prev.elapsed + 1 : prev.elapsed;
-      const rem = prev.display - 1;
-      if (rem > 0) return { ...prev, elapsed, display: rem };
-      if (prev.phase === 'focus') {
-        // 마지막 세트의 집중이 끝나면 종료(트레일링 휴식 없음)
-        if (prev.setIndex >= pomo.sets) {
-          return { ...prev, elapsed, display: 0, done: true };
-        }
-        return { ...prev, elapsed, display: pomo.breakMin * 60, phase: 'break' };
-      }
-      // 휴식 종료 → 다음 세트 집중
-      return {
-        ...prev,
-        elapsed,
-        display: pomo.focusMin * 60,
-        phase: 'focus',
-        setIndex: prev.setIndex + 1,
-      };
-    },
-    [mode, pomo.sets, pomo.breakMin, pomo.focusMin],
+    (prev: SessionState): SessionState => machineNextTick(machineConfig, prev),
+    [machineConfig],
   );
 
   // 1초 tick — 화면 생명주기 동안 유지, 일시정지·완료 시엔 진행만 멈춤.
