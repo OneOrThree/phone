@@ -412,8 +412,8 @@ export default function FocusSessionScreen() {
   // 그 사이 틱은 위젯의 Text(timerInterval:)가 자체 갱신한다(정지 중 증가하던 부정확 해소).
   // 렌더 뒤에 돌므로 엔진 세션·pausedRef가 이 상태 변화의 최신값이다. 백그라운드 복귀
   // 리플레이가 페이즈를 옮긴 경우도 이 이펙트가 잡는다. 활성 LA가 없으면 네이티브 no-op.
-  // 옵셔널 호출인 이유: 특성화 테스트(GROMO-1599)의 모듈 목이 이 메서드를 모르는 채로도
-  // 화면이 돌아야 한다 — 배선 누락이 아니라 목 경계다.
+  // 옵셔널 호출인 이유: OTA JS × 구 바이너리 조합에서 이 메서드가 없는 네이티브 모듈과
+  // 만날 수 있다(hot-updater 버전 스큐 관행 — ScreenTimeModule.ts의 능력 감지와 같은 부류).
   useEffect(() => {
     if (engine.isFinished() || engine.getSession().done) return;
     ScreenTimeModule.updateFocusActivity?.(buildActivityState()).catch(() => {});
