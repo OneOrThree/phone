@@ -1,7 +1,5 @@
 package com.oneorthree.phone.league.service;
 
-import com.oneorthree.phone.common.logging.UserActivityEvent;
-import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
@@ -66,9 +64,6 @@ class LeagueServiceTest {
 
     @Mock
     private LeagueWeeklyResultRepository leagueWeeklyResultRepository;
-
-    @Mock
-    private UserActivityEventLogger userActivityEventLogger;
 
     @Mock
     private PinnedUserRepository pinnedUserRepository;
@@ -411,31 +406,6 @@ class LeagueServiceTest {
 
         assertThat(response.assigned()).isFalse();
         assertThat(response.myRank()).isNull();
-    }
-
-    @Test
-    @DisplayName("내 순위 조회 시 아레나 ID 없이 전역 rank 이벤트를 발행한다")
-    void getMyRankEmitsRankViewed() {
-        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any(), any()))
-                .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
-
-        leagueService.getMyRank(USER_ID);
-
-        verify(userActivityEventLogger).log(UserActivityEvent.LEAGUE_RANK_VIEWED,
-                Map.of("my_rank", 2,
-                        "tier_level", 3,
-                        "total_focus_seconds", 200));
-    }
-
-    @Test
-    @DisplayName("순위가 없는 유저는 LEAGUE_RANK_VIEWED를 발행하지 않는다")
-    void getMyRankMissingDoesNotEmit() {
-        given(leagueRankingQueryRepository.findRankOf(eq(USER_ID), any(), any(), any()))
-                .willReturn(Optional.empty());
-
-        leagueService.getMyRank(USER_ID);
-
-        verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), any());
     }
 
     // ── getMySchedule ─────────────────────────────────────────────────────

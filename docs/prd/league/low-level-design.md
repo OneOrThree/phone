@@ -65,7 +65,7 @@
 | `GET /api/v1/league/me/tier` | — | `{assigned, tierLevel, weekStartAt, badgeId}` | 앱 타입엔 `arenaId`·`status`도 있으나 **서버 미제공** |
 | `GET /api/v1/league/me/ranking` | `category?`(Occupation), `date`(**필수**) | `LeagueMemberResponse[]` 상위 **100** | 라이브 필드가 채워지는 **유일한** 랭킹 |
 | `GET /api/v1/league/ranking` | `scope=total`, `limit`(기본 100, 서버 클램프 1~500) | `LeagueMemberResponse[]` | 라이브·`isPinned` 전부 기본값 |
-| `GET /api/v1/league/me/rank` | — | `{assigned, myRank, totalFocusSeconds}` | top-100 밖도 **정확한 순위**. 호출마다 `LEAGUE_RANK_VIEWED` 활동 로그 |
+| `GET /api/v1/league/me/rank` | — | `{assigned, myRank, totalFocusSeconds}` | top-100 밖도 **정확한 순위**. 활동 로그 없음(구 `LEAGUE_RANK_VIEWED` 제거) |
 | `GET /api/v1/league/me/schedule` | — | `{nextResetAt, remainingSeconds}` | `nextResetAt` = 다음 월요일 00:00 KST |
 | `GET /api/v1/league/me/last-result` | — | `LeagueLastResultResponse` | **주차 필터 없음** — 최신 결과 1건 |
 | `POST /api/v1/league/me/last-result/ack` | `{weekStartAt}` | 200 | 조건부 원자 UPDATE, 완전 멱등 |
