@@ -493,16 +493,17 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       focus_minutes: 0,
       has_tag: true,
     });
-    // 시작 계측 1회 + 페이로드 — 화면 배선이 빠지면 시작·완료 퍼널에서 세션이 사라진다(codex 리뷰 8차)
+    // 시작 계측 1회 + 전체 페이로드 — objectContaining이면 카운트업에 목표값이 발행돼도
+    // 못 잡는다(codex 리뷰 32차: 카운트업은 목표 없는 모드 — goal_minutes: undefined).
     expect(logFocusSessionStarted).toHaveBeenCalledTimes(1);
-    expect(logFocusSessionStarted).toHaveBeenCalledWith(
-      expect.objectContaining({
-        mode: 'countup',
-        has_tag: true,
-        subject_key: subjectKeyOf('s1'), // 실구현 해시(s_…) — 원문 id 노출이면 실패
-        entry_source: 'unknown', // 출처 미지정의 실제 정규화 — 목이 지어낸 'direct'가 아니다
-      }),
-    );
+    expect(logFocusSessionStarted).toHaveBeenCalledWith({
+      mode: 'countup',
+      has_tag: true,
+      goal_minutes: undefined, // 카운트업 — 목표 없음
+      subject_key: subjectKeyOf('s1'), // 실구현 해시(s_…) — 원문 id 노출이면 실패
+      entry_source: 'unknown', // 출처 미지정의 실제 정규화 — 목이 지어낸 'direct'가 아니다
+      interaction_id: undefined,
+    });
     // Live Activity 시작 배선(600ms 지연 캡처 후) — 종료 단언만으로는 시작 누락을 못 잡는다(codex 리뷰 8차)
     expect(ScreenTimeModule.startFocusActivity).toHaveBeenCalledWith('수학', []);
     // saved 전용 후처리 — 지급 확정 후 코인 재조회 + 서버 스트릭 판정 발행(codex 리뷰 6차)
@@ -719,6 +720,29 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     );
     expect(logFocusSessionStarted).toHaveBeenCalledWith(
       expect.objectContaining({ interaction_id: undefined }),
+    );
+  });
+
+  test('inactive 상태로 마운트돼도: consume 전에 interaction을 폐기한다', async () => {
+    // iOS는 카드 수락 직후 알림 센터·앱 전환기로 background 없이 inactive에 머문 채 화면이
+    // 마운트될 수 있다 — background 분기만 검증하면 inactive 절반이 제거돼도 못 잡는다
+    // (codex 리뷰 32차).
+    const appStateOwner = AppState as unknown as { currentState: AppStateStatus };
+    const originalAppState = appStateOwner.currentState;
+    appStateOwner.currentState = 'inactive';
+    try {
+      await renderSession({
+        mode: 'countup',
+        entrySource: 'group_card',
+        interactionId: 'ix-3',
+        interactionAcceptedAt: 1_000_000,
+      });
+    } finally {
+      appStateOwner.currentState = originalAppState;
+    }
+    expect(invalidateCardInteraction).toHaveBeenCalledWith('ix-3');
+    expect((invalidateCardInteraction as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (consumeCardInteraction as jest.Mock).mock.invocationCallOrder[0],
     );
   });
 
@@ -1098,6 +1122,55 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     // (codex 리뷰 26차). 참조 동일성으로 단언한다(Set/undefined 함정 회피와 동일 원칙).
     expect(lastGridProps('수능·N수 리그')!.members).toBe(mockExamMembers);
     expect(lastGridProps('전체 리그')!.members).toBe(mockLeagueMembers);
+    // visible 전환 — 활성 조건이 뒤바뀌거나 항상 false면 보고 있는 리그 페이지의 초 시계가
+    // 멈춘다(codex 리뷰 32차). 그룹 0개 — 2페이지=시험, 3페이지=전체.
+    const pagerWidth = Dimensions.get('window').width;
+    const pager = view.container.queryAll(
+      (n) => n.props?.horizontal === true && n.props?.pagingEnabled === true,
+    )[0];
+    await act(async () => {
+      pager.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: pagerWidth * 2 } } });
+    });
+    expect(lastGridProps('수능·N수 리그')!.visible).toBe(true);
+    expect(lastGridProps('전체 리그')!.visible).toBe(false);
+    await act(async () => {
+      pager.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: pagerWidth * 3 } } });
+    });
+    expect(lastGridProps('전체 리그')!.visible).toBe(true);
+    expect(lastGridProps('수능·N수 리그')!.visible).toBe(false);
+  });
+
+  test('시험 카테고리가 비동기로 로드되면: 리그 조회가 enabled: true로 승격되고 제목도 갱신된다', async () => {
+    // 실제 useFocusCategory는 undefined로 시작해 저장소 조회 후 갱신된다 — 렌더 전 fixture만
+    // 쓰면 「첫 렌더 고정」 회귀(세션 내내 enabled: false)를 못 잡는다(codex 리뷰 32차).
+    await renderSession({ mode: 'countup' }); // 카테고리 미로드 상태로 마운트
+    expect(mockLeagueArgs).toContainEqual({
+      occupation: undefined,
+      enabled: false,
+      excludeUserId: 'user-1',
+    });
+    mockFocusCategory = '수능·N수'; // 저장소 조회 완료 재현
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await fireEvent.press(view.getByTestId('focus.pause')); // 리렌더
+    expect(mockLeagueArgs).toContainEqual({
+      occupation: 'CSAT',
+      enabled: true,
+      excludeUserId: 'user-1',
+    });
+    expect(lastGridProps('수능·N수 리그')).toBeTruthy(); // 리그 제목도 갱신
+  });
+
+  test('마운트의 취소 대기열 재시도가 거부돼도: 새 마커·정산·결과 이동은 계속된다', async () => {
+    // flushPendingMarkerCancels는 AsyncStorage 실패로 실제 거부될 수 있다 — 호출부 .catch가
+    // 빠지면 대기열 오류가 세션 시작·종료 흐름까지 중단시킨다(codex 리뷰 32차).
+    (flushPendingMarkerCancels as jest.Mock).mockRejectedValueOnce(new Error('storage'));
+    await renderSession({ mode: 'countup' });
+    expect(mockedStartMarker).toHaveBeenCalledTimes(1); // 새 마커 등록은 그대로
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3, completed: true });
   });
 
   test('준비 시험 미설정: 같은 시험 조회는 enabled: false로 비활성화된다', async () => {
@@ -1595,6 +1668,27 @@ describe('카운트다운 — 완료 게이트', () => {
     expect(logFocusOrientationChanged).toHaveBeenCalledTimes(1);
   });
 
+  test('카운트다운 일시정지: 남은 시간·경과가 동결되고 재개 후에만 목표로 진행한다', async () => {
+    // 일시정지 테스트가 카운트업·뽀모도로만 다루면 카운트다운 분기의 paused 가드 소실을
+    // 못 잡는다 — 정지 중에도 남은 시간이 줄면 가짜 완료 게이트가 뜬다(codex 리뷰 32차).
+    await renderSession({ mode: 'countdown', goalSeconds: 10 });
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await advance(5000); // 정지 5초 — 목표(10초)를 벽시계로는 지나친다
+    expect(view.getByText('00:00:07')).toBeTruthy(); // 남은 시간 동결
+    expect(view.queryByText('집중이 끝났어요!')).toBeNull(); // 가짜 완료 없음
+    await fireEvent.press(view.getByTestId('focus.pause')); // 재개
+    await advance(2000);
+    expect(view.getByText('00:00:05')).toBeTruthy(); // 재개 후에만 진행
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5, completed: false });
+    expect(mockedUpload.mock.calls[0][0].body).toMatchObject({
+      totalDistractionSeconds: 5, // 정지 구간은 방해초
+      distractionCount: 1,
+    });
+  });
+
   test('카운트다운 화면: 남은 시간(display)과 목표 문구가 표시된다', async () => {
     // 큰 숫자가 display 대신 elapsed에 물리면 완료·정산은 멀쩡해도 사용자는 남은 7초 대신
     // 경과 3초를 본다 — 카운트다운의 핵심 화면 계약(codex 리뷰 23차).
@@ -1675,6 +1769,63 @@ describe('카운트다운 — 완료 게이트', () => {
     }
   });
 
+  test('회전 버튼(가로 전환·세로 복귀)의 잠금 거부도 무해 — 세션·종료 흐름 유지', async () => {
+    // 마운트·완료 잠금 거부 테스트는 DEFAULT·PORTRAIT_UP 호출만 만든다 — 두 회전 콜백의
+    // .catch가 빠지면 잠금 거부 기기에서 버튼 탭이 미처리 거부를 만든다(codex 리뷰 32차).
+    const lockMock = ScreenOrientation.lockAsync as jest.Mock;
+    lockMock.mockRejectedValue(new Error('orientation bridge'));
+    try {
+      await renderSession({ mode: 'countup' });
+      await fireEvent.press(view.getByLabelText('가로 화면으로 전환')); // LANDSCAPE 거부
+      await act(async () => {
+        Dimensions.set({ window: { width: 800, height: 400, scale: 2, fontScale: 1 } });
+      });
+      const lp = mockLandscapeCaptures.at(-1)!;
+      await act(async () => {
+        lp.onRotatePortrait(); // PORTRAIT_UP 거부
+      });
+      await act(async () => {
+        Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
+      });
+      await advance(3000);
+      await fireEvent.press(view.getByTestId('focus.stop'));
+      await flush();
+      expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 3 });
+    } finally {
+      lockMock.mockImplementation(() => Promise.resolve());
+      await act(async () => {
+        Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
+      });
+    }
+  });
+
+  test('가로 상태에서 직접 언마운트: 방향 체류만 발행되고 가려진 뷰의 0초 체류는 없다', async () => {
+    // 가로에선 세로 페이저가 언마운트돼 있다 — cleanup의 landscape 가드가 빠지면 리셋된
+    // character 뷰의 0초 체류가 끼어 실험 지표가 오염된다(codex 리뷰 32차).
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await act(async () => {
+      Dimensions.set({ window: { width: 800, height: 400, scale: 2, fontScale: 1 } });
+    });
+    try {
+      await advance(4000); // 가로 4초
+      const viewCallsBefore = (logFocusViewChanged as jest.Mock).mock.calls.length; // 가로 진입 flush 1회
+      await view.unmount();
+      await act(async () => {});
+      expect(logFocusOrientationChanged).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orientation: 'landscape', dwell_seconds: 4 }),
+      );
+      expect((logFocusViewChanged as jest.Mock).mock.calls.length).toBe(viewCallsBefore);
+      expect(logFocusSessionAbandoned).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'system_back' }),
+      );
+    } finally {
+      await act(async () => {
+        Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
+      });
+    }
+  });
+
   test('창이 가로가 되면 FocusLandscape로 갈리고, 복귀 콜백·방향별 체류가 배선된다', async () => {
     // lockAsync 요청만으로는 가로 분기 렌더·복귀 배선·방향 체류 정리를 못 잡는다 — 실제
     // dimensions를 뒤집어 세로→가로→세로 전환 경로를 실행한다(codex 리뷰 20차).
@@ -1686,6 +1837,8 @@ describe('카운트다운 — 완료 게이트', () => {
     try {
       const lp = mockLandscapeCaptures.at(-1)!;
       expect(lp.subjectName).toBe('수학'); // 가로 분기에 세션 데이터가 전달된다
+      // 카운트업 가로 타이머 전달값 — 0 고정·mmss 오배선 회귀 방어(codex 리뷰 32차)
+      expect(lp).toMatchObject({ mode: 'countup', displaySeconds: 3, format: 'hhmmss' });
       // 가로 진입 — 직전 세로 방향(3초)과 가려지는 뷰(3초)의 체류가 발행된다
       expect(logFocusOrientationChanged).toHaveBeenCalledWith(
         expect.objectContaining({ orientation: 'portrait', dwell_seconds: 3 }),
