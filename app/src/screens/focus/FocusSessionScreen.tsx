@@ -29,13 +29,8 @@ import { PressableScale } from '@/components/PressableScale';
 import { M, fadeIn, pop, transition } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T, withAlpha } from '@/constants/theme';
-import {
-  nextTick as machineNextTick,
-  type SessionMachineConfig,
-  type SessionState,
-} from './engine/machine';
+import { type SessionMachineConfig, type SessionState } from './engine/machine';
 import { createFocusSessionEngine } from './engine/FocusSessionEngine';
-import { flushPendingMarkerCancels } from './pendingMarkerCancels';
 import ScreenTimeModule, { type FocusActivityState } from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
@@ -47,7 +42,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode } from './types';
 import { hms } from './format';
 import { focusReadoutLayout, PLAIN_TIMER_MIN_FONT_SCALE } from './readoutLayout';
-import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
+import { cancelLeaveNotifications } from './leaveNotifications';
 import { kstLocalSameDay, todayStr, todayStrKst } from '@/utils/localDate';
 import { blockTodaySeconds, blockKstTodaySeconds } from './blockToday';
 import { myLiveTotalSeconds } from '@/utils/liveFocus';
@@ -62,7 +57,6 @@ import { FocusLandscape } from './FocusLandscape';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import {
   logFocusSessionStarted,
-  logFocusDistractionDetected,
   logFocusMenuOpened,
   logFocusViewChanged,
   logFocusOrientationChanged,
@@ -86,8 +80,6 @@ import {
 // 실드 불가(스크린타임 권한 거부) 세션만 기존 이탈 정책 폴백:
 //   나가면 일시정지(미적립), 15초 안에 복귀하면 이어감, 초과 시 자동 종료. 알림 즉시+15초.
 // 수동 일시정지 중 이탈은 무시, 뽀모도로 휴식 중 이탈은 벽시계만큼 휴식만 소진.
-const LEAVE_END_S = 15;
-const AWAY_CREDIT_CAP_S = 8 * 3600; // 실드 세션 복귀 시 집중 인정 상한
 // 짧은 진동 2번 — 패턴 의미가 플랫폼별로 다르다(코덱스 리뷰): iOS는 진동 길이 고정에
 // 배열=진동 사이 간격([0,500]=2번), Android는 [대기,진동] 교대라 [0,500]이 1번 500ms가 된다.
 const DOUBLE_VIBRATE_PATTERN = Platform.OS === 'android' ? [0, 400, 200, 400] : [0, 500];
@@ -349,12 +341,6 @@ export default function FocusSessionScreen() {
     engine.startLiveSession(engine.sessionStartedAt());
   }, [engine]);
 
-  // 한 tick 진행 — 전이 계산은 machine.ts 순수 계층에 위임.
-  const nextTick = useCallback(
-    (prev: SessionState): SessionState => machineNextTick(machineConfig, prev),
-    [machineConfig],
-  );
-
   // 1초 tick — 엔진 소유(GROMO-1600 2단계). 화면 생명주기와 함께 시작·정지.
   useEffect(() => {
     engine.startTicking();
@@ -368,22 +354,11 @@ export default function FocusSessionScreen() {
   // 적용 성공 여부(shielded)로 이탈 정책이 갈린다: 실드 O = 집중 인정 / 실드 X = 15초 정책.
   // 과목 변경 시엔 stop 없이 start만 다시 호출한다(같은 스토어를 덮어씀) — 중간에 stop을
   // 끼우면 다음 start까지 모든 차단이 풀리는 무방비 구간이 생긴다.
-  const shieldedRef = useRef(false);
   useEffect(() => {
-    ScreenTimeModule.startFocusShield(subjectName)
-      .then((ok) => {
-        shieldedRef.current = ok;
-      })
-      .catch(() => {});
-  }, [subjectName]);
+    engine.applyShield(subjectName);
+  }, [engine, subjectName]);
   // 해제는 화면을 떠날 때 한 번만
-  useEffect(
-    () => () => {
-      shieldedRef.current = false;
-      ScreenTimeModule.stopFocusShield().catch(() => {});
-    },
-    [],
-  );
+  useEffect(() => () => engine.releaseShield(), [engine]);
 
   // LA 페이로드는 「마지막 렌더 시점」 상태를 읽는다 — 엔진 상태(즉시)가 아니라 렌더 미러.
   // 600ms 캡처 콜백은 렌더 밖에서 돌므로, 엔진을 직접 읽으면 같은 프레임의 미표시 tick이
@@ -512,8 +487,7 @@ export default function FocusSessionScreen() {
     if (!session.done || engine.isFinished()) return;
     if (doneGate) return; // 게이트가 이미 떠 있으면 재실행에도 진동·정산 반복 금지
     setDoneGate(true);
-    shieldedRef.current = false;
-    ScreenTimeModule.stopFocusShield().catch(() => {});
+    engine.releaseShield();
     ScreenTimeModule.endFocusActivity().catch(() => {});
     engine.settleFocusBlock();
     // 세션은 이미 끝났으므로 마커도 게이트 시점에 바로 닫는다 — 확인을 누를 때까지 미루면
@@ -533,212 +507,23 @@ export default function FocusSessionScreen() {
     Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
   }, [session.done, doneGate, engine, flushViewDwell, flushOrientationDwell]);
 
-  // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
-  // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
-  // 라이브 전환이면 진동 2번으로 경계를 알린다(GROMO-864). 백그라운드에서 지난 경계도
-  // 복귀 시 현재 페이즈가 달라졌다면 한 번 알려준다.
-  const prevPhaseRef = useRef(session.phase);
+  // 뽀모도로 페이즈 경계 처리는 엔진 소유(GROMO-1600 6단계) — 화면은 전환 신호만 전달.
   useEffect(() => {
-    const prev = prevPhaseRef.current;
-    const cur = session.phase;
-    if (prev === cur) return;
-    prevPhaseRef.current = cur;
-    Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
-    if (prev === 'focus' && cur === 'break') {
-      engine.settleFocusBlock();
-    } else if (prev === 'break' && cur === 'focus') {
-      engine.startBlockAt(new Date().toISOString());
-      if (pausedRef.current) {
-        // 휴식 만료 복귀가 다음 블록을 일시정지 대기로 만든 경우 — 지금 열면 대기 내내
-        // 친구 화면에 '집중 중'이 흐른다. 마커는 재개 시점에 연다(코덱스 리뷰).
-        engine.setMarkerDeferred(true);
-      } else {
-        // 다음 집중 블록의 마커를 새로 연다(마커 회전) — 휴식 동안은 미집중으로 보인다.
-        engine.startLiveSession(engine.blockStartedAt());
-      }
-    }
+    engine.handlePhaseTransition();
   }, [session.phase, engine]);
 
-  // 이탈 감지 — background 진입 시각을 기록해두고, 복귀 시 자리 비운 시간으로 판정한다.
-  const leftAtRef = useRef<number | null>(null);
-  const leftPhaseRef = useRef<'focus' | 'break'>('focus');
-  // 이탈 시점 세션 스냅샷 — 서스펜드 전에 1초 tick이 몇 번 더 돌면 엔진 세션이 leftAt보다
-  // 앞서 있어, 복귀 리플레이의 경계 시각(leftAt + i초)이 그만큼 당겨진다(코덱스 리뷰).
-  // 리플레이는 이 스냅샷에서 시작하고, 복귀 시 setSession이 전진분을 통째로 덮어쓴다.
-  const leftSessionRef = useRef<SessionState | null>(null);
-  // 이 세션에서 지금까지 인정한 이탈 크레딧 누적(GROMO-1253). 상한이 '복귀 1회당'이면
-  // 백그라운드 왕복을 반복할 때마다 8시간씩 새로 붙어 하루 24시간을 넘긴다(34시간 신고 사례).
-  const awayCreditedRef = useRef(0);
-
+  // 이탈 감지·복귀 리플레이는 엔진 소유(GROMO-1600 6단계 — D2 보강: 관측 로직의 엔진 이관).
+  // AppState 구독은 화면이 유지하고 포워딩한다 — 구독 순서(위 체류 리스너가 먼저)가 동작의
+  // 일부라(특성화 고정) 엔진이 직접 구독하면 순서가 깨진다. 자체 구독은 페이즈 1에서.
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      // 나감 — 타이머가 실제 돌고 있을 때만 이탈로 취급(일시정지·완료 중은 무시)
-      if (state === 'background') {
-        if (engine.getSession().done || engine.isFinished() || pausedRef.current) return;
-        leftAtRef.current = Date.now();
-        leftPhaseRef.current = engine.getSession().phase;
-        leftSessionRef.current = engine.getSession(); // 리플레이 기준 스냅샷(leftAt과 짝)
-        engine.markLeftBlockToday(); // 날짜 맵도 같은 시점으로 되감는다(코드리뷰 ⑤)
-        engine.persistLiveRecord(engine.getSession().elapsed); // 여기서 꺼져도 이 시점까지는 정산되게
-        // 실드 세션은 나가 있어도 집중 인정이라 이탈 알림 없음(폴백 세션만 경고)
-        if (engine.getSession().phase === 'focus' && !shieldedRef.current) {
-          scheduleLeaveNotifications(subjectName, LEAVE_END_S).catch(() => {});
-        }
-        // OS 예약 알림은 JS 프로세스가 종료된 뒤에도 남지만, 현재 고아 세션 레코드만으로는
-        // 남은 타이머/뽀모도로 페이즈와 결과 화면을 복구할 수 없다. 실제 완료를 복구할 수 없는
-        // 알림이 발송되지 않도록 백그라운드 경계 알림은 예약하지 않는다(코덱스 리뷰).
-        return;
-      }
-      if (state !== 'active' || leftAtRef.current == null) return;
-
-      // 복귀 — 자리 비운 시간 계산 (leftAtMs는 리플레이 경계 시각 복원용으로 보관)
-      const leftAtMs = leftAtRef.current;
-      // 하한 0 — 백그라운드 중 기기 시계가 뒤로 가면(수동 변경·NTP 보정) 음수가 된다. 그대로 두면
-      // 실드 크레딧 잔량이 되레 늘고(코드리뷰), 카운트다운은 `display - away`로 남은 시간이 늘어난다.
-      // 소비처가 넷이라 계산 지점에서 한 번에 막는다.
-      const away = Math.max(0, Math.round((Date.now() - leftAtMs) / 1000));
-      leftAtRef.current = null;
-      cancelLeaveNotifications().catch(() => {});
-      const distractionTimedOut =
-        leftPhaseRef.current === 'focus' && !shieldedRef.current && away > LEAVE_END_S;
-      // AppState만으로는 실드가 실제로 외부 앱을 차단했는지 알 수 없다. 실드 세션은
-      // 홈 이동·기기 잠금·허용 앱 사용도 같은 콜백으로 들어오므로 차단 성공으로 기록하지 않고,
-      // 차단 결과를 관측할 수 있는 일반 세션만 이탈 이벤트를 발행한다.
-      if (leftPhaseRef.current === 'focus' && !shieldedRef.current && !distractionTimedOut) {
-        logFocusDistractionDetected({
-          reason: 'app_backgrounded',
-          app_category: 'other',
-          blocked: false,
-          returned_to_focus: true,
-        });
-      }
-      // 복귀 = 연결이 돌아왔을 가능성이 큰 시점 — 회전 중 실패한 마커 취소 재시도(코덱스 리뷰)
-      flushPendingMarkerCancels(userIdRef.current).catch(() => {});
-      if (__DEV__)
-        console.log(`[이탈감지] ${away}초 만에 복귀 (실드 ${shieldedRef.current ? 'ON' : 'OFF'})`);
-      if (engine.getSession().done || engine.isFinished()) return;
-
-      if (leftPhaseRef.current === 'focus') {
-        if (shieldedRef.current) {
-          // 실드 세션 — 딴짓이 차단된 상태였으므로 자리 비운 시간을 집중으로 인정(전진).
-          // 전진분은 즉시 저장 — 다음 5초 주기 저장 전에 강제 종료되면
-          // 방금 인정한 시간이 고아 정산 대상에서 통째로 빠진다.
-          // 상한은 세션 누적 기준 — 복귀 1회당이면 왕복 횟수만큼 곱해진다(GROMO-1253)
-          const credit = Math.min(away, Math.max(0, AWAY_CREDIT_CAP_S - awayCreditedRef.current));
-          awayCreditedRef.current += credit;
-          // 리플레이는 이탈 시점 스냅샷에서 시작 — 서스펜드 전에 더 돈 tick으로 엔진 세션이
-          // 앞서 있어도 경계 시각(leftAt + i초)과 어긋나지 않는다. 그 tick 전진분은 아래
-          // engine.setSession(cur)이 덮어써 이중 계상 없음(settledSecondsRef 단조 가드도 동일 방어).
-          let cur = leftSessionRef.current ?? engine.getSession();
-          leftSessionRef.current = null;
-          // 세션 상태를 되감는 만큼 날짜 맵도 이탈 시점으로 되돌린다 — 안 그러면 서스펜드 전에 더 돈
-          // tick이 리플레이에서 두 번 세진다(코드리뷰 ⑤). 정산이 끼었으면(스냅샷 null) 현재 값 유지.
-          engine.rewindBlockTodayToLeft();
-          let crossed = false;
-          // 연속 집중 tick은 모아서 한 번에 적립한다(GROMO-1252 코드리뷰 6차 ④) — 8시간 크레딧이면
-          // 28,800회라 tick마다 존 포맷(Intl)·객체 스프레드를 돌면 setSession 전에 JS 스레드가 멈춘다.
-          // 정산(settleFocusBlock)은 날짜 맵을 읽고 리셋하므로 그 직전에 반드시 flush 한다.
-          let pendingFromMs = 0;
-          let pendingTicks = 0;
-          const flushTicks = () => {
-            if (pendingTicks > 0) engine.creditFocusTicks(new Date(pendingFromMs), pendingTicks);
-            pendingTicks = 0;
-          };
-          for (let i = 0; i < credit && !cur.done; i++) {
-            const next = nextTick(cur);
-            // 빨리감기가 지나치는 페이즈 경계도 실시간과 동일하게 정산·마커 회전 — 최종 페이즈만
-            // 비교하면 집중→휴식→집중 한 바퀴(같은 페이즈 복귀)가 경계 없음으로 보여 옛 마커가
-            // 휴식 시간까지 계속 흐른다(코덱스 리뷰).
-            // 경계 시각은 '지금'이 아니라 실제 지난 벽시계로 복원한다 — 실드 전진은 자리 비운
-            // 1초당 1 tick이라 i번째 tick 종료 = leftAt + (i+1)초(코덱스 리뷰).
-            const boundaryMs = leftAtMs + (i + 1) * 1000;
-            // 리플레이 tick도 '실제로 지난 시각'의 날짜로 오늘 몫에 적립한다(GROMO-1252 코드리뷰) —
-            // 자정을 넘겨 복귀하면 자정 전 tick은 어제 몫이다. 정산(아래)이 카운터를 리셋하므로
-            // 반드시 정산보다 먼저 센다. 1초 간격이 끊기면(뽀모도로 휴식) 묶음을 닫고 새로 연다.
-            if (next.elapsed > cur.elapsed) {
-              if (pendingTicks > 0 && boundaryMs !== pendingFromMs + pendingTicks * 1000)
-                flushTicks();
-              if (pendingTicks === 0) pendingFromMs = boundaryMs;
-              pendingTicks++;
-            }
-            if (cur.phase === 'focus' && next.done) {
-              // 마지막 블록 완료(카운트다운·뽀모도로 마지막 세트)를 백그라운드에서 넘긴 경우 —
-              // 완료 경계 시각으로 정산해 완료~복귀 공백이 집중으로 계상되지 않게 한다(코덱스
-              // 리뷰). 뒤따르는 done 이펙트의 정산은 delta 0 no-op, 마커도 여기서 이미 닫힌다.
-              engine.replaceSession(next);
-              flushTicks();
-              engine.settleFocusBlock(new Date(boundaryMs).toISOString());
-            } else if (cur.phase === 'focus' && next.phase === 'break') {
-              crossed = true;
-              engine.replaceSession(next); // 정산이 경계 시점의 경과초를 읽도록 먼저 반영
-              flushTicks();
-              engine.settleFocusBlock(new Date(boundaryMs).toISOString());
-            } else if (cur.phase === 'break' && next.phase === 'focus') {
-              crossed = true;
-              // 새 집중 블록 시작 — 방해 카운터도 함께 리셋(GROMO-1214, startBlockAt).
-              const boundaryAt = new Date(boundaryMs).toISOString();
-              engine.startBlockAt(boundaryAt);
-              engine.startLiveSession(boundaryAt);
-            }
-            cur = next;
-          }
-          flushTicks(); // 루프 종료분 — 아래 상한 부분정산·setSession 전에 반영
-          // 크레딧 상한(8h)에 걸려 전진이 멈춘 경우 — 상한 시각으로 부분 정산하고 복귀 시점에서
-          // 다시 연다. 안 하면 상한~복귀의 미인정 공백이 다음 정산 구간과 라이브 표시에 집중으로
-          // 계상된다(코덱스 리뷰). 휴식 중 상한은 정산 구간에 안 들어가므로 집중 페이즈만.
-          if (!cur.done && away > credit && cur.phase === 'focus') {
-            engine.replaceSession(cur);
-            engine.settleFocusBlock(new Date(leftAtMs + credit * 1000).toISOString());
-            // 상한이 정확히 블록 경계(휴식→집중 직후)에 떨어지면 정산할 델타가 0이라 settle이
-            // 마커를 안 닫는다 — 직전에 연 과거 마커가 아래 startLiveSession의 참조 덮어쓰기로
-            // 유실돼 12h 스윕까지 '집중 중'으로 되살아나지 않게 명시적으로 닫는다(코덱스 리뷰).
-            // settle이 이미 회전했다면 참조가 비어 no-op.
-            engine.cancelLiveSession();
-            engine.startBlockAt(new Date().toISOString());
-            engine.startLiveSession(engine.blockStartedAt());
-          }
-          if (crossed) {
-            // 페이즈 이펙트가 같은 경계를 또 처리(마커 이중 오픈)하지 않게 기준을 동기화하고,
-            // 지나온 경계는 진동 한 번으로만 알린다(기존 '복귀 시 한 번 알림' 동작 유지).
-            prevPhaseRef.current = cur.phase;
-            Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
-          }
-          engine.setSession(cur);
-          engine.persistLiveRecord(cur.elapsed);
-        } else if (away > LEAVE_END_S) {
-          // 폴백(실드 없음) — 15초 초과 시 자동 종료(나가기 직전까지만 저장)
-          // 정상 완료가 아닌 중도 이탈 종료이므로 abandoned 계측(reason: leave_timeout).
-          logFocusDistractionDetected({
-            reason: 'leave_timeout',
-            app_category: 'other',
-            blocked: false,
-            returned_to_focus: false,
-          });
-          engine.logAbandonedOnce('leave_timeout');
-          finish();
-        }
-      } else {
-        // 휴식 중 이탈 — 벽시계만큼 휴식만 소진. 휴식이 끝나 있으면 다음 집중을 일시정지로 대기.
-        const cur = engine.getSession();
-        if (cur.phase !== 'break') return;
-        if (away < cur.display) {
-          engine.setSession({ ...cur, display: cur.display - away });
-        } else {
-          engine.setPausedState(true);
-          engine.setSession({
-            ...cur,
-            display: pomo.focusMin * 60,
-            phase: 'focus',
-            setIndex: cur.setIndex + 1,
-          });
-        }
-      }
-    });
+    const sub = AppState.addEventListener('change', (state) =>
+      engine.onAppStateChange(state, { onLeaveTimeout: () => finish() }),
+    );
     return () => {
       sub.remove();
       cancelLeaveNotifications().catch(() => {});
     };
-  }, [subjectName, finish, pomo.focusMin, pomo.breakMin, pomo.sets, nextTick, mode, engine]);
+  }, [engine, finish]);
 
   // 일시정지/재개 토글은 엔진 명령(GROMO-1600 5단계).
   const togglePause = useCallback(() => engine.togglePause(), [engine]);
