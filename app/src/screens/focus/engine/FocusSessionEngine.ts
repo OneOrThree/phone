@@ -46,6 +46,11 @@ import {
   type SessionMachineConfig,
   type SessionState,
 } from './machine';
+import {
+  writePersistedSessionV1,
+  removePersistedSessionV1,
+  type PersistedFocusSessionV1,
+} from './persistence';
 
 // 무실드 세션의 이탈 자동 종료 경계(초) — 초과 복귀는 leave_timeout 종료
 export const LEAVE_END_S = 15;
@@ -191,6 +196,8 @@ export function createFocusSessionEngine(
   const notify = () => listeners.forEach((l) => l());
 
   const startedAtIso = new Date().toISOString();
+  // 로컬 세션 ID(§4.3 focusSessionId의 전신) — 부작용 전에 생성되는 비어 있지 않은 식별자
+  const sessionKey = `fs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   // 서버 업로드 정산 마커 — 이미 정산(로컬 적립·서버 업로드)된 집중초와 미정산 구간 시작 시각.
   // 뽀모도로는 집중 블록마다, 그 외 모드는 종료 시 한 번 정산한다.
   // 코인은 여기서 세지 않는다(GROMO-1049) — 지급도 잔액도 서버가 정본이라 앱이 미리 계산하지 않는다.
@@ -271,6 +278,36 @@ export function createFocusSessionEngine(
       focusDays: blockToday,
     };
     AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify(record)).catch(() => {});
+    // 영속 세션 v1 이중 기록(GROMO-1600) — legacy는 미정산 꼬리만, v1은 재구성 전체 상태.
+    // 쓰기·제거 시점은 legacy와 대칭(같은 가드·같은 지점) — 두 표현이 어긋나지 않는다.
+    const v1: PersistedFocusSessionV1 = {
+      version: 1,
+      sessionKey,
+      userId,
+      subjectId,
+      subjectName,
+      mode: config.mode,
+      goalSeconds: config.mode === 'countdown' ? config.goalSeconds : null,
+      pomodoro: config.mode === 'pomodoro' ? config.pomodoro : null,
+      phase: session.phase,
+      setIndex: session.setIndex,
+      isPaused: paused,
+      done: session.done,
+      displaySeconds: Math.floor(session.display),
+      elapsedSeconds: Math.floor(session.elapsed),
+      startedAt: startedAtIso,
+      blockStartedAt: settleAt,
+      unsettledSeconds: remaining,
+      settledSeconds,
+      blockPause,
+      focusDays: blockToday,
+      awayCreditedSeconds: awayCredited,
+      shielded,
+      serverSessionId: liveId,
+      revision: activityRevision,
+      updatedAt: record.updatedAt,
+    };
+    writePersistedSessionV1(v1);
   };
 
   // 서버에 라이브 마커 시작을 등록 — 등록돼야 친구/리그 화면에 '집중 중'(과목명 포함)으로 보인다.
@@ -348,6 +385,7 @@ export function createFocusSessionEngine(
     settledSeconds = elapsed;
     startBlockAt(endedAt);
     AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+    removePersistedSessionV1(); // v1도 대칭 제거 — 다음 5초 주기가 미정산 재개분으로 다시 쓴다
     // 로컬/과목 적립 — 이 블록의 집중초 중 오늘 몫만 반영(GROMO-1252). 몫은 벽시계 겹침이
     // 아니라 집중 tick의 날짜로 센다. 코인은 all-time이라 항상 반영.
     const settledBlockToday = blockToday;
@@ -500,6 +538,7 @@ export function createFocusSessionEngine(
       // 라이브 레코드 제거를 먼저 시도하되, 실패해도 정산은 계속한다(GROMO-615).
       // 제거 실패로 정산까지 건너뛰면 적립·서버 업로드가 통째로 빠진다(보상 유실).
       await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+      removePersistedSessionV1();
       try {
         settleFocusBlock();
         // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).

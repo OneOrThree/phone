@@ -12,6 +12,11 @@ import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker } from './pendingMarkerCancels';
 import { ensureFocusTagId } from './tagSync';
 import { cancelStaleCompletionNotifications } from './completionNotification';
+import {
+  readPersistedSessionV1,
+  removePersistedSessionV1,
+  orphanSettlementFromV1,
+} from './engine/persistence';
 
 // 죽은(강제 종료된) 세션 정산 — 앱 시작 시 라이브 레코드가 남아 있으면
 // 마지막 저장 시점까지의 집중시간을 적립하고, 서버 업로드까지 끝나야 레코드를 지운다.
@@ -40,6 +45,62 @@ export function OrphanFocusSettler() {
     if (!focusReady || !subjectsReady) return;
     ran.current = true;
     (async () => {
+      // 엔진 영속 v1 우선(GROMO-1600) — 방해초를 역산이 아니라 실측(blockPause)으로 정산한다.
+      // v1과 legacy는 같은 세션의 이중 표현이라, v1 경로의 폐기·완료 지점마다 legacy도 함께
+      // 지운다(남기면 다음 부팅의 legacy 폴백이 같은 꼬리를 한 번 더 정산한다).
+      const v1 = await readPersistedSessionV1();
+      if (v1 != null) {
+        if (v1.userId !== userId) {
+          removePersistedSessionV1();
+          await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+          return;
+        }
+        const settlement = orphanSettlementFromV1(v1);
+        if (settlement.focused <= 0) {
+          removePersistedSessionV1();
+          await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+          return;
+        }
+        // 로컬 적립 1회 — legacy 경로와 같은 마킹 규칙(적립 전에 먼저 되쓴다).
+        let storedV1 = JSON.stringify(v1);
+        if (!v1.settledLocally) {
+          const marked = { ...v1, settledLocally: true };
+          storedV1 = JSON.stringify(marked);
+          await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, storedV1);
+          const todaySeconds = settlement.localTodayShare(todayStr());
+          if (todaySeconds > 0) {
+            addFocusSeconds(todaySeconds);
+            addFocusToSubject(v1.subjectId, todaySeconds);
+          }
+        }
+        const focusTagId = await ensureFocusTagId(v1.subjectName, userId);
+        const result = await uploadFocusBlock({
+          sessionId: v1.serverSessionId ?? null,
+          body: {
+            focusTagId,
+            subject: v1.subjectName,
+            startedAt: settlement.startedAt,
+            endedAt: settlement.endedAt,
+            distractionCount: settlement.distractionCount,
+            totalDistractionSeconds: settlement.totalDistractionSeconds,
+            focusSecondsByDate: settlement.focusSecondsByDate,
+          },
+          userId,
+          onMarkerStillOpen: (id) => {
+            cancelMarker(id, v1.userId ?? null).catch(() => {});
+          },
+        });
+        if (result.status === 'failed') return; // 레코드 보존 — 다음 부팅 재시도(legacy와 동일)
+        if (result.status === 'saved') refreshCoins();
+        // 그 사이 새 세션이 v1을 덮어썼을 수 있으니 같은 값일 때만 지운다(legacy와 동일 규칙).
+        const curV1 = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1);
+        if (curV1 === storedV1) {
+          removePersistedSessionV1();
+          await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+        }
+        return;
+      }
+      // ── legacy 폴백 — 구버전 번들이 남긴 레코드(방해초는 종전 역산 유지) ─────────────
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
       if (!raw) return;
       let rec: LiveFocusSession;

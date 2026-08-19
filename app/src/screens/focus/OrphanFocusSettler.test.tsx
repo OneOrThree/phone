@@ -75,3 +75,78 @@ test('열린 마커가 남은 고아 정산은 취소 콜백을 넘긴다 — �
   opts.onMarkerStillOpen?.('marker-1');
   expect(mockCancel).toHaveBeenCalledWith('marker-1', OWNER);
 });
+
+// ── 엔진 영속 v1 우선 경로(GROMO-1600) ─────────────────────────────────────────
+const V1_RECORD = {
+  version: 1,
+  sessionKey: 'fs-test-1',
+  userId: OWNER,
+  subjectId: 's1',
+  subjectName: '수학',
+  mode: 'countup',
+  goalSeconds: null,
+  pomodoro: null,
+  phase: 'focus',
+  setIndex: 1,
+  isPaused: false,
+  done: false,
+  displaySeconds: 1500,
+  elapsedSeconds: 1500,
+  startedAt: '2026-08-08T10:00:00+09:00',
+  blockStartedAt: '2026-08-08T10:05:00+09:00',
+  unsettledSeconds: 1200,
+  settledSeconds: 300,
+  // 실측 방해초 — 닫힌 정지 60초 + 열린 정지 없음. legacy 역산이면 span(1200s)−elapsed로
+  // 어긋났을 값이다.
+  blockPause: { pausedMs: 60_000, count: 2, startedAt: null },
+  focusDays: {
+    local: { '2026-08-08': 1200 },
+    server: { '2026-08-08': 1200 },
+    kst: { '2026-08-08': 1200 },
+  },
+  awayCreditedSeconds: 0,
+  shielded: true,
+  serverSessionId: 'marker-9',
+  revision: 5,
+  updatedAt: '2026-08-08T10:25:00+09:00',
+};
+
+test('v1 레코드가 있으면 legacy 대신 v1로 정산한다 — 방해초 실측·미정산 블록 구간·양쪽 제거', async () => {
+  await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(V1_RECORD));
+  mockUpload.mockResolvedValue({ status: 'saved', response: {} as never });
+  await renderSettler();
+
+  expect(mockUpload).toHaveBeenCalledTimes(1);
+  const opts = mockUpload.mock.calls[0][0];
+  expect(opts.sessionId).toBe('marker-9'); // legacy의 marker-1이 아니라 v1의 마커
+  expect(opts.body).toMatchObject({
+    subject: '수학',
+    startedAt: '2026-08-08T10:05:00+09:00', // 미정산 블록 시작 — 세션 시작이 아니다
+    endedAt: '2026-08-08T10:25:00+09:00',
+    distractionCount: 2,
+    totalDistractionSeconds: 60, // 실측(blockPause) — (span − elapsed) 역산이 아니다
+    focusSecondsByDate: { '2026-08-08': 1200 },
+  });
+  // 완료 후 두 표현 모두 제거 — legacy가 남으면 다음 부팅 폴백이 같은 꼬리를 또 정산한다
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).toBeNull();
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession)).toBeNull();
+});
+
+test('v1 소유자 불일치: 정산 없이 v1·legacy 둘 다 폐기한다', async () => {
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.focusSessionV1,
+    JSON.stringify({ ...V1_RECORD, userId: 'someone-else' }),
+  );
+  await renderSettler();
+  expect(mockUpload).not.toHaveBeenCalled();
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).toBeNull();
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession)).toBeNull();
+});
+
+test('v1 업로드 failed: 레코드를 보존해 다음 부팅이 재시도한다', async () => {
+  await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(V1_RECORD));
+  mockUpload.mockResolvedValue({ status: 'failed' });
+  await renderSettler();
+  expect(mockUpload).toHaveBeenCalledTimes(1);
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).not.toBeNull();
+});

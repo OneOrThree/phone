@@ -10,6 +10,7 @@ import { uploadFocusBlock } from '../uploadFocusBlock';
 import { cancelMarker } from '../pendingMarkerCancels';
 import type { LiveFocusSession } from '../types';
 import { createFocusSessionEngine, type FocusEngineDeps } from './FocusSessionEngine';
+import { readPersistedSessionV1, reconstructSessionFromV1 } from './persistence';
 import type { SessionMachineConfig } from './machine';
 
 jest.mock('@/services/ScreenTimeModule', () => ({
@@ -190,6 +191,46 @@ test('무실드 세션의 15초 초과 이탈: onLeaveTimeout 훅이 불린다(�
   jest.setSystemTime(Date.now() + 20_000);
   engine.onAppStateChange('active', { onLeaveTimeout });
   expect(onLeaveTimeout).toHaveBeenCalledTimes(1);
+  engine.stopTicking();
+});
+
+test('영속 v1 이중 기록: legacy와 대칭으로 쓰이고, 콜드 스타트 재구성 왕복이 성립한다', async () => {
+  const engine = createFocusSessionEngine(pomodoroConfig, makeDeps());
+  engine.startLiveSession(engine.sessionStartedAt());
+  engine.startTicking();
+  await advance(60_000); // 집중 60초 완주 tick — 5의 배수라 저장, 페이즈는 휴식으로 전환됨
+  const v1 = await readPersistedSessionV1();
+  expect(v1).toMatchObject({
+    version: 1,
+    userId: 'user-1',
+    subjectId: 's1',
+    mode: 'pomodoro',
+    phase: 'break', // 60초 tick이 페이즈를 옮긴 뒤의 상태 — legacy에는 없는 정보
+    setIndex: 1,
+    isPaused: false,
+    elapsedSeconds: 60,
+    displaySeconds: 60, // 휴식 잔여
+    unsettledSeconds: 60,
+    settledSeconds: 0,
+    shielded: false,
+    serverSessionId: 'marker-1',
+  });
+  expect(v1!.sessionKey).not.toBe('');
+  // 재구성 — 죽었다 살아나도 상태 머신 입력이 복원된다(§4.1-①). 재개 정책은 페이즈 1.
+  const rebuilt = reconstructSessionFromV1(v1!);
+  expect(rebuilt.config).toEqual(pomodoroConfig);
+  expect(rebuilt.session).toEqual({
+    elapsed: 60,
+    display: 60,
+    phase: 'break',
+    setIndex: 1,
+    done: false,
+  });
+  // finish — 두 표현 모두 제거(대칭)
+  await engine.finish(true);
+  await flush();
+  expect(await readPersistedSessionV1()).toBeNull();
+  expect(await readLiveRecord()).toBeNull();
   engine.stopTicking();
 });
 

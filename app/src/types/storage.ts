@@ -17,6 +17,9 @@ export const STORAGE_KEYS = {
   character: 'gromo:character:v1', // 계정별 캐릭터 선택 맵 { [userId]: { choice, customUri, createdAt } } — 오브젝트 캐릭터(누끼)
   focus: 'gromo:focus',
   focusLiveSession: 'gromo:focus:liveSession',
+  // 엔진 영속 세션 v1(GROMO-1600) — 모드·페이즈·정지·방해 장부까지 든 재구성 가능 레코드.
+  // legacy focusLiveSession과 이중 기록(구버전 번들·OTA 롤백 호환) — 은퇴는 바이너리 soak 후.
+  focusSessionV1: 'gromo:focus:session:v1',
   focusFirstDone: 'gromo:focus:firstDone', // 첫 집중 완료 여부 — 결과 화면(603) 변형 분기
   focusPendingUploads: 'gromo:focus:pendingUploads', // 업로드 실패한 집중 세션 재시도 대기열
   focusPendingCancels: 'gromo:focus:pendingCancels', // 취소 실패한 라이브 마커 id 재시도 대기열(GROMO-1214)
