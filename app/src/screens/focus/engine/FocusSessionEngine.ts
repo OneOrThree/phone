@@ -17,9 +17,12 @@ import type { FocusType } from '@/types/dto/focus';
 import { startFocusSession } from '@/services/focusApi';
 import {
   logFocusMarkerStartFailed,
+  logFocusSessionAbandoned,
+  logFocusSessionCompleted,
   logFocusSessionPaused,
   logFocusSessionResumed,
 } from '@/services/analyticsEvents';
+import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { todayStr, todayStrKst } from '@/utils/localDate';
 import { uploadFocusBlock } from '../uploadFocusBlock';
 import { cancelMarker, flushPendingMarkerCancels } from '../pendingMarkerCancels';
@@ -49,8 +52,6 @@ const FOCUS_TYPE_BY_MODE: Record<FocusTimerMode, FocusType> = {
 };
 
 export interface FocusEngineDeps {
-  /** finish 여부 — finish 명령의 소유는 아직 화면(5단계) */
-  isFinished(): boolean;
   /** 소유 표식 — 과목 변경(라우트 갱신)·계정 전환을 따라가는 렌더 미러 게터 */
   identity(): { subjectId: string; subjectName: string; userId: string | null };
   /**
@@ -84,6 +85,22 @@ export interface FocusSessionEngine {
   replaceSession(next: SessionState): void;
   startTicking(): void;
   stopTicking(): void;
+
+  // ── 종료·종결 계측 — 소유자는 엔진(5단계)
+  isFinished(): boolean;
+  /** 정상 완료 계측 1회 발행 — 완료 게이트와 finish가 공유(abandoned와 상호배타) */
+  logCompletedOnce(): void;
+  /** 포기 계측 1회 발행 — completed와 상호배타. reason: 'system_back' | 'leave_timeout' */
+  logAbandonedOnce(reason: string): void;
+  /**
+   * 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 결과 파라미터 반환. 한 번만 실행
+   * (재진입은 null). 뷰 계측 flush·Live Activity 종료는 화면 몫이라 훅으로 끼운다 —
+   * 호출 순서(계측 → 뷰 flush → 실드/LA 해제 → 레코드 제거 → 정산)는 화면 시절 그대로.
+   */
+  finish(
+    completed?: boolean,
+    hooks?: { flushViewInstrumentation?: () => void; endLiveActivity?: () => void },
+  ): Promise<{ focusSeconds: number; completed: boolean } | null>;
 
   // ── 일시정지 — 정지 상태·토글 명령의 소유자는 엔진(5단계)
   isPausedState(): boolean;
@@ -174,6 +191,11 @@ export function createFocusSessionEngine(
   // 휴식 만료 복귀가 다음 블록을 일시정지 대기로 만든 경우 — 마커 오픈을 재개 시점까지 유예(코덱스 리뷰)
   let markerDeferred = false;
   let paused = false;
+  let finished = false;
+  // 이탈 타임아웃으로 abandoned를 발행한 세션 — completed 발행과 상호배타 보장(GROMO-1004)
+  let abandoned = false;
+  // completed를 이미 발행했는지 — 완료 게이트와 finish 두 경로의 이중 발행 방지(코덱스 리뷰)
+  let completedLogged = false;
 
   const startBlockAt = (at: string) => {
     settleAt = at;
@@ -184,7 +206,7 @@ export function createFocusSessionEngine(
   // 저장값은 '미정산 구간'만: elapsed=아직 서버/로컬에 안 올린 집중초, startedAt=그 구간 시작 시각.
   // finish 후엔 저장 금지 — 종료 시 제거한 레코드가 되살아나면 다음 실행에서 이중 정산된다.
   const persistLiveRecord = (elapsed: number) => {
-    if (deps.isFinished()) return;
+    if (finished) return;
     const remaining = Math.floor(elapsed) - settledSeconds;
     if (remaining <= 0) return;
     const { subjectId, subjectName, userId } = deps.identity();
@@ -395,6 +417,51 @@ export function createFocusSessionEngine(
     stopTicking() {
       if (interval != null) clearInterval(interval);
       interval = null;
+    },
+
+    isFinished: () => finished,
+    // 정상 완료 계측(GROMO-1004) 1회 발행 — 유저 주도 종료는 모드 무관 완료로 세고,
+    // 이탈 타임아웃(abandoned)과 상호배타 — 한 세션은 둘 중 하나만 발행된다.
+    logCompletedOnce() {
+      if (completedLogged || abandoned) return;
+      completedLogged = true;
+      logFocusSessionCompleted({
+        mode: config.mode,
+        focus_minutes: Math.round(session.elapsed / 60),
+        has_tag: Boolean(deps.identity().subjectId),
+      });
+    },
+    logAbandonedOnce(reason) {
+      if (abandoned || completedLogged) return;
+      abandoned = true;
+      logFocusSessionAbandoned({
+        elapsed_seconds: Math.floor(session.elapsed),
+        reason,
+      });
+    },
+    async finish(completed = session.done, hooks) {
+      if (finished) return null;
+      finished = true;
+      // 완료 계측 — 완료 게이트가 이미 발행한 세션(카운트다운/뽀모도로 완주)은 가드로 스킵된다.
+      this.logCompletedOnce();
+      // 보고 있던 뷰의 마지막 체류 flush(GROMO-987) — 뷰 계측은 화면 몫.
+      hooks?.flushViewInstrumentation?.();
+      // 정상 종료 — 실드(엔진 소유)·Live Activity(화면 몫) 해제
+      ScreenTimeModule.stopFocusShield().catch(() => {});
+      hooks?.endLiveActivity?.();
+      // 라이브 레코드 제거를 먼저 시도하되, 실패해도 정산은 계속한다(GROMO-615).
+      // 제거 실패로 정산까지 건너뛰면 적립·서버 업로드가 통째로 빠진다(보상 유실).
+      await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+      try {
+        settleFocusBlock();
+        // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
+        cancelLiveSession();
+        // 화면을 떠나기 전 마지막 재시도 — 회전 중 실패해 쌓인 취소가 있으면 지금 정리(코덱스 리뷰)
+        flushPendingMarkerCancels(deps.identity().userId).catch(() => {});
+      } catch {
+        // 정산 예외에도 결과 반환은 계속한다(원 finish의 finally 의미 — 화면은 반드시 빠져나간다)
+      }
+      return { focusSeconds: Math.floor(session.elapsed), completed };
     },
 
     isPausedState: () => paused,

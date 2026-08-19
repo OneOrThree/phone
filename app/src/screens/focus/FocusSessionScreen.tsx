@@ -17,7 +17,6 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { captureRef } from 'react-native-view-shot';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -63,8 +62,6 @@ import { FocusLandscape } from './FocusLandscape';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import {
   logFocusSessionStarted,
-  logFocusSessionCompleted,
-  logFocusSessionAbandoned,
   logFocusDistractionDetected,
   logFocusMenuOpened,
   logFocusViewChanged,
@@ -196,7 +193,6 @@ export default function FocusSessionScreen() {
   const engine = useMemo(
     () =>
       createFocusSessionEngine(machineConfig, {
-        isFinished: () => finishedRef.current,
         identity: () => liveIdentityRef.current,
         settleDelegates: () => settleDelegatesRef.current,
         // 세션 전 오늘 누적 — 마운트 시점 값으로 고정(화면 시절 gridPreSessionRef 초기값과 동일)
@@ -302,11 +298,6 @@ export default function FocusSessionScreen() {
     });
     return () => sub.remove();
   }, []);
-  const finishedRef = useRef(false);
-  // 이탈 타임아웃으로 abandoned를 발행한 세션 — completed 발행과 상호배타 보장(GROMO-1004)
-  const abandonedRef = useRef(false);
-  // completed를 이미 발행했는지 — 완료 게이트와 finish 두 경로의 이중 발행 방지(코덱스 리뷰)
-  const completedLoggedRef = useRef(false);
   // 정산 장부·마커·그리드 기준점은 엔진 소유(GROMO-1600 4단계) — 화면은 엔진 API를 부른다.
   const sessionStartedLoggedRef = useRef(false);
 
@@ -460,7 +451,7 @@ export default function FocusSessionScreen() {
   // 옵셔널 호출인 이유: 특성화 테스트(GROMO-1599)의 모듈 목이 이 메서드를 모르는 채로도
   // 화면이 돌아야 한다 — 배선 누락이 아니라 목 경계다.
   useEffect(() => {
-    if (finishedRef.current || engine.getSession().done) return;
+    if (engine.isFinished() || engine.getSession().done) return;
     ScreenTimeModule.updateFocusActivity?.(buildActivityState()).catch(() => {});
   }, [paused, session.phase, buildActivityState, engine]);
 
@@ -470,7 +461,7 @@ export default function FocusSessionScreen() {
   // flush — finish 경로는 이미 발행했으므로 여기서 또 발행하면 이중 계측이다(GROMO-987).
   useEffect(
     () => () => {
-      if (!finishedRef.current) {
+      if (!engine.isFinished()) {
         engine.cancelLiveSession();
         if (!dwellDoneRef.current) {
           // 가로면 세로 페이저는 가려진 상태 — 뷰 flush를 건너뛰고 방향 체류만 발행(코덱스 리뷰)
@@ -480,80 +471,36 @@ export default function FocusSessionScreen() {
         // 종결 계측 — finish를 안 거친 이탈도 abandoned로 남긴다(코덱스 리뷰). 안 남기면
         // 이 세션은 완료/포기 어느 쪽도 안 찍혀 상호배타가 깨진다. 시간 적립은 라이브
         // 레코드가 남아 다음 실행의 고아 정산이 처리하므로 여기선 계측만 한다.
-        if (!abandonedRef.current && !completedLoggedRef.current) {
-          abandonedRef.current = true;
-          logFocusSessionAbandoned({
-            elapsed_seconds: Math.floor(engine.getSession().elapsed),
-            reason: 'system_back',
-          });
-        }
+        engine.logAbandonedOnce('system_back');
       }
     },
     [flushViewDwell, flushOrientationDwell, engine],
   );
 
-  // 정상 완료 계측(GROMO-1004) 1회 발행 — 완료 게이트(done 시점)와 finish(정지 버튼)가 공유한다.
-  // 유저 주도 종료는 모드 무관 완료로 세고, 이탈 타임아웃(abandoned)과 상호배타 — 한 세션은
-  // 둘 중 하나만 발행된다. completed 인자(별점 게이트, GROMO-980)와는 별개 기준.
-  const logCompletedOnce = useCallback(() => {
-    if (completedLoggedRef.current || abandonedRef.current) return;
-    completedLoggedRef.current = true;
-    logFocusSessionCompleted({
-      mode,
-      focus_minutes: Math.round(engine.getSession().elapsed / 60),
-      has_tag: Boolean(subjectId),
-    });
-  }, [engine, mode, subjectId]);
-
-  // 정지/완료 — 남은 집중 블록 정산(적립+서버 업로드) 후 홈으로. 한 번만 실행.
-  // completed: 정상 완료 여부(기본 = 세션 done). 결과 화면이 별점 요청(GROMO-980) 게이트로 쓴다 —
-  // 중도 이탈(정지·이탈 타임아웃) 세션에 별점창을 띄우면 부정적 순간에 1회 기회가 소모된다(코드리뷰 반영).
+  // 정지/완료는 엔진 명령(GROMO-1600 5단계) — 뷰 계측 flush·LA 종료만 훅으로 끼우고,
+  // 결과 파라미터를 받아 화면이 결과 화면으로 replace한다(재진입은 null — 이동 없음).
   const finish = useCallback(
-    async (completed = engine.getSession().done) => {
-      if (finishedRef.current) return;
-      finishedRef.current = true;
-      // 완료 계측 — 완료 게이트가 이미 발행한 세션(카운트다운/뽀모도로 완주)은 가드로 스킵된다.
-      logCompletedOnce();
-      // 세션 종료(완료/취소 공통 경로) — 보고 있던 뷰의 마지막 체류 flush(GROMO-987).
-      // 완료 게이트가 이미 발행했다면 건너뛴다 — 게이트를 열어둔 시간이 직전 뷰의 체류로
-      // 다시 계상되는 이중 발행 방지(코덱스 리뷰).
-      // 마지막 뷰·방향 체류를 함께 발행(GROMO-973/987). 완료 게이트가 이미 발행했다면 둘 다
-      // 건너뛴다 — 게이트를 열어둔 시간이 직전 뷰/방향의 체류로 다시 계상되는 이중 발행 방지(코덱스 리뷰).
-      if (!dwellDoneRef.current) {
-        // 가로면 세로 페이저는 가려진 상태 — 뷰 flush를 건너뛰고 방향 체류만 발행(코덱스 리뷰)
-        if (orientationRef.current !== 'landscape') flushViewDwell();
-        flushOrientationDwell();
-      }
-      // 정상 종료 — 실드·Live Activity 해제
-      ScreenTimeModule.stopFocusShield().catch(() => {});
-      ScreenTimeModule.endFocusActivity().catch(() => {});
-      // 라이브 레코드 제거를 먼저 시도하되, 실패해도 정산은 계속한다(GROMO-615).
-      // 제거 실패로 정산까지 건너뛰면 적립·서버 업로드가 통째로 빠진다(보상 유실).
-      // 제거는 settleFocusBlock 안에서 한 번 더 시도되고, 그래도 레코드가 남으면
-      // 다음 실행의 고아 정산이 마지막 저장분만큼 이중 적립될 수 있으나 미적립보다 낫다.
-      await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
-      try {
-        engine.settleFocusBlock();
-        // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
-        engine.cancelLiveSession();
-        // 화면을 떠나기 전 마지막 재시도 — 회전 중 실패해 쌓인 취소가 있으면 지금 정리(코덱스 리뷰)
-        flushPendingMarkerCancels(userIdRef.current).catch(() => {});
-      } finally {
-        // 정산 성공 여부와 무관하게 화면은 반드시 빠져나간다 —
-        // 집중 결과 화면(GROMO-598)으로 replace, 길이 무관 항상 결과 화면을 보여준다.
-        const focusSeconds = Math.floor(engine.getSession().elapsed);
-        navigation.replace('FocusResult', { focusSeconds, subjectId, subjectName, completed });
-      }
+    async (completed?: boolean) => {
+      const result = await engine.finish(completed, {
+        flushViewInstrumentation: () => {
+          // 완료 게이트가 이미 발행했다면 건너뛴다 — 게이트를 열어둔 시간이 직전 뷰/방향의
+          // 체류로 다시 계상되는 이중 발행 방지(코덱스 리뷰).
+          if (!dwellDoneRef.current) {
+            // 가로면 세로 페이저는 가려진 상태 — 뷰 flush를 건너뛰고 방향 체류만 발행(코덱스 리뷰)
+            if (orientationRef.current !== 'landscape') flushViewDwell();
+            flushOrientationDwell();
+          }
+        },
+        endLiveActivity: () => {
+          ScreenTimeModule.endFocusActivity().catch(() => {});
+        },
+      });
+      if (result == null) return;
+      // 정산 성공 여부와 무관하게 화면은 반드시 빠져나간다 — 집중 결과 화면(GROMO-598)으로
+      // replace, 길이 무관 항상 결과 화면을 보여준다.
+      navigation.replace('FocusResult', { ...result, subjectId, subjectName });
     },
-    [
-      engine,
-      logCompletedOnce,
-      flushViewDwell,
-      flushOrientationDwell,
-      navigation,
-      subjectId,
-      subjectName,
-    ],
+    [engine, flushViewDwell, flushOrientationDwell, navigation, subjectId, subjectName],
   );
 
   // 완료 게이트는 이미 세션을 정산하고 라이브 레코드를 제거한 상태다. Android 하드웨어
@@ -573,7 +520,7 @@ export default function FocusSessionScreen() {
   // (endedAt=now)에 집중으로 붙는다(코덱스 리뷰). 셋 다 멱등이라 finish에서 또 불러도
   // 무해하다(정산은 delta 0 no-op).
   useEffect(() => {
-    if (!session.done || finishedRef.current) return;
+    if (!session.done || engine.isFinished()) return;
     if (doneGate) return; // 게이트가 이미 떠 있으면 재실행에도 진동·정산 반복 금지
     setDoneGate(true);
     shieldedRef.current = false;
@@ -593,9 +540,9 @@ export default function FocusSessionScreen() {
     flushOrientationDwell();
     // 완료 계측도 게이트 시점에 발행 — 게이트를 띄운 채 앱이 종료되면 finish가 안 불려
     // 저장된 세션의 완료 이벤트만 유실된다(코덱스 리뷰). finish에서 또 불려도 가드로 no-op.
-    logCompletedOnce();
+    engine.logCompletedOnce();
     Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
-  }, [session.done, doneGate, engine, flushViewDwell, flushOrientationDwell, logCompletedOnce]);
+  }, [session.done, doneGate, engine, flushViewDwell, flushOrientationDwell]);
 
   // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
   // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
@@ -638,7 +585,7 @@ export default function FocusSessionScreen() {
     const sub = AppState.addEventListener('change', (state) => {
       // 나감 — 타이머가 실제 돌고 있을 때만 이탈로 취급(일시정지·완료 중은 무시)
       if (state === 'background') {
-        if (engine.getSession().done || finishedRef.current || pausedRef.current) return;
+        if (engine.getSession().done || engine.isFinished() || pausedRef.current) return;
         leftAtRef.current = Date.now();
         leftPhaseRef.current = engine.getSession().phase;
         leftSessionRef.current = engine.getSession(); // 리플레이 기준 스냅샷(leftAt과 짝)
@@ -680,7 +627,7 @@ export default function FocusSessionScreen() {
       flushPendingMarkerCancels(userIdRef.current).catch(() => {});
       if (__DEV__)
         console.log(`[이탈감지] ${away}초 만에 복귀 (실드 ${shieldedRef.current ? 'ON' : 'OFF'})`);
-      if (engine.getSession().done || finishedRef.current) return;
+      if (engine.getSession().done || engine.isFinished()) return;
 
       if (leftPhaseRef.current === 'focus') {
         if (shieldedRef.current) {
@@ -772,17 +719,13 @@ export default function FocusSessionScreen() {
         } else if (away > LEAVE_END_S) {
           // 폴백(실드 없음) — 15초 초과 시 자동 종료(나가기 직전까지만 저장)
           // 정상 완료가 아닌 중도 이탈 종료이므로 abandoned 계측(reason: leave_timeout).
-          abandonedRef.current = true;
           logFocusDistractionDetected({
             reason: 'leave_timeout',
             app_category: 'other',
             blocked: false,
             returned_to_focus: false,
           });
-          logFocusSessionAbandoned({
-            elapsed_seconds: Math.floor(engine.getSession().elapsed),
-            reason: 'leave_timeout',
-          });
+          engine.logAbandonedOnce('leave_timeout');
           finish();
         }
       } else {
