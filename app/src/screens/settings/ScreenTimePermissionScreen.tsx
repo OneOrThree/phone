@@ -159,6 +159,19 @@ export default function ScreenTimePermissionScreen() {
     }
   }
 
+  // 사용 정보 접근 목록으로 보낸다 — 못 열면 앱 상세 설정으로 폴백(코드리뷰 반영).
+  //
+  // 폴백이 필요한 경우: iOS · 구 안드로이드 바이너리(OTA로 새 JS만 받아 네이티브에 이 함수가
+  // 없다) · 설정 화면을 못 여는 기기. 폴백이 완전한 답은 아니지만(앱 상세엔 토글이 없다)
+  // 아무 일도 안 일어나는 것보다는 낫다 — 이 PR이 없애려는 건 '눌러도 무반응'이다.
+  function openUsageAccessOrAppSettings() {
+    ScreenTimeModule.openUsageAccessSettings()
+      .then((opened) => {
+        if (!opened) Linking.openSettings();
+      })
+      .catch(() => Linking.openSettings());
+  }
+
   // 거부됨 상태 카드 탭(안드로이드) — 앱 상세 설정(Linking.openSettings)에선 Usage Access를
   // 켤 수 없다. 홈·온보딩과 같이 requestAuthorization이 사용 정보 접근 목록 딥링크 + 복귀
   // 재확인까지 담당하고, 그 결과로 배지 상태를 갱신한다(코드리뷰 반영).
@@ -303,8 +316,13 @@ export default function ScreenTimePermissionScreen() {
     } else if (status === 'approved') {
       // 피커가 없는 플랫폼 — 허용 상태에서 탭할 곳이 피커뿐이라 그대로 두면 무반응이다.
       // 권한을 끄고 싶을 때 갈 곳(사용 정보 접근)으로 보낸다(GROMO-1592).
+      //
+      // ⚠️ 여기서 Linking.openSettings()를 바로 부르면 안 된다(코드리뷰 반영). 그건 앱 상세
+      //    설정을 여는데 거기엔 사용 정보 접근 토글이 없다 — 162행 주석이 짚은 바로 그 문제다.
+      //    requestAuthorization도 못 쓴다: 이미 허용된 상태면 설정을 열지 않고 즉시 resolve한다.
+      //    그래서 상태와 무관하게 목록을 여는 전용 함수를 쓰고, 실패할 때만 앱 상세로 폴백한다.
       statusBeforeSettingsRef.current = status;
-      Linking.openSettings();
+      openUsageAccessOrAppSettings();
     } else if (Platform.OS === 'android' && androidNativeModuleAvailable()) {
       reopenAndroidUsageAccess();
     } else {

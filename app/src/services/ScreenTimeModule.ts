@@ -94,6 +94,8 @@ interface AndroidNativeScreenTime {
   setGoalSeconds(seconds: number): Promise<void>;
   getTodayUsageBucketMinutes(): Promise<number>;
   getYesterdayUsageBucketMinutes(): Promise<number>;
+  // 허용 상태에서도 사용 정보 접근 설정을 여는 전용 경로. 구 바이너리엔 없을 수 있어 옵셔널.
+  openUsageAccessSettings?(): Promise<boolean>;
 }
 
 // 구 바이너리(OTA로 새 JS만 받아 네이티브 모듈이 없는 경우)는 null — 각 함수가 기존
@@ -190,6 +192,19 @@ const ScreenTimeModule = {
     // 거부 기록도 그대로 필요하다 — 보정이 옛 승인에 눌러앉지 않게.
     await markAuthGranted(granted);
     return granted;
+  },
+
+  // 사용 정보 접근 설정 화면 열기(안드로이드 전용). 성공하면 true.
+  //
+  // requestAuthorization은 **이미 허용된 상태면 설정을 열지 않는다** — 권한을 끄러 가는 경로로
+  // 쓸 수 없다. 앱 상세 설정(Linking.openSettings)에도 사용 정보 접근 토글이 없다. 그래서 이
+  // 전용 함수가 필요하다(코드리뷰 반영).
+  //
+  // false를 돌려주는 경우: iOS · 구 바이너리(OTA로 새 JS만 받아 네이티브에 이 함수가 없음) ·
+  // 설정 화면을 못 여는 기기. 호출부는 false면 앱 상세 설정으로 폴백한다.
+  openUsageAccessSettings: async (): Promise<boolean> => {
+    if (!AndroidScreenTime?.openUsageAccessSettings) return false;
+    return AndroidScreenTime.openUsageAccessSettings();
   },
 
   // 현재 권한 상태 확인 (안드로이드: AppOps 체크 + '설정 보낸 적' 플래그로 notDetermined 구분)

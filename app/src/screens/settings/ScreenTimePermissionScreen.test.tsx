@@ -52,6 +52,7 @@ jest.mock('@/services/ScreenTimeModule', () => ({
     presentAppPicker: jest.fn(),
     promoteSelection: jest.fn(),
     setPendingSelectionApplyDate: jest.fn(),
+    openUsageAccessSettings: jest.fn(),
   },
   androidNativeModuleAvailable: () => false,
   nativeSupportsPendingApplyDate: jest.fn(),
@@ -65,6 +66,9 @@ const mockGetStatus = ScreenTimeModule.getAuthorizationStatus as jest.MockedFunc
 >;
 const mockPresentAppPicker = ScreenTimeModule.presentAppPicker as jest.MockedFunction<
   typeof ScreenTimeModule.presentAppPicker
+>;
+const mockOpenUsageAccess = ScreenTimeModule.openUsageAccessSettings as jest.MockedFunction<
+  typeof ScreenTimeModule.openUsageAccessSettings
 >;
 const mockPromote = ScreenTimeModule.promoteSelection as jest.MockedFunction<
   typeof ScreenTimeModule.promoteSelection
@@ -167,9 +171,14 @@ describe('측정 대상 선택 — 플랫폼별 진입 경로', () => {
   });
 
   // 피커가 없으면 허용 상태에서 상태 카드를 눌러도 갈 곳이 없다 — 무반응으로 두지 않고
-  // 권한을 끄러 갈 수 있는 시스템 설정으로 보낸다.
-  test('안드로이드에서 허용 상태 카드는 시스템 설정으로 보낸다', async () => {
+  // 권한을 끄러 갈 수 있는 곳으로 보낸다.
+  //
+  // ⚠️ 그 '갈 곳'이 앱 상세 설정(Linking.openSettings)이면 안 된다(코드리뷰 반영). 거기엔
+  //    사용 정보 접근 토글이 없어서, 눌러서 이동은 하는데 정작 할 일을 못 하는 상태가 된다.
+  //    이 PR이 없애려는 '화면이 거짓말한다'와 같은 종류라 목록 딥링크를 쓴다.
+  test('안드로이드에서 허용 상태 카드는 사용 정보 접근 목록으로 보낸다', async () => {
     setPlatform('android');
+    mockOpenUsageAccess.mockResolvedValue(true);
 
     await render(<ScreenTimePermissionScreen />);
     await act(async () => {});
@@ -178,6 +187,23 @@ describe('측정 대상 선택 — 플랫폼별 진입 경로', () => {
     });
 
     expect(mockPresentAppPicker).not.toHaveBeenCalled();
+    expect(mockOpenUsageAccess).toHaveBeenCalled();
+    // 목록을 열었으면 앱 상세로 또 보내지 않는다 — 두 화면이 겹쳐 뜨면 그게 더 헷갈린다.
+    expect(Linking.openSettings).not.toHaveBeenCalled();
+  });
+
+  // 구 바이너리(OTA로 새 JS만 받아 네이티브에 이 함수가 없음)·설정을 못 여는 기기.
+  // 앱 상세가 완전한 답은 아니지만, 아무 일도 안 일어나는 것보다는 낫다.
+  test('목록을 못 열면 앱 상세 설정으로 폴백한다', async () => {
+    setPlatform('android');
+    mockOpenUsageAccess.mockResolvedValue(false);
+
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.press(screen.getByText('스크린타임 접근'));
+    });
+
     expect(Linking.openSettings).toHaveBeenCalled();
   });
 
