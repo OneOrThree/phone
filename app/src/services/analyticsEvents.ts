@@ -60,9 +60,45 @@ export function logOnboardingStepViewed(p: { step: OnboardingStepName; step_inde
   track('onboarding_step_viewed', p);
 }
 
+// 스텝 공통 CTA 클릭 — StepScaffold의 메인/보조 버튼(GROMO-1605).
+// onboarding_step_viewed(도달)와 짝을 이뤄 "봤는데 안 눌렀다" vs "눌러서 넘어갔다"를 가른다.
+// 스텝별 제출 이벤트(focus_category_submitted 등)와 **별개로 항상** 발행한다 — 제출 이벤트가
+// 없는 스텝(공감·소개 화면 등)이 퍼널에서 통째로 비던 문제를 이 이벤트 하나로 덮는다.
+// action: 'cta'=메인 버튼, 'secondary'=보조 액션(나중에 할게요·건너뛰기·이대로 계속하기).
+export type OnboardingCtaAction = 'cta' | 'secondary';
+export function logOnboardingStepCta(p: {
+  step: OnboardingStepName;
+  action: OnboardingCtaAction;
+}): void {
+  track('onboarding_step_cta', p);
+}
+
+// 스텝 안의 보조 인터랙션 — 칩 선택·피커 열기·재시도·모달 닫기 등(GROMO-1605).
+// 이벤트를 종류마다 새로 파지 않고 action으로 구분한다(이벤트 목록 비대화 방지).
+// action_value: 선택값 등 부가 정보. **PII 금지** — 비식별 라벨만(카테고리 표시명 등).
+// ('value'는 GA4 예약 파라미터(숫자 이벤트 값)라 사용 금지 — 이 파일 설정 섹션 계약과 동일)
+export type OnboardingStepActionName =
+  | 'category_select' // 집중 카테고리 칩 선택
+  | 'category_retry' // 카테고리 목록 조회 실패 후 재시도
+  | 'guide_continue' // 스크린타임 권한 가이드 오버레이 '계속'
+  | 'guide_deny_tapped' // 가이드에서 '허용 안 함'(오답)을 탭 — 가이드가 막아낸 실수의 양
+  | 'open_settings' // 권한 거부 안내에서 iOS 설정 열기
+  | 'goal_picker_focus' // 집중 목표 피커 펼치기
+  | 'goal_picker_screentime' // 스크린타임 목표 피커 펼치기
+  | 'cutout_modal_closed' // 누끼 생성 모달을 저장 없이 닫음(생성 도중 이탈)
+  | 'step_back'; // 스와이프로 이전 스텝 복귀 — 되돌아가게 만든 화면 찾기
+export function logOnboardingStepAction(p: {
+  step: OnboardingStepName;
+  action: OnboardingStepActionName;
+  action_value?: string;
+}): void {
+  track('onboarding_step_action', p);
+}
+
 // W4 집중 카테고리(목표) 선택 제출 🆕
-export function logOnboardingFocusCategorySubmitted(): void {
-  track('onboarding_focus_category_submitted', { step_index: 4 });
+// category: 선택한 카테고리 표시명 — 제출 사실만 알던 것을 '무엇을 골랐는지'까지 넓힌다(GROMO-1605).
+export function logOnboardingFocusCategorySubmitted(p: { category: string }): void {
+  track('onboarding_focus_category_submitted', { step_index: 4, ...p });
 }
 
 // W10 스크린타임 권한 요청 / 응답(granted)
@@ -841,6 +877,16 @@ export function logCharacterCreated(p: {
   track('character_created', p);
 }
 
+// 생성기 내부 편집 동작 — 회전·다시 고르기(GROMO-1605). 누끼 결과가 마음에 안 들어
+// 고쳐 쓰는 양을 본다(rotate 다발 = 방향 인식 문제, repick 다발 = 누끼 품질 문제).
+// 생성기는 온보딩·홈 공용이라 entry_source로 진입처를 가른다.
+export function logCharacterEditAction(p: {
+  action: 'rotate' | 'repick';
+  entry_source?: string;
+}): void {
+  track('character_edit_action', p);
+}
+
 export function logCharacterEquipped(p: { character_type: CharacterType }): void {
   track('character_equipped', p);
 }
@@ -947,6 +993,7 @@ export function setIdentityProps(p: {
   screen_time_permission?: boolean;
   onboarding_completed?: boolean;
   currency_balance_bucket?: '0' | '1-99' | '100-499' | '500+' | null;
+  watch_paired?: boolean;
 }): void {
   if (p.is_guest !== undefined) setUserProperty('is_guest', p.is_guest);
   if (p.signup_method !== undefined) setUserProperty('signup_method', p.signup_method);
@@ -959,4 +1006,5 @@ export function setIdentityProps(p: {
     setUserProperty('onboarding_completed', p.onboarding_completed);
   if (p.currency_balance_bucket !== undefined)
     setUserProperty('currency_balance_bucket', p.currency_balance_bucket);
+  if (p.watch_paired !== undefined) setUserProperty('watch_paired', p.watch_paired);
 }

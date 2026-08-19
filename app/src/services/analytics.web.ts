@@ -13,15 +13,24 @@ function randomUuid(): string {
   });
 }
 
-export async function getDeviceId(): Promise<string> {
-  if (deviceId) return deviceId;
-  try {
-    deviceId = (await AsyncStorage.getItem(STORAGE_KEYS.deviceId)) ?? randomUuid();
-    await AsyncStorage.setItem(STORAGE_KEYS.deviceId, deviceId);
-  } catch {
-    deviceId = deviceId ?? randomUuid();
-  }
-  return deviceId;
+// 진행 중 조회를 공유하는 싱글플라이트 — 네이티브(analytics.ts)의 resolveDeviceId와 동일한
+// 이유: 첫 실행에서 initAnalytics와 deferred 초대 매치가 동시 진입하면 완료값 캐시만으로는
+// 둘 다 빈 저장소를 읽고 서로 다른 UUID를 만들어 어트리뷰션 조인이 끊긴다(코덱스 리뷰).
+let deviceIdPromise: Promise<string> | null = null;
+
+export function getDeviceId(): Promise<string> {
+  if (deviceId) return Promise.resolve(deviceId);
+  if (deviceIdPromise) return deviceIdPromise;
+  deviceIdPromise = (async () => {
+    try {
+      deviceId = (await AsyncStorage.getItem(STORAGE_KEYS.deviceId)) ?? randomUuid();
+      await AsyncStorage.setItem(STORAGE_KEYS.deviceId, deviceId);
+    } catch {
+      deviceId = deviceId ?? randomUuid();
+    }
+    return deviceId;
+  })();
+  return deviceIdPromise;
 }
 
 export async function initAnalytics(): Promise<void> {

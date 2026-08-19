@@ -14,6 +14,7 @@ import {
   setReloginHandler,
 } from '@/services/api';
 import { setAccountSwitchHandler, logout } from '@/services/auth';
+import { initAnalytics } from '@/services/analytics';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
 import { todayStr } from '@/utils/localDate';
 import {
@@ -27,6 +28,7 @@ import {
 import { clearInbox } from '@/services/notificationInbox';
 import StudyWidgetModule from '@/services/StudyWidgetModule';
 import { recordAccessDay } from '@/services/storeReview';
+import { reportWatchPairing } from '@/services/watchPairing';
 import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
@@ -57,6 +59,7 @@ import { beginTagEditTransition } from '@/screens/focus/tagSync';
 import { abortFocusRestore } from '@/screens/focus/focusRestore';
 import { PendingFocusUploader } from '@/screens/focus/PendingFocusUploader';
 import { PushGate } from '@/components/PushGate';
+import { UpdateAlert } from '@/components/UpdateAlert';
 import { PendingGoalApplier } from '@/components/PendingGoalApplier';
 import { ScreenTimeSyncer } from '@/components/ScreenTimeSyncer';
 import LoginScreen from '@/screens/LoginScreen';
@@ -159,6 +162,15 @@ function App() {
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = user?.userId ?? null;
 
+  // GA4 초기화 — 앱 마운트 시 1회(GROMO-1605). 원래 RootNavigator의 NavigationContainer
+  // onReady에서만 불렀는데, RootNavigator는 user가 있을 때만 렌더되는 분기라 **신규 유저는
+  // 온보딩을 다 끝낼 때까지 init이 돌지 않았다** → 온보딩 전 구간 이벤트에 device_id가 빠졌다.
+  // (device_id는 deferredInvite가 서버로 보내는 값과 같아야 '초대→설치→온보딩'이 조인된다.)
+  // RootNavigator의 호출은 그대로 둬도 무해하다 — resolveDeviceId가 캐시를 타서 멱등.
+  useEffect(() => {
+    initAnalytics();
+  }, []);
+
   useEffect(() => {
     (async () => {
       // 숫자 id 캐시 무효화(PK Long→UUID). 부트스트랩보다 먼저.
@@ -205,6 +217,12 @@ function App() {
   // 버튼 탭 효과음 프리로드 — 첫 탭에서 플레이어를 만들면 재생이 눈에 띄게 늦는다.
   useEffect(() => {
     preloadTapSound();
+  }, []);
+
+  // 워치 페어링 보급률 계측(GROMO-1598) — isPaired를 사용자 속성으로 기동마다 보고.
+  // 실패(타임아웃 등)는 서비스가 조용히 버리고 다음 기동에 재시도한다.
+  useEffect(() => {
+    reportWatchPairing();
   }, []);
 
   // 앱 전역 세로 고정(GROMO-973) — 집중 세션 화면만 가로를 허용하고 나머지는 세로로 잠근다.
@@ -570,6 +588,10 @@ function App() {
     >
       <ToastProvider>
         <DeepLinkGate />
+        {/* 앱스토어 새 버전 업데이트 권장 알림 — **인증 분기 밖**: 로그인·온보딩 화면에서도
+            앱 시작 시 확인이 돌아야 한다(코드리뷰). 오버레이 조정은 컴포넌트가 모듈 통로
+            (holdOverlaySlotForNativeSurface)로 직접 한다 — UpdateAlert 헤더 주석. */}
+        <UpdateAlert />
         <RageTapDetector>{content}</RageTapDetector>
       </ToastProvider>
     </SafeAreaProvider>

@@ -9,6 +9,7 @@ import { CharacterImage } from '@/components/character/CharacterImage';
 import CharacterCreator from '@/screens/character/CharacterCreator';
 import { isSubjectMaskModuleAvailable } from '@/services/subjectMask';
 import { getUserIdFromToken } from '@/services/api';
+import { logOnboardingStepAction } from '@/services/analyticsEvents';
 import { STORAGE_KEYS } from '@/types/storage';
 import { T } from '@/constants/theme';
 import type { StepProps } from '@/screens/onboarding/types';
@@ -70,7 +71,10 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
   };
 
   // 생성기 X(닫기) — 모달을 닫고, 못 만들었어도 넘어갈 수 있게 '다음'을 연다.
+  // 계측(GROMO-1605): 모달을 열면 character_create_started가 나가지만 저장 없이 닫으면
+  // 그 뒤가 없어 '생성 도중 이탈'이 안 보였다. 닫기를 발행해 시도 대비 이탈을 가른다.
   const closeCreator = () => {
+    logOnboardingStepAction({ step: 'cutout_experience', action: 'cutout_modal_closed' });
     setModalOpen(false);
     setCreatorDismissed(true);
   };

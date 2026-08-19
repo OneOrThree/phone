@@ -107,6 +107,9 @@ export const OVERLAY_PRIORITY = {
   sheet: 300,
   challengeResult: 200,
   groupDeckGuide: 100,
+  // updateAlert: 앱스토어 업데이트 권장 알림 — 다음 콜드 스타트마다 재확인하므로 잃을 것이
+  //              없다. 결과 모달(정산 통지)·코치마크 어느 쪽에도 항상 양보한다.
+  updateAlert: 50,
 } as const;
 
 interface OverlaySlotRegistration {

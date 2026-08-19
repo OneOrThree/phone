@@ -8,6 +8,7 @@ import LoginScreen from '@/screens/LoginScreen';
 import OnboardingSplash from './OnboardingSplash';
 import { wasOtaSplashJustShown } from '@/utils/otaGate';
 import { OnboardingProgressContext } from '@/screens/onboarding/components/OnboardingProgressContext';
+import { OnboardingStepContext } from '@/screens/onboarding/components/OnboardingStepContext';
 import TogetherEffectStep from '@/screens/onboarding/steps/TogetherEffectStep';
 import ProblemEmpathyStep from '@/screens/onboarding/steps/ProblemEmpathyStep';
 import FocusCategoryStep from '@/screens/onboarding/steps/FocusCategoryStep';
@@ -26,6 +27,7 @@ import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from '
 import type { OnboardingCompleteStatus, OnboardingResult } from './types';
 import {
   logOnboardingStarted,
+  logOnboardingStepAction,
   logOnboardingCompleted,
   logOnboardingStepViewed,
 } from '@/services/analyticsEvents';
@@ -169,15 +171,30 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const backFloorRef = useRef(backFloor);
   backFloorRef.current = backFloor;
 
-  const back = () => {
-    hapticMedium();
-    setIndex((i) => Math.max(backFloorRef.current, i - 1));
-  };
-
   // 뒤로가기 = 화면 왼쪽 가장자리에서 오른쪽으로 스와이프(다음은 버튼). 하한 이하는 무시.
   // 가장자리(24px)에서 시작한 수평 제스처만 인식 — 슬라이더·세로 스크롤과 충돌 방지.
+  // swipeBack의 PanResponder는 useRef로 1회만 만들어져 첫 렌더 클로저를 붙든다 —
+  // 그래서 이 아래 값들은 전부 ref로 읽는다(back 계측의 sequence 포함).
   const indexRef = useRef(index);
   indexRef.current = index;
+  const sequenceRef = useRef(sequence);
+  sequenceRef.current = sequence;
+
+  // 뒤로가기 계측(GROMO-1605) — '되돌아가게 만든 화면'을 찾는 신호.
+  // 하한에 걸려 실제로 안 움직인 스와이프는 세지 않는다(제스처 시도가 아니라 복귀만 의미 있음).
+  // ⚠️ 발행은 setIndex 업데이터 밖에서 — 업데이터는 순수해야 하고 StrictMode에서 두 번 불린다.
+  const back = () => {
+    hapticMedium();
+    const from = indexRef.current;
+    if (from > backFloorRef.current) {
+      const node = sequenceRef.current[from];
+      logOnboardingStepAction({
+        step: node.kind === 'step' ? node.name : node.kind,
+        action: 'step_back',
+      });
+    }
+    setIndex((i) => Math.max(backFloorRef.current, i - 1));
+  };
   const swipeBack = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_e, g) =>
@@ -271,33 +288,37 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   // 마지막 닉네임 — 입력 후 곧바로 가입 확정. 실패 시 이 화면에 serverError/submitting을 유지한다.
   if (node.kind === 'nickname') {
     return (
-      <OnboardingProgressContext.Provider value={progress}>
-        <StepFade key={stepKey} panHandlers={swipeBack.panHandlers}>
-          <NicknameStep
-            data={data}
-            update={(patch) => {
-              if (serverError) setServerError(null);
-              update(patch);
-            }}
-            onNext={() => {
-              if (login) finalize(login);
-            }}
-            onBack={canBack ? back : undefined}
-            serverError={serverError}
-            submitting={submitting}
-          />
-        </StepFade>
-      </OnboardingProgressContext.Provider>
+      <OnboardingStepContext.Provider value="nickname">
+        <OnboardingProgressContext.Provider value={progress}>
+          <StepFade key={stepKey} panHandlers={swipeBack.panHandlers}>
+            <NicknameStep
+              data={data}
+              update={(patch) => {
+                if (serverError) setServerError(null);
+                update(patch);
+              }}
+              onNext={() => {
+                if (login) finalize(login);
+              }}
+              onBack={canBack ? back : undefined}
+              serverError={serverError}
+              submitting={submitting}
+            />
+          </StepFade>
+        </OnboardingProgressContext.Provider>
+      </OnboardingStepContext.Provider>
     );
   }
 
   const Step = node.Component;
   return (
-    <OnboardingProgressContext.Provider value={progress}>
-      <StepFade key={stepKey} panHandlers={swipeBack.panHandlers}>
-        <Step data={data} update={update} onNext={next} onBack={canBack ? back : undefined} />
-      </StepFade>
-    </OnboardingProgressContext.Provider>
+    <OnboardingStepContext.Provider value={node.name}>
+      <OnboardingProgressContext.Provider value={progress}>
+        <StepFade key={stepKey} panHandlers={swipeBack.panHandlers}>
+          <Step data={data} update={update} onNext={next} onBack={canBack ? back : undefined} />
+        </StepFade>
+      </OnboardingProgressContext.Provider>
+    </OnboardingStepContext.Provider>
   );
 }
 

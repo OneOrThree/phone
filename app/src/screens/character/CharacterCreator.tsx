@@ -30,6 +30,7 @@ import {
 import {
   logCharacterCreateStarted,
   logCharacterCreated,
+  logCharacterEditAction,
   logCharacterSourceSelected,
   type CharacterSelectionSource,
 } from '@/services/analyticsEvents';
@@ -204,6 +205,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
   // 90도 회전은 가로·세로가 뒤바뀌므로 결과 크기를 그대로 받아 aspect를 갱신한다.
   const rotate = useCallback(async () => {
     if (!result) return;
+    logCharacterEditAction({ action: 'rotate', entry_source: entrySource });
     try {
       const context = ImageManipulator.manipulate(result.uri);
       context.rotate(90);
@@ -216,17 +218,18 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
     } catch {
       setError('사진을 돌리지 못했어요. 다시 시도해 주세요.');
     }
-  }, [result]);
+  }, [result, entrySource]);
 
   // 다시 고르기 — 사진을 고르기 전(idle) 상태로 완전히 되돌린다. 누끼 결과(result)에는 회전으로
   // 누적된 uri·크기까지 들어 있으므로 result를 비우면 편집 상태가 함께 사라지고, 에러 배너와
   // 디코드 완료 플래그도 같이 초기화해 다음 사진이 깨끗한 상태에서 시작되게 한다.
   const resetPick = useCallback(() => {
+    logCharacterEditAction({ action: 'repick', entry_source: entrySource });
     setResult(null);
     setError(null);
     setImageLoaded(false);
     setPhase('idle');
-  }, []);
+  }, [entrySource]);
 
   // 저장 — 합성 미리보기를 캡처해 투명 PNG로 굽고 영구 저장한 뒤 경로를 onSaved로 돌려준다.
   // 단, 저장 전 서버 모더레이션(필수 관문)을 통과해야 한다. 막히면 저장·onSaved 하지 않는다.
