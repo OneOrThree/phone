@@ -10,11 +10,12 @@
 //  3) '측정 대상을 비웠어요'는 성공이지만 측정 중단을 반드시 읽어야 하는 경고성 장문이라
 //     2200ms 배너로 옮기지 않는다 — Alert로 남는다(정책 D8).
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert, Linking, Platform } from 'react-native';
+import { Alert, AppState, Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenTimePermissionScreen from './ScreenTimePermissionScreen';
 import ScreenTimeModule, { nativeSupportsPendingApplyDate } from '@/services/ScreenTimeModule';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
+import { updateScreenTimePermission } from '@/services/userApi';
 import { STORAGE_KEYS } from '@/types/storage';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -247,5 +248,81 @@ describe('대상 비우기는 Alert로 남는다 (정책 D8 — 경고성 장문
       '측정 대상을 비웠어요 — 사용량 측정과 서버 동기화가 중단돼요. 홈 리포트는 전체 앱 기준으로 표시돼요.',
     );
     expect(mockToastShow).not.toHaveBeenCalled();
+  });
+});
+
+// 권한 **회수**의 서버 반영 — GROMO-1592 코드리뷰(P1).
+//
+// 지금까지 서버 동기화는 허용 경로에만 있었다(온보딩·권한 요청). 회수는 아무도 보내지 않아
+// 서버의 is_screen_time_permission_granted 가 true 로 남고, GroupBetJoinService 의
+// requireScreenTimePermission 이 그 값을 신뢰한다 — **보고 못 하는 사용자가 SCREEN_TIME 내기에
+// 참가비를 내고 들어갈 수 있다.** 돈이 걸린 자리라 화면이 감지하는 즉시 맞춘다.
+describe('권한 회수는 서버에도 반영한다', () => {
+  const mockUpdatePermission = updateScreenTimePermission as jest.MockedFunction<
+    typeof updateScreenTimePermission
+  >;
+
+  // AppState 리스너를 직접 깨워 '설정 다녀와서 앱이 다시 활성화된' 순간을 재현한다.
+  async function returnToApp(nextStatus: 'approved' | 'denied') {
+    const calls = (AppState.addEventListener as jest.Mock).mock.calls;
+    const handler = calls[calls.length - 1][1] as (s: string) => void;
+    mockGetStatus.mockResolvedValue(nextStatus);
+    await act(async () => {
+      handler('active');
+    });
+  }
+
+  beforeEach(() => {
+    jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() } as never);
+    mockUpdatePermission.mockResolvedValue(undefined as never);
+  });
+
+  test('허용→거부로 바뀌면 granted:false 를 보낸다', async () => {
+    mockGetStatus.mockResolvedValue('approved');
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+    // 최초 관찰은 기준선만 세운다 — 마운트만으로 서버를 때리지 않는다.
+    expect(mockUpdatePermission).not.toHaveBeenCalled();
+
+    await returnToApp('denied');
+
+    expect(mockUpdatePermission).toHaveBeenCalledWith({ granted: false });
+  });
+
+  test('상태가 그대로면 보내지 않는다', async () => {
+    mockGetStatus.mockResolvedValue('approved');
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+
+    await returnToApp('approved');
+
+    expect(mockUpdatePermission).not.toHaveBeenCalled();
+  });
+
+  // 반대 방향도 같은 경로로 맞춘다 — 설정에서 켜고 돌아온 경우.
+  test('거부→허용으로 바뀌면 granted:true 를 보낸다', async () => {
+    mockGetStatus.mockResolvedValue('denied');
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+
+    await returnToApp('approved');
+
+    expect(mockUpdatePermission).toHaveBeenCalledWith({ granted: true });
+  });
+
+  // 서버 반영이 실패하면 기준선을 되돌려 다음 감지에서 다시 시도한다 — 한 번 실패하고
+  // 영영 어긋난 채로 남으면, 실패했다는 사실조차 아무도 모른다.
+  test('전송 실패 후 다시 감지되면 재시도한다', async () => {
+    mockGetStatus.mockResolvedValue('approved');
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+
+    mockUpdatePermission.mockRejectedValueOnce(new Error('network'));
+    await returnToApp('denied');
+    expect(mockUpdatePermission).toHaveBeenCalledTimes(1);
+
+    await returnToApp('denied');
+    expect(mockUpdatePermission).toHaveBeenCalledTimes(2);
+    expect(mockUpdatePermission).toHaveBeenLastCalledWith({ granted: false });
   });
 });

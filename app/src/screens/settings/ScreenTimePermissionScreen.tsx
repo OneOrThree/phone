@@ -68,9 +68,44 @@ export default function ScreenTimePermissionScreen() {
   const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
   const statusBeforeSettingsRef = useRef<AuthorizationStatus | null>(null);
+  // 이 화면이 **마지막으로 관찰한** 권한 상태. 변화 감지의 기준선이다 — 최초 관찰은 기록만 하고,
+  // 이후 값이 달라졌을 때만 로그·서버 동기화가 돈다(마운트마다 헛 왕복이 생기지 않게).
+  const lastObservedStatusRef = useRef<AuthorizationStatus | null>(null);
   // A안(GROMO-942) — 측정 대상 변경이 '내일 적용'으로 예약돼 있으면 측정 대상 행에 배지로 표시.
   // 예약 적용일이 아직 미래(내일)일 때만 노출 — 자정에 승격되면 ScreenTimeSyncer가 마커를 지운다.
   const [pendingApply, setPendingApply] = useState(false);
+
+  // 권한 상태 변화 반영 — 감지 지점이 둘이라(포커스 재진입 · 앱 활성화) 한 곳에 모은다.
+  //
+  // 서버 동기화가 여기 있는 이유(코드리뷰 반영): 지금까지 서버 반영은 **허용 경로에만** 있었다
+  // (온보딩·권한 요청). 회수는 아무 데서도 보내지 않아, 권한을 끄고 돌아와도 서버의
+  // is_screen_time_permission_granted 는 true 로 남는다. 그 값을 GroupBetJoinService 의
+  // requireScreenTimePermission 이 신뢰하므로, **사용량을 보고할 수 없는 사용자가 SCREEN_TIME
+  // 내기에 참가비를 내고 들어갈 수 있다.** 돈이 걸린 자리라 감지 즉시 맞춘다.
+  //
+  // ⚠️ 이 화면이 떠 있는 동안의 변화만 잡는다. 화면 밖에서 회수하고 이 화면에 오지 않으면
+  //    여전히 어긋난 채로 남는다 — 그건 이 화면 혼자 못 메우는 구멍이라 별도 티켓으로 남긴다.
+  const reflectStatusChange = useCallback((st: AuthorizationStatus | null) => {
+    const sentToSettings = statusBeforeSettingsRef.current;
+    statusBeforeSettingsRef.current = null;
+    if (sentToSettings !== null && sentToSettings !== st) {
+      logScreenTimeSettingsChanged({
+        setting: 'permission',
+        setting_value: st === 'approved' ? 'granted' : 'denied',
+      });
+    }
+
+    const before = lastObservedStatusRef.current;
+    if (st === null || before === st) return;
+    lastObservedStatusRef.current = st;
+    if (before === null) return; // 최초 관찰 — 기준선만 세운다
+
+    // 서버 반영 실패는 조용히 무시하되 기준선을 되돌린다 — 다음 감지에서 다시 시도된다.
+    // (기기 권한 상태가 진실이라는 기존 규칙은 그대로 — HomeScreen 과 같은 처리다.)
+    updateScreenTimePermission({ granted: st === 'approved' }).catch(() => {
+      lastObservedStatusRef.current = before;
+    });
+  }, []);
 
   // 재진입마다 권한 상태·마지막 동기화 최신값 반영(iOS 설정에서 바꾸고 돌아올 수 있으므로).
   useFocusEffect(
@@ -80,13 +115,7 @@ export default function ScreenTimePermissionScreen() {
         .then((st) => {
           if (cancelled) return;
           setStatus(st);
-          if (statusBeforeSettingsRef.current !== null && statusBeforeSettingsRef.current !== st) {
-            logScreenTimeSettingsChanged({
-              setting: 'permission',
-              setting_value: st === 'approved' ? 'granted' : 'denied',
-            });
-          }
-          statusBeforeSettingsRef.current = null;
+          reflectStatusChange(st);
         })
         .catch(() => !cancelled && setStatus(null));
       AsyncStorage.getItem(STORAGE_KEYS.screentimeLastSyncedDate)
@@ -99,7 +128,7 @@ export default function ScreenTimePermissionScreen() {
       return () => {
         cancelled = true;
       };
-    }, []),
+    }, [reflectStatusChange]),
   );
 
   // iOS 설정(거부됨 카드 탭)을 다녀와도 이 화면은 포커스가 유지돼 위 useFocusEffect가 재실행되지
@@ -110,24 +139,13 @@ export default function ScreenTimePermissionScreen() {
       if (state !== 'active') return;
       ScreenTimeModule.getAuthorizationStatus()
         .then((st) => {
-          setStatus((previous) => {
-            if (
-              statusBeforeSettingsRef.current !== null &&
-              statusBeforeSettingsRef.current !== st
-            ) {
-              logScreenTimeSettingsChanged({
-                setting: 'permission',
-                setting_value: st === 'approved' ? 'granted' : 'denied',
-              });
-            }
-            statusBeforeSettingsRef.current = null;
-            return st ?? previous;
-          });
+          setStatus((previous) => st ?? previous);
+          reflectStatusChange(st);
         })
         .catch(() => {});
     });
     return () => sub.remove();
-  }, []);
+  }, [reflectStatusChange]);
 
   // notDetermined 상태 카드 탭 — 시스템 권한창 → 서버 반영 → 상태 재조회.
   // 허용되면 완료 알럿 없이 바로 앱 피커로 이어 측정 대상 설정까지 한 흐름으로 끝낸다(GROMO-978).
