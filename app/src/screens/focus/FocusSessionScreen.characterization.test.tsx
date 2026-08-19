@@ -52,6 +52,9 @@ jest.mock('@/services/ScreenTimeModule', () => ({
     startFocusShield: jest.fn(() => Promise.resolve(true)),
     stopFocusShield: jest.fn(() => Promise.resolve()),
     startFocusActivity: jest.fn(() => Promise.resolve()),
+    // 실제 모듈은 항상 내보낸다 — 목에 없으면 옵셔널 호출과 인자 평가가 통째로 생략돼
+    // GROMO-1597 상태 동기화 배선이 스위트 밖으로 빠진다(codex 리뷰 35차)
+    updateFocusActivity: jest.fn(() => Promise.resolve()),
     endFocusActivity: jest.fn(() => Promise.resolve()),
     saveCharacterSnapshot: jest.fn(() => Promise.resolve()),
   },
@@ -376,14 +379,15 @@ const jumpWallClock = (ms: number) =>
     jest.setSystemTime(Date.now() + ms);
   });
 // LA 시작의 3번째 인자(FocusActivityState, GROMO-1597) 기대값 — 카운트업 기준.
-// elapsedSeconds는 시작 시점까지의 경과(케이스별 상이), revision은 첫 발행이므로 1.
+// elapsedSeconds는 시작 시점까지의 경과(케이스별 상이). revision은 단조 증가인데
+// 마운트 동기화(updateFocusActivity)가 1을 먼저 소비하므로 600ms 뒤 시작은 2부터다.
 const laState = (over: Partial<Record<string, unknown>> = {}) => ({
   mode: 'countup',
   phase: 'focus',
   isPaused: false,
   elapsedSeconds: 1,
   remainingSeconds: null,
-  revision: 1,
+  revision: 2,
   ...over,
 });
 // focusLiveSession 키에 대한 쓰기 호출만 추린다 — 저장 '주기' 검증용
@@ -1371,7 +1375,69 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
         { name: '한국사', seconds: 700, color: '#CCAAFF' },
         { name: '물리', seconds: 200, color: '#AAFFCC' },
       ],
-      laState(),
+      // 정지·재개가 각각 상태 동기화를 밀어 넣어 revision이 두 번 더 올랐다(마운트 1 + 정지 2 + 재개 3)
+      laState({ revision: 4 }),
+    );
+  });
+
+  test('LA 상태 동기화(1597): 마운트·정지·재개·페이즈 전환마다 밀고, 틱마다는 밀지 않는다', async () => {
+    // 목에 updateFocusActivity가 없으면 옵셔널 호출·인자 평가가 통째로 생략돼 이 배선이
+    // 제거되거나 페이로드가 틀려도 스위트가 통과한다(codex 리뷰 35차).
+    const update = ScreenTimeModule.updateFocusActivity as jest.Mock;
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    // 마운트 — 초기 상태 전체를 정확 고정(첫 revision은 1)
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith({
+      mode: 'pomodoro',
+      phase: 'focus',
+      isPaused: false,
+      elapsedSeconds: 0,
+      remainingSeconds: 60,
+      revision: 1,
+    });
+    // 틱은 밀지 않는다 — 그 사이는 위젯의 Text(timerInterval:)가 자체 갱신하는 계약
+    await advance(3000);
+    expect(update).toHaveBeenCalledTimes(1);
+    // 정지 → isPaused true, 재개 → false. revision은 update·start가 한 카운터를 공유하는
+    // 단조 증가 — 600ms 뒤 LA 시작이 2를 소비했으므로 정지는 3부터다.
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    expect(update.mock.calls.at(-1)![0]).toMatchObject({ isPaused: true, revision: 3 });
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    expect(update.mock.calls.at(-1)![0]).toMatchObject({ isPaused: false, revision: 4 });
+    // 집중 페이즈 완주 → 휴식 전환이 밀려 들어온다(휴식 잔여 60초)
+    await advance(57_000);
+    expect(update.mock.calls.at(-1)![0]).toMatchObject({
+      phase: 'break',
+      remainingSeconds: 60,
+    });
+  });
+
+  test('마커 취소 거부(대기열 쓰기 실패 등)에도: finish는 결과 이동을 계속한다', async () => {
+    // 성공 해결만으론 거부 경로를 아예 안 태운다 — 취소 실패가 finish의 정산·이동을 막는
+    // 회귀 방어(codex 리뷰 35차). ⚠️ 이 경로의 미처리 거부는 jest가 감지하지 못함을 돌연변이
+    // (.catch 제거)로 확인했다 — 삼켜짐 증명은 아래 언마운트 케이스가 담당한다.
+    (cancelMarker as jest.Mock).mockRejectedValueOnce(new Error('cancel queue write failed'));
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await fireEvent.press(view.getByTestId('focus.stop'));
+    await flush();
+    expect(mockNavigation.replace).toHaveBeenCalledWith(
+      'FocusResult',
+      expect.objectContaining({ completed: true, focusSeconds: 3 }),
+    );
+  });
+
+  test('마커 취소 거부 + finish 없는 언마운트: abandoned 계측은 계속되고 미처리 거부가 없다', async () => {
+    // 언마운트 cleanup의 cancelLiveSession도 같은 체인을 탄다 — 여기서 새는 거부는 화면이
+    // 이미 사라진 뒤라 사용자에게 보이지 않은 채 크래시 로그만 남긴다(codex 리뷰 35차).
+    // 체인 끝의 .catch를 제거하면 이 거부가 unmount로 전파돼 이 테스트만 실패한다(돌연변이 확인).
+    (cancelMarker as jest.Mock).mockRejectedValueOnce(new Error('cancel failed'));
+    await renderSession({ mode: 'countup' });
+    await advance(3000);
+    await view.unmount();
+    await flush();
+    expect(logFocusSessionAbandoned).toHaveBeenCalledWith(
+      expect.objectContaining({ elapsed_seconds: 3 }),
     );
   });
 });
