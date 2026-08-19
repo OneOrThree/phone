@@ -10,26 +10,29 @@
 // 바이너리는 항상 최신이라 온보딩 중 뜰 일은 사실상 없지만, 로그아웃된 재방문 유저는
 // 로그인 화면이 유일한 노출 경로다.
 //
-// ── 전면 오버레이 조정(GROMO-1576) — sessionErrors.promptSessionExpired 선례 ─────
-// 이 Alert는 터치 없이 비동기 응답으로 뜨는 네이티브 표면이라, 그냥 띄우면 챌린지 결과
-// 모달과 경합한다(Alert 뒤에서 결과가 마운트되며 사용자가 못 본 정산에 seen/ack이 찍힘).
-// 그래서 띄우기 전에 자리를 쥔다:
-//  · `holdOverlaySlotForNativeSurface` — Provider 없는 로그인 전 트리에서도 동작하고
-//    (경쟁 상대가 없어 즉시 표시), 알림이 떠 있는 사이 로그인으로 Provider가 서면 점유가
-//    새 registry에 자동 승계된다. acquire(승인 대기)로는 두 경우 다 못 다룬다.
-//  · 결과 모달이 **이미 노출 중**이면 `whenNoUserDismissableOverlay()`로 사용자가 닫을
-//    때까지만 기다렸다 띄운다. 자리는 그동안에도 쥔 채다 — 결과가 닫힌 직후 다른 오버레이가
-//    끼어드는 창을 막는다.
-//  · 반납은 두 버튼과 onDismiss 전부에서 — 네이티브 Alert는 사용자가 닫아야만 사라지므로
-//    영구 점유가 아니다.
+// ── 전면 오버레이 조정(GROMO-1576) ──────────────────────────────────────────────
+// 이 Alert는 터치 없이 비동기 응답으로 뜨는 네이티브 표면이다. 조정자 규칙 B(비동기로 열리는
+// 오버레이는 승인받고 마운트)에 따라:
+//  · 조정자가 있으면(로그인 트리) `acquire`로 **실제 보유자가 될 때까지** 기다렸다 띄운다 —
+//    결과 모달·코치마크·사용자 시트 어떤 보유자든 그 위를 덮지 않는다(코드리뷰). 급하지 않은
+//    알림이라 무한정 양보해도 잃는 것이 없다(다음 콜드 스타트에 재확인).
+//    ⚠️ 승인 대기 중 게스트→소셜 승격으로 Provider가 교체되면 대기가 영영 안 풀린다 —
+//       그때는 이번 실행의 알림을 접는다(놓쳐도 다음 실행에 다시 온다).
+//  · 조정자가 없으면(로그인 전 트리) 경쟁 상대가 존재할 수 없으므로 즉시 띄운다.
+//  · 표시 중에는 `holdOverlaySlotForNativeSurface`로 점유를 모듈에 들어, 알림이 떠 있는 사이
+//    로그인·승격으로 Provider가 서거나 교체돼도 점유가 새 registry에 승계된다
+//    (sessionErrors.promptSessionExpired 선례). 같은 id 재등록은 순번 보존 no-op이고,
+//    반납(release)은 hold 하나가 registry 등록까지 함께 걷는다.
+//  · 반납은 모든 닫힘 경로(두 버튼·onDismiss·앱스토어 열기 실패 안내)에서 — 네이티브 Alert는
+//    사용자가 닫아야만 사라지므로 영구 점유가 아니다.
 import { useEffect } from 'react';
 import { Alert, Linking, Platform } from 'react-native';
 import axios from 'axios';
 import Constants from 'expo-constants';
 import {
   OVERLAY_PRIORITY,
+  getOverlaySlotActions,
   holdOverlaySlotForNativeSurface,
-  whenNoUserDismissableOverlay,
 } from '@/store/OverlaySlotContext';
 
 // 외부 공개 API라 JWT 인터셉터가 붙는 api 인스턴스 대신 bare axios를 쓴다
@@ -66,7 +69,13 @@ export function UpdateAlert() {
       }
       if (!store?.version || !store.trackViewUrl || !isOlder(current, store.version)) return;
       const storeUrl = store.trackViewUrl;
-      // 자리를 먼저 쥔다 — 결과 모달이 이 Alert 뒤에서 마운트되는 창을 닫는다(헤더 주석).
+      // 실제 보유자가 될 때까지 기다린다(헤더 주석) — 조정자가 없으면 경쟁 상대도 없다.
+      const actions = getOverlaySlotActions();
+      if (actions) {
+        const granted = await actions.acquire(UPDATE_ALERT_SLOT_ID, OVERLAY_PRIORITY.updateAlert);
+        if (!granted) return;
+      }
+      // 표시 중 Provider 신설·교체를 견디도록 점유를 모듈에 든다(헤더 주석).
       const releaseHold = holdOverlaySlotForNativeSurface(
         UPDATE_ALERT_SLOT_ID,
         OVERLAY_PRIORITY.updateAlert,
@@ -77,13 +86,6 @@ export function UpdateAlert() {
         released = true;
         releaseHold();
       };
-      try {
-        // 노출 중인 결과 모달이 있으면 사용자가 닫을 때까지 기다린다 — 그 위를 덮지 않는다.
-        await whenNoUserDismissableOverlay();
-      } catch {
-        release();
-        return;
-      }
       Alert.alert(
         '업데이트 알림',
         '새 버전이 나왔어요! 업데이트하고 이용해 주세요.',
@@ -92,8 +94,19 @@ export function UpdateAlert() {
           {
             text: '업데이트',
             onPress: () => {
-              release();
-              Linking.openURL(storeUrl);
+              // 스크린타임 앱스토어 제한 등으로 열기가 거부될 수 있다 — 안내 없이 삼키면
+              // 사용자는 업데이트를 못 한 이유를 모른다(MenuScreen.confirmOpenExternal 선례).
+              // 자리는 안내 Alert가 닫힐 때 반납한다 — 그 사이 다른 오버레이가 끼지 않게.
+              Linking.openURL(storeUrl)
+                .then(release)
+                .catch(() => {
+                  Alert.alert(
+                    '알림',
+                    '앱스토어를 열 수 없어요. 잠시 후 다시 시도해 주세요.',
+                    [{ text: '확인', onPress: release }],
+                    { onDismiss: release },
+                  );
+                });
             },
           },
         ],
