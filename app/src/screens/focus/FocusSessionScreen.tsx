@@ -51,7 +51,7 @@ import { useUser } from '@/store/UserContext';
 import { useCharacter } from '@/store/CharacterContext';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
-import type { FocusTimerMode, LiveFocusSession } from './types';
+import type { FocusTimerMode } from './types';
 import { hms } from './format';
 import { focusReadoutLayout, PLAIN_TIMER_MIN_FONT_SCALE } from './readoutLayout';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
@@ -212,11 +212,21 @@ export default function FocusSessionScreen() {
   // 세션 상태·틱의 소유자는 엔진(GROMO-1600 2단계) — 화면은 구독하는 뷰다.
   // isPaused/onFocusTick은 콜백 주입: 정지 상태와 오늘 몫 적립은 아직 화면 소유(후속 단계 이관).
   const creditFocusTickRef = useRef<() => void>(() => {});
+  // 라이브 레코드의 소유 표식 — 과목 변경(라우트 갱신)·계정 전환을 따라가야 하므로 렌더 미러.
+  const liveIdentityRef = useRef({ subjectId, subjectName, userId });
+  liveIdentityRef.current = { subjectId, subjectName, userId };
   const engine = useMemo(
     () =>
       createFocusSessionEngine(machineConfig, {
         isPaused: () => pausedRef.current,
         onFocusTick: () => creditFocusTickRef.current(),
+        // 라이브 레코드 재료(3단계) — 정산 장부는 아직 화면 소유라 게터 주입(4단계에서 걷힘)
+        isFinished: () => finishedRef.current,
+        settledSeconds: () => settledSecondsRef.current,
+        blockStartedAt: () => settleAtRef.current,
+        liveMarkerId: () => liveIdRef.current,
+        blockToday: () => blockTodayRef.current,
+        identity: () => liveIdentityRef.current,
       }),
     [machineConfig],
   );
@@ -477,37 +487,8 @@ export default function FocusSessionScreen() {
     return () => engine.stopTicking();
   }, [engine]);
 
-  // 라이브 세션 레코드 — 강제 종료돼도 다음 실행 때 OrphanFocusSettler가 정산할 수 있게 남긴다.
-  // 저장값은 '미정산 구간'만: elapsed=아직 서버/로컬에 안 올린 집중초, startedAt=그 구간 시작 시각.
-  // (집중 블록을 증분 정산하므로 이미 올린 블록은 레코드에서 빠져 고아 정산이 이중 적립하지 않는다.)
-  // finish 후엔 저장 금지 — 종료 시 제거한 레코드가 되살아나면 다음 실행에서 이중 정산된다.
-  const saveLive = useCallback(
-    (elapsed: number) => {
-      if (finishedRef.current) return;
-      const remaining = Math.floor(elapsed) - settledSecondsRef.current;
-      if (remaining <= 0) return;
-      const record: LiveFocusSession = {
-        subjectId,
-        subjectName,
-        elapsed: remaining,
-        startedAt: settleAtRef.current,
-        updatedAt: new Date().toISOString(),
-        userId, // 소유 계정 — 고아 정산 시 다른 계정으로 적립/업로드되는 것을 막는다
-        serverSessionId: liveIdRef.current, // 열려 있는 라이브 마커 — 강제종료 시 서버 스윕이 마감
-        // 날짜별 집중초 스냅샷(GROMO-1252) — 고아 정산이 여기와 같은 규칙으로 '오늘 몫'을 고르고,
-        // 서버 업로드에도 그대로 실어 보낸다. 구간 겹침만으로는 일시정지가 자정을 걸친 블록을
-        // 과다 계상한다.
-        focusDays: blockTodayRef.current,
-      };
-      AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify(record)).catch(() => {});
-    },
-    [subjectId, subjectName, userId],
-  );
-
-  // 매초 쓰기는 과해서 5초마다 갱신. 백그라운드 진입·실드 복귀 전진 시엔 그 순간 값으로 즉시 저장.
-  useEffect(() => {
-    if (session.elapsed > 0 && session.elapsed % 5 === 0) saveLive(session.elapsed);
-  }, [session.elapsed, saveLive]);
+  // 라이브 레코드 저장은 엔진 소유(GROMO-1600 3단계) — 5초 주기는 엔진 틱 내부,
+  // 즉시 저장이 필요한 순간(백그라운드 진입·실드 복귀 전진)은 persistLiveRecord를 직접 부른다.
 
   // 세션 실드 — 시작 시 허용앱 외 전부 차단, 화면을 떠날 때 해제(멱등, finish에서도 해제).
   // 적용 성공 여부(shielded)로 이탈 정책이 갈린다: 실드 O = 집중 인정 / 실드 X = 15초 정책.
@@ -949,7 +930,7 @@ export default function FocusSessionScreen() {
         leftPhaseRef.current = engine.getSession().phase;
         leftSessionRef.current = engine.getSession(); // 리플레이 기준 스냅샷(leftAt과 짝)
         leftBlockTodayRef.current = blockTodayRef.current; // 날짜 맵도 같은 시점으로 되감는다(코드리뷰 ⑤)
-        saveLive(engine.getSession().elapsed); // 여기서 꺼져도 이 시점까지는 정산되게
+        engine.persistLiveRecord(engine.getSession().elapsed); // 여기서 꺼져도 이 시점까지는 정산되게
         // 실드 세션은 나가 있어도 집중 인정이라 이탈 알림 없음(폴백 세션만 경고)
         if (engine.getSession().phase === 'focus' && !shieldedRef.current) {
           scheduleLeaveNotifications(subjectName, LEAVE_END_S).catch(() => {});
@@ -1075,7 +1056,7 @@ export default function FocusSessionScreen() {
             Vibration.vibrate(DOUBLE_VIBRATE_PATTERN);
           }
           engine.setSession(cur);
-          saveLive(cur.elapsed);
+          engine.persistLiveRecord(cur.elapsed);
         } else if (away > LEAVE_END_S) {
           // 폴백(실드 없음) — 15초 초과 시 자동 종료(나가기 직전까지만 저장)
           // 정상 완료가 아닌 중도 이탈 종료이므로 abandoned 계측(reason: leave_timeout).
@@ -1119,7 +1100,6 @@ export default function FocusSessionScreen() {
     pomo.focusMin,
     pomo.breakMin,
     pomo.sets,
-    saveLive,
     nextTick,
     mode,
     settleFocusBlock,
