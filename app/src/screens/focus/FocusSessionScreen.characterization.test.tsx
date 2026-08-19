@@ -1069,6 +1069,54 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(lastGridProps('그룹: 베타')!.members).toBe(betaMembers);
   });
 
+  test('가로 상태에서 그룹이 로드되면: 초기 스크롤을 보류했다가 세로 복귀 후 재시도한다', async () => {
+    // 가로에선 세로 페이저가 언마운트돼 pagerRef가 null이다 — 이때 완료 플래그를 세우면
+    // 세로 복귀 후에도 대상 그룹으로 못 가고 캐릭터 페이지에 남는다(codex 리뷰 33차).
+    await renderSession({ mode: 'countup', initialGroupId: 'g2' });
+    await act(async () => {
+      Dimensions.set({ window: { width: 800, height: 400, scale: 2, fontScale: 1 } });
+    });
+    try {
+      mockSessionGroups = [
+        { groupId: 'g1', groupName: '알파', members: [] },
+        { groupId: 'g2', groupName: '베타', members: [] },
+      ];
+      await advance(1000); // 가로에서 그룹 로드 완료 — 스크롤은 보류돼야 한다
+    } finally {
+      await act(async () => {
+        Dimensions.set({ window: { width: 400, height: 800, scale: 2, fontScale: 1 } });
+      });
+    }
+    await flush(); // 세로 복귀 — 이펙트 재실행으로 재시도
+    expect(lastGridProps('그룹: 베타')).toMatchObject({ visible: true });
+  });
+
+  test('페이지 도트: 그룹 수에 맞춰 늘고, 활성 도트가 현재 페이지를 가리킨다', async () => {
+    // 도트가 4개 고정이거나 활성 연결이 끊기면 그룹 사용자가 위치·남은 페이지를 잘못
+    // 인식한다(codex 리뷰 33차). 도트 줄 = collapsable:false 컨테이너 중 자식 수가
+    // 4 + 그룹 수인 유일한 줄로 식별한다.
+    await renderSession({ mode: 'countup', initialGroupId: 'g2' });
+    const dotRowOf = (count: number) =>
+      view.container
+        .queryAll((n) => n.props?.collapsable === false)
+        .find((n) => n.children.length === count);
+    expect(dotRowOf(4)).toBeTruthy(); // 그룹 로드 전 — 기본 4페이지
+    mockSessionGroups = [
+      { groupId: 'g1', groupName: '알파', members: [] },
+      { groupId: 'g2', groupName: '베타', members: [] },
+    ];
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await fireEvent.press(view.getByTestId('focus.pause'));
+    await flush(); // 로드 + FAB 초기 스크롤(베타 = 페이지 3)
+    const row = dotRowOf(6)!; // 4 + 그룹 2
+    expect(row).toBeTruthy();
+    const sigs = row.children.map((c) => JSON.stringify((c as { props: unknown }).props));
+    const uniq = new Set(sigs);
+    expect(uniq.size).toBe(2); // 활성 1 + 비활성 5
+    const majority = sigs.filter((s2) => s2 === sigs[0]).length >= 3 ? sigs[0] : sigs[1];
+    expect(sigs.findIndex((s2) => s2 !== majority)).toBe(3); // 활성 도트 = 현재 페이지(베타)
+  });
+
   test('커스텀 캐릭터 장착 시: 캡처 대상 study 캐릭터에 activeSource가 배선된다', async () => {
     // activeSource가 항상 null인 fixture로는 sourceUri 배선 제거를 못 잡는다 — 커스텀 캐릭터
     // 사용자가 화면·잠금화면 스냅샷에서 기본 캐릭터를 보게 되는 회귀 방어(codex 리뷰 24차).
@@ -1092,6 +1140,17 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await renderSession({ mode: 'countup' }); // myFocus 없음 — 로컬 폴백 경로
     await advance(5000);
     expect(mockGridMeCaptures.at(-1)!.totalSeconds).toBe(1805); // 1800 + 이번 세션 5초
+  });
+
+  test('정산 후 오늘 누적 컨텍스트가 갱신돼도: 내 셀 로컬 폴백은 정산 블록을 이중 합산하지 않는다', async () => {
+    // 실제 FocusContext.addFocusSeconds는 정산 즉시 todayFocusSeconds를 올려 리렌더한다 —
+    // 로컬 폴백이 마운트 시점 기준(gridPreSessionRef) 대신 살아있는 오늘 누적을 읽으면
+    // 방금 정산한 블록이 settledToday와 두 번 합산된다(codex 리뷰 33차).
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    await advance(60_000); // 블록 1 정산
+    mockTodayFocusSeconds = 60; // 컨텍스트 갱신 재현
+    await advance(1000); // 휴식 틱 리렌더
+    expect(mockGridMeCaptures.at(-1)!.totalSeconds).toBe(60); // 이중 합산이면 120
   });
 
   test('드로어의 오늘 집중: 미정산 델타만 전달된다 — 정산 블록은 빠진다', async () => {
@@ -1502,6 +1561,28 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     await advance(2000); // 지연 콜백 시각을 한참 지나도
     expect(ScreenTimeModule.startFocusActivity).not.toHaveBeenCalled(); // 시작은 끝내 없다
     expect(ScreenTimeModule.endFocusActivity).toHaveBeenCalled(); // 종료(멱등)는 cleanup 몫
+  });
+
+  test('스냅샷 저장 대기 중 언마운트: 두 번째 cancelled 가드가 늦은 저장 해결 후의 LA 시작을 막는다', async () => {
+    // 캡처는 끝났고 저장이 pending인 창 — save await 뒤의 두 번째 가드가 빠지면 cleanup의
+    // endFocusActivity 뒤에 startFocusActivity가 돌아 유령 LA가 남는다(codex 리뷰 33차).
+    let resolveSave!: () => void;
+    (ScreenTimeModule.saveCharacterSnapshot as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise<void>((r) => {
+          resolveSave = r;
+        }),
+    );
+    await renderSession({ mode: 'countup' });
+    await advance(1000); // 캡처 완료 — 저장 대기
+    expect(ScreenTimeModule.saveCharacterSnapshot).toHaveBeenCalledWith('b64');
+    await view.unmount();
+    await act(async () => {});
+    await act(async () => {
+      resolveSave(); // 언마운트 뒤에야 저장이 해결된다
+    });
+    await flush();
+    expect(ScreenTimeModule.startFocusActivity).not.toHaveBeenCalled();
   });
 
   test('캡처 대기 중 언마운트: cancelled 가드가 늦은 캡처 해결 후의 LA 시작을 막는다', async () => {
