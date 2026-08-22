@@ -46,6 +46,16 @@ const STALE_INTENT_MS = 60_000;
 const STARTING_GRACE_MS = 30_000;
 
 let running: Promise<void> | null = null;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 유예가 풀리는 시점에 복구를 한 번 더 예약한다(중복 예약은 하나로 합친다). */
+function scheduleRetry(delayMs: number): void {
+  if (retryTimer != null) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    recoverFocusEngine();
+  }, Math.max(1000, delayMs));
+}
 
 async function replayIntent(intent: SettleIntent): Promise<void> {
   const result = await uploadFocusBlock({
@@ -103,11 +113,20 @@ async function recover(): Promise<void> {
 
   // ② failed intent 재업로드
   const now = Date.now();
+  let soonestSkipped = Infinity; // 유예로 건너뛴 것 중 가장 빨리 만료되는 남은 시간(ms)
   for (const intent of journal.settles) {
     const age = now - Date.parse(intent.createdAt);
-    if (!Number.isFinite(age) || age < STALE_INTENT_MS) continue;
+    if (!Number.isFinite(age)) continue;
+    if (age < STALE_INTENT_MS) {
+      soonestSkipped = Math.min(soonestSkipped, STALE_INTENT_MS - age);
+      continue;
+    }
     await replayIntent(intent).catch(() => {});
   }
+  // 유예로 건너뛴 게 있으면 **만료 시점에 한 번 더 돈다.** 콜드 스타트가 유일한 트리거인
+  // 경로에서는(사일런트 푸시가 없고 앱을 계속 쓰는 중이면) 이 예약이 없을 때 해당 정산이
+  // 다음 재시작까지 서버에 반영되지 않는다.
+  if (soonestSkipped !== Infinity) scheduleRetry(soonestSkipped);
 }
 
 /**
