@@ -112,6 +112,27 @@ describe('실드 중단 알림은 조건이 둘 다 맞을 때만', () => {
   });
 
   // 권한이 없어 처음부터 실드가 안 걸린 세션 — 풀릴 차단 자체가 없었다.
+  // 업로드·인계가 모두 실패하면 레코드가 남는다. 표식이 없으면 앱을 다시 켤 때마다 같은
+  // 알림이 또 나간다 — `ran` 은 컴포넌트 수명에서만 막아서 프로세스가 죽으면 초기화된다.
+  test('이미 알린 세션은 다시 알리지 않는다', async () => {
+    await patchRecord({ shieldActive: true, shieldInterruptNotified: true });
+
+    await renderSettler();
+
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  test('알린 뒤에는 레코드에 표식이 남는다', async () => {
+    await patchRecord({ shieldActive: true });
+
+    await renderSettler();
+
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
+    // 업로드가 성공해 레코드가 지워졌다면 그것대로 재발행 위험이 없다.
+    if (raw) expect(JSON.parse(raw).shieldInterruptNotified).toBe(true);
+    expect(mockNotify).toHaveBeenCalled();
+  });
+
   test('실드가 걸린 적 없으면 알리지 않는다', async () => {
     await patchRecord({ shieldActive: false });
 

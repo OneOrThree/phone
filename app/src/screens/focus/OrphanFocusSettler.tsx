@@ -83,14 +83,25 @@ export function OrphanFocusSettler() {
       // ⚠️ 그리고 **실제로 켜졌던 실드만** 알린다(코드리뷰 2차). 권한이 없어 처음부터
       //    startFocusShield()가 false 였던 세션은 풀릴 차단이 없었으므로, 그 알림은
       //    잠긴 적 없는 사람에게 "잠금이 풀렸다"고 말하는 셈이다.
-      if (!rec.shieldReleasedCleanly && rec.shieldActive) {
+      //
+      // ⚠️ **한 번만** 발행한다(코드리뷰 3차). 업로드와 대기열 인계가 모두 실패하면 레코드가
+      //    남는데, 표식이 없으면 앱을 다시 켤 때마다 같은 알림이 또 나간다(`ran` 은 이 컴포넌트
+      //    수명에서만 막는다 — 프로세스가 죽으면 초기화된다). 저장 장애가 이어지는 동안
+      //    이미 확인한 알림이 매 실행마다 되살아난다.
+      // ⚠️ stored 를 함께 갱신한다. 아래에서 '그 사이 새 세션이 덮어썼는지'를 이 문자열과
+      //    비교해 판단하는데, 여기서 쓴 내용을 반영하지 않으면 **영영 같지 않아 레코드가
+      //    안 지워진다.**
+      let stored = raw;
+      if (!rec.shieldReleasedCleanly && rec.shieldActive && !rec.shieldInterruptNotified) {
+        rec = { ...rec, shieldInterruptNotified: true };
+        stored = JSON.stringify(rec);
+        await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, stored);
         notifyShieldInterrupted().catch(() => {});
       }
       // 로컬 적립은 1회만 — 중복 적립 방지로 적립 전에 먼저 마킹해 되쓴다.
       // 레코드는 업로드/인계가 끝나기 전까지 지우지 않는다(먼저 지우면 실패 시 기록이 영구 유실).
       // 코인은 여기서 세지 않는다(GROMO-1049) — 지급도 잔액도 서버가 정본이라, 업로드가 끝난 뒤
       // 서버 잔액을 다시 받는다.
-      let stored = raw;
       if (!rec.settledLocally) {
         rec = { ...rec, settledLocally: true };
         stored = JSON.stringify(rec);

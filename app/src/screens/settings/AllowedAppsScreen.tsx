@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, AppState, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  AppState,
+  Linking,
+  Platform,
+} from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -229,16 +238,37 @@ export default function AllowedAppsScreen() {
           안내만 띄우고 끝내면 막다른 길이라(GROMO-860과 같은 실수) 바로 설정으로 이어준다. */}
       {shieldBlocked ? (
         <SettingsSection title="차단에 필요한 권한">
-          <SettingsRow
-            icon="alert-circle-outline"
-            iconColor={T.dangerInk}
-            iconBg={T.dangerBg}
-            label="다른 앱 위에 표시 허용"
-            sub="이 권한이 있어야 집중 중 가림막을 띄울 수 있어요"
-            onPress={() => {
-              ScreenTimeModule.requestOverlayPermission().catch(() => {});
-            }}
-          />
+          {/* ⚠️ 어떤 권한이 빠졌는지에 따라 보내는 곳이 달라야 한다(코드리뷰 3차).
+              둘 다 실드 시작 조건인데, 예전엔 무조건 오버레이 설정만 열어서
+              **사용 정보 접근이 꺼진 사용자는 이 CTA 로 고칠 수가 없었다.** */}
+          {canOverlay === false ? (
+            <SettingsRow
+              icon="alert-circle-outline"
+              iconColor={T.dangerInk}
+              iconBg={T.dangerBg}
+              label="다른 앱 위에 표시 허용"
+              sub="이 권한이 있어야 집중 중 가림막을 띄울 수 있어요"
+              onPress={() => {
+                ScreenTimeModule.requestOverlayPermission().catch(() => {});
+              }}
+            />
+          ) : (
+            <SettingsRow
+              icon="alert-circle-outline"
+              iconColor={T.dangerInk}
+              iconBg={T.dangerBg}
+              label="사용 정보 접근 허용"
+              sub="지금 어떤 앱이 열려 있는지 알아야 가림막을 띄울 수 있어요"
+              onPress={() => {
+                // 목록을 못 열면 앱 상세 설정으로 폴백한다(권한 화면과 같은 처리).
+                ScreenTimeModule.openUsageAccessSettings()
+                  .then((opened) => {
+                    if (!opened) Linking.openSettings();
+                  })
+                  .catch(() => Linking.openSettings());
+              }}
+            />
+          )}
         </SettingsSection>
       ) : null}
 

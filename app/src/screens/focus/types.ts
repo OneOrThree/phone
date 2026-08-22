@@ -47,6 +47,8 @@ export interface LiveFocusSession {
   // 그런 세션이 강제 종료돼도 "차단도 함께 풀렸어요"는 거짓이다 — 그 알림은 잠긴 줄 알고
   // 시작한 사람에게만 뜻이 있다.
   shieldActive?: boolean;
+  // 중단 알림을 이미 발행했는가 — 업로드가 계속 실패해 레코드가 남아도 알림은 한 번만.
+  shieldInterruptNotified?: boolean;
 }
 
 // 집중 중 허용앱(11) — 예시. initial = 아이콘 사각에 넣는 한 글자.

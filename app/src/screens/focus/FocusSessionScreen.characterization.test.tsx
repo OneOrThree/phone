@@ -2524,6 +2524,25 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
   // 제조사 배터리 최적화가 백그라운드에서 FocusShieldService 를 죽이는 경우(GROMO-1604
   // 코드리뷰). 앱은 그 사실을 모른 채 shieldedRef 를 true 로 들고 있어서, **차단 없이 다른 앱을
   // 쓴 시간이 그대로 집중으로 적립됐다.** 복귀 시 생존을 다시 확인해 비실드 정책으로 되돌린다.
+  // 라이브 레코드에 실드 상태가 실제로 담기는지(코드리뷰 3차). startFocusShield 는 보통 첫
+  // 레코드가 만들어지기 전에 끝나고 saveLive 는 레코드를 통째로 새로 쓰므로, 따로 기록하면
+  // 남길 곳이 없거나 다음 저장에 덮인다 — 실제로 그래서 중단 알림이 한 번도 안 나갔다.
+  test('라이브 레코드에 실드 적용 여부가 담긴다', async () => {
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+
+    expect((await readLiveRecord())!.shieldActive).toBe(true);
+  });
+
+  test('실드가 안 걸린 세션은 레코드에도 그렇게 남는다', async () => {
+    mockedShieldStart.mockResolvedValue(false);
+
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+
+    expect((await readLiveRecord())!.shieldActive).toBe(false);
+  });
+
   test('백그라운드에서 실드가 죽었으면: 이탈을 집중으로 인정하지 않고 비실드 정책으로 되돌린다', async () => {
     await renderSession({ mode: 'countup' });
     await advance(5000);

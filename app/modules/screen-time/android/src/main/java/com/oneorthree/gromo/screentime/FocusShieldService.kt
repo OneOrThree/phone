@@ -151,8 +151,13 @@ class FocusShieldService : Service() {
   private var paused = false
   /** 남은 시간(초). null 이면 카운트업 모드. */
   private var remainingSeconds: Int? = null
-  /** 일시정지 시점의 경과(초) — 멈춘 화면에 찍을 값. */
-  private var pausedElapsed = 0
+  /**
+   * JS 가 보고한 경과(초) — **일시정지 시간이 빠진** 진짜 경과다.
+   *
+   * 일시정지 화면에 찍을 값이자, 재개 후 카운트업의 기준이기도 하다. 최초 startedAt 부터의
+   * 벽시계를 쓰면 멈춰 있던 시간이 합산돼 재개 순간 숫자가 앞으로 뛴다(코드리뷰 3차).
+   */
+  private var elapsedSeconds = 0
   // 알림 크로노미터 기준 시각 — 세션이 이어지는 동안 유지해야 시간이 튀지 않는다.
   private var startedAt = 0L
 
@@ -235,7 +240,7 @@ class FocusShieldService : Service() {
     overlayFailures = 0
     paused = false
     remainingSeconds = null
-    pausedElapsed = 0
+    elapsedSeconds = 0
     lastForeground = null
     ticksSincePermissionCheck = 0
     others = emptyList()
@@ -560,7 +565,7 @@ class FocusShieldService : Service() {
       // base 를 '지금 - 경과' 로 잡아 두면 그 시점 텍스트가 경과 시간으로 찍힌 채 멈춘다.
       paused -> {
         setChronometerCountDown(viewId, false)
-        setChronometer(viewId, now - pausedElapsed * 1000L, null, false)
+        setChronometer(viewId, now - elapsedSeconds * 1000L, null, false)
       }
       // 카운트다운·뽀모도로 — 남은 시간을 센다. base 를 미래로 두고 countDown 을 켜면
       // 시스템이 초당 줄여 준다(우리가 1초마다 알림을 다시 쏠 필요가 없다).
@@ -572,7 +577,14 @@ class FocusShieldService : Service() {
         // 이전 상태가 카운트다운이었을 수 있어 명시적으로 끈다 — RemoteViews 는 같은 뷰를
         // 재사용하므로 안 끄면 카운트업이어야 할 자리가 계속 줄어든다.
         setChronometerCountDown(viewId, false)
-        setChronometer(viewId, now - (System.currentTimeMillis() - startedAt), null, true)
+        // ⚠️ 최초 startedAt 부터의 **벽시계**를 쓰면 안 된다(코드리뷰 3차). 일시정지했다
+        //    재개하면 멈춰 있던 시간까지 합산돼 재개 순간 숫자가 앞으로 뛴다.
+        //    JS 가 보내는 elapsedSeconds 가 정지 시간을 뺀 진짜 경과라 그걸 기준으로 잡는다.
+        //    (아직 상태를 못 받았으면 0 이라 startedAt 기준으로 폴백한다 — 예전 동작.)
+        val elapsed =
+          if (elapsedSeconds > 0) elapsedSeconds * 1000L
+          else System.currentTimeMillis() - startedAt
+        setChronometer(viewId, now - elapsed, null, true)
       }
     }
   }
@@ -595,7 +607,7 @@ class FocusShieldService : Service() {
     runCatching {
       val obj = org.json.JSONObject(json)
       paused = obj.optBoolean("isPaused", false)
-      pausedElapsed = obj.optInt("elapsedSeconds", 0)
+      elapsedSeconds = obj.optInt("elapsedSeconds", 0)
       remainingSeconds = if (obj.isNull("remainingSeconds")) null else obj.optInt("remainingSeconds")
     }.onFailure {
       paused = false
