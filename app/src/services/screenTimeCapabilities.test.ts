@@ -15,7 +15,14 @@ import {
 
 // 네이티브 레지스트리를 갈아끼워 '새 바이너리 / 구 바이너리'를 재현한다. hot-updater 로
 // 새 JS 가 옛 안드로이드 바이너리에 내려가는 경로가 실제로 있으므로 둘 다 테스트한다.
-jest.mock('expo-modules-core', () => ({ requireOptionalNativeModule: jest.fn() }));
+// ⚠️ 모듈을 통째로 대체하면 안 된다. expo 내부(winter/fetch)가 같은 모듈의
+//    requireNativeModule 을 쓰는데, 그게 사라지면 **이 스위트가 아예 로드되지 않는다**
+//    (`requireNativeModule is not a function`). 로컬 전체 실행에선 다른 스위트가 먼저 캐시를
+//    채워 통과했고 CI 에서만 터졌다 — 워커 분배가 달라서다.
+jest.mock('expo-modules-core', () => ({
+  ...jest.requireActual('expo-modules-core'),
+  requireOptionalNativeModule: jest.fn(),
+}));
 const mockRequireNative = requireOptionalNativeModule as jest.MockedFunction<
   typeof requireOptionalNativeModule
 >;
