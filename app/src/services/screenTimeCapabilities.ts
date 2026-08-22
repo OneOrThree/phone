@@ -68,7 +68,7 @@ export const supportsUsageBreakdown = (): boolean => {
   // ⚠️ Platform.OS 만으로 열면 **구 바이너리에서 거짓말이 된다**(코드리뷰 반영). 이 JS 는
   //    hot-updater 로 옛 안드로이드 바이너리에도 그대로 내려간다:
   //      - 네이티브 모듈이 아예 없는 빌드 → 상세가 '0분 · 사용 기록이 없어요'로 뜬다
-  //      - M1 모듈만 있는 빌드 → getUsageByApp 이 없어 호출 자체가 실패한다
+  //      - M1 모듈만 있는 빌드 → getUsageBreakdown 이 없어 호출 자체가 실패한다
   //    둘 다 '진입점은 열려 있는데 화면이 거짓을 말하는' 상태다 — 1592 가 없앤 바로 그것.
-  return androidNativeHas('getUsageByApp');
+  return androidNativeHas('getUsageBreakdown');
 };

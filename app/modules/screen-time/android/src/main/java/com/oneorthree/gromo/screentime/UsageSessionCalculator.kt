@@ -78,6 +78,42 @@ internal object UsageSessionCalculator {
    * 폴백 경로(보존기간 초과·미매칭 종료)에서는 근사값이라 합이 정확히 일치하지 않을 수 있다 —
    * 화면은 합계를 [foregroundMillis]로 따로 받아 쓰고, 이 맵은 **비중 표시용**으로 본다.
    */
+  /**
+   * [begin, end) 구간의 총합과 앱별 내역을 **한 번의 스캔에서** 함께 낸다(코드리뷰 4차).
+   *
+   * 두 값을 따로 부르면 각자 `System.currentTimeMillis()` 로 창을 잡고 이벤트를 다시 훑어서,
+   * 조회 사이에 사용 시간이 늘면 **서로 다른 시점의 결과가 섞인다.** 화면은 그 차이를
+   * '앱별 목록에 안 잡히는 시간'으로 읽으므로, 1초 차이가 그대로 허위 '그 외' 행이 된다.
+   *
+   * 총합은 [foregroundMillis] 와 **같은 규칙**이다(폴백 포함) — 홈 카드와 갈리면 안 된다.
+   */
+  fun foregroundBreakdown(
+    usageStatsManager: UsageStatsManager,
+    selection: Set<String>?,
+    begin: Long,
+    end: Long,
+  ): Breakdown {
+    if (end <= begin) return Breakdown(0L, emptyMap())
+    val scan = scan(usageStatsManager, selection, begin, end)
+    val reconstructed = scan.byPackage.values.sum()
+
+    if (scan.sawUnmatchedTerminalInRange) {
+      val fallback = dailyStatsFallbackByPackage(usageStatsManager, selection, begin, end)
+      val fallbackSum = fallback.values.sum()
+      // 맵을 통째로 고른다 — 섞으면 합이 총계를 넘는다(foregroundMillisByPackage 주석 참고).
+      return if (fallbackSum > reconstructed) Breakdown(fallbackSum, fallback)
+      else Breakdown(reconstructed, scan.byPackage)
+    }
+    if (scan.byPackage.isEmpty() && !scan.sawLifecycleEventInRange) {
+      val fallback = dailyStatsFallbackByPackage(usageStatsManager, selection, begin, end)
+      return Breakdown(fallback.values.sum(), fallback)
+    }
+    return Breakdown(reconstructed, scan.byPackage)
+  }
+
+  /** 한 스캔에서 나온 총합(ms)과 앱별 내역(ms). 합이 정확히 [totalMillis] 와 같다. */
+  data class Breakdown(val totalMillis: Long, val byPackage: Map<String, Long>)
+
   fun foregroundMillisByPackage(
     usageStatsManager: UsageStatsManager,
     selection: Set<String>?,

@@ -20,9 +20,10 @@ const mockRequireNative = requireOptionalNativeModule as jest.MockedFunction<
   typeof requireOptionalNativeModule
 >;
 
-/** 새 바이너리 — 1608 이 추가한 getUsageByApp 이 있다. */
-const newBinary = () => mockRequireNative.mockReturnValue({ getUsageByApp: jest.fn() } as never);
-/** M1 바이너리 — 모듈은 있는데 getUsageByApp 이 없다. */
+/** 새 바이너리 — 1608 이 추가한 getUsageBreakdown 이 있다. */
+const newBinary = () =>
+  mockRequireNative.mockReturnValue({ getUsageBreakdown: jest.fn() } as never);
+/** M1 바이너리 — 모듈은 있는데 getUsageBreakdown 이 없다. */
 const m1Binary = () =>
   mockRequireNative.mockReturnValue({ getTodayUsageBucketMinutes: jest.fn() } as never);
 /** 네이티브가 아예 없는 바이너리. */
@@ -79,7 +80,7 @@ describe('안드로이드 구 바이너리 — 앱별 사용시간을 닫는다'
     expect(supportsUsageBreakdown()).toBe(false);
   });
 
-  test('M1 모듈만 있어 getUsageByApp 이 없으면 false', () => {
+  test('M1 모듈만 있어 getUsageBreakdown 이 없으면 false', () => {
     m1Binary();
 
     expect(supportsUsageBreakdown()).toBe(false);

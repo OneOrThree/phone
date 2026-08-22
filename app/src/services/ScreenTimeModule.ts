@@ -114,9 +114,7 @@ interface AndroidNativeScreenTime {
   openUsageAccessSettings?(): Promise<boolean>;
   // 앱별 사용시간(GROMO-1608) — iOS는 익스텐션이 화면을 그려줄 뿐 **수치를 JS로 못 준다**.
   // 안드로이드는 수치를 그대로 넘길 수 있어 화면을 RN이 그린다. dayOffset 0=오늘, -1=어제.
-  getUsageByApp(dayOffset: number): Promise<AppUsage[]>;
-  /** 오늘 총 사용시간(초) — 분값과 같은 소스의 내림 전 값. 구 바이너리엔 없다. */
-  getTodayUsageSeconds?(): Promise<number>;
+  getUsageBreakdown(dayOffset: number): Promise<AppUsageBreakdown>;
   getAppIcon(packageName: string): Promise<string | null>;
 }
 
@@ -126,6 +124,17 @@ interface AndroidNativeScreenTime {
  * 단위가 분이 아니라 **초**인 이유: 1분 미만 사용을 분으로 뭉개면 목록 하단이 전부 '0분'이 된다.
  * 표시 단위 반올림은 화면이 정한다.
  */
+/**
+ * 앱별 사용시간 + 총계 — **한 번의 네이티브 조회 결과**다(GROMO-1608 코드리뷰).
+ */
+export interface AppUsageBreakdown {
+  /** 모든 패키지 합(초). 표시용 분은 여기서 파생한다 — 홈 카드와 같은 규칙이다. */
+  totalSeconds: number;
+  /** 목록에 안 잡히는 시간(초) — 런처·시스템 UI. 밀리초를 유지한 채 네이티브가 뺀 값이다. */
+  otherSeconds: number;
+  apps: AppUsage[];
+}
+
 export interface AppUsage {
   packageName: string;
   label: string;
@@ -305,21 +314,6 @@ const ScreenTimeModule = {
     return NativeScreenTimeModule.getTodayUsageBucketMinutes();
   },
 
-  /**
-   * 오늘 총 사용시간(**초**) — `getTodayUsageBucketMinutes` 와 같은 소스의 내림 전 값.
-   *
-   * 상세 화면이 '앱별 목록에 안 잡히는 시간'(런처·시스템 UI)을 계산하는 데 쓴다. 분값만으로는
-   * 그 계산이 성립하지 않는다 — 초 단위로 빼면 실제 차이가 1분을 넘어도 행이 안 생기고,
-   * 내림한 분의 합에서 빼면 차이가 없는데도 행이 생긴다(각 40초 쓴 앱 둘 → 허위 '그 외 1분').
-   *
-   * 못 구하면 null(iOS·구 바이너리) — 호출부는 그때 '그 외' 행을 아예 만들지 않는다.
-   * 허위 행을 그리는 것보다 안 그리는 쪽이 낫다.
-   */
-  getTodayUsageSeconds: async (): Promise<number | null> => {
-    if (!AndroidScreenTime?.getTodayUsageSeconds) return null;
-    return AndroidScreenTime.getTodayUsageSeconds();
-  },
-
   // 어제의 최종 사용량(분) — iOS는 Monitor가 하루 경계에 보존한 전일 눈금(GROMO-633),
   // 안드로이드는 어제 0시~오늘 0시 queryEvents 정확값(소급 조회). 미측정·미구현 시 0.
   getYesterdayUsageBucketMinutes: async (): Promise<number> => {
@@ -341,10 +335,17 @@ const ScreenTimeModule = {
   // 네이티브가 없으면(iOS·웹·구 바이너리) 조용한 기본값으로 폴백한다 — 호출부는
   // supportsUsageBreakdown()이 참일 때만 부르지만, 그 가드가 빠져도 크래시는 안 난다.
 
-  /** 앱별 사용시간(사용 많은 순). dayOffset 0=오늘, -1=어제. 네이티브 없으면 빈 배열. */
-  getUsageByApp: async (dayOffset = 0): Promise<AppUsage[]> => {
-    if (!AndroidScreenTime) return [];
-    return AndroidScreenTime.getUsageByApp(dayOffset);
+  /**
+   * 앱별 사용시간 + 총계(안드로이드). **한 번의 조회로 셋을 함께 받는다.**
+   *
+   * 따로 부르면 각자 시각을 잡고 이벤트를 다시 훑어 서로 다른 시점의 값이 섞이는데,
+   * 화면은 그 차이를 '목록에 안 잡히는 시간'으로 읽어 허위 '그 외' 행을 만든다.
+   *
+   * iOS·구 바이너리는 null — 그쪽은 애초에 이 목록을 RN 이 그리지 않는다.
+   */
+  getUsageBreakdown: async (dayOffset = 0): Promise<AppUsageBreakdown | null> => {
+    if (!AndroidScreenTime?.getUsageBreakdown) return null;
+    return AndroidScreenTime.getUsageBreakdown(dayOffset);
   },
 
   /**

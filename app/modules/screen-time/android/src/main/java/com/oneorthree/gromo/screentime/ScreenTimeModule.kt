@@ -114,14 +114,6 @@ class ScreenTimeModule : Module() {
 
     // 오늘 사용시간(분) — 오늘 0시~지금. 이름의 Bucket은 iOS 15분 눈금의 흔적으로,
     // 안드로이드는 정확한 분값을 반환한다(호출부 계약상 무해 — 03 문서 §4).
-    /**
-     * 오늘 총 사용시간(초) — 위 분값과 같은 소스, 내림 전 값이다.
-     * 상세 화면이 '앱별 목록에 안 잡히는 시간'을 정확히 계산하는 데 쓴다.
-     */
-    AsyncFunction("getTodayUsageSeconds") {
-      usageSeconds(startOfDay(0), System.currentTimeMillis())
-    }
-
     AsyncFunction("getTodayUsageBucketMinutes") {
       usageMinutes(startOfDay(0), System.currentTimeMillis())
     }
@@ -134,35 +126,55 @@ class ScreenTimeModule : Module() {
     // 앱별 사용시간 — iOS는 DeviceActivityReport 익스텐션이 그려주는 화면을 통째로 받지만(수치는
     // JS로 못 가져온다), 안드로이드는 수치 자체를 넘길 수 있어 화면을 RN이 그린다.
     // dayOffset: 0=오늘(0시~지금), -1=어제(하루 전체). 사용 많은 순 정렬, 사용 0인 앱은 빠진다.
-    AsyncFunction("getUsageByApp") { dayOffset: Int ->
+    /**
+     * 앱별 사용시간 + 총계를 **한 번의 조회로** 돌려준다(코드리뷰 4차).
+     *
+     * 예전엔 목록·분 총계·초 총계를 각각 따로 불렀는데, 셋이 각자 시각을 잡고 이벤트를 다시
+     * 훑어서 **서로 다른 시점의 결과가 섞였다.** 화면은 그 차이를 '목록에 안 잡히는 시간'으로
+     * 읽으므로 1초 차이가 그대로 허위 '그 외' 행이 된다.
+     *
+     * `otherSeconds` 를 여기서 계산하는 이유도 같다 — 화면에서 빼면 **패키지마다 밀리초를
+     * 버린 뒤의 합**과 비교하게 돼서, 앱이 많을수록 버린 초가 쌓여 없는 시간이 생긴다
+     * (각 999ms 씩 버린 앱 61개면 1분이 만들어진다). 밀리초를 유지한 채 여기서 뺀다.
+     */
+    AsyncFunction("getUsageBreakdown") { dayOffset: Int ->
       if (!isUsageAccessGranted()) {
-        emptyList<Map<String, Any>>()
+        mapOf(
+          "totalSeconds" to 0,
+          "otherSeconds" to 0,
+          "apps" to emptyList<Map<String, Any>>(),
+        )
       } else {
         val begin = startOfDay(dayOffset)
         val end = if (dayOffset >= 0) System.currentTimeMillis() else startOfDay(dayOffset + 1)
         val usageStatsManager =
           context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val selection = prefs.getStringSet(KEY_SELECTION_PACKAGES, null)
-        // 런처에 뜨는 앱만 보여준다. UsageStats에는 홈 런처(Pixel Launcher)·시스템 UI 같은
+        val breakdown =
+          UsageSessionCalculator.foregroundBreakdown(usageStatsManager, selection, begin, end)
+        // 런처에 뜨는 앱만 목록에 올린다. UsageStats에는 홈 런처(Pixel Launcher)·시스템 UI 같은
         // '앱으로 인식되지 않는 것'도 잡히는데, 그걸 목록에 올리면
         //   1) 홈 화면에 머문 시간이 앱 사용처럼 보이고
         //   2) 표시 이름을 못 읽어 `com.google.android.apps.nexuslauncher` 같은 줄이 남는다.
         // 사용자가 "내가 쓴 앱"으로 세는 건 런처에서 열 수 있는 앱이다(측정 대상 피커와 같은 기준).
         val launchable = launchablePackages()
-        UsageSessionCalculator
-          .foregroundMillisByPackage(usageStatsManager, selection, begin, end)
-          .entries
-          .filter { it.key in launchable }
-          .sortedByDescending { it.value }
-          .map {
-            mapOf(
-              "packageName" to it.key,
-              "label" to appLabel(it.key),
-              // 분이 아니라 **초**로 넘긴다 — 1분 미만 사용이 전부 0분으로 뭉개지면 목록 하단이
-              // 통째로 "0분"이 된다. 표시 단위 반올림은 화면이 정한다.
-              "seconds" to (it.value / 1000L).toInt(),
-            )
-          }
+        val listed = breakdown.byPackage.filterKeys { it in launchable }
+        mapOf(
+          "totalSeconds" to (breakdown.totalMillis / 1000L).toInt(),
+          // 밀리초를 유지한 채 뺀 뒤 초로 버린다 — 화면에서 빼면 버린 밀리초가 쌓인다.
+          "otherSeconds" to
+            ((breakdown.totalMillis - listed.values.sum()).coerceAtLeast(0L) / 1000L).toInt(),
+          "apps" to
+            listed.entries.sortedByDescending { it.value }.map {
+              mapOf(
+                "packageName" to it.key,
+                "label" to appLabel(it.key),
+                // 분이 아니라 **초**로 넘긴다 — 1분 미만 사용이 전부 0분으로 뭉개지면 목록
+                // 하단이 통째로 "0분"이 된다. 표시 단위 반올림은 화면이 정한다.
+                "seconds" to (it.value / 1000L).toInt(),
+              )
+            },
+        )
       }
     }
 

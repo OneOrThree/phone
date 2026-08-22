@@ -14,7 +14,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import ScreenTimeModule, { type AppUsage } from '@/services/ScreenTimeModule';
+import ScreenTimeModule, {
+  type AppUsage,
+  type AppUsageBreakdown,
+} from '@/services/ScreenTimeModule';
 import ScreenTimeAnalyzingOverlay, { ANALYZE_MS } from '@/components/ScreenTimeAnalyzingOverlay';
 import { T } from '@/constants/theme';
 
@@ -70,9 +73,8 @@ export default function UsageDetailScreen() {
 // 안드로이드는 패키지명을 알아 아이콘을 직접 붙일 수 있다.
 function AndroidUsageList() {
   const [rows, setRows] = useState<AppUsage[] | null>(null); // null = 로딩 중
-  const [totalMinutes, setTotalMinutes] = useState<number | null>(null);
-  // 초 단위 총계 — '그 외' 계산 전용. null 이면(iOS·구 바이너리) 그 행을 만들지 않는다.
-  const [totalSeconds, setTotalSeconds] = useState<number | null>(null);
+  // 총계와 '그 외' — 목록과 **같은 조회 결과**다(코드리뷰 4차). 따로 받으면 시점이 갈린다.
+  const [breakdown, setBreakdown] = useState<AppUsageBreakdown | null>(null);
   const [failed, setFailed] = useState(false);
   // 권한이 사라진 상태 — '기록이 없음'과 반드시 구분해야 한다(아래 주석 참고).
   const [permissionLost, setPermissionLost] = useState(false);
@@ -84,15 +86,14 @@ function AndroidUsageList() {
     //    돌아서, 화면이 '0분 · 사용 기록이 없어요'로 바뀐다. 사용자는 오늘 아무 앱도 안 쓴
     //    걸로 읽는다. 이 화면을 열어 둔 채 설정에서 권한을 끄고 돌아오면 바로 재현된다.
     //
-    // 총 사용시간은 홈 카드와 **같은 함수**로 받는다 — 목록 합으로 따로 계산하면 폴백 경로에서
-    // "홈은 21분, 상세는 22분"처럼 갈린다. 대신 목록과의 차이는 아래 '그 외' 행이 메운다.
-    const [status, list, minutes, seconds] = await Promise.all([
+    // 총계·'그 외'·목록을 **한 번의 조회로** 받는다(코드리뷰 4차). 따로 부르면 각자 시각을
+    // 잡고 이벤트를 다시 훑어 서로 다른 시점의 값이 섞이는데, 화면은 그 차이를 '목록에 안
+    // 잡히는 시간'으로 읽어 1초 차이가 그대로 허위 '그 외' 행이 된다.
+    const [status, breakdown] = await Promise.all([
       ScreenTimeModule.getAuthorizationStatus(),
-      ScreenTimeModule.getUsageByApp(0),
-      ScreenTimeModule.getTodayUsageBucketMinutes(),
-      ScreenTimeModule.getTodayUsageSeconds(),
+      ScreenTimeModule.getUsageBreakdown(0),
     ]);
-    return { status, list, minutes, seconds };
+    return { status, breakdown };
   }, []);
 
   useEffect(() => {
@@ -106,12 +107,11 @@ function AndroidUsageList() {
       const mine = ++generation;
       return (
         load()
-          .then(({ status, list, minutes, seconds }) => {
+          .then(({ status, breakdown }) => {
             if (cancelled || mine !== generation) return;
             setPermissionLost(status !== 'approved');
-            setRows(list);
-            setTotalMinutes(minutes);
-            setTotalSeconds(seconds);
+            setRows(breakdown?.apps ?? []);
+            setBreakdown(breakdown);
             setFailed(false);
           })
           // 실패를 빈 목록으로 뭉개지 않는다 — '오늘 아무 앱도 안 씀'과 구분되어야 한다.
@@ -160,17 +160,16 @@ function AndroidUsageList() {
   // 들어가고 목록에는 대응 행이 없다. 그대로 두면 한 화면 안에서 "총 21분인데 더하면 18분"이
   // 된다. 차이를 '그 외' 한 행으로 드러내 합이 맞게 한다.
   //
-  // ⚠️ '그 외'는 **초 단위 총계**로만 정확히 구할 수 있다(코드리뷰 2차). 근사 두 가지가 다
-  //    반례를 갖는다:
-  //      · 초 합을 내림된 분에서 뺀다 → 실제 차이가 1분을 넘어도 행이 안 생긴다
-  //        (보이는 앱 601초 + 안 보이는 앱 118초, 총계 11분 → 660-601=59초 → 행 없음)
-  //      · 내림한 분의 합에서 뺀다 → **차이가 없는데 행이 생긴다**
-  //        (각 40초 쓴 앱 둘 → 총계 floor(80/60)=1분, 행 합 0+0=0분 → 허위 '그 외 1분')
-  //    두 실패가 정반대라 근사로는 못 없앤다. 네이티브가 분값과 같은 소스의 초 총계를 준다.
+  // ⚠️ '그 외'(목록에 안 잡히는 런처·시스템 UI 시간)는 **네이티브가 계산한다**(코드리뷰 4차).
+  //    화면에서 빼면 두 가지가 어긋난다:
+  //      · 패키지마다 밀리초를 버린 뒤의 합과 비교하게 된다 — 각 999ms 씩 버린 앱 61개면
+  //        없는 1분이 만들어진다
+  //      · 총계와 목록이 각자 조회되면 시점이 달라, 1초 차이가 그대로 허위 행이 된다
+  //    이제 한 번의 스캔에서 밀리초를 유지한 채 뺀 값을 받는다.
   //
-  //    못 받으면(iOS·구 바이너리) 행을 아예 만들지 않는다 — 허위 행보다 안 그리는 쪽이 낫다.
-  const listedSeconds = rows.reduce((sum, r) => sum + r.seconds, 0);
-  const otherSeconds = totalSeconds === null ? 0 : Math.max(0, totalSeconds - listedSeconds);
+  //    표시용 총계도 같은 결과에서 파생한다 — 홈 카드와 같은 규칙(내림)이라 갈리지 않는다.
+  const totalMinutes = Math.floor((breakdown?.totalSeconds ?? 0) / 60);
+  const otherSeconds = breakdown?.otherSeconds ?? 0;
   const items: AppUsage[] =
     otherSeconds >= 60
       ? [...rows, { packageName: OTHER_ROW_KEY, label: '그 외', seconds: otherSeconds }]
@@ -192,7 +191,7 @@ function AndroidUsageList() {
           {/* 총 사용시간 카드 — iOS와 같은 문구·위계 */}
           <View style={s.totalCard}>
             <Text style={s.totalLabel}>오늘 총 사용시간</Text>
-            <Text style={s.totalValue}>{formatMinutes(totalMinutes ?? 0)}</Text>
+            <Text style={s.totalValue}>{formatMinutes(totalMinutes)}</Text>
           </View>
           <Text style={s.sectionHeader}>앱별 사용시간</Text>
           {items.length === 0 ? <Text style={s.emptyInline}>사용 기록이 없어요</Text> : null}
