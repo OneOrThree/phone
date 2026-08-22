@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, AppState, Platform } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -54,7 +54,8 @@ export default function AllowedAppsScreen() {
       ScreenTimeModule.getFocusAllowSafariWeb()
         .then((v) => !cancelled && setAllowSafariWeb(v))
         .catch(() => {});
-      // 설정 화면을 다녀와도 이 화면은 포커스를 잃었다 되찾으므로 여기서 재조회하면 최신값이 된다.
+      // 화면 재진입 시의 최신값. 단, 시스템 설정을 다녀오는 경우는 이걸로 못 잡는다 — 아래
+      // AppState 이펙트 주석 참고.
       ScreenTimeModule.canDrawOverlay()
         .then((v) => !cancelled && setCanOverlay(v))
         .catch(() => !cancelled && setCanOverlay(null));
@@ -63,6 +64,23 @@ export default function AllowedAppsScreen() {
       };
     }, []),
   );
+
+  // 오버레이 권한 설정을 다녀온 뒤 재조회(코드리뷰 반영).
+  //
+  // requestOverlayPermission()은 **외부 시스템 설정**을 연다. 그건 React Navigation의 현재
+  // route 포커스를 바꾸지 않으므로 위 useFocusEffect가 다시 돌지 않는다. 그래서 사용자가
+  // 권한을 켜고 돌아와도 canOverlay가 false로 남아 "지금은 차단되지 않아요" 경고가 그대로
+  // 붙어 있는다 — 켰는데 안 켜졌다고 하는 셈이다.
+  // (ScreenTimePermissionScreen이 Usage Access 설정에 대해 같은 이유로 AppState를 쓴다.)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      ScreenTimeModule.canDrawOverlay()
+        .then(setCanOverlay)
+        .catch(() => setCanOverlay(null));
+    });
+    return () => sub.remove();
+  }, []);
 
   // 토글 즉시 반영(낙관적) — 네이티브 저장 실패 시 원복. 세션 중이면 실드에도 바로 적용됨.
   async function toggleSafariWeb(v: boolean) {

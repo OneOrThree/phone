@@ -37,9 +37,17 @@ jest.mock('@/store/SubjectContext', () => ({
   }),
 }));
 
-async function renderDrawer() {
+async function renderDrawer(shieldActive = true) {
   await act(async () => {
-    render(<FocusMenuDrawer open onClose={jest.fn()} liveSubjectId="s1" liveSeconds={120} />);
+    render(
+      <FocusMenuDrawer
+        open
+        onClose={jest.fn()}
+        liveSubjectId="s1"
+        liveSeconds={120}
+        shieldActive={shieldActive}
+      />,
+    );
   });
 }
 
@@ -97,6 +105,18 @@ describe('iOS — 전부 그대로다', () => {
 
     expect(screen.getByText('허용앱 사용하기')).toBeOnTheScreen();
     expect(ScreenTimeModule.getAllowedSelectionCounts).toHaveBeenCalled();
+  });
+
+  // 권한이 없거나 백그라운드에서 서비스가 죽어 실드가 안 걸린 세션 — 모든 앱이 열리는데
+  // "잠겨서 열 수 없어요"라고 하면 거짓 안내다(코드리뷰 반영).
+  test('실드가 안 걸린 세션에서는 잠금 안내를 하지 않는다', async () => {
+    await renderDrawer(false);
+
+    await act(async () => {
+      fireEvent.press(screen.getByText('허용앱 사용하기'));
+    });
+
+    expect(screen.queryByText('허용 안 된 앱은 잠겨서 열 수 없어요')).toBeNull();
   });
 
   // warnBox의 enforcesFocusShield() 가드를 실제로 지나는 유일한 경로 — 카드를 눌러 apps

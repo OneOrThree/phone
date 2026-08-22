@@ -50,6 +50,9 @@ jest.mock('@/services/ScreenTimeModule', () => ({
   __esModule: true,
   default: {
     startFocusShield: jest.fn(() => Promise.resolve(true)),
+    // 동기 함수다 — 복귀 시 이탈 크레딧을 계산하기 **전에** 실드 생존을 확인한다(GROMO-1604
+    // 코드리뷰). 기본값 true = "백그라운드 동안에도 살아 있었다"로, 기존 특성화 동작을 유지한다.
+    isFocusShieldAlive: jest.fn(() => true),
     stopFocusShield: jest.fn(() => Promise.resolve()),
     startFocusActivity: jest.fn(() => Promise.resolve()),
     // 실제 모듈은 항상 내보낸다 — 목에 없으면 옵셔널 호출과 인자 평가가 통째로 생략돼
@@ -446,6 +449,9 @@ beforeEach(async () => {
   });
   jest.spyOn(Vibration, 'vibrate').mockImplementation(() => {});
   mockedShieldStart.mockResolvedValue(true);
+  // 생존 확인 기본값 — jest.clearAllMocks()는 호출 기록만 지우고 mockReturnValue 는 남긴다.
+  // 여기서 되돌리지 않으면 '실드가 죽었다' 케이스가 뒤따르는 실드 테스트로 새어 나간다.
+  (ScreenTimeModule.isFocusShieldAlive as jest.Mock).mockReturnValue(true);
   mockedStartMarker.mockResolvedValue({ sessionId: 'marker-1' });
 });
 afterEach(() => {
@@ -2513,6 +2519,28 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     expect(logFocusOrientationChanged).toHaveBeenCalledWith(
       expect.objectContaining({ orientation: 'portrait', dwell_seconds: 5 }),
     );
+  });
+
+  // 제조사 배터리 최적화가 백그라운드에서 FocusShieldService 를 죽이는 경우(GROMO-1604
+  // 코드리뷰). 앱은 그 사실을 모른 채 shieldedRef 를 true 로 들고 있어서, **차단 없이 다른 앱을
+  // 쓴 시간이 그대로 집중으로 적립됐다.** 복귀 시 생존을 다시 확인해 비실드 정책으로 되돌린다.
+  test('백그라운드에서 실드가 죽었으면: 이탈을 집중으로 인정하지 않고 비실드 정책으로 되돌린다', async () => {
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireAppState('background');
+
+    // 나가 있는 동안 서비스가 죽었다 — 복귀 시점의 생존 확인이 false 를 준다.
+    (ScreenTimeModule.isFocusShieldAlive as jest.Mock).mockReturnValue(false);
+    // 이탈 종료선(15초) 아래로 잡는다 — 넘기면 비실드 정책이 세션 자체를 끝내 버려
+    // '크레딧이 붙었는지'를 볼 레코드가 남지 않는다. 여기서 보려는 건 크레딧 유무다.
+    await jumpWallClock(10_000);
+    await fireAppState('active');
+
+    const record = await readLiveRecord();
+    // 실드가 살아 있었다면 15(5 + away 10 전진)였다. 죽었으므로 이탈 10초는 인정되지 않는다.
+    expect(record!.elapsed).toBe(5);
+    // 비실드 이탈이므로 이탈 이벤트도 정상 발행된다(실드 세션은 발행하지 않는다).
+    expect(logFocusDistractionDetected).toHaveBeenCalled();
   });
 
   test('실드 카운트다운이 백그라운드에서 목표를 지나면: 목표 경계로 정산하고 초과 이탈은 미포함', async () => {

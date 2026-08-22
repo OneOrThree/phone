@@ -60,6 +60,28 @@ class FocusShieldService : Service() {
     private const val NOTIFICATION_ID = 4201
 
     /**
+     * 실드 생존 표식(코드리뷰 반영). 폴링이 돌 때마다 여기에 현재 시각을 남긴다.
+     *
+     * 제조사 배터리 최적화(삼성 등)가 백그라운드에서 이 서비스를 죽여도 앱은 그 사실을 모른다.
+     * 그러면 `shieldedRef` 가 계속 true 로 남아, **차단 없이 다른 앱을 쓴 시간이 집중으로
+     * 적립된다.** 앱이 포그라운드로 돌아올 때 이 표식의 신선도로 생존을 확인한다.
+     *
+     * PREFS_NAME 은 ScreenTimeModule 과 같은 저장소를 가리킨다 — 값이 갈리면 표식을 못 읽어
+     * 항상 '죽었다'로 판정된다.
+     */
+    const val PREFS_NAME = "gromo_screen_time"
+    const val KEY_SHIELD_HEARTBEAT = "shieldHeartbeat"
+
+    /**
+     * 표식이 이보다 오래되면 죽은 것으로 본다.
+     *
+     * 폴링 주기(1초)의 5배 — Doze·앱 대기 버킷으로 핸들러가 잠깐 밀리는 것까지는 살아 있는
+     * 것으로 봐야 오탐이 없다. 반대로 너무 길게 잡으면 죽은 걸 살아 있다고 읽어 부정 사용이
+     * 열리므로, '밀림'은 흡수하되 '죽음'은 놓치지 않는 선으로 잡았다.
+     */
+    const val HEARTBEAT_STALE_MS = 5000L
+
+    /**
      * 앞 앱 확인 주기(ms).
      *
      * 1초는 '차단 앱이 보이는 시간'과 배터리의 절충점이다. 더 짧게 잡아도 UsageStats 이벤트가
@@ -85,6 +107,8 @@ class FocusShieldService : Service() {
   private var subject: String = "집중"
   private var allowed: Set<String> = emptySet()
   private var running = false
+  /** 런처 앱 목록 캐시 — 서비스 수명 동안 유지한다(세션 중 앱 설치·삭제는 드물다). */
+  private var launchableCache: Set<String>? = null
   /** 차단을 실제로 도는가. 타이머만 필요한 호출(ACTION_ACTIVITY)로는 켜지지 않는다. */
   private var blocking = false
   /** 다른 과목 누적 — 확장 알림에만 쓴다(iOS 잠금화면 칩과 같은 정보). */
@@ -162,6 +186,7 @@ class FocusShieldService : Service() {
   private fun stopShield() {
     running = false
     blocking = false
+    launchableCache = null
     others = emptyList()
     startedAt = 0L
     handler.removeCallbacks(poll)
@@ -175,9 +200,57 @@ class FocusShieldService : Service() {
   private fun tick() {
     // 차단 권한이 없어 타이머만 도는 세션 — 폴링은 돌지만 덮지 않는다.
     if (!blocking) return
-    val front = foregroundPackage() ?: return
+
+    // 살아 있다는 표식. 앱이 복귀할 때 이 값으로 '백그라운드에서 서비스가 죽었는지'를 가른다
+    // (코드리뷰 반영) — 제조사 배터리 최적화가 조용히 죽이면 차단 없이 쓴 시간이 집중으로
+    // 적립돼 버린다. 표식이 낡아 있으면 앱이 비실드 이탈 정책으로 되돌린다.
+    heartbeat()
+
+    // 전면 앱을 못 읽는 상태 — 가림막을 **걷는다**(코드리뷰 반영). 그냥 return 하면 이미 떠
+    // 있던 가림막이 그대로 남는데, 이후로도 전면 앱을 못 읽으니 우리 앱으로 돌아와도 안 걷힌다
+    // (= 기기를 못 쓰게 만든다). 차단을 잠깐 놓치는 쪽이 훨씬 안전하다.
+    val front = foregroundPackage()
+    if (front == null) {
+      hideOverlay()
+      // 권한 자체가 사라진 경우는 일시적 공백이 아니라 확정 실패다. 폴링을 계속 돌려 봐야
+      // 아무것도 못 하므로 차단 상태를 내린다 — 화면은 startFocusShield 결과와 이 표식으로
+      // '이번 세션은 차단이 안 걸린다'를 알게 된다.
+      if (!usageAccessGranted()) {
+        blocking = false
+        startForeground(NOTIFICATION_ID, buildNotification())
+      }
+      return
+    }
     if (shouldBlock(front)) showOverlay() else hideOverlay()
   }
+
+  /** 폴링이 돌고 있다는 표식 — 앱이 복귀 시 서비스 생존을 확인하는 근거. */
+  private fun heartbeat() {
+    getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+      .edit()
+      .putLong(KEY_SHIELD_HEARTBEAT, System.currentTimeMillis())
+      .apply()
+  }
+
+  /** 사용 정보 접근이 아직 살아 있는가 — 실드는 이 권한이 없으면 전면 앱을 못 읽는다. */
+  private fun usageAccessGranted(): Boolean = runCatching {
+    val appOps = getSystemService(APP_OPS_SERVICE) as android.app.AppOpsManager
+    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      appOps.unsafeCheckOpNoThrow(
+        android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+        android.os.Process.myUid(),
+        packageName,
+      )
+    } else {
+      @Suppress("DEPRECATION")
+      appOps.checkOpNoThrow(
+        android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+        android.os.Process.myUid(),
+        packageName,
+      )
+    }
+    mode == android.app.AppOpsManager.MODE_ALLOWED
+  }.getOrDefault(false)
 
   /**
    * 차단 대상인가.
@@ -188,10 +261,33 @@ class FocusShieldService : Service() {
   private fun shouldBlock(packageName: String): Boolean {
     if (packageName == this.packageName) return false
     if (packageName in allowed) return false
-    return packageName in launchablePackages()
+    // 전화는 덮지 않는다(코드리뷰 반영). 기본 전화 앱은 런처 아이콘이 있어 아래 필터를 그냥
+    // 통과하는데, **수신 전화 화면(InCallActivity)도 같은 패키지로 보고된다.** 허용앱에 안
+    // 넣어 뒀으면 전화가 올 때 가림막이 통화 화면을 덮어 **전화를 못 받는다.**
+    // 이 앱을 자유롭게 쓸 수 있게 되는 건 감수한다 — 전화를 못 받는 쪽이 훨씬 나쁘다
+    // (설정 앱 구멍을 감수한 D1과 같은 판단).
+    if (packageName == defaultDialerPackage()) return false
+    return packageName in cachedLaunchablePackages()
   }
 
-  /** 런처에서 열 수 있는 앱만 차단 대상 — 시스템 UI·런처·다이얼러 오버레이 등을 걸러낸다. */
+  /** 기본 전화 앱 패키지 — 못 읽으면 null(제외 대상 없음). */
+  private fun defaultDialerPackage(): String? = runCatching {
+    (getSystemService(TELECOM_SERVICE) as android.telecom.TelecomManager).defaultDialerPackage
+  }.getOrNull()
+
+  /**
+   * 런처 앱 목록 — **캐시한다**(코드리뷰 반영).
+   *
+   * 차단 앱이 앞에 있는 동안 shouldBlock 이 1초마다 불리는데, 매번 queryIntentActivities 로
+   * 설치 앱 전체를 훑으면 그 비용이 서비스 메인 스레드에서 세션 내내 반복된다. 앱 설치·삭제는
+   * 세션 중에 드물어 캐시가 안전하고, 어긋나도 다음 세션에서 바로잡힌다.
+   */
+  private fun cachedLaunchablePackages(): Set<String> {
+    launchableCache?.let { return it }
+    return launchablePackages().also { launchableCache = it }
+  }
+
+  /** 런처에서 열 수 있는 앱만 차단 대상 — 시스템 UI·런처 등을 걸러낸다. */
   private fun launchablePackages(): Set<String> {
     val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
     val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

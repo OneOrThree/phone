@@ -303,9 +303,19 @@ class ScreenTimeModule : Module() {
      * 여기서 true를 돌려주면 차단도 안 되는데 이탈 판정만 느슨해져 부정 사용이 열린다.
      */
     AsyncFunction("startFocusShield") { subjectName: String ->
-      if (!canDrawOverlays(context)) {
+      // 두 권한이 **모두** 있어야 실제로 차단된다(코드리뷰 반영).
+      //   - 오버레이: 가림막을 올릴 수 있는가
+      //   - 사용 정보 접근: 지금 앞에 있는 앱이 무엇인지 읽을 수 있는가
+      // 오버레이만 있고 사용 정보 접근이 꺼져 있으면 FocusShieldService.foregroundPackage()가
+      // 늘 null 이라 아무것도 못 덮는데, 여기서 true 를 주면 이탈 판정만 느슨해진다 = 부정 사용.
+      if (!canDrawOverlays(context) || !isUsageAccessGranted()) {
         false
       } else {
+        // 방금 시작한 서비스가 아직 표식을 남기기 전이므로 여기서 먼저 찍어 둔다 —
+        // 시작 직후 앱이 백그라운드에 갔다 오면 표식이 없어 '죽었다'로 오판한다.
+        prefs.edit()
+          .putLong(FocusShieldService.KEY_SHIELD_HEARTBEAT, System.currentTimeMillis())
+          .apply()
         val allowed = prefs.getStringSet(KEY_ALLOWED_PACKAGES, null)?.toTypedArray() ?: emptyArray()
         val intent = Intent(context, FocusShieldService::class.java).apply {
           action = FocusShieldService.ACTION_START
@@ -323,6 +333,30 @@ class ScreenTimeModule : Module() {
       }
     }
 
+    /**
+     * 실드 서비스가 **아직 살아서 돌고 있는가**(코드리뷰 반영).
+     *
+     * startFocusShield 가 true 를 준 뒤에도 제조사 배터리 최적화가 백그라운드에서 서비스를
+     * 죽일 수 있다. 그러면 앱은 여전히 '차단 중'이라고 믿어, 차단 없이 다른 앱을 쓴 시간이
+     * 집중으로 적립된다. 화면은 포그라운드 복귀마다 이 값을 다시 확인해 어긋나면 비실드
+     * 이탈 정책으로 되돌린다.
+     *
+     * 판정은 폴링이 남기는 표식의 신선도로 한다. 권한이 중간에 회수된 경우도 같이 잡는다 —
+     * 그때는 서비스가 차단 상태를 스스로 내리고 표식도 더는 갱신하지 않는다.
+     *
+     * ⚠️ AsyncFunction 이 아니라 **동기 Function** 이다. 호출부(FocusSessionScreen 의 AppState
+     *    복귀 처리)가 shieldedRef 를 동기로 읽어 이탈 크레딧을 계산하는데, 그 사이에 await 를
+     *    끼우면 크레딧 판정 전체를 비동기로 뒤집어야 한다 — 리플레이·스냅샷 배선이 얽혀 있어
+     *    위험 대비 이득이 없다. 여기서 하는 일은 SharedPreferences 한 번 읽기라 동기로 충분하다.
+     */
+    Function("isFocusShieldAlive") {
+      val last = prefs.getLong(FocusShieldService.KEY_SHIELD_HEARTBEAT, 0L)
+      last != 0L &&
+        System.currentTimeMillis() - last <= FocusShieldService.HEARTBEAT_STALE_MS &&
+        canDrawOverlays(context) &&
+        isUsageAccessGranted()
+    }
+
     /** 실드 해제 — 멱등. 세션이 이미 끝났는데 또 불려도 무해해야 한다(화면이 여러 경로로 부른다). */
     AsyncFunction("stopFocusShield") {
       val intent = Intent(context, FocusShieldService::class.java).apply {
@@ -333,6 +367,9 @@ class ScreenTimeModule : Module() {
       } catch (_: Exception) {
         // 서비스가 이미 죽어 있으면 시작 자체가 실패할 수 있다 — 목표(정지)는 이미 달성이다.
       }
+      // 표식을 지운다 — 남겨 두면 다음 세션 시작 직후의 생존 확인이 **이전 세션의 표식**을
+      // 보고 살아 있다고 답할 수 있다.
+      prefs.edit().remove(FocusShieldService.KEY_SHIELD_HEARTBEAT).apply()
     }
 
     // ── 잠금화면 타이머(iOS Live Activity 대응) ──────────────────────────────────

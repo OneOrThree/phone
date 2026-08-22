@@ -34,6 +34,13 @@ export interface LiveFocusSession {
   // 서버 업로드의 focusSecondsByDate(server 축). 두 축을 나눠 두는 이유는 blockToday.ts 주석 참고.
   // 없으면(구버전 레코드) 구간 겹침으로 폴백한다.
   focusDays?: BlockToday;
+  // 화면을 정상적으로 빠져나가며 **실드를 직접 내렸는가**(GROMO-1604 코드리뷰).
+  //
+  // 시스템 Back 으로 나가는 경로는 레코드를 일부러 남긴다(시간 적립은 다음 실행의 고아 정산이
+  // 한다). 그래서 레코드가 남아 있다는 것만으로는 '강제 종료됐다'를 뜻하지 않는다. 이 표식이
+  // 없을 때만 프로세스가 실제로 죽은 것으로 보고 '차단이 함께 풀렸다'를 알린다 — 표식을 안
+  // 보면 정상 이탈에도 거짓 알림이 나간다.
+  shieldReleasedCleanly?: boolean;
 }
 
 // 집중 중 허용앱(11) — 예시. initial = 아이콘 사각에 넣는 한 글자.

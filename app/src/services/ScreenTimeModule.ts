@@ -128,10 +128,15 @@ interface AndroidNativeScreenTime {
   getAllowedPackages(): Promise<string[]>;
   setAllowedPackages(packages: string[]): Promise<void>;
   // 집중 실드(GROMO-1604) — 폴링 + 가림막. iOS의 OS 위임과 달리 우리가 직접 돌린다.
-  canDrawOverlay(): Promise<boolean>;
-  requestOverlayPermission(): Promise<void>;
-  startFocusShield(subjectName: string): Promise<boolean>;
-  stopFocusShield(): Promise<void>;
+  // ⚠️ 아래 실드 메서드들은 **전부 옵셔널이다.** 구 안드로이드 바이너리에도 ScreenTimeModule
+  //    자체는 있어서 AndroidScreenTime 은 null 이 아닌데, 이 메서드들은 1604 빌드부터 생긴다.
+  //    존재 여부로 게이팅하지 않으면 'undefined is not a function' 이 난다(코드리뷰 반영).
+  canDrawOverlay?(): Promise<boolean>;
+  requestOverlayPermission?(): Promise<void>;
+  startFocusShield?(subjectName: string): Promise<boolean>;
+  stopFocusShield?(): Promise<void>;
+  /** 동기 — 호출부가 이탈 판정 도중 즉시 읽는다. 네이티브는 Expo Function(동기). */
+  isFocusShieldAlive?(): boolean;
   // 상시 알림(iOS Live Activity 대응) — 캐릭터 스냅샷 + 과목·다른 과목 누적.
   saveCharacterSnapshot(base64: string): Promise<boolean>;
   startFocusActivity(subjectName: string, otherSubjectsJson: string): Promise<boolean>;
@@ -178,6 +183,17 @@ const AndroidScreenTime =
 // 없어 false. 이 경우 requestAuthorization도 설정 화면을 못 열므로, 화면 쪽은 권한 CTA 같은
 // M1 UI 대신 M1 이전 placeholder를 유지해야 한다(코드리뷰 반영).
 export const androidNativeModuleAvailable = (): boolean => AndroidScreenTime != null;
+
+/**
+ * 안드로이드 네이티브가 **집중 실드 빌드**인지(GROMO-1604 이후).
+ *
+ * 구 바이너리에도 ScreenTimeModule 자체는 있으므로 `AndroidScreenTime != null` 로는 못 가른다.
+ * hot-updater 로 새 JS 만 받은 기기에서 startFocusShield 를 부르면 undefined 호출로 터지고,
+ * 화면은 '지원되는 기능'으로 안내한 뒤라 사용자 입장에선 그냥 고장이다(코드리뷰 반영).
+ */
+export const androidNativeSupportsFocusShield = (): boolean =>
+  typeof AndroidScreenTime?.startFocusShield === 'function' &&
+  typeof AndroidScreenTime?.canDrawOverlay === 'function';
 
 // 네이티브 바이너리가 15분 눈금(GROMO-931) 빌드인지 — 같은 빌드에 추가된
 // getUsageBucketDebugInfo 존재로 판별한다. OTA로 새 JS만 받은 구 바이너리는 여전히 30분
@@ -428,13 +444,15 @@ const ScreenTimeModule = {
 
   /** 가림막을 띄울 수 있는가. iOS는 실드에 별도 권한이 없어 항상 true. */
   canDrawOverlay: async (): Promise<boolean> => {
-    if (AndroidScreenTime) return AndroidScreenTime.canDrawOverlay();
+    if (AndroidScreenTime?.canDrawOverlay) return AndroidScreenTime.canDrawOverlay();
+    // 안드로이드 구 바이너리는 가림막 자체가 없다 — '띄울 수 있다'고 답하면 그 위의
+    // 모든 안내가 거짓이 된다.
     return Platform.OS === 'ios';
   },
 
   /** '다른 앱 위에 표시' 설정 화면 열기(안드로이드 전용). */
   requestOverlayPermission: async (): Promise<void> => {
-    if (!AndroidScreenTime) return;
+    if (!AndroidScreenTime?.requestOverlayPermission) return;
     return AndroidScreenTime.requestOverlayPermission();
   },
 
@@ -494,14 +512,43 @@ const ScreenTimeModule = {
 
   // 집중 세션 실드 켜기 — 허용앱 외 전부 차단. 반환값: 적용 여부(권한 없으면 false).
   startFocusShield: async (subjectName: string): Promise<boolean> => {
-    if (AndroidScreenTime) return AndroidScreenTime.startFocusShield(subjectName);
+    // 구 바이너리는 메서드가 없다 — false 가 정직한 답이다(차단이 안 걸리는 게 사실이므로
+    // 호출부의 이탈 정책도 느슨해지지 않는다).
+    if (AndroidScreenTime) {
+      if (!AndroidScreenTime.startFocusShield) return false;
+      return AndroidScreenTime.startFocusShield(subjectName);
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startFocusShield(subjectName);
   },
 
+  /**
+   * 실드가 **아직 살아 있는가**(안드로이드 전용, GROMO-1604 코드리뷰 반영).
+   *
+   * startFocusShield 가 true 를 준 뒤에도 제조사 배터리 최적화가 백그라운드에서 서비스를
+   * 죽일 수 있다. 그러면 화면은 여전히 '차단 중'이라 믿어 차단 없이 쓴 시간을 집중으로
+   * 적립한다. 포그라운드 복귀마다 이 값으로 다시 확인한다.
+   *
+   * 구 바이너리는 메서드가 없으니 false — 애초에 실드가 걸리지 않았다.
+   *
+   * **동기 함수다.** 호출부가 이탈 크레딧을 계산하는 도중 즉시 읽어야 해서, 그 판정에
+   * await 를 끼우지 않으려고 네이티브도 Expo Function(동기)으로 뒀다.
+   */
+  isFocusShieldAlive: (): boolean => {
+    if (AndroidScreenTime) {
+      if (!AndroidScreenTime.isFocusShieldAlive) return false;
+      return AndroidScreenTime.isFocusShieldAlive();
+    }
+    // iOS 는 ManagedSettingsStore 가 OS 쪽에 남아 앱이 죽어도 유지된다 — 앱 생존과 무관하다.
+    return Platform.OS === 'ios';
+  },
+
   // 집중 세션 실드 끄기 — 세션 정지·고아 세션 정리 시 호출(멱등).
   stopFocusShield: async (): Promise<void> => {
-    if (AndroidScreenTime) return AndroidScreenTime.stopFocusShield();
+    if (AndroidScreenTime) {
+      if (!AndroidScreenTime.stopFocusShield) return;
+      return AndroidScreenTime.stopFocusShield();
+    }
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.stopFocusShield();
   },

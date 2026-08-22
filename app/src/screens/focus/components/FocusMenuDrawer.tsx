@@ -29,9 +29,13 @@ export function FocusMenuDrawer({
   onClose,
   liveSubjectId,
   liveSeconds,
+  shieldActive,
 }: {
   open: boolean;
   onClose: () => void;
+  // 이번 세션에 실드가 **실제로 걸려 있는가**(startFocusShield 반환값 + 복귀 시 생존 재확인).
+  // 플랫폼 술어와 따로 받는 이유는 아래 warnBox 주석 참고.
+  shieldActive: boolean;
   liveSubjectId: string; // 진행 중 세션의 과목
   // 아직 정산 안 된 집중 초 중 '오늘' 몫(GROMO-1252) — 자정을 걸친 세션의 어제 몫은 빠져 있고,
   // 이미 정산된 블록(뽀모도로)도 빠져 있다. 그래서 저장분에 그대로 더하면 된다.
@@ -168,10 +172,12 @@ export function FocusMenuDrawer({
               </Text>
             </View>
 
-            {/* 실제로 잠기는 플랫폼에서만 — 안 잠기는데 잠긴다고 하면 그게 거짓 안내다.
-                지금은 위 카드가 이미 막아 안드로이드에선 도달할 수 없지만, apps 단으로 가는
-                경로가 하나 더 생겨도 문구가 되살아나지 않게 술어를 여기에도 둔다. */}
-            {enforcesFocusShield() && (
+            {/* 실제로 잠기는 플랫폼 **그리고** 이번 세션에 실드가 걸린 경우에만.
+                술어만으로는 부족하다(코드리뷰 반영) — enforcesFocusShield()는 "이 플랫폼이
+                차단을 할 줄 아는가"만 답한다. 안드로이드에서 '다른 앱 위에 표시' 권한이 없어
+                startFocusShield()가 false를 준 세션이나, 백그라운드에서 서비스가 죽은 세션은
+                **모든 앱이 열리는데도** 이 문구가 뜬다. 그건 1592가 없앤 거짓 안내 그대로다. */}
+            {enforcesFocusShield() && shieldActive && (
               <View style={s.warnBox}>
                 <Ionicons name="ban-outline" size={14} color={T.accentAlt} />
                 <Text style={s.warnText}>허용 안 된 앱은 잠겨서 열 수 없어요</Text>

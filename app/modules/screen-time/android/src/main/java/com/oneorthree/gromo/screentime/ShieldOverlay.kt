@@ -62,7 +62,12 @@ class ShieldOverlay(private val context: Context) {
       type,
       // NOT_TOUCH_MODAL을 빼서 이 창이 터치를 **전부** 먹게 한다 — 안 그러면 가림막 아래
       // 차단 앱을 그대로 조작할 수 있어 덮은 의미가 없다.
-      WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+      //
+      // ⚠️ FLAG_KEEP_SCREEN_ON을 주지 않는다(코드리뷰 반영). 터치 차단에 필요하지 않은데,
+      //    주면 가림막이 뜬 채로 폰을 내려놨을 때 시스템 화면 꺼짐 시간이 무시돼 **세션 내내
+      //    디스플레이가 켜져 있다.** 장시간 집중에서 배터리를 크게 먹고 번인 위험도 커진다.
+      //    플래그 없음 = 0 (LayoutParams는 플래그 비트필드다).
+      0,
       android.graphics.PixelFormat.OPAQUE,
     )
     params.gravity = Gravity.CENTER
