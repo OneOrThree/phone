@@ -226,6 +226,13 @@ export default function ScreenTimePermissionScreen() {
   async function editScreenTimeTargets() {
     try {
       const st = await ScreenTimeModule.getAuthorizationStatus();
+
+      // ⚠️ 포커스 확인을 **플랫폼 분기보다 앞에** 둔다(코드리뷰 반영). 권한 요청 경로는 설정
+      //    복귀와 서버 반영(최대 15초)을 기다리는데, 그동안 뒤로가기·강제 로그아웃으로 이 화면을
+      //    떠날 수 있다. 예전엔 안드로이드가 이 검사를 건너뛰고 이동해서, **이미 떠난 화면이
+      //    다른 화면 위에 피커를 갑자기 push** 할 수 있었다.
+      if (!navigation.isFocused()) return;
+
       // 안드로이드는 시스템 피커가 없어 RN 화면으로 간다(GROMO-995). 아래 iOS 경로의 '다음날
       // 적용' 예약도 여기선 불필요하다 — 조회 시점에 원시 이벤트를 필터링해 재계산하므로
       // 대상을 바꾸면 오늘분도 새 기준으로 일관되게 다시 계산된다(네이티브 주석과 같은 근거).
@@ -234,6 +241,16 @@ export default function ScreenTimePermissionScreen() {
           Alert.alert(
             '스크린타임 권한 필요',
             '측정 대상을 고르려면 먼저 사용 정보 접근을 허용해야 해요.',
+          );
+          return;
+        }
+        // ⚠️ 관리 행을 숨기는 게이트만으로는 부족하다(코드리뷰 반영). 구 바이너리에서 권한이
+        //    notDetermined 면 상태 카드가 requestPermission() 을 거쳐 여기로 오는데, 그 경로엔
+        //    술어 검사가 없어서 **빈 목록에 저장도 no-op 인 화면**에 도달한다.
+        if (!supportsAppSelection()) {
+          Alert.alert(
+            '아직 쓸 수 없어요',
+            '앱을 최신 버전으로 업데이트하면 측정 대상을 고를 수 있어요.',
           );
           return;
         }
@@ -247,9 +264,6 @@ export default function ScreenTimePermissionScreen() {
         );
         return;
       }
-      // 직전 await(권한 요청 경로에선 서버 반영까지 최대 15초) 동안 뒤로가기·강제 로그아웃으로
-      // 화면을 떠났을 수 있다 — 피커가 엉뚱한 화면 위에 뜨지 않게 포커스를 확인한다(코드리뷰 반영).
-      if (!navigation.isFocused()) return;
       const counts = await ScreenTimeModule.presentAppPicker();
       if (!counts) return; // 피커 취소 — picker가 pending에 저장, 여기서 취소면 저장 없음
       const total = counts.applications + counts.categories + counts.webDomains;

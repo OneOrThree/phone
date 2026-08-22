@@ -79,7 +79,11 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
         const granted = await ScreenTimeModule.requestAuthorization();
         logOnboardingPermissionResulted({ granted });
         update({ screenTimeGranted: granted });
-        // 측정 대상 picker는 M2 — 그 전까지는 전체 앱 측정이 기본이라 선택 없이 진행한다.
+        // ⚠️ 이게 안드로이드 신규 사용자의 **가장 흔한 경로**다(코드리뷰 반영). 여기서
+        //    등록을 안 부르면 ScreenTimeSyncer 가 마운트될 때까지 측정이 시작되지 않고,
+        //    온보딩 도중 이탈하면 아예 시작되지 않는다. 측정 대상은 안 고르지만(D4)
+        //    등록은 반드시 한다 — 그 둘을 헷갈려서 생긴 버그였다.
+        if (granted) await pickTargets();
         onNext();
         return;
       }

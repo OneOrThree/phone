@@ -43,6 +43,22 @@ class ScreenTimeModule : Module() {
     // 측정 대상 패키지명 집합 — iOS의 selection/pending 2단계 키 구조와 1:1(§8).
     // M1은 피커가 없어 항상 미설정 = 전체 앱 측정. M2 피커가 이 키에 저장·승격한다.
     private const val KEY_SELECTION_PACKAGES = "selectionPackages"
+
+    /**
+     * 오늘 대상을 바꾸기 **직전**의 선택과 그 날짜(코드리뷰 반영).
+     *
+     * 측정 대상은 조회 시점에 원시 이벤트를 필터링하는 방식이라, 대상을 바꾸면 **지난 날짜까지
+     * 새 기준으로 다시 계산된다.** 오늘분은 그게 맞는 동작이지만(사용자가 방금 정한 기준),
+     * 어제분은 아니다 — 전날 최종 동기화가 오프라인 등으로 밀려 있으면, 재시도 때 어제 사용량과
+     * 목표 달성 여부가 **오늘 고른 앱 기준으로 다시 계산돼 서버 기록까지 잘못 확정된다.**
+     *
+     * 그래서 '오늘 처음 바꿀 때'의 직전 선택을 한 벌 보관해, 지난 날짜 조회는 그걸 쓴다.
+     * 하루에 여러 번 바꿔도 보관값은 그대로다(어제 유효했던 선택이 계속 유지된다).
+     */
+    private const val KEY_PREV_SELECTION_PACKAGES = "prevSelectionPackages"
+    private const val KEY_SELECTION_CHANGED_DATE = "selectionChangedDate"
+    /** 미설정(=전체 앱 측정)을 보관할 때 쓰는 표식 — 빈 집합과 구분해야 한다. */
+    private const val SELECTION_NONE = "\u0000none"
     // iOS의 '다음날 적용' 대기 선택 자리였다. 안드로이드는 조회 시점 재계산이라 예약이
     // 필요 없어 쓰지 않는다 — 근거는 setSelectionPackages 주석(GROMO-995).
     @Suppress("unused")
@@ -118,12 +134,12 @@ class ScreenTimeModule : Module() {
     // 오늘 사용시간(분) — 오늘 0시~지금. 이름의 Bucket은 iOS 15분 눈금의 흔적으로,
     // 안드로이드는 정확한 분값을 반환한다(호출부 계약상 무해 — 03 문서 §4).
     AsyncFunction("getTodayUsageBucketMinutes") {
-      usageMinutes(startOfDay(0), System.currentTimeMillis())
+      usageMinutes(0, startOfDay(0), System.currentTimeMillis())
     }
 
     // 어제 사용시간(분) — 어제 0시~오늘 0시.
     AsyncFunction("getYesterdayUsageBucketMinutes") {
-      usageMinutes(startOfDay(-1), startOfDay(0))
+      usageMinutes(-1, startOfDay(-1), startOfDay(0))
     }
 
     // 앱별 사용시간 — iOS는 DeviceActivityReport 익스텐션이 그려주는 화면을 통째로 받지만(수치는
@@ -152,7 +168,9 @@ class ScreenTimeModule : Module() {
         val end = if (dayOffset >= 0) System.currentTimeMillis() else startOfDay(dayOffset + 1)
         val usageStatsManager =
           context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val selection = prefs.getStringSet(KEY_SELECTION_PACKAGES, null)
+        // 지난 날짜는 **그때 유효했던** 선택으로 본다 — 오늘 바꾼 기준으로 어제를 다시
+        // 계산하면 서버 기록까지 잘못 확정된다(selectionFor KDoc 참고).
+        val selection = selectionFor(dayOffset)
         val breakdown =
           UsageSessionCalculator.foregroundBreakdown(usageStatsManager, selection, begin, end)
         // 런처에 뜨는 앱만 목록에 올린다. UsageStats에는 홈 런처(Pixel Launcher)·시스템 UI 같은
@@ -225,6 +243,16 @@ class ScreenTimeModule : Module() {
     //    계산된다 — 예약할 이유가 없고, 예약하면 오히려 "오늘은 옛 기준"이라는 없는 상태가 생긴다.
     AsyncFunction("setSelectionPackages") { packages: List<String> ->
       val editor = prefs.edit()
+      // 오늘 처음 바꾸는 것이면 직전 선택을 보관한다 — 지난 날짜 조회가 그걸 쓴다(위 주석).
+      val today = localDateKey()
+      if (prefs.getString(KEY_SELECTION_CHANGED_DATE, null) != today) {
+        val current = prefs.getStringSet(KEY_SELECTION_PACKAGES, null)
+        editor.putStringSet(
+          KEY_PREV_SELECTION_PACKAGES,
+          current ?: setOf(SELECTION_NONE),
+        )
+        editor.putString(KEY_SELECTION_CHANGED_DATE, today)
+      }
       if (packages.isEmpty()) {
         editor.remove(KEY_SELECTION_PACKAGES)
       } else {
@@ -363,7 +391,8 @@ class ScreenTimeModule : Module() {
 
   // [begin, end) 구간 사용시간(분) — 세션 재구성 계산(UsageSessionCalculator).
   // 권한이 없으면 0 (호출부는 권한 확인 후 호출하는 게 기본 흐름).
-  private fun usageMinutes(begin: Long, end: Long): Int = (usageSeconds(begin, end) / 60)
+  private fun usageMinutes(dayOffset: Int, begin: Long, end: Long): Int =
+    (usageSeconds(dayOffset, begin, end) / 60)
 
   /**
    * [begin, end) 구간 사용시간(**초**) — 위 분값과 **같은 소스**다.
@@ -375,14 +404,42 @@ class ScreenTimeModule : Module() {
    *     (각 40초씩 쓴 앱 둘 → 총계 floor(80/60)=1분, 행 합 0+0=0분 → 허위 '그 외 1분')
    * 두 실패가 정반대라 근사로는 못 없앤다. 초 단위 총계를 직접 준다.
    */
-  private fun usageSeconds(begin: Long, end: Long): Int {
+  private fun usageSeconds(dayOffset: Int, begin: Long, end: Long): Int {
     if (!isUsageAccessGranted()) return 0
     val usageStatsManager =
       context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-    // M2 전에는 selection 미설정 = 전체 앱 측정(빈 집합도 동일 취급 — §8 기본).
-    val selection = prefs.getStringSet(KEY_SELECTION_PACKAGES, null)
+    // 미설정 = 전체 앱 측정(빈 집합도 동일 취급 — §8 기본).
+    // 지난 날짜는 **그때 유효했던** 선택을 쓴다(selectionFor KDoc 참고) — 오늘 바꾼 기준으로
+    // 어제를 다시 계산하면, 밀려 있던 전날 동기화가 잘못된 값으로 서버에 확정된다.
+    val selection = selectionFor(dayOffset)
     val millis = UsageSessionCalculator.foregroundMillis(usageStatsManager, selection, begin, end)
     return (millis / 1_000L).toInt()
+  }
+
+  /**
+   * 해당 날짜에 **유효했던** 측정 대상. null 이면 전체 앱 측정(§8 기본).
+   *
+   * 오늘(dayOffset >= 0)은 현재 선택이 맞다 — 사용자가 방금 정한 기준으로 오늘분이 다시
+   * 계산되는 건 의도된 동작이다. 지난 날짜는 오늘 바꾸기 직전의 선택을 쓴다.
+   */
+  private fun selectionFor(dayOffset: Int): Set<String>? {
+    val current = prefs.getStringSet(KEY_SELECTION_PACKAGES, null)
+    if (dayOffset >= 0) return current
+    // 오늘 바꾼 적이 없으면 현재 선택이 그때도 유효했다.
+    if (prefs.getString(KEY_SELECTION_CHANGED_DATE, null) != localDateKey()) return current
+    val prev = prefs.getStringSet(KEY_PREV_SELECTION_PACKAGES, null) ?: return current
+    // 보관 표식 = 그때는 미설정(전체 앱 측정)이었다.
+    return if (prev.contains(SELECTION_NONE)) null else prev
+  }
+
+  /** 로컬 날짜 키(yyyy-MM-dd) — 선택 변경일 비교용. */
+  private fun localDateKey(): String {
+    val c = Calendar.getInstance()
+    return "%04d-%02d-%02d".format(
+      c.get(Calendar.YEAR),
+      c.get(Calendar.MONTH) + 1,
+      c.get(Calendar.DAY_OF_MONTH),
+    )
   }
 
   // 로컬 자정 기준 하루 시작 시각(ms). offsetDays: 0=오늘, -1=어제. DST 보정은 Calendar가 처리.
