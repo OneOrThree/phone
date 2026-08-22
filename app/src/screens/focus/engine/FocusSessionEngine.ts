@@ -681,8 +681,11 @@ export function createFocusSessionEngine(
     async start(subjectName) {
       await journalStartIntent(sessionKey); // ⓪ 실드 적용 전에 의도를 기록
       this.applyShield(subjectName); // ① fire-and-forget — 성패는 shielded로 관찰
-      // ② 커밋 흔적(v1, 미정산 0) + 같은 저널 레코드의 원자 갱신(starting→active)
-      writePersistedSessionV1(buildV1(0, new Date().toISOString()));
+      // ② 커밋 흔적(v1, 미정산 0) + 같은 저널 레코드의 원자 갱신(starting→active).
+      // 흔적 쓰기는 **await한다** — 늦게 착지하면 그 사이에 도는 복구(사일런트 푸시·복귀)가
+      // 흔적을 못 봐 살아 있는 세션을 크래시로 오인하고 실드를 푼다. 유예(STARTING_GRACE_MS)가
+      // 최후 방어지만 창 자체를 좁히는 게 먼저다.
+      await writePersistedSessionV1(buildV1(0, new Date().toISOString()));
       await journalActivateSession(sessionKey);
       // ③ 첫 마커 — 이후 블록 정산마다 회전(settleFocusBlock 참고)
       startLiveSession(startedAtIso);

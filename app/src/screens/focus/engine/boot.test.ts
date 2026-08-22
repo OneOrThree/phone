@@ -125,6 +125,25 @@ describe('원자적 시작 복구(§4.3-ⓑ)', () => {
     expect((await readJournal()).session).toBeNull();
   });
 
+  test('방금 쓴 starting은 크래시가 아니다 — 실드를 풀지 않는다(경합 방어)', async () => {
+    // 시작은 write-ahead라 저널이 v1 커밋 흔적보다 먼저 커밋된다(§4.3-ⓐ가 요구하는 순서).
+    // 그 사이에 복구가 돌면(사일런트 푸시·포그라운드 복귀) 흔적이 없어 크래시로 보이는데,
+    // 그대로 처리하면 **막 시작한 정상 세션의 실드를 푼다**(자체 점검에서 발견).
+    await journalWith({ ...startingSession, createdAt: new Date().toISOString() });
+    await recoverFocusEngine();
+
+    expect(mockedStopShield).not.toHaveBeenCalled();
+    expect((await readJournal()).session).toMatchObject({ state: 'starting' }); // 그대로 둔다
+  });
+
+  test('유예를 넘긴 starting은 크래시로 처리한다 — 시각이 깨졌으면 오래된 것으로 본다', async () => {
+    await journalWith({ ...startingSession, createdAt: 'not-a-date' });
+    await recoverFocusEngine();
+
+    expect(mockedStopShield).toHaveBeenCalledTimes(1);
+    expect((await readJournal()).session).toBeNull();
+  });
+
   test('active 세션은 건드리지 않는다 — 실드·저널 유지', async () => {
     // 정상 진행 중 죽은 세션의 정산은 OrphanFocusSettler 몫이다(이 복구의 관심사가 아니다).
     await journalWith({ ...startingSession, state: 'active' });

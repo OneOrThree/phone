@@ -36,6 +36,16 @@ import {
  */
 const STALE_INTENT_MS = 60_000;
 
+/**
+ * `starting`을 「크래시」로 단정하기 전에 두는 유예. **이게 없으면 막 시작한 정상 세션의
+ * 실드를 푼다** — 시작은 write-ahead라 저널(`starting`)이 v1 커밋 흔적보다 **먼저** 커밋되고
+ * (§4.3-ⓐ가 요구하는 순서다), 그 사이에 복구가 돌면 흔적이 없어 크래시로 보인다.
+ * 사일런트 푸시·포그라운드 복귀가 하필 그 순간에 겹치면 실제로 일어난다.
+ *
+ * 진짜 크래시는 프로세스가 죽었다 살아난 뒤라 언제나 이 유예보다 오래된 기록이다.
+ */
+const STARTING_GRACE_MS = 30_000;
+
 let running: Promise<void> | null = null;
 
 async function replayIntent(intent: SettleIntent): Promise<void> {
@@ -54,12 +64,22 @@ async function replayIntent(intent: SettleIntent): Promise<void> {
   if (result.status !== 'failed') await resolveSettleIntent(intent.intentId);
 }
 
+/**
+ * 시각을 못 읽으면 「오래됨」으로 본다 — 우리가 쓰는 값은 항상 유효한 ISO라, 깨진 값은
+ * 경합 창이 아니라 낡은·외부 레코드다. 여기서 건너뛰면 그 기록이 영영 안 지워져 원자적
+ * 시작 계약이 계속 막힌다.
+ */
+function isStartingStale(createdAt: string): boolean {
+  const age = Date.now() - Date.parse(createdAt);
+  return !Number.isFinite(age) || age >= STARTING_GRACE_MS;
+}
+
 async function recover(): Promise<void> {
   const journal = await readJournal();
 
   // ① 원자적 시작 복구
   const session = journal.session;
-  if (session?.state === 'starting') {
+  if (session?.state === 'starting' && isStartingStale(session.createdAt)) {
     const v1 = await readPersistedSessionV1();
     if (v1?.sessionKey === session.sessionKey) {
       // 커밋 흔적이 있다 — 시작은 성공했고 저널 완결만 못 한 크래시다. 실드는 그대로 둔다
