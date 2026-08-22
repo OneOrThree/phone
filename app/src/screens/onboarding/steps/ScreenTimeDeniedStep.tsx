@@ -71,10 +71,16 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
   const openSettings = () => {
     if (Platform.OS === 'android') {
       // Usage Access 설정 딥링크 — 복귀 시 네이티브가 재확인한 결과로 resolve된다(GROMO-994).
-      // 허용이면 이 스텝이 빠지고 목표 설정으로 자동 전환된다. 측정 앱 picker는 M2 전이라 없음.
+      // 허용이면 이 스텝이 빠지고 목표 설정으로 자동 전환된다.
+      //
+      // ⚠️ 승인되면 **completeApproved() 를 거쳐야 한다**(코드리뷰 반영). 여기서 플래그만
+      //    세우면 재요청 경로와 달리 측정 등록(registerUsageBucketMonitoring)이 빠져서,
+      //    온보딩 완료 전에 이탈하면 등록 마커와 측정 시작일 앵커가 안 남는다.
+      //    이 화면엔 승인으로 가는 길이 셋(재요청 · 설정 폴백 · 복귀 감지)인데 하나만
+      //    다른 처리를 하고 있었다 — 공용 함수로 모은 이유가 그것이다.
       ScreenTimeModule.requestAuthorization()
         .then((granted) => {
-          if (granted) updateRef.current({ screenTimeGranted: true });
+          if (granted) return completeApproved();
         })
         .catch(() => {});
       return;
