@@ -150,3 +150,27 @@ test('v1 업로드 failed: 레코드를 보존해 다음 부팅이 재시도한�
   expect(mockUpload).toHaveBeenCalledTimes(1);
   expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).not.toBeNull();
 });
+
+test('v1 로컬 적립 시 legacy 레코드에도 settledLocally를 찍는다 — 롤백 이중 적립 방어', async () => {
+  // 업로드 failed면 두 레코드가 모두 보존되는데, 그 상태로 OTA 롤백이 나면 구버전 Settler가
+  // legacy만 읽고 같은 시간을 다시 적립한다(codex 리뷰 #694).
+  await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(V1_RECORD));
+  mockUpload.mockResolvedValue({ status: 'failed' });
+  await renderSettler();
+
+  const legacyRaw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
+  expect(JSON.parse(legacyRaw!).settledLocally).toBe(true);
+});
+
+test('legacy 소유자가 다르면 마커를 찍지 않는다 — 남의 기록을 건드리지 않는다', async () => {
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.focusLiveSession,
+    JSON.stringify({ userId: 'someone-else', subjectId: 's9', elapsed: 10 }),
+  );
+  await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(V1_RECORD));
+  mockUpload.mockResolvedValue({ status: 'failed' });
+  await renderSettler();
+
+  const legacyRaw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
+  expect(JSON.parse(legacyRaw!).settledLocally).toBeUndefined();
+});

@@ -166,6 +166,9 @@ export interface FocusSessionEngine {
    * 여전히 다음 부팅의 고아 정산 몫이다(여기서 업로드하지 않는다).
    */
   detachViewExit(): void;
+
+  /** 시작 도중 이탈이 확인됐을 때의 회수 — start가 부르는 내부 단계 */
+  abortStart(): void;
   setMarkerDeferred(v: boolean): void;
   isMarkerDeferred(): boolean;
 
@@ -256,6 +259,10 @@ export function createFocusSessionEngine(
   let markerDeferred = false;
   let paused = false;
   let finished = false;
+  // 뷰가 떠났는가 — 시작이 여러 await를 거치는 동안 화면이 내려갈 수 있다(진입 직후 시스템
+  // 뒤로가기). 그때 남은 단계를 그대로 진행하면 정리 뒤에 실드가 다시 켜지고 마커가 새로
+  // 열려, 사용자는 떠난 화면의 차단과 「집중 중」 표시를 계속 본다.
+  let detached = false;
   // 세션 실드 적용 성공 여부 — 이탈 정책 분기(집중 인정 vs 15초 정책)의 입력
   let shielded = false;
   // 페이즈 경계 이펙트의 비교 기준 — 리플레이가 지나간 경계를 이중 처리하지 않게 동기화한다
@@ -679,16 +686,38 @@ export function createFocusSessionEngine(
     // 세션 시작(원자적, §4.3-ⓐ) — write-ahead와 커밋 흔적으로 「실드만 남는」 크래시 창을
     // 다음 부팅이 회수할 수 있게 한다. 폰 발 시작은 실드 실패에도 계속(15초 정책 폴백).
     async start(subjectName) {
+      // ⚠️ 각 await 뒤에 이탈을 확인한다. 화면은 이 프라미스를 기다리지 않으므로(fire-and-forget),
+      // 진입 직후 뒤로가기가 나면 정리가 먼저 끝나고 **그 뒤에** 남은 단계가 실행된다 —
+      // 실드가 다시 켜지고 마커가 새로 열려 떠난 세션의 흔적이 살아난다.
+      if (detached) return;
       await journalStartIntent(sessionKey); // ⓪ 실드 적용 전에 의도를 기록
+      if (detached) {
+        journalClearSession();
+        return;
+      }
       this.applyShield(subjectName); // ① fire-and-forget — 성패는 shielded로 관찰
       // ② 커밋 흔적(v1, 미정산 0) + 같은 저널 레코드의 원자 갱신(starting→active).
       // 흔적 쓰기는 **await한다** — 늦게 착지하면 그 사이에 도는 복구(사일런트 푸시·복귀)가
       // 흔적을 못 봐 살아 있는 세션을 크래시로 오인하고 실드를 푼다. 유예(STARTING_GRACE_MS)가
       // 최후 방어지만 창 자체를 좁히는 게 먼저다.
       await writePersistedSessionV1(buildV1(0, new Date().toISOString()));
+      if (detached) {
+        this.abortStart();
+        return;
+      }
       await journalActivateSession(sessionKey);
+      if (detached) {
+        this.abortStart();
+        return;
+      }
       // ③ 첫 마커 — 이후 블록 정산마다 회전(settleFocusBlock 참고)
       startLiveSession(startedAtIso);
+    },
+
+    /** 시작 도중 이탈이 확인됐을 때의 회수 — 켠 실드를 되돌리고 시작 의도를 지운다. */
+    abortStart() {
+      this.releaseShield();
+      journalClearSession();
     },
 
     // 세션 실드 — 시작 시 허용앱 외 전부 차단. 과목 변경 시엔 stop 없이 start만 다시
@@ -900,6 +929,7 @@ export function createFocusSessionEngine(
     },
 
     detachViewExit() {
+      detached = true;
       if (finished) return;
       // 마커 먼저 마감 — 참조(liveId)는 동기적으로 비워지므로 아래 레코드는 닫힌 마커를
       // 가리키지 않는다(고아 정산이 헛된 PATCH를 태우지 않고 곧장 POST로 올린다).

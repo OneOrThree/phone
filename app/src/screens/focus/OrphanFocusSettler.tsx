@@ -26,6 +26,25 @@ import {
 // 여기서는 업로드/인계가 끝난 뒤에만 레코드를 지운다(강제 종료 세션의 재시도 기회 보존).
 // 정산은 두 컨텍스트의 ready(로컬 로드 + 서버 복원 완료)를 기다린 뒤 시작한다 —
 // 복원이 네트워크를 기다리는 동안 적립하면 뒤늦은 복원 스냅샷이 적립분을 덮는다(GROMO-677 리뷰).
+/**
+ * legacy 라이브 레코드에 `settledLocally`를 찍는다 — v1 경로가 로컬 적립을 마킹할 때의 짝.
+ * 레코드가 없거나 소유자가 다르면 아무것도 하지 않는다(남의 기록을 건드리지 않는다).
+ */
+async function syncLegacySettledMarker(userId: string | null): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
+    if (!raw) return;
+    const legacy = JSON.parse(raw) as LiveFocusSession;
+    if (legacy.userId !== userId || legacy.settledLocally) return;
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.focusLiveSession,
+      JSON.stringify({ ...legacy, settledLocally: true }),
+    );
+  } catch {
+    // 마커 동기화 실패는 정산을 막지 않는다 — 롤백이 겹쳐야 드러나는 이중 적립 방어일 뿐이다.
+  }
+}
+
 export function OrphanFocusSettler() {
   const { addFocusSeconds, ready: focusReady } = useFocus();
   const { refresh: refreshCoins } = useCoins();
@@ -67,6 +86,11 @@ export function OrphanFocusSettler() {
           const marked = { ...v1, settledLocally: true };
           storedV1 = JSON.stringify(marked);
           await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, storedV1);
+          // **legacy 레코드에도 같은 마커를 찍는다.** 업로드가 failed면 두 레코드가 모두
+          // 보존되는데, 그 상태로 OTA 롤백이 나면 구버전 Settler는 legacy만 읽고
+          // settledLocally가 없다고 판단해 **같은 시간을 다시 적립한다**(이중 기록을 롤백
+          // 호환용으로 유지하는 동안의 대가). 소유자가 같을 때만 건드린다.
+          await syncLegacySettledMarker(userId);
           const todaySeconds = settlement.localTodayShare(todayStr());
           if (todaySeconds > 0) {
             addFocusSeconds(todaySeconds);

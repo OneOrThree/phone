@@ -8,6 +8,8 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { uploadFocusBlock } from '../uploadFocusBlock';
 import { recoverFocusEngine } from './boot';
 import { readJournal } from './journal';
+import { markBackgroundFocusCommit } from '../pendingFocusUploads';
+import { requestCoinRefresh } from '@/store/coinRefreshSignal';
 
 jest.mock('@/services/ScreenTimeModule', () => ({
   __esModule: true,
@@ -16,6 +18,10 @@ jest.mock('@/services/ScreenTimeModule', () => ({
 jest.mock('../uploadFocusBlock', () => ({
   uploadFocusBlock: jest.fn(() => Promise.resolve({ status: 'saved', response: {} })),
 }));
+jest.mock('../pendingFocusUploads', () => ({
+  markBackgroundFocusCommit: jest.fn(() => Promise.resolve()),
+}));
+jest.mock('@/store/coinRefreshSignal', () => ({ requestCoinRefresh: jest.fn() }));
 jest.mock('../pendingMarkerCancels', () => ({
   cancelMarker: jest.fn(() => Promise.resolve()),
 }));
@@ -192,4 +198,26 @@ test('멱등: 콜드 스타트와 사일런트 flush가 겹쳐 불러도 한 번
   await Promise.all([recoverFocusEngine(), recoverFocusEngine(), recoverFocusEngine()]);
 
   expect(mockedUpload).toHaveBeenCalledTimes(1);
+});
+
+describe('재생 커밋 후 잔액 갱신', () => {
+  test('saved면 메모리 신호와 영속 커밋 마커를 모두 남긴다', async () => {
+    // headless 사일런트 flush에선 뒤따르는 큐 flush가 빈 큐를 보고 committed=false를
+    // 돌려주므로, 여기서 안 남기면 갱신 신호가 아예 생기지 않는다(codex 리뷰 #694).
+    mockedUpload.mockResolvedValue({ status: 'saved', response: {} });
+    await journalWith(null, [staleIntent()]);
+    await recoverFocusEngine();
+
+    expect(requestCoinRefresh).toHaveBeenCalledTimes(1);
+    expect(markBackgroundFocusCommit).toHaveBeenCalledTimes(1);
+  });
+
+  test('queued면 잔액 신호를 남기지 않는다 — 서버 커밋이 아니다', async () => {
+    mockedUpload.mockResolvedValue({ status: 'queued' });
+    await journalWith(null, [staleIntent()]);
+    await recoverFocusEngine();
+
+    expect(requestCoinRefresh).not.toHaveBeenCalled();
+    expect(markBackgroundFocusCommit).not.toHaveBeenCalled();
+  });
 });

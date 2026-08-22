@@ -16,6 +16,8 @@
 
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { uploadFocusBlock } from '../uploadFocusBlock';
+import { markBackgroundFocusCommit } from '../pendingFocusUploads';
+import { requestCoinRefresh } from '@/store/coinRefreshSignal';
 import { cancelMarker } from '../pendingMarkerCancels';
 import { readPersistedSessionV1 } from './persistence';
 import {
@@ -59,6 +61,14 @@ async function replayIntent(intent: SettleIntent): Promise<void> {
   });
   // 'failed'만 보존 — 나머지는 서버 반영 또는 내구 큐 인계 완료다.
   if (result.status !== 'failed') await resolveSettleIntent(intent.intentId);
+  // 재생이 **서버에 커밋됐으면** 잔액이 바뀐다 — 큐 flush와 같은 두 갈래로 알린다.
+  // ① 메모리 신호: JS가 살아 있는 동안의 정규 경로 ② 영속 마커: headless 기동 후 프로세스가
+  // 죽는 경우의 보험. 이게 없으면 사일런트 flush에선 뒤따르는 큐 flush가 빈 큐를 보고
+  // committed=false를 돌려줘 갱신 신호가 아예 생기지 않는다(pendingFocusUploads 주석 참고).
+  if (result.status === 'saved') {
+    requestCoinRefresh();
+    await markBackgroundFocusCommit().catch(() => {});
+  }
 }
 
 /**

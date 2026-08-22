@@ -9,6 +9,7 @@ import { startFocusSession } from '@/services/focusApi';
 import { uploadFocusBlock } from '../uploadFocusBlock';
 import { cancelMarker } from '../pendingMarkerCancels';
 import type { LiveFocusSession } from '../types';
+import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { createFocusSessionEngine, type FocusEngineDeps } from './FocusSessionEngine';
 import { readPersistedSessionV1, reconstructSessionFromV1 } from './persistence';
 import { readJournal } from './journal';
@@ -291,6 +292,24 @@ test('D1: 업로드 failed면 settle intent가 보존되고, saved면 소멸한�
   expect(afterSaved.settles).toHaveLength(1); // ①의 failed 분만 남아 있다
   expect(afterSaved.settles[0].intentId).toBe(afterFailed.settles[0].intentId);
   engine2.stopTicking();
+});
+
+test('시작 도중 이탈: 남은 단계를 중단하고 켠 실드를 회수한다', async () => {
+  // 화면은 start를 기다리지 않는다(fire-and-forget). 진입 직후 뒤로가기가 나면 정리가 먼저
+  // 끝나고 **그 뒤에** 남은 단계가 실행돼, 실드가 다시 켜지고 마커가 새로 열린다(codex #694).
+  const engine = createFocusSessionEngine(countupConfig, makeDeps());
+  const startPromise = engine.start('수학');
+  engine.detachViewExit(); // 아직 start의 await들이 끝나기 전
+  await startPromise;
+  await flush();
+
+  // 마커를 새로 열지 않는다 — 떠난 세션이 친구 화면에 '집중 중'으로 살아나지 않게
+  expect(mockedStartMarker).not.toHaveBeenCalled();
+  // 실드도 켜지 않는다 — 이탈이 확인되면 그 단계 자체를 건너뛴다(이미 켠 뒤에 확인되면
+  // abortStart가 회수한다). 떠난 화면의 차단이 남지 않는 게 계약이다.
+  expect(ScreenTimeModule.startFocusShield).not.toHaveBeenCalled();
+  // 시작 의도도 저널에 남기지 않는다 — 다음 부팅 복구가 헛돌지 않게
+  expect((await readJournal()).session).toBeNull();
 });
 
 test('경과 0의 finish: 정산 없이 마커 취소로 닫는다', async () => {
