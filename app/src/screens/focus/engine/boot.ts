@@ -54,10 +54,13 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null;
 /** 유예가 풀리는 시점에 복구를 한 번 더 예약한다(중복 예약은 하나로 합친다). */
 function scheduleRetry(delayMs: number): void {
   if (retryTimer != null) return;
-  retryTimer = setTimeout(() => {
-    retryTimer = null;
-    recoverFocusEngine();
-  }, Math.max(1000, delayMs));
+  retryTimer = setTimeout(
+    () => {
+      retryTimer = null;
+      recoverFocusEngine();
+    },
+    Math.max(1000, delayMs),
+  );
 }
 
 async function replayIntent(intent: SettleIntent): Promise<void> {
