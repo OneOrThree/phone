@@ -12,6 +12,7 @@ import {
   flushPendingFocusUploads,
   markBackgroundFocusCommit,
 } from '@/screens/focus/pendingFocusUploads';
+import { recoverFocusEngine } from '@/screens/focus/engine/boot';
 import { syncWindowUsage } from '@/services/screentimeSync';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
 
@@ -34,6 +35,9 @@ export async function runSilentFlush(): Promise<void> {
     const userId = token ? getUserIdFromToken(token) : null;
     if (!userId) return; // 게스트·로그아웃 — flush할 계정 큐가 없다
     await syncWindowUsage(userId).catch(() => {});
+    // 엔진 부팅 복구(GROMO-1600)를 큐 flush **이전에** 돌린다 — 복구가 재적재한 업로드가
+    // 아래 flush를 그대로 타고 나가 순서가 보장된다(따로 기다릴 주체가 없는 headless 경로).
+    await recoverFocusEngine().catch(() => {});
     // 반환값(committed)을 버리지 않는다(codex 리뷰 P2) — 백그라운드에서 커밋된 저장은 서버
     // 잔액을 바꾸고 큐를 비우므로, 포그라운드 복귀 시 PendingFocusUploader가 flush 결과만
     // 보면 '커밋 없음(빈 큐)'으로 읽어 잔액을 영영 다시 받지 않는다.
