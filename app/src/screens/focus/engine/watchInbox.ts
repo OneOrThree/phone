@@ -27,6 +27,12 @@ function nativeModule(): WatchSessionNative | null {
   return (NativeModules as { WatchSessionModule?: WatchSessionNative }).WatchSessionModule ?? null;
 }
 
+/**
+ * 이 JS 번들이 이해하는 wire 버전. 네이티브 상수(kWatchProtocolVersion)와 **같은 값**이어야
+ * 한다 — 다르면 OTA JS × 구 바이너리 조합에서 서로 다른 스키마를 주고받게 된다.
+ */
+export const WATCH_PROTOCOL_VERSION = 1;
+
 export interface DrainedWatchCommand {
   commandId: string;
   type: string;
@@ -42,7 +48,10 @@ function parse(json: string): DrainedWatchCommand | null {
     const raw = JSON.parse(json) as Partial<DrainedWatchCommand>;
     if (typeof raw.commandId !== 'string' || !raw.commandId) return null;
     if (typeof raw.type !== 'string' || !raw.type) return null;
-    if (typeof raw.protocolVersion !== 'number') return null;
+    // **정확히 일치**해야 한다(§4.3 양방향 검사). 네이티브의 수신 시점 검사는 이미 저장된
+    // 항목을 드레인할 때 다시 돌지 않으므로, 버전이 올라간 뒤 이전 바이너리가 남긴 claimed
+    // 명령이 여기서 현재 스키마로 파싱되면 라우터가 호환되지 않는 페이로드를 실행한다.
+    if (raw.protocolVersion !== WATCH_PROTOCOL_VERSION) return null;
     return raw as DrainedWatchCommand;
   } catch {
     return null;
@@ -79,10 +88,37 @@ export async function drainWatchCommands(): Promise<DrainedWatchCommand[]> {
       ? await native.getWatchKillSwitch().catch(() => false)
       : false;
 
-  return raw
-    .map(parse)
-    .filter((cmd): cmd is DrainedWatchCommand => cmd != null)
+  const parsed = raw.map(parse);
+  const usable: DrainedWatchCommand[] = [];
+  // **폐기하는 것도 ack로 확정해야 한다.** 반환 목록에서 빼기만 하면 네이티브 claimed에
+  // 영원히 남아, 킬스위치가 꺼진 뒤 같은 start가 다시 배달되거나(사고 대응 중 차단한 세션이
+  // 뒤늦게 시작) 미지원 버전 명령이 매 드레인마다 되살아난다.
+  const discarded: string[] = [];
+  parsed.forEach((cmd, i) => {
+    if (cmd == null) {
+      // 파싱 불가·버전 불일치 — 이 번들로는 영영 실행할 수 없으니 확정 폐기한다.
+      const id = commandIdOf(raw[i]);
+      if (id) discarded.push(id);
+      return;
+    }
     // 킬스위치는 **신규 시작만** 막는다(R16 3차 개정) — end/pause/resume까지 막으면
     // 워치 아웃박스의 종료가 갇혀 폰 세션·실드를 닫을 길이 사라진다.
-    .filter((cmd) => !(killSwitched && cmd.type === 'start'));
+    if (killSwitched && cmd.type === 'start') {
+      discarded.push(cmd.commandId);
+      return;
+    }
+    usable.push(cmd);
+  });
+  await ackWatchCommands(discarded);
+  return usable;
+}
+
+/** 파싱이 깨진 항목에서도 ack용 id만은 건져 본다 — 못 건지면 네이티브 ack가 정리한다. */
+function commandIdOf(json: string): string | null {
+  try {
+    const raw = JSON.parse(json) as { commandId?: unknown };
+    return typeof raw.commandId === 'string' && raw.commandId ? raw.commandId : null;
+  } catch {
+    return null;
+  }
 }

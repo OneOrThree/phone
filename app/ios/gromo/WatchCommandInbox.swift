@@ -62,6 +62,12 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
             return
         }
         stateQueue.async {
+            // 큐에 들어오기 **전에** activation이 완료돼 콜백이 빈 대기열을 flush했을 수 있다.
+            // 그대로 append하면 재활성화도 안 되고(activationRequested=true) 5초 타임아웃만 난다.
+            if session.activationState == .activated {
+                completion(Self.statusPayload(session), nil)
+                return
+            }
             self.pendingStatusCalls.append(completion)
             // activation 콜백이 영영 안 오는 경우의 안전망 — 계측 호출자는 실패를 조용히 버린다.
             if self.timeoutWorkItem == nil {
@@ -155,9 +161,12 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
         return payload
     }
 
-    /// 적재 성공 여부를 돌려준다. 상한에서 무조건 오래된 것부터 버리면 **이미 accepted로
-    /// 응답한 `end`가 조용히 사라져** 세션·실드를 못 닫는다(§4.3의 「end는 영속 보존」 위반).
-    /// 그래서 버릴 때는 `end`가 아닌 것부터 버리고, 전부 `end`면 적재를 거절한다.
+    /// 적재 성공 여부를 돌려준다.
+    ///
+    /// **이미 대기열에 있는 명령은 희생시키지 않는다.** 그것들도 수신 당시 accepted로 응답해
+    /// 워치가 아웃박스를 비운 뒤라, 버리면 아직 만료도 안 된 사용자 조작이 조용히 사라진다.
+    /// 자리를 만들 수 있는 건 **만료가 확정된 항목**뿐이고(그건 어차피 폐기 대상이다),
+    /// 그래도 자리가 없으면 새 명령에 queueFull을 돌려줘 워치가 보관·재전송하게 한다.
     private func enqueue(_ raw: [String: Any]) -> Bool {
         guard
             let defaults,
@@ -168,24 +177,33 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
         return stateQueue.sync {
             var queue = defaults.stringArray(forKey: WatchInboxKeys.inbox) ?? []
             if queue.count >= Self.maxQueued {
-                // 종결 명령이 아닌 가장 오래된 항목을 희생시킨다.
-                guard let victim = queue.firstIndex(where: { !Self.isEndCommand($0) }) else {
-                    return false // 전부 end — 하나도 버릴 수 없다
-                }
-                queue.remove(at: victim)
+                let now = Date()
+                queue.removeAll { Self.isExpired($0, now: now) }
             }
+            guard queue.count < Self.maxQueued else { return false }
             queue.append(json)
             defaults.set(queue, forKey: WatchInboxKeys.inbox)
             return true
         }
     }
 
-    private static func isEndCommand(_ json: String) -> Bool {
+    /// 만료 확정 여부. `end`는 만료 없이 영속 재생되므로(§4.3) 절대 만료로 보지 않는다.
+    private static func isExpired(_ json: String, now: Date) -> Bool {
         guard
             let data = json.data(using: .utf8),
-            let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            (raw["type"] as? String) != "end",
+            let expiresAt = raw["expiresAt"] as? String,
+            let deadline = Self.parseISO8601(expiresAt)
         else { return false }
-        return (raw["type"] as? String) == "end"
+        return deadline < now
+    }
+
+    private static func parseISO8601(_ value: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: value) { return d }
+        return ISO8601DateFormatter().date(from: value)
     }
 
     /// JS가 부르는 드레인 — **지우지 않고 claim한다.** 반환 직후~JS 처리 완료 사이에
@@ -199,8 +217,12 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
             var claimed = defaults.stringArray(forKey: WatchInboxKeys.claimed) ?? []
             if !fresh.isEmpty {
                 claimed.append(contentsOf: fresh)
-                defaults.removeObject(forKey: WatchInboxKeys.inbox)
+                // ⚠️ **순서가 계약이다.** claimed를 먼저 커밋하고 inbox를 지운다 — 반대로 하면
+                // 두 쓰기 사이에 프로세스가 죽는 창에서 명령이 두 키 어디에도 없어 영구 유실된다
+                // (워치는 이미 accepted로 아웃박스를 비운 뒤라 재전송도 없다). 이 순서면 최악이
+                // 중복이고, 중복은 commandId 멱등이 흡수한다.
                 defaults.set(claimed, forKey: WatchInboxKeys.claimed)
+                defaults.removeObject(forKey: WatchInboxKeys.inbox)
             }
             return claimed
         }

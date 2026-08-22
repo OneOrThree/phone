@@ -37,8 +37,12 @@ public struct WatchCommandPayload: Codable {
     public let issuedAt: String // ISO8601 — 지연 도착 시 소급 정산의 기준(§4.3)
     public let expiresAt: String? // 만료 폐기 대상은 start·pause·resume. end는 만료 없이 영속 재생
     public let focusSessionId: String? // 폰 엔진이 발급한 로컬 세션 ID(start에는 없다)
+    public let accountId: String? // start 전용 — 계정 전환 뒤 남의 세션을 켜지 않도록(§4.3)
     public let subjectId: String? // start 전용
     public let subjectsRevision: Int? // start 전용 — 낡은 과목 목록 발 시작 거절(R5)
+    /// pause/resume 전용 — 다른 조작과의 충돌 감지(§4.3). end는 stale revision을 이유로
+    /// 거절하지 않으므로(유일한 정확한 종료가 무기한 재생만 하게 된다) 요구하지 않는다.
+    public let expectedRevision: Int?
 
     public init(
         commandId: String,
@@ -47,8 +51,10 @@ public struct WatchCommandPayload: Codable {
         issuedAt: String,
         expiresAt: String? = nil,
         focusSessionId: String? = nil,
+        accountId: String? = nil,
         subjectId: String? = nil,
-        subjectsRevision: Int? = nil
+        subjectsRevision: Int? = nil,
+        expectedRevision: Int? = nil
     ) {
         self.commandId = commandId
         self.type = type
@@ -56,8 +62,10 @@ public struct WatchCommandPayload: Codable {
         self.issuedAt = issuedAt
         self.expiresAt = expiresAt
         self.focusSessionId = focusSessionId
+        self.accountId = accountId
         self.subjectId = subjectId
         self.subjectsRevision = subjectsRevision
+        self.expectedRevision = expectedRevision
     }
 }
 
@@ -84,11 +92,18 @@ public enum WatchCommandSchema {
         switch type {
         case "start":
             // 만료가 필수다 — JS 콜드 스타트가 늦으면 워치가 이미 실패로 표시한 뒤 폰이 세션을
-            // 켜는 「유령 시작」이 생긴다(§4.3).
-            return nonEmpty(raw["expiresAt"]) && nonEmpty(raw["subjectId"])
+            // 켜는 「유령 시작」이 생긴다(§4.3). accountId·과목 목록 revision도 §4.3의 요구:
+            // 없으면 라우터가 계정 전환·낡은 목록 발 시작을 판별할 입력 자체가 없다(R5).
+            return nonEmpty(raw["expiresAt"])
+                && nonEmpty(raw["subjectId"])
+                && nonEmpty(raw["accountId"])
+                && raw["subjectsRevision"] is Int
         case "pause", "resume":
-            // 만료 폐기 대상 — expectedRevision은 명령의 나이를 제한하지 못한다(§4.3).
-            return nonEmpty(raw["expiresAt"]) && nonEmpty(raw["focusSessionId"])
+            // 만료 폐기 대상 — expectedRevision은 명령의 나이를 제한하지 못하므로 **둘 다** 필요하다:
+            // expiresAt은 나이를, expectedRevision은 다른 조작과의 충돌을 본다(§4.3).
+            return nonEmpty(raw["expiresAt"])
+                && nonEmpty(raw["focusSessionId"])
+                && raw["expectedRevision"] is Int
         case "end":
             // 종결 명령은 만료 없이 영속 재생된다 — expiresAt을 요구하지 않는다.
             return nonEmpty(raw["focusSessionId"])

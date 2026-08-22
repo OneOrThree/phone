@@ -45,7 +45,8 @@ test('적재된 명령을 파싱해 돌려준다', async () => {
   expect(out[0]).toMatchObject({ type: 'start', protocolVersion: 1, subjectId: 's1' });
 });
 
-test('깨진 JSON·필수 필드 누락은 버린다 — 나머지는 살린다', async () => {
+test('깨진 JSON·필수 필드 누락은 버리고 **ack로 확정 폐기**한다 — 나머지는 살린다', async () => {
+  const ackFn = jest.fn(() => Promise.resolve());
   setNative({
     drainWatchCommands: jest.fn(() =>
       Promise.resolve([
@@ -57,12 +58,33 @@ test('깨진 JSON·필수 필드 누락은 버린다 — 나머지는 살린다'
       ]),
     ),
     getWatchKillSwitch: jest.fn(() => Promise.resolve(false)),
+    ackWatchCommands: ackFn,
   });
   const out = await drainWatchCommands();
   expect(out.map((c) => c.commandId)).toEqual(['ok']);
+  // 빼기만 하면 네이티브 claimed에 영원히 남아 매 드레인마다 되살아난다(codex 리뷰 2차).
+  // id를 건질 수 있는 것만 ack — 깨진 JSON은 네이티브 ack가 정리한다.
+  expect(ackFn).toHaveBeenCalledWith(['c9', 'c8']);
+});
+
+test('버전 불일치는 실행할 수 없으니 폐기·확정한다 — 정확 일치만 통과', async () => {
+  // 네이티브의 수신 시점 검사는 이미 저장된 항목을 드레인할 때 다시 돌지 않는다. 버전이
+  // 올라간 뒤 이전 바이너리가 남긴 claimed 명령이 현재 스키마로 파싱되면 안 된다(codex 2차).
+  const ackFn = jest.fn(() => Promise.resolve());
+  setNative({
+    drainWatchCommands: jest.fn(() =>
+      Promise.resolve([cmd({ commandId: 'v2', protocolVersion: 2 }), cmd({ commandId: 'v1' })]),
+    ),
+    getWatchKillSwitch: jest.fn(() => Promise.resolve(false)),
+    ackWatchCommands: ackFn,
+  });
+  const out = await drainWatchCommands();
+  expect(out.map((c) => c.commandId)).toEqual(['v1']);
+  expect(ackFn).toHaveBeenCalledWith(['v2']);
 });
 
 test('킬스위치 재평가(이중 평가): start만 걸러내고 end·pause·resume은 통과', async () => {
+  const ackFn = jest.fn(() => Promise.resolve());
   // 네이티브가 수신 시점에 이미 평가하지만, 플래그가 갱신된 직후 이미 적재돼 있던 시작
   // 명령까지 막으려면 처리 직전 재평가가 필요하다(policy D13 2차 개정).
   setNative({
@@ -75,10 +97,14 @@ test('킬스위치 재평가(이중 평가): start만 걸러내고 end·pause·r
       ]),
     ),
     getWatchKillSwitch: jest.fn(() => Promise.resolve(true)),
+    ackWatchCommands: ackFn,
   });
   const out = await drainWatchCommands();
   // end까지 막으면 워치 아웃박스의 종료가 갇혀 폰 세션·실드를 못 닫는다(R16 3차 개정)
   expect(out.map((c) => c.commandId)).toEqual(['end1', 'pause1', 'resume1']);
+  // 차단한 start는 **확정 폐기**한다 — 안 그러면 킬스위치가 꺼진 뒤 사고 대응 중 막았던
+  // 세션이 뒤늦게 시작된다(codex 리뷰 2차).
+  expect(ackFn).toHaveBeenCalledWith(['start1']);
 });
 
 test('드레인이 실패해도 던지지 않는다 — 부팅 복구를 막지 않는다', async () => {
