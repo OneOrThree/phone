@@ -18,7 +18,7 @@
 //   3. Play 데이터 보안 폼에 '앱 활동' 수집으로 신고했다
 //
 // 셋 다 끝났다면 이 파일을 지우고 전송을 배선한다. 하나라도 안 됐으면 지우면 안 된다.
-import { readdirSync, readFileSync, statSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, resolve, sep } from 'path';
 import * as ts from 'typescript';
 
@@ -43,8 +43,20 @@ const ALLOWED = ['types/dto/appUsage.ts', 'types/dto/appUsage.guard.test.ts'];
 /** 예정 엔드포인트의 **경로 조각**. 전체 경로가 아니라 조각으로 보는 이유는 아래 참고. */
 const ENDPOINT_SEGMENT = 'app-usage';
 
+/**
+ * 훑지 않을 디렉터리 — **생성물과 의존성**(코드리뷰 5차).
+ *
+ * iOS 개발자가 `pod install` 이나 로컬 빌드를 한 뒤 `npm test` 를 돌리면 이 순회가
+ * git 이 추적하지도 않는 수만 개 파일을 읽는다. 느린 것도 문제지만, 의존성 안에 우연히
+ * `app-usage` 가 있으면 **우리 코드와 무관하게 테스트가 빨개진다.**
+ * (app/jest.config.js 가 `roots: ['<rootDir>/src']` 로 같은 크롤링을 피하는 이유다.)
+ */
+const SKIP_DIRS = new Set(['Pods', 'build', 'DerivedData', 'node_modules', '.git', 'Frameworks']);
+
 function walk(dir: string, exts: RegExp): string[] {
+  if (!existsSync(dir)) return [];
   return readdirSync(dir).flatMap((name) => {
+    if (SKIP_DIRS.has(name)) return [];
     const full = join(dir, name);
     if (statSync(full).isDirectory()) return walk(full, exts);
     return exts.test(full) ? [full] : [];
@@ -66,6 +78,23 @@ function walk(dir: string, exts: RegExp): string[] {
  * DTO 검사는 실제 import/export/require 의 지정자만 봐야 한다.
  * 엔드포인트 검사는 반대로 넓어야 한다 — 경로는 어떤 문자열로도 조립될 수 있다.
  */
+/**
+ * `'a' + 'b'` 처럼 **정적으로만 이어진** 문자열을 하나로 접는다. 변수가 섞이면 null.
+ *
+ * 이 가드가 노리는 건 '실수로 배선하는 것'이라 여기까지면 충분하다 — 변수까지 따라가려면
+ * 타입 검사기와 제어 흐름 분석이 필요하고, 그 정도로 숨기는 사람은 어차피 테스트를 지운다.
+ */
+function foldConcat(node: ts.Node): string | null {
+  if (ts.isStringLiteralLike(node)) return node.text;
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = foldConcat(node.left);
+    const right = foldConcat(node.right);
+    return left !== null && right !== null ? left + right : null;
+  }
+  if (ts.isParenthesizedExpression(node)) return foldConcat(node.expression);
+  return null;
+}
+
 function scan(code: string, fileName: string): { specifiers: string[]; literals: string[] } {
   const source = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, false);
   const specifiers: string[] = [];
@@ -95,6 +124,14 @@ function scan(code: string, fileName: string): { specifiers: string[]; literals:
         specifiers.push(first.text);
       }
     }
+    // 정적으로 이어붙인 문자열도 합쳐서 본다(코드리뷰 5차) —
+    //   api.post('/screen-time/app-' + 'usage', body)
+    // 처럼 조각을 나누면 리터럴 하나하나로는 안 걸린다. 상수 접기는 파서가 안 해 주므로
+    // 여기서 직접 한다(`+` 로 이어진 문자열만 — 그 이상은 진짜 평가가 필요하다).
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const folded = foldConcat(node);
+      if (folded !== null) literals.push(folded);
+    }
     if (
       ts.isStringLiteralLike(node) ||
       node.kind === ts.SyntaxKind.TemplateHead ||
@@ -117,11 +154,14 @@ function scan(code: string, fileName: string): { specifiers: string[]; literals:
  * 보면 그 배럴을 통해 얼마든지 가져다 쓸 수 있다.
  */
 function pointsToDto(specifier: string, fromFile: string): boolean {
-  if (specifier.startsWith('.')) {
-    return resolve(dirname(fromFile), specifier) === DTO_MODULE;
+  // TypeScript 는 `./appUsage.js` 를 실제 `appUsage.ts` 로 치환한다(코드리뷰 5차).
+  // 확장자를 안 벗기면 그 유효한 참조가 검사를 그대로 빠져나간다.
+  const bare = specifier.replace(/\.(js|jsx|mjs|cjs|ts|tsx)$/, '');
+  if (bare.startsWith('.')) {
+    return resolve(dirname(fromFile), bare) === DTO_MODULE;
   }
   // 앨리어스 경로(@/…)는 src 기준이다(tsconfig paths 와 같은 규칙).
-  if (specifier.startsWith('@/')) return join(SRC, specifier.slice(2)) === DTO_MODULE;
+  if (bare.startsWith('@/')) return join(SRC, bare.slice(2)) === DTO_MODULE;
   return false;
 }
 
