@@ -17,6 +17,7 @@ import {
   readPersistedSessionV1,
   removePersistedSessionV1,
   orphanSettlementFromV1,
+  type PersistedFocusSessionV1,
 } from './engine/persistence';
 
 // 죽은(강제 종료된) 세션 정산 — 앱 시작 시 라이브 레코드가 남아 있으면
@@ -53,6 +54,25 @@ const FOCUS_TYPE_BY_ORPHAN_MODE: Record<FocusTimerMode, FocusType> = {
   pomodoro: 'POMODORO',
 };
 
+/**
+ * v1이 legacy보다 최신인가. legacy가 없으면 v1이 유일한 기록이므로 true.
+ * 시각을 못 읽는 쪽은 「더 오래됐다」로 본다(판정 불가로 최신 기록을 버리지 않는다).
+ */
+async function isV1FresherThanLegacy(v1: PersistedFocusSessionV1): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
+    if (!raw) return true;
+    const legacy = JSON.parse(raw) as LiveFocusSession;
+    const legacyAt = Date.parse(legacy.updatedAt);
+    const v1At = Date.parse(v1.updatedAt);
+    if (!Number.isFinite(legacyAt)) return true;
+    if (!Number.isFinite(v1At)) return false;
+    return v1At >= legacyAt;
+  } catch {
+    return true; // legacy가 깨졌으면 v1이 유일하게 읽을 수 있는 기록이다
+  }
+}
+
 export function OrphanFocusSettler() {
   const { addFocusSeconds, ready: focusReady } = useFocus();
   const { refresh: refreshCoins } = useCoins();
@@ -76,7 +96,11 @@ export function OrphanFocusSettler() {
       // v1과 legacy는 같은 세션의 이중 표현이라, v1 경로의 폐기·완료 지점마다 legacy도 함께
       // 지운다(남기면 다음 부팅의 legacy 폴백이 같은 꼬리를 한 번 더 정산한다).
       const v1 = await readPersistedSessionV1();
-      if (v1 != null) {
+      // **존재만으로 v1을 고르지 않는다.** 두 표현은 별도의 비동기 setItem이라, 언마운트·
+      // 종료 시점에 legacy만 착지하거나 v1 쓰기만 실패하면 v1이 있으면서도 더 오래된 상태가
+      // 된다. 그때 v1을 고르면 마지막 저장 이후의 집중초가 통째로 유실된다 — updatedAt으로
+      // 최신 쪽을 정산하고, 어느 쪽을 쓰든 끝나면 두 표현을 함께 정리한다.
+      if (v1 != null && (await isV1FresherThanLegacy(v1))) {
         if (v1.userId !== userId) {
           removePersistedSessionV1();
           await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
@@ -135,15 +159,22 @@ export function OrphanFocusSettler() {
         }
         return;
       }
-      // ── legacy 폴백 — 구버전 번들이 남긴 레코드(방해초는 종전 역산 유지) ─────────────
+      // ── legacy 경로 — 구버전 번들이 남긴 레코드이거나, v1보다 legacy가 더 최신인 경우.
+      //    (방해초는 종전 역산 유지 — legacy엔 blockPause가 없다)
+      //    ⚠️ 이 경로의 모든 종결 지점에서 **v1도 함께 지운다.** 남기면 다음 부팅의 v1 우선
+      //    분기가 같은 세션을 한 번 더 정산한다.
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
-      if (!raw) return;
+      if (!raw) {
+        removePersistedSessionV1();
+        return;
+      }
       let rec: LiveFocusSession;
       try {
         rec = JSON.parse(raw) as LiveFocusSession;
       } catch {
         // 깨진 레코드 — 정산할 수 없으니 제거만 한다
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+        removePersistedSessionV1();
         return;
       }
       // 계정 대조 — 레코드 소유자와 현재 계정이 다르면(로그아웃 후 다른 계정으로 로그인 등)
@@ -152,11 +183,13 @@ export function OrphanFocusSettler() {
       // 함께 걸러 폐기한다(undefined는 string|null과 절대 같지 않음 — 대기열과 같은 규칙).
       if (rec.userId !== userId) {
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+        removePersistedSessionV1();
         return;
       }
       const focused = Math.floor(rec.elapsed);
       if (focused <= 0) {
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+        removePersistedSessionV1();
         return;
       }
       // 로컬 적립은 1회만 — 중복 적립 방지로 적립 전에 먼저 마킹해 되쓴다.
@@ -239,6 +272,7 @@ export function OrphanFocusSettler() {
       const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
       if (cur === stored) {
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+        removePersistedSessionV1();
       }
     })().catch(() => {});
   }, [userId, focusReady, subjectsReady, addFocusSeconds, refreshCoins, addFocusToSubject]);

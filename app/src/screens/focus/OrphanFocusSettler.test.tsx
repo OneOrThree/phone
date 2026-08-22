@@ -145,6 +145,24 @@ test('v1 고아 정산도 원래 focusType을 싣는다 — 미지정이면 서�
   expect(mockUpload.mock.calls[0][0].body).toMatchObject({ focusType: 'POMODORO' });
 });
 
+test('legacy가 v1보다 최신이면 legacy로 정산한다 — 존재만으로 v1을 고르지 않는다', async () => {
+  // 두 표현은 별도의 비동기 setItem이라, legacy만 착지하거나 v1 쓰기만 실패하면 v1이
+  // 있으면서도 더 오래된 상태가 된다. 그때 v1을 고르면 마지막 저장 이후 시간이 유실된다
+  // (codex 리뷰 #694). beforeEach의 legacy(10:25)보다 v1을 더 오래되게(10:10) 만든다.
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.focusSessionV1,
+    JSON.stringify({ ...V1_RECORD, updatedAt: '2026-08-08T10:10:00+09:00' }),
+  );
+  mockUpload.mockResolvedValue({ status: 'saved', response: {} as never });
+  await renderSettler();
+
+  // legacy 경로의 표식: 마커가 v1의 marker-9가 아니라 legacy의 marker-1
+  expect(mockUpload.mock.calls[0][0].sessionId).toBe('marker-1');
+  // 끝나면 두 표현을 함께 지운다 — v1이 남으면 다음 부팅이 같은 세션을 또 정산한다
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).toBeNull();
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession)).toBeNull();
+});
+
 test('v1 소유자 불일치: 정산 없이 v1·legacy 둘 다 폐기한다', async () => {
   await AsyncStorage.setItem(
     STORAGE_KEYS.focusSessionV1,
