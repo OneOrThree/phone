@@ -299,6 +299,7 @@ function App() {
         // 계정 전환 시 이전 유저 값이 새 유저에 새지 않도록 디바이스 전역 캐시도 정리(리뷰 반영)
         STORAGE_KEYS.goalPending,
         STORAGE_KEYS.focusPendingUploads, // 이전 계정 세션이 새 계정으로 업로드되지 않게
+        STORAGE_KEYS.focusJournalV1, // 정산 저널(GROMO-1600) — session 항목엔 소유자가 없어 로그아웃 시 소거
         STORAGE_KEYS.notificationSettings,
         STORAGE_KEYS.statVisibility,
         STORAGE_KEYS.focusFirstDone, // 다음 계정이 '첫 집중 완료' 변형을 정상적으로 보게
@@ -372,6 +373,7 @@ function App() {
         STORAGE_KEYS.focusCategory,
         STORAGE_KEYS.goalPending,
         STORAGE_KEYS.focusPendingUploads,
+        STORAGE_KEYS.focusJournalV1,
         STORAGE_KEYS.notificationSettings,
         STORAGE_KEYS.statVisibility,
         STORAGE_KEYS.focusFirstDone,

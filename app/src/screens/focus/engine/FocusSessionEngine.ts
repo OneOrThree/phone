@@ -51,6 +51,15 @@ import {
   removePersistedSessionV1,
   type PersistedFocusSessionV1,
 } from './persistence';
+import {
+  journalStartIntent,
+  journalActivateSession,
+  journalSetServerSessionId,
+  journalClearSession,
+  recordSettleIntent,
+  resolveSettleIntent,
+  type SettleIntent,
+} from './journal';
 
 // 무실드 세션의 이탈 자동 종료 경계(초) — 초과 복귀는 leave_timeout 종료
 export const LEAVE_END_S = 15;
@@ -152,6 +161,13 @@ export interface FocusSessionEngine {
   cancelLiveSession(): void;
   setMarkerDeferred(v: boolean): void;
   isMarkerDeferred(): boolean;
+
+  /**
+   * 세션 시작(원자적, §4.3) — ⓪ 저널 write-ahead(starting) → ① 실드 적용(fire, 폰 발은
+   * 실패해도 계속 — 15초 정책 폴백) → ② v1 커밋 흔적 + 저널 active 원자 갱신 → ③ 첫 마커.
+   * 실드 성공 직후 크래시로 「실드만 남는」 창은 다음 부팅 recover가 저널로 회수한다.
+   */
+  start(subjectName: string): Promise<void>;
 
   // ── 실드 — 적용 성공 여부(shielded)로 이탈 정책이 갈린다: 실드 O=집중 인정 / X=15초 정책
   applyShield(subjectName: string): void;
@@ -257,6 +273,37 @@ export function createFocusSessionEngine(
     blockPause = newBlockPause(blockPause);
   };
 
+  const buildV1 = (unsettledSeconds: number, updatedAt: string): PersistedFocusSessionV1 => {
+    const { subjectId, subjectName, userId } = deps.identity();
+    return {
+      version: 1,
+      sessionKey,
+      userId,
+      subjectId,
+      subjectName,
+      mode: config.mode,
+      goalSeconds: config.mode === 'countdown' ? config.goalSeconds : null,
+      pomodoro: config.mode === 'pomodoro' ? config.pomodoro : null,
+      phase: session.phase,
+      setIndex: session.setIndex,
+      isPaused: paused,
+      done: session.done,
+      displaySeconds: Math.floor(session.display),
+      elapsedSeconds: Math.floor(session.elapsed),
+      startedAt: startedAtIso,
+      blockStartedAt: settleAt,
+      unsettledSeconds,
+      settledSeconds,
+      blockPause,
+      focusDays: blockToday,
+      awayCreditedSeconds: awayCredited,
+      shielded,
+      serverSessionId: liveId,
+      revision: activityRevision,
+      updatedAt,
+    };
+  };
+
   // 라이브 세션 레코드 — 강제 종료돼도 다음 실행 때 OrphanFocusSettler가 정산할 수 있게 남긴다.
   // 저장값은 '미정산 구간'만: elapsed=아직 서버/로컬에 안 올린 집중초, startedAt=그 구간 시작 시각.
   // finish 후엔 저장 금지 — 종료 시 제거한 레코드가 되살아나면 다음 실행에서 이중 정산된다.
@@ -280,34 +327,7 @@ export function createFocusSessionEngine(
     AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify(record)).catch(() => {});
     // 영속 세션 v1 이중 기록(GROMO-1600) — legacy는 미정산 꼬리만, v1은 재구성 전체 상태.
     // 쓰기·제거 시점은 legacy와 대칭(같은 가드·같은 지점) — 두 표현이 어긋나지 않는다.
-    const v1: PersistedFocusSessionV1 = {
-      version: 1,
-      sessionKey,
-      userId,
-      subjectId,
-      subjectName,
-      mode: config.mode,
-      goalSeconds: config.mode === 'countdown' ? config.goalSeconds : null,
-      pomodoro: config.mode === 'pomodoro' ? config.pomodoro : null,
-      phase: session.phase,
-      setIndex: session.setIndex,
-      isPaused: paused,
-      done: session.done,
-      displaySeconds: Math.floor(session.display),
-      elapsedSeconds: Math.floor(session.elapsed),
-      startedAt: startedAtIso,
-      blockStartedAt: settleAt,
-      unsettledSeconds: remaining,
-      settledSeconds,
-      blockPause,
-      focusDays: blockToday,
-      awayCreditedSeconds: awayCredited,
-      shielded,
-      serverSessionId: liveId,
-      revision: activityRevision,
-      updatedAt: record.updatedAt,
-    };
-    writePersistedSessionV1(v1);
+    writePersistedSessionV1(buildV1(remaining, record.updatedAt));
   };
 
   // 서버에 라이브 마커 시작을 등록 — 등록돼야 친구/리그 화면에 '집중 중'(과목명 포함)으로 보인다.
@@ -326,7 +346,10 @@ export function createFocusSessionEngine(
         (res) => {
           // 이 시작이 여전히 현재 마커일 때만 스냅샷 갱신 — 취소로 이미 닫힌 마커의 id를
           // 늦게 도착한 응답이 라이브 레코드에 되살리지 않게.
-          if (liveStartPromise === promise) liveId = res.sessionId;
+          if (liveStartPromise === promise) {
+            liveId = res.sessionId;
+            journalSetServerSessionId(sessionKey, res.sessionId);
+          }
           return res.sessionId;
         },
         (e: unknown) => {
@@ -429,7 +452,7 @@ export function createFocusSessionEngine(
       ensureFocusTagId(subjectName, userId).catch(() => null),
       livePromise.catch(() => null),
     ])
-      .then(([focusTagId, sessionId]) => {
+      .then(async ([focusTagId, sessionId]) => {
         const body = {
           focusTagId,
           subject: subjectName,
@@ -446,6 +469,18 @@ export function createFocusSessionEngine(
           // 자정을 걸친 블록의 날짜별 몫을 알 수 없다.
           focusSecondsByDate,
         };
+        // 정산 의도 기록(D1) — 업로드 착수 **전에** 남긴다. 결과가 failed(대기열 저장까지
+        // 실패)면 이 intent가 유일한 재시도 근거로 남아 다음 부팅 recover가 재업로드한다 —
+        // 종전엔 레코드를 먼저 지워 이 경우 블록이 영구 유실됐다(특성화 :839 「알려진 유실 공백」).
+        const intent: SettleIntent = {
+          intentId: `${sessionKey}-${startedAt}`,
+          sessionKey,
+          serverSessionId: sessionId,
+          body,
+          userId,
+          createdAt: new Date().toISOString(),
+        };
+        await recordSettleIntent(intent);
         // 업로드는 실패·대기열 인계까지 안에서 끝낸다 — 여기서 던지지 않으므로, 아래 발행
         // 콜백에서 예외가 나도 이미 서버에 저장된 세션이 대기열에 재적재되지 않는다(PR 250 리뷰).
         return uploadFocusBlock({
@@ -456,6 +491,9 @@ export function createFocusSessionEngine(
             cancelMarker(id, deps.identity().userId).catch(() => {});
           },
         }).then((result) => {
+          // saved/alreadyEnded/queued = 서버 반영 또는 내구 큐 인계 완료 — intent 소멸.
+          // failed만 보존한다(부팅 복구의 재업로드 근거).
+          if (result.status !== 'failed') resolveSettleIntent(intent.intentId);
           // 저장 실패(대기열행)면 발행 없음 — 결과 화면은 기존 추정 판정으로 폴백.
           if (result.status !== 'saved') return;
           // 지급이 확정됐으니 서버 잔액을 다시 받는다(GROMO-1049).
@@ -539,6 +577,7 @@ export function createFocusSessionEngine(
       // 제거 실패로 정산까지 건너뛰면 적립·서버 업로드가 통째로 빠진다(보상 유실).
       await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
       removePersistedSessionV1();
+      journalClearSession();
       try {
         settleFocusBlock();
         // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
@@ -629,6 +668,18 @@ export function createFocusSessionEngine(
       markerDeferred = v;
     },
     isMarkerDeferred: () => markerDeferred,
+
+    // 세션 시작(원자적, §4.3-ⓐ) — write-ahead와 커밋 흔적으로 「실드만 남는」 크래시 창을
+    // 다음 부팅이 회수할 수 있게 한다. 폰 발 시작은 실드 실패에도 계속(15초 정책 폴백).
+    async start(subjectName) {
+      await journalStartIntent(sessionKey); // ⓪ 실드 적용 전에 의도를 기록
+      this.applyShield(subjectName); // ① fire-and-forget — 성패는 shielded로 관찰
+      // ② 커밋 흔적(v1, 미정산 0) + 같은 저널 레코드의 원자 갱신(starting→active)
+      writePersistedSessionV1(buildV1(0, new Date().toISOString()));
+      await journalActivateSession(sessionKey);
+      // ③ 첫 마커 — 이후 블록 정산마다 회전(settleFocusBlock 참고)
+      startLiveSession(startedAtIso);
+    },
 
     // 세션 실드 — 시작 시 허용앱 외 전부 차단. 과목 변경 시엔 stop 없이 start만 다시
     // 호출한다(같은 스토어를 덮어씀) — 중간에 stop을 끼우면 무방비 구간이 생긴다.

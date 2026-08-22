@@ -11,6 +11,7 @@ import { cancelMarker } from '../pendingMarkerCancels';
 import type { LiveFocusSession } from '../types';
 import { createFocusSessionEngine, type FocusEngineDeps } from './FocusSessionEngine';
 import { readPersistedSessionV1, reconstructSessionFromV1 } from './persistence';
+import { readJournal } from './journal';
 import type { SessionMachineConfig } from './machine';
 
 jest.mock('@/services/ScreenTimeModule', () => ({
@@ -79,7 +80,12 @@ const makeDeps = (): FocusEngineDeps => ({
   preSessionTodaySeconds: 0,
 });
 
-const flush = () => Promise.resolve().then(() => Promise.resolve());
+// 정산은 태그 해석 → 저널 intent 기록(AsyncStorage RMW) → 업로드로 이어지는 여러 단계의
+// await라, 마이크로태스크를 넉넉히 흘려야 업로드 목까지 도달한다(얕게 흘리면 「호출 0회」로
+// 보인다 — 저널 도입 때 실제로 물렸다).
+const flush = async () => {
+  for (let i = 0; i < 24; i++) await Promise.resolve();
+};
 
 async function advance(ms: number) {
   for (let i = 0; i < ms; i += 1000) {
@@ -232,6 +238,59 @@ test('영속 v1 이중 기록: legacy와 대칭으로 쓰이고, 콜드 스타�
   expect(await readPersistedSessionV1()).toBeNull();
   expect(await readLiveRecord()).toBeNull();
   engine.stopTicking();
+});
+
+test('원자적 시작(§4.3): 저널이 starting→active로 전이하고 v1 커밋 흔적이 함께 남는다', async () => {
+  const engine = createFocusSessionEngine(countupConfig, makeDeps());
+  await engine.start('수학');
+  await flush();
+  const journal = await readJournal();
+  expect(journal.session).toMatchObject({
+    state: 'active', // starting은 실드 적용 전 중간 상태 — 커밋 후 같은 레코드가 원자 갱신된다
+    shieldRequested: true,
+  });
+  expect(journal.session!.sessionKey).not.toBe('');
+  // 커밋 흔적(v1) — 복구가 「실드만 남은 크래시」와 「커밋된 시작」을 구별하는 근거
+  const v1 = await readPersistedSessionV1();
+  expect(v1!.sessionKey).toBe(journal.session!.sessionKey);
+  // 마커도 이 시작에서 열린다
+  expect(mockedStartMarker).toHaveBeenCalledTimes(1);
+  // finish — 저널 세션 항목은 소거된다
+  engine.startTicking();
+  await advance(3000);
+  await engine.finish(true);
+  await flush();
+  expect((await readJournal()).session).toBeNull();
+  engine.stopTicking();
+});
+
+test('D1: 업로드 failed면 settle intent가 보존되고, saved면 소멸한다', async () => {
+  const engine = createFocusSessionEngine(countupConfig, makeDeps());
+  await engine.start('수학');
+  engine.startTicking();
+  await advance(5000);
+
+  // ① 대기열 저장까지 실패 — 이 intent가 유일한 재시도 근거다(종전엔 영구 유실)
+  mockedUpload.mockResolvedValueOnce({ status: 'failed' });
+  await engine.finish(true);
+  await flush();
+  const afterFailed = await readJournal();
+  expect(afterFailed.settles).toHaveLength(1);
+  expect(afterFailed.settles[0].body).toMatchObject({ subject: '수학' });
+  expect(afterFailed.settles[0].userId).toBe('user-1');
+  engine.stopTicking();
+
+  // ② 새 세션에서 정상 저장 — 그 세션의 intent는 남지 않는다
+  const engine2 = createFocusSessionEngine(countupConfig, makeDeps());
+  await engine2.start('수학');
+  engine2.startTicking();
+  await advance(5000);
+  await engine2.finish(true);
+  await flush();
+  const afterSaved = await readJournal();
+  expect(afterSaved.settles).toHaveLength(1); // ①의 failed 분만 남아 있다
+  expect(afterSaved.settles[0].intentId).toBe(afterFailed.settles[0].intentId);
+  engine2.stopTicking();
 });
 
 test('경과 0의 finish: 정산 없이 마커 취소로 닫는다', async () => {

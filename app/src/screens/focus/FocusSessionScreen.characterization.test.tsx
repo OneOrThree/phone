@@ -836,11 +836,11 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(mockCoinRefresh).toHaveBeenCalledTimes(1); // 늦은 응답에도 후처리는 이어진다
   });
 
-  test('업로드가 failed(대기열 저장까지 실패)여도 현행은 레코드를 이미 지웠다 — 알려진 유실 공백', async () => {
-    // ⚠️ uploadFocusBlock의 failed 계약은 「호출부가 레코드를 보존해 다음 실행에 재시도」인데,
-    // 화면 경로는 정산이 업로드 결과 전에 레코드를 지우고 finishedRef가 재저장을 막는다 —
-    // 로컬 적립만 남고 서버·대기열·레코드 어디에도 바디가 없는 유실이 현행이다(codex 리뷰
-    // 11차). 특성화는 이 현행을 그대로 고정한다 — 수리는 헤드리스화(1600)의 정산 저널 몫.
+  test('업로드가 failed(대기열 저장까지 실패)면: 정산 저널 intent가 재시도 근거로 남는다', async () => {
+    // GROMO-1600 D1 수리 — 종전엔 정산이 레코드를 먼저 지워 failed 시 서버·대기열·레코드
+    // 어디에도 바디가 없는 영구 유실이었다(「알려진 유실 공백」으로 고정했던 현행). 이제
+    // 업로드 착수 전 저널에 intent를 남기고 failed일 때만 보존한다 — 다음 부팅 recover가
+    // 같은 바디로 재업로드한다. saved/queued면 intent는 소멸한다(아래 기존 케이스들이 커버).
     mockedUpload.mockResolvedValueOnce({ status: 'failed' });
     await renderSession({ mode: 'countup' });
     await advance(5000);
@@ -848,7 +848,14 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await flush();
 
     expect(mockAddFocusSeconds).toHaveBeenCalledWith(5); // 로컬 적립은 반영
-    expect(await readLiveRecord()).toBeNull(); // 그러나 재시도 근거(레코드)는 이미 삭제됨
+    expect(await readLiveRecord()).toBeNull(); // 레코드는 정산 규칙대로 삭제
+    // 재시도 근거는 저널 intent — 업로드 바디가 그대로 실려 있다
+    const journalRaw = await AsyncStorage.getItem(STORAGE_KEYS.focusJournalV1);
+    const journal = JSON.parse(journalRaw!) as {
+      settles: Array<{ body: { subject: string; endedAt: string } }>;
+    };
+    expect(journal.settles).toHaveLength(1);
+    expect(journal.settles[0].body).toMatchObject({ subject: '수학' });
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5 }); // 종료 UX는 진행
     expect(mockCoinRefresh).not.toHaveBeenCalled(); // saved 전용 후처리는 없음
   });
