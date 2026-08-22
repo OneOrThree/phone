@@ -19,77 +19,112 @@
 //
 // 셋 다 끝났다면 이 파일을 지우고 전송을 배선한다. 하나라도 안 됐으면 지우면 안 된다.
 import { readdirSync, readFileSync, statSync } from 'fs';
-import { join, sep } from 'path';
+import { dirname, join, resolve, sep } from 'path';
 import * as ts from 'typescript';
 
 const SRC = join(__dirname, '..', '..');
+const APP = join(SRC, '..');
+/** 앱별 사용량이 실제로 만들어지는 곳 — 네이티브도 전송 주체가 될 수 있다. */
+const NATIVE = join(APP, 'modules');
+
+/** DTO 정의 파일의 절대 경로(확장자 없음) — 모듈 지정자를 여기에 맞춰 해석한다. */
+const DTO_MODULE = join(SRC, 'types', 'dto', 'appUsage');
 
 // 이 파일 자신과 DTO 정의는 당연히 예외다.
 const ALLOWED = ['types/dto/appUsage.ts', 'types/dto/appUsage.guard.test.ts'];
 
 /** 예정 엔드포인트의 **경로 조각**. 전체 경로가 아니라 조각으로 보는 이유는 아래 참고. */
 const ENDPOINT_SEGMENT = 'app-usage';
-const DTO_SPECIFIER = /(^|\/)dto\/appUsage$/;
 
-function walk(dir: string): string[] {
+function walk(dir: string, exts: RegExp): string[] {
   return readdirSync(dir).flatMap((name) => {
     const full = join(dir, name);
-    if (statSync(full).isDirectory()) return walk(full);
-    return /\.(ts|tsx)$/.test(full) ? [full] : [];
+    if (statSync(full).isDirectory()) return walk(full, exts);
+    return exts.test(full) ? [full] : [];
   });
 }
 
 /**
- * 파일에서 **문자열로 취급되는 텍스트 조각만** 뽑는다 (코드리뷰 반영).
+ * 파일 하나에서 **모듈 지정자**와 **문자열 리터럴**을 따로 뽑는다 (코드리뷰 3차).
  *
- * ## 왜 정규식이 아니라 파서인가
+ * ## 왜 파서인가
  *
- * 처음엔 원문에 정규식을 돌렸다가 주석을 배선으로 오인했고, 다음엔 주석을 문자열 치환으로
- * 걷어냈다가 **문자열 안의 구분자까지 먹었다.** 실제 재현:
+ * 원문 정규식 → 주석을 배선으로 오인. 주석 문자열 치환 → 문자열 안의 구분자까지 먹음
+ * (`'image/*'` 하나로 가드가 통째로 무력화). 어휘 분석은 파서가 해야 한다.
  *
- *     const accept = 'image/*';          // 여기서 열린 것으로 오인
- *     api.post('/screen-time/app-usage', body);
- *     \/** JSDoc *\/                       // 여기서 닫힌 것으로 오인 → 사이가 통째로 삭제
+ * ## 왜 둘을 나누나
  *
- * 정상적인 MIME 문자열 + 문서 주석만으로 가드가 무력화된다. 어휘 분석은 파서가 해야 한다.
- *
- * ## 무엇을 뽑나
- *
- * 문자열 리터럴 · 템플릿 리터럴의 **각 조각** · import/export 의 모듈 지정자.
- * 템플릿 조각을 따로 보는 이유는 경로가 조립되기 때문이다 —
- * `` `${base}/app-usage` `` 의 꼬리 조각이 `/app-usage` 라 그대로 잡힌다.
- * 주석은 AST 노드가 아니므로 자동으로 빠진다.
+ * 앞선 라운드에선 모든 문자열을 한 바구니에 담아 두 검사가 같이 썼는데, 그러면
+ * `const example = '@/types/dto/appUsage'` 같은 **예시 문자열 하나로 CI 가 빨개진다.**
+ * DTO 검사는 실제 import/export/require 의 지정자만 봐야 한다.
+ * 엔드포인트 검사는 반대로 넓어야 한다 — 경로는 어떤 문자열로도 조립될 수 있다.
  */
-function stringLiterals(code: string, fileName: string): string[] {
+function scan(code: string, fileName: string): { specifiers: string[]; literals: string[] } {
   const source = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, false);
-  const out: string[] = [];
+  const specifiers: string[] = [];
+  const literals: string[] = [];
+
   const visit = (node: ts.Node): void => {
+    // import/export 선언의 모듈 지정자
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      specifiers.push(node.moduleSpecifier.text);
+    }
+    // 동적 import(...) · require(...)
+    if (ts.isCallExpression(node)) {
+      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+      const first = node.arguments[0];
+      if ((isDynamicImport || isRequire) && first && ts.isStringLiteralLike(first)) {
+        specifiers.push(first.text);
+      }
+    }
     if (
       ts.isStringLiteralLike(node) ||
       node.kind === ts.SyntaxKind.TemplateHead ||
       node.kind === ts.SyntaxKind.TemplateMiddle ||
       node.kind === ts.SyntaxKind.TemplateTail
     ) {
-      out.push((node as ts.LiteralLikeNode).text);
+      literals.push((node as ts.LiteralLikeNode).text);
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return out;
+  return { specifiers, literals };
 }
 
-function sources(): { rel: string; literals: string[] }[] {
-  return walk(SRC)
+/**
+ * 모듈 지정자가 DTO 파일을 가리키는가.
+ *
+ * 문자열 매칭이 아니라 **경로로 해석해서** 비교한다(코드리뷰 3차) — 같은 폴더에 배럴을 두고
+ * `export ... from './appUsage'` 로 재수출하면 지정자에 `dto/appUsage` 가 없어서, 문자열로만
+ * 보면 그 배럴을 통해 얼마든지 가져다 쓸 수 있다.
+ */
+function pointsToDto(specifier: string, fromFile: string): boolean {
+  if (specifier.startsWith('.')) {
+    return resolve(dirname(fromFile), specifier) === DTO_MODULE;
+  }
+  // 앨리어스 경로(@/…)는 src 기준이다(tsconfig paths 와 같은 규칙).
+  if (specifier.startsWith('@/')) return join(SRC, specifier.slice(2)) === DTO_MODULE;
+  return false;
+}
+
+function tsSources(): { rel: string; path: string; scanned: ReturnType<typeof scan> }[] {
+  return walk(SRC, /\.(ts|tsx)$/)
     .filter((f) => !ALLOWED.some((a) => f.endsWith(a.split('/').join(sep))))
     .map((f) => ({
       rel: f.slice(SRC.length + 1),
-      literals: stringLiterals(readFileSync(f, 'utf8'), f),
+      path: f,
+      scanned: scan(readFileSync(f, 'utf8'), f),
     }));
 }
 
 test('앱별 사용 시간 DTO는 아직 어디에서도 쓰이지 않는다 (서버 미전송 고지 보호)', () => {
-  const offenders = sources()
-    .filter(({ literals }) => literals.some((l) => DTO_SPECIFIER.test(l)))
+  const offenders = tsSources()
+    .filter(({ path, scanned }) => scanned.specifiers.some((sp) => pointsToDto(sp, path)))
     .map(({ rel }) => rel);
 
   expect(offenders).toEqual([]);
@@ -102,12 +137,20 @@ test('앱별 사용 시간 DTO는 아직 어디에서도 쓰이지 않는다 (�
 // 전체 경로가 아니라 **조각**(`app-usage`)으로 보는 이유: 경로 상수화만으로 우회된다.
 //     const base = '/api/v1/screen-time';
 //     api.post(`${base}/app-usage`, body);   // 전체 경로가 한 리터럴에 없다
-// 템플릿 꼬리 조각이 `/app-usage` 라 조각으로 보면 그대로 잡힌다. 적극적 은폐가 아니라
-// 평범한 리팩터링으로 뚫리던 구멍이라 이 폭이 맞다.
+// 템플릿 꼬리 조각이 `/app-usage` 라 조각으로 보면 그대로 잡힌다.
+//
+// ⚠️ **네이티브도 본다**(코드리뷰 3차). 앱별 사용량을 실제로 읽는 구현은 Kotlin 에 있고,
+//    거기서 HttpURLConnection 으로 바로 쏘면 TS 검사는 전부 통과한다 — '전송 자체를 막는다'는
+//    가드가 데이터 발생 지점을 못 지키는 셈이다. Kotlin 은 파서가 없어 원문을 훑는다.
+//    주석에 이 경로를 적어도 걸리는데, 그건 받아들인다 — 왜 여기 있는지 한 번 보는 게 낫다.
 test('앱별 사용 시간 엔드포인트를 호출하는 코드가 없다 (서버 미전송 고지 보호)', () => {
-  const offenders = sources()
-    .filter(({ literals }) => literals.some((l) => l.includes(ENDPOINT_SEGMENT)))
+  const tsOffenders = tsSources()
+    .filter(({ scanned }) => scanned.literals.some((l) => l.includes(ENDPOINT_SEGMENT)))
     .map(({ rel }) => rel);
 
-  expect(offenders).toEqual([]);
+  const nativeOffenders = walk(NATIVE, /\.(kt|java|swift)$/)
+    .filter((f) => readFileSync(f, 'utf8').includes(ENDPOINT_SEGMENT))
+    .map((f) => f.slice(APP.length + 1));
+
+  expect([...tsOffenders, ...nativeOffenders]).toEqual([]);
 });
