@@ -45,7 +45,6 @@ if (Platform.OS !== 'web') {
   const { registerBackgroundFlushHandler } =
     require('./src/services/pushBackground') as typeof import('./src/services/pushBackground');
   registerBackgroundFlushHandler();
-
 }
 
 // 집중 세션 엔진 부팅 복구(GROMO-1600) — UI 없이 도는 코드라 여기서 부른다. 콜드 스타트

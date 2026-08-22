@@ -318,7 +318,10 @@ test('정산 intent를 네트워크 대기 **전에** 남긴다 — 태그·마�
   // OS가 프로세스를 종료하면 업로드·대기열·저널 어디에도 바디가 없어 영구 유실된다(codex #694).
   let resolveTag: (v: string) => void = () => {};
   (ensureFocusTagId as jest.Mock).mockImplementationOnce(
-    () => new Promise<string>((r) => { resolveTag = r; }),
+    () =>
+      new Promise<string>((r) => {
+        resolveTag = r;
+      }),
   );
   const engine = createFocusSessionEngine(countupConfig, makeDeps());
   await engine.start('수학');
