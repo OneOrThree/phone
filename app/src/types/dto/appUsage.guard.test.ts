@@ -24,8 +24,15 @@ import * as ts from 'typescript';
 
 const SRC = join(__dirname, '..', '..');
 const APP = join(SRC, '..');
-/** 앱별 사용량이 실제로 만들어지는 곳 — 네이티브도 전송 주체가 될 수 있다. */
-const NATIVE = join(APP, 'modules');
+/**
+ * 네이티브 소스 — **여기도 전송 주체가 될 수 있다**(코드리뷰 3·4차).
+ *
+ * 안드로이드는 `app/modules` 의 Kotlin 이 앱별 사용량을 읽고, iOS 는 `app/ios` 의
+ * `screentimereport` 익스텐션(TotalActivityReport.swift)이 이미 앱 이름과 사용 시간을
+ * 직접 구성한다. 둘 다 URLSession·HttpURLConnection 으로 바로 쏘면 TS 검사는 전부 통과한다
+ * — '전송 자체를 막는다'는 가드가 데이터 발생 지점을 못 지키는 셈이다.
+ */
+const NATIVE_ROOTS = [join(APP, 'modules'), join(APP, 'ios')];
 
 /** DTO 정의 파일의 절대 경로(확장자 없음) — 모듈 지정자를 여기에 맞춰 해석한다. */
 const DTO_MODULE = join(SRC, 'types', 'dto', 'appUsage');
@@ -72,6 +79,12 @@ function scan(code: string, fileName: string): { specifiers: string[]; literals:
       ts.isStringLiteral(node.moduleSpecifier)
     ) {
       specifiers.push(node.moduleSpecifier.text);
+    }
+    // `type X = import('...').Y` — 유효한 TS 문법인데 CallExpression 이 아니라 별도 노드다.
+    // 이걸 빼면 DTO 를 서비스의 요청 타입으로 그대로 쓰면서도 가드를 통과한다(코드리뷰 4차).
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      const lit = node.argument.literal;
+      if (ts.isStringLiteral(lit)) specifiers.push(lit.text);
     }
     // 동적 import(...) · require(...)
     if (ts.isCallExpression(node)) {
@@ -148,7 +161,7 @@ test('앱별 사용 시간 엔드포인트를 호출하는 코드가 없다 (서
     .filter(({ scanned }) => scanned.literals.some((l) => l.includes(ENDPOINT_SEGMENT)))
     .map(({ rel }) => rel);
 
-  const nativeOffenders = walk(NATIVE, /\.(kt|java|swift)$/)
+  const nativeOffenders = NATIVE_ROOTS.flatMap((root) => walk(root, /\.(kt|java|swift|m|mm)$/))
     .filter((f) => readFileSync(f, 'utf8').includes(ENDPOINT_SEGMENT))
     .map((f) => f.slice(APP.length + 1));
 
