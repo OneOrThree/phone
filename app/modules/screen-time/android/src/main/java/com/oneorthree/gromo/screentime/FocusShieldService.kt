@@ -549,6 +549,9 @@ class FocusShieldService : Service() {
    *
    * format=null → "MM:SS"(1시간 넘으면 "H:MM:SS"). started=true 면 **시스템이 초당 갱신**하므로
    * 우리가 1초마다 알림을 다시 쏠 필요가 없다(iOS Text(timerInterval:)와 같은 계약).
+   *
+   * setChronometerCountDown 은 API 24+ 인데 이 앱의 minSdk 가 24라 버전 분기가 필요 없다
+   * (`./gradlew :app:properties` 로 확인).
    */
   private fun RemoteViews.bindTimer(viewId: Int) {
     val now = SystemClock.elapsedRealtime()
@@ -556,17 +559,19 @@ class FocusShieldService : Service() {
       // 일시정지 — 멈춘 값을 그대로 둔다. started=false 면 시스템이 갱신하지 않으므로,
       // base 를 '지금 - 경과' 로 잡아 두면 그 시점 텍스트가 경과 시간으로 찍힌 채 멈춘다.
       paused -> {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) setChronometerCountDown(viewId, false)
+        setChronometerCountDown(viewId, false)
         setChronometer(viewId, now - pausedElapsed * 1000L, null, false)
       }
       // 카운트다운·뽀모도로 — 남은 시간을 센다. base 를 미래로 두고 countDown 을 켜면
       // 시스템이 초당 줄여 준다(우리가 1초마다 알림을 다시 쏠 필요가 없다).
-      remainingSeconds != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N -> {
+      remainingSeconds != null -> {
         setChronometerCountDown(viewId, true)
         setChronometer(viewId, now + remainingSeconds!! * 1000L, null, true)
       }
       else -> {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) setChronometerCountDown(viewId, false)
+        // 이전 상태가 카운트다운이었을 수 있어 명시적으로 끈다 — RemoteViews 는 같은 뷰를
+        // 재사용하므로 안 끄면 카운트업이어야 할 자리가 계속 줄어든다.
+        setChronometerCountDown(viewId, false)
         setChronometer(viewId, now - (System.currentTimeMillis() - startedAt), null, true)
       }
     }
