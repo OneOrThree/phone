@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeModule, { type UsageBucketDebugInfo } from '@/services/ScreenTimeModule';
+import { supportsAppSelection, supportsFocusShield } from '@/services/screenTimeCapabilities';
 import { getStreak } from '@/services/statsApi';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@/store/UserContext';
@@ -255,9 +256,13 @@ export default function MenuScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      ScreenTimeModule.getAllowedSelectionCounts()
-        .then((c) => !cancelled && setAllowedApps(c?.applications ?? 0))
-        .catch(() => !cancelled && setAllowedApps(0));
+      // 허용앱 행을 안 그리는 플랫폼에선 조회도 하지 않는다 — 어차피 null이 와서 '허용앱 없음'
+      // 으로 보이는데, 그 값이 쓰이지 않더라도 매 진입마다 헛도는 왕복이 남는다.
+      if (supportsFocusShield()) {
+        ScreenTimeModule.getAllowedSelectionCounts()
+          .then((c) => !cancelled && setAllowedApps(c?.applications ?? 0))
+          .catch(() => !cancelled && setAllowedApps(0));
+      }
       ScreenTimeModule.getAuthorizationStatus()
         .then((st) => !cancelled && setPermission(st))
         .catch(() => !cancelled && setPermission(null));
@@ -362,26 +367,33 @@ export default function MenuScreen() {
               sub={`집중 ${hLabel(goalSeconds)} · 사용 ${hLabel(screenTimeGoalSeconds)}`}
               onPress={() => navigation.navigate('SettingsGoals')}
             />
-            <SettingsRow
-              icon="lock-open-outline"
-              iconColor={T.accentDeep}
-              iconBg={T.accentBg}
-              label="집중 중 허용 앱 관리"
-              sub={
-                allowedApps === null
-                  ? '집중 중에도 쓸 수 있는 앱'
-                  : allowedApps > 0
-                    ? `앱 ${allowedApps}개 허용 중`
-                    : '허용앱 없음'
-              }
-              onPress={() => navigation.navigate('SettingsAllowedApps')}
-            />
+            {/* 허용앱은 집중 실드(차단)의 예외 목록이라 실드가 없는 플랫폼에선 의미가 없다.
+                행을 남기면 화면은 열리지만 피커가 안 뜨고, 게다가 '집중 중 모든 앱이 잠겨요'로
+                안 잠기는 걸 잠긴다고 안내하게 된다(GROMO-1592). */}
+            {supportsFocusShield() ? (
+              <SettingsRow
+                icon="lock-open-outline"
+                iconColor={T.accentDeep}
+                iconBg={T.accentBg}
+                label="집중 중 허용 앱 관리"
+                sub={
+                  allowedApps === null
+                    ? '집중 중에도 쓸 수 있는 앱'
+                    : allowedApps > 0
+                      ? `앱 ${allowedApps}개 허용 중`
+                      : '허용앱 없음'
+                }
+                onPress={() => navigation.navigate('SettingsAllowedApps')}
+              />
+            ) : null}
             <SettingsRow
               icon="phone-portrait-outline"
               iconColor={T.accentDeep}
               iconBg={T.accentBg}
               label="스크린타임 관리"
-              sub="권한 · 측정 대상 앱"
+              // 부제는 하위 화면에 실제로 있는 것만 적는다 — 측정 대상 앱 설정은 피커가 없는
+              // 플랫폼에서 숨기므로, 부제만 남으면 없는 항목을 찾아 들어가게 된다(GROMO-1592).
+              sub={supportsAppSelection() ? '권한 · 측정 대상 앱' : '권한 · 사용시간 측정'}
               value={permission === null ? undefined : permissionLabel}
               valueColor={permission === 'approved' ? T.successInk : T.inkSub}
               onPress={() => navigation.navigate('SettingsScreenTimePermission')}

@@ -6,9 +6,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
@@ -37,8 +43,13 @@ class ScreenTimeModule : Module() {
     // 측정 대상 패키지명 집합 — iOS의 selection/pending 2단계 키 구조와 1:1(§8).
     // M1은 피커가 없어 항상 미설정 = 전체 앱 측정. M2 피커가 이 키에 저장·승격한다.
     private const val KEY_SELECTION_PACKAGES = "selectionPackages"
-    @Suppress("unused") // M2 피커의 '다음날 적용' 대기 선택 저장 자리 — 키 구조 예약.
+    // iOS의 '다음날 적용' 대기 선택 자리였다. 안드로이드는 조회 시점에 원시 이벤트를
+    // 필터링해 재계산하므로 예약이 필요 없어 쓰지 않는다.
+    @Suppress("unused")
     private const val KEY_PENDING_SELECTION_PACKAGES = "pendingSelectionPackages"
+
+    // 목록 아이콘 한 변(px). 행에 그려지는 크기(약 40dp)의 고밀도 대비 여유분.
+    private const val ICON_PX = 96
   }
 
   private val context: Context
@@ -79,6 +90,23 @@ class ScreenTimeModule : Module() {
       }
     }
 
+    // 사용 정보 접근 설정 화면 열기 — 권한 상태와 무관하게 **항상** 연다.
+    //
+    // requestAuthorization은 이미 허용된 상태면 설정을 열지 않고 즉시 resolve한다(위). 그래서
+    // '허용됨' 상태에서 권한을 끄러 가려는 경로로는 쓸 수 없다. 앱 상세 설정(Linking.openSettings)도
+    // 답이 아니다 — 거기엔 사용 정보 접근 토글이 없다(reopenAndroidUsageAccess 주석과 같은 이유).
+    // 그 자리를 메우는 전용 함수다(코드리뷰 반영).
+    //
+    // 여는 데 실패하면 false — 호출부가 앱 상세 설정으로 폴백한다.
+    AsyncFunction("openUsageAccessSettings") {
+      try {
+        openUsageAccessSettings()
+        true
+      } catch (_: Exception) {
+        false
+      }
+    }
+
     // 사용시간 목표(초) 저장 — iOS의 App Group 기록 대응. M1은 저장만 한다.
     AsyncFunction("setGoalSeconds") { seconds: Int ->
       prefs.edit().putInt(KEY_GOAL_SECONDS, seconds).apply()
@@ -95,6 +123,68 @@ class ScreenTimeModule : Module() {
       usageMinutes(startOfDay(-1), startOfDay(0))
     }
 
+    // 앱별 사용시간 — iOS는 DeviceActivityReport 익스텐션이 그려주는 화면을 통째로 받지만(수치는
+    // JS로 못 가져온다), 안드로이드는 수치 자체를 넘길 수 있어 화면을 RN이 그린다.
+    // dayOffset: 0=오늘(0시~지금), -1=어제(하루 전체). 사용 많은 순 정렬, 사용 0인 앱은 빠진다.
+    /**
+     * 앱별 사용시간 + 총계를 **한 번의 조회로** 돌려준다(코드리뷰 4차).
+     *
+     * 예전엔 목록·분 총계·초 총계를 각각 따로 불렀는데, 셋이 각자 시각을 잡고 이벤트를 다시
+     * 훑어서 **서로 다른 시점의 결과가 섞였다.** 화면은 그 차이를 '목록에 안 잡히는 시간'으로
+     * 읽으므로 1초 차이가 그대로 허위 '그 외' 행이 된다.
+     *
+     * `otherSeconds` 를 여기서 계산하는 이유도 같다 — 화면에서 빼면 **패키지마다 밀리초를
+     * 버린 뒤의 합**과 비교하게 돼서, 앱이 많을수록 버린 초가 쌓여 없는 시간이 생긴다
+     * (각 999ms 씩 버린 앱 61개면 1분이 만들어진다). 밀리초를 유지한 채 여기서 뺀다.
+     */
+    AsyncFunction("getUsageBreakdown") { dayOffset: Int ->
+      if (!isUsageAccessGranted()) {
+        mapOf(
+          "totalSeconds" to 0,
+          "otherSeconds" to 0,
+          "apps" to emptyList<Map<String, Any>>(),
+        )
+      } else {
+        val begin = startOfDay(dayOffset)
+        val end = if (dayOffset >= 0) System.currentTimeMillis() else startOfDay(dayOffset + 1)
+        val usageStatsManager =
+          context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val selection = prefs.getStringSet(KEY_SELECTION_PACKAGES, null)
+        val breakdown =
+          UsageSessionCalculator.foregroundBreakdown(usageStatsManager, selection, begin, end)
+        // 런처에 뜨는 앱만 목록에 올린다. UsageStats에는 홈 런처(Pixel Launcher)·시스템 UI 같은
+        // '앱으로 인식되지 않는 것'도 잡히는데, 그걸 목록에 올리면
+        //   1) 홈 화면에 머문 시간이 앱 사용처럼 보이고
+        //   2) 표시 이름을 못 읽어 `com.google.android.apps.nexuslauncher` 같은 줄이 남는다.
+        // 사용자가 "내가 쓴 앱"으로 세는 건 런처에서 열 수 있는 앱이다(측정 대상 피커와 같은 기준).
+        val launchable = launchablePackages()
+        val listed = breakdown.byPackage.filterKeys { it in launchable }
+        mapOf(
+          "totalSeconds" to (breakdown.totalMillis / 1000L).toInt(),
+          // 밀리초를 유지한 채 뺀 뒤 초로 버린다 — 화면에서 빼면 버린 밀리초가 쌓인다.
+          "otherSeconds" to
+            ((breakdown.totalMillis - listed.values.sum()).coerceAtLeast(0L) / 1000L).toInt(),
+          "apps" to
+            listed.entries.sortedByDescending { it.value }.map {
+              mapOf(
+                "packageName" to it.key,
+                "label" to appLabel(it.key),
+                // 분이 아니라 **초**로 넘긴다 — 1분 미만 사용이 전부 0분으로 뭉개지면 목록
+                // 하단이 통째로 "0분"이 된다. 표시 단위 반올림은 화면이 정한다.
+                "seconds" to (it.value / 1000L).toInt(),
+              )
+            },
+        )
+      }
+    }
+
+    // 앱 아이콘 1개를 base64 PNG로. 목록이 뜬 뒤 보이는 행만 요청하는 용도라 개별 호출이다.
+    // 실패(패키지 삭제 등)는 예외가 아니라 null — 아이콘 하나 때문에 목록이 깨지면 안 된다.
+    AsyncFunction("getAppIcon") { packageName: String ->
+      runCatching { encodeIcon(context.packageManager.getApplicationIcon(packageName)) }
+        .getOrNull()
+    }
+
     // 설정을 다녀온 복귀 감지 — 대기 중인 권한 요청을 실제 AppOps 상태로 마감한다(§2).
     OnActivityEntersForeground {
       pendingAuthPromise?.let { promise ->
@@ -102,6 +192,57 @@ class ScreenTimeModule : Module() {
         promise.resolve(isUsageAccessGranted())
       }
     }
+  }
+
+  // 런처에서 열 수 있는 앱의 패키지 집합 — '사용자가 앱으로 인식하는 것'의 기준이다.
+  // 앱별 사용시간이 이 기준으로 걸러진다. 측정 대상 피커가 붙을 때도 **같은 기준**을 쓰게
+  // 한 곳에 둔다: 한쪽만 바뀌면 "고를 수 없는 앱이 사용시간에 뜨거나", 반대로 "쓴 앱이
+  // 목록에 없는" 어긋남이 생긴다.
+  //
+  // ⚠️ Android 11+ 패키지 가시성 — 이 조회가 결과를 돌려주려면 **앱 매니페스트의 queries 블록에
+  //    MAIN/LAUNCHER 인텐트가 선언돼 있어야 한다.** 없으면 queryIntentActivities 가 거의 빈
+  //    목록을 돌려주고, 아래 필터가 사용 기록을 통째로 걷어내 "쓴 앱이 하나도 없다"가 된다
+  //    (코드리뷰 반영 — 그 상태로 올라갈 뻔했다).
+  //    android/app/src/main/AndroidManifest.xml 에 넣어 뒀다. android/ 는 수동 관리이므로
+  //    prebuild 재생성 시 함께 사라진다는 점에 주의(저장소 전반의 관례와 동일).
+  //    QUERY_ALL_PACKAGES 는 쓰지 않는다 — Play 정책상 별도 소명이 필요한 제한 권한인데,
+  //    우리에게 필요한 건 '런처에 뜨는 앱'뿐이라 인텐트 쿼리로 충분하다.
+  private fun launchablePackages(): Set<String> {
+    val pm = context.packageManager
+    val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      pm.queryIntentActivities(launcherIntent, PackageManager.ResolveInfoFlags.of(0L))
+    } else {
+      @Suppress("DEPRECATION")
+      pm.queryIntentActivities(launcherIntent, 0)
+    }
+    // 런처 액티비티가 여럿인 앱은 같은 패키지가 중복으로 나오므로 집합으로 모은다.
+    return resolved.mapTo(HashSet()) { it.activityInfo.packageName }
+  }
+
+  // 표시 이름 — 못 읽으면 패키지명 그대로. 목록에서 행이 통째로 빠지는 것보단 낫다.
+  private fun appLabel(packageName: String): String = runCatching {
+    val pm = context.packageManager
+    val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      pm.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0L))
+    } else {
+      @Suppress("DEPRECATION")
+      pm.getApplicationInfo(packageName, 0)
+    }
+    pm.getApplicationLabel(info).toString()
+  }.getOrDefault(packageName)
+
+  // 아이콘 → base64 PNG(data URI 없이 본문만). 어댑티브 아이콘은 Bitmap이 아니라
+  // Drawable이라 캔버스에 직접 그려야 한다(BitmapDrawable 캐스팅은 그쪽에서 깨진다).
+  private fun encodeIcon(drawable: Drawable): String {
+    val bitmap = Bitmap.createBitmap(ICON_PX, ICON_PX, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    drawable.setBounds(0, 0, canvas.width, canvas.height)
+    drawable.draw(canvas)
+    val stream = ByteArrayOutputStream()
+    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+    bitmap.recycle()
+    return Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
   }
 
   private fun currentStatus(): String = when {
@@ -152,14 +293,26 @@ class ScreenTimeModule : Module() {
 
   // [begin, end) 구간 사용시간(분) — 세션 재구성 계산(UsageSessionCalculator).
   // 권한이 없으면 0 (호출부는 권한 확인 후 호출하는 게 기본 흐름).
-  private fun usageMinutes(begin: Long, end: Long): Int {
+  private fun usageMinutes(begin: Long, end: Long): Int = (usageSeconds(begin, end) / 60)
+
+  /**
+   * [begin, end) 구간 사용시간(**초**) — 위 분값과 **같은 소스**다.
+   *
+   * 상세 화면이 '앱별 목록에 안 잡히는 시간'(런처·시스템 UI)을 계산하는 데 쓴다.
+   * 분값만 있으면 그걸 못 한다(코드리뷰 반영):
+   *   - 초 단위 합을 내림된 분에서 빼면, 실제 차이가 1분을 넘어도 행이 안 생긴다
+   *   - 내림한 분의 합에서 빼면, **차이가 없는데도 행이 생긴다**
+   *     (각 40초씩 쓴 앱 둘 → 총계 floor(80/60)=1분, 행 합 0+0=0분 → 허위 '그 외 1분')
+   * 두 실패가 정반대라 근사로는 못 없앤다. 초 단위 총계를 직접 준다.
+   */
+  private fun usageSeconds(begin: Long, end: Long): Int {
     if (!isUsageAccessGranted()) return 0
     val usageStatsManager =
       context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     // M2 전에는 selection 미설정 = 전체 앱 측정(빈 집합도 동일 취급 — §8 기본).
     val selection = prefs.getStringSet(KEY_SELECTION_PACKAGES, null)
     val millis = UsageSessionCalculator.foregroundMillis(usageStatsManager, selection, begin, end)
-    return (millis / 60_000L).toInt()
+    return (millis / 1_000L).toInt()
   }
 
   // 로컬 자정 기준 하루 시작 시각(ms). offsetDays: 0=오늘, -1=어제. DST 보정은 Calendar가 처리.
