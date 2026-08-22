@@ -91,11 +91,26 @@ export function OrphanFocusSettler() {
       // ⚠️ stored 를 함께 갱신한다. 아래에서 '그 사이 새 세션이 덮어썼는지'를 이 문자열과
       //    비교해 판단하는데, 여기서 쓴 내용을 반영하지 않으면 **영영 같지 않아 레코드가
       //    안 지워진다.**
+      //
+      // ⚠️ 쓰기 전에 **읽은 그 값 그대로인지** 확인한다(코드리뷰 6차). 정산은 여러 await 를
+      //    거치는데, 그 사이 새 집중 세션의 saveLive() 가 같은 키를 갱신할 수 있다. 확인 없이
+      //    쓰면 **새 세션의 복구 레코드를 옛 고아 레코드로 덮고**, 뒤에서 stored 와 같다는
+      //    이유로 지워 버려 그 세션이 강제 종료될 때 집중 기록을 잃는다.
+      //    바뀌었으면 이 고아는 다음 실행에 맡기고 여기서 끝낸다 — 남의 레코드를 건드리느니
+      //    한 번 미루는 쪽이 안전하다.
+      const writeIfUnchanged = async (expected: string, next: string): Promise<boolean> => {
+        const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
+        if (cur !== expected) return false;
+        await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, next);
+        return true;
+      };
+
       let stored = raw;
       if (!rec.shieldReleasedCleanly && rec.shieldActive && !rec.shieldInterruptNotified) {
+        const next = JSON.stringify({ ...rec, shieldInterruptNotified: true });
+        if (!(await writeIfUnchanged(stored, next))) return;
         rec = { ...rec, shieldInterruptNotified: true };
-        stored = JSON.stringify(rec);
-        await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, stored);
+        stored = next;
         notifyShieldInterrupted().catch(() => {});
       }
       // 로컬 적립은 1회만 — 중복 적립 방지로 적립 전에 먼저 마킹해 되쓴다.
@@ -103,9 +118,12 @@ export function OrphanFocusSettler() {
       // 코인은 여기서 세지 않는다(GROMO-1049) — 지급도 잔액도 서버가 정본이라, 업로드가 끝난 뒤
       // 서버 잔액을 다시 받는다.
       if (!rec.settledLocally) {
+        const next = JSON.stringify({ ...rec, settledLocally: true });
+        // 같은 이유로 여기도 확인한다 — 적립 마커를 남의 레코드에 쓰면 그 세션이 통째로
+        // 미정산으로 남거나, 뒤의 삭제가 그 레코드를 지운다.
+        if (!(await writeIfUnchanged(stored, next))) return;
         rec = { ...rec, settledLocally: true };
-        stored = JSON.stringify(rec);
-        await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, stored);
+        stored = next;
         // '오늘 집중'과 과목 누적은 둘 다 '오늘' 기준 → 이 세션의 집중초 중 오늘 몫만 반영한다
         // (GROMO-1252 — 종전엔 updatedAt 하루만 보고 elapsed 전체를 오늘에 꽂아, 자정을 걸친
         // 세션의 어제 몫까지 오늘로 들어왔다). 근거는 레코드가 남긴 날짜별 집중초 —

@@ -141,3 +141,38 @@ describe('실드 중단 알림은 조건이 둘 다 맞을 때만', () => {
     expect(mockNotify).not.toHaveBeenCalled();
   });
 });
+
+// 정산 도중 새 세션이 같은 키를 갱신하는 경쟁 — GROMO-1604 코드리뷰 6차.
+// 확인 없이 쓰면 새 세션의 복구 레코드를 옛 고아 레코드로 덮고, 뒤에서 지워 버려
+// 그 세션이 강제 종료될 때 집중 기록을 잃는다.
+describe('새 세션이 레코드를 가져갔으면 건드리지 않는다', () => {
+  test('덮어쓰지도, 지우지도 않는다', async () => {
+    await patchRecord({ shieldActive: true });
+    const newSession = JSON.stringify({
+      userId: OWNER,
+      subjectId: 's2',
+      subjectName: '새 세션',
+      startedAt: '2026-08-09T10:00:00+09:00',
+      updatedAt: '2026-08-09T10:00:05+09:00',
+      elapsed: 5,
+    });
+
+    // 첫 읽기 뒤에 새 세션이 자기 레코드를 쓴 상황을 만든다.
+    const original = AsyncStorage.getItem as jest.Mock;
+    let reads = 0;
+    (AsyncStorage.getItem as jest.Mock) = jest.fn(async (key: string) => {
+      const value = await original(key);
+      if (key === STORAGE_KEYS.focusLiveSession && ++reads === 1) {
+        await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, newSession);
+      }
+      return value;
+    });
+
+    await renderSettler();
+    (AsyncStorage.getItem as jest.Mock) = original;
+
+    // 새 세션의 레코드가 그대로 남아 있어야 한다.
+    expect(await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession)).toBe(newSession);
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
+});

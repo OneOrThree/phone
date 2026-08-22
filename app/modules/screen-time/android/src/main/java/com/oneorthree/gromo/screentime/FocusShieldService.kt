@@ -297,7 +297,14 @@ class FocusShieldService : Service() {
       hideOverlay()
       return
     }
-    if (shouldBlock(front)) showOverlay() else hideOverlay()
+    // ⚠️ 가림막을 못 올린 틱에서는 **표식을 남기지 않는다**(코드리뷰 6차). 예전엔 실패를
+    //    확정한 순간에도 아래 heartbeat 가 그대로 돌아서, 그 뒤 5초 안에 복귀하면
+    //    isFocusShieldAlive() 가 true 를 줬다 — 가림막이 없었던 이탈이 집중으로 인정된다.
+    if (shouldBlock(front)) {
+      if (!showOverlay()) return
+    } else {
+      hideOverlay()
+    }
 
     // ⚠️ 표식은 **판정이 끝까지 성공한 뒤에만** 남긴다(코드리뷰 5차). 앞쪽에서 찍으면,
     //    권한은 있는데 OEM 의 UsageStats·PackageManager 예외로 매 틱 판정이 실패하는
@@ -450,14 +457,16 @@ class FocusShieldService : Service() {
     return latestPackage
   }
 
-  private fun showOverlay() {
+  /** @return 가림막이 실제로 떠 있는가. false 면 이 틱은 차단이 성립하지 않은 것이다. */
+  private fun showOverlay(): Boolean {
     if (overlay?.isShowing == true) {
       overlayFailures = 0
-      return
+      return true
     }
     val view = overlay ?: ShieldOverlay(this).also { overlay = it }
     if (view.show(subject)) {
       overlayFailures = 0
+      return true
     } else if (++overlayFailures >= OVERLAY_FAILURE_LIMIT) {
       // 계속 못 올린다 = 이 기기에선 차단이 성립하지 않는다(코드리뷰 반영). 시작 시점 권한
       // 검사를 통과했어도 제조사 제약으로 addView 가 매번 실패할 수 있다. 그대로 두면
@@ -465,8 +474,8 @@ class FocusShieldService : Service() {
       // 차단 상태를 내리면 heartbeat 도 갱신되지 않아 앱이 비실드 정책으로 되돌린다.
       blocking = false
       startForeground(NOTIFICATION_ID, buildNotification())
-      return
     }
+    return false
   }
 
   private fun hideOverlay() {
