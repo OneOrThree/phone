@@ -49,8 +49,13 @@ export interface PersistedFocusSessionV1 {
   updatedAt: string;
 }
 
-export function writePersistedSessionV1(rec: PersistedFocusSessionV1): void {
-  AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(rec)).catch(() => {});
+/**
+ * 프라미스를 돌려준다 — 5초 주기 저장은 그냥 흘려보내도 되지만, **시작의 커밋 흔적만은
+ * 호출부가 await한다**(FocusSessionEngine.start). 흔적이 늦게 착지하면 그 사이에 도는
+ * 복구가 살아 있는 세션을 크래시로 오인해 실드를 푼다.
+ */
+export function writePersistedSessionV1(rec: PersistedFocusSessionV1): Promise<void> {
+  return AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(rec)).catch(() => {});
 }
 
 export async function readPersistedSessionV1(): Promise<PersistedFocusSessionV1 | null> {
