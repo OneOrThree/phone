@@ -34,6 +34,7 @@ const newBinary = () =>
     getUsageByApp: jest.fn(),
     getInstalledApps: jest.fn(),
     getSelectionPackages: jest.fn(),
+    startFocusShield: jest.fn(),
   } as never);
 
 jest.mock('react-native-safe-area-context', () => ({

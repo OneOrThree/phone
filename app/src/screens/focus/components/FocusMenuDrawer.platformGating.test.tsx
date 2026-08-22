@@ -13,6 +13,19 @@ import { Platform } from 'react-native';
 import { FocusMenuDrawer } from './FocusMenuDrawer';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 
+// screenTimeCapabilities 는 ScreenTimeModule 을 거치지 않고 네이티브를 직접 찾는다(그 모듈을
+// 통째로 jest.mock 하는 테스트들이 술어까지 지워버리지 않게). 그래서 여기서도 네이티브가
+// '있는' 상태를 만들어 줘야 안드로이드 술어가 실제 기기와 같게 열린다.
+jest.mock('expo-modules-core', () => ({
+  ...jest.requireActual('expo-modules-core'),
+  requireOptionalNativeModule: () => ({
+    getUsageByApp: jest.fn(),
+    getInstalledApps: jest.fn(),
+    getSelectionPackages: jest.fn(),
+    startFocusShield: jest.fn(),
+  }),
+}));
+
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),

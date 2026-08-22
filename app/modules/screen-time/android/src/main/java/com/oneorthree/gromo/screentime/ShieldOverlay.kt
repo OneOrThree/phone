@@ -43,11 +43,19 @@ class ShieldOverlay(private val context: Context) {
   val isShowing: Boolean
     get() = view != null
 
-  fun show(subject: String) {
-    if (view != null) return
+  /**
+   * 가림막을 올린다. **올렸는지를 돌려준다**(코드리뷰 반영).
+   *
+   * 예전엔 실패를 조용히 삼키고 view 만 null 로 뒀는데, 그러면 제조사 제약 등으로 addView 가
+   * 계속 실패하는 기기에서 **가림막이 한 번도 안 뜨는데 서비스는 정상으로 보인다.** heartbeat
+   * 는 계속 갱신되니 앱은 실드가 살아 있다고 믿고, 그동안의 이탈을 집중으로 적립한다.
+   * 호출부가 연속 실패를 세어 실드 상태를 내릴 수 있게 결과를 알린다.
+   */
+  fun show(subject: String): Boolean {
+    if (view != null) return true
     // 권한이 없으면 창을 올릴 수 없다 — 조용히 실패하는 대신 아무것도 안 한 상태로 둔다.
     // (호출부는 시작 시점에 권한을 확인해 실드 성공 여부를 JS에 알린다.)
-    if (!canDrawOverlays(context)) return
+    if (!canDrawOverlays(context)) return false
 
     val content = buildView(subject)
     val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -71,12 +79,14 @@ class ShieldOverlay(private val context: Context) {
       android.graphics.PixelFormat.OPAQUE,
     )
     params.gravity = Gravity.CENTER
-    try {
+    return try {
       windowManager.addView(content, params)
       view = content
+      true
     } catch (_: Exception) {
       // 권한이 방금 회수됐거나 제조사 제약으로 실패할 수 있다. 다음 폴링에서 다시 시도한다.
       view = null
+      false
     }
   }
 

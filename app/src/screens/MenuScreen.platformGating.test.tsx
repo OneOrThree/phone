@@ -25,6 +25,7 @@ jest.mock('expo-modules-core', () => ({
     getUsageByApp: jest.fn(),
     getInstalledApps: jest.fn(),
     getSelectionPackages: jest.fn(),
+    startFocusShield: jest.fn(),
   }),
 }));
 

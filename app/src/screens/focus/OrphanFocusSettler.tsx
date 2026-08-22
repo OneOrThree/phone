@@ -79,7 +79,11 @@ export function OrphanFocusSettler() {
       //    실제로 죽었다면 표식을 남길 기회 자체가 없다.
       //
       // await 하지 않는 이유: 알림 발행이 늦어져도 정산을 붙잡아 둘 이유가 없다.
-      if (!rec.shieldReleasedCleanly) {
+      //
+      // ⚠️ 그리고 **실제로 켜졌던 실드만** 알린다(코드리뷰 2차). 권한이 없어 처음부터
+      //    startFocusShield()가 false 였던 세션은 풀릴 차단이 없었으므로, 그 알림은
+      //    잠긴 적 없는 사람에게 "잠금이 풀렸다"고 말하는 셈이다.
+      if (!rec.shieldReleasedCleanly && rec.shieldActive) {
         notifyShieldInterrupted().catch(() => {});
       }
       // 로컬 적립은 1회만 — 중복 적립 방지로 적립 전에 먼저 마킹해 되쓴다.

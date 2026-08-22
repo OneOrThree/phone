@@ -41,6 +41,12 @@ export interface LiveFocusSession {
   // 없을 때만 프로세스가 실제로 죽은 것으로 보고 '차단이 함께 풀렸다'를 알린다 — 표식을 안
   // 보면 정상 이탈에도 거짓 알림이 나간다.
   shieldReleasedCleanly?: boolean;
+  // 이 세션에 실드가 **실제로 걸렸는가**(GROMO-1604 코드리뷰 2차).
+  //
+  // 권한이 없어 startFocusShield()가 처음부터 false 였던 세션은 풀릴 차단 자체가 없다.
+  // 그런 세션이 강제 종료돼도 "차단도 함께 풀렸어요"는 거짓이다 — 그 알림은 잠긴 줄 알고
+  // 시작한 사람에게만 뜻이 있다.
+  shieldActive?: boolean;
 }
 
 // 집중 중 허용앱(11) — 예시. initial = 아이콘 사각에 넣는 한 글자.

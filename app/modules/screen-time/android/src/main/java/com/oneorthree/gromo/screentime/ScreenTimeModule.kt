@@ -387,17 +387,21 @@ class ScreenTimeModule : Module() {
     }
 
     /** 세션 정보(과목·다른 과목 누적)를 알림에 반영. otherSubjectsJson은 iOS와 같은 형태. */
-    AsyncFunction("startFocusActivity") { subjectName: String, otherSubjectsJson: String ->
-      val intent = Intent(context, FocusShieldService::class.java).apply {
-        action = FocusShieldService.ACTION_ACTIVITY
-        putExtra(FocusShieldService.EXTRA_SUBJECT, subjectName)
-        putExtra(FocusShieldService.EXTRA_OTHERS, otherSubjectsJson)
-      }
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        context.startForegroundService(intent)
-      } else {
-        context.startService(intent)
-      }
+    // stateJson 은 iOS FocusActivityState 와 같은 모양이다(코드리뷰 반영) — 예전엔 이 인자가
+    // 없어서 잠금화면 타이머가 늘 최초 startedAt 기준 카운트업이었다. 일시정지 중에도 시간이
+    // 늘고, 카운트다운·휴식 페이즈에도 엉뚱한 경과 시간이 찍혔다.
+    AsyncFunction("startFocusActivity") {
+      subjectName: String,
+      otherSubjectsJson: String,
+      stateJson: String,
+      ->
+      startActivityService(subjectName, otherSubjectsJson, stateJson)
+      true
+    }
+
+    /** 타이머 상태만 갱신 — 정지/재개·페이즈 전환 시 호출. 과목·다른 과목은 그대로 둔다. */
+    AsyncFunction("updateFocusActivity") { stateJson: String ->
+      startActivityService(null, null, stateJson)
       true
     }
 
@@ -532,6 +536,21 @@ class ScreenTimeModule : Module() {
   // Usage Access 설정 화면 열기 — 전체 목록 화면(유저가 목록에서 gromo를 찾아 토글, §2).
   // package: Uri로 앱 상세까지 딥링크하는 변형은 문서화되지 않은 동작이라(제조사별 크래시·
   // 빈 화면 보고) 예측 가능한 전체 목록으로 통일한다.
+  /** 잠금화면 타이머 서비스에 갱신 인텐트를 보낸다. null 인 필드는 서비스가 기존 값을 유지한다. */
+  private fun startActivityService(subject: String?, othersJson: String?, stateJson: String?) {
+    val intent = Intent(context, FocusShieldService::class.java).apply {
+      action = FocusShieldService.ACTION_ACTIVITY
+      subject?.let { putExtra(FocusShieldService.EXTRA_SUBJECT, it) }
+      othersJson?.let { putExtra(FocusShieldService.EXTRA_OTHERS, it) }
+      stateJson?.let { putExtra(FocusShieldService.EXTRA_STATE, it) }
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      context.startForegroundService(intent)
+    } else {
+      context.startService(intent)
+    }
+  }
+
   private fun openUsageAccessSettings() {
     val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
     val activity = appContext.currentActivity

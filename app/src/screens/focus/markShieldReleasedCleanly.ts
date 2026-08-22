@@ -33,3 +33,27 @@ export async function markShieldReleasedCleanly(): Promise<void> {
     // 위 주석 참고 — 최악이 '알림 1회 오발행'이라 조용히 넘어간다.
   }
 }
+
+/**
+ * 이 세션에 실드가 실제로 걸렸는지를 레코드에 남긴다 (GROMO-1604 코드리뷰 2차).
+ *
+ * 권한이 없어 `startFocusShield()` 가 처음부터 false 였던 세션은 **풀릴 차단이 없다.**
+ * 그런 세션이 강제 종료돼도 "앱이 종료되면서 다른 앱 차단도 함께 풀렸어요"는 거짓이다.
+ * 고아 정산이 이 값을 보고 알림 여부를 가른다.
+ *
+ * 세션 도중에도 바뀔 수 있다 — 복귀 시 생존 확인이 false 를 주면 그때 다시 기록된다.
+ */
+export async function markShieldActive(active: boolean): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
+    if (!raw) return; // 아직 첫 저장 전이거나 이미 정산돼 지워졌다.
+    const rec = JSON.parse(raw) as LiveFocusSession;
+    if (rec.shieldActive === active) return; // 같은 값이면 쓰지 않는다.
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.focusLiveSession,
+      JSON.stringify({ ...rec, shieldActive: active }),
+    );
+  } catch {
+    // 위와 같은 이유로 삼킨다.
+  }
+}

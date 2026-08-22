@@ -55,6 +55,8 @@ class FocusShieldService : Service() {
     const val EXTRA_SUBJECT = "subject"
     const val EXTRA_ALLOWED = "allowed"
     const val EXTRA_OTHERS = "others"
+    /** 타이머 상태 JSON(iOS FocusActivityState 와 같은 모양) — 없으면 카운트업으로 본다. */
+    const val EXTRA_STATE = "state"
 
     private const val CHANNEL_ID = "gromo_focus_shield"
     private const val NOTIFICATION_ID = 4201
@@ -92,6 +94,17 @@ class FocusShieldService : Service() {
     /** 이벤트 조회 창 — 폴링 주기보다 넉넉히 잡아야 주기 사이에 끼인 전환을 놓치지 않는다. */
     private const val EVENT_WINDOW_MS = 10_000L
 
+    /** 권한 회수 확인 주기(틱). 폴링 1초 × 5 = 5초마다 AppOps 를 본다. */
+    private const val PERMISSION_CHECK_TICKS = 5
+
+    /**
+     * 가림막 표시 연속 실패 한도. 이만큼 실패하면 차단 상태를 내린다.
+     *
+     * 1~2회는 권한이 방금 회수됐거나 창 전환 중일 수 있어 재시도 가치가 있지만, 5초(5틱)
+     * 내내 못 올리면 재시도로 풀릴 문제가 아니다.
+     */
+    private const val OVERLAY_FAILURE_LIMIT = 5
+
     /** 알림 강조색 — src/constants/theme.ts 의 accent(#5E6AD2)와 같은 값. */
     private const val ACCENT_COLOR = 0xFF5E6AD2.toInt()
 
@@ -109,10 +122,37 @@ class FocusShieldService : Service() {
   private var running = false
   /** 런처 앱 목록 캐시 — 서비스 수명 동안 유지한다(세션 중 앱 설치·삭제는 드물다). */
   private var launchableCache: Set<String>? = null
+  /**
+   * 마지막으로 확인한 전면 앱(코드리뷰 반영).
+   *
+   * RESUMED 이벤트는 **전환**을 표시한다. 조회 창(10초)에 이벤트가 없다는 건 '모르겠다'가
+   * 아니라 **'그동안 바뀐 게 없다'** 는 뜻이다. 이걸 null 로 읽고 가림막을 걷으면, 차단 앱에
+   * 10초만 머물러도 가림막이 사라지고 그 뒤로 계속 열린 채로 쓸 수 있다 — heartbeat 는 계속
+   * 갱신되니 앱은 실드가 살아 있다고 믿어 그 시간을 전부 집중으로 적립한다.
+   */
+  private var lastForeground: String? = null
+  /** 덮으면 안 되는 시스템 패키지 캐시(전화·시계). */
+  private var exemptCache: Set<String>? = null
+  /** 가림막을 연속으로 못 올린 횟수 — 한도를 넘으면 차단이 성립하지 않는 기기로 본다. */
+  private var overlayFailures = 0
+  /** 권한 확인 주기 카운터 — 매 틱마다 AppOps 를 두드리지 않으려고 센다. */
+  private var ticksSincePermissionCheck = 0
   /** 차단을 실제로 도는가. 타이머만 필요한 호출(ACTION_ACTIVITY)로는 켜지지 않는다. */
   private var blocking = false
   /** 다른 과목 누적 — 확장 알림에만 쓴다(iOS 잠금화면 칩과 같은 정보). */
   private var others: List<Other> = emptyList()
+  /**
+   * 잠금화면 타이머 상태(코드리뷰 반영).
+   *
+   * 예전엔 과목명과 다른 과목만 받고 **state 를 통째로 버렸다.** 그래서 Chronometer 가 늘
+   * 최초 startedAt 기준으로 카운트업했다 — 일시정지 중에도 시간이 늘고, 카운트다운·휴식
+   * 페이즈에도 엉뚱한 경과 시간이 잠금화면에 찍혔다.
+   */
+  private var paused = false
+  /** 남은 시간(초). null 이면 카운트업 모드. */
+  private var remainingSeconds: Int? = null
+  /** 일시정지 시점의 경과(초) — 멈춘 화면에 찍을 값. */
+  private var pausedElapsed = 0
   // 알림 크로노미터 기준 시각 — 세션이 이어지는 동안 유지해야 시간이 튀지 않는다.
   private var startedAt = 0L
 
@@ -154,7 +194,10 @@ class FocusShieldService : Service() {
       ACTION_ACTIVITY -> {
         // 타이머 정보만 갱신 — 차단 상태는 그대로 둔다.
         intent.getStringExtra(EXTRA_SUBJECT)?.let { subject = it }
-        others = parseOthers(intent.getStringExtra(EXTRA_OTHERS))
+        // 상태만 갱신하는 호출(updateFocusActivity)은 과목·다른 과목을 안 보낸다 — 그때
+        // 덮어쓰면 잠금화면에서 칩이 사라진다. 온 것만 반영한다.
+        intent.getStringExtra(EXTRA_OTHERS)?.let { others = parseOthers(it) }
+        intent.getStringExtra(EXTRA_STATE)?.let { applyTimerState(it) }
         if (startedAt == 0L) startedAt = System.currentTimeMillis()
         startForeground(NOTIFICATION_ID, buildNotification())
         return START_NOT_STICKY
@@ -162,6 +205,7 @@ class FocusShieldService : Service() {
       else -> {
         subject = intent?.getStringExtra(EXTRA_SUBJECT) ?: "집중"
         allowed = intent?.getStringArrayExtra(EXTRA_ALLOWED)?.toSet() ?: emptySet()
+        applyTimerState(intent?.getStringExtra(EXTRA_STATE))
         blocking = true
         // 과목을 바꾸면 start가 다시 오는데, 그때 기준 시각을 리셋하면 잠금화면 타이머가 0으로
         // 되돌아간다. 이미 돌고 있으면 처음 시작 시각을 그대로 쓴다.
@@ -187,6 +231,13 @@ class FocusShieldService : Service() {
     running = false
     blocking = false
     launchableCache = null
+    exemptCache = null
+    overlayFailures = 0
+    paused = false
+    remainingSeconds = null
+    pausedElapsed = 0
+    lastForeground = null
+    ticksSincePermissionCheck = 0
     others = emptyList()
     startedAt = 0L
     handler.removeCallbacks(poll)
@@ -206,19 +257,28 @@ class FocusShieldService : Service() {
     // 적립돼 버린다. 표식이 낡아 있으면 앱이 비실드 이탈 정책으로 되돌린다.
     heartbeat()
 
-    // 전면 앱을 못 읽는 상태 — 가림막을 **걷는다**(코드리뷰 반영). 그냥 return 하면 이미 떠
-    // 있던 가림막이 그대로 남는데, 이후로도 전면 앱을 못 읽으니 우리 앱으로 돌아와도 안 걷힌다
-    // (= 기기를 못 쓰게 만든다). 차단을 잠깐 놓치는 쪽이 훨씬 안전하다.
-    val front = foregroundPackage()
-    if (front == null) {
-      hideOverlay()
-      // 권한 자체가 사라진 경우는 일시적 공백이 아니라 확정 실패다. 폴링을 계속 돌려 봐야
-      // 아무것도 못 하므로 차단 상태를 내린다 — 화면은 startFocusShield 결과와 이 표식으로
-      // '이번 세션은 차단이 안 걸린다'를 알게 된다.
+    // 전환 이벤트가 없으면 **직전 값을 유지한다**(코드리뷰 반영) — 자세한 이유는
+    // lastForeground 필드 주석 참고. 여기서 null 로 떨어뜨리면 10초 이상 머무는 순간
+    // 차단이 조용히 풀린다.
+    latestResumedPackage()?.let { lastForeground = it }
+
+    // 권한이 중간에 회수됐는지는 주기적으로만 확인한다 — 매 틱 AppOps 를 두드릴 필요는 없다.
+    if (++ticksSincePermissionCheck >= PERMISSION_CHECK_TICKS) {
+      ticksSincePermissionCheck = 0
       if (!usageAccessGranted()) {
+        // 권한이 사라지면 전면 앱을 영영 못 읽는다 — 일시적 공백이 아니라 확정 실패다.
+        // 가림막을 걷고 차단 상태를 내린다(그 뒤로 heartbeat 도 이 분기를 못 지나 낡는다).
+        hideOverlay()
         blocking = false
         startForeground(NOTIFICATION_ID, buildNotification())
+        return
       }
+    }
+
+    // 아직 한 번도 전면 앱을 못 본 상태(콜드 스타트 직후) — 덮을 근거가 없으니 걷어 둔다.
+    val front = lastForeground
+    if (front == null) {
+      hideOverlay()
       return
     }
     if (shouldBlock(front)) showOverlay() else hideOverlay()
@@ -266,14 +326,46 @@ class FocusShieldService : Service() {
     // 넣어 뒀으면 전화가 올 때 가림막이 통화 화면을 덮어 **전화를 못 받는다.**
     // 이 앱을 자유롭게 쓸 수 있게 되는 건 감수한다 — 전화를 못 받는 쪽이 훨씬 나쁘다
     // (설정 앱 구멍을 감수한 D1과 같은 판단).
-    if (packageName == defaultDialerPackage()) return false
+    if (packageName in systemExemptPackages()) return false
     return packageName in cachedLaunchablePackages()
   }
 
-  /** 기본 전화 앱 패키지 — 못 읽으면 null(제외 대상 없음). */
-  private fun defaultDialerPackage(): String? = runCatching {
-    (getSystemService(TELECOM_SERVICE) as android.telecom.TelecomManager).defaultDialerPackage
-  }.getOrNull()
+  /**
+   * 런처 앱이지만 **덮으면 안 되는** 패키지들 — 캐시한다.
+   *
+   * 둘 다 "런처 아이콘이 있는 평범한 앱"인데, 그 앱이 띄우는 **전체 화면 시스템 UI 가 같은
+   * 패키지명으로 보고된다**. 패키지 단위로만 보는 우리 필터로는 그 둘을 못 가른다.
+   *
+   *   - 기본 전화 앱: 수신 전화 화면(InCallActivity) — 덮으면 **전화를 못 받는다**
+   *   - 기본 시계 앱: 알람 전체 화면 — 덮으면 **알람을 끄거나 미룰 수 없고 소리가 계속 난다**
+   *     (코드리뷰 반영 — 전화와 정확히 같은 구조의 문제다)
+   *
+   * 이 앱들을 집중 중에 자유롭게 쓸 수 있게 되는 건 감수한다. 전화를 못 받거나 알람을 못 끄는
+   * 쪽이 훨씬 나쁘다(설정 앱 구멍을 감수한 D1 과 같은 판단).
+   */
+  private fun systemExemptPackages(): Set<String> {
+    exemptCache?.let { return it }
+    val out = HashSet<String>(2)
+    runCatching {
+      (getSystemService(TELECOM_SERVICE) as android.telecom.TelecomManager).defaultDialerPackage
+    }.getOrNull()?.let { out.add(it) }
+    // 기본 시계 앱 — 알람 목록 인텐트를 처리하는 앱으로 찾는다. 알람 UI 를 직접 식별하는
+    // 공개 API 는 없어서, 그 앱을 통째로 예외로 둔다.
+    runCatching {
+      val intent = Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        packageManager.resolveActivity(
+          intent,
+          android.content.pm.PackageManager.ResolveInfoFlags.of(0L),
+        )
+      } else {
+        @Suppress("DEPRECATION")
+        packageManager.resolveActivity(intent, 0)
+      }
+    }.getOrNull()?.activityInfo?.packageName?.let { out.add(it) }
+    exemptCache = out
+    return out
+  }
 
   /**
    * 런처 앱 목록 — **캐시한다**(코드리뷰 반영).
@@ -303,12 +395,13 @@ class FocusShieldService : Service() {
   }
 
   /**
-   * 지금 앞에 있는 앱의 패키지명.
+   * 조회 창 안에서 **가장 최근에 전면으로 올라온** 앱. 창에 전환이 없으면 null 이다
+   * (= '모른다'가 아니라 '바뀐 게 없다' — 호출부가 직전 값을 유지한다).
    *
    * `queryUsageStats`의 `lastTimeUsed` 최댓값을 쓰는 흔한 방법은 버킷 경계가 흔들려 방금 닫은
    * 앱을 앞 앱으로 잘못 짚는다. RESUMED 이벤트 중 **가장 최근 것**을 쓰면 전환 순서가 그대로 남는다.
    */
-  private fun foregroundPackage(): String? {
+  private fun latestResumedPackage(): String? {
     val usm = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return null
     val now = System.currentTimeMillis()
     val events = usm.queryEvents(now - EVENT_WINDOW_MS, now)
@@ -326,9 +419,22 @@ class FocusShieldService : Service() {
   }
 
   private fun showOverlay() {
-    if (overlay?.isShowing == true) return
+    if (overlay?.isShowing == true) {
+      overlayFailures = 0
+      return
+    }
     val view = overlay ?: ShieldOverlay(this).also { overlay = it }
-    view.show(subject)
+    if (view.show(subject)) {
+      overlayFailures = 0
+    } else if (++overlayFailures >= OVERLAY_FAILURE_LIMIT) {
+      // 계속 못 올린다 = 이 기기에선 차단이 성립하지 않는다(코드리뷰 반영). 시작 시점 권한
+      // 검사를 통과했어도 제조사 제약으로 addView 가 매번 실패할 수 있다. 그대로 두면
+      // **가림막이 한 번도 안 떴는데 heartbeat 는 돌아** 앱이 실드를 믿고 이탈을 적립한다.
+      // 차단 상태를 내리면 heartbeat 도 갱신되지 않아 앱이 비실드 정책으로 되돌린다.
+      blocking = false
+      startForeground(NOTIFICATION_ID, buildNotification())
+      return
+    }
   }
 
   private fun hideOverlay() {
@@ -445,8 +551,51 @@ class FocusShieldService : Service() {
    * 우리가 1초마다 알림을 다시 쏠 필요가 없다(iOS Text(timerInterval:)와 같은 계약).
    */
   private fun RemoteViews.bindTimer(viewId: Int) {
-    val base = SystemClock.elapsedRealtime() - (System.currentTimeMillis() - startedAt)
-    setChronometer(viewId, base, null, true)
+    val now = SystemClock.elapsedRealtime()
+    when {
+      // 일시정지 — 멈춘 값을 그대로 둔다. started=false 면 시스템이 갱신하지 않으므로,
+      // base 를 '지금 - 경과' 로 잡아 두면 그 시점 텍스트가 경과 시간으로 찍힌 채 멈춘다.
+      paused -> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) setChronometerCountDown(viewId, false)
+        setChronometer(viewId, now - pausedElapsed * 1000L, null, false)
+      }
+      // 카운트다운·뽀모도로 — 남은 시간을 센다. base 를 미래로 두고 countDown 을 켜면
+      // 시스템이 초당 줄여 준다(우리가 1초마다 알림을 다시 쏠 필요가 없다).
+      remainingSeconds != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N -> {
+        setChronometerCountDown(viewId, true)
+        setChronometer(viewId, now + remainingSeconds!! * 1000L, null, true)
+      }
+      else -> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) setChronometerCountDown(viewId, false)
+        setChronometer(viewId, now - (System.currentTimeMillis() - startedAt), null, true)
+      }
+    }
+  }
+
+  /**
+   * 타이머 상태 JSON 반영 — iOS FocusActivityState 와 같은 모양이다.
+   *
+   * `{"mode":"countdown","phase":"focus","isPaused":false,"elapsedSeconds":90,
+   *   "remainingSeconds":510,"revision":3}`
+   *
+   * 없거나 깨졌으면 카운트업으로 되돌린다 — 모르는 상태를 카운트다운으로 그리는 것보다
+   * 안전하다(경과 시간은 최소한 startedAt 기준으로 맞다).
+   */
+  private fun applyTimerState(json: String?) {
+    if (json.isNullOrBlank()) {
+      paused = false
+      remainingSeconds = null
+      return
+    }
+    runCatching {
+      val obj = org.json.JSONObject(json)
+      paused = obj.optBoolean("isPaused", false)
+      pausedElapsed = obj.optInt("elapsedSeconds", 0)
+      remainingSeconds = if (obj.isNull("remainingSeconds")) null else obj.optInt("remainingSeconds")
+    }.onFailure {
+      paused = false
+      remainingSeconds = null
+    }
   }
 
   /**

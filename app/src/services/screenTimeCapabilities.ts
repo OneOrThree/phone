@@ -49,7 +49,10 @@ export const supportsAppSelection = (): boolean => {
 
 /** 집중 중 **허용앱 목록을 고르고 관리**할 수 있는가. */
 export const supportsFocusShield = (): boolean =>
-  Platform.OS === 'ios' || Platform.OS === 'android';
+  // 안드로이드는 네이티브 메서드 존재로 가른다(코드리뷰 반영). 구 바이너리는 실드 메서드가
+  // 없어서 startFocusShield 가 false 로 폴백하는데, 그 위 화면들(온보딩 '방해 앱 차단' 문구
+  // 포함)이 플랫폼만 보고 지원한다고 안내하면 **약속과 동작이 갈린다.**
+  Platform.OS === 'ios' || androidNativeHas('startFocusShield');
 
 /**
  * 고른 허용앱이 **실제로 차단에 쓰이는가**(집중 중 다른 앱이 잠기는가).
@@ -64,7 +67,7 @@ export const supportsFocusShield = (): boolean =>
  * 걸렸는지**는 `startFocusShield()`의 반환값이 정본이다 — 화면은 그 값으로 이탈 정책을 가른다.
  */
 export const enforcesFocusShield = (): boolean =>
-  Platform.OS === 'ios' || Platform.OS === 'android';
+  Platform.OS === 'ios' || androidNativeHas('startFocusShield');
 
 /**
  * 앱별 사용 시간 상세(어떤 앱을 얼마나)를 볼 수 있는가.

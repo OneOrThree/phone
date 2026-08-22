@@ -35,6 +35,8 @@ export default function AllowedAppsScreen() {
   // 안드로이드 가림막 권한('다른 앱 위에 표시'). null = 조회 전.
   // 이게 꺼져 있으면 허용앱을 아무리 골라도 집중 중 차단이 성립하지 않는다(GROMO-996).
   const [canOverlay, setCanOverlay] = useState<boolean | null>(null);
+  // 사용 정보 접근 — 실드 시작 조건의 **나머지 절반**이다(아래 shieldBlocked 주석 참고).
+  const [usageApproved, setUsageApproved] = useState<boolean | null>(null);
 
   // 화면 재진입마다 최신 개수 반영(피커 닫고 돌아올 수 있으므로).
   useFocusEffect(
@@ -59,6 +61,9 @@ export default function AllowedAppsScreen() {
       ScreenTimeModule.canDrawOverlay()
         .then((v) => !cancelled && setCanOverlay(v))
         .catch(() => !cancelled && setCanOverlay(null));
+      ScreenTimeModule.getAuthorizationStatus()
+        .then((st) => !cancelled && setUsageApproved(st === 'approved'))
+        .catch(() => !cancelled && setUsageApproved(null));
       return () => {
         cancelled = true;
       };
@@ -78,6 +83,9 @@ export default function AllowedAppsScreen() {
       ScreenTimeModule.canDrawOverlay()
         .then(setCanOverlay)
         .catch(() => setCanOverlay(null));
+      ScreenTimeModule.getAuthorizationStatus()
+        .then((st) => setUsageApproved(st === 'approved'))
+        .catch(() => setUsageApproved(null));
     });
     return () => sub.remove();
   }, []);
@@ -104,7 +112,12 @@ export default function AllowedAppsScreen() {
   // ⚠️ '잠긴다'는 말은 **실제로 잠글 수 있을 때만** 한다. 안드로이드는 가림막 권한이 꺼져 있으면
   // 목록을 골라도 차단이 성립하지 않는다 — 그 상태에서 잠긴다고 쓰면 사용자가 잠긴다고 믿고
   // 집중을 시작하는데 앱은 그대로 열린다(GROMO-996).
-  const shieldBlocked = canOverlay === false;
+  //
+  // ⚠️ 조건이 **둘**이다(코드리뷰 반영). 네이티브 startFocusShield()는 가림막 권한과 사용
+  //    정보 접근을 **모두** 확인한다 — 앞 앱을 못 읽으면 덮을 대상을 못 고르기 때문이다.
+  //    여기서 가림막 권한만 보면, 사용 정보 접근만 꺼진 상태에서 화면은 "모든 앱이 잠겨요"라고
+  //    하는데 실제로는 아무것도 안 잠긴다. 실드 시작 조건과 같은 술어를 써야 한다.
+  const shieldBlocked = canOverlay === false || usageApproved === false;
   const summarySub = !loaded
     ? undefined
     : shieldBlocked

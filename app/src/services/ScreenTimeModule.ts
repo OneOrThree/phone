@@ -134,14 +134,34 @@ interface AndroidNativeScreenTime {
   canDrawOverlay?(): Promise<boolean>;
   requestOverlayPermission?(): Promise<void>;
   startFocusShield?(subjectName: string): Promise<boolean>;
+  startFocusActivity?(
+    subjectName: string,
+    otherSubjectsJson: string,
+    stateJson: string,
+  ): Promise<boolean>;
+  updateFocusActivity?(stateJson: string): Promise<boolean>;
   stopFocusShield?(): Promise<void>;
   /** 동기 — 호출부가 이탈 판정 도중 즉시 읽는다. 네이티브는 Expo Function(동기). */
   isFocusShieldAlive?(): boolean;
   // 상시 알림(iOS Live Activity 대응) — 캐릭터 스냅샷 + 과목·다른 과목 누적.
   saveCharacterSnapshot(base64: string): Promise<boolean>;
-  startFocusActivity(subjectName: string, otherSubjectsJson: string): Promise<boolean>;
   endFocusActivity(): Promise<void>;
 }
+
+/**
+ * 상태를 안 받았을 때 쓰는 기본값 — '카운트업·집중·정지 아님'.
+ *
+ * 모르는 상태를 카운트다운으로 그리는 것보다 안전하다. 경과 시간은 최소한 startedAt 기준으로
+ * 맞고, 그건 예전(상태를 아예 안 넘기던 시절)과 같은 동작이다.
+ */
+const androidFallbackState: FocusActivityState = {
+  mode: 'countup',
+  phase: 'focus',
+  isPaused: false,
+  elapsedSeconds: 0,
+  remainingSeconds: null,
+  revision: 0,
+};
 
 /** 측정 대상 피커에 뿌릴 설치 앱 1건(안드로이드 전용). 아이콘은 getAppIcon으로 따로 받는다. */
 export interface InstalledApp {
@@ -183,17 +203,6 @@ const AndroidScreenTime =
 // 없어 false. 이 경우 requestAuthorization도 설정 화면을 못 열므로, 화면 쪽은 권한 CTA 같은
 // M1 UI 대신 M1 이전 placeholder를 유지해야 한다(코드리뷰 반영).
 export const androidNativeModuleAvailable = (): boolean => AndroidScreenTime != null;
-
-/**
- * 안드로이드 네이티브가 **집중 실드 빌드**인지(GROMO-1604 이후).
- *
- * 구 바이너리에도 ScreenTimeModule 자체는 있으므로 `AndroidScreenTime != null` 로는 못 가른다.
- * hot-updater 로 새 JS 만 받은 기기에서 startFocusShield 를 부르면 undefined 호출로 터지고,
- * 화면은 '지원되는 기능'으로 안내한 뒤라 사용자 입장에선 그냥 고장이다(코드리뷰 반영).
- */
-export const androidNativeSupportsFocusShield = (): boolean =>
-  typeof AndroidScreenTime?.startFocusShield === 'function' &&
-  typeof AndroidScreenTime?.canDrawOverlay === 'function';
 
 // 네이티브 바이너리가 15분 눈금(GROMO-931) 빌드인지 — 같은 빌드에 추가된
 // getUsageBucketDebugInfo 존재로 판별한다. OTA로 새 JS만 받은 구 바이너리는 여전히 30분
@@ -582,27 +591,31 @@ const ScreenTimeModule = {
   ): Promise<boolean> => {
     // 안드로이드는 Live Activity가 없어 실드 서비스의 상시 알림이 그 자리를 대신한다(GROMO-1604).
     if (AndroidScreenTime) {
-      return AndroidScreenTime.startFocusActivity(subjectName, JSON.stringify(otherSubjects));
+      if (!AndroidScreenTime.startFocusActivity) return false;
+      // 상태를 함께 넘긴다(코드리뷰 반영) — 안 넘기면 잠금화면 타이머가 늘 카운트업이라
+      // 일시정지 중에도 시간이 늘고 카운트다운 페이즈에 엉뚱한 값이 찍힌다.
+      return AndroidScreenTime.startFocusActivity(
+        subjectName,
+        JSON.stringify(otherSubjects),
+        JSON.stringify(state ?? androidFallbackState),
+      );
     }
     if (Platform.OS !== 'ios') return false;
-    const fallback: FocusActivityState = {
-      mode: 'countup',
-      phase: 'focus',
-      isPaused: false,
-      elapsedSeconds: 0,
-      remainingSeconds: null,
-      revision: 0,
-    };
     return NativeScreenTimeModule.startFocusActivity(
       subjectName,
       JSON.stringify(otherSubjects),
-      JSON.stringify(state ?? fallback),
+      JSON.stringify(state ?? androidFallbackState),
     );
   },
 
   // 집중 Live Activity 상태 갱신(GROMO-1597) — 정지/재개·뽀모도로 페이즈 전환 시 호출.
   // 활성 액티비티가 없으면 네이티브가 no-op(false) — 멱등이라 아무 때나 불러도 안전.
   updateFocusActivity: async (state: FocusActivityState): Promise<boolean> => {
+    if (AndroidScreenTime) {
+      // 구 바이너리엔 없다 — 상태 갱신이 no-op 이어도 타이머는 카운트업으로 계속 돈다.
+      if (!AndroidScreenTime.updateFocusActivity) return false;
+      return AndroidScreenTime.updateFocusActivity(JSON.stringify(state));
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.updateFocusActivity(JSON.stringify(state));
   },

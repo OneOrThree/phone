@@ -11,10 +11,14 @@ import { STORAGE_KEYS } from '@/types/storage';
 import { OrphanFocusSettler } from './OrphanFocusSettler';
 import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker } from './pendingMarkerCancels';
+import { notifyShieldInterrupted } from './shieldInterruptedNotification';
 
 const OWNER = 'user-a';
 
 jest.mock('./uploadFocusBlock', () => ({ uploadFocusBlock: jest.fn() }));
+jest.mock('./shieldInterruptedNotification', () => ({
+  notifyShieldInterrupted: jest.fn(() => Promise.resolve()),
+}));
 jest.mock('./pendingMarkerCancels', () => ({ cancelMarker: jest.fn(() => Promise.resolve()) }));
 jest.mock('./tagSync', () => ({ ensureFocusTagId: jest.fn(() => Promise.resolve('tag-1')) }));
 jest.mock('./completionNotification', () => ({
@@ -35,6 +39,16 @@ jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: OWNER }) }))
 
 const mockUpload = uploadFocusBlock as jest.MockedFunction<typeof uploadFocusBlock>;
 const mockCancel = cancelMarker as jest.MockedFunction<typeof cancelMarker>;
+const mockNotify = notifyShieldInterrupted as jest.MockedFunction<typeof notifyShieldInterrupted>;
+
+/** 라이브 레코드를 부분 덮어쓴다 — 실드 관련 필드만 바꿔 케이스를 만든다. */
+async function patchRecord(patch: Record<string, unknown>) {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.focusLiveSession,
+    JSON.stringify({ ...JSON.parse(raw!), ...patch }),
+  );
+}
 
 beforeEach(async () => {
   jest.clearAllMocks();
@@ -74,4 +88,35 @@ test('열린 마커가 남은 고아 정산은 취소 콜백을 넘긴다 — �
   // uploadFocusBlock이 '마커가 열린 채'라고 알려오면 취소가 큐에 영속화돼야 한다.
   opts.onMarkerStillOpen?.('marker-1');
   expect(mockCancel).toHaveBeenCalledWith('marker-1', OWNER);
+});
+
+// "앱이 종료되면서 다른 앱 차단도 함께 풀렸어요" — 이 알림이 **언제 나가면 안 되는지**.
+// GROMO-1604 코드리뷰. 두 번 다 '레코드가 남아 있다'만으로 강제 종료를 단정한 게 원인이었다.
+describe('실드 중단 알림은 조건이 둘 다 맞을 때만', () => {
+  test('실드가 걸렸고 정상 해제 표식이 없으면 알린다', async () => {
+    await patchRecord({ shieldActive: true });
+
+    await renderSettler();
+
+    expect(mockNotify).toHaveBeenCalled();
+  });
+
+  // 시스템 Back 이탈은 레코드를 **일부러** 남긴다(시간 적립을 여기에 맡긴다). 실드는 화면을
+  // 떠날 때 정상 해제됐으므로 "함께 풀렸다"는 거짓이다.
+  test('정상 해제 표식이 있으면 알리지 않는다', async () => {
+    await patchRecord({ shieldActive: true, shieldReleasedCleanly: true });
+
+    await renderSettler();
+
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  // 권한이 없어 처음부터 실드가 안 걸린 세션 — 풀릴 차단 자체가 없었다.
+  test('실드가 걸린 적 없으면 알리지 않는다', async () => {
+    await patchRecord({ shieldActive: false });
+
+    await renderSettler();
+
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
 });

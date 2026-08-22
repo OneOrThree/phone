@@ -33,6 +33,7 @@ const newBinary = () =>
     getUsageBreakdown: jest.fn(),
     getInstalledApps: jest.fn(),
     getSelectionPackages: jest.fn(),
+    startFocusShield: jest.fn(),
   } as never);
 /** M1 바이너리 — 모듈은 있는데 위 메서드가 하나도 없다. */
 const m1Binary = () =>
@@ -121,6 +122,14 @@ describe('안드로이드 구 바이너리 — 앱별 사용시간을 닫는다'
     mockRequireNative.mockReturnValue({ getUsageBreakdown: jest.fn() } as never);
 
     expect([supportsUsageBreakdown(), supportsAppSelection()]).toEqual([true, false]);
+  });
+
+  // 실드도 같다(코드리뷰 2차). 구 바이너리는 startFocusShield 가 없어 false 로 폴백하는데,
+  // 술어가 플랫폼만 보면 온보딩이 '방해 앱 차단'을 약속해 놓고 실제로는 안 잠긴다.
+  test('startFocusShield 가 없으면 실드 술어를 닫는다', () => {
+    m1Binary();
+
+    expect([supportsFocusShield(), enforcesFocusShield()]).toEqual([false, false]);
   });
 });
 
