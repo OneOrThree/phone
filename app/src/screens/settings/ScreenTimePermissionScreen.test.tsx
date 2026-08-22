@@ -10,11 +10,12 @@
 //  3) '측정 대상을 비웠어요'는 성공이지만 측정 중단을 반드시 읽어야 하는 경고성 장문이라
 //     2200ms 배너로 옮기지 않는다 — Alert로 남는다(정책 D8).
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, AppState, Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenTimePermissionScreen from './ScreenTimePermissionScreen';
 import ScreenTimeModule, { nativeSupportsPendingApplyDate } from '@/services/ScreenTimeModule';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
+import { updateScreenTimePermission } from '@/services/userApi';
 import { STORAGE_KEYS } from '@/types/storage';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -22,8 +23,12 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
 }));
 
+// navigate 는 단언 대상이라 호출마다 새로 만들면 안 된다 — 화면이 부른 목과 테스트가 보는
+// 목이 달라져, 이동하지 않아도 통과하는 테스트가 된다.
+const mockNavigate = jest.fn();
+
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn(), isFocused: () => true }),
+  useNavigation: () => ({ navigate: mockNavigate, goBack: jest.fn(), isFocused: () => true }),
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     useEffect(() => {
@@ -48,6 +53,7 @@ jest.mock('@/services/ScreenTimeModule', () => ({
     presentAppPicker: jest.fn(),
     promoteSelection: jest.fn(),
     setPendingSelectionApplyDate: jest.fn(),
+    openUsageAccessSettings: jest.fn(),
   },
   androidNativeModuleAvailable: () => false,
   nativeSupportsPendingApplyDate: jest.fn(),
@@ -61,6 +67,9 @@ const mockGetStatus = ScreenTimeModule.getAuthorizationStatus as jest.MockedFunc
 >;
 const mockPresentAppPicker = ScreenTimeModule.presentAppPicker as jest.MockedFunction<
   typeof ScreenTimeModule.presentAppPicker
+>;
+const mockOpenUsageAccess = ScreenTimeModule.openUsageAccessSettings as jest.MockedFunction<
+  typeof ScreenTimeModule.openUsageAccessSettings
 >;
 const mockPromote = ScreenTimeModule.promoteSelection as jest.MockedFunction<
   typeof ScreenTimeModule.promoteSelection
@@ -139,6 +148,88 @@ describe("측정 대상 '다음날 적용' 예약 통보", () => {
   });
 });
 
+// 측정 대상 선택은 양쪽 다 되지만 **가는 길이 다르다**(GROMO-995) — iOS는 네이티브 시스템
+// 피커를 띄우고, 안드로이드는 RN 화면으로 이동한다. 안드로이드에서 iOS 경로를 타면
+// presentAppPicker가 null을 돌려주고 호출부가 '취소'로 읽어 조용히 끝난다(= 죽은 버튼).
+describe('측정 대상 선택 — 플랫폼별 진입 경로', () => {
+  const originalPlatformOS = Platform.OS;
+  const setPlatform = (os: typeof Platform.OS) =>
+    Object.defineProperty(Platform, 'OS', { value: os, configurable: true });
+
+  afterEach(() => setPlatform(originalPlatformOS));
+
+  // 안드로이드엔 대응 피커가 없다. 행을 남겨 두면 탭해도 아무 일이 없어 고장으로 보이므로
+  // 섹션째 감춘다 — 무반응 진입점을 없애는 게 이 티켓의 본론이다.
+  test('안드로이드에서는 측정 대상 섹션이 그려지지 않는다', async () => {
+    setPlatform('android');
+
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+
+    expect(screen.queryByText('측정 대상 앱 설정')).toBeNull();
+    // 부제만 남아 없는 항목을 찾아 들어가게 만들지도 않는다.
+    expect(screen.queryByText('사용시간을 잴 앱·카테고리 선택')).toBeNull();
+  });
+
+  // 피커가 없으면 허용 상태에서 상태 카드를 눌러도 갈 곳이 없다 — 무반응으로 두지 않고
+  // 권한을 끄러 갈 수 있는 곳으로 보낸다.
+  //
+  // ⚠️ 그 '갈 곳'이 앱 상세 설정(Linking.openSettings)이면 안 된다(코드리뷰 반영). 거기엔
+  //    사용 정보 접근 토글이 없어서, 눌러서 이동은 하는데 정작 할 일을 못 하는 상태가 된다.
+  //    이 PR이 없애려는 '화면이 거짓말한다'와 같은 종류라 목록 딥링크를 쓴다.
+  test('안드로이드에서 허용 상태 카드는 사용 정보 접근 목록으로 보낸다', async () => {
+    setPlatform('android');
+    mockOpenUsageAccess.mockResolvedValue(true);
+
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.press(screen.getByText('스크린타임 접근'));
+    });
+
+    expect(mockPresentAppPicker).not.toHaveBeenCalled();
+    expect(mockOpenUsageAccess).toHaveBeenCalled();
+    // 목록을 열었으면 앱 상세로 또 보내지 않는다 — 두 화면이 겹쳐 뜨면 그게 더 헷갈린다.
+    expect(Linking.openSettings).not.toHaveBeenCalled();
+  });
+
+  // 구 바이너리(OTA로 새 JS만 받아 네이티브에 이 함수가 없음)·설정을 못 여는 기기.
+  // 앱 상세가 완전한 답은 아니지만, 아무 일도 안 일어나는 것보다는 낫다.
+  test('목록을 못 열면 앱 상세 설정으로 폴백한다', async () => {
+    setPlatform('android');
+    mockOpenUsageAccess.mockResolvedValue(false);
+
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.press(screen.getByText('스크린타임 접근'));
+    });
+
+    expect(Linking.openSettings).toHaveBeenCalled();
+  });
+
+  // 권한 끄러 갈 곳은 OS마다 다르다 — 안드로이드에 'iOS 설정 앱'이라고 하면 안 된다.
+  test('안드로이드 안내는 iOS 설정 앱을 가리키지 않는다', async () => {
+    setPlatform('android');
+
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+
+    expect(screen.queryByText(/iOS 설정 앱/)).toBeNull();
+    expect(screen.getByText(/사용 정보 접근/)).toBeTruthy();
+  });
+
+  test('iOS는 네이티브 피커를 그대로 띄운다', async () => {
+    setPlatform('ios');
+    mockPresentAppPicker.mockResolvedValue({ applications: 1, categories: 0, webDomains: 0 });
+
+    await openPicker();
+
+    expect(mockPresentAppPicker).toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalledWith('SettingsAppPicker', { mode: 'measured' });
+  });
+});
+
 describe('대상 비우기는 Alert로 남는다 (정책 D8 — 경고성 장문)', () => {
   test('빈 선택은 측정 중단 경고를 Alert로 띄운다', async () => {
     // 대상 0개는 예약이 아니라 즉시 적용 경로다. 네이티브가 등록을 거부한다(monitoring=false).
@@ -157,5 +248,81 @@ describe('대상 비우기는 Alert로 남는다 (정책 D8 — 경고성 장문
       '측정 대상을 비웠어요 — 사용량 측정과 서버 동기화가 중단돼요. 홈 리포트는 전체 앱 기준으로 표시돼요.',
     );
     expect(mockToastShow).not.toHaveBeenCalled();
+  });
+});
+
+// 권한 **회수**의 서버 반영 — GROMO-1592 코드리뷰(P1).
+//
+// 지금까지 서버 동기화는 허용 경로에만 있었다(온보딩·권한 요청). 회수는 아무도 보내지 않아
+// 서버의 is_screen_time_permission_granted 가 true 로 남고, GroupBetJoinService 의
+// requireScreenTimePermission 이 그 값을 신뢰한다 — **보고 못 하는 사용자가 SCREEN_TIME 내기에
+// 참가비를 내고 들어갈 수 있다.** 돈이 걸린 자리라 화면이 감지하는 즉시 맞춘다.
+describe('권한 회수는 서버에도 반영한다', () => {
+  const mockUpdatePermission = updateScreenTimePermission as jest.MockedFunction<
+    typeof updateScreenTimePermission
+  >;
+
+  // AppState 리스너를 직접 깨워 '설정 다녀와서 앱이 다시 활성화된' 순간을 재현한다.
+  async function returnToApp(nextStatus: 'approved' | 'denied') {
+    const calls = (AppState.addEventListener as jest.Mock).mock.calls;
+    const handler = calls[calls.length - 1][1] as (s: string) => void;
+    mockGetStatus.mockResolvedValue(nextStatus);
+    await act(async () => {
+      handler('active');
+    });
+  }
+
+  beforeEach(() => {
+    jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() } as never);
+    mockUpdatePermission.mockResolvedValue(undefined as never);
+  });
+
+  test('허용→거부로 바뀌면 granted:false 를 보낸다', async () => {
+    mockGetStatus.mockResolvedValue('approved');
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+    // 최초 관찰은 기준선만 세운다 — 마운트만으로 서버를 때리지 않는다.
+    expect(mockUpdatePermission).not.toHaveBeenCalled();
+
+    await returnToApp('denied');
+
+    expect(mockUpdatePermission).toHaveBeenCalledWith({ granted: false });
+  });
+
+  test('상태가 그대로면 보내지 않는다', async () => {
+    mockGetStatus.mockResolvedValue('approved');
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+
+    await returnToApp('approved');
+
+    expect(mockUpdatePermission).not.toHaveBeenCalled();
+  });
+
+  // 반대 방향도 같은 경로로 맞춘다 — 설정에서 켜고 돌아온 경우.
+  test('거부→허용으로 바뀌면 granted:true 를 보낸다', async () => {
+    mockGetStatus.mockResolvedValue('denied');
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+
+    await returnToApp('approved');
+
+    expect(mockUpdatePermission).toHaveBeenCalledWith({ granted: true });
+  });
+
+  // 서버 반영이 실패하면 기준선을 되돌려 다음 감지에서 다시 시도한다 — 한 번 실패하고
+  // 영영 어긋난 채로 남으면, 실패했다는 사실조차 아무도 모른다.
+  test('전송 실패 후 다시 감지되면 재시도한다', async () => {
+    mockGetStatus.mockResolvedValue('approved');
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+
+    mockUpdatePermission.mockRejectedValueOnce(new Error('network'));
+    await returnToApp('denied');
+    expect(mockUpdatePermission).toHaveBeenCalledTimes(1);
+
+    await returnToApp('denied');
+    expect(mockUpdatePermission).toHaveBeenCalledTimes(2);
+    expect(mockUpdatePermission).toHaveBeenLastCalledWith({ granted: false });
   });
 });

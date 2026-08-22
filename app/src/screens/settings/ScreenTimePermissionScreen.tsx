@@ -18,6 +18,7 @@ import ScreenTimeModule, {
   androidNativeModuleAvailable,
   nativeSupportsPendingApplyDate,
 } from '@/services/ScreenTimeModule';
+import { supportsAppSelection } from '@/services/screenTimeCapabilities';
 import { updateScreenTimePermission } from '@/services/userApi';
 import { logScreenTimeSettingsChanged } from '@/services/analyticsEvents';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
@@ -67,9 +68,44 @@ export default function ScreenTimePermissionScreen() {
   const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
   const statusBeforeSettingsRef = useRef<AuthorizationStatus | null>(null);
+  // 이 화면이 **마지막으로 관찰한** 권한 상태. 변화 감지의 기준선이다 — 최초 관찰은 기록만 하고,
+  // 이후 값이 달라졌을 때만 로그·서버 동기화가 돈다(마운트마다 헛 왕복이 생기지 않게).
+  const lastObservedStatusRef = useRef<AuthorizationStatus | null>(null);
   // A안(GROMO-942) — 측정 대상 변경이 '내일 적용'으로 예약돼 있으면 측정 대상 행에 배지로 표시.
   // 예약 적용일이 아직 미래(내일)일 때만 노출 — 자정에 승격되면 ScreenTimeSyncer가 마커를 지운다.
   const [pendingApply, setPendingApply] = useState(false);
+
+  // 권한 상태 변화 반영 — 감지 지점이 둘이라(포커스 재진입 · 앱 활성화) 한 곳에 모은다.
+  //
+  // 서버 동기화가 여기 있는 이유(코드리뷰 반영): 지금까지 서버 반영은 **허용 경로에만** 있었다
+  // (온보딩·권한 요청). 회수는 아무 데서도 보내지 않아, 권한을 끄고 돌아와도 서버의
+  // is_screen_time_permission_granted 는 true 로 남는다. 그 값을 GroupBetJoinService 의
+  // requireScreenTimePermission 이 신뢰하므로, **사용량을 보고할 수 없는 사용자가 SCREEN_TIME
+  // 내기에 참가비를 내고 들어갈 수 있다.** 돈이 걸린 자리라 감지 즉시 맞춘다.
+  //
+  // ⚠️ 이 화면이 떠 있는 동안의 변화만 잡는다. 화면 밖에서 회수하고 이 화면에 오지 않으면
+  //    여전히 어긋난 채로 남는다 — 그건 이 화면 혼자 못 메우는 구멍이라 별도 티켓으로 남긴다.
+  const reflectStatusChange = useCallback((st: AuthorizationStatus | null) => {
+    const sentToSettings = statusBeforeSettingsRef.current;
+    statusBeforeSettingsRef.current = null;
+    if (sentToSettings !== null && sentToSettings !== st) {
+      logScreenTimeSettingsChanged({
+        setting: 'permission',
+        setting_value: st === 'approved' ? 'granted' : 'denied',
+      });
+    }
+
+    const before = lastObservedStatusRef.current;
+    if (st === null || before === st) return;
+    lastObservedStatusRef.current = st;
+    if (before === null) return; // 최초 관찰 — 기준선만 세운다
+
+    // 서버 반영 실패는 조용히 무시하되 기준선을 되돌린다 — 다음 감지에서 다시 시도된다.
+    // (기기 권한 상태가 진실이라는 기존 규칙은 그대로 — HomeScreen 과 같은 처리다.)
+    updateScreenTimePermission({ granted: st === 'approved' }).catch(() => {
+      lastObservedStatusRef.current = before;
+    });
+  }, []);
 
   // 재진입마다 권한 상태·마지막 동기화 최신값 반영(iOS 설정에서 바꾸고 돌아올 수 있으므로).
   useFocusEffect(
@@ -79,13 +115,7 @@ export default function ScreenTimePermissionScreen() {
         .then((st) => {
           if (cancelled) return;
           setStatus(st);
-          if (statusBeforeSettingsRef.current !== null && statusBeforeSettingsRef.current !== st) {
-            logScreenTimeSettingsChanged({
-              setting: 'permission',
-              setting_value: st === 'approved' ? 'granted' : 'denied',
-            });
-          }
-          statusBeforeSettingsRef.current = null;
+          reflectStatusChange(st);
         })
         .catch(() => !cancelled && setStatus(null));
       AsyncStorage.getItem(STORAGE_KEYS.screentimeLastSyncedDate)
@@ -98,7 +128,7 @@ export default function ScreenTimePermissionScreen() {
       return () => {
         cancelled = true;
       };
-    }, []),
+    }, [reflectStatusChange]),
   );
 
   // iOS 설정(거부됨 카드 탭)을 다녀와도 이 화면은 포커스가 유지돼 위 useFocusEffect가 재실행되지
@@ -109,24 +139,13 @@ export default function ScreenTimePermissionScreen() {
       if (state !== 'active') return;
       ScreenTimeModule.getAuthorizationStatus()
         .then((st) => {
-          setStatus((previous) => {
-            if (
-              statusBeforeSettingsRef.current !== null &&
-              statusBeforeSettingsRef.current !== st
-            ) {
-              logScreenTimeSettingsChanged({
-                setting: 'permission',
-                setting_value: st === 'approved' ? 'granted' : 'denied',
-              });
-            }
-            statusBeforeSettingsRef.current = null;
-            return st ?? previous;
-          });
+          setStatus((previous) => st ?? previous);
+          reflectStatusChange(st);
         })
         .catch(() => {});
     });
     return () => sub.remove();
-  }, []);
+  }, [reflectStatusChange]);
 
   // notDetermined 상태 카드 탭 — 시스템 권한창 → 서버 반영 → 상태 재조회.
   // 허용되면 완료 알럿 없이 바로 앱 피커로 이어 측정 대상 설정까지 한 흐름으로 끝낸다(GROMO-978).
@@ -156,6 +175,19 @@ export default function ScreenTimePermissionScreen() {
     } finally {
       setRequesting(false);
     }
+  }
+
+  // 사용 정보 접근 목록으로 보낸다 — 못 열면 앱 상세 설정으로 폴백(코드리뷰 반영).
+  //
+  // 폴백이 필요한 경우: iOS · 구 안드로이드 바이너리(OTA로 새 JS만 받아 네이티브에 이 함수가
+  // 없다) · 설정 화면을 못 여는 기기. 폴백이 완전한 답은 아니지만(앱 상세엔 토글이 없다)
+  // 아무 일도 안 일어나는 것보다는 낫다 — 이 PR이 없애려는 건 '눌러도 무반응'이다.
+  function openUsageAccessOrAppSettings() {
+    ScreenTimeModule.openUsageAccessSettings()
+      .then((opened) => {
+        if (!opened) Linking.openSettings();
+      })
+      .catch(() => Linking.openSettings());
   }
 
   // 거부됨 상태 카드 탭(안드로이드) — 앱 상세 설정(Linking.openSettings)에선 Usage Access를
@@ -297,8 +329,18 @@ export default function ScreenTimePermissionScreen() {
   function onStatusCardPress() {
     if (status === 'notDetermined') {
       requestPermission();
-    } else if (status === 'approved') {
+    } else if (status === 'approved' && supportsAppSelection()) {
       editScreenTimeTargets();
+    } else if (status === 'approved') {
+      // 피커가 없는 플랫폼 — 허용 상태에서 탭할 곳이 피커뿐이라 그대로 두면 무반응이다.
+      // 권한을 끄고 싶을 때 갈 곳(사용 정보 접근)으로 보낸다(GROMO-1592).
+      //
+      // ⚠️ 여기서 Linking.openSettings()를 바로 부르면 안 된다(코드리뷰 반영). 그건 앱 상세
+      //    설정을 여는데 거기엔 사용 정보 접근 토글이 없다 — 162행 주석이 짚은 바로 그 문제다.
+      //    requestAuthorization도 못 쓴다: 이미 허용된 상태면 설정을 열지 않고 즉시 resolve한다.
+      //    그래서 상태와 무관하게 목록을 여는 전용 함수를 쓰고, 실패할 때만 앱 상세로 폴백한다.
+      statusBeforeSettingsRef.current = status;
+      openUsageAccessOrAppSettings();
     } else if (Platform.OS === 'android' && androidNativeModuleAvailable()) {
       reopenAndroidUsageAccess();
     } else {
@@ -340,21 +382,27 @@ export default function ScreenTimePermissionScreen() {
         <Ionicons name="chevron-forward" size={17} color={T.inkFaint} />
       </TouchableOpacity>
 
-      {/* 관리 — 측정 대상 앱 설정 (실제 조작 기능이라 접근 카드 바로 아래) */}
-      <SettingsSection title="관리">
-        <SettingsRow
-          icon="apps-outline"
-          iconColor={T.accent}
-          iconBg={T.accentBg}
-          label="측정 대상 앱 설정"
-          sub={
-            pendingApply ? '변경한 대상은 내일 0시부터 적용돼요' : '사용시간을 잴 앱·카테고리 선택'
-          }
-          value={pendingApply ? '내일 적용 예정' : undefined}
-          valueColor={T.accentDeep}
-          onPress={editScreenTimeTargets}
-        />
-      </SettingsSection>
+      {/* 관리 — 측정 대상 앱 설정 (실제 조작 기능이라 접근 카드 바로 아래).
+          피커가 없는 플랫폼에서는 섹션째 감춘다 — 행을 남기면 탭해도 아무 일이 없어
+          고장으로 보인다(GROMO-1592). 안드로이드는 전체 앱을 측정하므로 고를 대상도 없다. */}
+      {supportsAppSelection() ? (
+        <SettingsSection title="관리">
+          <SettingsRow
+            icon="apps-outline"
+            iconColor={T.accent}
+            iconBg={T.accentBg}
+            label="측정 대상 앱 설정"
+            sub={
+              pendingApply
+                ? '변경한 대상은 내일 0시부터 적용돼요'
+                : '사용시간을 잴 앱·카테고리 선택'
+            }
+            value={pendingApply ? '내일 적용 예정' : undefined}
+            valueColor={T.accentDeep}
+            onPress={editScreenTimeTargets}
+          />
+        </SettingsSection>
+      ) : null}
 
       {/* 남는 공간 밀어내기 — 아래 안내문들을 화면 하단에 정렬 */}
       <View style={s.flex1} />
@@ -377,8 +425,17 @@ export default function ScreenTimePermissionScreen() {
           <Ionicons name="lock-closed-outline" size={16} color={T.successInk} />
           <Text style={s.noteStrong}>기기에서만 처리 · 서버 미전송</Text>
         </View>
+        {/* 권한을 끄러 가는 곳은 OS마다 다르다 — 안드로이드에 'iOS 설정 앱'이라고 안내하면
+            찾아갈 수 없는 곳을 가리킨다(GROMO-1592).
+            ⚠️ Platform.select가 아니라 Platform.OS 비교인 이유: select는 번들 시점에 플랫폼별
+            구현이 박혀 테스트에서 OS를 바꿔도 분기가 따라오지 않는다(검증 불가). */}
         <Text style={s.noteBody}>
-          권한을 끄면 사용시간 통계가 멈춰요. iOS 설정 앱에서도 바꿀 수 있어요.
+          권한을 끄면 사용시간 통계가 멈춰요.{' '}
+          {Platform.OS === 'ios'
+            ? 'iOS 설정 앱에서도 바꿀 수 있어요.'
+            : Platform.OS === 'android'
+              ? '설정 → 사용 정보 접근에서도 바꿀 수 있어요.'
+              : '기기 설정에서도 바꿀 수 있어요.'}
         </Text>
       </View>
     </SettingsScaffold>
