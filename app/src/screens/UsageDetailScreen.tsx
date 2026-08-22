@@ -72,24 +72,33 @@ function AndroidUsageList() {
   const [rows, setRows] = useState<AppUsage[] | null>(null); // null = 로딩 중
   const [totalMinutes, setTotalMinutes] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
+  // 권한이 사라진 상태 — '기록이 없음'과 반드시 구분해야 한다(아래 주석 참고).
+  const [permissionLost, setPermissionLost] = useState(false);
   const insets = useSafeAreaInsets();
 
   const load = useCallback(async () => {
+    // ⚠️ 권한 상태를 **함께** 확인한다(코드리뷰 반영). 사용 정보 접근을 끄면 네이티브가
+    //    예외를 던지는 게 아니라 빈 배열과 0 을 돌려준다 — Promise 는 성공하고 catch 는 안
+    //    돌아서, 화면이 '0분 · 사용 기록이 없어요'로 바뀐다. 사용자는 오늘 아무 앱도 안 쓴
+    //    걸로 읽는다. 이 화면을 열어 둔 채 설정에서 권한을 끄고 돌아오면 바로 재현된다.
+    //
     // 총 사용시간은 홈 카드와 **같은 함수**로 받는다 — 목록 합으로 따로 계산하면 폴백 경로에서
     // "홈은 21분, 상세는 22분"처럼 갈린다. 대신 목록과의 차이는 아래 '그 외' 행이 메운다.
-    const [list, minutes] = await Promise.all([
+    const [status, list, minutes] = await Promise.all([
+      ScreenTimeModule.getAuthorizationStatus(),
       ScreenTimeModule.getUsageByApp(0),
       ScreenTimeModule.getTodayUsageBucketMinutes(),
     ]);
-    return { list, minutes };
+    return { status, list, minutes };
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     const run = () =>
       load()
-        .then(({ list, minutes }) => {
+        .then(({ status, list, minutes }) => {
           if (cancelled) return;
+          setPermissionLost(status !== 'approved');
           setRows(list);
           setTotalMinutes(minutes);
           setFailed(false);
@@ -114,6 +123,14 @@ function AndroidUsageList() {
   }, [load]);
 
   if (failed) return <Text style={s.empty}>사용 기록을 불러오지 못했어요</Text>;
+  // 권한이 빠진 상태를 '기록 없음'으로 그리면 화면이 거짓말을 한다 — 원인과 할 일을 알린다.
+  if (permissionLost) {
+    return (
+      <Text style={s.empty}>
+        사용 정보 접근 권한이 꺼져 있어요.{'\n'}설정에서 다시 켜면 사용 기록이 보여요.
+      </Text>
+    );
+  }
   if (rows === null) {
     return (
       <View style={s.loading}>
@@ -127,13 +144,16 @@ function AndroidUsageList() {
   // 들어가고 목록에는 대응 행이 없다. 그대로 두면 한 화면 안에서 "총 21분인데 더하면 18분"이
   // 된다. 차이를 '그 외' 한 행으로 드러내 합이 맞게 한다.
   //
-  // 총계는 네이티브에서 분 단위로 내림돼 오고 행은 초 단위라, 차이에 최대 59초의 오차가 있다.
-  // 그래서 1분 미만 차이는 표시하지 않는다 — 반올림 잡음을 행으로 만들면 그게 더 헷갈린다.
-  const listedSeconds = rows.reduce((sum, r) => sum + r.seconds, 0);
-  const otherSeconds = Math.max(0, (totalMinutes ?? 0) * 60 - listedSeconds);
+  // ⚠️ 차이는 **화면에 찍히는 단위**로 계산한다(코드리뷰 반영). 초 단위 합을 이미 내림된
+  //    총계에서 빼면 실제 차이가 1분을 넘어도 행이 안 생긴다:
+  //      보이는 앱 601초(→10분) + 안 보이는 앱 118초 = 719초 → 총계 11분(660초)
+  //      초로 빼면 660 - 601 = 59초 → 행 없음. 화면엔 총계 11분, 행 합 10분만 남는다.
+  //    행이 내림해 찍히므로 '내림한 분의 합'과 총계 분을 비교해야 눈에 보이는 숫자가 맞는다.
+  const listedMinutes = rows.reduce((sum, r) => sum + Math.floor(r.seconds / 60), 0);
+  const otherMinutes = Math.max(0, (totalMinutes ?? 0) - listedMinutes);
   const items: AppUsage[] =
-    otherSeconds >= 60
-      ? [...rows, { packageName: OTHER_ROW_KEY, label: '그 외', seconds: otherSeconds }]
+    otherMinutes >= 1
+      ? [...rows, { packageName: OTHER_ROW_KEY, label: '그 외', seconds: otherMinutes * 60 }]
       : rows;
 
   return (
@@ -148,7 +168,7 @@ function AndroidUsageList() {
       // 내비게이션 바 아래로 들어가 안 보인다.
       contentContainerStyle={[s.usageScroll, { paddingBottom: 16 + insets.bottom }]}
       ListHeaderComponent={
-        <>
+        <View style={s.listHeader}>
           {/* 총 사용시간 카드 — iOS와 같은 문구·위계 */}
           <View style={s.totalCard}>
             <Text style={s.totalLabel}>오늘 총 사용시간</Text>
@@ -156,7 +176,7 @@ function AndroidUsageList() {
           </View>
           <Text style={s.sectionHeader}>앱별 사용시간</Text>
           {items.length === 0 ? <Text style={s.emptyInline}>사용 기록이 없어요</Text> : null}
-        </>
+        </View>
       }
       ItemSeparatorComponent={() => <View style={s.rowDivider} />}
       renderItem={({ item, index }) => (
@@ -252,7 +272,12 @@ const s = StyleSheet.create({
 
   // 아래 치수는 iOS TotalActivityView.swift 값을 그대로 옮긴 것이다 — 한쪽만 고치면 두 플랫폼
   // 화면이 조용히 갈라진다. 바꿀 땐 Swift 쪽도 같이 볼 것.
-  usageScroll: { padding: 16, gap: 18 },
+  // ⚠️ 여기에 gap 을 주면 안 된다(코드리뷰 반영). contentContainerStyle 의 gap 은 헤더뿐
+  //    아니라 **FlatList 의 셀 사이에도** 붙어서, ItemSeparatorComponent 위에 18px 이 더
+  //    끼어든다. 첫/마지막 행에만 모서리를 준 카드가 중간이 떨어진 각진 블록으로 보인다.
+  //    섹션 간 간격은 헤더 안에서 준다.
+  usageScroll: { padding: 16 },
+  listHeader: { gap: 18, paddingBottom: 18 },
   totalCard: {
     backgroundColor: T.white,
     borderRadius: 18,

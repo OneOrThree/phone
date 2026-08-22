@@ -90,19 +90,17 @@ internal object UsageSessionCalculator {
     // 미매칭 종료를 본 구간 — 재구성 결과는 **부분합**이다(잃은 세션 존재 확정). 합계 쪽이
     // maxOf(재구성, 폴백)을 쓰는 것과 같은 판정을 앱별에도 적용한다(코드리뷰 반영).
     //
-    // 앱별은 스칼라가 아니라 맵이라 '패키지별로' max 를 잡는다. 이걸 안 하면 룩백보다 먼저
-    // 시작해 구간 안에서 끝난 앱이 **목록에서 통째로 빠지는데**, 그 시간은 합계에는 들어 있다
-    // — "총 2시간인데 목록을 더하면 40분"이 된다. byPackage 가 비었을 때만 폴백하던 아래
-    // 조건으로는 다른 앱이 하나라도 재구성되면 이 경우를 못 잡는다.
+    // ⚠️ **맵을 통째로 고른다. 패키지별 max 로 섞지 않는다.**
+    //    합계는 max(sum(재구성), sum(폴백)) 인데 패키지별로 섞으면 그 값을 넘을 수 있다:
+    //      재구성 A=20분 / 폴백 A=15분·B=10분 → 합계 25분, 섞은 맵 A=20·B=10 = 30분.
+    //    화면은 "총계 - 목록합"으로 '그 외'를 계산하므로 목록이 총계보다 크면 음수가 되고,
+    //    클램프로도 복구되지 않는다(첫 시도에서 실제로 이렇게 짰다가 잡혔다).
+    //    맵을 통째로 고르면 합이 두 후보 중 하나와 정확히 같아져 합계와 어긋나지 않는다.
     if (scan.sawUnmatchedTerminalInRange) {
       val fallback = dailyStatsFallbackByPackage(usageStatsManager, selection, begin, end)
-      if (fallback.isEmpty()) return scan.byPackage
-      val merged = HashMap<String, Long>(scan.byPackage)
-      for ((pkg, ms) in fallback) {
-        val reconstructed = merged[pkg] ?: 0L
-        if (ms > reconstructed) merged[pkg] = ms
-      }
-      return merged
+      val reconstructedSum = scan.byPackage.values.sum()
+      val fallbackSum = fallback.values.sum()
+      return if (fallbackSum > reconstructedSum) fallback else scan.byPackage
     }
 
     // 엣지 4 — 구간 안에 라이프사이클 이벤트가 아예 없으면 재구성 불가로 보고 근사 폴백.

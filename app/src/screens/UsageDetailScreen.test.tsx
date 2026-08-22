@@ -30,6 +30,7 @@ jest.mock('@/services/ScreenTimeModule', () => ({
   default: {
     getUsageByApp: jest.fn(),
     getTodayUsageBucketMinutes: jest.fn(),
+    getAuthorizationStatus: jest.fn(),
     getAppIcon: jest.fn(),
   },
 }));
@@ -54,6 +55,7 @@ beforeEach(() => {
   setPlatform('android');
   mockGetUsageByApp.mockResolvedValue([]);
   (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(0);
+  (ScreenTimeModule.getAuthorizationStatus as jest.Mock).mockResolvedValue('approved');
   (ScreenTimeModule.getAppIcon as jest.Mock).mockResolvedValue(null);
 });
 
@@ -175,4 +177,51 @@ test('앱 복귀 시 사용 내역을 다시 조회한다', async () => {
   });
 
   expect(mockGetUsageByApp).toHaveBeenCalledTimes(2);
+});
+
+// 표시 단위 정합 · 권한 상실 구분 — GROMO-1608 코드리뷰 2차.
+describe('화면에 찍히는 숫자가 서로 맞는다', () => {
+  // 초 단위로 빼면 실제 차이가 1분을 넘어도 행이 안 생긴다: 601초(→10분) + 118초 = 719초,
+  // 총계 11분(660초). 660-601=59초라 행이 없고, 화면엔 총계 11분·행 합 10분만 남는다.
+  test('내림 오차가 있어도 총계와 행 합이 맞는다', async () => {
+    mockGetUsageByApp.mockResolvedValue([{ packageName: 'com.a', label: '에이', seconds: 601 }]);
+    (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(11);
+
+    await renderScreen();
+
+    // 앱 행 10분 + 그 외 1분 = 총계 11분
+    expect(screen.getByText('그 외')).toBeOnTheScreen();
+    expect(screen.getAllByText('1분')).toHaveLength(1);
+    expect(screen.getByText('10분')).toBeOnTheScreen();
+  });
+});
+
+// 사용 정보 접근을 끄면 네이티브가 예외가 아니라 빈 배열·0 을 준다 — Promise 는 성공한다.
+// 그대로 그리면 '오늘 아무 앱도 안 썼다'로 읽혀서 화면이 거짓말을 한다.
+describe('권한 상실을 기록 없음과 구분한다', () => {
+  test('권한이 꺼져 있으면 권한 안내를 보여준다', async () => {
+    (ScreenTimeModule.getAuthorizationStatus as jest.Mock).mockResolvedValue('denied');
+    mockGetUsageByApp.mockResolvedValue([]);
+    (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(0);
+
+    await renderScreen();
+
+    expect(screen.getByText(/사용 정보 접근 권한이 꺼져 있어요/)).toBeOnTheScreen();
+    expect(screen.queryByText('사용 기록이 없어요')).toBeNull();
+  });
+
+  // 화면을 연 채 설정에서 권한을 끄고 돌아오는 경로 — 재조회가 이걸 잡아야 한다.
+  test('복귀 재조회에서 권한이 사라졌으면 안내로 바뀐다', async () => {
+    await renderScreen();
+    expect(screen.getByText('사용 기록이 없어요')).toBeOnTheScreen();
+
+    (ScreenTimeModule.getAuthorizationStatus as jest.Mock).mockResolvedValue('denied');
+    const calls = (AppState.addEventListener as jest.Mock).mock.calls;
+    const handler = calls[calls.length - 1][1] as (s: string) => void;
+    await act(async () => {
+      handler('active');
+    });
+
+    expect(screen.getByText(/사용 정보 접근 권한이 꺼져 있어요/)).toBeOnTheScreen();
+  });
 });
