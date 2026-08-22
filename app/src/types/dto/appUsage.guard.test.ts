@@ -19,7 +19,7 @@
 //
 // 셋 다 끝났다면 이 파일을 지우고 전송을 배선한다. 하나라도 안 됐으면 지우면 안 된다.
 import { readdirSync, readFileSync, statSync } from 'fs';
-import { join } from 'path';
+import { join, sep } from 'path';
 
 const SRC = join(__dirname, '..', '..');
 
@@ -34,12 +34,42 @@ function walk(dir: string): string[] {
   });
 }
 
+/**
+ * 주석을 걷어낸 소스. 주석 안의 언급은 배선이 아니다(코드리뷰 반영).
+ *
+ * 이 파일 자신이 "주석에서 이름을 언급하는 건 배선이 아니다"라고 적어 놓고, 정작 원문 전체에
+ * 정규식을 돌려 **주석까지 잡고 있었다.** 이 가드를 설명하는 문서 주석 하나로 CI 가 빨개진다.
+ *
+ * 문자열 리터럴은 걷어내지 않는다 — import 경로 자체가 문자열이라 같이 지우면 검사가 사라진다.
+ * 정규식 리터럴(`/.../`)도 건드리지 않는다: 나눗셈과 구분하려면 진짜 파서가 필요한데, 여기서
+ * 노리는 건 '실수로 배선하는 것'이지 '적극적으로 숨기는 것'이 아니다.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
+function sources(): { rel: string; code: string }[] {
+  return walk(SRC)
+    .filter((f) => !ALLOWED.some((a) => f.endsWith(a.split('/').join(sep))))
+    .map((f) => ({ rel: f.slice(SRC.length + 1), code: stripComments(readFileSync(f, 'utf8')) }));
+}
+
 test('앱별 사용 시간 DTO는 아직 어디에서도 쓰이지 않는다 (서버 미전송 고지 보호)', () => {
-  const offenders = walk(SRC)
-    .filter((f) => !ALLOWED.some((a) => f.endsWith(a.split('/').join(require('path').sep))))
-    // import 경로만 본다 — 주석에서 이름을 언급하는 건(이 가드를 설명하는 문서 등) 배선이 아니다.
-    .filter((f) => /from\s+['"][^'"]*dto\/appUsage['"]/.test(readFileSync(f, 'utf8')))
-    .map((f) => f.slice(SRC.length + 1));
+  const offenders = sources()
+    .filter(({ code }) => /from\s+['"][^'"]*dto\/appUsage['"]/.test(code))
+    .map(({ rel }) => rel);
+
+  expect(offenders).toEqual([]);
+});
+
+// DTO 를 안 가져와도 배선은 된다(코드리뷰 반영). 이 저장소엔 본문 객체를 인라인으로 넘기는
+// axios 호출이 이미 많아서, `api.post('/screen-time/app-usage', { entries: [...] })` 한 줄이면
+// 위 검사를 그대로 통과한 채 전송이 시작된다. **막으려는 건 타입 사용이 아니라 전송 자체**이므로
+// 엔드포인트 경로도 함께 잠근다.
+test('앱별 사용 시간 엔드포인트를 호출하는 코드가 없다 (서버 미전송 고지 보호)', () => {
+  const offenders = sources()
+    .filter(({ code }) => /['"`][^'"`]*screen-time\/app-usage/.test(code))
+    .map(({ rel }) => rel);
 
   expect(offenders).toEqual([]);
 });
