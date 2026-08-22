@@ -462,6 +462,30 @@ export function createFocusSessionEngine(
     liveStartPromise = Promise.resolve(null);
     // 서버 업로드 — 이번 집중 블록 구간만. 실패 시 대기열에 남겨 재시도(GROMO-614) —
     // 로컬 적립은 이미 반영돼 그냥 버리면 서버와 불일치.
+    // ⚠️ **네트워크를 기다리기 전에** 복구 가능한 intent를 먼저 남긴다. 이 시점엔 이미
+    // 라이브 레코드·v1을 지우고 로컬 적립까지 끝냈으므로, 태그 해석과 마커 응답을 기다리는
+    // 동안 OS가 프로세스를 종료하면 업로드·대기열·저널 어디에도 바디가 없어 서버 통계와
+    // 코인이 영구 유실된다. 정산에 필요한 값(모드·구간·방해·날짜)은 여기서 이미 다 있다 —
+    // 태그·마커 id만 미정이라 그 둘은 아래에서 완성본으로 교체한다(같은 intentId = upsert).
+    const intentId = `${sessionKey}-${startedAt}`;
+    const baseBody = {
+      focusTagId: null as string | null,
+      subject: subjectName,
+      startedAt,
+      endedAt,
+      distractionCount,
+      totalDistractionSeconds,
+      focusType: FOCUS_TYPE_BY_MODE[config.mode],
+      focusSecondsByDate,
+    };
+    recordSettleIntent({
+      intentId,
+      sessionKey,
+      serverSessionId: null,
+      body: baseBody,
+      userId,
+      createdAt: new Date().toISOString(),
+    });
     Promise.all([
       ensureFocusTagId(subjectName, userId).catch(() => null),
       livePromise.catch(() => null),
@@ -486,8 +510,9 @@ export function createFocusSessionEngine(
         // 정산 의도 기록(D1) — 업로드 착수 **전에** 남긴다. 결과가 failed(대기열 저장까지
         // 실패)면 이 intent가 유일한 재시도 근거로 남아 다음 부팅 recover가 재업로드한다 —
         // 종전엔 레코드를 먼저 지워 이 경우 블록이 영구 유실됐다(특성화 :839 「알려진 유실 공백」).
+        // 태그·마커가 풀렸으니 완성본으로 교체(같은 intentId — upsert)
         const intent: SettleIntent = {
-          intentId: `${sessionKey}-${startedAt}`,
+          intentId,
           sessionKey,
           serverSessionId: sessionId,
           body,
@@ -692,7 +717,7 @@ export function createFocusSessionEngine(
       if (detached) return;
       await journalStartIntent(sessionKey); // ⓪ 실드 적용 전에 의도를 기록
       if (detached) {
-        journalClearSession();
+        journalClearSession(sessionKey);
         return;
       }
       this.applyShield(subjectName); // ① fire-and-forget — 성패는 shielded로 관찰
@@ -700,7 +725,14 @@ export function createFocusSessionEngine(
       // 흔적 쓰기는 **await한다** — 늦게 착지하면 그 사이에 도는 복구(사일런트 푸시·복귀)가
       // 흔적을 못 봐 살아 있는 세션을 크래시로 오인하고 실드를 푼다. 유예(STARTING_GRACE_MS)가
       // 최후 방어지만 창 자체를 좁히는 게 먼저다.
-      await writePersistedSessionV1(buildV1(0, new Date().toISOString()));
+      // 흔적 쓰기가 **실패하면 시작을 성립시키지 않는다.** 삼키고 active로 넘어가면 첫 5초
+      // 저장 전에 죽었을 때 v1·legacy 어디에도 기록이 없는데 저널은 active라, 부팅 복구가
+      // 손대지 않아 세션 시간이 통째로 유실된다.
+      const traceWritten = await writePersistedSessionV1(buildV1(0, new Date().toISOString()));
+      if (!traceWritten) {
+        this.abortStart();
+        return;
+      }
       if (detached) {
         this.abortStart();
         return;
@@ -717,7 +749,7 @@ export function createFocusSessionEngine(
     /** 시작 도중 이탈이 확인됐을 때의 회수 — 켠 실드를 되돌리고 시작 의도를 지운다. */
     abortStart() {
       this.releaseShield();
-      journalClearSession();
+      journalClearSession(sessionKey);
     },
 
     // 세션 실드 — 시작 시 허용앱 외 전부 차단. 과목 변경 시엔 stop 없이 start만 다시

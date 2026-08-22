@@ -7,7 +7,8 @@ import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { useUser } from '@/store/UserContext';
 import { todayOverlapSeconds, todayStr } from '@/utils/localDate';
-import type { LiveFocusSession } from './types';
+import type { FocusTimerMode, LiveFocusSession } from './types';
+import type { FocusType } from '@/types/dto/focus';
 import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker } from './pendingMarkerCancels';
 import { ensureFocusTagId } from './tagSync';
@@ -44,6 +45,13 @@ async function syncLegacySettledMarker(userId: string | null): Promise<void> {
     // 마커 동기화 실패는 정산을 막지 않는다 — 롤백이 겹쳐야 드러나는 이중 적립 방어일 뿐이다.
   }
 }
+
+// 타이머 모드 → 서버 FocusType(GROMO-733) — 세션 화면의 매핑과 같은 값이어야 한다.
+const FOCUS_TYPE_BY_ORPHAN_MODE: Record<FocusTimerMode, FocusType> = {
+  countup: 'INFINITE',
+  countdown: 'RANGE',
+  pomodoro: 'POMODORO',
+};
 
 export function OrphanFocusSettler() {
   const { addFocusSeconds, ready: focusReady } = useFocus();
@@ -107,6 +115,9 @@ export function OrphanFocusSettler() {
             endedAt: settlement.endedAt,
             distractionCount: settlement.distractionCount,
             totalDistractionSeconds: settlement.totalDistractionSeconds,
+            // 모드를 알면서 안 실으면 서버 기본값(INFINITE)으로 저장돼 유형별 통계가 오염된다.
+            // v1 레코드에는 mode가 있으므로 정상 정산과 같은 매핑을 쓴다(legacy엔 없어 못 싣는다).
+            focusType: FOCUS_TYPE_BY_ORPHAN_MODE[v1.mode],
             focusSecondsByDate: settlement.focusSecondsByDate,
           },
           userId,

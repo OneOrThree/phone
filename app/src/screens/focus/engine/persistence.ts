@@ -50,12 +50,14 @@ export interface PersistedFocusSessionV1 {
 }
 
 /**
- * 프라미스를 돌려준다 — 5초 주기 저장은 그냥 흘려보내도 되지만, **시작의 커밋 흔적만은
- * 호출부가 await한다**(FocusSessionEngine.start). 흔적이 늦게 착지하면 그 사이에 도는
- * 복구가 살아 있는 세션을 크래시로 오인해 실드를 푼다.
+ * **성공 여부**를 돌려준다 — 5초 주기 저장은 결과를 흘려보내도 되지만, 시작의 커밋 흔적은
+ * 호출부(FocusSessionEngine.start)가 await하고 **실패를 관찰해야 한다.** 삼키면 흔적 없이
+ * 저널만 active가 되어, 첫 주기 저장 전에 죽으면 부팅 복구가 손대지 않아 시간이 유실된다.
  */
-export function writePersistedSessionV1(rec: PersistedFocusSessionV1): Promise<void> {
-  return AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(rec)).catch(() => {});
+export function writePersistedSessionV1(rec: PersistedFocusSessionV1): Promise<boolean> {
+  return AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(rec))
+    .then(() => true)
+    .catch(() => false);
 }
 
 export async function readPersistedSessionV1(): Promise<PersistedFocusSessionV1 | null> {

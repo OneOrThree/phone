@@ -122,9 +122,18 @@ export function journalSetServerSessionId(sessionKey: string, id: string | null)
   });
 }
 
-/** finish·실패 복구 — 세션 항목만 소거(잔여 settle intent는 그대로 재생 대상) */
-export function journalClearSession(): Promise<void> {
-  return mutate((j) => ({ ...j, session: null }));
+/**
+ * finish·실패 복구 — 세션 항목만 소거(잔여 settle intent는 그대로 재생 대상).
+ *
+ * `sessionKey`를 주면 **그 세션일 때만** 지운다. 이전 화면의 시작 정리가 뒤늦게 도착하는
+ * 사이에 새 세션이 이미 `starting`을 기록했을 수 있는데, 무조건 지우면 새 시작의 저널이
+ * 사라져 실드 적용 직후 크래시를 복구할 근거가 없어진다(직렬화 체인에서 순서가 뒤집힌다).
+ */
+export function journalClearSession(sessionKey?: string): Promise<void> {
+  return mutate((j) => {
+    if (sessionKey != null && j.session?.sessionKey !== sessionKey) return null;
+    return { ...j, session: null };
+  });
 }
 
 /**
@@ -136,7 +145,11 @@ export function journalClearSession(): Promise<void> {
 export function recordSettleIntent(intent: SettleIntent): Promise<void> {
   return mutate((j) => ({
     ...j,
-    settles: [...j.settles, intent].slice(-MAX_SETTLES),
+    // 같은 intentId면 **교체**한다 — 정산은 네트워크 대기 전에 먼저 기록하고(그 사이에
+    // 죽으면 바디가 어디에도 없다), 태그·마커가 풀린 뒤 완성본으로 다시 부른다.
+    settles: [...j.settles.filter((it) => it.intentId !== intent.intentId), intent].slice(
+      -MAX_SETTLES,
+    ),
   }));
 }
 

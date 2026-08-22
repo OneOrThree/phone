@@ -132,6 +132,19 @@ test('v1 레코드가 있으면 legacy 대신 v1로 정산한다 — 방해초 �
   expect(await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession)).toBeNull();
 });
 
+test('v1 고아 정산도 원래 focusType을 싣는다 — 미지정이면 서버 기본값(INFINITE)으로 오염된다', async () => {
+  // 마커가 없거나 종료 시각이 4분을 넘겨 POST 폴백을 타면, focusType 미지정 세션이 전부
+  // INFINITE로 저장돼 유형별 통계가 오염된다(codex 리뷰 #694). v1엔 mode가 있으니 실을 수 있다.
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.focusSessionV1,
+    JSON.stringify({ ...V1_RECORD, mode: 'pomodoro' }),
+  );
+  mockUpload.mockResolvedValue({ status: 'saved', response: {} as never });
+  await renderSettler();
+
+  expect(mockUpload.mock.calls[0][0].body).toMatchObject({ focusType: 'POMODORO' });
+});
+
 test('v1 소유자 불일치: 정산 없이 v1·legacy 둘 다 폐기한다', async () => {
   await AsyncStorage.setItem(
     STORAGE_KEYS.focusSessionV1,

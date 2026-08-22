@@ -13,6 +13,7 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { createFocusSessionEngine, type FocusEngineDeps } from './FocusSessionEngine';
 import { readPersistedSessionV1, reconstructSessionFromV1 } from './persistence';
 import { readJournal } from './journal';
+import { ensureFocusTagId } from '../tagSync';
 import type { SessionMachineConfig } from './machine';
 
 jest.mock('@/services/ScreenTimeModule', () => ({
@@ -85,7 +86,7 @@ const makeDeps = (): FocusEngineDeps => ({
 // await라, 마이크로태스크를 넉넉히 흘려야 업로드 목까지 도달한다(얕게 흘리면 「호출 0회」로
 // 보인다 — 저널 도입 때 실제로 물렸다).
 const flush = async () => {
-  for (let i = 0; i < 24; i++) await Promise.resolve();
+  for (let i = 0; i < 80; i++) await Promise.resolve();
 };
 
 async function advance(ms: number) {
@@ -310,6 +311,59 @@ test('시작 도중 이탈: 남은 단계를 중단하고 켠 실드를 회수�
   expect(ScreenTimeModule.startFocusShield).not.toHaveBeenCalled();
   // 시작 의도도 저널에 남기지 않는다 — 다음 부팅 복구가 헛돌지 않게
   expect((await readJournal()).session).toBeNull();
+});
+
+test('정산 intent를 네트워크 대기 **전에** 남긴다 — 태그·마커 응답을 기다리다 죽어도 복구된다', async () => {
+  // 이 시점엔 이미 레코드를 지우고 로컬 적립까지 끝났다. 태그 해석·마커 응답을 기다리는 동안
+  // OS가 프로세스를 종료하면 업로드·대기열·저널 어디에도 바디가 없어 영구 유실된다(codex #694).
+  let resolveTag: (v: string) => void = () => {};
+  (ensureFocusTagId as jest.Mock).mockImplementationOnce(
+    () => new Promise<string>((r) => { resolveTag = r; }),
+  );
+  const engine = createFocusSessionEngine(countupConfig, makeDeps());
+  await engine.start('수학');
+  engine.startTicking();
+  await advance(5000);
+  await engine.finish(true);
+  await flush();
+
+  // 태그가 아직 안 풀렸는데도 intent는 이미 저널에 있다 — 바디에 모드·구간·방해·날짜가 실렸다
+  const pending = await readJournal();
+  expect(pending.settles).toHaveLength(1);
+  expect(pending.settles[0].body).toMatchObject({
+    subject: '수학',
+    focusType: 'INFINITE',
+    focusTagId: null, // 아직 미해석 — 완성본으로 교체된다
+  });
+  expect(mockedUpload).not.toHaveBeenCalled(); // 아직 네트워크 대기 중
+
+  resolveTag('tag-1');
+  await flush();
+  // 완성본으로 교체(upsert) — 같은 intentId라 늘어나지 않는다
+  const after = await readJournal();
+  expect(after.settles.length).toBeLessThanOrEqual(1);
+  expect(mockedUpload).toHaveBeenCalledTimes(1);
+  engine.stopTicking();
+});
+
+test('커밋 흔적 쓰기가 실패하면 시작을 성립시키지 않는다 — 실드 회수', async () => {
+  // 삼키고 active로 넘어가면 첫 5초 저장 전에 죽었을 때 기록이 어디에도 없는데 저널만
+  // active라, 부팅 복구가 손대지 않아 세션 시간이 통째로 유실된다(codex #694).
+  const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+  const real = setItem.getMockImplementation();
+  // **v1 키만** 실패시킨다 — 첫 setItem은 저널 write-ahead라 그걸 잡으면 다른 경로를 본다.
+  setItem.mockImplementation((key: string, value: string) =>
+    key === STORAGE_KEYS.focusSessionV1
+      ? Promise.reject(new Error('disk full'))
+      : (real?.(key, value) ?? Promise.resolve()),
+  );
+  const engine = createFocusSessionEngine(countupConfig, makeDeps());
+  await engine.start('수학');
+  await flush();
+  setItem.mockImplementation(real ?? (() => Promise.resolve()));
+
+  expect(mockedStartMarker).not.toHaveBeenCalled(); // 마커를 열지 않는다
+  expect(ScreenTimeModule.stopFocusShield).toHaveBeenCalled(); // 켠 실드는 회수
 });
 
 test('경과 0의 finish: 정산 없이 마커 취소로 닫는다', async () => {
