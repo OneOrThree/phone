@@ -85,23 +85,27 @@ public enum WatchCommandVerdict: String {
 /// 아웃박스를 비우는데 엔진은 실행에 필요한 값이 없어 요청이 통째로 유실된다.
 public enum WatchCommandSchema {
     public static func isValid(_ raw: [String: Any]) -> Bool {
+        // 시각은 **파싱 가능한 ISO 8601**이어야 한다 — 비어 있지만 않으면 통과시키면
+        // `not-a-date` 같은 값이 적재되고, JS의 만료 검사는 파싱 실패를 「만료 아님」으로
+        // 보므로 그 명령이 사실상 무기한 유효해진다(늦은 start가 세션·실드를 켠다).
         guard
             let type = raw["type"] as? String,
-            nonEmpty(raw["issuedAt"])
+            isISO8601(raw["issuedAt"])
         else { return false }
         switch type {
         case "start":
+            // 아래 expiresAt들도 같은 이유로 파싱 가능성까지 본다.
             // 만료가 필수다 — JS 콜드 스타트가 늦으면 워치가 이미 실패로 표시한 뒤 폰이 세션을
             // 켜는 「유령 시작」이 생긴다(§4.3). accountId·과목 목록 revision도 §4.3의 요구:
             // 없으면 라우터가 계정 전환·낡은 목록 발 시작을 판별할 입력 자체가 없다(R5).
-            return nonEmpty(raw["expiresAt"])
+            return isISO8601(raw["expiresAt"])
                 && nonEmpty(raw["subjectId"])
                 && nonEmpty(raw["accountId"])
                 && raw["subjectsRevision"] is Int
         case "pause", "resume":
             // 만료 폐기 대상 — expectedRevision은 명령의 나이를 제한하지 못하므로 **둘 다** 필요하다:
             // expiresAt은 나이를, expectedRevision은 다른 조작과의 충돌을 본다(§4.3).
-            return nonEmpty(raw["expiresAt"])
+            return isISO8601(raw["expiresAt"])
                 && nonEmpty(raw["focusSessionId"])
                 && raw["expectedRevision"] is Int
         case "end":
@@ -115,5 +119,14 @@ public enum WatchCommandSchema {
     private static func nonEmpty(_ value: Any?) -> Bool {
         guard let s = value as? String else { return false }
         return !s.isEmpty
+    }
+
+    /// ISO 8601로 실제 파싱되는지 — 소수 초 유무 둘 다 받는다.
+    public static func isISO8601(_ value: Any?) -> Bool {
+        guard let s = value as? String, !s.isEmpty else { return false }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if withFraction.date(from: s) != nil { return true }
+        return ISO8601DateFormatter().date(from: s) != nil
     }
 }

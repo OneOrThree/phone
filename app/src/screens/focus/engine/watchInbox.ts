@@ -98,7 +98,7 @@ function parse(json: string): ParseResult {
  */
 export async function ackWatchCommands(commandIds: string[]): Promise<void> {
   const native = nativeModule();
-  if (typeof native?.ackWatchCommands !== 'function' || commandIds.length === 0) return;
+  if (typeof native?.ackWatchCommands !== 'function') return;
   await native.ackWatchCommands(commandIds).catch(() => {});
 }
 
@@ -116,9 +116,12 @@ export async function drainWatchCommands(): Promise<DrainedWatchCommand[]> {
   const raw = await native.drainWatchCommands().catch(() => [] as string[]);
   if (raw.length === 0) return [];
 
-  const killSwitched =
+  // 3-상태다: true(차단) / false(해제) / null(조회 실패). **실패를 「해제」로 추정하지
+  // 않는다** — 사고 대응 중 새로 차단돼야 할 start가 라우터로 흘러갈 수 있다. 대신 start만
+  // 보류(claimed 보존)해 다음 드레인에서 재평가한다. 명령을 잃지는 않는다.
+  const killSwitched: boolean | null =
     typeof native.getWatchKillSwitch === 'function'
-      ? await native.getWatchKillSwitch().catch(() => false)
+      ? await native.getWatchKillSwitch().catch(() => null)
       : false;
 
   const usable: DrainedWatchCommand[] = [];
@@ -126,12 +129,16 @@ export async function drainWatchCommands(): Promise<DrainedWatchCommand[]> {
   // 남아 킬스위치가 꺼진 뒤 차단했던 start가 뒤늦게 배달된다. 반대로 **보존해야 하는 것을
   // ack하면 영구 유실**이라(버전 불일치), 두 부류를 엄격히 가른다.
   const discarded: string[] = [];
+  // commandId를 못 건진 깨진 레코드가 있으면, 지목할 id가 없어도 네이티브 청소를 태워야
+  // 한다 — 안 그러면 claimed에 영구 잔존하며 매 기동마다 드레인된다.
+  let hasUnidentifiable = false;
   const now = Date.now();
   raw.forEach((json) => {
     const result = parse(json);
     if (result.kind === 'versionMismatch') return; // 보존 — ack하지 않는다
     if (result.kind === 'malformed') {
       if (result.commandId) discarded.push(result.commandId);
+      else hasUnidentifiable = true;
       return;
     }
     const cmd = result.command;
@@ -143,12 +150,15 @@ export async function drainWatchCommands(): Promise<DrainedWatchCommand[]> {
     }
     // 킬스위치는 **신규 시작만** 막는다(R16 3차 개정) — end/pause/resume까지 막으면
     // 워치 아웃박스의 종료가 갇혀 폰 세션·실드를 닫을 길이 사라진다.
-    if (killSwitched && cmd.type === 'start') {
-      discarded.push(cmd.commandId);
-      return;
+    if (cmd.type === 'start') {
+      if (killSwitched === true) {
+        discarded.push(cmd.commandId); // 차단 확정 — 확정 폐기
+        return;
+      }
+      if (killSwitched === null) return; // 판정 불가 — 보류(보존), 다음 드레인에서 재평가
     }
     usable.push(cmd);
   });
-  await ackWatchCommands(discarded);
+  if (discarded.length > 0 || hasUnidentifiable) await ackWatchCommands(discarded);
   return usable;
 }

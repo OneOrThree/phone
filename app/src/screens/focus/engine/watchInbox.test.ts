@@ -120,13 +120,35 @@ test('드레인이 실패해도 던지지 않는다 — 부팅 복구를 막지 
   await expect(drainWatchCommands()).resolves.toEqual([]);
 });
 
-test('킬스위치 조회가 실패하면 차단 없이 진행한다 — 조회 실패로 명령을 잃지 않는다', async () => {
+test('킬스위치 조회 실패: start는 보류(보존)하고 나머지는 통과 — 「해제」로 추정하지 않는다', async () => {
+  // 1라운드엔 fail-open(차단 없이 진행)으로 고정했지만, 사고 대응 중 새로 차단돼야 할
+  // start가 라우터로 흘러갈 수 있다는 지적이 맞다(codex 5차). 보류해도 명령은 claimed에
+  // 남아 다음 드레인에서 재평가되므로 잃지 않는다.
+  const ackFn = jest.fn(() => Promise.resolve());
   setNative({
-    drainWatchCommands: jest.fn(() => Promise.resolve([cmd()])),
+    drainWatchCommands: jest.fn(() =>
+      Promise.resolve([cmd({ commandId: 's1', type: 'start' }), cmd({ commandId: 'e1', type: 'end' })]),
+    ),
     getWatchKillSwitch: jest.fn(() => Promise.reject(new Error('no group'))),
+    ackWatchCommands: ackFn,
   });
   const out = await drainWatchCommands();
-  expect(out.map((c) => c.commandId)).toEqual(['c1']);
+  expect(out.map((c) => c.commandId)).toEqual(['e1']); // start만 보류
+  expect(ackFn).not.toHaveBeenCalled(); // 폐기가 아니다 — 보존된다
+});
+
+test('식별 불가 깨진 레코드가 있으면 id가 없어도 네이티브 청소를 태운다', async () => {
+  // 지목할 id가 없다고 ack를 건너뛰면 claimed에 영구 잔존하며 매 기동마다 드레인된다
+  // (codex 5차 — 혼합 입력 테스트가 다른 id 덕에 문제를 가리고 있었다).
+  const ackFn = jest.fn(() => Promise.resolve());
+  setNative({
+    drainWatchCommands: jest.fn(() => Promise.resolve(['{not json', '{"type":"end"}'])),
+    getWatchKillSwitch: jest.fn(() => Promise.resolve(false)),
+    ackWatchCommands: ackFn,
+  });
+  const out = await drainWatchCommands();
+  expect(out).toEqual([]);
+  expect(ackFn).toHaveBeenCalledWith([]); // 빈 배열이어도 호출 — 네이티브 필터가 잔재를 청소
 });
 
 test('ack: 처리 확인한 명령 id만 네이티브에 넘긴다 — 확인 전까지 재배달 대상으로 남는다', async () => {
@@ -138,11 +160,13 @@ test('ack: 처리 확인한 명령 id만 네이티브에 넘긴다 — 확인 �
   expect(ackFn).toHaveBeenCalledWith(['c1', 'c2']);
 });
 
-test('ack: 빈 배열·구 바이너리는 호출하지 않는다', async () => {
+test('ack: 빈 배열도 네이티브에 넘긴다(잔재 청소) — 구 바이너리만 no-op', async () => {
+  // 빈 호출에서 조기 반환하면 commandId를 못 건지는 깨진 레코드가 claimed에 영구 잔존한다
+  // (codex 5차). 네이티브 ack의 필터가 그 잔재를 함께 청소한다.
   const ackFn = jest.fn(() => Promise.resolve());
   setNative({ ackWatchCommands: ackFn });
   await ackWatchCommands([]);
-  expect(ackFn).not.toHaveBeenCalled();
+  expect(ackFn).toHaveBeenCalledWith([]);
 
   setNative({}); // ack 메서드를 모르는 구 바이너리
   await expect(ackWatchCommands(['c1'])).resolves.toBeUndefined();

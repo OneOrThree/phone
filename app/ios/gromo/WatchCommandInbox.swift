@@ -176,11 +176,15 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
         else { return false }
         return stateQueue.sync {
             var queue = defaults.stringArray(forKey: WatchInboxKeys.inbox) ?? []
-            if queue.count >= Self.maxQueued {
+            // 상한은 **미확인 명령 전체**(inbox + claimed) 기준이다. inbox만 세면, 버전 스큐로
+            // 의도적으로 보존되는 claimed가 드레인마다 쌓여 무한히 커진다(App Group 읽기·쓰기와
+            // 부팅 드레인 비용도 함께 커진다).
+            let claimedCount = (defaults.stringArray(forKey: WatchInboxKeys.claimed) ?? []).count
+            if queue.count + claimedCount >= Self.maxQueued {
                 let now = Date()
                 queue.removeAll { Self.isExpired($0, now: now) }
             }
-            guard queue.count < Self.maxQueued else { return false }
+            guard queue.count + claimedCount < Self.maxQueued else { return false }
             queue.append(json)
             defaults.set(queue, forKey: WatchInboxKeys.inbox)
             return true
@@ -229,8 +233,12 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
     }
 
     /// JS가 처리를 확인한 명령만 지운다. 확인되지 않은 것은 남아 다음 드레인에 재배달된다.
+    ///
+    /// ⚠️ **빈 배열이어도 돈다.** commandId를 못 건지는 깨진 레코드는 JS가 ack 대상으로
+    /// 지목할 수 없어, 빈 호출에서 조기 반환하면 claimed에 영구 잔존하며 매 기동마다
+    /// 드레인된다. 이 함수의 필터가 그 잔재까지 함께 청소한다.
     func ack(commandIds: [String]) {
-        guard let defaults, !commandIds.isEmpty else { return }
+        guard let defaults else { return }
         let ids = Set(commandIds)
         stateQueue.sync {
             let claimed = defaults.stringArray(forKey: WatchInboxKeys.claimed) ?? []
