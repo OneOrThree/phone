@@ -41,7 +41,15 @@ interface FocusSessionJournal {
 }
 
 // intent 폭주 방어 — 정상 흐름에선 0~1개다(업로드 완료 즉시 소멸).
-const MAX_SETTLES = 20;
+//
+// ⚠️ **상한을 넘기면 가장 오래된 intent가 사라진다.** intent는 업로드와 내구 큐 저장이
+// **둘 다** 실패했을 때만 남는 마지막 기록이라, 버리는 순간 로컬 적립만 되고 서버엔 없는
+// 영구 불일치가 된다 — 이 PR이 고치려던 D1 결함이 상한 경계에서 재현되는 셈이다.
+// 상한은 내구 큐(pendingFocusUploads, 50)와 맞춰 두되, 잔여 위험을 여기 남긴다:
+// 이 지점에 닿으려면 **저장소 쓰기가 깨진 채 50블록**이 쌓여야 한다(POST 실패 + 큐 저장
+// 실패가 연속). 그 상태면 저널 쓰기도 함께 실패할 가능성이 커서 실질 도달 확률은 낮다.
+// 더 줄이려면 폐기를 계측해 가시화해야 하는데, 그건 이 티켓 범위 밖이다(GROMO-1616 후속).
+const MAX_SETTLES = 50;
 
 const EMPTY: FocusSessionJournal = { version: 1, session: null, settles: [] };
 
