@@ -478,6 +478,8 @@ export function createFocusSessionEngine(
       focusType: FOCUS_TYPE_BY_MODE[config.mode],
       focusSecondsByDate,
     };
+    // ⚠️ 예비 기록이 **착지한 뒤에** 네트워크를 시작한다. 쓰기를 기다리지 않으면 그 짧은
+    // 구간에서 죽었을 때 intent도 업로드도 대기열도 남지 않아, 선기록의 목적 자체가 사라진다.
     recordSettleIntent({
       intentId,
       sessionKey,
@@ -485,11 +487,13 @@ export function createFocusSessionEngine(
       body: baseBody,
       userId,
       createdAt: new Date().toISOString(),
-    });
-    Promise.all([
-      ensureFocusTagId(subjectName, userId).catch(() => null),
-      livePromise.catch(() => null),
-    ])
+    })
+      .then(() =>
+        Promise.all([
+          ensureFocusTagId(subjectName, userId).catch(() => null),
+          livePromise.catch(() => null),
+        ]),
+      )
       .then(async ([focusTagId, sessionId]) => {
         const body = {
           focusTagId,
