@@ -123,36 +123,43 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
     // ── 수신·영속화 ──────────────────────────────────────────────────────────
 
     /// 수신 명령 1건 처리 — 판정 후 accepted만 대기열에 넣는다. 반환값은 워치로 갈 ACK.
+    ///
+    /// 타입 검증은 **엄격 디코딩 한 번**으로 끝낸다. 딕셔너리를 손으로 훑던 시절엔 Bool이
+    /// Int로 브리징되거나(`true` → 1) 소수가 절삭되는(`1.5` → 1) 구멍이 한 종류씩 새어
+    /// 나왔다 — Codable은 그 부류를 통째로 거른다.
     @discardableResult
     func ingest(_ raw: [String: Any]) -> [String: Any] {
+        let rawId = raw["commandId"] as? String
         guard
-            let commandId = raw["commandId"] as? String, !commandId.isEmpty,
-            let type = raw["type"] as? String, !type.isEmpty,
-            let version = WatchCommandSchema.intValue(raw["protocolVersion"])
+            JSONSerialization.isValidJSONObject(raw),
+            let data = try? JSONSerialization.data(withJSONObject: raw),
+            let command = try? JSONDecoder().decode(WatchCommandPayload.self, from: data),
+            !command.commandId.isEmpty,
+            !command.type.isEmpty
         else {
-            return Self.ack(.malformed, commandId: raw["commandId"] as? String)
+            return Self.ack(.malformed, commandId: rawId)
         }
-        // 버전 검사는 양방향이고 **정확히 일치**해야 한다(§4.3) — `<=`로 열어 두면 0·음수처럼
-        // 이 바이너리가 모르는 구 스키마까지 accepted로 적재돼, 업데이트 안내로 재수렴하지 못한
-        // 채 엔진이 다른 스키마를 현재 버전으로 오해한다.
-        guard version == kWatchProtocolVersion else {
-            return Self.ack(.unsupportedVersion, commandId: commandId)
+        // 버전 검사는 양방향이고 **정확히 일치**해야 한다(§4.3) — 범위로 열어 두면 이 바이너리가
+        // 모르는 스키마까지 accepted로 적재돼, 업데이트 안내로 재수렴하지 못한 채 엔진이 다른
+        // 스키마를 현재 버전으로 오해한다.
+        guard command.protocolVersion == kWatchProtocolVersion else {
+            return Self.ack(.unsupportedVersion, commandId: command.commandId)
         }
         // 명령별 필수 필드 — 여기서 거르지 않으면 워치가 accepted ACK로 아웃박스를 비운 뒤
         // 엔진은 실행에 필요한 값이 없어 요청이 통째로 유실된다.
-        guard WatchCommandSchema.isValid(raw) else {
-            return Self.ack(.malformed, commandId: commandId)
+        guard WatchCommandSchema.isValid(command) else {
+            return Self.ack(.malformed, commandId: command.commandId)
         }
         // 킬스위치는 **신규 시작만** 막는다(R16 3차 개정). end/pause/resume까지 막으면
         // 아웃박스에 대기 중인 end가 갇혀 폰 세션·실드를 못 닫는 모순이 생긴다.
-        if killSwitchEnabled, type == "start" {
-            return Self.ack(.killSwitched, commandId: commandId)
+        if killSwitchEnabled, command.type == "start" {
+            return Self.ack(.killSwitched, commandId: command.commandId)
         }
         // 적재 실패(대기열 포화)는 **accepted를 주면 안 된다** — 워치가 아웃박스를 비운다.
         guard enqueue(raw) else {
-            return Self.ack(.queueFull, commandId: commandId)
+            return Self.ack(.queueFull, commandId: command.commandId)
         }
-        return Self.ack(.accepted, commandId: commandId)
+        return Self.ack(.accepted, commandId: command.commandId)
     }
 
     private static func ack(_ verdict: WatchCommandVerdict, commandId: String?) -> [String: Any] {
