@@ -151,6 +151,8 @@ class FocusShieldService : Service() {
   private var paused = false
   /** 남은 시간(초). null 이면 카운트업 모드. */
   private var remainingSeconds: Int? = null
+  /** 뽀모도로 페이즈("focus" | "break") — 알림 문구를 가른다. */
+  private var phase = "focus"
   /**
    * JS 가 보고한 경과(초) — **일시정지 시간이 빠진** 진짜 경과다.
    *
@@ -239,6 +241,7 @@ class FocusShieldService : Service() {
     exemptCache = null
     overlayFailures = 0
     paused = false
+    phase = "focus"
     remainingSeconds = null
     elapsedSeconds = 0
     lastForeground = null
@@ -496,7 +499,7 @@ class FocusShieldService : Service() {
     return builder
       // 커스텀 뷰가 가려도 접근성·요약·잠금화면 폴백은 이 텍스트를 읽는다 — 반드시 채운다.
       .setContentTitle(subject)
-      .setContentText("집중하는 중이에요!")
+      .setContentText(statusLine())
       // 상태바 아이콘은 알파 전용 실루엣이어야 한다 — 런처 아이콘을 넘기면 흰 덩어리가 된다.
       .setSmallIcon(R.drawable.ic_focus_notification)
       // 통짜 칠(setColorized) 대신 **아이콘 틴트로만** 포인트색을 쓴다 — 위 KDoc 참고.
@@ -517,6 +520,7 @@ class FocusShieldService : Service() {
   private fun collapsedView(character: Bitmap?): RemoteViews =
     RemoteViews(packageName, R.layout.notification_focus).apply {
       setTextViewText(R.id.notif_subject, subject)
+      setTextViewText(R.id.notif_caption, statusLine())
       character?.let { setImageViewBitmap(R.id.notif_character, it) }
       bindTimer(R.id.notif_timer)
     }
@@ -525,6 +529,7 @@ class FocusShieldService : Service() {
   private fun expandedView(character: Bitmap?): RemoteViews =
     RemoteViews(packageName, R.layout.notification_focus_expanded).apply {
       setTextViewText(R.id.notif_subject, subject)
+      setTextViewText(R.id.notif_caption, statusLine())
       character?.let { setImageViewBitmap(R.id.notif_character, it) }
       bindTimer(R.id.notif_timer)
       // iOS와 같이 상위 2개만. 남는 행은 GONE — 빈 칩 자리를 남기면 레이아웃이 뜬다.
@@ -558,6 +563,18 @@ class FocusShieldService : Service() {
    * setChronometerCountDown 은 API 24+ 인데 이 앱의 minSdk 가 24라 버전 분기가 필요 없다
    * (`./gradlew :app:properties` 로 확인).
    */
+  /**
+   * 알림 요약 문구 — iOS `WidgetLiveActivity.statusLine()` 과 **같은 규칙**이다(코드리뷰 4차).
+   *
+   * 예전엔 "집중하는 중이에요!" 로 하드코딩돼 있어서, 휴식 중이나 일시정지 중에도 잠금화면이
+   * **집중 중이라고 안내했다.** 요약 텍스트와 커스텀 뷰 둘 다 같은 값을 쓴다.
+   */
+  private fun statusLine(): String = when {
+    paused -> "잠시 멈췄어요"
+    phase == "break" -> "쉬는 중이에요!"
+    else -> "집중하는 중이에요!"
+  }
+
   private fun RemoteViews.bindTimer(viewId: Int) {
     val now = SystemClock.elapsedRealtime()
     when {
@@ -565,7 +582,12 @@ class FocusShieldService : Service() {
       // base 를 '지금 - 경과' 로 잡아 두면 그 시점 텍스트가 경과 시간으로 찍힌 채 멈춘다.
       paused -> {
         setChronometerCountDown(viewId, false)
-        setChronometer(viewId, now - elapsedSeconds * 1000L, null, false)
+        // ⚠️ 카운트다운이면 **남은 시간**을 고정한다(코드리뷰 4차). 경과를 찍으면 25분 타이머를
+        //    3초 뒤 멈춘 화면이 `24:57` 이 아니라 `00:03` 으로 굳는다.
+        //    iOS FocusActivityStatePayload.contentState() 의 `remainingSeconds ?? elapsedSeconds`
+        //    와 같은 규칙이다.
+        val frozen = remainingSeconds ?: elapsedSeconds
+        setChronometer(viewId, now - frozen * 1000L, null, false)
       }
       // 카운트다운·뽀모도로 — 남은 시간을 센다. base 를 미래로 두고 countDown 을 켜면
       // 시스템이 초당 줄여 준다(우리가 1초마다 알림을 다시 쏠 필요가 없다).
@@ -601,16 +623,19 @@ class FocusShieldService : Service() {
   private fun applyTimerState(json: String?) {
     if (json.isNullOrBlank()) {
       paused = false
+      phase = "focus"
       remainingSeconds = null
       return
     }
     runCatching {
       val obj = org.json.JSONObject(json)
       paused = obj.optBoolean("isPaused", false)
+      phase = obj.optString("phase", "focus")
       elapsedSeconds = obj.optInt("elapsedSeconds", 0)
       remainingSeconds = if (obj.isNull("remainingSeconds")) null else obj.optInt("remainingSeconds")
     }.onFailure {
       paused = false
+      phase = "focus"
       remainingSeconds = null
     }
   }

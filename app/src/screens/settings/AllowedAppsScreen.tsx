@@ -252,7 +252,7 @@ export default function AllowedAppsScreen() {
                 ScreenTimeModule.requestOverlayPermission().catch(() => {});
               }}
             />
-          ) : (
+          ) : Platform.OS === 'android' ? (
             <SettingsRow
               icon="alert-circle-outline"
               iconColor={T.dangerInk}
@@ -267,6 +267,19 @@ export default function AllowedAppsScreen() {
                   })
                   .catch(() => Linking.openSettings());
               }}
+            />
+          ) : (
+            /* iOS — 스크린타임 권한이 없으면 여기가 뜬다(코드리뷰 4차). 위 안드로이드 CTA 를
+               그대로 쓰면 openUsageAccessSettings 가 항상 false 라 앱 상세만 열리고,
+               notDetermined 상태에서는 requestAuthorization 이 아예 안 돌아 **이 CTA 로는
+               권한을 줄 수가 없다.** 기존 권한 화면의 요청 흐름으로 보낸다. */
+            <SettingsRow
+              icon="alert-circle-outline"
+              iconColor={T.dangerInk}
+              iconBg={T.dangerBg}
+              label="스크린타임 권한 허용"
+              sub="이 권한이 있어야 집중 중 다른 앱을 잠글 수 있어요"
+              onPress={() => navigation.navigate('SettingsScreenTimePermission')}
             />
           )}
         </SettingsSection>

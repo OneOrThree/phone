@@ -68,6 +68,7 @@
           android:layout_marginTop="2dp"
           android:maxLines="1"
           android:ellipsize="end"
+          android:id="@+id/notif_caption"
           android:text="집중하는 중이에요!"
           android:textSize="13sp"
           android:textColor="?android:attr/textColorSecondary" />
