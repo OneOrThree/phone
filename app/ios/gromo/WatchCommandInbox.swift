@@ -291,8 +291,22 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
     }
 
     /// 영속 전달(도달 불가 시 OS가 큐잉했다가 배달) — 워치 아웃박스의 `end`가 오는 경로.
+    ///
+    /// ⚠️ **판정을 버리면 안 된다.** 이 경로엔 replyHandler가 없어서, 결과를 되돌려 주지
+    /// 않으면 워치는 폰이 수락했는지 알 수 없다 — 아웃박스의 `end`를 계속 보존한 채
+    /// 「종료 대기」에 머물고 재전송을 끝내지 못한다(R3). 같은 영속 채널로 ACK를 돌려보낸다.
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
-        ingest(userInfo)
+        let verdict = ingest(userInfo)
+        sendAck(verdict, over: session)
+    }
+
+    /// 역방향 ACK — `transferUserInfo`는 도달 불가여도 OS가 큐잉했다 배달하므로, 영속 명령의
+    /// 짝으로 적절하다. 실패해도 워치가 재전송하면 commandId 멱등이 중복을 흡수한다.
+    private func sendAck(_ verdict: [String: Any], over session: WCSession) {
+        guard session.activationState == .activated else { return }
+        var payload = verdict
+        payload["kind"] = "ack" // 명령과 구분되는 표식 — 워치 수신부가 라우팅에 쓴다
+        session.transferUserInfo(payload)
     }
 
     // 페어링 워치 전환 시 iOS가 요구하는 필수 구현 — 재활성화해 delegate를 유지한다.

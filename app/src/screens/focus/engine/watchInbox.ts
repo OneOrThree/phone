@@ -43,18 +43,33 @@ export interface DrainedWatchCommand {
   subjectId?: string | null;
 }
 
-function parse(json: string): DrainedWatchCommand | null {
+/**
+ * 파싱 결과는 세 갈래다 — **버전 불일치를 파싱 실패와 같이 취급하면 안 된다**(§4.3):
+ * - `ok`: 이 번들이 실행할 수 있다
+ * - `malformed`: 스키마가 깨졌다. 어떤 번들도 실행할 수 없으니 확정 폐기(ack)한다
+ * - `versionMismatch`: 이 번들이 못 읽을 뿐이다. **ack하지 않고 보존**해 호환되는 번들이
+ *   처리하게 한다 — PRD가 「이 거절은 ack가 아니므로 워치 아웃박스의 영속 end는 보존된다」로
+ *   못박은 계약이다. 네이티브 v1이 claim한 뒤 OTA로 JS만 올라간 스큐에서 이걸 ack해 버리면,
+ *   워치는 이미 아웃박스를 비운 뒤라 유일한 정확한 종료 시각이 사라진다.
+ */
+type ParseResult =
+  | { kind: 'ok'; command: DrainedWatchCommand }
+  | { kind: 'malformed'; commandId: string | null }
+  | { kind: 'versionMismatch' };
+
+function parse(json: string): ParseResult {
   try {
     const raw = JSON.parse(json) as Partial<DrainedWatchCommand>;
-    if (typeof raw.commandId !== 'string' || !raw.commandId) return null;
-    if (typeof raw.type !== 'string' || !raw.type) return null;
-    // **정확히 일치**해야 한다(§4.3 양방향 검사). 네이티브의 수신 시점 검사는 이미 저장된
-    // 항목을 드레인할 때 다시 돌지 않으므로, 버전이 올라간 뒤 이전 바이너리가 남긴 claimed
-    // 명령이 여기서 현재 스키마로 파싱되면 라우터가 호환되지 않는 페이로드를 실행한다.
-    if (raw.protocolVersion !== WATCH_PROTOCOL_VERSION) return null;
-    return raw as DrainedWatchCommand;
+    const commandId = typeof raw.commandId === 'string' && raw.commandId ? raw.commandId : null;
+    if (typeof raw.protocolVersion === 'number' && raw.protocolVersion !== WATCH_PROTOCOL_VERSION) {
+      return { kind: 'versionMismatch' };
+    }
+    if (commandId == null) return { kind: 'malformed', commandId: null };
+    if (typeof raw.type !== 'string' || !raw.type) return { kind: 'malformed', commandId };
+    if (raw.protocolVersion !== WATCH_PROTOCOL_VERSION) return { kind: 'malformed', commandId };
+    return { kind: 'ok', command: raw as DrainedWatchCommand };
   } catch {
-    return null;
+    return { kind: 'malformed', commandId: null };
   }
 }
 
@@ -88,19 +103,19 @@ export async function drainWatchCommands(): Promise<DrainedWatchCommand[]> {
       ? await native.getWatchKillSwitch().catch(() => false)
       : false;
 
-  const parsed = raw.map(parse);
   const usable: DrainedWatchCommand[] = [];
-  // **폐기하는 것도 ack로 확정해야 한다.** 반환 목록에서 빼기만 하면 네이티브 claimed에
-  // 영원히 남아, 킬스위치가 꺼진 뒤 같은 start가 다시 배달되거나(사고 대응 중 차단한 세션이
-  // 뒤늦게 시작) 미지원 버전 명령이 매 드레인마다 되살아난다.
+  // **폐기하는 것만 ack로 확정한다.** 반환 목록에서 빼기만 하면 네이티브 claimed에 영원히
+  // 남아 킬스위치가 꺼진 뒤 차단했던 start가 뒤늦게 배달된다. 반대로 **보존해야 하는 것을
+  // ack하면 영구 유실**이라(버전 불일치), 두 부류를 엄격히 가른다.
   const discarded: string[] = [];
-  parsed.forEach((cmd, i) => {
-    if (cmd == null) {
-      // 파싱 불가·버전 불일치 — 이 번들로는 영영 실행할 수 없으니 확정 폐기한다.
-      const id = commandIdOf(raw[i]);
-      if (id) discarded.push(id);
+  raw.forEach((json) => {
+    const result = parse(json);
+    if (result.kind === 'versionMismatch') return; // 보존 — ack하지 않는다
+    if (result.kind === 'malformed') {
+      if (result.commandId) discarded.push(result.commandId);
       return;
     }
+    const cmd = result.command;
     // 킬스위치는 **신규 시작만** 막는다(R16 3차 개정) — end/pause/resume까지 막으면
     // 워치 아웃박스의 종료가 갇혀 폰 세션·실드를 닫을 길이 사라진다.
     if (killSwitched && cmd.type === 'start') {
@@ -111,14 +126,4 @@ export async function drainWatchCommands(): Promise<DrainedWatchCommand[]> {
   });
   await ackWatchCommands(discarded);
   return usable;
-}
-
-/** 파싱이 깨진 항목에서도 ack용 id만은 건져 본다 — 못 건지면 네이티브 ack가 정리한다. */
-function commandIdOf(json: string): string | null {
-  try {
-    const raw = JSON.parse(json) as { commandId?: unknown };
-    return typeof raw.commandId === 'string' && raw.commandId ? raw.commandId : null;
-  } catch {
-    return null;
-  }
 }

@@ -53,7 +53,7 @@ test('깨진 JSON·필수 필드 누락은 버리고 **ack로 확정 폐기**한
         '{not json',
         JSON.stringify({ type: 'start', protocolVersion: 1 }), // commandId 없음
         JSON.stringify({ commandId: 'c9', protocolVersion: 1 }), // type 없음
-        JSON.stringify({ commandId: 'c8', type: 'end' }), // protocolVersion 없음
+        JSON.stringify({ commandId: 'c8', type: 'end' }), // protocolVersion 없음(스키마 깨짐)
         cmd({ commandId: 'ok' }),
       ]),
     ),
@@ -67,20 +67,24 @@ test('깨진 JSON·필수 필드 누락은 버리고 **ack로 확정 폐기**한
   expect(ackFn).toHaveBeenCalledWith(['c9', 'c8']);
 });
 
-test('버전 불일치는 실행할 수 없으니 폐기·확정한다 — 정확 일치만 통과', async () => {
-  // 네이티브의 수신 시점 검사는 이미 저장된 항목을 드레인할 때 다시 돌지 않는다. 버전이
-  // 올라간 뒤 이전 바이너리가 남긴 claimed 명령이 현재 스키마로 파싱되면 안 된다(codex 2차).
+test('버전 불일치는 실행하지 않되 **ack하지 않고 보존**한다 — 호환 번들이 처리하게', async () => {
+  // 파싱 실패와 달리 버전 불일치는 「이 번들이 못 읽을 뿐」이다. ack해 버리면 네이티브 v1이
+  // claim한 뒤 OTA로 JS만 올라간 스큐에서, 워치가 이미 아웃박스를 비운 영속 end의 유일한
+  // 종료 시각이 사라진다 — PRD가 「이 거절은 ack가 아니다」로 못박은 계약(codex 3차).
   const ackFn = jest.fn(() => Promise.resolve());
   setNative({
     drainWatchCommands: jest.fn(() =>
-      Promise.resolve([cmd({ commandId: 'v2', protocolVersion: 2 }), cmd({ commandId: 'v1' })]),
+      Promise.resolve([
+        cmd({ commandId: 'other-ver', type: 'end', protocolVersion: 2 }),
+        cmd({ commandId: 'v1' }),
+      ]),
     ),
     getWatchKillSwitch: jest.fn(() => Promise.resolve(false)),
     ackWatchCommands: ackFn,
   });
   const out = await drainWatchCommands();
-  expect(out.map((c) => c.commandId)).toEqual(['v1']);
-  expect(ackFn).toHaveBeenCalledWith(['v2']);
+  expect(out.map((c) => c.commandId)).toEqual(['v1']); // 실행 대상에선 빠진다
+  expect(ackFn).not.toHaveBeenCalled(); // 폐기 대상이 아니다 — claimed에 보존된다
 });
 
 test('킬스위치 재평가(이중 평가): start만 걸러내고 end·pause·resume은 통과', async () => {
