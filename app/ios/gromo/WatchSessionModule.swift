@@ -1,22 +1,24 @@
 // WatchSessionModule.swift
 // gromo 메인 앱 타겟
 //
-// 역할: Apple Watch 페어링 상태(WCSession)를 JS에 노출하는 네이티브 모듈.
-//       1차(GROMO-1598)는 보급률 계측용 getPairingStatus 하나만 제공한다.
-//       애플워치 컴패니언 페이즈 1에서 이 모듈이 WCSession delegate(명령 인박스)의
-//       거점으로 확장된다 — WCSession.default의 delegate는 앱 전역에서 하나뿐이므로
-//       워치 관련 네이티브 코드는 전부 이 모듈로 모은다 (docs/prd/apple-watch/ D2-④).
+// 역할: 워치 관련 네이티브 기능을 JS에 노출하는 브릿지. **상태는 여기 없다** —
+//       WCSession delegate와 명령 인박스는 WatchCommandInbox 싱글턴이 소유하고
+//       (docs/prd/apple-watch/ D2-④), 이 모듈은 그 싱글턴에 위임만 한다.
+//
+//       delegate를 싱글턴으로 옮긴 이유: WCSession.default의 delegate는 앱 전역에서
+//       하나뿐인데 RCT 모듈은 브릿지가 JS를 띄우면서 늦게 인스턴스화된다. 종료 상태에서
+//       WCSession이 앱을 깨우는 경우 명령이 delegate보다 먼저 도착해 사라진다.
 //
 // 사용 방법 (JS에서):
 //   const { WatchSessionModule } = NativeModules;
-//   const status = await WatchSessionModule.getPairingStatus();
-//   // → { supported: boolean, paired: boolean, watchAppInstalled: boolean }
+//   await WatchSessionModule.getPairingStatus();   // { supported, paired, watchAppInstalled }
+//   await WatchSessionModule.drainWatchCommands(); // string[] — 수신 명령 JSON, 읽고 비운다
+//   await WatchSessionModule.setWatchKillSwitch(true);
 
 import Foundation
-import WatchConnectivity
 
 @objc(WatchSessionModule)
-class WatchSessionModule: NSObject, WCSessionDelegate {
+class WatchSessionModule: NSObject {
 
     @objc static func moduleName() -> String {
         return "WatchSessionModule"
@@ -26,90 +28,63 @@ class WatchSessionModule: NSObject, WCSessionDelegate {
         return false
     }
 
-    // isPaired는 activate 완료 전에는 신뢰할 수 없다 — activation을 기다렸다가 응답한다.
-    // 동시 호출 대비 resolver를 큐로 보관하고, 완료/타임아웃 시 한 번에 비운다.
-    private struct PendingCall {
-        let resolve: RCTPromiseResolveBlock
-        let reject: RCTPromiseRejectBlock
-    }
-
-    private let stateQueue = DispatchQueue(label: "com.oneorthree.gromo.watchsession")
-    private var pendingCalls: [PendingCall] = []
-    private var timeoutWorkItem: DispatchWorkItem?
-
+    /// 워치 페어링 상태(GROMO-1598 보급률 계측).
     @objc func getPairingStatus(
         _ resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
-        // 미지원 기기(iPad 등)는 activate 없이 즉시 응답 — WCSession.default 접근 자체가 불가.
-        guard WCSession.isSupported() else {
-            resolve(["supported": false, "paired": false, "watchAppInstalled": false])
-            return
-        }
-
-        let session = WCSession.default
-        if session.activationState == .activated {
-            resolve(Self.statusPayload(session))
-            return
-        }
-
-        stateQueue.async {
-            self.pendingCalls.append(PendingCall(resolve: resolve, reject: reject))
-            // activation 콜백이 영영 안 오는 경우의 안전망. 계측 호출자는 실패를 조용히 버린다.
-            if self.timeoutWorkItem == nil {
-                let item = DispatchWorkItem { [weak self] in
-                    self?.flushPending { call in
-                        call.reject("watch_session_timeout", "WCSession activation timed out", nil)
-                    }
-                }
-                self.timeoutWorkItem = item
-                self.stateQueue.asyncAfter(deadline: .now() + 5, execute: item)
+        WatchCommandInbox.shared.pairingStatus { payload, error in
+            if let payload {
+                resolve(payload)
+            } else {
+                reject("watch_session_unavailable",
+                       error?.localizedDescription ?? "WCSession unavailable", error)
             }
-            session.delegate = self
-            session.activate()
         }
     }
 
-    private static func statusPayload(_ session: WCSession) -> [String: Any] {
-        return [
-            "supported": true,
-            "paired": session.isPaired,
-            "watchAppInstalled": session.isWatchAppInstalled,
-        ]
-    }
-
-    // stateQueue 위에서만 호출된다는 전제의 내부 헬퍼 — 대기분을 비우고 타임아웃을 해제한다.
-    private func flushPending(_ handler: (PendingCall) -> Void) {
-        let calls = pendingCalls
-        pendingCalls = []
-        timeoutWorkItem?.cancel()
-        timeoutWorkItem = nil
-        calls.forEach(handler)
-    }
-
-    // ── WCSessionDelegate ──
-
-    func session(
-        _ session: WCSession,
-        activationDidCompleteWith activationState: WCSessionActivationState,
-        error: Error?
+    /// 인박스 드레인 — 수신 명령 JSON 문자열 배열을 돌려주고 대기열을 비운다.
+    /// 실행(라우팅)은 JS 엔진 몫이고, 여기서는 전달만 한다.
+    @objc func drainWatchCommands(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
-        stateQueue.async {
-            self.flushPending { call in
-                if activationState == .activated {
-                    call.resolve(Self.statusPayload(session))
-                } else {
-                    call.reject("watch_session_activation_failed",
-                                error?.localizedDescription ?? "WCSession activation failed", error)
-                }
-            }
-        }
+        resolve(WatchCommandInbox.shared.drain())
     }
 
-    // 페어링 워치 전환 시 iOS가 요구하는 필수 구현 — 계측 용도에선 재활성화만 해 둔다.
-    func sessionDidBecomeInactive(_ session: WCSession) {}
+    /// 킬스위치 조회/설정 — 정본은 App Group의 네이티브 플래그다(policy D13 2차 개정).
+    /// OTA는 이 값을 갱신하는 전달 수단일 뿐이라 구 번들 부팅이 차단을 우회하지 못한다.
+    @objc func getWatchKillSwitch(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        resolve(WatchCommandInbox.shared.killSwitchEnabled)
+    }
 
-    func sessionDidDeactivate(_ session: WCSession) {
-        session.activate()
+    @objc func setWatchKillSwitch(
+        _ enabled: Bool,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        WatchCommandInbox.shared.killSwitchEnabled = enabled
+        resolve(nil)
+    }
+
+    /// **디버그 전용** — 워치 앱이 아직 없어 실 WCSession 수신을 태울 수 없으므로,
+    /// 인박스 경로(판정·영속화·드레인)를 손으로 검증하는 유일한 수단이다.
+    /// 페이즈 1에서 실기기 검증이 붙으면 제거를 재검토한다.
+    @objc func debugEnqueueWatchCommand(
+        _ json: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard
+            let data = json.data(using: .utf8),
+            let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            reject("watch_command_malformed", "command JSON is not an object", nil)
+            return
+        }
+        resolve(WatchCommandInbox.shared.ingest(raw))
     }
 }

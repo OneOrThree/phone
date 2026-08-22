@@ -10,6 +10,8 @@
 //     않고 저널만 소급 완결하고, 흔적이 없으면 실드를 해제하고 저널을 소거한다.
 //  ② **failed 정산 intent의 재업로드**(D1) — 대기열 저장까지 실패해 저널에만 남은 블록을
 //     같은 바디로 다시 올린다. 성공·큐 인계면 intent를 지운다.
+//  ③ **워치 명령 인박스 드레인**(D2-④) — 네이티브가 적재해 둔 명령을 비운다. 이 티켓에선
+//     실행하지 않고 폐기한다(스켈레톤) — 라우팅은 페이즈 1.
 //
 // 세션 **재개**는 하지 않는다 — 부팅 정책은 현행(OrphanFocusSettler의 종료 정산) 그대로다.
 // 재개는 페이즈 1(워치 발 세션)의 몫이고, 그때 Settler와의 조정이 필요하다.
@@ -18,6 +20,7 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { uploadFocusBlock } from '../uploadFocusBlock';
 import { cancelMarker } from '../pendingMarkerCancels';
 import { readPersistedSessionV1 } from './persistence';
+import { drainWatchCommands } from './watchInbox';
 import {
   readJournal,
   journalActivateSession,
@@ -77,6 +80,13 @@ async function recover(): Promise<void> {
     const age = now - Date.parse(intent.createdAt);
     if (!Number.isFinite(age) || age < STALE_INTENT_MS) continue;
     await replayIntent(intent).catch(() => {});
+  }
+
+  // ③ 워치 명령 인박스 드레인 — 비우기까지가 이 티켓의 범위다. 실행 라우팅이 없는 채로
+  // 쌓아 두면 페이즈 1 첫 부팅에 낡은 명령이 한꺼번에 실행될 수 있어, 지금은 비우고 버린다.
+  const commands = await drainWatchCommands().catch(() => []);
+  if (__DEV__ && commands.length > 0) {
+    console.log(`[워치인박스] ${commands.length}건 드레인 — 실행 라우팅은 페이즈 1`);
   }
 }
 
