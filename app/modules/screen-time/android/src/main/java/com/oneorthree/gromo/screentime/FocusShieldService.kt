@@ -105,6 +105,9 @@ class FocusShieldService : Service() {
      */
     private const val OVERLAY_FAILURE_LIMIT = 5
 
+    /** 차단 판정 연속 실패 한도 — 넘으면 차단 상태를 내린다(가림막 실패와 같은 기준). */
+    private const val TICK_FAILURE_LIMIT = 5
+
     /** 알림 강조색 — src/constants/theme.ts 의 accent(#5E6AD2)와 같은 값. */
     private const val ACCENT_COLOR = 0xFF5E6AD2.toInt()
 
@@ -135,6 +138,8 @@ class FocusShieldService : Service() {
   private var exemptCache: Set<String>? = null
   /** 가림막을 연속으로 못 올린 횟수 — 한도를 넘으면 차단이 성립하지 않는 기기로 본다. */
   private var overlayFailures = 0
+  /** 한 틱의 차단 판정이 연속으로 실패한 횟수(UsageStats·PackageManager 예외 등). */
+  private var tickFailures = 0
   /** 권한 확인 주기 카운터 — 매 틱마다 AppOps 를 두드리지 않으려고 센다. */
   private var ticksSincePermissionCheck = 0
   /** 차단을 실제로 도는가. 타이머만 필요한 호출(ACTION_ACTIVITY)로는 켜지지 않는다. */
@@ -170,6 +175,13 @@ class FocusShieldService : Service() {
         tick()
       } catch (_: Exception) {
         // 폴링 한 번의 실패로 세션 전체를 끝내지 않는다 — 다음 주기에 다시 시도한다.
+        // 다만 계속 실패하면 이 기기에선 차단이 성립하지 않는다(코드리뷰 5차) — 가림막 표시
+        // 실패와 같은 처리로 차단 상태를 내려, 앱이 비실드 정책으로 되돌리게 한다.
+        if (++tickFailures >= TICK_FAILURE_LIMIT) {
+          blocking = false
+          hideOverlay()
+          startForeground(NOTIFICATION_ID, buildNotification())
+        }
       }
       handler.postDelayed(this, POLL_INTERVAL_MS)
     }
@@ -240,6 +252,7 @@ class FocusShieldService : Service() {
     launchableCache = null
     exemptCache = null
     overlayFailures = 0
+    tickFailures = 0
     paused = false
     phase = "focus"
     remainingSeconds = null
@@ -259,11 +272,6 @@ class FocusShieldService : Service() {
   private fun tick() {
     // 차단 권한이 없어 타이머만 도는 세션 — 폴링은 돌지만 덮지 않는다.
     if (!blocking) return
-
-    // 살아 있다는 표식. 앱이 복귀할 때 이 값으로 '백그라운드에서 서비스가 죽었는지'를 가른다
-    // (코드리뷰 반영) — 제조사 배터리 최적화가 조용히 죽이면 차단 없이 쓴 시간이 집중으로
-    // 적립돼 버린다. 표식이 낡아 있으면 앱이 비실드 이탈 정책으로 되돌린다.
-    heartbeat()
 
     // 전환 이벤트가 없으면 **직전 값을 유지한다**(코드리뷰 반영) — 자세한 이유는
     // lastForeground 필드 주석 참고. 여기서 null 로 떨어뜨리면 10초 이상 머무는 순간
@@ -290,6 +298,14 @@ class FocusShieldService : Service() {
       return
     }
     if (shouldBlock(front)) showOverlay() else hideOverlay()
+
+    // ⚠️ 표식은 **판정이 끝까지 성공한 뒤에만** 남긴다(코드리뷰 5차). 앞쪽에서 찍으면,
+    //    권한은 있는데 OEM 의 UsageStats·PackageManager 예외로 매 틱 판정이 실패하는
+    //    기기에서 바깥 catch 가 예외를 삼키고 **표식만 계속 최신으로 유지된다.** 가림막이
+    //    한 번도 안 올라오는데 앱은 실드가 살아 있다고 믿어 이탈을 집중으로 적립한다.
+    //    (예외로 여기 도달하지 못하면 표식이 낡아 앱이 비실드 정책으로 되돌린다.)
+    heartbeat()
+    tickFailures = 0
   }
 
   /** 폴링이 돌고 있다는 표식 — 앱이 복귀 시 서비스 생존을 확인하는 근거. */
@@ -353,27 +369,35 @@ class FocusShieldService : Service() {
    */
   private fun systemExemptPackages(): Set<String> {
     exemptCache?.let { return it }
-    val out = HashSet<String>(2)
+    val out = HashSet<String>()
     runCatching {
       (getSystemService(TELECOM_SERVICE) as android.telecom.TelecomManager).defaultDialerPackage
     }.getOrNull()?.let { out.add(it) }
-    // 기본 시계 앱 — 알람 목록 인텐트를 처리하는 앱으로 찾는다. 알람 UI 를 직접 식별하는
-    // 공개 API 는 없어서, 그 앱을 통째로 예외로 둔다.
-    runCatching {
-      val intent = Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        packageManager.resolveActivity(
-          intent,
-          android.content.pm.PackageManager.ResolveInfoFlags.of(0L),
-        )
-      } else {
-        @Suppress("DEPRECATION")
-        packageManager.resolveActivity(intent, 0)
-      }
-    }.getOrNull()?.activityInfo?.packageName?.let { out.add(it) }
+    // 알람 앱 — **처리 가능한 앱을 전부** 넣는다(코드리뷰 5차). resolveActivity 는 하나만
+    // 돌려줘서, 시계 앱이 여러 개면 선택기가 잡히거나 사용자가 실제로 알람을 걸어 둔 다른
+    // 앱이 빠진다. 그 앱의 전체 화면 알람은 그대로 덮여 끄지도 미루지도 못한다.
+    out.addAll(handlerPackages(Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)))
+    // 홈 런처 — 홈 버튼이 **탈출 경로**다(코드리뷰 5차). 서드파티 런처는 설정·앱 서랍
+    // Activity 를 MAIN/LAUNCHER 로도 노출해서 차단 목록에 들어오는데, 그러면 홈 화면까지
+    // 덮여 기기를 못 쓰고 가림막에서 빠져나갈 길도 사라진다.
+    out.addAll(handlerPackages(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)))
     exemptCache = out
     return out
   }
+
+  /** 이 인텐트를 처리할 수 있는 **모든** 패키지. 못 읽으면 빈 집합. */
+  private fun handlerPackages(intent: Intent): Set<String> = runCatching {
+    val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      packageManager.queryIntentActivities(
+        intent,
+        android.content.pm.PackageManager.ResolveInfoFlags.of(0L),
+      )
+    } else {
+      @Suppress("DEPRECATION")
+      packageManager.queryIntentActivities(intent, 0)
+    }
+    resolved.mapTo(HashSet()) { it.activityInfo.packageName }
+  }.getOrDefault(emptySet())
 
   /**
    * 런처 앱 목록 — **캐시한다**(코드리뷰 반영).

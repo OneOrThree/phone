@@ -20,40 +20,20 @@ import type { LiveFocusSession } from './types';
  * 표식을 못 남기면 다음 실행에서 알림이 한 번 더 뜨는 것뿐이다. 화면을 떠나는 경로를
  * 붙잡아 둘 이유가 없다.
  */
-export async function markShieldReleasedCleanly(): Promise<void> {
+export async function markShieldReleasedCleanly(startedAt: string): Promise<void> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
     if (!raw) return; // 정상 완료(finish)라 이미 지워졌다 — 남길 곳이 없다.
     const rec = JSON.parse(raw) as LiveFocusSession;
+    // ⚠️ **이 세션의 레코드인지 확인한다**(코드리뷰 5차). 이 함수는 화면을 떠나며 도는데,
+    //    그 사이 finish 가 레코드를 지우고 새 세션이 자기 레코드를 썼을 수 있다. 확인 없이
+    //    쓰면 남의 세션에 표식을 달거나, 읽어 둔 옛 값으로 최신 elapsed 를 덮는다.
+    if (rec.startedAt !== startedAt) return;
     await AsyncStorage.setItem(
       STORAGE_KEYS.focusLiveSession,
       JSON.stringify({ ...rec, shieldReleasedCleanly: true }),
     );
   } catch {
     // 위 주석 참고 — 최악이 '알림 1회 오발행'이라 조용히 넘어간다.
-  }
-}
-
-/**
- * 이 세션에 실드가 실제로 걸렸는지를 레코드에 남긴다 (GROMO-1604 코드리뷰 2차).
- *
- * 권한이 없어 `startFocusShield()` 가 처음부터 false 였던 세션은 **풀릴 차단이 없다.**
- * 그런 세션이 강제 종료돼도 "앱이 종료되면서 다른 앱 차단도 함께 풀렸어요"는 거짓이다.
- * 고아 정산이 이 값을 보고 알림 여부를 가른다.
- *
- * 세션 도중에도 바뀔 수 있다 — 복귀 시 생존 확인이 false 를 주면 그때 다시 기록된다.
- */
-export async function markShieldActive(active: boolean): Promise<void> {
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
-    if (!raw) return; // 아직 첫 저장 전이거나 이미 정산돼 지워졌다.
-    const rec = JSON.parse(raw) as LiveFocusSession;
-    if (rec.shieldActive === active) return; // 같은 값이면 쓰지 않는다.
-    await AsyncStorage.setItem(
-      STORAGE_KEYS.focusLiveSession,
-      JSON.stringify({ ...rec, shieldActive: active }),
-    );
-  } catch {
-    // 위와 같은 이유로 삼킨다.
   }
 }
