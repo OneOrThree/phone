@@ -130,7 +130,8 @@ jobs:
       #
       # 버전을 박지 않는 이유: compileSdk·buildTools·ndkVersion 은 expo-root-project 플러그인이
       # 정한다. 여기 숫자를 적으면 플러그인이 올라갈 때 조용히 어긋난다. 그래서 '무엇이 있나'만
-      # 보고, 특정 버전이 없으면 Gradle 이 자기 에러로 알려주게 둔다.
+      # 보고, 특정 **버전**이 없으면 Gradle 이 자기 에러로 알려주게 둔다 — 그러려면 아래 Gradle
+      # 단에서 자동 다운로드를 꺼야 한다. 안 끄면 '알려주는' 대신 4.8 GB 를 받는다.
       - name: 안드로이드 SDK 확인
         id: sdk
         run: |
@@ -233,7 +234,17 @@ jobs:
       #
       # ⚠️ 그래도 assembleDebug 는 아니다. JS 번들·Hermes·dex·패키징이 빠져 있어 훨씬 가볍다
       #    (로컬 실측 411 태스크 34초, 캐시 있음). 러너가 한 대뿐이라 이 선을 넘지 않는다.
+      #
+      # Kotlin 이 아니라 **Java** 태스크를 게이트로 쓴다(코드리뷰 반영). Java 태스크는 Kotlin
+      # 컴파일을 선행 의존성으로 끌어오므로 위 범위를 그대로 덮으면서, Kotlin 태스크만으로는
+      # 빠지던 app/android/app/src 의 .java 컴파일까지 포함한다. 지금 앱에 .java 는 없지만
+      # 하나 들어오는 순간 검사 밖이 된다 — 그때 알아채지 못하는 게 문제다.
+      #
+      # `-Pandroid.builder.sdkDownload=false` — 위 SDK 확인은 구성요소가 '있나'만 보고 **버전은
+      # 안 본다**(버전은 expo-root-project 소관이라 여기 박으면 썩는다). 요구 버전이 없으면
+      # 자동 다운로드가 NDK 두 버전 4.8 GB 를 받아 러너 디스크와 30분 제한을 태운다. 끄면
+      # 대신 "NDK not configured" 로 즉시 실패해 **무엇이 없는지가 로그에 남는다.**
       - name: 네이티브 컴파일 · 리소스 · 매니페스트 검증
         if: steps.sdk.outputs.present == 'true'
-        run: ./gradlew :app:compileDebugKotlin --no-daemon
+        run: ./gradlew :app:compileDebugJavaWithJavac -Pandroid.builder.sdkDownload=false --no-daemon
         working-directory: app/android
