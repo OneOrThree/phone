@@ -3,7 +3,7 @@
 // 워치 앱이 생기는 페이즈 1에서 실기기로 검증한다(여기서 덮을 수 없는 표면 — 명시 이연).
 
 import { NativeModules, Platform } from 'react-native';
-import { drainWatchCommands } from './watchInbox';
+import { drainWatchCommands, ackWatchCommands } from './watchInbox';
 
 const cmd = (over: Record<string, unknown> = {}) =>
   JSON.stringify({
@@ -95,4 +95,28 @@ test('킬스위치 조회가 실패하면 차단 없이 진행한다 — 조회 
   });
   const out = await drainWatchCommands();
   expect(out.map((c) => c.commandId)).toEqual(['c1']);
+});
+
+test('ack: 처리 확인한 명령 id만 네이티브에 넘긴다 — 확인 전까지 재배달 대상으로 남는다', async () => {
+  // 드레인이 네이티브에서 지우지 않고 claim만 하므로(브릿지 무효화·프로세스 종료 창의 유실
+  // 방지), 실제로 소비한 것만 ack로 확정해야 한다(codex 리뷰 #695).
+  const ackFn = jest.fn(() => Promise.resolve());
+  setNative({ ackWatchCommands: ackFn });
+  await ackWatchCommands(['c1', 'c2']);
+  expect(ackFn).toHaveBeenCalledWith(['c1', 'c2']);
+});
+
+test('ack: 빈 배열·구 바이너리는 호출하지 않는다', async () => {
+  const ackFn = jest.fn(() => Promise.resolve());
+  setNative({ ackWatchCommands: ackFn });
+  await ackWatchCommands([]);
+  expect(ackFn).not.toHaveBeenCalled();
+
+  setNative({}); // ack 메서드를 모르는 구 바이너리
+  await expect(ackWatchCommands(['c1'])).resolves.toBeUndefined();
+});
+
+test('ack 실패는 던지지 않는다 — 부팅 복구를 막지 않는다', async () => {
+  setNative({ ackWatchCommands: jest.fn(() => Promise.reject(new Error('bridge dead'))) });
+  await expect(ackWatchCommands(['c1'])).resolves.toBeUndefined();
 });

@@ -123,16 +123,26 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
         else {
             return Self.ack(.malformed, commandId: raw["commandId"] as? String)
         }
-        // 버전 검사는 양방향이다(§4.3) — 미지원 명령은 실행하지 않고 재수렴시킨다.
-        guard version <= kWatchProtocolVersion else {
+        // 버전 검사는 양방향이고 **정확히 일치**해야 한다(§4.3) — `<=`로 열어 두면 0·음수처럼
+        // 이 바이너리가 모르는 구 스키마까지 accepted로 적재돼, 업데이트 안내로 재수렴하지 못한
+        // 채 엔진이 다른 스키마를 현재 버전으로 오해한다.
+        guard version == kWatchProtocolVersion else {
             return Self.ack(.unsupportedVersion, commandId: commandId)
+        }
+        // 명령별 필수 필드 — 여기서 거르지 않으면 워치가 accepted ACK로 아웃박스를 비운 뒤
+        // 엔진은 실행에 필요한 값이 없어 요청이 통째로 유실된다.
+        guard WatchCommandSchema.isValid(raw) else {
+            return Self.ack(.malformed, commandId: commandId)
         }
         // 킬스위치는 **신규 시작만** 막는다(R16 3차 개정). end/pause/resume까지 막으면
         // 아웃박스에 대기 중인 end가 갇혀 폰 세션·실드를 못 닫는 모순이 생긴다.
         if killSwitchEnabled, type == "start" {
             return Self.ack(.killSwitched, commandId: commandId)
         }
-        enqueue(raw)
+        // 적재 실패(대기열 포화)는 **accepted를 주면 안 된다** — 워치가 아웃박스를 비운다.
+        guard enqueue(raw) else {
+            return Self.ack(.queueFull, commandId: commandId)
+        }
         return Self.ack(.accepted, commandId: commandId)
     }
 
@@ -145,30 +155,76 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
         return payload
     }
 
-    private func enqueue(_ raw: [String: Any]) {
+    /// 적재 성공 여부를 돌려준다. 상한에서 무조건 오래된 것부터 버리면 **이미 accepted로
+    /// 응답한 `end`가 조용히 사라져** 세션·실드를 못 닫는다(§4.3의 「end는 영속 보존」 위반).
+    /// 그래서 버릴 때는 `end`가 아닌 것부터 버리고, 전부 `end`면 적재를 거절한다.
+    private func enqueue(_ raw: [String: Any]) -> Bool {
         guard
             let defaults,
             JSONSerialization.isValidJSONObject(raw),
             let data = try? JSONSerialization.data(withJSONObject: raw),
             let json = String(data: data, encoding: .utf8)
-        else { return }
-        stateQueue.sync {
+        else { return false }
+        return stateQueue.sync {
             var queue = defaults.stringArray(forKey: WatchInboxKeys.inbox) ?? []
-            queue.append(json)
-            if queue.count > Self.maxQueued {
-                queue = Array(queue.suffix(Self.maxQueued))
+            if queue.count >= Self.maxQueued {
+                // 종결 명령이 아닌 가장 오래된 항목을 희생시킨다.
+                guard let victim = queue.firstIndex(where: { !Self.isEndCommand($0) }) else {
+                    return false // 전부 end — 하나도 버릴 수 없다
+                }
+                queue.remove(at: victim)
             }
+            queue.append(json)
             defaults.set(queue, forKey: WatchInboxKeys.inbox)
+            return true
         }
     }
 
-    /// JS가 부르는 드레인 — 읽고 비운다. 같은 명령을 두 번 실행하지 않도록 원자적으로 처리한다.
+    private static func isEndCommand(_ json: String) -> Bool {
+        guard
+            let data = json.data(using: .utf8),
+            let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return false }
+        return (raw["type"] as? String) == "end"
+    }
+
+    /// JS가 부르는 드레인 — **지우지 않고 claim한다.** 반환 직후~JS 처리 완료 사이에
+    /// 프로세스가 죽거나 브릿지가 무효화되면 명령이 영구 유실되는데, 워치는 이미 accepted
+    /// ACK를 받고 아웃박스를 비웠으므로 재전송도 없다. 그래서 확인(ack) 전까지 보관하고,
+    /// 미확인분은 다음 드레인에 **재배달**한다(commandId 멱등이라 중복 실행은 엔진이 막는다).
     func drain() -> [String] {
         guard let defaults else { return [] }
         return stateQueue.sync {
-            let queue = defaults.stringArray(forKey: WatchInboxKeys.inbox) ?? []
-            if !queue.isEmpty { defaults.removeObject(forKey: WatchInboxKeys.inbox) }
-            return queue
+            let fresh = defaults.stringArray(forKey: WatchInboxKeys.inbox) ?? []
+            var claimed = defaults.stringArray(forKey: WatchInboxKeys.claimed) ?? []
+            if !fresh.isEmpty {
+                claimed.append(contentsOf: fresh)
+                defaults.removeObject(forKey: WatchInboxKeys.inbox)
+                defaults.set(claimed, forKey: WatchInboxKeys.claimed)
+            }
+            return claimed
+        }
+    }
+
+    /// JS가 처리를 확인한 명령만 지운다. 확인되지 않은 것은 남아 다음 드레인에 재배달된다.
+    func ack(commandIds: [String]) {
+        guard let defaults, !commandIds.isEmpty else { return }
+        let ids = Set(commandIds)
+        stateQueue.sync {
+            let claimed = defaults.stringArray(forKey: WatchInboxKeys.claimed) ?? []
+            let remaining = claimed.filter { json in
+                guard
+                    let data = json.data(using: .utf8),
+                    let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                    let id = raw["commandId"] as? String
+                else { return false } // 파싱 불가 항목은 재배달해도 소용없으므로 정리한다
+                return !ids.contains(id)
+            }
+            if remaining.isEmpty {
+                defaults.removeObject(forKey: WatchInboxKeys.claimed)
+            } else {
+                defaults.set(remaining, forKey: WatchInboxKeys.claimed)
+            }
         }
     }
 
@@ -180,6 +236,11 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
         error: Error?
     ) {
         stateQueue.async {
+            if activationState != .activated {
+                // 일시적 실패 — 플래그를 되돌려 다음 조회가 activate를 다시 요청할 수 있게 한다.
+                // 안 되돌리면 이 프로세스에선 페어링 조회도 명령 수신도 영영 복구되지 않는다.
+                self.activationRequested = false
+            }
             self.flushPendingStatus { call in
                 if activationState == .activated {
                     call(Self.statusPayload(session), nil)

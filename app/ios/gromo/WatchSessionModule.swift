@@ -52,6 +52,17 @@ class WatchSessionModule: NSObject {
         resolve(WatchCommandInbox.shared.drain())
     }
 
+    /// 처리 확인 — JS가 실제로 소비한 명령만 지운다. 확인 전까지는 claim 상태로 남아
+    /// 다음 드레인에 재배달된다(브릿지 무효화·프로세스 종료 창의 유실 방지).
+    @objc func ackWatchCommands(
+        _ commandIds: [String],
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        WatchCommandInbox.shared.ack(commandIds: commandIds)
+        resolve(nil)
+    }
+
     /// 킬스위치 조회/설정 — 정본은 App Group의 네이티브 플래그다(policy D13 2차 개정).
     /// OTA는 이 값을 갱신하는 전달 수단일 뿐이라 구 번들 부팅이 차단을 우회하지 못한다.
     @objc func getWatchKillSwitch(

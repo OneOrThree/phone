@@ -18,8 +18,12 @@ public let kWatchProtocolVersion = 1
 /// 사용량 버킷 파이프라인(DeviceActivityMonitorExtension)과 같은 「네이티브 append → JS drain」 전례.
 public enum WatchInboxKeys {
     public static let suiteName = "group.com.oneorthree.gromo"
-    /// 수신 명령 대기열(JSON 문자열 배열)
+    /// 수신 명령 대기열(JSON 문자열 배열) — 아직 JS에 배달되지 않은 것
     public static let inbox = "gromo:watch:inbox:v1"
+    /// 배달했으나 JS가 처리를 확인(ack)하지 않은 것 — 확인 전에 지우면 브릿지 무효화·프로세스
+    /// 종료 창에서 명령이 영구 유실된다(워치는 이미 accepted ACK를 받고 아웃박스를 비웠다).
+    /// commandId 멱등성이 있으므로 재배달은 안전하다.
+    public static let claimed = "gromo:watch:inbox:claimed:v1"
     /// 킬스위치 — 정본은 이 네이티브 영속 플래그다(policy D13 2차 개정).
     /// OTA는 이 값을 **갱신하는 전달 수단**일 뿐이라, 구 번들로 부팅해도 차단을 우회할 수 없다.
     public static let killSwitch = "gromo:watch:killSwitch"
@@ -62,5 +66,39 @@ public enum WatchCommandVerdict: String {
     case accepted // 인박스에 적재됨(JS 엔진이 드레인해 실행)
     case killSwitched // 킬스위치로 신규 시작만 차단(R16 3차 개정 — end/pause/resume은 통과)
     case unsupportedVersion // protocolVersion 미지원 — 워치는 「앱 업데이트 필요」로 재수렴
-    case malformed // 스키마 위반
+    case malformed // 스키마 위반 — 명령별 필수 필드가 빠졌다(아래 requiredFields 참고)
+    /// 대기열이 가득 차 적재하지 못함. **accepted를 주면 안 된다** — 워치가 아웃박스를 비워
+    /// 영속 `end`가 사라진다. 워치는 이 판정을 받으면 명령을 보관했다가 재전송한다.
+    case queueFull
+}
+
+/// 명령별 필수 필드 검증(§4.3). `start`만 focusSessionId를 생략할 수 있고 — 그 시점엔 세션이
+/// 없다 — **생략되는 건 그 필드 하나뿐**이다. 여기서 거르지 않으면 워치는 accepted ACK를 받고
+/// 아웃박스를 비우는데 엔진은 실행에 필요한 값이 없어 요청이 통째로 유실된다.
+public enum WatchCommandSchema {
+    public static func isValid(_ raw: [String: Any]) -> Bool {
+        guard
+            let type = raw["type"] as? String,
+            nonEmpty(raw["issuedAt"])
+        else { return false }
+        switch type {
+        case "start":
+            // 만료가 필수다 — JS 콜드 스타트가 늦으면 워치가 이미 실패로 표시한 뒤 폰이 세션을
+            // 켜는 「유령 시작」이 생긴다(§4.3).
+            return nonEmpty(raw["expiresAt"]) && nonEmpty(raw["subjectId"])
+        case "pause", "resume":
+            // 만료 폐기 대상 — expectedRevision은 명령의 나이를 제한하지 못한다(§4.3).
+            return nonEmpty(raw["expiresAt"]) && nonEmpty(raw["focusSessionId"])
+        case "end":
+            // 종결 명령은 만료 없이 영속 재생된다 — expiresAt을 요구하지 않는다.
+            return nonEmpty(raw["focusSessionId"])
+        default:
+            return false
+        }
+    }
+
+    private static func nonEmpty(_ value: Any?) -> Bool {
+        guard let s = value as? String else { return false }
+        return !s.isEmpty
+    }
 }

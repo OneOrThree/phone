@@ -8,10 +8,10 @@
 //  ① **원자적 시작의 복구**(§4.3-ⓑ) — 저널에 미완 `starting`이 남아 있으면, 실드는 걸렸는데
 //     롤백 코드가 못 돈 크래시다. **v1 커밋 흔적을 먼저 확인**해 커밋돼 있으면 실드를 풀지
 //     않고 저널만 소급 완결하고, 흔적이 없으면 실드를 해제하고 저널을 소거한다.
-//  ② **failed 정산 intent의 재업로드**(D1) — 대기열 저장까지 실패해 저널에만 남은 블록을
+//  ② **워치 명령 인박스 드레인**(D2-④) — 네이티브가 적재해 둔 명령을 비운다. 시간에
+//     민감해서 네트워크 작업보다 **먼저** 돈다. 이 티켓에선 실행하지 않고 폐기한다(스켈레톤).
+//  ③ **failed 정산 intent의 재업로드**(D1) — 대기열 저장까지 실패해 저널에만 남은 블록을
 //     같은 바디로 다시 올린다. 성공·큐 인계면 intent를 지운다.
-//  ③ **워치 명령 인박스 드레인**(D2-④) — 네이티브가 적재해 둔 명령을 비운다. 이 티켓에선
-//     실행하지 않고 폐기한다(스켈레톤) — 라우팅은 페이즈 1.
 //
 // 세션 **재개**는 하지 않는다 — 부팅 정책은 현행(OrphanFocusSettler의 종료 정산) 그대로다.
 // 재개는 페이즈 1(워치 발 세션)의 몫이고, 그때 Settler와의 조정이 필요하다.
@@ -20,7 +20,7 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { uploadFocusBlock } from '../uploadFocusBlock';
 import { cancelMarker } from '../pendingMarkerCancels';
 import { readPersistedSessionV1 } from './persistence';
-import { drainWatchCommands } from './watchInbox';
+import { drainWatchCommands, ackWatchCommands } from './watchInbox';
 import {
   readJournal,
   journalActivateSession,
@@ -74,7 +74,23 @@ async function recover(): Promise<void> {
     }
   }
 
-  // ② failed intent 재업로드
+  // ② 워치 명령 인박스 드레인 — **네트워크 작업보다 먼저** 돈다. 뒤에 두면 저널이 찬 경우
+  // intent마다 업로드 타임아웃을 소비하다가, 종료 상태 기동의 제한된 백그라운드 실행 시간이
+  // 먼저 끝나 시간 민감한 명령(start·pause·resume은 expiresAt도 지난다)이 이번 기동에서
+  // 처리되지 못한다.
+  //
+  // 이 티켓의 범위는 **비우기까지**다 — 실행 라우팅 없이 쌓아 두면 페이즈 1 첫 부팅에 낡은
+  // 명령이 한꺼번에 실행되므로, 지금은 드레인하고 즉시 ack(=처리 완료로 확정)한다.
+  // 페이즈 1에서는 이 ack를 **라우팅 성공 뒤로** 옮긴다.
+  const commands = await drainWatchCommands().catch(() => []);
+  if (commands.length > 0) {
+    if (__DEV__) {
+      console.log(`[워치인박스] ${commands.length}건 드레인 — 실행 라우팅은 페이즈 1`);
+    }
+    await ackWatchCommands(commands.map((c) => c.commandId));
+  }
+
+  // ③ failed intent 재업로드
   const now = Date.now();
   for (const intent of journal.settles) {
     const age = now - Date.parse(intent.createdAt);
@@ -82,12 +98,6 @@ async function recover(): Promise<void> {
     await replayIntent(intent).catch(() => {});
   }
 
-  // ③ 워치 명령 인박스 드레인 — 비우기까지가 이 티켓의 범위다. 실행 라우팅이 없는 채로
-  // 쌓아 두면 페이즈 1 첫 부팅에 낡은 명령이 한꺼번에 실행될 수 있어, 지금은 비우고 버린다.
-  const commands = await drainWatchCommands().catch(() => []);
-  if (__DEV__ && commands.length > 0) {
-    console.log(`[워치인박스] ${commands.length}건 드레인 — 실행 라우팅은 페이즈 1`);
-  }
 }
 
 /**

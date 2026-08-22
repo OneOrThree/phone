@@ -13,6 +13,7 @@ import { NativeModules, Platform } from 'react-native';
 
 interface WatchSessionNative {
   drainWatchCommands?: () => Promise<string[]>;
+  ackWatchCommands?: (commandIds: string[]) => Promise<void>;
   getWatchKillSwitch?: () => Promise<boolean>;
 }
 
@@ -49,8 +50,20 @@ function parse(json: string): DrainedWatchCommand | null {
 }
 
 /**
- * 인박스를 비우고 명령을 돌려준다. 킬스위치가 켜져 있으면 `start`는 여기서 한 번 더
- * 걸러낸다(이중 평가) — 네이티브 플래그가 갱신된 직후에 이미 적재돼 있던 시작 명령까지 막는다.
+ * 네이티브가 claim한 명령을 처리 완료로 확정한다 — 이 호출 전까지 명령은 보관되고 다음
+ * 드레인에 재배달된다. **페이즈 1에서는 라우팅이 성공한 뒤에** 부르도록 옮긴다(지금은
+ * 「처리 = 폐기」라 드레인 직후에 부른다).
+ */
+export async function ackWatchCommands(commandIds: string[]): Promise<void> {
+  const native = nativeModule();
+  if (typeof native?.ackWatchCommands !== 'function' || commandIds.length === 0) return;
+  await native.ackWatchCommands(commandIds).catch(() => {});
+}
+
+/**
+ * 인박스를 드레인한다(네이티브는 지우지 않고 claim만 한다 — ack로 확정된다).
+ * 킬스위치가 켜져 있으면 `start`는 여기서 한 번 더 걸러낸다(이중 평가) — 네이티브 플래그가
+ * 갱신된 직후에 이미 적재돼 있던 시작 명령까지 막는다.
  *
  * 반환값은 **아직 아무도 실행하지 않는다** — 호출부(recoverFocusEngine)가 개수만 세고
  * 버린다. 실행 라우팅은 페이즈 1.
