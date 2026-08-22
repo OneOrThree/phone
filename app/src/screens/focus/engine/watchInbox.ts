@@ -52,6 +52,24 @@ export interface DrainedWatchCommand {
  *   못박은 계약이다. 네이티브 v1이 claim한 뒤 OTA로 JS만 올라간 스큐에서 이걸 ack해 버리면,
  *   워치는 이미 아웃박스를 비운 뒤라 유일한 정확한 종료 시각이 사라진다.
  */
+/**
+ * 만료 폐기 대상(§4.3) — `end`는 여기 없다. 늦은 종료는 issuedAt 보존 경로로 정확히
+ * 정산되므로, 만료로 폐기하면 오히려 세션이 계속 적립된다.
+ */
+const EXPIRABLE_TYPES = new Set(['start', 'pause', 'resume']);
+
+/**
+ * 처리 시점 만료 검사. 네이티브의 만료 축출은 **대기열이 포화됐을 때만** 돌므로 이걸
+ * 대신하지 못한다 — 정상 대기열에서 만료된 명령이 그대로 배달되면, 라우터가 이미 워치에서
+ * 포기한 start로 세션·실드를 켜거나 오래된 정지/재개를 적용한다.
+ */
+function isExpired(cmd: DrainedWatchCommand, now: number): boolean {
+  if (!EXPIRABLE_TYPES.has(cmd.type)) return false;
+  if (typeof cmd.expiresAt !== 'string' || !cmd.expiresAt) return false;
+  const deadline = Date.parse(cmd.expiresAt);
+  return Number.isFinite(deadline) && deadline < now;
+}
+
 type ParseResult =
   | { kind: 'ok'; command: DrainedWatchCommand }
   | { kind: 'malformed'; commandId: string | null }
@@ -108,6 +126,7 @@ export async function drainWatchCommands(): Promise<DrainedWatchCommand[]> {
   // 남아 킬스위치가 꺼진 뒤 차단했던 start가 뒤늦게 배달된다. 반대로 **보존해야 하는 것을
   // ack하면 영구 유실**이라(버전 불일치), 두 부류를 엄격히 가른다.
   const discarded: string[] = [];
+  const now = Date.now();
   raw.forEach((json) => {
     const result = parse(json);
     if (result.kind === 'versionMismatch') return; // 보존 — ack하지 않는다
@@ -116,6 +135,12 @@ export async function drainWatchCommands(): Promise<DrainedWatchCommand[]> {
       return;
     }
     const cmd = result.command;
+    // 만료분은 실행 목록에서 빼고 **확정 폐기**한다 — 워치는 이미 포기한 명령이라 보존할
+    // 이유가 없고, 남겨 두면 매 드레인마다 되살아난다.
+    if (isExpired(cmd, now)) {
+      discarded.push(cmd.commandId);
+      return;
+    }
     // 킬스위치는 **신규 시작만** 막는다(R16 3차 개정) — end/pause/resume까지 막으면
     // 워치 아웃박스의 종료가 갇혀 폰 세션·실드를 닫을 길이 사라진다.
     if (killSwitched && cmd.type === 'start') {

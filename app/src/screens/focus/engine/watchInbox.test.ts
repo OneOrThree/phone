@@ -37,7 +37,9 @@ test('drainWatchCommands 메서드가 없는 구 바이너리도 no-op — 능�
 
 test('적재된 명령을 파싱해 돌려준다', async () => {
   setNative({
-    drainWatchCommands: jest.fn(() => Promise.resolve([cmd(), cmd({ commandId: 'c2', type: 'end' })])),
+    drainWatchCommands: jest.fn(() =>
+      Promise.resolve([cmd(), cmd({ commandId: 'c2', type: 'end' })]),
+    ),
     getWatchKillSwitch: jest.fn(() => Promise.resolve(false)),
   });
   const out = await drainWatchCommands();
@@ -149,4 +151,56 @@ test('ack: 빈 배열·구 바이너리는 호출하지 않는다', async () => 
 test('ack 실패는 던지지 않는다 — 부팅 복구를 막지 않는다', async () => {
   setNative({ ackWatchCommands: jest.fn(() => Promise.reject(new Error('bridge dead'))) });
   await expect(ackWatchCommands(['c1'])).resolves.toBeUndefined();
+});
+
+describe('만료 폐기(§4.3)', () => {
+  const past = new Date(Date.now() - 60_000).toISOString();
+  const future = new Date(Date.now() + 60_000).toISOString();
+
+  test('만료된 start·pause·resume은 실행 목록에서 빼고 확정 폐기한다', async () => {
+    // 네이티브의 만료 축출은 대기열 포화 때만 돈다 — 정상 대기열에서 만료된 명령이 그대로
+    // 배달되면 라우터가 이미 워치에서 포기한 start로 세션·실드를 켠다(codex 리뷰 4차).
+    const ackFn = jest.fn(() => Promise.resolve());
+    setNative({
+      drainWatchCommands: jest.fn(() =>
+        Promise.resolve([
+          cmd({ commandId: 'old-start', type: 'start', expiresAt: past }),
+          cmd({ commandId: 'old-pause', type: 'pause', expiresAt: past }),
+          cmd({ commandId: 'live', type: 'start', expiresAt: future }),
+        ]),
+      ),
+      getWatchKillSwitch: jest.fn(() => Promise.resolve(false)),
+      ackWatchCommands: ackFn,
+    });
+    const out = await drainWatchCommands();
+    expect(out.map((c) => c.commandId)).toEqual(['live']);
+    expect(ackFn).toHaveBeenCalledWith(['old-start', 'old-pause']);
+  });
+
+  test('end는 만료로 폐기하지 않는다 — 늦은 종료도 issuedAt으로 정확히 정산된다', async () => {
+    // 만료로 버리면 유일한 정확한 종료가 사라져 세션·실드가 계속 남고 적립이 이어진다(§4.3).
+    const ackFn = jest.fn(() => Promise.resolve());
+    setNative({
+      drainWatchCommands: jest.fn(() =>
+        Promise.resolve([cmd({ commandId: 'late-end', type: 'end', expiresAt: past })]),
+      ),
+      getWatchKillSwitch: jest.fn(() => Promise.resolve(false)),
+      ackWatchCommands: ackFn,
+    });
+    const out = await drainWatchCommands();
+    expect(out.map((c) => c.commandId)).toEqual(['late-end']);
+    expect(ackFn).not.toHaveBeenCalled();
+  });
+
+  test('expiresAt이 파싱 불가면 만료로 보지 않는다 — 판정 불가로 명령을 잃지 않는다', async () => {
+    setNative({
+      drainWatchCommands: jest.fn(() =>
+        Promise.resolve([cmd({ commandId: 'weird', type: 'pause', expiresAt: 'not-a-date' })]),
+      ),
+      getWatchKillSwitch: jest.fn(() => Promise.resolve(false)),
+      ackWatchCommands: jest.fn(() => Promise.resolve()),
+    });
+    const out = await drainWatchCommands();
+    expect(out.map((c) => c.commandId)).toEqual(['weird']);
+  });
 });

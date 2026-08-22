@@ -97,7 +97,6 @@ async function recover(): Promise<void> {
     if (!Number.isFinite(age) || age < STALE_INTENT_MS) continue;
     await replayIntent(intent).catch(() => {});
   }
-
 }
 
 /**
