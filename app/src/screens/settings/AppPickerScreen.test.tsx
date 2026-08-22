@@ -184,3 +184,42 @@ describe('목록 조회 실패', () => {
     expect(screen.getByText('카카오톡')).toBeOnTheScreen();
   });
 });
+
+// 저장이 **기존 값을 지우는** 경로 — GROMO-1593 코드리뷰.
+describe('준비되기 전에는 저장하지 않는다', () => {
+  // 빈 배열은 '0개 측정'이 아니라 '미설정 = 전체 앱 측정'이라, 눌린 줄도 모르고 대상이 날아간다.
+  test('목록 조회가 실패하면 저장 버튼이 막힌다', async () => {
+    m.getInstalledApps.mockRejectedValue(new Error('native missing'));
+
+    await renderScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('appPicker.save'));
+    });
+
+    expect(m.setSelectionPackages).not.toHaveBeenCalled();
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+});
+
+// 지웠거나 런처 항목이 사라진 앱 — 행이 없는데 선택값에만 남아 있으면 화면에서 풀 수 없다.
+describe('설치 목록에 없는 저장값은 복원하지 않는다', () => {
+  test('사라진 패키지는 선택 개수에 포함되지 않는다', async () => {
+    m.getSelectionPackages.mockResolvedValue(['com.kakao.talk', 'com.deleted.app']);
+
+    await renderScreen();
+
+    // 살아 있는 1개만 남는다 — 사라진 것까지 세면 '2개 앱만 측정하도록 저장'이 된다.
+    expect(screen.getByText('1개 앱만 측정하도록 저장')).toBeOnTheScreen();
+  });
+
+  test('저장할 때도 사라진 패키지는 빠진다', async () => {
+    m.getSelectionPackages.mockResolvedValue(['com.kakao.talk', 'com.deleted.app']);
+
+    await renderScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('appPicker.save'));
+    });
+
+    expect(m.setSelectionPackages).toHaveBeenCalledWith(['com.kakao.talk']);
+  });
+});

@@ -80,7 +80,12 @@ export default function AppPickerScreen() {
       .then(([list, saved]) => {
         if (cancelled) return;
         setApps(list);
-        setSelected(new Set(saved));
+        // 설치 목록에 남아 있는 것만 복원한다(코드리뷰 반영). 지웠거나 런처 항목이 사라진
+        // 앱은 여기 행이 없는데, 그대로 넣으면 **체크된 행이 하나도 없는데 개수만 올라간다.**
+        // 사용자가 화면에서 풀 방법이 없고, 저장해도 그 값이 계속 보존돼 앱을 재설치하면
+        // 의도치 않게 다시 측정 대상이 된다.
+        const installed = new Set(list.map((a) => a.packageName));
+        setSelected(new Set(saved.filter((pkg) => installed.has(pkg))));
       })
       // ⚠️ 실패를 빈 목록으로 뭉개지 않는다. 처음엔 catch에서 setApps([])를 했는데, 그러면
       // '앱이 하나도 없음'과 '네이티브 호출 실패'가 화면에서 똑같아 보인다 — 실제로 네이티브가
@@ -110,8 +115,15 @@ export default function AppPickerScreen() {
     });
   }, []);
 
+  // 저장 준비가 안 된 상태 — 목록 로딩 중이거나 조회가 실패했을 때(코드리뷰 반영).
+  //
+  // ⚠️ 이걸 안 막으면 **기존 측정 대상이 조용히 삭제된다.** 로딩 중에는 selected 가 빈 집합인데
+  //    버튼은 살아 있어서, 그대로 누르면 save([]) 가 나간다. 빈 배열은 '0개 측정'이 아니라
+  //    '미설정 = 전체 앱 측정'이라 되돌리기도 어렵다(사용자는 뭘 지웠는지 모른다).
+  const notReady = apps === null || failed;
+
   async function save() {
-    if (saving) return;
+    if (saving || notReady) return;
     setSaving(true);
     try {
       await spec.save([...selected]);
@@ -131,8 +143,8 @@ export default function AppPickerScreen() {
       footer={
         <TouchableOpacity
           testID="appPicker.save"
-          style={[s.cta, saving ? s.ctaDisabled : null]}
-          disabled={saving}
+          style={[s.cta, saving || notReady ? s.ctaDisabled : null]}
+          disabled={saving || notReady}
           activeOpacity={0.85}
           onPress={save}
         >

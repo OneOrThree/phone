@@ -27,10 +27,14 @@ const mockRequireNative = requireOptionalNativeModule as jest.MockedFunction<
   typeof requireOptionalNativeModule
 >;
 
-/** 새 바이너리 — 1608 이 추가한 getUsageBreakdown 이 있다. */
+/** 새 바이너리 — 1608(앱별 사용시간) · 1593(피커)이 추가한 메서드가 다 있다. */
 const newBinary = () =>
-  mockRequireNative.mockReturnValue({ getUsageBreakdown: jest.fn() } as never);
-/** M1 바이너리 — 모듈은 있는데 getUsageBreakdown 이 없다. */
+  mockRequireNative.mockReturnValue({
+    getUsageBreakdown: jest.fn(),
+    getInstalledApps: jest.fn(),
+    getSelectionPackages: jest.fn(),
+  } as never);
+/** M1 바이너리 — 모듈은 있는데 위 메서드가 하나도 없다. */
 const m1Binary = () =>
   mockRequireNative.mockReturnValue({ getTodayUsageBucketMinutes: jest.fn() } as never);
 /** 네이티브가 아예 없는 바이너리. */
@@ -92,6 +96,21 @@ describe('안드로이드 구 바이너리 — 앱별 사용시간을 닫는다'
     m1Binary();
 
     expect(supportsUsageBreakdown()).toBe(false);
+  });
+
+  // 피커도 같은 문제다(코드리뷰 반영) — M2 이전 바이너리엔 getInstalledApps 가 없어서,
+  // 진입점을 열어 두면 오류 화면이 뜨거나 빈 목록이 '설치된 앱 없음'처럼 보인다.
+  test('피커 메서드가 없으면 측정 대상 선택도 닫는다', () => {
+    m1Binary();
+
+    expect(supportsAppSelection()).toBe(false);
+  });
+
+  // 앱별 사용시간만 있는 중간 바이너리 — 술어가 각자 자기 메서드를 봐야 한 쪽만 열린다.
+  test('getUsageBreakdown 만 있으면 상세는 열고 피커는 닫는다', () => {
+    mockRequireNative.mockReturnValue({ getUsageBreakdown: jest.fn() } as never);
+
+    expect([supportsUsageBreakdown(), supportsAppSelection()]).toEqual([true, false]);
   });
 });
 

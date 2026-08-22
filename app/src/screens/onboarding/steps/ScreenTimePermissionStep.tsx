@@ -12,7 +12,7 @@ import {
 } from '@/services/analyticsEvents';
 import type { StepProps } from '@/screens/onboarding/types';
 import ScreenTimeModule, { type SystemColorScheme } from '@/services/ScreenTimeModule';
-import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
+import { pickMeasuredTargets } from '@/screens/onboarding/pickMeasuredTargets';
 
 // 09 · 스크린타임 권한 — Apple 스크린타임 권한 요청. 결과를 screenTimeGranted 에 저장.
 // 요청 직전 권한창 리허설 오버레이(GROMO-934) — 승인 버튼이 왼쪽('계속')임을 안내한 뒤,
@@ -142,23 +142,10 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
     onNext();
   }
 
-  // 측정 대상 앱/카테고리 선택 → 최초 설정이라 즉시 활성(selection) 승격.
-  // 취소(null)하면 미설정으로 진행 — 홈 사용시간 표시가 제한될 수 있음(추후 설정에서 가능).
+  // 측정 대상 확정 + 측정 시작. 플랫폼 차이는 pickMeasuredTargets 안에 있다 —
+  // 안드로이드는 시스템 피커가 없고 '미설정 = 전체 앱 측정'이라 등록만 하면 된다(코드리뷰 반영).
   async function pickTargets() {
-    try {
-      const counts = await ScreenTimeModule.presentAppPicker();
-      if (counts) {
-        await ScreenTimeModule.promoteSelection();
-        // threshold 이벤트는 등록 시점 selection 토큰으로 고정 — 선택 확정 직후
-        // 15분 버킷 모니터링을 등록해야 사용량 측정·서버 동기화가 시작된다(GROMO-633).
-        // 목표 달성 판정은 이 버킷 사용시간으로 한다(GROMO-942, 별도 목표 모니터 없음).
-        // 로그인 전이라 소유 계정 미상(null) — Syncer 첫 실행이 현재 계정으로 귀속시킨다.
-        await registerUsageBucketMonitoring(null);
-        update({ screenTimeSelectionConfigured: true });
-      }
-    } catch {
-      // picker 미지원 환경(시뮬레이터 등)은 조용히 무시 — 온보딩은 계속 진행.
-    }
+    if (await pickMeasuredTargets()) update({ screenTimeSelectionConfigured: true });
   }
   function later() {
     update({ screenTimeGranted: false });

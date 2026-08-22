@@ -8,7 +8,7 @@ import ScreenTimeGuideOverlay, {
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import ScreenTimeModule, { type SystemColorScheme } from '@/services/ScreenTimeModule';
-import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
+import { pickMeasuredTargets } from '@/screens/onboarding/pickMeasuredTargets';
 import {
   logOnboardingPermissionRequested,
   logOnboardingPermissionResulted,
@@ -47,18 +47,10 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
 
   // 허용 확정 공통 처리(재요청 승인·설정 폴백 복귀 공용) — 측정 대상(앱) picker → selection 즉시 승격.
   const completeApproved = useCallback(async () => {
-    try {
-      const counts = await ScreenTimeModule.presentAppPicker();
-      if (counts) {
-        await ScreenTimeModule.promoteSelection();
-        // 선택 확정 직후 15분 버킷 모니터링 등록(GROMO-633) — Syncer는 온보딩 완료 후에만
-        // 마운트되므로, 여기서 등록하지 않으면 온보딩 미완주 이탈 시 측정이 시작되지 않는다.
-        // 소유 미상(null)으로 등록 — Syncer 첫 실행이 현재 계정으로 귀속시킨다(요청 스텝과 동일).
-        await registerUsageBucketMonitoring(null);
-        updateRef.current({ screenTimeSelectionConfigured: true });
-      }
-    } catch {
-      // picker 미지원 환경(시뮬레이터 등)은 조용히 무시 — 진행.
+    // 요청 스텝과 **같은 함수**를 쓴다 — 예전엔 같은 코드를 각자 들고 있었고, 둘 다 iOS 전용
+    // presentAppPicker 를 불러 안드로이드에서 측정이 시작되지 않았다(코드리뷰 반영).
+    if (await pickMeasuredTargets()) {
+      updateRef.current({ screenTimeSelectionConfigured: true });
     }
     // 허용 경로로 전환(이 스텝이 빠지고 목표 설정으로 자동 교체됨).
     updateRef.current({ screenTimeGranted: true });

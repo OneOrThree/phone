@@ -37,8 +37,15 @@ const androidNativeHas = (method: string): boolean => {
  * 안드로이드는 RN 화면(SettingsAppPicker)으로 이동한다(GROMO-1593). 호출부는 이 술어로
  * '보여줄지'만 정하고, '어떻게 여는지'는 각 화면이 Platform으로 갈라 쓴다.
  */
-export const supportsAppSelection = (): boolean =>
-  Platform.OS === 'ios' || Platform.OS === 'android';
+export const supportsAppSelection = (): boolean => {
+  if (Platform.OS === 'ios') return true;
+  // ⚠️ 안드로이드는 **네이티브 메서드 존재**로 가른다(코드리뷰 반영). 이 JS 는 hot-updater 로
+  //    M2 이전 바이너리에도 내려가는데, 거기엔 getInstalledApps·getSelectionPackages 가 없다:
+  //      - 모듈은 있고 메서드만 없는 빌드 → 피커 진입 후 undefined 호출로 오류 화면
+  //      - 모듈이 아예 없는 빌드 → 빈 목록이 '설치된 앱이 없다'처럼 보인다
+  //    supportsUsageBreakdown() 과 같은 방식이다.
+  return androidNativeHas('getInstalledApps') && androidNativeHas('getSelectionPackages');
+};
 
 /** 집중 중 **허용앱 목록을 고르고 관리**할 수 있는가. */
 export const supportsFocusShield = (): boolean => Platform.OS === 'ios';

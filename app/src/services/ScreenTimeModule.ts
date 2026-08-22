@@ -119,9 +119,11 @@ interface AndroidNativeScreenTime {
   // 측정 대상 앱 선택(GROMO-1593) — iOS의 presentAppPicker 자리를 대신한다. iOS는 네이티브가
   // 모달까지 띄우지만(토큰이 opaque라 JS가 못 그린다), 안드로이드는 패키지명이 그대로라
   // 목록만 넘기고 화면은 RN이 그린다.
-  getInstalledApps(): Promise<InstalledApp[]>;
-  getSelectionPackages(): Promise<string[]>;
-  setSelectionPackages(packages: string[]): Promise<void>;
+  // ⚠️ 옵셔널 — 구 바이너리(M2 이전)에도 ScreenTimeModule 자체는 있어서 모듈 유무로는
+  //    못 가른다. 존재 여부로 게이팅하지 않으면 undefined 호출로 터진다(코드리뷰 반영).
+  getInstalledApps?(): Promise<InstalledApp[]>;
+  getSelectionPackages?(): Promise<string[]>;
+  setSelectionPackages?(packages: string[]): Promise<void>;
   // 집중 중 허용앱 — 저장은 피커가 하고, 읽는 쪽(실드)은 후속 티켓에서 붙는다.
   getAllowedPackages(): Promise<string[]>;
   setAllowedPackages(packages: string[]): Promise<void>;
@@ -383,19 +385,19 @@ const ScreenTimeModule = {
 
   /** 런처에 뜨는 설치 앱 목록(표시 이름 순). 자기 자신은 빠져 있다. */
   getInstalledApps: async (): Promise<InstalledApp[]> => {
-    if (!AndroidScreenTime) return [];
+    if (!AndroidScreenTime?.getInstalledApps) return [];
     return AndroidScreenTime.getInstalledApps();
   },
 
   /** 현재 측정 대상 패키지들. **빈 배열 = 미설정 = 전체 앱 측정**(0개 측정이 아니다). */
   getSelectionPackages: async (): Promise<string[]> => {
-    if (!AndroidScreenTime) return [];
+    if (!AndroidScreenTime?.getSelectionPackages) return [];
     return AndroidScreenTime.getSelectionPackages();
   },
 
   /** 측정 대상 저장. 빈 배열을 주면 '전체 앱 측정'으로 되돌아간다. 저장 즉시 오늘분부터 반영된다. */
   setSelectionPackages: async (packages: string[]): Promise<void> => {
-    if (!AndroidScreenTime) return;
+    if (!AndroidScreenTime?.setSelectionPackages) return;
     return AndroidScreenTime.setSelectionPackages(packages);
   },
 
