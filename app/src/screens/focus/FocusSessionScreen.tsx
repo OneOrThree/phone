@@ -422,7 +422,8 @@ export default function FocusSessionScreen() {
   useEffect(
     () => () => {
       if (!engine.isFinished()) {
-        engine.cancelLiveSession();
+        // 마커 마감 + 미정산 블록 영속(D2) — 정산은 다음 실행의 고아 정산 몫
+        engine.detachViewExit();
         if (!dwellDoneRef.current) {
           // 가로면 세로 페이저는 가려진 상태 — 뷰 flush를 건너뛰고 방향 체류만 발행(코덱스 리뷰)
           if (orientationRef.current !== 'landscape') flushViewDwell();

@@ -1658,10 +1658,14 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     // 계속 남는다(codex 리뷰 9차)
     expect(ScreenTimeModule.stopFocusShield).toHaveBeenCalled();
     expect(ScreenTimeModule.endFocusActivity).toHaveBeenCalled();
-    // ⚠️ 현행 cleanup엔 saveLive가 없다 — 첫 주기 저장(5초) 전 언마운트면 레코드가 아예 없어
-    // 고아 정산 근거도 없고, 이후에도 마지막 주기 저장 뒤 최대 4초는 유실된다(codex 리뷰 12차).
-    // 「지금의 동작」으로 고정 — 개선은 1600의 영속 상태 머신 몫.
-    expect(await readLiveRecord()).toBeNull();
+    // GROMO-1600 D2 수리 — cleanup이 미정산 블록을 영속한다. 종전엔 저장이 없어 첫 주기
+    // 저장(5초) 전 언마운트면 고아 정산 근거가 아예 없었고, 이후에도 마지막 주기 저장 뒤
+    // 최대 4초가 유실됐다(codex 리뷰 12차로 「알려진 공백」 고정 → 이제 해소).
+    const record = await readLiveRecord();
+    expect(record).toMatchObject({ elapsed: 4, subjectId: 's1', userId: 'user-1' });
+    // 마커는 이 cleanup이 이미 닫았다 — 레코드가 닫힌 마커를 가리키면 고아 정산이 헛된
+    // PATCH를 태운다. 비워 두면 곧장 POST 경로로 간다.
+    expect(record!.serverSessionId).toBeNull();
   });
 
   test('언마운트 정리의 네이티브 해제가 거부돼도: 종결 계측·마커 취소는 계속된다', async () => {

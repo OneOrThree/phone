@@ -159,6 +159,13 @@ export interface FocusSessionEngine {
   // ── 서버 라이브 마커(GROMO-873)
   startLiveSession(startedAt: string): Promise<string | null>;
   cancelLiveSession(): void;
+  /**
+   * finish를 거치지 않는 뷰 이탈(Android 시스템 뒤로가기 등) — 마커를 닫고 **미정산 블록을
+   * 영속한다**(D2 수리). 종전엔 이 자리에 저장이 없어 첫 5초 주기 전 언마운트면 고아 정산
+   * 근거가 통째로 없었고, 이후에도 마지막 주기 저장 뒤 최대 4초가 유실됐다. 정산 자체는
+   * 여전히 다음 부팅의 고아 정산 몫이다(여기서 업로드하지 않는다).
+   */
+  detachViewExit(): void;
   setMarkerDeferred(v: boolean): void;
   isMarkerDeferred(): boolean;
 
@@ -887,6 +894,14 @@ export function createFocusSessionEngine(
         remainingSeconds: config.mode === 'countup' ? null : Math.max(0, Math.floor(base.display)),
         revision: activityRevision,
       };
+    },
+
+    detachViewExit() {
+      if (finished) return;
+      // 마커 먼저 마감 — 참조(liveId)는 동기적으로 비워지므로 아래 레코드는 닫힌 마커를
+      // 가리키지 않는다(고아 정산이 헛된 PATCH를 태우지 않고 곧장 POST로 올린다).
+      cancelLiveSession();
+      persistLiveRecord(session.elapsed);
     },
 
     settleFocusBlock,
