@@ -114,6 +114,14 @@ class ScreenTimeModule : Module() {
 
     // 오늘 사용시간(분) — 오늘 0시~지금. 이름의 Bucket은 iOS 15분 눈금의 흔적으로,
     // 안드로이드는 정확한 분값을 반환한다(호출부 계약상 무해 — 03 문서 §4).
+    /**
+     * 오늘 총 사용시간(초) — 위 분값과 같은 소스, 내림 전 값이다.
+     * 상세 화면이 '앱별 목록에 안 잡히는 시간'을 정확히 계산하는 데 쓴다.
+     */
+    AsyncFunction("getTodayUsageSeconds") {
+      usageSeconds(startOfDay(0), System.currentTimeMillis())
+    }
+
     AsyncFunction("getTodayUsageBucketMinutes") {
       usageMinutes(startOfDay(0), System.currentTimeMillis())
     }
@@ -273,14 +281,26 @@ class ScreenTimeModule : Module() {
 
   // [begin, end) 구간 사용시간(분) — 세션 재구성 계산(UsageSessionCalculator).
   // 권한이 없으면 0 (호출부는 권한 확인 후 호출하는 게 기본 흐름).
-  private fun usageMinutes(begin: Long, end: Long): Int {
+  private fun usageMinutes(begin: Long, end: Long): Int = (usageSeconds(begin, end) / 60)
+
+  /**
+   * [begin, end) 구간 사용시간(**초**) — 위 분값과 **같은 소스**다.
+   *
+   * 상세 화면이 '앱별 목록에 안 잡히는 시간'(런처·시스템 UI)을 계산하는 데 쓴다.
+   * 분값만 있으면 그걸 못 한다(코드리뷰 반영):
+   *   - 초 단위 합을 내림된 분에서 빼면, 실제 차이가 1분을 넘어도 행이 안 생긴다
+   *   - 내림한 분의 합에서 빼면, **차이가 없는데도 행이 생긴다**
+   *     (각 40초씩 쓴 앱 둘 → 총계 floor(80/60)=1분, 행 합 0+0=0분 → 허위 '그 외 1분')
+   * 두 실패가 정반대라 근사로는 못 없앤다. 초 단위 총계를 직접 준다.
+   */
+  private fun usageSeconds(begin: Long, end: Long): Int {
     if (!isUsageAccessGranted()) return 0
     val usageStatsManager =
       context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     // M2 전에는 selection 미설정 = 전체 앱 측정(빈 집합도 동일 취급 — §8 기본).
     val selection = prefs.getStringSet(KEY_SELECTION_PACKAGES, null)
     val millis = UsageSessionCalculator.foregroundMillis(usageStatsManager, selection, begin, end)
-    return (millis / 60_000L).toInt()
+    return (millis / 1_000L).toInt()
   }
 
   // 로컬 자정 기준 하루 시작 시각(ms). offsetDays: 0=오늘, -1=어제. DST 보정은 Calendar가 처리.

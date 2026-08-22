@@ -30,6 +30,7 @@ jest.mock('@/services/ScreenTimeModule', () => ({
   default: {
     getUsageByApp: jest.fn(),
     getTodayUsageBucketMinutes: jest.fn(),
+    getTodayUsageSeconds: jest.fn(),
     getAuthorizationStatus: jest.fn(),
     getAppIcon: jest.fn(),
   },
@@ -56,6 +57,7 @@ beforeEach(() => {
   mockGetUsageByApp.mockResolvedValue([]);
   (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(0);
   (ScreenTimeModule.getAuthorizationStatus as jest.Mock).mockResolvedValue('approved');
+  (ScreenTimeModule.getTodayUsageSeconds as jest.Mock).mockResolvedValue(0);
   (ScreenTimeModule.getAppIcon as jest.Mock).mockResolvedValue(null);
 });
 
@@ -131,6 +133,7 @@ describe('총계와 목록이 어긋나지 않는다', () => {
       { packageName: 'com.b', label: '비', seconds: 480 },
     ]);
     (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(21);
+    (ScreenTimeModule.getTodayUsageSeconds as jest.Mock).mockResolvedValue(1260);
 
     await renderScreen();
 
@@ -144,6 +147,7 @@ describe('총계와 목록이 어긋나지 않는다', () => {
   test('1분 미만 차이는 행을 만들지 않는다', async () => {
     mockGetUsageByApp.mockResolvedValue([{ packageName: 'com.a', label: '에이', seconds: 610 }]);
     (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(10);
+    (ScreenTimeModule.getTodayUsageSeconds as jest.Mock).mockResolvedValue(640);
 
     await renderScreen();
 
@@ -186,6 +190,7 @@ describe('화면에 찍히는 숫자가 서로 맞는다', () => {
   test('내림 오차가 있어도 총계와 행 합이 맞는다', async () => {
     mockGetUsageByApp.mockResolvedValue([{ packageName: 'com.a', label: '에이', seconds: 601 }]);
     (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(11);
+    (ScreenTimeModule.getTodayUsageSeconds as jest.Mock).mockResolvedValue(719);
 
     await renderScreen();
 
@@ -224,4 +229,63 @@ describe('권한 상실을 기록 없음과 구분한다', () => {
 
     expect(screen.getByText(/사용 정보 접근 권한이 꺼져 있어요/)).toBeOnTheScreen();
   });
+});
+
+// 코드리뷰 2차 — 근사로는 못 없애는 두 반례와, 겹친 조회의 순서 문제.
+describe('「그 외」는 실제 차이일 때만 만든다', () => {
+  // 각 40초씩 쓴 앱 둘. '내림한 분의 합'으로 계산하면 총계 floor(80/60)=1분, 행 합 0분이라
+  // **안 보이는 앱 사용이 전혀 없는데도** '그 외 1분'이 생긴다.
+  test('내림 잔여를 「그 외」로 만들지 않는다', async () => {
+    mockGetUsageByApp.mockResolvedValue([
+      { packageName: 'com.a', label: '에이', seconds: 40 },
+      { packageName: 'com.b', label: '비', seconds: 40 },
+    ]);
+    (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(1);
+    (ScreenTimeModule.getTodayUsageSeconds as jest.Mock).mockResolvedValue(80);
+
+    await renderScreen();
+
+    expect(screen.queryByText('그 외')).toBeNull();
+  });
+
+  // iOS·구 바이너리는 초 총계를 못 준다 — 허위 행을 그리느니 안 그린다.
+  test('초 총계가 없으면 행을 만들지 않는다', async () => {
+    mockGetUsageByApp.mockResolvedValue([{ packageName: 'com.a', label: '에이', seconds: 600 }]);
+    (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(21);
+    (ScreenTimeModule.getTodayUsageSeconds as jest.Mock).mockResolvedValue(null);
+
+    await renderScreen();
+
+    expect(screen.queryByText('그 외')).toBeNull();
+  });
+});
+
+// 첫 조회가 도는 중에 복귀 재조회가 시작되면 둘이 나란히 돈다. 느린 기기에선 먼저 시작한
+// 쪽이 나중에 끝나서, 언마운트만 확인하면 **낡은 결과가 최신을 덮어쓴다.**
+test('겹친 조회에서 낡은 결과가 최신을 덮어쓰지 않는다', async () => {
+  const deferred: ((v: 'approved' | 'denied') => void)[] = [];
+  (ScreenTimeModule.getAuthorizationStatus as jest.Mock).mockImplementation(
+    () => new Promise((resolve) => deferred.push(resolve)),
+  );
+
+  await render(<UsageDetailScreen />);
+  await act(async () => {}); // 첫 조회 시작(아직 미완)
+
+  // 복귀 재조회 — 두 번째 조회가 나란히 시작된다.
+  const calls = (AppState.addEventListener as jest.Mock).mock.calls;
+  const handler = calls[calls.length - 1][1] as (s: string) => void;
+  await act(async () => {
+    handler('active');
+  });
+
+  // 두 번째(최신)가 먼저 끝나 '권한 없음'을 세우고, 첫 번째(낡은)가 뒤늦게 '허용'을 들고 온다.
+  await act(async () => {
+    deferred[1]?.('denied');
+  });
+  await act(async () => {
+    deferred[0]?.('approved');
+  });
+
+  // 낡은 결과가 이겼다면 권한 안내가 사라졌을 것이다.
+  expect(screen.getByText(/사용 정보 접근 권한이 꺼져 있어요/)).toBeOnTheScreen();
 });

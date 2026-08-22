@@ -71,6 +71,8 @@ export default function UsageDetailScreen() {
 function AndroidUsageList() {
   const [rows, setRows] = useState<AppUsage[] | null>(null); // null = 로딩 중
   const [totalMinutes, setTotalMinutes] = useState<number | null>(null);
+  // 초 단위 총계 — '그 외' 계산 전용. null 이면(iOS·구 바이너리) 그 행을 만들지 않는다.
+  const [totalSeconds, setTotalSeconds] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   // 권한이 사라진 상태 — '기록이 없음'과 반드시 구분해야 한다(아래 주석 참고).
   const [permissionLost, setPermissionLost] = useState(false);
@@ -84,27 +86,41 @@ function AndroidUsageList() {
     //
     // 총 사용시간은 홈 카드와 **같은 함수**로 받는다 — 목록 합으로 따로 계산하면 폴백 경로에서
     // "홈은 21분, 상세는 22분"처럼 갈린다. 대신 목록과의 차이는 아래 '그 외' 행이 메운다.
-    const [status, list, minutes] = await Promise.all([
+    const [status, list, minutes, seconds] = await Promise.all([
       ScreenTimeModule.getAuthorizationStatus(),
       ScreenTimeModule.getUsageByApp(0),
       ScreenTimeModule.getTodayUsageBucketMinutes(),
+      ScreenTimeModule.getTodayUsageSeconds(),
     ]);
-    return { status, list, minutes };
+    return { status, list, minutes, seconds };
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    const run = () =>
-      load()
-        .then(({ status, list, minutes }) => {
-          if (cancelled) return;
-          setPermissionLost(status !== 'approved');
-          setRows(list);
-          setTotalMinutes(minutes);
-          setFailed(false);
-        })
-        // 실패를 빈 목록으로 뭉개지 않는다 — '오늘 아무 앱도 안 씀'과 구분되어야 한다.
-        .catch(() => !cancelled && setFailed(true));
+    // ⚠️ 조회는 겹칠 수 있다(코드리뷰 반영). 첫 조회가 아직 도는 중에 앱이 다시 active 가
+    //    되면 두 번째 조회가 **나란히** 시작되는데, 느린 기기에선 먼저 시작한 쪽이 나중에
+    //    끝난다. 언마운트만 확인하면 낡은 결과가 최신 결과를 덮어써서, 갱신 전 수치가
+    //    되돌아오거나 방금 띄운 권한 안내가 사라진다. 세대 번호로 마지막 조회만 반영한다.
+    let generation = 0;
+    const run = () => {
+      const mine = ++generation;
+      return (
+        load()
+          .then(({ status, list, minutes, seconds }) => {
+            if (cancelled || mine !== generation) return;
+            setPermissionLost(status !== 'approved');
+            setRows(list);
+            setTotalMinutes(minutes);
+            setTotalSeconds(seconds);
+            setFailed(false);
+          })
+          // 실패를 빈 목록으로 뭉개지 않는다 — '오늘 아무 앱도 안 씀'과 구분되어야 한다.
+          .catch(() => {
+            if (cancelled || mine !== generation) return;
+            setFailed(true);
+          })
+      );
+    };
 
     run();
 
@@ -144,16 +160,20 @@ function AndroidUsageList() {
   // 들어가고 목록에는 대응 행이 없다. 그대로 두면 한 화면 안에서 "총 21분인데 더하면 18분"이
   // 된다. 차이를 '그 외' 한 행으로 드러내 합이 맞게 한다.
   //
-  // ⚠️ 차이는 **화면에 찍히는 단위**로 계산한다(코드리뷰 반영). 초 단위 합을 이미 내림된
-  //    총계에서 빼면 실제 차이가 1분을 넘어도 행이 안 생긴다:
-  //      보이는 앱 601초(→10분) + 안 보이는 앱 118초 = 719초 → 총계 11분(660초)
-  //      초로 빼면 660 - 601 = 59초 → 행 없음. 화면엔 총계 11분, 행 합 10분만 남는다.
-  //    행이 내림해 찍히므로 '내림한 분의 합'과 총계 분을 비교해야 눈에 보이는 숫자가 맞는다.
-  const listedMinutes = rows.reduce((sum, r) => sum + Math.floor(r.seconds / 60), 0);
-  const otherMinutes = Math.max(0, (totalMinutes ?? 0) - listedMinutes);
+  // ⚠️ '그 외'는 **초 단위 총계**로만 정확히 구할 수 있다(코드리뷰 2차). 근사 두 가지가 다
+  //    반례를 갖는다:
+  //      · 초 합을 내림된 분에서 뺀다 → 실제 차이가 1분을 넘어도 행이 안 생긴다
+  //        (보이는 앱 601초 + 안 보이는 앱 118초, 총계 11분 → 660-601=59초 → 행 없음)
+  //      · 내림한 분의 합에서 뺀다 → **차이가 없는데 행이 생긴다**
+  //        (각 40초 쓴 앱 둘 → 총계 floor(80/60)=1분, 행 합 0+0=0분 → 허위 '그 외 1분')
+  //    두 실패가 정반대라 근사로는 못 없앤다. 네이티브가 분값과 같은 소스의 초 총계를 준다.
+  //
+  //    못 받으면(iOS·구 바이너리) 행을 아예 만들지 않는다 — 허위 행보다 안 그리는 쪽이 낫다.
+  const listedSeconds = rows.reduce((sum, r) => sum + r.seconds, 0);
+  const otherSeconds = totalSeconds === null ? 0 : Math.max(0, totalSeconds - listedSeconds);
   const items: AppUsage[] =
-    otherMinutes >= 1
-      ? [...rows, { packageName: OTHER_ROW_KEY, label: '그 외', seconds: otherMinutes * 60 }]
+    otherSeconds >= 60
+      ? [...rows, { packageName: OTHER_ROW_KEY, label: '그 외', seconds: otherSeconds }]
       : rows;
 
   return (
