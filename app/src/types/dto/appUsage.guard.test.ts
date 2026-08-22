@@ -27,12 +27,13 @@ const APP = join(SRC, '..');
 /**
  * 네이티브 소스 — **여기도 전송 주체가 될 수 있다**(코드리뷰 3·4차).
  *
- * 안드로이드는 `app/modules` 의 Kotlin 이 앱별 사용량을 읽고, iOS 는 `app/ios` 의
+ * 안드로이드는 `app/modules` 의 Kotlin 이 앱별 사용량을 읽고, 앱 자신의 네이티브 코드도
+ * `app/android`(MainApplication·위젯 모듈 등)에 있다. iOS 는 `app/ios` 의
  * `screentimereport` 익스텐션(TotalActivityReport.swift)이 이미 앱 이름과 사용 시간을
  * 직접 구성한다. 둘 다 URLSession·HttpURLConnection 으로 바로 쏘면 TS 검사는 전부 통과한다
  * — '전송 자체를 막는다'는 가드가 데이터 발생 지점을 못 지키는 셈이다.
  */
-const NATIVE_ROOTS = [join(APP, 'modules'), join(APP, 'ios')];
+const NATIVE_ROOTS = [join(APP, 'modules'), join(APP, 'ios'), join(APP, 'android')];
 
 /** DTO 정의 파일의 절대 경로(확장자 없음) — 모듈 지정자를 여기에 맞춰 해석한다. */
 const DTO_MODULE = join(SRC, 'types', 'dto', 'appUsage');
@@ -165,18 +166,32 @@ function pointsToDto(specifier: string, fromFile: string): boolean {
   return false;
 }
 
-function tsSources(): { rel: string; path: string; scanned: ReturnType<typeof scan> }[] {
-  return walk(SRC, /\.(ts|tsx)$/)
-    .filter((f) => !ALLOWED.some((a) => f.endsWith(a.split('/').join(sep))))
+/**
+ * 검사 대상 TS 파일.
+ *
+ * `app/src` 아래에 더해 **앱 진입점**(`app/index.ts`)도 본다(코드리뷰 6차) — package.json 의
+ * main 이 그 파일이라, 거기서 전송하면 앱 시작과 함께 실제로 실행된다.
+ *
+ * @param allowed 자기 참조 제외 목록. **엔드포인트 검사에는 비워서 넘긴다** — DTO 파일 안에
+ *   `reportAppUsage()` 를 같이 넣어 버리면 그 파일이 제외돼 전송까지 통과한다(코드리뷰 6차).
+ *   DTO 정의 파일은 '자기 자신을 import 했나' 검사에서만 빼면 된다.
+ */
+function tsSources(
+  allowed: string[],
+): { rel: string; path: string; scanned: ReturnType<typeof scan> }[] {
+  const entry = join(APP, 'index.ts');
+  const files = [...walk(SRC, /\.(ts|tsx)$/), ...(existsSync(entry) ? [entry] : [])];
+  return files
+    .filter((f) => !allowed.some((a) => f.endsWith(a.split('/').join(sep))))
     .map((f) => ({
-      rel: f.slice(SRC.length + 1),
+      rel: f.startsWith(SRC) ? f.slice(SRC.length + 1) : f.slice(APP.length + 1),
       path: f,
       scanned: scan(readFileSync(f, 'utf8'), f),
     }));
 }
 
 test('앱별 사용 시간 DTO는 아직 어디에서도 쓰이지 않는다 (서버 미전송 고지 보호)', () => {
-  const offenders = tsSources()
+  const offenders = tsSources(ALLOWED)
     .filter(({ path, scanned }) => scanned.specifiers.some((sp) => pointsToDto(sp, path)))
     .map(({ rel }) => rel);
 
@@ -197,11 +212,13 @@ test('앱별 사용 시간 DTO는 아직 어디에서도 쓰이지 않는다 (�
 //    가드가 데이터 발생 지점을 못 지키는 셈이다. Kotlin 은 파서가 없어 원문을 훑는다.
 //    주석에 이 경로를 적어도 걸리는데, 그건 받아들인다 — 왜 여기 있는지 한 번 보는 게 낫다.
 test('앱별 사용 시간 엔드포인트를 호출하는 코드가 없다 (서버 미전송 고지 보호)', () => {
-  const tsOffenders = tsSources()
+  // ⚠️ 여기엔 이 테스트 파일만 뺀다 — **DTO 정의 파일은 뺴지 않는다**(코드리뷰 6차).
+  //    거기에 reportAppUsage() 를 같이 넣으면 파일째 제외돼 전송이 그대로 통과한다.
+  const tsOffenders = tsSources(['types/dto/appUsage.guard.test.ts'])
     .filter(({ scanned }) => scanned.literals.some((l) => l.includes(ENDPOINT_SEGMENT)))
     .map(({ rel }) => rel);
 
-  const nativeOffenders = NATIVE_ROOTS.flatMap((root) => walk(root, /\.(kt|java|swift|m|mm)$/))
+  const nativeOffenders = NATIVE_ROOTS.flatMap((root) => walk(root, /\.(kt|java|swift|m|mm|h)$/))
     .filter((f) => readFileSync(f, 'utf8').includes(ENDPOINT_SEGMENT))
     .map((f) => f.slice(APP.length + 1));
 
