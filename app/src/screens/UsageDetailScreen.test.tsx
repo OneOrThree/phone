@@ -4,7 +4,7 @@
 // 안드로이드는 UsageStats 수치를 받아 RN이 그린다. 그래서 **여기서만 검증할 수 있는 것들**이
 // 생긴다 — 정렬·단위·실패 구분.
 import { act, render, screen } from '@testing-library/react-native';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import UsageDetailScreen from './UsageDetailScreen';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 
@@ -49,6 +49,7 @@ async function renderScreen() {
 }
 
 beforeEach(() => {
+  jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() } as never);
   jest.clearAllMocks();
   setPlatform('android');
   mockGetUsageByApp.mockResolvedValue([]);
@@ -116,4 +117,62 @@ describe('앱별 사용 시간 목록', () => {
     expect(screen.getByText('사용 기록을 불러오지 못했어요')).toBeOnTheScreen();
     expect(screen.queryByText('사용 기록이 없어요')).toBeNull();
   });
+});
+
+// 코드리뷰(GROMO-1608)에서 잡힌 것들 — 전부 **한 화면 안에서 숫자가 어긋나는** 문제였다.
+describe('총계와 목록이 어긋나지 않는다', () => {
+  // 총계는 모든 패키지를 더하고 목록은 런처 앱만 남긴다 — 홈 런처·시스템 UI 시간이 총계에만
+  // 들어가 "총 21분인데 더하면 18분"이 된다. 그 차이를 '그 외' 행으로 드러낸다.
+  test('총계와 목록 합의 차이를 「그 외」 행으로 메운다', async () => {
+    mockGetUsageByApp.mockResolvedValue([
+      { packageName: 'com.a', label: '에이', seconds: 600 },
+      { packageName: 'com.b', label: '비', seconds: 480 },
+    ]);
+    (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(21);
+
+    await renderScreen();
+
+    // 21분 = 1260초, 목록 합 1080초 → 180초
+    expect(screen.getByText('그 외')).toBeOnTheScreen();
+    expect(screen.getByText('3분')).toBeOnTheScreen();
+  });
+
+  // 총계는 분 단위로 내림돼 오고 행은 초 단위라 최대 59초 오차가 있다. 그걸 행으로 만들면
+  // 반올림 잡음이 UI 에 노출된다.
+  test('1분 미만 차이는 행을 만들지 않는다', async () => {
+    mockGetUsageByApp.mockResolvedValue([{ packageName: 'com.a', label: '에이', seconds: 610 }]);
+    (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(10);
+
+    await renderScreen();
+
+    expect(screen.queryByText('그 외')).toBeNull();
+  });
+
+  // 총계는 네이티브가 내림하는데 행만 반올림하면 90초가 총계 1분 · 행 2분으로 갈린다.
+  test('앱별 분 표시는 총계와 같이 내림한다', async () => {
+    mockGetUsageByApp.mockResolvedValue([{ packageName: 'com.a', label: '에이', seconds: 90 }]);
+    (ScreenTimeModule.getTodayUsageBucketMinutes as jest.Mock).mockResolvedValue(1);
+
+    await renderScreen();
+
+    // 총계 카드와 앱 행이 **둘 다** '1분' — 반올림이면 행만 '2분'이 되어 갈린다.
+    expect(screen.getAllByText('1분')).toHaveLength(2);
+    expect(screen.queryByText('2분')).toBeNull();
+  });
+});
+
+// 이 화면을 열어 둔 채 나가서 다른 앱을 쓰고 돌아오면, 컴포넌트가 계속 마운트돼 있어
+// effect 가 다시 돌지 않는다 — 처음 열 때의 숫자가 그대로 남는다.
+test('앱 복귀 시 사용 내역을 다시 조회한다', async () => {
+  mockGetUsageByApp.mockResolvedValue([]);
+  await renderScreen();
+  expect(mockGetUsageByApp).toHaveBeenCalledTimes(1);
+
+  const calls = (AppState.addEventListener as jest.Mock).mock.calls;
+  const handler = calls[calls.length - 1][1] as (state: string) => void;
+  await act(async () => {
+    handler('active');
+  });
+
+  expect(mockGetUsageByApp).toHaveBeenCalledTimes(2);
 });

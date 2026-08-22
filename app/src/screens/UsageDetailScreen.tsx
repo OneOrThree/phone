@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,11 @@ import {
   TouchableOpacity,
   Platform,
   Image,
-  ScrollView,
+  FlatList,
+  AppState,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
@@ -71,23 +72,46 @@ function AndroidUsageList() {
   const [rows, setRows] = useState<AppUsage[] | null>(null); // null = 로딩 중
   const [totalMinutes, setTotalMinutes] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
+  const insets = useSafeAreaInsets();
+
+  const load = useCallback(async () => {
+    // 총 사용시간은 홈 카드와 **같은 함수**로 받는다 — 목록 합으로 따로 계산하면 폴백 경로에서
+    // "홈은 21분, 상세는 22분"처럼 갈린다. 대신 목록과의 차이는 아래 '그 외' 행이 메운다.
+    const [list, minutes] = await Promise.all([
+      ScreenTimeModule.getUsageByApp(0),
+      ScreenTimeModule.getTodayUsageBucketMinutes(),
+    ]);
+    return { list, minutes };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    // 총 사용시간은 홈 카드와 **같은 함수**로 받는다 — 목록 합으로 따로 계산하면 폴백 경로에서
-    // "홈은 21분, 상세는 22분"처럼 갈린다.
-    Promise.all([ScreenTimeModule.getUsageByApp(0), ScreenTimeModule.getTodayUsageBucketMinutes()])
-      .then(([list, minutes]) => {
-        if (cancelled) return;
-        setRows(list);
-        setTotalMinutes(minutes);
-      })
-      // 실패를 빈 목록으로 뭉개지 않는다 — '오늘 아무 앱도 안 씀'과 구분되어야 한다.
-      .catch(() => !cancelled && setFailed(true));
+    const run = () =>
+      load()
+        .then(({ list, minutes }) => {
+          if (cancelled) return;
+          setRows(list);
+          setTotalMinutes(minutes);
+          setFailed(false);
+        })
+        // 실패를 빈 목록으로 뭉개지 않는다 — '오늘 아무 앱도 안 씀'과 구분되어야 한다.
+        .catch(() => !cancelled && setFailed(true));
+
+    run();
+
+    // 앱 복귀 시 재조회(코드리뷰 반영) — 이 화면을 열어 둔 채 나가서 다른 앱을 쓰고 돌아오면
+    // 컴포넌트는 계속 마운트돼 있어 위 effect 가 다시 돌지 않는다. 그러면 **화면을 처음 열
+    // 때의 숫자가 그대로 남아**, 방금 쓴 앱이 목록에 없거나 시간이 안 늘어난 것처럼 보인다.
+    // useFocusEffect 로는 안 된다 — 포그라운드 복귀는 내비게이션 포커스를 바꾸지 않는다
+    // (HomeScreen 이 AppState 를 구독하는 것과 같은 이유).
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') run();
+    });
     return () => {
       cancelled = true;
+      sub.remove();
     };
-  }, []);
+  }, [load]);
 
   if (failed) return <Text style={s.empty}>사용 기록을 불러오지 못했어요</Text>;
   if (rows === null) {
@@ -98,36 +122,69 @@ function AndroidUsageList() {
     );
   }
 
-  return (
-    <ScrollView contentContainerStyle={s.usageScroll}>
-      {/* 총 사용시간 카드 — iOS와 같은 문구·위계 */}
-      <View style={s.totalCard}>
-        <Text style={s.totalLabel}>오늘 총 사용시간</Text>
-        <Text style={s.totalValue}>{formatMinutes(totalMinutes ?? 0)}</Text>
-      </View>
+  // 총계와 목록의 **집계 범위가 다르다**(코드리뷰 반영). 총계는 모든 패키지를 더하는데
+  // 목록은 런처에서 열 수 있는 앱만 남긴다 — 홈 런처·시스템 UI 에 머문 시간이 총계에는
+  // 들어가고 목록에는 대응 행이 없다. 그대로 두면 한 화면 안에서 "총 21분인데 더하면 18분"이
+  // 된다. 차이를 '그 외' 한 행으로 드러내 합이 맞게 한다.
+  //
+  // 총계는 네이티브에서 분 단위로 내림돼 오고 행은 초 단위라, 차이에 최대 59초의 오차가 있다.
+  // 그래서 1분 미만 차이는 표시하지 않는다 — 반올림 잡음을 행으로 만들면 그게 더 헷갈린다.
+  const listedSeconds = rows.reduce((sum, r) => sum + r.seconds, 0);
+  const otherSeconds = Math.max(0, (totalMinutes ?? 0) * 60 - listedSeconds);
+  const items: AppUsage[] =
+    otherSeconds >= 60
+      ? [...rows, { packageName: OTHER_ROW_KEY, label: '그 외', seconds: otherSeconds }]
+      : rows;
 
-      <Text style={s.sectionHeader}>앱별 사용시간</Text>
-      {rows.length === 0 ? (
-        <Text style={s.emptyInline}>사용 기록이 없어요</Text>
-      ) : (
-        <View style={s.usageCard}>
-          {rows.map((item, idx) => (
-            <View key={item.packageName}>
-              <View style={s.usageRow}>
-                <AppIcon packageName={item.packageName} />
-                <Text style={s.usageLabel} numberOfLines={1}>
-                  {item.label}
-                </Text>
-                <Text style={s.usageValue}>{formatUsage(item.seconds)}</Text>
-              </View>
-              {idx < rows.length - 1 ? <View style={s.rowDivider} /> : null}
-            </View>
-          ))}
+  return (
+    // FlatList 로 가상화한다(코드리뷰 반영). ScrollView + map 은 진입 즉시 모든 행을 마운트해,
+    // 행마다 아이콘 조회(96px 비트맵 → PNG → base64 브리지 전송)가 한꺼번에 터진다. 앱을 많이
+    // 쓴 날일수록 초기 렌더가 느려지고 캐시에 남는 문자열도 앱 수에 비례해 늘어난다.
+    <FlatList
+      data={items}
+      keyExtractor={(item) => item.packageName}
+      // 하단 시스템 영역 확보(코드리뷰 반영) — edgeToEdgeEnabled=true 이고 SafeAreaView 가
+      // edges={['top']} 이라, 3버튼 내비게이션처럼 하단 인셋이 큰 기기에서 마지막 행이 투명한
+      // 내비게이션 바 아래로 들어가 안 보인다.
+      contentContainerStyle={[s.usageScroll, { paddingBottom: 16 + insets.bottom }]}
+      ListHeaderComponent={
+        <>
+          {/* 총 사용시간 카드 — iOS와 같은 문구·위계 */}
+          <View style={s.totalCard}>
+            <Text style={s.totalLabel}>오늘 총 사용시간</Text>
+            <Text style={s.totalValue}>{formatMinutes(totalMinutes ?? 0)}</Text>
+          </View>
+          <Text style={s.sectionHeader}>앱별 사용시간</Text>
+          {items.length === 0 ? <Text style={s.emptyInline}>사용 기록이 없어요</Text> : null}
+        </>
+      }
+      ItemSeparatorComponent={() => <View style={s.rowDivider} />}
+      renderItem={({ item, index }) => (
+        <View
+          style={[
+            s.usageRow,
+            s.usageRowCard,
+            index === 0 && s.usageRowFirst,
+            index === items.length - 1 && s.usageRowLast,
+          ]}
+        >
+          {item.packageName === OTHER_ROW_KEY ? (
+            <View style={[s.appIcon, s.appIconPlaceholder]} />
+          ) : (
+            <AppIcon packageName={item.packageName} />
+          )}
+          <Text style={s.usageLabel} numberOfLines={1}>
+            {item.label}
+          </Text>
+          <Text style={s.usageValue}>{formatUsage(item.seconds)}</Text>
         </View>
       )}
-    </ScrollView>
+    />
   );
 }
+
+// '그 외' 합계 행의 키 — 실제 패키지명과 겹치지 않게 점을 쓰지 않는다.
+const OTHER_ROW_KEY = '__other__';
 
 // 아이콘 캐시 — 화면을 드나들 때마다 네이티브에서 다시 인코딩하지 않게 모듈 수명 동안 유지한다.
 const iconCache = new Map<string, string | null>();
@@ -166,9 +223,14 @@ function formatMinutes(minutes: number): string {
 
 // 앱별 행만 초 단위를 살린다 — 1분 미만을 분으로 반올림하면 목록 하단이 전부 '0분'이 되어
 // 정렬이 의미를 잃는다(iOS는 애초에 앱별 초 단위를 못 받아 이 문제가 없다).
+//
+// 1분 이상은 **내림**이다(코드리뷰 반영). 총계는 네이티브가 밀리초를 60,000으로 나눠 내리고
+// iOS formatDuration 도 내리는데 여기만 반올림하면 같은 사용량이 더 크게 뜬다 — 90초를 쓰면
+// 총계는 '1분'인데 그 앱 행은 '2분'이 되고, 여러 앱이 분 경계에 걸리면 행 합계가 총계를
+// 여러 분 넘어선다.
 function formatUsage(seconds: number): string {
   if (seconds < 60) return `${seconds}초`;
-  return formatMinutes(Math.round(seconds / 60));
+  return formatMinutes(Math.floor(seconds / 60));
 }
 
 const s = StyleSheet.create({
@@ -201,12 +263,24 @@ const s = StyleSheet.create({
   totalLabel: { fontSize: 14, fontWeight: '600', color: T.inkSub },
   totalValue: { fontSize: 30, fontWeight: '800', color: T.ink, marginTop: 6 },
   sectionHeader: { fontSize: 15, fontWeight: '600', color: T.inkSub },
-  usageCard: {
+  // FlatList 로 가상화하면서 카드를 감싸는 View 를 못 쓰게 됐다(그 View 가 모든 행을
+  // 마운트시킨다). 대신 행마다 카드 배경·좌우 테두리를 주고 첫/마지막 행만 모서리를 굴려
+  // 같은 모양을 만든다 — 보이는 결과는 이전 usageCard 와 동일하다.
+  usageRowCard: {
     backgroundColor: T.white,
-    borderRadius: 16,
-    borderWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
     borderColor: T.border,
-    overflow: 'hidden',
+  },
+  usageRowFirst: {
+    borderTopWidth: 1,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  usageRowLast: {
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
   },
   usageRow: {
     flexDirection: 'row',

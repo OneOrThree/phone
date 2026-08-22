@@ -5,12 +5,33 @@
 //   - 합쳐서 false → 화면을 숨겨 목록을 확인조차 못 한다
 //   - 합쳐서 true  → "집중 중 모든 앱이 잠겨요"라고 거짓 안내한다
 import { Platform } from 'react-native';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import {
   supportsAppSelection,
   supportsFocusShield,
   supportsUsageBreakdown,
   enforcesFocusShield,
 } from './screenTimeCapabilities';
+
+// 네이티브 레지스트리를 갈아끼워 '새 바이너리 / 구 바이너리'를 재현한다. hot-updater 로
+// 새 JS 가 옛 안드로이드 바이너리에 내려가는 경로가 실제로 있으므로 둘 다 테스트한다.
+jest.mock('expo-modules-core', () => ({ requireOptionalNativeModule: jest.fn() }));
+const mockRequireNative = requireOptionalNativeModule as jest.MockedFunction<
+  typeof requireOptionalNativeModule
+>;
+
+/** 새 바이너리 — 1608 이 추가한 getUsageByApp 이 있다. */
+const newBinary = () => mockRequireNative.mockReturnValue({ getUsageByApp: jest.fn() } as never);
+/** M1 바이너리 — 모듈은 있는데 getUsageByApp 이 없다. */
+const m1Binary = () =>
+  mockRequireNative.mockReturnValue({ getTodayUsageBucketMinutes: jest.fn() } as never);
+/** 네이티브가 아예 없는 바이너리. */
+const noNative = () => mockRequireNative.mockReturnValue(null as never);
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  newBinary();
+});
 
 const originalPlatformOS = Platform.OS;
 
@@ -44,6 +65,25 @@ test('안드로이드 — 앱별 사용시간만 열려 있다', () => {
     supportsFocusShield(),
     enforcesFocusShield(),
   ]).toEqual([false, true, false, false]);
+});
+
+// 구 바이너리 — 이 JS 는 hot-updater 로 옛 안드로이드 빌드에도 그대로 내려간다.
+// 플랫폼만 보고 열면 진입점은 열려 있는데 화면이 '0분 · 사용 기록이 없어요'로 거짓말하거나,
+// 없는 메서드를 불러 실패한다(코드리뷰 반영).
+describe('안드로이드 구 바이너리 — 앱별 사용시간을 닫는다', () => {
+  beforeEach(() => setPlatform('android'));
+
+  test('네이티브 모듈이 아예 없으면 false', () => {
+    noNative();
+
+    expect(supportsUsageBreakdown()).toBe(false);
+  });
+
+  test('M1 모듈만 있어 getUsageByApp 이 없으면 false', () => {
+    m1Binary();
+
+    expect(supportsUsageBreakdown()).toBe(false);
+  });
 });
 
 // 웹엔 측정 자체가 없다 — 여기까지 true가 되면 없는 화면으로 보내게 된다.

@@ -178,6 +178,15 @@ class ScreenTimeModule : Module() {
   // 앱별 사용시간이 이 기준으로 걸러진다. 측정 대상 피커가 붙을 때도 **같은 기준**을 쓰게
   // 한 곳에 둔다: 한쪽만 바뀌면 "고를 수 없는 앱이 사용시간에 뜨거나", 반대로 "쓴 앱이
   // 목록에 없는" 어긋남이 생긴다.
+  //
+  // ⚠️ Android 11+ 패키지 가시성 — 이 조회가 결과를 돌려주려면 **앱 매니페스트의 queries 블록에
+  //    MAIN/LAUNCHER 인텐트가 선언돼 있어야 한다.** 없으면 queryIntentActivities 가 거의 빈
+  //    목록을 돌려주고, 아래 필터가 사용 기록을 통째로 걷어내 "쓴 앱이 하나도 없다"가 된다
+  //    (코드리뷰 반영 — 그 상태로 올라갈 뻔했다).
+  //    android/app/src/main/AndroidManifest.xml 에 넣어 뒀다. android/ 는 수동 관리이므로
+  //    prebuild 재생성 시 함께 사라진다는 점에 주의(저장소 전반의 관례와 동일).
+  //    QUERY_ALL_PACKAGES 는 쓰지 않는다 — Play 정책상 별도 소명이 필요한 제한 권한인데,
+  //    우리에게 필요한 건 '런처에 뜨는 앱'뿐이라 인텐트 쿼리로 충분하다.
   private fun launchablePackages(): Set<String> {
     val pm = context.packageManager
     val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)

@@ -14,6 +14,21 @@
 //    함께 지워버려, 목에 빠뜨린 화면이 조용히 undefined를 호출하게 된다.
 
 import { Platform } from 'react-native';
+import { requireOptionalNativeModule } from 'expo-modules-core';
+
+// 안드로이드 네이티브 모듈을 **여기서 직접** 찾는다 — ScreenTimeModule 에서 가져오지 않는다.
+// 이 파일이 그 모듈과 분리돼 있는 이유가 그대로 적용된다(위 주석): 화면 테스트들이
+// `jest.mock('@/services/ScreenTimeModule')` 로 그 모듈을 통째로 지우는데, 술어까지 같이
+// 지워지면 목에 빠뜨린 화면이 조용히 undefined 를 호출하게 된다.
+//
+// ⚠️ 모듈 최상단 상수로 굳히지 않는다. 그러면 import 시점의 Platform.OS 가 박혀서, 테스트가
+//    플랫폼을 바꿔도 판정이 따라오지 않는다(실제로 그렇게 짰다가 잡혔다). 조회 자체는
+//    네이티브 레지스트리 룩업이라 매번 불러도 싸다.
+const androidNativeHas = (method: string): boolean => {
+  if (Platform.OS !== 'android') return false;
+  const mod = requireOptionalNativeModule<Record<string, unknown>>('ScreenTimeModule');
+  return typeof mod?.[method] === 'function';
+};
 
 /**
  * 측정 대상 앱 선택을 지원하는가.
@@ -48,5 +63,12 @@ export const enforcesFocusShield = (): boolean => Platform.OS === 'ios';
  * 수치를 받아 RN이 그린다(GROMO-1608). 호출부는 이 술어로 '보여줄지'만 정하고, '어떻게
  * 그리는지'는 화면이 Platform으로 갈라 쓴다.
  */
-export const supportsUsageBreakdown = (): boolean =>
-  Platform.OS === 'ios' || Platform.OS === 'android';
+export const supportsUsageBreakdown = (): boolean => {
+  if (Platform.OS === 'ios') return true;
+  // ⚠️ Platform.OS 만으로 열면 **구 바이너리에서 거짓말이 된다**(코드리뷰 반영). 이 JS 는
+  //    hot-updater 로 옛 안드로이드 바이너리에도 그대로 내려간다:
+  //      - 네이티브 모듈이 아예 없는 빌드 → 상세가 '0분 · 사용 기록이 없어요'로 뜬다
+  //      - M1 모듈만 있는 빌드 → getUsageByApp 이 없어 호출 자체가 실패한다
+  //    둘 다 '진입점은 열려 있는데 화면이 거짓을 말하는' 상태다 — 1592 가 없앤 바로 그것.
+  return androidNativeHas('getUsageByApp');
+};

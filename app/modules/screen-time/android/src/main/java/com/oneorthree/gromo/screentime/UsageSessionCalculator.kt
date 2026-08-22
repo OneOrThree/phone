@@ -86,8 +86,27 @@ internal object UsageSessionCalculator {
   ): Map<String, Long> {
     if (end <= begin) return emptyMap()
     val scan = scan(usageStatsManager, selection, begin, end)
-    // 합계 쪽과 같은 판정 — 재구성이 불완전하면 앱별도 근사 폴백으로 대체한다. 여기서 폴백을
-    // 안 쓰면 "총 사용시간은 2시간인데 앱별 목록은 텅 빔"이 된다.
+
+    // 미매칭 종료를 본 구간 — 재구성 결과는 **부분합**이다(잃은 세션 존재 확정). 합계 쪽이
+    // maxOf(재구성, 폴백)을 쓰는 것과 같은 판정을 앱별에도 적용한다(코드리뷰 반영).
+    //
+    // 앱별은 스칼라가 아니라 맵이라 '패키지별로' max 를 잡는다. 이걸 안 하면 룩백보다 먼저
+    // 시작해 구간 안에서 끝난 앱이 **목록에서 통째로 빠지는데**, 그 시간은 합계에는 들어 있다
+    // — "총 2시간인데 목록을 더하면 40분"이 된다. byPackage 가 비었을 때만 폴백하던 아래
+    // 조건으로는 다른 앱이 하나라도 재구성되면 이 경우를 못 잡는다.
+    if (scan.sawUnmatchedTerminalInRange) {
+      val fallback = dailyStatsFallbackByPackage(usageStatsManager, selection, begin, end)
+      if (fallback.isEmpty()) return scan.byPackage
+      val merged = HashMap<String, Long>(scan.byPackage)
+      for ((pkg, ms) in fallback) {
+        val reconstructed = merged[pkg] ?: 0L
+        if (ms > reconstructed) merged[pkg] = ms
+      }
+      return merged
+    }
+
+    // 엣지 4 — 구간 안에 라이프사이클 이벤트가 아예 없으면 재구성 불가로 보고 근사 폴백.
+    // 여기서 폴백을 안 쓰면 "총 사용시간은 2시간인데 앱별 목록은 텅 빔"이 된다.
     if (scan.byPackage.isEmpty() && !scan.sawLifecycleEventInRange) {
       return dailyStatsFallbackByPackage(usageStatsManager, selection, begin, end)
     }
