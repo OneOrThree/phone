@@ -72,6 +72,9 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
             // activation 콜백이 영영 안 오는 경우의 안전망 — 계측 호출자는 실패를 조용히 버린다.
             if self.timeoutWorkItem == nil {
                 let item = DispatchWorkItem { [weak self] in
+                    // 타임아웃도 실패다 — 플래그를 되돌리지 않으면 이후 조회가 activate를
+                    // 재요청하지 못해 프로세스 재시작까지 계측·명령 수신이 복구되지 않는다.
+                    self?.activationRequested = false
                     self?.flushPendingStatus { call in
                         call(nil, NSError(
                             domain: "WatchCommandInbox",
@@ -125,7 +128,7 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
         guard
             let commandId = raw["commandId"] as? String, !commandId.isEmpty,
             let type = raw["type"] as? String, !type.isEmpty,
-            let version = raw["protocolVersion"] as? Int
+            let version = WatchCommandSchema.intValue(raw["protocolVersion"])
         else {
             return Self.ack(.malformed, commandId: raw["commandId"] as? String)
         }
@@ -174,7 +177,16 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
             let data = try? JSONSerialization.data(withJSONObject: raw),
             let json = String(data: data, encoding: .utf8)
         else { return false }
+        let commandId = raw["commandId"] as? String
         return stateQueue.sync {
+            // 같은 commandId 재전송은 **중복 적재하지 않는다.** 역방향 ACK가 워치에 닿기 전에
+            // 아웃박스가 재전송하는 건 정상 경로(응답 유실)인데, 그대로 쌓으면 한 명령의 복제본
+            // 만으로 상한을 채워 이후의 다른 end·pause까지 queueFull로 거절하게 된다.
+            // 이미 보관 중이면 「안전하게 적재됨」으로 응답한다(accepted).
+            if let commandId,
+               Self.contains(commandId: commandId, in: defaults) {
+                return true
+            }
             var queue = defaults.stringArray(forKey: WatchInboxKeys.inbox) ?? []
             // 상한은 **미확인 명령 전체**(inbox + claimed) 기준이다. inbox만 세면, 버전 스큐로
             // 의도적으로 보존되는 claimed가 드레인마다 쌓여 무한히 커진다(App Group 읽기·쓰기와
@@ -188,6 +200,19 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
             queue.append(json)
             defaults.set(queue, forKey: WatchInboxKeys.inbox)
             return true
+        }
+    }
+
+    /// inbox·claimed 어디든 같은 commandId가 이미 있는지.
+    private static func contains(commandId: String, in defaults: UserDefaults) -> Bool {
+        let stored = (defaults.stringArray(forKey: WatchInboxKeys.inbox) ?? [])
+            + (defaults.stringArray(forKey: WatchInboxKeys.claimed) ?? [])
+        return stored.contains { json in
+            guard
+                let data = json.data(using: .utf8),
+                let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return false }
+            return (raw["commandId"] as? String) == commandId
         }
     }
 

@@ -101,13 +101,13 @@ public enum WatchCommandSchema {
             return isISO8601(raw["expiresAt"])
                 && nonEmpty(raw["subjectId"])
                 && nonEmpty(raw["accountId"])
-                && raw["subjectsRevision"] is Int
+                && intValue(raw["subjectsRevision"]) != nil
         case "pause", "resume":
             // 만료 폐기 대상 — expectedRevision은 명령의 나이를 제한하지 못하므로 **둘 다** 필요하다:
             // expiresAt은 나이를, expectedRevision은 다른 조작과의 충돌을 본다(§4.3).
             return isISO8601(raw["expiresAt"])
                 && nonEmpty(raw["focusSessionId"])
-                && raw["expectedRevision"] is Int
+                && intValue(raw["expectedRevision"]) != nil
         case "end":
             // 종결 명령은 만료 없이 영속 재생된다 — expiresAt을 요구하지 않는다.
             return nonEmpty(raw["focusSessionId"])
@@ -119,6 +119,16 @@ public enum WatchCommandSchema {
     private static func nonEmpty(_ value: Any?) -> Bool {
         guard let s = value as? String else { return false }
         return !s.isEmpty
+    }
+
+    /// **Bool을 정수로 받지 않는다.** Foundation의 NSNumber 브리징 때문에 `true`가 `as? Int`로
+    /// 1이 되어, 잘못된 페이로드가 v1 명령으로 적재되고 accepted까지 나간다 — 그런데 JS는 같은
+    /// 값을 숫자가 아니라고 보고 malformed로 폐기(ack)하므로, 워치는 아웃박스를 비운 뒤 명령이
+    /// 조용히 사라진다.
+    public static func intValue(_ value: Any?) -> Int? {
+        guard let num = value as? NSNumber else { return nil }
+        if CFGetTypeID(num) == CFBooleanGetTypeID() { return nil }
+        return num.intValue
     }
 
     /// ISO 8601로 실제 파싱되는지 — 소수 초 유무 둘 다 받는다.
