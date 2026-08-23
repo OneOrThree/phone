@@ -251,7 +251,11 @@ class FocusShieldService : Service() {
       else -> {
         subject = intent?.getStringExtra(EXTRA_SUBJECT) ?: "집중"
         allowed = intent?.getStringArrayExtra(EXTRA_ALLOWED)?.toSet() ?: emptySet()
-        applyTimerState(intent?.getStringExtra(EXTRA_STATE))
+        // ⚠️ 온 것만 반영한다(코드리뷰 11차). ACTION_START 에는 EXTRA_STATE 가 없을 수 있는데
+        //    (알림 권한 창에 머무는 사이 startFocusActivity 가 먼저 도착한 경우), 그때
+        //    applyTimerState(null) 로 덮으면 **이미 받아 둔 세션 만료 시각이 지워진다.**
+        //    그러면 백그라운드 만료가 영영 안 돌아 끝난 세션의 가림막이 계속 남는다.
+        intent?.getStringExtra(EXTRA_STATE)?.let { applyTimerState(it) }
         blocking = true
         // 과목을 바꾸면 start가 다시 오는데, 그때 기준 시각을 리셋하면 잠금화면 타이머가 0으로
         // 되돌아간다. 이미 돌고 있으면 처음 시작 시각을 그대로 쓴다.

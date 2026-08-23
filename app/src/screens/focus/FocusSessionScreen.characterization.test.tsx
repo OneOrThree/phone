@@ -2582,20 +2582,42 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
   // 표식이 낡은 이유가 둘이다 — 장애와 정상 만료. 정상 만료를 장애로 오인하면 이탈이 15초를
   // 넘었을 때 완료를 리플레이하지 않고 leave_timeout 으로 끝나, 백그라운드 진입 뒤의 마지막
   // 집중 시간까지 잃는다(코드리뷰 9차).
+  // 카운트다운이 백그라운드에서 만료된 경우 — 네이티브가 정상 종료했고 JS 도 리플레이로
+  // 완료된다. 이걸 장애로 오인하면 완료를 리플레이하지 않고 leave_timeout 으로 끝나
+  // 마지막 집중 시간을 잃는다(코드리뷰 9차).
   test('정상 만료로 끝난 실드는 장애로 보지 않는다', async () => {
-    await renderSession({ mode: 'countup' });
-    await advance(5000);
+    await renderSession({ mode: 'countdown', goalSeconds: 10 });
+    await advance(3000);
     await fireAppState('background');
 
     // 표식은 낡았지만(만료 시 heartbeat 도 멈춘다) 네이티브가 '정상 종료'를 남겼다.
     (ScreenTimeModule.isFocusShieldAlive as jest.Mock).mockReturnValue(false);
     (ScreenTimeModule.didFocusShieldComplete as jest.Mock).mockReturnValue(true);
+    await jumpWallClock(20_000); // 목표(10초)를 지나 복귀
+    await fireAppState('active');
+
+    // 목표 경계까지 리플레이돼 완료 게이트에 머문다 — **비실드 이탈 종료가 아니다.**
+    // 장애로 오인했다면 여기서 focusSeconds: 3 · completed: false 로 결과 화면에 갔을 것이다.
+    expect(mockedNavigationReplace()).toBeUndefined();
+    // 완료로 처리됐으므로 정산도 목표(10초)까지 올라간다 — 이탈 전 3초가 아니다.
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(10);
+  });
+
+  // 반대 경우 — 네이티브 일정은 끝났는데 **JS 세션은 아직 남아 있다**(비최종 휴식 중 이탈).
+  // 그 상태로 실드를 살아 있다고 보면 차단이 없는데 실드 세션으로 취급돼 이탈이 집중으로
+  // 적립된다. 남은 세션을 다시 보호해야 한다(코드리뷰 11차).
+  test('네이티브가 끝났는데 세션이 남았으면: 실드를 다시 시작한다', async () => {
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    await advance(60_000); // 1세트 집중 끝 → 휴식
+    mockedShieldStart.mockClear();
+    await fireAppState('background'); // **휴식 중** 이탈 — 복귀해도 세션은 안 끝난다
+
+    (ScreenTimeModule.isFocusShieldAlive as jest.Mock).mockReturnValue(false);
+    (ScreenTimeModule.didFocusShieldComplete as jest.Mock).mockReturnValue(true);
     await jumpWallClock(10_000);
     await fireAppState('active');
 
-    // 실드 세션으로 남아 이탈 10초가 집중으로 인정된다(5 + 10).
-    expect((await readLiveRecord())!.elapsed).toBe(15);
-    expect(logFocusDistractionDetected).not.toHaveBeenCalled();
+    expect(mockedShieldStart).toHaveBeenCalled();
   });
 
   test('백그라운드에서 실드가 죽었으면: 이탈을 집중으로 인정하지 않고 비실드 정책으로 되돌린다', async () => {
