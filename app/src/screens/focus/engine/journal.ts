@@ -62,8 +62,33 @@ const MAX_SETTLES = 50;
 const EMPTY: FocusSessionJournal = { version: 1, session: null, settles: [] };
 
 // 저장소 읽기-수정-쓰기 직렬화 — pendingFocusUploads.ts와 같은 패턴(락 밖 네트워크 없음).
-// 소거 봉인 — clearJournal 이후 새 시작 전까지의 쓰기를 막는다(아래 mutate·clearJournal 주석).
-let sealed = false;
+// 소거 세대 — clearJournal이 올린다. 세션은 **시작한 세대**를 기억하고, 그 세대가 지난 뒤의
+// 쓰기는 거부된다.
+//
+// 「소거 후 새 시작 전까지 막는다」로는 부족하다: 로그아웃 직후 새 계정이 집중을 시작하면
+// 봉인이 전역으로 풀려, 그때 도착한 **이전 계정** 체인의 쓰기가 다시 허용된다. 그 intent는
+// 업로드에서 계정 불일치로 큐에 갔다가 현재 계정의 flush에 폐기돼 영구 유실된다
+// (codex 리뷰 #694 9차). 세대로 묶으면 새 시작이 옛 세션까지 되살리지 않는다.
+let generation = 0;
+
+// sessionKey → 그 세션이 시작한 세대. 소거 시 통째로 비운다(그 이전 세션은 모두 무효).
+// 같은 세대 안에서는 이전 세션의 늦은 쓰기도 정상이다 — finish 직후 새 세션을 시작해도
+// 앞 세션의 완성 intent는 남아야 한다(그게 유실 대비 안전망이다).
+const sessionGenerations = new Map<string, number>();
+const MAX_TRACKED_SESSIONS = 8;
+
+/**
+ * 소거 이전 세대의 세션인가 — 그렇다면 이 쓰기는 거부한다.
+ *
+ * ⚠️ **모르는 세션은 막지 않는다.** 부팅 복구는 이전 프로세스가 시작한 세션을 이어서 쓰는데,
+ * 그 세션은 이 맵에 없다(맵은 프로세스 메모리다). 「등록되지 않았으면 거부」로 만들면 복구가
+ * 저널을 완결하지 못한다. 막아야 할 건 **이 프로세스에서 시작했고 그 뒤 소거가 난** 세션의
+ * 늦은 쓰기뿐이다.
+ */
+function isStaleGeneration(sessionKey: string): boolean {
+  const gen = sessionGenerations.get(sessionKey);
+  return gen != null && gen !== generation;
+}
 
 let chain: Promise<unknown> = Promise.resolve();
 function serialize<T>(task: () => Promise<T>): Promise<T> {
@@ -99,7 +124,6 @@ function mutate(fn: (j: FocusSessionJournal) => FocusSessionJournal | null): Pro
     // 이전 계정의 정산 체인(livePromise 대기 중)이 살아 있어, 그 완성 intent가 뒤늦게 도착하면
     // 지운 저널을 되살린다. 그 레코드는 다음 계정에서 소유자 불일치로 재생되지 않아, 이전
     // 계정의 통계·코인이 복귀 전까지 유실된다(codex 리뷰 #694 8차).
-    if (sealed) return false;
     const j = await read();
     const next = fn(j);
     if (next != null) await write(next);
@@ -110,7 +134,12 @@ function mutate(fn: (j: FocusSessionJournal) => FocusSessionJournal | null): Pro
 /** ⓪ write-ahead — 실드 적용 **전에** 시작 의도를 기록한다. 실패하면 조용히 계속(현행 UX 우선). */
 export function journalStartIntent(sessionKey: string): Promise<boolean> {
   const now = new Date().toISOString();
-  sealed = false; // 새 세션 — 소거 봉인을 푼다
+  // 이 세션은 지금 세대에 속한다. 이후 소거가 나면 세대가 올라가 이 세션의 쓰기는 거부된다.
+  if (sessionGenerations.size >= MAX_TRACKED_SESSIONS) {
+    const oldest = sessionGenerations.keys().next().value;
+    if (oldest != null) sessionGenerations.delete(oldest);
+  }
+  sessionGenerations.set(sessionKey, generation);
   return mutate((j) => ({
     ...j,
     // ⚠️ 교체 **전에** 이전 세션의 마커를 대응 intent에 인계한다. 예비 intent(마커 미정)만
@@ -142,6 +171,7 @@ export function journalStartIntent(sessionKey: string): Promise<boolean> {
 
 /** ②의 짝 — 같은 레코드의 원자 갱신으로 starting→active 전이(중간 상태 없음, §4.3-ⓐ) */
 export function journalActivateSession(sessionKey: string): Promise<boolean> {
+  if (isStaleGeneration(sessionKey)) return Promise.resolve(false);
   return mutate((j) => {
     if (j.session?.sessionKey !== sessionKey) return null;
     return {
@@ -156,6 +186,7 @@ export function journalSetServerSessionId(
   id: string | null,
   blockStartedAt: string | null,
 ): Promise<boolean> {
+  if (isStaleGeneration(sessionKey)) return Promise.resolve(false);
   return mutate((j) => {
     if (j.session?.sessionKey !== sessionKey) return null;
     return {
@@ -191,6 +222,8 @@ export function journalClearSession(sessionKey?: string): Promise<boolean> {
  * 화면이 레코드를 이미 지워 블록이 영구 유실」되던 공백(특성화 :839)의 수리다.
  */
 export function recordSettleIntent(intent: SettleIntent): Promise<boolean> {
+  // 소거 이전 세대의 세션이 뒤늦게 도착한 것 — 거부한다(위 generation 주석).
+  if (isStaleGeneration(intent.sessionKey)) return Promise.resolve(false);
   return mutate((j) => ({
     ...j,
     // 같은 intentId면 **교체**한다 — 정산은 네트워크 대기 전에 먼저 기록하고(그 사이에
@@ -223,7 +256,9 @@ export function readJournal(): Promise<FocusSessionJournal> {
  * 봉인을 푼다.
  */
 export function clearJournal(): Promise<void> {
-  sealed = true;
+  // ⚠️ 맵을 비우지 않는다 — 비우면 이전 세션이 「모르는 세션」이 돼 다시 허용된다.
+  // 세대만 올려 두면 그 세션들의 쓰기가 stale로 걸린다.
+  generation += 1;
   return serialize(async () => {
     await AsyncStorage.removeItem(STORAGE_KEYS.focusJournalV1);
   }).catch(() => {});

@@ -254,3 +254,56 @@ test('남의 v1을 폐기하는 분기도 새 v1은 건드리지 않는다 — �
   expect(left).not.toBeNull();
   expect(JSON.parse(left!).sessionKey).toBe('fs-new'); // 새 세션의 기록이 살아 있다
 });
+
+test('진행 중인 세션의 v1은 고아로 정산하지 않는다 — 저널이 active면 건너뛴다', async () => {
+  // 이 컴포넌트는 마운트 즉시가 아니라 Focus·Subject 복원이 끝난 뒤에 돈다. 그 사이 사용자가
+  // 집중 화면에 들어갈 수 있는데, 그 세션의 v1을 고아로 보면 진행 중인 블록을 조기 적립·
+  // 업로드하거나(5초 이후) 커밋 흔적을 지운다(5초 이전 — 저널만 active로 남아 유실).
+  await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(V1_RECORD));
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.focusJournalV1,
+    JSON.stringify({
+      version: 1,
+      session: {
+        sessionKey: V1_RECORD.sessionKey, // 진행 중
+        state: 'active',
+        shieldRequested: true,
+        serverSessionId: 'marker-9',
+        markerBlockStartedAt: null,
+        createdAt: 'x',
+        updatedAt: 'x',
+      },
+      settles: [],
+    }),
+  );
+  await renderSettler();
+
+  expect(mockUpload).not.toHaveBeenCalled();
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).not.toBeNull();
+});
+
+test('legacy가 없는 조기 종료도 v1을 대조한다 — 새 세션의 흔적을 지우지 않는다', async () => {
+  // 처음엔 v1이 없다고 읽었어도 그 뒤 시작한 새 세션이 커밋 흔적을 쓴다(legacy는 첫 5초 전까지
+  // 안 쓴다). 무조건 지우면 저널만 active로 남고 새 세션 시간이 통째로 유실된다(리뷰 #694 9차).
+  await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession); // legacy 없음
+  const realGet = AsyncStorage.getItem as unknown as jest.Mock;
+  const orig = realGet.getMockImplementation();
+  let swapped = false;
+  realGet.mockImplementation(async (key: string) => {
+    const value = await (orig?.(key) ?? Promise.resolve(null));
+    if (key === STORAGE_KEYS.focusLiveSession && !swapped) {
+      swapped = true;
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.focusSessionV1,
+        JSON.stringify({ ...V1_RECORD, sessionKey: 'fs-brand-new' }),
+      );
+    }
+    return value;
+  });
+  await renderSettler();
+  realGet.mockImplementation(orig ?? (() => Promise.resolve(null)));
+
+  const left = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1);
+  expect(left).not.toBeNull();
+  expect(JSON.parse(left!).sessionKey).toBe('fs-brand-new');
+});
