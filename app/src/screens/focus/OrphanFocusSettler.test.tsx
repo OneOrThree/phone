@@ -28,7 +28,8 @@ jest.mock('@/services/ScreenTimeModule', () => ({
 jest.mock('@/store/FocusContext', () => ({
   useFocus: () => ({ addFocusSeconds: jest.fn(), ready: true }),
 }));
-jest.mock('@/store/CoinContext', () => ({ useCoins: () => ({ refresh: jest.fn() }) }));
+const mockRefreshCoins = jest.fn();
+jest.mock('@/store/CoinContext', () => ({ useCoins: () => ({ refresh: mockRefreshCoins }) }));
 jest.mock('@/store/SubjectContext', () => ({
   useSubjects: () => ({ addFocusToSubject: jest.fn(), ready: true }),
 }));
@@ -391,4 +392,41 @@ test('v1 표식 쓰기가 실패하면 기준값을 갱신하지 않는다 — �
 
   // 표식이 안 찍혔으니 기준값도 그대로 → 원래 v1이 제거된다(대조가 통과한다)
   expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).toBeNull();
+});
+
+test('v1 정산 중 새 세션이 legacy를 갱신하면 옛 스냅샷을 되쓰지 않는다', async () => {
+  // 소유자만 보고 되쓰면 새 레코드에 표식이 붙거나 최신 초가 덮인다. 그 뒤 죽거나 OTA 롤백으로
+  // legacy가 선택되면 새 블록의 로컬 적립이 통째로 건너뛰어진다(codex 리뷰 #694 12차).
+  await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(V1_RECORD));
+  const realGet = AsyncStorage.getItem as unknown as jest.Mock;
+  const orig = realGet.getMockImplementation();
+  let swapped = false;
+  realGet.mockImplementation(async (key: string) => {
+    const value = await (orig?.(key) ?? Promise.resolve(null));
+    // v1이 표식을 찍기 직전 legacy를 읽는 순간 = 새 세션이 legacy를 갱신하는 창
+    if (key === STORAGE_KEYS.focusLiveSession && !swapped) {
+      swapped = true;
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.focusLiveSession,
+        JSON.stringify({ userId: OWNER, subjectId: 's9', startedAt: 'new-block', elapsed: 7 }),
+      );
+    }
+    return value;
+  });
+  mockUpload.mockResolvedValue({ status: 'failed' }); // 레코드를 남겨 관찰한다
+  await renderSettler();
+  realGet.mockImplementation(orig ?? (() => Promise.resolve(null)));
+
+  const legacy = JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession))!);
+  expect(legacy.startedAt).toBe('new-block'); // 새 레코드가 그대로다
+  expect(legacy.elapsed).toBe(7); // 최신 초가 안 덮였다
+  expect(legacy.settledLocally).toBeUndefined(); // 표식도 안 붙었다
+});
+
+test('alreadyEnded 고아 정산도 잔액을 갱신한다 — 서버는 이미 지급했다', async () => {
+  await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(V1_RECORD));
+  mockUpload.mockResolvedValue({ status: 'alreadyEnded' });
+  await renderSettler();
+
+  expect(mockRefreshCoins).toHaveBeenCalled();
 });

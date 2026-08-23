@@ -750,3 +750,26 @@ test('finish는 정산이 레코드를 인계할 때까지 live 등록을 유지
   expect(isSessionLive(liveKey)).toBe(false); // 인계 후 해제
   engine.stopTicking();
 });
+
+test('이전 시작의 중단이 새 세션의 실드를 끄지 않는다', async () => {
+  // 이전 화면의 start()가 v1 쓰기를 기다리는 사이 뒤로 나갔다 새 집중을 시작하면, 새 엔진이
+  // 실드를 적용한 뒤 이 프라미스가 재개된다. 무조건 풀면 새 세션은 저널상 active이고 화면도
+  // 도는데 앱 차단만 사라진다(codex 리뷰 #694 12차).
+  const oldEngine = createFocusSessionEngine(countupConfig, makeDeps());
+  await oldEngine.start('수학');
+  await flush();
+  (ScreenTimeModule.stopFocusShield as jest.Mock).mockClear();
+
+  // 새 세션이 등록을 가져간다
+  const newEngine = createFocusSessionEngine(countupConfig, makeDeps());
+  await newEngine.start('영어');
+  await flush();
+
+  // 이제 이전 시작이 뒤늦게 중단된다
+  oldEngine.abortStart();
+  await flush();
+
+  expect(ScreenTimeModule.stopFocusShield).not.toHaveBeenCalled();
+  newEngine.stopTicking();
+  oldEngine.stopTicking();
+});

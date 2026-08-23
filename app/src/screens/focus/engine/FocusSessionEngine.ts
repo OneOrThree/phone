@@ -14,7 +14,7 @@ import { Platform, Vibration, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { STORAGE_KEYS } from '@/types/storage';
-import { markSessionLive, clearSessionLive } from './liveSessionRegistry';
+import { markSessionLive, clearSessionLive, isSessionLive } from './liveSessionRegistry';
 import type { FocusType } from '@/types/dto/focus';
 import { startFocusSession } from '@/services/focusApi';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from '../leaveNotifications';
@@ -898,6 +898,14 @@ export function createFocusSessionEngine(
 
     /** 시작 도중 이탈이 확인됐을 때의 회수 — 켠 실드를 되돌리고 시작 의도를 지운다. */
     abortStart() {
+      // ⚠️ **실드 해제도 소유권을 본다.** 이전 화면의 start()가 v1 쓰기를 기다리는 사이
+      // 사용자가 뒤로 나갔다 새 집중을 시작하면, 새 엔진이 실드를 적용한 뒤 이 프라미스가
+      // 재개된다. 무조건 풀면 새 세션은 저널상 active이고 화면도 도는데 **앱 차단만** 사라진다
+      // (codex 리뷰 #694 12차). 등록부가 아직 이 세션을 가리킬 때만 회수한다.
+      if (!isSessionLive(sessionKey)) {
+        journalClearSession(sessionKey); // 내 저널 항목만 정리(이미 sessionKey 가드가 있다)
+        return;
+      }
       clearSessionLive(sessionKey);
       this.releaseShield();
       journalClearSession(sessionKey);

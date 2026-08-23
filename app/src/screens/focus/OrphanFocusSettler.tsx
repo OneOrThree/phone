@@ -64,10 +64,17 @@ async function syncV1SettledMarker(
   return null;
 }
 
-async function syncLegacySettledMarker(userId: string | null): Promise<void> {
+async function syncLegacySettledMarker(
+  userId: string | null,
+  expectedRaw: string | null,
+): Promise<void> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
-    if (!raw) return;
+    // ⚠️ **읽은 그 레코드일 때만 되쓴다.** v1 정산을 기다리는 사이 같은 계정의 새 세션이
+    // legacy를 새 블록이나 더 큰 elapsed로 갱신할 수 있는데, 소유자만 보고 옛 스냅샷을 되쓰면
+    // 새 레코드에 표식이 붙거나 최신 초가 덮인다. 그 뒤 죽거나 OTA 롤백으로 legacy가 선택되면
+    // 새 블록의 로컬 적립이 통째로 건너뛰어진다(codex 리뷰 #694 12차).
+    if (!raw || raw !== expectedRaw) return;
     const legacy = JSON.parse(raw) as LiveFocusSession;
     if (legacy.userId !== userId || legacy.settledLocally) return;
     await AsyncStorage.setItem(
@@ -90,9 +97,13 @@ const FOCUS_TYPE_BY_ORPHAN_MODE: Record<FocusTimerMode, FocusType> = {
  * v1이 legacy보다 최신인가. legacy가 없으면 v1이 유일한 기록이므로 true.
  * 시각을 못 읽는 쪽은 「더 오래됐다」로 본다(판정 불가로 최신 기록을 버리지 않는다).
  */
-async function isV1FresherThanLegacy(v1: PersistedFocusSessionV1): Promise<boolean> {
+/** 최신 판정과 함께, 그때 읽은 legacy 원문을 돌려준다(표식 쓰기의 대조 기준). */
+async function readLegacyRaw(): Promise<string | null> {
+  return AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession).catch(() => null);
+}
+
+function isV1FresherThanLegacy(v1: PersistedFocusSessionV1, raw: string | null): boolean {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
     if (!raw) return true;
     const legacy = JSON.parse(raw) as LiveFocusSession;
     const legacyAt = Date.parse(legacy.updatedAt);
@@ -151,7 +162,11 @@ export function OrphanFocusSettler() {
       // active로 남아(복구는 starting만 손댄다) 다음 콜드 스타트가 영원히 건너뛰고, 그 상태로
       // 새 집중을 시작하면 이전 세션의 v1이 덮여 시간이 통째로 사라진다(리뷰 #694 10차).
       if (v1 != null && isSessionLive(v1.sessionKey)) return;
-      if (v1 != null && (await isV1FresherThanLegacy(v1))) {
+      // 판정에 쓴 legacy 원문을 붙잡아 둔다 — 표식 쓰기의 대조 기준이다. **여기서 한 번만**
+      // 읽는 게 핵심이다: 쓰기 직전에 다시 읽으면 자기 자신과 비교하게 돼 가드가 무용해진다
+      // (그렇게 짰다가 테스트가 잡았다 — codex 리뷰 #694 12차).
+      const legacyAtRead = await readLegacyRaw();
+      if (v1 != null && isV1FresherThanLegacy(v1, legacyAtRead)) {
         if (v1.userId !== userId) {
           // 최신 판정(isV1FresherThanLegacy)이 비동기라, 그 사이에 현재 계정이 새 집중을
           // 시작하면 새 엔진의 커밋 흔적이 같은 키에 들어온다. 무조건 지우면 그 세션의 유일한
@@ -182,7 +197,9 @@ export function OrphanFocusSettler() {
           // 보존되는데, 그 상태로 OTA 롤백이 나면 구버전 Settler는 legacy만 읽고
           // settledLocally가 없다고 판단해 **같은 시간을 다시 적립한다**(이중 기록을 롤백
           // 호환용으로 유지하는 동안의 대가). 소유자가 같을 때만 건드린다.
-          await syncLegacySettledMarker(userId);
+          // 쓰기 직전에 읽은 원문을 넘겨 그 레코드일 때만 되쓰게 한다 — 그 사이 새 세션이
+          // legacy를 갱신했으면 건드리지 않는다(리뷰 #694 12차).
+          await syncLegacySettledMarker(userId, legacyAtRead);
           const todaySeconds = settlement.localTodayShare(todayStr());
           if (todaySeconds > 0) {
             addFocusSeconds(todaySeconds);
@@ -210,7 +227,9 @@ export function OrphanFocusSettler() {
           },
         });
         if (result.status === 'failed') return; // 레코드 보존 — 다음 부팅 재시도(legacy와 동일)
-        if (result.status === 'saved') refreshCoins();
+        // alreadyEnded(PATCH 409)는 원래 요청이 서버에서 커밋됐는데 응답만 유실된 경우다 —
+        // 지급은 이미 일어났으므로 saved와 같이 다룬다(codex 리뷰 #694 12차).
+        if (result.status === 'saved' || result.status === 'alreadyEnded') refreshCoins();
         // 그 사이 새 세션이 v1을 덮어썼을 수 있으니 같은 값일 때만 지운다(legacy와 동일 규칙).
         const curV1 = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1);
         if (curV1 === storedV1) {
@@ -333,7 +352,8 @@ export function OrphanFocusSettler() {
       });
       if (result.status === 'failed') return;
       // 지급이 확정됐으니 서버 잔액을 다시 받는다(GROMO-1049).
-      if (result.status === 'saved') refreshCoins();
+      // alreadyEnded도 서버 커밋이 확인된 결과다(위 v1 경로 주석 참고).
+      if (result.status === 'saved' || result.status === 'alreadyEnded') refreshCoins();
       // 업로드 성공(또는 대기열 인계) 후 제거 — 그 사이 새 세션이 레코드를 덮어썼을 수
       // 있으니 같은 값일 때만 지운다.
       const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
