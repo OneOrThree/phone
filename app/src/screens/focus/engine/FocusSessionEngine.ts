@@ -48,7 +48,6 @@ import {
 } from './machine';
 import {
   writePersistedSessionV1,
-  readPersistedSessionV1,
   removePersistedSessionV1,
   type PersistedFocusSessionV1,
 } from './persistence';
@@ -382,26 +381,52 @@ export function createFocusSessionEngine(
    * 고아 정산은 이 표식을 보고 **업로드만** 하고 로컬 적립은 건너뛴다(이중 계상 방지).
    * 소유자가 다른 레코드는 건드리지 않는다.
    */
-  const markRecordsSettledLocally = async (userId: string | null): Promise<void> => {
-    const [legacyRaw, v1] = await Promise.all([
+  const markRecordsSettledLocally = async (
+    settledBlockStartedAt: string,
+    userId: string | null,
+  ): Promise<void> => {
+    const [legacyRaw, v1Raw] = await Promise.all([
       AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession).catch(() => null),
-      readPersistedSessionV1().catch(() => null),
+      AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1).catch(() => null),
     ]);
     if (legacyRaw) {
       try {
         const legacy = JSON.parse(legacyRaw);
-        if (legacy?.userId === userId && !legacy.settledLocally) {
-          await AsyncStorage.setItem(
-            STORAGE_KEYS.focusLiveSession,
-            JSON.stringify({ ...legacy, settledLocally: true }),
-          );
+        // ⚠️ 소유자만 보면 안 된다. 리플레이가 여러 경계를 지나 **다음 블록**을 이미 저장했으면
+        // 같은 사용자라는 이유로 아직 적립도 안 된 최신 레코드에 표식이 찍히고, 고아 정산이
+        // 그 블록의 로컬 적립을 건너뛰어 시간이 사라진다(codex 리뷰 #694 8차).
+        if (
+          legacy?.userId === userId &&
+          legacy?.startedAt === settledBlockStartedAt &&
+          !legacy.settledLocally
+        ) {
+          // 읽기-쓰기 사이의 주기 저장을 덮지 않게 재대조한다(옛 스냅샷을 되쓰면 초가 사라진다)
+          const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession).catch(() => null);
+          if (cur === legacyRaw) {
+            await AsyncStorage.setItem(
+              STORAGE_KEYS.focusLiveSession,
+              JSON.stringify({ ...legacy, settledLocally: true }),
+            );
+          }
         }
       } catch {
         // 깨진 레코드는 고아 정산이 폐기한다
       }
     }
-    if (v1 && v1.userId === userId && !v1.settledLocally) {
-      await writePersistedSessionV1({ ...v1, settledLocally: true });
+    if (!v1Raw) return;
+    try {
+      const v1 = JSON.parse(v1Raw) as PersistedFocusSessionV1;
+      if (
+        v1.userId !== userId ||
+        v1.blockStartedAt !== settledBlockStartedAt ||
+        v1.settledLocally
+      ) {
+        return;
+      }
+      const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1).catch(() => null);
+      if (cur === v1Raw) await writePersistedSessionV1({ ...v1, settledLocally: true });
+    } catch {
+      // 깨진 흔적 — 고아 정산이 폐기한다
     }
   };
 
@@ -423,7 +448,14 @@ export function createFocusSessionEngine(
           // 늦게 도착한 응답이 라이브 레코드에 되살리지 않게.
           if (liveStartPromise === promise) {
             liveId = res.sessionId;
-            journalSetServerSessionId(sessionKey, res.sessionId, startedAt);
+            // 저널 쓰기 실패를 삼키지 않고 한 번 재시도한다 — 이 복사본이 없으면 첫 주기
+            // 저장(5초) 전까지 마커 id가 메모리에만 있어, 그 사이에 죽으면 복구가 마커를
+            // 몰라 서버 스윕(12h)까지 열린 채 남는다(codex 리뷰 #694 8차).
+            journalSetServerSessionId(sessionKey, res.sessionId, startedAt)
+              .then((ok) =>
+                ok ? true : journalSetServerSessionId(sessionKey, res.sessionId, startedAt),
+              )
+              .catch(() => {});
           }
           return res.sessionId;
         },
@@ -494,6 +526,10 @@ export function createFocusSessionEngine(
     // 정산이 이미 이 tick들을 적립했으므로 복귀 리플레이가 스냅샷을 되돌리면 이중 적립이다.
     blockToday = newBlockToday();
     leftBlockToday = null;
+    // ⚠️ 적립 **전에** 표식을 남기는 write-ahead는 이 자리에선 성립하지 않는다(GROMO-1617).
+    // markRecordsSettledLocally는 읽기-수정-쓰기라, 읽기 왕복이 끝나기 전에 아래 동기 적립이
+    // 먼저 끝난다 — 실제로 착수 순서를 재어 확인했다. 지금 남는 창(적립 직후~intent 착지 전
+    // 크래시 시 다음 부팅의 재적립)은 후속 티켓으로 넘긴다.
     const delegates = deps.settleDelegates();
     if (todaySeconds > 0) {
       delegates.addFocusSeconds(todaySeconds);
@@ -558,7 +594,7 @@ export function createFocusSessionEngine(
           // 저널 쓰기가 실패했다 — 레코드는 남겨 업로드 근거로 쓰되, **로컬 적립은 이미 했다고
           // 표시한다.** 안 찍으면 다음 부팅의 고아 정산이 미적립으로 보고 같은 블록을 한 번 더
           // 적립한다(로컬 시간·과목 통계 이중 계상).
-          markRecordsSettledLocally(userId).catch(() => {});
+          markRecordsSettledLocally(startedAt, userId).catch(() => {});
         }
         return Promise.all([
           ensureFocusTagId(subjectName, userId).catch(() => null),
