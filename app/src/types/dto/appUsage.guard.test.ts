@@ -177,10 +177,11 @@ function pointsToDto(specifier: string, fromFile: string): boolean {
 }
 
 /**
- * 검사 대상 TS 파일.
+ * 검사 대상 소스.
  *
- * `app/src` 아래에 더해 **앱 진입점**(`app/index.ts`)도 본다(코드리뷰 6차) — package.json 의
- * main 이 그 파일이라, 거기서 전송하면 앱 시작과 함께 실제로 실행된다.
+ * `app/src` 아래에 더해 **앱 진입점과 런타임 설정**도 본다 — package.json 의 main 인
+ * `app/index.ts`(코드리뷰 6차), 그리고 앱이 `Constants.expoConfig` 로 읽는 `app.config.js`
+ * 같은 저장소 밖 설정(코드리뷰 10차).
  *
  * @param allowed 자기 참조 제외 목록. **엔드포인트 검사에는 비워서 넘긴다** — DTO 파일 안에
  *   `reportAppUsage()` 를 같이 넣어 버리면 그 파일이 제외돼 전송까지 통과한다(코드리뷰 6차).
@@ -189,10 +190,18 @@ function pointsToDto(specifier: string, fromFile: string): boolean {
 function tsSources(
   allowed: string[],
 ): { rel: string; path: string; scanned: ReturnType<typeof scan> }[] {
-  const entry = join(APP, 'index.ts');
+  // 앱이 소비하는 **저장소 밖 설정**도 본다(코드리뷰 10차). analytics 가 이미
+  // `Constants.expoConfig` 를 런타임에 읽으므로, app.config.js 의 extra 에 경로를 두고
+  // `api.post(Constants.expoConfig.extra.…, body)` 로 쓰면 소스엔 문자열이 없어 통과한다.
+  const runtimeConfigs = ['index.ts', 'app.config.js', 'app.config.ts', 'app.json'].map((f) =>
+    join(APP, f),
+  );
   // `.js`·`.jsx` 도 본다(코드리뷰 8차) — Metro 는 그대로 번들에 넣고 package.json 의 lint
   // 대상에도 들어 있다. TS 만 훑으면 `.js` 서비스 하나로 가드를 빠져나간다.
-  const files = [...walk(SRC, /\.(ts|tsx|js|jsx)$/), ...(existsSync(entry) ? [entry] : [])];
+  const files = [
+    ...walk(SRC, /\.(ts|tsx|js|jsx)$/),
+    ...runtimeConfigs.filter((f) => existsSync(f)),
+  ];
   return files
     .filter((f) => !allowed.some((a) => f.endsWith(a.split('/').join(sep))))
     .map((f) => ({
