@@ -112,13 +112,16 @@ export function OrphanFocusSettler() {
       // 최신 쪽을 정산하고, 어느 쪽을 쓰든 끝나면 두 표현을 함께 정리한다.
       if (v1 != null && (await isV1FresherThanLegacy(v1))) {
         if (v1.userId !== userId) {
-          removePersistedSessionV1();
+          // 최신 판정(isV1FresherThanLegacy)이 비동기라, 그 사이에 현재 계정이 새 집중을
+          // 시작하면 새 엔진의 커밋 흔적이 같은 키에 들어온다. 무조건 지우면 그 세션의 유일한
+          // 기록이 사라진다 — 남의 v1을 폐기하는 분기에도 대조가 필요하다(codex 리뷰 #694 6차).
+          await removeV1IfUnchanged();
           await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
           return;
         }
         const settlement = orphanSettlementFromV1(v1);
         if (settlement.focused <= 0) {
-          removePersistedSessionV1();
+          await removeV1IfUnchanged();
           await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
           return;
         }
