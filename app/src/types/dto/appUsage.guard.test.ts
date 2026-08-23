@@ -230,7 +230,13 @@ test('앱별 사용 시간 엔드포인트를 호출하는 코드가 없다 (서
     .filter(({ scanned }) => scanned.literals.some((l) => l.includes(ENDPOINT_SEGMENT)))
     .map(({ rel }) => rel);
 
-  const nativeOffenders = NATIVE_ROOTS.flatMap((root) => walk(root, /\.(kt|java|swift|m|mm|h)$/))
+  // ⚠️ **번들 리소스도 본다**(코드리뷰 9차). 안드로이드는 strings.xml 에 경로를 두고
+  //    Kotlin 에서 getString(R.string.…) 으로 읽으면, XML 은 검사 밖이고 Kotlin 에도
+  //    `app-usage` 문자열이 없어 **실제 전송 코드가 생겨도 둘 다 통과한다.**
+  //    iOS 의 plist 도 같은 구조라 함께 넣는다.
+  const nativeOffenders = NATIVE_ROOTS.flatMap((root) =>
+    walk(root, /\.(kt|java|swift|m|mm|h|xml|plist|json)$/),
+  )
     .filter((f) => readFileSync(f, 'utf8').includes(ENDPOINT_SEGMENT))
     .map((f) => f.slice(APP.length + 1));
 
