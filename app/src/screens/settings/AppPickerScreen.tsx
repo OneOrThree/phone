@@ -11,9 +11,11 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenTimeModule, { type InstalledApp } from '@/services/ScreenTimeModule';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { STORAGE_KEYS } from '@/types/storage';
 import { T } from '@/constants/theme';
 
 // SET · 앱 고르기(안드로이드) — 측정 대상(GROMO-1593)과 집중 중 허용앱(GROMO-1603)이 함께 쓴다.
@@ -127,6 +129,13 @@ export default function AppPickerScreen() {
     setSaving(true);
     try {
       await spec.save([...selected]);
+      // ⚠️ 측정 대상을 바꾸면 **오늘 동기화 캐시를 버린다**(코드리뷰 8차). 그 캐시에는 바꾸기
+      //    전 기준으로 올린 큰 분값이 남아 있는데, 다음날 마감이 새 대상으로 재계산한 값과
+      //    Math.max 로 합친다 — **바꾸기 전 사용량이 최종 서버 기록과 목표 판정에 박힌다.**
+      //    (측정 대상 저장에만 해당한다 — 허용앱은 사용량 계산과 무관하다.)
+      if (mode === 'measured') {
+        await AsyncStorage.removeItem(STORAGE_KEYS.screentimeSyncState).catch(() => {});
+      }
       navigation.goBack();
     } finally {
       setSaving(false);

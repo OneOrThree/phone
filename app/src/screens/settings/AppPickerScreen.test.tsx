@@ -7,7 +7,9 @@
 // 끄려고 전부 해제했다가 오히려 전체 측정이 켜지고, 화면에 되돌릴 방법이 없다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import AppPickerScreen from './AppPickerScreen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
+import { STORAGE_KEYS } from '@/types/storage';
 
 const mockGoBack = jest.fn();
 // jest.mock 팩토리는 외부 변수를 참조할 수 없다 — `mock` 프리픽스만 예외로 허용된다.
@@ -221,5 +223,34 @@ describe('설치 목록에 없는 저장값은 복원하지 않는다', () => {
     });
 
     expect(m.setSelectionPackages).toHaveBeenCalledWith(['com.kakao.talk']);
+  });
+});
+
+// 측정 대상을 바꾸면 오늘 동기화 캐시를 버려야 한다 — GROMO-1593 코드리뷰 8차.
+//
+// 그 캐시엔 바꾸기 **전** 기준으로 올린 큰 분값이 남는다. 다음날 마감이 새 대상으로
+// 재계산한 값과 Math.max 로 합치므로, 바꾸기 전 사용량이 최종 서버 기록과 목표 판정에 박힌다.
+describe('대상을 바꾸면 오늘 동기화 캐시를 버린다', () => {
+  test('측정 대상 저장 시 캐시를 지운다', async () => {
+    await AsyncStorage.setItem(STORAGE_KEYS.screentimeSyncState, '{"minutes":120}');
+
+    await renderScreen('measured');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('appPicker.save'));
+    });
+
+    expect(await AsyncStorage.getItem(STORAGE_KEYS.screentimeSyncState)).toBeNull();
+  });
+
+  // 허용앱은 사용량 계산과 무관하다 — 지우면 멀쩡한 동기화 상태를 잃는다.
+  test('허용앱 저장은 캐시를 건드리지 않는다', async () => {
+    await AsyncStorage.setItem(STORAGE_KEYS.screentimeSyncState, '{"minutes":120}');
+
+    await renderScreen('allowed');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('appPicker.save'));
+    });
+
+    expect(await AsyncStorage.getItem(STORAGE_KEYS.screentimeSyncState)).toBe('{"minutes":120}');
   });
 });
