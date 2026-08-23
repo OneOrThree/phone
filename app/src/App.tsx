@@ -26,6 +26,7 @@ import {
   deleteDeviceToken,
 } from '@/services/userApi';
 import { clearInbox } from '@/services/notificationInbox';
+import { recoverFocusEngine } from '@/screens/focus/engine/boot';
 import StudyWidgetModule from '@/services/StudyWidgetModule';
 import { recordAccessDay } from '@/services/storeReview';
 import { reportWatchPairing } from '@/services/watchPairing';
@@ -240,10 +241,18 @@ function App() {
 
   // 앱 접속 누적일 기록(GROMO-980) — 별점 요청 조건(누적 7일)용. 앱 시작 + 포그라운드 복귀마다
   // 호출하되 하루 1회만 증가한다(자정을 넘겨 복귀하는 세션도 그날치로 반영).
+  //
+  // 같은 자리에서 **엔진 부팅 복구**도 돌린다(GROMO-1600). 워치 명령은 앱이 떠 있는 동안에도
+  // 도착하는데 네이티브 인박스는 적재만 하고 JS에 알리지 않아(수신 즉시 알림은 GROMO-1616),
+  // 복귀 때 한 번 비워 주지 않으면 포그라운드에서 받은 pause·resume·end조차 다음 재기동이나
+  // 우연한 사일런트 푸시까지 처리되지 않는다. recoverFocusEngine은 멱등이라 겹쳐도 무해하다.
   useEffect(() => {
     recordAccessDay();
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') recordAccessDay();
+      if (state === 'active') {
+        recordAccessDay();
+        recoverFocusEngine();
+      }
     });
     return () => sub.remove();
   }, []);

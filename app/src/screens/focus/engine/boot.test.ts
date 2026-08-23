@@ -8,6 +8,7 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { uploadFocusBlock } from '../uploadFocusBlock';
 import { recoverFocusEngine } from './boot';
 import { readJournal } from './journal';
+import { drainWatchCommands, ackWatchCommands } from './watchInbox';
 import { markBackgroundFocusCommit } from '../pendingFocusUploads';
 import { ensureFocusTagId } from '../tagSync';
 import { currentAccountId } from '@/services/focusApi';
@@ -32,6 +33,10 @@ jest.mock('../tagSync', () => ({
 }));
 jest.mock('../pendingMarkerCancels', () => ({
   cancelMarker: jest.fn(() => Promise.resolve()),
+}));
+jest.mock('./watchInbox', () => ({
+  drainWatchCommands: jest.fn(() => Promise.resolve([])),
+  ackWatchCommands: jest.fn(() => Promise.resolve()),
 }));
 
 const mockedUpload = uploadFocusBlock as jest.Mock;
@@ -207,6 +212,47 @@ test('멱등: 콜드 스타트와 사일런트 flush가 겹쳐 불러도 한 번
   await Promise.all([recoverFocusEngine(), recoverFocusEngine(), recoverFocusEngine()]);
 
   expect(mockedUpload).toHaveBeenCalledTimes(1);
+});
+
+describe('워치 인박스 드레인(D2-④)', () => {
+  test('네트워크 재시도보다 **먼저** 드레인한다 — 백그라운드 실행 시간이 명령보다 먼저 끝나지 않게', async () => {
+    // 뒤에 두면 저널이 찬 경우 intent마다 업로드 타임아웃을 소비하다가, 종료 상태 기동의
+    // 제한된 실행 시간이 먼저 끝나 시간 민감한 명령(start·pause·resume은 expiresAt도 지난다)이
+    // 이번 기동에서 처리되지 못한다(codex 리뷰 #695).
+    const order: string[] = [];
+    (drainWatchCommands as jest.Mock).mockImplementation(() => {
+      order.push('drain');
+      return Promise.resolve([]);
+    });
+    (uploadFocusBlock as jest.Mock).mockImplementation(() => {
+      order.push('upload');
+      return Promise.resolve({ status: 'saved', response: {} });
+    });
+    await journalWith(null, [staleIntent()]);
+    await recoverFocusEngine();
+
+    expect(order).toEqual(['drain', 'upload']);
+  });
+
+  test('드레인한 명령을 ack로 확정한다 — 이 티켓에선 「처리 = 폐기」', async () => {
+    // 네이티브가 claim만 하므로 ack가 없으면 같은 명령이 매 부팅 재배달된다.
+    (drainWatchCommands as jest.Mock).mockResolvedValue([
+      { commandId: 'c1', type: 'end', protocolVersion: 1 },
+      { commandId: 'c2', type: 'start', protocolVersion: 1 },
+    ]);
+    await journalWith(null);
+    await recoverFocusEngine();
+
+    expect(ackWatchCommands).toHaveBeenCalledWith(['c1', 'c2']);
+  });
+
+  test('드레인 결과가 없으면 ack도 부르지 않는다', async () => {
+    (drainWatchCommands as jest.Mock).mockResolvedValue([]);
+    await journalWith(null);
+    await recoverFocusEngine();
+
+    expect(ackWatchCommands).not.toHaveBeenCalled();
+  });
 });
 
 describe('재생 커밋 후 잔액 갱신', () => {
