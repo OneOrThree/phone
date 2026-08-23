@@ -15,11 +15,12 @@ import { ensureFocusTagId } from './tagSync';
 import { cancelStaleCompletionNotifications } from './completionNotification';
 import {
   readPersistedSessionV1,
+  writePersistedSessionV1,
   removePersistedSessionV1,
   orphanSettlementFromV1,
   type PersistedFocusSessionV1,
 } from './engine/persistence';
-import { readJournal } from './engine/journal';
+import { isSessionLive } from './engine/liveSessionRegistry';
 
 // 죽은(강제 종료된) 세션 정산 — 앱 시작 시 라이브 레코드가 남아 있으면
 // 마지막 저장 시점까지의 집중시간을 적립하고, 서버 업로드까지 끝나야 레코드를 지운다.
@@ -33,6 +34,23 @@ import { readJournal } from './engine/journal';
  * legacy 라이브 레코드에 `settledLocally`를 찍는다 — v1 경로가 로컬 적립을 마킹할 때의 짝.
  * 레코드가 없거나 소유자가 다르면 아무것도 하지 않는다(남의 기록을 건드리지 않는다).
  */
+async function syncV1SettledMarker(userId: string | null): Promise<string | null> {
+  // legacy 경로가 로컬 적립을 마킹할 때의 **짝**. 이게 없으면 legacy에만 표식이 찍히고, 업로드
+  // 성공 뒤 legacy 삭제가 착지한 다음 v1 제거 전에 죽는 창에서 다음 부팅이 남은 (더 오래된)
+  // v1을 미정산으로 골라 그 시간을 다시 적립한다(codex 리뷰 #694 10차).
+  try {
+    const v1 = await readPersistedSessionV1();
+    if (v1 == null || v1.userId !== userId || v1.settledLocally) return null;
+    const marked = { ...v1, settledLocally: true };
+    await writePersistedSessionV1(marked);
+    // 새 기준값을 돌려준다 — 호출부의 제거 대조(CAS)가 이 쓰기 때문에 어긋나면 안 된다
+    return JSON.stringify(marked);
+  } catch {
+    // 마커 동기화 실패는 정산을 막지 않는다
+  }
+  return null;
+}
+
 async function syncLegacySettledMarker(userId: string | null): Promise<void> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
@@ -102,7 +120,7 @@ export function OrphanFocusSettler() {
       // v1을 쓰는데(legacy는 첫 5초 전까지 안 쓴다), 무조건 지우면 방금 시작한 세션의 유일한
       // 기록이 사라진다. 저널은 이미 active라 시작 복구도 손대지 않아 그 시간이 유실된다
       // (codex 리뷰 #694).
-      const v1AtRead = v1 == null ? null : JSON.stringify(v1);
+      let v1AtRead = v1 == null ? null : JSON.stringify(v1);
       const removeV1IfUnchanged = async (): Promise<void> => {
         const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1).catch(() => null);
         if (cur === v1AtRead) removePersistedSessionV1();
@@ -114,12 +132,12 @@ export function OrphanFocusSettler() {
       // ⚠️ **진행 중인 세션은 고아가 아니다.** 이 컴포넌트는 마운트 즉시가 아니라 Focus·Subject
       // 컨텍스트 복원이 끝난 뒤에 돈다 — 로컬 데이터가 없어 서버 복원을 기다리는 동안 사용자가
       // 집중 화면에 들어갈 수 있다. 그 세션의 v1을 고아로 취급하면 첫 5초 전엔 focused<=0로
-      // 커밋 흔적을 지우고(저널만 active로 남아 시간 유실), 그 뒤엔 진행 중인 블록을 조기
-      // 적립·업로드한다(codex 리뷰 #694 9차).
-      const activeKey = (await readJournal().catch(() => null))?.session;
-      if (v1 != null && activeKey?.state === 'active' && activeKey.sessionKey === v1.sessionKey) {
-        return;
-      }
+      // 커밋 흔적을 지우고, 그 뒤엔 진행 중인 블록을 조기 적립·업로드한다(리뷰 #694 9차).
+      //
+      // 판정은 **저널의 active가 아니라 메모리 등록부**로 한다. 강제 종료된 세션도 저널엔
+      // active로 남아(복구는 starting만 손댄다) 다음 콜드 스타트가 영원히 건너뛰고, 그 상태로
+      // 새 집중을 시작하면 이전 세션의 v1이 덮여 시간이 통째로 사라진다(리뷰 #694 10차).
+      if (v1 != null && isSessionLive(v1.sessionKey)) return;
       if (v1 != null && (await isV1FresherThanLegacy(v1))) {
         if (v1.userId !== userId) {
           // 최신 판정(isV1FresherThanLegacy)이 비동기라, 그 사이에 현재 계정이 새 집중을
@@ -233,6 +251,10 @@ export function OrphanFocusSettler() {
         rec = { ...rec, settledLocally: true };
         stored = JSON.stringify(rec);
         await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, stored);
+        // v1에도 같은 표식 — 두 레코드 정리 사이의 크래시가 이중 적립을 만들지 않게 한다.
+        // 우리가 쓴 값으로 기준값을 갱신한다(안 하면 아래 제거 대조가 어긋나 v1이 남는다).
+        const markedV1 = await syncV1SettledMarker(rec.userId ?? null);
+        if (markedV1 != null) v1AtRead = markedV1;
         // '오늘 집중'과 과목 누적은 둘 다 '오늘' 기준 → 이 세션의 집중초 중 오늘 몫만 반영한다
         // (GROMO-1252 — 종전엔 updatedAt 하루만 보고 elapsed 전체를 오늘에 꽂아, 자정을 걸친
         // 세션의 어제 몫까지 오늘로 들어왔다). 근거는 레코드가 남긴 날짜별 집중초 —

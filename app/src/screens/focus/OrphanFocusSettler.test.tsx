@@ -11,6 +11,7 @@ import { STORAGE_KEYS } from '@/types/storage';
 import { OrphanFocusSettler } from './OrphanFocusSettler';
 import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker } from './pendingMarkerCancels';
+import { markSessionLive, clearSessionLive } from './engine/liveSessionRegistry';
 
 const OWNER = 'user-a';
 
@@ -255,18 +256,32 @@ test('남의 v1을 폐기하는 분기도 새 v1은 건드리지 않는다 — �
   expect(JSON.parse(left!).sessionKey).toBe('fs-new'); // 새 세션의 기록이 살아 있다
 });
 
-test('진행 중인 세션의 v1은 고아로 정산하지 않는다 — 저널이 active면 건너뛴다', async () => {
+test('이 프로세스가 돌리고 있는 세션의 v1은 고아로 정산하지 않는다', async () => {
   // 이 컴포넌트는 마운트 즉시가 아니라 Focus·Subject 복원이 끝난 뒤에 돈다. 그 사이 사용자가
   // 집중 화면에 들어갈 수 있는데, 그 세션의 v1을 고아로 보면 진행 중인 블록을 조기 적립·
-  // 업로드하거나(5초 이후) 커밋 흔적을 지운다(5초 이전 — 저널만 active로 남아 유실).
+  // 업로드하거나(5초 이후) 커밋 흔적을 지운다(5초 이전).
+  await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(V1_RECORD));
+  markSessionLive(V1_RECORD.sessionKey);
+  try {
+    await renderSettler();
+    expect(mockUpload).not.toHaveBeenCalled();
+    expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).not.toBeNull();
+  } finally {
+    clearSessionLive(V1_RECORD.sessionKey);
+  }
+});
+
+test('강제 종료로 남은 active 세션은 고아로 정산한다 — 판정은 저널이 아니라 메모리다', async () => {
+  // 저널의 active를 게이트로 쓰면 강제 종료된 세션이 영원히 건너뛰어진다(복구는 starting만
+  // 손댄다). 그 상태로 새 집중을 시작하면 이전 v1이 덮여 시간이 통째로 사라진다(리뷰 10차).
   await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(V1_RECORD));
   await AsyncStorage.setItem(
     STORAGE_KEYS.focusJournalV1,
     JSON.stringify({
       version: 1,
       session: {
-        sessionKey: V1_RECORD.sessionKey, // 진행 중
-        state: 'active',
+        sessionKey: V1_RECORD.sessionKey,
+        state: 'active', // 죽기 전 상태 그대로 남아 있다
         shieldRequested: true,
         serverSessionId: 'marker-9',
         markerBlockStartedAt: null,
@@ -276,10 +291,10 @@ test('진행 중인 세션의 v1은 고아로 정산하지 않는다 — 저널�
       settles: [],
     }),
   );
+  mockUpload.mockResolvedValue({ status: 'saved', response: {} as never });
   await renderSettler();
 
-  expect(mockUpload).not.toHaveBeenCalled();
-  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).not.toBeNull();
+  expect(mockUpload).toHaveBeenCalledTimes(1); // 회수됐다
 });
 
 test('legacy가 없는 조기 종료도 v1을 대조한다 — 새 세션의 흔적을 지우지 않는다', async () => {
@@ -306,4 +321,20 @@ test('legacy가 없는 조기 종료도 v1을 대조한다 — 새 세션의 흔
   const left = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1);
   expect(left).not.toBeNull();
   expect(JSON.parse(left!).sessionKey).toBe('fs-brand-new');
+});
+
+test('legacy 경로의 로컬 적립은 v1에도 표식을 남긴다 — 두 정리 사이의 크래시 방어', async () => {
+  // legacy에만 찍으면, 업로드 성공 뒤 legacy 삭제가 착지하고 v1 제거 전에 죽는 창에서 다음
+  // 부팅이 남은 (더 오래된) v1을 미정산으로 골라 그 시간을 다시 적립한다(리뷰 #694 10차).
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.focusSessionV1,
+    JSON.stringify({ ...V1_RECORD, updatedAt: '2026-08-08T10:10:00+09:00' }), // legacy가 더 최신
+  );
+  mockUpload.mockResolvedValue({ status: 'failed' }); // 실패시켜 두 레코드를 남긴다
+  await renderSettler();
+
+  const legacyRaw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
+  const v1Raw = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1);
+  expect(JSON.parse(legacyRaw!).settledLocally).toBe(true);
+  expect(JSON.parse(v1Raw!).settledLocally).toBe(true); // 짝이 맞는다
 });
