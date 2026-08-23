@@ -546,3 +546,67 @@ describe('finish·정산의 제거 소유권 (codex 리뷰 #694 6차)', () => {
     engine.stopTicking();
   });
 });
+
+describe('제거·인계의 TOCTOU (codex 리뷰 #694 7차)', () => {
+  test('legacy 제거를 기다리는 사이 새 세션이 쓴 v1은 지우지 않는다', async () => {
+    const engine = createFocusSessionEngine(countupConfig, makeDeps());
+    await engine.start('수학');
+    engine.startTicking();
+    await advance(5000);
+
+    // legacy를 지우는 순간 = 새 세션이 자기 커밋 흔적을 쓰는 창
+    const removeItem = AsyncStorage.removeItem as unknown as jest.Mock;
+    const realRemove = removeItem.getMockImplementation();
+    let swapped = false;
+    removeItem.mockImplementation(async (key: string) => {
+      if (key === STORAGE_KEYS.focusLiveSession && !swapped) {
+        swapped = true;
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.focusSessionV1,
+          JSON.stringify({ version: 1, sessionKey: 'fs-new', blockStartedAt: 'new' }),
+        );
+      }
+      return realRemove?.(key) ?? Promise.resolve();
+    });
+    await engine.finish();
+    await flush();
+    removeItem.mockImplementation(realRemove ?? (() => Promise.resolve()));
+    engine.stopTicking();
+
+    const left = await readV1();
+    expect(left).not.toBeNull();
+    expect(left!.sessionKey).toBe('fs-new'); // 새 세션의 흔적이 살아 있다
+  });
+
+  test('완성 intent 쓰기가 실패하면 저널 세션을 접지 않는다 — 마커 보완 근거를 남긴다', async () => {
+    const engine = createFocusSessionEngine(countupConfig, makeDeps());
+    await engine.start('수학');
+    engine.startTicking();
+    await advance(5000);
+
+    // ⚠️ **완성본 쓰기만** 정확히 겨냥한다. 「2번째 이후 저널 쓰기」로 막으면 예비 intent까지
+    // 실패해 저널 소거 자체가 불가능해지고, 가드 유무와 무관하게 통과하는 무효 테스트가 된다
+    // (돌연변이 검증에서 잡혔다). 완성본은 settles에 serverSessionId가 실린 쓰기다.
+    const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+    const real = setItem.getMockImplementation();
+    setItem.mockImplementation((key: string, value: string) => {
+      if (key === STORAGE_KEYS.focusJournalV1) {
+        try {
+          const journal = JSON.parse(value) as { settles?: { serverSessionId?: unknown }[] };
+          if (journal.settles?.some((it) => it.serverSessionId != null)) {
+            return Promise.reject(new Error('디스크 꽉참'));
+          }
+        } catch {
+          // 파싱 불가 — 통과시킨다
+        }
+      }
+      return real?.(key, value) ?? Promise.resolve();
+    });
+    await engine.finish();
+    await flush();
+    setItem.mockImplementation(real ?? (() => Promise.resolve()));
+    engine.stopTicking();
+
+    expect((await readJournal()).session).not.toBeNull(); // 마커를 찾을 근거가 남는다
+  });
+});

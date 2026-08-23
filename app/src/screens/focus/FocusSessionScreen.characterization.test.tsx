@@ -1663,9 +1663,14 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     // 최대 4초가 유실됐다(codex 리뷰 12차로 「알려진 공백」 고정 → 이제 해소).
     const record = await readLiveRecord();
     expect(record).toMatchObject({ elapsed: 4, subjectId: 's1', userId: 'user-1' });
-    // 마커는 이 cleanup이 이미 닫았다 — 레코드가 닫힌 마커를 가리키면 고아 정산이 헛된
-    // PATCH를 태운다. 비워 두면 곧장 POST 경로로 간다.
-    expect(record!.serverSessionId).toBeNull();
+    // ⚠️ **개정(codex 리뷰 #694 7차)** — 종전 계약은 「비워 둔다」였다: cleanup이 마커를 이미
+    // 닫았으니 레코드가 닫힌 마커를 가리키면 고아 정산이 헛된 PATCH를 태운다는 이유였다.
+    // 그 절약이 유실 창을 열어 뒀다 — 취소 요청이 완료되거나 실패분이 대기열에 들어가기
+    // **전에** OS가 프로세스를 죽이면 마커 id가 어디에도 남지 않아, 고아 정산은 POST만 하고
+    // 열린 마커는 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다.
+    // 이제 레코드가 마커를 인계받는다. 헛된 PATCH는 409(SESSION_DISCARDED)로 돌아오고
+    // uploadFocusBlock이 그걸 알아채 취소 위임 없이 POST로 폴백한다 — 요청 1회가 대가다.
+    expect(record!.serverSessionId).toBe('marker-1');
   });
 
   test('언마운트 정리의 네이티브 해제가 거부돼도: 종결 계측·마커 취소는 계속된다', async () => {
