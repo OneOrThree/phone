@@ -13,6 +13,7 @@ import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { createFocusSessionEngine, type FocusEngineDeps } from './FocusSessionEngine';
 import { readPersistedSessionV1, reconstructSessionFromV1 } from './persistence';
 import { readJournal } from './journal';
+import { isSessionLive } from './liveSessionRegistry';
 import { ensureFocusTagId } from '../tagSync';
 import type { SessionMachineConfig } from './machine';
 
@@ -715,4 +716,37 @@ test('마커 취소는 정산 당시 계정으로 한다 — 도중에 계정이
   engine.stopTicking();
 
   expect(cancelMarker).toHaveBeenCalledWith('marker-1', 'user-1');
+});
+
+test('finish는 정산이 레코드를 인계할 때까지 live 등록을 유지한다', async () => {
+  // 먼저 풀면, 예비 intent 기록과 레코드 제거를 기다리는 사이에 도는 고아 정산이 아직 남은
+  // v1을 고아로 보고 같은 블록을 한 번 더 적립한다(codex 리뷰 #694 11차).
+  const engine = createFocusSessionEngine(countupConfig, makeDeps());
+  await engine.start('수학');
+  engine.startTicking();
+  await advance(5000);
+  const liveKey = (await readJournal()).session!.sessionKey;
+  expect(isSessionLive(liveKey)).toBe(true);
+
+  // 저널 쓰기를 붙잡아 인계를 멈춰 세운다
+  const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+  const real = setItem.getMockImplementation();
+  let release: () => void = () => {};
+  setItem.mockImplementation((key: string, value: string) => {
+    if (key === STORAGE_KEYS.focusJournalV1) {
+      return new Promise<void>((r) => {
+        release = () => r();
+      });
+    }
+    return real?.(key, value) ?? Promise.resolve();
+  });
+  await engine.finish();
+  await flush();
+  expect(isSessionLive(liveKey)).toBe(true); // 아직 인계 전 — 유지된다
+
+  setItem.mockImplementation(real ?? (() => Promise.resolve()));
+  release();
+  await flush();
+  expect(isSessionLive(liveKey)).toBe(false); // 인계 후 해제
+  engine.stopTicking();
 });

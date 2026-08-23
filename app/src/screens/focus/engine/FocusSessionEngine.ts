@@ -597,6 +597,9 @@ export function createFocusSessionEngine(
           // 적립한다(로컬 시간·과목 통계 이중 계상).
           markRecordsSettledLocally(startedAt, userId).catch(() => {});
         }
+        // 인계가 끝났다 — 이제 고아 정산이 이 세션을 봐도 안전하다(레코드는 지워졌거나
+        // settledLocally가 찍혀 재적립되지 않는다).
+        if (isFinal) clearSessionLive(sessionKey);
         return Promise.all([
           ensureFocusTagId(subjectName, userId).catch(() => null),
           livePromise.catch(() => null),
@@ -668,7 +671,11 @@ export function createFocusSessionEngine(
           }
         });
       })
-      .catch(() => {});
+      .catch(() => {
+        // 체인이 끊겨도 등록은 반드시 푼다 — 안 풀면 이 프로세스가 사는 동안 고아 정산이
+        // 계속 건너뛴다.
+        if (isFinal) clearSessionLive(sessionKey);
+      });
     return true;
   };
 
@@ -730,7 +737,9 @@ export function createFocusSessionEngine(
     async finish(completed = session.done, hooks) {
       if (finished) return null;
       finished = true;
-      clearSessionLive(sessionKey);
+      // ⚠️ live 해제는 **정산이 레코드를 인계한 뒤**다(settleFocusBlock의 isFinal 분기).
+      // 여기서 먼저 풀면, 예비 intent 기록과 레코드 제거를 기다리는 사이에 도는 고아 정산이
+      // 아직 남은 v1을 고아로 보고 같은 블록을 한 번 더 적립한다(codex 리뷰 #694 11차).
       // 완료 계측 — 완료 게이트가 이미 발행한 세션(카운트다운/뽀모도로 완주)은 가드로 스킵된다.
       this.logCompletedOnce();
       // 보고 있던 뷰의 마지막 체류 flush(GROMO-987) — 뷰 계측은 화면 몫.
@@ -748,9 +757,11 @@ export function createFocusSessionEngine(
       try {
         const settling = settleFocusBlock(undefined, true);
         if (!settling) {
+          // 정산할 델타가 없다 — 인계할 것도 없으니 여기서 정리하고 등록을 푼다
           await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
           removePersistedSessionV1();
           journalClearSession(sessionKey);
+          clearSessionLive(sessionKey);
         }
         // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
         cancelLiveSession();
