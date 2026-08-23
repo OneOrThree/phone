@@ -11,9 +11,7 @@
 //    의존 경계다(uploadFocusBlock·pendingMarkerCancels·tagSync·focusApi·analyticsEvents…).
 
 import { Platform, Vibration, type AppStateStatus } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { STORAGE_KEYS } from '@/types/storage';
 import type { FocusType } from '@/types/dto/focus';
 import { startFocusSession } from '@/services/focusApi';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from '../leaveNotifications';
@@ -40,6 +38,8 @@ import {
 } from '../blockToday';
 import { newBlockPause, pauseStart, pauseEnd, blockPauseSeconds, pauseCutAt } from '../blockPause';
 import type { LiveFocusSession, FocusTimerMode } from '../types';
+import { markShieldReleasedCleanly } from '../markShieldReleasedCleanly';
+import { removeLiveSession, writeLiveSession } from '../liveSessionStore';
 import {
   initialSessionState,
   nextTick,
@@ -151,6 +151,8 @@ export interface FocusSessionEngine {
   // ── 실드 — 적용 성공 여부(shielded)로 이탈 정책이 갈린다: 실드 O=집중 인정 / X=15초 정책
   applyShield(subjectName: string): void;
   releaseShield(): void;
+  /** 실드가 실제로 걸려 있는가 — 드로어 안내 분기용 읽기(변경 시 subscribe 로 통지) */
+  isShielded(): boolean;
 
   /**
    * 뽀모도로 페이즈 경계 처리 — 집중→휴식 정산, 휴식→집중 새 블록·마커(정지 대기면 유예).
@@ -228,6 +230,13 @@ export function createFocusSessionEngine(
   let finished = false;
   // 세션 실드 적용 성공 여부 — 이탈 정책 분기(집중 인정 vs 15초 정책)의 입력
   let shielded = false;
+  // 값이 바뀌면 구독자에게 알린다 — 드로어의 "잠겨서 열 수 없어요" 안내가 이 값으로 갈리는데,
+  // 통지 없이 두면 안내가 낡은 채로 남는다.
+  const setShielded = (ok: boolean) => {
+    if (shielded === ok) return;
+    shielded = ok;
+    notify();
+  };
   // 페이즈 경계 이펙트의 비교 기준 — 리플레이가 지나간 경계를 이중 처리하지 않게 동기화한다
   let prevPhase: 'focus' | 'break' = session.phase;
   // 이탈 감지 — background 진입 시각·페이즈·세션 스냅샷. 스냅샷에서 리플레이를 시작해
@@ -244,6 +253,29 @@ export function createFocusSessionEngine(
   let abandoned = false;
   // completed를 이미 발행했는지 — 완료 게이트와 finish 두 경로의 이중 발행 방지(코덱스 리뷰)
   let completedLogged = false;
+
+  /**
+   * **세션 전체**가 끝나기까지 남은 초. 끝이 없으면 null(카운트업).
+   *
+   * 뽀모도로는 지금 페이즈의 잔여에 **이후 모든 구간**을 더한다 — 마지막 세트의 집중이
+   * 끝나면 세션이 끝나고 트레일링 휴식은 없다(machine.ts 의 전진 규칙과 같다).
+   */
+  const sessionRemainingSecondsOf = (s: SessionState): number | null => {
+    if (config.mode === 'countup') return null;
+    const nowLeft = Math.max(0, Math.floor(s.display));
+    if (config.mode === 'countdown') return nowLeft;
+    const pomo = config.pomodoro;
+    const focusSec = pomo.focusMin * 60;
+    const breakSec = pomo.breakMin * 60;
+    // 남은 '집중' 세트 수 — 현재가 집중이면 이번 것은 nowLeft 로 이미 셌다.
+    const remainingFocusSets = Math.max(0, pomo.sets - s.setIndex);
+    if (s.phase === 'focus') {
+      // 이번 집중 잔여 + (남은 세트마다 휴식 + 집중)
+      return nowLeft + remainingFocusSets * (breakSec + focusSec);
+    }
+    // 휴식 중 — 이번 휴식 잔여 + 다음 집중부터 끝까지
+    return nowLeft + focusSec + Math.max(0, remainingFocusSets - 1) * (breakSec + focusSec);
+  };
 
   const startBlockAt = (at: string) => {
     settleAt = at;
@@ -269,8 +301,13 @@ export function createFocusSessionEngine(
       // 날짜별 집중초 스냅샷(GROMO-1252) — 고아 정산이 여기와 같은 규칙으로 '오늘 몫'을 고르고,
       // 서버 업로드에도 그대로 실어 보낸다.
       focusDays: blockToday,
+      // 이 세션에 실드가 실제로 걸렸는가 — 고아 정산이 '풀릴 차단이 있었는지'를 여기서 읽는다.
+      // 값의 출처는 항상 현재 shielded 다: startFocusShield 는 보통 첫 레코드보다 먼저 끝나고
+      // 이 함수가 레코드를 통째로 새로 쓰므로, 따로 기록해 두면 덮여 사라진다(코드리뷰 3차).
+      shieldActive: shielded,
     };
-    AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify(record)).catch(() => {});
+    // 같은 키를 쓰는 곳이 여럿이라 직렬화 경로로만 접근한다(liveSessionStore 참고).
+    writeLiveSession(record).catch(() => {});
   };
 
   // 서버에 라이브 마커 시작을 등록 — 등록돼야 친구/리그 화면에 '집중 중'(과목명 포함)으로 보인다.
@@ -347,7 +384,7 @@ export function createFocusSessionEngine(
     // 마커·레코드를 적립보다 먼저 갱신 — 적립 후 제거 전에 죽으면 고아 정산이 또 적립한다(원 finish와 동일 순서).
     settledSeconds = elapsed;
     startBlockAt(endedAt);
-    AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+    removeLiveSession().catch(() => {});
     // 로컬/과목 적립 — 이 블록의 집중초 중 오늘 몫만 반영(GROMO-1252). 몫은 벽시계 겹침이
     // 아니라 집중 tick의 날짜로 센다. 코인은 all-time이라 항상 반영.
     const settledBlockToday = blockToday;
@@ -499,7 +536,7 @@ export function createFocusSessionEngine(
       hooks?.endLiveActivity?.();
       // 라이브 레코드 제거를 먼저 시도하되, 실패해도 정산은 계속한다(GROMO-615).
       // 제거 실패로 정산까지 건너뛰면 적립·서버 업로드가 통째로 빠진다(보상 유실).
-      await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+      await removeLiveSession().catch(() => {});
       try {
         settleFocusBlock();
         // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
@@ -595,15 +632,19 @@ export function createFocusSessionEngine(
     // 호출한다(같은 스토어를 덮어씀) — 중간에 stop을 끼우면 무방비 구간이 생긴다.
     applyShield(subjectName) {
       ScreenTimeModule.startFocusShield(subjectName)
-        .then((ok) => {
-          shielded = ok;
-        })
-        .catch(() => {});
+        .then(setShielded)
+        // 실패는 '차단 안 됨'과 같다 — 이탈 정책이 느슨해지지 않도록 false 를 유지한다.
+        .catch(() => setShielded(false));
     },
     releaseShield() {
-      shielded = false;
+      setShielded(false);
       ScreenTimeModule.stopFocusShield().catch(() => {});
+      // 실드를 **우리가 내렸다**는 표식을 레코드에 남긴다. 시스템 Back 이탈은 레코드를 일부러
+      // 남기므로, 표식이 없으면 다음 실행의 고아 정산이 정상 종료까지 '강제 종료로 차단이
+      // 풀렸다'고 알린다.
+      markShieldReleasedCleanly(settleAt).catch(() => {});
     },
+    isShielded: () => shielded,
 
     // 뽀모도로 집중 블록 경계 — 집중→휴식 전환 시 완료된 블록을 정산·서버 업로드,
     // 휴식→집중 전환 시엔 다음 블록 시작으로 서버 구간 기준을 옮겨 휴식 시간을 제외한다.
@@ -656,6 +697,39 @@ export function createFocusSessionEngine(
       // 잔량이 되레 늘고, 카운트다운은 `display - away`로 남은 시간이 늘어난다.
       const away = Math.max(0, Math.round((Date.now() - leftAtMs) / 1000));
       leftAt = null;
+
+      // ⚠️ 백그라운드 동안 실드가 죽었을 수 있다. 제조사 배터리 최적화가 포그라운드 서비스를
+      //    죽여도 앱은 모르고 shielded 는 true 로 남는다 — 그러면 **차단 없이 다른 앱을 쓴
+      //    시간이 그대로 집중으로 적립된다.** 아래 크레딧 계산이 이 값을 읽으므로 반드시 그
+      //    **전에** 내려야 한다. 동기 함수인 이유도 그것이다(await 를 끼우면 크레딧 판정
+      //    전체가 비동기가 된다).
+      // ⚠️ 표식이 낡은 이유가 둘이다(코드리뷰 9차) — 서비스가 죽었거나(장애), 구간이 끝나
+      //    네이티브가 정상적으로 내렸거나. **정상 만료를 장애로 오인하면** 이탈이 15초를
+      //    넘었을 때 완료를 리플레이하지 않고 leave_timeout 으로 끝나, 백그라운드 진입 뒤의
+      //    마지막 집중 시간까지 잃는다. 정상 만료면 실드는 걸려 있던 것으로 본다.
+      if (shielded && !ScreenTimeModule.isFocusShieldAlive()) {
+        // 네이티브가 '완료'로 끝냈어도 **JS 세션이 아직 안 끝났을 수 있다**(코드리뷰 11차).
+        //
+        // 구분자는 **휴식 중 이탈이었는가**다. 집중 중 이탈이면 아래 리플레이가 일정을 그대로
+        // 재생해 세션도 완료로 끝난다 — 네이티브와 결론이 같다. 그런데 휴식 중 이탈은 복귀
+        // 정책이 전체를 리플레이하지 않고 **다음 집중 세트 시작점에서 멈춘다.** 그러면 서비스와
+        // 차단은 끝났는데 세션만 남아, 실드를 살아 있다고 보면 **차단이 없는데 실드 세션으로
+        // 취급**돼 이후 이탈이 집중으로 적립된다.
+        // (이 시점엔 아직 리플레이 전이라 session.done 으로는 못 가른다.)
+        const completedButSessionAlive =
+          ScreenTimeModule.didFocusShieldComplete() && leftPhase === 'break';
+        if (completedButSessionAlive) {
+          // 남은 세션을 다시 보호한다 — 결과는 startFocusShield 가 정본이다.
+          setShielded(false);
+          ScreenTimeModule.startFocusShield(deps.identity().subjectName)
+            .then(setShielded)
+            .catch(() => {});
+          if (__DEV__) console.log('[이탈감지] 네이티브 만료 후 세션이 남아 실드 재시작');
+        } else if (!ScreenTimeModule.didFocusShieldComplete()) {
+          setShielded(false);
+          if (__DEV__) console.log('[이탈감지] 백그라운드 중 실드가 죽어 비실드 정책으로 되돌림');
+        }
+      }
       cancelLeaveNotifications().catch(() => {});
       const distractionTimedOut = leftPhase === 'focus' && !shielded && away > LEAVE_END_S;
       // AppState만으로는 실드가 실제로 외부 앱을 차단했는지 알 수 없다 — 차단 결과를 관측할
@@ -785,6 +859,17 @@ export function createFocusSessionEngine(
           notify();
         }
       }
+      // ⚠️ 복귀할 때마다 **상태를 다시 민다**(코드리뷰 10차). 화면의 갱신 이펙트는 paused·
+      //    phase·setIndex 가 바뀔 때만 도는데, 비실드 세션의 짧은 이탈(15초 이내)은 그 셋이
+      //    그대로라 안 돈다. 그동안 네이티브 만료 시계는 계속 흘러서, 짧은 이탈을 반복하면
+      //    JS 의 남은 시간은 유지되는데 알림만 줄어들다 세션보다 먼저 00:00 과 완료 표식을
+      //    만든다. 복귀 시점의 실제 잔여로 덮어 그 오차를 그때그때 없앤다.
+      // ⚠️ 반드시 **리플레이 뒤**다. 앞에 두면 실드 세션이 크레딧으로 전진하기 전 잔여를
+      //    밀고, 그 복귀가 페이즈 경계를 넘지 않았으면 화면 이펙트도 안 돌아 낡은 값이 그대로
+      //    남는다.
+      if (!session.done && !finished) {
+        ScreenTimeModule.updateFocusActivity?.(this.buildActivityState(session)).catch(() => {});
+      }
     },
 
     buildActivityState(base) {
@@ -795,6 +880,10 @@ export function createFocusSessionEngine(
         isPaused: paused,
         elapsedSeconds: Math.floor(base.elapsed),
         remainingSeconds: config.mode === 'countup' ? null : Math.max(0, Math.floor(base.display)),
+        // **세션 전체**가 끝나기까지 남은 초 — 안드로이드 서비스가 백그라운드에서 이 시각에
+        // 실드를 내리고 서비스를 끝낸다. 구간 단위로 주면 백그라운드에서 다음 페이즈를 알려줄
+        // 수 없어, 중간 경계에서 멈추거나(차단이 안 돌아옴) 끝나도 계속 덮는다.
+        sessionRemainingSeconds: sessionRemainingSecondsOf(base),
         revision: activityRevision,
       };
     },

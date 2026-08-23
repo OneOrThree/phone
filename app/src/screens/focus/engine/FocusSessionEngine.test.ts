@@ -6,6 +6,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { startFocusSession } from '@/services/focusApi';
+import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { uploadFocusBlock } from '../uploadFocusBlock';
 import { cancelMarker } from '../pendingMarkerCancels';
 import type { LiveFocusSession } from '../types';
@@ -17,6 +18,10 @@ jest.mock('@/services/ScreenTimeModule', () => ({
   default: {
     startFocusShield: jest.fn(() => Promise.resolve(true)),
     stopFocusShield: jest.fn(() => Promise.resolve()),
+    // 동기 판정 2종(GROMO-1604) — 기본은 '살아 있음'. 실드가 죽은 경우를 보는 테스트가
+    // 개별로 덮어쓴다. iOS 실제 구현도 항상 true 라 기본값이 같다.
+    isFocusShieldAlive: jest.fn(() => true),
+    didFocusShieldComplete: jest.fn(() => false),
     startFocusActivity: jest.fn(() => Promise.resolve()),
     updateFocusActivity: jest.fn(() => Promise.resolve()),
     endFocusActivity: jest.fn(() => Promise.resolve()),
@@ -177,6 +182,88 @@ test('이탈 관측 직접 주입: 실드 세션의 백그라운드 왕복 — �
   engine.onAppStateChange('active', { onLeaveTimeout: () => {} });
   await flush();
   expect(engine.getSession().elapsed).toBe(63); // 3초 + 크레딧 60초
+  engine.stopTicking();
+});
+
+test('실드 해제: 레코드에 「우리가 내렸다」 표식을 남긴다', async () => {
+  // 시스템 Back 이탈은 레코드를 일부러 남긴다 — 표식이 없으면 다음 실행의 고아 정산이
+  // 정상 종료까지 '강제 종료로 차단이 풀렸다'고 알린다(markShieldReleasedCleanly 주석).
+  const engine = createFocusSessionEngine(countupConfig, makeDeps());
+  engine.applyShield('수학');
+  await flush();
+  engine.startTicking();
+  await advance(3000);
+  engine.persistLiveRecord(engine.getSession().elapsed);
+  await flush();
+  expect((await readLiveRecord())!.shieldReleasedCleanly).toBeUndefined();
+
+  engine.releaseShield();
+  await flush();
+  expect((await readLiveRecord())!.shieldReleasedCleanly).toBe(true);
+  engine.stopTicking();
+});
+
+test('실드 세션 복귀의 LA 푸시: 크레딧 전진이 **반영된 뒤** 값이다', async () => {
+  // 리플레이 앞에서 밀면 크레딧 전진 전 값이 나간다. 그 복귀가 페이즈 경계를 넘지 않으면
+  // 화면 이펙트도 안 돌아(phase·setIndex 그대로) 낡은 값이 그대로 남는다.
+  const engine = createFocusSessionEngine(countupConfig, makeDeps());
+  engine.applyShield('수학');
+  await flush();
+  engine.startTicking();
+  await advance(3000);
+  const mockedUpdate = ScreenTimeModule.updateFocusActivity as jest.Mock;
+  mockedUpdate.mockClear();
+
+  engine.onAppStateChange('background', { onLeaveTimeout: () => {} });
+  jest.setSystemTime(Date.now() + 60_000);
+  engine.onAppStateChange('active', { onLeaveTimeout: () => {} });
+  await flush();
+
+  expect(engine.getSession().elapsed).toBe(63);
+  expect(mockedUpdate).toHaveBeenCalledTimes(1);
+  expect(mockedUpdate.mock.calls[0][0]).toMatchObject({ elapsedSeconds: 63 });
+  engine.stopTicking();
+});
+
+test('과목 변경의 실드 재적용이 실패하면: 실드 세션 대우를 거둔다', async () => {
+  // ⚠️ 첫 적용이 **성공한 뒤**가 진짜 구멍이다. 재적용 실패를 그냥 삼키면 shielded 가 true 로
+  //    남아, 차단이 없는데도 자리 비운 시간이 집중으로 적립된다. (첫 적용부터 실패하는
+  //    경우는 shielded 초기값이 false 라 삼켜도 티가 안 난다 — 이 순서로만 드러난다.)
+  const engine = createFocusSessionEngine(countupConfig, makeDeps());
+  engine.applyShield('수학');
+  await flush();
+  expect(engine.isShielded()).toBe(true);
+
+  (ScreenTimeModule.startFocusShield as jest.Mock).mockRejectedValueOnce(new Error('권한 없음'));
+  engine.applyShield('영어'); // 과목 변경 — stop 없이 start 만 다시 부른다
+  await flush();
+  expect(engine.isShielded()).toBe(false);
+
+  engine.startTicking();
+  await advance(3000);
+  const onLeaveTimeout = jest.fn();
+  engine.onAppStateChange('background', { onLeaveTimeout });
+  jest.setSystemTime(Date.now() + 20_000);
+  engine.onAppStateChange('active', { onLeaveTimeout });
+  expect(onLeaveTimeout).toHaveBeenCalledTimes(1);
+  engine.stopTicking();
+});
+
+test('짧은 이탈 복귀: 페이즈가 그대로여도 Live Activity 잔여를 다시 민다', async () => {
+  // 화면의 갱신 이펙트는 paused·phase·setIndex 가 바뀔 때만 돈다. 15초 이내 이탈은 그 셋이
+  // 그대로라 안 도는데, 네이티브 만료 시계는 계속 흐른다 — 짧은 이탈을 반복하면 알림만
+  // 먼저 00:00 에 닿아 세션보다 먼저 완료 표식을 만든다(코드리뷰 10차).
+  const engine = createFocusSessionEngine(countupConfig, makeDeps());
+  engine.startTicking();
+  await advance(3000);
+  const mockedUpdate = ScreenTimeModule.updateFocusActivity as jest.Mock;
+  mockedUpdate.mockClear();
+
+  engine.onAppStateChange('background', { onLeaveTimeout: () => {} });
+  jest.setSystemTime(Date.now() + 5000); // 15초 이내 — 페이즈 변화 없음
+  engine.onAppStateChange('active', { onLeaveTimeout: () => {} });
+  await flush();
+  expect(mockedUpdate).toHaveBeenCalledTimes(1);
   engine.stopTicking();
 });
 

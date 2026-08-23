@@ -199,15 +199,22 @@ export default function FocusSessionScreen() {
   const [viewState, setViewState] = useState(() => ({
     session: engine.getSession(),
     paused: engine.isPausedState(),
+    // 실드 적용 여부 — 드로어의 "잠겨서 열 수 없어요" 안내가 이 값으로 갈린다. 엔진이
+    // 값이 바뀔 때 통지하므로 같은 브리지에 실어 렌더 시점 값으로 고정한다.
+    shieldActive: engine.isShielded(),
   }));
   useEffect(
     () =>
       engine.subscribe(() =>
-        setViewState({ session: engine.getSession(), paused: engine.isPausedState() }),
+        setViewState({
+          session: engine.getSession(),
+          paused: engine.isPausedState(),
+          shieldActive: engine.isShielded(),
+        }),
       ),
     [engine],
   );
-  const { session, paused } = viewState;
+  const { session, paused, shieldActive } = viewState;
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const pageRef = useRef(page);
@@ -417,7 +424,11 @@ export default function FocusSessionScreen() {
   useEffect(() => {
     if (engine.isFinished() || engine.getSession().done) return;
     ScreenTimeModule.updateFocusActivity?.(buildActivityState()).catch(() => {});
-  }, [paused, session.phase, buildActivityState, engine]);
+    // ⚠️ `session.setIndex` 도 의존성이다(코드리뷰 5차). 백그라운드 복귀 리플레이가
+    //    focus → break → focus 한 주기를 통째로 지나면 **최종 페이즈가 같아서** phase 만으로는
+    //    이 이펙트가 안 돈다. 화면 세션은 새 집중 구간으로 전진했는데 알림 Chronometer 는
+    //    이미 만료된 이전 구간의 남은 시간을 계속 센다. 경계를 넘으면 setIndex 가 바뀐다.
+  }, [paused, session.phase, session.setIndex, buildActivityState, engine]);
 
   // finish를 거치지 않는 언마운트(안드로이드 시스템 back 등)에서도 마커를 닫는다 — 안 닫으면
   // 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(코덱스 리뷰). 정상 종료는 finish/완료
@@ -945,6 +956,7 @@ export default function FocusSessionScreen() {
         onClose={() => setDrawerOpen(false)}
         liveSubjectId={subjectId}
         liveSeconds={liveTodaySeconds}
+        shieldActive={shieldActive}
       />
 
       {/* 완료 게이트(GROMO-864) — 확인을 눌러야 결과 화면으로 넘어간다 */}
