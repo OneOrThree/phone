@@ -210,6 +210,24 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
         }
     }
 
+    /// commandId 기준 중복 제거 — 먼저 온 것을 남긴다.
+    /// commandId를 못 건지는 레코드는 원문 전체를 키로 삼는다. 그 레코드는 JS가 ack 대상으로
+    /// 지목할 수 없어 `ack`의 필터가 청소하는데, 그전까지 복제본이 상한을 먹지 않게 한다.
+    private static func dedupedByCommandId(_ items: [String]) -> [String] {
+        var seen = Set<String>()
+        return items.filter { json in
+            let key: String
+            if let data = json.data(using: .utf8),
+               let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let id = raw["commandId"] as? String {
+                key = "id:" + id
+            } else {
+                key = "raw:" + json
+            }
+            return seen.insert(key).inserted
+        }
+    }
+
     /// inbox·claimed 어디든 같은 commandId가 이미 있는지.
     private static func contains(commandId: String, in defaults: UserDefaults) -> Bool {
         let stored = (defaults.stringArray(forKey: WatchInboxKeys.inbox) ?? [])
@@ -252,11 +270,16 @@ final class WatchCommandInbox: NSObject, WCSessionDelegate {
             let fresh = defaults.stringArray(forKey: WatchInboxKeys.inbox) ?? []
             var claimed = defaults.stringArray(forKey: WatchInboxKeys.claimed) ?? []
             if !fresh.isEmpty {
-                claimed.append(contentsOf: fresh)
                 // ⚠️ **순서가 계약이다.** claimed를 먼저 커밋하고 inbox를 지운다 — 반대로 하면
                 // 두 쓰기 사이에 프로세스가 죽는 창에서 명령이 두 키 어디에도 없어 영구 유실된다
                 // (워치는 이미 accepted로 아웃박스를 비운 뒤라 재전송도 없다). 이 순서면 최악이
-                // 중복이고, 중복은 commandId 멱등이 흡수한다.
+                // 중복이다.
+                //
+                // 그 중복을 여기서 흡수한다. 실행 자체는 commandId 멱등이 막지만 **물리 레코드는
+                // 남아** 상한(inbox + claimed)을 갉아먹는다. 버전 불일치처럼 의도적으로 ack하지
+                // 않는 레코드가 섞여 있으면 그 복제본이 매 드레인마다 늘어, 고유 명령이 상한에
+                // 한참 못 미쳐도 이후 end까지 queueFull로 거절된다(codex 리뷰 #695).
+                claimed = Self.dedupedByCommandId(claimed + fresh)
                 defaults.set(claimed, forKey: WatchInboxKeys.claimed)
                 defaults.removeObject(forKey: WatchInboxKeys.inbox)
             }
