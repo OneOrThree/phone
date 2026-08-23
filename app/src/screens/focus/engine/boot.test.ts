@@ -321,7 +321,7 @@ describe('예비 intent 재생 시 보완', () => {
 });
 
 describe('재생 전 계정·블록 대조', () => {
-  test('저장 토큰의 주인이 intent 소유자와 다르면 태그를 해석하지 않는다', async () => {
+  test('저장 토큰의 주인이 intent 소유자와 다르면 재생 자체를 건너뛴다', async () => {
     // ensureFocusTagId는 넘긴 userId를 캐시 구분에만 쓰고 조회·생성은 **현재 토큰**으로 한다.
     // 계정 전환 도중 죽어 옛 intent와 새 토큰이 함께 남으면, 업로드가 거부되기 전에 이전
     // 사용자의 과목명이 새 계정 태그로 만들어진다(codex 리뷰 #694 5차).
@@ -332,7 +332,11 @@ describe('재생 전 계정·블록 대조', () => {
     await recoverFocusEngine();
 
     expect(ensureFocusTagId).not.toHaveBeenCalled();
-    expect(mockedUpload.mock.calls[0][0].body.focusTagId).toBeNull();
+    // 업로드도 태우지 않는다 — focusApi가 계정 불일치로 던지면 uploadFocusBlock이 그걸 잡아
+    // **intent 소유 계정으로** 큐에 넣고 queued를 돌려주는데, 그러면 여기서 intent를 지우고
+    // 이후 현재 계정의 flush가 그 항목을 폐기해 버린다(codex 리뷰 #694 7차).
+    expect(mockedUpload).not.toHaveBeenCalled();
+    expect((await readJournal()).settles).toHaveLength(1); // 계정이 돌아올 때까지 보존
   });
 
   test('같은 세션이어도 마커의 블록이 다르면 가져오지 않는다 — 뽀모도로는 블록마다 회전한다', async () => {

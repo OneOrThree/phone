@@ -74,11 +74,16 @@ async function replayIntent(intent: SettleIntent, journalMarker: string | null):
   // 옛 계정 intent와 새 계정 토큰이 함께 남으면 이전 사용자의 과목명이 새 계정에 태그로
   // 생성된다(업로드는 뒤에서 거부되지만 태그는 이미 만들어진 뒤다 — codex 리뷰 #694).
   const owner = await currentAccountId().catch(() => null);
-  const ownerMatches = owner === intent.userId;
-  const focusTagId = ownerMatches
-    ? (intent.body.focusTagId ??
-      (await ensureFocusTagId(intent.body.subject, intent.userId).catch(() => null)))
-    : intent.body.focusTagId;
+  // ⚠️ **재생 자체를 건너뛴다.** 종전엔 태그 해석만 막고 업로드는 태웠는데, focusApi가 던지는
+  // FocusSaveAccountChangedError를 uploadFocusBlock이 잡아 **intent 소유 계정으로** 큐에 넣고
+  // 'queued'를 돌려준다 — 그러면 여기서 intent를 지우고, 이후 현재 계정으로 도는
+  // flushPendingFocusUploads는 소유자가 다른 항목을 재시도하지 않고 **폐기한다**. 그 계정의
+  // 집중 시간과 코인이 영구히 사라진다(codex 리뷰 #694 7차). intent를 남겨 두면 그 계정으로
+  // 돌아왔을 때 다음 복구가 정상 처리한다.
+  if (owner !== intent.userId) return;
+  const focusTagId =
+    intent.body.focusTagId ??
+    (await ensureFocusTagId(intent.body.subject, intent.userId).catch(() => null));
   const sessionId = intent.serverSessionId ?? journalMarker;
   const result = await uploadFocusBlock({
     sessionId,

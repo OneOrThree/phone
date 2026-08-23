@@ -357,10 +357,24 @@ export function createFocusSessionEngine(
    * 쓰이므로 legacy도 같은 블록으로 보고 지운다.
    */
   const removeSettledRecords = async (settledBlockStartedAt: string): Promise<void> => {
-    const v1 = await readPersistedSessionV1().catch(() => null);
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1).catch(() => null);
+    let v1: PersistedFocusSessionV1 | null = null;
+    if (raw != null) {
+      try {
+        v1 = JSON.parse(raw) as PersistedFocusSessionV1;
+      } catch {
+        v1 = null; // 깨진 흔적 — 판별 근거가 없으니 없는 것으로 본다
+      }
+    }
     if (v1 != null && v1.blockStartedAt !== settledBlockStartedAt) return;
     await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
-    if (v1 != null) removePersistedSessionV1();
+    if (raw == null) return;
+    // ⚠️ 위 legacy 제거를 기다리는 사이 **다음 세션이 시작**해 같은 키에 커밋 흔적을 쓸 수 있다.
+    // 읽은 값과 같을 때만 지운다 — 새 세션의 v1을 지우면 첫 5초 저장 전에 끝났을 때 저널만
+    // active로 남고 그 시간이 통째로 유실된다(codex 리뷰 #694 7차).
+    // (legacy는 새 세션이 첫 주기 전까지 쓰지 않으므로 위 제거는 여전히 정산한 블록의 것이다.)
+    const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1).catch(() => null);
+    if (cur === raw) removePersistedSessionV1();
   };
 
   /**
@@ -580,11 +594,15 @@ export function createFocusSessionEngine(
           userId,
           createdAt: new Date().toISOString(),
         };
-        await recordSettleIntent(intent);
+        const finalPersisted = await recordSettleIntent(intent);
         // 마지막 정산(finish)이면 **여기서** 저널 세션을 접는다 — 완성 intent가 마커를 인계한
         // 뒤라야 복구가 마커를 찾을 근거를 잃지 않는다(codex 리뷰 #694 6차). 뽀모도로 경계
         // 정산은 세션이 계속되므로 접지 않는다.
-        if (isFinal) journalClearSession(sessionKey);
+        //
+        // 인계가 **실제로 영속됐을 때만** 접는다. 예비 intent만 남고 이 완성본 쓰기가 실패하면
+        // 재생에는 serverSessionId가 null인 intent만 남는데, 저널까지 지우면 마커를 보완할
+        // 근거가 사라져 열린 마커가 서버 스윕까지 남는다(codex 리뷰 #694 7차).
+        if (isFinal && finalPersisted) journalClearSession(sessionKey);
         // 업로드는 실패·대기열 인계까지 안에서 끝낸다 — 여기서 던지지 않으므로, 아래 발행
         // 콜백에서 예외가 나도 이미 서버에 저장된 세션이 대기열에 재적재되지 않는다(PR 250 리뷰).
         return uploadFocusBlock({
@@ -1040,10 +1058,16 @@ export function createFocusSessionEngine(
     detachViewExit() {
       detached = true;
       if (finished) return;
-      // 마커 먼저 마감 — 참조(liveId)는 동기적으로 비워지므로 아래 레코드는 닫힌 마커를
-      // 가리키지 않는다(고아 정산이 헛된 PATCH를 태우지 않고 곧장 POST로 올린다).
-      cancelLiveSession();
+      // ⚠️ **레코드를 먼저 남기고** 마커를 마감한다. 종전엔 반대였다 — 헛된 PATCH를 아끼려고
+      // 참조를 먼저 비웠는데, 그러면 취소 요청이 끝나거나 실패분이 대기열에 들어가기 **전에**
+      // OS가 프로세스를 죽였을 때 마커 id가 어디에도 남지 않는다. 고아 정산은 POST만 하고
+      // 열린 마커는 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(codex 리뷰 #694 7차).
+      //
+      // 대가는 취소가 성공한 정상 경로에서 고아 정산이 PATCH를 한 번 헛으로 태우는 것뿐이다 —
+      // 폐기된 마커는 409(SESSION_DISCARDED)로 돌아오고 uploadFocusBlock이 그걸 알아채
+      // 취소 위임 없이 POST로 폴백한다.
       persistLiveRecord(session.elapsed);
+      cancelLiveSession();
     },
 
     settleFocusBlock,
