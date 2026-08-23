@@ -16,6 +16,7 @@
 
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { uploadFocusBlock } from '../uploadFocusBlock';
+import { currentAccountId } from '@/services/focusApi';
 import { ensureFocusTagId } from '../tagSync';
 import { markBackgroundFocusCommit } from '../pendingFocusUploads';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
@@ -65,9 +66,16 @@ async function replayIntent(intent: SettleIntent, journalMarker: string | null):
   // 예비 intent는 태그·마커가 미정인 채 저장될 수 있다(그 둘을 기다리기 **전에** 남기는 게
   // 계약이므로). 그대로 올리면 과목별 통계에 영구 미분류로 박히고, 이미 열린 마커도 안 닫혀
   // 친구 화면의 '집중 중'이 서버 스윕까지 남는다 — 재생 시 둘 다 보완한다.
-  const focusTagId =
-    intent.body.focusTagId ??
-    (await ensureFocusTagId(intent.body.subject, intent.userId).catch(() => null));
+  // ⚠️ 태그 해석 **전에** 저장 토큰의 소유자를 대조한다. `ensureFocusTagId`는 넘긴 userId를
+  // 캐시 구분에만 쓰고 실제 조회·생성은 **현재 토큰**으로 하므로, 계정 전환 도중 죽어
+  // 옛 계정 intent와 새 계정 토큰이 함께 남으면 이전 사용자의 과목명이 새 계정에 태그로
+  // 생성된다(업로드는 뒤에서 거부되지만 태그는 이미 만들어진 뒤다 — codex 리뷰 #694).
+  const owner = await currentAccountId().catch(() => null);
+  const ownerMatches = owner === intent.userId;
+  const focusTagId = ownerMatches
+    ? (intent.body.focusTagId ??
+      (await ensureFocusTagId(intent.body.subject, intent.userId).catch(() => null)))
+    : intent.body.focusTagId;
   const sessionId = intent.serverSessionId ?? journalMarker;
   const result = await uploadFocusBlock({
     sessionId,
@@ -86,7 +94,10 @@ async function replayIntent(intent: SettleIntent, journalMarker: string | null):
   // ① 메모리 신호: JS가 살아 있는 동안의 정규 경로 ② 영속 마커: headless 기동 후 프로세스가
   // 죽는 경우의 보험. 이게 없으면 사일런트 flush에선 뒤따르는 큐 flush가 빈 큐를 보고
   // committed=false를 돌려줘 갱신 신호가 아예 생기지 않는다(pendingFocusUploads 주석 참고).
-  if (result.status === 'saved') {
+  // `alreadyEnded`(PATCH 409 SESSION_ALREADY_ENDED)는 **원래 요청이 서버에서 커밋됐는데
+  // 응답만 유실된** 경우다 — 지급은 이미 일어났다. saved와 같이 다루지 않으면, 살아 있는
+  // 프로세스에서 사일런트 복구가 돌 때 사용자는 이미 받은 코인을 다음 재조회까지 못 본다.
+  if (result.status === 'saved' || result.status === 'alreadyEnded') {
     requestCoinRefresh();
     await markBackgroundFocusCommit().catch(() => {});
   }
@@ -107,6 +118,15 @@ async function recover(): Promise<void> {
 
   // ① 원자적 시작 복구
   const session = journal.session;
+  // 유예 안이라 이번엔 건너뛴 starting의 남은 시간 — 아래 재복구 예약에 합친다.
+  let startingRetryMs = Infinity;
+  if (session?.state === 'starting' && !isStartingStale(session.createdAt)) {
+    // 실드 적용 직후 죽고 30초 안에 headless로 기동하면 **진짜 크래시도** 진행 중으로 보인다.
+    // headless엔 OrphanFocusSettler도 없어, 예약하지 않으면 실드와 미완 저널이 다음 앱 실행
+    // 이나 사일런트 푸시까지 남는다(codex 리뷰 #694).
+    const age = Date.now() - Date.parse(session.createdAt);
+    if (Number.isFinite(age)) startingRetryMs = Math.max(0, STARTING_GRACE_MS - age);
+  }
   if (session?.state === 'starting' && isStartingStale(session.createdAt)) {
     const v1 = await readPersistedSessionV1();
     if (v1?.sessionKey === session.sessionKey) {
@@ -115,16 +135,23 @@ async function recover(): Promise<void> {
       await journalActivateSession(session.sessionKey);
     } else if (session.shieldRequested) {
       // 흔적이 없다 — 실드만 남은 크래시. 사용자가 이유 없이 차단된 채로 남지 않게 회수한다.
-      await ScreenTimeModule.stopFocusShield().catch(() => {});
-      await journalClearSession();
+      //
+      // ⚠️ 실드를 끄기 **직전에** 저널 소유권을 다시 확인한다. 위의 v1 조회를 기다리는 사이
+      // 사용자가 새 세션을 시작했을 수 있는데, 그대로 끄면 방금 적용한 새 실드를 해제하고
+      // 새 저널까지 지운다(codex 리뷰 #694).
+      const still = await readJournal();
+      if (still.session?.sessionKey === session.sessionKey) {
+        await ScreenTimeModule.stopFocusShield().catch(() => {});
+        await journalClearSession(session.sessionKey);
+      }
     } else {
-      await journalClearSession();
+      await journalClearSession(session.sessionKey);
     }
   }
 
   // ② failed intent 재업로드
   const now = Date.now();
-  let soonestSkipped = Infinity; // 유예로 건너뛴 것 중 가장 빨리 만료되는 남은 시간(ms)
+  let soonestSkipped = startingRetryMs; // 유예로 건너뛴 것 중 가장 빨리 만료되는 남은 시간(ms)
   for (const intent of journal.settles) {
     const age = now - Date.parse(intent.createdAt);
     if (!Number.isFinite(age)) continue;
@@ -132,9 +159,12 @@ async function recover(): Promise<void> {
       soonestSkipped = Math.min(soonestSkipped, STALE_INTENT_MS - age);
       continue;
     }
-    // 같은 세션의 저널에 마커 id가 남아 있으면 그것도 넘긴다(예비 intent엔 없다)
+    // 같은 세션 **그리고 같은 블록**의 마커일 때만 넘긴다(예비 intent엔 마커가 없다).
+    // 뽀모도로는 블록마다 마커가 회전하므로 sessionKey만 맞춰서는 옛 블록의 intent에 살아 있는
+    // 새 블록의 마커를 실어 그 마커를 종료·취소하게 된다(codex 리뷰 #694).
     const journalMarker =
-      journal.session?.sessionKey === intent.sessionKey
+      journal.session?.sessionKey === intent.sessionKey &&
+      journal.session?.markerBlockStartedAt === intent.body.startedAt
         ? (journal.session?.serverSessionId ?? null)
         : null;
     await replayIntent(intent, journalMarker).catch(() => {});

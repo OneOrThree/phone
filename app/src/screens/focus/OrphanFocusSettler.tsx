@@ -96,6 +96,16 @@ export function OrphanFocusSettler() {
       // v1과 legacy는 같은 세션의 이중 표현이라, v1 경로의 폐기·완료 지점마다 legacy도 함께
       // 지운다(남기면 다음 부팅의 legacy 폴백이 같은 꼬리를 한 번 더 정산한다).
       const v1 = await readPersistedSessionV1();
+      // legacy 경로가 끝에서 v1을 함께 지울 때의 대조 기준. v1이 **없는** 상태(null)도 기준이다 —
+      // legacy를 고른 뒤 업로드를 기다리는 사이 사용자가 새 집중을 시작하면 새 엔진이 곧바로
+      // v1을 쓰는데(legacy는 첫 5초 전까지 안 쓴다), 무조건 지우면 방금 시작한 세션의 유일한
+      // 기록이 사라진다. 저널은 이미 active라 시작 복구도 손대지 않아 그 시간이 유실된다
+      // (codex 리뷰 #694).
+      const v1AtRead = v1 == null ? null : JSON.stringify(v1);
+      const removeV1IfUnchanged = async (): Promise<void> => {
+        const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1).catch(() => null);
+        if (cur === v1AtRead) removePersistedSessionV1();
+      };
       // **존재만으로 v1을 고르지 않는다.** 두 표현은 별도의 비동기 setItem이라, 언마운트·
       // 종료 시점에 legacy만 착지하거나 v1 쓰기만 실패하면 v1이 있으면서도 더 오래된 상태가
       // 된다. 그때 v1을 고르면 마지막 저장 이후의 집중초가 통째로 유실된다 — updatedAt으로
@@ -180,7 +190,7 @@ export function OrphanFocusSettler() {
       } catch {
         // 깨진 레코드 — 정산할 수 없으니 제거만 한다
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
-        removePersistedSessionV1();
+        await removeV1IfUnchanged();
         return;
       }
       // 계정 대조 — 레코드 소유자와 현재 계정이 다르면(로그아웃 후 다른 계정으로 로그인 등)
@@ -189,13 +199,13 @@ export function OrphanFocusSettler() {
       // 함께 걸러 폐기한다(undefined는 string|null과 절대 같지 않음 — 대기열과 같은 규칙).
       if (rec.userId !== userId) {
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
-        removePersistedSessionV1();
+        await removeV1IfUnchanged();
         return;
       }
       const focused = Math.floor(rec.elapsed);
       if (focused <= 0) {
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
-        removePersistedSessionV1();
+        await removeV1IfUnchanged();
         return;
       }
       // 로컬 적립은 1회만 — 중복 적립 방지로 적립 전에 먼저 마킹해 되쓴다.
@@ -278,7 +288,8 @@ export function OrphanFocusSettler() {
       const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
       if (cur === stored) {
         await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
-        removePersistedSessionV1();
+        // v1은 **따로** 대조한다 — legacy가 그대로여도 v1은 새 세션 것일 수 있다.
+        await removeV1IfUnchanged();
       }
     })().catch(() => {});
   }, [userId, focusReady, subjectsReady, addFocusSeconds, refreshCoins, addFocusToSubject]);

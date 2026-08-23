@@ -48,6 +48,7 @@ import {
 } from './machine';
 import {
   writePersistedSessionV1,
+  readPersistedSessionV1,
   removePersistedSessionV1,
   type PersistedFocusSessionV1,
 } from './persistence';
@@ -344,6 +345,34 @@ export function createFocusSessionEngine(
     writePersistedSessionV1(buildV1(remaining, record.updatedAt));
   };
 
+  /**
+   * 정산 의도를 영속하지 못했을 때의 차선 — 남는 레코드에 `settledLocally`를 찍는다.
+   * 고아 정산은 이 표식을 보고 **업로드만** 하고 로컬 적립은 건너뛴다(이중 계상 방지).
+   * 소유자가 다른 레코드는 건드리지 않는다.
+   */
+  const markRecordsSettledLocally = async (userId: string | null): Promise<void> => {
+    const [legacyRaw, v1] = await Promise.all([
+      AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession).catch(() => null),
+      readPersistedSessionV1().catch(() => null),
+    ]);
+    if (legacyRaw) {
+      try {
+        const legacy = JSON.parse(legacyRaw);
+        if (legacy?.userId === userId && !legacy.settledLocally) {
+          await AsyncStorage.setItem(
+            STORAGE_KEYS.focusLiveSession,
+            JSON.stringify({ ...legacy, settledLocally: true }),
+          );
+        }
+      } catch {
+        // 깨진 레코드는 고아 정산이 폐기한다
+      }
+    }
+    if (v1 && v1.userId === userId && !v1.settledLocally) {
+      await writePersistedSessionV1({ ...v1, settledLocally: true });
+    }
+  };
+
   // 서버에 라이브 마커 시작을 등록 — 등록돼야 친구/리그 화면에 '집중 중'(과목명 포함)으로 보인다.
   // 태그를 해석해 실어 보내되, 실패(오프라인 등)해도 세션·시간 저장은 영향 없다(마커는 표시용).
   // sessionId는 promise로 전달 — 취소가 시작 응답보다 먼저 걸려도 순서대로 처리된다.
@@ -362,7 +391,7 @@ export function createFocusSessionEngine(
           // 늦게 도착한 응답이 라이브 레코드에 되살리지 않게.
           if (liveStartPromise === promise) {
             liveId = res.sessionId;
-            journalSetServerSessionId(sessionKey, res.sessionId);
+            journalSetServerSessionId(sessionKey, res.sessionId, startedAt);
           }
           return res.sessionId;
         },
@@ -494,6 +523,11 @@ export function createFocusSessionEngine(
         if (persisted) {
           AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
           removePersistedSessionV1(); // v1도 대칭 제거 — 다음 5초 주기가 미정산분으로 다시 쓴다
+        } else {
+          // 저널 쓰기가 실패했다 — 레코드는 남겨 업로드 근거로 쓰되, **로컬 적립은 이미 했다고
+          // 표시한다.** 안 찍으면 다음 부팅의 고아 정산이 미적립으로 보고 같은 블록을 한 번 더
+          // 적립한다(로컬 시간·과목 통계 이중 계상).
+          markRecordsSettledLocally(userId).catch(() => {});
         }
         return Promise.all([
           ensureFocusTagId(subjectName, userId).catch(() => null),
@@ -725,7 +759,11 @@ export function createFocusSessionEngine(
       // 진입 직후 뒤로가기가 나면 정리가 먼저 끝나고 **그 뒤에** 남은 단계가 실행된다 —
       // 실드가 다시 켜지고 마커가 새로 열려 떠난 세션의 흔적이 살아난다.
       if (detached) return;
-      await journalStartIntent(sessionKey); // ⓪ 실드 적용 전에 의도를 기록
+      // ⓪ 실드 적용 **전에** 의도를 기록한다. 이 쓰기가 실패하면 시작을 성립시키지 않는다 —
+      // 저널 없이 실드·커밋 흔적·마커까지 진행하면, 그 뒤 프로세스가 죽었을 때 부팅 복구가
+      // 남은 실드를 식별할 근거가 없어 사용자가 이유 없이 차단된 채로 남는다.
+      const intentWritten = await journalStartIntent(sessionKey);
+      if (!intentWritten) return;
       if (detached) {
         journalClearSession(sessionKey);
         return;

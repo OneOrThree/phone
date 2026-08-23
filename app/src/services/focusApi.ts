@@ -67,6 +67,15 @@ async function currentAccessToken(): Promise<{ token: string | null; accountId: 
   return { token, accountId: token ? getUserIdFromToken(token) : null };
 }
 
+/**
+ * 지금 저장된 토큰의 주인. 저장 경로 밖(부팅 복구 등)에서 **네트워크를 건드리기 전에**
+ * 계정 일치를 확인해야 할 때 쓴다 — 전송 직전 대조(commitSession)는 업로드만 막을 뿐,
+ * 그 전에 도는 태그 조회·생성까지는 못 막는다.
+ */
+export function currentAccountId(): Promise<string | null> {
+  return currentAccessToken().then(({ accountId }) => accountId);
+}
+
 // 계정이 바뀌어 전송을 취소했을 때 던진다 — 호출부는 이 실패를 받아 **저장을 시작한 계정**으로
 // 대기열에 넣는다(그래야 나중에 그 계정으로만 올라간다).
 export class FocusSaveAccountChangedError extends Error {

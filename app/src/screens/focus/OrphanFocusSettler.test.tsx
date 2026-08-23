@@ -205,3 +205,21 @@ test('legacy 소유자가 다르면 마커를 찍지 않는다 — 남의 기록
   const legacyRaw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
   expect(JSON.parse(legacyRaw!).settledLocally).toBeUndefined();
 });
+
+test('legacy 정산이 도중에 생긴 새 v1을 지우지 않는다 — 새 세션의 유일한 기록이다', async () => {
+  // legacy 경로를 고른 뒤 업로드를 기다리는 사이 사용자가 새 집중을 시작할 수 있다. 새 엔진은
+  // 곧바로 v1을 쓰지만 legacy는 첫 5초 전까지 쓰지 않으므로, legacy 문자열 비교만으로는 이
+  // 창을 못 막는다. 무조건 지우면 새 세션의 기록이 사라지고 저널은 이미 active라 시작 복구도
+  // 손대지 않아 그 시간이 통째로 유실된다(codex 리뷰 #694 5차).
+  mockUpload.mockImplementation(async () => {
+    // 업로드가 도는 사이 새 세션이 v1을 쓴다
+    await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(V1_RECORD));
+    return { status: 'saved', response: {} as never };
+  });
+  await renderSettler();
+
+  expect(mockUpload).toHaveBeenCalledTimes(1);
+  expect(mockUpload.mock.calls[0][0].sessionId).toBe('marker-1'); // legacy 경로였다
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).not.toBeNull();
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession)).toBeNull(); // legacy는 지운다
+});
