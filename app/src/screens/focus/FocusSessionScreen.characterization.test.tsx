@@ -390,6 +390,8 @@ const laState = (over: Partial<Record<string, unknown>> = {}) => ({
   isPaused: false,
   elapsedSeconds: 1,
   remainingSeconds: null,
+  // 카운트업은 끝나는 시각이 없다 — 안드로이드 서비스가 만료로 실드를 내리면 안 된다.
+  endsSession: false,
   revision: 2,
   ...over,
 });
@@ -1399,11 +1401,15 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       isPaused: false,
       elapsedSeconds: 0,
       remainingSeconds: 60,
+      // 첫 세트의 집중 구간 — **마지막이 아니다.** true 면 안드로이드 서비스가 이 경계에서
+      // 실드를 내려 다음 세트에 차단이 안 돌아온다(코드리뷰 8차에서 실제로 그랬다).
+      endsSession: false,
       revision: 1,
     });
     // 틱은 밀지 않는다 — 그 사이는 위젯의 Text(timerInterval:)가 자체 갱신하는 계약
     await advance(3000);
     expect(update).toHaveBeenCalledTimes(1);
+
     // 정지 → isPaused true, 재개 → false. revision은 update·start가 한 카운터를 공유하는
     // 단조 증가 — 600ms 뒤 LA 시작이 2를 소비했으므로 정지는 3부터다.
     // 시간도 현재 진행값이어야 한다 — 초기값(60/0)을 계속 보내면 네이티브가 frozenSeconds로
@@ -1428,6 +1434,23 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       phase: 'break',
       remainingSeconds: 60,
     });
+  });
+
+  // endsSession — **안드로이드 전용 계약**이다. 서비스가 백그라운드에서 남은 시간이 0이 되면
+  // 실드를 내리는데, 뽀모도로 중간 경계(집중 → 휴식)에서 내리면 다음 세트에 차단이 안 돌아온다.
+  // 세션이 언제 끝나는지는 JS 만 알아서 이 값으로 알린다(코드리뷰 8차 — 실제로 그 회귀가 났다).
+  test('endsSession 은 마지막 세트의 집중 구간에서만 참이다', async () => {
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    const update = ScreenTimeModule.updateFocusActivity as jest.Mock;
+
+    // 1세트 집중 — 마지막이 아니다.
+    expect(update.mock.calls.at(-1)![0]).toMatchObject({ phase: 'focus', endsSession: false });
+
+    await advance(60_000); // 1세트 집중 끝 → 휴식
+    expect(update.mock.calls.at(-1)![0]).toMatchObject({ phase: 'break', endsSession: false });
+
+    await advance(60_000); // 휴식 끝 → 2세트 집중(마지막)
+    expect(update.mock.calls.at(-1)![0]).toMatchObject({ phase: 'focus', endsSession: true });
   });
 
   test('LA 상태 동기화 거부(브리지 오류)에도: 타이머·정산·결과 이동은 계속된다', async () => {

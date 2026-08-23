@@ -158,6 +158,8 @@ class FocusShieldService : Service() {
   private var remainingSeconds: Int? = null
   /** 뽀모도로 페이즈("focus" | "break") — 알림 문구를 가른다. */
   private var phase = "focus"
+  /** 이 구간의 끝이 곧 세션의 끝인가 — 중간 경계에서 실드를 내리지 않기 위한 값. */
+  private var endsSession = false
   /**
    * 현재 구간이 끝나는 시각(elapsedRealtime 기준). 0 = 만료 개념 없음(카운트업).
    *
@@ -225,6 +227,13 @@ class FocusShieldService : Service() {
         intent.getStringExtra(EXTRA_STATE)?.let { applyTimerState(it) }
         if (startedAt == 0L) startedAt = System.currentTimeMillis()
         startForeground(NOTIFICATION_ID, buildNotification())
+        // ⚠️ 차단 없이 타이머만 도는 세션(권한 없음)도 폴링을 돌린다(코드리뷰 8차). 안 돌리면
+        //    tick() 의 만료 검사가 한 번도 실행되지 않아, 백그라운드에서 구간이 끝나도
+        //    Chronometer 와 상시 알림이 앱을 다시 열 때까지 남는다.
+        if (!running) {
+          running = true
+          handler.post(poll)
+        }
         return START_NOT_STICKY
       }
       else -> {
@@ -261,6 +270,7 @@ class FocusShieldService : Service() {
     tickFailures = 0
     paused = false
     phase = "focus"
+    endsSession = false
     remainingSeconds = null
     expiresAt = 0L
     elapsedSeconds = 0
@@ -277,6 +287,19 @@ class FocusShieldService : Service() {
 
   /** 한 주기: 앞 앱을 읽어 차단 대상이면 덮고, 아니면 걷는다. */
   private fun tick() {
+    // 만료 검사는 **차단 여부와 무관하게** 먼저 본다(코드리뷰 8차) — 권한이 없어 타이머만
+    // 도는 세션도 백그라운드에서 구간이 끝나면 알림을 정리해야 한다.
+    if (endsSession && remainingSeconds != null && !paused && expiresAt > 0L &&
+      SystemClock.elapsedRealtime() >= expiresAt
+    ) {
+      blocking = false
+      hideOverlay()
+      remainingSeconds = 0
+      expiresAt = 0L
+      startForeground(NOTIFICATION_ID, buildNotification())
+      return
+    }
+
     // 차단 권한이 없어 타이머만 도는 세션 — 폴링은 돌지만 덮지 않는다.
     if (!blocking) return
 
@@ -296,23 +319,6 @@ class FocusShieldService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification())
         return
       }
-    }
-
-    // ⚠️ 백그라운드에서 구간이 끝나면 **여기서 차단을 내린다**(코드리뷰 7차). JS 타이머는
-    //    백그라운드에서 멈추고 화면은 복귀해야 리플레이하므로, 그때까지 이 서비스가 계속
-    //    허용 안 된 앱을 덮는다 — **이미 끝난 세션의 차단이 유지된다.** 알림 타이머도 0을
-    //    지나 계속 간다. 남은 시간을 아는 건 우리뿐이라 우리가 끝내야 한다.
-    //
-    //    실드만 내리고 서비스는 남긴다 — 세션 정산·결과 화면은 앱이 복귀해서 해야 한다
-    //    (START_NOT_STICKY 로 되살리지 않는 것과 같은 이유: 세션 상태는 앱이 정본이다).
-    if (remainingSeconds != null && !paused && expiresAt > 0L &&
-      SystemClock.elapsedRealtime() >= expiresAt
-    ) {
-      blocking = false
-      hideOverlay()
-      remainingSeconds = 0
-      startForeground(NOTIFICATION_ID, buildNotification())
-      return
     }
 
     // 아직 한 번도 전면 앱을 못 본 상태(콜드 스타트 직후) — 덮을 근거가 없으니 걷어 둔다.
@@ -681,6 +687,7 @@ class FocusShieldService : Service() {
     if (json.isNullOrBlank()) {
       paused = false
       phase = "focus"
+      endsSession = false
       remainingSeconds = null
       expiresAt = 0L
       return
@@ -689,6 +696,7 @@ class FocusShieldService : Service() {
       val obj = org.json.JSONObject(json)
       paused = obj.optBoolean("isPaused", false)
       phase = obj.optString("phase", "focus")
+      endsSession = obj.optBoolean("endsSession", false)
       elapsedSeconds = obj.optInt("elapsedSeconds", 0)
       remainingSeconds = if (obj.isNull("remainingSeconds")) null else obj.optInt("remainingSeconds")
       // 만료 시각을 단조 시계로 박아 둔다 — 정지 중이면 만료를 재지 않는다(재개 때 다시 온다).
@@ -699,6 +707,7 @@ class FocusShieldService : Service() {
     }.onFailure {
       paused = false
       phase = "focus"
+      endsSession = false
       remainingSeconds = null
       expiresAt = 0L
     }

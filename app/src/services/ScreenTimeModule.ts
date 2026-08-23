@@ -97,6 +97,16 @@ export interface FocusActivityState {
   isPaused: boolean;
   elapsedSeconds: number;
   remainingSeconds: number | null;
+  /**
+   * 이 구간이 끝나면 **세션 자체가 끝나는가**(안드로이드 알림 전용, GROMO-1604 코드리뷰).
+   *
+   * 안드로이드 서비스는 백그라운드에서 남은 시간이 0이 되면 실드를 내리는데, 뽀모도로의
+   * 중간 경계(집중 → 휴식)에서 내리면 **다음 세트에 차단이 안 돌아온다.** 세션이 언제
+   * 끝나는지는 JS 만 안다(마지막 세트의 집중이 끝나는 시점).
+   *
+   * iOS 는 쓰지 않는다 — Live Activity 는 실드와 별개로 돈다.
+   */
+  endsSession: boolean;
   revision: number;
 }
 
@@ -160,6 +170,7 @@ const androidFallbackState: FocusActivityState = {
   isPaused: false,
   elapsedSeconds: 0,
   remainingSeconds: null,
+  endsSession: false,
   revision: 0,
 };
 
