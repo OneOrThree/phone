@@ -75,6 +75,18 @@ class FocusShieldService : Service() {
     const val KEY_SHIELD_HEARTBEAT = "shieldHeartbeat"
 
     /**
+     * 실드가 **정상 만료로** 끝났는가(코드리뷰 9차).
+     *
+     * 만료 시 blocking 을 내리면 heartbeat 도 멈춘다. 그 뒤 5초가 지나 복귀하면 앱이
+     * isFocusShieldAlive() == false 를 보고 **서비스 장애로 오인**해 비실드 정책으로
+     * 되돌리는데, 이탈이 15초를 넘었으면 완료를 리플레이하지 않고 leave_timeout 으로
+     * 끝내 **백그라운드 진입 뒤의 마지막 집중 시간까지 잃는다.**
+     *
+     * 장애(표식이 그냥 낡음)와 정상 만료(우리가 끝냄)를 구분하려고 따로 남긴다.
+     */
+    const val KEY_SHIELD_COMPLETED = "shieldCompleted"
+
+    /**
      * 표식이 이보다 오래되면 죽은 것으로 본다.
      *
      * 폴링 주기(1초)의 5배 — Doze·앱 대기 버킷으로 핸들러가 잠깐 밀리는 것까지는 살아 있는
@@ -296,6 +308,11 @@ class FocusShieldService : Service() {
       hideOverlay()
       remainingSeconds = 0
       expiresAt = 0L
+      // 장애가 아니라 **우리가 끝낸 것**이라고 남긴다 — 앱이 복귀해 완료를 리플레이해야 한다.
+      getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        .edit()
+        .putBoolean(KEY_SHIELD_COMPLETED, true)
+        .apply()
       startForeground(NOTIFICATION_ID, buildNotification())
       return
     }

@@ -315,6 +315,8 @@ class ScreenTimeModule : Module() {
         // 시작 직후 앱이 백그라운드에 갔다 오면 표식이 없어 '죽었다'로 오판한다.
         prefs.edit()
           .putLong(FocusShieldService.KEY_SHIELD_HEARTBEAT, System.currentTimeMillis())
+          // 이전 세션의 완료 표식을 지운다 — 안 지우면 새 세션이 시작하자마자 '이미 끝났다'로 읽힌다.
+          .remove(FocusShieldService.KEY_SHIELD_COMPLETED)
           .apply()
         val allowed = prefs.getStringSet(KEY_ALLOWED_PACKAGES, null)?.toTypedArray() ?: emptyArray()
         val intent = Intent(context, FocusShieldService::class.java).apply {
@@ -349,6 +351,20 @@ class ScreenTimeModule : Module() {
      *    끼우면 크레딧 판정 전체를 비동기로 뒤집어야 한다 — 리플레이·스냅샷 배선이 얽혀 있어
      *    위험 대비 이득이 없다. 여기서 하는 일은 SharedPreferences 한 번 읽기라 동기로 충분하다.
      */
+    /**
+     * 실드가 **정상 만료로 끝났는가**(코드리뷰 9차).
+     *
+     * isFocusShieldAlive() 가 false 인 이유는 둘이다 — 서비스가 죽었거나(장애), 구간이 끝나
+     * 우리가 내렸거나(정상). 앞은 비실드 정책으로 되돌려야 하지만 뒤는 **완료를 리플레이**해야
+     * 한다. 구분하지 않으면 이탈이 15초를 넘었을 때 leave_timeout 으로 끝나 백그라운드 진입
+     * 뒤의 마지막 집중 시간을 잃는다.
+     *
+     * 생존 확인과 같은 이유로 동기 함수다(호출부가 이탈 판정 도중 즉시 읽는다).
+     */
+    Function("didFocusShieldComplete") {
+      prefs.getBoolean(FocusShieldService.KEY_SHIELD_COMPLETED, false)
+    }
+
     Function("isFocusShieldAlive") {
       val last = prefs.getLong(FocusShieldService.KEY_SHIELD_HEARTBEAT, 0L)
       val age = System.currentTimeMillis() - last
@@ -374,7 +390,10 @@ class ScreenTimeModule : Module() {
       }
       // 표식을 지운다 — 남겨 두면 다음 세션 시작 직후의 생존 확인이 **이전 세션의 표식**을
       // 보고 살아 있다고 답할 수 있다.
-      prefs.edit().remove(FocusShieldService.KEY_SHIELD_HEARTBEAT).apply()
+      prefs.edit()
+        .remove(FocusShieldService.KEY_SHIELD_HEARTBEAT)
+        .remove(FocusShieldService.KEY_SHIELD_COMPLETED)
+        .apply()
     }
 
     // ── 잠금화면 타이머(iOS Live Activity 대응) ──────────────────────────────────

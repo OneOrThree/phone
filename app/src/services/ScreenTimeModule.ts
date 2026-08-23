@@ -153,6 +153,7 @@ interface AndroidNativeScreenTime {
   stopFocusShield?(): Promise<void>;
   /** 동기 — 호출부가 이탈 판정 도중 즉시 읽는다. 네이티브는 Expo Function(동기). */
   isFocusShieldAlive?(): boolean;
+  didFocusShieldComplete?(): boolean;
   // 상시 알림(iOS Live Activity 대응) — 캐릭터 스냅샷 + 과목·다른 과목 누적.
   saveCharacterSnapshot(base64: string): Promise<boolean>;
   endFocusActivity(): Promise<void>;
@@ -554,6 +555,15 @@ const ScreenTimeModule = {
    * **동기 함수다.** 호출부가 이탈 크레딧을 계산하는 도중 즉시 읽어야 해서, 그 판정에
    * await 를 끼우지 않으려고 네이티브도 Expo Function(동기)으로 뒀다.
    */
+  /**
+   * 실드가 **정상 만료로 끝났는가**(안드로이드 전용, 동기).
+   *
+   * `isFocusShieldAlive()` 가 false 인 이유가 장애인지 정상 종료인지 가른다 — 앞은 비실드
+   * 정책으로 되돌려야 하고, 뒤는 완료를 그대로 리플레이해야 한다.
+   * iOS·구 바이너리는 false(그쪽은 만료를 네이티브가 끝내지 않는다).
+   */
+  didFocusShieldComplete: (): boolean => AndroidScreenTime?.didFocusShieldComplete?.() ?? false,
+
   isFocusShieldAlive: (): boolean => {
     if (AndroidScreenTime) {
       if (!AndroidScreenTime.isFocusShieldAlive) return false;

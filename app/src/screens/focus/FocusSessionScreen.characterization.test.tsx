@@ -53,6 +53,8 @@ jest.mock('@/services/ScreenTimeModule', () => ({
     // 동기 함수다 — 복귀 시 이탈 크레딧을 계산하기 **전에** 실드 생존을 확인한다(GROMO-1604
     // 코드리뷰). 기본값 true = "백그라운드 동안에도 살아 있었다"로, 기존 특성화 동작을 유지한다.
     isFocusShieldAlive: jest.fn(() => true),
+    // 정상 만료 표식 — 기본은 false(아직 안 끝났다). 위 alive 와 함께 '장애'와 '정상 종료'를 가른다.
+    didFocusShieldComplete: jest.fn(() => false),
     stopFocusShield: jest.fn(() => Promise.resolve()),
     startFocusActivity: jest.fn(() => Promise.resolve()),
     // 실제 모듈은 항상 내보낸다 — 목에 없으면 옵셔널 호출과 인자 평가가 통째로 생략돼
@@ -454,6 +456,7 @@ beforeEach(async () => {
   // 생존 확인 기본값 — jest.clearAllMocks()는 호출 기록만 지우고 mockReturnValue 는 남긴다.
   // 여기서 되돌리지 않으면 '실드가 죽었다' 케이스가 뒤따르는 실드 테스트로 새어 나간다.
   (ScreenTimeModule.isFocusShieldAlive as jest.Mock).mockReturnValue(true);
+  (ScreenTimeModule.didFocusShieldComplete as jest.Mock).mockReturnValue(false);
   mockedStartMarker.mockResolvedValue({ sessionId: 'marker-1' });
 });
 afterEach(() => {
@@ -2564,6 +2567,25 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     await advance(5000);
 
     expect((await readLiveRecord())!.shieldActive).toBe(false);
+  });
+
+  // 표식이 낡은 이유가 둘이다 — 장애와 정상 만료. 정상 만료를 장애로 오인하면 이탈이 15초를
+  // 넘었을 때 완료를 리플레이하지 않고 leave_timeout 으로 끝나, 백그라운드 진입 뒤의 마지막
+  // 집중 시간까지 잃는다(코드리뷰 9차).
+  test('정상 만료로 끝난 실드는 장애로 보지 않는다', async () => {
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireAppState('background');
+
+    // 표식은 낡았지만(만료 시 heartbeat 도 멈춘다) 네이티브가 '정상 종료'를 남겼다.
+    (ScreenTimeModule.isFocusShieldAlive as jest.Mock).mockReturnValue(false);
+    (ScreenTimeModule.didFocusShieldComplete as jest.Mock).mockReturnValue(true);
+    await jumpWallClock(10_000);
+    await fireAppState('active');
+
+    // 실드 세션으로 남아 이탈 10초가 집중으로 인정된다(5 + 10).
+    expect((await readLiveRecord())!.elapsed).toBe(15);
+    expect(logFocusDistractionDetected).not.toHaveBeenCalled();
   });
 
   test('백그라운드에서 실드가 죽었으면: 이탈을 집중으로 인정하지 않고 비실드 정책으로 되돌린다', async () => {
