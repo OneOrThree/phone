@@ -101,6 +101,11 @@ async function readLiveRecord(): Promise<LiveFocusSession | null> {
   return raw ? (JSON.parse(raw) as LiveFocusSession) : null;
 }
 
+async function readV1(): Promise<Record<string, unknown> | null> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1);
+  return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+}
+
 beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
@@ -456,5 +461,88 @@ describe('저널 쓰기 실패의 뒤처리', () => {
     const legacyRaw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
     expect(legacyRaw).not.toBeNull(); // 업로드 근거로 남는다
     expect(JSON.parse(legacyRaw!).settledLocally).toBe(true);
+  });
+});
+
+describe('finish·정산의 제거 소유권 (codex 리뷰 #694 6차)', () => {
+  test('finish는 레코드를 먼저 지우지 않는다 — 예비 intent가 착지한 뒤 정산이 지운다', async () => {
+    // 종전 순서(GROMO-615)는 제거가 반영된 뒤 저널 쓰기 전에 죽는 창을 열어 뒀다.
+    const engine = createFocusSessionEngine(countupConfig, makeDeps());
+    await engine.start('수학');
+    engine.startTicking();
+    await advance(5000);
+
+    const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+    const real = setItem.getMockImplementation();
+    let release: () => void = () => {};
+    setItem.mockImplementation((key: string, value: string) => {
+      if (key === STORAGE_KEYS.focusJournalV1) {
+        return new Promise<void>((r) => {
+          release = () => r();
+        });
+      }
+      return real?.(key, value) ?? Promise.resolve();
+    });
+    await engine.finish();
+    await flush();
+    expect(await readLiveRecord()).not.toBeNull(); // 아직 지우지 않았다
+
+    setItem.mockImplementation(real ?? (() => Promise.resolve()));
+    release();
+    await flush();
+    expect(await readLiveRecord()).toBeNull();
+    engine.stopTicking();
+  });
+
+  test('finish는 완성 intent가 마커를 인계한 뒤에 저널 세션을 접는다', async () => {
+    // 저널 세션이 먼저 사라지면 복구가 마커를 찾을 근거를 잃어, 재생이 시간만 POST하고
+    // 열린 마커는 못 닫아 친구 화면의 '집중 중'이 서버 스윕까지 남는다.
+    const engine = createFocusSessionEngine(countupConfig, makeDeps());
+    await engine.start('수학');
+    engine.startTicking();
+    await advance(5000);
+    expect((await readJournal()).session).not.toBeNull();
+
+    await engine.finish();
+    // finish 반환 직후엔 아직 살아 있어야 한다 — 마커 인계 전이다
+    expect((await readJournal()).session).not.toBeNull();
+    await flush();
+    expect((await readJournal()).session).toBeNull(); // 인계 후 접힌다
+    engine.stopTicking();
+  });
+
+  test('정산 중 다음 블록 레코드가 저장됐으면 지우지 않는다 — 남의 블록이다', async () => {
+    // 백그라운드 리플레이가 여러 경계를 지나 다음 블록을 이미 저장했는데 이전 블록의 제거가
+    // 뒤늦게 도착하면, 현재 블록이 고아 정산 근거 없이 통째로 사라진다.
+    const engine = createFocusSessionEngine(pomodoroConfig, makeDeps());
+    await engine.start('수학');
+    engine.startTicking();
+    await advance(60_000);
+
+    const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+    const real = setItem.getMockImplementation();
+    let release: () => void = () => {};
+    setItem.mockImplementation((key: string, value: string) => {
+      if (key === STORAGE_KEYS.focusJournalV1) {
+        return new Promise<void>((r) => {
+          release = () => r();
+        });
+      }
+      return real?.(key, value) ?? Promise.resolve();
+    });
+    engine.handlePhaseTransition();
+    await flush();
+
+    // 저널 쓰기가 붙잡힌 사이 **다음 블록**의 레코드가 저장된다(리플레이가 하는 일)
+    setItem.mockImplementation(real ?? (() => Promise.resolve()));
+    const nextV1 = { ...(await readV1())!, blockStartedAt: '2099-01-01T00:00:00.000Z' };
+    await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(nextV1));
+    await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify({ next: true }));
+    release();
+    await flush();
+
+    expect(await readLiveRecord()).not.toBeNull(); // 다음 블록의 기록은 살아남는다
+    expect(await readV1()).not.toBeNull();
+    engine.stopTicking();
   });
 });

@@ -223,3 +223,34 @@ test('legacy 정산이 도중에 생긴 새 v1을 지우지 않는다 — 새 �
   expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).not.toBeNull();
   expect(await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession)).toBeNull(); // legacy는 지운다
 });
+
+test('남의 v1을 폐기하는 분기도 새 v1은 건드리지 않는다 — 조기 종료에도 대조가 필요하다', async () => {
+  // 최신 판정(isV1FresherThanLegacy)이 비동기라, 그 사이에 현재 계정이 새 집중을 시작하면
+  // 새 엔진의 커밋 흔적이 같은 키에 들어온다. 무조건 지우면 그 세션의 유일한 기록이 사라지고,
+  // 저널은 이미 active라 시작 복구도 손대지 않는다(codex 리뷰 #694 6차).
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.focusSessionV1,
+    JSON.stringify({ ...V1_RECORD, userId: 'someone-else' }),
+  );
+  const realGet = AsyncStorage.getItem as unknown as jest.Mock;
+  const orig = realGet.getMockImplementation();
+  let swapped = false;
+  realGet.mockImplementation(async (key: string) => {
+    const value = await (orig?.(key) ?? Promise.resolve(null));
+    // legacy를 읽는 순간 = 최신 판정 중. 이때 현재 계정의 새 세션이 v1을 쓴다.
+    if (key === STORAGE_KEYS.focusLiveSession && !swapped) {
+      swapped = true;
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.focusSessionV1,
+        JSON.stringify({ ...V1_RECORD, sessionKey: 'fs-new' }),
+      );
+    }
+    return value;
+  });
+  await renderSettler();
+  realGet.mockImplementation(orig ?? (() => Promise.resolve(null)));
+
+  const left = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1);
+  expect(left).not.toBeNull();
+  expect(JSON.parse(left!).sessionKey).toBe('fs-new'); // 새 세션의 기록이 살아 있다
+});

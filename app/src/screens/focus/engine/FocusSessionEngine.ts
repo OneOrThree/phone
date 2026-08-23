@@ -346,6 +346,24 @@ export function createFocusSessionEngine(
   };
 
   /**
+   * 정산이 끝난 블록의 레코드만 지운다.
+   *
+   * ⚠️ **무조건 지우면 안 된다.** 이 제거는 예비 intent가 착지한 뒤(비동기)에 도는데, 그
+   * 사이에 백그라운드 리플레이가 여러 경계를 지나 **다음 블록**의 레코드를 이미 저장했을 수
+   * 있다. 그걸 지우면 다음 5초 주기 전에 죽었을 때 현재 블록이 고아 정산 근거 없이 통째로
+   * 유실된다(codex 리뷰 #694 6차). 디스크의 v1이 아직 그 블록을 가리킬 때만 지운다.
+   *
+   * v1이 없으면(쓰기 자체가 실패한 상태) 판별할 근거가 없다 — 두 레코드는 같은 주기에 함께
+   * 쓰이므로 legacy도 같은 블록으로 보고 지운다.
+   */
+  const removeSettledRecords = async (settledBlockStartedAt: string): Promise<void> => {
+    const v1 = await readPersistedSessionV1().catch(() => null);
+    if (v1 != null && v1.blockStartedAt !== settledBlockStartedAt) return;
+    await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+    if (v1 != null) removePersistedSessionV1();
+  };
+
+  /**
    * 정산 의도를 영속하지 못했을 때의 차선 — 남는 레코드에 `settledLocally`를 찍는다.
    * 고아 정산은 이 표식을 보고 **업로드만** 하고 로컬 적립은 건너뛴다(이중 계상 방지).
    * 소유자가 다른 레코드는 건드리지 않는다.
@@ -434,11 +452,11 @@ export function createFocusSessionEngine(
   // 그 구간[settleAt, now]을 서버에 세션으로 업로드한다. 뽀모도로는 집중 블록 끝마다,
   // 그 외 모드는 finish에서 1회 호출된다. 정산 완료분은 라이브 레코드에서 제거(고아 이중정산 방지).
   // endedAtOverride: 빨리감기 리플레이가 '지난 경계의 실제 벽시계 시각'을 지정할 때 쓴다(생략 시 지금).
-  const settleFocusBlock = (endedAtOverride?: string) => {
+  const settleFocusBlock = (endedAtOverride?: string, isFinal = false) => {
     const { subjectId, subjectName, userId } = deps.identity();
     const elapsed = Math.floor(session.elapsed);
     const delta = elapsed - settledSeconds;
-    if (delta <= 0) return;
+    if (delta <= 0) return false;
     // 24시간을 넘긴 일시정지는 방해값(서버 DTO 상한 24h)으로 실을 수 없다 — 그런 블록은
     // '지금'이 아니라 정지 시작 시점에서 끊는다(blockPause.ts pauseCutAt 주석).
     const cutAt = pauseCutAt(blockPause);
@@ -519,10 +537,9 @@ export function createFocusSessionEngine(
       userId,
       createdAt: new Date().toISOString(),
     })
-      .then((persisted) => {
+      .then(async (persisted) => {
         if (persisted) {
-          AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
-          removePersistedSessionV1(); // v1도 대칭 제거 — 다음 5초 주기가 미정산분으로 다시 쓴다
+          await removeSettledRecords(startedAt);
         } else {
           // 저널 쓰기가 실패했다 — 레코드는 남겨 업로드 근거로 쓰되, **로컬 적립은 이미 했다고
           // 표시한다.** 안 찍으면 다음 부팅의 고아 정산이 미적립으로 보고 같은 블록을 한 번 더
@@ -564,6 +581,10 @@ export function createFocusSessionEngine(
           createdAt: new Date().toISOString(),
         };
         await recordSettleIntent(intent);
+        // 마지막 정산(finish)이면 **여기서** 저널 세션을 접는다 — 완성 intent가 마커를 인계한
+        // 뒤라야 복구가 마커를 찾을 근거를 잃지 않는다(codex 리뷰 #694 6차). 뽀모도로 경계
+        // 정산은 세션이 계속되므로 접지 않는다.
+        if (isFinal) journalClearSession(sessionKey);
         // 업로드는 실패·대기열 인계까지 안에서 끝낸다 — 여기서 던지지 않으므로, 아래 발행
         // 콜백에서 예외가 나도 이미 서버에 저장된 세션이 대기열에 재적재되지 않는다(PR 250 리뷰).
         return uploadFocusBlock({
@@ -589,6 +610,7 @@ export function createFocusSessionEngine(
         });
       })
       .catch(() => {});
+    return true;
   };
 
   return {
@@ -656,13 +678,20 @@ export function createFocusSessionEngine(
       // 정상 종료 — 실드(엔진 소유)·Live Activity(화면 몫) 해제
       ScreenTimeModule.stopFocusShield().catch(() => {});
       hooks?.endLiveActivity?.();
-      // 라이브 레코드 제거를 먼저 시도하되, 실패해도 정산은 계속한다(GROMO-615).
-      // 제거 실패로 정산까지 건너뛰면 적립·서버 업로드가 통째로 빠진다(보상 유실).
-      await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
-      removePersistedSessionV1();
-      journalClearSession();
+      // ⚠️ 종전엔 여기서 레코드와 저널을 **먼저** 지웠다(GROMO-615의 「제거 실패로 정산까지
+      // 건너뛰지 않는다」). 그 순서는 두 창을 열어 둔다(codex 리뷰 #694 6차):
+      //  ① 제거는 반영됐는데 예비 intent 영속 전에 죽으면 그 블록이 통째로 유실된다.
+      //  ② 저널 세션이 먼저 사라지면 복구가 마커를 찾을 근거를 잃어, 재생이 시간만 POST하고
+      //     열린 마커는 못 닫아 친구 화면의 '집중 중'이 서버 스윕까지 남는다.
+      // 이제 **정산이 제거를 소유한다**(예비 intent가 착지한 뒤에 지운다). 정산할 델타가
+      // 없을 때만 여기서 직접 지운다 — 그 경우엔 남길 근거도 없다.
       try {
-        settleFocusBlock();
+        const settling = settleFocusBlock(undefined, true);
+        if (!settling) {
+          await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+          removePersistedSessionV1();
+          journalClearSession(sessionKey);
+        }
         // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
         cancelLiveSession();
         // 화면을 떠나기 전 마지막 재시도 — 회전 중 실패해 쌓인 취소가 있으면 지금 정리(코덱스 리뷰)
