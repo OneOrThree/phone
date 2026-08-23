@@ -19,6 +19,7 @@ import {
   orphanSettlementFromV1,
   type PersistedFocusSessionV1,
 } from './engine/persistence';
+import { readJournal } from './engine/journal';
 
 // 죽은(강제 종료된) 세션 정산 — 앱 시작 시 라이브 레코드가 남아 있으면
 // 마지막 저장 시점까지의 집중시간을 적립하고, 서버 업로드까지 끝나야 레코드를 지운다.
@@ -110,6 +111,15 @@ export function OrphanFocusSettler() {
       // 종료 시점에 legacy만 착지하거나 v1 쓰기만 실패하면 v1이 있으면서도 더 오래된 상태가
       // 된다. 그때 v1을 고르면 마지막 저장 이후의 집중초가 통째로 유실된다 — updatedAt으로
       // 최신 쪽을 정산하고, 어느 쪽을 쓰든 끝나면 두 표현을 함께 정리한다.
+      // ⚠️ **진행 중인 세션은 고아가 아니다.** 이 컴포넌트는 마운트 즉시가 아니라 Focus·Subject
+      // 컨텍스트 복원이 끝난 뒤에 돈다 — 로컬 데이터가 없어 서버 복원을 기다리는 동안 사용자가
+      // 집중 화면에 들어갈 수 있다. 그 세션의 v1을 고아로 취급하면 첫 5초 전엔 focused<=0로
+      // 커밋 흔적을 지우고(저널만 active로 남아 시간 유실), 그 뒤엔 진행 중인 블록을 조기
+      // 적립·업로드한다(codex 리뷰 #694 9차).
+      const activeKey = (await readJournal().catch(() => null))?.session;
+      if (v1 != null && activeKey?.state === 'active' && activeKey.sessionKey === v1.sessionKey) {
+        return;
+      }
       if (v1 != null && (await isV1FresherThanLegacy(v1))) {
         if (v1.userId !== userId) {
           // 최신 판정(isV1FresherThanLegacy)이 비동기라, 그 사이에 현재 계정이 새 집중을
@@ -184,7 +194,10 @@ export function OrphanFocusSettler() {
       //    분기가 같은 세션을 한 번 더 정산한다.
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
       if (!raw) {
-        removePersistedSessionV1();
+        // 이 분기만 대조를 우회하고 있었다 — 처음엔 v1이 없다고 읽었어도, 그 뒤 시작한 새 세션이
+        // 커밋 흔적을 썼을 수 있다(legacy는 첫 5초 전까지 안 쓴다). 무조건 지우면 저널만 active로
+        // 남고 새 세션 시간이 통째로 유실된다(codex 리뷰 #694 9차).
+        await removeV1IfUnchanged();
         return;
       }
       let rec: LiveFocusSession;

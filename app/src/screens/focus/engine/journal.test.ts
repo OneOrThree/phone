@@ -82,8 +82,6 @@ test('블록이 다른 intent에는 인계하지 않는다 — 남의 블록 마
 });
 
 test('소거 후 늦게 도착한 쓰기는 저널을 되살리지 않는다', async () => {
-  // 이전 계정의 정산이 livePromise를 기다리는 사이 로그아웃이 저널을 지우면, 그 완성 intent가
-  // 뒤늦게 도착해 지운 저널을 되살린다 — 다음 계정에선 소유자 불일치로 재생되지 않는다.
   await journalStartIntent('fs-1');
   await clearJournal();
 
@@ -100,7 +98,60 @@ test('소거 후 늦게 도착한 쓰기는 저널을 되살리지 않는다', a
   expect(await AsyncStorage.getItem(STORAGE_KEYS.focusJournalV1)).toBeNull();
 });
 
-test('새 세션이 시작되면 봉인이 풀린다 — 다음 계정의 정상 흐름을 막지 않는다', async () => {
+test('새 계정의 시작이 이전 세대의 쓰기까지 되살리지 않는다', async () => {
+  // 「소거 후 새 시작 전까지 막는다」로는 부족하다 — 로그아웃 직후 새 계정이 집중을 시작하면
+  // 전역 봉인이 풀려, 그때 도착한 이전 계정 체인의 쓰기가 다시 허용된다. 그 intent는 업로드
+  // 에서 계정 불일치로 큐에 갔다가 현재 계정의 flush에 폐기돼 영구 유실된다(리뷰 #694 9차).
+  await journalStartIntent('fs-old');
+  await clearJournal();
+  await journalStartIntent('fs-new'); // 새 계정의 세션
+
+  const stale = await recordSettleIntent({
+    intentId: 'stale',
+    sessionKey: 'fs-old',
+    serverSessionId: 'marker-old',
+    body: BODY,
+    userId: 'user-1',
+    createdAt: 'x',
+  });
+
+  expect(stale).toBe(false);
+  expect((await readJournal()).settles).toHaveLength(0);
+});
+
+test('같은 세대 안에서는 이전 세션의 늦은 쓰기도 허용한다 — 유실 대비 안전망이다', async () => {
+  // finish 직후 새 세션을 시작해도 앞 세션의 완성 intent는 남아야 한다(소거가 없었으므로).
+  await journalStartIntent('fs-a');
+  await journalStartIntent('fs-b');
+
+  const wrote = await recordSettleIntent({
+    intentId: 'a-final',
+    sessionKey: 'fs-a',
+    serverSessionId: 'marker-a',
+    body: BODY,
+    userId: 'user-1',
+    createdAt: 'x',
+  });
+
+  expect(wrote).toBe(true);
+  expect((await readJournal()).settles).toHaveLength(1);
+});
+
+test('복구가 이어 쓰는 세션은 막지 않는다 — 이전 프로세스가 시작해 맵에 없다', async () => {
+  // 「등록되지 않았으면 거부」로 만들면 부팅 복구가 저널을 완결하지 못한다.
+  const wrote = await recordSettleIntent({
+    intentId: 'from-disk',
+    sessionKey: 'fs-previous-process',
+    serverSessionId: null,
+    body: BODY,
+    userId: 'user-1',
+    createdAt: 'x',
+  });
+
+  expect(wrote).toBe(true);
+});
+
+test('새 세션이 시작되면 그 세션의 쓰기는 정상 기록된다', async () => {
   await clearJournal();
   await journalStartIntent('fs-next');
 
