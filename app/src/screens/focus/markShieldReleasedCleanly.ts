@@ -1,6 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '@/types/storage';
-import type { LiveFocusSession } from './types';
+import { updateLiveSession } from './liveSessionStore';
 
 /**
  * 라이브 레코드에 "실드를 우리가 정상적으로 내렸다"는 표식을 남긴다 (GROMO-1604 코드리뷰).
@@ -22,17 +20,14 @@ import type { LiveFocusSession } from './types';
  */
 export async function markShieldReleasedCleanly(startedAt: string): Promise<void> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
-    if (!raw) return; // 정상 완료(finish)라 이미 지워졌다 — 남길 곳이 없다.
-    const rec = JSON.parse(raw) as LiveFocusSession;
-    // ⚠️ **이 세션의 레코드인지 확인한다**(코드리뷰 5차). 이 함수는 화면을 떠나며 도는데,
-    //    그 사이 finish 가 레코드를 지우고 새 세션이 자기 레코드를 썼을 수 있다. 확인 없이
-    //    쓰면 남의 세션에 표식을 달거나, 읽어 둔 옛 값으로 최신 elapsed 를 덮는다.
-    if (rec.startedAt !== startedAt) return;
-    await AsyncStorage.setItem(
-      STORAGE_KEYS.focusLiveSession,
-      JSON.stringify({ ...rec, shieldReleasedCleanly: true }),
-    );
+    // ⚠️ 읽기·확인·쓰기를 **한 덩어리로** 돈다(liveSessionStore). 이 함수는 화면을 떠나며
+    //    도는데, 그 사이 finish 가 레코드를 지우고 새 세션이 자기 레코드를 썼을 수 있다.
+    //    읽고 나서 따로 쓰면 그 창에서 남의 레코드를 덮는다.
+    await updateLiveSession((rec) => {
+      if (!rec) return null; // 정상 완료(finish)라 이미 지워졌다 — 남길 곳이 없다.
+      if (rec.startedAt !== startedAt) return null; // 새 세션의 레코드다 — 건드리지 않는다.
+      return { ...rec, shieldReleasedCleanly: true };
+    });
   } catch {
     // 위 주석 참고 — 최악이 '알림 1회 오발행'이라 조용히 넘어간다.
   }

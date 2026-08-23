@@ -351,8 +351,13 @@ class ScreenTimeModule : Module() {
      */
     Function("isFocusShieldAlive") {
       val last = prefs.getLong(FocusShieldService.KEY_SHIELD_HEARTBEAT, 0L)
+      val age = System.currentTimeMillis() - last
+      // ⚠️ **미래 시각의 표식은 생존으로 안 친다**(코드리뷰 7차). 사용자가 시계를 뒤로 돌리거나
+      //    큰 역방향 보정이 나면 age 가 음수가 되는데, 상한만 보면 그게 통과한다. 그 사이
+      //    서비스가 죽어도 시계가 따라잡을 때까지 계속 살아 있다고 오판해, 차단 없이 백그라운드에
+      //    머문 시간이 집중으로 적립된다. 범위(0..STALE)로 본다.
       last != 0L &&
-        System.currentTimeMillis() - last <= FocusShieldService.HEARTBEAT_STALE_MS &&
+        age in 0..FocusShieldService.HEARTBEAT_STALE_MS &&
         canDrawOverlays(context) &&
         isUsageAccessGranted()
     }

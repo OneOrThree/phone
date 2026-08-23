@@ -159,6 +159,12 @@ class FocusShieldService : Service() {
   /** 뽀모도로 페이즈("focus" | "break") — 알림 문구를 가른다. */
   private var phase = "focus"
   /**
+   * 현재 구간이 끝나는 시각(elapsedRealtime 기준). 0 = 만료 개념 없음(카운트업).
+   *
+   * **단조 시계를 쓴다** — 벽시계로 잡으면 사용자가 시간을 바꿀 때 만료가 앞뒤로 튄다.
+   */
+  private var expiresAt = 0L
+  /**
    * JS 가 보고한 경과(초) — **일시정지 시간이 빠진** 진짜 경과다.
    *
    * 일시정지 화면에 찍을 값이자, 재개 후 카운트업의 기준이기도 하다. 최초 startedAt 부터의
@@ -256,6 +262,7 @@ class FocusShieldService : Service() {
     paused = false
     phase = "focus"
     remainingSeconds = null
+    expiresAt = 0L
     elapsedSeconds = 0
     lastForeground = null
     ticksSincePermissionCheck = 0
@@ -289,6 +296,23 @@ class FocusShieldService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification())
         return
       }
+    }
+
+    // ⚠️ 백그라운드에서 구간이 끝나면 **여기서 차단을 내린다**(코드리뷰 7차). JS 타이머는
+    //    백그라운드에서 멈추고 화면은 복귀해야 리플레이하므로, 그때까지 이 서비스가 계속
+    //    허용 안 된 앱을 덮는다 — **이미 끝난 세션의 차단이 유지된다.** 알림 타이머도 0을
+    //    지나 계속 간다. 남은 시간을 아는 건 우리뿐이라 우리가 끝내야 한다.
+    //
+    //    실드만 내리고 서비스는 남긴다 — 세션 정산·결과 화면은 앱이 복귀해서 해야 한다
+    //    (START_NOT_STICKY 로 되살리지 않는 것과 같은 이유: 세션 상태는 앱이 정본이다).
+    if (remainingSeconds != null && !paused && expiresAt > 0L &&
+      SystemClock.elapsedRealtime() >= expiresAt
+    ) {
+      blocking = false
+      hideOverlay()
+      remainingSeconds = 0
+      startForeground(NOTIFICATION_ID, buildNotification())
+      return
     }
 
     // 아직 한 번도 전면 앱을 못 본 상태(콜드 스타트 직후) — 덮을 근거가 없으니 걷어 둔다.
@@ -658,6 +682,7 @@ class FocusShieldService : Service() {
       paused = false
       phase = "focus"
       remainingSeconds = null
+      expiresAt = 0L
       return
     }
     runCatching {
@@ -666,10 +691,16 @@ class FocusShieldService : Service() {
       phase = obj.optString("phase", "focus")
       elapsedSeconds = obj.optInt("elapsedSeconds", 0)
       remainingSeconds = if (obj.isNull("remainingSeconds")) null else obj.optInt("remainingSeconds")
+      // 만료 시각을 단조 시계로 박아 둔다 — 정지 중이면 만료를 재지 않는다(재개 때 다시 온다).
+      expiresAt =
+        remainingSeconds?.takeIf { !paused && it > 0 }
+          ?.let { SystemClock.elapsedRealtime() + it * 1000L }
+          ?: 0L
     }.onFailure {
       paused = false
       phase = "focus"
       remainingSeconds = null
+      expiresAt = 0L
     }
   }
 
