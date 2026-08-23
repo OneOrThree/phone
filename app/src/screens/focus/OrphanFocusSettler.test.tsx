@@ -338,3 +338,57 @@ test('legacy 경로의 로컬 적립은 v1에도 표식을 남긴다 — 두 정
   expect(JSON.parse(legacyRaw!).settledLocally).toBe(true);
   expect(JSON.parse(v1Raw!).settledLocally).toBe(true); // 짝이 맞는다
 });
+
+test('정산 중 새 세션이 v1을 교체하면 표식도 제거도 하지 않는다', async () => {
+  // 소유자만 보고 찍으면 새 세션의 흔적에 표식이 찍히고, 그 값이 기준값이 돼 뒤이은 제거가
+  // 새 세션의 유일한 기록까지 지운다(codex 리뷰 #694 11차).
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.focusSessionV1,
+    JSON.stringify({ ...V1_RECORD, updatedAt: '2026-08-08T10:10:00+09:00' }), // legacy가 더 최신
+  );
+  const realGet = AsyncStorage.getItem as unknown as jest.Mock;
+  const orig = realGet.getMockImplementation();
+  let swapped = false;
+  realGet.mockImplementation(async (key: string) => {
+    const value = await (orig?.(key) ?? Promise.resolve(null));
+    // legacy를 읽는 순간 = 새 세션이 v1을 갈아끼우는 창
+    if (key === STORAGE_KEYS.focusLiveSession && !swapped) {
+      swapped = true;
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.focusSessionV1,
+        JSON.stringify({ ...V1_RECORD, sessionKey: 'fs-brand-new' }),
+      );
+    }
+    return value;
+  });
+  mockUpload.mockResolvedValue({ status: 'saved', response: {} as never });
+  await renderSettler();
+  realGet.mockImplementation(orig ?? (() => Promise.resolve(null)));
+
+  const left = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1);
+  expect(left).not.toBeNull();
+  const parsed = JSON.parse(left!);
+  expect(parsed.sessionKey).toBe('fs-brand-new'); // 새 세션의 기록이 살아 있다
+  expect(parsed.settledLocally).toBeUndefined(); // 표식도 안 찍혔다
+});
+
+test('v1 표식 쓰기가 실패하면 기준값을 갱신하지 않는다 — 미표식 v1이 남는 걸 막는다', async () => {
+  // 실패를 성공으로 보면 기준값만 바뀌어 제거 대조가 어긋나고, 미표식 v1이 남아 다음 부팅이
+  // 같은 시간을 다시 적립한다(codex 리뷰 #694 11차).
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.focusSessionV1,
+    JSON.stringify({ ...V1_RECORD, updatedAt: '2026-08-08T10:10:00+09:00' }),
+  );
+  const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+  const real = setItem.getMockImplementation();
+  setItem.mockImplementation((key: string, value: string) => {
+    if (key === STORAGE_KEYS.focusSessionV1) return Promise.reject(new Error('디스크 꽉참'));
+    return real?.(key, value) ?? Promise.resolve();
+  });
+  mockUpload.mockResolvedValue({ status: 'saved', response: {} as never });
+  await renderSettler();
+  setItem.mockImplementation(real ?? (() => Promise.resolve()));
+
+  // 표식이 안 찍혔으니 기준값도 그대로 → 원래 v1이 제거된다(대조가 통과한다)
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1)).toBeNull();
+});

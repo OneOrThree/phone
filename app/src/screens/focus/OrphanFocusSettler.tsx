@@ -34,16 +34,29 @@ import { isSessionLive } from './engine/liveSessionRegistry';
  * legacy 라이브 레코드에 `settledLocally`를 찍는다 — v1 경로가 로컬 적립을 마킹할 때의 짝.
  * 레코드가 없거나 소유자가 다르면 아무것도 하지 않는다(남의 기록을 건드리지 않는다).
  */
-async function syncV1SettledMarker(userId: string | null): Promise<string | null> {
+async function syncV1SettledMarker(
+  userId: string | null,
+  expectedRaw: string | null,
+): Promise<string | null> {
   // legacy 경로가 로컬 적립을 마킹할 때의 **짝**. 이게 없으면 legacy에만 표식이 찍히고, 업로드
   // 성공 뒤 legacy 삭제가 착지한 다음 v1 제거 전에 죽는 창에서 다음 부팅이 남은 (더 오래된)
   // v1을 미정산으로 골라 그 시간을 다시 적립한다(codex 리뷰 #694 10차).
   try {
-    const v1 = await readPersistedSessionV1();
-    if (v1 == null || v1.userId !== userId || v1.settledLocally) return null;
+    // ⚠️ 소유자만 보면 안 된다. 정산 중에 같은 사용자가 새 세션을 시작해 v1을 교체했으면
+    // **새 세션의 흔적**에 표식을 찍고 그 값을 기준값으로 돌려주게 되는데, 그러면 뒤이은
+    // 제거가 새 세션의 유일한 기록까지 지운다(codex 리뷰 #694 11차).
+    //
+    // 판별은 **처음 읽은 그 v1인지**로 한다 — 블록 식별자 비교는 legacy가 더 최신인 정상
+    // 경우(두 표현의 블록이 어긋나 있는 상태)까지 막아 표식을 못 남긴다.
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1);
+    if (raw == null || raw !== expectedRaw) return null;
+    const v1 = JSON.parse(raw) as PersistedFocusSessionV1;
+    if (v1.userId !== userId || v1.settledLocally) return null;
     const marked = { ...v1, settledLocally: true };
-    await writePersistedSessionV1(marked);
-    // 새 기준값을 돌려준다 — 호출부의 제거 대조(CAS)가 이 쓰기 때문에 어긋나면 안 된다
+    // 쓰기 실패를 성공으로 보면 미표식 v1이 남은 채 기준값만 바뀌어, 다음 부팅이 같은 시간을
+    // 다시 적립한다 — 실제로 저장됐을 때만 기준값을 갱신한다(codex 리뷰 #694 11차).
+    const written = await writePersistedSessionV1(marked);
+    if (!written) return null;
     return JSON.stringify(marked);
   } catch {
     // 마커 동기화 실패는 정산을 막지 않는다
@@ -253,7 +266,7 @@ export function OrphanFocusSettler() {
         await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, stored);
         // v1에도 같은 표식 — 두 레코드 정리 사이의 크래시가 이중 적립을 만들지 않게 한다.
         // 우리가 쓴 값으로 기준값을 갱신한다(안 하면 아래 제거 대조가 어긋나 v1이 남는다).
-        const markedV1 = await syncV1SettledMarker(rec.userId ?? null);
+        const markedV1 = await syncV1SettledMarker(rec.userId ?? null, v1AtRead);
         if (markedV1 != null) v1AtRead = markedV1;
         // '오늘 집중'과 과목 누적은 둘 다 '오늘' 기준 → 이 세션의 집중초 중 오늘 몫만 반영한다
         // (GROMO-1252 — 종전엔 updatedAt 하루만 보고 elapsed 전체를 오늘에 꽂아, 자정을 걸친
