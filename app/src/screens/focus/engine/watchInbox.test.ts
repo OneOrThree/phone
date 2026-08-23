@@ -127,7 +127,10 @@ test('킬스위치 조회 실패: start는 보류(보존)하고 나머지는 통
   const ackFn = jest.fn(() => Promise.resolve());
   setNative({
     drainWatchCommands: jest.fn(() =>
-      Promise.resolve([cmd({ commandId: 's1', type: 'start' }), cmd({ commandId: 'e1', type: 'end' })]),
+      Promise.resolve([
+        cmd({ commandId: 's1', type: 'start' }),
+        cmd({ commandId: 'e1', type: 'end' }),
+      ]),
     ),
     getWatchKillSwitch: jest.fn(() => Promise.reject(new Error('no group'))),
     ackWatchCommands: ackFn,
