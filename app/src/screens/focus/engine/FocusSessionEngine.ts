@@ -14,6 +14,7 @@ import { Platform, Vibration, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { STORAGE_KEYS } from '@/types/storage';
+import { markSessionLive, clearSessionLive } from './liveSessionRegistry';
 import type { FocusType } from '@/types/dto/focus';
 import { startFocusSession } from '@/services/focusApi';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from '../leaveNotifications';
@@ -646,7 +647,11 @@ export function createFocusSessionEngine(
           body,
           userId,
           onMarkerStillOpen: (id) => {
-            cancelMarker(id, deps.identity().userId).catch(() => {});
+            // ⚠️ **정산 당시 계정**으로 취소한다. 업로드가 도는 사이 계정이 바뀌면
+            // deps.identity()는 새 계정을 준다 — 직접 취소는 새 토큰으로 실패하고 대기열에도
+            // 새 계정 소유로 들어가, 원래 계정으로 돌아와도 재시도되지 않는다. 그 계정의
+            // 라이브 마커가 서버 스윕까지 열린 채 남는다(codex 리뷰 #694 10차).
+            cancelMarker(id, userId).catch(() => {});
           },
         }).then((result) => {
           // saved/alreadyEnded/queued = 서버 반영 또는 내구 큐 인계 완료 — intent 소멸.
@@ -725,6 +730,7 @@ export function createFocusSessionEngine(
     async finish(completed = session.done, hooks) {
       if (finished) return null;
       finished = true;
+      clearSessionLive(sessionKey);
       // 완료 계측 — 완료 게이트가 이미 발행한 세션(카운트다운/뽀모도로 완주)은 가드로 스킵된다.
       this.logCompletedOnce();
       // 보고 있던 뷰의 마지막 체류 flush(GROMO-987) — 뷰 계측은 화면 몫.
@@ -847,6 +853,8 @@ export function createFocusSessionEngine(
       // 남은 실드를 식별할 근거가 없어 사용자가 이유 없이 차단된 채로 남는다.
       const intentWritten = await journalStartIntent(sessionKey);
       if (!intentWritten) return;
+      // 이 프로세스가 이 세션을 돌린다고 표시 — 고아 정산의 게이트다(liveSessionRegistry 주석).
+      markSessionLive(sessionKey);
       if (detached) {
         journalClearSession(sessionKey);
         return;
@@ -879,6 +887,7 @@ export function createFocusSessionEngine(
 
     /** 시작 도중 이탈이 확인됐을 때의 회수 — 켠 실드를 되돌리고 시작 의도를 지운다. */
     abortStart() {
+      clearSessionLive(sessionKey);
       this.releaseShield();
       journalClearSession(sessionKey);
     },
@@ -1093,6 +1102,7 @@ export function createFocusSessionEngine(
 
     detachViewExit() {
       detached = true;
+      clearSessionLive(sessionKey);
       if (finished) return;
       // ⚠️ **레코드를 먼저 남기고** 마커를 마감한다. 종전엔 반대였다 — 헛된 PATCH를 아끼려고
       // 참조를 먼저 비웠는데, 그러면 취소 요청이 끝나거나 실패분이 대기열에 들어가기 **전에**

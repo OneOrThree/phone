@@ -691,3 +691,28 @@ describe('write-ahead·마커 인계 (codex 리뷰 #694 8차)', () => {
     expect((await readJournal()).session?.serverSessionId).toBe('marker-1'); // 재시도가 남겼다
   });
 });
+
+test('마커 취소는 정산 당시 계정으로 한다 — 도중에 계정이 바뀌어도', async () => {
+  // 업로드가 도는 사이 계정이 바뀌면 deps.identity()는 새 계정을 준다. 그 계정으로 취소하면
+  // 직접 취소는 새 토큰으로 실패하고 대기열에도 새 계정 소유로 들어가, 원래 계정으로 돌아와도
+  // 재시도되지 않는다 — 그 계정의 라이브 마커가 서버 스윕까지 열린 채 남는다(리뷰 #694 10차).
+  let currentUser = 'user-1';
+  const deps = makeDeps();
+  const engine = createFocusSessionEngine(countupConfig, {
+    ...deps,
+    identity: () => ({ ...deps.identity(), userId: currentUser }),
+  });
+  mockedUpload.mockImplementation(async (opts) => {
+    currentUser = 'user-9'; // 업로드 도중 계정 전환
+    opts.onMarkerStillOpen?.('marker-1');
+    return { status: 'queued' };
+  });
+  await engine.start('수학');
+  engine.startTicking();
+  await advance(5000);
+  await engine.finish();
+  await flush();
+  engine.stopTicking();
+
+  expect(cancelMarker).toHaveBeenCalledWith('marker-1', 'user-1');
+});
