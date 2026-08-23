@@ -62,6 +62,9 @@ const MAX_SETTLES = 50;
 const EMPTY: FocusSessionJournal = { version: 1, session: null, settles: [] };
 
 // 저장소 읽기-수정-쓰기 직렬화 — pendingFocusUploads.ts와 같은 패턴(락 밖 네트워크 없음).
+// 소거 봉인 — clearJournal 이후 새 시작 전까지의 쓰기를 막는다(아래 mutate·clearJournal 주석).
+let sealed = false;
+
 let chain: Promise<unknown> = Promise.resolve();
 function serialize<T>(task: () => Promise<T>): Promise<T> {
   const next = chain.then(task, task);
@@ -92,6 +95,11 @@ async function write(j: FocusSessionJournal): Promise<void> {
  */
 function mutate(fn: (j: FocusSessionJournal) => FocusSessionJournal | null): Promise<boolean> {
   return serialize(async () => {
+    // ⚠️ 소거 이후의 쓰기는 **락 안에서** 막는다. 로그아웃·계정 전환이 저널을 지운 뒤에도
+    // 이전 계정의 정산 체인(livePromise 대기 중)이 살아 있어, 그 완성 intent가 뒤늦게 도착하면
+    // 지운 저널을 되살린다. 그 레코드는 다음 계정에서 소유자 불일치로 재생되지 않아, 이전
+    // 계정의 통계·코인이 복귀 전까지 유실된다(codex 리뷰 #694 8차).
+    if (sealed) return false;
     const j = await read();
     const next = fn(j);
     if (next != null) await write(next);
@@ -102,8 +110,24 @@ function mutate(fn: (j: FocusSessionJournal) => FocusSessionJournal | null): Pro
 /** ⓪ write-ahead — 실드 적용 **전에** 시작 의도를 기록한다. 실패하면 조용히 계속(현행 UX 우선). */
 export function journalStartIntent(sessionKey: string): Promise<boolean> {
   const now = new Date().toISOString();
+  sealed = false; // 새 세션 — 소거 봉인을 푼다
   return mutate((j) => ({
     ...j,
+    // ⚠️ 교체 **전에** 이전 세션의 마커를 대응 intent에 인계한다. 예비 intent(마커 미정)만
+    // 남기고 죽은 뒤 유예(60초)가 끝나기 전에 사용자가 새 집중을 시작하면, 이 대입이 마커를
+    // 가진 유일한 기록인 이전 session 항목을 통째로 덮는다. 그러면 예약된 재생이 마커를
+    // 보완하지 못해 시간만 POST되고 이전 마커는 서버 스윕까지 열린 채 남는다
+    // (codex 리뷰 #694 8차).
+    settles:
+      j.session?.serverSessionId != null
+        ? j.settles.map((it) =>
+            it.sessionKey === j.session?.sessionKey &&
+            it.serverSessionId == null &&
+            it.body.startedAt === j.session?.markerBlockStartedAt
+              ? { ...it, serverSessionId: j.session.serverSessionId }
+              : it,
+          )
+        : j.settles,
     session: {
       sessionKey,
       state: 'starting',
@@ -189,7 +213,17 @@ export function readJournal(): Promise<FocusSessionJournal> {
   return serialize(read);
 }
 
+/**
+ * 로그아웃·계정 전환의 저널 소거.
+ *
+ * 소거 후에는 **새 세션이 시작될 때까지** 모든 쓰기를 막는다(`sealed`). 이전 계정의 정산
+ * 체인이 livePromise를 기다리는 사이 소거가 끝나면, 그 완성 intent가 뒤늦게 도착해 지운
+ * 저널을 되살린다 — 그 레코드는 다음 계정에서 소유자 불일치로 재생되지 않아 이전 계정의
+ * 통계·코인이 복귀 전까지 유실된다(codex 리뷰 #694 8차). 새 시작(journalStartIntent)이
+ * 봉인을 푼다.
+ */
 export function clearJournal(): Promise<void> {
+  sealed = true;
   return serialize(async () => {
     await AsyncStorage.removeItem(STORAGE_KEYS.focusJournalV1);
   }).catch(() => {});

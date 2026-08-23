@@ -56,6 +56,7 @@ import { RageTapDetector } from '@/components/RageTapDetector';
 import { DeepLinkGate } from '@/components/DeepLinkGate';
 import { OrphanFocusSettler } from '@/screens/focus/OrphanFocusSettler';
 import { beginTagEditTransition } from '@/screens/focus/tagSync';
+import { clearJournal } from '@/screens/focus/engine/journal';
 import { abortFocusRestore } from '@/screens/focus/focusRestore';
 import { PendingFocusUploader } from '@/screens/focus/PendingFocusUploader';
 import { PushGate } from '@/components/PushGate';
@@ -286,6 +287,11 @@ function App() {
       // 공유 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — 재로그인 프로바이더가 이전 계정
       // 스냅샷을 재사용하지 않게. 아래 multiRemove보다 먼저여야 함(코덱스 리뷰).
       abortFocusRestore();
+      // 정산 저널(GROMO-1600)은 **직렬화 경로로** 지운다. multiRemove로 키를 직접 지우면
+      // 체인 밖이라, 이전 계정의 정산이 livePromise를 기다리는 사이 소거가 끝나면 그 완성
+      // intent가 지운 저널을 되살린다 — 다음 계정에선 소유자 불일치로 재생되지 않아 이전
+      // 계정의 통계·코인이 복귀 전까지 유실된다(codex 리뷰 #694 8차).
+      await clearJournal();
       // 서버 날짜 버킷 존도 폴백으로 되돌린다(GROMO-1252 5차 ②) — 다음 계정의 프로필 조회가 실패하면
       // setServerZone이 직전 값을 유지해 이전 계정 존으로 업로드 키가 나간다.
       resetServerZone();
@@ -299,7 +305,6 @@ function App() {
         // 계정 전환 시 이전 유저 값이 새 유저에 새지 않도록 디바이스 전역 캐시도 정리(리뷰 반영)
         STORAGE_KEYS.goalPending,
         STORAGE_KEYS.focusPendingUploads, // 이전 계정 세션이 새 계정으로 업로드되지 않게
-        STORAGE_KEYS.focusJournalV1, // 정산 저널(GROMO-1600) — session 항목엔 소유자가 없어 로그아웃 시 소거
         STORAGE_KEYS.notificationSettings,
         STORAGE_KEYS.statVisibility,
         STORAGE_KEYS.focusFirstDone, // 다음 계정이 '첫 집중 완료' 변형을 정상적으로 보게
@@ -369,11 +374,12 @@ function App() {
           .catch(() => transferCharacter(prevUserId, userId))
           .catch(() => {});
       }
+      // 계정 전환도 같은 이유로 직렬화 경로를 쓴다(위 handleLogout 주석 참고)
+      await clearJournal();
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.focusCategory,
         STORAGE_KEYS.goalPending,
         STORAGE_KEYS.focusPendingUploads,
-        STORAGE_KEYS.focusJournalV1,
         STORAGE_KEYS.notificationSettings,
         STORAGE_KEYS.statVisibility,
         STORAGE_KEYS.focusFirstDone,
