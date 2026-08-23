@@ -16,6 +16,7 @@ import ScreenTimeModule, { type InstalledApp } from '@/services/ScreenTimeModule
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { STORAGE_KEYS } from '@/types/storage';
+import { todayStr } from '@/utils/localDate';
 import { T } from '@/constants/theme';
 
 // SET · 앱 고르기(안드로이드) — 측정 대상(GROMO-1593)과 집중 중 허용앱(GROMO-1603)이 함께 쓴다.
@@ -117,6 +118,23 @@ export default function AppPickerScreen() {
     });
   }, []);
 
+  /**
+   * 오늘자 동기화 캐시만 버린다. 과거 날짜면 그대로 둔다(위 주석 참고).
+   *
+   * 실패는 삼킨다 — 저장 자체를 붙잡을 이유가 없고, 다음 동기화가 어차피 값을 덮는다.
+   */
+  async function clearTodaySyncCache() {
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeSyncState);
+      if (!raw) return;
+      const state = JSON.parse(raw) as { date?: string };
+      if (state.date !== todayStr()) return; // 과거 backlog — 건드리지 않는다.
+      await AsyncStorage.removeItem(STORAGE_KEYS.screentimeSyncState);
+    } catch {
+      // 깨진 값이면 판단 근거가 없다 — 과거 backlog 일 수도 있으니 그대로 둔다.
+    }
+  }
+
   // 저장 준비가 안 된 상태 — 목록 로딩 중이거나 조회가 실패했을 때(코드리뷰 반영).
   //
   // ⚠️ 이걸 안 막으면 **기존 측정 대상이 조용히 삭제된다.** 로딩 중에는 selected 가 빈 집합인데
@@ -133,8 +151,13 @@ export default function AppPickerScreen() {
       //    전 기준으로 올린 큰 분값이 남아 있는데, 다음날 마감이 새 대상으로 재계산한 값과
       //    Math.max 로 합친다 — **바꾸기 전 사용량이 최종 서버 기록과 목표 판정에 박힌다.**
       //    (측정 대상 저장에만 해당한다 — 허용앱은 사용량 계산과 무관하다.)
+      //
+      // ⚠️⚠️ **오늘 것일 때만** 지운다(코드리뷰 9차). 이 키는 단순한 오늘 캐시가 아니라,
+      //    오프라인·마감 실패로 밀린 **과거 날짜의 backlog** 이기도 하다(screentimeSync 의
+      //    '지난 중간 동기화 행 확정'). 무조건 지우면 그 날짜의 isFinal 보고와 목표 판정이
+      //    영구히 누락된다 — 지금 고르는 대상과 아무 상관 없는 과거 기록을 잃는 것이다.
       if (mode === 'measured') {
-        await AsyncStorage.removeItem(STORAGE_KEYS.screentimeSyncState).catch(() => {});
+        await clearTodaySyncCache();
       }
       navigation.goBack();
     } finally {
