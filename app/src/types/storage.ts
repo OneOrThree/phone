@@ -46,6 +46,10 @@ export const STORAGE_KEYS = {
   screentimeCelebratePending: 'gromo:screentime:celebratePending', // 어제 달성 축하 예약 {date,days} — 홈 진입 시 노출(GROMO-629)
   screentimeLastSyncedDate: 'gromo:screentime:lastSyncedDate',
   screentimeSyncState: 'gromo:screentime:syncState', // 마지막 업로드 성공 {userId,date,minutes} — 어제 마감·중복 스킵용(GROMO-633)
+  // 측정 대상을 마지막으로 바꾼 시각(ms). 진행 중이던 동기화가 **바꾸기 전 기준의 값**을
+  // 뒤늦게 써서 되살리는 것을 막는다(GROMO-1593 코드리뷰) — 동기화는 측정 시작 시점의 이 값과
+  // 쓰기 직전의 값을 대조해, 그 사이 바뀌었으면 쓰지 않는다.
+  screentimeSelectionChangedAt: 'gromo:screentime:selectionChangedAt',
   screentimeBucketMonitorRegistered: 'gromo:screentime:bucketMonitorRegistered', // 버킷 모니터링 1회 등록 플래그(기존 유저 마이그레이션)
   screentimeBucketMonitorMaxMinutes: 'gromo:screentime:bucketMonitorMaxMinutes', // 버킷 모니터링 등록 시그니처(상한@눈금) — 변경 감지·재등록용(GROMO-871·931)
   screentimeGoalMonitorStopped: 'gromo:screentime:goalMonitorStopped', // gromo.daily 폐지 1회 중지 완료 플래그(GROMO-942 마이그레이션)

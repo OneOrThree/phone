@@ -10,13 +10,31 @@
 //  3) '측정 대상을 비웠어요'는 성공이지만 측정 중단을 반드시 읽어야 하는 경고성 장문이라
 //     2200ms 배너로 옮기지 않는다 — Alert로 남는다(정책 D8).
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert, AppState, Linking, Platform } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScreenTimePermissionScreen from './ScreenTimePermissionScreen';
 import ScreenTimeModule, { nativeSupportsPendingApplyDate } from '@/services/ScreenTimeModule';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
 import { updateScreenTimePermission } from '@/services/userApi';
 import { STORAGE_KEYS } from '@/types/storage';
+
+// screenTimeCapabilities 는 ScreenTimeModule 을 거치지 않고 네이티브를 직접 찾는다(그 모듈을
+// 통째로 jest.mock 하는 테스트들이 술어까지 지워버리지 않게). 그래서 여기서도 네이티브가
+// '있는' 상태를 만들어 줘야 안드로이드 술어가 실제 기기와 같게 열린다.
+jest.mock('expo-modules-core', () => ({
+  ...jest.requireActual('expo-modules-core'),
+  // jest.fn 이어야 테스트가 '구 바이너리'로 갈아끼울 수 있다.
+  requireOptionalNativeModule: jest.fn(),
+}));
+
+/** 새 바이너리 — 술어가 요구하는 메서드가 다 있다. */
+const newBinary = () =>
+  jest.mocked(requireOptionalNativeModule).mockReturnValue({
+    getUsageByApp: jest.fn(),
+    getInstalledApps: jest.fn(),
+    getSelectionPackages: jest.fn(),
+  } as never);
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -26,9 +44,11 @@ jest.mock('react-native-safe-area-context', () => ({
 // navigate 는 단언 대상이라 호출마다 새로 만들면 안 된다 — 화면이 부른 목과 테스트가 보는
 // 목이 달라져, 이동하지 않아도 통과하는 테스트가 된다.
 const mockNavigate = jest.fn();
+// 화면을 떠난 뒤 지연된 작업이 끝나는 경우를 재현하려면 포커스도 목이어야 한다.
+const mockIsFocused = jest.fn(() => true);
 
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: mockNavigate, goBack: jest.fn(), isFocused: () => true }),
+  useNavigation: () => ({ navigate: mockNavigate, goBack: jest.fn(), isFocused: mockIsFocused }),
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     useEffect(() => {
@@ -50,6 +70,7 @@ jest.mock('@/services/ScreenTimeModule', () => ({
   __esModule: true,
   default: {
     getAuthorizationStatus: jest.fn(),
+    requestAuthorization: jest.fn(),
     presentAppPicker: jest.fn(),
     promoteSelection: jest.fn(),
     setPendingSelectionApplyDate: jest.fn(),
@@ -67,9 +88,6 @@ const mockGetStatus = ScreenTimeModule.getAuthorizationStatus as jest.MockedFunc
 >;
 const mockPresentAppPicker = ScreenTimeModule.presentAppPicker as jest.MockedFunction<
   typeof ScreenTimeModule.presentAppPicker
->;
-const mockOpenUsageAccess = ScreenTimeModule.openUsageAccessSettings as jest.MockedFunction<
-  typeof ScreenTimeModule.openUsageAccessSettings
 >;
 const mockPromote = ScreenTimeModule.promoteSelection as jest.MockedFunction<
   typeof ScreenTimeModule.promoteSelection
@@ -102,6 +120,9 @@ async function openPicker() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // clearAllMocks 가 반환값까지 지우므로 매번 다시 세운다.
+  newBinary();
+  mockIsFocused.mockReturnValue(true);
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   mockGetStatus.mockResolvedValue('approved');
   mockPromote.mockResolvedValue(true);
@@ -158,54 +179,39 @@ describe('측정 대상 선택 — 플랫폼별 진입 경로', () => {
 
   afterEach(() => setPlatform(originalPlatformOS));
 
-  // 안드로이드엔 대응 피커가 없다. 행을 남겨 두면 탭해도 아무 일이 없어 고장으로 보이므로
-  // 섹션째 감춘다 — 무반응 진입점을 없애는 게 이 티켓의 본론이다.
-  test('안드로이드에서는 측정 대상 섹션이 그려지지 않는다', async () => {
+  test('안드로이드는 시스템 피커 대신 앱 고르기 화면으로 이동한다', async () => {
     setPlatform('android');
 
-    await render(<ScreenTimePermissionScreen />);
-    await act(async () => {});
+    await openPicker();
 
-    expect(screen.queryByText('측정 대상 앱 설정')).toBeNull();
-    // 부제만 남아 없는 항목을 찾아 들어가게 만들지도 않는다.
-    expect(screen.queryByText('사용시간을 잴 앱·카테고리 선택')).toBeNull();
-  });
-
-  // 피커가 없으면 허용 상태에서 상태 카드를 눌러도 갈 곳이 없다 — 무반응으로 두지 않고
-  // 권한을 끄러 갈 수 있는 곳으로 보낸다.
-  //
-  // ⚠️ 그 '갈 곳'이 앱 상세 설정(Linking.openSettings)이면 안 된다(코드리뷰 반영). 거기엔
-  //    사용 정보 접근 토글이 없어서, 눌러서 이동은 하는데 정작 할 일을 못 하는 상태가 된다.
-  //    이 PR이 없애려는 '화면이 거짓말한다'와 같은 종류라 목록 딥링크를 쓴다.
-  test('안드로이드에서 허용 상태 카드는 사용 정보 접근 목록으로 보낸다', async () => {
-    setPlatform('android');
-    mockOpenUsageAccess.mockResolvedValue(true);
-
-    await render(<ScreenTimePermissionScreen />);
-    await act(async () => {});
-    await act(async () => {
-      fireEvent.press(screen.getByText('스크린타임 접근'));
-    });
-
+    expect(mockNavigate).toHaveBeenCalledWith('SettingsAppPicker', { mode: 'measured' });
+    // iOS 전용 네이티브 피커를 부르면 안 된다 — 불러봤자 null이라 아무 일도 안 일어난다.
     expect(mockPresentAppPicker).not.toHaveBeenCalled();
-    expect(mockOpenUsageAccess).toHaveBeenCalled();
-    // 목록을 열었으면 앱 상세로 또 보내지 않는다 — 두 화면이 겹쳐 뜨면 그게 더 헷갈린다.
-    expect(Linking.openSettings).not.toHaveBeenCalled();
   });
 
-  // 구 바이너리(OTA로 새 JS만 받아 네이티브에 이 함수가 없음)·설정을 못 여는 기기.
-  // 앱 상세가 완전한 답은 아니지만, 아무 일도 안 일어나는 것보다는 낫다.
-  test('목록을 못 열면 앱 상세 설정으로 폴백한다', async () => {
+  // 권한이 없으면 고를 대상 목록 자체를 못 읽는다 — 빈 화면으로 보내는 대신 먼저 안내한다.
+  test('권한이 없으면 이동하지 않고 안내한다', async () => {
     setPlatform('android');
-    mockOpenUsageAccess.mockResolvedValue(false);
+    mockGetStatus.mockResolvedValue('denied');
+
+    await openPicker();
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith(
+      '스크린타임 권한 필요',
+      '측정 대상을 고르려면 먼저 사용 정보 접근을 허용해야 해요.',
+    );
+  });
+
+  test('안드로이드 부제는 카테고리를 약속하지 않는다', async () => {
+    setPlatform('android');
 
     await render(<ScreenTimePermissionScreen />);
     await act(async () => {});
-    await act(async () => {
-      fireEvent.press(screen.getByText('스크린타임 접근'));
-    });
 
-    expect(Linking.openSettings).toHaveBeenCalled();
+    // 카테고리 묶음 선택은 iOS FamilyActivityPicker만 준다.
+    expect(screen.queryByText('사용시간을 잴 앱·카테고리 선택')).toBeNull();
+    expect(screen.getByText('사용시간을 잴 앱 선택')).toBeTruthy();
   });
 
   // 권한 끄러 갈 곳은 OS마다 다르다 — 안드로이드에 'iOS 설정 앱'이라고 하면 안 된다.
@@ -273,6 +279,7 @@ describe('권한 회수는 서버에도 반영한다', () => {
   }
 
   beforeEach(() => {
+    mockIsFocused.mockReturnValue(true);
     jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() } as never);
     mockUpdatePermission.mockResolvedValue(undefined as never);
   });
@@ -324,5 +331,52 @@ describe('권한 회수는 서버에도 반영한다', () => {
     await returnToApp('denied');
     expect(mockUpdatePermission).toHaveBeenCalledTimes(2);
     expect(mockUpdatePermission).toHaveBeenLastCalledWith({ granted: false });
+  });
+});
+
+// 피커 진입 경로 — GROMO-1593 코드리뷰 3차.
+describe('측정 대상 화면으로 보내기 전에 확인한다', () => {
+  const originalPlatformOS = Platform.OS;
+  const setPlatform = (os: typeof Platform.OS) =>
+    Object.defineProperty(Platform, 'OS', { value: os, configurable: true });
+
+  beforeEach(() => setPlatform('android'));
+  afterEach(() => setPlatform(originalPlatformOS));
+
+  // 관리 행을 숨기는 게이트만으로는 부족하다 — 구 바이너리에서 권한이 notDetermined 면
+  // 상태 카드가 requestPermission() 을 거쳐 이동 경로로 오는데, 거기엔 술어 검사가 없었다.
+  // ⚠️ 관리 행을 통한 진입이 아니다. 구 바이너리에선 그 행 자체가 숨겨진다.
+  //    문제는 **권한 승인 직후 자동 이동** 경로다 — 상태 카드(notDetermined) 탭 →
+  //    requestPermission() → 승인되면 곧장 editScreenTimeTargets() 로 넘어가는데,
+  //    거기엔 술어 검사가 없어서 빈 목록에 저장도 no-op 인 화면에 도달했다.
+  test('구 바이너리는 권한 승인 직후에도 피커로 보내지 않는다', async () => {
+    jest.mocked(requireOptionalNativeModule).mockReturnValue({
+      getTodayUsageBucketMinutes: jest.fn(), // 피커 메서드가 없는 M1 바이너리
+    } as never);
+    // 첫 조회는 미결정(상태 카드가 권한 요청 경로로 간다) → 승인 후엔 허용으로 바뀐다.
+    mockGetStatus.mockResolvedValueOnce('notDetermined').mockResolvedValue('approved');
+    (ScreenTimeModule.requestAuthorization as jest.Mock).mockResolvedValue(true);
+
+    await render(<ScreenTimePermissionScreen />);
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.press(screen.getByText('스크린타임 접근'));
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith(
+      '아직 쓸 수 없어요',
+      expect.stringContaining('업데이트'),
+    );
+  });
+
+  // 설정 복귀·서버 반영을 기다리는 동안 화면을 떠났을 수 있다 — 이미 떠난 화면이 다른 화면
+  // 위에 피커를 push 하면 안 된다.
+  test('화면을 떠났으면 이동하지 않는다', async () => {
+    mockIsFocused.mockReturnValue(false);
+
+    await openPicker();
+
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

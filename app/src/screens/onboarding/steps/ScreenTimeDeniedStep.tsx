@@ -8,7 +8,7 @@ import ScreenTimeGuideOverlay, {
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import ScreenTimeModule, { type SystemColorScheme } from '@/services/ScreenTimeModule';
-import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
+import { pickMeasuredTargets } from '@/screens/onboarding/pickMeasuredTargets';
 import {
   logOnboardingPermissionRequested,
   logOnboardingPermissionResulted,
@@ -47,18 +47,10 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
 
   // 허용 확정 공통 처리(재요청 승인·설정 폴백 복귀 공용) — 측정 대상(앱) picker → selection 즉시 승격.
   const completeApproved = useCallback(async () => {
-    try {
-      const counts = await ScreenTimeModule.presentAppPicker();
-      if (counts) {
-        await ScreenTimeModule.promoteSelection();
-        // 선택 확정 직후 15분 버킷 모니터링 등록(GROMO-633) — Syncer는 온보딩 완료 후에만
-        // 마운트되므로, 여기서 등록하지 않으면 온보딩 미완주 이탈 시 측정이 시작되지 않는다.
-        // 소유 미상(null)으로 등록 — Syncer 첫 실행이 현재 계정으로 귀속시킨다(요청 스텝과 동일).
-        await registerUsageBucketMonitoring(null);
-        updateRef.current({ screenTimeSelectionConfigured: true });
-      }
-    } catch {
-      // picker 미지원 환경(시뮬레이터 등)은 조용히 무시 — 진행.
+    // 요청 스텝과 **같은 함수**를 쓴다 — 예전엔 같은 코드를 각자 들고 있었고, 둘 다 iOS 전용
+    // presentAppPicker 를 불러 안드로이드에서 측정이 시작되지 않았다(코드리뷰 반영).
+    if (await pickMeasuredTargets()) {
+      updateRef.current({ screenTimeSelectionConfigured: true });
     }
     // 허용 경로로 전환(이 스텝이 빠지고 목표 설정으로 자동 교체됨).
     updateRef.current({ screenTimeGranted: true });
@@ -79,10 +71,16 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
   const openSettings = () => {
     if (Platform.OS === 'android') {
       // Usage Access 설정 딥링크 — 복귀 시 네이티브가 재확인한 결과로 resolve된다(GROMO-994).
-      // 허용이면 이 스텝이 빠지고 목표 설정으로 자동 전환된다. 측정 앱 picker는 M2 전이라 없음.
+      // 허용이면 이 스텝이 빠지고 목표 설정으로 자동 전환된다.
+      //
+      // ⚠️ 승인되면 **completeApproved() 를 거쳐야 한다**(코드리뷰 반영). 여기서 플래그만
+      //    세우면 재요청 경로와 달리 측정 등록(registerUsageBucketMonitoring)이 빠져서,
+      //    온보딩 완료 전에 이탈하면 등록 마커와 측정 시작일 앵커가 안 남는다.
+      //    이 화면엔 승인으로 가는 길이 셋(재요청 · 설정 폴백 · 복귀 감지)인데 하나만
+      //    다른 처리를 하고 있었다 — 공용 함수로 모은 이유가 그것이다.
       ScreenTimeModule.requestAuthorization()
         .then((granted) => {
-          if (granted) updateRef.current({ screenTimeGranted: true });
+          if (granted) return completeApproved();
         })
         .catch(() => {});
       return;

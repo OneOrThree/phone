@@ -27,10 +27,14 @@ const mockRequireNative = requireOptionalNativeModule as jest.MockedFunction<
   typeof requireOptionalNativeModule
 >;
 
-/** 새 바이너리 — 1608 이 추가한 getUsageBreakdown 이 있다. */
+/** 새 바이너리 — 1608(앱별 사용시간) · 1593(피커)이 추가한 메서드가 다 있다. */
 const newBinary = () =>
-  mockRequireNative.mockReturnValue({ getUsageBreakdown: jest.fn() } as never);
-/** M1 바이너리 — 모듈은 있는데 getUsageBreakdown 이 없다. */
+  mockRequireNative.mockReturnValue({
+    getUsageBreakdown: jest.fn(),
+    getInstalledApps: jest.fn(),
+    getSelectionPackages: jest.fn(),
+  } as never);
+/** M1 바이너리 — 모듈은 있는데 위 메서드가 하나도 없다. */
 const m1Binary = () =>
   mockRequireNative.mockReturnValue({ getTodayUsageBucketMinutes: jest.fn() } as never);
 /** 네이티브가 아예 없는 바이너리. */
@@ -64,15 +68,16 @@ describe('iOS — 넷 다 열려 있다', () => {
 
 // 안드로이드는 구현이 붙는 순서대로 하나씩 열린다. 지금 한꺼번에 열면 눌러도 반응이 없거나
 // 사실과 다른 안내가 나가므로, **구현이 들어오는 PR에서 그 술어만** 뒤집는다.
-// 지금 열린 것: 앱별 사용시간(GROMO-1608).
-test('안드로이드 — 앱별 사용시간만 열려 있다', () => {
+// 지금 열린 것: 앱별 사용시간(GROMO-1608) · 측정 대상 선택(GROMO-1593).
+// 아직 닫힌 것: 집중 실드 — 고르기·차단 둘 다 실드 구현과 함께 열린다.
+test('안드로이드 — 사용시간·측정 대상만 열려 있다', () => {
   setPlatform('android');
   expect([
     supportsAppSelection(),
     supportsUsageBreakdown(),
     supportsFocusShield(),
     enforcesFocusShield(),
-  ]).toEqual([false, true, false, false]);
+  ]).toEqual([true, true, false, false]);
 });
 
 // 구 바이너리 — 이 JS 는 hot-updater 로 옛 안드로이드 빌드에도 그대로 내려간다.
@@ -91,6 +96,21 @@ describe('안드로이드 구 바이너리 — 앱별 사용시간을 닫는다'
     m1Binary();
 
     expect(supportsUsageBreakdown()).toBe(false);
+  });
+
+  // 피커도 같은 문제다(코드리뷰 반영) — M2 이전 바이너리엔 getInstalledApps 가 없어서,
+  // 진입점을 열어 두면 오류 화면이 뜨거나 빈 목록이 '설치된 앱 없음'처럼 보인다.
+  test('피커 메서드가 없으면 측정 대상 선택도 닫는다', () => {
+    m1Binary();
+
+    expect(supportsAppSelection()).toBe(false);
+  });
+
+  // 앱별 사용시간만 있는 중간 바이너리 — 술어가 각자 자기 메서드를 봐야 한 쪽만 열린다.
+  test('getUsageBreakdown 만 있으면 상세는 열고 피커는 닫는다', () => {
+    mockRequireNative.mockReturnValue({ getUsageBreakdown: jest.fn() } as never);
+
+    expect([supportsUsageBreakdown(), supportsAppSelection()]).toEqual([true, false]);
   });
 });
 

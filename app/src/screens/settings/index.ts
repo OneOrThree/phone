@@ -6,6 +6,7 @@ export { default as InquiryScreen } from './InquiryScreen';
 export { default as GoalsScreen } from './GoalsScreen';
 export { default as AllowedAppsScreen } from './AllowedAppsScreen';
 export { default as ScreenTimePermissionScreen } from './ScreenTimePermissionScreen';
+export { default as AppPickerScreen } from './AppPickerScreen';
 export { default as NotificationSettingsScreen } from './NotificationSettingsScreen';
 export { default as StatVisibilityScreen } from './StatVisibilityScreen';
 export { default as PrivacyPolicyScreen } from './PrivacyPolicyScreen';

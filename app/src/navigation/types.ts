@@ -124,6 +124,9 @@ export type V2RootStackParamList = {
   SettingsGoals: undefined; // 개인 목표 수정 (집중 · 사용시간, 내일부터 적용)
   SettingsAllowedApps: undefined; // 집중 중 허용 앱 관리
   SettingsScreenTimePermission: undefined; // 스크린타임 권한 관리
+  // 앱 고르기(안드로이드 — iOS는 시스템 피커라 화면이 없다).
+  // mode로 측정 대상/집중 허용앱을 가른다. 화면·흐름이 같아 한 라우트를 공유한다.
+  SettingsAppPicker: { mode: 'measured' | 'allowed' };
   SettingsNotification: undefined; // 알림 · 심야 · 소리
   SettingsStatVisibility: undefined; // 통계 공개 범위
   SettingsPrivacyPolicy: undefined; // 개인정보 처리방침 (URL 미정 — placeholder)
