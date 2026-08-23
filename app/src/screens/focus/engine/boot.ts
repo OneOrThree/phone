@@ -18,6 +18,7 @@
 
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { uploadFocusBlock } from '../uploadFocusBlock';
+import { ensureFocusTagId } from '../tagSync';
 import { markBackgroundFocusCommit } from '../pendingFocusUploads';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
 import { cancelMarker } from '../pendingMarkerCancels';
@@ -63,10 +64,17 @@ function scheduleRetry(delayMs: number): void {
   );
 }
 
-async function replayIntent(intent: SettleIntent): Promise<void> {
+async function replayIntent(intent: SettleIntent, journalMarker: string | null): Promise<void> {
+  // 예비 intent는 태그·마커가 미정인 채 저장될 수 있다(그 둘을 기다리기 **전에** 남기는 게
+  // 계약이므로). 그대로 올리면 과목별 통계에 영구 미분류로 박히고, 이미 열린 마커도 안 닫혀
+  // 친구 화면의 '집중 중'이 서버 스윕까지 남는다 — 재생 시 둘 다 보완한다.
+  const focusTagId =
+    intent.body.focusTagId ??
+    (await ensureFocusTagId(intent.body.subject, intent.userId).catch(() => null));
+  const sessionId = intent.serverSessionId ?? journalMarker;
   const result = await uploadFocusBlock({
-    sessionId: intent.serverSessionId,
-    body: intent.body,
+    sessionId,
+    body: { ...intent.body, focusTagId },
     // 계정 스코프는 **기록 당시 소유자**다 — focusApi가 전송 직전에 현재 계정을 재검증해
     // 불일치면 던지므로(FocusSaveAccountChangedError), 남의 계정으로 올라갈 길은 없다.
     // 그 경우 intent는 남고 로그아웃 시 저널 키가 통째로 지워진다.
@@ -143,7 +151,12 @@ async function recover(): Promise<void> {
       soonestSkipped = Math.min(soonestSkipped, STALE_INTENT_MS - age);
       continue;
     }
-    await replayIntent(intent).catch(() => {});
+    // 같은 세션의 저널에 마커 id가 남아 있으면 그것도 넘긴다(예비 intent엔 없다)
+    const journalMarker =
+      journal.session?.sessionKey === intent.sessionKey
+        ? (journal.session?.serverSessionId ?? null)
+        : null;
+    await replayIntent(intent, journalMarker).catch(() => {});
   }
   // 유예로 건너뛴 게 있으면 **만료 시점에 한 번 더 돈다.** 콜드 스타트가 유일한 트리거인
   // 경로에서는(사일런트 푸시가 없고 앱을 계속 쓰는 중이면) 이 예약이 없을 때 해당 정산이

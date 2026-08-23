@@ -115,6 +115,12 @@ export function OrphanFocusSettler() {
         // 로컬 적립 1회 — legacy 경로와 같은 마킹 규칙(적립 전에 먼저 되쓴다).
         let storedV1 = JSON.stringify(v1);
         if (!v1.settledLocally) {
+          // ⚠️ **덮어쓰기 전에 현재 값을 대조한다(CAS).** 위 최신 판정이 비동기라, 그 사이에
+          // 사용자가 새 집중을 시작하면 새 엔진이 같은 키에 커밋 흔적을 쓴다. 대조 없이
+          // 옛 스냅샷을 되쓰면 새 세션의 v1이 사라지고, 저널은 이미 active라 시작 복구
+          // 대상도 아니어서 첫 주기 저장 전 강제 종료 시 새 세션 시간이 유실된다.
+          const curV1 = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1);
+          if (curV1 !== storedV1) return; // 다른 세션이 선점했다 — 이번 고아 정산은 접는다
           const marked = { ...v1, settledLocally: true };
           storedV1 = JSON.stringify(marked);
           await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, storedV1);

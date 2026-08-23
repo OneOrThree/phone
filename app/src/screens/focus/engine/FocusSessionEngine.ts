@@ -421,8 +421,9 @@ export function createFocusSessionEngine(
     // 마커·레코드를 적립보다 먼저 갱신 — 적립 후 제거 전에 죽으면 고아 정산이 또 적립한다(원 finish와 동일 순서).
     settledSeconds = elapsed;
     startBlockAt(endedAt);
-    AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
-    removePersistedSessionV1(); // v1도 대칭 제거 — 다음 5초 주기가 미정산 재개분으로 다시 쓴다
+    // ⚠️ 레코드 제거는 **예비 intent가 영속된 뒤**로 미룬다(아래 recordSettleIntent().then).
+    //    먼저 지우면 제거는 반영됐는데 저널 쓰기 전에 죽는 창에서 업로드·대기열·저널·레코드가
+    //    전부 없어져 그 블록이 영구 유실된다.
     // 로컬/과목 적립 — 이 블록의 집중초 중 오늘 몫만 반영(GROMO-1252). 몫은 벽시계 겹침이
     // 아니라 집중 tick의 날짜로 센다. 코인은 all-time이라 항상 반영.
     const settledBlockToday = blockToday;
@@ -478,8 +479,9 @@ export function createFocusSessionEngine(
       focusType: FOCUS_TYPE_BY_MODE[config.mode],
       focusSecondsByDate,
     };
-    // ⚠️ 예비 기록이 **착지한 뒤에** 네트워크를 시작한다. 쓰기를 기다리지 않으면 그 짧은
-    // 구간에서 죽었을 때 intent도 업로드도 대기열도 남지 않아, 선기록의 목적 자체가 사라진다.
+    // ⚠️ 예비 기록이 **착지한 뒤에** 레코드를 지우고 네트워크를 시작한다. 순서가 이 계약의
+    // 전부다 — 지우기가 먼저 반영되고 저널 쓰기가 아직이면 그 창에서 블록이 통째로 사라진다.
+    // 쓰기가 **실패하면 레코드를 남긴다**(다음 부팅의 고아 정산이 근거로 쓴다).
     recordSettleIntent({
       intentId,
       sessionKey,
@@ -488,12 +490,16 @@ export function createFocusSessionEngine(
       userId,
       createdAt: new Date().toISOString(),
     })
-      .then(() =>
-        Promise.all([
+      .then((persisted) => {
+        if (persisted) {
+          AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+          removePersistedSessionV1(); // v1도 대칭 제거 — 다음 5초 주기가 미정산분으로 다시 쓴다
+        }
+        return Promise.all([
           ensureFocusTagId(subjectName, userId).catch(() => null),
           livePromise.catch(() => null),
-        ]),
-      )
+        ]);
+      })
       .then(async ([focusTagId, sessionId]) => {
         const body = {
           focusTagId,
