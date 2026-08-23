@@ -251,15 +251,24 @@ test('앱별 사용 시간 DTO는 아직 어디에서도 쓰이지 않는다 (�
 // 앱별 데이터의 표식은 **패키지명**이다 — 그게 기존 스크린타임 전송 경로에 등장하면 잠근다.
 // (`getUsageByApp`·피커처럼 패키지를 다루는 곳은 많지만, 그 경로들은 서버로 안 보낸다.)
 test('기존 스크린타임 전송 경로에 앱별 데이터가 섞이지 않는다 (서버 미전송 고지 보호)', () => {
-  const senders = ['services/screentimeApi.ts', 'services/screentimeSync.ts'];
+  // ⚠️ 보내는 파일을 **손으로 나열하지 않는다**(코드리뷰 12차). 두 파일만 검사하면
+  //    `saveScreenTime()` 이 받은 객체를 그대로 `/api/v1/screen-time` 으로 보내는 성질을
+  //    새 파일이 그대로 쓸 수 있다 — 예컨대 `appUsageSync.ts` 에서 packageName 이 담긴
+  //    본문을 만들어 `saveScreenTime(body)` 로 넘기면, 그 파일엔 DTO import 도
+  //    `app-usage` 문자열도 없어 앞의 두 가드가 다 통과하고 여기서도 안 걸렸다.
+  //    전송 함수를 **부르는 곳을 코드에서 찾아** 대상으로 삼는다.
+  const SENDER_FNS = ['saveScreenTime'];
+  const senders = tsSources(ALLOWED).filter(({ scanned }) =>
+    scanned.names.some((n) => SENDER_FNS.includes(n)),
+  );
+  // 이름이 바뀌어 아무것도 안 잡히면 가드가 조용히 죽는다 — 정의 파일은 반드시 걸린다.
+  expect(senders.map((f) => f.rel)).toContain(join('services', 'screentimeApi.ts'));
+
   const offenders = senders
-    .map((rel) => ({ rel, path: join(SRC, ...rel.split('/')) }))
-    .filter(({ path }) => existsSync(path))
-    .filter(({ path }) => {
-      const { literals, names } = scan(readFileSync(path, 'utf8'), path);
-      // 식별자와 문자열 양쪽을 본다 — `{ packageName }` 은 식별자, `['packageName']` 은 문자열.
-      return [...literals, ...names].some((t) => t.includes('packageName'));
-    })
+    // 식별자와 문자열 양쪽을 본다 — `{ packageName }` 은 식별자, `['packageName']` 은 문자열.
+    .filter(({ scanned }) =>
+      [...scanned.literals, ...scanned.names].some((t) => t.includes('packageName')),
+    )
     .map(({ rel }) => rel);
 
   expect(offenders).toEqual([]);
