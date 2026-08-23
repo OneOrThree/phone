@@ -170,8 +170,8 @@ class FocusShieldService : Service() {
   private var remainingSeconds: Int? = null
   /** 뽀모도로 페이즈("focus" | "break") — 알림 문구를 가른다. */
   private var phase = "focus"
-  /** 이 구간의 끝이 곧 세션의 끝인가 — 중간 경계에서 실드를 내리지 않기 위한 값. */
-  private var endsSession = false
+  /** 세션 전체가 끝나기까지 남은 초. null = 끝이 없다(카운트업). */
+  private var sessionRemainingSeconds: Int? = null
   /**
    * 현재 구간이 끝나는 시각(elapsedRealtime 기준). 0 = 만료 개념 없음(카운트업).
    *
@@ -282,7 +282,7 @@ class FocusShieldService : Service() {
     tickFailures = 0
     paused = false
     phase = "focus"
-    endsSession = false
+    sessionRemainingSeconds = null
     remainingSeconds = null
     expiresAt = 0L
     elapsedSeconds = 0
@@ -300,20 +300,21 @@ class FocusShieldService : Service() {
   /** 한 주기: 앞 앱을 읽어 차단 대상이면 덮고, 아니면 걷는다. */
   private fun tick() {
     // 만료 검사는 **차단 여부와 무관하게** 먼저 본다(코드리뷰 8차) — 권한이 없어 타이머만
-    // 도는 세션도 백그라운드에서 구간이 끝나면 알림을 정리해야 한다.
-    if (endsSession && remainingSeconds != null && !paused && expiresAt > 0L &&
-      SystemClock.elapsedRealtime() >= expiresAt
-    ) {
-      blocking = false
-      hideOverlay()
-      remainingSeconds = 0
-      expiresAt = 0L
+    // 도는 세션도 백그라운드에서 세션이 끝나면 알림을 정리해야 한다.
+    //
+    // 기준은 **세션 전체의 끝**이다(코드리뷰 10차). 구간 단위로 잡던 시절엔 뽀모도로의 중간
+    // 경계에서 차단이 끊기거나(다음 세트에 안 돌아옴), 비최종 세트에서 이탈하면 모든 세트가
+    // 끝난 뒤에도 앱을 다시 열 때까지 계속 덮었다.
+    if (!paused && expiresAt > 0L && SystemClock.elapsedRealtime() >= expiresAt) {
       // 장애가 아니라 **우리가 끝낸 것**이라고 남긴다 — 앱이 복귀해 완료를 리플레이해야 한다.
       getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         .edit()
         .putBoolean(KEY_SHIELD_COMPLETED, true)
         .apply()
-      startForeground(NOTIFICATION_ID, buildNotification())
+      // 세션이 끝났으니 **서비스도 끝낸다**(코드리뷰 10차). 예전엔 알림만 00:00 으로 다시
+      // 올리고 폴링을 계속 예약해서, 완료된 세션의 상시 알림과 포그라운드 서비스가 앱을
+      // 다시 열 때까지 남았다.
+      stopShield()
       return
     }
 
@@ -704,7 +705,7 @@ class FocusShieldService : Service() {
     if (json.isNullOrBlank()) {
       paused = false
       phase = "focus"
-      endsSession = false
+      sessionRemainingSeconds = null
       remainingSeconds = null
       expiresAt = 0L
       return
@@ -713,18 +714,22 @@ class FocusShieldService : Service() {
       val obj = org.json.JSONObject(json)
       paused = obj.optBoolean("isPaused", false)
       phase = obj.optString("phase", "focus")
-      endsSession = obj.optBoolean("endsSession", false)
+      sessionRemainingSeconds =
+        if (obj.isNull("sessionRemainingSeconds")) null
+        else obj.optInt("sessionRemainingSeconds")
       elapsedSeconds = obj.optInt("elapsedSeconds", 0)
       remainingSeconds = if (obj.isNull("remainingSeconds")) null else obj.optInt("remainingSeconds")
-      // 만료 시각을 단조 시계로 박아 둔다 — 정지 중이면 만료를 재지 않는다(재개 때 다시 온다).
+      // 만료 시각은 **세션 전체** 기준이다(코드리뷰 10차). 구간 단위로 잡으면 백그라운드에서
+      // 다음 페이즈를 알려줄 수 없어, 중간 경계에서 멈추거나 끝나도 계속 덮는다.
+      // 단조 시계를 쓴다 — 정지 중이면 만료를 재지 않는다(재개 때 다시 온다).
       expiresAt =
-        remainingSeconds?.takeIf { !paused && it > 0 }
+        sessionRemainingSeconds?.takeIf { !paused && it > 0 }
           ?.let { SystemClock.elapsedRealtime() + it * 1000L }
           ?: 0L
     }.onFailure {
       paused = false
       phase = "focus"
-      endsSession = false
+      sessionRemainingSeconds = null
       remainingSeconds = null
       expiresAt = 0L
     }

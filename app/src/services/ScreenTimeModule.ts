@@ -7,7 +7,7 @@
 //  - Android: app/modules/screen-time (Expo 모듈, GROMO-994) — M1 범위(권한·오늘/어제 조회·
 //    목표 저장)만 구현. 나머지 함수는 기존 기본값 가드를 유지한다(M2~M4에서 확장).
 
-import { NativeModules, Platform } from 'react-native';
+import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -98,16 +98,42 @@ export interface FocusActivityState {
   elapsedSeconds: number;
   remainingSeconds: number | null;
   /**
-   * 이 구간이 끝나면 **세션 자체가 끝나는가**(안드로이드 알림 전용, GROMO-1604 코드리뷰).
+   * **세션 전체**가 끝나기까지 남은 초(안드로이드 전용). 끝이 없으면 null(카운트업).
    *
-   * 안드로이드 서비스는 백그라운드에서 남은 시간이 0이 되면 실드를 내리는데, 뽀모도로의
-   * 중간 경계(집중 → 휴식)에서 내리면 **다음 세트에 차단이 안 돌아온다.** 세션이 언제
-   * 끝나는지는 JS 만 안다(마지막 세트의 집중이 끝나는 시점).
+   * 현재 구간이 아니라 **남은 모든 구간의 합**이다 — 뽀모도로면 지금 페이즈의 잔여 +
+   * 이후 휴식·집중 전부. 안드로이드 서비스는 백그라운드에서 이 시각이 지나면 실드를 내리고
+   * 서비스를 끝낸다.
+   *
+   * ⚠️ 구간 단위로 보내면 안 된다(코드리뷰 10차에서 그렇게 짰다가 잡혔다). 백그라운드에서는
+   *    JS 가 멈춰 다음 페이즈를 알려줄 수 없으므로, 서비스가 중간 경계에서 멈추거나(차단이
+   *    다음 세트에 안 돌아옴) 세션이 끝나도 계속 덮는다(앱을 다시 열 때까지).
+   *    **세션의 끝 하나만** 알면 두 문제가 같이 사라진다.
    *
    * iOS 는 쓰지 않는다 — Live Activity 는 실드와 별개로 돈다.
    */
-  endsSession: boolean;
+  sessionRemainingSeconds: number | null;
   revision: number;
+}
+
+/**
+ * 안드로이드 13+ 알림 권한을 런타임에 요청한다(GROMO-1604 코드리뷰).
+ *
+ * `POST_NOTIFICATIONS` 는 라이브러리 매니페스트에서 병합돼 들어오지만, **선언만으로는
+ * 부여되지 않는다.** 저장소 전체에서 권한을 묻는 곳은 온보딩의 `messaging().requestPermission()`
+ * 뿐인데 그건 FCM 용이라 안드로이드 13 런타임 요청을 대신하지 못한다. 그대로 두면 신규 설치
+ * 사용자에게 **실드의 상시 알림과 잠금화면 타이머가 아예 안 보인다** — 지금 집중 중인지,
+ * 얼마나 남았는지 확인할 방법이 없다.
+ *
+ * 거부해도 실드 자체는 돈다(포그라운드 서비스는 뜨고 차단도 걸린다) — 알림만 안 보인다.
+ * 그래서 결과와 무관하게 시작을 이어간다.
+ */
+async function ensureNotificationPermission(): Promise<void> {
+  if (Platform.OS !== 'android' || Number(Platform.Version) < 33) return;
+  try {
+    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+  } catch {
+    // 요청 자체가 실패해도 시작을 막지 않는다 — 위 주석 참고.
+  }
 }
 
 const NativeScreenTimeModule = NativeModules.ScreenTimeModule as NativeScreenTime;
@@ -171,7 +197,7 @@ const androidFallbackState: FocusActivityState = {
   isPaused: false,
   elapsedSeconds: 0,
   remainingSeconds: null,
-  endsSession: false,
+  sessionRemainingSeconds: null,
   revision: 0,
 };
 
@@ -537,6 +563,7 @@ const ScreenTimeModule = {
     // 호출부의 이탈 정책도 느슨해지지 않는다).
     if (AndroidScreenTime) {
       if (!AndroidScreenTime.startFocusShield) return false;
+      await ensureNotificationPermission();
       return AndroidScreenTime.startFocusShield(subjectName);
     }
     if (Platform.OS !== 'ios') return false;
