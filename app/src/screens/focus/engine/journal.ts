@@ -77,16 +77,22 @@ async function write(j: FocusSessionJournal): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEYS.focusJournalV1, JSON.stringify(j));
 }
 
-function mutate(fn: (j: FocusSessionJournal) => FocusSessionJournal | null): Promise<void> {
+/**
+ * **쓰기 성공 여부를 돌려준다.** 삼키면 호출부가 write-ahead가 없는데도 실드를 걸고,
+ * intent가 영속되지 않았는데 업로드를 시작한다 — 둘 다 크래시 시 복구 근거가 사라진다.
+ * (조건 불일치로 쓰기를 건너뛴 경우도 true — 실패가 아니라 「할 일이 없었다」는 뜻이다.)
+ */
+function mutate(fn: (j: FocusSessionJournal) => FocusSessionJournal | null): Promise<boolean> {
   return serialize(async () => {
     const j = await read();
     const next = fn(j);
     if (next != null) await write(next);
-  }).catch(() => {});
+    return true;
+  }).catch(() => false);
 }
 
 /** ⓪ write-ahead — 실드 적용 **전에** 시작 의도를 기록한다. 실패하면 조용히 계속(현행 UX 우선). */
-export function journalStartIntent(sessionKey: string): Promise<void> {
+export function journalStartIntent(sessionKey: string): Promise<boolean> {
   const now = new Date().toISOString();
   return mutate((j) => ({
     ...j,
@@ -102,7 +108,7 @@ export function journalStartIntent(sessionKey: string): Promise<void> {
 }
 
 /** ②의 짝 — 같은 레코드의 원자 갱신으로 starting→active 전이(중간 상태 없음, §4.3-ⓐ) */
-export function journalActivateSession(sessionKey: string): Promise<void> {
+export function journalActivateSession(sessionKey: string): Promise<boolean> {
   return mutate((j) => {
     if (j.session?.sessionKey !== sessionKey) return null;
     return {
@@ -112,7 +118,7 @@ export function journalActivateSession(sessionKey: string): Promise<void> {
   });
 }
 
-export function journalSetServerSessionId(sessionKey: string, id: string | null): Promise<void> {
+export function journalSetServerSessionId(sessionKey: string, id: string | null): Promise<boolean> {
   return mutate((j) => {
     if (j.session?.sessionKey !== sessionKey) return null;
     return {
@@ -129,7 +135,7 @@ export function journalSetServerSessionId(sessionKey: string, id: string | null)
  * 사이에 새 세션이 이미 `starting`을 기록했을 수 있는데, 무조건 지우면 새 시작의 저널이
  * 사라져 실드 적용 직후 크래시를 복구할 근거가 없어진다(직렬화 체인에서 순서가 뒤집힌다).
  */
-export function journalClearSession(sessionKey?: string): Promise<void> {
+export function journalClearSession(sessionKey?: string): Promise<boolean> {
   return mutate((j) => {
     if (sessionKey != null && j.session?.sessionKey !== sessionKey) return null;
     return { ...j, session: null };
@@ -142,7 +148,7 @@ export function journalClearSession(sessionKey?: string): Promise<void> {
  * 실패)면 보존 → 다음 부팅 recover가 같은 바디로 재업로드한다. 이것이 「업로드 failed에도
  * 화면이 레코드를 이미 지워 블록이 영구 유실」되던 공백(특성화 :839)의 수리다.
  */
-export function recordSettleIntent(intent: SettleIntent): Promise<void> {
+export function recordSettleIntent(intent: SettleIntent): Promise<boolean> {
   return mutate((j) => ({
     ...j,
     // 같은 intentId면 **교체**한다 — 정산은 네트워크 대기 전에 먼저 기록하고(그 사이에
@@ -153,7 +159,7 @@ export function recordSettleIntent(intent: SettleIntent): Promise<void> {
   }));
 }
 
-export function resolveSettleIntent(intentId: string): Promise<void> {
+export function resolveSettleIntent(intentId: string): Promise<boolean> {
   return mutate((j) => ({
     ...j,
     settles: j.settles.filter((it) => it.intentId !== intentId),

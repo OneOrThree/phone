@@ -86,7 +86,7 @@ const makeDeps = (): FocusEngineDeps => ({
 // await라, 마이크로태스크를 넉넉히 흘려야 업로드 목까지 도달한다(얕게 흘리면 「호출 0회」로
 // 보인다 — 저널 도입 때 실제로 물렸다).
 const flush = async () => {
-  for (let i = 0; i < 80; i++) await Promise.resolve();
+  for (let i = 0; i < 300; i++) await Promise.resolve();
 };
 
 async function advance(ms: number) {
@@ -346,6 +346,39 @@ test('정산 intent를 네트워크 대기 **전에** 남긴다 — 태그·마�
   const after = await readJournal();
   expect(after.settles.length).toBeLessThanOrEqual(1);
   expect(mockedUpload).toHaveBeenCalledTimes(1);
+  engine.stopTicking();
+});
+
+test('정산: intent가 영속되기 **전에는** 레코드를 지우지 않는다 — 순서가 계약', async () => {
+  // 지우기가 먼저 반영되고 저널 쓰기가 아직이면 그 창에서 업로드·대기열·저널·레코드가
+  // 전부 없어져 블록이 영구 유실된다(codex 리뷰 #694 4차). 정산 경로(뽀모도로 경계)로 본다 —
+  // finish는 자체적으로 레코드를 먼저 지우는 별도 계약이라 이 순서를 관찰할 수 없다.
+  const engine = createFocusSessionEngine(pomodoroConfig, makeDeps());
+  await engine.start('수학');
+  engine.startTicking();
+  await advance(60_000); // 집중 1분 완주 — 경계에서 정산이 돈다
+  expect(await readLiveRecord()).not.toBeNull(); // 주기 저장이 남긴 레코드
+
+  // 저널 쓰기를 붙잡아 둔다 — 이 상태에서 레코드가 지워지면 계약 위반이다
+  const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+  const real = setItem.getMockImplementation();
+  let releaseJournal: () => void = () => {};
+  setItem.mockImplementation((key: string, value: string) => {
+    if (key === STORAGE_KEYS.focusJournalV1) {
+      return new Promise<void>((r) => {
+        releaseJournal = () => r();
+      });
+    }
+    return real?.(key, value) ?? Promise.resolve();
+  });
+  engine.handlePhaseTransition();
+  await flush();
+  expect(await readLiveRecord()).not.toBeNull(); // 아직 지우지 않았다
+
+  setItem.mockImplementation(real ?? (() => Promise.resolve()));
+  releaseJournal();
+  await flush();
+  expect(await readLiveRecord()).toBeNull(); // 영속된 뒤에야 지운다
   engine.stopTicking();
 });
 

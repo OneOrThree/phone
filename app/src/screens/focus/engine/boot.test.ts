@@ -22,6 +22,9 @@ jest.mock('../pendingFocusUploads', () => ({
   markBackgroundFocusCommit: jest.fn(() => Promise.resolve()),
 }));
 jest.mock('@/store/coinRefreshSignal', () => ({ requestCoinRefresh: jest.fn() }));
+jest.mock('../tagSync', () => ({
+  ensureFocusTagId: jest.fn(() => Promise.resolve('tag-recovered')),
+}));
 jest.mock('../pendingMarkerCancels', () => ({
   cancelMarker: jest.fn(() => Promise.resolve()),
 }));
@@ -219,5 +222,39 @@ describe('재생 커밋 후 잔액 갱신', () => {
 
     expect(requestCoinRefresh).not.toHaveBeenCalled();
     expect(markBackgroundFocusCommit).not.toHaveBeenCalled();
+  });
+});
+
+describe('예비 intent 재생 시 보완', () => {
+  test('태그가 null이면 subject로 다시 해석하고, 마커는 저널 세션에서 가져온다', async () => {
+    // 예비 intent는 태그·마커가 미정인 채 저장된다(그 둘을 기다리기 전에 남기는 게 계약).
+    // 그대로 올리면 과목별 통계에 영구 미분류로 박히고, 열린 마커도 안 닫혀 친구 화면의
+    // '집중 중'이 서버 스윕까지 남는다(codex 리뷰 #694 4차).
+    await journalWith({ ...startingSession, state: 'active', serverSessionId: 'marker-live' }, [
+      staleIntent({
+        serverSessionId: null,
+        body: { subject: '수학', startedAt: 'a', endedAt: 'b', focusTagId: null },
+      }),
+    ]);
+    await recoverFocusEngine();
+
+    const opts = mockedUpload.mock.calls[0][0];
+    expect(opts.body.focusTagId).toBe('tag-recovered');
+    expect(opts.sessionId).toBe('marker-live');
+  });
+
+  test('다른 세션의 마커는 가져오지 않는다 — sessionKey가 다르면 남의 마커다', async () => {
+    await journalWith(
+      {
+        ...startingSession,
+        sessionKey: 'fs-other',
+        state: 'active',
+        serverSessionId: 'marker-other',
+      },
+      [staleIntent({ serverSessionId: null })],
+    );
+    await recoverFocusEngine();
+
+    expect(mockedUpload.mock.calls[0][0].sessionId).toBeNull();
   });
 });
