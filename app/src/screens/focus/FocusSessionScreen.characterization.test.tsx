@@ -394,6 +394,8 @@ const laState = (over: Partial<Record<string, unknown>> = {}) => ({
   remainingSeconds: null,
   // 카운트업은 끝나는 시각이 없다 — 안드로이드 서비스가 만료로 실드를 내리면 안 된다.
   sessionRemainingSeconds: null,
+  // 화면이 떠 있는 동안은 알림도 구간 잔여를 센다 — 두 숫자가 어긋나지 않게(D7).
+  timerShowsSession: false,
   revision: 2,
   ...over,
 });
@@ -1408,6 +1410,8 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       // 구간 잔여(60)를 주면 안드로이드 서비스가 첫 경계에서 실드를 내려 다음 세트에
       // 차단이 안 돌아온다(코드리뷰 8차에 실제로 그랬다).
       sessionRemainingSeconds: 180,
+      // 마운트 = 포그라운드 — 알림도 구간 잔여(60)를 센다. 화면과 같은 숫자여야 한다(D7).
+      timerShowsSession: false,
       revision: 1,
     });
     // 틱은 밀지 않는다 — 그 사이는 위젯의 Text(timerInterval:)가 자체 갱신하는 계약

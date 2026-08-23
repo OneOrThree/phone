@@ -251,8 +251,9 @@ test('실드 세션 복귀의 LA 푸시: 크레딧 전진이 **반영된 뒤** �
   await flush();
 
   expect(engine.getSession().elapsed).toBe(63);
-  expect(mockedUpdate).toHaveBeenCalledTimes(1);
-  expect(mockedUpdate.mock.calls[0][0]).toMatchObject({ elapsedSeconds: 63 });
+  // [0] 은 나가면서 민 것(경과 3초), [1] 이 복귀 푸시다.
+  expect(mockedUpdate).toHaveBeenCalledTimes(2);
+  expect(mockedUpdate.mock.calls[1][0]).toMatchObject({ elapsedSeconds: 63 });
   engine.stopTicking();
 });
 
@@ -294,7 +295,11 @@ test('짧은 이탈 복귀: 페이즈가 그대로여도 Live Activity 잔여를
   jest.setSystemTime(Date.now() + 5000); // 15초 이내 — 페이즈 변화 없음
   engine.onAppStateChange('active', { onLeaveTimeout: () => {} });
   await flush();
-  expect(mockedUpdate).toHaveBeenCalledTimes(1);
+
+  // 나갈 때 한 번, 돌아올 때 한 번 — 표시 기준이 뒤바뀐다(D7).
+  expect(mockedUpdate).toHaveBeenCalledTimes(2);
+  expect(mockedUpdate.mock.calls[0][0]).toMatchObject({ timerShowsSession: true });
+  expect(mockedUpdate.mock.calls[1][0]).toMatchObject({ timerShowsSession: false });
   engine.stopTicking();
 });
 

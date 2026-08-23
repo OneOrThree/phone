@@ -170,6 +170,8 @@ class FocusShieldService : Service() {
   private var remainingSeconds: Int? = null
   /** 세션 전체가 끝나기까지 남은 초. null = 끝이 없다(카운트업). */
   private var sessionRemainingSeconds: Int? = null
+  /** 알림 타이머가 세션 전체 잔여를 세야 하는가 — JS 가 백그라운드 진입 때 켜 준다(D7). */
+  private var timerShowsSession = false
   /**
    * 현재 구간이 끝나는 시각(elapsedRealtime 기준). 0 = 만료 개념 없음(카운트업).
    *
@@ -284,6 +286,7 @@ class FocusShieldService : Service() {
     tickFailures = 0
     paused = false
     sessionRemainingSeconds = null
+    timerShowsSession = false
     remainingSeconds = null
     expiresAt = 0L
     elapsedSeconds = 0
@@ -668,8 +671,16 @@ class FocusShieldService : Service() {
    * 만료 시각(`expiresAt`)과 같은 기준이라, 다 세면 그 자리에서 서비스도 끝난다.
    *
    * 세션에 끝이 없으면(카운트업) null — 카운트업으로 그린다.
+   *
+   * ⚠️ **포그라운드에서는 구간 잔여를 센다.** 앱이 살아 있는 동안은 JS 가 경계마다 갱신을
+   *    밀어 주므로 구간이 정확하고, 무엇보다 **화면 타이머와 같은 숫자**를 말한다. 상시
+   *    알림은 앱을 보는 중에도 알림함·잠금화면에 떠 있어서, 늘 세션 전체를 세면 화면이
+   *    「25:00」인데 알림은 「1:55:00」인 어긋남이 내내 보인다(코드리뷰 13차).
+   *    전환 시점은 JS 가 정한다 — 백그라운드로 내려가며 `timerShowsSession` 을 켜서 민다.
    */
-  private fun timerRemainingSeconds(): Int? = sessionRemainingSeconds ?: remainingSeconds
+  private fun timerRemainingSeconds(): Int? =
+    if (timerShowsSession) sessionRemainingSeconds ?: remainingSeconds
+    else remainingSeconds ?: sessionRemainingSeconds
 
   private fun RemoteViews.bindTimer(viewId: Int) {
     val now = SystemClock.elapsedRealtime()
@@ -720,7 +731,8 @@ class FocusShieldService : Service() {
   private fun applyTimerState(json: String?) {
     if (json.isNullOrBlank()) {
       paused = false
-        sessionRemainingSeconds = null
+      sessionRemainingSeconds = null
+      timerShowsSession = false
       remainingSeconds = null
       expiresAt = 0L
       return
@@ -728,6 +740,7 @@ class FocusShieldService : Service() {
     runCatching {
       val obj = org.json.JSONObject(json)
       paused = obj.optBoolean("isPaused", false)
+      timerShowsSession = obj.optBoolean("timerShowsSession", false)
       sessionRemainingSeconds =
         if (obj.isNull("sessionRemainingSeconds")) null
         else obj.optInt("sessionRemainingSeconds")
@@ -742,7 +755,8 @@ class FocusShieldService : Service() {
           ?: 0L
     }.onFailure {
       paused = false
-        sessionRemainingSeconds = null
+      sessionRemainingSeconds = null
+      timerShowsSession = false
       remainingSeconds = null
       expiresAt = 0L
     }

@@ -112,6 +112,21 @@ export interface FocusActivityState {
    * iOS 는 쓰지 않는다 — Live Activity 는 실드와 별개로 돈다.
    */
   sessionRemainingSeconds: number | null;
+  /**
+   * 알림 타이머가 **세션 전체 잔여**를 세야 하는가(안드로이드 전용, 결정 D7).
+   *
+   * `sessionRemainingSeconds` 는 서비스 **만료 판정**용이라 언제나 세션 전체다. 이 값은
+   * 그와 별개로 **무엇을 보여줄지**만 가른다.
+   *
+   * - 포그라운드(`false`) — 구간 잔여를 센다. JS 가 살아 있어 경계마다 갱신을 밀어 주므로
+   *   정확하고, 화면 타이머와 같은 숫자를 말한다.
+   * - 백그라운드(`true`) — 세션 전체 잔여를 센다. JS 가 멈춰 구간 경계를 못 알려주므로,
+   *   구간을 세면 첫 구간이 끝난 뒤 `00:00` 을 지나 계속 흐른다(Chronometer 는 시스템이
+   *   돌려서 우리가 못 멈춘다).
+   *
+   * 전환은 백그라운드로 내려가는 **그 순간 한 번 더 밀어** 이뤄진다(엔진 `onAppStateChange`).
+   */
+  timerShowsSession: boolean;
   revision: number;
 }
 
@@ -198,6 +213,7 @@ const androidFallbackState: FocusActivityState = {
   elapsedSeconds: 0,
   remainingSeconds: null,
   sessionRemainingSeconds: null,
+  timerShowsSession: false,
   revision: 0,
 };
 

@@ -249,6 +249,9 @@ export function createFocusSessionEngine(
   let awayCredited = 0;
   // Live Activity revision — 단조 증가, 늦게 도착한 갱신이 최신 표시를 덮지 않게 네이티브가 비교
   let activityRevision = 0;
+  // 지금 백그라운드인가 — 안드로이드 알림 타이머가 구간/세션 중 무엇을 셀지 가른다(D7).
+  // 포그라운드에선 JS 가 경계마다 갱신을 밀어 주므로 구간 잔여가 정확하고 화면과도 맞는다.
+  let inBackground = false;
   // 이탈 타임아웃으로 abandoned를 발행한 세션 — completed 발행과 상호배타 보장(GROMO-1004)
   let abandoned = false;
   // completed를 이미 발행했는지 — 완료 게이트와 finish 두 경로의 이중 발행 방지(코덱스 리뷰)
@@ -675,6 +678,11 @@ export function createFocusSessionEngine(
       // 나감 — 타이머가 실제 돌고 있을 때만 이탈로 취급(일시정지·완료 중은 무시)
       if (state === 'background') {
         if (session.done || finished || paused) return;
+        // ⚠️ 표시 기준을 바꿔 **나가면서 한 번 더 민다**(D7). 백그라운드에선 JS 가 멈춰
+        //    구간 경계를 못 알려주므로, 구간을 세는 알림은 첫 구간이 끝난 뒤 00:00 을 지나
+        //    계속 흐른다. 이 마지막 푸시가 세션 전체 잔여로 갈아 끼운다.
+        inBackground = true;
+        ScreenTimeModule.updateFocusActivity?.(this.buildActivityState(session)).catch(() => {});
         leftAt = Date.now();
         leftPhase = session.phase;
         leftSession = session; // 리플레이 기준 스냅샷(leftAt과 짝)
@@ -689,6 +697,7 @@ export function createFocusSessionEngine(
         // 예약하지 않는다(코덱스 리뷰).
         return;
       }
+      if (state === 'active') inBackground = false; // 복귀 — 다시 구간 잔여를 센다(D7)
       if (state !== 'active' || leftAt == null) return;
 
       // 복귀 — 자리 비운 시간 계산 (leftAtMs는 리플레이 경계 시각 복원용으로 보관)
@@ -885,6 +894,8 @@ export function createFocusSessionEngine(
         // 실드를 내리고 서비스를 끝낸다. 구간 단위로 주면 백그라운드에서 다음 페이즈를 알려줄
         // 수 없어, 중간 경계에서 멈추거나(차단이 안 돌아옴) 끝나도 계속 덮는다.
         sessionRemainingSeconds: sessionRemainingSecondsOf(base),
+        // 표시 기준 — 만료 판정(`sessionRemainingSeconds`)과 별개다. 위 필드 주석 참고.
+        timerShowsSession: inBackground,
         revision: activityRevision,
       };
     },
