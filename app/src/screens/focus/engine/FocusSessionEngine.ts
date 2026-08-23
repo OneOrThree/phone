@@ -707,28 +707,14 @@ export function createFocusSessionEngine(
       //    네이티브가 정상적으로 내렸거나. **정상 만료를 장애로 오인하면** 이탈이 15초를
       //    넘었을 때 완료를 리플레이하지 않고 leave_timeout 으로 끝나, 백그라운드 진입 뒤의
       //    마지막 집중 시간까지 잃는다. 정상 만료면 실드는 걸려 있던 것으로 본다.
-      if (shielded && !ScreenTimeModule.isFocusShieldAlive()) {
-        // 네이티브가 '완료'로 끝냈어도 **JS 세션이 아직 안 끝났을 수 있다**(코드리뷰 11차).
-        //
-        // 구분자는 **휴식 중 이탈이었는가**다. 집중 중 이탈이면 아래 리플레이가 일정을 그대로
-        // 재생해 세션도 완료로 끝난다 — 네이티브와 결론이 같다. 그런데 휴식 중 이탈은 복귀
-        // 정책이 전체를 리플레이하지 않고 **다음 집중 세트 시작점에서 멈춘다.** 그러면 서비스와
-        // 차단은 끝났는데 세션만 남아, 실드를 살아 있다고 보면 **차단이 없는데 실드 세션으로
-        // 취급**돼 이후 이탈이 집중으로 적립된다.
-        // (이 시점엔 아직 리플레이 전이라 session.done 으로는 못 가른다.)
-        const completedButSessionAlive =
-          ScreenTimeModule.didFocusShieldComplete() && leftPhase === 'break';
-        if (completedButSessionAlive) {
-          // 남은 세션을 다시 보호한다 — 결과는 startFocusShield 가 정본이다.
-          setShielded(false);
-          ScreenTimeModule.startFocusShield(deps.identity().subjectName)
-            .then(setShielded)
-            .catch(() => {});
-          if (__DEV__) console.log('[이탈감지] 네이티브 만료 후 세션이 남아 실드 재시작');
-        } else if (!ScreenTimeModule.didFocusShieldComplete()) {
-          setShielded(false);
-          if (__DEV__) console.log('[이탈감지] 백그라운드 중 실드가 죽어 비실드 정책으로 되돌림');
-        }
+      const shieldDied = shielded && !ScreenTimeModule.isFocusShieldAlive();
+      // 표식이 낡은 이유가 정상 만료라면 실드는 **자리 비운 내내 걸려 있던 것이 맞다** — 지금
+      // 내리면 아래 크레딧이 사라져 백그라운드 진입 뒤의 집중 시간을 통째로 잃는다.
+      // 세션이 살아남았는지는 리플레이가 끝나야 알 수 있어, 재적용 판정은 이 함수 끝으로 미룬다.
+      const shieldCompleted = shieldDied && ScreenTimeModule.didFocusShieldComplete();
+      if (shieldDied && !shieldCompleted) {
+        setShielded(false);
+        if (__DEV__) console.log('[이탈감지] 백그라운드 중 실드가 죽어 비실드 정책으로 되돌림');
       }
       cancelLeaveNotifications().catch(() => {});
       const distractionTimedOut = leftPhase === 'focus' && !shielded && away > LEAVE_END_S;
@@ -844,8 +830,10 @@ export function createFocusSessionEngine(
       } else {
         // 휴식 중 이탈 — 벽시계만큼 휴식만 소진. 휴식이 끝나 있으면 다음 집중을 일시정지로 대기.
         const cur = session;
-        if (cur.phase !== 'break') return;
-        if (away < cur.display) {
+        // 이미 페이즈가 옮겨졌으면 소진할 휴식이 없다 — 다만 아래 실드 재판정·LA 푸시는 탄다.
+        if (cur.phase !== 'break') {
+          // 소진할 것 없음
+        } else if (away < cur.display) {
           session = { ...cur, display: cur.display - away };
           notify();
         } else {
@@ -858,6 +846,19 @@ export function createFocusSessionEngine(
           };
           notify();
         }
+      }
+      // ⚠️ 네이티브가 만료로 끝냈는데 **JS 세션이 남아 있는** 경우 — 차단이 없는데 실드 세션
+      //    대우가 이어져, 이후 이탈이 집중으로 적립된다. 남는 경로가 둘이다:
+      //    ⓐ 휴식 중 이탈 — 복귀 정책이 전체를 리플레이하지 않고 다음 집중 세트 시작점에서 멈춘다.
+      //    ⓑ 전체 일정이 8시간을 넘는 세션 — 리플레이가 AWAY_CREDIT_CAP_S 에서 멈춘다.
+      //    페이즈로 가르면 ⓑ를 놓친다(코드리뷰 12차) — 리플레이가 끝난 지금 `session.done` 으로 판정한다.
+      if (shieldCompleted && !session.done && !finished) {
+        // 남은 세션을 다시 보호한다 — 결과는 startFocusShield 가 정본이다.
+        setShielded(false);
+        ScreenTimeModule.startFocusShield(deps.identity().subjectName)
+          .then(setShielded)
+          .catch(() => {});
+        if (__DEV__) console.log('[이탈감지] 네이티브 만료 후 세션이 남아 실드 재시작');
       }
       // ⚠️ 복귀할 때마다 **상태를 다시 민다**(코드리뷰 10차). 화면의 갱신 이펙트는 paused·
       //    phase·setIndex 가 바뀔 때만 도는데, 비실드 세션의 짧은 이탈(15초 이내)은 그 셋이

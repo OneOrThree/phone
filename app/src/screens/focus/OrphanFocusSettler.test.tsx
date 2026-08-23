@@ -8,6 +8,7 @@
 import { render, act } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
+import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { OrphanFocusSettler } from './OrphanFocusSettler';
 import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker } from './pendingMarkerCancels';
@@ -26,7 +27,11 @@ jest.mock('./completionNotification', () => ({
 }));
 jest.mock('@/services/ScreenTimeModule', () => ({
   __esModule: true,
-  default: { stopFocusShield: jest.fn(() => Promise.resolve()) },
+  default: {
+    stopFocusShield: jest.fn(() => Promise.resolve()),
+    // 지난 실드가 정상 만료로 끝났는가 — 기본은 '아니오'(중단 알림 케이스가 기본값).
+    didFocusShieldComplete: jest.fn(() => false),
+  },
 }));
 jest.mock('@/store/FocusContext', () => ({
   useFocus: () => ({ addFocusSeconds: jest.fn(), ready: true }),
@@ -109,6 +114,36 @@ describe('실드 중단 알림은 조건이 둘 다 맞을 때만', () => {
     await renderSettler();
 
     expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  test('네이티브가 정상 만료로 끝냈으면 알리지 않는다', async () => {
+    // 백그라운드에서 일정이 다 끝나 네이티브가 차단을 정상 종료한 뒤, JS 가 복귀하기 전에
+    // 프로세스가 죽은 경우 — 표식을 남길 코드가 돌 기회가 없었을 뿐 차단이 끊긴 적은 없다.
+    (ScreenTimeModule.didFocusShieldComplete as jest.Mock).mockReturnValue(true);
+    await patchRecord({ shieldActive: true });
+
+    await renderSettler();
+
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  test('완료 표식은 stopFocusShield 보다 먼저 읽는다', async () => {
+    // ⚠️ stopFocusShield() 가 표식을 지운다(ScreenTimeModule.kt) — 뒤에서 읽으면 정상 만료가
+    //    늘 false 라 위 테스트가 통과해도 실기기에선 알림이 나간다.
+    const order: string[] = [];
+    (ScreenTimeModule.didFocusShieldComplete as jest.Mock).mockImplementation(() => {
+      order.push('read');
+      return false;
+    });
+    (ScreenTimeModule.stopFocusShield as jest.Mock).mockImplementation(() => {
+      order.push('stop');
+      return Promise.resolve();
+    });
+    await patchRecord({ shieldActive: true });
+
+    await renderSettler();
+
+    expect(order).toEqual(['read', 'stop']);
   });
 
   // 권한이 없어 처음부터 실드가 안 걸린 세션 — 풀릴 차단 자체가 없었다.

@@ -203,6 +203,37 @@ test('실드 해제: 레코드에 「우리가 내렸다」 표식을 남긴다'
   engine.stopTicking();
 });
 
+test('8시간 상한에 걸린 실드 세션: 네이티브가 끝나도 남은 세션을 다시 보호한다', async () => {
+  // ⚠️ 페이즈로 가르면 이 경우를 놓친다(코드리뷰 12차). 전체 일정이 8시간을 넘으면 **집중 중**
+  //    이탈이어도 리플레이가 AWAY_CREDIT_CAP_S 에서 멈춰 JS 세션에 시간이 남는다. 네이티브
+  //    서비스는 이미 만료로 끝났으므로, 실드를 살아 있다고 보면 이후 이탈이 차단 없이 집중으로
+  //    적립된다.
+  const twelveHours: SessionMachineConfig = {
+    mode: 'countdown',
+    goalSeconds: 12 * 3600,
+    pomodoro: { focusMin: 25, breakMin: 5, sets: 4 },
+  };
+  const engine = createFocusSessionEngine(twelveHours, makeDeps());
+  engine.applyShield('수학');
+  await flush();
+  engine.startTicking();
+  await advance(3000);
+
+  const mockedShield = ScreenTimeModule.startFocusShield as jest.Mock;
+  mockedShield.mockClear();
+  (ScreenTimeModule.isFocusShieldAlive as jest.Mock).mockReturnValue(false);
+  (ScreenTimeModule.didFocusShieldComplete as jest.Mock).mockReturnValue(true);
+
+  engine.onAppStateChange('background', { onLeaveTimeout: () => {} });
+  jest.setSystemTime(Date.now() + 9 * 3600_000); // 9시간 — 상한(8h)을 넘는다
+  engine.onAppStateChange('active', { onLeaveTimeout: () => {} });
+  await flush();
+
+  expect(engine.getSession().done).toBe(false); // 12시간 중 8시간만 전진 — 아직 남았다
+  expect(mockedShield).toHaveBeenCalledTimes(1); // 남은 세션을 다시 건다
+  engine.stopTicking();
+});
+
 test('실드 세션 복귀의 LA 푸시: 크레딧 전진이 **반영된 뒤** 값이다', async () => {
   // 리플레이 앞에서 밀면 크레딧 전진 전 값이 나간다. 그 복귀가 페이즈 경계를 넘지 않으면
   // 화면 이펙트도 안 돌아(phase·setIndex 그대로) 낡은 값이 그대로 남는다.

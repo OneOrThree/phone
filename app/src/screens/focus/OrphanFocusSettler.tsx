@@ -28,9 +28,15 @@ export function OrphanFocusSettler() {
   const { userId } = useUser();
   const ran = useRef(false);
 
+  // 지난 실드가 **정상 만료로** 끝났는가 — 아래 중단 알림의 억제 근거.
+  const nativeShieldCompleted = useRef(false);
+
   // 세션 중 죽었으면 실드가 켜진 채 남는다 — 정산(네트워크 대기)과 무관하게 마운트 즉시 해제(멱등).
   // 죽은 세션이 예약해둔 종료·경계 알림도 같은 이유로 OS에 남는다 — 함께 회수(GROMO-864).
   useEffect(() => {
+    // ⚠️ 완료 표식을 **stopFocusShield() 앞에서** 읽는다(코드리뷰 12차). 그 호출이 표식을
+    //    지우므로(ScreenTimeModule.kt), 뒤에서 읽으면 정상 만료를 늘 false 로 본다.
+    nativeShieldCompleted.current = ScreenTimeModule.didFocusShieldComplete();
     ScreenTimeModule.stopFocusShield().catch(() => {});
     cancelStaleCompletionNotifications().catch(() => {});
   }, []);
@@ -97,7 +103,16 @@ export function OrphanFocusSettler() {
       //    별개의 비동기 호출이라 사이가 열려 있다. 실제로 덮은 뒤 지워서 **새 세션의 복구
       //    레코드가 사라지는** 경로가 있었다. 이제 startedAt 으로 신원까지 확인한다.
 
-      if (!rec.shieldReleasedCleanly && rec.shieldActive && !rec.shieldInterruptNotified) {
+      // ⚠️ 정상 만료는 중단이 아니다(코드리뷰 12차). 백그라운드에서 일정이 다 끝나 네이티브가
+      //    차단을 정상 종료한 뒤, JS 가 복귀하기 전에 프로세스가 죽으면 레코드에는
+      //    shieldActive=true / shieldReleasedCleanly=false 가 그대로 남는다 — 표식을 남길 코드가
+      //    돌 기회가 없었을 뿐 **차단이 끊긴 적은 없다.** 네이티브 완료 표식으로 가른다.
+      if (
+        !rec.shieldReleasedCleanly &&
+        rec.shieldActive &&
+        !rec.shieldInterruptNotified &&
+        !nativeShieldCompleted.current
+      ) {
         const marked = await updateLiveSession((cur) =>
           cur && cur.startedAt === rec.startedAt ? { ...cur, shieldInterruptNotified: true } : null,
         );
