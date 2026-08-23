@@ -10,6 +10,8 @@ import { recoverFocusEngine } from './boot';
 import { readJournal } from './journal';
 import { drainWatchCommands, ackWatchCommands } from './watchInbox';
 import { markBackgroundFocusCommit } from '../pendingFocusUploads';
+import { ensureFocusTagId } from '../tagSync';
+import { currentAccountId } from '@/services/focusApi';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
 
 jest.mock('@/services/ScreenTimeModule', () => ({
@@ -23,6 +25,9 @@ jest.mock('../pendingFocusUploads', () => ({
   markBackgroundFocusCommit: jest.fn(() => Promise.resolve()),
 }));
 jest.mock('@/store/coinRefreshSignal', () => ({ requestCoinRefresh: jest.fn() }));
+jest.mock('@/services/focusApi', () => ({
+  currentAccountId: jest.fn(() => Promise.resolve('user-1')),
+}));
 jest.mock('../tagSync', () => ({
   ensureFocusTagId: jest.fn(() => Promise.resolve('tag-recovered')),
 }));
@@ -51,6 +56,7 @@ const startingSession = {
   state: 'starting',
   shieldRequested: true,
   serverSessionId: null,
+  markerBlockStartedAt: null,
   createdAt: '2026-08-22T10:00:00.000Z',
   updatedAt: '2026-08-22T10:00:00.000Z',
 };
@@ -276,12 +282,20 @@ describe('예비 intent 재생 시 보완', () => {
     // 예비 intent는 태그·마커가 미정인 채 저장된다(그 둘을 기다리기 전에 남기는 게 계약).
     // 그대로 올리면 과목별 통계에 영구 미분류로 박히고, 열린 마커도 안 닫혀 친구 화면의
     // '집중 중'이 서버 스윕까지 남는다(codex 리뷰 #694 4차).
-    await journalWith({ ...startingSession, state: 'active', serverSessionId: 'marker-live' }, [
-      staleIntent({
-        serverSessionId: null,
-        body: { subject: '수학', startedAt: 'a', endedAt: 'b', focusTagId: null },
-      }),
-    ]);
+    await journalWith(
+      {
+        ...startingSession,
+        state: 'active',
+        serverSessionId: 'marker-live',
+        markerBlockStartedAt: 'a',
+      },
+      [
+        staleIntent({
+          serverSessionId: null,
+          body: { subject: '수학', startedAt: 'a', endedAt: 'b', focusTagId: null },
+        }),
+      ],
+    );
     await recoverFocusEngine();
 
     const opts = mockedUpload.mock.calls[0][0];
@@ -296,11 +310,115 @@ describe('예비 intent 재생 시 보완', () => {
         sessionKey: 'fs-other',
         state: 'active',
         serverSessionId: 'marker-other',
+        markerBlockStartedAt: 'a',
       },
       [staleIntent({ serverSessionId: null })],
     );
     await recoverFocusEngine();
 
     expect(mockedUpload.mock.calls[0][0].sessionId).toBeNull();
+  });
+});
+
+describe('재생 전 계정·블록 대조', () => {
+  test('저장 토큰의 주인이 intent 소유자와 다르면 태그를 해석하지 않는다', async () => {
+    // ensureFocusTagId는 넘긴 userId를 캐시 구분에만 쓰고 조회·생성은 **현재 토큰**으로 한다.
+    // 계정 전환 도중 죽어 옛 intent와 새 토큰이 함께 남으면, 업로드가 거부되기 전에 이전
+    // 사용자의 과목명이 새 계정 태그로 만들어진다(codex 리뷰 #694 5차).
+    (currentAccountId as jest.Mock).mockResolvedValueOnce('user-9');
+    await journalWith(null, [
+      staleIntent({ body: { subject: '수학', startedAt: 'a', endedAt: 'b', focusTagId: null } }),
+    ]);
+    await recoverFocusEngine();
+
+    expect(ensureFocusTagId).not.toHaveBeenCalled();
+    expect(mockedUpload.mock.calls[0][0].body.focusTagId).toBeNull();
+  });
+
+  test('같은 세션이어도 마커의 블록이 다르면 가져오지 않는다 — 뽀모도로는 블록마다 회전한다', async () => {
+    // 첫 블록의 intent가 남은 뒤 다음 블록이 새 마커를 열면, sessionKey만 맞춰서는 살아 있는
+    // 새 블록의 마커를 첫 블록 바디로 종료·취소하게 된다(codex 리뷰 #694 5차).
+    await journalWith(
+      {
+        ...startingSession,
+        state: 'active',
+        serverSessionId: 'marker-2',
+        markerBlockStartedAt: 'block-2',
+      },
+      [
+        staleIntent({
+          serverSessionId: null,
+          body: { subject: '수학', startedAt: 'block-1', endedAt: 'b' },
+        }),
+      ],
+    );
+    await recoverFocusEngine();
+
+    expect(mockedUpload.mock.calls[0][0].sessionId).toBeNull();
+  });
+
+  test('alreadyEnded 재생도 잔액 갱신을 남긴다 — 서버는 이미 지급했다', async () => {
+    // PATCH 409(SESSION_ALREADY_ENDED)는 원래 요청이 커밋됐는데 응답만 유실된 경우다.
+    // 갱신 신호가 없으면 사용자는 이미 받은 코인을 다음 재조회까지 못 본다.
+    mockedUpload.mockResolvedValue({ status: 'alreadyEnded' });
+    await journalWith(null, [staleIntent()]);
+    await recoverFocusEngine();
+
+    expect(requestCoinRefresh).toHaveBeenCalled();
+    expect(markBackgroundFocusCommit).toHaveBeenCalled();
+  });
+});
+
+describe('복구가 새 세션을 침범하지 않는다', () => {
+  test('실드를 끄기 직전 저널 소유권을 다시 확인한다 — 새 세션의 실드를 풀지 않는다', async () => {
+    // v1 조회를 기다리는 사이 사용자가 새 세션을 시작하면, 무조건 정리는 방금 적용한
+    // 새 실드를 해제하고 새 저널까지 지운다(codex 리뷰 #694 5차).
+    await journalWith(startingSession, []); // 흔적 없음 + shieldRequested
+    const realRead = AsyncStorage.getItem as unknown as jest.Mock;
+    const orig = realRead.getMockImplementation();
+    let swapped = false;
+    realRead.mockImplementation(async (key: string) => {
+      const value = await (orig?.(key) ?? Promise.resolve(null));
+      // v1을 조회하는 순간 = 새 세션이 끼어드는 창
+      if (key === STORAGE_KEYS.focusSessionV1 && !swapped) {
+        swapped = true;
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.focusJournalV1,
+          JSON.stringify({
+            version: 1,
+            session: { ...startingSession, sessionKey: 'fs-new' },
+            settles: [],
+          }),
+        );
+      }
+      return value;
+    });
+    await recoverFocusEngine();
+    realRead.mockImplementation(orig ?? (() => Promise.resolve(null)));
+
+    expect(ScreenTimeModule.stopFocusShield).not.toHaveBeenCalled();
+    expect((await readJournal()).session?.sessionKey).toBe('fs-new');
+  });
+
+  test('유예 안의 starting은 남은 유예만큼 재복구를 예약한다', async () => {
+    // headless 기동엔 OrphanFocusSettler가 없어, 예약이 없으면 실드와 미완 저널이 다음 앱
+    // 실행까지 남는다(codex 리뷰 #694 5차).
+    //
+    // 모듈을 새로 적재한다 — 재시도 타이머는 모듈 상태이고 「중복 예약은 하나로 합친다」는
+    // 가드가 있어, 앞선 테스트가 남긴 타이머가 있으면 이 예약이 조용히 생략된다.
+    jest.useFakeTimers();
+    try {
+      await journalWith({ ...startingSession, createdAt: new Date().toISOString() }, []);
+      let fresh!: typeof import('./boot');
+      jest.isolateModules(() => {
+        fresh = require('./boot');
+      });
+      await fresh.recoverFocusEngine();
+
+      expect(ScreenTimeModule.stopFocusShield).not.toHaveBeenCalled(); // 유예 안 — 손대지 않는다
+      expect(jest.getTimerCount()).toBeGreaterThan(0); // 재복구가 예약됐다
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

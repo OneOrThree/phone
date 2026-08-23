@@ -413,3 +413,48 @@ test('경과 0의 finish: 정산 없이 마커 취소로 닫는다', async () =>
   expect(cancelMarker).toHaveBeenCalledWith('marker-1', 'user-1');
   engine.stopTicking();
 });
+
+describe('저널 쓰기 실패의 뒤처리', () => {
+  test('시작 의도를 못 남기면 실드를 켜지 않는다 — 회수 근거가 없는 차단을 만들지 않는다', async () => {
+    // 저널 없이 실드·커밋 흔적·마커까지 진행하면, 그 뒤 죽었을 때 부팅 복구가 남은 실드를
+    // 식별할 근거가 없어 사용자가 이유 없이 차단된 채로 남는다(codex 리뷰 #694 5차).
+    const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+    const real = setItem.getMockImplementation();
+    setItem.mockImplementation((key: string, value: string) => {
+      if (key === STORAGE_KEYS.focusJournalV1) return Promise.reject(new Error('디스크 꽉참'));
+      return real?.(key, value) ?? Promise.resolve();
+    });
+    const engine = createFocusSessionEngine(countupConfig, makeDeps());
+    await engine.start('수학');
+    await flush();
+    setItem.mockImplementation(real ?? (() => Promise.resolve()));
+
+    expect(ScreenTimeModule.startFocusShield).not.toHaveBeenCalled();
+    expect(startFocusSession).not.toHaveBeenCalled(); // 마커도 열지 않는다
+  });
+
+  test('정산 intent를 못 남기면 레코드를 settledLocally로 표시한다 — 이중 적립 방어', async () => {
+    // 레코드는 업로드 근거로 남겨야 하지만, 로컬 적립은 이미 끝났다. 표식이 없으면 다음
+    // 부팅의 고아 정산이 미적립으로 보고 같은 블록을 한 번 더 적립한다(codex 리뷰 #694 5차).
+    const engine = createFocusSessionEngine(pomodoroConfig, makeDeps());
+    await engine.start('수학');
+    engine.startTicking();
+    await advance(59_000);
+
+    const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+    const real = setItem.getMockImplementation();
+    setItem.mockImplementation((key: string, value: string) => {
+      if (key === STORAGE_KEYS.focusJournalV1) return Promise.reject(new Error('디스크 꽉참'));
+      return real?.(key, value) ?? Promise.resolve();
+    });
+    await advance(1000); // 경계 통과 → 정산
+    engine.handlePhaseTransition();
+    await flush();
+    setItem.mockImplementation(real ?? (() => Promise.resolve()));
+    engine.stopTicking();
+
+    const legacyRaw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
+    expect(legacyRaw).not.toBeNull(); // 업로드 근거로 남는다
+    expect(JSON.parse(legacyRaw!).settledLocally).toBe(true);
+  });
+});

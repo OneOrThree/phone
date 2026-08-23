@@ -21,6 +21,14 @@ export interface JournalSession {
   /** 실드 적용을 요청했는가 — write-ahead(실드 **전에** 기록)라 복구의 해제 판단 근거 */
   shieldRequested: boolean;
   serverSessionId: string | null;
+  /**
+   * 위 마커가 **어느 블록**의 것인가(그 블록의 startedAt).
+   *
+   * 뽀모도로는 블록마다 마커가 회전하므로 `serverSessionId`만으로는 소유 블록을 알 수 없다.
+   * 이게 없으면 부팅 복구가 옛 블록의 intent에 **현재 블록의 마커**를 실어, 살아 있는 새
+   * 블록의 마커를 종료·취소해 버린다(codex 리뷰 #694).
+   */
+  markerBlockStartedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,6 +109,7 @@ export function journalStartIntent(sessionKey: string): Promise<boolean> {
       state: 'starting',
       shieldRequested: true,
       serverSessionId: null,
+      markerBlockStartedAt: null,
       createdAt: now,
       updatedAt: now,
     },
@@ -118,12 +127,21 @@ export function journalActivateSession(sessionKey: string): Promise<boolean> {
   });
 }
 
-export function journalSetServerSessionId(sessionKey: string, id: string | null): Promise<boolean> {
+export function journalSetServerSessionId(
+  sessionKey: string,
+  id: string | null,
+  blockStartedAt: string | null,
+): Promise<boolean> {
   return mutate((j) => {
     if (j.session?.sessionKey !== sessionKey) return null;
     return {
       ...j,
-      session: { ...j.session, serverSessionId: id, updatedAt: new Date().toISOString() },
+      session: {
+        ...j.session,
+        serverSessionId: id,
+        markerBlockStartedAt: blockStartedAt,
+        updatedAt: new Date().toISOString(),
+      },
     };
   });
 }
