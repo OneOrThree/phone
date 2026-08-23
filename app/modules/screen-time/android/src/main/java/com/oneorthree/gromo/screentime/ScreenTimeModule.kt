@@ -57,8 +57,16 @@ class ScreenTimeModule : Module() {
      */
     private const val KEY_PREV_SELECTION_PACKAGES = "prevSelectionPackages"
     private const val KEY_SELECTION_CHANGED_DATE = "selectionChangedDate"
-    /** 미설정(=전체 앱 측정)을 보관할 때 쓰는 표식 — 빈 집합과 구분해야 한다. */
-    private const val SELECTION_NONE = "\u0000none"
+
+    /**
+     * 직전 선택이 **미설정(= 전체 앱 측정)이었는가**. 빈 집합과 뜻이 달라 따로 표시해야 한다.
+     *
+     * ⚠️ 문자열 표식으로 쓰면 안 된다(코드리뷰 7차). SharedPreferences 는 XML 로 영속화되는데
+     *    XML 1.0 은 NUL 을 직렬화하지 못한다. 표식에 NUL 을 넣으면 **같은 editor 에 담긴 새
+     *    선택과 변경일까지 통째로 디스크 쓰기가 실패해**, 프로세스 재시작 뒤 사용자가 방금 고른
+     *    대상이 사라지고 전체 앱 측정으로 되돌아간다. 별도 boolean 으로 둔다.
+     */
+    private const val KEY_PREV_SELECTION_NONE = "prevSelectionWasNone"
     // iOS의 '다음날 적용' 대기 선택 자리였다. 안드로이드는 조회 시점 재계산이라 예약이
     // 필요 없어 쓰지 않는다 — 근거는 setSelectionPackages 주석(GROMO-995).
     @Suppress("unused")
@@ -247,10 +255,8 @@ class ScreenTimeModule : Module() {
       val today = localDateKey()
       if (prefs.getString(KEY_SELECTION_CHANGED_DATE, null) != today) {
         val current = prefs.getStringSet(KEY_SELECTION_PACKAGES, null)
-        editor.putStringSet(
-          KEY_PREV_SELECTION_PACKAGES,
-          current ?: setOf(SELECTION_NONE),
-        )
+        editor.putStringSet(KEY_PREV_SELECTION_PACKAGES, current ?: emptySet())
+        editor.putBoolean(KEY_PREV_SELECTION_NONE, current == null)
         editor.putString(KEY_SELECTION_CHANGED_DATE, today)
       }
       if (packages.isEmpty()) {
@@ -427,9 +433,9 @@ class ScreenTimeModule : Module() {
     if (dayOffset >= 0) return current
     // 오늘 바꾼 적이 없으면 현재 선택이 그때도 유효했다.
     if (prefs.getString(KEY_SELECTION_CHANGED_DATE, null) != localDateKey()) return current
-    val prev = prefs.getStringSet(KEY_PREV_SELECTION_PACKAGES, null) ?: return current
-    // 보관 표식 = 그때는 미설정(전체 앱 측정)이었다.
-    return if (prev.contains(SELECTION_NONE)) null else prev
+    // 그때가 미설정이었으면 null(전체 앱 측정) — 빈 집합과 뜻이 다르다.
+    if (prefs.getBoolean(KEY_PREV_SELECTION_NONE, false)) return null
+    return prefs.getStringSet(KEY_PREV_SELECTION_PACKAGES, null) ?: current
   }
 
   /** 로컬 날짜 키(yyyy-MM-dd) — 선택 변경일 비교용. */
