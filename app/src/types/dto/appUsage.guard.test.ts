@@ -190,7 +190,9 @@ function tsSources(
   allowed: string[],
 ): { rel: string; path: string; scanned: ReturnType<typeof scan> }[] {
   const entry = join(APP, 'index.ts');
-  const files = [...walk(SRC, /\.(ts|tsx)$/), ...(existsSync(entry) ? [entry] : [])];
+  // `.js`·`.jsx` 도 본다(코드리뷰 8차) — Metro 는 그대로 번들에 넣고 package.json 의 lint
+  // 대상에도 들어 있다. TS 만 훑으면 `.js` 서비스 하나로 가드를 빠져나간다.
+  const files = [...walk(SRC, /\.(ts|tsx|js|jsx)$/), ...(existsSync(entry) ? [entry] : [])];
   return files
     .filter((f) => !allowed.some((a) => f.endsWith(a.split('/').join(sep))))
     .map((f) => ({
