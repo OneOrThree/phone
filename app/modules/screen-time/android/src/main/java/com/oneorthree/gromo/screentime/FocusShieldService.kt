@@ -168,8 +168,6 @@ class FocusShieldService : Service() {
   private var paused = false
   /** 남은 시간(초). null 이면 카운트업 모드. */
   private var remainingSeconds: Int? = null
-  /** 뽀모도로 페이즈("focus" | "break") — 알림 문구를 가른다. */
-  private var phase = "focus"
   /** 세션 전체가 끝나기까지 남은 초. null = 끝이 없다(카운트업). */
   private var sessionRemainingSeconds: Int? = null
   /**
@@ -285,7 +283,6 @@ class FocusShieldService : Service() {
     overlayFailures = 0
     tickFailures = 0
     paused = false
-    phase = "focus"
     sessionRemainingSeconds = null
     remainingSeconds = null
     expiresAt = 0L
@@ -649,19 +646,34 @@ class FocusShieldService : Service() {
    * (`./gradlew :app:properties` 로 확인).
    */
   /**
-   * 알림 요약 문구 — iOS `WidgetLiveActivity.statusLine()` 과 **같은 규칙**이다(코드리뷰 4차).
+   * 알림 요약 문구.
    *
-   * 예전엔 "집중하는 중이에요!" 로 하드코딩돼 있어서, 휴식 중이나 일시정지 중에도 잠금화면이
-   * **집중 중이라고 안내했다.** 요약 텍스트와 커스텀 뷰 둘 다 같은 값을 쓴다.
+   * ⚠️ **페이즈를 말하지 않는다**(코드리뷰 12차). 뽀모도로를 백그라운드에 둔 채 구간 끝을
+   *    지나면 JS 타이머가 멈춰 다음 상태를 못 보낸다 — `phase` 는 이탈 시점 값에 굳는데
+   *    서비스는 세션 끝까지 살아 있으므로, 실제로 휴식 중인 사용자에게 "집중하는 중이에요!"
+   *    가 그대로 남는다. 백그라운드에서 페이즈를 재현하려면 뽀모도로 상태기계를 Kotlin 에
+   *    복제해야 해서(machine.ts 와 이중 관리) 그러지 않기로 했다(D7).
+   *
+   *    대신 어느 구간이든 참인 문구만 쓴다. 일시정지는 JS 가 반드시 살아 있는 상태라(사용자가
+   *    앱에서 눌러야 한다) 그때만 구분한다.
    */
-  private fun statusLine(): String = when {
-    paused -> "잠시 멈췄어요"
-    phase == "break" -> "쉬는 중이에요!"
-    else -> "집중하는 중이에요!"
-  }
+  private fun statusLine(): String =
+    if (paused) "잠시 멈췄어요" else "집중 세션이 진행 중이에요"
+
+  /**
+   * 알림 타이머가 세는 값 — **세션 전체 잔여**다(D7).
+   *
+   * 구간 잔여(`remainingSeconds`)를 세면 백그라운드에서 첫 구간이 끝난 뒤 00:00 을 지나 계속
+   * 흐른다(Chronometer 는 시스템이 돌리므로 우리가 멈출 수 없다). 세션 전체 잔여는 서비스
+   * 만료 시각(`expiresAt`)과 같은 기준이라, 다 세면 그 자리에서 서비스도 끝난다.
+   *
+   * 세션에 끝이 없으면(카운트업) null — 카운트업으로 그린다.
+   */
+  private fun timerRemainingSeconds(): Int? = sessionRemainingSeconds ?: remainingSeconds
 
   private fun RemoteViews.bindTimer(viewId: Int) {
     val now = SystemClock.elapsedRealtime()
+    val remaining = timerRemainingSeconds()
     when {
       // 일시정지 — 멈춘 값을 그대로 둔다. started=false 면 시스템이 갱신하지 않으므로,
       // base 를 '지금 - 경과' 로 잡아 두면 그 시점 텍스트가 경과 시간으로 찍힌 채 멈춘다.
@@ -671,14 +683,14 @@ class FocusShieldService : Service() {
         //    3초 뒤 멈춘 화면이 `24:57` 이 아니라 `00:03` 으로 굳는다.
         //    iOS FocusActivityStatePayload.contentState() 의 `remainingSeconds ?? elapsedSeconds`
         //    와 같은 규칙이다.
-        val frozen = remainingSeconds ?: elapsedSeconds
+        val frozen = remaining ?: elapsedSeconds
         setChronometer(viewId, now - frozen * 1000L, null, false)
       }
-      // 카운트다운·뽀모도로 — 남은 시간을 센다. base 를 미래로 두고 countDown 을 켜면
-      // 시스템이 초당 줄여 준다(우리가 1초마다 알림을 다시 쏠 필요가 없다).
-      remainingSeconds != null -> {
+      // 끝이 있는 세션 — 남은 시간을 센다. base 를 미래로 두고 countDown 을 켜면 시스템이
+      // 초당 줄여 준다(우리가 1초마다 알림을 다시 쏠 필요가 없다).
+      remaining != null -> {
         setChronometerCountDown(viewId, true)
-        setChronometer(viewId, now + remainingSeconds!! * 1000L, null, true)
+        setChronometer(viewId, now + remaining * 1000L, null, true)
       }
       else -> {
         // 이전 상태가 카운트다운이었을 수 있어 명시적으로 끈다 — RemoteViews 는 같은 뷰를
@@ -708,8 +720,7 @@ class FocusShieldService : Service() {
   private fun applyTimerState(json: String?) {
     if (json.isNullOrBlank()) {
       paused = false
-      phase = "focus"
-      sessionRemainingSeconds = null
+        sessionRemainingSeconds = null
       remainingSeconds = null
       expiresAt = 0L
       return
@@ -717,7 +728,6 @@ class FocusShieldService : Service() {
     runCatching {
       val obj = org.json.JSONObject(json)
       paused = obj.optBoolean("isPaused", false)
-      phase = obj.optString("phase", "focus")
       sessionRemainingSeconds =
         if (obj.isNull("sessionRemainingSeconds")) null
         else obj.optInt("sessionRemainingSeconds")
@@ -732,8 +742,7 @@ class FocusShieldService : Service() {
           ?: 0L
     }.onFailure {
       paused = false
-      phase = "focus"
-      sessionRemainingSeconds = null
+        sessionRemainingSeconds = null
       remainingSeconds = null
       expiresAt = 0L
     }
