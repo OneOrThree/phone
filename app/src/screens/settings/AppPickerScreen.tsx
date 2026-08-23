@@ -157,6 +157,13 @@ export default function AppPickerScreen() {
       //    '지난 중간 동기화 행 확정'). 무조건 지우면 그 날짜의 isFinal 보고와 목표 판정이
       //    영구히 누락된다 — 지금 고르는 대상과 아무 상관 없는 과거 기록을 잃는 것이다.
       if (mode === 'measured') {
+        // 진행 중이던 동기화가 **바꾸기 전 기준의 값**을 뒤늦게 쓰는 것도 막아야 한다
+        // (코드리뷰 10차). 삭제만 하면 그 작업이 네트워크를 마치고 옛 분값을 되살린다.
+        // 변경 시각을 먼저 남겨, 그 뒤에 끝나는 동기화가 자기 값을 버리게 한다.
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.screentimeSelectionChangedAt,
+          String(Date.now()),
+        ).catch(() => {});
         await clearTodaySyncCache();
       }
       navigation.goBack();

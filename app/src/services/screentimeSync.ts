@@ -563,6 +563,10 @@ async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Pr
 
   // 오늘 사용량 중간 동기화 — 0이면 스킵: 미측정(선택 없음·첫 15분 미도달)과 구분이 안 되므로
   // 서버에 0분 행을 만들지 않는다.
+  // 측정 대상이 바뀌면 이 값은 옛 기준이 된다 — 쓰기 직전에 대조해 버린다(아래).
+  const selectionStampBefore = await AsyncStorage.getItem(
+    STORAGE_KEYS.screentimeSelectionChangedAt,
+  );
   const minutes = await ScreenTimeModule.getTodayUsageBucketMinutes();
   if (minutes <= 0) return;
   if (last && last.date === today && last.minutes === minutes) return; // 변화 없음 — 스킵
@@ -573,6 +577,13 @@ async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Pr
     reportedAt: localNoonInstant(today),
     isFinal: false, // 오늘 중간 동기화 — 서버는 total만 갱신, 달성 판정·알림 스킵
   });
+  // ⚠️ 그 사이 측정 대상이 바뀌었으면 **이 값을 쓰지 않는다**(코드리뷰 10차). 위에서 잰
+  //    분값은 바꾸기 전 기준이라, 여기서 쓰면 피커가 방금 지운 캐시를 되살린다. 그러면 다음날
+  //    마감의 Math.max 가 그 옛 값을 채택해 최종 사용량과 목표 판정을 잘못 확정한다.
+  //    (서버 중간 보고는 이미 나갔지만 isFinal:false 라 다음날 마감이 새 기준으로 덮는다.)
+  const selectionStampAfter = await AsyncStorage.getItem(STORAGE_KEYS.screentimeSelectionChangedAt);
+  if (selectionStampAfter !== selectionStampBefore) return;
+
   // 오늘 유효 목표를 함께 기록 — 내일 어제분 마감이 '어제 목표'로 판정하게 한다(GROMO-942, 코드리뷰).
   await writeSyncState({ userId, date: today, minutes, goalSeconds });
 }
