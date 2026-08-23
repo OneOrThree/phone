@@ -96,10 +96,15 @@ function foldConcat(node: ts.Node): string | null {
   return null;
 }
 
-function scan(code: string, fileName: string): { specifiers: string[]; literals: string[] } {
+function scan(
+  code: string,
+  fileName: string,
+): { specifiers: string[]; literals: string[]; names: string[] } {
   const source = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, false);
   const specifiers: string[] = [];
   const literals: string[] = [];
+  // 속성·변수 **이름**. 앱별 데이터의 표식(packageName)은 문자열이 아니라 식별자로 등장한다.
+  const names: string[] = [];
 
   const visit = (node: ts.Node): void => {
     // import/export 선언의 모듈 지정자
@@ -151,10 +156,17 @@ function scan(code: string, fileName: string): { specifiers: string[]; literals:
     ) {
       literals.push((node as ts.LiteralLikeNode).text);
     }
+    // ⚠️ JSDoc 은 forEachChild 로 안 내려간다(코드리뷰 11차). `.js` 파일에서
+    //    `@typedef {import('@/types/dto/appUsage').X}` 로 요청 타입을 참조하는 건 유효한
+    //    방법인데, 그 ImportTypeNode 는 별도 트리에 있어 위 분기가 아예 안 돈다.
+    //    `.js`·`.jsx` 를 검사 대상에 넣었으니 이쪽도 봐야 짝이 맞는다.
+    if (ts.isIdentifier(node)) names.push(node.text);
+    const jsDoc = (node as ts.Node & { jsDoc?: ts.Node[] }).jsDoc;
+    if (jsDoc) jsDoc.forEach(visit);
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return { specifiers, literals };
+  return { specifiers, literals, names };
 }
 
 /**
@@ -232,6 +244,27 @@ test('앱별 사용 시간 DTO는 아직 어디에서도 쓰이지 않는다 (�
 //    거기서 HttpURLConnection 으로 바로 쏘면 TS 검사는 전부 통과한다 — '전송 자체를 막는다'는
 //    가드가 데이터 발생 지점을 못 지키는 셈이다. Kotlin 은 파서가 없어 원문을 훑는다.
 //    주석에 이 경로를 적어도 걸리는데, 그건 받아들인다 — 왜 여기 있는지 한 번 보는 게 낫다.
+// 예정 경로만 막으면 **기존 경로로 새어 나간다**(코드리뷰 11차). `screentimeApi.saveScreenTime()`
+// 이 매일 `/api/v1/screen-time` 으로 보고하는데, 그 본문에 앱별 `packageName`·`seconds` 배열을
+// 인라인으로 얹으면 DTO 도 안 쓰고 `app-usage` 문자열도 안 만들어 두 가드가 다 통과한다.
+//
+// 앱별 데이터의 표식은 **패키지명**이다 — 그게 기존 스크린타임 전송 경로에 등장하면 잠근다.
+// (`getUsageByApp`·피커처럼 패키지를 다루는 곳은 많지만, 그 경로들은 서버로 안 보낸다.)
+test('기존 스크린타임 전송 경로에 앱별 데이터가 섞이지 않는다 (서버 미전송 고지 보호)', () => {
+  const senders = ['services/screentimeApi.ts', 'services/screentimeSync.ts'];
+  const offenders = senders
+    .map((rel) => ({ rel, path: join(SRC, ...rel.split('/')) }))
+    .filter(({ path }) => existsSync(path))
+    .filter(({ path }) => {
+      const { literals, names } = scan(readFileSync(path, 'utf8'), path);
+      // 식별자와 문자열 양쪽을 본다 — `{ packageName }` 은 식별자, `['packageName']` 은 문자열.
+      return [...literals, ...names].some((t) => t.includes('packageName'));
+    })
+    .map(({ rel }) => rel);
+
+  expect(offenders).toEqual([]);
+});
+
 test('앱별 사용 시간 엔드포인트를 호출하는 코드가 없다 (서버 미전송 고지 보호)', () => {
   // ⚠️ 여기엔 이 테스트 파일만 뺀다 — **DTO 정의 파일은 뺴지 않는다**(코드리뷰 6차).
   //    거기에 reportAppUsage() 를 같이 넣으면 파일째 제외돼 전송이 그대로 통과한다.
