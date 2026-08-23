@@ -110,6 +110,16 @@ function scan(code: string, fileName: string): { specifiers: string[]; literals:
     ) {
       specifiers.push(node.moduleSpecifier.text);
     }
+    // `import X = require('...')` — 이것도 CallExpression 이 아니라 별도 노드 쌍
+    // (ImportEqualsDeclaration + ExternalModuleReference)이라 어느 분기에도 안 걸렸다.
+    // 이 구문으로 DTO 를 요청 타입으로 써도 가드가 통과했다(코드리뷰 7차).
+    if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      ts.isStringLiteral(node.moduleReference.expression)
+    ) {
+      specifiers.push(node.moduleReference.expression.text);
+    }
     // `type X = import('...').Y` — 유효한 TS 문법인데 CallExpression 이 아니라 별도 노드다.
     // 이걸 빼면 DTO 를 서비스의 요청 타입으로 그대로 쓰면서도 가드를 통과한다(코드리뷰 4차).
     if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
