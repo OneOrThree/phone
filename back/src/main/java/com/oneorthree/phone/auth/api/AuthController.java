@@ -1,5 +1,6 @@
 package com.oneorthree.phone.auth.api;
 
+import com.oneorthree.phone.auth.api.docs.AuthControllerDocs;
 import com.oneorthree.phone.auth.dto.rep.AppleLoginRequest;
 import com.oneorthree.phone.auth.dto.rep.LogoutRequest;
 import com.oneorthree.phone.auth.dto.rep.SocialLoginRequest;
@@ -11,10 +12,6 @@ import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.service.GuestLoginRateLimiter;
 import com.oneorthree.phone.common.util.ClientIpResolver;
 import com.oneorthree.phone.user.domain.Provider;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -24,24 +21,19 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "auth", description = "인증 관련 API")
+/**
+ * 인증 API. Swagger 애노테이션은 {@link AuthControllerDocs} 로 분리했다(GROMO-1621).
+ */
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-public class AuthController {
+public class AuthController implements AuthControllerDocs {
 
     private final AuthService authService;
     private final ClientIpResolver clientIpResolver;
     private final GuestLoginRateLimiter guestLoginRateLimiter;
 
-    @Operation(summary = "구글 로그인", description = "Google id_token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "유효하지 않은 Google 토큰"),
-        @ApiResponse(responseCode = "409",
-                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
-                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
-    })
+    @Override
     @PostMapping("/auth/google")
     public ResponseEntity<SocialLoginResponse> googleLogin(
             @RequestBody SocialLoginRequest request,
@@ -49,14 +41,7 @@ public class AuthController {
         return ResponseEntity.ok(authService.socialLogin(Provider.GOOGLE, request.token(), authorization));
     }
 
-    @Operation(summary = "라인 로그인", description = "LINE Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "유효하지 않은 LINE 토큰"),
-        @ApiResponse(responseCode = "409",
-                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
-                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
-    })
+    @Override
     @PostMapping("/auth/line")
     public ResponseEntity<SocialLoginResponse> lineLogin(
             @RequestBody SocialLoginRequest request,
@@ -64,14 +49,7 @@ public class AuthController {
         return ResponseEntity.ok(authService.socialLogin(Provider.LINE, request.token(), authorization));
     }
 
-    @Operation(summary = "인스타그램 로그인", description = "Instagram Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "유효하지 않은 Instagram 토큰"),
-        @ApiResponse(responseCode = "409",
-                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
-                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
-    })
+    @Override
     @PostMapping("/auth/instagram")
     public ResponseEntity<SocialLoginResponse> instagramLogin(
             @RequestBody SocialLoginRequest request,
@@ -79,15 +57,7 @@ public class AuthController {
         return ResponseEntity.ok(authService.socialLogin(Provider.INSTAGRAM, request.token(), authorization));
     }
 
-    @Operation(summary = "페이스북 로그인",
-            description = "Facebook(Meta) Limited Login id_token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "유효하지 않은 Facebook 토큰"),
-        @ApiResponse(responseCode = "409",
-                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
-                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
-    })
+    @Override
     @PostMapping("/auth/facebook")
     public ResponseEntity<SocialLoginResponse> facebookLogin(
             @RequestBody SocialLoginRequest request,
@@ -95,14 +65,7 @@ public class AuthController {
         return ResponseEntity.ok(authService.socialLogin(Provider.FACEBOOK, request.token(), authorization));
     }
 
-    @Operation(summary = "카카오 로그인", description = "카카오 Access Token → AT + RT 발급. 최초 로그인 시 isNewUser=true.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "유효하지 않은 카카오 토큰"),
-        @ApiResponse(responseCode = "409",
-                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
-                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
-    })
+    @Override
     @PostMapping("/auth/kakao")
     public ResponseEntity<SocialLoginResponse> kakaoLogin(
             @RequestBody SocialLoginRequest request,
@@ -110,14 +73,7 @@ public class AuthController {
         return ResponseEntity.ok(authService.socialLogin(Provider.KAKAO, request.token(), authorization));
     }
 
-    @Operation(summary = "애플 로그인", description = "Apple Identity Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "Identity Token 검증 실패"),
-        @ApiResponse(responseCode = "409",
-                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
-                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
-    })
+    @Override
     @PostMapping("/auth/apple")
     public ResponseEntity<SocialLoginResponse> appleLogin(
             @RequestBody AppleLoginRequest request,
@@ -125,12 +81,7 @@ public class AuthController {
         return ResponseEntity.ok(authService.socialLogin(Provider.APPLE, request.identityToken(), authorization));
     }
 
-    @Operation(summary = "게스트 로그인", description = "소셜 계정 없이 임시 사용자 생성. 일부 기능(그룹 생성·챌린지 참여 등) 제한 적용.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "게스트 로그인 성공"),
-        @ApiResponse(responseCode = "429",
-                description = "IP 당 게스트 생성 한도 초과(GUEST_CREATION_RATE_LIMITED) — 잠시 후 재시도")
-    })
+    @Override
     @PostMapping("/auth/guest")
     public ResponseEntity<GuestLoginResponse> guestLogin(HttpServletRequest request) {
         // 인증이 없는 유일한 계정 생성 경로라 IP 단위 생성 제한을 먼저 태운다 (GROMO-1510)
@@ -138,21 +89,13 @@ public class AuthController {
         return ResponseEntity.ok(authService.guestLogin());
     }
 
-    @Operation(summary = "토큰 갱신", description = "Refresh Token → 새 Access Token 발급. RT는 갱신되지 않음.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "토큰 갱신 성공"),
-        @ApiResponse(responseCode = "401", description = "유효하지 않은 Refresh Token")
-    })
+    @Override
     @PostMapping("/auth/refresh")
     public ResponseEntity<TokenRefreshResponse> refreshToken(@RequestBody TokenRefreshRequest request) {
         return ResponseEntity.ok(authService.refreshToken(request.refreshToken()));
     }
 
-    @Operation(summary = "로그아웃", description = "Refresh Token 무효화. 클라이언트는 로컬 토큰도 삭제해야 함.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "204", description = "로그아웃 성공"),
-        @ApiResponse(responseCode = "400", description = "유효하지 않은 Refresh Token")
-    })
+    @Override
     @PostMapping("/auth/logout")
     public ResponseEntity<Void> logout(@RequestBody LogoutRequest request) {
         authService.logout(request.refreshToken());

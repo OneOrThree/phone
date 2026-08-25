@@ -1,6 +1,7 @@
 package com.oneorthree.phone.invitelink.api;
 
 import com.oneorthree.phone.common.util.ClientIpResolver;
+import com.oneorthree.phone.invitelink.api.docs.LinkPublicControllerDocs;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
 import com.oneorthree.phone.invitelink.dto.InviteMatchResponse;
@@ -11,8 +12,6 @@ import com.oneorthree.phone.invitelink.service.InviteLinkService;
 import com.oneorthree.phone.invitelink.support.InviteLinkUrls;
 import com.oneorthree.phone.invitelink.support.IpHasher;
 import com.oneorthree.phone.invitelink.support.LandingRenderer;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -30,12 +29,13 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>{@code JwtFilter}·{@code TraceIdFilter} 는 {@code /api/*} 에만 등록돼 있어 이 경로는 인증 없이 열린다
  * (의도된 설계 — 도달하는 사람은 아직 우리 유저가 아니다).
+ *
+ * <p>Swagger 애노테이션은 {@link LinkPublicControllerDocs} 로 분리했다(GROMO-1621).
  */
 @RestController
 @RequiredArgsConstructor
 @Slf4j
-@Tag(name = "InviteLink(public)", description = "무인증 초대 링크 — 랜딩·deferred 매치")
-public class LinkPublicController {
+public class LinkPublicController implements LinkPublicControllerDocs {
 
     private static final String HTML_UTF8 = MediaType.TEXT_HTML_VALUE + ";charset=UTF-8";
 
@@ -53,7 +53,7 @@ public class LinkPublicController {
      * <p>302 로 스토어에 보내지 않는 이유: 도달자는 미설치 유저·카톡 인앱브라우저·OG 스크레이퍼 셋인데
      * 리다이렉트는 뒤의 둘을 망가뜨린다(인앱브라우저는 스킴 점프 기회를 잃고, 스크레이퍼는 미리보기를 못 만든다).
      */
-    @Operation(summary = "초대 랜딩", description = "만료·미존재 slug 도 200 HTML(만료 변형)")
+    @Override
     @GetMapping(value = "/l/{slug}", produces = HTML_UTF8)
     public ResponseEntity<String> landing(@PathVariable String slug, HttpServletRequest request) {
         LandingView view = inviteLinkService.resolveLanding(slug);
@@ -72,7 +72,7 @@ public class LinkPublicController {
      * <p>실패도 200 {@code {"matched": false}} 다. 앱은 "서버 응답을 받았다"를 기준으로 확인 완료
      * 플래그를 세우므로, 4xx/5xx 로 내려가면 매 실행 재시도가 돈다.
      */
-    @Operation(summary = "deferred 매치", description = "IP해시+OS+시간창 fingerprint 로 미소진 클릭 1건을 원자적으로 소진")
+    @Override
     @PostMapping(value = "/l/match", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<InviteMatchResponse> match(
             @Valid @RequestBody InviteMatchRequest request,
