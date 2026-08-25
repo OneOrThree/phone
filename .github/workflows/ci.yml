@@ -5,17 +5,24 @@ on:
     branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 prod-ci가 test를 직접 호출
     paths:
       - "back/**"
+      - "docker-compose.dev.yml"
+      - "docker-compose.datadog.yml"
       # CI 자신과 CI 가 호출하는 워크플로도 트리거에 넣는다. 안 넣으면 이 파일들만
       # 고치는 PR 에서 정작 CI 가 안 돌아 **머지해 봐야** 맞는지 안다 (GROMO-1515).
       - ".github/workflows/ci.yml"
       - ".github/workflows/test-backend.yml"
       - ".github/workflows/check-style-backend.yml"
       - ".github/workflows/spot-bugs.yml"
+      - ".github/workflows/cd.yml"
   workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back
 
 jobs:
   checkstyle:
@@ -27,21 +34,45 @@ jobs:
   test:
     uses: ./.github/workflows/test-backend.yml
 
-  # 이미지가 실제로 빌드되는지 PR 시점에 확인하고, 같은 김에 GAR 캐시를 채운다.
-  # push는 하지 않는다 — dev 태그는 latest 하나뿐이라 PR 빌드가 올라가면
-  # 머지되지도 않은 이미지가 배포 대상 태그를 덮어쓴다.
-  # prod-ci가 PR에서 push: false로 빌드만 하고 cache-to는 그대로 두는 것과 같은 모양이다.
-  #
-  # 여기서 채운 cache-amd64를 머지 후 cd.yml의 build job이 그대로 받으므로,
-  # 실제 배포 빌드가 콜드에서 시작하지 않는다.
+  # backend 검사를 모두 통과한 PR merge-ref를 한 번만 빌드해 GAR에 올린다.
+  # PR 번호는 사람이 찾는 키, head SHA는 같은 PR의 이미지 버전을 구분하는 키다.
+  # 수동 실행은 PR 문맥이 없으므로 기존처럼 build/cache만 수행한다.
   build:
-    name: 이미지 빌드 검증 · 캐시 적재
+    name: Dev 이미지 빌드 · GAR push
+    needs: [checkstyle, spotbugs, test]
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 30
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - name: 이미지 태그 계산
+        id: image
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          REVISION="$GITHUB_SHA"
+          IMAGE_TAG="$APP_IMAGE_REPOSITORY:manual-$GITHUB_SHA"
+          PUSH=false
+
+          if [ "$EVENT_NAME" = pull_request ]; then
+            [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+            [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+            REVISION="$PR_HEAD_SHA"
+            IMAGE_TAG="$APP_IMAGE_REPOSITORY:pr-$PR_NUMBER-$PR_HEAD_SHA"
+            PUSH=true
+          fi
+
+          {
+            echo "tag=$IMAGE_TAG"
+            echo "revision=$REVISION"
+            echo "back_tree=$(git rev-parse HEAD:back)"
+            echo "push=$PUSH"
+          } >> "$GITHUB_OUTPUT"
 
       # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud도 키 파일도 필요 없다
       - name: GAR 인증
@@ -50,19 +81,43 @@ jobs:
           curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
             "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
           | jq -er .access_token \
-          | docker login -u oauth2accesstoken --password-stdin asia-northeast3-docker.pkg.dev
+          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: 빌드 (push 없음, 캐시만 적재)
+      - name: 이미지 빌드 및 push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ./back
           file: ./back/Dockerfile
-          push: false
+          platforms: linux/amd64
+          push: ${{ steps.image.outputs.push }}
           provenance: false
+          tags: ${{ steps.image.outputs.tag }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.image.outputs.revision }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            com.oneorthree.back.source-tree=${{ steps.image.outputs.back_tree }}
           cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64
           cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64,mode=max
+
+      - name: 결과 요약
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          PUSH: ${{ steps.image.outputs.push }}
+        run: |
+          if [ "$PUSH" = true ]; then
+            [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+            {
+              echo "### Dev PR 이미지 push 완료 :rocket:"
+              echo "- 태그: \`$IMAGE_TAG\`"
+              echo "- digest: \`$IMAGE_DIGEST\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### 수동 이미지 build · cache 검증 완료 (push 없음)" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   pr-report:
     needs: [checkstyle, spotbugs, test, build]

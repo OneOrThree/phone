@@ -1,13 +1,7 @@
-# GROMO dev 서버 — CD (이미지 빌드 → GAR push → 앱 서버 배포)
+# GROMO dev 서버 — CD (PR 이미지 조회 → digest 고정 → 앱 서버 배포)
 #
-# 구조는 prod(prod-ci → prod-cd)와 같다: CI가 이미지를 만들어 레지스트리에 올리고,
-# CD가 그걸 받아 배포한다. 예전에는 dev 서버 한 대가 빌드와 실행을 겸해서
-# 레지스트리를 거치지 않았는데, 러너를 빌드 서버로 분리하면서 통로가 필요해졌다.
-#
-# prod와 다른 점 — dev는 프로덕션이 아니라 롤백하지 않는다:
-#   - 태그가 latest 하나뿐이다. SHA·SemVer 태그를 남기지 않는다.
-#   - 따라서 이전 이미지로 되돌릴 수 없고, 복구는 재빌드가 유일한 경로다.
-#   - 레지스트리도 ECR이 아니라 GAR을 쓴다(러너와 같은 리전이라 왕복이 없다).
+# PR CI가 merge-ref를 back:pr-<PR 번호>-<head SHA>로 GAR에 올린다.
+# main push에서는 해당 PR 태그를 찾아 digest로 고정하고, 재빌드 없이 배포한다.
 
 name: CD
 
@@ -16,6 +10,10 @@ on:
     branches: [main]
     paths:
       - "back/**"
+      - "docker-compose.dev.yml"
+      - "docker-compose.datadog.yml"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/cd.yml"
   workflow_dispatch:
 
 concurrency:
@@ -24,24 +22,57 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 env:
   AWS_REGION: ap-northeast-2
   AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
   ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
-  APP_IMAGE: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest
+  APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back
   RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
 
 jobs:
-  build:
-    name: 빌드 · GAR push
+  image:
+    name: merged PR 이미지 조회
     runs-on: [self-hosted, ci, spot]
-    timeout-minutes: 30 # self-hosted 기본 360분 — 러너 장기 점유 방지
+    timeout-minutes: 10
     outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
+      image-digest: ${{ steps.image.outputs.digest }}
+      pr-head-sha: ${{ steps.pr.outputs.head_sha }}
     steps:
       - uses: actions/checkout@v4
+
+      # prod-ci가 release SHA를 태그로 쓰는 것과 같은 방식이다. dev는 PR에서 이미지를
+      # 만들었으므로 main SHA에 연결된 PR 번호와 최종 head SHA를 한 번 역조회한다.
+      - name: main SHA에 연결된 merged PR 조회
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PULLS_JSON=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls")
+          PR_JSON=$(jq -cer --arg main_sha "$GITHUB_SHA" '
+            [.[] | select(
+              .base.ref == "main" and
+              .merged_at != null and
+              .merge_commit_sha == $main_sha
+            )]
+            | if length == 1 then .[0]
+              else error("main SHA에 연결된 merged PR이 정확히 하나여야 합니다")
+              end
+          ' <<< "$PULLS_JSON")
+
+          PR_NUMBER=$(jq -er '.number' <<< "$PR_JSON")
+          PR_HEAD_SHA=$(jq -er '.head.sha' <<< "$PR_JSON")
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          {
+            echo "number=$PR_NUMBER"
+            echo "head_sha=$PR_HEAD_SHA"
+            echo "tag=$APP_IMAGE_REPOSITORY:pr-$PR_NUMBER-$PR_HEAD_SHA"
+          } >> "$GITHUB_OUTPUT"
 
       # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud도 키 파일도 필요 없다
       - name: GAR 인증
@@ -54,34 +85,44 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: 이미지 빌드 및 push
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: ./back
-          file: ./back/Dockerfile
-          push: true
-          # platforms 미지정 = 러너 네이티브(amd64). prod는 t4g라 arm64를 명시하지만
-          # dev 앱 서버도 같은 amd64라 맞출 필요가 없다.
-          provenance: false # attestation 매니페스트(태그 없는 이미지) 생성 방지
-          tags: ${{ env.APP_IMAGE }}
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          # 캐시는 러너와 같은 리전의 GAR(ci-cache)를 사용한다.
-          # prod의 arm64 캐시와 태그를 분리해 아키텍처별 캐시를 덮어쓰지 않는다.
-          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64
-          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64,mode=max
+      # 태그는 이미지를 찾을 때만 사용한다. 실제 배포 값은 여기서 해석한 digest다.
+      - name: PR 이미지 digest 조회 · source 확인
+        id: image
+        env:
+          IMAGE_TAG: ${{ steps.pr.outputs.tag }}
+          PR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          MANIFEST_JSON=$(docker buildx imagetools inspect "$IMAGE_TAG" --format '{{json .Manifest}}')
+          IMAGE_DIGEST=$(jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<< "$MANIFEST_JSON")
+          IMAGE_JSON=$(docker buildx imagetools inspect \
+            "$APP_IMAGE_REPOSITORY@$IMAGE_DIGEST" --format '{{json .Image}}')
+
+          test "$(jq -er '.architecture' <<< "$IMAGE_JSON")" = amd64
+          test "$(jq -er '.config.Labels["org.opencontainers.image.revision"]' \
+            <<< "$IMAGE_JSON")" = "$PR_HEAD_SHA"
+          test "$(jq -er '.config.Labels["com.oneorthree.back.source-tree"]' \
+            <<< "$IMAGE_JSON")" = "$(git rev-parse HEAD:back)"
+          echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: 결과 요약
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          IMAGE_TAG: ${{ steps.pr.outputs.tag }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
-          echo "### dev 이미지 push 완료 :rocket:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.APP_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 태그는 latest 단일 — 롤백 불가(재빌드로만 복구)" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "### Dev 배포 이미지 확인 완료"
+            echo "- PR: \`#$PR_NUMBER\`"
+            echo "- PR head SHA: \`$PR_HEAD_SHA\`"
+            echo "- 태그: \`$IMAGE_TAG\`"
+            echo "- 배포 digest: \`$IMAGE_DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     name: 앱 서버 배포
-    needs: build
+    needs: image
     runs-on: [self-hosted, dev]
     environment: production
     timeout-minutes: 20
@@ -107,17 +148,16 @@ jobs:
       # dev-monitor/dev-datadog도 같은 0600 파일을 --env-file로 명시해 사용한다.
       - name: 런타임 값 로드 (Secrets Manager → checkout 외부 env)
         env:
-          IMAGE_DIGEST: ${{ needs.build.outputs.image-digest }}
+          IMAGE_DIGEST: ${{ needs.image.outputs.image-digest }}
         run: |
           set -euo pipefail
-          test -n "$IMAGE_DIGEST"
-          IMAGE_REPOSITORY="${APP_IMAGE%:*}"
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           aws secretsmanager get-secret-value \
             --secret-id "$ENV_SECRET_ID" \
             --query SecretString --output text \
           | python3 .github/scripts/write-compose-env.py \
               --output "$RUNTIME_ENV_FILE" \
-              --app-image "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+              --app-image "$APP_IMAGE_REPOSITORY@$IMAGE_DIGEST"
 
       - name: GAR 인증
         run: |
@@ -131,8 +171,8 @@ jobs:
         env:
           DD_API_KEY: ${{ secrets.DD_API_KEY }}
           DD_SITE: us5.datadoghq.com
-          IMAGE_VERSION: ${{ github.sha }}
-          IMAGE_REVISION: ${{ github.sha }}
+          IMAGE_VERSION: ${{ needs.image.outputs.pr-head-sha }}
+          IMAGE_REVISION: ${{ needs.image.outputs.pr-head-sha }}
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
@@ -151,8 +191,8 @@ jobs:
         env:
           DD_API_KEY: ${{ secrets.DD_API_KEY }}
           DD_SITE: us5.datadoghq.com
-          IMAGE_VERSION: ${{ github.sha }}
-          IMAGE_REVISION: ${{ github.sha }}
+          IMAGE_VERSION: ${{ needs.image.outputs.pr-head-sha }}
+          IMAGE_REVISION: ${{ needs.image.outputs.pr-head-sha }}
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
