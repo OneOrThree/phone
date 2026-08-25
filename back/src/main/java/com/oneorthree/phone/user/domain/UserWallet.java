@@ -33,8 +33,10 @@ public class UserWallet {
     @Builder.Default
     private int balance = 0;
 
-    // GROMO-671: dbml 은 version 을 누락했으나, spendCurrency 동시성(이중 차감) 방지에 낙관락이 필요해 유지.
-    // 대체 동시성 전략(비관락 등)이 정해지기 전까지 드롭하지 않는다.
+    /**
+     * GROMO-671: dbml 은 version 을 누락했으나, spendCurrency 동시성(이중 차감) 방지에 낙관락이 필요해 유지.
+     * 대체 동시성 전략(비관락 등)이 정해지기 전까지 드롭하지 않는다.
+     */
     @Version
     @Builder.Default
     private Long version = 0L;
@@ -42,8 +44,10 @@ public class UserWallet {
     @UpdateTimestamp
     private Instant updatedAt;
 
-    // 소프트 딜리트 컬럼 — 스키마 정합용(GROMO-561). 현재 withdraw()는 하드 삭제(deleteById)이며,
-    // 재화 이력 보존을 위한 소프트 딜리트 전환·조회 필터는 후속 티켓 범위. 아직 세팅/필터 배선 없음.
+    /**
+     * 소프트 딜리트 컬럼 — 스키마 정합용(GROMO-561). 현재 withdraw()는 하드 삭제(deleteById)이며,
+     * 재화 이력 보존을 위한 소프트 딜리트 전환·조회 필터는 후속 티켓 범위. 아직 세팅/필터 배선 없음.
+     */
     private Instant deletedAt;
 
     public void earn(int amount) {

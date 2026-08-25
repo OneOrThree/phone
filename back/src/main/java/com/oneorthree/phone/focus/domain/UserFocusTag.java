@@ -47,12 +47,16 @@ public class UserFocusTag {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    // 태그 정체성 — 마스터(default_tags) 참조. name 은 여기서 조회.
+    /**
+     * 태그 정체성 — 마스터(default_tags) 참조. name 은 여기서 조회.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "default_tag_id", nullable = false)
     private DefaultTag defaultTag;
 
-    // 출처(nullable) — occupation 추천에서 채택했다면 어느 추천 행에서 왔는지. 커스텀 태그면 null.
+    /**
+     * 출처(nullable) — occupation 추천에서 채택했다면 어느 추천 행에서 왔는지. 커스텀 태그면 null.
+     */
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "source_occupation_default_tag_id")
     private OccupationDefaultTag sourceOccupationDefaultTag;
@@ -60,7 +64,9 @@ public class UserFocusTag {
     @CreationTimestamp
     private Instant createdAt;
 
-    // 소프트 딜리트 — focus_sessions.focus_tag_id 가 이 행을 참조하므로 하드 삭제 대신 소프트 딜리트.
+    /**
+     * 소프트 딜리트 — focus_sessions.focus_tag_id 가 이 행을 참조하므로 하드 삭제 대신 소프트 딜리트.
+     */
     private Instant deletedAt;
 
     public void softDelete() {

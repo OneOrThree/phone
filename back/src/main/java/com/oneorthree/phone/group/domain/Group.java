@@ -48,12 +48,16 @@ public class Group {
     @Builder.Default
     private GroupStatus status = GroupStatus.WAITING;
 
-    // 공개/비공개 구분 — true 면 이름 검색에서 제외되고 초대 링크(groupId)로만 참여한다.
+    /**
+     * 공개/비공개 구분 — true 면 이름 검색에서 제외되고 초대 링크(groupId)로만 참여한다.
+     */
     @Column(name = "is_private", nullable = false)
     @Builder.Default
     private boolean isPrivate = false;
 
-    // GROMO-671: dbml 은 version 을 누락했으나 낙관락(동시성)이 필요해 유지(UserWallet 과 동일 판단).
+    /**
+     * GROMO-671: dbml 은 version 을 누락했으나 낙관락(동시성)이 필요해 유지(UserWallet 과 동일 판단).
+     */
     @Version
     private Long version;
 
@@ -113,7 +117,9 @@ public class Group {
         }
     }
 
-    // GROMO-676: 챌린지 생명주기(started/ended_at)는 group_challenges 소유 — 그룹 종료는 status 만 전이한다.
+    /**
+     * GROMO-676: 챌린지 생명주기(started/ended_at)는 group_challenges 소유 — 그룹 종료는 status 만 전이한다.
+     */
     public void close() {
         this.status = GroupStatus.ENDED;
     }

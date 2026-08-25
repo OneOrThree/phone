@@ -41,7 +41,9 @@ public class LeagueRankSnapshot {
     @Column(nullable = false)
     private int rank;
 
-    // 스냅샷을 찍은 KST 캘린더 날짜 — 어제(created_at = 어제)와 오늘 비교의 키 (구 captured_on, 날짜 타입 유지)
+    /**
+     * 스냅샷을 찍은 KST 캘린더 날짜 — 어제(created_at = 어제)와 오늘 비교의 키 (구 captured_on, 날짜 타입 유지)
+     */
     @Column(name = "created_at", nullable = false)
     private LocalDate createdAt;
 }

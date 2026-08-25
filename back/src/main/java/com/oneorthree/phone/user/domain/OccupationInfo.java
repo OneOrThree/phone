@@ -34,7 +34,9 @@ import java.time.Instant;
 @AllArgsConstructor
 public class OccupationInfo {
 
-    // enum 을 PK 로 — @Enumerated(STRING) 로 code 컬럼에 enum name 저장 (users.occupation 과 동일 표현).
+    /**
+     * enum 을 PK 로 — @Enumerated(STRING) 로 code 컬럼에 enum name 저장 (users.occupation 과 동일 표현).
+     */
     @Id
     @Enumerated(EnumType.STRING)
     @Column(name = "code")

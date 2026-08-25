@@ -13,12 +13,16 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserProfileSetupRequest {
-    // 온보딩 시 닉네임 필수 — 로그인 후 반드시 입력 (GROMO-584)
+    /**
+     * 온보딩 시 닉네임 필수 — 로그인 후 반드시 입력 (GROMO-584)
+     */
     @NotBlank
     String nickname;
     Occupation occupation;
 
-    // 목표 상한 24h(GROMO-1049) — 전용 갱신 API와 같은 제약을 온보딩 경로에도 건다.
+    /**
+     * 목표 상한 24h(GROMO-1049) — 전용 갱신 API와 같은 제약을 온보딩 경로에도 건다.
+     */
     @PositiveOrZero
     @Max(value = 24 * 60, message = "하루 24시간을 넘을 수 없습니다")
     int dailyScreenTimeGoalMinutes;

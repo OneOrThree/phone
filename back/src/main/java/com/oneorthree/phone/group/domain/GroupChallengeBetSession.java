@@ -67,12 +67,16 @@ public class GroupChallengeBetSession {
     @JoinColumn(name = "bet_id", nullable = false)
     private GroupChallengeBet bet;
 
-    // 내역이 그룹 소유라(챌린지 삭제 후에도 조회) 그룹을 비정규화해 둔다.
+    /**
+     * 내역이 그룹 소유라(챌린지 삭제 후에도 조회) 그룹을 비정규화해 둔다.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "group_id", nullable = false)
     private Group group;
 
-    // 챌린지는 소프트 삭제라 행이 남는다 — 삭제 뒤에도 참조는 유효하고, 표시용 스냅샷은 이 행에 있다.
+    /**
+     * 챌린지는 소프트 삭제라 행이 남는다 — 삭제 뒤에도 참조는 유효하고, 표시용 스냅샷은 이 행에 있다.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "challenge_id", nullable = false)
     private GroupChallenge challenge;

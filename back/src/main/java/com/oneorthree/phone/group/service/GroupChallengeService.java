@@ -75,7 +75,9 @@ public class GroupChallengeService {
     /** 생성 시 내기 배선(GROMO-1410) — 신 참여 경로의 진입점. */
     private final GroupBetJoinService groupBetJoinService;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
-    // 진행률·달성 판정의 단일 커널(GROMO-1280) — 카드가 통계 테이블을 직접 읽지 않는다.
+    /**
+     * 진행률·달성 판정의 단일 커널(GROMO-1280) — 카드가 통계 테이블을 직접 읽지 않는다.
+     */
     private final GroupBetJudge groupBetJudge;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -779,8 +781,10 @@ public class GroupChallengeService {
         log.info("챌린지 종료 — challengeId={}, groupId={}, userId={}", challengeId, groupId, userId);
     }
 
-    // TIME_WINDOW 상세의 time 값을 "HH:mm:ss" 문자열로 변환 — 그룹 상세·오버뷰(GroupService,
-    // GROMO-1206)와 같은 단일 출구(WindowFocusAggregator.timeOfDayString)를 쓴다.
+    /**
+     * TIME_WINDOW 상세의 time 값을 "HH:mm:ss" 문자열로 변환 — 그룹 상세·오버뷰(GroupService,
+     * GROMO-1206)와 같은 단일 출구(WindowFocusAggregator.timeOfDayString)를 쓴다.
+     */
     private String toLocalTimeString(LocalTime time) {
         return WindowFocusAggregator.timeOfDayString(time);
     }

@@ -35,9 +35,11 @@ public class OpenAiModerationClient {
     private final String apiKey;
 
     public OpenAiModerationClient(
-            // 프로퍼티 키는 env 자동 변환(OPENAI_API_KEY)과 일치해야 함 — base application.yml 이
-            // gitignore 라 배포 이미지에 없어도 env 만으로 해석되도록(FCM 선례). 기본값 : 은 미설정 시
-            // 기동을 막지 않기 위함이며, 미설정 상태의 실제 차단은 moderate() 에서 fail-closed 로 처리한다.
+            /**
+             * 프로퍼티 키는 env 자동 변환(OPENAI_API_KEY)과 일치해야 함 — base application.yml 이
+             * gitignore 라 배포 이미지에 없어도 env 만으로 해석되도록(FCM 선례). 기본값 : 은 미설정 시
+             * 기동을 막지 않기 위함이며, 미설정 상태의 실제 차단은 moderate() 에서 fail-closed 로 처리한다.
+             */
             @Value("${openai.api-key:}") String apiKey) {
         this.apiKey = apiKey;
         // 타임아웃 미설정 시 무한 대기 위험 — 연결 3s / 응답 10s 로 상한을 둔다.

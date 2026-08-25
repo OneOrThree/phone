@@ -47,7 +47,9 @@ public class GroupChallengeBet {
     @GeneratedUuidV7
     private UUID id;
 
-    // 조회가 항상 그룹 스코프로 들어오므로(그룹원 검증) 챌린지를 거치지 않고 바로 걸러내려 비정규화해 둔다.
+    /**
+     * 조회가 항상 그룹 스코프로 들어오므로(그룹원 검증) 챌린지를 거치지 않고 바로 걸러내려 비정규화해 둔다.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "group_id", nullable = false)
     private Group group;

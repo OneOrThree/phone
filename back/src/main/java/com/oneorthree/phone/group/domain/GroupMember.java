@@ -57,7 +57,9 @@ public class GroupMember {
     @Builder.Default
     private GroupMemberStatus status = GroupMemberStatus.INACTIVE;
 
-    // GROMO-676: 멤버 단위 공지 작성 권한 — 방장(OWNER)은 컬럼과 무관하게 항상 가능
+    /**
+     * GROMO-676: 멤버 단위 공지 작성 권한 — 방장(OWNER)은 컬럼과 무관하게 항상 가능
+     */
     @Enumerated(EnumType.STRING)
     @Column(name = "announcement_permission", nullable = false)
     @Builder.Default
@@ -71,7 +73,9 @@ public class GroupMember {
     @Builder.Default
     private boolean isLeft = false;
 
-    // A-0 소프트삭제 사유 — 활성 멤버는 null, 탈퇴/강퇴 시 세팅. KICKED 는 재참여 차단 대상.
+    /**
+     * A-0 소프트삭제 사유 — 활성 멤버는 null, 탈퇴/강퇴 시 세팅. KICKED 는 재참여 차단 대상.
+     */
     @Enumerated(EnumType.STRING)
     @Column(name = "left_reason", length = 10)
     private GroupLeaveReason leftReason;

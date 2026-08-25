@@ -17,9 +17,13 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AnalyticsService {
 
-    // GA4 이벤트 파라미터 한도와 정합 — 초과는 INVALID_PAYLOAD(400)
+    /**
+     * GA4 이벤트 파라미터 한도와 정합 — 초과는 INVALID_PAYLOAD(400)
+     */
     private static final int MAX_PAYLOAD_KEYS = 25;
-    // DoS 방지: 키·문자열 값 길이 무제한 허용 시 로그 플러딩 벡터 발생 — 각각 상한 설정
+    /**
+     * DoS 방지: 키·문자열 값 길이 무제한 허용 시 로그 플러딩 벡터 발생 — 각각 상한 설정
+     */
     private static final int MAX_KEY_LENGTH = 40;
     private static final int MAX_STRING_VALUE_LENGTH = 500;
 

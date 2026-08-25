@@ -23,8 +23,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-// (provider, provider_id) 전체 유니크 — 중복 가입 방어이자 조회 인덱스 (GROMO-581).
-// deleted_at 미포함(부분 아님): soft-delete row와도 충돌해야 로그인의 재활성화 로직이 성립.
+/**
+ * (provider, provider_id) 전체 유니크 — 중복 가입 방어이자 조회 인덱스 (GROMO-581).
+ * deleted_at 미포함(부분 아님): soft-delete row와도 충돌해야 로그인의 재활성화 로직이 성립.
+ */
 @Table(name = "social_accounts",
         uniqueConstraints = @UniqueConstraint(
                 name = "uq_social_accounts_provider_id",
@@ -51,11 +53,15 @@ public class SocialAccount {
     @Column(name = "provider_id", nullable = false)
     private String providerId;
 
-    // 연동 생성 시각 — schema.dbml 의 created_at 컬럼과 매핑.
+    /**
+     * 연동 생성 시각 — schema.dbml 의 created_at 컬럼과 매핑.
+     */
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
-    // 소프트 딜리트 컬럼(연동 해제 시각) — 스키마 정합용(GROMO-561). 세팅/필터 배선은 후속 티켓.
+    /**
+     * 소프트 딜리트 컬럼(연동 해제 시각) — 스키마 정합용(GROMO-561). 세팅/필터 배선은 후속 티켓.
+     */
     private Instant deletedAt;
 }

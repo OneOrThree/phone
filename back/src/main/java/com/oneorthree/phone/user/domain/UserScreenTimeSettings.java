@@ -38,17 +38,23 @@ public class UserScreenTimeSettings {
     @Builder.Default
     private boolean screenTimePermissionGranted = false;
 
-    // 목표 변경은 changeGoal() 로만 — setter 를 막아 이력(previousGoalMinutes) 이 새는 경로를 없앤다.
+    /**
+     * 목표 변경은 changeGoal() 로만 — setter 를 막아 이력(previousGoalMinutes) 이 새는 경로를 없앤다.
+     */
     @Setter(AccessLevel.NONE)
     @Column(nullable = false)
     @Builder.Default
     private int dailyScreenTimeGoalMinutes = 0;
 
-    // 직전 목표(분) — 오늘 처음 목표를 바꾸기 전의 값 = '어제 유효했던 목표'. 아직 바꾼 적 없으면 null.
+    /**
+     * 직전 목표(분) — 오늘 처음 목표를 바꾸기 전의 값 = '어제 유효했던 목표'. 아직 바꾼 적 없으면 null.
+     */
     @Setter(AccessLevel.NONE)
     private Integer previousGoalMinutes;
 
-    // 현재 목표가 유효해진 날짜(유저 로컬). 이 날짜 이전 날의 지급·판정은 previousGoalMinutes 를 쓴다.
+    /**
+     * 현재 목표가 유효해진 날짜(유저 로컬). 이 날짜 이전 날의 지급·판정은 previousGoalMinutes 를 쓴다.
+     */
     @Setter(AccessLevel.NONE)
     private LocalDate goalEffectiveFrom;
 

@@ -144,9 +144,11 @@ public class NotificationSentLog {
     @Column(nullable = false)
     private String type;
 
-    // dedup·쿨다운 판정 키. 추월(579)은 대표 라이벌 userId, 내기 결과(B4)는 betId, 창 종료(B4)는
-    // challengeId 를 담는다 — 컬럼에 FK 가 없어(V1 baseline) 유저 외 식별자도 그대로 실을 수 있다.
-    // type 별로 의미가 다르므로 조회는 항상 type 과 함께 건다. 대상이 없는 발송은 null.
+    /**
+     * dedup·쿨다운 판정 키. 추월(579)은 대표 라이벌 userId, 내기 결과(B4)는 betId, 창 종료(B4)는
+     * challengeId 를 담는다 — 컬럼에 FK 가 없어(V1 baseline) 유저 외 식별자도 그대로 실을 수 있다.
+     * type 별로 의미가 다르므로 조회는 항상 type 과 함께 건다. 대상이 없는 발송은 null.
+     */
     @Column(name = "target_user_id")
     private UUID targetUserId;
 

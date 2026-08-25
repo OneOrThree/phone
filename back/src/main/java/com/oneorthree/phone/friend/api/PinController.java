@@ -19,8 +19,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-// 핀 API — 리그·친구 공용. 친구 아닌 임의 유저도 핀 가능(user 핀 통일, GROMO-609).
-// Swagger 애노테이션은 PinControllerDocs 로 분리했다(GROMO-1621).
+/**
+ * 핀 API — 리그·친구 공용. 친구 아닌 임의 유저도 핀 가능(user 핀 통일, GROMO-609).
+ * Swagger 애노테이션은 PinControllerDocs 로 분리했다(GROMO-1621).
+ */
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor

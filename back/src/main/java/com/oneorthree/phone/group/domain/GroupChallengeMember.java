@@ -52,12 +52,16 @@ public class GroupChallengeMember {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    // 클라가 보고한 창 내 사용 분 원본값 — 서버는 범위(0~1440)만 검증하고 그대로 저장한다(클라 신뢰).
+    /**
+     * 클라가 보고한 창 내 사용 분 원본값 — 서버는 범위(0~1440)만 검증하고 그대로 저장한다(클라 신뢰).
+     */
     @Column(name = "progress_minutes", nullable = false)
     @Builder.Default
     private int progressMinutes = 0;
 
-    // 보고 날짜(KST 로컬, V20). 창 사용분 보고 경로는 항상 채운다 — V37 에서 NOT NULL 승격(GROMO-1266).
+    /**
+     * 보고 날짜(KST 로컬, V20). 창 사용분 보고 경로는 항상 채운다 — V37 에서 NOT NULL 승격(GROMO-1266).
+     */
     @Column(name = "usage_date", nullable = false)
     private LocalDate usageDate;
 
@@ -76,6 +80,8 @@ public class GroupChallengeMember {
     @UpdateTimestamp
     private Instant updatedAt;
 
-    // 소프트 딜리트 (삭제 시각)
+    /**
+     * 소프트 딜리트 (삭제 시각)
+     */
     private Instant deletedAt;
 }

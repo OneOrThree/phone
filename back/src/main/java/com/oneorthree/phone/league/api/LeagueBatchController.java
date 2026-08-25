@@ -22,12 +22,14 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 
-// 운영/테스트용 수동 트리거 — 프로파일 게이팅으로 prod 미노출.
-// resume 은 프로파일에 더해 관리자 키(X-Batch-Admin-Key 헤더 ↔ 환경변수 BATCH_ADMIN_KEY)를
-// 요구한다(GroupBetBatchController 선례). 기존 run 은 409 가드가 사실상 주 1회로 막고 있고 키
-// 소급 부과는 기존 운영 절차(Apidog 등)를 깨는 계약 변화라 무키를 유지한다 — GROMO-1239 보고 참조.
-// TODO: 정식 관리자 권한(인증/인가) 설계는 별도 백로그 티켓
-// Swagger 애노테이션은 LeagueBatchControllerDocs 로 분리했다(GROMO-1621).
+/**
+ * 운영/테스트용 수동 트리거 — 프로파일 게이팅으로 prod 미노출.
+ * resume 은 프로파일에 더해 관리자 키(X-Batch-Admin-Key 헤더 ↔ 환경변수 BATCH_ADMIN_KEY)를
+ * 요구한다(GroupBetBatchController 선례). 기존 run 은 409 가드가 사실상 주 1회로 막고 있고 키
+ * 소급 부과는 기존 운영 절차(Apidog 등)를 깨는 계약 변화라 무키를 유지한다 — GROMO-1239 보고 참조.
+ * TODO: 정식 관리자 권한(인증/인가) 설계는 별도 백로그 티켓
+ * Swagger 애노테이션은 LeagueBatchControllerDocs 로 분리했다(GROMO-1621).
+ */
 @RestController
 @RequestMapping("/api/v1")
 @Profile({"local", "dev", "staging"})
@@ -39,8 +41,10 @@ public class LeagueBatchController implements LeagueBatchControllerDocs {
     private final LeagueBatchService leagueBatchService;
     private final String batchAdminKey;
 
-    // 키 미설정은 기동 실패가 아니라 503 응답으로 처리한다(GroupBetBatchController 와 같은 관행)
-    // — 그래서 default 를 "" 로 둔다.
+    /**
+     * 키 미설정은 기동 실패가 아니라 503 응답으로 처리한다(GroupBetBatchController 와 같은 관행)
+     * — 그래서 default 를 "" 로 둔다.
+     */
     public LeagueBatchController(LeagueBatchService leagueBatchService,
                                  @Value("${BATCH_ADMIN_KEY:}") String batchAdminKey) {
         this.leagueBatchService = leagueBatchService;
@@ -66,8 +70,10 @@ public class LeagueBatchController implements LeagueBatchControllerDocs {
                 leagueBatchService.resumeWeeklyBatch(Instant.now(), parseWeekStartAt(weekStartAt), userIds));
     }
 
-    // 스프링 바인더 대신 직접 파싱 — 형식 오류를 프레임워크 400 이 아니라 INVALID_WEEK_START 로
-    // 통일해 운영자가 월요일 경계 오류와 같은 문구 축에서 원인을 읽게 한다.
+    /**
+     * 스프링 바인더 대신 직접 파싱 — 형식 오류를 프레임워크 400 이 아니라 INVALID_WEEK_START 로
+     * 통일해 운영자가 월요일 경계 오류와 같은 문구 축에서 원인을 읽게 한다.
+     */
     private Instant parseWeekStartAt(String weekStartAt) {
         if (weekStartAt == null || weekStartAt.isBlank()) {
             return null;
@@ -79,8 +85,10 @@ public class LeagueBatchController implements LeagueBatchControllerDocs {
         }
     }
 
-    // 비교는 MessageDigest.isEqual — String.equals 는 첫 불일치 문자에서 끊겨 응답 시간으로
-    // 키가 새는 이론적 여지가 있어 상수 시간 비교를 쓴다(GroupBetBatchController 와 동일).
+    /**
+     * 비교는 MessageDigest.isEqual — String.equals 는 첫 불일치 문자에서 끊겨 응답 시간으로
+     * 키가 새는 이론적 여지가 있어 상수 시간 비교를 쓴다(GroupBetBatchController 와 동일).
+     */
     private void requireAdminKey(String provided) {
         if (batchAdminKey.isBlank()) {
             throw new LeagueException(LeagueErrorCode.BATCH_KEY_NOT_CONFIGURED);

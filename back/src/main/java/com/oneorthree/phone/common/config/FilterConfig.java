@@ -55,15 +55,19 @@ public class FilterConfig {
      */
     private static final long FOCUS_SESSION_MAX_WIRE_BYTES = 8L * 1024;
 
-    // 본문 크기 가드 — 역직렬화 전 차단이 목적이라 JWT(1)·TraceId(2)보다 먼저 돈다.
-    // 지정한 엔드포인트에만 적용해 다른 경로의 본문엔 영향이 없다.
+    /**
+     * 본문 크기 가드 — 역직렬화 전 차단이 목적이라 JWT(1)·TraceId(2)보다 먼저 돈다.
+     * 지정한 엔드포인트에만 적용해 다른 경로의 본문엔 영향이 없다.
+     */
     @Bean
     public FilterRegistrationBean<RequestSizeLimitFilter> moderationRequestSizeFilter() {
         return sizeLimit(MODERATION_MAX_WIRE_BYTES, "/api/v1/character/moderation");
     }
 
-    // 집중 세션 완료 저장(POST)·라이브 종료(PATCH) — 둘 다 같은 URL 이라 한 패턴으로 덮인다.
-    // /focus-session/start·/cancel 은 분포 맵이 없는 소형 본문이라 대상이 아니다.
+    /**
+     * 집중 세션 완료 저장(POST)·라이브 종료(PATCH) — 둘 다 같은 URL 이라 한 패턴으로 덮인다.
+     * /focus-session/start·/cancel 은 분포 맵이 없는 소형 본문이라 대상이 아니다.
+     */
     @Bean
     public FilterRegistrationBean<RequestSizeLimitFilter> focusSessionRequestSizeFilter() {
         return sizeLimit(FOCUS_SESSION_MAX_WIRE_BYTES, "/api/v1/focus-session");

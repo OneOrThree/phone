@@ -22,13 +22,15 @@ import org.springframework.web.bind.annotation.RestController;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
-// 운영 수동 트리거(MANUAL) — LLD §2.3: 정산 트리거는 <b>prod 포함</b> 전 환경에 연다. 24h 자동
-// 환불이 최후 방어선이지만 그 전에 손으로 풀 수단이 있어야 한다(스케줄러 장애 복구가 정확히 그
-// 상황이다). 종전 @Profile({"local","dev","staging"}) 게이팅은 그 복구 경로를 prod 에서 막고
-// 있었다(GROMO-1411 후속). 인가는 관리자 키(X-Batch-Admin-Key 헤더 ↔ 환경변수 BATCH_ADMIN_KEY)
-// 가 계속 진다 — 키 미설정 503 · 불일치 403 · 상수 시간 비교. 감사 로그(§2.3 필수): 호출 시각은
-// 로그 타임스탬프, 호출자는 관리자 키 단일 주체(개인 식별 축 없음 — 키 소지 = 운영자), 대상
-// 회차·결과는 아래 warn 요약 + 회차별 정산 로그(GroupBetSettler)가 남긴다.
+/**
+ * 운영 수동 트리거(MANUAL) — LLD §2.3: 정산 트리거는 <b>prod 포함</b> 전 환경에 연다. 24h 자동
+ * 환불이 최후 방어선이지만 그 전에 손으로 풀 수단이 있어야 한다(스케줄러 장애 복구가 정확히 그
+ * 상황이다). 종전 @Profile({"local","dev","staging"}) 게이팅은 그 복구 경로를 prod 에서 막고
+ * 있었다(GROMO-1411 후속). 인가는 관리자 키(X-Batch-Admin-Key 헤더 ↔ 환경변수 BATCH_ADMIN_KEY)
+ * 가 계속 진다 — 키 미설정 503 · 불일치 403 · 상수 시간 비교. 감사 로그(§2.3 필수): 호출 시각은
+ * 로그 타임스탬프, 호출자는 관리자 키 단일 주체(개인 식별 축 없음 — 키 소지 = 운영자), 대상
+ * 회차·결과는 아래 warn 요약 + 회차별 정산 로그(GroupBetSettler)가 남긴다.
+ */
 @Slf4j
 @Tag(name = "group-bet-batch", description = "그룹 챌린지 내기 정산 수동 트리거 (전 환경 — 관리자 키 필수)")
 @RestController
@@ -41,7 +43,9 @@ public class GroupBetBatchController {
     private final GroupBetSettlementService groupBetSettlementService;
     private final String batchAdminKey;
 
-    // 키 미설정은 기동 실패가 아니라 503 응답으로 처리한다(스펙) — 그래서 default 를 "" 로 둔다.
+    /**
+     * 키 미설정은 기동 실패가 아니라 503 응답으로 처리한다(스펙) — 그래서 default 를 "" 로 둔다.
+     */
     public GroupBetBatchController(GroupBetSettlementService groupBetSettlementService,
                                    @Value("${BATCH_ADMIN_KEY:}") String batchAdminKey) {
         this.groupBetSettlementService = groupBetSettlementService;
@@ -85,8 +89,10 @@ public class GroupBetBatchController {
         return ResponseEntity.ok(summary);
     }
 
-    // 비교는 MessageDigest.isEqual — String.equals 는 첫 불일치 문자에서 끊겨 응답 시간으로
-    // 키가 새는 이론적 여지가 있어 상수 시간 비교를 쓴다.
+    /**
+     * 비교는 MessageDigest.isEqual — String.equals 는 첫 불일치 문자에서 끊겨 응답 시간으로
+     * 키가 새는 이론적 여지가 있어 상수 시간 비교를 쓴다.
+     */
     private void requireAdminKey(String provided) {
         if (batchAdminKey.isBlank()) {
             throw new GroupException(GroupErrorCode.BATCH_KEY_NOT_CONFIGURED);

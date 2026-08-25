@@ -39,17 +39,23 @@ public class UserBlock {
     @GeneratedUuidV7
     private UUID id;
 
-    // 차단한 유저
+    /**
+     * 차단한 유저
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "blocker_id", nullable = false)
     private User blocker;
 
-    // 차단당한 유저
+    /**
+     * 차단당한 유저
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "blocked_id", nullable = false)
     private User blocked;
 
-    // 차단 시각
+    /**
+     * 차단 시각
+     */
     @CreationTimestamp
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

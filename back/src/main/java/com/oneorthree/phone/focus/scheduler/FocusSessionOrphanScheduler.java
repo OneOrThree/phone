@@ -26,9 +26,11 @@ public class FocusSessionOrphanScheduler {
 
     private final FocusService focusService;
 
-    // 매시 정각(KST) orphan 정리
-    // 분산 락(GROMO-1283) — 겹쳐 돌아도 종료 UPDATE 자체는 멱등이지만 같은 행을 두 번 훑는 낭비와
-    // 로그 이중 계상을 막는다.
+    /**
+     * 매시 정각(KST) orphan 정리
+     * 분산 락(GROMO-1283) — 겹쳐 돌아도 종료 UPDATE 자체는 멱등이지만 같은 행을 두 번 훑는 낭비와
+     * 로그 이중 계상을 막는다.
+     */
     @Scheduled(cron = "0 0 * * * *", zone = "Asia/Seoul")
     @SchedulerLock(name = "focus-orphan-sweep")
     public void sweepOrphanSessions() {

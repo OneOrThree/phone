@@ -44,12 +44,16 @@ public class OccupationDefaultTag {
     @GeneratedUuidV7
     private UUID id;
 
-    // FK 아님 — users.occupation 과 동일 값셋(Enum)을 재사용. 저장은 문자열(EnumType.STRING)로 users 와 동일 매핑.
+    /**
+     * FK 아님 — users.occupation 과 동일 값셋(Enum)을 재사용. 저장은 문자열(EnumType.STRING)로 users 와 동일 매핑.
+     */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Occupation occupation;
 
-    // 태그 정체성 — 마스터(default_tags) 참조. name 은 여기서 조회(태그 정규화, GROMO-673).
+    /**
+     * 태그 정체성 — 마스터(default_tags) 참조. name 은 여기서 조회(태그 정규화, GROMO-673).
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "default_tag_id", nullable = false)
     private DefaultTag defaultTag;

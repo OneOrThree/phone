@@ -36,7 +36,9 @@ public class DefaultTag {
     @GeneratedUuidV7
     private UUID id;
 
-    // 전역 유일 — 같은 name 은 하나의 마스터 행으로만 존재(중복 제거). 검색/인덱스 키.
+    /**
+     * 전역 유일 — 같은 name 은 하나의 마스터 행으로만 존재(중복 제거). 검색/인덱스 키.
+     */
     @Column(nullable = false, unique = true)
     private String name;
 

@@ -48,7 +48,9 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class FriendService {
 
-    // pinned_users.id 직접 생성용 (네이티브 INSERT는 @GeneratedUuidV7를 안 타므로 직접 발급)
+    /**
+     * pinned_users.id 직접 생성용 (네이티브 INSERT는 @GeneratedUuidV7를 안 타므로 직접 발급)
+     */
     private static final NoArgGenerator UUID_V7 = Generators.timeBasedEpochRandomGenerator();
 
     private final FriendshipRepository friendshipRepository;
@@ -60,13 +62,17 @@ public class FriendService {
     private final UserActivityEventLogger userActivityEventLogger;
     private final LeagueTierLookup leagueTierLookup;
     private final FocusLiveInfoLookup focusLiveInfoLookup;
-    // GROMO-1090: 푸시는 여기서 직접 보내지 않고 이벤트만 발행한다 — 발송은 커밋 이후에 일어나야 한다
-    // (요청/수락이 롤백되는데 알림만 나가면 안 된다). 소비는 notification 도메인의 AFTER_COMMIT 리스너.
+    /**
+     * GROMO-1090: 푸시는 여기서 직접 보내지 않고 이벤트만 발행한다 — 발송은 커밋 이후에 일어나야 한다
+     * (요청/수락이 롤백되는데 알림만 나가면 안 된다). 소비는 notification 도메인의 AFTER_COMMIT 리스너.
+     */
     private final ApplicationEventPublisher eventPublisher;
     private final Map<SearchType, FriendSearchStrategy> searchStrategies;
 
-    // 검색 전략은 AuthService의 Map<Provider, SocialLoginClient>와 동일하게
-    // 모든 빈을 모아 type() 기준 Map으로 구성한다. (검색 수단 추가 = 구현체 1개 추가)
+    /**
+     * 검색 전략은 AuthService의 Map&lt;Provider, SocialLoginClient>와 동일하게
+     * 모든 빈을 모아 type() 기준 Map으로 구성한다. (검색 수단 추가 = 구현체 1개 추가)
+     */
     public FriendService(FriendshipRepository friendshipRepository,
                          UserRepository userRepository,
                          PinnedUserRepository pinnedUserRepository,
@@ -92,9 +98,11 @@ public class FriendService {
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
     }
 
-    // 친구 요청 생성. 자기자신·중복·이미친구 검증 후 PENDING insert,
-    // 단 내가 보냈던 행이 남아 있으면 재사용한다 — soft delete 행은 복원(GROMO-719),
-    // REJECTED 행은 PENDING 재전환(쿨다운은 GROMO-475).
+    /**
+     * 친구 요청 생성. 자기자신·중복·이미친구 검증 후 PENDING insert,
+     * 단 내가 보냈던 행이 남아 있으면 재사용한다 — soft delete 행은 복원(GROMO-719),
+     * REJECTED 행은 PENDING 재전환(쿨다운은 GROMO-475).
+     */
     @Transactional
     public void createRequest(UUID me, UUID targetUserId) {
         if (me.equals(targetUserId)) {
@@ -151,22 +159,26 @@ public class FriendService {
         onRequestCreated(request.getId(), me, targetUserId, false);
     }
 
-    // 요청 생성 후처리 — 신규 insert·REJECTED 재전환 두 경로 모두 1회씩, reopened 로 구분.
-    // 활동 로그(즉시)와 푸시 이벤트(커밋 이후 소비)를 함께 낸다. 재전환도 수신자 입장에선 새 요청이라
-    // 두 경로 모두 알린다 — 발송 측 dedup 은 동시 reopen 경합만 접고, 재요청 도배 억제는 요청
-    // 쿨다운(티켓 475)의 몫이다(GROMO-1090).
+    /**
+     * 요청 생성 후처리 — 신규 insert·REJECTED 재전환 두 경로 모두 1회씩, reopened 로 구분.
+     * 활동 로그(즉시)와 푸시 이벤트(커밋 이후 소비)를 함께 낸다. 재전환도 수신자 입장에선 새 요청이라
+     * 두 경로 모두 알린다 — 발송 측 dedup 은 동시 reopen 경합만 접고, 재요청 도배 억제는 요청
+     * 쿨다운(티켓 475)의 몫이다(GROMO-1090).
+     */
     private void onRequestCreated(UUID requestId, UUID me, UUID targetUserId, boolean reopened) {
         userActivityEventLogger.log(UserActivityEvent.FRIEND_REQUEST_SENT,
                 Map.of("to_user_id", targetUserId.toString(), "reopened", reopened));
         eventPublisher.publishEvent(new FriendRequestSentEvent(requestId, targetUserId, me));
     }
 
-    // 요청 수락 — 수신자(toUser)만 가능. PENDING → ACCEPTED.
-    // 상태 계약은 거절과 비대칭이다 (GROMO-719 오너 결정):
-    //   - 수락은 전 상태 관용 — REJECTED → ACCEPTED 는 "거절했다 뒤늦게 수락" UX 로 의도된 전이라 허용하고
-    //     알린다("거절했던 요청을 뒤늦게 수락하면 알린다" 계약). ACCEPTED → ACCEPTED 는 멱등(무알림).
-    //   - 거절은 PENDING 한정(rejectRequest) — ACCEPTED 에 거절이 통하면 친구 관계가 deleteFriend 를
-    //     우회해 조용히 증발하기 때문. 수락은 관계를 늘리는 방향이라 관용해도 그런 파괴 경로가 없다.
+    /**
+     * 요청 수락 — 수신자(toUser)만 가능. PENDING → ACCEPTED.
+     * 상태 계약은 거절과 비대칭이다 (GROMO-719 오너 결정):
+     * - 수락은 전 상태 관용 — REJECTED → ACCEPTED 는 "거절했다 뒤늦게 수락" UX 로 의도된 전이라 허용하고
+     * 알린다("거절했던 요청을 뒤늦게 수락하면 알린다" 계약). ACCEPTED → ACCEPTED 는 멱등(무알림).
+     * - 거절은 PENDING 한정(rejectRequest) — ACCEPTED 에 거절이 통하면 친구 관계가 deleteFriend 를
+     * 우회해 조용히 증발하기 때문. 수락은 관계를 늘리는 방향이라 관용해도 그런 파괴 경로가 없다.
+     */
     @Transactional
     public void acceptRequest(UUID me, UUID requestId) {
         Friendship friendship = getReceivedRequest(me, requestId);
@@ -185,10 +197,12 @@ public class FriendService {
         }
     }
 
-    // 요청 거절 — 수신자(toUser)만 가능. PENDING → REJECTED 만 허용 (GROMO-719).
-    // 수락과 달리 상태를 검사한다 — ACCEPTED 에 거절이 통하면 친구 관계가 deleteFriend 없이
-    // (삭제 절차·검증을 우회해) 조용히 증발하고, 이후 재요청의 REJECTED 재전환 분기로 되살아나기까지 한다.
-    // 거절은 알리지 않는다 (GROMO-1090) — 거절 통보는 관계상 부담이라 스코프에서 뺐다.
+    /**
+     * 요청 거절 — 수신자(toUser)만 가능. PENDING → REJECTED 만 허용 (GROMO-719).
+     * 수락과 달리 상태를 검사한다 — ACCEPTED 에 거절이 통하면 친구 관계가 deleteFriend 없이
+     * (삭제 절차·검증을 우회해) 조용히 증발하고, 이후 재요청의 REJECTED 재전환 분기로 되살아나기까지 한다.
+     * 거절은 알리지 않는다 (GROMO-1090) — 거절 통보는 관계상 부담이라 스코프에서 뺐다.
+     */
     @Transactional
     public void rejectRequest(UUID me, UUID requestId) {
         Friendship friendship = getReceivedRequest(me, requestId);
@@ -198,7 +212,9 @@ public class FriendService {
         friendship.reject();
     }
 
-    // 친구 삭제 — ACCEPTED 관계를 양측 누구나 soft delete.
+    /**
+     * 친구 삭제 — ACCEPTED 관계를 양측 누구나 soft delete.
+     */
     @Transactional
     public void deleteFriend(UUID me, UUID friendUserId) {
         User meUser = getUser(me);
@@ -208,7 +224,9 @@ public class FriendService {
         friendship.softDelete(Instant.now());
     }
 
-    // 친구 목록 — ACCEPTED·미삭제 관계를 상대 유저로 매핑. isPinned는 내 핀 친구 집합으로 결정.
+    /**
+     * 친구 목록 — ACCEPTED·미삭제 관계를 상대 유저로 매핑. isPinned는 내 핀 친구 집합으로 결정.
+     */
     public List<FriendResponse> getFriends(UUID me, LocalDate date) {
         User meUser = getUser(me);
         Set<UUID> pinnedIds = pinnedUserRepository.findByUser(meUser).stream()
@@ -241,7 +259,9 @@ public class FriendService {
                 .toList();
     }
 
-    // 유저 핀 설정 — 친구 아닌 임의 유저도 핀 가능(user 핀 통일, GROMO-609). 대상 존재만 검증 후 멱등 insert.
+    /**
+     * 유저 핀 설정 — 친구 아닌 임의 유저도 핀 가능(user 핀 통일, GROMO-609). 대상 존재만 검증 후 멱등 insert.
+     */
     @Transactional
     public void pinFriend(UUID me, UUID friendUserId) {
         if (me.equals(friendUserId)) {
@@ -254,7 +274,9 @@ public class FriendService {
         pinnedUserRepository.insertIgnoreConflict(UUID_V7.generate(), me, friendUserId);
     }
 
-    // 친구 핀 해제 — 있으면 삭제, 없으면 멱등(204).
+    /**
+     * 친구 핀 해제 — 있으면 삭제, 없으면 멱등(204).
+     */
     @Transactional
     public void unpinFriend(UUID me, UUID friendUserId) {
         getUser(me);
@@ -264,7 +286,9 @@ public class FriendService {
         pinnedUserRepository.deletePin(me, friendUserId);
     }
 
-    // 내가 핀한 친구 조회 — 각 친구의 캐릭터 표시정보 + 오늘 집중분 + 진행중 여부 매핑(GROMO-369 재사용).
+    /**
+     * 내가 핀한 친구 조회 — 각 친구의 캐릭터 표시정보 + 오늘 집중분 + 진행중 여부 매핑(GROMO-369 재사용).
+     */
     public List<PinnedUserResponse> getPinnedFriends(UUID me, LocalDate date) {
         User meUser = getUser(me);
         List<User> friends = pinnedUserRepository.findByUser(meUser).stream()
@@ -297,7 +321,9 @@ public class FriendService {
                 .toList();
     }
 
-    // PENDING 요청 목록 — type=received(받은) | sent(보낸).
+    /**
+     * PENDING 요청 목록 — type=received(받은) | sent(보낸).
+     */
     public List<FriendRequestResponse> getRequests(UUID me, String type) {
         User meUser = getUser(me);
         boolean received = "received".equalsIgnoreCase(type);
@@ -334,7 +360,9 @@ public class FriendService {
                 .toList();
     }
 
-    // 친구 검색 — type 전략에 위임 후 자기자신 제외 + 기존 관계(relation) 표기.
+    /**
+     * 친구 검색 — type 전략에 위임 후 자기자신 제외 + 기존 관계(relation) 표기.
+     */
     public List<FriendSearchResultResponse> search(UUID me, SearchType type, String query) {
         FriendSearchStrategy strategy = searchStrategies.get(type);
         if (strategy == null) {
@@ -358,36 +386,44 @@ public class FriendService {
 
     // ── 내부 헬퍼 ──────────────────────────────────────────
 
-    // 활성 유저 조회 — 탈퇴(소프트딜리트) 유저는 없는 유저로 취급 (GROMO-801).
-    // 호출자 본인(me) 확인과 일반 조회에 쓴다.
+    /**
+     * 활성 유저 조회 — 탈퇴(소프트딜리트) 유저는 없는 유저로 취급 (GROMO-801).
+     * 호출자 본인(me) 확인과 일반 조회에 쓴다.
+     */
     private User getUser(UUID userId) {
         return userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 
-    // 관계 '생성'(친구 요청·핀)에 참여하는 유저 조회 (GROMO-801) — 활성 검증 + 공유 락.
-    // 활성 검증: findById 를 쓰면 탈퇴자에게 요청이 걸리고, friendships 에 남은 (from,to) 유니크 제약과
-    //           충돌해 500 이 난다.
-    // 공유 락: 탈퇴 트랜잭션의 배타 락과 직렬화해, 정리가 끝난 뒤 새 관계가 끼어드는 레이스를 막는다.
-    // 관계는 두 유저를 묶으므로 대상뿐 아니라 호출자(me) 에도 걸어야 한다 — 한쪽만 잠그면 잠그지 않은 쪽이
-    // 탈퇴 중일 때 그 유저 소유의 유령 관계가 그대로 남는다.
-    // 공유 락끼리는 충돌하지 않아 동시 요청은 병렬 그대로고, 탈퇴(배타 락)하고만 직렬화된다.
+    /**
+     * 관계 '생성'(친구 요청·핀)에 참여하는 유저 조회 (GROMO-801) — 활성 검증 + 공유 락.
+     * 활성 검증: findById 를 쓰면 탈퇴자에게 요청이 걸리고, friendships 에 남은 (from,to) 유니크 제약과
+     * 충돌해 500 이 난다.
+     * 공유 락: 탈퇴 트랜잭션의 배타 락과 직렬화해, 정리가 끝난 뒤 새 관계가 끼어드는 레이스를 막는다.
+     * 관계는 두 유저를 묶으므로 대상뿐 아니라 호출자(me) 에도 걸어야 한다 — 한쪽만 잠그면 잠그지 않은 쪽이
+     * 탈퇴 중일 때 그 유저 소유의 유령 관계가 그대로 남는다.
+     * 공유 락끼리는 충돌하지 않아 동시 요청은 병렬 그대로고, 탈퇴(배타 락)하고만 직렬화된다.
+     */
     private User getRelationParticipant(UUID userId) {
         return userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 
-    // 관계 '해제'(친구 삭제·핀 해제) 대상 조회 (GROMO-801) — 탈퇴 여부를 보지 않는다.
-    // 활성 검증을 걸면 상대가 탈퇴한 순간 잔존 관계를 영구히 못 지운다. 특히 이 변경 배포 전에 탈퇴해
-    // 정리되지 않은 관계는 사용자가 직접 끊는 것이 유일한 해소 수단이다(백필을 하지 않으므로).
-    // 해제는 관계를 줄이는 방향이라 탈퇴자를 대상으로 허용해도 유령이 늘지 않는다.
+    /**
+     * 관계 '해제'(친구 삭제·핀 해제) 대상 조회 (GROMO-801) — 탈퇴 여부를 보지 않는다.
+     * 활성 검증을 걸면 상대가 탈퇴한 순간 잔존 관계를 영구히 못 지운다. 특히 이 변경 배포 전에 탈퇴해
+     * 정리되지 않은 관계는 사용자가 직접 끊는 것이 유일한 해소 수단이다(백필을 하지 않으므로).
+     * 해제는 관계를 줄이는 방향이라 탈퇴자를 대상으로 허용해도 유령이 늘지 않는다.
+     */
     private User getAnyUser(UUID userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 
-    // requestId로 PENDING 요청 조회 후 수신자(toUser) 본인인지 검증.
-    // 탈퇴 정리로 soft delete 된 요청은 없는 요청으로 취급 (GROMO-801) — 목록에서 숨긴 것을 변경도 막는다.
+    /**
+     * requestId로 PENDING 요청 조회 후 수신자(toUser) 본인인지 검증.
+     * 탈퇴 정리로 soft delete 된 요청은 없는 요청으로 취급 (GROMO-801) — 목록에서 숨긴 것을 변경도 막는다.
+     */
     private Friendship getReceivedRequest(UUID me, UUID requestId) {
         Friendship friendship = friendshipRepository.findByIdAndDeletedAtIsNull(requestId)
                 .orElseThrow(() -> new FriendException(FriendErrorCode.REQUEST_NOT_FOUND));
@@ -397,7 +433,9 @@ public class FriendService {
         return friendship;
     }
 
-    // 친구 관계에서 내가 아닌 상대 유저를 반환.
+    /**
+     * 친구 관계에서 내가 아닌 상대 유저를 반환.
+     */
     private User counterpart(Friendship friendship, UUID me) {
         return friendship.getFromUser().getId().equals(me)
                 ? friendship.getToUser()

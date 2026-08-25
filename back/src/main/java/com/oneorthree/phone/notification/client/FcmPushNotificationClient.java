@@ -48,9 +48,11 @@ public class FcmPushNotificationClient implements PushNotificationPort {
     private final String projectId;
 
     public FcmPushNotificationClient(
-            // 프로퍼티 키는 env 자동 변환(FCM_PROJECT_ID/FCM_SERVICE_ACCOUNT_JSON)과 정확히 일치해야 함
-            // — application.yml 이 gitignore 라 이미지에 없어도 env 만으로 해석되도록. 기본값 : 은 미설정 시
-            //   플레이스홀더 미해석 대신 아래 fail-fast 메시지를 태우기 위함 (PR #107 리뷰 반영)
+            /**
+             * 프로퍼티 키는 env 자동 변환(FCM_PROJECT_ID/FCM_SERVICE_ACCOUNT_JSON)과 정확히 일치해야 함
+             * — application.yml 이 gitignore 라 이미지에 없어도 env 만으로 해석되도록. 기본값 : 은 미설정 시
+             * 플레이스홀더 미해석 대신 아래 fail-fast 메시지를 태우기 위함 (PR #107 리뷰 반영)
+             */
             @Value("${fcm.project-id:}") String projectId,
             @Value("${fcm.service-account-json:}") String serviceAccountJsonBase64) {
         // 배선 실수(시크릿 미등록)를 기동 시점에 드러낸다 — fail-fast
