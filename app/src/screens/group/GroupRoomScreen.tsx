@@ -1457,7 +1457,7 @@ export default function GroupRoomScreen({
                             nickname: cell.member.nickname,
                             // 그룹 멤버는 tier 미보유 → 플레이스홀더(FriendProfile이 getPublicProfile로 교정).
                             tierLevel: 1,
-                            // 관계는 FriendProfile이 fetchFriends로 재동기화(초기값만 false).
+                            // 관계는 FriendProfile이 공개 프로필 relation으로 재동기화(초기값만 false, 구서버는 목록 폴백).
                             isFriend: false,
                             // 본인 타일이면 비교 없이 내 통계만(리그 '내 행'과 동일, GROMO-940).
                             isMe: cell.member.userId === userId,

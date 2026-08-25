@@ -7,7 +7,7 @@ import type {
   StatsPeriod,
 } from '@/types/dto/stats';
 import type { PublicProfileResponse, UserStatsResponse } from '@/types/dto/user';
-import { mockFriendById } from './friends';
+import { mockFriendById, mockPinnedFriends } from './friends';
 
 // GROMO-692 — 과목별 비교 오늘/이번주 탭을 실기기에서 데이터 상태별로 확인하기 위한 목.
 // friends 파라미터 유무로 나/상대를 구분하고, 기간별 배수로 탭 전환 시 값이 달라지는 걸 보이게 한다.
@@ -119,6 +119,9 @@ export function mockUserProfile(userId: string): PublicProfileResponse {
     friendCount: 3,
     currentTier: friend?.tierLevel ?? 1,
     rank: 12,
+    // GROMO-1631 — 친구 목록에 있으면 FRIEND, 아니면 NONE(PENDING 목은 필요 시 추가), 핀은 핀 목록 기준.
+    relation: friend != null ? 'FRIEND' : 'NONE',
+    isPinned: mockPinnedFriends().some((p) => p.userId === userId),
   };
 }
 
