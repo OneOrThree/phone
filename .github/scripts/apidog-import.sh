@@ -89,25 +89,45 @@ fi
 
 # 어느 스키마인지 **먼저 확정**한다 (GROMO-1625 codex 리뷰).
 #
-# 이름이 Failed 로 끝나기만 하면 인정하던 이전 판정은 fail-closed 를 우회당했다 —
-# {"data":{"operationFailed":false}} 처럼 **비숫자** 필드 하나만 있어도 "카운터를 찾았다"
-# 로 읽고, 아래 0 초과 검사는 숫자가 아니라는 이유로 건너뛰어 exit 0 이 됐다.
-# 그래서 **알려진 경로 + 숫자 타입**으로만 스키마를 인정한다.
+# 인정은 **좁게**, 추출은 **넓게** 한다. 방향이 반대라 헷갈리기 쉬운데 실패 모드가 서로 다르다:
+#   · 인정이 헐거우면 **모르는 응답이 성공으로 통과**한다 — 관문이 열린다.
+#       1라운드: {"data":{"operationFailed":false}} 가 "카운터를 찾았다"로 읽혀 exit 0.
+#       2라운드: {"data":{"errorCount":0,"error":"import rejected"}} 가 구 스키마로 읽혀 exit 0.
+#     둘 다 이름 패턴만 보고 인정한 탓이다. 그래서 인정은 **실물에서 관측된 앵커**로만 한다.
+#   · 추출이 넓으면 **0 이어야 할 카운터가 늘 뿐**이다 — 통과가 까다로워질 뿐 열리지 않는다.
+#     실제로 구 실물의 errorCount 33개 중 2개(data.endpointCase · data.environment)는
+#     *Collection 아래가 아니라 data 바로 밑에 있다. 추출까지 컬렉션 경로로 좁혔다면
+#     그 둘의 import 실패를 영영 못 봤을 것이다. 그래서 추출은 data 전체를 훑는다.
+#
+#   counters    ← data.counters 에 숫자 *Failed 가 1개 이상 (신 실물 6개)
+#   collections ← success:true **그리고** data.apiCollection.item.errorCount 가 숫자 (구 실물)
+#   unknown     ← 그 외 전부 실패
+# 경로를 밟기 전에 **타입부터** 확인한다. jq 의 `?` 는 오류를 삼키고 **아무것도 출력하지 않아**
+# SCHEMA 가 빈 문자열이 되는데, 빈 문자열은 "unknown" 과 달라서 아래 판정을 그냥 통과했다
+# ({"data":"nope"} 가 exit 0 이었다). 그래서 ① 타입 가드로 jq 가 오류를 낼 일을 없애고
+# ② 그래도 빈 값이 나오면 case 의 default 로 **닫는다**. fail-closed 는 기본값이어야 한다.
 SCHEMA=$(jq -r '
   def numeric_failed: to_entries | map(select((.key | endswith("Failed")) and (.value | type == "number")));
-  if ((.data.counters? | type) == "object") and ((.data.counters | numeric_failed | length) > 0)
+  if type != "object" then "unknown"
+  elif (.data | type) != "object" then "unknown"
+  elif ((.data.counters | type) == "object") and ((.data.counters | numeric_failed | length) > 0)
   then "counters"
-  elif ([(.data // {}) | paths as $p
-         | select($p[-1] == "errorCount" and (getpath($p) | type == "number"))] | length) > 0
+  elif ((.success // false) == true)
+       and ((.data.apiCollection | type) == "object")
+       and ((.data.apiCollection.item | type) == "object")
+       and ((.data.apiCollection.item.errorCount | type) == "number")
   then "collections"
   else "unknown"
-  end' apidog-response.json)
+  end' apidog-response.json 2>/dev/null || true)
 
-if [ "$SCHEMA" = "unknown" ]; then
-  echo "::error::Apidog 응답에서 알려진 실패 카운터를 찾지 못했다 — data.counters 의 숫자 *Failed 도, data 하위의 숫자 errorCount 도 없다(반영 여부 확인 불가)."
-  cat apidog-response.json
-  exit 1
-fi
+case "$SCHEMA" in
+  counters | collections) ;;
+  *)
+    echo "::error::Apidog 응답이 알려진 두 스키마 어느 쪽도 아니다 — data.counters 의 숫자 *Failed 도, success:true + 숫자 data.apiCollection.item.errorCount 도 없다(반영 여부 확인 불가)."
+    cat apidog-response.json
+    exit 1
+    ;;
+esac
 
 # 인정한 스키마 안에서 **부분 드리프트**도 잡는다 — 카운터 하나가 null/문자열로 바뀌면
 # 그 항목의 실패를 영영 못 보므로, 0 초과 검사 이전에 타입부터 닫는다.
