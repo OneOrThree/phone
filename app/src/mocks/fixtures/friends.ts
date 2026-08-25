@@ -55,6 +55,55 @@ const FRIENDS: MockFriendBase[] = [
     focusStartedAt: null,
     focusTagName: null,
   },
+  // GROMO-1630 — 리그 랭킹 목(league.ts)에서 isFriend: true 로 표기한 유저들.
+  // 랭킹에서 친구 배지를 단 유저의 프로필을 열면 /friends 재동기화(구서버 폴백)가 이 목록을
+  // 훑으므로, 여기 없으면 곧바로 비친구로 덮여 목 모드 검증이 깨진다(코덱스 리뷰 #703).
+  // 두 픽스처의 친구 관계는 항상 함께 갱신할 것.
+  {
+    userId: '00000000-0000-0000-0000-000000000101',
+    nickname: '아레나1등',
+    tierLevel: 1,
+    focusTimeMinutes: 180,
+    isFocusing: true,
+    focusStartedAt: minutesBeforeLoad(23),
+    focusTagName: '민법',
+  },
+  {
+    userId: '00000000-0000-0000-0000-000000000104',
+    nickname: '수학러',
+    tierLevel: 4,
+    focusTimeMinutes: 200,
+    isFocusing: true,
+    focusStartedAt: minutesBeforeLoad(8),
+    focusTagName: '수학',
+  },
+  {
+    userId: '00000000-0000-0000-0000-000000000202',
+    nickname: '새벽공부러',
+    tierLevel: 2,
+    focusTimeMinutes: 310,
+    isFocusing: true,
+    focusStartedAt: minutesBeforeLoad(95),
+    focusTagName: '영어',
+  },
+  {
+    userId: '00000000-0000-0000-0000-000000000206',
+    nickname: '노동법러',
+    tierLevel: 2,
+    focusTimeMinutes: 110,
+    isFocusing: true,
+    focusStartedAt: minutesBeforeLoad(40),
+    focusTagName: '노동법',
+  },
+  {
+    userId: '00000000-0000-0000-0000-000000000301',
+    nickname: '전체1등',
+    tierLevel: 1,
+    focusTimeMinutes: 0,
+    isFocusing: false,
+    focusStartedAt: null,
+    focusTagName: null,
+  },
 ];
 
 // 초기 핀: 재영·핀만한친구 — 핀+집중중 / 핀+미집중 케이스
