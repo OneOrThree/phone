@@ -228,8 +228,8 @@ jobs:
           jq -n --slurpfile spec openapi.json \
             '{input: ($spec[0] | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: true, prependBasePath: false, deleteUnmatchedResources: true}}' \
             > apidog-payload.json
-          bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" \
-            1283919 "${{ secrets.APIDOG_TOKEN }}" apidog-payload.json
+          APIDOG_TOKEN="${{ secrets.APIDOG_TOKEN }}" \
+            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" 1283919 apidog-payload.json
 
       - name: Sync to Apidog (Soobin)
         if: steps.check.outputs.exists == 'true'
@@ -239,8 +239,8 @@ jobs:
           jq -n --slurpfile spec openapi.json \
             '{input: ($spec[0] | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}' \
             > apidog-payload-soobin.json
-          bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" \
-            1305019 "${{ secrets.APIDOG_TOKEN_SOOBIN }}" apidog-payload-soobin.json
+          APIDOG_TOKEN="${{ secrets.APIDOG_TOKEN_SOOBIN }}" \
+            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" 1305019 apidog-payload-soobin.json
 
       - name: Sync to Apidog (kth)
         if: steps.check.outputs.exists == 'true'
@@ -250,5 +250,5 @@ jobs:
           jq -n --slurpfile spec openapi.json \
             '{input: ($spec[0] | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}' \
             > apidog-payload-kth.json
-          bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" \
-            1328838 "${{ secrets.APIDOG_TOKEN_KTH }}" apidog-payload-kth.json
+          APIDOG_TOKEN="${{ secrets.APIDOG_TOKEN_KTH }}" \
+            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" 1328838 apidog-payload-kth.json

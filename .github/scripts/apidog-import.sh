@@ -2,7 +2,15 @@
 #
 # Apidog OpenAPI import 1건을 보내고 **반영됐는지까지** 확인한다 (GROMO-1623).
 #
-# 사용법: apidog-import.sh <projectId> <token> <payloadFile>
+# 사용법: APIDOG_TOKEN=... apidog-import.sh <projectId> <payloadFile>
+#
+# 토큰은 위치 인자가 아니라 env 로 받는다. argv 는 `ps aux` 로 같은 호스트의 아무 유저에게나
+# 보이지만 환경변수는 /proc/<pid>/environ 을 통해서만 보이고 그 파일은 소유자·root 만 읽는다.
+# self-hosted 러너가 멀티테넌시일 수 있어 노출 표면을 줄인다.
+# ⚠️ 잔여 노출: 아래 curl 의 `-H "Authorization: Bearer ..."` 는 여전히 curl 의 argv 에 실린다.
+#    이걸 없애려면 `curl --config <파일>` 로 헤더를 파일에서 읽어야 하는데, 그건 러너 디스크에
+#    시크릿 파일을 남기는 것이라 더 나쁘다. 그래서 노출 창을 스크립트 수명 전체에서
+#    curl 실행 순간으로 줄이는 선까지만 한다.
 #
 # 이 스크립트의 존재 이유는 전송이 아니라 **단언**이다. 예전 인라인 curl 은 빈 바디를 보내도
 # Apidog 가 200 을 돌려주면 그대로 통과했고, 그 결과 문서가 최소 11일간 갱신되지 않았는데도
@@ -18,14 +26,20 @@
 set -euo pipefail
 
 PROJECT_ID="$1"
-TOKEN="$2"
-PAYLOAD="$3"
+PAYLOAD="$2"
+TOKEN="${APIDOG_TOKEN:?APIDOG_TOKEN 이 비어 있다 — 시크릿 이름을 확인하라}"
 
 # 로컬에서 목 서버로 이 스크립트의 관문 3개를 실제로 돌려보기 위한 훅. CI 는 기본값을 쓴다.
 BASE_URL="${APIDOG_BASE_URL:-https://api.apidog.com}"
 
 # ① payload 실질 크기 — 스펙 하나가 200 KB 대라 정상 payload 는 10 KB 를 한참 넘는다.
 #    빈 파일(0 B)이나 jq 중단으로 절단된 파일을 여기서 잡는다.
+#    파일 부재는 먼저 잡는다 — 안 그러면 리다이렉션 실패의 셸 기본 메시지로 끝나 CI 로그에서
+#    "왜 죽었는지"가 한 줄로 안 읽힌다.
+if [ ! -f "$PAYLOAD" ]; then
+  echo "::error::Apidog payload 파일이 없다: ${PAYLOAD} — 앞단 jq 가 실행되지 못했다."
+  exit 1
+fi
 MIN_BYTES=10000
 SIZE=$(wc -c < "$PAYLOAD")
 if [ "$SIZE" -lt "$MIN_BYTES" ]; then
@@ -64,6 +78,14 @@ jq -r --arg pid "$PROJECT_ID" \
   apidog-response.json
 
 # 엔드포인트 단위 오류는 200/success:true 안에 섞여 오므로 따로 본다.
+# 필드 부재와 실제 오류를 구분한다 — 둘 다 실패로 닫되(fail-closed), 응답 스키마가 바뀐 것과
+# 엔드포인트가 실제로 깨진 것은 대응이 다르므로 로그에서 갈라져 읽혀야 한다.
+if ! jq -e 'has("data") and (.data.apiCollection.item.errorCount | type == "number")' \
+     apidog-response.json > /dev/null; then
+  echo "::error::Apidog 응답에 errorCount 가 없다 — 응답 스키마가 예상과 다르다(반영 여부 확인 불가)."
+  cat apidog-response.json
+  exit 1
+fi
 ERRORS=$(jq -r '.data.apiCollection.item.errorCount' apidog-response.json)
 if [ "$ERRORS" != "0" ]; then
   echo "::error::Apidog 가 엔드포인트 ${ERRORS} 건을 오류로 처리했다."
