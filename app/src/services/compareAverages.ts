@@ -1,53 +1,10 @@
 // 비교 3축(친구/전체/같은 카테고리) 평균 조회 — 집중 결과(603)·내 통계 ST1(604) 공용.
 // GROMO-755: 친구 축은 서버 평균 집계 API(GROMO-753) 단일 호출로 전환(N+1·상한 10명 표본 편향 제거).
-// 전체·같은 카테고리의 "이번 주"(fetchGlobal/CategoryAverage)는 리그 랭킹 기반 기존 방식 유지 —
-// 내 통계 화면(558) 전환은 범위 외(755). 집중 결과의 "오늘" 축은 fetchFocusAverage를 쓴다.
+// GROMO-1632: 전체·같은 카테고리도 전 기간 서버 평균으로 통일 — 주 탭의 리그 랭킹(상위 100)
+// 클라 평균을 폐지했다(상위 100명 선발 편향·봇 포함·0분 패딩 문제 정정).
 // 축별로 독립 함수 — 호출부가 각자 로딩/도착 시점을 다르게 처리할 수 있다.
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '@/types/storage';
-import { occupationForCategory } from '@/constants/focusCategories';
-import { getGlobalRanking, getMyRanking } from '@/services/leagueApi';
-import { memberLiveSeconds } from '@/utils/liveFocus';
 import { getFocusAverage } from '@/services/statsApi';
 import type { FocusAverageScope, StatsPeriod } from '@/types/dto/stats';
-
-function mean(values: number[]): number | null {
-  if (values.length === 0) return null;
-  return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
-}
-
-// 전체 평균 — 이번 주 전체 랭킹(상위 100) 집중시간 평균(분). null = 리그 미시작/실패.
-// 서버는 초 단위(totalFocusSeconds, GROMO-665)라 분으로 내려 다른 축(분)과 단위를 맞춘다.
-// 평균 값도 라이브 점수(확정 + 진행 경과, memberLiveSeconds)로 낸다(GROMO-1606) — 표본 선발이
-// 라이브 점수 기준 상위 100인데 확정값만 평균하면, 확정값 낮은 집중 중 유저가 컷오프의 확정값
-// 높은 유저를 밀어낼 때마다 평균이 체계적으로 낮아진다(코덱스 리뷰).
-export async function fetchGlobalAverage(): Promise<number | null> {
-  try {
-    const ranking = await getGlobalRanking();
-    const now = Date.now();
-    return mean(ranking.map((m) => memberLiveSeconds(m, now) / 60));
-  } catch {
-    return null;
-  }
-}
-
-// 같은 카테고리 평균 — focusCategory ↔ Occupation 전 카테고리 1:1(19종, GROMO-631). null = 미선택/실패.
-export async function fetchCategoryAverage(): Promise<{
-  avg: number | null;
-  label: string | null;
-}> {
-  const label = await AsyncStorage.getItem(STORAGE_KEYS.focusCategory).catch(() => null);
-  const occupation = occupationForCategory(label);
-  if (!occupation) return { avg: null, label };
-  try {
-    const ranking = await getMyRanking(occupation);
-    // 전체 평균과 동일 — 표본 선발 기준(라이브 점수)과 평균 값의 축을 맞춘다(GROMO-1606).
-    const now = Date.now();
-    return { avg: mean(ranking.map((m) => memberLiveSeconds(m, now) / 60)), label };
-  } catch {
-    return { avg: null, label };
-  }
-}
 
 // scope 평균 — 서버 평균 집계 API(GROMO-753) 단일 호출. count는 집계에 포함된 활동 유저 수.
 // count 규약: 0 = 집계 대상 없음(친구 없음·무활동·occupation 미설정), -1 = 조회 실패.

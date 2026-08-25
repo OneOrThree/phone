@@ -38,7 +38,7 @@ import { fmtMinutes, hms } from '@/utils/timeFormat';
 import { kstLocalSameDay } from '@/utils/localDate';
 import { PERIOD_TABS, periodKey, heatmapBars, kstTodayDate, mergeCardOrder } from './stats/format';
 import { SectionCard } from './stats/SectionCard';
-import { CompareWeek, ComparePeriod } from './stats/Compare';
+import { ComparePeriod } from './stats/Compare';
 import { PasserCompareChart } from './stats/PasserCompareChart';
 import { LineChart, FirstStartChart } from './stats/charts';
 import { MonthWeeklyChart, pickFocus, pickScreenTime } from './stats/MonthWeeklyChart';
@@ -201,8 +201,9 @@ export default function StatsScreen() {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   }
 
-  // ST1 총 공부량 (나) + 비교 — 주간은 리그 랭킹 기반 실비교(GROMO-761), 일/월은 평균 집계
-  // API(753) 기반 실비교(GROMO-833). 제목이 탭별 기간 표기(오늘/이번 주/N월)라 캡션 불필요
+  // ST1 총 공부량 (나) + 비교 — 전 기간(일/주/월) 평균 집계 API(753) 기반 실비교(GROMO-833).
+  // 주 탭도 서버 평균으로 전환(GROMO-1632 — 리그 랭킹 상위 100 클라 평균 폐지).
+  // 제목이 탭별 기간 표기(오늘/이번 주/N월)라 캡션 불필요
   cards.push({
     key: 'total',
     node: (
@@ -223,22 +224,18 @@ export default function StatsScreen() {
               ? hms(todayFocusSeconds)
               : fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
           </Text>
-          {period === 'WEEK' ? (
-            <CompareWeek myMinutes={data.focus?.totalFocusMinutes ?? 0} />
-          ) : (
-            // key로 탭 전환 시 리마운트 — 이전 기간 평균이 새 탭 위에 잠깐 보이는 것 방지
-            <ComparePeriod
-              key={period}
-              period={period}
-              myMinutes={
-                // 내 값은 위 큰 숫자와 동일 소스 — 일=로컬 오늘 누적(초→분, 동축일 때만 — 위와
-                // 같은 게이트), 월=서버 기간 집계
-                period === 'DAY' && kstLocalSameDay()
-                  ? Math.round(todayFocusSeconds / 60)
-                  : (data.focus?.totalFocusMinutes ?? 0)
-              }
-            />
-          )}
+          {/* key로 탭 전환 시 리마운트 — 이전 기간 평균이 새 탭 위에 잠깐 보이는 것 방지 */}
+          <ComparePeriod
+            key={period}
+            period={period}
+            myMinutes={
+              // 내 값은 위 큰 숫자와 동일 소스 — 일=로컬 오늘 누적(초→분, 동축일 때만 — 위와
+              // 같은 게이트), 주/월=서버 기간 집계
+              period === 'DAY' && kstLocalSameDay()
+                ? Math.round(todayFocusSeconds / 60)
+                : (data.focus?.totalFocusMinutes ?? 0)
+            }
+          />
         </SectionCard>
       </View>
     ),
