@@ -1,0 +1,382 @@
+// 부팅 복구 테스트 (GROMO-1600) — **render 없음**. 저장소에 「죽은 순간」을 시드해 두고
+// recoverFocusEngine이 회수하는지 본다. 크래시 창은 실제로 프로세스를 죽일 수 없으므로,
+// 저널·v1 레코드를 그 순간의 조합으로 직접 심어 재현한다.
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '@/types/storage';
+import ScreenTimeModule from '@/services/ScreenTimeModule';
+import { uploadFocusBlock } from '../uploadFocusBlock';
+import { recoverFocusEngine } from './boot';
+import { readJournal } from './journal';
+import { markBackgroundFocusCommit } from '../pendingFocusUploads';
+import { ensureFocusTagId } from '../tagSync';
+import { currentAccountId } from '@/services/focusApi';
+import { requestCoinRefresh } from '@/store/coinRefreshSignal';
+
+jest.mock('@/services/ScreenTimeModule', () => ({
+  __esModule: true,
+  default: { stopFocusShield: jest.fn(() => Promise.resolve()) },
+}));
+jest.mock('../uploadFocusBlock', () => ({
+  uploadFocusBlock: jest.fn(() => Promise.resolve({ status: 'saved', response: {} })),
+}));
+jest.mock('../pendingFocusUploads', () => ({
+  markBackgroundFocusCommit: jest.fn(() => Promise.resolve()),
+}));
+jest.mock('@/store/coinRefreshSignal', () => ({ requestCoinRefresh: jest.fn() }));
+jest.mock('@/services/focusApi', () => ({
+  currentAccountId: jest.fn(() => Promise.resolve('user-1')),
+}));
+jest.mock('../tagSync', () => ({
+  ensureFocusTagId: jest.fn(() => Promise.resolve('tag-recovered')),
+}));
+jest.mock('../pendingMarkerCancels', () => ({
+  cancelMarker: jest.fn(() => Promise.resolve()),
+}));
+
+const mockedUpload = uploadFocusBlock as jest.Mock;
+const mockedStopShield = ScreenTimeModule.stopFocusShield as jest.Mock;
+
+const SESSION_KEY = 'fs-test-key';
+const OWNER = 'user-1';
+
+const journalWith = (session: unknown, settles: unknown[] = []) =>
+  AsyncStorage.setItem(
+    STORAGE_KEYS.focusJournalV1,
+    JSON.stringify({ version: 1, session, settles }),
+  );
+
+const startingSession = {
+  sessionKey: SESSION_KEY,
+  state: 'starting',
+  shieldRequested: true,
+  serverSessionId: null,
+  markerBlockStartedAt: null,
+  createdAt: '2026-08-22T10:00:00.000Z',
+  updatedAt: '2026-08-22T10:00:00.000Z',
+};
+
+// 커밋 흔적 — 시작이 성공했다는 유일한 증거(v1 레코드의 sessionKey가 저널과 일치)
+const commitTrace = {
+  version: 1,
+  sessionKey: SESSION_KEY,
+  userId: OWNER,
+  subjectId: 's1',
+  subjectName: '수학',
+  mode: 'countup',
+  goalSeconds: null,
+  pomodoro: null,
+  phase: 'focus',
+  setIndex: 1,
+  isPaused: false,
+  done: false,
+  displaySeconds: 0,
+  elapsedSeconds: 0,
+  startedAt: '2026-08-22T10:00:00.000Z',
+  blockStartedAt: '2026-08-22T10:00:00.000Z',
+  unsettledSeconds: 0,
+  settledSeconds: 0,
+  blockPause: { pausedMs: 0, count: 0, startedAt: null },
+  focusDays: { local: {}, server: {}, kst: {} },
+  awayCreditedSeconds: 0,
+  shielded: true,
+  serverSessionId: null,
+  revision: 1,
+  updatedAt: '2026-08-22T10:00:00.000Z',
+};
+
+const staleIntent = (over: Record<string, unknown> = {}) => ({
+  intentId: 'intent-1',
+  sessionKey: SESSION_KEY,
+  serverSessionId: 'marker-1',
+  body: { subject: '수학', startedAt: 'a', endedAt: 'b' },
+  userId: OWNER,
+  // 나이 기준(60초)을 넘긴 시각 — 진행 중 업로드와 겹치지 않는 「확실히 죽은」 intent
+  createdAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+  ...over,
+});
+
+beforeEach(async () => {
+  jest.clearAllMocks();
+  await AsyncStorage.clear();
+  mockedUpload.mockResolvedValue({ status: 'saved', response: {} });
+});
+
+describe('원자적 시작 복구(§4.3-ⓑ)', () => {
+  test('미완 starting + 커밋 흔적 없음: 실드를 해제하고 저널을 소거한다', async () => {
+    // 실드는 걸렸는데 커밋 전에 죽은 창 — 그대로 두면 사용자가 이유 없이 차단된 채 남는다.
+    await journalWith(startingSession);
+    await recoverFocusEngine();
+
+    expect(mockedStopShield).toHaveBeenCalledTimes(1);
+    expect((await readJournal()).session).toBeNull();
+  });
+
+  test('미완 starting + 커밋 흔적 있음: 실드를 유지하고 저널만 소급 완결한다', async () => {
+    // 커밋 직후·저널 완결 직전에 죽은 창 — 살아 있는 세션의 차단을 풀면 안 된다.
+    await journalWith(startingSession);
+    await AsyncStorage.setItem(STORAGE_KEYS.focusSessionV1, JSON.stringify(commitTrace));
+    await recoverFocusEngine();
+
+    expect(mockedStopShield).not.toHaveBeenCalled();
+    expect((await readJournal()).session).toMatchObject({ state: 'active' });
+  });
+
+  test('다른 세션의 v1 레코드는 커밋 흔적이 아니다 — 실드를 해제한다', async () => {
+    // sessionKey가 다르면 이전 세션의 잔재다. 흔적으로 인정하면 실드가 영영 남는다.
+    await journalWith(startingSession);
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.focusSessionV1,
+      JSON.stringify({ ...commitTrace, sessionKey: 'fs-other' }),
+    );
+    await recoverFocusEngine();
+
+    expect(mockedStopShield).toHaveBeenCalledTimes(1);
+    expect((await readJournal()).session).toBeNull();
+  });
+
+  test('방금 쓴 starting은 크래시가 아니다 — 실드를 풀지 않는다(경합 방어)', async () => {
+    // 시작은 write-ahead라 저널이 v1 커밋 흔적보다 먼저 커밋된다(§4.3-ⓐ가 요구하는 순서).
+    // 그 사이에 복구가 돌면(사일런트 푸시·포그라운드 복귀) 흔적이 없어 크래시로 보이는데,
+    // 그대로 처리하면 **막 시작한 정상 세션의 실드를 푼다**(자체 점검에서 발견).
+    await journalWith({ ...startingSession, createdAt: new Date().toISOString() });
+    await recoverFocusEngine();
+
+    expect(mockedStopShield).not.toHaveBeenCalled();
+    expect((await readJournal()).session).toMatchObject({ state: 'starting' }); // 그대로 둔다
+  });
+
+  test('유예를 넘긴 starting은 크래시로 처리한다 — 시각이 깨졌으면 오래된 것으로 본다', async () => {
+    await journalWith({ ...startingSession, createdAt: 'not-a-date' });
+    await recoverFocusEngine();
+
+    expect(mockedStopShield).toHaveBeenCalledTimes(1);
+    expect((await readJournal()).session).toBeNull();
+  });
+
+  test('active 세션은 건드리지 않는다 — 실드·저널 유지', async () => {
+    // 정상 진행 중 죽은 세션의 정산은 OrphanFocusSettler 몫이다(이 복구의 관심사가 아니다).
+    await journalWith({ ...startingSession, state: 'active' });
+    await recoverFocusEngine();
+
+    expect(mockedStopShield).not.toHaveBeenCalled();
+    expect((await readJournal()).session).toMatchObject({ state: 'active' });
+  });
+});
+
+describe('failed 정산 intent 재업로드(D1)', () => {
+  test('저널에 남은 intent를 같은 바디로 재업로드하고, 성공하면 지운다', async () => {
+    await journalWith(null, [staleIntent()]);
+    await recoverFocusEngine();
+
+    expect(mockedUpload).toHaveBeenCalledTimes(1);
+    const opts = mockedUpload.mock.calls[0][0];
+    expect(opts.body).toMatchObject({ subject: '수학' });
+    expect(opts.sessionId).toBe('marker-1');
+    expect(opts.userId).toBe(OWNER); // 기록 당시 소유자 — focusApi가 전송 직전 재검증한다
+    expect((await readJournal()).settles).toHaveLength(0);
+  });
+
+  test('재업로드도 failed면 intent를 보존한다 — 다음 부팅이 또 시도한다', async () => {
+    mockedUpload.mockResolvedValue({ status: 'failed' });
+    await journalWith(null, [staleIntent()]);
+    await recoverFocusEngine();
+
+    expect((await readJournal()).settles).toHaveLength(1);
+  });
+
+  test('대기열 인계(queued)면 intent를 지운다 — 이후는 내구 큐 책임', async () => {
+    mockedUpload.mockResolvedValue({ status: 'queued' });
+    await journalWith(null, [staleIntent()]);
+    await recoverFocusEngine();
+
+    expect((await readJournal()).settles).toHaveLength(0);
+  });
+
+  test('갓 기록된 intent는 건너뛴다 — 진행 중 업로드와의 중복 전송 방지', async () => {
+    await journalWith(null, [staleIntent({ createdAt: new Date().toISOString() })]);
+    await recoverFocusEngine();
+
+    expect(mockedUpload).not.toHaveBeenCalled();
+    expect((await readJournal()).settles).toHaveLength(1);
+  });
+});
+
+test('멱등: 콜드 스타트와 사일런트 flush가 겹쳐 불러도 한 번만 돈다', async () => {
+  await journalWith(null, [staleIntent()]);
+  await Promise.all([recoverFocusEngine(), recoverFocusEngine(), recoverFocusEngine()]);
+
+  expect(mockedUpload).toHaveBeenCalledTimes(1);
+});
+
+describe('재생 커밋 후 잔액 갱신', () => {
+  test('saved면 메모리 신호와 영속 커밋 마커를 모두 남긴다', async () => {
+    // headless 사일런트 flush에선 뒤따르는 큐 flush가 빈 큐를 보고 committed=false를
+    // 돌려주므로, 여기서 안 남기면 갱신 신호가 아예 생기지 않는다(codex 리뷰 #694).
+    mockedUpload.mockResolvedValue({ status: 'saved', response: {} });
+    await journalWith(null, [staleIntent()]);
+    await recoverFocusEngine();
+
+    expect(requestCoinRefresh).toHaveBeenCalledTimes(1);
+    expect(markBackgroundFocusCommit).toHaveBeenCalledTimes(1);
+  });
+
+  test('queued면 잔액 신호를 남기지 않는다 — 서버 커밋이 아니다', async () => {
+    mockedUpload.mockResolvedValue({ status: 'queued' });
+    await journalWith(null, [staleIntent()]);
+    await recoverFocusEngine();
+
+    expect(requestCoinRefresh).not.toHaveBeenCalled();
+    expect(markBackgroundFocusCommit).not.toHaveBeenCalled();
+  });
+});
+
+describe('예비 intent 재생 시 보완', () => {
+  test('태그가 null이면 subject로 다시 해석하고, 마커는 저널 세션에서 가져온다', async () => {
+    // 예비 intent는 태그·마커가 미정인 채 저장된다(그 둘을 기다리기 전에 남기는 게 계약).
+    // 그대로 올리면 과목별 통계에 영구 미분류로 박히고, 열린 마커도 안 닫혀 친구 화면의
+    // '집중 중'이 서버 스윕까지 남는다(codex 리뷰 #694 4차).
+    await journalWith(
+      {
+        ...startingSession,
+        state: 'active',
+        serverSessionId: 'marker-live',
+        markerBlockStartedAt: 'a',
+      },
+      [
+        staleIntent({
+          serverSessionId: null,
+          body: { subject: '수학', startedAt: 'a', endedAt: 'b', focusTagId: null },
+        }),
+      ],
+    );
+    await recoverFocusEngine();
+
+    const opts = mockedUpload.mock.calls[0][0];
+    expect(opts.body.focusTagId).toBe('tag-recovered');
+    expect(opts.sessionId).toBe('marker-live');
+  });
+
+  test('다른 세션의 마커는 가져오지 않는다 — sessionKey가 다르면 남의 마커다', async () => {
+    await journalWith(
+      {
+        ...startingSession,
+        sessionKey: 'fs-other',
+        state: 'active',
+        serverSessionId: 'marker-other',
+        markerBlockStartedAt: 'a',
+      },
+      [staleIntent({ serverSessionId: null })],
+    );
+    await recoverFocusEngine();
+
+    expect(mockedUpload.mock.calls[0][0].sessionId).toBeNull();
+  });
+});
+
+describe('재생 전 계정·블록 대조', () => {
+  test('저장 토큰의 주인이 intent 소유자와 다르면 재생 자체를 건너뛴다', async () => {
+    // ensureFocusTagId는 넘긴 userId를 캐시 구분에만 쓰고 조회·생성은 **현재 토큰**으로 한다.
+    // 계정 전환 도중 죽어 옛 intent와 새 토큰이 함께 남으면, 업로드가 거부되기 전에 이전
+    // 사용자의 과목명이 새 계정 태그로 만들어진다(codex 리뷰 #694 5차).
+    (currentAccountId as jest.Mock).mockResolvedValueOnce('user-9');
+    await journalWith(null, [
+      staleIntent({ body: { subject: '수학', startedAt: 'a', endedAt: 'b', focusTagId: null } }),
+    ]);
+    await recoverFocusEngine();
+
+    expect(ensureFocusTagId).not.toHaveBeenCalled();
+    // 업로드도 태우지 않는다 — focusApi가 계정 불일치로 던지면 uploadFocusBlock이 그걸 잡아
+    // **intent 소유 계정으로** 큐에 넣고 queued를 돌려주는데, 그러면 여기서 intent를 지우고
+    // 이후 현재 계정의 flush가 그 항목을 폐기해 버린다(codex 리뷰 #694 7차).
+    expect(mockedUpload).not.toHaveBeenCalled();
+    expect((await readJournal()).settles).toHaveLength(1); // 계정이 돌아올 때까지 보존
+  });
+
+  test('같은 세션이어도 마커의 블록이 다르면 가져오지 않는다 — 뽀모도로는 블록마다 회전한다', async () => {
+    // 첫 블록의 intent가 남은 뒤 다음 블록이 새 마커를 열면, sessionKey만 맞춰서는 살아 있는
+    // 새 블록의 마커를 첫 블록 바디로 종료·취소하게 된다(codex 리뷰 #694 5차).
+    await journalWith(
+      {
+        ...startingSession,
+        state: 'active',
+        serverSessionId: 'marker-2',
+        markerBlockStartedAt: 'block-2',
+      },
+      [
+        staleIntent({
+          serverSessionId: null,
+          body: { subject: '수학', startedAt: 'block-1', endedAt: 'b' },
+        }),
+      ],
+    );
+    await recoverFocusEngine();
+
+    expect(mockedUpload.mock.calls[0][0].sessionId).toBeNull();
+  });
+
+  test('alreadyEnded 재생도 잔액 갱신을 남긴다 — 서버는 이미 지급했다', async () => {
+    // PATCH 409(SESSION_ALREADY_ENDED)는 원래 요청이 커밋됐는데 응답만 유실된 경우다.
+    // 갱신 신호가 없으면 사용자는 이미 받은 코인을 다음 재조회까지 못 본다.
+    mockedUpload.mockResolvedValue({ status: 'alreadyEnded' });
+    await journalWith(null, [staleIntent()]);
+    await recoverFocusEngine();
+
+    expect(requestCoinRefresh).toHaveBeenCalled();
+    expect(markBackgroundFocusCommit).toHaveBeenCalled();
+  });
+});
+
+describe('복구가 새 세션을 침범하지 않는다', () => {
+  test('실드를 끄기 직전 저널 소유권을 다시 확인한다 — 새 세션의 실드를 풀지 않는다', async () => {
+    // v1 조회를 기다리는 사이 사용자가 새 세션을 시작하면, 무조건 정리는 방금 적용한
+    // 새 실드를 해제하고 새 저널까지 지운다(codex 리뷰 #694 5차).
+    await journalWith(startingSession, []); // 흔적 없음 + shieldRequested
+    const realRead = AsyncStorage.getItem as unknown as jest.Mock;
+    const orig = realRead.getMockImplementation();
+    let swapped = false;
+    realRead.mockImplementation(async (key: string) => {
+      const value = await (orig?.(key) ?? Promise.resolve(null));
+      // v1을 조회하는 순간 = 새 세션이 끼어드는 창
+      if (key === STORAGE_KEYS.focusSessionV1 && !swapped) {
+        swapped = true;
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.focusJournalV1,
+          JSON.stringify({
+            version: 1,
+            session: { ...startingSession, sessionKey: 'fs-new' },
+            settles: [],
+          }),
+        );
+      }
+      return value;
+    });
+    await recoverFocusEngine();
+    realRead.mockImplementation(orig ?? (() => Promise.resolve(null)));
+
+    expect(ScreenTimeModule.stopFocusShield).not.toHaveBeenCalled();
+    expect((await readJournal()).session?.sessionKey).toBe('fs-new');
+  });
+
+  test('유예 안의 starting은 남은 유예만큼 재복구를 예약한다', async () => {
+    // headless 기동엔 OrphanFocusSettler가 없어, 예약이 없으면 실드와 미완 저널이 다음 앱
+    // 실행까지 남는다(codex 리뷰 #694 5차).
+    //
+    // 모듈을 새로 적재한다 — 재시도 타이머는 모듈 상태이고 「중복 예약은 하나로 합친다」는
+    // 가드가 있어, 앞선 테스트가 남긴 타이머가 있으면 이 예약이 조용히 생략된다.
+    jest.useFakeTimers();
+    try {
+      await journalWith({ ...startingSession, createdAt: new Date().toISOString() }, []);
+      let fresh!: typeof import('./boot');
+      jest.isolateModules(() => {
+        fresh = require('./boot');
+      });
+      await fresh.recoverFocusEngine();
+
+      expect(ScreenTimeModule.stopFocusShield).not.toHaveBeenCalled(); // 유예 안 — 손대지 않는다
+      expect(jest.getTimerCount()).toBeGreaterThan(0); // 재복구가 예약됐다
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});

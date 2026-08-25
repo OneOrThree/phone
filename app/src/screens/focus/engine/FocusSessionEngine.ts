@@ -14,6 +14,7 @@ import { Platform, Vibration, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { STORAGE_KEYS } from '@/types/storage';
+import { markSessionLive, clearSessionLive, isSessionLive } from './liveSessionRegistry';
 import type { FocusType } from '@/types/dto/focus';
 import { startFocusSession } from '@/services/focusApi';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from '../leaveNotifications';
@@ -46,6 +47,20 @@ import {
   type SessionMachineConfig,
   type SessionState,
 } from './machine';
+import {
+  writePersistedSessionV1,
+  removePersistedSessionV1,
+  type PersistedFocusSessionV1,
+} from './persistence';
+import {
+  journalStartIntent,
+  journalActivateSession,
+  journalSetServerSessionId,
+  journalClearSession,
+  recordSettleIntent,
+  resolveSettleIntent,
+  type SettleIntent,
+} from './journal';
 
 // 무실드 세션의 이탈 자동 종료 경계(초) — 초과 복귀는 leave_timeout 종료
 export const LEAVE_END_S = 15;
@@ -145,8 +160,25 @@ export interface FocusSessionEngine {
   // ── 서버 라이브 마커(GROMO-873)
   startLiveSession(startedAt: string): Promise<string | null>;
   cancelLiveSession(): void;
+  /**
+   * finish를 거치지 않는 뷰 이탈(Android 시스템 뒤로가기 등) — 마커를 닫고 **미정산 블록을
+   * 영속한다**(D2 수리). 종전엔 이 자리에 저장이 없어 첫 5초 주기 전 언마운트면 고아 정산
+   * 근거가 통째로 없었고, 이후에도 마지막 주기 저장 뒤 최대 4초가 유실됐다. 정산 자체는
+   * 여전히 다음 부팅의 고아 정산 몫이다(여기서 업로드하지 않는다).
+   */
+  detachViewExit(): void;
+
+  /** 시작 도중 이탈이 확인됐을 때의 회수 — start가 부르는 내부 단계 */
+  abortStart(): void;
   setMarkerDeferred(v: boolean): void;
   isMarkerDeferred(): boolean;
+
+  /**
+   * 세션 시작(원자적, §4.3) — ⓪ 저널 write-ahead(starting) → ① 실드 적용(fire, 폰 발은
+   * 실패해도 계속 — 15초 정책 폴백) → ② v1 커밋 흔적 + 저널 active 원자 갱신 → ③ 첫 마커.
+   * 실드 성공 직후 크래시로 「실드만 남는」 창은 다음 부팅 recover가 저널로 회수한다.
+   */
+  start(subjectName: string): Promise<void>;
 
   // ── 실드 — 적용 성공 여부(shielded)로 이탈 정책이 갈린다: 실드 O=집중 인정 / X=15초 정책
   applyShield(subjectName: string): void;
@@ -191,6 +223,8 @@ export function createFocusSessionEngine(
   const notify = () => listeners.forEach((l) => l());
 
   const startedAtIso = new Date().toISOString();
+  // 로컬 세션 ID(§4.3 focusSessionId의 전신) — 부작용 전에 생성되는 비어 있지 않은 식별자
+  const sessionKey = `fs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   // 서버 업로드 정산 마커 — 이미 정산(로컬 적립·서버 업로드)된 집중초와 미정산 구간 시작 시각.
   // 뽀모도로는 집중 블록마다, 그 외 모드는 종료 시 한 번 정산한다.
   // 코인은 여기서 세지 않는다(GROMO-1049) — 지급도 잔액도 서버가 정본이라 앱이 미리 계산하지 않는다.
@@ -226,6 +260,10 @@ export function createFocusSessionEngine(
   let markerDeferred = false;
   let paused = false;
   let finished = false;
+  // 뷰가 떠났는가 — 시작이 여러 await를 거치는 동안 화면이 내려갈 수 있다(진입 직후 시스템
+  // 뒤로가기). 그때 남은 단계를 그대로 진행하면 정리 뒤에 실드가 다시 켜지고 마커가 새로
+  // 열려, 사용자는 떠난 화면의 차단과 「집중 중」 표시를 계속 본다.
+  let detached = false;
   // 세션 실드 적용 성공 여부 — 이탈 정책 분기(집중 인정 vs 15초 정책)의 입력
   let shielded = false;
   // 페이즈 경계 이펙트의 비교 기준 — 리플레이가 지나간 경계를 이중 처리하지 않게 동기화한다
@@ -250,6 +288,37 @@ export function createFocusSessionEngine(
     blockPause = newBlockPause(blockPause);
   };
 
+  const buildV1 = (unsettledSeconds: number, updatedAt: string): PersistedFocusSessionV1 => {
+    const { subjectId, subjectName, userId } = deps.identity();
+    return {
+      version: 1,
+      sessionKey,
+      userId,
+      subjectId,
+      subjectName,
+      mode: config.mode,
+      goalSeconds: config.mode === 'countdown' ? config.goalSeconds : null,
+      pomodoro: config.mode === 'pomodoro' ? config.pomodoro : null,
+      phase: session.phase,
+      setIndex: session.setIndex,
+      isPaused: paused,
+      done: session.done,
+      displaySeconds: Math.floor(session.display),
+      elapsedSeconds: Math.floor(session.elapsed),
+      startedAt: startedAtIso,
+      blockStartedAt: settleAt,
+      unsettledSeconds,
+      settledSeconds,
+      blockPause,
+      focusDays: blockToday,
+      awayCreditedSeconds: awayCredited,
+      shielded,
+      serverSessionId: liveId,
+      revision: activityRevision,
+      updatedAt,
+    };
+  };
+
   // 라이브 세션 레코드 — 강제 종료돼도 다음 실행 때 OrphanFocusSettler가 정산할 수 있게 남긴다.
   // 저장값은 '미정산 구간'만: elapsed=아직 서버/로컬에 안 올린 집중초, startedAt=그 구간 시작 시각.
   // finish 후엔 저장 금지 — 종료 시 제거한 레코드가 되살아나면 다음 실행에서 이중 정산된다.
@@ -271,6 +340,95 @@ export function createFocusSessionEngine(
       focusDays: blockToday,
     };
     AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify(record)).catch(() => {});
+    // 영속 세션 v1 이중 기록(GROMO-1600) — legacy는 미정산 꼬리만, v1은 재구성 전체 상태.
+    // 쓰기·제거 시점은 legacy와 대칭(같은 가드·같은 지점) — 두 표현이 어긋나지 않는다.
+    writePersistedSessionV1(buildV1(remaining, record.updatedAt));
+  };
+
+  /**
+   * 정산이 끝난 블록의 레코드만 지운다.
+   *
+   * ⚠️ **무조건 지우면 안 된다.** 이 제거는 예비 intent가 착지한 뒤(비동기)에 도는데, 그
+   * 사이에 백그라운드 리플레이가 여러 경계를 지나 **다음 블록**의 레코드를 이미 저장했을 수
+   * 있다. 그걸 지우면 다음 5초 주기 전에 죽었을 때 현재 블록이 고아 정산 근거 없이 통째로
+   * 유실된다(codex 리뷰 #694 6차). 디스크의 v1이 아직 그 블록을 가리킬 때만 지운다.
+   *
+   * v1이 없으면(쓰기 자체가 실패한 상태) 판별할 근거가 없다 — 두 레코드는 같은 주기에 함께
+   * 쓰이므로 legacy도 같은 블록으로 보고 지운다.
+   */
+  const removeSettledRecords = async (settledBlockStartedAt: string): Promise<void> => {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1).catch(() => null);
+    let v1: PersistedFocusSessionV1 | null = null;
+    if (raw != null) {
+      try {
+        v1 = JSON.parse(raw) as PersistedFocusSessionV1;
+      } catch {
+        v1 = null; // 깨진 흔적 — 판별 근거가 없으니 없는 것으로 본다
+      }
+    }
+    if (v1 != null && v1.blockStartedAt !== settledBlockStartedAt) return;
+    await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+    if (raw == null) return;
+    // ⚠️ 위 legacy 제거를 기다리는 사이 **다음 세션이 시작**해 같은 키에 커밋 흔적을 쓸 수 있다.
+    // 읽은 값과 같을 때만 지운다 — 새 세션의 v1을 지우면 첫 5초 저장 전에 끝났을 때 저널만
+    // active로 남고 그 시간이 통째로 유실된다(codex 리뷰 #694 7차).
+    // (legacy는 새 세션이 첫 주기 전까지 쓰지 않으므로 위 제거는 여전히 정산한 블록의 것이다.)
+    const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1).catch(() => null);
+    if (cur === raw) removePersistedSessionV1();
+  };
+
+  /**
+   * 정산 의도를 영속하지 못했을 때의 차선 — 남는 레코드에 `settledLocally`를 찍는다.
+   * 고아 정산은 이 표식을 보고 **업로드만** 하고 로컬 적립은 건너뛴다(이중 계상 방지).
+   * 소유자가 다른 레코드는 건드리지 않는다.
+   */
+  const markRecordsSettledLocally = async (
+    settledBlockStartedAt: string,
+    userId: string | null,
+  ): Promise<void> => {
+    const [legacyRaw, v1Raw] = await Promise.all([
+      AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession).catch(() => null),
+      AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1).catch(() => null),
+    ]);
+    if (legacyRaw) {
+      try {
+        const legacy = JSON.parse(legacyRaw);
+        // ⚠️ 소유자만 보면 안 된다. 리플레이가 여러 경계를 지나 **다음 블록**을 이미 저장했으면
+        // 같은 사용자라는 이유로 아직 적립도 안 된 최신 레코드에 표식이 찍히고, 고아 정산이
+        // 그 블록의 로컬 적립을 건너뛰어 시간이 사라진다(codex 리뷰 #694 8차).
+        if (
+          legacy?.userId === userId &&
+          legacy?.startedAt === settledBlockStartedAt &&
+          !legacy.settledLocally
+        ) {
+          // 읽기-쓰기 사이의 주기 저장을 덮지 않게 재대조한다(옛 스냅샷을 되쓰면 초가 사라진다)
+          const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession).catch(() => null);
+          if (cur === legacyRaw) {
+            await AsyncStorage.setItem(
+              STORAGE_KEYS.focusLiveSession,
+              JSON.stringify({ ...legacy, settledLocally: true }),
+            );
+          }
+        }
+      } catch {
+        // 깨진 레코드는 고아 정산이 폐기한다
+      }
+    }
+    if (!v1Raw) return;
+    try {
+      const v1 = JSON.parse(v1Raw) as PersistedFocusSessionV1;
+      if (
+        v1.userId !== userId ||
+        v1.blockStartedAt !== settledBlockStartedAt ||
+        v1.settledLocally
+      ) {
+        return;
+      }
+      const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusSessionV1).catch(() => null);
+      if (cur === v1Raw) await writePersistedSessionV1({ ...v1, settledLocally: true });
+    } catch {
+      // 깨진 흔적 — 고아 정산이 폐기한다
+    }
   };
 
   // 서버에 라이브 마커 시작을 등록 — 등록돼야 친구/리그 화면에 '집중 중'(과목명 포함)으로 보인다.
@@ -289,7 +447,17 @@ export function createFocusSessionEngine(
         (res) => {
           // 이 시작이 여전히 현재 마커일 때만 스냅샷 갱신 — 취소로 이미 닫힌 마커의 id를
           // 늦게 도착한 응답이 라이브 레코드에 되살리지 않게.
-          if (liveStartPromise === promise) liveId = res.sessionId;
+          if (liveStartPromise === promise) {
+            liveId = res.sessionId;
+            // 저널 쓰기 실패를 삼키지 않고 한 번 재시도한다 — 이 복사본이 없으면 첫 주기
+            // 저장(5초) 전까지 마커 id가 메모리에만 있어, 그 사이에 죽으면 복구가 마커를
+            // 몰라 서버 스윕(12h)까지 열린 채 남는다(codex 리뷰 #694 8차).
+            journalSetServerSessionId(sessionKey, res.sessionId, startedAt)
+              .then((ok) =>
+                ok ? true : journalSetServerSessionId(sessionKey, res.sessionId, startedAt),
+              )
+              .catch(() => {});
+          }
           return res.sessionId;
         },
         (e: unknown) => {
@@ -331,11 +499,11 @@ export function createFocusSessionEngine(
   // 그 구간[settleAt, now]을 서버에 세션으로 업로드한다. 뽀모도로는 집중 블록 끝마다,
   // 그 외 모드는 finish에서 1회 호출된다. 정산 완료분은 라이브 레코드에서 제거(고아 이중정산 방지).
   // endedAtOverride: 빨리감기 리플레이가 '지난 경계의 실제 벽시계 시각'을 지정할 때 쓴다(생략 시 지금).
-  const settleFocusBlock = (endedAtOverride?: string) => {
+  const settleFocusBlock = (endedAtOverride?: string, isFinal = false) => {
     const { subjectId, subjectName, userId } = deps.identity();
     const elapsed = Math.floor(session.elapsed);
     const delta = elapsed - settledSeconds;
-    if (delta <= 0) return;
+    if (delta <= 0) return false;
     // 24시간을 넘긴 일시정지는 방해값(서버 DTO 상한 24h)으로 실을 수 없다 — 그런 블록은
     // '지금'이 아니라 정지 시작 시점에서 끊는다(blockPause.ts pauseCutAt 주석).
     const cutAt = pauseCutAt(blockPause);
@@ -347,7 +515,9 @@ export function createFocusSessionEngine(
     // 마커·레코드를 적립보다 먼저 갱신 — 적립 후 제거 전에 죽으면 고아 정산이 또 적립한다(원 finish와 동일 순서).
     settledSeconds = elapsed;
     startBlockAt(endedAt);
-    AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+    // ⚠️ 레코드 제거는 **예비 intent가 영속된 뒤**로 미룬다(아래 recordSettleIntent().then).
+    //    먼저 지우면 제거는 반영됐는데 저널 쓰기 전에 죽는 창에서 업로드·대기열·저널·레코드가
+    //    전부 없어져 그 블록이 영구 유실된다.
     // 로컬/과목 적립 — 이 블록의 집중초 중 오늘 몫만 반영(GROMO-1252). 몫은 벽시계 겹침이
     // 아니라 집중 tick의 날짜로 센다. 코인은 all-time이라 항상 반영.
     const settledBlockToday = blockToday;
@@ -357,6 +527,10 @@ export function createFocusSessionEngine(
     // 정산이 이미 이 tick들을 적립했으므로 복귀 리플레이가 스냅샷을 되돌리면 이중 적립이다.
     blockToday = newBlockToday();
     leftBlockToday = null;
+    // ⚠️ 적립 **전에** 표식을 남기는 write-ahead는 이 자리에선 성립하지 않는다(GROMO-1617).
+    // markRecordsSettledLocally는 읽기-수정-쓰기라, 읽기 왕복이 끝나기 전에 아래 동기 적립이
+    // 먼저 끝난다 — 실제로 착수 순서를 재어 확인했다. 지금 남는 창(적립 직후~intent 착지 전
+    // 크래시 시 다음 부팅의 재적립)은 후속 티켓으로 넘긴다.
     const delegates = deps.settleDelegates();
     if (todaySeconds > 0) {
       delegates.addFocusSeconds(todaySeconds);
@@ -387,11 +561,51 @@ export function createFocusSessionEngine(
     liveStartPromise = Promise.resolve(null);
     // 서버 업로드 — 이번 집중 블록 구간만. 실패 시 대기열에 남겨 재시도(GROMO-614) —
     // 로컬 적립은 이미 반영돼 그냥 버리면 서버와 불일치.
-    Promise.all([
-      ensureFocusTagId(subjectName, userId).catch(() => null),
-      livePromise.catch(() => null),
-    ])
-      .then(([focusTagId, sessionId]) => {
+    // ⚠️ **네트워크를 기다리기 전에** 복구 가능한 intent를 먼저 남긴다. 이 시점엔 이미
+    // 라이브 레코드·v1을 지우고 로컬 적립까지 끝냈으므로, 태그 해석과 마커 응답을 기다리는
+    // 동안 OS가 프로세스를 종료하면 업로드·대기열·저널 어디에도 바디가 없어 서버 통계와
+    // 코인이 영구 유실된다. 정산에 필요한 값(모드·구간·방해·날짜)은 여기서 이미 다 있다 —
+    // 태그·마커 id만 미정이라 그 둘은 아래에서 완성본으로 교체한다(같은 intentId = upsert).
+    const intentId = `${sessionKey}-${startedAt}`;
+    const baseBody = {
+      focusTagId: null as string | null,
+      subject: subjectName,
+      startedAt,
+      endedAt,
+      distractionCount,
+      totalDistractionSeconds,
+      focusType: FOCUS_TYPE_BY_MODE[config.mode],
+      focusSecondsByDate,
+    };
+    // ⚠️ 예비 기록이 **착지한 뒤에** 레코드를 지우고 네트워크를 시작한다. 순서가 이 계약의
+    // 전부다 — 지우기가 먼저 반영되고 저널 쓰기가 아직이면 그 창에서 블록이 통째로 사라진다.
+    // 쓰기가 **실패하면 레코드를 남긴다**(다음 부팅의 고아 정산이 근거로 쓴다).
+    recordSettleIntent({
+      intentId,
+      sessionKey,
+      serverSessionId: null,
+      body: baseBody,
+      userId,
+      createdAt: new Date().toISOString(),
+    })
+      .then(async (persisted) => {
+        if (persisted) {
+          await removeSettledRecords(startedAt);
+        } else {
+          // 저널 쓰기가 실패했다 — 레코드는 남겨 업로드 근거로 쓰되, **로컬 적립은 이미 했다고
+          // 표시한다.** 안 찍으면 다음 부팅의 고아 정산이 미적립으로 보고 같은 블록을 한 번 더
+          // 적립한다(로컬 시간·과목 통계 이중 계상).
+          markRecordsSettledLocally(startedAt, userId).catch(() => {});
+        }
+        // 인계가 끝났다 — 이제 고아 정산이 이 세션을 봐도 안전하다(레코드는 지워졌거나
+        // settledLocally가 찍혀 재적립되지 않는다).
+        if (isFinal) clearSessionLive(sessionKey);
+        return Promise.all([
+          ensureFocusTagId(subjectName, userId).catch(() => null),
+          livePromise.catch(() => null),
+        ]);
+      })
+      .then(async ([focusTagId, sessionId]) => {
         const body = {
           focusTagId,
           subject: subjectName,
@@ -408,6 +622,27 @@ export function createFocusSessionEngine(
           // 자정을 걸친 블록의 날짜별 몫을 알 수 없다.
           focusSecondsByDate,
         };
+        // 정산 의도 기록(D1) — 업로드 착수 **전에** 남긴다. 결과가 failed(대기열 저장까지
+        // 실패)면 이 intent가 유일한 재시도 근거로 남아 다음 부팅 recover가 재업로드한다 —
+        // 종전엔 레코드를 먼저 지워 이 경우 블록이 영구 유실됐다(특성화 :839 「알려진 유실 공백」).
+        // 태그·마커가 풀렸으니 완성본으로 교체(같은 intentId — upsert)
+        const intent: SettleIntent = {
+          intentId,
+          sessionKey,
+          serverSessionId: sessionId,
+          body,
+          userId,
+          createdAt: new Date().toISOString(),
+        };
+        const finalPersisted = await recordSettleIntent(intent);
+        // 마지막 정산(finish)이면 **여기서** 저널 세션을 접는다 — 완성 intent가 마커를 인계한
+        // 뒤라야 복구가 마커를 찾을 근거를 잃지 않는다(codex 리뷰 #694 6차). 뽀모도로 경계
+        // 정산은 세션이 계속되므로 접지 않는다.
+        //
+        // 인계가 **실제로 영속됐을 때만** 접는다. 예비 intent만 남고 이 완성본 쓰기가 실패하면
+        // 재생에는 serverSessionId가 null인 intent만 남는데, 저널까지 지우면 마커를 보완할
+        // 근거가 사라져 열린 마커가 서버 스윕까지 남는다(codex 리뷰 #694 7차).
+        if (isFinal && finalPersisted) journalClearSession(sessionKey);
         // 업로드는 실패·대기열 인계까지 안에서 끝낸다 — 여기서 던지지 않으므로, 아래 발행
         // 콜백에서 예외가 나도 이미 서버에 저장된 세션이 대기열에 재적재되지 않는다(PR 250 리뷰).
         return uploadFocusBlock({
@@ -415,9 +650,16 @@ export function createFocusSessionEngine(
           body,
           userId,
           onMarkerStillOpen: (id) => {
-            cancelMarker(id, deps.identity().userId).catch(() => {});
+            // ⚠️ **정산 당시 계정**으로 취소한다. 업로드가 도는 사이 계정이 바뀌면
+            // deps.identity()는 새 계정을 준다 — 직접 취소는 새 토큰으로 실패하고 대기열에도
+            // 새 계정 소유로 들어가, 원래 계정으로 돌아와도 재시도되지 않는다. 그 계정의
+            // 라이브 마커가 서버 스윕까지 열린 채 남는다(codex 리뷰 #694 10차).
+            cancelMarker(id, userId).catch(() => {});
           },
         }).then((result) => {
+          // saved/alreadyEnded/queued = 서버 반영 또는 내구 큐 인계 완료 — intent 소멸.
+          // failed만 보존한다(부팅 복구의 재업로드 근거).
+          if (result.status !== 'failed') resolveSettleIntent(intent.intentId);
           // 저장 실패(대기열행)면 발행 없음 — 결과 화면은 기존 추정 판정으로 폴백.
           if (result.status !== 'saved') return;
           // 지급이 확정됐으니 서버 잔액을 다시 받는다(GROMO-1049).
@@ -429,7 +671,12 @@ export function createFocusSessionEngine(
           }
         });
       })
-      .catch(() => {});
+      .catch(() => {
+        // 체인이 끊겨도 등록은 반드시 푼다 — 안 풀면 이 프로세스가 사는 동안 고아 정산이
+        // 계속 건너뛴다.
+        if (isFinal) clearSessionLive(sessionKey);
+      });
+    return true;
   };
 
   return {
@@ -490,6 +737,9 @@ export function createFocusSessionEngine(
     async finish(completed = session.done, hooks) {
       if (finished) return null;
       finished = true;
+      // ⚠️ live 해제는 **정산이 레코드를 인계한 뒤**다(settleFocusBlock의 isFinal 분기).
+      // 여기서 먼저 풀면, 예비 intent 기록과 레코드 제거를 기다리는 사이에 도는 고아 정산이
+      // 아직 남은 v1을 고아로 보고 같은 블록을 한 번 더 적립한다(codex 리뷰 #694 11차).
       // 완료 계측 — 완료 게이트가 이미 발행한 세션(카운트다운/뽀모도로 완주)은 가드로 스킵된다.
       this.logCompletedOnce();
       // 보고 있던 뷰의 마지막 체류 flush(GROMO-987) — 뷰 계측은 화면 몫.
@@ -497,11 +747,22 @@ export function createFocusSessionEngine(
       // 정상 종료 — 실드(엔진 소유)·Live Activity(화면 몫) 해제
       ScreenTimeModule.stopFocusShield().catch(() => {});
       hooks?.endLiveActivity?.();
-      // 라이브 레코드 제거를 먼저 시도하되, 실패해도 정산은 계속한다(GROMO-615).
-      // 제거 실패로 정산까지 건너뛰면 적립·서버 업로드가 통째로 빠진다(보상 유실).
-      await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+      // ⚠️ 종전엔 여기서 레코드와 저널을 **먼저** 지웠다(GROMO-615의 「제거 실패로 정산까지
+      // 건너뛰지 않는다」). 그 순서는 두 창을 열어 둔다(codex 리뷰 #694 6차):
+      //  ① 제거는 반영됐는데 예비 intent 영속 전에 죽으면 그 블록이 통째로 유실된다.
+      //  ② 저널 세션이 먼저 사라지면 복구가 마커를 찾을 근거를 잃어, 재생이 시간만 POST하고
+      //     열린 마커는 못 닫아 친구 화면의 '집중 중'이 서버 스윕까지 남는다.
+      // 이제 **정산이 제거를 소유한다**(예비 intent가 착지한 뒤에 지운다). 정산할 델타가
+      // 없을 때만 여기서 직접 지운다 — 그 경우엔 남길 근거도 없다.
       try {
-        settleFocusBlock();
+        const settling = settleFocusBlock(undefined, true);
+        if (!settling) {
+          // 정산할 델타가 없다 — 인계할 것도 없으니 여기서 정리하고 등록을 푼다
+          await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
+          removePersistedSessionV1();
+          journalClearSession(sessionKey);
+          clearSessionLive(sessionKey);
+        }
         // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
         cancelLiveSession();
         // 화면을 떠나기 전 마지막 재시도 — 회전 중 실패해 쌓인 취소가 있으면 지금 정리(코덱스 리뷰)
@@ -590,6 +851,65 @@ export function createFocusSessionEngine(
       markerDeferred = v;
     },
     isMarkerDeferred: () => markerDeferred,
+
+    // 세션 시작(원자적, §4.3-ⓐ) — write-ahead와 커밋 흔적으로 「실드만 남는」 크래시 창을
+    // 다음 부팅이 회수할 수 있게 한다. 폰 발 시작은 실드 실패에도 계속(15초 정책 폴백).
+    async start(subjectName) {
+      // ⚠️ 각 await 뒤에 이탈을 확인한다. 화면은 이 프라미스를 기다리지 않으므로(fire-and-forget),
+      // 진입 직후 뒤로가기가 나면 정리가 먼저 끝나고 **그 뒤에** 남은 단계가 실행된다 —
+      // 실드가 다시 켜지고 마커가 새로 열려 떠난 세션의 흔적이 살아난다.
+      if (detached) return;
+      // ⓪ 실드 적용 **전에** 의도를 기록한다. 이 쓰기가 실패하면 시작을 성립시키지 않는다 —
+      // 저널 없이 실드·커밋 흔적·마커까지 진행하면, 그 뒤 프로세스가 죽었을 때 부팅 복구가
+      // 남은 실드를 식별할 근거가 없어 사용자가 이유 없이 차단된 채로 남는다.
+      const intentWritten = await journalStartIntent(sessionKey);
+      if (!intentWritten) return;
+      // 이 프로세스가 이 세션을 돌린다고 표시 — 고아 정산의 게이트다(liveSessionRegistry 주석).
+      markSessionLive(sessionKey);
+      if (detached) {
+        journalClearSession(sessionKey);
+        return;
+      }
+      this.applyShield(subjectName); // ① fire-and-forget — 성패는 shielded로 관찰
+      // ② 커밋 흔적(v1, 미정산 0) + 같은 저널 레코드의 원자 갱신(starting→active).
+      // 흔적 쓰기는 **await한다** — 늦게 착지하면 그 사이에 도는 복구(사일런트 푸시·복귀)가
+      // 흔적을 못 봐 살아 있는 세션을 크래시로 오인하고 실드를 푼다. 유예(STARTING_GRACE_MS)가
+      // 최후 방어지만 창 자체를 좁히는 게 먼저다.
+      // 흔적 쓰기가 **실패하면 시작을 성립시키지 않는다.** 삼키고 active로 넘어가면 첫 5초
+      // 저장 전에 죽었을 때 v1·legacy 어디에도 기록이 없는데 저널은 active라, 부팅 복구가
+      // 손대지 않아 세션 시간이 통째로 유실된다.
+      const traceWritten = await writePersistedSessionV1(buildV1(0, new Date().toISOString()));
+      if (!traceWritten) {
+        this.abortStart();
+        return;
+      }
+      if (detached) {
+        this.abortStart();
+        return;
+      }
+      await journalActivateSession(sessionKey);
+      if (detached) {
+        this.abortStart();
+        return;
+      }
+      // ③ 첫 마커 — 이후 블록 정산마다 회전(settleFocusBlock 참고)
+      startLiveSession(startedAtIso);
+    },
+
+    /** 시작 도중 이탈이 확인됐을 때의 회수 — 켠 실드를 되돌리고 시작 의도를 지운다. */
+    abortStart() {
+      // ⚠️ **실드 해제도 소유권을 본다.** 이전 화면의 start()가 v1 쓰기를 기다리는 사이
+      // 사용자가 뒤로 나갔다 새 집중을 시작하면, 새 엔진이 실드를 적용한 뒤 이 프라미스가
+      // 재개된다. 무조건 풀면 새 세션은 저널상 active이고 화면도 도는데 **앱 차단만** 사라진다
+      // (codex 리뷰 #694 12차). 등록부가 아직 이 세션을 가리킬 때만 회수한다.
+      if (!isSessionLive(sessionKey)) {
+        journalClearSession(sessionKey); // 내 저널 항목만 정리(이미 sessionKey 가드가 있다)
+        return;
+      }
+      clearSessionLive(sessionKey);
+      this.releaseShield();
+      journalClearSession(sessionKey);
+    },
 
     // 세션 실드 — 시작 시 허용앱 외 전부 차단. 과목 변경 시엔 stop 없이 start만 다시
     // 호출한다(같은 스토어를 덮어씀) — 중간에 stop을 끼우면 무방비 구간이 생긴다.
@@ -797,6 +1117,22 @@ export function createFocusSessionEngine(
         remainingSeconds: config.mode === 'countup' ? null : Math.max(0, Math.floor(base.display)),
         revision: activityRevision,
       };
+    },
+
+    detachViewExit() {
+      detached = true;
+      clearSessionLive(sessionKey);
+      if (finished) return;
+      // ⚠️ **레코드를 먼저 남기고** 마커를 마감한다. 종전엔 반대였다 — 헛된 PATCH를 아끼려고
+      // 참조를 먼저 비웠는데, 그러면 취소 요청이 끝나거나 실패분이 대기열에 들어가기 **전에**
+      // OS가 프로세스를 죽였을 때 마커 id가 어디에도 남지 않는다. 고아 정산은 POST만 하고
+      // 열린 마커는 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(codex 리뷰 #694 7차).
+      //
+      // 대가는 취소가 성공한 정상 경로에서 고아 정산이 PATCH를 한 번 헛으로 태우는 것뿐이다 —
+      // 폐기된 마커는 409(SESSION_DISCARDED)로 돌아오고 uploadFocusBlock이 그걸 알아채
+      // 취소 위임 없이 POST로 폴백한다.
+      persistLiveRecord(session.elapsed);
+      cancelLiveSession();
     },
 
     settleFocusBlock,

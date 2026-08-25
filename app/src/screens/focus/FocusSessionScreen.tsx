@@ -332,14 +332,19 @@ export default function FocusSessionScreen() {
     interactionAcceptedAt,
   ]);
 
-  // 세션 진입 시 첫 마커 등록 — 이후 블록 정산마다 닫히고(마커 회전, settleFocusBlock 참고),
-  // 뽀모도로는 휴식이 끝나는 break→focus 경계에서 다음 블록 마커를 새로 연다.
-  const liveStartedOnceRef = useRef(false);
+  // 세션 시작(원자적, GROMO-1600) — 저널 write-ahead → 실드 → 커밋 흔적 → 첫 마커.
+  // 과목 변경 시엔 실드만 갈아끼운다(현행 의미 — stop 없이 start만 다시, 무방비 구간 없음).
+  const startedOnceRef = useRef(false);
   useEffect(() => {
-    if (liveStartedOnceRef.current) return;
-    liveStartedOnceRef.current = true;
-    engine.startLiveSession(engine.sessionStartedAt());
-  }, [engine]);
+    if (!startedOnceRef.current) {
+      startedOnceRef.current = true;
+      engine.start(subjectName);
+      return;
+    }
+    engine.applyShield(subjectName);
+  }, [engine, subjectName]);
+  // 실드 해제는 화면을 떠날 때 한 번만(멱등, finish에서도 해제)
+  useEffect(() => () => engine.releaseShield(), [engine]);
 
   // 1초 tick — 엔진 소유(GROMO-1600 2단계). 화면 생명주기와 함께 시작·정지.
   useEffect(() => {
@@ -349,16 +354,6 @@ export default function FocusSessionScreen() {
 
   // 라이브 레코드 저장은 엔진 소유(GROMO-1600 3단계) — 5초 주기는 엔진 틱 내부,
   // 즉시 저장이 필요한 순간(백그라운드 진입·실드 복귀 전진)은 persistLiveRecord를 직접 부른다.
-
-  // 세션 실드 — 시작 시 허용앱 외 전부 차단, 화면을 떠날 때 해제(멱등, finish에서도 해제).
-  // 적용 성공 여부(shielded)로 이탈 정책이 갈린다: 실드 O = 집중 인정 / 실드 X = 15초 정책.
-  // 과목 변경 시엔 stop 없이 start만 다시 호출한다(같은 스토어를 덮어씀) — 중간에 stop을
-  // 끼우면 다음 start까지 모든 차단이 풀리는 무방비 구간이 생긴다.
-  useEffect(() => {
-    engine.applyShield(subjectName);
-  }, [engine, subjectName]);
-  // 해제는 화면을 떠날 때 한 번만
-  useEffect(() => () => engine.releaseShield(), [engine]);
 
   // LA 페이로드는 「마지막 렌더 시점」 상태를 읽는다 — 엔진 상태(즉시)가 아니라 렌더 미러.
   // 600ms 캡처 콜백은 렌더 밖에서 돌므로, 엔진을 직접 읽으면 같은 프레임의 미표시 tick이
@@ -426,7 +421,8 @@ export default function FocusSessionScreen() {
   useEffect(
     () => () => {
       if (!engine.isFinished()) {
-        engine.cancelLiveSession();
+        // 마커 마감 + 미정산 블록 영속(D2) — 정산은 다음 실행의 고아 정산 몫
+        engine.detachViewExit();
         if (!dwellDoneRef.current) {
           // 가로면 세로 페이저는 가려진 상태 — 뷰 flush를 건너뛰고 방향 체류만 발행(코덱스 리뷰)
           if (orientationRef.current !== 'landscape') flushViewDwell();

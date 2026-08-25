@@ -47,6 +47,15 @@ if (Platform.OS !== 'web') {
   registerBackgroundFlushHandler();
 }
 
+// 집중 세션 엔진 부팅 복구(GROMO-1600) — UI 없이 도는 코드라 여기서 부른다. 콜드 스타트
+// (종료 상태 headless 기동 포함)마다 미완 시작을 회수하고 저널에 남은 정산을 재업로드한다.
+// **네이티브 가드 밖**이다: 웹 세션도 같은 엔진으로 settle intent를 남기는데 OrphanFocusSettler는
+// 저널을 읽지 않으므로, 여기서 안 돌리면 웹에서는 그 정산이 영영 재생되지 않는다.
+// fire-and-forget — 실패해도 다음 부팅·사일런트 flush가 다시 시도한다.
+const { recoverFocusEngine } =
+  require('./src/screens/focus/engine/boot') as typeof import('./src/screens/focus/engine/boot');
+recoverFocusEngine();
+
 // App 모듈은 Sentry.init 이후에 로드한다 — 정적 import는 파일 본문보다 먼저 실행되므로,
 // App 최상위 초기화(Facebook SDK 등)에서 나는 에러까지 잡으려면 require로 로드를 늦춰야 한다(코덱스 리뷰).
 const { default: App } = require('./src/App') as typeof import('./src/App');

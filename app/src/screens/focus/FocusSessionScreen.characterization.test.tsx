@@ -836,11 +836,11 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(mockCoinRefresh).toHaveBeenCalledTimes(1); // 늦은 응답에도 후처리는 이어진다
   });
 
-  test('업로드가 failed(대기열 저장까지 실패)여도 현행은 레코드를 이미 지웠다 — 알려진 유실 공백', async () => {
-    // ⚠️ uploadFocusBlock의 failed 계약은 「호출부가 레코드를 보존해 다음 실행에 재시도」인데,
-    // 화면 경로는 정산이 업로드 결과 전에 레코드를 지우고 finishedRef가 재저장을 막는다 —
-    // 로컬 적립만 남고 서버·대기열·레코드 어디에도 바디가 없는 유실이 현행이다(codex 리뷰
-    // 11차). 특성화는 이 현행을 그대로 고정한다 — 수리는 헤드리스화(1600)의 정산 저널 몫.
+  test('업로드가 failed(대기열 저장까지 실패)면: 정산 저널 intent가 재시도 근거로 남는다', async () => {
+    // GROMO-1600 D1 수리 — 종전엔 정산이 레코드를 먼저 지워 failed 시 서버·대기열·레코드
+    // 어디에도 바디가 없는 영구 유실이었다(「알려진 유실 공백」으로 고정했던 현행). 이제
+    // 업로드 착수 전 저널에 intent를 남기고 failed일 때만 보존한다 — 다음 부팅 recover가
+    // 같은 바디로 재업로드한다. saved/queued면 intent는 소멸한다(아래 기존 케이스들이 커버).
     mockedUpload.mockResolvedValueOnce({ status: 'failed' });
     await renderSession({ mode: 'countup' });
     await advance(5000);
@@ -848,7 +848,14 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     await flush();
 
     expect(mockAddFocusSeconds).toHaveBeenCalledWith(5); // 로컬 적립은 반영
-    expect(await readLiveRecord()).toBeNull(); // 그러나 재시도 근거(레코드)는 이미 삭제됨
+    expect(await readLiveRecord()).toBeNull(); // 레코드는 정산 규칙대로 삭제
+    // 재시도 근거는 저널 intent — 업로드 바디가 그대로 실려 있다
+    const journalRaw = await AsyncStorage.getItem(STORAGE_KEYS.focusJournalV1);
+    const journal = JSON.parse(journalRaw!) as {
+      settles: Array<{ body: { subject: string; endedAt: string } }>;
+    };
+    expect(journal.settles).toHaveLength(1);
+    expect(journal.settles[0].body).toMatchObject({ subject: '수학' });
     expect(mockedNavigationReplace()?.[1]).toMatchObject({ focusSeconds: 5 }); // 종료 UX는 진행
     expect(mockCoinRefresh).not.toHaveBeenCalled(); // saved 전용 후처리는 없음
   });
@@ -1651,10 +1658,19 @@ describe('finish를 거치지 않는 언마운트 — Android 시스템 뒤로�
     // 계속 남는다(codex 리뷰 9차)
     expect(ScreenTimeModule.stopFocusShield).toHaveBeenCalled();
     expect(ScreenTimeModule.endFocusActivity).toHaveBeenCalled();
-    // ⚠️ 현행 cleanup엔 saveLive가 없다 — 첫 주기 저장(5초) 전 언마운트면 레코드가 아예 없어
-    // 고아 정산 근거도 없고, 이후에도 마지막 주기 저장 뒤 최대 4초는 유실된다(codex 리뷰 12차).
-    // 「지금의 동작」으로 고정 — 개선은 1600의 영속 상태 머신 몫.
-    expect(await readLiveRecord()).toBeNull();
+    // GROMO-1600 D2 수리 — cleanup이 미정산 블록을 영속한다. 종전엔 저장이 없어 첫 주기
+    // 저장(5초) 전 언마운트면 고아 정산 근거가 아예 없었고, 이후에도 마지막 주기 저장 뒤
+    // 최대 4초가 유실됐다(codex 리뷰 12차로 「알려진 공백」 고정 → 이제 해소).
+    const record = await readLiveRecord();
+    expect(record).toMatchObject({ elapsed: 4, subjectId: 's1', userId: 'user-1' });
+    // ⚠️ **개정(codex 리뷰 #694 7차)** — 종전 계약은 「비워 둔다」였다: cleanup이 마커를 이미
+    // 닫았으니 레코드가 닫힌 마커를 가리키면 고아 정산이 헛된 PATCH를 태운다는 이유였다.
+    // 그 절약이 유실 창을 열어 뒀다 — 취소 요청이 완료되거나 실패분이 대기열에 들어가기
+    // **전에** OS가 프로세스를 죽이면 마커 id가 어디에도 남지 않아, 고아 정산은 POST만 하고
+    // 열린 마커는 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다.
+    // 이제 레코드가 마커를 인계받는다. 헛된 PATCH는 409(SESSION_DISCARDED)로 돌아오고
+    // uploadFocusBlock이 그걸 알아채 취소 위임 없이 POST로 폴백한다 — 요청 1회가 대가다.
+    expect(record!.serverSessionId).toBe('marker-1');
   });
 
   test('언마운트 정리의 네이티브 해제가 거부돼도: 종결 계측·마커 취소는 계속된다', async () => {
