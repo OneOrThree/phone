@@ -115,6 +115,11 @@ export default function FriendProfileScreen() {
   // 채워주므로 평시엔 발동하지 않는다. getUserStats가 실패한 경우에만 /stats/today?friends=
   // (PUBLIC·친구 허용, GROMO-623)로 today를 직접 조회해 요약이라도 보여준다.
   const [publicStats, setPublicStats] = useState<{ today: TodayStatsResponse } | null>(null);
+  // 공개 프로필 요청의 단독 정착 결과 — undefined = 미도착, null = 실패. 관계 동기화 effect의
+  // 게이트 전용(렌더는 여전히 profile 사용). 번들 loading과 분리한 이유는 아래 조회 effect 주석.
+  const [profileOutcome, setProfileOutcome] = useState<PublicProfileResponse | null | undefined>(
+    undefined,
+  );
 
   // 공개 프로필 + 타 유저 통계 + 내 히트맵(비교용) 조회.
   useEffect(() => {
@@ -123,8 +128,15 @@ export default function FriendProfileScreen() {
       // 요일 비교는 이번 주(월~오늘) 기준 — 내 heatmap은 이번 주만 조회하고,
       // 타 유저 heatmap(서버가 최근 7일 고정 반환)은 렌더 시 이번 주만 걸러 쓴다.
       const { from, to } = heatmapRange('WEEK');
+      // 프로필 요청은 단독 정착 즉시 관계 동기화 effect에 알린다 — 번들(loading)은 통계·히트맵
+      // 중 가장 느린 요청까지 기다리므로, 그걸 관계 폴백 게이트로 쓰면 구서버/실패 경로의
+      // 목록 3콜이 최대 timeout만큼 늦어져 그동안 CTA가 오판된다(사전 Codex 리뷰 반영).
+      const profilePromise = getPublicProfile(userId).catch(() => null);
+      profilePromise.then((p) => {
+        if (!stale) setProfileOutcome(p);
+      });
       const [p, st, mine] = await Promise.all([
-        getPublicProfile(userId).catch(() => null),
+        profilePromise,
         getUserStats(userId).catch(() => null),
         getHeatmap(from, to).catch(() => [] as HeatmapCellResponse[]),
       ]);
@@ -151,9 +163,9 @@ export default function FriendProfileScreen() {
   // — 친구 목록 기반이면 핀한 비친구가 진입 직후 핀 꺼짐으로 덮인다(GROMO-845).
   useEffect(() => {
     if (isMe) return; // 내 프로필 — 친구/핀/요청 관계 개념이 없어 재동기화 불필요(GROMO-940)
-    if (loading) return; // 프로필 도착 전 — relation 유무를 알 수 없어 판단을 미룬다
-    if (profile?.relation != null) {
-      const { relation } = profile;
+    if (profileOutcome === undefined) return; // 프로필 요청 미정착 — relation 유무를 알 수 없어 판단을 미룬다
+    if (profileOutcome?.relation != null) {
+      const { relation } = profileOutcome;
       setIsFriend(relation === 'FRIEND');
       // PENDING은 방향 무구분 수용(검색 화면과 동일 표기, decisions N02). 이 화면에서 방금 누른
       // 신청(true)을 프로필 응답이 덮지 않게 OR 유지.
@@ -162,8 +174,8 @@ export default function FriendProfileScreen() {
       // 직전 화면에서 방금 누른 핀의 POST가 아직 서버 반영 전이면 이 조회가 토글 전 스냅샷을
       // 돌려줘 낙관 상태를 되돌린다(PR 267 Codex 리뷰 반영). 이 화면에서 토글한 뒤(pinTouched)도
       // 낙관적 갱신+실패 롤백이 진실이라 덮지 않는다.
-      if (profile.isPinned != null && !pinTouched.current && route.params.isPinned == null) {
-        setIsPinned(profile.isPinned);
+      if (profileOutcome.isPinned != null && !pinTouched.current && route.params.isPinned == null) {
+        setIsPinned(profileOutcome.isPinned);
       }
       return;
     }
@@ -189,7 +201,7 @@ export default function FriendProfileScreen() {
     return () => {
       stale = true;
     };
-  }, [userId, route.params.isPinned, isMe, loading, profile]);
+  }, [userId, route.params.isPinned, isMe, profileOutcome]);
 
   // 핀 토글 — 낙관적 갱신, 실패 시 롤백.
   // 반영 중 연타는 무시(직렬화) — POST/DELETE가 동시에 나가면 서버 처리 순서에 따라 화면과
