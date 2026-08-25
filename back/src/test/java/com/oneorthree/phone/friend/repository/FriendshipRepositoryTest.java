@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -124,6 +125,27 @@ class FriendshipRepositoryTest extends RepositoryTestBase {
         long count = friendshipRepository.countAcceptedByUser(me);
 
         assertThat(count).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("findFriendUserIdsByUserId — 양방향 ACCEPTED 상대 id 집합, PENDING·소프트딜리트·남의 관계 제외")
+    void findFriendUserIdsByUserId_bidirectional_excludesPendingDeletedAndOthers() {
+        User me = saveUser("me");
+        User a = saveUser("a");
+        User b = saveUser("b");
+        User c = saveUser("c");
+        User d = saveUser("d");
+        save(me, a, FriendshipStatus.ACCEPTED);   // me가 from → 상대 a 포함
+        save(b, me, FriendshipStatus.ACCEPTED);   // me가 to → 상대 b 포함
+        save(me, c, FriendshipStatus.PENDING);    // PENDING → 제외
+        Friendship deleted = save(me, d, FriendshipStatus.ACCEPTED);
+        deleted.softDelete(Instant.now());        // soft delete → 제외
+        save(c, d, FriendshipStatus.ACCEPTED);    // 내가 안 낀 관계 → 제외
+        friendshipRepository.flush();
+
+        Set<UUID> friendIds = friendshipRepository.findFriendUserIdsByUserId(me.getId());
+
+        assertThat(friendIds).containsExactlyInAnyOrder(a.getId(), b.getId());
     }
 
     @Test

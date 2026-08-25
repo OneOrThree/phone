@@ -2,6 +2,7 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
+import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
@@ -48,6 +49,7 @@ public class LeagueService {
     private final CurrencyTransactionRepository currencyTransactionRepository;
     private final UserRepository userRepository;
     private final PinnedUserRepository pinnedUserRepository;
+    private final FriendshipRepository friendshipRepository;
     private final LeagueWeek leagueWeek;
 
     public LeagueTierResponse getMyTier(UUID userId) {
@@ -85,16 +87,19 @@ public class LeagueService {
         if (ranked.isEmpty()) {
             return List.of();
         }
-        return toResponses(ranked, pinnedUserRepository.findPinnedUserIdsByUserId(userId));
+        return toResponses(ranked,
+                pinnedUserRepository.findPinnedUserIdsByUserId(userId),
+                friendshipRepository.findFriendUserIdsByUserId(userId));
     }
 
     /**
      * 전역 전체 유저 랭킹 조회. 활성 유저를 모수로 이번 주 DailyFocusStat 합계 상위 limit 명을 반환한다.
      *
-     * @param scope 랭킹 범위. 현재는 "total"(대소문자 무관)만 지원, 그 외 값은 INVALID_SCOPE(400).
-     * @param limit 상위 인원 상한. 대량 조회를 막기 위해 1~{@value #MAX_RANKING_LIMIT} 범위로 클램프한다.
+     * @param userId 조회자 — isFriend 후조인용 (GROMO-1630). 랭킹 모수·순서에는 관여하지 않는다.
+     * @param scope  랭킹 범위. 현재는 "total"(대소문자 무관)만 지원, 그 외 값은 INVALID_SCOPE(400).
+     * @param limit  상위 인원 상한. 대량 조회를 막기 위해 1~{@value #MAX_RANKING_LIMIT} 범위로 클램프한다.
      */
-    public List<LeagueMemberResponse> getGlobalRanking(String scope, int limit) {
+    public List<LeagueMemberResponse> getGlobalRanking(UUID userId, String scope, int limit) {
         if (scope != null && !SCOPE_TOTAL.equalsIgnoreCase(scope)) {
             throw new LeagueException(LeagueErrorCode.INVALID_SCOPE);
         }
@@ -102,10 +107,14 @@ public class LeagueService {
         Instant now = Instant.now();
         List<LeagueRankingRow> ranked = leagueRankingQueryRepository.findTop(
                 leagueWeek.currentWeekStartDate(now), leagueWeek.currentDate(now), null, clamped, now);
-        // 전역 랭킹은 per-caller 핀 없음, 후속 개선 여지 — isPinned=false (빈 핀 집합).
+        if (ranked.isEmpty()) {
+            return List.of();
+        }
+        // 전역 랭킹은 per-caller 핀 없음, 후속 개선 여지 — isPinned=false (빈 핀 집합, 결정 장부 N03).
+        // isFriend 는 채운다 — 앱이 전체 탭에도 친구 표시를 그리므로 비우면 회귀다 (GROMO-1630).
         // 라이브 필드는 여기서도 채운다: 정렬이 '확정 집계 + 진행 중 경과' 기준이 되면서(findTop)
         // 라이브를 안 실으면 클라가 확정값만 그려 "위 행이 아래 행보다 시간이 적은" 목록이 된다.
-        return toResponses(ranked, Set.of());
+        return toResponses(ranked, Set.of(), friendshipRepository.findFriendUserIdsByUserId(userId));
     }
 
     /**
@@ -116,7 +125,8 @@ public class LeagueService {
      * 계상" 같은 조합이 생기지 않는다. 클라가 그리는 base + (now − focusStartedAt) 이 정렬
      * 점수와 정확히 같다.
      */
-    private List<LeagueMemberResponse> toResponses(List<LeagueRankingRow> ranked, Set<UUID> pinnedIds) {
+    private List<LeagueMemberResponse> toResponses(
+            List<LeagueRankingRow> ranked, Set<UUID> pinnedIds, Set<UUID> friendIds) {
         List<LeagueMemberResponse> responses = new ArrayList<>();
         for (int i = 0; i < ranked.size(); i++) {
             LeagueRankingRow row = ranked.get(i);
@@ -128,6 +138,7 @@ public class LeagueService {
                     row.tierLevel(),
                     row.totalFocusSeconds(),
                     pinnedIds.contains(row.userId()),
+                    friendIds.contains(row.userId()),
                     liveStartedAt != null,
                     row.todayFocusSeconds() / 60,
                     liveStartedAt,
