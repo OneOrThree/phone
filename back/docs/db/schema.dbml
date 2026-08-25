@@ -350,7 +350,6 @@ Table friendships [note: '유저 간 친구 관계 (요청 → 수락/거절). f
     // 재친구 허용: 소프트 딜리트(deleted_at) 행이 남아 단순 unique 불가. 활성 관계만 1개 보장하는 부분 unique는 마이그레이션에서:
     //   CREATE UNIQUE INDEX ... ON friendships (from_user_id, to_user_id) WHERE deleted_at IS NULL;
     (from_user_id, to_user_id) [note: '활성 관계 부분 unique(WHERE deleted_at IS NULL)는 마이그레이션 SQL로 적용 — 동일 방향 중복 신청 차단. 양방향(A→B / B→A) 중복은 앱/마이그레이션에서 정규화 처리']
-    to_user_id [note: 'V50 — 양방향 OR 친구 판정·수신자 축 조회(받은 요청·친구 수·랭킹 isFriend 후조인)의 to_user_id 브랜치용 (GROMO-1630)']
   }
 }
 
