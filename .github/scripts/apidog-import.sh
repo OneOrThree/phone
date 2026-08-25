@@ -77,18 +77,34 @@ jq -r --arg pid "$PROJECT_ID" \
    | "project \($pid) 반영 — create=\(.createCount) update=\(.updateCount) ignore=\(.ignoreCount) delete=\(.deleteCount) error=\(.errorCount)"' \
   apidog-response.json
 
-# 엔드포인트 단위 오류는 200/success:true 안에 섞여 오므로 따로 본다.
-# 필드 부재와 실제 오류를 구분한다 — 둘 다 실패로 닫되(fail-closed), 응답 스키마가 바뀐 것과
-# 엔드포인트가 실제로 깨진 것은 대응이 다르므로 로그에서 갈라져 읽혀야 한다.
-if ! jq -e 'has("data") and (.data.apiCollection.item.errorCount | type == "number")' \
-     apidog-response.json > /dev/null; then
-  echo "::error::Apidog 응답에 errorCount 가 없다 — 응답 스키마가 예상과 다르다(반영 여부 확인 불가)."
+# import 오류는 200/success:true 안에 섞여 오므로 따로 본다.
+#
+# **응답 전체의 errorCount 를 훑는다.** 실물 응답에는 errorCount 가 33개 있다 —
+# apiCollection 말고도 schemaCollection · oasComponentCollection · securitySchemeCollection
+# 등 컬렉션마다 item/folder 로 따로 달린다. apiCollection.item 하나만 보면 스키마 import 가
+# 깨져도 동기화가 성공으로 끝난다(GROMO-1623 codex 리뷰).
+#
+# 필드 부재와 실제 오류는 구분한다 — 둘 다 실패로 닫되(fail-closed), 응답 스키마가 바뀐 것과
+# import 가 실제로 깨진 것은 대응이 다르므로 로그에서 갈라져 읽혀야 한다.
+ERROR_FIELDS=$(jq '[paths as $p | select($p[-1] == "errorCount")] | length' apidog-response.json)
+if [ "$ERROR_FIELDS" -eq 0 ]; then
+  echo "::error::Apidog 응답에 errorCount 가 하나도 없다 — 응답 스키마가 예상과 다르다(반영 여부 확인 불가)."
   cat apidog-response.json
   exit 1
 fi
-ERRORS=$(jq -r '.data.apiCollection.item.errorCount' apidog-response.json)
-if [ "$ERRORS" != "0" ]; then
-  echo "::error::Apidog 가 엔드포인트 ${ERRORS} 건을 오류로 처리했다."
+
+# 0 이 아닌 것만, **어디서** 났는지와 함께 뽑는다. 위치를 안 남기면 스키마 오류인지
+# 엔드포인트 오류인지 구분하러 응답 전문을 다시 읽어야 한다.
+NONZERO=$(jq -r '
+  [ paths as $p
+    | select($p[-1] == "errorCount"
+             and (getpath($p) | type == "number")
+             and getpath($p) > 0)
+    | "\($p | join("."))=\(getpath($p))" ]
+  | join(" ")' apidog-response.json)
+if [ -n "$NONZERO" ]; then
+  echo "::error::Apidog 가 import 오류를 보고했다 — ${NONZERO}"
   cat apidog-response.json
   exit 1
 fi
+echo "errorCount ${ERROR_FIELDS}개 전부 0"
