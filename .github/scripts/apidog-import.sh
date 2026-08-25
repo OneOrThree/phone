@@ -64,47 +64,113 @@ if [ "$HTTP" -ge 400 ]; then
   exit 1
 fi
 
-# ③ 응답 success — 2xx 여도 success:false 면 반영되지 않은 것이다.
-if ! jq -e '.success == true' apidog-response.json > /dev/null; then
-  echo "::error::Apidog 가 HTTP ${HTTP} 로 응답했지만 success 가 true 가 아니다."
+# ③ 수락·오류 판정.
+#
+# ⚠️ Apidog 응답 스키마는 두 종이 관측됐다 (GROMO-1625).
+#   (신) 2026-08-25 정상 import 실측:
+#        {"data":{"counters":{"endpointCreated":14,"endpointUpdated":38,"endpointFailed":0,
+#                             "schemaFailed":0,"securitySchemeFailed":0, ...}}}
+#        → success 필드가 **없고**, 실패는 *Failed 6종으로 온다
+#   (구) 2026-08-19 빈 바디 요청에 받던 것:
+#        {"success":true,"data":{"apiCollection":{"item":{"errorCount":0, ...}}, ...}}
+#
+# GROMO-1623 은 (구)만 알고 짜였다 — 그 픽스처의 출처가 **빈 바디를 보낸 실패 경로**였기
+# 때문이다. 그래서 목 테스트 10개가 다 통과하고도 실물에서 성공한 import 를 막았다.
+# 지어낸 형태가 아니라 **실물 응답 2종**을 기준으로 두 스키마를 모두 이해하게 둔다.
+
+# 수락 여부 — success 는 (구)에만 있으므로 "있으면 검사, 없으면 카운터 존재로 갈음" 한다.
+if jq -e 'has("success")' apidog-response.json > /dev/null 2>&1; then
+  if ! jq -e '.success == true' apidog-response.json > /dev/null; then
+    echo "::error::Apidog 가 HTTP ${HTTP} 로 응답했지만 success 가 true 가 아니다."
+    cat apidog-response.json
+    exit 1
+  fi
+fi
+
+# 어느 스키마인지 **먼저 확정**한다 (GROMO-1625 codex 리뷰).
+#
+# 인정은 **좁게**, 추출은 **넓게** 한다. 방향이 반대라 헷갈리기 쉬운데 실패 모드가 서로 다르다:
+#   · 인정이 헐거우면 **모르는 응답이 성공으로 통과**한다 — 관문이 열린다.
+#       1라운드: {"data":{"operationFailed":false}} 가 "카운터를 찾았다"로 읽혀 exit 0.
+#       2라운드: {"data":{"errorCount":0,"error":"import rejected"}} 가 구 스키마로 읽혀 exit 0.
+#     둘 다 이름 패턴만 보고 인정한 탓이다. 그래서 인정은 **실물에서 관측된 앵커**로만 한다.
+#   · 추출이 넓으면 **0 이어야 할 카운터가 늘 뿐**이다 — 통과가 까다로워질 뿐 열리지 않는다.
+#     실제로 구 실물의 errorCount 33개 중 2개(data.endpointCase · data.environment)는
+#     *Collection 아래가 아니라 data 바로 밑에 있다. 추출까지 컬렉션 경로로 좁혔다면
+#     그 둘의 import 실패를 영영 못 봤을 것이다. 그래서 추출은 data 전체를 훑는다.
+#
+#   counters    ← data.counters 에 숫자 *Failed 가 1개 이상 (신 실물 6개)
+#   collections ← success:true **그리고** data.apiCollection.item.errorCount 가 숫자 (구 실물)
+#   unknown     ← 그 외 전부 실패
+# 경로를 밟기 전에 **타입부터** 확인한다. jq 의 `?` 는 오류를 삼키고 **아무것도 출력하지 않아**
+# SCHEMA 가 빈 문자열이 되는데, 빈 문자열은 "unknown" 과 달라서 아래 판정을 그냥 통과했다
+# ({"data":"nope"} 가 exit 0 이었다). 그래서 ① 타입 가드로 jq 가 오류를 낼 일을 없애고
+# ② 그래도 빈 값이 나오면 case 의 default 로 **닫는다**. fail-closed 는 기본값이어야 한다.
+SCHEMA=$(jq -r '
+  def numeric_failed: to_entries | map(select((.key | endswith("Failed")) and (.value | type == "number")));
+  if type != "object" then "unknown"
+  elif (.data | type) != "object" then "unknown"
+  elif ((.data.counters | type) == "object") and ((.data.counters | numeric_failed | length) > 0)
+  then "counters"
+  elif ((.success // false) == true)
+       and ((.data.apiCollection | type) == "object")
+       and ((.data.apiCollection.item | type) == "object")
+       and ((.data.apiCollection.item.errorCount | type) == "number")
+  then "collections"
+  else "unknown"
+  end' apidog-response.json 2>/dev/null || true)
+
+case "$SCHEMA" in
+  counters | collections) ;;
+  *)
+    echo "::error::Apidog 응답이 알려진 두 스키마 어느 쪽도 아니다 — data.counters 의 숫자 *Failed 도, success:true + 숫자 data.apiCollection.item.errorCount 도 없다(반영 여부 확인 불가)."
+    cat apidog-response.json
+    exit 1
+    ;;
+esac
+
+# 인정한 스키마 안에서 **부분 드리프트**도 잡는다 — 카운터 하나가 null/문자열로 바뀌면
+# 그 항목의 실패를 영영 못 보므로, 0 초과 검사 이전에 타입부터 닫는다.
+if [ "$SCHEMA" = "counters" ]; then
+  BAD_TYPE=$(jq -r '[.data.counters | to_entries[]
+    | select((.key | endswith("Failed")) and (.value | type != "number"))
+    | "data.counters.\(.key)=\(.value|tojson)"] | join(" ")' apidog-response.json)
+else
+  BAD_TYPE=$(jq -r '[(.data // {}) | paths as $p
+    | select($p[-1] == "errorCount" and (getpath($p) | type != "number"))
+    | "data.\($p | join("."))=\(getpath($p)|tojson)"] | join(" ")' apidog-response.json)
+fi
+if [ -n "$BAD_TYPE" ]; then
+  echo "::error::실패 카운터가 숫자가 아니다 — ${BAD_TYPE} (응답 스키마 변경 의심, 반영 여부 확인 불가)."
   cat apidog-response.json
   exit 1
 fi
 
 # 반영 건수 요약 — 실패 판정에는 쓰지 않는다(위 주석 참조). 계속 0 이면 사람이 의심할 근거가 된다.
-jq -r --arg pid "$PROJECT_ID" \
-  '.data.apiCollection.item
-   | "project \($pid) 반영 — create=\(.createCount) update=\(.updateCount) ignore=\(.ignoreCount) delete=\(.deleteCount) error=\(.errorCount)"' \
-  apidog-response.json
-
-# import 오류는 200/success:true 안에 섞여 오므로 따로 본다.
-#
-# **응답 전체의 errorCount 를 훑는다.** 실물 응답에는 errorCount 가 33개 있다 —
-# apiCollection 말고도 schemaCollection · oasComponentCollection · securitySchemeCollection
-# 등 컬렉션마다 item/folder 로 따로 달린다. apiCollection.item 하나만 보면 스키마 import 가
-# 깨져도 동기화가 성공으로 끝난다(GROMO-1623 codex 리뷰).
-#
-# 필드 부재와 실제 오류는 구분한다 — 둘 다 실패로 닫되(fail-closed), 응답 스키마가 바뀐 것과
-# import 가 실제로 깨진 것은 대응이 다르므로 로그에서 갈라져 읽혀야 한다.
-ERROR_FIELDS=$(jq '[paths as $p | select($p[-1] == "errorCount")] | length' apidog-response.json)
-if [ "$ERROR_FIELDS" -eq 0 ]; then
-  echo "::error::Apidog 응답에 errorCount 가 하나도 없다 — 응답 스키마가 예상과 다르다(반영 여부 확인 불가)."
-  cat apidog-response.json
-  exit 1
-fi
-
-# 0 이 아닌 것만, **어디서** 났는지와 함께 뽑는다. 위치를 안 남기면 스키마 오류인지
-# 엔드포인트 오류인지 구분하러 응답 전문을 다시 읽어야 한다.
-NONZERO=$(jq -r '
+# 로그 한 줄 때문에 성공한 import 가 막히면 그게 이번 사고와 같은 종류라, 여기만 실패에 관대하다.
+SUMMARY=$(jq -r '
   [ paths as $p
-    | select($p[-1] == "errorCount"
-             and (getpath($p) | type == "number")
-             and getpath($p) > 0)
-    | "\($p | join("."))=\(getpath($p))" ]
-  | join(" ")' apidog-response.json)
+    | select((getpath($p) | type == "number") and getpath($p) != 0)
+    | "\($p[-1])=\(getpath($p))" ]
+  | join(" ")' apidog-response.json || true)
+echo "project ${PROJECT_ID} 반영 — ${SUMMARY:-변경 없음(전 항목 0)}"
+
+# 0 이 아닌 실패 카운터를 **어디서** 났는지와 함께 뽑는다. 위치를 안 남기면 스키마 오류인지
+# 엔드포인트 오류인지 구분하러 응답 전문을 다시 읽어야 한다.
+if [ "$SCHEMA" = "counters" ]; then
+  NONZERO=$(jq -r '[.data.counters | to_entries[]
+    | select((.key | endswith("Failed")) and (.value | type == "number") and .value > 0)
+    | "data.counters.\(.key)=\(.value)"] | join(" ")' apidog-response.json)
+  FAIL_FIELDS=$(jq '[.data.counters | to_entries[] | select((.key | endswith("Failed")) and (.value | type == "number"))] | length' apidog-response.json)
+else
+  NONZERO=$(jq -r '[(.data // {}) | paths as $p
+    | select($p[-1] == "errorCount" and (getpath($p) | type == "number") and getpath($p) > 0)
+    | "data.\($p | join("."))=\(getpath($p))"] | join(" ")' apidog-response.json)
+  FAIL_FIELDS=$(jq '[(.data // {}) | paths as $p | select($p[-1] == "errorCount" and (getpath($p) | type == "number"))] | length' apidog-response.json)
+fi
 if [ -n "$NONZERO" ]; then
   echo "::error::Apidog 가 import 오류를 보고했다 — ${NONZERO}"
   cat apidog-response.json
   exit 1
 fi
-echo "errorCount ${ERROR_FIELDS}개 전부 0"
+echo "스키마=${SCHEMA} · 실패 카운터 ${FAIL_FIELDS}개 전부 0"
