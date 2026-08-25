@@ -13,6 +13,10 @@ import java.util.UUID;
  * FocusLiveInfoLookup 공용 도출). /league/me/ranking 에서만 채워지고, 전역 랭킹(/league/ranking)은
  * 스코프 밖이라 기본값(false/0/null/null)이다. focusTimeMinutes 는 당일 집중분, isFocusing 은 진행 중
  * 세션 유무, focusStartedAt·focusTagName 은 진행 중일 때만 값이 있다.
+ *
+ * <p>isFriend 는 조회자와의 ACCEPTED 친구 관계 여부 (GROMO-1630, FriendshipRepository 후조인).
+ * /league/me/ranking·/league/ranking(전역) 모두에서 채워진다 — 두 경로 다 인증 필수라 조회자가
+ * 항상 있다. 자기 자신과는 친구 관계가 성립하지 않으므로 내 행은 자연히 false 다.
  */
 public record LeagueMemberResponse(
         int rank,
@@ -21,6 +25,7 @@ public record LeagueMemberResponse(
         int tierLevel,
         int totalFocusSeconds,
         boolean isPinned,
+        boolean isFriend,
         boolean isFocusing,
         int focusTimeMinutes,
         Instant focusStartedAt,

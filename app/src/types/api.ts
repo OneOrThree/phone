@@ -113,6 +113,8 @@ export interface LeagueMemberResponse {
   totalFocusSeconds: number; // 이번 주 누적 집중 초 (GROMO-665: 분→초 정밀도 전환)
   // ※ 항상 null이던 result는 서버에서 제거됨(GROMO-824가 818 위임분 흡수) — 854에서 미러도 제거
   // ※ 서버 응답의 isPinned는 미러 생략 — 핀 상태는 GET /pins(usePinned)로 별도 관리
+  // ※ isFriend는 isPinned와 달리 미러한다 — 친구 여부의 정본은 이 응답(GROMO-1630)
+  isFriend?: boolean; // 나와 친구인지(내 행은 false) — 서버 미배포 호환 optional, 소비처는 ?? false 폴백
   // GROMO-824 라이브 필드 — 서버는 항상 내려주지만 목데이터·시안 placeholder 호환을 위해 optional 유지
   isFocusing?: boolean; // 현재 집중 세션 진행 중 여부
   focusTimeMinutes?: number; // 당일 누적 집중 분

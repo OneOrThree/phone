@@ -1,5 +1,6 @@
 package com.oneorthree.phone.league.service;
 
+import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.domain.LeagueRankingRow;
@@ -67,6 +68,9 @@ class LeagueServiceTest {
 
     @Mock
     private PinnedUserRepository pinnedUserRepository;
+
+    @Mock
+    private FriendshipRepository friendshipRepository;
 
     @Mock
     private CurrencyTransactionRepository currencyTransactionRepository;
@@ -310,6 +314,24 @@ class LeagueServiceTest {
 
         assertThat(leagueService.getMyRanking(USER_ID, null, DATE)).isEmpty();
         verify(pinnedUserRepository, never()).findPinnedUserIdsByUserId(any());
+        verify(friendshipRepository, never()).findFriendUserIdsByUserId(any());
+    }
+
+    @Test
+    @DisplayName("내 랭킹(직군 포함) — 조회자의 ACCEPTED 친구만 isFriend=true")
+    void getMyRankingFillsIsFriend() {
+        LeagueRankingRow friendRow = rankingRow(U2, "friend", 300);
+        LeagueRankingRow me = rankingRow(USER_ID, "me", 200);
+        given(leagueRankingQueryRepository.findTop(
+                any(), any(), eq(Occupation.LABOR_ATTORNEY), eq(100), any()))
+                .willReturn(List.of(friendRow, me));
+        given(pinnedUserRepository.findPinnedUserIdsByUserId(USER_ID)).willReturn(Set.of());
+        given(friendshipRepository.findFriendUserIdsByUserId(USER_ID)).willReturn(Set.of(U2));
+
+        List<LeagueMemberResponse> ranking = leagueService.getMyRanking(USER_ID, Occupation.LABOR_ATTORNEY, DATE);
+
+        assertThat(ranking.get(0).isFriend()).isTrue();
+        assertThat(ranking.get(1).isFriend()).isFalse();
     }
 
     // ── getGlobalRanking ──────────────────────────────────────────────────
@@ -323,7 +345,7 @@ class LeagueServiceTest {
         given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100), any()))
                 .willReturn(List.of(top, mid));
 
-        List<LeagueMemberResponse> ranking = leagueService.getGlobalRanking("total", 100);
+        List<LeagueMemberResponse> ranking = leagueService.getGlobalRanking(USER_ID, "total", 100);
 
         assertThat(ranking).hasSize(2);
         assertThat(ranking.get(0).rank()).isEqualTo(1);
@@ -342,12 +364,37 @@ class LeagueServiceTest {
     }
 
     @Test
+    @DisplayName("전역 랭킹 — isFriend 는 조회자 기준으로 채우고 isPinned 는 여전히 전원 false (결정 N03)")
+    void getGlobalRankingFillsIsFriendButNotPins() {
+        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100), any()))
+                .willReturn(List.of(rankingRow(U2, "friend", 500), rankingRow(USER_ID, "me", 300)));
+        given(friendshipRepository.findFriendUserIdsByUserId(USER_ID)).willReturn(Set.of(U2));
+
+        List<LeagueMemberResponse> ranking = leagueService.getGlobalRanking(USER_ID, "total", 100);
+
+        assertThat(ranking.get(0).isFriend()).isTrue();
+        assertThat(ranking.get(1).isFriend()).isFalse();
+        assertThat(ranking).allMatch(row -> !row.isPinned());
+        verify(pinnedUserRepository, never()).findPinnedUserIdsByUserId(any());
+    }
+
+    @Test
+    @DisplayName("전역 랭킹 — 결과가 비어 있으면 친구 조회 없이 빈 목록")
+    void getGlobalRankingEmptyDoesNotReadFriends() {
+        given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100), any()))
+                .willReturn(List.of());
+
+        assertThat(leagueService.getGlobalRanking(USER_ID, "total", 100)).isEmpty();
+        verify(friendshipRepository, never()).findFriendUserIdsByUserId(any());
+    }
+
+    @Test
     @DisplayName("전역 랭킹 조회 - scope 대소문자 무관(TOTAL) 허용")
     void getGlobalRanking_scopeCaseInsensitive() {
         given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(100), any()))
                 .willReturn(List.of());
 
-        assertThat(leagueService.getGlobalRanking("TOTAL", 100)).isEmpty();
+        assertThat(leagueService.getGlobalRanking(USER_ID, "TOTAL", 100)).isEmpty();
     }
 
     @Test
@@ -356,7 +403,7 @@ class LeagueServiceTest {
         given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(500), any()))
                 .willReturn(List.of());
 
-        leagueService.getGlobalRanking("total", 100000);
+        leagueService.getGlobalRanking(USER_ID, "total", 100000);
 
         verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(500), any());
     }
@@ -367,7 +414,7 @@ class LeagueServiceTest {
         given(leagueRankingQueryRepository.findTop(any(), any(), eq(null), eq(1), any()))
                 .willReturn(List.of());
 
-        leagueService.getGlobalRanking("total", 0);
+        leagueService.getGlobalRanking(USER_ID, "total", 0);
 
         verify(leagueRankingQueryRepository).findTop(any(), any(), eq(null), eq(1), any());
     }
@@ -375,7 +422,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("전역 랭킹 조회 - 지원하지 않는 scope → LeagueException(INVALID_SCOPE)")
     void getGlobalRanking_invalidScope() {
-        assertThatThrownBy(() -> leagueService.getGlobalRanking("weekly", 100))
+        assertThatThrownBy(() -> leagueService.getGlobalRanking(USER_ID, "weekly", 100))
                 .isInstanceOf(LeagueException.class)
                 .extracting(e -> ((LeagueException) e).getErrorCode())
                 .isEqualTo(LeagueErrorCode.INVALID_SCOPE);

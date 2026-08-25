@@ -171,7 +171,6 @@ export default function LeagueScreen() {
     error: friendsError,
     refetch: refetchFriends,
   } = useFriends();
-  const friendIds = new Set(friends.map((f) => f.userId));
 
   // ── 당겨서 새로고침 (GROMO-887) — 탭별로 그 탭 데이터만 재조회한다. refreshing 상태도 탭별로
   //    분리 — 하나를 공유하면 리그 새로고침 중 친구 탭으로 넘어갔을 때 실행된 적 없는 친구 탭에
@@ -372,7 +371,9 @@ export default function LeagueScreen() {
       userId: member.userId,
       nickname: member.nickname,
       tierLevel: member.tierLevel,
-      isFriend: friendIds.has(member.userId),
+      // 친구 여부는 랭킹 응답의 서버 판정 값(GROMO-1630) — 구 클라 대조(친구 목록 Set) 제거,
+      // 미배포 서버 호환으로 optional 폴백 false.
+      isFriend: member.isFriend ?? false,
       // 핀 초기값 — 공유 핀 상태(usePinned)가 로딩된 경우에만 전달(낙관 상태 포함 최신값).
       // 미로딩이면 undefined로 넘겨 프로필의 GET /pins 재동기화에 맡긴다 — false를 넘기면
       // 프로필이 확정값으로 믿고 서버 동기화를 건너뛰어 핀한 유저가 꺼짐으로 보인다(PR 291 리뷰 반영).

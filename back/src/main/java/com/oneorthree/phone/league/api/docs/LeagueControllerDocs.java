@@ -33,7 +33,8 @@ public interface LeagueControllerDocs {
     @Operation(summary = "전역 주간 랭킹 조회",
             description = "category 미지정: DailyFocusStat 기반 전역 주간 상위 100명 랭킹. "
                     + "category 지정: 같은 occupation 활성 사용자의 전역 주간 상위 100명 랭킹. "
-                    + "각 멤버의 집중 라이브 정보(isFocusing·focusTimeMinutes·focusStartedAt·focusTagName) 포함. "
+                    + "각 멤버의 집중 라이브 정보(isFocusing·focusTimeMinutes·focusStartedAt·focusTagName)와 "
+                    + "조회자 기준 친구 여부(isFriend)를 포함한다. "
                     + "date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(YYYY-MM-DD, required) "
                     + "— 기기 로컬 날짜가 아니다. "
                     + "잘못된 category 값·date 누락은 400 INVALID_PARAMETER.")
@@ -45,13 +46,15 @@ public interface LeagueControllerDocs {
 
     @Operation(summary = "전역 전체 유저 랭킹 조회",
             description = "직군 무관 DailyFocusStat 기반 전역 주간 랭킹의 totalFocusSeconds 내림차순 상위 limit 명. "
-                    + "rank 는 아레나가 아닌 전역 순번. scope 는 total(대소문자 무관)만 지원, 그 외 값은 400 INVALID_SCOPE. "
+                    + "rank 는 아레나가 아닌 전역 순번. 각 멤버의 isFriend 는 조회자 기준 친구 여부(GROMO-1630), "
+                    + "isPinned 는 전역 스코프 밖이라 항상 false. "
+                    + "scope 는 total(대소문자 무관)만 지원, 그 외 값은 400 INVALID_SCOPE. "
                     + "limit 는 1~500 으로 클램프된다.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "400", description = "지원하지 않는 scope 값(INVALID_SCOPE) 또는 limit 형식 오류")
     })
-    ResponseEntity<List<LeagueMemberResponse>> getGlobalRanking(String scope, int limit);
+    ResponseEntity<List<LeagueMemberResponse>> getGlobalRanking(UUID userId, String scope, int limit);
 
     @Operation(summary = "내 순위 조회",
             description = "DailyFocusStat 기반 현재 전역 주간 순위(assigned·myRank·totalFocusSeconds)를 반환한다. "

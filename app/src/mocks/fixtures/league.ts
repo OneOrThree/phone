@@ -37,6 +37,8 @@ export function mockArenaRanking(config: InternalAxiosRequestConfig): LeagueMemb
       nickname: '아레나1등',
       tierLevel: 1,
       totalFocusSeconds: 75600,
+      // GROMO-1630 서버 판정 친구 여부 — 친구/비친구 케이스 혼합, 내 행은 false
+      isFriend: true,
       isFocusing: true,
       focusTimeMinutes: 180,
       focusStartedAt: minutesBeforeLoad(23),
@@ -48,6 +50,7 @@ export function mockArenaRanking(config: InternalAxiosRequestConfig): LeagueMemb
       nickname: '나',
       tierLevel: 2,
       totalFocusSeconds: 58800,
+      isFriend: false,
       isFocusing: false,
       focusTimeMinutes: 45,
       focusStartedAt: null,
@@ -59,6 +62,7 @@ export function mockArenaRanking(config: InternalAxiosRequestConfig): LeagueMemb
       nickname: '무태그러',
       tierLevel: 3,
       totalFocusSeconds: 45600,
+      isFriend: false,
       isFocusing: true,
       focusTimeMinutes: 120,
       focusStartedAt: minutesBeforeLoad(51),
@@ -70,6 +74,7 @@ export function mockArenaRanking(config: InternalAxiosRequestConfig): LeagueMemb
       nickname: '수학러',
       tierLevel: 4,
       totalFocusSeconds: 32400,
+      isFriend: true,
       isFocusing: true,
       focusTimeMinutes: 200,
       focusStartedAt: minutesBeforeLoad(8),
@@ -81,6 +86,7 @@ export function mockArenaRanking(config: InternalAxiosRequestConfig): LeagueMemb
       nickname: '쉬는중',
       tierLevel: 5,
       totalFocusSeconds: 18000,
+      isFriend: false,
       isFocusing: false,
       focusTimeMinutes: 0,
       focusStartedAt: null,
@@ -92,6 +98,7 @@ export function mockArenaRanking(config: InternalAxiosRequestConfig): LeagueMemb
       nickname: '민트초코',
       tierLevel: 2,
       totalFocusSeconds: 14400,
+      isFriend: false,
       isFocusing: true,
       focusTimeMinutes: 75,
       focusStartedAt: minutesBeforeLoad(17),
@@ -103,6 +110,7 @@ export function mockArenaRanking(config: InternalAxiosRequestConfig): LeagueMemb
       nickname: '한걸음씩',
       tierLevel: 3,
       totalFocusSeconds: 12600,
+      isFriend: false,
       isFocusing: true,
       focusTimeMinutes: 55,
       focusStartedAt: minutesBeforeLoad(31),
@@ -121,6 +129,7 @@ export function mockCategoryRanking(config: InternalAxiosRequestConfig): LeagueM
       nickname: '같은시험1등',
       tierLevel: 1,
       totalFocusSeconds: 126000,
+      isFriend: false,
       isFocusing: true,
       focusTimeMinutes: 240,
       focusStartedAt: minutesBeforeLoad(12),
@@ -132,6 +141,7 @@ export function mockCategoryRanking(config: InternalAxiosRequestConfig): LeagueM
       nickname: '새벽공부러',
       tierLevel: 2,
       totalFocusSeconds: 108000,
+      isFriend: true,
       isFocusing: true,
       focusTimeMinutes: 310,
       focusStartedAt: minutesBeforeLoad(95),
@@ -143,6 +153,7 @@ export function mockCategoryRanking(config: InternalAxiosRequestConfig): LeagueM
       nickname: '조용한경쟁자',
       tierLevel: 3,
       totalFocusSeconds: 90000,
+      isFriend: false,
       isFocusing: false,
       focusTimeMinutes: 220,
       focusStartedAt: null,
@@ -154,6 +165,7 @@ export function mockCategoryRanking(config: InternalAxiosRequestConfig): LeagueM
       nickname: '나',
       tierLevel: 4,
       totalFocusSeconds: 58800,
+      isFriend: false,
       isFocusing: false,
       focusTimeMinutes: 45,
       focusStartedAt: null,
@@ -165,6 +177,7 @@ export function mockCategoryRanking(config: InternalAxiosRequestConfig): LeagueM
       nickname: '막판스퍼트',
       tierLevel: 5,
       totalFocusSeconds: 25200,
+      isFriend: false,
       isFocusing: true,
       focusTimeMinutes: 60,
       focusStartedAt: minutesBeforeLoad(3),
@@ -176,6 +189,7 @@ export function mockCategoryRanking(config: InternalAxiosRequestConfig): LeagueM
       nickname: '노동법러',
       tierLevel: 2,
       totalFocusSeconds: 22800,
+      isFriend: true,
       isFocusing: true,
       focusTimeMinutes: 110,
       focusStartedAt: minutesBeforeLoad(40),
@@ -212,6 +226,7 @@ export function mockAckLastResult(): void {
 }
 
 // 전체 리그 (GET /league/ranking?scope=total) — 824 범위 밖이라 라이브 필드 없이 기존 계약 그대로.
+// isFriend는 전역 랭킹도 서버가 채운다(GROMO-1630) — 라이브 필드 부재 폴백 검증 용도는 유지.
 // 전체 탭(useGlobalRanking)이 라이브 없이도 기존 표기로 폴백하는지 검증하는 용도.
 export function mockGlobalRanking(config: InternalAxiosRequestConfig): LeagueMemberResponse[] {
   return [
@@ -221,6 +236,7 @@ export function mockGlobalRanking(config: InternalAxiosRequestConfig): LeagueMem
       nickname: '전체1등',
       tierLevel: 1,
       totalFocusSeconds: 192000,
+      isFriend: true,
     },
     {
       rank: 2,
@@ -228,6 +244,7 @@ export function mockGlobalRanking(config: InternalAxiosRequestConfig): LeagueMem
       nickname: '전체2등',
       tierLevel: 2,
       totalFocusSeconds: 174000,
+      isFriend: false,
     },
     {
       rank: 3,
@@ -235,6 +252,7 @@ export function mockGlobalRanking(config: InternalAxiosRequestConfig): LeagueMem
       nickname: '나',
       tierLevel: 3,
       totalFocusSeconds: 58800,
+      isFriend: false,
     },
   ];
 }

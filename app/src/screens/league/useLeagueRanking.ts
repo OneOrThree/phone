@@ -32,6 +32,8 @@ export function toRankingMembers(
       nickname: isMe ? myNickname || m.nickname : m.nickname,
       tierLevel: m.tierLevel,
       totalFocusSeconds: m.totalFocusSeconds,
+      // GROMO-1630 서버 판정 친구 여부 — 미배포 서버 호환(undefined)은 소비처의 ?? false가 흡수
+      isFriend: m.isFriend,
       // GROMO-824 라이브 필드(810·811·812) — /league/me/ranking은 항상 채워주고, 전역
       // 랭킹(/league/ranking)은 스코프 밖이라 기본값(false/0/null/null)이 온다
       isFocusing: m.isFocusing,

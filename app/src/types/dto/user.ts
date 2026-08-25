@@ -3,6 +3,7 @@
 // ⚠️ 백엔드 DTO가 바뀌면 이 파일도 함께 갱신한다.
 import type { StreakResponse, TodayStatsResponse, HeatmapCellResponse } from '@/types/dto/stats';
 import type { CharacterEquipmentResponse } from '@/types/dto/item';
+import type { FriendRelation } from '@/types/api';
 
 // 소셜 로그인 제공자 (Java enum Provider). SocialLinkResponse.provider / 소셜 연동 해제 path.
 export type Provider = 'APPLE' | 'GOOGLE' | 'KAKAO' | 'LINE' | 'INSTAGRAM' | 'FACEBOOK';
@@ -140,6 +141,11 @@ export interface PublicProfileResponse {
   friendCount: number;
   currentTier: number | null; // 리그 미소속 시 null
   rank: number | null; // 랭킹 없으면 null
+  // 나→대상 관계 (GROMO-1631) — 검색과 같은 FriendRelation 재사용, PENDING은 방향 무구분.
+  // 구서버 미전송 → undefined → 앱은 기존 목록 조회 폴백. 화면은 로컬 state 초기값 동기화로만 사용.
+  relation?: FriendRelation;
+  // 내가 이 유저를 핀했는지 (GROMO-1631) — 핀은 친구 아니어도 가능(GROMO-609). 구서버 미전송 → undefined.
+  isPinned?: boolean;
 }
 
 // GET /users/{userId}/stats 응답 — 타 유저 통계.

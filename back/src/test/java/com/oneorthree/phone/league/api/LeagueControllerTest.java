@@ -80,9 +80,9 @@ class LeagueControllerTest {
     void getMyRankingReturns200() throws Exception {
         given(leagueService.getMyRanking(any(), any(), any()))
                 .willReturn(List.of(
-                        new LeagueMemberResponse(1, UUID.randomUUID(), "top", 3, 300, true,
+                        new LeagueMemberResponse(1, UUID.randomUUID(), "top", 3, 300, true, true,
                                 true, 42, Instant.parse("2026-06-24T01:00:00Z"), "전공 공부"),
-                        new LeagueMemberResponse(2, UUID.randomUUID(), "me", 2, 200, false,
+                        new LeagueMemberResponse(2, UUID.randomUUID(), "me", 2, 200, false, false,
                                 false, 0, null, null)));
 
         mockMvc.perform(get("/api/v1/league/me/ranking").param("date", "2026-06-24")
@@ -93,6 +93,9 @@ class LeagueControllerTest {
                 // 멤버별 tierLevel 노출 (GROMO-748)
                 .andExpect(jsonPath("$[0].tierLevel").value(3))
                 .andExpect(jsonPath("$[0].isPinned").value(true))
+                // 조회자 기준 친구 여부 (GROMO-1630)
+                .andExpect(jsonPath("$[0].isFriend").value(true))
+                .andExpect(jsonPath("$[1].isFriend").value(false))
                 // 라이브 4필드 (GROMO-824) — record 컴포넌트명 그대로 isFocusing 키 노출
                 .andExpect(jsonPath("$[0].isFocusing").value(true))
                 .andExpect(jsonPath("$[0].focusTimeMinutes").value(42))
@@ -112,7 +115,7 @@ class LeagueControllerTest {
     void getMyRankingWithCategoryReturns200() throws Exception {
         given(leagueService.getMyRanking(any(), eq(Occupation.LABOR_ATTORNEY), eq(LocalDate.of(2026, 6, 24))))
                 .willReturn(List.of(
-                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 5, 500, false,
+                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 5, 500, false, false,
                                 false, 0, null, null)));
 
         mockMvc.perform(get("/api/v1/league/me/ranking")
@@ -150,29 +153,34 @@ class LeagueControllerTest {
     @Test
     @DisplayName("전역 랭킹 조회(scope=total) → 200, rank 순서 배열")
     void getGlobalRankingReturns200() throws Exception {
-        given(leagueService.getGlobalRanking(eq("total"), eq(100)))
+        given(leagueService.getGlobalRanking(eq(LOGIN_USER_ID), eq("total"), eq(100)))
                 .willReturn(List.of(
-                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 5, 900, false,
+                        new LeagueMemberResponse(1, UUID.randomUUID(), "global-top", 5, 900, false, true,
                                 false, 0, null, null),
-                        new LeagueMemberResponse(2, UUID.randomUUID(), "second", 4, 800, false,
+                        new LeagueMemberResponse(2, UUID.randomUUID(), "second", 4, 800, false, false,
                                 false, 0, null, null)));
 
-        mockMvc.perform(get("/api/v1/league/ranking").param("scope", "total"))
+        mockMvc.perform(get("/api/v1/league/ranking").param("scope", "total")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].rank").value(1))
                 .andExpect(jsonPath("$[0].nickname").value("global-top"))
+                // 전역에서도 isFriend 는 조회자(@LoginUser) 기준으로 채워진다 (GROMO-1630)
+                .andExpect(jsonPath("$[0].isFriend").value(true))
                 .andExpect(jsonPath("$[1].rank").value(2))
+                .andExpect(jsonPath("$[1].isFriend").value(false))
                 .andDo(print());
     }
 
     @Test
     @DisplayName("전역 랭킹 조회(scope 미지정) → 200, 기본 total 적용")
     void getGlobalRankingDefaultScopeReturns200() throws Exception {
-        given(leagueService.getGlobalRanking(eq("total"), eq(100)))
-                .willReturn(List.of(new LeagueMemberResponse(1, UUID.randomUUID(), "top", 3, 900, false,
+        given(leagueService.getGlobalRanking(eq(LOGIN_USER_ID), eq("total"), eq(100)))
+                .willReturn(List.of(new LeagueMemberResponse(1, UUID.randomUUID(), "top", 3, 900, false, false,
                         false, 0, null, null)));
 
-        mockMvc.perform(get("/api/v1/league/ranking"))
+        mockMvc.perform(get("/api/v1/league/ranking")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].nickname").value("top"))
                 .andDo(print());
@@ -181,10 +189,11 @@ class LeagueControllerTest {
     @Test
     @DisplayName("전역 랭킹 조회(지원하지 않는 scope) → 400 INVALID_SCOPE")
     void getGlobalRankingInvalidScopeReturns400() throws Exception {
-        given(leagueService.getGlobalRanking(eq("weekly"), eq(100)))
+        given(leagueService.getGlobalRanking(eq(LOGIN_USER_ID), eq("weekly"), eq(100)))
                 .willThrow(new LeagueException(LeagueErrorCode.INVALID_SCOPE));
 
-        mockMvc.perform(get("/api/v1/league/ranking").param("scope", "weekly"))
+        mockMvc.perform(get("/api/v1/league/ranking").param("scope", "weekly")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_SCOPE"))
                 .andDo(print());
@@ -193,7 +202,8 @@ class LeagueControllerTest {
     @Test
     @DisplayName("전역 랭킹 조회(limit 비숫자) → 400 INVALID_PARAMETER")
     void getGlobalRankingInvalidLimitReturns400() throws Exception {
-        mockMvc.perform(get("/api/v1/league/ranking").param("limit", "abc"))
+        mockMvc.perform(get("/api/v1/league/ranking").param("limit", "abc")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
                 .andDo(print());
