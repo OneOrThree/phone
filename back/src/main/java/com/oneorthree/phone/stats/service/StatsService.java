@@ -122,7 +122,8 @@ public class StatsService {
 
     /**
      * 스트릭(연속일) 조회. currentStreak 은 read-time 으로 만료를 반영한다(GROMO-847) —
-     * lastSessionDate 가 어제 이전이면 공백으로 끊긴 것으로 보아 0 을 반환한다(판정은 {@link UserStreak}).
+     * lastSessionDate 가 어제 이전이면 공백으로 끊긴 것으로 보아 0 을 반환한다
+     * (판정은 {@link com.oneorthree.phone.user.domain.UserStreak UserStreak}).
      * longestStreak·lastSessionDate 는 저장된 원본을 그대로 유지한다.
      *
      * @param today 서버 판정 축(KST 고정) 기준 오늘(GROMO-643·1259)
