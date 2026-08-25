@@ -12,6 +12,9 @@ on:
       - 'back/build.gradle'
       # 이 워크플로 자신도 트리거에 넣는다 — 위와 같은 이유다.
       - '.github/workflows/api-dog-generate.yml'
+      # 전송·판정 로직이 스크립트로 빠졌으니 그 경로도 같은 이유로 넣는다 — 안 넣으면
+      # 스크립트만 고치는 푸시에서 이 워크플로가 안 돌아 검증 로직 변경을 CI 에서 확인할 수 없다.
+      - '.github/scripts/**'
   workflow_dispatch:
 
 jobs:
