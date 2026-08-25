@@ -37,7 +37,9 @@ public class LeagueService {
 
     private static final String SCOPE_TOTAL = "total";
     private static final int MY_RANKING_LIMIT = 100;
-    // 전역 랭킹 상한 — 대량 조회를 막기 위한 안전 상한
+    /**
+     * 전역 랭킹 상한 — 대량 조회를 막기 위한 안전 상한
+     */
     private static final int MAX_RANKING_LIMIT = 500;
 
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
@@ -212,7 +214,9 @@ public class LeagueService {
         leagueWeeklyResultRepository.acknowledge(userId, weekStartAt, now);
     }
 
-    // 티어 레벨 → 배지 식별자 (시드 보장 1~5; 누락 시 null 로 방어)
+    /**
+     * 티어 레벨 → 배지 식별자 (시드 보장 1~5; 누락 시 null 로 방어)
+     */
     private String badgeId(Integer tierLevel) {
         return leagueTierConfigRepository.findById(tierLevel)
                 .map(LeagueTierConfig::getBadgeId)

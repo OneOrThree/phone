@@ -74,10 +74,12 @@ public class UserService {
     private final GroupBetService groupBetService;
     private final UserActivityEventLogger userActivityEventLogger;
 
-    // 닉네임 규칙 단일점 (GROMO-1215) — trim 후 2~10자. 검사(check API)와 저장(POST/PATCH)이
-    // 이 상수·헬퍼를 공유해 "체크는 통과했는데 저장은 거절" 같은 어긋남을 막는다.
-    // DTO bean validation 에 기대지 않는 이유: 저장 경로가 둘로 흩어져 있어 어노테이션만으로는
-    // 규칙이 갈라지기 쉽고, 검증 주체를 서비스 한 곳으로 고정하는 편이 안전하다.
+    /**
+     * 닉네임 규칙 단일점 (GROMO-1215) — trim 후 2~10자. 검사(check API)와 저장(POST/PATCH)이
+     * 이 상수·헬퍼를 공유해 "체크는 통과했는데 저장은 거절" 같은 어긋남을 막는다.
+     * DTO bean validation 에 기대지 않는 이유: 저장 경로가 둘로 흩어져 있어 어노테이션만으로는
+     * 규칙이 갈라지기 쉽고, 검증 주체를 서비스 한 곳으로 고정하는 편이 안전하다.
+     */
     private static final int NICKNAME_MIN_LENGTH = 2;
     private static final int NICKNAME_MAX_LENGTH = 10;
 
@@ -379,8 +381,10 @@ public class UserService {
         user.setOccupation(occupation);
     }
 
-    // occupation 마스터(occupations)에서 활성(deleted_at IS NULL)인 값만 저장 허용 (GROMO-626, Codex P2).
-    // soft-deleted 되어 GET /occupations 에서 빠진 직업을 저장 경로에서도 막아 목록↔저장 정합을 맞춘다.
+    /**
+     * occupation 마스터(occupations)에서 활성(deleted_at IS NULL)인 값만 저장 허용 (GROMO-626, Codex P2).
+     * soft-deleted 되어 GET /occupations 에서 빠진 직업을 저장 경로에서도 막아 목록↔저장 정합을 맞춘다.
+     */
     private void requireActiveOccupation(Occupation occupation) {
         if (occupation != null && !occupationInfoRepository.existsByCodeAndDeletedAtIsNull(occupation)) {
             throw new UserException(UserErrorCode.OCCUPATION_NOT_AVAILABLE);
@@ -395,7 +399,9 @@ public class UserService {
         user.setDeviceToken(deviceToken);
     }
 
-    // 토큰 해제 — 로그아웃/기기 변경 시 이전 유저에게 오발송되는 것 방지 (GROMO-528)
+    /**
+     * 토큰 해제 — 로그아웃/기기 변경 시 이전 유저에게 오발송되는 것 방지 (GROMO-528)
+     */
     @Transactional
     public void clearDeviceToken(UUID userId) {
         // users 행(device_token) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).

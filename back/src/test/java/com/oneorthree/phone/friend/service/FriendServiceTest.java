@@ -105,9 +105,12 @@ class FriendServiceTest {
     @BeforeEach
     void setUp() {
         given(nicknameStrategy.type()).willReturn(SearchType.NICKNAME);
+        // FriendRelationLookup 은 목이 아니라 실제 인스턴스 — 검색 relation 테스트가 추출 후에도
+        // 실제 판정 로직(리포지토리 스텁 기반)을 통과하도록 한다 (GROMO-1631, 스텁이 시임을 덮지 않게).
         friendService = new FriendService(friendshipRepository, userRepository, pinnedUserRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
-                userActivityEventLogger, leagueTierLookup, focusLiveInfoLookup, eventPublisher,
+                userActivityEventLogger, leagueTierLookup, focusLiveInfoLookup,
+                new FriendRelationLookup(friendshipRepository), eventPublisher,
                 List.of(nicknameStrategy));
 
         meId = UUID.randomUUID();

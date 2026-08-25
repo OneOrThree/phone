@@ -13,7 +13,9 @@ import lombok.NoArgsConstructor;
 public class UserProfileUpdateRequest {
     String nickname;
 
-    // 목표 상한 24h(GROMO-1049) — 전용 갱신 API와 같은 제약을 이 경로에도 건다.
+    /**
+     * 목표 상한 24h(GROMO-1049) — 전용 갱신 API와 같은 제약을 이 경로에도 건다.
+     */
     @PositiveOrZero
     @Max(value = 24 * 60, message = "하루 24시간을 넘을 수 없습니다")
     Integer dailyScreenTimeGoalMinutes;

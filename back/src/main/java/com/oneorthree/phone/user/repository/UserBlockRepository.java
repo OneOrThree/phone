@@ -15,9 +15,13 @@ import java.util.UUID;
  */
 public interface UserBlockRepository extends JpaRepository<UserBlock, UUID> {
 
-    // (blocker → blocked) 방향 고정 단건 조회
+    /**
+     * (blocker → blocked) 방향 고정 단건 조회
+     */
     Optional<UserBlock> findByBlockerAndBlocked(User blocker, User blocked);
 
-    // blocker 가 차단한 목록
+    /**
+     * blocker 가 차단한 목록
+     */
     List<UserBlock> findByBlocker(User blocker);
 }

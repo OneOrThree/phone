@@ -72,32 +72,44 @@ public class FocusService {
 
     private static final int MAX_PAGE_SIZE = 100;
 
-    // orphan(앱 강제종료로 endedAt 미기록) 자동 종료 임계값 — 이보다 오래된 진행 중 세션은 상한으로 종료.
+    /**
+     * orphan(앱 강제종료로 endedAt 미기록) 자동 종료 임계값 — 이보다 오래된 진행 중 세션은 상한으로 종료.
+     */
     private static final Duration ORPHAN_TIMEOUT = Duration.ofHours(12);
 
-    // GROMO-806: 스트릭 인정 최소 누적 집중 시간(초) = 10분. 그날 누적이 이 값 이상일 때만 스트릭을 갱신한다.
-    // 정본은 UserStreakService — 소급 재구성(5차 ③)이 같은 기준으로 과거 자격을 판정한다.
+    /**
+     * GROMO-806: 스트릭 인정 최소 누적 집중 시간(초) = 10분. 그날 누적이 이 값 이상일 때만 스트릭을 갱신한다.
+     * 정본은 UserStreakService — 소급 재구성(5차 ③)이 같은 기준으로 과거 자격을 판정한다.
+     */
     private static final int STREAK_MIN_SECONDS = UserStreakService.STREAK_MIN_SECONDS;
 
-    // currency 폐쇄(서버 지급 전환): 세션 보상 = 집중 60초(1분)당 1코인. 앱은 floor(elapsed/10)로 적립했으나
-    // (FocusSessionScreen.settleFocusBlock·OrphanFocusSettler), 서버 지급률은 오스카 결정으로 1분당 1코인으로
-    // 조정했다(앱의 10초 단위에서 의도적 분기). 지급률 변경 시 관련 단위 테스트 기대값도 함께 바꿔야 한다.
+    /**
+     * currency 폐쇄(서버 지급 전환): 세션 보상 = 집중 60초(1분)당 1코인. 앱은 floor(elapsed/10)로 적립했으나
+     * (FocusSessionScreen.settleFocusBlock·OrphanFocusSettler), 서버 지급률은 오스카 결정으로 1분당 1코인으로
+     * 조정했다(앱의 10초 단위에서 의도적 분기). 지급률 변경 시 관련 단위 테스트 기대값도 함께 바꿔야 한다.
+     */
     private static final int SESSION_REWARD_UNIT_SECONDS = 60;
 
-    // 보상 인정 세션 길이 상한 — ORPHAN_TIMEOUT(12h)과 정렬. 정상 앱 세션은 이보다 길 수 없고(강제종료 세션도
-    // 12h 상한으로 자동 마감), 위조 장시간 세션(startedAt 을 과거로 조작한 POST)의 대량 지급을 여기서 자른다.
-    // 세션 저장·통계는 종전대로 수용(클라 신뢰 기존 정책) — 상한은 '지급'에만 적용한다.
+    /**
+     * 보상 인정 세션 길이 상한 — ORPHAN_TIMEOUT(12h)과 정렬. 정상 앱 세션은 이보다 길 수 없고(강제종료 세션도
+     * 12h 상한으로 자동 마감), 위조 장시간 세션(startedAt 을 과거로 조작한 POST)의 대량 지급을 여기서 자른다.
+     * 세션 저장·통계는 종전대로 수용(클라 신뢰 기존 정책) — 상한은 '지급'에만 적용한다.
+     */
     private static final long MAX_REWARDED_SESSION_SECONDS = ORPHAN_TIMEOUT.toSeconds();
 
-    // GROMO-1214: 클라가 보낸 시각을 수용하는 창 = 서버 수신 시각 기준 [now-5분, now]. 라이브 마커 경로
-    // (start/PATCH)에만 적용한다 — 이 창을 벗어난 값은 서버 시각으로 대체해 startedAt 을 과거로,
-    // endedAt 을 미래로 조작한 시간 뻥튀기를 차단한다. 5분은 정상 클라의 시계 오차·네트워크 지연 여유분.
+    /**
+     * GROMO-1214: 클라가 보낸 시각을 수용하는 창 = 서버 수신 시각 기준 [now-5분, now]. 라이브 마커 경로
+     * (start/PATCH)에만 적용한다 — 이 창을 벗어난 값은 서버 시각으로 대체해 startedAt 을 과거로,
+     * endedAt 을 미래로 조작한 시간 뻥튀기를 차단한다. 5분은 정상 클라의 시계 오차·네트워크 지연 여유분.
+     */
     private static final Duration CLIENT_CLOCK_TOLERANCE = Duration.ofMinutes(5);
 
-    // GROMO-1252: 자정 분할이 만들 수 있는 날짜 조각 수 상한. POST 는 클라 시각을 신뢰하므로 startedAt 을
-    // 몇 년 전으로 조작한 세션이 날짜 수만큼 일별 upsert(행 잠금 포함)를 만들어 한 트랜잭션을 부풀릴 수 있다.
-    // 정상 세션은 12h(orphan 상한) 이내라 조각이 2개를 넘지 않는다 — 상한 초과분은 마지막 조각에 합쳐
-    // 총합은 보존한 채 작업량만 자른다. 업로드 맵 엔트리 상한(400 검증)과 같은 값을 쓴다(정본은 DTO).
+    /**
+     * GROMO-1252: 자정 분할이 만들 수 있는 날짜 조각 수 상한. POST 는 클라 시각을 신뢰하므로 startedAt 을
+     * 몇 년 전으로 조작한 세션이 날짜 수만큼 일별 upsert(행 잠금 포함)를 만들어 한 트랜잭션을 부풀릴 수 있다.
+     * 정상 세션은 12h(orphan 상한) 이내라 조각이 2개를 넘지 않는다 — 상한 초과분은 마지막 조각에 합쳐
+     * 총합은 보존한 채 작업량만 자른다. 업로드 맵 엔트리 상한(400 검증)과 같은 값을 쓴다(정본은 DTO).
+     */
     private static final int MAX_SPLIT_DAYS = FocusSessionRequest.MAX_SECONDS_BY_DATE_ENTRIES;
 
     private final UserFocusTagRepository userFocusTagRepository;

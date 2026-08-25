@@ -20,19 +20,25 @@ public class GroupDetailResponse {
     private MissionCategory missionCategory;
     private MissionType missionType;
     private Integer durationMinutes;
-    // 창 시각 — KST 벽시계 "HH:mm:ss" 문자열(GROMO-1206, /challenges 응답과 동일 계약).
-    // 변환은 WindowFocusAggregator.timeOfDayString 단일 출구를 쓴다. 시작 ≥ 종료면 자정 걸침 창.
+    /**
+     * 창 시각 — KST 벽시계 "HH:mm:ss" 문자열(GROMO-1206, /challenges 응답과 동일 계약).
+     * 변환은 WindowFocusAggregator.timeOfDayString 단일 출구를 쓴다. 시작 ≥ 종료면 자정 걸침 창.
+     */
     private String windowStart;
     private String windowEnd;
     private int maxMembers;
     private GroupStatus status;
 
-    // 공개/비공개. JSON 키 고정은 아래 명시적 getter 가 담당한다(사유는 GroupOverviewResponse#isMember).
+    /**
+     * 공개/비공개. JSON 키 고정은 아래 명시적 getter 가 담당한다(사유는 GroupOverviewResponse#isMember).
+     */
     private boolean isPrivate;
 
     private List<GroupDetailMemberResponse> members;
-    // code/codeExpiresAt 은 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31).
-    // 앱은 이 값을 화면에 노출하지 않는다. 제거하면 계약이 깨지므로 남긴다.
+    /**
+     * code/codeExpiresAt 은 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31).
+     * 앱은 이 값을 화면에 노출하지 않는다. 제거하면 계약이 깨지므로 남긴다.
+     */
     private String code;           // nullable — OWNER에게만 반환
     private Instant codeExpiresAt; // nullable — OWNER에게만 반환
     private List<UUID> noticeGrantedUserIds;    //OWNER 제외

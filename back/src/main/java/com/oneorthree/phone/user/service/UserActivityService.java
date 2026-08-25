@@ -19,8 +19,8 @@ import java.util.UUID;
  * <p><b>소비자 주의</b>: 그 대가로 last_active_at 은 실제 마지막 활동보다 최대 touchInterval 만큼 과거일 수
  * 있다. 자정 직후 창 안에 그날 첫 활동을 한 유저는 값이 전날로 남아 "정확히 N일째" 판정이 하루 당겨진다.
  * <p>판정(needsTouch)과 write(touchLastActive)를 별개 public 메서드로 나눠 호출측이 조합한다.
- * 한 클래스 안에서 판정 → @Transactional 메서드로 내부 호출하면 self-invocation 이라 프록시를 안 타
- * @Transactional 이 무효가 되고, 반대로 판정을 @Transactional 메서드 안에 두면 갱신이 필요 없는
+ * 한 클래스 안에서 판정 → {@code @Transactional} 메서드로 내부 호출하면 self-invocation 이라 프록시를 안 타
+ * {@code @Transactional} 이 무효가 되고, 반대로 판정을 {@code @Transactional} 메서드 안에 두면 갱신이 필요 없는
  * 요청에서도 트랜잭션이 열려 이 티켓의 절약분이 사라진다.
  * <p>AuthService(585) 는 건드리지 않는다 — 활동 갱신은 이 필터 경로 단일 책임.
  */
@@ -29,8 +29,10 @@ public class UserActivityService {
 
     private final UserRepository userRepository;
 
-    // 같은 유저에게 write 를 허용하는 최소 간격. 짧을수록 last_active_at 이 정확해지고 write 가 늘어난다.
-    // 공통 application.yml 은 gitignored 라 배포 환경에 안 실린다 — 값은 application-dev/prod.yml 에 둔다.
+    /**
+     * 같은 유저에게 write 를 허용하는 최소 간격. 짧을수록 last_active_at 이 정확해지고 write 가 늘어난다.
+     * 공통 application.yml 은 gitignored 라 배포 환경에 안 실린다 — 값은 application-dev/prod.yml 에 둔다.
+     */
     private final Duration touchInterval;
 
     public UserActivityService(

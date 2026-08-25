@@ -6,7 +6,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
-// 스케줄러 인프라 활성화 진입점 (@Scheduled 사용을 위한 설정)
+/**
+ * 스케줄러 인프라 활성화 진입점 (@Scheduled 사용을 위한 설정)
+ */
 @Configuration
 public class SchedulingConfig {
 

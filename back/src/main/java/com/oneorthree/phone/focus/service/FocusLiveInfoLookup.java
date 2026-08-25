@@ -28,8 +28,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class FocusLiveInfoLookup {
 
-    // 라이브 인정 최대 나이 — FocusService.ORPHAN_TIMEOUT(12h)과 동일 값. 이보다 오래된 미종료 세션은
-    // 스윕 전 버려진(orphan) 세션으로 보고 '집중 중'에서 제외한다(GROMO-841 findUserIdsWithLiveSession 과 동일 기준).
+    /**
+     * 라이브 인정 최대 나이 — FocusService.ORPHAN_TIMEOUT(12h)과 동일 값. 이보다 오래된 미종료 세션은
+     * 스윕 전 버려진(orphan) 세션으로 보고 '집중 중'에서 제외한다(GROMO-841 findUserIdsWithLiveSession 과 동일 기준).
+     */
     private static final Duration LIVE_SESSION_MAX_AGE = Duration.ofHours(12);
 
     private final DailyFocusStatRepository dailyFocusStatRepository;
@@ -70,8 +72,10 @@ public class FocusLiveInfoLookup {
         }));
     }
 
-    // 진행 중 세션의 태그명 — 태그 미지정(focusTag null) 세션은 null.
-    // focusTag(user_focus_tags)→defaultTag 는 조회 시 fetch join 되어 있어 여기서 추가 쿼리(N+1)가 없다.
+    /**
+     * 진행 중 세션의 태그명 — 태그 미지정(focusTag null) 세션은 null.
+     * focusTag(user_focus_tags)→defaultTag 는 조회 시 fetch join 되어 있어 여기서 추가 쿼리(N+1)가 없다.
+     */
     private String tagName(FocusSession session) {
         return session.getFocusTag() != null ? session.getFocusTag().getDefaultTag().getName() : null;
     }

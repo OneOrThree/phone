@@ -41,8 +41,10 @@ public class JwtProvider {
         this.guestRefreshExpiration = guestRefreshExpiration;
     }
 
-    // isGuest 는 **발급 시점**의 유저 상태다 (GROMO-1229) — 게스트 로그인 경로만 true 를 싣고,
-    // 소셜 로그인·승격 직후·리프레시 재발급은 그 시점 유저 상태(비게스트면 false)를 싣는다.
+    /**
+     * isGuest 는 **발급 시점**의 유저 상태다 (GROMO-1229) — 게스트 로그인 경로만 true 를 싣고,
+     * 소셜 로그인·승격 직후·리프레시 재발급은 그 시점 유저 상태(비게스트면 false)를 싣는다.
+     */
     public String generateAccessToken(UUID userId, boolean isGuest) {
         return buildToken(userId, accessExpiration, TYPE_ACCESS, isGuest);
     }

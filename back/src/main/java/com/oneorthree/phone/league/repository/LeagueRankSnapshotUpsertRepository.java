@@ -23,7 +23,9 @@ public class LeagueRankSnapshotUpsertRepository {
             DO UPDATE SET rank = EXCLUDED.rank
             """;
 
-    // 스레드 안전한 시간 기반 UUIDv7 생성기 — 스냅샷마다 새로 만들지 않고 1회 생성 후 재사용한다.
+    /**
+     * 스레드 안전한 시간 기반 UUIDv7 생성기 — 스냅샷마다 새로 만들지 않고 1회 생성 후 재사용한다.
+     */
     private static final NoArgGenerator ID_GENERATOR = Generators.timeBasedEpochRandomGenerator();
 
     private final NamedParameterJdbcTemplate jdbcTemplate;

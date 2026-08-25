@@ -22,12 +22,14 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
-// GROMO-672: 그룹 참가 코드를 groups(code/code_expires_at)에서 1:1 테이블로 분리.
-// PK=group_id(FK, @MapsId). 발급·만료·재발급을 이 엔티티가 소유(추후 Redis TTL 이관 시 캐시 경계).
-//
-// 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31).
-// createGroup 이 여전히 코드를 발급하지만 아무도 조회하지 않는다(검색의 코드 매칭 분기도 제거됨).
-// 삭제하지 않는 이유: 삭제 마이그레이션·계약 변경·테스트 수정 비용 > 잔존 비용. 실제 제거는 후속 정리 티켓.
+/**
+ * GROMO-672: 그룹 참가 코드를 groups(code/code_expires_at)에서 1:1 테이블로 분리.
+ * PK=group_id(FK, @MapsId). 발급·만료·재발급을 이 엔티티가 소유(추후 Redis TTL 이관 시 캐시 경계).
+ *
+ * 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31).
+ * createGroup 이 여전히 코드를 발급하지만 아무도 조회하지 않는다(검색의 코드 매칭 분기도 제거됨).
+ * 삭제하지 않는 이유: 삭제 마이그레이션·계약 변경·테스트 수정 비용 > 잔존 비용. 실제 제거는 후속 정리 티켓.
+ */
 @Entity
 @Table(name = "group_join_codes")
 @Getter

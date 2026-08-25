@@ -24,17 +24,21 @@ public class WebMvcConfig implements WebMvcConfigurer {
     private final LoginUserArgumentResolver loginUserArgumentResolver;
     private final LegacyBetBridgeLogInterceptor legacyBetBridgeLogInterceptor;
 
-    // 레거시 내기 브리지(N36) 사용량 계측 — 인자 검증 전에 찍어야 400/403 으로 떨어지는 구앱
-    // 호출까지 집계된다(GROMO-1418, 제거 판단은 GROMO-1238).
+    /**
+     * 레거시 내기 브리지(N36) 사용량 계측 — 인자 검증 전에 찍어야 400/403 으로 떨어지는 구앱
+     * 호출까지 집계된다(GROMO-1418, 제거 판단은 GROMO-1238).
+     */
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(legacyBetBridgeLogInterceptor)
                 .addPathPatterns(LegacyBetBridgeLogInterceptor.PATH_PATTERNS);
     }
 
-    // 커스텀 리졸버는 내장 리졸버들 *뒤에*, catch-all 앞에서 탐색된다 (GROMO-363).
-    // 이 등록을 빠뜨리면 에러가 아니라 catch-all 이 @LoginUser UUID 를 쿼리 파라미터로 해석해
-    // 조용히 null 이 주입되거나 ?userId= 로 사칭이 가능해진다 — 리졸버 본체만큼 중요한 한 줄이다.
+    /**
+     * 커스텀 리졸버는 내장 리졸버들 *뒤에*, catch-all 앞에서 탐색된다 (GROMO-363).
+     * 이 등록을 빠뜨리면 에러가 아니라 catch-all 이 @LoginUser UUID 를 쿼리 파라미터로 해석해
+     * 조용히 null 이 주입되거나 ?userId= 로 사칭이 가능해진다 — 리졸버 본체만큼 중요한 한 줄이다.
+     */
     @Override
     public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
         resolvers.add(loginUserArgumentResolver);

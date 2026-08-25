@@ -9,7 +9,9 @@ import lombok.Getter;
 @Getter
 public class UpdateGroupRequest {
 
-    // null 은 부분 수정에서 "미변경"이다. 값이 전달된 경우에만 생성 DTO와 같은 규칙을 적용한다.
+    /**
+     * null 은 부분 수정에서 "미변경"이다. 값이 전달된 경우에만 생성 DTO와 같은 규칙을 적용한다.
+     */
     @Size(max = 50)
     @Pattern(
             regexp = "^(?=.*[^\\p{javaWhitespace}\\p{Z}\\p{C}\\p{M}\\u115F\\u1160\\u2800\\u3164\\uFFA0])"
@@ -23,7 +25,9 @@ public class UpdateGroupRequest {
     @Min(1)
     @Max(10)
     private Integer maxMembers;
-    // A-1: 공개/비밀 전환. null = 미변경(부분 수정).
+    /**
+     * A-1: 공개/비밀 전환. null = 미변경(부분 수정).
+     */
     private Boolean isPrivate;
     private PasswordAction passwordAction;
     private String password;
