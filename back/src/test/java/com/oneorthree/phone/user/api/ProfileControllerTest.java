@@ -1,6 +1,7 @@
 package com.oneorthree.phone.user.api;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
+import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
@@ -42,13 +43,15 @@ class ProfileControllerTest {
     private final UUID targetUserId = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
     @Test
-    @DisplayName("공개 프로필 조회 → 200, 닉네임·친구수·티어·랭킹 반환")
+    @DisplayName("공개 프로필 조회 → 200, 닉네임·친구수·티어·랭킹·relation·isPinned 반환")
     void getPublicProfileReturns200() throws Exception {
+        UUID callerId = UUID.randomUUID();
         PublicProfileResponse response = new PublicProfileResponse(
-                targetUserId, "조재영", "CSAT", List.of(), 5L, 3, 2);
-        given(profileService.getPublicProfile(any())).willReturn(response);
+                targetUserId, "조재영", "CSAT", List.of(), 5L, 3, 2, FriendRelation.FRIEND, true);
+        given(profileService.getPublicProfile(eq(callerId), eq(targetUserId))).willReturn(response);
 
-        mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId))
+        mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId)
+                        .requestAttr(AuthAttributes.USER_ID, callerId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value(targetUserId.toString()))
                 .andExpect(jsonPath("$.nickname").value("조재영"))
@@ -57,30 +60,39 @@ class ProfileControllerTest {
                 .andExpect(jsonPath("$.friendCount").value(5))
                 .andExpect(jsonPath("$.currentTier").value(3))
                 .andExpect(jsonPath("$.rank").value(2))
+                // 호출자 기준 관계·핀 여부 (GROMO-1631)
+                .andExpect(jsonPath("$.relation").value("FRIEND"))
+                .andExpect(jsonPath("$.isPinned").value(true))
                 .andDo(print());
     }
 
     @Test
-    @DisplayName("리그 미소속 신규 유저 → 200, 기본 tier=1/rank=null")
+    @DisplayName("리그 미소속 신규 유저 → 200, 기본 tier=1/rank=null, relation=NONE·isPinned=false")
     void getPublicProfileNoLeagueReturns200() throws Exception {
+        UUID callerId = UUID.randomUUID();
         PublicProfileResponse response = new PublicProfileResponse(
-                targetUserId, "조재영", null, List.of(), 0L, 1, null);
-        given(profileService.getPublicProfile(any())).willReturn(response);
+                targetUserId, "조재영", null, List.of(), 0L, 1, null, FriendRelation.NONE, false);
+        given(profileService.getPublicProfile(any(), any())).willReturn(response);
 
-        mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId))
+        mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId)
+                        .requestAttr(AuthAttributes.USER_ID, callerId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.currentTier").value(1))
                 .andExpect(jsonPath("$.rank").value(nullValue()))
+                .andExpect(jsonPath("$.relation").value("NONE"))
+                .andExpect(jsonPath("$.isPinned").value(false))
                 .andDo(print());
     }
 
     @Test
     @DisplayName("존재하지 않는 userId → 404")
     void getPublicProfileNotFoundReturns404() throws Exception {
-        given(profileService.getPublicProfile(any()))
+        UUID callerId = UUID.randomUUID();
+        given(profileService.getPublicProfile(any(), any()))
                 .willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
-        mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId))
+        mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId)
+                        .requestAttr(AuthAttributes.USER_ID, callerId))
                 .andExpect(status().isNotFound())
                 .andDo(print());
     }
@@ -88,7 +100,8 @@ class ProfileControllerTest {
     @Test
     @DisplayName("잘못된 UUID 형식 → 400")
     void getPublicProfileInvalidUuidReturns400() throws Exception {
-        mockMvc.perform(get("/api/v1/users/{userId}/profile", "not-a-uuid"))
+        mockMvc.perform(get("/api/v1/users/{userId}/profile", "not-a-uuid")
+                        .requestAttr(AuthAttributes.USER_ID, UUID.randomUUID()))
                 .andExpect(status().isBadRequest())
                 .andDo(print());
     }

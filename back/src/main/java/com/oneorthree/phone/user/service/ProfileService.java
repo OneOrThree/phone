@@ -1,6 +1,9 @@
 package com.oneorthree.phone.user.service;
 
+import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
+import com.oneorthree.phone.friend.repository.PinnedUserRepository;
+import com.oneorthree.phone.friend.service.FriendRelationLookup;
 import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
@@ -38,22 +41,28 @@ public class ProfileService {
     private final UserRepository userRepository;
     private final CharacterEquipmentRepository characterEquipmentRepository;
     private final FriendshipRepository friendshipRepository;
+    private final PinnedUserRepository pinnedUserRepository;
+    private final FriendRelationLookup friendRelationLookup;
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
     private final LeagueWeek leagueWeek;
     private final StatsService statsService;
 
     /**
      * 대상 유저의 공개 프로필을 조회한다.
+     * relation(호출자↔대상 친구 관계)·isPinned(호출자의 핀 여부)를 함께 싣는다 (GROMO-1631).
+     * 본인 조회(callerId == userId)는 {@code getUserStats} 선례대로 판정 쿼리를 스킵하고
+     * relation=NONE·isPinned=false 를 반환한다.
      *
-     * @param userId 조회 대상 유저 ID
+     * @param callerId 호출자 유저 ID
+     * @param userId   조회 대상 유저 ID
      * @return 공개 프로필 응답
-     * @throws UserException 유저가 없거나 탈퇴(소프트딜리트)된 경우 NOT_FOUND
+     * @throws UserException 대상 유저가 없거나 탈퇴(소프트딜리트)된 경우 NOT_FOUND
      */
-    public PublicProfileResponse getPublicProfile(UUID userId) {
-        return getPublicProfile(userId, Instant.now());
+    public PublicProfileResponse getPublicProfile(UUID callerId, UUID userId) {
+        return getPublicProfile(callerId, userId, Instant.now());
     }
 
-    PublicProfileResponse getPublicProfile(UUID userId, Instant now) {
+    PublicProfileResponse getPublicProfile(UUID callerId, UUID userId, Instant now) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -82,8 +91,19 @@ public class ProfileService {
         // 준비 시험 코드 — 미설정(가입 직후 등)이면 null (GROMO-747)
         String occupation = user.getOccupation() != null ? user.getOccupation().name() : null;
 
+        // 본인 조회 → 판정 쿼리 스킵, NONE/false (getUserStats 의 본인 분기 선례, GROMO-1631)
+        FriendRelation relation = FriendRelation.NONE;
+        boolean isPinned = false;
+        if (!callerId.equals(userId)) {
+            User caller = userRepository.findById(callerId)
+                    .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+            relation = friendRelationLookup.relationOf(caller, userId);
+            isPinned = pinnedUserRepository.findPinnedUserIdsByUserId(callerId).contains(userId);
+        }
+
         return new PublicProfileResponse(
-                userId, user.getNickname(), occupation, equipments, friendCount, currentTier, rank);
+                userId, user.getNickname(), occupation, equipments, friendCount, currentTier, rank,
+                relation, isPinned);
     }
 
     /**
