@@ -1,7 +1,7 @@
 package com.oneorthree.phone.character.service;
 
-import com.oneorthree.phone.character.client.OpenAiModerationClient;
-import com.oneorthree.phone.character.client.OpenAiModerationClient.OpenAiModerationResult;
+import com.oneorthree.phone.character.service.client.OpenAiModerationClient;
+import com.oneorthree.phone.character.service.client.OpenAiModerationClient.OpenAiModerationResult;
 import com.oneorthree.phone.character.dto.ImageModerationRequest;
 import com.oneorthree.phone.character.dto.ImageModerationResponse;
 import org.junit.jupiter.api.DisplayName;
@@ -22,7 +22,7 @@ import static org.mockito.BDDMockito.willThrow;
  * 누끼 모더레이션 게이트 테스트 — 저장 전 필수 관문이라 "막혔는가"와 "왜 막혔는가"를 모두 잠근다.
  */
 @ExtendWith(MockitoExtension.class)
-class ImageModerationServiceTest {
+class CharacterModerationServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final ImageModerationRequest REQUEST = new ImageModerationRequest("dGVzdA==");
@@ -31,7 +31,7 @@ class ImageModerationServiceTest {
     private OpenAiModerationClient openAiModerationClient;
 
     @InjectMocks
-    private ImageModerationService imageModerationService;
+    private CharacterModerationService characterModerationService;
 
     @Test
     @DisplayName("유해하지 않으면 통과 — allowed=true, 검사 불가 아님")
@@ -39,7 +39,7 @@ class ImageModerationServiceTest {
         given(openAiModerationClient.moderate(REQUEST.image()))
                 .willReturn(new OpenAiModerationResult(false, List.of()));
 
-        ImageModerationResponse response = imageModerationService.moderate(USER_ID, REQUEST);
+        ImageModerationResponse response = characterModerationService.moderate(USER_ID, REQUEST);
 
         assertThat(response.allowed()).isTrue();
         assertThat(response.unavailable()).isFalse();
@@ -52,7 +52,7 @@ class ImageModerationServiceTest {
         given(openAiModerationClient.moderate(REQUEST.image()))
                 .willReturn(new OpenAiModerationResult(true, List.of("violence")));
 
-        ImageModerationResponse response = imageModerationService.moderate(USER_ID, REQUEST);
+        ImageModerationResponse response = characterModerationService.moderate(USER_ID, REQUEST);
 
         assertThat(response.allowed()).isFalse();
         assertThat(response.unavailable()).isFalse();
@@ -69,7 +69,7 @@ class ImageModerationServiceTest {
         willThrow(new IllegalStateException("OPENAI_API_KEY 미설정"))
                 .given(openAiModerationClient).moderate(REQUEST.image());
 
-        ImageModerationResponse response = imageModerationService.moderate(USER_ID, REQUEST);
+        ImageModerationResponse response = characterModerationService.moderate(USER_ID, REQUEST);
 
         assertThat(response.allowed()).isFalse();
         assertThat(response.unavailable()).isTrue();

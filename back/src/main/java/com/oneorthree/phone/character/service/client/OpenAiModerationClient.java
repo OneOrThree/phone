@@ -1,4 +1,4 @@
-package com.oneorthree.phone.character.client;
+package com.oneorthree.phone.character.service.client;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;

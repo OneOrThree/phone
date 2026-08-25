@@ -1,7 +1,7 @@
 package com.oneorthree.phone.character.service;
 
-import com.oneorthree.phone.character.client.OpenAiModerationClient;
-import com.oneorthree.phone.character.client.OpenAiModerationClient.OpenAiModerationResult;
+import com.oneorthree.phone.character.service.client.OpenAiModerationClient;
+import com.oneorthree.phone.character.service.client.OpenAiModerationClient.OpenAiModerationResult;
 import com.oneorthree.phone.character.dto.ImageModerationRequest;
 import com.oneorthree.phone.character.dto.ImageModerationResponse;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +20,7 @@ import java.util.UUID;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class ImageModerationService {
+public class CharacterModerationService {
 
     private final OpenAiModerationClient openAiModerationClient;
 

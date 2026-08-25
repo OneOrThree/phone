@@ -1,4 +1,4 @@
-package com.oneorthree.phone.common.config;
+package com.oneorthree.phone._config;
 
 import com.oneorthree.phone.common.auth.LoginUser;
 import io.swagger.v3.oas.models.OpenAPI;

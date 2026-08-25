@@ -1,4 +1,4 @@
-package com.oneorthree.phone.common.config;
+package com.oneorthree.phone._config;
 
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;

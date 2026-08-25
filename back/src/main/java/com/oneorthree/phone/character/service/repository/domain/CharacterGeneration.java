@@ -1,4 +1,4 @@
-package com.oneorthree.phone.character.domain;
+package com.oneorthree.phone.character.service.repository.domain;
 
 import com.oneorthree.phone.common.id.GeneratedUuidV7;
 import com.oneorthree.phone.user.domain.User;

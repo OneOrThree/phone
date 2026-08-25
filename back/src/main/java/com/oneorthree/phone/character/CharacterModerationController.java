@@ -1,8 +1,8 @@
-package com.oneorthree.phone.character.api;
+package com.oneorthree.phone.character;
 
 import com.oneorthree.phone.character.dto.ImageModerationRequest;
 import com.oneorthree.phone.character.dto.ImageModerationResponse;
-import com.oneorthree.phone.character.service.ImageModerationService;
+import com.oneorthree.phone.character.service.CharacterModerationService;
 import com.oneorthree.phone.common.auth.LoginUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -24,7 +24,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CharacterModerationController {
 
-    private final ImageModerationService imageModerationService;
+    private final CharacterModerationService characterModerationService;
 
     @Operation(summary = "누끼 이미지 유해성 검사",
             description = "누끼 저장 직전 이미지를 OpenAI omni-moderation 으로 검사합니다. 이미지는 저장하지 않고 "
@@ -39,7 +39,7 @@ public class CharacterModerationController {
     public ResponseEntity<ImageModerationResponse> moderate(
             @LoginUser UUID userId,
             @Valid @RequestBody ImageModerationRequest request) {
-        ImageModerationResponse response = imageModerationService.moderate(userId, request);
+        ImageModerationResponse response = characterModerationService.moderate(userId, request);
         return ResponseEntity.ok(response);
     }
 }

@@ -1,7 +1,8 @@
 package com.oneorthree.phone.character.service;
 
 import com.oneorthree.phone.character.dto.CharacterQuotaResponse;
-import com.oneorthree.phone.character.repository.CharacterGenerationRepository;
+import com.oneorthree.phone.character.service.repository.CharacterGenerationRepository;
+import com.oneorthree.phone.character.service.repository.CharacterGenerationService;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;

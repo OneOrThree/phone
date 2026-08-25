@@ -1,4 +1,4 @@
-package com.oneorthree.phone.character.api.docs;
+package com.oneorthree.phone.character;
 
 import com.oneorthree.phone.character.dto.CharacterQuotaResponse;
 import com.oneorthree.phone.character.dto.RecordGenerationRequest;

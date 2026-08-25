@@ -1,6 +1,6 @@
-package com.oneorthree.phone.character.repository;
+package com.oneorthree.phone.character.service.repository;
 
-import com.oneorthree.phone.character.domain.CharacterGeneration;
+import com.oneorthree.phone.character.service.repository.domain.CharacterGeneration;
 import com.oneorthree.phone.user.domain.User;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

@@ -44,8 +44,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(CurrencyException.class)
     public ResponseEntity<ErrorResponse> handleCurrency(CurrencyException e) {
+        log.error("Currency exception", e);
         return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+                .body(new ErrorResponse(e.getErrorCode().name(), e.getErrorCode().getMessage()));
     }
 
     @ExceptionHandler(InvalidTokenException.class)

@@ -1,9 +1,8 @@
-package com.oneorthree.phone.character.api;
+package com.oneorthree.phone.character;
 
-import com.oneorthree.phone.character.api.docs.CharacterControllerDocs;
 import com.oneorthree.phone.character.dto.CharacterQuotaResponse;
 import com.oneorthree.phone.character.dto.RecordGenerationRequest;
-import com.oneorthree.phone.character.service.CharacterGenerationService;
+import com.oneorthree.phone.character.service.repository.CharacterGenerationService;
 import com.oneorthree.phone.common.auth.LoginUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
