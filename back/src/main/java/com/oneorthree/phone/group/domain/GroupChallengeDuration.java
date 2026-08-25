@@ -18,7 +18,9 @@ import lombok.NoArgsConstructor;
 
 import java.util.UUID;
 
-// type=DURATION 챌린지 전용 상세(CTI). group_challenges 와 1:1 — challenge_id 를 PK 로 공유(@MapsId).
+/**
+ * type=DURATION 챌린지 전용 상세(CTI). group_challenges 와 1:1 — challenge_id 를 PK 로 공유(@MapsId).
+ */
 @Entity
 @Table(name = "group_challenge_durations")
 @Getter
@@ -46,7 +48,9 @@ public class GroupChallengeDuration {
     @Column(nullable = false)
     private MissionCategory category;
 
-    // 하루 목표 시간(분) — 상한은 카테고리별(N51): FOCUS 1~1080 · SCREEN_TIME 1~720.
+    /**
+     * 하루 목표 시간(분) — 상한은 카테고리별(N51): FOCUS 1~1080 · SCREEN_TIME 1~720.
+     */
     @Column(nullable = false)
     private int durationMinutes;
 }

@@ -15,13 +15,19 @@ import java.util.UUID;
 
 public interface UserItemRepository extends JpaRepository<UserItem, UUID> {
 
-    // 인벤토리 조회
+    /**
+     * 인벤토리 조회
+     */
     List<UserItem> findByUser(User user);
 
-    // 아이템 소유 여부 확인 + acquiredAt 확보 (장착 이벤트 payload 용)
+    /**
+     * 아이템 소유 여부 확인 + acquiredAt 확보 (장착 이벤트 payload 용)
+     */
     Optional<UserItem> findByUserAndItem(User user, Item item);
 
-    // 아이템 지급 (ON CONFLICT DO NOTHING)
+    /**
+     * 아이템 지급 (ON CONFLICT DO NOTHING)
+     */
     @Modifying
     @Query(value = """
                 INSERT INTO user_items (user_id, item_id, created_at)

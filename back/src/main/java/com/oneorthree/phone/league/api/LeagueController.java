@@ -49,8 +49,10 @@ public class LeagueController implements LeagueControllerDocs {
         return ResponseEntity.ok(leagueService.getMyRanking(userId, category, date));
     }
 
-    // 전역 랭킹은 유저 컨텍스트가 필요 없다(직군·본인 무관 집계). 인증은 JwtFilter(/api/*)가 강제하므로
-    // 핸들러에서 userId 를 읽지 않는다. request 파라미터도 불필요.
+    /**
+     * 전역 랭킹은 유저 컨텍스트가 필요 없다(직군·본인 무관 집계). 인증은 JwtFilter(/api/*)가 강제하므로
+     * 핸들러에서 userId 를 읽지 않는다. request 파라미터도 불필요.
+     */
     @Override
     @GetMapping("/league/ranking")
     public ResponseEntity<List<LeagueMemberResponse>> getGlobalRanking(

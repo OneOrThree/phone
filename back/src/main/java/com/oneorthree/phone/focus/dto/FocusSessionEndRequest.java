@@ -28,9 +28,11 @@ import java.util.UUID;
 public record FocusSessionEndRequest(
         @NotNull UUID sessionId,
         Instant endedAt,
-        // GROMO-1214 코드리뷰(돈 경로): 음수 금지. 세션 보상이 (endedAt − startedAt) − totalDistractionSeconds 라
-        // 음수를 보내면 집중초가 늘어나, 방금 발급한 몇 초짜리 마커로도 12시간 캡(720코인)까지 긁을 수 있었다.
-        // 같은 값이 방해 통계(daily_focus_stats)에도 그대로 누적되므로 상한도 함께 둔다.
+        /**
+         * GROMO-1214 코드리뷰(돈 경로): 음수 금지. 세션 보상이 (endedAt − startedAt) − totalDistractionSeconds 라
+         * 음수를 보내면 집중초가 늘어나, 방금 발급한 몇 초짜리 마커로도 12시간 캡(720코인)까지 긁을 수 있었다.
+         * 같은 값이 방해 통계(daily_focus_stats)에도 그대로 누적되므로 상한도 함께 둔다.
+         */
         @PositiveOrZero
         @Max(value = 24 * 60 * 60, message = "하루 24시간을 넘을 수 없습니다")
         int totalDistractionSeconds,

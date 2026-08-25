@@ -14,10 +14,12 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-// 전체 인자 생성자를 public 으로 열지 않는다(빌더 전용, private): 공개돼 있으면 Jackson 이 그 생성자를
-// properties creator 로 잡아 미전송 primitive 파라미터를 null 로 넘기고
-// "Cannot map null into type boolean" 400 을 낸다 — isPrivate 미전송(=공개방)이 요청 거절로 이어진다.
-// 기본 생성자 + 필드 바인딩 경로를 쓰게 두고, 테스트는 빌더로 만든다.
+/**
+ * 전체 인자 생성자를 public 으로 열지 않는다(빌더 전용, private): 공개돼 있으면 Jackson 이 그 생성자를
+ * properties creator 로 잡아 미전송 primitive 파라미터를 null 로 넘기고
+ * "Cannot map null into type boolean" 400 을 낸다 — isPrivate 미전송(=공개방)이 요청 거절로 이어진다.
+ * 기본 생성자 + 필드 바인딩 경로를 쓰게 두고, 테스트는 빌더로 만든다.
+ */
 @Getter
 @Builder
 @NoArgsConstructor
@@ -41,13 +43,15 @@ public class CreateGroupRequest {
     @Max(10)
     private Integer maxMembers;
 
-    // 공개/비공개 — 미전송이면 false(공개). 비공개 그룹은 검색에서 제외되고 초대 링크로만 참여한다.
-    // boolean isXxx 는 Jackson이 "is"를 떼고 매핑 → JSON 키를 isPrivate 로 고정
-    //
-    // nulls = FAIL 은 "미전송"과 "명시적 null"을 갈라놓는다. 미전송은 구 앱 호환을 위해 false(공개)로
-    // 두지만, "isPrivate": null 은 클라이언트 직렬화 결함이지 공개 의사가 아니다 — primitive 기본
-    // coercion 에 맡기면 조용히 false 로 내려앉아 비공개로 만들려던 방이 검색 가능한 공개방이 된다.
-    // (필드가 mutator 라 여기 붙인다. FAIL → InvalidNullException → HttpMessageNotReadable → 400)
+    /**
+     * 공개/비공개 — 미전송이면 false(공개). 비공개 그룹은 검색에서 제외되고 초대 링크로만 참여한다.
+     * boolean isXxx 는 Jackson이 "is"를 떼고 매핑 → JSON 키를 isPrivate 로 고정
+     *
+     * nulls = FAIL 은 "미전송"과 "명시적 null"을 갈라놓는다. 미전송은 구 앱 호환을 위해 false(공개)로
+     * 두지만, "isPrivate": null 은 클라이언트 직렬화 결함이지 공개 의사가 아니다 — primitive 기본
+     * coercion 에 맡기면 조용히 false 로 내려앉아 비공개로 만들려던 방이 검색 가능한 공개방이 된다.
+     * (필드가 mutator 라 여기 붙인다. FAIL → InvalidNullException → HttpMessageNotReadable → 400)
+     */
     @JsonProperty("isPrivate")
     @JsonSetter(nulls = Nulls.FAIL)
     private boolean isPrivate;

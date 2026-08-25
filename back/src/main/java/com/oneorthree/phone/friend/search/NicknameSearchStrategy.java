@@ -24,7 +24,9 @@ public class NicknameSearchStrategy implements FriendSearchStrategy {
         return SearchType.NICKNAME;
     }
 
-    // 닉네임 trgm 검색 원시 결과 반환. 자기자신(me) 제외·relation 표기는 FriendService 후처리.
+    /**
+     * 닉네임 trgm 검색 원시 결과 반환. 자기자신(me) 제외·relation 표기는 FriendService 후처리.
+     */
     @Override
     public List<FriendSearchResult> search(UUID me, String query) {
         List<User> matched = userRepository.searchByNicknameTrgm(query, SEARCH_LIMIT);

@@ -54,7 +54,9 @@ public class Ga4MeasurementClientImpl implements Ga4MeasurementClient {
 
     public Ga4MeasurementClientImpl(
             Ga4Properties properties,
-            // Track2(user-activity) 로그와 같은 소스를 써서 두 트랙의 env 값이 어긋나지 않게 한다
+            /**
+             * Track2(user-activity) 로그와 같은 소스를 써서 두 트랙의 env 값이 어긋나지 않게 한다
+             */
             @Value("${spring.profiles.active:local}") String env) {
         this.properties = properties;
         this.env = env;

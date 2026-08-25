@@ -53,7 +53,9 @@ public class AuthService {
     private final UserActivityEventLogger userActivityEventLogger;
     private final Map<Provider, SocialLoginClient> socialLoginClients;
 
-    // 자기 자신 프록시 — 동시 첫 로그인 유니크 위반 시 새 트랜잭션으로 재시도하기 위함 (@Lazy 로 순환 주입 방지).
+    /**
+     * 자기 자신 프록시 — 동시 첫 로그인 유니크 위반 시 새 트랜잭션으로 재시도하기 위함 (@Lazy 로 순환 주입 방지).
+     */
     private final AuthService self;
 
     public AuthService(UserRepository userRepository,
@@ -79,7 +81,9 @@ public class AuthService {
         this.self = self;
     }
 
-    // 회원 생성 시 1:1 부속 테이블(지갑·스크린타임·포커스·알림 설정) row를 함께 만든다.
+    /**
+     * 회원 생성 시 1:1 부속 테이블(지갑·스크린타임·포커스·알림 설정) row를 함께 만든다.
+     */
     private void createUserSideRows(UUID userId) {
         userWalletRepository.save(UserWallet.builder().userId(userId).build());
         userScreenTimeSettingsRepository.save(UserScreenTimeSettings.builder().userId(userId).build());

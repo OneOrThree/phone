@@ -27,20 +27,22 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class LeagueRankingQueryRepository {
 
-    // 리그 모수 = 온보딩 완주 유저 (GROMO-1508). 서버가 가진 완주 신호는 nickname 존재가 유일하다
-    // (닉네임이 온보딩 마지막 스텝, 게스트도 같은 경로). is_guest 기준은 게스트 완주자를 배제하고
-    // 온보딩 이탈한 소셜 유저(nickname = null)를 이름 없는 행으로 편입시켜 양쪽이 틀렸다.
-    // 빈 문자열·공백-only 까지 거르는 이유: GROMO-1215 이전 PATCH 경로는 "" 를 그대로 저장했고
-    // 그 레거시 행을 정리한 마이그레이션이 없다. NULL 만 걸러선 같은 이름 없는 행이 그대로 남는다.
-    // 판정을 btrim 이 아니라 POSIX 문자클래스로 하는 이유(코드리뷰 반영): 인자 없는 btrim 은 ASCII
-    // 공백만 떼서 U+2003 같은 유니코드 공백-only 닉네임을 통과시키는데, Java 쪽 getMyTier 는
-    // isBlank() 로 같은 값을 걸러 "티어는 미배정인데 랭킹엔 뜨는" 불일치가 생긴다. '[^[:space:]]'
-    // (= 공백 아닌 문자 1자 이상)는 유니코드 공백·탭·NBSP 경계까지 isBlank() 와 판정이 같다.
-    // today_focus_seconds: 조회 창 마지막 날(:toDate)의 당일 집중초. 랭킹 조회에서 :toDate 는
-    // KST 오늘이라 곧 '당일 집중분'이고, 라이브 앵커와 **같은 SQL 문장 = 같은 스냅샷**에서 나온다
-    // (코드리뷰 반영 — 별도 배치 조회로 당일분을 읽으면 그 사이 세션이 끝나 집계된 유저가
-    // '완료분 포함 당일분 + 아직 살아있는 앵커'로 응답돼 클라 라이브 합산이 이중 계상된다).
-    // 정산·keyset 조회에서는 계산만 되고 읽히지 않는 잉여 컬럼이다(:toDate = 정산 주 마지막 날).
+    /**
+     * 리그 모수 = 온보딩 완주 유저 (GROMO-1508). 서버가 가진 완주 신호는 nickname 존재가 유일하다
+     * (닉네임이 온보딩 마지막 스텝, 게스트도 같은 경로). is_guest 기준은 게스트 완주자를 배제하고
+     * 온보딩 이탈한 소셜 유저(nickname = null)를 이름 없는 행으로 편입시켜 양쪽이 틀렸다.
+     * 빈 문자열·공백-only 까지 거르는 이유: GROMO-1215 이전 PATCH 경로는 "" 를 그대로 저장했고
+     * 그 레거시 행을 정리한 마이그레이션이 없다. NULL 만 걸러선 같은 이름 없는 행이 그대로 남는다.
+     * 판정을 btrim 이 아니라 POSIX 문자클래스로 하는 이유(코드리뷰 반영): 인자 없는 btrim 은 ASCII
+     * 공백만 떼서 U+2003 같은 유니코드 공백-only 닉네임을 통과시키는데, Java 쪽 getMyTier 는
+     * isBlank() 로 같은 값을 걸러 "티어는 미배정인데 랭킹엔 뜨는" 불일치가 생긴다. '[^[:space:]]'
+     * (= 공백 아닌 문자 1자 이상)는 유니코드 공백·탭·NBSP 경계까지 isBlank() 와 판정이 같다.
+     * today_focus_seconds: 조회 창 마지막 날(:toDate)의 당일 집중초. 랭킹 조회에서 :toDate 는
+     * KST 오늘이라 곧 '당일 집중분'이고, 라이브 앵커와 **같은 SQL 문장 = 같은 스냅샷**에서 나온다
+     * (코드리뷰 반영 — 별도 배치 조회로 당일분을 읽으면 그 사이 세션이 끝나 집계된 유저가
+     * '완료분 포함 당일분 + 아직 살아있는 앵커'로 응답돼 클라 라이브 합산이 이중 계상된다).
+     * 정산·keyset 조회에서는 계산만 되고 읽히지 않는 잉여 컬럼이다(:toDate = 정산 주 마지막 날).
+     */
     private static final String WEEKLY_TOTALS = """
             SELECT u.id AS user_id,
                    u.nickname AS nickname,
@@ -61,27 +63,31 @@ public class LeagueRankingQueryRepository {
              GROUP BY u.id, u.nickname, u.tier_level
             """;
 
-    // ── 진행 중 세션 경과분 (정렬 전용) ───────────────────────────────────────────────────
-    // daily_focus_stats 는 세션이 **끝나야** 갱신된다(FocusService.recordCompletion). 그런데 앱은
-    // 랭킹 행에 `totalFocusSeconds + (now − focusStartedAt)` 을 매초 그린다(LiveFocusTime).
-    // 그래서 종전엔 집중하는 동안 화면의 시간만 자라고 순위는 얼어붙어, 같은 화면 안에서
-    // "시간은 위인데 순위는 아래"가 나왔다. 정렬 키에 그 경과분을 더해 두 값의 순서를 일치시킨다.
-    //
-    // ⚠️ 응답의 total_focus_seconds 는 **확정 집계 그대로** 둔다 — 여기에 경과분을 실으면 앱이
-    // 같은 구간을 한 번 더 더해 이중 계상된다. 라이브는 **정렬·순위 비교에만** 쓴다.
-    //
-    // ⚠️ 정산 쿼리(findWeeklyTotalsForSettlement/Resume/ForUsers)와 알림용 keyset 페이지
-    // (findGlobalRankingPage)는 손대지 않는다. 정산은 확정값이 기준이어야 하고, keyset 커서는
-    // 페이지 사이에 계속 변하는 값으로 정렬하면 행이 건너뛰거나 중복된다.
+    /**
+     * ── 진행 중 세션 경과분 (정렬 전용) ───────────────────────────────────────────────────
+     * daily_focus_stats 는 세션이 **끝나야** 갱신된다(FocusService.recordCompletion). 그런데 앱은
+     * 랭킹 행에 `totalFocusSeconds + (now − focusStartedAt)` 을 매초 그린다(LiveFocusTime).
+     * 그래서 종전엔 집중하는 동안 화면의 시간만 자라고 순위는 얼어붙어, 같은 화면 안에서
+     * "시간은 위인데 순위는 아래"가 나왔다. 정렬 키에 그 경과분을 더해 두 값의 순서를 일치시킨다.
+     *
+     * ⚠️ 응답의 total_focus_seconds 는 **확정 집계 그대로** 둔다 — 여기에 경과분을 실으면 앱이
+     * 같은 구간을 한 번 더 더해 이중 계상된다. 라이브는 **정렬·순위 비교에만** 쓴다.
+     *
+     * ⚠️ 정산 쿼리(findWeeklyTotalsForSettlement/Resume/ForUsers)와 알림용 keyset 페이지
+     * (findGlobalRankingPage)는 손대지 않는다. 정산은 확정값이 기준이어야 하고, keyset 커서는
+     * 페이지 사이에 계속 변하는 값으로 정렬하면 행이 건너뛰거나 중복된다.
+     */
     private static final Duration LIVE_SESSION_MAX_AGE = Duration.ofHours(12);
 
-    // 유저당 최신 미종료 세션 1건. started_at 하한(now − 12h)으로 스윕 전 orphan(버려진 미종료)
-    // 세션을 제외한다 — FocusLiveInfoLookup.LIVE_SESSION_MAX_AGE(=앱의 '집중 중' 표시 기준)와 같은 값이라
-    // 순위와 표시가 같은 세션 집합을 본다. 부분 인덱스 idx_focus_sessions_live_marker(V47)를 그대로 탄다.
-    // 태그명(default_tags.name)까지 이 서브쿼리에서 함께 뽑는다(코드리뷰 반영) — 별도 라이브 조회
-    // (FocusLiveInfoLookup)에서 태그를 다시 읽으면, 두 조회 사이에 세션이 바뀐 유저가 A 세션의
-    // 경과 + B 세션의 태그라는 불가능한 조합으로 응답된다. 소프트 딜리트된 태그도 조인한다
-    // (FocusLiveInfoLookup 의 fetch join 과 동일 — deleted_at 무시).
+    /**
+     * 유저당 최신 미종료 세션 1건. started_at 하한(now − 12h)으로 스윕 전 orphan(버려진 미종료)
+     * 세션을 제외한다 — FocusLiveInfoLookup.LIVE_SESSION_MAX_AGE(=앱의 '집중 중' 표시 기준)와 같은 값이라
+     * 순위와 표시가 같은 세션 집합을 본다. 부분 인덱스 idx_focus_sessions_live_marker(V47)를 그대로 탄다.
+     * 태그명(default_tags.name)까지 이 서브쿼리에서 함께 뽑는다(코드리뷰 반영) — 별도 라이브 조회
+     * (FocusLiveInfoLookup)에서 태그를 다시 읽으면, 두 조회 사이에 세션이 바뀐 유저가 A 세션의
+     * 경과 + B 세션의 태그라는 불가능한 조합으로 응답된다. 소프트 딜리트된 태그도 조인한다
+     * (FocusLiveInfoLookup 의 fetch join 과 동일 — deleted_at 무시).
+     */
     private static final String LIVE_SESSIONS = """
             SELECT DISTINCT ON (s.user_id) s.user_id, s.started_at, dt.name AS tag_name
               FROM focus_sessions s
@@ -92,25 +98,29 @@ public class LeagueRankingQueryRepository {
              ORDER BY s.user_id, s.started_at DESC
             """;
 
-    // 라이브 기준 시각(앵커). 주 경계를 걸친 세션(일요일 밤 시작 → 월요일 진행 중)은 주 시작으로
-    // 클램프한다 — 지난 주 몫이 이번 주 순위에 실리면 안 된다.
-    //
-    // ⚠️ NULL 분기를 COALESCE 가 아니라 CASE 로 하는 이유: Postgres 의 GREATEST/LEAST 는 대부분의
-    // 함수와 달리 **NULL 인자를 그냥 건너뛴다**. 진행 중 세션이 없어 live.started_at 이 NULL 이면
-    // GREATEST(NULL, :weekStartAt) 가 NULL 이 아니라 :weekStartAt 을 돌려줘서, 집중하지도 않은
-    // 유저 전원에게 '주 시작부터 지금까지' 가 통째로 붙는다(= 라이브 유저가 오히려 밀린다).
+    /**
+     * 라이브 기준 시각(앵커). 주 경계를 걸친 세션(일요일 밤 시작 → 월요일 진행 중)은 주 시작으로
+     * 클램프한다 — 지난 주 몫이 이번 주 순위에 실리면 안 된다.
+     *
+     * ⚠️ NULL 분기를 COALESCE 가 아니라 CASE 로 하는 이유: Postgres 의 GREATEST/LEAST 는 대부분의
+     * 함수와 달리 **NULL 인자를 그냥 건너뛴다**. 진행 중 세션이 없어 live.started_at 이 NULL 이면
+     * GREATEST(NULL, :weekStartAt) 가 NULL 이 아니라 :weekStartAt 을 돌려줘서, 집중하지도 않은
+     * 유저 전원에게 '주 시작부터 지금까지' 가 통째로 붙는다(= 라이브 유저가 오히려 밀린다).
+     */
     private static final String LIVE_ANCHOR = """
             CASE WHEN live.started_at IS NULL THEN NULL
                  ELSE GREATEST(live.started_at, :weekStartAt)
             END""";
 
-    // 라이브 경과 초 = now − 앵커. GREATEST(0, ...)는 시계 오차로 앵커가 now 를 아주 살짝 앞설 때의
-    // 음수 방어. 앵커가 NULL(미집중)이면 0.
-    //
-    // ⚠️ 이 값과 앵커는 반드시 **한 쿼리에서 함께** 나와야 한다(코드리뷰 반영). 정렬은 이 경과로
-    // 하는데 응답의 focusStartedAt 을 뒤이은 별도 조회에서 다시 읽으면, 두 조회 사이에 세션이
-    // 시작·종료된 유저가 "순위는 라이브 기준인데 표시는 확정값"인 채로 한 응답에 섞인다.
-    // findTop 이 앵커를 같이 돌려주고 LeagueService 가 그걸 그대로 응답에 싣는 이유다.
+    /**
+     * 라이브 경과 초 = now − 앵커. GREATEST(0, ...)는 시계 오차로 앵커가 now 를 아주 살짝 앞설 때의
+     * 음수 방어. 앵커가 NULL(미집중)이면 0.
+     *
+     * ⚠️ 이 값과 앵커는 반드시 **한 쿼리에서 함께** 나와야 한다(코드리뷰 반영). 정렬은 이 경과로
+     * 하는데 응답의 focusStartedAt 을 뒤이은 별도 조회에서 다시 읽으면, 두 조회 사이에 세션이
+     * 시작·종료된 유저가 "순위는 라이브 기준인데 표시는 확정값"인 채로 한 응답에 섞인다.
+     * findTop 이 앵커를 같이 돌려주고 LeagueService 가 그걸 그대로 응답에 싣는 이유다.
+     */
     private static final String LIVE_SECONDS = """
             CASE WHEN live.started_at IS NULL THEN 0
                  ELSE GREATEST(0, EXTRACT(EPOCH FROM :now - GREATEST(live.started_at, :weekStartAt)))
@@ -245,9 +255,11 @@ public class LeagueRankingQueryRepository {
         return jdbcTemplate.query(sql, parameters, this::mapRankingRow);
     }
 
-    // 재개(resume) 전용 가입 컷오프 술어 (GROMO-1239) — 정산 대상 주차가 끝난 뒤(경계 이후) 가입한
-    // 유저는 그 주차에 존재하지 않았으므로 0초 STAY 결과가 조작되면 안 된다. created_at 이 NULL 인
-    // 레거시 행은 경계 이전 존재로 간주해 포함한다(초기 데이터 — 컷오프로 새로 배제할 근거가 없다).
+    /**
+     * 재개(resume) 전용 가입 컷오프 술어 (GROMO-1239) — 정산 대상 주차가 끝난 뒤(경계 이후) 가입한
+     * 유저는 그 주차에 존재하지 않았으므로 0초 STAY 결과가 조작되면 안 된다. created_at 이 NULL 인
+     * 레거시 행은 경계 이전 존재로 간주해 포함한다(초기 데이터 — 컷오프로 새로 배제할 근거가 없다).
+     */
     private static final String CREATED_BEFORE_CONDITION =
             " AND (u.created_at IS NULL OR u.created_at < :createdBefore)\n";
 

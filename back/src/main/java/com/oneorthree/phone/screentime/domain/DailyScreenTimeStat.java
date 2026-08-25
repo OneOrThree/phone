@@ -46,9 +46,11 @@ public class DailyScreenTimeStat {
     @Column(nullable = false)
     private LocalDate date;
 
-    // null = 미집계(V38, GROMO-1267) — "0분 사용"과 다르다. SCREEN_TIME 은 클라 보고 데이터라
-    // 값이 안 오면 0 으로 뭉개지 않고 null 로 남긴다(FR-16 · 정책 B7). 판정은 null 을 미보고
-    // (= 미달성)로 해석하고, 개인 통계 합산·표시 경로는 0 으로 접는다(응답 shape 불변).
+    /**
+     * null = 미집계(V38, GROMO-1267) — "0분 사용"과 다르다. SCREEN_TIME 은 클라 보고 데이터라
+     * 값이 안 오면 0 으로 뭉개지 않고 null 로 남긴다(FR-16 · 정책 B7). 판정은 null 을 미보고
+     * (= 미달성)로 해석하고, 개인 통계 합산·표시 경로는 0 으로 접는다(응답 shape 불변).
+     */
     @Column(name = "total_screen_time_minutes")
     private Integer totalScreenTimeMinutes;
 

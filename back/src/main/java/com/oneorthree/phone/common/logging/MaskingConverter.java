@@ -5,26 +5,36 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 
 import java.util.regex.Pattern;
 
-// PII (Personal identifiable Information) Masking
+/**
+ * PII (Personal identifiable Information) Masking
+ */
 public class MaskingConverter extends MessageConverter {
 
-    // 이메일: vol****@****.***
+    /**
+     * 이메일: vol****@****.***
+     */
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
             "([a-zA-Z0-9._%+\\-]{1,3})[a-zA-Z0-9._%+\\-]*@([a-zA-Z0-9.\\-]+)\\.([a-zA-Z]{2,})"
     );
 
-    // 한국 휴대폰: 010-****-5678
+    /**
+     * 한국 휴대폰: 010-****-5678
+     */
     private static final Pattern PHONE_PATTERN = Pattern.compile(
             "(01[016789])[\\-.]?(\\d{3,4})[\\-.]?(\\d{4})"
     );
 
-    // 주민등록번호: 123456-1******
+    /**
+     * 주민등록번호: 123456-1******
+     */
     private static final Pattern SSN_PATTERN = Pattern.compile(
             "(\\d{6})[\\-](\\d)(\\d{6})"
     );
 
-    // 민감 키=값 쌍 (password=, email=, cardNumber= 등)
-    // key=value  |  "key":"value"  |  key:value (따옴표 없는 콜론, toString 출력 포함)
+    /**
+     * 민감 키=값 쌍 (password=, email=, cardNumber= 등)
+     * key=value  |  "key":"value"  |  key:value (따옴표 없는 콜론, toString 출력 포함)
+     */
     private static final Pattern SENSITIVE_KV_PATTERN = Pattern.compile(
             "(?i)((?:password|accessToken|access_token|mobile|email|cardNumber|card_number|cvv|secret)"
                     + "(?:\\s*=\\s*|\\s*\"\\s*:\\s*\"\\s*|\\s*:\\s*))[^&\"\\s,}]+"

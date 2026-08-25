@@ -83,13 +83,17 @@ public class GroupService {
     private final GroupInviteLinkRepository groupInviteLinkRepository;
     private final Ga4MeasurementClient ga4MeasurementClient;
 
-    // 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 참가 코드 생성 전용 상수다.
+    /**
+     * 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 참가 코드 생성 전용 상수다.
+     */
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     /** 그룹 이름 검색 최대 반환 수 — 닉네임 검색(NicknameSearchStrategy)과 동일 값. */
     private static final int SEARCH_LIMIT = 20;
-    // A-10: 검색어 입력 전 기본 목록에 노출할 공개방 수
+    /**
+     * A-10: 검색어 입력 전 기본 목록에 노출할 공개방 수
+     */
     private static final int DEFAULT_LIST_LIMIT = 10;
 
     /**

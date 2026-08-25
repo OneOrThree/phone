@@ -40,7 +40,9 @@ public class ScreenTimeService {
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final CurrencyLedgerService currencyLedgerService;
 
-    // 자기 자신 프록시 — 동시 첫 저장 유니크 위반 시 새 트랜잭션으로 재시도하기 위함 (@Lazy 로 순환 주입 방지).
+    /**
+     * 자기 자신 프록시 — 동시 첫 저장 유니크 위반 시 새 트랜잭션으로 재시도하기 위함 (@Lazy 로 순환 주입 방지).
+     */
     private final ScreenTimeService self;
 
     public ScreenTimeService(UserRepository userRepository,

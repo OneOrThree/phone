@@ -29,8 +29,10 @@ public class UserActivityService {
 
     private final UserRepository userRepository;
 
-    // 같은 유저에게 write 를 허용하는 최소 간격. 짧을수록 last_active_at 이 정확해지고 write 가 늘어난다.
-    // 공통 application.yml 은 gitignored 라 배포 환경에 안 실린다 — 값은 application-dev/prod.yml 에 둔다.
+    /**
+     * 같은 유저에게 write 를 허용하는 최소 간격. 짧을수록 last_active_at 이 정확해지고 write 가 늘어난다.
+     * 공통 application.yml 은 gitignored 라 배포 환경에 안 실린다 — 값은 application-dev/prod.yml 에 둔다.
+     */
     private final Duration touchInterval;
 
     public UserActivityService(

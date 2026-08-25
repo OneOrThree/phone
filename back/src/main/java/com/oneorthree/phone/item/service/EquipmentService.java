@@ -35,7 +35,9 @@ public class EquipmentService {
     private final CharacterEquipmentRepository characterEquipmentRepository;
     private final UserActivityEventLogger userActivityEventLogger;
 
-    // 유저 캐릭터 전체 장착 상태 조회
+    /**
+     * 유저 캐릭터 전체 장착 상태 조회
+     */
     public List<CharacterEquipmentResponse> getEquipment(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
         // 예외도 변경 경로와 동일하게 UserException(NOT_FOUND, 404)으로 통일.
@@ -47,7 +49,9 @@ public class EquipmentService {
                 .toList();
     }
 
-    // 아이템 장착
+    /**
+     * 아이템 장착
+     */
     @Transactional
     public CharacterEquipmentResponse equip(UUID userId, UUID itemId) {
         User user = requireActiveUser(userId);
@@ -85,7 +89,9 @@ public class EquipmentService {
         return response;
     }
 
-    // 아이템 벗기
+    /**
+     * 아이템 벗기
+     */
     @Transactional
     public void unequip(UUID userId, SlotType slotType) {
         User user = requireActiveUser(userId);

@@ -6,11 +6,13 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-// 전체 인자 생성자를 public 으로 열지 않는다(빌더 전용, private) — CreateGroupRequest 와 같은 이유다.
-// 공개돼 있으면 Jackson 이 그 생성자를 properties creator 로 잡아 필드 바인딩 경로를 벗어난다.
-// 지금은 필드가 전부 String 이라 CreateGroupRequest 가 겪은 400(primitive null coercion)은 나지 않지만,
-// 이 DTO 에 primitive 가 하나라도 추가되는 순간 같은 사고가 재현된다. 관례를 그대로 따라 막아 둔다.
-// password 만 받던 기존 호출부·테스트를 위해 1-arg 생성자만 public 으로 남긴다(변경 전과 같은 모양).
+/**
+ * 전체 인자 생성자를 public 으로 열지 않는다(빌더 전용, private) — CreateGroupRequest 와 같은 이유다.
+ * 공개돼 있으면 Jackson 이 그 생성자를 properties creator 로 잡아 필드 바인딩 경로를 벗어난다.
+ * 지금은 필드가 전부 String 이라 CreateGroupRequest 가 겪은 400(primitive null coercion)은 나지 않지만,
+ * 이 DTO 에 primitive 가 하나라도 추가되는 순간 같은 사고가 재현된다. 관례를 그대로 따라 막아 둔다.
+ * password 만 받던 기존 호출부·테스트를 위해 1-arg 생성자만 public 으로 남긴다(변경 전과 같은 모양).
+ */
 @Getter
 @Builder
 @NoArgsConstructor

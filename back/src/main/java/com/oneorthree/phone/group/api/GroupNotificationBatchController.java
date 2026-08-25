@@ -43,7 +43,9 @@ public class GroupNotificationBatchController implements GroupNotificationBatchC
     private final ChallengeDurationEndNotificationService challengeDurationEndNotificationService;
     private final String batchAdminKey;
 
-    // 키 미설정은 기동 실패가 아니라 503 응답으로 처리한다(GroupBetBatchController 와 동일).
+    /**
+     * 키 미설정은 기동 실패가 아니라 503 응답으로 처리한다(GroupBetBatchController 와 동일).
+     */
     public GroupNotificationBatchController(
             BetEventNotificationService betEventNotificationService,
             ChallengeWindowEndNotificationService challengeWindowEndNotificationService,
@@ -79,8 +81,10 @@ public class GroupNotificationBatchController implements GroupNotificationBatchC
         return ResponseEntity.ok(challengeDurationEndNotificationService.sendDurationEndNotifications());
     }
 
-    // 상수 시간 비교 — String.equals 는 첫 불일치에서 끊겨 응답 시간으로 키가 새는 여지가 있다
-    // (GroupBetBatchController 와 같은 구현·같은 에러코드).
+    /**
+     * 상수 시간 비교 — String.equals 는 첫 불일치에서 끊겨 응답 시간으로 키가 새는 여지가 있다
+     * (GroupBetBatchController 와 같은 구현·같은 에러코드).
+     */
     private void requireAdminKey(String provided) {
         if (batchAdminKey.isBlank()) {
             throw new GroupException(GroupErrorCode.BATCH_KEY_NOT_CONFIGURED);
