@@ -12,6 +12,9 @@ on:
       - 'back/build.gradle'
       # 이 워크플로 자신도 트리거에 넣는다 — 위와 같은 이유다.
       - '.github/workflows/api-dog-generate.yml'
+      # 전송·판정 로직이 스크립트로 빠졌으니 그 경로도 같은 이유로 넣는다 — 안 넣으면
+      # 스크립트만 고치는 푸시에서 이 워크플로가 안 돌아 검증 로직 변경을 CI 에서 확인할 수 없다.
+      - '.github/scripts/**'
   workflow_dispatch:
 
 jobs:
@@ -206,38 +209,46 @@ jobs:
               json.dump(spec, f)
           "
 
+      # ── Apidog 동기화 (GROMO-1623) ───────────────────────────────────────────
+      # 스펙도 payload 도 셸 인자로 넘기지 않는다. 리눅스는 개별 인자 길이를
+      # MAX_ARG_STRLEN(32 × 페이지크기 = 131,072 B)으로 제한하는데 openapi.json 은 약 251 KB,
+      # jq 가 만든 payload 도 약 159 KB 라 둘 다 상한을 넘는다. 예전 코드는
+      # `--argjson spec "$(cat openapi.json)"` 였고 jq 가 실행조차 못 돼(E2BIG) **빈 바디**가 나갔다.
+      # Apidog 는 그 요청에 200 + 전 항목 count 0 을 돌려줬고 `--fail` 은 4xx 만 보므로
+      # 스텝이 초록으로 통과했다 — 문서는 최소 2026-08-14 이후 한 번도 갱신되지 않았다.
+      # macOS 는 인자 상한이 커서 로컬 재현이 안 된다는 점도 발견을 늦췄다.
+      #
+      # 그래서 ① jq 입력은 --slurpfile(파일) ② curl 바디는 --data @(파일) ③ 그리고 무엇보다
+      # **조용한 실패를 막는 단언**을 둔다 — ①②만 고치면 다음 실패가 또 초록으로 지나간다.
       - name: Sync to Apidog
         if: steps.check.outputs.exists == 'true'
         working-directory: back/build/docs/api
         run: |
-          curl --fail -X POST "https://api.apidog.com/v1/projects/1283919/import-openapi" \
-            -H "Authorization: Bearer ${{ secrets.APIDOG_TOKEN }}" \
-            -H "X-Apidog-Api-Version: 2024-03-28" \
-            -H "Content-Type: application/json" \
-            --data "$(jq -n \
-              --argjson spec "$(cat openapi.json)" \
-              '{input: ($spec | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: true, prependBasePath: false, deleteUnmatchedResources: true}}')"
+          set -euo pipefail
+          jq -n --slurpfile spec openapi.json \
+            '{input: ($spec[0] | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: true, prependBasePath: false, deleteUnmatchedResources: true}}' \
+            > apidog-payload.json
+          APIDOG_TOKEN="${{ secrets.APIDOG_TOKEN }}" \
+            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" 1283919 apidog-payload.json
 
       - name: Sync to Apidog (Soobin)
         if: steps.check.outputs.exists == 'true'
         working-directory: back/build/docs/api
         run: |
-          curl --fail -X POST "https://api.apidog.com/v1/projects/1305019/import-openapi" \
-            -H "Authorization: Bearer ${{ secrets.APIDOG_TOKEN_SOOBIN }}" \
-            -H "X-Apidog-Api-Version: 2024-03-28" \
-            -H "Content-Type: application/json" \
-            --data "$(jq -n \
-              --argjson spec "$(cat openapi.json)" \
-              '{input: ($spec | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}')"
+          set -euo pipefail
+          jq -n --slurpfile spec openapi.json \
+            '{input: ($spec[0] | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}' \
+            > apidog-payload-soobin.json
+          APIDOG_TOKEN="${{ secrets.APIDOG_TOKEN_SOOBIN }}" \
+            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" 1305019 apidog-payload-soobin.json
 
       - name: Sync to Apidog (kth)
         if: steps.check.outputs.exists == 'true'
         working-directory: back/build/docs/api
         run: |
-          curl --fail -X POST "https://api.apidog.com/v1/projects/1328838/import-openapi" \
-            -H "Authorization: Bearer ${{ secrets.APIDOG_TOKEN_KTH }}" \
-            -H "X-Apidog-Api-Version: 2024-03-28" \
-            -H "Content-Type: application/json" \
-            --data "$(jq -n \
-              --argjson spec "$(cat openapi.json)" \
-              '{input: ($spec | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}')"
+          set -euo pipefail
+          jq -n --slurpfile spec openapi.json \
+            '{input: ($spec[0] | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}' \
+            > apidog-payload-kth.json
+          APIDOG_TOKEN="${{ secrets.APIDOG_TOKEN_KTH }}" \
+            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" 1328838 apidog-payload-kth.json
