@@ -1,13 +1,10 @@
 package com.oneorthree.phone.user.api;
 
 import com.oneorthree.phone.common.auth.LoginUser;
+import com.oneorthree.phone.user.api.docs.ProfileControllerDocs;
 import com.oneorthree.phone.user.dto.PublicProfileResponse;
 import com.oneorthree.phone.user.dto.UserStatsResponse;
 import com.oneorthree.phone.user.service.ProfileService;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -22,21 +19,16 @@ import java.util.UUID;
 
 /**
  * 타 유저 공개 프로필 API (GROMO-520).
+ * Swagger 애노테이션은 {@link ProfileControllerDocs} 로 분리했다(GROMO-1621).
  */
-@Tag(name = "profile", description = "타 유저 공개 프로필 API")
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-public class ProfileController {
+public class ProfileController implements ProfileControllerDocs {
 
     private final ProfileService profileService;
 
-    @Operation(summary = "타 유저 공개 프로필 조회",
-            description = "대상 유저의 닉네임·캐릭터·친구수·리그 티어·랭킹을 반환한다.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "조회 성공"),
-        @ApiResponse(responseCode = "404", description = "유저 없음 또는 탈퇴 유저")
-    })
+    @Override
     @GetMapping("/users/{userId}/profile")
     public ResponseEntity<PublicProfileResponse> getPublicProfile(@PathVariable UUID userId) {
         // callerId 는 현재 미사용: 차단·친구 여부 기반 공개 범위 제어 기능이 없어 누구나 동일 응답을 받는다.
@@ -44,15 +36,7 @@ public class ProfileController {
         return ResponseEntity.ok(profileService.getPublicProfile(userId));
     }
 
-    @Operation(summary = "타 유저 통계 조회",
-            description = "프로필 요약(streak·today)은 친구 여부/공개설정과 무관하게 항상 반환(GROMO-746). "
-                    + "세부 차트(heatmap)만 공개 게이트 — 친구O·본인, 또는 대상 PUBLIC 이면 반환, 그 외 null. "
-                    + "본인 조회 시 isFriend=false 이지만 heatmap 이 채워짐.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "조회 성공"),
-        @ApiResponse(responseCode = "401", description = "인증 필요"),
-        @ApiResponse(responseCode = "404", description = "유저 없음 또는 탈퇴 유저")
-    })
+    @Override
     @GetMapping("/users/{userId}/stats")
     public ResponseEntity<UserStatsResponse> getUserStats(
             @PathVariable UUID userId,
