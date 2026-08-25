@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 알림 스케줄 트리거 (GROMO-528) — 트리거와 로직 분리(LeagueScheduler 선례).
- * @EnableScheduling 은 common/config/SchedulingConfig 에 기존재(412).
+ * {@code @EnableScheduling} 은 common/config/SchedulingConfig 에 기존재(412).
  * 578(미접속 복귀)·579(순위 추월) 집결 완료.
  *
  * <p>멀티 인스턴스 중복 실행은 ShedLock 이 막는다(GROMO-1283, policy §E4) — 크론마다

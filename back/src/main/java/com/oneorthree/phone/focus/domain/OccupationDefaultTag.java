@@ -29,7 +29,7 @@ import java.util.UUID;
  * {@code default_tag_id} FK 로 참조한다(occupation ⇄ default_tags 교차 매핑). 온보딩/태그 초기 설정
  * 화면에서 occupation 에 맞는 추천 태그를 노출하는 용도이며, 유저가 선택하면 {@link UserFocusTag} 로 채택된다.
  *
- * <p>{@link UserFocusTag#getSourceOccupationDefaultTag()} 가 이 행을 참조할 수 있으나 소프트 딜리트 컬럼은
+ * <p>{@link UserFocusTag} 의 {@code sourceOccupationDefaultTag} 가 이 행을 참조할 수 있으나 소프트 딜리트 컬럼은
  * 두지 않는다(태그 세트 교체는 마이그레이션 시드로 처리).
  */
 @Entity
