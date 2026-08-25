@@ -1,17 +1,21 @@
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import type { StepProps } from '@/screens/onboarding/types';
+import { supportsFocusShield } from '@/services/screenTimeCapabilities';
 
 // 로그인 전 첫 화면 — 문제를 길게 설명하기보다 실제 집중 화면의 핵심 경험을 먼저 보여준다.
 // 앱 전체가 밝은 표면이라, 다크 집중 세션 카드를 한 번만 강하게 써서 "집중 모드로 들어간다"는
-// 전환을 기억하게 한다. 타이머·자동 기록은 공통 기능이고, iOS에서만 지원하는 방해 앱 차단은
-// 다른 플랫폼에서 집중 목표로 바꿔 실제로 제공하는 기능만 명시한다.
+// 전환을 기억하게 한다. 타이머·자동 기록은 공통 기능이고, 방해 앱 차단은 지원하는 플랫폼에서만
+// 내걸어 실제로 제공하는 기능만 명시한다.
+//
+// ⚠️ 여기서 Platform.OS 를 직접 비교하지 않는다(코드리뷰 반영). 예전엔 그렇게 적어 뒀는데,
+//    안드로이드 실드가 붙어 공용 술어가 열렸는데도 이 화면만 옛 판정에 머물러 **신규 안드로이드
+//    사용자가 방금 추가된 핵심 기능 대신 대체 문구를 보게 됐다.** 판정이 흩어지면 한 곳이
+//    반드시 뒤처진다 — screenTimeCapabilities 한 곳만 본다.
 export default function ProblemEmpathyStep({ onNext }: StepProps) {
-  const supportsFocusShield = Platform.OS === 'ios';
-
   return (
     <StepScaffold
       testID="onboarding.step.problem"
@@ -46,11 +50,13 @@ export default function ProblemEmpathyStep({ onNext }: StepProps) {
           </View>
           <View style={s.feature}>
             <Ionicons
-              name={supportsFocusShield ? 'shield-checkmark-outline' : 'flag-outline'}
+              name={supportsFocusShield() ? 'shield-checkmark-outline' : 'flag-outline'}
               size={15}
               color={T.night.cream}
             />
-            <Text style={s.featureText}>{supportsFocusShield ? '방해 앱 차단' : '집중 목표'}</Text>
+            <Text style={s.featureText}>
+              {supportsFocusShield() ? '방해 앱 차단' : '집중 목표'}
+            </Text>
           </View>
           <View style={s.feature}>
             <Ionicons name="stats-chart-outline" size={15} color={T.night.cream} />

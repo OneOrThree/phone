@@ -50,6 +50,11 @@ jest.mock('@/services/ScreenTimeModule', () => ({
   __esModule: true,
   default: {
     startFocusShield: jest.fn(() => Promise.resolve(true)),
+    // 동기 함수다 — 복귀 시 이탈 크레딧을 계산하기 **전에** 실드 생존을 확인한다(GROMO-1604
+    // 코드리뷰). 기본값 true = "백그라운드 동안에도 살아 있었다"로, 기존 특성화 동작을 유지한다.
+    isFocusShieldAlive: jest.fn(() => true),
+    // 정상 만료 표식 — 기본은 false(아직 안 끝났다). 위 alive 와 함께 '장애'와 '정상 종료'를 가른다.
+    didFocusShieldComplete: jest.fn(() => false),
     stopFocusShield: jest.fn(() => Promise.resolve()),
     startFocusActivity: jest.fn(() => Promise.resolve()),
     // 실제 모듈은 항상 내보낸다 — 목에 없으면 옵셔널 호출과 인자 평가가 통째로 생략돼
@@ -387,6 +392,10 @@ const laState = (over: Partial<Record<string, unknown>> = {}) => ({
   isPaused: false,
   elapsedSeconds: 1,
   remainingSeconds: null,
+  // 카운트업은 끝나는 시각이 없다 — 안드로이드 서비스가 만료로 실드를 내리면 안 된다.
+  sessionRemainingSeconds: null,
+  // 화면이 떠 있는 동안은 알림도 구간 잔여를 센다 — 두 숫자가 어긋나지 않게(D7).
+  timerShowsSession: false,
   revision: 2,
   ...over,
 });
@@ -446,6 +455,10 @@ beforeEach(async () => {
   });
   jest.spyOn(Vibration, 'vibrate').mockImplementation(() => {});
   mockedShieldStart.mockResolvedValue(true);
+  // 생존 확인 기본값 — jest.clearAllMocks()는 호출 기록만 지우고 mockReturnValue 는 남긴다.
+  // 여기서 되돌리지 않으면 '실드가 죽었다' 케이스가 뒤따르는 실드 테스트로 새어 나간다.
+  (ScreenTimeModule.isFocusShieldAlive as jest.Mock).mockReturnValue(true);
+  (ScreenTimeModule.didFocusShieldComplete as jest.Mock).mockReturnValue(false);
   mockedStartMarker.mockResolvedValue({ sessionId: 'marker-1' });
 });
 afterEach(() => {
@@ -1393,11 +1406,18 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
       isPaused: false,
       elapsedSeconds: 0,
       remainingSeconds: 60,
+      // **세션 전체**의 잔여다 — 1세트 집중 60 + (휴식 60 + 2세트 집중 60) = 180.
+      // 구간 잔여(60)를 주면 안드로이드 서비스가 첫 경계에서 실드를 내려 다음 세트에
+      // 차단이 안 돌아온다(코드리뷰 8차에 실제로 그랬다).
+      sessionRemainingSeconds: 180,
+      // 마운트 = 포그라운드 — 알림도 구간 잔여(60)를 센다. 화면과 같은 숫자여야 한다(D7).
+      timerShowsSession: false,
       revision: 1,
     });
     // 틱은 밀지 않는다 — 그 사이는 위젯의 Text(timerInterval:)가 자체 갱신하는 계약
     await advance(3000);
     expect(update).toHaveBeenCalledTimes(1);
+
     // 정지 → isPaused true, 재개 → false. revision은 update·start가 한 카운터를 공유하는
     // 단조 증가 — 600ms 뒤 LA 시작이 2를 소비했으므로 정지는 3부터다.
     // 시간도 현재 진행값이어야 한다 — 초기값(60/0)을 계속 보내면 네이티브가 frozenSeconds로
@@ -1421,6 +1441,32 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(update.mock.calls.at(-1)![0]).toMatchObject({
       phase: 'break',
       remainingSeconds: 60,
+    });
+  });
+
+  // endsSession — **안드로이드 전용 계약**이다. 서비스가 백그라운드에서 남은 시간이 0이 되면
+  // 실드를 내리는데, 뽀모도로 중간 경계(집중 → 휴식)에서 내리면 다음 세트에 차단이 안 돌아온다.
+  // 세션이 언제 끝나는지는 JS 만 알아서 이 값으로 알린다(코드리뷰 8차 — 실제로 그 회귀가 났다).
+  test('sessionRemainingSeconds 는 남은 모든 구간의 합이다', async () => {
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    const update = ScreenTimeModule.updateFocusActivity as jest.Mock;
+
+    // 1세트 집중(60) + 휴식(60) + 2세트 집중(60)
+    expect(update.mock.calls.at(-1)![0]).toMatchObject({
+      phase: 'focus',
+      sessionRemainingSeconds: 180,
+    });
+
+    await advance(60_000); // 1세트 집중 끝 → 휴식
+    expect(update.mock.calls.at(-1)![0]).toMatchObject({
+      phase: 'break',
+      sessionRemainingSeconds: 120,
+    });
+
+    await advance(60_000); // 휴식 끝 → 2세트 집중(마지막)
+    expect(update.mock.calls.at(-1)![0]).toMatchObject({
+      phase: 'focus',
+      sessionRemainingSeconds: 60,
     });
   });
 
@@ -2513,6 +2559,88 @@ describe('백그라운드 이탈 정책 — 실드 여부가 가른다', () => {
     expect(logFocusOrientationChanged).toHaveBeenCalledWith(
       expect.objectContaining({ orientation: 'portrait', dwell_seconds: 5 }),
     );
+  });
+
+  // 제조사 배터리 최적화가 백그라운드에서 FocusShieldService 를 죽이는 경우(GROMO-1604
+  // 코드리뷰). 앱은 그 사실을 모른 채 shieldedRef 를 true 로 들고 있어서, **차단 없이 다른 앱을
+  // 쓴 시간이 그대로 집중으로 적립됐다.** 복귀 시 생존을 다시 확인해 비실드 정책으로 되돌린다.
+  // 라이브 레코드에 실드 상태가 실제로 담기는지(코드리뷰 3차). startFocusShield 는 보통 첫
+  // 레코드가 만들어지기 전에 끝나고 saveLive 는 레코드를 통째로 새로 쓰므로, 따로 기록하면
+  // 남길 곳이 없거나 다음 저장에 덮인다 — 실제로 그래서 중단 알림이 한 번도 안 나갔다.
+  test('라이브 레코드에 실드 적용 여부가 담긴다', async () => {
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+
+    expect((await readLiveRecord())!.shieldActive).toBe(true);
+  });
+
+  test('실드가 안 걸린 세션은 레코드에도 그렇게 남는다', async () => {
+    mockedShieldStart.mockResolvedValue(false);
+
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+
+    expect((await readLiveRecord())!.shieldActive).toBe(false);
+  });
+
+  // 표식이 낡은 이유가 둘이다 — 장애와 정상 만료. 정상 만료를 장애로 오인하면 이탈이 15초를
+  // 넘었을 때 완료를 리플레이하지 않고 leave_timeout 으로 끝나, 백그라운드 진입 뒤의 마지막
+  // 집중 시간까지 잃는다(코드리뷰 9차).
+  // 카운트다운이 백그라운드에서 만료된 경우 — 네이티브가 정상 종료했고 JS 도 리플레이로
+  // 완료된다. 이걸 장애로 오인하면 완료를 리플레이하지 않고 leave_timeout 으로 끝나
+  // 마지막 집중 시간을 잃는다(코드리뷰 9차).
+  test('정상 만료로 끝난 실드는 장애로 보지 않는다', async () => {
+    await renderSession({ mode: 'countdown', goalSeconds: 10 });
+    await advance(3000);
+    await fireAppState('background');
+
+    // 표식은 낡았지만(만료 시 heartbeat 도 멈춘다) 네이티브가 '정상 종료'를 남겼다.
+    (ScreenTimeModule.isFocusShieldAlive as jest.Mock).mockReturnValue(false);
+    (ScreenTimeModule.didFocusShieldComplete as jest.Mock).mockReturnValue(true);
+    await jumpWallClock(20_000); // 목표(10초)를 지나 복귀
+    await fireAppState('active');
+
+    // 목표 경계까지 리플레이돼 완료 게이트에 머문다 — **비실드 이탈 종료가 아니다.**
+    // 장애로 오인했다면 여기서 focusSeconds: 3 · completed: false 로 결과 화면에 갔을 것이다.
+    expect(mockedNavigationReplace()).toBeUndefined();
+    // 완료로 처리됐으므로 정산도 목표(10초)까지 올라간다 — 이탈 전 3초가 아니다.
+    expect(mockAddFocusSeconds).toHaveBeenCalledWith(10);
+  });
+
+  // 반대 경우 — 네이티브 일정은 끝났는데 **JS 세션은 아직 남아 있다**(비최종 휴식 중 이탈).
+  // 그 상태로 실드를 살아 있다고 보면 차단이 없는데 실드 세션으로 취급돼 이탈이 집중으로
+  // 적립된다. 남은 세션을 다시 보호해야 한다(코드리뷰 11차).
+  test('네이티브가 끝났는데 세션이 남았으면: 실드를 다시 시작한다', async () => {
+    await renderSession({ mode: 'pomodoro', pomodoro: { focusMin: 1, breakMin: 1, sets: 2 } });
+    await advance(60_000); // 1세트 집중 끝 → 휴식
+    mockedShieldStart.mockClear();
+    await fireAppState('background'); // **휴식 중** 이탈 — 복귀해도 세션은 안 끝난다
+
+    (ScreenTimeModule.isFocusShieldAlive as jest.Mock).mockReturnValue(false);
+    (ScreenTimeModule.didFocusShieldComplete as jest.Mock).mockReturnValue(true);
+    await jumpWallClock(10_000);
+    await fireAppState('active');
+
+    expect(mockedShieldStart).toHaveBeenCalled();
+  });
+
+  test('백그라운드에서 실드가 죽었으면: 이탈을 집중으로 인정하지 않고 비실드 정책으로 되돌린다', async () => {
+    await renderSession({ mode: 'countup' });
+    await advance(5000);
+    await fireAppState('background');
+
+    // 나가 있는 동안 서비스가 죽었다 — 복귀 시점의 생존 확인이 false 를 준다.
+    (ScreenTimeModule.isFocusShieldAlive as jest.Mock).mockReturnValue(false);
+    // 이탈 종료선(15초) 아래로 잡는다 — 넘기면 비실드 정책이 세션 자체를 끝내 버려
+    // '크레딧이 붙었는지'를 볼 레코드가 남지 않는다. 여기서 보려는 건 크레딧 유무다.
+    await jumpWallClock(10_000);
+    await fireAppState('active');
+
+    const record = await readLiveRecord();
+    // 실드가 살아 있었다면 15(5 + away 10 전진)였다. 죽었으므로 이탈 10초는 인정되지 않는다.
+    expect(record!.elapsed).toBe(5);
+    // 비실드 이탈이므로 이탈 이벤트도 정상 발행된다(실드 세션은 발행하지 않는다).
+    expect(logFocusDistractionDetected).toHaveBeenCalled();
   });
 
   test('실드 카운트다운이 백그라운드에서 목표를 지나면: 목표 경계로 정산하고 초과 이탈은 미포함', async () => {

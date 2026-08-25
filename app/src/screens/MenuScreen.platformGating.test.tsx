@@ -1,10 +1,11 @@
-// 「전체」 탭의 스크린타임 진입점 — GROMO-1592 / 1593.
+// 「전체」 탭의 스크린타임 진입점 — GROMO-1592 / 1593 / 1604.
 //
-// 여기서 잠그는 건 **눌러도 아무 일이 없는 행을 그리지 않는다**는 것이다.
-// 안드로이드엔 아직 집중 실드가 없어서, 「집중 중 허용 앱 관리」 행을 남겨 두면 탭해도
-// 피커가 안 뜨고 게다가 '집중 중 모든 앱이 잠겨요'로 **안 잠기는 걸 잠긴다고** 안내한다.
-// 반대로 측정 대상 피커는 붙었으므로(GROMO-1593) 「스크린타임 관리」 부제는 다시 그
-// 항목을 약속해야 한다 — 되는데 없다고 말하는 것도 같은 종류의 거짓이다.
+// 구현이 다 붙어 안드로이드에서도 진입점이 전부 살아 있다. 여기서 잠그는 건 **되는데 없다고
+// 말하지 않는다**는 것이다 — 게이팅을 되돌려 한 화면이라도 숨겨지면 재영님이 확인할 방법이
+// 없어진다("구현 안 됐다고 UI에서 감추지 마라", 2026-08-18).
+//
+// 반대 방향의 거짓(안 되는데 된다고 안내)은 screenTimeCapabilities의 술어 분리가 막는다 —
+// 고르기(supportsFocusShield)와 실제 차단(enforcesFocusShield)은 여전히 다른 질문이다.
 //
 // ⚠️ 이 파일은 **구현이 붙는 PR에서 함께 뒤집힌다.** 안드로이드 구현이 들어오면
 //    screenTimeCapabilities의 해당 술어가 열리고, 여기 단언도 '보인다'로 바뀐다.
@@ -24,6 +25,7 @@ jest.mock('expo-modules-core', () => ({
     getUsageByApp: jest.fn(),
     getInstalledApps: jest.fn(),
     getSelectionPackages: jest.fn(),
+    startFocusShield: jest.fn(),
   }),
 }));
 
@@ -102,23 +104,22 @@ beforeEach(async () => {
 
 afterEach(() => setPlatform(originalPlatformOS));
 
-describe('안드로이드 — 아직 못 하는 진입점은 그리지 않는다', () => {
+describe('안드로이드 — 진입점이 전부 살아 있다', () => {
   beforeEach(() => setPlatform('android'));
 
-  test('허용앱 관리 행이 없다', async () => {
+  test('허용앱 관리 행이 보인다', async () => {
     await renderMenu();
 
-    expect(screen.queryByText('집중 중 허용 앱 관리')).toBeNull();
+    expect(screen.getByText('집중 중 허용 앱 관리')).toBeOnTheScreen();
   });
 
-  // 행을 안 그리면 그 값도 필요 없다. 헛도는 네이티브 왕복이 매 진입마다 남지 않게 한다.
-  test('허용앱 개수를 조회하지도 않는다', async () => {
+  // 행을 그리면 그 값도 실제로 읽는다 — 개수 없이 '허용앱 없음'만 뜨면 저장이 안 된 것처럼 보인다.
+  test('허용앱 개수를 조회한다', async () => {
     await renderMenu();
 
-    expect(ScreenTimeModule.getAllowedSelectionCounts).not.toHaveBeenCalled();
+    expect(ScreenTimeModule.getAllowedSelectionCounts).toHaveBeenCalled();
   });
 
-  // 측정 대상 피커가 붙었으므로 부제가 다시 그 항목을 약속한다(GROMO-1593).
   test('스크린타임 관리 부제가 측정 대상 앱을 약속한다', async () => {
     await renderMenu();
 

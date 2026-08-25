@@ -1,6 +1,4 @@
 import { useEffect, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '@/types/storage';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
@@ -12,6 +10,8 @@ import { uploadFocusBlock } from './uploadFocusBlock';
 import { cancelMarker } from './pendingMarkerCancels';
 import { ensureFocusTagId } from './tagSync';
 import { cancelStaleCompletionNotifications } from './completionNotification';
+import { notifyShieldInterrupted } from './shieldInterruptedNotification';
+import { readLiveSession, removeLiveSession, updateLiveSession } from './liveSessionStore';
 
 // 죽은(강제 종료된) 세션 정산 — 앱 시작 시 라이브 레코드가 남아 있으면
 // 마지막 저장 시점까지의 집중시간을 적립하고, 서버 업로드까지 끝나야 레코드를 지운다.
@@ -28,9 +28,15 @@ export function OrphanFocusSettler() {
   const { userId } = useUser();
   const ran = useRef(false);
 
+  // 지난 실드가 **정상 만료로** 끝났는가 — 아래 중단 알림의 억제 근거.
+  const nativeShieldCompleted = useRef(false);
+
   // 세션 중 죽었으면 실드가 켜진 채 남는다 — 정산(네트워크 대기)과 무관하게 마운트 즉시 해제(멱등).
   // 죽은 세션이 예약해둔 종료·경계 알림도 같은 이유로 OS에 남는다 — 함께 회수(GROMO-864).
   useEffect(() => {
+    // ⚠️ 완료 표식을 **stopFocusShield() 앞에서** 읽는다(코드리뷰 12차). 그 호출이 표식을
+    //    지우므로(ScreenTimeModule.kt), 뒤에서 읽으면 정상 만료를 늘 false 로 본다.
+    nativeShieldCompleted.current = ScreenTimeModule.didFocusShieldComplete();
     ScreenTimeModule.stopFocusShield().catch(() => {});
     cancelStaleCompletionNotifications().catch(() => {});
   }, []);
@@ -40,14 +46,17 @@ export function OrphanFocusSettler() {
     if (!focusReady || !subjectsReady) return;
     ran.current = true;
     (async () => {
-      const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
-      if (!raw) return;
+      // 이 키는 쓰는 곳이 여럿이라 **직렬화 경로로만** 접근한다(liveSessionStore 참고).
+      // 예전엔 여기서 읽고 나중에 따로 썼는데, 그 사이 새 세션의 saveLive() 가 끼어들면
+      // 옛 고아 레코드로 덮은 뒤 지워 버려 **새 세션의 복구 레코드가 사라졌다.**
       let rec: LiveFocusSession;
       try {
-        rec = JSON.parse(raw) as LiveFocusSession;
+        const loaded = await readLiveSession();
+        if (!loaded) return;
+        rec = loaded;
       } catch {
         // 깨진 레코드 — 정산할 수 없으니 제거만 한다
-        await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+        await removeLiveSession();
         return;
       }
       // 계정 대조 — 레코드 소유자와 현재 계정이 다르면(로그아웃 후 다른 계정으로 로그인 등)
@@ -55,23 +64,73 @@ export function OrphanFocusSettler() {
       // userId 필드가 없는 구버전 레코드(undefined)도 소유자를 알 수 없으므로 이 비교에서
       // 함께 걸러 폐기한다(undefined는 string|null과 절대 같지 않음 — 대기열과 같은 규칙).
       if (rec.userId !== userId) {
-        await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+        await removeLiveSession((cur) => cur.startedAt === rec.startedAt);
         return;
       }
       const focused = Math.floor(rec.elapsed);
       if (focused <= 0) {
-        await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
+        await removeLiveSession((cur) => cur.startedAt === rec.startedAt);
         return;
+      }
+      // 여기까지 왔다 = 내 계정의 실제 세션이 정산도 못 하고 죽었다.
+      // 안드로이드에서는 그 순간부터 **차단도 함께 풀려 있었다** — 사용자는 잠긴 줄 알고
+      // 집중을 시작했으므로 사실을 알린다.
+      //
+      // ⚠️ **세션을 자동 재개하지 않는다.** 죽은 뒤 얼마나 지났는지 알 수 없고, 사용자가
+      //    의도적으로 껐을 수도 있다. 세션 없이 실드만 되살리면 아무 세션도 없는 상태에서
+      //    남의 앱을 덮게 된다(FocusShieldService가 START_NOT_STICKY인 것과 같은 이유).
+      //
+      // ⚠️ 단, **레코드가 남아 있다 ≠ 강제 종료다**(코드리뷰 반영). 세션 화면을 시스템 Back 으로
+      //    정상적으로 빠져나가는 경로도 레코드를 일부러 남긴다(시간 적립을 여기에 맡긴다).
+      //    그 경우 실드는 화면을 떠날 때 정상 해제됐으므로 "차단도 함께 풀렸어요"는 거짓이다.
+      //    화면이 실드를 직접 내렸으면 표식을 남기므로, 표식이 없을 때만 알린다 — 프로세스가
+      //    실제로 죽었다면 표식을 남길 기회 자체가 없다.
+      //
+      // await 하지 않는 이유: 알림 발행이 늦어져도 정산을 붙잡아 둘 이유가 없다.
+      //
+      // ⚠️ 그리고 **실제로 켜졌던 실드만** 알린다(코드리뷰 2차). 권한이 없어 처음부터
+      //    startFocusShield()가 false 였던 세션은 풀릴 차단이 없었으므로, 그 알림은
+      //    잠긴 적 없는 사람에게 "잠금이 풀렸다"고 말하는 셈이다.
+      //
+      // ⚠️ **한 번만** 발행한다(코드리뷰 3차). 업로드와 대기열 인계가 모두 실패하면 레코드가
+      //    남는데, 표식이 없으면 앱을 다시 켤 때마다 같은 알림이 또 나간다(`ran` 은 이 컴포넌트
+      //    수명에서만 막는다 — 프로세스가 죽으면 초기화된다). 저장 장애가 이어지는 동안
+      //    이미 확인한 알림이 매 실행마다 되살아난다.
+      //
+      // ⚠️ 읽기·확인·쓰기는 **한 덩어리로** 돈다(liveSessionStore, 코드리뷰 7차). 정산은 여러
+      //    await 를 거치는데 그 사이 새 세션의 saveLive() 가 같은 키를 갱신할 수 있고,
+      //    "읽은 값과 같으면 쓴다"는 CAS 가 아니라 그 창을 못 막는다 — getItem 과 setItem 이
+      //    별개의 비동기 호출이라 사이가 열려 있다. 실제로 덮은 뒤 지워서 **새 세션의 복구
+      //    레코드가 사라지는** 경로가 있었다. 이제 startedAt 으로 신원까지 확인한다.
+
+      // ⚠️ 정상 만료는 중단이 아니다(코드리뷰 12차). 백그라운드에서 일정이 다 끝나 네이티브가
+      //    차단을 정상 종료한 뒤, JS 가 복귀하기 전에 프로세스가 죽으면 레코드에는
+      //    shieldActive=true / shieldReleasedCleanly=false 가 그대로 남는다 — 표식을 남길 코드가
+      //    돌 기회가 없었을 뿐 **차단이 끊긴 적은 없다.** 네이티브 완료 표식으로 가른다.
+      if (
+        !rec.shieldReleasedCleanly &&
+        rec.shieldActive &&
+        !rec.shieldInterruptNotified &&
+        !nativeShieldCompleted.current
+      ) {
+        const marked = await updateLiveSession((cur) =>
+          cur && cur.startedAt === rec.startedAt ? { ...cur, shieldInterruptNotified: true } : null,
+        );
+        // 새 세션이 가져갔으면 이 고아는 다음 실행에 맡긴다 — 남의 레코드를 건드리지 않는다.
+        if (!marked?.shieldInterruptNotified) return;
+        rec = marked;
+        notifyShieldInterrupted().catch(() => {});
       }
       // 로컬 적립은 1회만 — 중복 적립 방지로 적립 전에 먼저 마킹해 되쓴다.
       // 레코드는 업로드/인계가 끝나기 전까지 지우지 않는다(먼저 지우면 실패 시 기록이 영구 유실).
       // 코인은 여기서 세지 않는다(GROMO-1049) — 지급도 잔액도 서버가 정본이라, 업로드가 끝난 뒤
       // 서버 잔액을 다시 받는다.
-      let stored = raw;
       if (!rec.settledLocally) {
-        rec = { ...rec, settledLocally: true };
-        stored = JSON.stringify(rec);
-        await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, stored);
+        const marked = await updateLiveSession((cur) =>
+          cur && cur.startedAt === rec.startedAt ? { ...cur, settledLocally: true } : null,
+        );
+        if (!marked?.settledLocally) return;
+        rec = marked;
         // '오늘 집중'과 과목 누적은 둘 다 '오늘' 기준 → 이 세션의 집중초 중 오늘 몫만 반영한다
         // (GROMO-1252 — 종전엔 updatedAt 하루만 보고 elapsed 전체를 오늘에 꽂아, 자정을 걸친
         // 세션의 어제 몫까지 오늘로 들어왔다). 근거는 레코드가 남긴 날짜별 집중초 —
@@ -140,10 +199,7 @@ export function OrphanFocusSettler() {
       if (result.status === 'saved') refreshCoins();
       // 업로드 성공(또는 대기열 인계) 후 제거 — 그 사이 새 세션이 레코드를 덮어썼을 수
       // 있으니 같은 값일 때만 지운다.
-      const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);
-      if (cur === stored) {
-        await AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession);
-      }
+      await removeLiveSession((cur) => cur.startedAt === rec.startedAt);
     })().catch(() => {});
   }, [userId, focusReady, subjectsReady, addFocusSeconds, refreshCoins, addFocusToSubject]);
 

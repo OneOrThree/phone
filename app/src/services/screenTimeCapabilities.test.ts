@@ -33,6 +33,7 @@ const newBinary = () =>
     getUsageBreakdown: jest.fn(),
     getInstalledApps: jest.fn(),
     getSelectionPackages: jest.fn(),
+    startFocusShield: jest.fn(),
   } as never);
 /** M1 바이너리 — 모듈은 있는데 위 메서드가 하나도 없다. */
 const m1Binary = () =>
@@ -68,16 +69,26 @@ describe('iOS — 넷 다 열려 있다', () => {
 
 // 안드로이드는 구현이 붙는 순서대로 하나씩 열린다. 지금 한꺼번에 열면 눌러도 반응이 없거나
 // 사실과 다른 안내가 나가므로, **구현이 들어오는 PR에서 그 술어만** 뒤집는다.
-// 지금 열린 것: 앱별 사용시간(GROMO-1608) · 측정 대상 선택(GROMO-1593).
-// 아직 닫힌 것: 집중 실드 — 고르기·차단 둘 다 실드 구현과 함께 열린다.
-test('안드로이드 — 사용시간·측정 대상만 열려 있다', () => {
+// 안드로이드도 이제 넷 다 열려 있다(집중 실드 = GROMO-1604). 하나라도 false로 돌아가면
+// 그 화면만 조용히 숨겨지므로 한 줄로 묶어 잠근다.
+test('안드로이드 — 스크린타임 기능이 전부 열려 있다', () => {
   setPlatform('android');
   expect([
     supportsAppSelection(),
     supportsUsageBreakdown(),
     supportsFocusShield(),
     enforcesFocusShield(),
-  ]).toEqual([true, true, false, false]);
+  ]).toEqual([true, true, true, true]);
+});
+
+// 고르기(supportsFocusShield)와 차단(enforcesFocusShield)은 **여전히 다른 질문**이다.
+// enforcesFocusShield()는 "이 플랫폼이 차단을 할 줄 아는가"고, 이번 세션에 실제로 걸렸는지는
+// startFocusShield()의 반환값이 정본이다 — 가림막 권한이 꺼져 있으면 false로 온다.
+// 둘을 합치면 "안 잠기는데 잠긴다고 안내"하는 경로가 다시 열린다.
+test('두 술어는 서로 다른 질문에 답한다 — 웹에서 둘 다 없다', () => {
+  setPlatform('web');
+  expect(supportsFocusShield()).toBe(false);
+  expect(enforcesFocusShield()).toBe(false);
 });
 
 // 구 바이너리 — 이 JS 는 hot-updater 로 옛 안드로이드 빌드에도 그대로 내려간다.
@@ -111,6 +122,14 @@ describe('안드로이드 구 바이너리 — 앱별 사용시간을 닫는다'
     mockRequireNative.mockReturnValue({ getUsageBreakdown: jest.fn() } as never);
 
     expect([supportsUsageBreakdown(), supportsAppSelection()]).toEqual([true, false]);
+  });
+
+  // 실드도 같다(코드리뷰 2차). 구 바이너리는 startFocusShield 가 없어 false 로 폴백하는데,
+  // 술어가 플랫폼만 보면 온보딩이 '방해 앱 차단'을 약속해 놓고 실제로는 안 잠긴다.
+  test('startFocusShield 가 없으면 실드 술어를 닫는다', () => {
+    m1Binary();
+
+    expect([supportsFocusShield(), enforcesFocusShield()]).toEqual([false, false]);
   });
 });
 

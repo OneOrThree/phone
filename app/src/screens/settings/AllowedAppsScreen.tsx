@@ -1,5 +1,14 @@
-import { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  AppState,
+  Linking,
+  Platform,
+} from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,6 +41,11 @@ export default function AllowedAppsScreen() {
   // 집중 중 사파리·웹 허용 토글 — 허용앱 토큰이 불투명해 "사파리를 허용앱으로 골랐는지"를
   // 식별할 수 없어 별도 스위치로 둔다. 기본 꺼짐 = 집중 중 사파리·웹 차단(GROMO-866).
   const [allowSafariWeb, setAllowSafariWeb] = useState(false);
+  // 안드로이드 가림막 권한('다른 앱 위에 표시'). null = 조회 전.
+  // 이게 꺼져 있으면 허용앱을 아무리 골라도 집중 중 차단이 성립하지 않는다(GROMO-996).
+  const [canOverlay, setCanOverlay] = useState<boolean | null>(null);
+  // 사용 정보 접근 — 실드 시작 조건의 **나머지 절반**이다(아래 shieldBlocked 주석 참고).
+  const [usageApproved, setUsageApproved] = useState<boolean | null>(null);
 
   // 화면 재진입마다 최신 개수 반영(피커 닫고 돌아올 수 있으므로).
   useFocusEffect(
@@ -51,11 +65,39 @@ export default function AllowedAppsScreen() {
       ScreenTimeModule.getFocusAllowSafariWeb()
         .then((v) => !cancelled && setAllowSafariWeb(v))
         .catch(() => {});
+      // 화면 재진입 시의 최신값. 단, 시스템 설정을 다녀오는 경우는 이걸로 못 잡는다 — 아래
+      // AppState 이펙트 주석 참고.
+      ScreenTimeModule.canDrawOverlay()
+        .then((v) => !cancelled && setCanOverlay(v))
+        .catch(() => !cancelled && setCanOverlay(null));
+      ScreenTimeModule.getAuthorizationStatus()
+        .then((st) => !cancelled && setUsageApproved(st === 'approved'))
+        .catch(() => !cancelled && setUsageApproved(null));
       return () => {
         cancelled = true;
       };
     }, []),
   );
+
+  // 오버레이 권한 설정을 다녀온 뒤 재조회(코드리뷰 반영).
+  //
+  // requestOverlayPermission()은 **외부 시스템 설정**을 연다. 그건 React Navigation의 현재
+  // route 포커스를 바꾸지 않으므로 위 useFocusEffect가 다시 돌지 않는다. 그래서 사용자가
+  // 권한을 켜고 돌아와도 canOverlay가 false로 남아 "지금은 차단되지 않아요" 경고가 그대로
+  // 붙어 있는다 — 켰는데 안 켜졌다고 하는 셈이다.
+  // (ScreenTimePermissionScreen이 Usage Access 설정에 대해 같은 이유로 AppState를 쓴다.)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      ScreenTimeModule.canDrawOverlay()
+        .then(setCanOverlay)
+        .catch(() => setCanOverlay(null));
+      ScreenTimeModule.getAuthorizationStatus()
+        .then((st) => setUsageApproved(st === 'approved'))
+        .catch(() => setUsageApproved(null));
+    });
+    return () => sub.remove();
+  }, []);
 
   // 토글 즉시 반영(낙관적) — 네이티브 저장 실패 시 원복. 세션 중이면 실드에도 바로 적용됨.
   async function toggleSafariWeb(v: boolean) {
@@ -76,11 +118,22 @@ export default function AllowedAppsScreen() {
     : apps > 0
       ? `앱 ${apps}개 허용 중`
       : '허용앱 없음';
+  // ⚠️ '잠긴다'는 말은 **실제로 잠글 수 있을 때만** 한다. 안드로이드는 가림막 권한이 꺼져 있으면
+  // 목록을 골라도 차단이 성립하지 않는다 — 그 상태에서 잠긴다고 쓰면 사용자가 잠긴다고 믿고
+  // 집중을 시작하는데 앱은 그대로 열린다(GROMO-996).
+  //
+  // ⚠️ 조건이 **둘**이다(코드리뷰 반영). 네이티브 startFocusShield()는 가림막 권한과 사용
+  //    정보 접근을 **모두** 확인한다 — 앞 앱을 못 읽으면 덮을 대상을 못 고르기 때문이다.
+  //    여기서 가림막 권한만 보면, 사용 정보 접근만 꺼진 상태에서 화면은 "모든 앱이 잠겨요"라고
+  //    하는데 실제로는 아무것도 안 잠긴다. 실드 시작 조건과 같은 술어를 써야 한다.
+  const shieldBlocked = canOverlay === false || usageApproved === false;
   const summarySub = !loaded
     ? undefined
-    : apps > 0
-      ? '집중 중에도 이 앱들은 쓸 수 있어요'
-      : '집중 중 모든 앱이 잠겨요';
+    : shieldBlocked
+      ? '권한이 꺼져 있어 지금은 차단되지 않아요'
+      : apps > 0
+        ? '집중 중에도 이 앱들은 쓸 수 있어요'
+        : '집중 중 모든 앱이 잠겨요';
 
   // 집중 중 허용앱 선택 — 세션 실드에서 예외로 열어줄 앱들.
   // (MenuScreen의 옛 editAllowedApps 로직을 그대로 이식)
@@ -101,6 +154,12 @@ export default function AllowedAppsScreen() {
             },
           ],
         );
+        return;
+      }
+      // 안드로이드는 시스템 피커가 없어 RN 화면으로 간다(GROMO-1603). 돌아오면 useFocusEffect가
+      // 개수를 다시 읽으므로 여기서 결과를 받아 처리할 게 없다.
+      if (Platform.OS === 'android') {
+        navigation.navigate('SettingsAppPicker', { mode: 'allowed' });
         return;
       }
       const before = counts; // 편집 전 선택 스냅샷 — 변경 여부 판정용
@@ -157,8 +216,16 @@ export default function AllowedAppsScreen() {
       <View style={s.note}>
         <View style={s.noteDot} />
         <Text style={s.noteText}>
-          집중 중에도 이 앱들은 쓸 수 있어요. 카테고리를 고르면 그 안의 앱들도 함께 허용돼요(지금
-          설치된 앱 기준).
+          {'집중 중에도 이 앱들은 쓸 수 있어요.' +
+            (Platform.OS !== 'android'
+              ? ' 카테고리를 고르면 그 안의 앱들도 함께 허용돼요(지금 설치된 앱 기준).'
+              : // ⚠️ 이 문구도 권한 상태를 따라야 한다(코드리뷰 9차). 권한이 없으면 아래
+                //    summarySub 는 "지금은 차단되지 않아요"라고 하는데 여기서는 "가림막이
+                //    덮여요"라고 해서 **같은 화면이 서로 반대말을 했다.** 사용자는 차단이
+                //    되는 줄 알고 세션을 시작한다.
+                shieldBlocked
+                ? ' 다만 지금은 권한이 없어 나머지 앱도 잠기지 않아요.'
+                : ' 나머지 앱을 열면 가림막이 덮여요.')}
         </Text>
       </View>
 
@@ -173,6 +240,57 @@ export default function AllowedAppsScreen() {
         />
       </SettingsSection>
 
+      {/* 가림막 권한 — 꺼져 있으면 허용앱을 골라도 차단이 성립하지 않는다.
+          안내만 띄우고 끝내면 막다른 길이라(GROMO-860과 같은 실수) 바로 설정으로 이어준다. */}
+      {shieldBlocked ? (
+        <SettingsSection title="차단에 필요한 권한">
+          {/* ⚠️ 어떤 권한이 빠졌는지에 따라 보내는 곳이 달라야 한다(코드리뷰 3차).
+              둘 다 실드 시작 조건인데, 예전엔 무조건 오버레이 설정만 열어서
+              **사용 정보 접근이 꺼진 사용자는 이 CTA 로 고칠 수가 없었다.** */}
+          {canOverlay === false ? (
+            <SettingsRow
+              icon="alert-circle-outline"
+              iconColor={T.dangerInk}
+              iconBg={T.dangerBg}
+              label="다른 앱 위에 표시 허용"
+              sub="이 권한이 있어야 집중 중 가림막을 띄울 수 있어요"
+              onPress={() => {
+                ScreenTimeModule.requestOverlayPermission().catch(() => {});
+              }}
+            />
+          ) : Platform.OS === 'android' ? (
+            <SettingsRow
+              icon="alert-circle-outline"
+              iconColor={T.dangerInk}
+              iconBg={T.dangerBg}
+              label="사용 정보 접근 허용"
+              sub="지금 어떤 앱이 열려 있는지 알아야 가림막을 띄울 수 있어요"
+              onPress={() => {
+                // 목록을 못 열면 앱 상세 설정으로 폴백한다(권한 화면과 같은 처리).
+                ScreenTimeModule.openUsageAccessSettings()
+                  .then((opened) => {
+                    if (!opened) Linking.openSettings();
+                  })
+                  .catch(() => Linking.openSettings());
+              }}
+            />
+          ) : (
+            /* iOS — 스크린타임 권한이 없으면 여기가 뜬다(코드리뷰 4차). 위 안드로이드 CTA 를
+               그대로 쓰면 openUsageAccessSettings 가 항상 false 라 앱 상세만 열리고,
+               notDetermined 상태에서는 requestAuthorization 이 아예 안 돌아 **이 CTA 로는
+               권한을 줄 수가 없다.** 기존 권한 화면의 요청 흐름으로 보낸다. */
+            <SettingsRow
+              icon="alert-circle-outline"
+              iconColor={T.dangerInk}
+              iconBg={T.dangerBg}
+              label="스크린타임 권한 허용"
+              sub="이 권한이 있어야 집중 중 다른 앱을 잠글 수 있어요"
+              onPress={() => navigation.navigate('SettingsScreenTimePermission')}
+            />
+          )}
+        </SettingsSection>
+      ) : null}
+
       {/* 허용 앱 고르기 — 네이티브 관리 화면(목록 + 추가/삭제 피커) 표시 */}
       <TouchableOpacity style={s.pickBtn} activeOpacity={0.85} onPress={editAllowedApps}>
         <Ionicons name="add-circle-outline" size={20} color={T.accentDeep} />
@@ -180,18 +298,24 @@ export default function AllowedAppsScreen() {
       </TouchableOpacity>
 
       {/* Safari·웹 허용 — 허용앱 피커로는 시스템 앱(사파리) 허용 여부를 알 수 없어 별도 토글.
-          꺼짐(기본)이면 집중 중 사파리가 잠기고 다른 브라우저·웹뷰의 웹페이지도 차단된다. */}
-      <SettingsSection title="웹">
-        <SettingsToggleRow
-          icon="globe-outline"
-          iconColor={T.accentDeep}
-          iconBg={T.accentBg}
-          label="Safari·웹 허용"
-          sub="켜면 집중 중에도 Safari와 웹사이트를 쓸 수 있어요"
-          value={allowSafariWeb}
-          onValueChange={toggleSafariWeb}
-        />
-      </SettingsSection>
+          꺼짐(기본)이면 집중 중 사파리가 잠기고 다른 브라우저·웹뷰의 웹페이지도 차단된다.
+
+          ⚠️ 안드로이드에는 이 토글이 없다. '미구현이라 숨긴 것'이 아니라 **개념이 없는 것**이다 —
+          Safari가 없고, 브라우저(Chrome 등)도 그냥 앱이라 위 허용앱 목록에서 고르면 된다.
+          여기에 토글을 두면 목록과 토글 두 곳이 같은 걸 따로 관리하게 된다. */}
+      {Platform.OS === 'ios' ? (
+        <SettingsSection title="웹">
+          <SettingsToggleRow
+            icon="globe-outline"
+            iconColor={T.accentDeep}
+            iconBg={T.accentBg}
+            label="Safari·웹 허용"
+            sub="켜면 집중 중에도 Safari와 웹사이트를 쓸 수 있어요"
+            value={allowSafariWeb}
+            onValueChange={toggleSafariWeb}
+          />
+        </SettingsSection>
+      ) : null}
     </SettingsScaffold>
   );
 }

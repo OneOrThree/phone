@@ -1,0 +1,27 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- 집중 실드(GROMO-996) — 세션 중 허용앱 외를 가림막으로 덮는다. -->
+
+  <!-- 가림막 창(TYPE_APPLICATION_OVERLAY). 사용자가 설정에서 직접 켜야 하는 특수 권한이다. -->
+  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+  <!-- 세션 동안 폴링을 살려두려면 포그라운드 서비스가 필요하다(백그라운드면 곧 죽는다). -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <!--
+    targetSdk 34+는 포그라운드 서비스에 유형 선언을 요구한다. 이 서비스는 기존 유형
+    (미디어·위치·통화 등) 중 어디에도 해당하지 않는 '집중 세션 동안의 앱 차단'이라
+    specialUse 가 정확한 값이다. Play 는 아래 subtype 문구로 용도를 심사한다.
+  -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+  <!-- 포그라운드 서비스 알림 표시(Android 13+). -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+  <application>
+    <service
+      android:name="com.oneorthree.gromo.screentime.FocusShieldService"
+      android:exported="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="focus_session_app_shield"/>
+    </service>
+  </application>
+</manifest>

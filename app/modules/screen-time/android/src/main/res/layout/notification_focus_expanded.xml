@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  펼친 알림 본문 — iOS Live Activity **잠금화면 배너**(ios/Widget/WidgetLiveActivity.swift)를
+  그대로 옮긴 것이다. XML 주석 안에는 하이픈 두 개를 못 쓰므로 표 대신 나열로 적는다.
+
+  iOS → 여기 대응:
+   · HStack(spacing: 12)                       → 가로 LinearLayout + marginStart 12dp
+   · CharacterView(maxWidth 64, maxHeight 96)  → ImageView 64×96dp, fitCenter(비율 유지)
+   · subjectName · headline.bold · ink         → 17sp bold · textColorPrimary
+   · "집중하는 중이에요!" · footnote · inkSub   → 13sp · textColorSecondary
+   · ElapsedTimerText · title2.bold.monospaced → Chronometer 22sp bold monospace
+   · 다른 과목 칩 VStack(spacing 6)            → notif_row0/1 · marginTop 6dp
+   · 칩: dot 8 · 이름 subheadline · 시간 semibold → 8dp 점 · 15sp · 15sp bold
+   · 칩 padding (10, 6) · radius 10            → 동일 · @drawable/notif_chip_bg
+
+  ⚠️ iOS는 다른 과목을 **최대 2개**만 그린다(잠금화면 높이 상한 160pt). 여기도 행을 2개만
+  두고 남으면 GONE 처리한다 — 개수를 늘리려면 iOS 쪽 상한부터 함께 올려야 한다.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  android:orientation="horizontal"
+  android:paddingTop="4dp"
+  android:paddingBottom="12dp"
+  android:paddingEnd="16dp">
+
+  <ImageView
+    android:id="@+id/notif_character"
+    android:layout_width="64dp"
+    android:layout_height="96dp"
+    android:adjustViewBounds="true"
+    android:scaleType="fitCenter"
+    android:contentDescription="@null" />
+
+  <LinearLayout
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_weight="1"
+    android:layout_marginStart="12dp"
+    android:orientation="vertical">
+
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="horizontal"
+      android:baselineAligned="false"
+      android:gravity="center_vertical">
+
+      <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+          android:id="@+id/notif_subject"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:maxLines="1"
+          android:ellipsize="end"
+          android:textSize="17sp"
+          android:textStyle="bold"
+          android:textColor="?android:attr/textColorPrimary" />
+
+        <TextView
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:layout_marginTop="2dp"
+          android:maxLines="1"
+          android:ellipsize="end"
+          android:id="@+id/notif_caption"
+          android:text="집중하는 중이에요!"
+          android:textSize="13sp"
+          android:textColor="?android:attr/textColorSecondary" />
+      </LinearLayout>
+
+      <Chronometer
+        android:id="@+id/notif_timer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace"
+        android:textColor="?android:attr/textColorPrimary" />
+    </LinearLayout>
+
+    <LinearLayout
+      android:id="@+id/notif_row0"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="8dp"
+      android:orientation="horizontal"
+      android:gravity="center_vertical"
+      android:paddingStart="10dp"
+      android:paddingEnd="10dp"
+      android:paddingTop="6dp"
+      android:paddingBottom="6dp"
+      android:background="@drawable/notif_chip_bg"
+      android:visibility="gone">
+
+      <ImageView
+        android:id="@+id/notif_dot0"
+        android:layout_width="8dp"
+        android:layout_height="8dp"
+        android:src="@drawable/notif_dot"
+        android:contentDescription="@null" />
+
+      <TextView
+        android:id="@+id/notif_name0"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="7dp"
+        android:layout_marginEnd="8dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="15sp"
+        android:textColor="?android:attr/textColorSecondary" />
+
+      <TextView
+        android:id="@+id/notif_time0"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:maxLines="1"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace"
+        android:textColor="?android:attr/textColorPrimary" />
+    </LinearLayout>
+
+    <LinearLayout
+      android:id="@+id/notif_row1"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="6dp"
+      android:orientation="horizontal"
+      android:gravity="center_vertical"
+      android:paddingStart="10dp"
+      android:paddingEnd="10dp"
+      android:paddingTop="6dp"
+      android:paddingBottom="6dp"
+      android:background="@drawable/notif_chip_bg"
+      android:visibility="gone">
+
+      <ImageView
+        android:id="@+id/notif_dot1"
+        android:layout_width="8dp"
+        android:layout_height="8dp"
+        android:src="@drawable/notif_dot"
+        android:contentDescription="@null" />
+
+      <TextView
+        android:id="@+id/notif_name1"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="7dp"
+        android:layout_marginEnd="8dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="15sp"
+        android:textColor="?android:attr/textColorSecondary" />
+
+      <TextView
+        android:id="@+id/notif_time1"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:maxLines="1"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace"
+        android:textColor="?android:attr/textColorPrimary" />
+    </LinearLayout>
+  </LinearLayout>
+</LinearLayout>
