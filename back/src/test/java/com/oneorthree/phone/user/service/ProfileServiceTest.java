@@ -2,7 +2,10 @@ package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.domain.FriendshipStatus;
+import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
+import com.oneorthree.phone.friend.repository.PinnedUserRepository;
+import com.oneorthree.phone.friend.service.FriendRelationLookup;
 import com.oneorthree.phone.item.domain.CharacterEquipment;
 import com.oneorthree.phone.item.domain.SlotType;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
@@ -24,7 +27,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -33,6 +35,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,7 +53,6 @@ import static org.mockito.Mockito.verify;
 @ExtendWith(MockitoExtension.class)
 class ProfileServiceTest {
 
-    @InjectMocks
     private ProfileService profileService;
 
     @Mock
@@ -61,6 +63,9 @@ class ProfileServiceTest {
 
     @Mock
     private FriendshipRepository friendshipRepository;
+
+    @Mock
+    private PinnedUserRepository pinnedUserRepository;
 
     @Mock
     private LeagueRankingQueryRepository leagueRankingQueryRepository;
@@ -77,6 +82,11 @@ class ProfileServiceTest {
 
     @BeforeEach
     void setUpRankingDefault() {
+        // FriendRelationLookup 은 목이 아니라 실제 인스턴스 — relation 판정이 스텁이 아닌
+        // 실제 로직(리포지토리 스텁 기반)을 통과하도록 한다 (GROMO-1631).
+        profileService = new ProfileService(userRepository, characterEquipmentRepository,
+                friendshipRepository, pinnedUserRepository, new FriendRelationLookup(friendshipRepository),
+                leagueRankingQueryRepository, leagueWeek, statsService);
         lenient().when(leagueRankingQueryRepository.findRankOf(any(), any(), any(), any()))
                 .thenReturn(Optional.empty());
     }
@@ -101,7 +111,7 @@ class ProfileServiceTest {
                 eq(USER_ID), eq(LocalDate.of(2026, 6, 22)), eq(LocalDate.of(2026, 6, 24)), eq(NOW)))
                 .willReturn(Optional.of(new LeagueRankingPosition(2, 3, 200)));
 
-        PublicProfileResponse response = profileService.getPublicProfile(USER_ID, NOW);
+        PublicProfileResponse response = profileService.getPublicProfile(USER_ID, USER_ID, NOW);
 
         assertThat(response.userId()).isEqualTo(USER_ID);
         assertThat(response.nickname()).isEqualTo("조재영");
@@ -120,7 +130,7 @@ class ProfileServiceTest {
     void getPublicProfile_userNotFound() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> profileService.getPublicProfile(USER_ID))
+        assertThatThrownBy(() -> profileService.getPublicProfile(OTHER_ID, USER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
@@ -138,7 +148,7 @@ class ProfileServiceTest {
                 .build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(deleted));
 
-        assertThatThrownBy(() -> profileService.getPublicProfile(USER_ID))
+        assertThatThrownBy(() -> profileService.getPublicProfile(OTHER_ID, USER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
@@ -157,7 +167,7 @@ class ProfileServiceTest {
         given(leagueRankingQueryRepository.findRankOf(any(), any(), any(), any()))
                 .willReturn(Optional.empty());
 
-        PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
+        PublicProfileResponse response = profileService.getPublicProfile(USER_ID, USER_ID);
 
         assertThat(response.currentTier()).isEqualTo(1);
         assertThat(response.rank()).isNull();
@@ -176,7 +186,7 @@ class ProfileServiceTest {
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(0L);
 
-        PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
+        PublicProfileResponse response = profileService.getPublicProfile(USER_ID, USER_ID);
 
         assertThat(response.friendCount()).isZero();
     }
@@ -194,7 +204,7 @@ class ProfileServiceTest {
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(2L);
 
-        PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
+        PublicProfileResponse response = profileService.getPublicProfile(USER_ID, USER_ID);
 
         assertThat(response.friendCount()).isEqualTo(2L);
     }
@@ -210,7 +220,7 @@ class ProfileServiceTest {
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(1L);
 
-        PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
+        PublicProfileResponse response = profileService.getPublicProfile(USER_ID, USER_ID);
 
         assertThat(response.friendCount()).isEqualTo(1L);
     }
@@ -231,7 +241,7 @@ class ProfileServiceTest {
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of(equip));
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(0L);
 
-        PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
+        PublicProfileResponse response = profileService.getPublicProfile(USER_ID, USER_ID);
 
         assertThat(response.equipments()).hasSize(1);
         assertThat(response.equipments().get(0).getSlotType()).isEqualTo("HAIR");
@@ -250,10 +260,92 @@ class ProfileServiceTest {
         given(leagueRankingQueryRepository.findRankOf(any(), any(), any(), any()))
                 .willReturn(Optional.of(new LeagueRankingPosition(1, 5, 500)));
 
-        PublicProfileResponse response = profileService.getPublicProfile(USER_ID);
+        PublicProfileResponse response = profileService.getPublicProfile(USER_ID, USER_ID);
 
         assertThat(response.rank()).isEqualTo(1);
         assertThat(response.currentTier()).isEqualTo(5);
+    }
+
+    // ── relation · isPinned (GROMO-1631) ─────────────────────────────────
+    // relation 판정은 실제 FriendRelationLookup 로직을 통과한다 — 리포지토리만 스텁.
+
+    /** 공통 스텁: 타인 조회(OTHER_ID → USER_ID) 기본 집계 + 호출자 조회. */
+    private User givenOtherViewsTarget(User target) {
+        User caller = User.builder().id(OTHER_ID).nickname("호출자").build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(target));
+        given(userRepository.findById(OTHER_ID)).willReturn(Optional.of(caller));
+        given(characterEquipmentRepository.findByUser(target)).willReturn(List.of());
+        given(friendshipRepository.countAcceptedByUser(target)).willReturn(0L);
+        return caller;
+    }
+
+    @Test
+    @DisplayName("타인 조회 - ACCEPTED 친구 + 핀 → relation=FRIEND, isPinned=true")
+    void getPublicProfile_friendAndPinned() {
+        User target = activeUser("대상유저");
+        User caller = givenOtherViewsTarget(target);
+        given(friendshipRepository.findAcceptedByUser(caller))
+                .willReturn(List.of(acceptedFriendship(caller, target)));
+        given(pinnedUserRepository.findPinnedUserIdsByUserId(OTHER_ID)).willReturn(Set.of(USER_ID));
+
+        PublicProfileResponse response = profileService.getPublicProfile(OTHER_ID, USER_ID);
+
+        assertThat(response.relation()).isEqualTo(FriendRelation.FRIEND);
+        assertThat(response.isPinned()).isTrue();
+    }
+
+    @Test
+    @DisplayName("타인 조회 - 받은 PENDING 요청 → relation=PENDING (방향 무구분, N02)")
+    void getPublicProfile_pendingReceived_relationPending() {
+        User target = activeUser("대상유저");
+        User caller = givenOtherViewsTarget(target);
+        Friendship pending = Friendship.builder()
+                .id(UUID.randomUUID())
+                .fromUser(target)
+                .toUser(caller)
+                .status(FriendshipStatus.PENDING)
+                .build();
+        given(friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(caller, FriendshipStatus.PENDING))
+                .willReturn(List.of(pending));
+
+        PublicProfileResponse response = profileService.getPublicProfile(OTHER_ID, USER_ID);
+
+        assertThat(response.relation()).isEqualTo(FriendRelation.PENDING);
+        assertThat(response.isPinned()).isFalse();
+    }
+
+    @Test
+    @DisplayName("타인 조회 - 아무 관계 없음 → relation=NONE, isPinned=false")
+    void getPublicProfile_stranger_relationNone() {
+        User target = activeUser("대상유저");
+        givenOtherViewsTarget(target);
+        // 관계·핀 리포지토리 스텁 없음 — 목 기본값(빈 컬렉션) = 관계 없음
+
+        PublicProfileResponse response = profileService.getPublicProfile(OTHER_ID, USER_ID);
+
+        assertThat(response.relation()).isEqualTo(FriendRelation.NONE);
+        assertThat(response.isPinned()).isFalse();
+    }
+
+    @Test
+    @DisplayName("본인 조회(caller==target) → 판정 쿼리 스킵, relation=NONE·isPinned=false (getUserStats 선례)")
+    void getPublicProfile_self_skipsRelationQueries() {
+        User self = activeUser("본인");
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(self));
+        given(characterEquipmentRepository.findByUser(self)).willReturn(List.of());
+        given(friendshipRepository.countAcceptedByUser(self)).willReturn(3L);
+
+        PublicProfileResponse response = profileService.getPublicProfile(USER_ID, USER_ID);
+
+        assertThat(response.relation()).isEqualTo(FriendRelation.NONE);
+        assertThat(response.isPinned()).isFalse();
+        // 판정 쿼리 미호출 확인 — 본인 분기가 관계·핀 조회를 스킵한다
+        verify(friendshipRepository, never()).findAcceptedByUser(any());
+        verify(friendshipRepository, never())
+                .findByFromUserAndStatusAndDeletedAtIsNull(any(), any());
+        verify(friendshipRepository, never())
+                .findByToUserAndStatusAndDeletedAtIsNull(any(), any());
+        verify(pinnedUserRepository, never()).findPinnedUserIdsByUserId(any());
     }
 
     // ──────────────────────────────────────────────────────────────────────

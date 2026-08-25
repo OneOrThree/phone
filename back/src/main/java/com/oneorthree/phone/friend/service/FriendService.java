@@ -13,7 +13,6 @@ import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.domain.PinnedUser;
-import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
@@ -37,7 +36,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -62,6 +60,7 @@ public class FriendService {
     private final UserActivityEventLogger userActivityEventLogger;
     private final LeagueTierLookup leagueTierLookup;
     private final FocusLiveInfoLookup focusLiveInfoLookup;
+    private final FriendRelationLookup friendRelationLookup;
     /**
      * GROMO-1090: 푸시는 여기서 직접 보내지 않고 이벤트만 발행한다 — 발송은 커밋 이후에 일어나야 한다
      * (요청/수락이 롤백되는데 알림만 나가면 안 된다). 소비는 notification 도메인의 AFTER_COMMIT 리스너.
@@ -82,6 +81,7 @@ public class FriendService {
                          UserActivityEventLogger userActivityEventLogger,
                          LeagueTierLookup leagueTierLookup,
                          FocusLiveInfoLookup focusLiveInfoLookup,
+                         FriendRelationLookup friendRelationLookup,
                          ApplicationEventPublisher eventPublisher,
                          List<FriendSearchStrategy> searchStrategies) {
         this.friendshipRepository = friendshipRepository;
@@ -93,6 +93,7 @@ public class FriendService {
         this.userActivityEventLogger = userActivityEventLogger;
         this.leagueTierLookup = leagueTierLookup;
         this.focusLiveInfoLookup = focusLiveInfoLookup;
+        this.friendRelationLookup = friendRelationLookup;
         this.eventPublisher = eventPublisher;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
@@ -362,6 +363,7 @@ public class FriendService {
 
     /**
      * 친구 검색 — type 전략에 위임 후 자기자신 제외 + 기존 관계(relation) 표기.
+     * relation 판정은 {@link FriendRelationLookup} 공유 컴포넌트에 위임한다 (GROMO-1631 — 프로필과 공유).
      */
     public List<FriendSearchResultResponse> search(UUID me, SearchType type, String query) {
         FriendSearchStrategy strategy = searchStrategies.get(type);
@@ -369,8 +371,8 @@ public class FriendService {
             throw new IllegalArgumentException("지원하지 않는 검색 수단입니다: " + type);
         }
         User meUser = getUser(me);
-        Set<UUID> friendIds = collectFriendIds(meUser);
-        Set<UUID> pendingIds = collectPendingIds(meUser);
+        Set<UUID> friendIds = friendRelationLookup.collectFriendIds(meUser);
+        Set<UUID> pendingIds = friendRelationLookup.collectPendingIds(meUser);
 
         return strategy.search(me, query).stream()
                 .filter(r -> !r.getUserId().equals(me))
@@ -379,7 +381,7 @@ public class FriendService {
                         .nickname(r.getNickname())
                         .tierLevel(r.getTierLevel())
                         .occupation(r.getOccupation())
-                        .relation(resolveRelation(r.getUserId(), friendIds, pendingIds))
+                        .relation(friendRelationLookup.resolveRelation(r.getUserId(), friendIds, pendingIds))
                         .build())
                 .toList();
     }
@@ -442,28 +444,4 @@ public class FriendService {
                 : friendship.getFromUser();
     }
 
-    private Set<UUID> collectFriendIds(User meUser) {
-        return friendshipRepository.findAcceptedByUser(meUser).stream()
-                .map(f -> counterpart(f, meUser.getId()).getId())
-                .collect(Collectors.toCollection(HashSet::new));
-    }
-
-    private Set<UUID> collectPendingIds(User meUser) {
-        Set<UUID> ids = new HashSet<>();
-        friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING)
-                .forEach(f -> ids.add(f.getToUser().getId()));
-        friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING)
-                .forEach(f -> ids.add(f.getFromUser().getId()));
-        return ids;
-    }
-
-    private FriendRelation resolveRelation(UUID userId, Set<UUID> friendIds, Set<UUID> pendingIds) {
-        if (friendIds.contains(userId)) {
-            return FriendRelation.FRIEND;
-        }
-        if (pendingIds.contains(userId)) {
-            return FriendRelation.PENDING;
-        }
-        return FriendRelation.NONE;
-    }
 }

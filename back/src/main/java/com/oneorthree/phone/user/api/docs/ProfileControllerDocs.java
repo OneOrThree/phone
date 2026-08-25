@@ -18,12 +18,14 @@ import java.util.UUID;
 public interface ProfileControllerDocs {
 
     @Operation(summary = "타 유저 공개 프로필 조회",
-            description = "대상 유저의 닉네임·캐릭터·친구수·리그 티어·랭킹을 반환한다.")
+            description = "대상 유저의 닉네임·캐릭터·친구수·리그 티어·랭킹과 호출자 기준 relation(NONE|PENDING|FRIEND, "
+                    + "PENDING 은 방향 무구분)·isPinned 를 반환한다. 본인 조회 시 relation=NONE·isPinned=false (GROMO-1631).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "401", description = "인증 필요"),
         @ApiResponse(responseCode = "404", description = "유저 없음 또는 탈퇴 유저")
     })
-    ResponseEntity<PublicProfileResponse> getPublicProfile(UUID userId);
+    ResponseEntity<PublicProfileResponse> getPublicProfile(UUID userId, UUID callerId);
 
     @Operation(summary = "타 유저 통계 조회",
             description = "프로필 요약(streak·today)은 친구 여부/공개설정과 무관하게 항상 반환(GROMO-746). "

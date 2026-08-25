@@ -30,10 +30,12 @@ public class ProfileController implements ProfileControllerDocs {
 
     @Override
     @GetMapping("/users/{userId}/profile")
-    public ResponseEntity<PublicProfileResponse> getPublicProfile(@PathVariable UUID userId) {
-        // callerId 는 현재 미사용: 차단·친구 여부 기반 공개 범위 제어 기능이 없어 누구나 동일 응답을 받는다.
-        // 향후 차단/친구-공개 기능 추가 시 SecurityContextHolder 에서 callerId 를 추출해 서비스에 전달한다.
-        return ResponseEntity.ok(profileService.getPublicProfile(userId));
+    public ResponseEntity<PublicProfileResponse> getPublicProfile(
+            @PathVariable UUID userId,
+            @LoginUser UUID callerId) {
+        // callerId 는 relation(친구 관계)·isPinned(핀 여부) 판정에 쓴다 (GROMO-1631).
+        // 이 경로는 JwtFilter WHITELIST 에 없어 인증 필수 — @LoginUser 주입이 항상 성립한다.
+        return ResponseEntity.ok(profileService.getPublicProfile(callerId, userId));
     }
 
     @Override
