@@ -82,7 +82,7 @@ export default function FriendProfileScreen() {
   const { userId, nickname, tierLevel, rank } = route.params;
   const isMe = route.params.isMe === true;
 
-  // 친구 관계는 진입점 파라미터 + 서버 친구 목록, 핀은 파라미터 + 서버 핀 목록으로 관리(통계 공개와 별개).
+  // 친구 관계·핀은 진입점 파라미터 초기값 + 공개 프로필의 relation/isPinned(GROMO-1631)로 관리(통계 공개와 별개).
   const [isFriend, setIsFriend] = useState(route.params.isFriend);
   const [isPinned, setIsPinned] = useState(route.params.isPinned ?? false);
   // 이 화면에서 핀을 토글했는지 — 마운트 시 핀 목록 조회가 토글 전 스냅샷으로 뒤늦게 도착해
@@ -139,13 +139,34 @@ export default function FriendProfileScreen() {
     };
   }, [userId]);
 
-  // 서버 친구 목록·핀 목록·보낸 요청으로 친구/핀/요청 상태 재동기화 — 검색·랭킹 진입은 isPinned도,
-  // 이미 보낸 PENDING 요청도 모른 채 들어온다. 요청 상태를 안 채우면 이미 신청한 상대에게
-  // '친구 신청' 버튼이 다시 노출돼 중복 신청이 가능해진다(서버는 409로 막지만 UI가 오해를 준다).
+  // 친구/핀/요청 상태 재동기화 — 검색·랭킹 진입은 isPinned도, 이미 보낸 PENDING 요청도 모른 채
+  // 들어온다. 요청 상태를 안 채우면 이미 신청한 상대에게 '친구 신청' 버튼이 다시 노출돼 중복
+  // 신청이 가능해진다(서버는 409로 막지만 UI가 오해를 준다).
+  // GROMO-1631: 공개 프로필이 relation(NONE|PENDING|FRIEND)·isPinned를 내려주면 목록 3콜 없이
+  // 그 값으로 동기화한다. 단 서버 값은 로컬 state의 **초기값 동기화로만** 쓴다 — 뮤테이션
+  // (requestFriend/unfriend/togglePin)이 로컬 state를 갱신하므로 profile 값을 직접 렌더하면
+  // 조작 결과가 화면에서 되돌아간다.
+  // relation 미제공(구서버·프로필 조회 실패)이면 기존 목록 3콜 폴백 — 서버 배포 후 자연 소멸.
   // 핀은 친구 아니어도 가능(GROMO-609)이라 친구 목록의 isPinned가 아닌 핀 목록(GET /pins)으로 판정한다
   // — 친구 목록 기반이면 핀한 비친구가 진입 직후 핀 꺼짐으로 덮인다(GROMO-845).
   useEffect(() => {
     if (isMe) return; // 내 프로필 — 친구/핀/요청 관계 개념이 없어 재동기화 불필요(GROMO-940)
+    if (loading) return; // 프로필 도착 전 — relation 유무를 알 수 없어 판단을 미룬다
+    if (profile?.relation != null) {
+      const { relation } = profile;
+      setIsFriend(relation === 'FRIEND');
+      // PENDING은 방향 무구분 수용(검색 화면과 동일 표기, decisions N02). 이 화면에서 방금 누른
+      // 신청(true)을 프로필 응답이 덮지 않게 OR 유지.
+      setRequested((prev) => prev || relation === 'PENDING');
+      // 진입 파라미터가 핀 값을 준 경우(리그 랭킹/팟 — usePinned의 낙관 상태 포함 최신값)는 덮지 않는다.
+      // 직전 화면에서 방금 누른 핀의 POST가 아직 서버 반영 전이면 이 조회가 토글 전 스냅샷을
+      // 돌려줘 낙관 상태를 되돌린다(PR 267 Codex 리뷰 반영). 이 화면에서 토글한 뒤(pinTouched)도
+      // 낙관적 갱신+실패 롤백이 진실이라 덮지 않는다.
+      if (profile.isPinned != null && !pinTouched.current && route.params.isPinned == null) {
+        setIsPinned(profile.isPinned);
+      }
+      return;
+    }
     let stale = false;
     (async () => {
       const [list, pins, sent] = await Promise.all([
@@ -157,10 +178,6 @@ export default function FriendProfileScreen() {
       if (list) {
         setIsFriend(list.some((f) => f.userId === userId));
       }
-      // 진입 파라미터가 핀 값을 준 경우(리그 랭킹/팟 — usePinned의 낙관 상태 포함 최신값)는 덮지 않는다.
-      // 직전 화면에서 방금 누른 핀의 POST가 아직 서버 반영 전이면 이 마운트 조회가 토글 전 스냅샷을
-      // 돌려줘 낙관 상태를 되돌린다(PR 267 Codex 리뷰 반영). 파라미터 없이 들어오는 진입(친구 검색·
-      // 요청 목록)만 서버 핀 목록으로 채운다.
       if (pins && !pinTouched.current && route.params.isPinned == null) {
         setIsPinned(pins.some((p) => p.userId === userId));
       }
@@ -172,7 +189,7 @@ export default function FriendProfileScreen() {
     return () => {
       stale = true;
     };
-  }, [userId, route.params.isPinned, isMe]);
+  }, [userId, route.params.isPinned, isMe, loading, profile]);
 
   // 핀 토글 — 낙관적 갱신, 실패 시 롤백.
   // 반영 중 연타는 무시(직렬화) — POST/DELETE가 동시에 나가면 서버 처리 순서에 따라 화면과
