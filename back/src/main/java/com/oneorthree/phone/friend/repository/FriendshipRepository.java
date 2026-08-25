@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
@@ -93,6 +94,18 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
             + " AND f.deletedAt IS NULL"
             + " AND (f.fromUser = :me OR f.toUser = :me)")
     List<Friendship> findAcceptedByUser(@Param("me") User me);
+
+    /**
+     * 내 친구 상대편 id 집합 — ACCEPTED, 미삭제, from·to 양방향에서 나 아닌 쪽 id 를 모은다.
+     * 리그 랭킹 isFriend 후조인용 (GROMO-1630) — PinnedUserRepository.findPinnedUserIdsByUserId 와 대칭.
+     * 친구 수는 소수라 1쿼리 Set 대조로 충분하다.
+     */
+    @Query("SELECT CASE WHEN f.fromUser.id = :userId THEN f.toUser.id ELSE f.fromUser.id END"
+            + " FROM Friendship f"
+            + " WHERE f.status = 'ACCEPTED'"
+            + " AND f.deletedAt IS NULL"
+            + " AND (f.fromUser.id = :userId OR f.toUser.id = :userId)")
+    Set<UUID> findFriendUserIdsByUserId(@Param("userId") UUID userId);
 
     /**
      * 친구 수 카운트 — ACCEPTED, 미삭제, from·to 양방향 (공개 프로필 집계용).
