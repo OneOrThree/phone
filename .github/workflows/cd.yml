@@ -1,22 +1,22 @@
-# GROMO dev 서버 — CD (이미지 빌드 → GAR push → 앱 서버 배포)
+# GROMO dev 서버 — CD (main CI digest → 앱 서버 배포)
 #
-# 구조는 prod(prod-ci → prod-cd)와 같다: CI가 이미지를 만들어 레지스트리에 올리고,
-# CD가 그걸 받아 배포한다. 예전에는 dev 서버 한 대가 빌드와 실행을 겸해서
-# 레지스트리를 거치지 않았는데, 러너를 빌드 서버로 분리하면서 통로가 필요해졌다.
-#
-# prod와 다른 점 — dev는 프로덕션이 아니라 롤백하지 않는다:
-#   - 태그가 latest 하나뿐이다. SHA·SemVer 태그를 남기지 않는다.
-#   - 따라서 이전 이미지로 되돌릴 수 없고, 복구는 재빌드가 유일한 경로다.
-#   - 레지스트리도 ECR이 아니라 GAR을 쓴다(러너와 같은 리전이라 왕복이 없다).
+# PR CI는 build/cache만 검증한다. squash merge 후 main CI가 최종 main SHA를
+# build·push하고, build-push-action이 반환한 불변 digest를 이 workflow에 직접 넘긴다.
+# CD는 registry tag를 다시 찾거나 이미지를 재빌드하지 않는다.
 
 name: CD
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "back/**"
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      image_digest:
+        description: main CI가 push한 이미지의 sha256 digest
+        required: true
+        type: string
+      image_revision:
+        description: 이미지를 만든 main commit SHA
+        required: true
+        type: string
 
 concurrency:
   group: cd-production
@@ -30,58 +30,12 @@ env:
   AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
   ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
-  APP_IMAGE: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest
+  APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back
   RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
 
 jobs:
-  build:
-    name: 빌드 · GAR push
-    runs-on: [self-hosted, ci, spot]
-    timeout-minutes: 30 # self-hosted 기본 360분 — 러너 장기 점유 방지
-    outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
-    steps:
-      - uses: actions/checkout@v4
-
-      # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud도 키 파일도 필요 없다
-      - name: GAR 인증
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
-            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
-          | jq -er .access_token \
-          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: 이미지 빌드 및 push
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: ./back
-          file: ./back/Dockerfile
-          push: true
-          # platforms 미지정 = 러너 네이티브(amd64). prod는 t4g라 arm64를 명시하지만
-          # dev 앱 서버도 같은 amd64라 맞출 필요가 없다.
-          provenance: false # attestation 매니페스트(태그 없는 이미지) 생성 방지
-          tags: ${{ env.APP_IMAGE }}
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          # 캐시는 러너와 같은 리전의 GAR(ci-cache)를 사용한다.
-          # prod의 arm64 캐시와 태그를 분리해 아키텍처별 캐시를 덮어쓰지 않는다.
-          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64
-          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64,mode=max
-
-      - name: 결과 요약
-        run: |
-          echo "### dev 이미지 push 완료 :rocket:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.APP_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 태그는 latest 단일 — 롤백 불가(재빌드로만 복구)" >> $GITHUB_STEP_SUMMARY
-
   deploy:
     name: 앱 서버 배포
-    needs: build
     runs-on: [self-hosted, dev]
     environment: production
     timeout-minutes: 20
@@ -90,6 +44,23 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      # caller의 main commit과 build job output이 일치할 때만 배포한다.
+      # digest는 content-addressed 값이므로 PR이 mutable tag를 바꿔도 배포 대상은 변하지 않는다.
+      - name: 배포 입력 검증
+        env:
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$IMAGE_REVISION" = "$GITHUB_SHA"
+          {
+            echo "### Dev 배포 이미지"
+            echo "- main SHA: \`$IMAGE_REVISION\`"
+            echo "- digest: \`$IMAGE_DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: AWS 자격증명 (OIDC, keyless)
         uses: aws-actions/configure-aws-credentials@v4
@@ -107,17 +78,16 @@ jobs:
       # dev-monitor/dev-datadog도 같은 0600 파일을 --env-file로 명시해 사용한다.
       - name: 런타임 값 로드 (Secrets Manager → checkout 외부 env)
         env:
-          IMAGE_DIGEST: ${{ needs.build.outputs.image-digest }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
         run: |
           set -euo pipefail
-          test -n "$IMAGE_DIGEST"
-          IMAGE_REPOSITORY="${APP_IMAGE%:*}"
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           aws secretsmanager get-secret-value \
             --secret-id "$ENV_SECRET_ID" \
             --query SecretString --output text \
           | python3 .github/scripts/write-compose-env.py \
               --output "$RUNTIME_ENV_FILE" \
-              --app-image "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+              --app-image "$APP_IMAGE_REPOSITORY@$IMAGE_DIGEST"
 
       - name: GAR 인증
         run: |
@@ -131,8 +101,8 @@ jobs:
         env:
           DD_API_KEY: ${{ secrets.DD_API_KEY }}
           DD_SITE: us5.datadoghq.com
-          IMAGE_VERSION: ${{ github.sha }}
-          IMAGE_REVISION: ${{ github.sha }}
+          IMAGE_VERSION: ${{ inputs.image_revision }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
@@ -151,8 +121,8 @@ jobs:
         env:
           DD_API_KEY: ${{ secrets.DD_API_KEY }}
           DD_SITE: us5.datadoghq.com
-          IMAGE_VERSION: ${{ github.sha }}
-          IMAGE_REVISION: ${{ github.sha }}
+          IMAGE_VERSION: ${{ inputs.image_revision }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
