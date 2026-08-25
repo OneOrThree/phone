@@ -88,6 +88,10 @@ export default function FriendProfileScreen() {
   // 이 화면에서 핀을 토글했는지 — 마운트 시 핀 목록 조회가 토글 전 스냅샷으로 뒤늦게 도착해
   // 방금 누른 핀을 덮지 않게 가드(PR 267 리뷰 반영). 토글 후엔 낙관적 갱신+실패 롤백이 진실이다.
   const pinTouched = useRef(false);
+  // 이 화면에서 친구 관계를 조작(끊기)했는지 — 늦게 도착한 프로필/목록 스냅샷(조작 전 FRIEND)이
+  // 방금 누른 끊기를 되돌리지 않게 막는다. requested의 OR 가드·핀의 pinTouched와 같은 축
+  // (claude 리뷰 #705 — isFriend만 late-profile 가드가 없던 갭).
+  const friendTouched = useRef(false);
   const [requested, setRequested] = useState(false);
 
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
@@ -166,7 +170,9 @@ export default function FriendProfileScreen() {
     if (profileOutcome === undefined) return; // 프로필 요청 미정착 — relation 유무를 알 수 없어 판단을 미룬다
     if (profileOutcome?.relation != null) {
       const { relation } = profileOutcome;
-      setIsFriend(relation === 'FRIEND');
+      if (!friendTouched.current) {
+        setIsFriend(relation === 'FRIEND');
+      }
       // PENDING은 방향 무구분 수용(검색 화면과 동일 표기, decisions N02). 이 화면에서 방금 누른
       // 신청(true)을 프로필 응답이 덮지 않게 OR 유지.
       setRequested((prev) => prev || relation === 'PENDING');
@@ -187,7 +193,7 @@ export default function FriendProfileScreen() {
         fetchSentRequests().catch(() => null), // 실패 시 요청 상태는 현재값 유지
       ]);
       if (stale) return;
-      if (list) {
+      if (list && !friendTouched.current) {
         setIsFriend(list.some((f) => f.userId === userId));
       }
       if (pins && !pinTouched.current && route.params.isPinned == null) {
@@ -252,11 +258,13 @@ export default function FriendProfileScreen() {
         onPress: async () => {
           try {
             await deleteFriend(userId);
+            friendTouched.current = true;
             setIsFriend(false);
             logFriendUnfriended();
           } catch (e) {
             // 404 = 이미 친구 아님 — 화면도 비친구로 전환
             if (axios.isAxiosError(e) && e.response?.status === 404) {
+              friendTouched.current = true;
               setIsFriend(false);
             } else {
               Alert.alert('친구 끊기 실패', '잠시 후 다시 시도해 주세요.');

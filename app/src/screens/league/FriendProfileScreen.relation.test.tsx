@@ -10,10 +10,12 @@
 //
 // ⚠️ 통계·차트 영역은 이 테스트의 관심사가 아니다 — 통계 조회는 전부 실패로 목킹(요약 '비공개' 경로).
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { Alert } from 'react-native';
 import type { PublicProfileResponse } from '@/types/dto/user';
 import FriendProfileScreen from './FriendProfileScreen';
 import { getPublicProfile, getUserStats } from '@/services/userApi';
 import {
+  deleteFriend,
   fetchFriends,
   fetchPinnedFriends,
   fetchSentRequests,
@@ -137,6 +139,34 @@ test('이 화면에서 누른 신청(true)을 뒤늦게 도착한 프로필(NONE
   });
   expect(screen.getByText('요청됨')).toBeTruthy(); // OR 유지 — 되돌아가지 않는다
   expect(screen.queryByText('친구 신청')).toBeNull();
+});
+
+test('이 화면에서 누른 끊기(false)를 뒤늦게 도착한 프로필(FRIEND)이 되돌리지 않는다', async () => {
+  // claude 리뷰 #705 반영 — requested(OR)·isPinned(pinTouched)와 달리 isFriend에 없던
+  // late-profile 가드(friendTouched)를 실제 경합 순서(끊기 → 프로필 늦도착)로 잠근다.
+  mockParams = { userId: 'u1', nickname: '목친구', tierLevel: 2, isFriend: true };
+  let resolveProfile!: (p: PublicProfileResponse) => void;
+  (getPublicProfile as jest.Mock).mockReturnValue(
+    new Promise<PublicProfileResponse>((r) => {
+      resolveProfile = r;
+    }),
+  );
+  (deleteFriend as jest.Mock).mockResolvedValue(undefined);
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => {
+    buttons?.find((b) => b.style === 'destructive')?.onPress?.();
+  });
+
+  await render(<FriendProfileScreen />);
+  await fireEvent.press(screen.getByText('친구 끊기'));
+  expect(await screen.findByText('친구 신청')).toBeTruthy(); // 끊김 반영
+  expect(deleteFriend).toHaveBeenCalledWith('u1');
+
+  await act(async () => {
+    resolveProfile(profileOf({ relation: 'FRIEND' })); // 끊기 전 스냅샷이 뒤늦게 도착
+  });
+  expect(screen.getByText('친구 신청')).toBeTruthy(); // friendTouched 가드 — 되돌아가지 않는다
+  expect(screen.queryByText('친구 끊기')).toBeNull();
+  alertSpy.mockRestore();
 });
 
 test('relation 미제공(구서버) → 기존 목록 3콜 폴백으로 재동기화', async () => {
