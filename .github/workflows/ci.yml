@@ -14,11 +14,24 @@ on:
       - ".github/workflows/check-style-backend.yml"
       - ".github/workflows/spot-bugs.yml"
       - ".github/workflows/cd.yml"
-  workflow_dispatch:
+  # squash merge 뒤에는 최종 main SHA를 다시 검사하고, 이 실행에서 배포 이미지를 만든다.
+  # PR에서 채운 GAR 캐시를 사용하므로 CD에서 별도로 재빌드하지 않는다.
+  push:
+    branches: [main]
+    paths:
+      - "back/**"
+      - "docker-compose.dev.yml"
+      - "docker-compose.datadog.yml"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/test-backend.yml"
+      - ".github/workflows/check-style-backend.yml"
+      - ".github/workflows/spot-bugs.yml"
+      - ".github/workflows/cd.yml"
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # PR의 이전 실행은 취소하되, main 이미지 build/deploy는 중간에 끊지 않는다.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GAR_HOST: asia-northeast3-docker.pkg.dev
@@ -34,45 +47,20 @@ jobs:
   test:
     uses: ./.github/workflows/test-backend.yml
 
-  # backend 검사를 모두 통과한 PR merge-ref를 한 번만 빌드해 GAR에 올린다.
-  # PR 번호는 사람이 찾는 키, head SHA는 같은 PR의 이미지 버전을 구분하는 키다.
-  # 수동 실행은 PR 문맥이 없으므로 기존처럼 build/cache만 수행한다.
+  # PR에서는 merge-ref의 build 가능 여부를 검증하고 GAR 캐시만 갱신한다.
+  # main에서는 최종 main SHA를 같은 캐시로 build해 GAR에 push한다. 이 job이 반환한
+  # digest를 아래 deploy job에 직접 넘기므로 CD는 태그를 다시 조회하거나 재빌드하지 않는다.
   build:
-    name: Dev 이미지 빌드 · GAR push
+    name: Dev 이미지 build${{ github.event_name == 'push' && ' · GAR push' || ' · cache' }}
     needs: [checkstyle, spotbugs, test]
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 30
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-
-      - name: 이미지 태그 계산
-        id: image
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          REVISION="$GITHUB_SHA"
-          IMAGE_TAG="$APP_IMAGE_REPOSITORY:manual-$GITHUB_SHA"
-          PUSH=false
-
-          if [ "$EVENT_NAME" = pull_request ]; then
-            [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
-            [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
-            REVISION="$PR_HEAD_SHA"
-            IMAGE_TAG="$APP_IMAGE_REPOSITORY:pr-$PR_NUMBER-$PR_HEAD_SHA"
-            PUSH=true
-          fi
-
-          {
-            echo "tag=$IMAGE_TAG"
-            echo "revision=$REVISION"
-            echo "back_tree=$(git rev-parse HEAD:back)"
-            echo "push=$PUSH"
-          } >> "$GITHUB_OUTPUT"
 
       # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud도 키 파일도 필요 없다
       - name: GAR 인증
@@ -92,32 +80,48 @@ jobs:
           context: ./back
           file: ./back/Dockerfile
           platforms: linux/amd64
-          push: ${{ steps.image.outputs.push }}
+          # PR이 만든 mutable tag를 배포 신뢰점으로 사용하지 않는다.
+          # main push 실행만 최종 이미지를 push한다.
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           provenance: false
-          tags: ${{ steps.image.outputs.tag }}
+          tags: ${{ env.APP_IMAGE_REPOSITORY }}:${{ github.sha }}
           labels: |
-            org.opencontainers.image.revision=${{ steps.image.outputs.revision }}
+            org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            com.oneorthree.back.source-tree=${{ steps.image.outputs.back_tree }}
           cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64
           cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64,mode=max
 
       - name: 결과 요약
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-          IMAGE_TAG: ${{ steps.image.outputs.tag }}
-          PUSH: ${{ steps.image.outputs.push }}
+          IMAGE_TAG: ${{ env.APP_IMAGE_REPOSITORY }}:${{ github.sha }}
+          PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           if [ "$PUSH" = true ]; then
             [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
             {
-              echo "### Dev PR 이미지 push 완료 :rocket:"
+              echo "### Dev main 이미지 push 완료 :rocket:"
               echo "- 태그: \`$IMAGE_TAG\`"
               echo "- digest: \`$IMAGE_DIGEST\`"
             } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### 수동 이미지 build · cache 검증 완료 (push 없음)" >> "$GITHUB_STEP_SUMMARY"
+            echo "### PR 이미지 build · cache 검증 완료 (push 없음)" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # build-push-action의 digest는 같은 workflow 안의 reusable CD로 직접 전달한다.
+  # registry tag는 사람이 main SHA로 이미지를 찾는 용도일 뿐, 배포 입력으로 사용하지 않는다.
+  deploy:
+    name: Dev CD
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/cd.yml
+    with:
+      image_digest: ${{ needs.build.outputs.image-digest }}
+      image_revision: ${{ github.sha }}
+    secrets: inherit
 
   pr-report:
     needs: [checkstyle, spotbugs, test, build]
