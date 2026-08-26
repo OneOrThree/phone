@@ -4,6 +4,9 @@ build/
 bin/
 out/
 
+# 런타임 로그 (로컬 부팅 산출물 — 유저 활동 이벤트 포함, 절대 커밋 금지)
+logs/
+
 # IDE
 .idea/
 *.iml

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "$0")" && pwd)"
-exec "$repo_root/scripts/local-web.sh"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+exec "$script_dir/local-web.sh"

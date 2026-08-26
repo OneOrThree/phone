@@ -8,7 +8,7 @@ let fps: Int32 = 24
 let duration = 23.0
 
 let root = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : FileManager.default.currentDirectoryPath)
-let outputURL = root.appendingPathComponent("assets/app-video/gromo-intro-23s.mp4")
+let outputURL = root.appendingPathComponent("app/assets/app-video/gromo-intro-23s.mp4")
 
 func loadImage(_ relativePath: String) -> CGImage {
     let url = root.appendingPathComponent(relativePath)
@@ -19,11 +19,11 @@ func loadImage(_ relativePath: String) -> CGImage {
     return cgImage
 }
 
-let logo = loadImage("assets/app-icons/app-logo-room20-g.png")
-let study = loadImage("app/src/assets/character_study.png")
-let happy = loadImage("app/src/assets/character_happy.png")
-let character = loadImage("app/src/assets/character.png")
-let tierBadge = loadImage("app/src/assets/tier_image/tier3.png")
+let logo = loadImage("app/assets/app-icons/app-logo-room20-g.png")
+let study = loadImage("app/app-dev/src/assets/character_study.png")
+let happy = loadImage("app/app-dev/src/assets/character_happy.png")
+let character = loadImage("app/app-dev/src/assets/character.png")
+let tierBadge = loadImage("app/app-dev/src/assets/tier_image/tier3.png")
 
 let lavender = CGColor(red: 0.55, green: 0.49, blue: 0.86, alpha: 1)
 let lavenderDark = CGColor(red: 0.31, green: 0.25, blue: 0.58, alpha: 1)

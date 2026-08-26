@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-compose_file="$repo_root/docker-compose.local.yml"
-local_config="$repo_root/back/src/main/resources/application-local.yml"
+repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+compose_file="$repo_root/server/scripts/docker-compose.local.yml"
+local_config="$repo_root/server/data-api/src/main/resources/application-local.yml"
 local_config_example="$local_config.example"
-backend_log="$repo_root/back/build/local-web-backend.log"
+backend_log="$repo_root/server/data-api/build/local-web-backend.log"
 backend_pid=""
 
 cleanup() {
@@ -66,7 +66,7 @@ else
   echo "2/4 로컬 백엔드를 시작합니다. 로그: $backend_log"
   mkdir -p "$(dirname "$backend_log")"
   (
-    cd "$repo_root/back"
+    cd "$repo_root/server/data-api"
     # local 프로파일을 명시해야 application-local.yml(jwt·소셜 설정)과 LocalCorsConfig 가 붙는다.
     # 저장소에 base application.yml 이 없어(gitignore) 프로파일을 안 주면 default 로 떠서
     # "Could not resolve placeholder 'jwt.secret'" 으로 부팅에 실패한다.
@@ -97,7 +97,7 @@ else
 fi
 
 echo "3/4 반복 실행 가능한 더미 데이터를 넣습니다."
-"$repo_root/back/scripts/seed-local-debug.sh"
+"$repo_root/server/data-api/scripts/seed-local-debug.sh"
 
 web_port=8081
 while lsof -nP -iTCP:"$web_port" -sTCP:LISTEN >/dev/null 2>&1; do
@@ -106,5 +106,5 @@ done
 
 echo "4/4 웹 앱을 시작합니다: http://localhost:$web_port"
 echo "종료하려면 Ctrl+C를 누르세요. PostgreSQL 데이터는 유지됩니다."
-cd "$repo_root/app"
+cd "$repo_root/app/app-dev"
 npm run web -- --port "$web_port"

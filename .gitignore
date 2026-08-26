@@ -16,5 +16,7 @@
 /doc/
 /logs/
 
-# 환경변수
+# 환경변수 (.env.local·.env.production 류까지 — 예제 파일만 추적)
 *.env
+.env*
+!.env.example

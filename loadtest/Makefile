@@ -31,7 +31,7 @@ SPOTS ?= 1
 SCENARIO ?=
 
 SHA := $(shell git rev-parse --short HEAD)
-# SUT 이미지 — prod 와 같은 back/Dockerfile 을 핀 SHA 로 빌드 (make image)
+# SUT 이미지 — prod 와 같은 server/data-api/Dockerfile 을 핀 SHA 로 빌드 (make image)
 IMAGE ?= $(REGION)-docker.pkg.dev/$(PROJECT_ID)/loadtest/gromo-back:$(SHA)
 # := 로 1회 고정 — ?= 는 참조마다 date 를 재평가해 REPORT_DIR 이 초 경계에서 어긋나고,
 # standalone make report/verdict 가 매번 새 타임스탬프를 만들어 직전 run 을 못 찾는다 (#183 리뷰).
@@ -65,7 +65,7 @@ infra-up: guard
 	terraform apply -var "project_id=$(PROJECT_ID)"
 
 image: guard
-	docker build --platform linux/amd64 -t $(IMAGE) ../back
+	docker build --platform linux/amd64 -t $(IMAGE) ../server/data-api
 	gcloud auth configure-docker $(REGION)-docker.pkg.dev --quiet
 	docker push $(IMAGE)
 
