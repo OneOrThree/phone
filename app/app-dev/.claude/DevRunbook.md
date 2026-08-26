@@ -20,8 +20,8 @@
 
 - **iOS 시뮬레이터** (개발 용이)
 - **실기기** (p12 인증서로 서명)
-- **Docker / Docker Compose** — 로컬 백엔드(`back/`)를 직접 띄울 때만 필요 (`docker --version`, `docker compose version`)
-- **Ruby bundler + fastlane** — TestFlight 배포 시에만 필요 (아래 "TestFlight 배포" 참고, `app/ios/Gemfile`로 설치)
+- **Docker / Docker Compose** — 로컬 백엔드(`server/data-api/`)를 직접 띄울 때만 필요 (`docker --version`, `docker compose version`)
+- **Ruby bundler + fastlane** — TestFlight 배포 시에만 필요 (아래 "TestFlight 배포" 참고, `app/app-dev/ios/Gemfile`로 설치)
 
 ---
 
@@ -81,7 +81,7 @@ cd Gromo
 ### 2.2 JavaScript 의존성 설치
 
 ```bash
-cd app
+cd app/app-dev
 npm install
 ```
 
@@ -103,21 +103,21 @@ cd ..
 
 ### 3.1 환경 변수 설정
 
-**`app/.env` 파일 생성** (`.gitignore`에 포함된 개인 설정 파일이라 새로 받으면 직접 만들어야 합니다):
+**`app/app-dev/.env` 파일 생성** (`.gitignore`에 포함된 개인 설정 파일이라 새로 받으면 직접 만들어야 합니다):
 
 ```bash
-cp app/.env.example app/.env
+cp app/app-dev/.env.example app/app-dev/.env
 ```
 
-> `app/.env.example`의 기본값은 팀 서버(`https://oneorthree.dev.mooo.com`)를 가리키며 `src/services/api.ts`의 기본값과 동일합니다. 백엔드를 직접 띄우지 않아도 바로 개발을 시작할 수 있습니다 (아래 3.2의 (A) 방식).
+> `app/app-dev/.env.example`의 기본값은 팀 서버(`https://oneorthree.dev.mooo.com`)를 가리키며 `src/services/api.ts`의 기본값과 동일합니다. 백엔드를 직접 띄우지 않아도 바로 개발을 시작할 수 있습니다 (아래 3.2의 (A) 방식).
 
 ### 3.2 백엔드 연결 모드 선택
 
-앱은 백엔드 API 서버(`back/`, Spring Boot)와 통신합니다. 아래 두 가지 중 하나를 선택하세요.
+앱은 백엔드 API 서버(`server/data-api/`, Spring Boot)와 통신합니다. 아래 두 가지 중 하나를 선택하세요.
 
 #### (A) 팀 서버 연결 — 기본, 추천
 
-`app/.env`의 `EXPO_PUBLIC_API_URL`을 팀 서버로 설정 (3.1 참고):
+`app/app-dev/.env`의 `EXPO_PUBLIC_API_URL`을 팀 서버로 설정 (3.1 참고):
 
 ```
 EXPO_PUBLIC_API_URL=https://oneorthree.dev.mooo.com
@@ -127,18 +127,18 @@ EXPO_PUBLIC_API_URL=https://oneorthree.dev.mooo.com
 
 #### (B) 로컬 백엔드 직접 실행 — 백엔드 코드를 수정/디버깅할 때
 
-백엔드(`back/`)는 Spring Boot(Java 17) + PostgreSQL이며, 프로젝트 루트의 Docker Compose로 실행합니다.
+백엔드(`server/data-api/`)는 Spring Boot(Java 17) + PostgreSQL이며, `server/scripts/`의 Docker Compose로 실행합니다.
 
 ```bash
-# 프로젝트 루트에서
-docker compose -f docker-compose.dev.yml up -d
+# 프로젝트 루트에서 — compose 파일이 server/scripts/로 옮겨져 .env 자동 로딩이 안 되므로 --env-file 명시
+docker compose --env-file .env -f server/scripts/docker-compose.dev.yml up -d
 ```
 
 - API 서버: `http://localhost:8080`
 - 루트 `.env` 파일에 `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` / `JWT_SECRET` 값이 필요합니다 (이미 존재).
-- 종료: `docker compose -f docker-compose.dev.yml down`
+- 종료: `docker compose --env-file .env -f server/scripts/docker-compose.dev.yml down`
 
-**iOS 시뮬레이터**에서는 `app/.env`를 아래처럼 설정:
+**iOS 시뮬레이터**에서는 `app/app-dev/.env`를 아래처럼 설정:
 
 ```
 EXPO_PUBLIC_API_URL=http://localhost:8080
@@ -166,7 +166,7 @@ REACT_NATIVE_PACKAGER_HOSTNAME=172.16.102.49
 ### 4.1 iOS 시뮬레이터 (권장 - 가장 쉬움)
 
 ```bash
-cd app
+cd app/app-dev
 npm start
 # 터미널에서 'i' 입력 또는 다음 명령어 사용:
 npx expo run:ios
@@ -185,7 +185,7 @@ npx expo run:ios
 **단계**:
 
 ```bash
-cd app
+cd app/app-dev
 npm start  # 별도 터미널 탭에서 계속 실행
 
 # 다른 터미널에서
@@ -208,16 +208,16 @@ Xcode에서:
 
 > **왜 로컬 fastlane?** EAS Build 무료 한도(월 ~15회)를 다 태워서, EAS 대신 **수빈 맥에서 로컬 fastlane**으로 TestFlight에 올린다(무료·무제한). 빌드 머신 = 수빈 맥.
 
-한 방 배포는 `app/ios/testflight.sh` 하나면 된다. 아래 **5.1 최초 셋업은 처음 한 번만**, 이후엔 **5.2만 반복**한다.
+한 방 배포는 `app/app-dev/ios/testflight.sh` 하나면 된다. 아래 **5.1 최초 셋업은 처음 한 번만**, 이후엔 **5.2만 반복**한다.
 
 ### 5.1 최초 1회 셋업
 
 #### (1) Ruby 의존성 설치 (fastlane)
 
-fastlane은 `app/ios/Gemfile`로 관리하며 `vendor/bundle`에 설치된다 (`.bundle/config`의 `BUNDLE_PATH`).
+fastlane은 `app/app-dev/ios/Gemfile`로 관리하며 `vendor/bundle`에 설치된다 (`.bundle/config`의 `BUNDLE_PATH`).
 
 ```bash
-cd app/ios
+cd app/app-dev/ios
 gem install bundler              # 없으면
 bundle install                   # Gemfile 의존성(fastlane) 설치 → vendor/bundle
 bundle exec fastlane --version   # 설치 확인
@@ -231,7 +231,7 @@ Apple ID 비번 대신 API Key로 인증한다 (2FA·세션 만료 없음).
 2. 키 생성 (역할 **App Manager** 이상) → `AuthKey_XXXXXX.p8` 다운로드 (**재발급 불가, 잘 보관**)
 3. 같은 화면 상단의 **Issuer ID**(UUID) 복사
 
-#### (3) `app/ios/fastlane/.env` 작성 (`.gitignore`됨 — 커밋 금지)
+#### (3) `app/app-dev/ios/fastlane/.env` 작성 (`.gitignore`됨 — 커밋 금지)
 
 ```
 ASC_KEY_ID=XXXXXXXXXX             # .p8 파일명의 키 ID (AuthKey_XXXX 의 XXXX)
@@ -251,7 +251,7 @@ ASC_KEY_PATH=/절대/경로/AuthKey_XXXXXX.p8
 
 #### (5) Firebase 설정 파일(plist) 배치 — 없으면 빌드가 멈춘다
 
-`app/ios/`에 **두 파일 다** 두어야 한다 (`.gitignore` — git이 아닌 별도 채널로 재영에게 받는다):
+`app/app-dev/ios/`에 **두 파일 다** 두어야 한다 (`.gitignore` — git이 아닌 별도 채널로 재영에게 받는다):
 
 | 파일                            | Firebase 프로젝트 | 쓰이는 때                           |
 | ------------------------------- | ----------------- | ----------------------------------- |
@@ -265,14 +265,14 @@ ASC_KEY_PATH=/절대/경로/AuthKey_XXXXXX.p8
 #### (6) (선택) alias 등록 — 어디서든 `testflight`
 
 ```bash
-echo 'alias testflight="/Users/soobin/phone/app/ios/testflight.sh"' >> ~/.zshrc
+echo 'alias testflight="/Users/soobin/phone/app/app-dev/ios/testflight.sh"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
 ### 5.2 배포 실행 (매번)
 
 ```bash
-cd app/ios
+cd app/app-dev/ios
 ./testflight.sh        # alias 등록했으면 어디서든 `testflight`
 ```
 
@@ -298,18 +298,18 @@ cd app/ios
   ```
 - **"sandbox is not in sync with the `Podfile.lock`"** = 브랜치 전환/라이브러리 추가 후 `pod install`을 안 함. `testflight.sh`가 자동 처리하지만, 수동으로 돌릴 땐 `pod install` 후 `Pod installation complete!`를 확인.
 - **`react-native-fbsdk-next` throw** = `app.config.js`가 `EXPO_PUBLIC_FACEBOOK_APP_ID`가 없으면 플러그인에서 throw. appID가 있을 때만 플러그인을 추가하도록 조건부 처리돼 있어(없어도 빌드는 됨), 값이 비어도 배포는 진행된다.
-- **`.env`가 Release 번들에 인라인됨** = Expo는 빌드 시점의 `EXPO_PUBLIC_*` 값을 번들에 그대로 박는다. `testflight.sh`는 export로 프로덕션 서버를 강제하니 안전하지만, **`fastlane beta`를 직접 돌릴 땐** `app/.env.production`의 `EXPO_PUBLIC_API_URL`이 프로덕션 서버인지 반드시 확인. 업로드 전 `strings <archive>/Products/Applications/gromo.app/main.jsbundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u`로 번들에 박힌 주소를 직접 검증할 수 있다.
+- **`.env`가 Release 번들에 인라인됨** = Expo는 빌드 시점의 `EXPO_PUBLIC_*` 값을 번들에 그대로 박는다. `testflight.sh`는 export로 프로덕션 서버를 강제하니 안전하지만, **`fastlane beta`를 직접 돌릴 땐** `app/app-dev/.env.production`의 `EXPO_PUBLIC_API_URL`이 프로덕션 서버인지 반드시 확인. 업로드 전 `strings <archive>/Products/Applications/gromo.app/main.jsbundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u`로 번들에 박힌 주소를 직접 검증할 수 있다.
 - **`node: command not found`**(비대화형/일부 셸) = `testflight.sh`가 `/opt/homebrew/Cellar/node@24/...`를 PATH에 보강해 둠. node 버전이 바뀌면 스크립트 안의 경로도 같이 갱신할 것.
 
 ---
 
 ## 📂 프로젝트 구조
 
-> 코드는 전부 **TypeScript**, 소스는 `app/src/` 아래에 있고 `@/` 별칭(`@` = `src`)으로 임포트한다. 화면/컴포넌트/상태 규칙의 정본은 [CLAUDE.md](./CLAUDE.md) "Project structure" 참고.
+> 코드는 전부 **TypeScript**, 소스는 `app/app-dev/src/` 아래에 있고 `@/` 별칭(`@` = `src`)으로 임포트한다. 화면/컴포넌트/상태 규칙의 정본은 [CLAUDE.md](./CLAUDE.md) "Project structure" 참고.
 
 ```
 Gromo/
-├── app/                          # React Native + Expo 앱 (TypeScript)
+├── app/app-dev/                  # React Native + Expo 앱 (TypeScript)
 │   ├── package.json              # JS 의존성
 │   ├── app.config.js             # Expo 설정 (플러그인·assets)
 │   ├── .env                      # 환경 변수 (개인 설정, gitignore)
@@ -336,7 +336,7 @@ Gromo/
 │       ├── CLAUDE.md             # 프론트엔드 코드 규칙
 │       └── *_WorkLog.md          # 기능별 작업 로그 (ScreenTime 등)
 │
-└── back/                         # Spring Boot 백엔드 (이 리포에 포함)
+└── server/data-api/              # Spring Boot 백엔드 (이 리포에 포함)
     └── ...
 ```
 
@@ -355,17 +355,17 @@ Gromo/
 
 ### 프로젝트 설정
 
-- [ ] `app/node_modules/` 존재 (`npm install` 완료)
-- [ ] `app/ios/Pods/` 존재 (`pod install` 완료)
-- [ ] `app/.env` 파일 생성 및 `EXPO_PUBLIC_API_URL` 설정 확인 (팀 서버 또는 로컬 백엔드)
-- [ ] (B) 로컬 백엔드 선택 시: `docker compose -f docker-compose.dev.yml ps`로 컨테이너 정상 동작 확인
+- [ ] `app/app-dev/node_modules/` 존재 (`npm install` 완료)
+- [ ] `app/app-dev/ios/Pods/` 존재 (`pod install` 완료)
+- [ ] `app/app-dev/.env` 파일 생성 및 `EXPO_PUBLIC_API_URL` 설정 확인 (팀 서버 또는 로컬 백엔드)
+- [ ] (B) 로컬 백엔드 선택 시: `docker compose --env-file .env -f server/scripts/docker-compose.dev.yml ps`로 컨테이너 정상 동작 확인
 
 ### 빌드 준비
 
-- [ ] `app/.env`의 `EXPO_PUBLIC_API_URL` 올바른지 확인
+- [ ] `app/app-dev/.env`의 `EXPO_PUBLIC_API_URL` 올바른지 확인
 - [ ] Metro가 실행 가능한지 확인:
   ```bash
-  cd app && npm start
+  cd app/app-dev && npm start
   # 출력: "Metro waiting on exp://..."
   ```
 
@@ -377,7 +377,7 @@ Gromo/
 
 ```bash
 # 캐시 초기화 후 재시작
-cd app
+cd app/app-dev
 rm -rf node_modules package-lock.json
 npm install
 npm start --clear
@@ -386,7 +386,7 @@ npm start --clear
 ### Pod 관련 에러
 
 ```bash
-cd app/ios
+cd app/app-dev/ios
 rm -rf Pods Podfile.lock
 pod install --repo-update
 cd ../..
@@ -396,7 +396,7 @@ npm start
 ### Xcode에서 "Header not found" 에러
 
 ```bash
-cd app/ios
+cd app/app-dev/ios
 xcodebuild clean
 pod install --repo-update
 cd ..
@@ -460,4 +460,4 @@ npx expo run:ios
 
 ---
 
-**최종 업데이트**: 2026-07-07
+**최종 업데이트**: 2026-08-26 (디렉토리 구조 개편 — `app/` → `app/app-dev/`, `back/` → `server/data-api/`, compose → `server/scripts/`)

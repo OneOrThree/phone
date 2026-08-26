@@ -9,9 +9,10 @@ docker-compose overlay 로 기존 dev 스택 위에 얹는다. 무료(컨테이�
 
 ```bash
 cd phone
-# dev 서버에서는 dev-cd 가 checkout 밖에 만든 runtime env 를 --env-file 로 지정한다
-# (POSTGRES_*, GRAFANA_ADMIN_PASSWORD 등 — dev-monitor.yml 이 쓰는 것과 동일)
-docker compose -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml up -d
+# --env-file 은 dev-cd 가 checkout 밖에 만든 runtime env (POSTGRES_*, GRAFANA_ADMIN_PASSWORD 등
+# — dev-monitor.yml 이 쓰는 것과 동일). 빼면 빈 값으로 치환돼 db 재생성·기동 실패 위험.
+docker compose --env-file ../.gromo-runtime/dev.env \
+  -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml up -d
 ```
 
 - Grafana: `http://<서버>:3000` (admin / `$GRAFANA_ADMIN_PASSWORD`)
@@ -21,7 +22,8 @@ docker compose -f server/scripts/docker-compose.dev.yml -f server/scripts/docker
 중지:
 
 ```bash
-docker compose -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml down
+docker compose --env-file ../.gromo-runtime/dev.env \
+  -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml down
 ```
 
 > ⚠️ 반드시 `-f` 두 개로 실행. 그래야 dev 의 `app-network`·`app`·`db` 와 같은 프로젝트/네트워크를 공유해

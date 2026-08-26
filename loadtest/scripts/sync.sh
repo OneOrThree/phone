@@ -38,7 +38,7 @@ vm_ssh obs 'mkdir -p ~/obs/dashboards/repo ~/obs/dashboards/loadtest ~/seed'
 vm_scp "$TMP" obs:~/obs/prometheus.yml
 vm_scp "$LT_DIR/infra/obs/docker-compose.obs.yml" "$LT_DIR/infra/obs/grafana-provisioning" \
   "$LT_DIR/infra/fetch-env.sh" obs:~/obs/
-vm_scp "$LT_DIR"/../observability/grafana/dashboards/*.json obs:~/obs/dashboards/repo/
+vm_scp "$LT_DIR"/../server/observability/grafana/dashboards/*.json obs:~/obs/dashboards/repo/
 vm_scp "$LT_DIR"/grafana/dashboards/*.json obs:~/obs/dashboards/loadtest/
 # 컨테이너(prometheus=nobody, grafana=비root)가 마운트한 config 를 읽으려면 other-read 필요.
 # prometheus.yml(mktemp 0600 유래) + provisioning/dashboards(체크아웃 umask 에 좌우, umask 077 대비)

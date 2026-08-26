@@ -10,10 +10,10 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 
 ROOT = Path(__file__).resolve().parents[3]
-DOCS = ROOT / ".docs" / "app-imgs"
+DOCS = ROOT / "docs" / "app-imgs"
 CAPTURES = DOCS / "captures"
 FINAL = DOCS / "final"
-ASSETS = ROOT / "app" / "src" / "assets"
+ASSETS = ROOT / "app" / "app-dev" / "src" / "assets"
 FONT = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
 
 

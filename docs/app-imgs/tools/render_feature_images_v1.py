@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 
 ROOT = Path(__file__).resolve().parents[3]
-DOCS = ROOT / ".docs" / "app-imgs"
+DOCS = ROOT / "docs" / "app-imgs"
 CAPTURES = DOCS / "captures" / "features"
 FINAL_V1 = DOCS / "features-v1"
 FINAL_COPY_V2 = DOCS / "features-v1-copy-v2"
