@@ -1,0 +1,150 @@
+# GROMO dev 서버 — CD (main CI digest → 앱 서버 배포)
+#
+# PR CI는 build/cache만 검증한다. squash merge 후 main CI가 최종 main SHA를
+# build·push하고, build-push-action이 반환한 불변 digest를 이 workflow에 직접 넘긴다.
+# CD는 registry tag를 다시 찾거나 이미지를 재빌드하지 않는다.
+
+name: CD
+
+on:
+  workflow_call:
+    inputs:
+      image_digest:
+        description: main CI가 push한 이미지의 sha256 digest
+        required: true
+        type: string
+      image_revision:
+        description: 이미지를 만든 main commit SHA
+        required: true
+        type: string
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+  ENV_SECRET_ID: gromo/dev/env
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back
+  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+
+jobs:
+  deploy:
+    name: 앱 서버 배포
+    runs-on: [self-hosted, dev]
+    environment: production
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # caller의 main commit과 build job output이 일치할 때만 배포한다.
+      # digest는 content-addressed 값이므로 PR이 mutable tag를 바꿔도 배포 대상은 변하지 않는다.
+      - name: 배포 입력 검증
+        env:
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$IMAGE_REVISION" = "$GITHUB_SHA"
+          {
+            echo "### Dev 배포 이미지"
+            echo "- main SHA: \`$IMAGE_REVISION\`"
+            echo "- digest: \`$IMAGE_DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: AWS 자격증명 (OIDC, keyless)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gromo-dev-${{ github.run_id }}
+          unset-current-credentials: true
+          mask-aws-account-id: true
+
+      - name: AWS 계정 경계 확인
+        run: test "$(aws sts get-caller-identity --query Account --output text)" = 808715036056
+
+      # checkout sibling은 actions/checkout의 git clean 범위 밖이다. 배포 뒤 수동 compose와
+      # dev-monitor/dev-datadog도 같은 0600 파일을 --env-file로 명시해 사용한다.
+      - name: 런타임 값 로드 (Secrets Manager → checkout 외부 env)
+        env:
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          aws secretsmanager get-secret-value \
+            --secret-id "$ENV_SECRET_ID" \
+            --query SecretString --output text \
+          | python3 .github/scripts/write-compose-env.py \
+              --output "$RUNTIME_ENV_FILE" \
+              --app-image "$APP_IMAGE_REPOSITORY@$IMAGE_DIGEST"
+
+      - name: GAR 인증
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+
+      - name: 배포
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          IMAGE_VERSION: ${{ inputs.image_revision }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f server/scripts/docker-compose.dev.yml)
+          if docker ps --format '{{.Names}}' | grep -Fxq gromo-datadog-agent; then
+            test -n "$DD_API_KEY"
+            compose+=(-f server/scripts/docker-compose.datadog.yml)
+            echo "DATADOG_OVERLAY_ENABLED=1" >> "$GITHUB_ENV"
+          else
+            echo "DATADOG_OVERLAY_ENABLED=0" >> "$GITHUB_ENV"
+          fi
+          "${compose[@]}" pull app
+          "${compose[@]}" up -d app
+          "${compose[@]}" ps
+
+      - name: 헬스체크
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          IMAGE_VERSION: ${{ inputs.image_revision }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f server/scripts/docker-compose.dev.yml)
+          if [ "${DATADOG_OVERLAY_ENABLED:-0}" = 1 ]; then
+            compose+=(-f server/scripts/docker-compose.datadog.yml)
+          fi
+          echo "앱 기동 대기 중..."
+          # Datadog -javaagent 콜드스타트까지 포함한 직전 운영 계약: 최대 300초.
+          for i in $(seq 1 60); do
+            sleep 5
+            if curl -sf http://localhost:8080/health; then
+              echo "헬스체크 통과"
+              exit 0
+            fi
+            echo "대기 중... ($((i*5))s)"
+          done
+          "${compose[@]}" logs app
+          exit 1
+
+      - name: 배포 실패 리포트
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('Deployment failed on', new Date().toISOString())

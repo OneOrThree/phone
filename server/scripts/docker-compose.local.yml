@@ -1,0 +1,25 @@
+# 프로젝트명 고정 — 파일이 server/scripts/로 이사한 뒤에도 기존 로컬 볼륨
+# (phone_postgres_local_data)에 그대로 붙게 한다.
+name: phone
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: phone-db-local
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: tt_db
+      POSTGRES_USER: jajo
+      POSTGRES_PASSWORD: jajo
+    volumes:
+      - postgres_local_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jajo -d tt_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_local_data:

@@ -1,0 +1,250 @@
+name: Android Checks
+
+# 안드로이드 네이티브 검사 (GROMO-1602)
+#
+# app-lint.yml 은 ESLint·Prettier·tsc·jest 만 돈다 — **Kotlin·Gradle·매니페스트·리소스가 깨져도
+# PR 은 전부 초록이고, 로컬에서 빌드해 본 사람만 안다.** 2026-08-18 집중 실드 작업에서
+# Kotlin 컴파일 에러와 XML 주석 오류(`--` 를 주석 안에 넣어 리소스 파싱 실패)가 둘 다
+# 앱 CI 를 그대로 통과했다.
+#
+# ## 두 단으로 나눈 이유 — Gradle 검사는 NDK 4.8 GB 를 요구한다
+#
+# React Native 루트 플러그인이 **구성 단계에서** NDK 를 요구한다. 태스크가 C++ 를 한 줄도
+# 컴파일하지 않아도(태스크 그래프 220개에 cmake/externalNative 가 하나도 없다) 프로젝트
+# 구성 자체가 실패한다:
+#
+#     > Failed to apply plugin 'com.facebook.react.rootproject'.
+#        > NDK not configured. Preferred NDK version is '27.0.12077973'.
+#
+# `-Pandroid.builder.sdkDownload=false` 로 자동 설치를 끄면 위 에러로 죽고, 켜두면 NDK 두
+# 버전(27.0.12077973 · 27.1.12297006)을 **4.8 GB** 받는다. 실측 결과:
+#
+#   | 구성 | 크기 |
+#   | --- | --- |
+#   | platforms/android-36 | 134 MB |
+#   | build-tools/36.0.0 | 188 MB |
+#   | **NDK ×2** | **4.8 GB** |
+#
+# 그래서 러너에 SDK 가 없으면 **Gradle 단은 건너뛰고 XML 단만** 돌린다. SDK 가 깔리는 순간
+# 이 파일을 고치지 않아도 전체 검사가 자동으로 켜진다(러너 SDK 설치는 GROMO-1611).
+#
+# ⚠️ 건너뛸 때는 **경고를 남긴다.** 조용히 통과하면 검사가 돈 것처럼 보여서, 안 돈다는 사실이
+#    아무에게도 안 보인다.
+#
+# ⚠️ 트리거를 좁게 잡은 이유: Gradle 은 구성만으로도 RN 모듈 전체를 훑어 lint 보다 무겁다.
+#    러너가 한 대뿐이라(e2-custom-4-8192 — 4 vCPU / 8 GB, 고정 VM), 안드로이드 네이티브가
+#    실제로 바뀐 PR 에서만 돌게 한다. TS 만 고친 PR 은 app-lint.yml 이 이미 잡는다.
+#    (app-lint.yml 과 startup-script 주석은 아직 e2-medium 이라고 적혀 있다 — 실측과 다르다.
+#     GROMO-1611 에서 함께 정정한다.)
+
+on:
+  push:
+    branches: [main]
+    paths: &android_paths
+      - 'app/app-dev/android/**'
+      - 'app/app-dev/modules/**/android/**'
+      # Expo 자동링크 대상 클래스는 이 파일이 정한다 — android/ 를 한 줄도 안 고치고
+      # 없는 클래스를 가리키게 만들 수 있다(코드리뷰 반영).
+      - 'app/app-dev/modules/*/expo-module.config.json'
+      # RN 커뮤니티 오토링킹 — 안드로이드에서 제외 중인 패키지(@xmartlabs/react-native-line)의
+      # 제외가 풀리면 컴파일이 깨진다. 이 파일만 고치는 PR 도 검사 대상이다(코드리뷰 반영).
+      - 'app/app-dev/react-native.config.js'
+      - 'app/app-dev/package.json'
+      # npm ci 는 lock 파일의 그래프를 그대로 설치한다 — lock 만 바뀌어도 네이티브 의존성
+      # 실제 버전이 달라진다(코드리뷰 반영).
+      - 'app/app-dev/package-lock.json'
+      - 'app/app-dev/app.config.js'
+      - '.github/workflows/app-android-build.yml'
+  pull_request:
+    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드다 (app-lint.yml 과 같은 패턴)
+    # push 필터와 **같은 목록**을 쓴다(YAML 앵커). 두 벌로 두면 한쪽만 고쳐져 갈라진다 —
+    # 실제로 코드리뷰에서 네 경로가 한꺼번에 누락된 채로 발견됐다.
+    #
+    # 이 워크플로 자신도 트리거에 들어 있다 (app-lint.yml 이 GROMO-1513 에서 배운 것) — 안 넣으면
+    # 이 파일만 고치는 PR 에서 검사가 아예 안 돌아, **머지해 봐야** 맞는지 알 수 있다.
+    paths: *android_paths
+
+# 같은 PR 에 연속 푸시가 나면 앞 실행을 버린다 — 러너가 한 대뿐이라 큐가 밀리면
+# 뒤따르는 다른 PR 까지 통째로 기다리게 된다.
+concurrency:
+  group: android-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 30
+
+    env:
+      # 자격 파일 없이 도는 CI 전용 환경 — 아래 'CI 자격 생성' 단계가 만든다.
+      APP_ENV: ci
+      # Gradle 데몬은 러너 메모리(8 GB)를 오래 물고 있는다. 잡이 끝나면 버릴 것이므로 끈다.
+      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 1단: XML 정합 (SDK 불필요) ─────────────────────────────────────────────
+      # 안드로이드 리소스·매니페스트가 XML 로서 성립하는지만 본다. 가볍지만 실제로 겪은 사고를
+      # 잡는다 — XML 주석 안에는 하이픈 두 개를 못 쓰는데, 표를 그리려고 `---` 를 넣어
+      # 리소스 파싱이 통째로 실패했다.
+      #
+      # 이 단은 SDK 가 없어도 항상 돈다.
+      - name: XML 정합 검사
+        run: |
+          if ! command -v python3 >/dev/null 2>&1; then
+            echo "::error::python3 가 없어 XML 검사를 못 했습니다 — 러너에 python3 를 설치하세요."
+            exit 1
+          fi
+          python3 - <<'PY'
+          import sys, glob, xml.etree.ElementTree as ET
+
+          patterns = [
+              'app/app-dev/android/**/src/**/*.xml',
+              'app/app-dev/modules/*/android/src/**/*.xml',
+          ]
+          files = sorted({f for p in patterns for f in glob.glob(p, recursive=True)})
+          if not files:
+              print('검사 대상 XML 없음')
+              sys.exit(0)
+
+          bad = []
+          for f in files:
+              try:
+                  ET.parse(f)
+              except ET.ParseError as e:
+                  bad.append((f, e))
+
+          for f, e in bad:
+              # 주석 안 `--` 가 가장 흔한 원인이라 힌트를 함께 남긴다.
+              print(f'::error file={f}::XML 파싱 실패: {e} (주석 안에 하이픈 두 개 `--` 가 있는지 확인하세요)')
+          print(f'{len(files)}개 검사, {len(bad)}개 실패')
+          sys.exit(1 if bad else 0)
+          PY
+
+      # ── 2단: Gradle 검사 (SDK 필요) ────────────────────────────────────────────
+      # 셋 다 있어야 켠다. `platforms` 디렉터리 유무만 보면 **부분 설치에서 오히려 위험하다**
+      # (코드리뷰 반영) — 플랫폼만 있고 NDK 가 없으면 RN 루트 플러그인이 구성 단계에서 NDK 를
+      # 4.8 GB 받기 시작해, XML 만 검사하려던 잡이 코드와 무관하게 타임아웃으로 죽는다.
+      #
+      # 버전을 박지 않는 이유: compileSdk·buildTools·ndkVersion 은 expo-root-project 플러그인이
+      # 정한다. 여기 숫자를 적으면 플러그인이 올라갈 때 조용히 어긋난다. 그래서 '무엇이 있나'만
+      # 보고, 특정 **버전**이 없으면 Gradle 이 자기 에러로 알려주게 둔다 — 그러려면 아래 Gradle
+      # 단에서 자동 다운로드를 꺼야 한다. 안 끄면 '알려주는' 대신 4.8 GB 를 받는다.
+      - name: 안드로이드 SDK 확인
+        id: sdk
+        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          missing=""
+          for c in platforms build-tools ndk; do
+            # -n "$(ls -A ...)" — 디렉터리는 있는데 비어 있는 경우도 없는 것으로 친다.
+            if [ -z "$SDK" ] || [ ! -d "$SDK/$c" ] || [ -z "$(ls -A "$SDK/$c" 2>/dev/null)" ]; then
+              missing="$missing $c"
+            fi
+          done
+          if [ -z "$missing" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "ANDROID_HOME=$SDK"
+            echo "platforms: $(ls "$SDK/platforms" | tr '\n' ' ')"
+            echo "build-tools: $(ls "$SDK/build-tools" | tr '\n' ' ')"
+            echo "ndk: $(ls "$SDK/ndk" | tr '\n' ' ')"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::러너 SDK 구성요소가 부족해(빠진 것:$missing) Gradle 검사(Kotlin 컴파일·리소스·매니페스트 병합)를 건너뜁니다. XML 정합만 검사했습니다. 켜려면 platforms + build-tools + NDK(약 5 GB — RN 루트 플러그인이 구성 단계에서 요구)를 모두 설치하세요. 자세한 내용은 GROMO-1611."
+          fi
+
+      - name: Setup Java
+        if: steps.sdk.outputs.present == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Node.js
+        if: steps.sdk.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: app/app-dev/package-lock.json
+
+      # Expo 자동링크가 node_modules 를 읽어 Gradle 프로젝트를 구성하므로 설치가 선행이다.
+      - name: Install dependencies
+        if: steps.sdk.outputs.present == 'true'
+        run: npm ci
+        working-directory: app/app-dev
+
+      # build.gradle 은 credentials/<APP_ENV>/keystore.properties 가 없으면 **throw** 한다.
+      # 실제 자격을 CI 에 둘 이유가 없으므로(서명된 산출물을 만들지 않는다) 일회용 디버그 키와
+      # 최소 google-services.json 을 그때그때 만든다. 저장하지 않고 잡이 끝나면 사라진다.
+      - name: CI 자격 생성 (일회용)
+        if: steps.sdk.outputs.present == 'true'
+        working-directory: app/app-dev/android
+        run: |
+          mkdir -p credentials/ci
+          keytool -genkeypair -v \
+            -keystore credentials/ci/debug.keystore \
+            -alias androiddebugkey -storepass android -keypass android \
+            -keyalg RSA -keysize 2048 -validity 365 \
+            -dname "CN=gromo-ci, OU=ci, O=oneorthree, L=Seoul, C=KR"
+          cat > credentials/ci/keystore.properties <<'EOF'
+          storeFile=debug.keystore
+          storePassword=android
+          keyAlias=androiddebugkey
+          keyPassword=android
+          EOF
+          # google-services 플러그인은 package_name 이 맞는 항목만 찾으면 통과한다.
+          # 값은 전부 더미다 — CI 는 앱을 실행하지 않으므로 Firebase 에 붙을 일이 없다.
+          cat > credentials/ci/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "gromo-ci",
+              "storage_bucket": "gromo-ci.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+                  "android_client_info": { "package_name": "com.oneorthree.gromo" }
+                },
+                "oauth_client": [],
+                "api_key": [{ "current_key": "AIzaSyCI0000000000000000000000000000000" }],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+
+      # 태스크 하나로 네이티브 실패의 대부분을 덮는다. 앞서 `:screen-time:compileDebugKotlin` +
+      # `:app:processDebugMainManifest` 둘로 나눠 돌렸는데 **구멍이 두 개 있었다**(코드리뷰 반영):
+      #
+      #   1. 앱 자신의 Kotlin(MainActivity·MainApplication·widget/StudyWidget*.kt)과 다른 로컬
+      #      모듈(subject-mask)이 **한 줄도 컴파일되지 않았다.** 거기서 깨진 PR 은 그대로 통과했다.
+      #   2. 리소스를 AAPT 로 컴파일하지 않아, XML 로서는 성립하지만 안드로이드 리소스로는 잘못된
+      #      경우(없는 리소스 참조·잘못된 속성/색상값)를 못 잡았다. 주석엔 리소스까지 본다고
+      #      적어 놓고 실제로는 안 봤다.
+      #
+      # `:app:compileDebugKotlin` 은 의존 그래프상 아래를 전부 끌어온다(로컬 --dry-run 확인):
+      #   - :app / :screen-time / :subject-mask 의 compileDebugKotlin
+      #   - :app:processDebugResources (AAPT 리소스 병합·컴파일)
+      #   - :app:processDebugMainManifest (매니페스트 병합 — 실드의 foregroundServiceType 등)
+      #
+      # ⚠️ 그래도 assembleDebug 는 아니다. JS 번들·Hermes·dex·패키징이 빠져 있어 훨씬 가볍다
+      #    (로컬 실측 411 태스크 34초, 캐시 있음). 러너가 한 대뿐이라 이 선을 넘지 않는다.
+      #
+      # Kotlin 이 아니라 **Java** 태스크를 게이트로 쓴다(코드리뷰 반영). Java 태스크는 Kotlin
+      # 컴파일을 선행 의존성으로 끌어오므로 위 범위를 그대로 덮으면서, Kotlin 태스크만으로는
+      # 빠지던 app/app-dev/android/app/src 의 .java 컴파일까지 포함한다. 지금 앱에 .java 는 없지만
+      # 하나 들어오는 순간 검사 밖이 된다 — 그때 알아채지 못하는 게 문제다.
+      #
+      # `-Pandroid.builder.sdkDownload=false` — 위 SDK 확인은 구성요소가 '있나'만 보고 **버전은
+      # 안 본다**(버전은 expo-root-project 소관이라 여기 박으면 썩는다). 요구 버전이 없으면
+      # 자동 다운로드가 NDK 두 버전 4.8 GB 를 받아 러너 디스크와 30분 제한을 태운다. 끄면
+      # 대신 "NDK not configured" 로 즉시 실패해 **무엇이 없는지가 로그에 남는다.**
+      - name: 네이티브 컴파일 · 리소스 · 매니페스트 검증
+        if: steps.sdk.outputs.present == 'true'
+        run: ./gradlew :app:compileDebugJavaWithJavac -Pandroid.builder.sdkDownload=false --no-daemon
+        working-directory: app/app-dev/android

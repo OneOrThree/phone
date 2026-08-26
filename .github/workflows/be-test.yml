@@ -1,0 +1,103 @@
+name: Test Backend
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: tt_db
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+        ports:
+          # 호스트 포트를 고정하지 않는다. 러너 프로세스 3개(gromo-dev-build-1/2/3)가
+          # VM 한 대를 공유해서 호스트 포트도 공유한다 — 5432 를 박으면 동시에 도는
+          # 다른 백엔드 잡(generate-docs)과 부딪혀 컨테이너 기동 단계에서 즉사한다:
+          #   Bind for 0.0.0.0:5432 failed: port is already allocated
+          # 도커가 빈 포트를 고르게 두고, 실제 매핑 포트는 job.services 로 읽어 주입한다.
+          - 5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: server/data-api
+    env:
+      GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /home/runner/.gradle/caches
+            /home/runner/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('server/data-api/**/*.gradle*', 'server/data-api/**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      # - uses: actions/cache@v4
+      #   with:
+      #     path: ~/.gradle/dependency-check-data
+      #     key: owasp-db-${{ github.run_id }}
+      #     restore-keys: owasp-db-
+
+      - run: chmod +x gradlew
+
+      - name: Run tests
+        env:
+          SPRING_PROFILES_ACTIVE: ci
+          # application-ci.yml 은 localhost:5432 를 하드코딩한다. 위에서 호스트 포트를
+          # 도커에 맡겼으므로 실제 매핑 포트로 덮어쓴다(Testcontainers 를 쓰는 테스트는
+          # @DynamicPropertySource 가 우선이라 영향 없다).
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:${{ job.services.postgres.ports['5432'] }}/tt_db
+        run: ./gradlew test
+
+      # - name: JaCoCo + OWASP
+      #   env:
+      #     SPRING_PROFILES_ACTIVE: ci
+      #   run: ./gradlew jacocoTestReport dependencyCheckAnalyze
+
+      - name: Measure JAR size
+        run: |
+          ./gradlew bootJar -x test
+          du -sb build/libs/*.jar | awk '{print $1}' > jar-size.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: server/data-api/build/test-results/
+          retention-days: 7
+
+      # - uses: actions/upload-artifact@v4
+      #   if: always()
+      #   with:
+      #     name: coverage-report
+      #     path: server/data-api/build/reports/jacoco/test/jacocoTestReport.xml
+      #     retention-days: 7
+
+      # - uses: actions/upload-artifact@v4
+      #   if: always()
+      #   with:
+      #     name: owasp-report
+      #     path: server/data-api/build/reports/dependency-check-report.json
+      #     retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jar-size
+          path: server/data-api/jar-size.txt
+          retention-days: 7

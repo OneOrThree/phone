@@ -1,0 +1,115 @@
+<mxfile host="app.diagrams.net" version="24.0.0">
+  <diagram id="pipeline" name="월요일 아침 파이프라인 (사용자 1명 기준)">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="start" value="⓪ 월 08:00 KST @Scheduled 발동&#10;(+ 서버 기동 시 캐치업 —&#10;놓친 주가 있으면 이어서)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="425" y="40" width="230" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="list" value="대상 사용자 목록을&#10;페이지 단위로 조회" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="440" y="150" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="loopnote" value="↓ 이하 사용자별 독립 실행&#10;(try/catch — 한 명 실패해도&#10;나머지는 계속)" style="text;html=1;align=left;fontSize=11;fontColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="680" y="150" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="idem" value="① 이 주가 이미&#10;PUBLISHED 상태인가?&#10;(행 존재가 아니라 상태로 판정&#10;· user_id+week_start 유니크)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="430" y="250" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="skip" value="skip (멱등성)&#10;재실행해도 두 번 안 만든다" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="760" y="270" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="gate" value="② 발행 게이트&#10;이번 주 유효일 ≥ 3 ?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="430" y="400" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="silent" value="침묵이 기본값:&#10;status=INSUFFICIENT 저장&#10;LLM 호출 없음 → 비용 0&#10;(늦은 데이터 오면 캐치업이 재평가)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="760" y="410" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="agg" value="③ 집계 (SQL — 모든 숫자의 출생지)&#10;요일별 분 · 총량 · 목표 달성일 · 완주율&#10;최장/평균 세션 · 짝맞춤 Δ% (null ≠ 0분)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="400" y="550" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="score" value="④ 채점 (규칙)&#10;뱃지 6종 · &quot;한 줄&quot; 축 1개 선택 · 점수&#10;+ 숫자 들어가는 문장 전부 템플릿 생성" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="400" y="670" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="scorenote" value="여기까지 LLM 등장 안 함.&#10;숫자는 전부 확정된 상태." style="text;html=1;align=left;fontSize=11;fontColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="720" y="690" width="200" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="llm" value="⑤ LLM 호출 (Claude API)&#10;입력: 계산 끝난 집계 JSON&#10;출력: 공감 해석 문단 + 다음 주 제안 1~2개" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="400" y="790" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="valid" value="응답이 JSON 스키마에&#10;맞나? (파싱 + 검증)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="430" y="910" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="retry" value="재시도 1회&#10;→ 또 실패하면 폴백:&#10;해석 자리에 템플릿 문장&#10;(리포트는 그래도 나간다)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="760" y="920" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="store" value="⑥ weekly_review INSERT&#10;완제품 박제 — 이후 다시 계산하지 않는다" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="400" y="1060" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="push" value="⑦ FCM 푸시 발송 → push_sent 기록&#10;(실패해도 리포트 무영향 — 미발송분은 캐치업이 회수)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="400" y="1160" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="end" value="다음 사용자로" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="460" y="1270" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="f1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="start" target="list">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="list" target="idem">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="예" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;" edge="1" parent="1" source="idem" target="skip">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f4" value="아니오" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;" edge="1" parent="1" source="idem" target="gate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f5" value="미달" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;" edge="1" parent="1" source="gate" target="silent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f6" value="통과" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;" edge="1" parent="1" source="gate" target="agg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="agg" target="score">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="score" target="llm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="llm" target="valid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f10" value="아니오" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;" edge="1" parent="1" source="valid" target="retry">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f11" value="예" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;" edge="1" parent="1" source="valid" target="store">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f12" value="폴백 문장으로 합류" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;exitX=0.5;exitY=1;entryX=1;entryY=0.5;" edge="1" parent="1" source="retry" target="store">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f13" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="store" target="push">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="push" target="end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f15" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0.5;exitY=1;entryX=1;entryY=0.5;" edge="1" parent="1" source="silent" target="end">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="860" y="1300" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="f16" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=1;exitY=0.5;entryX=1;entryY=0.2;" edge="1" parent="1" source="skip" target="end">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1020" y="300" />
+              <mxPoint x="1020" y="1290" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

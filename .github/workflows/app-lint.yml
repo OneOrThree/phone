@@ -1,0 +1,79 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/app-dev/**'
+      - '.github/workflows/app-lint.yml'
+  pull_request:
+    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드라 제외 (dev-ci.yml과 동일 패턴)
+    paths:
+      - 'app/app-dev/**'
+      # 이 워크플로 자신도 트리거에 넣는다 (GROMO-1513). 안 넣으면 app-lint.yml 만 고치는 PR 에서
+      # 검사가 아예 안 돌아, 워크플로 변경이 맞는지 **머지해 봐야** 알 수 있다.
+      # 실제로 이 파일의 NODE_OPTIONS 수정이 그 상황에 걸렸다.
+      - '.github/workflows/app-lint.yml'
+
+jobs:
+  lint:
+    runs-on: [self-hosted, ci, spot]
+
+    # 러너(gromo-dev-build)는 e2-medium(2 vCPU / 4 GB)이다. NODE_OPTIONS 를 안 주면 Node 가
+    # 힙 상한을 자동 산정하는데, 그 값이 tsc 가 필요로 하는 양보다 낮게 잡혀 Typecheck 가
+    # "Ineffective mark-compacts near heap limit" 으로 죽었다 — OS OOM killer 가 아니라
+    # V8 자체 상한이다. 앱 PR 3건(#606·#612·#616)이 전부 같은 지점에서 실패했다 (GROMO-1513).
+    #
+    # 2048 인 이유: 로컬 실측 peak RSS 가 880 MB 라 성장 여유까지 충분하고, 4 GB 박스에서
+    # OS·npm·러너 에이전트 몫을 남긴다. 3072 는 스왑 위험이 있어 피한다.
+    env:
+      NODE_OPTIONS: --max-old-space-size=2048
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: app/app-dev/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: app/app-dev
+
+      - name: Run ESLint
+        run: npm run lint
+        working-directory: app/app-dev
+
+      - name: Check Prettier formatting
+        run: npm run format:check
+        working-directory: app/app-dev
+
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: app/app-dev
+
+      # 유닛 테스트 (GROMO-945) — jest-expo, stats/format 등 순수 함수 테스트
+      - name: Run tests
+        run: npm test
+        working-directory: app/app-dev
+
+      # 팔레트 코드젠 동기화 검증 (GROMO-641) — theme.ts 변경 후 재생성 누락 시 실패
+      - name: Check palette codegen sync
+        run: npm run gen:palette:check
+        working-directory: app/app-dev
+
+      # 결과 선점·확인 대역이 되살아나지 않았는지 (GROMO-1576)
+      # ⚠️ 이 가드가 필요한 이유: 대역의 claim은 항상 성공하고 ack는 no-op이라, 되돌아가도
+      #    **테스트는 전부 초록인데 서버 확인이 한 건도 안 남는다.** 컴파일러도 테스트도 못 잡는
+      #    실패라 CI가 문자열로 본다.
+      - name: 결과 선점·확인 대역이 남아 있지 않은지
+        run: |
+          if grep -q '임시 대역' src/screens/group/challengeResultClaim.ts; then
+            echo '::error file=app/app-dev/src/screens/group/challengeResultClaim.ts::challengeResultClaim.ts가 임시 대역으로 되돌아갔습니다 — ./challengeResult 재수출이어야 합니다.'
+            exit 1
+          fi
+        working-directory: app/app-dev
