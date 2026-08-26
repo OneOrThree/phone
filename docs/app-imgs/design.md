@@ -126,13 +126,13 @@ gromo의 `집중 기록 → 집중 세션 → 분석 → 성취 → 티어 성�
 저장소 루트에서 실행한다.
 
 ```bash
-python3 .docs/app-imgs/tools/render_store_images_v2.py
+python3 docs/app-imgs/tools/render_store_images_v2.py
 ```
 
 생성 결과:
 
 ```text
-.docs/app-imgs/final-v2/
+docs/app-imgs/final-v2/
 ├── iphone/
 │   ├── 01.png
 │   ├── 02.png
@@ -179,7 +179,7 @@ python3 .docs/app-imgs/tools/render_store_images_v2.py
 ### 결과 경로
 
 ```text
-.docs/app-imgs/features-v1/
+docs/app-imgs/features-v1/
 ├── group/01-group-list.png ~ 03-group-create.png
 ├── challenge/01-challenge-progress.png ~ 03-challenge-bet.png
 ├── cutout/01-character-select.png ~ 03-cutout-ready.png
@@ -196,7 +196,7 @@ python3 .docs/app-imgs/tools/render_store_images_v2.py
 기존 기능별 v1의 앱 UI와 구성은 유지하고, 설명형 문구를 감정·행동 중심 문구로 바꾼 추가 9장이다.
 
 ```text
-.docs/app-imgs/features-v1-copy-v2/
+docs/app-imgs/features-v1-copy-v2/
 ├── group/3장
 ├── challenge/3장
 ├── cutout/3장
@@ -209,7 +209,7 @@ python3 .docs/app-imgs/tools/render_store_images_v2.py
 재생성:
 
 ```bash
-python3 .docs/app-imgs/tools/render_feature_images_v1.py --variant copy-v2
+python3 docs/app-imgs/tools/render_feature_images_v1.py --variant copy-v2
 ```
 
 기존 세트와의 비교 및 카피 결정 근거는 `copy-review.md`에 기록했다.

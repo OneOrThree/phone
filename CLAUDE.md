@@ -72,6 +72,11 @@ Korean. Keep code identifiers (types, functions, variables) in English.
   user's to run** — never stage, commit, or push without an explicit, per-action request,
   and ask right before each one. One approval does not carry to the next action. (Creating
   branches, checking out, and local builds are fine without asking.)
+  **Exception (team rule)**: the initial push of a just-created branch is automatic — the
+  `.claude/settings.json` PostToolUse hook runs `git push -u origin <branch>` on
+  `checkout -b`/`switch -c` so every branch exists on origin from the start. This is part
+  of branch creation, not a content push (the new branch carries no unreviewed commits
+  beyond its base).
 
 ## CI/CD (`.github/workflows/`)
 
