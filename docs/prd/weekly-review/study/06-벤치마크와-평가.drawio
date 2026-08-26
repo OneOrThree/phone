@@ -1,0 +1,94 @@
+<mxfile host="app.diagrams.net" version="24.0.0">
+  <diagram id="eval-loop" name="평가 루프 — 시험지에서 실지표까지">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="goal" value="⓪ 목표 정의 (전부 여기서 역산)&#10;출시 전: 루브릭 평균 ≥ 8/10 · 그물 통과 ≥ 95%&#10;출시 후: 열람률 · 담기율 · 폴백률 &lt; 5% · 사용자당 &lt; 10원" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="320" y="30" width="440" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="paper" value="① 시험지 (20~50 케이스)&#10;입력 집계 JSON + 기대 성질 목록&#10;좋은 주 · 무너진 주 · 턱걸이 · 주말 붕괴 ·&#10;상충 신호 등 경계·함정 포함" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="150" width="260" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="runner" value="② 러너 = 배치 dry-run 모드&#10;(전처리는 집계 SQL이 이미 수행)&#10;프롬프트 vN으로 호출" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="360" y="155" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="llm" value="LLM API&#10;(3편 호출 그대로)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="160" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="parse" value="③ JSON 파싱 · 후처리&#10;(출력 계약을 좁게 설계해 얇음 —&#10;장문 응답이 생기면 파서 층 추가)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="850" y="155" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="auto" value="④ 자동 채점&#10;검증 그물 4종 (3편)&#10;→ 루브릭 ①정합 ⑤형식" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="850" y="300" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="human" value="⑤ 사람 채점 (루브릭 ②근거 ③어조 ④실행가능성)&#10;LLM-as-judge는 보조만 — 심판도 LLM이면 편향 공유" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="440" y="300" width="350" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sheet" value="⑥ 채점 시트 (CSV/구글시트)&#10;케이스ID × 프롬프트 버전 × 루브릭 5축 × 합계&#10;= 채점지 + 회귀 기록부" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="440" y="420" width="350" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="regress" value="⑦ 회귀 판정&#10;vN+1 점수 ≥ vN ?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="150" y="420" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="fix" value="프롬프트 수정 → 재응시&#10;(점수가 배포를 거부한다 —&#10;감이 아니라 채점지가)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="290" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="deploy" value="배포 (5편 prompt_version 기록)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="150" y="580" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="impact" value="⑧ 실전 임팩트 (출시 후 — 루프를 닫는다)&#10;열람률 · &quot;바꿔볼 것&quot; 담기율 · 담은 사용자의 다음 주 행동 변화(짝맞춤) · 폴백률 · 비용&#10;벤치 점수는 높은데 담기율이 낮다? → 루브릭 ④ 기준을 실데이터로 재조정 (시험지 ↔ 실지표 상호 교정)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=left;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="150" y="680" width="800" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="e0" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0;exitY=0.5;entryX=0.5;entryY=0;" edge="1" parent="1" source="goal" target="paper">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="paper" target="runner">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="runner" target="llm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="llm" target="parse">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="parse" target="auto">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="auto" target="human">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="human" target="sheet">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="sheet" target="regress">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="아니오" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;exitX=0.25;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="regress" target="fix">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="같은 시험지 재응시" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=11;exitX=0.5;exitY=0;entryX=0;entryY=0.5;" edge="1" parent="1" source="fix" target="runner">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="140" y="195" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" value="예" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;" edge="1" parent="1" source="regress" target="deploy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="deploy" target="impact">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="실지표로 루브릭·시험지 재조정" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=11;exitX=1;exitY=0.5;entryX=1;entryY=1;" edge="1" parent="1" source="impact" target="sheet">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1050" y="725" />
+              <mxPoint x="1050" y="560" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

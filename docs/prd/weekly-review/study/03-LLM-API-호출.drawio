@@ -1,0 +1,124 @@
+<mxfile host="app.diagrams.net" version="24.0.0">
+  <diagram id="anatomy" name="호출 해부도">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="server" value="우리 서버 — LLM 클라이언트" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;verticalAlign=top;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="360" height="330" as="geometry" />
+        </mxCell>
+        <mxCell id="reqmodel" value="model: 어떤 모델 쓸지&#10;(품질 vs 비용 선택)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="100" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="reqsystem" value="system: 역할 + 규칙&#10;&quot;계산 금지 · 입력에 있는&#10;숫자만 · JSON으로만&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="230" y="100" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="reqmsg" value="messages: 집계 JSON&#10;(원본 로그 아님 —&#10;계산이 끝난 결과만)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="180" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="reqmax" value="max_tokens: 응답 상한&#10;(폭주·비용 방지)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="230" y="180" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="reqkey" value="x-api-key 헤더&#10;(시크릿 저장소에서 주입,&#10;git에 절대 없음)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="270" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="claude" value="Claude API&#10;(Anthropic 서버 —&#10;모델은 저쪽에 있다.&#10;우리는 GPU·모델 파일·&#10;ML 지식 필요 없음)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="560" y="130" width="200" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="resp" value="응답&#10;content: 모델이 쓴 텍스트 (JSON &quot;모양&quot;일 뿐, 보장 아님)&#10;usage: 쓴 토큰 수 → 비용 로그로 저장" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="480" y="330" width="360" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ereq" value="HTTPS POST /v1/messages (수 초 소요)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;exitX=1;exitY=0.4;entryX=0;entryY=0.4;" edge="1" parent="1" source="server" target="claude">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eresp" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;entryX=0.66;entryY=0;" edge="1" parent="1" source="claude" target="resp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="vtitle" value="응답 검증 4중 그물 — 모델 응답은 &quot;외부 입력&quot;으로 취급" style="text;html=1;align=left;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="470" width="500" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="v1" value="① JSON 파싱" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="510" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="v2" value="② 스키마 검증&#10;(필드·개수·길이)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="210" y="510" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="v3" value="③ 숫자 대조&#10;(입력에 없는 숫자 = 실패)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="390" y="510" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="v4" value="④ 금칙 검사&#10;(&quot;폰 전체&quot; 등 금지 표현)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="590" y="510" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="vok" value="통과 → 저장&#10;llm_status = ok" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="800" y="510" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="vfail" value="어느 그물이든 걸리면: 재시도 1회 → 또 실패 시 폴백 템플릿 문장으로 발행&#10;llm_status = fallback (폴백률 모니터링 — 5편)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="610" width="500" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ev0" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.2;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="resp" target="v1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="105" y="470" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ev1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="v1" target="v2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ev2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="v2" target="v3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ev3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="v3" target="v4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ev4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="v4" target="vok">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ev5" value="실패" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=11;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="v2" target="vfail">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="why-no-math" name="왜 계산을 안 맡기나">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="700" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="det" value="서버 (결정론적 — 같은 입력이면 항상 같은 출력)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="60" width="420" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="det1" value="SQL 집계&#10;(총량·Δ%·완주율·최장 세션)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="100" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="det2" value="규칙 채점&#10;(뱃지·한 줄 축·점수)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="290" y="100" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="det3" value="템플릿 문장 생성&#10;&quot;총 몰입 {19시간 23분}, 지난주보다 {4시간 12분} ↑&quot;&#10;— 숫자 들어가는 문장은 전부 여기서" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="190" width="380" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="prob" value="LLM (확률적 — &quot;다음에 올 그럴듯한 단어&quot;를 뽑는 기계)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;verticalAlign=top;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="620" y="60" width="420" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="prob1" value="잘하는 것: 공감 문장 · 맥락 해석 · 자연스러운 제안" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="100" width="380" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="prob2" value="위험한 것:&#10;① 산수를 틀린다 (1163분 → 19시간 23분 변환 실수)&#10;② 없는 사실을 지어낸다 (&quot;지난달보다도…&quot; — 준 적 없는 데이터)&#10;③ 같은 입력에도 매번 다른 문장" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="170" width="380" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="hand" value="계산이 끝난 집계 JSON만 전달&#10;(산수할 기회 자체를 주지 않는다)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="det" target="prob">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="screen" value="리포트 화면 = 서버가 만든 숫자 문장 (틀릴 수 없음) + LLM이 만든 해석·제안 (검증 통과분만)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="230" y="400" width="640" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="es1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;entryX=0.25;entryY=0;" edge="1" parent="1" source="det" target="screen">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="es2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;entryX=0.75;entryY=0;" edge="1" parent="1" source="prob" target="screen">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
