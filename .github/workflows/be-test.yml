@@ -28,7 +28,7 @@ jobs:
           --health-retries 5
     defaults:
       run:
-        working-directory: back
+        working-directory: server/data-api
     env:
       GRADLE_OPTS: "-Dorg.gradle.daemon=false"
     steps:
@@ -44,7 +44,7 @@ jobs:
           path: |
             /home/runner/.gradle/caches
             /home/runner/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('back/**/*.gradle*', 'back/**/gradle-wrapper.properties') }}
+          key: ${{ runner.os }}-gradle-${{ hashFiles('server/data-api/**/*.gradle*', 'server/data-api/**/gradle-wrapper.properties') }}
           restore-keys: ${{ runner.os }}-gradle-
 
       # - uses: actions/cache@v4
@@ -78,26 +78,26 @@ jobs:
         if: always()
         with:
           name: test-results
-          path: back/build/test-results/
+          path: server/data-api/build/test-results/
           retention-days: 7
 
       # - uses: actions/upload-artifact@v4
       #   if: always()
       #   with:
       #     name: coverage-report
-      #     path: back/build/reports/jacoco/test/jacocoTestReport.xml
+      #     path: server/data-api/build/reports/jacoco/test/jacocoTestReport.xml
       #     retention-days: 7
 
       # - uses: actions/upload-artifact@v4
       #   if: always()
       #   with:
       #     name: owasp-report
-      #     path: back/build/reports/dependency-check-report.json
+      #     path: server/data-api/build/reports/dependency-check-report.json
       #     retention-days: 7
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: jar-size
-          path: back/jar-size.txt
+          path: server/data-api/jar-size.txt
           retention-days: 7

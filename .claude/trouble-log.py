@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """소마 트러블슈팅 진행 로그 — Stop 훅용.
 
-`back/docs/troubleshooting/.active.json`(무장 스위치)이 있을 때만 동작한다.
+`server/data-api/docs/troubleshooting/.active.json`(무장 스위치)이 있을 때만 동작한다.
 응답 종료마다 transcript에서 이번 턴의 작업을 추출해, 대상 사건 문서의
 `## 2. 타임라인` 표(마커 `<!-- TIMELINE:END -->` 바로 앞)에 한 행씩 append.
 
@@ -15,7 +15,7 @@ import json, os, re, sys, time
 from datetime import datetime, timedelta
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))  # = phone/
-TSDIR = os.path.join(ROOT, "back", "docs", "troubleshooting")
+TSDIR = os.path.join(ROOT, "server", "data-api", "docs", "troubleshooting")
 ACTIVE = os.path.join(TSDIR, ".active.json")
 MARKER = "<!-- TIMELINE:END -->"
 ARM_TTL_HOURS = 24

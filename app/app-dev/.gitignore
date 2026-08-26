@@ -1,10 +1,13 @@
 node_modules/
 .expo/
-.env
-.env.production
+.env*
+!.env.example
 dist/
 npm-debug.*
+*.log
+*.tsbuildinfo
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
@@ -24,7 +27,6 @@ GoogleService-Info-*.plist
 google-services.json
 google-services-*.json
 # hot-updater
-.env.hotupdater
 .hot-updater/output
 .hot-updater/log
 # supabase CLI가 만드는 로컬 링크 캐시 (프로젝트 ref — 커밋 불필요)

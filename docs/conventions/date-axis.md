@@ -4,12 +4,12 @@
 틀리면 **비KST 기기**에서 하루씩 어긋난 화면이 나온다 — 오늘 칸을 비켜 찍힌 마커,
 빈 캘린더, 두 번 뜨는 축하 모달, 매번 1일로 리셋되는 연속 달성일.
 
-이 문서가 **앱 쪽 정본**이다. 종전엔 `app/src/utils/localDate.ts` 주석 하나가 정본 노릇을 했고
+이 문서가 **앱 쪽 정본**이다. 종전엔 `app/app-dev/src/utils/localDate.ts` 주석 하나가 정본 노릇을 했고
 분류표는 PR #531 본문에만 있어 저장소 어디에도 없었다(GROMO-1236 → GROMO-1254).
 날짜 축은 stats·focus·group·league·screentime 을 가로지르므로 `docs/prd/<기능>/` 에 담을 수
-없다 — `docs/README.md` 의 "기능 문서가 아닌 팀 전체 규약은 `docs/` 최상위" 규정을 따른다.
+없다 — `docs/README.md` 의 "기능 문서가 아닌 팀 전체 규약은 `docs/conventions/`" 규정을 따른다.
 
-> **서버 축 자체의 정본은 백엔드 `back/src/main/java/com/oneorthree/phone/common/util/ZonePolicy.java`
+> **서버 축 자체의 정본은 백엔드 `server/data-api/src/main/java/com/oneorthree/phone/common/util/ZonePolicy.java`
 > 다**(§2). 앱 문서·주석과 어긋나면 그쪽이 맞다.
 
 관련 티켓: GROMO-1219(내기·챌린지 KST) → GROMO-1236(앱 전수 1차 이전) →
@@ -62,7 +62,7 @@ public static final ZoneId KST = ZoneId.of("Asia/Seoul");
 (`CountryZoneResolver`, GROMO-561)으로 갈렸는데, 챌린지 판정·카드·정산은 처음부터 KST 고정이라
 저장축이 갈리면 판정 경로와 저장 버킷이 어긋났다(챌린지 정책 B3 — 구 D6 갭.
 **JP 가 UTC+9 라 우연히 무해해 드러나지 않았다**). 그래서 저장축까지 KST 로 통일하고
-**리졸버를 제거했다.** 지금 `back/` 에 `CountryZoneResolver` 클래스는 존재하지 않는다.
+**리졸버를 제거했다.** 지금 `server/data-api/` 에 `CountryZoneResolver` 클래스는 존재하지 않는다.
 
 수용된 한계 **L5**: **기기의 그날 UTC 오프셋이 `+09:00` 이 아니면** "내 하루"와 앱의 하루가
 어긋난다 — 한국 타깃 서비스라 수용 (`docs/prd/challenge/prd.md` L5 · `policy.md` B3).
@@ -114,7 +114,7 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
    `todayStrKst` 는 근사치"* 라고 판정했는데, 근거로 삼은 `CountryZoneResolver` 는 **1259 에서
    이미 삭제된 클래스**였다. 1252(serverZone 도입)보다 **1259 가 나중**이다. 앱 주석
    (`serverZone.ts:4`)이 그 클래스를 아직 정본처럼 서술하고 있었고, 서버를 열어 보지 않았다.
-   → **축 판정의 정본은 `back/.../ZonePolicy.java` 다. 앱 주석은 정본이 아니다.**
+   → **축 판정의 정본은 `server/data-api/.../ZonePolicy.java` 다. 앱 주석은 정본이 아니다.**
 2. **산수를 하지 않았다.** §6 G2 의 "로컬 정오가 KST 와 같은 날인 범위"를 `−11~+12` 로 적었는데,
    실제 조건은 `X > −3` 이라 **양끝이 다 반대**였다 — 서쪽(미주)을 통째로 안전하다고 했고,
    실제로 안전한 `+13/+14` 를 예외로 들었다. 한 줄만 계산해 보면 드러나는 오류였다.

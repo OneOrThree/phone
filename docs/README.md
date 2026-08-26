@@ -1,7 +1,7 @@
 # docs/ — 팀 공유 기능 문서
 
 팀원이 함께 보는 **기능별 문서 공간**이다. git으로 추적·공유되며, 개인 작업 메모는
-여기 두지 않는다 (개인 스크래치는 gitignored `.docs/`).
+여기 두지 않는다 (개인 스크래치는 gitignored `doc/`).
 
 ## 구조
 
@@ -10,7 +10,9 @@
 ```
 docs/
 ├── README.md                          # 이 파일
-├── jira-conventions.md                # 지라 4축 규약 (도메인·Label·Epic·fixVersion)
+├── conventions/                       # 팀 전체 규약
+│   ├── jira-conventions.md            # 지라 4축 규약 (도메인·Label·Epic·fixVersion)
+│   └── date-axis.md                   # 날짜 축(로컬·KST·UTC) 규약
 └── prd/
     └── <기능-이름>/                    # 예: challenge, focus-session
         ├── prd.md                     # PRD — 문제 정의·목표·요구사항
@@ -22,8 +24,9 @@ docs/
         └── diagrams/                  # 다이어그램 (형식 자유)
 ```
 
-기능 문서가 아닌 **팀 전체 규약**은 `docs/` 최상위에 둔다 — 현재 `jira-conventions.md`
-(티켓을 어떤 `도메인`·Label·Epic·fixVersion 으로 분류하는지) 하나다.
+기능 문서가 아닌 **팀 전체 규약**은 `docs/conventions/` 에 둔다 — 현재 `jira-conventions.md`
+(티켓을 어떤 `도메인`·Label·Epic·fixVersion 으로 분류하는지)와 `date-axis.md`
+(날짜 축 규약) 둘이다.
 
 - 폴더 이름은 **kebab-case 영문** (예: `challenge`, `focus-session`, `invite-link`).
 - 문서가 다 갖춰질 필요는 없다 — 있는 것부터 커밋하고 점진적으로 채운다.

@@ -1,19 +1,20 @@
-.gstack/
-.vscode/
+# ── 전역 규칙만 둔다 — 앱 전용은 app/app-dev/.gitignore, 서버 전용은 server/data-api/.gitignore ──
+
+# 에디터·OS·도구 로컬 산출물
 .DS_Store
-.vs_code
 .idea/
+.vscode/
+.vs_code
+.gstack/
 .superpowers/
 
-# 개인 기획 스크래치(.docs)만 무시 — 팀 공유 문서 /docs 는 추적
-# (back/docs 는 back/.gitignore 가 관리 — GROMO-735)
-/.docs/
+# Claude 하네스 — settings.json·commands/·agents/ 는 추적, 개인 로컬 파일만 무시
+**/.claude/settings.local.json
+.claude/worktrees/
+
+# 개인 기획 스크래치(/doc)·작업 일지(/logs) — 팀 공유 문서 /docs 는 추적
 /doc/
-
-# 작업 일지 (로컬 전용)
 /logs/
-# 부하테스트 기획 문서는 추적 (GROMO-548)
-!loadtest/docs/
+
+# 환경변수
 *.env
-
-

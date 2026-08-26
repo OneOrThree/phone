@@ -505,7 +505,7 @@ flowchart TB
 **모든 시각 축이 KST 하나다.** 판정도 저장도 `CountryZoneResolver`를 타지 않는다.
 **기기의 그날 UTC 오프셋이 `+09:00` 이 아닌 사용자**는 "내 하루"와 앱의 하루가 어긋나지만,
 챌린지가 **그룹 공동 목표**이므로 전원의 마감이 동시에 오는 쪽을 택했다.
-(지역이 아니라 오프셋이다 — `Asia/Tokyo` 는 해외지만 일치한다. [`docs/date-axis.md`](../../date-axis.md))
+(지역이 아니라 오프셋이다 — `Asia/Tokyo` 는 해외지만 일치한다. [`docs/conventions/date-axis.md`](../../conventions/date-axis.md))
 
 ### 회차 경계
 

@@ -1,3 +1,7 @@
+# 프로젝트명 고정 — 파일이 server/scripts/로 이사한 뒤에도 기존 로컬 볼륨
+# (phone_postgres_local_data)에 그대로 붙게 한다.
+name: phone
+
 services:
   db:
     image: postgres:16-alpine

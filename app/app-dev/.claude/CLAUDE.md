@@ -2,7 +2,7 @@
 
 React Native + Expo frontend for **gromo**. This file is the single source of truth for
 frontend code rules; it loads in addition to the repo-root `CLAUDE.md`.
-Run all commands from inside `app/`.
+Run all commands from inside `app/app-dev/`.
 
 ---
 
@@ -28,14 +28,14 @@ local-only folders below.
 `screentime`. 새 기능 설계서도 `docs/prd/<기능-영문-kebab>/`에 만든다. 4종을 한 파일로
 합칠 때는 **기능 이름을 딴 파일명**(`screentime.md`) — `design.md` 금지. 문서 브랜치는
 `doc/` 프리픽스. `challenge` · `focus-session` · `group-carousel`은 공유 보류 상태로
-`app/.docs/features/`에 남아 있다.
+`app/app-dev/.docs/features/`에 남아 있다.
 
-### Planning/design reference docs (`app/.docs/`)
+### Planning/design reference docs (`app/app-dev/.docs/`)
 
-Original planning/design source docs live in `app/.docs/`. **This folder is in `.gitignore`
-(local-only)** — personal working references, not for external sharing.
+Original planning/design source docs live in `app/app-dev/.docs/`. **This folder is in
+`.gitignore` (local-only)** — personal working references, not for external sharing.
 
-**[`app/.docs/README.md`](../.docs/README.md) is the index** — read it before hunting for a doc.
+**[`app/app-dev/.docs/README.md`](../.docs/README.md) is the index** — read it before hunting for a doc.
 Folder map (그 README가 정본, 이 표는 요약):
 
 | Folder                                                                      | Purpose                                                                                                           |
@@ -100,7 +100,7 @@ All source lives under **`src/`**, and imports use the **`@/` alias** (`@` = `sr
 same-folder imports.) Entry point: root `index.ts` → `./src/App`.
 
 ```
-app/
+app/app-dev/
 ├── index.ts                 # Expo entry → ./src/App
 ├── app.config.js            # Expo config (assets, plugins, bundle id, version)
 ├── babel.config.js          # babel-preset-expo + module-resolver (@/ alias)
@@ -145,7 +145,7 @@ app/
 ## Quick start
 
 ```bash
-cd app
+cd app/app-dev
 npm install
 cd ios && pod install && cd ..
 
@@ -156,11 +156,11 @@ npx expo run:ios --device     # on-device (needs p12; Jaeyoung's machine only)
 
 ### Backend connection (`.env`)
 
-`app/.env` is a personal, untracked file. Copy from the example (`cp app/.env.example app/.env`).
-`EXPO_PUBLIC_API_URL` selects the target:
+`app/app-dev/.env` is a personal, untracked file. Copy from the example (`cp .env.example .env`
+from inside `app/app-dev/`). `EXPO_PUBLIC_API_URL` selects the target:
 
 - **Team server (default, recommended)**: `EXPO_PUBLIC_API_URL=https://oneorthree.dev.mooo.com` — no backend setup needed.
-- **Local backend**: bring up `back/` (Spring Boot) with `docker compose -f docker-compose.dev.yml up -d`, then `EXPO_PUBLIC_API_URL=http://localhost:8080` (use your Mac's LAN IP for a real device).
+- **Local backend**: bring up `server/data-api/` (Spring Boot) with `docker compose -f server/scripts/docker-compose.dev.yml up -d` (from the repo root), then `EXPO_PUBLIC_API_URL=http://localhost:8080` (use your Mac's LAN IP for a real device).
 
 See DevRunbook.md "3.2 backend connection mode" for details.
 
@@ -346,7 +346,7 @@ draft PR gets zero automated review.
 
 1. **Title**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT`/`FIX`/`CHORE`/`REFACTOR` (e.g.
    `[FEAT] GROMO-206 인게임 재화 관리 기능 구현`).
-2. **Body**: follow the root [`.github/pull_request_template.md`](../../.github/pull_request_template.md)
+2. **Body**: follow the root [`.github/pull_request_template.md`](../../../.github/pull_request_template.md)
    — `## Jira` (`[GROMO-####]()`), `## 변경 유형`, `## Summary` (what/why, 2–3 lines), `## Changes`,
    `## DB 변경` (only if schema changed), `## 주의사항` (migrations/side-effects, drop if none).
 3. **Ticket references**: only the ticket this PR **directly implements** gets the full key
@@ -374,7 +374,7 @@ Commits/pushes leading up to the PR still need explicit user approval — see
 ## Testing
 
 - **유닛·컴포넌트 테스트 (jest)**: `npm test` — jest-expo 프리셋, `src/**/*.test.ts(x)` (GROMO-945·946·948).
-  KST 고정(`jest.config.js`), AsyncStorage 공식 mock(`jest.setup.js`). CI(lint.yml)에서도 돈다.
+  KST 고정(`jest.config.js`), AsyncStorage 공식 mock(`jest.setup.js`). CI(app-lint.yml)에서도 돈다.
 - **E2E (Maestro)**: `./scripts/e2e.sh` — Release 시뮬 자립 빌드(dev URL 주입·서명 보정) 후
   `.maestro/flows/` 01→02→03 순서 실행. 01이 게스트 계정을 만들고 02가 집중 기록을 만들며
   03이 그 기록을 조회하는 체이닝 구조(GROMO-947). 대본 셀렉터는 **testID만** 사용 — 시스템

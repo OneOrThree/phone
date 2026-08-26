@@ -6,10 +6,10 @@ on:
     paths:
       # 도메인 기반 패키지 구조라 컨트롤러는 phone/<domain>/api/ 에 흩어져 있음.
       # DTO·enum 변경도 OpenAPI 스키마에 반영되므로 백엔드 소스 전체를 감시한다.
-      - 'back/src/main/java/**'
+      - 'server/data-api/src/main/java/**'
       # openApi 블록(대기 시간·문서 URL·출력 경로)과 의존성이 여기 있다 (GROMO-1515).
       # 안 넣으면 이 설정을 고치는 PR 에서 정작 이 워크플로가 안 돌아 **머지해 봐야** 안다.
-      - 'back/build.gradle'
+      - 'server/data-api/build.gradle'
       # 이 워크플로 자신도 트리거에 넣는다 — 위와 같은 이유다.
       - '.github/workflows/api-dog-generate.yml'
       # 전송·판정 로직이 스크립트로 빠졌으니 그 경로도 같은 이유로 넣는다 — 안 넣으면
@@ -30,7 +30,7 @@ jobs:
           POSTGRES_PASSWORD: ci
         ports:
           # 호스트 포트 고정 금지 — 러너 3개가 VM 한 대를 공유해 5432 가 겹친다.
-          # 상세는 test-backend.yml 의 같은 위치 주석 참조 (GROMO-1515).
+          # 상세는 be-test.yml 의 같은 위치 주석 참조 (GROMO-1515).
           - 5432
         options: >-
           --health-cmd pg_isready
@@ -42,9 +42,9 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Check if back directory exists
+      - name: Check if backend directory exists
         id: check
-        run: echo "exists=$([ -d back ] && echo true || echo false)" >> $GITHUB_OUTPUT
+        run: echo "exists=$([ -d server/data-api ] && echo true || echo false)" >> $GITHUB_OUTPUT
 
       - name: Set up JDK 17
         if: steps.check.outputs.exists == 'true'
@@ -66,17 +66,17 @@ jobs:
 
       - name: Grant execute permission for gradlew
         if: steps.check.outputs.exists == 'true'
-        working-directory: back
+        working-directory: server/data-api
         run: chmod +x gradlew
 
       - name: Build with Gradle
         if: steps.check.outputs.exists == 'true'
-        working-directory: back
+        working-directory: server/data-api
         run: ./gradlew build -x test
 
       - name: Generate OpenAPI Docs
         if: steps.check.outputs.exists == 'true'
-        working-directory: back
+        working-directory: server/data-api
         env:
           SPRING_PROFILES_ACTIVE: ci
           # 위에서 호스트 포트를 도커에 맡겼으니 실제 매핑 포트를 넘긴다.
@@ -105,7 +105,7 @@ jobs:
 
       - name: Generate Swagger UI
         if: steps.check.outputs.exists == 'true'
-        working-directory: back
+        working-directory: server/data-api
         run: |
           mkdir -p build/docs/api
           cat > build/docs/api/index.html << 'EOF'
@@ -143,7 +143,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: openapi-spec-${{ steps.dest.outputs.safe_branch }}
-          path: back/build/docs/api/openapi.json
+          path: server/data-api/build/docs/api/openapi.json
           retention-days: 30
 
       - name: Deploy to gh-pages
@@ -152,7 +152,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
-          publish_dir: back/build/docs/api/
+          publish_dir: server/data-api/build/docs/api/
           destination_dir: ${{ steps.dest.outputs.dir }}
           keep_files: true
 
@@ -196,7 +196,7 @@ jobs:
 
       - name: Patch openapi.json version for Apidog
         if: steps.check.outputs.exists == 'true'
-        working-directory: back/build/docs/api
+        working-directory: server/data-api/build/docs/api
         run: |
           BRANCH="${{ github.ref_name }}"
           BASE_VERSION=$(cat openapi.json | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
@@ -222,7 +222,7 @@ jobs:
       # **조용한 실패를 막는 단언**을 둔다 — ①②만 고치면 다음 실패가 또 초록으로 지나간다.
       - name: Sync to Apidog
         if: steps.check.outputs.exists == 'true'
-        working-directory: back/build/docs/api
+        working-directory: server/data-api/build/docs/api
         run: |
           set -euo pipefail
           jq -n --slurpfile spec openapi.json \
@@ -233,7 +233,7 @@ jobs:
 
       - name: Sync to Apidog (Soobin)
         if: steps.check.outputs.exists == 'true'
-        working-directory: back/build/docs/api
+        working-directory: server/data-api/build/docs/api
         run: |
           set -euo pipefail
           jq -n --slurpfile spec openapi.json \
@@ -244,7 +244,7 @@ jobs:
 
       - name: Sync to Apidog (kth)
         if: steps.check.outputs.exists == 'true'
-        working-directory: back/build/docs/api
+        working-directory: server/data-api/build/docs/api
         run: |
           set -euo pipefail
           jq -n --slurpfile spec openapi.json \

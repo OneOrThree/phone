@@ -4,22 +4,23 @@ argument-hint: "[optional: extra gradle test args, e.g. --tests *CurrencyService
 allowed-tools: Bash, Read, Grep
 ---
 
-Run the same checks CI runs (`.github/workflows/ci.yml`) locally so I catch what CI
+Run the same checks CI runs (`.github/workflows/dev-ci.yml`) locally so I catch what CI
 would reject, before pushing.
 
 Steps:
-1. From `back/`, run the chained gate:
-   `cd back && SPRING_PROFILES_ACTIVE=ci ./gradlew checkstyleMain spotbugsMain test $ARGUMENTS`
+1. From `server/data-api/`, run the chained gate:
+   `cd server/data-api && SPRING_PROFILES_ACTIVE=ci ./gradlew checkstyleMain spotbugsMain test $ARGUMENTS`
    - The `test` task spins up a Testcontainers PostgreSQL, so Docker must be running.
      If Docker isn't available or the test DB fails to start, fall back to
      `./test-local.sh $ARGUMENTS` (it manages its own `test-postgres` container) and say so.
 2. Report **only what failed**, grouped:
    - **Checkstyle**: each violation as `file:line — rule — message`. Reports are at
-     `back/build/reports/checkstyle/main.html` (+ `main.xml`).
+     `server/data-api/build/reports/checkstyle/main.html` (+ `main.xml`).
    - **SpotBugs** (effort=max, HIGH only): each finding with class/method and the bug
-     pattern. Report at `back/build/reports/spotbugs/main.html`.
+     pattern. Report at `server/data-api/build/reports/spotbugs/main.html`.
    - **Tests**: each failing test with the assertion/exception. Reports under
-     `back/build/reports/tests/test/` and JUnit XML under `back/build/test-results/test/`.
+     `server/data-api/build/reports/tests/test/` and JUnit XML under
+     `server/data-api/build/test-results/test/`.
 3. For each failure, give a one-line concrete fix suggestion.
 4. If everything passes, say so plainly (green) and stop — do not over-explain.
 

@@ -282,7 +282,7 @@ flowchart TB
 > ⚠️ **판정은 지역이 아니라 오프셋이다.** `Asia/Tokyo` 는 해외지만 `+09:00` 이라 로컬 자정이 KST
 > 자정과 **일치해** 해당 없고, 국내 사용자라도 **기기 타임존을 바꾸면 발생**한다. DST 를 쓰는 존은
 > 같은 존에서도 **날짜에 따라 갈린다.** 같은 축 오류를 GROMO-1254 가
-> [`docs/date-axis.md`](../../date-axis.md) 에서 정리했다. 상세는 [LLD §8 L6](low-level-design.md).
+> [`docs/conventions/date-axis.md`](../../conventions/date-axis.md) 에서 정리했다. 상세는 [LLD §8 L6](low-level-design.md).
 
 **그러나 중복 보상 근거는 그대로 살아 있다 — 오히려 이쪽이 핵심이다.** §A5가 금지하는 것은
 「회차가 겹치는 것」이 아니라 **「하나의 행동으로 두 목표를 동시 달성해 두 번 보상받는 것」**이다.

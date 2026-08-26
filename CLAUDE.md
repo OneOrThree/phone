@@ -2,8 +2,9 @@
 
 Guidance for Claude Code when working in this repository. This root file applies
 everywhere. **Nested `CLAUDE.md` files load automatically** when you work inside a
-subtree — see `app/.claude/CLAUDE.md` (frontend) and `back/CLAUDE.md` (backend) for the
-details of each half. Keep this root file limited to shared, repo-wide concerns.
+subtree — see `app/app-dev/.claude/CLAUDE.md` (frontend) and `server/data-api/CLAUDE.md`
+(backend) for the details of each half. Keep this root file limited to shared,
+repo-wide concerns.
 
 ## Project overview
 
@@ -13,25 +14,29 @@ shop items. Company `oneorthree`; iOS bundle id `com.oneorthree.gromo`.
 
 ## Monorepo layout
 
-| Path                 | What it is |
-| -------------------- | ---------- |
-| `app/`               | React Native + Expo frontend (TypeScript). Includes `app/ios/` native project and the `screentimereport` Screen Time extension. See `app/.claude/CLAUDE.md`. |
-| `back/`              | Spring Boot 4 + Java 17 + PostgreSQL REST API. See `back/CLAUDE.md`. |
-| `loadtest/`          | k6 load-testing harness (scenarios, GCP runner terraform, trigger dashboard). See `loadtest/README.md`. |
-| `observability/`     | Prometheus / Grafana / Loki / Datadog configs for the dev observability overlay. See `observability/README.md`. |
-| `docs/`              | **Team-shared** feature docs, tracked in git: `docs/prd/<feature>/` with PRD, policy, IA, high-level/low-level design, diagrams. See `docs/README.md`. |
-| `.github/workflows/` | CI/CD pipelines (see below). |
+| Path                    | What it is |
+| ----------------------- | ---------- |
+| `app/app-dev/`          | React Native + Expo frontend (TypeScript). Includes `app/app-dev/ios/` native project and the `screentimereport` Screen Time extension. See `app/app-dev/.claude/CLAUDE.md`. |
+| `app/assets/`           | Source design assets (app icons, character art, videos) — tracked binaries, not bundled app resources (those live in `app/app-dev/src/assets/`). |
+| `app/scripts/`          | Local web-run helpers (`local-web.sh`, `local-web.command`). |
+| `server/data-api/`      | Spring Boot 4 + Java 17 + PostgreSQL REST API. See `server/data-api/CLAUDE.md`. |
+| `server/observability/` | Prometheus / Grafana / Loki / Datadog configs for the dev observability overlay. See `server/observability/README.md`. |
+| `server/scripts/`       | The five `docker-compose.*.yml` files (`dev` / `local` / `prod` / `datadog` / `observability`). |
+| `loadtest/`             | k6 load-testing harness (scenarios, GCP runner terraform, trigger dashboard). See `loadtest/README.md`. |
+| `docs/`                 | **Team-shared** docs, tracked in git: `docs/prd/<feature>/` with PRD, policy, IA, high-level/low-level design, diagrams; repo-wide conventions in `docs/conventions/`. See `docs/README.md`. |
+| `.github/workflows/`    | CI/CD pipelines (see below). |
 
-**`docs/` vs `.docs/`**: `docs/` is the team-shared, committed documentation space
-(`docs/prd/<feature>/` — PRD · policy · IA · high-level/low-level design · diagrams). `.docs/`
-is the owner's personal planning scratch (tickets, reports, specs, drafts) —
+**`docs/` vs `doc/`**: `docs/` is the team-shared, committed documentation space
+(`docs/prd/<feature>/` — PRD · policy · IA · high-level/low-level design · diagrams).
+`doc/` is the owner's personal planning scratch (tickets, reports, specs, drafts) —
 gitignored, never committed. Team-facing docs go in `docs/`; everything personal
-stays in `.docs/`.
+stays in `doc/`.
 
-Gitignored local-only dirs (machine-specific, not in git): `.docs/` (personal
-planning scratch — tickets, reports, specs), `logs/` (work journals), `back/docs/`
-(local planning scratch, **except `back/docs/db/` which is tracked** — schema.dbml),
-`app/.docs/` (app-side personal planning/design docs).
+Gitignored local-only dirs (machine-specific, not in git): `doc/` (personal
+planning scratch — tickets, reports, specs), `logs/` (work journals),
+`server/data-api/docs/` (local planning scratch, **except `server/data-api/docs/db/`
+which is tracked** — schema.dbml), `app/app-dev/.docs/` (app-side personal
+planning/design docs).
 
 The frontend and backend share almost no tooling — work in the relevant subtree
 and let its nested `CLAUDE.md` guide the specifics.
@@ -58,10 +63,10 @@ Korean. Keep code identifiers (types, functions, variables) in English.
   key (`GROMO-####`) — the full key makes the Jira integration attach this PR's history to
   that ticket. For **related/reference tickets** the PR does not implement, write the
   **number only** so no PR history is attached (e.g. `GROMO-455` → "ticket 455").
-- **Creating Jira tickets**: follow `docs/jira-conventions.md` — every task/bug/subtask
-  needs exactly one **`도메인`** value (the domain axis, a dropdown custom field);
-  **epics do not get it** (their `[도메인]` name prefix plays that role). Epic is only for
-  time-boxed initiatives and may be left empty; no `[Tag]` prefixes in task summaries
+- **Creating Jira tickets**: follow `docs/conventions/jira-conventions.md` — every
+  task/bug/subtask needs exactly one **`도메인`** value (the domain axis, a dropdown custom
+  field); **epics do not get it** (their `[도메인]` name prefix plays that role). Epic is only
+  for time-boxed initiatives and may be left empty; no `[Tag]` prefixes in task summaries
   (that info lives in `도메인`/Label).
 - `main` is the integration branch. **`git add`, `git commit`, and `git push` are the
   user's to run** — never stage, commit, or push without an explicit, per-action request,
@@ -70,20 +75,21 @@ Korean. Keep code identifiers (types, functions, variables) in English.
 
 ## CI/CD (`.github/workflows/`)
 
-Pipelines are path-filtered — `app/**` changes and `back/**` changes trigger
-different jobs. This list rots; the authoritative source is `ls .github/workflows/`
-plus each file's `name:`.
+Pipelines are path-filtered — `app/app-dev/**` changes and `server/data-api/**`
+changes trigger different jobs. This list rots; the authoritative source is
+`ls .github/workflows/` plus each file's `name:`.
 
-- **App**: `lint.yml` — ESLint + Prettier + tsc on `app/**`.
-- **Backend PR gate**: `ci.yml` orchestrates the reusable (`workflow_call`)
-  `check-style-backend.yml` / `test-backend.yml` / `spot-bugs.yml` — Checkstyle,
-  tests (JUnit + Testcontainers), and SpotBugs on `back/**`.
-- **Dev deploy**: `cd.yml` — `main` push → backend Docker image → AWS dev.
+- **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**`;
+  `app-android-build.yml` — Android build checks on native-affecting paths.
+- **Backend PR gate**: `dev-ci.yml` orchestrates the reusable (`workflow_call`)
+  `be-check-style.yml` / `be-test.yml` / `be-spot-bugs.yml` — Checkstyle,
+  tests (JUnit + Testcontainers), and SpotBugs on `server/data-api/**`.
+- **Dev deploy**: `dev-cd.yml` — `main` push → backend Docker image → AWS dev.
 - **Prod**: `prod-ci.yml` (verifies PRs to `release`; builds + pushes the image on
   `release` push) → `prod-cd.yml` (auto-deploys via `workflow_run`, or manual
   dispatch by SHA) → `prod-rollback.yml` (manual rollback).
 - **API docs**: `api-dog-generate.yml` (OpenAPI generation on `main`/`release`/
-  `bfeat|bfix|brefactor` pushes — `bchore` is excluded), `cleanup-api-docs.yml`
+  `bfeat|bfix|brefactor` pushes — `bchore` is excluded), `api-docs-cleanup.yml`
   (cleanup on branch delete — currently a **no-op**: its predicate checks a
   `refs/heads/` prefix that the `delete` event's `ref` never carries, so no
   branch deletion is cleaned and doc dirs accumulate on `gh-pages`; known gap).
@@ -93,12 +99,12 @@ plus each file's `name:`.
 - `claude-review.yml` — Claude PR review, triggered by an `@claude` comment.
 
 iOS builds/deploys are **not in CI** — they run manually via fastlane
-(`app/ios/fastlane/`, lane `beta`: archive → TestFlight upload).
+(`app/app-dev/ios/fastlane/`, lane `beta`: archive → TestFlight upload).
 
 ## Key docs
 
 - `docs/prd/<feature>/` — team-shared per-feature docs (PRD / policy / IA / high-level / low-level design / diagrams); structure in `docs/README.md`.
-- `docs/jira-conventions.md` — Jira 4-axis convention (`도메인` dropdown = domain, Label = platform, Epic = time-boxed initiative, fixVersion = release). Read before creating or triaging tickets.
-- `back/docs/db/schema.dbml` — canonical DB schema (DBML, **tracked** — the `docs/db/` whitelist in `back/.gitignore`, GROMO-735; keep it in sync and commit it with its migration). Schema deltas are applied by **Flyway** migrations in `back/src/main/resources/db/migration/` (`V1__baseline.sql` onward); the `run-migration-v*.sh` scripts next to it are a legacy archive.
-- `loadtest/README.md` — load-testing harness guide. `observability/README.md` — dev observability stack guide.
-- `back/HELP.md` — Spring Boot reference notes.
+- `docs/conventions/jira-conventions.md` — Jira 4-axis convention (`도메인` dropdown = domain, Label = platform, Epic = time-boxed initiative, fixVersion = release). Read before creating or triaging tickets.
+- `server/data-api/docs/db/schema.dbml` — canonical DB schema (DBML, **tracked** — the `docs/db/` whitelist in `server/data-api/.gitignore`, GROMO-735; keep it in sync and commit it with its migration). Schema deltas are applied by **Flyway** migrations in `server/data-api/src/main/resources/db/migration/` (`V1__baseline.sql` onward); the `run-migration-v*.sh` scripts next to it are a legacy archive.
+- `loadtest/README.md` — load-testing harness guide. `server/observability/README.md` — dev observability stack guide.
+- `server/data-api/HELP.md` — Spring Boot reference notes.

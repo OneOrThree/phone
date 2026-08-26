@@ -10,11 +10,11 @@ on:
   pull_request:
     branches: [release] # base가 release인 PR만 (= main→release 릴리즈 PR). 검증만
     paths:
-      - "back/**"
+      - "server/data-api/**"
   push:
     branches: [release] # release 머지 → 빌드 + ECR push
     paths:
-      - "back/**"
+      - "server/data-api/**"
   workflow_dispatch:
 
 concurrency:
@@ -76,8 +76,8 @@ jobs:
       - name: 빌드 (push는 release 머지/수동일 때만)
         uses: docker/build-push-action@v6
         with:
-          context: ./back
-          file: ./back/Dockerfile
+          context: ./server/data-api
+          file: ./server/data-api/Dockerfile
           # prod EC2는 t4g(Graviton/arm64) — GROMO-541. builder 스테이지는 $BUILDPLATFORM
           # (러너 네이티브 amd64)에서 돌아 gradle이 에뮬레이션을 타지 않는다.
           platforms: linux/arm64

@@ -1,8 +1,8 @@
 name: Dev Monitoring (Observability)
 
 # 관측 스택(Prometheus·Grafana·Loki·exporters)을 dev(self-hosted) 서버에 수동으로 올린다.
-# 앱 배포(cd.yml)와 분리 — app/db 는 건드리지 않고 관측 서비스만 관리한다.
-# cd.yml이 checkout 밖에 만든 runtime env를 재사용하므로 checkout 정리 뒤에도 DB 설정이 유지된다.
+# 앱 배포(dev-cd.yml)와 분리 — app/db 는 건드리지 않고 관측 서비스만 관리한다.
+# dev-cd.yml이 checkout 밖에 만든 runtime env를 재사용하므로 checkout 정리 뒤에도 DB 설정이 유지된다.
 on:
   workflow_dispatch:
     inputs:
@@ -44,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
-            -f docker-compose.dev.yml -f docker-compose.observability.yml)
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml)
           read -r -a services <<< "$OBS_SERVICES"
           case "${{ inputs.action }}" in
             up)
@@ -64,4 +64,4 @@ jobs:
         if: ${{ inputs.action != 'down' }}
         run: |
           docker compose --env-file "$RUNTIME_ENV_FILE" \
-            -f docker-compose.dev.yml -f docker-compose.observability.yml ps
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml ps

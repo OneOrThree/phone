@@ -1,10 +1,15 @@
 # dev 서버(gromo-dev-app)에서 도는 구성 — 앱 + postgres.
 #
 # app 이미지는 여기서 빌드하지 않는다. 빌드는 CI 러너(gromo-dev-build)가 하고
-# GAR(ci-cache)로 올린 것을 cd.yml의 deploy job이 받아 띄운다(GROMO-953).
+# GAR(ci-cache)로 올린 것을 dev-cd.yml의 deploy job이 받아 띄운다(GROMO-953).
 # APP_IMAGE는 그 job이 .env에 써준다. 기본값을 둔 이유는 오버레이 때문이다 —
 # dev-monitor·dev-datadog는 이 파일을 -f로 함께 읽는데, 값이 비면 app 서비스를
 # 건드리지 않는 실행에서도 compose 파싱이 깨진다.
+
+# 프로젝트명 고정 — 파일이 server/scripts/로 이사한 뒤에도 기존 볼륨·네트워크
+# (phone_* 프리픽스, dev 서버의 DB 데이터 포함)에 그대로 붙게 한다.
+name: phone
+
 services:
   app:
     image: ${APP_IMAGE:-asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest}

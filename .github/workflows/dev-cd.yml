@@ -15,7 +15,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "back/**"
+      - "server/data-api/**"
   workflow_dispatch:
 
 concurrency:
@@ -58,8 +58,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: ./back
-          file: ./back/Dockerfile
+          context: ./server/data-api
+          file: ./server/data-api/Dockerfile
           push: true
           # platforms 미지정 = 러너 네이티브(amd64). prod는 t4g라 arm64를 명시하지만
           # dev 앱 서버도 같은 amd64라 맞출 필요가 없다.
@@ -135,10 +135,10 @@ jobs:
           IMAGE_REVISION: ${{ github.sha }}
         run: |
           set -euo pipefail
-          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f server/scripts/docker-compose.dev.yml)
           if docker ps --format '{{.Names}}' | grep -Fxq gromo-datadog-agent; then
             test -n "$DD_API_KEY"
-            compose+=(-f docker-compose.datadog.yml)
+            compose+=(-f server/scripts/docker-compose.datadog.yml)
             echo "DATADOG_OVERLAY_ENABLED=1" >> "$GITHUB_ENV"
           else
             echo "DATADOG_OVERLAY_ENABLED=0" >> "$GITHUB_ENV"
@@ -155,9 +155,9 @@ jobs:
           IMAGE_REVISION: ${{ github.sha }}
         run: |
           set -euo pipefail
-          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f server/scripts/docker-compose.dev.yml)
           if [ "${DATADOG_OVERLAY_ENABLED:-0}" = 1 ]; then
-            compose+=(-f docker-compose.datadog.yml)
+            compose+=(-f server/scripts/docker-compose.datadog.yml)
           fi
           echo "앱 기동 대기 중..."
           # Datadog -javaagent 콜드스타트까지 포함한 직전 운영 계약: 최대 300초.

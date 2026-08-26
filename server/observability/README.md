@@ -9,22 +9,23 @@ docker-compose overlay 로 기존 dev 스택 위에 얹는다. 무료(컨테이�
 
 ```bash
 cd phone
-cp .env.example .env    # 최초 1회 — POSTGRES_*, GRAFANA_ADMIN_PASSWORD 등 채우기
-docker compose -f docker-compose.dev.yml -f docker-compose.observability.yml up -d
+# dev 서버에서는 dev-cd 가 checkout 밖에 만든 runtime env 를 --env-file 로 지정한다
+# (POSTGRES_*, GRAFANA_ADMIN_PASSWORD 등 — dev-monitor.yml 이 쓰는 것과 동일)
+docker compose -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml up -d
 ```
 
 - Grafana: `http://<서버>:3000` (admin / `$GRAFANA_ADMIN_PASSWORD`)
 - 대시보드: **"GROMO — dev 관측"** (자동 프로비저닝, 5초 새로고침)
-  - ※ 대시보드는 **as-code** — Grafana UI 에서 패널을 즉석 수정해도 ~10초 내 파일 버전으로 되돌아간다. 영구 변경은 `observability/grafana/dashboards/gromo-overview.json` 을 직접 수정.
+  - ※ 대시보드는 **as-code** — Grafana UI 에서 패널을 즉석 수정해도 ~10초 내 파일 버전으로 되돌아간다. 영구 변경은 `server/observability/grafana/dashboards/gromo-overview.json` 을 직접 수정.
 
 중지:
 
 ```bash
-docker compose -f docker-compose.dev.yml -f docker-compose.observability.yml down
+docker compose -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml down
 ```
 
 > ⚠️ 반드시 `-f` 두 개로 실행. 그래야 dev 의 `app-network`·`app`·`db` 와 같은 프로젝트/네트워크를 공유해
-> `app:9091`·`db:5432` 를 서비스명으로 스크레이프한다. `cd.yml` 은 `up -d app` 만 하므로 배포와 간섭 없음.
+> `app:9091`·`db:5432` 를 서비스명으로 스크레이프한다. `dev-cd.yml` 은 `up -d app` 만 하므로 배포와 간섭 없음.
 
 ## 한 화면 구성
 
@@ -62,7 +63,7 @@ DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 �
 
 ## 로컬(비-dev)에서 볼 때
 
-app 을 호스트에서 `bootRun` 으로 띄우면, `observability/prometheus/prometheus.yml` 의 타깃 `app:9091` 을
+app 을 호스트에서 `bootRun` 으로 띄우면, `server/observability/prometheus/prometheus.yml` 의 타깃 `app:9091` 을
 `host.docker.internal:9091` 로 바꾸고 app 을 관리 포트가 설정된 프로파일(dev)로 실행한다.
 
 관련: GROMO-588(수집층) · GROMO-589(알람·uptime·Terraform).

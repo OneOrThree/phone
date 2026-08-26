@@ -2,7 +2,7 @@ name: Android Checks
 
 # 안드로이드 네이티브 검사 (GROMO-1602)
 #
-# lint.yml 은 ESLint·Prettier·tsc·jest 만 돈다 — **Kotlin·Gradle·매니페스트·리소스가 깨져도
+# app-lint.yml 은 ESLint·Prettier·tsc·jest 만 돈다 — **Kotlin·Gradle·매니페스트·리소스가 깨져도
 # PR 은 전부 초록이고, 로컬에서 빌드해 본 사람만 안다.** 2026-08-18 집중 실드 작업에서
 # Kotlin 컴파일 에러와 XML 주석 오류(`--` 를 주석 안에 넣어 리소스 파싱 실패)가 둘 다
 # 앱 CI 를 그대로 통과했다.
@@ -33,34 +33,34 @@ name: Android Checks
 #
 # ⚠️ 트리거를 좁게 잡은 이유: Gradle 은 구성만으로도 RN 모듈 전체를 훑어 lint 보다 무겁다.
 #    러너가 한 대뿐이라(e2-custom-4-8192 — 4 vCPU / 8 GB, 고정 VM), 안드로이드 네이티브가
-#    실제로 바뀐 PR 에서만 돌게 한다. TS 만 고친 PR 은 lint.yml 이 이미 잡는다.
-#    (lint.yml 과 startup-script 주석은 아직 e2-medium 이라고 적혀 있다 — 실측과 다르다.
+#    실제로 바뀐 PR 에서만 돌게 한다. TS 만 고친 PR 은 app-lint.yml 이 이미 잡는다.
+#    (app-lint.yml 과 startup-script 주석은 아직 e2-medium 이라고 적혀 있다 — 실측과 다르다.
 #     GROMO-1611 에서 함께 정정한다.)
 
 on:
   push:
     branches: [main]
     paths: &android_paths
-      - 'app/android/**'
-      - 'app/modules/**/android/**'
+      - 'app/app-dev/android/**'
+      - 'app/app-dev/modules/**/android/**'
       # Expo 자동링크 대상 클래스는 이 파일이 정한다 — android/ 를 한 줄도 안 고치고
       # 없는 클래스를 가리키게 만들 수 있다(코드리뷰 반영).
-      - 'app/modules/*/expo-module.config.json'
+      - 'app/app-dev/modules/*/expo-module.config.json'
       # RN 커뮤니티 오토링킹 — 안드로이드에서 제외 중인 패키지(@xmartlabs/react-native-line)의
       # 제외가 풀리면 컴파일이 깨진다. 이 파일만 고치는 PR 도 검사 대상이다(코드리뷰 반영).
-      - 'app/react-native.config.js'
-      - 'app/package.json'
+      - 'app/app-dev/react-native.config.js'
+      - 'app/app-dev/package.json'
       # npm ci 는 lock 파일의 그래프를 그대로 설치한다 — lock 만 바뀌어도 네이티브 의존성
       # 실제 버전이 달라진다(코드리뷰 반영).
-      - 'app/package-lock.json'
-      - 'app/app.config.js'
-      - '.github/workflows/android-build.yml'
+      - 'app/app-dev/package-lock.json'
+      - 'app/app-dev/app.config.js'
+      - '.github/workflows/app-android-build.yml'
   pull_request:
-    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드다 (lint.yml 과 같은 패턴)
+    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드다 (app-lint.yml 과 같은 패턴)
     # push 필터와 **같은 목록**을 쓴다(YAML 앵커). 두 벌로 두면 한쪽만 고쳐져 갈라진다 —
     # 실제로 코드리뷰에서 네 경로가 한꺼번에 누락된 채로 발견됐다.
     #
-    # 이 워크플로 자신도 트리거에 들어 있다 (lint.yml 이 GROMO-1513 에서 배운 것) — 안 넣으면
+    # 이 워크플로 자신도 트리거에 들어 있다 (app-lint.yml 이 GROMO-1513 에서 배운 것) — 안 넣으면
     # 이 파일만 고치는 PR 에서 검사가 아예 안 돌아, **머지해 봐야** 맞는지 알 수 있다.
     paths: *android_paths
 
@@ -101,8 +101,8 @@ jobs:
           import sys, glob, xml.etree.ElementTree as ET
 
           patterns = [
-              'app/android/**/src/**/*.xml',
-              'app/modules/*/android/src/**/*.xml',
+              'app/app-dev/android/**/src/**/*.xml',
+              'app/app-dev/modules/*/android/src/**/*.xml',
           ]
           files = sorted({f for p in patterns for f in glob.glob(p, recursive=True)})
           if not files:
@@ -173,14 +173,14 @@ jobs:
       - name: Install dependencies
         if: steps.sdk.outputs.present == 'true'
         run: npm ci
-        working-directory: app
+        working-directory: app/app-dev
 
       # build.gradle 은 credentials/<APP_ENV>/keystore.properties 가 없으면 **throw** 한다.
       # 실제 자격을 CI 에 둘 이유가 없으므로(서명된 산출물을 만들지 않는다) 일회용 디버그 키와
       # 최소 google-services.json 을 그때그때 만든다. 저장하지 않고 잡이 끝나면 사라진다.
       - name: CI 자격 생성 (일회용)
         if: steps.sdk.outputs.present == 'true'
-        working-directory: app/android
+        working-directory: app/app-dev/android
         run: |
           mkdir -p credentials/ci
           keytool -genkeypair -v \
@@ -237,7 +237,7 @@ jobs:
       #
       # Kotlin 이 아니라 **Java** 태스크를 게이트로 쓴다(코드리뷰 반영). Java 태스크는 Kotlin
       # 컴파일을 선행 의존성으로 끌어오므로 위 범위를 그대로 덮으면서, Kotlin 태스크만으로는
-      # 빠지던 app/android/app/src 의 .java 컴파일까지 포함한다. 지금 앱에 .java 는 없지만
+      # 빠지던 app/app-dev/android/app/src 의 .java 컴파일까지 포함한다. 지금 앱에 .java 는 없지만
       # 하나 들어오는 순간 검사 밖이 된다 — 그때 알아채지 못하는 게 문제다.
       #
       # `-Pandroid.builder.sdkDownload=false` — 위 SDK 확인은 구성요소가 '있나'만 보고 **버전은
@@ -247,4 +247,4 @@ jobs:
       - name: 네이티브 컴파일 · 리소스 · 매니페스트 검증
         if: steps.sdk.outputs.present == 'true'
         run: ./gradlew :app:compileDebugJavaWithJavac -Pandroid.builder.sdkDownload=false --no-daemon
-        working-directory: app/android
+        working-directory: app/app-dev/android

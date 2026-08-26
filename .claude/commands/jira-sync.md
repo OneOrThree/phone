@@ -60,7 +60,7 @@ PRD 파일을 Read로 읽은 뒤 다음 규칙으로 티켓 후보를 추출한�
 3. 인프라/설정 항목 (APNs, Redis, 스케줄러 등)이 독립 섹션으로 있으면 포함
 
 **티켓 제목 포맷**: `동사형 한줄 설명` — **대괄호 접두를 붙이지 않는다**
-- 도메인은 제목이 아니라 `도메인` 필드가 담는다 (`docs/jira-conventions.md`)
+- 도메인은 제목이 아니라 `도메인` 필드가 담는다 (`docs/conventions/jira-conventions.md`)
 - 동사: 구현 / 조회 API 구현 / 설정 API 구현 / 마이그레이션 / 연동
 
 **도메인**(필수): **3단계에서 조회한 `DOMAIN_OPTS` 안에서만** 고른다.
@@ -100,7 +100,7 @@ ver_id = VERSION_ID  # 조회된 버전 ID
 type_id = TASK_TYPE_ID  # 조회된 작업 이슈타입 ID
 
 # DOMAIN_FIELD · DOMAIN_OPTS 는 3단계에서 이미 조회했다 (재조회하지 않는다).
-# 규약: docs/jira-conventions.md · Component 미러는 오너 스윕이 맞춘다
+# 규약: docs/conventions/jira-conventions.md · Component 미러는 오너 스윕이 맞춘다
 
 def adf(text):
     return {"version":1,"type":"doc","content":[

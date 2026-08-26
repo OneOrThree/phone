@@ -1,10 +1,11 @@
 # GROMO-546 — dev 관측 스택 (docker-compose.dev.yml 위에 얹는 overlay)
 #
-# 실행:  docker compose -f docker-compose.dev.yml -f docker-compose.observability.yml up -d
-# 중지:  docker compose -f docker-compose.dev.yml -f docker-compose.observability.yml down
+# 실행:  docker compose -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml up -d
+# 중지:  docker compose -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml down
 #
 # 반드시 overlay 로 실행(-f 두 개) — 그래야 dev 의 app-network·app·db 와 같은 프로젝트/네트워크를
-# 공유해 서비스명(app:9091, db:5432)으로 스크레이프한다. cd.yml 은 `up -d app` 만 하므로 간섭 없음.
+# 공유해 서비스명(app:9091, db:5432)으로 스크레이프한다. dev-cd.yml 은 `up -d app` 만 하므로 간섭 없음.
+# 설정 마운트(../observability/*)는 compose 파일 위치(server/scripts/) 기준 상대경로다.
 services:
   # 메트릭 수집·저장 — app(:9091 actuator)·postgres-exporter·node·cadvisor 스크레이프(5s)
   prometheus:
@@ -14,7 +15,7 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=7d
     volumes:
-      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "127.0.0.1:9090:9090"   # 로컬 확인용(선택) — 내부 스크레이프는 네트워크로 충분
@@ -30,8 +31,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     ports:
       - "3000:3000"
@@ -45,7 +46,7 @@ services:
     container_name: gromo-loki
     command: -config.file=/etc/loki/loki-config.yml
     volumes:
-      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - ../observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
       - loki_data:/loki
     networks: [app-network]
     restart: unless-stopped
@@ -56,7 +57,7 @@ services:
     container_name: gromo-promtail
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
-      - ./observability/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - ../observability/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
     depends_on: [loki]

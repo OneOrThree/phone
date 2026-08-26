@@ -1,7 +1,7 @@
-# back/ — Spring Boot backend
+# server/data-api/ — Spring Boot backend
 
 REST API for **gromo**. Loads in addition to the root `CLAUDE.md`.
-Run all commands below from inside `back/`.
+Run all commands below from inside `server/data-api/`.
 
 ## Stack
 
@@ -58,9 +58,9 @@ Enforced by `config/checkstyle/checkstyle.xml` (Google Java Style, modified):
 
 Team-shared feature docs (PRD · policy · IA · high-level/low-level design ·
 diagrams per feature) live in the **repo-root `docs/prd/<feature>/`** (tracked;
-see `docs/README.md`). `back/docs/` stays
-local-only planning scratch — except the tracked `back/docs/db/` schema whitelist
-(GROMO-735).
+see `docs/README.md`). `server/data-api/docs/` stays
+local-only planning scratch — except the tracked `server/data-api/docs/db/` schema
+whitelist (GROMO-735).
 
 ## Database changes
 
@@ -98,18 +98,19 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
   (`/api/*` only) and Boot runs the management port in a separate servlet
   context, so **port isolation is the only thing keeping it private**: never add
   `9091` to a compose `ports:` list.
-- `docker-compose.observability.yml` (repo root) overlays Prometheus + Grafana +
-  Loki/Promtail on the dev stack; configs live in the repo-root `observability/`
+- `server/scripts/docker-compose.observability.yml` overlays Prometheus + Grafana +
+  Loki/Promtail on the dev stack; configs live in `server/observability/`
   (see its README).
-- Datadog runs on both environments: `docker-compose.datadog.yml` + the manual
-  `dev-datadog.yml` workflow toggle it on dev, and `docker-compose.prod.yml`
-  carries the same wiring permanently. The OpenMetrics scrape config is baked
-  into `back/Dockerfile` as a `com.datadoghq.ad.checks` label (prod hosts have no
-  repo checkout to mount a config file from) — edit the metric list there.
+- Datadog runs on both environments: `server/scripts/docker-compose.datadog.yml` +
+  the manual `dev-datadog.yml` workflow toggle it on dev, and
+  `server/scripts/docker-compose.prod.yml` carries the same wiring permanently. The
+  OpenMetrics scrape config is baked into `server/data-api/Dockerfile` as a
+  `com.datadoghq.ad.checks` label (prod hosts have no repo checkout to mount a
+  config file from) — edit the metric list there.
 
 ## Deploy
 
-- **Dev**: `cd.yml` builds a Docker image on `main` push and deploys to AWS
+- **Dev**: `dev-cd.yml` builds a Docker image on `main` push and deploys to AWS
   (OIDC role `gromo-dev-github-actions`, region `ap-northeast-2`, runtime secrets from
   Secrets Manager `gromo/dev/env`); health check at `/health`. Dev images use GAR, not
   ECR; host-bootstrap secrets (`gromo/dev/app-server`, `gromo/dev/ci-runner`) remain
@@ -120,7 +121,7 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
 
 ## Recommended skills & tools (backend workflow)
 
-The fast path for working in `back/`:
+The fast path for working in `server/data-api/`:
 
 - `superpowers:brainstorming` — before designing any new endpoint/feature.
 - `superpowers:test-driven-development` — default for new logic (JUnit 5 + Testcontainers).

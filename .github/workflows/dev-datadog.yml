@@ -1,7 +1,7 @@
 name: Dev Datadog (APM + Observability)
 
 # Datadog Agent + APM 을 dev(self-hosted) 서버에 수동으로 올린다.
-# 앱 배포(cd.yml)와 분리한다. DB/app 시크릿은 checkout 밖의 동일 runtime env를 재사용하고,
+# 앱 배포(dev-cd.yml)와 분리한다. DB/app 시크릿은 checkout 밖의 동일 runtime env를 재사용하고,
 # DD_API_KEY만 GitHub Actions 시크릿으로 필요한 compose step에 주입한다.
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
         default: up
         options: [up, restart, down]
 
-# cd.yml 과 동일 그룹 — 둘 다 같은 dev 호스트의 phone-app 을 (compose 입력만 다르게) 재생성하므로,
+# dev-cd.yml 과 동일 그룹 — 둘 다 같은 dev 호스트의 phone-app 을 (compose 입력만 다르게) 재생성하므로,
 # 수동 Datadog 토글과 push 배포가 겹쳐 서로의 app 상태(APM 활성 여부)·헬스결과를 무효화하지 않도록 직렬화한다.
 concurrency:
   group: cd-production
@@ -42,7 +42,7 @@ jobs:
           test -s "$RUNTIME_ENV_FILE"
           test -n "$DD_API_KEY"
           APP_IMAGE_REF=$(docker compose --env-file "$RUNTIME_ENV_FILE" \
-            -f docker-compose.dev.yml config --format json | jq -er '.services.app.image')
+            -f server/scripts/docker-compose.dev.yml config --format json | jq -er '.services.app.image')
           curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
             "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
           | jq -er .access_token \
@@ -68,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
-            -f docker-compose.dev.yml -f docker-compose.datadog.yml)
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.datadog.yml)
           case "${{ inputs.action }}" in
             up)
               # CD가 배포한 실제 digest를 pull한 뒤 같은 이미지에 APM overlay만 적용한다.
@@ -81,7 +81,7 @@ jobs:
             down)
               # Datadog Agent 제거 후, app 을 dev 파일 단독으로 재생성 → 평문(javaagent 없음) 복원
               docker rm -f gromo-datadog-agent 2>/dev/null || true
-              docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml up -d app
+              docker compose --env-file "$RUNTIME_ENV_FILE" -f server/scripts/docker-compose.dev.yml up -d app
               ;;
           esac
 
@@ -93,12 +93,12 @@ jobs:
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
-            -f docker-compose.dev.yml -f docker-compose.datadog.yml)
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.datadog.yml)
           "${compose[@]}" ps
           echo "== app 헬스체크 (APM -javaagent 기동 실패 조기 탐지) =="
           # 60초(12회)로는 `up --build` + -javaagent 콜드스타트를 못 기다려, 정상 기동한 7/16·7/24 실행이
           # 둘 다 failure 로 표시됐다(트레이서는 붙었는데 워크플로만 빨간불 → "Datadog 안 켜졌다" 오독).
-          # cd.yml 과 같은 운영 계약으로 -javaagent 콜드스타트를 최대 300초 기다린다. (GROMO-1233)
+          # dev-cd.yml 과 같은 운영 계약으로 -javaagent 콜드스타트를 최대 300초 기다린다. (GROMO-1233)
           ok=0
           for i in $(seq 1 60); do
             sleep 5
@@ -274,7 +274,7 @@ jobs:
             fail=1
           fi
 
-          # 3) OpenMetrics 브리지 — app 이미지 AD 라벨(back/Dockerfile)에만 의존하므로, 라벨이 인식되지
+          # 3) OpenMetrics 브리지 — app 이미지 AD 라벨(server/data-api/Dockerfile)에만 의존하므로, 라벨이 인식되지
           #    않으면 인스턴스 자체가 나타나지 않는다. 정적 마운트를 없앤 대가라 **에러가 아니라 부재가
           #    기본 실패 양상**이다. 그래서 "에러 없는 인스턴스가 1개 이상 존재"를 직접 요구한다.
           #    app 헬스체크를 통과한 뒤라 이 시점엔 스크레이프가 붙어 있어야 정상이다.
@@ -300,12 +300,12 @@ jobs:
             echo "$om_err"
           fi
 
-          # 인스턴스가 에러 없이 등록돼도 샘플이 0일 수 있다 — 엔드포인트는 200 인데 back/Dockerfile 의
+          # 인스턴스가 에러 없이 등록돼도 샘플이 0일 수 있다 — 엔드포인트는 200 인데 server/data-api/Dockerfile 의
           # metrics 허용 목록이 실제 메트릭 이름과 안 맞는 경우다(Micrometer 이름 변경, 패턴 오타).
           # 이 PR 이 그 목록을 conf.yaml 에서 이미지 라벨로 옮겼으므로 오타 시 정확히 이 상태가 된다.
           if [ "${om_ok:-0}" -gt 0 ] 2>/dev/null; then
             if [ "$s_before" = "$s_after" ] && [ "${om_smp_after:-0}" -le "${om_smp_before:-0}" ] 2>/dev/null; then
-              echo "::error::OpenMetrics 샘플이 늘지 않음 — 스크레이프는 되는데 수집된 메트릭이 없습니다. back/Dockerfile 의 metrics 허용 목록이 실제 메트릭 이름과 맞는지 확인하세요(카운터는 _total 접미사를 뗀 이름으로 매칭)"
+              echo "::error::OpenMetrics 샘플이 늘지 않음 — 스크레이프는 되는데 수집된 메트릭이 없습니다. server/data-api/Dockerfile 의 metrics 허용 목록이 실제 메트릭 이름과 맞는지 확인하세요(카운터는 _total 접미사를 뗀 이름으로 매칭)"
               fail=1
             elif [ "${om_smp_after:-0}" -eq 0 ] 2>/dev/null; then
               echo "::error::OpenMetrics 샘플 0건 — metrics 허용 목록과 실제 메트릭 이름 불일치 가능"

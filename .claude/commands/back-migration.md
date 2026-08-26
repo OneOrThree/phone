@@ -8,7 +8,7 @@ Author a database schema change: **$ARGUMENTS**
 
 Steps:
 1. Discover the current migration version: glob
-   `back/src/main/resources/db/migration/V*__*.sql` and take the **numeric** max of
+   `server/data-api/src/main/resources/db/migration/V*__*.sql` and take the **numeric** max of
    the `V(\d+)__` prefix — never sort lexicographically (`V9` sorts after `V15`).
    The new file is `V<N+1>__<short_snake_case_desc>.sql` in the same directory.
 2. Read the 1–2 most recent migrations and match their exact style: a Korean header
@@ -26,9 +26,9 @@ Steps:
      `git fetch origin main` first (a stale local ref defeats the guard), then
      re-scan `origin/main`'s migration dir and renumber to the next free version
      if taken.
-4. Update `back/docs/db/schema.dbml` (DBML — the canonical schema doc,
-   gitignored/local-only) to reflect the new columns/tables so it stays in sync
-   with the current DB state.
+4. Update `server/data-api/docs/db/schema.dbml` (DBML — the canonical schema doc,
+   **tracked** via the `docs/db/` whitelist, GROMO-735; commit it with the migration)
+   to reflect the new columns/tables so it stays in sync with the current DB state.
 5. If the change affects JPA entities, point out which `<domain>/domain/` entities
    and repositories need updating (or update them if I asked for the full change),
    keeping them aligned with the new columns/tables.
