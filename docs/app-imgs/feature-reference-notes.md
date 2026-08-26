@@ -14,8 +14,8 @@
 - `origin/afeat/GROMO-1037-object-character`
   - 실제 누끼 생성·캐릭터 선택 화면 흐름과 자산 확인
 - 현행 앱 구현
-  - `app/src/screens/group/**`
-  - `app/src/screens/character/**`
+  - `app/app-dev/src/screens/group/**`
+  - `app/app-dev/src/screens/character/**`
 
 ## 이미지 구성에 반영한 핵심
 

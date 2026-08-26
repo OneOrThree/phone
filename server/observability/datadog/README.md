@@ -11,8 +11,8 @@ prod 는 `docker-compose.prod.yml` 에 **상시 내장**돼 있다.
 |---|---|
 | `docker-compose.datadog.yml` | **dev** — `datadog-agent` 서비스 + `app`/`db` override(-javaagent·서비스 태그) |
 | `docker-compose.prod.yml` | **prod** — 같은 배선을 app·nginx·datadog-agent 로 상시 포함 |
-| `back/Dockerfile` | `dd-java-agent.jar` 내장 + **OpenMetrics AD 라벨**(아래 참고) |
-| `back/src/main/resources/application-{dev,prod}.yml` | 관리 포트 9091 에 `/actuator/prometheus` 노출 |
+| `server/data-api/Dockerfile` | `dd-java-agent.jar` 내장 + **OpenMetrics AD 라벨**(아래 참고) |
+| `server/data-api/src/main/resources/application-{dev,prod}.yml` | 관리 포트 9091 에 `/actuator/prometheus` 노출 |
 | `.github/workflows/dev-datadog.yml` | dev up/down/restart 토글 + **수집 검증 게이트** |
 
 ### OpenMetrics 브리지가 이미지 라벨에 있는 이유 (GROMO-1489)
@@ -21,7 +21,7 @@ prod 는 `docker-compose.prod.yml` 에 **상시 내장**돼 있다.
 **prod 호스트에는 레포가 체크아웃되지 않는다** — `prod-cd.yml` 은 `docker-compose.prod.yml` 한 장만 S3 로
 올린다. 그래서 마운트 방식으로는 prod 에 브리지를 놓을 수 없었고, 결과적으로 커스텀 메트릭이 dev 에만 있었다.
 
-지금은 `back/Dockerfile` 의 `com.datadoghq.ad.checks` 라벨에 스크레이프 설정을 구워, **같은 이미지가 어느
+지금은 `server/data-api/Dockerfile` 의 `com.datadoghq.ad.checks` 라벨에 스크레이프 설정을 구워, **같은 이미지가 어느
 환경에서든 같은 배선**을 갖는다. 메트릭 목록을 바꾸려면 그 라벨 한 곳만 고치면 된다.
 
 ## dev ↔ prod 정합

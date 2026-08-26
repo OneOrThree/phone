@@ -108,9 +108,9 @@ gromo의 `집중 기록 → 집중 세션 → 분석 → 성취 → 티어 성�
 
 ### 앱 자산
 
-- `app/src/assets/character_happy.png`
-- `app/src/assets/character_study.png`
-- `app/src/assets/tier_image/tier2.png` ~ `tier5.png`
+- `app/app-dev/src/assets/character_happy.png`
+- `app/app-dev/src/assets/character_study.png`
+- `app/app-dev/src/assets/tier_image/tier2.png` ~ `tier5.png`
 
 ### 조사 자료
 

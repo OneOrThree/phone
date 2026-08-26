@@ -167,7 +167,7 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: app/app-dev/package-lock.json
 
       # Expo 자동링크가 node_modules 를 읽어 Gradle 프로젝트를 구성하므로 설치가 선행이다.
       - name: Install dependencies

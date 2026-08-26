@@ -71,7 +71,7 @@ jobs:
 
       # compose(앱 소유)만 S3로. nginx.conf/인증서는 인프라(terraform/certbot) 관리.
       - name: compose S3 업로드
-        run: aws s3 cp docker-compose.prod.yml s3://$DEPLOY_BUCKET/deploy/docker-compose.prod.yml
+        run: aws s3 cp server/scripts/docker-compose.prod.yml s3://$DEPLOY_BUCKET/deploy/docker-compose.prod.yml
 
       - name: SSM 문서로 SHA 배포
         run: |
