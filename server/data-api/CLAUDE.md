@@ -110,7 +110,8 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
 
 ## Deploy
 
-- **Dev**: `dev-cd.yml` builds a Docker image on `main` push and deploys to AWS
+- **Dev**: on `main` push, `dev-ci.yml` builds + pushes the image (`back:<sha>` to
+  GAR) and calls the reusable `dev-cd.yml` with its digest, which deploys to AWS
   (OIDC role `gromo-dev-github-actions`, region `ap-northeast-2`, runtime secrets from
   Secrets Manager `gromo/dev/env`); health check at `/health`. Dev images use GAR, not
   ECR; host-bootstrap secrets (`gromo/dev/app-server`, `gromo/dev/ci-runner`) remain

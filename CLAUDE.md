@@ -81,10 +81,12 @@ changes trigger different jobs. This list rots; the authoritative source is
 
 - **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**`;
   `app-android-build.yml` — Android build checks on native-affecting paths.
-- **Backend PR gate**: `dev-ci.yml` orchestrates the reusable (`workflow_call`)
-  `be-check-style.yml` / `be-test.yml` / `be-spot-bugs.yml` — Checkstyle,
-  tests (JUnit + Testcontainers), and SpotBugs on `server/data-api/**`.
-- **Dev deploy**: `dev-cd.yml` — `main` push → backend Docker image → AWS dev.
+- **Backend PR gate + dev deploy**: `dev-ci.yml` orchestrates the reusable
+  (`workflow_call`) `be-check-style.yml` / `be-test.yml` / `be-spot-bugs.yml` —
+  Checkstyle, tests (JUnit + Testcontainers), and SpotBugs on `server/data-api/**`.
+  On PRs it also build-verifies the Docker image (no push); on `main` push the same
+  run pushes `back:<sha>` to GAR and calls the reusable `dev-cd.yml` with the image
+  digest, which deploys to AWS dev (`dev-cd.yml` has no trigger of its own).
 - **Prod**: `prod-ci.yml` (verifies PRs to `release`; builds + pushes the image on
   `release` push) → `prod-cd.yml` (auto-deploys via `workflow_run`, or manual
   dispatch by SHA) → `prod-rollback.yml` (manual rollback).
