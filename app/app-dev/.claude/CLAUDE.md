@@ -43,8 +43,9 @@ Folder map (그 README가 정본, 이 표는 요약):
 | `features/`                                                                 | 공유 보류분(`challenge/` · `focus-session/` · `group-carousel/`) — 공유된 기능 설계서는 `docs/prd/<기능>/`이 정본 |
 | `product/`                                                                  | Product-wide planning — 기획서, 기능명세, IA diagram, user funnel, event taxonomy                                 |
 | `qa/` · `ops/`                                                              | QA scenarios/verification · ops refs (release/OTA, data map, schema.dbml)                                         |
+| `api-성능/` · `그로스실험/`                                                 | prod API 응답시간 실측 + 서버 조립 이관 설계 · 지표 기반 실험(baseline·가설·검증)                                 |
 | `design/` · `marketing/` · `store/` · `presentations/` · `troubleshooting/` | 시안 · 마케팅 · 스토어 · 발표자료 · 트러블슈팅                                                                    |
-| `pr/` · `tickets/` · `archive/`                                             | PR 초안 · 티켓 초안 · 지난 문서 보존(현행 아님)                                                                   |
+| `pr/` · `archive/`                                                          | PR 초안 · 지난 문서 보존(현행 아님) — 티켓 초안은 파일로 안 남긴다(`jira-ticket` 스킬)                            |
 
 > New docs go in one of these folders — **never at `.docs/` root**. 단 기능 설계서는 예외로
 > 팀 공유 `docs/prd/<기능-영문-kebab>/`에 만든다 (위 섹션).
@@ -153,6 +154,12 @@ npm start                     # Metro dev server
 npm run ios                   # iOS simulator
 npx expo run:ios --device     # on-device (needs p12; Jaeyoung's machine only)
 ```
+
+> **Building or deploying? Read [DevRunbook.md](./DevRunbook.md) first.** It is the single source
+> of truth for environment setup, TestFlight release (`ios/testflight.sh` + fastlane), Android
+> release (`scripts/android-release.sh`), and OTA updates (hot-updater). It also lists every
+> untracked file a new machine needs (`.env*`, Firebase plists, signing assets) — see its
+> "새 팀원 인수인계 체크리스트" section.
 
 ### Backend connection (`.env`)
 
