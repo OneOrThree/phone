@@ -290,7 +290,13 @@ cp sentry.properties.example sentry.properties
 > `gromo` 다(`react-native` 아님). 파일이 **없으면** 빌드가 되지만, **있는데 슬러그가 틀리면**
 > sentry-cli 400 으로 아카이브 전체가 죽는다. 급할 땐 `SENTRY_DISABLE_AUTO_UPLOAD=true fastlane beta`.
 
-안드로이드도 동일하게 `android/sentry.properties.example` → `android/sentry.properties`.
+안드로이드도 동일하게 `android/sentry.properties.example` → `android/sentry.properties`. 안드로이드
+쪽 게이트는 `android/app/build.gradle` 에 있다 — 파일이 있을 때만 업로드 훅을 건다. org·project 가
+같아서 iOS 파일을 그대로 복사해도 된다(`cp ios/sentry.properties android/sentry.properties`).
+
+> **현재 상태(수빈 맥 체크아웃):** `ios/sentry.properties` · `android/sentry.properties` **둘 다 배치돼
+> 있다.** 즉 양쪽 다 "파일 있음" 상태라, 토큰이 만료되거나 슬러그가 틀어지면 업로드 스킵이 아니라
+> **빌드 실패**로 나타난다. 두 파일 모두 gitignore 대상이라 새 머신에서는 각자 다시 만들어야 한다.
 
 #### (7) (선택) alias 등록 — 어디서든 `testflight`
 
@@ -427,11 +433,11 @@ strings index.ios.bundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u
 
 ### (3) 본인이 발급/생성
 
-| 파일                    | 만드는 법                                                              |
-| ----------------------- | ---------------------------------------------------------------------- |
-| `ios/fastlane/.env`     | 5.1(3) 참고 — `.p8` 은 **본인 ASC 키로 발급**(재발급 불가라 공유 금물) |
-| `ios/sentry.properties` | 5.1(6) 참고 — 본인 토큰, `defaults.project=gromo`                      |
-| `ios/.xcode.env.local`  | `export NODE_BINARY=<본인 node 경로>`                                  |
+| 파일                                                  | 만드는 법                                                                     |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `ios/fastlane/.env`                                   | 5.1(3) 참고 — `.p8` 은 **본인 ASC 키로 발급**(재발급 불가라 공유 금물)        |
+| `ios/sentry.properties` · `android/sentry.properties` | 5.1(6) 참고 — 본인 토큰, `defaults.project=gromo` (안드는 iOS 파일 복사 가능) |
+| `ios/.xcode.env.local`                                | `export NODE_BINARY=<본인 node 경로>`                                         |
 
 ---
 
