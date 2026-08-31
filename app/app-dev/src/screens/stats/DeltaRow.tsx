@@ -2,6 +2,7 @@
 // 좋은 지표는 lowerIsBetter로 색 판정을 뒤집는다.
 import { View, Text, StyleSheet } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { fmtMinutes } from '@/utils/timeFormat';
 
 export function DeltaRow({
@@ -27,7 +28,9 @@ export function DeltaRow({
       <View style={s.deltaValueWrap}>
         <Text style={[s.deltaArrow, { color }]}>{arrow}</Text>
         <Text style={[s.deltaPct, { color }]}>{pct === null ? '–' : `${pct}%`}</Text>
-        <Text style={s.deltaMin}>{flat ? '변화 없어요' : `${fmtMinutes(Math.abs(delta))}`}</Text>
+        <Text style={s.deltaMin}>
+          {flat ? t('stats.deltaRow.noChange') : fmtMinutes(Math.abs(delta))}
+        </Text>
       </View>
     </View>
   );

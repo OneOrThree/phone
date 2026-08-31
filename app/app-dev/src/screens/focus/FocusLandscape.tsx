@@ -9,6 +9,7 @@ import { PressableScale } from '@/components/PressableScale';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { useCharacter } from '@/store/CharacterContext';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { FocusTimerMode } from './types';
 import { FlipClock } from './FlipClock';
 
@@ -55,7 +56,7 @@ export function FocusLandscape({
   // 빼는 값은 바닥 여백(md) + 시계와의 간격(md).
   const charSize = Math.max(56, Math.min(120, Math.floor(availH / 2 - size / 2 - T.space.md * 2)));
 
-  const label = isPomodoro && phase === 'break' ? '휴식' : subjectName;
+  const label = isPomodoro && phase === 'break' ? t('focus.session.break') : subjectName;
 
   return (
     <View style={s.root}>
@@ -70,7 +71,7 @@ export function FocusLandscape({
             style={s.rotateBtn}
             scaleTo={0.9}
             haptic="light"
-            accessibilityLabel="세로 화면으로 전환"
+            accessibilityLabel={t('focus.session.toPortrait')}
             onPress={onRotatePortrait}
           >
             <Ionicons name="phone-portrait-outline" size={20} color={T.paperLight} />
@@ -99,7 +100,7 @@ export function FocusLandscape({
             <View style={s.setBadge}>
               <View style={s.setBadgeDot} />
               <Text style={s.setBadgeText}>
-                세트 {setIndex} / {sets}
+                {t('focus.session.setProgress', { current: setIndex, total: sets })}
               </Text>
             </View>
             <View style={s.setDots}>

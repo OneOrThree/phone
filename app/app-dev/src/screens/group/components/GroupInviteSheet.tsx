@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import axios from 'axios';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import { getAuthSessionGeneration } from '@/services/api';
 import { getGroupOverview, groupErrorCode, joinGroup } from '@/services/groupApi';
@@ -63,12 +64,12 @@ export interface GroupInviteSheetProps {
 //   password: 비밀번호 그룹(레거시) — 앱엔 비번을 받을 입구가 없어 프리뷰에서 미리 막는다.
 type BlockReason = 'full' | 'limit' | 'password';
 
-const BLOCK_TEXT: Record<BlockReason, string> = {
-  full: '정원이 가득 찼어요',
-  limit: '참여할 수 있는 그룹 수를 초과했어요',
+const BLOCK_TEXT_KEYS: Record<BlockReason, string> = {
+  full: 'group.groupInviteSheet.blockFull',
+  limit: 'group.groupInviteSheet.blockLimit',
   // 비밀번호는 폐기 개념(§0)이라 앱은 항상 빈 바디로 join한다 — 기존 비번 그룹은 눌러도
   // WRONG_PASSWORD로만 끝나므로, 눌러 보게 두지 말고 이유를 먼저 말한다.
-  password: '비밀번호가 걸린 그룹이라 참여할 수 없어요',
+  password: 'group.groupInviteSheet.blockPassword',
 };
 
 // 404 판정 — 에러 바디의 code가 원칙이지만(§3-2), 바디 없는 404도 '사라진 그룹'으로 본다.
@@ -105,16 +106,24 @@ function hhmm(v: string): string {
 // 스크린타임 목표는 '이상'이 아니라 '이하'다 — 초대 프리뷰는 참여를 결정하는 유일한 정보 화면이라
 // `목표 · 하루 60분 스크린타임`만 두면 60분을 채우라는 뜻으로 뒤집혀 읽힌다.
 // 문구는 그룹 만들기 폼·챌린지 만들기 시트의 캡션과 같은 뜻으로 맞춘다(카테고리 설명은 세 자리 동일).
-const SCREEN_TIME_HINT = '하루 스크린타임을 목표 이하로 유지하면 달성이에요';
+const SCREEN_TIME_HINT_KEY = 'group.groupInviteSheet.screenTimeHint';
 
 // 미션 한 줄 요약 — 대표 챌린지가 없으면 null(행을 숨긴다).
 function missionLabel(ov: GroupOverviewResponse): string | null {
-  const what = ov.missionCategory === 'SCREEN_TIME' ? '스크린타임' : '집중';
+  const what = t(
+    ov.missionCategory === 'SCREEN_TIME'
+      ? 'group.groupInviteSheet.screenTime'
+      : 'group.groupInviteSheet.focus',
+  );
   if (ov.missionType === 'DURATION' && ov.durationMinutes) {
-    return `하루 ${ov.durationMinutes}분 ${what}`;
+    return t('group.groupInviteSheet.missionDaily', { minutes: ov.durationMinutes, what });
   }
   if (ov.missionType === 'TIME_WINDOW' && ov.windowStart && ov.windowEnd) {
-    return `매일 ${hhmm(ov.windowStart)}~${hhmm(ov.windowEnd)} ${what}`;
+    return t('group.groupInviteSheet.missionWindow', {
+      start: hhmm(ov.windowStart),
+      end: hhmm(ov.windowEnd),
+      what,
+    });
   }
   return null;
 }
@@ -292,7 +301,7 @@ export default function GroupInviteSheet({
           setBlock('password');
           break;
         default:
-          setJoinError('참여하지 못했어요. 잠시 후 다시 시도해 주세요.');
+          setJoinError(t('group.betError.joinFailed'));
       }
     } finally {
       // 세대가 갈렸어도 반드시 푼다 — 프리뷰 이펙트는 잠금을 풀지 않으므로(위 주석) 이 잠금을 쥔
@@ -318,9 +327,9 @@ export default function GroupInviteSheet({
         }}
         asModal
       >
-        <Text style={s.title}>사라진 그룹이에요</Text>
-        <Text style={s.desc}>초대 링크가 만료됐거나 그룹이 없어졌어요.</Text>
-        <PrimaryCloseCta label="확인" />
+        <Text style={s.title}>{t('group.groupInviteSheet.goneTitle')}</Text>
+        <Text style={s.desc}>{t('group.groupInviteSheet.goneDesc')}</Text>
+        <PrimaryCloseCta label={t('common.confirm')} />
       </SheetShell>
     );
   }
@@ -338,16 +347,16 @@ export default function GroupInviteSheet({
         }}
         asModal
       >
-        <Text style={s.title}>초대장을 열지 못했어요</Text>
-        <Text style={s.desc}>잠시 후 다시 시도해 주세요.</Text>
+        <Text style={s.title}>{t('group.groupInviteSheet.failedTitle')}</Text>
+        <Text style={s.desc}>{t('common.retryLater')}</Text>
         <TouchableOpacity
           style={s.primaryBtn}
           activeOpacity={0.85}
           onPress={() => setReloadKey((k) => k + 1)}
         >
-          <Text style={s.primaryText}>다시 시도</Text>
+          <Text style={s.primaryText}>{t('common.retry')}</Text>
         </TouchableOpacity>
-        <GhostCloseCta label="닫기" />
+        <GhostCloseCta label={t('common.close')} />
       </SheetShell>
     );
   }
@@ -377,8 +386,8 @@ export default function GroupInviteSheet({
   // ── 프리뷰 ──
   return (
     <SheetShell onClose={onClose} asModal>
-      <Text style={s.title}>그룹 초대장이 도착했어요</Text>
-      <Text style={s.desc}>함께 집중할 그룹이에요. 참여하면 바로 시작할 수 있어요.</Text>
+      <Text style={s.title}>{t('group.groupInviteSheet.title')}</Text>
+      <Text style={s.desc}>{t('group.groupInviteSheet.desc')}</Text>
 
       <View style={s.card}>
         <Text style={s.groupName} numberOfLines={2}>
@@ -390,23 +399,26 @@ export default function GroupInviteSheet({
           </Text>
         )}
         <View style={s.metaRow}>
-          <Text style={s.metaLabel}>인원</Text>
+          <Text style={s.metaLabel}>{t('group.groupInviteSheet.membersLabel')}</Text>
           <Text style={s.metaValueNum}>
-            {overview.memberCount}/{overview.maxMembers}명
+            {t('group.groupInviteSheet.membersValue', {
+              members: overview.memberCount,
+              maxMembers: overview.maxMembers,
+            })}
           </Text>
         </View>
         {!!mission && (
           <View style={s.metaRow}>
-            <Text style={s.metaLabel}>목표</Text>
+            <Text style={s.metaLabel}>{t('group.groupInviteSheet.goalLabel')}</Text>
             <Text style={s.metaValue}>{mission}</Text>
           </View>
         )}
         {!!mission && overview.missionCategory === 'SCREEN_TIME' && (
-          <Text style={s.missionHint}>{SCREEN_TIME_HINT}</Text>
+          <Text style={s.missionHint}>{t(SCREEN_TIME_HINT_KEY)}</Text>
         )}
       </View>
 
-      {!!block && <Text style={s.notice}>{BLOCK_TEXT[block]}</Text>}
+      {!!block && <Text style={s.notice}>{t(BLOCK_TEXT_KEYS[block])}</Text>}
       {!!joinError && <Text style={s.notice}>{joinError}</Text>}
 
       <TouchableOpacity
@@ -419,10 +431,10 @@ export default function GroupInviteSheet({
         {joining ? (
           <ActivityIndicator color={T.white} />
         ) : (
-          <Text style={s.primaryText}>참여하기</Text>
+          <Text style={s.primaryText}>{t('group.groupInviteSheet.join')}</Text>
         )}
       </TouchableOpacity>
-      <GhostCloseCta label="닫기" />
+      <GhostCloseCta label={t('common.close')} />
     </SheetShell>
   );
 }

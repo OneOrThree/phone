@@ -16,6 +16,7 @@
 //    스피너는 "내 조작/이 카드가 처리 중"이라는 원래 뜻을 유지한다(Skeleton.tsx 헤더 주석과 같은 구분).
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import { cs } from './cardStyles';
 
 /** 조회 중 — 완성 본문 높이를 예약하고 그 안에 스피너를 중앙 배치한다. */
@@ -82,9 +83,9 @@ export function CardBodyError({
       testID={testID}
       style={[s.wrap, overlay ? s.overlay : null, height != null ? { height } : null]}
     >
-      <Text style={s.errorText}>불러오지 못했어요</Text>
+      <Text style={s.errorText}>{t('stats.cardBody.loadFailed')}</Text>
       <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={onRetry}>
-        <Text style={s.retryText}>다시 시도</Text>
+        <Text style={s.retryText}>{t('common.retry')}</Text>
       </TouchableOpacity>
     </View>
   );

@@ -5,6 +5,7 @@ import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import ScreenTimeAnalyzingOverlay, { ANALYZE_MS } from '@/components/ScreenTimeAnalyzingOverlay';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { formatDuration } from '@/screens/onboarding/format';
 import { logOnboardingScreentimeViewed } from '@/services/analyticsEvents';
 import type { StepProps } from '@/screens/onboarding/types';
@@ -65,9 +66,9 @@ export default function YesterdayScreenTimeStep({ onNext }: StepProps) {
 
   return (
     <StepScaffold
-      title="실제로는 얼마나 썼는지 볼까요?"
-      subtitle="추측과 얼마나 달랐나요? 조금씩 줄여 봐요."
-      ctaLabel="다음"
+      title={t('onboarding.yesterdayScreenTime.title')}
+      subtitle={t('onboarding.yesterdayScreenTime.subtitle')}
+      ctaLabel={t('common.next')}
       onCta={onNext}
       ctaHidden={!analyzed}
     >
@@ -77,14 +78,14 @@ export default function YesterdayScreenTimeStep({ onNext }: StepProps) {
         ) : Platform.OS === 'android' ? (
           // 안드로이드 — 어제 총 사용시간 조회값 표시(앱별 상세는 M2에서 확장).
           <View style={s.androidSummary}>
-            <Text style={s.androidLabel}>어제 하루 사용시간</Text>
+            <Text style={s.androidLabel}>{t('onboarding.yesterdayScreenTime.androidLabel')}</Text>
             <Text style={s.androidValue}>
               {androidYesterdayMinutes == null ? '–' : formatDuration(androidYesterdayMinutes)}
             </Text>
-            <Text style={s.androidHint}>기기에 기록된 사용 기록으로 계산했어요.</Text>
+            <Text style={s.androidHint}>{t('onboarding.yesterdayScreenTime.androidHint')}</Text>
           </View>
         ) : (
-          <Text style={s.empty}>iOS 기기에서만 볼 수 있어요</Text>
+          <Text style={s.empty}>{t('onboarding.yesterdayScreenTime.iosOnly')}</Text>
         )}
         {/* 분석 연출이 끝날 때까지(ANALYZE_MS) 리포트를 로딩 레이어로 덮는다 — 위 타이머로 걷힘. */}
         {!analyzed ? <ScreenTimeAnalyzingOverlay /> : null}

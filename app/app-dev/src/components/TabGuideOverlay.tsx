@@ -13,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, withAlpha } from '@/constants/theme';
 import { logTabGuideCompleted } from '@/services/analyticsEvents';
+import { t } from '@/i18n';
 
 // GROMO-652 — 탭 첫 진입 사용법 안내(코치마크). 캐릭터가 말풍선으로 화면 기능을 설명한다.
 // 스텝에 anchor(ref)가 있으면 해당 요소만 밝게 뚫린 스포트라이트(딤 4분할)와 강조 링을 그린다.
@@ -236,6 +237,9 @@ export function TabGuideOverlay({
     onFinish?.();
   }
 
+  // 마지막 스텝이면 '시작', 아니면 '다음' — 말풍선 힌트·접근성 라벨·액션 라벨이 같은 값을 쓴다.
+  const actionLabel = t(effectiveIdx + 1 < steps.length ? 'common.next' : 'common.start');
+
   // 컷아웃 보더 두께 — 구멍에서 화면 가장자리까지 어느 방향이든 덮도록 최대변 사용
   const cutBw = Math.max(winW, winH);
   // 구멍 모서리 — 원형이면 반지름, 아니면 요소 라운드(1.1배 확대에 맞춰 살짝 키움)
@@ -263,10 +267,16 @@ export function TabGuideOverlay({
         style={s.flex1}
         onPress={advance}
         accessibilityRole="button"
-        accessibilityLabel={`${accessibilityTitle ? `${accessibilityTitle}, ` : ''}단계 ${effectiveIdx + 1}/${steps.length}. ${step.text}. ${effectiveIdx + 1 < steps.length ? '다음' : '시작'}`}
-        accessibilityActions={[
-          { name: 'activate', label: effectiveIdx + 1 < steps.length ? '다음' : '시작' },
-        ]}
+        accessibilityLabel={
+          (accessibilityTitle ? `${accessibilityTitle}, ` : '') +
+          t('components.tabGuideOverlay.stepA11y', {
+            current: effectiveIdx + 1,
+            total: steps.length,
+            text: step.text,
+            action: actionLabel,
+          })
+        }
+        accessibilityActions={[{ name: 'activate', label: actionLabel }]}
         onAccessibilityAction={(event) => {
           if (event.nativeEvent.actionName === 'activate') advance();
         }}
@@ -325,7 +335,7 @@ export function TabGuideOverlay({
                   <View key={i} style={[s.dot, i === effectiveIdx && s.dotOn]} />
                 ))}
               </View>
-              <Text style={s.hint}>{effectiveIdx + 1 < steps.length ? '다음' : '시작'}</Text>
+              <Text style={s.hint}>{actionLabel}</Text>
             </View>
             <View style={s.bubbleTail} />
           </View>

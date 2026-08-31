@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { fetchPinnedFriends, pinFriend, unpinFriend } from '@/services/friendsApi';
+import { t } from '@/i18n';
 
 // 핀한 유저 ID 집합 + 토글 — 리그 탭(포디움·랭킹 핀 아이콘, '핀한 사람만' 필터, 친구 그리드 배지)이 사용.
 // 화면 포커스마다 서버(GET /pins)에서 재조회해 재진입·프로필 상세에서 바뀐 핀을 반영한다.
@@ -73,7 +74,7 @@ export function usePinned() {
         else await pinFriend(userId);
       } catch {
         apply(wasPinned);
-        Alert.alert('핀 변경 실패', '잠시 후 다시 시도해 주세요.');
+        Alert.alert(t('league.pin.changeFailTitle'), t('common.retryLater'));
       } finally {
         inFlight.current.delete(userId);
         if (inFlight.current.size === 0 && refetchQueued.current) {

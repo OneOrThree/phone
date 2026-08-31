@@ -13,6 +13,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { M } from '@/constants/motion';
 import { T, withAlpha } from '@/constants/theme';
 import { useMotion } from '@/hooks/useMotion';
+import { t } from '@/i18n';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { groupCardEmojiLabel } from '../groupCardEmojiStore';
 import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
@@ -56,7 +57,9 @@ export function GroupCardFront({
   gripRef,
   active = true,
 }: GroupCardFrontProps) {
-  const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
+  const privacyLabel = t(
+    group.isPrivate ? 'group.groupCardFront.private' : 'group.groupCardFront.public',
+  );
   const disclosureId = `group-card-summary-${group.groupId}`;
 
   return (
@@ -72,12 +75,16 @@ export function GroupCardFront({
             accessibilityRole="adjustable"
             focusable={active}
             accessibilityState={{ disabled: !active }}
-            accessibilityLabel={`${group.name} 카드 순서`}
+            accessibilityLabel={t('group.groupCardFront.gripA11y', { name: group.name })}
             accessibilityValue={{ text: `${position}/${reorderCount}` }}
-            accessibilityHint="0.3초 누른 상태에서 좌우로 드래그하거나 접근성 동작으로 순서를 바꿉니다"
+            accessibilityHint={t('group.groupCardFront.gripHint')}
             accessibilityActions={[
-              ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
-              ...(canMoveNext ? [{ name: 'increment' as const, label: '뒤로 이동' }] : []),
+              ...(canMovePrevious
+                ? [{ name: 'decrement' as const, label: t('group.groupCardFront.moveForward') }]
+                : []),
+              ...(canMoveNext
+                ? [{ name: 'increment' as const, label: t('group.groupCardFront.moveBackward') }]
+                : []),
             ]}
             onAccessibilityAction={(event) => {
               if (event.nativeEvent.actionName === 'decrement' && canMovePrevious) onMoveStep?.(-1);
@@ -96,15 +103,29 @@ export function GroupCardFront({
           style={s.body}
           focusable={active}
           onPress={onFlip}
-          accessibilityActions={[{ name: 'activate', label: '방 요약 보기' }]}
+          accessibilityActions={[
+            { name: 'activate', label: t('group.groupCardFront.viewSummary') },
+          ]}
           onAccessibilityAction={(event) => {
             if (event.nativeEvent.actionName === 'activate') (onAccessibilityFlip ?? onFlip)();
           }}
           accessibilityRole="button"
           accessibilityState={{ expanded: false }}
           aria-controls={disclosureId}
-          accessibilityLabel={`${group.name}${group.description ? `, ${group.description}` : ''}, 내 카드 아이콘 ${groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
-          accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
+          accessibilityLabel={t('group.groupCardFront.cardA11y', {
+            name: group.name,
+            description: group.description
+              ? t('group.groupCardFront.descriptionPart', { description: group.description })
+              : '',
+            emoji: groupCardEmojiLabel(emoji),
+            privacy: privacyLabel,
+            owner: group.role === 'OWNER' ? t('group.groupCardFront.ownerPart') : '',
+            members: group.currentMembers,
+            maxMembers: group.maxMembers,
+            position,
+            pageCount,
+          })}
+          accessibilityHint={t('group.groupCardFront.cardHint')}
           testID={`group.card.${group.groupId}`}
         >
           <View style={s.art}>
@@ -140,7 +161,7 @@ export function GroupCardFront({
                 {group.role === 'OWNER' && (
                   <View style={s.ownerChip}>
                     <MaterialCommunityIcons name="crown-outline" size={14} color={T.accentDeep} />
-                    <Text style={s.ownerText}>방장</Text>
+                    <Text style={s.ownerText}>{t('group.groupCardFront.owner')}</Text>
                   </View>
                 )}
               </View>

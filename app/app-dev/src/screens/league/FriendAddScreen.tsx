@@ -14,6 +14,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { tierByLevel } from '@/constants/tiers';
 import type { FriendRequestResponse, FriendSearchResultResponse } from '@/types/api';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -99,7 +100,7 @@ export default function FriendAddScreen() {
       if (axios.isAxiosError(e) && e.response?.status === 409) {
         setSentIds((prev) => new Set(prev).add(userId));
       } else {
-        Alert.alert('친구 신청 실패', '잠시 후 다시 시도해 주세요.');
+        Alert.alert(t('league.friendAdd.requestFailTitle'), t('common.retryLater'));
       }
     }
   }
@@ -115,7 +116,10 @@ export default function FriendAddScreen() {
       }
       setRequests((prev) => prev.filter((r) => r.requestId !== requestId));
     } catch {
-      Alert.alert(accept ? '수락 실패' : '거절 실패', '잠시 후 다시 시도해 주세요.');
+      Alert.alert(
+        accept ? t('league.friendAdd.acceptFailTitle') : t('league.friendAdd.rejectFailTitle'),
+        t('common.retryLater'),
+      );
     }
   }
 
@@ -126,7 +130,7 @@ export default function FriendAddScreen() {
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>친구 추가</Text>
+        <Text style={s.headerTitle}>{t('league.friendAdd.title')}</Text>
       </View>
 
       {/* ── 검색 인풋 ── */}
@@ -136,7 +140,7 @@ export default function FriendAddScreen() {
           style={s.searchInput}
           value={query}
           onChangeText={setQuery}
-          placeholder="닉네임으로 검색"
+          placeholder={t('league.friendAdd.searchPlaceholder')}
           placeholderTextColor={T.inkMuted}
           autoCapitalize="none"
           returnKeyType="search"
@@ -158,7 +162,8 @@ export default function FriendAddScreen() {
         {q.length > 0 && (
           <>
             <Text style={s.resultTitle}>
-              검색 결과 <Text style={s.resultCount}>{results.length}</Text>
+              {t('league.friendAdd.searchResults')}{' '}
+              <Text style={s.resultCount}>{results.length}</Text>
             </Text>
             {results.map((r) => {
               const relation = sentIds.has(r.userId) ? 'PENDING' : r.relation;
@@ -189,12 +194,14 @@ export default function FriendAddScreen() {
                       onPress={() => sendRequest(r.userId)}
                       activeOpacity={0.85}
                     >
-                      <Text style={s.reqBtnText}>친구 신청</Text>
+                      <Text style={s.reqBtnText}>{t('league.friend.request')}</Text>
                     </TouchableOpacity>
                   ) : (
                     <View style={s.reqBtnMuted}>
                       <Text style={s.reqBtnTextMuted}>
-                        {relation === 'PENDING' ? '요청됨' : '친구 ✓'}
+                        {relation === 'PENDING'
+                          ? t('league.friend.requested')
+                          : t('league.friend.friendMark')}
                       </Text>
                     </View>
                   )}
@@ -202,7 +209,9 @@ export default function FriendAddScreen() {
               );
             })}
             {results.length === 0 && (
-              <Text style={s.empty}>{searching ? '검색 중…' : '검색 결과가 없어요'}</Text>
+              <Text style={s.empty}>
+                {searching ? t('league.friendAdd.searching') : t('league.friendAdd.noResults')}
+              </Text>
             )}
             <View style={s.divider} />
           </>
@@ -210,7 +219,7 @@ export default function FriendAddScreen() {
 
         {/* ── 받은 요청 ── */}
         <View style={s.reqTitleRow}>
-          <Text style={s.reqTitle}>받은 요청</Text>
+          <Text style={s.reqTitle}>{t('league.friendAdd.receivedTitle')}</Text>
           {requests.length > 0 && (
             <View style={s.reqCountBadge}>
               <Text style={s.reqCountText}>{requests.length}</Text>
@@ -256,12 +265,12 @@ export default function FriendAddScreen() {
             </View>
           </TouchableOpacity>
         ))}
-        {requests.length === 0 && <Text style={s.empty}>받은 요청이 없어요</Text>}
+        {requests.length === 0 && <Text style={s.empty}>{t('league.friendAdd.noReceived')}</Text>}
 
         {/* ── 안내 카드 ── */}
         <View style={s.notice}>
           <Ionicons name="star" size={15} color={T.accent} />
-          <Text style={s.noticeText}>닉네임을 정확히 입력하면 더 빨리 찾을 수 있어요.</Text>
+          <Text style={s.noticeText}>{t('league.friendAdd.notice')}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

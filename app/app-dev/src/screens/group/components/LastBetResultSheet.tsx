@@ -17,6 +17,7 @@
 // — 내 결과(달성/미달성/미판정·명단 밖)에 따라 고른다.
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import type {
   LastSettledBet,
@@ -27,15 +28,15 @@ import type {
 import { voidBanner } from '../lastSettledView';
 import {
   UNMEASURED,
-  WINDOW_FOCUS_TOLERANCE_NOTICE,
   progressFraction,
   progressFractionA11y,
+  windowFocusToleranceNotice,
 } from './progressFormat';
 
 // 과거 정산분(progressMinutes null)의 음성 문구 — 시각은 progressFormat의 '—'(UNMEASURED)를
 // 그대로 쓰되, 음성은 진행 리스트의 '아직 집계되지 않음'(unmeasuredA11y)이 아니라 확정 부재로
 // 읽는다: 정산이 끝난 행의 null은 백필되지 않는 영구 상태다(codex 리뷰, group.ts 계약 주석).
-const SNAPSHOT_MISSING_A11Y = '판정 기록 없음';
+const SNAPSHOT_MISSING_A11Y_KEY = 'group.lastBetResultSheet.snapshotMissingA11y';
 
 // 표기 조각들은 내기 히스토리 화면(GROMO-1221)이 그대로 가져다 쓴다 — 같은 데이터(정산 결과
 // 명단)를 두 자리에서 그리므로 규칙이 갈라지지 않게 여기 것을 export 한다(progressFormat이
@@ -44,7 +45,9 @@ const SNAPSHOT_MISSING_A11Y = '판정 기록 없음';
 // 'YYYY-MM-DD' → '7월 31일' (ChallengeCard.monthDay와 같은 표기 — 형식이 다르면 원문 유지).
 export function monthDay(betDate: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(betDate);
-  return m ? `${Number(m[2])}월 ${Number(m[3])}일` : betDate;
+  return m
+    ? t('group.lastBetResultSheet.monthDay', { month: Number(m[2]), day: Number(m[3]) })
+    : betDate;
 }
 
 // 내 결과별 캐릭터 — ChallengeResultModal.HEADLINE과 같은 에셋·같은 매핑(화풍 통일).
@@ -52,15 +55,15 @@ export function monthDay(betDate: string): string {
 const CHARACTER = {
   achieved: {
     image: require('@/assets/character_happy.png'),
-    imageLabel: '목표를 달성해 기뻐하는 캐릭터',
+    imageLabelKey: 'group.lastBetResultSheet.achievedImage',
   },
   failed: {
     image: require('@/assets/character_sensitive.png'),
-    imageLabel: '목표를 놓쳐 아쉬워하는 캐릭터',
+    imageLabelKey: 'group.lastBetResultSheet.failedImage',
   },
   pending: {
     image: require('@/assets/character_study.png'),
-    imageLabel: '결과를 기다리는 캐릭터',
+    imageLabelKey: 'group.lastBetResultSheet.pendingImage',
   },
 } as const;
 
@@ -87,17 +90,22 @@ export function statusBanner(
 ): string | null {
   if (status === 'REFUNDED') {
     return (
-      (voidReason ? voidReasonBanner(voidReason) : null) ?? '달성한 사람이 없어 전원 환불됐어요'
+      (voidReason ? voidReasonBanner(voidReason) : null) ??
+      t('group.lastBetResultSheet.refundedBanner')
     );
   }
-  if (status === 'FORFEITED') return '아무도 달성하지 못해 참가비가 소멸됐어요';
+  if (status === 'FORFEITED') return t('group.lastBetResultSheet.forfeitedBanner');
   return null;
 }
 
 // 인별 행의 판정 라벨 — 3상(달성/미달성/미판정)을 뭉개지 않는다.
 export function verdictText(r: LastSettledBetResult): string {
-  if (r.payout === null || r.achieved === null) return '미판정';
-  return r.achieved ? '달성' : '미달성';
+  if (r.payout === null || r.achieved === null) return t('group.lastBetResultSheet.verdictPending');
+  return t(
+    r.achieved
+      ? 'group.lastBetResultSheet.verdictAchieved'
+      : 'group.lastBetResultSheet.verdictFailed',
+  );
 }
 
 // 손익 표기 — +는 붙이고 0·음수는 그대로(Alert 시절 표기 규칙 유지). 미판정은 값 자리를 '—'로
@@ -132,18 +140,36 @@ export function rowA11y(
     r.progressMinutes === undefined
       ? r.nickname
       : r.progressMinutes === null
-        ? `${r.nickname} ${SNAPSHOT_MISSING_A11Y}`
+        ? `${r.nickname} ${t(SNAPSHOT_MISSING_A11Y_KEY)}`
         : progressFractionA11y(r.nickname, r.progressMinutes, goalMinutes);
   // 근거 조각이 붙었을 때(head ≠ 닉네임)는 뒤 상태와 쉼표로 끊는다 — '판정 기록 없음 미판정'
   // 처럼 상태 둘이 접속어 없이 이어지면 한 문장으로 어색하다(claude·codex 리뷰).
   // undefined(구서버) 경로는 쉼표 없이 기존 문장 그대로 — 바이트 동일성 유지.
   if (r.payout === null || r.achieved === null) {
-    return head === r.nickname ? `${head} 미판정` : `${head}, 미판정`;
+    return t(
+      head === r.nickname
+        ? 'group.lastBetResultSheet.rowA11yPending'
+        : 'group.lastBetResultSheet.rowA11yPendingComma',
+      { head },
+    );
   }
   const delta = r.payout - stake;
-  const verdictPart = `${r.achieved ? '달성' : '미달성'}, ${delta >= 0 ? '' : '마이너스 '}${Math.abs(delta)}코인`;
+  const verdict = t(
+    r.achieved
+      ? 'group.lastBetResultSheet.verdictAchieved'
+      : 'group.lastBetResultSheet.verdictFailed',
+  );
+  const verdictPart =
+    delta >= 0
+      ? t('group.lastBetResultSheet.verdictPartGain', { verdict, coins: delta })
+      : t('group.lastBetResultSheet.verdictPartLoss', { verdict, coins: Math.abs(delta) });
   // 실측 분('60분 중 52분')은 판정과 자연스럽게 이어지지만, '판정 기록 없음'은 판정과도 끊는다.
-  return r.progressMinutes === null ? `${head}, ${verdictPart}` : `${head} ${verdictPart}`;
+  return t(
+    r.progressMinutes === null
+      ? 'group.lastBetResultSheet.rowA11yComma'
+      : 'group.lastBetResultSheet.rowA11ySpace',
+    { head, verdictPart },
+  );
 }
 
 export interface LastBetResultSheetProps {
@@ -196,9 +222,12 @@ export default function LastBetResultSheet({
     <SheetShell onClose={onClose} asModal>
       <View style={s.head} testID="group.bet.result.sheet">
         <View style={s.headText}>
-          <Text style={s.title}>지난 내기 결과</Text>
+          <Text style={s.title}>{t('group.lastBetResultSheet.title')}</Text>
           <Text style={s.sub}>
-            {monthDay(lastBet.betDate)} · {lastBet.results.length}명 참가
+            {t('group.lastBetResultSheet.sub', {
+              date: monthDay(lastBet.betDate),
+              count: lastBet.results.length,
+            })}
           </Text>
         </View>
         {/* 캐릭터는 분위기 전달용 — 정보는 전부 텍스트에 있다. */}
@@ -208,7 +237,7 @@ export default function LastBetResultSheet({
           resizeMode="contain"
           accessible
           accessibilityRole="image"
-          accessibilityLabel={character.imageLabel}
+          accessibilityLabel={t(character.imageLabelKey)}
           testID="group.bet.result.character"
         />
       </View>
@@ -222,11 +251,11 @@ export default function LastBetResultSheet({
       {/* 참가비·적립금 — BetSheet 참가 모드의 읽기용 타일 규격 그대로(형제 시트 위계). */}
       <View style={s.statRow}>
         <View style={s.stat}>
-          <Text style={s.statLabel}>참가비</Text>
+          <Text style={s.statLabel}>{t('group.lastBetResultSheet.stakeLabel')}</Text>
           <Text style={s.statValue}>{lastBet.stake}</Text>
         </View>
         <View style={s.stat}>
-          <Text style={s.statLabel}>적립금</Text>
+          <Text style={s.statLabel}>{t('group.lastBetResultSheet.potLabel')}</Text>
           <Text style={s.statValue}>{lastBet.pot}</Text>
         </View>
       </View>
@@ -236,7 +265,7 @@ export default function LastBetResultSheet({
           결과 모달(GROMO-1217)과 동일, 스크롤 밖 고정 자리도 같은 이유(codex 리뷰). */}
       {showToleranceNotice && (
         <Text style={s.toleranceNotice} testID="group.bet.result.toleranceNotice">
-          {WINDOW_FOCUS_TOLERANCE_NOTICE}
+          {windowFocusToleranceNotice()}
         </Text>
       )}
 
@@ -300,7 +329,7 @@ export default function LastBetResultSheet({
           accessibilityRole="button"
           testID="group.bet.result.history"
         >
-          <Text style={s.historyText}>지난 기록 더보기</Text>
+          <Text style={s.historyText}>{t('group.lastBetResultSheet.moreHistory')}</Text>
         </TouchableOpacity>
       )}
 
@@ -323,7 +352,7 @@ function CloseCta() {
       accessibilityRole="button"
       testID="group.bet.result.close"
     >
-      <Text style={s.closeText}>확인</Text>
+      <Text style={s.closeText}>{t('common.confirm')}</Text>
     </TouchableOpacity>
   );
 }

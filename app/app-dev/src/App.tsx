@@ -13,6 +13,7 @@ import {
   setLogoutHandler,
   setReloginHandler,
 } from '@/services/api';
+import { t } from '@/i18n';
 import { setAccountSwitchHandler, logout } from '@/services/auth';
 import { initAnalytics } from '@/services/analytics';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
@@ -496,7 +497,7 @@ function App() {
     // 프로필 대기 화면 — OTA 준비 화면(OtaUpdateGateScreen)과 같은 비주얼로 통일해
     // 두 로딩이 끊김 없이 이어져 보이게 한다(GROMO-1029). 이 단계엔 진행%가 없어
     // OTA와 같은 응원 문구만 고정 노출(퍼센트만 빠짐).
-    content = <BrandSplash caption="오늘 집중도 화이팅!!" />;
+    content = <BrandSplash caption={t('app.splashCaption')} />;
   } else if (!user) {
     content = onboarded ? (
       // 온보딩 완료한 재방문 유저(로그아웃 상태) → 바로 로그인.
@@ -606,7 +607,7 @@ function OtaUpdateGateScreen({ progress }: { progress: number }) {
   useEffect(() => {
     markOtaSplashShown();
   }, []);
-  const caption = `오늘 집중도 화이팅!!${progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}`;
+  const caption = `${t('app.splashCaption')}${progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}`;
   return <BrandSplash caption={caption} />;
 }
 

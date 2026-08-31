@@ -5,6 +5,7 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { enforcesFocusShield, supportsFocusShield } from '@/services/screenTimeCapabilities';
 import AllowedAppsListView from '@/components/AllowedAppsListView';
@@ -95,7 +96,7 @@ export function FocusMenuDrawer({
         {level === 'menu' ? (
           <>
             <View style={s.menuHead}>
-              <Text style={s.menuTitle}>메뉴</Text>
+              <Text style={s.menuTitle}>{t('focus.menuDrawer.title')}</Text>
               <TouchableOpacity style={s.closeBtn} activeOpacity={0.7} onPress={onClose}>
                 <Ionicons name="close" size={16} color={T.link} />
               </TouchableOpacity>
@@ -111,8 +112,8 @@ export function FocusMenuDrawer({
                   <Ionicons name="grid-outline" size={19} color={T.accentDeep} />
                 </View>
                 <View style={s.flex1}>
-                  <Text style={s.cardTitle}>허용앱 사용하기</Text>
-                  <Text style={s.cardSub}>집중 중 쓸 수 있는 앱</Text>
+                  <Text style={s.cardTitle}>{t('focus.menuDrawer.allowedApps')}</Text>
+                  <Text style={s.cardSub}>{t('focus.menuDrawer.allowedAppsSub')}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
               </TouchableOpacity>
@@ -120,13 +121,13 @@ export function FocusMenuDrawer({
 
             <View style={s.card}>
               <View style={s.flex1}>
-                <Text style={s.statLabel}>오늘 전체 집중 현황</Text>
+                <Text style={s.statLabel}>{t('focus.menuDrawer.todayTotal')}</Text>
                 <Text style={s.statValue}>{hms(todayFocusSeconds + liveSeconds)}</Text>
               </View>
             </View>
 
             <View style={s.cardBlock}>
-              <Text style={s.statLabel}>과목별 집중 현황</Text>
+              <Text style={s.statLabel}>{t('focus.menuDrawer.bySubject')}</Text>
               {/* 행 목록+비율 바는 통계 일 탭과 공용(SubjectProgressList로 승격, GROMO-762) */}
               <SubjectProgressList rows={rows} />
             </View>
@@ -141,9 +142,9 @@ export function FocusMenuDrawer({
               >
                 <Ionicons name="chevron-back" size={16} color={T.link} />
               </TouchableOpacity>
-              <Text style={s.menuTitle}>허용앱 사용하기</Text>
+              <Text style={s.menuTitle}>{t('focus.menuDrawer.allowedApps')}</Text>
             </View>
-            <Text style={s.appsSub}>허용앱을 쓰는 시간도 집중으로 인정돼요.</Text>
+            <Text style={s.appsSub}>{t('focus.menuDrawer.allowedAppsNote')}</Text>
 
             {/* 개수 + 허용앱 목록(opaque 토큰이라 네이티브 뷰로 아이콘·이름 렌더) + 사용법 안내 */}
             <View style={s.allowedCard}>
@@ -152,20 +153,17 @@ export function FocusMenuDrawer({
               </View>
               <Text style={s.allowedCount}>
                 {allowedApps === null
-                  ? '허용앱 확인 중…'
+                  ? t('focus.menuDrawer.allowedChecking')
                   : allowedApps > 0
-                    ? `앱 ${allowedApps}개 허용 중`
-                    : '허용앱이 없어요'}
+                    ? t('focus.menuDrawer.allowedCount', { count: allowedApps })
+                    : t('focus.menuDrawer.allowedNone')}
               </Text>
               {allowedApps !== null && allowedApps > 0 && AllowedAppsListView && (
                 <AllowedAppsListView
                   style={[s.allowedList, { height: Math.min(allowedApps, 6) * 34 }]}
                 />
               )}
-              <Text style={s.allowedHint}>
-                홈 화면으로 나가서 허용앱을 직접 열면 돼요.{'\n'}허용앱은 전체 탭 → 집중 중 허용
-                앱에서 바꿀 수 있어요.
-              </Text>
+              <Text style={s.allowedHint}>{t('focus.menuDrawer.allowedHint')}</Text>
             </View>
 
             {/* 실제로 잠기는 플랫폼에서만 — 안 잠기는데 잠긴다고 하면 그게 거짓 안내다.
@@ -174,7 +172,7 @@ export function FocusMenuDrawer({
             {enforcesFocusShield() && (
               <View style={s.warnBox}>
                 <Ionicons name="ban-outline" size={14} color={T.accentAlt} />
-                <Text style={s.warnText}>허용 안 된 앱은 잠겨서 열 수 없어요</Text>
+                <Text style={s.warnText}>{t('focus.menuDrawer.blockedWarn')}</Text>
               </View>
             )}
           </>

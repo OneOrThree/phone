@@ -15,6 +15,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useFocus } from '@/store/FocusContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
@@ -130,7 +131,9 @@ export default function FocusCategoryScreen() {
     getDefaultTags(occupation)
       .then((res) => {
         if (cancelled) return;
-        setDefaultTags([...res.tags].sort((a, b) => a.sortOrder - b.sortOrder).map((t) => t.name));
+        setDefaultTags(
+          [...res.tags].sort((a, b) => a.sortOrder - b.sortOrder).map((tag) => tag.name),
+        );
       })
       .catch(() => {
         // 실패 시 이전 카테고리의 추천이 남아 새 카테고리 라벨로 노출되지 않게 비운다(리뷰 반영)
@@ -249,7 +252,7 @@ export default function FocusCategoryScreen() {
   function editSubject(sub: Subject) {
     setMenu(null);
     Alert.prompt(
-      '과목 이름 편집',
+      t('focus.categoryScreen.editTitle'),
       undefined,
       (text) => {
         const name = text?.trim();
@@ -257,7 +260,10 @@ export default function FocusCategoryScreen() {
         // 기존 과목과 같은 이름이면 저장하지 않음 — 서버 태그가 이름 기준 1태그라 통계가 합산되고
         // 목록에 같은 이름이 중복 노출되는 것을 막는다(GROMO-867). 자기 자신(변경 없음)은 허용.
         if (subjectsRef.current.some((x) => x.id !== sub.id && x.name === name)) {
-          Alert.alert('이미 있는 과목이에요', '다른 이름으로 입력해 주세요.');
+          Alert.alert(
+            t('focus.categoryScreen.duplicateTitle'),
+            t('focus.categoryScreen.duplicateMessage'),
+          );
           return;
         }
         renameSubject(sub.id, name);
@@ -283,9 +289,9 @@ export default function FocusCategoryScreen() {
       doDelete(sub);
       return;
     }
-    Alert.alert('과목 삭제', '해당 과목에 기록된 집중 시간이 사라져요!', [
-      { text: '취소', style: 'cancel' },
-      { text: '삭제', style: 'destructive', onPress: () => doDelete(sub) },
+    Alert.alert(t('focus.categoryScreen.deleteTitle'), t('focus.categoryScreen.deleteMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => doDelete(sub) },
     ]);
   }
 
@@ -293,14 +299,17 @@ export default function FocusCategoryScreen() {
     cancelPendingMethodSheet(); // 추가 프롬프트 위로 예약 시트가 뒤늦게 뜨는 것 방지(코덱스 리뷰, PR 301 후속)
     // 이름을 먼저 입력받고 추가. 누적시간은 0에서 시작해 실제 세션으로 쌓인다.
     Alert.prompt(
-      '새 과목 추가',
-      '집중할 과목 이름을 입력하세요.',
+      t('focus.categoryScreen.addSubject'),
+      t('focus.categoryScreen.addMessage'),
       (text) => {
         const name = text?.trim();
         if (!name) return;
         // 기존 과목과 같은 이름이면 추가하지 않음(GROMO-867)
         if (subjectsRef.current.some((x) => x.name === name)) {
-          Alert.alert('이미 있는 과목이에요', '다른 이름으로 입력해 주세요.');
+          Alert.alert(
+            t('focus.categoryScreen.duplicateTitle'),
+            t('focus.categoryScreen.duplicateMessage'),
+          );
           return;
         }
         addSubject(name);
@@ -363,7 +372,7 @@ export default function FocusCategoryScreen() {
         </PressableScale>
       </View>
 
-      <Text style={s.title}>무엇에 집중할까요?</Text>
+      <Text style={s.title}>{t('focus.categoryScreen.title')}</Text>
 
       <DraggableSubjectRows
         subjects={subjects}
@@ -384,7 +393,7 @@ export default function FocusCategoryScreen() {
           <>
             <PressableScale style={s.addBtn} onPress={handleAddSubject}>
               <Ionicons name="add" size={16} color={T.inkMuted} />
-              <Text style={s.addText}>새 과목 추가</Text>
+              <Text style={s.addText}>{t('focus.categoryScreen.addSubject')}</Text>
             </PressableScale>
             {/* 추천 과목 유도 — 탭하면 바로 과목으로 추가되고 목록에서 사라진다.
                 헤더 탭으로 접기/펼치기(상태는 AsyncStorage에 저장) */}
@@ -397,7 +406,9 @@ export default function FocusCategoryScreen() {
                   onPressIn={playTapSound}
                   onPress={toggleRecoHidden}
                 >
-                  <Text style={s.recoLabel}>{category} 추천 과목</Text>
+                  <Text style={s.recoLabel}>
+                    {t('focus.categoryScreen.recommendedTitle', { category })}
+                  </Text>
                   <Ionicons
                     name={recoHidden ? 'chevron-down' : 'chevron-up'}
                     size={15}
@@ -425,7 +436,7 @@ export default function FocusCategoryScreen() {
                       </Text>
                       <View style={s.recoAddPill}>
                         <Ionicons name="add" size={13} color={T.accent} />
-                        <Text style={s.recoAddText}>추가</Text>
+                        <Text style={s.recoAddText}>{t('focus.categoryScreen.add')}</Text>
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -454,7 +465,7 @@ export default function FocusCategoryScreen() {
                   onPress={() => editSubject(menuSubject)}
                 >
                   <Ionicons name="pencil" size={14} color={T.inkSub} />
-                  <Text style={s.menuText}>이름 편집</Text>
+                  <Text style={s.menuText}>{t('focus.categoryScreen.rename')}</Text>
                 </TouchableOpacity>
                 <View style={s.menuDivider} />
               </>
@@ -467,7 +478,9 @@ export default function FocusCategoryScreen() {
               onPress={() => confirmDelete(menuSubject)}
             >
               <Ionicons name="trash" size={14} color={T.accentAlt} />
-              <Text style={[s.menuText, s.menuTextDanger]}>과목 삭제</Text>
+              <Text style={[s.menuText, s.menuTextDanger]}>
+                {t('focus.categoryScreen.deleteTitle')}
+              </Text>
             </TouchableOpacity>
           </View>
         </>
@@ -497,7 +510,7 @@ export default function FocusCategoryScreen() {
                   activeOpacity={0.8}
                   onPressIn={playTapSound}
                   accessibilityRole="button"
-                  accessibilityLabel={`색상 ${i + 1}`}
+                  accessibilityLabel={t('focus.categoryScreen.colorOption', { index: i + 1 })}
                   accessibilityState={{ selected: colorSubject.color === c }}
                   onPress={() => {
                     setSubjectColor(colorSubject.id, c);
@@ -515,11 +528,11 @@ export default function FocusCategoryScreen() {
         storageKey={STORAGE_KEYS.guideFocus}
         steps={[
           {
-            text: '집중할 과목을 골라 주세요!\n과목을 탭하면 무제한·타이머·뽀모도로 중 집중 방식을 고를 수 있어요.',
+            text: t('focus.categoryScreen.guide1'),
             character: require('@/assets/character_hi.png'),
           },
           {
-            text: '집중을 마치면 시간이 과목별로 기록되고 리그 순위에도 반영돼요.\n그럼 시작해 봐요!',
+            text: t('focus.categoryScreen.guide2'),
             character: require('@/assets/character_study.png'),
           },
         ]}

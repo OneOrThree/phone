@@ -28,6 +28,7 @@ import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanima
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { M } from '@/constants/motion';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useMotion } from '@/hooks/useMotion';
 
 export type ToastTone = 'success' | 'error';
@@ -85,7 +86,7 @@ export function Toast({
         onPress={onDismiss}
         accessibilityRole="button"
         accessibilityLabel={message}
-        accessibilityHint="탭하면 닫혀요"
+        accessibilityHint={t('components.toast.dismissHint')}
         accessibilityLiveRegion={liveRegion}
         style={[s.card, tone === 'error' ? s.cardError : s.cardSuccess]}
       >

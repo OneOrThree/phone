@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   __resetGroupCardEmojiQueueForTest,
@@ -28,7 +29,7 @@ beforeEach(async () => {
 
 test('허용 목록은 정확히 12종이고 기본값은 🎯다', () => {
   expect(GROUP_CARD_EMOJIS).toHaveLength(12);
-  expect(GROUP_CARD_EMOJI_OPTIONS.map((option) => option.label)).toEqual([
+  expect(GROUP_CARD_EMOJI_OPTIONS.map((option) => t(option.labelKey))).toEqual([
     '일출',
     '책',
     '노트북',

@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 개인정보 처리방침 화면 — 아직 공개된 정책 URL이 없어 placeholder만 노출한다.
 // URL 확정 시 Linking.openURL(policyUrl) 로 외부 브라우저를 열거나
@@ -13,15 +14,16 @@ export default function PrivacyPolicyScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
   return (
-    <SettingsScaffold title="개인정보 처리방침" onBack={() => navigation.goBack()} scroll={false}>
+    <SettingsScaffold
+      title={t('settings.privacy.title')}
+      onBack={() => navigation.goBack()}
+      scroll={false}
+    >
       <View style={s.center}>
         <View style={s.iconWrap}>
           <Ionicons name="document-text-outline" size={30} color={T.inkSub} />
         </View>
-        <Text style={s.message}>
-          개인정보 처리방침을 준비 중이에요.{'\n'}
-          공개되면 여기에서 바로 확인할 수 있어요.
-        </Text>
+        <Text style={s.message}>{t('settings.privacy.message')}</Text>
       </View>
     </SettingsScaffold>
   );

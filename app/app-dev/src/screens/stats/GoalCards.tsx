@@ -5,6 +5,7 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { TodayStatsResponse } from '@/types/dto/stats';
 import { useFocus } from '@/store/FocusContext';
 import { fmtHm } from '@/utils/timeFormat';
@@ -16,7 +17,7 @@ import { CardBodyEmpty } from './CardBodySlot';
 export function GoalDayStamps({ today }: { today: TodayStatsResponse | null }) {
   const { todayFocusSeconds } = useFocus();
   if (today === null) {
-    return <CardBodyEmpty height={STAMP_BLOCK_H}>목표 정보를 불러오지 못했어요</CardBodyEmpty>;
+    return <CardBodyEmpty height={STAMP_BLOCK_H}>{t('stats.goalStamp.loadFailed')}</CardBodyEmpty>;
   }
   return (
     <View style={s.stampRow}>
@@ -49,8 +50,8 @@ function FocusStamp({ cur, goal }: { cur: number; goal: number }) {
     return (
       <View style={s.stamp}>
         <StampIcon bg={T.track} name="book-outline" color={T.inkMuted} />
-        <Text style={[s.stampTitle, { color: T.inkMuted }]}>목표 미설정</Text>
-        <Text style={s.stampSub}>설정에서 집중 목표를 정해요</Text>
+        <Text style={[s.stampTitle, { color: T.inkMuted }]}>{t('stats.goalStamp.notSet')}</Text>
+        <Text style={s.stampSub}>{t('stats.goalStamp.focusNotSetSub')}</Text>
       </View>
     );
   }
@@ -58,9 +59,9 @@ function FocusStamp({ cur, goal }: { cur: number; goal: number }) {
     return (
       <View style={[s.stamp, s.stampOn]}>
         <StampIcon bg={T.green} name="checkmark" color={T.white} />
-        <Text style={[s.stampTitle, { color: FOCUS_COLOR }]}>집중 달성</Text>
+        <Text style={[s.stampTitle, { color: FOCUS_COLOR }]}>{t('stats.goalStamp.focusDone')}</Text>
         <Text style={[s.stampSub, { color: T.successInk }]}>
-          {cur}분 · 목표 {goal}분
+          {t('stats.goalStamp.focusDoneSub', { cur, goal })}
         </Text>
       </View>
     );
@@ -69,9 +70,9 @@ function FocusStamp({ cur, goal }: { cur: number; goal: number }) {
     <View style={s.stamp}>
       <StampIcon bg={T.greenBg} name="book-outline" color={FOCUS_COLOR} />
       <Text style={[s.stampTitle, { color: FOCUS_COLOR }]}>
-        집중 {cur}/{goal}분
+        {t('stats.goalStamp.focusProgress', { cur, goal })}
       </Text>
-      <Text style={s.stampSub}>목표까지 {goal - cur}분</Text>
+      <Text style={s.stampSub}>{t('stats.goalStamp.focusRemain', { minutes: goal - cur })}</Text>
     </View>
   );
 }
@@ -82,8 +83,8 @@ function PhoneStamp({ cur, goal }: { cur: number; goal: number }) {
     return (
       <View style={s.stamp}>
         <StampIcon bg={T.track} name="phone-portrait-outline" color={T.inkMuted} />
-        <Text style={[s.stampTitle, { color: T.inkMuted }]}>목표 미설정</Text>
-        <Text style={s.stampSub}>설정에서 폰 사용 목표를 정해요</Text>
+        <Text style={[s.stampTitle, { color: T.inkMuted }]}>{t('stats.goalStamp.notSet')}</Text>
+        <Text style={s.stampSub}>{t('stats.goalStamp.phoneNotSetSub')}</Text>
       </View>
     );
   }
@@ -91,9 +92,9 @@ function PhoneStamp({ cur, goal }: { cur: number; goal: number }) {
     return (
       <View style={[s.stamp, s.stampFail]}>
         <StampIcon bg={T.accentAlt} name="close" color={T.white} />
-        <Text style={[s.stampTitle, { color: T.dangerInk }]}>목표 달성 실패!</Text>
+        <Text style={[s.stampTitle, { color: T.dangerInk }]}>{t('stats.goalStamp.phoneFail')}</Text>
         <Text style={s.stampSub}>
-          폰 사용 {fmtHm(cur)} · 목표 {fmtHm(goal)}
+          {t('stats.goalStamp.phoneSub', { cur: fmtHm(cur), goal: fmtHm(goal) })}
         </Text>
       </View>
     );
@@ -101,9 +102,11 @@ function PhoneStamp({ cur, goal }: { cur: number; goal: number }) {
   return (
     <View style={[s.stamp, s.stampProgress]}>
       <StampIcon bg={T.white} name="time-outline" color={T.accentDeep} />
-      <Text style={[s.stampTitle, { color: T.accentDeep }]}>{fmtHm(goal - cur)} 남음</Text>
+      <Text style={[s.stampTitle, { color: T.accentDeep }]}>
+        {t('stats.goalStamp.phoneRemain', { value: fmtHm(goal - cur) })}
+      </Text>
       <Text style={s.stampSub}>
-        폰 사용 {fmtHm(cur)} · 목표 {fmtHm(goal)}
+        {t('stats.goalStamp.phoneSub', { cur: fmtHm(cur), goal: fmtHm(goal) })}
       </Text>
     </View>
   );

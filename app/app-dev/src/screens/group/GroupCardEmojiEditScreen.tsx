@@ -12,6 +12,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
 import {
@@ -226,12 +227,12 @@ export default function GroupCardEmojiEditScreen() {
           style={s.backBtn}
           onPress={() => navigation.goBack()}
           disabled={saving}
-          accessibilityLabel="뒤로"
+          accessibilityLabel={t('common.back')}
           activeOpacity={0.7}
         >
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
-        <Text style={s.title}>내 카드 아이콘</Text>
+        <Text style={s.title}>{t('group.cardEmojiEditScreen.title')}</Text>
       </View>
 
       <ScrollView
@@ -243,7 +244,7 @@ export default function GroupCardEmojiEditScreen() {
         {loadFailed ? (
           <View style={s.loadError}>
             <Text style={s.error} accessibilityRole="alert">
-              내 카드 아이콘을 불러오지 못했어요.
+              {t('group.cardEmojiEditScreen.loadFailed')}
             </Text>
             <TouchableOpacity
               style={s.retryButton}
@@ -251,7 +252,7 @@ export default function GroupCardEmojiEditScreen() {
               accessibilityRole="button"
               testID="group.cardEmoji.retry"
             >
-              <Text style={s.retryText}>다시 시도</Text>
+              <Text style={s.retryText}>{t('common.retry')}</Text>
             </TouchableOpacity>
           </View>
         ) : !ready ? (
@@ -266,13 +267,13 @@ export default function GroupCardEmojiEditScreen() {
               testID="group.cardEmoji.preview"
             >
               <Text style={s.cardPreviewEmoji}>{selected}</Text>
-              <Text style={s.cardPreviewLabel}>내 그룹 카드</Text>
+              <Text style={s.cardPreviewLabel}>{t('group.cardEmojiEditScreen.previewLabel')}</Text>
               <Text style={s.cardPreviewName}>{groupCardEmojiLabel(selected)}</Text>
             </View>
             <GroupCardEmojiPicker value={selected} onChange={selectEmoji} disabled={saving} />
             {saveFailed && (
               <Text style={s.error} accessibilityLiveRegion="polite">
-                내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+                {t('group.cardEmojiEditScreen.saveFailed')}
               </Text>
             )}
             <TouchableOpacity
@@ -281,17 +282,17 @@ export default function GroupCardEmojiEditScreen() {
               onPress={save}
               activeOpacity={0.85}
               accessibilityRole="button"
-              accessibilityLabel={saving ? '저장 중…' : '저장'}
+              accessibilityLabel={saving ? t('common.saving') : t('common.save')}
               accessibilityState={{ disabled: !changed || saving || !userId, busy: saving }}
               testID="group.cardEmoji.save"
             >
               {saving ? (
                 <View style={s.savingContent}>
                   <ActivityIndicator color={T.white} accessible={false} />
-                  <Text style={s.saveText}>저장 중…</Text>
+                  <Text style={s.saveText}>{t('common.saving')}</Text>
                 </View>
               ) : (
-                <Text style={s.saveText}>저장</Text>
+                <Text style={s.saveText}>{t('common.save')}</Text>
               )}
             </TouchableOpacity>
           </>

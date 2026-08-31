@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo-modules-core';
+import { t } from '@/i18n';
 
 // 피사체 누끼 네이티브 모듈(modules/subject-mask) JS 래퍼 — 오브젝트 캐릭터.
 // iOS(Vision)·안드로이드(ML Kit) 양쪽에 같은 계약으로 링크된다. 네이티브가 없는 빌드
@@ -21,20 +22,21 @@ interface SubjectMaskNativeModule {
 
 const native = requireOptionalNativeModule<SubjectMaskNativeModule>('SubjectMask');
 
-// 사유 코드 → 화면에 띄울 한 줄 안내.
-const REASON_LABEL: Record<string, string> = {
-  ios17_required: 'iOS 17부터 배경 제거가 돼요. 지금은 원본 사진 그대로예요.',
-  no_subject: '사진에서 물건을 찾지 못했어요. 배경이 단순한 사진이 잘 돼요.',
-  vision_failed: '배경 제거에 실패했어요. 원본 사진으로 보여줄게요.',
-  load_failed: '사진을 읽지 못했어요. 원본 사진으로 보여줄게요.',
-  unavailable: '이 빌드에는 배경 제거 모듈이 없어요. 원본 사진으로 보여줄게요.',
+// 사유 코드(네이티브가 주는 값) → 화면에 띄울 한 줄 안내의 번역 키.
+const REASON_KEY: Record<string, string> = {
+  ios17_required: 'services.subjectMask.reasonIos17Required',
+  no_subject: 'services.subjectMask.reasonNoSubject',
+  vision_failed: 'services.subjectMask.reasonVisionFailed',
+  load_failed: 'services.subjectMask.reasonLoadFailed',
+  unavailable: 'services.subjectMask.reasonUnavailable',
   // 안드로이드(ML Kit) 전용 사유
-  model_downloading: '배경 제거 모델을 준비 중이에요. 잠시 후 다시 시도해 주세요.',
-  gms_unavailable: '이 기기에서는 배경 제거가 지원되지 않아요. 원본 사진 그대로 보여줄게요.',
+  model_downloading: 'services.subjectMask.reasonModelDownloading',
+  gms_unavailable: 'services.subjectMask.reasonGmsUnavailable',
 };
 
 export function subjectMaskReasonLabel(reason: string): string | null {
-  return REASON_LABEL[reason] ?? null;
+  const key = REASON_KEY[reason];
+  return key ? t(key) : null;
 }
 
 // 누끼 지원 여부. iOS(Vision)·안드로이드(ML Kit) 둘 다 대상이며, 네이티브 모듈이 링크돼 있으면

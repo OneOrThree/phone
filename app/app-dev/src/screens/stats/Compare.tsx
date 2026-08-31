@@ -5,6 +5,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StatsPeriod } from '@/types/dto/stats';
 import { logStatsCompareAxisChanged, type CompareAxisParam } from '@/services/analyticsEvents';
 import { fetchFriendsAverage, fetchFocusAverage } from '@/services/compareAverages';
@@ -20,10 +21,11 @@ import { CardBodyEmpty, CardBodyLoading } from './CardBodySlot';
 type CompareAxisKey = 'FRIENDS' | 'ALL' | 'CATEGORY';
 type CompareAvg = { avg: number | null; count: number };
 
-const COMPARE_AXES: { key: CompareAxisKey; chip: string; label: string }[] = [
-  { key: 'FRIENDS', chip: '친구', label: '친구 평균' },
-  { key: 'ALL', chip: '전체', label: '전체 평균' },
-  { key: 'CATEGORY', chip: '같은 카테고리', label: '같은 카테고리 평균' },
+// 칩·평균 라벨은 키만 담고 렌더 시점에 t()로 푼다(모듈 최상위에서 t()를 부르지 않는다).
+const COMPARE_AXES: { key: CompareAxisKey; chipKey: string; labelKey: string }[] = [
+  { key: 'FRIENDS', chipKey: 'stats.compare.chipFriends', labelKey: 'stats.compare.avgFriends' },
+  { key: 'ALL', chipKey: 'common.all', labelKey: 'stats.compare.avgAll' },
+  { key: 'CATEGORY', chipKey: 'stats.compare.chipCategory', labelKey: 'stats.compare.avgCategory' },
 ];
 
 // 계측 파라미터 값 — CompareAxisKey를 이벤트 공용 소문자 값으로 변환(GROMO-782)
@@ -57,24 +59,29 @@ export function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMi
     }, [period]),
   );
 
-  const when = period === 'DAY' ? '오늘' : period === 'WEEK' ? '이번 주' : '이번 달';
+  const when =
+    period === 'DAY'
+      ? t('common.today')
+      : period === 'WEEK'
+        ? t('common.thisWeek')
+        : t('stats.compare.thisMonth');
   // 축별 빈 상태 안내 — count 0은 집계 대상 없음(원인 안내), 그 외(-1)는 조회 실패.
   // 카테고리 미설정은 기다려도 안 바뀌므로 설정 유도 문구로 분리
   const emptyNote = (k: CompareAxisKey, count: number): string => {
-    if (count !== 0) return '비교 데이터를 불러오지 못했어요';
-    if (k === 'FRIENDS') return `${when} 집중한 친구가 아직 없어요`;
+    if (count !== 0) return t('stats.compare.loadFailed');
+    if (k === 'FRIENDS') return t('stats.compare.emptyFriends', { when });
     if (k === 'CATEGORY')
       return categoryLabel
-        ? `${when} 같은 카테고리 기록이 아직 없어요`
-        : '준비 시험을 설정하면 비교할 수 있어요';
-    return `${when} 집중 기록이 아직 모이지 않았어요`;
+        ? t('stats.compare.emptyCategory', { when })
+        : t('stats.compare.noCategorySet');
+    return t('stats.compare.emptyAll', { when });
   };
   const cur = avgs[axis];
   // 평균 라벨 — 카테고리 축은 실제 카테고리명으로 표기
   const avgLabel =
-    axis === 'CATEGORY'
-      ? `${categoryLabel ?? '같은 카테고리'} 평균`
-      : (COMPARE_AXES.find((a) => a.key === axis) ?? COMPARE_AXES[1]).label;
+    axis === 'CATEGORY' && categoryLabel
+      ? t('stats.compare.avgOf', { name: categoryLabel })
+      : t((COMPARE_AXES.find((a) => a.key === axis) ?? COMPARE_AXES[1]).labelKey);
 
   return (
     <View style={s.compare}>
@@ -116,7 +123,7 @@ function CompareChips({
           activeOpacity={0.8}
         >
           <Text style={[s.compareChipText, active === a.key ? s.compareChipTextOn : null]}>
-            {a.chip}
+            {t(a.chipKey)}
           </Text>
         </TouchableOpacity>
       ))}
@@ -138,7 +145,7 @@ function CompareBars({
   return (
     <View style={s.teaserPad}>
       <View style={s.teaserRowHead}>
-        <Text style={s.teaserLabelMine}>나</Text>
+        <Text style={s.teaserLabelMine}>{t('common.me')}</Text>
         <Text style={s.teaserValueMine}>{fmtMinutes(myMinutes)}</Text>
       </View>
       <View style={s.teaserTrack}>

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { SheetShell } from '@/components/SheetShell';
 import { CheckRow, SelectAllRow } from './TagCheckRows';
 import type { Subject } from '@/screens/focus/types';
@@ -63,12 +64,10 @@ export function TagSuggestionSheet({
     <SheetShell onClose={onCancel}>
       {step === 1 ? (
         <>
-          <Text style={s.title}>{examLabel} 준비에 필요한 과목을 추천해요</Text>
+          <Text style={s.title}>{t('settings.tagSheet.addTitle', { exam: examLabel })}</Text>
           {suggestions.length > 0 ? (
             <>
-              <Text style={s.sub}>
-                추가하면 같은 시험을 준비하는 사람들과 과목별 공부시간을 비교할 수 있어요.
-              </Text>
+              <Text style={s.sub}>{t('settings.tagSheet.addSub')}</Text>
               <SelectAllRow
                 checked={allAddChecked}
                 checkColor={T.accent}
@@ -76,7 +75,7 @@ export function TagSuggestionSheet({
               />
             </>
           ) : (
-            <Text style={s.sub}>추가할 추천 과목이 없어요.</Text>
+            <Text style={s.sub}>{t('settings.tagSheet.addEmpty')}</Text>
           )}
           <ScrollView style={s.listScroll} showsVerticalScrollIndicator={false}>
             <View style={s.list}>
@@ -103,22 +102,25 @@ export function TagSuggestionSheet({
           >
             {checkedAdd.size > 0 ? (
               <>
-                <Text style={s.primaryText}>추가하기</Text>
-                <Text style={s.btnCount}>{checkedAdd.size}개 선택됨</Text>
+                <Text style={s.primaryText}>{t('settings.tagSheet.add')}</Text>
+                <Text style={s.btnCount}>
+                  {t('settings.tagSheet.selectedCount', { count: checkedAdd.size })}
+                </Text>
               </>
             ) : (
-              <Text style={s.primaryText}>건너뛰기</Text>
+              <Text style={s.primaryText}>{t('settings.tagSheet.skip')}</Text>
             )}
           </TouchableOpacity>
         </>
       ) : (
         <>
-          <Text style={s.title}>기존 과목을 정리할까요?</Text>
+          <Text style={s.title}>{t('settings.tagSheet.removeTitle')}</Text>
           {removals.length > 0 ? (
             <>
               <Text style={s.sub}>
-                삭제할 과목을 선택하세요.{'\n'}
-                <Text style={s.subDanger}>삭제한 과목의 집중 기록은 사라져요.</Text>
+                {t('settings.tagSheet.removeSubLead')}
+                {'\n'}
+                <Text style={s.subDanger}>{t('settings.tagSheet.removeSubDanger')}</Text>
               </Text>
               <SelectAllRow
                 checked={allRemoveChecked}
@@ -131,7 +133,7 @@ export function TagSuggestionSheet({
               />
             </>
           ) : (
-            <Text style={s.sub}>삭제할 과목이 없어요.</Text>
+            <Text style={s.sub}>{t('settings.tagSheet.removeEmpty')}</Text>
           )}
           <ScrollView style={s.listScroll} showsVerticalScrollIndicator={false}>
             <View style={s.list}>
@@ -152,11 +154,11 @@ export function TagSuggestionSheet({
           </ScrollView>
 
           <TouchableOpacity style={s.primaryBtn} activeOpacity={0.85} onPress={finishStep2}>
-            <Text style={s.primaryText}>완료하기</Text>
+            <Text style={s.primaryText}>{t('settings.tagSheet.done')}</Text>
           </TouchableOpacity>
           {/* 뒤돌아가기 — 체크 선택을 유지한 채 스텝1로 복귀 */}
           <TouchableOpacity style={s.darkBtn} activeOpacity={0.85} onPress={() => setStep(1)}>
-            <Text style={s.darkText}>뒤돌아가기</Text>
+            <Text style={s.darkText}>{t('settings.tagSheet.goBack')}</Text>
           </TouchableOpacity>
         </>
       )}

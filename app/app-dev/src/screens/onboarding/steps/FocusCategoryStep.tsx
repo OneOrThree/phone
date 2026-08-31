@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { hapticLight } from '@/utils/haptics';
 import { OCCUPATION_GROUPS, getDefaultSubjects } from '@/constants/focusCategories';
 import { getOccupations } from '@/services/userApi';
@@ -54,7 +55,7 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
     const code = occupations?.find((o) => o.displayName === selected)?.code ?? null;
     try {
       const names = code
-        ? (await getDefaultTags(code)).tags.map((t) => t.name)
+        ? (await getDefaultTags(code)).tags.map((tag) => tag.name)
         : getDefaultSubjects(selected);
       update({ subjects: names });
     } catch {
@@ -72,9 +73,9 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
   return (
     <StepScaffold
       testID="onboarding.step.category"
-      title="무엇에 집중할까요?"
-      subtitle="같은 목표를 가진 사람들과 리그에서 만나요."
-      ctaLabel={submitting ? '불러오는 중…' : '다음'}
+      title={t('onboarding.focusCategory.title')}
+      subtitle={t('onboarding.focusCategory.subtitle')}
+      ctaLabel={submitting ? t('onboarding.focusCategory.loading') : t('common.next')}
       ctaDisabled={!selected || submitting || !occupations}
       onCta={proceed}
       scrollable
@@ -83,9 +84,9 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
         <View style={s.center}>
           {loadFailed ? (
             <>
-              <Text style={s.errorText}>목록을 불러오지 못했어요.</Text>
+              <Text style={s.errorText}>{t('onboarding.focusCategory.loadFailed')}</Text>
               <TouchableOpacity onPress={retry} style={s.retryBtn} activeOpacity={0.85}>
-                <Text style={s.retryText}>다시 시도</Text>
+                <Text style={s.retryText}>{t('common.retry')}</Text>
               </TouchableOpacity>
             </>
           ) : (
@@ -99,8 +100,8 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
             .filter((o): o is OccupationResponse => !!o);
           if (!items.length) return null;
           return (
-            <View key={g.label} style={s.group}>
-              <Text style={s.groupLabel}>{g.label}</Text>
+            <View key={g.labelKey} style={s.group}>
+              <Text style={s.groupLabel}>{t(g.labelKey)}</Text>
               <View style={s.chips}>
                 {items.map((o) => {
                   const on = selected === o.displayName;

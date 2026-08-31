@@ -34,6 +34,7 @@ import {
   getOverlaySlotActions,
   holdOverlaySlotForNativeSurface,
 } from '@/store/OverlaySlotContext';
+import { t } from '@/i18n';
 
 // 외부 공개 API라 JWT 인터셉터가 붙는 api 인스턴스 대신 bare axios를 쓴다
 const LOOKUP_URL = 'https://itunes.apple.com/lookup?bundleId=com.oneorthree.gromo&country=kr';
@@ -87,12 +88,12 @@ export function UpdateAlert() {
         releaseHold();
       };
       Alert.alert(
-        '업데이트 알림',
-        '새 버전이 나왔어요! 업데이트하고 이용해 주세요.',
+        t('components.updateAlert.title'),
+        t('components.updateAlert.message'),
         [
-          { text: '나중에', style: 'cancel', onPress: release },
+          { text: t('components.updateAlert.later'), style: 'cancel', onPress: release },
           {
-            text: '업데이트',
+            text: t('components.updateAlert.update'),
             onPress: () => {
               // 스크린타임 앱스토어 제한 등으로 열기가 거부될 수 있다 — 안내 없이 삼키면
               // 사용자는 업데이트를 못 한 이유를 모른다(MenuScreen.confirmOpenExternal 선례).
@@ -101,9 +102,9 @@ export function UpdateAlert() {
                 .then(release)
                 .catch(() => {
                   Alert.alert(
-                    '알림',
-                    '앱스토어를 열 수 없어요. 잠시 후 다시 시도해 주세요.',
-                    [{ text: '확인', onPress: release }],
+                    t('components.updateAlert.openFailTitle'),
+                    `${t('components.updateAlert.openFailMessage')} ${t('common.retryLater')}`,
+                    [{ text: t('common.confirm'), onPress: release }],
                     { onDismiss: release },
                   );
                 });

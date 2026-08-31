@@ -12,6 +12,7 @@ import { getUserIdFromToken } from '@/services/api';
 import { logOnboardingStepAction } from '@/services/analyticsEvents';
 import { STORAGE_KEYS } from '@/types/storage';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StepProps } from '@/screens/onboarding/types';
 
 // 누끼 체험 스텝 — 캐릭터 소개(CharacterIntroStep) 다음, 닉네임 앞. 원하면 건너뛸 수 있다.
@@ -26,13 +27,10 @@ import type { StepProps } from '@/screens/onboarding/types';
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
 // 안내 3가지(해요체) — ① 직접 해보기 ② 홈에서 장착 ③ 함께 집중 기능 예고.
-const GUIDES: { icon: IconName; text: string }[] = [
-  { icon: 'sparkles-outline', text: '이렇게 사진 속 물건으로 캐릭터를 만들 수 있어요.' },
-  { icon: 'home-outline', text: '만든 캐릭터는 홈에서 변경할 수 있어요.' },
-  {
-    icon: 'people-outline',
-    text: '앱 내에서 내가 만든 캐릭터로 다른 사람들과 같이 집중할 수 있는 기능은 준비중이에요',
-  },
+const GUIDES: { icon: IconName; textKey: string }[] = [
+  { icon: 'sparkles-outline', textKey: 'onboarding.cutout.guideCreate' },
+  { icon: 'home-outline', textKey: 'onboarding.cutout.guideChange' },
+  { icon: 'people-outline', textKey: 'onboarding.cutout.guideTogether' },
 ];
 
 export default function CutoutStep({ data, update, onNext }: StepProps) {
@@ -82,11 +80,11 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
   return (
     <StepScaffold
       testID="onboarding.step.cutout_experience"
-      title={'내가 찍은 사진으로 내 캐릭터를 만들 수 있어요!'}
-      subtitle="사진 한 장이면 나만의 캐릭터가 완성돼요."
+      title={t('onboarding.cutout.title')}
+      subtitle={t('onboarding.cutout.subtitle')}
       // 작은 화면(SE 등)에서 가이드+만들기·건너뛰기 버튼이 뷰포트를 넘겨 잘리지 않게 스크롤 허용.
       scrollable
-      ctaLabel="다음"
+      ctaLabel={t('common.next')}
       // 만들어(cutoutCharacterUri 생성) 체험을 완료해야 다음으로. 단, 만들기 불가 기기(canSkip),
       // 서버 모더레이션 '검사 불가'(moderationUnavailable, 백엔드 미배포·장애 등), 그리고 생성기를
       // 열었다가 X로 닫아 포기한 경우(creatorDismissed, 누끼 실패 대비)는 영구 차단을 막기 위해 그냥
@@ -94,14 +92,14 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
       ctaDisabled={!created && !canSkip && !moderationUnavailable && !creatorDismissed}
       onCta={onNext}
       // 선택 액션은 본문이 아니라 공통 footer의 '다음' 바로 아래에 둔다.
-      secondaryLabel={canCreate && !created ? '건너뛰기' : undefined}
+      secondaryLabel={canCreate && !created ? t('onboarding.cutout.skip') : undefined}
       onSecondary={onNext}
     >
       <View style={s.guides}>
         {GUIDES.map((g) => (
-          <View key={g.text} style={s.guideRow}>
+          <View key={g.textKey} style={s.guideRow}>
             <Ionicons name={g.icon} size={20} color={T.accent} style={s.guideIcon} />
-            <Text style={s.guideText}>{g.text}</Text>
+            <Text style={s.guideText}>{t(g.textKey)}</Text>
           </View>
         ))}
       </View>
@@ -115,25 +113,24 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
             onPress={() => setModalOpen(true)}
           >
             <Ionicons name="camera-outline" size={20} color={T.accent} />
-            <Text style={s.makeText}>{created ? '다시 만들어보기' : '내 물건으로 만들어보기'}</Text>
+            <Text style={s.makeText}>
+              {t(created ? 'onboarding.cutout.remake' : 'onboarding.cutout.make')}
+            </Text>
           </TouchableOpacity>
 
           {created ? (
             <View style={s.doneRow}>
               <CharacterImage size={64} sourceUri={data.cutoutCharacterUri} />
-              <Text style={s.doneText}>이 캐릭터로 만들었어요.</Text>
+              <Text style={s.doneText}>{t('onboarding.cutout.done')}</Text>
             </View>
           ) : moderationUnavailable ? (
             // 검사 불가로 지금은 못 만드는 경우 — 갇히지 않게 안내하고 다음으로 넘어갈 수 있게 한다.
-            <Text style={s.hint}>
-              지금은 확인이 어려워요. 나중에 홈에서 ‘캐릭터 변경’으로 만들 수 있어요. 지금은
-              넘어가도 괜찮아요.
-            </Text>
+            <Text style={s.hint}>{t('onboarding.cutout.hintUnavailable')}</Text>
           ) : creatorDismissed ? (
             // 생성기를 열었다가 닫은 경우 — 지금 안 만들어도 넘어갈 수 있게 안내한다.
-            <Text style={s.hint}>지금 안 만들어도 괜찮아요. 나중에 홈에서 만들 수 있어요.</Text>
+            <Text style={s.hint}>{t('onboarding.cutout.hintDismissed')}</Text>
           ) : (
-            <Text style={s.hint}>지금 만들거나 건너뛸 수 있어요.</Text>
+            <Text style={s.hint}>{t('onboarding.cutout.hintIdle')}</Text>
           )}
 
           {/* 생성기 — NavigationContainer가 필요 없는 RN Modal로 띄운다. 닫기는 상단 X 버튼. */}
@@ -146,7 +143,7 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
             <SafeAreaProvider>
               <SafeAreaView style={s.modalRoot} edges={['top', 'bottom']}>
                 <View style={s.modalBar}>
-                  <Text style={s.modalTitle}>사진에서 캐릭터 만들기</Text>
+                  <Text style={s.modalTitle}>{t('onboarding.cutout.modalTitle')}</Text>
                   <TouchableOpacity
                     onPress={closeCreator}
                     style={s.modalClose}
@@ -169,9 +166,7 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
         </>
       ) : (
         // 만들기 불가 기기 — 만들기 버튼 대신 안내만 띄우고 '다음'으로 통과시킨다(기본 그로몬 유지).
-        <Text style={s.hint}>
-          이 기기에서는 캐릭터 만들기가 아직 지원되지 않아요. 나중에 홈에서 만들 수 있어요.
-        </Text>
+        <Text style={s.hint}>{t('onboarding.cutout.hintUnsupported')}</Text>
       )}
     </StepScaffold>
   );

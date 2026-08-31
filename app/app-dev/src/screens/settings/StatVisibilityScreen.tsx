@@ -11,6 +11,7 @@ import type { StatVisibility } from '@/types/dto/user';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { logStatVisibilityChanged } from '@/services/analyticsEvents';
 
 // 상세 통계 공개 범위(SET·통계 공개) — PUBLIC/FRIENDS 택1 라디오.
@@ -19,24 +20,24 @@ import { logStatVisibilityChanged } from '@/services/analyticsEvents';
 // 옵션 메타 — 라벨/설명/아이콘을 한 곳에서 관리.
 const OPTIONS: {
   value: StatVisibility;
-  label: string;
-  sub: string;
+  labelKey: string;
+  subKey: string;
   icon: keyof typeof Ionicons.glyphMap;
   iconColor: string;
   iconBg: string;
 }[] = [
   {
     value: 'PUBLIC',
-    label: '전체 공개',
-    sub: '리그의 모든 사람이 볼 수 있어요',
+    labelKey: 'settings.statVisibility.publicLabel',
+    subKey: 'settings.statVisibility.publicSub',
     icon: 'earth-outline',
     iconColor: T.accentDeep,
     iconBg: T.accentBg,
   },
   {
     value: 'FRIENDS',
-    label: '친구 공개',
-    sub: '친구로 수락한 사람만 볼 수 있어요',
+    labelKey: 'settings.statVisibility.friendsLabel',
+    subKey: 'settings.statVisibility.friendsSub',
     icon: 'people-outline',
     iconColor: T.greenDeep,
     iconBg: T.greenBg,
@@ -105,8 +106,8 @@ export default function StatVisibilityScreen() {
   };
 
   return (
-    <SettingsScaffold title="상세 통계 공개" onBack={() => navigation.goBack()}>
-      <Text style={s.note}>다른 사람에게 내 상세 통계를 어디까지 보여줄지 선택해요.</Text>
+    <SettingsScaffold title={t('settings.statVisibility.title')} onBack={() => navigation.goBack()}>
+      <Text style={s.note}>{t('settings.statVisibility.note')}</Text>
 
       <SettingsSection>
         {OPTIONS.map((opt) => (
@@ -115,8 +116,8 @@ export default function StatVisibilityScreen() {
             icon={opt.icon}
             iconColor={opt.iconColor}
             iconBg={opt.iconBg}
-            label={opt.label}
-            sub={opt.sub}
+            label={t(opt.labelKey)}
+            sub={t(opt.subKey)}
             onPress={() => select(opt.value)}
             right={<RadioMark selected={value === opt.value} />}
           />

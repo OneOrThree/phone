@@ -18,6 +18,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { STORAGE_KEYS } from '@/types/storage';
 import { todayStr } from '@/utils/localDate';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // SET · 앱 고르기(안드로이드) — 측정 대상(GROMO-1593)과 집중 중 허용앱(GROMO-1603)이 함께 쓴다.
 //
@@ -35,31 +36,31 @@ import { T } from '@/constants/theme';
 export type AppPickerMode = 'measured' | 'allowed';
 
 interface ModeSpec {
-  title: string;
-  noteLead: string;
-  noteStrong: string;
-  ctaEmpty: string;
-  ctaCount: (n: number) => string;
+  titleKey: string;
+  noteLeadKey: string;
+  noteStrongKey: string;
+  ctaEmptyKey: string;
+  ctaCountKey: string;
   load: () => Promise<string[]>;
   save: (packages: string[]) => Promise<void>;
 }
 
 const MODE: Record<AppPickerMode, ModeSpec> = {
   measured: {
-    title: '측정 대상 앱 설정',
-    noteLead: '고른 앱의 사용시간만 집계해요.',
-    noteStrong: '하나도 고르지 않으면 전체 앱을 집계해요.',
-    ctaEmpty: '전체 앱 측정으로 저장',
-    ctaCount: (n) => `${n}개 앱만 측정하도록 저장`,
+    titleKey: 'settings.appPicker.measuredTitle',
+    noteLeadKey: 'settings.appPicker.measuredNoteLead',
+    noteStrongKey: 'settings.appPicker.measuredNoteStrong',
+    ctaEmptyKey: 'settings.appPicker.measuredCtaEmpty',
+    ctaCountKey: 'settings.appPicker.measuredCtaCount',
     load: () => ScreenTimeModule.getSelectionPackages(),
     save: (packages) => ScreenTimeModule.setSelectionPackages(packages),
   },
   allowed: {
-    title: '집중 중 허용 앱',
-    noteLead: '집중 중에도 쓸 수 있게 열어둘 앱이에요.',
-    noteStrong: '고르지 않으면 허용앱이 없어요.',
-    ctaEmpty: '허용앱 없이 저장',
-    ctaCount: (n) => `${n}개 앱 허용으로 저장`,
+    titleKey: 'settings.allowedApps.title',
+    noteLeadKey: 'settings.appPicker.allowedNoteLead',
+    noteStrongKey: 'settings.appPicker.allowedNoteStrong',
+    ctaEmptyKey: 'settings.appPicker.allowedCtaEmpty',
+    ctaCountKey: 'settings.appPicker.allowedCtaCount',
     load: () => ScreenTimeModule.getAllowedPackages(),
     save: (packages) => ScreenTimeModule.setAllowedPackages(packages),
   },
@@ -176,7 +177,7 @@ export default function AppPickerScreen() {
 
   return (
     <SettingsScaffold
-      title={spec.title}
+      title={t(spec.titleKey)}
       onBack={() => navigation.goBack()}
       scroll={false}
       footer={
@@ -187,15 +188,17 @@ export default function AppPickerScreen() {
           activeOpacity={0.85}
           onPress={save}
         >
-          <Text style={s.ctaText}>{count === 0 ? spec.ctaEmpty : spec.ctaCount(count)}</Text>
+          <Text style={s.ctaText}>
+            {count === 0 ? t(spec.ctaEmptyKey) : t(spec.ctaCountKey, { count })}
+          </Text>
         </TouchableOpacity>
       }
     >
       <View style={s.noteCard}>
         <Text style={s.noteBody}>
-          {spec.noteLead}
+          {t(spec.noteLeadKey)}
           {'\n'}
-          <Text style={s.noteStrong}>{spec.noteStrong}</Text>
+          <Text style={s.noteStrong}>{t(spec.noteStrongKey)}</Text>
         </Text>
       </View>
 
@@ -205,7 +208,7 @@ export default function AppPickerScreen() {
           testID="appPicker.search"
           value={query}
           onChangeText={setQuery}
-          placeholder="앱 이름 검색"
+          placeholder={t('settings.appPicker.searchPlaceholder')}
           placeholderTextColor={T.inkMuted}
           style={s.searchInput}
           autoCapitalize="none"
@@ -215,7 +218,7 @@ export default function AppPickerScreen() {
 
       {failed ? (
         <Text testID="appPicker.error" style={s.empty}>
-          앱 목록을 불러오지 못했어요.{'\n'}앱을 다시 켜고 시도해 주세요.
+          {t('settings.appPicker.loadFailed')}
         </Text>
       ) : apps === null ? (
         <View style={s.center}>
@@ -234,7 +237,7 @@ export default function AppPickerScreen() {
               onToggle={() => toggle(item.packageName)}
             />
           )}
-          ListEmptyComponent={<Text style={s.empty}>검색 결과가 없어요</Text>}
+          ListEmptyComponent={<Text style={s.empty}>{t('settings.appPicker.noResults')}</Text>}
           contentContainerStyle={s.listContent}
         />
       )}

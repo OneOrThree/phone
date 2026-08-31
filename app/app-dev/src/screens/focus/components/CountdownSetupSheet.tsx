@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { DrumPicker } from '@/components/DrumPicker';
 import { SheetShell } from '@/components/SheetShell';
 import { PressableScale } from '@/components/PressableScale';
@@ -8,8 +9,9 @@ import { PressableScale } from '@/components/PressableScale';
 // 04 카운트다운 설정 — 시/분 휠로 목표 시간을 정하고 집중 시작.
 const MAX_HOURS = 12; // 상한 12시간 — 12시간 선택 시 분은 0 고정
 const MINUTE_STEP = 5;
-const HOUR_ITEMS = Array.from({ length: MAX_HOURS + 1 }, (_, h) => `${h}시간`);
-const MINUTE_ITEMS = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => `${i * MINUTE_STEP}분`);
+// 라벨은 렌더 시점에 t()로 만든다 — 모듈 최상위에서 부르면 언어 변경이 반영되지 않는다.
+const HOURS = Array.from({ length: MAX_HOURS + 1 }, (_, h) => h);
+const MINUTES = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => i * MINUTE_STEP);
 
 export function CountdownSetupSheet({
   subjectName,
@@ -24,16 +26,18 @@ export function CountdownSetupSheet({
   const [hours, setHours] = useState(1);
   const [minutes, setMinutes] = useState(30);
   const goalSeconds = hours * 3600 + minutes * 60;
+  const hourItems = HOURS.map((h) => t('focus.countdownSheet.hourUnit', { count: h }));
+  const minuteItems = MINUTES.map((mm) => t('focus.countdownSheet.minuteUnit', { count: mm }));
 
   return (
     <SheetShell onClose={onClose}>
-      <Text style={s.title}>{subjectName} · 카운트다운</Text>
-      <Text style={s.sub}>목표 시간을 정하면 0으로 줄어들어요.</Text>
+      <Text style={s.title}>{t('focus.countdownSheet.title', { subject: subjectName })}</Text>
+      <Text style={s.sub}>{t('focus.countdownSheet.sub')}</Text>
 
       <View style={s.pickerRow}>
         <View style={s.pickerCol}>
           <DrumPicker
-            items={HOUR_ITEMS}
+            items={hourItems}
             selectedIndex={hours}
             onChange={(i) => {
               setHours(i);
@@ -43,7 +47,7 @@ export function CountdownSetupSheet({
         </View>
         <View style={s.pickerCol}>
           <DrumPicker
-            items={MINUTE_ITEMS}
+            items={minuteItems}
             selectedIndex={minutes / MINUTE_STEP}
             // 12시간에서 분을 올리면 거부 → 휠이 0분으로 되돌아감
             onChange={(i) => setMinutes(hours === MAX_HOURS ? 0 : i * MINUTE_STEP)}
@@ -57,7 +61,7 @@ export function CountdownSetupSheet({
         disabled={goalSeconds === 0}
         onPress={() => onStart(goalSeconds)}
       >
-        <Text style={s.startText}>집중 시작</Text>
+        <Text style={s.startText}>{t('focus.setupSheet.start')}</Text>
       </PressableScale>
     </SheetShell>
   );

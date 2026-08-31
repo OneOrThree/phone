@@ -1,5 +1,6 @@
 // 통계 화면(GROMO-604) 포맷·집계 헬퍼. 순수 함수만 — UI/네트워크 없음.
 import { kstDateStr, localDateStr, todayStrKst } from '@/utils/localDate';
+import { t } from '@/i18n';
 import type { HeatmapCellResponse, StatsPeriod } from '@/types/dto/stats';
 import { FOCUS_COLOR } from './constants';
 
@@ -31,21 +32,21 @@ export function tenMinuteFocusSlots(
     if (!(end > start)) continue;
     // 슬롯은 로컬 벽시계(시:분) 기준 — 자정 경과 ms 나눗셈은 DST 전환일에 시각과 어긋난다(리뷰 반영).
     // 슬롯의 로컬 경계까지 조각을 담으며 전진한다.
-    let t = start;
-    while (t < end) {
-      const d = new Date(t);
+    let cursor = start;
+    while (cursor < end) {
+      const d = new Date(cursor);
       const idx = d.getHours() * 6 + Math.floor(d.getMinutes() / 10);
       const boundary = new Date(d);
       boundary.setMinutes(Math.floor(d.getMinutes() / 10) * 10 + 10, 0, 0);
       const segEnd = Math.min(end, boundary.getTime());
       const segStartFrac =
         ((d.getMinutes() % 10) * 60e3 + d.getSeconds() * 1e3 + d.getMilliseconds()) / SLOT_MS;
-      const segEndFrac = Math.min(segStartFrac + (segEnd - t) / SLOT_MS, 1);
+      const segEndFrac = Math.min(segStartFrac + (segEnd - cursor) / SLOT_MS, 1);
       if (idx >= 0 && idx < 144 && segEndFrac > segStartFrac) {
         slots[idx].push({ start: segStartFrac, end: segEndFrac, tagId: s.focusTagId });
       }
       // 경계가 전진하지 않는 비정상 케이스(시간대 급변 등) 무한 루프 방지
-      t = segEnd > t ? segEnd : t + 60e3;
+      cursor = segEnd > cursor ? segEnd : cursor + 60e3;
     }
   }
   return slots;
@@ -73,16 +74,16 @@ export function weekdayFocusBlocks(
   const out: WeekFocusBlock[] = [];
   for (const sn of sessions) {
     const end = Date.parse(sn.endedAt);
-    let t = Date.parse(sn.startedAt);
-    if (!(end > t)) continue;
-    while (t < end) {
-      const d = new Date(t);
+    let cursor = Date.parse(sn.startedAt);
+    if (!(end > cursor)) continue;
+    while (cursor < end) {
+      const d = new Date(cursor);
       // 조각 끝 = 세션 끝 vs 다음날 로컬 자정 중 이른 쪽
       const nextMid = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
       const pieceEnd = Math.min(end, nextMid);
       // 주 시작을 걸친 조각은 시작을 주 시작으로 클립 — 조각은 로컬 하루 안이라 클립해도 같은
       // 날짜(요일·자정 기준)를 유지한다(상단 주석 참고)
-      const clipped = Math.max(t, weekStartMs);
+      const clipped = Math.max(cursor, weekStartMs);
       if (pieceEnd > clipped) {
         const cd = new Date(clipped);
         const startMin = cd.getHours() * 60 + cd.getMinutes() + cd.getSeconds() / 60;
@@ -95,7 +96,7 @@ export function weekdayFocusBlocks(
         }
       }
       // 경계가 전진하지 않는 비정상 케이스(시간대 급변 등) 무한 루프 방지 — tenMinuteFocusSlots와 동일
-      t = pieceEnd > t ? pieceEnd : t + 60e3;
+      cursor = pieceEnd > cursor ? pieceEnd : cursor + 60e3;
     }
   }
   return out;
@@ -114,10 +115,10 @@ export function subjectColorForTag(
 }
 
 // 상단 기간 세그먼트 정의(일/주/월).
-export const PERIOD_TABS: { key: StatsPeriod; label: string }[] = [
-  { key: 'DAY', label: '일' },
-  { key: 'WEEK', label: '주' },
-  { key: 'MONTH', label: '월' },
+export const PERIOD_TABS: { key: StatsPeriod; labelKey: string }[] = [
+  { key: 'DAY', labelKey: 'stats.period.day' },
+  { key: 'WEEK', labelKey: 'stats.period.week' },
+  { key: 'MONTH', labelKey: 'stats.period.month' },
 ];
 
 // StatsPeriod → 애널리틱스 소문자 키.
@@ -125,8 +126,17 @@ export function periodKey(period: StatsPeriod): 'day' | 'week' | 'month' {
   return period === 'DAY' ? 'day' : period === 'WEEK' ? 'week' : 'month';
 }
 
-// 요일 라벨(일=0..토=6) — 첫 시작 차트·공유 이미지 날짜 헤더 등 공용.
-export const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
+// 요일 라벨 키(일=0..토=6) — 첫 시작 차트·공유 이미지 날짜 헤더 등 공용.
+// 키만 담고 렌더 시점에 t()로 푼다(모듈 최상위에서 t()를 부르지 않는다).
+export const WEEKDAY_KEYS = [
+  'common.weekday.sun',
+  'common.weekday.mon',
+  'common.weekday.tue',
+  'common.weekday.wed',
+  'common.weekday.thu',
+  'common.weekday.fri',
+  'common.weekday.sat',
+];
 
 // 이번 주 월~일 7일의 날짜 키('YYYY-MM-DD') — 요일별 차트들이 남은 요일까지 미리 그릴 때 공용.
 // 축은 KST(GROMO-1236 P2) — 서버 heatmap 셀(KST 버킷)과 키가 일치해야 값이 제 요일 칸에 붙는다.
@@ -234,8 +244,13 @@ export function calendarPage(period: 'WEEK' | 'MONTH', offset: number): Calendar
     sunday.setDate(monday.getDate() + 6);
     return {
       days,
-      label: `${monday.getMonth() + 1}월 ${nth}주차`,
-      sublabel: `${monday.getMonth() + 1}.${monday.getDate()} – ${sunday.getMonth() + 1}.${sunday.getDate()}`,
+      label: t('stats.calendar.weekLabel', { month: monday.getMonth() + 1, nth }),
+      sublabel: t('stats.calendar.weekSublabel', {
+        fromMonth: monday.getMonth() + 1,
+        fromDay: monday.getDate(),
+        toMonth: sunday.getMonth() + 1,
+        toDay: sunday.getDate(),
+      }),
       leadingBlanks: 0,
     };
   }
@@ -246,8 +261,11 @@ export function calendarPage(period: 'WEEK' | 'MONTH', offset: number): Calendar
   );
   return {
     days,
-    label: `${first.getFullYear()}년 ${first.getMonth() + 1}월`,
-    sublabel: `1일 – ${lastDay}일`,
+    label: t('stats.calendar.monthLabel', {
+      year: first.getFullYear(),
+      month: first.getMonth() + 1,
+    }),
+    sublabel: t('stats.calendar.monthSublabel', { lastDay }),
     leadingBlanks: (first.getDay() + 6) % 7, // 월=0..일=6
   };
 }
@@ -300,7 +318,7 @@ export function heatmapBars(
     // 아직 안 온 요일은 future(라벨만 표시, 선·점 없음)로 채운다
     const byDate = new Map(cells.map((c) => [c.date, pick(c)]));
     return weekDateKeys().map((key, i) => ({
-      label: WEEKDAY[(i + 1) % 7], // 월~일
+      label: t(WEEKDAY_KEYS[(i + 1) % 7]), // 월~일
       value: byDate.get(key) ?? 0,
       current: key === today,
       future: key > today, // 'YYYY-MM-DD'는 문자열 비교가 날짜 비교와 일치
@@ -314,9 +332,13 @@ export function heatmapBars(
       weeks[wi] = (weeks[wi] ?? 0) + pick(c);
     }
     const todayWeek = Math.floor((Number(today.slice(8, 10)) - 1) / 7);
-    return weeks.map((v, i) => ({ label: `${i + 1}주`, value: v ?? 0, current: i === todayWeek }));
+    return weeks.map((v, i) => ({
+      label: t('stats.chart.weekNth', { n: i + 1 }),
+      value: v ?? 0,
+      current: i === todayWeek,
+    }));
   }
-  return cells.map((c) => ({ label: '오늘', value: pick(c), current: true }));
+  return cells.map((c) => ({ label: t('common.today'), value: pick(c), current: true }));
 }
 
 // 달력 일 번호 — UTC 자정으로 정규화해 DST가 있는 시간대에서도 일수 차이가 정확.
@@ -399,7 +421,7 @@ export function firstStartPoints(
   const today = todayStrKst();
   if (period === 'WEEK') {
     return weekDateKeys().map((key, i) => ({
-      label: WEEKDAY[(i + 1) % 7], // 월~일
+      label: t(WEEKDAY_KEYS[(i + 1) % 7]), // 월~일
       minutes: byDay.get(key) ?? null,
       current: key === today,
       future: key > today, // 'YYYY-MM-DD'는 문자열 비교가 날짜 비교와 일치

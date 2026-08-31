@@ -2,6 +2,7 @@ import { Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CelebrationModal, CelebrationPill } from '@/components/CelebrationModal';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 주간 스트릭 완성 축하 모달(GROMO-667) — 월~일 7일을 모두 채운 주, 일요일 결과 화면의
 // ✓ 팝 뒤에 노출(주 1회). 코인/재화 지급 없음(축하+스트릭 정책).
@@ -19,15 +20,15 @@ export function WeekStreakModal({ visible, onClose }: Props) {
       visible={visible}
       onClose={onClose}
       testIDPrefix="weekStreak"
-      title="이번 주 스트릭 완성! 🎉"
-      sub="월요일부터 일요일까지 하루도 빠짐없이 채웠어요"
+      title={t('focus.weekStreakModal.title')}
+      sub={t('focus.weekStreakModal.sub')}
       footer={
         <CelebrationPill style={s.weekBox}>
           <Ionicons name="flame" size={15} color={T.flame} />
-          <Text style={s.weekText}>7일 연속 집중 완주</Text>
+          <Text style={s.weekText}>{t('focus.weekStreakModal.pill')}</Text>
         </CelebrationPill>
       }
-      ctaLabel="다음 주도 함께해요!"
+      ctaLabel={t('focus.weekStreakModal.cta')}
     />
   );
 }

@@ -1,0 +1,2143 @@
+{
+  "focus": {
+    "categoryScreen": {
+      "title": "何に集中しますか？",
+      "addSubject": "科目を追加",
+      "addMessage": "集中する科目の名前を入力してください。",
+      "editTitle": "科目名を編集",
+      "duplicateTitle": "すでにある科目です",
+      "duplicateMessage": "別の名前を入力してください。",
+      "deleteTitle": "科目を削除",
+      "deleteMessage": "この科目に記録された集中時間がなくなります！",
+      "rename": "名前を編集",
+      "recommendedTitle": "%{category}のおすすめ科目",
+      "add": "追加",
+      "colorOption": "カラー%{index}",
+      "guide1": "集中する科目を選んでください！\n科目をタップすると、無制限・タイマー・ポモドーロから集中方法を選べます。",
+      "guide2": "集中を終えると、時間が科目ごとに記録されてリーグ順位にも反映されます。\nそれでは始めましょう！"
+    },
+    "subjectRow": {
+      "colorLabel": "%{name}のカラーを変更",
+      "menuLabel": "%{name}のメニュー"
+    },
+    "timerMethodSheet": {
+      "title": "%{subject}・タイマー方式",
+      "sub": "どう集中するか選びましょう。",
+      "countupTitle": "カウントアップ",
+      "countupDesc": "0から時間を積み上げます",
+      "countdownTitle": "カウントダウン",
+      "countdownDesc": "目標時間から減っていきます",
+      "pomodoroTitle": "ポモドーロ",
+      "pomodoroDesc": "集中と休憩をくり返します"
+    },
+    "setupSheet": {
+      "start": "集中を開始"
+    },
+    "countdownSheet": {
+      "title": "%{subject}・カウントダウン",
+      "sub": "目標時間を決めると0までカウントダウンします。",
+      "hourUnit": {
+        "one": "%{count}時間",
+        "other": "%{count}時間"
+      },
+      "minuteUnit": {
+        "one": "%{count}分",
+        "other": "%{count}分"
+      }
+    },
+    "pomodoroSheet": {
+      "title": "%{subject}・ポモドーロ",
+      "sub": "集中と休憩をくり返します。",
+      "focus": "集中",
+      "break": "休憩",
+      "sets": "セット",
+      "valueMinutes": {
+        "one": "%{count}分",
+        "other": "%{count}分"
+      },
+      "valueSets": {
+        "one": "%{count}回",
+        "other": "%{count}回"
+      },
+      "decrease": "%{label}を減らす",
+      "increase": "%{label}を増やす"
+    },
+    "session": {
+      "toLandscape": "横画面に切り替え",
+      "toPortrait": "縦画面に切り替え",
+      "openMenu": "集中メニューを開く",
+      "break": "休憩",
+      "goal": "目標 %{time}",
+      "setProgress": "セット %{current} / %{total}",
+      "friendsTitle": "友だち",
+      "friendsEmptyTitle": "まだ友だちがいません",
+      "friendsEmptySub": "リーグタブで友だちを追加すると\n集中中にここで一緒に見られます。",
+      "groupTitle": "グループ: %{name}",
+      "groupEmptyTitle": "まだグループメンバーがいません",
+      "groupEmptySub": "グループにメンバーが集まると\n集中中にここで一緒に見られます。",
+      "categoryLeagueTitle": "%{category}リーグ",
+      "sameExamTitle": "同じ試験",
+      "examUnsetTitle": "受験予定の試験が設定されていません",
+      "examUnsetSub": "受験予定の試験を設定すると\n同じ試験の受験生がここに表示されます。",
+      "examEmptyTitle": "同じ試験の受験生はまだいません",
+      "examEmptySub": "同じ目標のユーザーが\nもうすぐここに集まります。",
+      "allLeagueTitle": "全体リーグ",
+      "leagueEmptyTitle": "まだリーグメンバーがいません",
+      "leagueEmptySub": "リーグに割り当てられると\n一緒に勉強する様子がここに表示されます。",
+      "doneTitle": "集中が終わりました！",
+      "doneSub": "%{subject}の集中を最後までやり切りました。",
+      "donePomodoroSub": {
+        "one": "%{subject}を%{count}セットすべて終えました。",
+        "other": "%{subject}を%{count}セットすべて終えました。"
+      },
+      "guide1": "集中セッションが始まりました！\nここで流れた時間がそのまま科目の集中記録になります。",
+      "guide2": "画面を横にスワイプしてみましょう。\n友だち・グループ・同じ試験の受験生・全体リーグが集中している様子を見られます。",
+      "guide3": "メニューでは科目を変えたり、今日の科目別の記録を見たりできます。",
+      "guide4": "少し休むときは一時停止、終えるときは停止を押します。\n停止すると記録が保存されて結果画面に移ります。"
+    },
+    "liveGrid": {
+      "soloBanner": "今は自分だけが集中しています",
+      "focusingBanner": {
+        "one": "%{count}人が今いっしょに集中しています",
+        "other": "%{count}人が今いっしょに集中しています"
+      }
+    },
+    "menuDrawer": {
+      "title": "メニュー",
+      "allowedApps": "許可アプリを使う",
+      "allowedAppsSub": "集中中に使えるアプリ",
+      "todayTotal": "今日の全体の集中状況",
+      "bySubject": "科目別の集中状況",
+      "allowedAppsNote": "許可アプリを使う時間も集中として認められます。",
+      "allowedChecking": "許可アプリを確認中…",
+      "allowedCount": {
+        "one": "%{count}個のアプリを許可中",
+        "other": "%{count}個のアプリを許可中"
+      },
+      "allowedNone": "許可アプリがありません",
+      "allowedHint": "ホーム画面に戻って許可アプリを直接開けば大丈夫です。\n許可アプリは「すべて」タブ →「集中中に許可するアプリ」で変更できます。",
+      "blockedWarn": "許可されていないアプリはロックされて開けません"
+    },
+    "resultScreen": {
+      "title": "集中完了！",
+      "firstTitle": "初めての集中、完了！",
+      "sub": "%{subject}・着実に積み上がっています",
+      "firstSub": "今日、最初の一歩を踏み出しました 🎉",
+      "rewardLabel": "%{currency}を%{amount}獲得",
+      "thisSession": "今回の集中",
+      "bySubject": "科目別の集中状況",
+      "streakDone": "今週の集中の連続記録を達成しました！",
+      "streakTodo": "今週の集中の連続記録を埋めていきましょう！",
+      "streakDays": {
+        "one": "%{count}日連続",
+        "other": "%{count}日連続"
+      },
+      "streakNotice": "1日10分以上集中すると連続記録が埋まります",
+      "weekFocusTime": "今週の集中時間",
+      "thisMonth": "今月",
+      "compareTitle": "%{when}の比較",
+      "axisFriends": "友だち",
+      "axisCategory": "同じカテゴリ",
+      "avgFriends": "友だちの平均",
+      "avgAll": "全体の平均",
+      "avgCategory": "同じカテゴリの平均",
+      "emptyFriends": "%{when}集中した友だちはまだいません。友だちを追加して比べてみましょう！",
+      "errorFriends": "友だちの平均を読み込めませんでした",
+      "emptyAll": "%{when}の集中記録はまだ集まっていません",
+      "errorAll": "全体の平均を読み込めませんでした",
+      "emptyCategory": "%{when}の同じカテゴリの記録はまだありません",
+      "errorCategory": "同じカテゴリの平均を読み込めませんでした",
+      "compareAhead": "%{label}より%{amount}多く集中しました。",
+      "compareBehind": "%{label}まであと%{amount}です。今日も一歩！",
+      "loading": "読み込み中…",
+      "home": "ホームへ",
+      "again": "もう一度集中"
+    },
+    "weekStreakModal": {
+      "title": "今週の連続記録を達成！ 🎉",
+      "sub": "月曜日から日曜日まで一日も欠かさず埋めました",
+      "pill": "7日連続の集中を完走",
+      "cta": "来週も一緒にがんばりましょう！"
+    },
+    "leaveNotification": {
+      "warnTitle": "集中が止まりました！",
+      "warnBody": {
+        "one": "%{count}秒以内に戻れば%{subject}の集中を続けられます。",
+        "other": "%{count}秒以内に戻れば%{subject}の集中を続けられます。"
+      },
+      "endTitle": "集中セッションが終わりました",
+      "endBody": "ここまで集中した時間は保存しました。準備ができたらまた始めましょう！"
+    }
+  },
+  "home": {
+    "duration": {
+      "hourMinute": "%{h}時間%{m}分",
+      "hour": "%{h}時間",
+      "minute": "%{m}分"
+    },
+    "rank": "%{rank}位",
+    "bellA11y": "通知を見る",
+    "bellA11yUnread": "通知を見る、未読の通知あり",
+    "changeCharacter": "キャラクターを変更",
+    "currencyHistoryA11y": "タイムシャードの履歴",
+    "streakPrefix": "連続勉強 ",
+    "streakSuffix": "日",
+    "permissionErrorTitle": "権限の処理に失敗しました",
+    "today": {
+      "title": "今日",
+      "titleSub": "",
+      "detail": "詳しく",
+      "focus": "勉強の集中",
+      "phoneUsage": "スマホ使用",
+      "goal": "目標 %{duration}",
+      "permissionNotice": "スクリーンタイムの権限をオンにすると\n今日の使用時間を見られます。",
+      "enablePermission": "権限をオン",
+      "enablePermissionA11y": "スクリーンタイムの権限をオンにする",
+      "usageDetailA11y": "アプリ別のスマホ使用時間を見る"
+    },
+    "guide": {
+      "intro": "こんにちは！私はGromoです。\nホームでは私と一緒に今日の勉強状況を見られます。",
+      "todayCard": "今日の集中時間とスマホ使用時間をここで一目で確認できます。\n「詳しく」を押すと統計に移動します。",
+      "fab": "準備ができたら、このボタンを押してすぐに集中を始めてみましょう！"
+    }
+  },
+  "group": {
+    "betBalanceRow": {
+      "feeLabel": "参加費",
+      "text": "%{label} %{amount} · 残高 %{balance}",
+      "a11y": "%{label} %{amount}コイン、残高 %{coins}コイン",
+      "a11yUnknown": "%{label} %{amount}コイン、残高は不明です"
+    },
+    "challengeCard": {
+      "screenTimeCaption": "今日のスクリーンタイムを目標以下に保ちます",
+      "windowMeasureCaption": "使用時間は15分単位で集計されるため、誤差が出ることがあります。アプリのバージョンや端末の状態によっては、集計が遅れたり抜けたりすることがあります",
+      "noPermissionCaption": "スクリーンタイムの権限がないため参加できません",
+      "unmeasuredCaption": "— はまだ集計されていません",
+      "noProgressCaption": "このチャレンジは進捗を表示しません",
+      "betAchievedCaption": "すでに今日の目標を達成しているため参加できません",
+      "betAchievedCreateCaption": "すでに今日の目標を達成しているため賭けを開けません",
+      "betFailedCaption": "すでに目標を超えているため参加できません",
+      "betFailedCreateCaption": "すでに目標を超えているため賭けを開けません",
+      "betLeftCaption": "参加を取り消しました。参加費は残高に戻りました",
+      "betCanceledCaption": "参加を取り消したため賭けが閉じました。参加費は残高に戻りました",
+      "dormantCaption": "参加者がいません",
+      "dormantTag": "休止中",
+      "restCaption": "今日は休みの日です",
+      "monthDay": "%{month}月%{day}日",
+      "countdownMinutes": "%{minutes}分%{seconds}秒以内に取り消せます",
+      "countdownSeconds": "%{seconds}秒以内に取り消せます",
+      "timePart": " %{time}",
+      "nextDay": "%{day}%{time}",
+      "nextDayUpcoming": "次の%{day}%{time}",
+      "achievedMark": "達成 ✓",
+      "achievedA11y": "%{nickname} 達成",
+      "cannotJoinTitle": "参加できません",
+      "cannotOpenHistoryTitle": "履歴を開けません",
+      "weekAllJoined": "今週の残りの日はすべて参加済みです",
+      "joinInfoFailedTitle": "参加情報を確認できませんでした",
+      "reservationGone": "すでに整理された予約です — 最新の状態に更新します",
+      "sessionGone": "すでに整理された日です — 最新の状態に更新します",
+      "leaveClosed": "取り消せる時間を過ぎたため、参加を取り消せませんでした",
+      "alreadyLeft": "すでに取り消された参加です — 最新の状態に更新します",
+      "sessionSettled": "すでに精算済みか閉じた日のため、参加を取り消せませんでした",
+      "leaveFailedTitle": "参加を取り消せませんでした",
+      "leaveTitle": "参加取り消し",
+      "no": "いいえ",
+      "leaveTodayBody": "参加費 %{stake}コインを返してもらい、今日の参加を取り消しますか？",
+      "leaveNextBody": "%{day} の参加を取り消して、参加費 %{stake}コインを返してもらいますか？",
+      "leaveBetBody": "参加費 %{stake}コインを返してもらい、賭けから抜けますか？",
+      "cancelBetBody": "参加費 %{stake}コインを返してもらい、賭けを閉じますか？",
+      "betStarted": "賭けが始まったあとのため、参加を取り消せませんでした",
+      "notJoinedBody": "参加中の賭けではありません。画面を更新してください。",
+      "betSettled": "すでに精算済みか閉じた賭けのため、参加を取り消せませんでした",
+      "ownerOnlyCancel": "賭けを開いた人だけが取り消せます",
+      "othersJoined": "ほかの参加者がいるため取り消せません",
+      "deleteTitle": "チャレンジの削除",
+      "deleteBody": "このチャレンジを削除しますか？",
+      "moneyAppearedTitle": "賭けられたコインが発生しました",
+      "moneyAppearedBody": "たった今参加した人がいます。内容を確認してください。",
+      "moneyChangedTitle": "賭けられたコインが変わりました",
+      "moneyChangedBody": "変わった内容を確認して、もう一度押してください。",
+      "deletePreviewFailedTitle": "削除の影響を確認できませんでした",
+      "dowA11y": "毎週 %{days} 繰り返し%{next}",
+      "dowA11yNext": " · %{next}",
+      "todayAt": "今日 %{time}",
+      "inProgressUntil": "進行中 · %{time} 終了",
+      "inProgressUntilMidnight": "進行中 · 深夜0時終了",
+      "coins": "%{coins}コイン",
+      "joinDay": "%{day} に参加",
+      "betSummary": "🪙 参加費 %{stake} · 積立金 %{pot} · %{members}人参加",
+      "createBet": "賭けを開く",
+      "stakeOnly": "🪙 参加費 %{stake}",
+      "joinPrompt": "🪙 参加費 %{stake} · %{members}人参加中 — 参加する",
+      "nextReserved": "%{day} · %{coins}コイン",
+      "joinedTag": "参加中",
+      "tomorrowTag": "明日開始",
+      "leaveDayA11y": "%{day} の参加を取り消す",
+      "leaveTodayA11y": "今日の参加を取り消す",
+      "weekAll": "今週の残りの日すべて",
+      "lastBetCaption": "前回の賭け（%{date}）: %{summary}",
+      "lastBetAchieved": "%{total}人中 %{achieved}人が達成"
+    },
+    "challengeDeleteSheet": {
+      "title": "進行中のチャレンジです",
+      "daysLabel": "参加費がかかっている日",
+      "dayA11y": "%{day} %{count}人参加、積立金 %{pot}コイン",
+      "dayValue": "%{count}人 · %{pot}コイン",
+      "warn": "%{days} が無効になり、積立金 %{refund}コインが全員に戻ります。これらの日は判定しません — すでに結果が出た日はそのままです。",
+      "note": "過去の記録はグループの「チャレンジ履歴」に残ります"
+    },
+    "challengeHistoryScreen": {
+      "title": "チャレンジ履歴",
+      "filterNotice": "%{label} のみ表示中",
+      "deletedTag": "削除済み",
+      "cardStat": "参加費 %{stake} · 積立金 %{pot}",
+      "emptyTitle": "まだ過去の記録がありません",
+      "emptyDesc": "チャレンジの結果が出ると、ここに少しずつたまっていきます",
+      "errorGroupGone": "なくなったグループです。",
+      "errorMemberOnly": "グループのメンバーだけが見られます。",
+      "errorLoadFailed": "過去の記録を読み込めませんでした。",
+      "moreDeadNotice": "過去の記録をこれ以上読み込めません",
+      "moreFailedNotice": "過去の記録をこれ以上読み込めませんでした"
+    },
+    "challengeHistoryView": {
+      "notJoined": "未参加",
+      "refunded": "返金",
+      "voidedSummary": "中止で全員返金",
+      "forfeitedSummary": "誰も達成できず参加費は消滅",
+      "achievedSummary": "%{participantCount}人中 %{achievedCount}人が達成",
+      "deletedChallenge": "削除されたチャレンジ",
+      "a11yStake": {
+        "one": "参加費 %{count}コイン",
+        "other": "参加費 %{count}コイン"
+      },
+      "a11yPot": {
+        "one": "積立金 %{count}コイン",
+        "other": "積立金 %{count}コイン"
+      },
+      "a11yStakeRefunded": "参加費を返金",
+      "a11yNoChange": "変動なし",
+      "a11yGained": {
+        "one": "%{count}コイン獲得",
+        "other": "%{count}コイン獲得"
+      },
+      "a11yLost": {
+        "one": "%{count}コイン損失",
+        "other": "%{count}コイン損失"
+      }
+    },
+    "challengeLabel": {
+      "screenTime": "スクリーンタイム",
+      "focus": "集中",
+      "atMost": "以下",
+      "daily": "1日 %{minutes}分%{atMost}の%{what}",
+      "window": "%{start}~%{end}",
+      "windowEveryday": "毎日 %{start}~%{end}",
+      "windowWithMinutes": "%{when}に%{minutes}分%{atMost}の%{what}",
+      "windowOnly": "%{when}の%{what}",
+      "categoryScreenTime": "スクリーンタイム",
+      "categoryFocus": "集中時間"
+    },
+    "groupCardBack": {
+      "loading": "%{label} を読み込み中…",
+      "retryHint": "失敗した情報を読み込み直します",
+      "private": "非公開",
+      "public": "公開",
+      "flipFrontA11y": "%{name} カードの表を見る",
+      "flipFrontHint": "カードの表に戻ります",
+      "cardA11y": "%{name}、カードの裏、%{privacy}、%{members}/%{maxMembers}人、現在 %{position}/%{pageCount} ページ",
+      "cardHint": "ダブルタップするとカードの表を見ます",
+      "headerMeta": "%{privacy} · %{members}/%{maxMembers}人",
+      "optionsA11y": "%{name} グループのオプション",
+      "focusMembers": "集中中の人数",
+      "detailError": "集中の状況を読み込めませんでした · 再試行",
+      "focusUnknown": "集中の状況を確認できません · 再試行",
+      "focusCountA11y": "現在 %{count}人が集中中%{stale}",
+      "stalePart": "、以前の値",
+      "focusCount": "%{count}人が集中中",
+      "updateFailed": "更新できませんでした · 再試行",
+      "challengeSectionA11y": "チャレンジ %{count}件",
+      "challenges": "チャレンジ",
+      "countSuffix": "%{count}件",
+      "noProgress": "進捗なし",
+      "restDay": "休みの日",
+      "beforeAggregation": "集計前",
+      "progressWithGoal": "%{progress}/%{goal}分%{achieved}",
+      "progressOnly": "%{progress}分%{achieved}",
+      "achievedPart": " · 達成",
+      "challengeRowA11y": "%{label}%{progress}",
+      "progressPart": "、自分の進捗 %{progress}",
+      "noChallenges": "進行中のチャレンジがありません",
+      "challengesError": "チャレンジを読み込めませんでした · 再試行",
+      "notice": "お知らせ",
+      "noNotice": "まだお知らせがありません",
+      "announcementsError": "お知らせを読み込めませんでした · 再試行",
+      "memberSummaryA11y": "メンバー %{members}/%{maxMembers}人。%{names}%{overflow}",
+      "overflowPart": " ほか %{count}人",
+      "members": "メンバー",
+      "memberCaption": "一緒に取り組むメンバー",
+      "membersError": "メンバーを読み込めませんでした · 再試行",
+      "inviteA11y": "%{name} にメンバーを招待",
+      "invite": "招待",
+      "startFocus": "このグループで集中",
+      "openRoom": "ルーム全体を見る"
+    },
+    "groupCardDeck": {
+      "findMore": "グループを探す",
+      "pageAnnounce": "%{name}、%{page} / %{total} ページ",
+      "dotA11y": "%{name}、%{page} / %{total} ページへ移動",
+      "counterA11y": "現在 %{current}、全 %{total} ページ"
+    },
+    "groupCardFront": {
+      "private": "非公開",
+      "public": "公開",
+      "gripA11y": "%{name} カードの並び順",
+      "gripHint": "0.3秒長押しして左右にドラッグするか、アクセシビリティ操作で並び順を変えます",
+      "moveForward": "前に移動",
+      "moveBackward": "後ろに移動",
+      "viewSummary": "ルームの概要を見る",
+      "cardA11y": "%{name}%{description}、自分のカードアイコン %{emoji}、%{privacy}、%{owner}%{members}/%{maxMembers}人、現在 %{position}/%{pageCount} ページ",
+      "descriptionPart": "、%{description}",
+      "ownerPart": "グループ管理者、",
+      "cardHint": "ダブルタップするとこのカードのルーム概要を見ます",
+      "owner": "管理者"
+    },
+    "groupInviteSheet": {
+      "blockFull": "定員がいっぱいです",
+      "blockLimit": "参加できるグループ数を超えました",
+      "blockPassword": "パスワードが設定されたグループのため参加できません",
+      "screenTimeHint": "1日のスクリーンタイムを目標以下に保てば達成です",
+      "screenTime": "スクリーンタイム",
+      "focus": "集中",
+      "missionDaily": "1日 %{minutes}分の%{what}",
+      "missionWindow": "毎日 %{start}~%{end}の%{what}",
+      "goneTitle": "なくなったグループです",
+      "goneDesc": "招待リンクの有効期限が切れたか、グループがなくなりました。",
+      "failedTitle": "招待状を開けませんでした",
+      "title": "グループの招待状が届きました",
+      "desc": "一緒に集中するグループです。参加すればすぐに始められます。",
+      "membersLabel": "人数",
+      "membersValue": "%{members}/%{maxMembers}人",
+      "goalLabel": "目標",
+      "join": "参加する"
+    },
+    "groupScreen": {
+      "guideGroupName": "はじめての集中グループ",
+      "guideGroupDescription": "一緒に集中して、お互いに応援します",
+      "guideMemberOwner": "グロミ",
+      "guideMemberOther": "集中くん",
+      "guideNoticeTitle": "今日も一緒に集中しましょう",
+      "guideNoticeContent": "夜8時にもう一度集まります。",
+      "guideFocusTag": "勉強",
+      "inviteFailTitle": "招待リンクを作れませんでした",
+      "refreshFailed": "一覧を更新できませんでした",
+      "loadFailed": "グループを読み込めませんでした"
+    },
+    "inviteShare": {
+      "message": "%{name} グループに招待しました！一緒に集中しましょう ⭐️\n%{url}"
+    },
+    "lastBetResultSheet": {
+      "snapshotMissingA11y": "判定の記録なし",
+      "monthDay": "%{month}月%{day}日",
+      "achievedImage": "目標を達成して喜ぶキャラクター",
+      "failedImage": "目標を逃して残念がるキャラクター",
+      "pendingImage": "結果を待つキャラクター",
+      "refundedBanner": "達成した人がいないため全員に返金されました",
+      "forfeitedBanner": "誰も達成できなかったため参加費が消滅しました",
+      "verdictPending": "未判定",
+      "verdictAchieved": "達成",
+      "verdictFailed": "未達成",
+      "rowA11yPending": "%{head} 未判定",
+      "rowA11yPendingComma": "%{head}、未判定",
+      "verdictPartGain": "%{verdict}、%{coins}コイン",
+      "verdictPartLoss": "%{verdict}、マイナス %{coins}コイン",
+      "rowA11yComma": "%{head}、%{verdictPart}",
+      "rowA11ySpace": "%{head} %{verdictPart}",
+      "title": "前回の賭けの結果",
+      "sub": "%{date} · %{count}人が参加",
+      "stakeLabel": "参加費",
+      "potLabel": "積立金",
+      "moreHistory": "過去の記録をもっと見る"
+    },
+    "lastSettledView": {
+      "shortParticipantsSummary": "参加者が足りず中止",
+      "shortParticipantsCause": "参加者が足りず中止になりました",
+      "challengeDeletedSummary": "チャレンジ削除で無効",
+      "challengeDeletedCause": "チャレンジが削除され無効になりました",
+      "refundDeadlineSummary": "精算が遅れて返金",
+      "refundDeadlineCause": "精算が遅れました",
+      "voidBanner": "%{cause}。参加費はお返ししました"
+    },
+    "memberManageScreen": {
+      "title": "メンバー管理",
+      "kick": "退出させる",
+      "kickA11y": "%{name} を退出させる",
+      "kickConfirm": "%{name}さんを退出させますか？\n退出させたメンバーは再び入れません。",
+      "cannotKickTitle": "退出させられません",
+      "cannotKickSelf": "自分自身は退出させられません。",
+      "kickFailTitle": "退出させられませんでした",
+      "loadFailed": "メンバーを読み込めませんでした",
+      "emptyTitle": "管理するメンバーがいません",
+      "emptyDesc": "退出させられるメンバーがまだいません。"
+    },
+    "memberTile": {
+      "minutes": "%{minutes}分",
+      "hours": "%{hours}時間",
+      "hoursMinutes": "%{hours}時間%{minutes}分",
+      "todayFocus": "今日 %{value}"
+    },
+    "noticeDate": {
+      "yesterday": "昨日",
+      "daysAgo": {
+        "one": "%{count}日前",
+        "other": "%{count}日前"
+      },
+      "monthDay": "%{month}月%{day}日"
+    },
+    "ownerTransferScreen": {
+      "title": "グループ管理者の引き継ぎ",
+      "submit": "引き継ぐ",
+      "guide": "新しいグループ管理者になるメンバーを選んでください。",
+      "totalFocus": "累計 %{duration}",
+      "durationMinutes": {
+        "one": "%{count}分",
+        "other": "%{count}分"
+      },
+      "durationHours": {
+        "one": "%{count}時間",
+        "other": "%{count}時間"
+      },
+      "durationHoursMinutes": "%{hours}時間%{minutes}分",
+      "confirmBody": "%{name}さんにグループ管理者を引き継ぎますか？",
+      "withdrawNote": "\n引き継いだあと、グループから抜けます。",
+      "successToast": "%{name}さんが新しいグループ管理者になりました",
+      "leaveFailTitle": "グループから抜けられませんでした",
+      "leaveFailBody": "グループ管理者は引き継ぎましたが、退出に失敗しました。グループから直接抜けてください。",
+      "groupGoneToast": "すでになくなったか、抜けたグループです",
+      "notOwnerToast": "グループ管理者ではないため引き継げません",
+      "transferFailTitle": "グループ管理者を引き継げませんでした",
+      "loadFailed": "メンバーを読み込めませんでした",
+      "emptyTitle": "引き継ぐメンバーがいません",
+      "emptyDesc": "グループにほかのメンバーがいないと、グループ管理者を引き継げません。"
+    },
+    "pageIndicator": {
+      "selectPage": "ページを選択",
+      "dotA11y": "%{label}、%{page} / %{total}",
+      "findMore": "グループを探す",
+      "nthGroup": "%{n}番目のグループ",
+      "counterA11y": "現在 %{current}、全 %{total} ページ",
+      "counterHint": "上下にスワイプしてページを移動します",
+      "nextPage": "次のページ",
+      "prevPage": "前のページ"
+    },
+    "profileEditScreen": {
+      "title": "グループプロフィール設定",
+      "nameLabel": "グループ名",
+      "descriptionLabel": "紹介",
+      "descriptionPlaceholder": "グループを紹介してください（任意）",
+      "capacityLabel": "定員",
+      "maxMembersLabel": "最大人数",
+      "capacityDecreaseA11y": "定員を減らす",
+      "capacityIncreaseA11y": "定員を増やす",
+      "memberCount": {
+        "one": "%{count}人",
+        "other": "%{count}人"
+      },
+      "capacityHint": {
+        "one": "現在のメンバーは %{count}人 — これより少なくは設定できません",
+        "other": "現在のメンバーは %{count}人 — これより少なくは設定できません"
+      },
+      "visibilityLabel": "公開設定",
+      "privateLabel": "非公開グループ",
+      "privateNote": "非公開のグループは検索に出ません。招待リンクからのみ参加できます",
+      "publicNote": "誰でもグループ名を検索して入れます",
+      "savedToast": "グループ設定を保存しました",
+      "capacityTooSmallTitle": "定員を減らせません",
+      "capacityTooSmallBody": "現在のメンバー数より少なくは設定できません。",
+      "saveFailTitle": "保存できませんでした",
+      "loadFailed": "グループを読み込めませんでした",
+      "ownerOnlyTitle": "グループ管理者だけが利用できます",
+      "ownerOnlyDesc": "グループプロフィールはグループ管理者が管理します。"
+    },
+    "roomScreen": {
+      "groupFallbackName": "自分のグループ",
+      "settingsA11y": "グループ設定",
+      "loadFailed": "グループを読み込めませんでした",
+      "staleBanner": "最新の情報を読み込めませんでした",
+      "inviteFailTitle": "招待リンクを作れませんでした",
+      "refundedTitle": "参加費を返金しました",
+      "refundedBody": "賭けていた参加費をお返ししました。\n残高にはすでに反映されています。",
+      "refundedNotMember": "今はこのグループに所属していないため、ルームを開けません。",
+      "noticeSection": "お知らせ",
+      "seeAll": "すべて見る",
+      "noticeLoadFailed": "お知らせを読み込めませんでした",
+      "noticeRefreshFailed": "お知らせを更新できませんでした",
+      "noticeEmpty": "まだお知らせがありません",
+      "noticeCompose": "お知らせを書く",
+      "challengeSection": "チャレンジ",
+      "challengeCreate": "チャレンジを作る",
+      "challengeLoadFailed": "チャレンジを読み込めませんでした",
+      "challengeRefreshFailed": "チャレンジを更新できませんでした",
+      "challengeEmpty": "まだチャレンジがありません",
+      "challengeHistoryLink": "チャレンジ履歴",
+      "challengeDeleteBlockedTitle": "チャレンジを削除できません",
+      "challengeDeleteBlockedBody": "進行中の賭けがあるため削除できません。",
+      "challengeDeleteFailTitle": "チャレンジを削除できませんでした",
+      "memberSection": "メンバー",
+      "tileInvite": "招待",
+      "tileFull": "定員いっぱい",
+      "betUnavailableTitle": "賭けを開けません",
+      "betUnavailableBody": "今は賭けを利用できません。しばらくしてからもう一度お試しください。",
+      "challengeEndedTitle": "終了したチャレンジです",
+      "betCreateEndedBody": "終了したチャレンジには賭けを開けません。",
+      "betJoinEndedBody": "終了したチャレンジの賭けには参加できません。",
+      "betAlreadyOpenTodayTitle": "今日の賭けはすでに開いています",
+      "betAlreadyOpenTomorrowTitle": "明日の賭けはすでに開いています",
+      "betAlreadyOpenBody": "最新の状態です。参加するにはもう一度開いてください。",
+      "betChangedTitle": "賭けが変わりました",
+      "betChangedBody": "最新の賭けでもう一度開いてください。",
+      "betClosedTitle": "締め切られた賭けです",
+      "betClosedBody": "すでに締め切られたため参加できません。",
+      "betAlreadyJoinedTitle": "すでに参加した賭けです",
+      "betAlreadyJoinedBody": "最新の状態に更新しました。"
+    },
+    "weekdayFull": {
+      "mon": "月曜日",
+      "tue": "火曜日",
+      "wed": "水曜日",
+      "thu": "木曜日",
+      "fri": "金曜日",
+      "sat": "土曜日",
+      "sun": "日曜日"
+    },
+    "findMoreCard": {
+      "a11y": "グループを探す、現在 %{position}/%{pageCount} ページ",
+      "title": "グループを探す",
+      "desc": "一緒に勉強するグループをもっと探してみましょう"
+    },
+    "groupCardEmojiPicker": {
+      "title": "マイカードアイコン",
+      "hint": "この端末で自分だけに表示されます。矢印キーで選択を移動できます。",
+      "optionA11y": "カードアイコン %{label}",
+      "nextIcon": "次のアイコン",
+      "prevIcon": "前のアイコン",
+      "notice": "この端末で自分だけに表示されます"
+    },
+    "progressFormat": {
+      "fraction": "%{progress}/%{goal}分",
+      "progressOnly": "%{progress}分",
+      "unmeasuredA11y": "%{nickname} まだ集計されていません",
+      "fractionA11y": "%{nickname} %{goal}分のうち%{progress}分",
+      "progressOnlyA11y": "%{nickname} %{progress}分",
+      "windowFocusToleranceNotice": "目標に5分足りなくても達成として認められます"
+    },
+    "noticeComposeSheet": {
+      "errorNoticeGone": "すでに削除されたお知らせです。",
+      "errorGroupGone": "なくなったグループです。",
+      "errorForbidden": "お知らせを作成する権限がありません。",
+      "errorMemberOnly": "グループメンバーのみ利用できます。",
+      "saveFailEdit": "お知らせの修正に失敗しました。しばらくしてからもう一度お試しください。",
+      "saveFailCreate": "お知らせの登録に失敗しました。しばらくしてからもう一度お試しください。",
+      "titleEdit": "お知らせを修正",
+      "titleCreate": "お知らせを書く",
+      "sub": "グループメンバー全員に表示されます。",
+      "titleField": "タイトル",
+      "titlePlaceholder": "お知らせのタイトル",
+      "contentField": "内容",
+      "contentPlaceholder": "お知らせの内容を書いてください",
+      "submitEdit": "修正する",
+      "submitCreate": "登録する"
+    },
+    "groupRoomBottomBar": {
+      "tabHome": "ホーム",
+      "tabLeague": "リーグ",
+      "tabGroup": "グループ",
+      "tabAll": "全体"
+    },
+    "common": {
+      "dismiss": "やめる",
+      "insufficientCoins": "コインが足りません"
+    },
+    "betError": {
+      "cannotJoinTitle": "参加できません",
+      "screenTimeBody": "スクリーンタイムの権限を許可すると参加できます。",
+      "closedBody": "参加できる時間が過ぎました。更新します。",
+      "challengeGoneTitle": "なくなったチャレンジです",
+      "challengeGoneBody": "グループ管理者がチャレンジを削除した可能性があります。",
+      "memberOnlyTitle": "グループメンバーのみ利用できます",
+      "memberOnlyBody": "グループを抜けたか、メンバーではなくなりました。",
+      "guestTitle": "ログインすると参加できます",
+      "guestBody": "ゲストはコインを使えません。",
+      "joinFailed": "参加できませんでした。しばらくしてからもう一度お試しください。"
+    },
+    "joinNextSheet": {
+      "dateChangedTitle": "日付が変わりました",
+      "dateChangedBody": "深夜0時を過ぎて、予約する日付が変わった可能性があります。最新の状態で開き直してください。",
+      "reservedDateChangedTitle": "予約された日付が変わりました",
+      "reservedDateChangedBody": "%{day}に予約されました。希望しない場合は、その日が始まる前に参加を取り消せます。",
+      "joinDay": "%{day}に参加する",
+      "subWithStart": "%{label} · %{start}開始",
+      "note": "参加すると参加費%{stake}コインがすぐに引かれます。%{day}が始まる前までなら、参加を取り消して全額返してもらえます。",
+      "noteWithStart": "参加すると参加費%{stake}コインがすぐに引かれます。%{day} %{start}が始まる前までなら、参加を取り消して全額返してもらえます。",
+      "insufficientCta": "コインが足りません（あと%{shortage}必要）"
+    },
+    "joinWeekSheet": {
+      "title": "今週の残りの日",
+      "datesChangedTitle": "参加できる日が変わりました",
+      "datesChangedBody": "最新の状態に更新します。",
+      "dayA11y": "%{day} 参加費%{stake}コイン",
+      "totalUniform": "%{days}日 × %{stake}コイン = 合計%{total}コイン",
+      "totalMixed": "%{days}日 · 合計%{total}コイン",
+      "totalLabel": "合計",
+      "note": "参加すると%{total}コインが今すべて引かれます。取り消しは1日ずつ別々にできます — まだ始まっていない日は、始まる前まで全額返してもらえます。",
+      "shortagePartial": "コインが%{shortage}足りません。%{count}日（%{total}コイン）だけ参加できます",
+      "shortageNone": "コインが%{shortage}足りません。参加できる日がありません",
+      "submitAll": "%{days}日すべて参加",
+      "submitPartial": "%{count}日だけ参加（%{total}コイン）"
+    },
+    "groupFindSheet": {
+      "loginTitle": "ログインが必要です",
+      "loginBody": "ログインするとグループに参加できます。",
+      "loginLater": "あとで",
+      "loginGo": "ログインする",
+      "joinInProgress": "参加を処理しています。しばらくしてからもう一度お試しください。",
+      "joinFull": "定員がいっぱいです。ほかのグループを探してみてください。",
+      "joinGone": "なくなったグループです。グループ管理者がグループを削除した可能性があります。",
+      "confirmTitle": "グループに参加",
+      "confirmBody": "%{name}に参加しますか？",
+      "searching": "検索中…",
+      "loading": "読み込み中…",
+      "searchError": "検索できませんでした",
+      "loadError": "読み込めませんでした",
+      "noMatch": "その名前の公開グループはありません",
+      "noneYet": "まだ公開されているグループがありません",
+      "title": "グループを探す",
+      "sub": "名前で公開グループを探して、すぐに参加できます。",
+      "searchPlaceholder": "グループ名で検索",
+      "joinedTag": "参加中",
+      "fullTag": "定員いっぱい"
+    },
+    "challengeResultModal": {
+      "achievedImage": "目標を達成して喜んでいるキャラクター",
+      "achievedTitle": "目標を達成しました！",
+      "failedImage": "目標を逃して残念がっているキャラクター",
+      "failedTitle": "惜しくも届きませんでした",
+      "pendingImage": "判定が確定していないキャラクター",
+      "pendingTitle": "結果を判定できませんでした",
+      "forfeitedImage": "誰も達成できずに残念がっているキャラクター",
+      "forfeitedTitle": "誰も達成できませんでした",
+      "voidedImage": "賭けが取りやめになって平然としているキャラクター",
+      "voidedTitle": "賭けが取りやめになりました",
+      "refundedImage": "参加費を返してもらったキャラクター",
+      "refundedTitle": "参加費を返金しました",
+      "monthDay": "%{month}月%{day}日",
+      "forfeitedNotice": "誰も達成できなかったため、積立金%{pot}コインは消えました",
+      "voidedShortNotice": "参加者が足りず取りやめになりました · 参加費は返金しました",
+      "voidedNotice": "賭けが取りやめになったため、参加費を返金しました",
+      "refundedNotice": "精算が遅れたため、参加費を返金しました",
+      "mySettlement": "自分の精算 %{delta}コイン",
+      "rowA11yGain": "%{head}、%{coins}コイン",
+      "rowA11yLoss": "%{head}、マイナス%{coins}コイン",
+      "dateResult": "%{date}の結果",
+      "sectionAchieved": "達成",
+      "sectionFailed": "未達成",
+      "sectionPending": "未判定"
+    },
+    "challengeComposeSheet": {
+      "hourItem": "%{hour}時",
+      "minuteItem": "%{minute}分",
+      "categoryFocus": "集中時間",
+      "categoryScreenTime": "スクリーンタイム",
+      "durationLabelFocus": "1日の目標集中時間",
+      "durationLabelScreenTime": "1日の目標スクリーンタイム",
+      "durationLabelWindow": "時間帯内の目標時間",
+      "typeDuration": "1日の累計",
+      "typeWindow": "時間帯",
+      "repeatDaysRequired": "いつ行うチャレンジか選んでください",
+      "categoryCaptionFocus": "行う日ごとに目標時間以上集中すれば達成です",
+      "categoryCaptionScreenTime": "行う日のスクリーンタイムを目標以下に保てば達成です。権限を許可したメンバーだけが参加します",
+      "windowFocusCaption": "行う日ごとに、決めた時間帯の中で目標時間以上集中すれば達成です。%{notice}",
+      "windowScreenTimeCaption": "行う日ごとに、決めた時間帯の中でスクリーンタイムを目標以下に保てば達成です。権限を許可したメンバーだけが参加します。使用時間は15分単位で集計されるため誤差が出ることがあります。アプリのバージョンや端末の状態によって、集計が遅れたり漏れたりすることがあります",
+      "windowPassedNote": "今日の時間帯が過ぎたため、次に行う日から適用されます",
+      "windowMidnightCaption": "時間帯は1日の中で終わる必要があります。深夜0時以降は翌日のチャレンジとして作ってください",
+      "createdWithNonParticipants": "チャレンジを作成しました — スクリーンタイムの権限がないメンバーは外れます",
+      "takenCaption": "すでにある種類・方式は、既存のチャレンジを削除しないと作り直せません",
+      "allTakenCaption": "すべての種類のチャレンジがすでにあります",
+      "takenHint": "すでに作った組み合わせです",
+      "chipOverWindowHint": "時間帯より長いです",
+      "submittingCaption": "処理中です…",
+      "betNote": "1〜3,000コインの間で決めます。行う日ごとに各自が参加を決め、2人以上集まると賭けが成立します。賭けは作成後にオフにできません — 外すにはチャレンジを削除して作り直してください",
+      "stakeRangeCaption": "参加費は1〜3,000コインの間で決めてください",
+      "hours": "%{hours}時間",
+      "hoursMinutes": "%{hours}時間%{minutes}分",
+      "minutes": "%{minutes}分",
+      "minutesWithHours": "%{minutes}分（%{hours}）",
+      "durationRangeCaption": "目標時間は1〜%{max}の間で入力してください",
+      "durationOverWindowCaption": "時間帯より長いです。%{max}以下で入力してください",
+      "goalStepCaption": "使用時間は15分単位で集計されます。15・30・45分のように選んでください",
+      "goalToleranceCaption": "目標時間は5分より長くしてください。%{notice}",
+      "errorGroupGone": "なくなったグループです。",
+      "errorMemberOnly": "グループメンバーのみ利用できます。",
+      "errorDuplicate": "すでに同じ種類のチャレンジがあります。既存のチャレンジを削除してから作ってください。",
+      "errorWindowOverlap": "曜日が重なる別の時間帯チャレンジと時間が重なっているか、間隔が15分より狭くなっています。重ならない曜日を選ぶか、時間帯を15分以上空けてください。",
+      "errorRepeatDaysRequired": "行う曜日を1つ以上選んでください。",
+      "errorLimitExceeded": "チャレンジは4つまで作成できます。1つを終了してからもう一度お試しください。",
+      "errorCreateFailed": "チャレンジを作成できませんでした。しばらくしてからもう一度お試しください。",
+      "durationHoursCaption": "%{minutes}分 · %{hours}",
+      "durationPlaceholder": "直接入力",
+      "durationPlaceholderRange": "直接入力（1〜%{max}分）",
+      "durationPlaceholderStep": "直接入力（15分単位、最大%{max}分）",
+      "durationPlaceholderMax": "直接入力（最大%{max}分）",
+      "title": "チャレンジを作る",
+      "sub": "グループみんなで守る目標です。",
+      "categoryLabel": "チャレンジの種類",
+      "typeLabel": "チャレンジの方式",
+      "repeatDaysLabel": "行う曜日",
+      "windowLabel": "時間帯の設定（韓国時間）",
+      "durationInputA11y": "目標時間を直接入力",
+      "unitMinute": "分",
+      "unitCoin": "コイン",
+      "stakeLabel": "参加費（コイン）",
+      "stakeLabelSub": "· 設定しなければ賭けなし",
+      "stakePlaceholder": "直接入力（1〜%{max}コイン）",
+      "stakeInputA11y": "参加費を直接入力",
+      "submit": "作成"
+    },
+    "betSheet": {
+      "stakeRangeCaption": "参加費は1〜3,000コインの間で入力してください",
+      "tomorrowNote": "今日の時間帯が終わったため、明日の時間帯から適用されます",
+      "tomorrowToast": "今日の時間帯が終わったため、明日の賭けとして開きました",
+      "createNote": "今日の目標を達成した人たちで積立金を分け合います。誰も達成できなければ参加費は消えます。",
+      "joinNote": "参加すると参加費がすぐに引かれます。今日の目標を達成すると積立金を分け合えます。誰も達成できなければ参加費は消えます。",
+      "screenTimeNote": "スクリーンタイムは15分単位で集計されるため誤差が出ることがあります。集計が遅れたり漏れたりすると、未達成と判定されることがあります。",
+      "balanceFailed": "残高を読み込めませんでした",
+      "achievedJoinBlocked": "すでに今日の目標を達成しているため参加できません",
+      "achievedCreateBlocked": "すでに今日の目標を達成しているため賭けを開けません",
+      "failedJoinBlocked": "すでに目標を超えているため参加できません",
+      "failedCreateBlocked": "すでに目標を超えているため賭けを開けません",
+      "submittingCaption": "処理中です…",
+      "shortageCta": "コインが足りません（あと%{shortage}必要）",
+      "headstartNote": "先に始めた人が有利です。今から参加すると、残り時間の中で%{minutes}分を達成する必要があります。",
+      "alreadyExistsTomorrowTitle": "すでに明日の賭けが開いています",
+      "alreadyExistsTodayTitle": "すでに今日の賭けが開いています",
+      "alreadyExistsTomorrowBody": "すでに明日の賭けがあります。更新して最新の状態を確認してください。",
+      "alreadyExistsTodayBody": "すでに今日の賭けがあります。更新して最新の状態を確認してください。",
+      "cannotJoinTitle": "参加できません",
+      "cannotCreateTitle": "賭けを開けません",
+      "closedCreateWindowTitle": "賭けを開ける時間が過ぎました",
+      "closedCreateTodayTitle": "今日の賭けだけ開けます",
+      "closedJoinTitle": "締め切られた賭けです",
+      "closedCreateWindowBody": "今日の時間帯が終わったため賭けを開けません。明日また開けます。",
+      "closedCreateTodayBody": "日付が変わりました。更新してからもう一度お試しください。",
+      "closedJoinBody": "すでに締め切られているため参加できません。",
+      "challengeInactiveTitle": "終了したチャレンジです",
+      "challengeInactiveCreateBody": "終了したチャレンジには賭けを開けません。",
+      "challengeInactiveJoinBody": "終了したチャレンジの賭けには参加できません。",
+      "betGoneTitle": "なくなった賭けです",
+      "betGoneBody": "すでになくなった賭けです。最新の状態に更新します。",
+      "sessionClosedTitle": "締め切られました",
+      "notOpenTitle": "すでに終わった日です",
+      "notOpenBody": "結果が出ているか、閉じた日のため参加できません。",
+      "focusOnlyTitle": "まだ賭けられないチャレンジです",
+      "focusOnlyBody": "今は1日の目標集中チャレンジにだけ賭けられます。サーバーの更新後に開放されます。",
+      "createFailed": "賭けを開けませんでした。しばらくしてからもう一度お試しください。",
+      "joinFailed": "参加できませんでした。しばらくしてからもう一度お試しください。",
+      "titleCreate": "賭けを開く",
+      "titleJoin": "賭けに参加",
+      "subWithRemaining": "%{label} · 今日の残り時間 %{remaining}",
+      "myCoins": "自分のコイン",
+      "stakeLabel": "参加費",
+      "stakeChipA11y": "参加費%{stake}コイン",
+      "stakeInputA11y": "参加費を直接入力",
+      "unitCoin": "コイン",
+      "potLabel": "現在の積立金",
+      "dayParticipantsLabel": "今参加している人",
+      "achievedA11y": "%{nickname} 達成",
+      "achievedMark": "達成 ✓",
+      "timeShort": "残り%{remaining}で%{goal}分を達成するのは難しいです",
+      "participantsLabel": "参加者%{count}人",
+      "submitCreate": "賭けを開く",
+      "submitJoin": "参加する",
+      "later": "またあとで",
+      "guestTitle": "ログインすると賭けに参加できます",
+      "goLogin": "ログインへ"
+    },
+    "cardEmojiEditScreen": {
+      "title": "マイカードアイコン",
+      "loadFailed": "マイカードアイコンを読み込めませんでした。",
+      "previewLabel": "自分のグループカード",
+      "saveFailed": "マイカードアイコンを保存できませんでした。アプリを開き直すと以前のアイコンに戻ることがあります。"
+    },
+    "challengeSchedule": {
+      "monthDayDow": "%{month}/%{day}（%{dow}）",
+      "tomorrow": "明日",
+      "durationMinutes": {
+        "one": "%{count}分",
+        "other": "%{count}分"
+      },
+      "durationHours": {
+        "one": "%{count}時間",
+        "other": "%{count}時間"
+      },
+      "durationHoursMinutes": "%{hours}時間%{minutes}分"
+    },
+    "createScreen": {
+      "title": "グループを作る",
+      "nameLabel": "グループ名",
+      "namePlaceholder": "例）朝6時の集中ルーム",
+      "nameInvalid": "グループ名をもう一度確認してください",
+      "descriptionLabel": "紹介",
+      "descriptionPlaceholder": "例）毎朝一緒に集中するグループです（任意）",
+      "capacityLabel": "定員",
+      "maxMembersLabel": "最大人数",
+      "capacityDecreaseA11y": "定員を減らす",
+      "capacityIncreaseA11y": "定員を増やす",
+      "memberCount": {
+        "one": "%{count}人",
+        "other": "%{count}人"
+      },
+      "visibilityLabel": "公開設定",
+      "public": "公開",
+      "private": "非公開",
+      "visibilityPublicCaption": "誰でもグループ名を検索して入れます",
+      "visibilityPrivateCaption": "検索には表示されません。招待リンクを受け取った人だけが入れます",
+      "cardEmojiLabel": "マイカードアイコン",
+      "emojiSaveFailed": "マイカードアイコンを保存できませんでした。アプリを開き直すと以前のアイコンに戻ることがあります。",
+      "backToGroup": "グループに戻る",
+      "submit": "作成",
+      "limitTitle": "これ以上は作れません",
+      "limitBody": {
+        "one": "参加できるグループ数を超えました（最大%{count}個）",
+        "other": "参加できるグループ数を超えました（最大%{count}個）"
+      },
+      "createFailTitle": "グループを作成できませんでした",
+      "inviteFailTitle": "招待リンクを作成できませんでした",
+      "shareFailTitle": "共有できませんでした",
+      "shareFailBody": "リンクをコピーして共有してください。",
+      "privateCreatedTitle": "非公開グループを作成しました 🎉",
+      "privateCreatedBody": "検索には表示されません。\n招待リンクを共有してください。",
+      "copyLink": "リンクをコピー",
+      "copied": "コピーしました",
+      "share": "共有する"
+    },
+    "groupCardEmojiStore": {
+      "sunrise": "日の出",
+      "book": "本",
+      "laptop": "ノートパソコン",
+      "bolt": "雷",
+      "meditation": "瞑想",
+      "palette": "パレット",
+      "running": "ランニング",
+      "writing": "書く",
+      "brain": "脳",
+      "target": "目標",
+      "leaf": "葉",
+      "flame": "炎"
+    },
+    "groupDeckGuide": {
+      "emptyIntro": "まだ参加したグループがないので、案内用のカードを少しお見せします。",
+      "emptySample": "グループに参加すると、自分のグループがこのようなカードで表示されます。グループが増えたら横にスワイプして見られます。",
+      "emptyTap": "実際のカードをタップすると、この場所で今日のグループの状況が開きます。",
+      "emptyBack": "裏面では集中中のメンバー・チャレンジ・お知らせを見て、すぐに集中したりグループ全体を開いたりできます。",
+      "intro": "自分のグループがカードで集まりました。一緒に見てみましょう！",
+      "swipeMulti": "横にスワイプすると、ほかのグループを見られます。",
+      "swipeSingle": "このカードが自分のグループです。グループが増えたら横にスワイプできます。",
+      "tap": "カードをタップすると、この場所で今日のグループの状況が開きます。",
+      "back": "集中中のメンバー・チャレンジ・お知らせを見て、すぐに集中したりグループ全体を開いたりできます。"
+    },
+    "listScreen": {
+      "title": "マイグループ",
+      "findGroup": "グループを探す",
+      "createGroup": "グループを作る",
+      "groupFallbackName": "グループ",
+      "guideTitle": "グループカードの案内",
+      "orderSaveFailed": "並び順を保存できませんでした。次の変更のときに再試行します。アプリを開き直すと以前の並び順に戻ることがあります。",
+      "flipFrontA11y": "%{name}カードの表面です",
+      "flipBackA11y": "%{name}カードの裏面です",
+      "pageA11y": "%{name}、%{page} / %{pageCount} ページ",
+      "reorderedA11y": "%{name}カードを%{position}番目に移動しました"
+    },
+    "noticePermissionScreen": {
+      "title": "お知らせ権限",
+      "guide": "許可したメンバーはお知らせの作成・修正・削除ができます。グループ管理者は常に許可されています。",
+      "ownerTag": "グループ管理者 · 常に許可",
+      "loadFailed": "権限を読み込めませんでした",
+      "saveFailTitle": "保存に失敗しました"
+    },
+    "noticeScreen": {
+      "title": "お知らせ",
+      "monthDay": "%{month}月%{day}日",
+      "emptyTitle": "登録されたお知らせがありません",
+      "emptyDesc": "+ ボタンで最初のお知らせを残してみましょう",
+      "composeA11y": "お知らせを書く",
+      "edit": "修正",
+      "cardMenuMessage": "このお知らせをどうしますか？",
+      "deleteTitle": "お知らせを削除",
+      "deleteConfirm": "お知らせ「%{title}」を削除しますか？",
+      "deleteFailTitle": "削除に失敗しました",
+      "editGoneToast": "すでに削除されたお知らせのため修正できません",
+      "errorGroupGone": "なくなったグループです。",
+      "errorMemberOnlyList": "グループメンバーのみお知らせを見られます。",
+      "errorLoadFailed": "お知らせを読み込めませんでした。",
+      "errorAlreadyDeleted": "すでに削除されたお知らせです。",
+      "errorNoticeForbidden": "お知らせを管理する権限がありません。",
+      "errorMemberOnly": "グループメンバーのみ利用できます。",
+      "errorDeleteFailed": "お知らせの削除に失敗しました。しばらくしてからもう一度お試しください。"
+    },
+    "settingsScreen": {
+      "title": "グループ設定",
+      "mySection": "自分の設定",
+      "manageSection": "グループ管理",
+      "cardEmojiRow": "マイカードアイコン",
+      "cardEmojiHelper": "%{emoji} %{label} · この端末で自分だけに表示されます",
+      "cardEmojiHelperLoading": "現在のアイコンを読み込み中…",
+      "cardEmojiHelperFailed": "現在のアイコンを読み込めませんでした",
+      "cardEmojiA11y": "マイカードアイコン、現在%{label}、この端末で自分だけに表示されます",
+      "cardEmojiA11yLoading": "マイカードアイコン、現在のアイコンを読み込み中",
+      "cardEmojiA11yFailed": "マイカードアイコン、現在のアイコンを読み込めませんでした",
+      "profileRow": "グループプロフィールを設定する",
+      "transferRow": "グループ管理者を譲る",
+      "membersRow": "メンバー管理",
+      "noticePermissionRow": "お知らせ権限",
+      "leaveTitle": "グループを抜ける",
+      "leaveConfirm": "%{name}から抜けますか？",
+      "leavePrimary": "抜ける",
+      "leaveFailedTitle": "グループを抜けられませんでした",
+      "hostBlockedTitle": "グループ管理者はすぐに抜けられません",
+      "hostBlockedBody": "グループを引き継ぐメンバーに管理者を譲ると抜けられます。",
+      "hostBlockedPrimary": "管理者を譲って抜ける",
+      "loadFailed": "グループを読み込めませんでした"
+    }
+  },
+  "league": {
+    "friend": {
+      "request": "友だち申請",
+      "requested": "申請済み",
+      "friendMark": "友だち ✓"
+    },
+    "pin": {
+      "changeFailTitle": "ピンの変更に失敗しました"
+    },
+    "home": {
+      "tabLeague": "リーグ",
+      "tabFriend": "友だち",
+      "allLeague": "すべてのリーグ",
+      "leagueTitle": "%{name}リーグ",
+      "myExam": "自分の試験",
+      "sectionRanking": "ランキング",
+      "sectionPinned": "ピン留めした人",
+      "pinnedOnly": "ピン留めのみ",
+      "rankingLoadFailed": "ランキングを読み込めませんでした",
+      "emptyLeague": "このリーグにはまだ誰もいません",
+      "emptyPinned": "ランキングでピンを押すと、ここに集まります",
+      "myTier": "自分のティア · %{name}",
+      "outOfRankAll": "まだランク圏外です — ピン留めするとまとめて見られます",
+      "outOfRankExam": "まだランク圏外です — ピン留めするとすべてのリーグでまとめて見られます",
+      "addFriendTitle": "友だちを検索・追加",
+      "receivedRequests": {
+        "one": "受け取った申請 %{count}件",
+        "other": "受け取った申請 %{count}件"
+      },
+      "friendsLoadFailed": "友だちリストを読み込めませんでした",
+      "myFriendsPrefix": "友だち",
+      "myFriendsSuffix": "人",
+      "emptyFriends": "まだ友だちがいません。検索して追加してみましょう！",
+      "guide1": "リーグへようこそ！\n同じ試験を準備している人たちと、1週間の集中時間で競う場所です。",
+      "guide2": "今参加しているリーグと、締め切りまでの残り時間がここに表示されます。\nタイトルを押すと、すべてのリーグも見られます。",
+      "guide3": "1週間が終わると、順位によってティアが上がったり下がったりします！\nランキングの下にある「自分のティア」を押すと、ティアの段階を詳しく見られます。",
+      "guide4": "友だちタブでは、友だちを追加してお互いの集中時間を見られます。\n一緒に勉強する友だちを招待してみましょう！",
+      "guide5": "順位は今週の集中時間で決まります。\n今すぐ集中を始めて、順位を上げてみましょう！"
+    },
+    "rankRow": {
+      "focusing": "集中中",
+      "focusingTag": "%{tag}に集中中"
+    },
+    "deadline": {
+      "withDays": "締め切りまで%{days}日 %{time}",
+      "short": "締め切りまで%{time}"
+    },
+    "friendAdd": {
+      "title": "友だちを追加",
+      "searchPlaceholder": "ニックネームで検索",
+      "searchResults": "検索結果",
+      "searching": "検索中…",
+      "noResults": "検索結果がありません",
+      "receivedTitle": "受け取った申請",
+      "noReceived": "受け取った申請はありません",
+      "notice": "ニックネームを正確に入力すると、より早く見つけられます。",
+      "requestFailTitle": "友だち申請に失敗しました",
+      "acceptFailTitle": "承認に失敗しました",
+      "rejectFailTitle": "拒否に失敗しました"
+    },
+    "friendProfile": {
+      "title": "プロフィール",
+      "titleMe": "自分のプロフィール",
+      "friendCount": {
+        "one": "友だち %{count}",
+        "other": "友だち %{count}"
+      },
+      "rankLabel": "ランキング %{rank}位",
+      "todayFocus": "今日の集中",
+      "private": "非公開",
+      "streak": "連続",
+      "streakDays": {
+        "one": "%{count}日",
+        "other": "%{count}日"
+      },
+      "exam": "準備中の試験",
+      "focusChartTitle": "今週の曜日別の集中時間",
+      "phoneChartTitle": "今週の曜日別のスマホ使用時間",
+      "phoneNoRecord": "%{name}さんのスマホ使用記録はまだありません。計測がたまると、ここで比較できます。",
+      "dayCompareUnavailable": "曜日別の集中・スマホ使用の比較を今は読み込めませんでした。",
+      "statsUnavailable": "統計を今は読み込めませんでした。しばらくしてからもう一度お越しください。",
+      "lockTitle": "友だちだけが見られます",
+      "lockSub": "友だちになると、曜日別の集中・スマホ使用と、\n科目別の比較を見られます。",
+      "subjectTeaserSolo": "科目別の勉強量を準備しています",
+      "subjectTeaserCompare": "同じ科目の勉強量の比較を準備しています",
+      "untagged": "未分類",
+      "unfriend": "友だちを解除",
+      "unfriendConfirm": "%{name}さんとの友だちを解除しますか？",
+      "unfriendAction": "解除",
+      "unfriendFailTitle": "友だちの解除に失敗しました"
+    },
+    "tierGuide": {
+      "title": "ティアの段階",
+      "heroThisWeek": "今週 %{time}",
+      "heroNext": " · 次の段階まで %{time}",
+      "heroMax": " · 最高段階です",
+      "current": "現在",
+      "levelN": "%{level}段階",
+      "settlePrefix": "毎週",
+      "settleStrong": "月曜日9時",
+      "settleSuffix": "に精算 · 基準を満たすと自動で昇級、届かないと1段階降級します。",
+      "guide1": "今の自分のティアです！\n今週の集中時間と、次の段階までの残り時間を表示します。",
+      "guide2": "ティアは週間の集中時間に応じて5段階に分かれます。\n長く集中するほど、高い段階に上がります！",
+      "guide3": "毎週月曜日9時に精算されます。基準を満たせば昇級、届かなければ降級です。\n続けることが一番大切です！"
+    },
+    "result": {
+      "promoteTitle": "昇級しました！",
+      "promoteCta": "新しいリーグを見る",
+      "maintainTitle": "順位を守りました",
+      "maintainCta": "このまま続ける",
+      "demoteTitle": "1段階下がりました",
+      "demoteCta": "今週もう一度始める",
+      "maxTier": "すでに最高ティアです！",
+      "goalHintPrefix": "先週より",
+      "goalHintHours": {
+        "one": "%{count}時間",
+        "other": "%{count}時間"
+      },
+      "goalHintDemoteSuffix": "多く集中すれば、元のティアに戻れます！",
+      "goalHintPromoteSuffix": "多く集中すれば、次のティアに上がれます！"
+    },
+    "duoDayChart": {
+      "soloSub": "自分の記録",
+      "compareSub": "自分と比較"
+    },
+    "subjectCompare": {
+      "titleSolo": "科目別の勉強量",
+      "titleCompare": "科目別の勉強量の比較",
+      "periodMonth": "今月",
+      "emptySolo": "この期間には勉強の記録がありません。別の期間を選んでみてください。",
+      "emptyCompare": "この期間に重なる勉強科目がありません。別の期間を選んでみてください。",
+      "barTheirs": "相手"
+    }
+  },
+  "common": {
+    "cancel": "キャンセル",
+    "confirm": "OK",
+    "close": "閉じる",
+    "retry": "再試行",
+    "retryPlease": "もう一度お試しください。",
+    "retryLater": "しばらくしてからもう一度お試しください。",
+    "save": "保存",
+    "saving": "保存中…",
+    "delete": "削除",
+    "next": "次へ",
+    "back": "戻る",
+    "start": "開始",
+    "today": "今日",
+    "thisWeek": "今週",
+    "all": "すべて",
+    "me": "自分",
+    "noRecords": "まだ記録がありません",
+    "weekday": {
+      "sun": "日",
+      "mon": "月",
+      "tue": "火",
+      "wed": "水",
+      "thu": "木",
+      "fri": "金",
+      "sat": "土"
+    }
+  },
+  "shared": {
+    "currency": {
+      "label": "タイムシャード"
+    },
+    "tiers": {
+      "tier1": {
+        "name": "ひよっこ",
+        "range": "週間集中 0–14時間"
+      },
+      "tier2": {
+        "name": "ウォームアップモード",
+        "range": "週間集中 14–28時間"
+      },
+      "tier3": {
+        "name": "超集中モード",
+        "range": "週間集中 28–42時間"
+      },
+      "tier4": {
+        "name": "ガチ勢",
+        "range": "週間集中 42–56時間"
+      },
+      "tier5": {
+        "name": "集中の覇者",
+        "range": "週間集中 56–70時間"
+      }
+    },
+    "inquiryContacts": {
+      "categoryFocus": "集中・スクリーンタイム",
+      "categoryGroup": "グループ・チャレンジ",
+      "categoryEtc": "アカウント・その他",
+      "keywordsFocus": "速い・ちょっと速い・すごく速い",
+      "keywordsGroup": "超美人・親切・いつでも待機",
+      "keywordsEtc": "親切・笑顔・大歓迎"
+    },
+    "focusCategories": {
+      "groupProfessional": "専門資格",
+      "groupCivilService": "公務員・国家試験",
+      "groupStudent": "学生",
+      "groupCareerLanguage": "就活・語学",
+      "groupOther": "その他",
+      "subject": {
+        "laborLaw": "労働法",
+        "civilLaw": "民法",
+        "socialInsuranceLaw": "社会保険法",
+        "businessAdministration": "経営学",
+        "patentLaw": "特許法",
+        "trademarkLaw": "商標法",
+        "naturalScience": "自然科学概論",
+        "taxLaw": "税法",
+        "accounting": "会計学",
+        "publicFinance": "財政学",
+        "commercialLaw": "商法",
+        "economics": "経済学",
+        "appraisalTheory": "鑑定評価理論",
+        "realEstateStudies": "不動産学原論",
+        "korean": "国語",
+        "english": "英語",
+        "koreanHistory": "韓国史",
+        "administrativeLaw": "行政法",
+        "publicAdministration": "行政学",
+        "criminalLaw": "刑事法",
+        "constitutionalLaw": "憲法",
+        "math": "数学",
+        "science": "理科",
+        "socialStudies": "社会",
+        "electiveSubjects": "選択科目",
+        "major": "専攻",
+        "generalEducation": "教養",
+        "coverLetter": "エントリーシート",
+        "aptitudeTest": "適性検査",
+        "interview": "面接",
+        "listening": "リスニング",
+        "reading": "リーディング",
+        "speaking": "スピーキング",
+        "algorithms": "アルゴリズム",
+        "csFundamentals": "CS基礎知識",
+        "project": "プロジェクト"
+      }
+    }
+  },
+  "components": {
+    "durationDrumPicker": {
+      "hour": {
+        "one": "%{count}時間",
+        "other": "%{count}時間"
+      },
+      "minute": {
+        "one": "%{count}分",
+        "other": "%{count}分"
+      }
+    },
+    "goalCelebrationModal": {
+      "durationHourMinute": "%{hours}時間%{minutes}分",
+      "durationHour": {
+        "one": "%{count}時間",
+        "other": "%{count}時間"
+      },
+      "durationMinute": {
+        "one": "%{count}分",
+        "other": "%{count}分"
+      },
+      "streakPrefix": "連続目標達成 ",
+      "streakDays": {
+        "one": "%{count}日",
+        "other": "%{count}日"
+      },
+      "title": "今日の目標を達成しました！",
+      "titleWithGoal": "%{goal}の集中目標を達成しました！",
+      "sub": "明日も頑張って目標を達成しましょう！",
+      "rewardPrefix": "+%{amount} ",
+      "rewardSuffix": "を獲得！",
+      "rewardA11y": "%{currency}を%{amount}獲得しました！",
+      "cta": "いいね！"
+    },
+    "screenTimeAnalyzingOverlay": {
+      "message": "グロモがあなたの\nスクリーンタイムを分析しています！"
+    },
+    "screenTimeCelebrationModal": {
+      "durationHourMinute": "%{hours}時間%{minutes}分",
+      "durationHour": {
+        "one": "%{count}時間",
+        "other": "%{count}時間"
+      },
+      "durationMinute": {
+        "one": "%{count}分",
+        "other": "%{count}分"
+      },
+      "streakPrefix": "連続目標達成 ",
+      "streakDays": {
+        "one": "%{count}日",
+        "other": "%{count}日"
+      },
+      "title": "昨日のスマホ利用時間の目標を達成しましたね！",
+      "goalLine": "目標の範囲内に収められました。",
+      "goalLineWithGoal": "%{goal}以内に収められました。",
+      "sub": "%{goalLine}\n今日も頑張りましょう！",
+      "rewardPrefix": "+%{amount} ",
+      "rewardSuffix": "を獲得！",
+      "rewardA11y": "%{currency}を%{amount}獲得しました！",
+      "cta": "いいね！"
+    },
+    "sheetShell": {
+      "dragToClose": "下にドラッグして閉じる"
+    },
+    "subjectProgressList": {
+      "empty": "まだ記録された集中時間がありません"
+    },
+    "tabBar": {
+      "home": "ホーム",
+      "league": "リーグ",
+      "group": "グループ",
+      "menu": "すべて",
+      "focusStart": "集中を開始"
+    },
+    "tabGuideOverlay": {
+      "stepA11y": "ステップ %{current}/%{total}。%{text}。%{action}"
+    },
+    "toast": {
+      "dismissHint": "タップすると閉じます"
+    },
+    "updateAlert": {
+      "title": "アップデートのお知らせ",
+      "message": "新しいバージョンが出ました！アップデートしてご利用ください。",
+      "later": "後で",
+      "update": "アップデート",
+      "openFailTitle": "お知らせ",
+      "openFailMessage": "App Storeを開けませんでした。"
+    }
+  },
+  "menu": {
+    "duration": {
+      "hourMinute": "%{h}時間%{m}分",
+      "hour": "%{h}時間",
+      "minute": "%{m}分"
+    },
+    "noticeTitle": "お知らせ",
+    "openExternalMessage": "外部ブラウザでチームサイトが開きます。\n移動しますか？",
+    "linkOpenFailed": "リンクを開けませんでした。しばらくしてからもう一度お試しください。",
+    "currencyValue": "%{amount}個",
+    "permission": {
+      "approved": "許可済み",
+      "denied": "拒否",
+      "notDetermined": "リクエストが必要"
+    },
+    "profile": {
+      "edit": "プロフィール編集",
+      "preparing": "%{category}を準備中",
+      "streak": {
+        "one": "連続学習 %{count}日",
+        "other": "連続学習 %{count}日"
+      }
+    },
+    "section": {
+      "goalFocus": "目標・集中",
+      "notificationPrivacy": "通知・公開設定",
+      "accountInfo": "アカウント・情報"
+    },
+    "goal": {
+      "personalGoal": "個人目標の変更",
+      "personalGoalSub": "集中 %{focus}・使用 %{screenTime}",
+      "allowedApps": "集中中に許可するアプリの管理",
+      "allowedAppsHint": "集中中でも使えるアプリ",
+      "allowedAppsCount": {
+        "one": "アプリ%{count}個を許可中",
+        "other": "アプリ%{count}個を許可中"
+      },
+      "allowedAppsNone": "許可アプリなし",
+      "screenTime": "スクリーンタイム管理",
+      "screenTimeSub": "権限・使用時間の計測",
+      "screenTimeSubSelection": "権限・計測対象アプリ",
+      "occupation": "準備中の試験",
+      "occupationUnset": "未設定"
+    },
+    "notification": {
+      "settings": "通知設定",
+      "settingsSub": "集中リマインダー・リーグ・深夜・サウンド",
+      "statVisibility": "統計の公開範囲"
+    },
+    "account": {
+      "settings": "アカウント設定",
+      "settingsSub": "ソーシャル連携・ログアウト・退会",
+      "inquiry": "1:1お問い合わせ",
+      "inquirySub": "質問・不具合の報告",
+      "privacy": "プライバシーポリシー",
+      "terms": "利用規約",
+      "version": "バージョン情報"
+    },
+    "guide": {
+      "intro": "「すべて」タブでは、プロフィールとアプリのすべての設定を管理できます。",
+      "profile": "プロフィールをタップするとニックネームを編集できます。",
+      "goalSection": "準備中の試験と目標時間はここで変更できます。\n試験を変えると、おすすめの科目も新しく受け取れます！"
+    }
+  },
+  "character": {
+    "create": {
+      "title": "写真からキャラクターを作る"
+    },
+    "creator": {
+      "resetSoon": "少し経つとまた作れます。",
+      "resetOn": "%{month}月%{day}日にまた作れます。",
+      "remaining": {
+        "one": "あと%{count}回作れます",
+        "other": "あと%{count}回作れます"
+      },
+      "cameraPermission": "カメラの権限が必要です。設定でカメラへのアクセスを許可してください。",
+      "rotateFailed": "写真を回転できませんでした。もう一度お試しください。",
+      "moderationUnavailable": "今は確認できません。しばらくしてからもう一度お試しください。",
+      "moderationBlocked": "この写真ではキャラクターを作れません。",
+      "saveFailed": "キャラクターを保存できませんでした。もう一度お試しください。",
+      "quotaTitle": "キャラクター作成の回数を使い切りました。",
+      "cutting": "モノだけを切り抜いています…",
+      "emptyHint": "写真を選ぶと、ここにキャラクターが立ちます",
+      "unsupported": "この端末・ビルドでは背景の切り抜きに対応していません。元の写真をそのまま表示します。",
+      "cutoutOk": "自分だけのグロモンが完成しました",
+      "rotate": "回転",
+      "repick": "選び直す",
+      "checking": "確認中…",
+      "pickPhoto": "写真を選ぶ",
+      "takePhoto": "写真を撮る"
+    },
+    "select": {
+      "title": "キャラクター変更",
+      "hint": "ホームやお祝い画面に登場するキャラクターを選びます。",
+      "changed": "キャラクターを変更しました",
+      "equip": "変更する",
+      "recreate": "作り直す",
+      "createNew": "新しく作る",
+      "defaultCard": "デフォルトのグロモン",
+      "customCard": "マイキャラクター",
+      "emptyCard": "まだありません",
+      "createCard": "作る"
+    }
+  },
+  "currency": {
+    "history": {
+      "title": "%{currency}の履歴",
+      "balanceLabel": "現在の%{currency}",
+      "balanceValue": "%{amount}個",
+      "loadFailed": "履歴を読み込めませんでした。",
+      "errorOffline": "インターネット接続を確認してください。",
+      "empty": "まだ%{currency}の履歴がありません。",
+      "dateTime": "%{month}月%{day}日 %{time}",
+      "spentA11y": "%{currency}を%{amount}使用",
+      "earnedA11y": "%{currency}を%{amount}獲得",
+      "reason": {
+        "sessionComplete": "集中の完了",
+        "streakBonus": "連続学習ボーナス",
+        "purchase": "ショップでの購入",
+        "betStake": "賭けの参加費",
+        "betPayout": "賭けの精算",
+        "betRefund": "賭けの返金",
+        "focusGoal": "集中目標の達成",
+        "screenTimeGoal": "スクリーンタイム目標の達成",
+        "leagueTierBonus": "リーグ昇格の報酬",
+        "fallback": "残高の変動"
+      }
+    }
+  },
+  "services": {
+    "api": {
+      "sessionExpired": "セッションの有効期限が切れました。もう一度ログインしてください。"
+    },
+    "auth": {
+      "sessionRefreshFailed": "セッションの更新に失敗しました。しばらくしてからもう一度お試しください。",
+      "loginFailed": "ログイン失敗",
+      "appleLoginFailed": "Appleログイン失敗",
+      "googleLoginFailed": "Googleログイン失敗",
+      "googleTokenMissing": "GoogleのidTokenを取得できませんでした。",
+      "lineLoginFailed": "LINEログイン失敗",
+      "facebookLoginFailed": "Facebookログイン失敗",
+      "facebookTokenMissing": "Facebookのトークンを取得できませんでした。",
+      "guestStartFailed": "ゲスト開始に失敗",
+      "socialUnsupportedOnWeb": "Web体験版ではソーシャルログインに対応していません。"
+    },
+    "sessionErrors": {
+      "loginRequiredTitle": "ログインが必要です",
+      "sessionExpired": "ログイン情報の有効期限が切れました。もう一度ログインしてください。"
+    },
+    "subjectMask": {
+      "reasonIos17Required": "背景の切り抜きはiOS 17以降で使えます。今は元の写真のままです。",
+      "reasonNoSubject": "写真からモノを見つけられませんでした。背景がシンプルな写真だとうまくいきます。",
+      "reasonVisionFailed": "背景の切り抜きに失敗しました。元の写真を表示します。",
+      "reasonLoadFailed": "写真を読み込めませんでした。元の写真を表示します。",
+      "reasonUnavailable": "このビルドには背景の切り抜きモジュールがありません。元の写真を表示します。",
+      "reasonModelDownloading": "背景の切り抜きモデルを準備中です。しばらくしてからもう一度お試しください。",
+      "reasonGmsUnavailable": "この端末では背景の切り抜きに対応していません。元の写真をそのまま表示します。"
+    }
+  },
+  "onboarding": {
+    "format": {
+      "hours": {
+        "one": "%{count}時間",
+        "other": "%{count}時間"
+      },
+      "minutes": {
+        "one": "%{count}分",
+        "other": "%{count}分"
+      },
+      "hoursMinutes": "%{hours}%{minutes}"
+    },
+    "problemEmpathy": {
+      "title": "今日やることを選ぶだけで\nすぐに集中が始まります",
+      "live": "集中中",
+      "todo": "今日のやること",
+      "featureTimer": "タイマー",
+      "featureShield": "妨害アプリをブロック",
+      "featureGoal": "集中目標",
+      "featureRecord": "自動記録",
+      "caption": "複雑な準備なしで、始めた瞬間から記録します。"
+    },
+    "togetherEffect": {
+      "title": "ひとりで始めても\nひとりじゃありません",
+      "onlineBadge": "今も一緒に集中中",
+      "viewFriend": "友だち",
+      "viewGroup": "グループ",
+      "viewLeague": "同じリーグ",
+      "sub": "集中画面をスワイプすると、友だちやグループ、同じ試験を目指す人たちが\n一緒に勉強している様子が見えます。"
+    },
+    "subjectCompare": {
+      "title": "今日の集中が\n明日の記録になります",
+      "cta": "Gromoをはじめる",
+      "eyebrow": "今日の集中",
+      "focusValue": "42分 完了",
+      "focusSub": "始めた時間がそのまま積み上がりました",
+      "streakLabel": "連続学習",
+      "streakValue": "7日",
+      "rankLabel": "リーグ順位",
+      "rankValue": "+3",
+      "shardLabel": "タイムシャード",
+      "shardValue": "+42",
+      "caption": "集中の記録はホームや統計、リーグにしっかり反映されます。"
+    },
+    "focusCategory": {
+      "title": "何に集中しますか？",
+      "subtitle": "同じ目標を持つ人たちとリーグで出会えます。",
+      "loading": "読み込み中…",
+      "loadFailed": "リストを読み込めませんでした。"
+    },
+    "subjectEdit": {
+      "categoryFallback": "この目標",
+      "title": "%{category}では、これらの科目で\n勉強時間を比べます",
+      "cta": "いいですね！",
+      "notePrefix": "科目は",
+      "noteStrong1": "いつでも追加",
+      "noteMiddle": "できます。\n自分で追加した科目は",
+      "noteStrong2": "比較なしの自分だけの記録",
+      "noteSuffix": "として使われます"
+    },
+    "screenTimePermission": {
+      "title": "使用時間を\n正確に見るには",
+      "subtitleAndroid": "使用情報へのアクセス権限が必要です。このデータで統計を計算します。",
+      "subtitleIos": "Appleのスクリーンタイム権限が必要です。このデータで統計を計算します。",
+      "requesting": "リクエスト中…",
+      "ctaAndroid": "設定で許可する",
+      "ctaIos": "権限を許可する",
+      "later": "あとでにします",
+      "requestFailTitle": "権限リクエストに失敗",
+      "perkAndroidMeasure": "1日の使用時間を自動で計測",
+      "perkAndroidCompare": "昨日と今日の使用時間を比較",
+      "perkAndroidPrivacy": "アプリごとの記録は端末にのみ保存 · 1日の合計だけサーバーに送信",
+      "perkIosPerApp": "アプリごとの使用時間",
+      "perkIosCategory": "カテゴリ別の分類",
+      "perkIosPrivacy": "端末内でのみ処理 · サーバーには送信しません"
+    },
+    "screenTimeGuide": {
+      "title": "ちょっと待って！承認ボタンは左です",
+      "sub": "青いボタンは「許可しない」です。\n下のプレビューの「続ける」を押してください。",
+      "alertTitle": "“gromo”が“スクリーンタイム”へのアクセスを求めています",
+      "alertBody": "“gromo”に“スクリーンタイム”へのアクセスを許可すると、このAppはあなたのアクティビティデータを見たり、コンテンツを制限したり、Appやwebサイトの使用を制限したりできるようになる可能性があります。",
+      "continue": "続ける",
+      "deny": "許可しない",
+      "bubble": "このボタンが承認です",
+      "okLabel": "承認されます",
+      "noLabel": "こちらは拒否です"
+    },
+    "screenTimeDenied": {
+      "title": "権限がなくても大丈夫です",
+      "subtitlePrefix": "ただし、",
+      "subtitleStrong": "使用時間の目標設定・統計",
+      "subtitleSuffix": "は使えません。集中タイマーとリーグはそのまま利用できます。",
+      "requesting": "リクエスト中…",
+      "cta": "もう一度許可する",
+      "secondary": "このまま続ける",
+      "notePrefix": "いつでも",
+      "noteStrong": "設定 › スクリーンタイム権限",
+      "noteSuffix": "からオンにできます。",
+      "fallbackTitle": "アプリから直接リクエストできません",
+      "fallbackBody": "設定でスクリーンタイム権限をオンにしてください。",
+      "openSettings": "設定を開く"
+    },
+    "goalSetting": {
+      "title": "目標を決めてみましょうか？",
+      "focusLabel": "1日の集中目標",
+      "screenLabel": "1日のスクリーンタイム目標",
+      "screenValue": "%{value}以下",
+      "hint": "両方の目標を決めると次に進めます。"
+    },
+    "characterIntro": {
+      "title": "はじめまして",
+      "subtitle": "これから一緒に集中する友だち、グロモンです。"
+    },
+    "cutout": {
+      "title": "自分で撮った写真で自分のキャラクターを作れます！",
+      "subtitle": "写真が1枚あれば、自分だけのキャラクターが完成します。",
+      "skip": "スキップ",
+      "guideCreate": "このように写真の中の物からキャラクターを作れます。",
+      "guideChange": "作ったキャラクターはホームで変更できます。",
+      "guideTogether": "アプリ内で自分が作ったキャラクターでほかの人と一緒に集中できる機能は準備中です",
+      "make": "自分の持ち物で作ってみる",
+      "remake": "もう一度作ってみる",
+      "done": "このキャラクターができました。",
+      "hintIdle": "今作ることも、スキップすることもできます。",
+      "hintDismissed": "今作らなくても大丈夫です。あとでホームから作れます。",
+      "hintUnavailable": "今は確認できません。あとでホームの「キャラクター変更」から作れます。今はスキップしても大丈夫です。",
+      "hintUnsupported": "この端末ではキャラクター作成にまだ対応していません。あとでホームから作れます。",
+      "modalTitle": "写真からキャラクターを作る"
+    },
+    "nickname": {
+      "title": "これから何と\nお呼びしましょうか？",
+      "label": "ニックネーム",
+      "labelEn": "",
+      "placeholder": "ニックネームを入力してください",
+      "checking": "確認中…",
+      "baseHint": "%{min}〜%{max}文字で設定できます",
+      "lengthError": "ニックネームは%{min}〜%{max}文字で入力してください",
+      "taken": "すでに使われているニックネームです",
+      "available": "使用できます",
+      "duplicateError": "すでに使われているニックネームです。別のニックネームを入力してください。",
+      "submitError": "一時的なエラーで登録できませんでした。もう一度お試しください。"
+    },
+    "gromoStart": {
+      "title": "さあ、\nGromoと一緒に",
+      "cta": "Gromoをはじめる",
+      "sub": "無駄になっていた時間を、もう一度自分のものに。\n今日から一歩ずつ充実させていきましょう。"
+    },
+    "liveRanking": {
+      "categoryFallback": "同じ目標",
+      "badgePrefix": "今",
+      "badgeSuffix": "人が集中中",
+      "title": "%{category}を目指す人たちが\n今、一緒に走っています",
+      "subtitle": "リアルタイム集中ランキング · 毎秒更新",
+      "cta": "今すぐ参加する",
+      "focusing": "集中中",
+      "resting": "休憩中"
+    },
+    "notificationPermission": {
+      "title": "いろいろな通知で\nGromoが集中をサポートします！",
+      "allow": "許可",
+      "skip": "スキップ",
+      "tierTitle": "昇級しました！",
+      "tierSub": "超集中モード → ガチ勢",
+      "goalTitle": "目標達成の応援",
+      "goalSub": "もう一歩進みましょう",
+      "rankTitle": "順位変動のお知らせ",
+      "rankSub": "00さんがあなたを追い越しています！もう一度集中を始めませんか？"
+    },
+    "phoneManage": {
+      "title": "集中を妨げるのは\nたいていスマホです",
+      "mode": "集中モード · 許可アプリのみ使用",
+      "caption": "集中中は妨げになる通知をブロックし、\n1日のスクリーンタイム目標を守れるようにします"
+    },
+    "usageGuess": {
+      "title": "昨日スマホを\n何時間くらい使ったでしょうか？",
+      "subtitle": "まずは自分で予想してみてください。\nあとで実際の記録と比べてみます。",
+      "cta": "これくらい使った気がします",
+      "cardCap": "私の予想",
+      "unit": "時間くらい"
+    },
+    "yesterdayScreenTime": {
+      "title": "実際にどれくらい使ったか見てみましょうか？",
+      "subtitle": "予想とどれくらい違いましたか？少しずつ減らしていきましょう。",
+      "androidLabel": "昨日1日の使用時間",
+      "androidHint": "端末に記録された使用履歴から計算しました。",
+      "iosOnly": "iOS端末でのみ見られます"
+    }
+  },
+  "login": {
+    "continueKakao": "カカオで続ける",
+    "continueApple": "Appleで続ける",
+    "continueGoogle": "Googleで続ける",
+    "subtitle": "目標を安全に保存して\nどこからでも続けて使えます。",
+    "lastUsed": "最近使用",
+    "guest": "ゲストログイン",
+    "guestNoticeTitle": "ゲストログインについて",
+    "guestNotice": "記録はサーバーに保存されますが、この端末の認証情報でのみ再びアクセスできます。アプリを削除したり、端末を変えたり、認証情報の期限が切れると、記録を取り戻せません。",
+    "failTitle": "ログインに失敗しました",
+    "guestFailTitle": "開始できませんでした",
+    "termsPrefix": "続行すると、",
+    "termsOfService": "利用規約",
+    "termsMiddle": "および",
+    "privacyPolicy": "プライバシーポリシー",
+    "termsSuffix": "に同意したことになります。"
+  },
+  "app": {
+    "splashCaption": "今日も集中、ファイト！！"
+  },
+  "settings": {
+    "account": {
+      "title": "アカウント設定",
+      "providerKakao": "カカオ",
+      "providerApple": "Apple",
+      "providerGoogle": "Google",
+      "socialLoginSection": "ソーシャルログイン",
+      "loginWith": "%{name}でログイン",
+      "connect": "連携",
+      "guestNote": "現在はログインせずに利用中です。記録はサーバーに保存されますが、この端末の認証情報でしか再びアクセスできません。アプリを削除したり、端末を変えたり、認証情報の有効期限が切れると、記録を取り戻せません。\n\nソーシャルログインを連携すると、これまでの記録がそのまま引き継がれます。",
+      "linkedSection": "ソーシャルログイン連携",
+      "noLinked": "連携中のソーシャルアカウントはありません",
+      "linked": "連携済み",
+      "manage": "管理",
+      "logout": "ログアウト",
+      "logoutConfirm": "ログアウトしますか？",
+      "withdraw": "退会",
+      "withdrawTitle": "本当に退会しますか？",
+      "withdrawBody": "退会すると、積み上げてきた集中記録・ティアがすべて消え、元に戻すことはできません。",
+      "withdrawPrimary": "退会します",
+      "withdrawSecondary": "もう少し続けます",
+      "withdrawBlockedTitle": "退会できません",
+      "withdrawBlockedBody": "グループ管理者は、権限を委任してから退会できます。",
+      "withdrawFailBody": "退会に失敗しました。しばらくしてからもう一度お試しください。",
+      "hostBlockedTitle": "先にグループ管理者を引き継いでください",
+      "hostBlockedBody": {
+        "one": "管理者になっているグループが%{count}件あります。\n「%{name}」の管理者を引き継いでから、もう一度退会してください。",
+        "other": "管理者になっているグループが%{count}件あります。\n「%{name}」の管理者を引き継いでから、もう一度退会してください。"
+      },
+      "hostBlockedCta": "管理者を引き継ぎに行く",
+      "later": "あとで",
+      "unlink": "解除",
+      "unlinkTitle": "%{name}の連携解除",
+      "unlinkBody": "%{name}の連携を解除しますか？",
+      "unlinkBlockedTitle": "解除できません",
+      "unlinkBlockedBody": "最後のログイン手段は解除できません。",
+      "unlinkFailBody": "連携の解除に失敗しました。しばらくしてからもう一度お試しください。",
+      "linkFailTitle": "連携できません",
+      "linkFailBody": "すでに別のアカウントに連携されているソーシャルアカウントです。ほかのソーシャルアカウントでもう一度お試しください。",
+      "errorTitle": "エラー"
+    },
+    "allowedApps": {
+      "title": "集中中に許可するアプリ",
+      "done": "完了",
+      "note": "集中中でもこれらのアプリは使えます。カテゴリを選ぶと、その中のアプリもまとめて許可されます（現在インストールされているアプリが対象です）。",
+      "currentSection": "現在の許可アプリ",
+      "loading": "許可アプリを読み込み中",
+      "summaryCount": {
+        "one": "アプリ%{count}個を許可中",
+        "other": "アプリ%{count}個を許可中"
+      },
+      "summaryCountSub": "集中中でもこれらのアプリは使えます",
+      "summaryNone": "許可アプリなし",
+      "summaryNoneSub": "集中中はすべてのアプリがロックされます",
+      "pick": "許可アプリを選ぶ",
+      "webSection": "ウェブ",
+      "safariLabel": "Safari・ウェブを許可",
+      "safariSub": "オンにすると集中中でもSafariやウェブサイトを使えます",
+      "permTitle": "スクリーンタイムの許可が必要です",
+      "permBody": "許可アプリを選ぶには、先にスクリーンタイムへのアクセスを許可してください。",
+      "permCta": "権限を設定する",
+      "savedMessage": {
+        "one": "集中中でもアプリ%{count}個を使えます",
+        "other": "集中中でもアプリ%{count}個を使えます"
+      },
+      "saveDoneTitle": "設定完了",
+      "saveFailTitle": "設定に失敗しました"
+    },
+    "appPicker": {
+      "measuredTitle": "計測対象アプリの設定",
+      "measuredNoteLead": "選んだアプリの使用時間だけを集計します。",
+      "measuredNoteStrong": "1つも選ばない場合は、すべてのアプリを集計します。",
+      "measuredCtaEmpty": "全アプリ計測で保存",
+      "measuredCtaCount": {
+        "one": "アプリ%{count}個だけ計測するように保存",
+        "other": "アプリ%{count}個だけ計測するように保存"
+      },
+      "allowedNoteLead": "集中中でも使えるように開けておくアプリです。",
+      "allowedNoteStrong": "選ばない場合、許可アプリはありません。",
+      "allowedCtaEmpty": "許可アプリなしで保存",
+      "allowedCtaCount": {
+        "one": "アプリ%{count}個を許可して保存",
+        "other": "アプリ%{count}個を許可して保存"
+      },
+      "searchPlaceholder": "アプリ名を検索",
+      "loadFailed": "アプリ一覧を読み込めませんでした。\nアプリを再起動してからお試しください。",
+      "noResults": "検索結果がありません"
+    },
+    "goals": {
+      "title": "個人目標の編集",
+      "focusLabel": "目標集中時間",
+      "focusSub": "達成する",
+      "usageLabel": "目標使用時間",
+      "usageSub": "超えない",
+      "hourMinute": "%{h}時間%{m}分",
+      "hour": {
+        "one": "%{count}時間",
+        "other": "%{count}時間"
+      },
+      "minute": {
+        "one": "%{count}分",
+        "other": "%{count}分"
+      },
+      "appliesTomorrow": "今日 %{current}・明日からこの値が適用されます",
+      "currentGoal": "現在の目標",
+      "note": "変更した目標は明日（%{date}）から適用されます。今日の報酬の基準はそのままです。"
+    },
+    "inquiry": {
+      "title": "1対1のお問い合わせ",
+      "lead": "どのようなご用件でしょうか？",
+      "desc": "担当の開発者にカカオトークで直接質問できます。",
+      "categoryLabel": "どのような内容ですか？",
+      "contactLabel": "担当の開発者",
+      "note": "カカオトークに移動します — アプリがない場合はブラウザで開きます。\n24時間の対応は難しいため、返信に1〜2日かかることがあります。",
+      "confirmTitle": "カカオトークに移動しますか？",
+      "confirmBody": "%{name}さんとの1対1のオープンチャットが開きます。\n会話の内容はカカオトークに保存され、gromoのサーバーには残りません。",
+      "go": "移動する",
+      "failTitle": "カカオトークを開けません",
+      "failBody": "下のアドレスを長押ししてコピーし、ブラウザで開いてください。\n\n%{url}"
+    },
+    "inquiryCard": {
+      "recommended": "おすすめ",
+      "cta": "カカオトークで問い合わせる",
+      "ctaA11y": "%{name}さんにカカオトークで問い合わせる"
+    },
+    "notification": {
+      "title": "通知・深夜・サウンド",
+      "sectionNotification": "通知",
+      "master": "通知を受け取る",
+      "masterSub": "集中リマインダー・リーグのお知らせをお届けします",
+      "sound": "サウンド（通知音）",
+      "soundSub": "通知が届いたときに音でお知らせします",
+      "leagueNote": "リーグの締め切り・昇格・降格の通知は「通知を受け取る」に含まれます。",
+      "night": "深夜のおやすみモード",
+      "nightSub": "設定した時間帯には通知を送りません",
+      "start": "開始",
+      "end": "終了",
+      "nightStartTitle": "深夜の開始時刻",
+      "nightEndTitle": "深夜の終了時刻"
+    },
+    "occupation": {
+      "title": "受験する試験の変更",
+      "desc": "同じ目標を目指す人たちとリーグで出会えます。",
+      "editRecommended": "おすすめ科目を編集する",
+      "note": "試験を変更しても、すでに登録した科目はそのままです。\n科目は別に編集できます。"
+    },
+    "privacy": {
+      "title": "プライバシーポリシー",
+      "message": "プライバシーポリシーを準備中です。\n公開されましたら、こちらですぐにご確認いただけます。"
+    },
+    "profileEdit": {
+      "title": "プロフィール編集",
+      "nicknameLabel": "ニックネーム",
+      "nicknamePlaceholder": "ニックネームを入力してください",
+      "checking": "確認中…",
+      "available": "使用できます",
+      "nicknameTaken": "すでに使われているニックネームです",
+      "checkUnavailable": "今は重複を確認できません・保存するときに確認します",
+      "lengthError": "%{min}〜%{max}文字で入力してください",
+      "lengthHint": "%{min}〜%{max}文字で設定できます",
+      "skinLabel": "キャラクタースキン",
+      "skinComingSoon": "キャラクタースキン・準備中",
+      "checkAndSave": "確認して保存",
+      "saveFailTitle": "保存に失敗しました",
+      "saveFailBody": "保存に失敗しました。しばらくしてからもう一度お試しください"
+    },
+    "screenTimePermission": {
+      "title": "スクリーンタイムの管理",
+      "yesterday": "昨日",
+      "badgeApproved": "許可済み",
+      "badgeDenied": "拒否済み",
+      "badgeNotDetermined": "リクエストが必要",
+      "badgeChecking": "確認中",
+      "statusTitle": "スクリーンタイムへのアクセス",
+      "requesting": "権限をリクエスト中…",
+      "tapToAllow": "タップしてスクリーンタイムへのアクセスを許可してください",
+      "tapToReallowAndroid": "タップして使用状況へのアクセスをもう一度許可してください",
+      "deniedIos": "iOSの「設定」から再びオンにできます",
+      "lastSynced": "最終同期・%{date}",
+      "manageSection": "管理",
+      "targetsLabel": "計測対象アプリの設定",
+      "targetsSubIos": "使用時間を計測するアプリ・カテゴリを選択",
+      "targetsSubAndroid": "使用時間を計測するアプリを選択",
+      "targetsPendingSub": "変更した対象は明日0時から適用されます",
+      "targetsPendingValue": "明日から適用予定",
+      "collectTitle": "収集する項目",
+      "collectBody": "アプリごとの使用時間（どのアプリをどれだけ使ったか）と\nカテゴリ別の分類（SNS・ゲームなどのまとめ集計）を収集します。",
+      "localOnlyTitle": "端末内でのみ処理・サーバーへ送信しません",
+      "permOffNote": "権限をオフにすると、使用時間の統計が止まります。",
+      "changeIos": "iOSの「設定」アプリからも変更できます。",
+      "changeAndroid": "「設定」→「使用状況へのアクセス」からも変更できます。",
+      "changeOther": "端末の設定からも変更できます。",
+      "permOffTitle": "権限がオフになっています",
+      "permOffBody": "iOSの「設定」>「スクリーンタイム」から再びオンにできます。",
+      "permErrorTitle": "権限の処理に失敗しました",
+      "permNeededTitle": "スクリーンタイムの許可が必要です",
+      "permNeededIosBody": "計測対象を選ぶには、先にスクリーンタイムへのアクセスを許可してください。",
+      "permNeededAndroidBody": "計測対象を選ぶには、先に使用状況へのアクセスを許可してください。",
+      "unsupportedTitle": "まだご利用いただけません",
+      "unsupportedBody": "アプリを最新バージョンにアップデートすると、計測対象を選べます。",
+      "scheduledTitle": "計測対象の変更を予約しました",
+      "scheduledBody": {
+        "one": "今日はこれまでの対象、明日からアプリ・カテゴリ%{count}個で計測します",
+        "other": "今日はこれまでの対象、明日からアプリ・カテゴリ%{count}個で計測します"
+      },
+      "scheduledToast": {
+        "one": "変更を予約しました — 明日からアプリ・カテゴリ%{count}個で計測します",
+        "other": "変更を予約しました — 明日からアプリ・カテゴリ%{count}個で計測します"
+      },
+      "clearedTitle": "計測対象を変更しました",
+      "clearedBody": "計測対象を空にしました — 使用量の計測とサーバー同期が停止します。ホームのレポートは全アプリ基準で表示されます。",
+      "pickedMessage": {
+        "one": "アプリ・カテゴリ%{count}個を計測します",
+        "other": "アプリ・カテゴリ%{count}個を計測します"
+      },
+      "saveDoneTitle": "設定完了",
+      "saveFailTitle": "設定に失敗しました"
+    },
+    "statVisibility": {
+      "title": "詳細統計の公開範囲",
+      "note": "自分の詳細統計をどこまで他の人に見せるかを選びます。",
+      "publicLabel": "全体公開",
+      "publicSub": "リーグの全員が見られます",
+      "friendsLabel": "友だちに公開",
+      "friendsSub": "友だちとして承認した人だけが見られます"
+    },
+    "tagSheet": {
+      "selectAll": "すべて選択",
+      "done": "完了する",
+      "editTitle": "%{exam}のおすすめ科目を編集します",
+      "editSubLead": "追加する科目はチェック、外す科目はチェックを解除してください。",
+      "editSubDanger": "チェックを解除した科目の集中記録は消えます。",
+      "editEmpty": "編集できるおすすめ科目がありません。",
+      "addTitle": "%{exam}の準備に必要な科目をおすすめします",
+      "addSub": "追加すると、同じ試験を準備している人たちと科目別の勉強時間を比べられます。",
+      "addEmpty": "追加できるおすすめ科目がありません。",
+      "add": "追加する",
+      "selectedCount": {
+        "one": "%{count}個選択中",
+        "other": "%{count}個選択中"
+      },
+      "skip": "スキップ",
+      "removeTitle": "既存の科目を整理しますか？",
+      "removeSubLead": "削除する科目を選んでください。",
+      "removeSubDanger": "削除した科目の集中記録は消えます。",
+      "removeEmpty": "削除できる科目がありません。",
+      "goBack": "前に戻る"
+    },
+    "version": {
+      "title": "バージョン情報",
+      "latest": "最新バージョンです"
+    }
+  },
+  "stats": {
+    "screen": {
+      "title": "統計"
+    },
+    "period": {
+      "day": "日",
+      "week": "週",
+      "month": "月"
+    },
+    "guide": {
+      "intro": "ここは統計です！\n自分の集中記録をグラフでひと目で見られます。",
+      "periodTabs": "日・週・月のタブで期間を切り替えられます。\n日は今日一日を詳しく、月は1か月の流れを見せてくれます！",
+      "totalCard": "期間中の合計集中時間と、ほかの人との比較を見せてくれます。",
+      "goalCard": "集中時間・使用時間の目標を守れたかを確認する場所です。",
+      "categoryCard": "科目別にどれくらい集中したかもここで確認できます。\n下にスクロールすると、もっと多くのグラフが待っています！"
+    },
+    "card": {
+      "totalValue": "合計 %{value}",
+      "phoneSubtitle": "集中時間と対比して表示します。減ると一緒に減ります。"
+    },
+    "totalCard": {
+      "titleDay": "今日の合計集中時間",
+      "titleWeek": "今週の合計集中時間",
+      "titleMonth": "%{month}月の合計集中時間"
+    },
+    "goalCard": {
+      "titleDay": "今日の目標達成",
+      "titleWeek": "週間カレンダー",
+      "titleMonth": "月間カレンダー"
+    },
+    "categoryCard": {
+      "titleDay": "今日の科目別集中時間",
+      "titleWeek": "今週の科目別集中時間",
+      "titleMonth": "%{month}月の科目別集中時間"
+    },
+    "monthWeekly": {
+      "focusTitle": "%{month}月の週別集中時間",
+      "phoneTitle": "%{month}月の週別スマホ使用量"
+    },
+    "weekday": {
+      "focusTitle": "曜日別の集中時間",
+      "phoneTitle": "曜日別のスマホ使用量"
+    },
+    "longest": {
+      "titleDay": "今日の最長連続集中",
+      "titleWeek": "今週の最長連続集中",
+      "titleMonth": "%{month}月の最長連続集中",
+      "hint": "一度に最も長く続いた集中セッションです"
+    },
+    "passer": {
+      "title": "合格者と比較",
+      "note": "合格者のデータが集まったらお見せします"
+    },
+    "passerChart": {
+      "axisLaborLaw": "労働法",
+      "axisCivilLaw": "民法",
+      "axisAdminLitigation": "行政争訟法",
+      "axisSocialInsurance": "社会保険法",
+      "axisBusinessAdmin": "経営学",
+      "passerAvg": "合格者平均"
+    },
+    "delta": {
+      "titleDay": "昨日比",
+      "titleWeek": "先週比",
+      "titleMonth": "%{month}月比",
+      "focusLabel": "集中",
+      "phoneLabel": "スマホ使用"
+    },
+    "deltaRow": {
+      "noChange": "変化はありません"
+    },
+    "chart": {
+      "weekNth": "%{n}週",
+      "hourLabel": "%{hour}時"
+    },
+    "firstStart": {
+      "monthTitle": "%{month}月の週別 初回集中の開始時刻",
+      "hint": "その日に最初に集中を始めた時刻 · 上にいくほど早い時刻です"
+    },
+    "calendar": {
+      "weekLabel": "%{month}月 第%{nth}週",
+      "weekSublabel": "%{fromMonth}.%{fromDay} – %{toMonth}.%{toDay}",
+      "monthLabel": "%{year}年%{month}月",
+      "monthSublabel": "1日 – %{lastDay}日",
+      "totalEmpty": "集中合計 —",
+      "total": "集中合計 %{hours}時間%{minutes}分",
+      "lessThanMinute": "1分未満",
+      "pickHead": "%{month}月%{day}日 (%{weekday}) · 集中 %{focus}",
+      "pickPhone": " · スマホ %{value}",
+      "pickSessions": {
+        "one": " · セッション %{count}回",
+        "other": " · セッション %{count}回"
+      }
+    },
+    "cardBody": {
+      "loadFailed": "読み込めませんでした"
+    },
+    "comingSoon": {
+      "badge": "準備中"
+    },
+    "categoryDonut": {
+      "totalLabel": "集中合計",
+      "unclassified": "未分類",
+      "emptyToday": "まだ記録された集中時間がありません"
+    },
+    "compare": {
+      "chipFriends": "友だち",
+      "chipCategory": "同じカテゴリ",
+      "avgFriends": "友だち平均",
+      "avgAll": "全体平均",
+      "avgCategory": "同じカテゴリ平均",
+      "avgOf": "%{name} 平均",
+      "thisMonth": "今月",
+      "loadFailed": "比較データを読み込めませんでした",
+      "emptyFriends": "%{when}集中した友だちはまだいません",
+      "emptyCategory": "%{when}同じカテゴリの記録はまだありません",
+      "emptyAll": "%{when}の集中記録はまだ集まっていません",
+      "noCategorySet": "準備中の試験を設定すると比較できます"
+    },
+    "goalStamp": {
+      "loadFailed": "目標情報を読み込めませんでした",
+      "notSet": "目標未設定",
+      "focusNotSetSub": "設定で集中目標を決めましょう",
+      "focusDone": "集中達成",
+      "focusDoneSub": "%{cur}分 · 目標 %{goal}分",
+      "focusProgress": "集中 %{cur}/%{goal}分",
+      "focusRemain": "目標まで%{minutes}分",
+      "phoneNotSetSub": "設定でスマホ使用目標を決めましょう",
+      "phoneFail": "目標を達成できませんでした！",
+      "phoneRemain": "残り%{value}",
+      "phoneSub": "スマホ使用 %{cur} · 目標 %{goal}"
+    },
+    "focusTimetable": {
+      "title": "今日のタイムテーブル",
+      "shareFileSuffix": "タイムテーブル"
+    },
+    "weeklyTimetable": {
+      "title": "曜日別タイムテーブル",
+      "shareFileSuffix": "週間タイムライン"
+    },
+    "share": {
+      "button": "共有する",
+      "tagline": "集中記録 · gromo",
+      "dateHeader": "%{year}年%{month}月%{day}日 (%{weekday})"
+    },
+    "usageDetail": {
+      "title": "スマホ使用",
+      "unavailable": "今は表示できません",
+      "loadFailed": "使用記録を読み込めませんでした",
+      "permissionOff": "使用情報へのアクセス権限がオフになっています。\n設定でオンにすると使用記録が表示されます。",
+      "otherApps": "その他",
+      "totalToday": "今日の合計使用時間",
+      "byApp": "アプリ別の使用時間",
+      "noUsage": "使用記録がありません",
+      "hourMinute": "%{hours}時間%{minutes}分",
+      "minute": "%{minutes}分",
+      "second": "%{seconds}秒"
+    }
+  },
+  "notifications": {
+    "title": "通知",
+    "emptyTitle": "まだ届いた通知はありません",
+    "emptySub": "新しいお知らせが届いたらここにまとめます",
+    "time": {
+      "justNow": "たった今",
+      "minutesAgo": {
+        "one": "%{count}分前",
+        "other": "%{count}分前"
+      },
+      "hoursAgo": {
+        "one": "%{count}時間前",
+        "other": "%{count}時間前"
+      },
+      "daysAgo": {
+        "one": "%{count}日前",
+        "other": "%{count}日前"
+      },
+      "date": "%{month}月%{day}日"
+    }
+  }
+}

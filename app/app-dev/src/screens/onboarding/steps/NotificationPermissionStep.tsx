@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, Platform } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StepProps } from '@/screens/onboarding/types';
 
 // W13 · 알림 권한 — OS 알림 권한 요청. 앱 푸시 스택이 FCM(@react-native-firebase/messaging)이라
@@ -14,11 +15,21 @@ const STAR = 'M12 3l2.5 5.4 5.9.5-4.5 3.9 1.4 5.8L12 16.9 6.2 20.3l1.6-6.6L2.6 9
 const RANK = 'M5 20V10M12 20V4M19 20v-7'; // 순위/랭킹 막대
 
 const ITEMS = [
-  { title: '승급했어요!', sub: '초집중 모드 → 갓생러', icon: 'star', color: T.accent },
-  { title: '목표 달성 응원', sub: '한 걸음 더 나아가요', icon: 'star', color: T.green },
   {
-    title: '순위 변동 알림',
-    sub: '00님이 사용자님을 이기고 있어요! 다시 집중을 시작해볼까요?',
+    titleKey: 'onboarding.notificationPermission.tierTitle',
+    subKey: 'onboarding.notificationPermission.tierSub',
+    icon: 'star',
+    color: T.accent,
+  },
+  {
+    titleKey: 'onboarding.notificationPermission.goalTitle',
+    subKey: 'onboarding.notificationPermission.goalSub',
+    icon: 'star',
+    color: T.green,
+  },
+  {
+    titleKey: 'onboarding.notificationPermission.rankTitle',
+    subKey: 'onboarding.notificationPermission.rankSub',
     icon: 'rank',
     color: T.subjectPalette[5],
   },
@@ -53,15 +64,15 @@ export default function NotificationPermissionStep({ update, onNext }: StepProps
   return (
     <StepScaffold
       center
-      title={'다양한 알림을 통해 \n 그로모가 집중을 도와드릴게요!'}
-      ctaLabel="허용"
+      title={t('onboarding.notificationPermission.title')}
+      ctaLabel={t('onboarding.notificationPermission.allow')}
       onCta={allow}
-      secondaryLabel="건너뛰기"
+      secondaryLabel={t('onboarding.notificationPermission.skip')}
       onSecondary={skip}
     >
       <View style={s.list}>
         {ITEMS.map((it) => (
-          <View key={it.title} style={s.card}>
+          <View key={it.titleKey} style={s.card}>
             <View style={s.iconBox}>
               <Svg width={17} height={17} viewBox="0 0 24 24">
                 {it.icon === 'star' ? (
@@ -79,8 +90,8 @@ export default function NotificationPermissionStep({ update, onNext }: StepProps
               </Svg>
             </View>
             <View style={s.texts}>
-              <Text style={s.cardTitle}>{it.title}</Text>
-              <Text style={s.cardSub}>{it.sub}</Text>
+              <Text style={s.cardTitle}>{t(it.titleKey)}</Text>
+              <Text style={s.cardSub}>{t(it.subKey)}</Text>
             </View>
           </View>
         ))}

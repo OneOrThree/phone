@@ -5,6 +5,7 @@
 // ⚠️ 날짜 연산은 전부 'YYYY-MM-DD' 문자열 공간의 UTC 산술이다 — 날짜만 다루는 계산은 시간대가
 //    없어야 안전하다(기기 로컬 Date로 접으면 비KST 기기에서 하루 어긋난다). '오늘'은 호출부가
 //    todayStrKst()로 넘긴다 — 이 모듈은 시계를 직접 읽지 않는다(테스트에서 시각 고정이 쉬워진다).
+import { t } from '@/i18n';
 import type { ChallengeRepeatDay } from '@/types/dto/group';
 
 // ISO 요일 순서(월=0…일=6) — 배지 행의 렌더 순서이자 주(월~일) 경계 계산의 축.
@@ -18,8 +19,22 @@ export const REPEAT_DAY_ORDER: readonly ChallengeRepeatDay[] = [
   'SUN',
 ];
 
-// 배지·문구용 한글 요일 — REPEAT_DAY_ORDER와 같은 인덱스.
-export const REPEAT_DAY_LABELS: readonly string[] = ['월', '화', '수', '목', '금', '토', '일'];
+// 배지·문구용 요일 라벨 키 — REPEAT_DAY_ORDER와 같은 인덱스.
+// 라벨 자체가 아니라 키를 담는다: 모듈 최상위에서 t()를 부르면 번역이 로케일 결정 전에 굳는다.
+const REPEAT_DAY_LABEL_KEYS: readonly string[] = [
+  'common.weekday.mon',
+  'common.weekday.tue',
+  'common.weekday.wed',
+  'common.weekday.thu',
+  'common.weekday.fri',
+  'common.weekday.sat',
+  'common.weekday.sun',
+];
+
+// 인덱스(월=0…일=6) → 번역된 요일 한 글자. 렌더 시점에 부른다.
+export function repeatDayLabel(index: number): string {
+  return t(REPEAT_DAY_LABEL_KEYS[index]);
+}
 
 const DAY_MS = 86_400_000;
 const KST_OFFSET_MS = 9 * 3_600_000; // KST는 DST가 없어 고정 오프셋으로 접어도 안전하다.
@@ -65,14 +80,18 @@ export function fmtMonthDayDow(dateStr: string): string {
   const idx = weekdayIndexOf(dateStr);
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
   if (idx === null || m === null) return dateStr;
-  return `${Number(m[2])}/${Number(m[3])}(${REPEAT_DAY_LABELS[idx]})`;
+  return t('group.challengeSchedule.monthDayDow', {
+    month: Number(m[2]),
+    day: Number(m[3]),
+    dow: repeatDayLabel(idx),
+  });
 }
 
 // 다음 회차 날짜의 상대·절대 혼용 표기(ux §02 note): 오늘 → '오늘', 내일 → '내일', 그 밖 →
 // '8/12(수)'. "3일 뒤" 같은 상대 표현은 쓰지 않는다 — 요일 반복에서는 날짜가 곧 정보다.
 export function fmtRelativeDay(dateStr: string, todayStr: string): string {
-  if (dateStr === todayStr) return '오늘';
-  if (dateStr === addDaysStr(todayStr, 1)) return '내일';
+  if (dateStr === todayStr) return t('common.today');
+  if (dateStr === addDaysStr(todayStr, 1)) return t('group.challengeSchedule.tomorrow');
   return fmtMonthDayDow(dateStr);
 }
 
@@ -106,7 +125,7 @@ export function fmtKoreanDuration(minutes: number): string {
   const total = Math.max(0, Math.floor(minutes));
   const h = Math.floor(total / 60);
   const m = total % 60;
-  if (h === 0) return `${m}분`;
-  if (m === 0) return `${h}시간`;
-  return `${h}시간 ${m}분`;
+  if (h === 0) return t('group.challengeSchedule.durationMinutes', { count: m });
+  if (m === 0) return t('group.challengeSchedule.durationHours', { count: h });
+  return t('group.challengeSchedule.durationHoursMinutes', { hours: h, minutes: m });
 }

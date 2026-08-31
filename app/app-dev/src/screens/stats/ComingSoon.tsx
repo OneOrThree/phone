@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // "준비 중" 티저 — 진짜 UI(children)를 그려두고 블러 + 오버레이를 덮는다.
 // 텍스트만 있는 빈 스텁 대신 실제 기능처럼 보이게(비친구 프로필 잠금 티저와 같은 패턴).
@@ -16,7 +17,7 @@ export function ComingSoon({ note, children }: { note?: string; children: ReactN
       <View style={s.overlay}>
         <View style={s.badge}>
           <Ionicons name="hourglass-outline" size={12} color={T.accentDeep} />
-          <Text style={s.badgeText}>준비 중</Text>
+          <Text style={s.badgeText}>{t('stats.comingSoon.badge')}</Text>
         </View>
         {note ? <Text style={s.note}>{note}</Text> : null}
       </View>

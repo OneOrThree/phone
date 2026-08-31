@@ -10,6 +10,8 @@
 // 그래서 공유하는 것은 "미집계"와 "기록 분 / 목표 분" 두 조각뿐이고, 달성 분기는 각자 갖는다.
 // 여기서 통째로 합치면 결과 모달이 다시 근거를 잃는다.
 
+import { t } from '@/i18n';
+
 /** 미집계 — SCREEN_TIME 통계가 없다. '0분 썼다'와 완전히 다른 뜻이라 0으로 뭉개지 않는다. */
 export const UNMEASURED = '—';
 
@@ -21,12 +23,16 @@ export const UNMEASURED = '—';
  * "UI 안내 문구와 짝"을 명시하므로 값이 바뀌면 이 문장도 함께 바꾼다). 이 고지가 없으면
  * 결과 모달의 근거 분(예: 55/60분)이 달성 명단에서 모순으로 읽힌다.
  *
- * ChallengeComposeSheet의 WINDOW_FOCUS_CAPTION도 이 상수를 합성해 쓴다(GROMO-1224) —
+ * ChallengeComposeSheet의 windowFocusCaption()도 이 문장을 %{notice}로 끼워 쓴다(GROMO-1224) —
  * 이 문장을 바꾸면 만들기 시트의 고지도 함께 바뀐다.
+ *
+ * 상수가 아니라 함수인 이유: 번역은 렌더 시점에 풀어야 한다(모듈 최상위 t() 금지).
  *
  * DURATION(정확 임계)·SCREEN_TIME(이하 판정)에는 관용치가 없다 — 이 문구를 붙이지 않는다.
  */
-export const WINDOW_FOCUS_TOLERANCE_NOTICE = '목표에서 5분 모자라도 달성으로 인정돼요';
+export function windowFocusToleranceNotice(): string {
+  return t('group.progressFormat.windowFocusToleranceNotice');
+}
 
 /**
  * 기록 분 / 목표 분. 목표를 모르면 분모를 지어내지 않고 기록 분만 적는다.
@@ -36,7 +42,9 @@ export const WINDOW_FOCUS_TOLERANCE_NOTICE = '목표에서 5분 모자라도 달
  * 들어오면 '72/0분'이라는 읽을 수 없는 표기가 된다.
  */
 export function progressFraction(progressMinutes: number, goalMinutes: number | null): string {
-  return goalMinutes ? `${progressMinutes}/${goalMinutes}분` : `${progressMinutes}분`;
+  return goalMinutes
+    ? t('group.progressFormat.fraction', { progress: progressMinutes, goal: goalMinutes })
+    : t('group.progressFormat.progressOnly', { progress: progressMinutes });
 }
 
 /**
@@ -44,7 +52,7 @@ export function progressFraction(progressMinutes: number, goalMinutes: number | 
  * 행 전체를 한 덩어리로 읽히게 하는 것이 전제다(안 묶으면 닉네임과 진행이 따로 읽힌다).
  */
 export function unmeasuredA11y(nickname: string): string {
-  return `${nickname} 아직 집계되지 않음`;
+  return t('group.progressFormat.unmeasuredA11y', { nickname });
 }
 
 /** 기록 분 행의 음성 안내. 방향(집중=채움, 스크린타임=사용)은 문장이 아니라 화면 맥락이 준다. */
@@ -54,6 +62,10 @@ export function progressFractionA11y(
   goalMinutes: number | null,
 ): string {
   return goalMinutes
-    ? `${nickname} ${goalMinutes}분 중 ${progressMinutes}분`
-    : `${nickname} ${progressMinutes}분`;
+    ? t('group.progressFormat.fractionA11y', {
+        nickname,
+        goal: goalMinutes,
+        progress: progressMinutes,
+      })
+    : t('group.progressFormat.progressOnlyA11y', { nickname, progress: progressMinutes });
 }

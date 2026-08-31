@@ -3,18 +3,31 @@ import { Ionicons } from '@expo/vector-icons';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StepProps } from '@/screens/onboarding/types';
 
 const MILESTONES = [
-  { icon: 'flame' as const, label: '연속 공부', value: '7일', color: T.flame, bg: T.dangerBg },
+  {
+    icon: 'flame' as const,
+    labelKey: 'onboarding.subjectCompare.streakLabel',
+    valueKey: 'onboarding.subjectCompare.streakValue',
+    color: T.flame,
+    bg: T.dangerBg,
+  },
   {
     icon: 'trophy' as const,
-    label: '리그 순위',
-    value: '+3',
+    labelKey: 'onboarding.subjectCompare.rankLabel',
+    valueKey: 'onboarding.subjectCompare.rankValue',
     color: T.medal.gold,
     bg: T.paperAlt,
   },
-  { icon: 'diamond' as const, label: '시간조각', value: '+42', color: T.accent, bg: T.accentBg },
+  {
+    icon: 'diamond' as const,
+    labelKey: 'onboarding.subjectCompare.shardLabel',
+    valueKey: 'onboarding.subjectCompare.shardValue',
+    color: T.accent,
+    bg: T.accentBg,
+  },
 ];
 
 // 세 번째 가치 제안 — 집중이 끝난 뒤 실제로 남는 연속 공부·리그·시간조각을 한 장에 묶는다.
@@ -25,8 +38,8 @@ export default function SubjectCompareStep({ onNext }: StepProps) {
       testID="onboarding.step.subjectCompare"
       center
       scrollable
-      title={'오늘의 집중이\n내일의 기록이 돼요'}
-      ctaLabel="그로모 시작하기"
+      title={t('onboarding.subjectCompare.title')}
+      ctaLabel={t('onboarding.subjectCompare.cta')}
       onCta={onNext}
     >
       <View style={s.resultCard}>
@@ -35,31 +48,31 @@ export default function SubjectCompareStep({ onNext }: StepProps) {
             <CharacterImage size={72} variant="happy" />
           </View>
           <View style={s.resultCopy}>
-            <Text style={s.eyebrow}>오늘의 집중</Text>
-            <Text style={s.focusValue}>42분 완료</Text>
-            <Text style={s.focusSub}>시작한 시간이 그대로 쌓였어요</Text>
+            <Text style={s.eyebrow}>{t('onboarding.subjectCompare.eyebrow')}</Text>
+            <Text style={s.focusValue}>{t('onboarding.subjectCompare.focusValue')}</Text>
+            <Text style={s.focusSub}>{t('onboarding.subjectCompare.focusSub')}</Text>
           </View>
         </View>
 
         <View style={s.milestones}>
           {MILESTONES.map((item, index) => (
             <View
-              key={item.label}
+              key={item.labelKey}
               style={[s.milestone, index < MILESTONES.length - 1 ? s.milestoneDivider : null]}
             >
               <View style={[s.iconBox, { backgroundColor: item.bg }]}>
                 <Ionicons name={item.icon} size={17} color={item.color} />
               </View>
               <View style={s.milestoneCopy}>
-                <Text style={s.milestoneLabel}>{item.label}</Text>
-                <Text style={s.milestoneValue}>{item.value}</Text>
+                <Text style={s.milestoneLabel}>{t(item.labelKey)}</Text>
+                <Text style={s.milestoneValue}>{t(item.valueKey)}</Text>
               </View>
             </View>
           ))}
         </View>
       </View>
 
-      <Text style={s.caption}>집중 기록은 홈과 통계, 리그에 차곡차곡 반영돼요.</Text>
+      <Text style={s.caption}>{t('onboarding.subjectCompare.caption')}</Text>
     </StepScaffold>
   );
 }

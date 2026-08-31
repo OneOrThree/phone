@@ -20,6 +20,7 @@ import {
 } from '@/services/analyticsEvents';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 1:1 문의 화면(docs/prd/inquiry/low-level-design.md §5).
 // 담당 개발자를 골라 카카오톡 1:1 오픈채팅방으로 나간다 — 앱의 경계는 openURL에서 끝나고,
@@ -163,14 +164,14 @@ export default function InquiryScreen() {
   }, [target, pending, failed, category, closeModal, markViewed]);
 
   return (
-    <SettingsScaffold title="1:1 문의" onBack={() => navigation.goBack()}>
-      <Text style={s.lead}>무엇을 도와드릴까요?</Text>
-      <Text style={s.desc}>담당 개발자에게 카카오톡으로 직접 물어보실 수 있어요.</Text>
+    <SettingsScaffold title={t('settings.inquiry.title')} onBack={() => navigation.goBack()}>
+      <Text style={s.lead}>{t('settings.inquiry.lead')}</Text>
+      <Text style={s.desc}>{t('settings.inquiry.desc')}</Text>
 
-      <Text style={s.sectionLabel}>어떤 내용인가요?</Text>
+      <Text style={s.sectionLabel}>{t('settings.inquiry.categoryLabel')}</Text>
       <InquiryCategoryChips selected={category} onSelect={handleSelectCategory} />
 
-      <Text style={s.sectionLabel}>담당 개발자</Text>
+      <Text style={s.sectionLabel}>{t('settings.inquiry.contactLabel')}</Text>
       {ordered.map((contact) => (
         <InquiryContactCard
           key={contact.id}
@@ -182,25 +183,22 @@ export default function InquiryScreen() {
 
       <View style={s.note}>
         <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
-        <Text style={s.noteText}>
-          카카오톡으로 이동해요 — 앱이 없으면 브라우저에서 열려요.{'\n'}24시간 응대는 어려워 답장이
-          하루 이틀 걸릴 수 있어요.
-        </Text>
+        <Text style={s.noteText}>{t('settings.inquiry.note')}</Text>
       </View>
 
       {/* ConfirmCardModal의 제목·본문에는 textAlign이 없어 왼쪽 정렬이다 —
           가운데 정렬을 가정한 줄바꿈을 넣지 말 것. */}
       <ConfirmCardModal
         visible={target !== null}
-        title={failed ? '카카오톡을 열 수 없어요' : '카카오톡으로 이동할까요?'}
+        title={failed ? t('settings.inquiry.failTitle') : t('settings.inquiry.confirmTitle')}
         body={
           target === null
             ? ''
             : failed
-              ? `아래 주소를 길게 눌러 복사한 뒤 브라우저에서 열어 주세요.\n\n${target.openChatUrl}`
-              : `${target.name}님의 1:1 오픈채팅방이 열려요.\n대화 내용은 카카오톡에 저장되고, gromo 서버에는 남지 않아요.`
+              ? t('settings.inquiry.failBody', { url: target.openChatUrl })
+              : t('settings.inquiry.confirmBody', { name: target.name })
         }
-        primaryLabel={failed ? '다시 시도' : '이동하기'}
+        primaryLabel={failed ? t('common.retry') : t('settings.inquiry.go')}
         onPrimary={handleConfirm}
         primaryDisabled={pending}
         // 실패 상태에서만 켠다 — 본문의 URL이 유일한 수동 복구 경로다(policy.md D7).
@@ -209,7 +207,7 @@ export default function InquiryScreen() {
         //    없어서, 눌러도 카카오톡이 그대로 뜬다. 취소가 아닌 것을 취소라고 부르지 않는다.
         //    (GroupSettingsScreen·GroupOwnerTransferScreen 이 쓰는 같은 패턴)
         //    백드롭·뒤로 가기는 막지 않는다 — openURL 이 영영 안 끝나면 갇히기 때문이다.
-        secondaryLabel={pending ? undefined : failed ? '닫기' : '취소'}
+        secondaryLabel={pending ? undefined : failed ? t('common.close') : t('common.cancel')}
         onSecondary={closeModal}
         onRequestClose={closeModal}
         testID="inquiry.confirm"

@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { glassBarFill, glassBarHighlight, glassBarStroke } from '@/components/liquidGlass';
 import { PressableScale } from '@/components/PressableScale';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -58,11 +59,15 @@ function barPath(w: number): string {
 type IconName = keyof typeof Ionicons.glyphMap;
 function TabBtn({
   name,
+  label,
   icon,
   active,
   onPress,
 }: {
+  // 라우트 이름 겸 testID 조각 — 네비게이션 키라 번역하지 않는다.
   name: string;
+  // 화면에 읽히는 이름(음성 안내) — 번역 대상.
+  label: string;
   icon: IconName;
   active: boolean;
   onPress: () => void;
@@ -75,7 +80,7 @@ function TabBtn({
       onPress={active ? () => {} : onPress}
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
-      accessibilityLabel={name}
+      accessibilityLabel={label}
     >
       <Ionicons name={icon} size={26} color={active ? T.accent : T.inkMuted} />
     </PressableScale>
@@ -117,11 +122,35 @@ export function GroupRoomBottomBar({ onFocusPress }: { onFocusPress: () => void 
             ]}
           />
         )}
-        <TabBtn name="홈" icon="home-outline" active={false} onPress={() => goTab('홈')} />
-        <TabBtn name="리그" icon="trophy-outline" active={false} onPress={() => goTab('리그')} />
+        <TabBtn
+          name="홈"
+          label={t('group.groupRoomBottomBar.tabHome')}
+          icon="home-outline"
+          active={false}
+          onPress={() => goTab('홈')}
+        />
+        <TabBtn
+          name="리그"
+          label={t('group.groupRoomBottomBar.tabLeague')}
+          icon="trophy-outline"
+          active={false}
+          onPress={() => goTab('리그')}
+        />
         <View style={s.fabSlot} />
-        <TabBtn name="그룹" icon="people" active onPress={() => {}} />
-        <TabBtn name="전체" icon="menu-outline" active={false} onPress={() => goTab('전체')} />
+        <TabBtn
+          name="그룹"
+          label={t('group.groupRoomBottomBar.tabGroup')}
+          icon="people"
+          active
+          onPress={() => {}}
+        />
+        <TabBtn
+          name="전체"
+          label={t('group.groupRoomBottomBar.tabAll')}
+          icon="menu-outline"
+          active={false}
+          onPress={() => goTab('전체')}
+        />
       </View>
 
       {/* 중앙 FAB — 이 그룹의 집중 세션 시작(그룹 페이지 기본) */}

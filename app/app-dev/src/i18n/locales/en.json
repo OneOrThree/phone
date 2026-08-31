@@ -1,0 +1,2143 @@
+{
+  "focus": {
+    "categoryScreen": {
+      "title": "What will you focus on?",
+      "addSubject": "Add subject",
+      "addMessage": "Enter a name for the subject you'll focus on.",
+      "editTitle": "Edit subject name",
+      "duplicateTitle": "That subject already exists",
+      "duplicateMessage": "Please enter a different name.",
+      "deleteTitle": "Delete subject",
+      "deleteMessage": "The focus time recorded for this subject will be gone!",
+      "rename": "Rename",
+      "recommendedTitle": "Recommended subjects for %{category}",
+      "add": "Add",
+      "colorOption": "Color %{index}",
+      "guide1": "Pick a subject to focus on!\nTap a subject to choose how you'll focus — unlimited, timer, or Pomodoro.",
+      "guide2": "When you finish, the time is recorded per subject and counts toward your league ranking.\nLet's get started!"
+    },
+    "subjectRow": {
+      "colorLabel": "Change color for %{name}",
+      "menuLabel": "%{name} menu"
+    },
+    "timerMethodSheet": {
+      "title": "%{subject} · Timer type",
+      "sub": "Choose how you want to focus.",
+      "countupTitle": "Count up",
+      "countupDesc": "Time adds up from zero",
+      "countdownTitle": "Countdown",
+      "countdownDesc": "Counts down from your goal time",
+      "pomodoroTitle": "Pomodoro",
+      "pomodoroDesc": "Focus and break, on repeat"
+    },
+    "setupSheet": {
+      "start": "Start focusing"
+    },
+    "countdownSheet": {
+      "title": "%{subject} · Countdown",
+      "sub": "Set a goal time and it counts down to zero.",
+      "hourUnit": {
+        "one": "%{count} hour",
+        "other": "%{count} hours"
+      },
+      "minuteUnit": {
+        "one": "%{count} minute",
+        "other": "%{count} minutes"
+      }
+    },
+    "pomodoroSheet": {
+      "title": "%{subject} · Pomodoro",
+      "sub": "Focus and break, on repeat.",
+      "focus": "Focus",
+      "break": "Break",
+      "sets": "Sets",
+      "valueMinutes": {
+        "one": "%{count} minute",
+        "other": "%{count} minutes"
+      },
+      "valueSets": {
+        "one": "%{count} set",
+        "other": "%{count} sets"
+      },
+      "decrease": "Decrease %{label}",
+      "increase": "Increase %{label}"
+    },
+    "session": {
+      "toLandscape": "Switch to landscape",
+      "toPortrait": "Switch to portrait",
+      "openMenu": "Open focus menu",
+      "break": "Break",
+      "goal": "Goal %{time}",
+      "setProgress": "Set %{current} / %{total}",
+      "friendsTitle": "My friends",
+      "friendsEmptyTitle": "No friends yet",
+      "friendsEmptySub": "Add friends in the League tab and\nyou'll see them here while you focus.",
+      "groupTitle": "Group: %{name}",
+      "groupEmptyTitle": "No group members yet",
+      "groupEmptySub": "Once members join your group,\nyou'll see them here while you focus.",
+      "categoryLeagueTitle": "%{category} league",
+      "sameExamTitle": "Same exam",
+      "examUnsetTitle": "No target exam set",
+      "examUnsetSub": "Set your target exam and\nothers preparing for it will show up here.",
+      "examEmptyTitle": "No one else is preparing for this exam yet",
+      "examEmptySub": "People with the same goal\nwill gather here soon.",
+      "allLeagueTitle": "Overall league",
+      "leagueEmptyTitle": "No league members yet",
+      "leagueEmptySub": "Once you're placed in a league, you'll see\neveryone studying together here.",
+      "doneTitle": "Focus complete!",
+      "doneSub": "You made it all the way through your %{subject} focus.",
+      "donePomodoroSub": {
+        "one": "You finished all %{count} set of %{subject}.",
+        "other": "You finished all %{count} sets of %{subject}."
+      },
+      "guide1": "Your focus session has started!\nThe time that passes here becomes your focus record for the subject.",
+      "guide2": "Try swiping sideways.\nYou can watch friends, your group, others taking the same exam, and the whole league focus.",
+      "guide3": "From the menu you can switch subjects or see today's record for each subject.",
+      "guide4": "Tap pause for a quick break, or stop when you're done.\nStopping saves your record and takes you to the results."
+    },
+    "liveGrid": {
+      "soloBanner": "You're the only one focusing right now",
+      "focusingBanner": {
+        "one": "%{count} person is focusing with you right now",
+        "other": "%{count} people are focusing with you right now"
+      }
+    },
+    "menuDrawer": {
+      "title": "Menu",
+      "allowedApps": "Use allowed apps",
+      "allowedAppsSub": "Apps you can use while focusing",
+      "todayTotal": "Today's total focus",
+      "bySubject": "Focus by subject",
+      "allowedAppsNote": "Time spent in allowed apps still counts as focus.",
+      "allowedChecking": "Checking allowed apps…",
+      "allowedCount": {
+        "one": "%{count} app allowed",
+        "other": "%{count} apps allowed"
+      },
+      "allowedNone": "No allowed apps",
+      "allowedHint": "Go to your home screen and open the allowed app yourself.\nYou can change allowed apps in the All tab → Apps allowed during focus.",
+      "blockedWarn": "Apps that aren't allowed stay locked and won't open"
+    },
+    "resultScreen": {
+      "title": "Focus complete!",
+      "firstTitle": "First focus complete!",
+      "sub": "%{subject} · Your consistency is adding up",
+      "firstSub": "You took your first step today 🎉",
+      "rewardLabel": "Earned %{amount} %{currency}",
+      "thisSession": "This session",
+      "bySubject": "Focus by subject",
+      "streakDone": "This week's focus streak is complete!",
+      "streakTodo": "Let's fill in this week's focus streak!",
+      "streakDays": {
+        "one": "%{count} day in a row",
+        "other": "%{count} days in a row"
+      },
+      "streakNotice": "Focus for 10 minutes or more a day to keep your streak going",
+      "weekFocusTime": "This week's focus time",
+      "thisMonth": "This month",
+      "compareTitle": "%{when} comparison",
+      "axisFriends": "Friends",
+      "axisCategory": "Same category",
+      "avgFriends": "Friend average",
+      "avgAll": "Overall average",
+      "avgCategory": "Same category average",
+      "emptyFriends": "%{when}, no friends have focused yet. Add friends and compare!",
+      "errorFriends": "Couldn't load the friend average",
+      "emptyAll": "%{when}, there aren't enough focus records yet",
+      "errorAll": "Couldn't load the overall average",
+      "emptyCategory": "%{when}, there are no records from the same category yet",
+      "errorCategory": "Couldn't load the same category average",
+      "compareAhead": "You focused %{amount} more than the %{label}.",
+      "compareBehind": "%{amount} to go until the %{label}. One more step today!",
+      "loading": "Loading…",
+      "home": "Home",
+      "again": "Focus again"
+    },
+    "weekStreakModal": {
+      "title": "This week's streak is complete! 🎉",
+      "sub": "You filled in every single day from Monday to Sunday",
+      "pill": "7 days of focus in a row",
+      "cta": "See you again next week!"
+    },
+    "leaveNotification": {
+      "warnTitle": "Your focus is paused!",
+      "warnBody": {
+        "one": "Come back within %{count} second to keep your %{subject} focus going.",
+        "other": "Come back within %{count} seconds to keep your %{subject} focus going."
+      },
+      "endTitle": "Focus session ended",
+      "endBody": "We saved the time you focused so far. Start again whenever you're ready!"
+    }
+  },
+  "home": {
+    "duration": {
+      "hourMinute": "%{h}h %{m}m",
+      "hour": "%{h}h",
+      "minute": "%{m}m"
+    },
+    "rank": "#%{rank}",
+    "bellA11y": "View notifications",
+    "bellA11yUnread": "View notifications, you have unread notifications",
+    "changeCharacter": "Change character",
+    "currencyHistoryA11y": "Time Shard history",
+    "streakPrefix": "Study streak ",
+    "streakSuffix": " days",
+    "permissionErrorTitle": "Permission failed",
+    "today": {
+      "title": "Today",
+      "titleSub": "",
+      "detail": "Details",
+      "focus": "Study focus",
+      "phoneUsage": "Phone use",
+      "goal": "Goal %{duration}",
+      "permissionNotice": "Turn on Screen Time permission to\nsee today's usage.",
+      "enablePermission": "Turn on",
+      "enablePermissionA11y": "Turn on Screen Time permission",
+      "usageDetailA11y": "View phone usage by app"
+    },
+    "guide": {
+      "intro": "Hi! I'm Gromo.\nOn Home, you can check today's study progress with me.",
+      "todayCard": "You can see today's focus time and phone usage at a glance here.\nTap ‘Details’ to jump to your stats.",
+      "fab": "When you're ready, tap this button to start focusing right away!"
+    }
+  },
+  "group": {
+    "betBalanceRow": {
+      "feeLabel": "Stake",
+      "text": "%{label} %{amount} · Your balance %{balance}",
+      "a11y": "%{label} %{amount} coins, your balance %{coins} coins",
+      "a11yUnknown": "%{label} %{amount} coins, your balance unknown"
+    },
+    "challengeCard": {
+      "screenTimeCaption": "Keep today's screen time at or under the goal",
+      "windowMeasureCaption": "Usage is tallied in 15-minute blocks, so there can be some error. Depending on your app version or device state, the tally may be delayed or missing",
+      "noPermissionCaption": "You can't join without screen time permission",
+      "unmeasuredCaption": "— means it hasn't been tallied yet",
+      "noProgressCaption": "This challenge doesn't show progress",
+      "betAchievedCaption": "You already hit today's goal, so you can't join",
+      "betAchievedCreateCaption": "You already hit today's goal, so you can't open a bet",
+      "betFailedCaption": "You already went over the goal, so you can't join",
+      "betFailedCreateCaption": "You already went over the goal, so you can't open a bet",
+      "betLeftCaption": "You canceled your entry. Your stake is back in your balance",
+      "betCanceledCaption": "You canceled your entry, so the bet closed. Your stake is back in your balance",
+      "dormantCaption": "No one has joined",
+      "dormantTag": "Dormant",
+      "restCaption": "Today is a rest day",
+      "monthDay": "%{month}/%{day}",
+      "countdownMinutes": "You can cancel within %{minutes}m %{seconds}s",
+      "countdownSeconds": "You can cancel within %{seconds}s",
+      "timePart": " %{time}",
+      "nextDay": "%{day}%{time}",
+      "nextDayUpcoming": "Next %{day}%{time}",
+      "achievedMark": "Achieved ✓",
+      "achievedA11y": "%{nickname} achieved",
+      "cannotJoinTitle": "Can't join",
+      "cannotOpenHistoryTitle": "Can't open history",
+      "weekAllJoined": "You've already joined every remaining day this week",
+      "joinInfoFailedTitle": "Couldn't check your entry info",
+      "reservationGone": "This reservation is already gone — refreshing to the latest state",
+      "sessionGone": "This day is already closed out — refreshing to the latest state",
+      "leaveClosed": "The cancel window has passed, so we couldn't cancel your entry",
+      "alreadyLeft": "You already canceled this entry — refreshing to the latest state",
+      "sessionSettled": "This day is already settled or closed, so we couldn't cancel your entry",
+      "leaveFailedTitle": "Couldn't cancel your entry",
+      "leaveTitle": "Cancel entry",
+      "no": "No",
+      "leaveTodayBody": "Get your %{stake} coin stake back and cancel today's entry?",
+      "leaveNextBody": "Cancel your entry for %{day} and get your %{stake} coin stake back?",
+      "leaveBetBody": "Get your %{stake} coin stake back and leave the bet?",
+      "cancelBetBody": "Get your %{stake} coin stake back and close the bet?",
+      "betStarted": "The bet has already started, so we couldn't cancel your entry",
+      "notJoinedBody": "You're not in this bet. Please refresh the screen.",
+      "betSettled": "This bet is already settled or closed, so we couldn't cancel your entry",
+      "ownerOnlyCancel": "Only the person who opened the bet can cancel it",
+      "othersJoined": "Other people have joined, so you can't cancel",
+      "deleteTitle": "Delete challenge",
+      "deleteBody": "Delete this challenge?",
+      "moneyAppearedTitle": "Coins are on the line now",
+      "moneyAppearedBody": "Someone just joined. Please check the details.",
+      "moneyChangedTitle": "The coins on the line changed",
+      "moneyChangedBody": "Please check what changed and tap again.",
+      "deletePreviewFailedTitle": "Couldn't check what deleting affects",
+      "dowA11y": "Repeats every %{days}%{next}",
+      "dowA11yNext": " · %{next}",
+      "todayAt": "Today %{time}",
+      "inProgressUntil": "In progress · ends %{time}",
+      "inProgressUntilMidnight": "In progress · ends at midnight",
+      "coins": "%{coins} coins",
+      "joinDay": "Join %{day}",
+      "betSummary": "🪙 Stake %{stake} · Pot %{pot} · %{members} joined",
+      "createBet": "Open a bet",
+      "stakeOnly": "🪙 Stake %{stake}",
+      "joinPrompt": "🪙 Stake %{stake} · %{members} joined — Join",
+      "nextReserved": "%{day} · %{coins} coins",
+      "joinedTag": "Joined",
+      "tomorrowTag": "Starts tomorrow",
+      "leaveDayA11y": "Cancel entry for %{day}",
+      "leaveTodayA11y": "Cancel today's entry",
+      "weekAll": "All remaining days this week",
+      "lastBetCaption": "Last bet (%{date}): %{summary}",
+      "lastBetAchieved": "%{achieved} of %{total} achieved"
+    },
+    "challengeDeleteSheet": {
+      "title": "This challenge is running right now",
+      "daysLabel": "Days with stakes on the line",
+      "dayA11y": "%{day}, %{count} joined, pot %{pot} coins",
+      "dayValue": "%{count} · %{pot} coins",
+      "warn": "%{days} will be voided and %{refund} coins from the pot go back to everyone. Those days won't be judged — days that already have results stay as they are.",
+      "note": "Past records stay in the group's Challenge history"
+    },
+    "challengeHistoryScreen": {
+      "title": "Challenge history",
+      "filterNotice": "Showing only %{label}",
+      "deletedTag": "Deleted",
+      "cardStat": "Stake %{stake} · Pot %{pot}",
+      "emptyTitle": "No past records yet",
+      "emptyDesc": "Challenge results will pile up here once they come in",
+      "errorGroupGone": "This group is gone.",
+      "errorMemberOnly": "Only members can see this.",
+      "errorLoadFailed": "Couldn't load past records.",
+      "moreDeadNotice": "No more past records to load",
+      "moreFailedNotice": "Couldn't load more past records"
+    },
+    "challengeHistoryView": {
+      "notJoined": "Not joined",
+      "refunded": "Refunded",
+      "voidedSummary": "Called off — everyone refunded",
+      "forfeitedSummary": "No one made it — stakes forfeited",
+      "achievedSummary": "%{achievedCount} of %{participantCount} achieved",
+      "deletedChallenge": "Deleted challenge",
+      "a11yStake": {
+        "one": "Stake %{count} coin",
+        "other": "Stake %{count} coins"
+      },
+      "a11yPot": {
+        "one": "Pot %{count} coin",
+        "other": "Pot %{count} coins"
+      },
+      "a11yStakeRefunded": "Stake refunded",
+      "a11yNoChange": "No change",
+      "a11yGained": {
+        "one": "Gained %{count} coin",
+        "other": "Gained %{count} coins"
+      },
+      "a11yLost": {
+        "one": "Lost %{count} coin",
+        "other": "Lost %{count} coins"
+      }
+    },
+    "challengeLabel": {
+      "screenTime": "screen time",
+      "focus": "focus",
+      "atMost": " or less",
+      "daily": "%{minutes} min%{atMost} of %{what} a day",
+      "window": "%{start}~%{end}",
+      "windowEveryday": "Daily %{start}~%{end}",
+      "windowWithMinutes": "%{when} · %{minutes} min%{atMost} of %{what}",
+      "windowOnly": "%{when} · %{what}",
+      "categoryScreenTime": "Screen time",
+      "categoryFocus": "Focus time"
+    },
+    "groupCardBack": {
+      "loading": "Loading %{label}…",
+      "retryHint": "Reloads the info that failed",
+      "private": "Private",
+      "public": "Public",
+      "flipFrontA11y": "View front of %{name} card",
+      "flipFrontHint": "Goes back to the front of the card",
+      "cardA11y": "%{name}, back of card, %{privacy}, %{members}/%{maxMembers} members, page %{position} of %{pageCount}",
+      "cardHint": "Double tap to see the front of the card",
+      "headerMeta": "%{privacy} · %{members}/%{maxMembers}",
+      "optionsA11y": "%{name} group options",
+      "focusMembers": "Focusing",
+      "detailError": "Couldn't load focus status · Retry",
+      "focusUnknown": "Can't check focus status · Retry",
+      "focusCountA11y": "%{count} focusing right now%{stale}",
+      "stalePart": ", previous value",
+      "focusCount": "%{count} focusing",
+      "updateFailed": "Couldn't update · Retry",
+      "challengeSectionA11y": "%{count} challenges",
+      "challenges": "Challenges",
+      "countSuffix": "%{count}",
+      "noProgress": "No progress",
+      "restDay": "Rest day",
+      "beforeAggregation": "Not tallied",
+      "progressWithGoal": "%{progress}/%{goal} min%{achieved}",
+      "progressOnly": "%{progress} min%{achieved}",
+      "achievedPart": " · achieved",
+      "challengeRowA11y": "%{label}%{progress}",
+      "progressPart": ", my progress %{progress}",
+      "noChallenges": "No challenges running",
+      "challengesError": "Couldn't load challenges · Retry",
+      "notice": "Notice",
+      "noNotice": "No notices yet",
+      "announcementsError": "Couldn't load notices · Retry",
+      "memberSummaryA11y": "Members %{members}/%{maxMembers}. %{names}%{overflow}",
+      "overflowPart": " and %{count} more",
+      "members": "Members",
+      "memberCaption": "Members with you",
+      "membersError": "Couldn't load members · Retry",
+      "inviteA11y": "Invite members to %{name}",
+      "invite": "Invite",
+      "startFocus": "Focus with this group",
+      "openRoom": "See the whole room"
+    },
+    "groupCardDeck": {
+      "findMore": "Find groups",
+      "pageAnnounce": "%{name}, page %{page} of %{total}",
+      "dotA11y": "%{name}, go to page %{page} of %{total}",
+      "counterA11y": "Page %{current} of %{total}"
+    },
+    "groupCardFront": {
+      "private": "Private",
+      "public": "Public",
+      "gripA11y": "%{name} card order",
+      "gripHint": "Press and hold for 0.3 seconds, then drag left or right, or use accessibility actions to reorder",
+      "moveForward": "Move forward",
+      "moveBackward": "Move backward",
+      "viewSummary": "See room summary",
+      "cardA11y": "%{name}%{description}, my card icon %{emoji}, %{privacy}, %{owner}%{members}/%{maxMembers} members, page %{position} of %{pageCount}",
+      "descriptionPart": ", %{description}",
+      "ownerPart": "group owner, ",
+      "cardHint": "Double tap to see this card's room summary",
+      "owner": "Owner"
+    },
+    "groupInviteSheet": {
+      "blockFull": "This group is full",
+      "blockLimit": "You've hit the limit on how many groups you can join",
+      "blockPassword": "This group is password-protected, so you can't join",
+      "screenTimeHint": "Keep your daily screen time at or under the goal to make it",
+      "screenTime": "screen time",
+      "focus": "focus",
+      "missionDaily": "%{minutes} min of %{what} a day",
+      "missionWindow": "Daily %{start}~%{end} · %{what}",
+      "goneTitle": "This group is gone",
+      "goneDesc": "The invite link expired or the group no longer exists.",
+      "failedTitle": "Couldn't open the invite",
+      "title": "You've got a group invite",
+      "desc": "A group to focus in together. Join and you can start right away.",
+      "membersLabel": "Members",
+      "membersValue": "%{members}/%{maxMembers}",
+      "goalLabel": "Goal",
+      "join": "Join"
+    },
+    "groupScreen": {
+      "guideGroupName": "First focus circle",
+      "guideGroupDescription": "Focus together and cheer each other on",
+      "guideMemberOwner": "Gromi",
+      "guideMemberOther": "Focus Bud",
+      "guideNoticeTitle": "Let's focus together again today",
+      "guideNoticeContent": "We're meeting once more at 8 PM.",
+      "guideFocusTag": "Study",
+      "inviteFailTitle": "Couldn't create an invite link",
+      "refreshFailed": "Couldn't refresh the list",
+      "loadFailed": "Couldn't load groups"
+    },
+    "inviteShare": {
+      "message": "You're invited to the group %{name}! Let's focus together ⭐️\n%{url}"
+    },
+    "lastBetResultSheet": {
+      "snapshotMissingA11y": "no judgment record",
+      "monthDay": "%{month}/%{day}",
+      "achievedImage": "Character happy about hitting the goal",
+      "failedImage": "Character disappointed about missing the goal",
+      "pendingImage": "Character waiting for the result",
+      "refundedBanner": "No one made it, so everyone was refunded",
+      "forfeitedBanner": "No one made it, so the stakes were forfeited",
+      "verdictPending": "Not judged",
+      "verdictAchieved": "Achieved",
+      "verdictFailed": "Missed",
+      "rowA11yPending": "%{head} not judged",
+      "rowA11yPendingComma": "%{head}, not judged",
+      "verdictPartGain": "%{verdict}, %{coins} coins",
+      "verdictPartLoss": "%{verdict}, minus %{coins} coins",
+      "rowA11yComma": "%{head}, %{verdictPart}",
+      "rowA11ySpace": "%{head} %{verdictPart}",
+      "title": "Last bet result",
+      "sub": "%{date} · %{count} joined",
+      "stakeLabel": "Stake",
+      "potLabel": "Pot",
+      "moreHistory": "See more past records"
+    },
+    "lastSettledView": {
+      "shortParticipantsSummary": "Called off — too few participants",
+      "shortParticipantsCause": "It was called off because there were too few participants",
+      "challengeDeletedSummary": "Void — challenge deleted",
+      "challengeDeletedCause": "It was voided because the challenge was deleted",
+      "refundDeadlineSummary": "Refunded — settlement delayed",
+      "refundDeadlineCause": "Settlement was delayed",
+      "voidBanner": "%{cause}. Your stake has been returned"
+    },
+    "memberManageScreen": {
+      "title": "Manage members",
+      "kick": "Remove",
+      "kickA11y": "Remove %{name}",
+      "kickConfirm": "Remove %{name}?\nRemoved members can't come back in.",
+      "cannotKickTitle": "Can't remove",
+      "cannotKickSelf": "You can't remove yourself.",
+      "kickFailTitle": "Couldn't remove",
+      "loadFailed": "Couldn't load members",
+      "emptyTitle": "No members to manage",
+      "emptyDesc": "There's no one you can remove yet."
+    },
+    "memberTile": {
+      "minutes": "%{minutes} min",
+      "hours": "%{hours} hr",
+      "hoursMinutes": "%{hours} hr %{minutes} min",
+      "todayFocus": "Today %{value}"
+    },
+    "noticeDate": {
+      "yesterday": "Yesterday",
+      "daysAgo": {
+        "one": "%{count} day ago",
+        "other": "%{count} days ago"
+      },
+      "monthDay": "%{month}/%{day}"
+    },
+    "ownerTransferScreen": {
+      "title": "Transfer ownership",
+      "submit": "Transfer",
+      "guide": "Pick the member who'll become the new group owner.",
+      "totalFocus": "Total %{duration}",
+      "durationMinutes": {
+        "one": "%{count} min",
+        "other": "%{count} mins"
+      },
+      "durationHours": {
+        "one": "%{count} hr",
+        "other": "%{count} hrs"
+      },
+      "durationHoursMinutes": "%{hours} hr %{minutes} min",
+      "confirmBody": "Hand the group over to %{name}?",
+      "withdrawNote": "\nYou'll leave the group after handing it over.",
+      "successToast": "%{name} is the new group owner",
+      "leaveFailTitle": "Couldn't leave the group",
+      "leaveFailBody": "Ownership was transferred, but leaving failed. Please leave the group yourself.",
+      "groupGoneToast": "This group is already gone, or you've left it",
+      "notOwnerToast": "You're not the group owner, so you can't transfer it",
+      "transferFailTitle": "Couldn't transfer ownership",
+      "loadFailed": "Couldn't load members",
+      "emptyTitle": "No one to hand over to",
+      "emptyDesc": "You need another member in the group to transfer ownership."
+    },
+    "pageIndicator": {
+      "selectPage": "Select page",
+      "dotA11y": "%{label}, %{page} / %{total}",
+      "findMore": "Find groups",
+      "nthGroup": "Group %{n}",
+      "counterA11y": "Page %{current} of %{total}",
+      "counterHint": "Swipe up or down to change pages",
+      "nextPage": "Next page",
+      "prevPage": "Previous page"
+    },
+    "profileEditScreen": {
+      "title": "Group profile",
+      "nameLabel": "Group name",
+      "descriptionLabel": "About",
+      "descriptionPlaceholder": "Tell people about your group (optional)",
+      "capacityLabel": "Capacity",
+      "maxMembersLabel": "Max members",
+      "capacityDecreaseA11y": "Decrease capacity",
+      "capacityIncreaseA11y": "Increase capacity",
+      "memberCount": {
+        "one": "%{count} member",
+        "other": "%{count} members"
+      },
+      "capacityHint": {
+        "one": "%{count} member right now — you can't set it lower than this",
+        "other": "%{count} members right now — you can't set it lower than this"
+      },
+      "visibilityLabel": "Visibility",
+      "privateLabel": "Private group",
+      "privateNote": "Private groups don't show up in search. People can only join with an invite link",
+      "publicNote": "Anyone can search the group name and join",
+      "savedToast": "Group settings saved",
+      "capacityTooSmallTitle": "Can't lower the capacity",
+      "capacityTooSmallBody": "You can't set it below the current member count.",
+      "saveFailTitle": "Couldn't save",
+      "loadFailed": "Couldn't load the group",
+      "ownerOnlyTitle": "Only the group owner can open this",
+      "ownerOnlyDesc": "The group owner manages the group profile."
+    },
+    "roomScreen": {
+      "groupFallbackName": "My group",
+      "settingsA11y": "Group settings",
+      "loadFailed": "Couldn't load the group",
+      "staleBanner": "Couldn't load the latest info",
+      "inviteFailTitle": "Couldn't create an invite link",
+      "refundedTitle": "Your stake was refunded",
+      "refundedBody": "We've returned the stake you put in.\nIt's already in your balance.",
+      "refundedNotMember": "You're not in this group right now, so the room can't be opened.",
+      "noticeSection": "Notices",
+      "seeAll": "See all",
+      "noticeLoadFailed": "Couldn't load notices",
+      "noticeRefreshFailed": "Couldn't refresh notices",
+      "noticeEmpty": "No notices yet",
+      "noticeCompose": "Write a notice",
+      "challengeSection": "Challenges",
+      "challengeCreate": "Create a challenge",
+      "challengeLoadFailed": "Couldn't load challenges",
+      "challengeRefreshFailed": "Couldn't refresh challenges",
+      "challengeEmpty": "No challenges yet",
+      "challengeHistoryLink": "Challenge history",
+      "challengeDeleteBlockedTitle": "Can't delete this challenge",
+      "challengeDeleteBlockedBody": "There's a bet in progress, so it can't be deleted.",
+      "challengeDeleteFailTitle": "Couldn't delete the challenge",
+      "memberSection": "Members",
+      "tileInvite": "Invite",
+      "tileFull": "Full",
+      "betUnavailableTitle": "Can't open a bet",
+      "betUnavailableBody": "Bets aren't available right now. Please try again in a bit.",
+      "challengeEndedTitle": "This challenge has ended",
+      "betCreateEndedBody": "You can't open a bet on a challenge that's ended.",
+      "betJoinEndedBody": "You can't join a bet on a challenge that's ended.",
+      "betAlreadyOpenTodayTitle": "Today's bet is already open",
+      "betAlreadyOpenTomorrowTitle": "Tomorrow's bet is already open",
+      "betAlreadyOpenBody": "This is the latest state. Open it again to join.",
+      "betChangedTitle": "The bet changed",
+      "betChangedBody": "Please open the latest bet again.",
+      "betClosedTitle": "This bet is closed",
+      "betClosedBody": "It's already closed, so you can't join.",
+      "betAlreadyJoinedTitle": "You already joined this bet",
+      "betAlreadyJoinedBody": "Refreshed to the latest state."
+    },
+    "weekdayFull": {
+      "mon": "Monday",
+      "tue": "Tuesday",
+      "wed": "Wednesday",
+      "thu": "Thursday",
+      "fri": "Friday",
+      "sat": "Saturday",
+      "sun": "Sunday"
+    },
+    "findMoreCard": {
+      "a11y": "Find groups, page %{position} of %{pageCount}",
+      "title": "Find groups",
+      "desc": "Find more groups to study with"
+    },
+    "groupCardEmojiPicker": {
+      "title": "My card icon",
+      "hint": "Only you can see this, on this device. Use the arrow keys to move the selection.",
+      "optionA11y": "Card icon %{label}",
+      "nextIcon": "Next icon",
+      "prevIcon": "Previous icon",
+      "notice": "Only you can see this, on this device"
+    },
+    "progressFormat": {
+      "fraction": "%{progress}/%{goal} min",
+      "progressOnly": "%{progress} min",
+      "unmeasuredA11y": "%{nickname}, not counted yet",
+      "fractionA11y": "%{nickname}, %{progress} of %{goal} minutes",
+      "progressOnlyA11y": "%{nickname}, %{progress} minutes",
+      "windowFocusToleranceNotice": "You still count as done even if you're up to 5 minutes short of the goal"
+    },
+    "noticeComposeSheet": {
+      "errorNoticeGone": "This notice has already been deleted.",
+      "errorGroupGone": "This group no longer exists.",
+      "errorForbidden": "You don't have permission to write notices.",
+      "errorMemberOnly": "Only group members can use this.",
+      "saveFailEdit": "Couldn't update the notice. Please try again in a moment.",
+      "saveFailCreate": "Couldn't post the notice. Please try again in a moment.",
+      "titleEdit": "Edit notice",
+      "titleCreate": "Write a notice",
+      "sub": "Everyone in the group can see this.",
+      "titleField": "Title",
+      "titlePlaceholder": "Notice title",
+      "contentField": "Content",
+      "contentPlaceholder": "Write the notice here",
+      "submitEdit": "Update",
+      "submitCreate": "Post"
+    },
+    "groupRoomBottomBar": {
+      "tabHome": "Home",
+      "tabLeague": "League",
+      "tabGroup": "Group",
+      "tabAll": "All"
+    },
+    "common": {
+      "dismiss": "Cancel",
+      "insufficientCoins": "Not enough coins"
+    },
+    "betError": {
+      "cannotJoinTitle": "Can't join",
+      "screenTimeBody": "You need to allow Screen Time permission to join.",
+      "closedBody": "The time to join has passed. Refreshing now.",
+      "challengeGoneTitle": "This challenge is gone",
+      "challengeGoneBody": "The group owner may have deleted it.",
+      "memberOnlyTitle": "Group members only",
+      "memberOnlyBody": "You've left the group, or you're no longer a member.",
+      "guestTitle": "Log in to join",
+      "guestBody": "Guests can't spend coins.",
+      "joinFailed": "Couldn't join. Please try again in a moment."
+    },
+    "joinNextSheet": {
+      "dateChangedTitle": "The date has changed",
+      "dateChangedBody": "Midnight has passed, so the date you're booking may have changed. Please reopen this for the latest.",
+      "reservedDateChangedTitle": "Your booked date has changed",
+      "reservedDateChangedBody": "You're booked for %{day}. If that's not what you wanted, you can cancel before that day starts.",
+      "joinDay": "Join %{day}",
+      "subWithStart": "%{label} · Starts %{start}",
+      "note": "The %{stake}-coin entry fee is deducted as soon as you join. You can cancel and get a full refund any time before %{day} starts.",
+      "noteWithStart": "The %{stake}-coin entry fee is deducted as soon as you join. You can cancel and get a full refund any time before %{day} %{start}.",
+      "insufficientCta": "Not enough coins (%{shortage} more needed)"
+    },
+    "joinWeekSheet": {
+      "title": "Days left this week",
+      "datesChangedTitle": "The days you can join have changed",
+      "datesChangedBody": "Refreshing to the latest.",
+      "dayA11y": "%{day}, entry fee %{stake} coins",
+      "totalUniform": "%{days} days × %{stake} coins = %{total} coins total",
+      "totalMixed": "%{days} days · %{total} coins total",
+      "totalLabel": "Total",
+      "note": "All %{total} coins are deducted now when you join. You can cancel one day at a time — days that haven't started yet are fully refunded up until they start.",
+      "shortagePartial": "You're %{shortage} coins short. You can only join %{count} days (%{total} coins)",
+      "shortageNone": "You're %{shortage} coins short. There are no days you can join",
+      "submitAll": "Join all %{days} days",
+      "submitPartial": "Join %{count} days only (%{total} coins)"
+    },
+    "groupFindSheet": {
+      "loginTitle": "You need to log in",
+      "loginBody": "Log in to join groups.",
+      "loginLater": "Later",
+      "loginGo": "Log in",
+      "joinInProgress": "Your request is still being processed. Please try again in a moment.",
+      "joinFull": "This group is full. Try another one.",
+      "joinGone": "This group no longer exists. The group owner may have deleted it.",
+      "confirmTitle": "Join group",
+      "confirmBody": "Join %{name}?",
+      "searching": "Searching…",
+      "loading": "Loading…",
+      "searchError": "Couldn't search",
+      "loadError": "Couldn't load",
+      "noMatch": "No public group with that name",
+      "noneYet": "No public groups yet",
+      "title": "Find groups",
+      "sub": "Search public groups by name and join right away.",
+      "searchPlaceholder": "Search by group name",
+      "joinedTag": "Joined",
+      "fullTag": "Full"
+    },
+    "challengeResultModal": {
+      "achievedImage": "Character celebrating a completed goal",
+      "achievedTitle": "You hit your goal!",
+      "failedImage": "Character disappointed at missing the goal",
+      "failedTitle": "So close",
+      "pendingImage": "Character whose result isn't decided yet",
+      "pendingTitle": "Couldn't decide the result",
+      "forfeitedImage": "Character disappointed that nobody made it",
+      "forfeitedTitle": "Nobody made it",
+      "voidedImage": "Character taking a called-off bet in stride",
+      "voidedTitle": "The bet was called off",
+      "refundedImage": "Character who got the entry fee back",
+      "refundedTitle": "Your entry fee was refunded",
+      "monthDay": "%{month}/%{day}",
+      "forfeitedNotice": "Nobody made it, so the %{pot}-coin pot is gone",
+      "voidedShortNotice": "Called off — not enough players · Entry fees refunded",
+      "voidedNotice": "The bet was called off, so entry fees were refunded",
+      "refundedNotice": "Settlement was delayed, so entry fees were refunded",
+      "mySettlement": "My settlement: %{delta} coins",
+      "rowA11yGain": "%{head}, %{coins} coins",
+      "rowA11yLoss": "%{head}, minus %{coins} coins",
+      "dateResult": "%{date} results",
+      "sectionAchieved": "Achieved",
+      "sectionFailed": "Not achieved",
+      "sectionPending": "Undecided"
+    },
+    "challengeComposeSheet": {
+      "hourItem": "%{hour} h",
+      "minuteItem": "%{minute} m",
+      "categoryFocus": "Focus time",
+      "categoryScreenTime": "Screen time",
+      "durationLabelFocus": "Daily focus goal",
+      "durationLabelScreenTime": "Daily screen time goal",
+      "durationLabelWindow": "Goal time within the window",
+      "typeDuration": "Daily total",
+      "typeWindow": "Time window",
+      "repeatDaysRequired": "Please pick the days this challenge runs",
+      "categoryCaptionFocus": "On each day it runs, focus for at least the goal time to complete it",
+      "categoryCaptionScreenTime": "Keep your screen time at or under the goal on the days it runs to complete it. Only members who allowed permission take part",
+      "windowFocusCaption": "On each day it runs, focus for at least the goal time inside the window you set to complete it. %{notice}",
+      "windowScreenTimeCaption": "On each day it runs, keep your screen time at or under the goal inside the window you set to complete it. Only members who allowed permission take part. Usage is counted in 15-minute blocks, so there can be some margin of error. Counting may be late or missed depending on the app version or device state",
+      "windowPassedNote": "Today's window has passed, so this starts from the next day it runs",
+      "windowMidnightCaption": "A window has to end within the same day. For times past midnight, create a challenge for the next day",
+      "createdWithNonParticipants": "Challenge created — members without Screen Time permission are left out",
+      "takenCaption": "To use a type and mode you already have, delete the existing challenge first",
+      "allTakenCaption": "You already have every type of challenge",
+      "takenHint": "You've already made this one",
+      "chipOverWindowHint": "Longer than the window",
+      "submittingCaption": "Processing…",
+      "betNote": "Set it between 1 and 3,000 coins. Everyone decides whether to join on each day it runs, and the bet only holds with 2 or more people. A bet can't be turned off once it's created — to drop it, delete the challenge and make it again",
+      "stakeRangeCaption": "Please set the entry fee between 1 and 3,000 coins",
+      "hours": "%{hours} hr",
+      "hoursMinutes": "%{hours} hr %{minutes} min",
+      "minutes": "%{minutes} min",
+      "minutesWithHours": "%{minutes} min (%{hours})",
+      "durationRangeCaption": "Please enter a goal time between 1 and %{max}",
+      "durationOverWindowCaption": "That's longer than the window. Please enter %{max} or less",
+      "goalStepCaption": "Usage is counted in 15-minute blocks. Pick something like 15, 30, or 45 minutes",
+      "goalToleranceCaption": "The goal time has to be longer than 5 minutes. %{notice}",
+      "errorGroupGone": "This group no longer exists.",
+      "errorMemberOnly": "Only group members can use this.",
+      "errorDuplicate": "You already have a challenge of this type. Please delete the existing one first.",
+      "errorWindowOverlap": "This overlaps another time-window challenge on the same days, or the gap between them is under 15 minutes. Pick days that don't overlap, or leave at least 15 minutes between the windows.",
+      "errorRepeatDaysRequired": "Please pick at least one day of the week.",
+      "errorLimitExceeded": "You can create up to 4 challenges. Please end one and try again.",
+      "errorCreateFailed": "Couldn't create the challenge. Please try again in a moment.",
+      "durationHoursCaption": "%{minutes} min · %{hours}",
+      "durationPlaceholder": "Enter manually",
+      "durationPlaceholderRange": "Enter manually (1–%{max} min)",
+      "durationPlaceholderStep": "Enter manually (15-min steps, up to %{max} min)",
+      "durationPlaceholderMax": "Enter manually (up to %{max} min)",
+      "title": "Create a challenge",
+      "sub": "A goal the group keeps together.",
+      "categoryLabel": "Challenge type",
+      "typeLabel": "Challenge mode",
+      "repeatDaysLabel": "Days it runs",
+      "windowLabel": "Time window (Korea time)",
+      "durationInputA11y": "Enter goal time manually",
+      "unitMinute": "min",
+      "unitCoin": "coins",
+      "stakeLabel": "Entry fee (coins)",
+      "stakeLabelSub": "· No bet if you leave it blank",
+      "stakePlaceholder": "Enter manually (1–%{max} coins)",
+      "stakeInputA11y": "Enter entry fee manually",
+      "submit": "Create"
+    },
+    "betSheet": {
+      "stakeRangeCaption": "Please enter an entry fee between 1 and 3,000 coins",
+      "tomorrowNote": "Today's window is over, so this applies from tomorrow's window",
+      "tomorrowToast": "Today's window is over, so this bet opened for tomorrow",
+      "createNote": "Everyone who hits today's goal splits the pot. If nobody makes it, the entry fees are gone.",
+      "joinNote": "The entry fee is deducted as soon as you join. You have to hit today's goal to share the pot. If nobody makes it, the entry fees are gone.",
+      "screenTimeNote": "Screen time is counted in 15-minute blocks, so there can be some margin of error. If counting is late or missed, it may be judged as not achieved.",
+      "balanceFailed": "Couldn't load your balance",
+      "achievedJoinBlocked": "You already hit today's goal, so you can't join",
+      "achievedCreateBlocked": "You already hit today's goal, so you can't open a bet",
+      "failedJoinBlocked": "You've already gone over the goal, so you can't join",
+      "failedCreateBlocked": "You've already gone over the goal, so you can't open a bet",
+      "submittingCaption": "Processing…",
+      "shortageCta": "Not enough coins (%{shortage} more needed)",
+      "headstartNote": "Whoever started earlier has the edge. If you join now, you'll need to fill %{minutes} minutes in the time that's left.",
+      "alreadyExistsTomorrowTitle": "Tomorrow's bet is already open",
+      "alreadyExistsTodayTitle": "Today's bet is already open",
+      "alreadyExistsTomorrowBody": "Tomorrow's bet already exists. Please refresh to see the latest.",
+      "alreadyExistsTodayBody": "Today's bet already exists. Please refresh to see the latest.",
+      "cannotJoinTitle": "Can't join",
+      "cannotCreateTitle": "Can't open a bet",
+      "closedCreateWindowTitle": "The time to open a bet has passed",
+      "closedCreateTodayTitle": "You can only open today's bet",
+      "closedJoinTitle": "This bet is closed",
+      "closedCreateWindowBody": "Today's window is over, so you can't open a bet. You can open one again tomorrow.",
+      "closedCreateTodayBody": "The date has changed. Please refresh and try again.",
+      "closedJoinBody": "It's already closed, so you can't join.",
+      "challengeInactiveTitle": "This challenge has ended",
+      "challengeInactiveCreateBody": "You can't open a bet on a challenge that has ended.",
+      "challengeInactiveJoinBody": "You can't join a bet on a challenge that has ended.",
+      "betGoneTitle": "This bet is gone",
+      "betGoneBody": "This bet no longer exists. Refreshing to the latest.",
+      "sessionClosedTitle": "Closed",
+      "notOpenTitle": "That day is already over",
+      "notOpenBody": "The results are in or the day is closed, so you can't join.",
+      "focusOnlyTitle": "You can't bet on this challenge yet",
+      "focusOnlyBody": "For now you can only bet on daily focus goal challenges. It'll open up after a server update.",
+      "createFailed": "Couldn't open the bet. Please try again in a moment.",
+      "joinFailed": "Couldn't join. Please try again in a moment.",
+      "titleCreate": "Place a bet",
+      "titleJoin": "Join the bet",
+      "subWithRemaining": "%{label} · %{remaining} left today",
+      "myCoins": "My coins",
+      "stakeLabel": "Entry fee",
+      "stakeChipA11y": "Entry fee %{stake} coins",
+      "stakeInputA11y": "Enter entry fee manually",
+      "unitCoin": "coins",
+      "potLabel": "Current pot",
+      "dayParticipantsLabel": "In right now",
+      "achievedA11y": "%{nickname} achieved",
+      "achievedMark": "Done ✓",
+      "timeShort": "%{goal} minutes will be hard to fill in the %{remaining} left",
+      "participantsLabel": "%{count} players",
+      "submitCreate": "Open bet",
+      "submitJoin": "Join",
+      "later": "Maybe later",
+      "guestTitle": "Log in to join bets",
+      "goLogin": "Go to log in"
+    },
+    "cardEmojiEditScreen": {
+      "title": "My card icon",
+      "loadFailed": "Couldn't load your card icon.",
+      "previewLabel": "My group card",
+      "saveFailed": "Couldn't save your card icon. It may go back to the previous icon when you reopen the app."
+    },
+    "challengeSchedule": {
+      "monthDayDow": "%{month}/%{day} (%{dow})",
+      "tomorrow": "Tomorrow",
+      "durationMinutes": {
+        "one": "%{count} min",
+        "other": "%{count} min"
+      },
+      "durationHours": {
+        "one": "%{count} hr",
+        "other": "%{count} hrs"
+      },
+      "durationHoursMinutes": "%{hours} hr %{minutes} min"
+    },
+    "createScreen": {
+      "title": "Create a group",
+      "nameLabel": "Group name",
+      "namePlaceholder": "e.g. 6 AM focus room",
+      "nameInvalid": "Please check the group name again",
+      "descriptionLabel": "Description",
+      "descriptionPlaceholder": "e.g. A group that focuses together every morning (optional)",
+      "capacityLabel": "Capacity",
+      "maxMembersLabel": "Max members",
+      "capacityDecreaseA11y": "Decrease capacity",
+      "capacityIncreaseA11y": "Increase capacity",
+      "memberCount": {
+        "one": "%{count} person",
+        "other": "%{count} people"
+      },
+      "visibilityLabel": "Visibility",
+      "public": "Public",
+      "private": "Private",
+      "visibilityPublicCaption": "Anyone can search the group name and come in",
+      "visibilityPrivateCaption": "It won't show up in search. Only people with the invite link can come in",
+      "cardEmojiLabel": "My card icon",
+      "emojiSaveFailed": "Couldn't save your card icon. It may go back to the previous icon when you reopen the app.",
+      "backToGroup": "Back to group",
+      "submit": "Create",
+      "limitTitle": "You can't create any more",
+      "limitBody": {
+        "one": "You've gone over the number of groups you can join (max %{count} group)",
+        "other": "You've gone over the number of groups you can join (max %{count} groups)"
+      },
+      "createFailTitle": "Couldn't create the group",
+      "inviteFailTitle": "Couldn't create the invite link",
+      "shareFailTitle": "Couldn't share",
+      "shareFailBody": "Please copy the link and share it that way instead.",
+      "privateCreatedTitle": "Your private group is ready 🎉",
+      "privateCreatedBody": "It won't show up in search.\nShare the invite link.",
+      "copyLink": "Copy link",
+      "copied": "Copied",
+      "share": "Share"
+    },
+    "groupCardEmojiStore": {
+      "sunrise": "Sunrise",
+      "book": "Book",
+      "laptop": "Laptop",
+      "bolt": "Bolt",
+      "meditation": "Meditation",
+      "palette": "Palette",
+      "running": "Running",
+      "writing": "Writing",
+      "brain": "Brain",
+      "target": "Target",
+      "leaf": "Leaf",
+      "flame": "Flame"
+    },
+    "groupDeckGuide": {
+      "emptyIntro": "You haven't joined any groups yet, so here's a sample card to show you around.",
+      "emptySample": "Once you join a group, it shows up as a card like this. As you join more, you can swipe sideways through them.",
+      "emptyTap": "Tapping a real card opens today's group status right here.",
+      "emptyBack": "On the back you can see who's focusing, the challenges and the notices, then start focusing or open the whole group.",
+      "intro": "Your groups are gathered up as cards. Let's take a look!",
+      "swipeMulti": "Swipe sideways to see your other groups.",
+      "swipeSingle": "This card is your group. Once you have more, you can swipe sideways.",
+      "tap": "Tap a card to open today's group status right here.",
+      "back": "See who's focusing, the challenges and the notices, then start focusing or open the whole group."
+    },
+    "listScreen": {
+      "title": "My groups",
+      "findGroup": "Find groups",
+      "createGroup": "Create a group",
+      "groupFallbackName": "Group",
+      "guideTitle": "Group card guide",
+      "orderSaveFailed": "Couldn't save the order. We'll try again on your next change, and it may go back to the previous order when you reopen the app.",
+      "flipFrontA11y": "Front of the %{name} card",
+      "flipBackA11y": "Back of the %{name} card",
+      "pageA11y": "%{name}, page %{page} of %{pageCount}",
+      "reorderedA11y": "Moved the %{name} card to position %{position}"
+    },
+    "noticePermissionScreen": {
+      "title": "Notice permissions",
+      "guide": "Members you allow can write, edit, and delete notices. The group owner is always allowed.",
+      "ownerTag": "Group owner · Always allowed",
+      "loadFailed": "Couldn't load permissions",
+      "saveFailTitle": "Save failed"
+    },
+    "noticeScreen": {
+      "title": "Notices",
+      "monthDay": "%{month}/%{day}",
+      "emptyTitle": "No notices yet",
+      "emptyDesc": "Tap + to leave the first notice",
+      "composeA11y": "Write a notice",
+      "edit": "Edit",
+      "cardMenuMessage": "What would you like to do with this notice?",
+      "deleteTitle": "Delete notice",
+      "deleteConfirm": "Delete the notice \"%{title}\"?",
+      "deleteFailTitle": "Delete failed",
+      "editGoneToast": "This notice was already deleted, so it can't be edited",
+      "errorGroupGone": "This group no longer exists.",
+      "errorMemberOnlyList": "Only group members can see notices.",
+      "errorLoadFailed": "Couldn't load the notices.",
+      "errorAlreadyDeleted": "This notice has already been deleted.",
+      "errorNoticeForbidden": "You don't have permission to manage notices.",
+      "errorMemberOnly": "Only group members can use this.",
+      "errorDeleteFailed": "Couldn't delete the notice. Please try again in a moment."
+    },
+    "settingsScreen": {
+      "title": "Group settings",
+      "mySection": "My settings",
+      "manageSection": "Group management",
+      "cardEmojiRow": "My card icon",
+      "cardEmojiHelper": "%{emoji} %{label} · Only you can see this, on this device",
+      "cardEmojiHelperLoading": "Loading the current icon…",
+      "cardEmojiHelperFailed": "Couldn't load the current icon",
+      "cardEmojiA11y": "My card icon, currently %{label}, only you can see this on this device",
+      "cardEmojiA11yLoading": "My card icon, loading the current icon",
+      "cardEmojiA11yFailed": "My card icon, couldn't load the current icon",
+      "profileRow": "Set up group profile",
+      "transferRow": "Transfer group owner",
+      "membersRow": "Manage members",
+      "noticePermissionRow": "Notice permissions",
+      "leaveTitle": "Leave group",
+      "leaveConfirm": "Leave %{name}?",
+      "leavePrimary": "Leave",
+      "leaveFailedTitle": "Couldn't leave the group",
+      "hostBlockedTitle": "The group owner can't leave right away",
+      "hostBlockedBody": "Hand the group owner role to a member who'll keep the group going, and then you can leave.",
+      "hostBlockedPrimary": "Transfer and leave",
+      "loadFailed": "Couldn't load the group"
+    }
+  },
+  "league": {
+    "friend": {
+      "request": "Add friend",
+      "requested": "Requested",
+      "friendMark": "Friend ✓"
+    },
+    "pin": {
+      "changeFailTitle": "Couldn't update pin"
+    },
+    "home": {
+      "tabLeague": "League",
+      "tabFriend": "Friends",
+      "allLeague": "All leagues",
+      "leagueTitle": "%{name} League",
+      "myExam": "My exam",
+      "sectionRanking": "Ranking",
+      "sectionPinned": "Pinned",
+      "pinnedOnly": "Pinned only",
+      "rankingLoadFailed": "Couldn't load the ranking",
+      "emptyLeague": "No one's in this league yet",
+      "emptyPinned": "Tap the pin in the ranking and they'll show up here",
+      "myTier": "My tier · %{name}",
+      "outOfRankAll": "Not in the rankings yet — pin them to keep them here",
+      "outOfRankExam": "Not in the rankings yet — pin them to keep them in All leagues",
+      "addFriendTitle": "Search & add friends",
+      "receivedRequests": {
+        "one": "%{count} request received",
+        "other": "%{count} requests received"
+      },
+      "friendsLoadFailed": "Couldn't load your friends list",
+      "myFriendsPrefix": "My friends",
+      "myFriendsSuffix": "",
+      "emptyFriends": "No friends yet. Try searching to add someone!",
+      "guide1": "Welcome to the league!\nThis is where you compete on focus time for a week with people preparing for the same exam.",
+      "guide2": "The league you're in and the time left until the deadline show up here.\nTap the title to see all leagues.",
+      "guide3": "When the week ends, your tier goes up or down depending on your rank!\nTap ‘My tier’ below the ranking to see the tier levels in detail.",
+      "guide4": "In the Friends tab you can add friends and see each other's focus time.\nInvite a friend to study together!",
+      "guide5": "Rankings are based on this week's focus time.\nStart focusing now and climb the ranks!"
+    },
+    "rankRow": {
+      "focusing": "Focusing",
+      "focusingTag": "Focusing on %{tag}"
+    },
+    "deadline": {
+      "withDays": "Ends in %{days}d %{time}",
+      "short": "Ends in %{time}"
+    },
+    "friendAdd": {
+      "title": "Add friend",
+      "searchPlaceholder": "Search by nickname",
+      "searchResults": "Search results",
+      "searching": "Searching…",
+      "noResults": "No results found",
+      "receivedTitle": "Requests received",
+      "noReceived": "No requests yet",
+      "notice": "Typing the exact nickname helps you find people faster.",
+      "requestFailTitle": "Couldn't send request",
+      "acceptFailTitle": "Couldn't accept",
+      "rejectFailTitle": "Couldn't decline"
+    },
+    "friendProfile": {
+      "title": "Profile",
+      "titleMe": "My profile",
+      "friendCount": {
+        "one": "%{count} friend",
+        "other": "%{count} friends"
+      },
+      "rankLabel": "Rank %{rank}",
+      "todayFocus": "Today's focus",
+      "private": "Private",
+      "streak": "Streak",
+      "streakDays": {
+        "one": "%{count} day",
+        "other": "%{count} days"
+      },
+      "exam": "Exam",
+      "focusChartTitle": "Focus time by day this week",
+      "phoneChartTitle": "Phone use by day this week",
+      "phoneNoRecord": "%{name} doesn't have any phone use records yet. Once measurements build up, you'll see a comparison here.",
+      "dayCompareUnavailable": "Couldn't load the daily focus and phone use comparison right now.",
+      "statsUnavailable": "Couldn't load the stats right now. Please come back in a bit.",
+      "lockTitle": "Friends only",
+      "lockSub": "Once you're friends, you can see focus and phone use by day,\nplus a comparison by subject.",
+      "subjectTeaserSolo": "Study time by subject is on the way",
+      "subjectTeaserCompare": "Comparing study time on shared subjects is on the way",
+      "untagged": "Untagged",
+      "unfriend": "Remove friend",
+      "unfriendConfirm": "Remove %{name} from your friends?",
+      "unfriendAction": "Remove",
+      "unfriendFailTitle": "Couldn't remove friend"
+    },
+    "tierGuide": {
+      "title": "Tier levels",
+      "heroThisWeek": "%{time} this week",
+      "heroNext": " · %{time} to the next level",
+      "heroMax": " · Top level reached",
+      "current": "Current",
+      "levelN": "Level %{level}",
+      "settlePrefix": "Settled every ",
+      "settleStrong": "Monday at 9 AM",
+      "settleSuffix": " · Meet the bar and you move up automatically, miss it and you drop one level.",
+      "guide1": "This is your tier right now!\nIt shows this week's focus time and how much is left until the next level.",
+      "guide2": "Tiers are split into 5 levels based on weekly focus time.\nThe longer you focus, the higher you climb!",
+      "guide3": "Settlement happens every Monday at 9 AM. Meet the bar and you move up, miss it and you drop.\nStaying consistent matters most!"
+    },
+    "result": {
+      "promoteTitle": "You moved up!",
+      "promoteCta": "See your new league",
+      "maintainTitle": "You held your spot",
+      "maintainCta": "Keep going",
+      "demoteTitle": "You dropped a level",
+      "demoteCta": "Start this week fresh",
+      "maxTier": "You're already at the top tier!",
+      "goalHintPrefix": "Focus ",
+      "goalHintHours": {
+        "one": "%{count} hour",
+        "other": "%{count} hours"
+      },
+      "goalHintDemoteSuffix": " more than last week and you'll be back in your old tier!",
+      "goalHintPromoteSuffix": " more than last week and you'll move up to the next tier!"
+    },
+    "duoDayChart": {
+      "soloSub": "My records",
+      "compareSub": "Compared with me"
+    },
+    "subjectCompare": {
+      "titleSolo": "Study time by subject",
+      "titleCompare": "Compare study time by subject",
+      "periodMonth": "This month",
+      "emptySolo": "No study records for this period. Try picking another one.",
+      "emptyCompare": "You didn't study any of the same subjects in this period. Try picking another one.",
+      "barTheirs": "Them"
+    }
+  },
+  "common": {
+    "cancel": "Cancel",
+    "confirm": "OK",
+    "close": "Close",
+    "retry": "Retry",
+    "retryPlease": "Please try again.",
+    "retryLater": "Please try again in a moment.",
+    "save": "Save",
+    "saving": "Saving…",
+    "delete": "Delete",
+    "next": "Next",
+    "back": "Back",
+    "start": "Start",
+    "today": "Today",
+    "thisWeek": "This week",
+    "all": "All",
+    "me": "Me",
+    "noRecords": "No records yet",
+    "weekday": {
+      "sun": "Su",
+      "mon": "Mo",
+      "tue": "Tu",
+      "wed": "We",
+      "thu": "Th",
+      "fri": "Fr",
+      "sat": "Sa"
+    }
+  },
+  "shared": {
+    "currency": {
+      "label": "Time Shard"
+    },
+    "tiers": {
+      "tier1": {
+        "name": "Newbie",
+        "range": "Weekly focus 0–14 hrs"
+      },
+      "tier2": {
+        "name": "Warm-Up Mode",
+        "range": "Weekly focus 14–28 hrs"
+      },
+      "tier3": {
+        "name": "Deep Focus Mode",
+        "range": "Weekly focus 28–42 hrs"
+      },
+      "tier4": {
+        "name": "Peak Performer",
+        "range": "Weekly focus 42–56 hrs"
+      },
+      "tier5": {
+        "name": "Focus Conqueror",
+        "range": "Weekly focus 56–70 hrs"
+      }
+    },
+    "inquiryContacts": {
+      "categoryFocus": "Focus · Screen time",
+      "categoryGroup": "Groups · Challenges",
+      "categoryEtc": "Account · Other",
+      "keywordsFocus": "Fast · A little fast · Very fast",
+      "keywordsGroup": "Stunning · Kind · Always on call",
+      "keywordsEtc": "Kind · Smiley · Welcoming"
+    },
+    "focusCategories": {
+      "groupProfessional": "Professional certifications",
+      "groupCivilService": "Civil service exams",
+      "groupStudent": "Students",
+      "groupCareerLanguage": "Job hunting · Languages",
+      "groupOther": "Other",
+      "subject": {
+        "laborLaw": "Labor Law",
+        "civilLaw": "Civil Law",
+        "socialInsuranceLaw": "Social Insurance Law",
+        "businessAdministration": "Business Administration",
+        "patentLaw": "Patent Law",
+        "trademarkLaw": "Trademark Law",
+        "naturalScience": "Intro to Natural Science",
+        "taxLaw": "Tax Law",
+        "accounting": "Accounting",
+        "publicFinance": "Public Finance",
+        "commercialLaw": "Commercial Law",
+        "economics": "Economics",
+        "appraisalTheory": "Appraisal Theory",
+        "realEstateStudies": "Real Estate Principles",
+        "korean": "Korean",
+        "english": "English",
+        "koreanHistory": "Korean History",
+        "administrativeLaw": "Administrative Law",
+        "publicAdministration": "Public Administration",
+        "criminalLaw": "Criminal Law",
+        "constitutionalLaw": "Constitutional Law",
+        "math": "Math",
+        "science": "Science",
+        "socialStudies": "Social Studies",
+        "electiveSubjects": "Electives",
+        "major": "Major",
+        "generalEducation": "Gen Ed",
+        "coverLetter": "Cover Letter",
+        "aptitudeTest": "Aptitude Test",
+        "interview": "Interview",
+        "listening": "Listening",
+        "reading": "Reading",
+        "speaking": "Speaking",
+        "algorithms": "Algorithms",
+        "csFundamentals": "CS Fundamentals",
+        "project": "Project"
+      }
+    }
+  },
+  "components": {
+    "durationDrumPicker": {
+      "hour": {
+        "one": "%{count} hr",
+        "other": "%{count} hrs"
+      },
+      "minute": {
+        "one": "%{count} min",
+        "other": "%{count} mins"
+      }
+    },
+    "goalCelebrationModal": {
+      "durationHourMinute": "%{hours} hr %{minutes} min",
+      "durationHour": {
+        "one": "%{count} hr",
+        "other": "%{count} hrs"
+      },
+      "durationMinute": {
+        "one": "%{count} min",
+        "other": "%{count} mins"
+      },
+      "streakPrefix": "Goal streak ",
+      "streakDays": {
+        "one": "%{count} day",
+        "other": "%{count} days"
+      },
+      "title": "Today's goal reached!",
+      "titleWithGoal": "%{goal} focus goal reached!",
+      "sub": "Let's hit the goal again tomorrow!",
+      "rewardPrefix": "+%{amount} ",
+      "rewardSuffix": " earned!",
+      "rewardA11y": "Earned %{amount} %{currency}!",
+      "cta": "Nice!"
+    },
+    "screenTimeAnalyzingOverlay": {
+      "message": "Gromo is analyzing\nyour screen time!"
+    },
+    "screenTimeCelebrationModal": {
+      "durationHourMinute": "%{hours} hr %{minutes} min",
+      "durationHour": {
+        "one": "%{count} hr",
+        "other": "%{count} hrs"
+      },
+      "durationMinute": {
+        "one": "%{count} min",
+        "other": "%{count} mins"
+      },
+      "streakPrefix": "Goal streak ",
+      "streakDays": {
+        "one": "%{count} day",
+        "other": "%{count} days"
+      },
+      "title": "You hit yesterday's screen time goal!",
+      "goalLine": "You stayed within your goal.",
+      "goalLineWithGoal": "You stayed under %{goal}.",
+      "sub": "%{goalLine}\nKeep it up today!",
+      "rewardPrefix": "+%{amount} ",
+      "rewardSuffix": " earned!",
+      "rewardA11y": "Earned %{amount} %{currency}!",
+      "cta": "Nice!"
+    },
+    "sheetShell": {
+      "dragToClose": "Drag down to close"
+    },
+    "subjectProgressList": {
+      "empty": "No focus time recorded yet"
+    },
+    "tabBar": {
+      "home": "Home",
+      "league": "League",
+      "group": "Group",
+      "menu": "All",
+      "focusStart": "Start focus"
+    },
+    "tabGuideOverlay": {
+      "stepA11y": "Step %{current} of %{total}. %{text}. %{action}"
+    },
+    "toast": {
+      "dismissHint": "Tap to dismiss"
+    },
+    "updateAlert": {
+      "title": "Update available",
+      "message": "A new version is out! Please update to keep using the app.",
+      "later": "Later",
+      "update": "Update",
+      "openFailTitle": "Notice",
+      "openFailMessage": "Couldn't open the App Store."
+    }
+  },
+  "menu": {
+    "duration": {
+      "hourMinute": "%{h} hr %{m} min",
+      "hour": "%{h} hr",
+      "minute": "%{m} min"
+    },
+    "noticeTitle": "Notice",
+    "openExternalMessage": "The team site will open in your browser.\nGo there now?",
+    "linkOpenFailed": "Couldn't open the link. Please try again in a moment.",
+    "currencyValue": "%{amount}",
+    "permission": {
+      "approved": "Allowed",
+      "denied": "Denied",
+      "notDetermined": "Request needed"
+    },
+    "profile": {
+      "edit": "Edit profile",
+      "preparing": "Preparing for %{category}",
+      "streak": {
+        "one": "Study streak %{count} day",
+        "other": "Study streak %{count} days"
+      }
+    },
+    "section": {
+      "goalFocus": "Goals · Focus",
+      "notificationPrivacy": "Notifications · Privacy",
+      "accountInfo": "Account · Info"
+    },
+    "goal": {
+      "personalGoal": "Edit personal goals",
+      "personalGoalSub": "Focus %{focus} · Screen %{screenTime}",
+      "allowedApps": "Apps allowed during focus",
+      "allowedAppsHint": "Apps you can still use during focus",
+      "allowedAppsCount": {
+        "one": "%{count} app allowed",
+        "other": "%{count} apps allowed"
+      },
+      "allowedAppsNone": "None allowed",
+      "screenTime": "Manage screen time",
+      "screenTimeSub": "Permission · Usage tracking",
+      "screenTimeSubSelection": "Permission · Tracked apps",
+      "occupation": "Target exam",
+      "occupationUnset": "Not set"
+    },
+    "notification": {
+      "settings": "Notification settings",
+      "settingsSub": "Focus reminders · League · Late night · Sound",
+      "statVisibility": "Stats visibility"
+    },
+    "account": {
+      "settings": "Account settings",
+      "settingsSub": "Social login · Log out · Delete account",
+      "inquiry": "Contact us",
+      "inquirySub": "Questions · Report a bug",
+      "privacy": "Privacy Policy",
+      "terms": "Terms of Service",
+      "version": "Version"
+    },
+    "guide": {
+      "intro": "The All tab is where you manage your profile and every app setting.",
+      "profile": "Tap your profile to edit your nickname.",
+      "goalSection": "You can change your target exam and goal times here.\nChange the exam and you'll get fresh subject recommendations!"
+    }
+  },
+  "character": {
+    "create": {
+      "title": "Create a character from a photo"
+    },
+    "creator": {
+      "resetSoon": "You can create again in a little while.",
+      "resetOn": "You can create again on %{month}/%{day}.",
+      "remaining": {
+        "one": "%{count} creation left",
+        "other": "%{count} creations left"
+      },
+      "cameraPermission": "Camera access is needed. Please allow camera access in Settings.",
+      "rotateFailed": "Couldn't rotate the photo. Please try again.",
+      "moderationUnavailable": "We can't check it right now. Please try again in a moment.",
+      "moderationBlocked": "This photo can't be used to create a character.",
+      "saveFailed": "Couldn't save the character. Please try again.",
+      "quotaTitle": "You've used up all your character creations.",
+      "cutting": "Cutting out the object…",
+      "emptyHint": "Pick a photo and your character will stand here",
+      "unsupported": "Background removal isn't supported on this device or build. We'll show the original photo instead.",
+      "cutoutOk": "Your own Gromon is ready",
+      "rotate": "Rotate",
+      "repick": "Pick another",
+      "checking": "Checking…",
+      "pickPhoto": "Choose photo",
+      "takePhoto": "Take photo"
+    },
+    "select": {
+      "title": "Change character",
+      "hint": "Pick the character that shows up on Home and celebration screens.",
+      "changed": "Character changed",
+      "equip": "Change",
+      "recreate": "Recreate",
+      "createNew": "Create new",
+      "defaultCard": "Default Gromon",
+      "customCard": "My character",
+      "emptyCard": "None yet",
+      "createCard": "Create"
+    }
+  },
+  "currency": {
+    "history": {
+      "title": "%{currency} history",
+      "balanceLabel": "Your %{currency}",
+      "balanceValue": "%{amount}",
+      "loadFailed": "Couldn't load your history.",
+      "errorOffline": "Please check your internet connection.",
+      "empty": "No %{currency} history yet.",
+      "dateTime": "%{month}/%{day} %{time}",
+      "spentA11y": "Spent %{amount} %{currency}",
+      "earnedA11y": "Earned %{amount} %{currency}",
+      "reason": {
+        "sessionComplete": "Focus completed",
+        "streakBonus": "Study streak bonus",
+        "purchase": "Shop purchase",
+        "betStake": "Bet entry fee",
+        "betPayout": "Bet settlement",
+        "betRefund": "Bet refund",
+        "focusGoal": "Focus goal reached",
+        "screenTimeGoal": "Screen time goal reached",
+        "leagueTierBonus": "League promotion reward",
+        "fallback": "Balance change"
+      }
+    }
+  },
+  "services": {
+    "api": {
+      "sessionExpired": "Your session has expired. Please log in again."
+    },
+    "auth": {
+      "sessionRefreshFailed": "Couldn't refresh your session. Please try again in a moment.",
+      "loginFailed": "Login failed",
+      "appleLoginFailed": "Apple login failed",
+      "googleLoginFailed": "Google login failed",
+      "googleTokenMissing": "Couldn't get the Google idToken.",
+      "lineLoginFailed": "LINE login failed",
+      "facebookLoginFailed": "Facebook login failed",
+      "facebookTokenMissing": "Couldn't get the Facebook token.",
+      "guestStartFailed": "Couldn't start as a guest",
+      "socialUnsupportedOnWeb": "Social login isn't supported in the web demo."
+    },
+    "sessionErrors": {
+      "loginRequiredTitle": "Login required",
+      "sessionExpired": "Your login has expired. Please log in again."
+    },
+    "subjectMask": {
+      "reasonIos17Required": "Background removal needs iOS 17 or later. Showing the original photo for now.",
+      "reasonNoSubject": "Couldn't find an object in the photo. Photos with a simple background work best.",
+      "reasonVisionFailed": "Background removal failed. Showing the original photo.",
+      "reasonLoadFailed": "Couldn't read the photo. Showing the original photo.",
+      "reasonUnavailable": "This build doesn't include the background removal module. Showing the original photo.",
+      "reasonModelDownloading": "The background removal model is getting ready. Please try again in a moment.",
+      "reasonGmsUnavailable": "Background removal isn't supported on this device. Showing the original photo."
+    }
+  },
+  "onboarding": {
+    "format": {
+      "hours": {
+        "one": "%{count} hr",
+        "other": "%{count} hr"
+      },
+      "minutes": {
+        "one": "%{count} min",
+        "other": "%{count} min"
+      },
+      "hoursMinutes": "%{hours} %{minutes}"
+    },
+    "problemEmpathy": {
+      "title": "Just pick what you'll do today\nand focus starts right away",
+      "live": "Focusing",
+      "todo": "Today's tasks",
+      "featureTimer": "Timer",
+      "featureShield": "App blocking",
+      "featureGoal": "Focus goal",
+      "featureRecord": "Auto tracking",
+      "caption": "No complicated setup — it records from the moment you start."
+    },
+    "togetherEffect": {
+      "title": "You start alone,\nbut you're never alone",
+      "onlineBadge": "Focusing together right now",
+      "viewFriend": "Friends",
+      "viewGroup": "Groups",
+      "viewLeague": "Same league",
+      "sub": "Swipe the focus screen and you'll see friends, groups,\nand others prepping for the same exam studying together."
+    },
+    "subjectCompare": {
+      "title": "Today's focus becomes\ntomorrow's record",
+      "cta": "Start Gromo",
+      "eyebrow": "Today's focus",
+      "focusValue": "42 min done",
+      "focusSub": "Every minute you focused added up",
+      "streakLabel": "Study streak",
+      "streakValue": "7 days",
+      "rankLabel": "League rank",
+      "rankValue": "+3",
+      "shardLabel": "Time Shard",
+      "shardValue": "+42",
+      "caption": "Your focus records show up in Home, Stats, and League."
+    },
+    "focusCategory": {
+      "title": "What will you focus on?",
+      "subtitle": "Meet people with the same goal in your league.",
+      "loading": "Loading…",
+      "loadFailed": "Couldn't load the list."
+    },
+    "subjectEdit": {
+      "categoryFallback": "this goal",
+      "title": "For %{category}, you'll compare\nstudy time across these subjects",
+      "cta": "Looks good!",
+      "notePrefix": "You can ",
+      "noteStrong1": "add subjects anytime",
+      "noteMiddle": ".\nSubjects you add yourself are ",
+      "noteStrong2": "just for your own record, not compared",
+      "noteSuffix": "."
+    },
+    "screenTimePermission": {
+      "title": "To see your usage\naccurately",
+      "subtitleAndroid": "We need usage access permission. We use this data to calculate your stats.",
+      "subtitleIos": "We need Apple Screen Time permission. We use this data to calculate your stats.",
+      "requesting": "Requesting…",
+      "ctaAndroid": "Allow in Settings",
+      "ctaIos": "Allow access",
+      "later": "Maybe later",
+      "requestFailTitle": "Permission request failed",
+      "perkAndroidMeasure": "Daily usage measured automatically",
+      "perkAndroidCompare": "Compare today with yesterday",
+      "perkAndroidPrivacy": "Per-app records stay on your device · only daily totals are sent",
+      "perkIosPerApp": "Per-app usage time",
+      "perkIosCategory": "Grouped by category",
+      "perkIosPrivacy": "Processed on device only · never sent to a server"
+    },
+    "screenTimeGuide": {
+      "title": "Wait! The approve button is on the left",
+      "sub": "The blue button is 'Don't Allow'.\nTap 'Continue' in the preview below.",
+      "alertTitle": "“gromo” Would Like to Access Screen Time",
+      "alertBody": "Allowing “gromo” to access Screen Time may let it see your activity data, restrict content, and limit the usage of apps and websites.",
+      "continue": "Continue",
+      "deny": "Don't Allow",
+      "bubble": "This button approves",
+      "okLabel": "Approves",
+      "noLabel": "This one denies"
+    },
+    "screenTimeDenied": {
+      "title": "It's fine without permission",
+      "subtitlePrefix": "Just note that ",
+      "subtitleStrong": "screen time goals and stats",
+      "subtitleSuffix": " won't be available. The focus timer and league work as usual.",
+      "requesting": "Requesting…",
+      "cta": "Allow again",
+      "secondary": "Continue anyway",
+      "notePrefix": "You can turn it on anytime in ",
+      "noteStrong": "Settings › Screen Time permission",
+      "noteSuffix": ".",
+      "fallbackTitle": "Can't request this from the app",
+      "fallbackBody": "Please turn on Screen Time permission in Settings.",
+      "openSettings": "Open Settings"
+    },
+    "goalSetting": {
+      "title": "Shall we set your goals?",
+      "focusLabel": "Daily focus goal",
+      "screenLabel": "Daily screen time goal",
+      "screenValue": "%{value} or less",
+      "hint": "Set both goals to move on to the next step."
+    },
+    "characterIntro": {
+      "title": "Nice to meet you",
+      "subtitle": "This is Gromon, the buddy you'll focus with from now on."
+    },
+    "cutout": {
+      "title": "You can make your own character from a photo you took!",
+      "subtitle": "One photo is all it takes to get a character of your own.",
+      "skip": "Skip",
+      "guideCreate": "You can turn an object in your photo into a character like this.",
+      "guideChange": "You can change the character you made from Home.",
+      "guideTogether": "Focusing with other people as the character you made is still in the works",
+      "make": "Make one from my stuff",
+      "remake": "Try again",
+      "done": "Here's the character you made.",
+      "hintIdle": "You can make one now or skip it.",
+      "hintDismissed": "It's fine not to make one now. You can make one later from Home.",
+      "hintUnavailable": "We can't check this right now. You can make one later from Home with 'Change character'. It's fine to move on for now.",
+      "hintUnsupported": "Making a character isn't supported on this device yet. You can make one later from Home.",
+      "modalTitle": "Make a character from a photo"
+    },
+    "nickname": {
+      "title": "What should we\ncall you from now on?",
+      "label": "Nickname",
+      "labelEn": "",
+      "placeholder": "Enter a nickname",
+      "checking": "Checking…",
+      "baseHint": "Can be %{min}-%{max} characters",
+      "lengthError": "Please enter a nickname of %{min}-%{max} characters",
+      "taken": "That nickname is already taken",
+      "available": "Available",
+      "duplicateError": "That nickname is already taken. Please enter a different one.",
+      "submitError": "A temporary error kept us from registering it. Please try again."
+    },
+    "gromoStart": {
+      "title": "Now,\ntogether with Gromo",
+      "cta": "Start Gromo",
+      "sub": "Take back the time you were losing.\nStarting today, fill it in step by step."
+    },
+    "liveRanking": {
+      "categoryFallback": "the same goal",
+      "badgePrefix": "",
+      "badgeSuffix": " focusing now",
+      "title": "People preparing for %{category}\nare running together right now",
+      "subtitle": "Live focus ranking · updates every second",
+      "cta": "Join them now",
+      "focusing": "Focusing",
+      "resting": "Resting"
+    },
+    "notificationPermission": {
+      "title": "Gromo will help you focus\nwith all kinds of notifications!",
+      "allow": "Allow",
+      "skip": "Skip",
+      "tierTitle": "You ranked up!",
+      "tierSub": "Deep Focus Mode → Peak Performer",
+      "goalTitle": "Goal encouragement",
+      "goalSub": "One more step forward",
+      "rankTitle": "Rank change alerts",
+      "rankSub": "00 is beating you! Shall we start focusing again?"
+    },
+    "phoneManage": {
+      "title": "What breaks your focus\nis usually your phone",
+      "mode": "Focus mode · allowed apps only",
+      "caption": "We block distracting notifications while you focus,\nand help you keep your daily screen time goal"
+    },
+    "usageGuess": {
+      "title": "How many hours did you\nuse your phone yesterday?",
+      "subtitle": "Take a guess first.\nWe'll compare it with the real record in a moment.",
+      "cta": "That's about how much I used",
+      "cardCap": "My guess",
+      "unit": "hours or so"
+    },
+    "yesterdayScreenTime": {
+      "title": "Want to see how much you actually used?",
+      "subtitle": "How far off was your guess? Let's cut it down bit by bit.",
+      "androidLabel": "Yesterday's total usage",
+      "androidHint": "Calculated from the usage records on your device.",
+      "iosOnly": "Available on iOS devices only"
+    }
+  },
+  "login": {
+    "continueKakao": "Continue with Kakao",
+    "continueApple": "Continue with Apple",
+    "continueGoogle": "Continue with Google",
+    "subtitle": "Save your goals safely\nand pick up where you left off anywhere.",
+    "lastUsed": "Last used",
+    "guest": "Continue as guest",
+    "guestNoticeTitle": "About guest login",
+    "guestNotice": "Your records are saved on the server, but they can only be accessed again with the credentials on this device. If you delete the app, switch devices, or the credentials expire, your records can't be recovered.",
+    "failTitle": "Login failed",
+    "guestFailTitle": "Couldn't start",
+    "termsPrefix": "By continuing, you agree to the ",
+    "termsOfService": "Terms of Service",
+    "termsMiddle": " and ",
+    "privacyPolicy": "Privacy Policy",
+    "termsSuffix": "."
+  },
+  "app": {
+    "splashCaption": "Let's focus today too!!"
+  },
+  "settings": {
+    "account": {
+      "title": "Account settings",
+      "providerKakao": "Kakao",
+      "providerApple": "Apple",
+      "providerGoogle": "Google",
+      "socialLoginSection": "Social login",
+      "loginWith": "Sign in with %{name}",
+      "connect": "Connect",
+      "guestNote": "You're using the app without signing in. Your records are saved on the server, but they can only be reached again with this device's credentials. If you delete the app, switch devices, or your credentials expire, your records can't be recovered.\n\nConnect a social login and everything you've recorded so far carries over.",
+      "linkedSection": "Linked social logins",
+      "noLinked": "No social accounts linked",
+      "linked": "Linked",
+      "manage": "Manage",
+      "logout": "Log out",
+      "logoutConfirm": "Log out?",
+      "withdraw": "Delete account",
+      "withdrawTitle": "Are you sure you want to leave?",
+      "withdrawBody": "If you delete your account, every focus record and tier you've built up is gone for good. This can't be undone.",
+      "withdrawPrimary": "Delete my account",
+      "withdrawSecondary": "I'll stay",
+      "withdrawBlockedTitle": "Can't delete your account",
+      "withdrawBlockedBody": "Group owners can delete their account after handing over ownership.",
+      "withdrawFailBody": "Couldn't delete your account. Please try again in a moment.",
+      "hostBlockedTitle": "Hand over group ownership first",
+      "hostBlockedBody": {
+        "one": "You're the owner of %{count} group.\nHand over ownership of \"%{name}\", then try deleting your account again.",
+        "other": "You're the owner of %{count} groups.\nHand over ownership of \"%{name}\", then try deleting your account again."
+      },
+      "hostBlockedCta": "Hand over ownership",
+      "later": "Later",
+      "unlink": "Unlink",
+      "unlinkTitle": "Unlink %{name}",
+      "unlinkBody": "Unlink your %{name} account?",
+      "unlinkBlockedTitle": "Can't unlink",
+      "unlinkBlockedBody": "You can't unlink your only remaining sign-in method.",
+      "unlinkFailBody": "Couldn't unlink. Please try again in a moment.",
+      "linkFailTitle": "Can't link",
+      "linkFailBody": "This social account is already connected to another account. Please try a different social account.",
+      "errorTitle": "Error"
+    },
+    "allowedApps": {
+      "title": "Apps allowed during focus",
+      "done": "Done",
+      "note": "You can still use these apps during focus. Pick a category and the apps inside it are allowed too (based on the apps installed right now).",
+      "currentSection": "Currently allowed",
+      "loading": "Loading allowed apps",
+      "summaryCount": {
+        "one": "%{count} app allowed",
+        "other": "%{count} apps allowed"
+      },
+      "summaryCountSub": "You can still use these apps during focus",
+      "summaryNone": "No allowed apps",
+      "summaryNoneSub": "All apps are locked during focus",
+      "pick": "Choose allowed apps",
+      "webSection": "Web",
+      "safariLabel": "Allow Safari and the web",
+      "safariSub": "Turn this on to use Safari and websites during focus",
+      "permTitle": "Screen Time permission needed",
+      "permBody": "To choose allowed apps, you need to grant Screen Time access first.",
+      "permCta": "Set up permission",
+      "savedMessage": {
+        "one": "You can use %{count} app during focus",
+        "other": "You can use %{count} apps during focus"
+      },
+      "saveDoneTitle": "Saved",
+      "saveFailTitle": "Couldn't save"
+    },
+    "appPicker": {
+      "measuredTitle": "Apps to measure",
+      "measuredNoteLead": "Only the apps you pick are counted.",
+      "measuredNoteStrong": "If you pick none, every app is counted.",
+      "measuredCtaEmpty": "Save with all apps measured",
+      "measuredCtaCount": {
+        "one": "Save to measure %{count} app only",
+        "other": "Save to measure %{count} apps only"
+      },
+      "allowedNoteLead": "These apps stay open to you during focus.",
+      "allowedNoteStrong": "If you pick none, no apps are allowed.",
+      "allowedCtaEmpty": "Save with no allowed apps",
+      "allowedCtaCount": {
+        "one": "Save with %{count} app allowed",
+        "other": "Save with %{count} apps allowed"
+      },
+      "searchPlaceholder": "Search app names",
+      "loadFailed": "Couldn't load the app list.\nPlease restart the app and try again.",
+      "noResults": "No results"
+    },
+    "goals": {
+      "title": "Edit personal goals",
+      "focusLabel": "Focus time goal",
+      "focusSub": "Reach it",
+      "usageLabel": "Usage time goal",
+      "usageSub": "Stay under",
+      "hourMinute": "%{h}h %{m}m",
+      "hour": {
+        "one": "%{count} hour",
+        "other": "%{count} hours"
+      },
+      "minute": {
+        "one": "%{count} minute",
+        "other": "%{count} minutes"
+      },
+      "appliesTomorrow": "Today %{current} · this value applies from tomorrow",
+      "currentGoal": "Current goal",
+      "note": "Your new goal applies from tomorrow (%{date}). Today's reward still uses the current one."
+    },
+    "inquiry": {
+      "title": "1:1 support",
+      "lead": "How can we help?",
+      "desc": "You can ask the developer in charge directly on KakaoTalk.",
+      "categoryLabel": "What's it about?",
+      "contactLabel": "Developer in charge",
+      "note": "This opens KakaoTalk — if you don't have the app, it opens in a browser.\nWe can't respond around the clock, so a reply may take a day or two.",
+      "confirmTitle": "Open KakaoTalk?",
+      "confirmBody": "A 1:1 open chat with %{name} will open.\nThe conversation is stored in KakaoTalk and isn't kept on gromo's servers.",
+      "go": "Open",
+      "failTitle": "Can't open KakaoTalk",
+      "failBody": "Press and hold the address below to copy it, then open it in a browser.\n\n%{url}"
+    },
+    "inquiryCard": {
+      "recommended": "Recommended",
+      "cta": "Ask on KakaoTalk",
+      "ctaA11y": "Ask %{name} on KakaoTalk"
+    },
+    "notification": {
+      "title": "Notifications · Night · Sound",
+      "sectionNotification": "Notifications",
+      "master": "Receive notifications",
+      "masterSub": "Focus reminders and league news",
+      "sound": "Sound (alert tone)",
+      "soundSub": "Plays a sound when a notification arrives",
+      "leagueNote": "League deadline, promotion, and demotion alerts are part of \"Receive notifications\".",
+      "night": "Do not disturb at night",
+      "nightSub": "No notifications during the hours you set",
+      "start": "Start",
+      "end": "End",
+      "nightStartTitle": "Night start time",
+      "nightEndTitle": "Night end time"
+    },
+    "occupation": {
+      "title": "Change your exam",
+      "desc": "Meet people working toward the same goal in the league.",
+      "editRecommended": "Edit recommended subjects",
+      "note": "Changing your exam leaves the subjects you've already added as they are.\nYou can edit subjects separately."
+    },
+    "privacy": {
+      "title": "Privacy Policy",
+      "message": "The privacy policy is being prepared.\nOnce it's published, you can read it right here."
+    },
+    "profileEdit": {
+      "title": "Edit profile",
+      "nicknameLabel": "Nickname",
+      "nicknamePlaceholder": "Please enter a nickname",
+      "checking": "Checking…",
+      "available": "Available",
+      "nicknameTaken": "That nickname is already taken",
+      "checkUnavailable": "Can't check for duplicates right now · we'll check when you save",
+      "lengthError": "Please enter %{min}–%{max} characters",
+      "lengthHint": "You can use %{min}–%{max} characters",
+      "skinLabel": "Character skin",
+      "skinComingSoon": "Character skin · coming soon",
+      "checkAndSave": "Check and save",
+      "saveFailTitle": "Couldn't save",
+      "saveFailBody": "Couldn't save. Please try again in a moment"
+    },
+    "screenTimePermission": {
+      "title": "Manage Screen Time",
+      "yesterday": "Yesterday",
+      "badgeApproved": "Allowed",
+      "badgeDenied": "Denied",
+      "badgeNotDetermined": "Not requested",
+      "badgeChecking": "Checking",
+      "statusTitle": "Screen Time access",
+      "requesting": "Requesting permission…",
+      "tapToAllow": "Tap to allow Screen Time access",
+      "tapToReallowAndroid": "Tap to allow Usage access again",
+      "deniedIos": "You can turn it back on in iOS Settings",
+      "lastSynced": "Last synced · %{date}",
+      "manageSection": "Manage",
+      "targetsLabel": "Apps to measure",
+      "targetsSubIos": "Pick the apps and categories to track",
+      "targetsSubAndroid": "Pick the apps to track",
+      "targetsPendingSub": "Changes apply from midnight tonight",
+      "targetsPendingValue": "Applies tomorrow",
+      "collectTitle": "What we collect",
+      "collectBody": "Time spent per app (which apps you used and for how long) and\ncategory breakdowns (grouped totals such as social and games).",
+      "localOnlyTitle": "Processed on your device · never sent to a server",
+      "permOffNote": "Turning the permission off stops your usage-time stats.",
+      "changeIos": "You can also change this in the iOS Settings app.",
+      "changeAndroid": "You can also change this in Settings → Usage access.",
+      "changeOther": "You can also change this in your device settings.",
+      "permOffTitle": "Permission is off",
+      "permOffBody": "You can turn it back on in Settings > Screen Time.",
+      "permErrorTitle": "Permission failed",
+      "permNeededTitle": "Screen Time permission needed",
+      "permNeededIosBody": "To choose what to measure, you need to grant Screen Time access first.",
+      "permNeededAndroidBody": "To choose what to measure, you need to grant Usage access first.",
+      "unsupportedTitle": "Not available yet",
+      "unsupportedBody": "Update the app to the latest version to choose what to measure.",
+      "scheduledTitle": "Measurement change scheduled",
+      "scheduledBody": {
+        "one": "Today keeps the current targets — from tomorrow, %{count} app or category is measured",
+        "other": "Today keeps the current targets — from tomorrow, %{count} apps and categories are measured"
+      },
+      "scheduledToast": {
+        "one": "Change scheduled — from tomorrow, %{count} app or category is measured",
+        "other": "Change scheduled — from tomorrow, %{count} apps and categories are measured"
+      },
+      "clearedTitle": "Measurement targets changed",
+      "clearedBody": "You cleared the measurement targets — usage tracking and server syncing stop. The home report will show all apps instead.",
+      "pickedMessage": {
+        "one": "Measuring %{count} app or category",
+        "other": "Measuring %{count} apps and categories"
+      },
+      "saveDoneTitle": "Saved",
+      "saveFailTitle": "Couldn't save"
+    },
+    "statVisibility": {
+      "title": "Detailed stats visibility",
+      "note": "Choose how much of your detailed stats other people can see.",
+      "publicLabel": "Everyone",
+      "publicSub": "Everyone in your league can see them",
+      "friendsLabel": "Friends only",
+      "friendsSub": "Only people you've accepted as friends can see them"
+    },
+    "tagSheet": {
+      "selectAll": "Select all",
+      "done": "Done",
+      "editTitle": "Edit the recommended subjects for %{exam}",
+      "editSubLead": "Check the subjects to add, uncheck the ones to remove.",
+      "editSubDanger": "Focus records for unchecked subjects will be gone.",
+      "editEmpty": "No recommended subjects to edit.",
+      "addTitle": "Subjects we recommend for %{exam}",
+      "addSub": "Add them and you can compare study time by subject with others preparing for the same exam.",
+      "addEmpty": "No recommended subjects to add.",
+      "add": "Add",
+      "selectedCount": {
+        "one": "%{count} selected",
+        "other": "%{count} selected"
+      },
+      "skip": "Skip",
+      "removeTitle": "Clean up your existing subjects?",
+      "removeSubLead": "Choose the subjects to delete.",
+      "removeSubDanger": "Focus records for deleted subjects will be gone.",
+      "removeEmpty": "No subjects to delete.",
+      "goBack": "Go back"
+    },
+    "version": {
+      "title": "Version",
+      "latest": "You're on the latest version"
+    }
+  },
+  "stats": {
+    "screen": {
+      "title": "Stats"
+    },
+    "period": {
+      "day": "Day",
+      "week": "Week",
+      "month": "Month"
+    },
+    "guide": {
+      "intro": "This is Stats!\nSee all your focus records at a glance in charts.",
+      "periodTabs": "Use the Day, Week, and Month tabs to switch the period.\nDay shows today in detail, Month shows the whole month's flow!",
+      "totalCard": "Shows your total focus time for the period and how it compares with others.",
+      "goalCard": "This is where you check whether you hit your focus and screen time goals.",
+      "categoryCard": "You can also see how much you focused on each subject here.\nScroll down for even more charts!"
+    },
+    "card": {
+      "totalValue": "Total %{value}",
+      "phoneSubtitle": "Set against your focus time. When one drops, so does the other."
+    },
+    "totalCard": {
+      "titleDay": "Total focus today",
+      "titleWeek": "Total focus this week",
+      "titleMonth": "Month %{month} total focus"
+    },
+    "goalCard": {
+      "titleDay": "Today's goals",
+      "titleWeek": "Weekly calendar",
+      "titleMonth": "Monthly calendar"
+    },
+    "categoryCard": {
+      "titleDay": "Focus by subject today",
+      "titleWeek": "Focus by subject this week",
+      "titleMonth": "Month %{month} focus by subject"
+    },
+    "monthWeekly": {
+      "focusTitle": "Month %{month} focus by week",
+      "phoneTitle": "Month %{month} phone use by week"
+    },
+    "weekday": {
+      "focusTitle": "Focus by weekday",
+      "phoneTitle": "Phone use by weekday"
+    },
+    "longest": {
+      "titleDay": "Longest focus today",
+      "titleWeek": "Longest focus this week",
+      "titleMonth": "Month %{month} longest focus",
+      "hint": "Your longest unbroken focus session"
+    },
+    "passer": {
+      "title": "Compare with passers",
+      "note": "We'll show this once enough passer data builds up"
+    },
+    "passerChart": {
+      "axisLaborLaw": "Labor Law",
+      "axisCivilLaw": "Civil Law",
+      "axisAdminLitigation": "Admin. Litigation",
+      "axisSocialInsurance": "Social Insurance",
+      "axisBusinessAdmin": "Business Admin",
+      "passerAvg": "Passer avg"
+    },
+    "delta": {
+      "titleDay": "vs. yesterday",
+      "titleWeek": "vs. last week",
+      "titleMonth": "vs. month %{month}",
+      "focusLabel": "Focus",
+      "phoneLabel": "Phone use"
+    },
+    "deltaRow": {
+      "noChange": "No change"
+    },
+    "chart": {
+      "weekNth": "W%{n}",
+      "hourLabel": "%{hour}:00"
+    },
+    "firstStart": {
+      "monthTitle": "Month %{month} first focus start by week",
+      "hint": "The time you first started focusing that day · higher means earlier"
+    },
+    "calendar": {
+      "weekLabel": "Month %{month}, week %{nth}",
+      "weekSublabel": "%{fromMonth}.%{fromDay} – %{toMonth}.%{toDay}",
+      "monthLabel": "%{month}/%{year}",
+      "monthSublabel": "1 – %{lastDay}",
+      "totalEmpty": "Total focus —",
+      "total": "Total focus %{hours}h %{minutes}m",
+      "lessThanMinute": "Under 1 min",
+      "pickHead": "%{month}/%{day} (%{weekday}) · Focus %{focus}",
+      "pickPhone": " · Phone %{value}",
+      "pickSessions": {
+        "one": " · %{count} session",
+        "other": " · %{count} sessions"
+      }
+    },
+    "cardBody": {
+      "loadFailed": "Couldn't load"
+    },
+    "comingSoon": {
+      "badge": "Coming soon"
+    },
+    "categoryDonut": {
+      "totalLabel": "Total focus",
+      "unclassified": "No subject",
+      "emptyToday": "No focus time recorded yet"
+    },
+    "compare": {
+      "chipFriends": "Friends",
+      "chipCategory": "Same category",
+      "avgFriends": "Friend avg",
+      "avgAll": "Overall avg",
+      "avgCategory": "Same-category avg",
+      "avgOf": "%{name} avg",
+      "thisMonth": "This month",
+      "loadFailed": "Couldn't load comparison data",
+      "emptyFriends": "No friends have focused %{when} yet",
+      "emptyCategory": "No same-category records %{when} yet",
+      "emptyAll": "Not enough focus records %{when} yet",
+      "noCategorySet": "Set the exam you're preparing for to compare"
+    },
+    "goalStamp": {
+      "loadFailed": "Couldn't load goal info",
+      "notSet": "No goal set",
+      "focusNotSetSub": "Set a focus goal in Settings",
+      "focusDone": "Focus goal met",
+      "focusDoneSub": "%{cur} min · Goal %{goal} min",
+      "focusProgress": "Focus %{cur}/%{goal} min",
+      "focusRemain": "%{minutes} min to goal",
+      "phoneNotSetSub": "Set a phone use goal in Settings",
+      "phoneFail": "Goal missed!",
+      "phoneRemain": "%{value} left",
+      "phoneSub": "Phone %{cur} · Goal %{goal}"
+    },
+    "focusTimetable": {
+      "title": "Today's timetable",
+      "shareFileSuffix": "timetable"
+    },
+    "weeklyTimetable": {
+      "title": "Timetable by weekday",
+      "shareFileSuffix": "weekly-timeline"
+    },
+    "share": {
+      "button": "Share",
+      "tagline": "Focus record · gromo",
+      "dateHeader": "%{month}/%{day}/%{year} (%{weekday})"
+    },
+    "usageDetail": {
+      "title": "Phone use",
+      "unavailable": "Not available right now",
+      "loadFailed": "Couldn't load usage records",
+      "permissionOff": "Usage access is turned off.\nTurn it back on in Settings to see your usage.",
+      "otherApps": "Other",
+      "totalToday": "Total use today",
+      "byApp": "Use by app",
+      "noUsage": "No usage records",
+      "hourMinute": "%{hours}h %{minutes}m",
+      "minute": "%{minutes}m",
+      "second": "%{seconds}s"
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "emptyTitle": "No notifications yet",
+    "emptySub": "New updates will show up here",
+    "time": {
+      "justNow": "Just now",
+      "minutesAgo": {
+        "one": "%{count} minute ago",
+        "other": "%{count} minutes ago"
+      },
+      "hoursAgo": {
+        "one": "%{count} hour ago",
+        "other": "%{count} hours ago"
+      },
+      "daysAgo": {
+        "one": "%{count} day ago",
+        "other": "%{count} days ago"
+      },
+      "date": "%{month}/%{day}"
+    }
+  }
+}

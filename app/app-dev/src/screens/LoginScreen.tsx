@@ -23,6 +23,7 @@ import {
 } from '@/services/auth';
 import type { LoginResult } from '@/types/api';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import {
   logOnboardingSignupFailed,
@@ -47,17 +48,17 @@ interface LoginScreenProps {
 
 const ALL_PROVIDERS: {
   method: Method;
-  label: string;
+  labelKey: string;
   fn: () => Promise<LoginResult>;
   bg: string;
   fg: string;
   border?: string;
 }[] = [
-  { method: 'kakao', label: '카카오로 계속하기', fn: kakaoLogin, bg: T.kakao, fg: T.kakaoInk },
-  { method: 'apple', label: 'Apple로 계속하기', fn: appleLogin, bg: T.black, fg: T.white },
+  { method: 'kakao', labelKey: 'login.continueKakao', fn: kakaoLogin, bg: T.kakao, fg: T.kakaoInk },
+  { method: 'apple', labelKey: 'login.continueApple', fn: appleLogin, bg: T.black, fg: T.white },
   {
     method: 'google',
-    label: 'Google로 계속하기',
+    labelKey: 'login.continueGoogle',
     fn: googleLogin,
     bg: T.white,
     fg: T.grayInk,
@@ -69,9 +70,6 @@ const ALL_PROVIDERS: {
 const PROVIDERS = ALL_PROVIDERS.filter(
   (p) => Platform.OS !== 'web' && (p.method !== 'apple' || Platform.OS === 'ios'),
 );
-
-const GUEST_LOGIN_NOTICE =
-  '기록은 서버에 저장되지만 이 기기의 인증 정보로만 다시 접근할 수 있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을 되찾을 수 없어요.';
 
 export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps) {
   const [busy, setBusy] = useState<Method | null>(null);
@@ -137,7 +135,7 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
           // 에러 메시지 원문은 계정 관련 텍스트·고카디널리티 위험 — 코드가 있을 때만 코드로 버킷(PR 276 리뷰 반영)
           reason: typeof code === 'string' || typeof code === 'number' ? String(code) : 'unknown',
         });
-      Alert.alert('로그인 실패', e instanceof Error ? e.message : '다시 시도해 주세요.');
+      Alert.alert(t('login.failTitle'), e instanceof Error ? e.message : t('common.retryPlease'));
     } finally {
       setBusy(null);
     }
@@ -160,7 +158,10 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
     } catch (e) {
       // 게스트 실패는 구분 코드가 없어 'unknown' 고정 — 메시지 원문 미전송(PR 276 리뷰 반영)
       if (isOnboarding) logOnboardingSignupFailed({ method: 'guest', reason: 'unknown' });
-      Alert.alert('시작 실패', e instanceof Error ? e.message : '다시 시도해 주세요.');
+      Alert.alert(
+        t('login.guestFailTitle'),
+        e instanceof Error ? e.message : t('common.retryPlease'),
+      );
     } finally {
       setGuestBusy(false);
     }
@@ -172,13 +173,13 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
     // react-native-web의 Alert는 브라우저 alert()로 축약돼 버튼 콜백을 실행하지 않는다.
     // 웹에서는 게스트가 유일한 로그인 수단이므로 confirm 결과를 직접 받아 진행한다.
     if (Platform.OS === 'web') {
-      if (globalThis.confirm(GUEST_LOGIN_NOTICE)) runGuest();
+      if (globalThis.confirm(t('login.guestNotice'))) runGuest();
       return;
     }
 
-    Alert.alert('게스트 로그인 안내', GUEST_LOGIN_NOTICE, [
-      { text: '취소', style: 'cancel' },
-      { text: '확인', onPress: runGuest },
+    Alert.alert(t('login.guestNoticeTitle'), t('login.guestNotice'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.confirm'), onPress: runGuest },
     ]);
   }
 
@@ -199,9 +200,7 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
             <CharacterImage size={104} />
           </View>
           <Text style={s.title}>Gromo</Text>
-          <Text style={s.subtitle}>
-            목표를 안전하게 저장하고{'\n'}어디서든 이어서 쓸 수 있어요.
-          </Text>
+          <Text style={s.subtitle}>{t('login.subtitle')}</Text>
         </View>
 
         {/* 하단: 소셜 로그인 + 게스트 + 약관 */}
@@ -223,12 +222,12 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
                 {loading ? (
                   <ActivityIndicator color={p.fg} />
                 ) : (
-                  <Text style={[s.btnText, { color: p.fg }]}>{p.label}</Text>
+                  <Text style={[s.btnText, { color: p.fg }]}>{t(p.labelKey)}</Text>
                 )}
                 {p.method === lastProvider && showLastBadge ? (
                   <View style={s.lastBadgeWrap} pointerEvents="none">
                     <View style={s.lastBadge}>
-                      <Text style={s.lastBadgeText}>최근 사용</Text>
+                      <Text style={s.lastBadgeText}>{t('login.lastUsed')}</Text>
                     </View>
                   </View>
                 ) : null}
@@ -246,13 +245,16 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
             {guestBusy ? (
               <ActivityIndicator color={T.ink} />
             ) : (
-              <Text style={[s.btnText, s.guestBtnText]}>게스트 로그인</Text>
+              <Text style={[s.btnText, s.guestBtnText]}>{t('login.guest')}</Text>
             )}
           </TouchableOpacity>
 
           <Text style={s.terms}>
-            계속하면 <Text style={s.termsLink}>이용약관</Text> 및{' '}
-            <Text style={s.termsLink}>개인정보 처리방침</Text>에 동의해요.
+            {t('login.termsPrefix')}
+            <Text style={s.termsLink}>{t('login.termsOfService')}</Text>
+            {t('login.termsMiddle')}
+            <Text style={s.termsLink}>{t('login.privacyPolicy')}</Text>
+            {t('login.termsSuffix')}
           </Text>
         </View>
       </ScrollView>

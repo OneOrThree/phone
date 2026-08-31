@@ -14,6 +14,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import { CURRENCY } from '@/constants/currency';
 import { tierByLevel } from '@/constants/tiers';
 import { ConfettiBurst } from '@/components/ConfettiBurst';
@@ -42,11 +43,24 @@ const DOWN_IMAGES: Record<number, ImageSourcePropType> = {
 // 장애물(obstacle)을 주지 않으므로 조각은 전부 바닥까지 떨어지고 쌓이는 조각이 없다.
 const CONFETTI_LIFE_MS = 3200;
 
-// 타입별 연출 텍스트 — 티어·시간은 params 실데이터, 여기는 표시 문구만
+// 타입별 연출 텍스트 — 티어·시간은 params 실데이터, 여기는 표시 문구만.
+// caption(PROMOTED/…)은 로고 성격의 영문 고정 문구라 번역 대상이 아니다.
 const TYPE_CFG = {
-  promote: { caption: 'PROMOTED', title: '승격했어요!', cta: '새 리그 보러가기' },
-  maintain: { caption: 'MAINTAINED', title: '자리를 지켰어요', cta: '이어서 달리기' },
-  demote: { caption: 'DEMOTED', title: '한 단계 내려갔어요', cta: '이번 주 다시 시작' },
+  promote: {
+    caption: 'PROMOTED',
+    titleKey: 'league.result.promoteTitle',
+    ctaKey: 'league.result.promoteCta',
+  },
+  maintain: {
+    caption: 'MAINTAINED',
+    titleKey: 'league.result.maintainTitle',
+    ctaKey: 'league.result.maintainCta',
+  },
+  demote: {
+    caption: 'DEMOTED',
+    titleKey: 'league.result.demoteTitle',
+    ctaKey: 'league.result.demoteCta',
+  },
 } as const;
 
 export default function LeagueResultScreen() {
@@ -139,9 +153,9 @@ export default function LeagueResultScreen() {
   //    렌더하지 않으므로 이 타이머가 헛돌아도 보이는 것이 없다.
   useEffect(() => {
     if (!celebrate) return undefined;
-    const t = setTimeout(() => setCelebrate(false), CONFETTI_LIFE_MS);
+    const timer = setTimeout(() => setCelebrate(false), CONFETTI_LIFE_MS);
     // 화면을 떠난 뒤에 타이머가 돌지 않게 반드시 걷는다.
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [celebrate]);
   useEffect(() => {
     // ⚠️ '동작 줄이기' 값이 **확정되기 전에는 시작하지 않는다.** useReduceMotion은 확정 전을
@@ -362,7 +376,7 @@ export default function LeagueResultScreen() {
             style={[s.titleGroup, { opacity: titleOpacity, transform: [{ scale: titleScale }] }]}
           >
             <Text style={s.caption}>{cfg.caption}</Text>
-            <Text style={s.title}>{cfg.title}</Text>
+            <Text style={s.title}>{t(cfg.titleKey)}</Text>
           </Animated.View>
 
           {/* 큰 티어 뱃지 + 글로우 — 강등 3단계(깨진 뱃지) / 승격 2단계 크로스페이드 / 유지 단일 */}
@@ -449,23 +463,23 @@ export default function LeagueResultScreen() {
         {/* 다음 티어까지 한 줄 안내 — CTA 바로 위 */}
         <Animated.Text style={[s.goalHint, lineStyle(line3)]}>
           {nextUp == null ? (
-            '이미 최고 티어예요!'
-          ) : demote ? (
-            <>
-              저번 주보다 <Text style={s.goalStrong}>{nextRemain}시간</Text> 더 집중하면 원래 티어로
-              돌아갈 수 있어요!
-            </>
+            t('league.result.maxTier')
           ) : (
             <>
-              저번 주보다 <Text style={s.goalStrong}>{nextRemain}시간</Text> 더 집중하면 다음 티어로
-              올라갈 수 있어요!
+              {t('league.result.goalHintPrefix')}
+              <Text style={s.goalStrong}>
+                {t('league.result.goalHintHours', { count: nextRemain })}
+              </Text>
+              {demote
+                ? t('league.result.goalHintDemoteSuffix')
+                : t('league.result.goalHintPromoteSuffix')}
             </>
           )}
         </Animated.Text>
 
         {/* ── 하단 CTA ── */}
         <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={() => navigation.goBack()}>
-          <Text style={s.ctaText}>{cfg.cta}</Text>
+          <Text style={s.ctaText}>{t(cfg.ctaKey)}</Text>
         </TouchableOpacity>
       </SafeAreaView>
 

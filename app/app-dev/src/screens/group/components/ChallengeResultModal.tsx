@@ -24,13 +24,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { ChallengeResultCandidate, ChallengeResultMember } from '../challengeResult';
 import {
   UNMEASURED,
-  WINDOW_FOCUS_TOLERANCE_NOTICE,
   progressFraction,
   progressFractionA11y,
   unmeasuredA11y,
+  windowFocusToleranceNotice,
 } from './progressFormat';
 
 // 내 결과별 헤드라인 — 리그 결과 화면의 caption/title 위계를 따른다.
@@ -42,21 +43,21 @@ import {
 const HEADLINE = {
   achieved: {
     image: require('@/assets/character_happy.png'),
-    imageLabel: '목표를 달성해 기뻐하는 캐릭터',
+    imageLabelKey: 'group.challengeResultModal.achievedImage',
     caption: 'CHALLENGE RESULT',
-    title: '목표를 달성했어요!',
+    titleKey: 'group.challengeResultModal.achievedTitle',
   },
   failed: {
     image: require('@/assets/character_sensitive.png'),
-    imageLabel: '목표를 놓쳐 아쉬워하는 캐릭터',
+    imageLabelKey: 'group.challengeResultModal.failedImage',
     caption: 'CHALLENGE RESULT',
-    title: '아쉽게 놓쳤어요',
+    titleKey: 'group.challengeResultModal.failedTitle',
   },
   pending: {
     image: require('@/assets/character_study.png'),
-    imageLabel: '판정이 확정되지 않은 캐릭터',
+    imageLabelKey: 'group.challengeResultModal.pendingImage',
     caption: 'CHALLENGE RESULT',
-    title: '결과를 판정하지 못했어요',
+    titleKey: 'group.challengeResultModal.pendingTitle',
   },
   // 몰수(FORFEITED) — 서버가 이 상태를 붙이는 조건 **자체가** "달성자 0명"이다
   // (GroupBetPayoutCalculator:74 `winners.isEmpty() ? FORFEITED : SETTLED`, 전원 achieved=false).
@@ -67,29 +68,31 @@ const HEADLINE = {
   // 떴다 — 미판정과 확정 서술이 서로를 부정한다(GROMO-1581).
   forfeited: {
     image: require('@/assets/character_sensitive.png'),
-    imageLabel: '아무도 달성하지 못해 아쉬워하는 캐릭터',
+    imageLabelKey: 'group.challengeResultModal.forfeitedImage',
     caption: 'CHALLENGE RESULT',
-    title: '아무도 달성하지 못했어요',
+    titleKey: 'group.challengeResultModal.forfeitedTitle',
   },
   // 무산·환불 — 승패가 아니라 돈이 제자리로 돌아간 결말. 승패 캐릭터를 세우면 거짓말이 된다.
   voided: {
     image: require('@/assets/character_study.png'),
-    imageLabel: '내기가 무산돼 담담한 캐릭터',
+    imageLabelKey: 'group.challengeResultModal.voidedImage',
     caption: 'CHALLENGE RESULT',
-    title: '내기가 무산됐어요',
+    titleKey: 'group.challengeResultModal.voidedTitle',
   },
   refunded: {
     image: require('@/assets/character_study.png'),
-    imageLabel: '참가비를 돌려받은 캐릭터',
+    imageLabelKey: 'group.challengeResultModal.refundedImage',
     caption: 'CHALLENGE RESULT',
-    title: '참가비를 돌려드렸어요',
+    titleKey: 'group.challengeResultModal.refundedTitle',
   },
 } as const;
 
 // 'YYYY-MM-DD' → '8월 1일' (ChallengeCard.monthDay와 같은 표기 — 형식이 다르면 원문 유지).
 function monthDay(date: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  return m ? `${Number(m[2])}월 ${Number(m[3])}일` : date;
+  return m
+    ? t('group.challengeResultModal.monthDay', { month: Number(m[2]), day: Number(m[3]) })
+    : date;
 }
 
 // 판정 근거 한 조각 — 카드 진행 리스트와 **같은 조각**을 쓴다(progressFormat).
@@ -112,23 +115,27 @@ export function resultDeltaText(payout: number | null, stake: number): string {
 export function settlementNotice(result: ChallengeResultCandidate): string | null {
   switch (result.status) {
     case 'FORFEITED':
-      return `아무도 달성하지 못해 적립금 ${result.pot}코인이 사라졌어요`;
+      return t('group.challengeResultModal.forfeitedNotice', { pot: result.pot });
     case 'VOIDED':
       // 사유를 모르는 VOIDED(신설 사유 등)는 인원 부족이라고 지어내지 않는다 — 환불 사실만 말한다.
       // 인원 미달 값은 **문서와 서버가 갈려 있다** — LLD §2.1·IA §4.3 예시는 `SHORT_PARTICIPANTS`,
       // 서버 enum·V41 CHECK 는 `INSUFFICIENT_PARTICIPANTS`(policy N33 은 영문 이름을 정하지 않았다).
       // 한쪽만 보면 IA §4.3 이 규정한 카피가 **한 번도 뜨지 않고** 일반 폴백으로 강하한다 —
       // 둘 다 같은 문장으로 접는다(A3 `lastSettledView.VOID_REASON_ALIASES` 와 같은 처리).
-      return result.voidReason === 'SHORT_PARTICIPANTS' ||
-        result.voidReason === 'INSUFFICIENT_PARTICIPANTS'
-        ? '참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요'
-        : '내기가 무산돼 참가비를 돌려드렸어요';
+      return t(
+        result.voidReason === 'SHORT_PARTICIPANTS' ||
+          result.voidReason === 'INSUFFICIENT_PARTICIPANTS'
+          ? 'group.challengeResultModal.voidedShortNotice'
+          : 'group.challengeResultModal.voidedNotice',
+      );
     case 'REFUNDED':
-      return '정산이 지연돼 참가비를 돌려드렸어요';
+      return t('group.challengeResultModal.refundedNotice');
     default: {
       if (result.myPayout === null) return null;
       const delta = result.myPayout - result.stake;
-      return `내 정산 ${delta > 0 ? '+' : ''}${delta}코인`;
+      return t('group.challengeResultModal.mySettlement', {
+        delta: `${delta > 0 ? '+' : ''}${delta}`,
+      });
     }
   }
 }
@@ -240,7 +247,9 @@ function rowA11yLabel(m: ChallengeResultMember, goalMinutes: number | null, stak
       : progressFractionA11y(m.nickname, m.progressMinutes, goalMinutes);
   if (m.payout === null) return head;
   const delta = m.payout - stake;
-  return `${head}, ${delta >= 0 ? '' : '마이너스 '}${Math.abs(delta)}코인`;
+  return delta >= 0
+    ? t('group.challengeResultModal.rowA11yGain', { head, coins: delta })
+    : t('group.challengeResultModal.rowA11yLoss', { head, coins: Math.abs(delta) });
 }
 
 // 명단 한 묶음(달성/미달성/미판정) — 비어 있으면 묶음째 그리지 않는다.
@@ -354,7 +363,7 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
             ]}
           >
             <Text style={s.caption}>{headline.caption}</Text>
-            <Text style={s.title}>{headline.title}</Text>
+            <Text style={s.title}>{t(headline.titleKey)}</Text>
 
             {/* 캐릭터 + 글로우 — 리그의 뱃지 자리를 대신한다.
                 에셋마다 가로세로비가 달라 contain으로 넣는다(원 안에 들어가는 쪽이 기준) */}
@@ -365,7 +374,7 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
                 resizeMode="contain"
                 accessible
                 accessibilityRole="image"
-                accessibilityLabel={headline.imageLabel}
+                accessibilityLabel={t(headline.imageLabelKey)}
                 testID="group.challengeResult.character"
               />
             </View>
@@ -373,14 +382,16 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
             {/* 어느 그룹의 어느 날 결과인가 — 큐가 그룹 무관이라(탈퇴자 포함) 그룹 이름을 직접
                 말한다. 문구에 '회차'를 쓰지 않는다(IA §6.3 — 날짜가 이미 그 하루를 표현한다). */}
             <Text style={s.label}>{result.groupName}</Text>
-            <Text style={s.date}>{monthDay(result.date)} 결과</Text>
+            <Text style={s.date}>
+              {t('group.challengeResultModal.dateResult', { date: monthDay(result.date) })}
+            </Text>
 
             {/* 창형 집중의 5분 관용치 고지 — 명단(숫자)보다 **먼저** 세운다. 명단 안(스크롤)에
                 넣으면 잘려서 안 보이는 사용자가 55/60분을 달성 옆에서 모순으로 읽는다.
                 형제 화면(LastBetResultSheet·챌린지 내역)의 자리·문구·조건과 같다(GROMO-1207). */}
             {toleranceNotice && (
               <Text style={s.toleranceNotice} testID="group.challengeResult.toleranceNotice">
-                {WINDOW_FOCUS_TOLERANCE_NOTICE}
+                {windowFocusToleranceNotice()}
               </Text>
             )}
 
@@ -400,7 +411,7 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
                 testID="group.challengeResult.lists"
               >
                 <NameSection
-                  title="달성"
+                  title={t('group.challengeResultModal.sectionAchieved')}
                   icon="checkmark-circle"
                   color={T.night.green}
                   members={result.achievers}
@@ -408,7 +419,7 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
                   stake={result.stake}
                 />
                 <NameSection
-                  title="미달성"
+                  title={t('group.challengeResultModal.sectionFailed')}
                   icon="close-circle"
                   color={T.night.muted}
                   members={result.failed}
@@ -416,7 +427,7 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
                   stake={result.stake}
                 />
                 <NameSection
-                  title="미판정"
+                  title={t('group.challengeResultModal.sectionPending')}
                   icon="help-circle-outline"
                   color={T.night.gold}
                   members={result.pending}
@@ -440,7 +451,7 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
             onPress={onClose}
             testID="group.challengeResult.close"
           >
-            <Text style={s.ctaText}>확인</Text>
+            <Text style={s.ctaText}>{t('common.confirm')}</Text>
           </TouchableOpacity>
         </SafeAreaView>
       </View>

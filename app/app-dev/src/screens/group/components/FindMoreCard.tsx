@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { GROUP_CARD_HEIGHT } from './groupCardLayout';
 
 interface FindMoreCardProps {
@@ -30,14 +31,14 @@ export function FindMoreCard({
       onPress={onPress}
       focusable={focusable}
       accessibilityRole="button"
-      accessibilityLabel={`그룹 찾기, 현재 ${position}/${pageCount} 페이지`}
+      accessibilityLabel={t('group.findMoreCard.a11y', { position, pageCount })}
       testID="group.deck.findMore"
     >
       <View style={s.icon}>
         <Ionicons name="search" size={24} color={T.accent} />
       </View>
-      <Text style={s.title}>그룹 찾기</Text>
-      <Text style={s.desc}>같이 공부할 그룹을 더 찾아봐요</Text>
+      <Text style={s.title}>{t('group.findMoreCard.title')}</Text>
+      <Text style={s.desc}>{t('group.findMoreCard.desc')}</Text>
     </Pressable>
   );
 }

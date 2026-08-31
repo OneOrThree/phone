@@ -1,5 +1,6 @@
 import { Alert } from 'react-native';
 import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
+import { t } from '@/i18n';
 import {
   OVERLAY_PRIORITY,
   holdOverlaySlotForNativeSurface,
@@ -103,14 +104,14 @@ export function promptSessionExpired(requestSessionGeneration: number): void {
   };
   const showPrompt = () => {
     Alert.alert(
-      '로그인이 필요해요',
-      '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
+      t('services.sessionErrors.loginRequiredTitle'),
+      t('services.sessionErrors.sessionExpired'),
       [
         // ② **확인 시점** — ①을 통과했어도 안내를 읽는 사이 세션이 교체될 수 있다. 세대를 넘겨
         //    App.tsx 로그아웃 핸들러가 스스로 대조하게 한다. 두 검사는 **다른 구간**을 막는다:
         //    ①은 응답→표시 구간, ②는 표시→확인 구간. 하나로 합칠 수 없다.
         {
-          text: '확인',
+          text: t('common.confirm'),
           onPress: () => {
             release();
             triggerLogout(requestSessionGeneration);

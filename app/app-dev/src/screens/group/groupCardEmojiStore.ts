@@ -1,19 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { t } from '@/i18n';
 import { STORAGE_KEYS } from '@/types/storage';
 
+// 라벨은 문구가 아니라 번역 키로 담는다 — 모듈 최상위에서 t()를 부르면 로케일 결정 전에 굳는다.
 export const GROUP_CARD_EMOJI_OPTIONS = [
-  { emoji: '🌅', label: '일출' },
-  { emoji: '📚', label: '책' },
-  { emoji: '💻', label: '노트북' },
-  { emoji: '⚡', label: '번개' },
-  { emoji: '🧘', label: '명상' },
-  { emoji: '🎨', label: '팔레트' },
-  { emoji: '🏃', label: '달리기' },
-  { emoji: '✍️', label: '쓰기' },
-  { emoji: '🧠', label: '두뇌' },
-  { emoji: '🎯', label: '목표' },
-  { emoji: '🌿', label: '잎' },
-  { emoji: '🔥', label: '불꽃' },
+  { emoji: '🌅', labelKey: 'group.groupCardEmojiStore.sunrise' },
+  { emoji: '📚', labelKey: 'group.groupCardEmojiStore.book' },
+  { emoji: '💻', labelKey: 'group.groupCardEmojiStore.laptop' },
+  { emoji: '⚡', labelKey: 'group.groupCardEmojiStore.bolt' },
+  { emoji: '🧘', labelKey: 'group.groupCardEmojiStore.meditation' },
+  { emoji: '🎨', labelKey: 'group.groupCardEmojiStore.palette' },
+  { emoji: '🏃', labelKey: 'group.groupCardEmojiStore.running' },
+  { emoji: '✍️', labelKey: 'group.groupCardEmojiStore.writing' },
+  { emoji: '🧠', labelKey: 'group.groupCardEmojiStore.brain' },
+  { emoji: '🎯', labelKey: 'group.groupCardEmojiStore.target' },
+  { emoji: '🌿', labelKey: 'group.groupCardEmojiStore.leaf' },
+  { emoji: '🔥', labelKey: 'group.groupCardEmojiStore.flame' },
 ] as const;
 
 export type GroupCardEmoji = (typeof GROUP_CARD_EMOJI_OPTIONS)[number]['emoji'];
@@ -36,7 +38,8 @@ export function normalizeGroupCardEmoji(value: unknown): GroupCardEmoji {
 
 export function groupCardEmojiLabel(value: unknown): string {
   const emoji = normalizeGroupCardEmoji(value);
-  return GROUP_CARD_EMOJI_OPTIONS.find((option) => option.emoji === emoji)?.label ?? '목표';
+  const labelKey = GROUP_CARD_EMOJI_OPTIONS.find((option) => option.emoji === emoji)?.labelKey;
+  return t(labelKey ?? 'group.groupCardEmojiStore.target');
 }
 
 export function parseGroupCardEmojiState(raw: string | null): ParsedEmojiMap {

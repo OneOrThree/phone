@@ -4,6 +4,7 @@ import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { getDefaultSubjects } from '@/constants/focusCategories';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StepProps } from '@/screens/onboarding/types';
 
 // W6 · 실시간 랭킹 — "같은 목표 준비생이 지금 함께 달리고 있어요"(설득).
@@ -54,7 +55,7 @@ function Row({
         <View style={s.focusing}>
           <View style={[s.focusDot, focusing ? null : s.focusDotIdle]} />
           <Text style={[s.focusText, focusing ? null : s.focusTextIdle]}>
-            {focusing ? '집중 중' : '쉬는 중'}
+            {t(focusing ? 'onboarding.liveRanking.focusing' : 'onboarding.liveRanking.resting')}
           </Text>
         </View>
       </View>
@@ -63,7 +64,7 @@ function Row({
 }
 
 export default function LiveRankingStep({ data, onNext }: StepProps) {
-  const category = data.focusCategory ?? '같은 목표';
+  const category = data.focusCategory ?? t('onboarding.liveRanking.categoryFallback');
   const subs = getDefaultSubjects(data.focusCategory);
   const subjectFor = (i: number) => (subs.length ? subs[i % subs.length] : category);
 
@@ -105,14 +106,17 @@ export default function LiveRankingStep({ data, onNext }: StepProps) {
       header={
         <View style={s.badge}>
           <View style={s.badgeDot} />
+          {/* 인원수는 목업 숫자라 번역 대상이 아니다 — 앞뒤 문구만 키로 쪼개 어순을 흡수한다. */}
           <Text style={s.badgeText}>
-            지금 <Text style={s.badgeStrong}>1,240</Text>명 집중 중
+            {t('onboarding.liveRanking.badgePrefix')}
+            <Text style={s.badgeStrong}>1,240</Text>
+            {t('onboarding.liveRanking.badgeSuffix')}
           </Text>
         </View>
       }
-      title={`${category} 준비생들이\n지금 함께 달리고 있어요`}
-      subtitle="실시간 집중 랭킹 · 매초 갱신"
-      ctaLabel="나도 지금 합류하기"
+      title={t('onboarding.liveRanking.title', { category })}
+      subtitle={t('onboarding.liveRanking.subtitle')}
+      ctaLabel={t('onboarding.liveRanking.cta')}
       onCta={onNext}
     >
       <View style={s.marquee} pointerEvents="none">

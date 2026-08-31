@@ -12,6 +12,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { M, fadeIn } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StatsPeriod } from '@/types/dto/stats';
 import { getAllFocusSessions } from '@/services/focusApi';
 import { axisCeil, fmtAxis, fmtHm } from '@/utils/timeFormat';
@@ -164,7 +165,7 @@ export function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
 
   if (bars.length === 0) {
     // 빈 상태도 조회 중과 같은 높이 — 한 줄로 줄면 아래 카드가 통째로 올라온다
-    return <CardBodyEmpty height={CHART_BLOCK_H}>아직 기록이 없어요</CardBodyEmpty>;
+    return <CardBodyEmpty height={CHART_BLOCK_H}>{t('common.noRecords')}</CardBodyEmpty>;
   }
   return (
     <View style={s.chartPlotRow}>
@@ -356,7 +357,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
 
   const vals = points.filter((p) => !p.future && p.minutes != null).map((p) => p.minutes as number);
   if (vals.length === 0) {
-    return <CardBodyEmpty height={FIRST_START_BODY_H}>아직 기록이 없어요</CardBodyEmpty>;
+    return <CardBodyEmpty height={FIRST_START_BODY_H}>{t('common.noRecords')}</CardBodyEmpty>;
   }
 
   // 세로축 경계 — 정시로 내리고 폭을 3시간 배수로 맞춰 ⅓·⅔ 눈금도 정시가 되게 한다
@@ -368,7 +369,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
     axisMax = 1440;
     axisMin = 1440 - span;
   }
-  const fmtClock = (m: number) => `${Math.floor(m / 60)}시`;
+  const fmtClock = (m: number) => t('stats.chart.hourLabel', { hour: Math.floor(m / 60) });
   const step = plotW / points.length;
   // 미래 구간·기록 없는 날은 라벨만 남기고 점에서 제외(0으로 찍으면 '자정 시작'으로 왜곡)
   const pts = points
@@ -453,7 +454,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
           </View>
         </View>
       </View>
-      <Text style={cs.grassHint}>그날 처음 집중을 시작한 시각 · 위로 갈수록 이른 시각이에요</Text>
+      <Text style={cs.grassHint}>{t('stats.firstStart.hint')}</Text>
     </View>
   );
 }

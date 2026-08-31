@@ -24,7 +24,8 @@ import { getAuthSessionGeneration } from '@/services/api';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupBetEnabled, logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { useToast } from '@/store/ToastContext';
-import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
+import { t } from '@/i18n';
+import { windowFocusToleranceNotice } from './progressFormat';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type {
   ChallengeRepeatDay,
@@ -72,55 +73,75 @@ const WINDOW_END_DEFAULT = 12 * 60;
 // 창 시각 휠의 분 단위 — 집중 목표 휠(DurationDrumPicker)과 같은 5분 눈금.
 const MINUTE_STEP = 5;
 
-const HOUR_ITEMS = Array.from({ length: 24 }, (_, h) => `${h}시`);
-const MINUTE_ITEMS = Array.from(
-  { length: 60 / MINUTE_STEP },
-  (_, i) => `${String(i * MINUTE_STEP).padStart(2, '0')}분`,
-);
+// 휠 항목은 번역 문구라 렌더 시점에 만든다(모듈 최상위 t() 금지).
+const hourItems = (): string[] =>
+  Array.from({ length: 24 }, (_, h) => t('group.challengeComposeSheet.hourItem', { hour: h }));
+const minuteItems = (): string[] =>
+  Array.from({ length: 60 / MINUTE_STEP }, (_, i) =>
+    t('group.challengeComposeSheet.minuteItem', {
+      minute: String(i * MINUTE_STEP).padStart(2, '0'),
+    }),
+  );
 // 종료 분 휠 전용 — 자정 걸침 금지(§A6-1) 후 "22:00~23:59는 허용"이 정책의 유효 예시인데
 // 5분 눈금으로는 23:55가 상한이라 당일 마지막 시각을 표현할 수 없다(codex 리뷰, PR #565).
 // 59분 항목을 끝에 더해 어느 시든 HH:59를 고를 수 있게 한다(서버는 임의 time 수용).
-const END_MINUTE_ITEMS = [...MINUTE_ITEMS, '59분'];
+const endMinuteItems = (): string[] => [
+  ...minuteItems(),
+  t('group.challengeComposeSheet.minuteItem', { minute: '59' }),
+];
+// 인덱스 산술은 문구와 무관하므로 항목 수(분 눈금 + 59분 1개)를 상수로 둔다.
+const END_MINUTE_COUNT = 60 / MINUTE_STEP + 1;
 const endMinuteIndexOf = (minuteOfHour: number): number =>
-  minuteOfHour === 59 ? END_MINUTE_ITEMS.length - 1 : minuteOfHour / MINUTE_STEP;
+  minuteOfHour === 59 ? END_MINUTE_COUNT - 1 : minuteOfHour / MINUTE_STEP;
 const endMinuteOf = (index: number): number =>
-  index === END_MINUTE_ITEMS.length - 1 ? 59 : index * MINUTE_STEP;
+  index === END_MINUTE_COUNT - 1 ? 59 : index * MINUTE_STEP;
 
 // durationLabel까지 카테고리에서 파생시킨다 — 그룹 만들기 화면과 같은 문구다(같은 값을
 // 고르는 두 자리가 달라 보이면 안 된다는 이 파일의 전제를 라벨에도 적용).
-const CATEGORY_OPTIONS: { value: MissionCategory; label: string; durationLabel: string }[] = [
-  { value: 'FOCUS', label: '집중 시간', durationLabel: '하루 목표 집중 시간' },
-  { value: 'SCREEN_TIME', label: '스크린타임', durationLabel: '하루 목표 스크린타임' },
+const CATEGORY_OPTIONS: { value: MissionCategory; labelKey: string; durationLabelKey: string }[] = [
+  {
+    value: 'FOCUS',
+    labelKey: 'group.challengeComposeSheet.categoryFocus',
+    durationLabelKey: 'group.challengeComposeSheet.durationLabelFocus',
+  },
+  {
+    value: 'SCREEN_TIME',
+    labelKey: 'group.challengeComposeSheet.categoryScreenTime',
+    durationLabelKey: 'group.challengeComposeSheet.durationLabelScreenTime',
+  },
 ];
 
 // 방식 세그먼트 — DURATION은 '그날 하루 누적', TIME_WINDOW는 '반복되는 시간대'다.
 // 종전 라벨 「매일 목표」의 "매일" 전제는 요일 반복(§A3)과 함께 깨졌다 — ux.html §06의 라벨을 따른다.
-const TYPE_OPTIONS: { value: MissionType; label: string }[] = [
-  { value: 'DURATION', label: '하루 누적' },
-  { value: 'TIME_WINDOW', label: '시간대' },
+const TYPE_OPTIONS: { value: MissionType; labelKey: string }[] = [
+  { value: 'DURATION', labelKey: 'group.challengeComposeSheet.typeDuration' },
+  { value: 'TIME_WINDOW', labelKey: 'group.challengeComposeSheet.typeWindow' },
 ];
 
 // 요일 7토글(GROMO-1273) — 아이폰 알람과 같은 모델(§A3). 「매일/평일/주말」 프리셋은 두지
 // 않는다(FR-9-1: 누르는 손이 곧 "언제 도는지"를 의식하는 절차다). 기본값도 없다(FR-4·N3).
-const REPEAT_DAY_OPTIONS: { value: ChallengeRepeatDay; label: string; a11yLabel: string }[] = [
-  { value: 'MON', label: '월', a11yLabel: '월요일' },
-  { value: 'TUE', label: '화', a11yLabel: '화요일' },
-  { value: 'WED', label: '수', a11yLabel: '수요일' },
-  { value: 'THU', label: '목', a11yLabel: '목요일' },
-  { value: 'FRI', label: '금', a11yLabel: '금요일' },
-  { value: 'SAT', label: '토', a11yLabel: '토요일' },
-  { value: 'SUN', label: '일', a11yLabel: '일요일' },
+const REPEAT_DAY_OPTIONS: {
+  value: ChallengeRepeatDay;
+  labelKey: string;
+  a11yLabelKey: string;
+}[] = [
+  { value: 'MON', labelKey: 'common.weekday.mon', a11yLabelKey: 'group.weekdayFull.mon' },
+  { value: 'TUE', labelKey: 'common.weekday.tue', a11yLabelKey: 'group.weekdayFull.tue' },
+  { value: 'WED', labelKey: 'common.weekday.wed', a11yLabelKey: 'group.weekdayFull.wed' },
+  { value: 'THU', labelKey: 'common.weekday.thu', a11yLabelKey: 'group.weekdayFull.thu' },
+  { value: 'FRI', labelKey: 'common.weekday.fri', a11yLabelKey: 'group.weekdayFull.fri' },
+  { value: 'SAT', labelKey: 'common.weekday.sat', a11yLabelKey: 'group.weekdayFull.sat' },
+  { value: 'SUN', labelKey: 'common.weekday.sun', a11yLabelKey: 'group.weekdayFull.sun' },
 ];
 
 // 요일 미선택 안내 — 선택을 강제하는 이유(언제 도는지 의식)를 그대로 문장에 싣는다.
-const REPEAT_DAYS_REQUIRED_CAPTION = '언제 도는 챌린지인지 골라 주세요';
+const REPEAT_DAYS_REQUIRED_CAPTION_KEY = 'group.challengeComposeSheet.repeatDaysRequired';
 
 // 카테고리에 따라 목표의 뜻이 뒤집힌다(집중은 이상, 스크린타임은 이하) — 캡션으로 못 박는다.
 // "매일/하루에" 전제는 요일 반복과 함께 "도는 날" 기준으로 바꿨다(GROMO-1273).
-const CATEGORY_CAPTION: Record<MissionCategory, string> = {
-  FOCUS: '도는 날마다 목표 시간 이상 집중하면 달성이에요',
-  SCREEN_TIME:
-    '도는 날의 스크린타임을 목표 이하로 유지하면 달성이에요. 권한을 허용한 멤버만 참여해요',
+const CATEGORY_CAPTION_KEYS: Record<MissionCategory, string> = {
+  FOCUS: 'group.challengeComposeSheet.categoryCaptionFocus',
+  SCREEN_TIME: 'group.challengeComposeSheet.categoryCaptionScreenTime',
 };
 
 // 시간대(TIME_WINDOW) 안내 — FOCUS 창은 판정에 5분 관용치가 있고(서버
@@ -128,48 +149,43 @@ const CATEGORY_CAPTION: Record<MissionCategory, string> = {
 // 존재한다 — 돈이 걸릴 수 있는 판정 기준이라 만들기 전에 고지한다.
 // 관용치 문장은 progressFormat의 WINDOW_FOCUS_TOLERANCE_NOTICE를 합성한다(GROMO-1224) —
 // 결과 모달의 고지와 글자 하나까지 같아야 하는 문장이라 소스를 하나만 둔다.
-const WINDOW_FOCUS_CAPTION = `도는 날마다 정한 시간대 안에서 목표 시간 이상 집중하면 달성이에요. ${WINDOW_FOCUS_TOLERANCE_NOTICE}`;
-const WINDOW_SCREEN_TIME_CAPTION =
-  '도는 날마다 정한 시간대 안에서 스크린타임을 목표 이하로 유지하면 달성이에요. ' +
-  '권한을 허용한 멤버만 참여해요. ' +
-  '사용 시간은 15분 단위로 집계돼 오차가 있을 수 있어요. 앱 버전이나 기기 상태에 따라 집계가 늦거나 누락될 수 있어요';
+// 관용치 문장은 progressFormat과 **같은 키**를 %{notice}로 끼워 넣는다 — 소스가 하나로 남는다.
+const windowFocusCaption = (): string =>
+  t('group.challengeComposeSheet.windowFocusCaption', { notice: windowFocusToleranceNotice() });
+const WINDOW_SCREEN_TIME_CAPTION_KEY = 'group.challengeComposeSheet.windowScreenTimeCaption';
 
 // 오늘 창이 이미 지난 시간대로 만들 때의 안내 — 창은 반복되는 time-of-day라 오늘 몫만 지났을 뿐
 // 챌린지는 정상 생성된다. 막지 않고 사실만 알린다. 요일 반복(§A3) 뒤로 "내일"이 다음 활성일이라는
 // 보장이 없어져 「다음 도는 날」로 말한다(GROMO-1273).
-const WINDOW_PASSED_NOTE = '오늘 시간대가 지나 다음 도는 날부터 적용돼요';
+const WINDOW_PASSED_NOTE_KEY = 'group.challengeComposeSheet.windowPassedNote';
 
 // 자정 걸침 창 금지(§A6-1·N25) — 요일이 회차를 가르는 축인데 창이 요일 경계를 넘으면 판정일·
 // 겹침 검사·정산 귀속이 전부 모호해진다. 서버도 시작<종료를 강제하므로(INVALID_MISSION_PARAMS)
 // 클라가 먼저 이유를 말한다. 문구는 ux.html §06 카피 표 그대로.
-const WINDOW_MIDNIGHT_CAPTION =
-  '시간대는 하루 안에서 끝나야 해요. 자정 이후는 다음 날 챌린지로 만들어 주세요';
+const WINDOW_MIDNIGHT_CAPTION_KEY = 'group.challengeComposeSheet.windowMidnightCaption';
 
 // SCREEN_TIME 생성 후 미참여자가 있을 때의 안내 — 생성 자체는 성공이므로 실패로 보이게 쓰지 않는다.
 // 토스트는 한 줄(numberOfLines=2)이라 제목·본문을 나눌 수 없다 — 생성 결과와 미참여 사실을 한
 // 문장에 담되 2줄 안에 들어가게 줄였다(옛 Alert: '챌린지를 만들었어요' / '일부 멤버는 스크린타임
 // 권한이 없어 참여할 수 없어요').
-const CREATED_WITH_NON_PARTICIPANTS_MESSAGE =
-  '챌린지를 만들었어요 — 스크린타임 권한이 없는 멤버는 빠져요';
+const CREATED_WITH_NON_PARTICIPANTS_KEY = 'group.challengeComposeSheet.createdWithNonParticipants';
 
 // 이미 있는 조합을 고를 수 없는 이유 — 세그먼트 아래 한 줄로 알린다.
-const TAKEN_CAPTION = '이미 있는 종류·방식은 기존 챌린지를 삭제해야 다시 만들 수 있어요';
-const ALL_TAKEN_CAPTION = '모든 종류의 챌린지가 이미 있어요';
+const TAKEN_CAPTION_KEY = 'group.challengeComposeSheet.takenCaption';
+const ALL_TAKEN_CAPTION_KEY = 'group.challengeComposeSheet.allTakenCaption';
 // 잠긴 세그먼트가 스크린리더에 읽어 줄 이유(GROMO-1204) — TAKEN_CAPTION과 같은 사실의 요약이다.
-const TAKEN_HINT = '이미 만든 조합이에요';
+const TAKEN_HINT_KEY = 'group.challengeComposeSheet.takenHint';
 // 창 길이 초과로 잠긴 칩의 이유 — durationOverWindowCaption의 첫 문장과 같은 결이다.
-const CHIP_OVER_WINDOW_HINT = '시간대보다 길어요';
+const CHIP_OVER_WINDOW_HINT_KEY = 'group.challengeComposeSheet.chipOverWindowHint';
 // 전송 중 안내 — BetSheet와 같은 문구·자리(CTA 아래 한 줄). 폼 전체가 잠긴 동안
 // 멈춘 화면으로 보이지 않게 한다.
-const SUBMITTING_CAPTION = '처리 중이에요…';
+const SUBMITTING_CAPTION_KEY = 'group.challengeComposeSheet.submittingCaption';
 
 // 참가비(내기) 섹션 카피(GROMO-1428) — ux.html §06. 내기를 켤지는 **이 시트가 유일한 자리**고
 // 만든 뒤에는 끌 수 없다(N26: 끄기 = 삭제와 같은 일이라 경로를 하나만 둔다). 참여 규칙(회차마다
 // 각자·최소 2명)과 불가역 고지를 만들기 전에 한 번에 보여 준다.
-const BET_NOTE =
-  '1~3,000코인 사이로 정해요. 도는 날마다 각자 참여를 정하고, 2명 이상 모여야 내기가 성립해요. ' +
-  '내기는 만든 뒤에 끌 수 없어요 — 빼려면 챌린지를 삭제하고 다시 만들어요';
-const STAKE_RANGE_CAPTION = '참가비는 1~3,000코인 사이로 정해 주세요';
+const BET_NOTE_KEY = 'group.challengeComposeSheet.betNote';
+const STAKE_RANGE_CAPTION_KEY = 'group.challengeComposeSheet.stakeRangeCaption';
 
 // 1,080 → "1,080" — 상한 카피의 천 단위 구분(기존 "1~1,440분" 표기와 같은 결).
 function fmtN(n: number): string {
@@ -180,33 +196,45 @@ function fmtN(n: number): string {
 function hourLabel(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  return m > 0 ? `${h}시간 ${m}분` : `${h}시간`;
+  return m > 0
+    ? t('group.challengeComposeSheet.hoursMinutes', { hours: h, minutes: m })
+    : t('group.challengeComposeSheet.hours', { hours: h });
 }
 
 // 상한 카피 — "1,080분(18시간)"처럼 분과 시간 환산을 같은 형식으로 병기한다(FR-9-2).
 function minutesWithHours(minutes: number): string {
-  return minutes >= 60 ? `${fmtN(minutes)}분(${hourLabel(minutes)})` : `${fmtN(minutes)}분`;
+  return minutes >= 60
+    ? t('group.challengeComposeSheet.minutesWithHours', {
+        minutes: fmtN(minutes),
+        hours: hourLabel(minutes),
+      })
+    : t('group.challengeComposeSheet.minutes', { minutes: fmtN(minutes) });
 }
 
 // 하루형 상한 안내 — 카테고리별 상한(N51)을 환산 병기 형식으로.
 const durationRangeCaption = (category: MissionCategory): string =>
-  `목표 시간은 1~${minutesWithHours(DURATION_MAX[category])} 사이로 입력해 주세요`;
+  t('group.challengeComposeSheet.durationRangeCaption', {
+    max: minutesWithHours(DURATION_MAX[category]),
+  });
 // 창 길이 초과는 기존 칩 잠금(chipDisabled)과 같은 사실이다 — 칩은 잠그면 끝이지만
 // 직접 입력은 이미 쓴 값이 남으므로 고치는 방법(이하로 줄이기)을 문장에 싣는다.
 const durationOverWindowCaption = (windowLength: number): string =>
-  `시간대보다 길어요. ${minutesWithHours(windowLength)} 이하로 입력해 주세요`;
+  t('group.challengeComposeSheet.durationOverWindowCaption', {
+    max: minutesWithHours(windowLength),
+  });
 // 창형 SCREEN_TIME 눈금 안내 — ux.html §06 카피 표 그대로(서버 CHALLENGE_GOAL_NOT_ALIGNED 선제).
-const GOAL_STEP_CAPTION = '사용 시간은 15분 단위로 집계돼요. 15·30·45분처럼 골라 주세요';
+const GOAL_STEP_CAPTION_KEY = 'group.challengeComposeSheet.goalStepCaption';
 // 창형 FOCUS 하한 안내 — 이유(관용치)는 결과 모달과 같은 문장 소스를 쓴다.
-const GOAL_TOLERANCE_CAPTION = `목표 시간은 5분보다 길어야 해요. ${WINDOW_FOCUS_TOLERANCE_NOTICE}`;
+const goalToleranceCaption = (): string =>
+  t('group.challengeComposeSheet.goalToleranceCaption', { notice: windowFocusToleranceNotice() });
 
 // 생성 실패 문구 — HTTP status가 아니라 서버 code로 분기하고, 모르는 code는 공통 문구(§5-2).
 function createErrorMessage(e: unknown): string {
   switch (groupErrorCode(e)) {
     case 'NOT_FOUND':
-      return '사라진 그룹이에요.';
+      return t('group.challengeComposeSheet.errorGroupGone');
     case 'MEMBER_ONLY':
-      return '그룹원만 이용할 수 있어요.';
+      return t('group.challengeComposeSheet.errorMemberOnly');
     // 그룹 생성은 더는 챌린지를 만들지 않는다(D18) — 그래도 목록 조회 뒤 다른 방장이 같은
     // 조합을 먼저 만드는 레이스에선 매트릭스를 뚫고 이 409가 온다. 공통 문구로 떨어뜨리면
     // "다시 시도"를 반복해도 영원히 같은 실패만 보므로 전용 분기를 유지한다.
@@ -215,25 +243,22 @@ function createErrorMessage(e: unknown): string {
     case 'ACTIVE_CHALLENGE_EXISTS':
     case 'CHALLENGE_ALREADY_EXISTS':
     case CHALLENGE_DUPLICATE:
-      return '이미 같은 종류의 챌린지가 있어요. 기존 챌린지를 삭제하고 만들어 주세요.';
+      return t('group.challengeComposeSheet.errorDuplicate');
     // 창 겹침 판정은 요일 ∧ 시간대다(§A5: 요일 교집합이 있고 간격이 15분 미만일 때만 409).
     // 요일을 바꿔도 시간을 바꿔도 풀리는 실패라 두 해법을 모두 문장에 싣는다(GROMO-1273).
     case CHALLENGE_WINDOW_OVERLAP:
-      return (
-        '요일이 겹치는 다른 시간대 챌린지와 시간이 겹치거나 간격이 15분보다 좁아요. ' +
-        '겹치지 않는 요일을 고르거나 시간대를 15분 이상 띄워 주세요.'
-      );
+      return t('group.challengeComposeSheet.errorWindowOverlap');
     // 아래 4종은 클라가 선제 검증하므로 보통 오지 않는다 — 레이스·구클라 대비 전용 문구만 유지.
     case 'CHALLENGE_REPEAT_DAYS_REQUIRED':
-      return '도는 요일을 하나 이상 골라 주세요.';
+      return t('group.challengeComposeSheet.errorRepeatDaysRequired');
     case 'CHALLENGE_LIMIT_EXCEEDED':
-      return '챌린지는 4개까지 만들 수 있어요. 하나를 종료하고 다시 시도해 주세요.';
+      return t('group.challengeComposeSheet.errorLimitExceeded');
     case 'CHALLENGE_GOAL_NOT_ALIGNED':
-      return `${GOAL_STEP_CAPTION}.`;
+      return `${t(GOAL_STEP_CAPTION_KEY)}.`;
     case 'BET_INVALID_STAKE':
-      return `${STAKE_RANGE_CAPTION}.`;
+      return `${t(STAKE_RANGE_CAPTION_KEY)}.`;
     default:
-      return '챌린지를 만들지 못했어요. 잠시 후 다시 시도해 주세요.';
+      return t('group.challengeComposeSheet.errorCreateFailed');
   }
 }
 
@@ -287,7 +312,7 @@ export default function ChallengeComposeSheet({
   const isTaken = (category: MissionCategory, type: MissionType): boolean =>
     existingCombos.some((c) => c.category === category && c.type === type);
   const categoryFullyTaken = (category: MissionCategory): boolean =>
-    TYPE_OPTIONS.every((t) => isTaken(category, t.value));
+    TYPE_OPTIONS.every((opt) => isTaken(category, opt.value));
   // 만들 수 있는 조합이 하나도 없다 — 세그먼트를 전부 잠그고 CTA도 막는다.
   const allTaken = CATEGORY_OPTIONS.every((o) => categoryFullyTaken(o.value));
 
@@ -301,8 +326,8 @@ export default function ChallengeComposeSheet({
   });
   const [missionType, setMissionType] = useState<MissionType>(() => {
     for (const c of CATEGORY_OPTIONS) {
-      for (const t of TYPE_OPTIONS) {
-        if (!isTaken(c.value, t.value)) return t.value;
+      for (const opt of TYPE_OPTIONS) {
+        if (!isTaken(c.value, opt.value)) return opt.value;
       }
     }
     return TYPE_OPTIONS[0].value;
@@ -384,9 +409,9 @@ export default function ChallengeComposeSheet({
       missionCategory === 'SCREEN_TIME' &&
       (durationMinutes === 0 || durationMinutes % SCREEN_TIME_STEP !== 0)
     ) {
-      durationCaption = GOAL_STEP_CAPTION;
+      durationCaption = t(GOAL_STEP_CAPTION_KEY);
     } else if (missionCategory === 'FOCUS' && durationMinutes <= WINDOW_FOCUS_MIN_EXCLUSIVE) {
-      durationCaption = GOAL_TOLERANCE_CAPTION;
+      durationCaption = goalToleranceCaption();
     } else {
       durationValid = true;
     }
@@ -394,37 +419,44 @@ export default function ChallengeComposeSheet({
   // 시간 환산 병기(FR-9-2) — "90분 · 1시간 30분". 60분 미만은 환산할 것이 없다.
   const durationHoursCaption =
     durationMinutes !== null && durationMinutes >= 60
-      ? `${fmtN(durationMinutes)}분 · ${hourLabel(durationMinutes)}`
+      ? t('group.challengeComposeSheet.durationHoursCaption', {
+          minutes: fmtN(durationMinutes),
+          hours: hourLabel(durationMinutes),
+        })
       : null;
   // 범위는 플레이스홀더가 상시 알려 준다 — 상한이 방식·카테고리로 갈리므로 자리마다 계산한다.
   const durationPlaceholder = !isWindow
-    ? `직접 입력 (1~${fmtN(DURATION_MAX[missionCategory])}분)`
+    ? t('group.challengeComposeSheet.durationPlaceholderRange', {
+        max: fmtN(DURATION_MAX[missionCategory]),
+      })
     : !windowValid
-      ? '직접 입력'
+      ? t('group.challengeComposeSheet.durationPlaceholder')
       : missionCategory === 'SCREEN_TIME'
-        ? `직접 입력 (15분 단위, 최대 ${fmtN(windowLength)}분)`
-        : `직접 입력 (최대 ${fmtN(windowLength)}분)`;
+        ? t('group.challengeComposeSheet.durationPlaceholderStep', { max: fmtN(windowLength) })
+        : t('group.challengeComposeSheet.durationPlaceholderMax', { max: fmtN(windowLength) });
 
   // 참가비 파생값 — 빈 값 = 내기 없음(유효). 값이 있으면 1~3,000(N30)만 통과한다.
   const stake = /^\d+$/.test(stakeText) ? parseInt(stakeText, 10) : null;
   const stakeValid = stake === null || (stake >= 1 && stake <= STAKE_MAX);
-  const stakeCaption = stakeValid ? null : STAKE_RANGE_CAPTION;
+  const stakeCaption = stakeValid ? null : t(STAKE_RANGE_CAPTION_KEY);
 
   const categoryOption =
     CATEGORY_OPTIONS.find((c) => c.value === missionCategory) ?? CATEGORY_OPTIONS[0];
-  const durationLabel = isWindow ? '시간대 안 목표 시간' : categoryOption.durationLabel;
+  const durationLabel = isWindow
+    ? t('group.challengeComposeSheet.durationLabelWindow')
+    : t(categoryOption.durationLabelKey);
   const noteText = isWindow
     ? missionCategory === 'SCREEN_TIME'
-      ? WINDOW_SCREEN_TIME_CAPTION
-      : WINDOW_FOCUS_CAPTION
-    : CATEGORY_CAPTION[missionCategory];
+      ? t(WINDOW_SCREEN_TIME_CAPTION_KEY)
+      : windowFocusCaption()
+    : t(CATEGORY_CAPTION_KEYS[missionCategory]);
 
   // 카테고리를 바꾸면 그 카테고리에서 막힌 방식을 피해 준다 — 잠긴 세그먼트가 선택된 채로
   // 남으면 CTA만 막히고 왜 안 되는지 알 수 없다.
   function pickCategory(category: MissionCategory) {
     setMissionCategory(category);
     if (isTaken(category, missionType)) {
-      const free = TYPE_OPTIONS.find((t) => !isTaken(category, t.value));
+      const free = TYPE_OPTIONS.find((opt) => !isTaken(category, opt.value));
       if (free) setMissionType(free.value);
     }
   }
@@ -489,7 +521,7 @@ export default function ChallengeComposeSheet({
     // VoiceOver 어느 쪽도 자동으로 읽지 않는다. announceForAccessibility가 iOS·안드로이드
     // 양쪽에서 즉시 읽히는 크로스플랫폼 채널이다. accessibilityLiveRegion은 안드로이드 전용인
     // 데다 announce와 겹치면 같은 문구가 두 번 읽혀 채널을 이 하나로 둔다.
-    AccessibilityInfo.announceForAccessibility(SUBMITTING_CAPTION);
+    AccessibilityInfo.announceForAccessibility(t(SUBMITTING_CAPTION_KEY));
     setErrorMsg(null);
     // 요청 직전의 인증 세대 — 유저 부재 분기의 로그아웃 판정용(sessionErrors.ts 주석).
     const requestSessionGeneration = getAuthSessionGeneration();
@@ -527,7 +559,7 @@ export default function ChallengeComposeSheet({
       //    (Toast.tsx 헤더 주석). onCreated()로 먼저 닫고 나서 알린다.
       onCreated();
       if (nonParticipants.length > 0) {
-        showToast({ message: CREATED_WITH_NON_PARTICIPANTS_MESSAGE, tone: 'success' });
+        showToast({ message: t(CREATED_WITH_NON_PARTICIPANTS_KEY), tone: 'success' });
       }
     } catch (e) {
       // 실패했을 때만 잠금을 푼다 — 성공 경로는 onCreated가 시트를 닫으므로 잠긴 채 끝낸다.
@@ -555,11 +587,11 @@ export default function ChallengeComposeSheet({
   return (
     // 생성 중에는 딤 탭·그랩바 드래그로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지).
     <SheetShell onClose={submitting ? () => {} : onClose} asModal dismissible={!submitting}>
-      <Text style={s.title}>챌린지 만들기</Text>
+      <Text style={s.title}>{t('group.challengeComposeSheet.title')}</Text>
       {/* "오늘부터"는 요일 반복(§A3)과 함께 깨진 전제다 — ux.html §06의 부제로 바꿨다. */}
-      <Text style={s.sub}>그룹이 함께 지킬 목표예요.</Text>
+      <Text style={s.sub}>{t('group.challengeComposeSheet.sub')}</Text>
 
-      <Text style={s.label}>챌린지 종류</Text>
+      <Text style={s.label}>{t('group.challengeComposeSheet.categoryLabel')}</Text>
       <View style={s.segment}>
         {CATEGORY_OPTIONS.map((opt) => {
           const taken = categoryFullyTaken(opt.value);
@@ -576,19 +608,19 @@ export default function ChallengeComposeSheet({
               // 세그먼트 강조와 같은 판정을 스크린리더에도 준다).
               accessibilityRole="button"
               accessibilityState={{ selected: on, disabled: taken || submitting }}
-              accessibilityLabel={opt.label}
-              accessibilityHint={taken ? TAKEN_HINT : undefined}
+              accessibilityLabel={t(opt.labelKey)}
+              accessibilityHint={taken ? t(TAKEN_HINT_KEY) : undefined}
               testID={`group.challenge.category.${opt.value}`}
             >
               <Text style={[s.segText, on ? s.segTextOn : null, taken ? s.segTextOff : null]}>
-                {opt.label}
+                {t(opt.labelKey)}
               </Text>
             </TouchableOpacity>
           );
         })}
       </View>
 
-      <Text style={s.label}>챌린지 방식</Text>
+      <Text style={s.label}>{t('group.challengeComposeSheet.typeLabel')}</Text>
       <View style={s.segment}>
         {TYPE_OPTIONS.map((opt) => {
           const taken = isTaken(missionCategory, opt.value);
@@ -603,23 +635,25 @@ export default function ChallengeComposeSheet({
               // 카테고리 세그먼트와 같은 규격 — 잠금(disabled)과 이유(hint)까지 읽힌다.
               accessibilityRole="button"
               accessibilityState={{ selected: on, disabled: taken || submitting }}
-              accessibilityLabel={opt.label}
-              accessibilityHint={taken ? TAKEN_HINT : undefined}
+              accessibilityLabel={t(opt.labelKey)}
+              accessibilityHint={taken ? t(TAKEN_HINT_KEY) : undefined}
               testID={`group.challenge.type.${opt.value}`}
             >
               <Text style={[s.segText, on ? s.segTextOn : null, taken ? s.segTextOff : null]}>
-                {opt.label}
+                {t(opt.labelKey)}
               </Text>
             </TouchableOpacity>
           );
         })}
       </View>
       {existingCombos.length > 0 && (
-        <Text style={s.takenCaption}>{allTaken ? ALL_TAKEN_CAPTION : TAKEN_CAPTION}</Text>
+        <Text style={s.takenCaption}>
+          {t(allTaken ? ALL_TAKEN_CAPTION_KEY : TAKEN_CAPTION_KEY)}
+        </Text>
       )}
 
       {/* ── 도는 요일(GROMO-1273) — 기본값·프리셋 없음, 하나도 안 고르면 CTA 잠금 ── */}
-      <Text style={s.label}>도는 요일</Text>
+      <Text style={s.label}>{t('group.challengeComposeSheet.repeatDaysLabel')}</Text>
       <View style={s.dowRow}>
         {REPEAT_DAY_OPTIONS.map((opt) => {
           const on = repeatDays.includes(opt.value);
@@ -632,23 +666,23 @@ export default function ChallengeComposeSheet({
               onPress={() => toggleRepeatDay(opt.value)}
               accessibilityRole="button"
               accessibilityState={{ selected: on, disabled: submitting }}
-              accessibilityLabel={opt.a11yLabel}
+              accessibilityLabel={t(opt.a11yLabelKey)}
               testID={`group.challenge.dow.${opt.value}`}
             >
-              <Text style={[s.dowText, on ? s.dowTextOn : null]}>{opt.label}</Text>
+              <Text style={[s.dowText, on ? s.dowTextOn : null]}>{t(opt.labelKey)}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
       {repeatDays.length === 0 && (
         <Text style={s.takenCaption} testID="group.challenge.dowRequired">
-          {REPEAT_DAYS_REQUIRED_CAPTION}
+          {t(REPEAT_DAYS_REQUIRED_CAPTION_KEY)}
         </Text>
       )}
 
       {isWindow && (
         <>
-          <Text style={s.label}>시간대 설정 (한국 시간 기준)</Text>
+          <Text style={s.label}>{t('group.challengeComposeSheet.windowLabel')}</Text>
           {/* DrumPicker엔 잠금 prop이 없다(집중 목표 화면과 공유하는 부품 — API를 늘리지 않는다).
               전송 중엔 휠 영역의 **새 터치**를 차단한다(GROMO-1204). pointerEvents="none"이
               못 멈추는 이미 시작된 플링(모멘텀) 감속의 onChange는 commitWindow의 잠금 가드가
@@ -656,14 +690,14 @@ export default function ChallengeComposeSheet({
           <View style={s.windowRow} pointerEvents={submitting ? 'none' : 'auto'}>
             <View style={s.windowCol}>
               <DrumPicker
-                items={HOUR_ITEMS}
+                items={hourItems()}
                 selectedIndex={Math.floor(windowStart / 60)}
                 onChange={(h) => commitWindow(h * 60 + (windowStart % 60), windowEnd)}
               />
             </View>
             <View style={s.windowCol}>
               <DrumPicker
-                items={MINUTE_ITEMS}
+                items={minuteItems()}
                 selectedIndex={(windowStart % 60) / MINUTE_STEP}
                 onChange={(i) =>
                   commitWindow(Math.floor(windowStart / 60) * 60 + i * MINUTE_STEP, windowEnd)
@@ -673,14 +707,14 @@ export default function ChallengeComposeSheet({
             <Text style={s.windowTilde}>~</Text>
             <View style={s.windowCol}>
               <DrumPicker
-                items={HOUR_ITEMS}
+                items={hourItems()}
                 selectedIndex={Math.floor(windowEnd / 60)}
                 onChange={(h) => commitWindow(windowStart, h * 60 + (windowEnd % 60))}
               />
             </View>
             <View style={s.windowCol}>
               <DrumPicker
-                items={END_MINUTE_ITEMS}
+                items={endMinuteItems()}
                 selectedIndex={endMinuteIndexOf(windowEnd % 60)}
                 onChange={(i) =>
                   commitWindow(windowStart, Math.floor(windowEnd / 60) * 60 + endMinuteOf(i))
@@ -691,14 +725,14 @@ export default function ChallengeComposeSheet({
           {/* 자정 걸침 창(§A6-1) — 서버 400을 기다리지 않고 이유와 대안을 먼저 말한다. */}
           {!windowValid && (
             <Text style={s.error} testID="group.challenge.windowInvalid">
-              {WINDOW_MIDNIGHT_CAPTION}
+              {t(WINDOW_MIDNIGHT_CAPTION_KEY)}
             </Text>
           )}
           {/* 오늘 창이 이미 지났을 때 — 만들 수는 있으므로 막지 않고 사실만 알린다. */}
           {windowPassedToday && (
             <View style={s.note} testID="group.challenge.tomorrowNote">
               <Ionicons name="time-outline" size={15} color={T.accent} style={s.noteIcon} />
-              <Text style={s.noteText}>{WINDOW_PASSED_NOTE}</Text>
+              <Text style={s.noteText}>{t(WINDOW_PASSED_NOTE_KEY)}</Text>
             </View>
           )}
         </>
@@ -720,12 +754,12 @@ export default function ChallengeComposeSheet({
               // 잠긴 이유 힌트는 창 길이 초과일 때만(전송 중 잠금은 처리 중 안내가 받는다).
               accessibilityRole="button"
               accessibilityState={{ selected: on, disabled: off || submitting }}
-              accessibilityLabel={`${m}분`}
-              accessibilityHint={off ? CHIP_OVER_WINDOW_HINT : undefined}
+              accessibilityLabel={t('group.challengeComposeSheet.minutes', { minutes: m })}
+              accessibilityHint={off ? t(CHIP_OVER_WINDOW_HINT_KEY) : undefined}
               testID={`group.challenge.duration.${m}`}
             >
               <Text style={[s.chipText, on ? s.chipTextOn : null, off ? s.chipTextOff : null]}>
-                {m}분
+                {t('group.challengeComposeSheet.minutes', { minutes: m })}
               </Text>
             </TouchableOpacity>
           );
@@ -747,10 +781,10 @@ export default function ChallengeComposeSheet({
           maxLength={4}
           placeholder={durationPlaceholder}
           placeholderTextColor={T.inkMuted}
-          accessibilityLabel="목표 시간 직접 입력"
+          accessibilityLabel={t('group.challengeComposeSheet.durationInputA11y')}
           testID="group.challenge.durationInput"
         />
-        <Text style={s.inputUnit}>분</Text>
+        <Text style={s.inputUnit}>{t('group.challengeComposeSheet.unitMinute')}</Text>
       </View>
       {/* 시간 환산 병기(GROMO-1278·FR-9-2) — 240분이 4시간이라는 걸 암산하게 두지 않는다. */}
       {durationHoursCaption !== null && (
@@ -772,7 +806,8 @@ export default function ChallengeComposeSheet({
 
       {/* ── 참가비(내기, GROMO-1428) — 켤지 여부는 이 시트가 유일한 자리다(N26) ── */}
       <Text style={s.label}>
-        참가비(코인) <Text style={s.labelSub}>· 안 정하면 내기 없음</Text>
+        {t('group.challengeComposeSheet.stakeLabel')}{' '}
+        <Text style={s.labelSub}>{t('group.challengeComposeSheet.stakeLabelSub')}</Text>
       </Text>
       <View style={[s.inputBox, stakeCaption !== null ? s.inputBoxError : null]}>
         <TextInput
@@ -782,18 +817,20 @@ export default function ChallengeComposeSheet({
           keyboardType="number-pad"
           editable={!submitting}
           maxLength={4}
-          placeholder={`직접 입력 (1~${fmtN(STAKE_MAX)}코인)`}
+          placeholder={t('group.challengeComposeSheet.stakePlaceholder', {
+            max: fmtN(STAKE_MAX),
+          })}
           placeholderTextColor={T.inkMuted}
-          accessibilityLabel="참가비 직접 입력"
+          accessibilityLabel={t('group.challengeComposeSheet.stakeInputA11y')}
           testID="group.challenge.stakeInput"
         />
-        <Text style={s.inputUnit}>코인</Text>
+        <Text style={s.inputUnit}>{t('group.challengeComposeSheet.unitCoin')}</Text>
       </View>
       {stakeCaption !== null && <Text style={s.error}>{stakeCaption}</Text>}
       {/* 불가역 고지(N26) — 만든 뒤에는 끌 수 없다. 참여 규칙과 함께 만들기 전에 보여 준다. */}
       <View style={s.note} testID="group.challenge.betNote">
         <Ionicons name="cash-outline" size={15} color={T.accent} style={s.noteIcon} />
-        <Text style={s.noteText}>{BET_NOTE}</Text>
+        <Text style={s.noteText}>{t(BET_NOTE_KEY)}</Text>
       </View>
 
       {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
@@ -808,13 +845,13 @@ export default function ChallengeComposeSheet({
         {submitting ? (
           <ActivityIndicator color={T.white} />
         ) : (
-          <Text style={s.submitText}>만들기</Text>
+          <Text style={s.submitText}>{t('group.challengeComposeSheet.submit')}</Text>
         )}
       </TouchableOpacity>
 
       {/* 전송 중엔 CTA도 딤 탭도 폼 입력도 막혀 있다 — 멈춘 화면이 아님을 한 줄로 알린다
           (BetSheet와 같은 문구·자리). */}
-      {submitting && <Text style={s.submittingCaption}>{SUBMITTING_CAPTION}</Text>}
+      {submitting && <Text style={s.submittingCaption}>{t(SUBMITTING_CAPTION_KEY)}</Text>}
 
       {/* 키보드 보정 여백(안드로이드 전용) — iOS는 SheetShell이 패널째 올린다. */}
       {keyboardHeight > 0 && <View style={{ height: keyboardHeight }} />}

@@ -2,6 +2,7 @@ import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestCo
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { STORAGE_KEYS } from '@/types/storage';
+import { t } from '@/i18n';
 import { enableApiMocks } from '@/mocks';
 import { resolveApiUrl } from '@/services/apiBaseUrl';
 
@@ -278,7 +279,7 @@ api.interceptors.response.use(
         // 이전 세션 refresh 응답을 의도적으로 폐기한 경우 현재 세션까지 로그아웃시키지 않는다.
         if (refreshError instanceof StaleAuthRefreshError) throw refreshError;
         onLogout?.();
-        throw new Error('세션이 만료됐어요. 다시 로그인해 주세요.');
+        throw new Error(t('services.api.sessionExpired'));
       }
     }
 

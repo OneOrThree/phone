@@ -24,6 +24,7 @@ import { SettingsSection, SettingsRow } from '@/screens/settings/components/Sett
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { CURRENCY } from '@/constants/currency';
 import { logCurrencyChipTapped } from '@/services/analyticsEvents';
 
@@ -35,9 +36,9 @@ import { logCurrencyChipTapped } from '@/services/analyticsEvents';
 function hLabel(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
-  if (h && m) return `${h}시간 ${m}분`;
-  if (h) return `${h}시간`;
-  return `${m}분`;
+  if (h && m) return t('menu.duration.hourMinute', { h, m });
+  if (h) return t('menu.duration.hour', { h });
+  return t('menu.duration.minute', { m });
 }
 
 const APP_VERSION = Constants.expoConfig?.version ?? '—';
@@ -48,13 +49,13 @@ const TERMS_URL = 'https://team-page.vercel.app/#/terms';
 
 // 외부 브라우저 이동 전 확인 안내 — 확인을 눌러야 링크를 연다 (GROMO-813)
 function confirmOpenExternal(title: string, url: string) {
-  Alert.alert(title, '외부 브라우저로 팀 사이트가 열려요.\n이동할까요?', [
-    { text: '취소', style: 'cancel' },
+  Alert.alert(title, t('menu.openExternalMessage'), [
+    { text: t('common.cancel'), style: 'cancel' },
     {
-      text: '확인',
+      text: t('common.confirm'),
       onPress: () => {
         Linking.openURL(url).catch(() =>
-          Alert.alert('알림', '링크를 열 수 없어요. 잠시 후 다시 시도해 주세요.'),
+          Alert.alert(t('menu.noticeTitle'), t('menu.linkOpenFailed')),
         );
       },
     },
@@ -280,23 +281,27 @@ export default function MenuScreen() {
   );
 
   const permissionLabel =
-    permission === 'approved' ? '허용됨' : permission === 'denied' ? '거부됨' : '요청 필요';
+    permission === 'approved'
+      ? t('menu.permission.approved')
+      : permission === 'denied'
+        ? t('menu.permission.denied')
+        : t('menu.permission.notDetermined');
 
   // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 프로필·설정 허브를 설명
   const profileRef = useRef<View | null>(null);
   const goalSectionRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
-      text: '전체 탭에서는 프로필과 앱의 모든 설정을 관리할 수 있어요.',
+      text: t('menu.guide.intro'),
       character: require('@/assets/character_hi.png'),
     },
     {
-      text: '프로필을 탭하면 닉네임을 편집할 수 있어요.',
+      text: t('menu.guide.profile'),
       character: require('@/assets/character_happy.png'),
       anchor: profileRef,
     },
     {
-      text: '준비 시험과 목표 시간은 여기서 바꿀 수 있어요.\n준비 시험을 바꾸면 추천 과목도 새로 받을 수 있어요!',
+      text: t('menu.guide.goalSection'),
       character: require('@/assets/character_study.png'),
       anchor: goalSectionRef,
     },
@@ -327,12 +332,14 @@ export default function MenuScreen() {
               {streakDays > 0 && (
                 <View style={s.streakPill}>
                   <Ionicons name="flame" size={10} color={T.flame} />
-                  <Text style={s.streakPillText}>연속 공부 {streakDays}일</Text>
+                  <Text style={s.streakPillText}>
+                    {t('menu.profile.streak', { count: streakDays })}
+                  </Text>
                 </View>
               )}
             </View>
             <Text style={s.profileSub} numberOfLines={1}>
-              {category ? `${category} 준비 중` : '프로필 편집'}
+              {category ? t('menu.profile.preparing', { category }) : t('menu.profile.edit')}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={T.inkMuted} />
@@ -347,7 +354,7 @@ export default function MenuScreen() {
             iconColor={T.accentDeep}
             iconBg={T.accentBg}
             label={CURRENCY.label}
-            value={`${coins.toLocaleString()}개`}
+            value={t('menu.currencyValue', { amount: coins.toLocaleString() })}
             onPress={() => {
               logCurrencyChipTapped({ location: 'menu' });
               navigation.navigate('CurrencyHistory', { entry: 'menu_chip' });
@@ -358,13 +365,16 @@ export default function MenuScreen() {
         {/* 섹션·순서(GROMO-848) — 자주 쓰는 행이 위(개인 목표), 1회성·드문 행이 아래(계정·문서·버전).
              아이콘 색 기준: 섹션마다 한 색 — 목표·집중=인디고, 알림·공개=초록, 계정·정보=중립 회색. */}
         <View ref={goalSectionRef} collapsable={false}>
-          <SettingsSection title="목표 · 집중">
+          <SettingsSection title={t('menu.section.goalFocus')}>
             <SettingsRow
               icon="flag-outline"
               iconColor={T.accentDeep}
               iconBg={T.accentBg}
-              label="개인 목표 수정"
-              sub={`집중 ${hLabel(goalSeconds)} · 사용 ${hLabel(screenTimeGoalSeconds)}`}
+              label={t('menu.goal.personalGoal')}
+              sub={t('menu.goal.personalGoalSub', {
+                focus: hLabel(goalSeconds),
+                screenTime: hLabel(screenTimeGoalSeconds),
+              })}
               onPress={() => navigation.navigate('SettingsGoals')}
             />
             {/* 허용앱은 집중 실드(차단)의 예외 목록이라 실드가 없는 플랫폼에선 의미가 없다.
@@ -375,13 +385,13 @@ export default function MenuScreen() {
                 icon="lock-open-outline"
                 iconColor={T.accentDeep}
                 iconBg={T.accentBg}
-                label="집중 중 허용 앱 관리"
+                label={t('menu.goal.allowedApps')}
                 sub={
                   allowedApps === null
-                    ? '집중 중에도 쓸 수 있는 앱'
+                    ? t('menu.goal.allowedAppsHint')
                     : allowedApps > 0
-                      ? `앱 ${allowedApps}개 허용 중`
-                      : '허용앱 없음'
+                      ? t('menu.goal.allowedAppsCount', { count: allowedApps })
+                      : t('menu.goal.allowedAppsNone')
                 }
                 onPress={() => navigation.navigate('SettingsAllowedApps')}
               />
@@ -390,10 +400,14 @@ export default function MenuScreen() {
               icon="phone-portrait-outline"
               iconColor={T.accentDeep}
               iconBg={T.accentBg}
-              label="스크린타임 관리"
+              label={t('menu.goal.screenTime')}
               // 부제는 하위 화면에 실제로 있는 것만 적는다 — 측정 대상 앱 설정은 피커가 없는
               // 플랫폼에서 숨기므로, 부제만 남으면 없는 항목을 찾아 들어가게 된다(GROMO-1592).
-              sub={supportsAppSelection() ? '권한 · 측정 대상 앱' : '권한 · 사용시간 측정'}
+              sub={
+                supportsAppSelection()
+                  ? t('menu.goal.screenTimeSubSelection')
+                  : t('menu.goal.screenTimeSub')
+              }
               value={permission === null ? undefined : permissionLabel}
               valueColor={permission === 'approved' ? T.successInk : T.inkSub}
               onPress={() => navigation.navigate('SettingsScreenTimePermission')}
@@ -402,8 +416,8 @@ export default function MenuScreen() {
               icon="school-outline"
               iconColor={T.accentDeep}
               iconBg={T.accentBg}
-              label="준비 시험"
-              value={category ?? '미설정'}
+              label={t('menu.goal.occupation')}
+              value={category ?? t('menu.goal.occupationUnset')}
               onPress={() => navigation.navigate('SettingsOccupation')}
             />
           </SettingsSection>
@@ -412,31 +426,31 @@ export default function MenuScreen() {
         {/* '캐릭터' 섹션(사진에서 캐릭터 만들기)은 제거(GROMO-1076) — 진입점을 홈 '캐릭터 변경'
              화면으로 일원화한다. CharacterCreate 라우트 자체는 그 화면이 계속 쓰므로 유지. */}
 
-        <SettingsSection title="알림 · 공개">
+        <SettingsSection title={t('menu.section.notificationPrivacy')}>
           <SettingsRow
             icon="notifications-outline"
             iconColor={T.greenDeep}
             iconBg={T.greenBg}
-            label="알림 설정"
-            sub="집중 리마인더 · 리그 · 심야 · 소리"
+            label={t('menu.notification.settings')}
+            sub={t('menu.notification.settingsSub')}
             onPress={() => navigation.navigate('SettingsNotification')}
           />
           <SettingsRow
             icon="eye-outline"
             iconColor={T.greenDeep}
             iconBg={T.greenBg}
-            label="통계 공개 범위"
+            label={t('menu.notification.statVisibility')}
             onPress={() => navigation.navigate('SettingsStatVisibility')}
           />
         </SettingsSection>
 
-        <SettingsSection title="계정 · 정보">
+        <SettingsSection title={t('menu.section.accountInfo')}>
           <SettingsRow
             icon="person-circle-outline"
             iconColor={T.inkSub}
             iconBg={T.sandLight}
-            label="계정 설정"
-            sub="소셜 연동 · 로그아웃 · 회원 탈퇴"
+            label={t('menu.account.settings')}
+            sub={t('menu.account.settingsSub')}
             onPress={() => navigation.navigate('SettingsAccount')}
           />
           {/* 앱의 유일한 문의 창구다(docs/prd/inquiry/information-architecture.md §5).
@@ -445,29 +459,29 @@ export default function MenuScreen() {
             icon="chatbubble-ellipses-outline"
             iconColor={T.inkSub}
             iconBg={T.sandLight}
-            label="1:1 문의"
-            sub="궁금한 점 · 오류 신고"
+            label={t('menu.account.inquiry')}
+            sub={t('menu.account.inquirySub')}
             onPress={() => navigation.navigate('SettingsInquiry')}
           />
           <SettingsRow
             icon="document-text-outline"
             iconColor={T.inkSub}
             iconBg={T.sandLight}
-            label="개인정보 처리방침"
-            onPress={() => confirmOpenExternal('개인정보 처리방침', PRIVACY_URL)}
+            label={t('menu.account.privacy')}
+            onPress={() => confirmOpenExternal(t('menu.account.privacy'), PRIVACY_URL)}
           />
           <SettingsRow
             icon="reader-outline"
             iconColor={T.inkSub}
             iconBg={T.sandLight}
-            label="서비스 이용약관"
-            onPress={() => confirmOpenExternal('서비스 이용약관', TERMS_URL)}
+            label={t('menu.account.terms')}
+            onPress={() => confirmOpenExternal(t('menu.account.terms'), TERMS_URL)}
           />
           <SettingsRow
             icon="information-circle-outline"
             iconColor={T.inkSub}
             iconBg={T.sandLight}
-            label="버전 정보"
+            label={t('menu.account.version')}
             value={`v${APP_VERSION}`}
             onPress={() => navigation.navigate('SettingsVersion')}
           />

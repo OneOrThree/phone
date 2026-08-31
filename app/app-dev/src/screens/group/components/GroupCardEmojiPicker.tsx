@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { GROUP_CARD_EMOJI_OPTIONS, type GroupCardEmoji } from '../groupCardEmojiStore';
 
 interface Props {
@@ -25,11 +26,11 @@ export function GroupCardEmojiPicker({
   return (
     <View
       accessibilityRole="radiogroup"
-      accessibilityLabel="내 카드 아이콘"
-      accessibilityHint="이 기기에서 나에게만 보여요. 방향키로 선택을 이동할 수 있어요."
+      accessibilityLabel={t('group.groupCardEmojiPicker.title')}
+      accessibilityHint={t('group.groupCardEmojiPicker.hint')}
     >
       <View style={s.grid}>
-        {GROUP_CARD_EMOJI_OPTIONS.map(({ emoji, label }, index) => {
+        {GROUP_CARD_EMOJI_OPTIONS.map(({ emoji, labelKey }, index) => {
           const selected = value === emoji;
           return (
             <Pressable
@@ -41,11 +42,13 @@ export function GroupCardEmojiPicker({
               onPress={() => onChange(emoji)}
               disabled={disabled}
               accessibilityRole="radio"
-              accessibilityLabel={`카드 아이콘 ${label}`}
+              accessibilityLabel={t('group.groupCardEmojiPicker.optionA11y', {
+                label: t(labelKey),
+              })}
               accessibilityState={{ selected, checked: selected, disabled }}
               accessibilityActions={[
-                { name: 'increment', label: '다음 아이콘' },
-                { name: 'decrement', label: '이전 아이콘' },
+                { name: 'increment', label: t('group.groupCardEmojiPicker.nextIcon') },
+                { name: 'decrement', label: t('group.groupCardEmojiPicker.prevIcon') },
               ]}
               onAccessibilityAction={(event) => {
                 if (disabled) return;
@@ -73,7 +76,7 @@ export function GroupCardEmojiPicker({
           );
         })}
       </View>
-      <Text style={s.notice}>이 기기에서 나에게만 보여요</Text>
+      <Text style={s.notice}>{t('group.groupCardEmojiPicker.notice')}</Text>
     </View>
   );
 }

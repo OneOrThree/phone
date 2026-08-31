@@ -15,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { SheetShell } from '@/components/SheetShell';
 import { getAuthSessionGeneration } from '@/services/api';
 import { groupErrorCode, joinGroup, searchGroups } from '@/services/groupApi';
@@ -215,9 +216,12 @@ export default function GroupFindSheet({
   //    seen/ack이 찍힌다. 안내를 먼저 띄워 자리가 끊기지 않게 한다 — Alert 자신이 sheet
   //    우선순위로 자리를 이어받고(useOverlayAlert), 그 다음에 시트를 닫는다.
   const goLogin = useCallback(() => {
-    showAlert('로그인이 필요해요', '로그인하면 그룹에 참여할 수 있어요.', [
-      { text: '나중에', style: 'cancel' },
-      { text: '로그인하기', onPress: () => navigation.navigate('SettingsAccount') },
+    showAlert(t('group.groupFindSheet.loginTitle'), t('group.groupFindSheet.loginBody'), [
+      { text: t('group.groupFindSheet.loginLater'), style: 'cancel' },
+      {
+        text: t('group.groupFindSheet.loginGo'),
+        onPress: () => navigation.navigate('SettingsAccount'),
+      },
     ]);
     onClose();
   }, [navigation, onClose, showAlert]);
@@ -228,7 +232,7 @@ export default function GroupFindSheet({
     // 확인 Alert를 거쳐 들어오므로 사용자는 무언가 눌렀다고 믿는다 — 조용히 삼키지 않고 알린다.
     const token = acquireJoinLock();
     if (!token) {
-      setJoinError('참여를 처리하는 중이에요. 잠시 후 다시 시도해 주세요.');
+      setJoinError(t('group.groupFindSheet.joinInProgress'));
       return;
     }
     // 참여 요청도 **검색 세대를 캡처한다**. 응답을 기다리는 동안 사용자가 검색어를 바꿀 수 있는데,
@@ -276,20 +280,20 @@ export default function GroupFindSheet({
       if (seq !== searchSeqRef.current) return;
       switch (code) {
         case 'ROOM_FULL':
-          setJoinError('정원이 가득 찼어요. 다른 그룹을 찾아보세요.');
+          setJoinError(t('group.groupFindSheet.joinFull'));
           refreshResults();
           break;
         // 참여 상한 초과(2차) — 그룹 쪽 사정이 아니라 내 사정이라 목록은 그대로 둔다
         // (재조회해도 같은 결과가 오고, 다른 그룹을 눌러도 똑같이 막힌다).
         case 'GROUP_LIMIT_EXCEEDED':
-          setJoinError('참여할 수 있는 그룹 수를 초과했어요');
+          setJoinError(t('group.groupInviteSheet.blockLimit'));
           break;
         case 'NOT_FOUND':
-          setJoinError('사라진 그룹이에요. 방장이 그룹을 없앴을 수 있어요.');
+          setJoinError(t('group.groupFindSheet.joinGone'));
           setResults((prev) => prev.filter((r) => r.groupId !== group.groupId));
           break;
         default:
-          setJoinError('참여하지 못했어요. 잠시 후 다시 시도해 주세요.');
+          setJoinError(t('group.betError.joinFailed'));
       }
     } finally {
       releaseJoinLock(token);
@@ -301,10 +305,14 @@ export default function GroupFindSheet({
     Keyboard.dismiss();
     // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 인용부호는 쓰지 않는다.
     // 정원은 이미 행에 n/m으로 붙어 있어 문구에서 반복하지 않는다.
-    Alert.alert('그룹 참여', `${group.name}에 참여할까요?`, [
-      { text: '취소', style: 'cancel' },
-      { text: '참여하기', onPress: () => join(group) },
-    ]);
+    Alert.alert(
+      t('group.groupFindSheet.confirmTitle'),
+      t('group.groupFindSheet.confirmBody', { name: group.name }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('group.groupInviteSheet.join'), onPress: () => join(group) },
+      ],
+    );
   }
 
   // 목록이 비었을 때의 안내 — 로딩 / 조회 실패 / 결과 없음을 상태별로 말한다.
@@ -312,20 +320,26 @@ export default function GroupFindSheet({
   let emptyNotice: ReactNode = null;
   if (results.length === 0) {
     if (searching) {
-      emptyNotice = <Text style={s.emptyText}>{q ? '검색 중…' : '불러오는 중…'}</Text>;
+      emptyNotice = (
+        <Text style={s.emptyText}>
+          {t(q ? 'group.groupFindSheet.searching' : 'group.groupFindSheet.loading')}
+        </Text>
+      );
     } else if (searchError) {
       emptyNotice = (
         <>
-          <Text style={s.emptyText}>{q ? '검색하지 못했어요' : '불러오지 못했어요'}</Text>
+          <Text style={s.emptyText}>
+            {t(q ? 'group.groupFindSheet.searchError' : 'group.groupFindSheet.loadError')}
+          </Text>
           <TouchableOpacity onPress={retrySearch} hitSlop={12} activeOpacity={0.7}>
-            <Text style={s.emptyRetry}>다시 시도</Text>
+            <Text style={s.emptyRetry}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </>
       );
     } else {
       emptyNotice = (
         <Text style={s.emptyText}>
-          {q ? '그런 이름의 공개 그룹이 없어요' : '아직 공개된 그룹이 없어요'}
+          {t(q ? 'group.groupFindSheet.noMatch' : 'group.groupFindSheet.noneYet')}
         </Text>
       );
     }
@@ -346,8 +360,8 @@ export default function GroupFindSheet({
       }}
       asModal
     >
-      <Text style={s.title}>그룹 찾기</Text>
-      <Text style={s.sub}>이름으로 공개 그룹을 찾아 바로 참여할 수 있어요.</Text>
+      <Text style={s.title}>{t('group.groupFindSheet.title')}</Text>
+      <Text style={s.sub}>{t('group.groupFindSheet.sub')}</Text>
 
       {/* ── 검색 인풋(FriendAddScreen:132-149 관행) ── */}
       <View style={s.searchBox}>
@@ -356,7 +370,7 @@ export default function GroupFindSheet({
           style={s.searchInput}
           value={query}
           onChangeText={setQuery}
-          placeholder="그룹 이름으로 검색"
+          placeholder={t('group.groupFindSheet.searchPlaceholder')}
           placeholderTextColor={T.inkMuted}
           autoCapitalize="none"
           autoCorrect={false}
@@ -398,7 +412,9 @@ export default function GroupFindSheet({
                   <Text style={s.rowName} numberOfLines={1}>
                     {r.name}
                   </Text>
-                  {mine && <Text style={s.rowJoinedTag}>참여 중</Text>}
+                  {mine && (
+                    <Text style={s.rowJoinedTag}>{t('group.groupFindSheet.joinedTag')}</Text>
+                  )}
                 </View>
                 {desc ? (
                   <Text
@@ -416,7 +432,7 @@ export default function GroupFindSheet({
               {joining ? (
                 <ActivityIndicator size="small" color={T.accent} />
               ) : full ? (
-                <Text style={s.rowFullTag}>정원 가득</Text>
+                <Text style={s.rowFullTag}>{t('group.groupFindSheet.fullTag')}</Text>
               ) : (
                 <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
               )}

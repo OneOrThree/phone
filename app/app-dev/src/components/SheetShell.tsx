@@ -30,6 +30,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { M } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 바텀시트 공용 껍데기(03/04/05) — 딤 + 하단 흰 패널.
 // 닫기: ① 딤 탭 ② 상단 그랩바를 잡고 아래로 끌기(pull-down) ③ 시트 안 CTA(useSheetClose).
@@ -652,7 +653,11 @@ export function SheetShell({
             testID="sheetShell.panel"
           >
             {/* 상단 그랩바 — 잡고 아래로 끌면 닫힌다(뒤로가기가 없는 시트의 명시적 닫기 수단) */}
-            <View {...pan.panHandlers} style={s.grabArea} accessibilityLabel="아래로 끌어 닫기">
+            <View
+              {...pan.panHandlers}
+              style={s.grabArea}
+              accessibilityLabel={t('components.sheetShell.dragToClose')}
+            >
               <View style={s.grabber} />
             </View>
             {/* 내용 스크롤 — 상한 안에서는 내용 높이 그대로 줄어들고(flexShrink), 넘칠 때만 스크롤한다.

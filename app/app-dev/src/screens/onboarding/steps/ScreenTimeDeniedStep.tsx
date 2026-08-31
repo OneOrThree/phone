@@ -7,6 +7,7 @@ import ScreenTimeGuideOverlay, {
 } from '@/screens/onboarding/components/ScreenTimeGuideOverlay';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import ScreenTimeModule, { type SystemColorScheme } from '@/services/ScreenTimeModule';
 import { pickMeasuredTargets } from '@/screens/onboarding/pickMeasuredTargets';
 import {
@@ -122,16 +123,20 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
     } catch {
       // 재요청 자체가 불가한 상태(기기 제한 등) — 설정 앱 이동으로 폴백.
       setGuideVisible(false);
-      Alert.alert('앱에서 바로 요청할 수 없어요', '설정에서 스크린 타임 권한을 켜 주세요.', [
-        { text: '취소', style: 'cancel' },
-        {
-          text: '설정 열기',
-          onPress: () => {
-            logOnboardingStepAction({ step: 'screentime_denied', action: 'open_settings' });
-            openSettings();
+      Alert.alert(
+        t('onboarding.screenTimeDenied.fallbackTitle'),
+        t('onboarding.screenTimeDenied.fallbackBody'),
+        [
+          { text: t('common.cancel'), style: 'cancel' },
+          {
+            text: t('onboarding.screenTimeDenied.openSettings'),
+            onPress: () => {
+              logOnboardingStepAction({ step: 'screentime_denied', action: 'open_settings' });
+              openSettings();
+            },
           },
-        },
-      ]);
+        ],
+      );
     } finally {
       setRequesting(false);
     }
@@ -147,21 +152,28 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
             <CharacterImage size={132} />
           </View>
         }
-        title="권한 없이도 괜찮아요"
+        title={t('onboarding.screenTimeDenied.title')}
         subtitle={
           <>
-            다만 <Text style={s.strong}>사용시간 목표 설정·통계</Text>는 쓸 수 없어요. 집중 타이머와
-            리그는 그대로 이용할 수 있어요.
+            {t('onboarding.screenTimeDenied.subtitlePrefix')}
+            <Text style={s.strong}>{t('onboarding.screenTimeDenied.subtitleStrong')}</Text>
+            {t('onboarding.screenTimeDenied.subtitleSuffix')}
           </>
         }
-        ctaLabel={requesting ? '요청 중…' : '다시 허용하기'}
+        ctaLabel={
+          requesting
+            ? t('onboarding.screenTimeDenied.requesting')
+            : t('onboarding.screenTimeDenied.cta')
+        }
         ctaDisabled={requesting}
         onCta={retryPermission}
-        secondaryLabel="이대로 계속하기"
+        secondaryLabel={t('onboarding.screenTimeDenied.secondary')}
         onSecondary={onNext}
       >
         <InfoNote>
-          언제든 <NoteStrong>설정 › 스크린 타임 권한</NoteStrong>에서 켤 수 있어요.
+          {t('onboarding.screenTimeDenied.notePrefix')}
+          <NoteStrong>{t('onboarding.screenTimeDenied.noteStrong')}</NoteStrong>
+          {t('onboarding.screenTimeDenied.noteSuffix')}
         </InfoNote>
       </StepScaffold>
       <ScreenTimeGuideOverlay

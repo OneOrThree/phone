@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import { todayStrKst } from '@/utils/localDate';
 import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupDetailMemberResponse, GroupSummaryResponse } from '@/types/dto/group';
@@ -49,7 +50,7 @@ export function resolveVisibleAvatarCount(availableWidth: number): number {
 }
 
 function LoadingLine({ label }: { label: string }) {
-  return <Text style={s.muted}>{label} 불러오는 중…</Text>;
+  return <Text style={s.muted}>{t('group.groupCardBack.loading', { label })}</Text>;
 }
 
 function RetryAction({
@@ -70,7 +71,7 @@ function RetryAction({
       }}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityHint="실패한 정보를 다시 불러옵니다"
+      accessibilityHint={t('group.groupCardBack.retryHint')}
       testID={`group.card.retry.${dependency}`}
     >
       <Text style={s.error}>{label}</Text>
@@ -152,7 +153,9 @@ export function GroupCardBack({
     challenges.status === 'ready'
       ? challenges.data.filter((challenge) => challenge.status === 'ACTIVE')
       : [];
-  const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
+  const privacyLabel = t(
+    group.isPrivate ? 'group.groupCardBack.private' : 'group.groupCardBack.public',
+  );
 
   return (
     <View ref={cardRef} style={s.root} testID={`group.card.back.${group.groupId}`}>
@@ -166,8 +169,8 @@ export function GroupCardBack({
             }}
             onAccessibilityTap={() => (onAccessibilityFlipFront ?? onFlipFront)()}
             accessibilityRole="button"
-            accessibilityLabel={`${group.name} 카드 앞면 보기`}
-            accessibilityHint="카드 앞면으로 돌아갑니다"
+            accessibilityLabel={t('group.groupCardBack.flipFrontA11y', { name: group.name })}
+            accessibilityHint={t('group.groupCardBack.flipFrontHint')}
             testID={`group.card.backTurn.${group.groupId}`}
           >
             <MaterialCommunityIcons name="rotate-3d-variant" size={23} color={T.white} />
@@ -181,8 +184,15 @@ export function GroupCardBack({
             }}
             onAccessibilityTap={() => (onAccessibilityFlipFront ?? onFlipFront)()}
             accessibilityRole="button"
-            accessibilityLabel={`${group.name}, 카드 뒷면, ${privacyLabel}, ${memberCount}/${maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
-            accessibilityHint="두 번 탭하면 카드 앞면을 봅니다"
+            accessibilityLabel={t('group.groupCardBack.cardA11y', {
+              name: group.name,
+              privacy: privacyLabel,
+              members: memberCount,
+              maxMembers,
+              position,
+              pageCount,
+            })}
+            accessibilityHint={t('group.groupCardBack.cardHint')}
             accessibilityState={{ expanded: true }}
             testID={`group.card.backTitle.${group.groupId}`}
           >
@@ -190,7 +200,11 @@ export function GroupCardBack({
               {group.name}
             </Text>
             <Text style={s.headerMeta} numberOfLines={1} accessible={false}>
-              {privacyLabel} · {memberCount}/{maxMembers}명
+              {t('group.groupCardBack.headerMeta', {
+                privacy: privacyLabel,
+                members: memberCount,
+                maxMembers,
+              })}
             </Text>
           </Pressable>
 
@@ -202,7 +216,7 @@ export function GroupCardBack({
               onOpenSettings();
             }}
             accessibilityRole="button"
-            accessibilityLabel={`${group.name} 그룹 옵션`}
+            accessibilityLabel={t('group.groupCardBack.optionsA11y', { name: group.name })}
             testID={`group.card.settings.${group.groupId}`}
           >
             <Ionicons
@@ -227,22 +241,22 @@ export function GroupCardBack({
           >
             <View style={s.liveSummary} accessibilityLiveRegion="polite">
               {detail.status === 'idle' || detail.status === 'loading' ? (
-                <LoadingLine label="집중 인원" />
+                <LoadingLine label={t('group.groupCardBack.focusMembers')} />
               ) : detail.status === 'error' ? (
                 <RetryAction
-                  label="집중 현황을 불러오지 못했어요 · 다시 시도"
+                  label={t('group.groupCardBack.detailError')}
                   dependency="detail"
                   onRetry={onRetry}
                 />
               ) : focus.status === 'idle' || focus.status === 'loading' ? (
-                <LoadingLine label="집중 인원" />
+                <LoadingLine label={t('group.groupCardBack.focusMembers')} />
               ) : focusCount.status === 'unavailable' ? (
                 <RetryAction
-                  label={
+                  label={t(
                     focus.status === 'coverage-unknown'
-                      ? '집중 현황을 확인할 수 없어요 · 다시 시도'
-                      : '집중 현황을 불러오지 못했어요 · 다시 시도'
-                  }
+                      ? 'group.groupCardBack.focusUnknown'
+                      : 'group.groupCardBack.detailError',
+                  )}
                   dependency="focus"
                   onRetry={onRetry}
                 />
@@ -251,17 +265,23 @@ export function GroupCardBack({
                   <View
                     style={s.livePill}
                     accessible
-                    accessibilityLabel={`현재 ${focusCount.count}명 집중 중${focusCount.status === 'stale' ? ', 이전 값' : ''}`}
+                    accessibilityLabel={t('group.groupCardBack.focusCountA11y', {
+                      count: focusCount.count,
+                      stale:
+                        focusCount.status === 'stale' ? t('group.groupCardBack.stalePart') : '',
+                    })}
                     testID="group.card.focusCount"
                   >
                     <View style={s.liveDotHalo}>
                       <View style={s.liveDot} />
                     </View>
-                    <Text style={s.liveText}>{focusCount.count}명 집중 중</Text>
+                    <Text style={s.liveText}>
+                      {t('group.groupCardBack.focusCount', { count: focusCount.count })}
+                    </Text>
                   </View>
                   {focusCount.status === 'stale' && (
                     <RetryAction
-                      label="업데이트하지 못했어요 · 다시 시도"
+                      label={t('group.groupCardBack.updateFailed')}
                       dependency="focus"
                       onRetry={onRetry}
                     />
@@ -272,11 +292,17 @@ export function GroupCardBack({
 
             <View style={s.divider} />
 
-            <View accessibilityLabel={`챌린지 ${activeChallenges.length}개`}>
+            <View
+              accessibilityLabel={t('group.groupCardBack.challengeSectionA11y', {
+                count: activeChallenges.length,
+              })}
+            >
               <View style={s.sectionHeader}>
-                <Text style={s.sectionLabel}>챌린지</Text>
+                <Text style={s.sectionLabel}>{t('group.groupCardBack.challenges')}</Text>
                 {challenges.status === 'ready' && (
-                  <Text style={s.sectionCount}>{activeChallenges.length}개</Text>
+                  <Text style={s.sectionCount}>
+                    {t('group.groupCardBack.countSuffix', { count: activeChallenges.length })}
+                  </Text>
                 )}
               </View>
               {challenges.status === 'ready' ? (
@@ -298,14 +324,31 @@ export function GroupCardBack({
                             (todayRepeatDay !== null && repeatDays.includes(todayRepeatDay)));
                       const progressText =
                         challenge.memberProgress === null
-                          ? activeToday
-                            ? '진행률 없음'
-                            : '쉬는 날'
+                          ? t(
+                              activeToday
+                                ? 'group.groupCardBack.noProgress'
+                                : 'group.groupCardBack.restDay',
+                            )
                           : myProgress === undefined
                             ? null
                             : myProgress.progressMinutes === null
-                              ? '집계 전'
-                              : `${myProgress.progressMinutes}${challenge.durationMinutes ? `/${challenge.durationMinutes}` : ''}분${myProgress.achieved === true ? ' · 달성' : ''}`;
+                              ? t('group.groupCardBack.beforeAggregation')
+                              : challenge.durationMinutes
+                                ? t('group.groupCardBack.progressWithGoal', {
+                                    progress: myProgress.progressMinutes,
+                                    goal: challenge.durationMinutes,
+                                    achieved:
+                                      myProgress.achieved === true
+                                        ? t('group.groupCardBack.achievedPart')
+                                        : '',
+                                  })
+                                : t('group.groupCardBack.progressOnly', {
+                                    progress: myProgress.progressMinutes,
+                                    achieved:
+                                      myProgress.achieved === true
+                                        ? t('group.groupCardBack.achievedPart')
+                                        : '',
+                                  });
                       const repeatsEveryDay = repeatDays === null || new Set(repeatDays).size === 7;
                       const label =
                         missionLabel(challenge, {
@@ -317,7 +360,12 @@ export function GroupCardBack({
                           key={challenge.id}
                           style={s.challengeRow}
                           accessible
-                          accessibilityLabel={`${label}${progressText ? `, 내 진행 ${progressText}` : ''}`}
+                          accessibilityLabel={t('group.groupCardBack.challengeRowA11y', {
+                            label,
+                            progress: progressText
+                              ? t('group.groupCardBack.progressPart', { progress: progressText })
+                              : '',
+                          })}
                           testID={`group.card.activity.${challenge.id}`}
                         >
                           <Text style={s.challengeTitle} numberOfLines={1} accessible={false}>
@@ -333,23 +381,23 @@ export function GroupCardBack({
                     })}
                   </View>
                 ) : (
-                  <Text style={s.emptyText}>진행 중인 챌린지가 없어요</Text>
+                  <Text style={s.emptyText}>{t('group.groupCardBack.noChallenges')}</Text>
                 )
               ) : challenges.status === 'error' ? (
                 <RetryAction
-                  label="챌린지를 불러오지 못했어요 · 다시 시도"
+                  label={t('group.groupCardBack.challengesError')}
                   dependency="challenges"
                   onRetry={onRetry}
                 />
               ) : (
-                <LoadingLine label="챌린지" />
+                <LoadingLine label={t('group.groupCardBack.challenges')} />
               )}
             </View>
 
             <View style={s.divider} />
 
             <View style={s.noticeRow}>
-              <Text style={s.noticeTag}>공지</Text>
+              <Text style={s.noticeTag}>{t('group.groupCardBack.notice')}</Text>
               {announcements.status === 'ready' ? (
                 announcements.data[0] ? (
                   <Text
@@ -361,19 +409,19 @@ export function GroupCardBack({
                     {announcements.data[0].content || announcements.data[0].title}
                   </Text>
                 ) : (
-                  <Text style={s.noticeText}>아직 공지가 없어요</Text>
+                  <Text style={s.noticeText}>{t('group.groupCardBack.noNotice')}</Text>
                 )
               ) : announcements.status === 'error' ? (
                 <View style={s.noticeContent}>
                   <RetryAction
-                    label="공지를 불러오지 못했어요 · 다시 시도"
+                    label={t('group.groupCardBack.announcementsError')}
                     dependency="announcements"
                     onRetry={onRetry}
                   />
                 </View>
               ) : (
                 <View style={s.noticeContent}>
-                  <LoadingLine label="공지" />
+                  <LoadingLine label={t('group.groupCardBack.notice')} />
                 </View>
               )}
             </View>
@@ -386,7 +434,15 @@ export function GroupCardBack({
                 accessible={detail.status === 'ready'}
                 accessibilityLabel={
                   detail.status === 'ready'
-                    ? `멤버 ${memberCount}/${maxMembers}명. ${memberPreview.map((member) => member.nickname).join(', ')}${memberOverflow > 0 ? ` 외 ${memberOverflow}명` : ''}`
+                    ? t('group.groupCardBack.memberSummaryA11y', {
+                        members: memberCount,
+                        maxMembers,
+                        names: memberPreview.map((member) => member.nickname).join(', '),
+                        overflow:
+                          memberOverflow > 0
+                            ? t('group.groupCardBack.overflowPart', { count: memberOverflow })
+                            : '',
+                      })
                     : undefined
                 }
                 testID="group.card.memberSummary"
@@ -395,7 +451,7 @@ export function GroupCardBack({
                   <Text style={s.memberCount}>
                     {memberCount}/{maxMembers}
                   </Text>
-                  <Text style={s.memberCaption}>함께하는 멤버</Text>
+                  <Text style={s.memberCaption}>{t('group.groupCardBack.memberCaption')}</Text>
                 </View>
                 {detail.status === 'ready' ? (
                   <View
@@ -413,14 +469,14 @@ export function GroupCardBack({
                 ) : detail.status === 'error' ? (
                   <View style={s.memberState}>
                     <RetryAction
-                      label="멤버를 불러오지 못했어요 · 다시 시도"
+                      label={t('group.groupCardBack.membersError')}
                       dependency="detail"
                       onRetry={onRetry}
                     />
                   </View>
                 ) : (
                   <View style={s.memberState}>
-                    <LoadingLine label="멤버" />
+                    <LoadingLine label={t('group.groupCardBack.members')} />
                   </View>
                 )}
               </View>
@@ -432,11 +488,11 @@ export function GroupCardBack({
                     onInvite();
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel={`${group.name}에 멤버 초대`}
+                  accessibilityLabel={t('group.groupCardBack.inviteA11y', { name: group.name })}
                   testID={`group.card.invite.${group.groupId}`}
                 >
                   <Ionicons name="person-add-outline" size={18} color={T.accentDeep} />
-                  <Text style={s.inviteText}>초대</Text>
+                  <Text style={s.inviteText}>{t('group.groupCardBack.invite')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -454,7 +510,7 @@ export function GroupCardBack({
               testID={`group.card.focus.${group.groupId}`}
             >
               <Ionicons name="play" size={17} color={T.white} />
-              <Text style={s.primaryText}>이 그룹으로 집중</Text>
+              <Text style={s.primaryText}>{t('group.groupCardBack.startFocus')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               ref={roomRef}
@@ -466,7 +522,7 @@ export function GroupCardBack({
               accessibilityRole="button"
               testID={`group.card.room.${group.groupId}`}
             >
-              <Text style={s.secondaryText}>방 전체 보기</Text>
+              <Text style={s.secondaryText}>{t('group.groupCardBack.openRoom')}</Text>
             </TouchableOpacity>
           </View>
         </View>

@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StepProps } from '@/screens/onboarding/types';
 
 // 로그인 전 첫 화면 — 문제를 길게 설명하기보다 실제 집중 화면의 핵심 경험을 먼저 보여준다.
@@ -17,18 +18,18 @@ export default function ProblemEmpathyStep({ onNext }: StepProps) {
       testID="onboarding.step.problem"
       center
       scrollable
-      title={'오늘 할 일만 고르면\n집중이 바로 시작돼요'}
-      ctaLabel="다음"
+      title={t('onboarding.problemEmpathy.title')}
+      ctaLabel={t('common.next')}
       onCta={onNext}
     >
       <View style={s.sessionCard}>
         <View style={s.sessionTop}>
           <View style={s.livePill}>
             <View style={s.liveDot} />
-            <Text style={s.liveText}>집중 중</Text>
+            <Text style={s.liveText}>{t('onboarding.problemEmpathy.live')}</Text>
           </View>
           <View style={s.subjectPill}>
-            <Text style={s.subjectText}>오늘의 할 일</Text>
+            <Text style={s.subjectText}>{t('onboarding.problemEmpathy.todo')}</Text>
           </View>
         </View>
 
@@ -42,7 +43,7 @@ export default function ProblemEmpathyStep({ onNext }: StepProps) {
         <View style={s.featureRow}>
           <View style={s.feature}>
             <Ionicons name="timer-outline" size={15} color={T.night.cream} />
-            <Text style={s.featureText}>타이머</Text>
+            <Text style={s.featureText}>{t('onboarding.problemEmpathy.featureTimer')}</Text>
           </View>
           <View style={s.feature}>
             <Ionicons
@@ -50,15 +51,21 @@ export default function ProblemEmpathyStep({ onNext }: StepProps) {
               size={15}
               color={T.night.cream}
             />
-            <Text style={s.featureText}>{supportsFocusShield ? '방해 앱 차단' : '집중 목표'}</Text>
+            <Text style={s.featureText}>
+              {t(
+                supportsFocusShield
+                  ? 'onboarding.problemEmpathy.featureShield'
+                  : 'onboarding.problemEmpathy.featureGoal',
+              )}
+            </Text>
           </View>
           <View style={s.feature}>
             <Ionicons name="stats-chart-outline" size={15} color={T.night.cream} />
-            <Text style={s.featureText}>자동 기록</Text>
+            <Text style={s.featureText}>{t('onboarding.problemEmpathy.featureRecord')}</Text>
           </View>
         </View>
       </View>
-      <Text style={s.caption}>복잡한 준비 없이, 시작한 순간부터 기록해요.</Text>
+      <Text style={s.caption}>{t('onboarding.problemEmpathy.caption')}</Text>
     </StepScaffold>
   );
 }

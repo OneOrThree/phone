@@ -6,6 +6,7 @@ import ScreenTimeGuideOverlay, {
   useGuideDismissal,
 } from '@/screens/onboarding/components/ScreenTimeGuideOverlay';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import {
   logOnboardingPermissionRequested,
   logOnboardingPermissionResulted,
@@ -30,14 +31,19 @@ import { pickMeasuredTargets } from '@/screens/onboarding/pickMeasuredTargets';
 // 안드로이드 고지 정확성(코드리뷰 반영) — 앱별 상세 기록은 기기에만 저장되지만, 하루 사용시간
 // 합계는 통계·목표 판정을 위해 서버로 전송된다(screentimeSync). '서버 미전송'은 허위 고지라
 // 실제 동작 그대로 알린다.
-const PERKS =
+// 모듈 최상위라 t() 대신 키만 담는다 — 렌더에서 t(key)로 그린다.
+const PERK_KEYS =
   Platform.OS === 'android'
     ? [
-        '하루 사용 시간 자동 측정',
-        '어제와 오늘 사용시간 비교',
-        '앱별 기록은 기기에만 저장 · 하루 합계만 서버 전송',
+        'onboarding.screenTimePermission.perkAndroidMeasure',
+        'onboarding.screenTimePermission.perkAndroidCompare',
+        'onboarding.screenTimePermission.perkAndroidPrivacy',
       ]
-    : ['앱별 사용 시간', '카테고리별 분류', '기기에서만 처리 · 서버 미전송'];
+    : [
+        'onboarding.screenTimePermission.perkIosPerApp',
+        'onboarding.screenTimePermission.perkIosCategory',
+        'onboarding.screenTimePermission.perkIosPrivacy',
+      ];
 
 function ClockIcon() {
   return (
@@ -108,7 +114,10 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
       setGuideVisible(true);
     } catch (e) {
       // 조용히 삼키지 않고 노출 (엔타이틀먼트/프로파일 문제 진단용).
-      Alert.alert('권한 요청 실패', e instanceof Error ? e.message : String(e));
+      Alert.alert(
+        t('onboarding.screenTimePermission.requestFailTitle'),
+        e instanceof Error ? e.message : String(e),
+      );
     } finally {
       setRequesting(false);
     }
@@ -122,7 +131,10 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
       await requestAndProceed(true);
     } catch (e) {
       setGuideVisible(false);
-      Alert.alert('권한 요청 실패', e instanceof Error ? e.message : String(e));
+      Alert.alert(
+        t('onboarding.screenTimePermission.requestFailTitle'),
+        e instanceof Error ? e.message : String(e),
+      );
     } finally {
       setRequesting(false);
     }
@@ -163,29 +175,31 @@ export default function ScreenTimePermissionStep({ update, onNext }: StepProps) 
         // Maestro E2E — 권한 요청 CTA는 대본이 개별 식별해야 해서 공통 onboarding.cta 대신 전용 ID
         ctaTestID="onboarding.screentime.allow"
         header={<ClockIcon />}
-        title={'사용 시간을\n정확히 보려면'}
-        subtitle={
+        title={t('onboarding.screenTimePermission.title')}
+        subtitle={t(
           Platform.OS === 'android'
-            ? '사용 정보 접근 권한이 필요해요. 이 데이터로 통계를 계산해요.'
-            : 'Apple 스크린타임 권한이 필요해요. 이 데이터로 통계를 계산해요.'
-        }
+            ? 'onboarding.screenTimePermission.subtitleAndroid'
+            : 'onboarding.screenTimePermission.subtitleIos',
+        )}
         ctaLabel={
           requesting
-            ? '요청 중…'
-            : Platform.OS === 'android'
-              ? '설정에서 허용하기'
-              : '권한 허용하기'
+            ? t('onboarding.screenTimePermission.requesting')
+            : t(
+                Platform.OS === 'android'
+                  ? 'onboarding.screenTimePermission.ctaAndroid'
+                  : 'onboarding.screenTimePermission.ctaIos',
+              )
         }
         ctaDisabled={requesting}
         onCta={allow}
-        secondaryLabel="나중에 할게요"
+        secondaryLabel={t('onboarding.screenTimePermission.later')}
         onSecondary={later}
       >
         <View style={s.card}>
-          {PERKS.map((p, i) => (
-            <View key={p} style={[s.row, i < PERKS.length - 1 ? s.rowDivider : null]}>
+          {PERK_KEYS.map((key, i) => (
+            <View key={key} style={[s.row, i < PERK_KEYS.length - 1 ? s.rowDivider : null]}>
               <View style={s.dot} />
-              <Text style={s.rowText}>{p}</Text>
+              <Text style={s.rowText}>{t(key)}</Text>
             </View>
           ))}
         </View>

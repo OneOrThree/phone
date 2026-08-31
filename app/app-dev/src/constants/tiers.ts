@@ -1,9 +1,13 @@
 import type { ImageSourcePropType } from 'react-native';
 
+import { t } from '@/i18n';
+
 // 티어 5단계 메타 — Claude Design 리그 시안 기준.
 // 백엔드는 tierLevel(1~5)만 주고, 이름·주간 시간 기준은 프론트 표시값.
 // image = 방패형 일러스트 뱃지 — 히어로·연출 큰 뱃지와 랭킹 행 코너의 작은 뱃지(TierBadge)까지
 // 모든 티어 표시가 이 일러스트를 공용으로 쓴다.
+// ⚠️ name·rangeLabel 은 각 원소에서 **게터**로 구현한다 — 모듈 최상위에서 t()를 부르면 값이
+//    굳어 로케일을 못 따라간다. 읽는 시점에 번역되므로 호출부(`tierByLevel(x).name`)는 그대로다.
 export interface TierMeta {
   level: number;
   name: string;
@@ -19,40 +23,60 @@ export interface TierMeta {
 export const TIERS: TierMeta[] = [
   {
     level: 1,
-    name: '뽀시래기',
-    rangeLabel: '주간 집중 0–14시간',
+    get name() {
+      return t('shared.tiers.tier1.name');
+    },
+    get rangeLabel() {
+      return t('shared.tiers.tier1.range');
+    },
     minHours: 0,
     maxHours: 14,
     image: require('@/assets/tier_image/tier1.png'),
   },
   {
     level: 2,
-    name: '예열 모드',
-    rangeLabel: '주간 집중 14–28시간',
+    get name() {
+      return t('shared.tiers.tier2.name');
+    },
+    get rangeLabel() {
+      return t('shared.tiers.tier2.range');
+    },
     minHours: 14,
     maxHours: 28,
     image: require('@/assets/tier_image/tier2.png'),
   },
   {
     level: 3,
-    name: '초집중 모드',
-    rangeLabel: '주간 집중 28–42시간',
+    get name() {
+      return t('shared.tiers.tier3.name');
+    },
+    get rangeLabel() {
+      return t('shared.tiers.tier3.range');
+    },
     minHours: 28,
     maxHours: 42,
     image: require('@/assets/tier_image/tier3.png'),
   },
   {
     level: 4,
-    name: '갓생러',
-    rangeLabel: '주간 집중 42–56시간',
+    get name() {
+      return t('shared.tiers.tier4.name');
+    },
+    get rangeLabel() {
+      return t('shared.tiers.tier4.range');
+    },
     minHours: 42,
     maxHours: 56,
     image: require('@/assets/tier_image/tier4.png'),
   },
   {
     level: 5,
-    name: '집중 정복자',
-    rangeLabel: '주간 집중 56–70시간',
+    get name() {
+      return t('shared.tiers.tier5.name');
+    },
+    get rangeLabel() {
+      return t('shared.tiers.tier5.range');
+    },
     minHours: 56,
     maxHours: null,
     image: require('@/assets/tier_image/tier5.png'),

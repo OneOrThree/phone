@@ -25,6 +25,7 @@ import { claimStoredInviteAttribution } from '@/services/deferredInvite';
 import { setServerZone } from '@/utils/serverZone';
 import type { LoginResult } from '@/types/api';
 import { STORAGE_KEYS } from '@/types/storage';
+import { t } from '@/i18n';
 import { mockGuestLogin } from '@/mocks/fixtures/session';
 
 export { statusCodes };
@@ -76,7 +77,7 @@ async function guestUpgradeHeaders(
     // 갱신 실패를 헤더 생략으로 계속하면 일시적 오류(네트워크·서버 5xx)에도 새 계정이 만들어져
     // 게스트 데이터가 영구히 버려진다 — 업그레이드를 중단하고 재시도를 유도한다(코드리뷰 반영).
     // 이 에러는 소셜 함수들의 try 밖(guestUpgradeHeaders 호출 시점)에서 던져져 그대로 화면에 전달된다.
-    throw new Error('세션 갱신에 실패했어요. 잠시 후 다시 시도해 주세요.');
+    throw new Error(t('services.auth.sessionRefreshFailed'));
   }
   return token ? { Authorization: `Bearer ${token}` } : undefined;
 }
@@ -185,7 +186,7 @@ async function kakaoLoginAttempt(lease: AuthSessionTransitionLease): Promise<Log
     );
     data = res.data;
   } catch (e) {
-    throw toAuthError(e, '로그인 실패');
+    throw toAuthError(e, t('services.auth.loginFailed'));
   }
   return postAuthSave(data, false);
 }
@@ -211,7 +212,7 @@ async function appleLoginAttempt(lease: AuthSessionTransitionLease): Promise<Log
     );
     data = res.data;
   } catch (e) {
-    throw toAuthError(e, 'Apple 로그인 실패');
+    throw toAuthError(e, t('services.auth.appleLoginFailed'));
   }
   return postAuthSave(data, false);
 }
@@ -236,7 +237,7 @@ async function googleLoginAttempt(lease: AuthSessionTransitionLease): Promise<Lo
   }
   const idToken = response.data.idToken;
   if (!idToken) {
-    throw new Error('Google idToken을 가져오지 못했어요.');
+    throw new Error(t('services.auth.googleTokenMissing'));
   }
   const headers = await guestUpgradeHeaders(lease);
   let data: AuthResponse;
@@ -248,7 +249,7 @@ async function googleLoginAttempt(lease: AuthSessionTransitionLease): Promise<Lo
     );
     data = res.data;
   } catch (e) {
-    throw toAuthError(e, 'Google 로그인 실패');
+    throw toAuthError(e, t('services.auth.googleLoginFailed'));
   }
   return postAuthSave(data, false);
 }
@@ -292,7 +293,7 @@ async function lineLoginAttempt(lease: AuthSessionTransitionLease): Promise<Logi
     );
     data = res.data;
   } catch (e) {
-    throw toAuthError(e, 'LINE 로그인 실패');
+    throw toAuthError(e, t('services.auth.lineLoginFailed'));
   }
   return postAuthSave(data, false);
 }
@@ -319,7 +320,7 @@ async function facebookLoginAttempt(lease: AuthSessionTransitionLease): Promise<
     token = accessToken?.accessToken;
   }
   if (!token) {
-    throw new Error('Facebook 토큰을 가져오지 못했어요.');
+    throw new Error(t('services.auth.facebookTokenMissing'));
   }
   const headers = await guestUpgradeHeaders(lease);
   let data: AuthResponse;
@@ -331,7 +332,7 @@ async function facebookLoginAttempt(lease: AuthSessionTransitionLease): Promise<
     );
     data = res.data;
   } catch (e) {
-    throw toAuthError(e, 'Facebook 로그인 실패');
+    throw toAuthError(e, t('services.auth.facebookLoginFailed'));
   }
   return postAuthSave(data, false);
 }
@@ -354,8 +355,9 @@ async function guestLoginAttempt(): Promise<LoginResult> {
     data = res.data;
   } catch (e) {
     const msg = axios.isAxiosError(e)
-      ? ((e.response?.data as AuthResponse | undefined)?.message ?? '게스트 시작 실패')
-      : '게스트 시작 실패';
+      ? ((e.response?.data as AuthResponse | undefined)?.message ??
+        t('services.auth.guestStartFailed'))
+      : t('services.auth.guestStartFailed');
     throw new Error(msg);
   }
   // 게스트는 항상 신규 → 프로필 병합(GET /users/me) 스킵. isGuest=true 로 태깅.

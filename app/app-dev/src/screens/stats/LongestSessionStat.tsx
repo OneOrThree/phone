@@ -9,6 +9,7 @@ import { fetchTodayFocusSessions, sessionFocusSeconds } from '@/screens/focus/fo
 import { getAllFocusSessions } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
 import { hms } from '@/utils/timeFormat';
+import { t } from '@/i18n';
 import { localDateStr } from '@/utils/localDate';
 import { kstTodayDate } from './format';
 import { LONGEST_BODY_H } from './constants';
@@ -62,12 +63,12 @@ export function LongestSessionStat({ period }: { period: StatsPeriod }) {
     return <CardBodyLoading height={LONGEST_BODY_H} testID="stats.longest.loading" />;
   }
   if (seconds <= 0) {
-    return <CardBodyEmpty height={LONGEST_BODY_H}>아직 기록이 없어요</CardBodyEmpty>;
+    return <CardBodyEmpty height={LONGEST_BODY_H}>{t('common.noRecords')}</CardBodyEmpty>;
   }
   return (
     <View>
       <Text style={cs.bigStat}>{hms(seconds)}</Text>
-      <Text style={cs.grassHint}>한 번에 가장 오래 이어간 집중 세션이에요</Text>
+      <Text style={cs.grassHint}>{t('stats.longest.hint')}</Text>
     </View>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { SheetShell } from '@/components/SheetShell';
 import {
   BET_INSUFFICIENT_BALANCE,
@@ -127,8 +128,8 @@ export default function JoinNextSheet({
     // 한다(성공 후 안내보다 선제 차단이 낫다 — 흔한 드리프트 경로는 전부 여기서 잡힌다).
     if (todayStrKst() !== openedTodayKst) {
       failAndReload(
-        '날짜가 바뀌었어요',
-        '자정이 지나 예약할 날짜가 달라졌을 수 있어요. 최신 상태로 다시 열어 주세요.',
+        t('group.joinNextSheet.dateChangedTitle'),
+        t('group.joinNextSheet.dateChangedBody'),
       );
       return;
     }
@@ -161,8 +162,10 @@ export default function JoinNextSheet({
       if (joined.sessionDate !== sessionDate) {
         // 아래 onDone()이 곧바로 시트를 닫는다 — failAndReload와 같은 창이라 같은 입구를 쓴다.
         showAlert(
-          '예약된 날짜가 바뀌었어요',
-          `${fmtMonthDayDow(joined.sessionDate)}로 예약됐어요. 원하지 않으면 그 날짜가 시작되기 전에 참여를 취소할 수 있어요.`,
+          t('group.joinNextSheet.reservedDateChangedTitle'),
+          t('group.joinNextSheet.reservedDateChangedBody', {
+            day: fmtMonthDayDow(joined.sessionDate),
+          }),
         );
       }
       onDone();
@@ -184,12 +187,12 @@ export default function JoinNextSheet({
           break;
         // SCREEN_TIME 권한 가드(N50) — 이 시트에서 재시도해도 같은 결과다.
         case BET_SCREENTIME_PERMISSION_REQUIRED:
-          failAndReload('참여할 수 없어요', '스크린타임 권한을 허용해야 참여할 수 있어요.');
+          failAndReload(t('group.betError.cannotJoinTitle'), t('group.betError.screenTimeBody'));
           return;
         // 예약 창이 닫혔다(경합) — 최신 상태로 다시 열게 한다.
         case BET_SESSION_CLOSED:
         case 'BET_NOT_OPEN':
-          failAndReload('참여할 수 없어요', '참여할 수 있는 시간이 지났어요. 새로고침할게요.');
+          failAndReload(t('group.betError.cannotJoinTitle'), t('group.betError.closedBody'));
           return;
         // 유저 부재(GROMO-1247) — 사라진 건 챌린지가 아니라 **내 계정**이다. 새로고침해도
         // 같은 실패가 오므로 failAndReload가 아니라 재로그인으로 보낸다.
@@ -198,18 +201,21 @@ export default function JoinNextSheet({
           return;
         case 'NOT_FOUND':
         case 'CHALLENGE_NOT_FOUND':
-          failAndReload('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
+          failAndReload(
+            t('group.betError.challengeGoneTitle'),
+            t('group.betError.challengeGoneBody'),
+          );
           return;
         case 'MEMBER_ONLY':
-          failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
+          failAndReload(t('group.betError.memberOnlyTitle'), t('group.betError.memberOnlyBody'));
           return;
         // 현재 서버에서는 게스트도 진행하지만, 구서버가 남아 있는 배포 공백에서는 로그인 안내를
         // 보여줘 알 수 없는 오류로 오인하지 않게 한다.
         case 'GUEST_FORBIDDEN':
-          failAndReload('로그인하면 참여할 수 있어요', '게스트는 코인을 쓸 수 없어요.');
+          failAndReload(t('group.betError.guestTitle'), t('group.betError.guestBody'));
           return;
         default:
-          setErrorMsg('참여하지 못했어요. 잠시 후 다시 시도해 주세요.');
+          setErrorMsg(t('group.betError.joinFailed'));
       }
     } finally {
       submitLock.current = false;
@@ -225,18 +231,23 @@ export default function JoinNextSheet({
 
   return (
     <SheetShell onClose={submitting ? () => {} : onClose} asModal dismissible={!submitting}>
-      <Text style={s.title}>{sessionDayLabel} 참여하기</Text>
+      <Text style={s.title}>{t('group.joinNextSheet.joinDay', { day: sessionDayLabel })}</Text>
       <Text style={s.sub}>
-        {label}
-        {startTimeLabel !== null ? ` · ${startTimeLabel} 시작` : ''}
+        {startTimeLabel !== null
+          ? t('group.joinNextSheet.subWithStart', { label, start: startTimeLabel })
+          : label}
       </Text>
 
       {/* 즉시 에스크로 체감(N15) + 취소 규칙(N22 — 시작 전 참가는 시작까지). 「회차」 금지(N28). */}
       <View style={s.note}>
         <Text style={s.noteText}>
-          참가하면 참가비 {stake}코인이 바로 빠져나가요. {sessionDayLabel}
-          {startTimeLabel !== null ? ` ${startTimeLabel}` : ''} 시작 전까지는 참여를 취소하고 전액
-          돌려받을 수 있어요.
+          {startTimeLabel !== null
+            ? t('group.joinNextSheet.noteWithStart', {
+                stake,
+                day: sessionDayLabel,
+                start: startTimeLabel,
+              })
+            : t('group.joinNextSheet.note', { stake, day: sessionDayLabel })}
         </Text>
       </View>
 
@@ -245,7 +256,9 @@ export default function JoinNextSheet({
 
       {/* 서버가 확정한 부족 — 잔액이 아직 안 와 부족분을 계산할 수 없을 때만 이 문장이 선다.
           잔액이 도착하면 CTA 라벨이 규격대로 부족분을 들고 있으므로 같은 말을 두 번 하지 않는다. */}
-      {serverInsufficient && !insufficient && <Text style={s.error}>코인이 부족해요</Text>}
+      {serverInsufficient && !insufficient && (
+        <Text style={s.error}>{t('group.common.insufficientCoins')}</Text>
+      )}
       {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
 
       <TouchableOpacity
@@ -261,8 +274,8 @@ export default function JoinNextSheet({
         ) : (
           <Text style={s.submitText}>
             {insufficient
-              ? `코인이 부족해요 (${stake - coins} 필요)`
-              : `${sessionDayLabel} 참여하기`}
+              ? t('group.joinNextSheet.insufficientCta', { shortage: stake - coins })
+              : t('group.joinNextSheet.joinDay', { day: sessionDayLabel })}
           </Text>
         )}
       </TouchableOpacity>
@@ -273,7 +286,7 @@ export default function JoinNextSheet({
         onPress={onClose}
         testID="group.bet.joinNext.close"
       >
-        <Text style={s.ghostText}>그만두기</Text>
+        <Text style={s.ghostText}>{t('group.common.dismiss')}</Text>
       </TouchableOpacity>
     </SheetShell>
   );

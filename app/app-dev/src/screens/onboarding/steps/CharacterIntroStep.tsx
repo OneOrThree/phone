@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StepProps } from '@/screens/onboarding/types';
 
 // 캐릭터 소개 스텝 — 목표 설정 다음, 누끼 체험(CutoutStep) 바로 앞.
@@ -18,9 +19,9 @@ export default function CharacterIntroStep({ onNext }: StepProps) {
           <CharacterImage size={172} />
         </LinearGradient>
       }
-      title={'만나서 반가워요'}
-      subtitle={'앞으로 함께 집중할 친구, 그로몬이에요.'}
-      ctaLabel="다음"
+      title={t('onboarding.characterIntro.title')}
+      subtitle={t('onboarding.characterIntro.subtitle')}
+      ctaLabel={t('common.next')}
       onCta={onNext}
     />
   );

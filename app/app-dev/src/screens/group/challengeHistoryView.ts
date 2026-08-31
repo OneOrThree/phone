@@ -10,15 +10,20 @@
 //
 // ⚠️ 문구에 「회차」를 쓰지 않는다(N28 · FR-9-3) — 날짜·요일이 이미 그 뜻을 말한다.
 //    코드 식별자(session…)는 그대로다.
+import { t } from '@/i18n';
 import type { GroupChallengeHistoryItem } from '@/types/dto/group';
-import { AUTO_REFUND_SUMMARY, voidSummary } from './lastSettledView';
+import { autoRefundSummary, voidSummary } from './lastSettledView';
 import { categoryLabel, missionLabel } from './components/challengeLabel';
 import { progressFraction } from './components/progressFormat';
 
 /** 미참가 회차의 손익 자리 — 그룹 축 목록이라 내가 안 낀 날도 함께 실린다. */
-export const NOT_JOINED_TEXT = '미참여';
+export function notJoinedText(): string {
+  return t('group.challengeHistoryView.notJoined');
+}
 /** 환불로 끝난 날의 손익 자리 — 숫자 0은 "0코인 벌었다"로 읽혀 환불 사실을 지운다. */
-export const REFUNDED_TEXT = '환불';
+export function refundedText(): string {
+  return t('group.challengeHistoryView.refunded');
+}
 
 /**
  * 한 줄의 미션 라벨 — **회차에 박제된 스냅샷**으로 만든다(챌린지 행이 삭제됐을 수 있다).
@@ -80,11 +85,14 @@ export function historySummary(item: GroupChallengeHistoryItem): string {
   // 사유가 실려 오면 상태로 역추론하지 않고 그 값을 그대로 분기한다(N55 — 사유 축은 종료 사유다).
   const reason = voidSummary(item.voidReason);
   if (reason !== null) return reason;
-  if (item.status === 'VOIDED') return '무산돼 전원 환불';
+  if (item.status === 'VOIDED') return t('group.challengeHistoryView.voidedSummary');
   // 사유가 없거나(구서버) 모르는 값인 REFUNDED — 상태 자체가 24시간 초과 자동 환불을 뜻한다.
-  if (item.status === 'REFUNDED') return AUTO_REFUND_SUMMARY;
-  if (item.status === 'FORFEITED') return '아무도 달성하지 못해 참가비 소멸';
-  return `${item.participantCount}명 중 ${item.achievedCount}명 달성`;
+  if (item.status === 'REFUNDED') return autoRefundSummary();
+  if (item.status === 'FORFEITED') return t('group.challengeHistoryView.forfeitedSummary');
+  return t('group.challengeHistoryView.achievedSummary', {
+    participantCount: item.participantCount,
+    achievedCount: item.achievedCount,
+  });
 }
 
 /** 손익 자리의 색 축 — 숫자에만 부호 색을 준다(문구 자리는 중립). */
@@ -103,9 +111,9 @@ export function historyDelta(item: GroupChallengeHistoryItem): {
   text: string;
   tone: HistoryDeltaTone;
 } {
-  if (item.myPayout === null) return { text: NOT_JOINED_TEXT, tone: 'muted' };
+  if (item.myPayout === null) return { text: notJoinedText(), tone: 'muted' };
   if (item.status === 'VOIDED' || item.status === 'REFUNDED') {
-    return { text: REFUNDED_TEXT, tone: 'zero' };
+    return { text: refundedText(), tone: 'zero' };
   }
   const delta = item.myPayout - item.stake;
   if (delta > 0) return { text: `+${delta}`, tone: 'plus' };
@@ -137,12 +145,12 @@ export function historyBasis(item: GroupChallengeHistoryItem): string | null {
 export function historyRowA11y(item: GroupChallengeHistoryItem, dateText: string): string {
   const parts = [
     dateText,
-    item.challengeDeleted ? '삭제된 챌린지' : null,
+    item.challengeDeleted ? t('group.challengeHistoryView.deletedChallenge') : null,
     historyMissionLabel(item),
     historySummary(item),
     historyBasis(item),
-    `참가비 ${item.stake}코인`,
-    `적립금 ${item.pot}코인`,
+    t('group.challengeHistoryView.a11yStake', { count: item.stake }),
+    t('group.challengeHistoryView.a11yPot', { count: item.pot }),
     historyDeltaA11y(item),
   ];
   return parts.filter((p) => p !== null).join(', ');
@@ -153,10 +161,17 @@ export function historyRowA11y(item: GroupChallengeHistoryItem, dateText: string
 function historyDeltaA11y(item: GroupChallengeHistoryItem): string {
   const { text, tone } = historyDelta(item);
   if (tone === 'muted') return text;
-  if (tone === 'zero') return text === REFUNDED_TEXT ? '참가비 환불' : '변동 없음';
+  // 환불로 끝난 날인지(=refundedText 자리인지)는 번역된 문자열이 아니라 상태로 가른다.
+  if (tone === 'zero') {
+    return item.status === 'VOIDED' || item.status === 'REFUNDED'
+      ? t('group.challengeHistoryView.a11yStakeRefunded')
+      : t('group.challengeHistoryView.a11yNoChange');
+  }
   const payout = item.myPayout ?? 0;
   const amount = Math.abs(payout - item.stake);
-  return tone === 'plus' ? `${amount}코인 획득` : `${amount}코인 손실`;
+  return tone === 'plus'
+    ? t('group.challengeHistoryView.a11yGained', { count: amount })
+    : t('group.challengeHistoryView.a11yLost', { count: amount });
 }
 
 /**

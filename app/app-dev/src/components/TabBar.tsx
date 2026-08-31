@@ -10,6 +10,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { M, transition } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import {
   GlassPillFill,
   glassBarFill,
@@ -90,6 +91,13 @@ function barPath(w: number): string {
   ].join(' ');
 }
 type IconPair = [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap];
+// 라우트 이름(내비게이션 키)은 한글 그대로다 — 화면에 읽히는 라벨만 번역해 붙인다.
+const TAB_LABEL_KEYS: Record<string, string> = {
+  홈: 'components.tabBar.home',
+  리그: 'components.tabBar.league',
+  그룹: 'components.tabBar.group',
+  전체: 'components.tabBar.menu',
+};
 const ICONS: Record<string, IconPair> = {
   홈: ['home', 'home-outline'],
   리그: ['trophy', 'trophy-outline'],
@@ -107,6 +115,7 @@ function Tab({
   if (!route) return <View style={s.tab} />;
   const focused = state.index === index;
   const [on, off] = ICONS[route.name] ?? ['ellipse', 'ellipse-outline'];
+  const labelKey = TAB_LABEL_KEYS[route.name];
   return (
     // 이미 선택된 탭은 아무 동작이 없으므로 피드백을 전부 끈다 — 스케일까지 끄지 않으면
     // "눌리긴 했는데 아무 일도 안 일어난다"가 되어 피드백 언어가 어긋난다.
@@ -118,7 +127,7 @@ function Tab({
       sound={!focused}
       accessibilityRole="tab"
       accessibilityState={{ selected: focused }}
-      accessibilityLabel={route.name}
+      accessibilityLabel={labelKey ? t(labelKey) : route.name}
       onPress={() => {
         const event = navigation.emit({
           type: 'tabPress',
@@ -195,7 +204,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         style={s.fab}
         scaleTo={0.94}
         haptic="light"
-        accessibilityLabel="집중 시작"
+        accessibilityLabel={t('components.tabBar.focusStart')}
         onPress={() => {
           logFocusFabTapped({ entry_source: 'home_tab_bar' });
           rootNav.navigate('FocusCategory', {

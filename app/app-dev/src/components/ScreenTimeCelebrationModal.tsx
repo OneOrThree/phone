@@ -4,6 +4,7 @@ import { CelebrationModal, CelebrationPill } from '@/components/CelebrationModal
 import { T } from '@/constants/theme';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { CURRENCY } from '@/constants/currency';
+import { t } from '@/i18n';
 
 // 스크린타임 목표 달성 축하 모달(GROMO-629) — 어제 사용 시간이 목표 이내였으면 그날 첫 홈 진입에
 // 1회 노출. 목표 보상으로 지급된 시간조각을 rewardCoins로 받아 +N 한 줄로 표시한다(>0일 때만) —
@@ -23,9 +24,10 @@ interface Props {
 function goalLabel(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  if (h && m) return `${h}시간 ${m}분`;
-  if (h) return `${h}시간`;
-  return `${m}분`;
+  if (h && m)
+    return t('components.screenTimeCelebrationModal.durationHourMinute', { hours: h, minutes: m });
+  if (h) return t('components.screenTimeCelebrationModal.durationHour', { count: h });
+  return t('components.screenTimeCelebrationModal.durationMinute', { count: m });
 }
 
 export function ScreenTimeCelebrationModal({
@@ -36,8 +38,8 @@ export function ScreenTimeCelebrationModal({
   onClose,
 }: Props) {
   const goalLine = goalMinutes
-    ? `${goalLabel(goalMinutes)} 이내로 사용하기 성공했어요.`
-    : '목표 이내로 사용하기 성공했어요.';
+    ? t('components.screenTimeCelebrationModal.goalLineWithGoal', { goal: goalLabel(goalMinutes) })
+    : t('components.screenTimeCelebrationModal.goalLine');
   return (
     <CelebrationModal
       visible={visible}
@@ -47,12 +49,15 @@ export function ScreenTimeCelebrationModal({
         <CelebrationPill>
           <Ionicons name="flame" size={15} color={T.accentDeep} />
           <Text style={s.streakText}>
-            연속 목표달성 <Text style={s.streakDays}>{streakDays}일</Text>
+            {t('components.screenTimeCelebrationModal.streakPrefix')}
+            <Text style={s.streakDays}>
+              {t('components.screenTimeCelebrationModal.streakDays', { count: streakDays })}
+            </Text>
           </Text>
         </CelebrationPill>
       }
-      title="어제 핸드폰 사용 시간 목표를 달성했군요!"
-      sub={`${goalLine}\n오늘도 화이팅!`}
+      title={t('components.screenTimeCelebrationModal.title')}
+      sub={t('components.screenTimeCelebrationModal.sub', { goalLine })}
       /* 목표 보상 시간조각 — 호출자가 넘긴 rewardCoins>0일 때만 */
       footer={
         (rewardCoins ?? 0) > 0 ? (
@@ -60,14 +65,21 @@ export function ScreenTimeCelebrationModal({
             {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
             <Text
               style={s.coinText}
-              accessibilityLabel={`${CURRENCY.label} ${rewardCoins?.toLocaleString()} 획득!`}
+              accessibilityLabel={t('components.screenTimeCelebrationModal.rewardA11y', {
+                currency: CURRENCY.label,
+                amount: rewardCoins?.toLocaleString(),
+              })}
             >
-              +{rewardCoins?.toLocaleString()} <CurrencyIcon size={14} /> 획득!
+              {t('components.screenTimeCelebrationModal.rewardPrefix', {
+                amount: rewardCoins?.toLocaleString(),
+              })}
+              <CurrencyIcon size={14} />
+              {t('components.screenTimeCelebrationModal.rewardSuffix')}
             </Text>
           </CelebrationPill>
         ) : null
       }
-      ctaLabel="좋아요!"
+      ctaLabel={t('components.screenTimeCelebrationModal.cta')}
     />
   );
 }

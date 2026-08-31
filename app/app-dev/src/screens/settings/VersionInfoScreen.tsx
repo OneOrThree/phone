@@ -7,6 +7,7 @@ import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 버전 정보 화면 — 앱 이름·버전·빌드 번호와 최신 상태 안내를 중앙에 보여준다.
 // 정적 정보 화면이라 별도 API/상태 없이 expo-constants 값만 읽는다.
@@ -20,7 +21,7 @@ export default function VersionInfoScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
   return (
-    <SettingsScaffold title="버전 정보" onBack={() => navigation.goBack()}>
+    <SettingsScaffold title={t('settings.version.title')} onBack={() => navigation.goBack()}>
       <View style={s.center}>
         {/* 상단 캐릭터 아이콘 */}
         <View style={s.iconWrap}>
@@ -34,7 +35,7 @@ export default function VersionInfoScreen() {
         {/* 최신 버전 안내 배지 */}
         <View style={s.latestPill}>
           <Ionicons name="checkmark-circle" size={16} color={T.successInk} />
-          <Text style={s.latestText}>최신 버전이에요</Text>
+          <Text style={s.latestText}>{t('settings.version.latest')}</Text>
         </View>
       </View>
     </SettingsScaffold>

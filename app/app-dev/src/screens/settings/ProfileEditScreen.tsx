@@ -19,6 +19,7 @@ import { updateProfile } from '@/services/userApi';
 import { useNicknameCheck } from '@/hooks/useNicknameCheck';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { logProfileUpdated } from '@/services/analyticsEvents';
 
 // 프로필 편집 — 닉네임 입력 + 캐릭터 스킨 그리드(이번엔 미구현 → 딤 오버레이 '준비 중').
@@ -66,10 +67,10 @@ export default function ProfileEditScreen() {
       // 중복 닉네임(409 NICKNAME_DUPLICATE)과 기타 실패를 구분해 정확히 안내 (GROMO-639).
       const duplicated = axios.isAxiosError(e) && e.response?.status === 409;
       Alert.alert(
-        '저장 실패',
+        t('settings.profileEdit.saveFailTitle'),
         duplicated
-          ? '이미 사용 중인 닉네임이에요'
-          : '저장에 실패했어요. 잠시 후 다시 시도해 주세요',
+          ? t('settings.profileEdit.nicknameTaken')
+          : t('settings.profileEdit.saveFailBody'),
       );
     }
   };
@@ -81,20 +82,28 @@ export default function ProfileEditScreen() {
       onPress={onSave}
       style={[s.cta, !canSave ? s.ctaDisabled : null]}
     >
-      {saving ? <ActivityIndicator color={T.white} /> : <Text style={s.ctaText}>검사 및 저장</Text>}
+      {saving ? (
+        <ActivityIndicator color={T.white} />
+      ) : (
+        <Text style={s.ctaText}>{t('settings.profileEdit.checkAndSave')}</Text>
+      )}
     </TouchableOpacity>
   );
 
   return (
-    <SettingsScaffold title="프로필 편집" onBack={() => navigation.goBack()} footer={footer}>
+    <SettingsScaffold
+      title={t('settings.profileEdit.title')}
+      onBack={() => navigation.goBack()}
+      footer={footer}
+    >
       {/* ── 닉네임 ───────────────────────────────── */}
-      <Text style={s.sectionTitle}>닉네임</Text>
+      <Text style={s.sectionTitle}>{t('settings.profileEdit.nicknameLabel')}</Text>
       <View style={s.inputCard}>
         <TextInput
           style={s.input}
           value={value}
           onChangeText={setValue}
-          placeholder="닉네임을 입력해 주세요"
+          placeholder={t('settings.profileEdit.nicknamePlaceholder')}
           placeholderTextColor={T.inkMuted}
           maxLength={NICK_MAX}
           autoCapitalize="none"
@@ -118,12 +127,16 @@ export default function ProfileEditScreen() {
         checkStatus === 'checking' ? (
           <View style={s.hintRow}>
             <ActivityIndicator size="small" color={T.inkMuted} />
-            <Text style={[s.hintText, { color: T.inkMuted }]}>확인 중…</Text>
+            <Text style={[s.hintText, { color: T.inkMuted }]}>
+              {t('settings.profileEdit.checking')}
+            </Text>
           </View>
         ) : checkStatus === 'taken' ? (
           <View style={s.hintRow}>
             <Ionicons name="alert-circle" size={15} color={T.dangerInk} />
-            <Text style={[s.hintText, { color: T.dangerInk }]}>이미 사용 중인 닉네임이에요</Text>
+            <Text style={[s.hintText, { color: T.dangerInk }]}>
+              {t('settings.profileEdit.nicknameTaken')}
+            </Text>
           </View>
         ) : checkStatus === 'available' ? (
           <View style={s.hintRow}>
@@ -134,26 +147,28 @@ export default function ProfileEditScreen() {
               size={15}
               color={T.successInk}
             />
-            <Text style={[s.hintText, { color: T.successInk }]}>사용 가능해요</Text>
+            <Text style={[s.hintText, { color: T.successInk }]}>
+              {t('settings.profileEdit.available')}
+            </Text>
           </View>
         ) : checkStatus === 'unknown' ? (
-          <Text style={s.hintPlaceholder}>지금은 중복을 확인할 수 없어요 · 저장할 때 확인돼요</Text>
+          <Text style={s.hintPlaceholder}>{t('settings.profileEdit.checkUnavailable')}</Text>
         ) : null
       ) : changed && !validLength ? (
         <View style={s.hintRow}>
           <Ionicons name="alert-circle" size={15} color={T.dangerInk} />
           <Text style={[s.hintText, { color: T.dangerInk }]}>
-            {NICK_MIN}~{NICK_MAX}자로 입력해 주세요
+            {t('settings.profileEdit.lengthError', { min: NICK_MIN, max: NICK_MAX })}
           </Text>
         </View>
       ) : (
         <Text style={s.hintPlaceholder}>
-          {NICK_MIN}~{NICK_MAX}자로 정할 수 있어요
+          {t('settings.profileEdit.lengthHint', { min: NICK_MIN, max: NICK_MAX })}
         </Text>
       )}
 
       {/* ── 캐릭터 스킨(준비 중) ─────────────────── */}
-      <Text style={[s.sectionTitle, s.sectionTitleGap]}>캐릭터 스킨</Text>
+      <Text style={[s.sectionTitle, s.sectionTitleGap]}>{t('settings.profileEdit.skinLabel')}</Text>
       <View style={s.skinWrap}>
         <View style={s.skinGrid}>
           {SKIN_TILES.map((i) => (
@@ -170,7 +185,7 @@ export default function ProfileEditScreen() {
         <View pointerEvents="none" style={s.skinBadgeWrap}>
           <View style={s.skinBadge}>
             <Ionicons name="lock-closed" size={13} color={T.inkSub} />
-            <Text style={s.skinBadgeText}>캐릭터 스킨 · 준비 중</Text>
+            <Text style={s.skinBadgeText}>{t('settings.profileEdit.skinComingSoon')}</Text>
           </View>
         </View>
       </View>

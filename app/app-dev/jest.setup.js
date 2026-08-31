@@ -53,3 +53,12 @@ jest.mock('@react-native-firebase/analytics', () => {
 // GroupRoomScreen.tsx · screens/focus/FocusCategoryScreen.tsx · FocusSessionScreen.tsx.
 const { AppState } = require('react-native');
 AppState.currentState = 'active';
+
+// expo-localization — 네이티브 로케일 조회가 없는 jest 환경에서 기기 언어를 한국어로 고정한다.
+// 테스트는 한국어 문구를 그대로 단언하므로(정본 로케일 = ko) 여기서 ko-KR을 돌려준다.
+jest.mock('expo-localization', () => ({
+  // jest.fn 으로 두어야 로케일 판정 테스트에서 반환값을 갈아끼울 수 있다.
+  getLocales: jest.fn(() => [
+    { languageCode: 'ko', languageTag: 'ko-KR', regionCode: 'KR', languageScriptCode: null },
+  ]),
+}));

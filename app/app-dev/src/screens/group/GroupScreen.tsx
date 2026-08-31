@@ -13,6 +13,7 @@ import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/n
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { requestChallengeResultRefresh } from './challengeResultGate';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
@@ -87,56 +88,60 @@ const HEADER_TEXT_H = 30;
 // 그룹이 아직 없는 신규 사용자가 카드 사용법을 배울 때만 쓰는 로컬 샘플이다.
 // 서버 목록·그룹 순서·이모지 저장소에는 쓰지 않고, 안내가 끝나면 GroupScreen의 기존 빈 화면으로
 // 즉시 돌아간다. UUID 모양도 일부러 쓰지 않아 실데이터/API 대상으로 오인하지 않게 한다.
-const EMPTY_GUIDE_GROUP: GroupSummaryResponse = {
-  groupId: 'guide-preview-group',
-  name: '첫 집중 모임',
-  description: '함께 집중하고 서로 응원해요',
-  code: null,
-  currentMembers: 3,
-  maxMembers: 6,
-  role: 'MEMBER',
-  status: 'WAITING',
-  isPrivate: false,
-};
+// 이름·소개가 번역 대상이라 상수가 아니라 함수다 — 모듈 최상위 t()는 로케일 결정 전에 굳는다.
+function emptyGuideGroup(): GroupSummaryResponse {
+  return {
+    groupId: 'guide-preview-group',
+    name: t('group.groupScreen.guideGroupName'),
+    description: t('group.groupScreen.guideGroupDescription'),
+    code: null,
+    currentMembers: 3,
+    maxMembers: 6,
+    role: 'MEMBER',
+    status: 'WAITING',
+    isPrivate: false,
+  };
+}
 
 function emptyGuideSnapshot(userId: string): GroupCardSummarySnapshot<LeagueMemberResponse[]> {
   const members = [
     {
       userId,
-      nickname: '나',
+      nickname: t('common.me'),
       role: 'MEMBER' as const,
       focusTimeMinutes: 24,
       totalFocusMinutes: 24,
     },
     {
       userId: 'guide-preview-member-1',
-      nickname: '그로미',
+      nickname: t('group.groupScreen.guideMemberOwner'),
       role: 'OWNER' as const,
       focusTimeMinutes: 40,
       totalFocusMinutes: 40,
     },
     {
       userId: 'guide-preview-member-2',
-      nickname: '집중이',
+      nickname: t('group.groupScreen.guideMemberOther'),
       role: 'MEMBER' as const,
       focusTimeMinutes: 15,
       totalFocusMinutes: 15,
     },
   ];
+  const group = emptyGuideGroup();
   return {
     detail: {
       status: 'ready',
       data: {
-        id: EMPTY_GUIDE_GROUP.groupId,
-        name: EMPTY_GUIDE_GROUP.name,
-        description: EMPTY_GUIDE_GROUP.description ?? null,
+        id: group.groupId,
+        name: group.name,
+        description: group.description ?? null,
         missionCategory: null,
         missionType: null,
         durationMinutes: null,
         windowStart: null,
         windowEnd: null,
-        maxMembers: EMPTY_GUIDE_GROUP.maxMembers,
-        status: EMPTY_GUIDE_GROUP.status,
+        maxMembers: group.maxMembers,
+        status: group.status,
         members,
         code: null,
         codeExpiresAt: null,
@@ -149,8 +154,8 @@ function emptyGuideSnapshot(userId: string): GroupCardSummarySnapshot<LeagueMemb
       data: [
         {
           id: 'guide-preview-notice',
-          title: '오늘도 같이 집중해요',
-          content: '저녁 8시에 한 번 더 모여요.',
+          title: t('group.groupScreen.guideNoticeTitle'),
+          content: t('group.groupScreen.guideNoticeContent'),
           createdAt: '2026-01-01T00:00:00Z',
         },
       ],
@@ -167,7 +172,7 @@ function emptyGuideSnapshot(userId: string): GroupCardSummarySnapshot<LeagueMemb
         isFocusing: index < 2,
         focusTimeMinutes: member.focusTimeMinutes ?? 0,
         focusStartedAt: index < 2 ? '2026-01-01T00:00:00Z' : null,
-        focusTagName: index < 2 ? '공부' : null,
+        focusTagName: index < 2 ? t('group.groupScreen.guideFocusTag') : null,
       })),
     },
   };
@@ -453,7 +458,7 @@ export default function GroupScreen() {
         issuedInvite = await issueInviteLink(groupId);
       } catch {
         // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다(useOverlayAlert.afterSlot 주석).
-        await showAlert.afterSlot('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+        await showAlert.afterSlot(t('group.groupScreen.inviteFailTitle'), t('common.retryLater'));
         return;
       }
       // ⚠️ 요청만 하고 넘어가면 안 된다 — 기다리는 사이 결과 모달이 먼저 노출되면
@@ -517,6 +522,8 @@ export default function GroupScreen() {
     () => (userId ? emptyGuideSnapshot(userId) : undefined),
     [userId],
   );
+  // 샘플 카드는 매 렌더마다 새 객체를 만들지 않는다 — 목록 쪽 참조 비교가 흔들린다.
+  const previewGroup = useMemo(() => emptyGuideGroup(), []);
 
   // 카드가 하나도 없는 첫 사용자도 설명을 볼 수 있게 완료 key를 먼저 확인한다. 샘플 카드는 이
   // 상태가 true인 동안만 렌더되며, 실제 그룹이 생기거나 안내를 마치는 즉시 폐기된다.
@@ -622,9 +629,9 @@ export default function GroupScreen() {
   const staleNotice =
     error && !transitioning && groups !== null ? (
       <View style={s.banner}>
-        <Text style={s.bannerText}>목록을 새로고침하지 못했어요</Text>
+        <Text style={s.bannerText}>{t('group.groupScreen.refreshFailed')}</Text>
         <TouchableOpacity onPress={() => refreshAll()} hitSlop={12} activeOpacity={0.7}>
-          <Text style={s.bannerRetry}>다시 시도</Text>
+          <Text style={s.bannerRetry}>{t('common.retry')}</Text>
         </TouchableOpacity>
       </View>
     ) : null;
@@ -690,10 +697,10 @@ export default function GroupScreen() {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         <View style={[s.body, { paddingBottom: tabBarSafeBottom(insets.bottom) }]}>
-          <Text style={s.title}>그룹을 불러오지 못했어요</Text>
-          <Text style={s.desc}>잠시 후 다시 시도해 주세요.</Text>
+          <Text style={s.title}>{t('group.groupScreen.loadFailed')}</Text>
+          <Text style={s.desc}>{t('common.retryLater')}</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => refreshAll()}>
-            <Text style={s.retryText}>다시 시도</Text>
+            <Text style={s.retryText}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
         {inviteSheet}
@@ -708,7 +715,7 @@ export default function GroupScreen() {
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         {staleNotice}
         <GroupListScreen
-          groups={[EMPTY_GUIDE_GROUP]}
+          groups={[previewGroup]}
           groupsRevision={groupsRevision}
           isScreenFocused={isScreenFocused}
           userId={userId}

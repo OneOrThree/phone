@@ -12,6 +12,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
@@ -50,10 +51,12 @@ const SKELETON_ROWS = 4;
 // MemberTile.fmtFocus와 같은 규칙이지만 그 파일은 default export뿐이라 여기서 다시 둔다.
 function fmtFocus(minutes: number): string {
   const total = Math.max(0, Math.round(minutes));
-  if (total < 60) return `${total}분`;
+  if (total < 60) return t('group.ownerTransferScreen.durationMinutes', { count: total });
   const h = Math.floor(total / 60);
   const m = total % 60;
-  return m === 0 ? `${h}시간` : `${h}시간 ${m}분`;
+  return m === 0
+    ? t('group.ownerTransferScreen.durationHours', { count: h })
+    : t('group.ownerTransferScreen.durationHoursMinutes', { hours: h, minutes: m });
 }
 
 // 위임 대상 행 — MemberTile은 탭이 통계 비교로 고정돼(GROMO-1200) **단일 선택 하이라이트**를 붙일 수
@@ -79,7 +82,9 @@ function TransferRow({ member, selected, disabled, onPress }: TransferRowProps) 
           {member.nickname}
         </Text>
         <Text style={s.rowSub} numberOfLines={1}>
-          누적 {fmtFocus(member.totalFocusMinutes)}
+          {t('group.ownerTransferScreen.totalFocus', {
+            duration: fmtFocus(member.totalFocusMinutes),
+          })}
         </Text>
       </View>
       {/* 단일 선택 표시 — 선택된 행만 채워진 체크 원 */}
@@ -176,8 +181,8 @@ export default function GroupOwnerTransferScreen() {
             }
             // 위임은 이미 끝났다 — 나가기만 실패했음을 따로 알린다(재시도는 그룹방에서).
             showAlert(
-              '그룹 나가기 실패',
-              '방장은 넘겼지만 나가기에 실패했어요. 그룹에서 직접 나가 주세요.',
+              t('group.ownerTransferScreen.leaveFailTitle'),
+              t('group.ownerTransferScreen.leaveFailBody'),
             );
             navigation.goBack();
           }
@@ -188,7 +193,10 @@ export default function GroupOwnerTransferScreen() {
         // 성공 통보는 읽고 흘려도 되는 한 줄이라 확인 버튼이 필요한 Alert 대신 토스트로 알린다
         // (GROMO-1381). ToastProvider가 NavigationContainer 바깥이라 바로 아래 goBack()으로
         // 화면이 바뀌어도 배너는 살아남는다.
-        show({ message: `${target.nickname}님이 새 방장이 되었어요`, tone: 'success' });
+        show({
+          message: t('group.ownerTransferScreen.successToast', { name: target.nickname }),
+          tone: 'success',
+        });
         navigation.goBack();
       } catch (e) {
         // HTTP status가 아니라 code로 분기한다(§3-2). NOT_FOUND·MEMBER_ONLY는 방어적으로 나눈다.
@@ -211,16 +219,16 @@ export default function GroupOwnerTransferScreen() {
           //    아니라 RN 뷰라, Alert 와 달리 닫힘과 부딪히지 않는다 — 그래서 이쪽만 먼저 닫는다.
           case 'NOT_FOUND':
             setConfirmOpen(false);
-            show({ message: '이미 사라졌거나 나간 그룹이에요', tone: 'error' });
+            show({ message: t('group.ownerTransferScreen.groupGoneToast'), tone: 'error' });
             break;
           case 'MEMBER_ONLY':
             // 화면 제목이 이미 「방장 넘기기」라 목적어를 되풀이하지 않는다.
             setConfirmOpen(false);
-            show({ message: '방장이 아니라서 넘길 수 없어요', tone: 'error' });
+            show({ message: t('group.ownerTransferScreen.notOwnerToast'), tone: 'error' });
             break;
           default:
             // 재시도가 유효한 실패라 Alert 유지(D8). 위 USER_NOT_FOUND 와 같은 이유로 카드는 연 채다.
-            showAlert('방장을 넘기지 못했어요', '잠시 후 다시 시도해 주세요.');
+            showAlert(t('group.ownerTransferScreen.transferFailTitle'), t('common.retryLater'));
         }
       } finally {
         setSubmitting(false);
@@ -239,7 +247,7 @@ export default function GroupOwnerTransferScreen() {
   }, [submitting, selectedMember, preclaimConfirm]);
 
   // withdraw 경로는 위임 뒤 곧바로 나가므로 그 사실을 확인 문구에 함께 알린다.
-  const withdrawNote = source === 'withdraw' ? '\n넘긴 뒤 그룹에서 나가요.' : '';
+  const withdrawNote = source === 'withdraw' ? t('group.ownerTransferScreen.withdrawNote') : '';
   // 닫힘 페이드아웃 동안 이름이 사라지지 않게 마지막 대상을 ref로 유지한다(AccountScreen 선례).
   const lastTargetRef = useRef<GroupDetailMemberResponse | null>(null);
   if (selectedMember !== null) lastTargetRef.current = selectedMember;
@@ -253,11 +261,11 @@ export default function GroupOwnerTransferScreen() {
         onPress={() => navigation.goBack()}
         activeOpacity={0.7}
         disabled={submitting}
-        accessibilityLabel="뒤로"
+        accessibilityLabel={t('common.back')}
       >
         <Ionicons name="chevron-back" size={18} color={T.inkSub} />
       </TouchableOpacity>
-      <Text style={s.headerTitle}>방장 넘기기</Text>
+      <Text style={s.headerTitle}>{t('group.ownerTransferScreen.title')}</Text>
     </View>
   );
 
@@ -290,10 +298,10 @@ export default function GroupOwnerTransferScreen() {
       <SafeAreaView style={s.root} edges={['top']} testID="group.owner.transfer.screen">
         {header}
         <View style={s.center}>
-          <Text style={s.errorTitle}>멤버를 불러오지 못했어요</Text>
-          <Text style={s.errorDesc}>잠시 후 다시 시도해 주세요.</Text>
+          <Text style={s.errorTitle}>{t('group.ownerTransferScreen.loadFailed')}</Text>
+          <Text style={s.errorDesc}>{t('common.retryLater')}</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={load}>
-            <Text style={s.retryText}>다시 시도</Text>
+            <Text style={s.retryText}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -309,8 +317,8 @@ export default function GroupOwnerTransferScreen() {
       {candidates.length === 0 ? (
         // 1인 그룹 — 넘길 대상이 없다.
         <View style={s.center}>
-          <Text style={s.emptyTitle}>넘길 멤버가 없어요</Text>
-          <Text style={s.emptyDesc}>그룹에 다른 멤버가 있어야 방장을 넘길 수 있어요.</Text>
+          <Text style={s.emptyTitle}>{t('group.ownerTransferScreen.emptyTitle')}</Text>
+          <Text style={s.emptyDesc}>{t('group.ownerTransferScreen.emptyDesc')}</Text>
         </View>
       ) : (
         <>
@@ -319,7 +327,7 @@ export default function GroupOwnerTransferScreen() {
             contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={s.guide}>새 방장이 될 멤버를 선택해 주세요.</Text>
+            <Text style={s.guide}>{t('group.ownerTransferScreen.guide')}</Text>
             <View style={s.list}>
               {candidates.map((m) => (
                 <TransferRow
@@ -345,7 +353,7 @@ export default function GroupOwnerTransferScreen() {
               {submitting ? (
                 <ActivityIndicator color={T.white} />
               ) : (
-                <Text style={s.submitText}>넘기기</Text>
+                <Text style={s.submitText}>{t('group.ownerTransferScreen.submit')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -359,9 +367,9 @@ export default function GroupOwnerTransferScreen() {
       {confirmTarget !== null && (
         <ConfirmCardModal
           visible={confirmOpen}
-          title="방장 넘기기"
-          body={`${confirmTarget.nickname}님에게 방장을 넘길까요?${withdrawNote}`}
-          primaryLabel="넘기기"
+          title={t('group.ownerTransferScreen.title')}
+          body={`${t('group.ownerTransferScreen.confirmBody', { name: confirmTarget.nickname })}${withdrawNote}`}
+          primaryLabel={t('group.ownerTransferScreen.submit')}
           destructive
           onPrimary={() => {
             // ⚠️ 여기서 카드를 닫지 않는다(codex 리뷰). 실패 경로가 Alert 를 띄우는데, 닫기를
@@ -377,7 +385,7 @@ export default function GroupOwnerTransferScreen() {
           //    취소된 것처럼 보이지만 transferOwner 는 계속되어 실제 방장이 바뀐다 — 되돌릴 수
           //    없는 동작이라 「닫힘 = 취소」가 참이어야 한다. 취소 버튼은 아예 렌더하지 않는다:
           //    가드만 두면 "눌렀는데 아무 일도 없다"가 되어 그것도 거짓 신호다(GroupSettingsScreen 과 같은 처방).
-          secondaryLabel={submitting ? undefined : '취소'}
+          secondaryLabel={submitting ? undefined : t('common.cancel')}
           onSecondary={submitting ? undefined : () => setConfirmOpen(false)}
           onRequestClose={() => {
             if (submitting) return;

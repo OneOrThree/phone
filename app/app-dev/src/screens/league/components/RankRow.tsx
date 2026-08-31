@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { FIXED_BOX_FONT_SCALE_MAX, T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { tierByLevel } from '@/constants/tiers';
 import { fmtDelta, hms } from '../format';
 import { MemberAvatar } from './MemberAvatar';
@@ -95,7 +96,9 @@ export function RankRow({
         </View>
         {live ? (
           <Text style={s.focusingLabel} numberOfLines={1}>
-            {focusTagName != null ? `${focusTagName} 집중 중` : '집중 중'}
+            {focusTagName != null
+              ? t('league.rankRow.focusingTag', { tag: focusTagName })
+              : t('league.rankRow.focusing')}
           </Text>
         ) : (
           <Text style={s.tierName}>{tierByLevel(tierLevel).name}</Text>

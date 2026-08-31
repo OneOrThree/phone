@@ -19,6 +19,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { t } from '@/i18n';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './FindMoreCard';
 
@@ -151,7 +152,11 @@ export function GroupCardDeck({
       setActiveIndex(index);
       if (changed) {
         AccessibilityInfo.announceForAccessibility(
-          `${groups[index]?.name ?? '그룹 찾기'}, ${index + 1} / ${pageCount} 페이지`,
+          t('group.groupCardDeck.pageAnnounce', {
+            name: groups[index]?.name ?? t('group.groupCardDeck.findMore'),
+            page: index + 1,
+            total: pageCount,
+          }),
         );
       }
       const pendingPeekId = pendingPeekGroupIdRef.current;
@@ -334,7 +339,11 @@ export function GroupCardDeck({
                     indicatorFocusedRef.current = false;
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel={`${groups[page]?.name ?? '그룹 찾기'}, ${page + 1} / ${pageCount} 페이지로 이동`}
+                  accessibilityLabel={t('group.groupCardDeck.dotA11y', {
+                    name: groups[page]?.name ?? t('group.groupCardDeck.findMore'),
+                    page: page + 1,
+                    total: pageCount,
+                  })}
                   accessibilityState={{ selected: page === activeIndex }}
                 >
                   <View style={[s.dot, page === activeIndex && s.dotActive]} />
@@ -349,7 +358,10 @@ export function GroupCardDeck({
             accessible
             accessibilityRole="text"
             testID="group.cardDeck.indicator.counter"
-            accessibilityLabel={`현재 ${activeIndex + 1}, 전체 ${pageCount} 페이지`}
+            accessibilityLabel={t('group.groupCardDeck.counterA11y', {
+              current: activeIndex + 1,
+              total: pageCount,
+            })}
             onFocus={() => {
               indicatorFocusedRef.current = true;
             }}

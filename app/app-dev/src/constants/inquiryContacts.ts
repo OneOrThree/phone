@@ -10,7 +10,11 @@ export type InquiryCategoryId = 'focus' | 'group' | 'etc';
 
 export interface InquiryCategory {
   id: InquiryCategoryId;
-  label: string;
+  /**
+   * 칩 라벨의 **번역 키**다(문구가 아니다). 이 모듈은 import 없는 순수 상수라 t()를 부를 수
+   * 없으므로, 화면(InquiryCategoryChips)이 렌더 시점에 t(labelKey)로 푼다.
+   */
+  labelKey: string;
 }
 
 export interface InquiryContact {
@@ -26,11 +30,11 @@ export interface InquiryContact {
   /** T.avatarPalette 인덱스 — theme.ts를 import하지 않기 위해 숫자로 둔다 */
   avatarPaletteIndex: number;
   /**
-   * 담당자를 나타내는 키워드 3개(가운뎃점으로 잇는다). 성격·분위기지 담당 영역이 아니다 —
-   * 사용자는 이걸 무시하고 아무나 고를 수 있다(policy.md D2 · D6).
-   * ⚠️ 사람에 대한 서술이므로 **본인이 고른 표현만** 넣는다.
+   * 담당자를 나타내는 키워드 3개(가운뎃점으로 잇는다)의 **번역 키**다. 성격·분위기지 담당
+   * 영역이 아니다 — 사용자는 이걸 무시하고 아무나 고를 수 있다(policy.md D2 · D6).
+   * ⚠️ 사람에 대한 서술이므로 **본인이 고른 표현만** 넣는다(번역 문구도 마찬가지).
    */
-  keywords: string;
+  keywordsKey: string;
   /** 이 담당자가 추천되는 카테고리 — 카테고리당 정확히 1명 */
   categoryId: InquiryCategoryId;
   /** https 오픈채팅 URL. 커스텀 스킴 금지(policy.md D7) */
@@ -38,16 +42,16 @@ export interface InquiryContact {
 }
 
 export const INQUIRY_CATEGORIES: readonly InquiryCategory[] = [
-  { id: 'focus', label: '집중 · 스크린타임' },
-  { id: 'group', label: '그룹 · 챌린지' },
-  { id: 'etc', label: '계정 · 기타' },
+  { id: 'focus', labelKey: 'shared.inquiryContacts.categoryFocus' },
+  { id: 'group', labelKey: 'shared.inquiryContacts.categoryGroup' },
+  { id: 'etc', labelKey: 'shared.inquiryContacts.categoryEtc' },
 ] as const;
 
 // name 은 실명이 아니라 **닉네임(활동명)**이다(policy.md D10) — 실명을 넣지 말 것.
 // openChatUrl 3개는 서로 달라야 한다 — 같은 방을 두 명이 가리키면 D2(직접 지목)와
 // D3(담당자별 방 3개)가 동시에 깨지는데, 링크가 열리는지만 보는 QA로는 안 잡힌다.
 //
-// keywords 는 담당자 본인이 고른 표현이다 — 남이 대신 정해 넣지 않는다.
+// keywordsKey 가 가리키는 문구는 담당자 본인이 고른 표현이다 — 남이 대신 정해 넣지 않는다.
 // 응답 가능 시간은 카드에 적지 않는다(D9 개정 2026-08-14) — 셋 다 같은 값이라 정보량이 0이었고,
 // 기대치 관리는 화면 하단 안내 박스가 진다.
 // 링크가 죽으면 앱은 감지하지 못한다 — 교체·점검 절차는 high-level-design.md §5.1.
@@ -57,7 +61,7 @@ export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
     name: 'JAJO',
     initial: 'J',
     avatarPaletteIndex: 0,
-    keywords: '빠름 · 조금 빠름 · 많이 빠름',
+    keywordsKey: 'shared.inquiryContacts.keywordsFocus',
     categoryId: 'focus',
     openChatUrl: 'https://open.kakao.com/o/gu7GFKIi',
   },
@@ -66,7 +70,7 @@ export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
     name: '오스카',
     initial: '오',
     avatarPaletteIndex: 1,
-    keywords: '초미녀 · 친절 · 상시 대기',
+    keywordsKey: 'shared.inquiryContacts.keywordsGroup',
     categoryId: 'group',
     openChatUrl: 'https://open.kakao.com/o/sll2EKIi',
   },
@@ -75,7 +79,7 @@ export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
     name: 'Aiden',
     initial: 'A',
     avatarPaletteIndex: 2,
-    keywords: '친절 · 미소 · 환영',
+    keywordsKey: 'shared.inquiryContacts.keywordsEtc',
     categoryId: 'etc',
     openChatUrl: 'https://open.kakao.com/o/sYCkEKIi',
   },

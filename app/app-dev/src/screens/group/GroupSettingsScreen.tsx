@@ -12,6 +12,7 @@ import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
 import { useOverlayBlocker, useOverlayPreclaim } from '@/store/OverlaySlotContext';
 import { useUser } from '@/store/UserContext';
@@ -210,22 +211,22 @@ export default function GroupSettingsScreen() {
   switch (shownLeaveModal.kind) {
     case 'hostBlocked':
       leaveCard = {
-        title: '방장은 바로 나갈 수 없어요',
-        body: '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
-        primaryLabel: '방장 넘기고 나가기',
+        title: t('group.settingsScreen.hostBlockedTitle'),
+        body: t('group.settingsScreen.hostBlockedBody'),
+        primaryLabel: t('group.settingsScreen.hostBlockedPrimary'),
         onPrimary: () => {
           setLeaveModal(null);
           navigation.navigate('GroupOwnerTransfer', { groupId, source: 'withdraw' });
         },
-        secondaryLabel: '취소',
+        secondaryLabel: t('common.cancel'),
         testID: 'group.settings.hostBlocked',
       };
       break;
     case 'leaveFailed':
       leaveCard = {
-        title: '그룹 나가기 실패',
-        body: '잠시 후 다시 시도해 주세요.',
-        primaryLabel: '확인',
+        title: t('group.settingsScreen.leaveFailedTitle'),
+        body: t('common.retryLater'),
+        primaryLabel: t('common.confirm'),
         onPrimary: closeLeaveModal,
         testID: 'group.settings.leaveFailed',
       };
@@ -233,16 +234,16 @@ export default function GroupSettingsScreen() {
     default:
       leaveCard = {
         // 확인 문구 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
-        title: '그룹 나가기',
-        body: `${groupName}에서 나갈까요?`,
-        primaryLabel: '나가기',
+        title: t('group.settingsScreen.leaveTitle'),
+        body: t('group.settingsScreen.leaveConfirm', { name: groupName }),
+        primaryLabel: t('group.settingsScreen.leavePrimary'),
         onPrimary: () => doLeave(),
         // 요청이 나가 있는 동안 재탭을 막는다(doLeave의 leaving 가드와 이중 방어).
         primaryDisabled: leaving,
         destructive: true,
         // 진행 중엔 '취소' 자체를 렌더하지 않는다 — 위 closeLeaveModal 가드가 눌러도 무시하지만,
         // 누를 수 있게 두면 "눌렀는데 아무 일도 없다"가 되어 그 또한 거짓 신호다.
-        secondaryLabel: leaving ? undefined : '취소',
+        secondaryLabel: leaving ? undefined : t('common.cancel'),
         testID: 'group.settings.leave.confirm',
       };
   }
@@ -254,11 +255,11 @@ export default function GroupSettingsScreen() {
         style={s.backBtn}
         onPress={() => navigation.goBack()}
         activeOpacity={0.7}
-        accessibilityLabel="뒤로"
+        accessibilityLabel={t('common.back')}
       >
         <Ionicons name="chevron-back" size={18} color={T.inkSub} />
       </TouchableOpacity>
-      <Text style={s.headerTitle}>그룹 설정</Text>
+      <Text style={s.headerTitle}>{t('group.settingsScreen.title')}</Text>
     </View>
   );
 
@@ -310,7 +311,7 @@ export default function GroupSettingsScreen() {
           <Ionicons name="exit-outline" size={17} color={T.accentAlt} />
         )}
       </View>
-      <Text style={s.leaveLabel}>그룹 나가기</Text>
+      <Text style={s.leaveLabel}>{t('group.settingsScreen.leaveTitle')}</Text>
     </TouchableOpacity>
   );
 
@@ -326,25 +327,25 @@ export default function GroupSettingsScreen() {
     // ── 에러 + 다시 시도 ──
     body = (
       <View style={s.center}>
-        <Text style={s.emptyTitle}>그룹을 불러오지 못했어요</Text>
-        <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
+        <Text style={s.emptyTitle}>{t('group.settingsScreen.loadFailed')}</Text>
+        <Text style={s.emptyDesc}>{t('common.retryLater')}</Text>
         <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => load()}>
-          <Text style={s.retryText}>다시 시도</Text>
+          <Text style={s.retryText}>{t('common.retry')}</Text>
         </TouchableOpacity>
       </View>
     );
   } else {
     const currentEmojiLabel = cardEmoji === null ? null : groupCardEmojiLabel(cardEmoji);
     const cardEmojiHelper = cardEmojiLoadFailed
-      ? '현재 아이콘을 불러오지 못했어요'
+      ? t('group.settingsScreen.cardEmojiHelperFailed')
       : currentEmojiLabel === null
-        ? '현재 아이콘 불러오는 중…'
-        : `${cardEmoji} ${currentEmojiLabel} · 이 기기에서 나에게만 보여요`;
+        ? t('group.settingsScreen.cardEmojiHelperLoading')
+        : t('group.settingsScreen.cardEmojiHelper', { emoji: cardEmoji, label: currentEmojiLabel });
     const cardEmojiAccessibilityLabel = cardEmojiLoadFailed
-      ? '내 카드 아이콘, 현재 아이콘을 불러오지 못했어요'
+      ? t('group.settingsScreen.cardEmojiA11yFailed')
       : currentEmojiLabel === null
-        ? '내 카드 아이콘, 현재 아이콘 불러오는 중'
-        : `내 카드 아이콘, 현재 ${currentEmojiLabel}, 이 기기에서 나에게만 보여요`;
+        ? t('group.settingsScreen.cardEmojiA11yLoading')
+        : t('group.settingsScreen.cardEmojiA11y', { label: currentEmojiLabel });
     // ── 허브 — 내 카드 아이콘은 역할 공통, 서버 운영 행만 방장 전용 ──
     body = (
       <ScrollView
@@ -354,11 +355,11 @@ export default function GroupSettingsScreen() {
       >
         {me && (
           <>
-            <Text style={s.sectionTitle}>내 설정</Text>
+            <Text style={s.sectionTitle}>{t('group.settingsScreen.mySection')}</Text>
             <View style={s.navGroup}>
               {navRow(
                 'color-palette-outline',
-                '내 카드 아이콘',
+                t('group.settingsScreen.cardEmojiRow'),
                 () => navigation.navigate('GroupCardEmojiEdit', { groupId }),
                 'group.settings.cardEmoji',
                 cardEmojiHelper,
@@ -369,29 +370,29 @@ export default function GroupSettingsScreen() {
         )}
         {isOwner && (
           <>
-            <Text style={s.sectionTitle}>그룹 관리</Text>
+            <Text style={s.sectionTitle}>{t('group.settingsScreen.manageSection')}</Text>
             <View style={s.navGroup}>
               {navRow(
                 'create-outline',
-                '그룹 프로필 설정하기',
+                t('group.settingsScreen.profileRow'),
                 () => navigation.navigate('GroupProfileEdit', { groupId }),
                 'group.settings.profile',
               )}
               {navRow(
                 'swap-horizontal',
-                '방장 넘기기',
+                t('group.settingsScreen.transferRow'),
                 () => navigation.navigate('GroupOwnerTransfer', { groupId, source: 'settings' }),
                 'group.settings.transfer',
               )}
               {navRow(
                 'people-outline',
-                '멤버 관리',
+                t('group.settingsScreen.membersRow'),
                 () => navigation.navigate('GroupMemberManage', { groupId }),
                 'group.settings.members',
               )}
               {navRow(
                 'megaphone-outline',
-                '공지 권한',
+                t('group.settingsScreen.noticePermissionRow'),
                 () => navigation.navigate('GroupNoticePermission', { groupId }),
                 'group.settings.noticePermission',
               )}
