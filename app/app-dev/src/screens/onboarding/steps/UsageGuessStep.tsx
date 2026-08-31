@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StepProps } from '@/screens/onboarding/types';
 
 // W9 · 어제 사용 자가 추측 — 실제 스크린타임(W11)과 비교하기 전, 사용자가 먼저 어림한다.
@@ -16,19 +17,19 @@ export default function UsageGuessStep({ data, update, onNext }: StepProps) {
   return (
     <StepScaffold
       center
-      title={'어제 핸드폰,\n몇 시간이나 썼을까요?'}
-      subtitle={'먼저 직접 추측해 보세요.\n잠시 뒤 실제 기록과 비교해 볼게요.'}
-      ctaLabel="이만큼 쓴 것 같아요"
+      title={t('onboarding.usageGuess.title')}
+      subtitle={t('onboarding.usageGuess.subtitle')}
+      ctaLabel={t('onboarding.usageGuess.cta')}
       onCta={() => {
         update({ guessedYesterdayMinutes: hours * 60 });
         onNext();
       }}
     >
       <View style={s.card}>
-        <Text style={s.cardCap}>내 추측</Text>
+        <Text style={s.cardCap}>{t('onboarding.usageGuess.cardCap')}</Text>
         <View style={s.valueRow}>
           <Text style={s.value}>{hours}</Text>
-          <Text style={s.unit}>시간쯤</Text>
+          <Text style={s.unit}>{t('onboarding.usageGuess.unit')}</Text>
         </View>
       </View>
 
@@ -42,7 +43,9 @@ export default function UsageGuessStep({ data, update, onNext }: StepProps) {
               onPress={() => setHours(h)}
               style={[s.chip, on ? s.chipOn : null]}
             >
-              <Text style={[s.chipText, on ? s.chipTextOn : null]}>{h}시간</Text>
+              <Text style={[s.chipText, on ? s.chipTextOn : null]}>
+                {t('onboarding.format.hours', { count: h })}
+              </Text>
             </TouchableOpacity>
           );
         })}

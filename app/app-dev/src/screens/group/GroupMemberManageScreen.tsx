@@ -5,6 +5,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
@@ -54,9 +55,11 @@ function KickRow({ member, disabled, onKick }: KickRowProps) {
         disabled={disabled}
         onPress={onKick}
         testID={`group.member.kick.${member.userId}`}
-        accessibilityLabel={`${member.nickname} 내보내기`}
+        accessibilityLabel={t('group.memberManageScreen.kickA11y', { name: member.nickname })}
       >
-        <Text style={[s.kickText, disabled && s.kickTextOff]}>내보내기</Text>
+        <Text style={[s.kickText, disabled && s.kickTextOff]}>
+          {t('group.memberManageScreen.kick')}
+        </Text>
       </TouchableOpacity>
     </View>
   );
@@ -152,10 +155,16 @@ export default function GroupMemberManageScreen() {
         // 계약을 존중해 사유를 그대로 알린다.
         if (code === 'CANNOT_KICK_SELF') {
           // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다.
-          await showAlert.afterSlot('내보낼 수 없어요', '자기 자신은 내보낼 수 없어요.');
+          await showAlert.afterSlot(
+            t('group.memberManageScreen.cannotKickTitle'),
+            t('group.memberManageScreen.cannotKickSelf'),
+          );
           return;
         }
-        await showAlert.afterSlot('내보내기 실패', '잠시 후 다시 시도해 주세요.');
+        await showAlert.afterSlot(
+          t('group.memberManageScreen.kickFailTitle'),
+          t('common.retryLater'),
+        );
       }
     },
     [groupId, removeMember, unlockMember, showAlert],
@@ -165,11 +174,15 @@ export default function GroupMemberManageScreen() {
   const confirmKick = useCallback(
     (target: GroupDetailMemberResponse) => {
       showAlert(
-        '내보내기',
-        `${target.nickname}님을 내보낼까요?\n내보낸 멤버는 다시 들어올 수 없어요.`,
+        t('group.memberManageScreen.kick'),
+        t('group.memberManageScreen.kickConfirm', { name: target.nickname }),
         [
-          { text: '취소', style: 'cancel' },
-          { text: '내보내기', style: 'destructive', onPress: () => doKick(target) },
+          { text: t('common.cancel'), style: 'cancel' },
+          {
+            text: t('group.memberManageScreen.kick'),
+            style: 'destructive',
+            onPress: () => doKick(target),
+          },
         ],
       );
     },
@@ -184,11 +197,11 @@ export default function GroupMemberManageScreen() {
         style={s.backBtn}
         onPress={() => navigation.goBack()}
         activeOpacity={0.7}
-        accessibilityLabel="뒤로"
+        accessibilityLabel={t('common.back')}
       >
         <Ionicons name="chevron-back" size={18} color={T.inkSub} />
       </TouchableOpacity>
-      <Text style={s.headerTitle}>멤버 관리</Text>
+      <Text style={s.headerTitle}>{t('group.memberManageScreen.title')}</Text>
     </View>
   );
 
@@ -216,10 +229,10 @@ export default function GroupMemberManageScreen() {
       <SafeAreaView style={s.root} edges={['top']} testID="group.member.manage.screen">
         {header}
         <View style={s.center}>
-          <Text style={s.emptyTitle}>멤버를 불러오지 못했어요</Text>
-          <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
+          <Text style={s.emptyTitle}>{t('group.memberManageScreen.loadFailed')}</Text>
+          <Text style={s.emptyDesc}>{t('common.retryLater')}</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => load()}>
-            <Text style={s.retryText}>다시 시도</Text>
+            <Text style={s.retryText}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -234,8 +247,8 @@ export default function GroupMemberManageScreen() {
       {header}
       {kickable.length === 0 ? (
         <View style={s.center}>
-          <Text style={s.emptyTitle}>관리할 멤버가 없어요</Text>
-          <Text style={s.emptyDesc}>내보낼 수 있는 멤버가 아직 없어요.</Text>
+          <Text style={s.emptyTitle}>{t('group.memberManageScreen.emptyTitle')}</Text>
+          <Text style={s.emptyDesc}>{t('group.memberManageScreen.emptyDesc')}</Text>
         </View>
       ) : (
         <ScrollView

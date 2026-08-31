@@ -20,6 +20,7 @@ import GoalSettingStep from '@/screens/onboarding/steps/GoalSettingStep';
 import CharacterIntroStep from '@/screens/onboarding/steps/CharacterIntroStep';
 import CutoutStep from '@/screens/onboarding/steps/CutoutStep';
 import NicknameStep from '@/screens/onboarding/steps/NicknameStep';
+import { t } from '@/i18n';
 import { hapticLight, hapticMedium } from '@/utils/haptics';
 import { fadeIn } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
@@ -221,8 +222,8 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       }
       setServerError(
         status === 'nickname-duplicate'
-          ? '이미 사용 중인 닉네임이에요. 다른 닉네임을 입력해 주세요.'
-          : '일시적인 오류로 등록하지 못했어요. 다시 시도해 주세요.',
+          ? t('onboarding.nickname.duplicateError')
+          : t('onboarding.nickname.submitError'),
       );
     } finally {
       setSubmitting(false);

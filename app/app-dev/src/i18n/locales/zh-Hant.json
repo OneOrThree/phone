@@ -1,0 +1,2143 @@
+{
+  "focus": {
+    "categoryScreen": {
+      "title": "要專注在什麼呢？",
+      "addSubject": "新增科目",
+      "addMessage": "請輸入要專注的科目名稱。",
+      "editTitle": "編輯科目名稱",
+      "duplicateTitle": "這個科目已經有了",
+      "duplicateMessage": "請輸入其他名稱。",
+      "deleteTitle": "刪除科目",
+      "deleteMessage": "這個科目記錄的專注時間會消失喔！",
+      "rename": "編輯名稱",
+      "recommendedTitle": "%{category} 推薦科目",
+      "add": "新增",
+      "colorOption": "顏色 %{index}",
+      "guide1": "請選擇要專注的科目！\n點一下科目，就能從無限制、計時器、番茄鐘中選擇專注方式。",
+      "guide2": "專注結束後，時間會依科目記錄下來，也會反映在聯賽排名上。\n那就開始吧！"
+    },
+    "subjectRow": {
+      "colorLabel": "變更 %{name} 的代表色",
+      "menuLabel": "%{name} 選單"
+    },
+    "timerMethodSheet": {
+      "title": "%{subject} · 計時方式",
+      "sub": "選擇你要怎麼專注。",
+      "countupTitle": "正計時",
+      "countupDesc": "從 0 開始累積時間",
+      "countdownTitle": "倒數計時",
+      "countdownDesc": "從目標時間開始倒數",
+      "pomodoroTitle": "番茄鐘",
+      "pomodoroDesc": "重複專注與休息"
+    },
+    "setupSheet": {
+      "start": "開始專注"
+    },
+    "countdownSheet": {
+      "title": "%{subject} · 倒數計時",
+      "sub": "設定目標時間後，就會倒數到 0。",
+      "hourUnit": {
+        "one": "%{count} 小時",
+        "other": "%{count} 小時"
+      },
+      "minuteUnit": {
+        "one": "%{count} 分鐘",
+        "other": "%{count} 分鐘"
+      }
+    },
+    "pomodoroSheet": {
+      "title": "%{subject} · 番茄鐘",
+      "sub": "重複進行專注與休息。",
+      "focus": "專注",
+      "break": "休息",
+      "sets": "組數",
+      "valueMinutes": {
+        "one": "%{count} 分鐘",
+        "other": "%{count} 分鐘"
+      },
+      "valueSets": {
+        "one": "%{count} 組",
+        "other": "%{count} 組"
+      },
+      "decrease": "減少%{label}",
+      "increase": "增加%{label}"
+    },
+    "session": {
+      "toLandscape": "切換為橫向畫面",
+      "toPortrait": "切換為直向畫面",
+      "openMenu": "開啟專注選單",
+      "break": "休息",
+      "goal": "目標 %{time}",
+      "setProgress": "%{current} / %{total} 組",
+      "friendsTitle": "我的好友",
+      "friendsEmptyTitle": "還沒有好友",
+      "friendsEmptySub": "在聯賽分頁加好友後，\n專注時就能在這裡看到他們。",
+      "groupTitle": "群組：%{name}",
+      "groupEmptyTitle": "群組還沒有成員",
+      "groupEmptySub": "群組有成員加入後，\n專注時就能在這裡看到他們。",
+      "categoryLeagueTitle": "%{category} 聯賽",
+      "sameExamTitle": "相同考試",
+      "examUnsetTitle": "還沒設定準備中的考試",
+      "examUnsetSub": "設定準備中的考試後，\n就能在這裡看到準備同一場考試的人。",
+      "examEmptyTitle": "還沒有準備同一場考試的人",
+      "examEmptySub": "有相同目標的人\n很快就會聚集在這裡。",
+      "allLeagueTitle": "全體聯賽",
+      "leagueEmptyTitle": "聯賽還沒有成員",
+      "leagueEmptySub": "被分配到聯賽後，\n就能在這裡看到大家一起讀書的樣子。",
+      "doneTitle": "專注結束了！",
+      "doneSub": "你把 %{subject} 的專注堅持到最後了。",
+      "donePomodoroSub": {
+        "one": "你完成了 %{subject} 的 %{count} 組專注。",
+        "other": "你完成了 %{subject} 的 %{count} 組專注。"
+      },
+      "guide1": "專注時段開始了！\n這裡經過的時間會直接成為科目的專注記錄。",
+      "guide2": "把畫面往旁邊滑滑看。\n可以看到好友、群組、準備同一場考試的人和全體聯賽正在專注的樣子。",
+      "guide3": "在選單裡可以更換科目，或查看今天各科目的記錄。",
+      "guide4": "想稍微休息就按暫停，要結束就按停止。\n按停止後會儲存記錄，並前往結果畫面。"
+    },
+    "liveGrid": {
+      "soloBanner": "現在只有你在專注",
+      "focusingBanner": {
+        "one": "現在有 %{count} 人正在一起專注",
+        "other": "現在有 %{count} 人正在一起專注"
+      }
+    },
+    "menuDrawer": {
+      "title": "選單",
+      "allowedApps": "使用允許的 App",
+      "allowedAppsSub": "專注時可以使用的 App",
+      "todayTotal": "今天的整體專注狀況",
+      "bySubject": "各科目專注狀況",
+      "allowedAppsNote": "使用允許的 App 的時間也會算成專注。",
+      "allowedChecking": "確認允許的 App 中…",
+      "allowedCount": {
+        "one": "已允許 %{count} 個 App",
+        "other": "已允許 %{count} 個 App"
+      },
+      "allowedNone": "沒有允許的 App",
+      "allowedHint": "回到主畫面直接打開允許的 App 就可以了。\n允許的 App 可以在「全部」分頁 →「專注時允許的 App」中變更。",
+      "blockedWarn": "沒有被允許的 App 會鎖住，無法開啟"
+    },
+    "resultScreen": {
+      "title": "專注完成！",
+      "firstTitle": "第一次專注完成！",
+      "sub": "%{subject} · 你的堅持正在累積",
+      "firstSub": "你今天踏出了第一步 🎉",
+      "rewardLabel": "獲得 %{currency} %{amount}",
+      "thisSession": "本次專注",
+      "bySubject": "各科目專注狀況",
+      "streakDone": "本週的專注連續記錄完成了！",
+      "streakTodo": "一起填滿本週的專注連續記錄吧！",
+      "streakDays": {
+        "one": "連續 %{count} 天",
+        "other": "連續 %{count} 天"
+      },
+      "streakNotice": "每天專注 10 分鐘以上就能累積連續記錄",
+      "weekFocusTime": "本週專注時間",
+      "thisMonth": "本月",
+      "compareTitle": "%{when}的比較",
+      "axisFriends": "好友",
+      "axisCategory": "相同類別",
+      "avgFriends": "好友平均",
+      "avgAll": "整體平均",
+      "avgCategory": "相同類別平均",
+      "emptyFriends": "%{when}還沒有好友專注過。加好友一起比較看看吧！",
+      "errorFriends": "無法載入好友平均",
+      "emptyAll": "%{when}的專注記錄還沒累積起來",
+      "errorAll": "無法載入整體平均",
+      "emptyCategory": "%{when}還沒有相同類別的記錄",
+      "errorCategory": "無法載入相同類別平均",
+      "compareAhead": "你比%{label}多專注了 %{amount}。",
+      "compareBehind": "距離%{label}還差 %{amount}。今天也前進一步！",
+      "loading": "載入中…",
+      "home": "回首頁",
+      "again": "再次專注"
+    },
+    "weekStreakModal": {
+      "title": "本週連續記錄完成！ 🎉",
+      "sub": "從星期一到星期日一天都沒有漏掉",
+      "pill": "連續 7 天專注達成",
+      "cta": "下週也一起加油！"
+    },
+    "leaveNotification": {
+      "warnTitle": "專注暫停了！",
+      "warnBody": {
+        "one": "在 %{count} 秒內回來，就能繼續 %{subject} 的專注。",
+        "other": "在 %{count} 秒內回來，就能繼續 %{subject} 的專注。"
+      },
+      "endTitle": "專注時段結束了",
+      "endBody": "到目前為止的專注時間已經幫你存好了。準備好隨時可以再開始！"
+    }
+  },
+  "home": {
+    "duration": {
+      "hourMinute": "%{h} 小時 %{m} 分鐘",
+      "hour": "%{h} 小時",
+      "minute": "%{m} 分鐘"
+    },
+    "rank": "第 %{rank} 名",
+    "bellA11y": "查看通知",
+    "bellA11yUnread": "查看通知，有未讀通知",
+    "changeCharacter": "更換角色",
+    "currencyHistoryA11y": "時間碎片紀錄",
+    "streakPrefix": "連續讀書 ",
+    "streakSuffix": " 天",
+    "permissionErrorTitle": "權限處理失敗",
+    "today": {
+      "title": "今天",
+      "titleSub": "",
+      "detail": "詳細",
+      "focus": "讀書專注",
+      "phoneUsage": "手機使用",
+      "goal": "目標 %{duration}",
+      "permissionNotice": "開啟螢幕使用時間權限後，\n就能查看今天的使用時間。",
+      "enablePermission": "開啟權限",
+      "enablePermissionA11y": "開啟螢幕使用時間權限",
+      "usageDetailA11y": "查看各 App 的手機使用時間"
+    },
+    "guide": {
+      "intro": "你好！我是 Gromo。\n在首頁可以和我一起看今天的讀書狀況。",
+      "todayCard": "在這裡可以一眼看到今天的專注時間和手機使用時間。\n按下「詳細」就會前往統計。",
+      "fab": "準備好的話，按下這個按鈕就能馬上開始專注！"
+    }
+  },
+  "group": {
+    "betBalanceRow": {
+      "feeLabel": "參加費",
+      "text": "%{label} %{amount} · 我的餘額 %{balance}",
+      "a11y": "%{label} %{amount} 金幣，我的餘額 %{coins} 金幣",
+      "a11yUnknown": "%{label} %{amount} 金幣，餘額未確認"
+    },
+    "challengeCard": {
+      "screenTimeCaption": "今天的螢幕使用時間要保持在目標以下",
+      "windowMeasureCaption": "使用時間以 15 分鐘為單位統計，可能會有誤差。依 App 版本或裝置狀態，統計也可能延遲或遺漏",
+      "noPermissionCaption": "沒有螢幕使用時間權限，無法參加",
+      "unmeasuredCaption": "— 表示尚未統計",
+      "noProgressCaption": "這個挑戰不顯示進度",
+      "betAchievedCaption": "今天的目標已經達成，無法參加",
+      "betAchievedCreateCaption": "今天的目標已經達成，無法發起賭局",
+      "betFailedCaption": "已經超過目標，無法參加",
+      "betFailedCreateCaption": "已經超過目標，無法發起賭局",
+      "betLeftCaption": "已取消參加，參加費已退回餘額",
+      "betCanceledCaption": "取消參加後賭局已關閉，參加費已退回餘額",
+      "dormantCaption": "還沒有人參加",
+      "dormantTag": "休眠",
+      "restCaption": "今天是休息日",
+      "monthDay": "%{month}月%{day}日",
+      "countdownMinutes": "%{minutes} 分 %{seconds} 秒內可以取消",
+      "countdownSeconds": "%{seconds} 秒內可以取消",
+      "timePart": " %{time}",
+      "nextDay": "%{day}%{time}",
+      "nextDayUpcoming": "下次 %{day}%{time}",
+      "achievedMark": "達成 ✓",
+      "achievedA11y": "%{nickname} 達成",
+      "cannotJoinTitle": "無法參加",
+      "cannotOpenHistoryTitle": "無法開啟紀錄",
+      "weekAllJoined": "這週剩下的日子都已經參加了",
+      "joinInfoFailedTitle": "無法確認參加資訊",
+      "reservationGone": "這筆預約已經清除 — 將更新為最新狀態",
+      "sessionGone": "這一天已經結束處理 — 將更新為最新狀態",
+      "leaveClosed": "已超過可取消的時間，無法取消參加",
+      "alreadyLeft": "這筆參加已經取消 — 將更新為最新狀態",
+      "sessionSettled": "這一天已結算或關閉，無法取消參加",
+      "leaveFailedTitle": "無法取消參加",
+      "leaveTitle": "取消參加",
+      "no": "不要",
+      "leaveTodayBody": "要退回參加費 %{stake} 金幣並取消今天的參加嗎？",
+      "leaveNextBody": "要取消 %{day} 的參加並退回參加費 %{stake} 金幣嗎？",
+      "leaveBetBody": "要退回參加費 %{stake} 金幣並退出賭局嗎？",
+      "cancelBetBody": "要退回參加費 %{stake} 金幣並關閉賭局嗎？",
+      "betStarted": "賭局已經開始，無法取消參加",
+      "notJoinedBody": "你並沒有參加這個賭局，請重新整理畫面。",
+      "betSettled": "賭局已結算或關閉，無法取消參加",
+      "ownerOnlyCancel": "只有發起賭局的人可以取消",
+      "othersJoined": "已經有其他參加者，無法取消",
+      "deleteTitle": "刪除挑戰",
+      "deleteBody": "要刪除這個挑戰嗎？",
+      "moneyAppearedTitle": "已經有人押注了",
+      "moneyAppearedBody": "剛剛有人參加了，請確認內容。",
+      "moneyChangedTitle": "押注的金幣有變動",
+      "moneyChangedBody": "請確認變動的內容後再按一次。",
+      "deletePreviewFailedTitle": "無法確認刪除的影響",
+      "dowA11y": "每週 %{days} 重複%{next}",
+      "dowA11yNext": " · %{next}",
+      "todayAt": "今天 %{time}",
+      "inProgressUntil": "進行中 · %{time} 結束",
+      "inProgressUntilMidnight": "進行中 · 午夜結束",
+      "coins": "%{coins} 金幣",
+      "joinDay": "參加 %{day}",
+      "betSummary": "🪙 參加費 %{stake} · 獎金池 %{pot} · %{members} 人參加",
+      "createBet": "發起賭局",
+      "stakeOnly": "🪙 參加費 %{stake}",
+      "joinPrompt": "🪙 參加費 %{stake} · %{members} 人參加中 — 我要參加",
+      "nextReserved": "%{day} · %{coins} 金幣",
+      "joinedTag": "參加中",
+      "tomorrowTag": "明天開始",
+      "leaveDayA11y": "取消 %{day} 的參加",
+      "leaveTodayA11y": "取消今天的參加",
+      "weekAll": "這週剩下的所有日子",
+      "lastBetCaption": "上次賭局（%{date}）：%{summary}",
+      "lastBetAchieved": "%{total} 人中有 %{achieved} 人達成"
+    },
+    "challengeDeleteSheet": {
+      "title": "這是進行中的挑戰",
+      "daysLabel": "已下參加費的日子",
+      "dayA11y": "%{day} %{count} 人參加，獎金池 %{pot} 金幣",
+      "dayValue": "%{count} 人 · %{pot} 金幣",
+      "warn": "%{days} 會失效，獎金池 %{refund} 金幣將全數退回給大家。這些日子不會判定 — 已經有結果的日子維持原樣。",
+      "note": "過去的紀錄會留在群組的「挑戰紀錄」裡"
+    },
+    "challengeHistoryScreen": {
+      "title": "挑戰紀錄",
+      "filterNotice": "只顯示 %{label}",
+      "deletedTag": "已刪除",
+      "cardStat": "參加費 %{stake} · 獎金池 %{pot}",
+      "emptyTitle": "還沒有過去的紀錄",
+      "emptyDesc": "挑戰有結果之後，就會一筆筆累積在這裡",
+      "errorGroupGone": "這個群組已經不存在了。",
+      "errorMemberOnly": "只有群組成員可以查看。",
+      "errorLoadFailed": "無法載入過去的紀錄。",
+      "moreDeadNotice": "沒有更多過去的紀錄可以載入",
+      "moreFailedNotice": "無法載入更多過去的紀錄"
+    },
+    "challengeHistoryView": {
+      "notJoined": "未參加",
+      "refunded": "退款",
+      "voidedSummary": "取消並全數退款",
+      "forfeitedSummary": "沒有人達成，參加費消失",
+      "achievedSummary": "%{participantCount} 人中有 %{achievedCount} 人達成",
+      "deletedChallenge": "已刪除的挑戰",
+      "a11yStake": {
+        "one": "參加費 %{count} 金幣",
+        "other": "參加費 %{count} 金幣"
+      },
+      "a11yPot": {
+        "one": "獎金池 %{count} 金幣",
+        "other": "獎金池 %{count} 金幣"
+      },
+      "a11yStakeRefunded": "參加費已退款",
+      "a11yNoChange": "沒有變動",
+      "a11yGained": {
+        "one": "獲得 %{count} 金幣",
+        "other": "獲得 %{count} 金幣"
+      },
+      "a11yLost": {
+        "one": "損失 %{count} 金幣",
+        "other": "損失 %{count} 金幣"
+      }
+    },
+    "challengeLabel": {
+      "screenTime": "螢幕使用時間",
+      "focus": "專注",
+      "atMost": "以下",
+      "daily": "每天 %{minutes} 分鐘%{atMost}的%{what}",
+      "window": "%{start}~%{end}",
+      "windowEveryday": "每天 %{start}~%{end}",
+      "windowWithMinutes": "%{when} %{minutes} 分鐘%{atMost}的%{what}",
+      "windowOnly": "%{when}的%{what}",
+      "categoryScreenTime": "螢幕使用時間",
+      "categoryFocus": "專注時間"
+    },
+    "groupCardBack": {
+      "loading": "正在載入 %{label}…",
+      "retryHint": "重新載入失敗的資訊",
+      "private": "私密房",
+      "public": "公開房",
+      "flipFrontA11y": "查看 %{name} 卡片正面",
+      "flipFrontHint": "回到卡片正面",
+      "cardA11y": "%{name}，卡片背面，%{privacy}，%{members}/%{maxMembers} 人，目前第 %{position}/%{pageCount} 頁",
+      "cardHint": "點兩下可查看卡片正面",
+      "headerMeta": "%{privacy} · %{members}/%{maxMembers} 人",
+      "optionsA11y": "%{name} 群組選項",
+      "focusMembers": "專注人數",
+      "detailError": "無法載入專注狀況 · 重試",
+      "focusUnknown": "無法確認專注狀況 · 重試",
+      "focusCountA11y": "目前有 %{count} 人正在專注%{stale}",
+      "stalePart": "，先前的數值",
+      "focusCount": "%{count} 人正在專注",
+      "updateFailed": "無法更新 · 重試",
+      "challengeSectionA11y": "挑戰 %{count} 個",
+      "challenges": "挑戰",
+      "countSuffix": "%{count} 個",
+      "noProgress": "沒有進度",
+      "restDay": "休息日",
+      "beforeAggregation": "統計前",
+      "progressWithGoal": "%{progress}/%{goal} 分鐘%{achieved}",
+      "progressOnly": "%{progress} 分鐘%{achieved}",
+      "achievedPart": " · 達成",
+      "challengeRowA11y": "%{label}%{progress}",
+      "progressPart": "，我的進度 %{progress}",
+      "noChallenges": "沒有進行中的挑戰",
+      "challengesError": "無法載入挑戰 · 重試",
+      "notice": "公告",
+      "noNotice": "還沒有公告",
+      "announcementsError": "無法載入公告 · 重試",
+      "memberSummaryA11y": "成員 %{members}/%{maxMembers} 人。%{names}%{overflow}",
+      "overflowPart": " 等 %{count} 人",
+      "members": "成員",
+      "memberCaption": "一起努力的成員",
+      "membersError": "無法載入成員 · 重試",
+      "inviteA11y": "邀請成員加入 %{name}",
+      "invite": "邀請",
+      "startFocus": "用這個群組專注",
+      "openRoom": "查看整個房間"
+    },
+    "groupCardDeck": {
+      "findMore": "尋找群組",
+      "pageAnnounce": "%{name}，第 %{page} / %{total} 頁",
+      "dotA11y": "%{name}，前往第 %{page} / %{total} 頁",
+      "counterA11y": "目前第 %{current} 頁，共 %{total} 頁"
+    },
+    "groupCardFront": {
+      "private": "私密房",
+      "public": "公開房",
+      "gripA11y": "%{name} 卡片排序",
+      "gripHint": "長按 0.3 秒後左右拖曳，或用輔助使用操作來調整順序",
+      "moveForward": "往前移",
+      "moveBackward": "往後移",
+      "viewSummary": "查看房間摘要",
+      "cardA11y": "%{name}%{description}，我的卡片圖示 %{emoji}，%{privacy}，%{owner}%{members}/%{maxMembers} 人，目前第 %{position}/%{pageCount} 頁",
+      "descriptionPart": "，%{description}",
+      "ownerPart": "群組管理員，",
+      "cardHint": "點兩下可查看這張卡片的房間摘要",
+      "owner": "管理員"
+    },
+    "groupInviteSheet": {
+      "blockFull": "人數已經額滿",
+      "blockLimit": "已超過可以參加的群組數量",
+      "blockPassword": "這個群組設有密碼，無法參加",
+      "screenTimeHint": "只要一天的螢幕使用時間保持在目標以下就算達成",
+      "screenTime": "螢幕使用時間",
+      "focus": "專注",
+      "missionDaily": "每天 %{minutes} 分鐘的%{what}",
+      "missionWindow": "每天 %{start}~%{end} 的%{what}",
+      "goneTitle": "這個群組已經不存在了",
+      "goneDesc": "邀請連結已過期，或群組已經消失。",
+      "failedTitle": "無法開啟邀請函",
+      "title": "收到群組邀請函了",
+      "desc": "這是一起專注的群組，參加後就能馬上開始。",
+      "membersLabel": "人數",
+      "membersValue": "%{members}/%{maxMembers} 人",
+      "goalLabel": "目標",
+      "join": "參加"
+    },
+    "groupScreen": {
+      "guideGroupName": "第一個專注小組",
+      "guideGroupDescription": "一起專注，互相加油",
+      "guideMemberOwner": "Gromi",
+      "guideMemberOther": "小專注",
+      "guideNoticeTitle": "今天也一起專注吧",
+      "guideNoticeContent": "晚上 8 點再集合一次。",
+      "guideFocusTag": "讀書",
+      "inviteFailTitle": "無法建立邀請連結",
+      "refreshFailed": "無法重新整理清單",
+      "loadFailed": "無法載入群組"
+    },
+    "inviteShare": {
+      "message": "邀請你加入 %{name} 群組！一起專注吧 ⭐️\n%{url}"
+    },
+    "lastBetResultSheet": {
+      "snapshotMissingA11y": "沒有判定紀錄",
+      "monthDay": "%{month}月%{day}日",
+      "achievedImage": "因為達成目標而開心的角色",
+      "failedImage": "因為沒達成目標而失落的角色",
+      "pendingImage": "等待結果的角色",
+      "refundedBanner": "沒有人達成，所以全數退款了",
+      "forfeitedBanner": "沒有人達成，參加費已經消失",
+      "verdictPending": "未判定",
+      "verdictAchieved": "達成",
+      "verdictFailed": "未達成",
+      "rowA11yPending": "%{head} 未判定",
+      "rowA11yPendingComma": "%{head}，未判定",
+      "verdictPartGain": "%{verdict}，%{coins} 金幣",
+      "verdictPartLoss": "%{verdict}，負 %{coins} 金幣",
+      "rowA11yComma": "%{head}，%{verdictPart}",
+      "rowA11ySpace": "%{head} %{verdictPart}",
+      "title": "上次賭局結果",
+      "sub": "%{date} · %{count} 人參加",
+      "stakeLabel": "參加費",
+      "potLabel": "獎金池",
+      "moreHistory": "查看更多過去紀錄"
+    },
+    "lastSettledView": {
+      "shortParticipantsSummary": "參加者不足而取消",
+      "shortParticipantsCause": "因為參加者不足而取消了",
+      "challengeDeletedSummary": "挑戰刪除，判定無效",
+      "challengeDeletedCause": "挑戰被刪除，因此失效了",
+      "refundDeadlineSummary": "結算延遲，已退款",
+      "refundDeadlineCause": "結算延遲了",
+      "voidBanner": "%{cause}。參加費已經退還"
+    },
+    "memberManageScreen": {
+      "title": "成員管理",
+      "kick": "移除",
+      "kickA11y": "移除 %{name}",
+      "kickConfirm": "要移除 %{name} 嗎？\n被移除的成員無法再次加入。",
+      "cannotKickTitle": "無法移除",
+      "cannotKickSelf": "無法移除自己。",
+      "kickFailTitle": "移除失敗",
+      "loadFailed": "無法載入成員",
+      "emptyTitle": "沒有可以管理的成員",
+      "emptyDesc": "目前還沒有可以移除的成員。"
+    },
+    "memberTile": {
+      "minutes": "%{minutes} 分鐘",
+      "hours": "%{hours} 小時",
+      "hoursMinutes": "%{hours} 小時 %{minutes} 分",
+      "todayFocus": "今天 %{value}"
+    },
+    "noticeDate": {
+      "yesterday": "昨天",
+      "daysAgo": {
+        "one": "%{count} 天前",
+        "other": "%{count} 天前"
+      },
+      "monthDay": "%{month}月%{day}日"
+    },
+    "ownerTransferScreen": {
+      "title": "轉讓群組管理員",
+      "submit": "轉讓",
+      "guide": "請選擇要成為新群組管理員的成員。",
+      "totalFocus": "累計 %{duration}",
+      "durationMinutes": {
+        "one": "%{count} 分鐘",
+        "other": "%{count} 分鐘"
+      },
+      "durationHours": {
+        "one": "%{count} 小時",
+        "other": "%{count} 小時"
+      },
+      "durationHoursMinutes": "%{hours} 小時 %{minutes} 分",
+      "confirmBody": "要把群組管理員轉讓給 %{name} 嗎？",
+      "withdrawNote": "\n轉讓後就會離開群組。",
+      "successToast": "%{name} 成為新的群組管理員了",
+      "leaveFailTitle": "離開群組失敗",
+      "leaveFailBody": "群組管理員已經轉讓，但離開失敗了。請自行離開群組。",
+      "groupGoneToast": "這個群組已經消失，或你已經離開了",
+      "notOwnerToast": "你不是群組管理員，無法轉讓",
+      "transferFailTitle": "無法轉讓群組管理員",
+      "loadFailed": "無法載入成員",
+      "emptyTitle": "沒有可以轉讓的成員",
+      "emptyDesc": "群組裡要有其他成員，才能轉讓群組管理員。"
+    },
+    "pageIndicator": {
+      "selectPage": "選擇頁面",
+      "dotA11y": "%{label}，%{page} / %{total}",
+      "findMore": "尋找群組",
+      "nthGroup": "第 %{n} 個群組",
+      "counterA11y": "目前第 %{current} 頁，共 %{total} 頁",
+      "counterHint": "上下滑動可以切換頁面",
+      "nextPage": "下一頁",
+      "prevPage": "上一頁"
+    },
+    "profileEditScreen": {
+      "title": "群組資料設定",
+      "nameLabel": "群組名稱",
+      "descriptionLabel": "簡介",
+      "descriptionPlaceholder": "介紹一下你的群組（選填）",
+      "capacityLabel": "名額",
+      "maxMembersLabel": "人數上限",
+      "capacityDecreaseA11y": "減少名額",
+      "capacityIncreaseA11y": "增加名額",
+      "memberCount": {
+        "one": "%{count} 人",
+        "other": "%{count} 人"
+      },
+      "capacityHint": {
+        "one": "目前成員 %{count} 人 — 不能設定得比這更少",
+        "other": "目前成員 %{count} 人 — 不能設定得比這更少"
+      },
+      "visibilityLabel": "公開設定",
+      "privateLabel": "非公開群組",
+      "privateNote": "非公開的群組不會出現在搜尋裡，只能透過邀請連結參加",
+      "publicNote": "任何人都可以搜尋群組名稱後加入",
+      "savedToast": "已儲存群組設定",
+      "capacityTooSmallTitle": "無法減少名額",
+      "capacityTooSmallBody": "不能設定得比目前的成員人數更少。",
+      "saveFailTitle": "無法儲存",
+      "loadFailed": "無法載入群組",
+      "ownerOnlyTitle": "只有群組管理員可以進入",
+      "ownerOnlyDesc": "群組資料由群組管理員管理。"
+    },
+    "roomScreen": {
+      "groupFallbackName": "我的群組",
+      "settingsA11y": "群組設定",
+      "loadFailed": "無法載入群組",
+      "staleBanner": "無法載入最新資訊",
+      "inviteFailTitle": "無法建立邀請連結",
+      "refundedTitle": "參加費已退款",
+      "refundedBody": "已經把你下的參加費退還了。\n餘額也已經更新。",
+      "refundedNotMember": "你目前不屬於這個群組，無法開啟房間。",
+      "noticeSection": "公告",
+      "seeAll": "查看全部",
+      "noticeLoadFailed": "無法載入公告",
+      "noticeRefreshFailed": "無法重新整理公告",
+      "noticeEmpty": "還沒有公告",
+      "noticeCompose": "撰寫公告",
+      "challengeSection": "挑戰",
+      "challengeCreate": "建立挑戰",
+      "challengeLoadFailed": "無法載入挑戰",
+      "challengeRefreshFailed": "無法重新整理挑戰",
+      "challengeEmpty": "還沒有挑戰",
+      "challengeHistoryLink": "挑戰紀錄",
+      "challengeDeleteBlockedTitle": "無法刪除挑戰",
+      "challengeDeleteBlockedBody": "有進行中的賭局，無法刪除。",
+      "challengeDeleteFailTitle": "無法刪除挑戰",
+      "memberSection": "成員",
+      "tileInvite": "邀請",
+      "tileFull": "已額滿",
+      "betUnavailableTitle": "無法發起賭局",
+      "betUnavailableBody": "目前無法使用賭局功能，請稍後再試。",
+      "challengeEndedTitle": "這個挑戰已經結束",
+      "betCreateEndedBody": "已結束的挑戰無法發起賭局。",
+      "betJoinEndedBody": "無法參加已結束挑戰的賭局。",
+      "betAlreadyOpenTodayTitle": "今天的賭局已經開了",
+      "betAlreadyOpenTomorrowTitle": "明天的賭局已經開了",
+      "betAlreadyOpenBody": "這是最新狀態，要參加請重新開啟。",
+      "betChangedTitle": "賭局有變動",
+      "betChangedBody": "請用最新的賭局重新開啟。",
+      "betClosedTitle": "這個賭局已截止",
+      "betClosedBody": "已經截止，無法參加。",
+      "betAlreadyJoinedTitle": "你已經參加這個賭局了",
+      "betAlreadyJoinedBody": "已更新為最新狀態。"
+    },
+    "weekdayFull": {
+      "mon": "星期一",
+      "tue": "星期二",
+      "wed": "星期三",
+      "thu": "星期四",
+      "fri": "星期五",
+      "sat": "星期六",
+      "sun": "星期日"
+    },
+    "findMoreCard": {
+      "a11y": "尋找群組，目前第 %{position}/%{pageCount} 頁",
+      "title": "尋找群組",
+      "desc": "再找找可以一起讀書的群組吧"
+    },
+    "groupCardEmojiPicker": {
+      "title": "我的卡片圖示",
+      "hint": "只有你在這台裝置上看得到。可以用方向鍵移動選取。",
+      "optionA11y": "卡片圖示 %{label}",
+      "nextIcon": "下一個圖示",
+      "prevIcon": "上一個圖示",
+      "notice": "只有你在這台裝置上看得到"
+    },
+    "progressFormat": {
+      "fraction": "%{progress}/%{goal} 分鐘",
+      "progressOnly": "%{progress} 分鐘",
+      "unmeasuredA11y": "%{nickname} 尚未統計",
+      "fractionA11y": "%{nickname} %{goal} 分鐘中的 %{progress} 分鐘",
+      "progressOnlyA11y": "%{nickname} %{progress} 分鐘",
+      "windowFocusToleranceNotice": "就算比目標少 5 分鐘，也算達成"
+    },
+    "noticeComposeSheet": {
+      "errorNoticeGone": "這則公告已經被刪除了。",
+      "errorGroupGone": "這個群組已經不存在了。",
+      "errorForbidden": "你沒有撰寫公告的權限。",
+      "errorMemberOnly": "只有群組成員可以使用。",
+      "saveFailEdit": "公告修改失敗了。請稍後再試一次。",
+      "saveFailCreate": "公告發布失敗了。請稍後再試一次。",
+      "titleEdit": "編輯公告",
+      "titleCreate": "撰寫公告",
+      "sub": "所有群組成員都看得到。",
+      "titleField": "標題",
+      "titlePlaceholder": "公告標題",
+      "contentField": "內容",
+      "contentPlaceholder": "請寫下公告內容",
+      "submitEdit": "修改",
+      "submitCreate": "發布"
+    },
+    "groupRoomBottomBar": {
+      "tabHome": "首頁",
+      "tabLeague": "聯賽",
+      "tabGroup": "群組",
+      "tabAll": "全部"
+    },
+    "common": {
+      "dismiss": "取消",
+      "insufficientCoins": "金幣不足"
+    },
+    "betError": {
+      "cannotJoinTitle": "無法參加",
+      "screenTimeBody": "要允許螢幕使用時間權限才能參加。",
+      "closedBody": "可以參加的時間已經過了。將為你重新整理。",
+      "challengeGoneTitle": "這個挑戰已經不存在了",
+      "challengeGoneBody": "可能是群組管理員把挑戰刪掉了。",
+      "memberOnlyTitle": "只有群組成員可以使用",
+      "memberOnlyBody": "你已經退出群組，或不再是成員了。",
+      "guestTitle": "登入後就能參加",
+      "guestBody": "訪客無法使用金幣。",
+      "joinFailed": "沒能參加成功。請稍後再試一次。"
+    },
+    "joinNextSheet": {
+      "dateChangedTitle": "日期已經變了",
+      "dateChangedBody": "已經過了午夜，要預約的日期可能不一樣了。請重新開啟以取得最新狀態。",
+      "reservedDateChangedTitle": "預約的日期已經變了",
+      "reservedDateChangedBody": "已經預約在 %{day}。如果不是你想要的，可以在那天開始前取消參加。",
+      "joinDay": "參加 %{day}",
+      "subWithStart": "%{label} · %{start} 開始",
+      "note": "參加後會馬上扣掉 %{stake} 金幣的參加費。在 %{day} 開始前都可以取消參加並全額退回。",
+      "noteWithStart": "參加後會馬上扣掉 %{stake} 金幣的參加費。在 %{day} %{start} 開始前都可以取消參加並全額退回。",
+      "insufficientCta": "金幣不足（還需要 %{shortage}）"
+    },
+    "joinWeekSheet": {
+      "title": "本週剩下的日子",
+      "datesChangedTitle": "可以參加的日子變了",
+      "datesChangedBody": "將為你重新整理成最新狀態。",
+      "dayA11y": "%{day} 參加費 %{stake} 金幣",
+      "totalUniform": "%{days} 天 × %{stake} 金幣 = 合計 %{total} 金幣",
+      "totalMixed": "%{days} 天 · 合計 %{total} 金幣",
+      "totalLabel": "合計",
+      "note": "參加後 %{total} 金幣會現在全部扣掉。取消可以一天一天分開處理 — 還沒開始的日子在開始前都能全額退回。",
+      "shortagePartial": "金幣還差 %{shortage}。只能參加 %{count} 天（%{total} 金幣）",
+      "shortageNone": "金幣還差 %{shortage}。沒有可以參加的日子",
+      "submitAll": "%{days} 天全部參加",
+      "submitPartial": "只參加 %{count} 天（%{total} 金幣）"
+    },
+    "groupFindSheet": {
+      "loginTitle": "需要登入",
+      "loginBody": "登入後就能參加群組。",
+      "loginLater": "稍後",
+      "loginGo": "去登入",
+      "joinInProgress": "正在處理參加。請稍後再試一次。",
+      "joinFull": "人數已經滿了。找找其他群組吧。",
+      "joinGone": "這個群組已經不存在了。可能是群組管理員把群組刪掉了。",
+      "confirmTitle": "參加群組",
+      "confirmBody": "要參加 %{name} 嗎？",
+      "searching": "搜尋中…",
+      "loading": "載入中…",
+      "searchError": "沒能搜尋成功",
+      "loadError": "沒能載入",
+      "noMatch": "沒有這個名稱的公開群組",
+      "noneYet": "還沒有公開的群組",
+      "title": "尋找群組",
+      "sub": "可以用名稱搜尋公開群組，直接參加。",
+      "searchPlaceholder": "用群組名稱搜尋",
+      "joinedTag": "參加中",
+      "fullTag": "已額滿"
+    },
+    "challengeResultModal": {
+      "achievedImage": "達成目標而開心的角色",
+      "achievedTitle": "達成目標了！",
+      "failedImage": "沒達成目標而惋惜的角色",
+      "failedTitle": "可惜差了一點",
+      "pendingImage": "結果尚未確定的角色",
+      "pendingTitle": "沒能判定結果",
+      "forfeitedImage": "因為沒人達成而惋惜的角色",
+      "forfeitedTitle": "沒有人達成",
+      "voidedImage": "賭注取消後神情平靜的角色",
+      "voidedTitle": "賭注取消了",
+      "refundedImage": "拿回參加費的角色",
+      "refundedTitle": "已經退回參加費",
+      "monthDay": "%{month} 月 %{day} 日",
+      "forfeitedNotice": "因為沒有人達成，累積的 %{pot} 金幣消失了",
+      "voidedShortNotice": "參加人數不足而取消 · 參加費已退回",
+      "voidedNotice": "賭注取消了，參加費已經退回",
+      "refundedNotice": "因為結算延遲，參加費已經退回",
+      "mySettlement": "我的結算 %{delta} 金幣",
+      "rowA11yGain": "%{head}，%{coins} 金幣",
+      "rowA11yLoss": "%{head}，負 %{coins} 金幣",
+      "dateResult": "%{date} 結果",
+      "sectionAchieved": "達成",
+      "sectionFailed": "未達成",
+      "sectionPending": "未判定"
+    },
+    "challengeComposeSheet": {
+      "hourItem": "%{hour} 點",
+      "minuteItem": "%{minute} 分",
+      "categoryFocus": "專注時間",
+      "categoryScreenTime": "螢幕使用時間",
+      "durationLabelFocus": "每日目標專注時間",
+      "durationLabelScreenTime": "每日目標螢幕使用時間",
+      "durationLabelWindow": "時段內的目標時間",
+      "typeDuration": "每日累計",
+      "typeWindow": "時段",
+      "repeatDaysRequired": "請選擇這個挑戰要在哪些日子進行",
+      "categoryCaptionFocus": "在進行的每一天專注滿目標時間以上就算達成",
+      "categoryCaptionScreenTime": "在進行的日子把螢幕使用時間維持在目標以下就算達成。只有允許權限的成員才會參加",
+      "windowFocusCaption": "在進行的每一天，於設定的時段內專注滿目標時間以上就算達成。%{notice}",
+      "windowScreenTimeCaption": "在進行的每一天，於設定的時段內把螢幕使用時間維持在目標以下就算達成。只有允許權限的成員才會參加。使用時間以 15 分鐘為單位統計，可能會有誤差。依 App 版本或裝置狀態，統計也可能延遲或遺漏",
+      "windowPassedNote": "今天的時段已經過了，會從下一個進行的日子開始適用",
+      "windowMidnightCaption": "時段必須在同一天內結束。午夜之後請另外建立隔天的挑戰",
+      "createdWithNonParticipants": "已建立挑戰 — 沒有螢幕使用時間權限的成員不會加入",
+      "takenCaption": "已經有的種類與方式，要先刪掉原本的挑戰才能重新建立",
+      "allTakenCaption": "所有種類的挑戰都已經有了",
+      "takenHint": "已經建立過的組合",
+      "chipOverWindowHint": "比時段還長",
+      "submittingCaption": "處理中…",
+      "betNote": "請在 1～3,000 金幣之間設定。每個進行的日子由各自決定要不要參加，要有 2 人以上賭注才成立。賭注建立後就無法關閉 — 想拿掉的話請刪除挑戰再重新建立",
+      "stakeRangeCaption": "參加費請設定在 1～3,000 金幣之間",
+      "hours": "%{hours} 小時",
+      "hoursMinutes": "%{hours} 小時 %{minutes} 分鐘",
+      "minutes": "%{minutes} 分鐘",
+      "minutesWithHours": "%{minutes} 分鐘（%{hours}）",
+      "durationRangeCaption": "目標時間請輸入在 1～%{max} 之間",
+      "durationOverWindowCaption": "比時段還長。請輸入 %{max} 以下",
+      "goalStepCaption": "使用時間以 15 分鐘為單位統計。請選 15、30、45 分鐘這樣的數字",
+      "goalToleranceCaption": "目標時間必須超過 5 分鐘。%{notice}",
+      "errorGroupGone": "這個群組已經不存在了。",
+      "errorMemberOnly": "只有群組成員可以使用。",
+      "errorDuplicate": "已經有同樣種類的挑戰了。請先刪除原本的挑戰再建立。",
+      "errorWindowOverlap": "和星期重疊的其他時段挑戰時間相撞，或間隔不到 15 分鐘。請改選不重疊的星期，或把時段間隔拉開 15 分鐘以上。",
+      "errorRepeatDaysRequired": "請至少選一個要進行的星期。",
+      "errorLimitExceeded": "挑戰最多只能建立 4 個。請先結束一個再試一次。",
+      "errorCreateFailed": "沒能建立挑戰。請稍後再試一次。",
+      "durationHoursCaption": "%{minutes} 分鐘 · %{hours}",
+      "durationPlaceholder": "自行輸入",
+      "durationPlaceholderRange": "自行輸入（1～%{max} 分鐘）",
+      "durationPlaceholderStep": "自行輸入（15 分鐘為單位，最多 %{max} 分鐘）",
+      "durationPlaceholderMax": "自行輸入（最多 %{max} 分鐘）",
+      "title": "建立挑戰",
+      "sub": "這是群組要一起遵守的目標。",
+      "categoryLabel": "挑戰種類",
+      "typeLabel": "挑戰方式",
+      "repeatDaysLabel": "進行的星期",
+      "windowLabel": "時段設定（以韓國時間為準）",
+      "durationInputA11y": "自行輸入目標時間",
+      "unitMinute": "分鐘",
+      "unitCoin": "金幣",
+      "stakeLabel": "參加費（金幣）",
+      "stakeLabelSub": "· 不設定就沒有賭注",
+      "stakePlaceholder": "自行輸入（1～%{max} 金幣）",
+      "stakeInputA11y": "自行輸入參加費",
+      "submit": "建立"
+    },
+    "betSheet": {
+      "stakeRangeCaption": "參加費請輸入 1～3,000 金幣之間",
+      "tomorrowNote": "今天的時段已經結束，會從明天的時段開始適用",
+      "tomorrowToast": "今天的時段已經結束，所以開成了明天的賭注",
+      "createNote": "達成今天目標的人一起分累積金。如果沒有人達成，參加費就會消失。",
+      "joinNote": "參加後參加費會馬上扣掉。要達成今天的目標才能分累積金。如果沒有人達成，參加費就會消失。",
+      "screenTimeNote": "螢幕使用時間以 15 分鐘為單位統計，可能會有誤差。如果統計延遲或遺漏，可能會被判定為未達成。",
+      "balanceFailed": "沒能載入餘額",
+      "achievedJoinBlocked": "你已經達成今天的目標，所以無法參加",
+      "achievedCreateBlocked": "你已經達成今天的目標，所以無法開賭注",
+      "failedJoinBlocked": "你已經超過目標，所以無法參加",
+      "failedCreateBlocked": "你已經超過目標，所以無法開賭注",
+      "submittingCaption": "處理中…",
+      "shortageCta": "金幣不足（還需要 %{shortage}）",
+      "headstartNote": "先開始的人比較有利。現在加入的話，要在剩下的時間內完成 %{minutes} 分鐘。",
+      "alreadyExistsTomorrowTitle": "明天的賭注已經開好了",
+      "alreadyExistsTodayTitle": "今天的賭注已經開好了",
+      "alreadyExistsTomorrowBody": "明天的賭注已經存在了。請重新整理確認最新狀態。",
+      "alreadyExistsTodayBody": "今天的賭注已經存在了。請重新整理確認最新狀態。",
+      "cannotJoinTitle": "無法參加",
+      "cannotCreateTitle": "無法開賭注",
+      "closedCreateWindowTitle": "可以開賭注的時間已經過了",
+      "closedCreateTodayTitle": "只能開今天的賭注",
+      "closedJoinTitle": "這個賭注已經截止了",
+      "closedCreateWindowBody": "今天的時段已經結束，無法開賭注。明天可以再開。",
+      "closedCreateTodayBody": "日期已經變了。請重新整理後再試一次。",
+      "closedJoinBody": "已經截止了，無法參加。",
+      "challengeInactiveTitle": "這個挑戰已經結束了",
+      "challengeInactiveCreateBody": "已經結束的挑戰無法開賭注。",
+      "challengeInactiveJoinBody": "無法參加已經結束的挑戰的賭注。",
+      "betGoneTitle": "這個賭注已經不存在了",
+      "betGoneBody": "這個賭注已經不見了。將為你重新整理成最新狀態。",
+      "sessionClosedTitle": "已經截止",
+      "notOpenTitle": "這一天已經結束了",
+      "notOpenBody": "結果已經出來，或這天已經關閉，所以無法參加。",
+      "focusOnlyTitle": "這個挑戰還不能下賭注",
+      "focusOnlyBody": "目前只能對每日目標專注挑戰下賭注。伺服器更新後就會開放。",
+      "createFailed": "沒能開賭注。請稍後再試一次。",
+      "joinFailed": "沒能參加成功。請稍後再試一次。",
+      "titleCreate": "下賭注",
+      "titleJoin": "參加賭注",
+      "subWithRemaining": "%{label} · 今天剩下 %{remaining}",
+      "myCoins": "我的金幣",
+      "stakeLabel": "參加費",
+      "stakeChipA11y": "參加費 %{stake} 金幣",
+      "stakeInputA11y": "自行輸入參加費",
+      "unitCoin": "金幣",
+      "potLabel": "目前累積金",
+      "dayParticipantsLabel": "目前參加的人",
+      "achievedA11y": "%{nickname} 達成",
+      "achievedMark": "達成 ✓",
+      "timeShort": "剩下的 %{remaining} 要完成 %{goal} 分鐘有點難",
+      "participantsLabel": "參加者 %{count} 人",
+      "submitCreate": "開賭注",
+      "submitJoin": "參加",
+      "later": "下次再說",
+      "guestTitle": "登入後就能參加賭注",
+      "goLogin": "前往登入"
+    },
+    "cardEmojiEditScreen": {
+      "title": "我的卡片圖示",
+      "loadFailed": "沒能載入我的卡片圖示。",
+      "previewLabel": "我的群組卡片",
+      "saveFailed": "沒能儲存我的卡片圖示。重新開啟 App 後可能會變回之前的圖示。"
+    },
+    "challengeSchedule": {
+      "monthDayDow": "%{month}/%{day}（%{dow}）",
+      "tomorrow": "明天",
+      "durationMinutes": {
+        "one": "%{count} 分鐘",
+        "other": "%{count} 分鐘"
+      },
+      "durationHours": {
+        "one": "%{count} 小時",
+        "other": "%{count} 小時"
+      },
+      "durationHoursMinutes": "%{hours} 小時 %{minutes} 分鐘"
+    },
+    "createScreen": {
+      "title": "建立群組",
+      "nameLabel": "群組名稱",
+      "namePlaceholder": "例）早上 6 點專注室",
+      "nameInvalid": "請再確認一次群組名稱",
+      "descriptionLabel": "簡介",
+      "descriptionPlaceholder": "例）每天早上一起專注的群組（選填）",
+      "capacityLabel": "人數上限",
+      "maxMembersLabel": "最多人數",
+      "capacityDecreaseA11y": "減少人數上限",
+      "capacityIncreaseA11y": "增加人數上限",
+      "memberCount": {
+        "one": "%{count} 人",
+        "other": "%{count} 人"
+      },
+      "visibilityLabel": "公開設定",
+      "public": "公開",
+      "private": "不公開",
+      "visibilityPublicCaption": "任何人都能搜尋群組名稱後加入",
+      "visibilityPrivateCaption": "不會出現在搜尋結果。只有拿到邀請連結的人才能加入",
+      "cardEmojiLabel": "我的卡片圖示",
+      "emojiSaveFailed": "沒能儲存我的卡片圖示。重新開啟 App 後可能會變回之前的圖示。",
+      "backToGroup": "回到群組",
+      "submit": "建立",
+      "limitTitle": "無法再建立了",
+      "limitBody": {
+        "one": "已經超過可以參加的群組數（最多 %{count} 個）",
+        "other": "已經超過可以參加的群組數（最多 %{count} 個）"
+      },
+      "createFailTitle": "沒能建立群組",
+      "inviteFailTitle": "沒能建立邀請連結",
+      "shareFailTitle": "沒能分享",
+      "shareFailBody": "請改用複製連結的方式分享。",
+      "privateCreatedTitle": "已經建立不公開群組 🎉",
+      "privateCreatedBody": "不會出現在搜尋結果。\n請分享邀請連結。",
+      "copyLink": "複製連結",
+      "copied": "已複製",
+      "share": "分享"
+    },
+    "groupCardEmojiStore": {
+      "sunrise": "日出",
+      "book": "書",
+      "laptop": "筆電",
+      "bolt": "閃電",
+      "meditation": "冥想",
+      "palette": "調色盤",
+      "running": "跑步",
+      "writing": "書寫",
+      "brain": "大腦",
+      "target": "目標",
+      "leaf": "葉子",
+      "flame": "火焰"
+    },
+    "groupDeckGuide": {
+      "emptyIntro": "你還沒有參加任何群組，先用示範卡片帶你看一下。",
+      "emptySample": "參加群組後，你的群組就會像這樣以卡片顯示。群組變多後可以左右滑動瀏覽。",
+      "emptyTap": "點一下實際的卡片，就會在這裡打開今天的群組狀態。",
+      "emptyBack": "在背面可以看到正在專注的成員、挑戰和公告，也能直接開始專注或打開整個群組。",
+      "intro": "你的群組都變成卡片集合在這裡了。一起看看吧！",
+      "swipeMulti": "左右滑動就能看其他群組。",
+      "swipeSingle": "這張卡片就是你的群組。群組變多後就能左右滑動。",
+      "tap": "點一下卡片，就會在這裡打開今天的群組狀態。",
+      "back": "可以看到正在專注的成員、挑戰和公告，也能直接開始專注或打開整個群組。"
+    },
+    "listScreen": {
+      "title": "我的群組",
+      "findGroup": "尋找群組",
+      "createGroup": "建立群組",
+      "groupFallbackName": "群組",
+      "guideTitle": "群組卡片說明",
+      "orderSaveFailed": "沒能儲存排序。下次變更時會再試一次，重新開啟 App 後可能會變回之前的排序。",
+      "flipFrontA11y": "%{name} 卡片的正面",
+      "flipBackA11y": "%{name} 卡片的背面",
+      "pageA11y": "%{name}，第 %{page} / %{pageCount} 頁",
+      "reorderedA11y": "已將 %{name} 卡片移到第 %{position} 個位置"
+    },
+    "noticePermissionScreen": {
+      "title": "公告權限",
+      "guide": "獲得允許的成員可以撰寫、修改、刪除公告。群組管理員一律允許。",
+      "ownerTag": "群組管理員 · 一律允許",
+      "loadFailed": "沒能載入權限",
+      "saveFailTitle": "儲存失敗"
+    },
+    "noticeScreen": {
+      "title": "公告",
+      "monthDay": "%{month} 月 %{day} 日",
+      "emptyTitle": "還沒有公告",
+      "emptyDesc": "用 + 按鈕留下第一則公告吧",
+      "composeA11y": "撰寫公告",
+      "edit": "修改",
+      "cardMenuMessage": "要對這則公告做什麼呢？",
+      "deleteTitle": "刪除公告",
+      "deleteConfirm": "要刪除「%{title}」這則公告嗎？",
+      "deleteFailTitle": "刪除失敗",
+      "editGoneToast": "這則公告已經被刪除，無法修改",
+      "errorGroupGone": "這個群組已經不存在了。",
+      "errorMemberOnlyList": "只有群組成員可以看公告。",
+      "errorLoadFailed": "沒能載入公告。",
+      "errorAlreadyDeleted": "這則公告已經被刪除了。",
+      "errorNoticeForbidden": "你沒有管理公告的權限。",
+      "errorMemberOnly": "只有群組成員可以使用。",
+      "errorDeleteFailed": "公告刪除失敗了。請稍後再試一次。"
+    },
+    "settingsScreen": {
+      "title": "群組設定",
+      "mySection": "我的設定",
+      "manageSection": "群組管理",
+      "cardEmojiRow": "我的卡片圖示",
+      "cardEmojiHelper": "%{emoji} %{label} · 只有你在這台裝置上看得到",
+      "cardEmojiHelperLoading": "正在載入目前的圖示…",
+      "cardEmojiHelperFailed": "沒能載入目前的圖示",
+      "cardEmojiA11y": "我的卡片圖示，目前是 %{label}，只有你在這台裝置上看得到",
+      "cardEmojiA11yLoading": "我的卡片圖示，正在載入目前的圖示",
+      "cardEmojiA11yFailed": "我的卡片圖示，沒能載入目前的圖示",
+      "profileRow": "設定群組個人檔案",
+      "transferRow": "轉讓群組管理員",
+      "membersRow": "成員管理",
+      "noticePermissionRow": "公告權限",
+      "leaveTitle": "退出群組",
+      "leaveConfirm": "要退出 %{name} 嗎？",
+      "leavePrimary": "退出",
+      "leaveFailedTitle": "退出群組失敗",
+      "hostBlockedTitle": "群組管理員無法直接退出",
+      "hostBlockedBody": "把群組管理員轉讓給要接手的成員後就可以退出。",
+      "hostBlockedPrimary": "轉讓後退出",
+      "loadFailed": "沒能載入群組"
+    }
+  },
+  "league": {
+    "friend": {
+      "request": "加好友",
+      "requested": "已申請",
+      "friendMark": "好友 ✓"
+    },
+    "pin": {
+      "changeFailTitle": "釘選變更失敗"
+    },
+    "home": {
+      "tabLeague": "聯賽",
+      "tabFriend": "好友",
+      "allLeague": "全部聯賽",
+      "leagueTitle": "%{name}聯賽",
+      "myExam": "我的考試",
+      "sectionRanking": "排行榜",
+      "sectionPinned": "已釘選的人",
+      "pinnedOnly": "只看已釘選",
+      "rankingLoadFailed": "無法載入排行榜",
+      "emptyLeague": "這個聯賽還沒有人",
+      "emptyPinned": "在排行榜點一下釘選，就會收藏到這裡",
+      "myTier": "我的級別 · %{name}",
+      "outOfRankAll": "還沒進入排名 — 釘選後就能一起查看",
+      "outOfRankExam": "還沒進入排名 — 釘選後就能在全部聯賽一起查看",
+      "addFriendTitle": "搜尋・新增好友",
+      "receivedRequests": {
+        "one": "收到的邀請 %{count} 件",
+        "other": "收到的邀請 %{count} 件"
+      },
+      "friendsLoadFailed": "無法載入好友清單",
+      "myFriendsPrefix": "我的好友",
+      "myFriendsSuffix": "人",
+      "emptyFriends": "還沒有好友。搜尋看看，加一位吧！",
+      "guide1": "歡迎來到聯賽！\n在這裡，你會和準備同一場考試的人比一週的專注時間。",
+      "guide2": "這裡會顯示你目前參加的聯賽，以及距離截止的剩餘時間。\n點一下標題，就能看到全部聯賽。",
+      "guide3": "一週結束後，級別會依照名次上升或下降！\n點一下排行榜下方的「我的級別」，就能詳細查看級別階段。",
+      "guide4": "在好友分頁可以新增好友，看看彼此的專注時間。\n邀請朋友一起讀書吧！",
+      "guide5": "名次由本週的專注時間決定。\n現在就開始專注，把名次往上衝吧！"
+    },
+    "rankRow": {
+      "focusing": "專注中",
+      "focusingTag": "%{tag} 專注中"
+    },
+    "deadline": {
+      "withDays": "距離截止 %{days} 天 %{time}",
+      "short": "距離截止 %{time}"
+    },
+    "friendAdd": {
+      "title": "新增好友",
+      "searchPlaceholder": "以暱稱搜尋",
+      "searchResults": "搜尋結果",
+      "searching": "搜尋中…",
+      "noResults": "找不到搜尋結果",
+      "receivedTitle": "收到的邀請",
+      "noReceived": "沒有收到邀請",
+      "notice": "輸入完整正確的暱稱，可以更快找到對方。",
+      "requestFailTitle": "好友邀請失敗",
+      "acceptFailTitle": "接受失敗",
+      "rejectFailTitle": "拒絕失敗"
+    },
+    "friendProfile": {
+      "title": "個人檔案",
+      "titleMe": "我的個人檔案",
+      "friendCount": {
+        "one": "好友 %{count}",
+        "other": "好友 %{count}"
+      },
+      "rankLabel": "排行榜第 %{rank} 名",
+      "todayFocus": "今天的專注",
+      "private": "不公開",
+      "streak": "連續",
+      "streakDays": {
+        "one": "%{count} 天",
+        "other": "%{count} 天"
+      },
+      "exam": "準備中的考試",
+      "focusChartTitle": "本週每日專注時間",
+      "phoneChartTitle": "本週每日手機使用時間",
+      "phoneNoRecord": "%{name} 還沒有手機使用紀錄。等測量資料累積後，就能在這裡比較。",
+      "dayCompareUnavailable": "目前無法載入每日專注與手機使用的比較。",
+      "statsUnavailable": "目前無法載入統計資料。請稍後再進來看看。",
+      "lockTitle": "只有好友才能看",
+      "lockSub": "成為好友後，就能看到每日的專注與手機使用，\n以及各科目的比較。",
+      "subjectTeaserSolo": "各科目讀書量正在準備中",
+      "subjectTeaserCompare": "相同科目的讀書量比較正在準備中",
+      "untagged": "未分類",
+      "unfriend": "解除好友",
+      "unfriendConfirm": "要解除與 %{name} 的好友關係嗎？",
+      "unfriendAction": "解除",
+      "unfriendFailTitle": "解除好友失敗"
+    },
+    "tierGuide": {
+      "title": "級別階段",
+      "heroThisWeek": "本週 %{time}",
+      "heroNext": " · 距離下一階段 %{time}",
+      "heroMax": " · 已是最高階段",
+      "current": "目前",
+      "levelN": "第 %{level} 階",
+      "settlePrefix": "每週",
+      "settleStrong": "星期一 9 點",
+      "settleSuffix": "結算 · 達標自動升級，未達標則降一階。",
+      "guide1": "這是你目前的級別！\n這裡會顯示本週的專注時間，以及距離下一階段還差多少。",
+      "guide2": "級別依照每週的專注時間分為 5 個階段。\n專注得越久，就能爬得越高！",
+      "guide3": "每週星期一 9 點結算。達標就升級，未達標就降級。\n持之以恆最重要！"
+    },
+    "result": {
+      "promoteTitle": "升級了！",
+      "promoteCta": "去看新聯賽",
+      "maintainTitle": "守住了位置",
+      "maintainCta": "繼續衝",
+      "demoteTitle": "下降了一階",
+      "demoteCta": "這週重新開始",
+      "maxTier": "已經是最高級別了！",
+      "goalHintPrefix": "比上週多專注 ",
+      "goalHintHours": {
+        "one": "%{count} 小時",
+        "other": "%{count} 小時"
+      },
+      "goalHintDemoteSuffix": "，就能回到原本的級別！",
+      "goalHintPromoteSuffix": "，就能升上下一個級別！"
+    },
+    "duoDayChart": {
+      "soloSub": "我的紀錄",
+      "compareSub": "與我比較"
+    },
+    "subjectCompare": {
+      "titleSolo": "各科目讀書量",
+      "titleCompare": "各科目讀書量比較",
+      "periodMonth": "本月",
+      "emptySolo": "這段期間沒有讀書紀錄。換一個期間看看吧。",
+      "emptyCompare": "這段期間沒有重疊的科目。換一個期間看看吧。",
+      "barTheirs": "對方"
+    }
+  },
+  "common": {
+    "cancel": "取消",
+    "confirm": "確定",
+    "close": "關閉",
+    "retry": "重試",
+    "retryPlease": "請再試一次。",
+    "retryLater": "請稍後再試一次。",
+    "save": "儲存",
+    "saving": "儲存中…",
+    "delete": "刪除",
+    "next": "下一步",
+    "back": "返回",
+    "start": "開始",
+    "today": "今天",
+    "thisWeek": "本週",
+    "all": "全部",
+    "me": "我",
+    "noRecords": "還沒有紀錄",
+    "weekday": {
+      "sun": "日",
+      "mon": "一",
+      "tue": "二",
+      "wed": "三",
+      "thu": "四",
+      "fri": "五",
+      "sat": "六"
+    }
+  },
+  "shared": {
+    "currency": {
+      "label": "時間碎片"
+    },
+    "tiers": {
+      "tier1": {
+        "name": "小菜鳥",
+        "range": "每週專注 0–14 小時"
+      },
+      "tier2": {
+        "name": "暖身模式",
+        "range": "每週專注 14–28 小時"
+      },
+      "tier3": {
+        "name": "超專注模式",
+        "range": "每週專注 28–42 小時"
+      },
+      "tier4": {
+        "name": "自律達人",
+        "range": "每週專注 42–56 小時"
+      },
+      "tier5": {
+        "name": "專注征服者",
+        "range": "每週專注 56–70 小時"
+      }
+    },
+    "inquiryContacts": {
+      "categoryFocus": "專注 · 螢幕使用時間",
+      "categoryGroup": "群組 · 挑戰",
+      "categoryEtc": "帳號 · 其他",
+      "keywordsFocus": "快速 · 有點快 · 非常快",
+      "keywordsGroup": "超級美女 · 親切 · 隨時待命",
+      "keywordsEtc": "親切 · 微笑 · 熱情歡迎"
+    },
+    "focusCategories": {
+      "groupProfessional": "專業證照",
+      "groupCivilService": "公職考試",
+      "groupStudent": "學生",
+      "groupCareerLanguage": "求職 · 語言",
+      "groupOther": "其他",
+      "subject": {
+        "laborLaw": "勞動法",
+        "civilLaw": "民法",
+        "socialInsuranceLaw": "社會保險法",
+        "businessAdministration": "企業管理",
+        "patentLaw": "專利法",
+        "trademarkLaw": "商標法",
+        "naturalScience": "自然科學概論",
+        "taxLaw": "稅法",
+        "accounting": "會計學",
+        "publicFinance": "財政學",
+        "commercialLaw": "商事法",
+        "economics": "經濟學",
+        "appraisalTheory": "估價理論",
+        "realEstateStudies": "不動產學原理",
+        "korean": "國文",
+        "english": "英文",
+        "koreanHistory": "韓國史",
+        "administrativeLaw": "行政法",
+        "publicAdministration": "行政學",
+        "criminalLaw": "刑事法",
+        "constitutionalLaw": "憲法",
+        "math": "數學",
+        "science": "自然科",
+        "socialStudies": "社會",
+        "electiveSubjects": "選考科目",
+        "major": "主修",
+        "generalEducation": "通識",
+        "coverLetter": "自傳履歷",
+        "aptitudeTest": "性向測驗",
+        "interview": "面試",
+        "listening": "聽力",
+        "reading": "閱讀",
+        "speaking": "口說",
+        "algorithms": "演算法",
+        "csFundamentals": "CS 基礎知識",
+        "project": "專案"
+      }
+    }
+  },
+  "components": {
+    "durationDrumPicker": {
+      "hour": {
+        "one": "%{count} 小時",
+        "other": "%{count} 小時"
+      },
+      "minute": {
+        "one": "%{count} 分鐘",
+        "other": "%{count} 分鐘"
+      }
+    },
+    "goalCelebrationModal": {
+      "durationHourMinute": "%{hours} 小時 %{minutes} 分鐘",
+      "durationHour": {
+        "one": "%{count} 小時",
+        "other": "%{count} 小時"
+      },
+      "durationMinute": {
+        "one": "%{count} 分鐘",
+        "other": "%{count} 分鐘"
+      },
+      "streakPrefix": "連續達成目標 ",
+      "streakDays": {
+        "one": "%{count} 天",
+        "other": "%{count} 天"
+      },
+      "title": "今天的目標達成了！",
+      "titleWithGoal": "%{goal} 專注目標達成了！",
+      "sub": "明天也一起努力達成目標吧！",
+      "rewardPrefix": "獲得 +%{amount} ",
+      "rewardSuffix": "！",
+      "rewardA11y": "獲得 %{amount} %{currency}！",
+      "cta": "太棒了！"
+    },
+    "screenTimeAnalyzingOverlay": {
+      "message": "Gromo 正在分析你的\n螢幕使用時間！"
+    },
+    "screenTimeCelebrationModal": {
+      "durationHourMinute": "%{hours} 小時 %{minutes} 分鐘",
+      "durationHour": {
+        "one": "%{count} 小時",
+        "other": "%{count} 小時"
+      },
+      "durationMinute": {
+        "one": "%{count} 分鐘",
+        "other": "%{count} 分鐘"
+      },
+      "streakPrefix": "連續達成目標 ",
+      "streakDays": {
+        "one": "%{count} 天",
+        "other": "%{count} 天"
+      },
+      "title": "你昨天達成了手機使用時間的目標！",
+      "goalLine": "成功控制在目標之內了。",
+      "goalLineWithGoal": "成功控制在 %{goal} 以內了。",
+      "sub": "%{goalLine}\n今天也加油！",
+      "rewardPrefix": "獲得 +%{amount} ",
+      "rewardSuffix": "！",
+      "rewardA11y": "獲得 %{amount} %{currency}！",
+      "cta": "太棒了！"
+    },
+    "sheetShell": {
+      "dragToClose": "向下拖曳關閉"
+    },
+    "subjectProgressList": {
+      "empty": "還沒有專注時間紀錄"
+    },
+    "tabBar": {
+      "home": "首頁",
+      "league": "聯賽",
+      "group": "群組",
+      "menu": "全部",
+      "focusStart": "開始專注"
+    },
+    "tabGuideOverlay": {
+      "stepA11y": "步驟 %{current}/%{total}。%{text}。%{action}"
+    },
+    "toast": {
+      "dismissHint": "點一下即可關閉"
+    },
+    "updateAlert": {
+      "title": "更新通知",
+      "message": "新版本推出了！請更新後再使用。",
+      "later": "稍後",
+      "update": "更新",
+      "openFailTitle": "通知",
+      "openFailMessage": "無法開啟 App Store。"
+    }
+  },
+  "menu": {
+    "duration": {
+      "hourMinute": "%{h} 小時 %{m} 分鐘",
+      "hour": "%{h} 小時",
+      "minute": "%{m} 分鐘"
+    },
+    "noticeTitle": "通知",
+    "openExternalMessage": "團隊網站將在外部瀏覽器開啟。\n要前往嗎？",
+    "linkOpenFailed": "無法開啟連結。請稍後再試一次。",
+    "currencyValue": "%{amount} 個",
+    "permission": {
+      "approved": "已允許",
+      "denied": "已拒絕",
+      "notDetermined": "需要請求"
+    },
+    "profile": {
+      "edit": "編輯個人檔案",
+      "preparing": "正在準備 %{category}",
+      "streak": {
+        "one": "連續學習 %{count} 天",
+        "other": "連續學習 %{count} 天"
+      }
+    },
+    "section": {
+      "goalFocus": "目標 · 專注",
+      "notificationPrivacy": "通知 · 公開設定",
+      "accountInfo": "帳號 · 資訊"
+    },
+    "goal": {
+      "personalGoal": "修改個人目標",
+      "personalGoalSub": "專注 %{focus} · 使用 %{screenTime}",
+      "allowedApps": "管理專注時允許的 App",
+      "allowedAppsHint": "專注時仍可使用的 App",
+      "allowedAppsCount": {
+        "one": "已允許 %{count} 個 App",
+        "other": "已允許 %{count} 個 App"
+      },
+      "allowedAppsNone": "沒有允許的 App",
+      "screenTime": "螢幕使用時間管理",
+      "screenTimeSub": "權限 · 使用時間測量",
+      "screenTimeSubSelection": "權限 · 測量對象 App",
+      "occupation": "準備中的考試",
+      "occupationUnset": "未設定"
+    },
+    "notification": {
+      "settings": "通知設定",
+      "settingsSub": "專注提醒 · 聯賽 · 深夜 · 音效",
+      "statVisibility": "統計公開範圍"
+    },
+    "account": {
+      "settings": "帳號設定",
+      "settingsSub": "社群綁定 · 登出 · 刪除帳號",
+      "inquiry": "1 對 1 諮詢",
+      "inquirySub": "問題諮詢 · 錯誤回報",
+      "privacy": "隱私權政策",
+      "terms": "服務條款",
+      "version": "版本資訊"
+    },
+    "guide": {
+      "intro": "在「全部」分頁可以管理個人檔案和 App 的所有設定。",
+      "profile": "點一下個人檔案就能編輯暱稱。",
+      "goalSection": "準備中的考試和目標時間可以在這裡修改。\n更換考試後，也會重新取得推薦科目！"
+    }
+  },
+  "character": {
+    "create": {
+      "title": "用照片製作角色"
+    },
+    "creator": {
+      "resetSoon": "再過一會兒就能再次製作。",
+      "resetOn": "%{month} 月 %{day} 日可以再次製作。",
+      "remaining": {
+        "one": "還可以製作 %{count} 次",
+        "other": "還可以製作 %{count} 次"
+      },
+      "cameraPermission": "需要相機權限。請在設定中允許存取相機。",
+      "rotateFailed": "無法旋轉照片。請再試一次。",
+      "moderationUnavailable": "目前無法檢查。請稍後再試一次。",
+      "moderationBlocked": "這張照片無法用來製作角色。",
+      "saveFailed": "無法儲存角色。請再試一次。",
+      "quotaTitle": "製作角色的次數已經用完了。",
+      "cutting": "正在把物品去背…",
+      "emptyHint": "選一張照片，角色就會站在這裡",
+      "unsupported": "這台裝置或這個版本不支援去背。將直接顯示原始照片。",
+      "cutoutOk": "專屬於你的 Gromon 製作成功",
+      "rotate": "旋轉",
+      "repick": "重新選擇",
+      "checking": "檢查中…",
+      "pickPhoto": "選擇照片",
+      "takePhoto": "拍照"
+    },
+    "select": {
+      "title": "更換角色",
+      "hint": "選擇要出現在首頁和慶祝畫面的角色。",
+      "changed": "已更換角色",
+      "equip": "更換",
+      "recreate": "重新製作",
+      "createNew": "製作新角色",
+      "defaultCard": "預設 Gromon",
+      "customCard": "我的角色",
+      "emptyCard": "還沒有",
+      "createCard": "製作"
+    }
+  },
+  "currency": {
+    "history": {
+      "title": "%{currency} 紀錄",
+      "balanceLabel": "目前的 %{currency}",
+      "balanceValue": "%{amount} 個",
+      "loadFailed": "無法載入紀錄。",
+      "errorOffline": "請檢查網路連線。",
+      "empty": "還沒有 %{currency} 紀錄。",
+      "dateTime": "%{month} 月 %{day} 日 %{time}",
+      "spentA11y": "使用 %{amount} %{currency}",
+      "earnedA11y": "獲得 %{amount} %{currency}",
+      "reason": {
+        "sessionComplete": "完成專注",
+        "streakBonus": "連續學習獎勵",
+        "purchase": "商店購買",
+        "betStake": "下注參加費",
+        "betPayout": "下注結算",
+        "betRefund": "下注退款",
+        "focusGoal": "達成專注目標",
+        "screenTimeGoal": "達成螢幕使用時間目標",
+        "leagueTierBonus": "聯賽晉級獎勵",
+        "fallback": "餘額變動"
+      }
+    }
+  },
+  "services": {
+    "api": {
+      "sessionExpired": "登入階段已過期。請重新登入。"
+    },
+    "auth": {
+      "sessionRefreshFailed": "無法更新登入階段。請稍後再試一次。",
+      "loginFailed": "登入失敗",
+      "appleLoginFailed": "Apple 登入失敗",
+      "googleLoginFailed": "Google 登入失敗",
+      "googleTokenMissing": "無法取得 Google idToken。",
+      "lineLoginFailed": "LINE 登入失敗",
+      "facebookLoginFailed": "Facebook 登入失敗",
+      "facebookTokenMissing": "無法取得 Facebook token。",
+      "guestStartFailed": "訪客模式啟動失敗",
+      "socialUnsupportedOnWeb": "網頁體驗版不支援社群登入。"
+    },
+    "sessionErrors": {
+      "loginRequiredTitle": "需要登入",
+      "sessionExpired": "登入資訊已過期。請重新登入。"
+    },
+    "subjectMask": {
+      "reasonIos17Required": "去背功能需要 iOS 17 以上。目前先顯示原始照片。",
+      "reasonNoSubject": "在照片中找不到物品。背景單純的照片效果比較好。",
+      "reasonVisionFailed": "去背失敗。將顯示原始照片。",
+      "reasonLoadFailed": "無法讀取照片。將顯示原始照片。",
+      "reasonUnavailable": "這個版本沒有去背模組。將顯示原始照片。",
+      "reasonModelDownloading": "正在準備去背模型。請稍後再試一次。",
+      "reasonGmsUnavailable": "這台裝置不支援去背。將直接顯示原始照片。"
+    }
+  },
+  "onboarding": {
+    "format": {
+      "hours": {
+        "one": "%{count}小時",
+        "other": "%{count}小時"
+      },
+      "minutes": {
+        "one": "%{count}分鐘",
+        "other": "%{count}分鐘"
+      },
+      "hoursMinutes": "%{hours}%{minutes}"
+    },
+    "problemEmpathy": {
+      "title": "只要選好今天要做的事\n馬上就能開始專注",
+      "live": "專注中",
+      "todo": "今天的待辦",
+      "featureTimer": "計時器",
+      "featureShield": "封鎖干擾 App",
+      "featureGoal": "專注目標",
+      "featureRecord": "自動記錄",
+      "caption": "不用複雜的準備，從開始的那一刻就記錄。"
+    },
+    "togetherEffect": {
+      "title": "就算一個人開始\n也不會一個人努力",
+      "onlineBadge": "現在也一起專注中",
+      "viewFriend": "好友",
+      "viewGroup": "群組",
+      "viewLeague": "同一聯賽",
+      "sub": "在專注畫面滑動，就能看到好友、群組和\n準備同一場考試的人正在一起讀書。"
+    },
+    "subjectCompare": {
+      "title": "今天的專注\n會成為明天的紀錄",
+      "cta": "開始使用 Gromo",
+      "eyebrow": "今天的專注",
+      "focusValue": "已完成 42 分鐘",
+      "focusSub": "開始的時間就這樣累積起來了",
+      "streakLabel": "連續讀書",
+      "streakValue": "7 天",
+      "rankLabel": "聯賽排名",
+      "rankValue": "+3",
+      "shardLabel": "時間碎片",
+      "shardValue": "+42",
+      "caption": "專注紀錄會一點一滴反映到首頁、統計和聯賽裡。"
+    },
+    "focusCategory": {
+      "title": "要專注在什麼上呢？",
+      "subtitle": "在聯賽裡遇見有相同目標的人。",
+      "loading": "載入中…",
+      "loadFailed": "無法載入清單。"
+    },
+    "subjectEdit": {
+      "categoryFallback": "這個目標",
+      "title": "%{category}會用這些科目\n來比較讀書時間",
+      "cta": "好啊！",
+      "notePrefix": "科目",
+      "noteStrong1": "隨時都能新增",
+      "noteMiddle": "。\n自己新增的科目",
+      "noteStrong2": "不列入比較，只作為個人紀錄",
+      "noteSuffix": "使用"
+    },
+    "screenTimePermission": {
+      "title": "想準確查看\n使用時間",
+      "subtitleAndroid": "需要使用資訊存取權限。我們會用這些資料計算統計。",
+      "subtitleIos": "需要 Apple 螢幕使用時間權限。我們會用這些資料計算統計。",
+      "requesting": "請求中…",
+      "ctaAndroid": "在設定中允許",
+      "ctaIos": "允許權限",
+      "later": "之後再說",
+      "requestFailTitle": "權限請求失敗",
+      "perkAndroidMeasure": "自動測量每日使用時間",
+      "perkAndroidCompare": "比較昨天和今天的使用時間",
+      "perkAndroidPrivacy": "各 App 紀錄只存在裝置上 · 只傳送每日總計到伺服器",
+      "perkIosPerApp": "各 App 使用時間",
+      "perkIosCategory": "依類別分類",
+      "perkIosPrivacy": "只在裝置上處理 · 不傳送到伺服器"
+    },
+    "screenTimeGuide": {
+      "title": "等一下！同意按鈕在左邊",
+      "sub": "藍色按鈕是「不允許」。\n請點下方預覽中的「繼續」。",
+      "alertTitle": "「gromo」想要取用「螢幕使用時間」",
+      "alertBody": "允許「gromo」取用「螢幕使用時間」後，此 App 可能可以查看你的活動資料、限制內容，並限制 App 和網站的使用。",
+      "continue": "繼續",
+      "deny": "不允許",
+      "bubble": "這個按鈕才是同意",
+      "okLabel": "會同意",
+      "noLabel": "這邊是拒絕"
+    },
+    "screenTimeDenied": {
+      "title": "沒有權限也沒關係",
+      "subtitlePrefix": "不過，",
+      "subtitleStrong": "使用時間目標設定與統計",
+      "subtitleSuffix": "就無法使用。專注計時器和聯賽仍然可以照常使用。",
+      "requesting": "請求中…",
+      "cta": "再次允許",
+      "secondary": "就這樣繼續",
+      "notePrefix": "隨時都可以在",
+      "noteStrong": "設定 › 螢幕使用時間權限",
+      "noteSuffix": "中開啟。",
+      "fallbackTitle": "無法直接從 App 請求",
+      "fallbackBody": "請在設定中開啟螢幕使用時間權限。",
+      "openSettings": "開啟設定"
+    },
+    "goalSetting": {
+      "title": "來設定目標吧？",
+      "focusLabel": "每日專注目標",
+      "screenLabel": "每日螢幕使用時間目標",
+      "screenValue": "%{value}以下",
+      "hint": "兩個目標都設定好就能進入下一步。"
+    },
+    "characterIntro": {
+      "title": "很高興認識你",
+      "subtitle": "這是接下來要陪你一起專注的夥伴，Gromon。"
+    },
+    "cutout": {
+      "title": "可以用自己拍的照片做出專屬角色！",
+      "subtitle": "只要一張照片，就能完成專屬於你的角色。",
+      "skip": "略過",
+      "guideCreate": "像這樣就能把照片裡的物品變成角色。",
+      "guideChange": "做好的角色可以在首頁更換。",
+      "guideTogether": "在 App 裡用自己做的角色和其他人一起專注的功能還在準備中",
+      "make": "用我的物品做做看",
+      "remake": "再做一次",
+      "done": "這個角色完成了。",
+      "hintIdle": "現在可以製作，也可以略過。",
+      "hintDismissed": "現在不做也沒關係，之後可以在首頁製作。",
+      "hintUnavailable": "現在無法確認。之後可以在首頁的「更換角色」製作。現在先跳過也沒關係。",
+      "hintUnsupported": "這台裝置還不支援製作角色。之後可以在首頁製作。",
+      "modalTitle": "從照片製作角色"
+    },
+    "nickname": {
+      "title": "接下來要怎麼\n稱呼你呢？",
+      "label": "暱稱",
+      "labelEn": "",
+      "placeholder": "請輸入暱稱",
+      "checking": "確認中…",
+      "baseHint": "可以設定 %{min}~%{max} 個字",
+      "lengthError": "暱稱請輸入 %{min}~%{max} 個字",
+      "taken": "這個暱稱已經有人使用",
+      "available": "可以使用",
+      "duplicateError": "這個暱稱已經有人使用。請輸入其他暱稱。",
+      "submitError": "因為暫時的錯誤而無法註冊。請再試一次。"
+    },
+    "gromoStart": {
+      "title": "現在，\n和 Gromo 一起",
+      "cta": "開始使用 Gromo",
+      "sub": "把浪費掉的時間再拿回來。\n從今天起，一步一步充實地填滿。"
+    },
+    "liveRanking": {
+      "categoryFallback": "相同目標",
+      "badgePrefix": "現在 ",
+      "badgeSuffix": " 人正在專注",
+      "title": "正在準備%{category}的人\n現在正一起衝刺",
+      "subtitle": "即時專注排行 · 每秒更新",
+      "cta": "我也要加入",
+      "focusing": "專注中",
+      "resting": "休息中"
+    },
+    "notificationPermission": {
+      "title": "透過各種通知\nGromo 會幫你保持專注！",
+      "allow": "允許",
+      "skip": "略過",
+      "tierTitle": "升級了！",
+      "tierSub": "超專注模式 → 自律達人",
+      "goalTitle": "目標達成加油",
+      "goalSub": "再往前一步吧",
+      "rankTitle": "排名變動通知",
+      "rankSub": "00 超越你了！要不要再開始專注呢？"
+    },
+    "phoneManage": {
+      "title": "打斷專注的\n大多是手機",
+      "mode": "專注模式 · 只用允許的 App",
+      "caption": "專注時會擋掉干擾通知，\n幫你守住每日螢幕使用時間目標"
+    },
+    "usageGuess": {
+      "title": "昨天手機\n用了幾個小時呢？",
+      "subtitle": "先自己猜猜看。\n稍後會和實際紀錄比較。",
+      "cta": "大概用了這麼多",
+      "cardCap": "我的猜測",
+      "unit": "小時左右"
+    },
+    "yesterdayScreenTime": {
+      "title": "來看看實際上用了多久吧？",
+      "subtitle": "和你的猜測差多少呢？一點一點減少吧。",
+      "androidLabel": "昨天一天的使用時間",
+      "androidHint": "根據裝置上記錄的使用紀錄計算。",
+      "iosOnly": "只能在 iOS 裝置上查看"
+    }
+  },
+  "login": {
+    "continueKakao": "使用 Kakao 繼續",
+    "continueApple": "使用 Apple 繼續",
+    "continueGoogle": "使用 Google 繼續",
+    "subtitle": "安全保存你的目標，\n在任何地方都能接著使用。",
+    "lastUsed": "最近使用",
+    "guest": "訪客登入",
+    "guestNoticeTitle": "訪客登入說明",
+    "guestNotice": "紀錄會儲存在伺服器，但只能用這台裝置的驗證資訊再次存取。如果刪除 App、更換裝置或驗證資訊過期，就無法找回紀錄。",
+    "failTitle": "登入失敗",
+    "guestFailTitle": "無法開始",
+    "termsPrefix": "繼續即表示你同意",
+    "termsOfService": "服務條款",
+    "termsMiddle": "與",
+    "privacyPolicy": "隱私權政策",
+    "termsSuffix": "。"
+  },
+  "app": {
+    "splashCaption": "今天也要專心加油！！"
+  },
+  "settings": {
+    "account": {
+      "title": "帳號設定",
+      "providerKakao": "Kakao",
+      "providerApple": "Apple",
+      "providerGoogle": "Google",
+      "socialLoginSection": "社群登入",
+      "loginWith": "使用 %{name} 登入",
+      "connect": "連結",
+      "guestNote": "目前是在沒有登入的狀態下使用。紀錄雖然會儲存在伺服器，但只能用這台裝置的驗證資訊再次存取。如果刪除 App、更換裝置，或驗證資訊過期，就無法找回紀錄。\n\n只要連結社群登入，到目前為止的紀錄就會原封不動地轉移過去。",
+      "linkedSection": "社群登入綁定",
+      "noLinked": "沒有已綁定的社群帳號",
+      "linked": "已綁定",
+      "manage": "管理",
+      "logout": "登出",
+      "logoutConfirm": "要登出嗎？",
+      "withdraw": "刪除帳號",
+      "withdrawTitle": "確定要離開嗎？",
+      "withdrawBody": "刪除帳號後，累積的專注紀錄與級別都會消失，而且無法復原。",
+      "withdrawPrimary": "我要刪除帳號",
+      "withdrawSecondary": "我再留一下",
+      "withdrawBlockedTitle": "無法刪除帳號",
+      "withdrawBlockedBody": "群組管理員要先移交管理權，才能刪除帳號。",
+      "withdrawFailBody": "刪除帳號失敗，請稍後再試一次。",
+      "hostBlockedTitle": "請先移交群組管理員",
+      "hostBlockedBody": {
+        "one": "你是 %{count} 個群組的管理員。\n請先移交「%{name}」的管理員，再重新刪除帳號。",
+        "other": "你是 %{count} 個群組的管理員。\n請先移交「%{name}」的管理員，再重新刪除帳號。"
+      },
+      "hostBlockedCta": "前往移交管理員",
+      "later": "稍後",
+      "unlink": "解除",
+      "unlinkTitle": "解除 %{name} 綁定",
+      "unlinkBody": "要解除 %{name} 的綁定嗎？",
+      "unlinkBlockedTitle": "無法解除",
+      "unlinkBlockedBody": "最後一個登入方式無法解除。",
+      "unlinkFailBody": "解除綁定失敗，請稍後再試一次。",
+      "linkFailTitle": "無法綁定",
+      "linkFailBody": "這是已經綁定到其他帳號的社群帳號，請改用其他社群帳號再試一次。",
+      "errorTitle": "錯誤"
+    },
+    "allowedApps": {
+      "title": "專注時允許的 App",
+      "done": "完成",
+      "note": "專注時仍然可以使用這些 App。選擇類別後，類別內的 App 也會一併允許（以目前已安裝的 App 為準）。",
+      "currentSection": "目前允許的 App",
+      "loading": "正在載入允許的 App",
+      "summaryCount": {
+        "one": "已允許 %{count} 個 App",
+        "other": "已允許 %{count} 個 App"
+      },
+      "summaryCountSub": "專注時仍然可以使用這些 App",
+      "summaryNone": "沒有允許的 App",
+      "summaryNoneSub": "專注時所有 App 都會鎖定",
+      "pick": "選擇允許的 App",
+      "webSection": "網頁",
+      "safariLabel": "允許 Safari・網頁",
+      "safariSub": "開啟後，專注時仍然可以使用 Safari 和網站",
+      "permTitle": "需要螢幕使用時間權限",
+      "permBody": "要選擇允許的 App，必須先允許螢幕使用時間權限。",
+      "permCta": "前往設定權限",
+      "savedMessage": {
+        "one": "專注時仍然可以使用 %{count} 個 App",
+        "other": "專注時仍然可以使用 %{count} 個 App"
+      },
+      "saveDoneTitle": "設定完成",
+      "saveFailTitle": "設定失敗"
+    },
+    "appPicker": {
+      "measuredTitle": "測量對象 App 設定",
+      "measuredNoteLead": "只會統計你選擇的 App 使用時間。",
+      "measuredNoteStrong": "如果一個都沒選，就會統計全部 App。",
+      "measuredCtaEmpty": "儲存為測量全部 App",
+      "measuredCtaCount": {
+        "one": "儲存為只測量 %{count} 個 App",
+        "other": "儲存為只測量 %{count} 個 App"
+      },
+      "allowedNoteLead": "這些是專注時也保持開放、可以使用的 App。",
+      "allowedNoteStrong": "如果沒有選擇，就沒有允許的 App。",
+      "allowedCtaEmpty": "儲存為沒有允許的 App",
+      "allowedCtaCount": {
+        "one": "儲存為允許 %{count} 個 App",
+        "other": "儲存為允許 %{count} 個 App"
+      },
+      "searchPlaceholder": "搜尋 App 名稱",
+      "loadFailed": "無法載入 App 清單。\n請重新開啟 App 後再試一次。",
+      "noResults": "沒有搜尋結果"
+    },
+    "goals": {
+      "title": "編輯個人目標",
+      "focusLabel": "目標專注時間",
+      "focusSub": "要達成",
+      "usageLabel": "目標使用時間",
+      "usageSub": "不超過",
+      "hourMinute": "%{h} 小時 %{m} 分",
+      "hour": {
+        "one": "%{count} 小時",
+        "other": "%{count} 小時"
+      },
+      "minute": {
+        "one": "%{count} 分",
+        "other": "%{count} 分"
+      },
+      "appliesTomorrow": "今天 %{current}・明天起套用這個數值",
+      "currentGoal": "目前目標",
+      "note": "變更後的目標會從明天（%{date}）開始套用。今天的獎勵標準維持不變。"
+    },
+    "inquiry": {
+      "title": "一對一諮詢",
+      "lead": "有什麼需要協助的嗎？",
+      "desc": "可以透過 KakaoTalk 直接詢問負責的開發者。",
+      "categoryLabel": "是什麼樣的內容呢？",
+      "contactLabel": "負責的開發者",
+      "note": "會前往 KakaoTalk — 如果沒有安裝 App，就會在瀏覽器開啟。\n無法全天候回覆，回信可能需要一到兩天。",
+      "confirmTitle": "要前往 KakaoTalk 嗎？",
+      "confirmBody": "會開啟與 %{name} 的一對一開放聊天室。\n對話內容會儲存在 KakaoTalk，不會留在 gromo 的伺服器上。",
+      "go": "前往",
+      "failTitle": "無法開啟 KakaoTalk",
+      "failBody": "請長按下方網址複製後，再用瀏覽器開啟。\n\n%{url}"
+    },
+    "inquiryCard": {
+      "recommended": "推薦",
+      "cta": "用 KakaoTalk 詢問",
+      "ctaA11y": "用 KakaoTalk 詢問 %{name}"
+    },
+    "notification": {
+      "title": "通知・深夜・音效",
+      "sectionNotification": "通知",
+      "master": "接收通知",
+      "masterSub": "會通知專注提醒與聯賽消息",
+      "sound": "音效（通知音）",
+      "soundSub": "收到通知時會用聲音提醒",
+      "leagueNote": "聯賽截止・晉級・降級的通知包含在「接收通知」裡。",
+      "night": "深夜勿擾",
+      "nightSub": "在設定的時段內不會發送通知",
+      "start": "開始",
+      "end": "結束",
+      "nightStartTitle": "深夜開始時間",
+      "nightEndTitle": "深夜結束時間"
+    },
+    "occupation": {
+      "title": "變更準備中的考試",
+      "desc": "在聯賽中遇見準備相同目標的人。",
+      "editRecommended": "編輯推薦科目",
+      "note": "就算變更準備中的考試，已經登錄的科目也會維持不變。\n科目可以另外編輯。"
+    },
+    "privacy": {
+      "title": "隱私權政策",
+      "message": "隱私權政策準備中。\n公開後可以直接在這裡查看。"
+    },
+    "profileEdit": {
+      "title": "編輯個人檔案",
+      "nicknameLabel": "暱稱",
+      "nicknamePlaceholder": "請輸入暱稱",
+      "checking": "確認中…",
+      "available": "可以使用",
+      "nicknameTaken": "這個暱稱已經有人使用了",
+      "checkUnavailable": "目前無法確認是否重複・儲存時會確認",
+      "lengthError": "請輸入 %{min}～%{max} 個字",
+      "lengthHint": "可以設定 %{min}～%{max} 個字",
+      "skinLabel": "角色外觀",
+      "skinComingSoon": "角色外觀・準備中",
+      "checkAndSave": "檢查並儲存",
+      "saveFailTitle": "儲存失敗",
+      "saveFailBody": "儲存失敗，請稍後再試一次"
+    },
+    "screenTimePermission": {
+      "title": "螢幕使用時間管理",
+      "yesterday": "昨天",
+      "badgeApproved": "已允許",
+      "badgeDenied": "已拒絕",
+      "badgeNotDetermined": "需要請求",
+      "badgeChecking": "確認中",
+      "statusTitle": "螢幕使用時間存取權",
+      "requesting": "正在請求權限…",
+      "tapToAllow": "請點一下以允許存取螢幕使用時間",
+      "tapToReallowAndroid": "請點一下以重新允許使用情況存取權",
+      "deniedIos": "可以在 iOS 的「設定」中重新開啟",
+      "lastSynced": "上次同步・%{date}",
+      "manageSection": "管理",
+      "targetsLabel": "測量對象 App 設定",
+      "targetsSubIos": "選擇要測量使用時間的 App 與類別",
+      "targetsSubAndroid": "選擇要測量使用時間的 App",
+      "targetsPendingSub": "變更的對象會從明天 0 點開始套用",
+      "targetsPendingValue": "預計明天套用",
+      "collectTitle": "收集項目",
+      "collectBody": "會收集各 App 的使用時間（用了哪些 App、用了多久）\n以及各類別的分類（社群・遊戲等的彙總統計）。",
+      "localOnlyTitle": "僅在裝置上處理・不傳送到伺服器",
+      "permOffNote": "關閉權限後，使用時間統計就會停止。",
+      "changeIos": "也可以在 iOS 的「設定」App 中變更。",
+      "changeAndroid": "也可以在「設定」→「使用情況存取權」中變更。",
+      "changeOther": "也可以在裝置設定中變更。",
+      "permOffTitle": "權限已關閉",
+      "permOffBody": "可以在「設定」>「螢幕使用時間」中重新開啟。",
+      "permErrorTitle": "權限處理失敗",
+      "permNeededTitle": "需要螢幕使用時間權限",
+      "permNeededIosBody": "要選擇測量對象，必須先允許螢幕使用時間權限。",
+      "permNeededAndroidBody": "要選擇測量對象，必須先允許使用情況存取權。",
+      "unsupportedTitle": "目前還無法使用",
+      "unsupportedBody": "把 App 更新到最新版本後，就可以選擇測量對象。",
+      "scheduledTitle": "已預約變更測量對象",
+      "scheduledBody": {
+        "one": "今天維持原本的對象，明天起會以 %{count} 個 App 與類別進行測量",
+        "other": "今天維持原本的對象，明天起會以 %{count} 個 App 與類別進行測量"
+      },
+      "scheduledToast": {
+        "one": "已預約變更 — 明天起會以 %{count} 個 App 與類別進行測量",
+        "other": "已預約變更 — 明天起會以 %{count} 個 App 與類別進行測量"
+      },
+      "clearedTitle": "已變更測量對象",
+      "clearedBody": "已清空測量對象 — 使用量測量與伺服器同步都會停止。首頁報告會以全部 App 為準顯示。",
+      "pickedMessage": {
+        "one": "會測量 %{count} 個 App 與類別",
+        "other": "會測量 %{count} 個 App 與類別"
+      },
+      "saveDoneTitle": "設定完成",
+      "saveFailTitle": "設定失敗"
+    },
+    "statVisibility": {
+      "title": "詳細統計公開範圍",
+      "note": "選擇要讓其他人看到多少自己的詳細統計。",
+      "publicLabel": "完全公開",
+      "publicSub": "聯賽中的所有人都看得到",
+      "friendsLabel": "好友公開",
+      "friendsSub": "只有你接受為好友的人看得到"
+    },
+    "tagSheet": {
+      "selectAll": "全選",
+      "done": "完成",
+      "editTitle": "編輯 %{exam} 的推薦科目",
+      "editSubLead": "要新增的科目請勾選，要移除的科目請取消勾選。",
+      "editSubDanger": "取消勾選的科目，其專注紀錄會消失。",
+      "editEmpty": "沒有可以編輯的推薦科目。",
+      "addTitle": "推薦準備 %{exam} 需要的科目",
+      "addSub": "新增之後，就可以和準備同一場考試的人比較各科目的讀書時間。",
+      "addEmpty": "沒有可以新增的推薦科目。",
+      "add": "新增",
+      "selectedCount": {
+        "one": "已選擇 %{count} 個",
+        "other": "已選擇 %{count} 個"
+      },
+      "skip": "略過",
+      "removeTitle": "要整理現有的科目嗎？",
+      "removeSubLead": "請選擇要刪除的科目。",
+      "removeSubDanger": "刪除的科目，其專注紀錄會消失。",
+      "removeEmpty": "沒有可以刪除的科目。",
+      "goBack": "返回上一步"
+    },
+    "version": {
+      "title": "版本資訊",
+      "latest": "已經是最新版本"
+    }
+  },
+  "stats": {
+    "screen": {
+      "title": "統計"
+    },
+    "period": {
+      "day": "日",
+      "week": "週",
+      "month": "月"
+    },
+    "guide": {
+      "intro": "這裡是統計！\n可以用圖表一眼看完自己的專注紀錄。",
+      "periodTabs": "用日、週、月分頁可以切換期間。\n日會詳細顯示今天，月則呈現一整個月的變化！",
+      "totalCard": "顯示這段期間的總專注時間，以及和其他人的比較。",
+      "goalCard": "這裡可以確認有沒有達成專注和使用時間的目標。",
+      "categoryCard": "也可以在這裡看到每個科目專注了多久。\n往下滑還有更多圖表在等你！"
+    },
+    "card": {
+      "totalValue": "總共 %{value}",
+      "phoneSubtitle": "會和專注時間對照顯示，減少時會一起減少。"
+    },
+    "totalCard": {
+      "titleDay": "今日總專注時間",
+      "titleWeek": "本週總專注時間",
+      "titleMonth": "%{month}月總專注時間"
+    },
+    "goalCard": {
+      "titleDay": "今日目標達成",
+      "titleWeek": "每週日曆",
+      "titleMonth": "每月日曆"
+    },
+    "categoryCard": {
+      "titleDay": "今日各科目專注時間",
+      "titleWeek": "本週各科目專注時間",
+      "titleMonth": "%{month}月各科目專注時間"
+    },
+    "monthWeekly": {
+      "focusTitle": "%{month}月每週專注時間",
+      "phoneTitle": "%{month}月每週手機使用量"
+    },
+    "weekday": {
+      "focusTitle": "一週各日專注時間",
+      "phoneTitle": "一週各日手機使用量"
+    },
+    "longest": {
+      "titleDay": "今日最長連續專注",
+      "titleWeek": "本週最長連續專注",
+      "titleMonth": "%{month}月最長連續專注",
+      "hint": "一次連續最久的專注時段"
+    },
+    "passer": {
+      "title": "與合格者比較",
+      "note": "等合格者資料累積後就會顯示"
+    },
+    "passerChart": {
+      "axisLaborLaw": "勞動法",
+      "axisCivilLaw": "民法",
+      "axisAdminLitigation": "行政爭訟法",
+      "axisSocialInsurance": "社會保險法",
+      "axisBusinessAdmin": "企業管理",
+      "passerAvg": "合格者平均"
+    },
+    "delta": {
+      "titleDay": "與昨日相比",
+      "titleWeek": "與上週相比",
+      "titleMonth": "與 %{month} 月相比",
+      "focusLabel": "專注",
+      "phoneLabel": "手機使用"
+    },
+    "deltaRow": {
+      "noChange": "沒有變化"
+    },
+    "chart": {
+      "weekNth": "第%{n}週",
+      "hourLabel": "%{hour} 時"
+    },
+    "firstStart": {
+      "monthTitle": "%{month}月每週第一次專注的開始時間",
+      "hint": "當天第一次開始專注的時間 · 越往上代表越早"
+    },
+    "calendar": {
+      "weekLabel": "%{month}月 第%{nth}週",
+      "weekSublabel": "%{fromMonth}.%{fromDay} – %{toMonth}.%{toDay}",
+      "monthLabel": "%{year}年%{month}月",
+      "monthSublabel": "1日 – %{lastDay}日",
+      "totalEmpty": "總專注 —",
+      "total": "總專注 %{hours} 小時 %{minutes} 分鐘",
+      "lessThanMinute": "不到 1 分鐘",
+      "pickHead": "%{month}月%{day}日 (%{weekday}) · 專注 %{focus}",
+      "pickPhone": " · 手機 %{value}",
+      "pickSessions": {
+        "one": " · 時段 %{count} 次",
+        "other": " · 時段 %{count} 次"
+      }
+    },
+    "cardBody": {
+      "loadFailed": "無法載入"
+    },
+    "comingSoon": {
+      "badge": "準備中"
+    },
+    "categoryDonut": {
+      "totalLabel": "總專注",
+      "unclassified": "未分類",
+      "emptyToday": "還沒有專注時間的紀錄"
+    },
+    "compare": {
+      "chipFriends": "好友",
+      "chipCategory": "相同類別",
+      "avgFriends": "好友平均",
+      "avgAll": "整體平均",
+      "avgCategory": "相同類別平均",
+      "avgOf": "%{name} 平均",
+      "thisMonth": "本月",
+      "loadFailed": "無法載入比較資料",
+      "emptyFriends": "%{when}還沒有專注過的好友",
+      "emptyCategory": "%{when}還沒有相同類別的紀錄",
+      "emptyAll": "%{when}的專注紀錄還沒有累積起來",
+      "noCategorySet": "設定準備中的考試後就能比較"
+    },
+    "goalStamp": {
+      "loadFailed": "無法載入目標資訊",
+      "notSet": "未設定目標",
+      "focusNotSetSub": "在設定中決定專注目標",
+      "focusDone": "專注達成",
+      "focusDoneSub": "%{cur} 分鐘 · 目標 %{goal} 分鐘",
+      "focusProgress": "專注 %{cur}/%{goal} 分鐘",
+      "focusRemain": "距離目標還有 %{minutes} 分鐘",
+      "phoneNotSetSub": "在設定中決定手機使用目標",
+      "phoneFail": "目標未達成！",
+      "phoneRemain": "剩下 %{value}",
+      "phoneSub": "手機使用 %{cur} · 目標 %{goal}"
+    },
+    "focusTimetable": {
+      "title": "今日時間表",
+      "shareFileSuffix": "時間表"
+    },
+    "weeklyTimetable": {
+      "title": "一週各日時間表",
+      "shareFileSuffix": "每週時間軸"
+    },
+    "share": {
+      "button": "分享",
+      "tagline": "專注紀錄 · gromo",
+      "dateHeader": "%{year}年%{month}月%{day}日 (%{weekday})"
+    },
+    "usageDetail": {
+      "title": "手機使用",
+      "unavailable": "目前無法查看",
+      "loadFailed": "無法載入使用紀錄",
+      "permissionOff": "使用資訊的存取權限已關閉。\n在設定中重新開啟後就能看到使用紀錄。",
+      "otherApps": "其他",
+      "totalToday": "今日總使用時間",
+      "byApp": "各應用程式使用時間",
+      "noUsage": "沒有使用紀錄",
+      "hourMinute": "%{hours} 小時 %{minutes} 分鐘",
+      "minute": "%{minutes} 分鐘",
+      "second": "%{seconds} 秒"
+    }
+  },
+  "notifications": {
+    "title": "通知",
+    "emptyTitle": "還沒有收到通知",
+    "emptySub": "有新消息時會整理在這裡",
+    "time": {
+      "justNow": "剛剛",
+      "minutesAgo": {
+        "one": "%{count} 分鐘前",
+        "other": "%{count} 分鐘前"
+      },
+      "hoursAgo": {
+        "one": "%{count} 小時前",
+        "other": "%{count} 小時前"
+      },
+      "daysAgo": {
+        "one": "%{count} 天前",
+        "other": "%{count} 天前"
+      },
+      "date": "%{month}月%{day}日"
+    }
+  }
+}

@@ -8,6 +8,7 @@
 import { View, Text } from 'react-native';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { useCharacter } from '@/store/CharacterContext';
+import { t } from '@/i18n';
 import { cs } from './cardStyles';
 
 // 밴드 안 캐릭터 박스 — 밴드 높이에 맞춘 소형. 누끼는 가변 비율이라도 contain으로 이 정사각에
@@ -40,7 +41,7 @@ export function ShareBrandFooter({
           gromo
         </Text>
         <Text style={cs.shareTagline} allowFontScaling={false}>
-          집중 기록 · gromo
+          {t('stats.share.tagline')}
         </Text>
       </View>
     </View>

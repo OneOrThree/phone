@@ -19,36 +19,41 @@ import type { CurrencyTransaction, CurrencyTransactionType } from '@/types/dto/c
 import { useCoins, useRefreshCoinsOnFocus } from '@/store/CoinContext';
 import { logCurrencyHistoryViewed } from '@/services/analyticsEvents';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { t } from '@/i18n';
 
 // 시간조각(인게임 재화) 거래 내역 화면 — MenuScreen 잔액 행에서 진입.
 // GET /api/v1/currency/transactions(최신순)을 그대로 나열한다: 부호 있는 금액 + 사유 한글 라벨 + 날짜.
 // ⚠️ 서버 amount는 항상 양수(절대값)라 부호는 type으로 유도한다(dto/currency.ts 주석 참고).
 
-// 거래 사유(enum name) → 한글 라벨. 서버 CurrencyTransactionType 기준.
-const REASON_LABEL: Record<string, string> = {
-  SESSION_COMPLETE: '집중 완료',
-  STREAK_BONUS: '연속 공부 보너스',
-  PURCHASE: '상점 구매',
-  BET_STAKE: '내기 참가비',
-  BET_PAYOUT: '내기 정산',
-  BET_REFUND: '내기 환불',
-  FOCUS_GOAL: '집중 목표 달성',
-  SCREEN_TIME_GOAL: '스크린타임 목표 달성',
-  LEAGUE_TIER_BONUS: '리그 승급 보상',
+// 거래 사유(enum name) → 번역 키. 서버 CurrencyTransactionType 기준.
+const REASON_KEY: Record<string, string> = {
+  SESSION_COMPLETE: 'currency.history.reason.sessionComplete',
+  STREAK_BONUS: 'currency.history.reason.streakBonus',
+  PURCHASE: 'currency.history.reason.purchase',
+  BET_STAKE: 'currency.history.reason.betStake',
+  BET_PAYOUT: 'currency.history.reason.betPayout',
+  BET_REFUND: 'currency.history.reason.betRefund',
+  FOCUS_GOAL: 'currency.history.reason.focusGoal',
+  SCREEN_TIME_GOAL: 'currency.history.reason.screenTimeGoal',
+  LEAGUE_TIER_BONUS: 'currency.history.reason.leagueTierBonus',
 };
 
 // 사용(차감) 방향 타입 — 나머지는 적립(+). 미지의 타입은 적립으로 폴백해 오인 음수 표기를 피한다.
 const SPEND_TYPES = new Set<CurrencyTransactionType>(['PURCHASE', 'BET_STAKE']);
 
 function reasonLabel(type: CurrencyTransactionType): string {
-  return REASON_LABEL[type] ?? '재화 변동';
+  return t(REASON_KEY[type] ?? 'currency.history.reason.fallback');
 }
 
 // ISO Instant → "M월 D일 HH:mm" (로컬 시간대 기준)
 function txDateLabel(iso: string): string {
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getMonth() + 1}월 ${d.getDate()}일 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return t('currency.history.dateTime', {
+    month: d.getMonth() + 1,
+    day: d.getDate(),
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  });
 }
 
 type Status = 'loading' | 'error' | 'ready';
@@ -58,8 +63,8 @@ type Status = 'loading' | 'error' | 'ready';
 // HTTP status 숫자는 사용자에게 노출하지 않는다(앱 톤) — 원인 추적은 아래 __DEV__ 로그가 맡는다.
 // 헬퍼는 화면 안에 둔다(GroupBetHistoryScreen·NoticeScreen의 listErrorMessage 관행).
 function listErrorMessage(e: unknown): string {
-  if (axios.isAxiosError(e) && !e.response) return '인터넷 연결을 확인해 주세요.';
-  return '잠시 후 다시 시도해 주세요.';
+  if (axios.isAxiosError(e) && !e.response) return t('currency.history.errorOffline');
+  return t('common.retryLater');
 }
 
 export default function CurrencyHistoryScreen() {
@@ -119,7 +124,9 @@ export default function CurrencyHistoryScreen() {
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={22} color={T.ink} />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>{CURRENCY.label} 내역</Text>
+        <Text style={s.headerTitle}>
+          {t('currency.history.title', { currency: CURRENCY.label })}
+        </Text>
         {/* 오른쪽 스페이서 — 제목 가운데 정렬 유지 */}
         <View style={s.backBtn} />
       </View>
@@ -127,13 +134,19 @@ export default function CurrencyHistoryScreen() {
       {/* 현재 잔액 요약 */}
       <View style={s.balanceCard}>
         {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
-        <Text style={s.balanceLabel} accessibilityLabel={`지금 가진 ${CURRENCY.label}`}>
+        <Text
+          style={s.balanceLabel}
+          accessibilityLabel={t('currency.history.balanceLabel', { currency: CURRENCY.label })}
+        >
           {/* 아이콘 색은 감싸는 라벨(T.inkSub)에 맞춘다 — 다른 자리도 옆 글자 색을 따라간다. */}
-          <CurrencyIcon size={14} color={T.inkSub} /> 지금 가진 {CURRENCY.label}
+          <CurrencyIcon size={14} color={T.inkSub} />{' '}
+          {t('currency.history.balanceLabel', { currency: CURRENCY.label })}
         </Text>
         {/* 미로드 시에도 '0'을 보여 준다(GROMO-1073) — 지갑은 가입 시 함께 생겨 신규 유저의
             정답도 0이다. 홈·전체 탭 잔액 표기와 같은 규칙. */}
-        <Text style={s.balanceValue}>{coins.toLocaleString()}개</Text>
+        <Text style={s.balanceValue}>
+          {t('currency.history.balanceValue', { amount: coins.toLocaleString() })}
+        </Text>
       </View>
 
       {status === 'loading' ? (
@@ -144,20 +157,23 @@ export default function CurrencyHistoryScreen() {
         <View style={s.center}>
           <Ionicons name="cloud-offline-outline" size={30} color={T.inkFaint} />
           <Text style={s.stateText}>
-            내역을 불러오지 못했어요.{'\n'}
+            {t('currency.history.loadFailed')}
+            {'\n'}
             {errorMsg}
           </Text>
           {/* 같은 화면에 머무는 동안의 유일한 복구 수단 — 포커스 재조회는 화면을 다시 열어야
               돈다(GROMO-1073). 버튼·스타일은 GroupSettingsScreen의 에러 재시도 블록과 동일. */}
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => load()}>
-            <Text style={s.retryText}>다시 시도</Text>
+            <Text style={s.retryText}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       ) : transactions.length === 0 ? (
         <View style={s.center}>
           {/* 빈 상태 — 에러 상태(cloud-offline-outline)와 같은 크기·색 계열로 맞춘다 */}
           <CurrencyIcon size={30} color={T.inkFaint} decorative />
-          <Text style={s.stateText}>아직 {CURRENCY.label} 내역이 없어요.</Text>
+          <Text style={s.stateText}>
+            {t('currency.history.empty', { currency: CURRENCY.label })}
+          </Text>
         </View>
       ) : (
         <FlatList
@@ -177,7 +193,10 @@ export default function CurrencyHistoryScreen() {
                 <Text
                   style={[s.rowAmount, isSpend ? s.rowAmountSpend : s.rowAmountEarn]}
                   // 부호 기호(−/+)와 중첩 아이콘은 그대로 읽히지 않아 말로 풀어 준다.
-                  accessibilityLabel={`${isSpend ? '사용' : '적립'} ${item.amount.toLocaleString()} ${CURRENCY.label}`}
+                  accessibilityLabel={t(
+                    isSpend ? 'currency.history.spentA11y' : 'currency.history.earnedA11y',
+                    { amount: item.amount.toLocaleString(), currency: CURRENCY.label },
+                  )}
                 >
                   {sign}
                   {item.amount.toLocaleString()}{' '}

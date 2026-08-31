@@ -1,5 +1,6 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { SheetShell } from '@/components/SheetShell';
 import type { ChallengeDeletionPreviewResponse } from '@/types/dto/group';
 import { fmtMonthDayDow } from '../challengeSchedule';
@@ -36,21 +37,28 @@ export default function ChallengeDeleteSheet({
   const dayLabels = preview.openSessions.map((os) => fmtMonthDayDow(os.sessionDate));
   return (
     <SheetShell onClose={onClose} asModal>
-      <Text style={s.title}>지금 진행 중인 챌린지예요</Text>
+      <Text style={s.title}>{t('group.challengeDeleteSheet.title')}</Text>
       <Text style={s.sub}>{label}</Text>
 
-      <Text style={s.fieldLabel}>참가비가 걸려 있는 날</Text>
+      <Text style={s.fieldLabel}>{t('group.challengeDeleteSheet.daysLabel')}</Text>
       <View style={s.dayList} testID="group.challenge.delete.days">
         {preview.openSessions.map((os) => (
           <View
             key={os.sessionDate}
             style={s.dayRow}
             accessible
-            accessibilityLabel={`${fmtMonthDayDow(os.sessionDate)} ${os.participantCount}명 참여, 적립금 ${os.pot}코인`}
+            accessibilityLabel={t('group.challengeDeleteSheet.dayA11y', {
+              day: fmtMonthDayDow(os.sessionDate),
+              count: os.participantCount,
+              pot: os.pot,
+            })}
           >
             <Text style={s.dayText}>{fmtMonthDayDow(os.sessionDate)}</Text>
             <Text style={s.dayValue}>
-              {os.participantCount}명 · {os.pot}코인
+              {t('group.challengeDeleteSheet.dayValue', {
+                count: os.participantCount,
+                pot: os.pot,
+              })}
             </Text>
           </View>
         ))}
@@ -59,12 +67,14 @@ export default function ChallengeDeleteSheet({
       {/* 무엇이 사라지고 돈이 어디로 가는지 — 시안(ux §07) 문장 그대로. */}
       <View style={s.warnBox}>
         <Text style={s.warnText}>
-          {dayLabels.join('·')}가 무효가 되고 적립금 {preview.totalRefund}코인이 전원에게 돌아가요.
-          이 날들은 판정하지 않아요 — 이미 결과가 나온 날은 그대로예요.
+          {t('group.challengeDeleteSheet.warn', {
+            days: dayLabels.join('·'),
+            refund: preview.totalRefund,
+          })}
         </Text>
       </View>
       <View style={s.note}>
-        <Text style={s.noteText}>지난 기록은 그룹의 「챌린지 내역」에 남아요</Text>
+        <Text style={s.noteText}>{t('group.challengeDeleteSheet.note')}</Text>
       </View>
 
       <TouchableOpacity
@@ -74,7 +84,7 @@ export default function ChallengeDeleteSheet({
         accessibilityRole="button"
         testID="group.challenge.delete.confirm"
       >
-        <Text style={s.deleteText}>삭제</Text>
+        <Text style={s.deleteText}>{t('common.delete')}</Text>
       </TouchableOpacity>
       <TouchableOpacity
         style={s.ghostBtn}
@@ -83,7 +93,7 @@ export default function ChallengeDeleteSheet({
         accessibilityRole="button"
         testID="group.challenge.delete.dismiss"
       >
-        <Text style={s.ghostText}>그만두기</Text>
+        <Text style={s.ghostText}>{t('group.common.dismiss')}</Text>
       </TouchableOpacity>
     </SheetShell>
   );

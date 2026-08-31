@@ -13,10 +13,11 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { BET_NOT_FOUND, getGroupChallengeHistory, groupErrorCode } from '@/services/groupApi';
 import type { GroupChallengeHistoryItem } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
-import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './components/progressFormat';
+import { windowFocusToleranceNotice } from './components/progressFormat';
 import { fmtMonthDayDow } from './challengeSchedule';
 import {
   historyBasis,
@@ -59,8 +60,8 @@ import {
 const PAGE_SIZE = 20;
 
 // 다음 페이지 실패 인라인 문구 — 무효 커서(재시도 무의미)와 일시 실패(수동 재시도)를 가른다.
-const MORE_DEAD_NOTICE = '지난 기록을 더 불러올 수 없어요';
-const MORE_FAILED_NOTICE = '지난 기록을 더 불러오지 못했어요';
+const MORE_DEAD_NOTICE_KEY = 'group.challengeHistoryScreen.moreDeadNotice';
+const MORE_FAILED_NOTICE_KEY = 'group.challengeHistoryScreen.moreFailedNotice';
 
 type HistoryRoute = RouteProp<V2RootStackParamList, 'GroupChallengeHistory'>;
 
@@ -68,11 +69,11 @@ type HistoryRoute = RouteProp<V2RootStackParamList, 'GroupChallengeHistory'>;
 function listErrorMessage(e: unknown): string {
   switch (groupErrorCode(e)) {
     case 'NOT_FOUND':
-      return '사라진 그룹이에요.';
+      return t('group.challengeHistoryScreen.errorGroupGone');
     case 'MEMBER_ONLY':
-      return '그룹원만 볼 수 있어요.';
+      return t('group.challengeHistoryScreen.errorMemberOnly');
     default:
-      return '지난 기록을 불러오지 못했어요.';
+      return t('group.challengeHistoryScreen.errorLoadFailed');
   }
 }
 
@@ -214,17 +215,17 @@ export default function GroupChallengeHistoryScreen() {
         style={s.backBtn}
         onPress={() => navigation.goBack()}
         activeOpacity={0.7}
-        accessibilityLabel="뒤로"
+        accessibilityLabel={t('common.back')}
       >
         <Ionicons name="chevron-back" size={18} color={T.inkSub} />
       </TouchableOpacity>
       <View style={s.headerText}>
-        <Text style={s.headerTitle}>챌린지 내역</Text>
+        <Text style={s.headerTitle}>{t('group.challengeHistoryScreen.title')}</Text>
         {/* 필터로 들어온 화면임을 밝힌다 — 안 밝히면 그룹 전체 이력으로 읽혀 "왜 다른 챌린지가
             안 보이지"가 된다. 라벨을 못 받은 진입(구 링크)에서는 아무것도 지어내지 않는다. */}
         {challengeId !== undefined && challengeLabel !== undefined && (
           <Text style={s.headerSub} testID="group.challengeHistory.filter">
-            {challengeLabel}만 보는 중
+            {t('group.challengeHistoryScreen.filterNotice', { label: challengeLabel })}
           </Text>
         )}
       </View>
@@ -236,9 +237,9 @@ export default function GroupChallengeHistoryScreen() {
     return (
       <View style={s.center}>
         <Text style={s.emptyTitle}>{msg}</Text>
-        <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
+        <Text style={s.emptyDesc}>{t('common.retryLater')}</Text>
         <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchFirstPage()}>
-          <Text style={s.retryText}>다시 시도</Text>
+          <Text style={s.retryText}>{t('common.retry')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -264,7 +265,9 @@ export default function GroupChallengeHistoryScreen() {
           <Text style={s.cardDate}>{dateText}</Text>
           {/* 삭제된 챌린지의 줄 — 스냅샷 덕분에 내용은 온전하다. 사실만 중립 배지로 덧붙인다
               (없으면 "지금도 도는 챌린지"로 읽힌다). */}
-          {item.challengeDeleted && <Text style={s.deletedTag}>삭제됨</Text>}
+          {item.challengeDeleted && (
+            <Text style={s.deletedTag}>{t('group.challengeHistoryScreen.deletedTag')}</Text>
+          )}
           <View style={s.spacer} />
           <Text style={[s.delta, s[delta.tone]]}>{delta.text}</Text>
         </View>
@@ -279,7 +282,7 @@ export default function GroupChallengeHistoryScreen() {
           {basis !== null && <Text style={s.cardBasis}>{basis}</Text>}
         </View>
         <Text style={s.cardStat}>
-          참가비 {item.stake} · 적립금 {item.pot}
+          {t('group.challengeHistoryScreen.cardStat', { stake: item.stake, pot: item.pot })}
         </Text>
       </View>
     );
@@ -323,7 +326,7 @@ export default function GroupChallengeHistoryScreen() {
       {/* 스크롤과 무관하게 늘 보이는 자리 — 위 toleranceNotice 주석의 이유로 목록 밖이다. */}
       {toleranceNotice && (
         <Text style={s.toleranceNotice} testID="group.challengeHistory.toleranceNotice">
-          {WINDOW_FOCUS_TOLERANCE_NOTICE}
+          {windowFocusToleranceNotice()}
         </Text>
       )}
 
@@ -353,8 +356,8 @@ export default function GroupChallengeHistoryScreen() {
             errorState(errorMsg)
           ) : (
             <View style={s.center}>
-              <Text style={s.emptyTitle}>아직 지난 기록이 없어요</Text>
-              <Text style={s.emptyDesc}>챌린지 결과가 나오면 여기에 차곡차곡 쌓여요</Text>
+              <Text style={s.emptyTitle}>{t('group.challengeHistoryScreen.emptyTitle')}</Text>
+              <Text style={s.emptyDesc}>{t('group.challengeHistoryScreen.emptyDesc')}</Text>
             </View>
           )
         }
@@ -368,11 +371,11 @@ export default function GroupChallengeHistoryScreen() {
             />
           ) : historyDead ? (
             <Text style={s.notice} testID="group.challengeHistory.more.notice">
-              {MORE_DEAD_NOTICE}
+              {t(MORE_DEAD_NOTICE_KEY)}
             </Text>
           ) : moreFailed ? (
             <View style={s.moreFailRow}>
-              <Text style={s.notice}>{MORE_FAILED_NOTICE}</Text>
+              <Text style={s.notice}>{t(MORE_FAILED_NOTICE_KEY)}</Text>
               <TouchableOpacity
                 onPress={() => loadMore(true)}
                 activeOpacity={0.7}
@@ -380,7 +383,7 @@ export default function GroupChallengeHistoryScreen() {
                 accessibilityRole="button"
                 testID="group.challengeHistory.more.retry"
               >
-                <Text style={s.moreRetryText}>다시 시도</Text>
+                <Text style={s.moreRetryText}>{t('common.retry')}</Text>
               </TouchableOpacity>
             </View>
           ) : null

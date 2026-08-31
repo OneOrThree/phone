@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { INQUIRY_CATEGORIES, type InquiryCategoryId } from '@/constants/inquiryContacts';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 1:1 문의 카테고리 칩(docs/prd/inquiry/low-level-design.md §4).
 // 단일 선택이고, 같은 칩을 다시 누르면 해제된다(null).
@@ -26,7 +27,7 @@ export default function InquiryCategoryChips({ selected, onSelect }: InquiryCate
             style={[s.chip, on ? s.chipOn : null]}
             testID={`inquiry.chip.${category.id}`}
           >
-            <Text style={[s.chipText, on ? s.chipTextOn : null]}>{category.label}</Text>
+            <Text style={[s.chipText, on ? s.chipTextOn : null]}>{t(category.labelKey)}</Text>
           </TouchableOpacity>
         );
       })}

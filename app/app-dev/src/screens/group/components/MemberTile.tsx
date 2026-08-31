@@ -1,6 +1,7 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { CharacterImage } from '@/components/character/CharacterImage';
 
 // 그룹방 멤버 타일(3열 그리드 1칸) — 명세 docs/app/group-plan.md §6-4.
@@ -24,10 +25,12 @@ const AVATAR = 44;
 // 리그의 fmtMinutes는 '02:30:00' 디지털 표기라 타일에는 쓰지 않는다(명세 목업이 축약 표기).
 function fmtFocus(minutes: number | null): string {
   const total = Math.max(0, Math.round(minutes ?? 0));
-  if (total < 60) return `${total}분`;
+  if (total < 60) return t('group.memberTile.minutes', { minutes: total });
   const h = Math.floor(total / 60);
   const m = total % 60;
-  return m === 0 ? `${h}시간` : `${h}시간 ${m}분`;
+  return m === 0
+    ? t('group.memberTile.hours', { hours: h })
+    : t('group.memberTile.hoursMinutes', { hours: h, minutes: m });
 }
 
 export interface MemberTileProps {
@@ -76,7 +79,7 @@ export default function MemberTile({
         {isMe && (
           <View style={s.meBadge} pointerEvents="none" testID="group.member.me">
             <Text style={s.meBadgeText} allowFontScaling={false}>
-              나
+              {t('common.me')}
             </Text>
           </View>
         )}
@@ -96,7 +99,7 @@ export default function MemberTile({
       </Text>
       {/* 오늘 집중 시간(보조) */}
       <Text style={s.today} numberOfLines={1}>
-        오늘 {fmtFocus(focusTimeMinutes)}
+        {t('group.memberTile.todayFocus', { value: fmtFocus(focusTimeMinutes) })}
       </Text>
     </TouchableOpacity>
   );

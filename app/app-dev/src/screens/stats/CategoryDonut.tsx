@@ -9,6 +9,7 @@ import { enterUp, fadeIn } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { Enter } from '@/components/Enter';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { fmtHm, hms } from '@/utils/timeFormat';
 import { DONUT_BLOCK_H, DONUT_SIZE, FOCUS_COLOR } from './constants';
 import { CardBodyEmpty } from './CardBodySlot';
@@ -80,7 +81,7 @@ function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string 
           <Text style={s.donutCenterValue} allowFontScaling={false}>
             {totalLabel}
           </Text>
-          <Text style={s.donutCenterLabel}>총 집중</Text>
+          <Text style={s.donutCenterLabel}>{t('stats.categoryDonut.totalLabel')}</Text>
         </View>
       </Animated.View>
       <View style={s.donutLegend}>
@@ -127,7 +128,7 @@ export function CategoryDonut({
   if (items.length === 0) {
     return (
       <CardBodyEmpty height={Math.max(DONUT_BLOCK_H, reservedHeight ?? 0)}>
-        아직 기록이 없어요
+        {t('common.noRecords')}
       </CardBodyEmpty>
     );
   }
@@ -135,7 +136,7 @@ export function CategoryDonut({
   const segs = items.map((it, i) => ({
     frac: it.totalFocusMinutes / denom,
     color: T.subjectPalette[i % T.subjectPalette.length],
-    name: it.tagName ?? '미분류',
+    name: it.tagName ?? t('stats.categoryDonut.unclassified'),
     // tagId 가 신원이다. 없는 응답(미분류)은 이름으로 잇는다 — 한 목록에 미분류는 하나뿐이다.
     key: it.tagId ?? `name:${it.tagName ?? '미분류'}`,
     timeLabel: fmtHm(it.totalFocusMinutes),
@@ -159,7 +160,9 @@ export function SubjectDonut({
   const unclassified = Math.max(0, totalSeconds - subjectSum);
   const denom = subjectSum + unclassified;
   if (denom <= 0) {
-    return <CardBodyEmpty height={DONUT_BLOCK_H}>아직 기록된 집중시간이 없어요</CardBodyEmpty>;
+    return (
+      <CardBodyEmpty height={DONUT_BLOCK_H}>{t('stats.categoryDonut.emptyToday')}</CardBodyEmpty>
+    );
   }
   const segs = rows
     .filter((x) => x.accumulatedSeconds > 0)
@@ -176,7 +179,7 @@ export function SubjectDonut({
     segs.push({
       frac: unclassified / denom,
       color: T.inkMuted, // 과목 팔레트와 겹치지 않는 중립 회색
-      name: '미분류',
+      name: t('stats.categoryDonut.unclassified'),
       // 과목 id 와 부딪히지 않는 고정 키 — 미분류 행은 목록에 하나뿐이다.
       key: 'unclassified',
       timeLabel: fmtHm(Math.floor(unclassified / 60)),

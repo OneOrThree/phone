@@ -9,6 +9,7 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 const INDICATOR_GUTTER = 20;
 const DOT_HIT_WIDTH = 44;
@@ -90,7 +91,9 @@ export function PageIndicator({
               style={s.dotHit}
               disabled={disabled}
               onPress={() => onSelectPage(page)}
-              accessibilityActions={[{ name: 'activate', label: '페이지 선택' }]}
+              accessibilityActions={[
+                { name: 'activate', label: t('group.pageIndicator.selectPage') },
+              ]}
               onAccessibilityAction={(event) => {
                 if (event.nativeEvent.actionName === 'activate') {
                   (onAccessibilitySelectPage ?? onSelectPage)(page);
@@ -103,7 +106,15 @@ export function PageIndicator({
                 setFocusWithin(false);
               }}
               accessibilityRole="button"
-              accessibilityLabel={`${pageLabels[page] ?? (page === pageCount - 1 ? '그룹 찾기' : `${page + 1}번째 그룹`)}, ${page + 1} / ${pageCount}`}
+              accessibilityLabel={t('group.pageIndicator.dotA11y', {
+                label:
+                  pageLabels[page] ??
+                  (page === pageCount - 1
+                    ? t('group.pageIndicator.findMore')
+                    : t('group.pageIndicator.nthGroup', { n: page + 1 })),
+                page: page + 1,
+                total: pageCount,
+              })}
               accessibilityState={{ selected: page === safeActiveIndex, disabled }}
               testID={`group.deck.indicator.dot.${page}`}
             >
@@ -122,8 +133,11 @@ export function PageIndicator({
           disabled={disabled}
           accessible
           accessibilityRole="adjustable"
-          accessibilityLabel={`현재 ${safeActiveIndex + 1}, 전체 ${pageCount} 페이지`}
-          accessibilityHint="위아래로 쓸어 페이지를 이동해요"
+          accessibilityLabel={t('group.pageIndicator.counterA11y', {
+            current: safeActiveIndex + 1,
+            total: pageCount,
+          })}
+          accessibilityHint={t('group.pageIndicator.counterHint')}
           accessibilityValue={{
             min: 1,
             max: pageCount,
@@ -131,8 +145,8 @@ export function PageIndicator({
             text: `${safeActiveIndex + 1} / ${pageCount}`,
           }}
           accessibilityActions={[
-            { name: 'increment', label: '다음 페이지' },
-            { name: 'decrement', label: '이전 페이지' },
+            { name: 'increment', label: t('group.pageIndicator.nextPage') },
+            { name: 'decrement', label: t('group.pageIndicator.prevPage') },
           ]}
           onAccessibilityAction={(event) => {
             if (event.nativeEvent.actionName === 'increment') moveCounter(1);

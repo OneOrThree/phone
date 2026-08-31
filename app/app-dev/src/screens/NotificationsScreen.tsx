@@ -5,6 +5,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
 import { markRefundIntentFromInbox } from '@/services/refundPushIntent';
@@ -31,14 +32,14 @@ function iconForLink(link: string | null): keyof typeof Ionicons.glyphMap {
 // 수신 시각 → 상대 표기. 일주일 넘으면 날짜로.
 function timeAgo(receivedAt: number): string {
   const minutes = Math.floor((Date.now() - receivedAt) / 60000);
-  if (minutes < 1) return '방금';
-  if (minutes < 60) return `${minutes}분 전`;
+  if (minutes < 1) return t('notifications.time.justNow');
+  if (minutes < 60) return t('notifications.time.minutesAgo', { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}시간 전`;
+  if (hours < 24) return t('notifications.time.hoursAgo', { count: hours });
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}일 전`;
+  if (days < 7) return t('notifications.time.daysAgo', { count: days });
   const d = new Date(receivedAt);
-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+  return t('notifications.time.date', { month: d.getMonth() + 1, day: d.getDate() });
 }
 
 export default function NotificationsScreen() {
@@ -70,7 +71,7 @@ export default function NotificationsScreen() {
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>알림</Text>
+        <Text style={s.headerTitle}>{t('notifications.title')}</Text>
       </View>
 
       {items.length === 0 ? (
@@ -79,8 +80,8 @@ export default function NotificationsScreen() {
           <View style={s.emptyIcon}>
             <Ionicons name="notifications-off-outline" size={26} color={T.inkMuted} />
           </View>
-          <Text style={s.emptyTitle}>아직 도착한 알림이 없어요</Text>
-          <Text style={s.emptySub}>새 소식이 오면 여기에 모아둘게요</Text>
+          <Text style={s.emptyTitle}>{t('notifications.emptyTitle')}</Text>
+          <Text style={s.emptySub}>{t('notifications.emptySub')}</Text>
         </View>
       ) : (
         <ScrollView

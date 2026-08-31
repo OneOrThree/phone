@@ -1,3 +1,5 @@
+import { t } from '@/i18n';
+
 // 초대 링크 공유 본문 — 그룹방 초대 타일(GroupRoomScreen)과 생성 직후 다이얼로그
 // (GroupCreateScreen)가 같은 문구를 쓴다. 같은 행동인데 진입점마다 말이 달라지지 않게
 // 한 곳에 묶어 뒀다.
@@ -9,7 +11,7 @@
 // url 은 **반드시 서버 발급 invite.url**을 넣는다. 앱이 조립한 주소는 slug 가 없어
 // 어트리뷰션 원장에 이어지지 않는다(초대 링크 스펙 §4-2 ①·§7-4).
 export function buildInviteShareMessage(groupName: string, url: string): string {
-  return `${flattenGroupName(groupName)} 그룹에 초대했어요! 같이 집중해요 ⭐️\n${url}`;
+  return t('group.inviteShare.message', { name: flattenGroupName(groupName), url });
 }
 
 // 그룹명의 줄바꿈·탭을 한 칸 공백으로 눕힌다. 본문이 "이름 + 개행 + url" 구조라, 이름 안에

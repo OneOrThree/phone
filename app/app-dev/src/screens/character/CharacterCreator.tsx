@@ -35,6 +35,7 @@ import {
   type CharacterSelectionSource,
 } from '@/services/analyticsEvents';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 캐릭터 생성기(자립 컴포넌트) — 앨범/카메라로 사물 사진을 얻으면 온디바이스 누끼(Vision) 후
 // 만화 팔·다리·눈을 붙여 "내 물건이 공부하는" 모습을 만든다. "저장"하면 합성된 미리보기를
@@ -51,10 +52,10 @@ const STAGE_HEIGHT = 340; // 캐릭터가 서는 무대 높이
 // resetAt이 없거나 파싱이 안 되면 날짜 없는 일반 안내로 폴백한다.
 // 한도는 달력 주가 아니라 롤링 7일이라("이번 주"가 아니라) 폴백도 주 단위로 말하지 않는다.
 function formatResetLabel(resetAt: string | null): string {
-  if (!resetAt) return '조금 뒤에 다시 만들 수 있어요.';
+  if (!resetAt) return t('character.creator.resetSoon');
   const d = new Date(resetAt);
-  if (Number.isNaN(d.getTime())) return '조금 뒤에 다시 만들 수 있어요.';
-  return `${d.getMonth() + 1}월 ${d.getDate()}일에 다시 만들 수 있어요.`;
+  if (Number.isNaN(d.getTime())) return t('character.creator.resetSoon');
+  return t('character.creator.resetOn', { month: d.getMonth() + 1, day: d.getDate() });
 }
 
 type Phase = 'idle' | 'working' | 'ready' | 'checking' | 'saving';
@@ -116,7 +117,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
   // 한도는 달력 주가 아니라 롤링 7일이라 "이번 주"로 말하지 않는다.
   const remainingHint =
     quota != null && !quota.unlimited && (quota.remaining ?? 0) > 0
-      ? `앞으로 ${quota.remaining}번 만들 수 있어요`
+      ? t('character.creator.remaining', { count: quota.remaining })
       : null;
 
   // 차단(쿼터 소진) 상태로 화면을 켜둔 채 resetAt을 넘기면(예: 밤새 백그라운드) 마운트 1회
@@ -187,7 +188,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
     setError(null);
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
-      setError('카메라 권한이 필요해요. 설정에서 카메라 접근을 허용해 주세요.');
+      setError(t('character.creator.cameraPermission'));
       return;
     }
     const shot = await ImagePicker.launchCameraAsync({
@@ -216,7 +217,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
         prev ? { ...prev, uri: out.uri, width: out.width, height: out.height } : prev,
       );
     } catch {
-      setError('사진을 돌리지 못했어요. 다시 시도해 주세요.');
+      setError(t('character.creator.rotateFailed'));
     }
   }, [result, entrySource]);
 
@@ -247,14 +248,14 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
       // 검사 도중 창을 닫았으면(언마운트) 이후 아무 것도 하지 않는다.
       if (!activeRef.current) return;
       if (verdict.unavailable) {
-        setError('지금은 확인이 어려워요. 잠시 후 다시 시도해 주세요.');
+        setError(t('character.creator.moderationUnavailable'));
         setPhase('ready');
         // 저장을 강제하는 화면(온보딩)이 갇히지 않게, 검사 불가만 별도로 알린다.
         onUnavailable?.();
         return;
       }
       if (!verdict.allowed) {
-        setError('이 사진으로는 캐릭터를 만들 수 없어요.');
+        setError(t('character.creator.moderationBlocked'));
         setPhase('ready');
         return;
       }
@@ -277,7 +278,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
       });
       onSaved(uri);
     } catch {
-      setError('캐릭터를 저장하지 못했어요. 다시 시도해 주세요.');
+      setError(t('character.creator.saveFailed'));
       setPhase('ready');
     }
   }, [result, onSaved, userId, onUnavailable, entrySource]);
@@ -293,7 +294,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
     return (
       <View style={[s.flex1, s.blocked]}>
         <Ionicons name="time-outline" size={44} color={T.inkMuted} />
-        <Text style={s.blockedTitle}>캐릭터 만들기 횟수를 다 썼어요.</Text>
+        <Text style={s.blockedTitle}>{t('character.creator.quotaTitle')}</Text>
         <Text style={s.blockedSub}>{formatResetLabel(quota?.resetAt ?? null)}</Text>
       </View>
     );
@@ -314,7 +315,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
           {phase === 'working' ? (
             <View style={s.center}>
               <ActivityIndicator color={T.accent} />
-              <Text style={s.hint}>물건만 오려내는 중…</Text>
+              <Text style={s.hint}>{t('character.creator.cutting')}</Text>
             </View>
           ) : result ? (
             // 저장 시 이 컨테이너를 통째로 캡처한다(배경 투명 → 팔다리·눈까지 구워진 PNG).
@@ -330,7 +331,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
           ) : (
             <View style={s.center}>
               <Ionicons name="cube-outline" size={44} color={T.inkMuted} />
-              <Text style={s.hint}>사진을 고르면 여기에 캐릭터가 서요</Text>
+              <Text style={s.hint}>{t('character.creator.emptyHint')}</Text>
             </View>
           )}
         </View>
@@ -339,11 +340,9 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
       {/* 상태 안내 — 누끼 폴백 사유 / 지원 여부 */}
       {error ? <Text style={s.notice}>{error}</Text> : null}
       {!supported && !error ? (
-        <Text style={s.notice}>
-          이 기기·빌드에서는 배경 제거가 지원되지 않아요. 원본 사진 그대로 보여줄게요.
-        </Text>
+        <Text style={s.notice}>{t('character.creator.unsupported')}</Text>
       ) : null}
-      {result?.cutout ? <Text style={s.ok}>나만의 그로몬 생성 성공</Text> : null}
+      {result?.cutout ? <Text style={s.ok}>{t('character.creator.cutoutOk')}</Text> : null}
       {remainingHint ? <Text style={s.remaining}>{remainingHint}</Text> : null}
 
       <View style={s.actions}>
@@ -363,7 +362,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
                 activeOpacity={0.85}
               >
                 <Ionicons name="refresh-outline" size={20} color={T.ink} />
-                <Text style={s.toolText}>회전</Text>
+                <Text style={s.toolText}>{t('character.creator.rotate')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.tool}
@@ -372,7 +371,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
                 activeOpacity={0.85}
               >
                 <Ionicons name="arrow-undo-outline" size={20} color={T.ink} />
-                <Text style={s.toolText}>다시 고르기</Text>
+                <Text style={s.toolText}>{t('character.creator.repick')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -387,13 +386,13 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
                 <>
                   <ActivityIndicator color={T.white} />
                   <Text style={s.primaryText}>
-                    {phase === 'checking' ? '검사 중…' : '저장 중…'}
+                    {phase === 'checking' ? t('character.creator.checking') : t('common.saving')}
                   </Text>
                 </>
               ) : (
                 <>
                   <Ionicons name="checkmark" size={18} color={T.white} />
-                  <Text style={s.primaryText}>저장</Text>
+                  <Text style={s.primaryText}>{t('common.save')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -402,11 +401,11 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable, entry
           <>
             <TouchableOpacity style={s.primary} onPress={pick} activeOpacity={0.85}>
               <Ionicons name="images-outline" size={18} color={T.white} />
-              <Text style={s.primaryText}>사진 고르기</Text>
+              <Text style={s.primaryText}>{t('character.creator.pickPhoto')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.secondary} onPress={takePhoto} activeOpacity={0.85}>
               <Ionicons name="camera-outline" size={18} color={T.accent} />
-              <Text style={s.secondaryText}>사진 찍기</Text>
+              <Text style={s.secondaryText}>{t('character.creator.takePhoto')}</Text>
             </TouchableOpacity>
           </>
         )}

@@ -1,3 +1,5 @@
+import { t } from '@/i18n';
+
 // 공지 카드 캡션의 경과일 표기 — '오늘' / '어제' / 'n일 전' / '7월 29일'(§6-4 목업).
 // 그룹방(GroupRoomScreen)에서만 쓰지만, 시간대 의존 로직이라 테스트에서 러너 TZ를 바꿔 가며
 // 직접 부를 수 있게 화면에서 떼어 뒀다(now 주입 = 기준 시각 고정).
@@ -16,8 +18,8 @@ export function fmtNoticeDate(iso: string, now: Date = new Date()): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const days = dayNumber(now) - dayNumber(d);
-  if (days <= 0) return '오늘';
-  if (days === 1) return '어제';
-  if (days < 7) return `${days}일 전`;
-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+  if (days <= 0) return t('common.today');
+  if (days === 1) return t('group.noticeDate.yesterday');
+  if (days < 7) return t('group.noticeDate.daysAgo', { count: days });
+  return t('group.noticeDate.monthDay', { month: d.getMonth() + 1, day: d.getDate() });
 }

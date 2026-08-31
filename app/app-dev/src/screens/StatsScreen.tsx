@@ -20,6 +20,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StatsPeriod } from '@/types/dto/stats';
 import {
   logStatsViewed,
@@ -168,28 +169,28 @@ export default function StatsScreen() {
   }
   const guideSteps: GuideStep[] = [
     {
-      text: '여기는 통계예요!\n내 집중 기록을 그래프로 한눈에 볼 수 있어요.',
+      text: t('stats.guide.intro'),
       character: require('@/assets/character_hi.png'),
     },
     {
-      text: '일·주·월 탭으로 기간을 바꿔서 볼 수 있어요.\n일은 오늘 하루를 자세히, 월은 한 달 흐름을 보여 줘요!',
+      text: t('stats.guide.periodTabs'),
       character: require('@/assets/character_study.png'),
       anchor: filtersRef,
     },
     {
-      text: '기간 동안의 총 집중 시간과 다른 사람들과의 비교를 보여 줘요.',
+      text: t('stats.guide.totalCard'),
       character: require('@/assets/character_study.png'),
       anchor: totalCardRef,
       prepare: () => scrollCardIntoView(totalCardRef),
     },
     {
-      text: '집중·사용 시간 목표를 지켰는지 확인하는 곳이에요.',
+      text: t('stats.guide.goalCard'),
       character: require('@/assets/character_happy.png'),
       anchor: goalCardRef,
       prepare: () => scrollCardIntoView(goalCardRef),
     },
     {
-      text: '과목별로 얼마나 집중했는지도 여기서 확인할 수 있어요.\n아래로 내리면 더 많은 그래프가 기다리고 있어요!',
+      text: t('stats.guide.categoryCard'),
       character: require('@/assets/character_happy.png'),
       anchor: categoryCardRef,
       prepare: () => scrollCardIntoView(categoryCardRef),
@@ -211,10 +212,10 @@ export default function StatsScreen() {
         <SectionCard
           title={
             period === 'DAY'
-              ? '오늘 총 집중시간'
+              ? t('stats.totalCard.titleDay')
               : period === 'WEEK'
-                ? '이번 주 총 집중시간'
-                : `${month}월 총 집중시간`
+                ? t('stats.totalCard.titleWeek')
+                : t('stats.totalCard.titleMonth', { month })
           }
         >
           <Text style={cs.bigStat}>
@@ -251,7 +252,11 @@ export default function StatsScreen() {
       <View key="goalAchieve" ref={goalCardRef} collapsable={false}>
         <SectionCard
           title={
-            period === 'DAY' ? '오늘 목표 달성' : period === 'WEEK' ? '주간 캘린더' : '월간 캘린더'
+            period === 'DAY'
+              ? t('stats.goalCard.titleDay')
+              : period === 'WEEK'
+                ? t('stats.goalCard.titleWeek')
+                : t('stats.goalCard.titleMonth')
           }
         >
           {period === 'DAY' ? (
@@ -282,10 +287,10 @@ export default function StatsScreen() {
         <SectionCard
           title={
             period === 'DAY'
-              ? '오늘 과목별 집중시간'
+              ? t('stats.categoryCard.titleDay')
               : period === 'WEEK'
-                ? '이번 주 과목별 집중시간'
-                : `${month}월 과목별 집중시간`
+                ? t('stats.categoryCard.titleWeek')
+                : t('stats.categoryCard.titleMonth', { month })
           }
         >
           {period !== 'DAY' ? (
@@ -317,14 +322,16 @@ export default function StatsScreen() {
     cards.push({
       key: 'monthWeeklyFocus',
       node: (
-        <SectionCard key="monthWeeklyFocus" title={`${month}월 주별 집중시간`}>
+        <SectionCard key="monthWeeklyFocus" title={t('stats.monthWeekly.focusTitle', { month })}>
           {/* 주 탭(요일별)과 동일한 총계 히어로 — 탭 간 표기 일관(GROMO-849).
               집계 조회 실패(null)면 숫자를 감춘다 — 0으로 그리면 차트와 모순(코덱스 리뷰 반영).
               ⚠️ 다만 **자리는 비워 둔다.** 스켈레톤은 실패를 예측할 수 없어 항상 히어로 높이를
                  예약하는데, 실패 시 노드까지 사라지면 로딩이 끝나는 순간 카드가 31px 줄며 아래
                  카드들이 통째로 밀린다(codex 리뷰). 오프라인·부분 API 장애에서 실제로 밟힌다. */}
           {data.focus != null ? (
-            <Text style={cs.bigStat}>총 {fmtMinutes(data.focus.totalFocusMinutes)}</Text>
+            <Text style={cs.bigStat}>
+              {t('stats.card.totalValue', { value: fmtMinutes(data.focus.totalFocusMinutes) })}
+            </Text>
           ) : (
             <View style={{ height: HERO_H }} />
           )}
@@ -337,13 +344,13 @@ export default function StatsScreen() {
       node: (
         <SectionCard
           key="monthWeeklyPhone"
-          title={`${month}월 주별 핸드폰 사용량`}
-          subtitle="집중시간과 대비돼요. 줄어들면 함께 줄어요."
+          title={t('stats.monthWeekly.phoneTitle', { month })}
+          subtitle={t('stats.card.phoneSubtitle')}
         >
           {/* 실패해도 자리는 비워 둔다 — 위 집중시간 카드와 같은 이유(codex 리뷰) */}
           {data.screenTime != null ? (
             <Text style={[cs.bigStat, { color: PHONE_COLOR }]}>
-              총 {fmtMinutes(data.screenTime.currentMinutes)}
+              {t('stats.card.totalValue', { value: fmtMinutes(data.screenTime.currentMinutes) })}
             </Text>
           ) : (
             <View style={{ height: HERO_H }} />
@@ -359,12 +366,14 @@ export default function StatsScreen() {
     cards.push({
       key: 'weekdayFocus',
       node: (
-        <SectionCard key="weekdayFocus" title="요일별 집중시간">
+        <SectionCard key="weekdayFocus" title={t('stats.weekday.focusTitle')}>
           {/* 집계 조회 실패(null)면 숫자를 감추되 **자리는 비워 둔다** — 월 탭과 동일한 이유다.
               스켈레톤은 실패를 예측할 수 없어 항상 히어로 높이를 예약하므로, 노드까지 사라지면
               로딩이 끝나는 순간 카드가 31px 줄며 아래가 밀린다(codex 리뷰). */}
           {data.focus != null ? (
-            <Text style={cs.bigStat}>총 {fmtMinutes(data.focus.totalFocusMinutes)}</Text>
+            <Text style={cs.bigStat}>
+              {t('stats.card.totalValue', { value: fmtMinutes(data.focus.totalFocusMinutes) })}
+            </Text>
           ) : (
             <View style={{ height: HERO_H }} />
           )}
@@ -380,13 +389,13 @@ export default function StatsScreen() {
       node: (
         <SectionCard
           key="weekdayPhone"
-          title="요일별 핸드폰 사용량"
-          subtitle="집중시간과 대비돼요. 줄어들면 함께 줄어요."
+          title={t('stats.weekday.phoneTitle')}
+          subtitle={t('stats.card.phoneSubtitle')}
         >
           {/* 실패해도 자리는 비워 둔다 — 위 요일별 집중시간과 같은 이유(codex 리뷰) */}
           {data.screenTime != null ? (
             <Text style={[cs.bigStat, { color: PHONE_COLOR }]}>
-              총 {fmtMinutes(data.screenTime.currentMinutes)}
+              {t('stats.card.totalValue', { value: fmtMinutes(data.screenTime.currentMinutes) })}
             </Text>
           ) : (
             <View style={{ height: HERO_H }} />
@@ -411,7 +420,7 @@ export default function StatsScreen() {
         period === 'WEEK' ? (
           <WeeklyTimetableCard key="firstStart" />
         ) : (
-          <SectionCard key="firstStart" title={`${month}월 주별 첫 집중 시작 시각`}>
+          <SectionCard key="firstStart" title={t('stats.firstStart.monthTitle', { month })}>
             {/* key로 탭 전환 시 리마운트 — 이전 기간 점이 새 라벨 위에 잠깐 보이는 것 방지 */}
             <FirstStartChart key={period} period={period} />
           </SectionCard>
@@ -427,10 +436,10 @@ export default function StatsScreen() {
         key="longest"
         title={
           period === 'DAY'
-            ? '오늘 최장 연속 집중'
+            ? t('stats.longest.titleDay')
             : period === 'WEEK'
-              ? '이번 주 최장 연속 집중'
-              : `${month}월 최장 연속 집중`
+              ? t('stats.longest.titleWeek')
+              : t('stats.longest.titleMonth', { month })
         }
       >
         <LongestSessionStat key={period} period={period} />
@@ -442,8 +451,8 @@ export default function StatsScreen() {
   cards.push({
     key: 'passer',
     node: (
-      <SectionCard key="passer" title="합격자와 비교">
-        <ComingSoon note="합격자 데이터가 쌓이면 보여드릴게요">
+      <SectionCard key="passer" title={t('stats.passer.title')}>
+        <ComingSoon note={t('stats.passer.note')}>
           <PasserCompareChart />
         </ComingSoon>
       </SectionCard>
@@ -458,20 +467,20 @@ export default function StatsScreen() {
         key="delta"
         title={
           period === 'DAY'
-            ? '어제 대비'
+            ? t('stats.delta.titleDay')
             : period === 'WEEK'
-              ? '저번 주 대비'
-              : `${month === 1 ? 12 : month - 1}월 대비`
+              ? t('stats.delta.titleWeek')
+              : t('stats.delta.titleMonth', { month: month === 1 ? 12 : month - 1 })
         }
       >
         <DeltaRow
-          label="집중"
+          label={t('stats.delta.focusLabel')}
           delta={data.focus?.deltaMinutes ?? 0}
           base={data.focus?.previousTotalFocusMinutes ?? 0}
           lowerIsBetter={false}
         />
         <DeltaRow
-          label="폰 사용"
+          label={t('stats.delta.phoneLabel')}
           delta={data.screenTime?.deltaMinutes ?? 0}
           base={data.screenTime?.previousMinutes ?? 0}
           lowerIsBetter
@@ -499,7 +508,7 @@ export default function StatsScreen() {
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={22} color={T.ink} />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>통계</Text>
+        <Text style={s.headerTitle}>{t('stats.screen.title')}</Text>
         {/* 오른쪽 스페이서 — 편집 토글(연필) 제거 후에도 제목이 가운데 유지되게 백버튼과 같은 폭 */}
         <View style={s.backBtn} />
       </View>
@@ -507,19 +516,19 @@ export default function StatsScreen() {
       {/* ── 고정 필터: 기간(일/주/월) — 과목 칩 필터는 제거(과목별 섹션이 전체를 보여줘 중복) ── */}
       <View style={s.filters} ref={filtersRef} collapsable={false}>
         <View style={s.segment}>
-          {PERIOD_TABS.map((t) => {
-            const on = period === t.key;
+          {PERIOD_TABS.map((tab) => {
+            const on = period === tab.key;
             return (
               <TouchableOpacity
-                key={t.key}
-                testID={`stats.tab.${t.key.toLowerCase()}`}
+                key={tab.key}
+                testID={`stats.tab.${tab.key.toLowerCase()}`}
                 // 선택 상태를 접근성 트리에 노출 — E2E가 실제 탭 전환을 단언하는 근거(GROMO-947)
                 accessibilityState={{ selected: on }}
                 style={[s.segBtn, on ? s.segBtnOn : null]}
-                onPress={() => onPeriod(t.key)}
+                onPress={() => onPeriod(tab.key)}
                 activeOpacity={0.8}
               >
-                <Text style={[s.segText, on ? s.segTextOn : null]}>{t.label}</Text>
+                <Text style={[s.segText, on ? s.segTextOn : null]}>{t(tab.labelKey)}</Text>
               </TouchableOpacity>
             );
           })}

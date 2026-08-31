@@ -1,12 +1,13 @@
 import { View, Text, Image, StyleSheet } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StepProps } from '@/screens/onboarding/types';
 
 const COMPANION_VIEWS = [
-  { label: '친구', dot: T.green },
-  { label: '그룹', dot: T.accentLight },
-  { label: '같은 리그', dot: T.medal.gold },
+  { labelKey: 'onboarding.togetherEffect.viewFriend', dot: T.green },
+  { labelKey: 'onboarding.togetherEffect.viewGroup', dot: T.accentLight },
+  { labelKey: 'onboarding.togetherEffect.viewLeague', dot: T.medal.gold },
 ];
 
 // 두 번째 가치 제안 — 집중 세션 안에서 친구·그룹·같은 시험 리그를 넘겨 보는 실제 동료 경험.
@@ -26,25 +27,23 @@ export default function TogetherEffectStep({ onNext }: StepProps) {
           />
           <View style={s.onlineBadge}>
             <View style={s.onlineDot} />
-            <Text style={s.onlineText}>지금도 함께 집중 중</Text>
+            <Text style={s.onlineText}>{t('onboarding.togetherEffect.onlineBadge')}</Text>
           </View>
         </View>
       }
-      title={'혼자 시작해도\n혼자 하지 않게'}
-      ctaLabel="다음"
+      title={t('onboarding.togetherEffect.title')}
+      ctaLabel={t('common.next')}
       onCta={onNext}
     >
       <View style={s.viewRow}>
         {COMPANION_VIEWS.map((item) => (
-          <View key={item.label} style={s.viewChip}>
+          <View key={item.labelKey} style={s.viewChip}>
             <View style={[s.viewDot, { backgroundColor: item.dot }]} />
-            <Text style={s.viewText}>{item.label}</Text>
+            <Text style={s.viewText}>{t(item.labelKey)}</Text>
           </View>
         ))}
       </View>
-      <Text style={s.sub}>
-        집중 화면을 넘기면 친구, 그룹, 같은 시험 준비생이{`\n`}함께 공부하는 모습이 보여요.
-      </Text>
+      <Text style={s.sub}>{t('onboarding.togetherEffect.sub')}</Text>
     </StepScaffold>
   );
 }

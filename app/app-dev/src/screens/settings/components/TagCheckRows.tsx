@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 준비 시험 변경 계열 시트 공용 UI(GROMO-668) — TagSuggestionSheet(2스텝)와
 // RecommendedTagsEditSheet(추천과목 수정하기)가 같은 행 스타일을 쓴다.
@@ -17,7 +18,7 @@ export function SelectAllRow({
 }) {
   return (
     <TouchableOpacity style={s.selectAll} activeOpacity={0.7} onPress={onToggle}>
-      <Text style={s.selectAllText}>전체 선택</Text>
+      <Text style={s.selectAllText}>{t('settings.tagSheet.selectAll')}</Text>
       <View style={[s.check, checked && { backgroundColor: checkColor, borderColor: checkColor }]}>
         {checked ? <Ionicons name="checkmark" size={15} color={T.white} /> : null}
       </View>

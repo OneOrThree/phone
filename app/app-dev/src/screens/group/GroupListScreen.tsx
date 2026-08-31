@@ -34,6 +34,7 @@ import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { STORAGE_KEYS } from '@/types/storage';
 import {
   logGroupCardActionClicked,
@@ -703,7 +704,9 @@ export default function GroupListScreen({
         return;
       const groupName = orderedGroupsRef.current.find((group) => group.groupId === groupId)?.name;
       AccessibilityInfo.announceForAccessibility(
-        `${groupName ?? '그룹'} 카드 ${face === 'back' ? '뒷면' : '앞면'}이에요`,
+        t(face === 'back' ? 'group.listScreen.flipBackA11y' : 'group.listScreen.flipFrontA11y', {
+          name: groupName ?? t('group.listScreen.groupFallbackName'),
+        }),
       );
       focusNode(face === 'back' ? backFocusRef : frontFocusRef);
     },
@@ -813,7 +816,11 @@ export default function GroupListScreen({
           group_count_bucket: groupCountBucket(orderedGroups.length),
         });
         AccessibilityInfo.announceForAccessibility(
-          `${orderedGroups[next]?.name ?? '그룹 찾기'}, ${next + 1} / ${pageCount} 페이지`,
+          t('group.listScreen.pageA11y', {
+            name: orderedGroups[next]?.name ?? t('group.listScreen.findGroup'),
+            page: next + 1,
+            pageCount,
+          }),
         );
       }
       const pendingFlip = pendingFlipRef.current;
@@ -1088,7 +1095,10 @@ export default function GroupListScreen({
         currentProgrammaticTargetRef.current = null;
         const groupName = orderedGroupsRef.current.find((group) => group.groupId === groupId)?.name;
         AccessibilityInfo.announceForAccessibility(
-          `${groupName ?? '그룹'} 카드를 ${target + 1}번째로 이동했어요`,
+          t('group.listScreen.reorderedA11y', {
+            name: groupName ?? t('group.listScreen.groupFallbackName'),
+            position: target + 1,
+          }),
         );
         requestAnimationFrame(() => {
           if (!mountedRef.current) return;
@@ -1509,13 +1519,13 @@ export default function GroupListScreen({
             }}
             disabled={reorderBusy}
             activeOpacity={0.7}
-            accessibilityLabel="뒤로"
+            accessibilityLabel={t('common.back')}
             testID="group.list.back"
           >
             <Ionicons name="chevron-back" size={18} color={T.inkSub} />
           </TouchableOpacity>
         )}
-        <Text style={s.headerTitle}>내 그룹</Text>
+        <Text style={s.headerTitle}>{t('group.listScreen.title')}</Text>
         <View style={s.headerActions}>
           <TouchableOpacity
             style={s.searchBtn}
@@ -1526,7 +1536,7 @@ export default function GroupListScreen({
             disabled={reorderBusy}
             activeOpacity={0.75}
             accessibilityRole="button"
-            accessibilityLabel="그룹 찾기"
+            accessibilityLabel={t('group.listScreen.findGroup')}
             testID="group.list.find"
           >
             <Ionicons name="search" size={22} color={T.inkSub} />
@@ -1540,7 +1550,7 @@ export default function GroupListScreen({
             disabled={reorderBusy}
             activeOpacity={0.8}
             accessibilityRole="button"
-            accessibilityLabel="그룹 만들기"
+            accessibilityLabel={t('group.listScreen.createGroup')}
             testID="group.list.create"
           >
             <Ionicons name="add" size={28} color={T.white} />
@@ -1844,15 +1854,17 @@ export default function GroupListScreen({
               )}
               {saveFailed && (
                 <Text style={s.saveError} accessibilityRole="alert">
-                  순서를 저장하지 못했어요. 다음 변경 때 다시 시도하며, 앱을 다시 열면 이전 순서로
-                  돌아갈 수 있어요.
+                  {t('group.listScreen.orderSaveFailed')}
                 </Text>
               )}
 
               <PageIndicator
                 pageCount={pageCount}
                 activeIndex={indicatorActiveIndex}
-                pageLabels={[...indicatorGroups.map((group) => group.name), '그룹 찾기']}
+                pageLabels={[
+                  ...indicatorGroups.map((group) => group.name),
+                  t('group.listScreen.findGroup'),
+                ]}
                 disabled={flipAnimating || reorderBusy}
                 onSelectPage={selectPage}
                 onAccessibilitySelectPage={(page) => selectPage(page, 'accessibility_action')}
@@ -1865,7 +1877,7 @@ export default function GroupListScreen({
       <TabGuideOverlay
         storageKey={STORAGE_KEYS.guideGroupDeck}
         steps={guideSteps}
-        accessibilityTitle="그룹 카드 안내"
+        accessibilityTitle={t('group.listScreen.guideTitle')}
         // blocking sheet와 RN Modal을 같은 commit에 마운트하지 않는다. interruption effect는
         // 계측·queue를 정리하고, 렌더 경계에서는 blocker가 overlay를 즉시 내린다.
         visible={guideVisible && !guideBlocked}

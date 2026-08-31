@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Polyline } from 'react-native-svg';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { axisCeil, fmtAxis } from '@/utils/timeFormat';
 import { kstTodayWeekdayIndex } from '@/screens/stats/format';
 import type { CompareByDay } from '../mock';
@@ -20,7 +21,16 @@ interface Props {
   soloMine?: boolean;
 }
 
-const DAYS = ['월', '화', '수', '목', '금', '토', '일'];
+// 요일 라벨은 렌더 시점에 t()로 푼다 — 모듈 최상위에서 부르면 언어 전환이 반영되지 않는다.
+const DAY_KEYS = [
+  'common.weekday.mon',
+  'common.weekday.tue',
+  'common.weekday.wed',
+  'common.weekday.thu',
+  'common.weekday.fri',
+  'common.weekday.sat',
+  'common.weekday.sun',
+];
 // 플롯 영역 높이(시안 72px)
 const AREA_H = 72;
 const DOT_PAD = 6; // 점(r 3)이 캔버스 경계에서 잘리지 않게 사방 여유
@@ -40,9 +50,9 @@ export function DuoDayChart({
   // 마커만 로컬 요일이면(종전 new Date().getDay()) 비KST 기기에서 오늘 칸이 한 칸 어긋나고,
   // slice(0, todayIdx+1)가 이미 온 요일을 잘라 버리거나 안 온 요일을 0으로 이어 급락처럼 그린다.
   const todayIdx = kstTodayWeekdayIndex();
-  const step = plotW / DAYS.length;
+  const step = plotW / DAY_KEYS.length;
   const pts = (series: number[]) =>
-    DAYS.slice(0, todayIdx + 1).map((_, i) => ({
+    DAY_KEYS.slice(0, todayIdx + 1).map((_, i) => ({
       x: step * (i + 0.5) + DOT_PAD,
       y: AREA_H - ((series[i] ?? 0) / axisMax) * AREA_H + DOT_PAD,
     }));
@@ -52,7 +62,9 @@ export function DuoDayChart({
   return (
     <View style={s.card}>
       <Text style={s.title}>{title}</Text>
-      <Text style={s.sub}>{soloMine ? '내 기록' : '나와 비교'}</Text>
+      <Text style={s.sub}>
+        {soloMine ? t('league.duoDayChart.soloSub') : t('league.duoDayChart.compareSub')}
+      </Text>
 
       <View style={s.plotRow}>
         {/* 세로축 — 상한·절반 눈금 라벨 (그리드라인 높이에 맞춰 절대 배치) */}
@@ -88,13 +100,13 @@ export function DuoDayChart({
             </Svg>
           )}
           <View style={s.dayLabelRow}>
-            {DAYS.map((d, i) => (
+            {DAY_KEYS.map((dayKey, i) => (
               <Text
-                key={d}
+                key={dayKey}
                 style={[s.dayLabel, i === todayIdx ? s.dayLabelCur : null]}
                 allowFontScaling={false}
               >
-                {d}
+                {t(dayKey)}
               </Text>
             ))}
           </View>
@@ -105,7 +117,7 @@ export function DuoDayChart({
         <View style={s.legendRow}>
           <View style={s.legendItem}>
             <View style={[s.legendDot, { backgroundColor: mineColor }]} />
-            <Text style={s.legendText}>나</Text>
+            <Text style={s.legendText}>{t('common.me')}</Text>
           </View>
           <View style={s.legendItem}>
             <View style={[s.legendDot, { backgroundColor: theirsColor }]} />

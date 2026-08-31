@@ -25,6 +25,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FIXED_BOX_FONT_SCALE_MAX, T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import { springify } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { tierByLevel } from '@/constants/tiers';
@@ -71,7 +72,8 @@ import {
 // 친구 탭: 친구 검색·추가 엔트리 + 친구 2열 그리드(카드 탭 → 프로필 상세 FriendProfile).
 // 친구 목록·받은 요청 수(./useFriends)·핀(./usePinned)은 실데이터.
 
-// 리그 드롭다운의 '전체' 항목 라벨
+// 리그 드롭다운의 '전체' 항목 식별자 — 표시용 라벨이 아니라 서버 직군 라벨(exam)과 대조하는
+// 센티널이라 번역하지 않는다. 화면 표시는 league.home.allLeague.
 const LEAGUE_ALL = '전체';
 // 플로팅 '내 순위' 행이 리스트 뷰포트 위/아래 가장자리에서 띄우는 여백(GROMO-1614)
 const FLOAT_INSET = 8;
@@ -90,7 +92,10 @@ const AnimatedPodiumCol = Animated.createAnimatedComponent(TouchableOpacity);
 const PODIUM_LAYOUT = springify(new LinearTransition());
 
 type TabKey = 'league' | 'friend';
-const TAB_LABEL: Record<TabKey, string> = { league: '리그', friend: '친구' };
+const TAB_LABEL_KEY: Record<TabKey, string> = {
+  league: 'league.home.tabLeague',
+  friend: 'league.home.tabFriend',
+};
 
 export default function LeagueScreen() {
   const insets = useSafeAreaInsets();
@@ -224,7 +229,7 @@ export default function LeagueScreen() {
   const visibleRankingError = isAll ? globalError : rankingError;
   // 실패 안내 표시 여부 — 실패했고 보여줄 목록도 없을 때만(기존 목록이 있으면 목록 유지)
   const showRankingError = visibleRankingError && visibleRanking.length === 0;
-  const title = isAll ? '전체 리그' : `${filter} 리그`;
+  const title = isAll ? t('league.home.allLeague') : t('league.home.leagueTitle', { name: filter });
 
   // 전환 가능한 리그 — 전체 + 내 직군(있을 때). 직군 랭킹은 단일 직군이라 라벨은 최대 하나.
   const leagues = [LEAGUE_ALL, ...(myLabel ? [myLabel] : [])];
@@ -390,7 +395,7 @@ export default function LeagueScreen() {
     logLeagueProfileOpened({ is_me: true });
     navigation.navigate('FriendProfile', {
       userId: myUserId,
-      nickname: myNickname || '나',
+      nickname: myNickname || t('common.me'),
       tierLevel: tier.tierLevel ?? 1,
       isFriend: false,
       isMe: true,
@@ -404,25 +409,25 @@ export default function LeagueScreen() {
   const headerRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
-      text: '리그에 온 걸 환영해요!\n같은 시험을 준비하는 사람들과 일주일 동안 집중 시간으로 경쟁하는 곳이에요.',
+      text: t('league.home.guide1'),
       character: require('@/assets/character_hi.png'),
     },
     {
-      text: '지금 참여 중인 리그와 마감까지 남은 시간이 여기 보여요.\n제목을 누르면 전체 리그도 볼 수 있어요.',
+      text: t('league.home.guide2'),
       character: require('@/assets/character_study.png'),
       anchor: headerRef,
     },
     {
-      text: '한 주가 끝나면 순위에 따라 티어가 올라가거나 내려가요!\n랭킹 아래 ‘내 티어’를 누르면 티어 단계를 자세히 볼 수 있어요.',
+      text: t('league.home.guide3'),
       character: require('@/assets/character_happy.png'),
     },
     {
-      text: '친구 탭에서는 친구를 추가하고 서로의 집중 시간을 볼 수 있어요.\n같이 공부할 친구를 초대해 봐요!',
+      text: t('league.home.guide4'),
       character: require('@/assets/character_happy.png'),
       anchor: segmentRef,
     },
     {
-      text: '순위는 이번 주 집중 시간으로 정해져요.\n지금 바로 집중을 시작해서 순위를 올려 봐요!',
+      text: t('league.home.guide5'),
       character: require('@/assets/character_study.png'),
     },
   ];
@@ -448,7 +453,7 @@ export default function LeagueScreen() {
                 }}
                 activeOpacity={0.8}
               >
-                <Text style={[s.segText, on ? s.segTextOn : null]}>{TAB_LABEL[k]}</Text>
+                <Text style={[s.segText, on ? s.segTextOn : null]}>{t(TAB_LABEL_KEY[k])}</Text>
               </TouchableOpacity>
             );
           })}
@@ -548,7 +553,7 @@ export default function LeagueScreen() {
                           {isMe && (
                             <View style={s.podiumMeBadge} pointerEvents="none">
                               <Text style={s.podiumMeBadgeText} allowFontScaling={false}>
-                                나
+                                {t('common.me')}
                               </Text>
                             </View>
                           )}
@@ -568,8 +573,8 @@ export default function LeagueScreen() {
                           <>
                             <Text style={s.podiumFocusTag} numberOfLines={1}>
                               {member.focusTagName != null
-                                ? `${member.focusTagName} 집중 중`
-                                : '집중 중'}
+                                ? t('league.rankRow.focusingTag', { tag: member.focusTagName })
+                                : t('league.rankRow.focusing')}
                             </Text>
                             <LiveFocusTime
                               baseSeconds={member.totalFocusSeconds}
@@ -609,7 +614,9 @@ export default function LeagueScreen() {
 
             {/* ── 섹션 헤더: 랭킹 라벨 + 핀한 사람만 필터 ── */}
             <View style={s.sectionRow}>
-              <Text style={s.sectionLabel}>{pinnedOnly ? '핀한 사람' : '랭킹'}</Text>
+              <Text style={s.sectionLabel}>
+                {pinnedOnly ? t('league.home.sectionPinned') : t('league.home.sectionRanking')}
+              </Text>
               <TouchableOpacity
                 style={[s.pinChip, pinnedOnly ? s.pinChipOn : null]}
                 activeOpacity={0.8}
@@ -621,7 +628,7 @@ export default function LeagueScreen() {
                   color={pinnedOnly ? T.white : T.inkSub}
                 />
                 <Text style={[s.pinChipText, pinnedOnly ? s.pinChipTextOn : null]}>
-                  핀한 사람만
+                  {t('league.home.pinnedOnly')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -676,7 +683,7 @@ export default function LeagueScreen() {
                 <View onLayout={onMyLayout}>
                   <RankRow
                     rank={outOfListRank}
-                    nickname={myNickname || '나'}
+                    nickname={myNickname || t('common.me')}
                     tierLevel={tier.tierLevel ?? 1}
                     seconds={outOfListSeconds}
                     isMe
@@ -690,21 +697,21 @@ export default function LeagueScreen() {
             {visibleRanking.length === 0 &&
               (showRankingError ? (
                 <View style={s.friendErrorWrap}>
-                  <Text style={s.emptyLeague}>랭킹을 불러오지 못했어요</Text>
+                  <Text style={s.emptyLeague}>{t('league.home.rankingLoadFailed')}</Text>
                   <TouchableOpacity
                     style={s.retryBtn}
                     activeOpacity={0.8}
                     onPress={isAll ? refetchGlobal : refetchRanking}
                   >
-                    <Text style={s.retryBtnText}>다시 시도</Text>
+                    <Text style={s.retryBtnText}>{t('common.retry')}</Text>
                   </TouchableOpacity>
                 </View>
               ) : (
-                <Text style={s.emptyLeague}>아직 이 리그엔 아무도 없어요</Text>
+                <Text style={s.emptyLeague}>{t('league.home.emptyLeague')}</Text>
               ))}
             {/* 실패 안내가 떠 있을 땐 숨긴다 — "불러오지 못했어요"와 동시에 뜨면 모순(코드리뷰 반영) */}
             {pinnedOnly && !showRankingError && listRows.length === 0 && (
-              <Text style={s.emptyLeague}>랭킹에서 핀을 누르면 여기에 담겨요</Text>
+              <Text style={s.emptyLeague}>{t('league.home.emptyPinned')}</Text>
             )}
 
             {/* ── 내 티어 스트립 → 티어 안내 (시안에 진입점이 없어 둔 임시 진입점) ── */}
@@ -714,7 +721,7 @@ export default function LeagueScreen() {
               onPress={() => navigation.navigate('TierGuide')}
             >
               <Image source={myTier.image} style={s.tierStripImg} />
-              <Text style={s.tierStripText}>내 티어 · {myTier.name}</Text>
+              <Text style={s.tierStripText}>{t('league.home.myTier', { name: myTier.name })}</Text>
               <Ionicons name="chevron-forward" size={13} color={T.inkMuted} />
             </TouchableOpacity>
           </Animated.ScrollView>
@@ -731,7 +738,7 @@ export default function LeagueScreen() {
             >
               <RankRow
                 rank={myMember != null ? myIdx + 1 : outOfListRank}
-                nickname={myMember?.nickname ?? (myNickname || '나')}
+                nickname={myMember?.nickname ?? (myNickname || t('common.me'))}
                 tierLevel={myMember?.tierLevel ?? tier.tierLevel ?? 1}
                 seconds={myMember?.totalFocusSeconds ?? outOfListSeconds}
                 isMe
@@ -760,9 +767,7 @@ export default function LeagueScreen() {
               >
                 <MaterialCommunityIcons name="pin-outline" size={14} color={T.accentDeep} />
                 <Text style={s.floatNoticeText}>
-                  {isAll
-                    ? '아직 순위권 밖이에요 — 핀하면 모아볼 수 있어요'
-                    : '아직 순위권 밖이에요 — 핀하면 전체 리그에서 모아볼 수 있어요'}
+                  {isAll ? t('league.home.outOfRankAll') : t('league.home.outOfRankExam')}
                 </Text>
                 {!isAll && <Ionicons name="chevron-forward" size={13} color={T.accentDeep} />}
               </TouchableOpacity>
@@ -792,8 +797,10 @@ export default function LeagueScreen() {
               <Ionicons name="person-add-outline" size={19} color={T.accentDeep} />
             </View>
             <View style={s.addTextCol}>
-              <Text style={s.addTitle}>친구 검색·추가</Text>
-              <Text style={s.addSub}>받은 요청 {receivedCount}건</Text>
+              <Text style={s.addTitle}>{t('league.home.addFriendTitle')}</Text>
+              <Text style={s.addSub}>
+                {t('league.home.receivedRequests', { count: receivedCount })}
+              </Text>
             </View>
             <Ionicons name="chevron-forward" size={15} color={T.inkMuted} />
           </TouchableOpacity>
@@ -802,15 +809,17 @@ export default function LeagueScreen() {
                실패여도 기존 목록이 있으면 그대로 유지해서 보여준다. */}
           {friendsError && friends.length === 0 ? (
             <View style={s.friendErrorWrap}>
-              <Text style={s.emptyLeague}>친구 목록을 불러오지 못했어요</Text>
+              <Text style={s.emptyLeague}>{t('league.home.friendsLoadFailed')}</Text>
               <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={refetchFriends}>
-                <Text style={s.retryBtnText}>다시 시도</Text>
+                <Text style={s.retryBtnText}>{t('common.retry')}</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <>
               <Text style={s.friendCount}>
-                내 친구 <Text style={s.friendCountNum}>{friends.length}</Text>명
+                {t('league.home.myFriendsPrefix')}{' '}
+                <Text style={s.friendCountNum}>{friends.length}</Text>
+                {t('league.home.myFriendsSuffix')}
               </Text>
               {/* 실친구 목록 — 주간 집중시간은 응답에 없어 미표기(TODO: 백엔드 협의 후 복원) */}
               <View style={s.friendGrid}>
@@ -888,7 +897,7 @@ export default function LeagueScreen() {
               </View>
               {/* 빈 상태는 성공 응답(빈 배열)일 때만 — 첫 로드 전엔 미표시 */}
               {friendsLoaded && friends.length === 0 && (
-                <Text style={s.emptyLeague}>아직 친구가 없어요. 검색해서 추가해 보세요!</Text>
+                <Text style={s.emptyLeague}>{t('league.home.emptyFriends')}</Text>
               )}
             </>
           )}
@@ -919,9 +928,11 @@ export default function LeagueScreen() {
                     onPress={() => selectLeague(l)}
                   >
                     <Text style={[s.menuText, on ? s.menuTextOn : null]}>
-                      {l === LEAGUE_ALL ? '전체 리그' : `${l} 리그`}
+                      {l === LEAGUE_ALL
+                        ? t('league.home.allLeague')
+                        : t('league.home.leagueTitle', { name: l })}
                     </Text>
-                    {l === myLabel && <Text style={s.menuMine}>내 시험</Text>}
+                    {l === myLabel && <Text style={s.menuMine}>{t('league.home.myExam')}</Text>}
                     {on && <Ionicons name="checkmark" size={15} color={T.accent} />}
                   </TouchableOpacity>
                 );

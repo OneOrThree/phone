@@ -10,6 +10,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { SheetShell } from '@/components/SheetShell';
 import { createAnnouncement, groupErrorCode, updateAnnouncement } from '@/services/groupApi';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -40,13 +41,21 @@ function saveErrorMessage(e: unknown, isEdit: boolean): string {
     // 수정 모드의 NOT_FOUND는 save()가 onEditingGone으로 빼내 부모가 Alert로 안내하므로
     // 여기까지 오지 않는다(분기는 계약 문서용으로 남긴다).
     case 'NOT_FOUND':
-      return isEdit ? '이미 삭제된 공지예요.' : '사라진 그룹이에요.';
+      return t(
+        isEdit
+          ? 'group.noticeComposeSheet.errorNoticeGone'
+          : 'group.noticeComposeSheet.errorGroupGone',
+      );
     case 'NOTICE_FORBIDDEN':
-      return '공지를 작성할 권한이 없어요.';
+      return t('group.noticeComposeSheet.errorForbidden');
     case 'MEMBER_ONLY':
-      return '그룹원만 이용할 수 있어요.';
+      return t('group.noticeComposeSheet.errorMemberOnly');
     default:
-      return `공지 ${isEdit ? '수정' : '등록'}에 실패했어요. 잠시 후 다시 시도해 주세요.`;
+      return t(
+        isEdit
+          ? 'group.noticeComposeSheet.saveFailEdit'
+          : 'group.noticeComposeSheet.saveFailCreate',
+      );
   }
 }
 
@@ -116,12 +125,14 @@ export default function NoticeComposeSheet({
     //    키보드가 떠 있어도 안전하다: 패널은 bottom=keyboardHeight로 올라가고 퇴장은 그만큼을
     //    더한 거리를 translateY로 내려가므로 두 값이 겹치지 않는다.
     <SheetShell onClose={submitting ? () => {} : onClose} dismissible={!submitting}>
-      <Text style={s.title}>{isEdit ? '공지 수정' : '공지 쓰기'}</Text>
-      <Text style={s.sub}>그룹원 모두에게 보여요.</Text>
+      <Text style={s.title}>
+        {t(isEdit ? 'group.noticeComposeSheet.titleEdit' : 'group.noticeComposeSheet.titleCreate')}
+      </Text>
+      <Text style={s.sub}>{t('group.noticeComposeSheet.sub')}</Text>
 
       <View style={s.field}>
         <View style={s.labelRow}>
-          <Text style={s.label}>제목</Text>
+          <Text style={s.label}>{t('group.noticeComposeSheet.titleField')}</Text>
           <Text style={s.counter}>
             {title.length}/{TITLE_MAX}
           </Text>
@@ -130,7 +141,7 @@ export default function NoticeComposeSheet({
           style={s.input}
           value={title}
           onChangeText={setTitle}
-          placeholder="공지 제목"
+          placeholder={t('group.noticeComposeSheet.titlePlaceholder')}
           placeholderTextColor={T.inkMuted}
           maxLength={TITLE_MAX}
           returnKeyType="next"
@@ -138,12 +149,12 @@ export default function NoticeComposeSheet({
       </View>
 
       <View style={s.field}>
-        <Text style={s.label}>내용</Text>
+        <Text style={s.label}>{t('group.noticeComposeSheet.contentField')}</Text>
         <TextInput
           style={[s.input, s.contentInput]}
           value={content}
           onChangeText={setContent}
-          placeholder="공지 내용을 적어 주세요"
+          placeholder={t('group.noticeComposeSheet.contentPlaceholder')}
           placeholderTextColor={T.inkMuted}
           multiline
           textAlignVertical="top"
@@ -161,7 +172,13 @@ export default function NoticeComposeSheet({
         {submitting ? (
           <ActivityIndicator color={T.white} />
         ) : (
-          <Text style={s.saveText}>{isEdit ? '수정하기' : '등록하기'}</Text>
+          <Text style={s.saveText}>
+            {t(
+              isEdit
+                ? 'group.noticeComposeSheet.submitEdit'
+                : 'group.noticeComposeSheet.submitCreate',
+            )}
+          </Text>
         )}
       </TouchableOpacity>
     </SheetShell>

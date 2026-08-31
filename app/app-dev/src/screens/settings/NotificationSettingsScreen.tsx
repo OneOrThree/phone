@@ -17,6 +17,7 @@ import { getMyProfile, updateNotificationSettings } from '@/services/userApi';
 import type { NotificationSettingsRequest } from '@/types/dto/user';
 import { STORAGE_KEYS } from '@/types/storage';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import {
   logNotificationSettingsChanged,
   type NotificationSettingKey,
@@ -161,14 +162,14 @@ export default function NotificationSettingsScreen() {
   }
 
   return (
-    <SettingsScaffold title="알림 · 심야 · 소리" onBack={() => navigation.goBack()}>
-      <SettingsSection title="알림">
+    <SettingsScaffold title={t('settings.notification.title')} onBack={() => navigation.goBack()}>
+      <SettingsSection title={t('settings.notification.sectionNotification')}>
         <SettingsToggleRow
           icon="notifications-outline"
           iconColor={T.accentDeep}
           iconBg={T.sandLight}
-          label="알림 받기"
-          sub="집중 리마인더 · 리그 소식을 알려줘요"
+          label={t('settings.notification.master')}
+          sub={t('settings.notification.masterSub')}
           value={master}
           onValueChange={(v) => apply({ ...settings, notificationEnabled: v })}
         />
@@ -176,8 +177,8 @@ export default function NotificationSettingsScreen() {
           icon="volume-high-outline"
           iconColor={T.greenDeep}
           iconBg={T.greenBg}
-          label="소리 (알림음)"
-          sub="알림이 올 때 소리로 알려줘요"
+          label={t('settings.notification.sound')}
+          sub={t('settings.notification.soundSub')}
           value={settings.soundEnabled}
           disabled={childDisabled}
           onValueChange={(v) => apply({ ...settings, soundEnabled: v })}
@@ -187,16 +188,16 @@ export default function NotificationSettingsScreen() {
       {/* 리그 알림은 개별 토글 없이 「알림 받기」에 포함된다는 안내 */}
       <View style={s.note}>
         <Ionicons name="information-circle-outline" size={16} color={T.inkSub} />
-        <Text style={s.noteText}>리그 마감 · 승급 · 강등 알림은 「알림 받기」에 포함돼요.</Text>
+        <Text style={s.noteText}>{t('settings.notification.leagueNote')}</Text>
       </View>
 
-      <SettingsSection title="심야 방해 금지">
+      <SettingsSection title={t('settings.notification.night')}>
         <SettingsToggleRow
           icon="moon-outline"
           iconColor={T.accent}
           iconBg={T.accentBg}
-          label="심야 방해 금지"
-          sub="정한 시간대엔 알림을 보내지 않아요"
+          label={t('settings.notification.night')}
+          sub={t('settings.notification.nightSub')}
           value={settings.nightModeEnabled}
           disabled={childDisabled}
           onValueChange={(v) => apply({ ...settings, nightModeEnabled: v })}
@@ -206,7 +207,7 @@ export default function NotificationSettingsScreen() {
             icon="bed-outline"
             iconColor={T.inkSub}
             iconBg={T.sandLight}
-            label="시작"
+            label={t('settings.notification.start')}
             value={settings.nightStartTime}
             valueColor={T.ink}
             onPress={() => setPickerFor('start')}
@@ -217,7 +218,7 @@ export default function NotificationSettingsScreen() {
             icon="sunny-outline"
             iconColor={T.inkSub}
             iconBg={T.sandLight}
-            label="끝"
+            label={t('settings.notification.end')}
             value={settings.nightEndTime}
             valueColor={T.ink}
             onPress={() => setPickerFor('end')}
@@ -228,7 +229,11 @@ export default function NotificationSettingsScreen() {
       {/* 시각 선택 모달 — 편집 대상이 정해졌을 때만 마운트(열 때마다 초기값 새로 반영) */}
       {pickerFor ? (
         <TimePickerModal
-          title={pickerFor === 'start' ? '심야 시작 시간' : '심야 종료 시간'}
+          title={
+            pickerFor === 'start'
+              ? t('settings.notification.nightStartTitle')
+              : t('settings.notification.nightEndTitle')
+          }
           initial={pickerFor === 'start' ? settings.nightStartTime : settings.nightEndTime}
           onConfirm={confirmTime}
           onClose={() => setPickerFor(null)}
@@ -278,7 +283,7 @@ function TimePickerModal({
             activeOpacity={0.85}
             onPress={() => onConfirm(fmtHM(hourIdx, minIdx))}
           >
-            <Text style={s.confirmText}>확인</Text>
+            <Text style={s.confirmText}>{t('common.confirm')}</Text>
           </TouchableOpacity>
         </View>
       </View>

@@ -13,6 +13,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import axios from 'axios';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { tierByLevel } from '@/constants/tiers';
 import { categoryForOccupation } from '@/constants/focusCategories';
 import { getPublicProfile, getUserStats } from '@/services/userApi';
@@ -228,7 +229,7 @@ export default function FriendProfileScreen() {
       logFriendPinToggled({ pinned: next }); // 서버 반영 성공 시에만 — 롤백되는 낙관 상태는 미집계
     } catch {
       setIsPinned(!next);
-      Alert.alert('핀 변경 실패', '잠시 후 다시 시도해 주세요.');
+      Alert.alert(t('league.pin.changeFailTitle'), t('common.retryLater'));
     } finally {
       pinBusy.current = false;
     }
@@ -244,35 +245,39 @@ export default function FriendProfileScreen() {
       if (axios.isAxiosError(e) && e.response?.status === 409) {
         setRequested(true);
       } else {
-        Alert.alert('친구 신청 실패', '잠시 후 다시 시도해 주세요.');
+        Alert.alert(t('league.friendAdd.requestFailTitle'), t('common.retryLater'));
       }
     }
   }
 
   function unfriend() {
-    Alert.alert('친구 끊기', `${nickname}님과 친구를 끊을까요?`, [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '끊기',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteFriend(userId);
-            friendTouched.current = true;
-            setIsFriend(false);
-            logFriendUnfriended();
-          } catch (e) {
-            // 404 = 이미 친구 아님 — 화면도 비친구로 전환
-            if (axios.isAxiosError(e) && e.response?.status === 404) {
+    Alert.alert(
+      t('league.friendProfile.unfriend'),
+      t('league.friendProfile.unfriendConfirm', { name: nickname }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('league.friendProfile.unfriendAction'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteFriend(userId);
               friendTouched.current = true;
               setIsFriend(false);
-            } else {
-              Alert.alert('친구 끊기 실패', '잠시 후 다시 시도해 주세요.');
+              logFriendUnfriended();
+            } catch (e) {
+              // 404 = 이미 친구 아님 — 화면도 비친구로 전환
+              if (axios.isAxiosError(e) && e.response?.status === 404) {
+                friendTouched.current = true;
+                setIsFriend(false);
+              } else {
+                Alert.alert(t('league.friendProfile.unfriendFailTitle'), t('common.retryLater'));
+              }
             }
-          }
+          },
         },
-      },
-    ]);
+      ],
+    );
   }
 
   const tier = tierByLevel(profile?.currentTier ?? tierLevel);
@@ -298,9 +303,9 @@ export default function FriendProfileScreen() {
     }
     let stale = false;
     (async () => {
-      const t = await getTodayStats(userId).catch(() => null);
-      if (stale || !t) return;
-      setPublicStats({ today: t });
+      const today = await getTodayStats(userId).catch(() => null);
+      if (stale || !today) return;
+      setPublicStats({ today });
     })();
     return () => {
       stale = true;
@@ -340,7 +345,7 @@ export default function FriendProfileScreen() {
       // 전부 미분류인 유저가 "기록 없음"으로 보인다(코덱스 리뷰). / 타인: 겹치는 과목만 실비교.
       const rows: SubjectCompare[] = isMe
         ? mine.items.map((i) => ({
-            name: i.tagName ?? '미분류',
+            name: i.tagName ?? t('league.friendProfile.untagged'),
             myMinutes: i.totalFocusMinutes,
             theirMinutes: 0,
           }))
@@ -399,7 +404,11 @@ export default function FriendProfileScreen() {
   ) : (
     <View style={s.chartGap}>
       <ComingSoon
-        note={isMe ? '과목별 공부량을 준비하고 있어요' : '같은 과목 공부량 비교를 준비하고 있어요'}
+        note={
+          isMe
+            ? t('league.friendProfile.subjectTeaserSolo')
+            : t('league.friendProfile.subjectTeaserCompare')
+        }
       >
         <SubjectCompareCard
           subjects={TEASER_SUBJECTS}
@@ -419,7 +428,9 @@ export default function FriendProfileScreen() {
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>{isMe ? '내 프로필' : '프로필'}</Text>
+        <Text style={s.headerTitle}>
+          {isMe ? t('league.friendProfile.titleMe') : t('league.friendProfile.title')}
+        </Text>
         {/* 핀은 친구 아니어도 가능(GROMO-609) — 친구 여부와 무관하게 항상 노출(GROMO-845).
             내 프로필은 나를 핀할 수 없어 생략(GROMO-940). */}
         {!isMe && (
@@ -457,7 +468,9 @@ export default function FriendProfileScreen() {
             </Text>
             <View style={s.friendPill}>
               <Ionicons name="person-outline" size={11} color={T.inkSub} />
-              <Text style={s.friendPillText}>친구 {friendCount}</Text>
+              <Text style={s.friendPillText}>
+                {t('league.friendProfile.friendCount', { count: friendCount })}
+              </Text>
             </View>
           </View>
         </View>
@@ -474,18 +487,24 @@ export default function FriendProfileScreen() {
                 {/* 현재 티어 — 뱃지 + 티어명 + 랭킹 등수 (항상 공개; 상단 티어 줄에서 이관) */}
                 <TierBadge level={tier.level} size={56} />
                 <Text style={s.ringLabel}>{tier.name}</Text>
-                {rank != null && <Text style={s.ringRank}>랭킹 {rank}위</Text>}
+                {rank != null && (
+                  <Text style={s.ringRank}>{t('league.friendProfile.rankLabel', { rank })}</Text>
+                )}
               </View>
               <View style={s.summaryCol}>
                 <View style={s.summaryCard}>
-                  <Text style={s.summaryLabel}>오늘 집중</Text>
+                  <Text style={s.summaryLabel}>{t('league.friendProfile.todayFocus')}</Text>
                   <Text style={s.summaryValue}>
-                    {summaryVisible ? fmtMinutes(todayFocusMinutes) : '비공개'}
+                    {summaryVisible
+                      ? fmtMinutes(todayFocusMinutes)
+                      : t('league.friendProfile.private')}
                   </Text>
                 </View>
                 <View style={s.summaryCard}>
-                  <Text style={s.summaryLabel}>연속</Text>
-                  <Text style={s.summaryValue}>{streakDays}일</Text>
+                  <Text style={s.summaryLabel}>{t('league.friendProfile.streak')}</Text>
+                  <Text style={s.summaryValue}>
+                    {t('league.friendProfile.streakDays', { count: streakDays })}
+                  </Text>
                 </View>
               </View>
             </View>
@@ -497,7 +516,7 @@ export default function FriendProfileScreen() {
                   <Ionicons name="calendar-outline" size={16} color={T.accentDeep} />
                 </View>
                 <View style={s.examCol}>
-                  <Text style={s.examLabel}>준비 시험</Text>
+                  <Text style={s.examLabel}>{t('league.friendProfile.exam')}</Text>
                   <Text style={s.examValue}>{examLabel}</Text>
                 </View>
               </View>
@@ -510,7 +529,7 @@ export default function FriendProfileScreen() {
                     내 프로필(isMe)은 soloMine으로 내 선만 그린다(GROMO-940). */}
                 <View style={s.chartGap}>
                   <DuoDayChart
-                    title="이번 주 요일별 집중시간"
+                    title={t('league.friendProfile.focusChartTitle')}
                     data={focusByDay}
                     mineColor={T.accent}
                     theirsColor={THEIRS_FOCUS}
@@ -522,7 +541,7 @@ export default function FriendProfileScreen() {
                 {isMe || theirPhoneMeasured ? (
                   <View style={s.chartGap}>
                     <DuoDayChart
-                      title="이번 주 요일별 폰 사용시간"
+                      title={t('league.friendProfile.phoneChartTitle')}
                       data={phoneByDay}
                       mineColor={T.accentAlt}
                       theirsColor={THEIRS_PHONE}
@@ -534,7 +553,7 @@ export default function FriendProfileScreen() {
                   <View style={[s.chartGap, s.noOverlapNote]}>
                     <Ionicons name="phone-portrait-outline" size={15} color={T.accent} />
                     <Text style={s.noOverlapText}>
-                      {nickname}님의 폰 사용 기록이 아직 없어요. 측정이 쌓이면 여기서 비교돼요.
+                      {t('league.friendProfile.phoneNoRecord', { name: nickname })}
                     </Text>
                   </View>
                 )}
@@ -548,7 +567,7 @@ export default function FriendProfileScreen() {
                 <View style={[s.chartGap, s.noOverlapNote]}>
                   <Ionicons name="people-outline" size={15} color={T.accent} />
                   <Text style={s.noOverlapText}>
-                    요일별 집중·폰 사용 비교를 지금 불러오지 못했어요.
+                    {t('league.friendProfile.dayCompareUnavailable')}
                   </Text>
                 </View>
               </>
@@ -556,9 +575,7 @@ export default function FriendProfileScreen() {
               /* 내 프로필은 잠금 개념이 없음 — 여기 오면 조회 실패뿐이라 불러오기 실패 안내(GROMO-940) */
               <View style={[s.chartGap, s.noOverlapNote]}>
                 <Ionicons name="people-outline" size={15} color={T.accent} />
-                <Text style={s.noOverlapText}>
-                  통계를 지금 불러오지 못했어요. 잠시 후 다시 들어와 주세요.
-                </Text>
+                <Text style={s.noOverlapText}>{t('league.friendProfile.statsUnavailable')}</Text>
               </View>
             ) : (
               /* 세부 비교 잠금(친구 아님 + 친구공개 대상) — 요약은 위에서 항상 공개(GROMO-746), 차트만 잠금 */
@@ -566,10 +583,8 @@ export default function FriendProfileScreen() {
                 <View style={s.lockCircle}>
                   <Ionicons name="lock-closed" size={18} color={T.accent} />
                 </View>
-                <Text style={s.lockTitle}>친구만 볼 수 있어요</Text>
-                <Text style={s.lockSub}>
-                  친구가 되면 요일별 집중·폰 사용,{'\n'}과목별 비교를 볼 수 있어요.
-                </Text>
+                <Text style={s.lockTitle}>{t('league.friendProfile.lockTitle')}</Text>
+                <Text style={s.lockSub}>{t('league.friendProfile.lockSub')}</Text>
               </View>
             )}
           </>
@@ -582,16 +597,16 @@ export default function FriendProfileScreen() {
           {isFriend ? (
             <TouchableOpacity style={s.unfriendBtn} activeOpacity={0.85} onPress={unfriend}>
               <Ionicons name="person-remove-outline" size={16} color={UNFRIEND_INK} />
-              <Text style={s.unfriendText}>친구 끊기</Text>
+              <Text style={s.unfriendText}>{t('league.friendProfile.unfriend')}</Text>
             </TouchableOpacity>
           ) : requested ? (
             <View style={s.requestedBtn}>
-              <Text style={s.requestedText}>요청됨</Text>
+              <Text style={s.requestedText}>{t('league.friend.requested')}</Text>
             </View>
           ) : (
             <TouchableOpacity style={s.requestBtn} activeOpacity={0.85} onPress={requestFriend}>
               <Ionicons name="person-add" size={17} color={T.white} />
-              <Text style={s.requestText}>친구 신청</Text>
+              <Text style={s.requestText}>{t('league.friend.request')}</Text>
             </TouchableOpacity>
           )}
         </View>

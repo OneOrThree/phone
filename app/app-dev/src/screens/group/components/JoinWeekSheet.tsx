@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { SheetShell } from '@/components/SheetShell';
 import {
   BET_INSUFFICIENT_BALANCE,
@@ -206,10 +207,13 @@ export default function JoinWeekSheet({
           break;
         // 보낸 날짜가 더 이상 유효하지 않다(자정 경계·챌린지 변경 경합) — 낡은 화면이다.
         case INVALID_SESSION_DATES:
-          failAndReload('참여할 수 있는 날이 바뀌었어요', '최신 상태로 새로고침할게요.');
+          failAndReload(
+            t('group.joinWeekSheet.datesChangedTitle'),
+            t('group.joinWeekSheet.datesChangedBody'),
+          );
           return;
         case BET_SCREENTIME_PERMISSION_REQUIRED:
-          failAndReload('참여할 수 없어요', '스크린타임 권한을 허용해야 참여할 수 있어요.');
+          failAndReload(t('group.betError.cannotJoinTitle'), t('group.betError.screenTimeBody'));
           return;
         // 유저 부재(GROMO-1247) — 사라진 건 챌린지가 아니라 **내 계정**이다. 새로고침해도
         // 같은 실패가 오므로 failAndReload가 아니라 재로그인으로 보낸다.
@@ -218,18 +222,21 @@ export default function JoinWeekSheet({
           return;
         case 'NOT_FOUND':
         case 'CHALLENGE_NOT_FOUND':
-          failAndReload('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
+          failAndReload(
+            t('group.betError.challengeGoneTitle'),
+            t('group.betError.challengeGoneBody'),
+          );
           return;
         case 'MEMBER_ONLY':
-          failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
+          failAndReload(t('group.betError.memberOnlyTitle'), t('group.betError.memberOnlyBody'));
           return;
         // 현재 서버에서는 게스트도 진행하지만, 구서버가 남아 있는 배포 공백에서는 로그인 안내를
         // 보여줘 알 수 없는 오류로 오인하지 않게 한다.
         case 'GUEST_FORBIDDEN':
-          failAndReload('로그인하면 참여할 수 있어요', '게스트는 코인을 쓸 수 없어요.');
+          failAndReload(t('group.betError.guestTitle'), t('group.betError.guestBody'));
           return;
         default:
-          setErrorMsg('참여하지 못했어요. 잠시 후 다시 시도해 주세요.');
+          setErrorMsg(t('group.betError.joinFailed'));
       }
     } finally {
       submitLock.current = false;
@@ -242,7 +249,7 @@ export default function JoinWeekSheet({
 
   return (
     <SheetShell onClose={submitting ? () => {} : onClose} asModal dismissible={!submitting}>
-      <Text style={s.title}>이번 주 남은 날</Text>
+      <Text style={s.title}>{t('group.joinWeekSheet.title')}</Text>
       <Text style={s.sub}>{label}</Text>
 
       {/* 날짜별 참가비 — 행이 먼저 읽히고 합계가 아래에서 못을 박는다. 금액은 **행마다** 다를 수
@@ -253,7 +260,10 @@ export default function JoinWeekSheet({
             key={e.date}
             style={s.dayRow}
             accessible
-            accessibilityLabel={`${fmtMonthDayDow(e.date)} 참가비 ${e.stake}코인`}
+            accessibilityLabel={t('group.joinWeekSheet.dayA11y', {
+              day: fmtMonthDayDow(e.date),
+              stake: e.stake,
+            })}
           >
             <Text style={s.dayText}>
               {fmtMonthDayDow(e.date)}
@@ -270,29 +280,39 @@ export default function JoinWeekSheet({
           날짜별 금액은 위 행에 이미 다 적혀 있고, 없는 단가를 지어내면 그게 곧 거짓이 된다. */}
       <Text style={s.totalText} testID="group.bet.week.total">
         {uniformStake
-          ? `${entries.length}일 × ${entries[0].stake}코인 = 합계 ${total}코인`
-          : `${entries.length}일 · 합계 ${total}코인`}
+          ? t('group.joinWeekSheet.totalUniform', {
+              days: entries.length,
+              stake: entries[0].stake,
+              total,
+            })
+          : t('group.joinWeekSheet.totalMixed', { days: entries.length, total })}
       </Text>
-      <BetBalanceRow label="합계" amount={total} coins={loaded ? coins : null} />
+      <BetBalanceRow
+        label={t('group.joinWeekSheet.totalLabel')}
+        amount={total}
+        coins={loaded ? coins : null}
+      />
 
       {/* 즉시 에스크로 + 취소 단위(§C8 — 날짜 단위, 일괄 취소 없음). */}
       <View style={s.note}>
-        <Text style={s.noteText}>
-          참여하면 {total}코인이 지금 모두 빠져나가요. 취소는 하루씩 따로 할 수 있어요 — 시작 전
-          날짜는 시작 전까지 전액 돌려받아요.
-        </Text>
+        <Text style={s.noteText}>{t('group.joinWeekSheet.note', { total })}</Text>
       </View>
 
       {/* 서버가 확정한 부족 — 새 잔액이 아직 안 와 부족분·부분 제안을 계산할 수 없을 때의 안내.
           잔액이 도착하면 아래 insufficient 블록이 부족분·축소 제안까지 이어받는다(BetSheet 규칙). */}
-      {serverInsufficient && !insufficient && <Text style={s.error}>코인이 부족해요</Text>}
+      {serverInsufficient && !insufficient && (
+        <Text style={s.error}>{t('group.common.insufficientCoins')}</Text>
+      )}
       {/* 부분 예약 안내(§C2) — 전체가 안 되는 이유와 되는 범위를 같은 자리에서 말한다. */}
       {insufficient && (
         <Text style={s.error} testID="group.bet.week.shortage">
-          코인이 {total - coins} 부족해요.
           {affordableCount > 0
-            ? ` ${affordableCount}일(${partialTotal}코인)만 참여할 수 있어요`
-            : ' 참여할 수 있는 날이 없어요'}
+            ? t('group.joinWeekSheet.shortagePartial', {
+                shortage: total - coins,
+                count: affordableCount,
+                total: partialTotal,
+              })
+            : t('group.joinWeekSheet.shortageNone', { shortage: total - coins })}
         </Text>
       )}
       {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
@@ -308,7 +328,9 @@ export default function JoinWeekSheet({
         {submitting ? (
           <ActivityIndicator color={T.white} />
         ) : (
-          <Text style={s.submitText}>{entries.length}일 전부 참여</Text>
+          <Text style={s.submitText}>
+            {t('group.joinWeekSheet.submitAll', { days: entries.length })}
+          </Text>
         )}
       </TouchableOpacity>
 
@@ -322,7 +344,10 @@ export default function JoinWeekSheet({
           testID="group.bet.week.partial"
         >
           <Text style={s.partialText}>
-            {affordableCount}일만 참여 ({partialTotal}코인)
+            {t('group.joinWeekSheet.submitPartial', {
+              count: affordableCount,
+              total: partialTotal,
+            })}
           </Text>
         </TouchableOpacity>
       )}
@@ -334,7 +359,7 @@ export default function JoinWeekSheet({
         onPress={onClose}
         testID="group.bet.week.close"
       >
-        <Text style={s.ghostText}>그만두기</Text>
+        <Text style={s.ghostText}>{t('group.common.dismiss')}</Text>
       </TouchableOpacity>
     </SheetShell>
   );

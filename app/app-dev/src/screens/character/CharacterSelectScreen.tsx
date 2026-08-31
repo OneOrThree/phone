@@ -11,6 +11,7 @@ import { useToast } from '@/store/ToastContext';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 import { logCharacterEquipped, logCharacterSelectViewed } from '@/services/analyticsEvents';
+import { t } from '@/i18n';
 
 // 캐릭터 변경 화면 — 기본 그로몬 / 내가 만든 오브젝트 캐릭터(누끼) 중 하나를 장착한다.
 // 카드 탭은 선택 표시만 바꾸고(강조 테두리 + 체크 배지), 실제 장착(setChoice)은 하단
@@ -118,7 +119,7 @@ export default function CharacterSelectScreen() {
     equippedRef.current = true;
     setChoice(selected);
     logCharacterEquipped({ character_type: selected });
-    show({ message: '캐릭터를 변경했어요', tone: 'success' });
+    show({ message: t('character.select.changed'), tone: 'success' });
     navigation.popToTop();
   }, [selected, equipped, setChoice, navigation, show]);
 
@@ -136,7 +137,7 @@ export default function CharacterSelectScreen() {
 
   return (
     <SettingsScaffold
-      title="캐릭터 변경"
+      title={t('character.select.title')}
       onBack={() => navigation.goBack()}
       footer={
         <View style={s.footerCol}>
@@ -148,16 +149,18 @@ export default function CharacterSelectScreen() {
             onPress={equip}
           >
             <Ionicons name="checkmark" size={18} color={T.white} />
-            <Text style={s.equipBtnText}>변경하기</Text>
+            <Text style={s.equipBtnText}>{t('character.select.equip')}</Text>
           </PressableScale>
           <PressableScale style={s.footerBtn} scaleTo={0.97} onPress={goCreate}>
             <Ionicons name="add" size={18} color={T.accent} />
-            <Text style={s.footerBtnText}>{hasCustom ? '다시 만들기' : '새로 만들기'}</Text>
+            <Text style={s.footerBtnText}>
+              {t(hasCustom ? 'character.select.recreate' : 'character.select.createNew')}
+            </Text>
           </PressableScale>
         </View>
       }
     >
-      <Text style={s.hint}>홈과 축하 화면에 나올 캐릭터를 골라요.</Text>
+      <Text style={s.hint}>{t('character.select.hint')}</Text>
       <View style={s.row}>
         {/* 카드① 기본 그로몬 */}
         <PressableScale
@@ -173,7 +176,7 @@ export default function CharacterSelectScreen() {
           <View style={s.charBox}>
             <CharacterImage size={CHAR_SIZE} />
           </View>
-          <Text style={s.cardLabel}>기본 그로몬</Text>
+          <Text style={s.cardLabel}>{t('character.select.defaultCard')}</Text>
         </PressableScale>
 
         {/* 카드② 내 캐릭터 — 쓸 수 있는 누끼가 있으면 선택 카드, 없으면 만들기 플레이스홀더 */}
@@ -201,15 +204,15 @@ export default function CharacterSelectScreen() {
                 onSourceError={onCustomBroken}
               />
             </View>
-            <Text style={s.cardLabel}>내 캐릭터</Text>
+            <Text style={s.cardLabel}>{t('character.select.customCard')}</Text>
           </PressableScale>
         ) : (
           <PressableScale style={[s.card, s.cardEmpty]} scaleTo={0.97} onPress={goCreate}>
             <View style={s.charBox}>
               <Ionicons name="add-circle-outline" size={40} color={T.inkMuted} />
-              <Text style={s.emptyText}>아직 없어요</Text>
+              <Text style={s.emptyText}>{t('character.select.emptyCard')}</Text>
             </View>
-            <Text style={s.cardLabel}>만들기</Text>
+            <Text style={s.cardLabel}>{t('character.select.createCard')}</Text>
           </PressableScale>
         )}
       </View>

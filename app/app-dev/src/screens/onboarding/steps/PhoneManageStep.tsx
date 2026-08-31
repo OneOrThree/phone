@@ -2,6 +2,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Rect, Path } from 'react-native-svg';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { StepProps } from '@/screens/onboarding/types';
 
 // W8 · 핸드폰 관리 — "집중을 깨는 건, 대부분 핸드폰이에요"(설득). 허용/차단 앱 그리드.
@@ -42,8 +43,8 @@ export default function PhoneManageStep({ onNext }: StepProps) {
   return (
     <StepScaffold
       center
-      title={'집중을 깨는 건\n대부분 핸드폰이에요'}
-      ctaLabel="다음"
+      title={t('onboarding.phoneManage.title')}
+      ctaLabel={t('common.next')}
       onCta={onNext}
     >
       <View style={s.card}>
@@ -57,12 +58,10 @@ export default function PhoneManageStep({ onNext }: StepProps) {
         </View>
         <View style={s.modeRow}>
           <View style={s.modeDot} />
-          <Text style={s.modeText}>집중 모드 · 허용 앱만 사용</Text>
+          <Text style={s.modeText}>{t('onboarding.phoneManage.mode')}</Text>
         </View>
       </View>
-      <Text style={s.caption}>
-        집중 중엔 방해 알림을 막고,{'\n'}하루 스크린타임 목표를 지켜드려요
-      </Text>
+      <Text style={s.caption}>{t('onboarding.phoneManage.caption')}</Text>
     </StepScaffold>
   );
 }

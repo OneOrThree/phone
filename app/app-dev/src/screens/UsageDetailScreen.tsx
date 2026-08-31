@@ -20,6 +20,7 @@ import ScreenTimeModule, {
 } from '@/services/ScreenTimeModule';
 import ScreenTimeAnalyzingOverlay, { ANALYZE_MS } from '@/components/ScreenTimeAnalyzingOverlay';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 앱별/카테고리별 사용시간 상세 — 홈 "핸드폰 사용" 탭 시 탭 위로 push되는 스택 화면.
 // Total Activity 리포트를 임베드. RN Modal이 아닌 일반 화면이라 DeviceActivityReport scene이
@@ -40,7 +41,7 @@ export default function UsageDetailScreen() {
         <TouchableOpacity style={s.back} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={24} color={T.ink} />
         </TouchableOpacity>
-        <Text style={s.title}>핸드폰 사용</Text>
+        <Text style={s.title}>{t('stats.usageDetail.title')}</Text>
         <View style={s.back} />
       </View>
       <View style={s.body}>
@@ -57,7 +58,7 @@ export default function UsageDetailScreen() {
           // 안드로이드 — UsageStats 수치를 받아 RN이 직접 그린다(GROMO-1602).
           <AndroidUsageList />
         ) : (
-          <Text style={s.empty}>지금은 볼 수 없어요</Text>
+          <Text style={s.empty}>{t('stats.usageDetail.unavailable')}</Text>
         )}
       </View>
     </SafeAreaView>
@@ -138,14 +139,10 @@ function AndroidUsageList() {
     };
   }, [load]);
 
-  if (failed) return <Text style={s.empty}>사용 기록을 불러오지 못했어요</Text>;
+  if (failed) return <Text style={s.empty}>{t('stats.usageDetail.loadFailed')}</Text>;
   // 권한이 빠진 상태를 '기록 없음'으로 그리면 화면이 거짓말을 한다 — 원인과 할 일을 알린다.
   if (permissionLost) {
-    return (
-      <Text style={s.empty}>
-        사용 정보 접근 권한이 꺼져 있어요.{'\n'}설정에서 다시 켜면 사용 기록이 보여요.
-      </Text>
-    );
+    return <Text style={s.empty}>{t('stats.usageDetail.permissionOff')}</Text>;
   }
   if (rows === null) {
     return (
@@ -172,7 +169,14 @@ function AndroidUsageList() {
   const otherSeconds = breakdown?.otherSeconds ?? 0;
   const items: AppUsage[] =
     otherSeconds >= 60
-      ? [...rows, { packageName: OTHER_ROW_KEY, label: '그 외', seconds: otherSeconds }]
+      ? [
+          ...rows,
+          {
+            packageName: OTHER_ROW_KEY,
+            label: t('stats.usageDetail.otherApps'),
+            seconds: otherSeconds,
+          },
+        ]
       : rows;
 
   return (
@@ -190,11 +194,13 @@ function AndroidUsageList() {
         <View style={s.listHeader}>
           {/* 총 사용시간 카드 — iOS와 같은 문구·위계 */}
           <View style={s.totalCard}>
-            <Text style={s.totalLabel}>오늘 총 사용시간</Text>
+            <Text style={s.totalLabel}>{t('stats.usageDetail.totalToday')}</Text>
             <Text style={s.totalValue}>{formatMinutes(totalMinutes)}</Text>
           </View>
-          <Text style={s.sectionHeader}>앱별 사용시간</Text>
-          {items.length === 0 ? <Text style={s.emptyInline}>사용 기록이 없어요</Text> : null}
+          <Text style={s.sectionHeader}>{t('stats.usageDetail.byApp')}</Text>
+          {items.length === 0 ? (
+            <Text style={s.emptyInline}>{t('stats.usageDetail.noUsage')}</Text>
+          ) : null}
         </View>
       }
       ItemSeparatorComponent={() => <View style={s.rowDivider} />}
@@ -257,7 +263,9 @@ function AppIcon({ packageName }: { packageName: string }) {
 function formatMinutes(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  return h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+  return h > 0
+    ? t('stats.usageDetail.hourMinute', { hours: h, minutes: m })
+    : t('stats.usageDetail.minute', { minutes: m });
 }
 
 // 앱별 행만 초 단위를 살린다 — 1분 미만을 분으로 반올림하면 목록 하단이 전부 '0분'이 되어
@@ -268,7 +276,7 @@ function formatMinutes(minutes: number): string {
 // 총계는 '1분'인데 그 앱 행은 '2분'이 되고, 여러 앱이 분 경계에 걸리면 행 합계가 총계를
 // 여러 분 넘어선다.
 function formatUsage(seconds: number): string {
-  if (seconds < 60) return `${seconds}초`;
+  if (seconds < 60) return t('stats.usageDetail.second', { seconds });
   return formatMinutes(Math.floor(seconds / 60));
 }
 

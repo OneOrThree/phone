@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { PressableScale } from '@/components/PressableScale';
 import type { InquiryContact } from '@/constants/inquiryContacts';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 1:1 문의 담당자 카드(docs/prd/inquiry/low-level-design.md §3 · information-architecture.md §2.3).
 // 표시 전용이다 — props in, onPress out. 상태를 갖지 않는다.
@@ -44,11 +45,11 @@ export default function InquiryContactCard({
             <Text style={s.name}>{contact.name}</Text>
             {recommended ? (
               <View style={s.badge}>
-                <Text style={s.badgeText}>추천</Text>
+                <Text style={s.badgeText}>{t('settings.inquiryCard.recommended')}</Text>
               </View>
             ) : null}
           </View>
-          <Text style={s.keywords}>{contact.keywords}</Text>
+          <Text style={s.keywords}>{t(contact.keywordsKey)}</Text>
         </View>
       </View>
 
@@ -58,12 +59,12 @@ export default function InquiryContactCard({
         style={s.cta}
         haptic="light"
         accessibilityRole="button"
-        accessibilityLabel={`${contact.name}에게 카카오톡으로 문의하기`}
+        accessibilityLabel={t('settings.inquiryCard.ctaA11y', { name: contact.name })}
         onPress={() => onPress(contact)}
         testID={`inquiry.card.${contact.id}.cta`}
       >
         <Ionicons name="chatbubble" size={16} color={T.kakaoInk} />
-        <Text style={s.ctaText}>카카오톡으로 문의하기</Text>
+        <Text style={s.ctaText}>{t('settings.inquiryCard.cta')}</Text>
       </PressableScale>
     </View>
   );

@@ -1,4 +1,5 @@
 import { Text } from 'react-native';
+import { t } from '@/i18n';
 import { useLiveFocusClock } from '@/hooks/useLiveFocusClock';
 import { FIXED_BOX_FONT_SCALE_MAX } from '@/constants/theme';
 
@@ -39,5 +40,7 @@ function fmtDeadline(sec: number): string {
   const d = Math.floor(s / 86400);
   const hh = String(Math.floor((s % 86400) / 3600)).padStart(2, '0');
   const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
-  return d > 0 ? `마감 ${d}일 ${hh}:${mm}` : `마감 ${hh}:${mm}`;
+  return d > 0
+    ? t('league.deadline.withDays', { days: d, time: `${hh}:${mm}` })
+    : t('league.deadline.short', { time: `${hh}:${mm}` });
 }

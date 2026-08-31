@@ -3,21 +3,38 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { FocusTimerMode } from '../types';
 import { SheetShell, useSheetClosing } from '@/components/SheetShell';
 import { SLIDE_MS, glassSlide, glassPill } from '@/components/liquidGlass';
 import { useMotion } from '@/hooks/useMotion';
 
 // 03 타이머 방식 — 카운트업/카운트다운/뽀모도로 중 선택.
+// 문구는 키만 담는다 — t()는 렌더 시점에 부른다.
 const OPTIONS: {
   mode: FocusTimerMode;
   icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  desc: string;
+  titleKey: string;
+  descKey: string;
 }[] = [
-  { mode: 'countup', icon: 'arrow-up', title: '카운트업', desc: '0부터 시간을 쌓아요' },
-  { mode: 'countdown', icon: 'arrow-down', title: '카운트다운', desc: '목표 시간부터 줄어들어요' },
-  { mode: 'pomodoro', icon: 'timer-outline', title: '뽀모도로', desc: '집중·휴식을 반복해요' },
+  {
+    mode: 'countup',
+    icon: 'arrow-up',
+    titleKey: 'focus.timerMethodSheet.countupTitle',
+    descKey: 'focus.timerMethodSheet.countupDesc',
+  },
+  {
+    mode: 'countdown',
+    icon: 'arrow-down',
+    titleKey: 'focus.timerMethodSheet.countdownTitle',
+    descKey: 'focus.timerMethodSheet.countdownDesc',
+  },
+  {
+    mode: 'pomodoro',
+    icon: 'timer-outline',
+    titleKey: 'focus.timerMethodSheet.pomodoroTitle',
+    descKey: 'focus.timerMethodSheet.pomodoroDesc',
+  },
 ];
 
 // GROMO-848 리퀴드 글래스 선택 연출(./liquidGlass) — 누르면 유리 알약이
@@ -137,8 +154,8 @@ function TimerMethodBody({
 
   return (
     <>
-      <Text style={s.title}>{subjectName} · 타이머 방식</Text>
-      <Text style={s.sub}>어떻게 집중할지 골라요.</Text>
+      <Text style={s.title}>{t('focus.timerMethodSheet.title', { subject: subjectName })}</Text>
+      <Text style={s.sub}>{t('focus.timerMethodSheet.sub')}</Text>
       <View style={s.list}>
         {OPTIONS.map((o) => (
           <TouchableOpacity
@@ -157,8 +174,8 @@ function TimerMethodBody({
               <Ionicons name={o.icon} size={22} color={T.accent} />
             </View>
             <View style={s.flex1}>
-              <Text style={s.rowTitle}>{o.title}</Text>
-              <Text style={s.rowDesc}>{o.desc}</Text>
+              <Text style={s.rowTitle}>{t(o.titleKey)}</Text>
+              <Text style={s.rowDesc}>{t(o.descKey)}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
           </TouchableOpacity>

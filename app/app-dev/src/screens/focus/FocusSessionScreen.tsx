@@ -29,6 +29,7 @@ import { PressableScale } from '@/components/PressableScale';
 import { M, fadeIn, pop, transition } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import { type SessionMachineConfig, type SessionState } from './engine/machine';
 import { createFocusSessionEngine } from './engine/FocusSessionEngine';
 import ScreenTimeModule, { type FocusActivityState } from '@/services/ScreenTimeModule';
@@ -377,7 +378,7 @@ export default function FocusSessionScreen() {
   useEffect(() => {
     let cancelled = false;
     // 캐릭터가 실제로 그려진 뒤 캡처(마운트 직후엔 빈 프레임일 수 있음)
-    const t = setTimeout(async () => {
+    const snapshotTimer = setTimeout(async () => {
       try {
         // 캡처가 멈추면(드물지만) Live Activity 시작까지 막히므로 1.5초 타임아웃으로 가드
         const base64 = await Promise.race([
@@ -403,7 +404,7 @@ export default function FocusSessionScreen() {
     }, 600);
     return () => {
       cancelled = true;
-      clearTimeout(t);
+      clearTimeout(snapshotTimer);
       ScreenTimeModule.endFocusActivity().catch(() => {});
     };
   }, [subjectName, subjectId, buildActivityState]);
@@ -635,22 +636,22 @@ export default function FocusSessionScreen() {
   const controlsRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
-      text: '집중 세션이 시작됐어요!\n여기서 흐른 시간이 그대로 과목의 집중 기록이 돼요.',
+      text: t('focus.session.guide1'),
       character: require('@/assets/character_study.png'),
     },
     {
-      text: '화면을 옆으로 넘겨 봐요.\n친구·그룹·같은 시험 준비생·전체 리그가 집중하는 모습을 볼 수 있어요.',
+      text: t('focus.session.guide2'),
       character: require('@/assets/character_happy.png'),
       anchor: dotsRef,
     },
     {
-      text: '메뉴에서는 과목을 바꾸거나 오늘의 과목별 기록을 볼 수 있어요.',
+      text: t('focus.session.guide3'),
       character: require('@/assets/character_hi.png'),
       anchor: hamburgerRef,
       round: true,
     },
     {
-      text: '잠깐 쉴 때는 일시정지, 끝낼 때는 정지를 눌러요.\n정지하면 기록이 저장되고 결과 화면으로 넘어가요.',
+      text: t('focus.session.guide4'),
       character: require('@/assets/character_study.png'),
       anchor: controlsRef,
       radius: 36,
@@ -691,7 +692,7 @@ export default function FocusSessionScreen() {
     sameAxis: kstLocalSameDay(),
   });
   const myGridMe = {
-    nickname: nickname || '나',
+    nickname: nickname || t('common.me'),
     // 일시정지·뽀모도로 휴식·완료 게이트에선 비집중 표시 — 그리드의 초록은 isFocusing 의미(코덱스 리뷰)
     isFocusing: !paused && session.phase === 'focus' && !session.done,
     totalSeconds: gridTotalSeconds,
@@ -755,7 +756,7 @@ export default function FocusSessionScreen() {
               style={s.hamburger}
               scaleTo={0.9}
               haptic="light"
-              accessibilityLabel="가로 화면으로 전환"
+              accessibilityLabel={t('focus.session.toLandscape')}
               onPress={goLandscape}
             >
               <Ionicons name="phone-landscape-outline" size={20} color={T.paperLight} />
@@ -771,7 +772,7 @@ export default function FocusSessionScreen() {
             style={s.hamburger}
             scaleTo={0.9}
             ref={hamburgerRef}
-            accessibilityLabel="집중 메뉴 열기"
+            accessibilityLabel={t('focus.session.openMenu')}
             onPress={() => {
               logFocusMenuOpened();
               setDrawerOpen(true);
@@ -832,9 +833,9 @@ export default function FocusSessionScreen() {
               // 페이지 인덱스는 viewForPage()의 순서와 같다 — [캐릭터0][친구1][그룹×N][내리그][전체리그].
               // 안 보이는 그리드의 1초 시계를 세우기 위한 것(서버 폴링은 계속 돈다).
               visible={page === 1}
-              title="내 친구"
-              emptyTitle="아직 친구가 없어요"
-              emptySub={'리그 탭에서 친구를 추가하면\n집중할 때 여기서 같이 보여요.'}
+              title={t('focus.session.friendsTitle')}
+              emptyTitle={t('focus.session.friendsEmptyTitle')}
+              emptySub={t('focus.session.friendsEmptySub')}
             />
             {/* 친구 그리드 아래 '함께 공부' 군집 일러스트 */}
             <Image
@@ -856,9 +857,9 @@ export default function FocusSessionScreen() {
                 me={myGridMe}
                 showMeWhenEmpty
                 visible={page === 2 + i}
-                title={`그룹: ${g.groupName}`}
-                emptyTitle="아직 그룹 멤버가 없어요"
-                emptySub={'그룹에 멤버가 모이면\n집중할 때 여기서 같이 보여요.'}
+                title={t('focus.session.groupTitle', { name: g.groupName })}
+                emptyTitle={t('focus.session.groupEmptyTitle')}
+                emptySub={t('focus.session.groupEmptySub')}
               />
             </View>
           ))}
@@ -868,17 +869,19 @@ export default function FocusSessionScreen() {
               me={myGridMe}
               pinnedIds={pinnedIds}
               visible={page === 2 + sessionGroups.length}
-              title={myCategory ? `${myCategory} 리그` : '같은 시험'}
-              emptyTitle={
-                myOccupation == null
-                  ? '준비 시험이 설정되지 않았어요'
-                  : '아직 같은 시험 준비생이 없어요'
+              title={
+                myCategory
+                  ? t('focus.session.categoryLeagueTitle', { category: myCategory })
+                  : t('focus.session.sameExamTitle')
               }
-              emptySub={
+              emptyTitle={t(
                 myOccupation == null
-                  ? '준비 시험을 설정하면\n같은 시험 준비생들이 여기 보여요.'
-                  : '곧 같은 목표의 유저들이\n여기에 모여요.'
-              }
+                  ? 'focus.session.examUnsetTitle'
+                  : 'focus.session.examEmptyTitle',
+              )}
+              emptySub={t(
+                myOccupation == null ? 'focus.session.examUnsetSub' : 'focus.session.examEmptySub',
+              )}
             />
           </View>
           <View style={[s.page, { width }]}>
@@ -887,9 +890,9 @@ export default function FocusSessionScreen() {
               me={myGridMe}
               pinnedIds={pinnedIds}
               visible={page === 3 + sessionGroups.length}
-              title="전체 리그"
-              emptyTitle="아직 리그 멤버가 없어요"
-              emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}
+              title={t('focus.session.allLeagueTitle')}
+              emptyTitle={t('focus.session.leagueEmptyTitle')}
+              emptySub={t('focus.session.leagueEmptySub')}
             />
           </View>
         </ScrollView>
@@ -955,15 +958,15 @@ export default function FocusSessionScreen() {
             style={s.doneGateChar}
             resizeMode="contain"
           />
-          <Text style={s.doneGateTitle}>집중이 끝났어요!</Text>
+          <Text style={s.doneGateTitle}>{t('focus.session.doneTitle')}</Text>
           <Text style={s.doneGateSub}>
             {mode === 'pomodoro'
-              ? `${subjectName} ${pomo.sets}세트를 모두 마쳤어요.`
-              : `${subjectName} 집중을 끝까지 해냈어요.`}
+              ? t('focus.session.donePomodoroSub', { subject: subjectName, count: pomo.sets })
+              : t('focus.session.doneSub', { subject: subjectName })}
           </Text>
           {/* onPress에 finish를 직접 넘기면 제스처 이벤트가 completed 인자로 들어간다 — 래핑 필수 */}
           <PressableScale style={s.doneGateBtn} haptic="light" onPress={() => finish()}>
-            <Text style={s.doneGateBtnText}>확인</Text>
+            <Text style={s.doneGateBtnText}>{t('common.confirm')}</Text>
           </PressableScale>
         </View>
       )}
@@ -1017,7 +1020,7 @@ function renderReadout(
           {subjectName}
         </Text>
         {bigTime}
-        <Text style={s.roGoal}>목표 {hms(goal)}</Text>
+        <Text style={s.roGoal}>{t('focus.session.goal', { time: hms(goal) })}</Text>
       </>
     );
   }
@@ -1028,12 +1031,12 @@ function renderReadout(
         <View style={s.setBadge}>
           <View style={s.setBadgeDot} />
           <Text style={s.setBadgeText}>
-            세트 {session.setIndex} / {pomo.sets}
+            {t('focus.session.setProgress', { current: session.setIndex, total: pomo.sets })}
           </Text>
         </View>
       </View>
       <Text style={s.roSubject} numberOfLines={1}>
-        {session.phase === 'focus' ? subjectName : '휴식'}
+        {session.phase === 'focus' ? subjectName : t('focus.session.break')}
       </Text>
       {bigTime}
       <View style={s.setDots}>

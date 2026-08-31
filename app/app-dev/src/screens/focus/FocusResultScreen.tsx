@@ -12,6 +12,7 @@ import { useMotion } from '@/hooks/useMotion';
 import { Enter } from '@/components/Enter';
 import { whenReduceMotionReady } from '@/hooks/useReduceMotion';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { CURRENCY } from '@/constants/currency';
 import { PressableScale } from '@/components/PressableScale';
@@ -47,7 +48,16 @@ import {
 // GROMO-755: 3축 모두 평균 집계 API(753) 실데이터 연결 — 전체·같은 카테고리 블러 티저 제거,
 //   친구 축은 개별 조회(N+1) 대신 scope=FRIENDS 단일 호출.
 
-const WEEK_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
+// 요일 라벨은 공용 키만 담는다 — t()는 렌더 시점에 부른다.
+const WEEK_LABEL_KEYS = [
+  'common.weekday.mon',
+  'common.weekday.tue',
+  'common.weekday.wed',
+  'common.weekday.thu',
+  'common.weekday.fri',
+  'common.weekday.sat',
+  'common.weekday.sun',
+];
 // 차트 트랙 높이 — 세로축 ⅓ 간격 눈금·라벨이 겹치지 않을 만큼 확보(GROMO-683)
 const BAR_H = 72;
 // GROMO-682: 스트릭(출석 ✓) 인정 최소 기준 — 하루 누적 10분
@@ -415,9 +425,13 @@ export default function FocusResultScreen() {
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         {/* 헤더 — 축하 문구 */}
         <View style={s.header}>
-          <Text style={s.title}>{firstTime ? '첫 집중 완료!' : '집중 완료!'}</Text>
+          <Text style={s.title}>
+            {t(firstTime ? 'focus.resultScreen.firstTitle' : 'focus.resultScreen.title')}
+          </Text>
           <Text style={s.sub}>
-            {firstTime ? '오늘 첫 걸음을 뗐어요 🎉' : `${subjectName} · 꾸준함이 쌓이고 있어요`}
+            {firstTime
+              ? t('focus.resultScreen.firstSub')
+              : t('focus.resultScreen.sub', { subject: subjectName })}
           </Text>
           {/* 획득 시간조각 — 저장 응답 도착 시 "+N 모래시계" 팝(스트릭 ✓와 같은 pop 프리셋 재사용) */}
           {rewardCoins > 0 ? (
@@ -425,7 +439,10 @@ export default function FocusResultScreen() {
               {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
               <Text
                 style={s.coinBadgeText}
-                accessibilityLabel={`${CURRENCY.label} ${rewardCoins.toLocaleString()} 획득`}
+                accessibilityLabel={t('focus.resultScreen.rewardLabel', {
+                  currency: CURRENCY.label,
+                  amount: rewardCoins.toLocaleString(),
+                })}
               >
                 +{rewardCoins.toLocaleString()} <CurrencyIcon size={14} />
               </Text>
@@ -435,7 +452,7 @@ export default function FocusResultScreen() {
 
         {/* 이번 집중 — 과목명 큰 글씨 + 00:00:00, 바로 아래 과목별 누적 집중(로컬) */}
         <View style={s.card}>
-          <Text style={s.miniLabel}>이번 집중</Text>
+          <Text style={s.miniLabel}>{t('focus.resultScreen.thisSession')}</Text>
           {/* 과목명 + 시간 — 수평 배치(과목이 주인공, 시간은 오른쪽) */}
           <View style={s.focusRow}>
             <Text style={s.bigStat} numberOfLines={1}>
@@ -446,7 +463,7 @@ export default function FocusResultScreen() {
 
           {subjectRows.length > 0 ? (
             <View style={s.catSection}>
-              <Text style={s.catHeading}>과목별 집중 현황</Text>
+              <Text style={s.catHeading}>{t('focus.resultScreen.bySubject')}</Text>
               {/* 과목 + 시간만 쭉 (드로어 '과목별 집중 현황'과 동일 패턴) */}
               <View style={s.subjectList}>
                 {subjectRows.map((x) => (
@@ -485,12 +502,14 @@ export default function FocusResultScreen() {
             </View>
             {/* 오늘 10분 미달이면 '완료'가 판정(빈 ✓·안내 문구)과 모순되므로 제목 분기 */}
             <Text style={s.streakTitle}>
-              {todayStreakDone
-                ? '이번 주 집중 스트릭 채우기 완료!'
-                : '이번 주 집중 스트릭을 채워봐요!'}
+              {t(
+                todayStreakDone ? 'focus.resultScreen.streakDone' : 'focus.resultScreen.streakTodo',
+              )}
             </Text>
             {streak && streak.currentStreak > 0 ? (
-              <Text style={s.streakBadge}>{streak.currentStreak}일 연속</Text>
+              <Text style={s.streakBadge}>
+                {t('focus.resultScreen.streakDays', { count: streak.currentStreak })}
+              </Text>
             ) : null}
           </View>
           <View style={s.dotRow}>
@@ -519,7 +538,9 @@ export default function FocusResultScreen() {
                       </Enter>
                     ) : null}
                   </View>
-                  <Text style={[s.dotDay, isToday ? s.dotDayToday : null]}>{WEEK_LABELS[i]}</Text>
+                  <Text style={[s.dotDay, isToday ? s.dotDayToday : null]}>
+                    {t(WEEK_LABEL_KEYS[i])}
+                  </Text>
                 </View>
               );
             })}
@@ -530,14 +551,14 @@ export default function FocusResultScreen() {
         {!todayStreakDone ? (
           <View style={s.streakNotice}>
             <Ionicons name="flame-outline" size={14} color={T.accentDeep} />
-            <Text style={s.streakNoticeText}>하루 10분 이상 집중하면 연속 기록이 채워져요</Text>
+            <Text style={s.streakNoticeText}>{t('focus.resultScreen.streakNotice')}</Text>
           </View>
         ) : null}
 
         {/* 이번 주 집중시간 — 총합 + 요일 막대(나). 세로축·눈금은 통계 차트 패턴 재사용(GROMO-683) */}
         <View style={s.card}>
           <View style={s.rowBetween}>
-            <Text style={s.cardTitle}>이번 주 집중시간</Text>
+            <Text style={s.cardTitle}>{t('focus.resultScreen.weekFocusTime')}</Text>
             <Text style={s.cardValue}>{fmtMinutes(weekTotal)}</Text>
           </View>
           <View style={s.chartPlotRow}>
@@ -581,7 +602,7 @@ export default function FocusResultScreen() {
                         />
                       </View>
                       <Text style={[s.barDay, isToday ? s.barDayToday : null]}>
-                        {WEEK_LABELS[i]}
+                        {t(WEEK_LABEL_KEYS[i])}
                       </Text>
                     </View>
                   );
@@ -627,7 +648,7 @@ export default function FocusResultScreen() {
             navigation.popToTop();
           }}
         >
-          <Text style={s.homeText}>홈으로</Text>
+          <Text style={s.homeText}>{t('focus.resultScreen.home')}</Text>
         </PressableScale>
         {/* 스택: Main → FocusCategory → FocusResult(세션을 replace) — 새 화면을 쌓지 않고
             아래 깔린 기존 과목 선택으로 goBack(중복 스택 방지, 리뷰 반영) */}
@@ -641,7 +662,7 @@ export default function FocusResultScreen() {
             navigation.goBack();
           }}
         >
-          <Text style={s.againText}>다시 집중</Text>
+          <Text style={s.againText}>{t('focus.resultScreen.again')}</Text>
         </PressableScale>
       </View>
 
@@ -658,10 +679,11 @@ type CompareAxis = 'friends' | 'all' | 'category';
 type ComparePeriod = 'DAY' | 'WEEK' | 'MONTH';
 type CompareAvg = { avg: number | null; count: number } | undefined;
 
-const COMPARE_PERIODS: { key: ComparePeriod; label: string }[] = [
-  { key: 'DAY', label: '오늘' },
-  { key: 'WEEK', label: '이번 주' },
-  { key: 'MONTH', label: '이번 달' },
+// 기간 라벨은 키만 담는다 — t()는 렌더 시점에 부른다. '이번 달'만 focus 샤드, 나머지는 common.
+const COMPARE_PERIODS: { key: ComparePeriod; labelKey: string }[] = [
+  { key: 'DAY', labelKey: 'common.today' },
+  { key: 'WEEK', labelKey: 'common.thisWeek' },
+  { key: 'MONTH', labelKey: 'focus.resultScreen.thisMonth' },
 ];
 
 // 계측 파라미터 값 — ComparePeriod를 이벤트 공용 소문자 값으로 변환(GROMO-782)
@@ -687,42 +709,48 @@ function CompareCard({
   category: CompareAvg;
 }) {
   const [axis, setAxis] = useState<CompareAxis>('friends');
-  const when = period === 'DAY' ? '오늘' : period === 'WEEK' ? '이번 주' : '이번 달';
+  const when = t(
+    period === 'DAY'
+      ? 'common.today'
+      : period === 'WEEK'
+        ? 'common.thisWeek'
+        : 'focus.resultScreen.thisMonth',
+  );
   const meta: Record<
     CompareAxis,
     { chip: string; label: string; avg: number | null; loading: boolean; empty: string }
   > = {
     friends: {
-      chip: '친구',
-      label: '친구 평균',
+      chip: t('focus.resultScreen.axisFriends'),
+      label: t('focus.resultScreen.avgFriends'),
       avg: friends?.avg ?? null,
       loading: friends === undefined,
       // count 0 = 친구 없음 또는 친구 전원 무활동(서버 sampleSize가 활동 유저 수라 구분 불가)
       // — 두 경우를 모두 덮는 중립 문구 + 행동 유도.
       empty:
         friends?.count === 0
-          ? `${when} 집중한 친구가 아직 없어요. 친구를 추가하고 비교해 봐요!`
-          : '친구 평균을 불러오지 못했어요',
+          ? t('focus.resultScreen.emptyFriends', { when })
+          : t('focus.resultScreen.errorFriends'),
     },
     all: {
-      chip: '전체',
-      label: '전체 평균',
+      chip: t('common.all'),
+      label: t('focus.resultScreen.avgAll'),
       avg: total?.avg ?? null,
       loading: total === undefined,
       empty:
         total?.count === 0
-          ? `${when} 집중 기록이 아직 모이지 않았어요`
-          : '전체 평균을 불러오지 못했어요',
+          ? t('focus.resultScreen.emptyAll', { when })
+          : t('focus.resultScreen.errorAll'),
     },
     category: {
-      chip: '같은 카테고리',
-      label: '같은 카테고리 평균',
+      chip: t('focus.resultScreen.axisCategory'),
+      label: t('focus.resultScreen.avgCategory'),
       avg: category?.avg ?? null,
       loading: category === undefined,
       empty:
         category?.count === 0
-          ? `${when} 같은 카테고리 기록이 아직 없어요`
-          : '같은 카테고리 평균을 불러오지 못했어요',
+          ? t('focus.resultScreen.emptyCategory', { when })
+          : t('focus.resultScreen.errorCategory'),
     },
   };
   const cur = meta[axis];
@@ -735,12 +763,13 @@ function CompareCard({
     <View style={s.card}>
       {/* 헤더 — 제목 + 기간 탭(GROMO-692 과목 비교 카드와 동일 패턴) */}
       <View style={s.rowBetween}>
-        <Text style={s.cardTitle}>{when} 비교</Text>
+        <Text style={s.cardTitle}>{t('focus.resultScreen.compareTitle', { when })}</Text>
         <View style={s.periodRow}>
           {/* 세그먼트 칩은 탭바와 같은 정책 — 이미 선택된 칩은 재탭해도 아무 일이 없으므로
               스케일·사운드를 전부 끈다. 작은 칩이라 스케일은 0.94로 준다. */}
-          {COMPARE_PERIODS.map(({ key, label }) => {
+          {COMPARE_PERIODS.map(({ key, labelKey }) => {
             const on = period === key;
+            const label = t(labelKey);
             return (
               <PressableScale
                 key={key}
@@ -798,7 +827,7 @@ function CompareCard({
         <>
           <View style={s.cmpBlock}>
             <View style={s.rowBetween}>
-              <Text style={s.cmpLabelMine}>나</Text>
+              <Text style={s.cmpLabelMine}>{t('common.me')}</Text>
               <Text style={s.cmpValueMine}>{fmtHm(mine)}</Text>
             </View>
             <View style={s.cmpTrack}>
@@ -816,13 +845,21 @@ function CompareCard({
           </View>
           <Text style={s.cmpCaption}>
             {ahead
-              ? `${cur.label}보다 ${fmtHm(Math.abs(delta))} 더 집중했어요.`
-              : `${cur.label}까지 ${fmtHm(Math.abs(delta))} 남았어요. 오늘도 한 걸음!`}
+              ? t('focus.resultScreen.compareAhead', {
+                  label: cur.label,
+                  amount: fmtHm(Math.abs(delta)),
+                })
+              : t('focus.resultScreen.compareBehind', {
+                  label: cur.label,
+                  amount: fmtHm(Math.abs(delta)),
+                })}
           </Text>
         </>
       ) : (
         // 로딩·미확보 — 텍스트 안내(GROMO-755: 티저 제거, 3축 모두 실데이터)
-        <Text style={s.cmpCaption}>{cur.loading ? '불러오는 중…' : cur.empty}</Text>
+        <Text style={s.cmpCaption}>
+          {cur.loading ? t('focus.resultScreen.loading') : cur.empty}
+        </Text>
       )}
     </View>
   );

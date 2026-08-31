@@ -18,12 +18,13 @@ import { fadeIn } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { Enter } from '@/components/Enter';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
 import { getFocusPeriodStats, getHeatmap } from '@/services/statsApi';
 import { localDateStr, todayStrKst } from '@/utils/localDate';
 import { fmtHm } from '@/utils/timeFormat';
 import { calendarPage, calendarRows, grassLevel, kstTodayDate } from './format';
-import { CAL_CELL_ASPECT, CAL_GRID_GAP, CAL_RAMP, WEEK_DAYS } from './constants';
+import { CAL_CELL_ASPECT, CAL_GRID_GAP, CAL_RAMP, WEEK_DAY_KEYS } from './constants';
 import { CardBodyError } from './CardBodySlot';
 
 interface Props {
@@ -227,20 +228,21 @@ export function CalendarCard({
     if (picked == null) return null;
     const c = byDate.get(picked);
     const [y, m, d] = picked.split('-').map(Number);
-    const dow = WEEK_DAYS[(new Date(y, m - 1, d).getDay() + 6) % 7];
+    const dow = t(WEEK_DAY_KEYS[(new Date(y, m - 1, d).getDay() + 6) % 7]);
     const isToday = picked === todayKey;
     const min = c?.totalFocusMinutes ?? 0;
     const sessions = c?.sessionCount ?? 0;
     // 서버가 초→분 내림해 0분이어도 세션이 있을 수 있어 '1분 미만'으로 구분(기존 잔디 정보줄 승계)
-    const focusText = min > 0 ? fmtHm(min) : sessions > 0 ? '1분 미만' : fmtHm(0);
+    const focusText =
+      min > 0 ? fmtHm(min) : sessions > 0 ? t('stats.calendar.lessThanMinute') : fmtHm(0);
     const focusOk = focusOkFor(picked, c);
     return {
-      head: `${m}월 ${d}일 (${dow}) · 집중 ${focusText}`,
+      head: t('stats.calendar.pickHead', { month: m, day: d, weekday: dow, focus: focusText }),
       // 달성(true)은 항상 표시, 미달 ✗는 오늘·목표 미설정이면 숨김(과거 목표 미설정일 ✗ 오표시 방지)
       focusMark: focusOk ? true : isToday || !focusGoalSet ? null : false,
-      phone: ` · 폰 ${fmtHm(c?.actualScreenTimeMinutes ?? 0)}`,
+      phone: t('stats.calendar.pickPhone', { value: fmtHm(c?.actualScreenTimeMinutes ?? 0) }),
       phoneMark: phoneOkFor(picked, c) ? true : isToday || !phoneGoalSet ? null : false,
-      tail: ` · 세션 ${sessions}회`,
+      tail: t('stats.calendar.pickSessions', { count: sessions }),
     };
   })();
 
@@ -278,14 +280,23 @@ export function CalendarCard({
       </View>
 
       <Text style={s.total} allowFontScaling={false}>
-        {noData ? '총 집중 —' : `총 집중 ${Math.floor(totalMin / 60)}시간 ${totalMin % 60}분`}
+        {noData
+          ? t('stats.calendar.totalEmpty')
+          : t('stats.calendar.total', {
+              hours: Math.floor(totalMin / 60),
+              minutes: totalMin % 60,
+            })}
       </Text>
 
       {/* ── 요일 헤더 ── */}
       <View style={s.dowRow}>
-        {WEEK_DAYS.map((d, i) => (
-          <Text key={d} allowFontScaling={false} style={[s.dowText, i === 6 ? s.dowSun : null]}>
-            {d}
+        {WEEK_DAY_KEYS.map((dayKey, i) => (
+          <Text
+            key={dayKey}
+            allowFontScaling={false}
+            style={[s.dowText, i === 6 ? s.dowSun : null]}
+          >
+            {t(dayKey)}
           </Text>
         ))}
       </View>

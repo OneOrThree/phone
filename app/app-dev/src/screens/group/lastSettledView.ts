@@ -8,6 +8,7 @@
 // ⚠️ 분업(계약·형제 PR): 카드 표시용은 `lastSettledSession`, **결과 모달 큐는
 //    `/me/challenge-results`**(A2 소유 축, N53)다. 이 파일은 카드 축만 다룬다 — 모달 큐를
 //    여기서 만들지 않는다.
+import { t } from '@/i18n';
 import type {
   GroupBetStatus,
   GroupChallengeResponse,
@@ -60,17 +61,25 @@ const VOID_REASON_ALIASES: Readonly<Record<string, VoidReasonKey>> = {
 
 // 키별 문구 조각. summary = 카드 한 줄(집계 자리를 대신한다), cause = 시트 배너의 앞 문장.
 // 배너는 여기에 환불 사실을 이어 붙인다 — 돈이 어디 갔는지 침묵하면 "코인이 사라졌다"로 읽힌다.
-const VOID_REASON_LABELS: Readonly<Record<VoidReasonKey, { summary: string; cause: string }>> = {
-  SHORT_PARTICIPANTS: { summary: '참가자가 부족해 무산', cause: '참가자가 부족해 무산됐어요' },
-  CHALLENGE_DELETED: { summary: '챌린지 삭제로 무효', cause: '챌린지가 삭제돼 무효가 됐어요' },
-  // 24h 초과 자동 환불 — **무효가 아니라 환불**이다. 정본 문구는 IA §4.3의
-  // `정산이 지연돼 참가비를 돌려드렸어요`이고, 아래 REFUNDED_TAIL이 뒷문장을 맡으므로
-  // cause에는 앞부분만 둔다(다른 사유들과 같은 조립 규칙).
-  REFUND_DEADLINE: { summary: '정산이 지연돼 환불', cause: '정산이 지연됐어요' },
-};
-
-// 환불 사실 — 두 화면이 같은 문장을 쓴다(카드는 자리가 좁아 요약만, 시트는 여기까지 말한다).
-const REFUNDED_TAIL = '참가비는 돌려드렸어요';
+// 문구가 아니라 **번역 키**를 담는다 — 모듈 최상위에서 t()를 부르면 로케일 결정 전에 굳는다.
+const VOID_REASON_LABEL_KEYS: Readonly<Record<VoidReasonKey, { summary: string; cause: string }>> =
+  {
+    SHORT_PARTICIPANTS: {
+      summary: 'group.lastSettledView.shortParticipantsSummary',
+      cause: 'group.lastSettledView.shortParticipantsCause',
+    },
+    CHALLENGE_DELETED: {
+      summary: 'group.lastSettledView.challengeDeletedSummary',
+      cause: 'group.lastSettledView.challengeDeletedCause',
+    },
+    // 24h 초과 자동 환불 — **무효가 아니라 환불**이다. 정본 문구는 IA §4.3의
+    // `정산이 지연돼 참가비를 돌려드렸어요`이고, voidBanner 문장이 뒷문장을 맡으므로
+    // cause에는 앞부분만 둔다(다른 사유들과 같은 조립 규칙).
+    REFUND_DEADLINE: {
+      summary: 'group.lastSettledView.refundDeadlineSummary',
+      cause: 'group.lastSettledView.refundDeadlineCause',
+    },
+  };
 
 /**
  * 24시간 초과 자동 환불의 요약 — **달성자가 없어서가 아니라** 정산이 24시간을 넘겨 환불된
@@ -80,7 +89,9 @@ const REFUNDED_TAIL = '참가비는 돌려드렸어요';
  * 상태만 온 `REFUNDED`(구서버)는 내역이 이 상수로 떨어진다 — **두 경로가 한 문자열**이다.
  * 표에서 직접 꺼내는 이유도 그것이다(사본을 만들면 화면마다 말이 갈린다).
  */
-export const AUTO_REFUND_SUMMARY = VOID_REASON_LABELS.REFUND_DEADLINE.summary;
+export function autoRefundSummary(): string {
+  return t(VOID_REASON_LABEL_KEYS.REFUND_DEADLINE.summary);
+}
 
 /**
  * 서버 사유 값 → 정규화 키. 모르는 값·없음은 null — **폴백 판단도 여기 한 곳**에서 난다.
@@ -97,7 +108,7 @@ export function voidReasonKey(voidReason: string | null | undefined): VoidReason
  */
 export function voidSummary(voidReason: string | null): string | null {
   const key = voidReasonKey(voidReason);
-  return key === null ? null : VOID_REASON_LABELS[key].summary;
+  return key === null ? null : t(VOID_REASON_LABEL_KEYS[key].summary);
 }
 
 /**
@@ -106,7 +117,9 @@ export function voidSummary(voidReason: string | null): string | null {
  */
 export function voidBanner(voidReason: string | null): string | null {
   const key = voidReasonKey(voidReason);
-  return key === null ? null : `${VOID_REASON_LABELS[key].cause}. ${REFUNDED_TAIL}`;
+  return key === null
+    ? null
+    : t('group.lastSettledView.voidBanner', { cause: t(VOID_REASON_LABEL_KEYS[key].cause) });
 }
 
 /** 표시 모델 + v2에만 있는 곁가지(무효화 사유) — 시트가 문장을 가르는 데 쓴다. */

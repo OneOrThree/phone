@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import type { GroupChallengeResponse } from '@/types/dto/group';
 
 // 챌린지 미션 한 줄 요약 — 챌린지 카드와 내기 시트가 **같은 문장**을 써야 해서 여기로 뺐다.
@@ -48,24 +49,45 @@ function hhmm(v: string): string {
 
 // 값이 모자라면 null — 호출부가 카테고리 명사('집중 시간'·'스크린타임')로 떨어뜨린다.
 export function missionLabel(c: MissionLabelSource, opts: MissionLabelOptions = {}): string | null {
-  const what = c.missionCategory === 'SCREEN_TIME' ? '스크린타임' : '집중';
+  const what = t(
+    c.missionCategory === 'SCREEN_TIME'
+      ? 'group.challengeLabel.screenTime'
+      : 'group.challengeLabel.focus',
+  );
   // 목표 방향 — 목표분이 실제로 적히는 문장에만 붙는다(분이 없으면 「이하」의 대상이 없다).
-  const atMost = opts.direction === true && c.missionCategory === 'SCREEN_TIME' ? ' 이하' : '';
+  const atMost =
+    opts.direction === true && c.missionCategory === 'SCREEN_TIME'
+      ? t('group.challengeLabel.atMost')
+      : '';
   if (c.missionType === 'DURATION' && c.durationMinutes) {
-    return `하루 ${c.durationMinutes}분${atMost} ${what}`;
+    return t('group.challengeLabel.daily', { minutes: c.durationMinutes, atMost, what });
   }
   if (c.missionType === 'TIME_WINDOW' && c.windowStart && c.windowEnd) {
     // 창 목표분(V20 additive)이 있으면 함께 적는다 — 창 시각만 적으면 '그 시간 내내'로 읽힌다.
     // 없으면(구 창 챌린지·구서버) 기존 문장 그대로 — 목표를 지어내지 않는다.
-    const when = `${opts.everyday === false ? '' : '매일 '}${hhmm(c.windowStart)}~${hhmm(c.windowEnd)}`;
+    const when = t(
+      opts.everyday === false
+        ? 'group.challengeLabel.window'
+        : 'group.challengeLabel.windowEveryday',
+      { start: hhmm(c.windowStart), end: hhmm(c.windowEnd) },
+    );
     return c.durationMinutes
-      ? `${when} ${c.durationMinutes}분${atMost} ${what}`
-      : `${when} ${what}`;
+      ? t('group.challengeLabel.windowWithMinutes', {
+          when,
+          minutes: c.durationMinutes,
+          atMost,
+          what,
+        })
+      : t('group.challengeLabel.windowOnly', { when, what });
   }
   return null;
 }
 
 // 라벨을 못 만든 카드의 폴백 — 고르는 자리(세그먼트)의 카테고리 명칭과 맞춘다.
 export function categoryLabel(c: Pick<MissionLabelSource, 'missionCategory'>): string {
-  return c.missionCategory === 'SCREEN_TIME' ? '스크린타임' : '집중 시간';
+  return t(
+    c.missionCategory === 'SCREEN_TIME'
+      ? 'group.challengeLabel.categoryScreenTime'
+      : 'group.challengeLabel.categoryFocus',
+  );
 }

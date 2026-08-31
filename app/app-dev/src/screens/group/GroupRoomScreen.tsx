@@ -15,6 +15,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
@@ -125,13 +126,13 @@ function staleBetSheetAlert(
     // 구버전에 붙으면 undefined가 null로 뭉개져 시트가 그대로 남고, 없는 엔드포인트로
     // 개설 요청만 나간다 — 카드는 이미 진입점을 숨긴 상태다(코덱스 리뷰).
     if (challenge.bet === undefined) {
-      return ['내기를 열 수 없어요', '지금은 내기를 이용할 수 없어요. 잠시 후 다시 시도해 주세요.'];
+      return [t('group.roomScreen.betUnavailableTitle'), t('group.roomScreen.betUnavailableBody')];
     }
     // 끝난 챌린지에는 새로 돈을 걸 수 없다 — 카드가 진입점을 막는 기준과 같다.
     // 서버 개설 경로는 상태를 보지 않아 그대로 열리므로, 여기서 막지 않으면 앱이 종료로
     // 취급하는 챌린지에 판돈만 빠져나간 내기가 생긴다.
     if (challenge.status !== 'ACTIVE') {
-      return ['끝난 챌린지예요', '종료된 챌린지에는 내기를 열 수 없어요.'];
+      return [t('group.roomScreen.challengeEndedTitle'), t('group.roomScreen.betCreateEndedBody')];
     }
     if (live === null) return null;
     // 서버는 오늘 내기가 없으면 **내일** OPEN 내기를 폴백으로 내려줄 수 있다(계약 §3 응답 보수) —
@@ -139,23 +140,30 @@ function staleBetSheetAlert(
     // BetSheet.sentTomorrow와 같은 결). date가 없으면(구서버) 조회일(오늘) 내기로 간주한다(DTO 주석).
     const liveTomorrow = (live.date ?? todayStrKst()) > todayStrKst();
     return [
-      liveTomorrow ? '이미 내일 내기가 열려 있어요' : '이미 오늘 내기가 열려 있어요',
-      '최신 상태예요. 참가하려면 다시 열어 주세요.',
+      liveTomorrow
+        ? t('group.roomScreen.betAlreadyOpenTomorrowTitle')
+        : t('group.roomScreen.betAlreadyOpenTodayTitle'),
+      t('group.roomScreen.betAlreadyOpenBody'),
     ];
   }
   // 참가 모드에서는 구버전 응답(undefined)도 이 검사에 함께 걸린다 — live가 null로 뭉개지면서
   // '내기가 바뀌었어요'로 닫히기 때문에 따로 분기를 두지 않는다.
   if (live === null || live.betId !== sheet.betId) {
-    return ['내기가 바뀌었어요', '최신 내기로 다시 열어 주세요.'];
+    return [t('group.roomScreen.betChangedTitle'), t('group.roomScreen.betChangedBody')];
   }
   // 참가 진입점도 카드에서 betOpenable을 함께 요구한다(bet.status === 'OPEN' && betOpenable) —
   // 내기만 OPEN인 채 챌린지가 INACTIVE로 바뀌면 카드의 참가 행은 사라지는데 열린 시트만 판돈
   // 차감 요청을 보낼 수 있다. 개설 쪽 상태 검사와 대칭으로 막는다(코덱스 리뷰).
   if (challenge.status !== 'ACTIVE') {
-    return ['끝난 챌린지예요', '종료된 챌린지의 내기에는 참가할 수 없어요.'];
+    return [t('group.roomScreen.challengeEndedTitle'), t('group.roomScreen.betJoinEndedBody')];
   }
-  if (live.status !== 'OPEN') return ['마감된 내기예요', '이미 마감돼 참가할 수 없어요.'];
-  if (live.myJoined) return ['이미 참가한 내기예요', '최신 상태로 새로고침했어요.'];
+  if (live.status !== 'OPEN')
+    return [t('group.roomScreen.betClosedTitle'), t('group.roomScreen.betClosedBody')];
+  if (live.myJoined)
+    return [
+      t('group.roomScreen.betAlreadyJoinedTitle'),
+      t('group.roomScreen.betAlreadyJoinedBody'),
+    ];
   return null;
 }
 
@@ -905,7 +913,7 @@ export default function GroupRoomScreen({
   const isOwner = me?.role === 'OWNER';
   const canWriteNotice = isOwner || (!!userId && !!detail?.noticeGrantedUserIds.includes(userId));
 
-  const name = detail?.name ?? summary?.name ?? '내 그룹';
+  const name = detail?.name ?? summary?.name ?? t('group.roomScreen.groupFallbackName');
   const memberCount = detail?.members.length ?? summary?.currentMembers ?? 0;
   const maxMembers = detail?.maxMembers ?? summary?.maxMembers ?? 0;
   const isPrivate = detail?.isPrivate ?? summary?.isPrivate ?? false;
@@ -937,7 +945,7 @@ export default function GroupRoomScreen({
     } catch {
       // 폴백 링크는 두지 않는다 — slug 없는 링크는 서버가 모르는 주소라 404로 끝난다.
       // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다.
-      await showAlert.afterSlot('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+      await showAlert.afterSlot(t('group.roomScreen.inviteFailTitle'), t('common.retryLater'));
       return;
     }
     // ⚠️ 요청만 하고 넘어가면 안 된다 — 기다리는 사이 결과 모달이 먼저 노출되면
@@ -1018,13 +1026,17 @@ export default function GroupRoomScreen({
           // 전환 뒤 늦게 온 실패는 지금 보는 그룹 위에 띄우지 않는다(A-7).
           alertIfCurrent(
             groupId,
-            '챌린지를 삭제할 수 없어요',
-            '진행 중인 내기가 있어 삭제할 수 없어요.',
+            t('group.roomScreen.challengeDeleteBlockedTitle'),
+            t('group.roomScreen.challengeDeleteBlockedBody'),
           );
           return;
         }
         if (code !== 'NOT_FOUND') {
-          alertIfCurrent(groupId, '챌린지를 삭제하지 못했어요', '잠시 후 다시 시도해 주세요.');
+          alertIfCurrent(
+            groupId,
+            t('group.roomScreen.challengeDeleteFailTitle'),
+            t('common.retryLater'),
+          );
           return;
         }
       }
@@ -1041,7 +1053,7 @@ export default function GroupRoomScreen({
       style={s.backBtn}
       onPress={onBack}
       activeOpacity={0.7}
-      accessibilityLabel="뒤로"
+      accessibilityLabel={t('common.back')}
     >
       <Ionicons name="chevron-back" size={18} color={T.inkSub} />
     </TouchableOpacity>
@@ -1078,7 +1090,7 @@ export default function GroupRoomScreen({
         style={s.moreBtn}
         activeOpacity={0.7}
         onPress={() => navigation.navigate('GroupSettings', { groupId })}
-        accessibilityLabel="그룹 설정"
+        accessibilityLabel={t('group.roomScreen.settingsA11y')}
       >
         <Ionicons name="ellipsis-horizontal" size={18} color={T.ink} />
       </TouchableOpacity>
@@ -1156,13 +1168,11 @@ export default function GroupRoomScreen({
       <View style={s.fill} testID="group.room.refundNotice">
         {!!backButton && <View style={s.backRow}>{backButton}</View>}
         <View style={s.center}>
-          <Text style={s.errorTitle}>참가비가 환불됐어요</Text>
-          <Text style={s.errorDesc}>
-            걸었던 참가비를 돌려드렸어요.{'\n'}잔액에 이미 반영했어요.
-          </Text>
-          <Text style={s.errorDesc}>지금은 이 그룹에 속해 있지 않아 방을 열 수 없어요.</Text>
+          <Text style={s.errorTitle}>{t('group.roomScreen.refundedTitle')}</Text>
+          <Text style={s.errorDesc}>{t('group.roomScreen.refundedBody')}</Text>
+          <Text style={s.errorDesc}>{t('group.roomScreen.refundedNotMember')}</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={onLeft}>
-            <Text style={s.retryText}>확인</Text>
+            <Text style={s.retryText}>{t('common.confirm')}</Text>
           </TouchableOpacity>
         </View>
         {/* 환불과 무관한 다른 정산 결과가 큐에 남아 있으면 루트 호스트가 이 안내 **위에** 띄운다
@@ -1176,10 +1186,10 @@ export default function GroupRoomScreen({
       <View style={s.fill}>
         {!!backButton && <View style={s.backRow}>{backButton}</View>}
         <View style={s.center}>
-          <Text style={s.errorTitle}>그룹을 불러오지 못했어요</Text>
-          <Text style={s.errorDesc}>잠시 후 다시 시도해 주세요.</Text>
+          <Text style={s.errorTitle}>{t('group.roomScreen.loadFailed')}</Text>
+          <Text style={s.errorDesc}>{t('common.retryLater')}</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={onRetry}>
-            <Text style={s.retryText}>다시 시도</Text>
+            <Text style={s.retryText}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -1231,9 +1241,9 @@ export default function GroupRoomScreen({
         {/* ── 재조회 실패 배너 — 기존 데이터를 지우지 않고 '지금 보는 값이 옛것'임을 알린다 ── */}
         {error && !!detail && (
           <View style={s.banner}>
-            <Text style={s.bannerText}>최신 정보를 불러오지 못했어요</Text>
+            <Text style={s.bannerText}>{t('group.roomScreen.staleBanner')}</Text>
             <TouchableOpacity onPress={onRetry} hitSlop={12} activeOpacity={0.7}>
-              <Text style={s.bannerRetry}>다시 시도</Text>
+              <Text style={s.bannerRetry}>{t('common.retry')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1247,7 +1257,7 @@ export default function GroupRoomScreen({
           <>
             {/* ── 공지 ── */}
             <View style={s.sectionHead}>
-              <Text style={s.sectionTitle}>공지</Text>
+              <Text style={s.sectionTitle}>{t('group.roomScreen.noticeSection')}</Text>
               {noticeList.length > 0 && (
                 <TouchableOpacity
                   style={s.moreRow}
@@ -1255,7 +1265,7 @@ export default function GroupRoomScreen({
                   onPress={openNotice}
                   hitSlop={12}
                 >
-                  <Text style={s.moreLink}>모두보기</Text>
+                  <Text style={s.moreLink}>{t('group.roomScreen.seeAll')}</Text>
                   <Ionicons name="chevron-forward" size={11} color={T.accent} />
                 </TouchableOpacity>
               )}
@@ -1267,25 +1277,27 @@ export default function GroupRoomScreen({
               <View style={s.emptyNotice}>
                 <View style={s.emptyErrorRow}>
                   <Ionicons name="alert-circle-outline" size={15} color={T.dangerInk} />
-                  <Text style={s.emptyErrorText}>공지를 불러오지 못했어요</Text>
+                  <Text style={s.emptyErrorText}>{t('group.roomScreen.noticeLoadFailed')}</Text>
                 </View>
                 <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={reload}>
-                  <Text style={s.writeText}>다시 시도</Text>
+                  <Text style={s.writeText}>{t('common.retry')}</Text>
                 </TouchableOpacity>
               </View>
             ) : noticeList.length === 0 ? (
               <View style={s.emptyNotice}>
-                <Text style={s.emptyNoticeText}>아직 공지가 없어요</Text>
+                <Text style={s.emptyNoticeText}>{t('group.roomScreen.noticeEmpty')}</Text>
                 {canWriteNotice && (
                   <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={openNotice}>
-                    <Text style={s.writeText}>공지 쓰기</Text>
+                    <Text style={s.writeText}>{t('group.roomScreen.noticeCompose')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
             ) : (
               <View style={s.noticeList}>
                 {/* 목록은 있는데 갱신만 실패 — 기존 공지를 그대로 두고 한 줄로 알린다. */}
-                {noticeError && <Text style={s.bannerText}>공지를 새로고침하지 못했어요</Text>}
+                {noticeError && (
+                  <Text style={s.bannerText}>{t('group.roomScreen.noticeRefreshFailed')}</Text>
+                )}
                 {noticeList.slice(0, NOTICE_PREVIEW).map((n) => (
                   <TouchableOpacity
                     key={n.id}
@@ -1304,7 +1316,7 @@ export default function GroupRoomScreen({
 
             {/* ── 챌린지(2차 §3-2) — 공지 아래·멤버 그리드 위 ── */}
             <View style={s.sectionHead}>
-              <Text style={s.sectionTitle}>챌린지</Text>
+              <Text style={s.sectionTitle}>{t('group.roomScreen.challengeSection')}</Text>
               {/* 조회 실패 중에는 이 진입점도 함께 막는다 — 아래 빈 상태의 '만들기'만 막으면
               existingCombos가 빈 배열인 채로 시트가 열려, 서버에 이미 있는 조합을 고를 수
               있게 되고 생성은 ACTIVE_CHALLENGE_EXISTS로 확정 실패한다. */}
@@ -1317,7 +1329,7 @@ export default function GroupRoomScreen({
                     setComposeOpen(true);
                   }}
                   hitSlop={12}
-                  accessibilityLabel="챌린지 만들기"
+                  accessibilityLabel={t('group.roomScreen.challengeCreate')}
                   testID="group.challenge.add"
                 >
                   <Ionicons name="add" size={16} color={T.accent} />
@@ -1331,15 +1343,15 @@ export default function GroupRoomScreen({
               <View style={s.emptyNotice}>
                 <View style={s.emptyErrorRow}>
                   <Ionicons name="alert-circle-outline" size={15} color={T.dangerInk} />
-                  <Text style={s.emptyErrorText}>챌린지를 불러오지 못했어요</Text>
+                  <Text style={s.emptyErrorText}>{t('group.roomScreen.challengeLoadFailed')}</Text>
                 </View>
                 <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={reload}>
-                  <Text style={s.writeText}>다시 시도</Text>
+                  <Text style={s.writeText}>{t('common.retry')}</Text>
                 </TouchableOpacity>
               </View>
             ) : challengeList.length === 0 ? (
               <View style={s.emptyNotice}>
-                <Text style={s.emptyNoticeText}>아직 챌린지가 없어요</Text>
+                <Text style={s.emptyNoticeText}>{t('group.roomScreen.challengeEmpty')}</Text>
                 {isOwner && (
                   <TouchableOpacity
                     style={s.writeBtn}
@@ -1349,14 +1361,16 @@ export default function GroupRoomScreen({
                       setComposeOpen(true);
                     }}
                   >
-                    <Text style={s.writeText}>챌린지 만들기</Text>
+                    <Text style={s.writeText}>{t('group.roomScreen.challengeCreate')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
             ) : (
               <View style={s.noticeList}>
                 {/* 목록은 있는데 갱신만 실패 — 기존 카드를 그대로 두고 한 줄로 알린다. */}
-                {challengeError && <Text style={s.bannerText}>챌린지를 새로고침하지 못했어요</Text>}
+                {challengeError && (
+                  <Text style={s.bannerText}>{t('group.roomScreen.challengeRefreshFailed')}</Text>
+                )}
                 {challengeList.map((c) => (
                   <ChallengeCard
                     key={c.id}
@@ -1412,13 +1426,13 @@ export default function GroupRoomScreen({
               accessibilityRole="button"
               testID="group.challenge.history"
             >
-              <Text style={s.historyLinkText}>챌린지 내역</Text>
+              <Text style={s.historyLinkText}>{t('group.roomScreen.challengeHistoryLink')}</Text>
               <Ionicons name="chevron-forward" size={13} color={T.inkMuted} />
             </TouchableOpacity>
 
             {/* ── 멤버 ── */}
             <View style={s.sectionHead}>
-              <Text style={s.sectionTitle}>멤버</Text>
+              <Text style={s.sectionTitle}>{t('group.roomScreen.memberSection')}</Text>
             </View>
             <View style={s.grid}>
               {memberRows.map((row, rowIdx) => (
@@ -1434,7 +1448,9 @@ export default function GroupRoomScreen({
                       >
                         <Ionicons name="add" size={22} color={isFull ? T.inkMuted : T.accent} />
                         <Text style={[s.inviteTileText, isFull && s.inviteTileTextOff]}>
-                          {isFull ? '정원 가득' : '초대'}
+                          {isFull
+                            ? t('group.roomScreen.tileFull')
+                            : t('group.roomScreen.tileInvite')}
                         </Text>
                       </TouchableOpacity>
                     ) : (

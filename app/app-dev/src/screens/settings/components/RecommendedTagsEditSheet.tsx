@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Text, TouchableOpacity, ScrollView, View, StyleSheet } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { SheetShell } from '@/components/SheetShell';
 import { CheckRow, SelectAllRow } from './TagCheckRows';
 import type { Subject } from '@/screens/focus/types';
@@ -50,12 +51,13 @@ export function RecommendedTagsEditSheet({
 
   return (
     <SheetShell onClose={onCancel}>
-      <Text style={s.title}>{examLabel} 추천 과목을 수정해요</Text>
+      <Text style={s.title}>{t('settings.tagSheet.editTitle', { exam: examLabel })}</Text>
       {recommendations.length > 0 ? (
         <>
           <Text style={s.sub}>
-            추가할 과목은 체크, 뺄 과목은 체크를 해제하세요.{'\n'}
-            <Text style={s.subDanger}>체크를 해제한 과목의 집중 기록은 사라져요.</Text>
+            {t('settings.tagSheet.editSubLead')}
+            {'\n'}
+            <Text style={s.subDanger}>{t('settings.tagSheet.editSubDanger')}</Text>
           </Text>
           <SelectAllRow
             checked={allChecked}
@@ -64,7 +66,7 @@ export function RecommendedTagsEditSheet({
           />
         </>
       ) : (
-        <Text style={s.sub}>수정할 추천 과목이 없어요.</Text>
+        <Text style={s.sub}>{t('settings.tagSheet.editEmpty')}</Text>
       )}
 
       <ScrollView style={s.listScroll} showsVerticalScrollIndicator={false}>
@@ -82,7 +84,7 @@ export function RecommendedTagsEditSheet({
       </ScrollView>
 
       <TouchableOpacity style={s.doneBtn} activeOpacity={0.85} onPress={finish}>
-        <Text style={s.doneText}>완료하기</Text>
+        <Text style={s.doneText}>{t('settings.tagSheet.done')}</Text>
       </TouchableOpacity>
     </SheetShell>
   );

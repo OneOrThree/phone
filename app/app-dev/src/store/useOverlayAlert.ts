@@ -25,6 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Alert, type AlertButton } from 'react-native';
 import { readCurrentRouteIdentity, subscribeCurrentRoute } from '@/navigation/navigationRef';
+import { t } from '@/i18n';
 import { OVERLAY_PRIORITY, useOverlaySlotActions } from './OverlaySlotContext';
 
 /**
@@ -136,7 +137,8 @@ export function useOverlayAlert(id: string): typeof Alert.alert & {
         if (openCountRef.current === 0) actionsRef.current?.release(id);
       };
       // 버튼이 없으면 RN이 확인 하나를 그린다 — 우리가 같은 것을 명시해 **닫힘 콜백을 얻는다.**
-      const list: AlertButton[] = buttons && buttons.length > 0 ? buttons : [{ text: '확인' }];
+      const list: AlertButton[] =
+        buttons && buttons.length > 0 ? buttons : [{ text: t('common.confirm') }];
       const wrapped = list.map((button) => ({
         ...button,
         onPress: (value?: string) => {

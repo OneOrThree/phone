@@ -1,5 +1,6 @@
 import { View, StyleSheet } from 'react-native';
 import { DrumPicker } from '@/components/DrumPicker';
+import { t } from '@/i18n';
 
 // 시간·분(5분 단위) 두 휠로 목표 시간을 고르는 드럼 피커 (GROMO-969).
 // 컨트롤드: 휠 선택으로 계산한 총 분을 [minMinutes, maxMinutes]로 클램프해 onChange로 올린다.
@@ -8,7 +9,6 @@ import { DrumPicker } from '@/components/DrumPicker';
 // minMinutes·maxMinutes는 5분 배수를 전제로 한다(아니면 휠에 없는 값으로 클램프될 수 있음).
 
 const MINUTE_STEP = 5;
-const MINUTE_ITEMS = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => `${i * MINUTE_STEP}분`);
 
 export function DurationDrumPicker({
   minMinutes,
@@ -22,7 +22,13 @@ export function DurationDrumPicker({
   onChange: (minutes: number) => void;
 }) {
   const maxHours = Math.floor(maxMinutes / 60);
-  const hourItems = Array.from({ length: maxHours + 1 }, (_, h) => `${h}시간`);
+  // 라벨은 렌더 시점에 만든다 — 모듈 최상위에서 t()를 부르면 로케일 확정 전 값으로 굳는다.
+  const hourItems = Array.from({ length: maxHours + 1 }, (_, h) =>
+    t('components.durationDrumPicker.hour', { count: h }),
+  );
+  const minuteItems = Array.from({ length: 60 / MINUTE_STEP }, (_, i) =>
+    t('components.durationDrumPicker.minute', { count: i * MINUTE_STEP }),
+  );
 
   const hours = Math.floor(value / 60);
   const minutes = value % 60;
@@ -39,7 +45,7 @@ export function DurationDrumPicker({
       </View>
       <View style={s.col}>
         <DrumPicker
-          items={MINUTE_ITEMS}
+          items={minuteItems}
           selectedIndex={minutes / MINUTE_STEP}
           onChange={(i) => commit(hours, i * MINUTE_STEP)}
         />

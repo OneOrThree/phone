@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { Modal, View, Text, TouchableOpacity, Animated, StyleSheet } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useOnboardingStepName } from '@/screens/onboarding/components/OnboardingStepContext';
 import { logOnboardingStepAction } from '@/services/analyticsEvents';
 import type { SystemColorScheme } from '@/services/ScreenTimeModule';
@@ -111,18 +112,16 @@ export default function ScreenTimeGuideOverlay({
         {requesting ? null : (
           <>
             <View style={s.guide}>
-              <Text style={s.guideTitle}>잠깐! 승인 버튼은 왼쪽이에요</Text>
-              <Text style={s.guideSub}>
-                파란 버튼은 '허용 안 함'이에요.{'\n'}아래 미리보기의 '계속'을 눌러 주세요.
-              </Text>
+              <Text style={s.guideTitle}>{t('onboarding.screenTimeGuide.title')}</Text>
+              <Text style={s.guideSub}>{t('onboarding.screenTimeGuide.sub')}</Text>
             </View>
             <View style={[s.card, { backgroundColor: c.card }]}>
+              {/* 아래 두 문구는 실제 iOS 권한창 복제본 — 시스템 창이 기기 언어로 뜨므로 함께 번역한다. */}
               <Text style={[s.cardTitle, { color: c.title }]}>
-                ‘gromo’ 앱이 스크린 타임에 접근하려고 함
+                {t('onboarding.screenTimeGuide.alertTitle')}
               </Text>
               <Text style={[s.cardBody, { color: c.body }]}>
-                ‘gromo’에 스크린 타임 접근을 허용하면, 이 앱이 사용자의 활동 데이터를 보고, 콘텐츠를
-                제한하며, 앱 및 웹사이트의 사용을 제한할 수도 있습니다.
+                {t('onboarding.screenTimeGuide.alertBody')}
               </Text>
               <View style={s.btnRow}>
                 <TouchableOpacity
@@ -143,7 +142,9 @@ export default function ScreenTimeGuideOverlay({
                     { backgroundColor: c.continueBg, borderColor: c.ring },
                   ]}
                 >
-                  <Text style={[s.pillText, { color: c.continueText }]}>계속</Text>
+                  <Text style={[s.pillText, { color: c.continueText }]}>
+                    {t('onboarding.screenTimeGuide.continue')}
+                  </Text>
                 </TouchableOpacity>
                 <Animated.View style={[s.flex1, { transform: [{ translateX: shakeX }] }]}>
                   <TouchableOpacity
@@ -158,19 +159,25 @@ export default function ScreenTimeGuideOverlay({
                     }}
                     style={[s.pill, { backgroundColor: c.denyBg }]}
                   >
-                    <Text style={[s.pillText, s.denyText]}>허용 안 함</Text>
+                    <Text style={[s.pillText, s.denyText]}>
+                      {t('onboarding.screenTimeGuide.deny')}
+                    </Text>
                   </TouchableOpacity>
                 </Animated.View>
                 <View style={s.bubbleWrap} pointerEvents="none">
                   <View style={s.bubble}>
-                    <Text style={s.bubbleText}>이 버튼이 승인이에요</Text>
+                    <Text style={s.bubbleText}>{t('onboarding.screenTimeGuide.bubble')}</Text>
                   </View>
                   <View style={s.bubbleArrow} />
                 </View>
               </View>
               <View style={s.btnLabels}>
-                <Text style={[s.btnLabel, { color: c.okLabel }]}>승인돼요</Text>
-                <Text style={[s.btnLabel, { color: c.noLabel }]}>이쪽은 거부예요</Text>
+                <Text style={[s.btnLabel, { color: c.okLabel }]}>
+                  {t('onboarding.screenTimeGuide.okLabel')}
+                </Text>
+                <Text style={[s.btnLabel, { color: c.noLabel }]}>
+                  {t('onboarding.screenTimeGuide.noLabel')}
+                </Text>
               </View>
             </View>
           </>

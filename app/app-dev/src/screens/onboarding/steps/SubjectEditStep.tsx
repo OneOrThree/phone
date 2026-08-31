@@ -2,6 +2,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import InfoNote, { NoteStrong } from '@/screens/onboarding/components/InfoNote';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { eunNeun } from '@/screens/onboarding/format';
 import type { StepProps } from '@/screens/onboarding/types';
 
@@ -11,14 +12,15 @@ import type { StepProps } from '@/screens/onboarding/types';
 // 개별 행이 버튼처럼 보인다는 피드백(GROMO-821) — 카드를 낱개로 쪼개지 않고 한 박스
 // 안에 행을 나열하고 ▶아이콘·굵은 강조를 덜어, '누르는 버튼'이 아닌 정보 리스트로 읽히게 한다.
 export default function SubjectEditStep({ data, onNext }: StepProps) {
-  const category = data.focusCategory ?? '이 목표';
+  const category = data.focusCategory ?? t('onboarding.subjectEdit.categoryFallback');
   const subjects = data.subjects;
 
   return (
     <StepScaffold
       testID="onboarding.step.subjectEdit"
-      title={`${category}${eunNeun(category)} 이 과목들로\n공부 시간을 비교해요`}
-      ctaLabel="좋아요!"
+      // particle(은/는)은 한국어 문구에서만 쓰는 치환값 — 다른 언어 문구는 이 값을 무시한다.
+      title={t('onboarding.subjectEdit.title', { category, particle: eunNeun(category) })}
+      ctaLabel={t('onboarding.subjectEdit.cta')}
       onCta={onNext}
       scrollable
     >
@@ -33,8 +35,11 @@ export default function SubjectEditStep({ data, onNext }: StepProps) {
       {/* GROMO-970 — 공통 과목=비교용·직접 추가=기록용 안내(추가 부담 완화) */}
       <View style={s.note}>
         <InfoNote>
-          과목은 <NoteStrong>언제든 추가</NoteStrong>할 수 있어요.{'\n'}직접 추가한 과목은{' '}
-          <NoteStrong>비교 없이 내 기록용</NoteStrong>으로 쓰여요
+          {t('onboarding.subjectEdit.notePrefix')}
+          <NoteStrong>{t('onboarding.subjectEdit.noteStrong1')}</NoteStrong>
+          {t('onboarding.subjectEdit.noteMiddle')}
+          <NoteStrong>{t('onboarding.subjectEdit.noteStrong2')}</NoteStrong>
+          {t('onboarding.subjectEdit.noteSuffix')}
         </InfoNote>
       </View>
     </StepScaffold>

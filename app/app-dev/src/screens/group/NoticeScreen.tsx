@@ -13,6 +13,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { deleteAnnouncement, getAnnouncements, groupErrorCode } from '@/services/groupApi';
 import type { GroupAnnouncementResponse } from '@/types/dto/group';
@@ -41,18 +42,18 @@ type NoticeRoute = RouteProp<V2RootStackParamList, 'GroupNotice'>;
 function formatNoticeDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+  return t('group.noticeScreen.monthDay', { month: d.getMonth() + 1, day: d.getDate() });
 }
 
 // 목록 조회 실패 문구 — HTTP status가 아니라 서버 code로 분기한다(§3-2).
 function listErrorMessage(e: unknown): string {
   switch (groupErrorCode(e)) {
     case 'NOT_FOUND':
-      return '사라진 그룹이에요.';
+      return t('group.noticeScreen.errorGroupGone');
     case 'MEMBER_ONLY':
-      return '그룹원만 공지를 볼 수 있어요.';
+      return t('group.noticeScreen.errorMemberOnlyList');
     default:
-      return '공지를 불러오지 못했어요.';
+      return t('group.noticeScreen.errorLoadFailed');
   }
 }
 
@@ -60,13 +61,13 @@ function listErrorMessage(e: unknown): string {
 function deleteErrorMessage(e: unknown): string {
   switch (groupErrorCode(e)) {
     case 'NOT_FOUND':
-      return '이미 삭제된 공지예요.';
+      return t('group.noticeScreen.errorAlreadyDeleted');
     case 'NOTICE_FORBIDDEN':
-      return '공지를 관리할 권한이 없어요.';
+      return t('group.noticeScreen.errorNoticeForbidden');
     case 'MEMBER_ONLY':
-      return '그룹원만 이용할 수 있어요.';
+      return t('group.noticeScreen.errorMemberOnly');
     default:
-      return '공지 삭제에 실패했어요. 잠시 후 다시 시도해 주세요.';
+      return t('group.noticeScreen.errorDeleteFailed');
   }
 }
 
@@ -169,40 +170,47 @@ export default function NoticeScreen() {
     // (정책 D19 — docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
     // 시트(NoticeComposeSheet)는 SheetShell 기본형(asModal=false)이라 배너를 가리지 않지만,
     // 순서는 그대로 **닫은 뒤** 알리는 쪽을 지킨다.
-    show({ message: '이미 삭제된 공지라 수정할 수 없어요', tone: 'error' });
+    show({ message: t('group.noticeScreen.editGoneToast'), tone: 'error' });
   }, [fetchNotices, show]);
 
   function confirmDelete(notice: GroupAnnouncementResponse) {
     // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
-    showAlert('공지 삭제', `${notice.title} 공지를 삭제할까요?`, [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteAnnouncement(groupId, notice.id);
-            fetchNotices();
-          } catch (e) {
-            // NOT_FOUND는 '다른 관리자가 먼저 지웠다'는 뜻이라 결과가 삭제 성공과 같다.
-            // 문구만 띄우고 끝내면 이 화면은 포커스 재조회가 없어 사라진 카드가 목록에 그대로
-            // 남고, 사용자는 당겨서 새로고침하기 전까지 같은 카드를 계속 열어 지우려 든다.
-            // (그룹 자체가 사라진 404여도 재조회가 '사라진 그룹이에요.'로 화면을 맞춰 준다.)
-            if (groupErrorCode(e) === 'NOT_FOUND') fetchNotices();
-            // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다(useOverlayAlert.afterSlot 주석).
-            await showAlert.afterSlot('삭제 실패', deleteErrorMessage(e));
-          }
+    showAlert(
+      t('group.noticeScreen.deleteTitle'),
+      t('group.noticeScreen.deleteConfirm', { title: notice.title }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteAnnouncement(groupId, notice.id);
+              fetchNotices();
+            } catch (e) {
+              // NOT_FOUND는 '다른 관리자가 먼저 지웠다'는 뜻이라 결과가 삭제 성공과 같다.
+              // 문구만 띄우고 끝내면 이 화면은 포커스 재조회가 없어 사라진 카드가 목록에 그대로
+              // 남고, 사용자는 당겨서 새로고침하기 전까지 같은 카드를 계속 열어 지우려 든다.
+              // (그룹 자체가 사라진 404여도 재조회가 문구로 화면을 맞춰 준다.)
+              if (groupErrorCode(e) === 'NOT_FOUND') fetchNotices();
+              // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다(useOverlayAlert.afterSlot 주석).
+              await showAlert.afterSlot(
+                t('group.noticeScreen.deleteFailTitle'),
+                deleteErrorMessage(e),
+              );
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   }
 
   // 카드 롱프레스 액션 — 수정·삭제(§6-5). canWrite일 때만 붙는다.
   function openCardMenu(notice: GroupAnnouncementResponse) {
-    showAlert(notice.title, '이 공지를 어떻게 할까요?', [
-      { text: '수정', onPress: () => openCompose(notice) },
-      { text: '삭제', style: 'destructive', onPress: () => confirmDelete(notice) },
-      { text: '취소', style: 'cancel' },
+    showAlert(notice.title, t('group.noticeScreen.cardMenuMessage'), [
+      { text: t('group.noticeScreen.edit'), onPress: () => openCompose(notice) },
+      { text: t('common.delete'), style: 'destructive', onPress: () => confirmDelete(notice) },
+      { text: t('common.cancel'), style: 'cancel' },
     ]);
   }
 
@@ -226,11 +234,11 @@ export default function NoticeScreen() {
         style={s.backBtn}
         onPress={() => navigation.goBack()}
         activeOpacity={0.7}
-        accessibilityLabel="뒤로"
+        accessibilityLabel={t('common.back')}
       >
         <Ionicons name="chevron-back" size={18} color={T.inkSub} />
       </TouchableOpacity>
-      <Text style={s.headerTitle}>공지</Text>
+      <Text style={s.headerTitle}>{t('group.noticeScreen.title')}</Text>
     </View>
   );
 
@@ -251,9 +259,9 @@ export default function NoticeScreen() {
     return (
       <View style={s.center}>
         <Text style={s.emptyTitle}>{msg}</Text>
-        <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
+        <Text style={s.emptyDesc}>{t('common.retryLater')}</Text>
         <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchNotices()}>
-          <Text style={s.retryText}>다시 시도</Text>
+          <Text style={s.retryText}>{t('common.retry')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -321,8 +329,8 @@ export default function NoticeScreen() {
             </View>
           ) : (
             <View style={s.center}>
-              <Text style={s.emptyTitle}>등록된 공지가 없어요</Text>
-              {canWrite && <Text style={s.emptyDesc}>+ 버튼으로 첫 공지를 남겨 보세요</Text>}
+              <Text style={s.emptyTitle}>{t('group.noticeScreen.emptyTitle')}</Text>
+              {canWrite && <Text style={s.emptyDesc}>{t('group.noticeScreen.emptyDesc')}</Text>}
             </View>
           )
         }
@@ -347,7 +355,7 @@ export default function NoticeScreen() {
           style={[s.fab, { bottom: insets.bottom + FAB_BOTTOM }]}
           activeOpacity={0.85}
           onPress={() => openCompose(null)}
-          accessibilityLabel="공지 쓰기"
+          accessibilityLabel={t('group.noticeScreen.composeA11y')}
           testID="group.notice.compose"
         >
           <Ionicons name="add" size={28} color={T.white} />

@@ -14,6 +14,7 @@ import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { useUser } from '@/store/UserContext';
 import { useToast } from '@/store/ToastContext';
@@ -162,16 +163,22 @@ export default function GroupProfileEditScreen() {
       setDescription(trimmedDescription);
       // 성공 통보는 읽고 흘려도 되는 한 줄이라 Alert 대신 토스트로 알린다(GROMO-1381).
       // 실패 알럿(아래 catch)은 사용자가 사유를 읽고 조치해야 하므로 Alert로 남긴다.
-      show({ message: '그룹 설정을 저장했어요', tone: 'success' });
+      show({ message: t('group.profileEditScreen.savedToast'), tone: 'success' });
     } catch (e) {
       // 정원을 현재 인원 미만으로 줄인 경우 — 사유를 그대로 알려준다(§3-2 code 분기).
       if (groupErrorCode(e) === 'MAX_MEMBERS_TOO_SMALL') {
         // ⚠️ `await` 뒤에 여는 Alert다 — 여는 시점을 응답이 정하므로 기다리는 사이
         //    결과 모달이 먼저 노출될 수 있다. 그러면 이 Alert가 그 **위를** 덮어,
         //    사용자는 못 봤는데 seen/ack은 이미 찍힌 상태가 된다. 승인을 받고 띄운다.
-        await showAlert.afterSlot('정원을 줄일 수 없어요', '현재 멤버 수보다 적게 정할 수 없어요.');
+        await showAlert.afterSlot(
+          t('group.profileEditScreen.capacityTooSmallTitle'),
+          t('group.profileEditScreen.capacityTooSmallBody'),
+        );
       } else {
-        await showAlert.afterSlot('저장하지 못했어요', '잠시 후 다시 시도해 주세요.');
+        await showAlert.afterSlot(
+          t('group.profileEditScreen.saveFailTitle'),
+          t('common.retryLater'),
+        );
       }
     } finally {
       setSaving(false);
@@ -185,11 +192,11 @@ export default function GroupProfileEditScreen() {
         style={s.backBtn}
         onPress={() => navigation.goBack()}
         activeOpacity={0.7}
-        accessibilityLabel="뒤로"
+        accessibilityLabel={t('common.back')}
       >
         <Ionicons name="chevron-back" size={18} color={T.inkSub} />
       </TouchableOpacity>
-      <Text style={s.headerTitle}>그룹 프로필 설정</Text>
+      <Text style={s.headerTitle}>{t('group.profileEditScreen.title')}</Text>
     </View>
   );
 
@@ -205,10 +212,10 @@ export default function GroupProfileEditScreen() {
     // ── 에러 + 다시 시도 ──
     body = (
       <View style={s.center}>
-        <Text style={s.emptyTitle}>그룹을 불러오지 못했어요</Text>
-        <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
+        <Text style={s.emptyTitle}>{t('group.profileEditScreen.loadFailed')}</Text>
+        <Text style={s.emptyDesc}>{t('common.retryLater')}</Text>
         <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => load()}>
-          <Text style={s.retryText}>다시 시도</Text>
+          <Text style={s.retryText}>{t('common.retry')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -216,8 +223,8 @@ export default function GroupProfileEditScreen() {
     // ── 방장 아님 — 방어적 권한 안내(백버튼만) ──
     body = (
       <View style={s.center}>
-        <Text style={s.emptyTitle}>방장만 접근할 수 있어요</Text>
-        <Text style={s.emptyDesc}>그룹 프로필은 방장이 관리해요.</Text>
+        <Text style={s.emptyTitle}>{t('group.profileEditScreen.ownerOnlyTitle')}</Text>
+        <Text style={s.emptyDesc}>{t('group.profileEditScreen.ownerOnlyDesc')}</Text>
       </View>
     );
   } else {
@@ -231,13 +238,13 @@ export default function GroupProfileEditScreen() {
         keyboardDismissMode="on-drag"
       >
         {/* ── 그룹 이름 ── */}
-        <Text style={s.label}>그룹 이름</Text>
+        <Text style={s.label}>{t('group.profileEditScreen.nameLabel')}</Text>
         <View style={s.inputBox}>
           <TextInput
             style={s.input}
             value={name}
             onChangeText={setName}
-            placeholder="그룹 이름"
+            placeholder={t('group.profileEditScreen.nameLabel')}
             placeholderTextColor={T.inkMuted}
             maxLength={NAME_MAX}
             returnKeyType="done"
@@ -248,13 +255,13 @@ export default function GroupProfileEditScreen() {
         </View>
 
         {/* ── 소개 — 멀티라인 + 글자수 카운터(GroupCreateScreen 패턴) ── */}
-        <Text style={s.label}>소개</Text>
+        <Text style={s.label}>{t('group.profileEditScreen.descriptionLabel')}</Text>
         <View style={s.descBox}>
           <TextInput
             style={s.descInput}
             value={description}
             onChangeText={setDescription}
-            placeholder="그룹을 소개해 주세요 (선택)"
+            placeholder={t('group.profileEditScreen.descriptionPlaceholder')}
             placeholderTextColor={T.inkMuted}
             maxLength={DESCRIPTION_MAX}
             multiline
@@ -266,37 +273,41 @@ export default function GroupProfileEditScreen() {
         </Text>
 
         {/* ── 정원 — 스텝퍼(하한 = 현재 멤버 수) ── */}
-        <Text style={s.label}>정원</Text>
+        <Text style={s.label}>{t('group.profileEditScreen.capacityLabel')}</Text>
         <View style={s.row}>
-          <Text style={s.rowLabel}>최대 인원</Text>
+          <Text style={s.rowLabel}>{t('group.profileEditScreen.maxMembersLabel')}</Text>
           <View style={s.stepper}>
             <TouchableOpacity
               style={[s.stepBtn, maxMembers <= membersMin ? s.stepBtnOff : null]}
               activeOpacity={0.7}
               disabled={maxMembers <= membersMin}
               onPress={() => bumpMembers(-1)}
-              accessibilityLabel="정원 줄이기"
+              accessibilityLabel={t('group.profileEditScreen.capacityDecreaseA11y')}
             >
               <Ionicons name="remove" size={18} color={T.inkSub} />
             </TouchableOpacity>
-            <Text style={s.stepValue}>{maxMembers}명</Text>
+            <Text style={s.stepValue}>
+              {t('group.profileEditScreen.memberCount', { count: maxMembers })}
+            </Text>
             <TouchableOpacity
               style={[s.stepBtn, maxMembers >= MEMBERS_MAX ? s.stepBtnOff : null]}
               activeOpacity={0.7}
               disabled={maxMembers >= MEMBERS_MAX}
               onPress={() => bumpMembers(1)}
-              accessibilityLabel="정원 늘리기"
+              accessibilityLabel={t('group.profileEditScreen.capacityIncreaseA11y')}
             >
               <Ionicons name="add" size={18} color={T.inkSub} />
             </TouchableOpacity>
           </View>
         </View>
-        <Text style={s.hint}>현재 멤버 {memberCount}명 — 이보다 적게 정할 수 없어요</Text>
+        <Text style={s.hint}>
+          {t('group.profileEditScreen.capacityHint', { count: memberCount })}
+        </Text>
 
         {/* ── 공개 설정 — 토글 + 캡션(참여 경로가 갈린다) ── */}
-        <Text style={s.label}>공개 설정</Text>
+        <Text style={s.label}>{t('group.profileEditScreen.visibilityLabel')}</Text>
         <View style={s.row}>
-          <Text style={s.rowLabel}>비공개 그룹</Text>
+          <Text style={s.rowLabel}>{t('group.profileEditScreen.privateLabel')}</Text>
           <Switch
             value={isPrivate}
             onValueChange={setIsPrivate}
@@ -314,8 +325,8 @@ export default function GroupProfileEditScreen() {
           />
           <Text style={s.noteText}>
             {isPrivate
-              ? '비공개 방은 검색에 뜨지 않아요. 초대 링크로만 참여할 수 있어요'
-              : '누구나 그룹 이름을 검색해 들어올 수 있어요'}
+              ? t('group.profileEditScreen.privateNote')
+              : t('group.profileEditScreen.publicNote')}
           </Text>
         </View>
 
@@ -327,7 +338,11 @@ export default function GroupProfileEditScreen() {
           onPress={save}
           testID="group.profile.save"
         >
-          {saving ? <ActivityIndicator color={T.white} /> : <Text style={s.submitText}>저장</Text>}
+          {saving ? (
+            <ActivityIndicator color={T.white} />
+          ) : (
+            <Text style={s.submitText}>{t('common.save')}</Text>
+          )}
         </TouchableOpacity>
       </ScrollView>
     );

@@ -31,6 +31,7 @@ import type { Provider, SocialLinkResponse } from '@/types/dto/user';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import type { LoginResult } from '@/types/api';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 계정 설정 화면 — 소셜 로그인/연동 + 로그아웃 + 회원 탈퇴.
 // 게스트(useUser().isGuest === true)일 땐 카카오·애플·구글 '로그인' 버튼으로 계정 전환을 유도하되
@@ -46,7 +47,7 @@ type IconName = keyof typeof Ionicons.glyphMap;
 const ALL_PROVIDERS: {
   key: Provider;
   method: Method;
-  name: string;
+  nameKey: string;
   icon: IconName;
   iconColor: string;
   iconBg: string;
@@ -55,7 +56,7 @@ const ALL_PROVIDERS: {
   {
     key: 'KAKAO',
     method: 'kakao',
-    name: '카카오',
+    nameKey: 'settings.account.providerKakao',
     icon: 'chatbubble',
     iconColor: T.kakaoInk,
     iconBg: T.kakao,
@@ -64,7 +65,7 @@ const ALL_PROVIDERS: {
   {
     key: 'APPLE',
     method: 'apple',
-    name: 'Apple',
+    nameKey: 'settings.account.providerApple',
     icon: 'logo-apple',
     iconColor: T.ink,
     iconBg: T.sandLight,
@@ -73,7 +74,7 @@ const ALL_PROVIDERS: {
   {
     key: 'GOOGLE',
     method: 'google',
-    name: 'Google',
+    nameKey: 'settings.account.providerGoogle',
     icon: 'logo-google',
     iconColor: T.grayInk,
     iconBg: T.sandLight,
@@ -161,13 +162,10 @@ export default function AccountScreen() {
       }
       // 이미 다른 계정에 연동된 소셜로 업그레이드 시도 → 백엔드가 409로 거부, 게스트 유지(GROMO-962)
       if (code === 'SOCIAL_ACCOUNT_ALREADY_LINKED') {
-        Alert.alert(
-          '연동할 수 없어요',
-          '이미 다른 계정에 연결된 소셜 계정이에요. 다른 소셜 계정으로 다시 시도해 주세요.',
-        );
+        Alert.alert(t('settings.account.linkFailTitle'), t('settings.account.linkFailBody'));
         return;
       }
-      Alert.alert('로그인 실패', e instanceof Error ? e.message : '다시 시도해 주세요.');
+      Alert.alert(t('login.failTitle'), e instanceof Error ? e.message : t('common.retryPlease'));
     } finally {
       setBusy(null);
     }
@@ -193,13 +191,13 @@ export default function AccountScreen() {
         status === 409
           ? {
               kind: 'unlinkFailed',
-              title: '해제할 수 없어요',
-              body: '마지막 로그인 수단은 해제할 수 없어요.',
+              title: t('settings.account.unlinkBlockedTitle'),
+              body: t('settings.account.unlinkBlockedBody'),
             }
           : {
               kind: 'unlinkFailed',
-              title: '오류',
-              body: '연동 해제에 실패했어요. 잠시 후 다시 시도해 주세요.',
+              title: t('settings.account.errorTitle'),
+              body: t('settings.account.unlinkFailBody'),
             },
       );
     } finally {
@@ -249,7 +247,7 @@ export default function AccountScreen() {
         }
       } else {
         setModal(null);
-        Alert.alert('오류', '회원 탈퇴에 실패했어요. 잠시 후 다시 시도해 주세요.');
+        Alert.alert(t('settings.account.errorTitle'), t('settings.account.withdrawFailBody'));
       }
     } finally {
       setWithdrawing(false);
@@ -285,14 +283,14 @@ export default function AccountScreen() {
     case 'hostBlocked': {
       const { count, target } = shownModal;
       card = {
-        title: '먼저 방장을 넘겨 주세요',
-        body: `방장으로 있는 그룹이 ${count}개 있어요.\n"${target.name}"의 방장을 넘기고 다시 탈퇴해 주세요.`,
-        primaryLabel: '방장 넘기러 가기',
+        title: t('settings.account.hostBlockedTitle'),
+        body: t('settings.account.hostBlockedBody', { count, name: target.name }),
+        primaryLabel: t('settings.account.hostBlockedCta'),
         onPrimary: () => {
           setModal(null);
           navigation.navigate('GroupOwnerTransfer', { groupId: target.groupId, source: 'account' });
         },
-        secondaryLabel: '나중에',
+        secondaryLabel: t('settings.account.later'),
         testID: 'account.withdraw.hostBlocked',
       };
       break;
@@ -302,24 +300,24 @@ export default function AccountScreen() {
     //    모달 위에 겹치지 않는다.
     case 'logout':
       card = {
-        title: '로그아웃',
-        body: '로그아웃할까요?',
-        primaryLabel: '로그아웃',
+        title: t('settings.account.logout'),
+        body: t('settings.account.logoutConfirm'),
+        primaryLabel: t('settings.account.logout'),
         onPrimary: () => {
           setModal(null);
           runLogout();
         },
         destructive: true,
-        secondaryLabel: '취소',
+        secondaryLabel: t('common.cancel'),
         testID: 'account.logout.confirm',
       };
       break;
     case 'unlink': {
       const { provider, name } = shownModal;
       card = {
-        title: `${name} 연동 해제`,
-        body: `${name} 연동을 해제할까요?`,
-        primaryLabel: '해제',
+        title: t('settings.account.unlinkTitle', { name }),
+        body: t('settings.account.unlinkBody', { name }),
+        primaryLabel: t('settings.account.unlink'),
         onPrimary: () => {
           // ⚠️ 여기서 카드를 닫지 않는다 — runUnlink 가 성공 시 닫고 실패 시 내용을 교체한다.
           //    닫고 나서 안내를 띄우면 dismiss 와 present 가 경합한다(위 runUnlink 주석).
@@ -330,7 +328,7 @@ export default function AccountScreen() {
         // ⚠️ 요청 중에는 닫기 경로를 막는다 — 취소·스크림으로 카드가 닫히면 해제가 취소된 것처럼
         //    보이지만 요청은 계속되어 실제로 연동이 풀린다. 「닫힘 = 취소」가 참이어야 한다.
         //    취소 버튼은 아예 렌더하지 않는다(가드만 두면 "눌렀는데 아무 일도 없다"가 된다).
-        secondaryLabel: unlinking ? undefined : '취소',
+        secondaryLabel: unlinking ? undefined : t('common.cancel'),
         testID: 'account.unlink.confirm',
       };
       break;
@@ -341,29 +339,29 @@ export default function AccountScreen() {
       card = {
         title: shownModal.title,
         body: shownModal.body,
-        primaryLabel: '확인',
+        primaryLabel: t('common.confirm'),
         onPrimary: () => setModal(null),
         testID: 'account.unlink.failed',
       };
       break;
     case 'hostBlockedNoList':
       card = {
-        title: '탈퇴할 수 없어요',
-        body: '그룹 방장은 위임 후 탈퇴할 수 있어요.',
-        primaryLabel: '확인',
+        title: t('settings.account.withdrawBlockedTitle'),
+        body: t('settings.account.withdrawBlockedBody'),
+        primaryLabel: t('common.confirm'),
         onPrimary: closeModal,
         testID: 'account.withdraw.blocked',
       };
       break;
     default:
       card = {
-        title: '정말 떠나시겠어요?',
-        body: '탈퇴하면 쌓아온 집중 기록·티어가 모두 사라지고 되돌릴 수 없어요.',
-        primaryLabel: '탈퇴할게요',
+        title: t('settings.account.withdrawTitle'),
+        body: t('settings.account.withdrawBody'),
+        primaryLabel: t('settings.account.withdrawPrimary'),
         onPrimary: handleWithdraw,
         primaryDisabled: withdrawing,
         destructive: true,
-        secondaryLabel: '더 머물래요',
+        secondaryLabel: t('settings.account.withdrawSecondary'),
         testID: 'account.withdraw.confirm',
       };
   }
@@ -371,34 +369,41 @@ export default function AccountScreen() {
   // 소셜 유저의 연동 목록 → 표시 구성(설정에 없는 provider는 기본 아이콘으로 방어).
   const linkedProviders = (links ?? []).map((l) => {
     const cfg = PROVIDERS.find((p) => p.key === l.provider);
-    return (
-      cfg ?? {
-        key: l.provider as Provider,
-        name: l.provider,
-        icon: 'link' as IconName,
-        iconColor: T.inkSub,
-        iconBg: T.sandLight,
-      }
-    );
+    // 설정에 없는 provider는 서버 문자열을 그대로 노출한다(번역 대상 아님).
+    return cfg
+      ? {
+          key: cfg.key,
+          name: t(cfg.nameKey),
+          icon: cfg.icon,
+          iconColor: cfg.iconColor,
+          iconBg: cfg.iconBg,
+        }
+      : {
+          key: l.provider as Provider,
+          name: l.provider,
+          icon: 'link' as IconName,
+          iconColor: T.inkSub,
+          iconBg: T.sandLight,
+        };
   });
 
   return (
-    <SettingsScaffold title="계정 설정" onBack={() => navigation.goBack()}>
+    <SettingsScaffold title={t('settings.account.title')} onBack={() => navigation.goBack()}>
       {isGuest ? (
         // 게스트 — 카카오·애플·구글 로그인 버튼으로 계정 전환 유도 + 회원 탈퇴(GROMO-963).
         // 게스트도 서버에 실제 User가 생성되므로 계정 삭제 경로가 필요(Apple 심사 요건).
         // 로그아웃은 노출하지 않는다 — 게스트 세션은 로그아웃하면 계정 복구가 불가능해서
         // 사실상 탈퇴와 같으므로, 명시적 파괴 동작인 탈퇴만 제공한다.
         <>
-          <SettingsSection title="소셜 로그인">
+          <SettingsSection title={t('settings.account.socialLoginSection')}>
             {PROVIDERS.map((p) => (
               <SettingsRow
                 key={p.key}
                 icon={p.icon}
                 iconColor={p.iconColor}
                 iconBg={p.iconBg}
-                label={`${p.name}로 로그인`}
-                value={busy === p.method ? undefined : '연결'}
+                label={t('settings.account.loginWith', { name: t(p.nameKey) })}
+                value={busy === p.method ? undefined : t('settings.account.connect')}
                 valueColor={T.accent}
                 right={
                   busy === p.method ? (
@@ -417,20 +422,14 @@ export default function AccountScreen() {
               하나뿐이라 정확한 일수는 고지 가치가 없다. */}
           <View style={s.note}>
             <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
-            <Text style={s.noteText}>
-              지금은 로그인 없이 쓰는 중이에요. 기록은 서버에 저장되지만, 이 기기의 인증 정보로만
-              다시 접근할 수 있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을
-              되찾을 수 없어요.
-              {'\n\n'}
-              소셜 로그인을 연결하면 지금까지 기록 그대로 옮겨가요.
-            </Text>
+            <Text style={s.noteText}>{t('settings.account.guestNote')}</Text>
           </View>
           <SettingsSection>
             <SettingsRow
               icon="person-remove-outline"
               iconColor={T.accentAlt}
               iconBg={T.accentAltBg}
-              label="회원 탈퇴"
+              label={t('settings.account.withdraw')}
               danger
               onPress={() => setModal({ kind: 'confirm' })}
             />
@@ -439,9 +438,9 @@ export default function AccountScreen() {
       ) : (
         // 소셜 유저 — 지금 연동된 계정만 표시(다른 소셜 로그인은 감춤) + 로그아웃·회원 탈퇴.
         <>
-          <SettingsSection title="소셜 로그인 연동">
+          <SettingsSection title={t('settings.account.linkedSection')}>
             {linkedProviders.length === 0 ? (
-              <SettingsRow label="연동된 소셜 계정이 없어요" />
+              <SettingsRow label={t('settings.account.noLinked')} />
             ) : (
               linkedProviders.map((p) => (
                 <SettingsRow
@@ -450,8 +449,8 @@ export default function AccountScreen() {
                   iconColor={p.iconColor}
                   iconBg={p.iconBg}
                   label={p.name}
-                  sub="연동됨"
-                  value="관리"
+                  sub={t('settings.account.linked')}
+                  value={t('settings.account.manage')}
                   valueColor={T.successInk}
                   onPress={() => setModal({ kind: 'unlink', provider: p.key, name: p.name })}
                 />
@@ -463,7 +462,7 @@ export default function AccountScreen() {
               icon="log-out-outline"
               iconColor={T.accentAlt}
               iconBg={T.accentAltBg}
-              label="로그아웃"
+              label={t('settings.account.logout')}
               danger
               onPress={() => setModal({ kind: 'logout' })}
             />
@@ -471,7 +470,7 @@ export default function AccountScreen() {
               icon="person-remove-outline"
               iconColor={T.accentAlt}
               iconBg={T.accentAltBg}
-              label="회원 탈퇴"
+              label={t('settings.account.withdraw')}
               danger
               onPress={() => setModal({ kind: 'confirm' })}
             />

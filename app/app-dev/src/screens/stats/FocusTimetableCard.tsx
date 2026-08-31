@@ -6,6 +6,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { fetchTodayFocusSessions } from '@/screens/focus/focusRestore';
 import { getFocusTags } from '@/services/focusApi';
 import { useSubjects } from '@/store/SubjectContext';
@@ -26,13 +27,16 @@ const TIMETABLE_HOURS = Array.from({ length: TT_ROWS }, (_, i) => (i + 6) % 24);
 export function FocusTimetableCard() {
   // 공유 파일명 — 예: 260711_타임테이블.png (사진 저장 시엔 이름이 남지 않음)
   // 파일명 날짜는 로컬 유지 — 저장하는 기기의 체감 날짜가 정본(GROMO-1236 분류 C)
-  const makeFileName = useCallback(() => `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`, []);
+  const makeFileName = useCallback(
+    () => `${todayStr().slice(2).replace(/-/g, '')}_${t('stats.focusTimetable.shareFileSuffix')}`,
+    [],
+  );
   // 캡처→공유·로드 게이트 로직은 일/주 공용 훅이 담당(GROMO-1070)
   const { shotRef, capturing, captureStyle, disabled, onCharReady, onLoaded, onShare } =
     useTimetableShareCapture({ card: 'timetable', makeFileName });
 
   return (
-    <SectionCard title="오늘 타임테이블">
+    <SectionCard title={t('stats.focusTimetable.title')}>
       {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게. 캡처 시엔 사방 소여백(captureStyle) */}
       <View ref={shotRef} collapsable={false} style={[cs.ttShot, captureStyle]}>
         {/* 일 카드 캡처 레이아웃 — 평소엔 격자만, 캡처 땐 상단 헤더(날짜·gromo) + 왼쪽 하단 마스코트(GROMO-1070) */}
@@ -49,7 +53,7 @@ export function FocusTimetableCard() {
         activeOpacity={0.7}
         disabled={disabled}
       >
-        <Text style={cs.shareBtnText}>공유하기</Text>
+        <Text style={cs.shareBtnText}>{t('stats.share.button')}</Text>
         <Ionicons name="share-outline" size={15} color={T.inkSub} />
       </TouchableOpacity>
     </SectionCard>
@@ -72,7 +76,7 @@ function FocusTimetable({ onLoaded }: { onLoaded?: () => void }) {
           getFocusTags().catch(() => []),
         ]);
         if (cancelled) return;
-        setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
+        setTagNames(new Map(tags.map((tag) => [tag.tagId, tag.name])));
         setSlots(tenMinuteFocusSlots(sessions));
         // 데이터 로드 완료 신호 — 카드가 공유 버튼을 열어준다(GROMO-1070 리뷰 반영)
         onLoaded?.();

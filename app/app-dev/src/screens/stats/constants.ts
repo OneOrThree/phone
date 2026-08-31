@@ -9,8 +9,17 @@ export const FOCUS_COLOR = T.greenDeep;
 // 폰 사용 지표는 경고 계열(테라코타) — 메인 액센트를 쓰면 '줄여야 할 지표'가 브랜드색으로
 // 강조되는 의미 역전이 생긴다. 집중(초록)과 대비되는 시안의 색 의미 복원(GROMO-849)
 export const PHONE_COLOR = T.accentAlt;
-// 요일 라벨(월~일) — 잔디·목표 달성·주간 타임라인 카드 공용
-export const WEEK_DAYS = ['월', '화', '수', '목', '금', '토', '일'];
+// 요일 라벨 키(월~일) — 잔디·목표 달성·주간 타임라인 카드 공용.
+// 키만 담고 렌더 시점에 t()로 푼다(모듈 최상위에서 t()를 부르지 않는다).
+export const WEEK_DAY_KEYS = [
+  'common.weekday.mon',
+  'common.weekday.tue',
+  'common.weekday.wed',
+  'common.weekday.thu',
+  'common.weekday.fri',
+  'common.weekday.sat',
+  'common.weekday.sun',
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 카드 높이 상수 (GROMO-1381)

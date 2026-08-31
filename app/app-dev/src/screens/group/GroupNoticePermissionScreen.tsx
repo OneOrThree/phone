@@ -13,6 +13,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { getGroupSettings, updateGroupSettings } from '@/services/groupApi';
 import { logGroupNoticeGrantChanged } from '@/services/analyticsEvents';
@@ -103,7 +104,10 @@ export default function GroupNoticePermissionScreen() {
           prev ? prev.map((g) => (g.userId === userId ? { ...g, granted: !next } : g)) : prev,
         );
         // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다.
-        await showAlert.afterSlot('저장 실패', '잠시 후 다시 시도해 주세요.');
+        await showAlert.afterSlot(
+          t('group.noticePermissionScreen.saveFailTitle'),
+          t('common.retryLater'),
+        );
       } finally {
         setSavingIds((prev) => {
           const set = new Set(prev);
@@ -123,11 +127,11 @@ export default function GroupNoticePermissionScreen() {
         style={s.backBtn}
         onPress={() => navigation.goBack()}
         activeOpacity={0.7}
-        accessibilityLabel="뒤로"
+        accessibilityLabel={t('common.back')}
       >
         <Ionicons name="chevron-back" size={18} color={T.inkSub} />
       </TouchableOpacity>
-      <Text style={s.headerTitle}>공지 권한</Text>
+      <Text style={s.headerTitle}>{t('group.noticePermissionScreen.title')}</Text>
     </View>
   );
 
@@ -149,10 +153,10 @@ export default function GroupNoticePermissionScreen() {
       <SafeAreaView style={s.root} edges={['top']} testID="group.notice.permission.screen">
         {header}
         <View style={s.center}>
-          <Text style={s.emptyTitle}>권한을 불러오지 못했어요</Text>
-          <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
+          <Text style={s.emptyTitle}>{t('group.noticePermissionScreen.loadFailed')}</Text>
+          <Text style={s.emptyDesc}>{t('common.retryLater')}</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => load()}>
-            <Text style={s.retryText}>다시 시도</Text>
+            <Text style={s.retryText}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -166,9 +170,7 @@ export default function GroupNoticePermissionScreen() {
         contentContainerStyle={[s.content, { paddingBottom: insets.bottom + T.space.xl }]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={s.guide}>
-          허용한 멤버는 공지를 작성·수정·삭제할 수 있어요. 방장은 항상 허용돼요.
-        </Text>
+        <Text style={s.guide}>{t('group.noticePermissionScreen.guide')}</Text>
 
         <View style={s.list}>
           {grants.map((g) => {
@@ -180,7 +182,9 @@ export default function GroupNoticePermissionScreen() {
                   <Text style={s.nickname} numberOfLines={1}>
                     {g.nickname}
                   </Text>
-                  {isOwner && <Text style={s.ownerTag}>방장 · 항상 허용</Text>}
+                  {isOwner && (
+                    <Text style={s.ownerTag}>{t('group.noticePermissionScreen.ownerTag')}</Text>
+                  )}
                 </View>
                 <Switch
                   testID={`group.notice.toggle.${g.userId}`}

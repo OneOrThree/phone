@@ -11,6 +11,7 @@ import { STORAGE_KEYS } from '@/types/storage';
 import { localDateStr } from '@/utils/localDate';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { FOCUS_GOAL_MINUTES, GOAL_STEP_MINUTES, USAGE_GOAL_MINUTES } from '@/constants/goals';
 import { logGoalUpdated } from '@/services/analyticsEvents';
 
@@ -32,9 +33,9 @@ function snapClamp(minutes: number, range: { min: number; max: number }): number
 function fmt(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
-  if (h && m) return `${h}시간 ${m}분`;
-  if (h) return `${h}시간`;
-  return `${m}분`;
+  if (h && m) return t('settings.goals.hourMinute', { h, m });
+  if (h) return t('settings.goals.hour', { count: h });
+  return t('settings.goals.minute', { count: m });
 }
 
 // ── 목표 하나(집중 또는 사용)를 편집하는 카드 ─────────────────────────────
@@ -84,10 +85,10 @@ function GoalCard({
       {/* 선택값과 오늘 적용 중인 값의 대비 */}
       {changed ? (
         <Text style={s.fromText} numberOfLines={1}>
-          오늘 {fmt(activeMinutes)} · 내일부터 이 값으로 적용
+          {t('settings.goals.appliesTomorrow', { current: fmt(activeMinutes) })}
         </Text>
       ) : (
-        <Text style={s.fromText}>현재 목표</Text>
+        <Text style={s.fromText}>{t('settings.goals.currentGoal')}</Text>
       )}
     </View>
   );
@@ -226,7 +227,7 @@ export default function GoalsScreen() {
 
   return (
     <SettingsScaffold
-      title="개인 목표 수정"
+      title={t('settings.goals.title')}
       onBack={() => navigation.goBack()}
       footer={
         <TouchableOpacity
@@ -235,7 +236,7 @@ export default function GoalsScreen() {
           disabled={saving || !loaded}
           onPress={handleSave}
         >
-          <Text style={s.saveText}>{saving ? '저장 중…' : '저장'}</Text>
+          <Text style={s.saveText}>{saving ? t('common.saving') : t('common.save')}</Text>
         </TouchableOpacity>
       }
     >
@@ -243,8 +244,8 @@ export default function GoalsScreen() {
         icon="flag-outline"
         iconColor={T.accentDeep}
         iconBg={T.accentBg}
-        label="목표 집중시간"
-        sub="채우기"
+        label={t('settings.goals.focusLabel')}
+        sub={t('settings.goals.focusSub')}
         min={FOCUS_GOAL_MINUTES.min}
         max={FOCUS_GOAL_MINUTES.max}
         value={focusMinutes}
@@ -256,8 +257,8 @@ export default function GoalsScreen() {
         icon="phone-portrait-outline"
         iconColor={T.greenDeep}
         iconBg={T.greenBg}
-        label="목표 사용시간"
-        sub="넘지 않기"
+        label={t('settings.goals.usageLabel')}
+        sub={t('settings.goals.usageSub')}
         min={USAGE_GOAL_MINUTES.min}
         max={USAGE_GOAL_MINUTES.max}
         value={usageMinutes}
@@ -267,9 +268,7 @@ export default function GoalsScreen() {
 
       <View style={s.note}>
         <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
-        <Text style={s.noteText}>
-          변경한 목표는 내일({tomorrowLabel})부터 적용돼요. 오늘 보상 기준은 그대로예요.
-        </Text>
+        <Text style={s.noteText}>{t('settings.goals.note', { date: tomorrowLabel })}</Text>
       </View>
     </SettingsScaffold>
   );

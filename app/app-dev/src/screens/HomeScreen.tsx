@@ -22,6 +22,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { M, enterUp, staggerDelay } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { tierByLevel } from '@/constants/tiers';
 import { focusGoalReward, screenTimeGoalReward } from '@/utils/currencyRewards';
 import { useLeagueRanking } from '@/screens/league/useLeagueRanking';
@@ -103,9 +104,9 @@ const SHORT_SCREEN_H = 700;
 function hm(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
-  if (h && m) return `${h}시간 ${m}분`;
-  if (h) return `${h}시간`;
-  return `${m}분`;
+  if (h && m) return t('home.duration.hourMinute', { h, m });
+  if (h) return t('home.duration.hour', { h });
+  return t('home.duration.minute', { m });
 }
 
 // 초 → "HH:MM:SS" (집중시간 값 표시용)
@@ -159,7 +160,7 @@ function MetricRow({
             {hms(value)}
           </Text>
           <Text style={s.goalText} allowFontScaling={false} numberOfLines={1}>
-            목표 {hm(goal)}
+            {t('home.today.goal', { duration: hm(goal) })}
           </Text>
         </View>
         {/* 진행 바 — 카드 끝까지 전체 폭 (두 행 모두 전체 폭이라 바 길이도 자연히 동일).
@@ -222,7 +223,7 @@ function PhoneUsageRow({
       <View style={s.flex1}>
         <View style={s.usageLabelRow}>
           <Text style={s.metricLabel} allowFontScaling={false}>
-            핸드폰 사용
+            {t('home.today.phoneUsage')}
           </Text>
           {/* 상세(앱별 사용 시간)가 없는 플랫폼에선 화살표를 뺀다 — 총 사용시간은 이 카드에
               멀쩡히 뜨는데 화살표만 따라가면 '볼 수 없어요' 빈 화면이 나온다(GROMO-1592). */}
@@ -234,11 +235,11 @@ function PhoneUsageRow({
           // 권한 미허용 — 안내 문구 + 권한 켜기 CTA. 탭은 아래 행 전체 오버레이가 받는다.
           <View style={s.permissionWrap}>
             <Text style={s.permissionText} allowFontScaling={false}>
-              스크린타임 권한을 켜면{'\n'}오늘 사용시간을 볼 수 있어요.
+              {t('home.today.permissionNotice')}
             </Text>
             <View style={s.permissionBtn}>
               <Text style={s.permissionBtnText} allowFontScaling={false}>
-                권한 켜기
+                {t('home.today.enablePermission')}
               </Text>
             </View>
           </View>
@@ -259,7 +260,7 @@ function PhoneUsageRow({
                 {usageMinutes == null ? '–' : hm(usageMinutes * 60)}
               </Text>
               <Text style={s.goalText} allowFontScaling={false} numberOfLines={1}>
-                목표 {hm(goalSeconds)}
+                {t('home.today.goal', { duration: hm(goalSeconds) })}
               </Text>
             </View>
             <ProgressBar
@@ -288,7 +289,9 @@ function PhoneUsageRow({
         disabled={!needsPermission && !supportsUsageBreakdown()}
         onPressIn={playTapSound}
         onPress={needsPermission ? onEnablePermission : onPress}
-        accessibilityLabel={needsPermission ? '스크린타임 권한 켜기' : '핸드폰 앱별 사용시간 보기'}
+        accessibilityLabel={
+          needsPermission ? t('home.today.enablePermissionA11y') : t('home.today.usageDetailA11y')
+        }
       />
     </View>
   );
@@ -462,7 +465,7 @@ export default function HomeScreen() {
       }
       setScreenTimeAuth(await ScreenTimeModule.getAuthorizationStatus());
     } catch (e) {
-      Alert.alert('권한 처리 실패', e instanceof Error ? e.message : String(e));
+      Alert.alert(t('home.permissionErrorTitle'), e instanceof Error ? e.message : String(e));
     } finally {
       permissionRequestingRef.current = false;
     }
@@ -618,16 +621,16 @@ export default function HomeScreen() {
   const todayCardRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
-      text: '안녕하세요! 저는 그로모예요.\n홈에서는 저와 함께 오늘의 공부 현황을 볼 수 있어요.',
+      text: t('home.guide.intro'),
       character: require('@/assets/character_hi.png'),
     },
     {
-      text: '오늘의 집중 시간과 핸드폰 사용 시간을 여기서 한눈에 볼 수 있어요.\n‘자세히’를 누르면 통계로 이동해요.',
+      text: t('home.guide.todayCard'),
       character: require('@/assets/character_study.png'),
       anchor: todayCardRef,
     },
     {
-      text: '준비됐다면 이 버튼을 눌러 바로 집중을 시작해 봐요!',
+      text: t('home.guide.fab'),
       character: require('@/assets/character_study.png'),
       rect: fabWindowRect(winW, winH, insets.bottom),
       round: true,
@@ -667,7 +670,7 @@ export default function HomeScreen() {
                   {myLeagueRank != null && (
                     <View style={s.rankBadge}>
                       <Ionicons name="trophy" size={9} color={T.blue} />
-                      <Text style={s.rankText}>{myLeagueRank}위</Text>
+                      <Text style={s.rankText}>{t('home.rank', { rank: myLeagueRank })}</Text>
                     </View>
                   )}
                 </View>
@@ -682,7 +685,7 @@ export default function HomeScreen() {
             <PressableScale
               style={s.settingsBtn}
               scaleTo={0.92}
-              accessibilityLabel={hasNotifications ? '알림 보기, 읽지 않은 알림 있음' : '알림 보기'}
+              accessibilityLabel={hasNotifications ? t('home.bellA11yUnread') : t('home.bellA11y')}
               onPress={() => {
                 logHomeButtonTapped({ button: 'notification_bell', destination: 'Notifications' });
                 navigation.navigate('Notifications');
@@ -718,7 +721,7 @@ export default function HomeScreen() {
               }}
             >
               <Ionicons name="brush-outline" size={14} color={T.accent} />
-              <Text style={s.changeCharText}>캐릭터 변경</Text>
+              <Text style={s.changeCharText}>{t('home.changeCharacter')}</Text>
             </PressableScale>
           </Animated.View>
         </ScrollView>
@@ -738,7 +741,7 @@ export default function HomeScreen() {
         >
           <View style={s.cardHeader}>
             <Text style={s.cardTitle}>
-              오늘 <Text style={s.cardTitleSub}>Today</Text>
+              {t('home.today.title')} <Text style={s.cardTitleSub}>{t('home.today.titleSub')}</Text>
             </Text>
             <View style={s.cardHeaderRight}>
               {/* 시간조각 잔액 칩 — 폭이 빠듯해 라벨 생략(모래시계 N). 미로드 시에도 '0'을 그대로 보여
@@ -752,7 +755,7 @@ export default function HomeScreen() {
                   navigation.navigate('CurrencyHistory', { entry: 'home_chip' });
                 }}
                 accessibilityRole="button"
-                accessibilityLabel="시간조각 내역"
+                accessibilityLabel={t('home.currencyHistoryA11y')}
               >
                 <CurrencyIcon size={11} />
                 {/* 보간 중인 **소수값**이 format에 들어온다 — 반올림·천단위 구분은 여기서 한다 */}
@@ -770,14 +773,14 @@ export default function HomeScreen() {
                   {/* 세어 올라가는 건 숫자뿐 — '연속 공부'·'일'은 단위 텍스트라 밖에 둔다.
                       칩의 gap(3)이 글자 사이에 끼지 않게 형제가 아니라 Text 안에 중첩한다. */}
                   <Text style={s.streakChipText}>
-                    연속 공부{' '}
+                    {t('home.streakPrefix')}
                     <AnimatedNumber
                       testID="home.streak"
                       value={streakShown}
                       format={(n) => String(Math.round(n))}
                       style={s.streakChipText}
                     />
-                    일
+                    {t('home.streakSuffix')}
                   </Text>
                 </View>
               )}
@@ -790,7 +793,7 @@ export default function HomeScreen() {
                   navigation.navigate('Stats');
                 }}
               >
-                <Text style={s.more}>자세히</Text>
+                <Text style={s.more}>{t('home.today.detail')}</Text>
                 <Ionicons name="chevron-forward" size={11} color={T.accent} />
               </PressableScale>
             </View>
@@ -802,7 +805,7 @@ export default function HomeScreen() {
             icon="book"
             iconColor={T.greenDeep}
             iconBg={T.greenBg}
-            label="공부 집중"
+            label={t('home.today.focus')}
             value={focusValueSeconds}
             goal={focusGoalSeconds}
           />

@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { TIERS, tierByLevel } from '@/constants/tiers';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { fmtMinutes } from './format';
@@ -48,17 +49,17 @@ export default function TierGuideScreen() {
   const noticeRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
-      text: '지금 내 티어예요!\n이번 주 집중 시간과 다음 단계까지 남은 시간을 보여 줘요.',
+      text: t('league.tierGuide.guide1'),
       character: require('@/assets/character_hi.png'),
       anchor: heroRef,
     },
     {
-      text: '티어는 주간 집중 시간에 따라 5단계로 나뉘어요.\n오래 집중할수록 높은 단계로 올라가요!',
+      text: t('league.tierGuide.guide2'),
       character: require('@/assets/character_study.png'),
       anchor: listRef,
     },
     {
-      text: '매주 월요일 9시에 정산돼요. 기준을 채우면 승급하고, 미달이면 강등돼요.\n꾸준함이 제일 중요해요!',
+      text: t('league.tierGuide.guide3'),
       character: require('@/assets/character_happy.png'),
       anchor: noticeRef,
     },
@@ -71,7 +72,7 @@ export default function TierGuideScreen() {
         <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>티어 단계</Text>
+        <Text style={s.headerTitle}>{t('league.tierGuide.title')}</Text>
       </View>
 
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
@@ -81,8 +82,10 @@ export default function TierGuideScreen() {
             <Image source={cur.image} style={s.heroImg} />
             <Text style={s.heroName}>{cur.name}</Text>
             <Text style={s.heroSub}>
-              이번 주 {fmtMinutes(minutes)}
-              {remain != null ? ` · 다음 단계까지 ${fmtMinutes(remain)}` : ' · 최고 단계예요'}
+              {t('league.tierGuide.heroThisWeek', { time: fmtMinutes(minutes) })}
+              {remain != null
+                ? t('league.tierGuide.heroNext', { time: fmtMinutes(remain) })
+                : t('league.tierGuide.heroMax')}
             </Text>
             <View style={s.heroTrack}>
               <LinearGradient
@@ -97,23 +100,25 @@ export default function TierGuideScreen() {
 
         {/* ── 5단계 카드 리스트 ── */}
         <View style={s.tierList} ref={listRef} collapsable={false}>
-          {TIERS.map((t) => {
-            const isCur = t.level === level;
+          {TIERS.map((row) => {
+            const isCur = row.level === level;
             return (
-              <View key={t.level} style={[s.tierRow, isCur ? s.tierRowCur : null]}>
-                <TierBadge level={t.level} size={40} />
+              <View key={row.level} style={[s.tierRow, isCur ? s.tierRowCur : null]}>
+                <TierBadge level={row.level} size={40} />
                 <View style={s.tierNameCol}>
                   <View style={s.tierNameRow}>
-                    <Text style={s.tierName}>{t.name}</Text>
+                    <Text style={s.tierName}>{row.name}</Text>
                     {isCur && (
                       <View style={s.curBadge}>
-                        <Text style={s.curBadgeText}>현재</Text>
+                        <Text style={s.curBadgeText}>{t('league.tierGuide.current')}</Text>
                       </View>
                     )}
                   </View>
-                  <Text style={s.tierRange}>{t.rangeLabel}</Text>
+                  <Text style={s.tierRange}>{row.rangeLabel}</Text>
                 </View>
-                <Text style={[s.tierLevel, isCur ? s.tierLevelCur : null]}>{t.level}단계</Text>
+                <Text style={[s.tierLevel, isCur ? s.tierLevelCur : null]}>
+                  {t('league.tierGuide.levelN', { level: row.level })}
+                </Text>
               </View>
             );
           })}
@@ -122,8 +127,9 @@ export default function TierGuideScreen() {
         {/* ── 정산 안내 ── */}
         <View style={s.notice} ref={noticeRef} collapsable={false}>
           <Text style={s.noticeText}>
-            매주 <Text style={s.noticeStrong}>월요일 09시</Text> 정산 · 기준 충족 시 자동 승급, 미달
-            시 한 단계 강등.
+            {t('league.tierGuide.settlePrefix')}
+            <Text style={s.noticeStrong}>{t('league.tierGuide.settleStrong')}</Text>
+            {t('league.tierGuide.settleSuffix')}
           </Text>
         </View>
       </ScrollView>

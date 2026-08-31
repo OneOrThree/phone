@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { hms } from '@/utils/timeFormat';
 
 // 과목별 집중 현황 — 색 점+이름+시간(HH:MM:SS) 행 목록과 전체 대비 과목 비율 바.
@@ -32,7 +33,9 @@ export function SubjectProgressList({
             <View key={p.id} style={{ flex: p.accumulatedSeconds, backgroundColor: p.color }} />
           ))}
       </View>
-      {totalSeconds <= 0 && <Text style={s.ratioEmpty}>아직 기록된 집중시간이 없어요</Text>}
+      {totalSeconds <= 0 && (
+        <Text style={s.ratioEmpty}>{t('components.subjectProgressList.empty')}</Text>
+      )}
     </View>
   );
 }

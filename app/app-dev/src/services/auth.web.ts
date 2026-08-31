@@ -7,6 +7,7 @@ import { claimStoredInviteAttribution } from '@/services/deferredInvite';
 import { logLogin, logSignUp, setIdentityProps, type AuthMethod } from '@/services/analyticsEvents';
 import { setServerZone } from '@/utils/serverZone';
 import { STORAGE_KEYS } from '@/types/storage';
+import { t } from '@/i18n';
 import type { LoginResult } from '@/types/api';
 import { mockGuestLogin } from '@/mocks/fixtures/session';
 
@@ -25,7 +26,7 @@ export function setAccountSwitchHandler(
 }
 
 function unsupportedSocialLogin(): Promise<never> {
-  return Promise.reject(new Error('웹 체험판에서는 소셜 로그인을 지원하지 않아요.'));
+  return Promise.reject(new Error(t('services.auth.socialUnsupportedOnWeb')));
 }
 
 export const kakaoLogin = unsupportedSocialLogin;
@@ -48,7 +49,7 @@ export async function guestLogin(): Promise<LoginResult> {
       const body = axios.isAxiosError(e)
         ? (e.response?.data as { message?: string } | undefined)
         : null;
-      throw new Error(body?.message ?? '게스트 시작 실패');
+      throw new Error(body?.message ?? t('services.auth.guestStartFailed'));
     }
   }
 

@@ -1,6 +1,7 @@
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { logOnboardingNicknameSubmitted } from '@/services/analyticsEvents';
 import { useNicknameCheck } from '@/hooks/useNicknameCheck';
 import type { StepProps } from '@/screens/onboarding/types';
@@ -21,7 +22,8 @@ const NICK_MAX = 10;
 // 종전 '가입 완료 시 확인' 문구는 GROMO-1215가 실시간 중복확인을 붙이며 거짓이 되어
 // GROMO-1212에서 프로필 편집과 같은 중립 문구로 교체했다. 문구를 갈라야 한다면
 // "unknown을 available로 오인시키지 않는다" 규칙(GROMO-1231)부터 다시 확인할 것.
-const BASE_HINT = `${NICK_MIN}~${NICK_MAX}자로 정할 수 있어요`;
+// 문구는 렌더 시점에 t()로 만든다(모듈 최상위에서 t 호출 금지) — 키만 여기 둔다.
+const BASE_HINT_KEY = 'onboarding.nickname.baseHint';
 
 interface NicknameStepProps extends StepProps {
   serverError?: string | null; // 가입 확정 시 서버 검증 실패(중복·일시 오류) 메시지
@@ -43,13 +45,14 @@ export default function NicknameStep({
   // taken이어도 CTA는 잠그지 않는다 — 검사 응답이 stale할 수 있어 최종 판정은
   // 가입 확정의 409가 맡고, 그 실패는 serverError로 되돌아온다.
   const checkStatus = useNicknameCheck(trimmed, validLength && !submitting);
+  const baseHint = t(BASE_HINT_KEY, { min: NICK_MIN, max: NICK_MAX });
 
   return (
     <StepScaffold
       testID="onboarding.step.nickname"
       titleCenter
-      title={'앞으로 어떤 이름으로\n불러드릴까요?'}
-      ctaLabel={submitting ? '확인 중…' : '다음'}
+      title={t('onboarding.nickname.title')}
+      ctaLabel={submitting ? t('onboarding.nickname.checking') : t('common.next')}
       ctaDisabled={!validLength || !!submitting}
       onCta={() => {
         // ⚠️ 닉네임 문자열은 PII라 전송 금지 — 이벤트엔 값 없음.
@@ -58,14 +61,15 @@ export default function NicknameStep({
       }}
     >
       <Text style={s.label}>
-        닉네임 <Text style={s.labelEn}>Nickname</Text>
+        {t('onboarding.nickname.label')}{' '}
+        <Text style={s.labelEn}>{t('onboarding.nickname.labelEn')}</Text>
       </Text>
       <View style={s.inputRow}>
         <TextInput
           testID="onboarding.nickname.input"
           value={nickname}
-          onChangeText={(t) => update({ nickname: t })}
-          placeholder="닉네임을 입력하세요"
+          onChangeText={(text) => update({ nickname: text })}
+          placeholder={t('onboarding.nickname.placeholder')}
           placeholderTextColor={T.inkMuted}
           style={[s.input, serverError ? s.inputError : null]}
           maxLength={NICK_MAX}
@@ -90,20 +94,20 @@ export default function NicknameStep({
         <Text style={s.errorText}>{serverError}</Text>
       ) : nickname.length > 0 && !validLength ? (
         <Text style={s.errorText}>
-          닉네임은 {NICK_MIN}~{NICK_MAX}자로 입력해 주세요
+          {t('onboarding.nickname.lengthError', { min: NICK_MIN, max: NICK_MAX })}
         </Text>
       ) : checkStatus === 'taken' ? (
-        <Text style={s.errorText}>이미 사용 중인 닉네임이에요</Text>
+        <Text style={s.errorText}>{t('onboarding.nickname.taken')}</Text>
       ) : checkStatus === 'available' ? (
-        <Text style={s.successText}>사용 가능해요</Text>
+        <Text style={s.successText}>{t('onboarding.nickname.available')}</Text>
       ) : checkStatus === 'checking' ? (
-        <Text style={s.hintText}>확인 중…</Text>
+        <Text style={s.hintText}>{t('onboarding.nickname.checking')}</Text>
       ) : checkStatus === 'unknown' ? (
         // 중립 폴백 — 판정 문구 없이 기본 힌트로(GROMO-1231). 중복은 가입 확정 409가 최종 방어.
-        <Text style={s.hintText}>{BASE_HINT}</Text>
+        <Text style={s.hintText}>{baseHint}</Text>
       ) : (
         // idle — 검사할 이유가 없는 상태(형식 미충족·빈 입력)의 기본 힌트.
-        <Text style={s.hintText}>{BASE_HINT}</Text>
+        <Text style={s.hintText}>{baseHint}</Text>
       )}
     </StepScaffold>
   );

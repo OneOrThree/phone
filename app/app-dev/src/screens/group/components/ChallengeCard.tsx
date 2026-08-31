@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import {
   BET_CANCEL_FORBIDDEN,
   BET_CANCEL_HAS_OTHERS,
@@ -32,12 +33,13 @@ import type {
 } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import {
-  REPEAT_DAY_LABELS,
   REPEAT_DAY_ORDER,
+  addDaysStr,
   fmtMonthDayDow,
   fmtRelativeDay,
   hhmmOf,
   kstDateOfInstant,
+  repeatDayLabel,
   repeatDayOf,
   weekRemainingActiveDates,
 } from '../challengeSchedule';
@@ -70,45 +72,44 @@ import LastBetResultSheet from './LastBetResultSheet';
 // 아무 설명 없이 비우면 '아무도 안 했다'로 읽힌다.
 
 // SCREEN_TIME 챌린지는 '많이 할수록 좋은' 집중과 반대 방향이라 카드에 뜻을 한 줄 적는다(§3-2).
-const SCREEN_TIME_CAPTION = '오늘 스크린타임을 목표 이하로 유지해요';
+const SCREEN_TIME_CAPTION_KEY = 'group.challengeCard.screenTimeCaption';
 // SCREEN_TIME 창(TIME_WINDOW) 카드의 측정 한계 고지 — 계약이 문구까지 고정했다
 // (contract.md §2 "카드·시트 안내 문구 필수"). 15분 눈금 버킷 측정이라 오차·누락이 구조적이고,
 // 이 판정 위로 코인이 움직일 수 있어(내기) 카드에도 상시 노출한다.
-const WINDOW_MEASURE_CAPTION =
-  '사용 시간은 15분 단위로 집계돼 오차가 있을 수 있어요. 앱 버전이나 기기 상태에 따라 집계가 늦거나 누락될 수 있어요';
+const WINDOW_MEASURE_CAPTION_KEY = 'group.challengeCard.windowMeasureCaption';
 // 서버가 canParticipate=false를 준 경우 — 스크린타임 권한이 없어 이 그룹에서 집계가 안 된다.
-const NO_PERMISSION_CAPTION = '스크린타임 권한이 없어 참여할 수 없어요';
+const NO_PERMISSION_CAPTION_KEY = 'group.challengeCard.noPermissionCaption';
 // '—'가 실제로 뜬 SCREEN_TIME 카드에만 — 기호만 봐서는 0분인지 값이 없는 건지 알 수 없다.
-const UNMEASURED_CAPTION = '— 는 아직 집계되지 않았어요';
+const UNMEASURED_CAPTION_KEY = 'group.challengeCard.unmeasuredCaption';
 // memberProgress 자체가 null인 챌린지(TIME_WINDOW) — 리스트를 그냥 비우면 '아무도 안 했다'로 읽힌다.
-const NO_PROGRESS_CAPTION = '이 챌린지는 진행률을 표시하지 않아요';
+const NO_PROGRESS_CAPTION_KEY = 'group.challengeCard.noProgressCaption';
 // 이미 오늘 목표를 채운 사람은 참가할 수 없다(무위험 참가 차단 — 백 명세 결정 7).
 // 버튼만 잠그면 왜 안 눌리는지 알 방법이 없어 사유를 한 줄로 적는다.
-const BET_ACHIEVED_CAPTION = '이미 오늘 목표를 달성해서 참가할 수 없어요';
+const BET_ACHIEVED_CAPTION_KEY = 'group.challengeCard.betAchievedCaption';
 // 개설자는 자동 참가라(계약 §2-1) 달성자는 **개설도** 거절된다(BET_ALREADY_ACHIEVED, 409).
 // 같은 사실이지만 막히는 동작이 달라 문장을 따로 둔다 — '참가할 수 없어요'는 참가 버튼이 없는
 // 카드에서 무엇이 막혔는지 말해 주지 못한다.
-const BET_ACHIEVED_CREATE_CAPTION = '이미 오늘 목표를 달성해서 내기를 열 수 없어요';
+const BET_ACHIEVED_CREATE_CAPTION_KEY = 'group.challengeCard.betAchievedCreateCaption';
 // SCREEN_TIME은 차단 방향이 반대다(계약 §2 참가 가드 행) — 달성은 하루/창이 끝나야 확정이라
 // '잠정 달성'은 참가를 막지 않고, **이미 목표를 초과해 확정 패배**한 사람만 막는다
 // (BET_ALREADY_FAILED — 질 게 확정된 판돈 투입 방지). 문장도 방향에 맞춘다.
-const BET_FAILED_CAPTION = '이미 목표를 초과해서 참가할 수 없어요';
-const BET_FAILED_CREATE_CAPTION = '이미 목표를 초과해서 내기를 열 수 없어요';
+const BET_FAILED_CAPTION_KEY = 'group.challengeCard.betFailedCaption';
+const BET_FAILED_CREATE_CAPTION_KEY = 'group.challengeCard.betFailedCreateCaption';
 // 철회 직후의 사실 고지 — 영역을 그냥 비우면 방금 한 일이 사라진 것처럼 보인다(betLocked와 같은 이유).
 // 재참여할 수 있는 철회에서는 참가 진입점 **아래**에 붙는다(GROMO-1112) — 캡션만 남기고 버튼을
 // 걷어 버리면 한 번 빠진 사람은 다음 재조회 전까지 다시 들어갈 방법이 없다.
-const BET_LEFT_CAPTION = '참여를 취소했어요. 참가비는 잔액으로 돌아왔어요';
+const BET_LEFT_CAPTION_KEY = 'group.challengeCard.betLeftCaption';
 // 취소(당일 단독 개설자 carve-out) 직후의 자리 표시 — 누른 버튼(「참여 취소」)과 같은 동사로
 // 말하되, 여기서는 **내기 자체가 닫힌다**는 결과가 하나 더 있어 그 사실까지 적는다(N27로
 // 두 버튼 문구가 「참여 취소」로 합쳐진 뒤에도 두 결말은 여전히 다르다).
-const BET_CANCELED_CAPTION = '참여를 취소해 내기가 닫혔어요. 참가비는 잔액으로 돌아왔어요';
+const BET_CANCELED_CAPTION_KEY = 'group.challengeCard.betCanceledCaption';
 // 휴면 챌린지(GROMO-1201) — OPEN 내기가 없고 과거 내기 이력만 남았다. 서버는 마지막 참가자가
 // 철회해도 챌린지를 지우지 않고 남겨 두므로(백엔드 테스트가 잠근다) 카드가 사유를 한 줄로 말한다.
 // 배지 문구 '휴면'은 계약 §2 고정 — '비활성'은 INACTIVE 노출 대비 예약어라 쓰지 않는다.
-const DORMANT_CAPTION = '참가자가 없어요';
+const DORMANT_CAPTION_KEY = 'group.challengeCard.dormantCaption';
 // 비활성 요일(FR-16-2) — 카드를 감추지 않고 진행 리스트 자리에 쉬는 날임을 적는다.
 // 진행률을 재지 않는 날이라(서버 memberProgress null) '아무도 안 했다'로 읽히면 안 된다.
-const REST_CAPTION = '오늘은 쉬는 날이에요';
+const REST_CAPTION_KEY = 'group.challengeCard.restCaption';
 // 창(TIME_WINDOW) 시각의 해석 시간대 — 계약 §1: 저장된 창 시각은 Asia/Seoul 벽시계다.
 // 서버 "HH:mm:ss"와 현재를 같은 벽시계 공간에서 비교한다(challengeTime 유틸 관례).
 const KST_ZONE = 'Asia/Seoul';
@@ -118,7 +119,9 @@ const KST_ZONE = 'Asia/Seoul';
 // 형식이 다르면 원문을 그대로 둔다(서버가 다른 포맷을 주면 깨진 날짜보다 원문이 낫다).
 function monthDay(betDate: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(betDate);
-  return m ? `${Number(m[2])}월 ${Number(m[3])}일` : betDate;
+  return m
+    ? t('group.challengeCard.monthDay', { month: Number(m[2]), day: Number(m[3]) })
+    : betDate;
 }
 
 // 취소 유예 카운트다운을 켜는 창 — 이보다 멀면 타이머를 걸지 않는다(예약분·창형은 몇 시간
@@ -151,9 +154,9 @@ export function LeaveCountdown({
       return;
     }
     const id = setInterval(() => {
-      const t = Date.now();
-      setNowMs(t);
-      if (t >= deadlineMs) {
+      const now = Date.now();
+      setNowMs(now);
+      if (now >= deadlineMs) {
         clearInterval(id);
         onExpire();
       }
@@ -166,7 +169,9 @@ export function LeaveCountdown({
   const rest = sec % 60;
   return (
     <Text style={s.caption} testID={testID}>
-      {m > 0 ? `${m}분 ${rest}초 안에 취소할 수 있어요` : `${rest}초 안에 취소할 수 있어요`}
+      {m > 0
+        ? t('group.challengeCard.countdownMinutes', { minutes: m, seconds: rest })
+        : t('group.challengeCard.countdownSeconds', { seconds: rest })}
     </Text>
   );
 }
@@ -175,15 +180,20 @@ export function LeaveCountdown({
 // '다음 8/12(수)'. "3일 뒤" 같은 상대 표현은 쓰지 않는다 — 요일 반복에서는 날짜가 곧 정보다.
 function nextDayPhrase(dateStr: string, today: string, time: string | null): string {
   const rel = fmtRelativeDay(dateStr, today);
-  const timePart = time !== null ? ` ${time}` : '';
-  return rel === '오늘' || rel === '내일' ? `${rel}${timePart}` : `다음 ${rel}${timePart}`;
+  const timePart = time !== null ? t('group.challengeCard.timePart', { time }) : '';
+  // '오늘·내일인가'는 **날짜로** 판정한다 — 번역된 문구를 비교하면 다른 언어에서 전부 '다음 …'이 된다.
+  const isRelative = dateStr === today || dateStr === addDaysStr(today, 1);
+  return t(isRelative ? 'group.challengeCard.nextDay' : 'group.challengeCard.nextDayUpcoming', {
+    day: rel,
+    time: timePart,
+  });
 }
 
 // 멤버 한 명의 진행 표기 — 위 3상 규칙 그대로.
 // 미집계·기록 분 조각은 결과 모달과 공유한다(progressFormat) — 달성 표기만 여기 고유다.
 function progressText(p: ChallengeMemberProgress, durationMinutes: number | null): string {
   if (p.progressMinutes === null) return UNMEASURED;
-  if (p.achieved) return '달성 ✓';
+  if (p.achieved) return t('group.challengeCard.achievedMark');
   return progressFraction(p.progressMinutes, durationMinutes);
 }
 
@@ -191,7 +201,7 @@ function progressText(p: ChallengeMemberProgress, durationMinutes: number | null
 // '—'를 "대시"로 발음해 미집계라는 뜻이 전달되지 않는다.
 function progressA11y(p: ChallengeMemberProgress, durationMinutes: number | null): string {
   if (p.progressMinutes === null) return unmeasuredA11y(p.nickname);
-  if (p.achieved) return `${p.nickname} 달성`;
+  if (p.achieved) return t('group.challengeCard.achievedA11y', { nickname: p.nickname });
   return progressFractionA11y(p.nickname, p.progressMinutes, durationMinutes);
 }
 
@@ -343,7 +353,7 @@ export default function ChallengeCard({
     const groupId = challengeGroupId(challenge.id);
     if (groupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·취소와 같은 공통 문구 결.
-      showGatedAlert('기록을 열 수 없어요', '잠시 후 다시 시도해 주세요.');
+      showGatedAlert(t('group.challengeCard.cannotOpenHistoryTitle'), t('common.retryLater'));
       return;
     }
     // 그룹 축 내역 화면(GROMO-1277)으로 간다 — 이 진입점은 **이 챌린지만** 보는 필터다
@@ -416,10 +426,10 @@ export default function ChallengeCard({
     ? myProgressRow?.achieved === false
     : myProgressRow?.achieved === true;
   // 잠금 사유 문장 — 카테고리에 따라 막힌 방향이 다르다(위 주석).
-  const blockedCaption = isScreenTime ? BET_FAILED_CAPTION : BET_ACHIEVED_CAPTION;
-  const blockedCreateCaption = isScreenTime
-    ? BET_FAILED_CREATE_CAPTION
-    : BET_ACHIEVED_CREATE_CAPTION;
+  const blockedCaption = t(isScreenTime ? BET_FAILED_CAPTION_KEY : BET_ACHIEVED_CAPTION_KEY);
+  const blockedCreateCaption = t(
+    isScreenTime ? BET_FAILED_CREATE_CAPTION_KEY : BET_ACHIEVED_CREATE_CAPTION_KEY,
+  );
   // 개설 진입점을 잠그는 이유 2가지(재조회 중 · 이미 확정) — 잠금 표시는 같고 사유만 다르다.
   const createBlocked = !!betLocked || myBlockedNow;
   // 내기 기준일 — 'YYYY-MM-DD'는 사전순이 곧 시간순이다. 철회의 '시작 전' 판정·'내일 시작' 배지·
@@ -567,20 +577,26 @@ export default function ChallengeCard({
         const nowSec = nowSecondsInZone(KST_ZONE);
         const startSec = timeStrToSeconds(challenge.windowStart);
         const endSec = timeStrToSeconds(challenge.windowEnd);
-        if (nowSec < startSec) return `오늘 ${startHHmm}`;
-        if (nowSec < endSec) return `진행 중 · ${hhmmOf(challenge.windowEnd)} 종료`;
+        if (nowSec < startSec) return t('group.challengeCard.todayAt', { time: startHHmm });
+        if (nowSec < endSec)
+          return t('group.challengeCard.inProgressUntil', {
+            time: hhmmOf(challenge.windowEnd),
+          });
         return nextDate !== null ? nextDayPhrase(nextDate, todayKst, startHHmm) : null;
       }
-      return '진행 중 · 자정 종료';
+      return t('group.challengeCard.inProgressUntilMidnight');
     }
     return nextDate !== null ? nextDayPhrase(nextDate, todayKst, startHHmm) : null;
   })();
   // 요일 줄 음성 안내 — 배지 7칸을 낱자로 읽으면 뜻이 전달되지 않아 한 문장으로 묶는다(진행 행 관례).
   const dowA11y =
     repeatDays !== null
-      ? `매주 ${REPEAT_DAY_ORDER.filter((d) => repeatDays.includes(d))
-          .map((d) => REPEAT_DAY_LABELS[REPEAT_DAY_ORDER.indexOf(d)])
-          .join('·')} 반복${nextLine !== null ? ` · ${nextLine}` : ''}`
+      ? t('group.challengeCard.dowA11y', {
+          days: REPEAT_DAY_ORDER.filter((d) => repeatDays.includes(d))
+            .map((d) => repeatDayLabel(REPEAT_DAY_ORDER.indexOf(d)))
+            .join('·'),
+          next: nextLine !== null ? t('group.challengeCard.dowA11yNext', { next: nextLine }) : '',
+        })
       : '';
 
   // ── 회차 모델(신서버 — bet.session 필드 존재) 파생. undefined = 구서버(종전 렌더). ──
@@ -804,7 +820,8 @@ export default function ChallengeCard({
       deferredCleanupRef.current = null;
       deferred?.();
     };
-    const list: AlertButton[] = buttons && buttons.length > 0 ? buttons : [{ text: '확인' }];
+    const list: AlertButton[] =
+      buttons && buttons.length > 0 ? buttons : [{ text: t('common.confirm') }];
     const wrapped = list.map((button) => ({
       ...button,
       // 호출부의 동작을 **먼저** 실행한다 — 그 안에서 시트를 여는 경우(삭제 확인) 미뤄 둔
@@ -826,7 +843,7 @@ export default function ChallengeCard({
   function openJoinNextSheet() {
     if (cachedGroupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·히스토리와 같은 공통 문구 결.
-      showGatedAlert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
+      showGatedAlert(t('group.challengeCard.cannotJoinTitle'), t('common.retryLater'));
       return;
     }
     openSheet();
@@ -839,7 +856,7 @@ export default function ChallengeCard({
   // 뺀 집합으로만 시트를 연다 — 화면이 보여주는 돈과 실제 나갈 돈이 어긋나면 안 된다(N15).
   async function openWeekSheet() {
     if (cachedGroupId === null) {
-      showGatedAlert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
+      showGatedAlert(t('group.challengeCard.cannotJoinTitle'), t('common.retryLater'));
       return;
     }
     if (weekOpenLock.current) return; // 조회가 도는 동안의 연타 방지(leaveLock 관행)
@@ -859,7 +876,7 @@ export default function ChallengeCard({
         //    신호가 산다. 톤이 둘뿐이라 생략(기본 중립)이 가장 가까운 표현이고, 「성공」이라고
         //    주장하지 않으려고 tone:'success'를 명시하지도 않는다(오너 결정 2026-08-11).
         //    아래 '이미 …' 계열 5곳도 같은 근거로 tone을 생략한다.
-        show({ message: '이번 주 남은 날은 이미 모두 참여하고 있어요' });
+        show({ message: t('group.challengeCard.weekAllJoined') });
         onBetChanged?.();
         return;
       }
@@ -871,8 +888,8 @@ export default function ChallengeCard({
       // 예약 현황을 모른 채 열면 이미 낸 날의 참가비까지 합계에 싣는다 — 열지 않는다.
       // 성공 경로가 claimSheetSlot()을 지나므로 **이 실패 경로도 승인을 받고** 띄운다.
       await showGatedAlert.afterSlot(
-        '참여 정보를 확인하지 못했어요',
-        '잠시 후 다시 시도해 주세요.',
+        t('group.challengeCard.joinInfoFailedTitle'),
+        t('common.retryLater'),
       );
     } finally {
       weekOpenLock.current = false;
@@ -894,7 +911,7 @@ export default function ChallengeCard({
         // 예약 표시를 걷어 준다(안 그러면 없는 예약을 계속 취소하려 든다 — 아래 404와 같은 결).
         // 조치가 없는 결과 통보라 확인 버튼 없이 토스트로 알린다(정책 D19).
         // tone 생략 = 중립 배너 — 이미 원하던 상태라 danger를 쓰지 않는다(오너 결정 2026-08-11).
-        show({ message: '이미 정리된 예약이에요 — 최신 상태로 새로고침할게요' });
+        show({ message: t('group.challengeCard.reservationGone') });
         onBetChanged?.();
         return;
       }
@@ -907,16 +924,16 @@ export default function ChallengeCard({
         // 목록을 받은 뒤 회차가 사라졌다(삭제·정산) — 취소할 대상이 없는 종결 상태다(#570 ③).
         // tone 생략 = 중립 배너 — 이미 원하던 상태라 danger를 쓰지 않는다(오너 결정 2026-08-11).
         case BET_SESSION_NOT_FOUND:
-          show({ message: '이미 정리된 예약이에요 — 최신 상태로 새로고침할게요' });
+          show({ message: t('group.challengeCard.reservationGone') });
           onBetChanged?.();
           break;
         case BET_LEAVE_CLOSED:
-          show({ message: '취소할 수 있는 시간이 지나 참여 취소를 못 했어요', tone: 'error' });
+          show({ message: t('group.challengeCard.leaveClosed'), tone: 'error' });
           break;
         // 다른 기기에서 이미 취소했다 — 404와 같은 "취소할 대상이 없음"이다(#570 codex ④).
         // tone 생략 = 중립 배너 — 이미 원하던 상태라 danger를 쓰지 않는다(오너 결정 2026-08-11).
         case BET_NOT_JOINED:
-          show({ message: '이미 취소된 참여예요 — 최신 상태로 새로고침할게요' });
+          show({ message: t('group.challengeCard.alreadyLeft') });
           onBetChanged?.();
           break;
         // 카드를 그린 뒤 회차가 닫혔다(정산·마감) — 위 두 코드와 같은 **종결 상태**다.
@@ -925,11 +942,14 @@ export default function ChallengeCard({
         // 버튼이 스스로 사라지는 구조라 자연 재조회에 맡기지만, v2 예약/당일 취소는 버튼 노출이
         // 서버 스냅샷(nextSessionJoined·myLeaveDeadlineAt)에 묶여 있어 재조회가 유일한 해소다.
         case BET_NOT_OPEN:
-          show({ message: '이미 정산됐거나 닫힌 날이라 참여 취소를 못 했어요', tone: 'error' });
+          show({ message: t('group.challengeCard.sessionSettled'), tone: 'error' });
           onBetChanged?.();
           break;
         default:
-          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot(
+            t('group.challengeCard.leaveFailedTitle'),
+            t('common.retryLater'),
+          );
       }
     } finally {
       leaveLock.current = false;
@@ -959,16 +979,16 @@ export default function ChallengeCard({
         // 사실을 알리고 카드를 최신으로 갈아 끼운다(#570 codex ③).
         // tone 생략 = 중립 배너 — 이미 원하던 상태라 danger를 쓰지 않는다(오너 결정 2026-08-11).
         case BET_SESSION_NOT_FOUND:
-          show({ message: '이미 정리된 날이에요 — 최신 상태로 새로고침할게요' });
+          show({ message: t('group.challengeCard.sessionGone') });
           onBetChanged?.();
           break;
         case BET_LEAVE_CLOSED:
-          show({ message: '취소할 수 있는 시간이 지나 참여 취소를 못 했어요', tone: 'error' });
+          show({ message: t('group.challengeCard.leaveClosed'), tone: 'error' });
           break;
         // 다른 기기에서 이미 취소했다 — 404와 같은 "취소할 대상이 없음"이다(#570 codex ④).
         // tone 생략 = 중립 배너 — 이미 원하던 상태라 danger를 쓰지 않는다(오너 결정 2026-08-11).
         case BET_NOT_JOINED:
-          show({ message: '이미 취소된 참여예요 — 최신 상태로 새로고침할게요' });
+          show({ message: t('group.challengeCard.alreadyLeft') });
           onBetChanged?.();
           break;
         // 카드를 그린 뒤 회차가 닫혔다(정산·마감) — 위 두 코드와 같은 **종결 상태**다.
@@ -977,11 +997,14 @@ export default function ChallengeCard({
         // 버튼이 스스로 사라지는 구조라 자연 재조회에 맡기지만, v2 예약/당일 취소는 버튼 노출이
         // 서버 스냅샷(nextSessionJoined·myLeaveDeadlineAt)에 묶여 있어 재조회가 유일한 해소다.
         case BET_NOT_OPEN:
-          show({ message: '이미 정산됐거나 닫힌 날이라 참여 취소를 못 했어요', tone: 'error' });
+          show({ message: t('group.challengeCard.sessionSettled'), tone: 'error' });
           onBetChanged?.();
           break;
         default:
-          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot(
+            t('group.challengeCard.leaveFailedTitle'),
+            t('common.retryLater'),
+          );
       }
     } finally {
       leaveLock.current = false;
@@ -990,21 +1013,33 @@ export default function ChallengeCard({
   }
 
   function confirmLeaveToday(sessionId: string, stake: number) {
-    showGatedAlert('참여 취소', `참가비 ${stake}코인을 돌려받고 오늘 참여를 취소할까요?`, [
-      { text: '아니요', style: 'cancel' },
-      { text: '참여 취소', style: 'destructive', onPress: () => doLeaveToday(sessionId) },
-    ]);
+    showGatedAlert(
+      t('group.challengeCard.leaveTitle'),
+      t('group.challengeCard.leaveTodayBody', { stake }),
+      [
+        { text: t('group.challengeCard.no'), style: 'cancel' },
+        {
+          text: t('group.challengeCard.leaveTitle'),
+          style: 'destructive',
+          onPress: () => doLeaveToday(sessionId),
+        },
+      ],
+    );
   }
 
   // 확인 한 겹 — 버튼 문구는 「참여 취소」다(N27 — 돈이 걸린 행동이라 무엇을 취소하는지 드러낸다).
   function confirmLeaveNext(stake: number) {
     if (nextDate === null) return;
     showGatedAlert(
-      '참여 취소',
-      `${fmtMonthDayDow(nextDate)} 참여를 취소하고 참가비 ${stake}코인을 돌려받을까요?`,
+      t('group.challengeCard.leaveTitle'),
+      t('group.challengeCard.leaveNextBody', { day: fmtMonthDayDow(nextDate), stake }),
       [
-        { text: '아니요', style: 'cancel' },
-        { text: '참여 취소', style: 'destructive', onPress: () => doLeaveNext() },
+        { text: t('group.challengeCard.no'), style: 'cancel' },
+        {
+          text: t('group.challengeCard.leaveTitle'),
+          style: 'destructive',
+          onPress: () => doLeaveNext(),
+        },
       ],
     );
   }
@@ -1040,20 +1075,23 @@ export default function ChallengeCard({
         // 문구는 v2 경로(doLeaveToday·doLeaveNext)와 같은 동사('참여 취소')를 쓴다 — 같은 행동을
         // 되돌리는 실패인데 화면마다 다른 이름으로 부르면 유저는 다른 기능이라고 읽는다(N27).
         case BET_LEAVE_CLOSED:
-          show({ message: '내기가 시작된 뒤라 참여 취소를 못 했어요', tone: 'error' });
+          show({ message: t('group.challengeCard.betStarted'), tone: 'error' });
           break;
         // ❌ 유지 — '화면을 새로고침해 주세요'는 사용자 조치를 요구한다(정책 D19).
         case BET_NOT_JOINED:
           showGatedAlert.afterSlot(
-            '참여 취소를 못 했어요',
-            '참가 중인 내기가 아니에요. 화면을 새로고침해 주세요.',
+            t('group.challengeCard.leaveFailedTitle'),
+            t('group.challengeCard.notJoinedBody'),
           );
           break;
         case BET_NOT_OPEN:
-          show({ message: '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요', tone: 'error' });
+          show({ message: t('group.challengeCard.betSettled'), tone: 'error' });
           break;
         default:
-          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot(
+            t('group.challengeCard.leaveFailedTitle'),
+            t('common.retryLater'),
+          );
       }
     } finally {
       leaveLock.current = false;
@@ -1066,14 +1104,18 @@ export default function ChallengeCard({
   // v2 경로와 다른 동사를 쓰면 유저에겐 서로 다른 두 기능으로 읽힌다.
   function confirmLeaveBet() {
     if (!leavable || bet === null) return;
-    showGatedAlert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기에서 빠질까요?`, [
-      { text: '아니요', style: 'cancel' },
-      {
-        text: '참여 취소',
-        style: 'destructive',
-        onPress: () => doLeaveBet(bet.betId, bet.stake, betMembers),
-      },
-    ]);
+    showGatedAlert(
+      t('group.challengeCard.leaveTitle'),
+      t('group.challengeCard.leaveBetBody', { stake: bet.stake }),
+      [
+        { text: t('group.challengeCard.no'), style: 'cancel' },
+        {
+          text: t('group.challengeCard.leaveTitle'),
+          style: 'destructive',
+          onPress: () => doLeaveBet(bet.betId, bet.stake, betMembers),
+        },
+      ],
+    );
   }
 
   // 취소 실행(carve-out 전용) — 검증은 서버가 정본이다. 철회와 달리 cancelBet은 시작 여부를
@@ -1097,16 +1139,19 @@ export default function ChallengeCard({
         // 재시도해도 같은 결과다 — 사실만 알리고 화면 정리는 다음 자연 재조회에 맡긴다(위와 동일).
         // 취소 실패는 사유만 말한다 — 실패했다는 사실은 방금 누른 「참여 취소」 버튼 문맥이 준다.
         case BET_CANCEL_FORBIDDEN:
-          show({ message: '내기를 연 사람만 취소할 수 있어요', tone: 'error' });
+          show({ message: t('group.challengeCard.ownerOnlyCancel'), tone: 'error' });
           break;
         case BET_CANCEL_HAS_OTHERS:
-          show({ message: '다른 참가자가 있어 취소할 수 없어요', tone: 'error' });
+          show({ message: t('group.challengeCard.othersJoined'), tone: 'error' });
           break;
         case BET_NOT_OPEN:
-          show({ message: '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요', tone: 'error' });
+          show({ message: t('group.challengeCard.betSettled'), tone: 'error' });
           break;
         default:
-          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot(
+            t('group.challengeCard.leaveFailedTitle'),
+            t('common.retryLater'),
+          );
       }
     } finally {
       leaveLock.current = false;
@@ -1118,14 +1163,18 @@ export default function ChallengeCard({
   // 단독 참가자라 내 참여를 무르면 내기 자체가 닫힌다 — 그 결과를 묻는 문장에서 지우면 안 된다.
   function confirmCancelBet() {
     if (!cancelable || bet === null) return;
-    showGatedAlert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
-      { text: '아니요', style: 'cancel' },
-      {
-        text: '참여 취소',
-        style: 'destructive',
-        onPress: () => doCancelBet(bet.betId, bet.stake, betMembers),
-      },
-    ]);
+    showGatedAlert(
+      t('group.challengeCard.leaveTitle'),
+      t('group.challengeCard.cancelBetBody', { stake: bet.stake }),
+      [
+        { text: t('group.challengeCard.no'), style: 'cancel' },
+        {
+          text: t('group.challengeCard.leaveTitle'),
+          style: 'destructive',
+          onPress: () => doCancelBet(bet.betId, bet.stake, betMembers),
+        },
+      ],
+    );
   }
   // 지난 결과 1건 — v2 lastSettledSession 우선, 없으면 구서버 lastSettledBet 폴백(#570 codex ①).
   // 선택·정규화는 lastSettledView가 단독으로 쥔다(시트는 A2 소유라 표시 계약을 최소로만 넓혔다 —
@@ -1166,9 +1215,9 @@ export default function ChallengeCard({
       releaseSheetSlot();
     };
     const buttons: AlertButton[] = [
-      { text: '그만두기', style: 'cancel', onPress: finish },
+      { text: t('group.common.dismiss'), style: 'cancel', onPress: finish },
       {
-        text: '삭제',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
           // ⚠️ 확보한 자리를 **여기서 돌려준다.** 이어지는 재검증이 프리뷰를 **다시 조회**하므로
@@ -1182,10 +1231,19 @@ export default function ChallengeCard({
       },
     ];
     if (gated) {
-      alertOverCardSlot('챌린지 삭제', '이 챌린지를 삭제할까요?', buttons, { onDismiss: finish });
+      alertOverCardSlot(
+        t('group.challengeCard.deleteTitle'),
+        t('group.challengeCard.deleteBody'),
+        buttons,
+        { onDismiss: finish },
+      );
       return;
     }
-    showGatedAlert('챌린지 삭제', '이 챌린지를 삭제할까요?', buttons);
+    showGatedAlert(
+      t('group.challengeCard.deleteTitle'),
+      t('group.challengeCard.deleteBody'),
+      buttons,
+    );
   }
 
   // 0건 프리뷰의 확정 — 다시 받아 새 참여가 생겼는지 본다.
@@ -1207,15 +1265,18 @@ export default function ChallengeCard({
         setDeletePreview(fresh);
         // ⚠️ **이미 세운 등록(deletePreview) 위에 얹히는 Alert다.** 그냥 띄우면 카드가 사라질 때
         //    언마운트 정리의 열림 보고(false)가 살아 있는 등록을 꺼뜨린다 — 위 alertOverCardSlot.
-        alertOverCardSlot('걸린 돈이 생겼어요', '방금 참여한 사람이 있어요. 내용을 확인해 주세요.');
+        alertOverCardSlot(
+          t('group.challengeCard.moneyAppearedTitle'),
+          t('group.challengeCard.moneyAppearedBody'),
+        );
         return;
       }
       await runDelete(false);
     } catch {
       // 성공 경로가 claimSheetSlot()을 지나므로 이 실패 경로도 승인을 받고 띄운다(위 훅 주석).
       await showGatedAlert.afterSlot(
-        '삭제 영향을 확인하지 못했어요',
-        '잠시 후 다시 시도해 주세요.',
+        t('group.challengeCard.deletePreviewFailedTitle'),
+        t('common.retryLater'),
       );
     } finally {
       deleteLock.current = false;
@@ -1276,13 +1337,13 @@ export default function ChallengeCard({
       // ⚠️ **버튼을 안 거치고 닫히는 경로**가 있다(Android의 dismissExisting). 그 처리와
       //    "떠 있는 동안 카드가 사라져도 등록을 유지" 둘 다 alertOverCardSlot이 맡는다.
       alertOverCardSlot(
-        '챌린지 삭제',
-        '이 챌린지를 삭제할까요?',
+        t('group.challengeCard.deleteTitle'),
+        t('group.challengeCard.deleteBody'),
         [
           // 물러나면 확보한 자리를 즉시 돌려준다 — 안 그러면 이 화면을 나갈 때까지 자리가 잠긴다.
-          { text: '그만두기', style: 'cancel', onPress: () => finishConfirm(false) },
+          { text: t('group.common.dismiss'), style: 'cancel', onPress: () => finishConfirm(false) },
           {
-            text: '삭제',
+            text: t('common.delete'),
             style: 'destructive',
             // 이미 승인을 쥐고 있으므로 곧바로 연다(부모는 열림 보고로 승인을 마무리한다).
             onPress: () => finishConfirm(true),
@@ -1293,8 +1354,8 @@ export default function ChallengeCard({
     } catch {
       // 성공 경로가 claimSheetSlot()을 지나므로 이 실패 경로도 승인을 받고 띄운다(위 훅 주석).
       await showGatedAlert.afterSlot(
-        '삭제 영향을 확인하지 못했어요',
-        '잠시 후 다시 시도해 주세요.',
+        t('group.challengeCard.deletePreviewFailedTitle'),
+        t('common.retryLater'),
       );
     } finally {
       deleteLock.current = false;
@@ -1342,7 +1403,10 @@ export default function ChallengeCard({
       if (!samePreview(shown, fresh)) {
         setDeletePreview(fresh);
         // 2단계 시트가 떠 있는 상태의 통보다 — 등록 위에 얹힌다(위 alertOverCardSlot).
-        alertOverCardSlot('걸린 돈이 바뀌었어요', '바뀐 내용을 확인하고 다시 눌러 주세요.');
+        alertOverCardSlot(
+          t('group.challengeCard.moneyChangedTitle'),
+          t('group.challengeCard.moneyChangedBody'),
+        );
         return;
       }
       setDeletePreview(null);
@@ -1350,7 +1414,7 @@ export default function ChallengeCard({
     } catch {
       // ⚠️ 이 실패는 **2단계 시트가 떠 있는 채로** 난다(확정을 그 시트에서 눌렀다).
       //    등록 위에 얹히므로 같은 입구를 쓴다 — 승인이 필요 없다는 것과 별개 축이다.
-      alertOverCardSlot('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
+      alertOverCardSlot(t('group.challengeCard.deletePreviewFailedTitle'), t('common.retryLater'));
     } finally {
       deleteLock.current = false;
     }
@@ -1437,7 +1501,9 @@ export default function ChallengeCard({
         {/* 휴면 칩(GROMO-1201) — OPEN 내기가 없고 과거 내기 이력만 남은 챌린지. 서버가 지우는
             대신 표시로 가른다. undefined(휴면을 모르는 구서버)·false엔 아무것도 그리지 않는다.
             상태('참여 중')가 아니라 중립 표기라 '내일 시작' 칩 규격(betTomorrowTag)을 그대로 쓴다. */}
-        {challenge.dormant === true && <Text style={s.betTomorrowTag}>휴면</Text>}
+        {challenge.dormant === true && (
+          <Text style={s.betTomorrowTag}>{t('group.challengeCard.dormantTag')}</Text>
+        )}
         {/* 방장 전용 삭제 X(GROMO-1101) — 서버도 방장 전용이라(NOT_OWNER 403) 비방장에겐
             그리지 않는다. 시각 28pt + hitSlop 8로 터치 타깃 44pt를 채운다 — 카드 본체가
             비터치라 확장 히트영역이 다른 버튼과 겹치지 않는다(내기 영역은 카드 하단이다). */}
@@ -1448,7 +1514,7 @@ export default function ChallengeCard({
             hitSlop={8}
             onPress={confirmDelete}
             accessibilityRole="button"
-            accessibilityLabel="챌린지 삭제"
+            accessibilityLabel={t('group.challengeCard.deleteTitle')}
             testID={`group.challenge.delete.${challenge.id}`}
           >
             <Ionicons name="close" size={16} color={T.inkMuted} />
@@ -1473,7 +1539,7 @@ export default function ChallengeCard({
                 allowFontScaling={false}
                 testID={`group.challenge.dow.${challenge.id}.${day}`}
               >
-                {REPEAT_DAY_LABELS[i]}
+                {repeatDayLabel(i)}
               </Text>
             );
           })}
@@ -1491,16 +1557,16 @@ export default function ChallengeCard({
 
       {/* SCREEN_TIME 뜻 한 줄 — 창(TIME_WINDOW) 카드는 라벨이 이미 시간대·목표를 말하므로
           '오늘 …' 문장 대신 측정 한계 고지(계약 필수 문구)를 세운다. */}
-      {isScreenTime && !isWindow && <Text style={s.caption}>{SCREEN_TIME_CAPTION}</Text>}
-      {isScreenTime && isWindow && <Text style={s.caption}>{WINDOW_MEASURE_CAPTION}</Text>}
-      {!challenge.canParticipate && <Text style={s.warn}>{NO_PERMISSION_CAPTION}</Text>}
+      {isScreenTime && !isWindow && <Text style={s.caption}>{t(SCREEN_TIME_CAPTION_KEY)}</Text>}
+      {isScreenTime && isWindow && <Text style={s.caption}>{t(WINDOW_MEASURE_CAPTION_KEY)}</Text>}
+      {!challenge.canParticipate && <Text style={s.warn}>{t(NO_PERMISSION_CAPTION_KEY)}</Text>}
 
       {/* 쉬는 날엔 진행률을 재지 않는다(서버 memberProgress null) — '진행률을 표시하지 않는
           챌린지'로 오독되지 않게 사유를 갈아 끼운다(FR-16-2). */}
       {resting ? (
-        <Text style={s.caption}>{REST_CAPTION}</Text>
+        <Text style={s.caption}>{t(REST_CAPTION_KEY)}</Text>
       ) : (
-        rows === null && <Text style={s.caption}>{NO_PROGRESS_CAPTION}</Text>
+        rows === null && <Text style={s.caption}>{t(NO_PROGRESS_CAPTION_KEY)}</Text>
       )}
 
       {!resting && !!rows && rows.length > 0 && (
@@ -1536,7 +1602,7 @@ export default function ChallengeCard({
         </View>
       )}
 
-      {!resting && hasUnmeasured && <Text style={s.caption}>{UNMEASURED_CAPTION}</Text>}
+      {!resting && hasUnmeasured && <Text style={s.caption}>{t(UNMEASURED_CAPTION_KEY)}</Text>}
 
       {/* ── 내기 영역(3차 §1) — 진행 리스트 아래, 카드 하단 ──
           끝난 챌린지에 내기가 하나도 없으면 영역 자체를 두지 않는다 — 열 수 없는 자리에
@@ -1559,7 +1625,9 @@ export default function ChallengeCard({
             <>
               <View style={s.betRow}>
                 <Text style={s.betText}>{nextDayPhrase(nextDate, todayKst, startHHmm)}</Text>
-                <Text style={s.betTomorrowTag}>{nextStake}코인</Text>
+                <Text style={s.betTomorrowTag}>
+                  {t('group.challengeCard.coins', { coins: nextStake })}
+                </Text>
               </View>
               <TouchableOpacity
                 style={[s.joinNextBtn, betLocked && s.joinNextBtnOff]}
@@ -1569,7 +1637,9 @@ export default function ChallengeCard({
                 accessibilityRole="button"
                 testID={`group.bet.joinNext.${challenge.id}`}
               >
-                <Text style={s.joinNextText}>{fmtMonthDayDow(nextDate)} 참여하기</Text>
+                <Text style={s.joinNextText}>
+                  {t('group.challengeCard.joinDay', { day: fmtMonthDayDow(nextDate) })}
+                </Text>
               </TouchableOpacity>
             </>
           ) : leftByMe && !rejoinable && bet !== null ? (
@@ -1583,14 +1653,19 @@ export default function ChallengeCard({
               {betMembers > 1 && (
                 <View style={s.betRow}>
                   <Text style={[s.betText, s.betTextOff]}>
-                    🪙 참가비 {displayStake} · 적립금 {displayPot - displayStake} · {betMembers - 1}
-                    명 참여
+                    {t('group.challengeCard.betSummary', {
+                      stake: displayStake,
+                      pot: displayPot - displayStake,
+                      members: betMembers - 1,
+                    })}
                   </Text>
-                  {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
+                  {isFutureBet && (
+                    <Text style={s.betTomorrowTag}>{t('group.challengeCard.tomorrowTag')}</Text>
+                  )}
                 </View>
               )}
               <Text style={s.caption}>
-                {closedBet?.kind === 'cancel' ? BET_CANCELED_CAPTION : BET_LEFT_CAPTION}
+                {t(closedBet?.kind === 'cancel' ? BET_CANCELED_CAPTION_KEY : BET_LEFT_CAPTION_KEY)}
               </Text>
             </>
           ) : bet === null && !isV2 ? (
@@ -1608,7 +1683,7 @@ export default function ChallengeCard({
                 testID={`group.bet.create.${challenge.id}`}
               >
                 <Text style={[s.betCreateText, createBlocked && s.betCreateTextOff]}>
-                  내기 걸기
+                  {t('group.challengeCard.createBet')}
                 </Text>
               </TouchableOpacity>
               {myBlockedNow && <Text style={s.caption}>{blockedCreateCaption}</Text>}
@@ -1618,7 +1693,9 @@ export default function ChallengeCard({
             //    스크린타임 권한 없음(위 캡션이 사유를 말한다)·다음 활성일 미상(구·경계 응답).
             //    누를 자리 없이 설정만 적는다. 영역을 비우면 내기가 없는 챌린지로 읽힌다.
             <View style={s.betRow}>
-              <Text style={[s.betText, s.betTextOff]}>🪙 참가비 {reserveStake}</Text>
+              <Text style={[s.betText, s.betTextOff]}>
+                {t('group.challengeCard.stakeOnly', { stake: reserveStake })}
+              </Text>
             </View>
           ) : myJoinedNow && !rejoinable ? (
             // ③ 내가 참여 중 — 참가비·적립금·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
@@ -1629,12 +1706,20 @@ export default function ChallengeCard({
             <>
               <View style={s.betRow}>
                 <Text style={s.betText}>
-                  🪙 참가비 {displayStake} · 적립금 {displayPot} · {betMembers}명 참여
+                  {t('group.challengeCard.betSummary', {
+                    stake: displayStake,
+                    pot: displayPot,
+                    members: betMembers,
+                  })}
                 </Text>
                 {/* '내일 시작' — 서버가 내일 내기를 폴백으로 내려줄 수 있다(계약 §3). 표기가 없으면
                   오늘 내기로 읽힌다. 상태('참여 중')가 아니라 시점 표기라 중립 칩으로 가른다. */}
-                {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
-                {sessionOpenNow && <Text style={s.betJoinedTag}>참여 중</Text>}
+                {isFutureBet && (
+                  <Text style={s.betTomorrowTag}>{t('group.challengeCard.tomorrowTag')}</Text>
+                )}
+                {sessionOpenNow && (
+                  <Text style={s.betJoinedTag}>{t('group.challengeCard.joinedTag')}</Text>
+                )}
                 {/* v2 오늘 회차 취소(N22·N27) — 서버 myLeaveDeadlineAt이 유일한 판정 근거다.
                   하루형 당일 참가자에겐 이 버튼이 **유일한 환불 창**이라(레거시 '시작 전' 판정은
                   영영 false) 없으면 오탭 참가를 되돌릴 방법이 사라진다(#570 codex ②).
@@ -1646,10 +1731,10 @@ export default function ChallengeCard({
                     disabled={leaveBusy}
                     onPress={() => confirmLeaveToday(bet.session!.sessionId, bet.session!.stake)}
                     accessibilityRole="button"
-                    accessibilityLabel="오늘 참여 취소"
+                    accessibilityLabel={t('group.challengeCard.leaveTodayA11y')}
                     testID={`group.bet.leaveToday.${challenge.id}`}
                   >
-                    <Text style={s.betLeaveText}>참여 취소</Text>
+                    <Text style={s.betLeaveText}>{t('group.challengeCard.leaveTitle')}</Text>
                   </TouchableOpacity>
                 )}
                 {leavable && bet.session === undefined && (
@@ -1659,12 +1744,12 @@ export default function ChallengeCard({
                     disabled={leaveBusy}
                     onPress={confirmLeaveBet}
                     accessibilityRole="button"
-                    accessibilityLabel="참여 취소"
+                    accessibilityLabel={t('group.challengeCard.leaveTitle')}
                     testID={`group.bet.leave.${challenge.id}`}
                   >
                     {/* 문구는 「참여 취소」다(N27) — 레거시 '철회'는 같은 행동의 옛 이름이라
                         v2 버튼과 다른 동사를 쓰면 두 기능처럼 읽힌다. 동작은 그대로 leaveBet. */}
-                    <Text style={s.betLeaveText}>참여 취소</Text>
+                    <Text style={s.betLeaveText}>{t('group.challengeCard.leaveTitle')}</Text>
                   </TouchableOpacity>
                 )}
                 {/* 당일 단독 개설자 carve-out — cancelable이 !leavable을 품어 철회와 배타다.
@@ -1676,12 +1761,12 @@ export default function ChallengeCard({
                     disabled={leaveBusy}
                     onPress={confirmCancelBet}
                     accessibilityRole="button"
-                    accessibilityLabel="참여 취소"
+                    accessibilityLabel={t('group.challengeCard.leaveTitle')}
                     testID={`group.bet.cancel.${challenge.id}`}
                   >
                     {/* 그냥 '취소'는 시트를 닫는 버튼과 헷갈린다 — 돈이 빠지는 행동이라
                         무엇을 취소하는지 버튼에 드러나야 한다(N27 · §9.3 A10). */}
-                    <Text style={s.betLeaveText}>참여 취소</Text>
+                    <Text style={s.betLeaveText}>{t('group.challengeCard.leaveTitle')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -1715,21 +1800,32 @@ export default function ChallengeCard({
                 testID={`group.bet.join.${challenge.id}`}
               >
                 <Text style={[s.betText, (joinBlockedNow || betLocked) && s.betTextOff]}>
-                  🪙 참가비 {displayStake} · {joinMembers}명 참여 중 — 참가하기
+                  {t('group.challengeCard.joinPrompt', {
+                    stake: displayStake,
+                    members: joinMembers,
+                  })}
                 </Text>
-                {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
+                {isFutureBet && (
+                  <Text style={s.betTomorrowTag}>{t('group.challengeCard.tomorrowTag')}</Text>
+                )}
               </TouchableOpacity>
               {joinBlockedNow && <Text style={s.caption}>{blockedCaption}</Text>}
-              {rejoinable && <Text style={s.caption}>{BET_LEFT_CAPTION}</Text>}
+              {rejoinable && <Text style={s.caption}>{t(BET_LEFT_CAPTION_KEY)}</Text>}
             </>
           ) : (
             // 진입점을 열 수 없는 조합(마감·정산됐는데 나는 미참가 / 끝난 챌린지에 열린 내기가
             // 남아 있음) — 상태만 그대로 적고 누를 자리는 두지 않는다.
             <View style={s.betRow}>
               <Text style={[s.betText, s.betTextOff]}>
-                🪙 참가비 {displayStake} · 적립금 {displayPot} · {betMembers}명 참여
+                {t('group.challengeCard.betSummary', {
+                  stake: displayStake,
+                  pot: displayPot,
+                  members: betMembers,
+                })}
               </Text>
-              {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
+              {isFutureBet && (
+                <Text style={s.betTomorrowTag}>{t('group.challengeCard.tomorrowTag')}</Text>
+              )}
             </View>
           )}
           {/* 잡아 둔 다음 활성일 예약 — **분기와 무관하게** 항상 선다(#570 codex ①).
@@ -1738,19 +1834,24 @@ export default function ChallengeCard({
           {nextReserved && nextDate !== null && (
             <View style={s.betRow}>
               <Text style={[s.betText, s.betTextOff]}>
-                {nextDayPhrase(nextDate, todayKst, startHHmm)} · {nextStake}코인
+                {t('group.challengeCard.nextReserved', {
+                  day: nextDayPhrase(nextDate, todayKst, startHHmm),
+                  coins: nextStake,
+                })}
               </Text>
-              <Text style={s.betJoinedTag}>참여 중</Text>
+              <Text style={s.betJoinedTag}>{t('group.challengeCard.joinedTag')}</Text>
               <TouchableOpacity
                 style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
                 activeOpacity={0.8}
                 disabled={leaveBusy}
                 onPress={() => confirmLeaveNext(nextStake)}
                 accessibilityRole="button"
-                accessibilityLabel={`${fmtMonthDayDow(nextDate)} 참여 취소`}
+                accessibilityLabel={t('group.challengeCard.leaveDayA11y', {
+                  day: fmtMonthDayDow(nextDate),
+                })}
                 testID={`group.bet.leaveNext.${challenge.id}`}
               >
-                <Text style={s.betLeaveText}>참여 취소</Text>
+                <Text style={s.betLeaveText}>{t('group.challengeCard.leaveTitle')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -1765,12 +1866,12 @@ export default function ChallengeCard({
               accessibilityRole="button"
               testID={`group.bet.week.${challenge.id}`}
             >
-              <Text style={s.weekText}>이번 주 남은 날 전부</Text>
+              <Text style={s.weekText}>{t('group.challengeCard.weekAll')}</Text>
             </TouchableOpacity>
           )}
           {/* 휴면 사유 한 줄(GROMO-1201) — 칩만으로는 '휴면'이 왜인지 알 수 없다. 새 내기가
               서면 서버가 휴면을 해제하므로 개설 진입점('내기 걸기')은 그대로 살려 둔다. */}
-          {challenge.dormant === true && <Text style={s.caption}>{DORMANT_CAPTION}</Text>}
+          {challenge.dormant === true && <Text style={s.caption}>{t(DORMANT_CAPTION_KEY)}</Text>}
         </View>
       )}
 
@@ -1792,8 +1893,15 @@ export default function ChallengeCard({
             {/* 무산·삭제 무효화는 **판정을 한 적이 없다** — 「N명 중 0명 달성」으로 적으면 시트를
                 열기도 전에 카드가 거짓을 말한다(#570 codex ①). 사유를 아는 회차는 사유로 적고,
                 모르면(구서버·모르는 값) 종전 달성 집계 문장 그대로다. */}
-            지난 내기({monthDay(lastBet.betDate)}):{' '}
-            {lastVoidSummary ?? `${lastResults.length}명 중 ${lastAchieved}명 달성`}
+            {t('group.challengeCard.lastBetCaption', {
+              date: monthDay(lastBet.betDate),
+              summary:
+                lastVoidSummary ??
+                t('group.challengeCard.lastBetAchieved', {
+                  total: lastResults.length,
+                  achieved: lastAchieved,
+                }),
+            })}
           </Text>
         </TouchableOpacity>
       )}

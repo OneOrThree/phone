@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { M, growUp, staggerDelay } from '@/constants/motion';
 import { Enter } from '@/components/Enter';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
 import { useSubjects } from '@/store/SubjectContext';
@@ -26,7 +27,7 @@ import {
   type WeekFocusBlock,
 } from './format';
 import { SectionCard } from './SectionCard';
-import { WEEK_DAYS, WTT_BODY_BLOCK_H, WTT_BODY_H, WTT_FOOTER_LINE_H } from './constants';
+import { WEEK_DAY_KEYS, WTT_BODY_BLOCK_H, WTT_BODY_H, WTT_FOOTER_LINE_H } from './constants';
 import { CardBodyLoading } from './CardBodySlot';
 import { cs } from './cardStyles';
 import { ShareBrandFooter } from './ShareBrandFooter';
@@ -63,7 +64,7 @@ export function WeeklyTimetableCard() {
   // 공유 파일명 — 예: 260716_주간타임라인.png (사진 저장 시엔 이름이 남지 않음)
   // 파일명 날짜는 로컬 유지 — 저장하는 기기의 체감 날짜가 정본(GROMO-1236 분류 C)
   const makeFileName = useCallback(
-    () => `${todayStr().slice(2).replace(/-/g, '')}_주간타임라인`,
+    () => `${todayStr().slice(2).replace(/-/g, '')}_${t('stats.weeklyTimetable.shareFileSuffix')}`,
     [],
   );
   // 캡처→공유·로드 게이트 로직은 일/주 공용 훅이 담당(FocusTimetableCard와 동일, GROMO-1070)
@@ -75,7 +76,7 @@ export function WeeklyTimetableCard() {
     });
 
   return (
-    <SectionCard title="요일별 타임테이블">
+    <SectionCard title={t('stats.weeklyTimetable.title')}>
       {/* 캡처 범위 — 배경을 칠해 PNG가 투명해지지 않게. 캡처 시엔 사방 소여백(captureStyle) */}
       <View ref={shotRef} collapsable={false} style={[cs.ttShot, captureStyle]}>
         <WeeklyTimetable onLoaded={onLoaded} />
@@ -91,7 +92,7 @@ export function WeeklyTimetableCard() {
         activeOpacity={0.7}
         disabled={disabled}
       >
-        <Text style={cs.shareBtnText}>공유하기</Text>
+        <Text style={cs.shareBtnText}>{t('stats.share.button')}</Text>
         <Ionicons name="share-outline" size={15} color={T.inkSub} />
       </TouchableOpacity>
     </SectionCard>
@@ -135,7 +136,7 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedKeys: string[]) => 
           getFocusTags().catch(() => []),
         ]);
         if (cancelled) return;
-        setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
+        setTagNames(new Map(tags.map((tag) => [tag.tagId, tag.name])));
         setBlocks(weekdayFocusBlocks(sessions, weekStart.getTime()));
         // 로드 완료 신호(onLoaded)는 여기서 보내지 않는다 — 아래 useEffect 주석 참고.
       })();
@@ -206,7 +207,7 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedKeys: string[]) => 
       {/* 요일 헤더 */}
       <View style={s.wttHeadRow}>
         <View style={s.wttGutter} />
-        {WEEK_DAYS.map((d, i) => (
+        {WEEK_DAY_KEYS.map((dayKey, i) => (
           <Text
             key={i}
             style={[
@@ -216,7 +217,7 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedKeys: string[]) => 
             ]}
             allowFontScaling={false}
           >
-            {d}
+            {t(dayKey)}
           </Text>
         ))}
       </View>
@@ -298,7 +299,7 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedKeys: string[]) => 
           높이가 사라진다 — 슬롯을 항상 그리고 내용만 갈아 끼운다. */}
       <View style={s.wttFooter}>
         {blocks.length === 0 ? (
-          <Text style={s.wttEmpty}>아직 기록이 없어요</Text>
+          <Text style={s.wttEmpty}>{t('common.noRecords')}</Text>
         ) : (
           legendSubjects.map((sub) => (
             <View key={sub.id} style={s.wttLegendItem}>

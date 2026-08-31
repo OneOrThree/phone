@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useLiveFocusClock } from '@/hooks/useLiveFocusClock';
 import { liveTotalSeconds } from '@/utils/liveFocus';
 import { hms } from '../format';
@@ -69,7 +70,7 @@ const Cell = memo(function Cell({
         {isMe && (
           <View style={s.meBadge} pointerEvents="none">
             <Text style={s.meBadgeText} allowFontScaling={false}>
-              나
+              {t('common.me')}
             </Text>
           </View>
         )}
@@ -178,12 +179,14 @@ export function LiveFocusGrid({
       {/* 0명일 땐 라이브 점 없이 회색 톤 배너 — "0명이 같이 집중" 표기의 어색함 제거(GROMO-848) */}
       {focusing === 0 ? (
         <View style={[s.banner, s.bannerSolo]}>
-          <Text style={[s.bannerText, s.bannerTextSolo]}>지금은 나만 집중하고 있어요</Text>
+          <Text style={[s.bannerText, s.bannerTextSolo]}>{t('focus.liveGrid.soloBanner')}</Text>
         </View>
       ) : (
         <View style={s.banner}>
           <View style={s.bannerDot} />
-          <Text style={s.bannerText}>{focusing}명이 지금 같이 집중하고 있어요</Text>
+          <Text style={s.bannerText}>
+            {t('focus.liveGrid.focusingBanner', { count: focusing })}
+          </Text>
         </View>
       )}
 

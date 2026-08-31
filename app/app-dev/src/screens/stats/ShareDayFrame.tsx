@@ -12,15 +12,21 @@ import { View, Text } from 'react-native';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { useCharacter } from '@/store/CharacterContext';
 import { cs } from './cardStyles';
-import { WEEKDAY } from './format';
+import { t } from '@/i18n';
+import { WEEKDAY_KEYS } from './format';
 
 // 왼쪽 하단 마스코트 크기 — 범례 열(76px)+간격 안에 들어가는 선에서 큼직하게(격자와 안 겹치게).
 const DAY_CHAR_SIZE = 80;
 
 // "2026년 7월 30일 (목)" — 캡처 시점 오늘 날짜(로컬).
-function todayKoreanLabel(): string {
+function todayLabel(): string {
   const d = new Date();
-  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAY[d.getDay()]})`;
+  return t('stats.share.dateHeader', {
+    year: d.getFullYear(),
+    month: d.getMonth() + 1,
+    day: d.getDate(),
+    weekday: t(WEEKDAY_KEYS[d.getDay()]),
+  });
 }
 
 export function ShareDayFrame({
@@ -42,7 +48,7 @@ export function ShareDayFrame({
       {/* 상단 헤더 — 좌: 날짜, 우: gromo 워드마크. 캡처 때만 노출(평소엔 display:none) */}
       <View style={[cs.shareDayHeader, !capturing && cs.hidden]}>
         <Text style={cs.shareDateHeader} allowFontScaling={false}>
-          {todayKoreanLabel()}
+          {todayLabel()}
         </Text>
         <Text style={cs.shareDayWordmark} allowFontScaling={false}>
           gromo

@@ -1,6 +1,7 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { SubjectCompare } from '../mock';
 import type { StatsPeriod } from '@/types/dto/stats';
 import { fmtHm } from '@/utils/timeFormat';
@@ -12,10 +13,11 @@ import { fmtHm } from '@/utils/timeFormat';
 // 안내해 탭 전환이 막히지 않게 한다.
 // soloMine(GROMO-940): 내 프로필 — 나:나 비교는 무의미해 상대 바·범례를 생략하고 내 바만.
 
-const PERIODS: { key: StatsPeriod; label: string }[] = [
-  { key: 'DAY', label: '오늘' },
-  { key: 'WEEK', label: '이번 주' },
-  { key: 'MONTH', label: '이번 달' },
+// 라벨은 렌더 시점에 t()로 푼다 — 모듈 최상위 t() 호출 금지.
+const PERIODS: { key: StatsPeriod; labelKey: string }[] = [
+  { key: 'DAY', labelKey: 'common.today' },
+  { key: 'WEEK', labelKey: 'common.thisWeek' },
+  { key: 'MONTH', labelKey: 'league.subjectCompare.periodMonth' },
 ];
 
 interface Props {
@@ -43,9 +45,13 @@ export function SubjectCompareCard({
   return (
     <View style={s.card}>
       <View style={s.headRow}>
-        <Text style={s.title}>{soloMine ? '과목별 공부량' : '과목별 공부량 비교'}</Text>
+        <Text style={s.title}>
+          {soloMine
+            ? t('league.subjectCompare.titleSolo')
+            : t('league.subjectCompare.titleCompare')}
+        </Text>
         <View style={s.tabRow}>
-          {PERIODS.map(({ key, label }) => {
+          {PERIODS.map(({ key, labelKey }) => {
             const on = period === key;
             return (
               <TouchableOpacity
@@ -54,7 +60,7 @@ export function SubjectCompareCard({
                 onPress={() => onPeriodChange(key)}
                 activeOpacity={0.8}
               >
-                <Text style={[s.tabChipText, on ? s.tabChipTextOn : null]}>{label}</Text>
+                <Text style={[s.tabChipText, on ? s.tabChipTextOn : null]}>{t(labelKey)}</Text>
               </TouchableOpacity>
             );
           })}
@@ -64,8 +70,8 @@ export function SubjectCompareCard({
       {subjects.length === 0 ? (
         <Text style={s.emptyText}>
           {soloMine
-            ? '이 기간엔 공부 기록이 없어요. 다른 기간을 골라보세요.'
-            : '이 기간엔 겹치는 공부 과목이 없어요. 다른 기간을 골라보세요.'}
+            ? t('league.subjectCompare.emptySolo')
+            : t('league.subjectCompare.emptyCompare')}
         </Text>
       ) : (
         subjects.map((subj) => {
@@ -76,7 +82,7 @@ export function SubjectCompareCard({
               <Text style={s.subject}>{subj.name}</Text>
               <View style={s.barRow}>
                 <Text style={[s.barWho, s.barWhoMine]} allowFontScaling={false}>
-                  나
+                  {t('common.me')}
                 </Text>
                 <View style={s.track}>
                   <LinearGradient
@@ -93,7 +99,7 @@ export function SubjectCompareCard({
               {!soloMine && (
                 <View style={s.barRow}>
                   <Text style={[s.barWho, s.barWhoTheirs]} allowFontScaling={false}>
-                    상대
+                    {t('league.subjectCompare.barTheirs')}
                   </Text>
                   <View style={s.track}>
                     <View style={[s.fill, s.fillTheirs, { width: `${theirsPct}%` }]} />
@@ -112,7 +118,7 @@ export function SubjectCompareCard({
         <View style={s.legendRow}>
           <View style={s.legendItem}>
             <View style={[s.legendDot, { backgroundColor: T.accent }]} />
-            <Text style={s.legendText}>나</Text>
+            <Text style={s.legendText}>{t('common.me')}</Text>
           </View>
           <View style={s.legendItem}>
             <View style={[s.legendDot, { backgroundColor: THEIRS }]} />

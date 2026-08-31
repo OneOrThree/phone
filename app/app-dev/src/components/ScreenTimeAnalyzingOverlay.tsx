@@ -11,6 +11,7 @@ import Animated, {
 import { M } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 분석 연출 타이밍 — 기본 2초에 90%까지 리니어하게 찬 뒤, 마지막에 잠깐 멈춰 100%로.
 // 네이티브 리포트(DeviceActivityReport 익스텐션)가 그려질 시간을 벌어주는 가드 성격이다.
@@ -31,10 +32,9 @@ export const ANALYZE_MS = FILL_MS + HOLD_MS + FINISH_MS;
 
 // 문구는 해요체·이모지 금지(캐릭터 보이스 규칙). 어제(온보딩)·오늘(홈 상세) 모두에 맞게
 // 날짜를 특정하지 않는다.
-const DEFAULT_MESSAGE = '그로모가 사용자님의\n사용시간을 분석하고 있어요!';
 
 type Props = {
-  // 분석 문구 오버라이드(기본: DEFAULT_MESSAGE).
+  // 분석 문구 오버라이드(기본: components.screenTimeAnalyzingOverlay.message).
   message?: string;
   // 리포트가 위를 덮은 뒤 true — 접근성 트리에서 숨겨 스크린리더가 완료된 리포트 위에서
   // "분석 중"을 계속 읽지 않게 한다. 시각 레이어(뒤에 깔린 캐릭터)는 그대로 둔다.
@@ -46,7 +46,8 @@ type Props = {
 // 온보딩 '어제 스크린타임'(YesterdayScreenTimeStep)과 홈 '핸드폰 사용' 상세(UsageDetailScreen)
 // 에서 공용으로 쓴다. 이 컴포넌트는 연출만 담당하고, 레이어를 걷는 시점은 각 화면이 정한다.
 export default function ScreenTimeAnalyzingOverlay({
-  message = DEFAULT_MESSAGE,
+  // 기본값은 렌더 시점에 평가된다 — 모듈 최상위 상수로 두면 로케일 확정 전 값으로 굳는다.
+  message = t('components.screenTimeAnalyzingOverlay.message'),
   covered = false,
 }: Props) {
   const progress = useSharedValue(0);

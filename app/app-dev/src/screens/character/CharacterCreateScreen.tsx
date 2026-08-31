@@ -3,6 +3,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import CharacterCreator from '@/screens/character/CharacterCreator';
 import { useUser } from '@/store/UserContext';
+import { t } from '@/i18n';
 
 // 사진에서 캐릭터 만들기 화면 — 설정 크롬(SettingsScaffold)으로 자립 생성기(CharacterCreator)를
 // 감싼 얇은 래퍼다. 생성기가 저장을 끝내고 경로를 돌려주면, onComplete가 있으면 그쪽으로 넘기고
@@ -22,7 +23,7 @@ export default function CharacterCreateScreen({ onComplete }: Props) {
 
   return (
     <SettingsScaffold
-      title="사진에서 캐릭터 만들기"
+      title={t('character.create.title')}
       onBack={() => navigation.goBack()}
       scroll={false}
     >

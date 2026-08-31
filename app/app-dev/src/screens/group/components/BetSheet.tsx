@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import {
   BET_ALREADY_FAILED,
@@ -95,50 +96,47 @@ const STAKE_OPTIONS = STAKE_RATIOS.map((r) => Math.round(STAKE_MAX * r));
 // 가장 덜 잃는 쪽이어야 한다(챌린지 목표분 칩의 '가운데 기본값'과 기준이 다른 이유).
 const STAKE_DEFAULT = STAKE_OPTIONS[0];
 // 범위 안내 — 서버 BET_INVALID_STAKE 메시지와 같은 문장(같은 사실을 두 자리에서 달리 말하지 않는다).
-const STAKE_RANGE_CAPTION = '참가비는 1~3,000코인 사이로 입력해 주세요';
+const STAKE_RANGE_CAPTION_KEY = 'group.betSheet.stakeRangeCaption';
 
 // 시간대 마감 후 내일 적용(계약 §3, GROMO-1103) — 실패 모달 대신 처음부터 내일 내기로 연다.
 // 시트 안 안내(열 때 이미 마감을 안 경우)와 토스트(경합 재시도로 내일 내기가 된 경우 — 시트가
 // 닫히므로 인라인 자리가 없다)가 같은 사실을 말한다.
-const TOMORROW_NOTE = '오늘 시간대가 끝나 내일 시간대부터 적용돼요';
+const TOMORROW_NOTE_KEY = 'group.betSheet.tomorrowNote';
 // 토스트는 한 줄(numberOfLines=2)이라 제목·본문을 나눌 수 없다 — 개설 결과와 그 이유를
 // 한 문장에 담는다(옛 Alert: '내일 내기로 열었어요' / '오늘 시간대가 끝나 내일 시간대부터 적용돼요.').
-const TOMORROW_TOAST_MESSAGE = '오늘 시간대가 끝나 내일 내기로 열었어요';
+const TOMORROW_TOAST_KEY = 'group.betSheet.tomorrowToast';
 
 // 몰수 룰(계약 확정 정책) — 승자 0명이면 환불이 아니라 **전액 소멸**이다. 돈이 걸리는 자리라
 // 개설·참가 양쪽 모두에서 고지한다(구 문구 '전액 환불돼요'는 V19 룰 — 그대로 두면 거짓말이 된다).
-const CREATE_NOTE =
-  '오늘 목표를 달성한 사람끼리 적립금을 나눠 가져요. 아무도 달성하지 못하면 참가비는 사라져요.';
-const JOIN_NOTE =
-  '참가하면 참가비가 바로 빠져나가요. 오늘 목표를 달성해야 적립금을 나눠 가져요. 아무도 달성하지 못하면 참가비는 사라져요.';
+const CREATE_NOTE_KEY = 'group.betSheet.createNote';
+const JOIN_NOTE_KEY = 'group.betSheet.joinNote';
 // SCREEN_TIME 내기의 측정 한계 고지(계약 §2 "카드·시트 안내 문구 필수") — 15분 눈금 측정 위로
 // 코인이 움직인다는 사실을 돈이 나가기 전에 알린다.
-const SCREEN_TIME_BET_NOTE =
-  '스크린타임은 15분 단위로 집계돼 오차가 있을 수 있어요. 집계가 늦거나 누락되면 미달성으로 판정될 수 있어요.';
+const SCREEN_TIME_BET_NOTE_KEY = 'group.betSheet.screenTimeNote';
 
 // 잔액 미상 — 값 자리는 '—'(진행 리스트의 미집계 표기와 같은 규칙), 사유와 재시도는 한 줄로 둔다.
 const BALANCE_UNKNOWN = '—';
-const BALANCE_FAILED_CAPTION = '잔액을 불러오지 못했어요';
+const BALANCE_FAILED_CAPTION_KEY = 'group.betSheet.balanceFailed';
 // 이미 달성 — 카드의 진입 차단 사유와 **같은 문장**을 쓴다(같은 사실을 두 자리에서 달리 말하지 않는다).
-const BET_ACHIEVED_CAPTION = '이미 오늘 목표를 달성해서 참가할 수 없어요';
+const BET_ACHIEVED_CAPTION_KEY = 'group.betSheet.achievedJoinBlocked';
 // 개설도 같은 사실로 막히지만(개설자는 자동 참가라 서버가 BET_ALREADY_ACHIEVED로 거절한다)
 // 막히는 동작이 달라 문장을 따로 둔다 — 카드의 BET_ACHIEVED_CREATE_CAPTION과 같은 문장이다.
-const BET_ACHIEVED_CREATE_CAPTION = '이미 오늘 목표를 달성해서 내기를 열 수 없어요';
+const BET_ACHIEVED_CREATE_CAPTION_KEY = 'group.betSheet.achievedCreateBlocked';
 // SCREEN_TIME은 차단 방향이 반대다(계약 §2 참가 가드 행 — BET_ALREADY_FAILED) —
 // '이미 달성'이 아니라 '이미 목표 초과(확정 패배)'가 막는다. 카드와 같은 문장이다.
-const BET_FAILED_CAPTION = '이미 목표를 초과해서 참가할 수 없어요';
-const BET_FAILED_CREATE_CAPTION = '이미 목표를 초과해서 내기를 열 수 없어요';
+const BET_FAILED_CAPTION_KEY = 'group.betSheet.failedJoinBlocked';
+const BET_FAILED_CREATE_CAPTION_KEY = 'group.betSheet.failedCreateBlocked';
 // 전송 중 — 딤 탭·백을 막는 대신(F10) 멈춘 화면이 아님을 한 줄로 알린다.
-const SUBMITTING_CAPTION = '처리 중이에요…';
+const SUBMITTING_CAPTION_KEY = 'group.betSheet.submittingCaption';
 
 // 잔액 부족 — CTA 라벨이 부족분을 직접 들고 있다(legacy ShopScreen의 '부족 (N 더 필요)' 규격).
 function shortageLabel(shortage: number): string {
-  return `코인이 부족해요 (${shortage} 필요)`;
+  return t('group.betSheet.shortageCta', { shortage });
 }
 
 // 하루형 진행분 공개(GROMO-1275)의 출발선 안내 — 정보를 주고 결정은 맡긴다(§C4).
 function dayHeadstartNote(goalMinutes: number): string {
-  return `먼저 시작한 사람이 유리해요. 지금 들어가면 남은 시간 안에 ${goalMinutes}분을 채워야 해요.`;
+  return t('group.betSheet.headstartNote', { minutes: goalMinutes });
 }
 
 // 진행 바 채움 비율 — 목표를 모르거나 미집계면 0(지어내지 않는다). 초과분은 100에서 자른다.
@@ -296,7 +294,7 @@ export default function BetSheet({
             ? [
                 {
                   userId,
-                  nickname: '나',
+                  nickname: t('common.me'),
                   progressMinutes: isScreenTime
                     ? (myProgressRow?.progressMinutes ?? null)
                     : (myProgressRow?.progressMinutes ?? 0),
@@ -416,7 +414,7 @@ export default function BetSheet({
           // ⚠️ 순서 주의 — 이 시트는 SheetShell asModal(RN Modal)이라 토스트가 그 **아래**에
           //    깔린다(Toast.tsx 헤더 주석). onDone()으로 먼저 닫고 나서 알린다.
           onDone();
-          show({ message: TOMORROW_TOAST_MESSAGE, tone: 'success' });
+          show({ message: t(TOMORROW_TOAST_KEY), tone: 'success' });
           return;
         } catch (retryError) {
           // 재시도 실패는 원래 에러 분기로 보낸다 — 내일 날짜를 모르는 구서버는 BET_CLOSED를
@@ -459,21 +457,27 @@ export default function BetSheet({
       case 'BET_ALREADY_EXISTS':
         refresh();
         failAndReload(
-          sentTomorrow ? '이미 내일 내기가 열려 있어요' : '이미 오늘 내기가 열려 있어요',
-          sentTomorrow
-            ? '이미 내일 내기가 있어요. 새로고침해서 최신 상태를 확인해 주세요.'
-            : '이미 오늘 내기가 있어요. 새로고침해서 최신 상태를 확인해 주세요.',
+          t(
+            sentTomorrow
+              ? 'group.betSheet.alreadyExistsTomorrowTitle'
+              : 'group.betSheet.alreadyExistsTodayTitle',
+          ),
+          t(
+            sentTomorrow
+              ? 'group.betSheet.alreadyExistsTomorrowBody'
+              : 'group.betSheet.alreadyExistsTodayBody',
+          ),
         );
         return;
       case 'BET_ALREADY_ACHIEVED':
-        failAndReload('참가할 수 없어요', '이미 오늘 목표를 달성해서 참가할 수 없어요');
+        failAndReload(t('group.betSheet.cannotJoinTitle'), t(BET_ACHIEVED_CAPTION_KEY));
         return;
       // SCREEN_TIME의 반대 방향 가드(계약 §2) — 이미 목표를 초과해 확정 패배한 사람의 판돈
       // 투입을 서버가 막는다. 이 시트에서 재시도해도 오늘은 영원히 같은 실패다 — 닫고 재조회한다.
       case BET_ALREADY_FAILED:
         failAndReload(
-          isCreate ? '내기를 열 수 없어요' : '참가할 수 없어요',
-          isCreate ? BET_FAILED_CREATE_CAPTION : BET_FAILED_CAPTION,
+          t(isCreate ? 'group.betSheet.cannotCreateTitle' : 'group.betSheet.cannotJoinTitle'),
+          t(isCreate ? BET_FAILED_CREATE_CAPTION_KEY : BET_FAILED_CAPTION_KEY),
         );
         return;
       // 같은 코드가 세 뜻이다(계약 §2·§4) — 참가는 '이미 마감', 개설은 'date가 오늘(KST)이
@@ -481,16 +485,20 @@ export default function BetSheet({
       // 아직 만들지도 않은 내기에 "이미 마감돼 참가할 수 없어요"는 뜻이 통하지 않는다(F4).
       case 'BET_CLOSED':
         failAndReload(
-          isCreate
-            ? isWindowChallenge
-              ? '내기를 열 수 있는 시간이 지났어요'
-              : '오늘 내기만 열 수 있어요'
-            : '마감된 내기예요',
-          isCreate
-            ? isWindowChallenge
-              ? '오늘 시간대가 끝나 내기를 열 수 없어요. 내일 다시 열 수 있어요.'
-              : '날짜가 바뀌었어요. 새로고침 후 다시 시도해 주세요.'
-            : '이미 마감돼 참가할 수 없어요.',
+          t(
+            isCreate
+              ? isWindowChallenge
+                ? 'group.betSheet.closedCreateWindowTitle'
+                : 'group.betSheet.closedCreateTodayTitle'
+              : 'group.betSheet.closedJoinTitle',
+          ),
+          t(
+            isCreate
+              ? isWindowChallenge
+                ? 'group.betSheet.closedCreateWindowBody'
+                : 'group.betSheet.closedCreateTodayBody'
+              : 'group.betSheet.closedJoinBody',
+          ),
         );
         return;
       // 챌린지가 이미 비활성이다(GROMO-1025) — 시트의 마지막 성공 조회 이후 종료됐거나,
@@ -501,40 +509,45 @@ export default function BetSheet({
       //    공용이고, 서버가 참가에도 같은 검사를 추가하면 그대로 대비된다(클로드 리뷰).
       case 'BET_CHALLENGE_INACTIVE':
         failAndReload(
-          '끝난 챌린지예요',
-          isCreate
-            ? '종료된 챌린지에는 내기를 열 수 없어요.'
-            : '종료된 챌린지의 내기에는 참가할 수 없어요.',
+          t('group.betSheet.challengeInactiveTitle'),
+          t(
+            isCreate
+              ? 'group.betSheet.challengeInactiveCreateBody'
+              : 'group.betSheet.challengeInactiveJoinBody',
+          ),
         );
         return;
       // 사라진 챌린지에 계속 걸어 봐야 결과는 같다 — 닫고 부모가 목록을 다시 받는다.
       case 'NOT_FOUND':
-        failAndReload('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
+        failAndReload(
+          t('group.betError.challengeGoneTitle'),
+          t('group.betError.challengeGoneBody'),
+        );
         return;
       // 챌린지가 아니라 **내기 자체**가 없다(계약 §2-2의 BET_NOT_FOUND — 404, 참가 경로).
       // 공통 문구('잠시 후 다시 시도')로 떨어뜨리면 영원히 같은 실패를 재시도하게 된다.
       // 회차 경로의 404(BET_SESSION_NOT_FOUND — 삭제·무산 경합)도 같은 사실·같은 처방이다.
       case 'BET_NOT_FOUND':
       case BET_SESSION_NOT_FOUND:
-        failAndReload('사라진 내기예요', '이미 없어진 내기예요. 최신 상태로 새로고침할게요.');
+        failAndReload(t('group.betSheet.betGoneTitle'), t('group.betSheet.betGoneBody'));
         return;
       // 회차 참가 마감(신서버 — now ≥ joinClosesAt). 창형은 창이 열리는 순간 잠긴다(§C3) —
       // 이 시트에서 재시도해도 오늘은 같은 결과라 닫고 재조회한다.
       case BET_SESSION_CLOSED:
-        failAndReload('마감됐어요', '이미 마감돼 참가할 수 없어요.');
+        failAndReload(t('group.betSheet.sessionClosedTitle'), t('group.betSheet.closedJoinBody'));
         return;
       // 시트를 연 뒤 정산·무효화가 먼저 끝났다(#570 codex ⑦) — 들어갈 회차 자체가 닫혔으므로
       // 재시도해도 영원히 같은 실패다. 공통 문구('잠시 후 다시 시도')는 여기서 거짓이 된다.
       case BET_NOT_OPEN:
-        failAndReload('이미 끝난 날이에요', '결과가 나왔거나 닫힌 날이라 참가할 수 없어요.');
+        failAndReload(t('group.betSheet.notOpenTitle'), t('group.betSheet.notOpenBody'));
         return;
       // SCREEN_TIME 권한 가드(N50) — 권한 없이 돈부터 받지 않는다. 재시도로 안 풀린다.
       case BET_SCREENTIME_PERMISSION_REQUIRED:
-        failAndReload('참가할 수 없어요', '스크린타임 권한을 허용해야 참여할 수 있어요.');
+        failAndReload(t('group.betSheet.cannotJoinTitle'), t('group.betError.screenTimeBody'));
         return;
       // 그룹에서 빠졌다 — 재시도로 풀리지 않는다. 부모가 재조회하면서 방 자체를 정리한다.
       case 'MEMBER_ONLY':
-        failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
+        failAndReload(t('group.betError.memberOnlyTitle'), t('group.betError.memberOnlyBody'));
         return;
       // 서버 게스트 허용 전 버전과의 배포 순서가 어긋나도 알 수 없는 오류로 숨기지 않는다.
       case 'GUEST_FORBIDDEN':
@@ -562,20 +575,13 @@ export default function BetSheet({
       // 실존 경로라 분기를 둔다 — default의 '잠시 후 다시 시도'는 이 서버에선 영원히 거짓이다
       // (클로드 리뷰). 게이트 확대 배포 후엔 자연히 도달 불가가 된다.
       case 'BET_FOCUS_ONLY':
-        failAndReload(
-          '아직 내기를 걸 수 없는 챌린지예요',
-          '지금은 하루 목표 집중 챌린지에만 내기를 걸 수 있어요. 서버 업데이트 후 열 수 있어요.',
-        );
+        failAndReload(t('group.betSheet.focusOnlyTitle'), t('group.betSheet.focusOnlyBody'));
         return;
       // 계약의 나머지 코드는 앱이 보내는 조합에서 도달할 수 없어 분기를 두지 않는다:
       // BET_INVALID_STAKE는 클라가 같은 범위(1~1000)를 먼저 잠그기 때문이다(stakeValid).
       // 도달했다면 서버 계약이 바뀐 것이라 '알 수 없는 오류'로 말하는 편이 사실에 가깝다.
       default:
-        setErrorMsg(
-          isCreate
-            ? '내기를 열지 못했어요. 잠시 후 다시 시도해 주세요.'
-            : '참가하지 못했어요. 잠시 후 다시 시도해 주세요.',
-        );
+        setErrorMsg(t(isCreate ? 'group.betSheet.createFailed' : 'group.betSheet.joinFailed'));
     }
     setSubmitting(false);
   }
@@ -587,16 +593,21 @@ export default function BetSheet({
   return (
     // 전송 중에는 딤 탭·그랩바 드래그로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지).
     <SheetShell onClose={submitting ? () => {} : onClose} asModal dismissible={!submitting}>
-      <Text style={s.title}>{isCreate ? '내기 걸기' : '내기 참가'}</Text>
+      <Text style={s.title}>
+        {t(isCreate ? 'group.betSheet.titleCreate' : 'group.betSheet.titleJoin')}
+      </Text>
       {/* 하루형 참가는 '오늘 남은 시간'이 곧 의사결정 정보다(N16) — KST 자정까지. */}
       <Text style={s.sub}>
         {daySession !== null
-          ? `${label} · 오늘 남은 시간 ${fmtKoreanDuration(remainMinutes)}`
+          ? t('group.betSheet.subWithRemaining', {
+              label,
+              remaining: fmtKoreanDuration(remainMinutes),
+            })
           : label}
       </Text>
 
       <View style={s.balance}>
-        <Text style={s.balanceLabel}>내 코인</Text>
+        <Text style={s.balanceLabel}>{t('group.betSheet.myCoins')}</Text>
         {/* 미상이면 숫자를 지어내지 않는다 — 0을 적으면 화면이 사용자의 재산을 거짓으로 말한다(F1). */}
         <Text style={[s.balanceValue, !coinsLoaded && s.balanceUnknown]} testID="group.bet.balance">
           {coinsLoaded ? coins : BALANCE_UNKNOWN}
@@ -606,7 +617,7 @@ export default function BetSheet({
       {/* 잔액을 못 받았다 — 사유와 재시도를 한 줄로. CTA는 잠그지 않고 서버 판정에 맡긴다. */}
       {!coinsLoaded && (
         <View style={s.balanceRetryRow}>
-          <Text style={s.balanceRetryText}>{BALANCE_FAILED_CAPTION}</Text>
+          <Text style={s.balanceRetryText}>{t(BALANCE_FAILED_CAPTION_KEY)}</Text>
           <TouchableOpacity
             onPress={() => refresh()}
             hitSlop={12}
@@ -614,14 +625,14 @@ export default function BetSheet({
             accessibilityRole="button"
             testID="group.bet.balance.retry"
           >
-            <Text style={s.balanceRetryLink}>다시 시도</Text>
+            <Text style={s.balanceRetryLink}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       )}
 
       {isCreate ? (
         <>
-          <Text style={s.label}>참가비</Text>
+          <Text style={s.label}>{t('group.betSheet.stakeLabel')}</Text>
           {/* 전송 중에는 참가비를 못 바꾼다(코덱스 리뷰) — 10을 보낸 뒤 100을 누르면 서버엔 10이
               간 채 화면의 선택만 100이 되어, 사용자는 자기가 100을 걸었다고 오인한다.
               고른 칩만 남기고 나머지를 흐려 '지금 나간 금액'이 무엇인지 화면에 못 박는다. */}
@@ -639,7 +650,7 @@ export default function BetSheet({
                   // 숫자만 읽히면 무엇을 고르는 자리인지·무엇이 골라졌는지 알 수 없다(F9).
                   accessibilityRole="button"
                   accessibilityState={{ selected: on, disabled: submitting }}
-                  accessibilityLabel={`참가비 ${v}코인`}
+                  accessibilityLabel={t('group.betSheet.stakeChipA11y', { stake: v })}
                   testID={`group.bet.stake.${v}`}
                 >
                   <Text style={[s.chipText, on ? s.chipTextOn : null]}>{v}</Text>
@@ -653,29 +664,29 @@ export default function BetSheet({
             <TextInput
               style={s.stakeInput}
               value={stakeText}
-              onChangeText={(t) => setStakeText(t.replace(/[^0-9]/g, ''))}
+              onChangeText={(v) => setStakeText(v.replace(/[^0-9]/g, ''))}
               keyboardType="number-pad"
               editable={!submitting}
               maxLength={4}
               placeholder={`${STAKE_MIN}~${STAKE_MAX}`}
               placeholderTextColor={T.inkFaint}
-              accessibilityLabel="참가비 직접 입력"
+              accessibilityLabel={t('group.betSheet.stakeInputA11y')}
               testID="group.bet.stake.input"
             />
-            <Text style={s.stakeUnit}>코인</Text>
+            <Text style={s.stakeUnit}>{t('group.betSheet.unitCoin')}</Text>
           </View>
           {/* 범위 밖·빈 값 — 모달이 아니라 인라인으로, CTA 잠금과 같은 근거를 같은 자리에서 말한다. */}
-          {!stakeValid && <Text style={s.error}>{STAKE_RANGE_CAPTION}</Text>}
+          {!stakeValid && <Text style={s.error}>{t(STAKE_RANGE_CAPTION_KEY)}</Text>}
         </>
       ) : (
         <>
           <View style={s.statRow}>
             <View style={s.stat}>
-              <Text style={s.statLabel}>참가비</Text>
+              <Text style={s.statLabel}>{t('group.betSheet.stakeLabel')}</Text>
               <Text style={s.statValue}>{bet?.stake ?? 0}</Text>
             </View>
             <View style={s.stat}>
-              <Text style={s.statLabel}>현재 적립금</Text>
+              <Text style={s.statLabel}>{t('group.betSheet.potLabel')}</Text>
               <Text style={s.statValue}>{bet?.pot ?? 0}</Text>
             </View>
           </View>
@@ -685,7 +696,7 @@ export default function BetSheet({
               {/* 하루형 — 기존 참가자의 현재 진행분 공개(GROMO-1275, N16·FR-34). 진행 바 +
                   n/m분, 나 포함. 3상 준수(SCREEN_TIME 미집계 '—'). 스크롤 상한은 참가자 칩과
                   같은 이유(작은 화면에서 CTA·잔액이 밀리면 안 된다). */}
-              <Text style={s.label}>지금 참여 중인 사람</Text>
+              <Text style={s.label}>{t('group.betSheet.dayParticipantsLabel')}</Text>
               <ScrollView
                 style={s.participantsScroll}
                 contentContainerStyle={s.dayRows}
@@ -704,7 +715,7 @@ export default function BetSheet({
                         r.progressMinutes === null
                           ? unmeasuredA11y(r.nickname)
                           : done
-                            ? `${r.nickname} 달성`
+                            ? t('group.betSheet.achievedA11y', { nickname: r.nickname })
                             : progressFractionA11y(r.nickname, r.progressMinutes, dayGoal)
                       }
                     >
@@ -733,7 +744,7 @@ export default function BetSheet({
                         {r.progressMinutes === null
                           ? UNMEASURED
                           : done
-                            ? '달성 ✓'
+                            ? t('group.betSheet.achievedMark')
                             : progressFraction(r.progressMinutes, dayGoal)}
                       </Text>
                     </View>
@@ -744,13 +755,20 @@ export default function BetSheet({
                   참가 마감이 달라져 설명할 수 없는 화면이 된다. */}
               {timeShort && dayGoal !== null && (
                 <Text style={s.error} testID="group.bet.timeShort">
-                  남은 {fmtKoreanDuration(remainMinutes)}으로 {dayGoal}분을 채우기는 어려워요
+                  {t('group.betSheet.timeShort', {
+                    remaining: fmtKoreanDuration(remainMinutes),
+                    goal: dayGoal,
+                  })}
                 </Text>
               )}
             </>
           ) : (
             <>
-              <Text style={s.label}>참가자 {bet?.participants?.length ?? 0}명</Text>
+              <Text style={s.label}>
+                {t('group.betSheet.participantsLabel', {
+                  count: bet?.participants?.length ?? 0,
+                })}
+              </Text>
               {/* 참가자는 최대 10명이고 닉네임 길이·접근성 글꼴에 따라 줄 수가 늘어난다. 시트 패널은
                   하단 고정 absolute라 높이 제한이 없으면 작은 화면에서 제목·내 코인 같은 위쪽 내용이
                   화면 밖으로 밀려 확인할 수 없게 된다(코덱스 리뷰) — 이 영역만 스크롤로 가둔다.
@@ -777,7 +795,7 @@ export default function BetSheet({
       {betForTomorrow && (
         <View style={s.note} testID="group.bet.tomorrowNote">
           <Ionicons name="time-outline" size={15} color={T.accent} style={s.noteIcon} />
-          <Text style={s.noteText}>{TOMORROW_NOTE}</Text>
+          <Text style={s.noteText}>{t(TOMORROW_NOTE_KEY)}</Text>
         </View>
       )}
 
@@ -787,12 +805,12 @@ export default function BetSheet({
           {/* 하루형 FOCUS 참가는 출발선 안내(§C4)를 몰수 룰 앞에 잇는다 — 불리한 판인 걸 알고
               들어가는 건 본인 선택이지만, 모르고 당하는 일은 없앤다. */}
           {isCreate
-            ? CREATE_NOTE
+            ? t(CREATE_NOTE_KEY)
             : daySession !== null && !isScreenTime && dayGoal
-              ? `${dayHeadstartNote(dayGoal)}\n${JOIN_NOTE}`
-              : JOIN_NOTE}
+              ? `${dayHeadstartNote(dayGoal)}\n${t(JOIN_NOTE_KEY)}`
+              : t(JOIN_NOTE_KEY)}
           {/* SCREEN_TIME은 측정 한계 고지를 한 줄 잇는다(계약 필수 문구) — 돈이 나가기 전이 마지막 고지 자리다. */}
-          {isScreenTime ? `\n${SCREEN_TIME_BET_NOTE}` : ''}
+          {isScreenTime ? `\n${t(SCREEN_TIME_BET_NOTE_KEY)}` : ''}
         </Text>
       </View>
 
@@ -802,17 +820,21 @@ export default function BetSheet({
 
       {/* 서버가 확정한 부족. 잔액을 다시 받아 부족분(N)까지 알게 되면 CTA 라벨이 규격대로
           `코인이 부족해요 (N 필요)`를 말하므로(§1), 같은 문장을 두 번 적지 않는다. */}
-      {serverInsufficient && !insufficient && <Text style={s.error}>코인이 부족해요</Text>}
+      {serverInsufficient && !insufficient && (
+        <Text style={s.error}>{t('group.common.insufficientCoins')}</Text>
+      )}
       {/* 잠긴 CTA에는 사유가 붙어야 한다 — 카드가 쓰는 문장 그대로(카테고리·모드별로 갈린다). */}
       {achievedBlocked && (
         <Text style={s.error}>
-          {isScreenTime
-            ? isCreate
-              ? BET_FAILED_CREATE_CAPTION
-              : BET_FAILED_CAPTION
-            : isCreate
-              ? BET_ACHIEVED_CREATE_CAPTION
-              : BET_ACHIEVED_CAPTION}
+          {t(
+            isScreenTime
+              ? isCreate
+                ? BET_FAILED_CREATE_CAPTION_KEY
+                : BET_FAILED_CAPTION_KEY
+              : isCreate
+                ? BET_ACHIEVED_CREATE_CAPTION_KEY
+                : BET_ACHIEVED_CAPTION_KEY,
+          )}
         </Text>
       )}
       {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
@@ -828,14 +850,16 @@ export default function BetSheet({
           <ActivityIndicator color={T.white} />
         ) : (
           <Text style={s.submitText}>
-            {insufficient ? shortageLabel(shortage) : isCreate ? '내기 열기' : '참가하기'}
+            {insufficient
+              ? shortageLabel(shortage)
+              : t(isCreate ? 'group.betSheet.submitCreate' : 'group.betSheet.submitJoin')}
           </Text>
         )}
       </TouchableOpacity>
 
       {/* 전송 중엔 CTA도 딤 탭도 막혀 있다 — 최대 15초(axios 타임아웃) 동안 멈춘 화면으로
           보이지 않게 한 줄 세운다. 닫기를 열어 주는 쪽은 AbortController가 필요해 더 두껍다(F10). */}
-      {submitting && <Text style={s.submittingCaption}>{SUBMITTING_CAPTION}</Text>}
+      {submitting && <Text style={s.submittingCaption}>{t(SUBMITTING_CAPTION_KEY)}</Text>}
     </SheetShell>
   );
 }
@@ -844,7 +868,7 @@ function DismissCta() {
   const close = useSheetClose();
   return (
     <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={close}>
-      <Text style={s.ghostText}>다음에 할게요</Text>
+      <Text style={s.ghostText}>{t('group.betSheet.later')}</Text>
     </TouchableOpacity>
   );
 }
@@ -853,8 +877,8 @@ function GuestBlockedView({ onClose }: { onClose: () => void }) {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   return (
     <SheetShell onClose={onClose} asModal>
-      <Text style={s.title}>로그인하면 내기에 참여할 수 있어요</Text>
-      <Text style={s.sub}>게스트는 코인을 쓸 수 없어요.</Text>
+      <Text style={s.title}>{t('group.betSheet.guestTitle')}</Text>
+      <Text style={s.sub}>{t('group.betError.guestBody')}</Text>
       <TouchableOpacity
         style={s.submitBtn}
         activeOpacity={0.85}
@@ -864,7 +888,7 @@ function GuestBlockedView({ onClose }: { onClose: () => void }) {
         }}
         testID="group.bet.login"
       >
-        <Text style={s.submitText}>로그인하러 가기</Text>
+        <Text style={s.submitText}>{t('group.betSheet.goLogin')}</Text>
       </TouchableOpacity>
       <DismissCta />
     </SheetShell>

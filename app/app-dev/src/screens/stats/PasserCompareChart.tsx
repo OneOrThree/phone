@@ -8,14 +8,16 @@
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Line, Polygon } from 'react-native-svg';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { RADAR_SIZE } from './constants';
 
+// 라벨은 키만 담고 렌더 시점에 t()로 푼다(모듈 최상위에서 t()를 부르지 않는다).
 const RADAR_AXES = [
-  { name: '노동법', mine: 0.78, passer: 0.92 },
-  { name: '민법', mine: 0.5, passer: 0.75 },
-  { name: '행정쟁송법', mine: 0.55, passer: 0.7 },
-  { name: '사회보험법', mine: 0.4, passer: 0.62 },
-  { name: '경영학', mine: 0.65, passer: 0.6 },
+  { nameKey: 'stats.passerChart.axisLaborLaw', mine: 0.78, passer: 0.92 },
+  { nameKey: 'stats.passerChart.axisCivilLaw', mine: 0.5, passer: 0.75 },
+  { nameKey: 'stats.passerChart.axisAdminLitigation', mine: 0.55, passer: 0.7 },
+  { nameKey: 'stats.passerChart.axisSocialInsurance', mine: 0.4, passer: 0.62 },
+  { nameKey: 'stats.passerChart.axisBusinessAdmin', mine: 0.65, passer: 0.6 },
 ];
 // RADAR_SIZE는 constants.ts — 로딩 스켈레톤이 같은 값으로 카드 높이를 잡는다.
 const RADAR_R = 72;
@@ -88,11 +90,11 @@ export function PasserCompareChart() {
           const p = radarPoint(i, 1.28);
           return (
             <Text
-              key={a.name}
+              key={a.nameKey}
               style={[s.radarLabel, { left: p.x - 40, top: p.y - 8 }]}
               allowFontScaling={false}
             >
-              {a.name}
+              {t(a.nameKey)}
             </Text>
           );
         })}
@@ -100,11 +102,11 @@ export function PasserCompareChart() {
       <View style={s.teaserLegend}>
         <View style={s.teaserLegendItem}>
           <View style={[s.teaserDot, { backgroundColor: T.accent }]} />
-          <Text style={s.teaserLegendText}>나</Text>
+          <Text style={s.teaserLegendText}>{t('common.me')}</Text>
         </View>
         <View style={s.teaserLegendItem}>
           <View style={[s.teaserDot, s.teaserDotPasser]} />
-          <Text style={s.teaserLegendText}>합격자 평균</Text>
+          <Text style={s.teaserLegendText}>{t('stats.passerChart.passerAvg')}</Text>
         </View>
       </View>
     </View>

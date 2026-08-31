@@ -30,6 +30,7 @@ import { SettingsSection, SettingsRow } from '@/screens/settings/components/Sett
 import type { V2RootStackParamList } from '@/navigation/types';
 import { STORAGE_KEYS } from '@/types/storage';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // SET · 스크린타임 권한 관리 화면(SettingsScreenTimePermission).
 // 권한 상태 배지 + 수집 항목 안내 + 기기내 처리 안내 + '측정 대상 앱 설정'(기존 MenuScreen 이식).
@@ -41,8 +42,8 @@ import { T } from '@/constants/theme';
 // (스크린타임 측정·마감 축, docs/date-axis.md 분류 ②).
 function syncLabel(raw: string): string {
   const date = raw.slice(0, 10); // 타임스탬프로 저장돼도 날짜부만 사용
-  if (date === todayStr()) return '오늘';
-  if (date === yesterdayStr()) return '어제';
+  if (date === todayStr()) return t('common.today');
+  if (date === yesterdayStr()) return t('settings.screenTimePermission.yesterday');
   return date;
 }
 
@@ -52,10 +53,29 @@ function badgeMeta(status: AuthorizationStatus | null): {
   color: string;
   bg: string;
 } {
-  if (status === 'approved') return { label: '허용됨', color: T.successInk, bg: T.successBg };
-  if (status === 'denied') return { label: '거부됨', color: T.dangerInk, bg: T.dangerBg };
-  if (status === 'notDetermined') return { label: '요청 필요', color: T.inkSub, bg: T.sandLight };
-  return { label: '확인 중', color: T.inkMuted, bg: T.sandLight };
+  if (status === 'approved')
+    return {
+      label: t('settings.screenTimePermission.badgeApproved'),
+      color: T.successInk,
+      bg: T.successBg,
+    };
+  if (status === 'denied')
+    return {
+      label: t('settings.screenTimePermission.badgeDenied'),
+      color: T.dangerInk,
+      bg: T.dangerBg,
+    };
+  if (status === 'notDetermined')
+    return {
+      label: t('settings.screenTimePermission.badgeNotDetermined'),
+      color: T.inkSub,
+      bg: T.sandLight,
+    };
+  return {
+    label: t('settings.screenTimePermission.badgeChecking'),
+    color: T.inkMuted,
+    bg: T.sandLight,
+  };
 }
 
 export default function ScreenTimePermissionScreen() {
@@ -168,10 +188,16 @@ export default function ScreenTimePermissionScreen() {
       if (granted) {
         await editScreenTimeTargets();
       } else {
-        Alert.alert('권한이 꺼져 있어요', 'iOS 설정 > 스크린 타임에서 다시 켤 수 있어요.');
+        Alert.alert(
+          t('settings.screenTimePermission.permOffTitle'),
+          t('settings.screenTimePermission.permOffBody'),
+        );
       }
     } catch (e) {
-      Alert.alert('권한 처리 실패', e instanceof Error ? e.message : String(e));
+      Alert.alert(
+        t('settings.screenTimePermission.permErrorTitle'),
+        e instanceof Error ? e.message : String(e),
+      );
     } finally {
       setRequesting(false);
     }
@@ -213,7 +239,10 @@ export default function ScreenTimePermissionScreen() {
         });
       }
     } catch (e) {
-      Alert.alert('권한 처리 실패', e instanceof Error ? e.message : String(e));
+      Alert.alert(
+        t('settings.screenTimePermission.permErrorTitle'),
+        e instanceof Error ? e.message : String(e),
+      );
     } finally {
       setRequesting(false);
     }
@@ -239,8 +268,8 @@ export default function ScreenTimePermissionScreen() {
       if (Platform.OS === 'android') {
         if (st !== 'approved') {
           Alert.alert(
-            '스크린타임 권한 필요',
-            '측정 대상을 고르려면 먼저 사용 정보 접근을 허용해야 해요.',
+            t('settings.screenTimePermission.permNeededTitle'),
+            t('settings.screenTimePermission.permNeededAndroidBody'),
           );
           return;
         }
@@ -249,8 +278,8 @@ export default function ScreenTimePermissionScreen() {
         //    술어 검사가 없어서 **빈 목록에 저장도 no-op 인 화면**에 도달한다.
         if (!supportsAppSelection()) {
           Alert.alert(
-            '아직 쓸 수 없어요',
-            '앱을 최신 버전으로 업데이트하면 측정 대상을 고를 수 있어요.',
+            t('settings.screenTimePermission.unsupportedTitle'),
+            t('settings.screenTimePermission.unsupportedBody'),
           );
           return;
         }
@@ -259,8 +288,8 @@ export default function ScreenTimePermissionScreen() {
       }
       if (st !== 'approved') {
         Alert.alert(
-          '스크린타임 권한 필요',
-          '측정 대상을 고르려면 먼저 스크린타임 권한을 허용해야 해요.',
+          t('settings.screenTimePermission.permNeededTitle'),
+          t('settings.screenTimePermission.permNeededIosBody'),
         );
         return;
       }
@@ -294,13 +323,13 @@ export default function ScreenTimePermissionScreen() {
         //    오늘/내일 대비를 그대로 둔다.
         if (counts.dismissed) {
           show({
-            message: `변경을 예약했어요 — 내일부터 앱·카테고리 ${total}개로 측정해요`,
+            message: t('settings.screenTimePermission.scheduledToast', { count: total }),
             tone: 'success',
           });
         } else {
           Alert.alert(
-            '측정 대상 변경 예약됨',
-            `오늘은 기존 대상, 내일부터 앱·카테고리 ${total}개로 측정해요`,
+            t('settings.screenTimePermission.scheduledTitle'),
+            t('settings.screenTimePermission.scheduledBody', { count: total }),
           );
         }
         return;
@@ -326,8 +355,8 @@ export default function ScreenTimePermissionScreen() {
           STORAGE_KEYS.screentimeSyncState,
         ]).catch(() => {});
         Alert.alert(
-          '측정 대상 변경됨',
-          '측정 대상을 비웠어요 — 사용량 측정과 서버 동기화가 중단돼요. 홈 리포트는 전체 앱 기준으로 표시돼요.',
+          t('settings.screenTimePermission.clearedTitle'),
+          t('settings.screenTimePermission.clearedBody'),
         );
         return;
       }
@@ -337,14 +366,17 @@ export default function ScreenTimePermissionScreen() {
       //    기다리지 않고 promise를 풀어서, 토스트가 아직 떠 있는 피커 아래에서 등장 연출과
       //    2200ms 타이머를 시작한다. 이 JS는 hot-updater로 구 바이너리에도 내려가므로
       //    네이티브 수정만으로는 못 막는다(codex 리뷰). 허용 앱 관리자와 같은 계약이다.
-      const pickedMessage = `앱·카테고리 ${total}개를 측정해요`;
+      const pickedMessage = t('settings.screenTimePermission.pickedMessage', { count: total });
       if (counts.dismissed) {
         show({ message: pickedMessage });
       } else {
-        Alert.alert('설정 완료', pickedMessage);
+        Alert.alert(t('settings.screenTimePermission.saveDoneTitle'), pickedMessage);
       }
     } catch (e) {
-      Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
+      Alert.alert(
+        t('settings.screenTimePermission.saveFailTitle'),
+        e instanceof Error ? e.message : String(e),
+      );
     }
   }
 
@@ -381,27 +413,31 @@ export default function ScreenTimePermissionScreen() {
   const statusSub =
     status === 'notDetermined'
       ? requesting
-        ? '권한 요청 중…'
-        : '탭해서 스크린타임 접근을 허용해 주세요'
+        ? t('settings.screenTimePermission.requesting')
+        : t('settings.screenTimePermission.tapToAllow')
       : status === 'denied'
         ? Platform.OS === 'android' && androidNativeModuleAvailable()
-          ? '탭해서 사용 정보 접근을 다시 허용해 주세요'
-          : 'iOS 설정에서 다시 켤 수 있어요'
+          ? t('settings.screenTimePermission.tapToReallowAndroid')
+          : t('settings.screenTimePermission.deniedIos')
         : lastSynced
-          ? `마지막 동기화 · ${lastSynced}`
+          ? t('settings.screenTimePermission.lastSynced', { date: lastSynced })
           : null;
 
   return (
     // stretch — 스페이서로 안내문(수집 항목·기기내 처리)을 화면 하단에 붙이되,
     // 작은 기기·큰 글씨로 콘텐츠가 넘치면 스크롤로 전환된다(코덱스 리뷰, PR 301)
-    <SettingsScaffold title="스크린타임 관리" onBack={() => navigation.goBack()} stretch>
+    <SettingsScaffold
+      title={t('settings.screenTimePermission.title')}
+      onBack={() => navigation.goBack()}
+      stretch
+    >
       {/* 상태 카드 — 권한 배지 + 상태별 안내. 탭 동작은 onStatusCardPress 참고 */}
       <TouchableOpacity style={s.statusCard} activeOpacity={0.8} onPress={onStatusCardPress}>
         <View style={s.iconBox}>
           <Ionicons name="phone-portrait-outline" size={20} color={T.accentDeep} />
         </View>
         <View style={s.flex1}>
-          <Text style={s.statusTitle}>스크린타임 접근</Text>
+          <Text style={s.statusTitle}>{t('settings.screenTimePermission.statusTitle')}</Text>
           {statusSub ? <Text style={s.statusSub}>{statusSub}</Text> : null}
         </View>
         <View style={[s.badge, { backgroundColor: badge.bg }]}>
@@ -414,21 +450,23 @@ export default function ScreenTimePermissionScreen() {
           피커가 없는 플랫폼에서는 섹션째 감춘다 — 행을 남기면 탭해도 아무 일이 없어
           고장으로 보인다(GROMO-1592). 안드로이드는 전체 앱을 측정하므로 고를 대상도 없다. */}
       {supportsAppSelection() ? (
-        <SettingsSection title="관리">
+        <SettingsSection title={t('settings.screenTimePermission.manageSection')}>
           <SettingsRow
             icon="apps-outline"
             iconColor={T.accent}
             iconBg={T.accentBg}
-            label="측정 대상 앱 설정"
+            label={t('settings.screenTimePermission.targetsLabel')}
             sub={
               pendingApply
-                ? '변경한 대상은 내일 0시부터 적용돼요'
+                ? t('settings.screenTimePermission.targetsPendingSub')
                 : // 카테고리 묶음 선택은 iOS FamilyActivityPicker만 준다 — 안드로이드는 앱 단위다.
                   Platform.OS === 'android'
-                  ? '사용시간을 잴 앱 선택'
-                  : '사용시간을 잴 앱·카테고리 선택'
+                  ? t('settings.screenTimePermission.targetsSubAndroid')
+                  : t('settings.screenTimePermission.targetsSubIos')
             }
-            value={pendingApply ? '내일 적용 예정' : undefined}
+            value={
+              pendingApply ? t('settings.screenTimePermission.targetsPendingValue') : undefined
+            }
             valueColor={T.accentDeep}
             onPress={editScreenTimeTargets}
           />
@@ -442,31 +480,28 @@ export default function ScreenTimePermissionScreen() {
       <View style={s.noteCard}>
         <View style={s.noteHead}>
           <Ionicons name="time-outline" size={16} color={T.accentDeep} />
-          <Text style={s.noteStrong}>수집 항목</Text>
+          <Text style={s.noteStrong}>{t('settings.screenTimePermission.collectTitle')}</Text>
         </View>
-        <Text style={s.noteBody}>
-          앱별 사용 시간(어떤 앱을 얼마나 썼는지)과{'\n'}카테고리별 분류(SNS · 게임 등 묶음 집계)를
-          수집해요.
-        </Text>
+        <Text style={s.noteBody}>{t('settings.screenTimePermission.collectBody')}</Text>
       </View>
 
       {/* 기기내 처리 안내 + 권한 종료 시 영향 */}
       <View style={s.noteCard}>
         <View style={s.noteHead}>
           <Ionicons name="lock-closed-outline" size={16} color={T.successInk} />
-          <Text style={s.noteStrong}>기기에서만 처리 · 서버 미전송</Text>
+          <Text style={s.noteStrong}>{t('settings.screenTimePermission.localOnlyTitle')}</Text>
         </View>
         {/* 권한을 끄러 가는 곳은 OS마다 다르다 — 안드로이드에 'iOS 설정 앱'이라고 안내하면
             찾아갈 수 없는 곳을 가리킨다(GROMO-1592).
             ⚠️ Platform.select가 아니라 Platform.OS 비교인 이유: select는 번들 시점에 플랫폼별
             구현이 박혀 테스트에서 OS를 바꿔도 분기가 따라오지 않는다(검증 불가). */}
         <Text style={s.noteBody}>
-          권한을 끄면 사용시간 통계가 멈춰요.{' '}
+          {t('settings.screenTimePermission.permOffNote')}{' '}
           {Platform.OS === 'ios'
-            ? 'iOS 설정 앱에서도 바꿀 수 있어요.'
+            ? t('settings.screenTimePermission.changeIos')
             : Platform.OS === 'android'
-              ? '설정 → 사용 정보 접근에서도 바꿀 수 있어요.'
-              : '기기 설정에서도 바꿀 수 있어요.'}
+              ? t('settings.screenTimePermission.changeAndroid')
+              : t('settings.screenTimePermission.changeOther')}
         </Text>
       </View>
     </SettingsScaffold>

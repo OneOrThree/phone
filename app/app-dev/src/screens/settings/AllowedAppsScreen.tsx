@@ -13,6 +13,7 @@ import {
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useToast } from '@/store/ToastContext';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { logAllowedAppsUpdated } from '@/services/analyticsEvents';
 
 // SET·집중 중 허용 앱 관리 화면.
@@ -64,7 +65,10 @@ export default function AllowedAppsScreen() {
       await ScreenTimeModule.setFocusAllowSafariWeb(v);
     } catch (e) {
       setAllowSafariWeb(!v);
-      Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
+      Alert.alert(
+        t('settings.allowedApps.saveFailTitle'),
+        e instanceof Error ? e.message : String(e),
+      );
     }
   }
 
@@ -72,15 +76,15 @@ export default function AllowedAppsScreen() {
 
   // 요약 문구 — 로딩 전/허용앱 있음/없음.
   const summaryLabel = !loaded
-    ? '허용 앱 불러오는 중'
+    ? t('settings.allowedApps.loading')
     : apps > 0
-      ? `앱 ${apps}개 허용 중`
-      : '허용앱 없음';
+      ? t('settings.allowedApps.summaryCount', { count: apps })
+      : t('settings.allowedApps.summaryNone');
   const summarySub = !loaded
     ? undefined
     : apps > 0
-      ? '집중 중에도 이 앱들은 쓸 수 있어요'
-      : '집중 중 모든 앱이 잠겨요';
+      ? t('settings.allowedApps.summaryCountSub')
+      : t('settings.allowedApps.summaryNoneSub');
 
   // 집중 중 허용앱 선택 — 세션 실드에서 예외로 열어줄 앱들.
   // (MenuScreen의 옛 editAllowedApps 로직을 그대로 이식)
@@ -90,17 +94,13 @@ export default function AllowedAppsScreen() {
       if (status !== 'approved') {
         // 안내만 하고 끝나면 막다른 길(GROMO-860) — 권한 화면으로 이어줘
         // 상태별 처리(요청 필요→권한 요청, 거부됨→iOS 설정 이동)를 그쪽에서 하게 한다.
-        Alert.alert(
-          '스크린타임 권한 필요',
-          '허용앱을 고르려면 먼저 스크린타임 권한을 허용해야 해요.',
-          [
-            { text: '취소', style: 'cancel' },
-            {
-              text: '권한 설정하기',
-              onPress: () => navigation.navigate('SettingsScreenTimePermission'),
-            },
-          ],
-        );
+        Alert.alert(t('settings.allowedApps.permTitle'), t('settings.allowedApps.permBody'), [
+          { text: t('common.cancel'), style: 'cancel' },
+          {
+            text: t('settings.allowedApps.permCta'),
+            onPress: () => navigation.navigate('SettingsScreenTimePermission'),
+          },
+        ]);
         return;
       }
       const before = counts; // 편집 전 선택 스냅샷 — 변경 여부 판정용
@@ -128,20 +128,23 @@ export default function AllowedAppsScreen() {
       //    2200ms 타이머를 시작한다 — 모달이 사라진 뒤 갑자기 나타나고 노출도 짧아진다.
       //    이 JS는 hot-updater로 구 바이너리에도 내려가므로 네이티브 수정만으로는 못 막는다
       //    (codex 리뷰). `dismissed`는 새 바이너리만 응답에 담는 표식이다.
-      const message = `집중 중에도 앱 ${result.applications}개를 쓸 수 있어요`;
+      const message = t('settings.allowedApps.savedMessage', { count: result.applications });
       if (result.dismissed) {
         show({ message });
       } else {
-        Alert.alert('설정 완료', message);
+        Alert.alert(t('settings.allowedApps.saveDoneTitle'), message);
       }
     } catch (e) {
-      Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
+      Alert.alert(
+        t('settings.allowedApps.saveFailTitle'),
+        e instanceof Error ? e.message : String(e),
+      );
     }
   }
 
   return (
     <SettingsScaffold
-      title="집중 중 허용 앱"
+      title={t('settings.allowedApps.title')}
       onBack={() => navigation.goBack()}
       footer={
         <TouchableOpacity
@@ -149,21 +152,18 @@ export default function AllowedAppsScreen() {
           activeOpacity={0.85}
           onPress={() => navigation.goBack()}
         >
-          <Text style={s.doneBtnText}>완료</Text>
+          <Text style={s.doneBtnText}>{t('settings.allowedApps.done')}</Text>
         </TouchableOpacity>
       }
     >
       {/* 안내 카드 — 허용앱의 의미 + 카테고리 처리(하위 앱으로 확장) */}
       <View style={s.note}>
         <View style={s.noteDot} />
-        <Text style={s.noteText}>
-          집중 중에도 이 앱들은 쓸 수 있어요. 카테고리를 고르면 그 안의 앱들도 함께 허용돼요(지금
-          설치된 앱 기준).
-        </Text>
+        <Text style={s.noteText}>{t('settings.allowedApps.note')}</Text>
       </View>
 
       {/* 현재 허용 개수 요약 (개별 앱 리스트는 토큰 opaque라 네이티브 필요 — 개수만 표시) */}
-      <SettingsSection title="현재 허용 앱">
+      <SettingsSection title={t('settings.allowedApps.currentSection')}>
         <SettingsRow
           icon="lock-open-outline"
           iconColor={T.greenDeep}
@@ -176,18 +176,18 @@ export default function AllowedAppsScreen() {
       {/* 허용 앱 고르기 — 네이티브 관리 화면(목록 + 추가/삭제 피커) 표시 */}
       <TouchableOpacity style={s.pickBtn} activeOpacity={0.85} onPress={editAllowedApps}>
         <Ionicons name="add-circle-outline" size={20} color={T.accentDeep} />
-        <Text style={s.pickBtnText}>허용 앱 고르기</Text>
+        <Text style={s.pickBtnText}>{t('settings.allowedApps.pick')}</Text>
       </TouchableOpacity>
 
       {/* Safari·웹 허용 — 허용앱 피커로는 시스템 앱(사파리) 허용 여부를 알 수 없어 별도 토글.
           꺼짐(기본)이면 집중 중 사파리가 잠기고 다른 브라우저·웹뷰의 웹페이지도 차단된다. */}
-      <SettingsSection title="웹">
+      <SettingsSection title={t('settings.allowedApps.webSection')}>
         <SettingsToggleRow
           icon="globe-outline"
           iconColor={T.accentDeep}
           iconBg={T.accentBg}
-          label="Safari·웹 허용"
-          sub="켜면 집중 중에도 Safari와 웹사이트를 쓸 수 있어요"
+          label={t('settings.allowedApps.safariLabel')}
+          sub={t('settings.allowedApps.safariSub')}
           value={allowSafariWeb}
           onValueChange={toggleSafariWeb}
         />

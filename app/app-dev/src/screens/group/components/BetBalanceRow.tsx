@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 참가 시트의 잔액 표기 — **N46의 단독 소유 컴포넌트다(GROMO-1424).**
 // 형식은 「참가비 30 · 내 잔액 240」까지다 — **차감 후 값(→ 210)은 절대 병기하지 않는다.**
@@ -19,17 +20,22 @@ export interface BetBalanceRowProps {
   coins: number | null;
 }
 
-export default function BetBalanceRow({ label = '참가비', amount, coins }: BetBalanceRowProps) {
+export default function BetBalanceRow({ label, amount, coins }: BetBalanceRowProps) {
+  const rowLabel = label ?? t('group.betBalanceRow.feeLabel');
   const balanceText = coins === null ? '—' : String(coins);
   return (
     <View
       style={s.row}
       accessible
-      accessibilityLabel={`${label} ${amount}코인, 내 잔액 ${coins === null ? '미확인' : `${coins}코인`}`}
+      accessibilityLabel={
+        coins === null
+          ? t('group.betBalanceRow.a11yUnknown', { label: rowLabel, amount })
+          : t('group.betBalanceRow.a11y', { label: rowLabel, amount, coins })
+      }
       testID="group.bet.balanceRow"
     >
       <Text style={s.text}>
-        {label} {amount} · 내 잔액 {balanceText}
+        {t('group.betBalanceRow.text', { label: rowLabel, amount, balance: balanceText })}
       </Text>
     </View>
   );

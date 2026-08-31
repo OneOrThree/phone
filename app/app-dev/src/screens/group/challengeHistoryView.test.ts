@@ -6,8 +6,8 @@
 //  3) 무효화 사유 문구가 lastSettledView의 **공용 매핑과 같은 문자열**이다(사본 금지 교차 검증).
 //  4) 손익 3상: 미참가(null) ≠ 환불 ≠ 0코인. 그룹 축이라 내가 안 낀 줄이 목록에 섞인다.
 import {
-  NOT_JOINED_TEXT,
-  REFUNDED_TEXT,
+  notJoinedText,
+  refundedText,
   historyBasis,
   historyDelta,
   historyMissionLabel,
@@ -208,15 +208,15 @@ describe('historyDelta — 미참가 · 환불 · 손익을 뭉개지 않는다'
   test('미참가 회차는 0코인이 아니라 미참여 — 그룹 축이라 남의 날도 목록에 있다', () => {
     expect(
       historyDelta(item({ myPayout: null, myAchieved: null, myProgressMinutes: null })),
-    ).toEqual({ text: NOT_JOINED_TEXT, tone: 'muted' });
+    ).toEqual({ text: notJoinedText(), tone: 'muted' });
   });
 
   test('환불로 끝난 날은 숫자 0이 아니라 환불이라고 적는다', () => {
     expect(
       historyDelta(item({ status: 'VOIDED', voidReason: 'CHALLENGE_DELETED', myPayout: 30 })),
-    ).toEqual({ text: REFUNDED_TEXT, tone: 'zero' });
+    ).toEqual({ text: refundedText(), tone: 'zero' });
     expect(historyDelta(item({ status: 'REFUNDED', myPayout: 30 }))).toEqual({
-      text: REFUNDED_TEXT,
+      text: refundedText(),
       tone: 'zero',
     });
   });
@@ -267,7 +267,7 @@ describe('historyRowA11y — 행 전체를 한 덩어리로 읽는다', () => {
 
   test('미참가 줄은 손익 자리에 미참여라고 읽는다', () => {
     expect(historyRowA11y(item({ myPayout: null, myProgressMinutes: null }), '8/10(월)')).toContain(
-      NOT_JOINED_TEXT,
+      notJoinedText(),
     );
   });
 });

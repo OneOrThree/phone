@@ -18,6 +18,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { T, withAlpha } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useOverlayAlert } from '@/store/useOverlayAlert';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { getAuthSessionGeneration } from '@/services/api';
@@ -70,9 +71,10 @@ const GROUP_LIMIT = 10;
 const COPIED_RESET_MS = 2000;
 
 // 공개 설정은 단순 옵션이 아니라 참여 경로를 가르는 스위치다 — 캡션을 항상 함께 노출한다(§6-2).
-const VISIBILITY_CAPTION = {
-  public: '누구나 그룹 이름을 검색해 들어올 수 있어요',
-  private: '검색에 뜨지 않아요. 초대 링크를 받은 사람만 들어올 수 있어요',
+// 문구가 아니라 번역 키를 담는다 — 모듈 최상위에서 t()를 부르면 로케일 결정 전에 굳는다.
+const VISIBILITY_CAPTION_KEY = {
+  public: 'group.createScreen.visibilityPublicCaption',
+  private: 'group.createScreen.visibilityPrivateCaption',
 } as const;
 
 export default function GroupCreateScreen() {
@@ -203,8 +205,8 @@ export default function GroupCreateScreen() {
       case 'GROUP_LIMIT_EXCEEDED':
         // ⚠️ `await` 뒤 실패 처리에서 여는 Alert다 — 승인을 받고 띄운다.
         showAlert.afterSlot(
-          '더 이상 만들 수 없어요',
-          `참여할 수 있는 그룹 수를 초과했어요(최대 ${GROUP_LIMIT}개)`,
+          t('group.createScreen.limitTitle'),
+          t('group.createScreen.limitBody', { count: GROUP_LIMIT }),
         );
         return;
       // 유저 행 부재(탈퇴 후 토큰 잔존 등) — #516이 403→404 NOT_FOUND로 정정한 판정.
@@ -219,10 +221,10 @@ export default function GroupCreateScreen() {
         const status = axios.isAxiosError(e) ? e.response?.status : undefined;
         if (status === 400) {
           // 앱이 막지 못한 검증 실패 — 자유 입력은 이름뿐이라 이름을 짚어준다.
-          setNameError('그룹 이름을 다시 확인해 주세요');
+          setNameError(t('group.createScreen.nameInvalid'));
           return;
         }
-        showAlert.afterSlot('그룹을 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+        showAlert.afterSlot(t('group.createScreen.createFailTitle'), t('common.retryLater'));
       }
     }
   }
@@ -289,7 +291,7 @@ export default function GroupCreateScreen() {
       inviteRef.current = issued;
       return issued;
     } catch {
-      await notifyLinkFailure('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
+      await notifyLinkFailure(t('group.createScreen.inviteFailTitle'), t('common.retryLater'));
       return null;
     }
   }
@@ -332,7 +334,10 @@ export default function GroupCreateScreen() {
         });
       }
     } catch {
-      await notifyLinkFailure('공유하지 못했어요', '링크 복사로 대신 공유해 주세요.');
+      await notifyLinkFailure(
+        t('group.createScreen.shareFailTitle'),
+        t('group.createScreen.shareFailBody'),
+      );
     }
   }
 
@@ -346,11 +351,11 @@ export default function GroupCreateScreen() {
           onPress={() => navigation.goBack()}
           activeOpacity={0.7}
           disabled={submitting || created !== null}
-          accessibilityLabel="뒤로"
+          accessibilityLabel={t('common.back')}
         >
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>그룹 만들기</Text>
+        <Text style={s.headerTitle}>{t('group.createScreen.title')}</Text>
       </View>
 
       <ScrollView
@@ -361,7 +366,7 @@ export default function GroupCreateScreen() {
         keyboardDismissMode="on-drag"
       >
         {/* ── 그룹 이름 ── */}
-        <Text style={s.label}>그룹 이름</Text>
+        <Text style={s.label}>{t('group.createScreen.nameLabel')}</Text>
         <View style={[s.inputBox, nameError ? s.inputBoxError : null]}>
           <TextInput
             style={s.input}
@@ -370,7 +375,7 @@ export default function GroupCreateScreen() {
               setName(v);
               if (nameError) setNameError(null);
             }}
-            placeholder="예) 아침 6시 집중방"
+            placeholder={t('group.createScreen.namePlaceholder')}
             placeholderTextColor={T.inkMuted}
             maxLength={NAME_MAX}
             returnKeyType="done"
@@ -382,13 +387,13 @@ export default function GroupCreateScreen() {
         {nameError ? <Text style={s.errorText}>{nameError}</Text> : null}
 
         {/* ── 소개 (선택) — 멀티라인 입력. 빈 값이면 생성 body에서 키를 생략한다(§D18) ── */}
-        <Text style={s.label}>소개</Text>
+        <Text style={s.label}>{t('group.createScreen.descriptionLabel')}</Text>
         <View style={s.descBox}>
           <TextInput
             style={s.descInput}
             value={description}
             onChangeText={setDescription}
-            placeholder="예) 매일 아침 함께 집중하는 그룹이에요 (선택)"
+            placeholder={t('group.createScreen.descriptionPlaceholder')}
             placeholderTextColor={T.inkMuted}
             maxLength={DESCRIPTION_MAX}
             multiline
@@ -400,26 +405,28 @@ export default function GroupCreateScreen() {
         </Text>
 
         {/* ── 정원 — 스텝퍼 ── */}
-        <Text style={s.label}>정원</Text>
+        <Text style={s.label}>{t('group.createScreen.capacityLabel')}</Text>
         <View style={s.row}>
-          <Text style={s.rowLabel}>최대 인원</Text>
+          <Text style={s.rowLabel}>{t('group.createScreen.maxMembersLabel')}</Text>
           <View style={s.stepper}>
             <TouchableOpacity
               style={[s.stepBtn, maxMembers <= MEMBERS_MIN ? s.stepBtnOff : null]}
               activeOpacity={0.7}
               disabled={maxMembers <= MEMBERS_MIN}
               onPress={() => bumpMembers(-1)}
-              accessibilityLabel="정원 줄이기"
+              accessibilityLabel={t('group.createScreen.capacityDecreaseA11y')}
             >
               <Ionicons name="remove" size={18} color={T.inkSub} />
             </TouchableOpacity>
-            <Text style={s.stepValue}>{maxMembers}명</Text>
+            <Text style={s.stepValue}>
+              {t('group.createScreen.memberCount', { count: maxMembers })}
+            </Text>
             <TouchableOpacity
               style={[s.stepBtn, maxMembers >= MEMBERS_MAX ? s.stepBtnOff : null]}
               activeOpacity={0.7}
               disabled={maxMembers >= MEMBERS_MAX}
               onPress={() => bumpMembers(1)}
-              accessibilityLabel="정원 늘리기"
+              accessibilityLabel={t('group.createScreen.capacityIncreaseA11y')}
             >
               <Ionicons name="add" size={18} color={T.inkSub} />
             </TouchableOpacity>
@@ -427,7 +434,7 @@ export default function GroupCreateScreen() {
         </View>
 
         {/* ── 공개 설정 — 세그먼트 + 캡션(참여 경로가 갈린다) ── */}
-        <Text style={s.label}>공개 설정</Text>
+        <Text style={s.label}>{t('group.createScreen.visibilityLabel')}</Text>
         <View style={s.segment}>
           {[false, true].map((v) => {
             const on = isPrivate === v;
@@ -438,7 +445,9 @@ export default function GroupCreateScreen() {
                 activeOpacity={0.8}
                 onPress={() => setIsPrivate(v)}
               >
-                <Text style={[s.segText, on ? s.segTextOn : null]}>{v ? '비공개' : '공개'}</Text>
+                <Text style={[s.segText, on ? s.segTextOn : null]}>
+                  {v ? t('group.createScreen.private') : t('group.createScreen.public')}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -451,11 +460,11 @@ export default function GroupCreateScreen() {
             style={s.noteIcon}
           />
           <Text style={s.noteText}>
-            {isPrivate ? VISIBILITY_CAPTION.private : VISIBILITY_CAPTION.public}
+            {t(isPrivate ? VISIBILITY_CAPTION_KEY.private : VISIBILITY_CAPTION_KEY.public)}
           </Text>
         </View>
 
-        <Text style={s.label}>내 카드 아이콘</Text>
+        <Text style={s.label}>{t('group.createScreen.cardEmojiLabel')}</Text>
         <GroupCardEmojiPicker
           value={cardEmoji}
           onChange={setCardEmoji}
@@ -464,7 +473,7 @@ export default function GroupCreateScreen() {
         />
         {emojiSaveFailed && (
           <Text style={s.errorText} accessibilityLiveRegion="polite">
-            내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+            {t('group.createScreen.emojiSaveFailed')}
           </Text>
         )}
 
@@ -475,7 +484,7 @@ export default function GroupCreateScreen() {
             onPress={() => navigation.goBack()}
             testID="group.create.cardEmoji.continue"
           >
-            <Text style={s.outlineDoneText}>그룹으로 돌아가기</Text>
+            <Text style={s.outlineDoneText}>{t('group.createScreen.backToGroup')}</Text>
           </TouchableOpacity>
         )}
 
@@ -490,7 +499,7 @@ export default function GroupCreateScreen() {
           {submitting ? (
             <ActivityIndicator color={T.white} />
           ) : (
-            <Text style={s.submitText}>만들기</Text>
+            <Text style={s.submitText}>{t('group.createScreen.submit')}</Text>
           )}
         </TouchableOpacity>
       </ScrollView>
@@ -504,19 +513,21 @@ export default function GroupCreateScreen() {
       >
         <View style={s.overlay}>
           <View style={s.card}>
-            <Text style={s.cardTitle}>비공개 그룹을 만들었어요 🎉</Text>
-            <Text style={s.cardBody}>검색에 뜨지 않아요.{'\n'}초대 링크를 공유해 주세요.</Text>
+            <Text style={s.cardTitle}>{t('group.createScreen.privateCreatedTitle')}</Text>
+            <Text style={s.cardBody}>{t('group.createScreen.privateCreatedBody')}</Text>
             {emojiSaveFailed && (
               <Text style={s.errorText} accessibilityLiveRegion="polite">
-                내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+                {t('group.createScreen.emojiSaveFailed')}
               </Text>
             )}
             <View style={s.cardActions}>
               <TouchableOpacity style={s.cardOutlineBtn} activeOpacity={0.85} onPress={copyLink}>
-                <Text style={s.cardOutlineText}>{copied ? '복사했어요' : '링크 복사'}</Text>
+                <Text style={s.cardOutlineText}>
+                  {copied ? t('group.createScreen.copied') : t('group.createScreen.copyLink')}
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.cardFillBtn} activeOpacity={0.85} onPress={shareLink}>
-                <Text style={s.cardFillText}>공유하기</Text>
+                <Text style={s.cardFillText}>{t('group.createScreen.share')}</Text>
               </TouchableOpacity>
             </View>
             <TouchableOpacity
@@ -524,7 +535,7 @@ export default function GroupCreateScreen() {
               activeOpacity={0.7}
               onPress={closeCreatedDialog}
             >
-              <Text style={s.cardConfirmText}>확인</Text>
+              <Text style={s.cardConfirmText}>{t('common.confirm')}</Text>
             </TouchableOpacity>
           </View>
         </View>

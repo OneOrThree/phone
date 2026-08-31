@@ -21,6 +21,7 @@ import type { Subject } from '@/screens/focus/types';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 
 // 준비 시험 변경(SettingsOccupation) — 온보딩 W4와 같은 카테고리 목록(focusCategories)에서 하나 고른다.
 // 앱이 실제로 굴리는 건 로컬 focusCategory(리그 UI·시험 칩)라 그 값을 바꾼다.
@@ -101,7 +102,7 @@ export default function OccupationScreen() {
         const res = await getDefaultTags(occupation);
         setEditData({
           category,
-          list: [...res.tags].sort((a, b) => a.sortOrder - b.sortOrder).map((t) => t.name),
+          list: [...res.tags].sort((a, b) => a.sortOrder - b.sortOrder).map((tag) => tag.name),
         });
       } catch {
         // 조회 실패 — 시트 없이 화면에 남는다(재시도 가능)
@@ -120,7 +121,7 @@ export default function OccupationScreen() {
         const owned = new Set(subjects.map((x) => x.name));
         const additions = [...res.tags]
           .sort((a, b) => a.sortOrder - b.sortOrder)
-          .map((t) => t.name)
+          .map((tag) => tag.name)
           .filter((n) => !owned.has(n));
         if (additions.length > 0 || subjects.length > 0) {
           setSaving(false);
@@ -173,7 +174,7 @@ export default function OccupationScreen() {
     // 시트가 화면 전체(헤더 포함)를 덮도록 Scaffold 밖 래퍼에서 오버레이한다
     <View style={s.flex1}>
       <SettingsScaffold
-        title="준비 시험 변경"
+        title={t('settings.occupation.title')}
         onBack={() => navigation.goBack()}
         footer={
           <TouchableOpacity
@@ -183,16 +184,20 @@ export default function OccupationScreen() {
             onPress={handleSave}
           >
             <Text style={s.saveText}>
-              {saving ? '저장 중…' : isSameAsCurrent ? '추천과목 수정하기' : '저장'}
+              {saving
+                ? t('common.saving')
+                : isSameAsCurrent
+                  ? t('settings.occupation.editRecommended')
+                  : t('common.save')}
             </Text>
           </TouchableOpacity>
         }
       >
-        <Text style={s.desc}>같은 목표를 준비하는 사람들과 리그에서 만나요.</Text>
+        <Text style={s.desc}>{t('settings.occupation.desc')}</Text>
 
         {FOCUS_CATEGORY_GROUPS.map((group) => (
-          <View key={group.label} style={s.group}>
-            <Text style={s.groupLabel}>{group.label}</Text>
+          <View key={group.labelKey} style={s.group}>
+            <Text style={s.groupLabel}>{t(group.labelKey)}</Text>
             <View style={s.chips}>
               {group.items.map((item) => {
                 const on = selected === item;
@@ -213,9 +218,7 @@ export default function OccupationScreen() {
 
         <View style={s.note}>
           <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
-          <Text style={s.noteText}>
-            준비 시험을 바꿔도 이미 등록한 과목은 그대로예요.{'\n'}과목은 따로 편집할 수 있어요.
-          </Text>
+          <Text style={s.noteText}>{t('settings.occupation.note')}</Text>
         </View>
       </SettingsScaffold>
 

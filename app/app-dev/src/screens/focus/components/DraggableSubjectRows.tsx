@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { playTapSound } from '@/utils/sound';
 import { hmsCompact } from '../format';
 import type { Subject } from '../types';
@@ -296,7 +297,7 @@ export function DraggableSubjectRows({
                       )
                     }
                     accessibilityRole="button"
-                    accessibilityLabel={`${sub.name} 대표색 변경`}
+                    accessibilityLabel={t('focus.subjectRow.colorLabel', { name: sub.name })}
                     style={[s.colorChip, { backgroundColor: sub.color }]}
                   />
                 </View>
@@ -321,7 +322,7 @@ export function DraggableSubjectRows({
                       )
                     }
                     accessibilityRole="button"
-                    accessibilityLabel={`${sub.name} 메뉴`}
+                    accessibilityLabel={t('focus.subjectRow.menuLabel', { name: sub.name })}
                   >
                     <Ionicons name="ellipsis-vertical" size={16} color={T.inkMuted} />
                   </TouchableOpacity>
