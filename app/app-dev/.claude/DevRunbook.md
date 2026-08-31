@@ -198,9 +198,22 @@ Xcode에서:
 2. **Product → Run** (Cmd+R) 클릭
 3. 또는 `npx expo run:ios --device` 사용
 
-### 4.3 Android (미지원)
+### 4.3 Android
 
-현재 Android는 스크린 타임 기능이 미지원입니다.
+디버그 실행은 `npm run android`(= `expo run:android`). 스크린 타임은 `modules/screen-time`
+(네이티브 로컬 모듈)로 구현돼 있다 — iOS 와 기능 범위가 다르니 화면별 분기를 확인할 것.
+
+릴리즈(.aab) 빌드는 `scripts/android-release.sh` (iOS `testflight.sh` 대응물 — API URL·ENV 태그·
+Datadog 키를 셸 export 로 주입하고, 빌드 후 번들에 값이 박혔는지 검증한다).
+
+> ⚠️ **릴리즈 빌드에는 `android/credentials/<dev|prod>/` 가 필요하다** (`keystore.properties` +
+> `google-services.json`). gitignore 대상이라 새 머신에서는 별도 채널로 받아 배치해야 하며, 없으면
+> Gradle 이 `자격 파일 없음: ...` 예외로 즉시 실패한다. `APP_ENV`(기본 `dev`)가 어느 폴더를 쓸지 고른다.
+>
+> **현재 상태(수빈 맥 체크아웃 기준):** `credentials/dev/` 는 완비(`debug.keystore` ·
+> `keystore.properties` · `google-services.json`). `credentials/prod/` 는 **`google-services.json` 만
+> 있고 서명 키가 없다** — 플레이스토어 배포를 하려면 릴리즈 keystore 를 발급해
+> `credentials/prod/keystore.properties` 와 함께 채워야 한다.
 
 ---
 
@@ -262,7 +275,24 @@ ASC_KEY_PATH=/절대/경로/AuthKey_XXXXXX.p8
 
 > ⚠️ **서버와 Firebase는 같은 환경끼리 붙어야 한다.** dev 서버에 붙은 앱이 prod 파베 토큰을 들고 있으면 푸시가 전부 `SENDER_ID_MISMATCH`로 실패한다. `testflight.sh`가 두 축을 함께 맞춰주므로, 수동 `xcodebuild`로 릴리즈를 만들 때만 `APP_ENV`를 직접 지정하면 된다.
 
-#### (6) (선택) alias 등록 — 어디서든 `testflight`
+#### (6) (선택) Sentry 소스맵 업로드 설정
+
+`ios/sentry.properties` 가 있으면 릴리즈 빌드의 소스맵·dSYM 이 Sentry 로 올라가, 에러가 원본
+코드 위치로 보인다. 없으면 업로드만 조용히 건너뛰고 빌드는 정상 진행된다(가드 있음).
+
+```bash
+cd app/app-dev/ios
+cp sentry.properties.example sentry.properties
+# auth.token 에 https://oneorthree.sentry.io/settings/auth-tokens/ 에서 발급한 본인 토큰을 붙여넣는다
+```
+
+> ⚠️ **토큰은 개인 발급 — 남의 것을 복사해 쓰지 말 것.** 그리고 `defaults.project` 는 반드시
+> `gromo` 다(`react-native` 아님). 파일이 **없으면** 빌드가 되지만, **있는데 슬러그가 틀리면**
+> sentry-cli 400 으로 아카이브 전체가 죽는다. 급할 땐 `SENTRY_DISABLE_AUTO_UPLOAD=true fastlane beta`.
+
+안드로이드도 동일하게 `android/sentry.properties.example` → `android/sentry.properties`.
+
+#### (7) (선택) alias 등록 — 어디서든 `testflight`
 
 ```bash
 echo 'alias testflight="/Users/soobin/phone/app/app-dev/ios/testflight.sh"' >> ~/.zshrc
@@ -300,6 +330,108 @@ cd app/app-dev/ios
 - **`react-native-fbsdk-next` throw** = `app.config.js`가 `EXPO_PUBLIC_FACEBOOK_APP_ID`가 없으면 플러그인에서 throw. appID가 있을 때만 플러그인을 추가하도록 조건부 처리돼 있어(없어도 빌드는 됨), 값이 비어도 배포는 진행된다.
 - **`.env`가 Release 번들에 인라인됨** = Expo는 빌드 시점의 `EXPO_PUBLIC_*` 값을 번들에 그대로 박는다. `testflight.sh`는 export로 프로덕션 서버를 강제하니 안전하지만, **`fastlane beta`를 직접 돌릴 땐** `app/app-dev/.env.production`의 `EXPO_PUBLIC_API_URL`이 프로덕션 서버인지 반드시 확인. 업로드 전 `strings <archive>/Products/Applications/gromo.app/main.jsbundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u`로 번들에 박힌 주소를 직접 검증할 수 있다.
 - **`node: command not found`**(비대화형/일부 셸) = `testflight.sh`가 `/opt/homebrew/Cellar/node@24/...`를 PATH에 보강해 둠. node 버전이 바뀌면 스크립트 안의 경로도 같이 갱신할 것.
+
+---
+
+## 📡 OTA 배포 (hot-updater)
+
+> **OTA = JS 번들만 앱스토어 심사 없이 교체하는 것.** 네이티브 코드·네이티브 의존성·앱 버전이
+> 바뀌었으면 OTA 로 못 내보낸다 → TestFlight 새 빌드를 올려야 한다.
+
+구성: `hot-updater` 0.35 + Supabase(프로젝트 `ohwgkgbhzvnbtxfewosa`, 버킷 `bundles`).
+클라이언트는 `src/App.tsx` 의 `HotUpdater.wrap`(전략 `appVersion`, 업데이트 중 화면은
+`OtaUpdateGateScreen`), 채널은 네이티브에 박힌 `HOT_UPDATER_CHANNEL`(`ios/gromo/Info.plist` = `production`).
+배포 설정은 `hot-updater.config.ts`, 키는 `.env.hotupdater`.
+
+### 6.1 최초 1회 셋업
+
+`app/app-dev/.env.hotupdater` 를 별도 채널로 받아 배치한다 (gitignore, 커밋 금지):
+
+```
+HOT_UPDATER_SUPABASE_URL=...
+HOT_UPDATER_SUPABASE_SERVICE_ROLE_KEY=...   # ⚠️ Supabase 전체 관리자 권한 — 비밀값
+HOT_UPDATER_SUPABASE_BUCKET_NAME=...
+```
+
+### 6.2 배포 실행
+
+```bash
+cd app/app-dev
+npx hot-updater deploy -p ios -t <마케팅버전> -c production -m "변경 요약"
+# 옵션 확인: npx hot-updater deploy --help
+```
+
+### 6.3 배포 전 반드시 확인 (사고 3종)
+
+1. **번들에 박히는 env** — `testflight.sh` 와 달리 OTA 에는 셸 export 보정이 **없다**.
+   `expo export` 가 그 시점의 `EXPO_PUBLIC_*` 를 그대로 인라인한다. 로딩 우선순위는
+   `.env.production.local` > `.env.local` > `.env.production` > `.env` 이므로,
+   **개인 `.env.local` 에 `EXPO_PUBLIC_API_URL` 이 있으면 그 주소가 전 사용자에게 배포된다.**
+   배포 전에 그 줄을 지울 것. (2026-07-20 실제 사고)
+2. **minBundleId 26시간 함정** — 바이너리에 박히는 minBundleId(이보다 오래된 번들 차단 기준)가
+   **네이티브 컴파일 시각 − 26시간**이라, 직전 하루 안에 올린 스테일 번들이 **새 바이너리에도**
+   업데이트로 내려간다. 새 빌드를 올릴 땐 Supabase `bundles` 의 활성 번들을 점검하고 스테일이면 끈다:
+   ```bash
+   curl -X PATCH "$SUPA/rest/v1/bundles?id=eq.<id>" \
+     -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -d '{"enabled":false}'
+   ```
+   (같은 명령이 **롤백/배포 취소** 수단이기도 하다.)
+3. **AsyncStorage 계약** — `gromo:storageVersion` 은 **'2' 고정**. 값을 올리면 OTA 롤백 시 구 번들의
+   마이그레이션이 `gromo:ownedItems`·`gromo:equipment` 를 지운다. 새 마이그레이션은 버전 대신
+   전용 마커 키(예: `gromo:migration:v3`)로 추적할 것.
+
+### 6.4 검증
+
+```bash
+# 서버가 실제로 내려주는지 (새 빌드 흉내 — null 이면 안 내려감)
+curl "$SUPA/functions/v1/update-server/app-version/ios/<마케팅버전>/production/<minBundleId>/<minBundleId>"
+# 번들 내용 확인 — 응답의 fileUrl zip 을 받아
+strings index.ios.bundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u
+```
+
+---
+
+## 🤝 새 팀원 인수인계 체크리스트
+
+빌드·배포를 다른 사람이 혼자 하려면 아래 세 묶음이 필요하다. **1번은 클론하면 따라오고,
+2번은 별도 채널로 전달받고, 3번은 본인이 발급한다.**
+
+### (1) git 에 이미 있음 — 받을 것 없음
+
+`hot-updater.config.ts` · `src/App.tsx` · `ios/gromo/Info.plist` · `ios/testflight.sh` ·
+`ios/fastlane/Fastfile`·`Appfile` · `ios/Gemfile` · `scripts/android-release.sh` ·
+`sentry.properties.example`(iOS·안드) · 이 문서
+
+### (2) 별도 채널로 전달받아야 함 (전부 gitignore)
+
+| 파일                                            | 용도                           | 없으면                     |
+| ----------------------------------------------- | ------------------------------ | -------------------------- |
+| `app/app-dev/.env`                              | Google·LINE·Meta·Datadog 키    | 소셜 로그인·RUM 동작 안 함 |
+| `app/app-dev/.env.production`                   | prod API URL + Meta            | 릴리즈가 dev 서버를 바라봄 |
+| `app/app-dev/.env.hotupdater`                   | **OTA 배포 인증** (비밀)       | `hot-updater deploy` 불가  |
+| `app/app-dev/ios/GoogleService-Info-dev.plist`  | dev Firebase                   | **iOS 빌드 실패**          |
+| `app/app-dev/ios/GoogleService-Info-prod.plist` | prod Firebase (`release` 레인) | **iOS 빌드 실패**          |
+| `app/app-dev/android/credentials/<dev\|prod>/`  | 안드 서명 keystore + 파베 json | **안드 릴리즈 빌드 실패**  |
+| distribution `.p12` (재영 계정 인증서)          | 코드 서명                      | archive 실패               |
+| `distribution-gromo-*.mobileprovision` **7개**  | 7개 타겟 서명                  | archive 실패               |
+
+`.p12` 와 프로파일은 받은 뒤 **더블클릭으로 키체인/시스템에 설치**한다.
+비밀값(`.p12`, `.env.hotupdater`, `keystore.properties`)은 메신저 평문 대신 비밀 공유 수단을 쓸 것.
+
+> 안드로이드는 **`dev` 만 완비**다(4.3 참고). `credentials/prod/` 에는 `google-services.json` 만 있고
+> 릴리즈 keystore 가 없어, 프로덕션 서명 빌드는 아직 누구도 못 만든다.
+>
+> Firebase 설정은 **플랫폼별 폴더에 둔다** — iOS 는 `ios/GoogleService-Info-<env>.plist`(Xcode 빌드
+> 페이즈가 `APP_ENV` 로 골라 주입), 안드로이드는 `android/credentials/<env>/google-services.json`
+> (Gradle 이 같은 축으로 골라 `app/` 로 복사).
+
+### (3) 본인이 발급/생성
+
+| 파일                    | 만드는 법                                                              |
+| ----------------------- | ---------------------------------------------------------------------- |
+| `ios/fastlane/.env`     | 5.1(3) 참고 — `.p8` 은 **본인 ASC 키로 발급**(재발급 불가라 공유 금물) |
+| `ios/sentry.properties` | 5.1(6) 참고 — 본인 토큰, `defaults.project=gromo`                      |
+| `ios/.xcode.env.local`  | `export NODE_BINARY=<본인 node 경로>`                                  |
 
 ---
 

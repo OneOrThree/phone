@@ -7,7 +7,10 @@
 #
 # sentry.properties 는 gitignore 되어 있다(토큰=비밀값, 절대 커밋 금지).
 # 이 파일이 없어도 빌드는 되지만, 릴리즈 빌드의 에러 위치가 원본 코드로 안 보인다.
+# ⚠️ defaults.project 는 반드시 `gromo` — Sentry 프로젝트 슬러그다.
+#    `react-native` 등 틀린 값이면 sentry-cli 가 "One or more projects are invalid"(400)를 내며
+#    fastlane 아카이브 빌드 전체가 실패한다 (2026-07-20 실제 발생).
 defaults.url=https://sentry.io/
 defaults.org=oneorthree
-defaults.project=react-native
+defaults.project=gromo
 auth.token=여기에_발급받은_토큰
