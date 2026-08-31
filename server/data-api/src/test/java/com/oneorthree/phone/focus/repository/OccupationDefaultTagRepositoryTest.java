@@ -1,9 +1,9 @@
 package com.oneorthree.phone.focus.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
-import com.oneorthree.phone.focus.domain.DefaultTag;
-import com.oneorthree.phone.focus.domain.OccupationDefaultTag;
-import com.oneorthree.phone.user.domain.Occupation;
+import com.oneorthree.phone.focus.repository.domain.DefaultTag;
+import com.oneorthree.phone.focus.repository.domain.OccupationDefaultTag;
+import com.oneorthree.phone.user.repository.domain.Occupation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

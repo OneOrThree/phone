@@ -1,13 +1,13 @@
 package com.oneorthree.phone.focus.service;
 
-import com.oneorthree.phone.focus.domain.DefaultTag;
-import com.oneorthree.phone.focus.domain.FocusSession;
-import com.oneorthree.phone.focus.domain.UserFocusTag;
+import com.oneorthree.phone.focus.repository.domain.DefaultTag;
+import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.UserFocusTag;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
-import com.oneorthree.phone.stats.domain.DailyFocusStat;
+import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

@@ -1,13 +1,13 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.support.TestPostgres;
-import com.oneorthree.phone.friend.domain.FriendshipStatus;
+import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.service.FriendService;
-import com.oneorthree.phone.notification.domain.NotificationSentLog;
+import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.AfterEach;

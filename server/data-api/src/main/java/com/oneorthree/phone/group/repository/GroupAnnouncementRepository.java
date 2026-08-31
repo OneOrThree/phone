@@ -1,7 +1,7 @@
 package com.oneorthree.phone.group.repository;
 
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupAnnouncement;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

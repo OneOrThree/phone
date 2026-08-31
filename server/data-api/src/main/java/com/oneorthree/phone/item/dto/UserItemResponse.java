@@ -1,6 +1,6 @@
 package com.oneorthree.phone.item.dto;
 
-import com.oneorthree.phone.item.domain.UserItem;
+import com.oneorthree.phone.item.repository.domain.UserItem;
 import lombok.Builder;
 import lombok.Getter;
 

@@ -4,7 +4,7 @@ import com.oneorthree.phone.bot.domain.BotFocusBlock;
 import com.oneorthree.phone.bot.domain.BotProfile;
 import com.oneorthree.phone.bot.repository.BotProfileRepository;
 import com.oneorthree.phone.common.util.ZonePolicy;
-import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;

@@ -1,8 +1,8 @@
 package com.oneorthree.phone.focus.repository;
 
-import com.oneorthree.phone.focus.domain.DefaultTag;
-import com.oneorthree.phone.focus.domain.UserFocusTag;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.focus.repository.domain.DefaultTag;
+import com.oneorthree.phone.focus.repository.domain.UserFocusTag;
+import com.oneorthree.phone.user.repository.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;

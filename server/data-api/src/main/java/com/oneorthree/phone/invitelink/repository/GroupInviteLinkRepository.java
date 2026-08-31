@@ -1,6 +1,6 @@
 package com.oneorthree.phone.invitelink.repository;
 
-import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;

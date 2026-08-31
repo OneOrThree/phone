@@ -1,7 +1,7 @@
 package com.oneorthree.phone.group.repository;
 
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupStatus;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;

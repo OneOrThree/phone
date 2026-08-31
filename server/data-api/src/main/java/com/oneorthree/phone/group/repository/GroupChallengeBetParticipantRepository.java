@@ -1,7 +1,7 @@
 package com.oneorthree.phone.group.repository;
 
-import com.oneorthree.phone.group.domain.GroupBetStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -211,7 +211,7 @@ public interface GroupChallengeBetParticipantRepository
      *
      * @param leaseSeconds 리스 수명(초) — 만료 컷오프는 {@code now() − leaseSeconds} 로 <b>DB 가</b> 뺀다
      * @param statuses     결과로 치는 회차 상태 이름
-     *                     ({@link com.oneorthree.phone.group.domain.GroupBetStatus#RESULT_STATUS_NAMES})
+     *                     ({@link GroupBetStatus#RESULT_STATUS_NAMES})
      * @return 1 = 이 호출이 표시를 선점했다, 0 = 이미 확인됨 · 남의 리스가 살아 있음 · 아직 결과가
      *     아님 · 대상 행 없음 (구분은 호출측이 행을 다시 읽어 판정한다)
      */

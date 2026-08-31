@@ -1,6 +1,6 @@
 package com.oneorthree.phone.group.service;
 
-import com.oneorthree.phone.group.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.dto.ChallengeResultClaimResponse;
 import com.oneorthree.phone.group.exception.ChallengeResultClaimHeldException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;

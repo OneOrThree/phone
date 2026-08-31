@@ -1,7 +1,7 @@
 package com.oneorthree.phone.league.repository;
 
-import com.oneorthree.phone.league.domain.LeagueArena;
-import com.oneorthree.phone.league.domain.LeagueArenaStatus;
+import com.oneorthree.phone.league.repository.domain.LeagueArena;
+import com.oneorthree.phone.league.repository.domain.LeagueArenaStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;

@@ -1,6 +1,6 @@
 package com.oneorthree.phone.league.repository;
 
-import com.oneorthree.phone.league.domain.LeagueRankSnapshot;
+import com.oneorthree.phone.league.repository.domain.LeagueRankSnapshot;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import java.time.LocalDate;

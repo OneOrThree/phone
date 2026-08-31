@@ -1,6 +1,6 @@
 package com.oneorthree.phone.group.dto;
 
-import com.oneorthree.phone.group.domain.RepeatSchedule;
+import com.oneorthree.phone.group.repository.domain.RepeatSchedule;
 
 import java.time.DayOfWeek;
 import java.util.ArrayList;

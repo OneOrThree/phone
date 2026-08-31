@@ -1,6 +1,7 @@
 package com.oneorthree.phone.auth.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.oneorthree.phone.auth.AuthController;
 import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
@@ -9,7 +10,7 @@ import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.service.GuestLoginRateLimiter;
 import com.oneorthree.phone.common.util.ClientIpResolver;
-import com.oneorthree.phone.user.domain.Provider;
+import com.oneorthree.phone.user.repository.domain.Provider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

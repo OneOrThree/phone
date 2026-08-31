@@ -1,16 +1,16 @@
 package com.oneorthree.phone.stats.service;
 
 import com.oneorthree.phone.common.util.ZonePolicy;
-import com.oneorthree.phone.focus.domain.FocusSession;
-import com.oneorthree.phone.focus.domain.UserFocusTag;
+import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.UserFocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
-import com.oneorthree.phone.friend.domain.Friendship;
+import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
-import com.oneorthree.phone.stats.domain.DailyFocusStat;
+import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.stats.service.StatsPeriodResolver.PeriodRange;
 import com.oneorthree.phone.stats.support.StatsUnits;
-import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
+import com.oneorthree.phone.screentime.repository.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusAverageAggregate;
@@ -24,16 +24,17 @@ import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
-import com.oneorthree.phone.user.domain.Occupation;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
-import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
+import com.oneorthree.phone.user.repository.domain.Occupation;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserFocusTimeSettings;
+import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
+import com.oneorthree.phone.user.repository.domain.UserStreak;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -123,7 +124,7 @@ public class StatsService {
     /**
      * 스트릭(연속일) 조회. currentStreak 은 read-time 으로 만료를 반영한다(GROMO-847) —
      * lastSessionDate 가 어제 이전이면 공백으로 끊긴 것으로 보아 0 을 반환한다
-     * (판정은 {@link com.oneorthree.phone.user.domain.UserStreak UserStreak}).
+     * (판정은 {@link UserStreak UserStreak}).
      * longestStreak·lastSessionDate 는 저장된 원본을 그대로 유지한다.
      *
      * @param today 서버 판정 축(KST 고정) 기준 오늘(GROMO-643·1259)

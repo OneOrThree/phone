@@ -1,8 +1,8 @@
 package com.oneorthree.phone.friend.repository;
 
-import com.oneorthree.phone.friend.domain.Friendship;
-import com.oneorthree.phone.friend.domain.FriendshipStatus;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.friend.repository.domain.Friendship;
+import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
+import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;

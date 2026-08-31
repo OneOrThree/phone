@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.domain;
 
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

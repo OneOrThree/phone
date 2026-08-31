@@ -1,6 +1,6 @@
 package com.oneorthree.phone.group.repository;
 
-import com.oneorthree.phone.group.domain.GroupJoinCode;
+import com.oneorthree.phone.group.repository.domain.GroupJoinCode;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;

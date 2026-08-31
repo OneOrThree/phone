@@ -1,7 +1,7 @@
 package com.oneorthree.phone.invitelink.support;
 
 import com.oneorthree.phone.common.analytics.Ga4MeasurementClient;
-import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;

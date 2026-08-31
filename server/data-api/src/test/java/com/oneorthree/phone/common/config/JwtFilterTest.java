@@ -1,6 +1,7 @@
 package com.oneorthree.phone.common.config;
 
 import com.oneorthree.phone.auth.service.JwtProvider;
+import com.oneorthree.phone._config.JwtFilter;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserActivityService;
 import jakarta.servlet.http.HttpServletResponse;

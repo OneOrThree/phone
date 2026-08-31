@@ -1,7 +1,7 @@
 package com.oneorthree.phone.user.repository;
 
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserBlock;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserBlock;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

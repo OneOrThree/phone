@@ -1,6 +1,6 @@
 package com.oneorthree.phone.user.repository;
 
-import com.oneorthree.phone.user.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.UUID;

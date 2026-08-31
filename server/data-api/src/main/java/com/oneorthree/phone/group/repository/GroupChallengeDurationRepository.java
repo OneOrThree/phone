@@ -1,6 +1,6 @@
 package com.oneorthree.phone.group.repository;
 
-import com.oneorthree.phone.group.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;

@@ -1,7 +1,7 @@
 package com.oneorthree.phone.group.dto;
 
-import com.oneorthree.phone.group.domain.GroupBetStatus;
-import com.oneorthree.phone.group.domain.GroupBetVoidReason;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.GroupBetVoidReason;
 import lombok.Builder;
 import lombok.Getter;
 

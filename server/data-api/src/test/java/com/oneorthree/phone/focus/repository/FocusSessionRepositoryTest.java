@@ -1,11 +1,11 @@
 package com.oneorthree.phone.focus.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
-import com.oneorthree.phone.focus.domain.DefaultTag;
-import com.oneorthree.phone.focus.domain.FocusSession;
-import com.oneorthree.phone.focus.domain.FocusSessionStatus;
-import com.oneorthree.phone.focus.domain.UserFocusTag;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.focus.repository.domain.DefaultTag;
+import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionStatus;
+import com.oneorthree.phone.focus.repository.domain.UserFocusTag;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;

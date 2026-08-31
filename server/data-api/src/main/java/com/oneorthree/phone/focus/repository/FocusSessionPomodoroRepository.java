@@ -1,7 +1,7 @@
 package com.oneorthree.phone.focus.repository;
 
-import com.oneorthree.phone.focus.domain.FocusSession;
-import com.oneorthree.phone.focus.domain.FocusSessionPomodoro;
+import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionPomodoro;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;

@@ -1,6 +1,6 @@
 package com.oneorthree.phone.group.api;
 
-import com.oneorthree.phone.group.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;

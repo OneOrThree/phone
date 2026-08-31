@@ -1,9 +1,9 @@
 package com.oneorthree.phone.group.repository;
 
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupInvite;
-import com.oneorthree.phone.group.domain.GroupInviteStatus;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupInvite;
+import com.oneorthree.phone.group.repository.domain.GroupInviteStatus;
+import com.oneorthree.phone.user.repository.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

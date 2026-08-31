@@ -1,7 +1,7 @@
 package com.oneorthree.phone.notification.repository;
 
-import com.oneorthree.phone.notification.domain.NotificationSendStatus;
-import com.oneorthree.phone.notification.domain.NotificationSentLog;
+import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
+import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.QueryHint;
 import org.springframework.data.jpa.repository.JpaRepository;

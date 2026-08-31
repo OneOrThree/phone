@@ -1,5 +1,7 @@
 package com.oneorthree.phone.user.domain;
 
+import com.oneorthree.phone.user.repository.domain.UserFocusTimeSettings;
+import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

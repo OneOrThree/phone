@@ -1,9 +1,9 @@
 package com.oneorthree.phone.stats.repository;
 
-import com.oneorthree.phone.stats.domain.DailyFocusStat;
+import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.dto.FocusAverageAggregate;
-import com.oneorthree.phone.user.domain.Occupation;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.Occupation;
+import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;

@@ -1,6 +1,7 @@
 package com.oneorthree.phone.league.api;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
+import com.oneorthree.phone.league.LeagueController;
 import com.oneorthree.phone.league.dto.LeagueLastResultResponse;
 import com.oneorthree.phone.league.dto.LeagueMemberResponse;
 import com.oneorthree.phone.league.dto.LeagueRankResponse;
@@ -9,7 +10,7 @@ import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.league.service.LeagueService;
-import com.oneorthree.phone.user.domain.Occupation;
+import com.oneorthree.phone.user.repository.domain.Occupation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

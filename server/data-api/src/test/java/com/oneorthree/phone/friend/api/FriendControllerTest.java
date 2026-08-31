@@ -1,6 +1,7 @@
 package com.oneorthree.phone.friend.api;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
+import com.oneorthree.phone.friend.FriendController;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.service.FriendService;
 import org.junit.jupiter.api.DisplayName;

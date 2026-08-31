@@ -1,8 +1,8 @@
 package com.oneorthree.phone.item.repository;
 
-import com.oneorthree.phone.item.domain.Item;
-import com.oneorthree.phone.item.domain.ItemType;
-import com.oneorthree.phone.item.domain.SlotType;
+import com.oneorthree.phone.item.repository.domain.Item;
+import com.oneorthree.phone.item.repository.domain.ItemType;
+import com.oneorthree.phone.item.repository.domain.SlotType;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

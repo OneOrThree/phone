@@ -1,7 +1,7 @@
 package com.oneorthree.phone.currency.repository;
 
-import com.oneorthree.phone.currency.domain.CurrencyTransaction;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.currency.repository.domain.CurrencyTransaction;
+import com.oneorthree.phone.user.repository.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

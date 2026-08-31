@@ -1,8 +1,8 @@
 package com.oneorthree.phone.group.service;
 
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupAnnouncement;
-import com.oneorthree.phone.group.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.dto.CreateAnnouncementRequest;
 import com.oneorthree.phone.group.dto.GroupAnnouncementResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
@@ -10,7 +10,7 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;

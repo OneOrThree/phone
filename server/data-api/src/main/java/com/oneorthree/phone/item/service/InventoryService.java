@@ -1,7 +1,7 @@
 package com.oneorthree.phone.item.service;
 
 import com.oneorthree.phone.item.dto.UserItemResponse;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.item.repository.ItemRepository;
 import com.oneorthree.phone.item.repository.UserItemRepository;
 import com.oneorthree.phone.user.exception.UserErrorCode;

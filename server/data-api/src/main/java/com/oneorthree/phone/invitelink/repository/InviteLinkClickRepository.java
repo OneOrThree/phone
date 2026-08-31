@@ -1,6 +1,6 @@
 package com.oneorthree.phone.invitelink.repository;
 
-import com.oneorthree.phone.invitelink.domain.InviteLinkClick;
+import com.oneorthree.phone.invitelink.repository.domain.InviteLinkClick;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.QueryHint;
 import org.springframework.data.jpa.repository.JpaRepository;

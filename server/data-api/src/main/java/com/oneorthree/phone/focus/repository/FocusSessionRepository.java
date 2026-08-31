@@ -1,9 +1,9 @@
 package com.oneorthree.phone.focus.repository;
 
-import com.oneorthree.phone.focus.domain.FocusSession;
-import com.oneorthree.phone.focus.domain.FocusSessionStatus;
-import com.oneorthree.phone.focus.domain.UserFocusTag;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionStatus;
+import com.oneorthree.phone.focus.repository.domain.UserFocusTag;
+import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;

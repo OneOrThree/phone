@@ -1,7 +1,7 @@
 package com.oneorthree.phone.league.repository;
 
-import com.oneorthree.phone.league.domain.LeagueWeeklyResult;
-import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
+import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResult;
+import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResultType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;

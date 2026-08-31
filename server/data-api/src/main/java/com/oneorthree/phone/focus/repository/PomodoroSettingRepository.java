@@ -1,6 +1,6 @@
 package com.oneorthree.phone.focus.repository;
 
-import com.oneorthree.phone.focus.domain.PomodoroSetting;
+import com.oneorthree.phone.focus.repository.domain.PomodoroSetting;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

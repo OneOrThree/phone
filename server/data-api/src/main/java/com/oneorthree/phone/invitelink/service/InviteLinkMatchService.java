@@ -1,7 +1,7 @@
 package com.oneorthree.phone.invitelink.service;
 
-import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
-import com.oneorthree.phone.invitelink.domain.InviteLinkClick;
+import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.domain.InviteLinkClick;
 import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
 import com.oneorthree.phone.invitelink.dto.InviteMatchResponse;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;

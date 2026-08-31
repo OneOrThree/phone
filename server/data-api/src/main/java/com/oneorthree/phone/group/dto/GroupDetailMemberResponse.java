@@ -1,7 +1,7 @@
 package com.oneorthree.phone.group.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.oneorthree.phone.group.domain.GroupMemberRole;
+import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import lombok.Builder;
 import lombok.Getter;
 

@@ -1,6 +1,6 @@
 package com.oneorthree.phone.focus.dto;
 
-import com.oneorthree.phone.focus.domain.FocusType;
+import com.oneorthree.phone.focus.repository.domain.FocusType;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;

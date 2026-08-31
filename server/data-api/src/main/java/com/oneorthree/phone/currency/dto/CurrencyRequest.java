@@ -1,7 +1,7 @@
 package com.oneorthree.phone.currency.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
-import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;

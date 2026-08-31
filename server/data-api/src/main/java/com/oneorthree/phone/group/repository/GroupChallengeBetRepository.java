@@ -1,6 +1,6 @@
 package com.oneorthree.phone.group.repository;
 
-import com.oneorthree.phone.group.domain.GroupChallengeBet;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBet;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;

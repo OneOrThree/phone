@@ -1,7 +1,7 @@
 package com.oneorthree.phone.friend.search;
 
 import com.oneorthree.phone.league.service.LeagueTierLookup;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

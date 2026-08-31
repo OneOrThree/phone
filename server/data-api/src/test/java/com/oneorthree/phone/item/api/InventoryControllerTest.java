@@ -1,6 +1,7 @@
 package com.oneorthree.phone.item.api;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
+import com.oneorthree.phone.item.InventoryController;
 import com.oneorthree.phone.item.dto.ItemResponse;
 import com.oneorthree.phone.item.dto.UserItemResponse;
 import com.oneorthree.phone.item.service.InventoryService;

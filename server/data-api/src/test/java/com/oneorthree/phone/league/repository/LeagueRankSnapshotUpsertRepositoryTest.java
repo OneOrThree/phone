@@ -1,7 +1,7 @@
 package com.oneorthree.phone.league.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
-import com.oneorthree.phone.league.domain.LeagueRankSnapshot;
+import com.oneorthree.phone.league.repository.domain.LeagueRankSnapshot;
 import com.oneorthree.phone.league.repository.LeagueRankSnapshotUpsertRepository.SnapshotRank;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -3,7 +3,7 @@ package com.oneorthree.phone.auth.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
-import com.oneorthree.phone.user.domain.Provider;
+import com.oneorthree.phone.user.repository.domain.Provider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;

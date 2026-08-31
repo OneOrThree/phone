@@ -1,9 +1,9 @@
 package com.oneorthree.phone.group.api;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
-import com.oneorthree.phone.group.domain.GroupBetStatus;
-import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.group.dto.GroupBetResultParticipantResponse;
 import com.oneorthree.phone.group.dto.MyBetSessionResponse;
 import com.oneorthree.phone.group.dto.MyBetSessionsResponse;

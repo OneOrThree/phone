@@ -1,7 +1,7 @@
 package com.oneorthree.phone.league.service;
 
-import com.oneorthree.phone.league.domain.LeagueRankingRow;
-import com.oneorthree.phone.league.domain.LeagueTierConfig;
+import com.oneorthree.phone.league.repository.domain.LeagueRankingRow;
+import com.oneorthree.phone.league.repository.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.dto.LeagueBatchSummaryResponse;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;

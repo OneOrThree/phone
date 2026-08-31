@@ -1,16 +1,16 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
-import com.oneorthree.phone.league.domain.LeagueRankingRow;
-import com.oneorthree.phone.league.domain.LeagueTierConfig;
-import com.oneorthree.phone.league.domain.LeagueWeeklyResult;
-import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
+import com.oneorthree.phone.league.repository.domain.LeagueRankingRow;
+import com.oneorthree.phone.league.repository.domain.LeagueTierConfig;
+import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResult;
+import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.league.service.LeagueWeek;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;

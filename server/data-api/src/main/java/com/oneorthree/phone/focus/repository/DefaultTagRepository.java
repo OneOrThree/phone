@@ -1,6 +1,6 @@
 package com.oneorthree.phone.focus.repository;
 
-import com.oneorthree.phone.focus.domain.DefaultTag;
+import com.oneorthree.phone.focus.repository.domain.DefaultTag;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;

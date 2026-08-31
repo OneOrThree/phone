@@ -1,10 +1,10 @@
 package com.oneorthree.phone.invitelink.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.dto.LandingView;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
 import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;

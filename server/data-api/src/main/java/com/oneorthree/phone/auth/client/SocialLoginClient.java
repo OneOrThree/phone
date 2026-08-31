@@ -1,6 +1,6 @@
 package com.oneorthree.phone.auth.client;
 
-import com.oneorthree.phone.user.domain.Provider;
+import com.oneorthree.phone.user.repository.domain.Provider;
 
 public interface SocialLoginClient {
     /**

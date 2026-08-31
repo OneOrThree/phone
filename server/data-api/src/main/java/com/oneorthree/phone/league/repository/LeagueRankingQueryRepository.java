@@ -1,9 +1,9 @@
 package com.oneorthree.phone.league.repository;
 
 import com.oneorthree.phone.common.util.ZonePolicy;
-import com.oneorthree.phone.league.domain.LeagueRankingPosition;
-import com.oneorthree.phone.league.domain.LeagueRankingRow;
-import com.oneorthree.phone.user.domain.Occupation;
+import com.oneorthree.phone.league.repository.domain.LeagueRankingPosition;
+import com.oneorthree.phone.league.repository.domain.LeagueRankingRow;
+import com.oneorthree.phone.user.repository.domain.Occupation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;

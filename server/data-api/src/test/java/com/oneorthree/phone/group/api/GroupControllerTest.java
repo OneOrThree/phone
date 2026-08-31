@@ -2,8 +2,8 @@ package com.oneorthree.phone.group.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.common.auth.AuthAttributes;
-import com.oneorthree.phone.group.domain.GroupMemberRole;
-import com.oneorthree.phone.group.domain.GroupStatus;
+import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.CreateGroupResponse;
 import com.oneorthree.phone.group.dto.GroupDetailMemberResponse;

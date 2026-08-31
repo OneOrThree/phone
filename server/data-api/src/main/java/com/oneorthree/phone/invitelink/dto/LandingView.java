@@ -1,6 +1,6 @@
 package com.oneorthree.phone.invitelink.dto;
 
-import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 
 /**
  * 랜딩 한 장을 그리는 데 필요한 것 전부 — 링크와 그룹명, 혹은 "만료".

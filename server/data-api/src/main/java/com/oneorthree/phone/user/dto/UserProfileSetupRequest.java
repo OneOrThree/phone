@@ -1,6 +1,6 @@
 package com.oneorthree.phone.user.dto;
 
-import com.oneorthree.phone.user.domain.Occupation;
+import com.oneorthree.phone.user.repository.domain.Occupation;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
