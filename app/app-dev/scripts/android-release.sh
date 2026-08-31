@@ -18,7 +18,7 @@ APP_DIR="$(cd "$(dirname "$0")/.." && pwd)" # app/
 ANDROID_DIR="$APP_DIR/android"
 
 # node 가 PATH 에 없으면 보강 — gradle 의 react 플러그인이 node 로 expo export:embed 를 돌린다
-command -v node >/dev/null 2>&1 || export PATH="/opt/homebrew/Cellar/node@24/24.17.0/bin:$PATH"
+command -v node >/dev/null 2>&1 || export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 
 # JAVA_HOME 미설정이면 Android Studio JBR 로 보강 (시스템 java 없는 맥 대비)
 if [[ -z "${JAVA_HOME:-}" && -d "/Applications/Android Studio.app/Contents/jbr/Contents/Home" ]]; then

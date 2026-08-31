@@ -208,7 +208,11 @@ Datadog 키를 셸 export 로 주입하고, 빌드 후 번들에 값이 박혔�
 
 > ⚠️ **릴리즈 빌드에는 `android/credentials/<dev|prod>/` 가 필요하다** (`keystore.properties` +
 > `google-services.json`). gitignore 대상이라 새 머신에서는 별도 채널로 받아 배치해야 하며, 없으면
-> Gradle 이 `자격 파일 없음: ...` 예외로 즉시 실패한다. `APP_ENV`(기본 `dev`)가 어느 폴더를 쓸지 고른다.
+> Gradle 이 `자격 파일 없음: ...` 예외로 즉시 실패한다. 어느 폴더를 쓸지는 `APP_ENV` 가 고르는데
+> **기본값이 경로마다 다르다** — `scripts/android-release.sh` 는 prod 가 기본이고
+> (`android-release.sh:48`, `APP_ENV="${APP_ENV:-prod}"`), Gradle 을 직접 호출하면 dev 가 기본이다
+> (`android/app/build.gradle:111`). dev 자격으로 릴리즈를 만들려면
+> `APP_ENV=dev ./scripts/android-release.sh` 처럼 **명시해야 한다.**
 >
 > **현재 상태(수빈 맥 체크아웃 기준):** `credentials/dev/` 는 완비(`debug.keystore` ·
 > `keystore.properties` · `google-services.json`). `credentials/prod/` 는 **`google-services.json` 만
@@ -288,7 +292,7 @@ cp sentry.properties.example sentry.properties
 
 > ⚠️ **토큰은 개인 발급 — 남의 것을 복사해 쓰지 말 것.** 그리고 `defaults.project` 는 반드시
 > `gromo` 다(`react-native` 아님). 파일이 **없으면** 빌드가 되지만, **있는데 슬러그가 틀리면**
-> sentry-cli 400 으로 아카이브 전체가 죽는다. 급할 땐 `SENTRY_DISABLE_AUTO_UPLOAD=true fastlane beta`.
+> sentry-cli 400 으로 아카이브 전체가 죽는다. 급할 땐 `SENTRY_DISABLE_AUTO_UPLOAD=true bundle exec fastlane beta`.
 
 안드로이드도 동일하게 `android/sentry.properties.example` → `android/sentry.properties`. 안드로이드
 쪽 게이트는 `android/app/build.gradle` 에 있다 — 파일이 있을 때만 업로드 훅을 건다. org·project 가
@@ -335,7 +339,7 @@ cd app/app-dev/ios
 - **"sandbox is not in sync with the `Podfile.lock`"** = 브랜치 전환/라이브러리 추가 후 `pod install`을 안 함. `testflight.sh`가 자동 처리하지만, 수동으로 돌릴 땐 `pod install` 후 `Pod installation complete!`를 확인.
 - **`react-native-fbsdk-next` throw** = `app.config.js`가 `EXPO_PUBLIC_FACEBOOK_APP_ID`가 없으면 플러그인에서 throw. appID가 있을 때만 플러그인을 추가하도록 조건부 처리돼 있어(없어도 빌드는 됨), 값이 비어도 배포는 진행된다.
 - **`.env`가 Release 번들에 인라인됨** = Expo는 빌드 시점의 `EXPO_PUBLIC_*` 값을 번들에 그대로 박는다. `testflight.sh`는 export로 프로덕션 서버를 강제하니 안전하지만, **`fastlane beta`를 직접 돌릴 땐** `app/app-dev/.env.production`의 `EXPO_PUBLIC_API_URL`이 프로덕션 서버인지 반드시 확인. 업로드 전 `strings <archive>/Products/Applications/gromo.app/main.jsbundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u`로 번들에 박힌 주소를 직접 검증할 수 있다.
-- **`node: command not found`**(비대화형/일부 셸) = `testflight.sh`가 `/opt/homebrew/Cellar/node@24/...`를 PATH에 보강해 둠. node 버전이 바뀌면 스크립트 안의 경로도 같이 갱신할 것.
+- **`node: command not found`**(비대화형/일부 셸) = `testflight.sh`·`scripts/android-release.sh`가 `/opt/homebrew/opt/node@24/bin`을 PATH에 보강해 둠. Homebrew의 버전 독립 심볼릭 경로라 node 패치 업그레이드로 깨지지 않는다(Cellar 실제 경로를 박으면 깨짐). node@24 자체가 없는 머신이면 `brew install node@24`.
 
 ---
 
@@ -377,11 +381,20 @@ npx hot-updater deploy -p ios -t <마케팅버전> -c production -m "변경 요�
 2. **minBundleId 26시간 함정** — 바이너리에 박히는 minBundleId(이보다 오래된 번들 차단 기준)가
    **네이티브 컴파일 시각 − 26시간**이라, 직전 하루 안에 올린 스테일 번들이 **새 바이너리에도**
    업데이트로 내려간다. 새 빌드를 올릴 땐 Supabase `bundles` 의 활성 번들을 점검하고 스테일이면 끈다:
+
    ```bash
-   curl -X PATCH "$SUPA/rest/v1/bundles?id=eq.<id>" \
-     -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -d '{"enabled":false}'
+   # .env.hotupdater 를 셸에 올린 뒤 (set -a: 이후 대입을 자동 export)
+   cd app/app-dev && set -a && . ./.env.hotupdater && set +a
+
+   curl -X PATCH "$HOT_UPDATER_SUPABASE_URL/rest/v1/bundles?id=eq.<번들id>" \
+     -H "apikey: $HOT_UPDATER_SUPABASE_SERVICE_ROLE_KEY" \
+     -H "Authorization: Bearer $HOT_UPDATER_SUPABASE_SERVICE_ROLE_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"enabled":false}'
    ```
+
    (같은 명령이 **롤백/배포 취소** 수단이기도 하다.)
+
 3. **AsyncStorage 계약** — `gromo:storageVersion` 은 **'2' 고정**. 값을 올리면 OTA 롤백 시 구 번들의
    마이그레이션이 `gromo:ownedItems`·`gromo:equipment` 를 지운다. 새 마이그레이션은 버전 대신
    전용 마커 키(예: `gromo:migration:v3`)로 추적할 것.
@@ -389,8 +402,11 @@ npx hot-updater deploy -p ios -t <마케팅버전> -c production -m "변경 요�
 ### 6.4 검증
 
 ```bash
+# 6.3 과 같이 .env.hotupdater 를 셸에 올린 상태에서
+cd app/app-dev && set -a && . ./.env.hotupdater && set +a
+
 # 서버가 실제로 내려주는지 (새 빌드 흉내 — null 이면 안 내려감)
-curl "$SUPA/functions/v1/update-server/app-version/ios/<마케팅버전>/production/<minBundleId>/<minBundleId>"
+curl "$HOT_UPDATER_SUPABASE_URL/functions/v1/update-server/app-version/ios/<마케팅버전>/production/<minBundleId>/<minBundleId>"
 # 번들 내용 확인 — 응답의 fileUrl zip 을 받아
 strings index.ios.bundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u
 ```

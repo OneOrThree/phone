@@ -20,8 +20,10 @@ fi
 # 스크립트 위치(app/ios)로 이동 → 어디서 실행해도 동작
 cd "$(dirname "$0")"
 
-# node 가 PATH 에 없으면 보강(일부 셸 환경 대비)
-command -v node >/dev/null 2>&1 || export PATH="/opt/homebrew/Cellar/node@24/24.17.0/bin:$PATH"
+# node 가 PATH 에 없으면 보강(일부 셸 환경 대비).
+# Homebrew 의 버전 독립 심볼릭 경로를 쓴다 — Cellar 의 실제 버전 경로(node@24/24.17.0)를 박으면
+# node 패치 업그레이드 때마다 경로가 깨진다.
+command -v node >/dev/null 2>&1 || export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 
 # 서버 대상: beta(테스트 업로드)는 dev, release(심사 제출)는 prod 를 기본으로 한다.
 # 로컬 .env(개발용 로컬 백엔드)를 덮어쓴다 — Expo 는 셸에 export 된 EXPO_PUBLIC_* 가
