@@ -21,6 +21,10 @@ public class UpdateGroupSettingsRequest {
 
     private List<AnnouncementGrant> announcementGrants;
 
+    /**
+     * 권한을 반영할 멤버 한 명. {@code granted} 대로 부여/회수하며, 방장 id 와 이 그룹의 활성 멤버가
+     * 아닌 id 는 조용히 무시된다. 같은 유저가 두 번 실리면 뒤엣것이 이긴다.
+     */
     @Getter
     @NoArgsConstructor
     @AllArgsConstructor

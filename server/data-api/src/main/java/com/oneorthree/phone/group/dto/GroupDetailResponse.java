@@ -11,6 +11,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * 그룹방 상세 — 그룹 메타·대표 미션·활성 멤버 목록을 한 번에 내린다.
+ *
+ * <p>멤버 전용 응답이라 비멤버 호출은 {@code MEMBER_ONLY} 로 막힌다. 미션 5필드는 그룹의 대표
+ * 챌린지에서 뽑은 값이므로 활성 챌린지가 없으면 전부 null 이다 — 그룹 자체의 설정이 아니다.
+ */
 @Getter
 @Builder
 public class GroupDetailResponse {
@@ -43,7 +49,12 @@ public class GroupDetailResponse {
     private Instant codeExpiresAt; // nullable — OWNER에게만 반환
     private List<UUID> noticeGrantedUserIds;    //OWNER 제외
 
-    /** {@code isPrivate} 키를 만드는 유일한 접근자 — 필드 애노테이션이면 private 키가 함께 나간다. */
+    /**
+     * {@code isPrivate} 키를 만드는 유일한 접근자 — 필드 애노테이션이면 private 키가 함께 나간다.
+     *
+     * @return 비공개 그룹이면 true — 그룹 찾기 결과에서 빠지고 초대 링크로만 참여한다.
+     *     비밀번호 잠금과는 별개 축이라 둘 다 켜거나 한쪽만 켤 수 있다.
+     */
     @JsonProperty("isPrivate")
     public boolean isPrivate() {
         return isPrivate;

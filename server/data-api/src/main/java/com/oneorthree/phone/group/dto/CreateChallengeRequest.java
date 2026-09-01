@@ -8,6 +8,14 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
+/**
+ * 그룹 챌린지 생성 요청(방장 전용).
+ *
+ * <p>{@code missionType} 이 나머지 필드의 필수 여부를 가른다 — DURATION 은 {@code durationMinutes} 만,
+ * TIME_WINDOW 는 창 시각 두 개까지 요구한다. 조합 검증은 필드 애노테이션이 아니라
+ * {@code GroupChallengeService#createChallenge} 가 카테고리별 상한까지 함께 보고, 위반은 대부분
+ * {@code INVALID_MISSION_PARAMS} 400 으로 모인다.
+ */
 @Getter
 @NoArgsConstructor
 public class CreateChallengeRequest {

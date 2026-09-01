@@ -8,6 +8,14 @@ import lombok.Getter;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * 그룹방 멤버 목록의 한 줄 — 역할·집중시간·집중 라이브 상태.
+ *
+ * <p>집중시간 두 필드는 축이 다르다: {@code focusTimeMinutes} 는 조회 date(KST)의 당일분,
+ * {@code totalFocusMinutes} 는 전체 누적이고 목록 정렬은 뒤쪽을 쓴다(동점은 닉네임 오름차순).
+ * 집중 라이브 3필드는 {@code FocusLiveInfoLookup} 공용 도출이라 리그 응답의 동명 필드와 의미가
+ * 같다 — 앱이 두 소스를 같은 그리드에 섞어 쓴다. 탈퇴 유저는 목록에 실리지 않는다(GROMO-1220).
+ */
 @Getter
 @Builder
 public class GroupDetailMemberResponse {
@@ -37,7 +45,12 @@ public class GroupDetailMemberResponse {
      */
     private String focusTagName;
 
-    /** {@code isFocusing} 키를 만드는 유일한 접근자 — 필드 애노테이션이면 focusing 키가 함께 나간다. */
+    /**
+     * {@code isFocusing} 키를 만드는 유일한 접근자 — 필드 애노테이션이면 focusing 키가 함께 나간다.
+     *
+     * @return 조회 시점에 끝나지 않은 집중 세션이 있으면 true. 집계·라이브 어느 쪽에도 안 잡힌
+     *     멤버는 false 로 내려간다(「기록 없음」과 구분하지 않는다).
+     */
     @JsonProperty("isFocusing")
     public boolean isFocusing() {
         return isFocusing;
