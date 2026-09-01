@@ -15,12 +15,19 @@ import java.util.List;
  * {@link RepeatSchedule} 단일 유틸에 위임한다.
  */
 public enum RepeatDay {
+    /** 월요일. 주차의 시작이라 리그·통계의 주간 경계도 이 요일에 맞춰져 있다. */
     MON(DayOfWeek.MONDAY),
+    /** 화요일. */
     TUE(DayOfWeek.TUESDAY),
+    /** 수요일. */
     WED(DayOfWeek.WEDNESDAY),
+    /** 목요일. */
     THU(DayOfWeek.THURSDAY),
+    /** 금요일. */
     FRI(DayOfWeek.FRIDAY),
+    /** 토요일. */
     SAT(DayOfWeek.SATURDAY),
+    /** 일요일. {@link DayOfWeek} 에서는 주의 마지막이라 비트 순서도 여기서 끝난다. */
     SUN(DayOfWeek.SUNDAY);
 
     private final DayOfWeek dayOfWeek;

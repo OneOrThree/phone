@@ -8,5 +8,16 @@ import lombok.Getter;
  */
 @Getter
 public enum Provider {
-    APPLE, GOOGLE, KAKAO, LINE, INSTAGRAM, FACEBOOK;
+    /** 애플 — identityToken(JWT)을 서버가 애플 공개키로 검증한다. 다른 제공자와 흐름이 다르다. */
+    APPLE,
+    /** 구글. */
+    GOOGLE,
+    /** 카카오. */
+    KAKAO,
+    /** 라인. */
+    LINE,
+    /** 인스타그램. */
+    INSTAGRAM,
+    /** 페이스북. */
+    FACEBOOK;
 }

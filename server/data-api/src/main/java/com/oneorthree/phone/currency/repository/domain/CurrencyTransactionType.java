@@ -10,8 +10,11 @@ package com.oneorthree.phone.currency.repository.domain;
  * (/currency/earn·spend)는 {@link #isServerOnly()} 가드에 걸려 이 타입을 만들 수 없다.
  */
 public enum CurrencyTransactionType {
+    /** 집중 세션 완료 보상 — 세션 하나가 정상 완료될 때마다 지급. */
     SESSION_COMPLETE,
+    /** 연속 달성일 보너스 — 스트릭이 갱신될 때 지급. */
     STREAK_BONUS,
+    /** 상점 구매 차감. 클라 개방 경로(/currency/spend)가 만들 수 있는 <b>유일한</b> 타입이다. */
     PURCHASE,
 
     /** 내기 판돈 차감(에스크로) — 개설·참가 시점. */

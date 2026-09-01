@@ -16,6 +16,10 @@ public enum FocusSessionStatus {
      * 완료 조회 필터 NOT IN(CANCELED, AUTO_CLOSED)를 통과한다.
      */
     COMPLETED,
+    /**
+     * 사용자가 직접 취소했다. 통계·스트릭에 반영하지 않으며 완료 조회 필터에서도 제외된다.
+     * 자동 종료({@code AUTO_CLOSED})와 달리 사용자의 의사가 분명한 종료다.
+     */
     CANCELED,
     /**
      * orphan 자동 종료(GROMO-804). 앱 강제종료 등으로 미종료로 남은 세션을 스케줄러가 '시작+상한'으로 종료할 때

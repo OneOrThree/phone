@@ -15,7 +15,9 @@ import java.util.stream.Collectors;
  */
 public enum ClientActivityEvent implements ActivityEvent {
 
+    /** 앱에서 집중 세션을 시작했다. 서버는 시작을 직접 알 수 없어 FE 가 보고한다. */
     FOCUS_SESSION_STARTED("focus_session_started", "focus"),
+    /** 사용자가 세션을 중도 이탈했다. 정상 완료는 서버가 발행하므로 여기 없다. */
     FOCUS_SESSION_ABANDONED("focus_session_abandoned", "focus");
 
     private static final Map<String, ClientActivityEvent> BY_EVENT = Arrays.stream(values())

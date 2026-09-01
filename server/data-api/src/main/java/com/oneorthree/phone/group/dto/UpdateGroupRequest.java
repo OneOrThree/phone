@@ -44,6 +44,9 @@ public class UpdateGroupRequest {
      * 그대로다 — 공개/비공개({@code isPrivate})와는 독립된 축이다.
      */
     public enum PasswordAction {
-        SET, REMOVE
+        /** 비밀번호를 새로 걸거나 기존 것을 바꾼다. */
+        SET,
+        /** 잠금을 없애 비밀번호 없이 참여할 수 있게 한다. */
+        REMOVE
     }
 }

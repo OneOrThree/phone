@@ -5,6 +5,8 @@ package com.oneorthree.phone.user.repository.domain;
  * 기본값은 보수적(좁은 공개)인 FRIENDS.
  */
 public enum StatVisibility {
+    /** 친구에게만 — 기본값. 좁은 쪽을 기본으로 둬 실수로 공개되는 일이 없게 한다. */
     FRIENDS,
+    /** 전체 공개 — 친구가 아니어도 세부 통계를 볼 수 있다. */
     PUBLIC
 }
