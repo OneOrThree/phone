@@ -1,4 +1,4 @@
-package com.oneorthree.phone._config;
+package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.auth.service.JwtProvider;
 import com.oneorthree.phone.common.auth.AuthAttributes;

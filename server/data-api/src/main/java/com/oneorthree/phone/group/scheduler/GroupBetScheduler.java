@@ -1,6 +1,6 @@
 package com.oneorthree.phone.group.scheduler;
 
-import com.oneorthree.phone._config.SchedulingConfig;
+import com.oneorthree.phone.config.SchedulingConfig;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.SettleTrigger;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;

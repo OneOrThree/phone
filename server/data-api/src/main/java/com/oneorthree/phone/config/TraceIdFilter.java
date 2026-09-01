@@ -1,4 +1,4 @@
-package com.oneorthree.phone._config;
+package com.oneorthree.phone.config;
 
 import java.io.IOException;
 import java.util.UUID;

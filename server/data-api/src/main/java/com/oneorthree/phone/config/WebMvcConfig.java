@@ -1,4 +1,4 @@
-package com.oneorthree.phone._config;
+package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.common.auth.LoginUserArgumentResolver;
 import com.oneorthree.phone.group.api.LegacyBetBridgeLogInterceptor;

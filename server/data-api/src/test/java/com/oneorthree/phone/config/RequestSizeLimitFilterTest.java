@@ -1,7 +1,7 @@
-package com.oneorthree.phone.common.config;
+package com.oneorthree.phone.config;
 
-import com.oneorthree.phone._config.FilterConfig;
-import com.oneorthree.phone._config.RequestSizeLimitFilter;
+import com.oneorthree.phone.config.FilterConfig;
+import com.oneorthree.phone.config.RequestSizeLimitFilter;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;

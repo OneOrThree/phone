@@ -1,4 +1,4 @@
-package com.oneorthree.phone._config;
+package com.oneorthree.phone.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

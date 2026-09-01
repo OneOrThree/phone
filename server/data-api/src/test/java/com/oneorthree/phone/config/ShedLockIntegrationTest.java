@@ -1,7 +1,7 @@
-package com.oneorthree.phone.common.config;
+package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
-import com.oneorthree.phone._config.SchedulingConfig;
+import com.oneorthree.phone.config.SchedulingConfig;
 import com.oneorthree.phone.group.scheduler.GroupBetScheduler;
 import net.javacrumbs.shedlock.core.LockConfiguration;
 import net.javacrumbs.shedlock.core.LockProvider;
