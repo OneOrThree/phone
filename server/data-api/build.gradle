@@ -117,6 +117,12 @@ openApi {
 	}
 }
 
+// javadoc 경고 출력 상한. 기본값 100 은 "출력만" 자르므로, 실제 부채가 1833건일 때도
+// 화면엔 100건만 보인다 — 남은 양을 알 수 없어 줄었는지 늘었는지 판단이 불가능하다 (GROMO-1654).
+tasks.withType(Javadoc).configureEach {
+    options.addStringOption('Xmaxwarns', '10000')
+}
+
 tasks.named('test') {
 	useJUnitPlatform()
 	// 테스트 완료 후 JaCoCo 리포트 자동 생성
