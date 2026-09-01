@@ -23,6 +23,12 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * 캐릭터의 착용 칸 하나. (user_id, slot_type) 이 유니크라 한 칸에는 언제나 최대 하나만 걸린다.
+ *
+ * <p>벗기기는 행을 지우지 않고 {@code item} 을 null 로 만드는 방식이라, 한 번 쓴 칸의 행은
+ * 계속 남는다 — 행의 존재는 "착용 중"이 아니라 "이 칸을 쓴 적 있음"을 뜻한다.
+ */
 @Entity
 @Table(
         name = "character_equipment",
@@ -59,10 +65,19 @@ public class CharacterEquipment {
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
+    /**
+     * 이 칸에 아이템을 건다.
+     *
+     * @param item 걸 아이템. 이미 걸려 있던 것은 조용히 밀려나므로, 호출 전에 칸이 비어 있는지
+     *             확인할 필요가 없다
+     */
     public void equip(Item item) {
         this.item = item;
     }
 
+    /**
+     * 이 칸을 비운다. 행 자체는 남으므로 이후 조회에서 item 이 null 인 칸으로 계속 보인다.
+     */
     public void unequip() {
         this.item = null;
     }
