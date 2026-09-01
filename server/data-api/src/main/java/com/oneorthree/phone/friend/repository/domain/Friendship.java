@@ -24,6 +24,14 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * 두 유저 사이의 친구 관계 한 줄. (from_user_id, to_user_id) 가 유니크라 같은 방향의 행은 하나뿐이고,
+ * 그래서 거절·삭제 뒤의 재요청은 새 행을 넣는 대신 이 행의 상태를 되돌려 재사용한다
+ * ({@link #reopen()} · {@link #restore()}).
+ *
+ * <p>관계 자체는 대칭이지만 저장은 요청 방향 그대로다 — "내 친구"를 찾으려면 from·to 양쪽을 봐야 한다.
+ * 상태 전이는 전부 이 클래스의 메서드로만 하고, 필드를 직접 바꾸는 통로는 두지 않았다.
+ */
 @Entity
 @Table(
         name = "friendships",
@@ -90,6 +98,9 @@ public class Friendship {
 
     /**
      * 친구 관계 소프트 삭제 (deletedAt 기록)
+     *
+     * @param now 삭제 시각. 호출측이 넘겨 한 번의 탈퇴 정리에서 모든 행이 같은 시각을 갖게 한다
+     *            ({@code Instant.now()} 를 안에서 부르면 행마다 미세하게 갈린다)
      */
     public void softDelete(Instant now) {
         this.deletedAt = now;

@@ -7,6 +7,10 @@ import lombok.Getter;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * 친구 목록의 한 건. 친구 표시정보에 그 친구의 집중 라이브 상태를 합쳐 내려보내, 앱이 목록만으로
+ * "지금 집중 중" 표시까지 그릴 수 있게 한다.
+ */
 @Getter
 @Builder
 public class FriendResponse {

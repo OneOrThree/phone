@@ -10,6 +10,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * 닉네임 유사도(pg_trgm) 검색 전략. 정확 일치가 아니라 오타·부분 입력도 걸리게 하려는 선택이고,
+ * 그 대신 결과가 넓어질 수 있어 상위 {@code SEARCH_LIMIT} 건으로 자른다.
+ */
 @Component
 @RequiredArgsConstructor
 public class NicknameSearchStrategy implements FriendSearchStrategy {
