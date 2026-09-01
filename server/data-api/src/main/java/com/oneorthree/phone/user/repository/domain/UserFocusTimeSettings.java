@@ -85,6 +85,10 @@ public class UserFocusTimeSettings {
      * 직전 값'일 뿐이라, 며칠 연속 목표를 바꾼 뒤 오래된 날짜를 물으면 무관한 최근 목표를 돌려준다.
      * 지연 업로드 세션은 임의 과거 날짜로 들어올 수 있고 달성 판정에는 지급 창([어제, 오늘])이
      * 걸려 있지 않으므로, 1일 유효 창 밖은 알 수 없다고 보고 현재값으로 근사한다(기존 동작).</p>
+     *
+     * @param date 달성을 판정할 날짜(집중 경로는 KST 하루 버킷을 넘긴다)
+     * @return 그날 유효했던 목표 분. 발효일 <b>직전 하루</b>만 보존값을 돌려주고, 그보다 오래된 날짜는
+     *         알 수 없으므로 현재 목표로 근사한다 — 며칠 전 날짜의 답을 신뢰하면 안 된다
      */
     public int goalMinutesOn(LocalDate date) {
         if (goalEffectiveFrom != null && previousGoalMinutes != null

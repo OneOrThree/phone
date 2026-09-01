@@ -20,6 +20,13 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
+/**
+ * 연속 집중 일수(스트릭). PK 가 곧 유저 id 인 1:1 행이다.
+ *
+ * <p>끊긴 스트릭은 <b>즉시 0이 되지 않는다</b> — 다음 집중 세션이 들어올 때 lazy 하게 리셋된다.
+ * 그래서 일수만 보면 이미 끝난 스트릭이 살아 있는 것처럼 보이고, 살아 있는지 판정하려면 마지막
+ * 세션 날짜를 함께 봐야 한다.
+ */
 @Entity
 @Table(name = "user_streaks")
 @Getter
