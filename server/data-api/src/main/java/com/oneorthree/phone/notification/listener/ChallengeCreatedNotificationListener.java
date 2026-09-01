@@ -46,6 +46,8 @@ public class ChallengeCreatedNotificationListener {
      * <p>예외를 밖으로 흘리지 않는다. 여기서 터져도 챌린지 생성은 이미 성사된 사실이고, 별도
      * 스레드라 호출측에 전달할 곳도 없다(전달되면 {@code AsyncUncaughtExceptionHandler} 기본
      * 동작으로 스택만 찍힌다). 어느 챌린지에서 났는지 남기는 편이 추적에 낫다.
+     *
+     * @param event 개설된 챌린지. 생성이 롤백되면 이 리스너까지 오지 않는다
      */
     @Async(NotificationAsyncConfig.PUSH_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)

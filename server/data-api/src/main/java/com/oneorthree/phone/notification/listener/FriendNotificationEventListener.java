@@ -38,6 +38,12 @@ public class FriendNotificationEventListener {
 
     private final FriendNotificationService friendNotificationService;
 
+    /**
+     * 친구 요청이 커밋된 뒤 받는 쪽에 알린다.
+     *
+     * @param event 방금 만들어진 친구 요청. 발송이 실패해도 예외를 밖으로 흘리지 않으므로
+     *              친구 요청 API 자체는 영향을 받지 않는다
+     */
     @Async(NotificationAsyncConfig.PUSH_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onFriendRequestSent(FriendRequestSentEvent event) {
@@ -49,6 +55,11 @@ public class FriendNotificationEventListener {
         }
     }
 
+    /**
+     * 친구 수락이 커밋된 뒤 처음 요청한 쪽에 알린다.
+     *
+     * @param event 방금 성사된 수락. 발송이 실패해도 예외를 밖으로 흘리지 않는다
+     */
     @Async(NotificationAsyncConfig.PUSH_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onFriendRequestAccepted(FriendRequestAcceptedEvent event) {

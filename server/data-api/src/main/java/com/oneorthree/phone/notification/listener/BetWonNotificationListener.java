@@ -33,6 +33,12 @@ public class BetWonNotificationListener {
 
     private final BetWonNotificationService betWonNotificationService;
 
+    /**
+     * 혼자 먼저 목표를 채운 사람에게 승리 확정 축하를 보낸다.
+     *
+     * @param event 승리가 확정된 참가자. 조기 확정이 롤백되면 이 리스너까지 오지 않는다.
+     *              발송이 실패해도 삼키며, 그 회차 결과는 정산 알림이 다시 알린다
+     */
     @Async(NotificationAsyncConfig.PUSH_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onBetWon(GroupBetWonEvent event) {

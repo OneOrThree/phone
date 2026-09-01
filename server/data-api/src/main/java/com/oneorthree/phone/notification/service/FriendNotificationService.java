@@ -73,7 +73,16 @@ public class FriendNotificationService {
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
 
-    /** 친구 요청 도착 알림 — 수신자는 요청을 받은 유저. */
+    /**
+     * 친구 요청 도착 알림 — 수신자는 요청을 받은 유저.
+     *
+     * <p>발송 시점에 요청이 이미 수락·거절됐으면 보내지 않는다 — 눌러도 목록이 비어 있는
+     * 알림을 띄우지 않기 위해서다.
+     *
+     * @param requestId      알릴 친구 요청. 이 id 로 아직 대기 중인지 다시 확인한다
+     * @param receiverUserId 알림을 받을 사람(요청을 받은 쪽)
+     * @param senderUserId   문구에 이름이 들어갈 사람(요청을 보낸 쪽)
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void notifyFriendRequest(UUID requestId, UUID receiverUserId, UUID senderUserId) {
         notifyFriendRequest(requestId, receiverUserId, senderUserId, Instant.now());
@@ -109,7 +118,15 @@ public class FriendNotificationService {
                 .isPresent();
     }
 
-    /** 친구 요청 수락 알림 — 수신자는 요청을 보냈던 유저. */
+    /**
+     * 친구 요청 수락 알림 — 수신자는 요청을 보냈던 유저.
+     *
+     * <p>요청 알림과 달리 상태를 다시 보지 않는다 — 수락은 이미 일어난 사실의 통보라
+     * 그 뒤 친구가 끊겨도 문구가 거짓이 되지 않는다.
+     *
+     * @param requesterUserId 알림을 받을 사람(먼저 요청했던 쪽)
+     * @param accepterUserId  문구에 이름이 들어갈 사람(수락한 쪽)
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void notifyFriendAccepted(UUID requesterUserId, UUID accepterUserId) {
         notifyFriendAccepted(requesterUserId, accepterUserId, Instant.now());

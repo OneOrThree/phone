@@ -96,7 +96,9 @@ public class ChallengeCreatedNotificationService {
      * 넘어 별도 스레드에서 도는 것이 정상 경로라 이미 열린 트랜잭션이 없지만, 혹시 커밋 스레드에서
      * 그대로 불리더라도 종료 중인 트랜잭션에 합류해 쓰기가 조용히 사라지지 않도록 새로 연다.
      *
-     * @return 실제 발송된 건수
+     * @param event 개설된 챌린지. 여기 도달했을 때 이미 삭제되었거나 끝난 챌린지면 한 건도 보내지 않는다
+     * @param now   dedup·발송 로그의 기준 시각
+     * @return 실제 발송된 건수. 알림 꺼짐·토큰 없음·조용한 시간에 걸린 멤버는 이 수에서 빠진다
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public int sendCreatedNotifications(GroupChallengeCreatedEvent event, Instant now) {

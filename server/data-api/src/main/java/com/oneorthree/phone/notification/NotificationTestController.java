@@ -35,6 +35,14 @@ public class NotificationTestController {
 
     private final PushNotificationPort pushNotificationPort;
 
+    /**
+     * 지정한 기기 토큰으로 푸시를 즉시 쏜다. 인증·알림 설정·조용한 시간 필터를 모두 건너뛰는
+     * 파이프라인 확인용 통로라 운영 프로파일에는 아예 존재하지 않는다.
+     *
+     * @param body 보낼 기기 토큰과 문구. 문구를 생략하면 기본 문구로 채운다
+     * @return 발송 시도 결과를 담은 200 — 실패도 오류 응답이 아니라 본문의 result 로 구분한다.
+     *         local·ci 프로파일에서는 발송 자체가 흉내라 실제로 나가지 않는다
+     */
     @Operation(summary = "테스트 푸시 발송",
             description = "body 의 deviceToken(FCM registration token)으로 즉시 발송. 인증·알림 설정·심야 필터 미적용. "
                     + "title/body/link 는 선택 — 생략 시 기본 문구. local/ci 프로파일에서는 NoOp 이라 실제 발송되지 않음.")

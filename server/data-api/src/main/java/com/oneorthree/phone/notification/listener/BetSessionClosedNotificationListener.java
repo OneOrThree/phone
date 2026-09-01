@@ -32,6 +32,12 @@ public class BetSessionClosedNotificationListener {
 
     private final BetEventNotificationService betEventNotificationService;
 
+    /**
+     * 회차 종료가 커밋된 뒤 정산 결과 알림을 시작한다.
+     *
+     * @param event 종료된 회차. 정산·환불이 롤백되면 이 리스너는 아예 호출되지 않으므로
+     *              "커밋 전 발송"이 구조적으로 불가능하다
+     */
     @Async(NotificationAsyncConfig.PUSH_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onSessionClosed(GroupBetSessionClosedEvent event) {

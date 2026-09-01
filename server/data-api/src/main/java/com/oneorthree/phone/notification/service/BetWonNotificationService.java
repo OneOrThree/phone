@@ -59,6 +59,8 @@ public class BetWonNotificationService {
      * 이 메서드는 원 트랜잭션이 커밋을 마친 뒤에 불린다(종료 중인 트랜잭션에 합류하면 쓰기가 조용히
      * 사라진다 — ChallengeCreatedNotificationService 와 같은 이유).
      *
+     * @param event 승리가 확정된 참가자. 그 사이 탈퇴한 유저면 발송하지 않는다
+     * @param now   중복 발송을 막는 dedup 창의 기준 시각
      * @return 실제 발송이 성사되면 true
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)

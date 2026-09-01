@@ -110,13 +110,23 @@ public class SessionOpenNotificationService {
     private record BundleKey(UUID userId, UUID groupId, Instant slotAt) {
     }
 
-    /** 스케줄러(15분)·수동 트리거 진입점. */
+    /**
+     * 스케줄러(15분)·수동 트리거 진입점.
+     *
+     * @return 이번 실행의 발송 요약(현재 시각 기준)
+     */
     @Transactional
     public PushDispatchSummaryResponse sendSessionOpenNotifications() {
         return sendSessionOpenNotifications(Instant.now());
     }
 
-    /** 모집 슬롯에 도달한 회차 스캔 → 미참가 그룹원 클레임 → (이월분 합류) → 묶음 발송. */
+    /**
+     * 모집 슬롯에 도달한 회차 스캔 → 미참가 그룹원 클레임 → (이월분 합류) → 묶음 발송.
+     *
+     * @param now 슬롯 도달 판정과 조용한 시간 판정의 기준 시각. 조용한 시간에 걸린 대상은 버리지 않고
+     *            창이 끝나는 시각으로 이월된다
+     * @return 이번 실행의 발송 요약. 클레임이 한 틱만 통과하므로 여러 틱에 걸친 회차도 한 번만 발송된다
+     */
     @Transactional
     public PushDispatchSummaryResponse sendSessionOpenNotifications(Instant now) {
         long startedAtMillis = System.currentTimeMillis();
