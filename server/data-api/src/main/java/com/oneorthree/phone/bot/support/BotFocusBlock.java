@@ -1,4 +1,4 @@
-package com.oneorthree.phone.bot.domain;
+package com.oneorthree.phone.bot.support;
 
 import java.util.UUID;
 

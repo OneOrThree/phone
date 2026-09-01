@@ -1,9 +1,8 @@
-package com.oneorthree.phone.bot.service;
+package com.oneorthree.phone.bot.support;
 
-import com.oneorthree.phone.bot.domain.BotChronotype;
-import com.oneorthree.phone.bot.domain.BotFocusBlock;
-import com.oneorthree.phone.bot.domain.BotProfile;
-import com.oneorthree.phone.bot.domain.BotStyle;
+import com.oneorthree.phone.bot.repository.domain.BotChronotype;
+import com.oneorthree.phone.bot.repository.domain.BotProfile;
+import com.oneorthree.phone.bot.repository.domain.BotStyle;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;

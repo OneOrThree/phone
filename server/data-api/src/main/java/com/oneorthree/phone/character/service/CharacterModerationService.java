@@ -1,9 +1,9 @@
 package com.oneorthree.phone.character.service;
 
-import com.oneorthree.phone.character.service.client.OpenAiModerationClient;
-import com.oneorthree.phone.character.service.client.OpenAiModerationClient.OpenAiModerationResult;
-import com.oneorthree.phone.character.service.dto.ImageModerationRequest;
-import com.oneorthree.phone.character.service.dto.ImageModerationResponse;
+import com.oneorthree.phone.character.client.OpenAiModerationClient;
+import com.oneorthree.phone.character.client.OpenAiModerationClient.OpenAiModerationResult;
+import com.oneorthree.phone.character.dto.ImageModerationRequest;
+import com.oneorthree.phone.character.dto.ImageModerationResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

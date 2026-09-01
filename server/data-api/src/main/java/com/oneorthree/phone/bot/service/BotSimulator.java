@@ -1,7 +1,7 @@
 package com.oneorthree.phone.bot.service;
 
-import com.oneorthree.phone.bot.domain.BotFocusBlock;
-import com.oneorthree.phone.bot.domain.BotProfile;
+import com.oneorthree.phone.bot.support.BotFocusBlock;
+import com.oneorthree.phone.bot.repository.domain.BotProfile;
 import com.oneorthree.phone.bot.repository.BotProfileRepository;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
@@ -11,6 +11,7 @@ import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
 import com.oneorthree.phone.focus.service.FocusService;
+import com.oneorthree.phone.bot.support.BotScheduleGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;

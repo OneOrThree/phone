@@ -1,9 +1,9 @@
 package com.oneorthree.phone.bot.service;
 
-import com.oneorthree.phone.bot.domain.BotChronotype;
-import com.oneorthree.phone.bot.domain.BotFocusBlock;
-import com.oneorthree.phone.bot.domain.BotProfile;
-import com.oneorthree.phone.bot.domain.BotStyle;
+import com.oneorthree.phone.bot.repository.domain.BotChronotype;
+import com.oneorthree.phone.bot.support.BotFocusBlock;
+import com.oneorthree.phone.bot.repository.domain.BotProfile;
+import com.oneorthree.phone.bot.repository.domain.BotStyle;
 import com.oneorthree.phone.bot.repository.BotProfileRepository;
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.common.util.ZonePolicy;
@@ -20,6 +20,7 @@ import com.oneorthree.phone.user.repository.domain.UserWallet;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
+import com.oneorthree.phone.bot.support.BotScheduleGenerator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

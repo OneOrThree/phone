@@ -1,7 +1,7 @@
 package com.oneorthree.phone.character;
 
-import com.oneorthree.phone.character.service.dto.CharacterQuotaResponse;
-import com.oneorthree.phone.character.service.dto.RecordGenerationRequest;
+import com.oneorthree.phone.character.dto.CharacterQuotaResponse;
+import com.oneorthree.phone.character.dto.RecordGenerationRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;

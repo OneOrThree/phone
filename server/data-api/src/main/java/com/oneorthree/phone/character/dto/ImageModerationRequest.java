@@ -1,4 +1,4 @@
-package com.oneorthree.phone.character.service.dto;
+package com.oneorthree.phone.character.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;

@@ -1,4 +1,4 @@
-package com.oneorthree.phone.bot.domain;
+package com.oneorthree.phone.bot.repository.domain;
 
 /**
  * 봇의 활동 시간대 성향 (GROMO-1565).

@@ -1,4 +1,4 @@
-package com.oneorthree.phone.bot.domain;
+package com.oneorthree.phone.bot.repository.domain;
 
 /**
  * 봇의 집중 스타일 (GROMO-1565) — 한 번에 얼마나 오래 앉고 얼마나 쉬는지.

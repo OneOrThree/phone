@@ -1,6 +1,6 @@
 package com.oneorthree.phone.bot.repository;
 
-import com.oneorthree.phone.bot.domain.BotProfile;
+import com.oneorthree.phone.bot.repository.domain.BotProfile;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.UUID;

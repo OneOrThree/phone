@@ -1,7 +1,7 @@
 package com.oneorthree.phone.character;
 
-import com.oneorthree.phone.character.service.dto.ImageModerationRequest;
-import com.oneorthree.phone.character.service.dto.ImageModerationResponse;
+import com.oneorthree.phone.character.dto.ImageModerationRequest;
+import com.oneorthree.phone.character.dto.ImageModerationResponse;
 import com.oneorthree.phone.character.service.CharacterModerationService;
 import com.oneorthree.phone.common.auth.LoginUser;
 import io.swagger.v3.oas.annotations.Operation;
