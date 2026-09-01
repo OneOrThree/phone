@@ -55,6 +55,16 @@ public class LandingRenderer {
     private final String ogImageUrl;
     private final boolean storeUrlUsable;
 
+    /**
+     * 템플릿을 한 번 읽어 들이고 스토어 URL·OG 이미지 URL 을 확정한다. 요청마다 파일을 읽지 않는다.
+     *
+     * @param storeUrl {@code link.store-ios-url} — App Store 링크. 미설정이거나 앱 id 가 전부 0 인
+     *                 플레이스홀더면 <b>기동을 막지 않고</b> WARN 만 남기고 버튼 대신 안내 문구를 낸다.
+     *                 랜딩은 스토어 링크가 없어도 초대를 열어야 하기 때문이다
+     * @param baseUrl {@code link.base-url} — OG 이미지 절대 URL 을 만드는 데 쓴다. 상대 경로를 못 푸는
+     *                OG 스크레이퍼 때문에 절대 URL 이어야 하고, 도메인을 하드코딩하면 dev 링크의
+     *                미리보기가 미배포 prod 이미지를 가리켜 깨진다
+     */
     public LandingRenderer(
             @Value("${link.store-ios-url}") String storeUrl,
             @Value("${link.base-url}") String baseUrl) {
@@ -76,7 +86,20 @@ public class LandingRenderer {
         this.template = loadTemplate();
     }
 
-    /** 정상 초대 — 그룹명·초대자 닉네임과 스킴 점프 링크를 채운다. */
+    /**
+     * 정상 초대 — 그룹명·초대자 닉네임과 스킴 점프 링크를 채운다.
+     *
+     * <p>{@code groupName}·{@code inviterName} 은 <b>사용자가 정한 문자열</b>이라 여기서 HTML
+     * 이스케이프한다. 치환이 단일 패스인 것도 같은 이유다 — 그룹명을 먼저 넣으면 그룹명 자체가
+     * {@code {{storeUrl}}} 인 방이 다음 패스에서 다시 치환되는 주입 통로가 열린다.
+     *
+     * @param groupName 이스케이프 전 원본 그룹명
+     * @param inviterName 이스케이프 전 원본 초대자 닉네임. null·빈 값이면 초대자 없는 문구로 접힌다
+     *                    (탈퇴·게스트라 닉네임이 없는 경우) — 표시 상한을 넘으면 이모지를 쪼개지 않도록
+     *                    grapheme 단위로 자른다
+     * @param schemeUrl 랜딩이 점프할 커스텀 스킴. 서버가 만든 값이라 이스케이프 대상이 아니다
+     * @return 완성된 HTML 한 장
+     */
     public String render(String groupName, String inviterName, String schemeUrl) {
         String safeGroupName = HtmlUtils.htmlEscape(groupName);
         String safeInviterName = escapeInviterName(inviterName);
@@ -98,6 +121,9 @@ public class LandingRenderer {
      *
      * <p>초대자 닉네임은 그룹명과 같은 규칙으로 숨긴다 — 없는 slug 도 이 변형으로 오므로 초대자를
      * 특정할 수 없고, 만료 안내 옆에 사람 이름만 남기면 "누가 왜"가 어긋난 화면이 된다.
+     *
+     * @return 200 으로 나갈 만료 변형 HTML. 그룹명 자리는 빈 문자열이 아니라 중립 명칭으로 채운다 —
+     *         비우면 OG 제목이 「」 처럼 깨진 채 메신저 미리보기로 퍼진다
      */
     public String renderExpired() {
         return render(Map.of(

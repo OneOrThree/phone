@@ -59,6 +59,15 @@ public class GroupInviteLink {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /**
+     * 새 초대 링크를 만든다. id 와 생성·수정 시각은 저장 시점에 자동으로 채워진다.
+     *
+     * @param slug 공개 URL 에 노출되는 식별자. {@code unique} 제약이 걸려 있어 충돌하면 INSERT 가 터진다 —
+     *             호출부가 미리 중복을 확인하더라도 최종 방어는 이 제약이다
+     * @param groupId 초대할 그룹
+     * @param inviterId 발급자. (groupId, inviterId) 조합에도 유니크 제약이 있어
+     *                  같은 사람이 같은 그룹에 두 개의 링크를 가질 수 없다 — 멱등 발급의 근거다
+     */
     public GroupInviteLink(String slug, UUID groupId, UUID inviterId) {
         this.slug = slug;
         this.groupId = groupId;

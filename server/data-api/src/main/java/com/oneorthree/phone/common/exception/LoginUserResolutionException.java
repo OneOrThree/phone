@@ -17,6 +17,10 @@ import com.oneorthree.phone.common.auth.LoginUser;
  */
 public class LoginUserResolutionException extends RuntimeException {
 
+    /**
+     * @param message 어느 배선이 잘못됐는지 개발자가 알아볼 수 있게 쓴다 — 이 예외는 500 이라
+     *                최종 사용자가 고칠 여지가 없고, 메시지의 유일한 독자는 로그를 보는 개발자다
+     */
     public LoginUserResolutionException(String message) {
         super(message);
     }

@@ -69,6 +69,18 @@ public class GuestLoginRateLimiter {
     private final Duration window;
     private final Clock clock;
 
+    /**
+     * 설정값 세 개를 받아 조립한다. 셋 다 잘못된 값이면 <b>부팅을 실패시킨다</b> —
+     * 잘못 배포된 한도는 "보호가 조용히 꺼진 상태"로 굴러가서 런타임에 알아채기 어렵기 때문이다.
+     *
+     * @param maxPerWindow IP(또는 IPv6 {@code /64} 프리픽스) 당 윈도 허용 횟수.
+     *                     CGNAT·공용 와이파이는 여러 실사용자가 IP 를 공유하므로 너무 조이면
+     *                     정상 신규 유저의 온보딩이 막힌다 — 가장 비싼 오탐이다
+     * @param maxGlobalPerWindow 전체 합산 상한. IP 축이 헤더 위조로 무력화될 때 총량을 묶는
+     *                           2차 방어선이라, 정상 트래픽이 닿지 않게 IP 한도보다 훨씬 크게 잡는다
+     * @param window 고정 윈도 길이. 0·음수면 매 요청이 만료 판정을 받아 카운트가 늘 1로 초기화되므로
+     *               제한이 사실상 사라진다 — 그래서 거부한다
+     */
     @Autowired
     public GuestLoginRateLimiter(
             @Value("${auth.guest.rate-limit.max-per-window:10}") int maxPerWindow,
@@ -108,6 +120,11 @@ public class GuestLoginRateLimiter {
      *
      * <p>차단된 요청도 카운트에 포함하지만 윈도 시작 시각은 밀지 않는다 — 계속 두드려도 최초 요청
      * 기준 윈도가 끝나면 정상적으로 풀린다.
+     *
+     * @param clientIp {@code ClientIpResolver} 가 프록시 헤더까지 보고 뽑아낸 호출자 주소.
+     *                 그대로 키가 되는 게 아니라 IPv6 면 {@code /64} 프리픽스로 접어서 센다.
+     *                 헤더를 앞단에서 덮어쓰지 않는 배포에서는 이 값이 위조 가능하다는 전제 아래
+     *                 전역 상한이 함께 걸려 있다
      */
     public void check(String clientIp) {
         Instant now = clock.instant();

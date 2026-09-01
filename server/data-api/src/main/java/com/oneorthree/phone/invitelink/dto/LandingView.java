@@ -14,10 +14,18 @@ package com.oneorthree.phone.invitelink.dto;
  */
 public record LandingView(InviteLinkRef link, String groupName, String inviterName) {
 
+    /**
+     * @return 세 필드가 모두 null 인 "만료" 상태. 없는 slug·삭제된 링크·사라진 그룹이
+     *         랜딩 입장에서 같은 결말이라 하나로 접은 것이다
+     */
     public static LandingView expired() {
         return new LandingView(null, null, null);
     }
 
+    /**
+     * @return {@code link} 가 null 인지로 판정한다. groupName·inviterName 은 유효한 초대에서도
+     *         null 일 수 있으므로(그룹명 조회 실패·초대자 탈퇴) 만료 판정의 근거가 될 수 없다
+     */
     public boolean isExpired() {
         return link == null;
     }

@@ -45,6 +45,9 @@ public class NotificationAsyncConfig {
      * <p>큐 포화는 FCM 이 멎었다는 뜻이다. 이때 CallerRuns 로 돌리면 요청 스레드가 다시 물려
      * 애초에 격리한 의미가 없어지므로, WARN 을 남기고 드롭한다 — 개설 알림 1건 유실이
      * 챌린지 생성 API 를 마비시키는 것보다 낫다.
+     *
+     * @return {@code @Async(NotificationAsyncConfig.PUSH_EXECUTOR)} 로 지목해야 하는 푸시 전용 풀.
+     *         GA4 풀과 공존하므로 이름을 빼면 어느 쪽이 잡힐지 보장되지 않는다
      */
     @Bean(PUSH_EXECUTOR)
     public Executor pushExecutor() {

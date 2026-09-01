@@ -42,6 +42,12 @@ public class InviteLinkClickService {
      * 클릭 1건을 기록하고 GA4 웹스트림 이벤트를 발행한다. 봇이면 아무것도 하지 않는다.
      *
      * <p>호출측(랜딩)은 이 메서드의 실패를 삼킨다 — 기록이 안 되는 것보다 랜딩이 안 뜨는 게 훨씬 나쁘다.
+     *
+     * @param link 클릭된 초대 링크의 값 사본. 영속 엔티티가 아니라 랜딩 경로가 들고 다니는 값이다
+     * @param request 미인증 외부 요청. 여기서 뽑는 세 가지가 각각 다른 성격이다 —
+     *                User-Agent 는 봇 판별과 OS 분류의 근거이고(메신저 프리뷰 봇 클릭을 세면
+     *                실제 클릭 수가 부풀려진다), IP 는 해시로만 저장하며 원문은 남기지 않는다.
+     *                셋 다 호출자가 값을 정하므로 신뢰 경계 밖의 입력이다
      */
     public void record(InviteLinkRef link, HttpServletRequest request) {
         String userAgent = request.getHeader("User-Agent");
