@@ -1,6 +1,5 @@
-package com.oneorthree.phone.group.api;
+package com.oneorthree.phone.group;
 
-import com.oneorthree.phone.group.api.docs.GroupNotificationBatchControllerDocs;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;

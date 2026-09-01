@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group.api;
+package com.oneorthree.phone.group;
 
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;

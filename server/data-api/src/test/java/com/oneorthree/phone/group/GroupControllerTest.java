@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group.api;
+package com.oneorthree.phone.group;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.common.auth.AuthAttributes;

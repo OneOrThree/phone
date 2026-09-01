@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group.api.docs;
+package com.oneorthree.phone.group;
 
 import com.oneorthree.phone.group.dto.CreateAnnouncementRequest;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;

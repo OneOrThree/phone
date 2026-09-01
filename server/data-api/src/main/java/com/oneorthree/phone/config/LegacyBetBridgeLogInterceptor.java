@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group.api;
+package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
 import jakarta.servlet.http.HttpServletRequest;

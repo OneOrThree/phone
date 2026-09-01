@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group.api;
+package com.oneorthree.phone.group;
 
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;

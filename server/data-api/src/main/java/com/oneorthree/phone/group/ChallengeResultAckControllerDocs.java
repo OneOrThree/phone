@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group.api.docs;
+package com.oneorthree.phone.group;
 
 import com.oneorthree.phone.group.dto.ChallengeResultAckRequest;
 import com.oneorthree.phone.group.dto.ChallengeResultClaimRequest;

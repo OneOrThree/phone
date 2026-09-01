@@ -1,7 +1,6 @@
-package com.oneorthree.phone.group.api;
+package com.oneorthree.phone.group;
 
 import com.oneorthree.phone.common.auth.LoginUser;
-import com.oneorthree.phone.group.api.docs.GroupControllerDocs;
 import com.oneorthree.phone.group.service.GroupAnnouncementService;
 import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.group.service.GroupService;

@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group.api.docs;
+package com.oneorthree.phone.group;
 
 import com.oneorthree.phone.group.dto.ChallengeDeletionPreviewResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeHistorySliceResponse;

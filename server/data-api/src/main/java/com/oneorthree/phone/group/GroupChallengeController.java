@@ -1,7 +1,6 @@
-package com.oneorthree.phone.group.api;
+package com.oneorthree.phone.group;
 
 import com.oneorthree.phone.common.auth.LoginUser;
-import com.oneorthree.phone.group.api.docs.GroupChallengeControllerDocs;
 import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;

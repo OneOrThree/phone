@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group.service;
+package com.oneorthree.phone.group.support;
 
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 

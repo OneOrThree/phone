@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group.service;
+package com.oneorthree.phone.group.support;
 
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
@@ -6,8 +6,9 @@ import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.service.GroupBetJudge;
+import com.oneorthree.phone.group.service.WindowFocusAggregator;
 import org.springframework.stereotype.Component;
-
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;

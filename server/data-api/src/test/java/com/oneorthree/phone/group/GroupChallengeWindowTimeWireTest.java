@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group.api;
+package com.oneorthree.phone.group;
 
 import com.jayway.jsonpath.JsonPath;
 import com.oneorthree.phone.auth.service.JwtProvider;

@@ -16,13 +16,13 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.group.support.GroupBetPayoutCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -393,7 +393,7 @@ public class GroupBetSettler {
      * ({@code findOpenPastJoinDeadlineWithFewParticipants} 의 {@code closes_at}),
      * ③ 구앱 참가 가드 자체. 전환 후에는 두 값이 같은 의미라 보정이 불필요해진다.
      */
-    static Instant effectiveJoinDeadline(GroupChallengeBetSession session) {
+    public static Instant effectiveJoinDeadline(GroupChallengeBetSession session) {
         return session.getClosesAt();
     }
 

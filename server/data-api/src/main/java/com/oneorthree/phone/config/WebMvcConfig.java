@@ -1,7 +1,6 @@
 package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.common.auth.LoginUserArgumentResolver;
-import com.oneorthree.phone.group.api.LegacyBetBridgeLogInterceptor;
 import com.oneorthree.phone.stats.dto.FocusAverageScope;
 import com.oneorthree.phone.stats.dto.StatsPeriod;
 import lombok.RequiredArgsConstructor;

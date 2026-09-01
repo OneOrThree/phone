@@ -1,7 +1,6 @@
-package com.oneorthree.phone.group.api;
+package com.oneorthree.phone.group;
 
 import com.oneorthree.phone.common.auth.LoginUser;
-import com.oneorthree.phone.group.api.docs.GroupBetQueryControllerDocs;
 import com.oneorthree.phone.group.dto.ChallengeDeletionPreviewResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeHistorySliceResponse;
 import com.oneorthree.phone.group.dto.MyBetSessionsResponse;

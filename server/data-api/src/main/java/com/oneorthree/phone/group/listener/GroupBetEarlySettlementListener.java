@@ -1,16 +1,16 @@
-package com.oneorthree.phone.group.service;
+package com.oneorthree.phone.group.listener;
 
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.SettleTrigger;
 import com.oneorthree.phone.group.event.GroupBetWonEvent;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
+import com.oneorthree.phone.group.service.GroupBetSettler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
-
 import java.time.Instant;
 
 /**

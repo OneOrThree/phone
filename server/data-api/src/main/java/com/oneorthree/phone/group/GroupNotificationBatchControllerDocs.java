@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group.api.docs;
+package com.oneorthree.phone.group;
 
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import io.swagger.v3.oas.annotations.Operation;
