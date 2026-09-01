@@ -2,6 +2,7 @@ package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.support.GroupBetSessionFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 

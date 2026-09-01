@@ -105,6 +105,9 @@ public class InviteLinkService {
     /**
      * 엔티티 → 값 변환의 단일 지점 (GROMO-1654). 랜딩 응답 경로가 영속 객체를 들고 나가지
      * 않도록 여기서 필요한 셋만 옮겨 담는다 — 이미 조회된 객체라 추가 쿼리는 없다.
+     *
+     * @param link 조회된 초대 링크 엔티티
+     * @return 랜딩 경로가 들고 다닐 값
      */
     private InviteLinkRef toRef(GroupInviteLink link) {
         return new InviteLinkRef(link.getId(), link.getSlug(), link.getGroupId());

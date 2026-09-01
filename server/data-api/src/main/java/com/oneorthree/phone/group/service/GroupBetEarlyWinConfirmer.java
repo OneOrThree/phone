@@ -6,6 +6,7 @@ import com.oneorthree.phone.group.event.GroupBetWonEvent;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.group.listener.GroupBetEarlySettlementListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;

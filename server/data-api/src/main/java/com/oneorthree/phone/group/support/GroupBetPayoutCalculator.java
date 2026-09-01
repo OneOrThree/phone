@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.support;
 
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
+import com.oneorthree.phone.group.service.GroupBetJudge;
 
 import java.util.Comparator;
 import java.util.List;

@@ -8,6 +8,8 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.service.GroupBetJudge;
 import com.oneorthree.phone.group.service.WindowFocusAggregator;
+import com.oneorthree.phone.group.service.GroupBetService;
+import com.oneorthree.phone.group.service.GroupBetSessionOpeningService;
 import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.time.LocalDate;
