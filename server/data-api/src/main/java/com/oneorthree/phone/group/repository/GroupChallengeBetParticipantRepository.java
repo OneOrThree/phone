@@ -53,9 +53,9 @@ public interface GroupChallengeBetParticipantRepository
     @Query("SELECT p.id AS participantId, p.session.id AS sessionId "
             + "FROM GroupChallengeBetParticipant p JOIN p.session s "
             + "WHERE p.user.id = :userId AND p.achieved IS NULL "
-            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN "
             + "AND s.sessionDate IN :dates "
-            + "AND s.missionCategory = com.oneorthree.phone.group.domain.MissionCategory.FOCUS "
+            + "AND s.missionCategory = com.oneorthree.phone.group.repository.domain.MissionCategory.FOCUS "
             + "ORDER BY s.id")
     List<UnconfirmedFocusTarget> findUnconfirmedOpenFocusTargetsByUserAndDates(
             @Param("userId") UUID userId,
@@ -99,7 +99,7 @@ public interface GroupChallengeBetParticipantRepository
      */
     @Query("SELECT p FROM GroupChallengeBetParticipant p JOIN FETCH p.session s "
             + "WHERE p.user.id = :userId "
-            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN "
             + "ORDER BY s.sessionDate, s.id")
     List<GroupChallengeBetParticipant> findOpenSessionParticipationsByUserId(@Param("userId") UUID userId);
 

@@ -38,8 +38,8 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     @Query("SELECT s FROM FocusSession s "
             + "WHERE s.user = :user AND s.startedAt BETWEEN :from AND :to "
             + "AND s.status NOT IN ("
-            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
-            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED) "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.CANCELED, "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.AUTO_CLOSED) "
             + "AND (:cursor IS NULL OR s.id < :cursor) "
             + "ORDER BY s.id DESC")
     Slice<FocusSession> findSessionsByCursor(@Param("user") User user,
@@ -115,8 +115,8 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     @Query("SELECT DISTINCT s.user.id FROM FocusSession s "
             + "WHERE s.user.id IN :userIds AND s.endedAt >= :from AND s.endedAt < :to "
             + "AND s.status NOT IN ("
-            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
-            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED)")
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.CANCELED, "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.AUTO_CLOSED)")
     List<UUID> findUserIdsWithCompletedFocusEndedBetween(@Param("userIds") Collection<UUID> userIds,
                                                          @Param("from") Instant from,
                                                          @Param("to") Instant to);
@@ -161,8 +161,8 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
             + "AND s.endedAt > :from "
             + "AND s.startedAt < :to "
             + "AND s.status NOT IN ("
-            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
-            + "com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED)")
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.CANCELED, "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.AUTO_CLOSED)")
     List<FocusSession> findCompletedSessionsOverlappingPeriod(@Param("user") User user,
                                                               @Param("from") Instant from,
                                                               @Param("to") Instant to);
@@ -202,7 +202,7 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      */
     @Modifying
     @Query("UPDATE FocusSession s "
-            + "SET s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
+            + "SET s.status = com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.CANCELED, "
             + "s.endedAt = :canceledAt "
             + "WHERE s.id = :id AND s.user = :user AND s.endedAt IS NULL")
     int claimMarkerIfActive(@Param("id") UUID id, @Param("user") User user,
@@ -216,7 +216,7 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      */
     @Modifying
     @Query("UPDATE FocusSession s "
-            + "SET s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED, "
+            + "SET s.status = com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.AUTO_CLOSED, "
             + "s.endedAt = :endedAt "
             + "WHERE s.id = :id AND s.endedAt IS NULL")
     int markAutoClosedIfOpen(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
@@ -270,7 +270,7 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      */
     @Modifying
     @Query("UPDATE FocusSession s "
-            + "SET s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED, "
+            + "SET s.status = com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.AUTO_CLOSED, "
             + "s.endedAt = :closedAt "
             + "WHERE s.user = :user AND s.endedAt IS NULL")
     int autoCloseOpenMarkersOf(@Param("user") User user, @Param("closedAt") Instant closedAt);
@@ -283,7 +283,7 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      */
     @Modifying
     @Query("UPDATE FocusSession s "
-            + "SET s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
+            + "SET s.status = com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.CANCELED, "
             + "s.endedAt = :canceledAt "
             + "WHERE s.id = :id AND s.endedAt IS NULL")
     int cancelSessionIfActive(@Param("id") UUID id, @Param("canceledAt") Instant canceledAt);
@@ -386,10 +386,10 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      */
     @Query("SELECT COUNT(s) > 0 FROM FocusSession s "
             + "WHERE s.user.id IN :userIds AND s.startedAt < :winEnd "
-            + "AND ((s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.ACTIVE "
+            + "AND ((s.status = com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.ACTIVE "
             + "      AND s.endedAt IS NULL) "
-            + "  OR (s.status IN (com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED, "
-            + "                   com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED) "
+            + "  OR (s.status IN (com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.AUTO_CLOSED, "
+            + "                   com.oneorthree.phone.focus.repository.domain.FocusSessionStatus.CANCELED) "
             + "      AND s.endedAt >= :closedSince))")
     boolean existsPendingOverlappingSession(
             @Param("userIds") Collection<UUID> userIds,

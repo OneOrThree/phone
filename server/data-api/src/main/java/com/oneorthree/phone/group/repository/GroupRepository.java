@@ -33,7 +33,8 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      * 잔존 OWNER 행이 남아, 계정 탈퇴가 영구히 막힌다(그룹 종료 시 방장 행은 leave 로 is_left=true 가 된다).
      */
     @Query("select count(gm) > 0 from GroupMember gm "
-            + "where gm.user.id = :userId and gm.role = com.oneorthree.phone.group.domain.GroupMemberRole.OWNER "
+            + "where gm.user.id = :userId "
+            + "and gm.role = com.oneorthree.phone.group.repository.domain.GroupMemberRole.OWNER "
             + "and gm.isLeft = false")
     boolean existsGroupOwnedBy(@Param("userId") UUID userId);
 

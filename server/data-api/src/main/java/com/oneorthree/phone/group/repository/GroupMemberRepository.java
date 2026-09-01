@@ -102,7 +102,7 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
      */
     @EntityGraph(attributePaths = "group")
     @Query("SELECT gm FROM GroupMember gm WHERE gm.user.id = :userId "
-            + "AND gm.role = com.oneorthree.phone.group.domain.GroupMemberRole.OWNER AND gm.isLeft = false")
+            + "AND gm.role = com.oneorthree.phone.group.repository.domain.GroupMemberRole.OWNER AND gm.isLeft = false")
     List<GroupMember> findActiveOwnerMembershipsByUserId(@Param("userId") UUID userId);
 
     /**

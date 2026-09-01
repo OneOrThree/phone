@@ -97,7 +97,7 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
      */
     @Query("SELECT s.id FROM GroupChallengeBetSession s, GroupChallengeBetParticipant p "
             + "WHERE p.session = s AND s.group.id = :groupId AND p.user.id = :userId "
-            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN ORDER BY s.id")
+            + "AND s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN ORDER BY s.id")
     List<UUID> findOpenSessionIdsByGroupIdAndParticipantUserId(
             @Param("groupId") UUID groupId,
             @Param("userId") UUID userId);
@@ -109,7 +109,7 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
      */
     @Query("SELECT s.id FROM GroupChallengeBetSession s, GroupChallengeBetParticipant p "
             + "WHERE p.session = s AND p.user.id = :userId "
-            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN ORDER BY s.id")
+            + "AND s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN ORDER BY s.id")
     List<UUID> findOpenSessionIdsByParticipantUserId(@Param("userId") UUID userId);
 
     /**
@@ -154,7 +154,7 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
     @Modifying(flushAutomatically = true)
     @Query("UPDATE GroupChallengeBetSession s SET s.status = :settledStatus, s.settledAt = :settledAt, "
             + "s.voidReason = :voidReason, s.updatedAt = :settledAt "
-            + "WHERE s.id = :id AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN")
+            + "WHERE s.id = :id AND s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN")
     int compareAndSetSettled(
             @Param("id") UUID id,
             @Param("settledStatus") GroupBetStatus settledStatus,
@@ -244,7 +244,7 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
      * @param deadlineCutoff {@code now − 24h} — settle_after 가 이보다 이르면 환불 대상
      */
     @Query("SELECT s FROM GroupChallengeBetSession s "
-            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "WHERE s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN "
             + "AND s.settleAfter <= :now "
             + "AND (s.nextAttemptAt IS NULL OR s.nextAttemptAt <= :now OR s.settleAfter <= :deadlineCutoff) "
             + "ORDER BY s.id")
@@ -288,7 +288,7 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
      * 함께 되돌려야 한다</b> — 그때는 두 값이 같은 의미가 되므로 보정이 불필요해진다.
      */
     @Query("SELECT s.id FROM GroupChallengeBetSession s "
-            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "WHERE s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN "
             + "AND s.closesAt <= :now "
             + "AND (SELECT COUNT(p) FROM GroupChallengeBetParticipant p WHERE p.session = s) < 2 "
             + "ORDER BY s.id")
@@ -301,7 +301,7 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
      */
     @Query("SELECT s.id FROM GroupChallengeBetSession s "
             + "WHERE s.challenge.id = :challengeId "
-            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN ORDER BY s.id")
+            + "AND s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN ORDER BY s.id")
     List<UUID> findOpenSessionIdsByChallengeId(@Param("challengeId") UUID challengeId);
 
     /**
@@ -334,10 +334,10 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
      * 정책 축에서 다시 정하기로 해 <b>별도 후속 티켓</b>으로 뺐다(GROMO-1417 8차 리뷰 판정).
      */
     @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.group "
-            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "WHERE s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN "
             + "AND s.settleAfter > :now AND s.settleAfter <= :leadCutoff "
-            + "AND (s.missionType = com.oneorthree.phone.group.domain.MissionType.TIME_WINDOW "
-            + "OR s.missionCategory = com.oneorthree.phone.group.domain.MissionCategory.FOCUS) "
+            + "AND (s.missionType = com.oneorthree.phone.group.repository.domain.MissionType.TIME_WINDOW "
+            + "OR s.missionCategory = com.oneorthree.phone.group.repository.domain.MissionCategory.FOCUS) "
             + "ORDER BY s.id")
     List<GroupChallengeBetSession> findSilentFlushTargets(
             @Param("now") Instant now,
@@ -350,7 +350,7 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
      * 먼 미래의 예약 회차(join-week)까지 매 틱 끌어오지 않는다.
      */
     @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.group JOIN FETCH s.challenge "
-            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "WHERE s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN "
             + "AND s.joinClosesAt > :now AND s.joinClosesAt <= :until ORDER BY s.id")
     List<GroupChallengeBetSession> findOpenJoinableSessions(
             @Param("now") Instant now,

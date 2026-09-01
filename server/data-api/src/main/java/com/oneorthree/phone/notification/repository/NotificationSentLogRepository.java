@@ -76,7 +76,7 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
     @Transactional
     @Query("UPDATE NotificationSentLog l SET l.claimedAt = :now "
             + "WHERE l.userId = :userId AND l.kind = :kind AND l.subjectId = :subjectId "
-            + "AND l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.PENDING "
+            + "AND l.status = com.oneorthree.phone.notification.repository.domain.NotificationSendStatus.PENDING "
             + "AND l.claimedAt < :cutoff")
     int reclaimExpired(
             @Param("userId") UUID userId,
@@ -104,12 +104,12 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
     @Query("UPDATE NotificationSentLog l SET "
-            + "l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.SENT, "
+            + "l.status = com.oneorthree.phone.notification.repository.domain.NotificationSendStatus.SENT, "
             + "l.sentAt = :now, l.nextAttemptAt = null "
             + "WHERE l.userId = :userId AND l.kind = :kind AND l.subjectId = :subjectId "
             + "AND l.status IN ("
-            + "com.oneorthree.phone.notification.domain.NotificationSendStatus.PENDING, "
-            + "com.oneorthree.phone.notification.domain.NotificationSendStatus.DEFERRED)")
+            + "com.oneorthree.phone.notification.repository.domain.NotificationSendStatus.PENDING, "
+            + "com.oneorthree.phone.notification.repository.domain.NotificationSendStatus.DEFERRED)")
     int consumeUnsentClaims(
             @Param("userId") UUID userId,
             @Param("kind") String kind,
@@ -152,9 +152,9 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
     @Query("SELECT l FROM NotificationSentLog l WHERE l.kind IN :kinds AND ("
-            + "(l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.DEFERRED "
+            + "(l.status = com.oneorthree.phone.notification.repository.domain.NotificationSendStatus.DEFERRED "
             + "AND (l.nextAttemptAt IS NULL OR l.nextAttemptAt <= :now)) "
-            + "OR (l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.PENDING "
+            + "OR (l.status = com.oneorthree.phone.notification.repository.domain.NotificationSendStatus.PENDING "
             + "AND l.slotAt <= :slotClosedBefore)) ORDER BY l.slotAt, l.id")
     List<NotificationSentLog> findDueClaimsForUpdate(
             @Param("kinds") Collection<String> kinds,
@@ -172,7 +172,7 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
     @Query("SELECT l FROM NotificationSentLog l WHERE l.kind IN :kinds "
-            + "AND l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.DEFERRED "
+            + "AND l.status = com.oneorthree.phone.notification.repository.domain.NotificationSendStatus.DEFERRED "
             + "AND (l.nextAttemptAt IS NULL OR l.nextAttemptAt <= :now) ORDER BY l.slotAt, l.id")
     List<NotificationSentLog> findDueDeferredClaimsForUpdate(
             @Param("kinds") Collection<String> kinds,
@@ -201,7 +201,7 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
     @Modifying
     @Transactional
     @Query("UPDATE NotificationSentLog l SET "
-            + "l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.DEFERRED, "
+            + "l.status = com.oneorthree.phone.notification.repository.domain.NotificationSendStatus.DEFERRED, "
             + "l.sentAt = null, l.nextAttemptAt = :nextAttemptAt WHERE l.id IN :ids")
     int deferByIds(
             @Param("ids") Collection<UUID> ids,

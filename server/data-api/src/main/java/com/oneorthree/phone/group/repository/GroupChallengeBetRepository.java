@@ -39,7 +39,7 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
      */
     @Query("SELECT b.challenge.id FROM GroupChallengeBet b JOIN b.challenge c "
             + "WHERE b.enabled = true "
-            + "AND c.status = com.oneorthree.phone.group.domain.GroupChallengeStatus.ACTIVE "
+            + "AND c.status = com.oneorthree.phone.group.repository.domain.GroupChallengeStatus.ACTIVE "
             + "AND c.deletedAt IS NULL ORDER BY b.id")
     List<UUID> findActiveEnabledChallengeIds();
 
@@ -54,7 +54,7 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
      */
     @Query("SELECT b FROM GroupChallengeBet b JOIN FETCH b.challenge c "
             + "WHERE c.id IN :challengeIds AND b.enabled = true "
-            + "AND c.status = com.oneorthree.phone.group.domain.GroupChallengeStatus.ACTIVE "
+            + "AND c.status = com.oneorthree.phone.group.repository.domain.GroupChallengeStatus.ACTIVE "
             + "AND c.deletedAt IS NULL")
     List<GroupChallengeBet> findEnabledByChallengeIdIn(@Param("challengeIds") Collection<UUID> challengeIds);
 
@@ -64,6 +64,6 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
      */
     @Query("SELECT DISTINCT s.challenge.id FROM GroupChallengeBetSession s "
             + "WHERE s.challenge.id IN :challengeIds "
-            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN")
+            + "AND s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN")
     List<UUID> findChallengeIdsWithOpenBet(@Param("challengeIds") Collection<UUID> challengeIds);
 }
