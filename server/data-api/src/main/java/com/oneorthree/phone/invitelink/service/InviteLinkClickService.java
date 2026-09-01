@@ -1,7 +1,7 @@
 package com.oneorthree.phone.invitelink.service;
 
 import com.oneorthree.phone.common.util.ClientIpResolver;
-import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.dto.InviteLinkRef;
 import com.oneorthree.phone.invitelink.repository.domain.InviteLinkClick;
 import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
 import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;
@@ -43,17 +43,17 @@ public class InviteLinkClickService {
      *
      * <p>호출측(랜딩)은 이 메서드의 실패를 삼킨다 — 기록이 안 되는 것보다 랜딩이 안 뜨는 게 훨씬 나쁘다.
      */
-    public void record(GroupInviteLink link, HttpServletRequest request) {
+    public void record(InviteLinkRef link, HttpServletRequest request) {
         String userAgent = request.getHeader("User-Agent");
         if (userAgentClassifier.isBot(userAgent)) {
-            log.debug("봇 UA 클릭 무시 slug={} ua={}", link.getSlug(), userAgent);
+            log.debug("봇 UA 클릭 무시 slug={} ua={}", link.slug(), userAgent);
             return;
         }
 
         String os = userAgentClassifier.classify(userAgent);
         String ipHash = ipHasher.hash(clientIpResolver.resolve(request));
         InviteLinkClick click = clickRepository.save(
-                new InviteLinkClick(link.getId(), ipHash, os, truncate(userAgent)));
+                new InviteLinkClick(link.id(), ipHash, os, truncate(userAgent)));
 
         ga4Events.linkClicked(link, click.getId(), os, refererHost(request));
     }

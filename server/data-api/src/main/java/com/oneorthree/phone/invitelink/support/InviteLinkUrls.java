@@ -1,5 +1,6 @@
 package com.oneorthree.phone.invitelink.support;
 
+import com.oneorthree.phone.invitelink.dto.InviteLinkRef;
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -29,7 +30,7 @@ public class InviteLinkUrls {
     }
 
     /** 랜딩이 점프하는 커스텀 스킴. 카톡 인앱브라우저처럼 UL 이 발화하지 않는 경로의 주 통로다. */
-    public String scheme(GroupInviteLink link) {
-        return "gromo://join?g=" + link.getGroupId() + "&s=" + link.getSlug();
+    public String scheme(InviteLinkRef link) {
+        return "gromo://join?g=" + link.groupId() + "&s=" + link.slug();
     }
 }

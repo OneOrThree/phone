@@ -1,7 +1,7 @@
 package com.oneorthree.phone.invitelink;
 
 import com.oneorthree.phone.common.util.ClientIpResolver;
-import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.dto.InviteLinkRef;
 import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
 import com.oneorthree.phone.invitelink.dto.InviteMatchResponse;
 import com.oneorthree.phone.invitelink.dto.LandingView;
@@ -81,11 +81,11 @@ public class LinkPublicController implements LinkPublicControllerDocs {
     }
 
     /** 랜딩 응답은 기록·분석보다 우선한다 — 클릭 저장이나 GA4 전송이 죽어도 초대는 열려야 한다. */
-    private void recordClickQuietly(GroupInviteLink link, HttpServletRequest request) {
+    private void recordClickQuietly(InviteLinkRef link, HttpServletRequest request) {
         try {
             inviteLinkClickService.record(link, request);
         } catch (Exception e) {
-            log.warn("초대 클릭 기록 실패 — slug={}", link.getSlug(), e);
+            log.warn("초대 클릭 기록 실패 — slug={}", link.slug(), e);
         }
     }
 

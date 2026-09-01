@@ -1,6 +1,7 @@
 package com.oneorthree.phone.invitelink.support;
 
 import com.oneorthree.phone.common.analytics.Ga4MeasurementClient;
+import com.oneorthree.phone.invitelink.dto.InviteLinkRef;
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,10 +51,10 @@ public class InviteLinkGa4Events {
     }
 
     /** 웹 클릭 (스펙 §4-3 #3). 익명 브라우저라 클릭 id 를 합성 client_id 로 쓴다. */
-    public void linkClicked(GroupInviteLink link, UUID clickId, String os, String refererHost) {
+    public void linkClicked(InviteLinkRef link, UUID clickId, String os, String refererHost) {
         Map<String, Object> params = baseParams();
-        params.put("slug", link.getSlug());
-        params.put("group_id", link.getGroupId().toString());
+        params.put("slug", link.slug());
+        params.put("group_id", link.groupId().toString());
         params.put("os", os);
         params.put("referer_host", refererHost);
         publish(() -> ga4Client.sendWebEvent(clickId.toString(), "invite_link_clicked", params));

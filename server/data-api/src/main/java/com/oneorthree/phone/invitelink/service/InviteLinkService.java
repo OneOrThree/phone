@@ -8,6 +8,7 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.dto.IssueInviteLinkResponse;
+import com.oneorthree.phone.invitelink.dto.InviteLinkRef;
 import com.oneorthree.phone.invitelink.dto.LandingView;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.invitelink.exception.InviteLinkException;
@@ -97,8 +98,16 @@ public class InviteLinkService {
 
         // 링크는 살아 있지만 그룹이 사라진 경우 — 참여시킬 곳이 없으니 만료와 같게 다룬다.
         return findActiveGroup(link.get().getGroupId())
-                .map(group -> new LandingView(link.get(), group.getName(), inviterNickname(link.get())))
+                .map(group -> new LandingView(toRef(link.get()), group.getName(), inviterNickname(link.get())))
                 .orElseGet(LandingView::expired);
+    }
+
+    /**
+     * 엔티티 → 값 변환의 단일 지점 (GROMO-1654). 랜딩 응답 경로가 영속 객체를 들고 나가지
+     * 않도록 여기서 필요한 셋만 옮겨 담는다 — 이미 조회된 객체라 추가 쿼리는 없다.
+     */
+    private InviteLinkRef toRef(GroupInviteLink link) {
+        return new InviteLinkRef(link.getId(), link.getSlug(), link.getGroupId());
     }
 
     /**

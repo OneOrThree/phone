@@ -131,7 +131,44 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 
 ---
 
-## 5. 새 도메인을 만들 때
+## 5. 패키지를 옮길 때 — 컴파일러가 안 잡는 곳
+
+**`import` 만 고쳐서는 안 된다.** 컴파일러가 검사하지 않는 자리에 FQCN 이 문자열로
+박혀 있으면, 빌드는 초록인데 애플리케이션 기동에서 터진다.
+
+GROMO-1654 직전 커밋이 정확히 이 함정에 빠졌다. `<domain>/domain/` 을
+`<domain>/repository/domain/` 으로 옮기면서 `@Query` JPQL 안의 enum 리터럴 39개가
+낡은 경로를 가리킨 채 남았고, 컴파일은 통과했지만 Hibernate 가 쿼리를 해석하는
+시점에 `SemanticException` 이 났다. 테스트 1881개 중 434개가 무너졌다
+(ApplicationContext 로딩 실패 4건 → 임계치 초과로 430건 연쇄 스킵).
+
+이동 후 반드시 확인한다:
+
+```bash
+grep -rn "com\.oneorthree\.phone\.<도메인>\.<옛경로>\." src/main src/test
+```
+
+FQCN 이 문자열로 박히는 자리는 저장소 전체에서 두 종류뿐이다:
+
+1. **`@Query` JPQL 의 enum 리터럴** — JPQL 은 enum 을 FQCN 으로 쓴다
+2. **`src/main/resources/logback-spring.xml`** 의 `converterClass`
+   (현재 `common/logging/MaskingConverter` 하나)
+
+`@ComponentScan`·`basePackages`·`@EntityScan`·`@EnableJpaRepositories` 는 한 곳도
+없다 — `PhoneApplication` 기준 기본 스캔이라 `com.oneorthree.phone` 아래면 잡힌다.
+
+**컴파일만으로 끝내지 마라.** 컨텍스트가 실제로 뜨는지는 테스트를 돌려야 안다.
+
+### 패키지가 갈리면 가시성도 갈린다
+
+같은 패키지였던 두 클래스가 나뉘면, package-private 멤버 접근이 끊긴다. 이때
+가시성을 넓히는 것은 동작 변경이 아니므로 허용하되, **커밋 메시지에 남긴다**.
+GROMO-1654 에서는 `GroupBetSettler.effectiveJoinDeadline` 하나가 여기 해당했다
+(리스너를 `listener/` 로 빼면서 `public` 으로).
+
+---
+
+## 6. 새 도메인을 만들 때
 
 1. `com.oneorthree.phone.<domain>/` 아래에 **필요한 계층만** 만든다
 2. 컨트롤러는 도메인 루트, 엔티티는 `repository/domain/`
