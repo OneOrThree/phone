@@ -8,6 +8,14 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * 서블릿 필터 등록 — 모두 {@code /api/*} 에만 걸리므로 {@code /link/**}(초대 링크 랜딩)·
+ * {@code /.well-known/**}·actuator 같은 공개 경로는 어떤 필터도 거치지 않는다.
+ *
+ * <p>order 는 작을수록 먼저 돈다: 본문 크기 가드(0) → {@link JwtFilter}(1) → {@link TraceIdFilter}(2).
+ * TraceId 가 JWT 뒤인 건 의도적이다 — 인증이 request 에 심은 userId 를 읽어 MDC 에 넣기 때문에
+ * 순서를 뒤집으면 트레이스에서 유저 식별이 빠진다.
+ */
 @Configuration
 @RequiredArgsConstructor
 public class FilterConfig {
@@ -16,6 +24,14 @@ public class FilterConfig {
     private final UserActivityService userActivityService;
     private final UserRepository userRepository;
 
+    /**
+     * 인증 필터를 {@code /api/*} 에만 order 1 로 건다.
+     *
+     * <p>필터 자체는 Spring 빈이 아니라 여기서 직접 {@code new} 로 만들어 등록한다 —
+     * 컴포넌트 스캔에 걸리면 Boot 가 모든 경로에 자동 등록해 URL 패턴 한정이 무너지기 때문이다.
+     *
+     * @return {@code /api/*} 한정·order 1 로 설정된 {@link JwtFilter} 등록 빈
+     */
     @Bean
     public FilterRegistrationBean<JwtFilter> jwtFilter() {
         FilterRegistrationBean<JwtFilter> bean = new FilterRegistrationBean<>();
@@ -25,6 +41,13 @@ public class FilterConfig {
         return bean;
     }
 
+    /**
+     * 로그 상관관계 필터를 {@code /api/*} 에 order 2 로 건다 — {@link JwtFilter}(1) 다음이어야 한다.
+     * 인증이 request 에 심어 둔 userId 를 읽어 MDC {@code user_id} 로 올리기 때문에,
+     * 앞으로 당기면 로그에서 유저 식별이 사라진다.
+     *
+     * @return {@code /api/*} 한정·order 2 로 설정된 {@link TraceIdFilter} 등록 빈
+     */
     @Bean
     public FilterRegistrationBean<TraceIdFilter> traceIdFilter() {
         FilterRegistrationBean<TraceIdFilter> bean = new FilterRegistrationBean<>();
@@ -58,6 +81,8 @@ public class FilterConfig {
     /**
      * 본문 크기 가드 — 역직렬화 전 차단이 목적이라 JWT(1)·TraceId(2)보다 먼저 돈다.
      * 지정한 엔드포인트에만 적용해 다른 경로의 본문엔 영향이 없다.
+     *
+     * @return 캐릭터 모더레이션 경로에만 12MiB 와이어 한도를 거는 order 0 등록 빈
      */
     @Bean
     public FilterRegistrationBean<RequestSizeLimitFilter> moderationRequestSizeFilter() {
@@ -67,6 +92,8 @@ public class FilterConfig {
     /**
      * 집중 세션 완료 저장(POST)·라이브 종료(PATCH) — 둘 다 같은 URL 이라 한 패턴으로 덮인다.
      * /focus-session/start·/cancel 은 분포 맵이 없는 소형 본문이라 대상이 아니다.
+     *
+     * @return 집중 세션 저장·종료 경로에만 8KiB 와이어 한도를 거는 order 0 등록 빈
      */
     @Bean
     public FilterRegistrationBean<RequestSizeLimitFilter> focusSessionRequestSizeFilter() {

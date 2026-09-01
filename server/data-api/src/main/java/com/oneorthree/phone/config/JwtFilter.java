@@ -19,6 +19,29 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * {@code /api/*} 전용 인증 필터 — {@link FilterConfig} 가 order 1 로 등록한다.
+ * 이 경로에 걸리지 않는 URL({@code /link/**} 랜딩, {@code /.well-known/**}, actuator)은 미인증으로 열려 있다.
+ *
+ * <p>통과 조건은 네 가지를 모두 만족해야 한다 — 하나라도 어긋나면 이유를 구분하지 않고 401 로 통일한다
+ * (클라이언트가 401 을 재로그인 트리거 하나로 처리하기 때문이다).
+ * <ol>
+ *   <li>{@code Authorization: Bearer …} 헤더가 있고 서명·만료가 유효할 것</li>
+ *   <li>{@code type} 클레임이 {@code access} 일 것 — refresh 토큰(30일)이 API 를 직접 인증하던 경로를
+ *       막아 access 1시간 만료 정책을 실효화한다. 비교를 상수 쪽에서 시작해 type 이 없는 구 토큰도
+ *       NPE 없이 거부된다(fail-closed)</li>
+ *   <li>해당 userId 가 소프트딜리트되지 않았을 것 — 탈퇴해도 이미 발급된 access 토큰은 만료까지
+ *       서명이 유효하므로 매 요청 DB 로 최종 확인한다</li>
+ *   <li>그 조회 자체가 예외 없이 끝날 것 — DB 장애 시 통과시키지 않고 거부한다</li>
+ * </ol>
+ *
+ * <p>화이트리스트({@code /api/v1/auth/**}, 테스트 푸시)는 {@code startsWith} 접두 매칭이라
+ * 항목을 추가할 때 다른 인증 경로를 접두로 삼키지 않는지 확인해야 한다.
+ *
+ * <p>통과하면 userId 를 {@code AuthAttributes.USER_ID} 로 request 에 심는다 — 읽는 쪽은
+ * {@code LoginUserArgumentResolver} 와 {@link TraceIdFilter} 다. 마지막의 {@code last_active_at}
+ * 갱신은 부가 작업이라 실패해도 요청을 막지 않는다.
+ */
 @RequiredArgsConstructor
 @Slf4j
 public class JwtFilter extends OncePerRequestFilter {

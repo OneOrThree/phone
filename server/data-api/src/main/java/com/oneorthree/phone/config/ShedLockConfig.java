@@ -26,6 +26,15 @@ import javax.sql.DataSource;
 @EnableSchedulerLock(defaultLockAtMostFor = "PT10M")
 public class ShedLockConfig {
 
+    /**
+     * 락 저장소를 애플리케이션 DB 의 {@code shedlock} 테이블로 지정한다. 별도 Redis·ZooKeeper 없이
+     * 기존 PostgreSQL 커넥션 풀을 그대로 쓴다.
+     *
+     * @param dataSource 애플리케이션 공용 DataSource — 락 판정이 서비스 DB 와 같은 트랜잭션 경계 안에
+     *                   있어야 크론이 본 데이터와 락 상태가 어긋나지 않는다
+     * @return DB 서버 시각으로 만료를 판정하는({@code usingDbTime}) JDBC 락 프로바이더.
+     *         인스턴스 간 시계 어긋남이 락 조기 만료·영구 점유로 보이는 문제를 막는다
+     */
     @Bean
     public LockProvider lockProvider(DataSource dataSource) {
         return new JdbcTemplateLockProvider(

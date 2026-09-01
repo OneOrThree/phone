@@ -39,6 +39,10 @@ public class ShedLockSchemaInitializer {
 
     private final DataSource dataSource;
 
+    /**
+     * @param dataSource DDL 을 실행할 대상. {@code local}·{@code ci} 전용 빈이라 여기로 들어오는 건
+     *                   항상 로컬 컨테이너나 Testcontainers DB 다 — 운영 DB 가 이 경로를 타지 않는다
+     */
     public ShedLockSchemaInitializer(DataSource dataSource) {
         this.dataSource = dataSource;
     }

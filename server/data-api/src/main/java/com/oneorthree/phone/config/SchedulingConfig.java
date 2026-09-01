@@ -40,6 +40,8 @@ public class SchedulingConfig {
      * 합계 9라 6으로는 세 건이 대기하지만, 대기하는 쪽이 전부 <b>알림·정리 계열</b>이고 돈 처리는
      * 아래 전용 풀에 있어 영향이 없다. 6은 상시 스레드 비용과 대기 허용 사이의 절충이다.
      * (종전 주석의 "최대 5개" 전제는 크론 수를 잘못 센 것이라 바로잡았다 — 실제로는 9다.)
+     *
+     * @return 스케줄러를 지정하지 않은 모든 {@code @Scheduled} 가 기본으로 잡는 풀(6스레드)
      */
     @Bean
     public ThreadPoolTaskScheduler taskScheduler() {
@@ -51,6 +53,8 @@ public class SchedulingConfig {
      * 개설)가 <b>모두 5분 주기로 같은 시각에</b> 뜬다. 셋이 서로를 기다리지 않도록 정확히 3이다.
      * 이 크론들은 FCM 같은 외부 blocking 호출이 없어 실행이 짧고(DB 트랜잭션 단위), 늘어날 이유도
      * 알림 쪽보다 적다.
+     *
+     * @return {@code @Scheduled(scheduler = SETTLEMENT_SCHEDULER)} 로만 잡히는 3스레드 전용 풀
      */
     @Bean(SETTLEMENT_SCHEDULER)
     public ThreadPoolTaskScheduler settlementTaskScheduler() {

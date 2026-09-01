@@ -31,6 +31,8 @@ public class AsyncConfig {
      * <p>코어와 최대를 같은 값으로 둔다. {@code ThreadPoolTaskExecutor} 는 표준 {@code ThreadPoolExecutor}
      * 규칙대로 <b>큐가 가득 찬 뒤에야</b> 코어를 넘는 스레드를 만들기 때문에, 코어 1·최대 2 로 두면
      * 큐 500 이 밀리기 전까지 두 번째 스레드가 영영 뜨지 않는다 — 설정만 있고 동작하지 않는 값이 된다.
+     *
+     * @return {@code @Async("ga4Executor")} 가 지목하는 GA4 전용 스레드 풀
      */
     @Bean("ga4Executor")
     public Executor ga4Executor() {
