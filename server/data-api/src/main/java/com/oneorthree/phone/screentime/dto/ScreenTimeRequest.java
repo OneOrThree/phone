@@ -8,6 +8,13 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
+/**
+ * 기기가 올리는 하루 스크린타임 보고.
+ *
+ * <p>날짜 축에 주의한다 — 이 바디에는 날짜가 없고, 어느 날짜의 기록인지는 서버가
+ * {@code reportedAt} 을 KST({@link com.oneorthree.phone.common.util.ZonePolicy})로 환산해 정한다.
+ * 기기 로컬 자정과 KST 자정이 다른 유저는 그래서 기기 화면과 하루 경계가 어긋날 수 있다.
+ */
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor

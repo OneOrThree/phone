@@ -23,6 +23,13 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
+/**
+ * 유저 하루치 스크린타임 집계. {@code date} 는 기기 로컬 날짜가 아니라 보고 시각을
+ * KST({@link com.oneorthree.phone.common.util.ZonePolicy})로 환산한 날짜이며, (user, date) 가 유니크하다.
+ *
+ * <p>{@code screenTimeFinalized} 가 false 인 행은 아직 그날이 끝나지 않은 중간 동기화라
+ * 달성 여부가 확정되지 않았다 — 달성 판정은 마감 보고에서만 확정된다.
+ */
 @Entity
 @Table(
         name = "daily_screen_time_stats",
