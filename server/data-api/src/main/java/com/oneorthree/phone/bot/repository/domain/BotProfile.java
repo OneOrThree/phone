@@ -62,11 +62,21 @@ public class BotProfile {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /**
+     * 그 요일이 이 봇의 휴식일인지 본다.
+     *
+     * @param dayOfWeek 판정할 요일 — 비트마스크는 월요일을 비트 0 으로 잡는다
+     * @return 쉬는 날이면 true. 이 날은 블록이 하나도 생성되지 않아 집중 기록이 비어 있게 된다
+     */
     public boolean restsOn(DayOfWeek dayOfWeek) {
         return (restDayMask & (1 << (dayOfWeek.getValue() - 1))) != 0;
     }
 
-    /** 활동일 하루에 채울 평균 집중 분 — 요일별 변동은 스케줄 생성에서 얹는다. */
+    /**
+     * 활동일 하루에 채울 평균 집중 분 — 요일별 변동은 스케줄 생성에서 얹는다.
+     *
+     * @return 주간 목표를 활동일 수로 나눈 값. 쉬는 날은 분모에서 빠지므로 활동일 하루치가 그만큼 무거워진다
+     */
     public double averageDailyMinutes() {
         return weeklyMinutes / (double) activeDays;
     }

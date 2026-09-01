@@ -46,6 +46,10 @@ public class CharacterGenerationService {
      * <p>조회지만 쓰기 트랜잭션이다 — trial 앵커를 이 호출에서 lazy 초기화하기 때문
      * ({@link #ensureTrialAnchor}). 클라는 캐릭터 만들기 화면 진입 시 이 API 를 부르므로,
      * 유저가 기능을 처음 여는 순간이 곧 trial 시작점이 된다.
+     *
+     * @param userId 조회 대상 유저. 탈퇴했거나 없는 유저면 NOT_FOUND(404)
+     * @return trial 구간이면 unlimited, 아니면 남은 횟수와 슬롯이 열리는 시각.
+     *         이 값은 UX 안내용이며 실제 한도 판정은 {@link #recordGeneration} 이 다시 한다
      */
     @Transactional
     public CharacterQuotaResponse getQuota(UUID userId) {
@@ -67,6 +71,8 @@ public class CharacterGenerationService {
      *
      * @param userId             로그인 유저 id
      * @param clientGenerationId 클라 멱등키(옵션, nullable)
+     * @return 기록 후 쿼터. 멱등키 중복이거나 이미 한도에 닿아 기록을 건너뛴 경우에도 예외 없이
+     *         현재 쿼터를 돌려주므로, 호출측은 반환값의 remaining 으로 성사 여부를 판단해야 한다
      */
     @Transactional
     public CharacterQuotaResponse recordGeneration(UUID userId, UUID clientGenerationId) {

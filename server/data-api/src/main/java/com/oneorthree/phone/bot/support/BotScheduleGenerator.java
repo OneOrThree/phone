@@ -112,6 +112,7 @@ public class BotScheduleGenerator {
      * @param profile    봇 성향
      * @param date       KST 기준 날짜
      * @param focusTagIds 이 봇이 채택한 과목({@code user_focus_tags.id}) — 블록마다 갈아탄다
+     * @return 시각 오름차순 블록 목록. 같은 입력이면 매번 같은 결과라 tick 마다 다시 계산해도 안전하다
      */
     public List<BotFocusBlock> blocksOf(BotProfile profile, LocalDate date, List<UUID> focusTagIds) {
         if (focusTagIds.isEmpty() || profile.restsOn(date.getDayOfWeek())) {

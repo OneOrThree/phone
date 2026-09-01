@@ -15,10 +15,21 @@ import java.util.UUID;
  */
 public record BotFocusBlock(int startMinute, int endMinute, UUID focusTagId) {
 
+    /**
+     * 그 시각이 이 블록 안인지 본다.
+     *
+     * @param minuteOfDay 기준일 00시(KST)부터의 분. 자정을 넘긴 블록과 비교할 때는 호출측이 1440 을 더해 넘긴다
+     * @return 시작 시각 이상 종료 시각 미만이면 true — 종료 분 자체는 포함하지 않는다
+     */
     public boolean contains(int minuteOfDay) {
         return startMinute <= minuteOfDay && minuteOfDay < endMinute;
     }
 
+    /**
+     * 블록 길이를 잰다.
+     *
+     * @return 순수 집중 분 — 블록 사이 휴식은 들어 있지 않다
+     */
     public int lengthMinutes() {
         return endMinute - startMinute;
     }

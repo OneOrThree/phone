@@ -212,6 +212,11 @@ public class BotSimulator {
      */
     public record BotTickResult(int started, int ended, int replaced, int failed) {
 
+        /**
+         * 이 tick 에서 아무 전이도 없었는지 본다.
+         *
+         * @return 네 카운트가 모두 0 이면 true — 로그를 남기지 않고 넘어가도 되는 tick 이라는 뜻이다
+         */
         public boolean isQuiet() {
             return started == 0 && ended == 0 && replaced == 0 && failed == 0;
         }

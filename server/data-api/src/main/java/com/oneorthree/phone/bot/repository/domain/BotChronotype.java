@@ -46,7 +46,11 @@ public enum BotChronotype {
         this.hardEndHour = hardEndHour;
     }
 
-    /** 집중을 시작할 수 있는 가장 이른 시각(분). */
+    /**
+     * 집중을 시작할 수 있는 가장 이른 시각(분).
+     *
+     * @return 기준일 00시(KST)부터의 분. 실제 시작은 여기에 날마다 다른 흔들림이 얹혀 뒤로 밀린다
+     */
     public int startMinute() {
         return startHour * 60;
     }
@@ -55,6 +59,8 @@ public enum BotChronotype {
      * 그날 활동 창의 종료 시각(분). 하루 목표가 클수록 늘어나되 {@code hardEndHour} 를 넘지 않는다.
      *
      * @param dailyMinutes 그날 채워야 할 순수 집중 분
+     * @return 기준일 00시(KST)부터의 분. 목표가 아무리 커도 {@link #hardEndMinute()} 를 넘지 않으므로,
+     *         창에 다 못 담긴 목표는 그날 채우지 못한 채로 남는다
      */
     public int windowEndMinute(double dailyMinutes) {
         // 휴식까지 감안해 목표의 2.6 배를 창으로 잡는다. 2.2 로는 긴 휴식(50~120분)이 몇 번 끼는 날
@@ -63,7 +69,11 @@ public enum BotChronotype {
         return (int) Math.min(hardEndHour * 60.0, Math.max(baseEndHour * 60.0, needed));
     }
 
-    /** 이 성향이 도달할 수 있는 가장 늦은 시각(분) — 스케줄 검증의 상한. */
+    /**
+     * 이 성향이 도달할 수 있는 가장 늦은 시각(분) — 스케줄 검증의 상한.
+     *
+     * @return 기준일 00시(KST)부터의 분. 1440 을 넘으면 다음날로 넘어간다는 뜻이다
+     */
     public int hardEndMinute() {
         return hardEndHour * 60;
     }

@@ -19,12 +19,23 @@ public record ImageModerationResponse(
         boolean unavailable
 ) {
 
-    /** 검사를 수행한 정상 판정. */
+    /**
+     * 검사를 수행한 정상 판정.
+     *
+     * @param allowed           검사를 실제로 돌린 결과 통과했는지
+     * @param flaggedCategories true 로 걸린 카테고리들. 통과 시엔 빈 목록
+     * @return unavailable=false 로 고정된 응답 — 앱은 이 값을 보고 "사진 때문에 막혔다"고 안내한다
+     */
     public static ImageModerationResponse judged(boolean allowed, List<String> flaggedCategories) {
         return new ImageModerationResponse(allowed, flaggedCategories, false);
     }
 
-    /** 검사 불가로 인한 fail-closed 차단. */
+    /**
+     * 검사 불가로 인한 fail-closed 차단.
+     *
+     * @return 막되 사유가 서버 사정임을 알리는 응답(allowed=false, unavailable=true).
+     *         앱은 이때 사진 탓이 아니라 잠시 후 다시 시도하라고 안내해야 한다
+     */
     public static ImageModerationResponse failClosed() {
         return new ImageModerationResponse(false, List.of(), true);
     }
