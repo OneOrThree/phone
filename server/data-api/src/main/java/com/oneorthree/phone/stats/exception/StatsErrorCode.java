@@ -3,6 +3,10 @@ package com.oneorthree.phone.stats.exception;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
+/**
+ * 통계 도메인의 실패 사유. 각 값이 HTTP 상태와 사용자 노출 문구를 함께 들고 있어, 던지는 쪽이 상태 코드를
+ * 고르지 않는다.
+ */
 @Getter
 public enum StatsErrorCode {
 

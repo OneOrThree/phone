@@ -43,6 +43,9 @@ public class LeagueBatchController implements LeagueBatchControllerDocs {
     /**
      * 키 미설정은 기동 실패가 아니라 503 응답으로 처리한다(GroupBetBatchController 와 같은 관행)
      * — 그래서 default 를 "" 로 둔다.
+     *
+     * @param leagueBatchService 주간 정산 본체
+     * @param batchAdminKey      resume 트리거를 여는 관리자 키. 빈 문자열이면 키 미설정으로 보고 503 을 낸다
      */
     public LeagueBatchController(LeagueBatchService leagueBatchService,
                                  @Value("${BATCH_ADMIN_KEY:}") String batchAdminKey) {

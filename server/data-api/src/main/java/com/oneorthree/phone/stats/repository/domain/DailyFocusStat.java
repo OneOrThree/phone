@@ -23,6 +23,14 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
+/**
+ * 하루치 집중 집계 한 줄. (user_id, date) 유니크라 유저·날짜당 행은 하나뿐이고, 세션이 끝날 때마다
+ * 이 행에 누적된다 — 그래서 동시 누적은 행 락으로 직렬화한다(lost update 방지).
+ *
+ * <p>버킷 축은 KST 로컬 날짜다. 자정을 넘긴 세션은 통째로 한쪽에 몰지 않고 로컬 자정에서 잘라 날짜별로
+ * 나눠 담으므로, 실제로 집중한 날에 귀속된다. 누적 단위는 <b>초</b>이고 분 환산은 응답을 만들 때만 한다 —
+ * 세션마다 분으로 내림하면 1분 미만이 통째로 사라지기 때문이다.
+ */
 @Entity
 @Table(
         name = "daily_focus_stats",

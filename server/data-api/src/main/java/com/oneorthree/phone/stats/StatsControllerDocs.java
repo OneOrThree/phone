@@ -25,6 +25,14 @@ import java.util.UUID;
 @Tag(name = "stats", description = "홈 화면 통계 조회 API (스트릭·일별 집중 집계)")
 public interface StatsControllerDocs {
 
+    /**
+     * 달력 히트맵용 일별 집계. 값이 없는 날도 0 으로 채워 돌려주므로, 앱이 빠진 날짜를 메울 필요가 없다.
+     *
+     * @param from   시작일 — <b>포함</b>
+     * @param to     종료일 — <b>포함</b>. from 보다 앞서면 400 이고, 두 날짜 사이가 366일을 넘어도 400
+     * @param userId 로그인 유저
+     * @return from~to 전 날짜의 셀. 날짜 오름차순이며 길이는 항상 기간 일수와 같다
+     */
     @Operation(summary = "일별 집중 집계(히트맵) 조회",
             description = "[from,to] 범위의 모든 날짜를 반환(데이터 없는 날은 0). 범위 상한 366일.")
     @ApiResponses({
@@ -34,6 +42,16 @@ public interface StatsControllerDocs {
     })
     ResponseEntity<List<HeatmapCellResponse>> getHeatmap(LocalDate from, LocalDate to, UUID userId);
 
+    /**
+     * 연속 집중일. currentStreak 은 저장값을 그대로 주지 않고 조회 시점에 만료를 판정한다 — 마지막
+     * 집중일이 어제보다 앞서면 이미 끊긴 것으로 보고 0 을 준다(최장 기록과 마지막 집중일은 그대로).
+     *
+     * @param date     만료 판정의 기준이 되는 '오늘'. 서버 판정 축(KST 고정)이어야 하며, 기기 로컬 날짜를
+     *                 보내면 비-KST 기기에서 하루 어긋난 버킷을 보게 된다
+     * @param friends  조회할 상대 유저. 생략하면 자기 자신이다. 친구가 아니고 공개 유저도 아니면 404
+     * @param callerId 로그인 유저 — 열람 권한 판정의 기준
+     * @return 현재·최장 연속일과 마지막 집중일. 기록이 없으면 0/0/null 이다
+     */
     @Operation(summary = "스트릭(연속일) 조회",
             description = "현재 연속일·최장 연속일·마지막 집중일. 기록 없으면 0/0/null."
                     + " currentStreak 은 read-time 으로 만료된다(GROMO-847): lastSessionDate 가 어제 이전이면"
@@ -49,6 +67,14 @@ public interface StatsControllerDocs {
     })
     ResponseEntity<StreakResponse> getStreak(LocalDate date, UUID friends, UUID callerId);
 
+    /**
+     * 홈 상단의 오늘 요약 — 집중·스크린타임 사용량과 각 목표, 목표 대비 진행도를 한 번에 준다.
+     *
+     * @param date     집계할 날짜. 서버 판정 축(KST 고정)의 오늘
+     * @param friends  조회할 상대 유저. 생략하면 자기 자신
+     * @param callerId 로그인 유저 — 열람 권한 판정의 기준
+     * @return 오늘 요약. 데이터가 없으면 404 가 아니라 0·미달성으로 채워진다
+     */
     @Operation(summary = "오늘 요약 조회",
             description = "오늘의 집중·스크린타임 사용량·목표·목표 달성 진행도(%)를 통합 반환. 데이터 없으면 0/미달성."
                     + " friends 지정 시 해당 친구(또는 PUBLIC)의 오늘 요약을 조회, 미지정 시 self.")
@@ -59,6 +85,16 @@ public interface StatsControllerDocs {
     })
     ResponseEntity<TodayStatsResponse> getTodayStats(LocalDate date, UUID friends, UUID callerId);
 
+    /**
+     * 기간 집중 시간 합계와 <b>직전 동일 기간</b> 대비 증감. 증감의 비교 상대가 "지난주 같은 요일"이
+     * 아니라 직전 기간 전체라는 점이 화면 문구와 어긋나기 쉬운 지점이다.
+     *
+     * @param period   day(오늘)·week(이번 주 월요일부터)·month(이번 달 1일부터). 그 밖의 값은 400
+     * @param date     기간의 끝이자 기준일. 서버 판정 축(KST 고정)
+     * @param friends  조회할 상대 유저. 생략하면 자기 자신
+     * @param callerId 로그인 유저 — 열람 권한 판정의 기준
+     * @return 기간 합계와 직전 기간 대비 delta
+     */
     @Operation(summary = "기간별 집중시간 통계 조회",
             description = "day(오늘)/week(이번 주 월~오늘)/month(이번 달 1일~오늘) 집중 시간 합계 + 직전 동일 기간 대비 delta 반환."
                     + " friends 지정 시 해당 친구(또는 PUBLIC)의 통계를 조회, 미지정 시 self.")
@@ -71,6 +107,17 @@ public interface StatsControllerDocs {
     ResponseEntity<FocusPeriodStatsResponse> getFocusStatsByPeriod(StatsPeriod period, LocalDate date,
             UUID friends, UUID callerId);
 
+    /**
+     * 비교용 평균 집중 시간. 모수는 그 기간에 <b>활동한 유저만</b>이라 휴면 유저가 평균을 끌어내리지 않는다.
+     * 개인값이 아닌 집계라 열람 권한을 묻지 않는다.
+     *
+     * @param scope    friends(나를 뺀 ACCEPTED 친구)·total(나 포함 전체)·category(나 포함 같은 직군)
+     * @param period   day·week·month. 그 밖의 값은 400
+     * @param date     기간의 끝이자 기준일. 누락하면 400
+     * @param callerId 로그인 유저 — 모수를 정하는 기준
+     * @return 평균 분과 표본 수. 활동 유저가 없거나 category 인데 직군 미설정이면 400 이 아니라
+     *         평균 null·표본 0 으로 내려간다
+     */
     @Operation(summary = "기간별 평균 집중시간 집계 조회",
             description = "scope(friends|total|category) × period(day|week|month) 로 활동 유저 1인당 평균 집중 시간(분) 반환."
                     + " 모수는 해당 기간 활동(row≥1) 유저만(휴면 제외). 집계라 per-user 열람권한 불요."
@@ -85,6 +132,15 @@ public interface StatsControllerDocs {
     ResponseEntity<FocusAverageResponse> getFocusAverage(FocusAverageScope scope, StatsPeriod period,
             LocalDate date, UUID callerId);
 
+    /**
+     * 기간 안 완료 세션을 태그별로 묶은 집계. 비율(%)은 서버가 계산하지 않는다 — 앱이 합계로 나눠 그린다.
+     *
+     * @param period   day·week·month. 그 밖의 값은 400
+     * @param date     기간의 끝이자 기준일. 서버 판정 축(KST 고정)
+     * @param friends  조회할 상대 유저. 생략하면 자기 자신
+     * @param callerId 로그인 유저 — 열람 권한 판정의 기준
+     * @return 태그별 집계와 기간 총합. 데이터가 없으면 빈 목록에 총합 0
+     */
     @Operation(summary = "카테고리별 집중 통계 조회",
             description = "day(오늘)/week(이번 주 월~오늘)/month(이번 달 1일~오늘) 기간의 "
                     + "완료된 세션을 태그별로 집계. 비율(%)은 클라이언트가 totalFocusMinutes 합계로 계산."
@@ -98,6 +154,16 @@ public interface StatsControllerDocs {
     ResponseEntity<CategoryFocusStatsResponse> getFocusStatsByCategory(StatsPeriod period, LocalDate date,
             UUID friends, UUID callerId);
 
+    /**
+     * 기간 스크린타임 합계와 직전 기간 대비 증감, 그리고 일 단위 목표 달성 여부.
+     *
+     * @param period   day·week·month. 그 밖의 값은 400
+     * @param date     기간의 끝이자 기준일. 서버 판정 축(KST 고정)
+     * @param friends  조회할 상대 유저. 생략하면 자기 자신
+     * @param callerId 로그인 유저 — 열람 권한 판정의 기준
+     * @return 기간 합계·delta·목표 달성 정보. 집중과 달리 목표는 상한이라 사용량이 목표 이내(0분 포함)면
+     *         달성이고, 목표를 설정하지 않았으면 달성이 아니다
+     */
     @Operation(summary = "기간별 스크린타임 통계 조회",
             description = "day·week·month 기간별 스크린타임 합계, 직전 기간 대비 delta, 목표 달성 정보 반환."
                     + " day 단위 goalAchieved: 목표가 설정된 경우(goalMinutes > 0)에만 유효하며,"

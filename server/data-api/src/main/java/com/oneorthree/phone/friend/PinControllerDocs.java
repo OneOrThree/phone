@@ -17,6 +17,13 @@ import java.util.UUID;
 @Tag(name = "Pin", description = "유저 핀 API (리그·친구 공용) — 친구 아닌 임의 유저도 핀 가능")
 public interface PinControllerDocs {
 
+    /**
+     * 유저를 핀해 홈·집중·리그 화면에 고정한다. 친구 관계를 요구하지 않는다 — 핀은 친구와 별개 축이다.
+     *
+     * @param userId 핀할 대상 유저. 자기 자신이면 400, 없는 유저면 404
+     * @param me     로그인 유저
+     * @return 본문 없는 204. 이미 핀돼 있어도 같은 204 라 재시도해도 안전하다
+     */
     @Operation(summary = "유저 핀 설정",
             description = "임의 유저(친구 아니어도 가능)를 핀해 홈·집중·리그 화면에 표시. 이미 핀이면 멱등(204). "
                     + "자기 자신은 400.")
@@ -27,6 +34,13 @@ public interface PinControllerDocs {
     })
     ResponseEntity<Void> pin(UUID userId, UUID me);
 
+    /**
+     * 핀을 해제한다.
+     *
+     * @param userId 핀을 뗄 대상 유저
+     * @param me     로그인 유저
+     * @return 본문 없는 204. 핀이 애초에 없었어도 같은 204
+     */
     @Operation(summary = "유저 핀 해제", description = "핀 해제. 핀이 없어도 멱등(204).")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "핀 해제 성공"),
@@ -34,6 +48,14 @@ public interface PinControllerDocs {
     })
     ResponseEntity<Void> unpin(UUID userId, UUID me);
 
+    /**
+     * 내가 핀한 유저 목록. 친구 목록과 달리 캐릭터 장착 표시정보까지 실어, 홈 화면이 추가 조회 없이 그린다.
+     *
+     * @param date 집중분을 집계할 날짜. 서버 판정 축인 KST 기준 오늘이어야 한다
+     *             ({@link com.oneorthree.phone.common.util.ZonePolicy})
+     * @param me   로그인 유저
+     * @return 핀한 유저 목록 — 친구가 아닌 유저도 섞여 있을 수 있다
+     */
     @Operation(summary = "핀한 유저 조회",
             description = "내가 핀한 유저 목록(친구 아님 포함). 캐릭터 표시정보 + 오늘 집중분 + 현재 집중 여부 포함."
                     + " date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(YYYY-MM-DD) — 기기 로컬 날짜가 아니다.")

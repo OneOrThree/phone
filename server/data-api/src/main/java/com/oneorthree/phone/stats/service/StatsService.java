@@ -56,6 +56,21 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * 홈·통계 화면이 읽는 조회 서비스 — 히트맵·스트릭·오늘 요약·기간 통계·평균·카테고리별 집계.
+ *
+ * <p><b>날짜 축</b>: 모든 날짜 인자는 서버 판정 축(KST 고정)의 날짜다 — 기기 로컬 날짜를 그대로 보내면
+ * 비-KST 기기에서 인접 버킷을 조회한다({@link com.oneorthree.phone.common.util.ZonePolicy}).
+ * 기간 경계는 {@code StatsPeriodResolver} 한 곳에서 나오고 양끝을 모두 포함한다.
+ *
+ * <p><b>단위</b>: 집중은 초로 저장돼 있어 <b>합산한 뒤 한 번만</b> 분으로 내림한다. 세션·날짜마다 내리면
+ * 1분 미만이 반복해서 잘려 총합이 어긋난다.
+ *
+ * <p><b>열람 권한</b>: 개인 통계는 {@code resolveTargetUserId} 로 대상 유저를 정해 친구·공개 여부를
+ * 검사하지만, 평균 집계는 개인 데이터를 드러내지 않으므로 권한을 묻지 않는다.
+ *
+ * <p><b>빈 데이터</b>: 이 서비스는 데이터 없음을 예외로 보지 않는다 — 0·false·null 로 채운 정상 응답을 낸다.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -91,6 +106,15 @@ public class StatsService {
         return statViewPolicy.resolveTargetUserId(callerId, friends);
     }
 
+    /**
+     * 달력 히트맵용 일별 집계. 집중과 스크린타임이 서로 다른 테이블이라 각각 읽어 날짜로 합치고,
+     * 기록이 없는 날도 0 인 칸으로 채워 <b>기간의 모든 날짜</b>를 돌려준다.
+     *
+     * @param userId 집계 대상 유저(권한 판정이 끝난 뒤의 대상 id)
+     * @param from   시작일 — 포함
+     * @param to     종료일 — 포함. from 보다 앞서거나 기간이 366일을 넘으면 INVALID_DATE_RANGE
+     * @return 날짜 오름차순 셀. 길이는 항상 기간 일수와 같다
+     */
     public List<HeatmapCellResponse> getHeatmap(UUID userId, LocalDate from, LocalDate to) {
         if (from == null || to == null || from.isAfter(to)
                 || ChronoUnit.DAYS.between(from, to) + 1 > MAX_RANGE_DAYS) {
@@ -128,7 +152,9 @@ public class StatsService {
      * (판정은 {@link UserStreak UserStreak}).
      * longestStreak·lastSessionDate 는 저장된 원본을 그대로 유지한다.
      *
+     * @param userId 집계 대상 유저
      * @param today 서버 판정 축(KST 고정) 기준 오늘(GROMO-643·1259)
+     * @return 현재·최장 연속일과 마지막 집중일. 스트릭 행이 아예 없으면 0/0/null 이다
      */
     public StreakResponse getStreak(UUID userId, LocalDate today) {
         User user = userRepository.getReferenceById(userId);
@@ -142,6 +168,12 @@ public class StatsService {
      * 오늘의 집중·스크린타임 요약을 통합 반환한다.
      * "오늘"은 클라가 로컬 타임존 기준으로 전달한 날짜(GROMO-643) — 서버는 UTC 변환 없이 그대로 조회.
      * 집계·목표 row 가 없으면 각 값은 0/false, 진행도 0.
+     *
+     * @param userId 집계 대상 유저. 존재하지 않으면 유저 없음으로 떨어진다
+     * @param today  집계할 날짜(KST 축)
+     * @return 집중·스크린타임 각각의 사용량·목표·달성 여부·진행도. 달성 판정은 저장값이 아니라 <b>지금
+     *         설정된 목표</b>로 다시 계산하며, 집중은 목표 이상, 스크린타임은 목표 이하가 달성이다.
+     *         목표를 설정하지 않았으면(0) 어느 쪽도 달성이 아니다
      */
     public TodayStatsResponse getTodayStats(UUID userId, LocalDate today) {
         User user = userRepository.findById(userId)
@@ -174,7 +206,11 @@ public class StatsService {
      * 기간별 집중 시간 통계 조회. "오늘"은 클라가 전달한 서버 판정 축(KST 고정) 날짜(GROMO-643·1259).
      * 직전 동일 길이 구간과의 delta를 함께 반환한다.
      *
+     * @param userId 집계 대상 유저
+     * @param period 기간 종류 — 기간 경계는 공용 리졸버가 정한다
      * @param today 서버 판정 축(KST 고정) 기준 날짜
+     * @return 기간 합계와 직전 기간 합계, 그 차이. 비교 상대는 "지난주 같은 요일"이 아니라 <b>직전 동일
+     *         길이 구간 전체</b>다. 합산은 초로 하고 분 환산은 마지막에 한 번만 한다
      */
     public FocusPeriodStatsResponse getFocusStatsByPeriod(UUID userId, StatsPeriod period, LocalDate today) {
         User user = userRepository.getReferenceById(userId);
@@ -210,6 +246,8 @@ public class StatsService {
      * @param scope    집계 모수(FRIENDS/TOTAL/CATEGORY)
      * @param period   집계 기간(DAY/WEEK/MONTH)
      * @param date     서버 판정 축(KST 고정) 기준 날짜
+     * @return 평균 분과 표본 수. 표본은 모수 전체가 아니라 그 기간에 활동한 인원이라, 휴면 유저가 평균을
+     *         희석하지 않는다. 친구 0명·직군 미설정·무활동은 모두 에러가 아니라 평균 null·표본 0 이다
      */
     public FocusAverageResponse getFocusAverage(
             UUID callerId, FocusAverageScope scope, StatsPeriod period, LocalDate date) {
@@ -261,7 +299,12 @@ public class StatsService {
      * 기간별 스크린타임 통계 조회. "오늘"은 클라가 전달한 서버 판정 축(KST 고정) 날짜(GROMO-643·1259).
      * 직전 동일 길이 구간과의 delta·목표 달성 정보를 함께 반환한다.
      *
+     * @param userId 집계 대상 유저
+     * @param period 기간 종류
      * @param today 서버 판정 축(KST 고정) 기준 날짜
+     * @return 기간 합계·직전 기간 대비 delta·목표 달성 정보. 가입 전 날짜의 레거시 행은 합계에서도
+     *         경과일 수에서도 함께 빠진다 — 한쪽만 빼면 "달성일 &gt; 경과일" 같은 불일치가 난다.
+     *         day 는 달성 여부만, week·month 는 달성일 수와 경과일 수를 채운다
      */
     public ScreenTimePeriodStatsResponse getScreenTimePeriodStats(UUID userId, StatsPeriod period, LocalDate today) {
         User user = userRepository.findById(userId)
@@ -390,6 +433,12 @@ public class StatsService {
      * <p><b>GROMO-1252</b>: 세션 기여분은 사전집계({@code DailyFocusStat})와 <b>같은 날짜별 분포</b>로 센다 —
      * 세션에 저장된 확정 분포가 있으면 그중 창에 든 날짜만, 없으면(레거시 row) 창으로 벽시계 클리핑한다
      * ({@link #windowSeconds}). 같은 화면의 총합과 과목별 합이 맞으려면 귀속 기준이 같아야 한다.
+     *
+     * @param userId 집계 대상 유저
+     * @param period 기간 종류
+     * @param today  서버 판정 축(KST 고정) 기준 날짜
+     * @return 태그별 집계와 기간 총합. 비율(%)은 서버가 내지 않는다 — 앱이 총합으로 나눠 그린다.
+     *         데이터가 없으면 빈 목록에 총합 0
      */
     public CategoryFocusStatsResponse getFocusStatsByCategory(UUID userId, StatsPeriod period, LocalDate today) {
         User user = userRepository.getReferenceById(userId);

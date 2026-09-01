@@ -23,6 +23,13 @@ import java.util.UUID;
 @Tag(name = "league", description = "리그/티어 조회 API")
 public interface LeagueControllerDocs {
 
+    /**
+     * 지금 내가 속한 티어와 이번 주차 정보. 티어의 정본은 주간 배치가 확정해 users.tier_level 에 써 둔 값이라,
+     * 이번 주 집중 시간이 아무리 늘어도 마감 전에는 바뀌지 않는다.
+     *
+     * @param userId 로그인 유저
+     * @return 현재 티어와 KST 주차 경계. 아직 리그에 배정되지 않은 유저도 200 이다
+     */
     @Operation(summary = "내 현재 리그·티어 조회",
             description = "users.tier_level에 저장된 현재 티어와 KST 기준 주차 정보를 반환한다.")
     @ApiResponses({
@@ -30,6 +37,15 @@ public interface LeagueControllerDocs {
     })
     ResponseEntity<LeagueTierResponse> getMyTier(UUID userId);
 
+    /**
+     * 이번 주차 상위 100명 랭킹. 리그 화면의 본 목록이며, 각 멤버의 집중 라이브 상태와 조회자 기준 친구
+     * 여부까지 채워 내려보낸다.
+     *
+     * @param userId   로그인 유저 — 친구 배지 판정의 기준
+     * @param category 지정하면 같은 직군끼리만 겨루는 랭킹, 생략하면 직군 무관 전역 랭킹. 알 수 없는 값은 400
+     * @param date     라이브 정보를 집계할 날짜. 서버 판정 축(KST 고정)의 오늘이며 필수다 — 누락하면 400
+     * @return 순위 오름차순 멤버 목록
+     */
     @Operation(summary = "전역 주간 랭킹 조회",
             description = "category 미지정: DailyFocusStat 기반 전역 주간 상위 100명 랭킹. "
                     + "category 지정: 같은 occupation 활성 사용자의 전역 주간 상위 100명 랭킹. "
@@ -44,6 +60,14 @@ public interface LeagueControllerDocs {
     })
     ResponseEntity<List<LeagueMemberResponse>> getMyRanking(UUID userId, Occupation category, LocalDate date);
 
+    /**
+     * 직군을 가리지 않는 전역 주간 랭킹. 여기의 rank 는 아레나 안 순위가 아니라 전체 순번이다.
+     *
+     * @param userId 로그인 유저 — 친구 배지 판정의 기준
+     * @param scope  {@code total} 만 지원한다(대소문자 무관). 그 밖의 값은 400 — 스코프를 늘릴 자리로 남겨 뒀다
+     * @param limit  받을 인원. 1~500 밖의 값은 잘라서 맞추므로 400 이 되지 않는다
+     * @return 집중 시간 내림차순 멤버 목록. 핀 배지는 전역 스코프 밖이라 항상 false 다
+     */
     @Operation(summary = "전역 전체 유저 랭킹 조회",
             description = "직군 무관 DailyFocusStat 기반 전역 주간 랭킹의 totalFocusSeconds 내림차순 상위 limit 명. "
                     + "rank 는 아레나가 아닌 전역 순번. 각 멤버의 isFriend 는 조회자 기준 친구 여부(GROMO-1630), "
@@ -56,6 +80,13 @@ public interface LeagueControllerDocs {
     })
     ResponseEntity<List<LeagueMemberResponse>> getGlobalRanking(UUID userId, String scope, int limit);
 
+    /**
+     * 진행 중인 이번 주차에서 내가 몇 등인지. 마감된 주차의 정산 결과는 여기 실리지 않고
+     * {@link #getLastResult} 로 분리돼 있다.
+     *
+     * @param userId 로그인 유저
+     * @return 배정 여부와 현재 순위·누적 집중 초. 미배정이면 순위 필드가 비어 있다
+     */
     @Operation(summary = "내 순위 조회",
             description = "DailyFocusStat 기반 현재 전역 주간 순위(assigned·myRank·totalFocusSeconds)를 반환한다. "
                     + "정산 결과 노출은 이 응답에서 분리되었다.")
@@ -64,6 +95,12 @@ public interface LeagueControllerDocs {
     })
     ResponseEntity<LeagueRankResponse> getMyRank(UUID userId);
 
+    /**
+     * 다음 리그 마감 시각과 남은 시간 — 홈·리그 화면의 카운트다운이 쓴다.
+     *
+     * @param userId 로그인 유저
+     * @return 다음 KST 월요일 00:00 과 그때까지 남은 초. 미배정 유저도 같은 값을 받는다
+     */
     @Operation(summary = "리그 마감 스케줄 조회",
             description = "다음 리그 마감(다음 월요일 00:00 KST) 시각과 그때까지 남은 시간(초)을 반환한다. "
                     + "미배정 유저도 항상 200. 클라이언트 홈·리그 화면의 마감 카운트다운용.")
@@ -72,6 +109,13 @@ public interface LeagueControllerDocs {
     })
     ResponseEntity<LeagueScheduleResponse> getMySchedule(UUID userId);
 
+    /**
+     * 주간 배치가 남긴 가장 최근 정산 결과 한 건.
+     *
+     * @param userId 로그인 유저
+     * @return 결과와 확인 여부. 정산 이력이 없으면 404 가 아니라 hasResult=false 로 내려간다 —
+     *         앱은 hasResult 이면서 아직 확인 전일 때만 결과 모달을 띄운다
+     */
     @Operation(summary = "주간 마감 결과 조회",
             description = "주간 배치가 남긴 최신 정산 결과 1건을 반환한다. 결과 행이 없으면(미배정/신규 유저) "
                     + "hasResult=false. 클라는 리그 탭 첫 진입 시 hasResult && !acknowledged 이면 결과 모달을 노출한다.")
@@ -80,6 +124,14 @@ public interface LeagueControllerDocs {
     })
     ResponseEntity<LeagueLastResultResponse> getLastResult(UUID userId);
 
+    /**
+     * 결과 모달을 본 것으로 표시해 다시 뜨지 않게 한다.
+     *
+     * @param userId 로그인 유저
+     * @param body   확인 처리할 주차({@code weekStartAt}). 최신 행을 다시 찾지 않고 이 주차를 대상으로 하므로,
+     *               조회와 확인 사이에 배치가 새 결과를 넣어도 못 본 결과를 삼키지 않는다
+     * @return 본문 없는 200. 대상 행이 없거나 이미 확인됐어도 같은 200 이라 재시도해도 안전하다
+     */
     @Operation(summary = "주간 마감 결과 확인 처리(ack)",
             description = "GET 으로 받은 결과의 weekStartAt 을 실어 보내면 그 주차 결과를 확인 처리해 다시 노출되지 않게 한다. "
                     + "ack 시점에 최신행을 다시 찾지 않고 이 주차를 대상으로 하므로, 그 사이 배치가 새 주차 결과를 넣어도 "
