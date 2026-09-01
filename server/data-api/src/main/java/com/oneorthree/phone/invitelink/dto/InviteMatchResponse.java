@@ -15,10 +15,20 @@ import java.util.UUID;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record InviteMatchResponse(boolean matched, String slug, UUID groupId) {
 
+    /**
+     * @return {@code matched=false} 인 응답. slug·groupId 는 null 이라
+     *         {@code @JsonInclude(NON_NULL)} 에 의해 JSON 에서 아예 빠진다
+     */
     public static InviteMatchResponse notMatched() {
         return new InviteMatchResponse(false, null, null);
     }
 
+    /**
+     * @param slug 소진된 클릭이 가리키던 초대 링크
+     * @param groupId 그 링크의 그룹 — 앱이 초대 시트에 그룹을 띄우기 위해 함께 내려준다
+     * @return {@code matched=true} 응답. <b>가입이 끝났다는 뜻이 아니다</b> —
+     *         매칭은 확률적이라 앱이 사용자 확인을 받은 뒤에야 claim 으로 이어진다
+     */
     public static InviteMatchResponse matched(String slug, UUID groupId) {
         return new InviteMatchResponse(true, slug, groupId);
     }

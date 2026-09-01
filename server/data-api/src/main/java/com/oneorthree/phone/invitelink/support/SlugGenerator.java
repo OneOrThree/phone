@@ -21,6 +21,11 @@ public class SlugGenerator {
 
     private final SecureRandom random = new SecureRandom();
 
+    /**
+     * @return 헷갈리는 글자를 뺀 31자 알파벳에서 뽑은 8자 문자열({@code 31^8} ≈ 8.5×10^11).
+     *         <b>유일성을 보장하지 않는다</b> — 충돌 확인은 호출부가 하고 최종 방어는 DB 유니크 제약이다.
+     *         공간이 넓어 실제 충돌은 사실상 일어나지 않는다
+     */
     public String generate() {
         StringBuilder sb = new StringBuilder(LENGTH);
         for (int i = 0; i < LENGTH; i++) {
