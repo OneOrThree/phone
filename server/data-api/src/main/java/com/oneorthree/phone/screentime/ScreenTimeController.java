@@ -3,10 +3,6 @@ package com.oneorthree.phone.screentime;
 import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.screentime.service.ScreenTimeService;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -24,11 +20,10 @@ import java.util.UUID;
  * 당시 목표를 알 수 없기 때문이다. 다만 보고 시각이 어느 날짜에 속하는지는 서버가
  * {@link com.oneorthree.phone.common.util.ZonePolicy#KST} 로 다시 환산한다.
  */
-@Tag(name = "ScreenTime", description = "스크린 타임 목표 달성 저장 API")
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-public class ScreenTimeController {
+public class ScreenTimeController implements ScreenTimeControllerDocs {
 
     private final ScreenTimeService screenTimeService;
 
@@ -41,12 +36,6 @@ public class ScreenTimeController {
      * @return 본문 없는 204. 같은 날짜에 여러 번 보고해도 덮어쓰기라 결과가 같고,
      *         목표 달성 알림·재화 지급은 마감 보고에서 미달성→달성으로 넘어가는 순간 한 번만 일어난다
      */
-    @Operation(summary = "스크린 타임 저장", description = "매일 23:59 iOS 앱이 당일 스크린타임 달성 여부를 전송. 달성 여부는 iOS에서 계산.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "저장 성공"),
-            @ApiResponse(responseCode = "400", description = "유효성 검사 실패 또는 잘못된 타임존"),
-            @ApiResponse(responseCode = "404", description = "유저 없음")
-    })
     @PostMapping("/screen-time")
     public ResponseEntity<Void> saveScreenTime(
             @Valid @RequestBody ScreenTimeRequest request,

@@ -1,7 +1,5 @@
 package com.oneorthree.phone.invitelink;
 
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,8 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
  * (배포 후 Apple CDN 전파에 24~48h 걸린다는 점은 배포 일정에서 감안한다.)
  */
 @RestController
-@Tag(name = "WellKnown", description = "Universal Links 연결 파일")
-public class WellKnownController {
+public class WellKnownController implements WellKnownControllerDocs {
 
     /** appID = {@code <Team ID>.<bundle id>}. 경로는 초대 링크 전용({@code /l/*})으로 좁힌다. */
     private static final String AASA = """
@@ -30,7 +27,6 @@ public class WellKnownController {
      *         이 파일이 <b>배포마다 바뀌면 안 되는 값</b>이기 때문이다 — Apple CDN 이 캐시하고
      *         전파에 24~48시간이 걸려서, 내용이 흔들리면 그동안 Universal Links 가 불안정해진다
      */
-    @Operation(summary = "AASA 서빙", description = "application/json, 리다이렉트 없음")
     @GetMapping(value = "/.well-known/apple-app-site-association",
             produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> appleAppSiteAssociation() {

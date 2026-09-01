@@ -18,6 +18,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.Parameter;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
@@ -71,7 +72,9 @@ public interface UserControllerDocs {
         @ApiResponse(responseCode = "200", description = "판정 성공 — available 로 사용 가능 여부 반환"),
         @ApiResponse(responseCode = "401", description = "인증 없음")
     })
-    ResponseEntity<NicknameCheckResponse> checkNickname(String nickname, UUID userId);
+    ResponseEntity<NicknameCheckResponse> checkNickname(
+            @Parameter(description = "검사할 닉네임(trim 전 원문). 미전달 시 available=false") String nickname,
+            UUID userId);
 
     /**
      * @param userId 본인

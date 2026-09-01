@@ -5,11 +5,6 @@ import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.service.GroupBetSettlementService;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -32,10 +27,9 @@ import java.security.MessageDigest;
  * 회차·결과는 아래 warn 요약 + 회차별 정산 로그(GroupBetSettler)가 남긴다.
  */
 @Slf4j
-@Tag(name = "group-bet-batch", description = "그룹 챌린지 내기 정산 수동 트리거 (전 환경 — 관리자 키 필수)")
 @RestController
 @RequestMapping("/api/v1")
-public class GroupBetBatchController {
+public class GroupBetBatchController implements GroupBetBatchControllerDocs {
 
     /** 관리자 키 요청 헤더 — 환경변수 {@code BATCH_ADMIN_KEY} 값과 일치해야 한다. */
     public static final String ADMIN_KEY_HEADER = "X-Batch-Admin-Key";
@@ -66,30 +60,9 @@ public class GroupBetBatchController {
      * @param category 대상 카테고리 — 생략하면 전 카테고리다
      * @return 대상·분배·몰수·환불·스킵·실패 건수 요약. 실패 건은 그 회차만 롤백되고 나머지는 진행된다
      */
-    @Operation(summary = "내기 정산 배치 수동 실행 (MANUAL 트리거 · prod 포함)",
-            description = "정산 가능 시각(settle_after)이 지난 OPEN 회차를 훑어 정산 단일 진입점"
-                    + "(settle, GROMO-1411)에 넘긴다. 대상 선택이 회차별 settle_after 기준이라"
-                    + " 오전에 끝난 창형 등 **당일 회차도 즉시 복구**할 수 있다(종전 날짜 축은 당일"
-                    + " 회차를 못 잡아 24h 자동 환불까지 갔다). 5분 스캔과 달리 재시도 백오프는"
-                    + " 무시한다 — 지금 재시도하겠다는 뜻이다."
-                    + " 가드는 정산 본체가 진다 — 그레이스 미경과 회차(예: 아침 보고를 기다리는"
-                    + " SCREEN_TIME 하루형은 익일 12:00 전)와 창 겹침 집중 세션 대기 회차는"
-                    + " skippedCount 로 스킵되므로, 어느 시각에 호출해도 조기 정산 사고가 없다."
-                    + " 정산 24h 데드라인을 넘긴 회차는 정산 대신 자동 전원 환불되어"
-                    + " refundedCount 로 집계된다(N21)."
-                    + " category 파라미터로 대상을 좁힐 수 있고, 생략하면 전 카테고리다."
-                    + " 이미 정산된 내기는 스킵되므로 반복 호출해도 이중 지급이 없다."
-                    + " 실패 건은 그 내기만 롤백되고 failedCount 로 집계된다."
-                    + " X-Batch-Admin-Key 헤더에 관리자 키(환경변수 BATCH_ADMIN_KEY)를 실어야 한다.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "배치 실행 성공(대상 0건 포함)"),
-        @ApiResponse(responseCode = "403", description = "관리자 키 누락/불일치 (BATCH_KEY_INVALID)"),
-        @ApiResponse(responseCode = "503", description = "서버에 관리자 키 미설정 (BATCH_KEY_NOT_CONFIGURED)")
-    })
     @PostMapping("/groups/bets/settle")
     public ResponseEntity<GroupBetSettlementSummaryResponse> settleDueBets(
             @RequestHeader(value = ADMIN_KEY_HEADER, required = false) String adminKey,
-            @Parameter(description = "정산할 챌린지 카테고리 (생략 시 전체)")
             @RequestParam(required = false) MissionCategory category) {
         requireAdminKey(adminKey);
         // 감사 로그(LLD §2.3) — prod 포함 경로라 호출 사실·대상·결과를 warn 으로 남긴다.

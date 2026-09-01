@@ -16,7 +16,6 @@ import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.service.UserService;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.user.dto.UserProfileResponse;
-import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -65,7 +64,6 @@ public class UserController implements UserControllerDocs {
     @Override
     @GetMapping("/users/nickname/check")
     public ResponseEntity<NicknameCheckResponse> checkNickname(
-            @Parameter(description = "검사할 닉네임(trim 전 원문). 미전달 시 available=false")
             @RequestParam(required = false) String nickname,
             @LoginUser UUID userId) {
         // required=false — 파라미터 누락도 "항상 200 {available:false}" 계약에 태운다(400 분기 없음)

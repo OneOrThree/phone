@@ -176,7 +176,9 @@ public interface AuthControllerDocs {
      *         클라이언트는 값이 있을 때만 저장소를 갱신해야 한다.
      *         401 = 서명·만료 무효, refresh 가 아닌 타입, 저장된 해시와 불일치({@code REFRESH_TOKEN})
      */
-    @Operation(summary = "토큰 갱신", description = "Refresh Token → 새 Access Token 발급. RT는 갱신되지 않음.")
+    @Operation(summary = "토큰 갱신",
+            description = "Refresh Token → 새 Access Token 발급. RT 는 남은 수명이 절반 미만일 때만 "
+                    + "함께 회전하며(GROMO-1509), 회전했을 때만 응답의 refreshToken 이 채워진다.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "토큰 갱신 성공"),
         @ApiResponse(responseCode = "401", description = "유효하지 않은 Refresh Token")
@@ -197,7 +199,7 @@ public interface AuthControllerDocs {
     @Operation(summary = "로그아웃", description = "Refresh Token 무효화. 클라이언트는 로컬 토큰도 삭제해야 함.")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "로그아웃 성공"),
-        @ApiResponse(responseCode = "400", description = "유효하지 않은 Refresh Token")
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 Refresh Token")
     })
     ResponseEntity<Void> logout(LogoutRequest request);
 }

@@ -3,10 +3,6 @@ package com.oneorthree.phone.notification;
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.common.port.PushNotificationPort;
 import com.oneorthree.phone.common.port.PushSendResult;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +18,6 @@ import org.springframework.web.bind.annotation.RestController;
  * JwtFilter 화이트리스트에 등록돼 인증 없이 호출 가능 — body 의 deviceToken 으로 직접 발송한다.
  * 필터 체인(알림 설정·Quiet hours)도 의도적으로 우회 — 심야 테스트가 스킵돼 헷갈리는 일 방지.
  */
-@Tag(name = "notification-test", description = "테스트 푸시 발송 (local/dev/staging 전용 — 인증·필터 미적용)")
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
@@ -31,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  * ci 를 빼면 이 엔드포인트가 스펙에서 누락돼 Apidog 에 안 올라온다 (런타임 노출 아님, prod 미노출 유지).
  */
 @Profile({"local", "ci", "dev", "staging"})
-public class NotificationTestController {
+public class NotificationTestController implements NotificationTestControllerDocs {
 
     private final PushNotificationPort pushNotificationPort;
 
@@ -43,13 +38,6 @@ public class NotificationTestController {
      * @return 발송 시도 결과를 담은 200 — 실패도 오류 응답이 아니라 본문의 result 로 구분한다.
      *         local·ci 프로파일에서는 발송 자체가 흉내라 실제로 나가지 않는다
      */
-    @Operation(summary = "테스트 푸시 발송",
-            description = "body 의 deviceToken(FCM registration token)으로 즉시 발송. 인증·알림 설정·심야 필터 미적용. "
-                    + "title/body/link 는 선택 — 생략 시 기본 문구. local/ci 프로파일에서는 NoOp 이라 실제 발송되지 않음.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "발송 시도 완료 — result 로 판별 (SENT/INVALID_TOKEN/FAILED)"),
-        @ApiResponse(responseCode = "400", description = "deviceToken 누락")
-    })
     @PostMapping("/notifications/test")
     public ResponseEntity<TestPushResponse> sendTestPush(@Valid @RequestBody TestPushRequest body) {
         PushMessage message = new PushMessage(

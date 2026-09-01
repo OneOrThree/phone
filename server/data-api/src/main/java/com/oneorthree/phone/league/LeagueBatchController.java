@@ -4,7 +4,6 @@ import com.oneorthree.phone.league.dto.LeagueBatchSummaryResponse;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.league.service.LeagueBatchService;
-import io.swagger.v3.oas.annotations.Parameter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
@@ -63,9 +62,7 @@ public class LeagueBatchController implements LeagueBatchControllerDocs {
     @PostMapping("/league/batch/resume")
     public ResponseEntity<LeagueBatchSummaryResponse> resumeWeeklyBatch(
             @RequestHeader(value = ADMIN_KEY_HEADER, required = false) String adminKey,
-            @Parameter(description = "정산 대상 주차 시작 — KST 월요일 00:00 ISO instant (생략 시 직전 주차)")
             @RequestParam(required = false) String weekStartAt,
-            @Parameter(description = "표적 정산할 유저 id 목록 (생략 시 전체 순회)")
             @RequestParam(required = false) List<UUID> userIds) {
         requireAdminKey(adminKey);
         return ResponseEntity.ok(
