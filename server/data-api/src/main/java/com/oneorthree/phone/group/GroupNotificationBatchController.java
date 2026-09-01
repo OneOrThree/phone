@@ -44,6 +44,11 @@ public class GroupNotificationBatchController implements GroupNotificationBatchC
 
     /**
      * 키 미설정은 기동 실패가 아니라 503 응답으로 처리한다(GroupBetBatchController 와 동일).
+      *
+      * @param betEventNotificationService 내기 사건 알림 재훑기 — dedup 은 이쪽이 진다
+      * @param challengeWindowEndNotificationService 창형 챌린지 창 종료 푸시
+      * @param challengeDurationEndNotificationService 하루형 챌린지 마감 푸시
+      * @param batchAdminKey 환경변수에서 주입되는 관리자 키. 빈 문자열이면 세 엔드포인트가 전부 503 이다
      */
     public GroupNotificationBatchController(
             BetEventNotificationService betEventNotificationService,

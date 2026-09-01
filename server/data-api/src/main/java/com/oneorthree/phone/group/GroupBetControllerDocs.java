@@ -20,6 +20,12 @@ import java.util.UUID;
 @Tag(name = "Group Bet", description = "그룹 챌린지 내기 (개설/참가/히스토리). 현재 판 조회는 챌린지 목록 API 의 bet/lastSettledBet 필드")
 public interface GroupBetControllerDocs {
 
+    /**
+     * @param groupId 회차가 이 그룹 소속인지 확인하는 스코프
+     * @param sessionId 참여할 오늘 회차
+     * @param userId 요청자 — 그룹원이 아니면 403, 잔액이 참가비에 못 미치면 400
+     * @return 참가된 회차와 차감 반영 후 잔액 — 앱이 재조회 없이 잔액 표기를 갱신한다
+     */
     @Operation(summary = "회차 참여 (신 경로, GROMO-1408 · LLD §2.2)",
             description = "빈 바디. 앱이 카드의 bet.session.sessionId 로 지목한 회차에 참가하고 참가비를"
                     + " 즉시 차감한다(에스크로). 회차가 이미 있어야 호출 가능한 축이다 — lazy 개설은"
@@ -40,6 +46,12 @@ public interface GroupBetControllerDocs {
     })
     ResponseEntity<JoinSessionResponse> joinSession(UUID groupId, UUID sessionId, UUID userId);
 
+    /**
+     * @param groupId 회차 스코프
+     * @param sessionId 참여를 물릴 회차
+     * @param userId 요청자 — 자기 참가만 물릴 수 있다
+     * @return 본문 없는 204. 마지막 참가자가 떠나면 회차 행 자체가 사라진다
+     */
     @Operation(summary = "회차 참여 취소 (신 경로, GROMO-1423 · LLD §2.2)",
             description = "본인 참가를 무르고 참가비를 환불한다. 취소 마감(N22): 시작 전 참가는 회차"
                     + " 시작까지(유예 없음), 시작 후 참가(하루형)는 min(참가+5분, 회차 종료)까지."
@@ -57,6 +69,12 @@ public interface GroupBetControllerDocs {
     })
     ResponseEntity<Void> leaveSession(UUID groupId, UUID sessionId, UUID userId);
 
+    /**
+     * @param groupId 챌린지 스코프
+     * @param challengeId 다음 활성일 회차를 예약할 챌린지 — 회차가 없으면 서버가 만들어 참가시킨다
+     * @param userId 요청자 — 그룹원이 아니면 403, 잔액 부족은 400
+     * @return 예약된 회차의 날짜·참가비와 차감 후 잔액
+     */
     @Operation(summary = "다음 활성일 회차 참여 (신 경로, GROMO-1408·N45)",
             description = "빈 바디. 오늘을 제외한 다음 활성일 회차 1건을 lazy 개설 후 참가한다(예약 —"
                     + " 참가비 즉시 에스크로, N15). 오늘 회차는 join 이 담당한다. 취소는 예약분 규칙"
@@ -73,6 +91,14 @@ public interface GroupBetControllerDocs {
     })
     ResponseEntity<JoinSessionResponse> joinNext(UUID groupId, UUID challengeId, UUID userId);
 
+    /**
+     * @param groupId 챌린지 스코프
+     * @param challengeId 주간 예약 대상 챌린지
+     * @param request 예약할 날짜 범위
+     * @param userId 요청자 — 잔액은 실제 참가된 날짜 수만큼 한 번에 빠진다
+     * @return 이번 호출로 <b>실제로</b> 참가된 회차 목록과 총 차감액. 이미 참가했거나 마감된 날은
+     *     목록에서 빠지며, 전부 스킵이면 빈 목록·0 원이 200 으로 나간다(재호출이 정상 동선이라 에러가 아니다)
+     */
     @Operation(summary = "주간 부분 예약 (신 경로, GROMO-1408·N39)",
             description = "이번 주(월~일) 남은 활성일 회차를 lazy 개설 후 한 트랜잭션으로 참가한다"
                     + " (부분 성공 없음, 잔액 검사는 총액). 본문 sessionDates 는 선택 — 주면 그 날짜만"
@@ -91,6 +117,13 @@ public interface GroupBetControllerDocs {
     })
     ResponseEntity<JoinWeekResponse> joinWeek(UUID groupId, UUID challengeId, JoinWeekRequest request, UUID userId);
 
+    /**
+     * @param groupId 챌린지 스코프
+     * @param challengeId 내기를 걸 챌린지
+     * @param request 참가비 등 개설 파라미터
+     * @param userId 요청자 — 개설자는 즉시 참가 처리돼 참가비가 함께 빠진다
+     * @return 개설된 내기 id 하나 — 앱은 이 값으로 곧장 참가 호출을 잇는다
+     */
     @Operation(summary = "챌린지 내기 개설 (레거시 브리지)",
             description = "2계층 재편(GROMO-1262) 후 '설정 보장 + 해당 날짜 회차 개설 + 본인 참가'로"
                     + " 동작한다. 응답의 betId 는 회차 id 다(참가·취소 호출에 그대로 쓴다)."
@@ -110,6 +143,12 @@ public interface GroupBetControllerDocs {
     })
     ResponseEntity<CreateBetResponse> createBet(UUID groupId, UUID challengeId, CreateBetRequest request, UUID userId);
 
+    /**
+     * @param groupId 내기 스코프
+     * @param betId 참가할 오늘 회차
+     * @param userId 요청자 — 이미 목표를 달성한 상태면 409 로 막힌다(무위험 참가 차단)
+     * @return 본문 없는 204. 참가비는 이 호출 안에서 차감된다
+     */
     @Operation(summary = "챌린지 내기 참가",
             description = "빈 바디. 판돈이 즉시 차감된다. OPEN 이고 bet_date 가 KST 오늘인 내기만 참가 가능하며,"
                     + " 이미 목표를 달성했으면 거절된다(무위험 참가 차단).")
@@ -124,6 +163,12 @@ public interface GroupBetControllerDocs {
     })
     ResponseEntity<Void> joinBet(UUID groupId, UUID betId, UUID userId);
 
+    /**
+     * @param groupId 내기 스코프
+     * @param betId 없던 일로 만들 회차
+     * @param userId 요청자 — 개설자 본인이 아니면 403
+     * @return 본문 없는 204. 참가비는 환불되고, 정산 배치와 겹치면 한쪽만 이긴다(정산이 먼저면 409)
+     */
     @Operation(summary = "챌린지 내기 취소",
             description = "개설자 본인 && 참가자가 개설자 1명뿐 && OPEN 일 때만 취소할 수 있다."
                     + " 판돈은 환불된다. 취소 마감(N22·GROMO-1423)도 철회와 같은 규칙이다 — 시작 전"
@@ -142,6 +187,12 @@ public interface GroupBetControllerDocs {
     })
     ResponseEntity<Void> cancelBet(UUID groupId, UUID betId, UUID userId);
 
+    /**
+     * @param groupId 내기 스코프
+     * @param betId 참가를 물릴 회차
+     * @param userId 요청자 — 본인 참가 한 건만 대상이다
+     * @return 본문 없는 204. 남은 참가자가 있으면 회차는 그대로 살아 있다
+     */
     @Operation(summary = "챌린지 내기 참가 철회",
             description = "시작 전 회차에서 호출자 본인의 참가만 철회하고 본인 참가비를 환불한다."
                     + " 철회해도 남은 참가자가 있으면 회차는 유지되고, 유저가 연 회차에서 마지막"
@@ -160,6 +211,14 @@ public interface GroupBetControllerDocs {
     })
     ResponseEntity<Void> leaveBet(UUID groupId, UUID betId, UUID userId);
 
+    /**
+     * @param groupId 챌린지 스코프
+     * @param challengeId 이력을 볼 챌린지
+     * @param cursor 직전 페이지 마지막 항목의 betId — 생략하면 첫 페이지다
+     * @param size 페이지 크기(1~100). 범위를 벗어나면 400
+     * @param userId 요청자 — 이력은 그룹원 전체가 열람한다(개설자 한정이 아니다)
+     * @return 정산 완료 내기 한 페이지. 취소된 내기는 실리지 않고, 마지막 페이지면 nextCursor 가 null 이다
+     */
     @Operation(summary = "챌린지 내기 히스토리 조회",
             description = "챌린지의 정산 완료 내기(SETTLED·REFUNDED·FORFEITED)를 bet_date 내림차순으로"
                     + " keyset 커서 페이지네이션해 돌려준다. CANCELED(취소)는 '없던 일'이라 실리지 않는다."

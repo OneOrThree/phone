@@ -20,6 +20,12 @@ import java.util.UUID;
 @Tag(name = "Group Challenge", description = "그룹 챌린지 (목록/생성/종료/삭제/창 사용분 보고)")
 public interface GroupChallengeControllerDocs {
 
+    /**
+     * @param groupId 챌린지를 조회할 그룹
+     * @param date 진행률·오늘 내기를 채울 기준일(KST) — 생략하면 그 축이 통째로 null 로 내려간다(구앱 호환)
+     * @param userId 요청자 — 그룹원이 아니면 403
+     * @return 삭제되지 않은 챌린지 카드 목록(최신순). 종료된 챌린지도 실린다
+     */
     @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환. 삭제된 챌린지는 제외."
             + " date(선택, 서버 판정 축 KST 고정 기준 오늘 — 기기 로컬 날짜가 아니다)를 주면"
             + " 멤버별 당일 진행률(memberProgress)을 함께 반환한다"
@@ -38,6 +44,13 @@ public interface GroupChallengeControllerDocs {
     })
     ResponseEntity<List<GroupChallengeResponse>> getGroupChallenges(UUID groupId, LocalDate date, UUID userId);
 
+    /**
+     * @param groupId 챌린지를 만들 그룹 — 활성 챌린지 상한과 창 겹침을 그룹 단위로 본다
+     * @param request 미션 방식별 파라미터와 선택적 내기 설정
+     * @param userId 요청자 — 방장이 아니면 403
+     * @return 새 챌린지 id 와 스크린타임 미참여자 명단. 내기를 켠 생성이면 오늘 회차 개설까지
+     *     같은 트랜잭션에서 끝나므로, 실패 시 챌린지도 함께 롤백된다
+     */
     @Operation(summary = "그룹 챌린지 생성", description = "OWNER만 생성 가능. 성공 시 201 반환."
             + " repeatDays(도는 요일, [\"MON\"..\"SUN\"])는 신앱 필수(빈 배열 400) — 미전송 구앱은 매일(127)로 처리."
             + " TIME_WINDOW 는 durationMinutes(창 내 목표 분, 0 < x ≤ 창 길이) 필수 — 자정 걸침 금지(시작 < 종료),"
@@ -59,6 +72,14 @@ public interface GroupChallengeControllerDocs {
     ResponseEntity<CreateChallengeResponse> createGroupChallenge(UUID groupId, CreateChallengeRequest request,
             UUID userId);
 
+    /**
+     * @param groupId 챌린지 스코프
+     * @param challengeId 보고 대상 챌린지 — 스크린타임 창형이 아니면 거절된다
+     * @param request 날짜·사용분·측정 시각
+     * @param userId 요청자 — 보고는 (챌린지, 유저, 날짜)당 한 행이라 자기 것만 덮어쓴다
+     * @return 본문 없는 204. 이전 보고보다 오래된 측정 시각은 조용히 무시되므로 성공 응답이
+     *     「값이 반영됐다」를 뜻하지는 않는다
+     */
     @Operation(summary = "스크린타임 창 사용분 보고", description = "SCREEN_TIME×TIME_WINDOW 챌린지의 날짜별"
             + " 창 내 사용분 업로드. 그룹원 또는 시작된 OPEN 회차의 참가자(탈퇴자 포함 — N43)."
             + " (챌린지, 유저, 날짜)당 1행 upsert — measuredAt 단조 갱신(GROMO-1407·N34): 저장된 측정"
@@ -76,6 +97,12 @@ public interface GroupChallengeControllerDocs {
     ResponseEntity<Void> reportChallengeWindowUsage(UUID groupId, UUID challengeId,
             WindowUsageReportRequest request, UUID userId);
 
+    /**
+     * @param groupId 챌린지 스코프
+     * @param challengeId 종료할 챌린지
+     * @param userId 요청자 — 방장이 아니면 403
+     * @return 본문 없는 204. 이력과 지난 결과는 남는다(삭제와 다른 축이다)
+     */
     @Operation(summary = "그룹 챌린지 종료", description = "OWNER만 가능. 성공 시 204 — ENDED 전이(ended_at 기록),"
             + " 더 이상 새 회차를 세우지 않는다. 이미 ENDED 면 멱등 204. 진행 중(OPEN 회차 존재)이면 409 —"
             + " 접으려면 삭제(무효화 + 전원 환불)를 쓴다(policy §A8).")
@@ -89,6 +116,13 @@ public interface GroupChallengeControllerDocs {
     })
     ResponseEntity<Void> endGroupChallenge(UUID groupId, UUID challengeId, UUID userId);
 
+    /**
+     * @param groupId 챌린지 스코프
+     * @param challengeId 삭제할 챌린지
+     * @param userId 요청자 — 방장이 아니면 403
+     * @return 본문 없는 204. 걸려 있던 OPEN 회차는 무효화돼 참가비가 환불되므로,
+     *     확정 전에 삭제 프리플라이트로 규모를 먼저 보여 주는 것이 정상 동선이다
+     */
     @Operation(summary = "그룹 챌린지 삭제", description = "OWNER만 삭제 가능. 성공 시 204 반환.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "삭제 성공"),

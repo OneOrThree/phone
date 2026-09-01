@@ -19,6 +19,12 @@ import java.util.UUID;
         + " 로컬 단독 가드는 기기 교체·재설치에서 최근 30일 결과가 통째로 재생된다")
 public interface ChallengeResultAckControllerDocs {
 
+    /**
+     * @param sessionId 결과를 띄울 회차 — 아직 정산 전이거나 이미 확인 처리됐으면 409 다
+     * @param body 선택 — claimToken 을 실으면 최초 획득이 아니라 재검증 + 리스 연장이다
+     * @param userId 요청자 — 그 회차에 내 참가 행이 없으면 404
+     * @return 이 기기가 결과를 띄워도 된다는 증표(claimToken)와 리스 만료 힌트
+     */
     @Operation(summary = "결과 표시 선점 (claim) · 렌더 직전 재검증",
             description = "그 회차 결과를 이 기기가 표시하겠다고 선점한다. 만료가 있는 점유라 선점한"
                     + " 기기가 렌더 전에 죽어도 리스가 끝나면 다른 기기가 회수한다. 성공 응답의"
@@ -51,6 +57,12 @@ public interface ChallengeResultAckControllerDocs {
     ResponseEntity<ChallengeResultClaimResponse> claimDisplay(UUID sessionId, ChallengeResultClaimRequest body,
             UUID userId);
 
+    /**
+     * @param sessionId 확인 처리할 회차 — 아직 정산 전이면 409 다
+     * @param body 선점 때 받은 claimToken — 현재 선점과 다르면 409(내 리스가 남에게 넘어갔다)
+     * @param userId 요청자 — 확인 표시는 유저별이라 다른 멤버의 모달에는 영향이 없다
+     * @return 본문 없는 200. 대상 행 없음·중복 호출도 no-op 성공이다(멱등)
+     */
     @Operation(summary = "결과 확인 표시 (ack)",
             description = "모달이 실제로 노출된 뒤에 호출한다. 선점 때 받은 claimToken 을 실어 보내면"
                     + " 그 회차를 확인 처리해 다시 노출되지 않게 한다 — acknowledged_at IS NULL 조건부"
