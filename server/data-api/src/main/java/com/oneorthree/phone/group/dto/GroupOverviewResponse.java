@@ -9,6 +9,13 @@ import lombok.Getter;
 
 import java.util.UUID;
 
+/**
+ * 초대 링크 프리뷰가 읽는 그룹 요약.
+ *
+ * <p>멤버십을 요구하지 않는 유일한 그룹 조회다 — 그래서 멤버 명단·참가 코드 같은 내부 정보는 빼고
+ * 가입 판단에 필요한 것(정원·현원·잠금 여부·대표 미션)만 담는다. 현원은 탈퇴자를 뺀 활성 멤버 수라
+ * 정원 판정(joinGroup)과 같은 기준이고, 미션 5필드는 대표 챌린지가 없으면 전부 null 이다.
+ */
 @Getter
 @Builder
 public class GroupOverviewResponse {
@@ -47,6 +54,8 @@ public class GroupOverviewResponse {
      * <p>getter 를 직접 선언하고 여기에만 애노테이션을 달면 프로퍼티가 하나로 접힌다 — private 필드는
      * Jackson 기본 가시성 밖이라 애노테이션이 없으면 잡히지 않기 때문이다. Lombok {@code @Getter} 는
      * 같은 이름의 메서드가 이미 있으면 생성을 건너뛴다.
+      *
+      * @return 호출자가 이미 이 그룹의 활성 멤버면 true — 프리뷰를 건너뛰고 그룹방으로 바로 보낸다
      */
     @JsonProperty("isMember")
     public boolean isMember() {

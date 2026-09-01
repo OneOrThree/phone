@@ -14,6 +14,10 @@ import org.springframework.http.ResponseEntity;
         description = "그룹 챌린지 푸시 수동 트리거 (local/dev/staging 전용)")
 public interface GroupNotificationBatchControllerDocs {
 
+    /**
+     * @param adminKey 관리자 키 헤더 — 미설정이면 503, 불일치면 403
+     * @return 대상·발송·스킵 건수 요약. 이미 나간 알림은 스킵되므로 반복 호출해도 중복 발송이 없다
+     */
     @Operation(summary = "내기 사건 알림 재훑기 수동 실행",
             description = "최근 48시간 안에 종료된 회차(SETTLED·FORFEITED 결과 + VOIDED·REFUNDED 환불 통지)를"
                     + " 재훑기해 미발송 건을 사건 단위 파이프라인(클레임 → 묶음 → 발송)에 태우고,"
@@ -30,6 +34,10 @@ public interface GroupNotificationBatchControllerDocs {
     })
     ResponseEntity<PushDispatchSummaryResponse> notifyBetResults(String adminKey);
 
+    /**
+     * @param adminKey 관리자 키 헤더 — 미설정이면 503, 불일치면 403
+     * @return 대상·발송·스킵 건수 요약
+     */
     @Operation(summary = "챌린지 창 종료 푸시 수동 실행",
             description = "창형(TIME_WINDOW) 활성 챌린지 중 오늘 창 종료가"
                     + " 최근 30분 안에 지난 건을 찾아 그룹원 전원에게 '결과 확인' 푸시를 보낸다(승패 미포함)."
@@ -44,6 +52,10 @@ public interface GroupNotificationBatchControllerDocs {
     })
     ResponseEntity<PushDispatchSummaryResponse> notifyChallengeWindowEnd(String adminKey);
 
+    /**
+     * @param adminKey 관리자 키 헤더 — 미설정이면 503, 불일치면 403
+     * @return 대상·발송·스킵 건수 요약
+     */
     @Operation(summary = "일 목표형 챌린지 하루 마감 푸시 수동 실행",
             description = "일 목표형(DURATION) 활성 챌린지의 그룹원에게 '어제 결과 확인' 푸시를 보낸다"
                     + " (승패 미포함). 스케줄러 09:00 KST 잡과 같은 판정이며, 회차 경계가 자정이라"

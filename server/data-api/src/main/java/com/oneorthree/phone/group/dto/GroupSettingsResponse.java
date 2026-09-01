@@ -20,6 +20,10 @@ public class GroupSettingsResponse {
     /** 전 활성 멤버의 공지 작성 권한 목록(방장 포함, 방장은 항상 granted=true·토글 불가). */
     private List<AnnouncementGrant> announcementGrants;
 
+    /**
+     * 멤버 한 명의 공지 작성 권한. 방장은 언제나 {@code granted=true} 이고 화면에서 토글이 잠긴다 —
+     * 회수 요청이 와도 서버가 방장 항목을 무시한다.
+     */
     @Getter
     @Builder
     public static class AnnouncementGrant {

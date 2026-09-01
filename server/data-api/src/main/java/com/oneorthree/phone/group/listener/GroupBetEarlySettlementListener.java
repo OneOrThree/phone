@@ -36,6 +36,16 @@ public class GroupBetEarlySettlementListener {
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final GroupBetSettler groupBetSettler;
 
+    /**
+     * 확정 이벤트를 커밋 뒤에 받아 조기 정산 조건을 검사한다.
+     *
+     * <p>회차가 이미 사라졌거나 닫혔거나, 참가 마감 전이거나, 미확정 참가자가 남아 있으면 아무것도
+     * 하지 않는다. 셋을 다 통과해야 {@code settle(EARLY)} 를 부르고, 그 호출이 던지는 예외는 삼킨다 —
+     * 조기 정산은 최적화 경로라 실패해도 5분 크론이 {@code settle_after} 에 같은 회차를 회수한다.
+     * 여기서의 검사는 무락이라 낡았을 수 있고, 최종 판정은 회차 락 안에서 다시 이뤄진다.
+     *
+     * @param event 방금 확정된 참가가 속한 회차 — 회차 행이 없으면 조용히 반환한다
+     */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onBetWon(GroupBetWonEvent event) {
         GroupChallengeBetSession session =

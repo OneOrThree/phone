@@ -76,8 +76,12 @@ public class ChallengeResultAckService {
      * 시계를 줄 자리가 없다(그게 이 경로의 계약이다 — 인스턴스 시계가 섞이면 시계가 빠른 쪽이 남의
      * 방금 만든 선점을 즉시 회수한다).
      *
+     * @param userId 요청자 — 선점은 유저별이라 같은 회차라도 다른 멤버의 모달과 경합하지 않는다
+     * @param sessionId 결과를 띄울 회차
      * @param currentToken 렌더 직전 재검증할 내 선점 토큰 — {@code null} 이면 최초 획득
-     * @throws UserException                     {@code USER_NOT_FOUND} — 요청자 유저 부재(재로그인)
+     * @return 이 기기가 결과를 띄워도 된다는 증표. 재검증이면 <b>같은 토큰</b>이 그대로 돌아온다 —
+     *     토큰을 회전시키면 갱신 응답이 유실됐을 때 ack 까지 막힌다
+     * @throws UserException                   {@code USER_NOT_FOUND} — 요청자 유저 부재(재로그인)
      * @throws GroupException                    {@code BET_NOT_FOUND} — 그 회차의 내 참가 행 없음 /
      *                                           {@code RESULT_ALREADY_ACKED} — 이미 확인된 결과 /
      *                                           {@code RESULT_NOT_SETTLED} — 아직 정산 전
@@ -179,6 +183,10 @@ public class ChallengeResultAckService {
      * 결과 확인 표시(ack) — <b>노출이 실제로 일어난 뒤</b>에 호출된다(D8: slot → 선점 → 검증 →
      * 노출 → ack). 대상 행 없음·이미 확인됨·중복 호출은 전부 no-op 으로 성공 처리한다(멱등).
      *
+     * @param userId 요청자 — 확인 표시는 유저별이라 다른 멤버의 모달 큐에는 영향이 없다
+     * @param sessionId 확인 처리할 회차 — 성사되면 아직 안 나간 결과 푸시 클레임도 함께 닫는다
+     *     (안 닫으면 이미 본 결과의 푸시가 한참 뒤에 도착한다)
+     * @param claimToken 선점 때 받은 토큰. {@code null} 이면 어떤 행도 갱신하지 못한다
      * @throws GroupException {@code RESULT_CLAIM_STALE} — 토큰이 현재 선점과 다르다(만료 후 재선점)
      */
     @Transactional

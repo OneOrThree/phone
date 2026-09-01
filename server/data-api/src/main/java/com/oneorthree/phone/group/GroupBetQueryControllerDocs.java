@@ -20,6 +20,11 @@ import java.util.UUID;
         + " /me 조회(보고 탐색축·결과 모달 큐), 삭제 프리플라이트, 그룹 챌린지 내역")
 public interface GroupBetQueryControllerDocs {
 
+    /**
+     * @param status 필터 — 지원하는 값은 OPEN 하나뿐이라 다른 값은 400 이다
+     * @param userId 요청자 — 그룹을 가로질러 내 참가만 모은다
+     * @return 회차일 오름차순의 내 OPEN 회차 목록. 참가 중인 회차가 없으면 빈 목록이다
+     */
     @Operation(summary = "내 OPEN 회차 목록 (그룹 무관)",
             description = "내가 참가비를 건 진행 중(OPEN) 회차 전부 — 창 사용분 보고의 대상 탐색축(N43)."
                     + " 그룹 멤버십을 보지 않으므로 그룹 탈퇴 후에도, 챌린지 종료 후에도 조회된다."
@@ -34,6 +39,13 @@ public interface GroupBetQueryControllerDocs {
     })
     ResponseEntity<MyBetSessionsResponse> getMyBetSessions(String status, UUID userId);
 
+    /**
+     * @param since 이 시각 이후 정산분만 — 생략하면 서버 기본 창(최근 30일)이 걸린다
+     * @param limit 최대 건수 — 생략 시 서버 기본값
+     * @param userId 요청자 — 결과 모달 큐가 유저별이라 다른 멤버의 확인 여부와 무관하다
+     * @return 아직 확인하지 않은 정산 회차 목록(회차일 내림차순). 다 봤으면 빈 목록이고,
+     *     그것이 곧 「띄울 모달이 없다」는 뜻이다
+     */
     @Operation(summary = "내 미확인 정산 완료 회차 (그룹 무관) — 결과 모달 큐의 유일한 소스",
             description = "내가 참가자인 정산 완료 회차(SETTLED·FORFEITED·VOIDED·REFUNDED) 중"
                     + " 아직 확인(ack)하지 않은 것을 회차일 내림차순으로 돌려준다(N53·N58)."
@@ -55,6 +67,13 @@ public interface GroupBetQueryControllerDocs {
     })
     ResponseEntity<MyChallengeResultsResponse> getMyChallengeResults(Instant since, Integer limit, UUID userId);
 
+    /**
+     * @param groupId 챌린지 스코프
+     * @param challengeId 삭제를 검토 중인 챌린지
+     * @param userId 요청자 — 방장이 아니면 403
+     * @return 삭제하면 무효화될 OPEN 회차 전부와 환불 총액. 오늘 회차뿐 아니라 주간 예약으로
+     *     걸린 미래 회차까지 포함하므로, 카드의 오늘치만 보고 경고를 그리면 남의 돈을 놓친다
+     */
     @Operation(summary = "챌린지 삭제 프리플라이트 (그룹장 전용)",
             description = "삭제 경고에 쓸 영향 범위(N49·K11 해소) — OPEN 회차 전부(예약된 미래 포함)의"
                     + " 날짜·인원·적립금과 총 환불액. 카드의 bet.session 은 오늘 회차 1건뿐이라 주간"
@@ -69,6 +88,14 @@ public interface GroupBetQueryControllerDocs {
     })
     ResponseEntity<ChallengeDeletionPreviewResponse> getDeletionPreview(UUID groupId, UUID challengeId, UUID userId);
 
+    /**
+     * @param groupId 이력을 볼 그룹
+     * @param cursor 직전 페이지 마지막 항목의 sessionId — 생략하면 첫 페이지다
+     * @param size 페이지 크기. 범위를 벗어나면 400
+     * @param challengeId 특정 챌린지로 좁히는 선택 필터 — 생략하면 그룹 전체다
+     * @param userId 요청자 — 그룹원이 아니면 403
+     * @return 회차 이력 한 페이지(최신순). 마지막 페이지면 nextCursor 가 null 이다
+     */
     @Operation(summary = "그룹 챌린지 내역 (그룹 단위 회차 이력)",
             description = "그룹의 정산 완료 회차(SETTLED·REFUNDED·FORFEITED·VOIDED)를 (session_date, id)"
                     + " 내림차순 keyset 커서로 페이지네이션한다(GROMO-1271·N6-1). 이력의 소유자가"

@@ -50,6 +50,8 @@ public class GroupBetSettlementService {
      * {@code settle_after} 가 지난 OPEN 회차를 정산한다 — 수동 트리거의 진입점.
      *
      * @param category 이 카테고리의 챌린지에 걸린 내기만 정산한다. {@code null} 이면 전 카테고리
+      * @return 대상·분배·몰수·환불·스킵·실패 건수와 소요 시간. 한 건의 실패는 그 회차만 롤백하고
+      *     나머지는 계속 돈다
      */
     public GroupBetSettlementSummaryResponse settleDueBets(MissionCategory category) {
         return settleDueBets(Instant.now(), category);
@@ -58,6 +60,8 @@ public class GroupBetSettlementService {
     /**
      * @param now      실행 기준 시각 — {@code settle_after <= now} 인 OPEN 회차가 대상이다
      * @param category 대상 챌린지 카테고리. {@code null} 이면 전 카테고리
+      * @return 이 실행의 처리 요약. 다른 실행(5분 스캔 ↔ 수동 트리거)이 먼저 정산한 회차는 스킵으로
+      *     세므로 동시 실행끼리 같은 회차를 각자 성과로 중복 집계하지 않는다
      */
     public GroupBetSettlementSummaryResponse settleDueBets(Instant now, MissionCategory category) {
         long startedAtMillis = System.currentTimeMillis();

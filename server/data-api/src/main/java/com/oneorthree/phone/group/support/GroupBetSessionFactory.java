@@ -41,6 +41,21 @@ public class GroupBetSessionFactory {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
+    /**
+     * 회차 행 한 건을 조립한다 — 저장은 호출측이 한다.
+     *
+     * <p>미션 스냅샷(카테고리·방식·목표분·창 시각)과 참가비를 <b>이 시점 값으로 박제</b>하므로 이후
+     * 챌린지가 바뀌거나 삭제돼도 회차 한 줄이 조인 없이 자립한다. 시각 4종도 여기서 확정된다 —
+     * 창형은 창 시작~창 종료에 30분 그레이스, 하루형은 회차일 00:00~익일 00:00(KST)에 FOCUS 1시간·
+     * SCREEN_TIME 12시간 그레이스다. 참가 마감은 창형이 창 시작, 하루형이 회차 종료로 갈린다.
+     *
+     * @param bet 참가비의 출처이자 회차의 부모 설정
+     * @param group 회차 행에 함께 박제하는 소속 그룹
+     * @param challenge 스냅샷에 복사할 카테고리·방식의 출처
+     * @param target 목표분·창 시각·창형 여부 — 시각 계산 분기가 이 값 하나로 갈린다
+     * @param sessionDate 회차 날짜(KST) — 모든 시각이 이 날짜에서 파생된다
+     * @return 아직 저장되지 않은 OPEN 회차. 같은 (내기, 날짜)가 이미 있는지는 검사하지 않는다
+     */
     public GroupChallengeBetSession create(GroupChallengeBet bet, Group group,
             GroupChallenge challenge, GroupBetJudge.Target target, LocalDate sessionDate) {
         LocalTime windowStart = null;
@@ -90,7 +105,13 @@ public class GroupBetSessionFactory {
                 .build();
     }
 
-    /** 날짜 {@code date} 회차의 참가 마감(LLD §1.1) — 창형은 창 시작, 하루형은 회차 종료(익일 00:00). */
+    /**
+     * 날짜 {@code date} 회차의 참가 마감(LLD §1.1) — 창형은 창 시작, 하루형은 회차 종료(익일 00:00).
+     *
+     * @param target 창형 여부와 창 시작 시각의 출처
+     * @param date 회차 날짜(KST)
+     * @return 참가 마감 시각 — 창형은 창이 열리는 순간, 하루형은 익일 00:00 KST
+     */
     public Instant joinClosesAtOn(GroupBetJudge.Target target, LocalDate date) {
         if (target.windowed()) {
             return WindowFocusAggregator.windowStartOn(date, target.windowStart());

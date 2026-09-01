@@ -64,6 +64,20 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * 그룹 자체의 생성·조회·설정 — 멤버십 <b>변경</b>은 {@code GroupMemberService}, 챌린지는
+ * {@code GroupChallengeService} 가 맡는다.
+ *
+ * <p>클래스 기본 트랜잭션이 읽기 전용이라 조회 메서드는 락을 걸 수 없다(Postgres 가 read-only
+ * 트랜잭션의 FOR SHARE 를 거절한다). 변경 메서드만 {@code @Transactional} 로 쓰기 트랜잭션을 열고,
+ * 그 안에서만 {@link #requireActiveUser} 의 공유 락을 쓴다.
+ *
+ * <p>멤버 수는 어디서 세든 <b>탈퇴 유저를 뺀 활성 멤버</b> 기준이다(GROMO-1220) — 정원 판정과
+ * 화면 타일 수가 갈라지면 「N명인데 N-1 타일」이 된다.
+ *
+ * <p>미션 정보는 그룹 컬럼이 아니라 <b>대표 챌린지</b>에서 뽑는다(GROMO-674) — 상세·오버뷰의
+ * 미션 필드가 전부 null 이면 그룹 설정이 비어 있는 게 아니라 활성 챌린지가 없는 것이다.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -111,6 +125,17 @@ public class GroupService {
     private static final Set<String> ALLOWED_JOIN_METHODS = Set.of("code", "search", "invite", "deferred_invite");
     private static final String UNKNOWN_JOIN_METHOD = "unknown";
 
+    /**
+     * 그룹을 만들고 생성자를 방장 멤버로 함께 등록한다.
+     *
+     * <p>생성도 곧 가입이라 소속 그룹 수 상한을 참가와 같은 기준으로 적용한다. 참가 코드는 발급만
+     * 계속하고 읽는 경로가 없으며(초대 링크 전환으로 폐기), 대표 챌린지는 만들지 않는다 —
+     * 챌린지는 그룹방에서 따로 세운다.
+     *
+     * @param userId 요청자 — 탈퇴가 확정된 계정이 방장인 그룹이 남지 않도록 공유 락으로 검증한다
+     * @param request 그룹명·소개·정원·공개 여부와 선택적 비밀번호. 정원을 안 주면 10 이다
+     * @return 새 그룹 id. 함께 실리는 코드는 앱이 읽지 않는 잔존 필드다
+     */
     @Transactional
     public CreateGroupResponse createGroup(UUID userId, CreateGroupRequest request) {
         // 1) 활성 검증 + 공유 락 (GROMO-1226) — 락 없는 findById 면 계정 탈퇴(유저 행 배타 락)의
@@ -163,6 +188,15 @@ public class GroupService {
         return new CreateGroupResponse(group.getId(), uniqueCode);
     }
 
+    /**
+     * 내가 속한 그룹을 전부 읽는다 — 페이지네이션이 없고, 소속 그룹 수 상한이 응답 크기를 묶는다.
+     *
+     * <p>그룹 수와 무관하게 쿼리가 상수다: 참가 코드와 멤버 수를 각각 IN 집계 1회로 모은다
+     * (그룹마다 조회하던 N+1 을 닫았다).
+     *
+     * @param userId 요청자 — 이탈·강퇴로 빠진 그룹은 실리지 않는다
+     * @return 내 그룹 요약 목록. 어디에도 안 속했으면 빈 목록이다
+     */
     public List<GroupSummaryResponse> getMyGroups(UUID userId) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
@@ -205,6 +239,9 @@ public class GroupService {
      *
      * <p>참가 코드 정확 매칭 분기는 코드 체계 폐기(2026-07-31)와 함께 제거됐다.
      * 무제한 반환(구 findByNameContainingIgnoreCase)도 LIMIT 으로 닫았다 — 커서 페이지네이션은 후속.
+      *
+      * @param query 그룹명 검색어 — null·공백이면 검색 대신 공개방 최신순 기본 목록을 낸다
+      * @return 최대 20건의 공개 그룹. 비공개 그룹은 초대 링크 전용이라 어떤 검색어로도 나오지 않는다
      */
     public List<GroupSearchResponse> searchGroups(String query) {
         // A-10: 검색어가 비면 공개방 최신순 상위 10개(기본 목록), 있으면 trgm 검색.
@@ -257,6 +294,20 @@ public class GroupService {
         );
     }
 
+    /**
+     * 그룹에 참여한다 — 정원·비밀번호·재참여 자격을 순서대로 통과해야 한다.
+     *
+     * <p>과거 이탈 행이 있으면 <b>지우고 새로 만들지 않고 되살린다</b>((user, group) 유니크 제약
+     * 때문이다). 다만 강퇴 이력은 되살릴 수 없어 거절한다 — 자진 탈퇴와 강퇴가 갈리는 지점이다.
+     * 정원은 탈퇴 유저를 뺀 활성 멤버로 세므로 유령이 차지하던 자리는 회수된다.
+     *
+     * <p>참여 어트리뷰션(초대 slug·경로)은 <b>부가 정보</b>다: slug 가 가리키는 그룹이 실제 참여
+     * 그룹과 다르거나 셀프 초대면 slug 만 버리고 참여 자체는 그대로 성사시킨다.
+     *
+     * @param groupId 참여할 그룹
+     * @param userId 요청자 — 강퇴 이력이 있으면 {@code KICKED_CANNOT_REJOIN}
+     * @param request 잠긴 그룹의 비밀번호와 어트리뷰션 필드. 구버전 앱은 비밀번호만 보낸다
+     */
     @Transactional
     public void joinGroup(UUID groupId, UUID userId, JoinGroupRequest request) {
         // 1. 활성 검증 + 공유 락 (GROMO-801, codex 리뷰) — 근거는 requireActiveUser Javadoc.
@@ -412,6 +463,17 @@ public class GroupService {
         return params;
     }
 
+    /**
+     * 초대 링크 프리뷰용 그룹 요약 — <b>멤버십을 요구하지 않는 유일한 그룹 조회</b>다.
+     *
+     * <p>요청자 검증이 그룹 조회보다 <b>먼저</b>인 것이 계약이다(GROMO-1247): 순서가 뒤집히면
+     * 「탈퇴 유저 + 없는 groupId」 조합에서 그룹 부재가 먼저 터져, 재로그인이 답인 상황을 앱이
+     * 「사라진 그룹」으로 잘못 안내한다.
+     *
+     * @param groupId 미리 볼 그룹
+     * @param userId 요청자 — 비멤버도 통과하지만 계정 자체가 없으면 {@code USER_NOT_FOUND}
+     * @return 가입 판단에 필요한 공개 정보. 활성 챌린지가 없으면 미션 필드가 전부 null 이다
+     */
     public GroupOverviewResponse getGroupOverview(UUID groupId, UUID userId) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         //
@@ -458,6 +520,9 @@ public class GroupService {
     /**
      * 참가 코드 재발급.
      *
+     * @param groupId 코드를 갈아끼울 그룹
+     * @param userId 요청자 — 방장이 아니면 {@code NOT_OWNER}
+     * @return 새 코드와 만료 시각. 읽는 경로가 없어 사실상 아무도 보지 않는 값이다
      * @deprecated 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 앱이 더 이상 호출하지 않는다.
      *     엔드포인트를 남겨두는 것은 계약 파괴를 피하기 위함이며, 실제 제거는 후속 정리 티켓에서 다룬다.
      */
@@ -483,6 +548,18 @@ public class GroupService {
         return new RenewGroupCodeResponse(joinCode.getCode(), joinCode.getExpiresAt());
     }
 
+    /**
+     * 그룹방 상세 — 그룹 메타·대표 미션·활성 멤버 목록을 한 번에 낸다.
+     *
+     * <p>멤버 수와 무관하게 쿼리가 상수다: 당일 집중분과 라이브 세션은 공용 배치 도출 1회,
+     * 전체 누적 집중분은 IN 집계 1회로 모은다. 목록 정렬(누적 내림차순, 동점은 닉네임)은
+     * <b>서버가 확정</b>하므로 클라가 다시 정렬하지 않는다.
+     *
+     * @param groupId 조회할 그룹
+     * @param userId 요청자 — 그룹원이 아니면 {@code MEMBER_ONLY}. 방장에게만 참가 코드 필드가 채워진다
+     * @param date 당일 집중분의 기준일 — 서버 판정 축(KST)이라 기기 로컬 날짜가 아니다
+     * @return 그룹 상세. 집계·라이브 어느 쪽에도 안 잡힌 멤버는 0·false·null 기본값으로 실린다
+     */
     public GroupDetailResponse getGroupDetail(UUID groupId, UUID userId, LocalDate date) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
@@ -563,6 +640,16 @@ public class GroupService {
                 .build();
     }
 
+    /**
+     * 그룹 정보를 부분 수정한다 — null 필드는 미변경이라 빈 요청도 성공한다.
+     *
+     * <p>정원 축소만 별도 가드가 있다: 현원(탈퇴자 제외)보다 작게 줄이면 {@code MAX_MEMBERS_TOO_SMALL}
+     * 로 거절한다. 비밀번호와 공개/비공개는 독립된 축이라 한쪽만 바꿀 수 있다.
+     *
+     * @param groupId 수정할 그룹
+     * @param userId 요청자 — 방장이 아니면 {@code NOT_OWNER}
+     * @param request 부분 수정 본문. {@code SET} 인데 비밀번호가 비면 400 이다
+     */
     @Transactional
     public void updateGroup(UUID groupId, UUID userId, UpdateGroupRequest request) {
         User user = requireActiveUser(userId);
@@ -608,6 +695,13 @@ public class GroupService {
         }
     }
 
+    /**
+     * 그룹 설정(방장 전용) — 지금은 멤버별 공지 작성 권한이 전부다.
+     *
+     * @param groupId 설정을 볼 그룹
+     * @param userId 요청자 — 방장이 아니면 {@code NOT_OWNER}
+     * @return 활성 멤버 전원의 권한 목록. 방장 항목은 언제나 부여 상태로 고정이고 탈퇴자는 빠진다
+     */
     public GroupSettingsResponse getGroupSettings(UUID groupId, UUID userId) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
@@ -639,6 +733,17 @@ public class GroupService {
                 .build();
     }
 
+    /**
+     * 멤버별 공지 작성 권한을 항목별로 반영한다.
+     *
+     * <p>요청 목록에 없는 멤버는 미변경이고, 방장·비멤버·탈퇴자 항목은 <b>조용히 무시</b>된다 —
+     * 성공했다고 보낸 항목이 다 반영된 것은 아니다. 같은 유저가 두 번 실리면 뒤엣것이 이긴다.
+     * null·빈 목록이면 아무것도 바꾸지 않는다.
+     *
+     * @param groupId 설정을 바꿀 그룹
+     * @param userId 요청자 — 방장이 아니면 {@code NOT_OWNER}
+     * @param request 반영할 권한 항목들
+     */
     @Transactional
     public void updateGroupSettings(UUID groupId, UUID userId, UpdateGroupSettingsRequest request) {
         User user = requireActiveUser(userId);

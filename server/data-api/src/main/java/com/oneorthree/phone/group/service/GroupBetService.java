@@ -140,6 +140,12 @@ public class GroupBetService {
      * 참가</b>로 해석된다. 설정이 없으면 만들고(챌린지 1:1), 이미 있으면 요청 stake 로 갱신한다
      * (회차가 자기 stake 를 박제하므로 과거 회차·정산은 불변). 응답의 {@code betId} 는 <b>회차 id</b> 다
      * — 구앱이 그 값으로 참가·취소를 호출하는 흐름이 그대로 성립한다.
+      *
+      * @param groupId 챌린지 스코프
+      * @param challengeId 내기를 걸 챌린지 — 설정이 없으면 만들고, 있으면 요청 참가비로 갱신한다
+      * @param userId 요청자 — 개설과 동시에 본인이 참가 처리돼 참가비가 즉시 빠진다
+      * @param request 참가비와 회차 날짜. 날짜는 KST 오늘·내일만 허용하고 그 밖은 {@code BET_CLOSED} 다
+      * @return 구앱이 참가·취소에 그대로 쓰는 {@code betId} — 실제로는 <b>회차 id</b> 다
      */
     @Transactional
     public CreateBetResponse createBet(UUID groupId, UUID challengeId, UUID userId, CreateBetRequest request) {
@@ -214,7 +220,9 @@ public class GroupBetService {
     /**
      * 진행 중(OPEN·오늘 또는 내일) 회차에 참가한다. 참가비는 즉시 차감된다.
      *
+     * @param groupId 회차 스코프 — 다른 그룹의 회차 id 는 여기서 {@code BET_NOT_FOUND} 로 걸린다
      * @param sessionId 구 API 경로의 {@code betId} — 브리지에서 회차 id 로 해석된다
+     * @param userId 요청자 — 이미 목표를 달성했으면 무위험 참가로 보고 거절한다
      */
     @Transactional
     public void joinBet(UUID groupId, UUID sessionId, UUID userId) {
@@ -252,6 +260,10 @@ public class GroupBetService {
      *
      * <p>개설자 개념이 사라졌으므로 "개설자 본인" 검사는 "내가 참가자인가"로 해석된다 — 단독 참가
      * 회차에서 그 참가자가 곧 개설자였던 구 의미와 실질이 같다.
+      *
+      * @param groupId 회차 스코프
+      * @param sessionId 없던 일로 만들 회차 — 참가자가 본인 1명뿐이어야 한다
+      * @param userId 요청자 — 이 회차 참가자가 아니면 {@code BET_CANCEL_FORBIDDEN}
      */
     @Transactional
     public void cancelBet(UUID groupId, UUID sessionId, UUID userId) {
@@ -302,6 +314,10 @@ public class GroupBetService {
      * <p>카드 응답의 {@code bet.session.myLeaveDeadlineAt}(GROMO-1418)이 <b>같은 함수</b>를 싣는다.
      * 종전처럼 {@code startsAt} 만 보면 하루형 당일 참가자는 화면이 알려준 유예(참가+5분) 안에
      * 눌러도 무조건 {@code BET_LEAVE_CLOSED} 라, 응답이 거짓말을 하고 환불이 막힌다.
+      *
+      * @param groupId 회차 스코프
+      * @param sessionId 참가를 물릴 회차 — 남은 참가자가 있으면 회차는 그대로 살아 있다
+      * @param userId 요청자 — 본인 참가 한 건만 대상이고, 마감이 지났으면 {@code BET_LEAVE_CLOSED}
      */
     @Transactional
     public void leaveBet(UUID groupId, UUID sessionId, UUID userId) {
@@ -345,6 +361,9 @@ public class GroupBetService {
      * 잠금({@link #requireGroupMembershipForShare})과 이 배타 잠금이 멤버십 행에서 직렬화된다.
      *
      * <p><b>불변식: 그룹 상태(ENDED 등)를 보지 않는다</b> — 회차 status 만이 게이트다.
+      *
+      * @param user 그룹을 나가는 유저 — 참가 행을 지우고 참가비를 되돌려준다
+      * @param group 정리 범위. 이 그룹의 OPEN 회차만 건드리고 다른 그룹의 참가는 그대로 둔다
      */
     @Transactional
     public void releaseFromOpenBets(User user, Group group) {
@@ -359,6 +378,8 @@ public class GroupBetService {
      * 호출한다(참여 경로의 유저 공유 락과 직렬화 — 멤버십 잠금이 따로 필요 없다).
      *
      * <p>강퇴자는 활성 멤버십이 없어도 OPEN 회차의 참가자다 — 그래서 <b>참가 행 스코프</b>로 걷는다.
+      *
+      * @param user 계정을 지우는 유저 — 활성 멤버십이 없어도(강퇴자) 참가 행이 있으면 정리 대상이다
      */
     @Transactional
     public void releaseFromAllOpenBets(User user) {
@@ -381,6 +402,9 @@ public class GroupBetService {
      * <p>창형 SCREEN_TIME 의 클라 보고분({@code group_challenge_members})은 탈퇴가 지우지 않으므로
      * 박제 없이도 정산이 그대로 읽는다 — 그래도 같은 규칙으로 박제해 두면 판정 소스가 하나로 줄 뿐
      * 결론은 같다(멱등·무해).
+      *
+      * @param user 계정을 지우는 유저 — 이 유저의 <b>달성</b> 참가 행만 박제한다. 미달성은 손대지 않아
+      *     {@code achieved} 가 null(판정 안 됨)로 남고, 정산의 미보고=미달성 확정과 결론이 같다
      */
     @Transactional
     public void freezeEvidenceForAccountErasure(User user) {
@@ -596,6 +620,13 @@ public class GroupBetService {
      *
      * <p><b>내일 폴백</b>(계약 §3 응답 보수): 조회일이 서버 KST 오늘이면, 오늘 회차가 없는 챌린지에
      * 한해 내일 OPEN 회차를 실어 준다. UNUSED(0명 종료)는 어디에도 싣지 않는다(N52).
+      *
+      * @param challengeIds 카드에 얹을 챌린지들 — 비면 빈 맵이다
+      * @param date 조회 기준일(KST). null 이면 계산 자체를 하지 않고 빈 맵을 준다(구앱 하위 호환)
+      * @param userId 카드를 보는 사람 — {@code myJoined} 같은 1인칭 필드의 기준이다
+      * @param myAchievedByChallengeId 내 달성 여부(이미 계산된 값 재사용)
+      * @return 챌린지별 오늘 회차. 회차가 없는 챌린지는 키가 없고, 그 부재를 「내기 꺼짐」으로 읽으면
+      *     틀린다 — 설정 축은 {@link #loadBetConfigs} 가 따로 말한다
      */
     public Map<UUID, GroupBetResponse> loadCurrentBets(
             Collection<UUID> challengeIds,
@@ -609,9 +640,15 @@ public class GroupBetService {
      * {@link #loadCurrentBets(Collection, LocalDate, UUID, Map)} + 신앱 additive 필드(GROMO-1418):
      * {@code enabled}·{@code session}(조회 date 회차 — 폴백 없음)을 함께 조립한다.
      *
+     * @param challengeIds 카드에 얹을 챌린지들 — 비면 빈 맵이다
+     * @param date 조회 기준일(KST). null 이면 계산 없이 빈 맵이다(구앱 하위 호환)
+     * @param userId 카드를 보는 사람 — 1인칭 필드의 기준이다
+     * @param myAchievedByChallengeId 내 달성 여부(이미 계산된 값 재사용)
      * @param memberProgressByChallengeId 챌린지별 멤버 진행률(카드 {@code memberProgress} 와 같은
      *     계산 결과 재사용) — 하루형 회차 참가자의 진행분 공개(N16 · FR-34)에 쓴다. 값이 null 인
      *     챌린지(미계산)는 진행분 없이 조립한다.
+     * @return 챌린지별 오늘 회차 + 신앱 additive 필드. 4-인자 판과 달리 {@code session} 은
+     *     조회 날짜 회차 그대로라 <b>내일 폴백이 없다</b> — 두 필드의 날짜 축이 다르다
      */
     public Map<UUID, GroupBetResponse> loadCurrentBets(
             Collection<UUID> challengeIds,
@@ -710,6 +747,10 @@ public class GroupBetService {
      *
      * <p>참여할 수 없는 곳에는 실리지 않는다 — 꺼진 설정·끝난(ACTIVE 아님)·삭제된 챌린지는 빠져
      * {@code betConfig} 가 null 이 된다(= 내기 진입점 없음).
+      *
+      * @param challengeIds 설정을 물어볼 챌린지들 — 비면 빈 맵이다
+      * @return 챌린지별 내기 설정. 꺼진 설정·ACTIVE 아닌·삭제된 챌린지는 키가 없고,
+      *     그 부재가 곧 「내기 진입점 없음」이다(회차 유무와는 다른 축이다)
      */
     public Map<UUID, GroupBetConfigResponse> loadBetConfigs(Collection<UUID> challengeIds) {
         if (challengeIds.isEmpty()) {
@@ -894,6 +935,13 @@ public class GroupBetService {
      * <p>활성일 계산은 {@link #repeatDaysOf} → {@link RepeatSchedule#next} 다 — 카드의
      * {@code activeToday}·개설 스캔과 <b>같은 스케줄</b>이라 월요일 전용 챌린지의 다음 회차는
      * 화요일이 아니라 다음 월요일이다. ACTIVE 아닌 챌린지는 맵에서 빠진다(응답 null).
+      *
+      * @param challenges 대상 챌린지들 — ACTIVE 가 아닌 것은 맵에서 빠진다
+      * @param windows 창형 챌린지의 창 상세. 창형인데 여기 상세가 없으면 시작 시각을 계산할 수 없어
+      *     그 챌린지를 통째로 건너뛴다(하루형으로 간주해 자정을 주면 서지도 않을 회차를 예고하게 된다)
+      * @param userId 예약 여부를 볼 사람
+      * @return 챌린지별 다음 활성일 정보. 키가 없으면 「끝난 챌린지」이거나 위의 창 상세 결손이라,
+      *     앱이 「null == 종료」로 단정하면 어긋난다
      */
     public Map<UUID, NextSessionInfo> loadNextSessions(
             List<GroupChallenge> challenges, Map<UUID, GroupChallengeWindow> windows, UUID userId) {
@@ -972,6 +1020,9 @@ public class GroupBetService {
     /**
      * 챌린지별 "가장 최근 정산 회차"를 배치 로드한다 — 카드의 지난 내기 한 줄용.
      * {@code goalMinutes} 는 개설 시점 박제값(GROMO-1263)이다 — V39 백필 이전 정산 이력만 null.
+      *
+      * @param challengeIds 지난 결과를 물어볼 챌린지들 — 비면 빈 맵이다
+      * @return 챌린지별 가장 최근 정산 회차. 정산 이력이 없는 챌린지는 키가 없다
      */
     public Map<UUID, GroupBetResultResponse> loadLastSettledBets(Collection<UUID> challengeIds) {
         if (challengeIds.isEmpty()) {
@@ -1007,6 +1058,14 @@ public class GroupBetService {
      * 내기 히스토리(GROMO-1207) — 챌린지의 정산 완료 회차(SETTLED·REFUNDED·FORFEITED)를
      * {@code session_date} 내림차순 keyset 커서로 페이지네이션한다. 커서는 직전 페이지 마지막
      * 항목의 회차 id({@code betId} 필드 — 브리지 명명 유지)다.
+      *
+      * @param groupId 챌린지 스코프
+      * @param challengeId 이력을 볼 챌린지 — 삭제된 챌린지는 진입점이 없어 {@code NOT_FOUND} 다
+      * @param userId 요청자 — 이력은 그룹원 전체가 열람한다(참가자·개설자 한정이 아니다)
+      * @param cursor 직전 페이지 마지막 항목의 회차 id. null 이면 첫 페이지다
+      * @param size 페이지 크기 — 범위 밖이면 {@code INVALID_PAGE_REQUEST} 400
+      * @return 정산 완료 회차 한 페이지(최신순). 취소된 회차는 「없던 일」이라 실리지 않고,
+      *     마지막 페이지면 {@code nextCursor} 가 null 이다
      */
     public GroupBetHistorySliceResponse getBetHistory(
             UUID groupId, UUID challengeId, UUID userId, UUID cursor, int size) {

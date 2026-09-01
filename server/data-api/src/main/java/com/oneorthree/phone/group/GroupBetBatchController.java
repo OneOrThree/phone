@@ -45,6 +45,9 @@ public class GroupBetBatchController {
 
     /**
      * 키 미설정은 기동 실패가 아니라 503 응답으로 처리한다(스펙) — 그래서 default 를 "" 로 둔다.
+      *
+      * @param groupBetSettlementService 정산 본체 — 그레이스·데드라인 가드는 전부 이쪽이 진다
+      * @param batchAdminKey 환경변수에서 주입되는 관리자 키. 빈 문자열이면 이 엔드포인트가 503 만 돌려준다
      */
     public GroupBetBatchController(GroupBetSettlementService groupBetSettlementService,
                                    @Value("${BATCH_ADMIN_KEY:}") String batchAdminKey) {
@@ -52,6 +55,17 @@ public class GroupBetBatchController {
         this.batchAdminKey = batchAdminKey;
     }
 
+    /**
+     * 정산 대기 회차를 지금 훑는다 — 스케줄러 장애를 손으로 푸는 복구 경로다.
+     *
+     * <p>호출 사실·대상·결과를 warn 으로 남긴다(감사 로그). 조기 정산 사고가 없도록 그레이스
+     * 가드는 정산 본체가 지므로 아무 시각에나 불러도 안전하고, 이미 정산된 회차는 스킵돼
+     * 이중 지급이 없다.
+     *
+     * @param adminKey 관리자 키 헤더 — 서버에 키가 없으면 503, 틀리면 403(상수 시간 비교)
+     * @param category 대상 카테고리 — 생략하면 전 카테고리다
+     * @return 대상·분배·몰수·환불·스킵·실패 건수 요약. 실패 건은 그 회차만 롤백되고 나머지는 진행된다
+     */
     @Operation(summary = "내기 정산 배치 수동 실행 (MANUAL 트리거 · prod 포함)",
             description = "정산 가능 시각(settle_after)이 지난 OPEN 회차를 훑어 정산 단일 진입점"
                     + "(settle, GROMO-1411)에 넘긴다. 대상 선택이 회차별 settle_after 기준이라"
