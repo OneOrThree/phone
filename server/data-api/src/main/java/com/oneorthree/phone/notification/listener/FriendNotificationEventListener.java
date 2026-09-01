@@ -2,7 +2,7 @@ package com.oneorthree.phone.notification.listener;
 
 import com.oneorthree.phone.friend.event.FriendRequestAcceptedEvent;
 import com.oneorthree.phone.friend.event.FriendRequestSentEvent;
-import com.oneorthree.phone.notification.config.NotificationAsyncConfig;
+import com.oneorthree.phone.config.NotificationAsyncConfig;
 import com.oneorthree.phone.notification.service.FriendNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

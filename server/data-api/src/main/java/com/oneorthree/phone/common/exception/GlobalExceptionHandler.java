@@ -3,7 +3,6 @@ package com.oneorthree.phone.common.exception;
 import com.oneorthree.phone.analytics.exception.AnalyticsException;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
-import com.oneorthree.phone.common.auth.LoginUserResolutionException;
 import com.oneorthree.phone.currency.exception.CurrencyException;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.group.exception.ChallengeResultClaimHeldException;

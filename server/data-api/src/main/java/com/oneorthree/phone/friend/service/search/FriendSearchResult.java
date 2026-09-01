@@ -1,4 +1,4 @@
-package com.oneorthree.phone.friend.search;
+package com.oneorthree.phone.friend.service.search;
 
 import lombok.Builder;
 import lombok.Getter;

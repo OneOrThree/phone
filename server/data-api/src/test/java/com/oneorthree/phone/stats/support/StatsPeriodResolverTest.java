@@ -1,7 +1,7 @@
-package com.oneorthree.phone.stats.service;
+package com.oneorthree.phone.stats.support;
 
 import com.oneorthree.phone.stats.dto.StatsPeriod;
-import com.oneorthree.phone.stats.service.StatsPeriodResolver.PeriodRange;
+import com.oneorthree.phone.stats.support.StatsPeriodResolver.PeriodRange;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

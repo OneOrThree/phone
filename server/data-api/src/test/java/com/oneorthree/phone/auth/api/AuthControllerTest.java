@@ -8,7 +8,7 @@ import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
 import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.auth.service.AuthService;
-import com.oneorthree.phone.auth.service.GuestLoginRateLimiter;
+import com.oneorthree.phone.auth.support.GuestLoginRateLimiter;
 import com.oneorthree.phone.common.util.ClientIpResolver;
 import com.oneorthree.phone.user.repository.domain.Provider;
 import org.junit.jupiter.api.DisplayName;

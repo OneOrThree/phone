@@ -1,4 +1,4 @@
-package com.oneorthree.phone.league.service;
+package com.oneorthree.phone.league.support;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

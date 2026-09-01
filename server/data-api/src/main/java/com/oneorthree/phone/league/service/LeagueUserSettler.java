@@ -2,7 +2,7 @@ package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
-import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
+import com.oneorthree.phone.currency.support.CurrencyRewardPolicy;
 import com.oneorthree.phone.league.repository.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.repository.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResult;

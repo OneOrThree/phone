@@ -11,7 +11,7 @@ import com.oneorthree.phone.item.repository.domain.SlotType;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.league.repository.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
-import com.oneorthree.phone.league.service.LeagueWeek;
+import com.oneorthree.phone.league.support.LeagueWeek;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.service.StatsService;

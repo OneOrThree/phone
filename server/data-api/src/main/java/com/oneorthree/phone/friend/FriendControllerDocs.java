@@ -4,7 +4,7 @@ import com.oneorthree.phone.friend.dto.FriendRequestCreateRequest;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
-import com.oneorthree.phone.friend.search.SearchType;
+import com.oneorthree.phone.friend.service.search.SearchType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;

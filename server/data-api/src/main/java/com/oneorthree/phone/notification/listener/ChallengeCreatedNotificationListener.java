@@ -1,7 +1,7 @@
 package com.oneorthree.phone.notification.listener;
 
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
-import com.oneorthree.phone.notification.config.NotificationAsyncConfig;
+import com.oneorthree.phone.config.NotificationAsyncConfig;
 import com.oneorthree.phone.notification.service.ChallengeCreatedNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

@@ -1,4 +1,4 @@
-package com.oneorthree.phone.auth.service;
+package com.oneorthree.phone.auth.support;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;

@@ -1,9 +1,9 @@
 package com.oneorthree.phone.auth;
 
-import com.oneorthree.phone.auth.dto.rep.AppleLoginRequest;
-import com.oneorthree.phone.auth.dto.rep.LogoutRequest;
-import com.oneorthree.phone.auth.dto.rep.SocialLoginRequest;
-import com.oneorthree.phone.auth.dto.rep.TokenRefreshRequest;
+import com.oneorthree.phone.auth.dto.req.AppleLoginRequest;
+import com.oneorthree.phone.auth.dto.req.LogoutRequest;
+import com.oneorthree.phone.auth.dto.req.SocialLoginRequest;
+import com.oneorthree.phone.auth.dto.req.TokenRefreshRequest;
 import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;

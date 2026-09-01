@@ -1,6 +1,6 @@
 package com.oneorthree.phone.config;
 
-import com.oneorthree.phone.auth.service.JwtProvider;
+import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserActivityService;

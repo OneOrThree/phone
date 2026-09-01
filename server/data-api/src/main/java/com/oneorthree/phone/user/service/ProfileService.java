@@ -7,7 +7,7 @@ import com.oneorthree.phone.friend.service.FriendRelationLookup;
 import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
-import com.oneorthree.phone.league.service.LeagueWeek;
+import com.oneorthree.phone.league.support.LeagueWeek;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;

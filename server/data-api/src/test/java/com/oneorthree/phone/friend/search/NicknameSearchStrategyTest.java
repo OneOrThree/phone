@@ -3,6 +3,8 @@ package com.oneorthree.phone.friend.search;
 import com.oneorthree.phone.league.service.LeagueTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.friend.service.search.FriendSearchResult;
+import com.oneorthree.phone.friend.service.search.NicknameSearchStrategy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

@@ -4,7 +4,7 @@ import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.league.repository.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
-import com.oneorthree.phone.league.service.LeagueWeek;
+import com.oneorthree.phone.league.support.LeagueWeek;
 import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.domain.User;

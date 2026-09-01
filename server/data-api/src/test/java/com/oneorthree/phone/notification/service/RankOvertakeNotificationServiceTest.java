@@ -8,7 +8,7 @@ import com.oneorthree.phone.league.repository.LeagueRankSnapshotRepository;
 import com.oneorthree.phone.league.repository.LeagueRankSnapshotUpsertRepository;
 import com.oneorthree.phone.league.repository.LeagueRankSnapshotUpsertRepository.SnapshotRank;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
-import com.oneorthree.phone.league.service.LeagueWeek;
+import com.oneorthree.phone.league.support.LeagueWeek;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;

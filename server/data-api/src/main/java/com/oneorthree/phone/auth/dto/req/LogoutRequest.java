@@ -1,4 +1,4 @@
-package com.oneorthree.phone.auth.dto.rep;
+package com.oneorthree.phone.auth.dto.req;
 
 public record LogoutRequest(String refreshToken) {
 }

@@ -8,6 +8,7 @@ import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 
 import java.util.UUID;
+import com.oneorthree.phone.common.exception.LoginUserResolutionException;
 
 /**
  * {@link LoginUser} 가 붙은 파라미터에 JwtFilter 가 심어 둔 userId 를 주입하는 리졸버 (GROMO-363).

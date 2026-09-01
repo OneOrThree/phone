@@ -1,4 +1,4 @@
-package com.oneorthree.phone.stats.service;
+package com.oneorthree.phone.stats.support;
 
 import com.oneorthree.phone.stats.dto.StatsPeriod;
 import org.springframework.stereotype.Component;

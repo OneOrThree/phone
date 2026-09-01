@@ -1,14 +1,14 @@
 package com.oneorthree.phone.auth;
 
-import com.oneorthree.phone.auth.dto.rep.AppleLoginRequest;
-import com.oneorthree.phone.auth.dto.rep.LogoutRequest;
-import com.oneorthree.phone.auth.dto.rep.SocialLoginRequest;
-import com.oneorthree.phone.auth.dto.rep.TokenRefreshRequest;
+import com.oneorthree.phone.auth.dto.req.AppleLoginRequest;
+import com.oneorthree.phone.auth.dto.req.LogoutRequest;
+import com.oneorthree.phone.auth.dto.req.SocialLoginRequest;
+import com.oneorthree.phone.auth.dto.req.TokenRefreshRequest;
 import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
 import com.oneorthree.phone.auth.service.AuthService;
-import com.oneorthree.phone.auth.service.GuestLoginRateLimiter;
+import com.oneorthree.phone.auth.support.GuestLoginRateLimiter;
 import com.oneorthree.phone.common.util.ClientIpResolver;
 import com.oneorthree.phone.user.repository.domain.Provider;
 import jakarta.servlet.http.HttpServletRequest;

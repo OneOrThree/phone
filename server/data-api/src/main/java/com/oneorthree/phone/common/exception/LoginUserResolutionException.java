@@ -1,4 +1,4 @@
-package com.oneorthree.phone.common.auth;
+package com.oneorthree.phone.common.exception;
 
 /**
  * {@link LoginUser} 파라미터를 채우지 못했을 때 던진다 (GROMO-363).

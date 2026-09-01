@@ -5,7 +5,7 @@ import com.oneorthree.phone.friend.dto.FriendRequestCreateRequest;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
-import com.oneorthree.phone.friend.search.SearchType;
+import com.oneorthree.phone.friend.service.search.SearchType;
 import com.oneorthree.phone.friend.service.FriendService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

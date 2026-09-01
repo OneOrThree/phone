@@ -1,4 +1,4 @@
-package com.oneorthree.phone.friend.search;
+package com.oneorthree.phone.friend.service.search;
 
 import com.oneorthree.phone.league.service.LeagueTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;

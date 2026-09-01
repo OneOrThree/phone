@@ -1,6 +1,6 @@
 package com.oneorthree.phone.invitelink;
 
-import com.oneorthree.phone.auth.service.JwtProvider;
+import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;

@@ -1,4 +1,4 @@
-package com.oneorthree.phone.currency.service;
+package com.oneorthree.phone.currency.support;
 
 /**
  * 재화 지급 금액 공식(동결) — 순수 정적 계산.

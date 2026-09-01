@@ -1,5 +1,6 @@
 package com.oneorthree.phone.auth.dto.res;
 
+
 /**
  * 토큰 재발급 응답.
  *

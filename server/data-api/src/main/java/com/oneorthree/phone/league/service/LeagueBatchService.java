@@ -9,6 +9,7 @@ import com.oneorthree.phone.league.repository.LeagueArenaRepository;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
+import com.oneorthree.phone.league.support.LeagueWeek;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

@@ -6,7 +6,7 @@ import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
-import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
+import com.oneorthree.phone.currency.support.CurrencyRewardPolicy;
 import com.oneorthree.phone.screentime.repository.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;

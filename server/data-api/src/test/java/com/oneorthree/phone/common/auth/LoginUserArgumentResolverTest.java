@@ -12,6 +12,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.oneorthree.phone.common.exception.LoginUserResolutionException;
 
 /**
  * {@link LoginUserArgumentResolver} 단위 테스트 (GROMO-363).

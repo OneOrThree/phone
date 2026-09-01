@@ -1,7 +1,7 @@
 package com.oneorthree.phone.notification.listener;
 
 import com.oneorthree.phone.group.event.GroupBetWonEvent;
-import com.oneorthree.phone.notification.config.NotificationAsyncConfig;
+import com.oneorthree.phone.config.NotificationAsyncConfig;
 import com.oneorthree.phone.notification.service.BetWonNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

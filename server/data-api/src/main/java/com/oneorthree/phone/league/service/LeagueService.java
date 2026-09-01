@@ -1,7 +1,7 @@
 package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
-import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
+import com.oneorthree.phone.currency.support.CurrencyRewardPolicy;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.league.repository.domain.LeagueRankingRow;
@@ -19,6 +19,7 @@ import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.user.repository.domain.Occupation;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.league.support.LeagueWeek;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

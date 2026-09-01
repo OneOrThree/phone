@@ -5,7 +5,7 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
-import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
+import com.oneorthree.phone.currency.support.CurrencyRewardPolicy;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.repository.domain.FocusType;
