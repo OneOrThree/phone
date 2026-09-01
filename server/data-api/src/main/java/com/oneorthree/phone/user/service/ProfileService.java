@@ -116,6 +116,8 @@ public class ProfileService {
      *
      * @param callerId     호출자 유저 ID
      * @param targetUserId 조회 대상 유저 ID
+     * @param date         '오늘'로 삼을 날짜(서버 판정 축 KST 고정). 스트릭의 read-time 만료 반영과
+     *                     히트맵 구간([date-6일, date])이 이 값에 걸린다
      * @return 유저 통계 응답
      * @throws UserException 대상 유저가 없거나 탈퇴된 경우 NOT_FOUND
      */
