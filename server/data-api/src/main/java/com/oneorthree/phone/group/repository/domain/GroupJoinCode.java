@@ -64,12 +64,23 @@ public class GroupJoinCode {
     @UpdateTimestamp
     private Instant updatedAt;
 
+    /**
+     * 코드 재발급 — 코드·상태·만료를 한 번에 되돌린다(만료는 <b>호출 시각</b> 기준 3시간 뒤로 새로 잡는다).
+     * 만료됐거나 ENDED 인 행도 이 한 번으로 되살아난다.
+     *
+     * @param newCode 새로 뽑은 8자 코드. 유일성(unique 제약)은 여기서 확인하지 않으므로 호출측이
+     *     {@code existsByCode} 로 먼저 걸러야 한다
+     */
     public void renew(String newCode) {
         this.code = newCode;
         this.status = GroupJoinCodeStatus.ACTIVE;
         this.expiresAt = Instant.now().plus(3, ChronoUnit.HOURS);
     }
 
+    /**
+     * 코드 사용 중지 — 상태만 ENDED 로 바꾼다. {@code code} 값은 그대로 남아 unique 자리를 계속 점유하고,
+     * {@code expiresAt} 도 손대지 않는다(만료 시각으로 중지 여부를 판단하면 안 되는 이유다).
+     */
     public void expire() {
         this.status = GroupJoinCodeStatus.ENDED;
     }
