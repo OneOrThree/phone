@@ -82,6 +82,10 @@ public class GroupChallengeBet {
      * 레거시 개설 브리지(N36) 전용 stake 갱신 — 구앱은 매일 개설하며 참가비를 새로 고르므로,
      * 설정이 이미 있으면 최신 선택값으로 맞춘다. 회차가 자기 stake 를 박제하므로 과거·현재 회차의
      * 돈 계산에는 영향이 없다. 호출부는 챌린지 행 배타 락 아래에서만 부른다(개설 경로 직렬화).
+     *
+     * @param stake 구앱이 이번 개설에서 고른 참가비(코인). <b>앞으로 열릴 회차에만</b> 반영되고, 이미
+     *     열린 회차와 정산 이력은 자기 stake 를 박제해 뒀으므로 소급되지 않는다. 범위 검증은 하지
+     *     않으므로 호출측이 이미 거른 값이어야 한다
      */
     public void updateStakeForLegacyBridge(int stake) {
         this.stake = stake;

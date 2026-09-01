@@ -166,6 +166,12 @@ public class GroupChallengeBetSession {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    /**
+     * 아직 참가·정산 전인 회차인가 — 종료 상태 6종과 {@link GroupBetStatus#OPEN} 을 가르는 단일 판정.
+     *
+     * @return {@code OPEN} 이면 true. <b>시각은 보지 않으므로</b> 참가 마감이 지났거나 정산 대기 중인
+     *     회차도 true 다 — "지금 참가할 수 있다"는 뜻이 아니라 "아직 결과가 없다"는 뜻이다
+     */
     public boolean isOpen() {
         return status == GroupBetStatus.OPEN;
     }

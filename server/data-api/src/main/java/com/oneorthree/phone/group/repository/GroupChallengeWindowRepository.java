@@ -12,8 +12,20 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * {@code type=TIME_WINDOW} 챌린지 상세(CTI) 조회. PK 가 challenge_id 라 단건은 {@code findById(challengeId)}
+ * 로 바로 집는다. <b>상세 행의 존재 자체가 창형이라는 뜻</b>이고, 챌린지를 소프트 삭제해도 이 행은 남는다.
+ */
 public interface GroupChallengeWindowRepository extends JpaRepository<GroupChallengeWindow, UUID> {
 
+    /**
+     * 여러 챌린지의 창 상세를 한 번에 붙이는 배치 로드 — 챌린지마다 따로 읽으면 N+1 이 된다.
+     *
+     * @param challengeIds 상세를 붙일 챌린지 id 들. 창형이 아닌 id 가 섞여도 무해하다(결과에서 빠질 뿐)
+     * @return 존재하는 상세만 — <b>요청 수보다 적을 수 있다</b>. 하루형이거나 상세가 유실된 구 데이터는
+     *     빠지므로 호출측은 id 로 맵을 만들어 결손을 "판정 불가"로 다뤄야 한다. 삭제된 챌린지의 상세도
+     *     그대로 실린다(이 쿼리는 {@code deletedAt} 을 보지 않는다)
+     */
     List<GroupChallengeWindow> findByChallengeIdIn(Collection<UUID> challengeIds);
 
     /**
@@ -48,6 +60,11 @@ public interface GroupChallengeWindowRepository extends JpaRepository<GroupChall
      * 서비스({@code GroupChallengeService})에서 한다. window 상세 행 존재 자체가 type=TIME_WINDOW
      * 를 의미하고(CTI), 삭제된 챌린지의 상세 행은 남아 있으므로 c.deletedAt IS NULL 을 빼면
      * 삭제한 시간대와 겹치는 창을 다시 못 만든다.
+     *
+     * @param group 겹침을 검사할 그룹 — 겹침은 그룹 전역 불변식이라 검사 단위가 챌린지가 아니라 그룹이다
+     * @return 그 그룹의 살아 있는 창형 상세 전량(부모 챌린지가 함께 로드된 상태). 활성 상한이 4라
+     *     최대 4행이고, 빈 리스트면 겹칠 대상이 없다는 뜻이다. 조회 중 다른 트랜잭션이 같은 행을
+     *     쥐고 있으면 <b>대기</b>한다. readOnly 트랜잭션에서는 쓸 수 없다
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT w FROM GroupChallengeWindow w"

@@ -18,7 +18,14 @@ import java.util.UUID;
  */
 public interface GroupChallengeMemberRepository extends JpaRepository<GroupChallengeMember, UUID> {
 
-    /** 진행률 조립용 — 창형 챌린지들의 해당 날짜 보고값을 IN 절 1회로 배치 로드한다(N+1 방지). */
+    /**
+     * 진행률 조립용 — 창형 챌린지들의 해당 날짜 보고값을 IN 절 1회로 배치 로드한다(N+1 방지).
+     *
+     * @param challengeIds 보고값을 붙일 챌린지 id 들. 빈 컬렉션이면 빈 결과다
+     * @param usageDate 보고 귀속일(KST 회차일) — 보고 시각이 아니라 <b>어느 날의 사용분인가</b>다
+     * @return 그 날 보고가 실제로 들어온 (챌린지, 유저) 행만 — <b>참가자 전원이 나오지 않는다</b>.
+     *     빠진 유저는 "0분 사용"이 아니라 <b>미계측</b>이라 SCREEN_TIME 에서는 미달성으로 접힌다(FR-21)
+     */
     List<GroupChallengeMember> findByGroupChallengeIdInAndUsageDate(
             Collection<UUID> challengeIds, LocalDate usageDate);
 
@@ -37,6 +44,14 @@ public interface GroupChallengeMemberRepository extends JpaRepository<GroupChall
      * 네이티브 경로라 {@code @GeneratedUuidV7} 이 타지 않으므로 id 는 호출측이 UUID v7 로 생성해 넘긴다
      * (충돌 시 기존 행 id 유지 — 넘긴 id 는 버려진다).
      *
+     * @param id 신규 삽입용 UUID v7 — 네이티브 경로라 호출측이 만들어 넘긴다. 충돌 시에는 기존 행 id 가
+     *     유지되고 이 값은 버려진다
+     * @param challengeId 보고 대상 창형 챌린지
+     * @param userId 보고한 유저
+     * @param usageDate 보고 귀속일(KST 회차일)
+     * @param usedMinutes 클라가 보고한 <b>누적</b> 창 사용분. 판정은 하지 않고 원본값 그대로 담는다
+     * @param measuredAt 기기에서 잰 시각 — 역전 방어의 기준이다. null(구앱)이면 저장값이 이미 있을 때
+     *     버려진다(시각 없는 보고가 시각 있는 보고를 덮지 못하게)
      * @return 1 = 삽입/갱신됨, 0 = 역전 보고라 무시됨(호출측은 그대로 204 — 계약상 조용한 무시)
      */
     @Modifying
@@ -92,7 +107,12 @@ public interface GroupChallengeMemberRepository extends JpaRepository<GroupChall
      * 결과다. 행이 없어야 미보고 = 미달성(FR-21)이라는 보수적 기본값으로 떨어진다. 클라는 누적값을
      * 보내므로 참가 직후 다음 sync 가 실제 값을 복원한다(정직한 사용자는 손해 보지 않는다).
      *
-     * @return 지운 행 수(0 = 참가 전 보고가 없었다 — 정상 경로)
+     * @param challengeId 참가하려는 창형 챌린지
+     * @param userId 참가자 — 다른 참가자의 보고는 건드리지 않는다
+     * @param usageDate 무효화할 회차일. 이 날 것만 지우므로 과거 회차의 보고는 남는다
+     * @return 지운 행 수(0 = 참가 전 보고가 없었다 — 정상 경로). 벌크 DELETE 라 <b>영속성 컨텍스트를
+     *     거치지 않는다</b>: 대기 중인 변경은 {@code flushAutomatically} 로 먼저 내보내지만, 같은
+     *     트랜잭션에 이미 로드돼 있던 엔티티는 지워진 뒤에도 1차 캐시에 그대로 남는다
      */
     @Modifying(flushAutomatically = true)
     @Query("DELETE FROM GroupChallengeMember m WHERE m.groupChallenge.id = :challengeId "

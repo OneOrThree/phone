@@ -20,6 +20,19 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * 그룹 챌린지 — 그룹 안에서 <b>반복해서 도는 목표</b> 하나. "언제 재나"({@link MissionType})와
+ * "무엇을 재나"({@link MissionCategory}), 도는 요일({@code repeatDays})을 소유하고, 목표치 같은 형태별
+ * 파라미터는 CTI 상세 테이블이 든다.
+ *
+ * <p>살아 있는 챌린지인지는 <b>두 축</b>을 함께 봐야 한다: {@code status}(진행/종료)와
+ * {@code deletedAt}(소프트 삭제). 삭제를 상태값으로 접지 않은 이유는 "종료된 챌린지"와 "지워진 챌린지"의
+ * 이력 취급이 다르기 때문이고, 그래서 조회는 대부분 {@code deletedAt IS NULL} 을 함께 건다.
+ *
+ * <p>참가·판정·정산의 단위는 이 행이 아니라 회차({@link GroupChallengeBetSession})다 — 회차는 개설
+ * 시점에 카테고리·방식·목표·참가비를 <b>스냅샷으로 박제</b>하므로, 이 행이 나중에 어떻게 바뀌거나
+ * 지워져도 이미 열린 회차의 판정 기준은 흔들리지 않는다.
+ */
 @Entity
 @Table(name = "group_challenges")
 @Getter
