@@ -64,6 +64,11 @@ public class LeagueBatchService {
     private final LeagueAnchorRotator leagueAnchorRotator;
     private final LeagueUserSettler leagueUserSettler;
 
+    /**
+     * 현재 시각으로 이번 주차 정산을 돌린다 — 스케줄러·수동 트리거의 진입점.
+     *
+     * @return 이번 실행이 처리한 인원·아레나 집계
+     */
     public LeagueBatchSummaryResponse runWeeklyBatch() {
         return runWeeklyBatch(Instant.now());
     }
@@ -72,6 +77,10 @@ public class LeagueBatchService {
      * {@code now}가 속한 KST 주차의 anchor 를 만들고, 직전 KST 월~일 집중 시간을 정산한다.
      * anchor 회전이 먼저 커밋되고, 유저 정산은 그 뒤 건별 트랜잭션으로 이어진다.
      * 이번 주차 anchor 가 이미 있으면 BATCH_ALREADY_RUN(409) — 스케줄러 기본 경로의 계약이다.
+     *
+     * @param now 기준 시각. 이 시각이 속한 KST 주차가 새 anchor 가 되고, 정산 대상은 그 <b>직전</b> 주차다
+     * @return 정산 인원·건너뛴 인원·마감한 아레나 수 집계. 티어 설정이 없으면 anchor 를 만들기 전에
+     *         TIER_CONFIG_NOT_FOUND 로 멈춘다 — 설정을 고친 뒤 다시 run 할 수 있게 하려는 순서다
      */
     public LeagueBatchSummaryResponse runWeeklyBatch(Instant now) {
         long startedAtMillis = System.currentTimeMillis();
@@ -107,6 +116,8 @@ public class LeagueBatchService {
      *                    {@code now} 기준 직전 주차. 월요일 경계가 아니면 INVALID_WEEK_START(400)
      * @param userIds     지정하면 그 유저들만 정산(전체 페이지 순회 생략 — 실패 유저 표적 복구용).
      *                    null 이거나 비어 있으면 전체 순회
+     * @return 이번 호출이 새로 정산한 인원과 이미 정산돼 건너뛴 인원. 회전을 하지 않으므로 마감 아레나
+     *         수는 항상 0 이다. 대상 주차의 가드 anchor 가 없으면 BATCH_NOT_RUN(409)
      */
     public LeagueBatchSummaryResponse resumeWeeklyBatch(Instant now, Instant weekStartAt,
                                                         List<UUID> userIds) {

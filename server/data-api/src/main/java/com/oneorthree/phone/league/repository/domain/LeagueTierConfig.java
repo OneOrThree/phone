@@ -15,6 +15,13 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+/**
+ * 티어(1~5)별 승급·강등 경계. 키가 곧 티어 레벨이고, 값은 주간 집중 <b>초</b> 임계값이다.
+ *
+ * <p>행은 마이그레이션 시드로만 들어온다 — 앱 경로에 생성·수정이 없다. 저장 직전 검증
+ * ({@code @PrePersist}/{@code @PreUpdate})이 티어 범위와 두 임계값의 대소 관계를 강제해, 승급선이
+ * 강등선보다 낮은 설정이 DB 에 들어가는 것을 막는다.
+ */
 @Entity
 @Table(name = "league_tier_configs")
 @Getter

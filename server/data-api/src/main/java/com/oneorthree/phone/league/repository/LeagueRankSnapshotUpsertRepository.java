@@ -30,6 +30,13 @@ public class LeagueRankSnapshotUpsertRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
+    /**
+     * 하루치 순위를 한 번에 밀어 넣는다. (user_id, created_at) 충돌 시 rank 만 덮으므로, 같은 날 여러 번
+     * 돌려도 행이 늘지 않고 최신 순위로 수렴한다 — 배치 재실행을 안전하게 만드는 지점이다.
+     *
+     * @param createdAt 스냅샷 날짜(KST 축). 전 행이 이 한 값을 공유한다
+     * @param snapshots 유저별 순위. 비어 있으면 SQL 을 아예 보내지 않는다
+     */
     public void upsertAll(LocalDate createdAt, List<SnapshotRank> snapshots) {
         if (snapshots.isEmpty()) {
             return;
@@ -44,6 +51,12 @@ public class LeagueRankSnapshotUpsertRepository {
         jdbcTemplate.batchUpdate(UPSERT_SQL, parameters);
     }
 
+    /**
+     * upsert 한 줄의 입력. id 와 날짜는 저장 시점에 붙으므로 여기엔 유저와 순위만 담는다.
+     *
+     * @param userId 순위의 주인
+     * @param rank   1 부터 시작하는 전역 순번
+     */
     public record SnapshotRank(UUID userId, int rank) {
     }
 }

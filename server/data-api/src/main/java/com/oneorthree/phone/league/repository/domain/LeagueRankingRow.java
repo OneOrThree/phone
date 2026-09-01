@@ -34,7 +34,14 @@ public record LeagueRankingRow(
         int todayFocusSeconds
 ) {
 
-    /** 라이브 앵커가 없는 조회(정산·알림·keyset 페이지)용 생성자. */
+    /**
+     * 라이브 앵커가 없는 조회(정산·알림·keyset 페이지)용 생성자.
+     *
+     * @param userId            행의 주인
+     * @param nickname          표시용 닉네임. 리그 모수가 "닉네임 있는 유저"라 여기선 비어 있지 않다
+     * @param tierLevel         조회 시점 티어 스냅샷 — 정산은 이 값을 쓰지 않는다(위 설명 참조)
+     * @param totalFocusSeconds 조회 창의 확정 집중 초. 라이브 경과는 더해지지 않는다
+     */
     public LeagueRankingRow(UUID userId, String nickname, int tierLevel, int totalFocusSeconds) {
         this(userId, nickname, tierLevel, totalFocusSeconds, null, null, 0);
     }

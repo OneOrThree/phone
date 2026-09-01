@@ -32,6 +32,15 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * 리그 화면이 읽는 조회 서비스 — 내 티어·랭킹·내 순위·마감 스케줄·주간 정산 결과.
+ *
+ * <p>주차 경계는 전부 {@link LeagueWeek}(KST 월요일 00:00)에서 나오고, 점수 원천은 DailyFocusStat 하나다.
+ * 티어의 정본은 주간 배치가 확정해 users.tier_level 에 써 둔 값이라, 이 서비스는 티어를 계산하지 않고 읽기만 한다.
+ *
+ * <p>리그 모수는 "활성 + 닉네임 있음"(온보딩 완주)이다 — 그 밖의 유저는 예외가 아니라 미배정 응답으로 나간다.
+ * 랭킹의 라이브 필드는 순위 쿼리와 <b>같은 SQL 스냅샷</b>에서 나와야 하며, 그 이유는 각 메서드 주석에 있다.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -53,6 +62,13 @@ public class LeagueService {
     private final FriendshipRepository friendshipRepository;
     private final LeagueWeek leagueWeek;
 
+    /**
+     * 내 현재 티어와 이번 KST 주차 시작 시각.
+     *
+     * @param userId 조회자
+     * @return 배정 유저면 티어·배지·주차 시작. 탈퇴했거나 온보딩을 끝내지 않아(닉네임 없음) 리그 모수 밖이면
+     *         예외가 아니라 assigned=false 인 중립 응답이다 — 신규 유저 화면이 에러로 깨지지 않게 하려는 것
+     */
     public LeagueTierResponse getMyTier(UUID userId) {
         return getMyTier(userId, Instant.now());
     }
@@ -80,6 +96,9 @@ public class LeagueService {
      *
      * @param date 서버 판정 축(KST) 기준 오늘 — API 계약(required 파라미터)은 유지하지만 당일분
      *             집계는 이제 랭킹 쿼리의 :toDate(서버 KST 오늘)를 쓰므로 값은 참조하지 않는다.
+     * @param userId   조회자 — 핀·친구 배지 판정에만 쓰이고 랭킹 모수·순서에는 관여하지 않는다
+     * @param category 지정하면 같은 직군만, null 이면 직군 무관 전체
+     * @return 순위 오름차순 상위 100명. 모수가 비면 빈 리스트이고 후조인 쿼리도 돌지 않는다
      */
     public List<LeagueMemberResponse> getMyRanking(UUID userId, Occupation category, LocalDate date) {
         Instant now = Instant.now();
@@ -99,6 +118,7 @@ public class LeagueService {
      * @param userId 조회자 — isFriend 후조인용 (GROMO-1630). 랭킹 모수·순서에는 관여하지 않는다.
      * @param scope  랭킹 범위. 현재는 "total"(대소문자 무관)만 지원, 그 외 값은 INVALID_SCOPE(400).
      * @param limit  상위 인원 상한. 대량 조회를 막기 위해 1~{@value #MAX_RANKING_LIMIT} 범위로 클램프한다.
+     * @return 순위 오름차순 상위 limit 명. 핀 배지는 전역 스코프 밖이라 전부 false 이고, 친구 배지는 채운다
      */
     public List<LeagueMemberResponse> getGlobalRanking(UUID userId, String scope, int limit) {
         if (scope != null && !SCOPE_TOTAL.equalsIgnoreCase(scope)) {
@@ -148,6 +168,14 @@ public class LeagueService {
         return responses;
     }
 
+    /**
+     * 진행 중인 이번 주차에서 내가 몇 등인지. 순위는 상위 100명 목록과 <b>같은 정렬 기준</b>(확정 집계 +
+     * 진행 중 세션 경과)으로 세므로, 목록 밖에 있어도 화면과 어긋나지 않는다.
+     *
+     * @param userId 조회자
+     * @return 순위와 누적 집중 초. 리그 모수 밖이면 assigned=false 이고 나머지 필드는 null 이다.
+     *         이 API 는 화면 포커스마다 호출돼도 활동 로그를 남기지 않는다
+     */
     public LeagueRankResponse getMyRank(UUID userId) {
         return getMyRank(userId, Instant.now());
     }
@@ -167,6 +195,9 @@ public class LeagueService {
      * 다음 리그 마감 스케줄을 반환한다.
      * 다음 리셋 시각(다음 월요일 00:00 KST)과 남은 시간(초)을 계산한다.
      * 인증만 통과하면 항상 성공(미배정 유저도 계산 가능).
+     *
+     * @param userId 조회자 — 지금은 값을 쓰지 않는다(유저별 타임존을 넣을 자리로 남겨 뒀다)
+     * @return 다음 KST 월요일 00:00 과 그때까지 남은 초. 유저 상태와 무관하게 같은 값이다
      */
     public LeagueScheduleResponse getMySchedule(UUID userId) {
         return getMySchedule(userId, Instant.now());
@@ -190,6 +221,10 @@ public class LeagueService {
      * 주간 배치(GROMO-817)가 남긴 최신 정산 결과 1건을 조회한다.
      * 결과 행이 있으면 전체 필드를 매핑하고(acknowledged = acknowledgedAt != null),
      * 없으면(미배정/신규 유저) {@code hasResult=false} 응답을 반환한다. 주차 필터 없이 최신 1건만 본다.
+     *
+     * @param userId 결과의 주인
+     * @return 최신 정산 결과. 승급 보너스 금액은 배치가 실제로 원장에 지급한 흔적(멱등키)이 있을 때만
+     *         채우고, 없으면 0 이다 — 지급 없이 금액만 보이는 오보고를 막는다
      */
     public LeagueLastResultResponse getLastResult(UUID userId) {
         return leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(userId)
@@ -215,6 +250,9 @@ public class LeagueService {
      * 클라가 조회(GET)로 받은 그 주차 결과를 확인 처리한다. ack 시점에 '최신행'을 다시 찾지 않고
      * {@code weekStartAt} 으로 대상을 고정해, 그 사이 배치가 새 주차 결과를 넣어도 유저가 못 본 결과를 삼키지 않는다.
      * 조건부 원자적 UPDATE 라 대상 없음·이미 확인됨·동시 중복 호출 모두 안전하게 no-op 이며 멱등하다.
+     *
+     * @param userId      결과의 주인
+     * @param weekStartAt 확인 처리할 주차 — 클라가 조회로 받은 값을 그대로 실어야 한다
      */
     @Transactional
     public void acknowledgeLastResult(UUID userId, Instant weekStartAt) {
