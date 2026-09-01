@@ -18,6 +18,13 @@ public class RetryAfterErrorResponse extends ErrorResponse {
 
     private final long retryAfterMs;
 
+    /**
+     * @param code 상위 봉투와 같은 규약의 에러 코드
+     * @param message 사람이 읽는 설명
+     * @param retryAfterMs <b>지금부터</b> 몇 밀리초 뒤에 다시 시도하면 되는지. 만료 시각(절대 시각)이
+     *                     아니다 — 절대 시각을 실으면 시계가 어긋난 기기가 살아 있는 리스를 즉시 다시
+     *                     요청하거나 만료 후에도 한참 기다린다
+     */
     public RetryAfterErrorResponse(String code, String message, long retryAfterMs) {
         super(code, message);
         this.retryAfterMs = retryAfterMs;

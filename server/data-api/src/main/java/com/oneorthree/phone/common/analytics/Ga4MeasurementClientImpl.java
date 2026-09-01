@@ -52,6 +52,13 @@ public class Ga4MeasurementClientImpl implements Ga4MeasurementClient {
     private final Ga4Properties properties;
     private final String env;
 
+    /**
+     * @param properties GA4 스트림별 시크릿(앱: firebaseAppId·appApiSecret, 웹: webMeasurementId·webApiSecret).
+     *                   비어 있어도 <b>기동은 막지 않는다</b> — 분석 배선 누락으로 서비스를 세우지 않되,
+     *                   조용히 넘어가지도 않도록 기동 시 WARN 을 한 번 남긴다
+     * @param env 이벤트에 실을 환경 태그. user-activity 로그와 같은 소스({@code spring.profiles.active})를
+     *            써서 두 트랙의 값이 어긋나지 않게 한다 — 어긋나면 GA4 와 로그를 대조할 수 없다
+     */
     public Ga4MeasurementClientImpl(
             Ga4Properties properties,
             /**

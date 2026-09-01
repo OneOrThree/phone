@@ -49,6 +49,18 @@ public class MaskingConverter extends MessageConverter {
         return mask(message);
     }
 
+    /**
+     * 문자열에서 PII 로 보이는 부분을 가린다. logback 패턴({@code %mask})을 타지 않는 경로
+     * — 특히 {@link UserActivityEventLogger} 의 payload — 가 직접 부를 수 있도록 static 이다.
+     *
+     * <p><b>적용 순서가 결과를 바꾼다.</b> 민감 키=값(1) → 이메일(2) → 휴대폰(3) → 주민번호 순인데,
+     * 키=값을 먼저 처리해야 {@code email=a@b.com} 이 값 전체로 가려진다. 순서를 뒤집으면
+     * 이메일 규칙이 먼저 먹어 키 이름만 남고 값의 일부가 살아남는다.
+     *
+     * @param message 원본 로그 문자열. null·빈 문자열은 그대로 돌려준다
+     * @return 마스킹된 문자열. <b>정규식 기반이라 완벽하지 않다</b> — 새로운 형태의 PII 는 그대로
+     *         통과하므로, 애초에 민감 값을 로그에 넣지 않는 것이 1차 방어이고 이건 2차 그물이다
+     */
     public static String mask(String message) {
         if (message == null || message.isEmpty()) {
             return message;

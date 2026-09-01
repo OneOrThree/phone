@@ -43,11 +43,31 @@ public class ClientIpResolver {
 
     private final List<String> trustedHeaders;
 
+    /**
+     * @param trustedHeaders {@code link.trusted-ip-headers} — 앞단 프록시를 거쳐 왔을 때 읽을 헤더 목록.
+     *                       기본값이 {@code X-Real-IP} 하나인 건 nginx 가 그 헤더만 덮어써서 위조가
+     *                       성립하지 않기 때문이다. {@code X-Forwarded-For}·{@code CF-Connecting-IP} 를
+     *                       여기 넣으면 오리진에 직접 붙은 호출자가 값을 지어낼 수 있어
+     *                       <b>레이트리밋이 무력화된다</b>. 프록시가 없는 배포에서는 빈 값으로 둔다
+     */
     public ClientIpResolver(
             @Value("${link.trusted-ip-headers:X-Real-IP}") List<String> trustedHeaders) {
         this.trustedHeaders = trustedHeaders;
     }
 
+    /**
+     * 이 요청의 클라이언트 IP 를 판정한다.
+     *
+     * <p>순서는 신뢰 피어 확인 → 신뢰 헤더 순회 → remoteAddr 폴백이다. 피어가 사설망이 아니면
+     * 헤더는 아예 읽지 않는다 — 직접 닿은 요청의 헤더는 전부 호출자가 지어낸 값이라,
+     * 읽는 순간 호출자가 자기 신원을 고르게 해 주는 셈이 된다.
+     *
+     * @param request 판정 대상 요청
+     * @return 클라이언트 주소 문자열. 값을 구하지 못해도 {@code "unknown"} 을 돌려주고
+     *         <b>null 을 반환하지 않는다</b> — 호출부(해시·레이트리밋 키)가 null 을 만나
+     *         랜딩 응답까지 죽는 일을 막기 위한 계약이다. 단 {@code "unknown"} 은 모든 미상 호출자가
+     *         공유하는 한 버킷이 되므로, 그 상태가 흔해지면 레이트리밋이 서로를 밀어낸다
+     */
     public String resolve(HttpServletRequest request) {
         String remoteAddr = request.getRemoteAddr();
 
