@@ -86,6 +86,11 @@ public class GroupBetJoinService {
      * 파생한다 — 다른 그룹의 회차 id 를 끼워 넣으면 {@code BET_NOT_FOUND} 다. 락 순서는 다른 참여
      * 경로와 같게 <b>챌린지(FOR SHARE) → 회차(FOR UPDATE)</b> — 회차를 먼저 잠그면 챌린지부터
      * 잠그는 종료·삭제 경로와 AB-BA 교착이 된다.
+      *
+      * @param groupId 회차 스코프 — 다른 그룹의 회차 id 를 끼워 넣으면 여기서 {@code BET_NOT_FOUND} 다
+      * @param sessionId 참가할 회차. 없으면 만들지 않고 404 를 던진다
+      * @param userId 요청자 — 잔액이 참가비에 못 미치면 참가 자체가 거절된다
+      * @return 참가된 회차와 <b>차감 반영 후</b> 잔액 — 앱이 재조회 없이 잔액 표기를 갱신한다
      */
     public JoinSessionResponse joinSession(UUID groupId, UUID sessionId, UUID userId) {
         User user = groupBetService.requireActiveUser(userId);
@@ -127,6 +132,11 @@ public class GroupBetJoinService {
      * 생성 후 참가하며, 이미 예약했으면 {@code BET_ALREADY_JOINED} 409 (카드가 {@code
      * nextSessionJoined} 로 버튼을 미리 잠근다). 미래 회차라 진행분이 없어 무위험 참가 검사는 하지
      * 않는다. 취소는 예약분 규칙 그대로 회차 시작까지다(N22).
+      *
+      * @param groupId 챌린지 스코프
+      * @param challengeId 다음 활성일을 계산할 챌린지 — 회차가 없으면 이 호출이 만든다
+      * @param userId 요청자 — 이미 예약했으면 {@code BET_ALREADY_JOINED} 409
+      * @return 예약된 회차와 차감 후 잔액. 미래 회차라 진행분이 없어 무위험 참가 검사는 건너뛴다
      */
     public JoinSessionResponse joinNext(UUID groupId, UUID challengeId, UUID userId) {
         JoinContext ctx = openJoinContext(groupId, challengeId, userId);
@@ -149,6 +159,13 @@ public class GroupBetJoinService {
      * 가드에 걸린 오늘과 이미 참가한 회차는 조용히 건너뛴다 — 전부-성공-or-전부-실패에 참여 불가능한
      * 오늘을 담으면 오늘 하나 때문에 미래 예약까지 롤백되기 때문이다. 잔액 검사는 <b>총액</b> 기준
      * 선검사({@code BET_INSUFFICIENT_BALANCE})다.
+      *
+      * @param groupId 챌린지 스코프
+      * @param challengeId 주간 예약 대상 챌린지
+      * @param userId 요청자 — 잔액은 <b>총액</b>으로 선검사한다(하루씩 깎다 중간에 모자라면 전부 롤백이다)
+      * @param request 예약할 날짜 범위
+      * @return 이번 호출로 실제 참가된 회차와 총 차감액. 마감·중복으로 전부 스킵되면 빈 목록·0 원이
+      *     성공으로 나간다 — 부분 예약 후 재호출이 정상 동선이라 에러가 아니다
      */
     public JoinWeekResponse joinWeek(UUID groupId, UUID challengeId, UUID userId, JoinWeekRequest request) {
         JoinContext ctx = openJoinContext(groupId, challengeId, userId);
@@ -217,6 +234,10 @@ public class GroupBetJoinService {
      * <p>창 시작이 지난 창형은 오늘을 건너뛴다 — 다음 활성일 회차는 00:05 스케줄러(B4)나 참여
      * lazy 경로가 연다. 개설만 하고 아무도 참가시키지 않는 이유: v2 에서 생성은 참가가 아니다
      * (N14 — 매 회차 직접 결심).
+      *
+      * @param group 회차 스냅샷에 함께 박제할 소속 그룹
+      * @param challenge 방금 만들어진 챌린지 — CTI 상세가 이미 영속 컨텍스트에 있다
+      * @param betRequest 생성 요청의 내기 블록. null 이거나 꺼져 있으면 아무것도 하지 않는다
      */
     public void createBetOnChallengeCreation(
             Group group, GroupChallenge challenge, CreateChallengeRequest.BetCreateRequest betRequest) {

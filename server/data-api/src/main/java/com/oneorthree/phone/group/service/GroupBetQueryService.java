@@ -93,6 +93,10 @@ public class GroupBetQueryService {
      * 챌린지가 종료된 뒤에도 내가 참가비를 건 진행 중 회차를 찾을 수 있다. 미션 스냅샷을 실어야
      * 앱이 창 시각·목표를 알고 보고한다 — 챌린지 행 조인이 불가능한 상황(종료·삭제)이 이 API 의
      * 존재 이유다.
+      *
+      * @param userId 요청자 — 그룹 소속과 무관하게 내 참가 행만 훑는다
+      * @return 내가 참가비를 건 진행 중 회차 목록. 참가 중인 회차가 없으면 빈 목록이고,
+      *     그것이 곧 「지금 보고할 창이 없다」는 뜻이다
      */
     public MyBetSessionsResponse getMyOpenBetSessions(UUID userId) {
         requireActiveUserNoLock(userId);
@@ -121,10 +125,13 @@ public class GroupBetQueryService {
      * ACTIVE/ENDED 를 보지 않는다(탈퇴자·종료 챌린지도 실린다). 삭제된 챌린지의 회차는 제외
      * (FR-44-4·N48 — 리포지토리 술어), UNUSED 는 status 목록에서 제외(N52).
      *
+     * @param userId 요청자 — 확인 여부가 유저별이라 같은 회차라도 사람마다 다른 결과가 나온다
      * @param since 정산 시각({@code settled_at}) 하한 — 생략 시 최근 30일. 30일보다 과거를 줘도
      *              30일 바닥으로 보정한다(§D3 — seen 마커 프룬 주기보다 짧아야 재생이 없다)
      * @param limit 최대 건수 — 생략 시 {@value #MAX_RESULTS}, 범위(1~{@value #MAX_RESULTS}) 밖이면
      *              {@code INVALID_PAGE_REQUEST} 400
+     * @return 아직 확인하지 않은 정산 회차 목록. 다 봤으면 빈 목록이고, 그것이 곧 「띄울 모달이
+     *     없다」는 뜻이다
      */
     public MyChallengeResultsResponse getMyChallengeResults(UUID userId, Instant since, Integer limit) {
         requireActiveUserNoLock(userId);
@@ -191,6 +198,12 @@ public class GroupBetQueryService {
      * 총 환불액. 그룹장 전용이다(경고는 삭제 확인 시트의 것 — 평시 카드 조회는 불변). 챌린지는
      * 그룹 바인딩으로 조회한다 — challengeId 만으로 읽으면 내가 방장인 그룹 gid + 남의 그룹 cid
      * 조합의 IDOR 이 성립한다(삭제 본체와 같은 규율).
+      *
+      * @param groupId 챌린지 스코프 — 이 바인딩이 IDOR 을 막는다
+      * @param challengeId 삭제를 검토 중인 챌린지
+      * @param userId 요청자 — 방장이 아니면 {@code NOT_OWNER}
+      * @return 삭제하면 무효화될 OPEN 회차 전부와 환불 총액. 걸린 회차가 없으면 빈 목록·0 원이라
+      *     시트가 「돌려줄 돈 없음」을 확신하고 그릴 수 있다
      */
     public ChallengeDeletionPreviewResponse getDeletionPreview(UUID groupId, UUID challengeId, UUID userId) {
         User user = requireActiveUserNoLock(userId);
@@ -232,7 +245,12 @@ public class GroupBetQueryService {
      * 항목의 sessionId 로, 서버가 {@code (session_date, id)} 튜플로 해석해 keyset 을 잇는다 —
      * 그룹 전체 조회라 같은 날짜에 회차가 여럿이라 날짜 단독 커서는 경계에서 스킵/중복이 생긴다.
      *
+     * @param groupId 이력을 볼 그룹
+     * @param userId 요청자 — 그룹원이 아니면 {@code MEMBER_ONLY}
+     * @param cursor 직전 페이지 마지막 항목의 sessionId — null 이면 첫 페이지다
+     * @param size 페이지 크기 — 범위 밖이면 {@code INVALID_PAGE_REQUEST} 400
      * @param challengeId 선택 — 특정 챌린지로 필터(챌린지별 이력 화면). 그룹 스코프는 유지된다
+     * @return 회차 이력 한 페이지(최신순). 마지막 페이지면 {@code nextCursor} 가 null 이다
      */
     public GroupChallengeHistorySliceResponse getGroupChallengeHistory(
             UUID groupId, UUID userId, UUID cursor, int size, UUID challengeId) {

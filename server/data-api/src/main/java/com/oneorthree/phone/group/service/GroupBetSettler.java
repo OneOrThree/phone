@@ -130,6 +130,12 @@ public class GroupBetSettler {
      * 잠금 쿼리가 {@code TransactionRequiredException}(No active transaction)으로 터진다 — 새
      * 트랜잭션을 여는 것이 Spring 이 문서화한 유일한 해법이다.
      *
+     * @param sessionId 정산할 회차
+     * @param trigger 어느 경로가 불렀는가 — 가드 조합이 이 값으로 갈린다(EARLY 만 그레이스를 건너뛰고
+     *     대신 참가 마감·전원 확정을 락 안에서 다시 본다)
+     * @return 최종 상태와 <b>이번 호출이 실제로 지급/환불을 했는지</b>. 이미 정산됐거나 그레이스가
+     *     안 지났으면 {@code applied=false} 이며, 이를 성과로 세면 동시 실행끼리 같은 회차를
+     *     각자 집계해 지표가 부풀려진다
      * @throws IllegalStateException 분배 불변식 위반 — 이 회차만 롤백된다
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -242,6 +248,10 @@ public class GroupBetSettler {
      * 마감·인원을 재확인해 <b>0명이면 UNUSED, 1명이면 VOIDED + 환불</b>로 닫는다(N52 는 전 종료
      * 경로 적용). 잠금 대기 중 참가가 들어와 2명 이상이 됐으면 아무것도 하지 않는다 — 정상 정산
      * 대상이다.
+      *
+      * @param sessionId 마감된 회차 — 이미 종료 상태면 아무것도 하지 않고 스킵으로 돌려준다
+      * @return 최종 상태와 <b>이번 호출이 실제로 상태를 바꿨는지</b>. 잠금을 기다리는 사이 2명이
+      *     채워졌거나 마감 전이면 {@code applied=false} 이며, 그것을 실패로 세면 안 된다
      */
     @Transactional
     public SettleResult closeShortOrUnused(UUID sessionId) {
@@ -281,6 +291,7 @@ public class GroupBetSettler {
      * 잠그고 → 상태 전이·근거 기록까지 마친 뒤 → <b>전 회차의 환불 대상을 합쳐 userId 전역
      * 오름차순</b>으로 지갑을 움직인다.
      *
+     * @param challengeId 삭제되는 챌린지 — 이 챌린지에 매달린 OPEN 회차만 대상이다
      * @return 무효화(VOIDED·UNUSED)한 회차 수
      */
     @Transactional
@@ -392,6 +403,10 @@ public class GroupBetSettler {
      * ① 이 메서드(EARLY 재검증·{@code closeShortOrUnused} 공용), ② 무산 크론 스캔 술어
      * ({@code findOpenPastJoinDeadlineWithFewParticipants} 의 {@code closes_at}),
      * ③ 구앱 참가 가드 자체. 전환 후에는 두 값이 같은 의미라 보정이 불필요해진다.
+      *
+      * @param session 마감을 물어볼 회차
+      * @return 지금 기준으로 참가를 더 받는지 가르는 한 시각 — 「참가가 끝났다」를 판정하는 모든
+      *     경로가 같은 답을 얻도록 여기 하나로 모은다
      */
     public static Instant effectiveJoinDeadline(GroupChallengeBetSession session) {
         return session.getClosesAt();
