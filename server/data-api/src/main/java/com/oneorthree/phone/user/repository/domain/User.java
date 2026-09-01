@@ -27,6 +27,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * 유저 계정 행. 서비스의 거의 모든 트랜잭션이 이 행을 지나므로 두 가지가 계약처럼 굳어 있다.
+ *
+ * <p><b>탈퇴는 삭제가 아니라 {@code isDeleted} 플래그다</b> — 행이 남아 있으므로 활성 조건 없는 조회는
+ * 탈퇴 유저까지 잡는다. 탈퇴 시 닉네임 같은 PII 는 파기된다.
+ *
+ * <p><b>{@code @Version} 도 {@code @DynamicUpdate} 도 없다</b> — 필드 하나만 고쳐도 커밋 시
+ * <b>전 컬럼 UPDATE</b> 가 나간다. 그래서 낡은 스냅샷을 더티 체킹으로 저장하면 그 사이 커밋된 탈퇴와
+ * PII 파기를 통째로 되살릴 수 있고, 동시에 도는 다른 갱신도 조용히 덮어쓴다. 활동 시각·기기 토큰·
+ * refresh 해시처럼 단독으로 바뀌는 컬럼은 전부 {@code UserRepository} 의 조건부 단일 컬럼 UPDATE 를 쓴다.
+ */
 @Entity
 /**
  * nickname 유니크 — 닉네임 중복 방지 (GROMO-584). nullable(게스트·온보딩 전)이나 Postgres 는 NULL 을

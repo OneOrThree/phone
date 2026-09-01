@@ -22,6 +22,13 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * 소셜 로그인 연동 1행 — 한 유저가 여러 제공자를 붙일 수 있다.
+ *
+ * <p>{@code provider_id} 가 PII 라 <b>연동 해제와 탈퇴의 삭제 방식이 다르다</b>: 해제는 소프트 딜리트(행을
+ * 남겨 재로그인 시 되살린다), 탈퇴는 하드 삭제(PII 파기 + 같은 소셜 계정으로 재가입 가능)다.
+ * 활성 연동이 하나뿐이면 해제할 수 없다 — 로그인 수단이 사라지기 때문이다.
+ */
 @Entity
 /**
  * (provider, provider_id) 전체 유니크 — 중복 가입 방어이자 조회 인덱스 (GROMO-581).

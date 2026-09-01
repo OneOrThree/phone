@@ -7,6 +7,12 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+/**
+ * 프로필 부분 수정 요청 — <b>null 인 필드는 건드리지 않는다</b>. 그래서 목표가 원시 {@code int} 가 아니라
+ * {@code Integer} 이고, 0 은 "목표 없음"이라는 실제 값이지 미지정이 아니다.
+ *
+ * <p>닉네임은 자기 것을 그대로 다시 보내는 건 허용되지만 남이 쓰는 값이면 409 다.
+ */
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor

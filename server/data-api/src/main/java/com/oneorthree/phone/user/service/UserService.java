@@ -52,6 +52,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * 계정 프로필·설정·소셜 연동·탈퇴의 도메인 로직.
+ *
+ * <p><b>락 규율이 메서드마다 다르다</b>(GROMO-801). users 행을 <b>바꾸는</b> 경로(닉네임·직군·국가·
+ * 기기 토큰·공개 범위·탈퇴)는 처음부터 배타 락으로 유저를 로드하고, users 를 <b>읽기만</b> 하고 설정
+ * 테이블만 건드리는 경로(목표 변경·소셜 연동 해제)는 공유 락으로 로드한다. 공유로 읽고 나중에 UPDATE
+ * 하면 락 승급 교착이 나므로 이 분류를 바꾸려면 호출부의 로드 방식까지 함께 봐야 한다.
+ *
+ * <p><b>닉네임 규칙은 여기 한 곳</b>이다 — 공백 제거 후 2~10자. 사용 가능 여부 검사와 실제 저장이 같은
+ * 헬퍼를 공유해 "검사는 통과했는데 저장은 거절"이 생기지 않게 한다. DTO 애노테이션에 맡기지 않은 이유가
+ * 그것이다.
+ *
+ * <p><b>목표 변경의 기준일은 KST 오늘</b>({@link ZonePolicy})이다. 목표는 직전 값이 하루치만 보존되므로
+ * 발효일 축이 지급·판정과 어긋나면 어제 데이터가 새 목표로 판정된다.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -83,6 +98,17 @@ public class UserService {
     private static final int NICKNAME_MIN_LENGTH = 2;
     private static final int NICKNAME_MAX_LENGTH = 10;
 
+    /**
+     * 온보딩 프로필 최초 등록 — 닉네임·직군·국가와 두 목표를 한 트랜잭션에서 세운다.
+     *
+     * <p>닉네임을 <b>가장 먼저</b> 처리한다. 닉네임 저장이 유니크 위반을 잡으려고 flush 를 부르는데,
+     * flush 는 그때까지 쌓인 더티 상태를 전부 내보내므로 앞선 변경이 있으면 그쪽의 제약 위반까지
+     * 닉네임 중복으로 오인된다.
+     *
+     * @param userId 온보딩 중인 본인. 탈퇴 계정이거나 설정 행이 없으면 404
+     * @param body   프로필 초기값. 목표는 원시 {@code int} 라 "미지정"과 0 이 구분되지 않는다
+     * @throws UserException 닉네임 형식 위반(400)·중복(409)·폐기된 직군(400)
+     */
     @Transactional
     public void setupProfile(UUID userId, UserProfileSetupRequest body) {
         // users 행(닉네임·직군·국가)을 변경하는 트랜잭션 — 처음부터 배타 락 (GROMO-801 락 선택 원칙,
@@ -109,6 +135,17 @@ public class UserService {
         focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
     }
 
+    /**
+     * 프로필 부분 수정 — <b>null 인 필드는 건드리지 않는다</b>. 빈 문자열 닉네임은 "지움"이 아니라
+     * 형식 위반(400)이다.
+     *
+     * <p>두 목표의 발효일로 같은 날짜 값을 넘긴다. 각자 오늘을 구하면 자정을 걸칠 때 두 설정의 발효일이
+     * 하루 어긋나, 방금 끝난 날짜의 리포트가 한쪽은 새 목표로 다른 쪽은 직전 목표로 판정된다.
+     *
+     * @param userId 본인. 탈퇴 계정이면 404
+     * @param body   바꿀 필드만 담긴 요청
+     * @throws UserException 닉네임 형식 위반(400)·중복(409)
+     */
     @Transactional
     public void updateProfile(UUID userId, UserProfileUpdateRequest body) {
         // users 행(닉네임·국가)을 변경할 수 있는 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
@@ -211,6 +248,22 @@ public class UserService {
         return LocalDate.now(ZonePolicy.KST);
     }
 
+    /**
+     * 회원 탈퇴 — 행을 지우지 않고 PII 를 파기한 뒤 비활성 표시를 한다.
+     *
+     * <p>하드 삭제는 불가능하다: 다수 테이블이 이 유저를 NOT NULL FK 로 참조해 이력이 있는 계정은
+     * 지워지지 않는다. 대신 집중·통계 이력은 유저 참조만 끊어 익명화하고, 지갑·설정은 삭제하며,
+     * 소셜 연동만 <b>하드 삭제</b>한다(provider_id 가 PII 이고, 같은 소셜 계정으로 재가입할 수 있어야 한다).
+     *
+     * <p><b>단계 순서가 곧 정합성</b>이다. 내기 해제 환불이 지갑에 입금되므로 지갑 삭제보다 앞서야 하고,
+     * 판정 근거 박제는 통계를 익명화하기 전이어야 하며, 소셜 연동 삭제는 반드시 <b>맨 끝</b>이다 —
+     * 그 벌크 DELETE 가 영속성 컨텍스트를 비워서 뒤에 오는 엔티티 변경은 전부 조용히 유실된다.
+     *
+     * <p>혼자 있는 소유 그룹은 자동 종료되지만, 다른 멤버가 남은 그룹의 방장이면 위임 전까지 탈퇴할 수 없다.
+     *
+     * @param userId 탈퇴할 본인. 이미 탈퇴했거나 없으면 404
+     * @throws com.oneorthree.phone.group.exception.GroupException 위임하지 않은 방장 그룹이 남아 있을 때
+     */
     @Transactional
     public void withdraw(UUID userId) {
         // 배타 락으로 로드 (GROMO-801) — 아래 소셜 관계 정리와 새 관계 생성(친구 요청·핀)을 직렬화한다.
@@ -297,6 +350,14 @@ public class UserService {
         socialAccountRepository.deleteByUserId(userId);
     }
 
+    /**
+     * 본인 프로필 조회 — 유저·지갑·두 설정 행을 모두 읽는다.
+     *
+     * @param userId 본인
+     * @return 프로필·잔액·목표와 함께 <b>서버 날짜 버킷 존</b>(KST 고정)을 실어 준다.
+     *         앱이 업로드 날짜 키를 서버와 같은 축으로 만들게 하려는 값이다
+     * @throws UserException 탈퇴했거나 지갑·설정 행 중 하나라도 없으면 404
+     */
     public UserProfileResponse getProfile(UUID userId) {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
@@ -327,6 +388,10 @@ public class UserService {
 
     /**
      * 개인 통계 공개 범위(FRIENDS/PUBLIC) 수정 + STAT_VISIBILITY_UPDATED 이벤트 발행.
+     *
+     * @param userId         본인. 탈퇴 계정이면 404
+     * @param statVisibility 새 공개 범위. 이 값은 <b>세부 차트에만</b> 걸리고 스트릭·오늘 요약은
+     *                       범위와 무관하게 공개된다
      */
     @Transactional
     public void updateStatVisibility(UUID userId, StatVisibility statVisibility) {
@@ -338,6 +403,17 @@ public class UserService {
                 Map.of("visibility", statVisibility.name()));
     }
 
+    /**
+     * 스크린타임 OS 권한 보유 여부 갱신 — 앱의 보고를 그대로 저장한다(서버가 검증하지 않는다).
+     *
+     * <p>설정 행을 <b>배타 잠금</b>으로 로드한다. 이 플래그가 유료 회차 참여 가드라, 잠금이 없으면
+     * "참여가 true 를 읽음 → 여기서 false 커밋 → 참여가 차감 커밋" 순서에서 보고 수단이 없는 유저가
+     * 회차에 남는다(미보고 = 미달성이라 확정 패배다).
+     *
+     * @param userId  본인
+     * @param request 권한 보유 여부
+     * @throws UserException 설정 행이 없으면 404
+     */
     @Transactional
     public void updateScreenTimePermission(UUID userId, UpdateScreenTimePermissionRequest request) {
         // 배타 잠금 (GROMO-1409·N50) — 내기 참여의 권한 가드가 같은 행을 공유 잠금으로 읽는다.
@@ -348,6 +424,13 @@ public class UserService {
         settings.setScreenTimePermissionGranted(request.getGranted());
     }
 
+    /**
+     * 일일 스크린타임 목표 변경. users 행은 읽기만 하고 설정 테이블만 바꾸므로 공유 락으로 로드한다.
+     *
+     * @param userId                     본인. 탈퇴 계정이면 404
+     * @param dailyScreenTimeGoalMinutes 새 목표(분). 발효일은 <b>KST 오늘</b>이고, 직전 값은 하루치만
+     *                                   보존되므로 그보다 오래된 날짜의 판정은 새 목표로 근사된다
+     */
     @Transactional
     public void updateScreenTimeGoal(UUID userId, int dailyScreenTimeGoalMinutes) {
         // users 행은 읽기만(country_code → 오늘 계산)하고 설정 테이블만 변경 — 공유 락 (GROMO-801, GROMO-1237).
@@ -360,6 +443,12 @@ public class UserService {
                 Map.of("goal_type", "screen_time", "goal_minutes", dailyScreenTimeGoalMinutes));
     }
 
+    /**
+     * 일일 집중 시간 목표 변경. 스크린타임 목표와 같은 락·발효일 규칙을 따른다.
+     *
+     * @param userId                    본인. 탈퇴 계정이면 404
+     * @param dailyFocusTimeGoalMinutes 새 목표(분). 발효일은 KST 오늘이고 직전 값은 하루치만 보존된다
+     */
     @Transactional
     public void updateFocusTimeGoal(UUID userId, int dailyFocusTimeGoalMinutes) {
         // users 행은 읽기만(country_code → 오늘 계산)하고 설정 테이블만 변경 — 공유 락 (GROMO-801, GROMO-1237).
@@ -372,6 +461,15 @@ public class UserService {
                 Map.of("goal_type", "focus_time", "goal_minutes", dailyFocusTimeGoalMinutes));
     }
 
+    /**
+     * 직군 변경. 마스터에서 폐기된 직군은 저장하지 못한다 — 목록에서 빠진 값이 저장 경로로 새어
+     * 들어오는 걸 막는다.
+     *
+     * <p>직군을 바꿔도 <b>이미 채택한 집중 태그는 그대로</b>다. 직군은 추천 프리셋만 가른다.
+     *
+     * @param userId     본인. 탈퇴 계정이면 404
+     * @param occupation 새 직군. 폐기된 값이면 400
+     */
     @Transactional
     public void updateOccupation(UUID userId, Occupation occupation) {
         requireActiveOccupation(occupation);
@@ -391,6 +489,13 @@ public class UserService {
         }
     }
 
+    /**
+     * 푸시 기기 토큰 등록·갱신. 유저당 <b>토큰 1개</b>만 보관하므로 새 값이 옛 값을 덮는다 —
+     * 여러 기기에 동시에 푸시가 가지 않는다.
+     *
+     * @param userId      본인. 탈퇴 계정이면 404
+     * @param deviceToken FCM 등록 토큰. 기기·재설치마다 회전하므로 같은 유저가 반복해서 보낸다
+     */
     @Transactional
     public void registerDeviceToken(UUID userId, String deviceToken) {
         // users 행(device_token) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
@@ -401,6 +506,8 @@ public class UserService {
 
     /**
      * 토큰 해제 — 로그아웃/기기 변경 시 이전 유저에게 오발송되는 것 방지 (GROMO-528)
+     *
+     * @param userId 본인. 탈퇴 계정이면 404. 해제 뒤에는 새로 등록할 때까지 이 유저에게 푸시가 가지 않는다
      */
     @Transactional
     public void clearDeviceToken(UUID userId) {
@@ -413,6 +520,9 @@ public class UserService {
     /**
      * 유저의 활성 소셜 연동 목록 조회 (deletedAt IS NULL).
      * 게스트(연동 0개)는 빈 리스트 반환.
+     *
+     * @param userId 본인. 탈퇴 계정이면 404
+     * @return 해제되지 않은 연동만. 해제한 연동은 행이 남아 있어도 빠진다
      */
     public List<SocialLinkResponse> getSocialLinks(UUID userId) {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
@@ -427,6 +537,13 @@ public class UserService {
      * 마지막 활성 연동 해제 시 409, 미연동 provider 해제 시 404.
      * 비관적 잠금(SELECT FOR UPDATE)으로 count-then-delete TOCTOU race condition 방지:
      * 동시 DELETE 2건이 각각 count를 읽어 409 가드를 우회하는 상황을 차단.
+     *
+     * <p>소프트딜리트라 같은 소셜 계정으로 다시 로그인하면 이 연동이 되살아난다(탈퇴의 하드 삭제와 다르다).
+     *
+     * @param userId   본인. 탈퇴 계정이면 404
+     * @param provider 해제할 제공자
+     * @throws UserException 연동한 적 없는 제공자면 404, <b>마지막 남은 연동</b>이면 409 —
+     *         해제하면 로그인 수단이 사라지기 때문이다
      */
     @Transactional
     public void unlinkSocialAccount(UUID userId, Provider provider) {
@@ -450,6 +567,10 @@ public class UserService {
     /**
      * 알림 설정 현재값 조회 (GROMO-612).
      * LocalTime → "HH:mm" 매핑 (null 허용).
+     *
+     * @param userId 본인
+     * @return 현재 설정. 심야 시각은 시간대를 담지 않는 {@code "HH:mm"} 문자열이고 미설정이면 null 이다
+     * @throws UserException 설정 행이 아직 없으면 404
      */
     public NotificationSettingsResponse getNotificationSettings(UUID userId) {
         UserNotificationSettings s = userNotificationSettingsRepository.findById(userId)
@@ -463,6 +584,14 @@ public class UserService {
         );
     }
 
+    /**
+     * 알림 설정 저장 — <b>전체 교체</b>다. 세 플래그는 항상 덮어쓰고, 심야 시각은 null 을 보내면
+     * "변경 안 함"이 아니라 <b>지움</b>이다.
+     *
+     * @param userId  본인
+     * @param request 새 설정 전체. 시각 문자열은 {@code "HH:mm"} 형식이어야 하며 검증은 요청 DTO 가 한다
+     * @throws UserException 설정 행이 아직 없으면 404
+     */
     @Transactional
     public void updateNotificationSettings(UUID userId, NotificationSettingsRequest request) {
         UserNotificationSettings settings = userNotificationSettingsRepository.findById(userId)

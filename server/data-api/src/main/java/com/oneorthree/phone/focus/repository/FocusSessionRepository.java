@@ -19,6 +19,19 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * 집중 세션 행의 저장·조회 지점. 라이브 마커(endedAt IS NULL)와 완료 세션이 한 테이블에 섞여 있어,
+ * 집계 쿼리는 예외 없이 {@code status NOT IN (CANCELED, AUTO_CLOSED)} 로 '통계에 반영되면 안 되는 행'만
+ * 걷어낸다 — 포함 목록이 아니라 제외 목록이라 나중에 늘어난 완료 상태값은 자동으로 포함된다.
+ *
+ * <p>마커를 닫는 메서드({@code endSessionIfActive}·{@code cancelSessionIfActive}·
+ * {@code markAutoClosedIfOpen}·{@code claimMarkerIfActive}·{@code autoCloseOpenMarkersOf})는 전부
+ * {@code @Modifying} 벌크 UPDATE 다. 영속성 컨텍스트를 우회하므로 <b>이미 로드한 엔티티는 갱신 전
+ * 스냅샷 그대로 남고</b>({@code clearAutomatically}/{@code flushAutomatically} 는 기본값 false),
+ * 상태를 다시 봐야 하면 {@link #findStatusById} 처럼 1차 캐시를 우회하는 조회를 써야 한다.
+ * 대신 조회-판정-수정 사이의 창이 사라져 동시 요청이 DB 에서 직렬화된다 — 이 원자성이 통계·코인
+ * 이중 계상을 막는 유일한 장치다.
+ */
 public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID> {
 
     /**
@@ -34,6 +47,13 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * (focusRestore.ts:15, useLeagueRanking.ts:79, stats/format.ts). 다만 GROMO-873이 '라이브 행을 두고
      * 별도 완료 행을 POST' 하는 방식으로 구현되면 완료 전까지 ACTIVE 라이브 행과 COMPLETED 행이 공존하는
      * 구간이 생긴다 — 그때는 ACTIVE 제외 또는 완료 시 라이브 행 병합/삭제를 이 쿼리에서 재검토해야 한다.
+     *
+     * @param user     세션 소유자. 다른 유저의 세션이 섞일 여지는 없다
+     * @param from     창 시작(UTC 절대시각, 포함). {@code startedAt} 기준이라 자정을 걸친 세션은 시작일 쪽 페이지에 실린다
+     * @param to       창 끝(UTC 절대시각, 포함)
+     * @param cursor   직전 페이지의 마지막 세션 id. null 이면 첫 페이지
+     * @param pageable size 만 쓴다 — 정렬은 쿼리에 박혀 있고 offset 은 커서가 대신한다
+     * @return 최신순 한 페이지. 취소·자동마감은 빠지지만 진행 중(ACTIVE) 마커는 그대로 실려 나간다
      */
     @Query("SELECT s FROM FocusSession s "
             + "WHERE s.user = :user AND s.startedAt BETWEEN :from AND :to "
@@ -51,6 +71,16 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // currency 폐쇄(서버 지급): 완료 저장 재업로드 멱등 판정 — 같은 (user, startedAt, endedAt) 완료 세션 존재 여부.
     // 앱 업로드 대기열(pendingFocusUploads)이 응답 유실 시 동일 바디를 재전송하는데, 매 POST 가 새 행을 만들면
     // 세션 행 기반 멱등키(focus:{id}:reward)가 재생성돼 이중 지급이 된다 — insert 전에 이걸로 걸러 스킵한다.
+    /**
+     * 완료 저장(POST) 재업로드 멱등 판정 — 같은 구간의 완료 행이 이미 있으면 INSERT 를 건너뛴다.
+     *
+     * @param user      업로드 주체
+     * @param startedAt 클라가 보낸 <b>원본</b> 시작 시각. 마커 경로는 서버가 클램프한 값을 저장하므로 이 검사만으로는
+     *                  마커 폴백의 중복을 못 잡는다 — 그쪽은 {@link #findByIdAndUserForUpdate} 가 맡는다
+     * @param endedAt   클라가 보낸 원본 종료 시각
+     * @param status    보통 {@code COMPLETED}. 취소·자동마감 행은 중복으로 치지 않는다(폴백이 새로 저장해야 한다)
+     * @return 같은 (유저, 구간, 상태) 행이 이미 있으면 true
+     */
     boolean existsByUserAndStartedAtAndEndedAtAndStatus(User user, Instant startedAt, Instant endedAt,
                                                         FocusSessionStatus status);
 
@@ -66,6 +96,10 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 둘 다 '완료 구간 없음'을 보고 각각 완료 행·통계·보상을 만들었다(유니크 제약 없음). 마커 행을 잠그면
      * 같은 마커를 든 폴백들이 직렬화돼 뒤선 쪽이 앞선 커밋을 구간 중복 검사에서 보게 된다.
      * user 조건은 남긴다 — 폴백 바디의 sessionId 는 클라 입력이라 남의 행을 잠그면 안 된다.
+     *
+     * @param id   폴백 바디에 실려 온 마커 id(클라 입력)
+     * @param user 소유자 조건 — 빠지면 남의 행을 잠글 수 있다
+     * @return 잠긴 마커. 없거나 남의 것이면 빈 값. 반환된 행은 트랜잭션이 끝날 때까지 배타 잠금 상태다
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM FocusSession s WHERE s.id = :id AND s.user = :user")
@@ -73,6 +107,10 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
 
     /**
      * 진행 중(미종료) 세션 — 핀 친구 isFocusing 판정용. endedAt IS NULL.
+     *
+     * @param users 판정 대상. 비어 있으면 빈 목록
+     * @return 미종료 세션. 시작 시각 하한이 없어 orphan 타임아웃(12h)을 넘긴 버려진 세션도 섞인다 —
+     *         하한이 필요하면 {@link #findLiveSessionsByUserIdIn} 을 쓴다
      */
     List<FocusSession> findByUserInAndEndedAtIsNull(Collection<User> users);
 
@@ -89,6 +127,10 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 이제 서비스 레이어가 불변식을 지키지만 정렬은 남긴다 — DB 부분 유니크 인덱스는 롤백 안전 때문에
      * 후속 티켓이라(V47 주석 참고) 마이그레이션 이전 스냅샷·과거 잔재에서는 여전히 여럿일 수 있고,
      * 결과가 1건이면 정렬 비용은 사실상 0 이다. 호출측이 최신 세션을 결정적으로 고르게 하는 2차 방어선.
+     *
+     * @param userIds   조회 대상 유저 id
+     * @param liveSince 이 시각 이후 시작한 세션만 '라이브'로 인정한다 — 보통 {@code now - 12h}(orphan 타임아웃)
+     * @return 태그·태그명까지 페치된 라이브 세션, 최근 시작 순. 과거 잔재 탓에 한 유저에 여러 건이 나올 수 있다
      */
     @Query("SELECT s FROM FocusSession s "
             + "LEFT JOIN FETCH s.focusTag ft "
@@ -101,6 +143,9 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     /**
      * orphan 정리용(GROMO-610) — 앱 강제종료 등으로 threshold 이전에 시작됐으나 아직 미종료인 세션.
      * 스케줄러가 조회해 시작+상한으로 종료시각을 채워 '영원히 집중중' 오염을 제거한다.
+     *
+     * @param threshold 이 시각 <b>이전</b>에 시작한 미종료 세션만 — 보통 {@code now - ORPHAN_TIMEOUT(12h)}
+     * @return 스윕 후보. 상태는 아직 ACTIVE 이고 실제 마감은 {@link #markAutoClosedIfOpen} 이 조건부로 한다
      */
     List<FocusSession> findByEndedAtIsNullAndStartedAtBefore(Instant threshold);
 
@@ -111,6 +156,11 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 절대시각 endedAt 윈도우라 타임존에 견고하고(비-KST 유저도 정확), 자정 넘겨 끝난 세션도 종료일 기준으로 포함된다.
      * (다른 집계 쿼리와 동일한 status 필터 관례. 단 윈도우는 '종료일 귀속'이 목적이라 endedAt 기준 그대로 두고,
      * by-category(findCompletedSessionsOverlappingPeriod)처럼 겹침으로 바꾸지 않는다.)
+     *
+     * @param userIds 판정 대상
+     * @param from    창 시작(포함). 호출측이 KST 하루 경계를 절대시각으로 환산해 넘긴다
+     * @param to      창 끝(제외)
+     * @return 창 안에 세션을 <b>끝낸</b> 유저 id(중복 제거). 집중 길이는 보지 않아 1초짜리도 '오늘 집중함'이다
      */
     @Query("SELECT DISTINCT s.user.id FROM FocusSession s "
             + "WHERE s.user.id IN :userIds AND s.endedAt >= :from AND s.endedAt < :to "
@@ -127,6 +177,10 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * endedAt IS NULL 이면서 startedAt 이 liveSince 이후인 세션만 본다. startedAt 하한이 없으면 orphan 타임아웃
      * (FocusService.ORPHAN_TIMEOUT, 12h)을 넘겼는데 아직 스윕(GROMO-804) 안 된 미종료 세션(=버려진 세션, 실집중 0)까지
      * '라이브'로 잡혀, 정각 경합(스윕 지연) 시 알림을 과억제한다 → liveSince = now - 12h 로 최근 세션만 라이브로 인정.
+     *
+     * @param userIds   판정 대상
+     * @param liveSince 라이브 인정 하한({@code now - 12h}). 이보다 오래된 미종료 세션은 버려진 것으로 본다
+     * @return 지금 집중 중인 유저 id(중복 제거)
      */
     @Query("SELECT DISTINCT s.user.id FROM FocusSession s "
             + "WHERE s.user.id IN :userIds AND s.endedAt IS NULL AND s.startedAt >= :liveSince")
@@ -152,6 +206,11 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * COMPLETED 는 NOT IN 을 통과해 포함되고, 레거시 완료(endedAt 채워진 채 ACTIVE 로 남은 세션)도 함께 포함해야
      * 하기 때문(status=COMPLETED 단독 필터로 바꾸면 레거시 완료가 누락된다). 제외 대상만 명시하는 방식이 정답이다.
      * GROMO-673: focusTag(user_focus_tags)와 그 defaultTag 까지 LEFT JOIN FETCH 로 N+1(이름 매핑) 방지.
+     *
+     * @param user 집계 대상
+     * @param from 창 시작(제외 — {@code endedAt > from}). 조금이라도 겹치면 세션이 <b>통째로</b> 실려 온다
+     * @param to   창 끝(제외 — {@code startedAt < to})
+     * @return 겹치는 완료 세션(태그·마스터명 페치 완료). 창 경계로 자르고 방해 비율을 깎는 건 호출측 몫이다
      */
     @Query("SELECT s FROM FocusSession s "
             + "LEFT JOIN FETCH s.focusTag ft "
@@ -167,6 +226,14 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
                                                               @Param("from") Instant from,
                                                               @Param("to") Instant to);
 
+    /**
+     * 탈퇴 시 세션에서 유저 참조만 끊는다 — 행 자체는 남긴다(집계 원본 보존, user_id 는 nullable).
+     *
+     * <p>벌크 UPDATE 라 영속성 컨텍스트를 우회한다. 같은 트랜잭션에서 이미 로드한 세션 엔티티는 여전히
+     * 옛 user 를 들고 있고, user 가 null 이 된 행은 이후 {@code user} 조건이 붙은 모든 쿼리에서 빠진다.
+     *
+     * @param userId 탈퇴한 유저 id
+     */
     @Modifying
     @Query("UPDATE FocusSession f SET f.user = null WHERE f.user.id = :userId")
     void nullifyUser(@Param("userId") UUID userId);
@@ -175,6 +242,11 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 원자적 조건부 종료(GROMO-610) — 진행 중(endedAt IS NULL)인 경우에만 종료 시각을 채운다.
      * 반환값(영향 row 수)이 1이면 이 요청이 종료를 성사시킨 것이고, 0이면 이미 종료됨(동시/중복 PATCH).
      * DB 단일 UPDATE 로 read-modify-write 를 원자화해 endFocusSession 의 TOCTOU 이중 완료(통계 이중 누적)를 차단한다.
+     *
+     * @param id      종료할 마커 id
+     * @param endedAt 채워 넣을 종료 시각 — 서버가 수신 시각 기준 [-5분, 0] 창으로 클램프한 값
+     * @return 1이면 이 요청이 종료를 성사시켰다. 0이면 이미 닫힌 마커이고, 그 원인은 로드된 엔티티가 아니라
+     *         {@link #findStatusById} 로 다시 읽어야 갈린다(엔티티는 이 UPDATE 이전 스냅샷이다)
      */
     @Modifying
     @Query("UPDATE FocusSession s SET s.endedAt = :endedAt "
@@ -186,6 +258,9 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 이미 로드한 엔티티(findById)는 UPDATE 이전 스냅샷이라, 그 사이 다른 트랜잭션이 CANCELED 로 바꿔도
      * ACTIVE 로 보인다 — 그리고 findById 재호출은 1차 캐시가 흡수해 DB 를 다시 읽지 않는다.
      * 엔티티가 아닌 스칼라(status) JPQL 은 캐시를 우회해 DB 값을 그대로 읽는다. 409 경로에서만 도는 추가 쿼리 1회.
+     *
+     * @param id 상태를 다시 읽을 세션 id
+     * @return 지금 DB 에 박혀 있는 상태. 세션이 없으면 빈 값
      */
     @Query("SELECT s.status FROM FocusSession s WHERE s.id = :id")
     Optional<FocusSessionStatus> findStatusById(@Param("id") UUID id);
@@ -199,6 +274,12 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 먼저 성사되면 뒤늦은 PATCH 가 0 행으로 409 를 받아 통계에 닿지 못한다.
      * cancelSessionIfActive 와 같은 결(취소로 마감)이지만 **user 조건이 붙는다** — 폴백 바디의 sessionId 는
      * 클라 입력이라, 소유 검사가 없으면 남의 진행 중 세션을 취소시킬 수 있다.
+     *
+     * @param id         폴백 바디에 실려 온 마커 id(클라 입력이라 user 조건이 반드시 함께 걸린다)
+     * @param user       마커 소유자
+     * @param canceledAt 마감 시각으로 채울 값
+     * @return 1이면 이 폴백이 마커를 선점했다(완료 행을 만들어도 된다). 0이면 이미 닫혔거나 남의 마커라
+     *         호출측이 상태를 확인해 스킵할지 새로 저장할지 가른다
      */
     @Modifying
     @Query("UPDATE FocusSession s "
@@ -213,6 +294,10 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 반환값(영향 row 수)이 1이면 이 스윕이 종료를 성사시킨 것이고, 0이면 그 사이 유저 PATCH(endSessionIfActive)가
      * 먼저 완료해 이미 통계에 반영된 세션이다. 엔티티 autoClose() 더티 라이트는 이 경합에서 완료된 세션의 endedAt·status 를
      * 무조건 덮어써(통계엔 이미 계수됨) by-category 에서 사라지게 만드므로, DB 단일 UPDATE 로 조건을 원자화해 차단한다.
+     *
+     * @param id      마감할 orphan 세션 id
+     * @param endedAt 채울 종료 시각(보통 startedAt + 12h 상한)
+     * @return 1이면 이 스윕이 마감했다. 0이면 그 사이 유저 PATCH 가 먼저 완료해 이미 통계에 반영된 세션이다
      */
     @Modifying
     @Query("UPDATE FocusSession s "
@@ -235,6 +320,9 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * <p>{@code ORDER BY startedAt DESC} — close-then-open 이후 열린 마커는 유저당 1건이지만, 그 이전에
      * 쌓인 잔재는 여럿일 수 있다(DB 부분 유니크는 후속 티켓). 그때도 판정 기준이 흔들리지 않도록
      * {@code findLiveSessionsByUserIdIn} 과 같은 "최신 우선" 관례를 쓴다.
+     *
+     * @param user 마커 소유자
+     * @return 가장 늦게 시작한 열린 마커. 열린 마커가 없으면 빈 값
      */
     Optional<FocusSession> findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(User user);
 
@@ -266,6 +354,8 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * ({@code markAutoClosedIfOpen} 관례). 호출측(startFocusSession)은 이 시점에 마커 엔티티를 영속성
      * 컨텍스트에 올려두지 않고, 컨텍스트를 비우면 직전에 잠근 {@code user} 가 detach 돼 이후 INSERT 가 깨진다.
      *
+     * @param user     마커 소유자. 탈퇴로 {@code user_id} 가 null 이 된 행은 조건에서 자연히 빠진다
+     * @param closedAt 마감 시각으로 채울 값 — 보통 지금 열려는 새 마커의 startedAt
      * @return 마감된 행 수(0이면 열린 마커가 없었던 정상 경로)
      */
     @Modifying
@@ -280,6 +370,10 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 반환값(영향 row 수)이 1이면 이 요청이 취소를 성사시킨 것이고, 0이면 이미 종료/취소된 세션(멱등 — 재취소·이중 취소 차단).
      * endSessionIfActive 미러 구조지만, 취소는 markAutoClosedIfOpen 처럼 status 를 벌크 UPDATE 에서 직접 세팅한다
      * (완료(COMPLETED)는 관리 엔티티 end() 더티 flush 로 반영하는 것과 달리, 취소는 통계 귀속이 없어 벌크 단일 세팅으로 충분).
+     *
+     * @param id         취소할 마커 id. 소유 검사는 호출측이 이미 끝냈다({@link #claimMarkerIfActive} 와 다른 점)
+     * @param canceledAt 마감 시각으로 채울 값(서버 수신 시각)
+     * @return 1이면 이 요청이 취소를 성사시켰다. 0이면 이미 종료·취소된 세션 — 재취소는 조용히 멱등이다
      */
     @Modifying
     @Query("UPDATE FocusSession s "
@@ -329,6 +423,11 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * <p>{@code GREATEST(0, ...)}: {@code stat_end_at} 은 서버 now 로 클램프되므로 <b>미래 started_at</b> 을
      * 보낸 세션에선 {@code stat_end_at < started_at} 이 될 수 있다(started_at &gt; ended_at 은 400 으로 막지만
      * 이쪽은 못 막는다). 그대로 두면 음수 겹침이 그 유저의 다른 세션 합에서 차감된다.
+     *
+     * @param userIds  집계 대상
+     * @param winStart 창 시작(제외). 날짜 버킷이 아니라 임의 시각창이라 저장된 날짜별 분포를 못 쓴다
+     * @param winEnd   창 끝(제외)
+     * @return 겹침이 있는 유저만 실린다 — 창에 걸리는 세션이 하나도 없는 유저는 0 이 아니라 <b>행 자체가 없다</b>
      */
     @Query(value = "SELECT s.user_id AS \"userId\", "
             + "CAST(SUM(GREATEST(0, "
@@ -349,8 +448,10 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
 
     /** {@link #sumOverlapSecondsInWindow} 네이티브 프로젝션 — 유저별 창 겹침 초. */
     interface WindowFocusOverlap {
+        /** @return 집계 단위인 유저. */
         UUID getUserId();
 
+        /** @return 창과 겹친 구간에서 방해 초를 비율만큼 깎고 남은 초. 반올림된 정수이며 음수가 되지 않는다. */
         long getOverlapSeconds();
     }
 
@@ -383,6 +484,11 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 정해지면 안 바뀌므로 상한을 넘기면 자동으로 빠진다 — <b>대기는 반드시 끝난다</b>.
      * V47 백필이 닫은 과거 마커들도 {@code ended_at} 이 과거값이라 이 창에 걸리지 않는다(배포 직후
      * 정산이 멈추지 않는다).
+     *
+     * @param userIds     이 회차 참가자
+     * @param winEnd      창 끝. 이 시각보다 늦게 시작한 세션은 창과 겹칠 수 없어 대기 사유가 되지 않는다
+     * @param closedSince 서버가 대신 닫은 마커를 '업로드 대기'로 볼 시간 상한 — 이 값이 대기를 반드시 끝나게 한다
+     * @return 하나라도 남아 있으면 true. 호출측은 이번 정산 틱을 통째로 스킵한다(정산은 불가역이라 지연이 낫다)
      */
     @Query("SELECT COUNT(s) > 0 FROM FocusSession s "
             + "WHERE s.user.id IN :userIds AND s.startedAt < :winEnd "
@@ -401,6 +507,10 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * rename = 옛 UserFocusTag softDelete + 새 이름 재채택(GROMO-673)이라, 재연결 없으면 과거 세션이 소프트삭제 태그를
      * 계속 참조해 by-category 통계에서 '미분류'로 강등된다. 날짜 조건 없이 전체기간을 옮긴다(총량 불변, 귀속만 이동).
      * 반환값은 재지정된 세션 수(대상 0건이면 0 — 실패 아님).
+     *
+     * @param oldTag 소프트삭제된 옛 채택 태그
+     * @param newTag 같은 유저가 새 이름으로 다시 채택한 태그
+     * @return 재지정된 세션 수. 0 은 옮길 세션이 없었다는 뜻이지 실패가 아니다
      */
     @Modifying
     @Query("UPDATE FocusSession s SET s.focusTag = :newTag WHERE s.focusTag = :oldTag")

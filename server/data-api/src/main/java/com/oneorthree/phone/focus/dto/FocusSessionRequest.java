@@ -13,6 +13,16 @@ import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * 완료된 집중 블록 업로드 요청(POST) — 라이브 마커를 거치지 않고 구간을 통째로 올린다.
+ *
+ * <p>시작·종료 시각을 <b>클램프하지 않고 그대로</b> 저장하는 유일한 경로다. 재업로드 중복 검사가
+ * (유저, 시작, 종료) 완전일치로 이뤄지기 때문에 값을 손대면 같은 블록이 두 번 저장된다. 대신 미래
+ * 종료 위조는 통계 귀속용 유효 종료에서, 장시간 위조는 보상 상한(12h)에서 잘린다.
+ *
+ * <p>생성자가 여럿인 건 필드가 additive 하게 늘어난 흔적이다 — 구버전 앱이 보내지 않는 필드는
+ * 전부 null 로 떨어지고, 그때의 폴백 동작이 각 생성자 문서에 적혀 있다.
+ */
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
@@ -67,7 +77,14 @@ public class FocusSessionRequest {
     @Size(max = MAX_SECONDS_BY_DATE_ENTRIES)
     Map<LocalDate, Integer> focusSecondsByDate;
 
-    /** 하위호환 — focusType·sessionId·focusSecondsByDate 미지정 기존 4-arg 호출부. */
+    /**
+     * 하위호환 — focusType·sessionId·focusSecondsByDate 미지정 기존 4-arg 호출부.
+     *
+     * @param focusTagId              소유 태그 id. null 이면 태그 없는 세션
+     * @param startedAt               시작 시각(필수). 클램프 없이 그대로 저장된다
+     * @param endedAt                 종료 시각(필수). 시작보다 앞서면 400
+     * @param totalDistractionSeconds 누적 방해 초. 집중 시간과 보상에서 그대로 차감된다
+     */
     public FocusSessionRequest(UUID focusTagId, Instant startedAt, Instant endedAt, int totalDistractionSeconds) {
         this(focusTagId, startedAt, endedAt, totalDistractionSeconds, null, null, null);
     }
@@ -75,19 +92,44 @@ public class FocusSessionRequest {
     /**
      * 하위호환 — sessionId(마커 폴백 표식)·focusSecondsByDate(날짜별 집중초) 미지정 기존 5-arg 호출부.
      * 둘 다 null 이면 종전 동작: 마커 id 중복 검사 생략 + 서버 벽시계 분할 폴백.
+     *
+     * @param focusTagId              소유 태그 id. null 이면 태그 없는 세션
+     * @param startedAt               시작 시각(필수)
+     * @param endedAt                 종료 시각(필수)
+     * @param totalDistractionSeconds 누적 방해 초
+     * @param focusType               세션 유형. null 이면 INFINITE
      */
     public FocusSessionRequest(UUID focusTagId, Instant startedAt, Instant endedAt, int totalDistractionSeconds,
                                FocusType focusType) {
         this(focusTagId, startedAt, endedAt, totalDistractionSeconds, focusType, null, null);
     }
 
-    /** 하위호환 — 마커 폴백 표식만 싣는 6-arg 호출부(날짜별 집중초 미지정 → 서버 벽시계 분할 폴백). */
+    /**
+     * 하위호환 — 마커 폴백 표식만 싣는 6-arg 호출부(날짜별 집중초 미지정 → 서버 벽시계 분할 폴백).
+     *
+     * @param focusTagId              소유 태그 id
+     * @param startedAt               시작 시각(필수)
+     * @param endedAt                 종료 시각(필수)
+     * @param totalDistractionSeconds 누적 방해 초
+     * @param focusType               세션 유형. null 이면 INFINITE
+     * @param sessionId               이 업로드가 폴백하는 마커 id. 서버가 그 마커를 선점해 PATCH 와 직렬화한다
+     */
     public FocusSessionRequest(UUID focusTagId, Instant startedAt, Instant endedAt, int totalDistractionSeconds,
                                FocusType focusType, UUID sessionId) {
         this(focusTagId, startedAt, endedAt, totalDistractionSeconds, focusType, sessionId, null);
     }
 
-    /** 하위호환 — 날짜별 집중초만 싣는 6-arg 호출부(마커 폴백 표식 미지정 → id 중복 검사 생략). */
+    /**
+     * 하위호환 — 날짜별 집중초만 싣는 6-arg 호출부(마커 폴백 표식 미지정 → id 중복 검사 생략).
+     *
+     * @param focusTagId              소유 태그 id
+     * @param startedAt               시작 시각(필수)
+     * @param endedAt                 종료 시각(필수)
+     * @param totalDistractionSeconds 누적 방해 초
+     * @param focusType               세션 유형. null 이면 INFINITE
+     * @param focusSecondsByDate      날짜별 집중 초. 자정을 걸친 세션의 귀속 근거이고, 무검증 수용이 아니라
+     *                                날짜별 벽시계 몫으로 클램프된다
+     */
     public FocusSessionRequest(UUID focusTagId, Instant startedAt, Instant endedAt, int totalDistractionSeconds,
                                FocusType focusType, Map<LocalDate, Integer> focusSecondsByDate) {
         this(focusTagId, startedAt, endedAt, totalDistractionSeconds, focusType, null, focusSecondsByDate);

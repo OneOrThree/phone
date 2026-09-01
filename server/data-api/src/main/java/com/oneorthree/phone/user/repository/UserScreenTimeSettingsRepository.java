@@ -10,6 +10,13 @@ import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * 유저별 스크린타임 권한·목표 설정. PK 가 곧 유저 id(1:1)다.
+ *
+ * <p>권한 플래그가 유료 회차 참여 가드에 걸려 있어, 조회 두 개가 <b>잠금 강도만 다른 짝</b>으로 존재한다 —
+ * 참여 검사는 공유 잠금, 권한 수정은 배타 잠금. 이 짝이 "권한 확인 → 차감" 사이에 권한이 회수되는 창을 닫는다.
+ * users 행을 잠그는 것으로는 못 막는다(권한 수정은 users 를 건드리지 않는다).
+ */
 public interface UserScreenTimeSettingsRepository extends JpaRepository<UserScreenTimeSettings, UUID> {
 
     /**
@@ -24,12 +31,20 @@ public interface UserScreenTimeSettingsRepository extends JpaRepository<UserScre
      * <p>공유 잠금끼리는 충돌하지 않아 동시 참여는 그대로 병렬이다. 회수가 먼저 커밋되면 이 조회가
      * false 를 보고 409, 참여가 먼저면 회수가 참여 커밋까지 기다린다(그 순간엔 권한이 실제로
      * 있었으므로 참가가 유효하다).
+     *
+     * @param userId 참여를 검사할 유저
+     * @return 잠긴 설정. <b>행이 없으면 빈 값</b>이고, 그건 권한 false 와 같게 다뤄야 한다
      */
     @Lock(LockModeType.PESSIMISTIC_READ)
     @Query("SELECT s FROM UserScreenTimeSettings s WHERE s.userId = :userId")
     Optional<UserScreenTimeSettings> findByIdForShare(@Param("userId") UUID userId);
 
-    /** 권한 수정 경로용 <b>배타 잠금</b> — 위 공유 잠금과 짝을 이뤄 참여 검사와 직렬화된다. */
+    /**
+     * 권한 수정 경로용 <b>배타 잠금</b> — 위 공유 잠금과 짝을 이뤄 참여 검사와 직렬화된다.
+     *
+     * @param userId 권한을 바꿀 유저
+     * @return 잠긴 설정. 행이 없으면 빈 값이라 호출측이 새로 만들어야 한다
+     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM UserScreenTimeSettings s WHERE s.userId = :userId")
     Optional<UserScreenTimeSettings> findByIdForUpdate(@Param("userId") UUID userId);

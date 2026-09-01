@@ -69,6 +69,12 @@ public class UserFocusTag {
      */
     private Instant deletedAt;
 
+    /**
+     * 채택 해제 — 행은 남기고 시각만 찍는다. 과거 세션이 이 행을 참조하고 있어 하드 삭제할 수 없다.
+     *
+     * <p>이름 변경도 이걸 거친다(옛 행 소프트삭제 → 새 이름으로 재채택). 그때 과거 세션을 새 행으로
+     * 옮기지 않으면 통계에서 '미분류'로 강등되므로 호출측이 재연결까지 책임진다.
+     */
     public void softDelete() {
         this.deletedAt = Instant.now();
     }

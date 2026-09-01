@@ -64,6 +64,19 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
 
+/**
+ * 집중 태그와 집중 세션의 도메인 로직. 세션이 들어오는 경로가 둘이라는 게 이 클래스를 지배한다 —
+ * 완료본을 통째로 올리는 POST({@link #saveFocusSession})와, 마커를 열고 나중에 닫는
+ * 시작/종료({@link #startFocusSession}/{@link #endFocusSession}) 다. 앱은 PATCH 가 실패하면 POST 로
+ * 폴백하므로 <b>같은 집중 블록이 두 경로로 도착할 수 있고</b>, 통계·코인 이중 계상을 막는 장치가
+ * 곳곳에 깔려 있다(마커 선점·구간 중복 검사·조건부 원자 UPDATE).
+ *
+ * <p>시간 축은 두 겹이다. 클라가 보낸 시각은 라이브 경로에서 서버 수신 시각 기준 [-5분, 0] 창으로
+ * 클램프해 저장하고, 날짜 버킷은 유저 국가와 무관하게 <b>KST 고정</b>이다({@link ZonePolicy}).
+ *
+ * <p>클래스 기본이 {@code readOnly = true} 라, 쓰기 경로만 메서드에 {@code @Transactional} 을 따로 단다.
+ * readOnly 트랜잭션에서는 Postgres 가 {@code FOR SHARE} 를 거절하므로 조회 경로는 락 없는 활성 필터를 쓴다.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -124,6 +137,13 @@ public class FocusService {
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetEarlyWinConfirmer groupBetEarlyWinConfirmer;
 
+    /**
+     * 유저가 채택 중인 집중 태그 목록.
+     *
+     * @param userId 조회 주체. 탈퇴 유저는 404({@code UserErrorCode.NOT_FOUND})
+     * @return 활성 채택 태그. id 는 채택 행(user_focus_tags)의 id 이고 이름은 공유 마스터에서 읽는다.
+     *         소프트삭제된 옛 태그는 빠지므로 이름을 바꾼 태그는 <b>새 id</b> 로 나온다
+     */
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
@@ -142,6 +162,11 @@ public class FocusService {
      * <p>occupation 파라미터가 주어지면 그 값으로, 없으면 로그인 유저의 저장 occupation 으로 조회한다.
      * 유저 occupation 도 없으면(온보딩 미완료) {@link FocusErrorCode#OCCUPATION_REQUIRED}(400).
      * 결과가 없으면 빈 tags 리스트로 200 을 반환한다(에러 아님).
+     *
+     * @param userId     로그인 유저. occupation 을 생략했을 때만 조회한다
+     * @param occupation 조회할 직군. null 이면 유저에 저장된 직군으로 대체하고, 그것도 없으면 400
+     * @return 해당 직군의 추천 태그(노출 순서 유지). <b>tagId 가 없다</b> — 유저가 고르면 이름을 태그 등록으로
+     *         다시 보내 실제 채택 행을 만든다
      */
     public OccupationDefaultTagsResponse getDefaultTags(UUID userId, Occupation occupation) {
         Occupation resolved = occupation;
@@ -165,6 +190,15 @@ public class FocusService {
         return new OccupationDefaultTagsResponse(resolved, tags);
     }
 
+    /**
+     * 태그 채택 — 이름 마스터를 find-or-create 한 뒤 이 유저의 채택 행을 만든다.
+     *
+     * <p>이미 채택 중인 이름이면 아무것도 만들지 않고 기존 행을 그대로 둔다(멱등). 이름은 전역 공유라
+     * 다른 유저가 같은 이름을 쓰고 있으면 그 마스터를 재사용한다.
+     *
+     * @param userId 채택 주체. 탈퇴 유저면 404
+     * @param body   채택할 태그 이름. 유저 입력이라 활동 로그에는 이름을 남기지 않고 태그 id 만 남긴다
+     */
     @Transactional
     public void setupFocusTag(UUID userId, FocusTagSetupRequest body) {
         User user = requireActiveUser(userId);
@@ -191,6 +225,18 @@ public class FocusService {
                 Map.of("tag_id", savedTag.getId().toString()));
     }
 
+    /**
+     * 태그 이름 변경 — 실제로는 <b>옛 채택 행을 소프트삭제하고 새 이름으로 다시 채택</b>한다.
+     * 이름은 전역 마스터가 들고 있어 마스터를 직접 고치면 같은 이름을 쓰는 다른 유저까지 오염되기 때문이다.
+     *
+     * <p>그래서 과거 세션이 옛 행을 계속 가리키게 두면 통계에서 '미분류'로 강등된다 — 벌크 UPDATE 로
+     * 전체 기간의 세션을 새 행에 재연결한다(총량은 그대로, 귀속만 이동).
+     *
+     * @param userId 요청자. 남의 태그면 403
+     * @param body   대상 태그 id 와 새 이름. 이름이 실제로 같으면 아무것도 하지 않는다
+     * @throws com.oneorthree.phone.focus.exception.FocusException 태그가 없거나(404), 남의 태그거나(403),
+     *         직군 프리셋에서 온 태그를 rename 하려 할 때(400)
+     */
     @Transactional
     public void updateFocusTag(UUID userId, FocusTagUpdateRequest body) {
         UserFocusTag tag = userFocusTagRepository.findByIdAndDeletedAtIsNull(body.tagId())
@@ -243,6 +289,12 @@ public class FocusService {
         focusSessionRepository.repointFocusTag(tag, newTag);
     }
 
+    /**
+     * 태그 채택 해제 — 소프트삭제라 과거 세션의 참조는 살아 있고, 그 세션들은 통계에서 삭제된 태그로 남는다.
+     *
+     * @param userId 요청자. 남의 태그면 403
+     * @param tagId  해제할 채택 행 id. 이미 해제된 태그면 404
+     */
     @Transactional
     public void deleteFocusTag(UUID userId, UUID tagId) {
         UserFocusTag tag = userFocusTagRepository.findByIdAndDeletedAtIsNull(tagId)
@@ -255,6 +307,17 @@ public class FocusService {
         tag.softDelete();
     }
 
+    /**
+     * 세션 목록 — 기간 필터 + 커서(keyset) 페이지네이션.
+     *
+     * @param userId 조회 주체. 탈퇴 유저면 404
+     * @param from   창 시작(UTC 절대시각, 포함). {@code startedAt} 기준이라 자정을 걸친 세션은 시작일 쪽에 잡힌다
+     * @param to     창 끝(포함). from 보다 앞서면 400
+     * @param cursor 직전 페이지 마지막 세션 id. null 이면 첫 페이지
+     * @param size   페이지 크기. 1~100 밖이면 400
+     * @return 최신순 한 페이지 + 다음 커서. 취소·자동마감 세션은 빠지지만 <b>진행 중 세션은 남으므로</b>
+     *         클라가 합산할 때 종료 시각이 빈 항목을 걸러야 한다
+     */
     public FocusSessionSliceResponse getFocusSessions(UUID userId, Instant from, Instant to, UUID cursor, int size) {
         if (from == null || to == null || from.isAfter(to)) {
             throw new FocusException(FocusErrorCode.INVALID_DATE_RANGE);
@@ -289,6 +352,24 @@ public class FocusService {
         return new FocusSessionSliceResponse(content, size, slice.hasNext(), nextCursor);
     }
 
+    /**
+     * 완료된 집중 블록을 통째로 저장하고 통계·스트릭·코인을 한 트랜잭션에서 귀속시킨다.
+     *
+     * <p>같은 블록이 두 번 도착할 수 있는 경로다 — 업로드 대기열의 재전송과, PATCH 실패 후의 마커 폴백.
+     * 그래서 저장 전에 두 겹으로 거른다: 바디에 마커 id 가 실려 있으면 그 마커를 조건부 UPDATE 로
+     * <b>선점</b>해 PATCH 와 직렬화하고, 그 외에는 같은 (유저, 시작, 종료) 완료 행이 있는지 본다.
+     * 중복으로 판정되면 저장·통계·지급을 전부 건너뛰고 현재 상태만 돌려준다(재시도 클라가 대기열을 비울 수 있게).
+     *
+     * <p>이 경로는 클라 시각을 클램프하지 않는다(중복 검사 전제). 대신 미래 종료 위조는 통계 귀속용
+     * 유효 종료로 잘라내고, 보상은 12시간 상한에서 끊는다.
+     *
+     * @param userId 업로드 주체. 탈퇴 유저면 404이고, 남의 태그를 지정하면 403
+     * @param body   집중 블록. 시작·종료는 필수이고 종료가 시작보다 앞서면 400.
+     *               날짜별 집중 초를 실어 보내면 자정을 걸친 세션의 날짜 귀속에 그 분포를 쓰고,
+     *               없으면 서버가 KST 벽시계로 쪼갠다
+     * @return 그날(KST) 누적 집중 초·스트릭 인정 여부·이번에 지급된 코인·잔액. 중복으로 스킵된 경우
+     *         지급액은 0 이고 누적치는 이미 반영된 값이 실린다
+     */
     @Transactional
     public FocusSessionSaveResponse saveFocusSession(UUID userId, FocusSessionRequest body) {
         User user = requireActiveUser(userId);
@@ -768,6 +849,12 @@ public class FocusService {
      * <b>어느 한계에서도 적립은 잃지 않는다</b> — 마커를 못 받은 블록은 항상 POST 경로가 받는다.
      * 라이브 표시 잔여는 {@code FocusSessionOrphanScheduler}(12h 스윕)가 덮는다 — 불변식이 서도
      * 스윕을 남긴 이유다.
+     *
+     * @param userId 시작 주체. 탈퇴 유저면 404이고, 남의 태그를 지정하면 403
+     * @param body   시작 시각·태그·세션 유형. 시작 시각이 [-5분, 0] 창 밖이면 서버 수신 시각으로 대체된다
+     * @return 생성된 마커 id 와 <b>서버가 확정한</b> 시작 시각. 이 요청이 이미 열린 마커보다 논리적으로
+     *         이르면 마커를 만들지 않고 <b>id 가 null</b> 로 돌아온다 — 그때 앱은 열려 있는 다른 마커 id 를
+     *         쓰지 말고 그 블록을 POST 로 올려야 한다(재사용하면 그 블록의 시간·코인이 유실된다)
      */
     @Transactional
     public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
@@ -830,6 +917,17 @@ public class FocusService {
     /**
      * 라이브 집중 세션 종료(GROMO-610) — 진행 중(endedAt NULL) 세션에 종료 시각을 채워 완료 처리.
      * 완료 시점에 통계(DailyFocusStat)·스트릭·이벤트를 귀속시킨다(POST 완료 저장과 동일 로직 공유).
+     *
+     * <p>종료는 조건부 원자 UPDATE 로 성사시킨다 — 동시 PATCH 두 건이 둘 다 '아직 안 끝남'을 읽고
+     * 통계를 두 번 쌓는 걸 막기 위해서다. 성사되지 못하면 상태를 DB 에서 다시 읽어 409 를 두 갈래로 가른다.
+     *
+     * @param userId 종료 주체. 남의 세션이면 403, 세션이 없으면 404
+     * @param body   세션 id·종료 시각·누적 방해 초·(선택)태그 보정·날짜별 집중 초.
+     *               종료 시각이 [-5분, 0] 창 밖이면 서버 수신 시각으로 대체되고, 클램프 후에도 시작보다 앞서면 400
+     * @return 확정된 구간·길이와 그날 누적·스트릭 인정 여부·지급 코인·잔액
+     * @throws com.oneorthree.phone.focus.exception.FocusException 이미 닫힌 마커면 409 —
+     *         {@code SESSION_ALREADY_ENDED}(통계·지급이 이미 커밋됐으니 폴백 금지)와
+     *         {@code SESSION_DISCARDED}(통계 미반영이라 POST 로 살려 올려야 함)로 갈린다
      */
     @Transactional
     public FocusSessionEndResponse endFocusSession(UUID userId, FocusSessionEndRequest body) {
@@ -912,6 +1010,11 @@ public class FocusService {
      * 취소를 원자적으로 성사시켜 이중/중복 취소를 멱등 처리하고(영향 row=0 이면 이미 종료/취소 → 409),
      * 성사된 요청만 관리 엔티티 cancel() 더티 flush 로 in-memory 상태를 정합시킨다.
      * 취소는 통계·스트릭 귀속이 없다(완료가 아님).
+     *
+     * @param userId 요청자. 남의 세션이면 403, 세션이 없으면 404
+     * @param body   취소할 마커 id. 취소 시각은 클라가 못 정하고 서버 수신 시각으로 박힌다
+     * @throws com.oneorthree.phone.focus.exception.FocusException 이미 종료·취소된 세션이면
+     *         {@code SESSION_ALREADY_ENDED}(409)
      */
     @Transactional
     public void cancelFocusSession(UUID userId, FocusSessionCancelRequest body) {
@@ -949,6 +1052,8 @@ public class FocusService {
      * 사라지면서 /stats/focus 와 불일치하고 endedAt 도 오염된다. endedAt IS NULL 조건 UPDATE 로 이 경합을 차단하고,
      * 실제로 마감된(반환 1) 세션만 카운트한다(동시 완료돼 0 이 반환된 세션은 스킵).
      *
+     * @param now 이 틱의 기준 시각. {@code now - 12h} 이전에 시작한 미종료 세션이 대상이고,
+     *            각 세션의 종료 시각은 그 세션의 {@code startedAt + 12h} 로 박힌다(now 가 아니다)
      * @return 자동 종료한 세션 수(경합으로 이미 완료된 세션 제외)
      */
     @Transactional

@@ -3,6 +3,14 @@ package com.oneorthree.phone.user.exception;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
+/**
+ * user 도메인 실패 사유 — HTTP 상태와 사용자 노출 문구를 한 곳에 묶는다.
+ *
+ * <p><b>앱이 code 문자열로 분기하므로 상수 이름은 계약</b>이다. 개명·삭제는 앱을 깨뜨린다.
+ * 특히 404 가 둘로 갈려 있다 — {@code NOT_FOUND}(요청이 <b>지목한</b> 유저가 없음)와
+ * {@code USER_NOT_FOUND}(<b>요청자 본인</b>의 활성 계정이 없음)는 탈출구가 다르다.
+ * 앞은 화면에서 처리할 일이고, 뒤는 재시도로 풀리지 않아 재로그인만이 답이다.
+ */
 @Getter
 public enum UserErrorCode {
 

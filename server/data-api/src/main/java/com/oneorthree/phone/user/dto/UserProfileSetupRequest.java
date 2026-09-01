@@ -9,6 +9,12 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+/**
+ * 온보딩 프로필 최초 등록 요청. 닉네임만 필수이고 나머지는 생략하면 기본값으로 들어간다.
+ *
+ * <p>수정({@link UserProfileUpdateRequest})과 달리 목표가 원시 {@code int} 라 <b>"보내지 않음"과 "0"을
+ * 구분하지 못한다</b> — 온보딩은 전체를 한 번에 세우는 경로라서다.
+ */
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
