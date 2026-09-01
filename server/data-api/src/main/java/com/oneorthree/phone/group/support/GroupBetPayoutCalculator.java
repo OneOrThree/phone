@@ -62,6 +62,8 @@ public final class GroupBetPayoutCalculator {
      * @param stake         1인 판돈
      * @param remainderRule 잔여를 받을 승자를 고르는 방향(카테고리별)
      * @param entries       참가자별 달성 판정 (최소 1명)
+     * @return 승자가 하나라도 있으면 {@code SETTLED} + 합이 팟과 같은 지급 목록, 아무도 달성하지
+     *     못했으면 {@code FORFEITED} + 전원 0. 어느 쪽이든 payouts 는 참가자 전원을 포함한다
      * @throws IllegalStateException 참가자가 없거나 status 별 분배 불변식이 깨진 경우
      */
     public static Distribution distribute(int stake, RemainderRule remainderRule, List<Entry> entries) {
