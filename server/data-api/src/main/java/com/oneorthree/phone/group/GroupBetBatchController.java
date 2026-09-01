@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group;
 
+import io.swagger.v3.oas.annotations.Parameter;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
@@ -63,6 +64,7 @@ public class GroupBetBatchController implements GroupBetBatchControllerDocs {
     @PostMapping("/groups/bets/settle")
     public ResponseEntity<GroupBetSettlementSummaryResponse> settleDueBets(
             @RequestHeader(value = ADMIN_KEY_HEADER, required = false) String adminKey,
+            @Parameter(description = "정산할 챌린지 카테고리 (생략 시 전체)")
             @RequestParam(required = false) MissionCategory category) {
         requireAdminKey(adminKey);
         // 감사 로그(LLD §2.3) — prod 포함 경로라 호출 사실·대상·결과를 warn 으로 남긴다.

@@ -3,7 +3,6 @@ package com.oneorthree.phone.group;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -11,6 +10,9 @@ import org.springframework.http.ResponseEntity;
 
 /**
  * {@code GroupBetBatchController} 의 OpenAPI 문서 면(面) — Swagger 애노테이션만 둔다(GROMO-1621).
+ *
+ * <p>파라미터 단위 {@code @Parameter} 는 구현체에 남는다 — 자바가 파라미터 애노테이션을
+ * 상속하지 않아 여기 붙이면 스펙에서 사라진다.
  */
 @Tag(name = "group-bet-batch", description = "그룹 챌린지 내기 정산 수동 트리거 (전 환경 — 관리자 키 필수)")
 public interface GroupBetBatchControllerDocs {
@@ -40,7 +42,5 @@ public interface GroupBetBatchControllerDocs {
         @ApiResponse(responseCode = "403", description = "관리자 키 누락/불일치 (BATCH_KEY_INVALID)"),
         @ApiResponse(responseCode = "503", description = "서버에 관리자 키 미설정 (BATCH_KEY_NOT_CONFIGURED)")
     })
-    ResponseEntity<GroupBetSettlementSummaryResponse> settleDueBets(
-            String adminKey,
-            @Parameter(description = "정산할 챌린지 카테고리 (생략 시 전체)") MissionCategory category);
+    ResponseEntity<GroupBetSettlementSummaryResponse> settleDueBets(String adminKey, MissionCategory category);
 }

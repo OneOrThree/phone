@@ -1,5 +1,6 @@
 package com.oneorthree.phone.user;
 
+import io.swagger.v3.oas.annotations.Parameter;
 import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.user.repository.domain.Provider;
 import com.oneorthree.phone.user.dto.DeviceTokenRegisterRequest;
@@ -64,6 +65,7 @@ public class UserController implements UserControllerDocs {
     @Override
     @GetMapping("/users/nickname/check")
     public ResponseEntity<NicknameCheckResponse> checkNickname(
+            @Parameter(description = "검사할 닉네임(trim 전 원문). 미전달 시 available=false")
             @RequestParam(required = false) String nickname,
             @LoginUser UUID userId) {
         // required=false — 파라미터 누락도 "항상 200 {available:false}" 계약에 태운다(400 분기 없음)

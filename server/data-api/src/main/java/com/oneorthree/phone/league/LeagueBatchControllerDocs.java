@@ -5,7 +5,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import io.swagger.v3.oas.annotations.Parameter;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
@@ -77,9 +76,6 @@ public interface LeagueBatchControllerDocs {
                 description = "대상 주차의 배치가 실행된 적 없음 (BATCH_NOT_RUN) — /run 사용"),
         @ApiResponse(responseCode = "503", description = "서버에 관리자 키 미설정 (BATCH_KEY_NOT_CONFIGURED)")
     })
-    ResponseEntity<LeagueBatchSummaryResponse> resumeWeeklyBatch(String adminKey,
-            @Parameter(description = "정산 대상 주차 시작 — KST 월요일 00:00 ISO instant (생략 시 직전 주차)")
-            String weekStartAt,
-            @Parameter(description = "표적 정산할 유저 id 목록 (생략 시 전체 순회)")
+    ResponseEntity<LeagueBatchSummaryResponse> resumeWeeklyBatch(String adminKey, String weekStartAt,
             List<UUID> userIds);
 }
