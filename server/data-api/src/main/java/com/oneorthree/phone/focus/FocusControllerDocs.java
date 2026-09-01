@@ -29,6 +29,10 @@ import java.util.UUID;
 @Tag(name = "focus", description = "focus 세션 관련 API (태그, 포커스 타임 등)")
 public interface FocusControllerDocs {
 
+    /**
+     * @param userId 인증 토큰에서 주입되는 조회 주체 — 쿼리로 받지 않으므로 남의 태그는 조회할 수 없다
+     * @return 활성 채택 태그 목록(200). 이름을 바꾼 적이 있으면 옛 태그는 빠지고 새 id 로 나온다
+     */
     @Operation(summary = "TAG 조회", description = "유저별 TAG 조회")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
@@ -36,6 +40,11 @@ public interface FocusControllerDocs {
     })
     ResponseEntity<List<FocusTagResponse>> getTag(UUID userId);
 
+    /**
+     * @param userId     인증 주체. occupation 을 생략했을 때만 저장된 직군을 읽는 데 쓴다
+     * @param occupation 조회할 직군. 생략하면 유저의 저장 직군으로 대체하고, 그것도 없으면 400
+     * @return 추천 태그 목록(200). 프리셋이 없는 직군이면 빈 목록이지 404 가 아니다
+     */
     @Operation(summary = "기본(추천) TAG 조회",
             description = "occupation별 기본(추천) 포커스 태그 목록. occupation 미지정 시 로그인 유저의 저장 occupation 사용. "
                     + "tagId 없음 — 유저가 선택 시 name 을 POST /api/v1/tag 로 넘겨 실제 태그 생성.")
@@ -47,6 +56,11 @@ public interface FocusControllerDocs {
     })
     ResponseEntity<OccupationDefaultTagsResponse> getDefaultTags(UUID userId, Occupation occupation);
 
+    /**
+     * @param userId 채택 주체
+     * @param body   채택할 태그 이름. 이미 채택 중인 이름이면 새로 만들지 않고 204 로 끝난다(멱등)
+     * @return 본문 없는 204
+     */
     @Operation(summary = "TAG 초기 등록", description = "TAG, 설명 등록")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "등록 성공"),
@@ -55,6 +69,11 @@ public interface FocusControllerDocs {
     })
     ResponseEntity<Void> setupTag(UUID userId, FocusTagSetupRequest body);
 
+    /**
+     * @param userId 요청자. 남의 태그면 403
+     * @param body   대상 태그 id 와 새 이름
+     * @return 본문 없는 204. 새 태그 id 는 응답에 실리지 않으므로 목록을 다시 받아야 한다
+     */
     @Operation(summary = "TAG 수정",
             description = "TAG 이름 수정. rename 시 옛 태그를 참조하던 과거 세션을 새 태그로 재연결한다(동작 변경, GROMO-754). "
                     + "직군 프리셋(occupation) 태그는 이름 변경 불가(400).")
@@ -65,6 +84,11 @@ public interface FocusControllerDocs {
     })
     ResponseEntity<Void> updateTag(UUID userId, FocusTagUpdateRequest body);
 
+    /**
+     * @param userId 요청자. 남의 태그면 403
+     * @param tagId  해제할 채택 행 id. 소프트삭제라 과거 세션의 통계 귀속은 그대로 남는다
+     * @return 본문 없는 204
+     */
     @Operation(summary = "TAG 삭제", description = "TAG 삭제")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "삭제 성공"),
@@ -73,6 +97,13 @@ public interface FocusControllerDocs {
     })
     ResponseEntity<Void> deleteTag(UUID userId, UUID tagId);
 
+    /**
+     * @param userId 업로드 주체
+     * @param body   완료된 집중 블록. 마커 PATCH 가 실패해 폴백하는 경우엔 그 마커 id 도 함께 실어야
+     *               서버가 이중 지급을 막을 수 있다
+     * @return 그날 누적·스트릭 인정 여부·지급 코인·잔액(201). 재업로드로 판정되면 저장은 건너뛰고
+     *         지급액 0 과 이미 반영된 누적치가 실린다
+     */
     @Operation(summary = "Focus Session 저장",
             description = "Focus Session 정보 저장. 완료 후 그날 누적 집중 초·스트릭 인정 여부(GROMO-806)를 함께 반환한다. "
                     + "기존 빈 바디에 필드를 추가한 additive 변경 — 구버전 앱은 무시한다.")
@@ -83,6 +114,11 @@ public interface FocusControllerDocs {
     })
     ResponseEntity<FocusSessionSaveResponse> saveFocusSession(UUID userId, FocusSessionRequest body);
 
+    /**
+     * @param userId 시작 주체
+     * @param body   시작 시각·태그·세션 유형. 시작 시각은 서버가 창 밖이면 대체한다
+     * @return 마커 id 와 서버가 확정한 시작 시각(201). 마커를 만들지 않은 경우 id 가 null 이다
+     */
     @Operation(summary = "Focus Session 시작(라이브)",
             description = "startedAt 만 기록한 진행 중(endedAt NULL) 세션을 생성한다. 생성 세션 id 를 반환해 "
                     + "이후 PATCH /focus-session 으로 종료할 때 참조한다. 통계·스트릭은 종료 시점에 귀속. "
@@ -102,6 +138,11 @@ public interface FocusControllerDocs {
     })
     ResponseEntity<FocusSessionStartResponse> startFocusSession(UUID userId, FocusSessionStartRequest body);
 
+    /**
+     * @param userId 종료 주체. 세션 소유자와 다르면 403
+     * @param body   세션 id·종료 시각·누적 방해 초·(선택)태그 보정·날짜별 집중 초
+     * @return 확정 구간과 그날 누적·스트릭 인정 여부·지급 코인·잔액(200)
+     */
     @Operation(summary = "Focus Session 종료(라이브)",
             description = "진행 중(endedAt NULL) 세션에 종료 시각을 채워 완료 처리한다. endedAt 생략 시 서버 수신 시각. "
                     + "완료 시점에 통계·스트릭·세션 보상 코인(집중 1분당 1코인)이 귀속되고 응답에 지급액이 실린다. "
@@ -118,6 +159,11 @@ public interface FocusControllerDocs {
     })
     ResponseEntity<FocusSessionEndResponse> endFocusSession(UUID userId, FocusSessionEndRequest body);
 
+    /**
+     * @param userId 요청자. 세션 소유자와 다르면 403
+     * @param body   취소할 마커 id. 취소 시각은 클라가 정하지 못한다
+     * @return 본문 없는 204
+     */
     @Operation(summary = "Focus Session 취소",
             description = "진행 중(endedAt NULL) 세션을 취소해 status=CANCELED 로 마감한다. 취소 시각은 서버 수신 시각. "
                     + "통계·스트릭은 귀속하지 않는다. 이미 종료/취소된 세션 재취소는 409(멱등).")
@@ -131,6 +177,14 @@ public interface FocusControllerDocs {
     })
     ResponseEntity<Void> cancelFocusSession(UUID userId, FocusSessionCancelRequest body);
 
+    /**
+     * @param userId 조회 주체
+     * @param from   창 시작(UTC Instant, 포함). 세션 <b>시작</b> 시각 기준이라 자정을 걸친 세션은 시작일 쪽에 잡힌다
+     * @param to     창 끝(포함). from 보다 앞서면 400
+     * @param cursor 직전 페이지 마지막 세션 id. 생략하면 첫 페이지
+     * @param size   페이지 크기(1~100)
+     * @return 최신순 한 페이지와 다음 커서(200). 취소·자동마감은 빠지지만 진행 중 세션은 남는다
+     */
     @Operation(summary = "Focus Session 조회",
             description = "기간(from~to, UTC Instant) 필터 + 커서(keyset) 페이지네이션. "
                     + "cursor 생략 시 첫 페이지. 정렬은 id(UUID v7) 내림차순=최신순.")
