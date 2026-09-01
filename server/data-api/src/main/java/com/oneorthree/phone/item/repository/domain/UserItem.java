@@ -21,6 +21,12 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * 유저가 아이템을 가졌다는 사실 한 줄. (user_id, item_id) 가 유니크라 수량 개념이 없고
+ * "있다/없다"만 표현한다 — 같은 아이템을 다시 지급해도 행이 늘지 않는다.
+ *
+ * <p>{@code createdAt} 은 아이템이 만들어진 때가 아니라 이 유저가 손에 넣은 시각이다.
+ */
 @Entity
 @Table(
         name = "user_items",

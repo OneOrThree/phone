@@ -29,7 +29,12 @@ public enum ClientActivityEvent implements ActivityEvent {
         this.category = category;
     }
 
-    /** 화이트리스트 룩업 — 미등록 이벤트 문자열은 empty. */
+    /**
+     * 화이트리스트 룩업 — 미등록 이벤트 문자열은 empty.
+     *
+     * @param event 앱이 보낸 이벤트 이름 원문
+     * @return 카탈로그에 있으면 해당 상수, 없으면 empty — 호출부는 이 empty 를 400 으로 바꾼다
+     */
     public static Optional<ClientActivityEvent> from(String event) {
         return Optional.ofNullable(BY_EVENT.get(event));
     }

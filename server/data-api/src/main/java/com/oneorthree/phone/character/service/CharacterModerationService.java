@@ -24,6 +24,14 @@ public class CharacterModerationService {
 
     private final OpenAiModerationClient openAiModerationClient;
 
+    /**
+     * 이미지를 OpenAI 로 보내 판정을 받는다.
+     *
+     * @param userId  요청자 — 검사 실패 로그의 추적 키로만 쓴다
+     * @param request 검사할 base64 PNG. 서버에 저장하지 않고 호출에만 쓰인다
+     * @return 통과·유해 판정 결과. 외부 호출이 어떤 이유로든 실패하면 예외를 밖으로 던지지 않고
+     *         fail-closed 차단 응답으로 바꾼다 — 검사를 못 한 이미지가 통과하는 일은 없다
+     */
     public ImageModerationResponse moderate(UUID userId, ImageModerationRequest request) {
         try {
             OpenAiModerationResult result = openAiModerationClient.moderate(request.image());

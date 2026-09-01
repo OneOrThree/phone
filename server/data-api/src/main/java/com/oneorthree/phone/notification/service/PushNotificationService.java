@@ -48,6 +48,12 @@ public class PushNotificationService {
      * @return 실제 발송이 성사(FCM SENT)되면 true. 필터 스킵(알림 off·토큰 없음·quiet hours)·
      *     무효 토큰·실패·예외는 모두 false. 순위 추월(579)이 이 반환값으로 "발송되면 sent_log INSERT" 를
      *     정확히 판정한다(quiet hours 스킵을 발송으로 오기록하지 않기 위함). ①②④⑥ 는 반환값을 무시.
+     *
+     * @param user     받을 사람. 기기 토큰이 없으면(권한 미허용·해제) 보내지 않는다
+     * @param settings 알림 설정. null 이면 행이 없는 것으로 보고 기본값(알림 on·심야 off)을 쓴다
+     * @param message  보낼 문구·링크
+     * @param now      조용한 시간 판정 기준 시각. 판정은 KST 로 하며, 걸리면 지연 발송이 아니라
+     *                 그대로 버린다 — 조용한 시간이 끝난 뒤 몰아서 오지 않는다
      */
     public boolean sendIfAllowed(User user, UserNotificationSettings settings,
                                  PushMessage message, Instant now) {
@@ -74,6 +80,8 @@ public class PushNotificationService {
      * 조용한 시간 예외), 심야 창의 업로드 flush 가 바로 이 예외에 기대기 때문이다. 토큰 검사와
      * 무효 토큰 정리는 표시 발송과 동일하다 — 쓰기 @Transactional 안에서 부를 것.
      *
+     * @param user    받을 사람. 기기 토큰이 없으면 보내지 않는다
+     * @param message 보낼 데이터 페이로드. 화면에 뜨지 않으므로 조용한 시간에도 나간다
      * @return 실제 발송이 성사(FCM SENT)되면 true — 호출측이 이 값으로 클레임 SENT/반납을 가른다
      */
     public boolean sendSilentPush(User user, PushMessage message) {

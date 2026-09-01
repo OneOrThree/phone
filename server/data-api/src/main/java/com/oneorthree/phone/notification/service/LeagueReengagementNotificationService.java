@@ -70,6 +70,12 @@ public class LeagueReengagementNotificationService {
         sendMissedFocusToday(Instant.now());
     }
 
+    /**
+     * 오늘 아직 한 번도 집중하지 않은 참가자에게 알린다.
+     *
+     * @param now 오늘이 언제인지와 조용한 시간을 판정하는 기준 시각. 21:00 발송이라 기본
+     *            조용한 시간(23:00~07:00) 밖이지만, 시작을 앞당긴 유저는 이 단계에서 걸러진다
+     */
     public void sendMissedFocusToday(Instant now) {
         LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
         LocalDate today = leagueWeek.currentDate(now);
@@ -148,6 +154,12 @@ public class LeagueReengagementNotificationService {
         sendStreakAtRisk(Instant.now());
     }
 
+    /**
+     * 오늘 채우면 유지되는 스트릭 보유자에게 위기를 알린다.
+     *
+     * @param now 오늘 날짜 판정의 기준 시각. 이미 끊긴 스트릭은 아직 0 으로 정리되기 전이라
+     *            숫자가 남아 있으므로, 마지막 세션 날짜로 한 번 더 걸러 헛 알림을 막는다
+     */
     public void sendStreakAtRisk(Instant now) {
         LocalDate today = leagueWeek.currentDate(now);
         // 마지막 세션이 어제 이후인(오늘 채우면 유지되는) 스트릭만 — 이미 끊긴 스트릭은 lazy reset 전이라

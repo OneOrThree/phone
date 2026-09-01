@@ -62,6 +62,10 @@ public class InactiveReturnNotificationService {
 
     /**
      * 미접속 복귀 푸시 본체. Instant 주입 오버로드 = 고정 시각 테스트용(LeagueNotificationService 선례).
+     *
+     * @param now "정확히 N일째"를 세는 기준 시각. KST 날짜로 환산해 비교하므로 한 유저는
+     *            D+3·7·14 중 한 단계에만 들어간다. 발송 이력을 남기지 않아 같은 날 다시
+     *            부르면 중복 발송된다
      */
     public void sendInactiveReturnNotifications(Instant now) {
         LocalDate today = now.atZone(KST).toLocalDate();

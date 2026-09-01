@@ -35,6 +35,7 @@ public enum BotStyle {
      * 블록 길이(분)를 뽑는다.
      *
      * @param roll 0.0 이상 1.0 미만 난수
+     * @return 스타일의 최소~최대 블록 길이(분) 사이 값. {@link #MAX_BLOCK_MINUTES} 를 넘는 값은 나오지 않는다
      */
     public int blockMinutes(double roll) {
         return minBlockMinutes + (int) (roll * (maxBlockMinutes - minBlockMinutes));
@@ -44,6 +45,7 @@ public enum BotStyle {
      * 블록 사이 휴식(분)을 뽑는다.
      *
      * @param roll 0.0 이상 1.0 미만 난수
+     * @return 스타일의 최소~최대 휴식 길이(분) 사이 값. 식사·긴 휴식은 여기에 더해 따로 얹힌다
      */
     public int restMinutes(double roll) {
         return minRestMinutes + (int) (roll * (maxRestMinutes - minRestMinutes));

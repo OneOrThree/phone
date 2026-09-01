@@ -18,6 +18,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+/**
+ * 누끼 이미지를 저장 직전에 검사하는 창구. 이미지를 서버에 남기지 않고 판정만 돌려준다.
+ * 판정 규칙과 검사 실패 시의 fail-closed 정책은 {@link CharacterModerationService} 가 쥔다.
+ */
 @Tag(name = "character", description = "캐릭터 커스터마이징 API")
 @RestController
 @RequestMapping("/api/v1")
@@ -26,6 +30,14 @@ public class CharacterModerationController {
 
     private final CharacterModerationService characterModerationService;
 
+    /**
+     * 이미지 한 장의 유해성을 검사한다.
+     *
+     * @param userId  요청자 — 판정 자체에는 쓰이지 않고, 검사 실패 로그의 추적 키로만 남는다
+     * @param request 검사할 base64 PNG. 10MiB 를 넘으면 검사 전에 400/413 으로 잘린다
+     * @return 항상 200. 통과·유해 판정·검사 불가가 모두 본문의 allowed·unavailable 조합으로 구분되며,
+     *         외부 검사가 실패해도 오류 응답이 아니라 차단(allowed=false, unavailable=true)으로 내려간다
+     */
     @Operation(summary = "누끼 이미지 유해성 검사",
             description = "누끼 저장 직전 이미지를 OpenAI omni-moderation 으로 검사합니다. 이미지는 저장하지 않고 "
                     + "검사만 합니다. allowed=false 면 유해로 판정된 것이며, 검사 실패 시 안전하게 차단합니다.")

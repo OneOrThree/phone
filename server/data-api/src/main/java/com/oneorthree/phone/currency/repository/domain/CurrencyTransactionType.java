@@ -35,6 +35,8 @@ public enum CurrencyTransactionType {
      * 임의 금액 재화 발행이 되고, 원장에 정산 기입과 구분되지 않는 행이 섞여 에스크로·지급 정합을
      * 검증할 수 없게 된다. 그래서 클라 경로에서는 타입 자체를 거절한다
      * ({@link com.oneorthree.phone.currency.service.InGameCurrencyService}).
+     *
+     * @return 서버만 발행할 수 있는 타입이면 true — 클라 경로는 이 타입을 400 으로 거절해야 한다
      */
     public boolean isServerOnly() {
         return this == BET_STAKE || this == BET_PAYOUT || this == BET_REFUND

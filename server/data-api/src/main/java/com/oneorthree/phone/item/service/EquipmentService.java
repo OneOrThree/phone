@@ -24,6 +24,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * 캐릭터가 무엇을 걸치고 있는지를 다룬다.
+ *
+ * <p>착용의 두 축은 칸과 소유다 — 칸은 아이템 자신이 들고 있어 호출자가 고를 수 없고,
+ * 보유하지 않은 아이템은 걸 수 없다. 벗기기는 행을 지우지 않고 비우는 방식이라,
+ * 한 번 쓴 칸은 이후 조회에서 빈 칸으로 계속 보인다.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -37,6 +44,10 @@ public class EquipmentService {
 
     /**
      * 유저 캐릭터 전체 장착 상태 조회
+     *
+     * @param userId 조회 대상. 탈퇴했거나 없는 유저면 NOT_FOUND(404)
+     * @return 손댄 적 있는 칸의 상태 전부. 벗어 둔 칸은 item 이 null 로 함께 나오고,
+     *         한 번도 쓰지 않은 칸은 목록에 없다
      */
     public List<CharacterEquipmentResponse> getEquipment(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
@@ -51,6 +62,13 @@ public class EquipmentService {
 
     /**
      * 아이템 장착
+     *
+     * <p>아이템이 속한 칸에 이미 걸친 것이 있으면 조회 없이 그대로 교체된다 — 해제를 먼저
+     * 부를 필요가 없다.
+     *
+     * @param userId 착용 주체. 탈퇴했거나 없는 유저면 NOT_FOUND(404)
+     * @param itemId 걸 아이템. 카탈로그에 없으면 404, 보유하지 않은 아이템이면 400 이다
+     * @return 교체 후 그 칸의 상태
      */
     @Transactional
     public CharacterEquipmentResponse equip(UUID userId, UUID itemId) {
@@ -91,6 +109,10 @@ public class EquipmentService {
 
     /**
      * 아이템 벗기
+     *
+     * @param userId   해제 주체. 탈퇴했거나 없는 유저면 NOT_FOUND(404)
+     * @param slotType 비울 칸. 그 칸을 쓴 적이 없으면 아무것도 하지 않고 조용히 끝나므로
+     *                 몇 번을 불러도 결과가 같다
      */
     @Transactional
     public void unequip(UUID userId, SlotType slotType) {

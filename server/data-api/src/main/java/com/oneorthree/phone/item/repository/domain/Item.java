@@ -19,6 +19,13 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+/**
+ * 상점 아이템 원본. 유저 보유·착용과 무관한 카탈로그 항목이다.
+ *
+ * <p>{@code slotType} 이 null 인 아이템은 착용 칸을 차지하지 않는 장식용이고, 가격은
+ * {@code paymentType} 이 가리키는 쪽만 채워진다 — 두 가격 필드가 함께 비어 있을 수도 있다.
+ * 판매를 내릴 때는 행을 지우지 않고 {@code isActive} 를 내린다(이미 산 유저의 보유가 깨지지 않도록).
+ */
 @Entity
 @Table(name = "items")
 @Getter

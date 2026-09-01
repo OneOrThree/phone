@@ -75,7 +75,12 @@ public class RankOvertakeNotificationService {
         sendRankOvertakeNotifications(Instant.now());
     }
 
-    /** 전역 순위 추월 푸시 본체. */
+    /**
+     * 전역 순위 추월 푸시 본체.
+     *
+     * @param now 어제 스냅샷과 비교할 기준 시각. 실행 끝에 오늘 스냅샷을 갱신하므로 같은 날
+     *            다시 부르면 비교 기준 자체가 앞으로 밀린다
+     */
     public void sendRankOvertakeNotifications(Instant now) {
         LocalDate today = leagueWeek.currentDate(now);
         LocalDate yesterday = today.minusDays(1);
