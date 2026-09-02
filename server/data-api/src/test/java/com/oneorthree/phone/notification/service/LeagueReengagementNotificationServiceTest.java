@@ -10,7 +10,7 @@ import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserStreak;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
@@ -57,7 +57,7 @@ class LeagueReengagementNotificationServiceTest {
     @Mock
     private UserStreakRepository userStreakRepository;
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
     @Mock
     private UserNotificationSettingsRepository userNotificationSettingsRepository;
     @Mock
@@ -103,7 +103,7 @@ class LeagueReengagementNotificationServiceTest {
                         row(nonParticipant, 0)));
         given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
                 .willReturn(List.of(focusedToday.getId())); // 오늘(KST) 종료된 완료 세션 존재 → 미발송
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(target));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(target));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
 
         service.sendMissedFocusToday(NOW);
@@ -141,7 +141,7 @@ class LeagueReengagementNotificationServiceTest {
                 eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(List.of(row(orphaned, 4_000)));
         // 완료세션(AUTO_CLOSED 는 status 필터로 제외)·라이브세션 조회 모두 미스텁 → 빈 결과 → 실집중 0으로 판정
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(orphaned));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(orphaned));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
 
         service.sendMissedFocusToday(NOW);
@@ -179,7 +179,7 @@ class LeagueReengagementNotificationServiceTest {
         given(leagueRankingQueryRepository.findGlobalRankingPage(
                 eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(List.of(row(target, 5_000)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(target));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(target));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
 
         service.sendMissedFocusToday(NOW);
@@ -221,7 +221,7 @@ class LeagueReengagementNotificationServiceTest {
         given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
         given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), isNull(), any()))
                 .willReturn(List.of(streak(atRisk.getId(), 5), streak(safe.getId(), 3)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection()))
+        given(userQueryService.findAllActive(anyCollection()))
                 .willReturn(List.of(atRisk, safe));
         given(dailyFocusStatRepository.findByUserInAndDate(anyCollection(), eq(TODAY)))
                 .willReturn(List.of(dailyStat(atRisk, 300), dailyStat(safe, 700)));
@@ -246,7 +246,7 @@ class LeagueReengagementNotificationServiceTest {
         service.sendStreakAtRisk(NOW);
 
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
-        verify(userRepository, never()).findAllByIdInAndIsDeletedFalse(anyCollection());
+        verify(userQueryService, never()).findAllActive(anyCollection());
     }
 
     @Test
@@ -256,7 +256,7 @@ class LeagueReengagementNotificationServiceTest {
         given(leagueWeek.currentDate(NOW)).willReturn(TODAY);
         given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), isNull(), any()))
                 .willReturn(List.of(streak(focusingNow.getId(), 5)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection()))
+        given(userQueryService.findAllActive(anyCollection()))
                 .willReturn(List.of(focusingNow));
         given(dailyFocusStatRepository.findByUserInAndDate(anyCollection(), eq(TODAY)))
                 .willReturn(List.of(dailyStat(focusingNow, 200)));
@@ -284,7 +284,7 @@ class LeagueReengagementNotificationServiceTest {
                 .willReturn(fullFetch);
         given(userStreakRepository.findActiveStreakHoldersPage(eq(0), eq(YESTERDAY), eq(lastUserId), any()))
                 .willReturn(List.of()); // 2차 페이지 비어있음 → 종료
-        // userRepository 기본(empty) → 발송 없음, 커서 전진(2회 조회)만 검증
+        // userQueryService 기본(empty) → 발송 없음, 커서 전진(2회 조회)만 검증
 
         service.sendStreakAtRisk(NOW);
 

@@ -20,7 +20,7 @@ import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.user.repository.domain.Occupation;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.league.support.LeagueWeek;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,7 +55,7 @@ class LeagueServiceTest {
     private LeagueService leagueService;
 
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
 
     @Mock
     private LeagueTierConfigRepository leagueTierConfigRepository;
@@ -120,7 +120,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("내 티어 조회 성공 → 활성 User 티어와 설정 배지를 호환 DTO에 매핑")
     void getMyTierAssigned() {
-        given(userRepository.findById(USER_ID))
+        given(userQueryService.findActive(USER_ID))
                 .willReturn(Optional.of(User.builder().id(USER_ID).nickname("나").tierLevel(3).build()));
         given(leagueTierConfigRepository.findById(3))
                 .willReturn(Optional.of(tierConfig(3, "hyperfocus")));
@@ -136,7 +136,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("내 티어 조회 - 티어 설정 누락 → badgeId=null 로 방어")
     void getMyTierBadgeConfigMissing() {
-        given(userRepository.findById(USER_ID))
+        given(userQueryService.findActive(USER_ID))
                 .willReturn(Optional.of(User.builder().id(USER_ID).nickname("나").tierLevel(3).build()));
         given(leagueTierConfigRepository.findById(3))
                 .willReturn(Optional.empty());
@@ -150,7 +150,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("내 티어 조회 - 존재하지 않는 유저 → assigned=false")
     void getMyTierUnassigned() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findActive(USER_ID)).willReturn(Optional.empty());
 
         LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
 
@@ -162,12 +162,8 @@ class LeagueServiceTest {
     @Test
     @DisplayName("내 티어 조회 - 탈퇴 유저 → assigned=false")
     void getMyTierDeletedUserIsUnassigned() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
-                .id(USER_ID)
-                .nickname("탈퇴자")
-                .tierLevel(3)
-                .isDeleted(true)
-                .build()));
+        // 탈퇴 필터는 UserQueryService.findActive 가 쿼리로 건다 — 탈퇴자는 빈 값으로 돌아온다.
+        given(userQueryService.findActive(USER_ID)).willReturn(Optional.empty());
 
         LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
 
@@ -178,7 +174,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("내 티어 조회 - 온보딩 미완주(nickname null) → assigned=false")
     void getMyTierWithoutNicknameIsUnassigned() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
+        given(userQueryService.findActive(USER_ID)).willReturn(Optional.of(User.builder()
                 .id(USER_ID)
                 .tierLevel(3)
                 .build()));
@@ -193,7 +189,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("내 티어 조회 - 공백-only 닉네임 레거시 행 → assigned=false (유니코드 공백 포함, 랭킹 쿼리와 동일 판정)")
     void getMyTierBlankNicknameIsUnassigned() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
+        given(userQueryService.findActive(USER_ID)).willReturn(Optional.of(User.builder()
                 .id(USER_ID)
                 .nickname("\u2003\u2003")
                 .tierLevel(3)
@@ -208,7 +204,7 @@ class LeagueServiceTest {
     @Test
     @DisplayName("내 티어 조회 - 닉네임 등록한 게스트 → assigned=true(온보딩 완주자는 리그 참가)")
     void getMyTierGuestWithNicknameIsAssigned() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
+        given(userQueryService.findActive(USER_ID)).willReturn(Optional.of(User.builder()
                 .id(USER_ID)
                 .nickname("닉네임게스트")
                 .tierLevel(3)

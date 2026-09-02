@@ -12,7 +12,7 @@ import com.oneorthree.phone.league.support.LeagueWeek;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -60,7 +60,7 @@ class LeagueNotificationServiceTest {
     @Mock
     private LeagueTierConfigRepository leagueTierConfigRepository;
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
     @Mock
     private UserNotificationSettingsRepository userNotificationSettingsRepository;
     @Mock
@@ -114,7 +114,7 @@ class LeagueNotificationServiceTest {
                 .willReturn(List.of(
                         result(promoted, LeagueWeeklyResultType.PROMOTED, 2, 3),
                         result(relegated, LeagueWeeklyResultType.RELEGATED, 4, 3)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection()))
+        given(userQueryService.findAllActive(anyCollection()))
                 .willReturn(List.of(promoted, relegated));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
 
@@ -147,7 +147,7 @@ class LeagueNotificationServiceTest {
         User stayedUser = user(UUID.randomUUID());
         given(leagueWeeklyResultRepository.findResultPageAfter(any(), anyCollection(), isNull(), any()))
                 .willReturn(List.of(result(stayedUser, LeagueWeeklyResultType.STAY, 3, 3)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(stayedUser));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(stayedUser));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
 
         service.sendWeeklyResultNotifications(NOW);
@@ -167,14 +167,14 @@ class LeagueNotificationServiceTest {
                 .willReturn(List.of(
                         result(first, LeagueWeeklyResultType.PROMOTED, 1, 2),
                         result(second, LeagueWeeklyResultType.RELEGATED, 3, 2)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(first, second));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(first, second));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
 
         service.sendWeeklyResultNotifications(NOW);
 
-        verify(userRepository, times(1)).findAllByIdInAndIsDeletedFalse(anyCollection());
+        verify(userQueryService, times(1)).findAllActive(anyCollection());
         verify(userNotificationSettingsRepository, times(1)).findAllById(any());
-        verify(userRepository, never()).findById(any());
+        verify(userQueryService, never()).findActive(any());
         verify(userNotificationSettingsRepository, never()).findById(any());
     }
 
@@ -200,7 +200,7 @@ class LeagueNotificationServiceTest {
                 eq(PREVIOUS_WEEK_START), anyCollection(), isNull(), any())).willReturn(firstPage);
         given(leagueWeeklyResultRepository.findResultPageAfter(
                 eq(PREVIOUS_WEEK_START), anyCollection(), eq(cursorId), any())).willReturn(List.of(overflow));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willAnswer(invocation -> {
+        given(userQueryService.findAllActive(anyCollection())).willAnswer(invocation -> {
             Collection<UUID> ids = invocation.getArgument(0);
             return ids.stream().map(usersById::get).toList();
         });
@@ -210,7 +210,7 @@ class LeagueNotificationServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<UUID>> ids = ArgumentCaptor.forClass(Collection.class);
-        verify(userRepository, times(2)).findAllByIdInAndIsDeletedFalse(ids.capture());
+        verify(userQueryService, times(2)).findAllActive(ids.capture());
         assertThat(ids.getAllValues()).extracting(Collection::size).containsExactly(pageSize, 1);
         verify(pushNotificationService, times(pageSize + 1)).sendIfAllowed(any(), any(), any(), eq(NOW));
         verify(entityManager, times(2)).clear();
@@ -222,7 +222,7 @@ class LeagueNotificationServiceTest {
         User promoted = user(UUID.randomUUID());
         given(leagueWeeklyResultRepository.findResultPageAfter(any(), anyCollection(), isNull(), any()))
                 .willReturn(List.of(result(promoted, LeagueWeeklyResultType.PROMOTED, 2, 3)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(promoted));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(promoted));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of(
                 UserNotificationSettings.builder().userId(promoted.getId()).soundEnabled(false).build()));
 
@@ -245,7 +245,7 @@ class LeagueNotificationServiceTest {
                 .willReturn(List.of(
                         new LeagueRankingRow(first.getId(), "첫째", 3, 100),
                         new LeagueRankingRow(second.getId(), "둘째", 2, 0)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(first, second));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(first, second));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
 
         service.sendDeadlineReminders(NOW);
@@ -256,7 +256,7 @@ class LeagueNotificationServiceTest {
                 .containsExactly(
                         "지금 1위야. 마지막 스퍼트 한 번 어때?",
                         "지금 2위야. 마지막 스퍼트 한 번 어때?");
-        verify(userRepository, times(1)).findAllByIdInAndIsDeletedFalse(anyCollection());
+        verify(userQueryService, times(1)).findAllActive(anyCollection());
         verify(userNotificationSettingsRepository, times(1)).findAllById(any());
     }
 
@@ -282,7 +282,7 @@ class LeagueNotificationServiceTest {
                 pageCursor.totalFocusSeconds(),
                 pageCursor.userId(),
                 FETCH_SIZE)).willReturn(List.of(fetched.get(pageSize)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willAnswer(invocation -> {
+        given(userQueryService.findAllActive(anyCollection())).willAnswer(invocation -> {
             Collection<UUID> ids = invocation.getArgument(0);
             return ids.stream().map(usersById::get).toList();
         });
@@ -292,7 +292,7 @@ class LeagueNotificationServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<UUID>> ids = ArgumentCaptor.forClass(Collection.class);
-        verify(userRepository, times(2)).findAllByIdInAndIsDeletedFalse(ids.capture());
+        verify(userQueryService, times(2)).findAllActive(ids.capture());
         assertThat(ids.getAllValues()).extracting(Collection::size).containsExactly(pageSize, 1);
         ArgumentCaptor<PushMessage> messages = ArgumentCaptor.forClass(PushMessage.class);
         verify(pushNotificationService, times(pageSize + 1))
@@ -313,7 +313,7 @@ class LeagueNotificationServiceTest {
 
         service.sendDeadlineReminders(NOW);
 
-        verify(userRepository, never()).findAllByIdInAndIsDeletedFalse(anyCollection());
+        verify(userQueryService, never()).findAllActive(anyCollection());
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
     }
 
@@ -329,7 +329,7 @@ class LeagueNotificationServiceTest {
                 .willReturn(List.of(
                         new LeagueRankingRow(first.getId(), "첫째", 3, 100),
                         new LeagueRankingRow(second.getId(), "둘째", 2, 0)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(first, second));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(first, second));
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
 
         service.sendFinalDeadlineReminders(NOW);
@@ -467,7 +467,7 @@ class LeagueNotificationServiceTest {
         given(leagueRankingQueryRepository.findGlobalRankingPage(
                 eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(rows);
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(users);
+        given(userQueryService.findAllActive(anyCollection())).willReturn(users);
         given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
     }
 

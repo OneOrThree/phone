@@ -14,7 +14,7 @@ import com.oneorthree.phone.notification.repository.NotificationSentLogRepositor
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -63,7 +63,7 @@ public class RankOvertakeNotificationService {
     private final LeagueRankSnapshotRepository leagueRankSnapshotRepository;
     private final LeagueRankSnapshotUpsertRepository leagueRankSnapshotUpsertRepository;
     private final FocusSessionRepository focusSessionRepository;
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
@@ -283,7 +283,7 @@ public class RankOvertakeNotificationService {
     }
 
     private Map<UUID, User> loadUsers(Collection<UUID> userIds) {
-        return userRepository.findAllByIdInAndIsDeletedFalse(userIds).stream()
+        return userQueryService.findAllActive(userIds).stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
     }
 

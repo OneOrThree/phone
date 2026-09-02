@@ -16,7 +16,7 @@ import com.oneorthree.phone.notification.repository.NotificationSentLogRepositor
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -99,7 +99,7 @@ public class SessionOpenNotificationService {
     private final GroupMemberRepository groupMemberRepository;
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final NotificationSentLogRepository notificationSentLogRepository;
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final PushNotificationService pushNotificationService;
 
     /** 소유한 클레임 1건 — 행 id 와 그 사건의 회차·수신자. */
@@ -216,7 +216,8 @@ public class SessionOpenNotificationService {
                 .findAllById(sessionIds).stream()
                 .collect(Collectors.toMap(GroupChallengeBetSession::getId, Function.identity()));
         List<UUID> userIds = rows.stream().map(NotificationSentLog::getUserId).distinct().toList();
-        Map<UUID, User> usersById = userRepository.findAllById(userIds).stream()
+        // 탈퇴자는 조회에서 아예 빠지고, 아래 user == null 분기가 그대로 받아 클레임을 닫는다.
+        Map<UUID, User> usersById = userQueryService.findAllActive(userIds).stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
 
         List<UUID> closed = new ArrayList<>();
@@ -225,7 +226,7 @@ public class SessionOpenNotificationService {
             GroupChallengeBetSession session =
                     row.getSubjectId() == null ? null : sessionsById.get(row.getSubjectId());
             User user = usersById.get(row.getUserId());
-            if (session == null || user == null || user.isDeleted()
+            if (session == null || user == null
                     || session.getStatus() != GroupBetStatus.OPEN
                     || !now.isBefore(session.getJoinClosesAt())) {
                 closed.add(row.getId());
