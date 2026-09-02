@@ -1851,7 +1851,11 @@
       "title": "Change your exam",
       "desc": "Meet people working toward the same goal in the league.",
       "editRecommended": "Edit recommended subjects",
-      "note": "Changing your exam leaves the subjects you've already added as they are.\nYou can edit subjects separately."
+      "note": "Changing your exam leaves the subjects you've already added as they are.\nYou can edit subjects separately.",
+      "loadFailed": "Couldn't load the list.",
+      "saveFailTitle": "Couldn't change your exam",
+      "saveFailBody": "Check your connection and try again.",
+      "examFallback": "this exam"
     },
     "privacy": {
       "title": "Privacy Policy",

@@ -16,12 +16,26 @@ export async function syncOccupation(
 ): Promise<boolean> {
   try {
     await updateOccupation({ occupation: code });
-    return true;
   } catch {
     // 조용히 삼키지 않는다 — 1620이 안 보이던 이유
     logOccupationSyncFailed({ request_source: source });
     return false;
   }
+  // 캐시된 프로필 스냅샷(gromo:user)도 갱신 — 다음 콜드스타트에서 getMyProfile이 실패하면
+  // 이 스냅샷으로 세션을 복원하는데, 여기 이전 occupation이 남아 있으면 그 세션 내내
+  // 리그·비교 통계가 옛 시험으로 돈다(PR 713 코덱스 P2). 갱신 실패는 무해 — 다음
+  // 정상 부트스트랩이 서버 프로필로 덮는다.
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
+    if (raw) {
+      const cached = JSON.parse(raw) as Record<string, unknown>;
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.user,
+        JSON.stringify({ ...cached, occupation: code }),
+      );
+    }
+  } catch {}
+  return true;
 }
 
 // 폰에 남아 있는 구 한글 값(gromo:focusCategory)의 스냅샷 — **동결**이다. 살아 있는 대조표가
@@ -64,7 +78,14 @@ export async function recoverOccupation(profile: {
   try {
     if (typeof profile.occupation === 'string' && profile.occupation) return null;
     const legacy = await AsyncStorage.getItem(STORAGE_KEYS.focusCategory);
-    const code = legacy ? LEGACY_CATEGORY_TO_OCCUPATION[legacy] : undefined;
+    // 한글 표는 알려진 표기의 스냅샷이라, 표에 없으면 값 자체가 code인지도 본다 —
+    // 씨앗을 남기는 쪽(온보딩 실패)이 어떤 형태로 남겼든 복구가 스펠링에 안 깨지게.
+    const code = legacy
+      ? (LEGACY_CATEGORY_TO_OCCUPATION[legacy] ??
+        (Object.values(LEGACY_CATEGORY_TO_OCCUPATION).includes(legacy as Occupation)
+          ? (legacy as Occupation)
+          : undefined))
+      : undefined;
     // 실패해도 마커를 남기지 않는다 — 서버가 NULL인 동안 다음 실행이 그대로 재시도한다.
     return code && (await syncOccupation(code, 'recovery')) ? code : null;
   } catch {

@@ -28,6 +28,30 @@ describe('syncOccupation', () => {
     expect(mockPatch).toHaveBeenCalledWith({ occupation: 'CSAT' });
   });
 
+  test('성공 시 캐시된 프로필 스냅샷(gromo:user)의 occupation도 갱신한다', async () => {
+    // 오프라인 콜드스타트가 이 스냅샷으로 세션을 복원한다 — 안 갱신하면 그 세션 내내
+    // 리그·비교 통계가 이전 시험으로 돈다(PR 713 코덱스 리뷰).
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.user,
+      JSON.stringify({ nickname: '수빈', occupation: 'CODING' }),
+    );
+
+    await syncOccupation('CSAT', 'settings');
+
+    const cached = JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.user)) ?? '{}');
+    expect(cached).toEqual({ nickname: '수빈', occupation: 'CSAT' });
+  });
+
+  test('실패 시엔 스냅샷을 건드리지 않는다', async () => {
+    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify({ occupation: 'CODING' }));
+    mockPatch.mockRejectedValue(new Error('offline'));
+
+    await syncOccupation('CSAT', 'settings');
+
+    const cached = JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.user)) ?? '{}');
+    expect(cached.occupation).toBe('CODING');
+  });
+
   test('PATCH 실패 → false (호출부가 화면을 안 바꾼다) + 실패를 계측에 남긴다', async () => {
     mockPatch.mockRejectedValue(new Error('offline'));
 
@@ -64,6 +88,13 @@ describe('recoverOccupation — 서버 NULL 피해 유저 복구', () => {
     await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, '토익/토플');
 
     expect(await recoverOccupation({ occupation: null })).toBe('ENGLISH_TEST');
+  });
+
+  test('구 키에 code가 직접 들어 있어도 복구한다 — 표기 변형 안전망', async () => {
+    await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, 'CSAT');
+
+    expect(await recoverOccupation({ occupation: null })).toBe('CSAT');
+    expect(mockPatch).toHaveBeenCalledWith({ occupation: 'CSAT' });
   });
 
   test('알 수 없는 한글이면 아무것도 보내지 않는다', async () => {

@@ -125,10 +125,22 @@ async function syncOnboardingToServer(data: V2OnboardingData): Promise<Onboardin
   } catch {
     // 권한 동기화 실패는 온보딩 완료를 막지 않는다.
   }
-  // 준비 시험은 서버가 정본이라 별도로 보낸다(실패는 syncOccupation이 계측에 남긴다).
-  // 실패해도 온보딩은 통과시키고, 폰에 남은 한글 값으로 다음 실행의 recoverOccupation이 재시도한다.
-  if (data.focusCategory) await syncOccupation(data.focusCategory, 'onboarding');
   return 'ok';
+}
+
+// 온보딩이 고른 준비 시험을 서버(정본)에 반영하고, 이번 세션 상태에 넣을 값을 돌려준다.
+// 실패해도 온보딩은 통과시키되(프로필 등록과 달리 재입력으로 풀 문제가 아님) 두 가지를 남긴다:
+//  - 계측(occupation_sync_failed) — syncOccupation 내장
+//  - 복구 씨앗 — 선택 표시명을 구 한글 키에 남겨 다음 실행의 recoverOccupation이 재시도한다.
+//    신규 설치는 이 키가 원래 비어 있어, 안 남기면 선택이 영구 유실된다(PR 713 코덱스 P1).
+// 반환: 세션에 반영할 occupation — 서버가 받은 경우에만 code, 아니면 null(정본=서버 원칙 유지).
+async function syncOnboardingOccupation(data: V2OnboardingData): Promise<Occupation | null> {
+  if (!data.focusCategory) return null;
+  if (await syncOccupation(data.focusCategory, 'onboarding')) return data.focusCategory;
+  if (data.focusCategoryLabel) {
+    await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategoryLabel).catch(() => {});
+  }
+  return null;
 }
 
 function App() {
@@ -403,12 +415,16 @@ function App() {
     login,
   }: OnboardingResult): Promise<OnboardingCompleteStatus> {
     const isExistingAccount = login.isNewUser === false;
+    let onboardedOccupation: Occupation | null = null; // 신규 유저의 세션 씨앗 — 서버 반영 성공 시에만
     if (!isExistingAccount) {
       // 신규 유저 — 프로필 등록(닉네임 중복 검증 포함)이 성공해야 온보딩 완료(GROMO-617/618).
       // 실패 시 완료 플래그·유저 상태를 세팅하지 않고 결과만 돌려줘 게이트를 유지한다
       // (OnboardingFlow가 닉네임 재입력/재시도 UI를 띄운다).
       const sync = await syncOnboardingToServer(data);
       if (sync !== 'ok') return sync;
+      // 준비 시험 동기화 — 성공한 경우에만 이번 세션 상태(UserContext 씨앗)에 반영한다.
+      // 실패 시 세션에도 안 넣는다(서버가 정본 — 화면만 설정된 척하면 1624가 없앤 드리프트가 재발).
+      onboardedOccupation = await syncOnboardingOccupation(data);
       // 신규 가입 확정 — 광고 소재별 '설치 후 실제 사용' 판단용 온보딩 완료 이벤트(GROMO-890).
       // 재로그인(isExistingAccount)·세션 복원 경로에는 넣지 않는다(가입이 아니므로 중복 집계 방지).
       // ATT 동의 반영을 이벤트 전송보다 먼저 끝내야 동의 유저의 개인 단위 매칭이 산다 — onboarded
@@ -454,7 +470,14 @@ function App() {
       setUser({ ...login, userId });
     } else {
       mainEntryRef.current = 'auth_complete';
-      setUser({ ...login, userId, nickname: data.nickname.trim() });
+      // occupation을 세션에 실어야 첫 재시작 전에도 메뉴·같은 시험 그리드·직군 리그가 산다
+      // (login은 시험 선택보다 앞선 중간 로그인 산물이라 occupation이 없다 — PR 713 코덱스 P1).
+      setUser({
+        ...login,
+        userId,
+        nickname: data.nickname.trim(),
+        occupation: onboardedOccupation,
+      });
     }
     return 'ok';
   }

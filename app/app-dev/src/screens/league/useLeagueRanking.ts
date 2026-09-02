@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useUser } from '@/store/UserContext';
 import { getMyRanking, getGlobalRanking } from '@/services/leagueApi';
@@ -94,17 +94,19 @@ async function fetchMyWeekSeconds(): Promise<number> {
 //   순위는 '값 없음'으로 정직하게 비운다(홈 배지 숨김). 리그 탭도 나를 못 찾으므로 화면 간 이야기가 일치.
 // - 멤버 tierLevel은 서버 응답의 실제 티어(GROMO-748).
 export function useLeagueRanking() {
-  // 준비 시험은 서버 프로필이 정본(GROMO-1624) — 리그 라벨은 그 code의 서버 표시명이다
-  // (카탈로그 미도착이면 null → 라벨 없이 그린다).
+  // 준비 시험은 서버 프로필이 정본(GROMO-1624) — 리그 정체성은 code, 표시명은 카탈로그가 따로 든다.
   const { nickname: myNickname, userId, occupation: myOccupation } = useUser();
   const myOccupationName = useOccupationName(myOccupation);
 
-  // 리스트(직군 top-100)·리그 라벨·내 권위 주간분을 원자적으로 함께 보관한다.
+  // 응답 원본(직군 top-100)·전역 폴백 여부·내 권위 주간분을 원자적으로 함께 보관한다.
   // 전체가 null이면 미조회/실패 → 화면은 빈 상태.
+  // 라벨·멤버 변환은 state에 얼리지 않고 렌더에서 파생한다 — 조회 시점에 표시명(카탈로그)이
+  // 아직 없어도 데이터 정체성(code)은 확정이고, 표시명이 늦게 도착하면 재조회 없이 라벨만
+  // 채워진다(PR 713 코덱스 P2 — 표시명 로딩과 리그 정체성 분리).
   // forOccupation: 이 데이터를 조회한 시점의 내 시험 code — 실패 시 유지/폐기 판단 기준(아래 catch).
   const [state, setState] = useState<{
-    members: RankedMember[];
-    label: string | null;
+    res: LeagueMemberResponse[];
+    usedGlobalFallback: boolean;
     mySeconds: number;
     forOccupation: Occupation | null;
   } | null>(null);
@@ -116,6 +118,8 @@ export function useLeagueRanking() {
   const requestSeqRef = useRef(0);
 
   // 직군 랭킹·내 주간분 재조회 — 포커스 effect와 당겨서 새로고침(GROMO-887)이 공유한다.
+  // deps에 표시명(myOccupationName)을 넣지 않는다 — 카탈로그 도착은 라벨 파생만 바꾸면 되지
+  // 서버 재조회 사유가 아니다(넣으면 도착 시점에 같은 데이터를 한 번 더 긁는다).
   const refetch = useCallback(async () => {
     if (!userId) {
       setState(null);
@@ -130,21 +134,16 @@ export function useLeagueRanking() {
         fetchMyWeekSeconds(),
       ]);
       let res = occRanking;
-      let label: string | null = myOccupation != null ? myOccupationName : null;
+      let usedGlobalFallback = false;
       // 직군 랭킹이 비면(신규·직군 미설정, GROMO-657) 전역 랭킹으로 폴백해 화면이 비지 않게 한다.
       // 전역 랭킹은 혼합 직군이라 라벨을 붙이지 않는다(전체 리그로 정직하게 표기).
       if (res.length === 0) {
         res = await getGlobalRanking();
-        label = null;
+        usedGlobalFallback = true;
       }
       // 이 응답을 기다리는 동안 더 새로운 요청이 시작됐으면 stale 결과라 버린다
       if (seq !== requestSeqRef.current) return;
-      setState({
-        label,
-        members: toRankingMembers(res, userId, myNickname, label),
-        mySeconds: myWeekSeconds,
-        forOccupation: myOccupation,
-      });
+      setState({ res, usedGlobalFallback, mySeconds: myWeekSeconds, forOccupation: myOccupation });
       setError(false);
     } catch {
       // 일시 실패 시 기존 랭킹 유지 — 당겨서 새로고침 실패로 보이던 목록이 사라지지 않게 한다
@@ -156,7 +155,7 @@ export function useLeagueRanking() {
         setError(true);
       }
     }
-  }, [userId, myOccupation, myOccupationName, myNickname]);
+  }, [userId, myOccupation]);
 
   useFocusEffect(
     useCallback(() => {
@@ -164,22 +163,31 @@ export function useLeagueRanking() {
     }, [refetch]),
   );
 
-  // 데이터 없으면 빈 배열.
-  const ranking: RankedMember[] = state?.members ?? [];
+  // 리그 라벨 — 직군 데이터일 때 그 code의 표시명. 표시명 미해결(카탈로그·i18n 부재)이면 null로
+  // 라벨 없이 그리되, 데이터는 여전히 직군 랭킹이다(전체 리그로 오인 금지 — 아래 파생이 근거).
+  const myLeagueLabel =
+    state != null && !state.usedGlobalFallback && state.forOccupation != null
+      ? myOccupationName
+      : null;
+
+  // 데이터 없으면 빈 배열. 라벨이 뒤늦게 해석되면 여기서만 다시 계산된다(재조회 없음).
+  const ranking: RankedMember[] = useMemo(
+    () => (state && userId ? toRankingMembers(state.res, userId, myNickname, myLeagueLabel) : []),
+    [state, userId, myNickname, myLeagueLabel],
+  );
 
   const me = ranking.find((m) => m.userId === MY_USER_ID);
-  const myLeagueLabel = state?.label ?? null;
   // 내 주간 집중은 내 세션 합산 기준(직군 top-100 밖이어도 정확). 세션 없으면 0.
   // 초 원본(mySeconds) + 파생 분(myMinutes) 둘 다 노출 — 리그 화면은 초, 티어가이드·홈은 분.
   const mySeconds = state?.mySeconds ?? 0;
   const myMinutes = secToMin(mySeconds);
 
-  // 내 직군 리그 내 순위 (1-base) — 직군 랭킹을 받았고(label!=null) 내가 그 top-100 안에 있을 때만.
+  // 내 직군 리그 내 순위 (1-base) — 직군 데이터고 내가 그 top-100 안에 있을 때만.
   // 전역 폴백/미배정/100위 밖은 '내 직군 순위'를 알 수 없어 null(홈 상단바는 null이면 순위 배지 숨김).
+  // 판정은 라벨이 아니라 데이터 정체성(usedGlobalFallback·forOccupation) — 표시명이 늦어도 순위는 산다.
   const myLeagueRank =
-    me != null && myLeagueLabel != null
-      ? ranking.filter((m) => m.exam === myLeagueLabel).findIndex((m) => m.userId === MY_USER_ID) +
-        1
+    me != null && state != null && !state.usedGlobalFallback && state.forOccupation != null
+      ? ranking.findIndex((m) => m.userId === MY_USER_ID) + 1
       : null;
 
   // 조회 '의도' 라벨 — 카테고리에서 직접 파생하므로 조회 성패와 무관하게 확정된다. 실패로

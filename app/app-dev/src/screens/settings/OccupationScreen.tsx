@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,7 +7,7 @@ import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { TagSuggestionSheet } from '@/screens/settings/components/TagSuggestionSheet';
 import { RecommendedTagsEditSheet } from '@/screens/settings/components/RecommendedTagsEditSheet';
 import { OCCUPATION_GROUPS } from '@/constants/focusCategories';
-import { displayNameOf, useOccupations } from '@/services/occupationCatalog';
+import { displayNameOf, loadOccupations } from '@/services/occupationCatalog';
 import { syncOccupation } from '@/services/occupationSync';
 import { getDefaultTags } from '@/services/focusApi';
 import {
@@ -19,7 +19,7 @@ import { useSubjects } from '@/store/SubjectContext';
 import { useFocus } from '@/store/FocusContext';
 import { useUser } from '@/store/UserContext';
 import type { Subject } from '@/screens/focus/types';
-import type { Occupation } from '@/types/dto/user';
+import type { Occupation, OccupationResponse } from '@/types/dto/user';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
@@ -39,8 +39,24 @@ export default function OccupationScreen() {
   const { subjects, addSubject, deleteSubjects } = useSubjects();
   const { removeFocusSeconds } = useFocus();
 
-  const occupations = useOccupations();
   const { occupation: original, setOccupation } = useUser();
+  // 목록은 서버 카탈로그 — 실패하면 온보딩 W4와 같은 실패 상태 + 재시도를 그린다
+  // (없으면 빈 화면에 비활성 버튼만 남는다, PR 713 코덱스 P2).
+  const [occupations, setOccupations] = useState<OccupationResponse[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setLoadFailed(false);
+    loadOccupations().then((list) => {
+      if (cancelled) return;
+      if (list) setOccupations(list);
+      else setLoadFailed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
   const [selected, setSelected] = useState<Occupation | null>(original);
   const [saving, setSaving] = useState(false);
   // 저장 후 시트로 제안할 내용 — null이면 시트 비표시.
@@ -66,7 +82,7 @@ export default function OccupationScreen() {
   async function applyCategoryChange(occupation: Occupation): Promise<boolean> {
     const ok = await syncOccupation(occupation, 'settings');
     if (ok) setOccupation(occupation);
-    else Alert.alert('준비 시험을 바꾸지 못했어요', '네트워크 상태를 확인하고 다시 시도해 주세요.');
+    else Alert.alert(t('settings.occupation.saveFailTitle'), t('settings.occupation.saveFailBody'));
     return ok;
   }
 
@@ -177,6 +193,27 @@ export default function OccupationScreen() {
         <Text style={s.desc}>{t('settings.occupation.desc')}</Text>
 
         {/* 목록·순서는 서버 code(GET /occupations), 표시명은 앱 i18n — 온보딩과 같은 소스 */}
+        {!occupations ? (
+          <View style={s.center}>
+            {loadFailed ? (
+              <>
+                <Text style={s.errorText}>{t('settings.occupation.loadFailed')}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setOccupations(null);
+                    setReloadKey((k) => k + 1);
+                  }}
+                  style={s.retryBtn}
+                  activeOpacity={0.85}
+                >
+                  <Text style={s.retryText}>{t('common.retry')}</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <ActivityIndicator color={T.accent} />
+            )}
+          </View>
+        ) : null}
         {OCCUPATION_GROUPS.map((group) => {
           const items = group.codes
             .map((code) => ({ code, name: displayNameOf(occupations, code) }))
@@ -212,7 +249,9 @@ export default function OccupationScreen() {
 
       {proposal !== null ? (
         <TagSuggestionSheet
-          examLabel={displayNameOf(occupations, proposal.occupation) ?? '이 시험'}
+          examLabel={
+            displayNameOf(occupations, proposal.occupation) ?? t('settings.occupation.examFallback')
+          }
           suggestions={proposal.additions}
           removals={proposal.removals}
           onComplete={(adds, removes) => handleComplete(proposal.occupation, adds, removes)}
@@ -223,7 +262,9 @@ export default function OccupationScreen() {
 
       {editData !== null ? (
         <RecommendedTagsEditSheet
-          examLabel={displayNameOf(occupations, editData.occupation) ?? '이 시험'}
+          examLabel={
+            displayNameOf(occupations, editData.occupation) ?? t('settings.occupation.examFallback')
+          }
           recommendations={editData.list}
           owned={subjects}
           onComplete={handleEditComplete}
@@ -236,6 +277,17 @@ export default function OccupationScreen() {
 
 const s = StyleSheet.create({
   flex1: { flex: 1 },
+  center: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: T.space.lg },
+  errorText: { ...T.text.label, color: T.inkSub },
+  retryBtn: {
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.xl,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: T.border,
+    backgroundColor: T.white,
+  },
+  retryText: { ...T.text.label, fontWeight: '700', color: T.ink },
   desc: { ...T.text.body, color: T.inkSub, marginTop: T.space.sm, marginBottom: T.space.md },
   group: { marginTop: T.space.lg },
   groupLabel: { ...T.text.caption, color: T.inkMuted, marginBottom: T.space.sm, marginLeft: 2 },

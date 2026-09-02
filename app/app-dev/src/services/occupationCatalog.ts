@@ -34,7 +34,12 @@ export function loadOccupations(): Promise<OccupationResponse[] | null> {
     })
     .catch(async () => {
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.occupations).catch(() => null);
-      return raw ? (JSON.parse(raw) as OccupationResponse[]) : null;
+      const fallback = raw ? (JSON.parse(raw) as OccupationResponse[]) : null;
+      // 폴백도 메모리 캐시에 올린다 — 안 올리면 화면 마운트마다 실패할 요청을 다시 쏘고,
+      // 그 타임아웃 동안 시험명이 사라졌다 나타난다(PR 713 코덱스 P2). 내용은 마지막 성공
+      // 응답 그대로라 세션 내 재검증을 포기해도 잃는 게 없다(19종 고정 목록).
+      if (fallback) cache = fallback;
+      return fallback;
     })
     .finally(() => {
       inflight = null;

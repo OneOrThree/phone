@@ -29,11 +29,15 @@ test('성공 응답을 로컬에 캐시한다', async () => {
   expect(await AsyncStorage.getItem(STORAGE_KEYS.occupations)).toBe(JSON.stringify(CATALOG));
 });
 
-test('조회 실패 시 마지막 성공 응답으로 폴백한다', async () => {
+test('조회 실패 시 마지막 성공 응답으로 폴백하고, 그 폴백을 메모리에 캐시한다', async () => {
   await AsyncStorage.setItem(STORAGE_KEYS.occupations, JSON.stringify(CATALOG));
   mockGet.mockRejectedValue(new Error('offline'));
 
   expect(await loadOccupations()).toEqual(CATALOG);
+  // 캐시 안 하면 화면 마운트마다 실패할 요청을 다시 쏘고 타임아웃 동안 시험명이 깜빡인다
+  // (PR 713 코덱스 리뷰). 두 번째 호출은 네트워크를 다시 치지 않는다.
+  expect(await loadOccupations()).toEqual(CATALOG);
+  expect(mockGet).toHaveBeenCalledTimes(1);
 });
 
 test('조회도 캐시도 없으면 목록은 null', async () => {
