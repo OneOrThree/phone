@@ -1,6 +1,6 @@
 package com.oneorthree.phone.user.dto;
 
-import com.oneorthree.phone.user.domain.StatVisibility;
+import com.oneorthree.phone.user.repository.domain.StatVisibility;
 import jakarta.validation.constraints.NotNull;
 
 /**

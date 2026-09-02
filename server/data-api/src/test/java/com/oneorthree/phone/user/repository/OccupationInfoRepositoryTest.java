@@ -1,8 +1,8 @@
 package com.oneorthree.phone.user.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
-import com.oneorthree.phone.user.domain.Occupation;
-import com.oneorthree.phone.user.domain.OccupationInfo;
+import com.oneorthree.phone.user.repository.domain.Occupation;
+import com.oneorthree.phone.user.repository.domain.OccupationInfo;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

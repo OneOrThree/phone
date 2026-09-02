@@ -2,15 +2,15 @@ package com.oneorthree.phone.notification.service;
 
 import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.common.port.PushMessage;
-import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
-import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
-import com.oneorthree.phone.notification.domain.NotificationSendStatus;
-import com.oneorthree.phone.notification.domain.NotificationSentLog;
+import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
+import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -72,13 +72,25 @@ public class SilentFlushPushService {
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
 
-    /** 스케줄러(5분)·수동 트리거 진입점. */
+    /**
+     * 스케줄러(5분)·수동 트리거 진입점.
+     *
+     * @return 이번 실행의 발송 요약(현재 시각 기준)
+     */
     @Transactional
     public PushDispatchSummaryResponse sendGraceFlushPushes() {
         return sendGraceFlushPushes(Instant.now());
     }
 
-    /** {@code settle_after} − 15분 창 스캔 → 참가자별 클레임 → data-only 발송. */
+    /**
+     * {@code settle_after} − 15분 창 스캔 → 참가자별 클레임 → data-only 발송.
+     *
+     * <p>화면에 뜨지 않는 사일런트 발송이라 알림 설정 off·조용한 시간에 걸려도 나간다 —
+     * 심야 창의 업로드 flush 가 바로 이 예외에 기대고 있다.
+     *
+     * @param now 스캔 창의 기준 시각. 창이 여러 틱에 걸치지만 클레임이 첫 틱만 통과시킨다
+     * @return 이번 실행의 발송 요약. 대상 회차가 없으면 전부 0 인 요약이 나온다
+     */
     @Transactional
     public PushDispatchSummaryResponse sendGraceFlushPushes(Instant now) {
         long startedAtMillis = System.currentTimeMillis();

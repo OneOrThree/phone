@@ -2,18 +2,18 @@ package com.oneorthree.phone.notification.service;
 
 import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.common.port.PushMessage;
-import com.oneorthree.phone.group.domain.GroupBetStatus;
-import com.oneorthree.phone.group.domain.GroupBetVoidReason;
-import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
-import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.GroupBetVoidReason;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
-import com.oneorthree.phone.notification.domain.NotificationSendStatus;
-import com.oneorthree.phone.notification.domain.NotificationSentLog;
+import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
+import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -135,6 +135,9 @@ public class BetEventNotificationService {
      * 사건을 <b>선점만</b> 한다. 발송은 슬롯이 닫힌 뒤 {@link #flushDueBundles(Instant)} 가
      * 슬롯 단위로 묶어서 한다 — 여기서 바로 보내면 같은 슬롯의 회차 수만큼 푸시가 나간다(N20).
      * 실패해도 15분 재훑기가 회수하므로 예외는 호출측(리스너)이 삼킨다.
+     *
+     * @param sessionId 종료된 내기 회차. 이미 사라진 회차면 조용히 반환한다
+     * @param now       선점 시각 — 리스 만료 판정과 슬롯 산정의 기준
      */
     @Transactional
     public void notifySessionClosed(UUID sessionId, Instant now) {
@@ -179,6 +182,10 @@ public class BetEventNotificationService {
      * (N48), 결과를 봤다는 사실이 "환불이 있었다"는 통지를 대신하지 않는다. 그래서 tombstone 도
      * <b>결과 알림이 실제로 나갈 회차</b>({@code kindOf(status) == BET_RESULT})에만 남긴다 — 환불
      * 회차에 쓸모없는 행을 쌓지 않는다.
+     *
+     * @param userId    결과 모달을 ack 한 사용자
+     * @param sessionId ack 대상 회차
+     * @param now       소비 확정 시각. 회차에 정산 시각이 있으면 tombstone 은 그쪽을 쓴다
      */
     @Transactional
     public void suppressResultPushOnAck(UUID userId, UUID sessionId, Instant now) {
@@ -197,7 +204,11 @@ public class BetEventNotificationService {
                 userId, NotificationSentLog.TYPE_BET_RESULT, sessionId, now);
     }
 
-    /** 5분 flush 크론 진입점 — 슬롯이 닫힌 클레임 + 이월분을 묶어 보낸다. */
+    /**
+     * 5분 flush 크론 진입점 — 슬롯이 닫힌 클레임 + 이월분을 묶어 보낸다.
+     *
+     * @return 대상·발송·스킵 건수와 소요 시간
+     */
     @Transactional
     public PushDispatchSummaryResponse flushDueBundles() {
         return flushDueBundles(Instant.now());
@@ -206,6 +217,9 @@ public class BetEventNotificationService {
     /**
      * 슬롯 단위 묶음 발송 — <b>슬롯이 닫힌</b>({@code slot_at ≤ now − 슬롯폭}) PENDING 과
      * 이월(DEFERRED) 클레임을 원자 선점해 (유저 × 그룹 × 슬롯 × kind) 로 묶어 보낸다.
+     *
+     * @param now 발송 기준 시각. 슬롯 마감선은 {@code now − 슬롯폭} 으로 잡는다
+     * @return 대상·발송·스킵 건수와 소요 시간
      */
     @Transactional
     public PushDispatchSummaryResponse flushDueBundles(Instant now) {
@@ -214,7 +228,11 @@ public class BetEventNotificationService {
         return summary(flushed.targets(), flushed.sent(), 0, flushed.skipped(), startedAtMillis);
     }
 
-    /** 15분 재훑기 크론 진입점 — 슬롯 누적을 지킨다(발송은 슬롯이 닫힌 것만). */
+    /**
+     * 15분 재훑기 크론 진입점 — 슬롯 누적을 지킨다(발송은 슬롯이 닫힌 것만).
+     *
+     * @return 대상·발송·dedup·스킵 건수와 소요 시간
+     */
     @Transactional
     public PushDispatchSummaryResponse rescanAndFlush() {
         return rescanAndFlush(Instant.now(), false);
@@ -226,13 +244,20 @@ public class BetEventNotificationService {
      * {@code sentCount=0} 만 돌려주고 실제 발송이 5분 크론까지 밀려, 트리거가 검증 수단이 못 된다).
      * 슬롯 누적을 건너뛰므로 같은 슬롯에 뒤이어 생길 사건은 별도 푸시가 된다 — 수동 경로에서만
      * 감수하는 대가다.
+     *
+     * @return 대상·발송·dedup·스킵 건수와 소요 시간
      */
     @Transactional
     public PushDispatchSummaryResponse rescanAndFlushImmediately() {
         return rescanAndFlush(Instant.now(), true);
     }
 
-    /** 테스트·크론용 — 슬롯이 닫힌 것만 보낸다(수동 트리거는 {@code immediate = true}). */
+    /**
+     * 테스트·크론용 — 슬롯이 닫힌 것만 보낸다(수동 트리거는 {@code immediate = true}).
+     *
+     * @param now 재훑기·발송의 기준 시각
+     * @return 대상·발송·dedup·스킵 건수와 소요 시간
+     */
     @Transactional
     public PushDispatchSummaryResponse rescanAndFlush(Instant now) {
         return rescanAndFlush(now, false);
@@ -246,6 +271,8 @@ public class BetEventNotificationService {
      * @param immediate 슬롯이 닫히기를 기다리지 않고 지금 있는 클레임을 전부 보낸다 — <b>수동
      *                  트리거 전용</b>(QA 가 한 번의 호출로 발송까지 확인해야 하기 때문). 크론은
      *                  항상 false 로 슬롯 누적을 지킨다.
+     * @param now       재훑기 기준 시각 — 여기서 48시간을 거슬러 종료 회차를 훑는다
+     * @return 대상·발송·dedup·스킵 건수와 소요 시간
      */
     @Transactional
     public PushDispatchSummaryResponse rescanAndFlush(Instant now, boolean immediate) {

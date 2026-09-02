@@ -34,6 +34,12 @@ public class OpenAiModerationClient {
     private final RestClient restClient;
     private final String apiKey;
 
+    /**
+     * RestClient 를 조립한다. 키가 비어 있어도 기동을 막지 않으며, 그 경우의 차단은
+     * {@link #moderate(String)} 이 예외를 던져 호출측의 fail-closed 로 이어진다.
+     *
+     * @param apiKey OpenAI API 키. 미설정이면 빈 문자열이 들어오고, 이후 검사는 전건 차단된다
+     */
     public OpenAiModerationClient(
             /**
              * 프로퍼티 키는 env 자동 변환(OPENAI_API_KEY)과 일치해야 함 — base application.yml 이

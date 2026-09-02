@@ -1,13 +1,13 @@
 package com.oneorthree.phone.invitelink;
 
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
-import com.oneorthree.phone.invitelink.domain.InviteLinkClick;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.domain.InviteLinkClick;
 import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
 import com.oneorthree.phone.invitelink.dto.InviteMatchResponse;
 import com.oneorthree.phone.invitelink.service.InviteLinkMatchService;
 import com.oneorthree.phone.invitelink.support.IpHasher;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

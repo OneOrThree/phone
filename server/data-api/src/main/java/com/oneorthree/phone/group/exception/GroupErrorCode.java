@@ -3,6 +3,12 @@ package com.oneorthree.phone.group.exception;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
+/**
+ * 그룹 도메인의 실패 코드 — HTTP 상태와 응답 문구를 한 값에 묶어 둔다.
+ *
+ * <p>{@link GroupException} 이 이 값 하나로 응답을 결정하므로, 새 실패 상황은 예외 클래스가 아니라
+ * 여기에 상수를 더해 표현한다. 문구는 응답 바디에 그대로 실리는 사용자 문장이다.
+ */
 @Getter
 public enum GroupErrorCode {
     // 권한

@@ -10,9 +10,9 @@ import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
-import com.oneorthree.phone.friend.domain.Friendship;
-import com.oneorthree.phone.friend.domain.FriendshipStatus;
-import com.oneorthree.phone.friend.domain.PinnedUser;
+import com.oneorthree.phone.friend.repository.domain.Friendship;
+import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
+import com.oneorthree.phone.friend.repository.domain.PinnedUser;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
@@ -23,10 +23,10 @@ import com.oneorthree.phone.friend.exception.FriendErrorCode;
 import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
-import com.oneorthree.phone.friend.search.FriendSearchStrategy;
-import com.oneorthree.phone.friend.search.SearchType;
+import com.oneorthree.phone.friend.service.search.FriendSearchStrategy;
+import com.oneorthree.phone.friend.service.search.SearchType;
 import com.oneorthree.phone.league.service.LeagueTierLookup;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -42,6 +42,16 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * 친구 요청·수락·거절·삭제와 핀, 그리고 친구 검색을 묶은 서비스.
+ *
+ * <p>이 도메인의 어려움은 대부분 <b>행 재사용</b>에서 온다. friendships 는 (from, to) 방향당 한 행만
+ * 허용하고 거절·삭제도 행을 남기므로, 재요청은 새로 넣는 대신 남은 행을 되살린다. 그래서 여기 있는
+ * 판정 순서(삭제 행 복원 → REJECTED 재전환 → 신규 insert)는 취향이 아니라 유니크 제약을 피하려는 필수 순서다.
+ *
+ * <p>목록 조회는 상대 유저가 여럿이라 티어·집중 라이브·캐릭터를 전부 <b>배치 조회</b>로 모은다(N+1 방지).
+ * 알림은 여기서 직접 보내지 않고 이벤트만 발행해, 트랜잭션이 롤백되면 알림도 나가지 않게 한다.
+ */
 @Service
 @Transactional(readOnly = true)
 public class FriendService {
@@ -71,6 +81,20 @@ public class FriendService {
     /**
      * 검색 전략은 AuthService의 Map&lt;Provider, SocialLoginClient>와 동일하게
      * 모든 빈을 모아 type() 기준 Map으로 구성한다. (검색 수단 추가 = 구현체 1개 추가)
+     *
+     * @param friendshipRepository        관계 행의 조회·정리 창구
+     * @param userRepository              유저 활성 검증과 닉네임 검색용
+     * @param pinnedUserRepository        핀 설정·해제·조회
+     * @param dailyFocusStatRepository    핀 목록의 "오늘 집중분" 집계 소스
+     * @param focusSessionRepository      핀 목록의 "지금 집중 중" 판정 소스(끝나지 않은 세션)
+     * @param characterEquipmentRepository 핀 목록에 실을 캐릭터 장착 표시정보
+     * @param userActivityEventLogger     요청·수락 사실을 커밋과 무관하게 즉시 남기는 활동 로그
+     * @param leagueTierLookup            상대들의 티어를 한 번에 뽑는 배치 조회기
+     * @param focusLiveInfoLookup         상대들의 집중 라이브 정보를 한 번에 뽑는 배치 조회기
+     * @param friendRelationLookup        검색 결과의 관계 배지 판정 — 프로필 도메인과 공유한다
+     * @param eventPublisher              푸시 발송을 커밋 이후로 미루기 위한 이벤트 발행기
+     * @param searchStrategies            등록된 검색 전략 전부. {@code type()} 을 키로 Map 이 되며,
+     *                                    키가 겹치면 기동 시점에 터진다
      */
     public FriendService(FriendshipRepository friendshipRepository,
                          UserRepository userRepository,
@@ -103,6 +127,9 @@ public class FriendService {
      * 친구 요청 생성. 자기자신·중복·이미친구 검증 후 PENDING insert,
      * 단 내가 보냈던 행이 남아 있으면 재사용한다 — soft delete 행은 복원(GROMO-719),
      * REJECTED 행은 PENDING 재전환(쿨다운은 GROMO-475).
+     *
+     * @param me           요청을 보내는 유저
+     * @param targetUserId 요청을 받을 유저. 자기 자신이면 SELF_REQUEST, 탈퇴자면 유저 없음으로 떨어진다
      */
     @Transactional
     public void createRequest(UUID me, UUID targetUserId) {
@@ -179,6 +206,9 @@ public class FriendService {
      * 알린다("거절했던 요청을 뒤늦게 수락하면 알린다" 계약). ACCEPTED → ACCEPTED 는 멱등(무알림).
      * - 거절은 PENDING 한정(rejectRequest) — ACCEPTED 에 거절이 통하면 친구 관계가 deleteFriend 를
      * 우회해 조용히 증발하기 때문. 수락은 관계를 늘리는 방향이라 관용해도 그런 파괴 경로가 없다.
+     *
+     * @param me        수락하는 유저 — 요청의 수신자여야 한다
+     * @param requestId 수락할 요청 행 id. 상대 유저 id 가 아니다
      */
     @Transactional
     public void acceptRequest(UUID me, UUID requestId) {
@@ -203,6 +233,9 @@ public class FriendService {
      * 수락과 달리 상태를 검사한다 — ACCEPTED 에 거절이 통하면 친구 관계가 deleteFriend 없이
      * (삭제 절차·검증을 우회해) 조용히 증발하고, 이후 재요청의 REJECTED 재전환 분기로 되살아나기까지 한다.
      * 거절은 알리지 않는다 (GROMO-1090) — 거절 통보는 관계상 부담이라 스코프에서 뺐다.
+     *
+     * @param me        거절하는 유저 — 요청의 수신자여야 한다
+     * @param requestId 거절할 요청 행 id. PENDING 이 아니면 INVALID_REQUEST_STATUS
      */
     @Transactional
     public void rejectRequest(UUID me, UUID requestId) {
@@ -215,6 +248,9 @@ public class FriendService {
 
     /**
      * 친구 삭제 — ACCEPTED 관계를 양측 누구나 soft delete.
+     *
+     * @param me           끊는 쪽
+     * @param friendUserId 끊을 상대. 이미 탈퇴한 유저여도 허용한다 — 아니면 잔존 관계를 영영 못 끊는다
      */
     @Transactional
     public void deleteFriend(UUID me, UUID friendUserId) {
@@ -227,6 +263,10 @@ public class FriendService {
 
     /**
      * 친구 목록 — ACCEPTED·미삭제 관계를 상대 유저로 매핑. isPinned는 내 핀 친구 집합으로 결정.
+     *
+     * @param me   목록의 주인
+     * @param date 집중분을 집계할 날짜. 서버 판정 축(KST 고정)의 오늘이며 기기 로컬 날짜가 아니다
+     * @return 친구별 표시정보. 집중 이력이 없는 친구는 라이브 정보 맵에 없어 0/false/null 기본값이 채워진다
      */
     public List<FriendResponse> getFriends(UUID me, LocalDate date) {
         User meUser = getUser(me);
@@ -262,6 +302,9 @@ public class FriendService {
 
     /**
      * 유저 핀 설정 — 친구 아닌 임의 유저도 핀 가능(user 핀 통일, GROMO-609). 대상 존재만 검증 후 멱등 insert.
+     *
+     * @param me           핀을 거는 유저
+     * @param friendUserId 핀 대상. 자기 자신이면 SELF_PIN, 활성 유저가 아니면 유저 없음으로 떨어진다
      */
     @Transactional
     public void pinFriend(UUID me, UUID friendUserId) {
@@ -277,6 +320,9 @@ public class FriendService {
 
     /**
      * 친구 핀 해제 — 있으면 삭제, 없으면 멱등(204).
+     *
+     * @param me           핀을 건 유저
+     * @param friendUserId 핀을 뗄 대상. 탈퇴자여도 해제할 수 있다
      */
     @Transactional
     public void unpinFriend(UUID me, UUID friendUserId) {
@@ -289,6 +335,10 @@ public class FriendService {
 
     /**
      * 내가 핀한 친구 조회 — 각 친구의 캐릭터 표시정보 + 오늘 집중분 + 진행중 여부 매핑(GROMO-369 재사용).
+     *
+     * @param me   핀을 건 유저
+     * @param date 집중분을 집계할 날짜. DailyFocusStat 의 저장 버킷과 같은 축(KST 고정)이어야 값이 맞는다
+     * @return 핀한 유저 목록. 핀이 하나도 없으면 배치 조회를 아예 건너뛰고 빈 리스트를 돌려준다
      */
     public List<PinnedUserResponse> getPinnedFriends(UUID me, LocalDate date) {
         User meUser = getUser(me);
@@ -324,6 +374,11 @@ public class FriendService {
 
     /**
      * PENDING 요청 목록 — type=received(받은) | sent(보낸).
+     *
+     * @param me   목록의 주인
+     * @param type {@code received} 면 받은 요청, 그 밖의 값은 모두 보낸 요청으로 본다(대소문자 무시)
+     * @return 각 요청의 <b>상대</b> 표시정보. 응답의 시각은 createdAt 이 아니라 updatedAt 이 소스다 —
+     *         재요청이 행을 되살리므로 createdAt 은 원래 관계의 시각으로 남는다
      */
     public List<FriendRequestResponse> getRequests(UUID me, String type) {
         User meUser = getUser(me);
@@ -364,6 +419,11 @@ public class FriendService {
     /**
      * 친구 검색 — type 전략에 위임 후 자기자신 제외 + 기존 관계(relation) 표기.
      * relation 판정은 {@link FriendRelationLookup} 공유 컴포넌트에 위임한다 (GROMO-1631 — 프로필과 공유).
+     *
+     * @param me    검색하는 유저 — 결과에서 제외되고, 관계 배지 판정의 기준이 된다
+     * @param type  검색 수단. 등록된 전략이 없으면 {@link IllegalArgumentException} 을 던져 400 이 된다
+     * @param query 검색어. 해석은 전략 몫이다
+     * @return 관계 배지까지 채운 검색 결과
      */
     public List<FriendSearchResultResponse> search(UUID me, SearchType type, String query) {
         FriendSearchStrategy strategy = searchStrategies.get(type);

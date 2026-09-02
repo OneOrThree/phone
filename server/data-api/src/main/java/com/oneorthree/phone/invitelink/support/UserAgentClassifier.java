@@ -30,7 +30,14 @@ public class UserAgentClassifier {
             "whatsapp", "yeti", "embedly", "pinterest", "skypeuripreview",
             "bot", "crawler", "spider");
 
-    /** 'ios' | 'android' | 'other'. Android 는 이번 범위 밖이지만 값 자체는 구분해 남긴다. */
+    /**
+     * 'ios' | 'android' | 'other'. Android 는 이번 범위 밖이지만 값 자체는 구분해 남긴다.
+     *
+     * @param userAgent 요청 헤더 원문. 호출자가 자유롭게 정하는 값이라 신뢰 경계 밖이며,
+     *                  null 이면 {@code "other"} 다
+     * @return 매치 fingerprint 의 한 축이 될 OS 문자열. <b>설치 후 앱이 보내는 {@code os} 값과
+     *         철자가 같아야</b> 매치가 성립한다 — 여기서 분류를 바꾸면 그 경로가 조용히 끊긴다
+     */
     public String classify(String userAgent) {
         if (userAgent == null) {
             return "other";
@@ -51,6 +58,19 @@ public class UserAgentClassifier {
         return "other";
     }
 
+    /**
+     * 링크 프리뷰 스크레이퍼·크롤러를 걸러낸다.
+     *
+     * <p>판정 방식은 <b>차단목록</b>이다. 허용목록(실브라우저 UA 만 인정)으로 뒤집지 않는 건
+     * 인앱브라우저 UA 가 앱·버전마다 제각각이라 진짜 유저를 조용히 떨어뜨리기 때문이다 —
+     * 이 기능에서는 과소 차단이 오차의 안전한 방향이다.
+     *
+     * @param userAgent 요청 헤더 원문. 비어 있으면 봇으로 본다 — 실브라우저·인앱브라우저는
+     *                  예외 없이 UA 를 보내므로 진짜 유저를 떨어뜨리지 않는다
+     * @return true 면 클릭을 <b>기록하지 않는다</b>. 기록하면 클릭 수가 부풀 뿐 아니라
+     *         스크레이퍼 IP 로 찍힌 미소진 클릭이 매치 후보로 남아 엉뚱한 설치에 붙는다.
+     *         카톡 인앱브라우저({@code KAKAOTALK})는 봇이 아니라 주 유입 경로다
+     */
     public boolean isBot(String userAgent) {
         // UA 를 아예 안 보내는 건 브라우저가 아니다 — 실브라우저·인앱브라우저는 예외 없이 UA 를 보내므로,
         // 봇 취급해도 진짜 유저를 떨어뜨리지 않고 curl 류 스크립트의 유령 클릭만 걸러진다.

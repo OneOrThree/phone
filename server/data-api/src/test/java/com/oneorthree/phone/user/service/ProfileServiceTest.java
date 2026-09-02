@@ -1,23 +1,23 @@
 package com.oneorthree.phone.user.service;
 
-import com.oneorthree.phone.friend.domain.Friendship;
-import com.oneorthree.phone.friend.domain.FriendshipStatus;
+import com.oneorthree.phone.friend.repository.domain.Friendship;
+import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.friend.service.FriendRelationLookup;
-import com.oneorthree.phone.item.domain.CharacterEquipment;
-import com.oneorthree.phone.item.domain.SlotType;
+import com.oneorthree.phone.item.repository.domain.CharacterEquipment;
+import com.oneorthree.phone.item.repository.domain.SlotType;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
-import com.oneorthree.phone.league.domain.LeagueRankingPosition;
+import com.oneorthree.phone.league.repository.domain.LeagueRankingPosition;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
-import com.oneorthree.phone.league.service.LeagueWeek;
-import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
+import com.oneorthree.phone.league.support.LeagueWeek;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.service.StatsService;
-import com.oneorthree.phone.user.domain.StatVisibility;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.Occupation;
+import com.oneorthree.phone.user.repository.domain.StatVisibility;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.dto.PublicProfileResponse;
 import com.oneorthree.phone.user.dto.UserStatsResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
@@ -101,7 +101,7 @@ class ProfileServiceTest {
     @DisplayName("정상 조회 → 닉네임·캐릭터·친구수·리그 티어·랭킹 집계")
     void getPublicProfile_success() {
         User user = User.builder().id(USER_ID).nickname("조재영")
-                .occupation(com.oneorthree.phone.user.domain.Occupation.CSAT)
+                .occupation(Occupation.CSAT)
                 .tierLevel(3)
                 .build();
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));

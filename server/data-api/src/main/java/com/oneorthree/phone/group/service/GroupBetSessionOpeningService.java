@@ -1,19 +1,19 @@
 package com.oneorthree.phone.group.service;
 
-import com.oneorthree.phone.group.domain.GroupChallenge;
-import com.oneorthree.phone.group.domain.GroupChallengeBet;
-import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
-import com.oneorthree.phone.group.domain.GroupChallengeStatus;
-import com.oneorthree.phone.group.domain.RepeatSchedule;
+import com.oneorthree.phone.group.repository.domain.GroupChallenge;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBet;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.repository.domain.RepeatSchedule;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.support.GroupBetSessionFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Optional;
@@ -63,6 +63,11 @@ public class GroupBetSessionOpeningService {
      * 회차 개설 단일 진입점(공용 — B5 join-next·챌린지 생성 당일 개설도 이 메서드를 부른다).
      * 조건 미충족(비활성 요일·참가 마감 경과·내기 미설정)이면 empty, 이미 있으면 기존 회차를
      * 돌려준다(UPSERT 의미 — {@code UNIQUE (bet_id, session_date)} 가 최후 방어).
+      *
+      * @param challengeId 회차를 세울 챌린지 — 삭제됐거나 ACTIVE 가 아니면 아무 일도 하지 않는다
+      * @param date 회차 날짜(KST)
+      * @return 보장된 회차. 비활성 요일·참가 마감 경과·내기 미설정이면 empty 이며, 이는 실패가 아니라
+      *     「그날 열 회차가 없다」는 뜻이다
      */
     @Transactional
     public Optional<GroupChallengeBetSession> ensureSession(UUID challengeId, LocalDate date) {
@@ -77,6 +82,11 @@ public class GroupBetSessionOpeningService {
      * <p>챌린지 행 배타 락으로 삭제({@code deleteChallenge})·레거시 개설과 직렬화한다 — 락이 없으면
      * "OPEN 회차 무효화가 끝났다"고 본 삭제와 이 개설이 겹쳐, 참가 가능한 회차가 삭제된 챌린지에
      * 매달린다.
+      *
+      * @param challengeId 회차를 세울 챌린지 — 이 행을 배타 락으로 잡아 삭제·레거시 개설과 직렬화한다
+      * @param date 회차 날짜(KST)
+      * @return 회차와 이번 호출이 실제로 INSERT 했는지. 동시 개설에 졌으면 상대가 만든 회차를
+      *     {@code created=false} 로 돌려준다. 열 조건이 아니면 empty
      */
     @Transactional
     public Optional<SessionOpening> openSession(UUID challengeId, LocalDate date) {

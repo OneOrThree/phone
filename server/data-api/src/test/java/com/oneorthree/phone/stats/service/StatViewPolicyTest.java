@@ -1,10 +1,10 @@
 package com.oneorthree.phone.stats.service;
 
-import com.oneorthree.phone.friend.domain.Friendship;
+import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
-import com.oneorthree.phone.user.domain.StatVisibility;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.StatVisibility;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;

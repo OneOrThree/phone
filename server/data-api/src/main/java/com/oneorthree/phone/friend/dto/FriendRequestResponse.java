@@ -6,6 +6,9 @@ import lombok.Getter;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * 친구 요청 목록의 한 건. 받은 요청이든 보낸 요청이든 담기는 유저는 항상 <b>상대</b>다 — 내 정보는 넣지 않는다.
+ */
 @Getter
 @Builder
 public class FriendRequestResponse {

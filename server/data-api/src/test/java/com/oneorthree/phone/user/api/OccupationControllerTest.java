@@ -1,5 +1,6 @@
 package com.oneorthree.phone.user.api;
 
+import com.oneorthree.phone.user.OccupationController;
 import com.oneorthree.phone.user.dto.OccupationResponse;
 import com.oneorthree.phone.user.service.OccupationService;
 import org.junit.jupiter.api.DisplayName;

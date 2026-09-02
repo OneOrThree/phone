@@ -1,7 +1,7 @@
 package com.oneorthree.phone.currency.dto;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

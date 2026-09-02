@@ -33,7 +33,14 @@ public class FocusSessionResponse {
      */
     Map<String, Integer> focusSecondsByDate;
 
-    /** 하위호환 — 분포 없이 만드는 기존 4-arg 호출부(테스트 등). */
+    /**
+     * 하위호환 — 분포 없이 만드는 기존 4-arg 호출부(테스트 등).
+     *
+     * @param focusTagId              세션이 참조하는 채택 태그 id. 태그 없는 세션이면 null
+     * @param startedAt               시작 시각
+     * @param endedAt                 종료 시각. 아직 도는 세션이면 null 이라 클라가 합산에서 빼야 한다
+     * @param totalDistractionSeconds 누적 방해 초
+     */
     public FocusSessionResponse(UUID focusTagId, Instant startedAt, Instant endedAt,
                                 int totalDistractionSeconds) {
         this(focusTagId, startedAt, endedAt, totalDistractionSeconds, null);

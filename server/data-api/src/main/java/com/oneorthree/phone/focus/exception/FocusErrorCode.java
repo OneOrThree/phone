@@ -3,6 +3,13 @@ package com.oneorthree.phone.focus.exception;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
+/**
+ * focus 도메인 실패 사유 — HTTP 상태와 사용자 노출 문구를 한 곳에 묶는다.
+ *
+ * <p>같은 상태여도 코드를 나눈 곳이 있다: 409 는 {@code SESSION_ALREADY_ENDED}(통계·지급이 이미 커밋됐으니
+ * 재시도 금지)와 {@code SESSION_DISCARDED}(통계에 한 번도 반영되지 않았으니 POST 로 살려 올려도 된다)로
+ * 갈린다 — 앱의 폴백 여부가 여기서 결정되므로 둘을 합치면 그 블록의 집중 시간과 코인이 유실된다.
+ */
 @Getter
 public enum FocusErrorCode {
 

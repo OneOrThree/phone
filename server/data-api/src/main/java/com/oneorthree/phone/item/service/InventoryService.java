@@ -1,7 +1,7 @@
 package com.oneorthree.phone.item.service;
 
 import com.oneorthree.phone.item.dto.UserItemResponse;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.item.repository.ItemRepository;
 import com.oneorthree.phone.item.repository.UserItemRepository;
 import com.oneorthree.phone.user.exception.UserErrorCode;
@@ -16,6 +16,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * 유저가 어떤 아이템을 가졌는지를 다룬다.
+ *
+ * <p>보유에는 수량이 없다 — 같은 아이템은 있거나 없거나 둘 중 하나라, 지급을 여러 번 해도
+ * 상태가 더 늘지 않는다.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -28,6 +34,9 @@ public class InventoryService {
     /**
      * 내 인벤토리 조회
      * todo 조회 성능 개선
+     *
+     * @param userId 조회 대상. 탈퇴했거나 없는 유저면 NOT_FOUND(404)
+     * @return 보유 목록(페이지네이션 없음). 착용 여부는 담기지 않으니 장비 조회로 따로 봐야 한다
      */
     public List<UserItemResponse> getInventory(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
@@ -44,6 +53,9 @@ public class InventoryService {
     /**
      * 아이템 지급 (테스트용)
      * todo 쓰기 성능 개선 및 로직 개선
+     *
+     * @param userId 받을 유저. 탈퇴했거나 없는 유저면 NOT_FOUND(404)
+     * @param itemId 넣어 줄 아이템. 카탈로그에 없으면 404
      */
     @Transactional
     public void grantItem(UUID userId, UUID itemId) {

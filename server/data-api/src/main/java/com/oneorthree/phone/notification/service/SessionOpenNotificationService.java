@@ -2,19 +2,19 @@ package com.oneorthree.phone.notification.service;
 
 import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.common.port.PushMessage;
-import com.oneorthree.phone.group.domain.GroupBetStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
-import com.oneorthree.phone.group.domain.GroupMember;
-import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.notification.domain.NotificationSendStatus;
-import com.oneorthree.phone.notification.domain.NotificationSentLog;
+import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
+import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -110,13 +110,23 @@ public class SessionOpenNotificationService {
     private record BundleKey(UUID userId, UUID groupId, Instant slotAt) {
     }
 
-    /** 스케줄러(15분)·수동 트리거 진입점. */
+    /**
+     * 스케줄러(15분)·수동 트리거 진입점.
+     *
+     * @return 이번 실행의 발송 요약(현재 시각 기준)
+     */
     @Transactional
     public PushDispatchSummaryResponse sendSessionOpenNotifications() {
         return sendSessionOpenNotifications(Instant.now());
     }
 
-    /** 모집 슬롯에 도달한 회차 스캔 → 미참가 그룹원 클레임 → (이월분 합류) → 묶음 발송. */
+    /**
+     * 모집 슬롯에 도달한 회차 스캔 → 미참가 그룹원 클레임 → (이월분 합류) → 묶음 발송.
+     *
+     * @param now 슬롯 도달 판정과 조용한 시간 판정의 기준 시각. 조용한 시간에 걸린 대상은 버리지 않고
+     *            창이 끝나는 시각으로 이월된다
+     * @return 이번 실행의 발송 요약. 클레임이 한 틱만 통과하므로 여러 틱에 걸친 회차도 한 번만 발송된다
+     */
     @Transactional
     public PushDispatchSummaryResponse sendSessionOpenNotifications(Instant now) {
         long startedAtMillis = System.currentTimeMillis();

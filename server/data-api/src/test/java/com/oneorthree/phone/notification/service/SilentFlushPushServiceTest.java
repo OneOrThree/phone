@@ -1,18 +1,18 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupChallenge;
-import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
-import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
-import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupChallenge;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
-import com.oneorthree.phone.notification.domain.NotificationSendStatus;
+import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

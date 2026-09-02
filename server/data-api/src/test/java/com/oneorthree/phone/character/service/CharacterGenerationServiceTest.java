@@ -2,7 +2,7 @@ package com.oneorthree.phone.character.service;
 
 import com.oneorthree.phone.character.dto.CharacterQuotaResponse;
 import com.oneorthree.phone.character.repository.CharacterGenerationRepository;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;

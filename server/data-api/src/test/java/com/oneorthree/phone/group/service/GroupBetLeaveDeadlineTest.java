@@ -1,10 +1,10 @@
 package com.oneorthree.phone.group.service;
 
-import com.oneorthree.phone.group.domain.GroupBetStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
-import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
-import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

@@ -3,6 +3,14 @@ package com.oneorthree.phone.auth.exception;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
+/**
+ * 계정 상태 때문에 로그인을 거절할 때 쓰는 코드 — 토큰 자체가 무효한 경우는
+ * {@link InvalidTokenErrorCode} 쪽이다. 두 CONFLICT 는 <b>게스트 승격 경쟁</b>의 서로 다른 국면이고,
+ * 429 는 인증 없는 게스트 생성 남용을 막는 문이다.
+ *
+ * <p>여기 담긴 {@code status} 를 {@code GlobalExceptionHandler} 가 그대로 응답 코드로 쓰고
+ * enum 이름이 응답 본문의 {@code code} 가 되므로, <b>상수 이름을 바꾸면 앱의 분기가 깨진다</b>.
+ */
 @Getter
 public enum AuthErrorCode {
 

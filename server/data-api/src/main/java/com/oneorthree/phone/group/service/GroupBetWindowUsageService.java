@@ -1,12 +1,12 @@
 package com.oneorthree.phone.group.service;
 
 import com.fasterxml.uuid.Generators;
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupChallenge;
-import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
-import com.oneorthree.phone.group.domain.GroupChallengeWindow;
-import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupChallenge;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -17,7 +17,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -107,6 +107,12 @@ public class GroupBetWindowUsageService {
      * 조용히 무시하고 204 다(에러로 만들면 클라 재시도 큐 없이도 생기는 정상 경합이 유저 에러가
      * 된다). 값은 <b>클라 신뢰</b>다 — 서버가 검증할 수단이 없어 범위(0~{@value #MAX_WINDOW_USAGE_MINUTES})만
      * 확인하고 그대로 저장한다(리스크 수용, 확정 정책).
+      *
+      * @param groupId 챌린지 스코프이자 멤버십 검증의 축
+      * @param challengeId 보고 대상 챌린지
+      * @param userId 보고자 — 보고 축(챌린지·유저·날짜)의 일부라 같은 유저의 자기 요청끼리만 줄을 선다
+      * @param request 날짜·사용분·측정 시각. 저장된 measured_at 보다 오래된 보고는 조용히 버려지므로
+      *     호출이 성공했다고 값이 반영된 것은 아니다
      */
     @Transactional
     public void reportWindowUsage(UUID groupId, UUID challengeId, UUID userId, WindowUsageReportRequest request) {

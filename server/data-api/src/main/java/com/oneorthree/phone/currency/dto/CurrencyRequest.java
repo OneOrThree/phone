@@ -1,11 +1,15 @@
 package com.oneorthree.phone.currency.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
-import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+/**
+ * {@code /currency/earn}·{@code /currency/spend} 요청 바디. 금액은 언제나 양수로 보내고,
+ * 증감 방향은 바디가 아니라 호출한 엔드포인트가 정한다.
+ */
 @Getter
 @AllArgsConstructor
 @NoArgsConstructor

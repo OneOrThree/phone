@@ -14,22 +14,38 @@ Run all commands below from inside `server/data-api/`.
 
 ## Layout & domains
 
+**정본은 `docs/conventions/backend-layering.md`** (repo root). 아래는 요약이며,
+둘이 어긋나면 그 문서가 맞다.
+
 - Entry point: `PhoneApplication.java`.
 - **Package layout is domain-based**: each domain owns its own
-  `api/`·`service/`·`domain/`·`repository/`·`dto/`·`exception/` under
-  `com.oneorthree.phone.<domain>` (e.g. `group/api/GroupController`). Cross-cutting
-  code lives in `common/` (`common/config`, `common/port`, `common/id` for the UUID v7
-  generator). Do **not** introduce a parallel layer-first layout
-  (`phone/api/`, `phone/service/`, …) — keep new files inside their domain package.
+  `service/`·`repository/`(+`repository/domain/`)·`dto/`·`exception/` under
+  `com.oneorthree.phone.<domain>`. Do **not** introduce a parallel layer-first
+  layout (`phone/api/`, `phone/service/`, …) — keep new files inside their
+  domain package.
+- **Controllers sit at the domain root**, not in an `api/` sub-package —
+  `user/UserController.java`, with Swagger annotations split into a sibling
+  `user/UserControllerDocs.java` interface (GROMO-1621). Enumerate with a
+  `**/*Controller.java` glob (30 as of 2026-09); don't trust any hardcoded list.
+- **Entities live in `<domain>/repository/domain/`** — persistence concerns stay
+  under `repository/`. Exception: a domain with no persistence at all keeps a
+  plain `domain/` (only `analytics`).
+- Cross-cutting code lives in `common/` (`common/port`, `common/id` for the UUID v7
+  generator, `common/exception`, `common/logging`, `common/util`). Spring wiring and
+  servlet filters live in the **top-level `config/`** package — not `common/config`,
+  and never a per-domain `config/`.
 - Domain packages (authoritative: `ls src/main/java/com/oneorthree/phone/`):
-  `analytics`, `auth`, `currency`, `focus`, `friend`, `group`, `item`, `league`,
-  `notification`, `screentime`, `stats`, `user` — plus cross-cutting `common/`.
-  Entities live in each domain's `domain/` package.
-- Controllers live in `<domain>/api/*Controller.java`, one or more per domain —
-  enumerate with a `**/*Controller.java` glob (19 as of 2026-07); don't trust any
-  hardcoded list.
+  `analytics`, `auth`, `bot`, `character`, `currency`, `focus`, `friend`, `group`,
+  `invitelink`, `item`, `league`, `notification`, `screentime`, `stats`, `user` —
+  plus cross-cutting `common/` and `config/`.
+- Optional per-domain sub-packages, used only when the domain has them:
+  `support/` (pure helpers/policies — no injected repository or service),
+  `event/` (events this domain publishes), `listener/` (handlers it subscribes),
+  `client/` (outbound HTTP/FCM/OpenAI), `scheduler/` (`@Scheduled` entry points).
 - **Entity PKs are UUID v7** — annotate the `@Id UUID id` field with `@GeneratedUuidV7`
   (`common/id`); repositories are `JpaRepository<Entity, UUID>`.
+- Package names must match Checkstyle's `PackageName` rule
+  (`^[a-z]+(\.[a-z][a-z0-9]*)*$`) — no underscores, no leading digits.
 
 ## Conventions
 

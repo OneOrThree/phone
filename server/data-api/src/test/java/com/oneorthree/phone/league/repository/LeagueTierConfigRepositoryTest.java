@@ -1,7 +1,7 @@
 package com.oneorthree.phone.league.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
-import com.oneorthree.phone.league.domain.LeagueTierConfig;
+import com.oneorthree.phone.league.repository.domain.LeagueTierConfig;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

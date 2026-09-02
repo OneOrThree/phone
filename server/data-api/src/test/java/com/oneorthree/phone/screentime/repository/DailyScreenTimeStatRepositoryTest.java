@@ -1,8 +1,8 @@
 package com.oneorthree.phone.screentime.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
-import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.screentime.repository.domain.DailyScreenTimeStat;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

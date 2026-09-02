@@ -2,7 +2,7 @@ package com.oneorthree.phone.notification.listener;
 
 import com.oneorthree.phone.friend.event.FriendRequestAcceptedEvent;
 import com.oneorthree.phone.friend.event.FriendRequestSentEvent;
-import com.oneorthree.phone.notification.config.NotificationAsyncConfig;
+import com.oneorthree.phone.config.NotificationAsyncConfig;
 import com.oneorthree.phone.notification.service.FriendNotificationService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -2,14 +2,14 @@ package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupMember;
-import com.oneorthree.phone.group.domain.GroupMemberRole;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -21,6 +21,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * 그룹 멤버십을 <b>바꾸는</b> 경로 — 방장 위임·강퇴·그룹 탈퇴. 조회는 {@code GroupService} 가 맡는다.
+ *
+ * <p>세 경로 모두 요청자(대상이 있으면 대상까지) users 행을 공유 락으로 읽는다. 계정 탈퇴와
+ * 직렬화되지 않으면 탈퇴 확정 계정이 방장을 넘겨받거나, {@code GroupMember} 에 {@code @Version}
+ * 이 없어 탈퇴가 쓴 이탈 표시를 이 트랜잭션의 full-row UPDATE 가 통째로 되살린다.
+ *
+ * <p>404 가 두 버킷으로 갈린다 — 요청자 세션이 죽었으면 {@code USER_NOT_FOUND}(재로그인),
+ * 지목한 <b>대상</b>이 없으면 {@code NOT_FOUND} 다. 대상 부재를 전자로 바꾸면 앱이 멀쩡한 방장을
+ * 로그아웃시킨다.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -32,6 +43,16 @@ public class GroupMemberService {
     private final UserActivityEventLogger userActivityEventLogger;
     private final GroupBetService groupBetService;
 
+    /**
+     * 방장을 넘긴다 — 대상이 OWNER 로 오르고 요청자는 같은 트랜잭션에서 MEMBER 로 내려온다.
+     *
+     * <p>{@code groups.host_id} 는 폐기됐고 {@code group_members.role} 교체가 유일한 정본이다.
+     * 대상이 이 그룹 멤버가 아니거나 이미 탈퇴했으면 {@code NOT_FOUND} 로 거절한다.
+     *
+     * @param groupId 위임이 일어날 그룹
+     * @param targetUserId 새 방장이 될 멤버
+     * @param userId 요청자 — 현재 방장이 아니면 {@code NOT_OWNER}
+     */
     @Transactional
     public void transferOwner(UUID groupId, UUID targetUserId, UUID userId) {
         // 요청자도 공유 락 (GROMO-1227) — 801 은 아래 대상만 고치고 요청자를 놓쳤다. 락 없는
@@ -67,7 +88,13 @@ public class GroupMemberService {
         targetGroupMember.promoteToOwner();
     }
 
-    /** 멤버 강퇴 (A-3) — OWNER 전용. 소프트삭제 + KICKED 마커로 재참여를 막는다. 본인은 강퇴 불가. */
+    /**
+     * 멤버 강퇴 (A-3) — OWNER 전용. 소프트삭제 + KICKED 마커로 재참여를 막는다. 본인은 강퇴 불가.
+     *
+     * @param groupId 강퇴가 일어날 그룹
+     * @param targetUserId 내보낼 멤버 — 자기 자신을 지목하면 {@code CANNOT_KICK_SELF}
+     * @param userId 요청자 — 현재 방장이 아니면 {@code NOT_OWNER}
+     */
     @Transactional
     public void kickMember(UUID groupId, UUID targetUserId, UUID userId) {
         // 요청자 공유 락 (GROMO-1227) — 근거는 requireActiveUser Javadoc.
@@ -101,6 +128,17 @@ public class GroupMemberService {
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
     }
 
+    /**
+     * 그룹에서 나간다 — 행을 지우지 않고 이탈로 마킹한다(A-0 소프트삭제).
+     *
+     * <p>순서가 계약이다: 이탈이 확정된 뒤 <b>같은 트랜잭션에서</b> OPEN 내기 참가를 정리해 판돈을
+     * 환불한다. 별도 트랜잭션으로 미루면 「탈퇴는 됐는데 판돈은 묶인」 반쪽 상태가 남는다.
+     * 멤버가 둘 이상인데 요청자가 방장이면 {@code HOST_WITHDRAW} 로 막고(위임이 먼저),
+     * 마지막 1인이 나가면 그룹까지 닫는다.
+     *
+     * @param groupId 나갈 그룹
+     * @param userId 요청자 — 그룹원이 아니면 {@code MEMBER_ONLY}
+     */
     @Transactional
     public void withdrawGroup(UUID groupId, UUID userId) {
         // 요청자 공유 락 (GROMO-1227) — 특히 이 경로는 아래 releaseFromOpenBets(환불·돈 경로)에

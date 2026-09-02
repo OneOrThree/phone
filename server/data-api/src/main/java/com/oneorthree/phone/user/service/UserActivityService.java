@@ -35,6 +35,11 @@ public class UserActivityService {
      */
     private final Duration touchInterval;
 
+    /**
+     * @param userRepository 갱신을 수행할 리포지토리
+     * @param touchInterval  같은 유저에게 write 를 허용하는 최소 간격. 프로퍼티 미설정 시 2시간이며,
+     *                       공통 application.yml 이 배포에 실리지 않으므로 환경별 파일에 값을 둬야 한다
+     */
     public UserActivityService(
             UserRepository userRepository,
             @Value("${app.user-activity.touch-interval:2h}") Duration touchInterval) {
@@ -46,6 +51,11 @@ public class UserActivityService {
      * 마지막 갱신 후 touchInterval 이 지났으면 true — 이때만 DB write 가 필요하다 (GROMO-903).
      * 트랜잭션도 DB 왕복도 없다: 호출측이 인증 조회에서 이미 읽어온 값을 그대로 넘기기 때문이다.
      * <p>null 은 true 로 본다 — 컬럼은 NOT NULL 이지만 판정만은 fail-safe 로(한 번 더 쓰는 편이 누락보다 낫다).
+     *
+     * @param lastActiveAt 인증 조회에서 이미 읽어온 값. 여기서 DB 를 다시 보지 않는다
+     * @param now          이번 요청의 기준 시각
+     * @return 갱신이 필요하면 true. 이 판정만 통과했다고 write 가 보장되지는 않는다 —
+     *         UPDATE 쪽 WHERE 가드가 동시 요청의 중복 write 를 다시 한 번 거른다
      */
     public boolean needsTouch(Instant lastActiveAt, Instant now) {
         return lastActiveAt == null || lastActiveAt.isBefore(now.minus(touchInterval));
@@ -56,6 +66,9 @@ public class UserActivityService {
      * <p>UPDATE 의 WHERE 가드(lastActiveAt &lt; staleBefore)는 그대로 둔다 — 같은 유저의 동시 요청 2건이
      * 둘 다 stale 로 판정되는 레이스의 최종 방어선이다(써도 멱등, 갱신 행은 1개).
      * <p>@Modifying UPDATE 는 트랜잭션이 필요해 필터에서 직접 못 부르므로 @Transactional 서비스로 감싼다.
+     *
+     * @param userId 갱신 대상
+     * @param now    기록할 활동 시각. 스로틀 하한({@code now - touchInterval})도 여기서 파생된다
      */
     @Transactional
     public void touchLastActive(UUID userId, Instant now) {

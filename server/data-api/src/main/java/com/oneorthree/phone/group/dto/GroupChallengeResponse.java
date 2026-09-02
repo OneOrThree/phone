@@ -3,9 +3,9 @@ package com.oneorthree.phone.group.dto;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.oneorthree.phone.group.domain.GroupChallengeStatus;
-import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionType;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -13,6 +13,14 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * 그룹 챌린지 카드 한 장.
+ *
+ * <p>필드가 세 축으로 갈린다 — ⑴ 챌린지 자체(종류·목표·요일·상태), ⑵ 조회 {@code date} 를 줘야
+ * 채워지는 당일 축({@code memberProgress}·{@code bet}), ⑶ 날짜와 무관한 내기 축
+ * ({@code betConfig}·{@code lastSettledBet}·{@code nextSessionAt}). date 를 보내지 않는 구앱
+ * 하위 호환 때문에 ⑵ 는 통째로 null 이 될 수 있고, 그것을 「진행 없음」으로 읽으면 틀린다.
+ */
 @Getter
 @Builder
 public class GroupChallengeResponse {
@@ -163,6 +171,9 @@ public class GroupChallengeResponse {
      *
      * <p><b>제거 시점</b>: 구앱 강제 업데이트 이후 — GROMO-1238 축에서 이 메서드와 {@code @JsonIgnore}
      * 를 걷어내고 enum 직렬화로 되돌린다.
+      *
+      * @return 구앱 어휘로 낮춘 상태 문자열 — ENDED 는 {@code INACTIVE} 로 바꿔 내보낸다.
+      *     status 가 없으면 null 이 그대로 키에 실린다.
      */
     @JsonProperty("status")
     public String getStatusWire() {

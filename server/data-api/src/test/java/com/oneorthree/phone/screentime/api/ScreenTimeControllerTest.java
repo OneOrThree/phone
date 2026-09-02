@@ -1,6 +1,7 @@
 package com.oneorthree.phone.screentime.api;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
+import com.oneorthree.phone.screentime.ScreenTimeController;
 import com.oneorthree.phone.screentime.service.ScreenTimeService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

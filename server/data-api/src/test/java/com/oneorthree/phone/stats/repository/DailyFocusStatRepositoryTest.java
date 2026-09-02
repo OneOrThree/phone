@@ -1,10 +1,10 @@
 package com.oneorthree.phone.stats.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
-import com.oneorthree.phone.stats.domain.DailyFocusStat;
+import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.dto.FocusAverageAggregate;
-import com.oneorthree.phone.user.domain.Occupation;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.Occupation;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

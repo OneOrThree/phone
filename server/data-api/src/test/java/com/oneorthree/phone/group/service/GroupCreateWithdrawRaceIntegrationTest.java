@@ -1,15 +1,15 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupStatus;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.CreateGroupResponse;
 import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserWallet;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserWallet;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;

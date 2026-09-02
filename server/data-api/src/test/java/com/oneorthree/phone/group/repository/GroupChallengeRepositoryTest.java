@@ -1,20 +1,19 @@
 package com.oneorthree.phone.group.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupChallenge;
-import com.oneorthree.phone.group.domain.GroupChallengeDuration;
-import com.oneorthree.phone.group.domain.GroupChallengeStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeWindow;
-import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupChallenge;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionType;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 
-import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;

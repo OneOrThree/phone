@@ -39,7 +39,14 @@ public record FocusSessionEndRequest(
         UUID focusTagId,
         @Size(max = FocusSessionRequest.MAX_SECONDS_BY_DATE_ENTRIES) Map<LocalDate, Integer> focusSecondsByDate
 ) {
-    /** 하위호환 — focusSecondsByDate 미지정 기존 4-arg 호출부(null → 서버 벽시계 분할 폴백). */
+    /**
+     * 하위호환 — focusSecondsByDate 미지정 기존 4-arg 호출부(null → 서버 벽시계 분할 폴백).
+     *
+     * @param sessionId               종료할 진행 중 세션 id
+     * @param endedAt                 종료 시각. null 이면 서버 수신 시각
+     * @param totalDistractionSeconds 누적 방해 초(수동 일시정지만). 음수·24시간 초과는 400
+     * @param focusTagId              태그 보정용. null 이면 시작 시 지정한 태그를 그대로 둔다
+     */
     public FocusSessionEndRequest(UUID sessionId, Instant endedAt, int totalDistractionSeconds, UUID focusTagId) {
         this(sessionId, endedAt, totalDistractionSeconds, focusTagId, null);
     }

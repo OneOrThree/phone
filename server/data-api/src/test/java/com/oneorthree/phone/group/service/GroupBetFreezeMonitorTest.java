@@ -1,6 +1,6 @@
 package com.oneorthree.phone.group.service;
 
-import com.oneorthree.phone.group.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

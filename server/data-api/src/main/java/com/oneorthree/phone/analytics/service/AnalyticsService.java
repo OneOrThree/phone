@@ -32,6 +32,10 @@ public class AnalyticsService {
     /**
      * 이벤트 화이트리스트(ClientActivityEvent)·payload 크기·스칼라 값 검증 후 발행.
      * payload 키 스키마까지 강제하지 않음 — FE 계약(스펙 확정).
+     *
+     * @param event 앱이 보낸 이벤트 이름. 카탈로그에 없으면 UNSUPPORTED_EVENT 로 거절한다
+     * @param payload 이벤트 부가 정보. null 이면 빈 맵으로 취급하고, 가드를 넘기면
+     *                INVALID_PAYLOAD 로 거절해 로그 플러딩을 막는다
      */
     public void record(String event, Map<String, Object> payload) {
         ClientActivityEvent clientEvent = ClientActivityEvent.from(event)

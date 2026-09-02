@@ -8,6 +8,9 @@ import lombok.Getter;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * 핀한 유저의 한 건. 친구 응답과 달리 캐릭터 장착 정보까지 실어, 홈 화면이 아이템 조회를 따로 하지 않게 한다.
+ */
 @Getter
 @Builder
 public class PinnedUserResponse {

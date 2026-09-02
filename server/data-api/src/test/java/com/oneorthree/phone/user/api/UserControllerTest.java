@@ -2,9 +2,10 @@ package com.oneorthree.phone.user.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.common.auth.AuthAttributes;
-import com.oneorthree.phone.user.domain.Occupation;
-import com.oneorthree.phone.user.domain.Provider;
-import com.oneorthree.phone.user.domain.StatVisibility;
+import com.oneorthree.phone.user.UserController;
+import com.oneorthree.phone.user.repository.domain.Occupation;
+import com.oneorthree.phone.user.repository.domain.Provider;
+import com.oneorthree.phone.user.repository.domain.StatVisibility;
 import com.oneorthree.phone.user.dto.NotificationSettingsResponse;
 import com.oneorthree.phone.user.dto.SocialLinkResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;

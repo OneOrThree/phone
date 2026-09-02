@@ -47,6 +47,16 @@ public class FcmPushNotificationClient implements PushNotificationPort {
     private final GoogleCredentials credentials;
     private final String projectId;
 
+    /**
+     * 서비스 계정으로 FCM 발송 클라이언트를 조립한다.
+     *
+     * <p>설정이 비어 있거나 키를 못 읽으면 기동 시점에 예외를 던져 세운다 — 배선 실수를 첫 발송
+     * 실패까지 끌고 가지 않기 위해서다.
+     *
+     * @param projectId                FCM 프로젝트 id. 비어 있으면 기동이 실패한다
+     * @param serviceAccountJsonBase64 base64 로 감싼 서비스 계정 JSON. 비었거나 형식이 깨져 있으면
+     *                                 마찬가지로 기동이 실패한다
+     */
     public FcmPushNotificationClient(
             /**
              * 프로퍼티 키는 env 자동 변환(FCM_PROJECT_ID/FCM_SERVICE_ACCOUNT_JSON)과 정확히 일치해야 함

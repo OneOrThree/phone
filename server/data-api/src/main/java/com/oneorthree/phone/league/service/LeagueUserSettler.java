@@ -1,14 +1,14 @@
 package com.oneorthree.phone.league.service;
 
-import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
-import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
-import com.oneorthree.phone.league.domain.LeagueRankingRow;
-import com.oneorthree.phone.league.domain.LeagueTierConfig;
-import com.oneorthree.phone.league.domain.LeagueWeeklyResult;
-import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
+import com.oneorthree.phone.currency.support.CurrencyRewardPolicy;
+import com.oneorthree.phone.league.repository.domain.LeagueRankingRow;
+import com.oneorthree.phone.league.repository.domain.LeagueTierConfig;
+import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResult;
+import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

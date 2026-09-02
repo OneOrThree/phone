@@ -1,6 +1,6 @@
 package com.oneorthree.phone.group.service;
 
-import com.oneorthree.phone.group.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,12 +41,18 @@ public class GroupBetFreezeMonitor {
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
 
-    /** 스케줄러(09:00 KST) 진입점. */
+    /**
+     * 스케줄러(09:00 KST) 진입점.
+     *
+     * @return 동결로 판정된 OPEN 회차 수(0 이면 정상). 알림의 정본은 이 값이 아니라 error 로그다
+     */
     public int detectFrozenBets() {
         return detectFrozenBets(Instant.now());
     }
 
     /**
+     * @param now 기준 시각 — 여기서 뽑은 KST 날짜가 동결 임계의 원점이다. 테스트가 날짜를 밀어
+     *     넣을 수 있도록 열어 둔 축이라 운영에서는 항상 현재 시각이 들어온다
      * @return 동결로 판정된 OPEN 회차 수(0 이면 정상)
      */
     @Transactional(readOnly = true)

@@ -33,7 +33,11 @@ public class JoinGroupRequest {
     /** GA4 app_instance_id — 서버 발행 {@code group_joined} 를 앱스트림 세션에 붙이는 데 쓴다. */
     private String appInstanceId;
 
-    /** 비밀번호만 넘기던 기존 호출부·테스트를 위한 하위호환 생성자. */
+    /**
+     * 비밀번호만 넘기던 기존 호출부·테스트를 위한 하위호환 생성자.
+     *
+     * @param password 잠긴 그룹의 입력 비밀번호. 잠기지 않은 그룹이면 검증 자체를 건너뛰므로 null 이어도 된다
+     */
     public JoinGroupRequest(String password) {
         this.password = password;
     }

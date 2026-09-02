@@ -1,6 +1,6 @@
 package com.oneorthree.phone.focus.dto;
 
-import com.oneorthree.phone.focus.domain.FocusType;
+import com.oneorthree.phone.focus.repository.domain.FocusType;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -20,7 +20,12 @@ public record FocusSessionStartRequest(
         Instant startedAt,
         FocusType focusType
 ) {
-    /** 하위호환 — focusType 미지정 기존 호출부(null → 서비스에서 INFINITE 기본). */
+    /**
+     * 하위호환 — focusType 미지정 기존 호출부(null → 서비스에서 INFINITE 기본).
+     *
+     * @param focusTagId 소유 태그 id. null 이면 태그 없이 시작하고 종료 시점에 보정할 수 있다
+     * @param startedAt  시작 시각. [-5분, 0] 창을 벗어나면 서버 수신 시각으로 대체된다
+     */
     public FocusSessionStartRequest(UUID focusTagId, Instant startedAt) {
         this(focusTagId, startedAt, null);
     }

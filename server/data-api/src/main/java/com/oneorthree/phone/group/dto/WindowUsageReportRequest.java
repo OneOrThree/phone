@@ -39,7 +39,13 @@ public class WindowUsageReportRequest {
      */
     private Instant measuredAt;
 
-    /** 테스트 편의 생성자 — 역직렬화 전용 DTO 라 프로덕션 코드는 기본 생성자만 쓴다. */
+    /**
+     * 테스트 편의 생성자 — 역직렬화 전용 DTO 라 프로덕션 코드는 기본 생성자만 쓴다.
+     *
+     * @param usageDate 사용분을 귀속시킬 KST 날짜
+     * @param progressMinutes 창 안에서 쓴 분
+     * @param measuredAt 클라 측정 시각 — null 이면 저장된 값이 없을 때만 반영된다
+     */
     public WindowUsageReportRequest(LocalDate usageDate, Integer progressMinutes, Instant measuredAt) {
         this.usageDate = usageDate;
         this.progressMinutes = progressMinutes;

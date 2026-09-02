@@ -1,7 +1,7 @@
 package com.oneorthree.phone.user.service;
 
-import com.oneorthree.phone.user.domain.Occupation;
-import com.oneorthree.phone.user.domain.OccupationInfo;
+import com.oneorthree.phone.user.repository.domain.Occupation;
+import com.oneorthree.phone.user.repository.domain.OccupationInfo;
 import com.oneorthree.phone.user.dto.OccupationResponse;
 import com.oneorthree.phone.user.repository.OccupationInfoRepository;
 import org.junit.jupiter.api.DisplayName;

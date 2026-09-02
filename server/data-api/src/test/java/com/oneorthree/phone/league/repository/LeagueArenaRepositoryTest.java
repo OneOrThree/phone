@@ -1,7 +1,7 @@
 package com.oneorthree.phone.league.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
-import com.oneorthree.phone.league.domain.LeagueArena;
+import com.oneorthree.phone.league.repository.domain.LeagueArena;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

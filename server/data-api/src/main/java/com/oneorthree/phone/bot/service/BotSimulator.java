@@ -1,16 +1,17 @@
 package com.oneorthree.phone.bot.service;
 
-import com.oneorthree.phone.bot.domain.BotFocusBlock;
-import com.oneorthree.phone.bot.domain.BotProfile;
+import com.oneorthree.phone.bot.support.BotFocusBlock;
+import com.oneorthree.phone.bot.repository.domain.BotProfile;
 import com.oneorthree.phone.bot.repository.BotProfileRepository;
 import com.oneorthree.phone.common.util.ZonePolicy;
-import com.oneorthree.phone.focus.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
 import com.oneorthree.phone.focus.service.FocusService;
+import com.oneorthree.phone.bot.support.BotScheduleGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -211,6 +212,11 @@ public class BotSimulator {
      */
     public record BotTickResult(int started, int ended, int replaced, int failed) {
 
+        /**
+         * 이 tick 에서 아무 전이도 없었는지 본다.
+         *
+         * @return 네 카운트가 모두 0 이면 true — 로그를 남기지 않고 넘어가도 되는 tick 이라는 뜻이다
+         */
         public boolean isQuiet() {
             return started == 0 && ended == 0 && replaced == 0 && failed == 0;
         }

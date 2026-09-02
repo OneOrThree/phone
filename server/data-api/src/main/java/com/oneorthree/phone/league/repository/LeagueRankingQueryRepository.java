@@ -1,9 +1,9 @@
 package com.oneorthree.phone.league.repository;
 
 import com.oneorthree.phone.common.util.ZonePolicy;
-import com.oneorthree.phone.league.domain.LeagueRankingPosition;
-import com.oneorthree.phone.league.domain.LeagueRankingRow;
-import com.oneorthree.phone.user.domain.Occupation;
+import com.oneorthree.phone.league.repository.domain.LeagueRankingPosition;
+import com.oneorthree.phone.league.repository.domain.LeagueRankingRow;
+import com.oneorthree.phone.user.repository.domain.Occupation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -132,7 +132,16 @@ public class LeagueRankingQueryRepository {
      * 상위 limit 명. 정렬은 <b>확정 집계 + 진행 중 세션 경과</b> 기준이고(LIVE_SECONDS 주석),
      * 반환하는 totalFocusSeconds 는 확정 집계 그대로다.
      *
+     * <p>기간은 {@code daily_focus_stats.date} 축이고 <b>양끝 포함</b>(BETWEEN)이다. 그 date 는 KST
+     * 고정 버킷이라({@link ZonePolicy}) 주차 경계도 KST 월~일로 잡아야 값이 맞는다.
+     *
+     * @param fromDate   집계 시작일 — 포함. 라이브 클램프 하한(주 시작 KST 자정)도 이 날짜에서 파생된다
+     * @param toDate     집계 종료일 — 포함. 이 하루치가 응답의 "오늘 집중분"으로도 함께 나온다
+     * @param occupation 지정하면 같은 직군만 겨루고, null 이면 직군 조건을 아예 붙이지 않는다
+     * @param limit      가져올 인원. 1 미만이면 {@link IllegalArgumentException}
      * @param now 라이브 경과 산정 기준 시각(호출측이 한 요청 안에서 같은 값을 쓴다)
+     * @return 순위 순 행 목록. 라이브 앵커·태그가 채워진 유일한 조회라, 앱이 매초 그리는 라이브 합산과
+     *         순위가 같은 스냅샷에서 나온다
      */
     public List<LeagueRankingRow> findTop(LocalDate fromDate, LocalDate toDate,
                                            Occupation occupation, int limit, Instant now) {
@@ -160,6 +169,17 @@ public class LeagueRankingQueryRepository {
     /**
      * 전역 순위용 keyset 페이지. 집중 시간 내림차순, 동률이면 user id 오름차순으로
      * 정렬하고 직전 페이지의 마지막 점수·user id를 배타적 커서로 사용한다.
+     *
+     * <p>여기엔 라이브 경과를 <b>더하지 않는다</b> — 페이지 사이에 계속 변하는 값으로 정렬하면 커서가
+     * 행을 건너뛰거나 중복시킨다.
+     *
+     * @param fromDate           집계 시작일 — 포함
+     * @param toDate             집계 종료일 — 포함
+     * @param cursorFocusSeconds 직전 페이지 마지막 행의 집중 초. 첫 페이지는 null
+     * @param cursorUserId       직전 페이지 마지막 행의 user id. 첫 페이지는 null이며, 두 커서 값은
+     *                           반드시 둘 다 null 이거나 둘 다 채워져야 한다(한쪽만이면 예외)
+     * @param limit              페이지 크기. 1 미만이면 {@link IllegalArgumentException}
+     * @return 커서 <b>다음</b> 한 페이지. 크기보다 적게 오면 마지막 페이지다
      */
     public List<LeagueRankingRow> findGlobalRankingPage(
             LocalDate fromDate,
@@ -195,7 +215,12 @@ public class LeagueRankingQueryRepository {
      * 내 순위. {@link #findTop} 과 <b>같은 정렬 기준</b>(확정 집계 + 진행 중 세션 경과)으로 앞선
      * 유저 수를 세고, 반환하는 totalFocusSeconds 는 확정 집계 그대로다.
      *
+     * @param userId   순위를 구할 유저
+     * @param fromDate 집계 시작일 — 포함
+     * @param toDate   집계 종료일 — 포함
      * @param now 라이브 경과 산정 기준 시각
+     * @return 순위·티어·확정 집중 초. 유저가 리그 모수(활성 + 닉네임 있음) 밖이면 빈 값이고,
+     *         호출측은 그걸 미배정으로 옮긴다. 순위는 "나보다 앞선 인원 + 1" 이라 동점자는 user id 로 갈린다
      */
     public Optional<LeagueRankingPosition> findRankOf(UUID userId, LocalDate fromDate, LocalDate toDate,
                                                        Instant now) {
@@ -237,6 +262,15 @@ public class LeagueRankingQueryRepository {
 
     /**
      * 정산용 활성 유저 집계 페이지. 순위와 무관하게 user.id 오름차순 커서로 페이지 경계를 고정한다.
+     *
+     * <p>정산은 확정값이 기준이라 라이브 경과를 섞지 않는다. 커서를 점수가 아닌 id 로 잡는 것도 같은
+     * 이유다 — 순회 도중 점수가 변해도 페이지 경계가 흔들리지 않는다.
+     *
+     * @param fromDate        정산 주차 시작일 — 포함
+     * @param toDate          정산 주차 종료일 — 포함
+     * @param cursorExclusive 직전 페이지 마지막 user id. 이 값 <b>초과</b>부터 읽으며 첫 페이지는 null
+     * @param limit           페이지 크기. 1 미만이면 {@link IllegalArgumentException}
+     * @return user id 오름차순 한 페이지. 그 주차에 집중 이력이 없는 유저도 0초로 들어온다(LEFT JOIN)
      */
     public List<LeagueRankingRow> findWeeklyTotalsForSettlement(LocalDate fromDate, LocalDate toDate,
                                                                  UUID cursorExclusive, int limit) {
@@ -267,6 +301,14 @@ public class LeagueRankingQueryRepository {
      * 재개(resume) 전용 정산 집계 페이지 (GROMO-1239) — {@link #findWeeklyTotalsForSettlement} 와
      * 같은 골격에 가입 컷오프({@code createdBefore} = 정산 주차 종료 경계)만 더한 변형이다.
      * 스케줄 run 이 쓰는 원본 쿼리는 바이트 단위로 건드리지 않는다.
+     *
+     * @param fromDate        정산 주차 시작일 — 포함
+     * @param toDate          정산 주차 종료일 — 포함
+     * @param cursorExclusive 직전 페이지 마지막 user id. 이 값 <b>초과</b>부터 읽으며 첫 페이지는 null
+     * @param limit           페이지 크기. 1 미만이면 {@link IllegalArgumentException}
+     * @param createdBefore   가입 컷오프 — 이 시각 <b>미만</b>에 가입한 유저만 대상(경계 시각 자신은 제외).
+     *                        보통 정산 주차의 종료 경계를 넣는다. null 은 허용하지 않는다
+     * @return user id 오름차순 한 페이지. 컷오프 이후 가입자는 빠져 0초 결과가 조작되지 않는다
      */
     public List<LeagueRankingRow> findWeeklyTotalsForResume(LocalDate fromDate, LocalDate toDate,
                                                              UUID cursorExclusive, int limit,
@@ -296,6 +338,12 @@ public class LeagueRankingQueryRepository {
      * (WEEKLY_TOTALS — 활성·온보딩 완주 필터 포함)을 그대로 재사용하고 id IN 필터와 가입 컷오프만
      * 더한다. 탈퇴/온보딩 미완주/경계 이후 가입 유저를 지정하면 결과에서 조용히 빠진다 — 정산 대상이
      * 아니기 때문이다.
+     *
+     * @param fromDate      정산 주차 시작일 — 포함
+     * @param toDate        정산 주차 종료일 — 포함
+     * @param userIds       표적 정산할 유저. null 이거나 비어 있으면 SQL 없이 빈 리스트를 돌려준다
+     * @param createdBefore 가입 컷오프 — 이 시각 <b>미만</b>에 가입한 유저만 대상. null 은 허용하지 않는다
+     * @return 지정 유저 중 정산 대상인 행만, user id 오름차순. 요청한 수보다 적게 올 수 있고 그건 정상이다
      */
     public List<LeagueRankingRow> findWeeklyTotalsForUsers(LocalDate fromDate, LocalDate toDate,
                                                             Collection<UUID> userIds,

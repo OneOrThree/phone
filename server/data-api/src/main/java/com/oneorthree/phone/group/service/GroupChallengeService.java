@@ -1,15 +1,15 @@
 package com.oneorthree.phone.group.service;
 
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupChallenge;
-import com.oneorthree.phone.group.domain.GroupChallengeDuration;
-import com.oneorthree.phone.group.domain.GroupChallengeStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeWindow;
-import com.oneorthree.phone.group.domain.GroupMember;
-import com.oneorthree.phone.group.domain.GroupMemberRole;
-import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
-import com.oneorthree.phone.group.domain.RepeatSchedule;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupChallenge;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionType;
+import com.oneorthree.phone.group.repository.domain.RepeatSchedule;
 import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.RepeatDay;
@@ -28,8 +28,8 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -55,6 +55,18 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * 그룹 챌린지의 생성·조회·종료·삭제. 창 사용분 보고는 {@code GroupBetWindowUsageService} 로
+ * 분리돼 있다(GROMO-1407).
+ *
+ * <p>그룹 전역 불변식(활성 4개 상한·창 겹침 금지)이 걸려 있어 생성은 <b>그룹 행 배타 락</b> 아래에서
+ * 직렬화한다 — 동시 생성 둘이 각자 「아직 3개네」로 통과하면 5개째가 들어온다. 종료·삭제는
+ * <b>챌린지 행 배타 락</b>으로 참여·회차 개설과 직렬화한다: 락이 없으면 「OPEN 없음」을 확인한 뒤
+ * 커밋된 참가가 끼어들어 환불도 무효화도 안 된 고아 회차가 남는다.
+ *
+ * <p>종료와 삭제는 다른 축이다 — 종료는 환불 의무 없는 깨끗한 마감이라 OPEN 회차가 남아 있으면
+ * 거절하고, 삭제는 OPEN 회차를 전부 무효화·환불하므로 언제든 가능하다.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -109,8 +121,12 @@ public class GroupChallengeService {
     /**
      * 그룹 챌린지 목록. {@code date} 를 주면 멤버별 당일 진행률({@code memberProgress})을 함께 채운다.
      *
+     * @param groupId 챌린지를 조회할 그룹
+     * @param userId 요청자 — 그룹원이 아니면 {@code MEMBER_ONLY}
      * @param date 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(그룹 상세의 focusTimeMinutes 와 같은 의미).
      *             null 이면 진행률을 계산하지 않는다(기존 클라이언트 호환).
+     * @return 삭제되지 않은 챌린지 카드 목록. 종료된 챌린지도 실리며, {@code date} 없이 부르면
+     *     진행률·오늘 내기 축이 통째로 null 이라 그것을 「진행 없음」으로 읽으면 틀린다
      */
     public List<GroupChallengeResponse> getChallenges(UUID groupId, UUID userId, LocalDate date) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
@@ -411,6 +427,20 @@ public class GroupChallengeService {
         }
     }
 
+    /**
+     * 챌린지를 만든다 — 방장 전용이고 CTI 상세와 (켰다면) 내기 회차까지 <b>같은 트랜잭션</b>에서 끝낸다.
+     *
+     * <p>그룹 행 배타 락 아래에서 활성 4개 상한·하루형 카테고리 중복·창 겹침을 검사한다. 내기를 켠
+     * 생성이면 설정 생성과 당일 회차 개설이 이어 붙으므로 참가비가 무효면 <b>챌린지째 롤백</b>된다.
+     * 개설 알림은 직접 푸시하지 않고 이벤트로 넘긴다 — 이 트랜잭션이 뒤에서 롤백되면 챌린지는 없는데
+     * 알림만 나간 상태가 되기 때문이다.
+     *
+     * @param groupId 챌린지를 세울 그룹 — 상한·겹침 검사의 단위다
+     * @param userId 요청자 — 방장이 아니면 {@code NOT_OWNER}
+     * @param request 방식별 파라미터와 선택적 내기 설정
+     * @return 새 챌린지 id 와, SCREEN_TIME 생성에서 측정 권한이 없어 집계에서 빠질 멤버 명단
+     *     (그 외 카테고리에서는 빈 목록이다)
+     */
     @Transactional
     public CreateChallengeResponse createChallenge(UUID groupId, UUID userId, CreateChallengeRequest request) {
         User user = requireActiveUser(userId);
@@ -704,6 +734,17 @@ public class GroupChallengeService {
         return (end.toSecondOfDay() - start.toSecondOfDay()) / 60;
     }
 
+    /**
+     * 챌린지를 지운다 — 소프트삭제이고, 걸려 있던 OPEN 회차는 같은 트랜잭션에서 무효화·환불한다.
+     *
+     * <p>OPEN 회차가 있어도 막지 않는 것이 종료와 갈리는 지점이다: 예약된 미래 회차까지 전부 무효화하고
+     * 참가비를 전원에게 돌려주며, 참가자가 없던 회차는 미사용으로 닫는다. 정산이 끝난 회차는 불변이라
+     * 손대지 않는다. 이미 삭제된 챌린지의 재삭제는 조회 단계에서 걸려 {@code NOT_FOUND} 다.
+     *
+     * @param groupId 챌린지가 속한 그룹
+     * @param challengeId 삭제할 챌린지
+     * @param userId 요청자 — 방장이 아니면 {@code NOT_OWNER}
+     */
     @Transactional
     public void deleteChallenge(UUID groupId, UUID challengeId, UUID userId) {
         User user = requireActiveUser(userId);
@@ -746,6 +787,10 @@ public class GroupChallengeService {
      * <p>N42: 종료도 삭제와 같은 <b>챌린지 행 배타 락</b>으로 참여 경로와 직렬화한다. 락 없이 돌면
      * 참여 트랜잭션의 미커밋 회차를 못 보고 "OPEN 없음"으로 ENDED 를 확정한 뒤 참가가 커밋돼,
      * 종료된 챌린지에 참가비가 걸린다(무효화도 환불도 안 된 고아 회차 — 삭제보다 결과가 나쁘다).
+      *
+      * @param groupId 챌린지가 속한 그룹
+      * @param challengeId 종료할 챌린지 — 이미 ENDED 면 아무 일도 하지 않고 성공한다
+      * @param userId 요청자 — 방장이 아니면 {@code NOT_OWNER}
      */
     @Transactional
     public void endChallenge(UUID groupId, UUID challengeId, UUID userId) {

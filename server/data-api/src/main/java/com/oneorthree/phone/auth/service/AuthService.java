@@ -10,13 +10,13 @@ import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.user.domain.Provider;
-import com.oneorthree.phone.user.domain.SocialAccount;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
-import com.oneorthree.phone.user.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
-import com.oneorthree.phone.user.domain.UserWallet;
+import com.oneorthree.phone.user.repository.domain.Provider;
+import com.oneorthree.phone.user.repository.domain.SocialAccount;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserFocusTimeSettings;
+import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
+import com.oneorthree.phone.user.repository.domain.UserWallet;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
@@ -25,6 +25,8 @@ import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
+import com.oneorthree.phone.auth.support.TokenHasher;
+import com.oneorthree.phone.auth.support.JwtProvider;
 import io.jsonwebtoken.JwtException;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -39,6 +41,17 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * 소셜·게스트 로그인과 토큰 수명주기를 담당한다.
+ *
+ * <p>가입은 {@code users} 한 행으로 끝나지 않는다 — 지갑·스크린타임·포커스·알림 설정 4개
+ * 부속 행을 함께 만들어야 이후 조회가 빈 값을 만나지 않는다({@code createUserSideRows}).
+ *
+ * <p>게스트→소셜 업그레이드(GROMO-585)가 이 클래스의 까다로운 축이다. {@code /auth/*} 는
+ * {@code JwtFilter} 화이트리스트라 인증 컨텍스트가 없어, 게스트가 보낸 Authorization 헤더를
+ * 여기서 직접 파싱해 기존 게스트 User 를 재활용할지 판단한다. 동시 승격 경쟁은
+ * 게스트 락 조회와 토큰의 guest 클레임을 함께 봐 패자를 가려낸다(GROMO-1229).
+ */
 @Service
 @Transactional(readOnly = true)
 public class AuthService {
@@ -58,6 +71,19 @@ public class AuthService {
      */
     private final AuthService self;
 
+    /**
+     * @param userRepository                    회원 본체
+     * @param userWalletRepository              가입 시 함께 만드는 지갑 부속 행
+     * @param userScreenTimeSettingsRepository  가입 시 함께 만드는 스크린타임 설정 부속 행
+     * @param userFocusTimeSettingsRepository   가입 시 함께 만드는 포커스 설정 부속 행
+     * @param userNotificationSettingsRepository 가입 시 함께 만드는 알림 설정 부속 행
+     * @param socialAccountRepository           provider·providerId 연동 행
+     * @param jwtProvider                       AT·RT 발급과 클레임 추출
+     * @param userActivityEventLogger           가입·로그인 활동 로그
+     * @param socialLoginClients                provider 별 구현 — {@link SocialLoginClient#provider} 키로 맵을 만든다
+     * @param self                              자기 프록시. 첫 로그인 유니크 위반을 새 트랜잭션으로
+     *                                          재시도하기 위해 필요하다({@code @Lazy} 로 순환 주입 회피)
+     */
     public AuthService(UserRepository userRepository,
                        UserWalletRepository userWalletRepository,
                        UserScreenTimeSettingsRepository userScreenTimeSettingsRepository,
@@ -107,6 +133,11 @@ public class AuthService {
      * 세팅되지 않는다. 게스트는 자신의 게스트 JWT 를 Authorization 헤더로 보내므로, 여기서 유효 토큰이 있으면
      * (기존 인증 흐름을 건드리지 않고) 선택적으로 파싱해 loginOrRegister 에 currentUserId 로 넘긴다.
      * 토큰이 없거나 무효면 empty → 기존 신규 가입 흐름.
+     *
+     * @param provider            소셜 제공자 — 지원하지 않으면 {@link IllegalArgumentException}
+     * @param token               제공자가 발급한 토큰. 여기서 providerId 를 얻는다
+     * @param authorizationHeader 게스트 업그레이드 판정용 자체 AT. 없거나 무효면 신규 가입으로 흐른다
+     * @return 발급된 AT·RT 와 게스트 여부
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SocialLoginResponse socialLogin(Provider provider, String token, String authorizationHeader) {
@@ -173,6 +204,13 @@ public class AuthService {
      * callerGuestClaim 은 요청 AT 의 guest 클레임(발급 시점 게스트 여부, GROMO-1229) — true 이면서
      * 게스트 락 조회가 비고 그 유저가 활성 비게스트로 존재하면, 동시 다른-소셜 승격 경쟁의 패자로
      * 판정해 신규 가입 폴백 대신 GUEST_ALREADY_PROMOTED 로 거절한다. 구 토큰(null)은 비게스트 간주.
+     *
+     * @param provider         소셜 제공자
+     * @param providerId       제공자 측 사용자 식별자
+     * @param currentUserId    요청 AT 에서 뽑은 현재 사용자. {@code null} 이면 업그레이드 분기를 타지 않는다
+     * @param callerGuestClaim 요청 AT 의 guest 클레임(발급 시점 게스트 여부). {@code null}(구 토큰)은
+     *                         비게스트로 간주한다
+     * @return 발급된 AT·RT 와 게스트 여부
      */
     @Transactional
     public SocialLoginResponse loginOrRegister(Provider provider, String providerId, UUID currentUserId,
@@ -314,6 +352,11 @@ public class AuthService {
     }
 
 
+    /**
+     * 게스트 가입 — 소셜 연동 없이 User 를 만들고 부속 4행까지 함께 만든다.
+     *
+     * @return 발급된 AT·RT. 게스트 여부는 항상 {@code true}
+     */
     @Transactional
     public GuestLoginResponse guestLogin() {
         User newUser = userRepository.save(User.builder().isGuest(true).build());
@@ -332,6 +375,12 @@ public class AuthService {
         return new GuestLoginResponse(accessToken, refreshToken, newUser.isGuest());
     }
 
+    /**
+     * AT 재발급. RT 는 만료가 임박하면 함께 회전한다.
+     *
+     * @param refreshToken 자체 발급 RT. {@code type} 이 refresh 가 아니면(access·구 토큰) 거절한다(GROMO-714)
+     * @return 새 AT 와, 회전이 일어났으면 새 RT
+     */
     @Transactional
     public TokenRefreshResponse refreshToken(String refreshToken) {
         // refresh 타입만 허용 (GROMO-714) — access·구 토큰(type 없음 = null)은 거부한다.
@@ -382,6 +431,12 @@ public class AuthService {
         return new TokenRefreshResponse(newAccessToken, rotatedRefreshToken);
     }
 
+    /**
+     * 로그아웃 — 저장된 RT 해시를 지워 세션을 끊는다.
+     *
+     * @param refreshToken 자체 발급 RT. access 토큰으로 남의 세션을 끊지 못하도록
+     *                     {@code refreshToken()} 과 같은 타입 가드를 적용한다(GROMO-714)
+     */
     @Transactional
     public void logout(String refreshToken) {
         // refreshToken() 과 동일한 refresh 타입 가드 — access 토큰으로 세션을 끊지 못하게 한다 (GROMO-714).

@@ -2,7 +2,7 @@ package com.oneorthree.phone.group.dto;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.oneorthree.phone.group.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

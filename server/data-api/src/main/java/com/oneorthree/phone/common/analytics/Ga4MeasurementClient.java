@@ -20,9 +20,23 @@ public interface Ga4MeasurementClient {
     /**
      * 앱 스트림 이벤트 — Firebase {@code app_instance_id} 기준이라 앱 SDK 이벤트와 같은 유저
      * 타임라인으로 결합된다.
+     *
+     * @param appInstanceId Firebase SDK 가 앱에서 뽑아 올려 준 {@code app_instance_id}.
+     *                      우리가 만드는 값이 아니라 앱이 준 값이라 없을 수 있고, 없으면 GA4 가
+     *                      이벤트를 조용히 버려 퍼널에서 사라진다
+     * @param name GA4 이벤트 이름. GA4 규칙(영소문자·숫자·밑줄, 40자)을 지켜야 하고,
+     *             한번 리포트에 자리 잡은 이름을 바꾸면 과거 데이터와 이어지지 않는다
+     * @param params 이벤트 파라미터. 개인 식별 정보를 넣지 않는다 — GA4 는 우리 관할 밖 저장소다
      */
     void sendAppEvent(String appInstanceId, String name, Map<String, Object> params);
 
-    /** 웹 스트림 이벤트 — 익명 웹 클릭용. {@code syntheticClientId} 는 우리가 만든 합성 client_id. */
+    /**
+     * 웹 스트림 이벤트 — 익명 웹 클릭용. {@code syntheticClientId} 는 우리가 만든 합성 client_id.
+     *
+     * @param syntheticClientId 앱 설치 전 랜딩 클릭에는 Firebase id 가 없어 서버가 만들어 내는 값.
+     *                          같은 클릭을 두 번 보내면 GA4 는 서로 다른 유저로 세므로 클릭당 하나여야 한다
+     * @param name GA4 이벤트 이름. 앱 스트림과 이름을 맞춰야 설치 전후 퍼널이 한 줄로 이어진다
+     * @param params 이벤트 파라미터. 랜딩은 미인증 트래픽이라 요청에서 온 값을 그대로 싣지 않는다
+     */
     void sendWebEvent(String syntheticClientId, String name, Map<String, Object> params);
 }

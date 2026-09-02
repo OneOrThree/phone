@@ -14,13 +14,25 @@ package com.oneorthree.phone.group.exception;
  */
 public class ChallengeResultClaimHeldException extends GroupException {
 
+    /**
+     * 서버 시각으로 계산한 잔여 리스 시간(ms). 절대 만료 시각을 담지 않는 이유는 클래스 주석 참조.
+     */
     private final long retryAfterMs;
 
+    /**
+     * 선점 실패를 잔여 리스 시간과 함께 던진다. 상태·코드는 {@code RESULT_CLAIM_HELD} 로 고정이라
+     * 호출측이 고를 여지가 없다 — 이 예외가 뜻하는 실패는 하나뿐이다.
+     *
+     * @param retryAfterMs 서버가 서버 시각으로 계산한 잔여 리스 시간(ms) — 클라는 이만큼 기다렸다 재시도한다
+     */
     public ChallengeResultClaimHeldException(long retryAfterMs) {
         super(GroupErrorCode.RESULT_CLAIM_HELD);
         this.retryAfterMs = retryAfterMs;
     }
 
+    /**
+     * @return 재시도까지 기다릴 밀리초. 전용 핸들러가 없으면 이 힌트만 빠지고 상태·코드는 그대로 나간다.
+     */
     public long getRetryAfterMs() {
         return retryAfterMs;
     }

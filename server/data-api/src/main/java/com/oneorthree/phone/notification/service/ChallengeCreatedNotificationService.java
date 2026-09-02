@@ -1,24 +1,24 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
-import com.oneorthree.phone.group.domain.GroupChallenge;
-import com.oneorthree.phone.group.domain.GroupChallengeStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeDuration;
-import com.oneorthree.phone.group.domain.GroupChallengeWindow;
-import com.oneorthree.phone.group.domain.GroupMember;
-import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
-import com.oneorthree.phone.group.domain.RepeatSchedule;
+import com.oneorthree.phone.group.repository.domain.GroupChallenge;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionType;
+import com.oneorthree.phone.group.repository.domain.RepeatSchedule;
 import com.oneorthree.phone.group.dto.RepeatDay;
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.notification.domain.NotificationSentLog;
+import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -96,7 +96,9 @@ public class ChallengeCreatedNotificationService {
      * 넘어 별도 스레드에서 도는 것이 정상 경로라 이미 열린 트랜잭션이 없지만, 혹시 커밋 스레드에서
      * 그대로 불리더라도 종료 중인 트랜잭션에 합류해 쓰기가 조용히 사라지지 않도록 새로 연다.
      *
-     * @return 실제 발송된 건수
+     * @param event 개설된 챌린지. 여기 도달했을 때 이미 삭제되었거나 끝난 챌린지면 한 건도 보내지 않는다
+     * @param now   dedup·발송 로그의 기준 시각
+     * @return 실제 발송된 건수. 알림 꺼짐·토큰 없음·조용한 시간에 걸린 멤버는 이 수에서 빠진다
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public int sendCreatedNotifications(GroupChallengeCreatedEvent event, Instant now) {

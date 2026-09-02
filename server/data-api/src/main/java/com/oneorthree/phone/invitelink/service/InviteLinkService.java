@@ -2,12 +2,13 @@ package com.oneorthree.phone.invitelink.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupStatus;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.dto.IssueInviteLinkResponse;
+import com.oneorthree.phone.invitelink.dto.InviteLinkRef;
 import com.oneorthree.phone.invitelink.dto.LandingView;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.invitelink.exception.InviteLinkException;
@@ -15,7 +16,7 @@ import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
 import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;
 import com.oneorthree.phone.invitelink.support.InviteLinkUrls;
 import com.oneorthree.phone.invitelink.support.SlugGenerator;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +52,20 @@ public class InviteLinkService {
     private final InviteLinkGa4Events ga4Events;
     private final UserActivityEventLogger userActivityEventLogger;
 
+    /**
+     * (그룹, 초대자)당 링크 1개를 발급하거나 이미 있는 것을 그대로 돌려준다 — <b>멱등</b>이다.
+     *
+     * <p>검사 순서가 응답을 가른다: 그룹 생존 → 멤버십 → 기존 링크 조회 → 생성. 삭제·종료된 그룹은
+     * 없는 그룹과 같게 {@code GROUP_NOT_FOUND} 로 접어, 랜딩·매치와 판정 기준을 맞춘다.
+     *
+     * <p>GA4 {@code link_created} 는 <b>최초 생성일 때만</b> 발행한다 — 공유 버튼을 열 번 눌러도
+     * 생성 이벤트가 한 번이어야 퍼널의 분모가 맞는다.
+     *
+     * @param groupId 초대 대상 그룹
+     * @param userId 발급자. 이 그룹의 멤버가 아니면 {@code NOT_MEMBER} 로 거절한다 —
+     *               남의 그룹 초대 링크를 임의로 찍어 내는 경로를 막는 유일한 검사다
+     * @return slug 와 공유용 Universal Link. 재호출해도 같은 값이다
+     */
     public IssueInviteLinkResponse issue(UUID groupId, UUID userId) {
         // 삭제·종료된 그룹은 없는 그룹과 같게 다룬다 — 랜딩(만료 처리)·매치와 판정 기준을 맞춘다.
         if (findActiveGroup(groupId).isEmpty()) {
@@ -88,6 +103,11 @@ public class InviteLinkService {
      * 랜딩에 필요한 것을 한 번에 판정한다 — 없는 slug·사라진 그룹은 모두 "만료"로 접힌다.
      *
      * <p>컨트롤러가 링크·그룹 조회와 삭제 판정을 직접 하지 않도록 여기서 닫는다.
+     *
+     * @param slug 미인증 외부 요청이 정한 링크 식별자. 존재 여부가 응답 코드로 새면 안 되므로
+     *             "없음"도 예외가 아니라 만료 상태로 돌아온다
+     * @return 렌더링에 필요한 값 전부, 또는 만료. <b>예외를 던지지 않는다</b> —
+     *         랜딩은 어떤 경우에도 200 HTML 이라는 계약이라 여기서 예외가 나가면 그게 깨진다
      */
     public LandingView resolveLanding(String slug) {
         Optional<GroupInviteLink> link = inviteLinkRepository.findBySlug(slug);
@@ -97,8 +117,19 @@ public class InviteLinkService {
 
         // 링크는 살아 있지만 그룹이 사라진 경우 — 참여시킬 곳이 없으니 만료와 같게 다룬다.
         return findActiveGroup(link.get().getGroupId())
-                .map(group -> new LandingView(link.get(), group.getName(), inviterNickname(link.get())))
+                .map(group -> new LandingView(toRef(link.get()), group.getName(), inviterNickname(link.get())))
                 .orElseGet(LandingView::expired);
+    }
+
+    /**
+     * 엔티티 → 값 변환의 단일 지점 (GROMO-1654). 랜딩 응답 경로가 영속 객체를 들고 나가지
+     * 않도록 여기서 필요한 셋만 옮겨 담는다 — 이미 조회된 객체라 추가 쿼리는 없다.
+     *
+     * @param link 조회된 초대 링크 엔티티
+     * @return 랜딩 경로가 들고 다닐 값
+     */
+    private InviteLinkRef toRef(GroupInviteLink link) {
+        return new InviteLinkRef(link.getId(), link.getSlug(), link.getGroupId());
     }
 
     /**

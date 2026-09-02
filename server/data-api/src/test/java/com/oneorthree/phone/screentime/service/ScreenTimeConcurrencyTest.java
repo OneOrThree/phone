@@ -2,10 +2,10 @@ package com.oneorthree.phone.screentime.service;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.common.util.ZonePolicy;
-import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
+import com.oneorthree.phone.screentime.repository.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

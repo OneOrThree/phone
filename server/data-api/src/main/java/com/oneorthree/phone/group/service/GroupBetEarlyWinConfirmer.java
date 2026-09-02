@@ -1,11 +1,12 @@
 package com.oneorthree.phone.group.service;
 
-import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
-import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.event.GroupBetWonEvent;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.group.listener.GroupBetEarlySettlementListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -67,6 +68,9 @@ public class GroupBetEarlyWinConfirmer {
      *
      * <p>잠금 순서는 <b>회차 id 오름차순</b>(§5.4) — 여러 회차를 잡는 다른 경로(탈퇴 연동·정산)와
      * 같은 방향이라 교차 데드락이 없다.
+      *
+      * @param user 방금 집중을 마친 유저 — 이 유저가 낀 미확정 OPEN 회차만 잠근다
+      * @param dates 이번 세션이 통계에 귀속된 날짜들. 비어 있으면 즉시 반환한다
      */
     public void lockCandidateSessions(User user, Collection<LocalDate> dates) {
         if (dates.isEmpty()) {
@@ -90,6 +94,9 @@ public class GroupBetEarlyWinConfirmer {
      * (자정 걸침 세션은 2일). 실패가 집중 세션 저장을 되돌리면 안 되는 부가 경로이므로, 판정 불가
      * (CTI 유실 등)는 건너뛰고 예외는 삼키지 않는다 — 여기서 나는 예외는 잠금·flush 계열이라 삼켜도
      * 트랜잭션은 이미 rollback-only 다.
+      *
+      * @param user 방금 집중을 마친 유저
+      * @param dates 통계 귀속 날짜들(자정 걸침 세션이면 2일). 비어 있거나 대상 회차가 없으면 즉시 반환한다
      */
     public void confirmWins(User user, Collection<LocalDate> dates) {
         if (dates.isEmpty()) {

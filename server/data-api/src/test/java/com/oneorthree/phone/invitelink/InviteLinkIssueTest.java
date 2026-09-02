@@ -1,8 +1,8 @@
 package com.oneorthree.phone.invitelink;
 
 import com.jayway.jsonpath.JsonPath;
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

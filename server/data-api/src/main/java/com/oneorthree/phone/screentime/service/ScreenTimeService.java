@@ -4,14 +4,14 @@ import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
 import com.oneorthree.phone.common.util.ZonePolicy;
-import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
-import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
-import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
+import com.oneorthree.phone.currency.support.CurrencyRewardPolicy;
+import com.oneorthree.phone.screentime.repository.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -30,6 +30,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * 기기가 올린 스크린타임 보고를 일별 집계로 반영하고, 목표 달성 순간의 지급·알림까지 처리한다.
+ *
+ * <p>날짜 축이 이 서비스의 핵심 제약이다 — 보고 바디에는 날짜가 없고, 어느 하루에 속하는지는
+ * {@code reportedAt} 을 KST({@link ZonePolicy})로 환산해 서버가 정한다. 달성 여부 자체는
+ * 앱이 "그날의 목표"로 계산한 값을 신뢰한다(서버는 과거 시점의 목표를 알 수 없다).
+ */
 @Service
 public class ScreenTimeService {
 
@@ -45,6 +52,18 @@ public class ScreenTimeService {
      */
     private final ScreenTimeService self;
 
+    /**
+     * 의존성을 주입받는다.
+     *
+     * @param userRepository                  요청자 활성 검증용
+     * @param dailyScreenTimeStatRepository   일별 집계 저장소
+     * @param notificationPort                목표 달성 알림 발사구
+     * @param userActivityEventLogger         달성 이벤트 로깅
+     * @param userScreenTimeSettingsRepository 그날 유효했던 목표(상한)를 되짚는 데 쓴다
+     * @param currencyLedgerService           달성 보상 지급 — 정산 트랜잭션에 함께 묶인다
+     * @param self                            자기 자신 프록시. 유니크 위반 재시도를 새 트랜잭션으로
+     *                                        열기 위한 것이라 {@code @Lazy} 로 순환 주입을 피한다
+     */
     public ScreenTimeService(UserRepository userRepository,
                              DailyScreenTimeStatRepository dailyScreenTimeStatRepository,
                              ScreenTimeNotificationPort notificationPort,
@@ -70,6 +89,9 @@ public class ScreenTimeService {
      * 내부에서 잡을 수 없어, self 프록시로 새 트랜잭션을 열어 1회 재시도한다(재시도 시 승자가 만든 row 가 보여
      * update 분기로 정상 흡수 → 진 요청도 204). 스크린타임은 덮어쓰기라 lost-update 가 없어 비관적 락은 불필요.
      * 래퍼는 트랜잭션에 묶이지 않도록 NOT_SUPPORTED — 재시도 tx 가 첫 tx 롤백과 독립되도록. (AuthService 선례)
+     *
+     * @param userId  보고 주체. 탈퇴했거나 없는 유저면 NOT_FOUND(404)
+     * @param request 측정값·달성 여부·보고 시각. 날짜 버킷은 reportedAt 의 KST 환산으로 정해진다
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void saveScreenTime(UUID userId, ScreenTimeRequest request) {
@@ -84,6 +106,10 @@ public class ScreenTimeService {
     /**
      * 스크린타임 저장 본 로직 — self 프록시로 호출돼 매 시도가 독립 트랜잭션이 되도록 public.
      * 순수 upsert 가 아니라 알림 전이(false→true) side-effect 가 있어 native ON CONFLICT 대신 재조회 방식을 쓴다.
+     *
+     * @param userId  보고 주체
+     * @param request 측정값·달성 여부·보고 시각. 측정값이 null 이면 "0분 사용"이 아니라 미집계로 그대로 저장한다
+     *                — 0 으로 뭉개면 미보고가 목표 달성으로 뒤집힌다
      */
     @Transactional
     public void saveScreenTimeTx(UUID userId, ScreenTimeRequest request) {

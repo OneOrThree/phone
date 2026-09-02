@@ -1,8 +1,8 @@
 package com.oneorthree.phone.friend.repository;
 
-import com.oneorthree.phone.friend.domain.Friendship;
-import com.oneorthree.phone.friend.domain.FriendshipStatus;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.friend.repository.domain.Friendship;
+import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
+import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -14,11 +14,23 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * 친구 관계(Friendship) 조회·정리 창구. 관계는 (fromUser → toUser) 한 방향으로만 저장되므로 "내 친구"류
+ * 조회는 전부 from·to 양방향 OR 로 훑고, 나 아닌 쪽을 골라낸다.
+ *
+ * <p>거절·삭제는 행을 지우지 않고 {@code deletedAt} 을 찍는 soft delete 다. 그래서 목록성 조회에는
+ * {@code deletedAt IS NULL} 이 필수고, 반대로 재요청 판정({@code findPair})은 삭제 행까지 봐야 한다 —
+ * 각 메서드 주석의 필터 유무는 의도적인 차이지 누락이 아니다.
+ */
 public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
 
     /**
      * 보낸 요청 목록 (sent) — 예: findByFromUserAndStatusAndDeletedAtIsNull(me, PENDING)
      * deletedAt 조건은 탈퇴자 정리분 제외용 (GROMO-801) — 아래 findByToUser… 와 같은 이유.
+     *
+     * @param fromUser 요청을 보낸 쪽 — 여기에 나를 넣어야 "보낸 요청"이 된다
+     * @param status   걸러낼 상태. 보낸 요청 목록은 PENDING 만 본다
+     * @return 조건에 맞는 관계 행. 없으면 빈 리스트
      */
     List<Friendship> findByFromUserAndStatusAndDeletedAtIsNull(User fromUser, FriendshipStatus status);
 
@@ -26,11 +38,19 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
      * 받은 요청 목록 (received) — 예: findByToUserAndStatusAndDeletedAtIsNull(me, PENDING)
      * 탈퇴 시 PENDING 요청도 deletedAt 이 찍히는데(GROMO-801), 이 목록만 status 파생 조회라
      * deletedAt 을 안 보면 탈퇴자 요청이 그대로 노출되고 수락 시 유령 친구가 생긴다.
+     *
+     * @param toUser 요청을 받은 쪽 — 여기에 나를 넣어야 "받은 요청"이 된다
+     * @param status 걸러낼 상태. 받은 요청 목록은 PENDING 만 본다
+     * @return 조건에 맞는 관계 행. 없으면 빈 리스트
      */
     List<Friendship> findByToUserAndStatusAndDeletedAtIsNull(User toUser, FriendshipStatus status);
 
     /**
      * 방향 고정 단건 조회 — REJECTED → PENDING 재전환 시 (me→target) row 특정용
+     *
+     * @param fromUser 보낸 쪽 — 방향이 고정이라 인자를 바꿔 넣으면 다른 행을 가리킨다
+     * @param toUser   받은 쪽
+     * @return 그 방향의 관계 행. soft delete 된 행도 걸러내지 않고 그대로 돌려준다
      */
     Optional<Friendship> findByFromUserAndToUser(User fromUser, User toUser);
 
@@ -46,6 +66,10 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
      * 관계가 ACCEPTED 로 되살아나 탈퇴자 유령 친구가 노출된다.
      * 락을 잡으면 READ COMMITTED 에서 Postgres 가 잠금 획득 후 조건을 재평가하므로,
      * 탈퇴가 먼저 커밋된 경우 이 조회가 빈 결과가 되어 REQUEST_NOT_FOUND 로 떨어진다.
+     *
+     * @param id 수락·거절할 요청 행 id
+     * @return 살아 있는 요청 행. 탈퇴로 이미 정리됐으면 빈 값이라 호출측이 REQUEST_NOT_FOUND 로 떨어뜨린다.
+     *         반환된 행은 이 트랜잭션이 끝날 때까지 잠긴다
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Friendship> findByIdAndDeletedAtIsNull(UUID id);
@@ -58,10 +82,20 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
      * 관련 유저의 탈퇴가 무기한 대기하게 된다(@codex 리뷰 P1).
      * 알림은 행을 바꾸지 않고 "지금도 PENDING 인가" 만 보므로 락이 필요 없다. 이 조회와 발송 사이에
      * 상태가 바뀌는 경합은 남지만, 그건 락으로 못 막는다 — 발송은 어차피 트랜잭션 밖의 외부 호출이다.
+     *
+     * @param id 알림을 보내기 직전 상태를 되짚을 요청 행 id
+     * @return 지금 상태. 행이 없거나 이미 정리됐으면 빈 값이고, 그때 발송을 건너뛴다
      */
     @Query("select f.status from Friendship f where f.id = :id and f.deletedAt is null")
     Optional<FriendshipStatus> findStatusByIdAndDeletedAtIsNull(@Param("id") UUID id);
 
+    /**
+     * 방향 고정 존재 확인. {@code deletedAt} 을 보지 않으므로 "지금 친구인가"가 아니라 "이 방향 행이 있었는가"다.
+     *
+     * @param fromUser 보낸 쪽
+     * @param toUser   받은 쪽
+     * @return 그 방향 행이 있으면 true — soft delete 된 행도 true 다
+     */
     boolean existsByFromUserAndToUser(User fromUser, User toUser);
 
     /**
@@ -69,6 +103,10 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
      * createRequest 의 중복·이미친구·REJECTED 재전환 판정용 (정렬: 최신 updatedAt 우선).
      * ⚠️ deletedAt 필터를 넣지 말 것 — createRequest 의 소프트삭제 행 복원 분기(GROMO-719)가
      * 삭제 행까지 돌려받는 데 의존한다. 필터가 생기면 재요청이 insert 로 빠져 F1(409)이 재발한다.
+     *
+     * @param a 두 유저 중 한 쪽 — a·b 는 대칭이라 순서를 바꿔도 같은 결과다
+     * @param b 나머지 한 쪽
+     * @return 두 방향 행 전부, 최신 updatedAt 순. soft delete 된 행도 포함되며 그게 이 조회의 목적이다
      */
     @Query("SELECT f FROM Friendship f"
             + " WHERE (f.fromUser = :a AND f.toUser = :b)"
@@ -78,6 +116,10 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
 
     /**
      * 단일 ACCEPTED 친구 관계 양방향 단건 조회 (deletedAt IS NULL) — deleteFriend 용.
+     *
+     * @param me     끊으려는 쪽
+     * @param friend 상대 — 관계가 어느 방향으로 저장돼 있든 걸린다
+     * @return 살아 있는 ACCEPTED 관계. 없으면 빈 값이고 호출측이 NOT_FRIEND 로 떨어뜨린다
      */
     @Query("SELECT f FROM Friendship f"
             + " WHERE f.status = 'ACCEPTED'"
@@ -88,6 +130,9 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
 
     /**
      * 내 친구 목록 — ACCEPTED, 미삭제, 내가 from 또는 to인 모든 관계 (getFriends 용).
+     *
+     * @param me 친구 목록의 주인
+     * @return 관계 행 자체 — 상대가 fromUser 쪽인지 toUser 쪽인지는 호출측이 골라내야 한다
      */
     @Query("SELECT f FROM Friendship f"
             + " WHERE f.status = 'ACCEPTED'"
@@ -99,6 +144,9 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
      * 내 친구 상대편 id 집합 — ACCEPTED, 미삭제, from·to 양방향에서 나 아닌 쪽 id 를 모은다.
      * 리그 랭킹 isFriend 후조인용 (GROMO-1630) — PinnedUserRepository.findPinnedUserIdsByUserId 와 대칭.
      * 친구 수는 소수라 1쿼리 Set 대조로 충분하다.
+     *
+     * @param userId 친구 관계의 주인
+     * @return 이미 친구인 상대 id 집합 — 랭킹·검색 결과에 친구 배지를 채우는 대조표로 쓴다
      */
     @Query("SELECT CASE WHEN f.fromUser.id = :userId THEN f.toUser.id ELSE f.fromUser.id END"
             + " FROM Friendship f"
@@ -109,6 +157,9 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
 
     /**
      * 친구 수 카운트 — ACCEPTED, 미삭제, from·to 양방향 (공개 프로필 집계용).
+     *
+     * @param me 집계 대상 유저
+     * @return 살아 있는 ACCEPTED 관계 수. 방향은 세지 않으므로 상대 한 명당 1 이다
      */
     @Query("SELECT COUNT(f) FROM Friendship f"
             + " WHERE f.status = 'ACCEPTED'"
@@ -135,6 +186,10 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
      * 전제: 격리수준 READ COMMITTED. Postgres 가 잠금 획득 후 조건을 재평가(EvalPlanQual)하므로
      * 먼저 커밋한 쪽이 이기고 대기하던 쪽은 조용히 빈 결과가 된다. REPEATABLE READ 로 올리면
      * 재평가 대신 직렬화 실패 예외가 나므로 이 경로들에 재시도가 필요해진다(현재는 없음).
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 이 유저가 낀 살아 있는 관계 전부(상태 무관). 반환 행은 트랜잭션이 끝날 때까지 잠기며,
+     *         호출측이 건별로 softDelete() 를 태운다
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT f FROM Friendship f"

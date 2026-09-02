@@ -1,7 +1,8 @@
 package com.oneorthree.phone.item.api;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
-import com.oneorthree.phone.item.domain.SlotType;
+import com.oneorthree.phone.item.EquipmentController;
+import com.oneorthree.phone.item.repository.domain.SlotType;
 import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
 import com.oneorthree.phone.item.dto.ItemResponse;
 import com.oneorthree.phone.item.service.EquipmentService;

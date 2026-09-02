@@ -1,21 +1,23 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
-import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupChallenge;
-import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
-import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
-import com.oneorthree.phone.group.domain.GroupMember;
-import com.oneorthree.phone.group.domain.MissionCategory;
-import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.GroupChallenge;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.notification.domain.NotificationSendStatus;
-import com.oneorthree.phone.notification.domain.NotificationSentLog;
+import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
+import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -92,7 +94,7 @@ class SessionOpenNotificationServiceTest {
                 .challenge(GroupChallenge.builder().id(UUID.randomUUID()).group(group).build())
                 .sessionDate(DAY)
                 .stake(300)
-                .status(com.oneorthree.phone.group.domain.GroupBetStatus.OPEN)
+                .status(GroupBetStatus.OPEN)
                 .missionCategory(MissionCategory.FOCUS)
                 .missionType(MissionType.DURATION)
                 .startsAt(DAY.atStartOfDay(KST).toInstant())
@@ -111,7 +113,7 @@ class SessionOpenNotificationServiceTest {
                 .challenge(GroupChallenge.builder().id(UUID.randomUUID()).group(group).build())
                 .sessionDate(DAY)
                 .stake(900)
-                .status(com.oneorthree.phone.group.domain.GroupBetStatus.OPEN)
+                .status(GroupBetStatus.OPEN)
                 .missionCategory(MissionCategory.SCREEN_TIME)
                 .missionType(MissionType.TIME_WINDOW)
                 .windowStart(windowStart)
@@ -136,7 +138,7 @@ class SessionOpenNotificationServiceTest {
 
     private void givenNoSettings() {
         given(userNotificationSettingsRepository.findAllById(anyCollection()))
-                .willReturn(List.<com.oneorthree.phone.user.domain.UserNotificationSettings>of());
+                .willReturn(List.<UserNotificationSettings>of());
     }
 
     @Test
@@ -348,9 +350,9 @@ class SessionOpenNotificationServiceTest {
         verify(notificationSentLogRepository).deleteByIds(anyCollection());
     }
 
-    private static com.oneorthree.phone.user.domain.UserNotificationSettings nightSettings(
+    private static UserNotificationSettings nightSettings(
             User owner, LocalTime start, LocalTime end) {
-        return com.oneorthree.phone.user.domain.UserNotificationSettings.builder()
+        return UserNotificationSettings.builder()
                 .userId(owner.getId())
                 .nightModeEnabled(true)
                 .nightStartTime(start)

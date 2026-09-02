@@ -1,6 +1,7 @@
 package com.oneorthree.phone.stats.api;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
+import com.oneorthree.phone.stats.StatsController;
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
 import com.oneorthree.phone.stats.dto.FocusAverageResponse;
 import com.oneorthree.phone.stats.dto.FocusAverageScope;

@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.domain;
 
+import com.oneorthree.phone.group.repository.domain.RepeatSchedule;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

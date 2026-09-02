@@ -1,6 +1,6 @@
 package com.oneorthree.phone.focus.dto;
 
-import com.oneorthree.phone.user.domain.Occupation;
+import com.oneorthree.phone.user.repository.domain.Occupation;
 
 import java.util.List;
 

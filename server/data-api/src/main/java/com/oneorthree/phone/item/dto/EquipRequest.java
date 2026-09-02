@@ -6,6 +6,10 @@ import lombok.NoArgsConstructor;
 
 import java.util.UUID;
 
+/**
+ * 장착 요청 바디. 어느 칸에 넣을지는 담지 않는다 — 칸은 아이템 자신이 들고 있고,
+ * 그 칸에 이미 걸친 것은 자동으로 교체된다.
+ */
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor

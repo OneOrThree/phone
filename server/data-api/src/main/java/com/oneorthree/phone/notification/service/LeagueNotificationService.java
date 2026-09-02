@@ -1,16 +1,16 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
-import com.oneorthree.phone.league.domain.LeagueRankingRow;
-import com.oneorthree.phone.league.domain.LeagueTierConfig;
-import com.oneorthree.phone.league.domain.LeagueWeeklyResult;
-import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
+import com.oneorthree.phone.league.repository.domain.LeagueRankingRow;
+import com.oneorthree.phone.league.repository.domain.LeagueTierConfig;
+import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResult;
+import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
-import com.oneorthree.phone.league.service.LeagueWeek;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserNotificationSettings;
+import com.oneorthree.phone.league.support.LeagueWeek;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
@@ -66,7 +66,12 @@ public class LeagueNotificationService {
         sendWeeklyResultNotifications(Instant.now());
     }
 
-    /** 직전 주차에 확정된 승격/강등/잔류 결과 전원을 기준으로 알림을 발송한다. */
+    /**
+     * 직전 주차에 확정된 승격/강등/잔류 결과 전원을 기준으로 알림을 발송한다.
+     *
+     * @param now 어느 주차를 "직전"으로 볼지 정하는 기준 시각. 발송 이력을 남기지 않아
+     *            다시 부르면 같은 유저가 또 받는다
+     */
     public void sendWeeklyResultNotifications(Instant now) {
         Instant previousWeekStart = leagueWeek.previousWeekStart(now);
         // STAY 포함으로 대상이 정산된 전원(대다수 잔류)이라, 전체를 한 번에 로드하지 않고 id keyset 으로
@@ -128,7 +133,12 @@ public class LeagueNotificationService {
         sendDeadlineReminders(Instant.now());
     }
 
-    /** 이번 주 전역 랭킹의 모든 활성 사용자에게 현재 전역 순위를 포함해 마감 4시간 전 알림을 발송한다. */
+    /**
+     * 이번 주 전역 랭킹의 모든 활성 사용자에게 현재 전역 순위를 포함해 마감 4시간 전 알림을 발송한다.
+     *
+     * @param now 순위 집계 구간과 조용한 시간 판정의 기준 시각. 발송 이력을 남기지 않아
+     *            다시 부르면 같은 유저가 또 받는다
+     */
     public void sendDeadlineReminders(Instant now) {
         sendDeadlineSequence(now, "마감 4시간 전", this::composeDeadline);
     }
@@ -138,6 +148,12 @@ public class LeagueNotificationService {
         sendFinalDeadlineReminders(Instant.now());
     }
 
+    /**
+     * 마감 2시간 전 알림을 진행 중 전원에게 발송한다 — 문구만 다르고 대상 산출은 4시간 전과 같다.
+     *
+     * @param now 순위 집계 구간과 조용한 시간 판정의 기준 시각. 발송 이력을 남기지 않아
+     *            다시 부르면 같은 유저가 또 받는다
+     */
     public void sendFinalDeadlineReminders(Instant now) {
         sendDeadlineSequence(now, "마감 2시간 전", this::composeFinalDeadline);
     }
@@ -182,6 +198,11 @@ public class LeagueNotificationService {
         sendSundayCrisisReminders(Instant.now());
     }
 
+    /**
+     * 강등 경고와 마감 D-1 을 함께 훑어 유저당 한 건만 보낸다 — 둘 다 해당하면 강등 경고가 이긴다.
+     *
+     * @param now 순위·티어 판정의 기준 시각. 발송 이력을 남기지 않아 다시 부르면 같은 유저가 또 받는다
+     */
     public void sendSundayCrisisReminders(Instant now) {
         sendCrisisReminders(now, true);
     }
@@ -191,6 +212,11 @@ public class LeagueNotificationService {
         sendRelegationWarnings(Instant.now());
     }
 
+    /**
+     * 강등 위험군에만 경고를 다시 보낸다 — 마감 D-1 대상은 여기서 제외된다.
+     *
+     * @param now 순위·티어 판정의 기준 시각. 발송 이력을 남기지 않아 다시 부르면 같은 유저가 또 받는다
+     */
     public void sendRelegationWarnings(Instant now) {
         sendCrisisReminders(now, false);
     }

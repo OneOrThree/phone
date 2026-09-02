@@ -1,7 +1,8 @@
 package com.oneorthree.phone.focus.api;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
-import com.oneorthree.phone.focus.domain.FocusType;
+import com.oneorthree.phone.focus.FocusController;
+import com.oneorthree.phone.focus.repository.domain.FocusType;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
@@ -13,7 +14,7 @@ import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.dto.OccupationDefaultTagResponse;
 import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
 import com.oneorthree.phone.focus.service.FocusService;
-import com.oneorthree.phone.user.domain.Occupation;
+import com.oneorthree.phone.user.repository.domain.Occupation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

@@ -1,11 +1,11 @@
 package com.oneorthree.phone.focus.repository;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
-import com.oneorthree.phone.focus.domain.FocusSession;
-import com.oneorthree.phone.focus.domain.FocusSessionPomodoro;
-import com.oneorthree.phone.focus.domain.FocusType;
-import com.oneorthree.phone.focus.domain.PomodoroSetting;
-import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionPomodoro;
+import com.oneorthree.phone.focus.repository.domain.FocusType;
+import com.oneorthree.phone.focus.repository.domain.PomodoroSetting;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

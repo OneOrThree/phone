@@ -1,10 +1,10 @@
 package com.oneorthree.phone.currency.service;
 
-import com.oneorthree.phone.currency.domain.CurrencyTransaction;
-import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.repository.domain.CurrencyTransaction;
+import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
-import com.oneorthree.phone.user.domain.User;
-import com.oneorthree.phone.user.domain.UserWallet;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserWallet;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
@@ -46,6 +46,14 @@ public class CurrencyLedgerService {
      * 잔액 차감 + 원장 기입. 잔액 부족이면 {@code INSUFFICIENT_CURRENCY}
      * ({@link UserWallet#spend(int)} 가 던진다).
      *
+     * <p>차감과 기입은 호출자의 트랜잭션에 함께 묶이므로 한쪽만 남는 상태가 생기지 않고,
+     * 잔액 부족으로 예외가 나면 원장에도 아무 줄이 남지 않는다.
+     *
+     * @param user           차감 대상. 지갑 행을 배타 락으로 잡으므로 여러 유저를 한 트랜잭션에서
+     *                       다룰 때는 userId 오름차순으로 호출해야 교착이 나지 않는다
+     * @param type           변동 사유. 방향은 이 메서드가 정하므로 type 은 이유만 표현한다
+     * @param amount         차감할 금액(양수). 원장에도 이 값이 그대로 양수로 기입된다
+     * @param idempotencyKey 같은 정산의 재실행을 구분하는 키
      * @return 이번 호출로 실제 반영됐으면 true, 멱등키가 이미 있어 스킵했으면 false
      */
     @Transactional
@@ -61,6 +69,13 @@ public class CurrencyLedgerService {
     /**
      * 잔액 지급 + 원장 기입.
      *
+     * <p>지급과 기입은 호출자의 트랜잭션에 함께 묶인다 — 지급만 되고 원장이 비는 일은 없다.
+     *
+     * @param user           지급 대상. 지갑 행을 배타 락으로 잡으므로 여러 유저를 한 트랜잭션에서
+     *                       다룰 때는 userId 오름차순으로 호출해야 교착이 나지 않는다
+     * @param type           변동 사유. 방향은 이 메서드가 정하므로 type 은 이유만 표현한다
+     * @param amount         지급할 금액(양수)
+     * @param idempotencyKey 같은 정산의 재실행을 구분하는 키
      * @return 이번 호출로 실제 반영됐으면 true, 멱등키가 이미 있어 스킵했으면 false
      */
     @Transactional
@@ -76,6 +91,9 @@ public class CurrencyLedgerService {
     /**
      * 현재 잔액. 세션 저장 응답의 balanceAfter(구 번들 호환 필드)를 채우는 데 쓴다 — 현재 앱은
      * 잔액을 GET /currency 재조회로 받으므로 신규 소비처를 늘리지 않는다.
+     *
+     * @param user 조회 대상
+     * @return 지갑 행의 잔액. 락 없이 읽으므로 같은 트랜잭션 밖의 동시 차감·지급이 곧바로 반영되지는 않는다
      */
     public int balanceOf(User user) {
         return wallet(user).getBalance();

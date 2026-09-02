@@ -1,7 +1,7 @@
 package com.oneorthree.phone.group.repository;
 
-import com.oneorthree.phone.group.domain.GroupBetStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -17,9 +17,30 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * 회차 참가 행 — "누가 이 판에 돈을 걸었나"의 단일 소스. 참가 취소·탈퇴는 마킹이 아니라 <b>행 삭제</b>라
+ * 존재 자체가 참가 여부이고, 그래서 잠금 대기 뒤의 재조회가 empty 인 것이 정상 경로일 수 있다
+ * (1258 P0 이중 환불 방지).
+ *
+ * <p>조회 축이 <b>참가자 스코프</b>다 — 그룹 멤버십을 경유하지 않는다. 시작된 회차의 참가는 그룹을
+ * 나가도 정산 대상으로 남기 때문에(C8·N19), 그룹 축으로 찾으면 그 회차를 영영 놓친다.
+ *
+ * <p>뒤쪽 네 메서드는 <b>결과 표시 선점(lease)</b> 체계다(GROMO-1577 · B17): 잠금 → 조건부 UPDATE 로
+ * 선점 → 렌더 직전 재검증·연장 → 확인(ack). 시각은 전부 <b>DB 시계</b>({@code clock_timestamp()})로
+ * 찍고 비교한다 — 인스턴스마다 다른 {@code Instant.now()} 를 섞으면 시계가 빠른 쪽이 남의 살아 있는
+ * 선점을 만료로 보고 회수해 두 기기가 같은 결과를 함께 띄운다.
+ */
 public interface GroupChallengeBetParticipantRepository
         extends JpaRepository<GroupChallengeBetParticipant, UUID> {
 
+    /**
+     * 이 회차에 이미 참가했는지 — 중복 참가 사전 검사.
+     *
+     * @param sessionId 참가하려는 회차
+     * @param userId 참가하려는 유저
+     * @return 참가 행이 있으면 true. 락이 없으므로 <b>이 검사만으로 중복 참가를 막지 못한다</b> —
+     *     실제 방어는 회차 행 잠금과 원장 유니크가 진다
+     */
     boolean existsBySessionIdAndUserId(UUID sessionId, UUID userId);
 
     /**
@@ -28,12 +49,24 @@ public interface GroupChallengeBetParticipantRepository
      *
      * <p>존재 판정({@code existsBySessionIdAndUserId})을 겸한다 — 값이 있으면 참가자다. 두 번 묻지
      * 않으려고 스칼라 하나만 뽑는다(보고는 저지연 경로라 엔티티·연관 fetch 를 피한다).
+     *
+     * @param sessionId 보고가 귀속될 회차
+     * @param userId 보고한 유저
+     * @return 참가비가 빠져나간 시각. 이 시각보다 이른 측정 보고는 "참가 전 기록"이라 인정하지 않는다.
+     *     <b>empty 는 곧 미참가</b>다(존재 판정을 겸한다)
      */
     @Query("SELECT p.createdAt FROM GroupChallengeBetParticipant p "
             + "WHERE p.session.id = :sessionId AND p.user.id = :userId")
     Optional<Instant> findJoinedAtBySessionIdAndUserId(@Param("sessionId") UUID sessionId,
                                                        @Param("userId") UUID userId);
 
+    /**
+     * 회차 참가 인원.
+     *
+     * @param sessionId 세어 볼 회차
+     * @return 참가 행 수. <b>0 은 "아무도 안 걸었다"</b>이고, 이 경우 회차는 결과가 아니라
+     *     {@code UNUSED} 로 접힌다(N52). 참가 취소가 행을 지우므로 이 값은 줄어들 수 있다
+     */
     long countBySessionId(UUID sessionId);
 
     /**
@@ -49,13 +82,19 @@ public interface GroupChallengeBetParticipantRepository
      * 수정하면 flush 가 0건 UPDATE 로 터져 집중 세션 저장·통계·보상 트랜잭션 전체가 롤백된다
      * (남의 취소 때문에 내 집중 기록이 사라진다). id 만 받으면 잠금 후 첫 로드가 실제 DB 읽기라
      * 삭제가 그대로 보인다.
+     *
+     * @param userId 집중 세션을 막 끝낸 유저
+     * @param dates 확정 후보 회차일들 — 세션이 자정을 걸칠 수 있어 복수다(KST 회차일 기준)
+     * @return 회차 id 오름차순 (참가 행 id, 회차 id) 쌍. <b>엔티티가 아니라 id 인 것이 계약</b>이며,
+     *     빈 리스트면 지금 확정할 대상이 없다는 뜻이다. 이 순서 그대로 전부 잠근 뒤 판정해야
+     *     탈퇴 연동 경로와 교차 데드락이 나지 않는다
      */
     @Query("SELECT p.id AS participantId, p.session.id AS sessionId "
             + "FROM GroupChallengeBetParticipant p JOIN p.session s "
             + "WHERE p.user.id = :userId AND p.achieved IS NULL "
-            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN "
             + "AND s.sessionDate IN :dates "
-            + "AND s.missionCategory = com.oneorthree.phone.group.domain.MissionCategory.FOCUS "
+            + "AND s.missionCategory = com.oneorthree.phone.group.repository.domain.MissionCategory.FOCUS "
             + "ORDER BY s.id")
     List<UnconfirmedFocusTarget> findUnconfirmedOpenFocusTargetsByUserAndDates(
             @Param("userId") UUID userId,
@@ -63,8 +102,10 @@ public interface GroupChallengeBetParticipantRepository
 
     /** {@link #findUnconfirmedOpenFocusTargetsByUserAndDates} 프로젝션 — 참가 행 · 그 회차. */
     interface UnconfirmedFocusTarget {
+        /** @return 확정 대상 참가 행 id — 회차 락을 잡은 뒤 이 id 로 <b>다시 로드</b>해야 삭제가 보인다. */
         UUID getParticipantId();
 
+        /** @return 그 참가가 걸린 회차 id — 잠금 대상이자 정렬 키다(오름차순 잠금 규약). */
         UUID getSessionId();
     }
 
@@ -72,6 +113,10 @@ public interface GroupChallengeBetParticipantRepository
      * 조기 정산 전원 확정 검사(GROMO-1268) — 미확정({@code achieved IS NULL}) 참가자 수.
      * {@code AFTER_COMMIT} 리스너가 커밋된 상태 기준으로 세고, 최종 판정은 {@code settle(EARLY)}
      * 가 회차 락 안에서 다시 한다(리스너의 무락 검사는 낡았을 수 있다 — LLD §5.2).
+     *
+     * @param sessionId 조기 정산 후보 회차
+     * @return 아직 승리가 확정되지 않은 참가자 수. <b>0 이면 전원 확정</b>이라 조기 정산 조건이 선다.
+     *     락 없이 세므로 이 값은 힌트일 뿐이고, 최종 판정은 회차 락 안에서 다시 한다
      */
     @Query("SELECT COUNT(p) FROM GroupChallengeBetParticipant p "
             + "WHERE p.session.id = :sessionId AND p.achieved IS NULL")
@@ -80,6 +125,11 @@ public interface GroupChallengeBetParticipantRepository
     /**
      * 잠금 후 재조회용 단건 — 회차 행 잠금을 잡은 <b>뒤</b> 내 참가 행이 아직 있는지 다시 본다
      * (1258 P0 이중 환불 재발 방지: 잠금 대기 중 취소·탈퇴가 이미 처리했으면 없어야 정상).
+     *
+     * @param sessionId 잠금을 잡은 회차
+     * @param userId 확인할 참가자
+     * @return 아직 살아 있는 참가 행(유저 함께 로드). <b>empty 가 정상 경로</b>일 수 있다 — 잠금을
+     *     기다리는 사이 취소·탈퇴가 이미 환불을 마쳤다는 뜻이므로 여기서 또 환불하면 이중 지급이다
      */
     @EntityGraph(attributePaths = "user")
     Optional<GroupChallengeBetParticipant> findBySessionIdAndUserId(UUID sessionId, UUID userId);
@@ -87,6 +137,10 @@ public interface GroupChallengeBetParticipantRepository
     /**
      * 조회 조립·정산 공용 배치 로드. 응답에 닉네임이 필요하고 정산도 userId 를 봐야 하므로
      * user 를 함께 fetch 해 참가자 수만큼의 추가 SELECT 를 막는다.
+     *
+     * @param sessionIds 참가자를 붙일 회차 id 들. 빈 컬렉션이면 빈 결과다
+     * @return 여러 회차의 참가 행이 <b>한 리스트에 섞여</b> 온다(유저 함께 로드) — 호출측이 회차 id 로
+     *     접어 쓴다. 정렬이 없고, 참가자가 없는 회차는 아예 빠진다(결손 = 0명)
      */
     @EntityGraph(attributePaths = "user")
     List<GroupChallengeBetParticipant> findBySessionIdIn(Collection<UUID> sessionIds);
@@ -96,10 +150,15 @@ public interface GroupChallengeBetParticipantRepository
      * 멤버십을 경유하지 않는 이유: 탈퇴·강퇴 후에도 시작된 회차의 참가는 정산 대상으로 남는데
      * (C8·N19), 그룹 목록 축으로는 그 회차를 영영 못 찾는다. 회차 스냅샷(창 시각·목표)을 응답에
      * 실어야 하므로 session 을 함께 fetch 한다.
+     *
+     * @param userId 보고 대상을 찾는 유저
+     * @return 회차일·회차 id 오름차순의 내 OPEN 참가 전량(회차 스냅샷 함께 로드). <b>그룹을 나갔어도
+     *     실린다</b> — 시작된 회차의 참가는 정산 대상으로 남기 때문이다(C8·N19). 빈 리스트면 지금
+     *     보고를 받을 회차가 없다는 뜻이다
      */
     @Query("SELECT p FROM GroupChallengeBetParticipant p JOIN FETCH p.session s "
             + "WHERE p.user.id = :userId "
-            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.status = com.oneorthree.phone.group.repository.domain.GroupBetStatus.OPEN "
             + "ORDER BY s.sessionDate, s.id")
     List<GroupChallengeBetParticipant> findOpenSessionParticipationsByUserId(@Param("userId") UUID userId);
 
@@ -113,6 +172,13 @@ public interface GroupChallengeBetParticipantRepository
      * 시계라, 시계가 어긋난 인스턴스가 계산하면 지연이 음수(즉시 재시도)나 과대(한참 안 띄움)로 나온다.
      * 상한·하한도 SQL 에서 건다({@code display_claimed_at} 이 비어 있으면 0 — 지금 바로 다시 시도해도
      * 좋다는 뜻이다).
+     *
+     * @param sessionId 실패한 선점·확인이 겨눴던 회차
+     * @param userId 그 요청을 낸 유저
+     * @param leaseSeconds 리스 수명(초) — 남은 지연의 상한이자 계산 기준이다. 값이 실제 리스와 다르면
+     *     앱이 안내받는 재시도 시각이 어긋난다
+     * @return 사유 판정에 필요한 스칼라 묶음. <b>empty 는 "그 회차의 내 참가 행이 없다"</b>는 뜻이라
+     *     그 자체가 하나의 실패 사유다
      */
     @Query(value = "SELECT p.acknowledged_at AS \"acknowledgedAt\", s.status AS \"sessionStatus\", "
             + "c.deleted_at AS \"challengeDeletedAt\", "
@@ -135,13 +201,26 @@ public interface GroupChallengeBetParticipantRepository
      * 남은 리스(밀리초, 상대 지연).
      */
     interface ClaimStateView {
+        /** @return 이미 확인했으면 그 시각, 아직이면 null — 값이 있으면 재시도해도 소용없다. */
         Instant getAcknowledgedAt();
 
+        /**
+         * @return 회차 상태 <b>이름</b>(네이티브 쿼리라 enum 이 아니라 문자열이다). 결과 4종이 아니면
+         *     "아직 결과가 아니어서" 실패한 것이다
+         */
         String getSessionStatus();
 
-        /** 챌린지 소프트 삭제 시각 — 값이 있으면 이 결과는 큐에 있어서는 안 된다(N48·FR-44-4). */
+        /**
+         * 챌린지 소프트 삭제 시각 — 값이 있으면 이 결과는 큐에 있어서는 안 된다(N48·FR-44-4).
+         *
+         * @return 삭제됐으면 그 시각, 아니면 null. 값이 있는데 선점이 0행이었다면 그것이 실패 사유다
+         */
         Instant getChallengeDeletedAt();
 
+        /**
+         * @return 남은 리스(밀리초) — <b>DB 가 계산한 상대 지연</b>이다(절대 시각을 응답에 싣지 않는다).
+         *     0 은 "지금 바로 다시 시도해도 좋다"는 뜻이고, 리스 수명이 상한이라 그보다 크게 나오지 않는다
+         */
         long getRetryAfterMs();
     }
 
@@ -161,7 +240,10 @@ public interface GroupChallengeBetParticipantRepository
      * <p>ack 에는 이 잠금을 두지 않는다 — {@code acknowledged_at} 은 <b>기록</b>이지 만료 판정의
      * 기준축이 아니라, 몇 밀리초 이르게 찍혀도 아무것도 깨지지 않는다.
      *
-     * @return 잠근 참가 행 id — 비어 있으면 그 회차의 내 참가 행이 없다(후속 UPDATE 도 0행)
+     * @param sessionId 선점하려는 결과의 회차
+     * @param userId 선점을 요청한 유저
+     * @return 잠근 참가 행 id — 비어 있으면 그 회차의 내 참가 행이 없다(후속 UPDATE 도 0행).
+     *     다른 트랜잭션이 같은 행을 쥐고 있으면 <b>대기</b>한다(건너뛰지 않는다)
      */
     @Query(value = "SELECT p.id FROM group_challenge_bet_participants p "
             + "WHERE p.session_id = :sessionId AND p.user_id = :userId FOR UPDATE", nativeQuery = true)
@@ -209,9 +291,12 @@ public interface GroupChallengeBetParticipantRepository
      * <b>같은 값</b>(마이그레이션 시작 시각)을 봐야 백필·tombstone·종결의 술어가 갈리지 않는다.
      * 두 곳의 선택은 <b>서로 다른 이유로 각각 옳다</b> — 한쪽에 맞춰 통일하면 다른 쪽이 깨진다.
      *
+     * @param sessionId    표시를 선점할 결과의 회차
+     * @param userId        선점을 요청한 유저 — 남의 참가 행은 건드리지 않는다
+     * @param token        이번 선점에 발급하는 새 토큰. 앱이 렌더 직전 재검증·ack 에 이 값을 되돌려준다
      * @param leaseSeconds 리스 수명(초) — 만료 컷오프는 {@code now() − leaseSeconds} 로 <b>DB 가</b> 뺀다
      * @param statuses     결과로 치는 회차 상태 이름
-     *                     ({@link com.oneorthree.phone.group.domain.GroupBetStatus#RESULT_STATUS_NAMES})
+     *                     ({@link GroupBetStatus#RESULT_STATUS_NAMES})
      * @return 1 = 이 호출이 표시를 선점했다, 0 = 이미 확인됨 · 남의 리스가 살아 있음 · 아직 결과가
      *     아님 · 대상 행 없음 (구분은 호출측이 행을 다시 읽어 판정한다)
      */
@@ -256,6 +341,11 @@ public interface GroupChallengeBetParticipantRepository
      * <p>삭제 가드({@code c.deleted_at IS NULL})가 <b>여기에도</b> 있다 — 재검증은 "지금 띄워도 되나"를
      * 묻는 마지막 관문이라, 선점과 노출 사이에 챌린지가 삭제되면 그 결과는 뜨면 안 된다(N48).
      *
+     * @param sessionId 렌더하려는 결과의 회차
+     * @param userId 렌더를 시도하는 유저
+     * @param token 선점 때 받은 토큰 — 소유 판정의 <b>유일한</b> 근거다(만료 시각은 보지 않는다).
+     *     회전시키지 않으므로 응답이 유실돼도 같은 값으로 재시도하면 멱등이다
+     * @param statuses 결과로 치는 회차 상태 이름({@link GroupBetStatus#RESULT_STATUS_NAMES})
      * @return 1 = 내 선점이 유효하고 리스를 연장했다, 0 = 이미 확인됨 · 남이 재선점함 · 아직 결과가
      *     아님 · 챌린지가 삭제됨 · 대상 행 없음
      */
@@ -294,6 +384,10 @@ public interface GroupChallengeBetParticipantRepository
      * 삭제 회차는 조회에서 이미 빠지므로(N48) 확인을 기록해도 다시 뜨지 않는다. 토큰은 삭제 전
      * 선점에서만 얻을 수 있어 이 경로로 새로 노출되는 것도 없다.
      *
+     * @param sessionId 확인 처리할 결과의 회차
+     * @param userId 결과를 본 유저
+     * @param token 선점 때 받은 토큰 — 일치할 때만 성사된다(남이 재선점했으면 불일치로 걸린다)
+     * @param statuses 결과로 치는 회차 상태 이름({@link GroupBetStatus#RESULT_STATUS_NAMES})
      * @return 1 = 이 호출이 확인 처리했다, 0 = 대상 행 없음 · 이미 확인됨 · 토큰 불일치 · 아직 결과가 아님
      */
     // flushAutomatically 도 함께 켠다(GROMO-801 예방) — 리그 acknowledge 와 같은 이유.
@@ -328,6 +422,16 @@ public interface GroupChallengeBetParticipantRepository
      * 확인된 10건이 상한을 통째로 점유해 <b>11번째 미확인 결과가 영영 조회되지 않는다</b> — 상한이
      * ack 보다 먼저 걸리는 데드락이다. {@code since} 는 하한({@code >=})이지 이전 페이지를 가져오는
      * 커서가 아니라서 그 자리를 메우지 못한다.
+     *
+     * @param userId 결과 큐를 볼 유저
+     * @param statuses 결과로 치는 회차 상태 4종 — {@code UNUSED}(0명 종료)는 결과가 아니라 빠져 있다(N52)
+     * @param since {@code settledAt} 하한(포함). <b>커서가 아니라 하한</b>이라 이보다 오래된 결과는
+     *     페이지를 넘겨도 나오지 않는다
+     * @param pageable 페이지 상한 — ack 필터가 <b>상한보다 먼저</b> 걸리므로 확인된 결과가 자리를
+     *     차지하지 않는다
+     * @return 회차일 내림차순 미확인 결과 참가 행(회차·그룹·챌린지 함께 로드). 그룹을 나갔거나
+     *     챌린지가 종료됐어도 실리지만 <b>삭제된 챌린지의 회차는 빠진다</b>. 빈 리스트면 띄울 결과
+     *     모달이 없다는 뜻이다
      */
     @Query("SELECT p FROM GroupChallengeBetParticipant p "
             + "JOIN FETCH p.session s JOIN FETCH s.group JOIN FETCH s.challenge c "

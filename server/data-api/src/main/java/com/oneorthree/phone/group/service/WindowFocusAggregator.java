@@ -1,7 +1,8 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
-import com.oneorthree.phone.group.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.support.GroupBetSessionFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -56,6 +57,12 @@ public class WindowFocusAggregator {
     /**
      * 날짜 {@code date}(KST) 의 창 내 집중 분(유저별, 실측·초→분 내림 — GROMO-642 관례).
      * 창과 겹치는 세션이 없는 유저는 키가 없다(FOCUS 는 데이터 없음 = 0분이 사실).
+      *
+      * @param userIds 집계 대상 유저 — 비어 있으면 쿼리 없이 빈 맵을 돌려준다
+      * @param date 창을 얹을 날짜(KST)
+      * @param window 창 시각의 출처인 CTI 상세 행
+      * @return 유저별 창 내 집중 분(초→분 내림). 겹치는 세션이 없는 유저는 <b>키 자체가 없다</b> —
+      *     FOCUS 는 「기록 없음 = 0분」이 사실이라 0 으로 채우지 않는다
      */
     public Map<UUID, Integer> focusMinutesWithin(Collection<UUID> userIds, LocalDate date,
             GroupChallengeWindow window) {
@@ -66,6 +73,12 @@ public class WindowFocusAggregator {
      * 벽시계 창 시각으로 직접 집계하는 판(GROMO-1280) — 판정 커널({@link GroupBetJudge})이 <b>회차
      * 스냅샷의 창 시각</b>으로 부른다. 챌린지 CTI 행이 사라져도 회차 판정이 성립해야 하기 때문에,
      * 집계 입구는 엔티티가 아니라 시각을 받는 쪽이 정본이다.
+      *
+      * @param userIds 집계 대상 유저 — 비어 있으면 쿼리 없이 빈 맵을 돌려준다
+      * @param date 창을 얹을 날짜(KST)
+      * @param windowStart 창 시작 벽시계 시각
+      * @param windowEnd 창 종료 벽시계 시각 — 시작보다 뒤라 종료는 언제나 같은 날 안이다
+      * @return 유저별 창 내 집중 분. 키가 없는 유저는 창과 겹친 세션이 하나도 없었다는 뜻이다
      */
     public Map<UUID, Integer> focusMinutesWithin(Collection<UUID> userIds, LocalDate date,
             LocalTime windowStart, LocalTime windowEnd) {
@@ -81,17 +94,35 @@ public class WindowFocusAggregator {
                         overlap -> (int) (overlap.getOverlapSeconds() / 60)));
     }
 
-    /** 달성 판정 — 관용치 적용(실측 분 ≥ 목표 − 5분). 진행률 표시값에는 쓰지 말 것(표시는 실측 그대로). */
+    /**
+     * 달성 판정 — 관용치 적용(실측 분 ≥ 목표 − 5분). 진행률 표시값에는 쓰지 말 것(표시는 실측 그대로).
+     *
+     * @param focusMinutes 실측 집중 분
+     * @param goalMinutes 회차에 박제된 목표 분
+     * @return 관용치를 얹은 달성 여부 — 목표에 5분이 모자라도 true 다
+     */
     public static boolean isAchieved(int focusMinutes, int goalMinutes) {
         return focusMinutes >= goalMinutes - WINDOW_FOCUS_TOLERANCE_MINUTES;
     }
 
-    /** 날짜 D 의 창 시작 Instant — CTI 엔티티 입력판(알림·집계 호출부 호환). */
+    /**
+     * 날짜 D 의 창 시작 Instant — CTI 엔티티 입력판(알림·집계 호출부 호환).
+     *
+     * @param date 창을 얹을 날짜(KST)
+     * @param window 창 시작 시각의 출처
+     * @return 그 날짜의 창이 열리는 순간
+     */
     public Instant windowStartOn(LocalDate date, GroupChallengeWindow window) {
         return windowStartOn(date, window.getWindowStart());
     }
 
-    /** 날짜 D 의 창 종료 Instant — CTI 엔티티 입력판. 종료일은 <b>항상 회차일 D</b> 다(아래 참고). */
+    /**
+     * 날짜 D 의 창 종료 Instant — CTI 엔티티 입력판. 종료일은 <b>항상 회차일 D</b> 다(아래 참고).
+     *
+     * @param date 창을 얹을 날짜(KST)
+     * @param window 창 종료 시각의 출처
+     * @return 그 날짜의 창이 닫히는 순간
+     */
     public Instant windowEndOn(LocalDate date, GroupChallengeWindow window) {
         return windowEndOn(date, window.getWindowEnd());
     }
@@ -100,6 +131,10 @@ public class WindowFocusAggregator {
      * 날짜 D 의 창 시작 Instant — 벽시계 시각 입력판. 창 시각 → Instant 변환은 <b>여기와
      * {@link #windowEndOn(LocalDate, LocalTime)} 둘뿐</b>이다(GROMO-1280): 정산 대기 가드·개설
      * 시각 박제·마감 판정이 저마다 KST 산술을 다시 쓰면 창 경계가 조용히 갈라진다.
+      *
+      * @param date 창을 얹을 날짜(KST)
+      * @param windowStart 창 시작 벽시계 시각
+      * @return 창이 열리는 순간
      */
     public static Instant windowStartOn(LocalDate date, LocalTime windowStart) {
         return date.atTime(windowStart).atZone(KST).toInstant();
@@ -111,6 +146,10 @@ public class WindowFocusAggregator {
      * 종전의 {@code D+1} 분기는 도달할 수 없다 — 죽은 분기를 남기면 개설 시각 박제
      * ({@link GroupBetSessionFactory})·정산 대기 가드({@link GroupBetSettler})와 규칙이 갈려 보인다.
      * 그래서 시작 시각을 아예 받지 않는다: 종료 경계는 종료 시각만으로 결정된다.
+      *
+      * @param date 창을 얹을 날짜(KST)
+      * @param windowEnd 창 종료 벽시계 시각
+      * @return 창이 닫히는 순간 — 자정 걸침이 금지돼 언제나 {@code date} 안이다
      */
     public static Instant windowEndOn(LocalDate date, LocalTime windowEnd) {
         return date.atTime(windowEnd).atZone(KST).toInstant();
@@ -120,6 +159,9 @@ public class WindowFocusAggregator {
      * 구앱 ISO Instant 창 시각의 KST 벽시계 해석 — {@link #parseRequestTime} 의 레거시 경로 전용.
      * 종전에는 저장 Instant 의 UTC 시각을 KST 벽시계로 간주해 정확히 9시간 어긋났다(GROMO-1100) —
      * KST 해석으로 통일한다. 저장이 time 타입(V35)이 된 뒤 창 저장·응답 경로에서는 더 쓰지 않는다.
+      *
+      * @param instant 구앱이 보낸 절대 시각
+      * @return 그 시각을 KST 로 읽은 벽시계 시각. UTC 로 읽으면 정확히 9시간 어긋난다
      */
     public static LocalTime timeOfDay(Instant instant) {
         return LocalTime.ofInstant(instant, KST);
@@ -135,6 +177,8 @@ public class WindowFocusAggregator {
      * 그대로 보존된다. 저장은 time 타입(V35)이라 반환도 {@link LocalTime} 그 자체다 — 종전의
      * EPOCH 날짜부 앵커 규약은 타입 전환과 함께 폐기됐다.
      *
+     * @param value 신앱의 {@code "HH:mm(:ss)"} 또는 구앱의 ISO Instant 문자열
+     * @return 두 표기가 수렴한 KST 벽시계 시각 — 어느 쪽으로 들어와도 같은 값이 나온다
      * @throws DateTimeParseException 두 형식 모두 아닐 때 — 호출부가 INVALID_MISSION_PARAMS 로 매핑한다
      */
     public static LocalTime parseRequestTime(String value) {
@@ -146,6 +190,9 @@ public class WindowFocusAggregator {
     /**
      * 창 시각의 응답 표기 — {@code "HH:mm:ss"} 문자열. {@code /challenges} 목록과 그룹 상세·오버뷰
      * (GROMO-1206)가 같은 문자열을 내보내는 단일 출구다 — 응답 경로마다 포맷을 새로 만들지 말 것.
+      *
+      * @param time 응답에 실을 벽시계 시각
+      * @return {@code "HH:mm:ss"} 문자열 — 초까지 항상 채워 나간다
      */
     public static String timeOfDayString(LocalTime time) {
         return time.format(TIME_FORMATTER);

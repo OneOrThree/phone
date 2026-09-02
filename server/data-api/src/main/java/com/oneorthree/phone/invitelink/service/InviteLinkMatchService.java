@@ -1,7 +1,7 @@
 package com.oneorthree.phone.invitelink.service;
 
-import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
-import com.oneorthree.phone.invitelink.domain.InviteLinkClick;
+import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.domain.InviteLinkClick;
 import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
 import com.oneorthree.phone.invitelink.dto.InviteMatchResponse;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
@@ -40,6 +40,16 @@ public class InviteLinkMatchService {
     private final InviteLinkGa4Events ga4Events;
     private final int matchWindowHours;
 
+    /**
+     * @param clickRepository 클릭 조회·소진. 소진 경로는 반드시 잠금 조회를 써야 한다
+     * @param inviteLinkRepository 매치된 클릭에서 링크·그룹을 되찾는 데 쓴다
+     * @param inviteLinkService 그룹 생존 판정({@code findActiveGroup})을 발급·랜딩과 공유하기 위해 주입한다 —
+     *                          판정이 갈리면 랜딩에서는 만료인 초대가 매치에서는 성립하는 어긋남이 생긴다
+     * @param ga4Events 매치 성공·실패를 모두 발행한다. 실패가 퍼널의 분모라 빼면 매치율을 계산할 수 없다
+     * @param matchWindowHours {@code link.match-window-hours} — 클릭을 후보로 인정할 시간창.
+     *                         <b>이 값이 이 기능의 정확도 손잡이다</b>: 넓히면 남의 클릭을 물어 갈 확률이
+     *                         커지고, 좁히면 스토어를 거치며 지연된 정상 설치를 놓친다
+     */
     public InviteLinkMatchService(
             InviteLinkClickRepository clickRepository,
             GroupInviteLinkRepository inviteLinkRepository,
@@ -60,6 +70,15 @@ public class InviteLinkMatchService {
      * 요청이 같은 클릭을 읽고 둘 다 소진해, 한 번의 클릭이 두 기기에 매치된다. SKIP LOCKED 를 함께
      * 쓰는 이유는 공유 Wi-Fi(같은 fingerprint)에서 후보가 여러 건 쌓였을 때다 — 그냥 기다리면
      * 잠긴 행이 풀린 뒤 조건에서 탈락해 "다음 후보가 남아 있는데도 매치 실패"가 된다.
+     *
+     * @param ipHash 서버가 계산한 클라이언트 IP 해시 — 요청 본문이 아니라 커넥션에서 나온 값이라
+     *               호출자가 직접 고를 수 없다. 매칭 축 중 유일하게 그렇다
+     * @param request 기기가 보고한 OS·deviceId·appInstanceId. deviceId 는 재시도 멱등의 키이고,
+     *                호출자가 값을 정하므로 남의 deviceId 를 참칭하면 그 기기의 매치 결과를 되읽는다
+     *                (읽기만 하므로 새 클릭을 소진하지는 않는다)
+     * @return 성공이면 slug·groupId, 실패면 {@code matched=false}. <b>실패도 예외가 아니라 정상 응답</b>이며
+     *         호출부는 이를 200 으로 내린다 — 4xx/5xx 로 내리면 앱이 매 실행마다 재시도한다.
+     *         성공은 "초대 맥락을 찾았다"까지이고 가입·참여를 뜻하지 않는다
      */
     @Transactional
     public InviteMatchResponse match(String ipHash, InviteMatchRequest request) {
@@ -128,6 +147,9 @@ public class InviteLinkMatchService {
      * 거의 동시에 claim 한 두 유저가 같은 행을 읽고 마지막 커밋이 앞사람을 덮는다(lost update) —
      * 포워딩된 초대를 여러 명이 받아 비슷한 시각에 로그인하는 시나리오는 이 기능에서 드물지 않다.
      *
+     * @param slug 수락할 초대 링크. 없는 slug 는 유일하게 예외로 끝나는 경우다
+     *             ({@code SLUG_NOT_FOUND}) — 나머지 실패 사유는 모두 조용한 no-op 이다
+     * @param userId 초대를 수락한 유저. 토큰에서 온 값이라 남을 대신해 claim 할 수 없다
      * @return 이번 호출이 실제로 유저를 붙였으면 {@code true}. 컨트롤러는 계약상 몸통 없는 200 이라
      *         쓰지 않지만, "동시 claim 중 정확히 한 명만 기록된다"를 테스트가 관측하는 지점이다.
      */

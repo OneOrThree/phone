@@ -1,14 +1,14 @@
 package com.oneorthree.phone.notification.service;
 
-import com.oneorthree.phone.group.domain.GroupChallenge;
-import com.oneorthree.phone.group.domain.GroupChallengeStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeWindow;
-import com.oneorthree.phone.group.domain.MissionType;
-import com.oneorthree.phone.group.domain.RepeatSchedule;
+import com.oneorthree.phone.group.repository.domain.GroupChallenge;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.repository.domain.MissionType;
+import com.oneorthree.phone.group.repository.domain.RepeatSchedule;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.service.WindowFocusAggregator;
-import com.oneorthree.phone.notification.domain.NotificationSentLog;
+import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -90,6 +90,8 @@ public class ChallengeWindowEndNotificationService {
      * Spring 프록시를 지나지 않아 그쪽 애노테이션이 적용되지 않는다. 트랜잭션이 안 열리면 조회로
      * 올라온 {@code User} 가 분리 상태라 무효 토큰 정리(더티체킹)가 저장되지 않고, 다음 크론마다
      * 같은 무효 토큰으로 FCM 을 계속 호출한다(@codex 리뷰).
+     *
+     * @return 이번 실행의 발송 요약(현재 시각 기준)
      */
     @Transactional
     public PushDispatchSummaryResponse sendWindowEndNotifications() {
@@ -100,6 +102,9 @@ public class ChallengeWindowEndNotificationService {
      * 창 종료 감지 푸시 본체.
      *
      * <p>무효 토큰 정리(더티체킹)가 일어나므로 쓰기 트랜잭션 안에서 돈다.
+     *
+     * @param now 어느 창이 방금 닫혔는지 판정하는 기준 시각
+     * @return 이번 실행의 발송 요약. 대상 챌린지가 없으면 전부 0 인 요약이 그대로 나온다
      */
     @Transactional
     public PushDispatchSummaryResponse sendWindowEndNotifications(Instant now) {
