@@ -18,6 +18,7 @@ import com.oneorthree.phone.user.dto.PublicProfileResponse;
 import com.oneorthree.phone.user.dto.UserStatsResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ import java.util.UUID;
 public class ProfileService {
 
     private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final CharacterEquipmentRepository characterEquipmentRepository;
     private final FriendshipRepository friendshipRepository;
     private final PinnedUserRepository pinnedUserRepository;
@@ -63,13 +65,8 @@ public class ProfileService {
     }
 
     PublicProfileResponse getPublicProfile(UUID callerId, UUID userId, Instant now) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-
-        // 소프트딜리트된 유저(탈퇴) → 404
-        if (user.isDeleted()) {
-            throw new UserException(UserErrorCode.NOT_FOUND);
-        }
+        // 탈퇴 유저는 조회 계층이 걸러 404 로 떨어진다 (GROMO-1655).
+        User user = userQueryService.getTarget(userId);
 
         // 캐릭터 장착 목록
         List<CharacterEquipmentResponse> equipments = characterEquipmentRepository.findByUser(user)
@@ -122,13 +119,8 @@ public class ProfileService {
      * @throws UserException 대상 유저가 없거나 탈퇴된 경우 NOT_FOUND
      */
     public UserStatsResponse getUserStats(UUID callerId, UUID targetUserId, LocalDate date) {
-        User target = userRepository.findById(targetUserId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-
-        // 소프트딜리트된 유저(탈퇴) → 404
-        if (target.isDeleted()) {
-            throw new UserException(UserErrorCode.NOT_FOUND);
-        }
+        // 탈퇴 유저는 조회 계층이 걸러 404 로 떨어진다 (GROMO-1655).
+        User target = userQueryService.getTarget(targetUserId);
 
         // 본인 조회(callerId == targetUserId) → 세부 취급, 친구 판정 생략
         boolean isOwn = callerId.equals(targetUserId);
