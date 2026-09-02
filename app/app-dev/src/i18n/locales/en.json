@@ -1396,7 +1396,8 @@
       "inquirySub": "Questions · Report a bug",
       "privacy": "Privacy Policy",
       "terms": "Terms of Service",
-      "version": "Version"
+      "version": "Version",
+      "language": "Language"
     },
     "guide": {
       "intro": "The All tab is where you manage your profile and every app setting.",
@@ -1962,6 +1963,14 @@
     "version": {
       "title": "Version",
       "latest": "You're on the latest version"
+    },
+    "language": {
+      "title": "Language",
+      "system": "Match device language",
+      "systemSub": "Currently %{language}",
+      "note": "This changes in-app text only. Notifications and iPhone system screens may still appear in Korean.",
+      "changed": "Language changed",
+      "saveFailed": "Couldn't save your language. Please try again in a moment."
     }
   },
   "stats": {

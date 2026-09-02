@@ -1396,7 +1396,8 @@
       "inquirySub": "問題諮詢 · 錯誤回報",
       "privacy": "隱私權政策",
       "terms": "服務條款",
-      "version": "版本資訊"
+      "version": "版本資訊",
+      "language": "語言"
     },
     "guide": {
       "intro": "在「全部」分頁可以管理個人檔案和 App 的所有設定。",
@@ -1962,6 +1963,14 @@
     "version": {
       "title": "版本資訊",
       "latest": "已經是最新版本"
+    },
+    "language": {
+      "title": "語言",
+      "system": "跟隨裝置語言",
+      "systemSub": "目前為%{language}",
+      "note": "只會變更 App 畫面的文字。通知內容和 iPhone 系統畫面仍可能顯示韓文。",
+      "changed": "已變更語言",
+      "saveFailed": "沒能儲存語言設定。請稍後再試一次。"
     }
   },
   "stats": {

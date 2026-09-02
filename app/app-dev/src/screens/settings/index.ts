@@ -9,5 +9,6 @@ export { default as ScreenTimePermissionScreen } from './ScreenTimePermissionScr
 export { default as AppPickerScreen } from './AppPickerScreen';
 export { default as NotificationSettingsScreen } from './NotificationSettingsScreen';
 export { default as StatVisibilityScreen } from './StatVisibilityScreen';
+export { default as LanguageScreen } from './LanguageScreen';
 export { default as PrivacyPolicyScreen } from './PrivacyPolicyScreen';
 export { default as VersionInfoScreen } from './VersionInfoScreen';

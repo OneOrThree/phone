@@ -25,7 +25,7 @@ import { SettingsSection, SettingsRow } from '@/screens/settings/components/Sett
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
-import { t } from '@/i18n';
+import { getLocale, t, LOCALE_NAMES } from '@/i18n';
 import { CURRENCY } from '@/constants/currency';
 import { logCurrencyChipTapped } from '@/services/analyticsEvents';
 
@@ -463,6 +463,18 @@ export default function MenuScreen() {
             label={t('menu.account.inquiry')}
             sub={t('menu.account.inquirySub')}
             onPress={() => navigation.navigate('SettingsInquiry')}
+          />
+          {/* 언어 — 조작 가능한 행 묶음의 맨 끝(아래 3개는 읽기 전용 문서·버전).
+               우측 값은 '저장된 설정'이 아니라 **지금 적용 중인 언어**다 — '기기 언어 따름'을
+               고른 사람에게 그 문구를 보여주면 정작 무슨 언어인지 알 수 없다(iOS 표준도 이쪽). */}
+          <SettingsRow
+            testID="menu.row.language"
+            icon="language-outline"
+            iconColor={T.inkSub}
+            iconBg={T.sandLight}
+            label={t('menu.account.language')}
+            value={LOCALE_NAMES[getLocale()]}
+            onPress={() => navigation.navigate('SettingsLanguage')}
           />
           <SettingsRow
             icon="document-text-outline"

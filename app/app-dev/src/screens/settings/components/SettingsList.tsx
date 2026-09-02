@@ -28,6 +28,7 @@ export function SettingsSection({ title, children }: { title?: string; children:
 
 // ── 네비/액션 행 ──────────────────────────────────────────
 interface RowProps {
+  testID?: string; // E2E 셀렉터 — .maestro 대본은 문구가 아니라 testID로 행을 집는다
   icon?: IconName;
   iconColor?: string;
   iconBg?: string;
@@ -43,6 +44,7 @@ interface RowProps {
 }
 
 export function SettingsRow({
+  testID,
   icon,
   iconColor = T.accentDeep,
   iconBg = T.sandLight,
@@ -59,7 +61,7 @@ export function SettingsRow({
   const showChevron = chevron ?? (!!onPress && !danger);
   const Wrapper = onPress ? TouchableOpacity : View;
   return (
-    <Wrapper style={s.row} onPress={onPress} activeOpacity={0.7}>
+    <Wrapper testID={testID} style={s.row} onPress={onPress} activeOpacity={0.7}>
       {icon ? (
         <View style={[s.rowIcon, { backgroundColor: iconBg }]}>
           <Ionicons name={icon} size={18} color={iconColor} />

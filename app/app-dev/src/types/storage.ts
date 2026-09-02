@@ -42,6 +42,10 @@ export const STORAGE_KEYS = {
   notificationInbox: 'gromo:notifications', // 알림 보관함 — 수신한 푸시 로컬 저장(GROMO-661)
   notificationSettings: 'gromo:settings:notification', // 알림·심야·소리 로컬 캐시(GET 부재 폴백)
   statVisibility: 'gromo:settings:statVisibility', // 통계 공개 범위 로컬 캐시(GET 부재 폴백)
+  // 앱 표시 언어 선택('system' | ko | en | ja | zh-Hant). **기기 귀속 값**이라
+  // 로그아웃·계정 전환·탈퇴로 지우지 않는다 — App.tsx의 multiRemove 배열에 넣지 말 것.
+  // (지우면 되돌릴 방법이 앱 삭제뿐이다. deviceId·guide* 와 같은 부류.)
+  locale: 'gromo:settings:locale',
   screentimeAuthGranted: 'gromo:screentime:authGranted',
   screentimeLastRewardedDate: 'gromo:screentime:lastRewardedDate', // 스크린타임 목표 달성 축하를 띄운 날짜(YYYY-MM-DD) — 하루 1회(GROMO-629)
   screentimeCelebratePending: 'gromo:screentime:celebratePending', // 어제 달성 축하 예약 {date,days} — 홈 진입 시 노출(GROMO-629)

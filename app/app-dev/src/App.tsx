@@ -13,7 +13,7 @@ import {
   setLogoutHandler,
   setReloginHandler,
 } from '@/services/api';
-import { t } from '@/i18n';
+import { applyLocalePref, t } from '@/i18n';
 import { setAccountSwitchHandler, logout } from '@/services/auth';
 import { initAnalytics } from '@/services/analytics';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
@@ -176,6 +176,15 @@ function App() {
     (async () => {
       // 숫자 id 캐시 무효화(PK Long→UUID). 부트스트랩보다 먼저.
       await runStorageMigrations();
+      // 저장된 표시 언어 복원(GROMO-1672). 아래 조기 반환보다 **위**에 둬야 로그아웃 상태
+      // (로그인 화면·온보딩)에서도 적용된다. 이 구간은 loading=true라 스플래시가 가리고 있어
+      // 별도 로딩 게이트가 필요 없다. try/catch는 필수 — 여기서 터지면 setLoading(false)에
+      // 못 닿아 스플래시에서 영구 정지한다(runStorageMigrations가 내부 try/catch를 가진 것과 같은 이유).
+      try {
+        applyLocalePref(await AsyncStorage.getItem(STORAGE_KEYS.locale));
+      } catch {
+        // 저장값 조회 실패 — 기기 언어 그대로 간다.
+      }
       const done = await AsyncStorage.getItem(STORAGE_KEYS.onboardingComplete);
       if (done) setOnboarded(true);
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
