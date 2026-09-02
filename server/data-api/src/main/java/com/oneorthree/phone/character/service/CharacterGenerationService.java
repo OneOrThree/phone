@@ -4,8 +4,7 @@ import com.oneorthree.phone.character.repository.domain.CharacterGeneration;
 import com.oneorthree.phone.character.dto.CharacterQuotaResponse;
 import com.oneorthree.phone.character.repository.CharacterGenerationRepository;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +35,7 @@ public class CharacterGenerationService {
     /** 제한 구간에서 윈도우당 허용 생성 횟수. */
     private static final int ROLLING_LIMIT = 3;
 
+    private final UserQueryService userQueryService;
     private final UserRepository userRepository;
     private final CharacterGenerationRepository characterGenerationRepository;
     private final EntityManager entityManager;
@@ -116,8 +116,7 @@ public class CharacterGenerationService {
      * 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userRepository.findActiveByIdForUpdate(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        return userQueryService.getTargetForUpdate(userId);
     }
 
     /** 유저별 PostgreSQL advisory lock 획득(트랜잭션 스코프). userId 를 hashtext 로 bigint 키에 매핑. */

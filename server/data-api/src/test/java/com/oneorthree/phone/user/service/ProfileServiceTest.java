@@ -23,7 +23,6 @@ import com.oneorthree.phone.user.dto.UserStatsResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
-import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,9 +56,6 @@ class ProfileServiceTest {
     private ProfileService profileService;
 
     @Mock
-    private UserRepository userRepository;
-
-    @Mock
     private UserQueryService userQueryService;
 
     @Mock
@@ -88,7 +84,7 @@ class ProfileServiceTest {
     void setUpRankingDefault() {
         // FriendRelationLookup 은 목이 아니라 실제 인스턴스 — relation 판정이 스텁이 아닌
         // 실제 로직(리포지토리 스텁 기반)을 통과하도록 한다 (GROMO-1631).
-        profileService = new ProfileService(userRepository, userQueryService, characterEquipmentRepository,
+        profileService = new ProfileService(userQueryService, characterEquipmentRepository,
                 friendshipRepository, pinnedUserRepository, new FriendRelationLookup(friendshipRepository),
                 leagueRankingQueryRepository, leagueWeek, statsService);
         lenient().when(leagueRankingQueryRepository.findRankOf(any(), any(), any(), any()))
@@ -275,7 +271,7 @@ class ProfileServiceTest {
     private User givenOtherViewsTarget(User target) {
         User caller = User.builder().id(OTHER_ID).nickname("호출자").build();
         given(userQueryService.getTarget(USER_ID)).willReturn(target);
-        given(userRepository.findById(OTHER_ID)).willReturn(Optional.of(caller));
+        given(userQueryService.getCaller(OTHER_ID)).willReturn(caller);
         given(characterEquipmentRepository.findByUser(target)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(target)).willReturn(0L);
         return caller;
@@ -354,10 +350,10 @@ class ProfileServiceTest {
     // getUserStats 테스트 (GROMO-521)
     // ──────────────────────────────────────────────────────────────────────
 
-    /** 공통 스텁: OTHER_ID(호출자) → target(USER_ID) 순서로 findById 스텁을 등록한다. */
+    /** 공통 스텁: 대상(USER_ID)·호출자(OTHER_ID) 조회를 등록한다 — 호출자는 활성 검증까지 계층이 맡는다. */
     private void givenBothUsers(User target, User caller) {
         given(userQueryService.getTarget(USER_ID)).willReturn(target);
-        given(userRepository.findById(OTHER_ID)).willReturn(Optional.of(caller));
+        given(userQueryService.getCaller(OTHER_ID)).willReturn(caller);
     }
 
     private StreakResponse sampleStreak() {
