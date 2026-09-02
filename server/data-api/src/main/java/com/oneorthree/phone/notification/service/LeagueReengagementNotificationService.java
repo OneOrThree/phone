@@ -11,7 +11,7 @@ import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.domain.UserStreak;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
@@ -59,7 +59,7 @@ public class LeagueReengagementNotificationService {
     private final FocusSessionRepository focusSessionRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserStreakRepository userStreakRepository;
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final PushNotificationService pushNotificationService;
     private final LeagueWeek leagueWeek;
@@ -226,7 +226,7 @@ public class LeagueReengagementNotificationService {
     }
 
     private Map<UUID, User> loadUsers(Collection<UUID> userIds) {
-        return userRepository.findAllByIdInAndIsDeletedFalse(userIds).stream()
+        return userQueryService.findAllActive(userIds).stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
     }
 

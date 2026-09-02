@@ -8,7 +8,7 @@ import com.oneorthree.phone.notification.repository.NotificationSentLogRepositor
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -51,7 +51,7 @@ class BetWonNotificationServiceTest {
     private static final UUID CHALLENGE_ID = UUID.randomUUID();
 
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
     @Mock
     private UserNotificationSettingsRepository userNotificationSettingsRepository;
     @Mock
@@ -70,7 +70,7 @@ class BetWonNotificationServiceTest {
     }
 
     private void givenWinnerExists() {
-        given(userRepository.findById(winner.getId())).willReturn(Optional.of(winner));
+        given(userQueryService.findActive(winner.getId())).willReturn(Optional.of(winner));
     }
 
     /** 설정 행 없음 = 기본값(알림 on·심야 기본 구간) — 클레임을 선점한 경로에서만 조회된다. */
@@ -104,7 +104,7 @@ class BetWonNotificationServiceTest {
         verify(notificationSentLogRepository).updateStatusByIds(
                 anyCollection(), eq(NotificationSendStatus.SENT), eq(NOON));
         // 이벤트가 축을 다 싣고 있어 회차·참가 행을 다시 조회하지 않는다.
-        verify(userRepository).findById(winner.getId());
+        verify(userQueryService).findActive(winner.getId());
     }
 
     @Test
@@ -158,9 +158,8 @@ class BetWonNotificationServiceTest {
     @Test
     @DisplayName("탈퇴한 유저에게는 보내지 않는다 — 클레임도 만들지 않는다")
     void skipsDeletedUser() {
-        User deleted = User.builder()
-                .id(winner.getId()).nickname("탈퇴").deviceToken("token").isDeleted(true).build();
-        given(userRepository.findById(winner.getId())).willReturn(Optional.of(deleted));
+        // 탈퇴 필터는 UserQueryService.findActive 가 쿼리로 건다 — 탈퇴자는 빈 값으로 돌아온다.
+        given(userQueryService.findActive(winner.getId())).willReturn(Optional.empty());
 
         assertThat(service.sendWonNotification(event(), NOON)).isFalse();
 
