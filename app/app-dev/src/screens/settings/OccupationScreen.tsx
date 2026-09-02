@@ -214,32 +214,37 @@ export default function OccupationScreen() {
             )}
           </View>
         ) : null}
-        {OCCUPATION_GROUPS.map((group) => {
-          const items = group.codes
-            .map((code) => ({ code, name: displayNameOf(occupations, code) }))
-            .filter((o): o is { code: Occupation; name: string } => o.name !== null);
-          if (!items.length) return null;
-          return (
-            <View key={group.labelKey} style={s.group}>
-              <Text style={s.groupLabel}>{t(group.labelKey)}</Text>
-              <View style={s.chips}>
-                {items.map((item) => {
-                  const on = selected === item.code;
-                  return (
-                    <TouchableOpacity
-                      key={item.code}
-                      activeOpacity={0.85}
-                      onPress={() => setSelected(item.code)}
-                      style={[s.chip, on ? s.chipOn : null]}
-                    >
-                      <Text style={[s.chipText, on ? s.chipTextOn : null]}>{item.name}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          );
-        })}
+        {/* 카탈로그 도착 전엔 목록을 안 그린다 — displayNameOf의 정적 폴백이 19칩을 전부
+            그려버리면 서버 활성 목록을 못 받은 채 선택·저장이 가능해진다(soft-delete된
+            code는 서버가 거부해 저장이 반복 실패, PR 713 코덱스 4R). */}
+        {occupations === null
+          ? null
+          : OCCUPATION_GROUPS.map((group) => {
+              const items = group.codes
+                .map((code) => ({ code, name: displayNameOf(occupations, code) }))
+                .filter((o): o is { code: Occupation; name: string } => o.name !== null);
+              if (!items.length) return null;
+              return (
+                <View key={group.labelKey} style={s.group}>
+                  <Text style={s.groupLabel}>{t(group.labelKey)}</Text>
+                  <View style={s.chips}>
+                    {items.map((item) => {
+                      const on = selected === item.code;
+                      return (
+                        <TouchableOpacity
+                          key={item.code}
+                          activeOpacity={0.85}
+                          onPress={() => setSelected(item.code)}
+                          style={[s.chip, on ? s.chipOn : null]}
+                        >
+                          <Text style={[s.chipText, on ? s.chipTextOn : null]}>{item.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })}
 
         <View style={s.note}>
           <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />

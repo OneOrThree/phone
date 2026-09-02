@@ -12,6 +12,9 @@ import { recoverOccupation, syncOccupation } from './occupationSync';
 
 jest.mock('@/services/userApi', () => ({ updateOccupation: jest.fn() }));
 jest.mock('@/services/analyticsEvents', () => ({ logOccupationSyncFailed: jest.fn() }));
+// 세션 세대 — 계정 전환 경합 테스트에서 값을 바꿔 스냅샷 가드를 검증한다
+let mockGeneration = 1;
+jest.mock('@/services/api', () => ({ getAuthSessionGeneration: () => mockGeneration }));
 
 const mockPatch = updateOccupation as jest.Mock;
 const mockLogFailed = logOccupationSyncFailed as jest.Mock;
@@ -19,6 +22,7 @@ const mockLogFailed = logOccupationSyncFailed as jest.Mock;
 beforeEach(async () => {
   await AsyncStorage.clear();
   jest.clearAllMocks();
+  mockGeneration = 1;
   mockPatch.mockResolvedValue(undefined);
 });
 
@@ -40,6 +44,19 @@ describe('syncOccupation', () => {
 
     const cached = JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.user)) ?? '{}');
     expect(cached).toEqual({ nickname: '수빈', occupation: 'CSAT' });
+  });
+
+  test('PATCH 대기 중 계정이 바뀌면(세대 변경) 스냅샷을 건드리지 않는다', async () => {
+    // 계정 A의 저장이 대기 중일 때 B로 전환 — 성공해도 B의 gromo:user에 A의 시험을 쓰면 안 된다
+    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify({ occupation: 'CODING' }));
+    mockPatch.mockImplementation(async () => {
+      mockGeneration = 2; // 응답을 기다리는 사이 계정 전환 재현
+    });
+
+    expect(await syncOccupation('CSAT', 'settings')).toBe(true);
+
+    const cached = JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.user)) ?? '{}');
+    expect(cached.occupation).toBe('CODING'); // 병합 스킵(PR 713 코덱스 4R)
   });
 
   test('실패 시엔 스냅샷을 건드리지 않는다', async () => {

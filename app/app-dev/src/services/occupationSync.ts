@@ -3,6 +3,7 @@
 // 화면(로컬)과 집계(서버)가 조용히 갈라졌다(GROMO-1620 · 티켓 1624 조재영 코멘트).
 // 이제 로컬 정본은 없다 — 여기 두 함수만 서버 값을 건드린다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAuthSessionGeneration } from '@/services/api';
 import { updateOccupation } from '@/services/userApi';
 import { logOccupationSyncFailed, type OccupationSyncSource } from '@/services/analyticsEvents';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -14,6 +15,10 @@ export async function syncOccupation(
   code: Occupation,
   source: OccupationSyncSource,
 ): Promise<boolean> {
+  // PATCH 대기 중 계정이 바뀔 수 있다(설정 저장 → 뒤로 → 계정 전환). 그 뒤의 스냅샷 병합이
+  // 새 계정의 gromo:user에 이전 계정의 시험을 써넣지 않도록, 시작 세대를 캡처해 쓰기 직전
+  // 대조한다(PR 713 코덱스 4R — 401 재시도용 세대 검사는 이 후속 로컬 쓰기까지 막지 않는다).
+  const generation = getAuthSessionGeneration();
   try {
     await updateOccupation({ occupation: code });
   } catch {
@@ -26,13 +31,15 @@ export async function syncOccupation(
   // 리그·비교 통계가 옛 시험으로 돈다(PR 713 코덱스 P2). 갱신 실패는 무해 — 다음
   // 정상 부트스트랩이 서버 프로필로 덮는다.
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
-    if (raw) {
-      const cached = JSON.parse(raw) as Record<string, unknown>;
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.user,
-        JSON.stringify({ ...cached, occupation: code }),
-      );
+    if (getAuthSessionGeneration() === generation) {
+      const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
+      if (raw) {
+        const cached = JSON.parse(raw) as Record<string, unknown>;
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.user,
+          JSON.stringify({ ...cached, occupation: code }),
+        );
+      }
     }
   } catch {}
   return true;
