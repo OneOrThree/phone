@@ -2758,7 +2758,7 @@
           "auth"
         ],
         "summary": "토큰 갱신",
-        "description": "Refresh Token → 새 Access Token 발급. RT는 갱신되지 않음.",
+        "description": "Refresh Token → 새 Access Token 발급. RT 는 남은 수명이 절반 미만일 때만 함께 회전하며(GROMO-1509), 회전했을 때만 응답의 refreshToken 이 채워진다.",
         "operationId": "refreshToken",
         "requestBody": {
           "content": {
@@ -2816,7 +2816,7 @@
           "204": {
             "description": "로그아웃 성공"
           },
-          "400": {
+          "401": {
             "description": "유효하지 않은 Refresh Token"
           }
         }
