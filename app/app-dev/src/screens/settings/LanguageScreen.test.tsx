@@ -71,6 +71,8 @@ afterEach(async () => {
 
 test('옵션 5개가 뜨고 기본값은 기기 언어 따름이다', async () => {
   await renderScreen();
+  // radio 역할이 터치 대상(행)에 걸려 있어야 스크린리더가 택1임을 읽는다(코드리뷰 회귀 잠금).
+  expect(screen.getAllByRole('radio')).toHaveLength(5);
   expect(screen.getByText('기기 언어 따름')).toBeTruthy();
   expect(screen.getByText('지금은 한국어')).toBeTruthy();
   for (const name of ['한국어', 'English', '日本語', '繁體中文']) {

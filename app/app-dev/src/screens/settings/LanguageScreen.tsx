@@ -49,15 +49,15 @@ const OPTIONS: Option[] = [
   ...SUPPORTED_LOCALES.map((locale) => ({ pref: locale, label: LOCALE_NAMES[locale] })),
 ];
 
-// 선택 표시 — StatVisibilityScreen 과 같은 모양. role='radio' 로 스크린리더에 택1임을 알린다.
+// 선택 표시 — StatVisibilityScreen 과 같은 모양. 순수 장식이다 — radio 역할·상태는
+// SettingsRow(실제 터치 대상)에 건다. 터치 가능한 부모가 자식을 하나의 접근성 요소로
+// 묶으므로 여기에 걸면 스크린리더에 전달되지 않는다(코드리뷰).
 function RadioMark({ selected }: { selected: boolean }) {
   return (
     <Ionicons
       name={selected ? 'checkmark-circle' : 'ellipse-outline'}
       size={24}
       color={selected ? T.accent : T.inkMuted}
-      accessibilityRole="radio"
-      accessibilityState={{ selected }}
     />
   );
 }
@@ -132,6 +132,8 @@ export default function LanguageScreen() {
           <SettingsRow
             key={opt.pref}
             testID={`settings.language.option.${opt.pref}`}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: selected === opt.pref, checked: selected === opt.pref }}
             label={opt.pref === 'system' ? t('settings.language.system') : opt.label}
             sub={
               opt.pref === 'system'

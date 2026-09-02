@@ -1,5 +1,13 @@
 import { Children, cloneElement, isValidElement, type ReactElement, type ReactNode } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Switch } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Switch,
+  type AccessibilityRole,
+  type AccessibilityState,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 
@@ -29,6 +37,10 @@ export function SettingsSection({ title, children }: { title?: string; children:
 // ── 네비/액션 행 ──────────────────────────────────────────
 interface RowProps {
   testID?: string; // E2E 셀렉터 — .maestro 대본은 문구가 아니라 testID로 행을 집는다
+  // 접근성 role/state — 터치 가능한 부모가 자식들을 하나의 접근성 요소로 묶으므로,
+  // 라디오 같은 역할은 자식 아이콘이 아니라 **여기(실제 터치 대상)**에 걸어야 읽힌다(코드리뷰).
+  accessibilityRole?: AccessibilityRole;
+  accessibilityState?: AccessibilityState;
   icon?: IconName;
   iconColor?: string;
   iconBg?: string;
@@ -45,6 +57,8 @@ interface RowProps {
 
 export function SettingsRow({
   testID,
+  accessibilityRole,
+  accessibilityState,
   icon,
   iconColor = T.accentDeep,
   iconBg = T.sandLight,
@@ -61,7 +75,14 @@ export function SettingsRow({
   const showChevron = chevron ?? (!!onPress && !danger);
   const Wrapper = onPress ? TouchableOpacity : View;
   return (
-    <Wrapper testID={testID} style={s.row} onPress={onPress} activeOpacity={0.7}>
+    <Wrapper
+      testID={testID}
+      accessibilityRole={accessibilityRole}
+      accessibilityState={accessibilityState}
+      style={s.row}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
       {icon ? (
         <View style={[s.rowIcon, { backgroundColor: iconBg }]}>
           <Ionicons name={icon} size={18} color={iconColor} />
