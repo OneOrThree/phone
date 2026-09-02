@@ -30,8 +30,6 @@ import com.oneorthree.phone.user.repository.domain.Occupation;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.focus.repository.DefaultTagRepository;
 import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
 import com.oneorthree.phone.group.service.GroupBetEarlyWinConfirmer;
@@ -39,7 +37,7 @@ import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
 import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.service.UserStreakService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -128,7 +126,7 @@ public class FocusService {
     private final UserFocusTagRepository userFocusTagRepository;
     private final DefaultTagRepository defaultTagRepository;
     private final OccupationDefaultTagRepository occupationDefaultTagRepository;
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final FocusSessionRepository focusSessionRepository;
     private final UserActivityEventLogger userActivityEventLogger;
     private final DailyFocusStatRepository dailyFocusStatRepository;
@@ -146,8 +144,7 @@ public class FocusService {
      */
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User user = userQueryService.getTarget(userId);
 
         // GROMO-673: 유저가 채택한 태그(user_focus_tags) 목록. id 는 user_focus_tags.id, 이름은 defaultTag.name.
         return userFocusTagRepository.findByUserAndDeletedAtIsNull(user)
@@ -172,8 +169,7 @@ public class FocusService {
         Occupation resolved = occupation;
         if (resolved == null) {
             // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
-            User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                    .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+            User user = userQueryService.getTarget(userId);
             resolved = user.getOccupation();
             if (resolved == null) {
                 throw new FocusException(FocusErrorCode.OCCUPATION_REQUIRED);
@@ -327,8 +323,7 @@ public class FocusService {
         }
 
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User user = userQueryService.getTarget(userId);
 
         Slice<FocusSession> slice = focusSessionRepository
                 .findSessionsByCursor(user, from, to, cursor, PageRequest.of(0, size));
@@ -1081,8 +1076,7 @@ public class FocusService {
      * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        return userQueryService.getTargetForShare(userId);
     }
 
     /**
@@ -1100,8 +1094,7 @@ public class FocusService {
      * (users → focus_sessions → 지갑 → daily_focus_stats) 그대로다.
      */
     private User requireActiveUserForUpdate(UUID userId) {
-        return userRepository.findActiveByIdForUpdate(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        return userQueryService.getTargetForUpdate(userId);
     }
 
     /** 태그 id(user_focus_tags.id)로 소유 태그를 조회(없으면 null 반환, 미소유면 FORBIDDEN). POST/PATCH 공용. */
