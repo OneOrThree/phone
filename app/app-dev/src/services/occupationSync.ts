@@ -3,7 +3,7 @@
 // 화면(로컬)과 집계(서버)가 조용히 갈라졌다(GROMO-1620 · 티켓 1624 조재영 코멘트).
 // 이제 로컬 정본은 없다 — 여기 두 함수만 서버 값을 건드린다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAuthSessionGeneration } from '@/services/api';
+import { getAuthSessionGeneration, runAuthSessionTransition } from '@/services/api';
 import { updateOccupation } from '@/services/userApi';
 import { logOccupationSyncFailed, type OccupationSyncSource } from '@/services/analyticsEvents';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -30,8 +30,12 @@ export async function syncOccupation(
   // 이 스냅샷으로 세션을 복원하는데, 여기 이전 occupation이 남아 있으면 그 세션 내내
   // 리그·비교 통계가 옛 시험으로 돈다(PR 713 코덱스 P2). 갱신 실패는 무해 — 다음
   // 정상 부트스트랩이 서버 프로필로 덮는다.
+  // read-modify-write 전체를 인증 전환 잠금으로 직렬화한다 — 로그인/계정 전환(postAuthSave)이
+  // 전부 이 잠금 아래서 돌아, 검사와 쓰기 사이에 다른 계정의 스냅샷 교체가 끼어들 수 없다
+  // (PR 713 코덱스 5R — 잠금 없는 세대 검사 1회는 getItem/setItem 대기 중 교체에 뚫린다).
   try {
-    if (getAuthSessionGeneration() === generation) {
+    await runAuthSessionTransition(async () => {
+      if (getAuthSessionGeneration() !== generation) return; // 다른 세션 — 병합 스킵
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
       if (raw) {
         const cached = JSON.parse(raw) as Record<string, unknown>;
@@ -40,7 +44,7 @@ export async function syncOccupation(
           JSON.stringify({ ...cached, occupation: code }),
         );
       }
-    }
+    });
   } catch {}
   return true;
 }

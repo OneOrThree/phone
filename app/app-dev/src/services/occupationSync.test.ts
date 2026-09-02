@@ -14,7 +14,11 @@ jest.mock('@/services/userApi', () => ({ updateOccupation: jest.fn() }));
 jest.mock('@/services/analyticsEvents', () => ({ logOccupationSyncFailed: jest.fn() }));
 // 세션 세대 — 계정 전환 경합 테스트에서 값을 바꿔 스냅샷 가드를 검증한다
 let mockGeneration = 1;
-jest.mock('@/services/api', () => ({ getAuthSessionGeneration: () => mockGeneration }));
+jest.mock('@/services/api', () => ({
+  getAuthSessionGeneration: () => mockGeneration,
+  // 잠금은 테스트에선 즉시 통과 — 직렬화 자체는 api.ts 소유, 여기선 세대 대조만 검증한다
+  runAuthSessionTransition: (op: () => Promise<void>) => op(),
+}));
 
 const mockPatch = updateOccupation as jest.Mock;
 const mockLogFailed = logOccupationSyncFailed as jest.Mock;
