@@ -9,7 +9,7 @@ import com.oneorthree.phone.currency.exception.CurrencyException;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
 import com.oneorthree.phone.currency.dto.TransactionsResponse;
 import lombok.RequiredArgsConstructor;
@@ -33,7 +33,7 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class InGameCurrencyService {
 
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final UserWalletRepository userWalletRepository;
     private final CurrencyTransactionRepository currencyTransactionRepository;
 
@@ -60,8 +60,7 @@ public class InGameCurrencyService {
      */
     public List<TransactionsResponse> getCurrencyTransactions(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User user = userQueryService.getTarget(userId);
 
         return currencyTransactionRepository.findByUserOrderByCreatedAtDesc(user)
                 .stream()
@@ -129,7 +128,6 @@ public class InGameCurrencyService {
      * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        return userQueryService.getTargetForShare(userId);
     }
 }

@@ -10,7 +10,7 @@ import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserWallet;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * InGameCurrencyService 단위 테스트. 잔액은 UserWallet로 분리됨.
@@ -42,7 +43,7 @@ class InGameCurrencyServiceTest {
     private InGameCurrencyService inGameCurrencyService;
 
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
 
     @Mock
     private UserWalletRepository userWalletRepository;
@@ -82,7 +83,7 @@ class InGameCurrencyServiceTest {
     @DisplayName("거래내역 조회 성공 → 최신순 TransactionsResponse 매핑")
     void getCurrencyTransactionsSuccess() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTarget(USER_ID)).willReturn(user);
 
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         Instant earlier = Instant.parse("2025-12-31T00:00:00Z");
@@ -108,7 +109,7 @@ class InGameCurrencyServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getCurrencyTransactionsUserNotFound() {
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getTarget(USER_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() -> inGameCurrencyService.getCurrencyTransactions(USER_ID))
                 .isInstanceOf(UserException.class)
@@ -131,14 +132,14 @@ class InGameCurrencyServiceTest {
 
         verify(currencyTransactionRepository, never()).save(any());
         verify(userWalletRepository, never()).findById(any());
-        verify(userRepository, never()).findById(any());
+        verifyNoInteractions(userQueryService);   // 유저 조회 자체가 일어나지 않는다
     }
 
     @Test
     @DisplayName("사용 사유가 서버 전용(BET_*) → CurrencyException(ILLEGAL_SPEND_REASON)")
     void spendCurrencyRejectsServerOnlyTypes() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
 
         // spend 는 PURCHASE 만 허용하므로 BET_* 는 원래 걸리지만, 그 성질을 테스트로 못 박아 둔다.
         assertThatThrownBy(() ->
@@ -156,15 +157,15 @@ class InGameCurrencyServiceTest {
     void spendCurrencySuccess() {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(1000).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
         given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
 
         inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 300);
 
         assertThat(wallet.getBalance()).isEqualTo(700);
-        // 락 규율 (GROMO-1237): 돈이 움직이는 변경 트랜잭션은 공유 락 활성 조회 — 무락 findById 금지.
-        verify(userRepository).findActiveByIdForShare(USER_ID);
-        verify(userRepository, never()).findById(USER_ID);
+        // 락 규율 (GROMO-1237): 돈이 움직이는 변경 트랜잭션은 공유 락 활성 조회 — 무락·무필터 getAny 금지.
+        verify(userQueryService).getTargetForShare(USER_ID);
+        verify(userQueryService, never()).getAny(USER_ID);
 
         ArgumentCaptor<CurrencyTransaction> captor = ArgumentCaptor.forClass(CurrencyTransaction.class);
         verify(currencyTransactionRepository).save(captor.capture());
@@ -176,7 +177,7 @@ class InGameCurrencyServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void spendCurrencyUserNotFound() {
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getTargetForShare(USER_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() ->
                 inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 300))
@@ -189,7 +190,7 @@ class InGameCurrencyServiceTest {
     @DisplayName("사용 사유가 PURCHASE 아님 → CurrencyException(ILLEGAL_SPEND_REASON)")
     void spendCurrencyIllegalReason() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
 
         assertThatThrownBy(() ->
                 inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, 300))
@@ -206,7 +207,7 @@ class InGameCurrencyServiceTest {
     void spendCurrencyInsufficientBalance() {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(50).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
         given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
 
         assertThatThrownBy(() ->
@@ -223,7 +224,7 @@ class InGameCurrencyServiceTest {
     void spendCurrencyNonPositiveAmount() {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(1000).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
         given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
 
         assertThatThrownBy(() ->
