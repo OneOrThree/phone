@@ -118,7 +118,12 @@ test('기기 언어(ko)와 결과가 같은 선택은 저장은 하되 화면을
 });
 
 test('저장에 실패하면 언어를 바꾸지 않고 안내만 띄운다', async () => {
-  const setItem = jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+  // spyOn 금지 — AsyncStorage 목은 이미 jest.fn 이라 spyOn 이 같은 목을 돌려주고,
+  // 거기에 mockRestore 를 부르면 복원이 아니라 **구현을 벗겨버려** 이후 테스트의 저장이
+  // 조용히 no-op 이 된다(스위트에서만 깨지는 오염). Once 구현은 1회 뒤 자동 원복된다.
+  (AsyncStorage.setItem as jest.Mock).mockImplementationOnce(() =>
+    Promise.reject(new Error('disk full')),
+  );
 
   await renderScreen();
   await press('日本語');
@@ -132,7 +137,28 @@ test('저장에 실패하면 언어를 바꾸지 않고 안내만 띄운다', as
   expect(getLocale()).toBe('ko');
   expect(logLanguageChanged).not.toHaveBeenCalled();
   expect(mockReset).not.toHaveBeenCalled();
-  setItem.mockRestore();
+});
+
+test('명시 ko 저장 후에는 기기 언어(ko)와 같아도 한국어 라디오가 선택돼 있고, 기기 언어 따름으로 되돌릴 수 있다', async () => {
+  // 코드리뷰 회귀 잠금 — 적용 결과로 초기값을 역추론하면 명시 'ko'(기기도 ko)를
+  // 'system' 으로 오인해, 되돌리기 선택이 항상 현재값과 같아져 저장이 영구 비활성이 된다.
+  await AsyncStorage.setItem(STORAGE_KEYS.locale, 'ko');
+  applyLocalePref('ko');
+
+  await renderScreen();
+  // 초기 선택 = 명시 'ko' — 'system' 이 아니다.
+  expect(screen.getByTestId('settings.language.save')).toBeDisabled();
+  await press('기기 언어 따름');
+  expect(screen.getByTestId('settings.language.save')).toBeEnabled();
+  await save();
+
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.locale)).toBe('system');
+  expect(logLanguageChanged).toHaveBeenCalledWith({
+    app_language: 'system',
+    previous_app_language: 'ko',
+  });
+  // 기기가 ko 라 적용 언어는 그대로 — 홈으로 튕기지 않는다.
+  expect(mockReset).not.toHaveBeenCalled();
 });
 
 test('현재값과 같으면 저장 버튼이 비활성이라 눌러도 아무 일도 하지 않는다', async () => {

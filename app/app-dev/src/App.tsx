@@ -13,7 +13,7 @@ import {
   setLogoutHandler,
   setReloginHandler,
 } from '@/services/api';
-import { applyLocalePref, t } from '@/i18n';
+import { applyLocalePref, getLocale, t } from '@/i18n';
 import { setAccountSwitchHandler, logout } from '@/services/auth';
 import { initAnalytics } from '@/services/analytics';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
@@ -630,6 +630,26 @@ function App() {
 function OtaUpdateGateScreen({ progress }: { progress: number }) {
   useEffect(() => {
     markOtaSplashShown();
+  }, []);
+  // 이 화면은 HotUpdater.wrap 의 fallback 이라 **App 마운트 전**에 뜬다 — App 의 부팅 복원이
+  // 아직 안 돌아서 저장 언어를 여기서 직접 읽는다(코드리뷰 P2). 첫 프레임은 기기 언어로
+  // 나가고(AsyncStorage 가 비동기라 구조적), 읽히는 대로 새 언어로 다시 그린다.
+  // App 쪽 복원과 중복 실행돼도 무해 — applyLocalePref 는 멱등이다.
+  const [, forceRender] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(STORAGE_KEYS.locale)
+      .then((raw) => {
+        const before = getLocale();
+        applyLocalePref(raw);
+        if (!cancelled && getLocale() !== before) forceRender((n) => n + 1);
+      })
+      .catch(() => {
+        // 조회 실패 — 기기 언어 그대로 간다.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
   const caption = `${t('app.splashCaption')}${progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}`;
   return <BrandSplash caption={caption} />;

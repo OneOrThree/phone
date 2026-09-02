@@ -12,6 +12,7 @@ import { T } from '@/constants/theme';
 import {
   applyLocalePref,
   getLocale,
+  getLocalePref,
   resolveLocale,
   t,
   LOCALE_NAMES,
@@ -65,9 +66,11 @@ export default function LanguageScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { show } = useToast();
 
-  // 초기값은 지금 적용 중인 상태에서 되읽는다 — 부팅 때 App.tsx 가 이미 저장값을 적용했고,
-  // 저장값이 없었으면 getLocale() 이 기기 언어와 같으므로 'system' 으로 보인다.
-  const initial = getLocale() === resolveLocale() ? 'system' : getLocale();
+  // 초기값은 **설정값**에서 읽는다(getLocalePref) — 적용 결과(getLocale)로 역추론하면
+  // 명시 'ko' + 기기 ko 인 사용자를 'system' 으로 오인해, '기기 언어 따름'으로
+  // 되돌아갈 길이 사라진다(선택이 항상 현재값과 같아 저장이 비활성 — 코드리뷰).
+  // 부팅 때 App.tsx 의 applyLocalePref 가 저장값을 이미 정규화해 뒀다.
+  const initial = getLocalePref();
   // selected = 라디오에서 고른 값(아직 적용 전), applied = 실제 적용돼 있는 값.
   // 둘을 나눠 들고 있어야 '고른 게 현재와 같으면 저장 비활성'을 판단할 수 있다.
   const [selected, setSelected] = useState<LocalePref>(initial);

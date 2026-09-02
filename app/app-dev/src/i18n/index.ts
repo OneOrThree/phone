@@ -53,8 +53,18 @@ export function resolveLocale(): SupportedLocale {
 let current: SupportedLocale = resolveLocale();
 i18n.locale = current;
 
+// 사용자가 고른 설정값(정규화 후). 적용 언어(current)와 별개로 들고 있어야 한다 —
+// 명시 'ko' 와 기기 언어 ko 는 적용 결과가 같아서, 결과로부터는 설정을 복원할 수 없다.
+// (결과로 역추론하면 명시 'ko' 사용자가 '기기 언어 따름'으로 되돌아갈 길이 없어진다 — 코드리뷰)
+let currentPref: LocalePref = 'system';
+
 export function getLocale(): SupportedLocale {
   return current;
+}
+
+// 지금 적용돼 있는 설정값. 부팅 시 App.tsx 의 applyLocalePref 가 채운다.
+export function getLocalePref(): LocalePref {
+  return currentPref;
 }
 
 // 저장된 설정값을 적용한다. null·미지원 문자열은 전부 'system'(기기 언어 따름)으로 본다.
@@ -68,6 +78,7 @@ export function applyLocalePref(raw: string | null | undefined): LocalePref {
     raw && (SUPPORTED_LOCALES as readonly string[]).includes(raw)
       ? (raw as SupportedLocale)
       : 'system';
+  currentPref = pref;
   current = pref === 'system' ? resolveLocale() : pref;
   i18n.locale = current;
   return pref;
