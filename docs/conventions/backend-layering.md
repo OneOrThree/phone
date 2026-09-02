@@ -127,6 +127,7 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 | `analytics/domain/` 이 `repository/domain/` 이 아님 | analytics 는 영속성이 없다(repository 자체가 없음). 없는 계층 아래에 넣을 수 없다. **영속성 없는 도메인은 `domain/` 을 쓴다.** |
 | `common/api/HealthController` | 도메인 밖 유일한 컨트롤러. 헬스체크는 소유 도메인이 없고, 이것 하나 때문에 도메인을 신설할 이유가 없다 |
 | `bot/` 에 컨트롤러·dto·exception 없음 | 외부 API 표면이 없는 내부 시뮬레이터다. 없는 계층을 억지로 만들지 않는다 |
+| `support/` 가 `service/` 의 static 메서드 호출 | `GroupBetSessionFactory` → `WindowFocusAggregator.windowStartOn/windowEndOn`. 주입이 없어 배치 기준상 `support/` 가 맞지만 컴파일 타임 `support → service` 방향이 생긴다. 런타임 빈 의존이 아니라 순환·트랜잭션 문제는 없다. **ArchUnit 규칙(GROMO-1662) 도입 시 이 방향을 예외로 명시할 것** |
 | `auth/` 에 `repository/`·`domain/` 없음 | 인증은 `user` 도메인의 데이터를 쓴다. 자기 테이블이 없다 (다만 현재 user repository 를 직접 주입하고 있어 GROMO-1655 대상) |
 
 ---
@@ -148,16 +149,21 @@ GROMO-1654 직전 커밋이 정확히 이 함정에 빠졌다. `<domain>/domain/
 grep -rn "com\.oneorthree\.phone\.<도메인>\.<옛경로>\." src/main src/test
 ```
 
-FQCN 이 문자열로 박히는 자리는 저장소 전체에서 두 종류뿐이다:
+FQCN·클래스명이 문자열이나 문서 참조로 박히는 자리는 세 종류다:
 
 1. **`@Query` JPQL 의 enum 리터럴** — JPQL 은 enum 을 FQCN 으로 쓴다
 2. **`src/main/resources/logback-spring.xml`** 의 `converterClass`
    (현재 `common/logging/MaskingConverter` 하나)
+3. **Javadoc `{@link}`** — 같은 패키지라 짧은 이름으로 걸려 있던 링크는 패키지가 갈리는
+   순간 끊긴다. `compileJava`·`checkstyleMain`·테스트가 **전부 초록인 채 통과**하므로
+   `./gradlew javadoc` 을 돌려야만 드러난다(CI 는 이 태스크를 돌지 않는다). 해소는 javadoc
+   전용 import 로 한다 — Checkstyle `UnusedImports` 는 이를 미사용으로 잡지 않는다
 
 `@ComponentScan`·`basePackages`·`@EntityScan`·`@EnableJpaRepositories` 는 한 곳도
 없다 — `PhoneApplication` 기준 기본 스캔이라 `com.oneorthree.phone` 아래면 잡힌다.
 
-**컴파일만으로 끝내지 마라.** 컨텍스트가 실제로 뜨는지는 테스트를 돌려야 안다.
+**컴파일만으로 끝내지 마라.** 컨텍스트가 실제로 뜨는지는 테스트를, 문서 참조가 살아
+있는지는 `./gradlew javadoc` 을 돌려야 안다.
 
 ### 패키지가 갈리면 가시성도 갈린다
 

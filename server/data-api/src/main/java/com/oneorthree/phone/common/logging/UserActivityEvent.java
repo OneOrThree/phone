@@ -17,7 +17,11 @@ public enum UserActivityEvent implements ActivityEvent {
     FOCUS_SESSION_COMPLETED("focus_session_completed", "focus"),
     /** 사용자가 집중 태그를 직접 만들었다. 직군 기본 태그 자동 생성은 제외. */
     FOCUS_TAG_CREATED("focus_tag_created", "focus"),
-    /** 연속 달성일이 갱신됐다 — 늘어난 경우만이고 끊긴 초기화는 포함하지 않는다. */
+    /**
+     * 연속 달성일이 <b>변했다</b> — 늘어난 경우(extended)뿐 아니라 <b>끊겨 1로 초기화된 경우
+     * (reset)와 소급 보정(backfilled)도 포함</b>한다. {@code UserStreakService} 는 변화 종류를
+     * 가리지 않고 발행하므로, 증가만 세려면 소비 측에서 change 값으로 걸러야 한다.
+     */
     STREAK_UPDATED("streak_updated", "focus"),
     /** 그날 집중 목표 시간에 도달했다. 하루 한 번만 발행된다. */
     DAILY_FOCUS_GOAL_ACHIEVED("daily_focus_goal_achieved", "focus"),
