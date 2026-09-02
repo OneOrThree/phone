@@ -936,6 +936,17 @@ export function logOccupationUpdated(): void {
   track('occupation_updated');
 }
 
+// 서버 occupation 동기화(PATCH /users/me/occupation) 실패 — 예전엔 catch로 조용히 삼켜서
+// users.occupation 이 NULL로 남는 걸 아무도 몰랐다(GROMO-1620/1624).
+// 파라미터명이 request_source인 이유: 'source'는 공통 파라미터(클라/서버 출처 'client')와
+// 겹쳐 금지이고(위 logFriendRequestSent 주석), request_source는 GA4 맞춤측정기준에 이미 등록돼
+// 있어 추가 등록 없이 바로 쪼개 볼 수 있다.
+export type OccupationSyncSource = 'onboarding' | 'settings' | 'recovery';
+
+export function logOccupationSyncFailed(p: { request_source: OccupationSyncSource }): void {
+  track('occupation_sync_failed', p);
+}
+
 export function logAllowedAppsUpdated(p: { app_count: number }): void {
   track('allowed_apps_updated', p);
 }

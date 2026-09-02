@@ -12,7 +12,7 @@ import type { StepProps } from '@/screens/onboarding/types';
 // 개별 행이 버튼처럼 보인다는 피드백(GROMO-821) — 카드를 낱개로 쪼개지 않고 한 박스
 // 안에 행을 나열하고 ▶아이콘·굵은 강조를 덜어, '누르는 버튼'이 아닌 정보 리스트로 읽히게 한다.
 export default function SubjectEditStep({ data, onNext }: StepProps) {
-  const category = data.focusCategory ?? t('onboarding.subjectEdit.categoryFallback');
+  const category = data.focusCategoryLabel ?? t('onboarding.subjectEdit.categoryFallback');
   const subjects = data.subjects;
 
   return (

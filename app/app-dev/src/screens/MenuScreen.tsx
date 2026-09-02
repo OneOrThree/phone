@@ -13,6 +13,7 @@ import { useUser } from '@/store/UserContext';
 import { useCharacter } from '@/store/CharacterContext';
 import { useCoins, useRefreshCoinsOnFocus } from '@/store/CoinContext';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
+import { useOccupationName } from '@/services/occupationCatalog';
 import { STORAGE_KEYS } from '@/types/storage';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
@@ -230,7 +231,7 @@ function BucketDebugPanel() {
 
 export default function MenuScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
+  const { nickname, goalSeconds, screenTimeGoalSeconds, occupation } = useUser();
   // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
   const { activeSource } = useCharacter();
   const insets = useSafeAreaInsets();
@@ -239,7 +240,8 @@ export default function MenuScreen() {
   useRefreshCoinsOnFocus();
 
   // 허브 행 우측 요약값 — 준비 시험 / 허용앱 개수 / 스크린타임 권한 상태.
-  const [category, setCategory] = useState<string | null>(null); // 준비 시험(focusCategory)
+  // 준비 시험 — 서버 프로필이 정본(GROMO-1624), 화면 표기는 그 code의 서버 표시명
+  const examName = useOccupationName(occupation);
   const [allowedApps, setAllowedApps] = useState<number | null>(null);
   const [permission, setPermission] = useState<'approved' | 'denied' | 'notDetermined' | null>(
     null,
@@ -267,9 +269,6 @@ export default function MenuScreen() {
       ScreenTimeModule.getAuthorizationStatus()
         .then((st) => !cancelled && setPermission(st))
         .catch(() => !cancelled && setPermission(null));
-      AsyncStorage.getItem(STORAGE_KEYS.focusCategory)
-        .then((c) => !cancelled && setCategory(c))
-        .catch(() => {});
       // 연속 공부 일수(GROMO-630) — 재진입마다 최신화.
       getStreak()
         .then((v) => !cancelled && setStreakDays(v.currentStreak))
@@ -339,7 +338,9 @@ export default function MenuScreen() {
               )}
             </View>
             <Text style={s.profileSub} numberOfLines={1}>
-              {category ? t('menu.profile.preparing', { category }) : t('menu.profile.edit')}
+              {examName
+                ? t('menu.profile.preparing', { category: examName })
+                : t('menu.profile.edit')}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={T.inkMuted} />
@@ -417,7 +418,7 @@ export default function MenuScreen() {
               iconColor={T.accentDeep}
               iconBg={T.accentBg}
               label={t('menu.goal.occupation')}
-              value={category ?? t('menu.goal.occupationUnset')}
+              value={examName ?? t('menu.goal.occupationUnset')}
               onPress={() => navigation.navigate('SettingsOccupation')}
             />
           </SettingsSection>

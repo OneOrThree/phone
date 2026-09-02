@@ -2,13 +2,17 @@
 // 빈 상태 3분기(친구 없음/준비 시험 미설정/조회 실패)와 정상 바 렌더.
 // 주 탭도 평균 집계 API 기반 ComparePeriod로 통합(GROMO-1632 — CompareWeek 폐지).
 // 평균 조회는 compareAverages 목으로, 화면 포커스 재조회(useFocusEffect)는 useEffect로 대체한다.
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { render, screen, userEvent } from '@testing-library/react-native';
 import { ComparePeriod } from './Compare';
-import { STORAGE_KEYS } from '@/types/storage';
 import { fetchFriendsAverage, fetchFocusAverage } from '@/services/compareAverages';
 
 jest.mock('@/services/compareAverages');
+// 준비 시험은 서버 프로필이 정본이라 UserContext에서 온다 — 표시명은 서버 카탈로그 몫.
+let mockOccupation: string | null = null;
+jest.mock('@/store/UserContext', () => ({ useUser: () => ({ occupation: mockOccupation }) }));
+jest.mock('@/services/occupationCatalog', () => ({
+  useOccupationName: (code: string | null) => (code === 'CSAT' ? '수능·N수' : null),
+}));
 jest.mock('@/services/analyticsEvents', () => ({
   logStatsCompareAxisChanged: jest.fn(),
 }));
@@ -27,11 +31,11 @@ beforeEach(() => {
   // 기본값: 모든 축 빈 상태(집계 대상 없음) — 각 테스트가 필요한 축만 덮어쓴다
   mockFriends.mockResolvedValue({ avg: null, count: 0 });
   mockFocusAvg.mockResolvedValue({ avg: null, count: 0 });
+  mockOccupation = null; // 기본은 준비 시험 미설정
 });
 
-afterEach(async () => {
+afterEach(() => {
   jest.clearAllMocks();
-  await AsyncStorage.clear();
 });
 
 describe('ComparePeriod (주 탭 — 평균 집계 API 기반, GROMO-1632)', () => {
@@ -95,7 +99,7 @@ describe('ComparePeriod (일/월 탭 — 평균 집계 API 기반)', () => {
 
   test('카테고리 축 — 설정돼 있으면 같은 count 0이라도 기록 없음 안내', async () => {
     const user = userEvent.setup();
-    await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, '수능');
+    mockOccupation = 'CSAT';
     mockFocusAvg.mockImplementation((scope: string) =>
       Promise.resolve(scope === 'TOTAL' ? { avg: 60, count: 3 } : { avg: null, count: 0 }),
     );
@@ -105,15 +109,15 @@ describe('ComparePeriod (일/월 탭 — 평균 집계 API 기반)', () => {
     expect(await screen.findByText('오늘 같은 카테고리 기록이 아직 없어요')).toBeOnTheScreen();
   });
 
-  test('카테고리 축 정상 — 설정된 카테고리명으로 평균 라벨 표기', async () => {
+  test('카테고리 축 정상 — 설정된 시험 표시명으로 평균 라벨 표기', async () => {
     const user = userEvent.setup();
-    await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, '수능');
+    mockOccupation = 'CSAT';
     mockFocusAvg.mockImplementation((scope: string) =>
       Promise.resolve(scope === 'CATEGORY' ? { avg: 45, count: 5 } : { avg: null, count: 0 }),
     );
     await render(<ComparePeriod period="DAY" myMinutes={30} />);
     await user.press(screen.getByText('같은 카테고리'));
-    expect(await screen.findByText('수능 평균')).toBeOnTheScreen();
+    expect(await screen.findByText('수능·N수 평균')).toBeOnTheScreen();
     expect(screen.getByText('00:45:00')).toBeOnTheScreen(); // 평균 45분
   });
 });

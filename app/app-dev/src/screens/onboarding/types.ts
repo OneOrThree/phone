@@ -1,13 +1,16 @@
 import type { LoginResult } from '@/types/api';
+import type { Occupation } from '@/types/dto/user';
 
 // v2 신규 유저 온보딩(V3 재구성)이 수집하는 데이터.
 // 서버 계약(@/types/api OnboardingData)과의 매핑:
 //  - usageGoalMinutes  → dailyScreenTimeGoalMinutes (서버 있음)
 //  - dailyFocusMinutes → dailyFocusTimeGoalMinutes  (서버 있음)
 //  - nickname          → nickname                   (서버 있음)
-//  - focusCategory / subjects 는 서버 계약 미정(신규 필드) — 로컬 보관, 백엔드 협의 대상.
+//  - focusCategory        → occupation (PATCH /users/me/occupation)
+//  - subjects 는 서버 계약 미정(신규 필드) — 로컬 보관, 백엔드 협의 대상.
 export interface V2OnboardingData {
-  focusCategory: string | null; // 집중 카테고리 선택(리그 매칭용)
+  focusCategory: Occupation | null; // 준비 시험 code — 정본(리그 매칭·서버 occupation)
+  focusCategoryLabel: string | null; // 선택 시점의 서버 표시명 — 이후 스텝 문구·구 저장 키용
   subjects: string[]; // 과목 확인·편집 결과
   guessedYesterdayMinutes: number | null; // 어제 사용 자가 추측(분) — 현재 플로우 미수집(스텝 보류)
   screenTimeGranted: boolean | null; // 스크린타임 권한 결과 (null=아직 안 물어봄)
@@ -23,6 +26,7 @@ export interface V2OnboardingData {
 
 export const INITIAL_ONBOARDING_DATA: V2OnboardingData = {
   focusCategory: null,
+  focusCategoryLabel: null,
   subjects: [],
   guessedYesterdayMinutes: null,
   screenTimeGranted: null,
