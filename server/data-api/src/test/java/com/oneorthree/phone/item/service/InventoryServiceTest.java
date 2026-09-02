@@ -8,7 +8,7 @@ import com.oneorthree.phone.item.repository.ItemRepository;
 import com.oneorthree.phone.item.repository.UserItemRepository;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -35,7 +35,7 @@ public class InventoryServiceTest {
     private InventoryService inventoryService;
 
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
 
     @Mock
     private ItemRepository itemRepository;
@@ -52,7 +52,7 @@ public class InventoryServiceTest {
     void getInventorySuccess() {
         // given
         User user = User.builder().nickname("테스터").build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTarget(USER_ID)).willReturn(user);
         given(userItemRepository.findByUser(user)).willReturn(List.of());
 
         // when
@@ -67,7 +67,7 @@ public class InventoryServiceTest {
     @DisplayName("존재하지 않는(또는 탈퇴한) 유저 인벤토리 조회 시 UserException NOT_FOUND (GROMO-1237 예외 통일)")
     void getInventoryFailUserNotFound() {
         // given
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID_99)).willReturn(Optional.empty());
+        given(userQueryService.getTarget(USER_ID_99)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> inventoryService.getInventory(USER_ID_99))
@@ -83,7 +83,7 @@ public class InventoryServiceTest {
         User user = User.builder().nickname("테스터").build();
         Item item = Item.builder().name("모자").slotType(SlotType.HAIR).grade("COMMON").build();
         // GROMO-1237: 지급(변경) 경로는 공유 락 활성 조회를 쓴다(락 규율).
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
         given(itemRepository.findById(ITEM_ID)).willReturn(Optional.of(item));
 
         // when

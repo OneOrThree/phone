@@ -12,9 +12,7 @@ import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -40,7 +38,7 @@ import java.util.UUID;
 @Service
 public class ScreenTimeService {
 
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final ScreenTimeNotificationPort notificationPort;
     private final UserActivityEventLogger userActivityEventLogger;
@@ -55,7 +53,7 @@ public class ScreenTimeService {
     /**
      * 의존성을 주입받는다.
      *
-     * @param userRepository                  요청자 활성 검증용
+     * @param userQueryService                요청자 활성 검증 — 유저 단건 조회의 단일 진입점
      * @param dailyScreenTimeStatRepository   일별 집계 저장소
      * @param notificationPort                목표 달성 알림 발사구
      * @param userActivityEventLogger         달성 이벤트 로깅
@@ -64,14 +62,14 @@ public class ScreenTimeService {
      * @param self                            자기 자신 프록시. 유니크 위반 재시도를 새 트랜잭션으로
      *                                        열기 위한 것이라 {@code @Lazy} 로 순환 주입을 피한다
      */
-    public ScreenTimeService(UserRepository userRepository,
+    public ScreenTimeService(UserQueryService userQueryService,
                              DailyScreenTimeStatRepository dailyScreenTimeStatRepository,
                              ScreenTimeNotificationPort notificationPort,
                              UserActivityEventLogger userActivityEventLogger,
                              UserScreenTimeSettingsRepository userScreenTimeSettingsRepository,
                              CurrencyLedgerService currencyLedgerService,
                              @Lazy ScreenTimeService self) {
-        this.userRepository = userRepository;
+        this.userQueryService = userQueryService;
         this.dailyScreenTimeStatRepository = dailyScreenTimeStatRepository;
         this.notificationPort = notificationPort;
         this.userActivityEventLogger = userActivityEventLogger;
@@ -180,8 +178,7 @@ public class ScreenTimeService {
      * 거절한다. 쓰기 트랜잭션({@code @Transactional})을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        return userQueryService.getTargetForShare(userId);
     }
 
     /**

@@ -11,9 +11,7 @@ import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.item.repository.ItemRepository;
 import com.oneorthree.phone.item.repository.UserItemRepository;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -36,7 +34,7 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class EquipmentService {
 
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final ItemRepository itemRepository;
     private final UserItemRepository userItemRepository;
     private final CharacterEquipmentRepository characterEquipmentRepository;
@@ -52,8 +50,7 @@ public class EquipmentService {
     public List<CharacterEquipmentResponse> getEquipment(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
         // 예외도 변경 경로와 동일하게 UserException(NOT_FOUND, 404)으로 통일.
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User user = userQueryService.getTarget(userId);
         return characterEquipmentRepository.findByUser(user)
                 .stream()
                 .map(CharacterEquipmentResponse::from)
@@ -139,7 +136,6 @@ public class EquipmentService {
      * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        return userQueryService.getTargetForShare(userId);
     }
 }
