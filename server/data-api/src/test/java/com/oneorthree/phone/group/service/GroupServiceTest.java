@@ -1541,15 +1541,17 @@ class GroupServiceTest {
         // 문자열로만 분기하므로(GlobalExceptionHandler 가 enum name() 을 그대로 싣는다)
         // enum 상수가 아니라 name() 을 단언한다 — 이름이 바뀌면 앱 분기가 조용히 죽는다.
 
-        // (1) 유저 부재 — 재로그인만이 탈출구다
-        given(userQueryService.getCallerForShare(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+        // (1) 유저 부재 → (2) 유저 존재 를 한 스텁에 이어 둔다. 이미 던지도록 스텁된 메서드를
+        // given(mock.method(...)) 로 재스텁하면 그 줄이 메서드를 호출해 예외가 터진다(Mockito).
+        given(userQueryService.getCallerForShare(USER_ID))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND))
+                .willReturn(normalUser());
         Throwable userThrown = catchThrowable(
                 () -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()));
         assertThat(userThrown).isInstanceOf(UserException.class);
         UserException userAbsent = (UserException) userThrown;
 
         // (2) 그룹 부재 — 같은 엔드포인트, 같은 404, 다른 결론("사라진 그룹")
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
         Throwable groupThrown = catchThrowable(
                 () -> groupService.joinGroup(GROUP_ID_99, USER_ID, new JoinGroupRequest()));
