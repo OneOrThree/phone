@@ -8,6 +8,7 @@
 import { track, setUserProperty } from '@/services/analytics';
 import type { FocusEntrySource } from '@/services/cardInteraction';
 import type { InquiryCategoryId } from '@/constants/inquiryContacts';
+import type { Occupation } from '@/types/dto/user';
 
 // 로그인/가입 수단
 export type AuthMethod = 'kakao' | 'apple' | 'google' | 'line' | 'facebook' | 'guest';
@@ -95,9 +96,12 @@ export function logOnboardingStepAction(p: {
   track('onboarding_step_action', p);
 }
 
-// W4 집중 카테고리(목표) 선택 제출 🆕
-// category: 선택한 카테고리 표시명 — 제출 사실만 알던 것을 '무엇을 골랐는지'까지 넓힌다(GROMO-1605).
-export function logOnboardingFocusCategorySubmitted(p: { category: string }): void {
+// W4 집중 카테고리(목표) 선택 제출 — 제출 사실만 알던 것을 '무엇을 골랐는지'까지 넓힌다(GROMO-1605).
+// category: occupation **code**(예: 'CSAT'). GROMO-1624에서 표시명 → code로 전환 —
+// i18n(GROMO-1704) 이후 표시명은 기기 언어에 따라 갈라져('수능·N수' vs 'College Entrance Exam')
+// 같은 직군이 언어별로 쪼개지므로 로케일 무관한 code가 집계 축으로 옳다. 전환 전후로 두 표기가
+// 섞이는 기간이 있다(전환 배포일은 개발 예정 노트에 기록 — GA4 탐색 필터 손질용).
+export function logOnboardingFocusCategorySubmitted(p: { category: Occupation }): void {
   track('onboarding_focus_category_submitted', { step_index: 4, ...p });
 }
 
