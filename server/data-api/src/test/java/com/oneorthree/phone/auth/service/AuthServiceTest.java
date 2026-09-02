@@ -502,7 +502,7 @@ class AuthServiceTest {
         given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
         // 판별 조회는 무락 findByIdAndIsDeletedFalse — 락을 잡으면 users 2행 잠금이 되어 교착 논증이 깨진다
-        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(promotedUser));
+        given(userQueryService.findActive(GUEST_ID)).willReturn(Optional.of(promotedUser));
 
         assertThatThrownBy(() ->
                 authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
@@ -532,7 +532,7 @@ class AuthServiceTest {
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
-        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(promotedUser));
+        given(userQueryService.findActive(GUEST_ID)).willReturn(Optional.of(promotedUser));
         given(userQueryService.getTargetForUpdate(GUEST_ID)).willReturn(promotedUser);
         given(jwtProvider.generateAccessToken(GUEST_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(GUEST_ID, false)).willReturn("refresh-token");
@@ -565,7 +565,7 @@ class AuthServiceTest {
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
-        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(promotedUser));
+        given(userQueryService.findActive(GUEST_ID)).willReturn(Optional.of(promotedUser));
 
         assertThatThrownBy(() ->
                 authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
@@ -669,7 +669,7 @@ class AuthServiceTest {
         given(jwtProvider.extractIsGuest("deleted-guest-jwt")).willReturn(true);
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
         // 판별 조회가 탈퇴(소프트딜리트)를 관측 — 승격 경쟁 패자가 아니라 탈퇴 게스트의 재가입이다
-        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.empty());
+        given(userQueryService.findActive(GUEST_ID)).willReturn(Optional.empty());
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);

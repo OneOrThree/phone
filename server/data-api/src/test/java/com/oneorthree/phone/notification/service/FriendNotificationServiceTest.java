@@ -73,7 +73,7 @@ class FriendNotificationServiceTest {
     private void givenBothUsersExist() {
         given(userQueryService.findActive(RECIPIENT_ID))
                 .willReturn(Optional.of(user(RECIPIENT_ID, "받는사람")));
-        given(userRepository.findById(COUNTERPART_ID))
+        given(userQueryService.findActive(COUNTERPART_ID))
                 .willReturn(Optional.of(user(COUNTERPART_ID, "보낸사람")));
     }
 
@@ -270,7 +270,7 @@ class FriendNotificationServiceTest {
         givenRequestStillPending();
         given(userQueryService.findActive(RECIPIENT_ID))
                 .willReturn(Optional.of(user(RECIPIENT_ID, "받는사람")));
-        given(userRepository.findById(COUNTERPART_ID)).willReturn(Optional.empty());
+        given(userQueryService.findActive(COUNTERPART_ID)).willReturn(Optional.empty());
 
         service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
@@ -283,7 +283,7 @@ class FriendNotificationServiceTest {
         givenRequestStillPending();
         given(userQueryService.findActive(RECIPIENT_ID))
                 .willReturn(Optional.of(user(RECIPIENT_ID, "받는사람")));
-        given(userRepository.findById(COUNTERPART_ID))
+        given(userQueryService.findActive(COUNTERPART_ID))
                 .willReturn(Optional.of(user(COUNTERPART_ID, "보낸사람")));
         given(userNotificationSettingsRepository.findById(RECIPIENT_ID))
                 .willReturn(Optional.of(UserNotificationSettings.builder()

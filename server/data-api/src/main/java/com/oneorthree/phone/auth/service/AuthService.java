@@ -348,7 +348,7 @@ public class AuthService {
      */
     private boolean isConcurrentlyPromotedGuest(UUID currentUserId, Boolean callerGuestClaim) {
         return Boolean.TRUE.equals(callerGuestClaim) && currentUserId != null
-                && userRepository.findByIdAndIsDeletedFalse(currentUserId)
+                && userQueryService.findActive(currentUserId)
                         .filter(caller -> !caller.isGuest())
                         .isPresent();
     }
