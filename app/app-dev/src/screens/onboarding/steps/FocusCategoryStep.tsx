@@ -5,7 +5,7 @@ import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { hapticLight } from '@/utils/haptics';
 import { OCCUPATION_GROUPS, getDefaultSubjects } from '@/constants/focusCategories';
-import { loadOccupations } from '@/services/occupationCatalog';
+import { displayNameOf, loadOccupations } from '@/services/occupationCatalog';
 import { getDefaultTags } from '@/services/focusApi';
 import {
   logOnboardingFocusCategorySubmitted,
@@ -103,6 +103,9 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
               <View style={s.chips}>
                 {items.map((o) => {
                   const on = selected === o.code;
+                  // 표시명은 앱 i18n 우선(displayNameOf) — 서버 displayName 을 직접 그리면
+                  // en·ja·zh-Hant 온보딩에서 시험 칩만 한국어로 남는다(코드리뷰).
+                  const label = displayNameOf(occupations, o.code) ?? o.displayName;
                   return (
                     <TouchableOpacity
                       key={o.code}
@@ -120,14 +123,15 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
                           });
                           update({
                             focusCategory: o.code,
-                            focusCategoryLabel: o.displayName,
+                            // 라벨도 번역된 표시명으로 — SubjectEditStep·LiveRankingStep 문구에 그대로 흐른다.
+                            focusCategoryLabel: label,
                             subjects: [],
                           });
                         }
                       }}
                       style={[s.chip, on ? s.chipOn : null]}
                     >
-                      <Text style={[s.chipText, on ? s.chipTextOn : null]}>{o.displayName}</Text>
+                      <Text style={[s.chipText, on ? s.chipTextOn : null]}>{label}</Text>
                     </TouchableOpacity>
                   );
                 })}
