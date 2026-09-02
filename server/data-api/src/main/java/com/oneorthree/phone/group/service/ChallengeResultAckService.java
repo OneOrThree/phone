@@ -8,9 +8,8 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository.ClaimStateView;
 import com.oneorthree.phone.notification.service.BetEventNotificationService;
-import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.fasterxml.uuid.Generators;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -59,7 +58,7 @@ public class ChallengeResultAckService {
      */
     static final Duration DISPLAY_CLAIM_LEASE = Duration.ofMinutes(2);
 
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final BetEventNotificationService betEventNotificationService;
 
@@ -227,7 +226,6 @@ public class ChallengeResultAckService {
 
     /** 조회 축과 같은 락 없는 활성 검증(GROMO-1230) — 잠글 대상은 참가 행이지 유저 행이 아니다. */
     private void requireActiveUser(UUID userId) {
-        userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        userQueryService.getCaller(userId);
     }
 }

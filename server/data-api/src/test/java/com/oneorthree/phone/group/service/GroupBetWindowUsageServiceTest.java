@@ -21,7 +21,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -61,7 +61,7 @@ class GroupBetWindowUsageServiceTest {
     private GroupBetWindowUsageService groupBetWindowUsageService;
 
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
     @Mock
     private GroupRepository groupRepository;
     @Mock
@@ -105,7 +105,7 @@ class GroupBetWindowUsageServiceTest {
      */
     private GroupChallenge givenMemberWithChallenge(User user, Group group, MissionCategory category,
             MissionType type) {
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(GroupMember.builder()
@@ -153,7 +153,7 @@ class GroupBetWindowUsageServiceTest {
         // given: 시작된 OPEN 회차의 참가자
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600));
@@ -178,7 +178,7 @@ class GroupBetWindowUsageServiceTest {
         // given: join-week 로 예약만 된 미래 회차
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         GroupChallengeBetSession reserved =
@@ -202,7 +202,7 @@ class GroupBetWindowUsageServiceTest {
         // given: 잠금 대기 중 정산이 끝난 상태 — 잠금 이후 재조회가 SETTLED 를 본다
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         Instant startsAt = Instant.now().minusSeconds(7200);
@@ -243,7 +243,7 @@ class GroupBetWindowUsageServiceTest {
         // given: 멤버십 조회조차 하지 않는다(참가자 축으로 통과)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(600));
@@ -267,7 +267,7 @@ class GroupBetWindowUsageServiceTest {
         // given
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
@@ -364,7 +364,7 @@ class GroupBetWindowUsageServiceTest {
     void reportAllowsGuest() {
         // 게스트가 내기엔 참가되는데 진행분 보고만 403 이면 자동 실패로 판돈만 잃는다 —
         // 그룹 도메인 게스트 차단 전면 해제(GROMO-1509)에 이 경로도 포함된 이유다.
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest()));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest());
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
@@ -381,7 +381,7 @@ class GroupBetWindowUsageServiceTest {
         // given: 챌린지 조회가 비어 있다(soft delete 포함)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(GroupMember.builder()
@@ -405,7 +405,7 @@ class GroupBetWindowUsageServiceTest {
         // given: 창이 열린 뒤 미참가 시절(5분 전)에 잰 값 — 그 사이 참가가 먼저 커밋됐다(1분 전)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         givenParticipantOn(session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600)),
@@ -427,7 +427,7 @@ class GroupBetWindowUsageServiceTest {
         // given: 5분 전 참가, 1분 전 측정
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600));
@@ -451,7 +451,7 @@ class GroupBetWindowUsageServiceTest {
         // given
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         givenParticipantOn(session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600)));
@@ -566,7 +566,7 @@ class GroupBetWindowUsageServiceTest {
         // given: 30일 전 날짜에 시작된 OPEN 회차가 있고 나는 그 회차 참가자다
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         LocalDate stale = LocalDate.now(KST).minusDays(30);

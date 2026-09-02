@@ -30,9 +30,7 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -75,7 +73,7 @@ public class GroupChallengeService {
 
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
     private final GroupChallengeWindowRepository groupChallengeWindowRepository;
@@ -130,8 +128,7 @@ public class GroupChallengeService {
      */
     public List<GroupChallengeResponse> getChallenges(UUID groupId, UUID userId, LocalDate date) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        User user = userQueryService.getCaller(userId);
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -849,7 +846,6 @@ public class GroupChallengeService {
      * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        return userQueryService.getCallerForShare(userId);
     }
 }
