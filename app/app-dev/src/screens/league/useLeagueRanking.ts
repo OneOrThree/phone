@@ -163,11 +163,14 @@ export function useLeagueRanking() {
     }, [refetch]),
   );
 
-  // 리그 라벨 — 직군 데이터일 때 그 code의 표시명. 표시명 미해결(카탈로그·i18n 부재)이면 null로
-  // 라벨 없이 그리되, 데이터는 여전히 직군 랭킹이다(전체 리그로 오인 금지 — 아래 파생이 근거).
+  // 리그 라벨 — 직군 데이터일 때 **그 데이터를 조회한 code**(forOccupation)의 표시명.
+  // 현재 프로필(myOccupation)이 아니라 데이터 쪽 code에서 파생해야, 설정에서 시험을 바꾸고
+  // 돌아온 직후 새 조회가 끝나기 전까지 남아 있는 이전 시험 응답에 새 시험명이 붙지 않는다
+  // (PR 713 코덱스 2R). 표시명 미해결(카탈로그·i18n 부재)이면 null로 라벨 없이 그린다.
+  const stateOccupationName = useOccupationName(state?.forOccupation ?? null);
   const myLeagueLabel =
     state != null && !state.usedGlobalFallback && state.forOccupation != null
-      ? myOccupationName
+      ? stateOccupationName
       : null;
 
   // 데이터 없으면 빈 배열. 라벨이 뒤늦게 해석되면 여기서만 다시 계산된다(재조회 없음).
