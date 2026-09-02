@@ -5,9 +5,8 @@ import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.user.repository.domain.StatVisibility;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -23,7 +22,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class StatViewPolicy {
 
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final FriendshipRepository friendshipRepository;
 
     /**
@@ -42,7 +41,8 @@ public class StatViewPolicy {
      * @param callerId 호출자(로그인 유저) UUID
      * @param friends  조회 대상 친구 UUID (null 또는 self 이면 self)
      * @return 실제 통계 집계 대상 userId
-     * @throws UserException   대상/호출자 User 미존재 (NOT_FOUND)
+     * @throws UserException   호출자 계정이 없거나 탈퇴(USER_NOT_FOUND) · 대상이 없거나 탈퇴(NOT_FOUND).
+     *                         GROMO-1655 전에는 탈퇴 유저도 통과했다
      * @throws FriendException 친구도 아니고 대상 공개범위도 PUBLIC 이 아님 (NOT_FRIEND)
      */
     public UUID resolveTargetUserId(UUID callerId, UUID friends) {
@@ -51,10 +51,11 @@ public class StatViewPolicy {
         if (friends == null || friends.equals(callerId)) {
             return callerId;
         }
-        User caller = userRepository.findById(callerId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        User friend = userRepository.findById(friends)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        // GROMO-1655: 종전 무필터 findById 를 계층 조회로 접었다 — 탈퇴 유저가 요청자든 대상이든
+        // 이제 404 다(오너 승인 동작 변경). callerId 는 요청자라 USER_NOT_FOUND, friends 는 요청이
+        // 지목한 대상이라 NOT_FOUND 로 갈린다.
+        User caller = userQueryService.getCaller(callerId);
+        User friend = userQueryService.getTarget(friends);
         // ACCEPTED 친구관계면 대상 공개범위와 무관하게 허용
         boolean accepted = friendshipRepository.findAcceptedBetween(caller, friend).isPresent();
         // PUBLIC 은 친구가 아니어도 열람 허용 (GROMO-623). FRIENDS 는 친구에게만.

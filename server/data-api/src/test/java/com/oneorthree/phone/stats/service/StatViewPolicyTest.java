@@ -6,7 +6,8 @@ import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.user.repository.domain.StatVisibility;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,7 +31,7 @@ class StatViewPolicyTest {
     private StatViewPolicy statViewPolicy;
 
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
     @Mock
     private FriendshipRepository friendshipRepository;
 
@@ -44,7 +45,7 @@ class StatViewPolicyTest {
 
         assertThat(target).isEqualTo(USER_ID);
         verifyNoInteractions(friendshipRepository);
-        verifyNoInteractions(userRepository);
+        verifyNoInteractions(userQueryService);
     }
 
     @Test
@@ -54,7 +55,7 @@ class StatViewPolicyTest {
 
         assertThat(target).isEqualTo(USER_ID);
         verifyNoInteractions(friendshipRepository);
-        verifyNoInteractions(userRepository);
+        verifyNoInteractions(userQueryService);
     }
 
     @Test
@@ -62,8 +63,8 @@ class StatViewPolicyTest {
     void acceptedFriend() {
         User caller = User.builder().id(USER_ID).build();
         User friend = User.builder().id(FRIEND_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
-        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
+        given(userQueryService.getCaller(USER_ID)).willReturn(caller);
+        given(userQueryService.getTarget(FRIEND_ID)).willReturn(friend);
         given(friendshipRepository.findAcceptedBetween(caller, friend))
                 .willReturn(Optional.of(mock(Friendship.class)));
 
@@ -77,8 +78,8 @@ class StatViewPolicyTest {
     void acceptedFriendWithFriendsVisibility() {
         User caller = User.builder().id(USER_ID).build();
         User friend = User.builder().id(FRIEND_ID).statVisibility(StatVisibility.FRIENDS).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
-        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
+        given(userQueryService.getCaller(USER_ID)).willReturn(caller);
+        given(userQueryService.getTarget(FRIEND_ID)).willReturn(friend);
         given(friendshipRepository.findAcceptedBetween(caller, friend))
                 .willReturn(Optional.of(mock(Friendship.class)));
 
@@ -92,8 +93,8 @@ class StatViewPolicyTest {
     void nonFriendPublicAllowed() {
         User caller = User.builder().id(USER_ID).build();
         User friend = User.builder().id(FRIEND_ID).statVisibility(StatVisibility.PUBLIC).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
-        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
+        given(userQueryService.getCaller(USER_ID)).willReturn(caller);
+        given(userQueryService.getTarget(FRIEND_ID)).willReturn(friend);
         // 친구관계 없음 → PUBLIC 이라 열람 허용
         given(friendshipRepository.findAcceptedBetween(caller, friend)).willReturn(Optional.empty());
 
@@ -108,8 +109,8 @@ class StatViewPolicyTest {
         User caller = User.builder().id(USER_ID).build();
         // User.builder() 의 @Builder.Default 로 statVisibility=FRIENDS
         User friend = User.builder().id(FRIEND_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
-        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.of(friend));
+        given(userQueryService.getCaller(USER_ID)).willReturn(caller);
+        given(userQueryService.getTarget(FRIEND_ID)).willReturn(friend);
         given(friendshipRepository.findAcceptedBetween(caller, friend)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> statViewPolicy.resolveTargetUserId(USER_ID, FRIEND_ID))
@@ -120,17 +121,19 @@ class StatViewPolicyTest {
     @DisplayName("friends 지정 + 대상 유저 미존재 → UserException(NOT_FOUND)")
     void targetNotFound() {
         User caller = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(caller));
-        given(userRepository.findById(FRIEND_ID)).willReturn(Optional.empty());
+        given(userQueryService.getCaller(USER_ID)).willReturn(caller);
+        given(userQueryService.getTarget(FRIEND_ID))
+                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() -> statViewPolicy.resolveTargetUserId(USER_ID, FRIEND_ID))
                 .isInstanceOf(UserException.class);
     }
 
     @Test
-    @DisplayName("friends 지정 + 호출자 미존재 → UserException(NOT_FOUND)")
+    @DisplayName("friends 지정 + 호출자 미존재·탈퇴 → UserException(USER_NOT_FOUND)")
     void callerNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getCaller(USER_ID))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         assertThatThrownBy(() -> statViewPolicy.resolveTargetUserId(USER_ID, FRIEND_ID))
                 .isInstanceOf(UserException.class);

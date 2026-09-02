@@ -28,9 +28,9 @@ import com.oneorthree.phone.user.repository.domain.Occupation;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
-import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
@@ -85,6 +85,7 @@ public class StatsService {
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final FriendshipRepository friendshipRepository;
     private final StatsPeriodResolver statsPeriodResolver;
     private final StatViewPolicy statViewPolicy;
@@ -98,7 +99,8 @@ public class StatsService {
      * @param callerId 호출자(로그인 유저) UUID
      * @param friends  조회 대상 친구 UUID (null 또는 self 이면 self)
      * @return 실제 통계 집계 대상 userId
-     * @throws UserException   대상/호출자 User 미존재 (NOT_FOUND)
+     * @throws UserException   호출자 계정이 없거나 탈퇴(USER_NOT_FOUND) · 대상이 없거나 탈퇴(NOT_FOUND).
+     *                         GROMO-1655 전에는 탈퇴 유저도 통과했다
      * @throws com.oneorthree.phone.friend.exception.FriendException 친구도 아니고 대상 공개범위도 PUBLIC 이 아님
      *                                                              (NOT_FRIEND)
      */
@@ -169,15 +171,17 @@ public class StatsService {
      * "오늘"은 클라가 전달한 서버 판정 축(KST 고정) 날짜다(GROMO-643·1259) — 서버는 변환 없이 그대로 조회한다.
      * 집계·목표 row 가 없으면 각 값은 0/false, 진행도 0.
      *
-     * @param userId 집계 대상 유저. 존재하지 않으면 유저 없음으로 떨어진다
+     * @param userId 집계 대상 유저. 없거나 탈퇴했으면 404(GROMO-1655 — 종전엔 탈퇴 유저도 통과했다)
      * @param today  집계할 날짜(KST 축)
      * @return 집중·스크린타임 각각의 사용량·목표·달성 여부·진행도. 달성 판정은 저장값이 아니라 <b>지금
      *         설정된 목표</b>로 다시 계산하며, 집중은 목표 이상, 스크린타임은 목표 이하가 달성이다.
      *         목표를 설정하지 않았으면(0) 어느 쪽도 달성이 아니다
      */
     public TodayStatsResponse getTodayStats(UUID userId, LocalDate today) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        // GROMO-1655: 종전 무필터 findById → 활성 필터 조회. userId 는 컨트롤러가
+        // resolveTargetUserId 로 정한 **지목 대상**(본인일 수도, 친구일 수도)이라 NOT_FOUND 쪽이다.
+        // 탈퇴 유저 통계가 이제 404 가 된다(오너 승인 동작 변경).
+        User user = userQueryService.getTarget(userId);
 
         int focusMinutes = dailyFocusStatRepository.findByUserAndDate(user, today)
                 .map(d -> StatsUnits.secondsToMinutes(d.getTotalFocusSeconds())).orElse(0);   // GROMO-642: 초→분
@@ -269,9 +273,9 @@ public class StatsService {
             }
             case TOTAL -> dailyFocusStatRepository.sumAndActiveCountAllInPeriod(from, to);
             case CATEGORY -> {
-                Occupation occupation = userRepository.findById(callerId)
-                        .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND))
-                        .getOccupation();
+                // GROMO-1655: 종전 무필터 findById → 활성 필터 조회. callerId 는 **요청자 본인**이라
+                // USER_NOT_FOUND 쪽이다(탈퇴 요청자는 404, 오너 승인 동작 변경).
+                Occupation occupation = userQueryService.getCaller(callerId).getOccupation();
                 // occupation 미설정: 에러 아님 → 활동 유저 0 취급으로 null 응답(클라는 해당 축 숨김).
                 yield occupation == null
                         ? null
@@ -307,8 +311,9 @@ public class StatsService {
      *         day 는 달성 여부만, week·month 는 달성일 수와 경과일 수를 채운다
      */
     public ScreenTimePeriodStatsResponse getScreenTimePeriodStats(UUID userId, StatsPeriod period, LocalDate today) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        // GROMO-1655: 종전 무필터 findById → 활성 필터 조회. userId 는 컨트롤러가
+        // resolveTargetUserId 로 정한 **지목 대상**이라 NOT_FOUND 쪽이다(오너 승인 동작 변경).
+        User user = userQueryService.getTarget(userId);
 
         // 직전 동일 길이 구간: getFocusStatsByPeriod와 공용 리졸버 사용
         PeriodRange range = statsPeriodResolver.resolve(period, today);
