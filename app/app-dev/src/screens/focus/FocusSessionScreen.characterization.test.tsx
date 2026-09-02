@@ -125,9 +125,10 @@ jest.mock('@/services/cardInteraction', () => ({
 const mockAddFocusSeconds = jest.fn();
 const mockAddFocusToSubject = jest.fn();
 // 닉네임 가변 — 항상 'nick'이면 빈 닉네임의 '나' 폴백 제거를 못 잡는다(codex 리뷰 34차)
+let mockFocusOccupation: string | null = null;
 let mockNickname = 'nick';
 jest.mock('@/store/UserContext', () => ({
-  useUser: () => ({ userId: 'user-1', nickname: mockNickname }),
+  useUser: () => ({ userId: 'user-1', nickname: mockNickname, occupation: mockFocusOccupation }),
 }));
 // 세션 전 오늘 누적 — 기본 0, 로컬 폴백 테스트에서 갈아끼움
 let mockTodayFocusSeconds = 0;
@@ -184,8 +185,11 @@ jest.mock('./useSessionGroups', () => ({
   },
 }));
 // 준비 시험 카테고리 — 기본 null(미설정), 시험 필터 테스트에서 갈아끼움
-let mockFocusCategory: string | null = null;
-jest.mock('@/hooks/useFocusCategory', () => ({ useFocusCategory: () => mockFocusCategory }));
+// 표시명은 서버 카탈로그(GET /occupations)에서 온다 — 테스트는 code 1건만 매핑한다.
+// 준비 시험 code 자체는 서버 프로필이 정본이라 위 UserContext 목이 공급한다(GROMO-1624).
+jest.mock('@/services/occupationCatalog', () => ({
+  useOccupationName: (code: string | null) => (code === 'CSAT' ? '수능·N수' : null),
+}));
 // '동작 줄이기' 확정 true — 실제 useMotion이 reanimated 호출 없이 즉시값 경로로 돈다.
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => true,
@@ -412,7 +416,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   mockSubjectsData = [{ id: 's1', name: '수학', accumulatedSeconds: 0, color: '#FFB4A2' }];
   mockMyFocus = null;
-  mockFocusCategory = null;
+  mockFocusOccupation = null;
   mockActiveSource = null;
   mockSessionGroups = [];
   mockFriends = [];
@@ -1206,7 +1210,7 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
   test('리그 그리드 훅: 전체 리그는 나 제외, 같은 시험은 occupation 필터·enabled 게이트', async () => {
     // 인자를 버리는 목으로는 excludeUserId 누락·시험 필터 오배선을 못 잡는다 — 본인 행 중복,
     // 다른 시험 준비생 혼입 회귀 방어(codex 리뷰 22차).
-    mockFocusCategory = '수능·N수'; // CATEGORY_TO_OCCUPATION 실매핑 → CSAT
+    mockFocusOccupation = 'CSAT';
     mockLeagueMembers = [{ userId: 'L1', nickname: '리그유저' }];
     mockExamMembers = [{ userId: 'E1', nickname: '시험유저' }];
     await renderSession({ mode: 'countup' });
@@ -1238,16 +1242,16 @@ describe('카운트업 — 틱·라이브 레코드·finish', () => {
     expect(lastGridProps('수능·N수 리그')!.visible).toBe(false);
   });
 
-  test('시험 카테고리가 비동기로 로드되면: 리그 조회가 enabled: true로 승격되고 제목도 갱신된다', async () => {
-    // 실제 useFocusCategory는 undefined로 시작해 저장소 조회 후 갱신된다 — 렌더 전 fixture만
-    // 쓰면 「첫 렌더 고정」 회귀(세션 내내 enabled: false)를 못 잡는다(codex 리뷰 32차).
-    await renderSession({ mode: 'countup' }); // 카테고리 미로드 상태로 마운트
+  test('시험이 세션 도중 설정되면: 리그 조회가 enabled: true로 승격되고 제목도 갱신된다', async () => {
+    // 프로필이 늦게 도착하거나 다른 화면에서 시험을 바꾸면 세션 중에도 값이 바뀐다 — 렌더 전
+    // fixture만 쓰면 「첫 렌더 고정」 회귀(세션 내내 enabled: false)를 못 잡는다(codex 리뷰 32차).
+    await renderSession({ mode: 'countup' }); // 시험 미설정 상태로 마운트
     expect(mockLeagueArgs).toContainEqual({
       occupation: undefined,
       enabled: false,
       excludeUserId: 'user-1',
     });
-    mockFocusCategory = '수능·N수'; // 저장소 조회 완료 재현
+    mockFocusOccupation = 'CSAT'; // 프로필 도착·시험 변경 재현
     await fireEvent.press(view.getByTestId('focus.pause'));
     await fireEvent.press(view.getByTestId('focus.pause')); // 리렌더
     expect(mockLeagueArgs).toContainEqual({

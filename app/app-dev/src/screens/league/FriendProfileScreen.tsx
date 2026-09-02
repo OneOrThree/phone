@@ -15,7 +15,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { tierByLevel } from '@/constants/tiers';
-import { categoryForOccupation } from '@/constants/focusCategories';
+import { useOccupationName } from '@/services/occupationCatalog';
 import { getPublicProfile, getUserStats } from '@/services/userApi';
 import { getFocusStatsByCategory, getHeatmap, getTodayStats } from '@/services/statsApi';
 import type { PublicProfileResponse, UserStatsResponse } from '@/types/dto/user';
@@ -282,9 +282,9 @@ export default function FriendProfileScreen() {
 
   const tier = tierByLevel(profile?.currentTier ?? tierLevel);
   const friendCount = profile?.friendCount ?? 0;
-  // 준비 시험 표시명 — 공개 프로필의 occupation 코드를 로컬 카테고리명으로 매핑.
+  // 준비 시험 표시명 — 공개 프로필의 occupation 코드를 서버 표시명으로 매핑(GROMO-1624).
   // 미설정·미로드면 null → 카드 숨김. (구 route 파라미터 exam은 리그 라벨이라 대상의 시험이 아니어서 폐기, GROMO-680)
-  const examLabel = categoryForOccupation(profile?.occupation ?? null);
+  const examLabel = useOccupationName(profile?.occupation ?? null);
 
   // 세부 차트(요일 비교) 공개 여부 — heatmap 게이트(본인·친구·전체공개).
   // GROMO-746부터 today는 친구 여부/공개설정과 무관하게 항상 오므로 판정 기준은 heatmap (7/10 기획: 요약 상시 공개).

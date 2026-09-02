@@ -22,7 +22,6 @@ import {
   setupProfile,
   getMyProfile,
   updateScreenTimePermission,
-  updateOccupation,
   updateProfile,
   deleteDeviceToken,
 } from '@/services/userApi';
@@ -30,7 +29,7 @@ import { clearInbox } from '@/services/notificationInbox';
 import StudyWidgetModule from '@/services/StudyWidgetModule';
 import { recordAccessDay } from '@/services/storeReview';
 import { reportWatchPairing } from '@/services/watchPairing';
-import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
+import { recoverOccupation, syncOccupation } from '@/services/occupationSync';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
 import { resetServerZone, setServerZone } from '@/utils/serverZone';
@@ -38,6 +37,7 @@ import { markOtaSplashShown } from '@/utils/otaGate';
 import { preloadTapSound } from '@/utils/sound';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { STORAGE_KEYS } from '@/types/storage';
+import type { Occupation } from '@/types/dto/user';
 import type { LoginResult, UserProfile } from '@/types/api';
 
 import BrandSplash from '@/components/BrandSplash';
@@ -77,19 +77,6 @@ if (Platform.OS !== 'web') {
   FacebookSettings.initializeSDK();
 }
 
-// 준비 시험 백필(GROMO-758) — 서버 occupation(757)을 로컬 focusCategory로 복원한다.
-// 준비 시험 표시(useFocusCategory)가 로컬 전용이라 재로그인·새 기기에선 '미설정'이 되는 문제 대응.
-// 로컬 값이 있으면 유지(설정 화면의 로컬 변경 → 서버 동기 흐름과 충돌 방지), 757 배포 전(필드 없음)엔 no-op.
-async function backfillFocusCategory(profile: { occupation?: unknown }): Promise<void> {
-  try {
-    const existing = await AsyncStorage.getItem(STORAGE_KEYS.focusCategory);
-    if (existing) return;
-    const occupation = typeof profile.occupation === 'string' ? profile.occupation : null;
-    const category = categoryForOccupation(occupation);
-    if (category) await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, category);
-  } catch {}
-}
-
 // 전역 글자 크기 고정은 GROMO-1485 에서 제거됐다(기기 '텍스트 크기' 설정 존중).
 // 웹 루트 폭 제한만 남긴다 — 브라우저 전체 폭으로 늘어나면 모바일 레이아웃이 무너진다.
 const styles = StyleSheet.create({
@@ -111,7 +98,7 @@ const styles = StyleSheet.create({
 // (2) PATCH /users/me/screen-time-permission — 스크린타임 권한 허용 여부(W10).
 //     프로필 셋업 요청엔 권한 필드가 없어 별도 엔드포인트로 보낸다.
 //     screenTimeGranted === null(아직 안 물어봄)이면 스킵.
-// focusCategory(W4)는 서버 Occupation(19종, GROMO-631)과 전 카테고리 1:1 매핑 —
+// focusCategory(W4)는 서버 Occupation code 그대로다(GROMO-1624) —
 // PATCH /users/me/occupation 으로 서버에도 동기화 → 같은 카테고리 리그 랭킹(?category=)·비교 통계 모수.
 // notificationGranted는 현재 온보딩에서 수집하지 않는다 — 알림 권한 요청은 푸시 등록(services/push.ts)이 유일 지점.
 // 반환: 프로필 등록 결과 — 'ok'가 아니면 호출부가 온보딩 완료 처리를 보류한다(GROMO-617/618).
@@ -135,14 +122,27 @@ async function syncOnboardingToServer(data: V2OnboardingData): Promise<Onboardin
     if (data.screenTimeGranted !== null) {
       await updateScreenTimePermission({ granted: data.screenTimeGranted });
     }
-    const occupation = occupationForCategory(data.focusCategory ?? null);
-    if (occupation) {
-      await updateOccupation({ occupation });
-    }
   } catch {
-    // 권한 동기화 실패는 온보딩 완료를 막지 않는다 — 추후 재동기화(TODO)
+    // 권한 동기화 실패는 온보딩 완료를 막지 않는다.
   }
   return 'ok';
+}
+
+// 온보딩이 고른 준비 시험을 서버(정본)에 반영하고, 이번 세션 상태에 넣을 값을 돌려준다.
+// 실패해도 온보딩은 통과시키되(프로필 등록과 달리 재입력으로 풀 문제가 아님) 두 가지를 남긴다:
+//  - 계측(occupation_sync_failed) — syncOccupation 내장
+//  - 복구 씨앗 — 선택 **code**를 구 키에 남겨 다음 실행의 recoverOccupation이 재시도한다.
+//    신규 설치는 이 키가 원래 비어 있어, 안 남기면 선택이 영구 유실된다(PR 713 코덱스 P1).
+//    표시명이 아니라 code를 남기는 이유: 표시명은 서버 표기가 바뀌면 복구 표에서 빠질 수 있다 —
+//    이 PR이 없앤 '표시명=정체성'을 복구 경로에 되살리지 않는다(코덱스 7R). 복구는 code
+//    직접 표기를 인정한다(occupationSync). 이 씨앗이 롤백된 구 번들에 원시 코드로 보일 수
+//    있지만, PATCH 실패 직후 + 롤백이 겹친 구석이라 영구 유실보다 싸게 먹힌다.
+// 반환: 세션에 반영할 occupation — 서버가 받은 경우에만 code, 아니면 null(정본=서버 원칙 유지).
+async function syncOnboardingOccupation(data: V2OnboardingData): Promise<Occupation | null> {
+  if (!data.focusCategory) return null;
+  if (await syncOccupation(data.focusCategory, 'onboarding')) return data.focusCategory;
+  await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory).catch(() => {});
+  return null;
 }
 
 function App() {
@@ -198,7 +198,9 @@ function App() {
         setServerZone(profile.timeZone);
         const merged = { ...data, ...profile };
         await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
-        await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
+        // 서버가 NULL인 피해 유저만 폰의 옛 값으로 복구(GROMO-1624). 복구되면 이번 세션에도 반영.
+        const recovered = await recoverOccupation(merged);
+        if (recovered) merged.occupation = recovered;
         mainEntryRef.current = 'cold_start';
         setUser({ ...merged, userId });
         // GROMO-663: 기존 유저 백필 — 프로필에 countryCode 없으면 기기 로케일로 1회 PATCH.
@@ -395,7 +397,8 @@ function App() {
       const profile = await getMyProfile();
       setServerZone(profile.timeZone); // 서버 날짜 버킷 존(GROMO-1252)
       const merged = { ...data, ...profile };
-      await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
+      const recovered = await recoverOccupation(merged); // 서버 NULL이면 폰의 옛 값으로 복구(1624)
+      if (recovered) merged.occupation = recovered;
       mainEntryRef.current = 'auth_complete';
       setUser({ ...merged, userId });
     } catch {
@@ -414,12 +417,16 @@ function App() {
     login,
   }: OnboardingResult): Promise<OnboardingCompleteStatus> {
     const isExistingAccount = login.isNewUser === false;
+    let onboardedOccupation: Occupation | null = null; // 신규 유저의 세션 씨앗 — 서버 반영 성공 시에만
     if (!isExistingAccount) {
       // 신규 유저 — 프로필 등록(닉네임 중복 검증 포함)이 성공해야 온보딩 완료(GROMO-617/618).
       // 실패 시 완료 플래그·유저 상태를 세팅하지 않고 결과만 돌려줘 게이트를 유지한다
       // (OnboardingFlow가 닉네임 재입력/재시도 UI를 띄운다).
       const sync = await syncOnboardingToServer(data);
       if (sync !== 'ok') return sync;
+      // 준비 시험 동기화 — 성공한 경우에만 이번 세션 상태(UserContext 씨앗)에 반영한다.
+      // 실패 시 세션에도 안 넣는다(서버가 정본 — 화면만 설정된 척하면 1624가 없앤 드리프트가 재발).
+      onboardedOccupation = await syncOnboardingOccupation(data);
       // 신규 가입 확정 — 광고 소재별 '설치 후 실제 사용' 판단용 온보딩 완료 이벤트(GROMO-890).
       // 재로그인(isExistingAccount)·세션 복원 경로에는 넣지 않는다(가입이 아니므로 중복 집계 방지).
       // ATT 동의 반영을 이벤트 전송보다 먼저 끝내야 동의 유저의 개인 단위 매칭이 산다 — onboarded
@@ -427,10 +434,6 @@ function App() {
       // 한 번 더 돌지만 결정된 동의 상태를 재적용할 뿐이라 무해(팝업은 미결정일 때만 1회).
       await syncAdTracking();
       logCompleteRegistration();
-      // 목표 선택(W4) — 리그 화면이 기본 시험 리그로 읽는다. 서버 필드 협의 전까지 로컬 보관.
-      if (data.focusCategory) {
-        await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory);
-      }
       // 과목 확인(W5) 결과를 실제 과목 목록으로 저장 — SubjectProvider는 user 세팅 후 마운트되므로
       // 여기서 저장하면 첫 로드가 이 목록을 읽는다. 저장 안 하면 신규 계정은 서버 태그도 비어 있어
       // 과목 0개로 시작하는 문제(PR 200 리뷰). color는 로드 시 팔레트 자동 배정, 서버 태그 생성은
@@ -462,12 +465,21 @@ function App() {
     if (isExistingAccount) {
       // 기존 계정 — 로그인 프로필(닉네임 등)을 그대로 사용, 온보딩 값으로 덮어쓰지 않음.
       // 로그아웃/새 기기에선 온보딩 중간 로그인이 기존 계정의 주 진입로라 여기서도 백필(GROMO-758 리뷰).
-      await backfillFocusCategory(login); // postAuthSave가 /users/me를 병합해 occupation이 실려 옴
+      // postAuthSave가 /users/me를 병합해 occupation이 실려 온다 — NULL이면 폰의 옛 값으로 복구.
+      const recovered = await recoverOccupation(login);
+      if (recovered) login.occupation = recovered;
       mainEntryRef.current = 'auth_complete';
       setUser({ ...login, userId });
     } else {
       mainEntryRef.current = 'auth_complete';
-      setUser({ ...login, userId, nickname: data.nickname.trim() });
+      // occupation을 세션에 실어야 첫 재시작 전에도 메뉴·같은 시험 그리드·직군 리그가 산다
+      // (login은 시험 선택보다 앞선 중간 로그인 산물이라 occupation이 없다 — PR 713 코덱스 P1).
+      setUser({
+        ...login,
+        userId,
+        nickname: data.nickname.trim(),
+        occupation: onboardedOccupation,
+      });
     }
     return 'ok';
   }
@@ -505,7 +517,8 @@ function App() {
         onLogin={async (u: LoginResult) => {
           const userId = getUserIdFromToken(u.accessToken);
           // 기존 계정 로그인이면 postAuthSave가 /users/me를 병합해 occupation이 실려 온다
-          await backfillFocusCategory(u); // 준비 시험 복원(GROMO-758)
+          const recovered = await recoverOccupation(u); // 서버 NULL이면 폰의 옛 값으로 복구(1624)
+          if (recovered) u.occupation = recovered;
           mainEntryRef.current = 'auth_complete';
           setUser({ ...u, userId });
         }}
@@ -524,6 +537,8 @@ function App() {
         // 배포 웹은 승격 트리거가 없는 팀 dev 서버라 서버 값을 그대로 따른다 — 안 그러면 그룹·친구를
         // 열어 준 뒤 GUEST_FORBIDDEN 을 받는다(코드리뷰). auth.web.ts 의 isGuest 규칙과 같은 기준.
         initialIsGuest={Platform.OS === 'web' && __DEV__ ? false : user?.isGuest}
+        // 준비 시험 — 서버 프로필이 정본(GROMO-1624). 오프라인이면 캐시된 gromo:user의 마지막 값.
+        initialOccupation={(user?.occupation ?? null) as Occupation | null}
         initialGoalSeconds={
           onboardingFocusGoalSeconds ??
           (user?.dailyFocusTimeGoalMinutes ? user.dailyFocusTimeGoalMinutes * 60 : null)

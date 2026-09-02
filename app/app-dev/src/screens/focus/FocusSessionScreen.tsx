@@ -48,8 +48,7 @@ import { kstLocalSameDay, todayStr, todayStrKst } from '@/utils/localDate';
 import { blockTodaySeconds, blockKstTodaySeconds } from './blockToday';
 import { myLiveTotalSeconds } from '@/utils/liveFocus';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
-import { useFocusCategory } from '@/hooks/useFocusCategory';
-import { occupationForCategory } from '@/constants/focusCategories';
+import { useOccupationName } from '@/services/occupationCatalog';
 import { useSessionLeagueMembers } from './useSessionLeagueMembers';
 import { useSessionGroups } from './useSessionGroups';
 import { LiveFocusGrid } from './components/LiveFocusGrid';
@@ -129,7 +128,7 @@ export default function FocusSessionScreen() {
   const isLandscape = width > height;
   // 모션 게이트('동작 줄이기') — 이 화면에서는 렌더 계층에서만 쓴다(GROMO-1381).
   const m = useMotion();
-  const { userId, nickname } = useUser();
+  const { userId, nickname, occupation: myOccupation } = useUser();
   const { addFocusSeconds, todayFocusSeconds } = useFocus();
   const { refresh: refreshCoins } = useCoins();
   const { subjects, addFocusToSubject } = useSubjects();
@@ -153,8 +152,7 @@ export default function FocusSessionScreen() {
   const { friends: sessionFriends, pinnedIds } = useFocusFriends();
   // 리그(811)·같은 시험(812) 그리드 라이브 멤버 — 서버의 내 행은 제외하고, 내 셀은 로컬
   // 타이머 기준으로 그리드가 따로 렌더한다(GROMO-932, 아래 myGridMe) — 중복·시차 방지
-  const myCategory = useFocusCategory();
-  const myOccupation = occupationForCategory(myCategory);
+  const myExamName = useOccupationName(myOccupation); // 같은 시험 그리드 타이틀용 표시명
   const { members: leagueMembers } = useSessionLeagueMembers({ excludeUserId: userId });
   const { members: examMembers } = useSessionLeagueMembers({
     occupation: myOccupation ?? undefined,
@@ -870,8 +868,8 @@ export default function FocusSessionScreen() {
               pinnedIds={pinnedIds}
               visible={page === 2 + sessionGroups.length}
               title={
-                myCategory
-                  ? t('focus.session.categoryLeagueTitle', { category: myCategory })
+                myExamName
+                  ? t('focus.session.categoryLeagueTitle', { category: myExamName })
                   : t('focus.session.sameExamTitle')
               }
               emptyTitle={t(

@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { setUserId } from '@/services/analytics';
 import { setIdentityProps } from '@/services/analyticsEvents';
+import type { Occupation } from '@/types/dto/user';
 
 interface UserContextValue {
   userId: string | null;
@@ -20,6 +21,11 @@ interface UserContextValue {
   setNickname: Dispatch<SetStateAction<string>>;
   isNewUser: boolean;
   setIsNewUser: Dispatch<SetStateAction<boolean>>;
+  // 준비 시험 code — 정본은 서버 users.occupation 하나다(GROMO-1624). 앱 시작의 프로필 조회가
+  // 씨앗이고, 설정에서 바꿀 때는 PATCH 성공 후 setOccupation으로 갱신한다. 로컬 정본을 따로
+  // 굴리지 않으므로 화면 라벨과 서버 집계(리그·비교 통계)가 어긋날 수 없다.
+  occupation: Occupation | null;
+  setOccupation: (v: Occupation | null) => void;
   goalSeconds: number; // 하루 목표 집중시간(공부)
   setGoalSeconds: (v: number) => void;
   goalSecondsRef: RefObject<number>;
@@ -35,6 +41,7 @@ interface UserProviderProps {
   initialGoalSeconds?: number | null; // 집중 목표(온보딩 17단계 dailyFocusMinutes)
   initialScreenTimeGoalSeconds?: number | null; // 사용시간 목표(온보딩 12단계 usageGoalMinutes)
   initialIsNewUser?: boolean;
+  initialOccupation?: Occupation | null; // 서버 프로필의 준비 시험 code (미설정 null)
   children: ReactNode;
 }
 
@@ -47,6 +54,7 @@ export function UserProvider({
   initialGoalSeconds,
   initialScreenTimeGoalSeconds,
   initialIsNewUser,
+  initialOccupation,
   children,
 }: UserProviderProps) {
   // 서버가 준 값 그대로 사용 — 로컬 '익명' fallback은 닉네임 유실을 가리므로 두지 않는다(GROMO-964)
@@ -54,6 +62,7 @@ export function UserProvider({
   const [userId] = useState<string | null>(initialUserId ?? null);
   const isGuest = initialIsGuest ?? false;
   const [isNewUser, setIsNewUser] = useState(initialIsNewUser ?? false);
+  const [occupation, setOccupation] = useState<Occupation | null>(initialOccupation ?? null);
   const [goalSeconds, setGoalSecondsState] = useState(initialGoalSeconds ?? 3 * 3600);
   const [screenTimeGoalSeconds, setScreenTimeGoalSeconds] = useState(
     initialScreenTimeGoalSeconds ?? 4 * 3600,
@@ -80,6 +89,11 @@ export function UserProvider({
     setNickname(initialNickname ?? '');
   }, [initialNickname]);
 
+  // 리마운트 없이 서버 프로필이 갱신되는 경우(레거시 복구 PATCH 직후 등) 준비 시험도 동기화.
+  useEffect(() => {
+    setOccupation(initialOccupation ?? null);
+  }, [initialOccupation]);
+
   // GA4 User-ID / 게스트 여부 연결 (분석 식별의 단일 지점).
   // userId는 로그인/게스트 진입 시 1회 정해지고, 로그아웃 시 트리가 리마운트된다.
   useEffect(() => {
@@ -98,6 +112,8 @@ export function UserProvider({
         setNickname,
         isNewUser,
         setIsNewUser,
+        occupation,
+        setOccupation,
         goalSeconds,
         setGoalSeconds,
         goalSecondsRef,

@@ -8,7 +8,8 @@ export const STORAGE_KEYS = {
   refreshToken: 'gromo:refreshToken',
   user: 'gromo:user',
   onboardingComplete: 'gromo:onboardingComplete',
-  focusCategory: 'gromo:focusCategory',
+  focusCategory: 'gromo:focusCategory', // (구 키) 준비 시험 한글 표시명 — 정본은 서버 users.occupation. OTA 롤백 시 구 번들이 이 키만 읽으므로 계속 갱신한다(GROMO-1624)
+  occupations: 'gromo:occupations', // GET /occupations 마지막 성공 응답 캐시 — 오프라인 표시명 폴백(GROMO-1624)
   equipment: 'gromo:equipment', // (구 키) 단일 SavedEquipment — v3 이후 미사용, OTA 롤백 호환 위해 값 보존(GROMO-936)
   ownedItems: 'gromo:ownedItems', // (구 키) 단일 string[] — v3 이후 미사용, OTA 롤백 호환 위해 값 보존(GROMO-936)
   equipmentV2: 'gromo:equipment:v2', // 계정별 장비 맵 { [userId]: SavedEquipment } — 가구·아이템은 로컬 전용(GROMO-936)

@@ -18,8 +18,8 @@ import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useFocus } from '@/store/FocusContext';
 import { useSubjects } from '@/store/SubjectContext';
-import { useFocusCategory } from '@/hooks/useFocusCategory';
-import { occupationForCategory } from '@/constants/focusCategories';
+import { useOccupationName } from '@/services/occupationCatalog';
+import { useUser } from '@/store/UserContext';
 import { getDefaultTags } from '@/services/focusApi';
 import { STORAGE_KEYS } from '@/types/storage';
 import { TabGuideOverlay } from '@/components/TabGuideOverlay';
@@ -106,21 +106,14 @@ export default function FocusCategoryScreen() {
 
   // 준비 시험 추천 과목(GET /tag/defaults) — 미보유분만 리스트 아래에 추가 유도로 노출.
   // 조회 실패(미로그인·오프라인)면 조용히 숨긴다.
-  const category = useFocusCategory();
+  const { occupation } = useUser(); // 준비 시험 — 서버 프로필이 정본(GROMO-1624)
+  const examName = useOccupationName(occupation); // 추천 섹션 헤더용 표시명
   const [defaultTags, setDefaultTags] = useState<string[]>([]);
   // 추천 목록 조회 완료 여부 — 로딩 중엔 기본 과목 판별이 불가능하므로 이름 편집을 잠시 숨긴다
   // (fail-closed, PR 287 Codex 리뷰 반영). 조회 실패는 완료로 취급해 기존처럼 편집을 허용한다
   // (오프라인 fail-open — 이때는 서버 태그 동기화도 안 되는 상태라 영향이 제한적).
   const [defaultsReady, setDefaultsReady] = useState(false);
   useEffect(() => {
-    // 카테고리 저장값을 아직 읽는 중(undefined) — "카테고리 없음"과 구분해 fail-closed 유지.
-    // 이 분기 없이는 로딩 순간을 무카테고리로 오판해 ready가 켜져 기본 과목의 이름 편집이
-    // 잠깐 노출된다(PR 287 Codex 리뷰 반영).
-    if (category === undefined) {
-      setDefaultsReady(false);
-      return;
-    }
-    const occupation = occupationForCategory(category);
     if (!occupation) {
       setDefaultTags([]);
       setDefaultsReady(true); // 추천 과목이 없는 카테고리 — 판별할 기본 과목도 없음
@@ -145,7 +138,7 @@ export default function FocusCategoryScreen() {
     return () => {
       cancelled = true;
     };
-  }, [category]);
+  }, [occupation]);
   const ownedNames = new Set(subjects.map((x) => x.name));
   const recommended = defaultTags.filter((n) => !ownedNames.has(n));
 
@@ -407,7 +400,7 @@ export default function FocusCategoryScreen() {
                   onPress={toggleRecoHidden}
                 >
                   <Text style={s.recoLabel}>
-                    {t('focus.categoryScreen.recommendedTitle', { category })}
+                    {t('focus.categoryScreen.recommendedTitle', { category: examName ?? '' })}
                   </Text>
                   <Ionicons
                     name={recoHidden ? 'chevron-down' : 'chevron-up'}

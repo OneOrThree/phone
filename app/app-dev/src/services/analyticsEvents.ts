@@ -8,6 +8,7 @@
 import { track, setUserProperty } from '@/services/analytics';
 import type { FocusEntrySource } from '@/services/cardInteraction';
 import type { InquiryCategoryId } from '@/constants/inquiryContacts';
+import type { Occupation } from '@/types/dto/user';
 
 // 로그인/가입 수단
 export type AuthMethod = 'kakao' | 'apple' | 'google' | 'line' | 'facebook' | 'guest';
@@ -95,9 +96,12 @@ export function logOnboardingStepAction(p: {
   track('onboarding_step_action', p);
 }
 
-// W4 집중 카테고리(목표) 선택 제출 🆕
-// category: 선택한 카테고리 표시명 — 제출 사실만 알던 것을 '무엇을 골랐는지'까지 넓힌다(GROMO-1605).
-export function logOnboardingFocusCategorySubmitted(p: { category: string }): void {
+// W4 집중 카테고리(목표) 선택 제출 — 제출 사실만 알던 것을 '무엇을 골랐는지'까지 넓힌다(GROMO-1605).
+// category: occupation **code**(예: 'CSAT'). GROMO-1624에서 표시명 → code로 전환 —
+// i18n(GROMO-1704) 이후 표시명은 기기 언어에 따라 갈라져('수능·N수' vs 'College Entrance Exam')
+// 같은 직군이 언어별로 쪼개지므로 로케일 무관한 code가 집계 축으로 옳다. 전환 전후로 두 표기가
+// 섞이는 기간이 있다(전환 배포일은 개발 예정 노트에 기록 — GA4 탐색 필터 손질용).
+export function logOnboardingFocusCategorySubmitted(p: { category: Occupation }): void {
   track('onboarding_focus_category_submitted', { step_index: 4, ...p });
 }
 
@@ -934,6 +938,17 @@ export function logGoalUpdated(p: { changed_focus: boolean; changed_usage: boole
 
 export function logOccupationUpdated(): void {
   track('occupation_updated');
+}
+
+// 서버 occupation 동기화(PATCH /users/me/occupation) 실패 — 예전엔 catch로 조용히 삼켜서
+// users.occupation 이 NULL로 남는 걸 아무도 몰랐다(GROMO-1620/1624).
+// 파라미터명이 request_source인 이유: 'source'는 공통 파라미터(클라/서버 출처 'client')와
+// 겹쳐 금지이고(위 logFriendRequestSent 주석), request_source는 GA4 맞춤측정기준에 이미 등록돼
+// 있어 추가 등록 없이 바로 쪼개 볼 수 있다.
+export type OccupationSyncSource = 'onboarding' | 'settings' | 'recovery';
+
+export function logOccupationSyncFailed(p: { request_source: OccupationSyncSource }): void {
+  track('occupation_sync_failed', p);
 }
 
 export function logAllowedAppsUpdated(p: { app_count: number }): void {
