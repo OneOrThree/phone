@@ -21,6 +21,14 @@ import type { Occupation, OccupationResponse } from '@/types/dto/user';
 
 let cache: OccupationResponse[] | null = null;
 let inflight: Promise<OccupationResponse[] | null> | null = null;
+// 카탈로그 도착 구독자 — 첫 조회가 실패한 채 마운트된 화면(useOccupations)이 언마운트 없이도
+// 나중 재시도 성공을 받아볼 수 있게 한다(PR 713 코덱스 3R). 도착은 setCache 한 곳으로 좁힌다.
+const listeners = new Set<(list: OccupationResponse[]) => void>();
+
+function setCache(list: OccupationResponse[]): void {
+  cache = list;
+  listeners.forEach((notify) => notify(list));
+}
 
 // 서버 조회 → 성공 시 메모리·로컬 캐시 갱신, 실패 시 로컬 캐시 폴백.
 // 동시 호출은 같은 요청을 공유하고, 실패한 요청은 캐시하지 않아 다음 호출에서 재시도된다.
@@ -28,7 +36,7 @@ export function loadOccupations(): Promise<OccupationResponse[] | null> {
   if (cache) return Promise.resolve(cache);
   inflight ??= getOccupations()
     .then(async (list) => {
-      cache = list;
+      setCache(list);
       await AsyncStorage.setItem(STORAGE_KEYS.occupations, JSON.stringify(list)).catch(() => {});
       return list;
     })
@@ -38,7 +46,7 @@ export function loadOccupations(): Promise<OccupationResponse[] | null> {
       // 폴백도 메모리 캐시에 올린다 — 안 올리면 화면 마운트마다 실패할 요청을 다시 쏘고,
       // 그 타임아웃 동안 시험명이 사라졌다 나타난다(PR 713 코덱스 P2). 내용은 마지막 성공
       // 응답 그대로라 세션 내 재검증을 포기해도 잃는 게 없다(19종 고정 목록).
-      if (fallback) cache = fallback;
+      if (fallback) setCache(fallback);
       return fallback;
     })
     .finally(() => {
@@ -54,22 +62,53 @@ export function resetOccupationCache(): void {
 }
 
 // 카탈로그 구독. null = 아직 못 받음(로딩 또는 조회·캐시 모두 실패).
+// 실패한 채 마운트돼도 구독을 유지한다 — 다른 화면의 재시도가 성공하면(setCache) 함께 갱신된다.
 export function useOccupations(): OccupationResponse[] | null {
   const [list, setList] = useState<OccupationResponse[] | null>(cache);
   useEffect(() => {
-    if (list) return;
-    let cancelled = false;
-    loadOccupations().then((v) => !cancelled && v && setList(v));
+    if (cache) {
+      setList(cache);
+      return;
+    }
+    const notify = (v: OccupationResponse[]) => setList(v);
+    listeners.add(notify);
+    loadOccupations(); // 결과는 위 구독으로 받는다(성공·폴백 모두 setCache 경유)
     return () => {
-      cancelled = true;
+      listeners.delete(notify);
     };
-  }, [list]);
+  }, []);
   return list;
 }
 
-// code의 표시명 — 앱 i18n이 정본, 없으면 서버 displayName 폴백.
-// 카탈로그를 아직 못 받았어도(list=null) i18n 키만 있으면 글자가 나온다 — 오프라인에서 리그
-// 라벨·프로필 시험명이 빈칸으로 뜨지 않는다.
+// 최후 정적 폴백(한국어) — 앱 업데이트 직후 '카탈로그 캐시 없음 + 오프라인 첫 실행'이면
+// i18n 키(GROMO-1704 예정)도 서버 응답도 없어 시험명이 전부 사라진다(PR 713 코덱스 3R).
+// 표시 전용이다 — 예전 대조표(CATEGORY_TO_OCCUPATION)와 달리 매칭 키로는 절대 쓰지 않는다.
+// GROMO-1704의 name.<CODE> 19키가 얹히면 i18n이 항상 이겨 이 표는 죽은 안전망이 된다(그때 제거 가능).
+const STATIC_NAME_FALLBACK: Record<Occupation, string> = {
+  LABOR_ATTORNEY: '노무사',
+  PATENT_ATTORNEY: '변리사',
+  TAX_ACCOUNTANT: '세무사',
+  CPA: '회계사',
+  APPRAISER: '감정평가사',
+  CIVIL_SERVANT: '공무원',
+  POLICE_FIRE: '경찰·소방',
+  ADMIN_EXAM: '행정고시',
+  CERTIFICATION: '자격증',
+  MIDDLE_SCHOOL: '중학생',
+  HIGH_SCHOOL: '고등학생',
+  CSAT: '수능·N수',
+  UNIVERSITY: '대학생',
+  JOB_PREP: '취업 준비',
+  ENGLISH_TEST: '토익·토플',
+  CODING: '코딩',
+  SELF_DEVELOPMENT: '자기계발',
+  FOCUS_BUILDING: '집중력 키우기',
+  ETC: '기타',
+};
+
+// code의 표시명 — 앱 i18n이 정본, 없으면 서버 displayName, 그마저 없으면 정적 폴백(한국어).
+// 카탈로그를 아직 못 받았어도(list=null) 글자가 나온다 — 오프라인에서 리그 라벨·프로필
+// 시험명이 빈칸으로 뜨지 않는다.
 // 카탈로그를 받았는데 그 code가 목록에 없으면 null — 서버가 내리지 않는 시험을 앱이 혼자
 // 그리지 않게 한다(신규/폐지 code의 안전망).
 export function displayNameOf(
@@ -81,7 +120,8 @@ export function displayNameOf(
   if (list && !server) return null;
   const key = `shared.focusCategories.name.${code}`;
   // i18n에 키가 없으면 i18n-js가 'missing translation' 문자열을 돌려주므로 defaultValue로 판별한다.
-  return i18n.t(key, { defaultValue: '' }) ? t(key) : (server?.displayName ?? null);
+  if (i18n.t(key, { defaultValue: '' })) return t(key);
+  return server?.displayName ?? STATIC_NAME_FALLBACK[code] ?? null;
 }
 
 // 단건 표시명 훅 — 카탈로그를 직접 다루지 않는 화면용.
