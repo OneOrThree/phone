@@ -114,6 +114,25 @@ public class UserQueryService {
     }
 
     /**
+     * <b>탈퇴자를 포함한</b> 유저 조회 — 락 없음. 활성 필터를 <b>일부러 걸지 않는</b> 유일한 창구다.
+     *
+     * <p>관계 '해제'(친구 삭제·핀 해제)처럼 <b>상태를 줄이는</b> 방향의 조작에만 쓴다. 여기에 활성
+     * 검증을 걸면 상대가 탈퇴한 순간 잔존 관계를 영구히 못 지운다(GROMO-801). 해제는 유령을 늘리지
+     * 않으므로 탈퇴자를 대상으로 허용해도 안전하다.
+     *
+     * <p><b>새 관계를 만들거나 유저 상태를 바꾸는 경로에는 쓰지 말 것</b> — 그쪽은
+     * {@link #getTarget(UUID)}·{@link #getTargetForShare(UUID)} 계열이다.
+     *
+     * @param id 조회 대상
+     * @return 유저. <b>탈퇴(소프트딜리트)했어도 그대로 반환한다</b>
+     * @throws UserException 행 자체가 없으면 {@link UserErrorCode#NOT_FOUND}
+     */
+    public User getAny(UUID id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+    }
+
+    /**
      * 활성 유저 배치 조회 — 티어 정산처럼 여러 명을 한 번에 다룰 때.
      *
      * @param ids 조회 대상
