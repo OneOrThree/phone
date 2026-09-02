@@ -78,6 +78,21 @@ public class UserQueryService {
     }
 
     /**
+     * 활성 유저 조회 — <b>배타 락</b>, 없으면 빈 값.
+     *
+     * <p>부재가 정상 흐름인 락 경로를 위한 것이다. 예: 리그 주간 정산은 집계 시점 이후에 탈퇴한
+     * 유저를 만나면 예외가 아니라 <b>스킵</b>으로 처리해야 한다({@code SKIPPED_WITHDRAWN}) —
+     * 한 명 때문에 배치 전체가 죽으면 안 된다. 던지는 쪽이 필요하면 {@link #getTargetForUpdate}.
+     *
+     * @param id 조회 대상
+     * @return 활성 유저. 없거나 탈퇴했으면 빈 값 — 락 대기 중 탈퇴가 커밋되면
+     *         술어 재평가로 빈 결과가 되고, 그것이 "탈퇴 확정" 신호다(GROMO-1230)
+     */
+    public Optional<User> findActiveForUpdate(UUID id) {
+        return userRepository.findActiveByIdForUpdate(id);
+    }
+
+    /**
      * 요청이 지목한 활성 유저 — <b>공유 락</b>. users 를 읽기만 하는 트랜잭션에서 쓴다.
      *
      * @param id 조회 대상
@@ -111,6 +126,22 @@ public class UserQueryService {
     public User getTargetForUpdate(UUID id) {
         return userRepository.findActiveByIdForUpdate(id)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+    }
+
+    /**
+     * <b>탈퇴 여부를 보지 않는</b> 조회 — 관계 '해제'처럼 탈퇴자도 대상이어야 하는 경로 전용이다.
+     *
+     * <p>활성 검증을 걸면 상대가 탈퇴한 순간 잔존 관계(친구·핀)를 영구히 못 지운다(GROMO-801).
+     * 해제는 관계를 줄이는 방향이라 탈퇴자를 대상으로 허용해도 유령이 늘지 않는다.
+     * <b>새 코드는 기본적으로 {@link #getTarget}·{@link #getCaller} 를 쓰고, 이 메서드는
+     * "탈퇴자도 대상이어야 하는 이유"를 호출부에 적을 수 있을 때만 쓴다.</b>
+     *
+     * @param id 조회 대상
+     * @return 유저. 탈퇴했어도 돌려준다
+     * @throws UserException 행 자체가 없으면 {@link UserErrorCode#NOT_FOUND}
+     */
+    public User getAny(UUID id) {
+        return userRepository.findById(id).orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 
     /**
