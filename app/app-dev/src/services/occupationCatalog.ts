@@ -109,19 +109,19 @@ const STATIC_NAME_FALLBACK: Record<Occupation, string> = {
 // code의 표시명 — 앱 i18n이 정본, 없으면 서버 displayName, 그마저 없으면 정적 폴백(한국어).
 // 카탈로그를 아직 못 받았어도(list=null) 글자가 나온다 — 오프라인에서 리그 라벨·프로필
 // 시험명이 빈칸으로 뜨지 않는다.
-// 카탈로그를 받았는데 그 code가 목록에 없으면 null — 서버가 내리지 않는 시험을 앱이 혼자
-// 그리지 않게 한다(신규/폐지 code의 안전망).
+// 카탈로그 목록에 없는 code도 **표시는 한다** — 서버가 soft-delete로 목록에서 뺀 직군이라도
+// users.occupation에 이미 배정된 유저가 있어, 여기서 null을 돌리면 그들의 메뉴·프로필·리그
+// 라벨이 통째로 사라진다(PR 713 코덱스 7R). '선택 가능' 제한은 표시가 아니라 선택 화면
+// (OccupationScreen)이 활성 목록 멤버십으로 건다.
 export function displayNameOf(
   list: OccupationResponse[] | null,
   code: Occupation | null | undefined,
 ): string | null {
   if (!code) return null;
-  const server = list?.find((o) => o.code === code);
-  if (list && !server) return null;
   const key = `shared.focusCategories.name.${code}`;
   // i18n에 키가 없으면 i18n-js가 'missing translation' 문자열을 돌려주므로 defaultValue로 판별한다.
   if (i18n.t(key, { defaultValue: '' })) return t(key);
-  return server?.displayName ?? STATIC_NAME_FALLBACK[code] ?? null;
+  return list?.find((o) => o.code === code)?.displayName ?? STATIC_NAME_FALLBACK[code] ?? null;
 }
 
 // 단건 표시명 훅 — 카탈로그를 직접 다루지 않는 화면용.

@@ -220,7 +220,11 @@ export default function OccupationScreen() {
         {occupations === null
           ? null
           : OCCUPATION_GROUPS.map((group) => {
+              // 선택 가능 여부는 서버 활성 목록 멤버십으로 제한한다 — displayNameOf는 이제
+              // 목록 밖 code(soft-delete)도 표시용으로 해석하므로 여기서 걸러야
+              // 비활성 직군이 선택지로 노출되지 않는다(PR 713 코덱스 4R·7R).
               const items = group.codes
+                .filter((code) => occupations.some((o) => o.code === code))
                 .map((code) => ({ code, name: displayNameOf(occupations, code) }))
                 .filter((o): o is { code: Occupation; name: string } => o.name !== null);
               if (!items.length) return null;

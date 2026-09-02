@@ -1,6 +1,6 @@
 // occupationCatalog 유닛 테스트(GROMO-1624) — 표시명 소스가 서버 하나임을 잠근다.
 // 잠그는 규칙: ① 성공 응답은 로컬에 캐시된다 ② 조회 실패 시 그 캐시로 폴백한다
-// ③ 서버가 내리지 않는 code는 숨긴다 ④ 아무 소스도 없으면 정적 폴백(한국어)이 최후를 막는다
+// ③ 목록 밖 code도 표시는 해석한다(선택 제한은 화면 몫) ④ 아무 소스도 없으면 정적 폴백이 최후를 막는다
 // ⑤ 실패한 채 마운트된 훅도 나중 재시도 성공을 구독으로 받는다.
 // 표시명은 i18n 키(shared.focusCategories.name.<CODE>)가 있으면 그쪽이 이기지만, 그 키는
 // GROMO-1704 몫이라 아직 없다 — 지금은 서버 displayName·정적 폴백 경로만 잠근다.
@@ -76,8 +76,9 @@ test('실패한 채 마운트된 훅도 나중 재시도 성공을 구독으로 
   expect(result.current).toEqual(CATALOG); // 언마운트 없이 갱신(PR 713 코덱스 3R)
 });
 
-test('카탈로그를 받았는데 목록에 없는 code면 null — 서버가 안 내리는 시험은 안 그린다', () => {
-  expect(displayNameOf(CATALOG, 'ETC')).toBeNull(); // CATALOG에 없는 code
+test('카탈로그 목록에 없는 code도 표시는 한다 — soft-delete 직군에 배정된 기존 유저 유지', () => {
+  // 선택 제한은 OccupationScreen의 멤버십 필터 몫 — 표시까지 죽이면 메뉴·프로필이 미설정으로 보인다
+  expect(displayNameOf(CATALOG, 'ETC')).toBe('기타'); // CATALOG에 없는 code → 정적 폴백
 });
 
 test('code가 없으면 null', () => {

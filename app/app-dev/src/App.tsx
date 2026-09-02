@@ -131,15 +131,17 @@ async function syncOnboardingToServer(data: V2OnboardingData): Promise<Onboardin
 // 온보딩이 고른 준비 시험을 서버(정본)에 반영하고, 이번 세션 상태에 넣을 값을 돌려준다.
 // 실패해도 온보딩은 통과시키되(프로필 등록과 달리 재입력으로 풀 문제가 아님) 두 가지를 남긴다:
 //  - 계측(occupation_sync_failed) — syncOccupation 내장
-//  - 복구 씨앗 — 선택 표시명을 구 한글 키에 남겨 다음 실행의 recoverOccupation이 재시도한다.
+//  - 복구 씨앗 — 선택 **code**를 구 키에 남겨 다음 실행의 recoverOccupation이 재시도한다.
 //    신규 설치는 이 키가 원래 비어 있어, 안 남기면 선택이 영구 유실된다(PR 713 코덱스 P1).
+//    표시명이 아니라 code를 남기는 이유: 표시명은 서버 표기가 바뀌면 복구 표에서 빠질 수 있다 —
+//    이 PR이 없앤 '표시명=정체성'을 복구 경로에 되살리지 않는다(코덱스 7R). 복구는 code
+//    직접 표기를 인정한다(occupationSync). 이 씨앗이 롤백된 구 번들에 원시 코드로 보일 수
+//    있지만, PATCH 실패 직후 + 롤백이 겹친 구석이라 영구 유실보다 싸게 먹힌다.
 // 반환: 세션에 반영할 occupation — 서버가 받은 경우에만 code, 아니면 null(정본=서버 원칙 유지).
 async function syncOnboardingOccupation(data: V2OnboardingData): Promise<Occupation | null> {
   if (!data.focusCategory) return null;
   if (await syncOccupation(data.focusCategory, 'onboarding')) return data.focusCategory;
-  if (data.focusCategoryLabel) {
-    await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategoryLabel).catch(() => {});
-  }
+  await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, data.focusCategory).catch(() => {});
   return null;
 }
 
