@@ -163,6 +163,10 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
     // GA4 User-ID를 로그인(세션 커밋) 직후 연결(GROMO-1637) — 온보딩 완료 전 이탈(유령 계정)의
     // 행동도 user_id로 추적한다. UserContext의 같은 호출은 홈 진입 후 같은 값 재적용이라 무해.
     setUserId(nextUserId);
+    // 식별 속성도 같은 시점에 — 게스트는 trackAuthSuccess를 안 타서 is_guest가 비고, 같은 설치의
+    // 이전 계정 값이 남아 오분류될 수 있다(코드리뷰). 잔액 버킷 해제는 UserContext와 같은
+    // 계정 경계 규칙(이전 계정 user property가 이어지지 않게).
+    setIdentityProps({ is_guest: isGuest, currency_balance_bucket: null });
     await claimStoredInviteAttribution();
     // 세션 세대는 전환 내부의 마지막 await 뒤에 올린다. 새 세대를 공개한 뒤 mutex를 놓기 전에
     // 이전 요청이 triggerLogout하면 새 세대로 시작한 로그아웃이 대기 후 새 토큰을 지울 수 있다.
