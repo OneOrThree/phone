@@ -20,6 +20,7 @@ import GoalSettingStep from '@/screens/onboarding/steps/GoalSettingStep';
 import CharacterIntroStep from '@/screens/onboarding/steps/CharacterIntroStep';
 import CutoutStep from '@/screens/onboarding/steps/CutoutStep';
 import NicknameStep from '@/screens/onboarding/steps/NicknameStep';
+import { getMyProfile } from '@/services/userApi';
 import { t } from '@/i18n';
 import { hapticLight, hapticMedium } from '@/utils/haptics';
 import { fadeIn } from '@/constants/motion';
@@ -239,11 +240,21 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   // 중간 로그인 성공 — 기존 계정이면 즉시 확정(홈 진입), 신규면 세션을 보관하고 프로필 수집 진행.
   const onMidFlowLogin = async (result: LoginResult) => {
-    if (isExistingAccount(result)) {
-      await finalize(result);
+    let loginResult = result;
+    if (loginResult.profileUnverified) {
+      // 로그인 시점 프로필 병합이 비인증 장애로 실패해 등록 여부 미상 — 판정 직전에 1회
+      // 재조회로 좁힌다(GROMO-1637 코드리뷰). 재조회도 실패하면 기존 계정 보수 판정
+      // (isExistingAccount) — 덮어쓰기가 유령 잔존보다 해로워서. 유령이면 다음 로그인에 자가치유.
+      try {
+        const profile = await getMyProfile();
+        loginResult = { ...loginResult, ...profile, profileUnverified: false };
+      } catch {}
+    }
+    if (isExistingAccount(loginResult)) {
+      await finalize(loginResult);
       return;
     }
-    setLogin(result);
+    setLogin(loginResult);
     next();
   };
 

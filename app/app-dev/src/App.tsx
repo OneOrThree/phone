@@ -15,7 +15,7 @@ import {
 } from '@/services/api';
 import { t } from '@/i18n';
 import { setAccountSwitchHandler, logout } from '@/services/auth';
-import { initAnalytics } from '@/services/analytics';
+import { initAnalytics, setUserId } from '@/services/analytics';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
 import { todayStr } from '@/utils/localDate';
 import {
@@ -186,6 +186,10 @@ function App() {
       // 이걸 복원하면 프로필 미등록 상태로 홈에 진입하므로, 온보딩을 다시 밟게 한다.
       // (user와 플래그가 따로 노는 경우는 이 경로뿐 — 완료/로그아웃 시엔 둘을 함께 저장/삭제.)
       if (!done || !raw) {
+        // 미완료 세션은 복원하지 않으므로 분석 식별자도 함께 해제한다(GROMO-1637 코드리뷰) —
+        // 직전 실행의 중간 로그인이 남긴 User-ID(Firebase는 재시작에도 유지)가 이번 실행의
+        // 로그인 전 온보딩 이벤트에 귀속되는 걸 막는다. 로그인하면 postAuthSave가 다시 세운다.
+        setUserId(null);
         setLoading(false);
         return;
       }
