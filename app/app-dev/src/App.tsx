@@ -65,6 +65,7 @@ import { PendingGoalApplier } from '@/components/PendingGoalApplier';
 import { ScreenTimeSyncer } from '@/components/ScreenTimeSyncer';
 import LoginScreen from '@/screens/LoginScreen';
 import OnboardingFlow, {
+  isExistingAccount,
   type OnboardingCompleteStatus,
   type OnboardingResult,
   type V2OnboardingData,
@@ -409,16 +410,17 @@ function App() {
 
   // 온보딩 완료(중간 로그인 세션 + 수집 데이터) → 플래그 저장 + 유저 설정 → 홈 진입.
   // 기존 계정엔 온보딩 수집값을 덮어쓰지 않는다(프로필·목표·로컬 상태 모두):
-  //   - login.isNewUser === false : 재로그인이면 기존 유저(예: 로그아웃 후 같은 소셜로 재로그인).
-  //     백엔드가 (provider, providerId)로 같은 유저를 돌려주므로, 새로 입력한 값이 서버 프로필을
-  //     덮어쓰면 안 된다. (중간 로그인에서 isNewUser === false면 남은 온보딩을 건너뛰고 바로 확정.)
+  //   - 판별은 isExistingAccount(재로그인 + 프로필 등록 완료). 백엔드가 (provider, providerId)로
+  //     같은 유저를 돌려주므로, 새로 입력한 값이 서버 프로필을 덮어쓰면 안 된다.
+  //     프로필 미등록 유령 계정(isNewUser=false지만 닉네임 없음)은 신규 경로로 보내
+  //     남은 온보딩을 마저 밟고 프로필을 등록하게 한다(GROMO-1637).
   async function handleOnboardingComplete({
     data,
     login,
   }: OnboardingResult): Promise<OnboardingCompleteStatus> {
-    const isExistingAccount = login.isNewUser === false;
+    const existingAccount = isExistingAccount(login);
     let onboardedOccupation: Occupation | null = null; // 신규 유저의 세션 씨앗 — 서버 반영 성공 시에만
-    if (!isExistingAccount) {
+    if (!existingAccount) {
       // 신규 유저 — 프로필 등록(닉네임 중복 검증 포함)이 성공해야 온보딩 완료(GROMO-617/618).
       // 실패 시 완료 플래그·유저 상태를 세팅하지 않고 결과만 돌려줘 게이트를 유지한다
       // (OnboardingFlow가 닉네임 재입력/재시도 UI를 띄운다).
@@ -428,7 +430,7 @@ function App() {
       // 실패 시 세션에도 안 넣는다(서버가 정본 — 화면만 설정된 척하면 1624가 없앤 드리프트가 재발).
       onboardedOccupation = await syncOnboardingOccupation(data);
       // 신규 가입 확정 — 광고 소재별 '설치 후 실제 사용' 판단용 온보딩 완료 이벤트(GROMO-890).
-      // 재로그인(isExistingAccount)·세션 복원 경로에는 넣지 않는다(가입이 아니므로 중복 집계 방지).
+      // 재로그인(existingAccount)·세션 복원 경로에는 넣지 않는다(가입이 아니므로 중복 집계 방지).
       // ATT 동의 반영을 이벤트 전송보다 먼저 끝내야 동의 유저의 개인 단위 매칭이 산다 — onboarded
       // 이펙트는 이 함수가 끝난 뒤에야 돌아 순서를 보장하지 못한다(PR 321 코덱스 리뷰). 이펙트에서
       // 한 번 더 돌지만 결정된 동의 상태를 재적용할 뿐이라 무해(팝업은 미결정일 때만 1회).
@@ -462,7 +464,7 @@ function App() {
     // 소셜·게스트 모두 중간 로그인 노드에서 실제 JWT 세션을 발급받고 온다(게스트=POST /auth/guest).
     // 세션(토큰/유저)은 auth.ts가 이미 저장 — 여기선 화면 상태만 세팅.
     const userId = getUserIdFromToken(login.accessToken);
-    if (isExistingAccount) {
+    if (existingAccount) {
       // 기존 계정 — 로그인 프로필(닉네임 등)을 그대로 사용, 온보딩 값으로 덮어쓰지 않음.
       // 로그아웃/새 기기에선 온보딩 중간 로그인이 기존 계정의 주 진입로라 여기서도 백필(GROMO-758 리뷰).
       // postAuthSave가 /users/me를 병합해 occupation이 실려 온다 — NULL이면 폰의 옛 값으로 복구.

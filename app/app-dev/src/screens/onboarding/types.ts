@@ -40,10 +40,20 @@ export const INITIAL_ONBOARDING_DATA: V2OnboardingData = {
 // 온보딩 완료 결과 — 중간 로그인 세션과 수집 데이터를 호출부(App)로 전달.
 // 게스트 로그인도 백엔드 POST /auth/guest로 실제 JWT 세션을 발급받아
 // 오므로(auth.ts guestLogin) login은 항상 유효한 LoginResult — 소셜/게스트 구분 없음.
-// 기존 계정 여부는 login.isNewUser === false로 판별(프로필 덮어쓰기 금지).
+// 기존 계정 여부는 isExistingAccount(login)로 판별(프로필 덮어쓰기 금지).
 export interface OnboardingResult {
   data: V2OnboardingData;
   login: LoginResult;
+}
+
+// 기존 계정(프로필 등록까지 마친 계정) 판별 — GROMO-1637.
+// isNewUser === false만으로는 부족하다: 계정 생성(중간 로그인)과 프로필 등록(온보딩 끝
+// POST /users/me) 사이에 이탈한 '유령 계정'도 재로그인 시 isNewUser=false로 돌아와,
+// 남은 온보딩이 스킵되고 영구히 닉네임 없이 남는다. postAuthSave가 기존 계정 로그인에
+// GET /users/me를 병합하므로 nickname 존재가 프로필 등록 완료의 신호다
+// (trim은 GROMO-1215 이전 빈 문자열 닉네임 레거시 방어). 게스트는 항상 isNewUser=true라 무관.
+export function isExistingAccount(login: LoginResult): boolean {
+  return login.isNewUser === false && !!login.nickname?.trim();
 }
 
 // 가입 확정 결과 — 호출부(App)가 프로필 등록(POST /users/me)까지 마친 뒤 돌려준다.

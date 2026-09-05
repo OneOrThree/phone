@@ -24,7 +24,12 @@ import { t } from '@/i18n';
 import { hapticLight, hapticMedium } from '@/utils/haptics';
 import { fadeIn } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
-import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from './types';
+import {
+  INITIAL_ONBOARDING_DATA,
+  isExistingAccount,
+  type StepProps,
+  type V2OnboardingData,
+} from './types';
 import type { OnboardingCompleteStatus, OnboardingResult } from './types';
 import {
   logOnboardingStarted,
@@ -38,7 +43,8 @@ import type { OnboardingStepName } from '@/services/analyticsEvents';
 // 순서: 스플래시 → 집중시작 → 함께집중 → 성장기록 → [로그인] → 집중카테고리 →
 //   (과목편집) → 스크린타임 권한 → (거부 시 제한 안내) → 목표설정 → 닉네임(가입 확정).
 // 로그인은 플로우 '중간'에 위치 — 성공 시:
-//   - 기존 계정(isNewUser === false): 남은 스텝을 건너뛰고 즉시 가입 확정(홈 진입).
+//   - 기존 계정(isExistingAccount — 프로필 등록까지 마친 계정): 남은 스텝을 건너뛰고 즉시
+//     가입 확정(홈 진입). 프로필 미등록 유령 계정은 신규 취급해 남은 스텝을 밟는다(GROMO-1637).
 //   - 신규: LoginResult를 보관하고 프로필 수집 스텝을 계속 진행, 마지막 닉네임 뒤 가입 확정.
 // 동적 분기:
 //   - 과목 편집: 선택 카테고리에 추천 과목이 있을 때만 삽입.
@@ -217,7 +223,8 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       const status = await onComplete({ data, login: loginResult });
       if (status === 'ok') {
         // 기존 계정(재로그인)은 온보딩을 거치지 않았으니 완료로 계측하지 않는다.
-        if (loginResult.isNewUser !== false) logOnboardingCompleted();
+        // 유령 계정의 재완주는 이번이 실질적 첫 가입 완료라 계측한다(GROMO-1637).
+        if (!isExistingAccount(loginResult)) logOnboardingCompleted();
         return;
       }
       setServerError(
@@ -232,7 +239,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   // 중간 로그인 성공 — 기존 계정이면 즉시 확정(홈 진입), 신규면 세션을 보관하고 프로필 수집 진행.
   const onMidFlowLogin = async (result: LoginResult) => {
-    if (result.isNewUser === false) {
+    if (isExistingAccount(result)) {
       await finalize(result);
       return;
     }
