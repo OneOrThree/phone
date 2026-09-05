@@ -423,6 +423,17 @@ export function logGuestSocialLoginAttempted(p: { method: AuthMethod }): void {
 }
 
 // ── 설정(Settings) [C] (GROMO-782) ──
+// 앱 표시 언어 변경(GROMO-1672). 파라미터를 'language'가 아니라 'app_language'로 두는 이유:
+// GA4가 기본 수집하는 Language(기기 언어) 차원과 이름이 겹치면 리포트에서 구분이 안 된다.
+// 값은 'system' | ko | en | ja | zh-Hant.
+export function logLanguageChanged(p: {
+  app_language: string;
+  previous_app_language: string;
+}): void {
+  track('language_changed', p);
+}
+
+// ── 설정(Settings) [C] (GROMO-782) ──
 // 알림 설정 변경 — 바뀐 필드 단위로 발행(특히 알림 끄기 = 이탈 위험 신호).
 // setting_value: on/off 또는 'HH:mm'. ('value'는 GA4 예약 파라미터(숫자 이벤트 값)라 사용 금지)
 export type NotificationSettingKey =

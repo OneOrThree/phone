@@ -1211,6 +1211,27 @@
       "groupStudent": "学生",
       "groupCareerLanguage": "就活・語学",
       "groupOther": "その他",
+      "name": {
+        "LABOR_ATTORNEY": "社会保険労務士",
+        "PATENT_ATTORNEY": "弁理士",
+        "TAX_ACCOUNTANT": "税理士",
+        "CPA": "公認会計士",
+        "APPRAISER": "不動産鑑定士",
+        "CIVIL_SERVANT": "公務員試験",
+        "POLICE_FIRE": "警察・消防",
+        "ADMIN_EXAM": "上級公務員試験",
+        "CERTIFICATION": "資格取得",
+        "MIDDLE_SCHOOL": "中学生",
+        "HIGH_SCHOOL": "高校生",
+        "CSAT": "大学入学共通テスト",
+        "UNIVERSITY": "大学生",
+        "JOB_PREP": "就職活動",
+        "ENGLISH_TEST": "TOEIC・TOEFL",
+        "CODING": "プログラミング",
+        "SELF_DEVELOPMENT": "自己啓発",
+        "FOCUS_BUILDING": "集中力アップ",
+        "ETC": "その他"
+      },
       "subject": {
         "laborLaw": "労働法",
         "civilLaw": "民法",
@@ -1396,7 +1417,8 @@
       "inquirySub": "質問・不具合の報告",
       "privacy": "プライバシーポリシー",
       "terms": "利用規約",
-      "version": "バージョン情報"
+      "version": "バージョン情報",
+      "language": "言語"
     },
     "guide": {
       "intro": "「すべて」タブでは、プロフィールとアプリのすべての設定を管理できます。",
@@ -1962,6 +1984,14 @@
     "version": {
       "title": "バージョン情報",
       "latest": "最新バージョンです"
+    },
+    "language": {
+      "title": "言語",
+      "system": "端末の言語に合わせる",
+      "systemSub": "現在は%{language}",
+      "note": "アプリ画面の文言だけが変わります。通知の文言とiPhoneのシステム画面は韓国語で表示される場合があります。",
+      "changed": "言語を変更しました",
+      "saveFailed": "言語を保存できませんでした。しばらくしてからもう一度お試しください。"
     }
   },
   "stats": {

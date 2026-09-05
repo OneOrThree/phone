@@ -13,7 +13,7 @@ import {
   setLogoutHandler,
   setReloginHandler,
 } from '@/services/api';
-import { t } from '@/i18n';
+import { applyLocalePref, getLocale, t } from '@/i18n';
 import { setAccountSwitchHandler, logout } from '@/services/auth';
 import { initAnalytics } from '@/services/analytics';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
@@ -148,6 +148,10 @@ async function syncOnboardingOccupation(data: V2OnboardingData): Promise<Occupat
 function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  // 로케일 복원 재렌더 신호 — 부트스트랩의 applyLocalePref 는 모듈 변수만 바꿔서,
+  // HotUpdater 를 우회하는 경로(웹·E2E)에선 스플래시가 기기 언어로 굳는다(코드리뷰 P2).
+  // 값 자체는 안 쓰고 재렌더 트리거로만 쓴다.
+  const [, bumpLocale] = useState(0);
   const [onboarded, setOnboarded] = useState(false);
   // 온보딩에서 받은 두 목표 — 집중·사용시간 목표(W12)를 각각 보관.
   const [onboardingFocusGoalSeconds, setOnboardingFocusGoalSeconds] = useState<number | null>(null);
@@ -176,6 +180,19 @@ function App() {
     (async () => {
       // 숫자 id 캐시 무효화(PK Long→UUID). 부트스트랩보다 먼저.
       await runStorageMigrations();
+      // 저장된 표시 언어 복원(GROMO-1672). 아래 조기 반환보다 **위**에 둬야 로그아웃 상태
+      // (로그인 화면·온보딩)에서도 적용된다. 이 구간은 loading=true라 스플래시가 가리고 있어
+      // 별도 로딩 게이트가 필요 없다. try/catch는 필수 — 여기서 터지면 setLoading(false)에
+      // 못 닿아 스플래시에서 영구 정지한다(runStorageMigrations가 내부 try/catch를 가진 것과 같은 이유).
+      try {
+        const before = getLocale();
+        applyLocalePref(await AsyncStorage.getItem(STORAGE_KEYS.locale));
+        // 언어가 실제로 바뀌었으면 스플래시를 새 언어로 다시 그린다 — 네이티브는 OTA 게이트가
+        // 이미 적용해 둬서 no-op 이고, HotUpdater 우회 경로(웹·E2E)에서만 발화한다.
+        if (getLocale() !== before) bumpLocale((n) => n + 1);
+      } catch {
+        // 저장값 조회 실패 — 기기 언어 그대로 간다.
+      }
       const done = await AsyncStorage.getItem(STORAGE_KEYS.onboardingComplete);
       if (done) setOnboarded(true);
       const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
@@ -621,6 +638,26 @@ function App() {
 function OtaUpdateGateScreen({ progress }: { progress: number }) {
   useEffect(() => {
     markOtaSplashShown();
+  }, []);
+  // 이 화면은 HotUpdater.wrap 의 fallback 이라 **App 마운트 전**에 뜬다 — App 의 부팅 복원이
+  // 아직 안 돌아서 저장 언어를 여기서 직접 읽는다(코드리뷰 P2). 첫 프레임은 기기 언어로
+  // 나가고(AsyncStorage 가 비동기라 구조적), 읽히는 대로 새 언어로 다시 그린다.
+  // App 쪽 복원과 중복 실행돼도 무해 — applyLocalePref 는 멱등이다.
+  const [, forceRender] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(STORAGE_KEYS.locale)
+      .then((raw) => {
+        const before = getLocale();
+        applyLocalePref(raw);
+        if (!cancelled && getLocale() !== before) forceRender((n) => n + 1);
+      })
+      .catch(() => {
+        // 조회 실패 — 기기 언어 그대로 간다.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
   const caption = `${t('app.splashCaption')}${progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}`;
   return <BrandSplash caption={caption} />;
