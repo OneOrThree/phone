@@ -25,4 +25,12 @@ describe('isExistingAccount', () => {
   it('isNewUser 미전달(undefined)은 기존 계정이 아니다', () => {
     expect(isExistingAccount({ ...base, nickname: '그로몬' })).toBe(false);
   });
+
+  it('프로필 병합 실패(profileUnverified)는 기존 계정으로 보수 판정 — 덮어쓰기 방지', () => {
+    expect(isExistingAccount({ ...base, isNewUser: false, profileUnverified: true })).toBe(true);
+  });
+
+  it('신규 계정이면 profileUnverified가 있어도 기존 계정이 아니다', () => {
+    expect(isExistingAccount({ ...base, isNewUser: true, profileUnverified: true })).toBe(false);
+  });
 });

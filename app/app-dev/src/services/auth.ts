@@ -138,6 +138,10 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
         profile = await getMyProfile({ noAuthRetry: true });
       } catch (error) {
         if (axios.isAxiosError(error) && error.response?.status === 401) throw error;
+        // 비인증 장애(네트워크·5xx)로 병합 실패 — 닉네임 부재가 '프로필 미등록'이란 뜻이 아니므로
+        // 표시해 둔다. isExistingAccount가 이 표시를 보고 기존 계정으로 보수 판정해, 일시 장애가
+        // 온보딩 재진입·프로필 덮어쓰기로 번지지 않게 한다(GROMO-1637 코드리뷰).
+        profile = { profileUnverified: true };
       }
       result = { isGuest, ...data, ...profile };
     } else {

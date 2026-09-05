@@ -52,8 +52,12 @@ export interface OnboardingResult {
 // 남은 온보딩이 스킵되고 영구히 닉네임 없이 남는다. postAuthSave가 기존 계정 로그인에
 // GET /users/me를 병합하므로 nickname 존재가 프로필 등록 완료의 신호다
 // (trim은 GROMO-1215 이전 빈 문자열 닉네임 레거시 방어). 게스트는 항상 isNewUser=true라 무관.
+// 병합이 비인증 장애로 실패한 경우(profileUnverified)는 미등록 단정이 불가 — 기존 계정으로
+// 보수 판정해, 일시 장애가 온보딩 재진입·서버 프로필 덮어쓰기로 번지지 않게 한다(코드리뷰).
 export function isExistingAccount(login: LoginResult): boolean {
-  return login.isNewUser === false && !!login.nickname?.trim();
+  if (login.isNewUser !== false) return false;
+  if (login.profileUnverified) return true;
+  return !!login.nickname?.trim();
 }
 
 // 가입 확정 결과 — 호출부(App)가 프로필 등록(POST /users/me)까지 마친 뒤 돌려준다.
