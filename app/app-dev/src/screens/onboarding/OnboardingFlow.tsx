@@ -243,12 +243,16 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     let loginResult = result;
     if (loginResult.profileUnverified) {
       // 로그인 시점 프로필 병합이 비인증 장애로 실패해 등록 여부 미상 — 판정 직전에 1회
-      // 재조회로 좁힌다(GROMO-1637 코드리뷰). 재조회도 실패하면 기존 계정 보수 판정
-      // (isExistingAccount) — 덮어쓰기가 유령 잔존보다 해로워서. 유령이면 다음 로그인에 자가치유.
+      // 재조회로 좁힌다(GROMO-1637 코드리뷰). 재조회까지 실패하면 어느 쪽으로도 확정하지
+      // 않는다: 기존 계정 확정은 완료 플래그가 저장돼 유령이 다시 고착되고(수정 취지 무력화),
+      // 신규 취급은 기존 프로필을 덮어쓴다. throw는 LoginScreen 알럿으로 이어져 재시도를 유도
+      // 하고, 재로그인이 postAuthSave 병합부터 다시 밟는다.
       try {
         const profile = await getMyProfile();
         loginResult = { ...loginResult, ...profile, profileUnverified: false };
-      } catch {}
+      } catch {
+        throw new Error(t('services.auth.profileCheckFailed'));
+      }
     }
     if (isExistingAccount(loginResult)) {
       await finalize(loginResult);

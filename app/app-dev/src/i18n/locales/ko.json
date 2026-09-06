@@ -1624,6 +1624,7 @@
     },
     "auth": {
       "sessionRefreshFailed": "세션 갱신에 실패했어요. 잠시 후 다시 시도해 주세요.",
+      "profileCheckFailed": "계정 상태 확인에 실패했어요. 잠시 후 다시 로그인해 주세요.",
       "loginFailed": "로그인 실패",
       "appleLoginFailed": "Apple 로그인 실패",
       "googleLoginFailed": "Google 로그인 실패",

@@ -1000,8 +1000,8 @@ export function logInquiryContactOpened(p: {
 // ── User Properties (PII 금지) ──
 // 알려진 값만 설정한다(undefined는 건너뜀). 자세한 목록은 설계서 §2.3.
 export function setIdentityProps(p: {
-  is_guest?: boolean;
-  signup_method?: AuthMethod;
+  is_guest?: boolean | null; // null = 해제(미복원 부트스트랩 등 계정 미상 구간, GROMO-1637)
+  signup_method?: AuthMethod | null; // null = 해제(위와 동일)
   current_tier?: string;
   occupation?: string;
   country_code?: string;

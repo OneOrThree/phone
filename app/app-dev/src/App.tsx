@@ -16,6 +16,7 @@ import {
 import { t } from '@/i18n';
 import { setAccountSwitchHandler, logout } from '@/services/auth';
 import { initAnalytics, setUserId } from '@/services/analytics';
+import { setIdentityProps } from '@/services/analyticsEvents';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
 import { todayStr } from '@/utils/localDate';
 import {
@@ -189,7 +190,9 @@ function App() {
         // 미완료 세션은 복원하지 않으므로 분석 식별자도 함께 해제한다(GROMO-1637 코드리뷰) —
         // 직전 실행의 중간 로그인이 남긴 User-ID(Firebase는 재시작에도 유지)가 이번 실행의
         // 로그인 전 온보딩 이벤트에 귀속되는 걸 막는다. 로그인하면 postAuthSave가 다시 세운다.
+        // 계정 단위 user property(is_guest·signup_method·잔액 버킷)도 같은 이유로 함께 해제.
         setUserId(null);
+        setIdentityProps({ is_guest: null, signup_method: null, currency_balance_bucket: null });
         setLoading(false);
         return;
       }

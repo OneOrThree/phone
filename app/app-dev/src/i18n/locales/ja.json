@@ -1475,6 +1475,7 @@
     },
     "auth": {
       "sessionRefreshFailed": "セッションの更新に失敗しました。しばらくしてからもう一度お試しください。",
+      "profileCheckFailed": "アカウント状態の確認に失敗しました。しばらくしてからもう一度ログインしてください。",
       "loginFailed": "ログイン失敗",
       "appleLoginFailed": "Appleログイン失敗",
       "googleLoginFailed": "Googleログイン失敗",

@@ -1475,6 +1475,7 @@
     },
     "auth": {
       "sessionRefreshFailed": "Couldn't refresh your session. Please try again in a moment.",
+      "profileCheckFailed": "Couldn't verify your account status. Please log in again in a moment.",
       "loginFailed": "Login failed",
       "appleLoginFailed": "Apple login failed",
       "googleLoginFailed": "Google login failed",
