@@ -1589,7 +1589,8 @@
       "inquirySub": "궁금한 점 · 오류 신고",
       "privacy": "개인정보 처리방침",
       "terms": "서비스 이용약관",
-      "version": "버전 정보"
+      "version": "버전 정보",
+      "language": "언어"
     },
     "guide": {
       "intro": "전체 탭에서는 프로필과 앱의 모든 설정을 관리할 수 있어요.",
@@ -1792,7 +1793,11 @@
       "title": "준비 시험 변경",
       "desc": "같은 목표를 준비하는 사람들과 리그에서 만나요.",
       "editRecommended": "추천과목 수정하기",
-      "note": "준비 시험을 바꿔도 이미 등록한 과목은 그대로예요.\n과목은 따로 편집할 수 있어요."
+      "note": "준비 시험을 바꿔도 이미 등록한 과목은 그대로예요.\n과목은 따로 편집할 수 있어요.",
+      "loadFailed": "목록을 불러오지 못했어요.",
+      "saveFailTitle": "준비 시험을 바꾸지 못했어요",
+      "saveFailBody": "네트워크 상태를 확인하고 다시 시도해 주세요.",
+      "examFallback": "이 시험"
     },
     "privacy": {
       "title": "개인정보 처리방침",
@@ -1899,6 +1904,14 @@
     "version": {
       "title": "버전 정보",
       "latest": "최신 버전이에요"
+    },
+    "language": {
+      "title": "언어",
+      "system": "기기 언어 따름",
+      "systemSub": "지금은 %{language}",
+      "note": "앱 화면 문구만 바뀌어요. 알림 문구와 아이폰 시스템 화면은 아직 한국어로 표시될 수 있어요.",
+      "changed": "언어를 바꿨어요",
+      "saveFailed": "언어를 저장하지 못했어요. 잠시 후 다시 시도해 주세요."
     }
   },
   "shared": {
@@ -1941,6 +1954,27 @@
       "groupStudent": "학생",
       "groupCareerLanguage": "취업·어학",
       "groupOther": "그 외",
+      "name": {
+        "LABOR_ATTORNEY": "노무사",
+        "PATENT_ATTORNEY": "변리사",
+        "TAX_ACCOUNTANT": "세무사",
+        "CPA": "회계사",
+        "APPRAISER": "감정평가사",
+        "CIVIL_SERVANT": "공무원",
+        "POLICE_FIRE": "경찰·소방",
+        "ADMIN_EXAM": "행정고시",
+        "CERTIFICATION": "자격증",
+        "MIDDLE_SCHOOL": "중학생",
+        "HIGH_SCHOOL": "고등학생",
+        "CSAT": "수능·N수",
+        "UNIVERSITY": "대학생",
+        "JOB_PREP": "취업 준비",
+        "ENGLISH_TEST": "토익·토플",
+        "CODING": "코딩",
+        "SELF_DEVELOPMENT": "자기계발",
+        "FOCUS_BUILDING": "집중력 키우기",
+        "ETC": "기타"
+      },
       "subject": {
         "laborLaw": "노동법",
         "civilLaw": "민법",

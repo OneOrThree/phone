@@ -5,7 +5,7 @@ import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { hapticLight } from '@/utils/haptics';
 import { OCCUPATION_GROUPS, getDefaultSubjects } from '@/constants/focusCategories';
-import { getOccupations } from '@/services/userApi';
+import { displayNameOf, loadOccupations } from '@/services/occupationCatalog';
 import { getDefaultTags } from '@/services/focusApi';
 import {
   logOnboardingFocusCategorySubmitted,
@@ -15,8 +15,8 @@ import type { OccupationResponse } from '@/types/dto/user';
 import type { StepProps } from '@/screens/onboarding/types';
 
 // 목표 선택 — GET /occupations(서버)로 카테고리(code·표시명)를 받아 프론트 정적 그룹(OCCUPATION_GROUPS)으로
-// 묶어 보여준다. 선택값은 '표시명'을 focusCategory에 저장한다(App·설정·통계 등 로컬 소비처가 표시명 기준이라
-// 호환 유지). '다음'에서 선택 occupation의 추천 과목(GET /tag/defaults)을 받아 data.subjects에 채운다 —
+// 묶어 보여준다. 선택값은 **code**를 focusCategory에 저장하고(정본), 표시명은 이후 스텝 문구용으로
+// focusCategoryLabel에 함께 담는다(GROMO-1624). '다음'에서 선택 occupation의 추천 과목(GET /tag/defaults)을 받아 data.subjects에 채운다 —
 // 다음 스텝(과목 확인) 표시 + 컨트롤러의 과목 스텝 삽입 여부(hasSubjects) 판단에 쓰인다.
 // 로그인이 이 스텝보다 앞이라 인증 토큰이 있어 서버 조회가 가능하다. 실패 시 정적값으로 폴백한다.
 export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
@@ -29,9 +29,11 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
   useEffect(() => {
     let cancelled = false;
     setLoadFailed(false);
-    getOccupations()
+    loadOccupations()
       .then((list) => {
-        if (!cancelled) setOccupations(list);
+        if (cancelled) return;
+        if (list) setOccupations(list);
+        else setLoadFailed(true);
       })
       .catch(() => {
         if (!cancelled) setLoadFailed(true);
@@ -52,12 +54,8 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
     if (!selected || submitting) return;
     logOnboardingFocusCategorySubmitted({ category: selected });
     setSubmitting(true);
-    const code = occupations?.find((o) => o.displayName === selected)?.code ?? null;
     try {
-      const names = code
-        ? (await getDefaultTags(code)).tags.map((tag) => tag.name)
-        : getDefaultSubjects(selected);
-      update({ subjects: names });
+      update({ subjects: (await getDefaultTags(selected)).tags.map((tag) => tag.name) });
     } catch {
       update({ subjects: getDefaultSubjects(selected) });
     } finally {
@@ -104,7 +102,10 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
               <Text style={s.groupLabel}>{t(g.labelKey)}</Text>
               <View style={s.chips}>
                 {items.map((o) => {
-                  const on = selected === o.displayName;
+                  const on = selected === o.code;
+                  // 표시명은 앱 i18n 우선(displayNameOf) — 서버 displayName 을 직접 그리면
+                  // en·ja·zh-Hant 온보딩에서 시험 칩만 한국어로 남는다(코드리뷰).
+                  const label = displayNameOf(occupations, o.code) ?? o.displayName;
                   return (
                     <TouchableOpacity
                       key={o.code}
@@ -113,19 +114,24 @@ export default function FocusCategoryStep({ data, update, onNext }: StepProps) {
                       // 카테고리 변경 시 과목도 리셋 — 이전 카테고리 과목이 남지 않도록.
                       onPress={() => {
                         hapticLight();
-                        if (o.displayName !== selected) {
+                        if (o.code !== selected) {
                           // 선택 분포·변심을 보기 위해 '바뀔 때만' 발행한다(같은 칩 재탭은 무발행).
                           logOnboardingStepAction({
                             step: 'focus_category',
                             action: 'category_select',
-                            action_value: o.displayName,
+                            action_value: o.code,
                           });
-                          update({ focusCategory: o.displayName, subjects: [] });
+                          update({
+                            focusCategory: o.code,
+                            // 라벨도 번역된 표시명으로 — SubjectEditStep·LiveRankingStep 문구에 그대로 흐른다.
+                            focusCategoryLabel: label,
+                            subjects: [],
+                          });
                         }
                       }}
                       style={[s.chip, on ? s.chipOn : null]}
                     >
-                      <Text style={[s.chipText, on ? s.chipTextOn : null]}>{o.displayName}</Text>
+                      <Text style={[s.chipText, on ? s.chipTextOn : null]}>{label}</Text>
                     </TouchableOpacity>
                   );
                 })}

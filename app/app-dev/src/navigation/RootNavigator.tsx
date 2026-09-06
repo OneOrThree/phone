@@ -43,6 +43,7 @@ import {
   AppPickerScreen,
   NotificationSettingsScreen,
   StatVisibilityScreen,
+  LanguageScreen,
   PrivacyPolicyScreen,
   VersionInfoScreen,
 } from '@/screens/settings';
@@ -290,6 +291,7 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
         <Stack.Screen name="SettingsAppPicker" component={AppPickerScreen} />
         <Stack.Screen name="SettingsNotification" component={NotificationSettingsScreen} />
         <Stack.Screen name="SettingsStatVisibility" component={StatVisibilityScreen} />
+        <Stack.Screen name="SettingsLanguage" component={LanguageScreen} />
         <Stack.Screen name="SettingsPrivacyPolicy" component={PrivacyPolicyScreen} />
         <Stack.Screen name="SettingsVersion" component={VersionInfoScreen} />
         {/* 사진에서 캐릭터 만들기 — '전체' 탭 '캐릭터' 섹션에서 진입. 생성 완료 시

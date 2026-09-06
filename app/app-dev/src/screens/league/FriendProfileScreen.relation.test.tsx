@@ -54,6 +54,7 @@ jest.mock('@/screens/stats/ComingSoon', () => ({ ComingSoon: () => null }));
 jest.mock('@/services/userApi', () => ({
   getPublicProfile: jest.fn(),
   getUserStats: jest.fn(),
+  getOccupations: jest.fn(() => Promise.resolve([])),
 }));
 jest.mock('@/services/statsApi', () => ({
   getFocusStatsByCategory: jest.fn(() => Promise.reject(new Error('n/a'))),

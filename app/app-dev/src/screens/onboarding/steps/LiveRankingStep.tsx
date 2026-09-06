@@ -64,7 +64,7 @@ function Row({
 }
 
 export default function LiveRankingStep({ data, onNext }: StepProps) {
-  const category = data.focusCategory ?? t('onboarding.liveRanking.categoryFallback');
+  const category = data.focusCategoryLabel ?? t('onboarding.liveRanking.categoryFallback');
   const subs = getDefaultSubjects(data.focusCategory);
   const subjectFor = (i: number) => (subs.length ? subs[i % subs.length] : category);
 

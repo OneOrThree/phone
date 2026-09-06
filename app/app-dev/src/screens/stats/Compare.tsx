@@ -3,13 +3,13 @@
 import { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import type { StatsPeriod } from '@/types/dto/stats';
 import { logStatsCompareAxisChanged, type CompareAxisParam } from '@/services/analyticsEvents';
 import { fetchFriendsAverage, fetchFocusAverage } from '@/services/compareAverages';
-import { STORAGE_KEYS } from '@/types/storage';
+import { useOccupationName } from '@/services/occupationCatalog';
+import { useUser } from '@/store/UserContext';
 import { fmtMinutes } from '@/utils/timeFormat';
 import { periodKey } from './format';
 import { COMPARE_BARS_H } from './constants';
@@ -36,9 +36,11 @@ export function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMi
   const [axis, setAxis] = useState<CompareAxisKey>('ALL');
   // 축별 도착 상태 — undefined=로딩. 도착한 축부터 채워 축 전환 시 기다림을 줄인다(755 패턴)
   const [avgs, setAvgs] = useState<Partial<Record<CompareAxisKey, CompareAvg>>>({});
-  // 준비 시험(카테고리)명 — 서버는 미설정도 sampleSize 0으로 응답해 응답만으론 '표본 없음'과
-  // 구분이 안 된다. 로컬 값으로 미설정 문구를 분기한다(PR 254 리뷰 반영)
-  const [categoryLabel, setCategoryLabel] = useState<string | null>(null);
+  // 준비 시험 — 서버는 미설정도 sampleSize 0으로 응답해 응답만으론 '표본 없음'과 구분이 안 된다.
+  // 프로필의 occupation으로 미설정 문구를 분기한다(PR 254 리뷰 반영).
+  // CATEGORY 축 집계도 이 서버 occupation 기준이라 집계와 라벨이 같은 값을 본다(GROMO-1624).
+  const { occupation } = useUser();
+  const categoryLabel = useOccupationName(occupation);
 
   // 화면 재진입마다 재조회 — 타임테이블과 동일 패턴
   useFocusEffect(
@@ -50,9 +52,6 @@ export function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMi
       fetchFriendsAverage(period).then(put('FRIENDS'));
       fetchFocusAverage('TOTAL', period).then(put('ALL'));
       fetchFocusAverage('CATEGORY', period).then(put('CATEGORY'));
-      AsyncStorage.getItem(STORAGE_KEYS.focusCategory)
-        .then((v) => !cancelled && setCategoryLabel(v))
-        .catch(() => {}); // 조회 실패 → 미설정과 동일 취급(설정 유도 문구)
       return () => {
         cancelled = true;
       };
@@ -70,8 +69,9 @@ export function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMi
   const emptyNote = (k: CompareAxisKey, count: number): string => {
     if (count !== 0) return t('stats.compare.loadFailed');
     if (k === 'FRIENDS') return t('stats.compare.emptyFriends', { when });
+    // 미설정 판정은 표시명이 아니라 code로 — 표시명 미해결을 미설정으로 오인하지 않게.
     if (k === 'CATEGORY')
-      return categoryLabel
+      return occupation
         ? t('stats.compare.emptyCategory', { when })
         : t('stats.compare.noCategorySet');
     return t('stats.compare.emptyAll', { when });

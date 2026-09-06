@@ -129,6 +129,7 @@ export type V2RootStackParamList = {
   SettingsAppPicker: { mode: 'measured' | 'allowed' };
   SettingsNotification: undefined; // 알림 · 심야 · 소리
   SettingsStatVisibility: undefined; // 통계 공개 범위
+  SettingsLanguage: undefined; // 앱 표시 언어(기기 따름 · 한국어 · 영어 · 일본어 · 번체중국어)
   SettingsPrivacyPolicy: undefined; // 개인정보 처리방침 (URL 미정 — placeholder)
   SettingsVersion: undefined; // 버전 정보
 

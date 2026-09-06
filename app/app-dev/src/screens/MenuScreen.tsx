@@ -13,6 +13,7 @@ import { useUser } from '@/store/UserContext';
 import { useCharacter } from '@/store/CharacterContext';
 import { useCoins, useRefreshCoinsOnFocus } from '@/store/CoinContext';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
+import { useOccupationName } from '@/services/occupationCatalog';
 import { STORAGE_KEYS } from '@/types/storage';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
@@ -24,7 +25,7 @@ import { SettingsSection, SettingsRow } from '@/screens/settings/components/Sett
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
-import { t } from '@/i18n';
+import { getLocale, t, LOCALE_NAMES } from '@/i18n';
 import { CURRENCY } from '@/constants/currency';
 import { logCurrencyChipTapped } from '@/services/analyticsEvents';
 
@@ -230,7 +231,7 @@ function BucketDebugPanel() {
 
 export default function MenuScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { nickname, goalSeconds, screenTimeGoalSeconds } = useUser();
+  const { nickname, goalSeconds, screenTimeGoalSeconds, occupation } = useUser();
   // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
   const { activeSource } = useCharacter();
   const insets = useSafeAreaInsets();
@@ -239,7 +240,8 @@ export default function MenuScreen() {
   useRefreshCoinsOnFocus();
 
   // 허브 행 우측 요약값 — 준비 시험 / 허용앱 개수 / 스크린타임 권한 상태.
-  const [category, setCategory] = useState<string | null>(null); // 준비 시험(focusCategory)
+  // 준비 시험 — 서버 프로필이 정본(GROMO-1624), 화면 표기는 그 code의 서버 표시명
+  const examName = useOccupationName(occupation);
   const [allowedApps, setAllowedApps] = useState<number | null>(null);
   const [permission, setPermission] = useState<'approved' | 'denied' | 'notDetermined' | null>(
     null,
@@ -267,9 +269,6 @@ export default function MenuScreen() {
       ScreenTimeModule.getAuthorizationStatus()
         .then((st) => !cancelled && setPermission(st))
         .catch(() => !cancelled && setPermission(null));
-      AsyncStorage.getItem(STORAGE_KEYS.focusCategory)
-        .then((c) => !cancelled && setCategory(c))
-        .catch(() => {});
       // 연속 공부 일수(GROMO-630) — 재진입마다 최신화.
       getStreak()
         .then((v) => !cancelled && setStreakDays(v.currentStreak))
@@ -339,7 +338,9 @@ export default function MenuScreen() {
               )}
             </View>
             <Text style={s.profileSub} numberOfLines={1}>
-              {category ? t('menu.profile.preparing', { category }) : t('menu.profile.edit')}
+              {examName
+                ? t('menu.profile.preparing', { category: examName })
+                : t('menu.profile.edit')}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={T.inkMuted} />
@@ -417,7 +418,7 @@ export default function MenuScreen() {
               iconColor={T.accentDeep}
               iconBg={T.accentBg}
               label={t('menu.goal.occupation')}
-              value={category ?? t('menu.goal.occupationUnset')}
+              value={examName ?? t('menu.goal.occupationUnset')}
               onPress={() => navigation.navigate('SettingsOccupation')}
             />
           </SettingsSection>
@@ -462,6 +463,18 @@ export default function MenuScreen() {
             label={t('menu.account.inquiry')}
             sub={t('menu.account.inquirySub')}
             onPress={() => navigation.navigate('SettingsInquiry')}
+          />
+          {/* 언어 — 조작 가능한 행 묶음의 맨 끝(아래 3개는 읽기 전용 문서·버전).
+               우측 값은 '저장된 설정'이 아니라 **지금 적용 중인 언어**다 — '기기 언어 따름'을
+               고른 사람에게 그 문구를 보여주면 정작 무슨 언어인지 알 수 없다(iOS 표준도 이쪽). */}
+          <SettingsRow
+            testID="menu.row.language"
+            icon="language-outline"
+            iconColor={T.inkSub}
+            iconBg={T.sandLight}
+            label={t('menu.account.language')}
+            value={LOCALE_NAMES[getLocale()]}
+            onPress={() => navigation.navigate('SettingsLanguage')}
           />
           <SettingsRow
             icon="document-text-outline"

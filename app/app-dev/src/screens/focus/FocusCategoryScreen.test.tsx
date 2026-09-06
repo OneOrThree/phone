@@ -69,8 +69,8 @@ jest.mock('@/services/analyticsEvents', () => ({
 jest.mock('@/services/focusApi', () => ({
   getDefaultTags: jest.fn(() => Promise.resolve({ tags: [] })),
 }));
-// 카테고리 미설정으로 확정 — 추천 과목 조회 분기를 타지 않게 해 시퀀스만 남긴다.
-jest.mock('@/hooks/useFocusCategory', () => ({ useFocusCategory: () => null }));
+// 준비 시험 미설정 — 추천 과목 조회 분기를 타지 않게 해 시퀀스만 남긴다(정본은 서버 프로필).
+jest.mock('@/store/UserContext', () => ({ useUser: () => ({ occupation: null }) }));
 jest.mock('@/components/TabGuideOverlay', () => ({ TabGuideOverlay: () => null }));
 
 const SUBJECTS: Subject[] = [

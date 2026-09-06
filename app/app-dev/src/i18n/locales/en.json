@@ -1211,6 +1211,27 @@
       "groupStudent": "Students",
       "groupCareerLanguage": "Job hunting · Languages",
       "groupOther": "Other",
+      "name": {
+        "LABOR_ATTORNEY": "Labor Attorney",
+        "PATENT_ATTORNEY": "Patent Attorney",
+        "TAX_ACCOUNTANT": "Tax Accountant",
+        "CPA": "Certified Public Accountant",
+        "APPRAISER": "Real Estate Appraiser",
+        "CIVIL_SERVANT": "Civil Service Exam",
+        "POLICE_FIRE": "Police & Fire Service",
+        "ADMIN_EXAM": "Senior Civil Service Exam",
+        "CERTIFICATION": "Certifications",
+        "MIDDLE_SCHOOL": "Middle School",
+        "HIGH_SCHOOL": "High School",
+        "CSAT": "College Entrance Exam",
+        "UNIVERSITY": "University",
+        "JOB_PREP": "Job Hunting",
+        "ENGLISH_TEST": "English Proficiency Tests",
+        "CODING": "Coding",
+        "SELF_DEVELOPMENT": "Self-Improvement",
+        "FOCUS_BUILDING": "Building Focus",
+        "ETC": "Other"
+      },
       "subject": {
         "laborLaw": "Labor Law",
         "civilLaw": "Civil Law",
@@ -1396,7 +1417,8 @@
       "inquirySub": "Questions · Report a bug",
       "privacy": "Privacy Policy",
       "terms": "Terms of Service",
-      "version": "Version"
+      "version": "Version",
+      "language": "Language"
     },
     "guide": {
       "intro": "The All tab is where you manage your profile and every app setting.",
@@ -1851,7 +1873,11 @@
       "title": "Change your exam",
       "desc": "Meet people working toward the same goal in the league.",
       "editRecommended": "Edit recommended subjects",
-      "note": "Changing your exam leaves the subjects you've already added as they are.\nYou can edit subjects separately."
+      "note": "Changing your exam leaves the subjects you've already added as they are.\nYou can edit subjects separately.",
+      "loadFailed": "Couldn't load the list.",
+      "saveFailTitle": "Couldn't change your exam",
+      "saveFailBody": "Check your connection and try again.",
+      "examFallback": "this exam"
     },
     "privacy": {
       "title": "Privacy Policy",
@@ -1958,6 +1984,14 @@
     "version": {
       "title": "Version",
       "latest": "You're on the latest version"
+    },
+    "language": {
+      "title": "Language",
+      "system": "Match device language",
+      "systemSub": "Currently %{language}",
+      "note": "This changes in-app text only. Notifications and iPhone system screens may still appear in Korean.",
+      "changed": "Language changed",
+      "saveFailed": "Couldn't save your language. Please try again in a moment."
     }
   },
   "stats": {

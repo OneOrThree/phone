@@ -1211,6 +1211,27 @@
       "groupStudent": "學生",
       "groupCareerLanguage": "求職 · 語言",
       "groupOther": "其他",
+      "name": {
+        "LABOR_ATTORNEY": "勞務士",
+        "PATENT_ATTORNEY": "專利師",
+        "TAX_ACCOUNTANT": "稅務師",
+        "CPA": "會計師",
+        "APPRAISER": "估價師",
+        "CIVIL_SERVANT": "公務員考試",
+        "POLICE_FIRE": "警察・消防",
+        "ADMIN_EXAM": "高等公務員考試",
+        "CERTIFICATION": "證照考試",
+        "MIDDLE_SCHOOL": "國中生",
+        "HIGH_SCHOOL": "高中生",
+        "CSAT": "大學入學考試",
+        "UNIVERSITY": "大學生",
+        "JOB_PREP": "求職準備",
+        "ENGLISH_TEST": "英語檢定",
+        "CODING": "程式設計",
+        "SELF_DEVELOPMENT": "自我提升",
+        "FOCUS_BUILDING": "提升專注力",
+        "ETC": "其他"
+      },
       "subject": {
         "laborLaw": "勞動法",
         "civilLaw": "民法",
@@ -1396,7 +1417,8 @@
       "inquirySub": "問題諮詢 · 錯誤回報",
       "privacy": "隱私權政策",
       "terms": "服務條款",
-      "version": "版本資訊"
+      "version": "版本資訊",
+      "language": "語言"
     },
     "guide": {
       "intro": "在「全部」分頁可以管理個人檔案和 App 的所有設定。",
@@ -1851,7 +1873,11 @@
       "title": "變更準備中的考試",
       "desc": "在聯賽中遇見準備相同目標的人。",
       "editRecommended": "編輯推薦科目",
-      "note": "就算變更準備中的考試，已經登錄的科目也會維持不變。\n科目可以另外編輯。"
+      "note": "就算變更準備中的考試，已經登錄的科目也會維持不變。\n科目可以另外編輯。",
+      "loadFailed": "無法載入清單。",
+      "saveFailTitle": "無法變更考試",
+      "saveFailBody": "請確認網路狀態後再試一次。",
+      "examFallback": "這個考試"
     },
     "privacy": {
       "title": "隱私權政策",
@@ -1958,6 +1984,14 @@
     "version": {
       "title": "版本資訊",
       "latest": "已經是最新版本"
+    },
+    "language": {
+      "title": "語言",
+      "system": "跟隨裝置語言",
+      "systemSub": "目前為%{language}",
+      "note": "只會變更 App 畫面的文字。通知內容和 iPhone 系統畫面仍可能顯示韓文。",
+      "changed": "已變更語言",
+      "saveFailed": "沒能儲存語言設定。請稍後再試一次。"
     }
   },
   "stats": {

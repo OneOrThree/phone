@@ -8,7 +8,8 @@ export const STORAGE_KEYS = {
   refreshToken: 'gromo:refreshToken',
   user: 'gromo:user',
   onboardingComplete: 'gromo:onboardingComplete',
-  focusCategory: 'gromo:focusCategory',
+  focusCategory: 'gromo:focusCategory', // (구 키) 준비 시험 한글 표시명 — 정본은 서버 users.occupation. OTA 롤백 시 구 번들이 이 키만 읽으므로 계속 갱신한다(GROMO-1624)
+  occupations: 'gromo:occupations', // GET /occupations 마지막 성공 응답 캐시 — 오프라인 표시명 폴백(GROMO-1624)
   equipment: 'gromo:equipment', // (구 키) 단일 SavedEquipment — v3 이후 미사용, OTA 롤백 호환 위해 값 보존(GROMO-936)
   ownedItems: 'gromo:ownedItems', // (구 키) 단일 string[] — v3 이후 미사용, OTA 롤백 호환 위해 값 보존(GROMO-936)
   equipmentV2: 'gromo:equipment:v2', // 계정별 장비 맵 { [userId]: SavedEquipment } — 가구·아이템은 로컬 전용(GROMO-936)
@@ -41,6 +42,10 @@ export const STORAGE_KEYS = {
   notificationInbox: 'gromo:notifications', // 알림 보관함 — 수신한 푸시 로컬 저장(GROMO-661)
   notificationSettings: 'gromo:settings:notification', // 알림·심야·소리 로컬 캐시(GET 부재 폴백)
   statVisibility: 'gromo:settings:statVisibility', // 통계 공개 범위 로컬 캐시(GET 부재 폴백)
+  // 앱 표시 언어 선택('system' | ko | en | ja | zh-Hant). **기기 귀속 값**이라
+  // 로그아웃·계정 전환·탈퇴로 지우지 않는다 — App.tsx의 multiRemove 배열에 넣지 말 것.
+  // (지우면 되돌릴 방법이 앱 삭제뿐이다. deviceId·guide* 와 같은 부류.)
+  locale: 'gromo:settings:locale',
   screentimeAuthGranted: 'gromo:screentime:authGranted',
   screentimeLastRewardedDate: 'gromo:screentime:lastRewardedDate', // 스크린타임 목표 달성 축하를 띄운 날짜(YYYY-MM-DD) — 하루 1회(GROMO-629)
   screentimeCelebratePending: 'gromo:screentime:celebratePending', // 어제 달성 축하 예약 {date,days} — 홈 진입 시 노출(GROMO-629)
