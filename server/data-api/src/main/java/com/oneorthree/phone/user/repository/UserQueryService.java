@@ -12,7 +12,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * User 단건·배치 조회의 단일 진입점 (GROMO-1655).
+ * User 를 <b>id 로 조회</b>하는 경로의 단일 진입점 (GROMO-1655).
+ *
+ * <p>"모든 User 접근"은 아니다 — 프로젝션 조회({@code JwtFilter} 의 활성 판정,
+ * {@code LeagueTierLookup} 의 티어 배치), 범위 스캔(미접속 복귀 대상), 닉네임 검색,
+ * 저장·수정은 여전히 {@link UserRepository} 를 직접 쓴다. 특히 <b>탈퇴자 401 게이트</b>는
+ * 이 계층이 아니라 {@code JwtFilter} 에 있다(GROMO-827) — 계층만 감사하면 그 게이트를 놓친다.
  *
  * <p>종전엔 19개 service 가 {@code userRepository} 를 직접 들고 {@code find*(...).orElseThrow(...)}
  * 를 51번 되풀이했는데, 그 과정에서 <b>같은 "활성 유저 한 명"을 네 가지로 조회</b>하고 있었다 —

@@ -261,6 +261,9 @@ public class StatsService {
 
         FocusAverageAggregate aggregate = switch (scope) {
             case FRIENDS -> {
+                // caller 를 FK 참조로만 쓰므로(필드를 읽지 않는다) 지연 프록시로 충분하다 —
+                // 아래 CATEGORY 가 getOccupation() 때문에 실제 로드(getCaller)를 쓰는 것과 갈리는 이유다.
+                // 탈퇴 요청자는 어느 쪽에도 도달하지 않는다: JwtFilter 가 요청 단계에서 401 로 막는다(GROMO-827).
                 User caller = userRepository.getReferenceById(callerId);
                 // 상대(친구) User 집합 — caller 는 친구 집합에 미포함이라 자연 제외. Set 으로 중복 방지.
                 Set<User> friends = friendshipRepository.findAcceptedByUser(caller).stream()
