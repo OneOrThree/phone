@@ -115,6 +115,49 @@ class UserQueryServiceTest {
                 .extracting("errorCode").isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
+    // ── 탈퇴 포함 조회 (GROMO-801) ────────────────────────────────────
+
+    @Test
+    @DisplayName("getAny 는 탈퇴자도 그대로 돌려준다 — 관계 해제가 탈퇴 순간 막히면 안 된다")
+    void getAny_returnsWithdrawnUser() {
+        User withdrawn = User.builder().id(ID).nickname("탈퇴").isDeleted(true).build();
+        given(userRepository.findById(ID)).willReturn(Optional.of(withdrawn));
+
+        User found = userQueryService.getAny(ID);
+
+        assertThat(found.isDeleted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("getAny 도 행 자체가 없으면 NOT_FOUND — '탈퇴 허용'이 '부재 허용'은 아니다")
+    void getAny_stillThrowsWhenRowAbsent() {
+        given(userRepository.findById(ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userQueryService.getAny(ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    // ── 부재가 정상 흐름인 락 조회 ────────────────────────────────────
+
+    @Test
+    @DisplayName("findActiveForUpdate 는 배타 락 쿼리를 타고 부재를 빈 값으로 돌려준다 — 던지면 정산 배치가 죽는다")
+    void findActiveForUpdate_returnsEmptyInsteadOfThrowing() {
+        given(userRepository.findActiveByIdForUpdate(ID)).willReturn(Optional.empty());
+
+        assertThat(userQueryService.findActiveForUpdate(ID)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findActiveForUpdate 는 활성 유저를 배타 락으로 가져온다")
+    void findActiveForUpdate_returnsActiveUser() {
+        given(userRepository.findActiveByIdForUpdate(ID)).willReturn(Optional.of(active()));
+
+        assertThat(userQueryService.findActiveForUpdate(ID)).get()
+                .extracting("id").isEqualTo(ID);
+    }
+
     // ── 배치 ──────────────────────────────────────────────────────────
 
     @Test

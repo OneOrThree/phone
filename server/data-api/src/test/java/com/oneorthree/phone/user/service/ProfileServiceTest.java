@@ -152,6 +152,35 @@ class ProfileServiceTest {
                 .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
+    @Test
+    @DisplayName("탈퇴한 호출자 → USER_NOT_FOUND (GROMO-1655) — 만료 전 토큰으로 남의 프로필을 못 본다")
+    void getPublicProfile_withdrawnCaller_throwsUserNotFound() {
+        // 종전엔 호출자를 필터 없는 findById 로 읽어 탈퇴자도 통과했다. 대상(NOT_FOUND)과 달리
+        // 요청자 부재는 USER_NOT_FOUND 라 앱이 재로그인으로 안내한다 (GROMO-1247).
+        given(userQueryService.getTarget(USER_ID)).willReturn(activeUser("대상"));
+        given(userQueryService.getCaller(OTHER_ID))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+
+        assertThatThrownBy(() -> profileService.getPublicProfile(OTHER_ID, USER_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("getUserStats 도 탈퇴한 호출자를 USER_NOT_FOUND 로 막는다")
+    void getUserStats_withdrawnCaller_throwsUserNotFound() {
+        given(userQueryService.getTarget(USER_ID)).willReturn(activeUser("대상"));
+        given(userQueryService.getCaller(OTHER_ID))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+
+        assertThatThrownBy(
+                () -> profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3)))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
+    }
+
     // ── 전역 랭킹 결과 없음 → User 기본 tier=1, rank=null ──────────────
 
     @Test
