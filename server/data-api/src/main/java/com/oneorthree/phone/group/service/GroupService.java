@@ -39,6 +39,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -82,6 +83,7 @@ import java.util.stream.Collectors;
 public class GroupService {
 
     private final GroupRepository groupRepository;
+    private final GroupQueryService groupQueryService;
     private final GroupJoinCodeRepository groupJoinCodeRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final GroupChallengeRepository groupChallengeRepository;
@@ -312,11 +314,10 @@ public class GroupService {
         User user = requireActiveUser(userId);
 
         // 2. 그룹 조회 → NOT_FOUND
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
         // 3. 이미 활성 멤버 → ALREADY_MEMBER
-        if (groupMemberRepository.findByUserAndGroup(user, group).isPresent()) {
+        if (groupQueryService.findMembership(user, group).isPresent()) {
             throw new GroupException(GroupErrorCode.ALREADY_MEMBER);
         }
 
@@ -485,10 +486,9 @@ public class GroupService {
         // 교착 위험이 없고, 오히려 쓰기 경로의 users → group 순서와 일치하게 정렬된다.
         User user = userQueryService.getCaller(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        boolean isMember = groupMemberRepository.findByUserAndGroup(user, group).isPresent();
+        boolean isMember = groupQueryService.findMembership(user, group).isPresent();
 
         // 탈퇴자 제외(GROMO-1220) — 정원 판정(joinGroup)·상세 멤버 목록과 같은 기준.
         int memberCount = activeMembersOf(group).size();
@@ -528,10 +528,9 @@ public class GroupService {
         // Deprecated 지만 변경 트랜잭션이므로 락 규율은 동일하게 적용 (GROMO-1237).
         User user = requireActiveUser(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        Optional<GroupMember> groupMember = groupMemberRepository.findByUserAndGroup(user, group);
+        Optional<GroupMember> groupMember = groupQueryService.findMembership(user, group);
 
         if (!(groupMember.isPresent() && groupMember.get().getRole() == GroupMemberRole.OWNER)) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
@@ -560,11 +559,9 @@ public class GroupService {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userQueryService.getCaller(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        GroupMember groupMember = groupQueryService.requireMember(user, group);
 
         // 탈퇴자 제외(GROMO-1220) — 빈 닉네임 타일 방지 + 프로필 조회 404(ProfileService)와 정합.
         List<GroupMember> groupMembers = activeMembersOf(group);
@@ -649,11 +646,9 @@ public class GroupService {
     public void updateGroup(UUID groupId, UUID userId, UpdateGroupRequest request) {
         User user = requireActiveUser(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        GroupMember groupMember = groupQueryService.requireMember(user, group);
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
@@ -700,11 +695,9 @@ public class GroupService {
     public GroupSettingsResponse getGroupSettings(UUID groupId, UUID userId) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userQueryService.getCaller(userId);
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        GroupMember groupMember = groupQueryService.requireMember(user, group);
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
@@ -742,11 +735,9 @@ public class GroupService {
     public void updateGroupSettings(UUID groupId, UUID userId, UpdateGroupSettingsRequest request) {
         User user = requireActiveUser(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        GroupMember groupMember = groupQueryService.requireMember(user, group);
 
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);

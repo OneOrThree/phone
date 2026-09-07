@@ -8,7 +8,7 @@ import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
@@ -35,8 +35,8 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class GroupMemberService {
 
-    private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final GroupQueryService groupQueryService;
     private final UserQueryService userQueryService;
     private final UserActivityEventLogger userActivityEventLogger;
     private final GroupBetService groupBetService;
@@ -70,10 +70,9 @@ public class GroupMemberService {
         // ("지목한 대상이 없다")이고, 둘 다 code 문자열 "NOT_FOUND" 로 나가 앱 분기가 일치한다.
         User targetUser = userQueryService.getTargetForShare(targetUserId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember hostGroupMember = groupMemberRepository.findByUserAndGroup(user, group)
+        GroupMember hostGroupMember = groupQueryService.findMembership(user, group)
                 .filter(m -> m.getRole() == GroupMemberRole.OWNER)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER));
 
@@ -97,11 +96,10 @@ public class GroupMemberService {
         // 요청자 공유 락 (GROMO-1227) — 근거는 requireActiveUser Javadoc.
         User user = requireActiveUser(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
         // 요청자는 활성 OWNER 여야 한다
-        groupMemberRepository.findByUserAndGroup(user, group)
+        groupQueryService.findMembership(user, group)
                 .filter(m -> m.getRole() == GroupMemberRole.OWNER)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER));
 
@@ -141,10 +139,8 @@ public class GroupMemberService {
         // 이 User 를 그대로 밀어넣는다. 락 없는 stale User 면 내기 참가 정리(#503)가 계정 탈퇴와
         // 직렬화되지 않아, 막아둔 구멍을 옆문으로 다시 여는 셈이다.
         User user = requireActiveUser(userId);
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        Group group = groupQueryService.getGroup(groupId);
+        GroupMember groupMember = groupQueryService.requireMember(user, group);
 
         // A-0 소프트삭제: 행을 지우지 않고 이탈 마킹(leave). findByGroup 은 활성만 세므로 마지막 1인 판정 유지.
         List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);
