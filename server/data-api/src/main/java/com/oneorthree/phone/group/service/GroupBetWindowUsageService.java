@@ -15,8 +15,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
-import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
@@ -91,8 +90,7 @@ public class GroupBetWindowUsageService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final UserQueryService userQueryService;
-    private final GroupRepository groupRepository;
-    private final GroupMemberRepository groupMemberRepository;
+    private final GroupQueryService groupQueryService;
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeMemberRepository groupChallengeMemberRepository;
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
@@ -116,8 +114,7 @@ public class GroupBetWindowUsageService {
     public void reportWindowUsage(UUID groupId, UUID challengeId, UUID userId, WindowUsageReportRequest request) {
         User user = requireActiveUser(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
         // 보고 축(챌린지·유저·날짜) 직렬화 — 참가 시 무효화(invalidatePreJoinReport)와 같은 키다.
         // 참가자 판정을 읽기 <b>전</b>에 잡아야 "미참가로 읽고 → 무효화가 지나간 뒤 → 표시용으로
@@ -138,7 +135,7 @@ public class GroupBetWindowUsageService {
                         .findJoinedAtBySessionIdAndUserId(target.getId(), userId).orElse(null);
         boolean participant = joinedAt != null;
         // 자격: 참가자(탈퇴자 포함 — N43) 또는 활성 그룹 멤버. 둘 다 아니면 종전 계약대로 403.
-        if (!participant && groupMemberRepository.findByUserAndGroup(user, group).isEmpty()) {
+        if (!participant && groupQueryService.findMembership(user, group).isEmpty()) {
             throw new GroupException(GroupErrorCode.MEMBER_ONLY);
         }
 
