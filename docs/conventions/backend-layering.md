@@ -29,6 +29,7 @@ com.oneorthree.phone.<domain>/
 ├── service/                    비즈니스 로직 · 트랜잭션 경계
 ├── support/                    순수 헬퍼·정책·계산기·값 타입
 ├── repository/                 Spring Data 인터페이스 + 커스텀 구현
+│   ├── XxxQueryService.java    조회 계층 — id 조회 전담 (§3)
 │   └── domain/                 @Entity · 영속 enum
 ├── event/                      이 도메인이 발행하는 이벤트 payload
 ├── listener/                   이 도메인이 구독하는 핸들러
@@ -78,7 +79,74 @@ com.oneorthree.phone.common/    소유 도메인이 없는 공유물
 
 ---
 
-## 3. 허용 의존 방향
+## 3. 조회 계층 (`<domain>QueryService`)
+
+service 가 repository 를 직접 들면 **영속성 관심사와 비즈니스 로직이 한 클래스에 섞인다**.
+`findById(...).orElseThrow(...)` 보일러플레이트가 service 마다 반복되고, 같은 엔티티를
+여러 service 가 제각기 조회하면서 **필터·락·예외가 도메인 안에서도 갈린다**.
+`repository/` 안에 조회 전담 클래스를 두어 그 갈래를 하나로 접는다 (GROMO-1655).
+
+**선례**: `user/repository/UserQueryService` — 31개 service 의 User 조회 66건을 흡수했고,
+25개 파일에서 `userRepository` 필드가 사라졌다. 새 도메인은 이 형태를 따른다.
+
+### 규칙
+
+| | |
+| --- | --- |
+| 이름 | `<Domain>QueryService` |
+| 위치 | `<domain>/repository/` — 영속성 관심사라 `service/` 가 아니다 |
+| 애노테이션 | `@Service` + `@RequiredArgsConstructor`. **`@Transactional` 을 붙이지 않는다** |
+| 책임 | **id 로 하는 조회만.** 저장·수정·범위 스캔·검색·프로젝션은 repository 직행 |
+
+**트랜잭션을 시작하지 않는다.** 호출한 service 의 트랜잭션에 참여할 뿐이다.
+락 메서드는 트랜잭션 밖에서 부르면 아무 일도 하지 않으므로, 호출측이 `@Transactional`
+안에 있는지 확인할 책임을 진다.
+
+### 시그니처가 감추면 안 되는 것 두 가지
+
+**① 락 등급.** 락 선택은 취향이 아니라 정확성 결정이다(§4 「허용 의존 방향」과 `UserRepository` 의 상세 논증 참조). 조회 계층이 락을 자동으로
+고르면 그 규칙이 코드에서 사라지고, **"이 경로가 어떤 락을 쓰는가"를 테스트로 강제할
+방법도 없어진다**. 메서드 이름에 남긴다 — 접미사 없음(무락) · `ForShare` · `ForUpdate`.
+
+**② 실패의 의미.** 같은 "없음"이라도 <b>요청이 지목한 대상</b>의 부재와 <b>요청자 본인</b>의
+부재는 클라이언트의 탈출구가 다르다(전자는 "없는 대상", 후자는 "재로그인"). 앱이 응답의
+code 문자열로 분기하므로 합치면 계약이 깨진다 — `getTarget*` / `getCaller*` 로 가른다.
+
+### 표준 메서드 모양
+
+```java
+Optional<Xxx> findActive(UUID id);          // 부재가 정상 흐름
+Xxx getTarget(UUID id);                     // 지목 대상 부재 → 도메인 NOT_FOUND
+Xxx getCaller(UUID id);                     // 요청자 본인 부재 → 재로그인 코드
+Xxx getTargetForShare(UUID id);             // 공유 락 — 그 트랜잭션이 이 행을 안 고칠 때
+Xxx getTargetForUpdate(UUID id);            // 배타 락 — 이 트랜잭션이 이 행을 고칠 때
+Optional<Xxx> findActiveForUpdate(UUID id); // 배타 락인데 부재가 정상 흐름(배치 스킵 등)
+List<Xxx> findAllActive(Collection<UUID> ids);
+```
+
+**필요한 것만 만든다.** 도메인마다 쓰는 조합이 다르니 위를 그대로 복사하지 말고,
+실제 호출부가 요구하는 것만 둔다.
+
+### 예외 축 — "일부러 필터를 안 거는" 조회
+
+소프트딜리트 필터를 **일부러 걸지 않아야** 하는 경로가 있다. 예: 친구·핀 **해제**는 상대가
+탈퇴해도 되어야 한다 — 활성 검증을 걸면 잔존 관계를 영구히 못 지운다(GROMO-801).
+이런 자리는 `getAny(id)` 로 따로 두고, **호출부에 "왜 탈퇴자도 대상인지"를 적을 수 있을
+때만** 쓴다. 상태를 만들거나 바꾸는 경로에는 쓰지 않는다.
+
+### 옮기지 않는 것
+
+`repository/` 직행이 맞는 것들이다 — 프로젝션 조회(엔티티 전량 로드가 낭비인 자리),
+범위·조건 스캔(id 조회가 아님), 닉네임 등 검색, 저장·수정, 그리고 도메인 전용 술어가
+붙은 조회(예: 게스트 한정 락 — 범용 계층에 넣으면 그 술어의 근거가 사라진다).
+
+**"단일 진입점"이라고 쓰지 마라.** 위 예외들이 남으므로 사실이 아니고, 그렇게 적으면
+다음 사람이 계층만 감사하고 남은 경로를 놓친다. `user` 의 경우 **탈퇴자 401 게이트가
+계층이 아니라 `config/JwtFilter` 에 있다**(GROMO-827).
+
+---
+
+## 4. 허용 의존 방향
 
 ```
 Controller  →  Service  →  Repository  →  Entity
@@ -117,7 +185,7 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 
 ---
 
-## 4. 인정된 예외
+## 5. 인정된 예외
 
 규약을 어기지만 그대로 두기로 한 것들이다. 새 예외를 만들려면 여기에 **이유와 함께**
 추가한다.
@@ -132,7 +200,7 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 
 ---
 
-## 5. 패키지를 옮길 때 — 컴파일러가 안 잡는 곳
+## 6. 패키지를 옮길 때 — 컴파일러가 안 잡는 곳
 
 **`import` 만 고쳐서는 안 된다.** 컴파일러가 검사하지 않는 자리에 FQCN 이 문자열로
 박혀 있으면, 빌드는 초록인데 애플리케이션 기동에서 터진다.
@@ -174,7 +242,7 @@ GROMO-1654 에서는 `GroupBetSettler.effectiveJoinDeadline` 하나가 여기 �
 
 ---
 
-## 6. 새 도메인을 만들 때
+## 7. 새 도메인을 만들 때
 
 1. `com.oneorthree.phone.<domain>/` 아래에 **필요한 계층만** 만든다
 2. 컨트롤러는 도메인 루트, 엔티티는 `repository/domain/`
