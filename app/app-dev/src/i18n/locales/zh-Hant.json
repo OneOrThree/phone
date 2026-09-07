@@ -1497,6 +1497,7 @@
     },
     "auth": {
       "sessionRefreshFailed": "無法更新登入階段。請稍後再試一次。",
+      "profileCheckFailed": "無法確認帳號狀態。請稍後重新登入。",
       "loginFailed": "登入失敗",
       "appleLoginFailed": "Apple 登入失敗",
       "googleLoginFailed": "Google 登入失敗",

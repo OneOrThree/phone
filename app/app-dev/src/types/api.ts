@@ -75,6 +75,9 @@ export interface LoginResult {
   isGuest?: boolean; // 게스트 세션 여부 (게스트=true / 소셜=false)
   nickname?: string;
   occupation?: string | null; // 준비 시험 코드 — 기존 계정 로그인 시 /users/me 병합으로 유입(757), 백필용(GROMO-758)
+  // 기존 계정 로그인의 /users/me 병합이 비인증 장애(네트워크·5xx)로 실패함 — 닉네임 부재를
+  // '프로필 미등록'으로 판정하면 안 되는 상태 표시(GROMO-1637 코드리뷰). 성공 시엔 없음.
+  profileUnverified?: boolean;
   [key: string]: unknown;
 }
 
