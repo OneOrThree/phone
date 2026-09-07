@@ -76,7 +76,7 @@ public class GroupMemberService {
                 .filter(m -> m.getRole() == GroupMemberRole.OWNER)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER));
 
-        GroupMember targetGroupMember = groupMemberRepository.findByUserAndGroup(targetUser, group)
+        GroupMember targetGroupMember = groupQueryService.findMembership(targetUser, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
         // GROMO-676: groups.host_id 폐기 — 방장 이양은 group_members.role 교체(OWNER↔MEMBER)로만 수행한다.
@@ -114,7 +114,7 @@ public class GroupMemberService {
         // 커밋되면 여기서 삭제를 관측하고 기존 계약대로 NOT_FOUND 로 거절된다.
         // GROMO-1247: transferOwner 대상과 같은 이유로 USER_NOT_FOUND 로 바꾸지 않는다(대상 유저다).
         User targetUser = userQueryService.getTargetForShare(targetUserId);
-        GroupMember target = groupMemberRepository.findByUserAndGroup(targetUser, group)
+        GroupMember target = groupQueryService.findMembership(targetUser, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
         // 강퇴 마킹. 진행 중 내기 판돈은 건드리지 않는다(지갑 생존 → 정산 시 정상 지급/환불, 엔진 무변경).

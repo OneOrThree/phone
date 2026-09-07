@@ -33,7 +33,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -97,7 +97,7 @@ class GroupBetServiceTest {
     private GroupBetService groupBetService;
 
     @Mock
-    private GroupRepository groupRepository;
+    private GroupQueryService groupQueryService;
 
     @Mock
     private GroupMemberRepository groupMemberRepository;
@@ -223,13 +223,13 @@ class GroupBetServiceTest {
     private User givenMember() {
         User user = member();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group()));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group());
         GroupMember membership = GroupMember.builder()
                 .user(user).group(group()).role(GroupMemberRole.MEMBER).build();
         lenient().when(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER_ID, GROUP_ID))
                 .thenReturn(Optional.of(membership));
-        lenient().when(groupMemberRepository.findByUserAndGroup(any(), any()))
-                .thenReturn(Optional.of(membership));
+        lenient().when(groupQueryService.requireMember(any(), any()))
+                .thenReturn(membership);
         return user;
     }
 
@@ -690,7 +690,7 @@ class GroupBetServiceTest {
     void createBetAllowsGuest() {
         // given: 게스트지만 멤버십이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest());
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group()));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group());
         given(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER_ID, GROUP_ID))
                 .willReturn(Optional.empty());
 
@@ -705,7 +705,7 @@ class GroupBetServiceTest {
     @DisplayName("활성 멤버십이 없으면 개설 불가 → MEMBER_ONLY — 참여 경로는 멤버십 공유 락 조회다(N54)")
     void createBetRejectsNonMember() {
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(member());
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group()));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group());
         given(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER_ID, GROUP_ID))
                 .willReturn(Optional.empty());
 
