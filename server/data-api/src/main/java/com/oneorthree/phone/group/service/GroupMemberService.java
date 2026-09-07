@@ -140,7 +140,7 @@ public class GroupMemberService {
         // 직렬화되지 않아, 막아둔 구멍을 옆문으로 다시 여는 셈이다.
         User user = requireActiveUser(userId);
         Group group = groupQueryService.getGroup(groupId);
-        GroupMember groupMember = groupQueryService.requireMember(user, group);
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
 
         // A-0 소프트삭제: 행을 지우지 않고 이탈 마킹(leave). findByGroup 은 활성만 세므로 마지막 1인 판정 유지.
         List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);

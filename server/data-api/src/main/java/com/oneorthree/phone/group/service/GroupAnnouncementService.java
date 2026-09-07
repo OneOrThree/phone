@@ -50,7 +50,7 @@ public class GroupAnnouncementService {
 
         Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupQueryService.requireMember(user, group);
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
 
         // GROMO-676: 방장은 항상 가능, 멤버는 announcement_permission=ALLOW 일 때 가능
         if (!groupMember.canWriteAnnouncement()) {
@@ -80,7 +80,7 @@ public class GroupAnnouncementService {
 
         Group group = groupQueryService.getGroup(groupId);
 
-        groupQueryService.requireMember(user, group);
+        groupQueryService.getMembership(user, group);
 
         return groupAnnouncementRepository.findByGroupOrderByCreatedAtDesc(group)
                 .stream()
@@ -107,7 +107,7 @@ public class GroupAnnouncementService {
 
         Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember member = groupQueryService.requireMember(user, group);
+        GroupMember member = groupQueryService.getMembership(user, group);
 
         if (!member.canWriteAnnouncement()) {
             throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
@@ -131,7 +131,7 @@ public class GroupAnnouncementService {
 
         Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember member = groupQueryService.requireMember(user, group);
+        GroupMember member = groupQueryService.getMembership(user, group);
 
         if (!member.canWriteAnnouncement()) {
             throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);

@@ -146,6 +146,7 @@ class GroupMemberServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         verify(groupQueryService, never()).findMembership(any(), any());
+        verify(groupQueryService, never()).getMembership(any(), any());
     }
 
     @Test
@@ -375,7 +376,7 @@ class GroupMemberServiceTest {
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group)).willReturn(member);
+        given(groupQueryService.getMembership(user, group)).willReturn(member);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member));
 
         // when
@@ -402,7 +403,7 @@ class GroupMemberServiceTest {
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group)).willReturn(member);
+        given(groupQueryService.getMembership(user, group)).willReturn(member);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, other));
 
         // when
@@ -459,7 +460,7 @@ class GroupMemberServiceTest {
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willThrow(new GroupException(GroupErrorCode.MEMBER_ONLY));
 
         // when & then
@@ -482,7 +483,7 @@ class GroupMemberServiceTest {
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group)).willReturn(member);
+        given(groupQueryService.getMembership(user, group)).willReturn(member);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, other));
 
         // when & then: 예외 발생 + 삭제 미호출. 내기 정리도 시작되면 안 된다(탈퇴 자체가 거절).

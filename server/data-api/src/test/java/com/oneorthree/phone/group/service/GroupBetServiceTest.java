@@ -228,7 +228,7 @@ class GroupBetServiceTest {
                 .user(user).group(group()).role(GroupMemberRole.MEMBER).build();
         lenient().when(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER_ID, GROUP_ID))
                 .thenReturn(Optional.of(membership));
-        lenient().when(groupQueryService.requireMember(any(), any()))
+        lenient().when(groupQueryService.getMembership(any(), any()))
                 .thenReturn(membership);
         return user;
     }

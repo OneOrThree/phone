@@ -561,7 +561,7 @@ public class GroupService {
 
         Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupQueryService.requireMember(user, group);
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
 
         // 탈퇴자 제외(GROMO-1220) — 빈 닉네임 타일 방지 + 프로필 조회 404(ProfileService)와 정합.
         List<GroupMember> groupMembers = activeMembersOf(group);
@@ -648,7 +648,7 @@ public class GroupService {
 
         Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupQueryService.requireMember(user, group);
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
@@ -697,7 +697,7 @@ public class GroupService {
         User user = userQueryService.getCaller(userId);
         Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupQueryService.requireMember(user, group);
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
@@ -737,7 +737,7 @@ public class GroupService {
 
         Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupQueryService.requireMember(user, group);
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
 
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);

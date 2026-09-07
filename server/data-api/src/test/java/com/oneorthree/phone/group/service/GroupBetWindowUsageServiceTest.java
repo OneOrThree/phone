@@ -253,7 +253,9 @@ class GroupBetWindowUsageServiceTest {
                 new WindowUsageReportRequest(TODAY, 30, Instant.now()));
 
         // then
+        // 멤버십 진입점은 둘이다 — 한쪽만 단언하면 다른 쪽으로 갈아탄 회귀를 놓친다.
         verify(groupQueryService, never()).findMembership(any(), any());
+        verify(groupQueryService, never()).getMembership(any(), any());
         verify(groupChallengeMemberRepository)
                 .upsertWindowUsage(any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(TODAY), eq(30), any());
     }

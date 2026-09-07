@@ -23,7 +23,13 @@ import java.util.UUID;
  *
  * <p>그래서 <b>조회만 접고 판정은 service 에 남긴다.</b> 역할·권한은 조회 결과에 대한 비즈니스
  * 규칙이지 영속성 관심사가 아니다. 이 클래스가 주는 건 두 가지뿐이다 — "멤버십이 있어야 한다"
- * ({@link #requireMember})와 "있는지 없는지 보고 내가 판단하겠다"({@link #findMembership}).
+ * ({@link #getMembership})와 "있는지 없는지 보고 내가 판단하겠다"({@link #findMembership}).
+ *
+ * <p><b>멤버십의 잠금판은 일부러 없다.</b> 그룹은 락 있는 조회({@link #getGroupForUpdate})를 두었지만
+ * 멤버십은 두지 않았다 — 돈이 걸린 경로가 쓰는 것은 {@code (userId, groupId)} 로 활성 행을 잠그는
+ * {@link GroupMemberRepository#findActiveByUserIdAndGroupIdForShare} 계열이라 여기의
+ * {@code (User, Group)} 시그니처와 인자부터 다르다. 감춘 게 아니라 그 조합을 안 만든 것이고,
+ * 해당 호출부는 repository 를 직행한다(§3 「옮기지 않는 것」).
  *
  * <p><b>트랜잭션을 시작하지 않는다.</b> 호출한 service 의 트랜잭션에 참여한다.
  */
@@ -77,7 +83,7 @@ public class GroupQueryService {
      * @throws GroupException 활성 멤버가 아니면 {@link GroupErrorCode#MEMBER_ONLY}. "가입한 적 없음"과
      *     "나갔음"을 구분하지 않는다
      */
-    public GroupMember requireMember(User user, Group group) {
+    public GroupMember getMembership(User user, Group group) {
         return groupMemberRepository.findByUserAndGroup(user, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
     }
@@ -85,7 +91,7 @@ public class GroupQueryService {
     /**
      * 멤버십이 있는지 없는지만 알려준다 — <b>부재가 정상이거나, 존재 자체가 거절 사유</b>인 자리.
      *
-     * <p>{@link #requireMember} 로는 표현할 수 없는 자리가 셋이다 — 존재가 거절 사유인 곳
+     * <p>{@link #getMembership} 로는 표현할 수 없는 자리가 셋이다 — 존재가 거절 사유인 곳
      * ({@code ALREADY_MEMBER}), 부재를 {@code MEMBER_ONLY} 가 아닌 다른 코드로 거절하는 곳
      * ({@code NOT_OWNER} · 지목한 대상이라 {@code NOT_FOUND}), 그리고 부재가 정상이라 boolean 으로만
      * 쓰는 곳. 예외 의미를 호출부에 남겨 두는 것이 목적이므로 이 메서드는 아무것도 던지지 않는다.

@@ -204,7 +204,7 @@ public class GroupBetQueryService {
     public ChallengeDeletionPreviewResponse getDeletionPreview(UUID groupId, UUID challengeId, UUID userId) {
         User user = requireActiveUserNoLock(userId);
         Group group = groupQueryService.getGroup(groupId);
-        GroupMember member = groupQueryService.requireMember(user, group);
+        GroupMember member = groupQueryService.getMembership(user, group);
         if (member.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
@@ -253,7 +253,7 @@ public class GroupBetQueryService {
         }
         User user = requireActiveUserNoLock(userId);
         Group group = groupQueryService.getGroup(groupId);
-        groupQueryService.requireMember(user, group);
+        groupQueryService.getMembership(user, group);
 
         Slice<GroupChallengeBetSession> slice =
                 loadHistorySlice(groupId, cursor, size, challengeId);

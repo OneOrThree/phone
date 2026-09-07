@@ -1225,7 +1225,7 @@ public class GroupBetService {
     /** 조회 경로용 멤버십 검증 — 잠금 없음. 돈이 움직이는 경로는 {@link #requireGroupMembershipForShare}. */
     private Group requireGroupMembership(User user, UUID groupId) {
         Group group = groupQueryService.getGroup(groupId);
-        groupQueryService.requireMember(user, group);
+        groupQueryService.getMembership(user, group);
         return group;
     }
 

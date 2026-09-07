@@ -87,7 +87,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willReturn(member(user, group, GroupMemberRole.OWNER));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
@@ -116,7 +116,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willReturn(memberWithPermission(user, group, GroupAnnouncementGrant.ALLOW));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
@@ -154,7 +154,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willThrow(new GroupException(GroupErrorCode.MEMBER_ONLY));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
@@ -174,7 +174,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willReturn(member(user, group, GroupMemberRole.MEMBER));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
@@ -197,7 +197,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willReturn(member(user, group, GroupMemberRole.MEMBER));
 
         GroupAnnouncement newer = GroupAnnouncement.builder()
@@ -247,7 +247,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willThrow(new GroupException(GroupErrorCode.MEMBER_ONLY));
 
         // when & then
@@ -280,7 +280,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willReturn(member(user, group, GroupMemberRole.OWNER));
 
         GroupAnnouncement announcement = GroupAnnouncement.builder()
@@ -307,7 +307,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willReturn(member(user, group, GroupMemberRole.MEMBER));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("새 제목", "새 내용");
@@ -327,7 +327,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willReturn(member(user, group, GroupMemberRole.OWNER));
         given(groupAnnouncementRepository.findByIdAndGroup(ANNOUNCEMENT_ID, group))
                 .willReturn(Optional.empty());
@@ -351,7 +351,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willReturn(member(user, group, GroupMemberRole.OWNER));
 
         GroupAnnouncement announcement = GroupAnnouncement.builder()
@@ -375,7 +375,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willReturn(member(user, group, GroupMemberRole.MEMBER));
 
         // when & then: 예외 발생 + 삭제 미호출
@@ -394,7 +394,7 @@ class GroupAnnouncementServiceTest {
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.requireMember(user, group))
+        given(groupQueryService.getMembership(user, group))
                 .willReturn(member(user, group, GroupMemberRole.OWNER));
         given(groupAnnouncementRepository.findByIdAndGroup(ANNOUNCEMENT_ID, group))
                 .willReturn(Optional.empty());

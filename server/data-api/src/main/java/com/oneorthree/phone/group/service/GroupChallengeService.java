@@ -131,7 +131,7 @@ public class GroupChallengeService {
 
         Group group = groupQueryService.getGroup(groupId);
 
-        groupQueryService.requireMember(user, group);
+        groupQueryService.getMembership(user, group);
 
         boolean screenTimePermissionGranted = userScreenTimeSettingsRepository.findById(userId)
                 .map(UserScreenTimeSettings::isScreenTimePermissionGranted)
@@ -443,7 +443,7 @@ public class GroupChallengeService {
         // 생성끼리 직렬화해야 지켜진다. 동시 생성 2건이 둘 다 "3개네" 하고 통과하면 5개째가 들어온다.
         Group group = groupQueryService.getGroupForUpdate(groupId);
 
-        GroupMember groupMember = groupQueryService.requireMember(user, group);
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
@@ -741,7 +741,7 @@ public class GroupChallengeService {
 
         Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupQueryService.requireMember(user, group);
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
 
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
@@ -786,7 +786,7 @@ public class GroupChallengeService {
 
         Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupQueryService.requireMember(user, group);
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
