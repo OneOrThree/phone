@@ -41,9 +41,7 @@ import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -89,7 +87,7 @@ public class GroupService {
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
     private final GroupChallengeWindowRepository groupChallengeWindowRepository;
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final PasswordEncoder passwordEncoder;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final FocusLiveInfoLookup focusLiveInfoLookup;
@@ -199,8 +197,7 @@ public class GroupService {
      */
     public List<GroupSummaryResponse> getMyGroups(UUID userId) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        User user = userQueryService.getCaller(userId);
 
         List<GroupMember> groupMembers = groupMemberRepository.findByUser(user);
 
@@ -486,8 +483,7 @@ public class GroupService {
         //
         // 잠금 순서 무영향: 이 경로는 두 조회 모두 무락(findByIdAndIsDeletedFalse·findById)이라
         // 교착 위험이 없고, 오히려 쓰기 경로의 users → group 순서와 일치하게 정렬된다.
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        User user = userQueryService.getCaller(userId);
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -562,8 +558,7 @@ public class GroupService {
      */
     public GroupDetailResponse getGroupDetail(UUID groupId, UUID userId, LocalDate date) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        User user = userQueryService.getCaller(userId);
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -704,8 +699,7 @@ public class GroupService {
      */
     public GroupSettingsResponse getGroupSettings(UUID groupId, UUID userId) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        User user = userQueryService.getCaller(userId);
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
@@ -800,8 +794,7 @@ public class GroupService {
      * 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        return userQueryService.getCallerForShare(userId);
     }
 
     /**

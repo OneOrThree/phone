@@ -18,9 +18,12 @@ public enum UserErrorCode {
      * <b>지목된 유저</b>가 없다 — 요청자가 아니라 요청이 가리킨 대상(위임 대상·강퇴 대상 등).
      * 앱이 응답의 code 문자열("NOT_FOUND")로 분기한다 — 삭제·개명 금지(GroupErrorCode 규율과 동일).
      *
-     * <p>GROMO-1247: {@code group/} 계열의 <b>요청자</b> 부재는 {@link #USER_NOT_FOUND} 로 분리했다.
-     * 나머지 도메인(user·focus·currency·item·stats·friend·auth·screentime·character)은 아직 이
-     * 코드가 요청자 부재도 함께 뜻한다 — 후속 티켓에서 같은 방식으로 갈라낸다.
+     * <p>GROMO-1247: {@code group/} 계열의 <b>요청자</b> 부재를 {@link #USER_NOT_FOUND} 로 분리했고,
+     * GROMO-1655 가 {@code stats/}(StatViewPolicy·StatsService 의 CATEGORY 분기)와
+     * {@code user/}(ProfileService 의 공개 프로필·통계 조회)까지 같은 방식으로 갈랐다.
+     * <b>아직 안 갈린 도메인</b>: focus·currency·item·friend·auth·screentime·character — 이쪽은
+     * 이 코드가 요청자 부재도 함께 뜻하므로, 새로 손댈 때 {@link #USER_NOT_FOUND} 로 옮길지
+     * 판단해야 한다(앱이 code 문자열로 분기하므로 옮기면 앱 영향이 있다).
      */
     NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 유저입니다."),
     /**

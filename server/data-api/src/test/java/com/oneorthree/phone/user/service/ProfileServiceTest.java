@@ -22,7 +22,7 @@ import com.oneorthree.phone.user.dto.PublicProfileResponse;
 import com.oneorthree.phone.user.dto.UserStatsResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,7 +56,7 @@ class ProfileServiceTest {
     private ProfileService profileService;
 
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
 
     @Mock
     private CharacterEquipmentRepository characterEquipmentRepository;
@@ -84,7 +84,7 @@ class ProfileServiceTest {
     void setUpRankingDefault() {
         // FriendRelationLookup 은 목이 아니라 실제 인스턴스 — relation 판정이 스텁이 아닌
         // 실제 로직(리포지토리 스텁 기반)을 통과하도록 한다 (GROMO-1631).
-        profileService = new ProfileService(userRepository, characterEquipmentRepository,
+        profileService = new ProfileService(userQueryService, characterEquipmentRepository,
                 friendshipRepository, pinnedUserRepository, new FriendRelationLookup(friendshipRepository),
                 leagueRankingQueryRepository, leagueWeek, statsService);
         lenient().when(leagueRankingQueryRepository.findRankOf(any(), any(), any(), any()))
@@ -104,7 +104,7 @@ class ProfileServiceTest {
                 .occupation(Occupation.CSAT)
                 .tierLevel(3)
                 .build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTarget(USER_ID)).willReturn(user);
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(5L);
         given(leagueRankingQueryRepository.findRankOf(
@@ -128,7 +128,8 @@ class ProfileServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getPublicProfile_userNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getTarget(USER_ID))
+                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() -> profileService.getPublicProfile(OTHER_ID, USER_ID))
                 .isInstanceOf(UserException.class)
@@ -141,17 +142,43 @@ class ProfileServiceTest {
     @Test
     @DisplayName("소프트딜리트(탈퇴) 유저 → UserException(NOT_FOUND)")
     void getPublicProfile_deletedUser() {
-        User deleted = User.builder()
-                .id(USER_ID)
-                .nickname("탈퇴유저")
-                .isDeleted(true)
-                .build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(deleted));
+        // 탈퇴 판정은 조회 계층이 한다 — 여기서는 그 404 가 그대로 올라오는지만 본다 (GROMO-1655).
+        given(userQueryService.getTarget(USER_ID))
+                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() -> profileService.getPublicProfile(OTHER_ID, USER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("탈퇴한 호출자 → USER_NOT_FOUND (GROMO-1655) — 만료 전 토큰으로 남의 프로필을 못 본다")
+    void getPublicProfile_withdrawnCaller_throwsUserNotFound() {
+        // 종전엔 호출자를 필터 없는 findById 로 읽어 탈퇴자도 통과했다. 대상(NOT_FOUND)과 달리
+        // 요청자 부재는 USER_NOT_FOUND 라 앱이 재로그인으로 안내한다 (GROMO-1247).
+        given(userQueryService.getTarget(USER_ID)).willReturn(activeUser("대상"));
+        given(userQueryService.getCaller(OTHER_ID))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+
+        assertThatThrownBy(() -> profileService.getPublicProfile(OTHER_ID, USER_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("getUserStats 도 탈퇴한 호출자를 USER_NOT_FOUND 로 막는다")
+    void getUserStats_withdrawnCaller_throwsUserNotFound() {
+        given(userQueryService.getTarget(USER_ID)).willReturn(activeUser("대상"));
+        given(userQueryService.getCaller(OTHER_ID))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+
+        assertThatThrownBy(
+                () -> profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3)))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     // ── 전역 랭킹 결과 없음 → User 기본 tier=1, rank=null ──────────────
@@ -161,7 +188,7 @@ class ProfileServiceTest {
     void getPublicProfile_noLeagueMembership_hasDefaultTier() {
         User user = User.builder().id(USER_ID).nickname("새유저").build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTarget(USER_ID)).willReturn(user);
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(0L);
         given(leagueRankingQueryRepository.findRankOf(any(), any(), any(), any()))
@@ -182,7 +209,7 @@ class ProfileServiceTest {
     void getPublicProfile_friendCountZero() {
         User user = activeUser("조재영");
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTarget(USER_ID)).willReturn(user);
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(0L);
 
@@ -200,7 +227,7 @@ class ProfileServiceTest {
         // countAcceptedByUser 가 fromUser 방향 관계를 포함해 2 반환
         User user = activeUser("조재영");
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTarget(USER_ID)).willReturn(user);
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(2L);
 
@@ -216,7 +243,7 @@ class ProfileServiceTest {
         // countAcceptedByUser 는 ACCEPTED + deletedAt IS NULL 조건만 통과시키므로 1 반환.
         User user = activeUser("조재영");
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTarget(USER_ID)).willReturn(user);
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(1L);
 
@@ -237,7 +264,7 @@ class ProfileServiceTest {
                 .slotType(SlotType.HAIR)
                 .build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTarget(USER_ID)).willReturn(user);
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of(equip));
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(0L);
 
@@ -254,7 +281,7 @@ class ProfileServiceTest {
     void getPublicProfile_rankFirst() {
         User user = User.builder().id(USER_ID).nickname("조재영").tierLevel(5).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getTarget(USER_ID)).willReturn(user);
         given(characterEquipmentRepository.findByUser(user)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(user)).willReturn(3L);
         given(leagueRankingQueryRepository.findRankOf(any(), any(), any(), any()))
@@ -272,8 +299,8 @@ class ProfileServiceTest {
     /** 공통 스텁: 타인 조회(OTHER_ID → USER_ID) 기본 집계 + 호출자 조회. */
     private User givenOtherViewsTarget(User target) {
         User caller = User.builder().id(OTHER_ID).nickname("호출자").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(target));
-        given(userRepository.findById(OTHER_ID)).willReturn(Optional.of(caller));
+        given(userQueryService.getTarget(USER_ID)).willReturn(target);
+        given(userQueryService.getCaller(OTHER_ID)).willReturn(caller);
         given(characterEquipmentRepository.findByUser(target)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(target)).willReturn(0L);
         return caller;
@@ -331,7 +358,7 @@ class ProfileServiceTest {
     @DisplayName("본인 조회(caller==target) → 판정 쿼리 스킵, relation=NONE·isPinned=false (getUserStats 선례)")
     void getPublicProfile_self_skipsRelationQueries() {
         User self = activeUser("본인");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(self));
+        given(userQueryService.getTarget(USER_ID)).willReturn(self);
         given(characterEquipmentRepository.findByUser(self)).willReturn(List.of());
         given(friendshipRepository.countAcceptedByUser(self)).willReturn(3L);
 
@@ -352,10 +379,10 @@ class ProfileServiceTest {
     // getUserStats 테스트 (GROMO-521)
     // ──────────────────────────────────────────────────────────────────────
 
-    /** 공통 스텁: OTHER_ID(호출자) → target(USER_ID) 순서로 findById 스텁을 등록한다. */
+    /** 공통 스텁: 대상(USER_ID)·호출자(OTHER_ID) 조회를 등록한다 — 호출자는 활성 검증까지 계층이 맡는다. */
     private void givenBothUsers(User target, User caller) {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(target));
-        given(userRepository.findById(OTHER_ID)).willReturn(Optional.of(caller));
+        given(userQueryService.getTarget(USER_ID)).willReturn(target);
+        given(userQueryService.getCaller(OTHER_ID)).willReturn(caller);
     }
 
     private StreakResponse sampleStreak() {
@@ -468,7 +495,7 @@ class ProfileServiceTest {
         User self = activeUser("본인");
 
         // 본인 조회이므로 target 만 조회 (caller 조회 불필요)
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(self));
+        given(userQueryService.getTarget(USER_ID)).willReturn(self);
         given(statsService.getStreak(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleStreak());
         given(statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3))).willReturn(sampleToday());
         given(statsService.getHeatmap(any(), any(), any())).willReturn(List.of());
@@ -487,7 +514,8 @@ class ProfileServiceTest {
     @Test
     @DisplayName("존재하지 않는 targetUserId → UserException(NOT_FOUND)")
     void getUserStats_targetNotFound_throws404() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getTarget(USER_ID))
+                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() -> profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(UserException.class)
@@ -498,12 +526,9 @@ class ProfileServiceTest {
     @Test
     @DisplayName("소프트딜리트(탈퇴) 대상 유저 → UserException(NOT_FOUND)")
     void getUserStats_deletedTarget_throws404() {
-        User deleted = User.builder()
-                .id(USER_ID)
-                .nickname("탈퇴유저")
-                .isDeleted(true)
-                .build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(deleted));
+        // 탈퇴 판정은 조회 계층이 한다 — 여기서는 그 404 가 그대로 올라오는지만 본다 (GROMO-1655).
+        given(userQueryService.getTarget(USER_ID))
+                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() -> profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(UserException.class)

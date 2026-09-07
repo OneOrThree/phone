@@ -8,6 +8,7 @@ import com.oneorthree.phone.notification.repository.NotificationSentLogRepositor
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,8 @@ class FriendNotificationServiceTest {
     @Mock
     private UserRepository userRepository;
     @Mock
+    private UserQueryService userQueryService;
+    @Mock
     private UserNotificationSettingsRepository userNotificationSettingsRepository;
     @Mock
     private NotificationSentLogRepository notificationSentLogRepository;
@@ -68,9 +71,9 @@ class FriendNotificationServiceTest {
      * {@code Optional.empty()} 라 설정 row 가 없는 유저(기본값: 알림 on·소리 on)와 같은 상태가 된다.
      */
     private void givenBothUsersExist() {
-        given(userRepository.findByIdAndIsDeletedFalse(RECIPIENT_ID))
+        given(userQueryService.findActive(RECIPIENT_ID))
                 .willReturn(Optional.of(user(RECIPIENT_ID, "받는사람")));
-        given(userRepository.findById(COUNTERPART_ID))
+        given(userQueryService.findActive(COUNTERPART_ID))
                 .willReturn(Optional.of(user(COUNTERPART_ID, "보낸사람")));
     }
 
@@ -253,7 +256,7 @@ class FriendNotificationServiceTest {
     @DisplayName("수신자가 탈퇴했으면 발송하지 않는다")
     void notifyFriendRequest_withdrawnRecipient_skips() {
         givenRequestStillPending();
-        given(userRepository.findByIdAndIsDeletedFalse(RECIPIENT_ID)).willReturn(Optional.empty());
+        given(userQueryService.findActive(RECIPIENT_ID)).willReturn(Optional.empty());
 
         service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
@@ -265,9 +268,9 @@ class FriendNotificationServiceTest {
     @DisplayName("상대가 사라졌으면 문구를 만들 수 없으므로 발송하지 않는다")
     void notifyFriendRequest_counterpartGone_skips() {
         givenRequestStillPending();
-        given(userRepository.findByIdAndIsDeletedFalse(RECIPIENT_ID))
+        given(userQueryService.findActive(RECIPIENT_ID))
                 .willReturn(Optional.of(user(RECIPIENT_ID, "받는사람")));
-        given(userRepository.findById(COUNTERPART_ID)).willReturn(Optional.empty());
+        given(userQueryService.findActive(COUNTERPART_ID)).willReturn(Optional.empty());
 
         service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
@@ -278,9 +281,9 @@ class FriendNotificationServiceTest {
     @DisplayName("소리 설정 off 면 무음으로 발송한다")
     void notifyFriendRequest_soundDisabled_sendsSilently() {
         givenRequestStillPending();
-        given(userRepository.findByIdAndIsDeletedFalse(RECIPIENT_ID))
+        given(userQueryService.findActive(RECIPIENT_ID))
                 .willReturn(Optional.of(user(RECIPIENT_ID, "받는사람")));
-        given(userRepository.findById(COUNTERPART_ID))
+        given(userQueryService.findActive(COUNTERPART_ID))
                 .willReturn(Optional.of(user(COUNTERPART_ID, "보낸사람")));
         given(userNotificationSettingsRepository.findById(RECIPIENT_ID))
                 .willReturn(Optional.of(UserNotificationSettings.builder()

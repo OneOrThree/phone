@@ -17,11 +17,10 @@ import com.oneorthree.phone.user.repository.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.domain.UserWallet;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
@@ -57,6 +56,7 @@ import java.util.stream.Collectors;
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final UserWalletRepository userWalletRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
@@ -73,6 +73,7 @@ public class AuthService {
 
     /**
      * @param userRepository                    회원 본체
+     * @param userQueryService                  회원 단건 조회 계층 (GROMO-1655)
      * @param userWalletRepository              가입 시 함께 만드는 지갑 부속 행
      * @param userScreenTimeSettingsRepository  가입 시 함께 만드는 스크린타임 설정 부속 행
      * @param userFocusTimeSettingsRepository   가입 시 함께 만드는 포커스 설정 부속 행
@@ -85,6 +86,7 @@ public class AuthService {
      *                                          재시도하기 위해 필요하다({@code @Lazy} 로 순환 주입 회피)
      */
     public AuthService(UserRepository userRepository,
+                       UserQueryService userQueryService,
                        UserWalletRepository userWalletRepository,
                        UserScreenTimeSettingsRepository userScreenTimeSettingsRepository,
                        UserFocusTimeSettingsRepository userFocusTimeSettingsRepository,
@@ -95,6 +97,7 @@ public class AuthService {
                        List<SocialLoginClient> socialLoginClients,
                        @Lazy AuthService self) {
         this.userRepository = userRepository;
+        this.userQueryService = userQueryService;
         this.userWalletRepository = userWalletRepository;
         this.userScreenTimeSettingsRepository = userScreenTimeSettingsRepository;
         this.userFocusTimeSettingsRepository = userFocusTimeSettingsRepository;
@@ -315,8 +318,7 @@ public class AuthService {
         // UPDATE 하므로, 공유 락이면 같은 계정의 동시 로그인 2건이 둘 다 FOR SHARE 를 쥔 채 승급을
         // 기다리며 교착한다. 게스트 승격·신규 가입 분기는 위에서 이미 배타 락을 쥐었거나 이
         // 트랜잭션이 방금 만든 행이라, 같은 행 재조회일 뿐 동작이 달라지지 않는다.
-        user = userRepository.findActiveByIdForUpdate(user.getId())
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        user = userQueryService.getTargetForUpdate(user.getId());
 
         // guest 클레임은 발급 시점 상태 (GROMO-1229) — 승격 직후·소셜 로그인은 isGuest=false 라 비게스트 토큰이 나간다.
         String accessToken = jwtProvider.generateAccessToken(user.getId(), user.isGuest());
@@ -346,7 +348,7 @@ public class AuthService {
      */
     private boolean isConcurrentlyPromotedGuest(UUID currentUserId, Boolean callerGuestClaim) {
         return Boolean.TRUE.equals(callerGuestClaim) && currentUserId != null
-                && userRepository.findByIdAndIsDeletedFalse(currentUserId)
+                && userQueryService.findActive(currentUserId)
                         .filter(caller -> !caller.isGuest())
                         .isPresent();
     }

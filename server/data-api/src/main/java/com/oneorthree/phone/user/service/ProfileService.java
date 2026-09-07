@@ -16,9 +16,8 @@ import com.oneorthree.phone.user.repository.domain.StatVisibility;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.dto.PublicProfileResponse;
 import com.oneorthree.phone.user.dto.UserStatsResponse;
-import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,7 +37,7 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class ProfileService {
 
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final CharacterEquipmentRepository characterEquipmentRepository;
     private final FriendshipRepository friendshipRepository;
     private final PinnedUserRepository pinnedUserRepository;
@@ -56,20 +55,16 @@ public class ProfileService {
      * @param callerId 호출자 유저 ID
      * @param userId   조회 대상 유저 ID
      * @return 공개 프로필 응답
-     * @throws UserException 대상 유저가 없거나 탈퇴(소프트딜리트)된 경우 NOT_FOUND
+     * @throws UserException 대상 유저가 없거나 탈퇴(소프트딜리트)된 경우 NOT_FOUND,
+     *                       호출자 본인이 없거나 탈퇴한 경우 USER_NOT_FOUND (GROMO-1655)
      */
     public PublicProfileResponse getPublicProfile(UUID callerId, UUID userId) {
         return getPublicProfile(callerId, userId, Instant.now());
     }
 
     PublicProfileResponse getPublicProfile(UUID callerId, UUID userId, Instant now) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-
-        // 소프트딜리트된 유저(탈퇴) → 404
-        if (user.isDeleted()) {
-            throw new UserException(UserErrorCode.NOT_FOUND);
-        }
+        // 탈퇴 유저는 조회 계층이 걸러 404 로 떨어진다 (GROMO-1655).
+        User user = userQueryService.getTarget(userId);
 
         // 캐릭터 장착 목록
         List<CharacterEquipmentResponse> equipments = characterEquipmentRepository.findByUser(user)
@@ -95,8 +90,8 @@ public class ProfileService {
         FriendRelation relation = FriendRelation.NONE;
         boolean isPinned = false;
         if (!callerId.equals(userId)) {
-            User caller = userRepository.findById(callerId)
-                    .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+            // 호출자는 조회 계층이 활성 검증까지 맡는다 — 탈퇴한 호출자는 USER_NOT_FOUND (GROMO-1655)
+            User caller = userQueryService.getCaller(callerId);
             relation = friendRelationLookup.relationOf(caller, userId);
             isPinned = pinnedUserRepository.findPinnedUserIdsByUserId(callerId).contains(userId);
         }
@@ -119,24 +114,20 @@ public class ProfileService {
      * @param date         '오늘'로 삼을 날짜(서버 판정 축 KST 고정). 스트릭의 read-time 만료 반영과
      *                     히트맵 구간([date-6일, date])이 이 값에 걸린다
      * @return 유저 통계 응답
-     * @throws UserException 대상 유저가 없거나 탈퇴된 경우 NOT_FOUND
+     * @throws UserException 대상 유저가 없거나 탈퇴된 경우 NOT_FOUND,
+     *                       호출자 본인이 없거나 탈퇴한 경우 USER_NOT_FOUND (GROMO-1655)
      */
     public UserStatsResponse getUserStats(UUID callerId, UUID targetUserId, LocalDate date) {
-        User target = userRepository.findById(targetUserId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-
-        // 소프트딜리트된 유저(탈퇴) → 404
-        if (target.isDeleted()) {
-            throw new UserException(UserErrorCode.NOT_FOUND);
-        }
+        // 탈퇴 유저는 조회 계층이 걸러 404 로 떨어진다 (GROMO-1655).
+        User target = userQueryService.getTarget(targetUserId);
 
         // 본인 조회(callerId == targetUserId) → 세부 취급, 친구 판정 생략
         boolean isOwn = callerId.equals(targetUserId);
         boolean isFriend = false;
 
         if (!isOwn) {
-            User caller = userRepository.findById(callerId)
-                    .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+            // 호출자는 조회 계층이 활성 검증까지 맡는다 — 탈퇴한 호출자는 USER_NOT_FOUND (GROMO-1655)
+            User caller = userQueryService.getCaller(callerId);
             // ACCEPTED 양방향 단건 조회 — PENDING 은 친구X 취급
             isFriend = friendshipRepository.findAcceptedBetween(caller, target).isPresent();
         }

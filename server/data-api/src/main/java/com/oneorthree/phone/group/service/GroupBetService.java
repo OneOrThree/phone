@@ -34,9 +34,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.group.support.GroupBetSessionFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -123,7 +121,7 @@ public class GroupBetService {
 
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
@@ -1213,8 +1211,7 @@ public class GroupBetService {
      * 않아, 탈퇴의 참가자 스냅샷 이후에 커밋된 참가가 정리에서 빠진다.
      */
     User requireActiveUser(UUID userId) {
-        return userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        return userQueryService.getCallerForShare(userId);
     }
 
     /**
@@ -1222,8 +1219,7 @@ public class GroupBetService {
      * Postgres 가 read-only 트랜잭션에서 FOR SHARE 를 거절하고, 순수 조회는 잠글 이유도 없다.
      */
     private User requireActiveUserNoLock(UUID userId) {
-        return userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        return userQueryService.getCaller(userId);
     }
 
     /** 조회 경로용 멤버십 검증 — 잠금 없음. 돈이 움직이는 경로는 {@link #requireGroupMembershipForShare}. */

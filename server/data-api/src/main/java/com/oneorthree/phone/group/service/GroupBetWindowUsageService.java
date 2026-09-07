@@ -18,9 +18,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -92,7 +90,7 @@ public class GroupBetWindowUsageService {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final GroupChallengeRepository groupChallengeRepository;
@@ -397,7 +395,6 @@ public class GroupBetWindowUsageService {
      * (challenge, user, date) upsert 유령 행이 남을 수 있다.
      */
     private User requireActiveUser(UUID userId) {
-        return userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        return userQueryService.getCallerForShare(userId);
     }
 }

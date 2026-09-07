@@ -14,7 +14,7 @@ import com.oneorthree.phone.notification.repository.NotificationSentLogRepositor
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -74,7 +74,7 @@ class RankOvertakeNotificationServiceTest {
     @Mock
     private FocusSessionRepository focusSessionRepository;
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
     @Mock
     private UserNotificationSettingsRepository userNotificationSettingsRepository;
     @Mock
@@ -121,7 +121,7 @@ class RankOvertakeNotificationServiceTest {
         given(leagueRankingQueryRepository.findGlobalRankingPage(
                 eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(List.of(row(r1, 400), row(r2, 300), row(me, 200), row(bottom, 0)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection()))
+        given(userQueryService.findAllActive(anyCollection()))
                 .willReturn(List.of(me, r1, r2, bottom));
         lenient().when(leagueRankSnapshotRepository.findByCreatedAtAndUserIdIn(eq(YESTERDAY), anyCollection()))
                 .thenReturn(List.of(
@@ -166,7 +166,7 @@ class RankOvertakeNotificationServiceTest {
         User rival = user(r1Id, "라이벌", BEFORE_TODAY);
         given(leagueRankingQueryRepository.findGlobalRankingPage(any(), any(), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(List.of(row(rival, 10), row(me, 0)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(me, rival));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(me, rival));
         given(leagueRankSnapshotRepository.findByCreatedAtAndUserIdIn(eq(YESTERDAY), anyCollection()))
                 .willReturn(List.of(snapshot(meId, 1, YESTERDAY), snapshot(r1Id, 2, YESTERDAY)));
         given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
@@ -211,7 +211,7 @@ class RankOvertakeNotificationServiceTest {
                 pageCursor.totalFocusSeconds(),
                 pageCursor.userId(),
                 FETCH_SIZE)).willReturn(List.of(fetched.get(pageSize)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willAnswer(invocation -> {
+        given(userQueryService.findAllActive(anyCollection())).willAnswer(invocation -> {
             Collection<UUID> ids = invocation.getArgument(0);
             return ids.stream().map(usersById::get).toList();
         });
@@ -267,7 +267,7 @@ class RankOvertakeNotificationServiceTest {
                 pageCursor.totalFocusSeconds(),
                 pageCursor.userId(),
                 FETCH_SIZE)).willReturn(fetched.subList(pageSize, pageSize + 2));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willAnswer(invocation -> {
+        given(userQueryService.findAllActive(anyCollection())).willAnswer(invocation -> {
             Collection<UUID> ids = invocation.getArgument(0);
             return ids.stream().map(usersById::get).toList();
         });
@@ -310,7 +310,7 @@ class RankOvertakeNotificationServiceTest {
         given(leagueRankSnapshotRepository.findMaximumRankByCreatedAt(YESTERDAY)).willReturn(2);
         given(leagueRankingQueryRepository.findGlobalRankingPage(
                 WEEK_START_DATE, TODAY, null, null, FETCH_SIZE)).willReturn(ranking);
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(users);
+        given(userQueryService.findAllActive(anyCollection())).willReturn(users);
         given(leagueRankSnapshotRepository.findByCreatedAtAndUserIdIn(eq(YESTERDAY), anyCollection()))
                 .willReturn(List.of(
                         snapshot(first.getId(), 2, YESTERDAY),
@@ -338,7 +338,7 @@ class RankOvertakeNotificationServiceTest {
         User r1 = user(r1Id, "라이벌원", BEFORE_TODAY);
         User r2 = user(r2Id, "라이벌투", BEFORE_TODAY);
         User bottom = user(bottomId, "꼴찌", BEFORE_TODAY);
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection()))
+        given(userQueryService.findAllActive(anyCollection()))
                 .willReturn(List.of(activeMe, r1, r2, bottom));
 
         service.sendRankOvertakeNotifications(NOW);
@@ -440,7 +440,7 @@ class RankOvertakeNotificationServiceTest {
         given(leagueRankingQueryRepository.findGlobalRankingPage(
                 eq(monday), eq(sunday), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(List.of(row(rival, 20), row(me, 10), row(bottom, 0)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(me, rival, bottom));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(me, rival, bottom));
         given(leagueRankSnapshotRepository.findByCreatedAtAndUserIdIn(
                 eq(sunday.minusDays(1)), anyCollection())).willReturn(List.of(
                         snapshot(meId, 1, sunday.minusDays(1)),
@@ -502,7 +502,7 @@ class RankOvertakeNotificationServiceTest {
         given(leagueWeek.currentWeekStart(mondayNow)).willReturn(WEEK_START);
         given(leagueRankingQueryRepository.findGlobalRankingPage(
                 monday, monday, null, null, FETCH_SIZE)).willReturn(List.of(row(first, 10), row(second, 0)));
-        given(userRepository.findAllByIdInAndIsDeletedFalse(anyCollection())).willReturn(List.of(first, second));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(first, second));
         given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
                 .willReturn(List.of());
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(any(), anyList(), any()))

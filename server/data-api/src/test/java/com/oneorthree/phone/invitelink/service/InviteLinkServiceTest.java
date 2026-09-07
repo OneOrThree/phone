@@ -10,7 +10,7 @@ import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
 import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;
 import com.oneorthree.phone.invitelink.support.InviteLinkUrls;
 import com.oneorthree.phone.invitelink.support.SlugGenerator;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,7 +43,7 @@ class InviteLinkServiceTest {
     @Mock
     private GroupMemberRepository groupMemberRepository;
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
     @Mock
     private SlugGenerator slugGenerator;
     @Mock
@@ -61,7 +61,7 @@ class InviteLinkServiceTest {
     @BeforeEach
     void setUp() {
         inviteLinkService = new InviteLinkService(inviteLinkRepository, groupRepository,
-                groupMemberRepository, userRepository, slugGenerator, inviteLinkUrls,
+                groupMemberRepository, userQueryService, slugGenerator, inviteLinkUrls,
                 ga4Events, userActivityEventLogger);
     }
 
@@ -72,7 +72,7 @@ class InviteLinkServiceTest {
                 .willReturn(Optional.of(new GroupInviteLink(SLUG, groupId, inviterId)));
         given(groupRepository.findById(groupId))
                 .willReturn(Optional.of(Group.builder().name("스터디").build()));
-        given(userRepository.findByIdAndIsDeletedFalse(inviterId))
+        given(userQueryService.findActive(inviterId))
                 .willThrow(new DataAccessResourceFailureException("users 조회 실패"));
 
         LandingView view = inviteLinkService.resolveLanding(SLUG);

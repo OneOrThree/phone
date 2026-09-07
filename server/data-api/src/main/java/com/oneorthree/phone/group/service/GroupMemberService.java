@@ -10,9 +10,7 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,7 +37,7 @@ public class GroupMemberService {
 
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final UserActivityEventLogger userActivityEventLogger;
     private final GroupBetService groupBetService;
 
@@ -70,8 +68,7 @@ public class GroupMemberService {
         // 않는다. 방장이 없는 유저를 지목한 것이지 내 세션이 죽은 게 아니다 — 바꾸면 앱이 멀쩡한
         // 방장을 로그아웃시킨다. 바로 아래 멤버십 조회의 GroupErrorCode.NOT_FOUND 와 같은 버킷
         // ("지목한 대상이 없다")이고, 둘 다 code 문자열 "NOT_FOUND" 로 나가 앱 분기가 일치한다.
-        User targetUser = userRepository.findActiveByIdForShare(targetUserId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User targetUser = userQueryService.getTargetForShare(targetUserId);
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -118,8 +115,7 @@ public class GroupMemberService {
         // 행에 이미 flush 한 변경(leave)을 stale 스냅샷으로 덮어쓴다(lost update). 탈퇴가 먼저
         // 커밋되면 여기서 삭제를 관측하고 기존 계약대로 NOT_FOUND 로 거절된다.
         // GROMO-1247: transferOwner 대상과 같은 이유로 USER_NOT_FOUND 로 바꾸지 않는다(대상 유저다).
-        User targetUser = userRepository.findActiveByIdForShare(targetUserId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User targetUser = userQueryService.getTargetForShare(targetUserId);
         GroupMember target = groupMemberRepository.findByUserAndGroup(targetUser, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
@@ -184,7 +180,6 @@ public class GroupMemberService {
      * 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        return userQueryService.getCallerForShare(userId);
     }
 }

@@ -8,7 +8,7 @@ import com.oneorthree.phone.notification.repository.NotificationSentLogRepositor
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -68,7 +68,7 @@ public class FriendNotificationService {
     static final Duration DEDUP_WINDOW = Duration.ofMinutes(1);
 
     private final FriendshipRepository friendshipRepository;
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
@@ -146,12 +146,13 @@ public class FriendNotificationService {
     private void send(UUID recipientId, UUID counterpartId, String type,
                       String title, String bodySuffix, Instant now) {
         // 탈퇴한 수신자에게는 보내지 않는다 — 탈퇴 트랜잭션과 이 알림이 경합할 수 있다(GROMO-801 계열).
-        User recipient = userRepository.findByIdAndIsDeletedFalse(recipientId).orElse(null);
+        User recipient = userQueryService.findActive(recipientId).orElse(null);
         if (recipient == null) {
             return;
         }
         // 상대 닉네임이 문구의 전부라, 상대가 사라졌으면 보낼 문구 자체가 없다.
-        String counterpartNickname = userRepository.findById(counterpartId)
+        // 탈퇴자도 마찬가지다 — 닉네임은 탈퇴 시 파기되므로 그 이름으로 알림을 보내면 안 된다(GROMO-1655).
+        String counterpartNickname = userQueryService.findActive(counterpartId)
                 .map(User::getNickname)
                 .orElse(null);
         if (counterpartNickname == null) {

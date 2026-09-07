@@ -17,7 +17,7 @@ import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;
 import com.oneorthree.phone.invitelink.support.InviteLinkUrls;
 import com.oneorthree.phone.invitelink.support.SlugGenerator;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -46,7 +46,7 @@ public class InviteLinkService {
     private final GroupInviteLinkRepository inviteLinkRepository;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final SlugGenerator slugGenerator;
     private final InviteLinkUrls inviteLinkUrls;
     private final InviteLinkGa4Events ga4Events;
@@ -144,7 +144,7 @@ public class InviteLinkService {
      */
     private String inviterNickname(GroupInviteLink link) {
         try {
-            return userRepository.findByIdAndIsDeletedFalse(link.getInviterId())
+            return userQueryService.findActive(link.getInviterId())
                     .map(User::getNickname)
                     .orElse(null);
         } catch (Exception e) {

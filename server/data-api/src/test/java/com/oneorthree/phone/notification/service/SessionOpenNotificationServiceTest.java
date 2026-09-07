@@ -71,7 +71,7 @@ class SessionOpenNotificationServiceTest {
     @Mock
     private NotificationSentLogRepository notificationSentLogRepository;
     @Mock
-    private com.oneorthree.phone.user.repository.UserRepository userRepository;
+    private com.oneorthree.phone.user.repository.UserQueryService userQueryService;
     @Mock
     private PushNotificationService pushNotificationService;
     @InjectMocks
@@ -314,7 +314,7 @@ class SessionOpenNotificationServiceTest {
                 .willReturn(List.of(session));
         given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
                 .willReturn(List.of());
-        given(userRepository.findAllById(anyCollection())).willReturn(List.of(member));
+        given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(member));
         givenNoSettings();
         given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
 

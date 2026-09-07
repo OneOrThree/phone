@@ -27,9 +27,7 @@ import com.oneorthree.phone.friend.service.search.FriendSearchStrategy;
 import com.oneorthree.phone.friend.service.search.SearchType;
 import com.oneorthree.phone.league.service.LeagueTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,7 +60,7 @@ public class FriendService {
     private static final NoArgGenerator UUID_V7 = Generators.timeBasedEpochRandomGenerator();
 
     private final FriendshipRepository friendshipRepository;
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final PinnedUserRepository pinnedUserRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final FocusSessionRepository focusSessionRepository;
@@ -83,7 +81,7 @@ public class FriendService {
      * 모든 빈을 모아 type() 기준 Map으로 구성한다. (검색 수단 추가 = 구현체 1개 추가)
      *
      * @param friendshipRepository        관계 행의 조회·정리 창구
-     * @param userRepository              유저 활성 검증과 닉네임 검색용
+     * @param userQueryService            유저 단건 조회의 단일 진입점 — 활성 검증·락 선택을 계층이 맡는다
      * @param pinnedUserRepository        핀 설정·해제·조회
      * @param dailyFocusStatRepository    핀 목록의 "오늘 집중분" 집계 소스
      * @param focusSessionRepository      핀 목록의 "지금 집중 중" 판정 소스(끝나지 않은 세션)
@@ -97,7 +95,7 @@ public class FriendService {
      *                                    키가 겹치면 기동 시점에 터진다
      */
     public FriendService(FriendshipRepository friendshipRepository,
-                         UserRepository userRepository,
+                         UserQueryService userQueryService,
                          PinnedUserRepository pinnedUserRepository,
                          DailyFocusStatRepository dailyFocusStatRepository,
                          FocusSessionRepository focusSessionRepository,
@@ -109,7 +107,7 @@ public class FriendService {
                          ApplicationEventPublisher eventPublisher,
                          List<FriendSearchStrategy> searchStrategies) {
         this.friendshipRepository = friendshipRepository;
-        this.userRepository = userRepository;
+        this.userQueryService = userQueryService;
         this.pinnedUserRepository = pinnedUserRepository;
         this.dailyFocusStatRepository = dailyFocusStatRepository;
         this.focusSessionRepository = focusSessionRepository;
@@ -450,11 +448,10 @@ public class FriendService {
 
     /**
      * 활성 유저 조회 — 탈퇴(소프트딜리트) 유저는 없는 유저로 취급 (GROMO-801).
-     * 호출자 본인(me) 확인과 일반 조회에 쓴다.
+     * 호출자 본인(me) 확인과 일반 조회에 쓴다. 부재 시 NOT_FOUND 는 종전과 같다.
      */
     private User getUser(UUID userId) {
-        return userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        return userQueryService.getTarget(userId);
     }
 
     /**
@@ -465,10 +462,10 @@ public class FriendService {
      * 관계는 두 유저를 묶으므로 대상뿐 아니라 호출자(me) 에도 걸어야 한다 — 한쪽만 잠그면 잠그지 않은 쪽이
      * 탈퇴 중일 때 그 유저 소유의 유령 관계가 그대로 남는다.
      * 공유 락끼리는 충돌하지 않아 동시 요청은 병렬 그대로고, 탈퇴(배타 락)하고만 직렬화된다.
+     * <p>여기서 {@code getTargetForUpdate} 를 쓰면 안 된다 — 이 트랜잭션은 users 를 읽기만 한다.
      */
     private User getRelationParticipant(UUID userId) {
-        return userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        return userQueryService.getTargetForShare(userId);
     }
 
     /**
@@ -476,10 +473,11 @@ public class FriendService {
      * 활성 검증을 걸면 상대가 탈퇴한 순간 잔존 관계를 영구히 못 지운다. 특히 이 변경 배포 전에 탈퇴해
      * 정리되지 않은 관계는 사용자가 직접 끊는 것이 유일한 해소 수단이다(백필을 하지 않으므로).
      * 해제는 관계를 줄이는 방향이라 탈퇴자를 대상으로 허용해도 유령이 늘지 않는다.
+     * <p>그래서 활성 필터가 없는 {@link UserQueryService#getAny(UUID)} 를 쓴다 — 다른 조회 메서드로
+     * 바꾸면 탈퇴자와의 잔존 관계를 끊을 수단이 사라진다.
      */
     private User getAnyUser(UUID userId) {
-        return userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        return userQueryService.getAny(userId);
     }
 
     /**

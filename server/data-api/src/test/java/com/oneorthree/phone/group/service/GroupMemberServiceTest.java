@@ -13,7 +13,7 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -55,7 +55,7 @@ class GroupMemberServiceTest {
     private GroupMemberRepository groupMemberRepository;
 
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
 
     @Mock
     private GroupBetService groupBetService;
@@ -78,8 +78,8 @@ class GroupMemberServiceTest {
         GroupMember targetMember = GroupMember.builder()
                 .user(target).group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.of(target));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
+        given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(hostMember));
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.of(targetMember));
@@ -92,18 +92,19 @@ class GroupMemberServiceTest {
         assertThat(targetMember.getRole()).isEqualTo(GroupMemberRole.OWNER);
         // 요청자·대상 모두 공유 락 로드여야 한다 (GROMO-801·1227) — 락 없는 findById 면 계정 탈퇴와
         // 직렬화되지 않아, 탈퇴한 유저가 오너로 되살아나는 레이스가 열린다.
-        verify(userRepository).findActiveByIdForShare(OWNER_ID);
-        verify(userRepository).findActiveByIdForShare(TARGET_ID);
-        verify(userRepository, never()).findById(any(UUID.class));
+        verify(userQueryService).getCallerForShare(OWNER_ID);
+        verify(userQueryService).getTargetForShare(TARGET_ID);
+        verify(userQueryService, never()).getCaller(any(UUID.class));
+        verify(userQueryService, never()).getTarget(any(UUID.class));
     }
 
     @Test
     @DisplayName("위임 대상이 이미 탈퇴한 유저 → UserException(NOT_FOUND), 역할 변경 없음 (GROMO-801)")
     void transferOwnerRejectsWithdrawnTarget() {
         User owner = User.builder().id(OWNER_ID).build();
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(owner));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         // 탈퇴가 먼저 커밋된 대상 — 활성 조회(공유 락)가 빈 결과를 돌려준다
-        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.empty());
+        given(userQueryService.getTargetForShare(TARGET_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         // GROMO-1247: 여기는 대상 유저다 — 요청자 세션 사망 코드(USER_NOT_FOUND)로 새면 앱이
         // 멀쩡한 방장을 로그아웃시킨다. 대상 부재는 기존 NOT_FOUND 그대로 유지한다.
@@ -119,9 +120,9 @@ class GroupMemberServiceTest {
     void transferOwnerAllowsGuest() {
         // given: 요청자가 게스트, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User owner = User.builder().id(OWNER_ID).isGuest(true).build();
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findActiveByIdForShare(TARGET_ID))
-                .willReturn(Optional.of(User.builder().id(TARGET_ID).build()));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
+        given(userQueryService.getTargetForShare(TARGET_ID))
+                .willReturn(User.builder().id(TARGET_ID).build());
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
@@ -135,7 +136,7 @@ class GroupMemberServiceTest {
     @DisplayName("요청자 유저 없음·탈퇴 선커밋 → UserException(USER_NOT_FOUND), 역할 변경 없음 (GROMO-1227·1247)")
     void transferOwnerUserNotFound() {
         // given: 없는 유저와 탈퇴 선커밋 유저는 공유 락 조회에서 똑같이 빈 결과다
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getCallerForShare(OWNER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         // when & then: 부작용 없이 거절 — 멤버십 로드조차 하지 않는다
         // GROMO-1247: 요청자 세션 사망은 USER_NOT_FOUND — 대상 유저 부재(NOT_FOUND)와 다른 코드다.
@@ -152,8 +153,8 @@ class GroupMemberServiceTest {
         // given: 요청자/대상 유저는 존재하지만 그룹 없음
         User owner = User.builder().id(OWNER_ID).build();
         User target = User.builder().id(TARGET_ID).build();
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.of(target));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
+        given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
@@ -173,8 +174,8 @@ class GroupMemberServiceTest {
         GroupMember hostMember = GroupMember.builder()
                 .user(owner).group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.of(target));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
+        given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(hostMember));
 
@@ -195,8 +196,8 @@ class GroupMemberServiceTest {
         GroupMember hostMember = GroupMember.builder()
                 .user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.of(target));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
+        given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(hostMember));
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.empty());
@@ -222,8 +223,8 @@ class GroupMemberServiceTest {
         GroupMember targetMember = GroupMember.builder()
                 .user(target).group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.of(target));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
+        given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.of(targetMember));
@@ -238,15 +239,16 @@ class GroupMemberServiceTest {
         verify(groupMemberRepository, never()).delete(any());
         // 요청자·대상 모두 공유 락 로드여야 한다 (GROMO-1227) — 락 없는 findById 면 대상의 계정
         // 탈퇴와 직렬화되지 않아, kick() 의 full-row UPDATE 가 탈퇴의 leave 를 되덮는다(lost update).
-        verify(userRepository).findActiveByIdForShare(OWNER_ID);
-        verify(userRepository).findActiveByIdForShare(TARGET_ID);
-        verify(userRepository, never()).findById(any(UUID.class));
+        verify(userQueryService).getCallerForShare(OWNER_ID);
+        verify(userQueryService).getTargetForShare(TARGET_ID);
+        verify(userQueryService, never()).getCaller(any(UUID.class));
+        verify(userQueryService, never()).getTarget(any(UUID.class));
     }
 
     @Test
     @DisplayName("강퇴 요청자의 탈퇴 선커밋 → UserException(USER_NOT_FOUND), 부작용 없음 (GROMO-1227·1247)")
     void kickRejectsWithdrawnRequester() {
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getCallerForShare(OWNER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         assertThatThrownBy(() -> groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(UserException.class)
@@ -264,10 +266,10 @@ class GroupMemberServiceTest {
         GroupMember ownerMember = GroupMember.builder()
                 .user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(owner));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
-        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.empty());
+        given(userQueryService.getTargetForShare(TARGET_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         // when & then: 거절 + 이탈 이벤트 없음
         // GROMO-1247: 대상 유저 부재라 NOT_FOUND 유지 — transferOwner 대상과 같은 논증이다.
@@ -288,7 +290,7 @@ class GroupMemberServiceTest {
         GroupMember ownerMember = GroupMember.builder()
                 .user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(owner));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
 
@@ -308,7 +310,7 @@ class GroupMemberServiceTest {
         GroupMember member = GroupMember.builder()
                 .user(user).group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
 
@@ -329,8 +331,8 @@ class GroupMemberServiceTest {
         GroupMember ownerMember = GroupMember.builder()
                 .user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.of(target));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
+        given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.empty());
@@ -347,7 +349,7 @@ class GroupMemberServiceTest {
     void kickAllowsGuest() {
         // given: 요청자가 게스트, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User guest = User.builder().id(OWNER_ID).isGuest(true).build();
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(guest));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(guest);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
@@ -368,7 +370,7 @@ class GroupMemberServiceTest {
         GroupMember member = GroupMember.builder()
                 .user(user).group(group).role(GroupMemberRole.OWNER).build();
 
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member));
@@ -395,7 +397,7 @@ class GroupMemberServiceTest {
         GroupMember other = GroupMember.builder()
                 .group(group).role(GroupMemberRole.OWNER).build();
 
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, other));
@@ -411,15 +413,16 @@ class GroupMemberServiceTest {
         verify(groupBetService).releaseFromOpenBets(user, group);
         // 요청자는 공유 락 로드여야 한다 (GROMO-1227) — releaseFromOpenBets(환불·돈 경로)에
         // 들어가는 User 가 락 없는 stale 스냅샷이면 계정 탈퇴의 내기 정리(#503)를 옆문으로 우회한다.
-        verify(userRepository).findActiveByIdForShare(OWNER_ID);
-        verify(userRepository, never()).findById(any(UUID.class));
+        verify(userQueryService).getCallerForShare(OWNER_ID);
+        verify(userQueryService, never()).getCaller(any(UUID.class));
+        verify(userQueryService, never()).getTarget(any(UUID.class));
     }
 
     @Test
     @DisplayName("그룹 탈퇴 요청자의 계정 탈퇴 선커밋 → UserException(USER_NOT_FOUND), 내기 정리 미호출 (GROMO-1227·1247)")
     void withdrawRejectsWithdrawnUser() {
         // given: 계정 탈퇴가 먼저 커밋된 유저 — 공유 락 조회가 빈 결과
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getCallerForShare(OWNER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         // when & then: 환불 경로(releaseFromOpenBets)가 시작되면 안 된다
         assertThatThrownBy(() -> groupMemberService.withdrawGroup(GROUP_ID, OWNER_ID))
@@ -434,7 +437,7 @@ class GroupMemberServiceTest {
     void withdrawAllowsGuest() {
         // given: 요청자가 게스트, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User user = User.builder().id(OWNER_ID).isGuest(true).build();
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
@@ -450,7 +453,7 @@ class GroupMemberServiceTest {
         // given: 유저/그룹은 있지만 멤버십 없음
         User user = User.builder().id(OWNER_ID).build();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
@@ -472,7 +475,7 @@ class GroupMemberServiceTest {
         GroupMember other = GroupMember.builder()
                 .group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, other));

@@ -37,7 +37,7 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.group.support.GroupBetSessionFactory;
 import com.oneorthree.phone.group.support.GroupBetPayoutCalculator;
 import org.junit.jupiter.api.BeforeEach;
@@ -103,7 +103,7 @@ class GroupBetServiceTest {
     private GroupMemberRepository groupMemberRepository;
 
     @Mock
-    private UserRepository userRepository;
+    private UserQueryService userQueryService;
 
     @Mock
     private GroupChallengeRepository groupChallengeRepository;
@@ -222,7 +222,7 @@ class GroupBetServiceTest {
      */
     private User givenMember() {
         User user = member();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group()));
         GroupMember membership = GroupMember.builder()
                 .user(user).group(group()).role(GroupMemberRole.MEMBER).build();
@@ -689,7 +689,7 @@ class GroupBetServiceTest {
     @DisplayName("게스트도 신원 가드에 걸리지 않는다 — 멤버십 검사까지 진행 후 MEMBER_ONLY (GROMO-1509)")
     void createBetAllowsGuest() {
         // given: 게스트지만 멤버십이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest()));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest());
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group()));
         given(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER_ID, GROUP_ID))
                 .willReturn(Optional.empty());
@@ -704,7 +704,7 @@ class GroupBetServiceTest {
     @Test
     @DisplayName("활성 멤버십이 없으면 개설 불가 → MEMBER_ONLY — 참여 경로는 멤버십 공유 락 조회다(N54)")
     void createBetRejectsNonMember() {
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(member()));
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(member());
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group()));
         given(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER_ID, GROUP_ID))
                 .willReturn(Optional.empty());
@@ -719,7 +719,7 @@ class GroupBetServiceTest {
     @Test
     @DisplayName("탈퇴한 유저의 참가 시도 — 공유 락 활성 조회가 빈 결과 → USER_NOT_FOUND, 판돈 미차감 (GROMO-801·1247)")
     void joinBetRejectsWithdrawnUser() {
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getCallerForShare(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         // GROMO-1247: 내기·그룹 부재와 구분되는 요청자 전용 코드다.
         assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, SESSION_ID, USER_ID))

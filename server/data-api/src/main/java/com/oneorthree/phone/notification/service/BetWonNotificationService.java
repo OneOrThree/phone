@@ -9,7 +9,7 @@ import com.oneorthree.phone.notification.repository.NotificationSentLogRepositor
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -47,7 +47,7 @@ public class BetWonNotificationService {
     /** 결과 모달을 열지 않는다 — 승패 표시는 그룹방까지다(IA §4.2 BET_WON = groupId + challengeId). */
     static final String PUSH_TYPE = NotificationSentLog.TYPE_BET_WON;
 
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
@@ -65,8 +65,8 @@ public class BetWonNotificationService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean sendWonNotification(GroupBetWonEvent event, Instant now) {
-        User user = userRepository.findById(event.userId()).orElse(null);
-        if (user == null || user.isDeleted()) {
+        User user = userQueryService.findActive(event.userId()).orElse(null);
+        if (user == null) {
             return false;
         }
         UUID rowId = Generators.timeBasedEpochRandomGenerator().generate();

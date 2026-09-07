@@ -9,7 +9,7 @@ import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResult;
 import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,7 +29,7 @@ import java.util.Optional;
  *
  * <p><b>탈퇴 레이스 방어</b> — 집계 스냅샷({@link LeagueRankingRow})은 페이지 조회 시점의 것이라,
  * READ COMMITTED 에서는 그 사이 탈퇴가 커밋된 유저가 섞여 있을 수 있다. 여기서
- * {@link UserRepository#findActiveByIdForUpdate} <b>배타 락 재조회</b>가 셋 중 하나로 확정한다:
+ * {@link UserQueryService#findActiveForUpdate} <b>배타 락 재조회</b>가 셋 중 하나로 확정한다:
  * ① 탈퇴가 이미 커밋됨 → empty → 예외 없이 skip, ② 탈퇴 트랜잭션이 락을 쥐고 진행 중 → 커밋까지
  * 대기 후 술어 재평가(is_deleted=true)로 empty → skip, ③ 활성 → 이 트랜잭션이 락을 쥔다.
  * 배타 락인 이유는 락 선택 원칙(UserRepository 주석) — 아래 {@code setTierLevel} 이 users 행
@@ -39,7 +39,7 @@ import java.util.Optional;
  * 옛 스냅샷으로 되살릴 수 있다(lost update) — 락 재조회가 그 창도 닫는다.
  *
  * <p><b>지갑 생존 논증</b> — 락을 쥔 동안엔 탈퇴가 이 유저 행의 락 대기로 직렬화된다.
- * {@code UserService.withdraw} 는 같은 {@code findActiveByIdForUpdate} 로 유저 행을 먼저 잠근
+ * {@code UserService.withdraw} 는 같은 배타 락 조회로 유저 행을 먼저 잠근
  * 뒤에야 user_wallets 를 지우므로, 이 트랜잭션이 락을 쥔 시점에 지갑은 반드시 살아 있다 — 승급
  * 보너스 credit 이 지갑 NOT_FOUND 로 터질 수 없다. 잠금 순서도 양쪽 다 "유저 행 → 지갑"이라
  * 교착이 없다. 단, 이 논증은 {@code UserService.withdraw}(유저 행 배타 락 → user_wallets
@@ -73,7 +73,7 @@ public class LeagueUserSettler {
         SKIPPED_SUPERSEDED
     }
 
-    private final UserRepository userRepository;
+    private final UserQueryService userQueryService;
     private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
     private final CurrencyLedgerService currencyLedgerService;
 
@@ -118,7 +118,7 @@ public class LeagueUserSettler {
     @Transactional
     public SettleOutcome settle(LeagueRankingRow row, Instant previousWeekStart,
                                 Map<Integer, LeagueTierConfig> tierConfigs) {
-        Optional<User> activeUser = userRepository.findActiveByIdForUpdate(row.userId());
+        Optional<User> activeUser = userQueryService.findActiveForUpdate(row.userId());
         if (activeUser.isEmpty()) {
             // 집계 스냅샷 이후 탈퇴가 먼저 커밋된 유저 — 정상 흐름이므로 예외가 아니라 skip 이다.
             log.info("리그 정산 스킵 — 집계 후 탈퇴한 유저. userId={}", row.userId());
