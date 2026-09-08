@@ -199,7 +199,7 @@ public class GroupService {
 
         List<GroupMember> groupMembers = groupMemberRepository.findByUser(user);
 
-        // GROMO-672: 참가 코드는 1:1 테이블(PK=group_id)에서 일괄 조회 — 그룹당 findById N+1 방지
+        // GROMO-672: 참가 코드는 1:1 테이블(PK=group_id)에서 일괄 조회 — 그룹당 단건 조회 N+1 방지
         List<UUID> groupIds = groupMembers.stream()
                 .map(member -> member.getGroup().getId())
                 .toList();

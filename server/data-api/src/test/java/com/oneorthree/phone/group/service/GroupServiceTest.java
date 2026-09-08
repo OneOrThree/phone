@@ -523,7 +523,7 @@ class GroupServiceTest {
         // 멤버 수는 그룹마다가 아니라 IN 집계 1회로 조회한다 (N+1 제거)
         given(groupMemberRepository.countByGroupIdIn(List.of(GROUP_ID, GROUP_ID_2)))
                 .willReturn(List.of(memberCount(GROUP_ID, 1), memberCount(GROUP_ID_2, 1)));
-        // GROMO-672: 요약 응답의 code 는 group_join_codes 일괄 조회(findAllById)로 채운다 — N+1 방지
+        // GROMO-672: 요약 응답의 code 는 group_join_codes 일괄 조회로 채운다 — N+1 방지
         given(groupQueryService.findAllJoinCodes(List.of(GROUP_ID, GROUP_ID_2)))
                 .willReturn(List.of(
                         GroupJoinCode.builder().groupId(GROUP_ID).group(group1).code("AAAA1111").build(),
