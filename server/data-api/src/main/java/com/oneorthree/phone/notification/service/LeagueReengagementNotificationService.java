@@ -10,7 +10,6 @@ import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.domain.UserStreak;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
 import jakarta.persistence.EntityManager;
@@ -60,7 +59,6 @@ public class LeagueReengagementNotificationService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserStreakRepository userStreakRepository;
     private final UserQueryService userQueryService;
-    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final PushNotificationService pushNotificationService;
     private final LeagueWeek leagueWeek;
     private final EntityManager entityManager;
@@ -231,7 +229,7 @@ public class LeagueReengagementNotificationService {
     }
 
     private Map<UUID, UserNotificationSettings> loadSettings(Collection<UUID> userIds) {
-        return userNotificationSettingsRepository.findAllById(userIds).stream()
+        return userQueryService.findAllNotificationSettings(userIds).stream()
                 .collect(Collectors.toMap(UserNotificationSettings::getUserId, Function.identity()));
     }
 

@@ -11,7 +11,6 @@ import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.league.support.LeagueWeek;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
@@ -56,7 +55,6 @@ public class LeagueNotificationService {
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
     private final LeagueTierConfigRepository leagueTierConfigRepository;
     private final UserQueryService userQueryService;
-    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final PushNotificationService pushNotificationService;
     private final LeagueWeek leagueWeek;
     private final EntityManager entityManager;
@@ -354,7 +352,7 @@ public class LeagueNotificationService {
     }
 
     private Map<UUID, UserNotificationSettings> loadSettings(Collection<UUID> userIds) {
-        return userNotificationSettingsRepository.findAllById(userIds).stream()
+        return userQueryService.findAllNotificationSettings(userIds).stream()
                 .collect(Collectors.toMap(UserNotificationSettings::getUserId, Function.identity()));
     }
 

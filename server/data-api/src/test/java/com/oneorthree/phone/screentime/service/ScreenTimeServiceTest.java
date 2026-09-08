@@ -14,7 +14,6 @@ import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
-import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -62,9 +61,6 @@ class ScreenTimeServiceTest {
     private UserActivityEventLogger userActivityEventLogger;
 
     @Mock
-    private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
-
-    @Mock
     private CurrencyLedgerService currencyLedgerService;
 
     // 재시도 래퍼(saveScreenTime)가 위임하는 self 프록시. 본 로직 테스트는 saveScreenTimeTx 를 직접 호출하므로
@@ -77,7 +73,7 @@ class ScreenTimeServiceTest {
     @BeforeEach
     void setUp() {
         screenTimeService = new ScreenTimeService(userQueryService, dailyScreenTimeStatRepository,
-                notificationPort, userActivityEventLogger, userScreenTimeSettingsRepository,
+                notificationPort, userActivityEventLogger,
                 currencyLedgerService, self);
     }
 
@@ -459,7 +455,7 @@ class ScreenTimeServiceTest {
         UserScreenTimeSettings settings = UserScreenTimeSettings.builder()
                 .userId(USER_ID).dailyScreenTimeGoalMinutes(180).build();
         settings.changeGoal(60, today);
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.of(settings));
 
         int expected = CurrencyRewardPolicy.screenTimeGoalReward(180);
         // 두 목표의 지급액이 같으면 이 테스트가 아무것도 검증하지 못한다 — 전제부터 고정한다.

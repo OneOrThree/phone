@@ -19,7 +19,7 @@ import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -84,7 +84,7 @@ public class ChallengeCreatedNotificationService {
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
     private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final GroupMemberRepository groupMemberRepository;
-    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
+    private final UserQueryService userQueryService;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
 
@@ -187,7 +187,7 @@ public class ChallengeCreatedNotificationService {
     }
 
     private Map<UUID, UserNotificationSettings> loadSettings(List<UUID> userIds) {
-        return userNotificationSettingsRepository.findAllById(userIds).stream()
+        return userQueryService.findAllNotificationSettings(userIds).stream()
                 .collect(Collectors.toMap(UserNotificationSettings::getUserId, Function.identity()));
     }
 

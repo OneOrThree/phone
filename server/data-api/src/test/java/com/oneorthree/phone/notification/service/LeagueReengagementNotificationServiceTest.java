@@ -9,7 +9,6 @@ import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserStreak;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
 import jakarta.persistence.EntityManager;
@@ -59,8 +58,6 @@ class LeagueReengagementNotificationServiceTest {
     @Mock
     private UserQueryService userQueryService;
     @Mock
-    private UserNotificationSettingsRepository userNotificationSettingsRepository;
-    @Mock
     private PushNotificationService pushNotificationService;
     @Mock
     private LeagueWeek leagueWeek;
@@ -104,7 +101,7 @@ class LeagueReengagementNotificationServiceTest {
         given(focusSessionRepository.findUserIdsWithCompletedFocusEndedBetween(anyCollection(), any(), any()))
                 .willReturn(List.of(focusedToday.getId())); // 오늘(KST) 종료된 완료 세션 존재 → 미발송
         given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(target));
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendMissedFocusToday(NOW);
 
@@ -142,7 +139,7 @@ class LeagueReengagementNotificationServiceTest {
                 .willReturn(List.of(row(orphaned, 4_000)));
         // 완료세션(AUTO_CLOSED 는 status 필터로 제외)·라이브세션 조회 모두 미스텁 → 빈 결과 → 실집중 0으로 판정
         given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(orphaned));
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendMissedFocusToday(NOW);
 
@@ -180,7 +177,7 @@ class LeagueReengagementNotificationServiceTest {
                 eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(List.of(row(target, 5_000)));
         given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(target));
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendMissedFocusToday(NOW);
 
@@ -225,7 +222,7 @@ class LeagueReengagementNotificationServiceTest {
                 .willReturn(List.of(atRisk, safe));
         given(dailyFocusStatRepository.findByUserInAndDate(anyCollection(), eq(TODAY)))
                 .willReturn(List.of(dailyStat(atRisk, 300), dailyStat(safe, 700)));
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendStreakAtRisk(NOW);
 
