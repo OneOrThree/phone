@@ -21,8 +21,9 @@ import static org.mockito.Mockito.verify;
 /**
  * 초대 링크 조회 계층 (GROMO-1655).
  *
- * <p>여기서 지킬 계약은 <b>던지지 않는다</b>는 것 하나다. 링크를 못 찾았을 때 던지면 매칭 배치가
- * 그 클릭 하나에 죽고, 정책은 반대다 — 클릭을 소진하지 않고 빠져나가 다음 기회를 남긴다.
+ * <p>여기서 지킬 계약은 <b>던지지 않는다</b>는 것 하나다. 최초 매치는 링크를 못 찾으면 클릭을
+ * 소진하지 않고 빠져나가 다음 기회를 남기고, 재생 경로는 같은 요청에 같은 결과를 준다 —
+ * 던지면 각각 어트리뷰션 1건이 유실되고 재시도 계약이 500 으로 깨진다.
  * 슬러그 조회({@code findBySlug})는 id 조회가 아니라 계층 밖이라는 것도 함께 못박는다.
  */
 @ExtendWith(MockitoExtension.class)
@@ -40,7 +41,7 @@ class InviteLinkQueryServiceTest {
     private GroupInviteLink link;
 
     @Test
-    @DisplayName("링크가 없어도 던지지 않는다 — 던지면 매칭 배치가 클릭 하나에 죽는다")
+    @DisplayName("링크가 없어도 던지지 않는다 — 던지면 어트리뷰션 1건이 유실된다")
     void findInviteLinkDoesNotThrowWhenAbsent() {
         given(groupInviteLinkRepository.findById(LINK_ID)).willReturn(Optional.empty());
 

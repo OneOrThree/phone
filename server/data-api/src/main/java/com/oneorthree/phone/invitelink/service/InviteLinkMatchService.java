@@ -44,7 +44,7 @@ public class InviteLinkMatchService {
 
     /**
      * @param clickRepository 클릭 조회·소진. 소진 경로는 반드시 잠금 조회를 써야 한다
-     * @param inviteLinkRepository 매치된 클릭에서 링크·그룹을 되찾는 데 쓴다
+     * @param inviteLinkRepository 슬러그로 링크를 찾는 데 쓴다(id 조회는 아래 계층이 맡는다)
      * @param inviteLinkQueryService 링크 단건 조회 — 부재를 던지지 않아 클릭을 소진하지 않고 다음 기회를 남긴다
      * @param inviteLinkService 그룹 생존 판정({@code findActiveGroup})을 발급·랜딩과 공유하기 위해 주입한다 —
      *                          판정이 갈리면 랜딩에서는 만료인 초대가 매치에서는 성립하는 어긋남이 생긴다

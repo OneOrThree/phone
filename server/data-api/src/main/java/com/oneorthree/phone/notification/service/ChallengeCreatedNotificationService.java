@@ -212,6 +212,10 @@ public class ChallengeCreatedNotificationService {
     String missionLabel(GroupChallenge challenge) {
         String what = challenge.getCategory() == MissionCategory.SCREEN_TIME ? "스크린타임" : "집중";
         if (challenge.getType() == MissionType.DURATION) {
+            // 단건인데 IN 조회를 쓴다 — GroupQueryService#findChallengeDuration 이 같은 행을 주지만
+            // 그건 findById 라 1차 캐시를 먼저 본다. 여기는 AFTER_COMMIT·@Async 라 캐시가 비어 있어
+            // 결과는 같지만, 바꾸면 발행 SQL 과 캐시 의미가 달라져 GROMO-1655 의 "동작 변경 0"을
+            // 넘어선다. 정리는 별건으로 남긴다.
             Integer minutes = groupChallengeDurationRepository
                     .findByChallengeIdIn(List.of(challenge.getId())).stream()
                     .findFirst()
