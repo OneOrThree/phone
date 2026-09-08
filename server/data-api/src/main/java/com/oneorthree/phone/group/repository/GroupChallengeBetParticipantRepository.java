@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -300,10 +299,10 @@ public interface GroupChallengeBetParticipantRepository
      * @return 1 = 이 호출이 표시를 선점했다, 0 = 이미 확인됨 · 남의 리스가 살아 있음 · 아직 결과가
      *     아님 · 대상 행 없음 (구분은 호출측이 행을 다시 읽어 판정한다)
      */
-    // 리포지토리 자체에 트랜잭션을 건다(NotificationSentLogRepository 클레임 메서드와 같은 관례) —
-    // 호출측이 트랜잭션을 열지 않아도 이 조건부 UPDATE 자체는 원자다.
+    // 트랜잭션은 걸지 않는다 — 유일한 호출부 ChallengeResultAckService.claimDisplay 가 @Transactional 이라
+    // 이 UPDATE 는 그 경계 안에서 돈다. 리포지토리가 자기 트랜잭션을 열면 호출부의 롤백에서 빠져나가
+    // 선점만 남는다(GROMO-1655).
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Transactional
     @Query(value = "UPDATE group_challenge_bet_participants p "
             + "SET display_claimed_at = clock_timestamp(), display_claim_token = :token "
             + "WHERE p.session_id = :sessionId AND p.user_id = :userId "
@@ -350,7 +349,6 @@ public interface GroupChallengeBetParticipantRepository
      *     아님 · 챌린지가 삭제됨 · 대상 행 없음
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Transactional
     @Query(value = "UPDATE group_challenge_bet_participants p "
             + "SET display_claimed_at = clock_timestamp() "
             + "WHERE p.session_id = :sessionId AND p.user_id = :userId "
@@ -394,7 +392,6 @@ public interface GroupChallengeBetParticipantRepository
     // 확인 시각도 선점과 같은 시계(DB)로 찍는다 — 두 값이 다른 시계면 "선점보다 이른 확인" 같은
     // 뒤집힌 이력이 남는다.
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Transactional
     @Query(value = "UPDATE group_challenge_bet_participants p "
             + "SET acknowledged_at = clock_timestamp(), "
             + "display_claimed_at = NULL, display_claim_token = NULL "

@@ -34,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -63,6 +64,8 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     GroupBetSettler groupBetSettler;
+    @Autowired
+    TransactionTemplate transactionTemplate;
     @Autowired
     GroupBetSettlementService groupBetSettlementService;
     @Autowired
@@ -588,11 +591,13 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
                 now.plus(Duration.ofHours(2)));
 
         // 실패 기록 — 시도 횟수 +1 과 다음 시도 시각이 함께 저장된다(detached 필드 변경으로는 불가).
-        assertThat(groupChallengeBetSessionRepository
-                .recordFailure(backedOff.getId(), now.plus(Duration.ofHours(1)), now)).isEqualTo(1);
-        assertThat(groupChallengeBetSessionRepository
-                .recordFailure(expiredButBackedOff.getId(), now.plus(Duration.ofHours(4)), now))
-                .isEqualTo(1);
+        // recordFailure 는 @Modifying 벌크 UPDATE 라 트랜잭션이 필요하다. 이 테스트는 스케줄러 진입점을
+        // 트랜잭션 밖에서 부르는 게 목적이라, 실패 기록 준비만 템플릿으로 감싼다.
+        int backedOffRows = recordFailureInTransaction(backedOff.getId(), now.plus(Duration.ofHours(1)), now);
+        int expiredRows = recordFailureInTransaction(expiredButBackedOff.getId(),
+                now.plus(Duration.ofHours(4)), now);
+        assertThat(backedOffRows).isEqualTo(1);
+        assertThat(expiredRows).isEqualTo(1);
         assertThat(reload(backedOff).getSettleAttempts()).isEqualTo(1);
 
         List<UUID> due = groupChallengeBetSessionRepository
@@ -606,5 +611,15 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
         // 단 24h 초과분은 백오프가 가리지 못한다 — 환불 데드라인은 시각에 걸린 약속이다(N21).
         assertThat(due).contains(expiredButBackedOff.getId());
         assertThat(due).doesNotContain(notYetDue.getId());
+    }
+    /**
+     * {@code recordFailure} 는 {@code @Modifying} 벌크 UPDATE 라 트랜잭션이 필요하다. 이 테스트는
+     * 스케줄러 진입점을 트랜잭션 밖에서 부르는 것이 목적이라 클래스 전체를 감쌀 수 없어, 실패 기록
+     * 준비만 여기서 트랜잭션 안으로 넣는다 (NotificationClaimConcurrencyIntegrationTest 와 같은 방식).
+     */
+    private int recordFailureInTransaction(UUID sessionId, Instant nextAttemptAt, Instant now) {
+        Integer updated = transactionTemplate.execute(status ->
+                groupChallengeBetSessionRepository.recordFailure(sessionId, nextAttemptAt, now));
+        return updated == null ? 0 : updated;
     }
 }

@@ -367,6 +367,12 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
      * 못한다(5분마다 무한 재시도). 그래서 리포지토리 UPDATE 로 직접 쓰고, 메서드 자체 트랜잭션을
      * 연다({@code @Transactional} — 벌크 UPDATE 는 트랜잭션이 필수다).
      *
+     * <p><b>이 저장소에서 {@code @Transactional} 이 붙은 유일한 리포지토리 메서드다</b>(GROMO-1655).
+     * 나머지 {@code @Modifying} 메서드는 전부 {@code @Transactional} service 안에서만 불리므로 붙이지
+     * 않는다. 여기만 예외인 이유는 호출부 {@code GroupBetScheduler} 가 <b>의도적으로 무트랜잭션</b>인
+     * {@code @Scheduled} 진입점이라, 이걸 떼면 정산 실패를 기록할 때마다
+     * {@code InvalidDataAccessApiUsageException} 이 난다. 떼려면 스케줄러가 이 호출을 감싸야 한다.
+     *
      * @param id 정산에 실패한 회차
      * @param nextAttemptAt 다음 시도 시각(백오프). 캡이 걸려 있어 24h 환불 약속을 넘기지 못한다
      * @param now 갱신 시각 — 벌크라 {@code @UpdateTimestamp} 가 타지 않아 {@code updatedAt} 에 직접 쓴다

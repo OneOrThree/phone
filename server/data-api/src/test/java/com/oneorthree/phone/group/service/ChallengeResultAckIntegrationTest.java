@@ -30,8 +30,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -128,7 +128,8 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     @AfterEach
     void tearDown() {
         if (!notificationRows.isEmpty()) {
-            notificationSentLogRepository.deleteByIds(notificationRows);
+            transactionTemplate.executeWithoutResult(status ->
+                    notificationSentLogRepository.deleteByIds(notificationRows));
         }
         sessions.forEach(s -> groupChallengeBetParticipantRepository
                 .deleteAll(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(s.getId()))));
@@ -709,16 +710,18 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
 
     private UUID pendingClaim(User user, GroupChallengeBetSession session) {
         UUID rowId = UUID.randomUUID();
-        notificationSentLogRepository.insertPendingClaim(rowId, user.getId(),
-                NotificationSentLog.TYPE_BET_RESULT, session.getId(), group.getId(), NOW, NOW);
+        transactionTemplate.executeWithoutResult(status ->
+                notificationSentLogRepository.insertPendingClaim(rowId, user.getId(),
+                        NotificationSentLog.TYPE_BET_RESULT, session.getId(), group.getId(), NOW, NOW));
         notificationRows.add(rowId);
         return rowId;
     }
 
     private UUID deferredClaim(User user, GroupChallengeBetSession session) {
         UUID rowId = pendingClaim(user, session);
-        notificationSentLogRepository.updateStatusByIds(
-                List.of(rowId), NotificationSendStatus.DEFERRED, null);
+        transactionTemplate.executeWithoutResult(status ->
+                notificationSentLogRepository.updateStatusByIds(
+                        List.of(rowId), NotificationSendStatus.DEFERRED, null));
         return rowId;
     }
 
