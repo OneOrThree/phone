@@ -35,16 +35,22 @@ Run all commands below from inside `server/data-api/`.
   range scans, search, and writes still call the repository directly. See
   `docs/conventions/backend-layering.md` §3.
 - **Entities live in `<domain>/repository/domain/`** — persistence concerns stay
-  under `repository/`. Exception: a domain with no persistence at all keeps a
-  plain `domain/` (only `analytics`).
+  under `repository/`. Exception: a domain that has entities but no repository keeps
+  a plain `domain/` (only `analytics`). A composition domain has neither — `profile`
+  owns no data at all, so it has no `domain/` folder to place.
 - Cross-cutting code lives in `common/` (`common/port`, `common/id` for the UUID v7
   generator, `common/exception`, `common/logging`, `common/util`). Spring wiring and
   servlet filters live in the **top-level `config/`** package — not `common/config`,
   and never a per-domain `config/`.
 - Domain packages (authoritative: `ls src/main/java/com/oneorthree/phone/`):
   `analytics`, `auth`, `bot`, `character`, `currency`, `focus`, `friend`, `group`,
-  `invitelink`, `item`, `league`, `notification`, `screentime`, `stats`, `user` —
-  plus cross-cutting `common/` and `config/`.
+  `invitelink`, `item`, `league`, `notification`, `profile`, `screentime`, `stats`,
+  `user` — plus cross-cutting `common/` and `config/`.
+- **Domains have a fixed height and references only go downward** (GROMO-1656) —
+  `user` is the base and is referenced by everyone; `profile` sits on top and only
+  composes. The table is in `docs/conventions/backend-layering.md` §4; consult it
+  before adding a cross-domain injection, and invert with an event or a
+  `common/port` interface when the need points upward.
 - Optional per-domain sub-packages, used only when the domain has them:
   `support/` (pure helpers/policies — no injected repository or service),
   `event/` (events this domain publishes), `listener/` (handlers it subscribes),

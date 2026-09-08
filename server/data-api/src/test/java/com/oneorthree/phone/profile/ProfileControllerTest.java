@@ -1,16 +1,15 @@
-package com.oneorthree.phone.user.api;
+package com.oneorthree.phone.profile;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;
 import com.oneorthree.phone.stats.dto.TodayStatsResponse;
-import com.oneorthree.phone.user.ProfileController;
-import com.oneorthree.phone.user.dto.PublicProfileResponse;
-import com.oneorthree.phone.user.dto.UserStatsResponse;
+import com.oneorthree.phone.profile.dto.PublicProfileResponse;
+import com.oneorthree.phone.profile.dto.UserStatsResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.service.ProfileService;
+import com.oneorthree.phone.profile.service.ProfileService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

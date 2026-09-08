@@ -1,4 +1,4 @@
-package com.oneorthree.phone.user.service;
+package com.oneorthree.phone.profile.service;
 
 import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
@@ -18,8 +18,8 @@ import com.oneorthree.phone.stats.service.StatsService;
 import com.oneorthree.phone.user.repository.domain.Occupation;
 import com.oneorthree.phone.user.repository.domain.StatVisibility;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.dto.PublicProfileResponse;
-import com.oneorthree.phone.user.dto.UserStatsResponse;
+import com.oneorthree.phone.profile.dto.PublicProfileResponse;
+import com.oneorthree.phone.profile.dto.UserStatsResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;

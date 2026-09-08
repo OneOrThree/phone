@@ -248,6 +248,7 @@ Controller  →  Service  →  Repository  →  Entity
 | L6 | `invitelink` | 그룹을 가리키는 초대 |
 | L7 | `notification` | 전 도메인의 사건을 구독해 발송한다 |
 | L8 | `auth` · `character` · `bot` · `analytics` | 진입·부가 |
+| L9 | `profile` | **조립 전용** — 자기 테이블이 없고 아래 도메인의 조회 결과만 합친다 |
 
 `common/` 과 `config/` 는 레이어 밖이다 — 누가 참조해도 된다.
 
@@ -257,7 +258,13 @@ Controller  →  Service  →  Repository  →  Entity
    컴파일 단위로 끌어온다. 역방향 컬렉션은 소유측(`@ManyToOne`)이 있는 쪽에만 둔다.
 2. **화면 조립은 아래에 두지 않는다.** “프로필에 통계·티어·장착을 붙여 내려준다”는 것은
    user 의 일이 아니라 **위에서 조립하는 일**이다. 조립하는 코드가 기반 도메인 안에 있으면
-   기반이 파생을 참조하게 된다 — 순환의 가장 흔한 원인이다.
+   기반이 파생을 참조하게 된다 — 순환의 가장 흔한 원인이다. 실제로 `ProfileService` 가
+   `user/` 에 있는 동안 계정 도메인이 item·friend·league·stats 넷을 참조했고, 그 넷이 다시
+   user 를 참조해 순환이 넷이었다. `profile/` 로 올리자 그 넷이 한 번에 사라졌다.
+
+   **조립 도메인의 표식은 «영속성이 없다»는 것**이다. 자기 테이블·리포지토리가 없고 아래
+   도메인의 조회 결과만 받아 합친다. 그 자리에 뭔가 저장하고 싶어지면 그것은 조립 도메인의
+   것이 아니라 아래 어느 도메인의 것이다.
 3. **클래스가 있는 자리가 소유를 말한다.** `LeagueTierLookup` 은 `league/` 에 있었지만 읽는
    것은 `users.tier_level` 뿐이었고 호출자도 friend 였다. 위치가 거짓이면 그 거짓이 그대로
    의존 간선이 된다 — `user/service/UserTierLookup` 으로 옮겨 `friend → league` 를 없앴다.
@@ -277,7 +284,7 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 | --- | --- | --- |
 | 타 도메인 repository 직접 주입 | 약 120건 / 44개 service | GROMO-1655 |
 | service 의 `EntityManager` 직접 조작 | 5개 파일 | GROMO-1655 |
-| 도메인 간 레이어 역행 참조 | 12쌍 / import 43건 (2026-09-08, 착수 시 15쌍/49건) | GROMO-1656 진행 중 |
+| 도메인 간 레이어 역행 참조 | 10쌍 / import 26건 (2026-09-08, 착수 시 15쌍/49건) | GROMO-1656 진행 중 |
 | 컨트롤러의 영속 enum 노출 | 6건 | GROMO-1657 (앱 계약 변경 동반) |
 | 규칙의 테스트 강제 | 없음 (ArchUnit 미도입) | GROMO-1662 |
 
