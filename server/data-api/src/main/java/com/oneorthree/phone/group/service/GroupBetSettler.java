@@ -15,6 +15,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.group.support.GroupBetPayoutCalculator;
 import lombok.RequiredArgsConstructor;
@@ -91,6 +92,7 @@ public class GroupBetSettler {
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+    private final GroupQueryService groupQueryService;
     private final FocusSessionRepository focusSessionRepository;
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
@@ -143,8 +145,7 @@ public class GroupBetSettler {
         // 잠금 조회 — 참가·철회·탈퇴 연동(참가 행 삭제 + 환불)·조기 확정과 회차 단위로 직렬화한다.
         // 참가자 읽기가 잠금 없이 이뤄지면 낡은 스냅샷이 이미 환불된 참가자에게 지급까지 해 이중
         // 지급이 된다. status CAS 는 상태 전이만 지킬 뿐 참가자 읽기는 못 지킨다.
-        GroupChallengeBetSession session = groupChallengeBetSessionRepository.findByIdForUpdate(sessionId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+        GroupChallengeBetSession session = groupQueryService.getBetSessionForUpdate(sessionId);
         if (!session.isOpen()) {
             log.info("회차 정산 스킵 — 이미 종료됨. sessionId={}, status={}, trigger={}",
                     sessionId, session.getStatus(), trigger);
@@ -255,8 +256,7 @@ public class GroupBetSettler {
      */
     @Transactional
     public SettleResult closeShortOrUnused(UUID sessionId) {
-        GroupChallengeBetSession session = groupChallengeBetSessionRepository.findByIdForUpdate(sessionId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+        GroupChallengeBetSession session = groupQueryService.getBetSessionForUpdate(sessionId);
         if (!session.isOpen()) {
             return SettleResult.skipped(session.getStatus());
         }
@@ -300,7 +300,7 @@ public class GroupBetSettler {
                 groupChallengeBetSessionRepository.findOpenSessionIdsByChallengeId(challengeId);
         List<GroupChallengeBetSession> lockedOpenSessions = new ArrayList<>();
         for (UUID sessionId : sessionIds) {
-            groupChallengeBetSessionRepository.findByIdForUpdate(sessionId)
+            groupQueryService.findBetSessionForUpdate(sessionId)
                     .filter(GroupChallengeBetSession::isOpen)
                     .ifPresent(lockedOpenSessions::add);
         }

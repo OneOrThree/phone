@@ -451,7 +451,7 @@ public class GroupBetService {
         // 순서: 회차 전부 → 지갑). 잠금 시점에 이미 종료된 회차는 정산 결과를 존중해 제외한다.
         List<GroupChallengeBetSession> lockedOpenSessions = new ArrayList<>();
         for (UUID sessionId : sessionIds) {
-            groupChallengeBetSessionRepository.findByIdForUpdate(sessionId)
+            groupQueryService.findBetSessionForUpdate(sessionId)
                     .filter(GroupChallengeBetSession::isOpen)
                     .ifPresent(lockedOpenSessions::add);
         }

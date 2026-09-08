@@ -6,6 +6,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
@@ -64,6 +65,8 @@ class GroupBetJoinScreenTimeLockTest {
     private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+    @Mock
+    private GroupQueryService groupQueryService;
     @Mock
     private UserQueryService userQueryService;
     @Mock

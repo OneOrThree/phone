@@ -364,7 +364,7 @@ public class GroupBetWindowUsageService {
      * @return true = 저장해도 되는 상태(시작됨 + OPEN), false = 조용히 무시할 보고
      */
     private boolean lockedSessionAcceptsReport(UUID sessionId, UUID challengeId, UUID userId) {
-        GroupChallengeBetSession locked = groupChallengeBetSessionRepository.findByIdForUpdate(sessionId)
+        GroupChallengeBetSession locked = groupQueryService.findBetSessionForUpdate(sessionId)
                 .orElse(null);
         if (locked == null) {
             // 잠금 대기 중 회차가 사라졌다(마지막 참가자 철회 = "없던 일"). 걸린 돈이 없으니 무시.

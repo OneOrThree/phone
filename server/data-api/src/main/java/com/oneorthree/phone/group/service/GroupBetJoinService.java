@@ -19,6 +19,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -70,6 +71,7 @@ public class GroupBetJoinService {
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+    private final GroupQueryService groupQueryService;
     private final UserQueryService userQueryService;
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
@@ -335,8 +337,7 @@ public class GroupBetJoinService {
 
     /** 회차 행 배타 잠금 재조회 — 다건 잠금은 호출측이 id 오름차순을 보장한다(계약 §3). */
     private GroupChallengeBetSession lockSession(GroupChallengeBetSession session) {
-        return groupChallengeBetSessionRepository.findByIdForUpdate(session.getId())
-                .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+        return groupQueryService.getBetSessionForUpdate(session.getId());
     }
 
     // ── 가드 ────────────────────────────────────────────────────────────
