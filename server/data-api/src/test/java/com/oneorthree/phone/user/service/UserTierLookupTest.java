@@ -1,4 +1,4 @@
-package com.oneorthree.phone.league.service;
+package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserTierLevelProjection;
@@ -18,14 +18,14 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
- * LeagueTierLookup 단위 테스트 (GROMO-710).
+ * UserTierLookup 단위 테스트 (GROMO-710).
  * users.tier_level 을 userId→tierLevel 맵으로 배치 도출한다.
  */
 @ExtendWith(MockitoExtension.class)
-class LeagueTierLookupTest {
+class UserTierLookupTest {
 
     @InjectMocks
-    private LeagueTierLookup leagueTierLookup;
+    private UserTierLookup userTierLookup;
 
     @Mock
     private UserRepository userRepository;
@@ -40,7 +40,7 @@ class LeagueTierLookupTest {
                         new UserTierLevelProjection(a, 3),
                         new UserTierLevelProjection(b, 5)));
 
-        Map<UUID, Integer> result = leagueTierLookup.tierLevelsByUserId(List.of(a, b));
+        Map<UUID, Integer> result = userTierLookup.tierLevelsByUserId(List.of(a, b));
 
         assertThat(result).containsOnly(Map.entry(a, 3), Map.entry(b, 5));
     }
@@ -53,7 +53,7 @@ class LeagueTierLookupTest {
         given(userRepository.findTierLevelsByIdInAndIsDeletedFalse(List.of(existing, missing)))
                 .willReturn(List.of(new UserTierLevelProjection(existing, 2)));
 
-        Map<UUID, Integer> result = leagueTierLookup.tierLevelsByUserId(List.of(existing, missing));
+        Map<UUID, Integer> result = userTierLookup.tierLevelsByUserId(List.of(existing, missing));
 
         assertThat(result).containsOnlyKeys(existing);
         assertThat(result.get(missing)).isNull();
@@ -62,7 +62,7 @@ class LeagueTierLookupTest {
     @Test
     @DisplayName("빈 컬렉션 입력 → 빈 맵이고 repository 미호출")
     void tierLevelsByUserId_empty_noRepositoryCall() {
-        Map<UUID, Integer> result = leagueTierLookup.tierLevelsByUserId(List.of());
+        Map<UUID, Integer> result = userTierLookup.tierLevelsByUserId(List.of());
 
         assertThat(result).isEmpty();
         verifyNoInteractions(userRepository);
@@ -75,7 +75,7 @@ class LeagueTierLookupTest {
         given(userRepository.findTierLevelsByIdInAndIsDeletedFalse(List.of(newUserId)))
                 .willReturn(List.of(new UserTierLevelProjection(newUserId, 1)));
 
-        Map<UUID, Integer> result = leagueTierLookup.tierLevelsByUserId(List.of(newUserId));
+        Map<UUID, Integer> result = userTierLookup.tierLevelsByUserId(List.of(newUserId));
 
         assertThat(result).containsOnly(Map.entry(newUserId, 1));
     }

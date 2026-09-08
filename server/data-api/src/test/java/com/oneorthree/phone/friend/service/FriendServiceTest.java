@@ -26,7 +26,7 @@ import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.friend.service.search.FriendSearchResult;
 import com.oneorthree.phone.friend.service.search.FriendSearchStrategy;
 import com.oneorthree.phone.friend.service.search.SearchType;
-import com.oneorthree.phone.league.service.LeagueTierLookup;
+import com.oneorthree.phone.user.service.UserTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -85,7 +85,7 @@ class FriendServiceTest {
     private UserActivityEventLogger userActivityEventLogger;
 
     @Mock
-    private LeagueTierLookup leagueTierLookup;
+    private UserTierLookup userTierLookup;
 
     @Mock
     private FocusLiveInfoLookup focusLiveInfoLookup;
@@ -109,7 +109,7 @@ class FriendServiceTest {
         // 실제 판정 로직(리포지토리 스텁 기반)을 통과하도록 한다 (GROMO-1631, 스텁이 시임을 덮지 않게).
         friendService = new FriendService(friendshipRepository, userQueryService, pinnedUserRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
-                userActivityEventLogger, leagueTierLookup, focusLiveInfoLookup,
+                userActivityEventLogger, userTierLookup, focusLiveInfoLookup,
                 new FriendRelationLookup(friendshipRepository), eventPublisher,
                 List.of(nicknameStrategy));
 
@@ -674,7 +674,7 @@ class FriendServiceTest {
     }
 
     @Test
-    @DisplayName("친구 목록 — 아레나 소속과 무관하게 User 티어를 LeagueTierLookup 에서 도출 (GROMO-814)")
+    @DisplayName("친구 목록 — 아레나 소속과 무관하게 User 티어를 UserTierLookup 에서 도출 (GROMO-814)")
     void getFriends_restoresTierLevel_fromLeagueLookup() {
         User a = user(UUID.randomUUID(), "alice");
         User b = user(UUID.randomUUID(), "bob");
@@ -684,7 +684,7 @@ class FriendServiceTest {
                 friendship(me, b, FriendshipStatus.ACCEPTED)
         ));
         // 상대 userId 들을 한 번에 모아 배치 조회 → alice=티어3, 신규 bob=기본 티어1
-        given(leagueTierLookup.tierLevelsByUserId(List.of(a.getId(), b.getId())))
+        given(userTierLookup.tierLevelsByUserId(List.of(a.getId(), b.getId())))
                 .willReturn(Map.of(a.getId(), 3, b.getId(), 1));
 
         List<FriendResponse> friends = friendService.getFriends(meId, DATE);
@@ -772,13 +772,13 @@ class FriendServiceTest {
     }
 
     @Test
-    @DisplayName("요청 목록 — 티어는 users.tier_level 기반 LeagueTierLookup 에서 도출 (GROMO-814)")
+    @DisplayName("요청 목록 — 티어는 users.tier_level 기반 UserTierLookup 에서 도출 (GROMO-814)")
     void getRequests_restoresTierLevel_fromLeagueLookup() {
         Friendship req = friendship(target, me, FriendshipStatus.PENDING);
         given(userQueryService.getTarget(meId)).willReturn(me);
         given(friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
                 .willReturn(List.of(req));
-        given(leagueTierLookup.tierLevelsByUserId(List.of(targetId)))
+        given(userTierLookup.tierLevelsByUserId(List.of(targetId)))
                 .willReturn(Map.of(targetId, 4));
 
         List<FriendRequestResponse> requests = friendService.getRequests(meId, "received");
@@ -795,7 +795,7 @@ class FriendServiceTest {
         given(friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
                 .willReturn(List.of(req));
         // sent 방향: 상대는 toUser(target) — 티어 배치 조회 대상도 target 이어야 한다
-        given(leagueTierLookup.tierLevelsByUserId(List.of(targetId)))
+        given(userTierLookup.tierLevelsByUserId(List.of(targetId)))
                 .willReturn(Map.of(targetId, 2));
 
         List<FriendRequestResponse> requests = friendService.getRequests(meId, "sent");

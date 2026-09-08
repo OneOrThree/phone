@@ -25,7 +25,7 @@ import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.friend.service.search.FriendSearchStrategy;
 import com.oneorthree.phone.friend.service.search.SearchType;
-import com.oneorthree.phone.league.service.LeagueTierLookup;
+import com.oneorthree.phone.user.service.UserTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import org.springframework.context.ApplicationEventPublisher;
@@ -66,7 +66,7 @@ public class FriendService {
     private final FocusSessionRepository focusSessionRepository;
     private final CharacterEquipmentRepository characterEquipmentRepository;
     private final UserActivityEventLogger userActivityEventLogger;
-    private final LeagueTierLookup leagueTierLookup;
+    private final UserTierLookup userTierLookup;
     private final FocusLiveInfoLookup focusLiveInfoLookup;
     private final FriendRelationLookup friendRelationLookup;
     /**
@@ -87,7 +87,7 @@ public class FriendService {
      * @param focusSessionRepository      핀 목록의 "지금 집중 중" 판정 소스(끝나지 않은 세션)
      * @param characterEquipmentRepository 핀 목록에 실을 캐릭터 장착 표시정보
      * @param userActivityEventLogger     요청·수락 사실을 커밋과 무관하게 즉시 남기는 활동 로그
-     * @param leagueTierLookup            상대들의 티어를 한 번에 뽑는 배치 조회기
+     * @param userTierLookup              상대들의 티어를 한 번에 뽑는 배치 조회기
      * @param focusLiveInfoLookup         상대들의 집중 라이브 정보를 한 번에 뽑는 배치 조회기
      * @param friendRelationLookup        검색 결과의 관계 배지 판정 — 프로필 도메인과 공유한다
      * @param eventPublisher              푸시 발송을 커밋 이후로 미루기 위한 이벤트 발행기
@@ -101,7 +101,7 @@ public class FriendService {
                          FocusSessionRepository focusSessionRepository,
                          CharacterEquipmentRepository characterEquipmentRepository,
                          UserActivityEventLogger userActivityEventLogger,
-                         LeagueTierLookup leagueTierLookup,
+                         UserTierLookup userTierLookup,
                          FocusLiveInfoLookup focusLiveInfoLookup,
                          FriendRelationLookup friendRelationLookup,
                          ApplicationEventPublisher eventPublisher,
@@ -113,7 +113,7 @@ public class FriendService {
         this.focusSessionRepository = focusSessionRepository;
         this.characterEquipmentRepository = characterEquipmentRepository;
         this.userActivityEventLogger = userActivityEventLogger;
-        this.leagueTierLookup = leagueTierLookup;
+        this.userTierLookup = userTierLookup;
         this.focusLiveInfoLookup = focusLiveInfoLookup;
         this.friendRelationLookup = friendRelationLookup;
         this.eventPublisher = eventPublisher;
@@ -276,7 +276,7 @@ public class FriendService {
                 .toList();
         List<UUID> otherIds = others.stream().map(User::getId).toList();
         // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
-        Map<UUID, Integer> tierLevels = leagueTierLookup.tierLevelsByUserId(otherIds);
+        Map<UUID, Integer> tierLevels = userTierLookup.tierLevelsByUserId(otherIds);
         // GROMO-822: 상대 userId 들의 집중 라이브 정보(당일 집중분·진행중 여부·시작시각·태그명)를 1회 배치 조회(N+1 방지).
         // date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(/pins 와 동일). 미조회 유저는 맵에 없어 아래에서 기본값(0/false/null) 처리.
         Map<UUID, FocusLiveInfo> liveInfo = focusLiveInfoLookup.liveInfoByUserId(otherIds, date);
@@ -386,7 +386,7 @@ public class FriendService {
                 : friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING);
 
         // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
-        Map<UUID, Integer> tierLevels = leagueTierLookup.tierLevelsByUserId(requests.stream()
+        Map<UUID, Integer> tierLevels = userTierLookup.tierLevelsByUserId(requests.stream()
                 .map(f -> (received ? f.getFromUser() : f.getToUser()).getId())
                 .toList());
         return requests.stream()

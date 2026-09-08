@@ -1,6 +1,6 @@
 package com.oneorthree.phone.friend.service.search;
 
-import com.oneorthree.phone.league.service.LeagueTierLookup;
+import com.oneorthree.phone.user.service.UserTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +21,7 @@ public class NicknameSearchStrategy implements FriendSearchStrategy {
     private static final int SEARCH_LIMIT = 20;
 
     private final UserRepository userRepository;
-    private final LeagueTierLookup leagueTierLookup;
+    private final UserTierLookup userTierLookup;
 
     @Override
     public SearchType type() {
@@ -35,7 +35,7 @@ public class NicknameSearchStrategy implements FriendSearchStrategy {
     public List<FriendSearchResult> search(UUID me, String query) {
         List<User> matched = userRepository.searchByNicknameTrgm(query, SEARCH_LIMIT);
         // GROMO-710: 매칭 유저 id 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
-        Map<UUID, Integer> tierLevels = leagueTierLookup.tierLevelsByUserId(
+        Map<UUID, Integer> tierLevels = userTierLookup.tierLevelsByUserId(
                 matched.stream().map(User::getId).toList());
         return matched.stream()
                 .map(u -> FriendSearchResult.builder()

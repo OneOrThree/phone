@@ -1,8 +1,5 @@
 package com.oneorthree.phone.user.repository.domain;
 
-import com.oneorthree.phone.item.repository.domain.CharacterEquipment;
-import com.oneorthree.phone.item.repository.domain.UserItem;
-
 import com.oneorthree.phone.common.id.GeneratedUuidV7;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -136,11 +133,7 @@ public class User {
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SocialAccount> socialAccounts = new ArrayList<>();
 
-    @Builder.Default
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<UserItem> userItems = new ArrayList<>();
-
-    @Builder.Default
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<CharacterEquipment> characterEquipments = new ArrayList<>();
+    // 보유 아이템·장착(item 도메인)은 여기서 매핑하지 않는다 (GROMO-1656) — 소유측이 item 쪽
+    // @ManyToOne 이라 이 역방향 컬렉션은 읽는 곳이 한 군데도 없었고, user 가 item 을 컴파일
+    // 단위로 끌어들여 user↔item 순환을 만들고 있었다. 장착 조회는 CharacterEquipmentRepository 로 한다.
 }

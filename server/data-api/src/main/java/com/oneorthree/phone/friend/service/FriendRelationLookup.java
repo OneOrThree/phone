@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
  * 나와 다른 유저들의 친구 관계(NONE|PENDING|FRIEND)를 도출하는 공유 조회 컴포넌트 (GROMO-1631).
  *
  * <p>친구 검색({@code FriendService.search})과 공개 프로필({@code ProfileService})이 공유한다.
- * {@code LeagueTierLookup}(GROMO-710)·{@code FocusLiveInfoLookup}(GROMO-822)과 같은
+ * {@code UserTierLookup}(GROMO-710)·{@code FocusLiveInfoLookup}(GROMO-822)과 같은
  * 도메인 간 공유 조회 컴포넌트 패턴이다.</p>
  *
  * <p>판정은 내 관계 전량 로드(collect*) 후 Set 대조 — 관계는 소수(수십~수백)라 단건 조회 대상이
