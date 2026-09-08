@@ -24,10 +24,10 @@ import static org.mockito.Mockito.verify;
  * <p><b>왜 리플렉션으로 애노테이션을 보는가.</b> 이 리스너를 이웃들처럼
  * {@code @TransactionalEventListener(AFTER_COMMIT)} 로 바꾸는 것은 <b>한 줄 수정으로 컴파일되고
  * 기능 테스트도 전부 초록으로 남는다</b> — 억제는 여전히 일어나기 때문이다. 다만 <b>조금 늦게</b>
- * 일어나고, 그 사이에 「이미 본 결과」의 푸시가 나간다. 클레임을 만드는 리스너가
- * {@code AFTER_COMMIT + @Async} 라 ack 보다 늦게 도착할 수 있어서다.
+ * 일어나고, 그 지연 동안 5분 주기 flush 크론이 끼면 「이미 본 결과」의 푸시가 나간다.
+ * 그리고 억제 실패가 ack 를 되돌리지 못하게 된다.
  *
- * <p>이 결함은 <b>레이스에서만</b> 드러나므로 동작 테스트로는 잡을 수 없다. 잡을 수 있는 것은
+ * <p>이 결함은 <b>타이밍에서만</b> 드러나므로 동작 테스트로는 잡을 수 없다. 잡을 수 있는 것은
  * 「어떤 애노테이션이 붙어 있는가」뿐이라, 그것을 단언한다.
  *
  * <p>같은 이유로 {@code @Async} 도 금지다 — 별도 스레드로 나가면 발행 트랜잭션 밖이 되어
@@ -48,7 +48,7 @@ class BetResultAckSuppressionListenerTest {
     }
 
     @Test
-    @DisplayName("평범한 @EventListener 다 — 커밋 이후로 미루면 이미 본 결과의 푸시가 나간다")
+    @DisplayName("평범한 @EventListener 다 — 커밋 이후로 미루면 5분 크론이 그 창에 끼어든다")
     void handlerRunsInsideThePublishingTransaction() throws NoSuchMethodException {
         Method handler = handler();
 
@@ -56,7 +56,7 @@ class BetResultAckSuppressionListenerTest {
                 .as("발행 트랜잭션 안에서 지금 돌아야 한다")
                 .isTrue();
         assertThat(handler.isAnnotationPresent(TransactionalEventListener.class))
-                .as("AFTER_COMMIT 으로 바꾸면 클레임 생성 리스너와의 순서가 뒤집혀 푸시가 새어 나간다")
+                .as("AFTER_COMMIT 으로 미루면 그 사이 5분 flush 크론이 PENDING 을 집어 발송한다")
                 .isFalse();
         assertThat(handler.isAnnotationPresent(org.springframework.scheduling.annotation.Async.class))
                 .as("별도 스레드로 나가면 ack 롤백과 함께 되돌아가지 않는다")

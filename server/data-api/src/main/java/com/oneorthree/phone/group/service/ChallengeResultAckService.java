@@ -225,8 +225,8 @@ public class ChallengeResultAckService {
         //
         // 알림 서비스를 직접 부르지 않고 이벤트로 알리는 이유는 의존 방향뿐이다(GROMO-1656) —
         // group 이 notification 을 참조하면 순환이 된다. 소비자는 @EventListener(동기)라
-        // 이 트랜잭션 안에서 지금 돌고, 실패하면 ack 도 함께 롤백된다. 종전 직접 호출과 성질이
-        // 같다 — 커밋 이후로 미루면 그 사이에 이미 본 결과의 푸시가 나간다.
+        // 이 트랜잭션 안에서 지금 돌고, 실패하면 ack 도 함께 롤백된다 — 종전 직접 호출과 성질이 같다.
+        // 커밋 이후로 미루면 그 지연 동안 5분 주기 발송 크론이 끼어든다(소비자 Javadoc 참조).
         eventPublisher.publishEvent(new BetResultAcknowledgedEvent(userId, sessionId, now));
     }
 
