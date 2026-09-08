@@ -1,4 +1,4 @@
-package com.oneorthree.phone.user.service;
+package com.oneorthree.phone.profile.service;
 
 import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
@@ -14,8 +14,8 @@ import com.oneorthree.phone.stats.dto.TodayStatsResponse;
 import com.oneorthree.phone.stats.service.StatsService;
 import com.oneorthree.phone.user.repository.domain.StatVisibility;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.dto.PublicProfileResponse;
-import com.oneorthree.phone.user.dto.UserStatsResponse;
+import com.oneorthree.phone.profile.dto.PublicProfileResponse;
+import com.oneorthree.phone.profile.dto.UserStatsResponse;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +31,20 @@ import java.util.UUID;
  * 타 유저 공개 프로필 조회 서비스 (GROMO-520).
  * 유저·캐릭터·친구·리그 도메인을 READ-only로 집계한다.
  * 티어는 User 에서, 랭킹은 DailyFocusStat 기반 전역 주간 read model 에서 조회한다.
+ *
+ * <p><b>왜 {@code user/} 가 아니라 {@code profile/} 인가</b> (GROMO-1656). 이 클래스가 하는 일은
+ * 유저 한 명을 중심으로 <b>다섯 도메인의 조각을 한 화면 응답으로 조립</b>하는 것이다 —
+ * item(장착) · friend(친구 수·관계·핀) · league(주간 랭킹) · stats(스트릭·오늘·히트맵), 그리고 user.
+ * 이 조립기가 {@code user/} 안에 있는 동안 <b>계정 도메인이 자기 위의 파생 도메인 넷을 참조</b>했고,
+ * 그 넷은 다시 user 를 참조하므로 순환이 넷 생겼다. 조립은 조립되는 것들보다 위에 있어야 한다.
+ *
+ * <p>그래서 {@code profile} 은 <b>영속성이 없는 도메인</b>이다 — 자기 테이블도 리포지토리도 없고
+ * 아래 도메인의 조회 결과만 받아 합친다. 이 자리에 새로 무언가를 저장하고 싶어지면 그것은 이 도메인의
+ * 것이 아니라 아래 어느 도메인의 것이다.
+ *
+ * <p><b>여기 남아 있는 정책 하나</b>: {@code getUserStats} 의 히트맵 공개 게이트(GROMO-640)는 순수
+ * 조립이 아니라 판정이다. {@code /stats/*} 에도 같은 취지의 정책이 있어(GROMO-623) 규칙이 두 군데
+ * 있을 수 있는데, 두 곳을 하나로 합치는 일은 이 티켓의 범위가 아니라 그대로 옮겨 왔다.
  */
 @Service
 @RequiredArgsConstructor

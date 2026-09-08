@@ -1,9 +1,9 @@
-package com.oneorthree.phone.user;
+package com.oneorthree.phone.profile;
 
 import com.oneorthree.phone.common.auth.LoginUser;
-import com.oneorthree.phone.user.dto.PublicProfileResponse;
-import com.oneorthree.phone.user.dto.UserStatsResponse;
-import com.oneorthree.phone.user.service.ProfileService;
+import com.oneorthree.phone.profile.dto.PublicProfileResponse;
+import com.oneorthree.phone.profile.dto.UserStatsResponse;
+import com.oneorthree.phone.profile.service.ProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;

@@ -1,7 +1,7 @@
-package com.oneorthree.phone.user;
+package com.oneorthree.phone.profile;
 
-import com.oneorthree.phone.user.dto.PublicProfileResponse;
-import com.oneorthree.phone.user.dto.UserStatsResponse;
+import com.oneorthree.phone.profile.dto.PublicProfileResponse;
+import com.oneorthree.phone.profile.dto.UserStatsResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;

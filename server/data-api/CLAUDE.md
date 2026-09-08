@@ -43,8 +43,13 @@ Run all commands below from inside `server/data-api/`.
   and never a per-domain `config/`.
 - Domain packages (authoritative: `ls src/main/java/com/oneorthree/phone/`):
   `analytics`, `auth`, `bot`, `character`, `currency`, `focus`, `friend`, `group`,
-  `invitelink`, `item`, `league`, `notification`, `screentime`, `stats`, `user` —
-  plus cross-cutting `common/` and `config/`.
+  `invitelink`, `item`, `league`, `notification`, `profile`, `screentime`, `stats`,
+  `user` — plus cross-cutting `common/` and `config/`.
+- **Domains have a fixed height and references only go downward** (GROMO-1656) —
+  `user` is the base and is referenced by everyone; `profile` sits on top and only
+  composes. The table is in `docs/conventions/backend-layering.md` §4; consult it
+  before adding a cross-domain injection, and invert with an event or a
+  `common/port` interface when the need points upward.
 - Optional per-domain sub-packages, used only when the domain has them:
   `support/` (pure helpers/policies — no injected repository or service),
   `event/` (events this domain publishes), `listener/` (handlers it subscribes),

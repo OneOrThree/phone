@@ -1,4 +1,4 @@
-package com.oneorthree.phone.user.dto;
+package com.oneorthree.phone.profile.dto;
 
 import com.oneorthree.phone.stats.dto.HeatmapCellResponse;
 import com.oneorthree.phone.stats.dto.StreakResponse;

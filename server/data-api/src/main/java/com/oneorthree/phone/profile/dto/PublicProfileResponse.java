@@ -1,4 +1,4 @@
-package com.oneorthree.phone.user.dto;
+package com.oneorthree.phone.profile.dto;
 
 import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
