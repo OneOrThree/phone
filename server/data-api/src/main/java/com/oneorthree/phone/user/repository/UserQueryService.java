@@ -16,7 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * User 를 <b>id 로 조회</b>하는 경로의 단일 진입점 (GROMO-1655).
+ * User 를 <b>id 로 조회</b>하는 경로를 접는다 (GROMO-1655).
  *
  * <p>"모든 User 접근"은 아니다 — 프로젝션 조회({@code JwtFilter} 의 활성 판정,
  * {@code LeagueTierLookup} 의 티어 배치), 범위 스캔(미접속 복귀 대상), 닉네임 검색,

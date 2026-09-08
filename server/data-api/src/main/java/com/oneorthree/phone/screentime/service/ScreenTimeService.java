@@ -51,7 +51,7 @@ public class ScreenTimeService {
     /**
      * 의존성을 주입받는다.
      *
-     * @param userQueryService                요청자 활성 검증 — 유저 단건 조회의 단일 진입점
+     * @param userQueryService                요청자 활성 검증 — id 로 하는 User·설정 조회
      * @param dailyScreenTimeStatRepository   일별 집계 저장소
      * @param notificationPort                목표 달성 알림 발사구
      * @param userActivityEventLogger         달성 이벤트 로깅

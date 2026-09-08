@@ -81,7 +81,7 @@ public class FriendService {
      * 모든 빈을 모아 type() 기준 Map으로 구성한다. (검색 수단 추가 = 구현체 1개 추가)
      *
      * @param friendshipRepository        관계 행의 조회·정리 창구
-     * @param userQueryService            유저 단건 조회의 단일 진입점 — 활성 검증·락 선택을 계층이 맡는다
+     * @param userQueryService            id 로 하는 User 조회 — 활성 검증·락 선택을 계층이 맡는다
      * @param pinnedUserRepository        핀 설정·해제·조회
      * @param dailyFocusStatRepository    핀 목록의 "오늘 집중분" 집계 소스
      * @param focusSessionRepository      핀 목록의 "지금 집중 중" 판정 소스(끝나지 않은 세션)
