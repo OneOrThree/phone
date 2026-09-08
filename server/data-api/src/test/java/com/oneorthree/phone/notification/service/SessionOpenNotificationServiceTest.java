@@ -65,6 +65,7 @@ class SessionOpenNotificationServiceTest {
 
     @Mock
     private GroupQueryService groupQueryService;
+
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Mock

@@ -18,6 +18,9 @@ import java.util.UUID;
  *
  * <p>슬러그 조회({@code findBySlug})는 id 조회가 아니라 §3 「옮기지 않는 것」이다.
  *
+ * <p>호출부 둘이 <b>같은 클래스</b>({@code InviteLinkMatchService})라 여러 service 간 갈림은 없다.
+ * 계층에 둔 것은 §3·GROMO-1655 의 "조회 계층 밖 id 조회 0건" 목표 때문이다.
+ *
  * <p><b>트랜잭션을 시작하지 않는다.</b> 호출한 service 의 트랜잭션에 참여한다.
  */
 @Service

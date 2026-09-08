@@ -77,6 +77,7 @@ class BetEventNotificationServiceTest {
 
     @Mock
     private GroupQueryService groupQueryService;
+
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Mock

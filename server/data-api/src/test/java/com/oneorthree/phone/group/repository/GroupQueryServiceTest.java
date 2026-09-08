@@ -3,6 +3,7 @@ package com.oneorthree.phone.group.repository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
@@ -71,6 +72,9 @@ class GroupQueryServiceTest {
     @Mock
     private GroupJoinCodeRepository groupJoinCodeRepository;
 
+    @Mock
+    private GroupChallengeRepository groupChallengeRepository;
+
     @InjectMocks
     private GroupQueryService groupQueryService;
 
@@ -88,6 +92,9 @@ class GroupQueryServiceTest {
 
     @Mock
     private GroupJoinCode joinCode;
+
+    @Mock
+    private GroupChallenge challenge;
 
     @Test
     @DisplayName("getGroup — 그룹이 없으면 NOT_FOUND")
@@ -283,5 +290,43 @@ class GroupQueryServiceTest {
         given(groupJoinCodeRepository.findAllById(ids)).willReturn(List.of(joinCode));
 
         assertThat(groupQueryService.findAllJoinCodes(ids)).containsExactly(joinCode);
+    }
+    // ── 다른 도메인이 빌려 가는 조회 — 전부 던지지 않는다 ────────────────
+
+    /**
+     * {@link GroupQueryService#getGroup} 과 짝인 판이다. 초대 링크 랜딩이 "그룹이 사라졌으면 만료와
+     * 같게 다룬다"고 결정하려면 부재가 예외가 아니라 값으로 와야 한다.
+     */
+    @Test
+    @DisplayName("findGroup — 던지지 않는다(getGroup 과 갈리는 지점) · 무락 조회를 쓴다")
+    void findGroupDoesNotThrowAndUsesUnlockedRead() {
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+
+        assertThat(groupQueryService.findGroup(GROUP_ID)).isEmpty();
+        verify(groupRepository).findById(GROUP_ID);
+        verify(groupRepository, never()).findByIdForUpdate(GROUP_ID);
+    }
+
+    @Test
+    @DisplayName("findChallenge — 던지지 않는다 · AFTER_COMMIT 알림이 삭제된 챌린지를 만나는 것은 정상이다")
+    void findChallengeDoesNotThrow() {
+        given(groupChallengeRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(challenge));
+
+        assertThat(groupQueryService.findChallenge(CHALLENGE_ID)).contains(challenge);
+        verify(groupChallengeRepository).findById(CHALLENGE_ID);
+    }
+
+    /**
+     * 배치 조회는 <b>부재분을 조용히 뺀다</b>. 호출부가 맵으로 만들어 {@code get} 이 {@code null} 을
+     * 돌려주는 것을 정상으로 다루므로, 여기서 던지거나 자리를 채우면 그 계약이 깨진다.
+     */
+    @Test
+    @DisplayName("findAllBetSessions — 부재분을 빼고 준다(요청 수와 결과 수가 다를 수 있다)")
+    void findAllBetSessionsDropsMissing() {
+        List<UUID> ids = List.of(SESSION_ID, UUID.randomUUID());
+        given(groupChallengeBetSessionRepository.findAllById(ids)).willReturn(List.of(betSession));
+
+        assertThat(groupQueryService.findAllBetSessions(ids)).containsExactly(betSession);
+        verify(groupChallengeBetSessionRepository).findAllById(ids);
     }
 }
