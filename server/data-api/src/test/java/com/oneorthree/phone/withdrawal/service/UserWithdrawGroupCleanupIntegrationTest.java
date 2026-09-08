@@ -1,4 +1,4 @@
-package com.oneorthree.phone.user.service;
+package com.oneorthree.phone.withdrawal.service;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.currency.repository.domain.CurrencyTransaction;
@@ -51,7 +51,7 @@ import static org.assertj.core.api.Assertions.tuple;
 class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
 
     @Autowired
-    UserService userService;
+    AccountWithdrawalService accountWithdrawalService;
     @Autowired
     GroupRepository groupRepository;
     @Autowired
@@ -184,7 +184,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         userWalletRepository.save(UserWallet.builder().userId(user.getId()).balance(10).build());
         users.add(user);
 
-        userService.withdraw(user.getId());
+        accountWithdrawalService.withdraw(user.getId());
 
         User withdrawn = userRepository.findById(user.getId()).orElseThrow();
         assertThat(withdrawn.isDeleted()).isTrue();
@@ -204,7 +204,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         GroupChallengeBetParticipant leaverJoin = participant(session, leaver);
         participant(session, third);
 
-        userService.withdraw(leaver.getId());
+        accountWithdrawalService.withdraw(leaver.getId());
 
         // 남은 참가자가 2명이라 회차는 계속되고, 탈퇴자 참가 행만 빠진다
         assertThat(groupChallengeBetSessionRepository.findById(session.getId()).orElseThrow().getStatus())
@@ -252,7 +252,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         kickedMembership.kick();
         groupMemberRepository.save(kickedMembership);
 
-        userService.withdraw(kicked.getId());
+        accountWithdrawalService.withdraw(kicked.getId());
 
         // 남은 참가자 2명 — 회차는 계속되고 강퇴자 참가 행만 빠진다
         assertThat(groupChallengeBetSessionRepository.findById(session.getId()).orElseThrow().getStatus())
@@ -276,7 +276,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         GroupChallengeBetSession session = openSession();
         GroupChallengeBetParticipant soloJoin = participant(session, soloOwner);
 
-        userService.withdraw(soloOwner.getId());
+        accountWithdrawalService.withdraw(soloOwner.getId());
 
         // A-2 자동 종료 + 멤버십 이탈은 기존 그대로
         assertThat(groupRepository.findById(group.getId()).orElseThrow().getStatus())

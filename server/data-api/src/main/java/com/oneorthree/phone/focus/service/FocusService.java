@@ -33,12 +33,11 @@ import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.DefaultTagRepository;
 import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
-import com.oneorthree.phone.group.service.GroupBetEarlyWinConfirmer;
+import com.oneorthree.phone.common.port.EarlyWinConfirmationPort;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
-import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.domain.DailyFocusStat;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
-import com.oneorthree.phone.user.service.UserStreakService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -133,7 +132,7 @@ public class FocusService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserStreakService userStreakService;
     private final CurrencyLedgerService currencyLedgerService;
-    private final GroupBetEarlyWinConfirmer groupBetEarlyWinConfirmer;
+    private final EarlyWinConfirmationPort earlyWinConfirmationPort;
 
     /**
      * 유저가 채택 중인 집중 태그 목록.
@@ -455,7 +454,7 @@ public class FocusService {
         // 락 순서 고정(계약 §3: 회차 → 지갑) — 지갑을 만지기 전에 조기 확정 대상 회차를 먼저 잠근다.
         // 지갑부터 잡고 나중에 회차 락을 기다리면 정산·삭제 경로와 정확히 역순이라 교착·낙관락
         // 충돌로 이 트랜잭션(집중 세션·통계·보상)이 통째로 롤백된다.
-        groupBetEarlyWinConfirmer.lockCandidateSessions(user, credited.focusSeconds().keySet());
+        earlyWinConfirmationPort.lockCandidateSessions(userId, credited.focusSeconds().keySet());
 
         // currency 폐쇄(서버 지급 전환): 세션 보상을 서버가 직접 지급한다. 앱의 /currency/earn 호출은 no-op 이 됐고
         // (구앱: 저장 시 서버 지급 + earn no-op / 신앱: 저장 시 서버 지급 + earn 미호출 → 어느 조합도 정확히 1회),
@@ -469,7 +468,7 @@ public class FocusService {
                 body.getTotalDistractionSeconds(), zone, credited);
         // 그룹 내기 개인 승리 조기 확정(GROMO-1268, N11) — 통계 반영 이후, 같은 트랜잭션에 편승한다.
         // 대상은 이 세션이 통계에 귀속된 날짜들의 FOCUS OPEN 회차뿐이다(회차 락은 confirmer 가 잡는다).
-        groupBetEarlyWinConfirmer.confirmWins(user, credited.focusSeconds().keySet());
+        earlyWinConfirmationPort.confirmWins(userId, credited.focusSeconds().keySet());
         // 세션 지급액(#417)·목표 지급액(이 브랜치)을 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
         // balanceAfter 는 구 번들 호환용으로만 남긴다(현재 앱은 재조회로 잔액을 받는다).
         return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
@@ -974,7 +973,7 @@ public class FocusService {
                 session.getStartedAt(), statEnd, zone, body.focusSecondsByDate(), body.totalDistractionSeconds());
 
         // 락 순서 고정(계약 §3: 회차 → 지갑) — POST 완료 저장 경로와 동일한 이유다(교착·낙관락 충돌 방지).
-        groupBetEarlyWinConfirmer.lockCandidateSessions(user, credited.focusSeconds().keySet());
+        earlyWinConfirmationPort.lockCandidateSessions(userId, credited.focusSeconds().keySet());
 
         // GROMO-1214: 라이브 마커 종료도 POST 와 동일하게 세션 보상을 지급한다(같은 헬퍼 = 같은 지급률·캡·멱등키).
         // 앱이 cancel+POST 를 PATCH 로 전환하면 이 경로가 유일한 세션 지급처가 된다 — 빠져 있으면 코인이 0이 된다.
@@ -987,7 +986,7 @@ public class FocusService {
         RecordCompletionResult result = recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
                 body.totalDistractionSeconds(), zone, credited);
         // 그룹 내기 개인 승리 조기 확정(GROMO-1268, N11) — POST 완료 저장 경로와 동일 배선.
-        groupBetEarlyWinConfirmer.confirmWins(user, credited.focusSeconds().keySet());
+        earlyWinConfirmationPort.confirmWins(userId, credited.focusSeconds().keySet());
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
         // GROMO-806: 그날 누적·스트릭 인정 여부 / GROMO-1214: 지급 코인·잔액을 응답에 추가(additive, POST 응답과 동일 의미).
@@ -1309,4 +1308,27 @@ public class FocusService {
                 "total_focus_minutes", totalFocusMinutes,
                 "goal_minutes", goalMinutes));
     }
+
+    /**
+     * 탈퇴자의 집중 세션을 익명화한다 (GROMO-635 · 이동 GROMO-1656).
+     *
+     * <p>행을 지우지 않고 {@code user_id} 만 끊는다 — 세션은 그룹 내기 판정·통계 집계의 근거라
+     * 지우면 남은 사람들의 이력이 함께 무너진다. 참조가 끊긴 행은 조회 경로에서 자연히 빠진다
+     * ({@code user} 가 non-null 인 쿼리들이 걸러 낸다).
+     *
+     * <p>종전엔 {@code UserService.withdraw} 가 {@code FocusSessionRepository} 를 직접 주입해
+     * 불렀다. 집중 이력을 익명화하는 방법은 focus 가 알아야 하므로 여기로 옮겼다 —
+     * 쿼리도 시점도 그대로이고, 호출부의 트랜잭션에 편승한다.
+     *
+     * <p><b>호출 시점 제약</b>: 그룹 내기의 판정 근거 박제({@code GroupBetService
+     * .freezeEvidenceForAccountErasure})가 이 익명화 <b>앞</b>에 끝나 있어야 한다 — 박제는 아직
+     * 살아 있는 집중 기록을 읽는다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void anonymizeWithdrawnUser(UUID userId) {
+        focusSessionRepository.nullifyUser(userId);
+    }
+
 }

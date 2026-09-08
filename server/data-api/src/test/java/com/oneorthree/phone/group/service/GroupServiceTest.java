@@ -31,7 +31,7 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;

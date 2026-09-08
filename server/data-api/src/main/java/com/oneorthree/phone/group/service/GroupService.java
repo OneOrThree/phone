@@ -7,7 +7,7 @@ import com.oneorthree.phone.common.port.InviteAttribution;
 import com.oneorthree.phone.common.port.InviteAttributionPort;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncementGrant;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;

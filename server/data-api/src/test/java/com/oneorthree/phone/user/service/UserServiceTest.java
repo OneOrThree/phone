@@ -2,22 +2,6 @@ package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
-import com.oneorthree.phone.focus.repository.FocusSessionRepository;
-import com.oneorthree.phone.friend.repository.domain.Friendship;
-import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
-import com.oneorthree.phone.friend.repository.FriendshipRepository;
-import com.oneorthree.phone.friend.repository.PinnedUserRepository;
-import com.oneorthree.phone.group.repository.domain.Group;
-import com.oneorthree.phone.group.repository.domain.GroupMember;
-import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
-import com.oneorthree.phone.group.repository.domain.GroupStatus;
-import com.oneorthree.phone.group.exception.GroupErrorCode;
-import com.oneorthree.phone.group.exception.GroupException;
-import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.group.service.GroupBetService;
-import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.repository.domain.Occupation;
 import com.oneorthree.phone.user.repository.domain.Provider;
 import com.oneorthree.phone.user.repository.domain.SocialAccount;
@@ -47,7 +31,6 @@ import com.oneorthree.phone.user.repository.UserWalletRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -97,17 +80,9 @@ class UserServiceTest {
     @Mock
     private UserNotificationSettingsRepository userNotificationSettingsRepository;
 
-    @Mock
-    private GroupRepository groupRepository;
 
-    @Mock
-    private FocusSessionRepository focusSessionRepository;
 
-    @Mock
-    private DailyFocusStatRepository dailyFocusStatRepository;
 
-    @Mock
-    private DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
 
     @Mock
     private SocialAccountRepository socialAccountRepository;
@@ -115,20 +90,12 @@ class UserServiceTest {
     @Mock
     private OccupationInfoRepository occupationInfoRepository;
 
-    @Mock
-    private FriendshipRepository friendshipRepository;
 
-    @Mock
-    private PinnedUserRepository pinnedUserRepository;
 
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
 
-    @Mock
-    private GroupMemberRepository groupMemberRepository;
 
-    @Mock
-    private GroupBetService groupBetService;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
@@ -411,86 +378,41 @@ class UserServiceTest {
                 .isEqualTo(UserErrorCode.NICKNAME_DUPLICATE);
     }
 
-    // ── withdraw ──────────────────────────────────────────────────────────
+    // ── 탈퇴 시 user 도메인이 맡는 몫 ────────────────────────────────────
+    //
+    // 탈퇴 절차 전체(그룹 정리 → 익명화 → 지갑·설정 → 친구 → PII)의 순서는
+    // AccountWithdrawalServiceTest 가 지킨다. 여기서는 그중 user 가 실제로 하는 두 조각만 본다.
 
     @Test
-    @DisplayName("탈퇴 성공 → focus·wallet·3 settings 정리 + 소셜연동 삭제·PII 파기·소프트딜리트 (하드삭제 X) GROMO-635")
-    void withdrawSuccess() {
-        User user = User.builder().id(USER_ID).nickname("조재영").refreshTokenHash("rt-hash").deviceToken("dt").build();
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
-        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
+    @DisplayName("지갑·설정 3종은 하드 삭제된다 — 남기면 재가입 시 옛 목표·권한이 되살아난다")
+    void deleteWalletAndSettingsRemovesAllFour() {
+        userService.deleteWalletAndSettings(USER_ID);
 
-        userService.withdraw(USER_ID);
-
-        verify(focusSessionRepository).nullifyUser(USER_ID);
-        verify(dailyFocusStatRepository).nullifyUser(USER_ID);
-        verify(dailyScreenTimeStatRepository).nullifyUser(USER_ID);
         verify(userWalletRepository).deleteById(USER_ID);
         verify(userScreenTimeSettingsRepository).deleteById(USER_ID);
         verify(userFocusTimeSettingsRepository).deleteById(USER_ID);
         verify(userNotificationSettingsRepository).deleteById(USER_ID);
-        verify(socialAccountRepository).deleteByUserId(USER_ID);
-        verify(pinnedUserRepository).deleteAllInvolving(USER_ID);
-        // 소프트딜리트 + PII 파기, 하드 삭제 안 함 (FK 위반 방지)
+    }
+
+    @Test
+    @DisplayName("PII 파기 + 소프트딜리트 + 소셜연동 삭제 — user 행은 지우지 않는다 (GROMO-635)")
+    void erasePersonalDataKeepsRowButDestroysPii() {
+        User user = User.builder().id(USER_ID)
+                .nickname("조재영").refreshTokenHash("rt-hash").deviceToken("dt").countryCode("KR").build();
+
+        userService.erasePersonalData(user);
+
         assertThat(user.isDeleted()).isTrue();
         assertThat(user.getNickname()).isNull();
         assertThat(user.getRefreshTokenHash()).isNull();
         assertThat(user.getDeviceToken()).isNull();
+        assertThat(user.getCountryCode()).isNull();
+        // 하드 삭제는 불가능하다 — 다수 테이블이 NOT NULL FK 로 이 행을 참조한다
         verify(userRepository, never()).delete(any());
+        // 소셜 연동만 하드 삭제 — provider_id 가 PII 이고 같은 계정으로 재가입할 수 있어야 한다
+        verify(socialAccountRepository).deleteByUserId(USER_ID);
     }
 
-    @Test
-    @DisplayName("탈퇴 시 친구 관계는 ACCEPTED·PENDING 모두 소프트 삭제된다 (GROMO-801)")
-    void withdrawSoftDeletesFriendships() {
-        User user = User.builder().id(USER_ID).build();
-        User friend = User.builder().id(UUID.fromString("00000000-0000-0000-0000-000000000002")).build();
-        // ACCEPTED = 이미 맺어진 친구, PENDING = 아직 수락 안 된 요청.
-        // PENDING 을 안 끊으면 상대가 나중에 수락해 '탈퇴자와 친구'가 되는 경로가 열린다.
-        Friendship accepted = Friendship.builder()
-                .fromUser(user).toUser(friend).status(FriendshipStatus.ACCEPTED).build();
-        Friendship pending = Friendship.builder()
-                .fromUser(friend).toUser(user).status(FriendshipStatus.PENDING).build();
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
-        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
-        given(friendshipRepository.findActiveByUserId(USER_ID)).willReturn(List.of(accepted, pending));
-
-        userService.withdraw(USER_ID);
-
-        assertThat(accepted.getDeletedAt()).isNotNull();
-        assertThat(pending.getDeletedAt()).isNotNull();
-        // 배타 락으로 로드해야 정리 스캔 이후에 낀 친구요청·핀이 정리를 빠져나가지 않는다 (GROMO-801)
-        verify(userQueryService).getTargetForUpdate(USER_ID);
-        verify(userQueryService, never()).getTarget(USER_ID);
-    }
-
-    @Test
-    @DisplayName("탈퇴가 막히면(방장) 친구·핀 정리도, 내기 해제·멤버십 이탈도 일어나지 않는다 (GROMO-801)")
-    void withdrawHostForbiddenSkipsFriendCleanup() {
-        User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
-        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(true);
-
-        assertThatThrownBy(() -> userService.withdraw(USER_ID))
-                .isInstanceOf(GroupException.class);
-
-        verify(friendshipRepository, never()).findActiveByUserId(any());
-        verify(pinnedUserRepository, never()).deleteAllInvolving(any());
-        // HOST_WITHDRAW 가드가 내기 해제·멤버십 이탈보다 앞이라 새 정리도 전부 중단된다
-        verify(groupBetService, never()).releaseFromAllOpenBets(any());
-        verify(groupMemberRepository, never()).findByUser(any());
-    }
-
-    @Test
-    @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
-    void withdrawUserNotFound() {
-        given(userQueryService.getTargetForUpdate(USER_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
-
-        assertThatThrownBy(() -> userService.withdraw(USER_ID))
-                .isInstanceOf(UserException.class)
-                .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
-    }
 
     @Test
     @DisplayName("소프트딜리트(탈퇴) 유저는 변경 경로에서 차단 — findByIdAndDeletedAtIsNull 로 404 (GROMO-635 리뷰)")
@@ -504,91 +426,6 @@ class UserServiceTest {
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
-    }
-
-    @Test
-    @DisplayName("A-2 혼자 있는 소유 그룹은 탈퇴와 함께 자동 종료(ENDED)되고 그 그룹의 OPEN 내기도 해제된다")
-    void withdrawAutoEndsSoloOwnedGroup() {
-        User user = User.builder().id(USER_ID).build();
-        Group soloGroup = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000aa"))
-                .status(GroupStatus.WAITING).build();
-        GroupMember ownerMembership = GroupMember.builder()
-                .user(user).group(soloGroup).role(GroupMemberRole.OWNER).build();
-
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
-        given(groupMemberRepository.findActiveOwnerMembershipsByUserId(USER_ID))
-                .willReturn(List.of(ownerMembership));
-        // 활성 멤버가 방장 1명뿐 → 자동 종료 대상
-        given(groupMemberRepository.findByGroup(soloGroup)).willReturn(List.of(ownerMembership));
-        // 자동 종료 후엔 활성 OWNER 행이 남지 않는다
-        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
-
-        userService.withdraw(USER_ID);
-
-        // 그룹은 ENDED, 방장 멤버십은 이탈 처리 → 탈퇴는 성공(소프트딜리트)
-        assertThat(soloGroup.getStatus()).isEqualTo(GroupStatus.ENDED);
-        assertThat(ownerMembership.isLeft()).isTrue();
-        assertThat(user.isDeleted()).isTrue();
-        verify(socialAccountRepository).deleteByUserId(USER_ID);
-        // 자동 종료된 그룹이라도 OPEN 내기 판돈이 묶이면 안 된다 — 유저 스코프 일괄 해제가
-        // 멤버십·그룹 상태와 무관하게 반드시 호출된다
-        verify(groupBetService).releaseFromAllOpenBets(user);
-    }
-
-    @Test
-    @DisplayName("탈퇴 시 MEMBER 멤버십 — 그룹마다 OPEN 내기를 해제하고 leave 로 유령 멤버를 남기지 않는다 (GROMO-801)")
-    void withdrawReleasesBetsAndLeavesMemberMemberships() {
-        User user = User.builder().id(USER_ID).build();
-        Group groupA = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000a1"))
-                .status(GroupStatus.WAITING).build();
-        Group groupB = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000a2"))
-                .status(GroupStatus.WAITING).build();
-        GroupMember membershipA = GroupMember.builder()
-                .user(user).group(groupA).role(GroupMemberRole.MEMBER).build();
-        GroupMember membershipB = GroupMember.builder()
-                .user(user).group(groupB).role(GroupMemberRole.MEMBER).build();
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
-        given(groupMemberRepository.findByUser(user)).willReturn(List.of(membershipA, membershipB));
-        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
-
-        userService.withdraw(USER_ID);
-
-        // 유저 스코프 일괄 해제 — 안 하면 판돈이 에스크로에 묶인 채 소각된다 (강퇴자 참가분 포함)
-        verify(groupBetService).releaseFromAllOpenBets(user);
-        // MEMBER 멤버십도 이탈 마킹 — 안 하면 nickname null 유령이 정원을 차지한다
-        assertThat(membershipA.isLeft()).isTrue();
-        assertThat(membershipB.isLeft()).isTrue();
-        assertThat(user.isDeleted()).isTrue();
-    }
-
-    @Test
-    @DisplayName("내기 해제는 지갑 삭제보다 먼저다 — 해제 환불이 지갑에 입금되므로 순서가 뒤집히면 터진다 (GROMO-801)")
-    void withdrawReleasesBetsBeforeWalletDeletion() {
-        User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
-        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
-
-        userService.withdraw(USER_ID);
-
-        InOrder order = inOrder(groupBetService, userWalletRepository);
-        order.verify(groupBetService).releaseFromAllOpenBets(user);
-        order.verify(userWalletRepository).deleteById(USER_ID);
-    }
-
-    @Test
-    @DisplayName("그룹 호스트인 유저 → GroupException(HOST_WITHDRAW), 삭제 안 함")
-    void withdrawHostForbidden() {
-        User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
-        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(true);
-
-        assertThatThrownBy(() -> userService.withdraw(USER_ID))
-                .isInstanceOf(GroupException.class)
-                .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.HOST_WITHDRAW);
-        // 호스트는 탈퇴 차단 → 소프트딜리트·소셜삭제 등 아무 변경 없음
-        assertThat(user.isDeleted()).isFalse();
-        verify(socialAccountRepository, never()).deleteByUserId(any());
     }
 
     // ── getProfile ────────────────────────────────────────────────────────

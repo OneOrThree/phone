@@ -7,11 +7,12 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository.ClaimStateView;
-import com.oneorthree.phone.notification.service.BetEventNotificationService;
+import com.oneorthree.phone.group.event.BetResultAcknowledgedEvent;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.fasterxml.uuid.Generators;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,7 +61,7 @@ public class ChallengeResultAckService {
 
     private final UserQueryService userQueryService;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
-    private final BetEventNotificationService betEventNotificationService;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 결과 표시 선점 — 성공한 기기만 모달을 렌더한다. 실패는 영구 거절이 아니라 "이번엔 건너뛴다"이고
@@ -221,7 +222,12 @@ public class ChallengeResultAckService {
         // tombstone 을 남겨 나중에 오는 클레임까지 막는다. 클레임을 만드는 리스너가
         // AFTER_COMMIT + @Async 라 ack 이 먼저 끝날 수 있어, "지금 있는 것"만 닫으면 순서가
         // 뒤집힌 경우에 이미 본 결과의 푸시가 그대로 나간다.
-        betEventNotificationService.suppressResultPushOnAck(userId, sessionId, now);
+        //
+        // 알림 서비스를 직접 부르지 않고 이벤트로 알리는 이유는 의존 방향뿐이다(GROMO-1656) —
+        // group 이 notification 을 참조하면 순환이 된다. 소비자는 @EventListener(동기)라
+        // 이 트랜잭션 안에서 지금 돌고, 실패하면 ack 도 함께 롤백된다 — 종전 직접 호출과 성질이 같다.
+        // 커밋 이후로 미루면 그 지연 동안 5분 주기 발송 크론이 끼어든다(소비자 Javadoc 참조).
+        eventPublisher.publishEvent(new BetResultAcknowledgedEvent(userId, sessionId, now));
     }
 
     /** 조회 축과 같은 락 없는 활성 검증(GROMO-1230) — 잠글 대상은 참가 행이지 유저 행이 아니다. */

@@ -4,7 +4,7 @@ import com.fasterxml.uuid.Generators;
 import com.fasterxml.uuid.NoArgGenerator;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
@@ -500,6 +500,34 @@ public class FriendService {
         return friendship.getFromUser().getId().equals(me)
                 ? friendship.getToUser()
                 : friendship.getFromUser();
+    }
+
+
+    /**
+     * 탈퇴자의 친구 관계와 핀을 정리한다 (GROMO-801 · 이동 GROMO-1656).
+     *
+     * <p><b>친구는 소프트딜리트, 핀은 하드 삭제</b>다. 탈퇴 자체는 이 정리가 없어도 성공하지만
+     * (user 행이 남아 FK 가 유지된다), 정리하지 않으면 상대방 화면에 닉네임이 파기된 <b>유령 친구</b>가
+     * 남고 탈퇴자의 PENDING 요청을 수락하면 유령과 친구가 된다.
+     *
+     * <p><b>조회 시점 필터가 아니라 여기서 끊는 이유</b>: {@code friendships} 를 읽는 경로가
+     * 목록·카운트·요청·검색으로 흩어져 있어 새 조회가 생길 때마다 필터를 빠뜨릴 위험이 크다.
+     * 한 번 끊으면 {@code deletedAt IS NULL} 이 이미 걸러 준다.
+     *
+     * <p><b>호출 순서 제약</b>: {@code findActiveByUserId} 가 {@code friendships} N 행에 배타 락을
+     * 건다. 그 유저가 낀 관계의 동시 수락·거절이 이 락을 기다리므로, 관계와 무관한 정리(익명화·설정
+     * 삭제)를 <b>먼저</b> 끝내 락 보유 구간을 줄인다 — 호출부가 이 메서드를 늦게 부르는 이유다.
+     * 앞의 벌크 쿼리들과는 대상 테이블이 겹치지 않아(auto-flush 미발생) 결과 자체는 순서와 무관하다.
+     *
+     * @param userId 탈퇴 중인 유저
+     * @param now    소프트딜리트 시각
+     */
+    @Transactional
+    public void detachWithdrawnUser(UUID userId, Instant now) {
+        for (Friendship friendship : friendshipRepository.findActiveByUserId(userId)) {
+            friendship.softDelete(now);
+        }
+        pinnedUserRepository.deleteAllInvolving(userId);
     }
 
 }

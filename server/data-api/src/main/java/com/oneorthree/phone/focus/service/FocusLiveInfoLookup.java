@@ -3,7 +3,7 @@ package com.oneorthree.phone.focus.service;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 

@@ -45,7 +45,7 @@ Run all commands below from inside `server/data-api/`.
 - Domain packages (authoritative: `ls src/main/java/com/oneorthree/phone/`):
   `analytics`, `auth`, `bot`, `character`, `currency`, `focus`, `friend`, `group`,
   `invitelink`, `item`, `league`, `notification`, `profile`, `screentime`, `stats`,
-  `user` — plus cross-cutting `common/` and `config/`.
+  `user`, `withdrawal` — plus cross-cutting `common/` and `config/`.
 - **Domains have a fixed height and references only go downward** (GROMO-1656) —
   `user` is the base and is referenced by everyone; `profile` sits on top and only
   composes. The table is in `docs/conventions/backend-layering.md` §4; consult it

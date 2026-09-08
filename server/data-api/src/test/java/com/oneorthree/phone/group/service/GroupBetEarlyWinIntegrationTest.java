@@ -24,8 +24,8 @@ import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.domain.DailyFocusStat;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserWallet;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -229,7 +229,7 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
                 .user(user).date(today).totalFocusSeconds(GOAL_MINUTES * 60).build()));
 
         inTransaction.executeWithoutResult(tx ->
-                groupBetEarlyWinConfirmer.confirmWins(user, List.of(today)));
+                groupBetEarlyWinConfirmer.confirmWins(user.getId(), List.of(today)));
 
         GroupChallengeBetParticipant confirmed = reload(mine);
         assertThat(confirmed.getAchieved()).isTrue();
@@ -244,7 +244,7 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
 
         // 불가역 + 멱등 — 다시 불러도 이미 확정된 행은 대상에서 빠진다(변화 없음).
         inTransaction.executeWithoutResult(tx ->
-                groupBetEarlyWinConfirmer.confirmWins(user, List.of(today)));
+                groupBetEarlyWinConfirmer.confirmWins(user.getId(), List.of(today)));
         assertThat(reload(mine).getAchieved()).isTrue();
     }
 
@@ -267,11 +267,11 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
         // 1차 캐시의 유령을 돌려주고, 그걸 수정한 flush 가 0건 UPDATE 로 터져 이 트랜잭션(집중
         // 세션·통계·보상)이 통째로 롤백된다.
         inTransaction.executeWithoutResult(tx -> {
-            groupBetEarlyWinConfirmer.lockCandidateSessions(user, List.of(today));
+            groupBetEarlyWinConfirmer.lockCandidateSessions(user.getId(), List.of(today));
             groupChallengeBetParticipantRepository.deleteById(mine.getId());
             groupChallengeBetParticipantRepository.flush();
             // 예외 없이 지나가야 한다 — 사라진 행은 확정 대상에서 조용히 빠진다.
-            groupBetEarlyWinConfirmer.confirmWins(user, List.of(today));
+            groupBetEarlyWinConfirmer.confirmWins(user.getId(), List.of(today));
         });
 
         assertThat(groupChallengeBetParticipantRepository.findById(mine.getId())).isEmpty();
@@ -296,10 +296,10 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
 
         // FocusService 의 실제 순서를 재현한다: 회차 선잠금 → 지갑 변경 → 통계 → 확정.
         inTransaction.executeWithoutResult(tx -> {
-            groupBetEarlyWinConfirmer.lockCandidateSessions(user, List.of(today));
+            groupBetEarlyWinConfirmer.lockCandidateSessions(user.getId(), List.of(today));
             currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE, 10,
                     "test:lock-order:" + session.getId());
-            groupBetEarlyWinConfirmer.confirmWins(user, List.of(today));
+            groupBetEarlyWinConfirmer.confirmWins(user.getId(), List.of(today));
         });
 
         // 같은 트랜잭션이 회차 락을 먼저 쥐었으므로 정산 경로와 순서가 같다 — 확정이 정상 커밋된다.
@@ -335,7 +335,7 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
 
         // 집중 기록 도착 트랜잭션 재현 — 커밋 직후 리스너가 전원 확정을 보고 EARLY 정산을 태운다.
         inTransaction.executeWithoutResult(tx ->
-                groupBetEarlyWinConfirmer.confirmWins(last, List.of(today)));
+                groupBetEarlyWinConfirmer.confirmWins(last.getId(), List.of(today)));
 
         GroupChallengeBetSession settled =
                 groupChallengeBetSessionRepository.findById(session.getId()).orElseThrow();

@@ -4,6 +4,8 @@ import com.oneorthree.phone.currency.repository.domain.CurrencyTransaction;
 import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.currency.exception.CurrencyErrorCode;
+import com.oneorthree.phone.currency.exception.CurrencyException;
 import com.oneorthree.phone.user.repository.domain.UserWallet;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
@@ -42,7 +44,7 @@ public class CurrencyLedgerService {
 
     /**
      * 잔액 차감 + 원장 기입. 잔액 부족이면 {@code INSUFFICIENT_CURRENCY}
-     * ({@link UserWallet#spend(int)} 가 던진다).
+     * ({@link UserWallet#trySpend(int)} 가 거절하면 여기서 던진다).
      *
      * <p>차감과 기입은 호출자의 트랜잭션에 함께 묶이므로 한쪽만 남는 상태가 생기지 않고,
      * 잔액 부족으로 예외가 나면 원장에도 아무 줄이 남지 않는다.
@@ -59,7 +61,11 @@ public class CurrencyLedgerService {
         if (alreadyApplied(type, idempotencyKey)) {
             return false;
         }
-        walletForUpdate(user).spend(amount);
+        if (!walletForUpdate(user).trySpend(amount)) {
+            // 잔액 부족을 어떤 실패로 보고할지는 재화 도메인이 정한다 (GROMO-1656) —
+            // 지갑 엔티티는 「모자란다」는 사실만 알린다. 응답은 종전과 같은 400 INSUFFICIENT_CURRENCY 다.
+            throw new CurrencyException(CurrencyErrorCode.INSUFFICIENT_CURRENCY);
+        }
         record(user, type, amount, idempotencyKey);
         return true;
     }

@@ -8,11 +8,11 @@ import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
-import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
+import com.oneorthree.phone.focus.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.friend.repository.domain.PinnedUser;
@@ -1006,5 +1006,26 @@ class FriendServiceTest {
         assertThat(result.get(0).getFocusTimeMinutes()).isEqualTo(42);
         assertThat(result.get(0).isFocusing()).isTrue();
         assertThat(result.get(0).getCharacter()).isEmpty();
+    }
+    // ── detachWithdrawnUser (계정 탈퇴자 관계 정리, GROMO-1656 이전) ────────
+
+    @Test
+    @DisplayName("탈퇴자 관계는 ACCEPTED·PENDING 모두 소프트 삭제되고 핀은 하드 삭제된다 (GROMO-801)")
+    void detachWithdrawnUserSoftDeletesBothStatuses() {
+        UUID withdrawerId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
+        User withdrawer = User.builder().id(withdrawerId).build();
+        User other = User.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000f2")).build();
+        // PENDING 을 안 끊으면 상대가 나중에 수락해 «탈퇴자와 친구»가 되는 경로가 열린다
+        Friendship accepted = Friendship.builder()
+                .fromUser(withdrawer).toUser(other).status(FriendshipStatus.ACCEPTED).build();
+        Friendship pending = Friendship.builder()
+                .fromUser(other).toUser(withdrawer).status(FriendshipStatus.PENDING).build();
+        given(friendshipRepository.findActiveByUserId(withdrawerId)).willReturn(List.of(accepted, pending));
+
+        friendService.detachWithdrawnUser(withdrawerId, Instant.parse("2026-09-08T00:00:00Z"));
+
+        assertThat(accepted.getDeletedAt()).isNotNull();
+        assertThat(pending.getDeletedAt()).isNotNull();
+        verify(pinnedUserRepository).deleteAllInvolving(withdrawerId);
     }
 }

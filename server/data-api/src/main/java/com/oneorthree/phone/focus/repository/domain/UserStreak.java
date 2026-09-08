@@ -1,5 +1,6 @@
-package com.oneorthree.phone.user.repository.domain;
+package com.oneorthree.phone.focus.repository.domain;
 
+import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;

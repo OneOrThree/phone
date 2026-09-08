@@ -95,7 +95,7 @@ class GroupBetEarlyWinLockChoiceTest {
         given(groupQueryService.findBetSessionForUpdate(any())).willReturn(Optional.empty());
 
         // 잠금 대기 중 회차가 전부 사라져도 집중 저장 경로는 살아남아야 한다.
-        assertThatCode(() -> groupBetEarlyWinConfirmer.lockCandidateSessions(user, List.of(TODAY)))
+        assertThatCode(() -> groupBetEarlyWinConfirmer.lockCandidateSessions(user.getId(), List.of(TODAY)))
                 .doesNotThrowAnyException();
 
         verify(groupQueryService).findBetSessionForUpdate(SESSION_A);
@@ -112,7 +112,7 @@ class GroupBetEarlyWinLockChoiceTest {
         givenTwoUnconfirmedTargets();
         given(groupQueryService.findBetSessionForUpdate(any())).willReturn(Optional.empty());
 
-        groupBetEarlyWinConfirmer.lockCandidateSessions(user, List.of(TODAY));
+        groupBetEarlyWinConfirmer.lockCandidateSessions(user.getId(), List.of(TODAY));
 
         // 대상 조회가 B(뒤) → A(앞) 순으로 줘도 잠금은 A → B 여야 한다.
         var order = inOrder(groupQueryService);

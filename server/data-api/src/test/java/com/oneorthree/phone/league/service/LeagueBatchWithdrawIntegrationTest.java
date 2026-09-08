@@ -11,13 +11,13 @@ import com.oneorthree.phone.league.dto.LeagueBatchSummaryResponse;
 import com.oneorthree.phone.league.repository.LeagueArenaRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
-import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.domain.DailyFocusStat;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserWallet;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
-import com.oneorthree.phone.user.service.UserService;
+import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import com.oneorthree.phone.league.support.LeagueWeek;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,7 +64,7 @@ class LeagueBatchWithdrawIntegrationTest extends IntegrationTestBase {
     @Autowired
     LeagueWeek leagueWeek;
     @Autowired
-    UserService userService;
+    AccountWithdrawalService accountWithdrawalService;
     @Autowired
     LeagueArenaRepository leagueArenaRepository;
     @Autowired
@@ -128,7 +128,7 @@ class LeagueBatchWithdrawIntegrationTest extends IntegrationTestBase {
         // 페이지 조회 시점 스냅샷을 재현 — 스냅샷엔 있었는데 settle 전에 탈퇴가 커밋된 상황.
         LeagueRankingRow staleRow = new LeagueRankingRow(
                 leaver.getId(), leaver.getNickname(), 1, TIER_ONE_PROMOTION_SECONDS);
-        userService.withdraw(leaver.getId());
+        accountWithdrawalService.withdraw(leaver.getId());
 
         LeagueUserSettler.SettleOutcome outcome = leagueUserSettler.settle(
                 staleRow, leagueWeek.previousWeekStart(BATCH_NOW), tierConfigs());
@@ -162,7 +162,7 @@ class LeagueBatchWithdrawIntegrationTest extends IntegrationTestBase {
             });
             Future<?> withdrawCall = pool.submit(() -> {
                 await(startTogether);
-                userService.withdraw(leaver.getId());
+                accountWithdrawalService.withdraw(leaver.getId());
             });
             summary = batchCall.get(30, TimeUnit.SECONDS);
             withdrawCall.get(30, TimeUnit.SECONDS);

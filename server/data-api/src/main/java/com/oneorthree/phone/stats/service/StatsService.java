@@ -6,14 +6,14 @@ import com.oneorthree.phone.focus.repository.domain.UserFocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
-import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.domain.DailyFocusStat;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.stats.support.StatsPeriodResolver.PeriodRange;
 import com.oneorthree.phone.stats.support.StatsUnits;
 import com.oneorthree.phone.screentime.repository.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.dto.CategoryFocusStatsResponse;
-import com.oneorthree.phone.stats.dto.FocusAverageAggregate;
+import com.oneorthree.phone.focus.repository.FocusAverageAggregate;
 import com.oneorthree.phone.stats.dto.FocusAverageResponse;
 import com.oneorthree.phone.stats.dto.FocusAverageScope;
 import com.oneorthree.phone.stats.dto.FocusPeriodStatsResponse;
@@ -31,8 +31,8 @@ import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
-import com.oneorthree.phone.user.repository.UserStreakRepository;
-import com.oneorthree.phone.user.repository.domain.UserStreak;
+import com.oneorthree.phone.focus.repository.UserStreakRepository;
+import com.oneorthree.phone.focus.repository.domain.UserStreak;
 import com.oneorthree.phone.stats.support.StatsPeriodResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -563,4 +563,21 @@ public class StatsService {
                 (double) overlapSeconds * session.getTotalDistractionSeconds() / duration);
         return Math.max(0, overlapSeconds - distraction);
     }
+
+    /**
+     * 탈퇴자의 일별 집중 통계를 익명화한다 (GROMO-635 · 이동 GROMO-1656).
+     *
+     * <p>{@code focus_sessions} 와 같은 이유로 행을 지우지 않고 {@code user_id} 만 끊는다 —
+     * 이 집계는 전역 주간 랭킹의 소스라 지우면 지난 랭킹이 소급해 바뀐다.
+     *
+     * <p>종전엔 {@code UserService.withdraw} 가 {@code DailyFocusStatRepository} 를 직접
+     * 주입해 불렀다. 호출부의 트랜잭션에 편승하며 쿼리·시점 모두 그대로다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void anonymizeWithdrawnUser(UUID userId) {
+        dailyFocusStatRepository.nullifyUser(userId);
+    }
+
 }

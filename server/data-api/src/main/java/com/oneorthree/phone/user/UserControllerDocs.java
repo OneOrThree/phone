@@ -86,20 +86,6 @@ public interface UserControllerDocs {
     ResponseEntity<UserProfileResponse> getProfile(UUID userId);
 
     /**
-     * @param userId 탈퇴할 본인
-     * @return 본문 없는 204. 실제로는 행을 지우지 않고 PII 를 파기한 뒤 비활성 표시만 한다 —
-     *         집중 이력은 익명화돼 남고, 소셜 연동만 하드 삭제된다(같은 소셜 계정으로 재가입 가능).
-     *         다른 멤버가 남은 그룹의 방장이면 위임 전까지 400
-     */
-    @Operation(summary = "회원 탈퇴", description = "개인정보 파기 후 계정 삭제. 방장인 그룹은 위임 후 탈퇴 가능.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "204", description = "탈퇴 완료"),
-        @ApiResponse(responseCode = "400", description = "방장 위임 후 탈퇴 가능"),
-        @ApiResponse(responseCode = "404", description = "유저 없음")
-    })
-    ResponseEntity<Void> withdraw(UUID userId);
-
-    /**
      * @param body   OS 권한 보유 여부. 앱의 보고이지 서버가 검증하는 값이 아니다
      * @param userId 본인
      * @return 본문 없는 204. 이 플래그가 스크린타임 유료 회차 참여 가드에 걸려 있어,

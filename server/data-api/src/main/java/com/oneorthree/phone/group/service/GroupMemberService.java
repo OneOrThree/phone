@@ -9,6 +9,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,7 @@ import java.util.UUID;
 public class GroupMemberService {
 
     private final GroupMemberRepository groupMemberRepository;
+    private final GroupRepository groupRepository;
     private final GroupQueryService groupQueryService;
     private final UserQueryService userQueryService;
     private final UserActivityEventLogger userActivityEventLogger;
@@ -159,6 +161,62 @@ public class GroupMemberService {
             groupMember.leave();
         }
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
+    }
+
+    /**
+     * 계정 탈퇴자를 그룹에서 떼어낸다 (GROMO-801, GROMO-1423 · 이동 GROMO-1656).
+     *
+     * <p><b>이 메서드가 여기 있는 이유.</b> 종전엔 {@code UserService.withdraw} 안에 이 네 단계가
+     * 펼쳐져 있어 계정 도메인이 그룹 리포지토리·예외·엔티티를 직접 참조했다(user → group 역행 6건).
+     * 그룹에서 떼어내는 방법은 그룹이 알아야 하므로 통째로 옮겼다 — <b>단계와 그 순서는 그대로다.</b>
+     * 호출은 {@code withdrawal/AccountWithdrawalService} 가 열어 둔 트랜잭션에 편승한다.
+     *
+     * <p><b>네 단계의 순서가 곧 정합성이다.</b>
+     * <ol>
+     *   <li><b>혼자 있는 소유 그룹 자동 종료</b> — 활성 멤버가 자기 하나뿐인 그룹은 방장 위임을
+     *       요구할 상대가 없으므로 그냥 닫는다. 여기서 이탈시킨 멤버십은 아래 4단계의 활성 조회에
+     *       다시 잡히지 않는다.</li>
+     *   <li><b>위임하지 않은 방장 그룹이 남으면 거절</b> — 다른 멤버가 남은 그룹의 방장은 위임 전까지
+     *       탈퇴할 수 없다. 판정이 아래 두 단계보다 <b>앞</b>이어야 돈이 움직이기 전에 롤백된다.</li>
+     *   <li><b>OPEN 내기 일괄 해제</b> — 해제하지 않으면 판돈이 에스크로에 묶인 채 소각된다
+     *       ({@code GroupBetSettler} 는 탈퇴자 지급을 스킵한다). 멤버십이 아니라 <b>유저 스코프</b>인
+     *       이유는 ① 강퇴자는 활성 멤버십이 없어도 참가·판돈이 남고 ② 그룹 단위 순차 해제는 앞 그룹
+     *       환불로 지갑 잠금을 쥔 채 다음 그룹 내기 잠금을 기다려 정산기와 AB-BA 교착이 되기 때문이다.
+     *       전 그룹의 내기 행을 bet id 오름차순으로 전부 잠근 뒤에만 돈이 움직인다.</li>
+     *   <li><b>판정 근거 박제</b> — 위 해제가 환불하지 못하고 정산 대상으로 남긴 OPEN 참가 행에
+     *       달성·진행분을 박제한다. 반드시 해제 <b>뒤</b>(남는 행만 박제)여야 한다.</li>
+     *   <li><b>활성 멤버십 이탈</b> — 안 하면 탈퇴자가 {@code is_left=false} 유령 멤버로 남아 멤버
+     *       목록에 nickname null 로 뜨고 정원 한 자리를 영구히 차지한다.</li>
+     * </ol>
+     *
+     * <p><b>호출부가 지켜야 하는 두 가지</b>(이 메서드가 강제할 수 없다) — 3단계의 환불이 이 유저의
+     * 지갑에 입금되므로 <b>지갑 삭제보다 먼저</b> 불려야 하고, 4단계의 박제는 통계가 사라지기 전의
+     * 값을 읽으므로 <b>집중·통계 익명화보다 먼저</b>여야 한다.
+     *
+     * @param user 탈퇴 중인 유저. 호출부가 배타 락으로 로드해 둔 엔티티여야 한다
+     * @throws GroupException 위임하지 않은 방장 그룹이 남아 있을 때 {@code HOST_WITHDRAW}
+     */
+    @Transactional
+    public void detachWithdrawnUser(User user) {
+        UUID userId = user.getId();
+
+        for (GroupMember ownerMembership : groupMemberRepository.findActiveOwnerMembershipsByUserId(userId)) {
+            if (groupMemberRepository.findByGroup(ownerMembership.getGroup()).size() <= 1) {
+                ownerMembership.leave();
+                ownerMembership.getGroup().close();
+            }
+        }
+
+        if (groupRepository.existsGroupOwnedBy(userId)) {
+            throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
+        }
+
+        groupBetService.releaseFromAllOpenBets(user);
+        groupBetService.freezeEvidenceForAccountErasure(user);
+
+        for (GroupMember membership : groupMemberRepository.findByUser(user)) {
+            membership.leave();
+        }
     }
 
     /**

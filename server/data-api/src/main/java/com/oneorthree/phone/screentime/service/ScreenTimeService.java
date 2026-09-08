@@ -244,4 +244,21 @@ public class ScreenTimeService {
     private LocalDate resolveLocalDate(ScreenTimeRequest request) {
         return request.getReportedAt().atZone(ZonePolicy.KST).toLocalDate();
     }
+
+    /**
+     * 탈퇴자의 일별 스크린타임 집계를 익명화한다 (GROMO-635 · 이동 GROMO-1656).
+     *
+     * <p>집중 이력과 같은 이유로 행을 지우지 않고 {@code user_id} 만 끊는다 — 이 집계는 그룹
+     * 스크린타임 챌린지의 판정 근거라 지우면 남은 사람들의 회차 판정이 함께 무너진다.
+     *
+     * <p>종전엔 {@code UserService.withdraw} 가 {@code DailyScreenTimeStatRepository} 를 직접
+     * 주입해 불렀다. 호출부의 트랜잭션에 편승하며 쿼리·시점 모두 그대로다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void anonymizeWithdrawnUser(UUID userId) {
+        dailyScreenTimeStatRepository.nullifyUser(userId);
+    }
+
 }

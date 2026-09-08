@@ -79,13 +79,6 @@ public class UserController implements UserControllerDocs {
     }
 
     @Override
-    @DeleteMapping("/users/me")
-    public ResponseEntity<Void> withdraw(@LoginUser UUID userId) {
-        userService.withdraw(userId);
-        return ResponseEntity.noContent().build();
-    }
-
-    @Override
     @PatchMapping("/users/me/screen-time-permission")
     public ResponseEntity<Void> updateScreenTimePermission(
             @Valid @RequestBody UpdateScreenTimePermissionRequest body,
