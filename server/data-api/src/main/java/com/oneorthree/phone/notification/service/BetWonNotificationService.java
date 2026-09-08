@@ -8,7 +8,6 @@ import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +47,6 @@ public class BetWonNotificationService {
     static final String PUSH_TYPE = NotificationSentLog.TYPE_BET_WON;
 
     private final UserQueryService userQueryService;
-    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
 
@@ -77,7 +75,7 @@ public class BetWonNotificationService {
             return false;   // 이미 나갔거나 다른 워커가 선점
         }
         UserNotificationSettings settings =
-                userNotificationSettingsRepository.findById(user.getId()).orElse(null);
+                userQueryService.findNotificationSettings(user.getId()).orElse(null);
         if (PushNotificationService.isQuietHours(settings, now)) {
             // 이월하지 않고 종결한다 — 지연된 축하는 의미가 없고, 결과는 BET_RESULT 가 전한다.
             notificationSentLogRepository.updateStatusByIds(

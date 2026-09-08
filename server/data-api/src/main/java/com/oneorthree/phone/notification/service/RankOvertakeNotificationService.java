@@ -13,7 +13,6 @@ import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
@@ -64,7 +63,6 @@ public class RankOvertakeNotificationService {
     private final LeagueRankSnapshotUpsertRepository leagueRankSnapshotUpsertRepository;
     private final FocusSessionRepository focusSessionRepository;
     private final UserQueryService userQueryService;
-    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
     private final LeagueWeek leagueWeek;
@@ -288,7 +286,7 @@ public class RankOvertakeNotificationService {
     }
 
     private Map<UUID, UserNotificationSettings> loadSettings(Collection<UUID> userIds) {
-        return userNotificationSettingsRepository.findAllById(userIds).stream()
+        return userQueryService.findAllNotificationSettings(userIds).stream()
                 .collect(Collectors.toMap(UserNotificationSettings::getUserId, Function.identity()));
     }
 

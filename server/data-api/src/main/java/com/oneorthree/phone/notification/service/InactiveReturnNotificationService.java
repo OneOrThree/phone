@@ -3,7 +3,7 @@ package com.oneorthree.phone.notification.service;
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,7 +52,7 @@ public class InactiveReturnNotificationService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final UserRepository userRepository;
-    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
+    private final UserQueryService userQueryService;
     private final PushNotificationService pushNotificationService;
 
     /** 스케줄러(매일 10:00 KST)·수동 트리거 진입점. */
@@ -87,8 +87,8 @@ public class InactiveReturnNotificationService {
         }
 
         // 설정 일괄 로드 — 유저별 단건 조회 N+1 금지 (row 부재 유저는 Map 에 없음 = sendIfAllowed 가 기본값 취급)
-        Map<UUID, UserNotificationSettings> settingsByUserId = userNotificationSettingsRepository
-                .findAllById(targets.stream().map(t -> t.user().getId()).toList()).stream()
+        Map<UUID, UserNotificationSettings> settingsByUserId = userQueryService
+                .findAllNotificationSettings(targets.stream().map(t -> t.user().getId()).toList()).stream()
                 .collect(Collectors.toMap(UserNotificationSettings::getUserId, Function.identity()));
 
         for (Target target : targets) {

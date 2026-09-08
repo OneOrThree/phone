@@ -21,7 +21,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
-import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -70,7 +70,7 @@ public class GroupBetJoinService {
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
-    private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+    private final UserQueryService userQueryService;
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
     private final GroupBetService groupBetService;
@@ -358,7 +358,7 @@ public class GroupBetJoinService {
         }
         // 공유 잠금 조회 — 권한 회수(UserService.updateScreenTimePermission 의 배타 잠금)와 설정 행에서
         // 직렬화한다. 락 없이 읽으면 확인과 차감 사이에 회수가 끼어들어 보고 못 하는 유료 참가가 남는다.
-        boolean granted = userScreenTimeSettingsRepository.findByIdForShare(user.getId())
+        boolean granted = userQueryService.findScreenTimeSettingsForShare(user.getId())
                 .map(UserScreenTimeSettings::isScreenTimePermissionGranted)
                 .orElse(false);
         if (!granted) {

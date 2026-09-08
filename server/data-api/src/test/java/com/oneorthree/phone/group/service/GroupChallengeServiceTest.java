@@ -37,7 +37,6 @@ import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
-import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -110,9 +109,6 @@ class GroupChallengeServiceTest {
     private GroupChallengeWindowRepository groupChallengeWindowRepository;
 
     @Mock
-    private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
-
-    @Mock
     private DailyFocusStatRepository dailyFocusStatRepository;
 
     @Mock
@@ -155,12 +151,12 @@ class GroupChallengeServiceTest {
         groupBetJudge = new GroupBetJudge(
                 groupChallengeDurationRepository, groupChallengeWindowRepository,
                 groupChallengeMemberRepository, dailyFocusStatRepository,
-                dailyScreenTimeStatRepository, userScreenTimeSettingsRepository,
+                dailyScreenTimeStatRepository, userQueryService,
                 windowFocusAggregator);
         groupChallengeService = new GroupChallengeService(
                 groupMemberRepository, groupQueryService, userQueryService, groupChallengeRepository,
                 groupChallengeDurationRepository, groupChallengeWindowRepository,
-                groupChallengeMemberRepository, userScreenTimeSettingsRepository,
+                groupChallengeMemberRepository,
                 groupBetService, groupBetSettler, groupBetJoinService,
                 groupChallengeBetRepository, groupBetJudge, eventPublisher);
     }
@@ -244,7 +240,7 @@ class GroupChallengeServiceTest {
                         .windowStart(LocalTime.parse("09:00")) // 응답 "09:00:00"
                         .windowEnd(LocalTime.parse("18:00"))   // 응답 "18:00:00"
                         .build()));
-        given(userScreenTimeSettingsRepository.findById(USER_ID))
+        given(userQueryService.findScreenTimeSettings(USER_ID))
                 .willReturn(Optional.of(settings(USER_ID, false))); // 권한 미동의
 
         // when
@@ -344,7 +340,7 @@ class GroupChallengeServiceTest {
 
     /** 진행률 대상 필터가 보는 스크린타임 권한 — 전달한 유저만 동의(granted), 나머지는 미동의로 본다. */
     private void givenScreenTimePermission(UUID... grantedUserIds) {
-        given(userScreenTimeSettingsRepository.findAllById(any())).willReturn(
+        given(userQueryService.findAllScreenTimeSettings(any())).willReturn(
                 Arrays.stream(grantedUserIds).map(id -> settings(id, true)).toList());
     }
 
@@ -927,7 +923,7 @@ class GroupChallengeServiceTest {
         List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
 
         // 쿼리 수 — 챌린지가 4개여도 권한 1회 · 보고값 1회다.
-        verify(userScreenTimeSettingsRepository, times(1)).findAllById(any());
+        verify(userQueryService, times(1)).findAllScreenTimeSettings(any());
         verify(groupChallengeMemberRepository, times(1))
                 .findByGroupChallengeIdInAndUsageDate(WINDOW_CHALLENGE_IDS, TODAY);
 
@@ -1472,7 +1468,7 @@ class GroupChallengeServiceTest {
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(
                 groupMemberOf(granted, group, GroupMemberRole.MEMBER),
                 groupMemberOf(denied, group, GroupMemberRole.MEMBER)));
-        given(userScreenTimeSettingsRepository.findAllById(any())).willReturn(List.of(
+        given(userQueryService.findAllScreenTimeSettings(any())).willReturn(List.of(
                 settings(grantedId, true), settings(deniedId, false)));
 
         // when
@@ -1515,7 +1511,7 @@ class GroupChallengeServiceTest {
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(
                 groupMemberOf(denied, group, GroupMemberRole.MEMBER),
                 groupMemberOf(ghost, group, GroupMemberRole.MEMBER)));
-        given(userScreenTimeSettingsRepository.findAllById(any()))
+        given(userQueryService.findAllScreenTimeSettings(any()))
                 .willReturn(List.of(settings(deniedId, false)));
 
         CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);

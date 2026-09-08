@@ -13,7 +13,6 @@ import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
-import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -42,7 +41,6 @@ public class ScreenTimeService {
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final ScreenTimeNotificationPort notificationPort;
     private final UserActivityEventLogger userActivityEventLogger;
-    private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final CurrencyLedgerService currencyLedgerService;
 
     /**
@@ -57,7 +55,6 @@ public class ScreenTimeService {
      * @param dailyScreenTimeStatRepository   일별 집계 저장소
      * @param notificationPort                목표 달성 알림 발사구
      * @param userActivityEventLogger         달성 이벤트 로깅
-     * @param userScreenTimeSettingsRepository 그날 유효했던 목표(상한)를 되짚는 데 쓴다
      * @param currencyLedgerService           달성 보상 지급 — 정산 트랜잭션에 함께 묶인다
      * @param self                            자기 자신 프록시. 유니크 위반 재시도를 새 트랜잭션으로
      *                                        열기 위한 것이라 {@code @Lazy} 로 순환 주입을 피한다
@@ -66,14 +63,12 @@ public class ScreenTimeService {
                              DailyScreenTimeStatRepository dailyScreenTimeStatRepository,
                              ScreenTimeNotificationPort notificationPort,
                              UserActivityEventLogger userActivityEventLogger,
-                             UserScreenTimeSettingsRepository userScreenTimeSettingsRepository,
                              CurrencyLedgerService currencyLedgerService,
                              @Lazy ScreenTimeService self) {
         this.userQueryService = userQueryService;
         this.dailyScreenTimeStatRepository = dailyScreenTimeStatRepository;
         this.notificationPort = notificationPort;
         this.userActivityEventLogger = userActivityEventLogger;
-        this.userScreenTimeSettingsRepository = userScreenTimeSettingsRepository;
         this.currencyLedgerService = currencyLedgerService;
         this.self = self;
     }
@@ -200,7 +195,7 @@ public class ScreenTimeService {
         if (date.isBefore(today.minusDays(1)) || date.isAfter(today)) {
             return;
         }
-        int limitMinutes = userScreenTimeSettingsRepository.findById(user.getId())
+        int limitMinutes = userQueryService.findScreenTimeSettings(user.getId())
                 .map(s -> s.goalMinutesOn(date))
                 .orElse(0);
         if (limitMinutes <= 0) {

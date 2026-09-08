@@ -11,7 +11,6 @@ import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.league.support.LeagueWeek;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,8 +60,6 @@ class LeagueNotificationServiceTest {
     private LeagueTierConfigRepository leagueTierConfigRepository;
     @Mock
     private UserQueryService userQueryService;
-    @Mock
-    private UserNotificationSettingsRepository userNotificationSettingsRepository;
     @Mock
     private PushNotificationService pushNotificationService;
     @Mock
@@ -116,7 +113,7 @@ class LeagueNotificationServiceTest {
                         result(relegated, LeagueWeeklyResultType.RELEGATED, 4, 3)));
         given(userQueryService.findAllActive(anyCollection()))
                 .willReturn(List.of(promoted, relegated));
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendWeeklyResultNotifications(NOW);
 
@@ -148,7 +145,7 @@ class LeagueNotificationServiceTest {
         given(leagueWeeklyResultRepository.findResultPageAfter(any(), anyCollection(), isNull(), any()))
                 .willReturn(List.of(result(stayedUser, LeagueWeeklyResultType.STAY, 3, 3)));
         given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(stayedUser));
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendWeeklyResultNotifications(NOW);
 
@@ -168,14 +165,14 @@ class LeagueNotificationServiceTest {
                         result(first, LeagueWeeklyResultType.PROMOTED, 1, 2),
                         result(second, LeagueWeeklyResultType.RELEGATED, 3, 2)));
         given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(first, second));
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendWeeklyResultNotifications(NOW);
 
         verify(userQueryService, times(1)).findAllActive(anyCollection());
-        verify(userNotificationSettingsRepository, times(1)).findAllById(any());
+        verify(userQueryService, times(1)).findAllNotificationSettings(any());
         verify(userQueryService, never()).findActive(any());
-        verify(userNotificationSettingsRepository, never()).findById(any());
+        verify(userQueryService, never()).findNotificationSettings(any());
     }
 
     @Test
@@ -204,7 +201,7 @@ class LeagueNotificationServiceTest {
             Collection<UUID> ids = invocation.getArgument(0);
             return ids.stream().map(usersById::get).toList();
         });
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendWeeklyResultNotifications(NOW);
 
@@ -223,7 +220,7 @@ class LeagueNotificationServiceTest {
         given(leagueWeeklyResultRepository.findResultPageAfter(any(), anyCollection(), isNull(), any()))
                 .willReturn(List.of(result(promoted, LeagueWeeklyResultType.PROMOTED, 2, 3)));
         given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(promoted));
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of(
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of(
                 UserNotificationSettings.builder().userId(promoted.getId()).soundEnabled(false).build()));
 
         service.sendWeeklyResultNotifications(NOW);
@@ -246,7 +243,7 @@ class LeagueNotificationServiceTest {
                         new LeagueRankingRow(first.getId(), "첫째", 3, 100),
                         new LeagueRankingRow(second.getId(), "둘째", 2, 0)));
         given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(first, second));
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendDeadlineReminders(NOW);
 
@@ -257,7 +254,7 @@ class LeagueNotificationServiceTest {
                         "지금 1위야. 마지막 스퍼트 한 번 어때?",
                         "지금 2위야. 마지막 스퍼트 한 번 어때?");
         verify(userQueryService, times(1)).findAllActive(anyCollection());
-        verify(userNotificationSettingsRepository, times(1)).findAllById(any());
+        verify(userQueryService, times(1)).findAllNotificationSettings(any());
     }
 
     @Test
@@ -286,7 +283,7 @@ class LeagueNotificationServiceTest {
             Collection<UUID> ids = invocation.getArgument(0);
             return ids.stream().map(usersById::get).toList();
         });
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendDeadlineReminders(NOW);
 
@@ -330,7 +327,7 @@ class LeagueNotificationServiceTest {
                         new LeagueRankingRow(first.getId(), "첫째", 3, 100),
                         new LeagueRankingRow(second.getId(), "둘째", 2, 0)));
         given(userQueryService.findAllActive(anyCollection())).willReturn(List.of(first, second));
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendFinalDeadlineReminders(NOW);
 
@@ -468,7 +465,7 @@ class LeagueNotificationServiceTest {
                 eq(WEEK_START_DATE), eq(TODAY), isNull(), isNull(), eq(FETCH_SIZE)))
                 .willReturn(rows);
         given(userQueryService.findAllActive(anyCollection())).willReturn(users);
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
     }
 
     private static List<LeagueTierConfig> defaultTierConfigs() {

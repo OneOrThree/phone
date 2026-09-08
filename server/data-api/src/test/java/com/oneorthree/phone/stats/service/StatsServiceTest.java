@@ -28,10 +28,8 @@ import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.domain.UserStreak;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
-import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
 import com.oneorthree.phone.stats.support.StatsPeriodResolver;
 import org.junit.jupiter.api.DisplayName;
@@ -77,10 +75,6 @@ class StatsServiceTest {
     @Mock
     private UserStreakRepository userStreakRepository;
     @Mock
-    private UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
-    @Mock
-    private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
-    @Mock
     private UserRepository userRepository;
     @Mock
     private UserQueryService userQueryService;
@@ -97,7 +91,7 @@ class StatsServiceTest {
 
     // GROMO-805: 스크린타임 목표(분) 스텁 — week/month 누락일 달성 판정용.
     private void givenScreenTimeGoal(int goalMinutes) {
-        given(userScreenTimeSettingsRepository.findById(USER_ID))
+        given(userQueryService.findScreenTimeSettings(USER_ID))
                 .willReturn(Optional.of(UserScreenTimeSettings.builder()
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(goalMinutes).build()));
     }
@@ -245,10 +239,10 @@ class StatsServiceTest {
         given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.of(DailyScreenTimeStat.builder()
                         .totalScreenTimeMinutes(80).isScreenTimeGoalAchieved(false).build()));
-        given(userFocusTimeSettingsRepository.findById(USER_ID))
+        given(userQueryService.findFocusTimeSettings(USER_ID))
                 .willReturn(Optional.of(UserFocusTimeSettings.builder()
                         .userId(USER_ID).dailyFocusTimeGoalMinutes(60).build()));
-        given(userScreenTimeSettingsRepository.findById(USER_ID))
+        given(userQueryService.findScreenTimeSettings(USER_ID))
                 .willReturn(Optional.of(UserScreenTimeSettings.builder()
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
 
@@ -273,8 +267,8 @@ class StatsServiceTest {
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.empty());
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findFocusTimeSettings(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         TodayStatsResponse response = statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3));
 
@@ -296,8 +290,8 @@ class StatsServiceTest {
         given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.of(DailyScreenTimeStat.builder()
                         .totalScreenTimeMinutes(150).isScreenTimeGoalAchieved(false).build()));
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        given(userScreenTimeSettingsRepository.findById(USER_ID))
+        given(userQueryService.findFocusTimeSettings(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findScreenTimeSettings(USER_ID))
                 .willReturn(Optional.of(UserScreenTimeSettings.builder()
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
 
@@ -317,8 +311,8 @@ class StatsServiceTest {
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.empty());
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findFocusTimeSettings(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         statsService.getTodayStats(USER_ID, clientDate);
 
@@ -512,7 +506,7 @@ class StatsServiceTest {
                 user, FIXED_TODAY, FIXED_TODAY)).willReturn(List.of(todayRow));
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(List.of(yesterdayRow));
-        given(userScreenTimeSettingsRepository.findById(USER_ID))
+        given(userQueryService.findScreenTimeSettings(USER_ID))
                 .willReturn(Optional.of(UserScreenTimeSettings.builder()
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
 
@@ -543,7 +537,7 @@ class StatsServiceTest {
                 user, FIXED_TODAY, FIXED_TODAY)).willReturn(List.of());
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(List.of());
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         ScreenTimePeriodStatsResponse response =
                 statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
@@ -565,7 +559,7 @@ class StatsServiceTest {
                 user, FIXED_TODAY, FIXED_TODAY)).willReturn(List.of());
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(List.of());
-        given(userScreenTimeSettingsRepository.findById(USER_ID))
+        given(userQueryService.findScreenTimeSettings(USER_ID))
                 .willReturn(Optional.of(UserScreenTimeSettings.builder()
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(60).build()));
 
@@ -594,7 +588,7 @@ class StatsServiceTest {
                 user, FIXED_TODAY, FIXED_TODAY)).willReturn(List.of(todayRow));
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(List.of(yesterdayRow));
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         ScreenTimePeriodStatsResponse response =
                 statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
@@ -638,7 +632,7 @@ class StatsServiceTest {
                 user, thisMonday, FIXED_TODAY)).willReturn(currentStats);
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 user, prevMonday, prevFriday)).willReturn(previousStats);
-        given(userScreenTimeSettingsRepository.findById(USER_ID))
+        given(userQueryService.findScreenTimeSettings(USER_ID))
                 .willReturn(Optional.of(UserScreenTimeSettings.builder()
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(100).build()));
 
@@ -670,7 +664,7 @@ class StatsServiceTest {
         given(userQueryService.getTarget(USER_ID)).willReturn(user);
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 any(), any(), any())).willReturn(List.of());
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
@@ -709,7 +703,7 @@ class StatsServiceTest {
                 user, monthStart, FIXED_TODAY)).willReturn(List.of(row1, row2));
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 user, prevMonthStart, prevMonthSameDay)).willReturn(List.of());
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         ScreenTimePeriodStatsResponse response =
                 statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
@@ -736,7 +730,7 @@ class StatsServiceTest {
         given(userQueryService.getTarget(USER_ID)).willReturn(user);
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 any(), any(), any())).willReturn(List.of());
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
 
@@ -771,7 +765,7 @@ class StatsServiceTest {
                 user, thisMonday, FIXED_TODAY)).willReturn(currentStats);
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 user, LocalDate.of(2026, 6, 22), LocalDate.of(2026, 6, 26))).willReturn(List.of());
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         ScreenTimePeriodStatsResponse response =
                 statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
@@ -967,7 +961,7 @@ class StatsServiceTest {
                 user, thisMonday, FIXED_TODAY)).willReturn(currentStats);
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 user, LocalDate.of(2026, 6, 22), LocalDate.of(2026, 6, 26))).willReturn(List.of());
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         ScreenTimePeriodStatsResponse response =
                 statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
