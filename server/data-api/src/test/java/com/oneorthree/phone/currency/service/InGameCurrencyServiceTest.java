@@ -11,7 +11,6 @@ import com.oneorthree.phone.user.repository.domain.UserWallet;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
-import com.oneorthree.phone.user.repository.UserWalletRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,7 +21,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,9 +44,6 @@ class InGameCurrencyServiceTest {
     private UserQueryService userQueryService;
 
     @Mock
-    private UserWalletRepository userWalletRepository;
-
-    @Mock
     private CurrencyTransactionRepository currencyTransactionRepository;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -59,7 +54,7 @@ class InGameCurrencyServiceTest {
     @DisplayName("잔액 조회 성공 → wallet.getBalance() 반환")
     void getCurrencyBalanceSuccess() {
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(500).build();
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
+        given(userQueryService.getWallet(USER_ID)).willReturn(wallet);
 
         int balance = inGameCurrencyService.getCurrencyBalance(USER_ID);
 
@@ -69,7 +64,7 @@ class InGameCurrencyServiceTest {
     @Test
     @DisplayName("지갑 없음 → UserException(NOT_FOUND)")
     void getCurrencyBalanceUserNotFound() {
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getWallet(USER_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() -> inGameCurrencyService.getCurrencyBalance(USER_ID))
                 .isInstanceOf(UserException.class)
@@ -131,8 +126,9 @@ class InGameCurrencyServiceTest {
         inGameCurrencyService.earnCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, -10);
 
         verify(currencyTransactionRepository, never()).save(any());
-        verify(userWalletRepository, never()).findById(any());
-        verifyNoInteractions(userQueryService);   // 유저 조회 자체가 일어나지 않는다
+        // 유저 조회도 지갑 조회도 일어나지 않는다 — 두 진입점이 userQueryService 한 곳으로 접혔으므로
+        // 상호작용 0 단언이 옛 verify(userWalletRepository, never()).findById(...) 까지 함께 덮는다.
+        verifyNoInteractions(userQueryService);
     }
 
     @Test
@@ -158,7 +154,7 @@ class InGameCurrencyServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(1000).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
+        given(userQueryService.getWallet(USER_ID)).willReturn(wallet);
 
         inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 300);
 
@@ -208,7 +204,7 @@ class InGameCurrencyServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(50).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
+        given(userQueryService.getWallet(USER_ID)).willReturn(wallet);
 
         assertThatThrownBy(() ->
                 inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 100))
@@ -225,7 +221,7 @@ class InGameCurrencyServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(1000).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
+        given(userQueryService.getWallet(USER_ID)).willReturn(wallet);
 
         assertThatThrownBy(() ->
                 inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 0))

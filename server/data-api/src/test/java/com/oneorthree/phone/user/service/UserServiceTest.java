@@ -57,7 +57,6 @@ import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -142,8 +141,8 @@ class UserServiceTest {
         UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
+        given(userQueryService.getScreenTimeSettings(USER_ID)).willReturn(screen);
+        given(userQueryService.getFocusTimeSettings(USER_ID)).willReturn(focus);
 
         UserProfileSetupRequest body = new UserProfileSetupRequest(
                 "조재영", null, 120, 90, "KR");
@@ -229,8 +228,8 @@ class UserServiceTest {
         UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
+        given(userQueryService.getScreenTimeSettings(USER_ID)).willReturn(screen);
+        given(userQueryService.getFocusTimeSettings(USER_ID)).willReturn(focus);
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
                 null, 150, 60, null);
@@ -314,8 +313,8 @@ class UserServiceTest {
         UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
+        given(userQueryService.getScreenTimeSettings(USER_ID)).willReturn(screen);
+        given(userQueryService.getFocusTimeSettings(USER_ID)).willReturn(focus);
 
         userService.setupProfile(USER_ID, new UserProfileSetupRequest(" 조재영 ", null, 120, 90, "KR"));
 
@@ -609,9 +608,9 @@ class UserServiceTest {
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder()
                 .userId(USER_ID).dailyFocusTimeGoalMinutes(90).build();
         given(userQueryService.getTarget(USER_ID)).willReturn(user);
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
+        given(userQueryService.getWallet(USER_ID)).willReturn(wallet);
+        given(userQueryService.getScreenTimeSettings(USER_ID)).willReturn(screen);
+        given(userQueryService.getFocusTimeSettings(USER_ID)).willReturn(focus);
 
         UserProfileResponse response = userService.getProfile(USER_ID);
 
@@ -631,12 +630,12 @@ class UserServiceTest {
     void getProfileReturnsKstZoneForGb() {
         User user = User.builder().id(USER_ID).nickname("oscar").countryCode("GB").build();
         given(userQueryService.getTarget(USER_ID)).willReturn(user);
-        given(userWalletRepository.findById(USER_ID))
-                .willReturn(Optional.of(UserWallet.builder().userId(USER_ID).balance(0).build()));
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(
-                UserScreenTimeSettings.builder().userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(
-                UserFocusTimeSettings.builder().userId(USER_ID).dailyFocusTimeGoalMinutes(90).build()));
+        given(userQueryService.getWallet(USER_ID))
+                .willReturn(UserWallet.builder().userId(USER_ID).balance(0).build());
+        given(userQueryService.getScreenTimeSettings(USER_ID)).willReturn(
+                UserScreenTimeSettings.builder().userId(USER_ID).dailyScreenTimeGoalMinutes(120).build());
+        given(userQueryService.getFocusTimeSettings(USER_ID)).willReturn(
+                UserFocusTimeSettings.builder().userId(USER_ID).dailyFocusTimeGoalMinutes(90).build());
 
         assertThat(userService.getProfile(USER_ID).timeZone()).isEqualTo("Asia/Seoul");
     }
@@ -655,9 +654,9 @@ class UserServiceTest {
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder()
                 .userId(USER_ID).dailyFocusTimeGoalMinutes(90).build();
         given(userQueryService.getTarget(USER_ID)).willReturn(user);
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
+        given(userQueryService.getWallet(USER_ID)).willReturn(wallet);
+        given(userQueryService.getScreenTimeSettings(USER_ID)).willReturn(screen);
+        given(userQueryService.getFocusTimeSettings(USER_ID)).willReturn(focus);
 
         UserProfileResponse response = userService.getProfile(USER_ID);
 
@@ -683,7 +682,7 @@ class UserServiceTest {
     void updateScreenTimePermissionSuccess() {
         UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
         // 배타 잠금 조회 (GROMO-1409·N50) — 내기 참여의 권한 가드(공유 잠금)와 설정 행에서 직렬화한다.
-        given(userScreenTimeSettingsRepository.findByIdForUpdate(USER_ID)).willReturn(Optional.of(settings));
+        given(userQueryService.getScreenTimeSettingsForUpdate(USER_ID)).willReturn(settings);
 
         UpdateScreenTimePermissionRequest request = mock(UpdateScreenTimePermissionRequest.class);
         given(request.getGranted()).willReturn(true);
@@ -691,12 +690,16 @@ class UserServiceTest {
         userService.updateScreenTimePermission(USER_ID, request);
 
         assertThat(settings.isScreenTimePermissionGranted()).isTrue();
+        // 진입점이 둘(getScreenTimeSettings/…ForUpdate)이라 배타 잠금 쪽만 쓰였는지 둘 다 단언한다.
+        verify(userQueryService).getScreenTimeSettingsForUpdate(USER_ID);
+        verify(userQueryService, never()).getScreenTimeSettings(USER_ID);
     }
 
     @Test
     @DisplayName("스크린타임 권한 변경 - 설정 없음 → UserException(NOT_FOUND)")
     void updateScreenTimePermissionNotFound() {
-        given(userScreenTimeSettingsRepository.findByIdForUpdate(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getScreenTimeSettingsForUpdate(USER_ID))
+                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() -> userService.updateScreenTimePermission(USER_ID, null))
                 .isInstanceOf(UserException.class)
@@ -799,7 +802,7 @@ class UserServiceTest {
         // 목표 이력(GROMO-1049)의 발효일을 유저 로컬 기준으로 잡으려 유저를 함께 조회한다.
         given(userQueryService.getTargetForShare(USER_ID))
                 .willReturn(User.builder().id(USER_ID).build());
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        given(userQueryService.getFocusTimeSettings(USER_ID)).willReturn(settings);
 
         userService.updateFocusTimeGoal(USER_ID, 90);
 
@@ -815,7 +818,7 @@ class UserServiceTest {
     void updateFocusTimeGoalNotFound() {
         given(userQueryService.getTargetForShare(USER_ID))
                 .willReturn(User.builder().id(USER_ID).build());
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getFocusTimeSettings(USER_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() -> userService.updateFocusTimeGoal(USER_ID, 90))
                 .isInstanceOf(UserException.class)
@@ -829,7 +832,7 @@ class UserServiceTest {
         UserFocusTimeSettings settings = UserFocusTimeSettings.builder().userId(USER_ID).build();
         given(userQueryService.getTargetForShare(USER_ID))
                 .willReturn(User.builder().id(USER_ID).build());
-        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        given(userQueryService.getFocusTimeSettings(USER_ID)).willReturn(settings);
 
         userService.updateFocusTimeGoal(USER_ID, 90);
 
@@ -845,7 +848,7 @@ class UserServiceTest {
         UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
         given(userQueryService.getTargetForShare(USER_ID))
                 .willReturn(User.builder().id(USER_ID).build());
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        given(userQueryService.getScreenTimeSettings(USER_ID)).willReturn(settings);
 
         userService.updateScreenTimeGoal(USER_ID, 120);
 
@@ -889,7 +892,7 @@ class UserServiceTest {
     @DisplayName("알림·심야·소리 설정 저장 → notification settings 필드 반영")
     void updateNotificationSettings() {
         UserNotificationSettings settings = UserNotificationSettings.builder().userId(USER_ID).build();
-        given(userNotificationSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        given(userQueryService.getNotificationSettings(USER_ID)).willReturn(settings);
 
         NotificationSettingsRequest request = mock(NotificationSettingsRequest.class);
         given(request.getNotificationEnabled()).willReturn(true);
@@ -910,7 +913,7 @@ class UserServiceTest {
     @Test
     @DisplayName("알림 설정 저장 - 설정 없음 → UserException(NOT_FOUND)")
     void updateNotificationSettingsNotFound() {
-        given(userNotificationSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getNotificationSettings(USER_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() ->
                 userService.updateNotificationSettings(USER_ID, mock(NotificationSettingsRequest.class)))
@@ -928,7 +931,7 @@ class UserServiceTest {
                 .nightStartTime(LocalTime.of(22, 0))
                 .nightEndTime(LocalTime.of(7, 0))
                 .build();
-        given(userNotificationSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        given(userQueryService.getNotificationSettings(USER_ID)).willReturn(settings);
 
         NotificationSettingsRequest request = mock(NotificationSettingsRequest.class);
         given(request.getNotificationEnabled()).willReturn(true);
@@ -957,7 +960,7 @@ class UserServiceTest {
                 .nightStartTime(LocalTime.of(22, 0))
                 .nightEndTime(LocalTime.of(7, 0))
                 .build();
-        given(userNotificationSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        given(userQueryService.getNotificationSettings(USER_ID)).willReturn(settings);
 
         NotificationSettingsResponse response = userService.getNotificationSettings(USER_ID);
 
@@ -971,7 +974,7 @@ class UserServiceTest {
     @Test
     @DisplayName("알림 설정 조회 - 설정 없음 → UserException(NOT_FOUND)")
     void getNotificationSettingsNotFound() {
-        given(userNotificationSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userQueryService.getNotificationSettings(USER_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         assertThatThrownBy(() -> userService.getNotificationSettings(USER_ID))
                 .isInstanceOf(UserException.class)

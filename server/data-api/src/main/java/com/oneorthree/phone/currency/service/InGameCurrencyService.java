@@ -6,11 +6,8 @@ import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserWallet;
 import com.oneorthree.phone.currency.exception.CurrencyErrorCode;
 import com.oneorthree.phone.currency.exception.CurrencyException;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
-import com.oneorthree.phone.user.repository.UserWalletRepository;
 import com.oneorthree.phone.currency.dto.TransactionsResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +31,6 @@ import java.util.UUID;
 public class InGameCurrencyService {
 
     private final UserQueryService userQueryService;
-    private final UserWalletRepository userWalletRepository;
     private final CurrencyTransactionRepository currencyTransactionRepository;
 
     /**
@@ -44,9 +40,7 @@ public class InGameCurrencyService {
      * @return 지갑에 적힌 잔액. 원장을 다시 합산하지는 않는다
      */
     public int getCurrencyBalance(UUID userId) {
-        return userWalletRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND))
-                .getBalance();
+        return userQueryService.getWallet(userId).getBalance();
     }
 
     /*
@@ -106,8 +100,7 @@ public class InGameCurrencyService {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_SPEND_REASON);
         }
 
-        UserWallet wallet = userWalletRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        UserWallet wallet = userQueryService.getWallet(userId);
         wallet.spend(amount);
         currencyTransactionRepository.save(CurrencyTransaction.builder()
                 .user(user)
