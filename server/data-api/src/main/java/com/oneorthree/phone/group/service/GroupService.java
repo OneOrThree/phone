@@ -34,9 +34,7 @@ import com.oneorthree.phone.group.dto.UpdateGroupRequest;
 import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
-import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
@@ -87,8 +85,6 @@ public class GroupService {
     private final GroupJoinCodeRepository groupJoinCodeRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final GroupChallengeRepository groupChallengeRepository;
-    private final GroupChallengeDurationRepository groupChallengeDurationRepository;
-    private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final UserQueryService userQueryService;
     private final PasswordEncoder passwordEncoder;
     private final DailyFocusStatRepository dailyFocusStatRepository;
@@ -203,11 +199,11 @@ public class GroupService {
 
         List<GroupMember> groupMembers = groupMemberRepository.findByUser(user);
 
-        // GROMO-672: 참가 코드는 1:1 테이블(PK=group_id)에서 일괄 조회 — 그룹당 findById N+1 방지
+        // GROMO-672: 참가 코드는 1:1 테이블(PK=group_id)에서 일괄 조회 — 그룹당 단건 조회 N+1 방지
         List<UUID> groupIds = groupMembers.stream()
                 .map(member -> member.getGroup().getId())
                 .toList();
-        Map<UUID, String> codeByGroupId = groupJoinCodeRepository.findAllById(groupIds).stream()
+        Map<UUID, String> codeByGroupId = groupQueryService.findAllJoinCodes(groupIds).stream()
                 .collect(Collectors.toMap(GroupJoinCode::getGroupId, GroupJoinCode::getCode));
 
         // 멤버 수도 IN 집계 1회 — 그룹마다 findByGroup(group).size() 로 멤버 엔티티를 로드하던 N+1 제거
@@ -537,8 +533,7 @@ public class GroupService {
         }
 
         // GROMO-672: 참가 코드 재발급은 group_join_codes 의 같은 행 UPDATE (code/status/expiresAt 갱신)
-        GroupJoinCode joinCode = groupJoinCodeRepository.findById(group.getId())
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        GroupJoinCode joinCode = groupQueryService.getJoinCode(group.getId());
         joinCode.renew(generateUniqueCode());
         return new RenewGroupCodeResponse(joinCode.getCode(), joinCode.getExpiresAt());
     }
@@ -610,7 +605,7 @@ public class GroupService {
         // GROMO-672: OWNER 에게만 노출하는 참가 코드/만료시각은 group_join_codes 에서 조회
         boolean isOwner = groupMember.getRole() == GroupMemberRole.OWNER;
         GroupJoinCode joinCode = isOwner
-                ? groupJoinCodeRepository.findById(group.getId()).orElse(null)
+                ? groupQueryService.findJoinCode(group.getId()).orElse(null)
                 : null;
 
         return GroupDetailResponse.builder()
@@ -827,13 +822,13 @@ public class GroupService {
         String windowStart = null;
         String windowEnd = null;
         if (challenge.getType() == MissionType.DURATION) {
-            durationMinutes = groupChallengeDurationRepository.findById(challenge.getId())
+            durationMinutes = groupQueryService.findChallengeDuration(challenge.getId())
                     .map(GroupChallengeDuration::getDurationMinutes)
                     .orElse(null);
         } else if (challenge.getType() == MissionType.TIME_WINDOW) {
             // GROMO-1206: 저장 time(KST 벽시계) → "HH:mm:ss" — /challenges 응답과 같은
             // 단일 출구(WindowFocusAggregator.timeOfDayString)를 쓴다. 별도 포맷 신설 금지.
-            Optional<GroupChallengeWindow> window = groupChallengeWindowRepository.findById(challenge.getId());
+            Optional<GroupChallengeWindow> window = groupQueryService.findChallengeWindow(challenge.getId());
             windowStart = window.map(GroupChallengeWindow::getWindowStart)
                     .map(WindowFocusAggregator::timeOfDayString).orElse(null);
             windowEnd = window.map(GroupChallengeWindow::getWindowEnd)

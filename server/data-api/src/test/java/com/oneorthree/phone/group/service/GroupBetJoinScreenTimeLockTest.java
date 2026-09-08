@@ -6,6 +6,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
@@ -65,6 +66,8 @@ class GroupBetJoinScreenTimeLockTest {
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Mock
+    private GroupQueryService groupQueryService;
+    @Mock
     private UserQueryService userQueryService;
     @Mock
     private CurrencyLedgerService currencyLedgerService;
@@ -95,7 +98,7 @@ class GroupBetJoinScreenTimeLockTest {
         given(preRead.getGroup()).willReturn(group);
         given(preRead.getChallenge()).willReturn(challenge);
         given(challenge.getId()).willReturn(CHALLENGE_ID);
-        given(groupChallengeBetSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(preRead));
+        given(groupQueryService.findBetSession(SESSION_ID)).willReturn(Optional.of(preRead));
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForShare(CHALLENGE_ID, group))
                 .willReturn(Optional.of(challenge));
         given(challenge.getStatus()).willReturn(GroupChallengeStatus.ACTIVE);

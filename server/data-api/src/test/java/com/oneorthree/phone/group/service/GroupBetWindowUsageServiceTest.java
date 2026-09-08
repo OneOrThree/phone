@@ -17,7 +17,6 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -71,8 +70,6 @@ class GroupBetWindowUsageServiceTest {
     private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
-    @Mock
-    private GroupChallengeWindowRepository groupChallengeWindowRepository;
     @Mock
     private WindowFocusAggregator windowFocusAggregator;
 
@@ -155,7 +152,7 @@ class GroupBetWindowUsageServiceTest {
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600));
         givenParticipantOn(started);
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+        given(groupQueryService.findBetSessionForUpdate(SESSION_ID))
                 .willReturn(Optional.of(started));
         Instant measuredAt = Instant.now().minusSeconds(60);
 
@@ -164,7 +161,7 @@ class GroupBetWindowUsageServiceTest {
                 new WindowUsageReportRequest(TODAY, 90, measuredAt));
 
         // then: 잠금이 먼저, 그 다음 measured_at 단조 갱신 upsert
-        verify(groupChallengeBetSessionRepository).findByIdForUpdate(SESSION_ID);
+        verify(groupQueryService).findBetSessionForUpdate(SESSION_ID);
         verify(groupChallengeMemberRepository).upsertWindowUsage(
                 any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(TODAY), eq(90), eq(measuredAt));
     }
@@ -181,7 +178,7 @@ class GroupBetWindowUsageServiceTest {
         GroupChallengeBetSession reserved =
                 session(GroupBetStatus.OPEN, Instant.now().plusSeconds(48 * 3600));
         givenParticipantOn(reserved);
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+        given(groupQueryService.findBetSessionForUpdate(SESSION_ID))
                 .willReturn(Optional.of(reserved));
 
         // when: 낮은 값을 미리 심으려는 보고
@@ -204,7 +201,7 @@ class GroupBetWindowUsageServiceTest {
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         Instant startsAt = Instant.now().minusSeconds(7200);
         givenParticipantOn(session(GroupBetStatus.OPEN, startsAt));
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+        given(groupQueryService.findBetSessionForUpdate(SESSION_ID))
                 .willReturn(Optional.of(session(GroupBetStatus.SETTLED, startsAt)));
 
         // when
@@ -229,7 +226,8 @@ class GroupBetWindowUsageServiceTest {
                 new WindowUsageReportRequest(TODAY, 40, Instant.now()));
 
         // then: 판정 대상이 아니므로 잠글 회차도 없다
-        verify(groupChallengeBetSessionRepository, never()).findByIdForUpdate(any());
+        verify(groupQueryService, never()).findBetSessionForUpdate(any());
+        verify(groupQueryService, never()).getBetSessionForUpdate(any());
         verify(groupChallengeMemberRepository)
                 .upsertWindowUsage(any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(TODAY), eq(40), any());
     }
@@ -245,7 +243,7 @@ class GroupBetWindowUsageServiceTest {
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(600));
         givenParticipantOn(started);
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+        given(groupQueryService.findBetSessionForUpdate(SESSION_ID))
                 .willReturn(Optional.of(started));
 
         // when
@@ -416,7 +414,8 @@ class GroupBetWindowUsageServiceTest {
                 new WindowUsageReportRequest(TODAY, 0, Instant.now().minusSeconds(300)));
 
         // then: 저장되지 않는다 — 회차를 잠글 것도 없이 측정 시각에서 걸린다
-        verify(groupChallengeBetSessionRepository, never()).findByIdForUpdate(any());
+        verify(groupQueryService, never()).findBetSessionForUpdate(any());
+        verify(groupQueryService, never()).getBetSessionForUpdate(any());
         verify(groupChallengeMemberRepository, never())
                 .upsertWindowUsage(any(), any(), any(), any(), anyInt(), any());
     }
@@ -432,7 +431,7 @@ class GroupBetWindowUsageServiceTest {
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600));
         givenParticipantOn(started, Instant.now().minusSeconds(300));
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+        given(groupQueryService.findBetSessionForUpdate(SESSION_ID))
                 .willReturn(Optional.of(started));
         Instant measuredAt = Instant.now().minusSeconds(60);
 
@@ -511,7 +510,7 @@ class GroupBetWindowUsageServiceTest {
         givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         LocalDate today = LocalDate.now(KST);
         GroupChallengeWindow window = GroupChallengeWindow.builder().challengeId(CHALLENGE_ID).build();
-        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(window));
+        given(groupQueryService.findChallengeWindow(CHALLENGE_ID)).willReturn(Optional.of(window));
         given(windowFocusAggregator.windowStartOn(today, window))
                 .willReturn(Instant.now().plusSeconds(3600));
 
@@ -575,7 +574,7 @@ class GroupBetWindowUsageServiceTest {
                 .willReturn(Optional.of(started));
         given(groupChallengeBetParticipantRepository.findJoinedAtBySessionIdAndUserId(SESSION_ID, USER_ID))
                 .willReturn(Optional.of(Instant.now().minusSeconds(7200)));
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+        given(groupQueryService.findBetSessionForUpdate(SESSION_ID))
                 .willReturn(Optional.of(started));
 
         // when
@@ -596,7 +595,7 @@ class GroupBetWindowUsageServiceTest {
         givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         LocalDate today = LocalDate.now(KST);
         GroupChallengeWindow window = GroupChallengeWindow.builder().challengeId(CHALLENGE_ID).build();
-        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(window));
+        given(groupQueryService.findChallengeWindow(CHALLENGE_ID)).willReturn(Optional.of(window));
         given(windowFocusAggregator.windowStartOn(today, window))
                 .willReturn(Instant.now().minusSeconds(3600));
 

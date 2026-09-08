@@ -2135,9 +2135,9 @@ class GroupBetServiceTest {
                 .build();
         given(groupChallengeBetSessionRepository.findOpenSessionIdsByParticipantUserId(USER_ID))
                 .willReturn(List.of(SESSION_ID, otherSessionId));
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+        given(groupQueryService.findBetSessionForUpdate(SESSION_ID))
                 .willReturn(Optional.of(firstSession));
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(otherSessionId))
+        given(groupQueryService.findBetSessionForUpdate(otherSessionId))
                 .willReturn(Optional.of(secondSession));
         // 잠금 후 재조회(P0 ③) — 내 참가 행이 아직 남아 있는 판. 다른 참가자도 2명 남아
         // 회차 삭제 없이 환불만 나간다.
@@ -2156,9 +2156,9 @@ class GroupBetServiceTest {
         groupBetService.releaseFromAllOpenBets(leaver);
 
         // 잠금 2건이 모두 끝난 뒤에야 환불 2건이 나간다 — 잠금 사이에 환불이 끼면 여기서 깨진다.
-        InOrder lockThenMoney = inOrder(groupChallengeBetSessionRepository, currencyLedgerService);
-        lockThenMoney.verify(groupChallengeBetSessionRepository).findByIdForUpdate(SESSION_ID);
-        lockThenMoney.verify(groupChallengeBetSessionRepository).findByIdForUpdate(otherSessionId);
+        InOrder lockThenMoney = inOrder(groupQueryService, currencyLedgerService);
+        lockThenMoney.verify(groupQueryService).findBetSessionForUpdate(SESSION_ID);
+        lockThenMoney.verify(groupQueryService).findBetSessionForUpdate(otherSessionId);
         lockThenMoney.verify(currencyLedgerService, times(2))
                 .credit(eq(leaver), eq(CurrencyTransactionType.BET_REFUND), eq(30), anyString());
         // 잔여 참가자가 있어 회차는 지우지 않는다.
@@ -2174,7 +2174,7 @@ class GroupBetServiceTest {
         GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today());
         given(groupChallengeBetSessionRepository.findOpenSessionIdsByParticipantUserId(USER_ID))
                 .willReturn(List.of(SESSION_ID));
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+        given(groupQueryService.findBetSessionForUpdate(SESSION_ID))
                 .willReturn(Optional.of(session));
         given(groupChallengeBetParticipantRepository.findBySessionIdAndUserId(SESSION_ID, USER_ID))
                 .willReturn(Optional.empty());

@@ -4,7 +4,7 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.SettleTrigger;
 import com.oneorthree.phone.group.event.GroupBetWonEvent;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.service.GroupBetSettler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,8 +32,8 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class GroupBetEarlySettlementListener {
 
-    private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+    private final GroupQueryService groupQueryService;
     private final GroupBetSettler groupBetSettler;
 
     /**
@@ -49,7 +49,7 @@ public class GroupBetEarlySettlementListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onBetWon(GroupBetWonEvent event) {
         GroupChallengeBetSession session =
-                groupChallengeBetSessionRepository.findById(event.sessionId()).orElse(null);
+                groupQueryService.findBetSession(event.sessionId()).orElse(null);
         if (session == null || !session.isOpen()) {
             return;
         }

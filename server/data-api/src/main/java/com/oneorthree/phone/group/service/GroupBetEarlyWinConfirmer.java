@@ -4,7 +4,7 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.event.GroupBetWonEvent;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.group.listener.GroupBetEarlySettlementListener;
 import lombok.RequiredArgsConstructor;
@@ -50,8 +50,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class GroupBetEarlyWinConfirmer {
 
-    private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+    private final GroupQueryService groupQueryService;
     private final GroupBetJudge groupBetJudge;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -80,7 +80,7 @@ public class GroupBetEarlyWinConfirmer {
                 .map(GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget::getSessionId)
                 .distinct()
                 .sorted()
-                .forEach(groupChallengeBetSessionRepository::findByIdForUpdate);
+                .forEach(groupQueryService::findBetSessionForUpdate);
     }
 
     private List<GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget> groupBetEarlyWinTargets(
@@ -115,7 +115,7 @@ public class GroupBetEarlyWinConfirmer {
                 .map(GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget::getSessionId)
                 .distinct()
                 .sorted()
-                .forEach(sessionId -> groupChallengeBetSessionRepository.findByIdForUpdate(sessionId)
+                .forEach(sessionId -> groupQueryService.findBetSessionForUpdate(sessionId)
                         .ifPresent(s -> locked.put(sessionId, s)));
 
         for (GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget target : targets) {
@@ -123,11 +123,11 @@ public class GroupBetEarlyWinConfirmer {
             if (session == null || !session.isOpen()) {
                 continue;   // 이미 정산됨 — 건드리지 않는다.
             }
-            // 락 이후 참가 행 <b>첫 로드</b>(§5.4) — 대상 조회가 id 만 받았으므로 이 findById 가
-            // 실제 DB 읽기다. 잠금을 기다리는 사이 취소·탈퇴가 지운 행은 여기서 빈 결과로 잡힌다
+            // 락 이후 참가 행 <b>첫 로드</b>(§5.4) — 대상 조회가 id 만 받았으므로 이 조회가 실제 DB
+            // 읽기다. 잠금을 기다리는 사이 취소·탈퇴가 지운 행은 여기서 빈 결과로 잡힌다
             // (엔티티를 미리 올려 뒀다면 1차 캐시가 유령을 돌려줘 flush 에서 터졌다).
             Optional<GroupChallengeBetParticipant> current =
-                    groupChallengeBetParticipantRepository.findById(target.getParticipantId());
+                    groupQueryService.findBetParticipant(target.getParticipantId());
             if (current.isEmpty() || current.get().getAchieved() != null) {
                 continue;
             }

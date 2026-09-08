@@ -19,6 +19,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -70,6 +71,7 @@ public class GroupBetJoinService {
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+    private final GroupQueryService groupQueryService;
     private final UserQueryService userQueryService;
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
@@ -97,7 +99,7 @@ public class GroupBetJoinService {
         Group group = groupBetService.requireGroupMembershipForShare(user, groupId);
         // 잠금 없는 그룹 스코프 조회 — 소속 챌린지를 알아내 락 순서(챌린지 → 회차)를 지키기 위한
         // 선행 읽기다. 존재·검증의 정본은 아래 잠금 재조회다.
-        GroupChallengeBetSession preRead = groupChallengeBetSessionRepository.findById(sessionId)
+        GroupChallengeBetSession preRead = groupQueryService.findBetSession(sessionId)
                 .filter(s -> s.getGroup().getId().equals(group.getId()))
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
         GroupChallenge challenge = groupChallengeRepository
@@ -335,8 +337,7 @@ public class GroupBetJoinService {
 
     /** 회차 행 배타 잠금 재조회 — 다건 잠금은 호출측이 id 오름차순을 보장한다(계약 §3). */
     private GroupChallengeBetSession lockSession(GroupChallengeBetSession session) {
-        return groupChallengeBetSessionRepository.findByIdForUpdate(session.getId())
-                .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+        return groupQueryService.getBetSessionForUpdate(session.getId());
     }
 
     // ── 가드 ────────────────────────────────────────────────────────────

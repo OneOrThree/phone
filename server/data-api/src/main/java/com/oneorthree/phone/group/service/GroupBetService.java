@@ -409,8 +409,7 @@ public class GroupBetService {
         List<UUID> sessionIds =
                 groupChallengeBetSessionRepository.findOpenSessionIdsByParticipantUserId(user.getId());
         for (UUID sessionId : sessionIds) {   // id 오름차순 — 잠금 순서 규약(계약 §3)
-            Optional<GroupChallengeBetSession> locked = groupChallengeBetSessionRepository
-                    .findByIdForUpdate(sessionId)
+            Optional<GroupChallengeBetSession> locked = groupQueryService.findBetSessionForUpdate(sessionId)
                     .filter(GroupChallengeBetSession::isOpen);
             if (locked.isEmpty()) {
                 continue;   // 잠금 대기 중 정산됨 — 결과를 존중한다.
@@ -451,7 +450,7 @@ public class GroupBetService {
         // 순서: 회차 전부 → 지갑). 잠금 시점에 이미 종료된 회차는 정산 결과를 존중해 제외한다.
         List<GroupChallengeBetSession> lockedOpenSessions = new ArrayList<>();
         for (UUID sessionId : sessionIds) {
-            groupChallengeBetSessionRepository.findByIdForUpdate(sessionId)
+            groupQueryService.findBetSessionForUpdate(sessionId)
                     .filter(GroupChallengeBetSession::isOpen)
                     .ifPresent(lockedOpenSessions::add);
         }

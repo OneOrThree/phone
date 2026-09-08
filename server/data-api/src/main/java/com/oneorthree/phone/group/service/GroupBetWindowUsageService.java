@@ -14,7 +14,6 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -95,7 +94,6 @@ public class GroupBetWindowUsageService {
     private final GroupChallengeMemberRepository groupChallengeMemberRepository;
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
-    private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final WindowFocusAggregator windowFocusAggregator;
 
     /**
@@ -343,7 +341,7 @@ public class GroupBetWindowUsageService {
         if (!usageDate.isEqual(today)) {
             return true;
         }
-        GroupChallengeWindow window = groupChallengeWindowRepository.findById(challengeId).orElse(null);
+        GroupChallengeWindow window = groupQueryService.findChallengeWindow(challengeId).orElse(null);
         if (window == null) {
             return true;
         }
@@ -364,7 +362,7 @@ public class GroupBetWindowUsageService {
      * @return true = 저장해도 되는 상태(시작됨 + OPEN), false = 조용히 무시할 보고
      */
     private boolean lockedSessionAcceptsReport(UUID sessionId, UUID challengeId, UUID userId) {
-        GroupChallengeBetSession locked = groupChallengeBetSessionRepository.findByIdForUpdate(sessionId)
+        GroupChallengeBetSession locked = groupQueryService.findBetSessionForUpdate(sessionId)
                 .orElse(null);
         if (locked == null) {
             // 잠금 대기 중 회차가 사라졌다(마지막 참가자 철회 = "없던 일"). 걸린 돈이 없으니 무시.
