@@ -3,6 +3,10 @@ package com.oneorthree.phone.user.repository;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserFocusTimeSettings;
+import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
+import com.oneorthree.phone.user.repository.domain.UserWallet;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,6 +21,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * User 조회 계층 (GROMO-1655) — 종전엔 19개 service 에 흩어져 있던 "활성 유저 한 명" 판정이
@@ -27,6 +34,14 @@ class UserQueryServiceTest {
 
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private UserWalletRepository userWalletRepository;
+    @Mock
+    private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+    @Mock
+    private UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
+    @Mock
+    private UserNotificationSettingsRepository userNotificationSettingsRepository;
 
     @InjectMocks
     private UserQueryService userQueryService;
@@ -168,5 +183,110 @@ class UserQueryServiceTest {
                 .willReturn(List.of(active()));
 
         assertThat(userQueryService.findAllActive(List.of(ID, other))).hasSize(1);
+    }
+    // ── 지갑·설정 — 같은 부재를 두 가지 뜻으로 쓰던 갈래 ────────────────
+
+    @Test
+    @DisplayName("지갑 부재는 NOT_FOUND — 가입 시 함께 만들어지므로 사실상 데이터 손상이다")
+    void getWallet_throwsNotFound() {
+        given(userWalletRepository.findById(ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userQueryService.getWallet(ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("지갑 변경 경로는 배타 락 쿼리를 탄다 — 락 없는 조회로 내려가면 잔액 경합이 열린다")
+    void getWalletForUpdate_usesExclusiveLock() {
+        UserWallet wallet = UserWallet.builder().userId(ID).build();
+        given(userWalletRepository.findByIdForUpdate(ID)).willReturn(Optional.of(wallet));
+
+        assertThat(userQueryService.getWalletForUpdate(ID)).isSameAs(wallet);
+        verify(userWalletRepository).findByIdForUpdate(ID);
+        verify(userWalletRepository, never()).findById(ID);
+    }
+
+    @Test
+    @DisplayName("스크린타임 설정 — get 은 부재에 던지고 find 는 빈 값을 준다(호출부가 기본값을 정한다)")
+    void screenTimeSettings_getThrowsButFindDoesNot() {
+        given(userScreenTimeSettingsRepository.findById(ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userQueryService.getScreenTimeSettings(ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+        assertThat(userQueryService.findScreenTimeSettings(ID)).isEmpty();
+
+        // 무락 두 메서드가 정말 무락 쿼리를 타는지 못박는다. 이게 없으면 어느 한쪽이 락 판으로
+        // 갈아타도 테스트가 초록이다 — 스텁 안 된 락 메서드가 Mockito 기본값 Optional.empty() 를
+        // 돌려주고, 그게 위 두 단언을 그대로 통과시킨다.
+        verify(userScreenTimeSettingsRepository, times(2)).findById(ID);
+        verify(userScreenTimeSettingsRepository, never()).findByIdForShare(ID);
+        verify(userScreenTimeSettingsRepository, never()).findByIdForUpdate(ID);
+    }
+
+    @Test
+    @DisplayName("스크린타임 공유 락은 ForShare 쿼리를 탄다 — 권한 회수와의 직렬화가 여기 걸려 있다")
+    void findScreenTimeSettingsForShare_usesSharedLock() {
+        UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(ID).build();
+        given(userScreenTimeSettingsRepository.findByIdForShare(ID)).willReturn(Optional.of(settings));
+
+        assertThat(userQueryService.findScreenTimeSettingsForShare(ID)).contains(settings);
+        verify(userScreenTimeSettingsRepository).findByIdForShare(ID);
+        verify(userScreenTimeSettingsRepository, never()).findById(ID);
+        verify(userScreenTimeSettingsRepository, never()).findByIdForUpdate(ID);
+    }
+
+    @Test
+    @DisplayName("스크린타임 배타 락은 ForUpdate 쿼리를 타고 부재에 던진다")
+    void getScreenTimeSettingsForUpdate_usesExclusiveLockAndThrows() {
+        given(userScreenTimeSettingsRepository.findByIdForUpdate(ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userQueryService.getScreenTimeSettingsForUpdate(ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+        verify(userScreenTimeSettingsRepository).findByIdForUpdate(ID);
+        verify(userScreenTimeSettingsRepository, never()).findByIdForShare(ID);
+        verify(userScreenTimeSettingsRepository, never()).findById(ID);
+    }
+
+    @Test
+    @DisplayName("집중 시간 설정 — get 은 던지고 find 는 빈 값을 준다")
+    void focusTimeSettings_getThrowsButFindDoesNot() {
+        given(userFocusTimeSettingsRepository.findById(ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userQueryService.getFocusTimeSettings(ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+        assertThat(userQueryService.findFocusTimeSettings(ID)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("알림 설정 — get 은 던지고 find 는 빈 값을 준다(발송 경로는 소리 켬으로 본다)")
+    void notificationSettings_getThrowsButFindDoesNot() {
+        given(userNotificationSettingsRepository.findById(ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userQueryService.getNotificationSettings(ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+        assertThat(userQueryService.findNotificationSettings(ID)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("설정 배치 조회는 부재분을 빼고 돌려준다 — 요청 수와 결과 수가 다를 수 있다")
+    void findAllSettings_dropsMissingRows() {
+        UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(ID).build();
+        UserNotificationSettings notify = UserNotificationSettings.builder().userId(ID).build();
+        List<UUID> ids = List.of(ID, UUID.randomUUID());
+        given(userScreenTimeSettingsRepository.findAllById(ids)).willReturn(List.of(screen));
+        given(userNotificationSettingsRepository.findAllById(ids)).willReturn(List.of(notify));
+
+        assertThat(userQueryService.findAllScreenTimeSettings(ids)).containsExactly(screen);
+        assertThat(userQueryService.findAllNotificationSettings(ids)).containsExactly(notify);
     }
 }

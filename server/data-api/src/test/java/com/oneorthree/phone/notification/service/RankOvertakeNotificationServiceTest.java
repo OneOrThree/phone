@@ -13,7 +13,6 @@ import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -76,8 +75,6 @@ class RankOvertakeNotificationServiceTest {
     @Mock
     private UserQueryService userQueryService;
     @Mock
-    private UserNotificationSettingsRepository userNotificationSettingsRepository;
-    @Mock
     private NotificationSentLogRepository notificationSentLogRepository;
     @Mock
     private PushNotificationService pushNotificationService;
@@ -137,7 +134,7 @@ class RankOvertakeNotificationServiceTest {
                 .thenReturn(List.of());
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(any(), anyList(), any()))
                 .willReturn(List.of());
-        lenient().when(userNotificationSettingsRepository.findAllById(any())).thenReturn(List.of(
+        lenient().when(userQueryService.findAllNotificationSettings(any())).thenReturn(List.of(
                 UserNotificationSettings.builder().userId(meId).soundEnabled(true).build()));
         lenient().when(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).thenReturn(true);
         return me;
@@ -287,7 +284,7 @@ class RankOvertakeNotificationServiceTest {
                 .willReturn(List.of());
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(any(), anyList(), any()))
                 .willReturn(List.of());
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of());
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of());
 
         service.sendRankOvertakeNotifications(NOW);
 

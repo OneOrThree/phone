@@ -127,12 +127,10 @@ public class UserService {
         }
 
         LocalDate today = todayOf();
-        UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        UserScreenTimeSettings screenSettings = userQueryService.getScreenTimeSettings(userId);
         screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
 
-        UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        UserFocusTimeSettings focusSettings = userQueryService.getFocusTimeSettings(userId);
         focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
     }
 
@@ -169,13 +167,11 @@ public class UserService {
         // 이력을 남기는 규칙은 유지한다.
         LocalDate today = todayOf();
         if (body.getDailyScreenTimeGoalMinutes() != null) {
-            UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
-                    .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+            UserScreenTimeSettings screenSettings = userQueryService.getScreenTimeSettings(userId);
             screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
         }
         if (body.getDailyFocusTimeGoalMinutes() != null) {
-            UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
-                    .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+            UserFocusTimeSettings focusSettings = userQueryService.getFocusTimeSettings(userId);
             focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
         }
     }
@@ -359,12 +355,9 @@ public class UserService {
      */
     public UserProfileResponse getProfile(UUID userId) {
         User user = userQueryService.getTarget(userId);
-        UserWallet wallet = userWalletRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        UserWallet wallet = userQueryService.getWallet(userId);
+        UserScreenTimeSettings screenSettings = userQueryService.getScreenTimeSettings(userId);
+        UserFocusTimeSettings focusSettings = userQueryService.getFocusTimeSettings(userId);
 
         // 준비 시험(occupation) — enum name 문자열, 미설정이면 null (GROMO-757, 타 유저 공개 프로필과 동일 매핑)
         String occupation = user.getOccupation() != null ? user.getOccupation().name() : null;
@@ -416,8 +409,7 @@ public class UserService {
         // 배타 잠금 (GROMO-1409·N50) — 내기 참여의 권한 가드가 같은 행을 공유 잠금으로 읽는다.
         // 잠금이 없으면 "참여가 true 를 읽음 → 여기서 false 커밋 → 참여가 차감 커밋" 인터리빙에서
         // 보고 수단이 없는 유저가 유료 회차에 남는다(미보고 = 미달성이라 확정 패배).
-        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findByIdForUpdate(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        UserScreenTimeSettings settings = userQueryService.getScreenTimeSettingsForUpdate(userId);
         settings.setScreenTimePermissionGranted(request.getGranted());
     }
 
@@ -432,8 +424,7 @@ public class UserService {
     public void updateScreenTimeGoal(UUID userId, int dailyScreenTimeGoalMinutes) {
         // users 행은 읽기만(country_code → 오늘 계산)하고 설정 테이블만 변경 — 공유 락 (GROMO-801, GROMO-1237).
         User user = userQueryService.getTargetForShare(userId);
-        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        UserScreenTimeSettings settings = userQueryService.getScreenTimeSettings(userId);
         settings.changeGoal(dailyScreenTimeGoalMinutes, todayOf());
         userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
                 Map.of("goal_type", "screen_time", "goal_minutes", dailyScreenTimeGoalMinutes));
@@ -449,8 +440,7 @@ public class UserService {
     public void updateFocusTimeGoal(UUID userId, int dailyFocusTimeGoalMinutes) {
         // users 행은 읽기만(country_code → 오늘 계산)하고 설정 테이블만 변경 — 공유 락 (GROMO-801, GROMO-1237).
         User user = userQueryService.getTargetForShare(userId);
-        UserFocusTimeSettings settings = userFocusTimeSettingsRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        UserFocusTimeSettings settings = userQueryService.getFocusTimeSettings(userId);
         settings.changeGoal(dailyFocusTimeGoalMinutes, todayOf());
         userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
                 Map.of("goal_type", "focus_time", "goal_minutes", dailyFocusTimeGoalMinutes));
@@ -563,8 +553,7 @@ public class UserService {
      * @throws UserException 설정 행이 아직 없으면 404
      */
     public NotificationSettingsResponse getNotificationSettings(UUID userId) {
-        UserNotificationSettings s = userNotificationSettingsRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        UserNotificationSettings s = userQueryService.getNotificationSettings(userId);
         return new NotificationSettingsResponse(
                 s.isNotificationEnabled(),
                 s.isSoundEnabled(),
@@ -584,8 +573,7 @@ public class UserService {
      */
     @Transactional
     public void updateNotificationSettings(UUID userId, NotificationSettingsRequest request) {
-        UserNotificationSettings settings = userNotificationSettingsRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        UserNotificationSettings settings = userQueryService.getNotificationSettings(userId);
         settings.setNotificationEnabled(request.getNotificationEnabled());
         settings.setSoundEnabled(request.getSoundEnabled());
         settings.setNightModeEnabled(request.getNightModeEnabled());

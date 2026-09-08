@@ -16,7 +16,7 @@ import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
-import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.group.support.GroupBetPayoutCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -76,7 +76,7 @@ public class GroupBetJudge {
     private final GroupChallengeMemberRepository groupChallengeMemberRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
-    private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+    private final UserQueryService userQueryService;
     private final WindowFocusAggregator windowFocusAggregator;
 
     /**
@@ -428,8 +428,8 @@ public class GroupBetJudge {
      * (설정 행 자체가 없는 경우 포함)는 카드에서도 비참여자({@code canParticipate=false})다.
      */
     private List<User> measurableForScreenTime(Collection<User> users) {
-        Set<UUID> granted = userScreenTimeSettingsRepository
-                .findAllById(users.stream().map(User::getId).toList()).stream()
+        Set<UUID> granted = userQueryService
+                .findAllScreenTimeSettings(users.stream().map(User::getId).toList()).stream()
                 .filter(UserScreenTimeSettings::isScreenTimePermissionGranted)
                 .map(UserScreenTimeSettings::getUserId)
                 .collect(Collectors.toSet());

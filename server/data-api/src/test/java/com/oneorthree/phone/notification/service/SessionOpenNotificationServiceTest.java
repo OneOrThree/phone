@@ -66,9 +66,6 @@ class SessionOpenNotificationServiceTest {
     @Mock
     private GroupMemberRepository groupMemberRepository;
     @Mock
-    private com.oneorthree.phone.user.repository.UserNotificationSettingsRepository
-            userNotificationSettingsRepository;
-    @Mock
     private NotificationSentLogRepository notificationSentLogRepository;
     @Mock
     private com.oneorthree.phone.user.repository.UserQueryService userQueryService;
@@ -137,7 +134,7 @@ class SessionOpenNotificationServiceTest {
     }
 
     private void givenNoSettings() {
-        given(userNotificationSettingsRepository.findAllById(anyCollection()))
+        given(userQueryService.findAllNotificationSettings(anyCollection()))
                 .willReturn(List.<UserNotificationSettings>of());
     }
 
@@ -275,7 +272,7 @@ class SessionOpenNotificationServiceTest {
         givenDue(session, List.of(member), List.of());
         given(notificationSentLogRepository.insertPendingClaim(
                 any(), any(), anyString(), any(), any(), any(), any())).willReturn(1);
-        given(userNotificationSettingsRepository.findAllById(anyCollection()))
+        given(userQueryService.findAllNotificationSettings(anyCollection()))
                 .willReturn(List.of(nightSettings(member, LocalTime.of(7, 0), LocalTime.of(9, 0))));
 
         PushDispatchSummaryResponse summary =

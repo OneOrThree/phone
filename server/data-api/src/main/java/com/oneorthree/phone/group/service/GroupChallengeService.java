@@ -31,7 +31,6 @@ import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
-import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -77,7 +76,6 @@ public class GroupChallengeService {
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
     private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final GroupChallengeMemberRepository groupChallengeMemberRepository;
-    private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final GroupBetService groupBetService;
     /** 삭제 연동(GROMO-1272) — OPEN 회차 무효화·전원 환불. */
     private final GroupBetSettler groupBetSettler;
@@ -133,7 +131,7 @@ public class GroupChallengeService {
 
         groupQueryService.getMembership(user, group);
 
-        boolean screenTimePermissionGranted = userScreenTimeSettingsRepository.findById(userId)
+        boolean screenTimePermissionGranted = userQueryService.findScreenTimeSettings(userId)
                 .map(UserScreenTimeSettings::isScreenTimePermissionGranted)
                 .orElse(false);
 
@@ -357,7 +355,7 @@ public class GroupChallengeService {
 
     /** 스크린타임 권한에 동의한 유저 id 집합 — 개설 시 비참여자 안내 목록이 쓰는 기준. */
     private Set<UUID> grantedScreenTimeUserIds(List<User> users) {
-        return userScreenTimeSettingsRepository.findAllById(users.stream().map(User::getId).toList()).stream()
+        return userQueryService.findAllScreenTimeSettings(users.stream().map(User::getId).toList()).stream()
                 .filter(UserScreenTimeSettings::isScreenTimePermissionGranted)
                 .map(UserScreenTimeSettings::getUserId)
                 .collect(Collectors.toSet());

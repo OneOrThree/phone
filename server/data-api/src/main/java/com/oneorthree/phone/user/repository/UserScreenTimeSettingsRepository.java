@@ -43,7 +43,9 @@ public interface UserScreenTimeSettingsRepository extends JpaRepository<UserScre
      * 권한 수정 경로용 <b>배타 잠금</b> — 위 공유 잠금과 짝을 이뤄 참여 검사와 직렬화된다.
      *
      * @param userId 권한을 바꿀 유저
-     * @return 잠긴 설정. 행이 없으면 빈 값이라 호출측이 새로 만들어야 한다
+     * @return 잠긴 설정. 없으면 빈 값이다 — <b>유일한 호출측</b>
+     *     {@link UserQueryService#getScreenTimeSettingsForUpdate} 는 만들지 않고
+     *     {@code NOT_FOUND} 를 던진다. 설정은 가입 시 함께 만들어지므로 부재는 데이터 손상이다
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM UserScreenTimeSettings s WHERE s.userId = :userId")

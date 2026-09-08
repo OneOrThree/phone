@@ -29,10 +29,8 @@ import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
-import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
 import com.oneorthree.phone.user.repository.domain.UserStreak;
 import com.oneorthree.phone.stats.support.StatsPeriodResolver;
@@ -82,8 +80,6 @@ public class StatsService {
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final FocusSessionRepository focusSessionRepository;
     private final UserStreakRepository userStreakRepository;
-    private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
-    private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final UserRepository userRepository;
     private final UserQueryService userQueryService;
     private final FriendshipRepository friendshipRepository;
@@ -188,9 +184,9 @@ public class StatsService {
         // 미집계 row(minutes null, GROMO-1267)는 Optional.map 이 empty 로 접어 0 이 된다 — 표시 전용 경로.
         int screenMinutes = dailyScreenTimeStatRepository.findByUserAndDate(user, today)
                 .map(DailyScreenTimeStat::getTotalScreenTimeMinutes).orElse(0);
-        int focusGoal = userFocusTimeSettingsRepository.findById(userId)
+        int focusGoal = userQueryService.findFocusTimeSettings(userId)
                 .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
-        int screenGoal = userScreenTimeSettingsRepository.findById(userId)
+        int screenGoal = userQueryService.findScreenTimeSettings(userId)
                 .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes).orElse(0);
 
         return new TodayStatsResponse(
@@ -334,7 +330,7 @@ public class StatsService {
         // 분만 포함되면 불일치. joinLocalDate == null 이면 필터 없음.
         int currentMinutes = sumMinutesFromJoin(currentStats, joinLocalDate);
         int previousMinutes = sumMinutesFromJoin(previousStats, joinLocalDate);
-        int goalMinutes = userScreenTimeSettingsRepository.findById(userId)
+        int goalMinutes = userQueryService.findScreenTimeSettings(userId)
                 .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes).orElse(0);
 
         Boolean goalAchieved;

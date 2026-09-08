@@ -7,7 +7,6 @@ import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -53,8 +52,6 @@ class BetWonNotificationServiceTest {
     @Mock
     private UserQueryService userQueryService;
     @Mock
-    private UserNotificationSettingsRepository userNotificationSettingsRepository;
-    @Mock
     private NotificationSentLogRepository notificationSentLogRepository;
     @Mock
     private PushNotificationService pushNotificationService;
@@ -75,7 +72,7 @@ class BetWonNotificationServiceTest {
 
     /** 설정 행 없음 = 기본값(알림 on·심야 기본 구간) — 클레임을 선점한 경로에서만 조회된다. */
     private void givenDefaultSettings() {
-        given(userNotificationSettingsRepository.findById(winner.getId()))
+        given(userQueryService.findNotificationSettings(winner.getId()))
                 .willReturn(Optional.<UserNotificationSettings>empty());
     }
 

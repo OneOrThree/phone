@@ -7,7 +7,6 @@ import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -53,8 +52,6 @@ class FriendNotificationServiceTest {
     private UserRepository userRepository;
     @Mock
     private UserQueryService userQueryService;
-    @Mock
-    private UserNotificationSettingsRepository userNotificationSettingsRepository;
     @Mock
     private NotificationSentLogRepository notificationSentLogRepository;
     @Mock
@@ -285,7 +282,7 @@ class FriendNotificationServiceTest {
                 .willReturn(Optional.of(user(RECIPIENT_ID, "받는사람")));
         given(userQueryService.findActive(COUNTERPART_ID))
                 .willReturn(Optional.of(user(COUNTERPART_ID, "보낸사람")));
-        given(userNotificationSettingsRepository.findById(RECIPIENT_ID))
+        given(userQueryService.findNotificationSettings(RECIPIENT_ID))
                 .willReturn(Optional.of(UserNotificationSettings.builder()
                         .userId(RECIPIENT_ID)
                         .notificationEnabled(true)

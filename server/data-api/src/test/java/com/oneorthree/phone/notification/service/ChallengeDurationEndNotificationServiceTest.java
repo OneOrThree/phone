@@ -17,7 +17,7 @@ import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -63,7 +63,7 @@ class ChallengeDurationEndNotificationServiceTest {
     @Mock
     private GroupMemberRepository groupMemberRepository;
     @Mock
-    private UserNotificationSettingsRepository userNotificationSettingsRepository;
+    private UserQueryService userQueryService;
     @Mock
     private NotificationSentLogRepository notificationSentLogRepository;
     @Mock
@@ -75,7 +75,7 @@ class ChallengeDurationEndNotificationServiceTest {
                 groupChallengeDurationRepository,
                 new ChallengeEndPushDispatcher(
                         groupMemberRepository,
-                        userNotificationSettingsRepository,
+                        userQueryService,
                         notificationSentLogRepository,
                         pushNotificationService));
     }
@@ -160,7 +160,7 @@ class ChallengeDurationEndNotificationServiceTest {
     }
 
     private void givenNoSettings() {
-        given(userNotificationSettingsRepository.findAllById(anyCollection()))
+        given(userQueryService.findAllNotificationSettings(anyCollection()))
                 .willReturn(List.<UserNotificationSettings>of());
     }
 
@@ -270,7 +270,7 @@ class ChallengeDurationEndNotificationServiceTest {
         User member = user();
         givenMembers(member);
         givenNoSentLogs();
-        given(userNotificationSettingsRepository.findAllById(anyCollection()))
+        given(userQueryService.findAllNotificationSettings(anyCollection()))
                 .willReturn(List.of(UserNotificationSettings.builder()
                         .userId(member.getId()).notificationEnabled(false).build()));
         given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(false);

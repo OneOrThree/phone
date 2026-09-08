@@ -36,7 +36,6 @@ import com.oneorthree.phone.group.service.GroupBetEarlyWinConfirmer;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
 import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
-import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.service.UserStreakService;
 import lombok.RequiredArgsConstructor;
@@ -130,7 +129,6 @@ public class FocusService {
     private final FocusSessionRepository focusSessionRepository;
     private final UserActivityEventLogger userActivityEventLogger;
     private final DailyFocusStatRepository dailyFocusStatRepository;
-    private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserStreakService userStreakService;
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetEarlyWinConfirmer groupBetEarlyWinConfirmer;
@@ -1209,7 +1207,7 @@ public class FocusService {
                 if (!stat.isFocusTimeGoalAchieved()) {
                     // GROMO-1049: 그날(statDate)에 유효했던 목표로 판정·지급한다 — 어제 세션을 오늘 올릴 때
                     // 오늘 바뀐 목표로 재단되던 문제. 판정과 금액이 같은 goal 을 쓰므로 여기 한 곳이면 정합.
-                    int goal = userFocusTimeSettingsRepository.findById(userId)
+                    int goal = userQueryService.findFocusTimeSettings(userId)
                             .map(s -> s.goalMinutesOn(statDate)).orElse(0);
                     // (long) 승격 — int 곱은 goal 이 3천5백만 분을 넘으면 음수로 뒤집혀 0초 세션도 달성이 된다.
                     if (goal > 0 && stat.getTotalFocusSeconds() >= (long) goal * 60) {
@@ -1222,7 +1220,7 @@ public class FocusService {
             } else {
                 // INSERT 경로: isFocusTimeGoalAchieved 판정을 builder에 포함시켜 INSERT 쿼리 1회로 줄임
                 // UserFocusTimeSettings row 없거나 goal=0이면 플래그 false 유지
-                int goal = userFocusTimeSettingsRepository.findById(userId)
+                int goal = userQueryService.findFocusTimeSettings(userId)
                         .map(s -> s.goalMinutesOn(statDate)).orElse(0);
                 boolean goalAchieved = goal > 0 && addedSeconds >= (long) goal * 60;
                 dailyFocusStatRepository.save(DailyFocusStat.builder()

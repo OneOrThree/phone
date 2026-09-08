@@ -18,7 +18,7 @@ import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -72,7 +72,7 @@ class ChallengeCreatedNotificationServiceTest {
     @Mock
     private GroupMemberRepository groupMemberRepository;
     @Mock
-    private UserNotificationSettingsRepository userNotificationSettingsRepository;
+    private UserQueryService userQueryService;
     @Mock
     private NotificationSentLogRepository notificationSentLogRepository;
     @Mock
@@ -216,7 +216,7 @@ class ChallengeCreatedNotificationServiceTest {
         givenChallenge(challenge);
         givenMembers(challenge, user(CREATOR_ID), user(MEMBER_ID));
         givenNoSentLogs();
-        given(userNotificationSettingsRepository.findAllById(anyCollection()))
+        given(userQueryService.findAllNotificationSettings(anyCollection()))
                 .willReturn(List.of(UserNotificationSettings.builder()
                         .userId(MEMBER_ID).notificationEnabled(false).build()));
         givenDurationDetail(30);
@@ -391,7 +391,7 @@ class ChallengeCreatedNotificationServiceTest {
     }
 
     private void givenNoSettings() {
-        given(userNotificationSettingsRepository.findAllById(anyCollection()))
+        given(userQueryService.findAllNotificationSettings(anyCollection()))
                 .willReturn(List.<UserNotificationSettings>of());
     }
 

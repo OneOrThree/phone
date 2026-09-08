@@ -7,7 +7,6 @@ import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -69,7 +68,6 @@ public class FriendNotificationService {
 
     private final FriendshipRepository friendshipRepository;
     private final UserQueryService userQueryService;
-    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
 
@@ -163,8 +161,8 @@ public class FriendNotificationService {
             return;
         }
 
-        UserNotificationSettings settings = userNotificationSettingsRepository
-                .findById(recipientId)
+        UserNotificationSettings settings = userQueryService
+                .findNotificationSettings(recipientId)
                 .orElse(null);
         boolean soundEnabled = settings == null || settings.isSoundEnabled();
         PushMessage message = new PushMessage(

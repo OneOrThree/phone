@@ -3,7 +3,7 @@ package com.oneorthree.phone.notification.service;
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,7 +50,7 @@ class InactiveReturnNotificationServiceTest {
     @Mock
     private UserRepository userRepository;
     @Mock
-    private UserNotificationSettingsRepository userNotificationSettingsRepository;
+    private UserQueryService userQueryService;
     @Mock
     private PushNotificationService pushNotificationService;
     @InjectMocks
@@ -90,7 +90,7 @@ class InactiveReturnNotificationServiceTest {
         given(userRepository.findInactiveReturnTargets(stageStart(3), stageEnd(3))).willReturn(List.of(u3));
         given(userRepository.findInactiveReturnTargets(stageStart(7), stageEnd(7))).willReturn(List.of(u7));
         given(userRepository.findInactiveReturnTargets(stageStart(14), stageEnd(14))).willReturn(List.of(u14));
-        given(userNotificationSettingsRepository.findAllById(any()))
+        given(userQueryService.findAllNotificationSettings(any()))
                 .willReturn(List.of(soundOnSettings(id3), soundOnSettings(id7), soundOnSettings(id14)));
 
         service.sendInactiveReturnNotifications(NOW);
@@ -99,7 +99,7 @@ class InactiveReturnNotificationServiceTest {
         verify(pushNotificationService).sendIfAllowed(eq(u7), any(), eq(MSG_D7), eq(NOW));
         verify(pushNotificationService).sendIfAllowed(eq(u14), any(), eq(MSG_D14), eq(NOW));
         // 설정은 findAllById 로 1회만 일괄 로드 (유저별 단건 조회 N+1 금지)
-        verify(userNotificationSettingsRepository, times(1)).findAllById(any());
+        verify(userQueryService, times(1)).findAllNotificationSettings(any());
     }
 
     @Test
@@ -110,7 +110,7 @@ class InactiveReturnNotificationServiceTest {
         given(userRepository.findInactiveReturnTargets(stageStart(3), stageEnd(3))).willReturn(List.of(u3));
         given(userRepository.findInactiveReturnTargets(stageStart(7), stageEnd(7))).willReturn(List.of());
         given(userRepository.findInactiveReturnTargets(stageStart(14), stageEnd(14))).willReturn(List.of());
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of(soundOnSettings(id3)));
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of(soundOnSettings(id3)));
 
         service.sendInactiveReturnNotifications(NOW);
 
@@ -140,7 +140,7 @@ class InactiveReturnNotificationServiceTest {
                 .containsExactlyInAnyOrder(stageEnd(3), stageEnd(7), stageEnd(14));
         // 대상 없음 → 발송·설정 로드 모두 없음
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
-        verify(userNotificationSettingsRepository, never()).findAllById(any());
+        verify(userQueryService, never()).findAllNotificationSettings(any());
     }
 
     @Test
@@ -179,7 +179,7 @@ class InactiveReturnNotificationServiceTest {
         given(userRepository.findInactiveReturnTargets(stageStart(3), stageEnd(3))).willReturn(List.of(u3));
         given(userRepository.findInactiveReturnTargets(stageStart(7), stageEnd(7))).willReturn(List.of());
         given(userRepository.findInactiveReturnTargets(stageStart(14), stageEnd(14))).willReturn(List.of());
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of(soundOnSettings(id3)));
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of(soundOnSettings(id3)));
 
         service.sendInactiveReturnNotifications(NOW);
 
@@ -200,7 +200,7 @@ class InactiveReturnNotificationServiceTest {
         given(userRepository.findInactiveReturnTargets(stageStart(3), stageEnd(3))).willReturn(List.of(u3));
         given(userRepository.findInactiveReturnTargets(stageStart(7), stageEnd(7))).willReturn(List.of());
         given(userRepository.findInactiveReturnTargets(stageStart(14), stageEnd(14))).willReturn(List.of());
-        given(userNotificationSettingsRepository.findAllById(any())).willReturn(List.of(soundOff));
+        given(userQueryService.findAllNotificationSettings(any())).willReturn(List.of(soundOff));
 
         service.sendInactiveReturnNotifications(NOW);
 

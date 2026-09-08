@@ -14,7 +14,7 @@ import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -76,7 +76,7 @@ class BetEventNotificationServiceTest {
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Mock
-    private UserNotificationSettingsRepository userNotificationSettingsRepository;
+    private UserQueryService userQueryService;
     @Mock
     private NotificationSentLogRepository notificationSentLogRepository;
     @Mock
@@ -127,7 +127,7 @@ class BetEventNotificationServiceTest {
                                     : !row.getSlotAt().isAfter(slotClosedBefore))
                             .toList();
                 });
-        given(userNotificationSettingsRepository.findAllById(anyCollection()))
+        given(userQueryService.findAllNotificationSettings(anyCollection()))
                 .willReturn(List.<UserNotificationSettings>of());
         given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
     }

@@ -14,7 +14,7 @@ import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -101,7 +101,7 @@ public class BetEventNotificationService {
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
-    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
+    private final UserQueryService userQueryService;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
 
@@ -427,7 +427,7 @@ public class BetEventNotificationService {
         }
         List<UUID> userIds = bundles.keySet().stream().map(BundleKey::userId).distinct().toList();
         Map<UUID, UserNotificationSettings> settingsByUserId =
-                userNotificationSettingsRepository.findAllById(userIds).stream()
+                userQueryService.findAllNotificationSettings(userIds).stream()
                         .collect(Collectors.toMap(
                                 UserNotificationSettings::getUserId, Function.identity()));
 
