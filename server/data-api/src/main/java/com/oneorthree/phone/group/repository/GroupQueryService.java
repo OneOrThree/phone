@@ -3,6 +3,7 @@ package com.oneorthree.phone.group.repository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
@@ -66,6 +67,7 @@ public class GroupQueryService {
     private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
     private final GroupJoinCodeRepository groupJoinCodeRepository;
+    private final GroupChallengeRepository groupChallengeRepository;
 
     /**
      * 그룹 단건 — 락 없음.
@@ -254,5 +256,45 @@ public class GroupQueryService {
      */
     public List<GroupJoinCode> findAllJoinCodes(Collection<UUID> groupIds) {
         return groupJoinCodeRepository.findAllById(groupIds);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // 다른 도메인이 빌려 가는 조회 — 부재가 정상인 쪽만 있다.
+    // 알림·초대링크는 이벤트를 뒤늦게 처리하므로 그 사이 삭제된 대상을 만나는 게 흔한 일이다.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 그룹 단건 — 락 없음, <b>부재가 정상</b>.
+     *
+     * <p>{@link #getGroup} 과 달리 던지지 않는다. 초대 링크 랜딩처럼 "그룹이 사라졌으면 만료와 같게
+     * 다룬다"는 자리가 쓴다 — 종료·삭제 판정은 <b>호출부가 이어서</b> 한다(그건 비즈니스 규칙이다).
+     *
+     * @param groupId 조회 대상
+     * @return 그룹. 없으면 빈 값
+     */
+    public Optional<Group> findGroup(UUID groupId) {
+        return groupRepository.findById(groupId);
+    }
+
+    /**
+     * 챌린지 단건 — 락 없음, <b>부재가 정상</b>.
+     *
+     * <p>{@code AFTER_COMMIT} + {@code @Async} 알림이 이벤트를 받은 시점엔 생성 직후의 삭제·종료가
+     * 이미 커밋돼 있을 수 있다. 삭제·상태 판정은 호출부 몫이다.
+     *
+     * @param challengeId 조회 대상
+     * @return 챌린지. 없으면 빈 값
+     */
+    public Optional<GroupChallenge> findChallenge(UUID challengeId) {
+        return groupChallengeRepository.findById(challengeId);
+    }
+
+    /**
+     * 회차 배치 조회 — 알림 묶음이 대상 회차를 한 번에 읽을 때.
+     *
+     * @param sessionIds 조회 대상
+     * @return 회차. <b>부재분은 빠지므로 요청 수와 결과 수가 다를 수 있다</b>
+     */
+    public List<GroupChallengeBetSession> findAllBetSessions(Collection<UUID> sessionIds) {
+        return groupChallengeBetSessionRepository.findAllById(sessionIds);
     }
 }

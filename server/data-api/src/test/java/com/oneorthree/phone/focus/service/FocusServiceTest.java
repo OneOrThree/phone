@@ -27,6 +27,7 @@ import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.DefaultTagRepository;
+import com.oneorthree.phone.focus.repository.FocusQueryService;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
 import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
@@ -107,6 +108,9 @@ class FocusServiceTest {
 
     @Mock
     private FocusSessionRepository focusSessionRepository;
+
+    @Mock
+    private FocusQueryService focusQueryService;
 
     @Mock
     private DailyFocusStatRepository dailyFocusStatRepository;
@@ -1581,7 +1585,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(end5m.minusSeconds(300)).build();   // 5분 세션
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, end5m)).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1920,7 +1924,7 @@ class FocusServiceTest {
         // 쓰면 서버 시각으로 대체돼 스텁과 어긋난다. startedAt(마커 생성분)은 클램프 대상이 아니라 그대로 둔다.
         Instant endedAt = withinClampWindow(10);
         FocusSession session = FocusSession.builder().id(SESSION_ID).user(krUser).startedAt(CROSS_START).build();
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
 
         focusService.endFocusSession(USER_ID, new FocusSessionEndRequest(SESSION_ID, endedAt, 0, null,
@@ -2865,7 +2869,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(startedAt).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -2897,7 +2901,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(endedAt.minusSeconds(3600)).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -2931,7 +2935,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(krUser).startedAt(startedAt).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(krUser);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
         // 버킷 조회는 KST 날짜(07-13)로 이뤄져야 한다 — 신규 insert 경로
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(krUser), eq(kstDate)))
@@ -2960,7 +2964,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(recentStart).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -2981,7 +2985,8 @@ class FocusServiceTest {
         // given
         User user = User.builder().id(USER_ID).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.empty());
+        given(focusQueryService.getFocusSession(SESSION_ID))
+                .willThrow(new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, null);
 
         // when & then
@@ -3000,7 +3005,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(other).startedAt(START).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, null);
 
         // when & then
@@ -3019,7 +3024,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).endedAt(END).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, null);
 
@@ -3049,7 +3054,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
         given(focusSessionRepository.findStatusById(SESSION_ID))
                 .willReturn(Optional.of(FocusSessionStatus.CANCELED));
@@ -3071,7 +3076,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
         given(focusSessionRepository.findStatusById(SESSION_ID))
                 .willReturn(Optional.of(FocusSessionStatus.AUTO_CLOSED));
@@ -3090,7 +3095,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).endedAt(END).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
         given(focusSessionRepository.findStatusById(SESSION_ID))
                 .willReturn(Optional.of(FocusSessionStatus.COMPLETED));
@@ -3110,7 +3115,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 30, null);
 
@@ -3134,7 +3139,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(startedAt).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, startedAt.minusSeconds(60), 0, null);
 
         // when & then
@@ -3155,7 +3160,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(endedAt.minusSeconds(3600)).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
@@ -3183,7 +3188,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(startedAt).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -3211,7 +3216,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(startedAt).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -3238,7 +3243,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(endedAt.minusSeconds(3600)).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(1, 0);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -3287,7 +3292,7 @@ class FocusServiceTest {
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(Instant.now().minusSeconds(600)).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -3399,7 +3404,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).build();
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.cancelSessionIfActive(eq(SESSION_ID), any())).willReturn(1);
         FocusSessionCancelRequest body = new FocusSessionCancelRequest(SESSION_ID);
 
@@ -3423,7 +3428,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).endedAt(END).build();
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.cancelSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
         FocusSessionCancelRequest body = new FocusSessionCancelRequest(SESSION_ID);
 
@@ -3438,7 +3443,8 @@ class FocusServiceTest {
     @DisplayName("존재하지 않는 세션 취소 → FocusException(SESSION_NOT_FOUND), 조건부 UPDATE 미호출")
     void cancelFocusSessionNotFound() {
         // given
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.empty());
+        given(focusQueryService.getFocusSession(SESSION_ID))
+                .willThrow(new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
         FocusSessionCancelRequest body = new FocusSessionCancelRequest(SESSION_ID);
 
         // when & then
@@ -3456,7 +3462,7 @@ class FocusServiceTest {
         User other = User.builder().id(OTHER_USER_ID).build();
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(other).startedAt(START).build();
-        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         FocusSessionCancelRequest body = new FocusSessionCancelRequest(SESSION_ID);
 
         // when & then

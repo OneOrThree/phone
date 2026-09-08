@@ -11,6 +11,7 @@ import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
@@ -61,6 +62,9 @@ class SessionOpenNotificationServiceTest {
 
     @Mock
     private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
+
+    @Mock
+    private GroupQueryService groupQueryService;
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Mock
@@ -307,7 +311,7 @@ class SessionOpenNotificationServiceTest {
                 .willReturn(List.of());
         given(notificationSentLogRepository.findDueDeferredClaimsForUpdate(anyCollection(), any()))
                 .willReturn(List.of(carried));
-        given(groupChallengeBetSessionRepository.findAllById(anyCollection()))
+        given(groupQueryService.findAllBetSessions(anyCollection()))
                 .willReturn(List.of(session));
         given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
                 .willReturn(List.of());

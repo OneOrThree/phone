@@ -16,7 +16,7 @@ import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
-import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
+import com.oneorthree.phone.league.repository.LeagueQueryService;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.user.repository.domain.Occupation;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -58,7 +58,7 @@ class LeagueServiceTest {
     private UserQueryService userQueryService;
 
     @Mock
-    private LeagueTierConfigRepository leagueTierConfigRepository;
+    private LeagueQueryService leagueQueryService;
 
     @Mock
     private LeagueRankingQueryRepository leagueRankingQueryRepository;
@@ -122,7 +122,7 @@ class LeagueServiceTest {
     void getMyTierAssigned() {
         given(userQueryService.findActive(USER_ID))
                 .willReturn(Optional.of(User.builder().id(USER_ID).nickname("나").tierLevel(3).build()));
-        given(leagueTierConfigRepository.findById(3))
+        given(leagueQueryService.findTierConfig(3))
                 .willReturn(Optional.of(tierConfig(3, "hyperfocus")));
 
         LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
@@ -138,7 +138,7 @@ class LeagueServiceTest {
     void getMyTierBadgeConfigMissing() {
         given(userQueryService.findActive(USER_ID))
                 .willReturn(Optional.of(User.builder().id(USER_ID).nickname("나").tierLevel(3).build()));
-        given(leagueTierConfigRepository.findById(3))
+        given(leagueQueryService.findTierConfig(3))
                 .willReturn(Optional.empty());
 
         LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
@@ -168,7 +168,7 @@ class LeagueServiceTest {
         LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
 
         assertThat(response.assigned()).isFalse();
-        verify(leagueTierConfigRepository, never()).findById(any());
+        verify(leagueQueryService, never()).findTierConfig(anyInt());
     }
 
     @Test
@@ -183,7 +183,7 @@ class LeagueServiceTest {
 
         assertThat(response.assigned()).isFalse();
         assertThat(response.tierLevel()).isNull();
-        verify(leagueTierConfigRepository, never()).findById(any());
+        verify(leagueQueryService, never()).findTierConfig(anyInt());
     }
 
     @Test
@@ -198,7 +198,7 @@ class LeagueServiceTest {
         LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
 
         assertThat(response.assigned()).isFalse();
-        verify(leagueTierConfigRepository, never()).findById(any());
+        verify(leagueQueryService, never()).findTierConfig(anyInt());
     }
 
     @Test

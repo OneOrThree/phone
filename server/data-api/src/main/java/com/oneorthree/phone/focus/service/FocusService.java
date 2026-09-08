@@ -10,6 +10,7 @@ import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.repository.domain.FocusType;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.focus.repository.FocusQueryService;
 import com.oneorthree.phone.focus.dto.FocusSessionCancelRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
@@ -127,6 +128,7 @@ public class FocusService {
     private final OccupationDefaultTagRepository occupationDefaultTagRepository;
     private final UserQueryService userQueryService;
     private final FocusSessionRepository focusSessionRepository;
+    private final FocusQueryService focusQueryService;
     private final UserActivityEventLogger userActivityEventLogger;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final UserStreakService userStreakService;
@@ -926,8 +928,7 @@ public class FocusService {
     public FocusSessionEndResponse endFocusSession(UUID userId, FocusSessionEndRequest body) {
         User user = requireActiveUser(userId);
 
-        FocusSession session = focusSessionRepository.findById(body.sessionId())
-                .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
+        FocusSession session = focusQueryService.getFocusSession(body.sessionId());
 
         if (session.getUser() == null || !session.getUser().getId().equals(userId)) {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
@@ -1011,8 +1012,7 @@ public class FocusService {
      */
     @Transactional
     public void cancelFocusSession(UUID userId, FocusSessionCancelRequest body) {
-        FocusSession session = focusSessionRepository.findById(body.sessionId())
-                .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
+        FocusSession session = focusQueryService.getFocusSession(body.sessionId());
 
         if (session.getUser() == null || !session.getUser().getId().equals(userId)) {
             throw new FocusException(FocusErrorCode.FORBIDDEN);

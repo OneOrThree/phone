@@ -12,9 +12,9 @@ import com.oneorthree.phone.group.repository.domain.RepeatSchedule;
 import com.oneorthree.phone.group.dto.RepeatDay;
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -80,7 +80,7 @@ public class ChallengeCreatedNotificationService {
 
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
 
-    private final GroupChallengeRepository groupChallengeRepository;
+    private final GroupQueryService groupQueryService;
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
     private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -102,7 +102,7 @@ public class ChallengeCreatedNotificationService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public int sendCreatedNotifications(GroupChallengeCreatedEvent event, Instant now) {
-        GroupChallenge challenge = groupChallengeRepository.findById(event.challengeId()).orElse(null);
+        GroupChallenge challenge = groupQueryService.findChallenge(event.challengeId()).orElse(null);
         // AFTER_COMMIT + @Async 라 이 재조회 시점엔 생성 직후의 삭제·종료가 이미 커밋돼 있을 수 있다.
         // 삭제만 거르면 "생성 → 즉시 종료"(OPEN 내기 없으면 가능, GROMO-1261) 경로에서 끝난 챌린지에
         // "지금 참여해보세요" 가 나간다 — 재조회 기준 ACTIVE 일 때만 알린다.
