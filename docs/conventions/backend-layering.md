@@ -221,6 +221,13 @@ Controller  →  Service  →  Repository  →  Entity
   선례: `common/port/PushNotificationPort` — notification 을 거꾸로 참조하지 않기
   위해 만든 것이다.
 
+  **단 하나의 예외는 무트랜잭션 진입점이다.** 의도적으로 무트랜잭션인 `@Scheduled` 크론이
+  벌크 `@Modifying` 메서드를 직접 부르면, 호출부가 트랜잭션을 열어 줄 수 없으므로 그
+  리포지토리 메서드에 `@Transactional` 을 붙인다 — 안 붙이면 `@Modifying` 이
+  `InvalidDataAccessApiUsageException` 으로 죽는다. 그 외 모든 `@Modifying` 은 호출부
+  (반드시 `@Transactional` service)의 트랜잭션에 편승하고 리포지토리엔 애노테이션을 두지 않는다.
+  현재 예외는 1건뿐이며 §5 에 적혀 있다 (GROMO-1655).
+
 ### 아직 지켜지지 않는 항목 (숨기지 않고 적는다)
 
 GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 코드가 아직 못 따라온
@@ -230,7 +237,6 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 | 항목 | 실측(2026-09) | 이관처 |
 | --- | --- | --- |
 | 타 도메인 repository 직접 주입 | 약 120건 / 44개 service | GROMO-1655 |
-| `repository/` 의 `@Transactional` | 11개 메서드 (group 4 · notification 6) | GROMO-1655 |
 | service 의 `EntityManager` 직접 조작 | 5개 파일 | GROMO-1655 |
 | 도메인 간 양방향 순환 | user↔group · user↔stats | GROMO-1656 |
 | 컨트롤러의 영속 enum 노출 | 6건 | GROMO-1657 (앱 계약 변경 동반) |
@@ -250,6 +256,7 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 | `bot/` 에 컨트롤러·dto·exception 없음 | 외부 API 표면이 없는 내부 시뮬레이터다. 없는 계층을 억지로 만들지 않는다 |
 | `support/` 가 `service/` 의 static 메서드 호출 | `GroupBetSessionFactory` → `WindowFocusAggregator.windowStartOn/windowEndOn`. 주입이 없어 배치 기준상 `support/` 가 맞지만 컴파일 타임 `support → service` 방향이 생긴다. 런타임 빈 의존이 아니라 순환·트랜잭션 문제는 없다. **ArchUnit 규칙(GROMO-1662) 도입 시 이 방향을 예외로 명시할 것** |
 | `auth/` 에 `repository/`·`domain/` 없음 | 인증은 `user` 도메인의 데이터를 쓴다. 자기 테이블이 없다 (다만 현재 user repository 를 직접 주입하고 있어 GROMO-1655 대상) |
+| `GroupChallengeBetSessionRepository.recordFailure` 의 `@Transactional` | 리포지토리에서 트랜잭션을 여는 저장소 유일 사례. 호출부 `GroupBetScheduler.retryDueSessions` 가 **건별 격리를 위해 의도적으로 무트랜잭션**인 `@Scheduled` 진입점이라, 리포지토리가 자기 트랜잭션을 열지 않으면 정산 실패를 기록할 때마다 `InvalidDataAccessApiUsageException` 이 난다. 스케줄러가 이 호출을 감싸는 대안도 되지만, "벌크 UPDATE 는 자기 트랜잭션이 필요하다"는 것은 쿼리 자체의 속성이라 쿼리 옆에 선언적으로 두는 편이 발견 가능성이 높다 (GROMO-1655) |
 
 ---
 

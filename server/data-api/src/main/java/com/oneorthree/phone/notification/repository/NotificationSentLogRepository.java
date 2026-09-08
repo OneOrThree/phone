@@ -10,7 +10,6 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Collection;
@@ -28,6 +27,11 @@ import java.util.UUID;
  * {@code (user_id, kind, subject_id)} 로 PENDING 행을 INSERT 하고(충돌 = 남이 선점 → 0 반환),
  * 리스(10분)가 만료된 PENDING 은 {@link #reclaimExpired} 가 회수한다 — 죽은 워커의 건이
  * 영구 미발송으로 남지 않는다.
+ *
+ * <p><b>{@code @Modifying} 메서드는 트랜잭션을 열지 않는다.</b> 호출측이 {@code @Transactional}
+ * 안에 있는지 확인할 책임을 진다 — 없으면 {@code InvalidDataAccessApiUsageException} 이 난다
+ * (GROMO-1655, 규약 §4). 이 저장소의 유일한 예외는
+ * {@code GroupChallengeBetSessionRepository#recordFailure} 로, 무트랜잭션 스케줄러가 직접 부른다.
  */
 public interface NotificationSentLogRepository extends JpaRepository<NotificationSentLog, UUID> {
 
@@ -63,7 +67,6 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
      *     {@link #reclaimExpired} 로 별도 시도)
      */
     @Modifying
-    @Transactional
     @Query(value = "INSERT INTO notification_sent_logs "
             + "(id, user_id, type, kind, subject_id, group_id, slot_at, status, claimed_at) "
             + "VALUES (:id, :userId, :kind, :kind, :subjectId, :groupId, :slotAt, 'PENDING', :claimedAt) "
@@ -90,7 +93,6 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
      * @return 1 = 재클레임 성공(이 호출이 소유), 0 = 남의 리스가 살아 있거나 이미 종결됨
      */
     @Modifying
-    @Transactional
     @Query("UPDATE NotificationSentLog l SET l.claimedAt = :now "
             + "WHERE l.userId = :userId AND l.kind = :kind AND l.subjectId = :subjectId "
             + "AND l.status = com.oneorthree.phone.notification.repository.domain.NotificationSendStatus.PENDING "
@@ -123,7 +125,6 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
      * @return 닫은 클레임 수(0 = 애초에 없었거나 이미 발송·소비됨)
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Transactional
     @Query("UPDATE NotificationSentLog l SET "
             + "l.status = com.oneorthree.phone.notification.repository.domain.NotificationSendStatus.SENT, "
             + "l.sentAt = :now, l.nextAttemptAt = null "
@@ -227,7 +228,6 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
      * @return 갱신된 행 수
      */
     @Modifying
-    @Transactional
     @Query("UPDATE NotificationSentLog l SET l.status = :status, l.sentAt = :sentAt WHERE l.id IN :ids")
     int updateStatusByIds(
             @Param("ids") Collection<UUID> ids,
@@ -246,7 +246,6 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
      * @return 갱신된 행 수
      */
     @Modifying
-    @Transactional
     @Query("UPDATE NotificationSentLog l SET "
             + "l.status = com.oneorthree.phone.notification.repository.domain.NotificationSendStatus.DEFERRED, "
             + "l.sentAt = null, l.nextAttemptAt = :nextAttemptAt WHERE l.id IN :ids")
@@ -262,7 +261,6 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
      * @return 삭제된 행 수
      */
     @Modifying
-    @Transactional
     @Query("DELETE FROM NotificationSentLog l WHERE l.id IN :ids")
     int deleteByIds(@Param("ids") Collection<UUID> ids);
 }

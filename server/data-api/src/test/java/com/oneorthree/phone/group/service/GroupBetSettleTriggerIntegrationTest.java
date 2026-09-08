@@ -588,6 +588,9 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
                 now.plus(Duration.ofHours(2)));
 
         // 실패 기록 — 시도 횟수 +1 과 다음 시도 시각이 함께 저장된다(detached 필드 변경으로는 불가).
+        // 맨몸 호출을 유지한다 — 이 테스트 클래스는 무트랜잭션이라 GroupBetScheduler 와 모양이 같고,
+        // recordFailure 의 @Transactional 을 떼면 여기서 InvalidDataAccessApiUsageException 으로 터진다.
+        // 즉 이 두 줄이 그 애노테이션의 유일한 회귀 안전망이다(GROMO-1655). 트랜잭션으로 감싸지 말 것.
         assertThat(groupChallengeBetSessionRepository
                 .recordFailure(backedOff.getId(), now.plus(Duration.ofHours(1)), now)).isEqualTo(1);
         assertThat(groupChallengeBetSessionRepository
