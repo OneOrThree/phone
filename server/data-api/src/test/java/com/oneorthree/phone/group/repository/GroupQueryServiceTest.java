@@ -3,6 +3,11 @@ package com.oneorthree.phone.group.repository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.repository.domain.GroupJoinCode;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.DisplayName;
@@ -12,6 +17,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -40,12 +46,30 @@ import static org.mockito.Mockito.verify;
 class GroupQueryServiceTest {
 
     private static final UUID GROUP_ID = UUID.randomUUID();
+    private static final UUID SESSION_ID = UUID.randomUUID();
+    private static final UUID CHALLENGE_ID = UUID.randomUUID();
+    private static final UUID PARTICIPANT_ID = UUID.randomUUID();
 
     @Mock
     private GroupRepository groupRepository;
 
     @Mock
     private GroupMemberRepository groupMemberRepository;
+
+    @Mock
+    private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
+
+    @Mock
+    private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+
+    @Mock
+    private GroupChallengeWindowRepository groupChallengeWindowRepository;
+
+    @Mock
+    private GroupChallengeDurationRepository groupChallengeDurationRepository;
+
+    @Mock
+    private GroupJoinCodeRepository groupJoinCodeRepository;
 
     @InjectMocks
     private GroupQueryService groupQueryService;
@@ -58,6 +82,12 @@ class GroupQueryServiceTest {
 
     @Mock
     private GroupMember groupMember;
+
+    @Mock
+    private GroupChallengeBetSession betSession;
+
+    @Mock
+    private GroupJoinCode joinCode;
 
     @Test
     @DisplayName("getGroup — 그룹이 없으면 NOT_FOUND")
@@ -159,5 +189,93 @@ class GroupQueryServiceTest {
 
         verify(groupMemberRepository, times(2)).findByUserAndGroup(user, group);
         verify(groupMemberRepository, never()).findAnyByUserAndGroup(user, group);
+    }
+    // ── 내기 회차 — 배타 락에 get 과 find 가 둘 다 있는 이유 ────────────────
+
+    @Test
+    @DisplayName("getBetSessionForUpdate — 회차가 없으면 BET_NOT_FOUND")
+    void getBetSessionForUpdateThrowsBetNotFound() {
+        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> groupQueryService.getBetSessionForUpdate(SESSION_ID))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.BET_NOT_FOUND);
+    }
+
+    /**
+     * 같은 배타 락 쿼리인데 한쪽은 던지고 한쪽은 안 던진다. 이 구분이 무너지면 여러 회차를
+     * 훑는 환불·무효화 배치가 이미 정산된 회차 하나에 통째로 죽는다.
+     */
+    @Test
+    @DisplayName("findBetSessionForUpdate — 같은 배타 락인데 부재에 던지지 않는다(배치가 죽으면 안 된다)")
+    void findBetSessionForUpdateDoesNotThrow() {
+        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID)).willReturn(Optional.empty());
+
+        assertThat(groupQueryService.findBetSessionForUpdate(SESSION_ID)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("회차 배타 락 두 판 모두 ForUpdate 쿼리를 탄다 — 무락으로 내려가면 돈 경합이 열린다")
+    void betSessionLockedReadsUseExclusiveLock() {
+        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+                .willReturn(Optional.of(betSession));
+
+        assertThat(groupQueryService.getBetSessionForUpdate(SESSION_ID)).isSameAs(betSession);
+        assertThat(groupQueryService.findBetSessionForUpdate(SESSION_ID)).contains(betSession);
+
+        verify(groupChallengeBetSessionRepository, times(2)).findByIdForUpdate(SESSION_ID);
+        verify(groupChallengeBetSessionRepository, never()).findById(SESSION_ID);
+    }
+
+    @Test
+    @DisplayName("findBetSession — 무락 조회를 타고 부재에 던지지 않는다")
+    void findBetSessionUsesUnlockedRead() {
+        given(groupChallengeBetSessionRepository.findById(SESSION_ID)).willReturn(Optional.empty());
+
+        assertThat(groupQueryService.findBetSession(SESSION_ID)).isEmpty();
+        verify(groupChallengeBetSessionRepository).findById(SESSION_ID);
+        verify(groupChallengeBetSessionRepository, never()).findByIdForUpdate(SESSION_ID);
+    }
+
+    @Test
+    @DisplayName("findBetParticipant — 잠금 뒤 재조회라 부재가 정상이다(취소·탈퇴가 지운 행)")
+    void findBetParticipantDoesNotThrow() {
+        given(groupChallengeBetParticipantRepository.findById(PARTICIPANT_ID)).willReturn(Optional.empty());
+
+        assertThat(groupQueryService.findBetParticipant(PARTICIPANT_ID)).isEmpty();
+    }
+
+    // ── 챌린지 상세·참가 코드 ──────────────────────────────────────────
+
+    @Test
+    @DisplayName("창·기간 상세는 던지지 않는다 — 부재는 '그 타입이 아니다'라는 뜻이다")
+    void challengeDetailLookupsDoNotThrow() {
+        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(Optional.empty());
+        given(groupChallengeDurationRepository.findById(CHALLENGE_ID)).willReturn(Optional.empty());
+
+        assertThat(groupQueryService.findChallengeWindow(CHALLENGE_ID)).isEmpty();
+        assertThat(groupQueryService.findChallengeDuration(CHALLENGE_ID)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("참가 코드 — get 은 부재에 NOT_FOUND, find 는 빈 값(방장에게만 싣는 자리)")
+    void joinCodeGetThrowsButFindDoesNot() {
+        given(groupJoinCodeRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> groupQueryService.getJoinCode(GROUP_ID))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
+        assertThat(groupQueryService.findJoinCode(GROUP_ID)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("참가 코드 배치 조회는 부재분을 빼고 돌려준다")
+    void findAllJoinCodesDropsMissing() {
+        List<UUID> ids = List.of(GROUP_ID, UUID.randomUUID());
+        given(groupJoinCodeRepository.findAllById(ids)).willReturn(List.of(joinCode));
+
+        assertThat(groupQueryService.findAllJoinCodes(ids)).containsExactly(joinCode);
     }
 }

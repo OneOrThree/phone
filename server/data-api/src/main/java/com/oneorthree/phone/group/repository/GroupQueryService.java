@@ -3,11 +3,18 @@ package com.oneorthree.phone.group.repository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.repository.domain.GroupJoinCode;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -31,6 +38,20 @@ import java.util.UUID;
  * {@code (User, Group)} 시그니처와 인자부터 다르다. 감춘 게 아니라 그 조합을 안 만든 것이고,
  * 해당 호출부는 repository 를 직행한다(§3 「옮기지 않는 것」).
  *
+ * <h2>내기 회차 — 부재가 정상인 쪽이 다수다</h2>
+ * 회차·참가 행 조회 18건을 재니 <b>부재의 뜻이 세 갈래</b>였다 — 잠금 대기 중 취소·철회가 지운 행을
+ * 조용히 건너뛰는 자리 11건({@code orElse}·{@code ifPresent}), 요청이 지목한 회차 부재
+ * {@code BET_NOT_FOUND} 4건, 참가코드·그룹 {@code NOT_FOUND} 3건.
+ *
+ * <p>그래서 <b>배타 락에 {@code get} 과 {@code find} 를 둘 다 둔다.</b> 여러 회차를 오름차순으로 잠그며
+ * 열린 것만 모으는 루프({@code GroupBetService} 의 환불·{@code GroupBetSettler} 의 무효화)는 이미 정산된
+ * 회차 하나에 던지면 배치 전체가 죽는다 — 락을 잡되 부재는 정상이다.
+ * {@code UserQueryService#findActiveForUpdate} 와 같은 축이다.
+ *
+ * <p>창(window)·기간(duration) 상세는 던지는 자리가 없어 {@code find} 만 만들었다. 둘 다 PK 가
+ * {@code challenge_id} 라 "챌린지에 그 타입 상세가 붙어 있나"를 묻는 조회이고, 없으면 그 타입이
+ * 아니라는 뜻이라 부재가 정상이다.
+ *
  * <p><b>트랜잭션을 시작하지 않는다.</b> 호출한 service 의 트랜잭션에 참여한다.
  */
 @Service
@@ -39,6 +60,11 @@ public class GroupQueryService {
 
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
+    private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+    private final GroupChallengeWindowRepository groupChallengeWindowRepository;
+    private final GroupChallengeDurationRepository groupChallengeDurationRepository;
+    private final GroupJoinCodeRepository groupJoinCodeRepository;
 
     /**
      * 그룹 단건 — 락 없음.
@@ -106,5 +132,126 @@ public class GroupQueryService {
      */
     public Optional<GroupMember> findMembership(User user, Group group) {
         return groupMemberRepository.findByUserAndGroup(user, group);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 내기 회차 — 돈이 걸린 행. 변경 트랜잭션은 배타 락으로 잡는다.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 회차 단건 — 락 없음, <b>부재가 정상</b>.
+     *
+     * <p>부재를 어떻게 다룰지는 호출부가 정한다 — 그룹 스코프까지 확인해 거절하는 자리도 있고
+     * (다른 그룹의 회차 id 를 끼워 넣으면 {@code BET_NOT_FOUND}), 이미 사라진 회차라 조용히
+     * 넘어가는 자리도 있다.
+     *
+     * @param sessionId 조회 대상
+     * @return 회차. 없으면 빈 값
+     */
+    public Optional<GroupChallengeBetSession> findBetSession(UUID sessionId) {
+        return groupChallengeBetSessionRepository.findById(sessionId);
+    }
+
+    /**
+     * 회차 단건 — <b>배타 락</b>, 부재가 오류.
+     *
+     * <p>다른 트랜잭션이 같은 행을 쥐고 있으면 <b>대기</b>한다. {@code readOnly} 에서는 쓸 수 없다.
+     * 여러 회차를 한 트랜잭션에서 잠글 때는 <b>id 오름차순</b>이어야 교착이 나지 않는다.
+     *
+     * @param sessionId 조회 대상
+     * @return 잠긴 회차
+     * @throws GroupException 없으면 {@link GroupErrorCode#BET_NOT_FOUND}
+     */
+    public GroupChallengeBetSession getBetSessionForUpdate(UUID sessionId) {
+        return groupChallengeBetSessionRepository.findByIdForUpdate(sessionId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+    }
+
+    /**
+     * 회차 단건 — <b>배타 락</b>인데 <b>부재가 정상</b>.
+     *
+     * <p>여러 회차를 훑으며 열린 것만 모으는 배치가 쓴다. 던지면 이미 정산된 회차 하나 때문에
+     * 나머지 환불·무효화가 전부 죽는다 — 잠금 대기 중 마지막 참가자 철회로 회차가 사라지는 것은
+     * 정상 흐름이다(걸린 돈이 없다).
+     *
+     * @param sessionId 조회 대상
+     * @return 잠긴 회차. 잠금 대기 중 사라졌으면 빈 값
+     */
+    public Optional<GroupChallengeBetSession> findBetSessionForUpdate(UUID sessionId) {
+        return groupChallengeBetSessionRepository.findByIdForUpdate(sessionId);
+    }
+
+    /**
+     * 참가 행 단건 — 락 없음, <b>부재가 정상</b>.
+     *
+     * <p>회차를 잠근 <b>뒤</b> 참가 행을 재조회하는 자리가 쓴다. 잠금을 기다리는 사이 취소·탈퇴가
+     * 지운 행이 여기서 빈 결과로 잡힌다 — 엔티티를 미리 올려 뒀다면 1차 캐시가 유령을 돌려줘
+     * flush 에서 터진다.
+     *
+     * @param participantId 조회 대상
+     * @return 참가 행. 없으면 빈 값
+     */
+    public Optional<GroupChallengeBetParticipant> findBetParticipant(UUID participantId) {
+        return groupChallengeBetParticipantRepository.findById(participantId);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 챌린지 타입별 상세(CTI) — PK 가 challenge_id 다. 던지는 자리가 없다.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 창(TIME_WINDOW) 챌린지 상세.
+     *
+     * @param challengeId 챌린지 id (이 테이블의 PK 다)
+     * @return 상세. 그 챌린지가 창 타입이 아니면 빈 값
+     */
+    public Optional<GroupChallengeWindow> findChallengeWindow(UUID challengeId) {
+        return groupChallengeWindowRepository.findById(challengeId);
+    }
+
+    /**
+     * 기간(DURATION) 챌린지 상세.
+     *
+     * @param challengeId 챌린지 id (이 테이블의 PK 다)
+     * @return 상세. 그 챌린지가 기간 타입이 아니면 빈 값
+     */
+    public Optional<GroupChallengeDuration> findChallengeDuration(UUID challengeId) {
+        return groupChallengeDurationRepository.findById(challengeId);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 참가 코드 — PK 가 group_id 인 1:1 행이다.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 참가 코드 — 부재가 오류. 재발급처럼 코드가 있어야 성립하는 자리가 쓴다.
+     *
+     * @param groupId 그룹 id (이 테이블의 PK 다)
+     * @return 참가 코드 행
+     * @throws GroupException 없으면 {@link GroupErrorCode#NOT_FOUND}
+     */
+    public GroupJoinCode getJoinCode(UUID groupId) {
+        return groupJoinCodeRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+    }
+
+    /**
+     * 참가 코드 — <b>부재가 정상</b>. 상세 응답이 방장에게만 코드를 실을 때처럼, 없으면 안 싣는 자리.
+     *
+     * @param groupId 그룹 id
+     * @return 참가 코드 행. 없으면 빈 값
+     */
+    public Optional<GroupJoinCode> findJoinCode(UUID groupId) {
+        return groupJoinCodeRepository.findById(groupId);
+    }
+
+    /**
+     * 참가 코드 배치 조회 — 내 그룹 목록이 그룹마다 코드를 실을 때. N+1 을 IN 집계 1회로 접는다.
+     *
+     * @param groupIds 그룹 id 들
+     * @return 참가 코드 행. <b>부재분은 빠지므로 요청 수와 결과 수가 다를 수 있다</b>
+     */
+    public List<GroupJoinCode> findAllJoinCodes(Collection<UUID> groupIds) {
+        return groupJoinCodeRepository.findAllById(groupIds);
     }
 }
