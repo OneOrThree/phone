@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -217,6 +218,13 @@ class UserQueryServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
         assertThat(userQueryService.findScreenTimeSettings(ID)).isEmpty();
+
+        // 무락 두 메서드가 정말 무락 쿼리를 타는지 못박는다. 이게 없으면 어느 한쪽이 락 판으로
+        // 갈아타도 테스트가 초록이다 — 스텁 안 된 락 메서드가 Mockito 기본값 Optional.empty() 를
+        // 돌려주고, 그게 위 두 단언을 그대로 통과시킨다.
+        verify(userScreenTimeSettingsRepository, times(2)).findById(ID);
+        verify(userScreenTimeSettingsRepository, never()).findByIdForShare(ID);
+        verify(userScreenTimeSettingsRepository, never()).findByIdForUpdate(ID);
     }
 
     @Test
@@ -228,6 +236,7 @@ class UserQueryServiceTest {
         assertThat(userQueryService.findScreenTimeSettingsForShare(ID)).contains(settings);
         verify(userScreenTimeSettingsRepository).findByIdForShare(ID);
         verify(userScreenTimeSettingsRepository, never()).findById(ID);
+        verify(userScreenTimeSettingsRepository, never()).findByIdForUpdate(ID);
     }
 
     @Test
@@ -241,6 +250,7 @@ class UserQueryServiceTest {
                 .isEqualTo(UserErrorCode.NOT_FOUND);
         verify(userScreenTimeSettingsRepository).findByIdForUpdate(ID);
         verify(userScreenTimeSettingsRepository, never()).findByIdForShare(ID);
+        verify(userScreenTimeSettingsRepository, never()).findById(ID);
     }
 
     @Test

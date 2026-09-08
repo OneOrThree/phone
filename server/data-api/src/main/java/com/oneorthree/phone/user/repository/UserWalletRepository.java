@@ -39,7 +39,9 @@ public interface UserWalletRepository extends JpaRepository<UserWallet, UUID> {
      * {@code FOR UPDATE} 자체를 거절한다(리그에서 겪은 전례). 표시용은 {@code findById} 를 쓴다.
      *
      * @param userId 지갑 주인. 여러 지갑을 잡는 경로는 이 값 <b>오름차순</b>으로만 접근해야 교착이 없다
-     * @return 잠긴 지갑. 아직 지갑이 없는 유저면 빈 값이라 호출측이 생성한다
+     * @return 잠긴 지갑. 없으면 빈 값이다 — <b>유일한 호출측</b>
+     *     {@link UserQueryService#getWalletForUpdate} 는 생성하지 않고
+     *     {@code NOT_FOUND} 를 던진다. 지갑은 가입 시 함께 만들어지므로 부재는 데이터 손상이다
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select w from UserWallet w where w.userId = :userId")
