@@ -1,5 +1,6 @@
-package com.oneorthree.phone.group;
+package com.oneorthree.phone.notification;
 
+import com.oneorthree.phone.group.GroupBetBatchController;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
@@ -28,6 +29,14 @@ import java.security.MessageDigest;
  * 정상이며, 그것이 dedup 이 살아 있다는 QA 확인 지점이다.
  *
  * <p>Swagger 애노테이션은 {@link GroupNotificationBatchControllerDocs} 로 분리했다(GROMO-1621).
+ *
+ * <p><b>group/ 에 있다가 notification/ 으로 왔다</b> (GROMO-1656). 이름과 경로는 그룹을 가리키지만
+ * 이 컨트롤러가 하는 일은 <b>알림 발송을 손으로 돌리는 것</b>이고, 주입받는 것도 전부
+ * {@code notification/service} 다. 그 위치 때문에 {@code group → notification} 참조가 생겨
+ * 순환의 한 변이 됐다. 반대로 여기서 group 을 참조하는 것(관리자 키 상수·503 에러코드)은
+ * 알림이 그룹 위에 있으므로 규약상 정방향이다.
+ *
+ * <p>경로·Swagger 태그·관리자 키 헤더는 그대로다 — QA 가 쓰는 계약이라 바뀌면 안 된다.
  */
 @RestController
 @RequestMapping("/api/v1")

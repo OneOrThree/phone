@@ -1,4 +1,4 @@
-package com.oneorthree.phone.group;
+package com.oneorthree.phone.notification;
 
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
