@@ -244,6 +244,7 @@ class GroupQueryServiceTest {
         given(groupChallengeBetParticipantRepository.findById(PARTICIPANT_ID)).willReturn(Optional.empty());
 
         assertThat(groupQueryService.findBetParticipant(PARTICIPANT_ID)).isEmpty();
+        verify(groupChallengeBetParticipantRepository).findById(PARTICIPANT_ID);
     }
 
     // ── 챌린지 상세·참가 코드 ──────────────────────────────────────────
@@ -256,6 +257,10 @@ class GroupQueryServiceTest {
 
         assertThat(groupQueryService.findChallengeWindow(CHALLENGE_ID)).isEmpty();
         assertThat(groupQueryService.findChallengeDuration(CHALLENGE_ID)).isEmpty();
+
+        // 둘 다 findById(UUID) 라 서로 바꿔 불러도 컴파일된다 — 창을 물으면 창 저장소를 봐야 한다.
+        verify(groupChallengeWindowRepository).findById(CHALLENGE_ID);
+        verify(groupChallengeDurationRepository).findById(CHALLENGE_ID);
     }
 
     @Test
@@ -268,6 +273,7 @@ class GroupQueryServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.NOT_FOUND);
         assertThat(groupQueryService.findJoinCode(GROUP_ID)).isEmpty();
+        verify(groupJoinCodeRepository, times(2)).findById(GROUP_ID);
     }
 
     @Test

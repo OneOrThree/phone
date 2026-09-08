@@ -38,10 +38,11 @@ import java.util.UUID;
  * {@code (User, Group)} 시그니처와 인자부터 다르다. 감춘 게 아니라 그 조합을 안 만든 것이고,
  * 해당 호출부는 repository 를 직행한다(§3 「옮기지 않는 것」).
  *
- * <h2>내기 회차 — 부재가 정상인 쪽이 다수다</h2>
- * 회차·참가 행 조회 18건을 재니 <b>부재의 뜻이 세 갈래</b>였다 — 잠금 대기 중 취소·철회가 지운 행을
- * 조용히 건너뛰는 자리 11건({@code orElse}·{@code ifPresent}), 요청이 지목한 회차 부재
- * {@code BET_NOT_FOUND} 4건, 참가코드·그룹 {@code NOT_FOUND} 3건.
+ * <h2>내기 회차·챌린지 상세·참가 코드 — 부재가 정상인 쪽이 다수다</h2>
+ * 이 축으로 접은 조회 20건을 재니 <b>부재의 뜻이 갈렸다</b> — 잠금 대기 중 취소·철회가 지운 행을
+ * 조용히 건너뛰는 자리 <b>14건</b>({@code orElse}·{@code ifPresent}·결과를 버리는 선잠금),
+ * 요청이 지목한 회차 부재 {@code BET_NOT_FOUND} 4건, 참가 코드 재발급의 {@code NOT_FOUND} 1건,
+ * 그리고 배치 조회 1건.
  *
  * <p>그래서 <b>배타 락에 {@code get} 과 {@code find} 를 둘 다 둔다.</b> 여러 회차를 오름차순으로 잠그며
  * 열린 것만 모으는 루프({@code GroupBetService} 의 환불·{@code GroupBetSettler} 의 무효화)는 이미 정산된

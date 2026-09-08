@@ -409,8 +409,7 @@ public class GroupBetService {
         List<UUID> sessionIds =
                 groupChallengeBetSessionRepository.findOpenSessionIdsByParticipantUserId(user.getId());
         for (UUID sessionId : sessionIds) {   // id 오름차순 — 잠금 순서 규약(계약 §3)
-            Optional<GroupChallengeBetSession> locked = groupChallengeBetSessionRepository
-                    .findByIdForUpdate(sessionId)
+            Optional<GroupChallengeBetSession> locked = groupQueryService.findBetSessionForUpdate(sessionId)
                     .filter(GroupChallengeBetSession::isOpen);
             if (locked.isEmpty()) {
                 continue;   // 잠금 대기 중 정산됨 — 결과를 존중한다.
