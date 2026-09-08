@@ -1,7 +1,6 @@
-package com.oneorthree.phone.stats.repository;
+package com.oneorthree.phone.focus.repository;
 
-import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
-import com.oneorthree.phone.stats.dto.FocusAverageAggregate;
+import com.oneorthree.phone.focus.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.user.repository.domain.Occupation;
 import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.LockModeType;
@@ -162,7 +161,7 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
      * @return 집중 초 총합과 <b>활동 유저 수</b>. 분모는 모수 전체가 아니라 그 기간에 행이 있는 유저 수라,
      *         휴면 유저가 평균을 끌어내리지 않는다. 평균 계산과 0명 처리는 호출측이 한다
      */
-    @Query("SELECT new com.oneorthree.phone.stats.dto.FocusAverageAggregate("
+    @Query("SELECT new com.oneorthree.phone.focus.repository.FocusAverageAggregate("
             + "COALESCE(SUM(d.totalFocusSeconds), 0), COUNT(DISTINCT d.user.id)) "
             + "FROM DailyFocusStat d WHERE d.user IN :users AND d.date BETWEEN :from AND :to")
     FocusAverageAggregate sumAndActiveCountByUsersInPeriod(
@@ -181,7 +180,7 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
      * @param to   종료일 — 포함
      * @return 집중 초 총합과 활동 유저 수. 탈퇴로 주인이 떨어져 나간 행과 봇은 양쪽 모두에서 빠진다
      */
-    @Query("SELECT new com.oneorthree.phone.stats.dto.FocusAverageAggregate("
+    @Query("SELECT new com.oneorthree.phone.focus.repository.FocusAverageAggregate("
             + "COALESCE(SUM(d.totalFocusSeconds), 0), COUNT(DISTINCT d.user.id)) "
             + "FROM DailyFocusStat d "
             + "WHERE d.user.id IS NOT NULL AND d.user.isBot = false AND d.date BETWEEN :from AND :to")
@@ -201,7 +200,7 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
      * @param to         종료일 — 포함
      * @return 집중 초 총합과 활동 유저 수
      */
-    @Query("SELECT new com.oneorthree.phone.stats.dto.FocusAverageAggregate("
+    @Query("SELECT new com.oneorthree.phone.focus.repository.FocusAverageAggregate("
             + "COALESCE(SUM(d.totalFocusSeconds), 0), COUNT(DISTINCT d.user.id)) "
             + "FROM DailyFocusStat d "
             + "WHERE d.user.occupation = :occupation AND d.user.isBot = false "

@@ -1,7 +1,7 @@
-package com.oneorthree.phone.user.repository;
+package com.oneorthree.phone.focus.repository;
 
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.repository.domain.UserStreak;
+import com.oneorthree.phone.focus.repository.domain.UserStreak;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;

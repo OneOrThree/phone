@@ -1,7 +1,5 @@
 package com.oneorthree.phone.user.repository.domain;
 
-import com.oneorthree.phone.currency.exception.CurrencyErrorCode;
-import com.oneorthree.phone.currency.exception.CurrencyException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -70,18 +68,31 @@ public class UserWallet {
     }
 
     /**
-     * 잔액 차감. 잔액이 모자라면 차감하지 않고 도메인 예외로 거절한다 — 음수 잔액은 만들지 않는다.
+     * 잔액 차감 시도 — 모자라면 <b>아무것도 바꾸지 않고</b> {@code false} 를 돌려준다.
+     * 음수 잔액은 만들지 않는다.
      *
-     * @param amount 뺄 코인. 0 이하면 {@link IllegalArgumentException},
-     *               잔액보다 크면 {@code CurrencyErrorCode.INSUFFICIENT_CURRENCY}
+     * <p><b>왜 여기서 예외를 던지지 않는가</b> (GROMO-1656). 종전엔 이 자리에서
+     * {@code CurrencyException(INSUFFICIENT_CURRENCY)} 를 던졌는데, 그러면 <b>계정 도메인의
+     * 엔티티가 재화 도메인의 에러 어휘를 들고 있게 된다</b> — user 가 currency 를 참조하는
+     * 유일한 자리였다. 「잔액이 모자란다」는 사실은 지갑이 알지만, 그것을 <b>어떤 실패로 보고할지</b>는
+     * 재화 도메인이 정한다. 실제로 이 메서드를 부르는 곳은 {@code currency} 둘뿐이고
+     * ({@code CurrencyLedgerService.debit} · {@code InGameCurrencyService}), 둘 다 그 자리에서
+     * {@code INSUFFICIENT_CURRENCY} 를 던진다 — 앱이 받는 응답은 이전과 같다.
+     *
+     * <p><b>반환값을 무시하면 안 된다</b> — 무시하면 「차감은 안 됐는데 원장에는 기입된」 상태가
+     * 만들어진다. 이름을 {@code spend} 가 아니라 {@code trySpend} 로 둔 이유가 그것이다.
+     *
+     * @param amount 뺄 코인. 0 이하면 {@link IllegalArgumentException}
+     * @return 실제로 차감했으면 {@code true}, 잔액이 모자라 차감하지 않았으면 {@code false}
      */
-    public void spend(int amount) {
+    public boolean trySpend(int amount) {
         if (amount <= 0) {
             throw new IllegalArgumentException("잔액 감소는 양수 단위로만 되어야 합니다.");
         }
         if (this.balance < amount) {
-            throw new CurrencyException(CurrencyErrorCode.INSUFFICIENT_CURRENCY);
+            return false;
         }
         this.balance -= amount;
+        return true;
     }
 }

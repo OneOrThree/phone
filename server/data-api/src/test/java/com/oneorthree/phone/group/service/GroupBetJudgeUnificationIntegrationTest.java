@@ -34,8 +34,8 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.screentime.repository.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
-import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.domain.DailyFocusStat;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.domain.UserWallet;
@@ -457,7 +457,7 @@ class GroupBetJudgeUnificationIntegrationTest extends IntegrationTestBase {
         windowFocusSession(earlyWinner, sessionDate, LocalTime.of(9, 0), GOAL_MINUTES - 5);
 
         inTransaction.executeWithoutResult(status ->
-                groupBetEarlyWinConfirmer.confirmWins(earlyWinner, List.of(sessionDate)));
+                groupBetEarlyWinConfirmer.confirmWins(earlyWinner.getId(), List.of(sessionDate)));
 
         GroupChallengeBetParticipant confirmed = participantsOf(session).stream()
                 .filter(p -> p.getUser().getId().equals(earlyWinner.getId()))

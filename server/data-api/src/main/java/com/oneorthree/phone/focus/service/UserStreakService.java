@@ -1,11 +1,11 @@
-package com.oneorthree.phone.user.service;
+package com.oneorthree.phone.focus.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.repository.domain.UserStreak;
-import com.oneorthree.phone.user.repository.UserStreakRepository;
+import com.oneorthree.phone.focus.repository.domain.UserStreak;
+import com.oneorthree.phone.focus.repository.UserStreakRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

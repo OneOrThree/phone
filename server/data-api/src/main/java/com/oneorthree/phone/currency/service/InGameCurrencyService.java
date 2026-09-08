@@ -101,7 +101,10 @@ public class InGameCurrencyService {
         }
 
         UserWallet wallet = userQueryService.getWallet(userId);
-        wallet.spend(amount);
+        if (!wallet.trySpend(amount)) {
+            // 판정은 지갑이, 보고는 재화 도메인이 (GROMO-1656). 응답은 종전과 동일하다.
+            throw new CurrencyException(CurrencyErrorCode.INSUFFICIENT_CURRENCY);
+        }
         currencyTransactionRepository.save(CurrencyTransaction.builder()
                 .user(user)
                 .amount(amount)

@@ -1,4 +1,4 @@
-package com.oneorthree.phone.stats.repository.domain;
+package com.oneorthree.phone.focus.repository.domain;
 
 import com.oneorthree.phone.user.repository.domain.User;
 

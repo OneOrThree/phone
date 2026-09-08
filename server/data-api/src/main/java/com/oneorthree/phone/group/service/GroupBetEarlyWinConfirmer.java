@@ -5,6 +5,8 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.event.GroupBetWonEvent;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.common.port.EarlyWinConfirmationPort;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.group.listener.GroupBetEarlySettlementListener;
 import lombok.RequiredArgsConstructor;
@@ -48,10 +50,11 @@ import java.util.UUID;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class GroupBetEarlyWinConfirmer {
+public class GroupBetEarlyWinConfirmer implements EarlyWinConfirmationPort {
 
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final GroupQueryService groupQueryService;
+    private final UserQueryService userQueryService;
     private final GroupBetJudge groupBetJudge;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -69,14 +72,15 @@ public class GroupBetEarlyWinConfirmer {
      * <p>잠금 순서는 <b>회차 id 오름차순</b>(§5.4) — 여러 회차를 잡는 다른 경로(탈퇴 연동·정산)와
      * 같은 방향이라 교차 데드락이 없다.
       *
-      * @param user 방금 집중을 마친 유저 — 이 유저가 낀 미확정 OPEN 회차만 잠근다
+      * @param userId 방금 집중을 마친 유저 — 이 유저가 낀 미확정 OPEN 회차만 잠근다
       * @param dates 이번 세션이 통계에 귀속된 날짜들. 비어 있으면 즉시 반환한다
      */
-    public void lockCandidateSessions(User user, Collection<LocalDate> dates) {
+    @Override
+    public void lockCandidateSessions(UUID userId, Collection<LocalDate> dates) {
         if (dates.isEmpty()) {
             return;
         }
-        groupBetEarlyWinTargets(user, dates).stream()
+        groupBetEarlyWinTargets(userId, dates).stream()
                 .map(GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget::getSessionId)
                 .distinct()
                 .sorted()
@@ -84,9 +88,9 @@ public class GroupBetEarlyWinConfirmer {
     }
 
     private List<GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget> groupBetEarlyWinTargets(
-            User user, Collection<LocalDate> dates) {
+            UUID userId, Collection<LocalDate> dates) {
         return groupChallengeBetParticipantRepository
-                .findUnconfirmedOpenFocusTargetsByUserAndDates(user.getId(), dates);
+                .findUnconfirmedOpenFocusTargetsByUserAndDates(userId, dates);
     }
 
     /**
@@ -95,18 +99,25 @@ public class GroupBetEarlyWinConfirmer {
      * (CTI 유실 등)는 건너뛰고 예외는 삼키지 않는다 — 여기서 나는 예외는 잠금·flush 계열이라 삼켜도
      * 트랜잭션은 이미 rollback-only 다.
       *
-      * @param user 방금 집중을 마친 유저
+      * @param userId 방금 집중을 마친 유저
       * @param dates 통계 귀속 날짜들(자정 걸침 세션이면 2일). 비어 있거나 대상 회차가 없으면 즉시 반환한다
      */
-    public void confirmWins(User user, Collection<LocalDate> dates) {
+    @Override
+    public void confirmWins(UUID userId, Collection<LocalDate> dates) {
         if (dates.isEmpty()) {
             return;
         }
         List<GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget> targets =
-                groupBetEarlyWinTargets(user, dates);
+                groupBetEarlyWinTargets(userId, dates);
         if (targets.isEmpty()) {
             return;
         }
+
+        // 판정 커널이 유저 엔티티를 요구한다(SCREEN_TIME 측정 권한을 읽어야 하므로 — N50).
+        // 포트는 id 만 받으므로 여기서 한 번 로드한다 (GROMO-1656): 포트가 유저 엔티티를 실어
+        // 나르면 나중에 이 경계를 프로세스 밖으로 잘라낼 수 없다(GROMO-1661). 조회는 <b>대상이
+        // 실제로 있을 때만</b> 일어나므로, 내기에 참가하지 않은 유저의 집중 저장에는 부담이 없다.
+        User user = userQueryService.getTarget(userId);
 
         // 회차 락을 오름차순으로 전부 먼저 잡는다(§5.4) — 쿼리가 s.id ORDER BY 를 보장하지만
         // 방어적으로 한 번 더 정렬한다.
@@ -142,17 +153,17 @@ public class GroupBetEarlyWinConfirmer {
             }
             Integer minutes = groupBetJudge
                     .progressMinutes(target0.get(), session.getSessionDate(), List.of(user))
-                    .get(user.getId());
+                    .get(userId);
             if (GroupBetJudge.isAchieved(target0.get(), minutes)) {
                 // 확정 시각 박제(LLD §5.1 — confirmWin(m, Instant.now())). 조기 확정 전용 컬럼이다.
                 participant.confirmWin(minutes == null ? 0 : minutes, Instant.now());
                 // 소비자는 둘 — 조기 정산 트리거(전원 확정 시)와 BET_WON 푸시(본인, FR-43).
                 // 후자의 소비자 배선은 알림 파이프라인 소유자인 B7 의 몫이라 여기서는 발행만 한다.
                 eventPublisher.publishEvent(new GroupBetWonEvent(
-                        session.getId(), participant.getId(), user.getId(),
+                        session.getId(), participant.getId(), userId,
                         session.getGroup().getId(), session.getChallenge().getId()));
                 log.info("개인 승리 조기 확정 — sessionId={}, userId={}, progressMinutes={}",
-                        session.getId(), user.getId(), minutes);
+                        session.getId(), userId, minutes);
             }
         }
     }
