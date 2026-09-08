@@ -238,7 +238,7 @@ class GroupServiceTest {
                 .category(MissionCategory.FOCUS).status(GroupChallengeStatus.ACTIVE).build();
         given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtAsc(
                 group, GroupChallengeStatus.ACTIVE)).willReturn(Optional.of(challenge));
-        given(groupChallengeDurationRepository.findById(CHALLENGE_ID)).willReturn(
+        given(groupQueryService.findChallengeDuration(CHALLENGE_ID)).willReturn(
                 Optional.of(GroupChallengeDuration.builder()
                         .challengeId(CHALLENGE_ID).durationMinutes(durationMinutes).build()));
     }
@@ -254,7 +254,7 @@ class GroupServiceTest {
                 .category(category).status(GroupChallengeStatus.ACTIVE).build();
         given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtAsc(
                 group, GroupChallengeStatus.ACTIVE)).willReturn(Optional.of(challenge));
-        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(
+        given(groupQueryService.findChallengeWindow(CHALLENGE_ID)).willReturn(
                 Optional.of(GroupChallengeWindow.builder()
                         .challengeId(CHALLENGE_ID).windowStart(windowStart).windowEnd(windowEnd).build()));
     }
@@ -524,7 +524,7 @@ class GroupServiceTest {
         given(groupMemberRepository.countByGroupIdIn(List.of(GROUP_ID, GROUP_ID_2)))
                 .willReturn(List.of(memberCount(GROUP_ID, 1), memberCount(GROUP_ID_2, 1)));
         // GROMO-672: 요약 응답의 code 는 group_join_codes 일괄 조회(findAllById)로 채운다 — N+1 방지
-        given(groupJoinCodeRepository.findAllById(List.of(GROUP_ID, GROUP_ID_2)))
+        given(groupQueryService.findAllJoinCodes(List.of(GROUP_ID, GROUP_ID_2)))
                 .willReturn(List.of(
                         GroupJoinCode.builder().groupId(GROUP_ID).group(group1).code("AAAA1111").build(),
                         GroupJoinCode.builder().groupId(GROUP_ID_2).group(group2).code("BBBB2222").build()));
@@ -1066,7 +1066,7 @@ class GroupServiceTest {
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.of(owner));
-        given(groupJoinCodeRepository.findById(GROUP_ID)).willReturn(Optional.of(joinCode));
+        given(groupQueryService.getJoinCode(GROUP_ID)).willReturn(joinCode);
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
 
         // when
@@ -1161,7 +1161,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember));
         givenRepresentativeDurationChallenge(group, 60);
         // GROMO-672: OWNER 상세의 code/codeExpiresAt 은 group_join_codes 에서 조회
-        given(groupJoinCodeRepository.findById(GROUP_ID))
+        given(groupQueryService.findJoinCode(GROUP_ID))
                 .willReturn(Optional.of(joinCodeFor(group, "INVITE01", expiry)));
 
         // when
