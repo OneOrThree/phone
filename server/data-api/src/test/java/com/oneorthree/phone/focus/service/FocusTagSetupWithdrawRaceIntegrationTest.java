@@ -11,7 +11,7 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
-import com.oneorthree.phone.user.service.UserService;
+import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -47,7 +47,7 @@ class FocusTagSetupWithdrawRaceIntegrationTest extends IntegrationTestBase {
     @Autowired
     FocusService focusService;
     @Autowired
-    UserService userService;
+    AccountWithdrawalService accountWithdrawalService;
     @Autowired
     UserRepository userRepository;
     @Autowired
@@ -99,7 +99,7 @@ class FocusTagSetupWithdrawRaceIntegrationTest extends IntegrationTestBase {
             Future<?> withdrawCall = pool.submit(() -> {
                 await(startTogether);
                 // 채택이 먼저 커밋됐어도 탈퇴는 성공해야 한다(태그는 탈퇴를 막는 자원이 아니다).
-                userService.withdraw(user.getId());
+                accountWithdrawalService.withdraw(user.getId());
             });
             setupCommitted = setupCall.get(30, TimeUnit.SECONDS);
             withdrawCall.get(30, TimeUnit.SECONDS);

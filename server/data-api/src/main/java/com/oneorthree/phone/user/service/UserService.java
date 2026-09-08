@@ -12,22 +12,10 @@ import com.oneorthree.phone.user.repository.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.domain.UserWallet;
-import com.oneorthree.phone.friend.repository.domain.Friendship;
-import com.oneorthree.phone.friend.repository.FriendshipRepository;
-import com.oneorthree.phone.friend.repository.PinnedUserRepository;
-import com.oneorthree.phone.group.repository.domain.GroupMember;
-import com.oneorthree.phone.group.exception.GroupErrorCode;
-import com.oneorthree.phone.group.exception.GroupException;
-import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.service.GroupBetService;
 import com.oneorthree.phone.user.repository.domain.SocialAccount;
 import com.oneorthree.phone.user.repository.domain.StatVisibility;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
-import com.oneorthree.phone.focus.repository.FocusSessionRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.repository.OccupationInfoRepository;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
@@ -79,16 +67,8 @@ public class UserService {
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
-    private final GroupRepository groupRepository;
-    private final GroupMemberRepository groupMemberRepository;
-    private final FocusSessionRepository focusSessionRepository;
-    private final DailyFocusStatRepository dailyFocusStatRepository;
-    private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final SocialAccountRepository socialAccountRepository;
     private final OccupationInfoRepository occupationInfoRepository;
-    private final FriendshipRepository friendshipRepository;
-    private final PinnedUserRepository pinnedUserRepository;
-    private final GroupBetService groupBetService;
     private final UserActivityEventLogger userActivityEventLogger;
 
     /**
@@ -245,104 +225,56 @@ public class UserService {
     }
 
     /**
-     * 회원 탈퇴 — 행을 지우지 않고 PII 를 파기한 뒤 비활성 표시를 한다.
+     * 탈퇴자의 지갑·설정 행을 삭제한다 (GROMO-635 · 분리 GROMO-1656).
      *
-     * <p>하드 삭제는 불가능하다: 다수 테이블이 이 유저를 NOT NULL FK 로 참조해 이력이 있는 계정은
-     * 지워지지 않는다. 대신 집중·통계 이력은 유저 참조만 끊어 익명화하고, 지갑·설정은 삭제하며,
-     * 소셜 연동만 <b>하드 삭제</b>한다(provider_id 가 PII 이고, 같은 소셜 계정으로 재가입할 수 있어야 한다).
+     * <p>집중·통계 이력과 달리 이 넷은 <b>하드 삭제</b>다 — 다른 사람의 판정에 쓰이지 않는
+     * 개인 소유 행이고, 남겨 두면 재가입 시 옛 목표·권한이 되살아난다.
      *
-     * <p><b>단계 순서가 곧 정합성</b>이다. 내기 해제 환불이 지갑에 입금되므로 지갑 삭제보다 앞서야 하고,
-     * 판정 근거 박제는 통계를 익명화하기 전이어야 하며, 소셜 연동 삭제는 반드시 <b>맨 끝</b>이다 —
-     * 그 벌크 DELETE 가 영속성 컨텍스트를 비워서 뒤에 오는 엔티티 변경은 전부 조용히 유실된다.
+     * <p><b>호출 순서 제약</b>: 그룹 내기 해제의 환불이 이 유저의 지갑에 입금되므로
+     * ({@code GroupMemberService.detachWithdrawnUser}), 그보다 <b>뒤</b>에 불려야 한다 —
+     * 지갑을 먼저 지우면 환불이 {@code NOT_FOUND} 로 터진다.
      *
-     * <p>혼자 있는 소유 그룹은 자동 종료되지만, 다른 멤버가 남은 그룹의 방장이면 위임 전까지 탈퇴할 수 없다.
-     *
-     * @param userId 탈퇴할 본인. 이미 탈퇴했거나 없으면 404
-     * @throws com.oneorthree.phone.group.exception.GroupException 위임하지 않은 방장 그룹이 남아 있을 때
+     * @param userId 탈퇴 중인 유저
      */
     @Transactional
-    public void withdraw(UUID userId) {
-        // 배타 락으로 로드 (GROMO-801) — 아래 소셜 관계 정리와 새 관계 생성(친구 요청·핀)을 직렬화한다.
-        // 락이 없으면 READ COMMITTED 에서 정리 스캔 이후·커밋 이전에 낀 요청이 정리를 빠져나가 유령으로 남는다.
-        User user = userQueryService.getTargetForUpdate(userId);
-
-        // A-2: 계정 탈퇴 시 방장으로 남은 그룹 처리. 혼자 있는(활성 멤버 1명) 소유 그룹은 자동
-        // 종료(ENDED)하고, 다른 멤버가 남은 소유 그룹이 있으면 위임이 필요하므로 아래에서 막는다.
-        for (GroupMember ownerMembership : groupMemberRepository.findActiveOwnerMembershipsByUserId(userId)) {
-            if (groupMemberRepository.findByGroup(ownerMembership.getGroup()).size() <= 1) {
-                ownerMembership.leave();
-                ownerMembership.getGroup().close();
-            }
-        }
-
-        if (groupRepository.existsGroupOwnedBy(userId)) {
-            throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
-        }
-
-        // OPEN 내기 일괄 해제 (GROMO-801) — 그룹 탈퇴(GroupMemberService.withdrawGroup)와 같은
-        // 순서(내기 해제 → leave)를 같은 트랜잭션에서 밟는다. 해제하지 않으면 OPEN 내기 판돈이
-        // 에스크로에 묶인 채 소각된다(GroupBetSettler 는 탈퇴자 지급을 스킵한다).
-        // 멤버십이 아니라 유저 스코프인 이유(codex 리뷰): ① 강퇴자는 활성 멤버십이 없어도 참가·
-        // 판돈이 남아 있다(kickMember 는 정산에 맡긴다) ② 그룹 단위 순차 해제는 앞 그룹 환불로
-        // 지갑 잠금을 쥔 채 다음 그룹 내기 잠금을 기다려 정산기와 AB-BA 교착이 된다 — 전 그룹의
-        // 내기 행을 bet id 오름차순으로 전부 잠근 뒤에만 돈이 움직인다(releaseFromAllOpenBets).
-        //
-        // 순서 제약: 해제 환불이 이 유저의 지갑에 입금되므로 반드시 아래
-        // userWalletRepository.deleteById 보다 먼저 실행해야 한다 — 지갑을 먼저 지우면 환불이
-        // NOT_FOUND 로 터진다. 친구 정리(friendships 락 구간)보다도 앞이라 "락 보유 구간을
-        // 줄인다" 규율과도 어긋나지 않는다.
-        groupBetService.releaseFromAllOpenBets(user);
-
-        // 판정 근거 박제 (GROMO-1423) — 위 해제가 환불하지 못하고 정산 대상으로 남긴 OPEN 참가 행에,
-        // 아래 nullify 로 통계가 사라지기 전 시점의 달성·진행분을 박제한다. 순서 제약: 반드시
-        // releaseFromAllOpenBets 뒤(남는 행만 박제) · focus/daily nullify 앞(근거가 살아 있을 때).
-        groupBetService.freezeEvidenceForAccountErasure(user);
-
-        // 활성 멤버십 이탈 (GROMO-801) — 안 하면 탈퇴자가 is_left=false 유령 멤버로 남아 멤버
-        // 목록에 nickname null 로 뜨고 정원 한 자리를 영구히 차지한다. solo 방장 멤버십은 위
-        // A-2 블록이 이미 leave 했으므로 이 활성 조회에 다시 잡히지 않는다.
-        for (GroupMember membership : groupMemberRepository.findByUser(user)) {
-            membership.leave();
-        }
-
-        focusSessionRepository.nullifyUser(userId);
-        dailyFocusStatRepository.nullifyUser(userId);
-        dailyScreenTimeStatRepository.nullifyUser(userId);
+    public void deleteWalletAndSettings(UUID userId) {
         userWalletRepository.deleteById(userId);
         userScreenTimeSettingsRepository.deleteById(userId);
         userFocusTimeSettingsRepository.deleteById(userId);
         userNotificationSettingsRepository.deleteById(userId);
+    }
 
-        // 소셜 관계 정리 (GROMO-801) — 친구는 소프트딜리트, 핀은 하드 삭제.
-        // 탈퇴 자체는 이 정리가 없어도 성공한다(user row 가 남아 FK 가 유지되므로). 다만 정리하지 않으면
-        // 상대방 화면에 닉네임이 파기된 '유령 친구'가 남고, 탈퇴자의 PENDING 요청을 수락하면 유령과 친구가 된다.
-        // 조회 시점 필터가 아니라 여기서 끊는 이유: friendships 를 읽는 경로가 목록·카운트·요청·검색으로 흩어져 있어
-        // 새 조회가 생길 때마다 필터를 빠뜨릴 위험이 크다. 한 번 끊으면 deletedAt IS NULL 이 이미 걸러준다.
-        //
-        // 위치가 메서드 끝인 이유: findActiveByUserId 가 friendships N 행에 배타 락을 건다. 그 유저가 낀 관계의
-        // 동시 수락·거절이 이 락을 기다리므로, 관계와 무관한 정리(nullify·설정 삭제)를 먼저 끝내 락 보유 구간을 줄인다.
-        // 앞의 벌크 쿼리들과는 대상 테이블이 겹치지 않아(auto-flush 미발생) 순서를 바꿔도 결과는 동일하다.
-        Instant now = Instant.now();
-        for (Friendship friendship : friendshipRepository.findActiveByUserId(userId)) {
-            friendship.softDelete(now);
-        }
-        pinnedUserRepository.deleteAllInvolving(userId);
-
-        // 개인정보 파기 + 소프트딜리트 (GROMO-635) — 하드 삭제 시 다수 FK(NOT NULL: social_accounts·focus_tags·
-        // user_items·currency_transactions·group_members·league_arena_users 등) 위반으로 409(이력 있는 유저 탈퇴 불가).
-        // → user row 는 남겨 소프트딜리트, 소셜연동·PII 만 파기. 집중 이력은 위 nullify 로 익명화.
+    /**
+     * 개인정보를 파기하고 계정을 비활성 표시한 뒤 소셜 연동을 끊는다 (GROMO-635, GROMO-801 · 분리 GROMO-1656).
+     *
+     * <p><b>하드 삭제는 불가능하다</b>: 다수 테이블이 이 유저를 NOT NULL FK 로 참조해
+     * ({@code social_accounts} · {@code focus_tags} · {@code user_items} ·
+     * {@code currency_transactions} · {@code group_members} · {@code league_arena_users} 등)
+     * 이력이 있는 계정은 지워지지 않는다. 그래서 user 행은 남겨 소프트딜리트하고 PII 만 파기한다.
+     *
+     * <p><b>소셜 연동 삭제가 반드시 맨 끝인 이유</b>(GROMO-801): 그 벌크 DELETE 는
+     * {@code clearAutomatically} 로 영속성 컨텍스트를 비우므로, <b>이 호출 뒤에 엔티티를 고치면
+     * 전부 조용히 유실된다</b> — 실제로 예전에 PII 파기·소프트딜리트가 이 호출 뒤에 있어 커밋되지
+     * 않고 있었다. {@code flushAutomatically} 가 여기까지 쌓인 변경(내기 해제 환불·멤버십 이탈·
+     * 지갑 삭제·PII 파기)을 먼저 밀어 넣은 뒤에 컨텍스트를 비운다.
+     *
+     * <p>그래서 이 메서드는 <b>탈퇴 절차의 마지막</b>이어야 한다. 뒤에 다른 도메인의 정리를 붙이면
+     * 그 변경이 커밋되지 않는다 — 컴파일도 테스트도 이것을 잡아 주지 않는다.
+     *
+     * <p>소셜 연동만 하드 삭제하는 이유는 {@code provider_id} 가 PII 이고, 같은 소셜 계정으로
+     * 재가입할 수 있어야 하기 때문이다.
+     *
+     * @param user 탈퇴 중인 유저. 호출부가 배타 락으로 로드해 둔 엔티티여야 한다
+     */
+    @Transactional
+    public void erasePersonalData(User user) {
         user.setNickname(null);
         user.setDeviceToken(null);
         user.setRefreshTokenHash(null);
         user.setCountryCode(null);
         user.setDeleted(true);
 
-        // 소셜 연동 삭제(재로그인 차단 + provider_id 파기)는 반드시 맨 끝이다 (GROMO-801) — 이 벌크
-        // DELETE 는 clearAutomatically 로 영속성 컨텍스트를 비우므로, 이 뒤에 엔티티를 고치면 전부
-        // 조용히 유실된다(실제로 위 PII 파기·소프트딜리트가 이 호출 뒤에 있어 커밋되지 않고 있었다).
-        // flushAutomatically 가 여기까지 쌓인 변경(내기 해제 환불·멤버십 이탈·지갑 삭제·PII 파기)을
-        // 먼저 밀어 넣은 뒤에 컨텍스트를 비운다.
-        socialAccountRepository.deleteByUserId(userId);
+        socialAccountRepository.deleteByUserId(user.getId());
     }
 
     /**

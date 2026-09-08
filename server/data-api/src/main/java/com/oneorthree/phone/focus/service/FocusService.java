@@ -1309,4 +1309,27 @@ public class FocusService {
                 "total_focus_minutes", totalFocusMinutes,
                 "goal_minutes", goalMinutes));
     }
+
+    /**
+     * 탈퇴자의 집중 세션을 익명화한다 (GROMO-635 · 이동 GROMO-1656).
+     *
+     * <p>행을 지우지 않고 {@code user_id} 만 끊는다 — 세션은 그룹 내기 판정·통계 집계의 근거라
+     * 지우면 남은 사람들의 이력이 함께 무너진다. 참조가 끊긴 행은 조회 경로에서 자연히 빠진다
+     * ({@code user} 가 non-null 인 쿼리들이 걸러 낸다).
+     *
+     * <p>종전엔 {@code UserService.withdraw} 가 {@code FocusSessionRepository} 를 직접 주입해
+     * 불렀다. 집중 이력을 익명화하는 방법은 focus 가 알아야 하므로 여기로 옮겼다 —
+     * 쿼리도 시점도 그대로이고, 호출부의 트랜잭션에 편승한다.
+     *
+     * <p><b>호출 시점 제약</b>: 그룹 내기의 판정 근거 박제({@code GroupBetService
+     * .freezeEvidenceForAccountErasure})가 이 익명화 <b>앞</b>에 끝나 있어야 한다 — 박제는 아직
+     * 살아 있는 집중 기록을 읽는다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void anonymizeWithdrawnUser(UUID userId) {
+        focusSessionRepository.nullifyUser(userId);
+    }
+
 }

@@ -10,6 +10,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
@@ -29,13 +31,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
  * GroupMemberService 단위 테스트.
  *
- * <p>대상: 방장 권한 이양(transferOwner), 그룹 탈퇴(withdrawGroup).
+ * <p>대상: 방장 권한 이양(transferOwner), 그룹 탈퇴(withdrawGroup),
+ * 계정 탈퇴자 분리(detachWithdrawnUser — GROMO-1656 에서 UserService 로부터 옮겨 왔다).
  * 핵심 검증 포인트는 OWNER 권한, 멤버십 존재,
  * 그리고 탈퇴 시 멤버 수에 따른 분기(마지막 1명→그룹 close, OWNER 다수→차단, 일반멤버→삭제).
  */
@@ -50,6 +54,9 @@ class GroupMemberServiceTest {
 
     @Mock
     private GroupMemberRepository groupMemberRepository;
+
+    @Mock
+    private GroupRepository groupRepository;
 
     @Mock
     private GroupQueryService groupQueryService;
@@ -493,5 +500,82 @@ class GroupMemberServiceTest {
                 .isEqualTo(GroupErrorCode.HOST_WITHDRAW);
         verify(groupMemberRepository, never()).delete(member);
         verify(groupBetService, never()).releaseFromOpenBets(user, group);
+    }
+    // ── detachWithdrawnUser (계정 탈퇴자 분리, GROMO-1656 이전) ─────────────
+
+    private static final UUID WITHDRAWER_ID = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
+
+    @Test
+    @DisplayName("혼자 있는 소유 그룹은 자동 종료(ENDED)되고 방장 멤버십도 이탈 처리된다 (A-2)")
+    void detachAutoEndsSoloOwnedGroup() {
+        User user = User.builder().id(WITHDRAWER_ID).build();
+        Group soloGroup = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000aa"))
+                .status(GroupStatus.WAITING).build();
+        GroupMember ownerMembership = GroupMember.builder()
+                .user(user).group(soloGroup).role(GroupMemberRole.OWNER).build();
+        given(groupMemberRepository.findActiveOwnerMembershipsByUserId(WITHDRAWER_ID))
+                .willReturn(List.of(ownerMembership));
+        // 활성 멤버가 방장 1명뿐 → 위임할 상대가 없으므로 자동 종료 대상
+        given(groupMemberRepository.findByGroup(soloGroup)).willReturn(List.of(ownerMembership));
+        given(groupRepository.existsGroupOwnedBy(WITHDRAWER_ID)).willReturn(false);
+
+        groupMemberService.detachWithdrawnUser(user);
+
+        assertThat(soloGroup.getStatus()).isEqualTo(GroupStatus.ENDED);
+        assertThat(ownerMembership.isLeft()).isTrue();
+        // 자동 종료된 그룹이라도 OPEN 내기 판돈이 묶이면 안 된다 — 유저 스코프 일괄 해제는
+        // 멤버십·그룹 상태와 무관하게 반드시 불린다
+        verify(groupBetService).releaseFromAllOpenBets(user);
+    }
+
+    @Test
+    @DisplayName("MEMBER 멤버십은 전부 leave — 안 하면 nickname null 유령이 정원을 차지한다")
+    void detachLeavesEveryActiveMembership() {
+        User user = User.builder().id(WITHDRAWER_ID).build();
+        Group groupA = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000a1"))
+                .status(GroupStatus.WAITING).build();
+        Group groupB = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000a2"))
+                .status(GroupStatus.WAITING).build();
+        GroupMember membershipA = GroupMember.builder()
+                .user(user).group(groupA).role(GroupMemberRole.MEMBER).build();
+        GroupMember membershipB = GroupMember.builder()
+                .user(user).group(groupB).role(GroupMemberRole.MEMBER).build();
+        given(groupRepository.existsGroupOwnedBy(WITHDRAWER_ID)).willReturn(false);
+        given(groupMemberRepository.findByUser(user)).willReturn(List.of(membershipA, membershipB));
+
+        groupMemberService.detachWithdrawnUser(user);
+
+        assertThat(membershipA.isLeft()).isTrue();
+        assertThat(membershipB.isLeft()).isTrue();
+    }
+
+    @Test
+    @DisplayName("내기 해제 → 판정 근거 박제 순서다 — 뒤집으면 이미 해제된 행까지 박제한다")
+    void detachFreezesEvidenceAfterReleasing() {
+        User user = User.builder().id(WITHDRAWER_ID).build();
+        given(groupRepository.existsGroupOwnedBy(WITHDRAWER_ID)).willReturn(false);
+
+        groupMemberService.detachWithdrawnUser(user);
+
+        InOrder order = inOrder(groupBetService);
+        order.verify(groupBetService).releaseFromAllOpenBets(user);
+        order.verify(groupBetService).freezeEvidenceForAccountErasure(user);
+    }
+
+    @Test
+    @DisplayName("위임 안 한 방장 그룹이 남으면 HOST_WITHDRAW — 돈이 움직이기 전에 막는다")
+    void detachRejectsUndelegatedHostBeforeAnyMoneyMoves() {
+        User user = User.builder().id(WITHDRAWER_ID).build();
+        given(groupRepository.existsGroupOwnedBy(WITHDRAWER_ID)).willReturn(true);
+
+        assertThatThrownBy(() -> groupMemberService.detachWithdrawnUser(user))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.HOST_WITHDRAW);
+
+        // 판정이 해제·박제·이탈보다 앞이라 아무것도 시작되지 않는다
+        verify(groupBetService, never()).releaseFromAllOpenBets(any());
+        verify(groupBetService, never()).freezeEvidenceForAccountErasure(any());
+        verify(groupMemberRepository, never()).findByUser(any());
     }
 }

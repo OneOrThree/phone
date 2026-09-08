@@ -563,4 +563,21 @@ public class StatsService {
                 (double) overlapSeconds * session.getTotalDistractionSeconds() / duration);
         return Math.max(0, overlapSeconds - distraction);
     }
+
+    /**
+     * 탈퇴자의 일별 집중 통계를 익명화한다 (GROMO-635 · 이동 GROMO-1656).
+     *
+     * <p>{@code focus_sessions} 와 같은 이유로 행을 지우지 않고 {@code user_id} 만 끊는다 —
+     * 이 집계는 전역 주간 랭킹의 소스라 지우면 지난 랭킹이 소급해 바뀐다.
+     *
+     * <p>종전엔 {@code UserService.withdraw} 가 {@code DailyFocusStatRepository} 를 직접
+     * 주입해 불렀다. 호출부의 트랜잭션에 편승하며 쿼리·시점 모두 그대로다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void anonymizeWithdrawnUser(UUID userId) {
+        dailyFocusStatRepository.nullifyUser(userId);
+    }
+
 }

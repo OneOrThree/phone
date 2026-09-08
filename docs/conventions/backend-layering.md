@@ -248,7 +248,7 @@ Controller  →  Service  →  Repository  →  Entity
 | L6 | `invitelink` | 그룹을 가리키는 초대 |
 | L7 | `notification` | 전 도메인의 사건을 구독해 발송한다 |
 | L8 | `auth` · `character` · `bot` · `analytics` | 진입·부가 |
-| L9 | `profile` | **조립 전용** — 자기 테이블이 없고 아래 도메인의 조회 결과만 합친다 |
+| L9 | `profile` · `withdrawal` | **조립·오케스트레이션 전용** — 자기 테이블이 없고, 아래 도메인의 조회 결과를 합치거나(`profile`) 정리를 정해진 순서로 부른다(`withdrawal`) |
 
 `common/` 과 `config/` 는 레이어 밖이다 — 누가 참조해도 된다.
 
@@ -269,6 +269,16 @@ Controller  →  Service  →  Repository  →  Entity
    것은 `users.tier_level` 뿐이었고 호출자도 friend 였다. 위치가 거짓이면 그 거짓이 그대로
    의존 간선이 된다 — `user/service/UserTierLookup` 으로 옮겨 `friend → league` 를 없앴다.
 
+**여러 도메인을 «정해진 순서로» 정리해야 하면 오케스트레이터를 위에 둔다.** 회원 탈퇴가
+그렇다 — 계정·그룹·집중·통계·스크린타임·친구를 순서대로 정리하는데, 그 전부가
+`UserService.withdraw` 한 메서드(90줄) 안에 있어서 가장 아래 도메인이 위의 다섯을 참조했다.
+정리하는 **방법**은 각 도메인이 알고, 정리하는 **순서**는 그 위에서 정한다
+(`withdrawal/AccountWithdrawalService`).
+
+이런 절차를 **이벤트로 뒤집지 마라.** 순서가 계약인데 이벤트로 바꾸면 그 순서가 리스너 등록
+순서에 숨는다 — 리스너 하나가 추가되는 것만으로 순서가 바뀌고, 컴파일도 테스트도 잡아 주지
+못한다. 이벤트는 «누가 받든 상관없고 순서도 상관없는» 알림에 쓴다.
+
 **아래에서 위로 가야만 하는 일이 생기면** 이벤트(`event/`)나 포트(`common/port/`)로 뒤집는다.
 선례: `common/port/InviteAttributionPort` — 그룹 참여 로그가 초대 slug 를 남겨야 해서
 `group → invitelink` 가 생겼는데, 필요한 것은 “이 slug 가 누구의 어느 그룹 링크인가” 하나뿐이라
@@ -284,7 +294,7 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 | --- | --- | --- |
 | 타 도메인 repository 직접 주입 | 약 120건 / 44개 service | GROMO-1655 |
 | service 의 `EntityManager` 직접 조작 | 5개 파일 | GROMO-1655 |
-| 도메인 간 레이어 역행 참조 | 10쌍 / import 26건 (2026-09-08, 착수 시 15쌍/49건) | GROMO-1656 진행 중 |
+| 도메인 간 레이어 역행 참조 | 6쌍 / import 14건 (2026-09-08, 착수 시 15쌍/49건) | GROMO-1656 진행 중 |
 | 컨트롤러의 영속 enum 노출 | 6건 | GROMO-1657 (앱 계약 변경 동반) |
 | 규칙의 테스트 강제 | 없음 (ArchUnit 미도입) | GROMO-1662 |
 

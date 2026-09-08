@@ -14,7 +14,7 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
-import com.oneorthree.phone.user.service.UserService;
+import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -51,7 +51,7 @@ class GroupCreateWithdrawRaceIntegrationTest extends IntegrationTestBase {
     @Autowired
     GroupService groupService;
     @Autowired
-    UserService userService;
+    AccountWithdrawalService accountWithdrawalService;
     @Autowired
     GroupRepository groupRepository;
     @Autowired
@@ -111,7 +111,7 @@ class GroupCreateWithdrawRaceIntegrationTest extends IntegrationTestBase {
             Future<?> withdrawCall = pool.submit(() -> {
                 await(startTogether);
                 // 생성이 먼저 커밋됐어도 탈퇴는 성공해야 한다 — solo 오너 그룹은 A-2 가 자동 종료한다.
-                userService.withdraw(user.getId());
+                accountWithdrawalService.withdraw(user.getId());
             });
             createCall.get(30, TimeUnit.SECONDS);
             withdrawCall.get(30, TimeUnit.SECONDS);
