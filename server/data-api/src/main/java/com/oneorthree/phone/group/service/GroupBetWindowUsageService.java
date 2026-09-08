@@ -14,7 +14,6 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -95,7 +94,6 @@ public class GroupBetWindowUsageService {
     private final GroupChallengeMemberRepository groupChallengeMemberRepository;
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
-    private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final WindowFocusAggregator windowFocusAggregator;
 
     /**
@@ -343,7 +341,7 @@ public class GroupBetWindowUsageService {
         if (!usageDate.isEqual(today)) {
             return true;
         }
-        GroupChallengeWindow window = groupChallengeWindowRepository.findById(challengeId).orElse(null);
+        GroupChallengeWindow window = groupQueryService.findChallengeWindow(challengeId).orElse(null);
         if (window == null) {
             return true;
         }

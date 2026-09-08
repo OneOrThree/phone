@@ -149,8 +149,7 @@ class GroupChallengeServiceTest {
     @BeforeEach
     void setUp() {
         groupBetJudge = new GroupBetJudge(
-                groupChallengeDurationRepository, groupChallengeWindowRepository,
-                groupChallengeMemberRepository, dailyFocusStatRepository,
+                groupQueryService, groupChallengeMemberRepository, dailyFocusStatRepository,
                 dailyScreenTimeStatRepository, userQueryService,
                 windowFocusAggregator);
         groupChallengeService = new GroupChallengeService(

@@ -17,7 +17,6 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -71,8 +70,6 @@ class GroupBetWindowUsageServiceTest {
     private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
-    @Mock
-    private GroupChallengeWindowRepository groupChallengeWindowRepository;
     @Mock
     private WindowFocusAggregator windowFocusAggregator;
 
@@ -511,7 +508,7 @@ class GroupBetWindowUsageServiceTest {
         givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         LocalDate today = LocalDate.now(KST);
         GroupChallengeWindow window = GroupChallengeWindow.builder().challengeId(CHALLENGE_ID).build();
-        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(window));
+        given(groupQueryService.findChallengeWindow(CHALLENGE_ID)).willReturn(Optional.of(window));
         given(windowFocusAggregator.windowStartOn(today, window))
                 .willReturn(Instant.now().plusSeconds(3600));
 
@@ -596,7 +593,7 @@ class GroupBetWindowUsageServiceTest {
         givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         LocalDate today = LocalDate.now(KST);
         GroupChallengeWindow window = GroupChallengeWindow.builder().challengeId(CHALLENGE_ID).build();
-        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(window));
+        given(groupQueryService.findChallengeWindow(CHALLENGE_ID)).willReturn(Optional.of(window));
         given(windowFocusAggregator.windowStartOn(today, window))
                 .willReturn(Instant.now().minusSeconds(3600));
 

@@ -7,9 +7,8 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeMember;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.repository.domain.MissionType;
-import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.screentime.repository.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
@@ -71,8 +70,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class GroupBetJudge {
 
-    private final GroupChallengeDurationRepository groupChallengeDurationRepository;
-    private final GroupChallengeWindowRepository groupChallengeWindowRepository;
+    private final GroupQueryService groupQueryService;
     private final GroupChallengeMemberRepository groupChallengeMemberRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
@@ -161,10 +159,10 @@ public class GroupBetJudge {
      */
     public Optional<Target> resolve(GroupChallenge challenge) {
         GroupChallengeDuration duration = challenge.getType() == MissionType.DURATION
-                ? groupChallengeDurationRepository.findById(challenge.getId()).orElse(null)
+                ? groupQueryService.findChallengeDuration(challenge.getId()).orElse(null)
                 : null;
         GroupChallengeWindow window = challenge.getType() == MissionType.TIME_WINDOW
-                ? groupChallengeWindowRepository.findById(challenge.getId()).orElse(null)
+                ? groupQueryService.findChallengeWindow(challenge.getId()).orElse(null)
                 : null;
         return targetOf(challenge, duration, window);
     }
