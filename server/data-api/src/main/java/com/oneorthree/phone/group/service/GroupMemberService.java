@@ -8,7 +8,7 @@ import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
@@ -35,8 +35,8 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class GroupMemberService {
 
-    private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final GroupQueryService groupQueryService;
     private final UserQueryService userQueryService;
     private final UserActivityEventLogger userActivityEventLogger;
     private final GroupBetService groupBetService;
@@ -70,14 +70,13 @@ public class GroupMemberService {
         // ("지목한 대상이 없다")이고, 둘 다 code 문자열 "NOT_FOUND" 로 나가 앱 분기가 일치한다.
         User targetUser = userQueryService.getTargetForShare(targetUserId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember hostGroupMember = groupMemberRepository.findByUserAndGroup(user, group)
+        GroupMember hostGroupMember = groupQueryService.findMembership(user, group)
                 .filter(m -> m.getRole() == GroupMemberRole.OWNER)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER));
 
-        GroupMember targetGroupMember = groupMemberRepository.findByUserAndGroup(targetUser, group)
+        GroupMember targetGroupMember = groupQueryService.findMembership(targetUser, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
         // GROMO-676: groups.host_id 폐기 — 방장 이양은 group_members.role 교체(OWNER↔MEMBER)로만 수행한다.
@@ -97,11 +96,10 @@ public class GroupMemberService {
         // 요청자 공유 락 (GROMO-1227) — 근거는 requireActiveUser Javadoc.
         User user = requireActiveUser(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
         // 요청자는 활성 OWNER 여야 한다
-        groupMemberRepository.findByUserAndGroup(user, group)
+        groupQueryService.findMembership(user, group)
                 .filter(m -> m.getRole() == GroupMemberRole.OWNER)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER));
 
@@ -116,7 +114,7 @@ public class GroupMemberService {
         // 커밋되면 여기서 삭제를 관측하고 기존 계약대로 NOT_FOUND 로 거절된다.
         // GROMO-1247: transferOwner 대상과 같은 이유로 USER_NOT_FOUND 로 바꾸지 않는다(대상 유저다).
         User targetUser = userQueryService.getTargetForShare(targetUserId);
-        GroupMember target = groupMemberRepository.findByUserAndGroup(targetUser, group)
+        GroupMember target = groupQueryService.findMembership(targetUser, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
         // 강퇴 마킹. 진행 중 내기 판돈은 건드리지 않는다(지갑 생존 → 정산 시 정상 지급/환불, 엔진 무변경).
@@ -141,10 +139,8 @@ public class GroupMemberService {
         // 이 User 를 그대로 밀어넣는다. 락 없는 stale User 면 내기 참가 정리(#503)가 계정 탈퇴와
         // 직렬화되지 않아, 막아둔 구멍을 옆문으로 다시 여는 셈이다.
         User user = requireActiveUser(userId);
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        Group group = groupQueryService.getGroup(groupId);
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
 
         // A-0 소프트삭제: 행을 지우지 않고 이탈 마킹(leave). findByGroup 은 활성만 세므로 마지막 1인 판정 유지.
         List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);

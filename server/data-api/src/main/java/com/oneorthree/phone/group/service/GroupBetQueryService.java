@@ -20,8 +20,7 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
-import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
@@ -78,8 +77,7 @@ public class GroupBetQueryService {
     private static final List<GroupBetStatus> RESULT_STATUSES = GroupBetStatus.RESULT_STATUSES;
 
     private final UserQueryService userQueryService;
-    private final GroupRepository groupRepository;
-    private final GroupMemberRepository groupMemberRepository;
+    private final GroupQueryService groupQueryService;
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
@@ -205,10 +203,8 @@ public class GroupBetQueryService {
      */
     public ChallengeDeletionPreviewResponse getDeletionPreview(UUID groupId, UUID challengeId, UUID userId) {
         User user = requireActiveUserNoLock(userId);
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-        GroupMember member = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        Group group = groupQueryService.getGroup(groupId);
+        GroupMember member = groupQueryService.getMembership(user, group);
         if (member.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
@@ -256,10 +252,8 @@ public class GroupBetQueryService {
             throw new GroupException(GroupErrorCode.INVALID_PAGE_REQUEST);
         }
         User user = requireActiveUserNoLock(userId);
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-        groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        Group group = groupQueryService.getGroup(groupId);
+        groupQueryService.getMembership(user, group);
 
         Slice<GroupChallengeBetSession> slice =
                 loadHistorySlice(groupId, cursor, size, challengeId);

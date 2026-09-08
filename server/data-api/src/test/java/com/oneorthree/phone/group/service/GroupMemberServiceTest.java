@@ -9,7 +9,7 @@ import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -49,10 +49,10 @@ class GroupMemberServiceTest {
     private UserActivityEventLogger userActivityEventLogger;
 
     @Mock
-    private GroupRepository groupRepository;
+    private GroupMemberRepository groupMemberRepository;
 
     @Mock
-    private GroupMemberRepository groupMemberRepository;
+    private GroupQueryService groupQueryService;
 
     @Mock
     private UserQueryService userQueryService;
@@ -80,9 +80,9 @@ class GroupMemberServiceTest {
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(hostMember));
-        given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.of(targetMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(hostMember));
+        given(groupQueryService.findMembership(target, group)).willReturn(Optional.of(targetMember));
 
         // when
         groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID);
@@ -123,7 +123,8 @@ class GroupMemberServiceTest {
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         given(userQueryService.getTargetForShare(TARGET_ID))
                 .willReturn(User.builder().id(TARGET_ID).build());
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID))
@@ -144,7 +145,8 @@ class GroupMemberServiceTest {
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.USER_NOT_FOUND);
-        verify(groupMemberRepository, never()).findByUserAndGroup(any(), any());
+        verify(groupQueryService, never()).findMembership(any(), any());
+        verify(groupQueryService, never()).getMembership(any(), any());
     }
 
     @Test
@@ -155,7 +157,8 @@ class GroupMemberServiceTest {
         User target = User.builder().id(TARGET_ID).build();
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID))
@@ -176,8 +179,8 @@ class GroupMemberServiceTest {
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(hostMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(hostMember));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID))
@@ -198,9 +201,9 @@ class GroupMemberServiceTest {
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(hostMember));
-        given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(hostMember));
+        given(groupQueryService.findMembership(target, group)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID))
@@ -225,9 +228,9 @@ class GroupMemberServiceTest {
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
-        given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.of(targetMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.findMembership(target, group)).willReturn(Optional.of(targetMember));
 
         // when
         groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID);
@@ -267,8 +270,8 @@ class GroupMemberServiceTest {
                 .user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(ownerMember));
         given(userQueryService.getTargetForShare(TARGET_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
 
         // when & then: 거절 + 이탈 이벤트 없음
@@ -291,8 +294,8 @@ class GroupMemberServiceTest {
                 .user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(ownerMember));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.kickMember(GROUP_ID, OWNER_ID, OWNER_ID))
@@ -311,8 +314,8 @@ class GroupMemberServiceTest {
                 .user(user).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.of(member));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID))
@@ -333,9 +336,9 @@ class GroupMemberServiceTest {
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
-        given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.findMembership(target, group)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID))
@@ -350,7 +353,8 @@ class GroupMemberServiceTest {
         // given: 요청자가 게스트, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User guest = User.builder().id(OWNER_ID).isGuest(true).build();
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(guest);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID))
@@ -371,8 +375,8 @@ class GroupMemberServiceTest {
                 .user(user).group(group).role(GroupMemberRole.OWNER).build();
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group)).willReturn(member);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member));
 
         // when
@@ -398,8 +402,8 @@ class GroupMemberServiceTest {
                 .group(group).role(GroupMemberRole.OWNER).build();
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group)).willReturn(member);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, other));
 
         // when
@@ -438,7 +442,8 @@ class GroupMemberServiceTest {
         // given: 요청자가 게스트, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User user = User.builder().id(OWNER_ID).isGuest(true).build();
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.withdrawGroup(GROUP_ID, OWNER_ID))
@@ -454,8 +459,9 @@ class GroupMemberServiceTest {
         User user = User.builder().id(OWNER_ID).build();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willThrow(new GroupException(GroupErrorCode.MEMBER_ONLY));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.withdrawGroup(GROUP_ID, OWNER_ID))
@@ -476,8 +482,8 @@ class GroupMemberServiceTest {
                 .group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group)).willReturn(member);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, other));
 
         // when & then: 예외 발생 + 삭제 미호출. 내기 정리도 시작되면 안 된다(탈퇴 자체가 거절).

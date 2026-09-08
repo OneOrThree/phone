@@ -10,8 +10,7 @@ import com.oneorthree.phone.group.dto.GroupAnnouncementResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
-import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -49,10 +48,7 @@ class GroupAnnouncementServiceTest {
     private GroupAnnouncementService groupAnnouncementService;
 
     @Mock
-    private GroupRepository groupRepository;
-
-    @Mock
-    private GroupMemberRepository groupMemberRepository;
+    private GroupQueryService groupQueryService;
 
     @Mock
     private UserQueryService userQueryService;
@@ -90,9 +86,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(member(user, group, GroupMemberRole.OWNER));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
 
@@ -119,9 +115,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(memberWithPermission(user, group, GroupAnnouncementGrant.ALLOW)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(memberWithPermission(user, group, GroupAnnouncementGrant.ALLOW));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
 
@@ -137,7 +133,8 @@ class GroupAnnouncementServiceTest {
     void createAnnouncementAllowsGuest() {
         // given: 게스트 유저, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user(true));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
 
@@ -156,8 +153,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willThrow(new GroupException(GroupErrorCode.MEMBER_ONLY));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
 
@@ -175,9 +173,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(member(user, group, GroupMemberRole.MEMBER));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
 
@@ -198,9 +196,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(member(user, group, GroupMemberRole.MEMBER));
 
         GroupAnnouncement newer = GroupAnnouncement.builder()
                 .id(UUID.fromString("00000000-0000-0000-0000-0000000000b2"))
@@ -231,7 +229,8 @@ class GroupAnnouncementServiceTest {
     void getAnnouncementsAllowsGuest() {
         // given: 게스트 유저, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCaller(USER_ID)).willReturn(user(true));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
@@ -247,8 +246,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willThrow(new GroupException(GroupErrorCode.MEMBER_ONLY));
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
@@ -279,9 +279,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(member(user, group, GroupMemberRole.OWNER));
 
         GroupAnnouncement announcement = GroupAnnouncement.builder()
                 .id(ANNOUNCEMENT_ID).group(group).user(user)
@@ -306,9 +306,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(member(user, group, GroupMemberRole.MEMBER));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("새 제목", "새 내용");
 
@@ -326,9 +326,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(member(user, group, GroupMemberRole.OWNER));
         given(groupAnnouncementRepository.findByIdAndGroup(ANNOUNCEMENT_ID, group))
                 .willReturn(Optional.empty());
 
@@ -350,9 +350,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(member(user, group, GroupMemberRole.OWNER));
 
         GroupAnnouncement announcement = GroupAnnouncement.builder()
                 .id(ANNOUNCEMENT_ID).group(group).user(user)
@@ -374,9 +374,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(member(user, group, GroupMemberRole.MEMBER));
 
         // when & then: 예외 발생 + 삭제 미호출
         assertThatThrownBy(() -> groupAnnouncementService.deleteAnnouncement(GROUP_ID, ANNOUNCEMENT_ID, USER_ID))
@@ -393,9 +393,9 @@ class GroupAnnouncementServiceTest {
         User user = user(false);
         Group group = group();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(member(user, group, GroupMemberRole.OWNER));
         given(groupAnnouncementRepository.findByIdAndGroup(ANNOUNCEMENT_ID, group))
                 .willReturn(Optional.empty());
 

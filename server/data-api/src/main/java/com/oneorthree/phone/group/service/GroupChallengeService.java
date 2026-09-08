@@ -27,7 +27,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -47,7 +47,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -71,8 +70,8 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class GroupChallengeService {
 
-    private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final GroupQueryService groupQueryService;
     private final UserQueryService userQueryService;
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
@@ -130,11 +129,9 @@ public class GroupChallengeService {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
         User user = userQueryService.getCaller(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        groupQueryService.getMembership(user, group);
 
         boolean screenTimePermissionGranted = userScreenTimeSettingsRepository.findById(userId)
                 .map(UserScreenTimeSettings::isScreenTimePermissionGranted)
@@ -444,14 +441,10 @@ public class GroupChallengeService {
 
         // 그룹 행 배타 락(LLD §2.1 · GROMO-1422) — 활성 4개 상한·창 겹침은 그룹 전역 불변식이라
         // 생성끼리 직렬화해야 지켜진다. 동시 생성 2건이 둘 다 "3개네" 하고 통과하면 5개째가 들어온다.
-        Group group = groupRepository.findByIdForUpdate(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroupForUpdate(groupId);
 
-        Optional<GroupMember> groupMember = groupMemberRepository.findByUserAndGroup(user, group);
-        if (groupMember.isEmpty()) {
-            throw new GroupException(GroupErrorCode.MEMBER_ONLY);
-        }
-        if (groupMember.get().getRole() != GroupMemberRole.OWNER) {
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
+        if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
 
@@ -746,11 +739,9 @@ public class GroupChallengeService {
     public void deleteChallenge(UUID groupId, UUID challengeId, UUID userId) {
         User user = requireActiveUser(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
 
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
@@ -793,11 +784,9 @@ public class GroupChallengeService {
     public void endChallenge(UUID groupId, UUID challengeId, UUID userId) {
         User user = requireActiveUser(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }

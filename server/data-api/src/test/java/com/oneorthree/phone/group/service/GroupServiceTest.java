@@ -17,6 +17,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
@@ -109,6 +110,9 @@ class GroupServiceTest {
 
     @Mock
     private GroupRepository groupRepository;
+
+    @Mock
+    private GroupQueryService groupQueryService;
 
     @Mock
     private GroupJoinCodeRepository groupJoinCodeRepository;
@@ -627,8 +631,8 @@ class GroupServiceTest {
                 .status(GroupStatus.WAITING).isPrivate(false).build();
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(owner);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(owner, group)).willReturn(ownerMember);
 
         // UpdateGroupRequest 는 빌더/세터가 없어 필드만 리플렉션으로 세팅
         UpdateGroupRequest request = new UpdateGroupRequest();
@@ -650,8 +654,8 @@ class GroupServiceTest {
                 .status(GroupStatus.WAITING).isPrivate(false).build();
         GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(member);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(member, group)).willReturn(memberRole);
 
         UpdateGroupRequest request = new UpdateGroupRequest();
         ReflectionTestUtils.setField(request, "isPrivate", Boolean.TRUE);
@@ -671,8 +675,8 @@ class GroupServiceTest {
                 .status(GroupStatus.WAITING).build();
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(owner);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(owner, group)).willReturn(ownerMember);
         // 활성 1(방장) + 유령 1 — 실인원은 1명이라 max=1 로 줄일 수 있어야 한다.
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(
                 ownerMember, GroupMember.builder().user(withdrawnUser()).group(group).build()));
@@ -702,8 +706,8 @@ class GroupServiceTest {
         GroupMember gmTop = GroupMember.builder().user(top).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userQueryService.getCaller(USER_ID)).willReturn(me);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(me, group)).willReturn(Optional.of(gmMe));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(me, group)).willReturn(gmMe);
         // 삽입 순서는 누적과 무관(정렬 자체를 검증) — 나(낮음)·중간·최상 순으로 넣는다
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(gmMe, gmMid, gmTop));
         // 목 행은 given() 밖에서 먼저 조립한다 — willReturn 인자 안에서 focusTotal 이 중첩 스터빙하면
@@ -736,8 +740,8 @@ class GroupServiceTest {
         Instant startedAt = Instant.parse("2026-07-03T01:00:00Z");
 
         given(userQueryService.getCaller(USER_ID)).willReturn(me);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(me, group)).willReturn(Optional.of(gmMe));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(me, group)).willReturn(gmMe);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(gmMe, gmIdle));
         // 라이브 정보가 없는 멤버(쉬는중)는 맵에서 빠진다 — 기본값 0/false/null 로 내려야 한다
         given(focusLiveInfoLookup.liveInfoByUserId(anyList(), eq(LocalDate.of(2026, 7, 3))))
@@ -776,8 +780,8 @@ class GroupServiceTest {
                 .role(GroupMemberRole.MEMBER).build();
 
         given(userQueryService.getCaller(USER_ID)).willReturn(me);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(me, group)).willReturn(Optional.of(gmMe));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(me, group)).willReturn(gmMe);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(gmMe, ghost));
 
         GroupDetailResponse response =
@@ -870,9 +874,9 @@ class GroupServiceTest {
                 .maxMembers(10).status(GroupStatus.WAITING).build();
         GroupMember member = GroupMember.builder().user(user).group(group).build();
 
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.of(member));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member));
         givenRepresentativeDurationChallenge(group, 60);
 
@@ -900,9 +904,9 @@ class GroupServiceTest {
         GroupMember member = GroupMember.builder().user(user).group(group).build();
         GroupMember ghost = GroupMember.builder().user(withdrawnUser()).group(group).build();
 
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.of(member));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, ghost));
         givenRepresentativeDurationChallenge(group, 60);
 
@@ -920,9 +924,9 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .maxMembers(10).status(GroupStatus.WAITING).build();
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         givenRepresentativeTimeWindowChallenge(group, MissionCategory.SCREEN_TIME,
                 LocalTime.parse("13:00"), LocalTime.parse("15:30"));
@@ -944,9 +948,9 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .maxMembers(10).status(GroupStatus.WAITING).build();
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         givenRepresentativeTimeWindowChallenge(group, MissionCategory.FOCUS,
                 LocalTime.parse("22:00"), LocalTime.parse("23:59"));
@@ -967,9 +971,9 @@ class GroupServiceTest {
         Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .maxMembers(10).status(GroupStatus.WAITING).build();
 
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
         // when
@@ -991,9 +995,9 @@ class GroupServiceTest {
         Group group = Group.builder().id(GROUP_ID).name("비밀방").password("hashed-pw")
                 .maxMembers(5).status(GroupStatus.WAITING).build();
 
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
         // when
@@ -1008,7 +1012,8 @@ class GroupServiceTest {
     void getGroupOverviewGroupNotFound() {
         // given: 요청자는 멀쩡하다 — 그래야 그룹 부재가 단독 원인이 된다 (GROMO-1247 순서 계약)
         given(userQueryService.getCaller(USER_ID)).willReturn(normalUser());
-        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID_99))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupOverview(GROUP_ID_99, USER_ID))
@@ -1059,8 +1064,8 @@ class GroupServiceTest {
         GroupJoinCode joinCode = joinCodeFor(group, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(owner));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.of(owner));
         given(groupJoinCodeRepository.findById(GROUP_ID)).willReturn(Optional.of(joinCode));
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
 
@@ -1082,8 +1087,8 @@ class GroupServiceTest {
         GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.of(member));
 
         // when & then
         assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID, USER_ID))
@@ -1098,8 +1103,8 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID, USER_ID))
@@ -1112,7 +1117,8 @@ class GroupServiceTest {
         // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User guest = User.builder().isGuest(true).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID, USER_ID))
@@ -1126,7 +1132,8 @@ class GroupServiceTest {
     void renewGroupCodeGroupNotFound() {
         // given
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID_99))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID_99, USER_ID))
@@ -1149,8 +1156,8 @@ class GroupServiceTest {
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
         given(userQueryService.getCaller(USER_ID)).willReturn(owner);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(owner, group)).willReturn(ownerMember);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember));
         givenRepresentativeDurationChallenge(group, 60);
         // GROMO-672: OWNER 상세의 code/codeExpiresAt 은 group_join_codes 에서 조회
@@ -1180,8 +1187,8 @@ class GroupServiceTest {
         GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userQueryService.getCaller(USER_ID)).willReturn(member);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(member, group)).willReturn(memberRole);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
 
         // when
@@ -1205,8 +1212,8 @@ class GroupServiceTest {
         GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userQueryService.getCaller(USER_ID)).willReturn(member);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(member, group)).willReturn(memberRole);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
         givenRepresentativeTimeWindowChallenge(group, MissionCategory.SCREEN_TIME,
                 LocalTime.parse("13:00"), LocalTime.parse("15:30"));
@@ -1232,8 +1239,8 @@ class GroupServiceTest {
         GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userQueryService.getCaller(USER_ID)).willReturn(member);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(member, group)).willReturn(memberRole);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
 
         // when
@@ -1251,8 +1258,9 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "INVITE01", Instant.now().plus(3, ChronoUnit.HOURS));
 
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willThrow(new GroupException(GroupErrorCode.MEMBER_ONLY));
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3)))
@@ -1265,7 +1273,8 @@ class GroupServiceTest {
         // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCaller(USER_ID))
                 .willReturn(User.builder().isGuest(true).build());
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3)))
@@ -1279,7 +1288,8 @@ class GroupServiceTest {
     void getGroupDetailGroupNotFound() {
         // given
         given(userQueryService.getCaller(USER_ID)).willReturn(normalUser());
-        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID_99))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID_99, USER_ID, LocalDate.of(2026, 7, 3)))
@@ -1300,8 +1310,8 @@ class GroupServiceTest {
                 .createdAt(Instant.now()).build();
 
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group)).willReturn(member);
         given(groupAnnouncementRepository.findByGroupOrderByCreatedAtDesc(group)).willReturn(List.of(ann));
 
         // when
@@ -1321,8 +1331,9 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
 
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willThrow(new GroupException(GroupErrorCode.MEMBER_ONLY));
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
@@ -1335,7 +1346,8 @@ class GroupServiceTest {
         // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCaller(USER_ID))
                 .willReturn(User.builder().isGuest(true).build());
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
@@ -1349,7 +1361,8 @@ class GroupServiceTest {
     void getAnnouncementsGroupNotFound() {
         // given
         given(userQueryService.getCaller(USER_ID)).willReturn(normalUser());
-        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID_99))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID_99, USER_ID))
@@ -1371,8 +1384,8 @@ class GroupServiceTest {
                 .createdAt(Instant.now()).build();
 
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group)).willReturn(member);
         given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
                 .willReturn(List.of(challenge));
         // GROMO-674: durationMinutes 는 CTI 상세 배치 조회로 채워진다
@@ -1398,8 +1411,9 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
 
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willThrow(new GroupException(GroupErrorCode.MEMBER_ONLY));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
@@ -1412,7 +1426,8 @@ class GroupServiceTest {
         // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCaller(USER_ID))
                 .willReturn(User.builder().isGuest(true).build());
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
@@ -1426,7 +1441,8 @@ class GroupServiceTest {
     void getChallengesGroupNotFound() {
         // given
         given(userQueryService.getCaller(USER_ID)).willReturn(normalUser());
-        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID_99))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID_99, USER_ID, null))
@@ -1453,8 +1469,8 @@ class GroupServiceTest {
         Group group = openGroup();
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
         // when
@@ -1475,8 +1491,8 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = openGroup();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
         groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest());
@@ -1493,8 +1509,8 @@ class GroupServiceTest {
         Group group = passwordGroup();
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         given(passwordEncoder.matches("1234", "hashed-pw")).willReturn(true);
 
@@ -1511,7 +1527,8 @@ class GroupServiceTest {
         // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User guest = User.builder().isGuest(true).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
@@ -1526,7 +1543,8 @@ class GroupServiceTest {
     void joinGroupNotFound() {
         // given
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID_99))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID_99, USER_ID, new JoinGroupRequest()))
@@ -1552,7 +1570,8 @@ class GroupServiceTest {
         UserException userAbsent = (UserException) userThrown;
 
         // (2) 그룹 부재 — 같은 엔드포인트, 같은 404, 다른 결론("사라진 그룹")
-        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID_99))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
         Throwable groupThrown = catchThrowable(
                 () -> groupService.joinGroup(GROUP_ID_99, USER_ID, new JoinGroupRequest()));
         assertThat(groupThrown).isInstanceOf(GroupException.class);
@@ -1576,8 +1595,8 @@ class GroupServiceTest {
         GroupMember existing = GroupMember.builder().user(user).group(group).build();
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(existing));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.of(existing));
 
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
@@ -1596,8 +1615,8 @@ class GroupServiceTest {
         left.leave();
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findAnyByUserAndGroup(user, group)).willReturn(Optional.of(left));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
@@ -1621,8 +1640,8 @@ class GroupServiceTest {
         kicked.kick();
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findAnyByUserAndGroup(user, group)).willReturn(Optional.of(kicked));
 
         // when & then
@@ -1647,8 +1666,8 @@ class GroupServiceTest {
         );
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(members);
 
         // when & then
@@ -1666,8 +1685,8 @@ class GroupServiceTest {
         Group group = Group.builder().id(GROUP_ID).name("한자리남은방")
                 .maxMembers(2).status(GroupStatus.WAITING).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(
                 GroupMember.builder().user(User.builder().build()).build(),   // 활성
                 GroupMember.builder().user(withdrawnUser()).build()));        // 유령(탈퇴)
@@ -1685,8 +1704,8 @@ class GroupServiceTest {
         Group group = passwordGroup();
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         given(passwordEncoder.matches(any(), anyString())).willReturn(false);
 
@@ -1716,8 +1735,8 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = openGroup();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.countByUser(user)).willReturn(9L);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
@@ -1735,8 +1754,8 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = openGroup();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.countByUser(user)).willReturn(10L);
 
         // when & then: 앱이 code 문자열로 분기하므로 에러 코드까지 고정한다
@@ -1754,8 +1773,8 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = openGroup();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group))
                 .willReturn(Optional.of(GroupMember.builder().user(user).group(group).build()));
 
         // when & then
@@ -1790,8 +1809,8 @@ class GroupServiceTest {
     private User givenJoinableGroup(Group group) {
         User user = normalUser();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(group.getId())).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(group.getId())).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         return user;
     }
@@ -2009,9 +2028,9 @@ class GroupServiceTest {
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(owner);
         given(userQueryService.getTargetForShare(TARGET_USER_ID)).willReturn(target);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
-        given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.of(targetMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.findMembership(target, group)).willReturn(Optional.of(targetMember));
 
         // when
         groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID);
@@ -2029,7 +2048,8 @@ class GroupServiceTest {
                 .willReturn(User.builder().isGuest(true).build());
         given(userQueryService.getTargetForShare(TARGET_USER_ID))
                 .willReturn(userWithNickname(TARGET_USER_ID, "대상"));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID))
@@ -2048,8 +2068,8 @@ class GroupServiceTest {
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(userQueryService.getTargetForShare(TARGET_USER_ID)).willReturn(userWithNickname(TARGET_USER_ID, "대상"));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.of(member));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID))
@@ -2065,8 +2085,8 @@ class GroupServiceTest {
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(userQueryService.getTargetForShare(TARGET_USER_ID)).willReturn(userWithNickname(TARGET_USER_ID, "대상"));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID))
@@ -2079,7 +2099,8 @@ class GroupServiceTest {
         // given
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(userQueryService.getTargetForShare(TARGET_USER_ID)).willReturn(userWithNickname(TARGET_USER_ID, "대상"));
-        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID_99))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID_99, TARGET_USER_ID, USER_ID))
@@ -2097,9 +2118,9 @@ class GroupServiceTest {
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(owner);
         given(userQueryService.getTargetForShare(TARGET_USER_ID)).willReturn(target);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
-        given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.findMembership(target, group)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID))
@@ -2131,8 +2152,8 @@ class GroupServiceTest {
                 userWithNickname(plainId, "일반멤버"), group, GroupAnnouncementGrant.DISALLOW);
 
         given(userQueryService.getCaller(USER_ID)).willReturn(owner);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(owner, group)).willReturn(ownerMember);
         given(groupMemberRepository.findByGroup(group))
                 .willReturn(List.of(ownerMember, grantedMember, plainMember));
 
@@ -2159,8 +2180,8 @@ class GroupServiceTest {
         GroupMember ghost = memberWithPermission(withdrawnUser(), group, GroupAnnouncementGrant.DISALLOW);
 
         given(userQueryService.getCaller(USER_ID)).willReturn(owner);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(owner, group)).willReturn(ownerMember);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember, ghost));
 
         GroupSettingsResponse response = groupService.getGroupSettings(GROUP_ID, USER_ID);
@@ -2187,8 +2208,8 @@ class GroupServiceTest {
         GroupMember untouchedMember = memberWithPermission(untouched, group, GroupAnnouncementGrant.ALLOW);
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(owner);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(owner, group)).willReturn(ownerMember);
         given(groupMemberRepository.findByGroup(group))
                 .willReturn(List.of(ownerMember, granteeMember, revokeeMember, untouchedMember));
 
@@ -2215,8 +2236,8 @@ class GroupServiceTest {
         GroupMember ownerMember = ownerMemberOf(owner, group);
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(owner);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(owner, group)).willReturn(ownerMember);
 
         UpdateGroupSettingsRequest request = new UpdateGroupSettingsRequest(List.of());
 
@@ -2236,8 +2257,8 @@ class GroupServiceTest {
         GroupMember ownerMember = ownerMemberOf(owner, group);
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(owner);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(owner, group)).willReturn(ownerMember);
 
         UpdateGroupSettingsRequest request = new UpdateGroupSettingsRequest(null);
 
@@ -2259,8 +2280,8 @@ class GroupServiceTest {
         GroupMember grantedMember = memberWithPermission(granted, group, GroupAnnouncementGrant.ALLOW);
 
         given(userQueryService.getCaller(USER_ID)).willReturn(owner);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(owner, group)).willReturn(ownerMember);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember, grantedMember));
 
         // when

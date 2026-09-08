@@ -27,7 +27,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.screentime.repository.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.repository.domain.DailyFocusStat;
@@ -92,10 +92,10 @@ class GroupChallengeServiceTest {
     private GroupChallengeService groupChallengeService;
 
     @Mock
-    private GroupRepository groupRepository;
+    private GroupMemberRepository groupMemberRepository;
 
     @Mock
-    private GroupMemberRepository groupMemberRepository;
+    private GroupQueryService groupQueryService;
 
     @Mock
     private UserQueryService userQueryService;
@@ -158,7 +158,7 @@ class GroupChallengeServiceTest {
                 dailyScreenTimeStatRepository, userScreenTimeSettingsRepository,
                 windowFocusAggregator);
         groupChallengeService = new GroupChallengeService(
-                groupRepository, groupMemberRepository, userQueryService, groupChallengeRepository,
+                groupMemberRepository, groupQueryService, userQueryService, groupChallengeRepository,
                 groupChallengeDurationRepository, groupChallengeWindowRepository,
                 groupChallengeMemberRepository, userScreenTimeSettingsRepository,
                 groupBetService, groupBetSettler, groupBetJoinService,
@@ -209,9 +209,9 @@ class GroupChallengeServiceTest {
         User user = member(); // screenTimePermissionGranted = false
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.MEMBER));
 
         UUID screenTimeId = UUID.fromString("00000000-0000-0000-0000-0000000000c2");
         GroupChallenge focus = GroupChallenge.builder()
@@ -275,7 +275,8 @@ class GroupChallengeServiceTest {
     void getChallengesAllowsGuest() {
         // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCaller(USER_ID)).willReturn(guest());
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
@@ -291,8 +292,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willThrow(new GroupException(GroupErrorCode.MEMBER_ONLY));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
@@ -324,8 +326,8 @@ class GroupChallengeServiceTest {
                 groupMemberOf(other, group, GroupMemberRole.MEMBER));
 
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(members.get(0)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group)).willReturn(members.get(0));
         given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
                 .willReturn(List.of(challenge));
         given(groupMemberRepository.findByGroup(group)).willReturn(members);
@@ -399,8 +401,8 @@ class GroupChallengeServiceTest {
                 groupMemberOf(ghost, group, GroupMemberRole.MEMBER));
 
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(members.get(0)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group)).willReturn(members.get(0));
         given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
                 .willReturn(List.of(challenge));
         given(groupMemberRepository.findByGroup(group)).willReturn(members);
@@ -895,8 +897,8 @@ class GroupChallengeServiceTest {
                 groupMemberOf(user, group, GroupMemberRole.OWNER),
                 groupMemberOf(other, group, GroupMemberRole.MEMBER));
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(members.get(0)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group)).willReturn(members.get(0));
         given(groupMemberRepository.findByGroup(group)).willReturn(members);
         given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
                 .willReturn(challenges);
@@ -1057,9 +1059,9 @@ class GroupChallengeServiceTest {
         Group group = Group.builder().id(GROUP_ID).build();
         GroupChallenge challenge = durationChallenge(group, MissionCategory.FOCUS);
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
                 .willReturn(List.of(challenge));
 
@@ -1081,9 +1083,9 @@ class GroupChallengeServiceTest {
         Group group = Group.builder().id(GROUP_ID).build();
         GroupChallenge challenge = durationChallenge(group, MissionCategory.FOCUS);
         given(userQueryService.getCaller(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.MEMBER));
         given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
                 .willReturn(List.of(challenge));
         return challenge;
@@ -1197,9 +1199,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1237,9 +1239,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1270,9 +1272,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1298,9 +1300,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1339,9 +1341,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1364,9 +1366,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1396,9 +1398,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1422,9 +1424,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1448,9 +1450,9 @@ class GroupChallengeServiceTest {
         User owner = member(); // screenTimePermissionGranted = false 지만 OWNER 본인
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(owner);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group))
-                .willReturn(Optional.of(groupMemberOf(owner, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(owner, group))
+                .willReturn(groupMemberOf(owner, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1490,9 +1492,9 @@ class GroupChallengeServiceTest {
         User owner = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(owner);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(owner, group))
-                .willReturn(Optional.of(groupMemberOf(owner, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(owner, group))
+                .willReturn(groupMemberOf(owner, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1529,7 +1531,8 @@ class GroupChallengeServiceTest {
     void createChallengeAllowsGuest() {
         // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest());
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroupForUpdate(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, null))
@@ -1545,9 +1548,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.MEMBER));
 
         // when & then (NOT_OWNER 체크가 request 사용보다 앞서므로 request 는 null 로 충분)
         assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, null))
@@ -1563,9 +1566,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1586,9 +1589,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1613,9 +1616,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1638,9 +1641,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1672,9 +1675,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1695,9 +1698,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1720,9 +1723,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1748,9 +1751,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -1840,9 +1843,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00");
 
         CreateChallengeRequest request =
@@ -1866,9 +1869,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00");
 
         CreateChallengeRequest request =
@@ -1892,9 +1895,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.FOCUS,
                 RepeatSchedule.maskOf(List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)),
                 "09:00", "12:00");
@@ -1916,9 +1919,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.FOCUS,
                 RepeatSchedule.maskOf(List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)),
                 "12:00", "14:00");
@@ -1940,9 +1943,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00");
 
         CreateChallengeRequest request =
@@ -1960,9 +1963,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00");
         givenWindowChallengeSaved(group, MissionCategory.FOCUS);
 
@@ -1980,9 +1983,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         // 구앱 ISO Instant 경로·V35 이관 데이터는 소수초를 실을 수 있다. toSecondOfDay() 로 비교하면
         // 12:00:00.5 가 12:00:00 으로 잘려 간격이 정확히 900초로 보이고 통과한다 — 실제로는 미달이다.
         givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00:00.500");
@@ -2003,9 +2006,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00");
         givenWindowChallengeSaved(group, MissionCategory.FOCUS);
 
@@ -2024,9 +2027,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.FOCUS,
                 RepeatSchedule.maskOf(List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)),
                 "09:00", "12:00");
@@ -2047,9 +2050,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.FOCUS,
                 RepeatSchedule.maskOf(List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)),
                 "09:00", "12:00");
@@ -2072,9 +2075,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.FOCUS, "09:00", "12:00");
 
         CreateChallengeRequest request = windowRequest(MissionCategory.FOCUS, "10:00:00", "11:00:00", 30);
@@ -2092,9 +2095,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.FOCUS, "09:00", "12:00");
 
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
@@ -2124,9 +2127,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.FOCUS, "23:50", "23:59");
 
         CreateChallengeRequest request = windowRequest(MissionCategory.FOCUS, "00:00:00", "00:10:00", 6);
@@ -2147,9 +2150,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.FOCUS, "00:00", "00:10");
 
         CreateChallengeRequest request = windowRequest(MissionCategory.FOCUS, "23:50:00", "23:59:00", 6);
@@ -2170,9 +2173,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.FOCUS,
                 RepeatSchedule.bit(DayOfWeek.SUNDAY), "23:50", "23:59");
 
@@ -2194,9 +2197,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.FOCUS,
                 RepeatSchedule.bit(DayOfWeek.MONDAY), "23:50", "23:59");
         givenWindowChallengeSaved(group, MissionCategory.FOCUS);
@@ -2217,9 +2220,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.SCREEN_TIME, "12:00", "14:00");
 
         CreateChallengeRequest request =
@@ -2239,9 +2242,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         givenActiveWindow(group, MissionCategory.SCREEN_TIME, "12:00", "14:00");
         givenWindowChallengeSaved(group, MissionCategory.FOCUS);
 
@@ -2263,9 +2266,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getMissionType()).willReturn(MissionType.DURATION);
@@ -2293,9 +2296,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -2323,9 +2326,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(List.of());
@@ -2345,9 +2348,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(Arrays.asList((RepeatDay) null));
@@ -2366,9 +2369,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         given(groupChallengeRepository.countByGroupAndStatusAndDeletedAtIsNull(group, GroupChallengeStatus.ACTIVE))
                 .willReturn(4L);
 
@@ -2389,9 +2392,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         // 판정이 분 ≥ 목표−5 라 목표 5분은 문턱 0 — 무위험 참가 가드가 전원을 막는 죽은 내기가 된다
         CreateChallengeRequest request = windowRequest(MissionCategory.FOCUS, "09:00:00", "12:00:00", 5);
@@ -2410,9 +2413,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = windowRequest(MissionCategory.SCREEN_TIME, "09:00:00", "12:00:00", 40);
 
@@ -2430,9 +2433,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
@@ -2457,9 +2460,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
                 .status(GroupChallengeStatus.ACTIVE).build();
         // N42: 종료도 삭제와 같은 배타 락 조회를 쓴다 — 참여 경로(FOR SHARE)와 직렬화.
@@ -2483,9 +2486,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
                 .status(GroupChallengeStatus.ENDED).build();
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
@@ -2505,9 +2508,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
                 .status(GroupChallengeStatus.ACTIVE).build();
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
@@ -2531,9 +2534,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.MEMBER));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.endChallenge(GROUP_ID, CHALLENGE_ID, USER_ID))
@@ -2552,9 +2555,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group).build();
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
                 .willReturn(Optional.of(challenge));
@@ -2575,9 +2578,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
@@ -2605,9 +2608,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.MEMBER));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.deleteChallenge(GROUP_ID, CHALLENGE_ID, USER_ID))
@@ -2623,9 +2626,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group).build();
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
                 .willReturn(Optional.of(challenge));
@@ -2646,9 +2649,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group).build();
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
                 .willReturn(Optional.of(challenge));
@@ -2668,9 +2671,9 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
-                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getMembership(user, group))
+                .willReturn(groupMemberOf(user, group, GroupMemberRole.OWNER));
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
                 .willReturn(Optional.empty());
 

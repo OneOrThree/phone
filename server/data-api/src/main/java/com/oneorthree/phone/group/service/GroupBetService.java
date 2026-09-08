@@ -32,7 +32,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.group.support.GroupBetSessionFactory;
@@ -119,8 +119,8 @@ public class GroupBetService {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
-    private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final GroupQueryService groupQueryService;
     private final UserQueryService userQueryService;
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
@@ -1224,10 +1224,8 @@ public class GroupBetService {
 
     /** 조회 경로용 멤버십 검증 — 잠금 없음. 돈이 움직이는 경로는 {@link #requireGroupMembershipForShare}. */
     private Group requireGroupMembership(User user, UUID groupId) {
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-        groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        Group group = groupQueryService.getGroup(groupId);
+        groupQueryService.getMembership(user, group);
         return group;
     }
 
@@ -1238,8 +1236,7 @@ public class GroupBetService {
      * users 행 공유 락은 그룹 탈퇴와 직렬화되지 않아 이 잠금이 따로 필요하다.
      */
     Group requireGroupMembershipForShare(User user, UUID groupId) {
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
         groupMemberRepository.findActiveByUserIdAndGroupIdForShare(user.getId(), group.getId())
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
         return group;

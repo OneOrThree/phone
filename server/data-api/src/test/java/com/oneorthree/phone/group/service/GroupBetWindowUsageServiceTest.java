@@ -18,8 +18,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
-import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.DisplayName;
@@ -63,9 +62,7 @@ class GroupBetWindowUsageServiceTest {
     @Mock
     private UserQueryService userQueryService;
     @Mock
-    private GroupRepository groupRepository;
-    @Mock
-    private GroupMemberRepository groupMemberRepository;
+    private GroupQueryService groupQueryService;
     @Mock
     private GroupChallengeRepository groupChallengeRepository;
     @Mock
@@ -106,8 +103,8 @@ class GroupBetWindowUsageServiceTest {
     private GroupChallenge givenMemberWithChallenge(User user, Group group, MissionCategory category,
             MissionType type) {
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group))
                 .willReturn(Optional.of(GroupMember.builder()
                         .user(user).group(group).role(GroupMemberRole.MEMBER).build()));
         return givenChallenge(group, category, type);
@@ -154,7 +151,7 @@ class GroupBetWindowUsageServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600));
         givenParticipantOn(started);
@@ -179,7 +176,7 @@ class GroupBetWindowUsageServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         GroupChallengeBetSession reserved =
                 session(GroupBetStatus.OPEN, Instant.now().plusSeconds(48 * 3600));
@@ -203,7 +200,7 @@ class GroupBetWindowUsageServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         Instant startsAt = Instant.now().minusSeconds(7200);
         givenParticipantOn(session(GroupBetStatus.OPEN, startsAt));
@@ -244,7 +241,7 @@ class GroupBetWindowUsageServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(600));
         givenParticipantOn(started);
@@ -256,7 +253,9 @@ class GroupBetWindowUsageServiceTest {
                 new WindowUsageReportRequest(TODAY, 30, Instant.now()));
 
         // then
-        verify(groupMemberRepository, never()).findByUserAndGroup(any(), any());
+        // 멤버십 진입점은 둘이다 — 한쪽만 단언하면 다른 쪽으로 갈아탄 회귀를 놓친다.
+        verify(groupQueryService, never()).findMembership(any(), any());
+        verify(groupQueryService, never()).getMembership(any(), any());
         verify(groupChallengeMemberRepository)
                 .upsertWindowUsage(any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(TODAY), eq(30), any());
     }
@@ -268,8 +267,8 @@ class GroupBetWindowUsageServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
@@ -365,7 +364,8 @@ class GroupBetWindowUsageServiceTest {
         // 게스트가 내기엔 참가되는데 진행분 보고만 403 이면 자동 실패로 판돈만 잃는다 —
         // 그룹 도메인 게스트 차단 전면 해제(GROMO-1509)에 이 경로도 포함된 이유다.
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest());
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
+        given(groupQueryService.getGroup(GROUP_ID))
+                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
@@ -382,8 +382,8 @@ class GroupBetWindowUsageServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group))
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group))
                 .willReturn(Optional.of(GroupMember.builder()
                         .user(user).group(group).role(GroupMemberRole.MEMBER).build()));
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(CHALLENGE_ID, group))
@@ -406,7 +406,7 @@ class GroupBetWindowUsageServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         givenParticipantOn(session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600)),
                 Instant.now().minusSeconds(60));
@@ -428,7 +428,7 @@ class GroupBetWindowUsageServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600));
         givenParticipantOn(started, Instant.now().minusSeconds(300));
@@ -452,7 +452,7 @@ class GroupBetWindowUsageServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         givenParticipantOn(session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600)));
 
@@ -567,7 +567,7 @@ class GroupBetWindowUsageServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
         LocalDate stale = LocalDate.now(KST).minusDays(30);
         GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600));

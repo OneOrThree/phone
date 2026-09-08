@@ -27,6 +27,13 @@ Run all commands below from inside `server/data-api/`.
   `user/UserController.java`, with Swagger annotations split into a sibling
   `user/UserControllerDocs.java` interface (GROMO-1621). Enumerate with a
   `**/*Controller.java` glob (30 as of 2026-09); don't trust any hardcoded list.
+- **Id lookups go through `<domain>/repository/<Domain>QueryService`**, not the
+  repository directly — it folds soft-delete filtering, lock choice and the
+  not-found exception into one place (GROMO-1655; `user/repository/UserQueryService`
+  is the reference). Method names keep the lock explicit (`…ForShare`/`…ForUpdate`)
+  and separate "the target is missing" from "the caller is missing". Projections,
+  range scans, search, and writes still call the repository directly. See
+  `docs/conventions/backend-layering.md` §3.
 - **Entities live in `<domain>/repository/domain/`** — persistence concerns stay
   under `repository/`. Exception: a domain with no persistence at all keeps a
   plain `domain/` (only `analytics`).

@@ -8,8 +8,7 @@ import com.oneorthree.phone.group.dto.GroupAnnouncementResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
-import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
@@ -31,8 +30,7 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class GroupAnnouncementService {
 
-    private final GroupRepository groupRepository;
-    private final GroupMemberRepository groupMemberRepository;
+    private final GroupQueryService groupQueryService;
     private final UserQueryService userQueryService;
     private final GroupAnnouncementRepository groupAnnouncementRepository;
 
@@ -50,11 +48,9 @@ public class GroupAnnouncementService {
     public void createAnnouncement(UUID groupId, UUID userId, CreateAnnouncementRequest request) {
         User user = requireActiveUser(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        GroupMember groupMember = groupQueryService.getMembership(user, group);
 
         // GROMO-676: 방장은 항상 가능, 멤버는 announcement_permission=ALLOW 일 때 가능
         if (!groupMember.canWriteAnnouncement()) {
@@ -82,11 +78,9 @@ public class GroupAnnouncementService {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
         User user = userQueryService.getCaller(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        groupQueryService.getMembership(user, group);
 
         return groupAnnouncementRepository.findByGroupOrderByCreatedAtDesc(group)
                 .stream()
@@ -111,11 +105,9 @@ public class GroupAnnouncementService {
     public void updateAnnouncement(UUID groupId, UUID announcementId, UUID userId, CreateAnnouncementRequest request) {
         User user = requireActiveUser(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember member = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        GroupMember member = groupQueryService.getMembership(user, group);
 
         if (!member.canWriteAnnouncement()) {
             throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
@@ -137,11 +129,9 @@ public class GroupAnnouncementService {
     public void deleteAnnouncement(UUID groupId, UUID announcementId, UUID userId) {
         User user = requireActiveUser(userId);
 
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember member = groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        GroupMember member = groupQueryService.getMembership(user, group);
 
         if (!member.canWriteAnnouncement()) {
             throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
