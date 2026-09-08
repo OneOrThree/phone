@@ -27,6 +27,11 @@ import java.util.UUID;
  * {@code (user_id, kind, subject_id)} 로 PENDING 행을 INSERT 하고(충돌 = 남이 선점 → 0 반환),
  * 리스(10분)가 만료된 PENDING 은 {@link #reclaimExpired} 가 회수한다 — 죽은 워커의 건이
  * 영구 미발송으로 남지 않는다.
+ *
+ * <p><b>{@code @Modifying} 메서드는 트랜잭션을 열지 않는다.</b> 호출측이 {@code @Transactional}
+ * 안에 있는지 확인할 책임을 진다 — 없으면 {@code InvalidDataAccessApiUsageException} 이 난다
+ * (GROMO-1655, 규약 §4). 이 저장소의 유일한 예외는
+ * {@code GroupChallengeBetSessionRepository#recordFailure} 로, 무트랜잭션 스케줄러가 직접 부른다.
  */
 public interface NotificationSentLogRepository extends JpaRepository<NotificationSentLog, UUID> {
 
