@@ -35,8 +35,9 @@ Run all commands below from inside `server/data-api/`.
   range scans, search, and writes still call the repository directly. See
   `docs/conventions/backend-layering.md` §3.
 - **Entities live in `<domain>/repository/domain/`** — persistence concerns stay
-  under `repository/`. Exception: a domain with no persistence at all keeps a
-  plain `domain/` (only `analytics`).
+  under `repository/`. Exception: a domain that has entities but no repository keeps
+  a plain `domain/` (only `analytics`). A composition domain has neither — `profile`
+  owns no data at all, so it has no `domain/` folder to place.
 - Cross-cutting code lives in `common/` (`common/port`, `common/id` for the UUID v7
   generator, `common/exception`, `common/logging`, `common/util`). Spring wiring and
   servlet filters live in the **top-level `config/`** package — not `common/config`,
