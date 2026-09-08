@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
  * 여러 유저의 집중 라이브 정보(당일 집중분·진행중 여부·시작시각·태그명)를 한 번에 도출하는 공유 조회 컴포넌트 (GROMO-822).
  *
  * <p>친구 목록({@code FriendService.getFriends})이 사용하며 리그 랭킹(GROMO-824 예정)도 재사용한다.
- * userId 기반이라 도메인(friend/league)에 무관하다. {@code LeagueTierLookup}(GROMO-710)의 배치 조회 패턴을 미러한다.
+ * userId 기반이라 도메인(friend/league)에 무관하다. {@code UserTierLookup}(GROMO-710)의 배치 조회 패턴을 미러한다.
  */
 @Component
 @RequiredArgsConstructor

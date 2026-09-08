@@ -1,6 +1,6 @@
 package com.oneorthree.phone.friend.search;
 
-import com.oneorthree.phone.league.service.LeagueTierLookup;
+import com.oneorthree.phone.user.service.UserTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.friend.service.search.FriendSearchResult;
@@ -23,7 +23,7 @@ import static org.mockito.BDDMockito.given;
 
 /**
  * NicknameSearchStrategy 단위 테스트 (GROMO-710).
- * 닉네임 검색 결과의 티어를 LeagueTierLookup 으로 배치 도출한다.
+ * 닉네임 검색 결과의 티어를 UserTierLookup 으로 배치 도출한다.
  */
 @ExtendWith(MockitoExtension.class)
 class NicknameSearchStrategyTest {
@@ -35,7 +35,7 @@ class NicknameSearchStrategyTest {
     private UserRepository userRepository;
 
     @Mock
-    private LeagueTierLookup leagueTierLookup;
+    private UserTierLookup userTierLookup;
 
     private User user(UUID id, String nickname) {
         return User.builder().id(id).nickname(nickname).build();
@@ -49,7 +49,7 @@ class NicknameSearchStrategyTest {
         UUID noTierId = UUID.randomUUID();
         given(userRepository.searchByNicknameTrgm(eq("f"), anyInt()))
                 .willReturn(List.of(user(hasTierId, "foo"), user(noTierId, "far")));
-        given(leagueTierLookup.tierLevelsByUserId(List.of(hasTierId, noTierId)))
+        given(userTierLookup.tierLevelsByUserId(List.of(hasTierId, noTierId)))
                 .willReturn(Map.of(hasTierId, 5, noTierId, 1));
 
         List<FriendSearchResult> results = strategy.search(meId, "f");

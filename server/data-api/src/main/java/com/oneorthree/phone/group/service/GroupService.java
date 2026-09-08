@@ -3,8 +3,8 @@ package com.oneorthree.phone.group.service;
 import com.oneorthree.phone.common.analytics.Ga4MeasurementClient;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
-import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
+import com.oneorthree.phone.common.port.InviteAttribution;
+import com.oneorthree.phone.common.port.InviteAttributionPort;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
@@ -90,7 +90,7 @@ public class GroupService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final FocusLiveInfoLookup focusLiveInfoLookup;
     private final UserActivityEventLogger userActivityEventLogger;
-    private final GroupInviteLinkRepository groupInviteLinkRepository;
+    private final InviteAttributionPort inviteAttributionPort;
     private final Ga4MeasurementClient ga4MeasurementClient;
 
     /**
@@ -353,7 +353,7 @@ public class GroupService {
         // 7. 어트리뷰션 — 참여 경로(join_method)와 초대 slug 를 두 트랙에 기록한다.
         //    공유 URL 의 ?g= 는 변조 가능하므로 "링크의 group_id == 참여 그룹" 만이 신뢰 근거다(스펙 §6-3).
         //    불일치·미존재면 slug 만 버리고 참여 자체는 정상 진행한다 — 초대 어트리뷰션은 부가 정보다.
-        GroupInviteLink invite = resolveInviteAttribution(groupId, userId, request.getInviteSlug());
+        InviteAttribution invite = resolveInviteAttribution(groupId, userId, request.getInviteSlug());
         publishJoinAttribution(group, request, invite);
     }
 
@@ -368,13 +368,13 @@ public class GroupService {
      *
      * <p>slug 가 없으면 조회 자체를 하지 않는다(구버전 앱 요청은 DB 왕복 0회).
      */
-    private GroupInviteLink resolveInviteAttribution(UUID groupId, UUID userId, String inviteSlug) {
+    private InviteAttribution resolveInviteAttribution(UUID groupId, UUID userId, String inviteSlug) {
         if (inviteSlug == null || inviteSlug.isBlank()) {
             return null;
         }
-        return groupInviteLinkRepository.findBySlug(inviteSlug)
-                .filter(link -> groupId.equals(link.getGroupId()))
-                .filter(link -> !userId.equals(link.getInviterId()))
+        return inviteAttributionPort.findBySlug(inviteSlug)
+                .filter(link -> groupId.equals(link.groupId()))
+                .filter(link -> !userId.equals(link.inviterId()))
                 .orElse(null);
     }
 
@@ -391,7 +391,7 @@ public class GroupService {
      *
      * <p>트랜잭션 동기화가 없는 호출(단위 테스트 등)에서는 즉시 발행한다.
      */
-    private void publishJoinAttribution(Group group, JoinGroupRequest request, GroupInviteLink invite) {
+    private void publishJoinAttribution(Group group, JoinGroupRequest request, InviteAttribution invite) {
         String joinMethod = normalizeJoinMethod(request.getJoinMethod());
         Runnable emit = () -> {
             logGroupJoined(group, joinMethod, invite);
@@ -430,15 +430,15 @@ public class GroupService {
      * Track2(user-activity) {@code GROUP_JOINED}. 값이 없는 키는 아예 넣지 않는다 —
      * 빈 값을 채워 넣으면 "구버전 앱이라 안 보냄"과 "검색으로 들어옴"을 구분할 수 없게 된다.
      */
-    private void logGroupJoined(Group group, String joinMethod, GroupInviteLink invite) {
+    private void logGroupJoined(Group group, String joinMethod, InviteAttribution invite) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("group_id", group.getId().toString());
         if (joinMethod != null) {
             payload.put("join_method", joinMethod);
         }
         if (invite != null) {
-            payload.put("invite_slug", invite.getSlug());
-            payload.put("inviter_id", invite.getInviterId().toString());
+            payload.put("invite_slug", invite.slug());
+            payload.put("inviter_id", invite.inviterId().toString());
         }
         userActivityEventLogger.log(UserActivityEvent.GROUP_JOINED, payload);
     }
@@ -448,11 +448,11 @@ public class GroupService {
      * (GA4 는 {@code slug}, Track2 는 {@code invite_slug} — 스펙 §4-3 / §6-3).
      * null 값 제거와 boolean 인코딩은 GA4 클라이언트가 맡으므로 여기서 분기하지 않는다.
      */
-    private Map<String, Object> ga4JoinParams(Group group, String joinMethod, GroupInviteLink invite) {
+    private Map<String, Object> ga4JoinParams(Group group, String joinMethod, InviteAttribution invite) {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("group_id", group.getId().toString());
         params.put("join_method", joinMethod);
-        params.put("slug", invite == null ? null : invite.getSlug());
+        params.put("slug", invite == null ? null : invite.slug());
         params.put("inviter_present", invite != null);
         return params;
     }

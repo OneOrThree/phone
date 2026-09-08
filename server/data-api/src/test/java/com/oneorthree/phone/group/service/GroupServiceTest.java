@@ -3,8 +3,8 @@ package com.oneorthree.phone.group.service;
 import com.oneorthree.phone.common.analytics.Ga4MeasurementClient;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
-import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
+import com.oneorthree.phone.common.port.InviteAttribution;
+import com.oneorthree.phone.common.port.InviteAttributionPort;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupJoinCode;
 import com.oneorthree.phone.group.repository.domain.GroupJoinCodeStatus;
@@ -158,7 +158,7 @@ class GroupServiceTest {
     private GroupChallengeBetRepository groupChallengeBetRepository;
 
     @Mock
-    private GroupInviteLinkRepository groupInviteLinkRepository;
+    private InviteAttributionPort inviteAttributionPort;
 
     @Mock
     private Ga4MeasurementClient ga4MeasurementClient;
@@ -1835,8 +1835,8 @@ class GroupServiceTest {
         // given
         Group group = openGroup();
         givenJoinableGroup(group);
-        given(groupInviteLinkRepository.findBySlug(SLUG))
-                .willReturn(Optional.of(new GroupInviteLink(SLUG, GROUP_ID, INVITER_ID)));
+        given(inviteAttributionPort.findBySlug(SLUG))
+                .willReturn(Optional.of(new InviteAttribution(SLUG, GROUP_ID, INVITER_ID)));
 
         // when
         groupService.joinGroup(GROUP_ID, USER_ID,
@@ -1866,8 +1866,8 @@ class GroupServiceTest {
         // given: 링크는 GROUP_ID_2 를 가리키는데 참여 대상은 GROUP_ID
         Group group = openGroup();
         givenJoinableGroup(group);
-        given(groupInviteLinkRepository.findBySlug(SLUG))
-                .willReturn(Optional.of(new GroupInviteLink(SLUG, GROUP_ID_2, INVITER_ID)));
+        given(inviteAttributionPort.findBySlug(SLUG))
+                .willReturn(Optional.of(new InviteAttribution(SLUG, GROUP_ID_2, INVITER_ID)));
 
         // when
         groupService.joinGroup(GROUP_ID, USER_ID,
@@ -1889,7 +1889,7 @@ class GroupServiceTest {
         // given
         Group group = openGroup();
         givenJoinableGroup(group);
-        given(groupInviteLinkRepository.findBySlug(SLUG)).willReturn(Optional.empty());
+        given(inviteAttributionPort.findBySlug(SLUG)).willReturn(Optional.empty());
 
         // when
         groupService.joinGroup(GROUP_ID, USER_ID,
@@ -1912,7 +1912,7 @@ class GroupServiceTest {
 
         // then
         verify(groupMemberRepository).save(any(GroupMember.class));
-        verify(groupInviteLinkRepository, never()).findBySlug(anyString());
+        verify(inviteAttributionPort, never()).findBySlug(anyString());
         // join_method 는 넣지 않는다 — "미전송"과 "search 로 들어옴"을 구분하기 위해
         assertThat(capturedActivityPayload())
                 .containsEntry("group_id", GROUP_ID.toString())
@@ -1925,8 +1925,8 @@ class GroupServiceTest {
         // given
         Group group = openGroup();
         givenJoinableGroup(group);
-        given(groupInviteLinkRepository.findBySlug(SLUG))
-                .willReturn(Optional.of(new GroupInviteLink(SLUG, GROUP_ID, INVITER_ID)));
+        given(inviteAttributionPort.findBySlug(SLUG))
+                .willReturn(Optional.of(new InviteAttribution(SLUG, GROUP_ID, INVITER_ID)));
 
         // when
         groupService.joinGroup(GROUP_ID, USER_ID, JoinGroupRequest.builder().joinMethod("invite").inviteSlug(SLUG).build());
@@ -1942,8 +1942,8 @@ class GroupServiceTest {
         // given: 링크의 초대자 == 참여자 (그룹을 나갔다가 자기 링크로 재참여하는 시나리오)
         Group group = openGroup();
         givenJoinableGroup(group);
-        given(groupInviteLinkRepository.findBySlug(SLUG))
-                .willReturn(Optional.of(new GroupInviteLink(SLUG, GROUP_ID, USER_ID)));
+        given(inviteAttributionPort.findBySlug(SLUG))
+                .willReturn(Optional.of(new InviteAttribution(SLUG, GROUP_ID, USER_ID)));
 
         // when
         groupService.joinGroup(GROUP_ID, USER_ID,
