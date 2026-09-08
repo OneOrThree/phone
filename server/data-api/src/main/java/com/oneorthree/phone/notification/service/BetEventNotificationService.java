@@ -6,8 +6,9 @@ import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.repository.domain.GroupBetVoidReason;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
-import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
@@ -100,6 +101,7 @@ public class BetEventNotificationService {
             GroupBetStatus.VOIDED, GroupBetStatus.REFUNDED);
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
+    private final GroupQueryService groupQueryService;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final UserQueryService userQueryService;
     private final NotificationSentLogRepository notificationSentLogRepository;
@@ -142,7 +144,7 @@ public class BetEventNotificationService {
     @Transactional
     public void notifySessionClosed(UUID sessionId, Instant now) {
         GroupChallengeBetSession session =
-                groupChallengeBetSessionRepository.findById(sessionId).orElse(null);
+                groupQueryService.findBetSession(sessionId).orElse(null);
         if (session == null) {
             return;
         }
@@ -190,7 +192,7 @@ public class BetEventNotificationService {
     @Transactional
     public void suppressResultPushOnAck(UUID userId, UUID sessionId, Instant now) {
         GroupChallengeBetSession session =
-                groupChallengeBetSessionRepository.findById(sessionId).orElse(null);
+                groupQueryService.findBetSession(sessionId).orElse(null);
         if (session != null
                 && NotificationSentLog.TYPE_BET_RESULT.equals(kindOf(session.getStatus()))) {
             Instant eventAt = session.getSettledAt() == null ? now : session.getSettledAt();
@@ -377,8 +379,8 @@ public class BetEventNotificationService {
                 .map(NotificationSentLog::getSubjectId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<UUID, GroupChallengeBetSession> sessionsById = groupChallengeBetSessionRepository
-                .findAllById(sessionIds).stream()
+        Map<UUID, GroupChallengeBetSession> sessionsById = groupQueryService
+                .findAllBetSessions(sessionIds).stream()
                 .collect(Collectors.toMap(GroupChallengeBetSession::getId, Function.identity()));
         Map<String, GroupChallengeBetParticipant> participantsByKey = sessionIds.isEmpty()
                 ? Map.of()

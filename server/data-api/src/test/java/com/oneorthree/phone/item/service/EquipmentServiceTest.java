@@ -11,7 +11,7 @@ import com.oneorthree.phone.item.repository.domain.SlotType;
 import com.oneorthree.phone.item.repository.domain.UserItem;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
-import com.oneorthree.phone.item.repository.ItemRepository;
+import com.oneorthree.phone.item.repository.ItemQueryService;
 import com.oneorthree.phone.item.repository.UserItemRepository;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -48,7 +48,7 @@ public class EquipmentServiceTest {
     private UserQueryService userQueryService;
 
     @Mock
-    private ItemRepository itemRepo;
+    private ItemQueryService itemQueryService;
 
     @Mock
     private UserItemRepository userItemRepo;
@@ -117,7 +117,7 @@ public class EquipmentServiceTest {
     void equipSuccess() {
         // given
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(itemRepo.findById(ITEM_ID)).willReturn(Optional.of(item));
+        given(itemQueryService.getItem(ITEM_ID)).willReturn(item);
         given(userItemRepo.findByUserAndItem(user, item)).willReturn(Optional.of(userItem));
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAIR)).willReturn(Optional.empty());
         given(characterEquipmentRepo.save(any())).willAnswer(i -> i.getArgument(0));
@@ -138,7 +138,7 @@ public class EquipmentServiceTest {
     void equipEmitsItemEquipped() {
         // given
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(itemRepo.findById(ITEM_ID)).willReturn(Optional.of(item));
+        given(itemQueryService.getItem(ITEM_ID)).willReturn(item);
         given(userItemRepo.findByUserAndItem(user, item)).willReturn(Optional.of(userItem));
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAIR)).willReturn(Optional.empty());
         given(characterEquipmentRepo.save(any())).willAnswer(i -> i.getArgument(0));
@@ -160,7 +160,7 @@ public class EquipmentServiceTest {
     void equipFailNotOwned() {
         // given
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(itemRepo.findById(ITEM_ID)).willReturn(Optional.of(item));
+        given(itemQueryService.getItem(ITEM_ID)).willReturn(item);
         given(userItemRepo.findByUserAndItem(user, item)).willReturn(Optional.empty());
 
         // when + then

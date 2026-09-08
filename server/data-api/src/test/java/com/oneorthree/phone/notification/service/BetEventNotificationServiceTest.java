@@ -9,6 +9,7 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
@@ -73,6 +74,10 @@ class BetEventNotificationServiceTest {
 
     @Mock
     private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
+
+    @Mock
+    private GroupQueryService groupQueryService;
+
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Mock
@@ -171,7 +176,7 @@ class BetEventNotificationServiceTest {
     /** 이벤트 경로 입력 — 회차 단건 조회 + 그 회차의 참가자. */
     private void givenEventSession(GroupChallengeBetSession session,
             List<GroupChallengeBetParticipant> participants) {
-        given(groupChallengeBetSessionRepository.findById(session.getId()))
+        given(groupQueryService.findBetSession(session.getId()))
                 .willReturn(Optional.of(session));
         given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
                 .willReturn(participants);
@@ -180,7 +185,7 @@ class BetEventNotificationServiceTest {
     /** flush 가 클레임 행에서 회차·참가자를 재조립할 때 쓰는 입력. */
     private void givenFlushLookup(List<GroupChallengeBetSession> sessions,
             List<GroupChallengeBetParticipant> participants) {
-        given(groupChallengeBetSessionRepository.findAllById(anyCollection())).willReturn(sessions);
+        given(groupQueryService.findAllBetSessions(anyCollection())).willReturn(sessions);
         given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
                 .willReturn(participants);
     }

@@ -9,6 +9,7 @@ import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
@@ -94,6 +95,7 @@ public class SessionOpenNotificationService {
             List.of(NotificationSentLog.TYPE_CHALLENGE_SESSION_OPEN);
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
+    private final GroupQueryService groupQueryService;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final NotificationSentLogRepository notificationSentLogRepository;
@@ -210,8 +212,8 @@ public class SessionOpenNotificationService {
                 .map(NotificationSentLog::getSubjectId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<UUID, GroupChallengeBetSession> sessionsById = groupChallengeBetSessionRepository
-                .findAllById(sessionIds).stream()
+        Map<UUID, GroupChallengeBetSession> sessionsById = groupQueryService
+                .findAllBetSessions(sessionIds).stream()
                 .collect(Collectors.toMap(GroupChallengeBetSession::getId, Function.identity()));
         List<UUID> userIds = rows.stream().map(NotificationSentLog::getUserId).distinct().toList();
         // 탈퇴자는 조회에서 아예 빠지고, 아래 user == null 분기가 그대로 받아 클레임을 닫는다.

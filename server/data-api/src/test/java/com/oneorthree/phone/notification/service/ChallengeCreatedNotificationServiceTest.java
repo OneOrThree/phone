@@ -11,7 +11,7 @@ import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
@@ -64,7 +64,7 @@ class ChallengeCreatedNotificationServiceTest {
     private static final Instant NOW = Instant.parse("2026-08-03T01:00:01Z");
 
     @Mock
-    private GroupChallengeRepository groupChallengeRepository;
+    private GroupQueryService groupQueryService;
     @Mock
     private GroupChallengeDurationRepository groupChallengeDurationRepository;
     @Mock
@@ -141,7 +141,7 @@ class ChallengeCreatedNotificationServiceTest {
         // 끝난 챌린지에 나가면 안 된다. 재조회가 status=ACTIVE 를 함께 확인한다.
         GroupChallenge challenge = durationChallenge();
         challenge.end();
-        given(groupChallengeRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(challenge));
+        given(groupQueryService.findChallenge(CHALLENGE_ID)).willReturn(Optional.of(challenge));
 
         int sent = service.sendCreatedNotifications(event(), NOW);
 
@@ -154,7 +154,7 @@ class ChallengeCreatedNotificationServiceTest {
     void skipsDeletedChallenge() {
         GroupChallenge challenge = durationChallenge();
         challenge.softDelete();
-        given(groupChallengeRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(challenge));
+        given(groupQueryService.findChallenge(CHALLENGE_ID)).willReturn(Optional.of(challenge));
 
         int sent = service.sendCreatedNotifications(event(), NOW);
 
@@ -373,7 +373,7 @@ class ChallengeCreatedNotificationServiceTest {
     }
 
     private void givenChallenge(GroupChallenge challenge) {
-        given(groupChallengeRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(challenge));
+        given(groupQueryService.findChallenge(CHALLENGE_ID)).willReturn(Optional.of(challenge));
     }
 
     private void givenMembers(GroupChallenge challenge, User... users) {

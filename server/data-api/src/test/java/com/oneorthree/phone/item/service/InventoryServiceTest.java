@@ -4,7 +4,7 @@ import com.oneorthree.phone.item.dto.UserItemResponse;
 import com.oneorthree.phone.item.repository.domain.Item;
 import com.oneorthree.phone.item.repository.domain.SlotType;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.item.repository.ItemRepository;
+import com.oneorthree.phone.item.repository.ItemQueryService;
 import com.oneorthree.phone.item.repository.UserItemRepository;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -38,7 +38,7 @@ public class InventoryServiceTest {
     private UserQueryService userQueryService;
 
     @Mock
-    private ItemRepository itemRepository;
+    private ItemQueryService itemQueryService;
 
     @Mock
     private UserItemRepository userItemRepository;
@@ -84,7 +84,7 @@ public class InventoryServiceTest {
         Item item = Item.builder().name("모자").slotType(SlotType.HAIR).grade("COMMON").build();
         // GROMO-1237: 지급(변경) 경로는 공유 락 활성 조회를 쓴다(락 규율).
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
-        given(itemRepository.findById(ITEM_ID)).willReturn(Optional.of(item));
+        given(itemQueryService.getItem(ITEM_ID)).willReturn(item);
 
         // when
         inventoryService.grantItem(USER_ID, ITEM_ID);

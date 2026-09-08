@@ -3,7 +3,7 @@ package com.oneorthree.phone.invitelink.service;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.dto.LandingView;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
@@ -39,7 +39,7 @@ class InviteLinkServiceTest {
     @Mock
     private GroupInviteLinkRepository inviteLinkRepository;
     @Mock
-    private GroupRepository groupRepository;
+    private GroupQueryService groupQueryService;
     @Mock
     private GroupMemberRepository groupMemberRepository;
     @Mock
@@ -60,7 +60,7 @@ class InviteLinkServiceTest {
 
     @BeforeEach
     void setUp() {
-        inviteLinkService = new InviteLinkService(inviteLinkRepository, groupRepository,
+        inviteLinkService = new InviteLinkService(inviteLinkRepository, groupQueryService,
                 groupMemberRepository, userQueryService, slugGenerator, inviteLinkUrls,
                 ga4Events, userActivityEventLogger);
     }
@@ -70,7 +70,7 @@ class InviteLinkServiceTest {
     void inviterLookupFailureDoesNotBreakLanding() {
         given(inviteLinkRepository.findBySlug(SLUG))
                 .willReturn(Optional.of(new GroupInviteLink(SLUG, groupId, inviterId)));
-        given(groupRepository.findById(groupId))
+        given(groupQueryService.findGroup(groupId))
                 .willReturn(Optional.of(Group.builder().name("스터디").build()));
         given(userQueryService.findActive(inviterId))
                 .willThrow(new DataAccessResourceFailureException("users 조회 실패"));

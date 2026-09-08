@@ -5,7 +5,7 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.dto.IssueInviteLinkResponse;
 import com.oneorthree.phone.invitelink.dto.InviteLinkRef;
@@ -44,7 +44,7 @@ public class InviteLinkService {
     private static final int MAX_SLUG_ATTEMPTS = 5;
 
     private final GroupInviteLinkRepository inviteLinkRepository;
-    private final GroupRepository groupRepository;
+    private final GroupQueryService groupQueryService;
     private final GroupMemberRepository groupMemberRepository;
     private final UserQueryService userQueryService;
     private final SlugGenerator slugGenerator;
@@ -162,7 +162,7 @@ public class InviteLinkService {
      * 공유하도록 package-private 로 연다.
      */
     Optional<Group> findActiveGroup(UUID groupId) {
-        return groupRepository.findById(groupId)
+        return groupQueryService.findGroup(groupId)
                 .filter(group -> group.getDeletedAt() == null && group.getStatus() != GroupStatus.ENDED);
     }
 

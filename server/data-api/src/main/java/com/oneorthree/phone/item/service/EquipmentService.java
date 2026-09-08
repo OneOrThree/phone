@@ -9,10 +9,9 @@ import com.oneorthree.phone.item.repository.domain.SlotType;
 import com.oneorthree.phone.item.repository.domain.UserItem;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
-import com.oneorthree.phone.item.repository.ItemRepository;
 import com.oneorthree.phone.item.repository.UserItemRepository;
+import com.oneorthree.phone.item.repository.ItemQueryService;
 import com.oneorthree.phone.user.repository.UserQueryService;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +34,7 @@ import java.util.UUID;
 public class EquipmentService {
 
     private final UserQueryService userQueryService;
-    private final ItemRepository itemRepository;
+    private final ItemQueryService itemQueryService;
     private final UserItemRepository userItemRepository;
     private final CharacterEquipmentRepository characterEquipmentRepository;
     private final UserActivityEventLogger userActivityEventLogger;
@@ -70,8 +69,7 @@ public class EquipmentService {
     @Transactional
     public CharacterEquipmentResponse equip(UUID userId, UUID itemId) {
         User user = requireActiveUser(userId);
-        Item item = itemRepository.findById(itemId)
-                .orElseThrow(() -> new EntityNotFoundException("아이템을 찾을 수 없습니다."));
+        Item item = itemQueryService.getItem(itemId);
 
         // 소유 여부 검증 + acquiredAt 확보 (신규 획득 스킨 장착 분석은 timestamp - acquired_at 시차로 도출)
         UserItem userItem = userItemRepository.findByUserAndItem(user, item)

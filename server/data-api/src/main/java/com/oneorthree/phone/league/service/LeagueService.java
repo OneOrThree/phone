@@ -15,8 +15,8 @@ import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
-import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
+import com.oneorthree.phone.league.repository.LeagueQueryService;
 import com.oneorthree.phone.user.repository.domain.Occupation;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.league.support.LeagueWeek;
@@ -54,7 +54,7 @@ public class LeagueService {
     private static final int MAX_RANKING_LIMIT = 500;
 
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
-    private final LeagueTierConfigRepository leagueTierConfigRepository;
+    private final LeagueQueryService leagueQueryService;
     private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
     private final CurrencyTransactionRepository currencyTransactionRepository;
     private final UserQueryService userQueryService;
@@ -267,7 +267,7 @@ public class LeagueService {
      * 티어 레벨 → 배지 식별자 (시드 보장 1~5; 누락 시 null 로 방어)
      */
     private String badgeId(Integer tierLevel) {
-        return leagueTierConfigRepository.findById(tierLevel)
+        return leagueQueryService.findTierConfig(tierLevel)
                 .map(LeagueTierConfig::getBadgeId)
                 .orElse(null);
     }

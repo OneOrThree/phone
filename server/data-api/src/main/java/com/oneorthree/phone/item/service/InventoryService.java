@@ -2,10 +2,9 @@ package com.oneorthree.phone.item.service;
 
 import com.oneorthree.phone.item.dto.UserItemResponse;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.item.repository.ItemRepository;
 import com.oneorthree.phone.item.repository.UserItemRepository;
+import com.oneorthree.phone.item.repository.ItemQueryService;
 import com.oneorthree.phone.user.repository.UserQueryService;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -26,7 +25,7 @@ import java.util.UUID;
 @Slf4j
 public class InventoryService {
     private final UserQueryService userQueryService;
-    private final ItemRepository itemRepository;
+    private final ItemQueryService itemQueryService;
     private final UserItemRepository userItemRepository;
 
     /**
@@ -57,8 +56,7 @@ public class InventoryService {
     @Transactional
     public void grantItem(UUID userId, UUID itemId) {
         requireActiveUser(userId);
-        itemRepository.findById(itemId)
-                .orElseThrow(() -> new EntityNotFoundException("아이템을 찾을 수 없습니다."));
+        itemQueryService.getItem(itemId);
 
         userItemRepository.grantIfNotExists(userId, itemId);
     }

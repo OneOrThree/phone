@@ -7,6 +7,7 @@ import com.oneorthree.phone.invitelink.dto.InviteMatchResponse;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.invitelink.exception.InviteLinkException;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
+import com.oneorthree.phone.invitelink.repository.InviteLinkQueryService;
 import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
 import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;
 import lombok.extern.slf4j.Slf4j;
@@ -36,13 +37,15 @@ public class InviteLinkMatchService {
 
     private final InviteLinkClickRepository clickRepository;
     private final GroupInviteLinkRepository inviteLinkRepository;
+    private final InviteLinkQueryService inviteLinkQueryService;
     private final InviteLinkService inviteLinkService;
     private final InviteLinkGa4Events ga4Events;
     private final int matchWindowHours;
 
     /**
      * @param clickRepository 클릭 조회·소진. 소진 경로는 반드시 잠금 조회를 써야 한다
-     * @param inviteLinkRepository 매치된 클릭에서 링크·그룹을 되찾는 데 쓴다
+     * @param inviteLinkRepository 슬러그로 링크를 찾는 데 쓴다(id 조회는 아래 계층이 맡는다)
+     * @param inviteLinkQueryService 링크 단건 조회 — 부재를 던지지 않아 클릭을 소진하지 않고 다음 기회를 남긴다
      * @param inviteLinkService 그룹 생존 판정({@code findActiveGroup})을 발급·랜딩과 공유하기 위해 주입한다 —
      *                          판정이 갈리면 랜딩에서는 만료인 초대가 매치에서는 성립하는 어긋남이 생긴다
      * @param ga4Events 매치 성공·실패를 모두 발행한다. 실패가 퍼널의 분모라 빼면 매치율을 계산할 수 없다
@@ -53,11 +56,13 @@ public class InviteLinkMatchService {
     public InviteLinkMatchService(
             InviteLinkClickRepository clickRepository,
             GroupInviteLinkRepository inviteLinkRepository,
+            InviteLinkQueryService inviteLinkQueryService,
             InviteLinkService inviteLinkService,
             InviteLinkGa4Events ga4Events,
             @Value("${link.match-window-hours}") int matchWindowHours) {
         this.clickRepository = clickRepository;
         this.inviteLinkRepository = inviteLinkRepository;
+        this.inviteLinkQueryService = inviteLinkQueryService;
         this.inviteLinkService = inviteLinkService;
         this.ga4Events = ga4Events;
         this.matchWindowHours = matchWindowHours;
@@ -102,7 +107,7 @@ public class InviteLinkMatchService {
                         ipHash, request.os(), cutoff);
 
         Optional<GroupInviteLink> link = candidate.flatMap(click -> {
-            Optional<GroupInviteLink> found = inviteLinkRepository.findById(click.getLinkId());
+            Optional<GroupInviteLink> found = inviteLinkQueryService.findInviteLink(click.getLinkId());
             if (found.isEmpty()) {
                 // FK 가 보장하므로 도달하지 않는다. 그래도 클릭을 소진하지 않고 빠져나가 다음 기회를 남긴다.
                 log.warn("매치 후보의 링크를 찾을 수 없음 — clickId={}", click.getId());
@@ -128,7 +133,7 @@ public class InviteLinkMatchService {
 
     /** 기존 매치를 같은 응답으로 복원한다. 링크의 그룹이 그 사이 삭제·종료됐으면 매치 실패 응답이다. */
     private InviteMatchResponse replayResponse(InviteLinkClick prior) {
-        return inviteLinkRepository.findById(prior.getLinkId())
+        return inviteLinkQueryService.findInviteLink(prior.getLinkId())
                 .filter(link -> inviteLinkService.findActiveGroup(link.getGroupId()).isPresent())
                 .map(link -> InviteMatchResponse.matched(link.getSlug(), link.getGroupId()))
                 .orElseGet(InviteMatchResponse::notMatched);
