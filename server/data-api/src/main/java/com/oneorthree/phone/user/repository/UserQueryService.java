@@ -3,6 +3,10 @@ package com.oneorthree.phone.user.repository;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserFocusTimeSettings;
+import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.repository.domain.UserScreenTimeSettings;
+import com.oneorthree.phone.user.repository.domain.UserWallet;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -39,6 +43,19 @@ import java.util.UUID;
  *   <li>탈퇴와 경합할 일이 없는 단순 조회는 락 없는 쪽을 쓴다</li>
  * </ul>
  *
+ * <h2>유저에 딸린 1:1 행 — 지갑·설정</h2>
+ * 지갑({@code user_wallets})과 설정 3종({@code user_*_settings})은 가입 시
+ * {@code AuthService} 가 함께 만드는 유저당 한 행짜리 부속 테이블이라, {@code userId} 가 곧 PK 다.
+ * 이 조회도 같은 갈래 문제를 갖고 있었다 — <b>같은 부재를 소유 도메인은 오류로, 빌리는 도메인은
+ * 정상으로</b> 취급한다. {@code user}·{@code currency} 는 {@link UserErrorCode#NOT_FOUND} 를 던지고
+ * (16건), {@code stats}·{@code focus}·{@code screentime}·{@code group}·{@code notification} 은
+ * {@code orElse(0)}·{@code orElse(false)}·{@code orElse(null)} 로 조용히 기본값을 쓴다(10건).
+ *
+ * <p>어느 쪽이 맞는지는 정책 판단이라 <b>이 계층은 두 축을 다 노출하고 판정은 호출부에 남긴다</b> —
+ * {@code get*} 은 던지고 {@code find*} 는 {@code Optional} 을 준다. 기본값이 {@code 0} 인지
+ * {@code false} 인지는 그 화면의 정책이지 영속성 관심사가 아니다. 통일하기로 하면 그때 고칠 자리는
+ * 한 곳이다.
+ *
  * <h2>왜 예외가 두 갈래인가</h2>
  * {@code getTarget*} 은 <b>요청이 지목한</b> 유저 부재라 {@link UserErrorCode#NOT_FOUND},
  * {@code getCaller*} 는 <b>요청자 본인</b>의 활성 계정 부재라 {@link UserErrorCode#USER_NOT_FOUND} 를
@@ -49,6 +66,10 @@ import java.util.UUID;
 public class UserQueryService {
 
     private final UserRepository userRepository;
+    private final UserWalletRepository userWalletRepository;
+    private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
+    private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
+    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
 
     /**
      * 활성 유저 조회 — 없으면 빈 값. 부재가 정상 흐름인 곳(스킵·기본값 대체)에서 쓴다.
@@ -161,5 +182,158 @@ public class UserQueryService {
      */
     public List<User> findAllActive(Collection<UUID> ids) {
         return userRepository.findAllByIdInAndIsDeletedFalse(ids);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // 지갑 — 돈이 걸린 행. 변경 트랜잭션은 처음부터 배타 락을 잡는다.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 지갑 조회 — 락 없음. 잔액을 <b>읽기만</b> 하는 경로에서 쓴다.
+     *
+     * @param userId 지갑 주인
+     * @return 지갑
+     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}. 가입 시 함께 만들어지므로
+     *     부재는 사실상 데이터 손상이다
+     */
+    public UserWallet getWallet(UUID userId) {
+        return userWalletRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+    }
+
+    /**
+     * 지갑 조회 — <b>배타 락</b>. 이 트랜잭션이 잔액을 고칠 때 쓴다.
+     *
+     * <p>여러 유저의 지갑을 한 트랜잭션에서 다루면 {@code userId} 오름차순으로 불러야 교착이 나지
+     * 않는다({@link UserWalletRepository} 의 논증 참조). {@code readOnly} 트랜잭션에서는 쓸 수 없다.
+     *
+     * @param userId 지갑 주인
+     * @return 잠긴 지갑
+     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}
+     */
+    public UserWallet getWalletForUpdate(UUID userId) {
+        return userWalletRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 스크린타임 설정 — 유일하게 락 3종이 다 쓰이는 설정이다(권한 회수와 경합한다).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 스크린타임 설정 — 락 없음. 부재를 오류로 보는 경로용.
+     *
+     * @param userId 설정 주인
+     * @return 설정
+     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}
+     */
+    public UserScreenTimeSettings getScreenTimeSettings(UUID userId) {
+        return userScreenTimeSettingsRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+    }
+
+    /**
+     * 스크린타임 설정 — 락 없음, <b>부재가 정상</b>. 기본값으로 대체하는 경로용.
+     *
+     * <p>기본값이 무엇인지는 호출부가 정한다 — 목표 시간은 {@code 0}, 권한 부여 여부는
+     * {@code false} 처럼 화면마다 다르다.
+     *
+     * @param userId 설정 주인
+     * @return 설정. 없으면 빈 값
+     */
+    public Optional<UserScreenTimeSettings> findScreenTimeSettings(UUID userId) {
+        return userScreenTimeSettingsRepository.findById(userId);
+    }
+
+    /**
+     * 스크린타임 설정 — <b>공유 락</b>, 부재가 정상.
+     *
+     * <p>권한 회수({@code UserService} 의 배타 락)와 설정 행에서 직렬화한다. 락 없이 읽으면 확인과
+     * 차감 사이에 회수가 끼어들어, 보고하지 못하는 유료 참가가 남는다.
+     *
+     * @param userId 설정 주인
+     * @return 잠긴 설정. 없으면 빈 값
+     */
+    public Optional<UserScreenTimeSettings> findScreenTimeSettingsForShare(UUID userId) {
+        return userScreenTimeSettingsRepository.findByIdForShare(userId);
+    }
+
+    /**
+     * 스크린타임 설정 — <b>배타 락</b>. 이 트랜잭션이 설정을 고칠 때 쓴다.
+     *
+     * @param userId 설정 주인
+     * @return 잠긴 설정
+     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}
+     */
+    public UserScreenTimeSettings getScreenTimeSettingsForUpdate(UUID userId) {
+        return userScreenTimeSettingsRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+    }
+
+    /**
+     * 스크린타임 설정 배치 조회 — 챌린지 참가자처럼 여러 명을 한 번에 볼 때.
+     *
+     * @param userIds 설정 주인들
+     * @return 설정. <b>부재분은 빠지므로 요청 수와 결과 수가 다를 수 있다</b>
+     */
+    public List<UserScreenTimeSettings> findAllScreenTimeSettings(Collection<UUID> userIds) {
+        return userScreenTimeSettingsRepository.findAllById(userIds);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 집중 시간 설정 · 알림 설정 — 락 변형이 쓰이는 곳이 없어 만들지 않는다.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 집중 시간 설정 — 부재를 오류로 보는 경로용.
+     *
+     * @param userId 설정 주인
+     * @return 설정
+     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}
+     */
+    public UserFocusTimeSettings getFocusTimeSettings(UUID userId) {
+        return userFocusTimeSettingsRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+    }
+
+    /**
+     * 집중 시간 설정 — <b>부재가 정상</b>. 통계·집중 화면이 목표 시간을 {@code 0} 으로 대체한다.
+     *
+     * @param userId 설정 주인
+     * @return 설정. 없으면 빈 값
+     */
+    public Optional<UserFocusTimeSettings> findFocusTimeSettings(UUID userId) {
+        return userFocusTimeSettingsRepository.findById(userId);
+    }
+
+    /**
+     * 알림 설정 — 부재를 오류로 보는 경로용.
+     *
+     * @param userId 설정 주인
+     * @return 설정
+     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}
+     */
+    public UserNotificationSettings getNotificationSettings(UUID userId) {
+        return userNotificationSettingsRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+    }
+
+    /**
+     * 알림 설정 — <b>부재가 정상</b>. 발송 경로는 설정이 없으면 소리를 켠 것으로 본다.
+     *
+     * @param userId 설정 주인
+     * @return 설정. 없으면 빈 값
+     */
+    public Optional<UserNotificationSettings> findNotificationSettings(UUID userId) {
+        return userNotificationSettingsRepository.findById(userId);
+    }
+
+    /**
+     * 알림 설정 배치 조회 — 묶음 발송이 대상 유저 전체의 설정을 한 번에 읽을 때.
+     *
+     * @param userIds 설정 주인들
+     * @return 설정. <b>부재분은 빠진다</b> — 호출부가 맵으로 만든 뒤 {@code null} 을 기본값으로 접는다
+     */
+    public List<UserNotificationSettings> findAllNotificationSettings(Collection<UUID> userIds) {
+        return userNotificationSettingsRepository.findAllById(userIds);
     }
 }
