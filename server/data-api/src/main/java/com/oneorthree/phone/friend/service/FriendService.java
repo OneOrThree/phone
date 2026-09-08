@@ -87,7 +87,7 @@ public class FriendService {
      * @param focusSessionRepository      핀 목록의 "지금 집중 중" 판정 소스(끝나지 않은 세션)
      * @param characterEquipmentRepository 핀 목록에 실을 캐릭터 장착 표시정보
      * @param userActivityEventLogger     요청·수락 사실을 커밋과 무관하게 즉시 남기는 활동 로그
-     * @param userTierLookup            상대들의 티어를 한 번에 뽑는 배치 조회기
+     * @param userTierLookup              상대들의 티어를 한 번에 뽑는 배치 조회기
      * @param focusLiveInfoLookup         상대들의 집중 라이브 정보를 한 번에 뽑는 배치 조회기
      * @param friendRelationLookup        검색 결과의 관계 배지 판정 — 프로필 도메인과 공유한다
      * @param eventPublisher              푸시 발송을 커밋 이후로 미루기 위한 이벤트 발행기
