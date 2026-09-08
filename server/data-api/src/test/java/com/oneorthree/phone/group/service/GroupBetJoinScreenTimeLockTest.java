@@ -98,7 +98,7 @@ class GroupBetJoinScreenTimeLockTest {
         given(preRead.getGroup()).willReturn(group);
         given(preRead.getChallenge()).willReturn(challenge);
         given(challenge.getId()).willReturn(CHALLENGE_ID);
-        given(groupChallengeBetSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(preRead));
+        given(groupQueryService.findBetSession(SESSION_ID)).willReturn(Optional.of(preRead));
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForShare(CHALLENGE_ID, group))
                 .willReturn(Optional.of(challenge));
         given(challenge.getStatus()).willReturn(GroupChallengeStatus.ACTIVE);

@@ -99,7 +99,7 @@ public class GroupBetJoinService {
         Group group = groupBetService.requireGroupMembershipForShare(user, groupId);
         // 잠금 없는 그룹 스코프 조회 — 소속 챌린지를 알아내 락 순서(챌린지 → 회차)를 지키기 위한
         // 선행 읽기다. 존재·검증의 정본은 아래 잠금 재조회다.
-        GroupChallengeBetSession preRead = groupChallengeBetSessionRepository.findById(sessionId)
+        GroupChallengeBetSession preRead = groupQueryService.findBetSession(sessionId)
                 .filter(s -> s.getGroup().getId().equals(group.getId()))
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
         GroupChallenge challenge = groupChallengeRepository
