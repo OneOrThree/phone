@@ -2470,13 +2470,12 @@ class FocusServiceTest {
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, null);
 
         // when
-        Instant before = NOW;
         focusService.startFocusSession(USER_ID, body);
 
         // then: startedAt 이 now 근처로 채워짐
         ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
         verify(focusSessionRepository).save(captor.capture());
-        assertThat(captor.getValue().getStartedAt()).isAfterOrEqualTo(before);
+        assertThat(captor.getValue().getStartedAt()).isEqualTo(NOW);   // 주입 시계 값 그대로 — 벽시계 회귀를 잡는다
         assertThat(captor.getValue().getEndedAt()).isNull();
     }
 
@@ -2618,14 +2617,13 @@ class FocusServiceTest {
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
 
         // when
-        Instant before = NOW;
         focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, clientStartedAt));
 
         // then: 마감 시각이 새 마커 startedAt 이었다면 구 마커가 그보다 늦게 시작한 경우
         // endedAt < startedAt 역전이 생긴다. now 는 어떤 마커의 startedAt(생성 시 미래 0분 클램프)보다도 뒤다.
         ArgumentCaptor<Instant> closedAt = ArgumentCaptor.forClass(Instant.class);
         verify(focusSessionRepository).autoCloseOpenMarkersOf(eq(user), closedAt.capture());
-        assertThat(closedAt.getValue()).isAfterOrEqualTo(before);
+        assertThat(closedAt.getValue()).isEqualTo(NOW);
         assertThat(closedAt.getValue()).isAfter(clientStartedAt);
     }
 
@@ -2984,11 +2982,10 @@ class FocusServiceTest {
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, null, 0, null);
 
         // when
-        Instant before = NOW;
         focusService.endFocusSession(USER_ID, body);
 
         // then: endedAt 이 now 근처로 채워짐
-        assertThat(session.getEndedAt()).isAfterOrEqualTo(before);
+        assertThat(session.getEndedAt()).isEqualTo(NOW);
     }
 
     @Test
@@ -3284,15 +3281,14 @@ class FocusServiceTest {
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
 
         // when
-        Instant before = NOW;
         FocusSessionStartResponse response =
                 focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, backdated));
 
         // then: 저장·응답 모두 서버 시각 — 조작한 12시간은 반영되지 않는다
         ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
         verify(focusSessionRepository).save(captor.capture());
-        assertThat(captor.getValue().getStartedAt()).isAfterOrEqualTo(before);
-        assertThat(response.startedAt()).isAfterOrEqualTo(before);
+        assertThat(captor.getValue().getStartedAt()).isEqualTo(NOW);   // 주입 시계 값 그대로 — 벽시계 회귀를 잡는다
+        assertThat(response.startedAt()).isEqualTo(NOW);
     }
 
     @Test
@@ -3311,14 +3307,13 @@ class FocusServiceTest {
         given(userQueryService.findFocusTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         // when
-        Instant before = NOW;
         FocusSessionEndResponse response =
                 focusService.endFocusSession(USER_ID, new FocusSessionEndRequest(SESSION_ID, future, 0, null));
 
         // then: DB 종료 UPDATE·엔티티·응답 모두 서버 시각(미래 미반영)
         ArgumentCaptor<Instant> endedAtCaptor = ArgumentCaptor.forClass(Instant.class);
         verify(focusSessionRepository).endSessionIfActive(eq(SESSION_ID), endedAtCaptor.capture());
-        assertThat(endedAtCaptor.getValue()).isAfterOrEqualTo(before).isBefore(future);
+        assertThat(endedAtCaptor.getValue()).isEqualTo(NOW).isBefore(future);
         assertThat(session.getEndedAt()).isEqualTo(endedAtCaptor.getValue());
         assertThat(response.endedAt()).isEqualTo(endedAtCaptor.getValue());
     }
