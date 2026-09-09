@@ -464,6 +464,7 @@ class UserServiceTest {
                 .id(USER_ID)
                 .nickname("조재영")
                 .countryCode("KR")
+                .language("ja")
                 .occupation(Occupation.UNIVERSITY)
                 .build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(500).build();
@@ -487,6 +488,7 @@ class UserServiceTest {
         assertThat(response.statVisibility()).isEqualTo("FRIENDS"); // 기본값
         assertThat(response.occupation()).isEqualTo("UNIVERSITY"); // 준비 시험 enum name (GROMO-757)
         assertThat(response.timeZone()).isEqualTo("Asia/Seoul"); // 서버 날짜 버킷 존 (GROMO-1252)
+        assertThat(response.language()).isEqualTo("ja"); // 앱이 보고한 표시 언어 그대로 (GROMO-1659, claude 리뷰)
     }
 
     @Test
