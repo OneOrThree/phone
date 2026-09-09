@@ -59,7 +59,7 @@ public class StatsController implements StatsControllerDocs {
             @RequestParam(required = false) UUID friends,
             @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
-        return ResponseEntity.ok(statsService.getTodayStats(targetId, date));
+        return ResponseEntity.ok(statsService.getTodayStats(callerId, targetId, date));
     }
 
     @Override
@@ -102,6 +102,6 @@ public class StatsController implements StatsControllerDocs {
             @RequestParam(required = false) UUID friends,
             @LoginUser UUID callerId) {
         UUID targetId = statsService.resolveTargetUserId(callerId, friends);
-        return ResponseEntity.ok(statsService.getScreenTimePeriodStats(targetId, period, date));
+        return ResponseEntity.ok(statsService.getScreenTimePeriodStats(callerId, targetId, period, date));
     }
 }

@@ -173,11 +173,12 @@ public class StatsService {
      *         설정된 목표</b>로 다시 계산하며, 집중은 목표 이상, 스크린타임은 목표 이하가 달성이다.
      *         목표를 설정하지 않았으면(0) 어느 쪽도 달성이 아니다
      */
-    public TodayStatsResponse getTodayStats(UUID userId, LocalDate today) {
+    public TodayStatsResponse getTodayStats(UUID callerId, UUID userId, LocalDate today) {
         // GROMO-1655: 종전 무필터 findById → 활성 필터 조회. userId 는 컨트롤러가
-        // resolveTargetUserId 로 정한 **지목 대상**(본인일 수도, 친구일 수도)이라 NOT_FOUND 쪽이다.
+        // resolveTargetUserId 로 정한 **지목 대상**(본인일 수도, 친구일 수도) — 본인이면 USER_NOT_FOUND,
+        // 남이면 TARGET_USER_NOT_FOUND (GROMO-1725).
         // 탈퇴 유저 통계가 이제 404 가 된다(오너 승인 동작 변경).
-        User user = userQueryService.getTarget(userId);
+        User user = userQueryService.getTargetOf(callerId, userId);
 
         int focusMinutes = dailyFocusStatRepository.findByUserAndDate(user, today)
                 .map(d -> StatsUnits.secondsToMinutes(d.getTotalFocusSeconds())).orElse(0);   // GROMO-642: 초→분
@@ -309,10 +310,11 @@ public class StatsService {
      *         경과일 수에서도 함께 빠진다 — 한쪽만 빼면 "달성일 &gt; 경과일" 같은 불일치가 난다.
      *         day 는 달성 여부만, week·month 는 달성일 수와 경과일 수를 채운다
      */
-    public ScreenTimePeriodStatsResponse getScreenTimePeriodStats(UUID userId, StatsPeriod period, LocalDate today) {
+    public ScreenTimePeriodStatsResponse getScreenTimePeriodStats(UUID callerId, UUID userId, StatsPeriod period,
+                                                                   LocalDate today) {
         // GROMO-1655: 종전 무필터 findById → 활성 필터 조회. userId 는 컨트롤러가
-        // resolveTargetUserId 로 정한 **지목 대상**이라 NOT_FOUND 쪽이다(오너 승인 동작 변경).
-        User user = userQueryService.getTarget(userId);
+        // resolveTargetUserId 로 정한 **지목 대상** — 본인이면 USER_NOT_FOUND, 남이면 TARGET_USER_NOT_FOUND (GROMO-1725).
+        User user = userQueryService.getTargetOf(callerId, userId);
 
         // 직전 동일 길이 구간: getFocusStatsByPeriod와 공용 리졸버 사용
         PeriodRange range = statsPeriodResolver.resolve(period, today);

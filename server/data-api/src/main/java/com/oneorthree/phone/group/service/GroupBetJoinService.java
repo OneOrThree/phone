@@ -104,7 +104,7 @@ public class GroupBetJoinService {
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
         GroupChallenge challenge = groupChallengeRepository
                 .findByIdAndGroupAndDeletedAtIsNullForShare(preRead.getChallenge().getId(), group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new GroupException(GroupErrorCode.CHALLENGE_NOT_FOUND));
         if (challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
             throw new GroupException(GroupErrorCode.BET_CHALLENGE_INACTIVE);
         }
@@ -286,7 +286,7 @@ public class GroupBetJoinService {
         Group group = groupBetService.requireGroupMembershipForShare(user, groupId);
         GroupChallenge challenge = groupChallengeRepository
                 .findByIdAndGroupAndDeletedAtIsNullForShare(challengeId, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new GroupException(GroupErrorCode.CHALLENGE_NOT_FOUND));
         if (challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
             throw new GroupException(GroupErrorCode.BET_CHALLENGE_INACTIVE);
         }

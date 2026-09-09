@@ -231,7 +231,7 @@ class StatsServiceTest {
     @DisplayName("오늘 요약 — 달성 여부는 저장 플래그가 아니라 현재 목표로 재계산")
     void getTodayStatsFull() {
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
         // 저장 플래그는 일부러 반대로 세팅 → 재계산이 이를 덮어쓰는지 검증
         given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.of(DailyFocusStat.builder()
@@ -246,7 +246,7 @@ class StatsServiceTest {
                 .willReturn(Optional.of(UserScreenTimeSettings.builder()
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
 
-        TodayStatsResponse response = statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3));
+        TodayStatsResponse response = statsService.getTodayStats(USER_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.focus().todayMinutes()).isEqualTo(45);
         assertThat(response.focus().goalMinutes()).isEqualTo(60);
@@ -262,7 +262,7 @@ class StatsServiceTest {
     @DisplayName("오늘 요약 — 집계·목표 row 없음 → 0/미달성/진행도 0")
     void getTodayStatsEmpty() {
         User user = User.builder().id(USER_ID).countryCode("KR").build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
         given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
@@ -270,7 +270,7 @@ class StatsServiceTest {
         given(userQueryService.findFocusTimeSettings(USER_ID)).willReturn(Optional.empty());
         given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
-        TodayStatsResponse response = statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3));
+        TodayStatsResponse response = statsService.getTodayStats(USER_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.focus().todayMinutes()).isZero();
         assertThat(response.focus().goalMinutes()).isZero();
@@ -284,7 +284,7 @@ class StatsServiceTest {
     @DisplayName("오늘 요약 — 스크린타임 사용량 > 목표 → 진행도 100 초과(클램프 없음)")
     void getTodayStatsOverLimitNotClamped() {
         User user = User.builder().id(USER_ID).countryCode("KR").build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
         given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
@@ -295,7 +295,7 @@ class StatsServiceTest {
                 .willReturn(Optional.of(UserScreenTimeSettings.builder()
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
 
-        TodayStatsResponse response = statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3));
+        TodayStatsResponse response = statsService.getTodayStats(USER_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         assertThat(response.screenTime().progressPercent()).isEqualTo(125); // round(150/120*100)
         assertThat(response.screenTime().goalAchieved()).isFalse();         // 150 > 120 → 미달성
@@ -306,7 +306,7 @@ class StatsServiceTest {
     void getTodayStatsResolvesDateByClientDate() {
         User user = User.builder().id(USER_ID).build();
         LocalDate clientDate = LocalDate.of(2026, 7, 3);
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
         given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
@@ -314,7 +314,7 @@ class StatsServiceTest {
         given(userQueryService.findFocusTimeSettings(USER_ID)).willReturn(Optional.empty());
         given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
-        statsService.getTodayStats(USER_ID, clientDate);
+        statsService.getTodayStats(USER_ID, USER_ID, clientDate);
 
         ArgumentCaptor<LocalDate> dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(dailyFocusStatRepository).findByUserAndDate(eq(user), dateCaptor.capture());
@@ -324,10 +324,10 @@ class StatsServiceTest {
     @Test
     @DisplayName("오늘 요약 — 유저 없음 → UserException")
     void getTodayStatsUserNotFound() {
-        given(userQueryService.getTarget(USER_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getTargetOf(any(), eq(USER_ID)))
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
-        assertThatThrownBy(() -> statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3)))
+        assertThatThrownBy(() -> statsService.getTodayStats(USER_ID, USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(UserException.class);
     }
 
@@ -493,7 +493,7 @@ class StatsServiceTest {
     @DisplayName("스크린타임 DAY — 오늘/어제 row 있음 → currentMinutes·previousMinutes·deltaMinutes 정확, goalAchieved=true")
     void getScreenTimePeriodStatsDayNormal() {
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         DailyScreenTimeStat todayRow = DailyScreenTimeStat.builder()
                 .user(user).date(FIXED_TODAY)
@@ -511,7 +511,7 @@ class StatsServiceTest {
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.DAY, FIXED_TODAY);
 
         assertThat(response.period()).isEqualTo(StatsPeriod.DAY);
         assertThat(response.from()).isEqualTo(FIXED_TODAY);
@@ -531,7 +531,7 @@ class StatsServiceTest {
         // 데이터 row가 없고 목표도 미설정(goalMinutes=0)인 경우:
         // goalMinutes > 0 조건이 false → goalAchieved=false
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 user, FIXED_TODAY, FIXED_TODAY)).willReturn(List.of());
@@ -540,7 +540,7 @@ class StatsServiceTest {
         given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.DAY, FIXED_TODAY);
 
         assertThat(response.currentMinutes()).isZero();
         assertThat(response.goalMinutes()).isZero();
@@ -553,7 +553,7 @@ class StatsServiceTest {
         // 오늘 사용 기록 없음(0분) + 목표 설정됨 → 0 ≤ goalMinutes → goalAchieved=true
         // 스크린타임은 적을수록 좋으므로 기록이 없으면 목표 이내로 간주한다.
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 user, FIXED_TODAY, FIXED_TODAY)).willReturn(List.of());
@@ -564,7 +564,7 @@ class StatsServiceTest {
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(60).build()));
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.DAY, FIXED_TODAY);
 
         assertThat(response.currentMinutes()).isZero();
         assertThat(response.goalMinutes()).isEqualTo(60);
@@ -575,7 +575,7 @@ class StatsServiceTest {
     @DisplayName("스크린타임 DAY — 목표 미설정(goalMinutes=0) → goalAchieved=false")
     void getScreenTimePeriodStatsDayNoGoal() {
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         DailyScreenTimeStat todayRow = DailyScreenTimeStat.builder()
                 .user(user).date(FIXED_TODAY)
@@ -591,7 +591,7 @@ class StatsServiceTest {
         given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.DAY, FIXED_TODAY);
 
         assertThat(response.goalMinutes()).isZero();
         assertThat(response.goalAchieved()).isFalse();   // 목표 미설정 → false
@@ -608,7 +608,7 @@ class StatsServiceTest {
 
         // createdAt null → 가입 클램프 없음(clampedFrom = thisMonday)
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         // 현재주: 월(달성 60)·수(미달성 130>100)·금(=오늘, 80분 interim flag=false) — row 3개, 화·목은 row 없음(=0분=달성).
         // GROMO-805 Fix 1: 오늘(07-03) row 의 저장 flag(interim=false)는 무시하고 80≤100 재계산 → 달성으로 센다.
@@ -637,7 +637,7 @@ class StatsServiceTest {
                         .userId(USER_ID).dailyScreenTimeGoalMinutes(100).build()));
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
         assertThat(response.period()).isEqualTo(StatsPeriod.WEEK);
         assertThat(response.from()).isEqualTo(thisMonday);
@@ -661,12 +661,12 @@ class StatsServiceTest {
         LocalDate prevFriday = LocalDate.of(2026, 6, 26);
 
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 any(), any(), any())).willReturn(List.of());
         given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
-        statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+        statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
         ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
         ArgumentCaptor<LocalDate> toCaptor = ArgumentCaptor.forClass(LocalDate.class);
@@ -690,7 +690,7 @@ class StatsServiceTest {
         LocalDate prevMonthSameDay = LocalDate.of(2026, 6, 3);
 
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         DailyScreenTimeStat row1 = DailyScreenTimeStat.builder()
                 .user(user).date(LocalDate.of(2026, 7, 1))
@@ -706,7 +706,7 @@ class StatsServiceTest {
         given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
 
         assertThat(response.period()).isEqualTo(StatsPeriod.MONTH);
         assertThat(response.from()).isEqualTo(monthStart);
@@ -727,12 +727,12 @@ class StatsServiceTest {
         LocalDate prevMonthSameDay = LocalDate.of(2026, 6, 3);
 
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 any(), any(), any())).willReturn(List.of());
         given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
-        statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
+        statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
 
         ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
         ArgumentCaptor<LocalDate> toCaptor = ArgumentCaptor.forClass(LocalDate.class);
@@ -751,7 +751,7 @@ class StatsServiceTest {
         LocalDate thisMonday = LocalDate.of(2026, 6, 29);
 
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         // 현재주 row: 모두 미달성
         List<DailyScreenTimeStat> currentStats = List.of(
@@ -768,7 +768,7 @@ class StatsServiceTest {
         given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
         // 목표 미설정 → 저장 플래그(모두 false) 카운트 = 0.
         assertThat(response.achievedDays()).isZero();
@@ -779,7 +779,7 @@ class StatsServiceTest {
     void getScreenTimePeriodStatsWeekAllMissingDaysAchievedWhenGoalSet() {
         LocalDate thisMonday = LocalDate.of(2026, 6, 29);
         User user = User.builder().id(USER_ID).build();   // createdAt null → 클램프 없음
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
                 user, thisMonday, FIXED_TODAY)).willReturn(List.of());
         given(dailyScreenTimeStatRepository.findByUserAndDateBetweenOrderByDateAsc(
@@ -787,7 +787,7 @@ class StatsServiceTest {
         givenScreenTimeGoal(120);
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
         // row 없음 = 매일 0분 = 매일 달성. failedDays=0 → achievedDays = elapsedDays = 5.
         assertThat(response.elapsedDays()).isEqualTo(5);
@@ -801,7 +801,7 @@ class StatsServiceTest {
         // 가입 = 2026-07-01 KST(수요일) → clampedFrom = 07-01, clampedElapsed = 07-01..07-03 = 3일.
         User user = User.builder().id(USER_ID).countryCode("KR")
                 .createdAt(Instant.parse("2026-06-30T15:30:00Z")).build();  // == 2026-07-01 00:30 KST
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
         // 가입 후 금(07-03)만 미달성 row 1개, 목·화 등은 row 없음.
         List<DailyScreenTimeStat> currentStats = List.of(
                 DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 7, 3))
@@ -814,7 +814,7 @@ class StatsServiceTest {
         givenScreenTimeGoal(100);
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
         // clampedElapsed = 07-01·07-02·07-03 = 3일. failedDays=1(금). achievedDays = 3 − 1 = 2(=07-01·07-02 누락일).
         assertThat(response.elapsedDays()).isEqualTo(3);
@@ -828,7 +828,7 @@ class StatsServiceTest {
         // 가입 = 2026-07-01 KST(수요일) → clampedFrom = 07-01, clampedElapsed = 07-01..07-03 = 3일.
         User user = User.builder().id(USER_ID).countryCode("KR")
                 .createdAt(Instant.parse("2026-06-30T15:30:00Z")).build();  // == 2026-07-01 00:30 KST
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
         // 가입 전(06-29·06-30) 미달성 row 2개 — currentFrom..currentTo 조회엔 걸리지만 clampedFrom 이전이라
         // 경과일(clampedElapsed=3)에 속하지 않으므로 failedDays 차감 대상이 아니다. 가입 후 구간엔 row 없음(=매일 달성).
         List<DailyScreenTimeStat> currentStats = List.of(
@@ -844,7 +844,7 @@ class StatsServiceTest {
         givenScreenTimeGoal(100);
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
         // clampedElapsed = 07-01·07-02·07-03 = 3일. 가입 전 2건은 차감 안 됨 → failedDays=0.
         // achievedDays = 3 − 0 = 3 (음수 아님), elapsedDays = 3.
@@ -860,7 +860,7 @@ class StatsServiceTest {
         // (구현 전이라면 저장 flag=false 를 그대로 실패로 세어 achievedDays 가 1 적게 나옴 → 회귀 방지 테스트)
         LocalDate thisMonday = LocalDate.of(2026, 6, 29);
         User user = User.builder().id(USER_ID).build();   // createdAt null → 클램프 없음
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         List<DailyScreenTimeStat> currentStats = List.of(
                 DailyScreenTimeStat.builder().user(user).date(FIXED_TODAY)
@@ -879,9 +879,9 @@ class StatsServiceTest {
                 user, FIXED_TODAY.minusDays(1), FIXED_TODAY.minusDays(1))).willReturn(List.of());
 
         ScreenTimePeriodStatsResponse week =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
         ScreenTimePeriodStatsResponse day =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.DAY, FIXED_TODAY);
 
         // 월~금 5일, 오늘(금 80≤100)=달성, 나머지 4일 row 없음(=0분=달성) → 실패 0 → achievedDays=5.
         assertThat(week.elapsedDays()).isEqualTo(5);
@@ -896,7 +896,7 @@ class StatsServiceTest {
         // 오늘(07-03) interim row: flag=false, 사용량 150 > 목표 100 → day 뷰는 미달성 → week 도 오늘을 실패로 센다.
         LocalDate thisMonday = LocalDate.of(2026, 6, 29);
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         List<DailyScreenTimeStat> currentStats = List.of(
                 DailyScreenTimeStat.builder().user(user).date(FIXED_TODAY)
@@ -909,7 +909,7 @@ class StatsServiceTest {
         givenScreenTimeGoal(100);
 
         ScreenTimePeriodStatsResponse week =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
         // 월~금 5일, 오늘(금 150>100)=실패 1, 나머지 4일 row 없음=달성 → achievedDays = 5 − 1 = 4.
         assertThat(week.elapsedDays()).isEqualTo(5);
@@ -921,7 +921,7 @@ class StatsServiceTest {
     void getScreenTimePeriodStatsWeekTodayFinalRowUsesStoredSnapshot() {
         LocalDate thisMonday = LocalDate.of(2026, 6, 29);
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         List<DailyScreenTimeStat> currentStats = List.of(
                 DailyScreenTimeStat.builder().user(user).date(FIXED_TODAY)
@@ -937,7 +937,7 @@ class StatsServiceTest {
         givenScreenTimeGoal(100);
 
         ScreenTimePeriodStatsResponse week =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
         assertThat(week.elapsedDays()).isEqualTo(5);
         assertThat(week.achievedDays()).isEqualTo(4);
@@ -949,7 +949,7 @@ class StatsServiceTest {
         LocalDate thisMonday = LocalDate.of(2026, 6, 29);
         User user = User.builder().id(USER_ID).countryCode("KR")
                 .createdAt(Instant.parse("2026-06-30T15:30:00Z")).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         List<DailyScreenTimeStat> currentStats = List.of(
                 DailyScreenTimeStat.builder().user(user).date(LocalDate.of(2026, 6, 30))
@@ -964,7 +964,7 @@ class StatsServiceTest {
         given(userQueryService.findScreenTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
         assertThat(response.elapsedDays()).isEqualTo(3);
         assertThat(response.achievedDays()).isZero();
@@ -980,7 +980,7 @@ class StatsServiceTest {
         LocalDate prevFriday = LocalDate.of(2026, 6, 26);
         User user = User.builder().id(USER_ID).countryCode("KR")
                 .createdAt(Instant.parse("2026-06-30T15:30:00Z")).build();  // == 2026-07-01 00:30 KST
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetOf(any(), eq(USER_ID))).willReturn(user);
 
         // current: 가입 전 06-30(200, 제외) + 가입 후 07-02(50, 포함) → currentMinutes=50.
         List<DailyScreenTimeStat> currentStats = List.of(
@@ -1001,7 +1001,7 @@ class StatsServiceTest {
         givenScreenTimeGoal(100);
 
         ScreenTimePeriodStatsResponse response =
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
         // 가입 전 06-30(200)·06-24(300) 은 분 합계에서 제외 → current=50(07-02), previous=0, delta=50.
         assertThat(response.currentMinutes()).isEqualTo(50);
@@ -1012,11 +1012,11 @@ class StatsServiceTest {
     @Test
     @DisplayName("스크린타임 — 유저 없음 → UserException(NOT_FOUND)")
     void getScreenTimePeriodStatsUserNotFound() {
-        given(userQueryService.getTarget(USER_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getTargetOf(any(), eq(USER_ID)))
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         assertThatThrownBy(() ->
-                statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY))
+                statsService.getScreenTimePeriodStats(USER_ID, USER_ID, StatsPeriod.DAY, FIXED_TODAY))
                 .isInstanceOf(UserException.class);
     }
 

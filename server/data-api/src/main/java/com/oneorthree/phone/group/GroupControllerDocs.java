@@ -69,7 +69,8 @@ public interface GroupControllerDocs {
             @ApiResponse(responseCode = "204", description = "참가 성공"),
             @ApiResponse(responseCode = "401", description = "비밀번호 불일치"),
             @ApiResponse(responseCode = "403", description = "게스트 접근 불가"),
-            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
+            @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND(그룹 없음)"
+                    + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
             @ApiResponse(responseCode = "409", description = "정원 초과 / 이미 참여")
     })
     ResponseEntity<Void> joinGroup(UUID groupId, JoinGroupRequest request, UUID userId);
@@ -82,7 +83,8 @@ public interface GroupControllerDocs {
     @Operation(summary = "그룹 개요 조회", description = "참여 여부 무관하게 그룹 공개 정보 반환. isMember 플래그 포함.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
-            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
+            @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND(그룹 없음)"
+                    + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<GroupOverviewResponse> getGroupOverview(UUID groupId, UUID userId);
 
@@ -111,7 +113,8 @@ public interface GroupControllerDocs {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "갱신 성공"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹장 아님"),
-            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
+            @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND(그룹 없음)"
+                    + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<RenewGroupCodeResponse> renewGroupCode(UUID groupId, UUID userId);
 
@@ -128,7 +131,8 @@ public interface GroupControllerDocs {
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "date 누락·형식 오류"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
+            @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND(그룹 없음)"
+                    + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<GroupDetailResponse> getGroupDetail(UUID groupId, LocalDate date, UUID userId);
 
@@ -143,7 +147,8 @@ public interface GroupControllerDocs {
             @ApiResponse(responseCode = "204", description = "작성 성공"),
             @ApiResponse(responseCode = "400", description = "필수 필드 누락"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
+            @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND(그룹 없음)"
+                    + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<Void> createGroupAnnouncement(UUID groupId, CreateAnnouncementRequest request, UUID userId);
 
@@ -156,7 +161,8 @@ public interface GroupControllerDocs {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
+            @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND(그룹 없음)"
+                    + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<List<GroupAnnouncementResponse>> getGroupAnnouncements(UUID groupId, UUID userId);
 
@@ -173,7 +179,8 @@ public interface GroupControllerDocs {
             @ApiResponse(responseCode = "400",
                     description = "이름·소개·정원 입력 제약 위반 / maxMembers < 현재 멤버 수"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
-            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
+            @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND(그룹 없음)"
+                    + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<Void> updateGroup(UUID groupId, UpdateGroupRequest request, UUID userId);
 
@@ -188,7 +195,7 @@ public interface GroupControllerDocs {
             @ApiResponse(responseCode = "204", description = "위임 성공"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
             @ApiResponse(responseCode = "404",
-                    description = "NOT_FOUND(그룹 없음 / 대상 멤버 없음 — 대상이 탈퇴한 경우 포함)"
+                    description = "GROUP_NOT_FOUND(그룹 없음) / TARGET_USER_NOT_FOUND(대상 유저 없음·탈퇴) / NOT_FOUND(대상이 그룹원이 아님)"
                             + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<Void> transferOwner(UUID groupId, UUID targetUserId, UUID userId);
@@ -205,7 +212,7 @@ public interface GroupControllerDocs {
             @ApiResponse(responseCode = "400", description = "본인 강퇴 시도"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
             @ApiResponse(responseCode = "404",
-                    description = "NOT_FOUND(그룹 없음 / 대상 멤버 없음 — 대상이 탈퇴한 경우 포함)"
+                    description = "GROUP_NOT_FOUND(그룹 없음) / TARGET_USER_NOT_FOUND(대상 유저 없음·탈퇴) / NOT_FOUND(대상이 그룹원이 아님)"
                             + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<Void> kickMember(UUID groupId, UUID targetUserId, UUID userId);
@@ -219,7 +226,8 @@ public interface GroupControllerDocs {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
+            @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND(그룹 없음)"
+                    + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<GroupSettingsResponse> getGroupSettings(UUID groupId, UUID userId);
 
@@ -233,7 +241,8 @@ public interface GroupControllerDocs {
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "수정 성공"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
+            @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND(그룹 없음)"
+                    + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<Void> updateGroupSettings(UUID groupId, UpdateGroupSettingsRequest request, UUID userId);
 
@@ -249,7 +258,7 @@ public interface GroupControllerDocs {
             @ApiResponse(responseCode = "204", description = "수정 성공"),
             @ApiResponse(responseCode = "403", description = "권한 없음 / 게스트"),
             @ApiResponse(responseCode = "404",
-                    description = "NOT_FOUND(그룹 없음 / 공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
+                    description = "GROUP_NOT_FOUND(그룹 없음) / NOT_FOUND(공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<Void> updateGroupAnnouncement(UUID groupId, UUID announcementId,
             CreateAnnouncementRequest request, UUID userId);
@@ -265,7 +274,7 @@ public interface GroupControllerDocs {
             @ApiResponse(responseCode = "204", description = "삭제 성공"),
             @ApiResponse(responseCode = "403", description = "권한 없음 / 게스트"),
             @ApiResponse(responseCode = "404",
-                    description = "NOT_FOUND(그룹 없음 / 공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
+                    description = "GROUP_NOT_FOUND(그룹 없음) / NOT_FOUND(공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<Void> deleteGroupAnnouncement(UUID groupId, UUID announcementId, UUID userId);
 
@@ -280,7 +289,8 @@ public interface GroupControllerDocs {
             @ApiResponse(responseCode = "204", description = "탈퇴 성공"),
             @ApiResponse(responseCode = "400", description = "방장 위임 필요"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
+            @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND(그룹 없음)"
+                    + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<Void> withdrawGroup(UUID groupId, UUID userId);
 }

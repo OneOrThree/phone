@@ -23,7 +23,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -52,7 +54,7 @@ public class InventoryServiceTest {
     void getInventorySuccess() {
         // given
         User user = User.builder().nickname("테스터").build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getCaller(USER_ID)).willReturn(user);
         given(userItemRepository.findByUser(user)).willReturn(List.of());
 
         // when
@@ -67,13 +69,13 @@ public class InventoryServiceTest {
     @DisplayName("존재하지 않는(또는 탈퇴한) 유저 인벤토리 조회 시 UserException NOT_FOUND (GROMO-1237 예외 통일)")
     void getInventoryFailUserNotFound() {
         // given
-        given(userQueryService.getTarget(USER_ID_99)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getCaller(USER_ID_99)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> inventoryService.getInventory(USER_ID_99))
                 .isInstanceOf(UserException.class)
                 .extracting(e -> ((UserException) e).getErrorCode())
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     @Test
@@ -83,7 +85,7 @@ public class InventoryServiceTest {
         User user = User.builder().nickname("테스터").build();
         Item item = Item.builder().name("모자").slotType(SlotType.HAIR).grade("COMMON").build();
         // GROMO-1237: 지급(변경) 경로는 공유 락 활성 조회를 쓴다(락 규율).
-        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);   // 지급 대상 = 지목 유저
         given(itemQueryService.getItem(ITEM_ID)).willReturn(item);
 
         // when
@@ -91,6 +93,19 @@ public class InventoryServiceTest {
 
         // then
         verify(userItemRepository, times(1)).grantIfNotExists(USER_ID, ITEM_ID);
+    }
+
+    @Test
+    @DisplayName("없는 유저에게 지급 → TARGET_USER_NOT_FOUND — 지급 대상은 요청자가 아니라 지목한 유저다 (GROMO-1725)")
+    void grantItemToAbsentTargetThrowsTargetNotFound() {
+        given(userQueryService.getTargetForShare(USER_ID_99))
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
+
+        assertThatThrownBy(() -> inventoryService.grantItem(USER_ID_99, ITEM_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
+        verify(userQueryService, never()).getCallerForShare(any());
     }
 
 }

@@ -26,6 +26,12 @@ public enum GroupErrorCode implements ErrorCode {
     INVALID_MEASURED_AT(HttpStatus.BAD_REQUEST, "측정 시각이 서버 시간보다 미래예요"),
     // 참가자 스코프 조회(GROMO-1415) — /me/bet-sessions 의 status 필터는 OPEN 만 지원한다.
     INVALID_STATUS_FILTER(HttpStatus.BAD_REQUEST, "지원하지 않는 상태 필터입니다."),
+    // 404 세 갈래 (GROMO-1725) — 앱이 code 문자열로 분기하므로 «무엇이 없는가»를 코드로 가른다.
+    // 종전엔 셋 다 NOT_FOUND 였고, 앱 그룹 화면 17곳이 유저 부재까지 «그룹이 사라짐»으로 해석했다.
+    // NOT_FOUND 는 그룹 **안의** 것(공지·멤버십) 부재에만 남긴다. 앱은 신구를 병기해 받는다(1726) —
+    // 그래서 배포 순서는 앱 → 서버다. 이름 변경 금지.
+    GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "원하는 그룹을 찾을 수 없습니다."),
+    CHALLENGE_NOT_FOUND(HttpStatus.NOT_FOUND, "챌린지를 찾을 수 없어요"),
     NOT_FOUND(HttpStatus.NOT_FOUND, "원하는 그룹을 찾을 수 없습니다."),
     WRONG_PASSWORD(HttpStatus.UNAUTHORIZED, "비밀번호가 일치하지 않습니다."),
 

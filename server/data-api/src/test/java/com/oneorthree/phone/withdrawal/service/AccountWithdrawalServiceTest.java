@@ -75,7 +75,7 @@ class AccountWithdrawalServiceTest {
 
     private User givenLoadedForUpdate() {
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         return user;
     }
 
@@ -89,7 +89,7 @@ class AccountWithdrawalServiceTest {
         InOrder order = inOrder(userQueryService, groupMemberService, focusService, statsService,
                 screenTimeService, userService, friendService);
         // 배타 락 로드가 맨 앞 — 이후 정리와 새 관계 생성을 직렬화한다
-        order.verify(userQueryService).getTargetForUpdate(USER_ID);
+        order.verify(userQueryService).getCallerForUpdate(USER_ID);
         // 그룹(해제 환불·근거 박제)이 지갑 삭제와 익명화보다 앞
         order.verify(groupMemberService).detachWithdrawnUser(user);
         order.verify(focusService).anonymizeWithdrawnUser(USER_ID);
@@ -108,7 +108,7 @@ class AccountWithdrawalServiceTest {
 
         accountWithdrawalService.withdraw(USER_ID);
 
-        verify(userQueryService).getTargetForUpdate(USER_ID);
+        verify(userQueryService).getCallerForUpdate(USER_ID);
         verify(userQueryService, never()).getTarget(any());
         verify(userQueryService, never()).getTargetForShare(any());
     }
@@ -137,13 +137,13 @@ class AccountWithdrawalServiceTest {
     @Test
     @DisplayName("없거나 이미 탈퇴한 유저면 NOT_FOUND — 아무 도메인도 건드리지 않는다")
     void missingUserTouchesNothing() {
-        given(userQueryService.getTargetForUpdate(USER_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getCallerForUpdate(USER_ID))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         assertThatThrownBy(() -> accountWithdrawalService.withdraw(USER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
 
         verify(groupMemberService, never()).detachWithdrawnUser(any());
         verify(userService, never()).erasePersonalData(any());

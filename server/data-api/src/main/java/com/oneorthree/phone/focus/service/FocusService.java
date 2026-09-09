@@ -145,13 +145,13 @@ public class FocusService {
     /**
      * 유저가 채택 중인 집중 태그 목록.
      *
-     * @param userId 조회 주체. 탈퇴 유저는 404({@code UserErrorCode.NOT_FOUND})
+     * @param userId 조회 주체. 탈퇴 유저는 404({@code UserErrorCode.USER_NOT_FOUND})
      * @return 활성 채택 태그. id 는 채택 행(user_focus_tags)의 id 이고 이름은 공유 마스터에서 읽는다.
      *         소프트삭제된 옛 태그는 빠지므로 이름을 바꾼 태그는 <b>새 id</b> 로 나온다
      */
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
-        User user = userQueryService.getTarget(userId);
+        User user = userQueryService.getCaller(userId);
 
         // GROMO-673: 유저가 채택한 태그(user_focus_tags) 목록. id 는 user_focus_tags.id, 이름은 defaultTag.name.
         return userFocusTagRepository.findByUserAndDeletedAtIsNull(user)
@@ -176,7 +176,7 @@ public class FocusService {
         Occupation resolved = occupation;
         if (resolved == null) {
             // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
-            User user = userQueryService.getTarget(userId);
+            User user = userQueryService.getCaller(userId);
             resolved = user.getOccupation();
             if (resolved == null) {
                 throw new FocusException(FocusErrorCode.OCCUPATION_REQUIRED);
@@ -330,7 +330,7 @@ public class FocusService {
         }
 
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
-        User user = userQueryService.getTarget(userId);
+        User user = userQueryService.getCaller(userId);
 
         Slice<FocusSession> slice = focusSessionRepository
                 .findSessionsByCursor(user, from, to, cursor, PageRequest.of(0, size));
@@ -1081,7 +1081,7 @@ public class FocusService {
      * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userQueryService.getTargetForShare(userId);
+        return userQueryService.getCallerForShare(userId);
     }
 
     /**
@@ -1099,7 +1099,7 @@ public class FocusService {
      * (users → focus_sessions → 지갑 → daily_focus_stats) 그대로다.
      */
     private User requireActiveUserForUpdate(UUID userId) {
-        return userQueryService.getTargetForUpdate(userId);
+        return userQueryService.getCallerForUpdate(userId);
     }
 
     /** 태그 id(user_focus_tags.id)로 소유 태그를 조회(없으면 null 반환, 미소유면 FORBIDDEN). POST/PATCH 공용. */

@@ -318,7 +318,7 @@ public class AuthService {
         // UPDATE 하므로, 공유 락이면 같은 계정의 동시 로그인 2건이 둘 다 FOR SHARE 를 쥔 채 승급을
         // 기다리며 교착한다. 게스트 승격·신규 가입 분기는 위에서 이미 배타 락을 쥐었거나 이
         // 트랜잭션이 방금 만든 행이라, 같은 행 재조회일 뿐 동작이 달라지지 않는다.
-        user = userQueryService.getTargetForUpdate(user.getId());
+        user = userQueryService.getCallerForUpdate(user.getId());
 
         // guest 클레임은 발급 시점 상태 (GROMO-1229) — 승격 직후·소셜 로그인은 isGuest=false 라 비게스트 토큰이 나간다.
         String accessToken = jwtProvider.generateAccessToken(user.getId(), user.isGuest());

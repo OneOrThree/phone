@@ -24,7 +24,7 @@ import java.util.UUID;
  * {@code docs/conventions/backend-layering.md} §3.
  *
  * <p>종전엔 group service 7개가 {@code groupRepository}·{@code groupMemberRepository} 를 직접 들고
- * 같은 조회를 47번 되풀이했다. 그중 그룹 조회 23건은 전부 {@link GroupErrorCode#NOT_FOUND} 를 던져
+ * 같은 조회를 47번 되풀이했다. 그중 그룹 조회 23건은 전부 {@link GroupErrorCode#GROUP_NOT_FOUND} 를 던져
  * 접기 쉬웠지만, 멤버십 조회 24건은 <b>같은 쿼리인데 부재의 뜻이 다섯 갈래</b>였다 —
  * {@code MEMBER_ONLY}(17) · {@code NOT_OWNER}(3) · {@code NOT_FOUND}(2, 요청자가 아니라 지목한
  * 대상이라서) · {@code ALREADY_MEMBER}(1, 존재가 거절 사유) · 예외 없이 boolean(1).
@@ -74,11 +74,11 @@ public class GroupQueryService {
      *
      * @param groupId 조회 대상
      * @return 그룹. <b>종료·삭제 상태는 보지 않는다</b> — 그 판정은 호출측 몫이다
-     * @throws GroupException 없으면 {@link GroupErrorCode#NOT_FOUND}
+     * @throws GroupException 없으면 {@link GroupErrorCode#GROUP_NOT_FOUND}
      */
     public Group getGroup(UUID groupId) {
         return groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
     }
 
     /**
@@ -89,11 +89,11 @@ public class GroupQueryService {
      *
      * @param groupId 조회 대상
      * @return 잠긴 그룹. 상태·삭제를 보지 않는 것은 락 없는 조회와 같다
-     * @throws GroupException 없으면 {@link GroupErrorCode#NOT_FOUND}
+     * @throws GroupException 없으면 {@link GroupErrorCode#GROUP_NOT_FOUND}
      */
     public Group getGroupForUpdate(UUID groupId) {
         return groupRepository.findByIdForUpdate(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
     }
 
     /**
@@ -231,11 +231,11 @@ public class GroupQueryService {
      *
      * @param groupId 그룹 id (이 테이블의 PK 다)
      * @return 참가 코드 행
-     * @throws GroupException 없으면 {@link GroupErrorCode#NOT_FOUND}
+     * @throws GroupException 없으면 {@link GroupErrorCode#GROUP_NOT_FOUND}
      */
     public GroupJoinCode getJoinCode(UUID groupId) {
         return groupJoinCodeRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
     }
 
     /**

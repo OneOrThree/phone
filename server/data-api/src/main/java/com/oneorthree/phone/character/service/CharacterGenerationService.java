@@ -116,7 +116,7 @@ public class CharacterGenerationService {
      * 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userQueryService.getTargetForUpdate(userId);
+        return userQueryService.getCallerForUpdate(userId);
     }
 
     /** 유저별 PostgreSQL advisory lock 획득(트랜잭션 스코프). userId 를 hashtext 로 bigint 키에 매핑. */

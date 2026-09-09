@@ -117,7 +117,7 @@ public class GroupBetEarlyWinConfirmer implements EarlyWinConfirmationPort {
         // 포트는 id 만 받으므로 여기서 한 번 로드한다 (GROMO-1656): 포트가 유저 엔티티를 실어
         // 나르면 나중에 이 경계를 프로세스 밖으로 잘라낼 수 없다(GROMO-1661). 조회는 <b>대상이
         // 실제로 있을 때만</b> 일어나므로, 내기에 참가하지 않은 유저의 집중 저장에는 부담이 없다.
-        User user = userQueryService.getTarget(userId);
+        User user = userQueryService.getCaller(userId);
 
         // 회차 락을 오름차순으로 전부 먼저 잡는다(§5.4) — 쿼리가 s.id ORDER BY 를 보장하지만
         // 방어적으로 한 번 더 정렬한다.

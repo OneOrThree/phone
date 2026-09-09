@@ -134,7 +134,7 @@ public class FriendService {
         if (me.equals(targetUserId)) {
             throw new FriendException(FriendErrorCode.SELF_REQUEST);
         }
-        User fromUser = getRelationParticipant(me);
+        User fromUser = getCallerParticipant(me);
         User toUser = getRelationParticipant(targetUserId);
 
         List<Friendship> pair = friendshipRepository.findPair(fromUser, toUser);
@@ -310,7 +310,7 @@ public class FriendService {
             throw new FriendException(FriendErrorCode.SELF_PIN);
         }
         // 양쪽 다 활성 검증 + 탈퇴와 직렬화 (GROMO-801) — 없으면 FK 위반 500 대신 NOT_FOUND(404)
-        getRelationParticipant(me);
+        getCallerParticipant(me);
         getRelationParticipant(friendUserId);
         // ON CONFLICT DO NOTHING — 동시 핀 요청에도 멱등(중복은 무시), 500 없음.
         pinnedUserRepository.insertIgnoreConflict(UUID_V7.generate(), me, friendUserId);
@@ -451,7 +451,7 @@ public class FriendService {
      * 호출자 본인(me) 확인과 일반 조회에 쓴다. 부재 시 NOT_FOUND 는 종전과 같다.
      */
     private User getUser(UUID userId) {
-        return userQueryService.getTarget(userId);
+        return userQueryService.getCaller(userId);
     }
 
     /**
@@ -466,6 +466,14 @@ public class FriendService {
      */
     private User getRelationParticipant(UUID userId) {
         return userQueryService.getTargetForShare(userId);
+    }
+
+    /**
+     * 요청자 본인 — 공유 락. {@link #getRelationParticipant} 와 같은 락이지만 부재 코드가
+     * {@code USER_NOT_FOUND}(재로그인)다. GROMO-1725: 요청자·대상을 코드로 가른다.
+     */
+    private User getCallerParticipant(UUID me) {
+        return userQueryService.getCallerForShare(me);
     }
 
     /**

@@ -88,7 +88,7 @@ class ProfileControllerTest {
     void getPublicProfileNotFoundReturns404() throws Exception {
         UUID callerId = UUID.randomUUID();
         given(profileService.getPublicProfile(any(), any()))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         mockMvc.perform(get("/api/v1/users/{userId}/profile", targetUserId)
                         .requestAttr(AuthAttributes.USER_ID, callerId))
@@ -168,7 +168,7 @@ class ProfileControllerTest {
         LocalDate date = LocalDate.of(2026, 7, 3);
 
         given(profileService.getUserStats(any(), any(), any()))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         mockMvc.perform(get("/api/v1/users/{userId}/stats", targetUserId)
                         .param("date", date.toString())

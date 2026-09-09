@@ -363,14 +363,14 @@ class GroupBetWindowUsageServiceTest {
         // 그룹 도메인 게스트 차단 전면 해제(GROMO-1509)에 이 경로도 포함된 이유다.
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest());
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
                 new WindowUsageReportRequest(TODAY, 60, null)))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
@@ -392,7 +392,7 @@ class GroupBetWindowUsageServiceTest {
                 new WindowUsageReportRequest(TODAY, 60, null)))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.CHALLENGE_NOT_FOUND);
     }
 
     // ── 참가 전 측정분 차단 (지연 선기록 — 순차 경합) ─────────────────────────

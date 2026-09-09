@@ -21,6 +21,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -119,5 +120,20 @@ class CurrencyLedgerServiceTest {
         // 잔액은 손대지 않았고(음수 금지), 원장도 비어 있어야 한다 — 둘 중 하나만 지켜지면 장부가 어긋난다
         assertThat(wallet.getBalance()).isEqualTo(10);
         verify(currencyTransactionRepository, never()).save(any(CurrencyTransaction.class));
+    }
+
+    @Test
+    @DisplayName("TARGET 축 지급은 원장 대상 접근자(getTargetWalletForUpdate)를 쓴다 — 남의 지갑 부재가 요청자 로그아웃이 되면 안 된다 (GROMO-1725)")
+    void creditTargetUsesTargetWalletAccessor() {
+        given(currencyTransactionRepository.existsByIdempotencyKey(anyString())).willReturn(false);
+        User user = User.builder().id(USER_ID).build();
+        UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(0).build();
+        given(userQueryService.getTargetWalletForUpdate(USER_ID)).willReturn(wallet);
+
+        currencyLedgerService.credit(CurrencyLedgerService.WalletOwner.TARGET, user,
+                CurrencyTransactionType.BET_REFUND, 30, "bet:x:refund");
+
+        assertThat(wallet.getBalance()).isEqualTo(30);
+        verify(userQueryService, never()).getWalletForUpdate(any());
     }
 }

@@ -49,7 +49,7 @@ public class EquipmentService {
     public List<CharacterEquipmentResponse> getEquipment(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
         // 예외도 변경 경로와 동일하게 UserException(NOT_FOUND, 404)으로 통일.
-        User user = userQueryService.getTarget(userId);
+        User user = userQueryService.getCaller(userId);
         return characterEquipmentRepository.findByUser(user)
                 .stream()
                 .map(CharacterEquipmentResponse::from)
@@ -134,6 +134,6 @@ public class EquipmentService {
      * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userQueryService.getTargetForShare(userId);
+        return userQueryService.getCallerForShare(userId);
     }
 }

@@ -70,7 +70,7 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getTarget(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
     }
 
     // ── 예외가 두 갈래인 이유 (GROMO-1247) ────────────────────────────
@@ -92,7 +92,7 @@ class UserQueryServiceTest {
         given(userRepository.findByIdAndIsDeletedFalse(ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userQueryService.getTarget(ID))
-                .extracting("errorCode").isEqualTo(UserErrorCode.NOT_FOUND);
+                .extracting("errorCode").isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
         assertThatThrownBy(() -> userQueryService.getCaller(ID))
                 .extracting("errorCode").isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
@@ -123,11 +123,11 @@ class UserQueryServiceTest {
         given(userRepository.findActiveByIdForUpdate(ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userQueryService.getTargetForShare(ID))
-                .extracting("errorCode").isEqualTo(UserErrorCode.NOT_FOUND);
+                .extracting("errorCode").isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
         assertThatThrownBy(() -> userQueryService.getCallerForShare(ID))
                 .extracting("errorCode").isEqualTo(UserErrorCode.USER_NOT_FOUND);
         assertThatThrownBy(() -> userQueryService.getTargetForUpdate(ID))
-                .extracting("errorCode").isEqualTo(UserErrorCode.NOT_FOUND);
+                .extracting("errorCode").isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
     }
 
     // ── 탈퇴 포함 조회 (GROMO-801) ────────────────────────────────────
@@ -151,7 +151,7 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getAny(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
     }
 
     // ── 부재가 정상 흐름인 락 조회 ────────────────────────────────────
@@ -194,16 +194,16 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getWallet(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     @Test
     @DisplayName("지갑 변경 경로는 배타 락 쿼리를 탄다 — 락 없는 조회로 내려가면 잔액 경합이 열린다")
-    void getWalletForUpdate_usesExclusiveLock() {
+    void getTargetWalletForUpdate_usesExclusiveLock() {
         UserWallet wallet = UserWallet.builder().userId(ID).build();
         given(userWalletRepository.findByIdForUpdate(ID)).willReturn(Optional.of(wallet));
 
-        assertThat(userQueryService.getWalletForUpdate(ID)).isSameAs(wallet);
+        assertThat(userQueryService.getTargetWalletForUpdate(ID)).isSameAs(wallet);
         verify(userWalletRepository).findByIdForUpdate(ID);
         verify(userWalletRepository, never()).findById(ID);
     }
@@ -216,7 +216,7 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getScreenTimeSettings(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         assertThat(userQueryService.findScreenTimeSettings(ID)).isEmpty();
 
         // 무락 두 메서드가 정말 무락 쿼리를 타는지 못박는다. 이게 없으면 어느 한쪽이 락 판으로
@@ -247,7 +247,7 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getScreenTimeSettingsForUpdate(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         verify(userScreenTimeSettingsRepository).findByIdForUpdate(ID);
         verify(userScreenTimeSettingsRepository, never()).findByIdForShare(ID);
         verify(userScreenTimeSettingsRepository, never()).findById(ID);
@@ -261,7 +261,7 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getFocusTimeSettings(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         assertThat(userQueryService.findFocusTimeSettings(ID)).isEmpty();
     }
 
@@ -273,7 +273,7 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getNotificationSettings(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         assertThat(userQueryService.findNotificationSettings(ID)).isEmpty();
     }
 

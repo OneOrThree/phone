@@ -77,7 +77,8 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 - 다른 도메인의 `ErrorCode` 를 빌려 쓰기 — 소유가 어긋나면 [[backend-layering]] §4 의 방향 규칙을
   어기게 된다. 필요하면 자기 enum 에 상수를 둔다
 - 상수 이름 재사용 — `code` 는 이름 그대로라 두 enum 이 같은 이름을 쓰면 앱이 구분하지 못한다.
-  현재 `NOT_FOUND` 가 `GroupErrorCode`·`UserErrorCode` 둘 다에 있고 의미가 다르다(GROMO-1725)
+  `NOT_FOUND` 가 `GroupErrorCode`·`UserErrorCode` 둘 다에 있어 앱이 유저 부재를 «그룹이 사라짐»으로
+  읽던 것이 그 사례다 — GROMO-1725 가 «무엇이 없는가»를 코드로 갈랐다(아래 §4)
 
 ---
 
@@ -85,8 +86,8 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 
 | 실패의 성격 | 상태 | 예 |
 | --- | --- | --- |
-| 지목한 대상이 없다 | 404 | `NOT_FOUND`, `BET_NOT_FOUND` |
-| 요청자 본인의 계정이 없다(재로그인이 답) | 404 | `USER_NOT_FOUND` — 대상 부재와 **코드를 가른다**(GROMO-1247) |
+| 지목한 대상이 없다 — **무엇**이 없는지 코드에 담는다 | 404 | `GROUP_NOT_FOUND`·`CHALLENGE_NOT_FOUND`·`TARGET_USER_NOT_FOUND`·`BET_NOT_FOUND`. `NOT_FOUND` 는 그룹 **안의** 것(공지·멤버십)에만 남았다(GROMO-1725) |
+| 요청자 본인의 계정이 없다(재로그인이 답) | 404 | `USER_NOT_FOUND` — 대상 부재와 **코드를 가른다**(GROMO-1247). 요청자 조회는 전 도메인이 `UserQueryService.getCaller*` 를 쓴다(GROMO-1725); `getTarget*` 은 지목 대상 전용 |
 | 입력이 틀렸다 | 400 | `NICKNAME_INVALID`, `INVALID_DATE_RANGE` |
 | 권한이 없다 | 403 | `NOT_OWNER`, `GUEST_FORBIDDEN` |
 | 지금 상태에선 안 된다 / 동시성 충돌 | 409 | `ALREADY_MEMBER`, `CONCURRENT_UPDATE` |
@@ -140,8 +141,8 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 | `IllegalArgumentException` 그물 | 해소 — 400 `ILLEGAL_ARGUMENT`(GROMO-1725). 앱 도달 3곳(집중 세션 시각 → `INVALID_DATE_RANGE`, 친구 검색 수단 → `INVALID_SEARCH_TYPE`, 소셜 제공자 → `UNSUPPORTED_PROVIDER`)은 도메인 코드로. 그물에 남은 raw throw 17건은 리포지토리·값객체 내부 가드 | 895 는 item·screentime 예외 신설만 남음 |
 | `IllegalStateException` 25건 | catch-all 로 500 `INTERNAL_ERROR` — 종전엔 봉투도 없었다 | 프로그래밍 오류 계열이라 그대로 500 이 맞다. 입력 검증에 쓰인 것이 있으면 895 에서 치환 |
 | item 의 `EntityNotFoundException` | 404 `ENTITY_NOT_FOUND` — 종전엔 500. 핸들러 도달 시 warn 이 남는다 | 도메인 코드(`ItemErrorCode`) 치환 → GROMO-895 |
-| `NOT_FOUND` 두 도메인 중복 | 앱 17곳이 «그룹이 사라짐»으로 해석 | GROMO-1725 |
-| 앱 죽은 분기 3종 | `CHALLENGE_NOT_FOUND`·`CHALLENGE_HAS_OPEN_BET`·`CHALLENGE_ALREADY_EXISTS` — 서버가 내지 않음 | GROMO-1725 |
+| `NOT_FOUND` 두 도메인 중복 | 해소 — `GROUP_NOT_FOUND`·`CHALLENGE_NOT_FOUND`·`TARGET_USER_NOT_FOUND` 신설, `UserErrorCode.NOT_FOUND` 는 발급 경로 없는 잔존값 | GROMO-1725 (앱 병기는 1726, **앱 → 서버 순 배포**) |
+| 앱 죽은 분기 3종 | `CHALLENGE_NOT_FOUND` 는 이제 서버가 낸다. `CHALLENGE_HAS_OPEN_BET` 은 앱에서 제거(1726), `CHALLENGE_ALREADY_EXISTS` 는 하위호환 잔존 | GROMO-1725 · 1726 |
 
 ---
 
@@ -149,7 +150,7 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 
 `ErrorContractTest` 는 목록을 손으로 적지 않는다 — `ErrorCode` 를 구현한 enum 을 **클래스패스에서 찾아**
 상수마다 예외를 만들어 `handleDomain` 에 통과시키고 `(status, code, message)` 를 단언한다(2026-09-09
-기준 117개 = 도메인 102 + `CommonErrorCode` 15 — GROMO-1725 에서 `INVALID_SEARCH_TYPE`·`UNSUPPORTED_PROVIDER` 추가). 그래서 잡히는 것:
+기준 120개 = 도메인 105 + `CommonErrorCode` 15 — GROMO-1725 에서 `GROUP_NOT_FOUND`·`CHALLENGE_NOT_FOUND`·`TARGET_USER_NOT_FOUND`(#729)·`INVALID_SEARCH_TYPE`·`UNSUPPORTED_PROVIDER`(#730) 추가). 그래서 잡히는 것:
 
 - 핸들러가 `code.name()` 이 아닌 것을 `code` 로 싣는다 → 100건 실패 (실제로 넣어 확인)
 - 도메인별 핸들러가 다시 생긴다 → 「하나뿐」 단언 실패 (실제로 넣어 확인)

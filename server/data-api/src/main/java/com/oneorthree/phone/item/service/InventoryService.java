@@ -38,7 +38,7 @@ public class InventoryService {
     public List<UserItemResponse> getInventory(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
         // 예외도 변경 경로와 동일하게 UserException(NOT_FOUND, 404)으로 통일.
-        User user = userQueryService.getTarget(userId);
+        User user = userQueryService.getCaller(userId);
 
         return userItemRepository.findByUser(user)
                 .stream()
@@ -74,6 +74,9 @@ public class InventoryService {
      * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private void requireActiveUser(UUID userId) {
+        // 지급 대상은 요청 본문이 지정한다(관리자/시스템 용도) — 요청자가 아니라 «지목한 유저»라
+        // 부재는 TARGET_USER_NOT_FOUND 다(GROMO-1725, claude 리뷰). getCaller 로 두면 없는 대상에
+        // 지급하려던 관리자에게 «다시 로그인하라»고 답한다.
         userQueryService.getTargetForShare(userId);
     }
 }

@@ -323,7 +323,7 @@ class GroupBetQueryServiceIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("삭제 프리뷰 권한 — 멤버는 NOT_OWNER, 남의 그룹 챌린지 cid 조합은 NOT_FOUND(IDOR 차단)")
+    @DisplayName("삭제 프리뷰 권한 — 멤버는 NOT_OWNER, 남의 그룹 챌린지 cid 조합은 CHALLENGE_NOT_FOUND(IDOR 차단)")
     void deletionPreviewEnforcesOwnerAndGroupBinding() {
         assertThatThrownBy(() -> groupBetQueryService
                 .getDeletionPreview(group.getId(), challenge.getId(), member.getId()))
@@ -334,7 +334,7 @@ class GroupBetQueryServiceIntegrationTest extends IntegrationTestBase {
         assertThatThrownBy(() -> groupBetQueryService
                 .getDeletionPreview(group.getId(), otherGroupChallenge.getId(), owner.getId()))
                 .isInstanceOf(GroupException.class)
-                .extracting("errorCode").isEqualTo(GroupErrorCode.NOT_FOUND);
+                .extracting("errorCode").isEqualTo(GroupErrorCode.CHALLENGE_NOT_FOUND);
 
         // 멤버십 없는 유저(탈퇴자)는 MEMBER_ONLY — 프리뷰는 그룹 화면의 것이다.
         assertThatThrownBy(() -> groupBetQueryService

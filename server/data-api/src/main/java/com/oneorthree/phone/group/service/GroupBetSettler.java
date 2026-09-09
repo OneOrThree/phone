@@ -448,8 +448,9 @@ public class GroupBetSettler {
                         session.getId(), user.getId(), session.getStake());
                 continue;
             }
-            boolean applied = currencyLedgerService.credit(user, CurrencyTransactionType.BET_REFUND,
-                    session.getStake(), GroupBetService.refundKey(session.getId(), participant.getId()));
+            boolean applied = currencyLedgerService.credit(CurrencyLedgerService.WalletOwner.TARGET, user,
+                    CurrencyTransactionType.BET_REFUND, session.getStake(),
+                    GroupBetService.refundKey(session.getId(), participant.getId()));
             if (!applied) {
                 log.warn("회차 환불 스킵 — 멱등키 선점됨(버그 신호). sessionId={}, userId={}, key={}",
                         session.getId(), user.getId(),
@@ -574,7 +575,8 @@ public class GroupBetSettler {
                         session.getId(), payout.userId(), payout.amount());
                 continue;
             }
-            currencyLedgerService.credit(user, CurrencyTransactionType.BET_PAYOUT, payout.amount(),
+            currencyLedgerService.credit(CurrencyLedgerService.WalletOwner.TARGET, user,
+                    CurrencyTransactionType.BET_PAYOUT, payout.amount(),
                     payoutKey(session.getId(), participant.getId()));
         }
     }

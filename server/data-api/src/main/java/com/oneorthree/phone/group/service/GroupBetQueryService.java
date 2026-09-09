@@ -209,7 +209,7 @@ public class GroupBetQueryService {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
         groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(challengeId, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new GroupException(GroupErrorCode.CHALLENGE_NOT_FOUND));
 
         List<GroupChallengeBetSession> openSessions = groupChallengeBetSessionRepository
                 .findByChallengeIdAndStatusOrderBySessionDateAscIdAsc(challengeId, GroupBetStatus.OPEN);

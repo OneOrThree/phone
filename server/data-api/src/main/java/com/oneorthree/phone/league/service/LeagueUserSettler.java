@@ -164,7 +164,8 @@ public class LeagueUserSettler {
             // 멱등키 league:{weekStartAt}:{userId}(주차·유저 유니크 재사용)로 이 정산 트랜잭션에 함께 기입한다.
             int bonus = CurrencyRewardPolicy.leaguePromotionReward(newTierLevel);
             if (bonus > 0) {
-                currencyLedgerService.credit(user, CurrencyTransactionType.LEAGUE_TIER_BONUS, bonus,
+                currencyLedgerService.credit(CurrencyLedgerService.WalletOwner.TARGET, user,
+                        CurrencyTransactionType.LEAGUE_TIER_BONUS, bonus,
                         "league:" + previousWeekStart + ":" + user.getId());
             }
         }
