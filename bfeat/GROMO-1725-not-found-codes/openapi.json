@@ -293,7 +293,7 @@
             "description": "게스트 / 그룹원도 OPEN 회차 참가자도 아님"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / CHALLENGE_NOT_FOUND(챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -344,7 +344,7 @@
             "description": "권한 없음 / 게스트"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / NOT_FOUND(공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       },
@@ -383,7 +383,7 @@
             "description": "권한 없음 / 게스트"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / NOT_FOUND(공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -1202,7 +1202,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND(회차 없음·그룹 불일치) / 챌린지 삭제됨 / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / BET_NOT_FOUND(회차 없음·그룹 불일치) / CHALLENGE_NOT_FOUND(챌린지 삭제됨) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1264,7 +1264,7 @@
             "description": "게스트 접근 불가"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "정원 초과 / 이미 참여"
@@ -1346,7 +1346,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1428,7 +1428,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1502,7 +1502,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1593,7 +1593,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / BET_NOT_FOUND(내기 미설정) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / CHALLENGE_NOT_FOUND(챌린지 없음) / BET_NOT_FOUND(내기 미설정) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1665,7 +1665,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / BET_NOT_FOUND(내기 미설정) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / CHALLENGE_NOT_FOUND(챌린지 없음) / BET_NOT_FOUND(내기 미설정) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1809,7 +1809,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / BET_NOT_FOUND(커서가 이 챌린지의 내기가 아님) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / CHALLENGE_NOT_FOUND(챌린지 없음) / BET_NOT_FOUND(커서가 이 챌린지의 내기가 아님) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1889,7 +1889,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / CHALLENGE_NOT_FOUND(챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1950,7 +1950,7 @@
             "description": "게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / BET_NOT_FOUND / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "BET_CLOSED / BET_ALREADY_JOINED / BET_ALREADY_ACHIEVED"
@@ -2005,7 +2005,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -2058,7 +2058,7 @@
             "description": "OWNER 아님 / 게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -3472,7 +3472,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -3522,7 +3522,7 @@
             "description": "OWNER 아님 / 게스트"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -3568,7 +3568,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -3615,7 +3615,7 @@
             "description": "OWNER 아님 / 게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -5089,7 +5089,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -5241,7 +5241,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND(커서가 이 그룹 회차가 아님) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / BET_NOT_FOUND(커서가 이 그룹 회차가 아님) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -5674,7 +5674,7 @@
             "description": "게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND(회차 없음·그룹 불일치) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / BET_NOT_FOUND(회차 없음·그룹 불일치) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "BET_NOT_JOINED(참가 이력 없음) / BET_NOT_OPEN(이미 종료) / BET_LEAVE_CLOSED(취소 마감 경과)"
@@ -5756,7 +5756,7 @@
             "description": "게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -5797,7 +5797,7 @@
             "description": "게스트 / 그룹원 아님 / OWNER 아님"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / CHALLENGE_NOT_FOUND(챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -5838,7 +5838,7 @@
             "description": "게스트 / 그룹원 아님 / BET_CANCEL_FORBIDDEN(개설자 아님)"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / BET_NOT_FOUND / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "BET_CANCEL_HAS_OTHERS(타 참가자 존재) / BET_NOT_OPEN(이미 종료·이중 취소) / BET_LEAVE_CLOSED(취소 마감 경과)"
@@ -5882,7 +5882,7 @@
             "description": "게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / BET_NOT_FOUND / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "BET_NOT_JOINED(참가 이력 없음) / BET_NOT_OPEN(이미 종료) / BET_LEAVE_CLOSED(시작 이후)"
