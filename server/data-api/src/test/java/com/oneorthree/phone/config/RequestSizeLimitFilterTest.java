@@ -66,7 +66,10 @@ class RequestSizeLimitFilterTest {
         MockHttpServletResponse response = callFocusFilter(8 * 1024 + 1);
 
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
-        assertThat(response.getContentAsString()).contains("PAYLOAD_TOO_LARGE");
+        assertThat(response.getContentAsString())
+                .contains("\"error\":\"PAYLOAD_TOO_LARGE\"")
+                .contains("\"code\":\"PAYLOAD_TOO_LARGE\"")
+                .contains("\"message\":\"");
     }
 
     @Test
@@ -88,7 +91,10 @@ class RequestSizeLimitFilterTest {
         focusFilter().getFilter().doFilter(request, response, new MockFilterChain());
 
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
-        assertThat(response.getContentAsString()).contains("PAYLOAD_TOO_LARGE");
+        assertThat(response.getContentAsString())
+                .contains("\"error\":\"PAYLOAD_TOO_LARGE\"")
+                .contains("\"code\":\"PAYLOAD_TOO_LARGE\"")
+                .contains("\"message\":\"");
     }
 
     @Test

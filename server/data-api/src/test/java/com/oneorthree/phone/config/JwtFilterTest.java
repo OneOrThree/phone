@@ -117,7 +117,11 @@ class JwtFilterTest {
 
         // 토큰 미제공/무효와 동일한 401 신호로 통일
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
-        assertThat(response.getContentAsString()).isEqualTo("{\"error\":\"UNAUTHORIZED\"}");
+        // 봉투(code·message) + 종전 error 별칭 — 둘 다 있어야 한다 (GROMO-1657)
+        assertThat(response.getContentAsString())
+                .contains("\"error\":\"UNAUTHORIZED\"")
+                .contains("\"code\":\"UNAUTHORIZED\"")
+                .contains("\"message\":\"");
         verify(chain, never()).doFilter(request, response);
         // 차단 시 userId 세팅·활동 갱신 모두 일어나지 않는다
         assertThat(request.getAttribute("userId")).isNull();

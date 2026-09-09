@@ -10,11 +10,14 @@ import org.springframework.http.HttpStatus;
  * 박았고, 낙관락 충돌 코드는 {@code GroupErrorCode.CONCURRENT_UPDATE} 를 <b>빌려</b> 썼다 —
  * {@code common} 이 {@code group} 을 참조하는 유일한 자리였다. 공통 실패는 공통이 소유한다.
  *
- * <p><b>이름은 계약이다.</b> 아래 상수 중 종전에도 나가던 것({@code INVALID_PARAMETER} ·
- * {@code ILLEGAL_ARGUMENT} · {@code INVALID_TIMEZONE} · {@code DATA_INTEGRITY_VIOLATION} ·
- * {@code CONCURRENT_UPDATE} · {@code LOGIN_USER_RESOLUTION_FAILED})은 문자열·상태·문구가
- * 종전과 글자 그대로 같다. 새로 생긴 것은 종전에 봉투 없이 새던 경로에 처음으로 {@code code} 를
- * 주는 것이라 앱 계약을 깨지 않는다.
+ * <p><b>이름은 계약이다.</b> 종전에도 나가던 다섯({@code INVALID_PARAMETER} · {@code INVALID_TIMEZONE} ·
+ * {@code DATA_INTEGRITY_VIOLATION} · {@code CONCURRENT_UPDATE} · {@code LOGIN_USER_RESOLUTION_FAILED})은
+ * 문자열·상태·문구가 종전과 글자 그대로 같다. {@code ILLEGAL_ARGUMENT} 는 <b>문자열·상태만</b> 같고
+ * 문구는 일부러 바꿨다 — 종전엔 예외 메시지를 그대로 반사해 내부 구현이 드러났다.
+ * {@code UNAUTHORIZED} · {@code PAYLOAD_TOO_LARGE} 는 필터가 {@code {"error": …}} 로 내던 것에
+ * 같은 이름으로 {@code code}·{@code message} 를 <b>더한</b> 것이다({@code error} 필드는 남긴다).
+ * 그 외 새로 생긴 것은 종전에 봉투 없이 새던 경로에 처음으로 {@code code} 를 주는 것이라 앱 계약을
+ * 깨지 않는다.
  *
  * <p><b>{@code NOT_FOUND} 를 쓰지 않는 이유</b> — 앱이 그 문자열을 「그룹이 사라짐」으로 해석하는
  * 분기가 17곳이다(GROMO-1725). 없는 경로·없는 엔티티에 그 코드를 주면 엉뚱한 안내가 뜬다.
@@ -22,6 +25,10 @@ import org.springframework.http.HttpStatus;
 @Getter
 public enum CommonErrorCode implements ErrorCode {
 
+    /** 토큰이 없거나 검증에 실패했다 — {@code JwtFilter} 가 디스패처 앞에서 직접 쓴다. */
+    UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다. 다시 로그인해 주세요."),
+    /** 요청 본문이 상한을 넘었다 — {@code RequestSizeLimitFilter} 가 디스패처 앞에서 직접 쓴다. */
+    PAYLOAD_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "요청 본문이 너무 큽니다."),
     /** 요청 바디가 검증({@code @Valid})에 걸렸거나 JSON 으로 읽을 수 없다. */
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 형식이 올바르지 않습니다."),
     /** 쿼리·경로 파라미터가 없거나 타입이 맞지 않는다. 문구에는 파라미터 이름이 붙는다. */

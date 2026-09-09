@@ -1,5 +1,6 @@
 package com.oneorthree.phone.config;
 
+import com.oneorthree.phone.common.exception.CommonErrorCode;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletException;
@@ -69,7 +70,8 @@ public class RequestSizeLimitFilter extends OncePerRequestFilter {
         log.warn("요청 본문 초과 차단 — path={}, size={} (상한 {})", request.getRequestURI(), size, maxWireBytes);
         response.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write("{\"error\":\"PAYLOAD_TOO_LARGE\"}");
+        // 필터 체인은 GlobalExceptionHandler 밖이라 봉투를 직접 맞춘다 (GROMO-1657). error 는 종전 별칭.
+        response.getWriter().write(JwtFilter.envelope(CommonErrorCode.PAYLOAD_TOO_LARGE));
     }
 
     /** 이미 읽어 버린 본문을 뒤단(Jackson)이 그대로 다시 읽게 감싼다 — chunked 경로 전용. */

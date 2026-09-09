@@ -19,6 +19,11 @@
 | `code` | 기계용 식별자. **에러코드 enum 상수의 이름 그대로**(`ErrorCode.name()`) | 앱이 `switch`/`===` 로 분기한다 |
 | `message` | 사람이 읽는 문구. enum 에 적힌 문장 그대로 | 화면에 그대로 뜰 수 있다 |
 
+**범위** — `DispatcherServlet` 이 라우팅하는 응답은 `GlobalExceptionHandler` 가, 그 **앞**의 필터 체인이
+직접 쓰는 응답(`JwtFilter` 401 · `RequestSizeLimitFilter` 413)은 필터 자신이 같은 봉투를 손으로 맞춘다.
+필터 쪽은 종전 모양 `{"error": "…"}` 의 `error` 필드를 **별칭으로 남긴 채** `code`·`message` 를 더한다 —
+읽는 소비자는 확인된 바 없지만 빼면 계약 변경이다.
+
 재시도 힌트가 필요한 실패 하나만 필드를 **더한다** — `RetryAfterErrorResponse.retryAfterMs`
 (`RESULT_CLAIM_HELD`). 값은 **상대 지연(ms)**이지 절대 시각이 아니다. 봉투를 바꾸지 않고 상속으로
 늘리는 것이 규칙이다 — 앱이 `code` 로 분기하고 있어 모양을 갈아 끼우면 기존 경로가 통째로 흔들린다.
@@ -95,6 +100,8 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 
 | 상황 | 상태 | code |
 | --- | --- | --- |
+| 토큰 없음·검증 실패 (필터) | 401 | `UNAUTHORIZED` — `error` 별칭 동반 |
+| 요청 본문 상한 초과 (필터) | 413 | `PAYLOAD_TOO_LARGE` — `error` 별칭 동반 |
 | `@Valid` 실패 · 깨진 JSON | 400 | `INVALID_REQUEST` (검증 실패는 DTO 애노테이션의 문구) |
 | 파라미터 누락 · 타입 불일치 | 400 | `INVALID_PARAMETER` (문구에 파라미터 이름) |
 | 타임존 id 해석 실패 | 400 | `INVALID_TIMEZONE` |
@@ -118,7 +125,9 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 ## 5. 봉투 밖으로 새는 것 — 없다 (2026-09-09)
 
 `GlobalExceptionHandler.handleUnexpected(Exception)` 이 catch-all 이라 스프링 기본 `/error` 바디로
-새는 경로는 더 이상 없다. `UnhandledEnvelopeTest` 가 종전에 새던 일곱 경로(검증 실패·깨진 JSON·
+새는 경로는 더 이상 없다. 핸들러가 닿지 않는 필터 체인의 두 응답(`JwtFilter` 401 · `RequestSizeLimitFilter`
+413)도 같은 봉투를 직접 쓴다 — 이 둘은 `@RestControllerAdvice` 가 구조적으로 볼 수 없는 자리라
+**핸들러를 고쳐서는 절대 봉투에 들어오지 않는다**. 새 필터가 응답을 직접 쓰면 `JwtFilter.envelope()` 를 쓴다. `UnhandledEnvelopeTest` 가 종전에 새던 일곱 경로(검증 실패·깨진 JSON·
 파라미터 누락·405·404·`EntityNotFound`·catch-all)를 실제 디스패치로 고정한다.
 
 **남은 것은 «코드가 맞는가»이지 «봉투에 실리는가»가 아니다** — 숨기지 않고 적는다.
@@ -137,7 +146,7 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 
 `ErrorContractTest` 는 목록을 손으로 적지 않는다 — `ErrorCode` 를 구현한 enum 을 **클래스패스에서 찾아**
 상수마다 예외를 만들어 `handleDomain` 에 통과시키고 `(status, code, message)` 를 단언한다(2026-09-09
-기준 111개 = 도메인 100 + `CommonErrorCode` 11). 그래서 잡히는 것:
+기준 113개 = 도메인 100 + `CommonErrorCode` 13). 그래서 잡히는 것:
 
 - 핸들러가 `code.name()` 이 아닌 것을 `code` 로 싣는다 → 100건 실패 (실제로 넣어 확인)
 - 도메인별 핸들러가 다시 생긴다 → 「하나뿐」 단언 실패 (실제로 넣어 확인)

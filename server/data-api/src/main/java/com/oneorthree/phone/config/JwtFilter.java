@@ -1,5 +1,6 @@
 package com.oneorthree.phone.config;
 
+import com.oneorthree.phone.common.exception.CommonErrorCode;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -139,9 +140,20 @@ public class JwtFilter extends OncePerRequestFilter {
         return header.substring(7);
     }
 
+    /**
+     * 401 응답을 직접 쓴다 — 필터 체인은 {@code DispatcherServlet} 앞이라 {@code GlobalExceptionHandler}
+     * 가 닿지 않는다. 그래서 봉투({@code code}·{@code message})를 여기서 손으로 맞춘다 (GROMO-1657).
+     * {@code error} 필드는 종전 모양의 별칭으로 남긴다 — 읽는 소비자는 확인된 바 없지만 빼면 계약 변경이다.
+     */
     private void sendUnauthorized(HttpServletResponse response) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write("{\"error\":\"UNAUTHORIZED\"}");
+        response.getWriter().write(envelope(CommonErrorCode.UNAUTHORIZED));
+    }
+
+    /** 필터용 봉투 — {@code ErrorResponse} 와 같은 필드에 종전 {@code error} 별칭을 더한 것. 문구는 상수라 이스케이프가 필요 없다. */
+    static String envelope(CommonErrorCode code) {
+        return "{\"error\":\"" + code.name() + "\",\"code\":\"" + code.name()
+                + "\",\"message\":\"" + code.getMessage() + "\"}";
     }
 }
