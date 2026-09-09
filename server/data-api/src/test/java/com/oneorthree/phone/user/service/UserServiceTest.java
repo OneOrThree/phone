@@ -423,7 +423,8 @@ class UserServiceTest {
     @DisplayName("PII 파기 + 소프트딜리트 + 소셜연동 삭제 — user 행은 지우지 않는다 (GROMO-635)")
     void erasePersonalDataKeepsRowButDestroysPii() {
         User user = User.builder().id(USER_ID)
-                .nickname("조재영").refreshTokenHash("rt-hash").deviceToken("dt").countryCode("KR").build();
+                .nickname("조재영").refreshTokenHash("rt-hash").deviceToken("dt").countryCode("KR")
+                .language("ja").build();
 
         userService.erasePersonalData(user);
 
@@ -432,6 +433,7 @@ class UserServiceTest {
         assertThat(user.getRefreshTokenHash()).isNull();
         assertThat(user.getDeviceToken()).isNull();
         assertThat(user.getCountryCode()).isNull();
+        assertThat(user.getLanguage()).isNull();
         // 하드 삭제는 불가능하다 — 다수 테이블이 NOT NULL FK 로 이 행을 참조한다
         verify(userRepository, never()).delete(any());
         // 소셜 연동만 하드 삭제 — provider_id 가 PII 이고 같은 계정으로 재가입할 수 있어야 한다

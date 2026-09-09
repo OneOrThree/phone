@@ -276,6 +276,8 @@ public class UserService {
         user.setDeviceToken(null);
         user.setRefreshTokenHash(null);
         user.setCountryCode(null);
+        // 표시 언어도 프로필 개인정보다 — 국가처럼 탈퇴 시 파기 (codex 리뷰, GROMO-1659)
+        user.setLanguage(null);
         user.setDeleted(true);
 
         socialAccountRepository.deleteByUserId(user.getId());
