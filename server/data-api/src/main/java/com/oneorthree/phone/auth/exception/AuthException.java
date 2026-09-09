@@ -1,5 +1,6 @@
 package com.oneorthree.phone.auth.exception;
 
+import com.oneorthree.phone.common.exception.DomainException;
 import lombok.Getter;
 
 /**
@@ -7,7 +8,7 @@ import lombok.Getter;
  * enum 이름을 그대로 응답으로 바꾼다 — 던지는 쪽은 HTTP 를 몰라도 된다.
  */
 @Getter
-public class AuthException extends RuntimeException {
+public class AuthException extends DomainException {
 
     /** 응답 상태와 본문 {@code code} 를 함께 결정하는 값 — 핸들러가 이 하나만 보고 응답을 만든다. */
     private final AuthErrorCode errorCode;
@@ -17,7 +18,7 @@ public class AuthException extends RuntimeException {
      *                  사용자에게 보일 문구가 코드 옆에 모여 있어야 표현이 갈라지지 않는다
      */
     public AuthException(AuthErrorCode errorCode) {
-        super(errorCode.getMessage());
+        super(errorCode);
         this.errorCode = errorCode;
     }
 }

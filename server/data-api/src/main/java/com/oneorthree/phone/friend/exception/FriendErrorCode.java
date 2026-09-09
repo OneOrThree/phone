@@ -1,5 +1,6 @@
 package com.oneorthree.phone.friend.exception;
 
+import com.oneorthree.phone.common.exception.ErrorCode;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
@@ -8,7 +9,7 @@ import org.springframework.http.HttpStatus;
  * 상태 코드를 고르지 않아도 된다.
  */
 @Getter
-public enum FriendErrorCode {
+public enum FriendErrorCode implements ErrorCode {
     // 잘못된 요청
     SELF_REQUEST(HttpStatus.BAD_REQUEST, "자기 자신에게는 친구 요청을 보낼 수 없습니다."),
     SELF_PIN(HttpStatus.BAD_REQUEST, "자기 자신은 핀할 수 없습니다."),

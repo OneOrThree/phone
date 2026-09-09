@@ -1,5 +1,6 @@
 package com.oneorthree.phone.stats.exception;
 
+import com.oneorthree.phone.common.exception.ErrorCode;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
@@ -8,7 +9,7 @@ import org.springframework.http.HttpStatus;
  * 고르지 않는다.
  */
 @Getter
-public enum StatsErrorCode {
+public enum StatsErrorCode implements ErrorCode {
 
     INVALID_DATE_RANGE(HttpStatus.BAD_REQUEST, "유효하지 않은 날짜 범위입니다.");
 

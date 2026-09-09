@@ -377,8 +377,9 @@ GROMO-1654 에서는 `GroupBetSettler.effectiveJoinDeadline` 하나가 여기 �
 
 1. `com.oneorthree.phone.<domain>/` 아래에 **필요한 계층만** 만든다
 2. 컨트롤러는 도메인 루트, 엔티티는 `repository/domain/`
-3. 실패 응답이 필요하면 `exception/` 에 `<Domain>ErrorCode` + `<Domain>Exception`
-   쌍을 만들고 `common/exception/GlobalExceptionHandler` 에 등록한다
-   (공통 베이스 신설은 GROMO-1657 에서 다룬다)
+3. 실패 응답이 필요하면 `exception/` 에 `<Domain>ErrorCode implements ErrorCode` +
+   `<Domain>Exception extends DomainException` 쌍을 만든다. **핸들러는 손대지 않는다** —
+   `common/exception/GlobalExceptionHandler.handleDomain` 하나가 전부 받는다. 규칙과 이유는
+   [error-contract.md](error-contract.md) (GROMO-1657)
 4. 다른 도메인의 데이터가 필요하면 **그 도메인의 service 를 주입한다** — repository 가 아니라
 5. `/back-endpoint` 스킬이 이 배치대로 골격을 잡아준다

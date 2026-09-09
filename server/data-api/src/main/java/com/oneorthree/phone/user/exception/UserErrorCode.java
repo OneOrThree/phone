@@ -1,5 +1,6 @@
 package com.oneorthree.phone.user.exception;
 
+import com.oneorthree.phone.common.exception.ErrorCode;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
@@ -12,7 +13,7 @@ import org.springframework.http.HttpStatus;
  * 앞은 화면에서 처리할 일이고, 뒤는 재시도로 풀리지 않아 재로그인만이 답이다.
  */
 @Getter
-public enum UserErrorCode {
+public enum UserErrorCode implements ErrorCode {
 
     /**
      * <b>지목된 유저</b>가 없다 — 요청자가 아니라 요청이 가리킨 대상(위임 대상·강퇴 대상 등).

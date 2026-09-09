@@ -1,5 +1,6 @@
 package com.oneorthree.phone.user.exception;
 
+import com.oneorthree.phone.common.exception.DomainException;
 import lombok.Getter;
 
 /**
@@ -7,7 +8,7 @@ import lombok.Getter;
  * 전역 핸들러가 그 코드에서 HTTP 상태와 응답 문구를 꺼내므로 여기서 상태를 따로 지정하지 않는다.
  */
 @Getter
-public class UserException extends RuntimeException {
+public class UserException extends DomainException {
 
     /** 응답 상태·문구와 앱의 분기(특히 404 두 갈래)를 결정하는 실패 사유. */
     private final UserErrorCode errorCode;
@@ -19,7 +20,7 @@ public class UserException extends RuntimeException {
      *                  앱이 재로그인 유도 대신 엉뚱한 화면 처리를 한다
      */
     public UserException(UserErrorCode errorCode) {
-        super(errorCode.getMessage());
+        super(errorCode);
         this.errorCode = errorCode;
     }
 }

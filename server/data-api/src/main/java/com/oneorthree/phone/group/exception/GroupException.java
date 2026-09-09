@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.exception;
 
+import com.oneorthree.phone.common.exception.DomainException;
+
 /**
  * 그룹 도메인의 단일 예외 — 상태 코드와 문구는 전부 {@link GroupErrorCode} 가 들고 있다.
  *
@@ -7,7 +9,7 @@ package com.oneorthree.phone.group.exception;
  * 추가하면 응답 형태가 저절로 맞기 때문이다 — 재시도 지연 힌트처럼 <b>코드 밖의 데이터</b>를
  * 함께 실어야 할 때만 하위 클래스를 만든다({@link ChallengeResultClaimHeldException}).
  */
-public class GroupException extends RuntimeException {
+public class GroupException extends DomainException {
     /**
      * 응답의 HTTP 상태·에러 코드·문구를 한꺼번에 정하는 값. 던진 뒤에는 바뀌지 않는다.
      */
@@ -17,7 +19,7 @@ public class GroupException extends RuntimeException {
      * @param errorCode 응답으로 나갈 실패 종류 — 예외 message 도 이 코드의 문구를 그대로 쓴다
      */
     public GroupException(GroupErrorCode errorCode) {
-        super(errorCode.getMessage());
+        super(errorCode);
         this.errorCode = errorCode;
     }
 

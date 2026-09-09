@@ -57,6 +57,11 @@ Run all commands below from inside `server/data-api/`.
   `client/` (outbound HTTP/FCM/OpenAI), `scheduler/` (`@Scheduled` entry points).
 - **Entity PKs are UUID v7** — annotate the `@Id UUID id` field with `@GeneratedUuidV7`
   (`common/id`); repositories are `JpaRepository<Entity, UUID>`.
+- **Error responses**: one envelope `{code, message}`; `code` is the `ErrorCode` enum
+  constant name and the app branches on it, so constant names are a contract. A domain's
+  `XxxErrorCode implements ErrorCode` + `XxxException extends DomainException` are caught by
+  the single `GlobalExceptionHandler.handleDomain` — never add a per-domain handler.
+  Rules and the pinned contract test: `docs/conventions/error-contract.md` (GROMO-1657).
 - Package names must match Checkstyle's `PackageName` rule
   (`^[a-z]+(\.[a-z][a-z0-9]*)*$`) — no underscores, no leading digits.
 

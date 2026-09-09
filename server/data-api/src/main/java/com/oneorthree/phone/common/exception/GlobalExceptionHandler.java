@@ -1,18 +1,7 @@
 package com.oneorthree.phone.common.exception;
 
-import com.oneorthree.phone.analytics.exception.AnalyticsException;
-import com.oneorthree.phone.auth.exception.AuthException;
-import com.oneorthree.phone.auth.exception.InvalidTokenException;
-import com.oneorthree.phone.currency.exception.CurrencyException;
-import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.group.exception.ChallengeResultClaimHeldException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
-import com.oneorthree.phone.group.exception.GroupException;
-import com.oneorthree.phone.friend.exception.FriendException;
-import com.oneorthree.phone.invitelink.exception.InviteLinkException;
-import com.oneorthree.phone.league.exception.LeagueException;
-import com.oneorthree.phone.stats.exception.StatsException;
-import com.oneorthree.phone.user.exception.UserException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -32,8 +21,9 @@ import java.time.zone.ZoneRulesException;
  *
  * <p><b>매핑은 세 갈래다.</b>
  * <ul>
- *   <li>도메인 예외(User·Focus·Group·League… 11종) — 상태 코드와 {@code code} 를 각 도메인
- *       에러코드 enum 에서 그대로 꺼낸다. 여기서는 판단하지 않고 옮기기만 한다</li>
+ *   <li>도메인 예외({@link DomainException} 전부) — 상태 코드와 {@code code} 를 실린
+ *       {@link ErrorCode} 에서 그대로 꺼낸다. 여기서는 판단하지 않고 옮기기만 한다.
+ *       도메인마다 핸들러를 두지 않는다 — 하나가 전부를 받는다 (GROMO-1657)</li>
  *   <li>프레임워크·DB 예외 — 원인 불명 500 으로 새지 않도록 의미 있는 4xx 로 강하시킨다
  *       (타입 변환 실패 400, 제약 위반·락 충돌 409)</li>
  *   <li>서버 배선 오류 — {@link LoginUserResolutionException} 만이 의도적으로 500 이다</li>
@@ -52,68 +42,24 @@ import java.time.zone.ZoneRulesException;
 public class GlobalExceptionHandler {
 
     /**
-     * 회원 도메인 예외 → 에러코드가 지정한 상태.
+     * 도메인 예외 전부 → 에러코드가 지정한 상태 (GROMO-1657).
      *
-     * @param e 던져진 예외. 상태와 {@code code} 는 여기 실린 에러코드 enum 이 정하므로
-     *          이 핸들러 자체는 정책을 갖지 않는다 — 응답을 바꾸려면 enum 쪽을 고친다
-     * @return {@code code} = 에러코드 enum 이름, {@code message} = enum 에 적힌 사용자용 문구
-     */
-    @ExceptionHandler(UserException.class)
-    public ResponseEntity<ErrorResponse> handleUser(UserException e) {
-        return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
-    }
-
-    /**
-     * 집중 세션 도메인 예외 → 에러코드가 지정한 상태.
+     * <p>종전엔 도메인마다 글자 그대로 같은 핸들러가 11개 있었다. {@link DomainException} 을 상속하고
+     * {@link ErrorCode} 를 구현하는 순간 여기로 들어오므로, 새 도메인은 이 클래스를 <b>손대지 않는다</b>.
+     * 빠뜨릴 자리가 없다는 것이 이 핸들러의 존재 이유다.
      *
-     * @param e 던져진 예외. 상태와 {@code code} 는 여기 실린 에러코드 enum 이 정하므로
-     *          이 핸들러 자체는 정책을 갖지 않는다 — 응답을 바꾸려면 enum 쪽을 고친다
-     * @return {@code code} = 에러코드 enum 이름, {@code message} = enum 에 적힌 사용자용 문구
-     */
-    @ExceptionHandler(FocusException.class)
-    public ResponseEntity<ErrorResponse> handleFocus(FocusException e) {
-        return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
-    }
-
-    /**
-     * 재화 도메인 예외 → 에러코드가 지정한 상태.
+     * <p>하위 타입 전용 핸들러({@link #handleChallengeResultClaimHeld})가 있으면 스프링이 더 구체적인
+     * 쪽을 고르므로 여기는 그 뒤에 온다 — 등록 순서와 무관하다.
      *
-     * @param e 던져진 예외. 상태와 {@code code} 는 여기 실린 에러코드 enum 이 정하므로
-     *          이 핸들러 자체는 정책을 갖지 않는다 — 응답을 바꾸려면 enum 쪽을 고친다
-     * @return {@code code} = 에러코드 enum 이름, {@code message} = enum 에 적힌 사용자용 문구
+     * @param e 던져진 예외. 상태와 {@code code} 는 실린 에러코드가 정하므로 이 핸들러는 정책을 갖지
+     *          않는다 — 응답을 바꾸려면 그 도메인의 enum 을 고친다
+     * @return {@code code} = 에러코드 이름, {@code message} = 에러코드에 적힌 사용자용 문구
      */
-    @ExceptionHandler(CurrencyException.class)
-    public ResponseEntity<ErrorResponse> handleCurrency(CurrencyException e) {
-        return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
-    }
-
-    /**
-     * 토큰 검증 도메인 예외 → 에러코드가 지정한 상태.
-     *
-     * @param e 던져진 예외. 상태와 {@code code} 는 여기 실린 에러코드 enum 이 정하므로
-     *          이 핸들러 자체는 정책을 갖지 않는다 — 응답을 바꾸려면 enum 쪽을 고친다
-     * @return {@code code} = 에러코드 enum 이름, {@code message} = enum 에 적힌 사용자용 문구
-     */
-    @ExceptionHandler(InvalidTokenException.class)
-    public ResponseEntity<ErrorResponse> handleToken(InvalidTokenException e) {
-        return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
-    }
-
-    /**
-     * 인증·계정 상태 도메인 예외 → 에러코드가 지정한 상태.
-     *
-     * @param e 던져진 예외. 상태와 {@code code} 는 여기 실린 에러코드 enum 이 정하므로
-     *          이 핸들러 자체는 정책을 갖지 않는다 — 응답을 바꾸려면 enum 쪽을 고친다
-     * @return {@code code} = 에러코드 enum 이름, {@code message} = enum 에 적힌 사용자용 문구
-     */
-    @ExceptionHandler(AuthException.class)
-    public ResponseEntity<ErrorResponse> handleAuth(AuthException e) {
-        return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    @ExceptionHandler(DomainException.class)
+    public ResponseEntity<ErrorResponse> handleDomain(DomainException e) {
+        ErrorCode code = e.getErrorCode();
+        return ResponseEntity.status(code.getStatus())
+                .body(new ErrorResponse(code.name(), code.getMessage()));
     }
 
     /**
@@ -132,84 +78,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(e.getErrorCode().getStatus())
                 .body(new RetryAfterErrorResponse(
                         e.getErrorCode().name(), e.getMessage(), e.getRetryAfterMs()));
-    }
-
-    /**
-     * 그룹·챌린지 도메인 예외 → 에러코드가 지정한 상태.
-     *
-     * @param e 던져진 예외. 상태와 {@code code} 는 여기 실린 에러코드 enum 이 정하므로
-     *          이 핸들러 자체는 정책을 갖지 않는다 — 응답을 바꾸려면 enum 쪽을 고친다
-     * @return {@code code} = 에러코드 enum 이름, {@code message} = enum 에 적힌 사용자용 문구
-     */
-    @ExceptionHandler(GroupException.class)
-    public ResponseEntity<ErrorResponse> handleGroup(GroupException e) {
-        return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
-    }
-
-    /**
-     * 초대 링크 도메인 예외 → 에러코드가 지정한 상태.
-     *
-     * @param e 던져진 예외. 상태와 {@code code} 는 여기 실린 에러코드 enum 이 정하므로
-     *          이 핸들러 자체는 정책을 갖지 않는다 — 응답을 바꾸려면 enum 쪽을 고친다
-     * @return {@code code} = 에러코드 enum 이름, {@code message} = enum 에 적힌 사용자용 문구
-     */
-    @ExceptionHandler(InviteLinkException.class)
-    public ResponseEntity<ErrorResponse> handleInviteLink(InviteLinkException e) {
-        return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
-    }
-
-    /**
-     * 친구 도메인 예외 → 에러코드가 지정한 상태.
-     *
-     * @param e 던져진 예외. 상태와 {@code code} 는 여기 실린 에러코드 enum 이 정하므로
-     *          이 핸들러 자체는 정책을 갖지 않는다 — 응답을 바꾸려면 enum 쪽을 고친다
-     * @return {@code code} = 에러코드 enum 이름, {@code message} = enum 에 적힌 사용자용 문구
-     */
-    @ExceptionHandler(FriendException.class)
-    public ResponseEntity<ErrorResponse> handleFriend(FriendException e) {
-        return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
-    }
-
-    /**
-     * 통계 도메인 예외 → 에러코드가 지정한 상태.
-     *
-     * @param e 던져진 예외. 상태와 {@code code} 는 여기 실린 에러코드 enum 이 정하므로
-     *          이 핸들러 자체는 정책을 갖지 않는다 — 응답을 바꾸려면 enum 쪽을 고친다
-     * @return {@code code} = 에러코드 enum 이름, {@code message} = enum 에 적힌 사용자용 문구
-     */
-    @ExceptionHandler(StatsException.class)
-    public ResponseEntity<ErrorResponse> handleStats(StatsException e) {
-        return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
-    }
-
-    /**
-     * 리그 도메인 예외 → 에러코드가 지정한 상태.
-     *
-     * @param e 던져진 예외. 상태와 {@code code} 는 여기 실린 에러코드 enum 이 정하므로
-     *          이 핸들러 자체는 정책을 갖지 않는다 — 응답을 바꾸려면 enum 쪽을 고친다
-     * @return {@code code} = 에러코드 enum 이름, {@code message} = enum 에 적힌 사용자용 문구
-     */
-    @ExceptionHandler(LeagueException.class)
-    public ResponseEntity<ErrorResponse> handleLeague(LeagueException e) {
-        return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
-    }
-
-    /**
-     * 분석 이벤트 도메인 예외 → 에러코드가 지정한 상태.
-     *
-     * @param e 던져진 예외. 상태와 {@code code} 는 여기 실린 에러코드 enum 이 정하므로
-     *          이 핸들러 자체는 정책을 갖지 않는다 — 응답을 바꾸려면 enum 쪽을 고친다
-     * @return {@code code} = 에러코드 enum 이름, {@code message} = enum 에 적힌 사용자용 문구
-     */
-    @ExceptionHandler(AnalyticsException.class)
-    public ResponseEntity<ErrorResponse> handleAnalytics(AnalyticsException e) {
-        return ResponseEntity.status(e.getErrorCode().getStatus())
-                .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
     }
 
     /**

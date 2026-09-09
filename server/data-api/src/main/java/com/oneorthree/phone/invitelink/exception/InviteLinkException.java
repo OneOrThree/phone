@@ -1,5 +1,6 @@
 package com.oneorthree.phone.invitelink.exception;
 
+import com.oneorthree.phone.common.exception.DomainException;
 import lombok.Getter;
 
 /**
@@ -9,7 +10,7 @@ import lombok.Getter;
  * 랜딩은 어떤 실패도 200 "만료" 페이지로 접는 계약이라 이 예외를 밖으로 흘리지 않는다.
  */
 @Getter
-public class InviteLinkException extends RuntimeException {
+public class InviteLinkException extends DomainException {
 
     /** 응답 상태와 본문 {@code code} 를 함께 정하는 값. */
     private final InviteLinkErrorCode errorCode;
@@ -18,7 +19,7 @@ public class InviteLinkException extends RuntimeException {
      * @param errorCode 거절 사유. 메시지는 여기서 꺼내므로 호출부가 문구를 따로 만들지 않는다
      */
     public InviteLinkException(InviteLinkErrorCode errorCode) {
-        super(errorCode.getMessage());
+        super(errorCode);
         this.errorCode = errorCode;
     }
 }

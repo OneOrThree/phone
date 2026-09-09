@@ -1,5 +1,6 @@
 package com.oneorthree.phone.focus.exception;
 
+import com.oneorthree.phone.common.exception.ErrorCode;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
@@ -11,7 +12,7 @@ import org.springframework.http.HttpStatus;
  * 갈린다 — 앱의 폴백 여부가 여기서 결정되므로 둘을 합치면 그 블록의 집중 시간과 코인이 유실된다.
  */
 @Getter
-public enum FocusErrorCode {
+public enum FocusErrorCode implements ErrorCode {
 
     TAG_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 태그입니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "권한이 없습니다."),
