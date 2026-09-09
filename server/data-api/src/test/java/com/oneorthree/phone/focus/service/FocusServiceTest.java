@@ -53,6 +53,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.SliceImpl;
 
 import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -125,6 +126,16 @@ class FocusServiceTest {
     @Mock
     private GroupBetEarlyWinConfirmer groupBetEarlyWinConfirmer;
 
+    // GROMO-1723: 서비스 시계를 고정한다. 종전엔 마커 테스트가 NOW 기준 «지금 - 1시간» 세션을
+    // 만들어 KST 00~01시에 자정을 걸쳤고, 날짜 분할(GROMO-1252)이 정상 동작하면서 단언이 깨졌다.
+    // 12:00 KST — 어느 방향으로 12시간을 밀어도 같은 KST 날짜에 머문다. 날짜는 이 파일의 고정 시각들
+    // (최대 2026-08-08)보다 뒤여야 한다 — POST 경로는 endedAt 을 «지금»으로 클램프하므로(statEnd)
+    // 미래 세션이 되면 귀속 조각이 통째로 사라진다.
+    @Mock
+    private Clock clock;
+
+    private static final Instant NOW = Instant.parse("2026-09-09T03:00:00Z");   // 2026-09-09 12:00 KST
+
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final UUID TAG_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
@@ -139,6 +150,7 @@ class FocusServiceTest {
     void stubSessionSaveReturnsEntity() {
         lenient().when(focusSessionRepository.save(any(FocusSession.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(clock.instant()).thenReturn(NOW);
     }
 
     // GROMO-673: 유저 태그는 이제 UserFocusTag(정체성=defaultTag). id 는 user_focus_tags.id, 이름은 defaultTag.name.
@@ -2254,7 +2266,7 @@ class FocusServiceTest {
     @Test
     @DisplayName("1252-⑤: 미래 endedAt(내일) 세션 → 오늘 통계는 실경과 5분만, 스트릭·목표 지급 없음(세션 행 endedAt 은 원본 유지)")
     void futureEndedAt_clampedForStatsOnly() {
-        Instant now = Instant.now();
+        Instant now = NOW;
         Instant startedAt = now.minusSeconds(300);       // 실제로는 5분짜리 세션
         Instant forgedEnd = now.plusSeconds(24 * 3600);  // 내일 끝난다고 위조
         User krUser = User.builder().id(USER_ID).countryCode("KR").build();
@@ -2294,7 +2306,7 @@ class FocusServiceTest {
     @Test
     @DisplayName("1252-⑥: startedAt·endedAt 이 모두 미래 → 일 집계 row 미생성, 스트릭 미갱신")
     void whollyFutureSession_producesNoStatSlices() {
-        Instant now = Instant.now();
+        Instant now = NOW;
         User krUser = User.builder().id(USER_ID).countryCode("KR").build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(krUser);
 
@@ -2458,13 +2470,12 @@ class FocusServiceTest {
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, null);
 
         // when
-        Instant before = Instant.now();
         focusService.startFocusSession(USER_ID, body);
 
         // then: startedAt 이 now 근처로 채워짐
         ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
         verify(focusSessionRepository).save(captor.capture());
-        assertThat(captor.getValue().getStartedAt()).isAfterOrEqualTo(before);
+        assertThat(captor.getValue().getStartedAt()).isEqualTo(NOW);   // 주입 시계 값 그대로 — 벽시계 회귀를 잡는다
         assertThat(captor.getValue().getEndedAt()).isNull();
     }
 
@@ -2606,14 +2617,13 @@ class FocusServiceTest {
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
 
         // when
-        Instant before = Instant.now();
         focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, clientStartedAt));
 
         // then: 마감 시각이 새 마커 startedAt 이었다면 구 마커가 그보다 늦게 시작한 경우
         // endedAt < startedAt 역전이 생긴다. now 는 어떤 마커의 startedAt(생성 시 미래 0분 클램프)보다도 뒤다.
         ArgumentCaptor<Instant> closedAt = ArgumentCaptor.forClass(Instant.class);
         verify(focusSessionRepository).autoCloseOpenMarkersOf(eq(user), closedAt.capture());
-        assertThat(closedAt.getValue()).isAfterOrEqualTo(before);
+        assertThat(closedAt.getValue()).isEqualTo(NOW);
         assertThat(closedAt.getValue()).isAfter(clientStartedAt);
     }
 
@@ -2718,8 +2728,8 @@ class FocusServiceTest {
     void backgroundReplayBurstConvergesOnSingleMarker() {
         // given: 90분 백그라운드 후 복귀 — 리플레이가 과거 경계 두 개로 start 를 연달아 쏜다(둘 다 fire-and-forget).
         // 두 startedAt 모두 클램프 창(과거 5분) 밖이라 **저장값**은 각 요청의 서버 now 로 치환된다.
-        Instant earlierBoundary = Instant.now().minus(Duration.ofMinutes(90));
-        Instant laterBoundary = Instant.now().minus(Duration.ofMinutes(60));
+        Instant earlierBoundary = NOW.minus(Duration.ofMinutes(90));
+        Instant laterBoundary = NOW.minus(Duration.ofMinutes(60));
         User user = User.builder().id(USER_ID).build();
         UUID markerId = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
@@ -2731,7 +2741,7 @@ class FocusServiceTest {
                         .build());
         // DB 상태 그대로: 1번째 호출 시점엔 열린 마커 없음, 2번째 시점엔 1번이 만든 마커(startedAt = 서버 now).
         FocusSession created = FocusSession.builder()
-                .id(markerId).user(user).startedAt(Instant.now()).build();
+                .id(markerId).user(user).startedAt(NOW).build();
         given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
                 .willReturn(Optional.empty(), Optional.of(created));
 
@@ -2758,8 +2768,8 @@ class FocusServiceTest {
         // given: 90분 백그라운드 후 복귀 — 과거 경계 두 개가 리플레이된다(둘 다 클램프 창 밖).
         // 이번엔 **논리적으로 이른** 블록이 먼저 도착해 마커를 만든다. 그 마커의 저장 startedAt 은
         // 클램프되어 서버 now 가 되고, clientStartedAt 에는 원시 시각(90분 전)이 남는다.
-        Instant earlierBoundary = Instant.now().minus(Duration.ofMinutes(90));
-        Instant laterBoundary = Instant.now().minus(Duration.ofMinutes(60));
+        Instant earlierBoundary = NOW.minus(Duration.ofMinutes(90));
+        Instant laterBoundary = NOW.minus(Duration.ofMinutes(60));
         User user = User.builder().id(USER_ID).build();
         UUID firstMarkerId = UUID.fromString("00000000-0000-0000-0000-0000000000d5");
         UUID secondMarkerId = UUID.fromString("00000000-0000-0000-0000-0000000000d6");
@@ -2778,7 +2788,7 @@ class FocusServiceTest {
         // ⚠️ 그 마커의 startedAt 은 **클램프된 now**, clientStartedAt 은 **원시 90분 전**이다.
         FocusSession created = FocusSession.builder()
                 .id(firstMarkerId).user(user)
-                .startedAt(Instant.now())
+                .startedAt(NOW)
                 .clientStartedAt(earlierBoundary)
                 .build();
         given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
@@ -2815,7 +2825,7 @@ class FocusServiceTest {
 
         // when
         FocusSessionStartResponse response = focusService.startFocusSession(USER_ID,
-                new FocusSessionStartRequest(null, Instant.now().minus(Duration.ofHours(12))));
+                new FocusSessionStartRequest(null, NOW.minus(Duration.ofHours(12))));
 
         // then: 저장값(now)이 아니라 원래 요청 시각(12시간 전)으로 판정 → 회전 없음, 마커 미생성(null)
         assertThat(response.sessionId()).isNull();
@@ -2854,8 +2864,9 @@ class FocusServiceTest {
 
     // GROMO-1214: 마커 경로(start/PATCH)는 클라 시각을 [now-5분, now] 창으로 클램프한다 — 고정 과거 시각
     // (START/END)을 그대로 보내면 서버 시각으로 대체돼 스텁이 어긋난다. 마커 테스트는 창 안의 값을 쓴다.
+    // GROMO-1723: 창의 기준은 벽시계가 아니라 고정 시계(NOW)다 — 실행 시각이 결과에 끼어들지 않는다.
     private static Instant withinClampWindow(int secondsAgo) {
-        return Instant.now().minusSeconds(secondsAgo);
+        return NOW.minusSeconds(secondsAgo);
     }
 
     @Test
@@ -2959,7 +2970,7 @@ class FocusServiceTest {
     void endFocusSessionDefaultsEndedAt() {
         // given
         User user = User.builder().id(USER_ID).build();
-        Instant recentStart = Instant.now().minusSeconds(60);
+        Instant recentStart = NOW.minusSeconds(60);
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(recentStart).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
@@ -2971,11 +2982,10 @@ class FocusServiceTest {
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, null, 0, null);
 
         // when
-        Instant before = Instant.now();
         focusService.endFocusSession(USER_ID, body);
 
         // then: endedAt 이 now 근처로 채워짐
-        assertThat(session.getEndedAt()).isAfterOrEqualTo(before);
+        assertThat(session.getEndedAt()).isEqualTo(NOW);
     }
 
     @Test
@@ -3202,7 +3212,7 @@ class FocusServiceTest {
                 "focus:" + SESSION_ID + ":reward");
         assertThat(response.awardedCoins()).isEqualTo(59);
         // POST 와 지급 공식이 한 곳(sessionRewardCoins)으로 모였는지 — 같은 구간이면 같은 금액
-        assertThat(FocusService.sessionRewardCoins(startedAt, endedAt, 30, Instant.now())).isEqualTo(59);
+        assertThat(FocusService.sessionRewardCoins(startedAt, endedAt, 30, NOW)).isEqualTo(59);
     }
 
     @Test
@@ -3265,31 +3275,30 @@ class FocusServiceTest {
     @DisplayName("1214-④: 12시간 전으로 조작한 startedAt → 서버 수신 시각으로 대체(시간 뻥튀기 차단)")
     void startFocusSessionClampsBackdatedStartedAt() {
         // given: 창(과거 5분) 밖의 startedAt
-        Instant backdated = Instant.now().minus(Duration.ofHours(12));
+        Instant backdated = NOW.minus(Duration.ofHours(12));
         User user = User.builder().id(USER_ID).build();
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
 
         // when
-        Instant before = Instant.now();
         FocusSessionStartResponse response =
                 focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, backdated));
 
         // then: 저장·응답 모두 서버 시각 — 조작한 12시간은 반영되지 않는다
         ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
         verify(focusSessionRepository).save(captor.capture());
-        assertThat(captor.getValue().getStartedAt()).isAfterOrEqualTo(before);
-        assertThat(response.startedAt()).isAfterOrEqualTo(before);
+        assertThat(captor.getValue().getStartedAt()).isEqualTo(NOW);   // 주입 시계 값 그대로 — 벽시계 회귀를 잡는다
+        assertThat(response.startedAt()).isEqualTo(NOW);
     }
 
     @Test
     @DisplayName("1214-⑤: 미래로 조작한 endedAt → 서버 수신 시각으로 대체")
     void endFocusSessionClampsFutureEndedAt() {
         // given: 1시간 뒤 endedAt (미래는 0분도 허용하지 않는다)
-        Instant future = Instant.now().plus(Duration.ofHours(1));
+        Instant future = NOW.plus(Duration.ofHours(1));
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
-                .id(SESSION_ID).user(user).startedAt(Instant.now().minusSeconds(600)).build();
+                .id(SESSION_ID).user(user).startedAt(NOW.minusSeconds(600)).build();
         given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
         given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(session);
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(1);
@@ -3298,14 +3307,13 @@ class FocusServiceTest {
         given(userQueryService.findFocusTimeSettings(USER_ID)).willReturn(Optional.empty());
 
         // when
-        Instant before = Instant.now();
         FocusSessionEndResponse response =
                 focusService.endFocusSession(USER_ID, new FocusSessionEndRequest(SESSION_ID, future, 0, null));
 
         // then: DB 종료 UPDATE·엔티티·응답 모두 서버 시각(미래 미반영)
         ArgumentCaptor<Instant> endedAtCaptor = ArgumentCaptor.forClass(Instant.class);
         verify(focusSessionRepository).endSessionIfActive(eq(SESSION_ID), endedAtCaptor.capture());
-        assertThat(endedAtCaptor.getValue()).isAfterOrEqualTo(before).isBefore(future);
+        assertThat(endedAtCaptor.getValue()).isEqualTo(NOW).isBefore(future);
         assertThat(session.getEndedAt()).isEqualTo(endedAtCaptor.getValue());
         assertThat(response.endedAt()).isEqualTo(endedAtCaptor.getValue());
     }
@@ -3387,7 +3395,7 @@ class FocusServiceTest {
                 .willReturn(List.of());
 
         // when
-        int closed = focusService.sweepOrphanSessions(Instant.now());
+        int closed = focusService.sweepOrphanSessions(NOW);
 
         // then: 조건 UPDATE 조차 호출되지 않음
         assertThat(closed).isZero();
