@@ -113,6 +113,20 @@ public class UserQueryService {
     }
 
     /**
+     * «지목한 대상»이 요청자 본인일 수 있는 경로(공개 프로필·통계 — {@code friends} 생략 시 본인) 용.
+     * 같은 id 면 {@link #getCaller}(부재 = {@code USER_NOT_FOUND}, 재로그인), 다르면 {@link #getTarget}
+     * (부재 = {@code TARGET_USER_NOT_FOUND}) — 본인 조회에서 탈퇴가 경합하면 «남이 없다»가 아니라
+     * «내 계정이 없다»로 답해야 앱의 세션 만료 처리를 탄다(GROMO-1725, codex 리뷰).
+     *
+     * @param callerId 요청자
+     * @param targetId 요청이 지목한 유저(본인일 수 있음)
+     * @return 활성 유저
+     */
+    public User getTargetOf(UUID callerId, UUID targetId) {
+        return callerId.equals(targetId) ? getCaller(targetId) : getTarget(targetId);
+    }
+
+    /**
      * 활성 유저 조회 — <b>배타 락</b>, 없으면 빈 값.
      *
      * <p>부재가 정상 흐름인 락 경로를 위한 것이다. 예: 리그 주간 정산은 집계 시점 이후에 탈퇴한

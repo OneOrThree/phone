@@ -98,7 +98,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("오늘 요약 조회 → 200, focus/screenTime 블록")
     void getTodayStatsReturns200() throws Exception {
-        given(statsService.getTodayStats(any(), any()))
+        given(statsService.getTodayStats(any(), any(), any()))
                 .willReturn(new TodayStatsResponse(
                         new TodayStatsResponse.FocusStat(45, 60, false, 75),
                         new TodayStatsResponse.ScreenTimeStat(80, 120, true, 67)));
@@ -202,7 +202,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("스크린타임 기간별 통계 ?period=day → 200, day 전용 필드(goalAchieved) + achievedDays/totalDays=null")
     void getScreenTimePeriodStatsDayReturns200() throws Exception {
-        given(statsService.getScreenTimePeriodStats(any(), any(), any()))
+        given(statsService.getScreenTimePeriodStats(any(), any(), any(), any()))
                 .willReturn(new ScreenTimePeriodStatsResponse(
                         StatsPeriod.DAY,
                         LocalDate.of(2026, 7, 3),
@@ -228,7 +228,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("스크린타임 기간별 통계 ?period=week → 200, achievedDays·totalDays 존재, goalAchieved=null")
     void getScreenTimePeriodStatsWeekReturns200() throws Exception {
-        given(statsService.getScreenTimePeriodStats(any(), any(), any()))
+        given(statsService.getScreenTimePeriodStats(any(), any(), any(), any()))
                 .willReturn(new ScreenTimePeriodStatsResponse(
                         StatsPeriod.WEEK,
                         LocalDate.of(2026, 6, 29),
@@ -253,7 +253,7 @@ class StatsControllerTest {
     @Test
     @DisplayName("스크린타임 기간별 통계 ?period=month → 200")
     void getScreenTimePeriodStatsMonthReturns200() throws Exception {
-        given(statsService.getScreenTimePeriodStats(any(), any(), any()))
+        given(statsService.getScreenTimePeriodStats(any(), any(), any(), any()))
                 .willReturn(new ScreenTimePeriodStatsResponse(
                         StatsPeriod.MONTH,
                         LocalDate.of(2026, 7, 1),
@@ -472,7 +472,7 @@ class StatsControllerTest {
     void getTodayStatsWithFriendsReturns200() throws Exception {
         UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
         given(statsService.resolveTargetUserId(eq(LOGIN_USER_ID), eq(friendId))).willReturn(friendId);
-        given(statsService.getTodayStats(eq(friendId), any()))
+        given(statsService.getTodayStats(any(), eq(friendId), any()))
                 .willReturn(new TodayStatsResponse(
                         new TodayStatsResponse.FocusStat(45, 60, false, 75),
                         new TodayStatsResponse.ScreenTimeStat(80, 120, true, 67)));
@@ -546,7 +546,7 @@ class StatsControllerTest {
     void getScreenTimePeriodStatsWithFriendsReturns200() throws Exception {
         UUID friendId = UUID.fromString("00000000-0000-0000-0000-000000000002");
         given(statsService.resolveTargetUserId(eq(LOGIN_USER_ID), eq(friendId))).willReturn(friendId);
-        given(statsService.getScreenTimePeriodStats(eq(friendId), eq(StatsPeriod.DAY), any()))
+        given(statsService.getScreenTimePeriodStats(any(), eq(friendId), eq(StatsPeriod.DAY), any()))
                 .willReturn(new ScreenTimePeriodStatsResponse(
                         StatsPeriod.DAY,
                         LocalDate.of(2026, 7, 3),

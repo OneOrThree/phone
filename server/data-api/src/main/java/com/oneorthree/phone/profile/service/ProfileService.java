@@ -77,8 +77,8 @@ public class ProfileService {
     }
 
     PublicProfileResponse getPublicProfile(UUID callerId, UUID userId, Instant now) {
-        // 탈퇴 유저는 조회 계층이 걸러 404 로 떨어진다 (GROMO-1655).
-        User user = userQueryService.getTarget(userId);
+        // 탈퇴 유저는 조회 계층이 걸러 404 로 떨어진다 (GROMO-1655). 본인 조회면 USER_NOT_FOUND 축 (GROMO-1725).
+        User user = userQueryService.getTargetOf(callerId, userId);
 
         // 캐릭터 장착 목록
         List<CharacterEquipmentResponse> equipments = characterEquipmentRepository.findByUser(user)
@@ -128,12 +128,12 @@ public class ProfileService {
      * @param date         '오늘'로 삼을 날짜(서버 판정 축 KST 고정). 스트릭의 read-time 만료 반영과
      *                     히트맵 구간([date-6일, date])이 이 값에 걸린다
      * @return 유저 통계 응답
-     * @throws UserException 대상 유저가 없거나 탈퇴된 경우 NOT_FOUND,
+     * @throws UserException 대상 유저가 없거나 탈퇴된 경우 TARGET_USER_NOT_FOUND(본인이면 USER_NOT_FOUND),
      *                       호출자 본인이 없거나 탈퇴한 경우 USER_NOT_FOUND (GROMO-1655)
      */
     public UserStatsResponse getUserStats(UUID callerId, UUID targetUserId, LocalDate date) {
-        // 탈퇴 유저는 조회 계층이 걸러 404 로 떨어진다 (GROMO-1655).
-        User target = userQueryService.getTarget(targetUserId);
+        // 탈퇴 유저는 조회 계층이 걸러 404 로 떨어진다 (GROMO-1655). 본인 조회면 USER_NOT_FOUND 축 (GROMO-1725).
+        User target = userQueryService.getTargetOf(callerId, targetUserId);
 
         // 본인 조회(callerId == targetUserId) → 세부 취급, 친구 판정 생략
         boolean isOwn = callerId.equals(targetUserId);
@@ -149,7 +149,7 @@ public class ProfileService {
         // 프로필 요약(streak·today)은 친구 여부/공개설정과 무관하게 항상 반환 (GROMO-746)
         // 스트릭은 read-time 만료 반영을 위해 date(서버 판정 축 KST 고정 기준 오늘) 를 함께 전달한다 (GROMO-847)
         StreakResponse streak = statsService.getStreak(targetUserId, date);
-        TodayStatsResponse today = statsService.getTodayStats(targetUserId, date);
+        TodayStatsResponse today = statsService.getTodayStats(callerId, targetUserId, date);
 
         // 세부 차트(heatmap)만 공개 게이트: 본인·친구, 또는 대상이 전체공개(PUBLIC) (GROMO-640 — 623 의 /stats/* 정책과 정합)
         if (isOwn || isFriend || target.getStatVisibility() == StatVisibility.PUBLIC) {
