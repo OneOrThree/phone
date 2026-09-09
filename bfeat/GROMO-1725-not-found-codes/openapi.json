@@ -1723,7 +1723,7 @@
             "description": "게스트 / 그룹원 아님 / OWNER 아님"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음 — 삭제 포함) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / CHALLENGE_NOT_FOUND(챌린지 없음 — 삭제 포함) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "OPEN 회차 존재(CHALLENGE_END_BLOCKED)"
@@ -3656,7 +3656,7 @@
             "description": "OWNER 아님 / 게스트"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 대상 멤버 없음 — 대상이 탈퇴한 경우 포함) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / TARGET_USER_NOT_FOUND(대상 유저 없음·탈퇴) / NOT_FOUND(대상이 그룹원이 아님) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -5151,7 +5151,7 @@
             }
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음 — 타 그룹 챌린지 포함, IDOR 차단) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "description": "GROUP_NOT_FOUND(그룹 없음) / CHALLENGE_NOT_FOUND(챌린지 없음 — 타 그룹 챌린지 포함, IDOR 차단) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -5721,7 +5721,7 @@
             "description": "OWNER 아님 / 게스트"
           },
           "404": {
-            "description": "NOT_FOUND(그룹 없음 / 대상 멤버 없음 — 대상이 탈퇴한 경우 포함) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
+            "description": "GROUP_NOT_FOUND(그룹 없음) / TARGET_USER_NOT_FOUND(대상 유저 없음·탈퇴) / NOT_FOUND(대상이 그룹원이 아님) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
