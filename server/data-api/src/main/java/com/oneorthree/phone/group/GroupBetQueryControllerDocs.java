@@ -83,7 +83,7 @@ public interface GroupBetQueryControllerDocs {
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / NOT_OWNER(그룹장 아님)"),
         @ApiResponse(responseCode = "404",
-                description = "NOT_FOUND(그룹 없음 / 챌린지 없음 — 타 그룹 챌린지 포함, IDOR 차단)"
+                description = "GROUP_NOT_FOUND(그룹 없음) / CHALLENGE_NOT_FOUND(챌린지 없음 — 타 그룹 챌린지 포함, IDOR 차단)"
                         + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<ChallengeDeletionPreviewResponse> getDeletionPreview(UUID groupId, UUID challengeId, UUID userId);

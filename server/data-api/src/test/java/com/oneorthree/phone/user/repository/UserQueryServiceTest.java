@@ -194,7 +194,7 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getWallet(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     @Test
@@ -216,7 +216,7 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getScreenTimeSettings(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         assertThat(userQueryService.findScreenTimeSettings(ID)).isEmpty();
 
         // 무락 두 메서드가 정말 무락 쿼리를 타는지 못박는다. 이게 없으면 어느 한쪽이 락 판으로
@@ -247,7 +247,7 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getScreenTimeSettingsForUpdate(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         verify(userScreenTimeSettingsRepository).findByIdForUpdate(ID);
         verify(userScreenTimeSettingsRepository, never()).findByIdForShare(ID);
         verify(userScreenTimeSettingsRepository, never()).findById(ID);
@@ -261,7 +261,7 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getFocusTimeSettings(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         assertThat(userQueryService.findFocusTimeSettings(ID)).isEmpty();
     }
 
@@ -273,7 +273,7 @@ class UserQueryServiceTest {
         assertThatThrownBy(() -> userQueryService.getNotificationSettings(ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         assertThat(userQueryService.findNotificationSettings(ID)).isEmpty();
     }
 

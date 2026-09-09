@@ -16,8 +16,8 @@ import org.springframework.http.HttpStatus;
 public enum UserErrorCode implements ErrorCode {
 
     /**
-     * <b>지목된 유저</b>가 없다 — 요청자가 아니라 요청이 가리킨 대상(위임 대상·강퇴 대상·친구·공개 프로필).
-     * 지갑·설정처럼 유저에 딸린 1:1 행의 부재도 여기다(가입 시 함께 생기므로 없다면 그 유저가 없는 것).
+     * <b>지목된 유저</b>가 없다 — 요청자가 아니라 요청이 가리킨 대상(위임 대상·강퇴 대상·친구·공개 프로필·
+     * 아이템 지급 대상). 본인 지갑·설정 부재는 요청자 축이라 {@link #USER_NOT_FOUND} 다.
      * {@link #USER_NOT_FOUND} 와 달리 <b>로그아웃하면 안 된다</b> — 남의 계정이 사라진 것이다.
      *
      * <p>GROMO-1725: 종전 {@link #NOT_FOUND} 가 {@code GroupErrorCode.NOT_FOUND} 와 같은 문자열이라

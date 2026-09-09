@@ -110,7 +110,7 @@ public interface GroupChallengeControllerDocs {
             @ApiResponse(responseCode = "204", description = "종료 성공(멱등 포함)"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
             @ApiResponse(responseCode = "404",
-                    description = "NOT_FOUND(그룹 없음 / 챌린지 없음 — 삭제 포함)"
+                    description = "GROUP_NOT_FOUND(그룹 없음) / CHALLENGE_NOT_FOUND(챌린지 없음 — 삭제 포함)"
                             + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
             @ApiResponse(responseCode = "409", description = "OPEN 회차 존재(CHALLENGE_END_BLOCKED)")
     })

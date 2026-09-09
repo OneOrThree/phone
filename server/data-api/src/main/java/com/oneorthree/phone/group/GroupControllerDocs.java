@@ -188,7 +188,7 @@ public interface GroupControllerDocs {
             @ApiResponse(responseCode = "204", description = "위임 성공"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
             @ApiResponse(responseCode = "404",
-                    description = "NOT_FOUND(그룹 없음 / 대상 멤버 없음 — 대상이 탈퇴한 경우 포함)"
+                    description = "GROUP_NOT_FOUND(그룹 없음) / TARGET_USER_NOT_FOUND(대상 유저 없음·탈퇴) / NOT_FOUND(대상이 그룹원이 아님)"
                             + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<Void> transferOwner(UUID groupId, UUID targetUserId, UUID userId);
@@ -205,7 +205,7 @@ public interface GroupControllerDocs {
             @ApiResponse(responseCode = "400", description = "본인 강퇴 시도"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
             @ApiResponse(responseCode = "404",
-                    description = "NOT_FOUND(그룹 없음 / 대상 멤버 없음 — 대상이 탈퇴한 경우 포함)"
+                    description = "GROUP_NOT_FOUND(그룹 없음) / TARGET_USER_NOT_FOUND(대상 유저 없음·탈퇴) / NOT_FOUND(대상이 그룹원이 아님)"
                             + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     ResponseEntity<Void> kickMember(UUID groupId, UUID targetUserId, UUID userId);
