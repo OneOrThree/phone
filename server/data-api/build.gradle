@@ -94,6 +94,11 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+
+	// 아키텍처 규칙 검증 (GROMO-1724) — 도메인 레이어 역행·순환을 빌드 실패로 잡는다.
+	// core 만 쓴다: DomainLayerRulesTest 는 @AnalyzeClasses/@ArchTest 확장 없이
+	// 평범한 @Test + ClassFileImporter 로 쓰여 있어 archunit-junit5 러너가 필요 없다.
+	testImplementation 'com.tngtech.archunit:archunit:1.3.0'
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'

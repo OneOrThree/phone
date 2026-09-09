@@ -15,7 +15,7 @@ domains" 절은 이 문서의 요약이며, 둘이 어긋나면 **이 문서가 
 
 관련 티켓: **GROMO-1654(이 문서·전 도메인 배치 정리)** → GROMO-1655(repository
 service 계층) → GROMO-1656(도메인 간 의존·순환 정리) → GROMO-1657(응답·예외 규약)
-→ GROMO-1662(ArchUnit 으로 규칙 고정). 상위 에픽 GROMO-1643.
+→ GROMO-1724(ArchUnit 으로 규칙 고정). 상위 에픽 GROMO-1643.
 
 ---
 
@@ -254,7 +254,11 @@ Controller  →  Service  →  Repository  →  Entity
 
 > **2026-09-08 기준 이 표를 어기는 참조는 0건이고, 도메인 간 순환도 0개다**(GROMO-1656).
 > 지금은 규약이 아니라 **현재 상태**다 — 새로 만든 참조가 표를 어기면 그것이 첫 위반이 된다.
-> 규칙을 테스트로 강제하는 일은 GROMO-1662 가 받는다.
+> **이 방향은 이제 테스트가 강제한다** — `DomainLayerRulesTest`(GROMO-1724)가 레이어 역행 참조와
+> 도메인 간 순환을 빌드 실패로 잡는다. **이 표를 고치면 그 클래스의 `LAYERS` 도 함께 고쳐야 한다**
+> — 어느 한쪽만 바뀌면 규칙이 문서와 다른 것을 강제하게 된다. 새 도메인 패키지를 만들고 표에
+> 등록하지 않으면 그것도 실패로 잡힌다(미등록을 침묵으로 넘기면 규칙이 그 도메인을 통째로
+> 검사 대상에서 빼 버린다).
 
 **세 가지를 이 표로 판정한다.**
 
@@ -303,11 +307,11 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 
 | 항목 | 실측(2026-09) | 이관처 |
 | --- | --- | --- |
-| 타 도메인 repository 직접 주입 | 약 120건 / 44개 service | GROMO-1655 |
+| 타 도메인 repository 직접 주입 | **27파일 / import 62건** (2026-09-09 재측정, 1654 착수 시 약 120건) | 미해결 — ArchUnit 규칙 후보였으나 현행 위반이 많아 GROMO-1724 범위에서 제외 |
 | service 의 `EntityManager` 직접 조작 | 5개 파일 | GROMO-1655 |
-| ~~도메인 간 레이어 역행 참조~~ | **0쌍 / 0건** (2026-09-08 · 착수 시 15쌍 49건, 파생 순환 238개) | GROMO-1656 완료 · 테스트 강제는 GROMO-1662 |
+| ~~도메인 간 레이어 역행 참조~~ | **0쌍 / 0건** (2026-09-08 · 착수 시 15쌍 49건, 파생 순환 238개) | GROMO-1656 완료 · **테스트로 강제됨**(GROMO-1724) |
 | 컨트롤러의 영속 enum 노출 | 6건 | GROMO-1657 (앱 계약 변경 동반) |
-| 규칙의 테스트 강제 | 없음 (ArchUnit 미도입) | GROMO-1662 |
+| 규칙의 테스트 강제 | **도메인 의존 방향·순환만 강제됨**(`DomainLayerRulesTest`). 나머지 계층 규칙은 미강제 | GROMO-1724 (도입 완료) |
 
 ---
 
@@ -321,7 +325,7 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 | `analytics/domain/` 이 `repository/domain/` 이 아님 | analytics 는 영속성이 없다(repository 자체가 없음). 없는 계층 아래에 넣을 수 없다. **영속성 없는 도메인은 `domain/` 을 쓴다.** |
 | `common/api/HealthController` | 도메인 밖 유일한 컨트롤러. 헬스체크는 소유 도메인이 없고, 이것 하나 때문에 도메인을 신설할 이유가 없다 |
 | `bot/` 에 컨트롤러·dto·exception 없음 | 외부 API 표면이 없는 내부 시뮬레이터다. 없는 계층을 억지로 만들지 않는다 |
-| `support/` 가 `service/` 의 static 메서드 호출 | `GroupBetSessionFactory` → `WindowFocusAggregator.windowStartOn/windowEndOn`. 주입이 없어 배치 기준상 `support/` 가 맞지만 컴파일 타임 `support → service` 방향이 생긴다. 런타임 빈 의존이 아니라 순환·트랜잭션 문제는 없다. **ArchUnit 규칙(GROMO-1662) 도입 시 이 방향을 예외로 명시할 것** |
+| `support/` 가 `service/` 의 static 메서드 호출 | `GroupBetSessionFactory` → `WindowFocusAggregator.windowStartOn/windowEndOn`. 주입이 없어 배치 기준상 `support/` 가 맞지만 컴파일 타임 `support → service` 방향이 생긴다. 런타임 빈 의존이 아니라 순환·트랜잭션 문제는 없다. ArchUnit 규칙(GROMO-1724)은 **도메인 사이**의 방향만 보므로 같은 도메인 안의 이 호출은 검사 대상이 아니다 — 예외 선언이 필요 없었다 |
 | `auth/` 에 `repository/`·`domain/` 없음 | 인증은 `user` 도메인의 데이터를 쓴다. 자기 테이블이 없다 (다만 현재 user repository 를 직접 주입하고 있어 GROMO-1655 대상) |
 | `GroupChallengeBetSessionRepository.recordFailure` 의 `@Transactional` | 리포지토리에서 트랜잭션을 여는 저장소 유일 사례. 호출부 `GroupBetScheduler.retryDueSessions` 가 **건별 격리를 위해 의도적으로 무트랜잭션**인 `@Scheduled` 진입점이라, 리포지토리가 자기 트랜잭션을 열지 않으면 정산 실패를 기록할 때마다 `InvalidDataAccessApiUsageException` 이 난다. 스케줄러가 이 호출을 감싸는 대안도 되지만, "벌크 UPDATE 는 자기 트랜잭션이 필요하다"는 것은 쿼리 자체의 속성이라 쿼리 옆에 선언적으로 두는 편이 발견 가능성이 높다 (GROMO-1655) |
 
