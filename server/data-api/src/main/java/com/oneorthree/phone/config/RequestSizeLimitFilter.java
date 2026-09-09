@@ -70,6 +70,8 @@ public class RequestSizeLimitFilter extends OncePerRequestFilter {
         log.warn("요청 본문 초과 차단 — path={}, size={} (상한 {})", request.getRequestURI(), size, maxWireBytes);
         response.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        // 문구가 한글이라 charset 을 못박는다 — 없으면 서블릿 기본 ISO-8859-1 로 깨진다 (codex 리뷰)
+        response.setCharacterEncoding("UTF-8");
         // 필터 체인은 GlobalExceptionHandler 밖이라 봉투를 직접 맞춘다 (GROMO-1657). error 는 종전 별칭.
         response.getWriter().write(JwtFilter.envelope(CommonErrorCode.PAYLOAD_TOO_LARGE));
     }

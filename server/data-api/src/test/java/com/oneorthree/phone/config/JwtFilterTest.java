@@ -121,7 +121,9 @@ class JwtFilterTest {
         assertThat(response.getContentAsString())
                 .contains("\"error\":\"UNAUTHORIZED\"")
                 .contains("\"code\":\"UNAUTHORIZED\"")
-                .contains("\"message\":\"");
+                .contains("\"message\":\"인증이 필요합니다");
+        // charset 없이 writer 를 열면 한글이 ISO-8859-1 로 깨진다 (codex 리뷰)
+        assertThat(response.getCharacterEncoding()).isEqualToIgnoringCase("UTF-8");
         verify(chain, never()).doFilter(request, response);
         // 차단 시 userId 세팅·활동 갱신 모두 일어나지 않는다
         assertThat(request.getAttribute("userId")).isNull();

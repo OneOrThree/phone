@@ -148,6 +148,8 @@ public class JwtFilter extends OncePerRequestFilter {
     private void sendUnauthorized(HttpServletResponse response) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        // 문구가 한글이라 charset 을 못박는다 — 없으면 서블릿 기본 ISO-8859-1 로 깨진다 (codex 리뷰)
+        response.setCharacterEncoding("UTF-8");
         response.getWriter().write(envelope(CommonErrorCode.UNAUTHORIZED));
     }
 

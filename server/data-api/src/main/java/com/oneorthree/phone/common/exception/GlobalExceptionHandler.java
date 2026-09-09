@@ -10,6 +10,15 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.ErrorResponseException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.bind.MissingPathVariableException;
+import org.springframework.web.bind.ServletRequestBindingException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -286,6 +295,44 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleEntityNotFound(EntityNotFoundException e) {
         log.warn("EntityNotFoundException 이 전역 핸들러까지 왔다 — 도메인 예외로 감싸지 않은 조회: {}", e.getMessage());
         return body(CommonErrorCode.ENTITY_NOT_FOUND);
+    }
+
+    /**
+     * 스프링 MVC 표준 예외 전부 → <b>예외가 들고 있는 상태 코드 그대로</b> (GROMO-1657).
+     *
+     * <p>스프링 6 의 프레임워크 예외({@code HttpMediaTypeNotSupported} 415 · {@code HttpMediaTypeNotAcceptable}
+     * 406 · {@code MissingPathVariable} 500 · {@code AsyncRequestTimeout} 503 …)는 전부
+     * {@link org.springframework.web.ErrorResponse} 를 구현해 자기 상태를 안다. 위에서 전용 핸들러를 둔
+     * 것들(검증·파싱·파라미터·405·404)은 더 구체적인 타입이라 여전히 그쪽으로 가고, <b>여기는 나머지를
+     * 받아 catch-all 의 500 으로 떨어지지 않게 한다</b> — codex 리뷰가 잡은 회귀: catch-all 이 415/406 을
+     * 500 으로 바꾸고 있었다. 두 개만 막으면 같은 부류가 또 새므로 인터페이스로 받는다.
+     *
+     * @param e 상태 코드를 들고 있는 프레임워크 예외. 문구는 싣지 않는다 — 내부 타입명이 들어 있다
+     * @return 상태는 예외의 것. {@code code} 는 415·406 은 전용, 그 외 4xx 는 {@code INVALID_REQUEST},
+     *         5xx 는 {@code INTERNAL_ERROR}
+     */
+    @ExceptionHandler({
+        HttpMediaTypeNotSupportedException.class, HttpMediaTypeNotAcceptableException.class,
+        MissingPathVariableException.class, ServletRequestBindingException.class,
+        AsyncRequestTimeoutException.class, HandlerMethodValidationException.class,
+        MaxUploadSizeExceededException.class, ErrorResponseException.class })
+    public ResponseEntity<ErrorResponse> handleFrameworkErrorResponse(Exception e) {
+        // 나열한 타입은 전부 org.springframework.web.ErrorResponse 를 구현한다 — 상속 계층은 제각각이라
+        // (ServletException 계열·RuntimeException 계열) 인터페이스로는 @ExceptionHandler 를 못 걸고
+        // 스프링 자신의 ResponseEntityExceptionHandler 처럼 목록으로 잡는다.
+        HttpStatusCode status = ((org.springframework.web.ErrorResponse) e).getStatusCode();
+        CommonErrorCode code;
+        if (status.value() == 415) {
+            code = CommonErrorCode.UNSUPPORTED_MEDIA_TYPE;
+        } else if (status.value() == 406) {
+            code = CommonErrorCode.NOT_ACCEPTABLE;
+        } else if (status.is4xxClientError()) {
+            code = CommonErrorCode.INVALID_REQUEST;
+        } else {
+            log.error("프레임워크 예외 → {} INTERNAL_ERROR", status.value(), e);
+            code = CommonErrorCode.INTERNAL_ERROR;
+        }
+        return ResponseEntity.status(status).body(new ErrorResponse(code.name(), code.getMessage()));
     }
 
     /**

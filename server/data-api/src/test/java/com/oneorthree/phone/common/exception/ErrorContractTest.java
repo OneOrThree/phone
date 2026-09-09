@@ -122,7 +122,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 113개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 115개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -138,7 +138,7 @@ class ErrorContractTest {
                 }));
             }
         }
-        assertThat(tests).as("실측 기준 도메인 상수 100개 + 공통 13개").hasSize(113);
+        assertThat(tests).as("실측 기준 도메인 상수 100개 + 공통 15개").hasSize(115);
         return tests;
     }
 

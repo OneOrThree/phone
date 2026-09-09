@@ -106,6 +106,9 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 | 파라미터 누락 · 타입 불일치 | 400 | `INVALID_PARAMETER` (문구에 파라미터 이름) |
 | 타임존 id 해석 실패 | 400 | `INVALID_TIMEZONE` |
 | 허용 안 된 메서드 | 405 | `METHOD_NOT_ALLOWED` |
+| 받을 수 없는 `Content-Type` | 415 | `UNSUPPORTED_MEDIA_TYPE` |
+| 만들 수 없는 `Accept` | 406 | `NOT_ACCEPTABLE` — **본문은 비어 나간다**: 클라이언트가 JSON 을 거부한 상태라 봉투를 쓸 수 없다. 상태 코드만이 계약이다 |
+| 그 외 스프링 MVC 표준 예외 | 예외의 상태 | 4xx 는 `INVALID_REQUEST`, 5xx 는 `INTERNAL_ERROR` — `org.springframework.web.ErrorResponse` 구현체는 자기 상태를 지킨다(catch-all 로 500 이 되지 않는다) |
 | 없는 경로 | 404 | `RESOURCE_NOT_FOUND` — **`NOT_FOUND` 가 아니다**(아래) |
 | JPA `EntityNotFoundException` | 404 | `ENTITY_NOT_FOUND` — 도메인 코드로 치환되면 안 쓰인다(GROMO-895) |
 | 잡히지 않은 `IllegalArgumentException` | **409** | `ILLEGAL_ARGUMENT` — 400 전환은 계약 변경이라 GROMO-1725 |
@@ -146,7 +149,7 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 
 `ErrorContractTest` 는 목록을 손으로 적지 않는다 — `ErrorCode` 를 구현한 enum 을 **클래스패스에서 찾아**
 상수마다 예외를 만들어 `handleDomain` 에 통과시키고 `(status, code, message)` 를 단언한다(2026-09-09
-기준 113개 = 도메인 100 + `CommonErrorCode` 13). 그래서 잡히는 것:
+기준 115개 = 도메인 100 + `CommonErrorCode` 15). 그래서 잡히는 것:
 
 - 핸들러가 `code.name()` 이 아닌 것을 `code` 로 싣는다 → 100건 실패 (실제로 넣어 확인)
 - 도메인별 핸들러가 다시 생긴다 → 「하나뿐」 단언 실패 (실제로 넣어 확인)

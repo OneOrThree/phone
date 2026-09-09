@@ -54,6 +54,11 @@ class UnhandledEnvelopeTest {
             return q;
         }
 
+        @GetMapping("/__envelope/json")
+        Body json() {
+            return new Body("x");
+        }
+
         @GetMapping("/__envelope/entity")
         String entity() {
             throw new EntityNotFoundException("아이템을 찾을 수 없습니다.");
@@ -130,6 +135,25 @@ class UnhandledEnvelopeTest {
                 .andExpect(jsonPath("$.code").value("ILLEGAL_ARGUMENT"))
                 .andExpect(jsonPath("$.message").value(CommonErrorCode.ILLEGAL_ARGUMENT.getMessage()))
                 .andExpect(jsonPath("$.message").value(not("internal-detail-that-must-not-leak")));
+    }
+
+    @Test
+    @DisplayName("받을 수 없는 Content-Type → 415 UNSUPPORTED_MEDIA_TYPE — catch-all 이 500 으로 바꾸면 안 된다")
+    void unsupportedMediaTypeKeepsItsStatus() throws Exception {
+        mockMvc.perform(post("/__envelope/valid").contentType(MediaType.TEXT_PLAIN).content("name=x"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
+    }
+
+    @Test
+    @DisplayName("만들 수 없는 Accept → 406 — catch-all 이 500 으로 바꾸면 안 된다 (봉투는 못 싣는다)")
+    void notAcceptableKeepsItsStatus() throws Exception {
+        // String 반환은 어떤 Accept 에도 써지므로 JSON 객체를 돌려주는 경로로 406 을 유발한다.
+        // 이 경우만은 봉투를 단언하지 않는다 — 클라이언트가 JSON 을 거부한 상태라 스프링이 JSON 봉투를
+        // 쓸 수 없고 본문을 비운다. 핸들러는 NOT_ACCEPTABLE 을 만들지만 전송이 불가능하다.
+        // 지키는 것은 «상태가 406 이지 500 이 아니다» 하나다.
+        mockMvc.perform(get("/__envelope/json").accept(MediaType.APPLICATION_XML))
+                .andExpect(status().isNotAcceptable());
     }
 
     @Test

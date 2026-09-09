@@ -35,6 +35,10 @@ public enum CommonErrorCode implements ErrorCode {
     INVALID_PARAMETER(HttpStatus.BAD_REQUEST, "요청 파라미터 형식이 올바르지 않습니다."),
     /** 클라이언트가 보낸 타임존 id 를 해석하지 못했다. 문구는 그 id 를 되돌려 준다. */
     INVALID_TIMEZONE(HttpStatus.BAD_REQUEST, "알 수 없는 타임존입니다."),
+    /** 요청 {@code Content-Type} 을 받을 수 없다 (예: {@code @RequestBody} 에 {@code text/plain}). */
+    UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 요청 형식입니다."),
+    /** 요청 {@code Accept} 로는 응답을 만들 수 없다. */
+    NOT_ACCEPTABLE(HttpStatus.NOT_ACCEPTABLE, "지원하지 않는 응답 형식입니다."),
     /** 경로는 있는데 그 HTTP 메서드를 받지 않는다. */
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "허용되지 않는 요청 방식입니다."),
     /** 그런 경로가 없다 — 앱의 «그룹이 사라짐» 분기({@code NOT_FOUND})와 섞이지 않게 따로 둔다. */
