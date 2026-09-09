@@ -45,7 +45,7 @@ public interface UserScreenTimeSettingsRepository extends JpaRepository<UserScre
      * @param userId 권한을 바꿀 유저
      * @return 잠긴 설정. 없으면 빈 값이다 — <b>유일한 호출측</b>
      *     {@link UserQueryService#getScreenTimeSettingsForUpdate} 는 만들지 않고
-     *     {@code TARGET_USER_NOT_FOUND} 를 던진다. 설정은 가입 시 함께 만들어지므로 부재는 데이터 손상이다
+     *     {@code USER_NOT_FOUND} 를 던진다(요청자 축 — 호출처가 전부 본인). 설정은 가입 시 함께 만들어지므로 부재는 데이터 손상이다
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM UserScreenTimeSettings s WHERE s.userId = :userId")
