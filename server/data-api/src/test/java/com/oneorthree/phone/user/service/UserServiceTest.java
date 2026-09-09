@@ -163,7 +163,7 @@ class UserServiceTest {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
-                "새닉네임", null, null, "US");
+                "새닉네임", null, null, "US", null);
 
         userService.updateProfile(USER_ID, body);
 
@@ -179,7 +179,7 @@ class UserServiceTest {
         given(userRepository.existsByNicknameAndIdNot("남의닉", USER_ID)).willReturn(true);
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
-                "남의닉", null, null, null);
+                "남의닉", null, null, null, null);
 
         assertThatThrownBy(() -> userService.updateProfile(USER_ID, body))
                 .isInstanceOf(UserException.class)
@@ -199,7 +199,7 @@ class UserServiceTest {
         given(userQueryService.getFocusTimeSettings(USER_ID)).willReturn(focus);
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
-                null, 150, 60, null);
+                null, 150, 60, null, null);
 
         userService.updateProfile(USER_ID, body);
 
@@ -310,7 +310,7 @@ class UserServiceTest {
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
 
         assertThatThrownBy(() -> userService.updateProfile(
-                USER_ID, new UserProfileUpdateRequest("", null, null, null)))
+                USER_ID, new UserProfileUpdateRequest("", null, null, null, null)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_INVALID);
@@ -324,7 +324,7 @@ class UserServiceTest {
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
 
         assertThatThrownBy(() -> userService.updateProfile(
-                USER_ID, new UserProfileUpdateRequest("   ", null, null, null)))
+                USER_ID, new UserProfileUpdateRequest("   ", null, null, null, null)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_INVALID);
@@ -338,7 +338,7 @@ class UserServiceTest {
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
 
         assertThatThrownBy(() -> userService.updateProfile(
-                USER_ID, new UserProfileUpdateRequest("가".repeat(11), null, null, null)))
+                USER_ID, new UserProfileUpdateRequest("가".repeat(11), null, null, null, null)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_INVALID);
@@ -356,7 +356,7 @@ class UserServiceTest {
                 .given(userRepository).flush();
 
         assertThatThrownBy(() -> userService.updateProfile(
-                USER_ID, new UserProfileUpdateRequest("경합닉", null, null, null)))
+                USER_ID, new UserProfileUpdateRequest("경합닉", null, null, null, null)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_DUPLICATE);
@@ -376,6 +376,31 @@ class UserServiceTest {
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_DUPLICATE);
+    }
+
+    // ── language (GROMO-1659 D11 · 1692 계약) ────────────────────────────
+
+    @Test
+    @DisplayName("PATCH 에 language 가 오면 users.language 에 저장된다 — 푸시 렌더 언어의 정본")
+    void updateProfileStoresLanguage() {
+        User user = User.builder().id(USER_ID).build();
+        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
+
+        userService.updateProfile(USER_ID, new UserProfileUpdateRequest(null, null, null, null, "zh-Hant"));
+
+        assertThat(user.getLanguage()).isEqualTo("zh-Hant");
+    }
+
+    @Test
+    @DisplayName("language 가 null 이면 기존 값을 건드리지 않는다 — PATCH 의미론")
+    void updateProfileLeavesLanguageWhenAbsent() {
+        User user = User.builder().id(USER_ID).language("ja").build();
+        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
+
+        userService.updateProfile(USER_ID, new UserProfileUpdateRequest(null, null, null, "KR", null));
+
+        assertThat(user.getLanguage()).isEqualTo("ja");
+        assertThat(user.getCountryCode()).isEqualTo("KR");
     }
 
     // ── 탈퇴 시 user 도메인이 맡는 몫 ────────────────────────────────────
