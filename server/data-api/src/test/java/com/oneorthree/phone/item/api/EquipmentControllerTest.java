@@ -124,8 +124,8 @@ class EquipmentControllerTest {
     }
 
     @Test
-    @DisplayName("보유하지 않은 아이템 장착 → 409")
-    void equipNotOwnedReturns409() throws Exception {
+    @DisplayName("서비스가 raw IllegalArgumentException 을 흘리면 400 ILLEGAL_ARGUMENT (GROMO-1725, 종전 409)")
+    void rawIllegalArgumentFromServiceIs400() throws Exception {
         given(equipmentService.equip(LOGIN_USER_ID, ITEM_ID_99))
                 .willThrow(new IllegalArgumentException("보유하지 않은 아이템입니다."));
 
@@ -133,7 +133,8 @@ class EquipmentControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"itemId\":\"" + ITEM_ID_99 + "\"}")
                         .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isConflict())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ILLEGAL_ARGUMENT"))
                 .andDo(print());
     }
 }
