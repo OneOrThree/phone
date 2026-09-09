@@ -99,7 +99,7 @@ common/exception/GlobalExceptionHandler.handleDomain(DomainException)   ← 하�
 | 깨진 JSON 바디 | `HttpMessageNotReadableException` 미처리 | GROMO-1657 후속 PR |
 | 어디서도 안 잡힌 예외 | catch-all 없음 → 500 기본 바디 | GROMO-1657 후속 PR |
 | `EntityNotFoundException` (item) | 매핑 없음 → **500** (404 여야 함) | GROMO-895 |
-| `IllegalArgumentException` 그물 | 409 + `e.getMessage()` 반사. raw throw 42건 + 람다 안 5건 | 반사 제거는 1657 후속 PR, 400 전환은 GROMO-1725, 치환은 GROMO-895 |
+| `IllegalArgumentException` 그물 | 409 + `e.getMessage()` 반사. 이 그물에 걸리는 raw `IllegalArgumentException` 은 **21건**(throw 20 + 람다 1). 참고로 전 타입 raw 예외는 47건이지만 `IllegalStateException` 25건은 이 그물이 아니라 catch-all 부재로 500 이 된다 | 반사 제거는 1657 후속 PR, 400 전환은 GROMO-1725, 치환은 GROMO-895 |
 | `NOT_FOUND` 두 도메인 중복 | 앱 17곳이 «그룹이 사라짐»으로 해석 | GROMO-1725 |
 | 앱 죽은 분기 3종 | `CHALLENGE_NOT_FOUND`·`CHALLENGE_HAS_OPEN_BET`·`CHALLENGE_ALREADY_EXISTS` — 서버가 내지 않음 | GROMO-1725 |
 
@@ -115,3 +115,7 @@ common/exception/GlobalExceptionHandler.handleDomain(DomainException)   ← 하�
 - 도메인별 핸들러가 다시 생긴다 → 「하나뿐」 단언 실패 (실제로 넣어 확인)
 - enum 이 `ErrorCode` 구현을 빠뜨린다 → `super(errorCode)` 가 컴파일되지 않는다
 - 새 enum 이 팩토리 표에 없다 → 이름을 지목하며 실패
+
+**잡히지 않는 것 하나** — `ErrorCode` 를 **enum 이 아닌 클래스**가 구현하면 `isEnum()` 필터에 걸러져
+검사 대상에서 **조용히 빠진다**. §3 이 enum 만 허용하는 이유이고, 규칙을 어기면 그 구현체의 상수는
+이 테스트가 보증하지 않는다.
