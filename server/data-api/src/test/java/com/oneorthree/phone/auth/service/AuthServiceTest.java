@@ -210,11 +210,12 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("등록되지 않은 provider → IllegalArgumentException")
+    @DisplayName("등록되지 않은 provider → 400 UNSUPPORTED_PROVIDER (GROMO-1725, 종전 IllegalArgumentException 409)")
     void socialLoginUnsupportedProvider() {
         // GOOGLE client는 주입되지 않았으므로 Map에 없다
         assertThatThrownBy(() -> authService.socialLogin(Provider.GOOGLE, "token", null))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(AuthException.class)
+                .extracting("errorCode").isEqualTo(AuthErrorCode.UNSUPPORTED_PROVIDER);
     }
 
     @Test

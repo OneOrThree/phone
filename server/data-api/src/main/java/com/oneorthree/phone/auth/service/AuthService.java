@@ -146,7 +146,7 @@ public class AuthService {
     public SocialLoginResponse socialLogin(Provider provider, String token, String authorizationHeader) {
         SocialLoginClient client = socialLoginClients.get(provider);
         if (client == null) {
-            throw new IllegalArgumentException("지원하지 않는 소셜 로그인 제공자입니다: " + provider);
+            throw new AuthException(AuthErrorCode.UNSUPPORTED_PROVIDER);   // 400 (GROMO-1725)
         }
         String providerId = client.getProviderId(token);
         CallerToken caller = resolveCaller(authorizationHeader);

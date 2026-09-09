@@ -426,7 +426,7 @@ public class FriendService {
     public List<FriendSearchResultResponse> search(UUID me, SearchType type, String query) {
         FriendSearchStrategy strategy = searchStrategies.get(type);
         if (strategy == null) {
-            throw new IllegalArgumentException("지원하지 않는 검색 수단입니다: " + type);
+            throw new FriendException(FriendErrorCode.INVALID_SEARCH_TYPE);   // 400 (GROMO-1725)
         }
         User meUser = getUser(me);
         Set<UUID> friendIds = friendRelationLookup.collectFriendIds(meUser);

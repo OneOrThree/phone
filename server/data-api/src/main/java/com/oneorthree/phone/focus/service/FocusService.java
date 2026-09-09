@@ -46,6 +46,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -133,6 +134,13 @@ public class FocusService {
     private final UserStreakService userStreakService;
     private final CurrencyLedgerService currencyLedgerService;
     private final EarlyWinConfirmationPort earlyWinConfirmationPort;
+    /**
+     * 서버 시계 (GROMO-1723) — 클램프 창·귀속 날짜·지급 창이 전부 «지금»에 기대므로 벽시계를 직접 읽지
+     * 않고 주입받는다. 운영에선 {@code config/ClockConfig} 의 시스템 시계, 테스트에선 고정 시계다.
+     * 테스트가 {@code Instant.now()} 로 «지금 - 1시간» 세션을 만들면 KST 00~01시에 자정을 걸쳐
+     * 날짜 분할(GROMO-1252)이 정상 동작하면서 단언이 깨진다 — 매일 1시간씩 CI 가 빨갰던 원인.
+     */
+    private final Clock clock;
 
     /**
      * 유저가 채택 중인 집중 태그 목록.
@@ -369,17 +377,17 @@ public class FocusService {
         User user = requireActiveUser(userId);
 
         if (body.getStartedAt() == null || body.getEndedAt() == null) {
-            throw new IllegalArgumentException("시작/종료 시간은 필수입니다");
+            throw new FocusException(FocusErrorCode.INVALID_DATE_RANGE);   // 400 (GROMO-1725, 종전 IAE 409)
         }
 
         if (body.getEndedAt().isBefore(body.getStartedAt())) {
-            throw new IllegalArgumentException("종료 시간이 시작 시간보다 앞설 수 없습니다");
+            throw new FocusException(FocusErrorCode.INVALID_DATE_RANGE);
         }
 
         UserFocusTag tag = resolveOwnedTag(userId, body.getFocusTagId());
         ZoneId zone = ZonePolicy.KST;   // GROMO-1259: 저장축 KST 고정 (N8/FR-19, 해외 유저는 L5 수용)
         // 미래 endedAt 위조 클램프 + 날짜별 귀속 분포를 한 번만 구해 저장·통계·중복응답이 같은 값을 쓴다.
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         Instant statEnd = statEnd(body.getEndedAt(), now);
         CreditedByDate credited = resolveSecondsByDate(
                 body.getStartedAt(), statEnd, zone, body.getFocusSecondsByDate(),
@@ -534,7 +542,7 @@ public class FocusService {
      */
     private int creditSessionReward(User user, UUID sessionId, Instant startedAt, Instant endedAt,
                                     int totalDistractionSeconds) {
-        int awardedCoins = sessionRewardCoins(startedAt, endedAt, totalDistractionSeconds, Instant.now());
+        int awardedCoins = sessionRewardCoins(startedAt, endedAt, totalDistractionSeconds, clock.instant());
         if (awardedCoins > 0) {
             currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE, awardedCoins,
                     "focus:" + sessionId + ":reward");
@@ -855,7 +863,7 @@ public class FocusService {
         User user = requireActiveUserForUpdate(userId);
 
         // GROMO-1214: 클라 시각 클램프 — 창(과거 5분·미래 0분) 밖이면 서버 수신 시각으로 대체한다.
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         Instant startedAt = clampToServerNow(body.startedAt(), now);
         UserFocusTag tag = resolveOwnedTag(userId, body.focusTagId());
 
@@ -935,7 +943,7 @@ public class FocusService {
 
         // GROMO-1214: 클라 시각 클램프 — 창(과거 5분·미래 0분) 밖이면 서버 수신 시각으로 대체한다.
         // 클램프 후에 역전 검사를 한다(과거로 조작된 endedAt 은 now 로 올라가 정상 종료가 된다).
-        Instant endedAt = clampToServerNow(body.endedAt(), Instant.now());
+        Instant endedAt = clampToServerNow(body.endedAt(), clock.instant());
         if (endedAt.isBefore(session.getStartedAt())) {
             throw new FocusException(FocusErrorCode.INVALID_DATE_RANGE);
         }
@@ -968,7 +976,7 @@ public class FocusService {
 
         // 귀속 날짜 계산(순수 함수)을 지급보다 먼저 끝낸다 — 아래 회차 선잠금이 이 날짜 집합을 쓴다.
         ZoneId zone = ZonePolicy.KST;   // GROMO-1259: 저장축 KST 고정 (N8/FR-19, 해외 유저는 L5 수용)
-        Instant statEnd = statEnd(endedAt, Instant.now());
+        Instant statEnd = statEnd(endedAt, clock.instant());
         CreditedByDate credited = resolveSecondsByDate(
                 session.getStartedAt(), statEnd, zone, body.focusSecondsByDate(), body.totalDistractionSeconds());
 
@@ -1019,7 +1027,7 @@ public class FocusService {
 
         // 멱등/이중 취소 방지(TOCTOU 차단) — endedAt IS NULL 조건 단일 UPDATE 로 취소를 원자적으로 성사시키고,
         // 영향 row=0(이미 종료/취소됨)이면 409. → 취소를 성사시킨 요청만 관리 엔티티를 CANCELED 로 정합시킨다.
-        Instant canceledAt = Instant.now();
+        Instant canceledAt = clock.instant();
         int updated = focusSessionRepository.cancelSessionIfActive(body.sessionId(), canceledAt);
         if (updated == 0) {
             throw new FocusException(FocusErrorCode.SESSION_ALREADY_ENDED);
@@ -1270,7 +1278,7 @@ public class FocusService {
         // (오프라인 늦은 업로드·자정 경계 허용) 그보다 오래된 날짜의 대량 채굴을 차단한다. 세션 자체의
         // 신뢰 검증(라이브 마커 대조 등)은 별도 후속 — #417 세션 위조방어와 정합.
         ZoneId zone = ZonePolicy.KST;   // GROMO-1259: 저장축 KST 고정 (N8/FR-19, 해외 유저는 L5 수용)
-        LocalDate today = LocalDate.now(zone);
+        LocalDate today = LocalDate.ofInstant(clock.instant(), zone);
         // 지급 창 = [어제, 오늘]. 오래된 과거뿐 아니라 미래 날짜(endedAt 위조)도 거부한다 — 하한만 두면
         // 미래 날짜마다 위조 세션을 심어 채굴할 수 있다(코드리뷰 R3).
         if (statDate.isBefore(today.minusDays(1)) || statDate.isAfter(today)) {

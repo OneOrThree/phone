@@ -98,12 +98,12 @@ public class GlobalExceptionHandler {
 
     /**
      * 쿼리/경로 파라미터 타입 변환 실패(잘못된 Instant·UUID·숫자 등) → 400.
-     * (원인 체인에 IllegalArgumentException 이 있어 아래 핸들러로 새면 409 가 되므로 명시적으로 우선 처리)
+     * (원인 체인에 IllegalArgumentException 이 있어 아래 그물로 새면 코드가 ILLEGAL_ARGUMENT 가 되므로 명시적으로 우선 처리)
      *
      * @param e 변환에 실패한 파라미터 이름을 꺼내기 위해서만 쓴다 — 원인 예외 메시지는
      *          내부 타입이 드러나므로 응답에 싣지 않는다
      * @return 400 {@code INVALID_PARAMETER}. 이 핸들러가 없으면 원인 체인의
-     *         {@code IllegalArgumentException} 이 잡혀 <b>409</b> 로 나가는 오분류가 생긴다
+     *         {@code IllegalArgumentException} 이 그물에 잡혀 파라미터 이름 없는 {@code ILLEGAL_ARGUMENT} 로 나간다
      */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
@@ -128,20 +128,19 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 어디서도 잡히지 않은 {@code IllegalArgumentException} 의 그물 → 409.
+     * 어디서도 잡히지 않은 {@code IllegalArgumentException} 의 그물 → 400 (GROMO-1725, 종전 409).
      *
-     * <p><b>넓은 그물이라 주의가 필요하다.</b> 서비스가 사전 검증 실패를 이 예외로 던지는 관행 때문에
-     * 409 로 두었지만, 진짜 프로그래밍 오류도 같은 타입이라 함께 409 로 나간다. 새 예외를 만들 때는
-     * 전용 도메인 예외를 쓰는 편이 낫다 — 이 그물에 걸리면 상태 코드를 스스로 고를 수 없다.
+     * <p><b>넓은 그물이라 주의가 필요하다.</b> 진짜 프로그래밍 오류도 같은 타입이라 함께 400 으로 나간다.
+     * 새 예외를 만들 때는 전용 도메인 예외를 쓰는 편이 낫다 — 이 그물에 걸리면 상태 코드를 스스로 고를 수
+     * 없다. 앱까지 닿던 raw 발급 3곳은 도메인 코드로 치환돼 지금 이 그물에 남는 것은 내부 가드뿐이다.
      *
      * @param e 메시지는 <b>응답에 싣지 않고 로그로만</b> 남긴다 (GROMO-1657). 종전엔 그대로 반사해서
      *          내부 구현이 드러나는 문구가 클라이언트에 나갔다
-     * @return 409 {@code ILLEGAL_ARGUMENT} — 상태는 종전 그대로다. 400 으로 바꾸는 것은 계약 변경이라
-     *         GROMO-1725 가 받는다
+     * @return 400 {@code ILLEGAL_ARGUMENT}
      */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException e) {
-        log.warn("IllegalArgumentException → 409 ILLEGAL_ARGUMENT: {}", e.getMessage());
+        log.warn("IllegalArgumentException → 400 ILLEGAL_ARGUMENT: {}", e.getMessage());
         return body(CommonErrorCode.ILLEGAL_ARGUMENT);
     }
 
