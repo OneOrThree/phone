@@ -6911,6 +6911,10 @@
           "countryCode": {
             "type": "string",
             "pattern": "^[A-Z]{2}$"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^(ko|en|ja|zh-Hant)$"
           }
         }
       },
@@ -7355,6 +7359,9 @@
             "type": "string"
           },
           "timeZone": {
+            "type": "string"
+          },
+          "language": {
             "type": "string"
           }
         }
