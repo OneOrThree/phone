@@ -224,6 +224,19 @@ public class UserQueryService {
     }
 
     /**
+     * <b>요청자 본인</b> 지갑 조회 — <b>배타 락</b>. 본인 잔액을 고치는 경로(구매·집중 보상·내기 참가비)에서
+     * 원장이 쓴다. 잠금 규율은 {@link #getTargetWalletForUpdate} 와 같다.
+     *
+     * @param userId 요청자
+     * @return 잠긴 지갑
+     * @throws UserException 없으면 {@link UserErrorCode#USER_NOT_FOUND}
+     */
+    public UserWallet getWalletForUpdate(UUID userId) {
+        return userWalletRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+    }
+
+    /**
      * <b>원장 대상</b> 지갑 조회 — 락 없음. {@code CurrencyLedgerService} 처럼 요청자가 아닌 임의 유저
      * (정산·환불 참가자)의 지갑을 다루는 경로에서 쓴다. 부재는 «지목한 유저의 것이 없다»라
      * {@link UserErrorCode#TARGET_USER_NOT_FOUND} — 방장이 남의 환불을 요청했는데 그 참가자 지갑이

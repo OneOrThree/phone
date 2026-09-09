@@ -1025,12 +1025,12 @@ class GroupBetServiceTest {
                 .willReturn(Optional.of(session));
         given(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(SESSION_ID)))
                 .willReturn(List.of(mine));
-        given(currencyLedgerService.credit(any(), any(), anyInt(), anyString())).willReturn(true);
+        given(currencyLedgerService.credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), any(), anyInt(), anyString())).willReturn(true);
 
         groupBetService.cancelBet(GROUP_ID, SESSION_ID, USER_ID);
 
         verify(groupChallengeBetParticipantRepository).delete(mine);
-        verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
+        verify(currencyLedgerService).credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
                 eq("session:" + SESSION_ID + ":refund:" + PARTICIPANT_ID));
         // 빈 유저 개설 회차는 "없던 일" — 같은 날짜 재개설이 유니크에 막히지 않도록 행을 지운다.
         verify(groupChallengeBetSessionRepository).delete(session);
@@ -1046,11 +1046,11 @@ class GroupBetServiceTest {
                 .willReturn(Optional.of(session));
         given(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(SESSION_ID)))
                 .willReturn(List.of(mine));
-        given(currencyLedgerService.credit(any(), any(), anyInt(), anyString())).willReturn(true);
+        given(currencyLedgerService.credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), any(), anyInt(), anyString())).willReturn(true);
 
         groupBetService.cancelBet(GROUP_ID, SESSION_ID, USER_ID);
 
-        verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
+        verify(currencyLedgerService).credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
                 eq("session:" + SESSION_ID + ":refund:" + PARTICIPANT_ID));
         verify(groupChallengeBetSessionRepository).delete(session);
     }
@@ -1902,14 +1902,14 @@ class GroupBetServiceTest {
         GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today().plusDays(1));
         GroupChallengeBetParticipant mine = participantOf(session, USER_ID);
         givenLeaveEntry(session, mine, participantOf(session, OTHER_USER_ID));
-        given(currencyLedgerService.credit(any(), any(), anyInt(), anyString())).willReturn(true);
+        given(currencyLedgerService.credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), any(), anyInt(), anyString())).willReturn(true);
 
         groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID);
 
         verify(groupChallengeBetParticipantRepository).delete(mine);
         // 환불 키는 경로 불문 단일 축(session:{sid}:refund:{pid}, FR-42) — 취소·탈퇴와 같은 키라
         // 어떤 경로 조합으로도 참가 행당 환불이 1회를 넘을 수 없다(원장 유니크 최후 방어).
-        verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
+        verify(currencyLedgerService).credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
                 eq("session:" + SESSION_ID + ":refund:" + PARTICIPANT_ID));
         // 남은 참가자가 있으므로 회차는 지우지 않는다.
         verify(groupChallengeBetSessionRepository, never()).delete(any(GroupChallengeBetSession.class));
@@ -1925,13 +1925,13 @@ class GroupBetServiceTest {
         GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today().plusDays(1));
         GroupChallengeBetParticipant mine = participantOf(session, USER_ID);
         givenLeaveEntry(session, mine);
-        given(currencyLedgerService.credit(any(), any(), anyInt(), anyString())).willReturn(true);
+        given(currencyLedgerService.credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), any(), anyInt(), anyString())).willReturn(true);
 
         groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID);
 
         verify(groupChallengeBetParticipantRepository).delete(mine);
         verify(groupChallengeBetSessionRepository).delete(session);
-        verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
+        verify(currencyLedgerService).credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
                 eq("session:" + SESSION_ID + ":refund:" + PARTICIPANT_ID));
         // 챌린지는 여러 날짜에 걸쳐 재사용되는 미션 템플릿이다 — 회차가 비었다고 지우지 않는다.
         verify(groupChallengeRepository, never())
@@ -2001,12 +2001,12 @@ class GroupBetServiceTest {
         GroupChallengeBetParticipant mine =
                 myParticipantJoinedAt(session, Instant.now().minus(1, ChronoUnit.MINUTES));
         givenLeaveEntry(session, mine, participantOf(session, OTHER_USER_ID));
-        given(currencyLedgerService.credit(any(), any(), anyInt(), anyString())).willReturn(true);
+        given(currencyLedgerService.credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), any(), anyInt(), anyString())).willReturn(true);
 
         groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID);
 
         verify(groupChallengeBetParticipantRepository).delete(mine);
-        verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
+        verify(currencyLedgerService).credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
                 eq("session:" + SESSION_ID + ":refund:" + PARTICIPANT_ID));
     }
 
@@ -2067,12 +2067,12 @@ class GroupBetServiceTest {
         GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today(), oneHourLater());
         GroupChallengeBetParticipant mine = participantOf(session, USER_ID);
         givenLeaveEntry(session, mine, participantOf(session, OTHER_USER_ID));
-        given(currencyLedgerService.credit(any(), any(), anyInt(), anyString())).willReturn(true);
+        given(currencyLedgerService.credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), any(), anyInt(), anyString())).willReturn(true);
 
         groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID);
 
         verify(groupChallengeBetParticipantRepository).delete(mine);
-        verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
+        verify(currencyLedgerService).credit(eq(CurrencyLedgerService.WalletOwner.TARGET), any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
                 eq("session:" + SESSION_ID + ":refund:" + PARTICIPANT_ID));
     }
 
@@ -2149,7 +2149,7 @@ class GroupBetServiceTest {
                         // 취소 마감 분기(N22) 통과용 — 방금 참가라 유예 안이고, 두 회차 모두 환불된다.
                         .createdAt(Instant.now()).build()));
         given(groupChallengeBetParticipantRepository.countBySessionId(any())).willReturn(2L);
-        given(currencyLedgerService.credit(
+        given(currencyLedgerService.credit(eq(CurrencyLedgerService.WalletOwner.TARGET),
                 eq(leaver), eq(CurrencyTransactionType.BET_REFUND), eq(30), anyString()))
                 .willReturn(true);
 
@@ -2160,7 +2160,8 @@ class GroupBetServiceTest {
         lockThenMoney.verify(groupQueryService).findBetSessionForUpdate(SESSION_ID);
         lockThenMoney.verify(groupQueryService).findBetSessionForUpdate(otherSessionId);
         lockThenMoney.verify(currencyLedgerService, times(2))
-                .credit(eq(leaver), eq(CurrencyTransactionType.BET_REFUND), eq(30), anyString());
+                .credit(eq(CurrencyLedgerService.WalletOwner.TARGET), eq(leaver),
+                        eq(CurrencyTransactionType.BET_REFUND), eq(30), anyString());
         // 잔여 참가자가 있어 회차는 지우지 않는다.
         verify(groupChallengeBetSessionRepository, never()).delete(any(GroupChallengeBetSession.class));
     }

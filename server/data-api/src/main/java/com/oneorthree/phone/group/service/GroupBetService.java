@@ -526,8 +526,10 @@ public class GroupBetService {
                     session.getId(), user.getId(), session.getStake());
             return;
         }
-        boolean applied = currencyLedgerService.credit(user, CurrencyTransactionType.BET_REFUND,
-                session.getStake(), refundKey(session.getId(), participantId));
+        // 환불 대상은 요청자가 아닐 수 있다(방장의 챌린지 삭제·탈퇴 연동) — 지갑 부재는 TARGET 축 (GROMO-1725)
+        boolean applied = currencyLedgerService.credit(CurrencyLedgerService.WalletOwner.TARGET, user,
+                CurrencyTransactionType.BET_REFUND, session.getStake(),
+                refundKey(session.getId(), participantId));
         if (!applied) {
             log.warn("내기 환불 스킵 — 멱등키 선점됨(버그 신호). sessionId={}, userId={}, key={}",
                     session.getId(), user.getId(), refundKey(session.getId(), participantId));

@@ -43,6 +43,19 @@ public class CurrencyLedgerService {
     private final CurrencyTransactionRepository currencyTransactionRepository;
 
     /**
+     * 지갑 주인이 누구인가 (GROMO-1725, codex 리뷰). 지갑 부재 시 던지는 코드가 갈린다 —
+     * {@link #CALLER} 는 {@code USER_NOT_FOUND}(내 계정이 없다 → 재로그인), {@link #TARGET} 은
+     * {@code TARGET_USER_NOT_FOUND}(남의 지갑이 없다 → 로그아웃하면 안 된다). 원장은 두 경로가 다 지나므로
+     * 호출자가 축을 명시한다. 축 없는 오버로드는 <b>요청자 본인</b>이다.
+     */
+    public enum WalletOwner {
+        /** 인증된 요청자 본인 — 구매·집중 보상·내기 참가비·잔액 조회. */
+        CALLER,
+        /** 요청자가 아닌 참가자 — 회차 환불·정산 지급·리그 승급 보너스. */
+        TARGET
+    }
+
+    /**
      * 잔액 차감 + 원장 기입. 잔액 부족이면 {@code INSUFFICIENT_CURRENCY}
      * ({@link UserWallet#trySpend(int)} 가 거절하면 여기서 던진다).
      *
@@ -58,10 +71,21 @@ public class CurrencyLedgerService {
      */
     @Transactional
     public boolean debit(User user, CurrencyTransactionType type, int amount, String idempotencyKey) {
+        return debit(WalletOwner.CALLER, user, type, amount, idempotencyKey);
+    }
+
+    /**
+     * {@link #debit(User, CurrencyTransactionType, int, String)} 의 축 명시판 — 지갑 부재 코드가 갈린다.
+     *
+     * @param owner 지갑 주인이 요청자 본인인지({@link WalletOwner#CALLER}) 남인지({@link WalletOwner#TARGET})
+     */
+    @Transactional
+    public boolean debit(WalletOwner owner, User user, CurrencyTransactionType type, int amount,
+                         String idempotencyKey) {
         if (alreadyApplied(type, idempotencyKey)) {
             return false;
         }
-        if (!walletForUpdate(user).trySpend(amount)) {
+        if (!walletForUpdate(owner, user).trySpend(amount)) {
             // 잔액 부족을 어떤 실패로 보고할지는 재화 도메인이 정한다 (GROMO-1656) —
             // 지갑 엔티티는 「모자란다」는 사실만 알린다. 응답은 종전과 같은 400 INSUFFICIENT_CURRENCY 다.
             throw new CurrencyException(CurrencyErrorCode.INSUFFICIENT_CURRENCY);
@@ -84,10 +108,22 @@ public class CurrencyLedgerService {
      */
     @Transactional
     public boolean credit(User user, CurrencyTransactionType type, int amount, String idempotencyKey) {
+        return credit(WalletOwner.CALLER, user, type, amount, idempotencyKey);
+    }
+
+    /**
+     * {@link #credit(User, CurrencyTransactionType, int, String)} 의 축 명시판 — 회차 환불·정산 지급·리그
+     * 보너스처럼 <b>남의</b> 지갑에 넣을 때 {@link WalletOwner#TARGET} 으로 부른다.
+     *
+     * @param owner 지갑 주인이 요청자 본인인지({@link WalletOwner#CALLER}) 남인지({@link WalletOwner#TARGET})
+     */
+    @Transactional
+    public boolean credit(WalletOwner owner, User user, CurrencyTransactionType type, int amount,
+                          String idempotencyKey) {
         if (alreadyApplied(type, idempotencyKey)) {
             return false;
         }
-        walletForUpdate(user).earn(amount);
+        walletForUpdate(owner, user).earn(amount);
         record(user, type, amount, idempotencyKey);
         return true;
     }
@@ -100,7 +136,12 @@ public class CurrencyLedgerService {
      * @return 지갑 행의 잔액. 락 없이 읽으므로 같은 트랜잭션 밖의 동시 차감·지급이 곧바로 반영되지는 않는다
      */
     public int balanceOf(User user) {
-        return wallet(user).getBalance();
+        return balanceOf(WalletOwner.CALLER, user);
+    }
+
+    /** {@link #balanceOf(User)} 의 축 명시판. */
+    public int balanceOf(WalletOwner owner, User user) {
+        return wallet(owner, user).getBalance();
     }
 
     private boolean alreadyApplied(CurrencyTransactionType type, String idempotencyKey) {
@@ -113,20 +154,25 @@ public class CurrencyLedgerService {
 
     /**
      * 잔액을 바꾸기 직전의 지갑 로드 — <b>행 배타 락</b>을 잡는다
-     * ({@link UserQueryService#getTargetWalletForUpdate} → {@code UserWalletRepository.findByIdForUpdate}).
+     * ({@link UserQueryService#getWalletForUpdate} / {@link UserQueryService#getTargetWalletForUpdate}
+     * → {@code UserWalletRepository.findByIdForUpdate}).
      *
      * <p>낙관락만으로는 같은 지갑에 동시에 들어온 두 트랜잭션 중 늦은 쪽이 0행 갱신으로 터져
      * <b>트랜잭션 전체가 롤백</b>된다 — 챌린지 삭제처럼 한 트랜잭션이 여러 참가자의 환불을 묶어
      * 처리하는 경로에서는 삭제·환불이 통째로 실패했다. 비관 락이면 늦은 쪽이 기다렸다 진행한다.
      * 지갑을 여러 개 잡는 경로는 전부 userId 오름차순이라 대기 사슬이 순환하지 않는다(계약 §3).
      */
-    private UserWallet walletForUpdate(User user) {
-        return userQueryService.getTargetWalletForUpdate(user.getId());
+    private UserWallet walletForUpdate(WalletOwner owner, User user) {
+        return owner == WalletOwner.CALLER
+                ? userQueryService.getWalletForUpdate(user.getId())
+                : userQueryService.getTargetWalletForUpdate(user.getId());
     }
 
     /** 표시용 잔액 로드 — <b>락 없음</b>. 순수 조회가 배타 락을 잡으면 무관한 결제·정산이 막힌다. */
-    private UserWallet wallet(User user) {
-        return userQueryService.getTargetWallet(user.getId());
+    private UserWallet wallet(WalletOwner owner, User user) {
+        return owner == WalletOwner.CALLER
+                ? userQueryService.getWallet(user.getId())
+                : userQueryService.getTargetWallet(user.getId());
     }
 
     private void record(User user, CurrencyTransactionType type, int amount, String idempotencyKey) {
