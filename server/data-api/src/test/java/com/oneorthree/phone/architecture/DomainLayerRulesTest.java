@@ -66,7 +66,18 @@ class DomainLayerRulesTest {
         LAYERS.put("withdrawal", 9);
     }
 
-    /** 레이어 밖 — 누가 참조해도 되고, 이쪽에서 도메인을 참조하는 것만 따로 막는다. */
+    /**
+     * 레이어 밖 — 어느 도메인이 참조해도 된다.
+     *
+     * <p><b>반대 방향({@code common}·{@code config} → 도메인)은 여기서 검사하지 않는다.</b>
+     * 방향 규칙은 소스를 「레이어 표에 있는 도메인」으로 걸러 이 둘을 아예 후보에서 빼고, 순환
+     * 규칙은 이 둘을 오가는 간선을 통째로 무시한다. 그래서 {@code common → 도메인} 참조는 어느
+     * 규칙에도 걸리지 않는다 — 실제로 {@code common/exception/GlobalExceptionHandler} 가 열 개
+     * 도메인의 예외를 직접 알고 있다.
+     *
+     * <p>그 결합은 실재하지만 「도메인끼리 순환하는가」와는 다른 문제이고, 공통 {@code ErrorCode}
+     * 인터페이스로 푸는 일은 GROMO-1657 이 받는다. 그때 이 방향도 규칙으로 세울 수 있다.
+     */
     private static final Set<String> LAYER_FREE = Set.of("common", "config");
 
     private static final String ROOT = "com.oneorthree.phone";
@@ -171,6 +182,9 @@ class DomainLayerRulesTest {
             }
         };
 
+        // 패턴이 빗나가 슬라이스가 0개가 되면 조용히 통과하지 않는다 — ArchUnit 기본값
+        // archRule.failOnEmptyShould=true 가 슬라이스 규칙에도 적용된다. 패턴을 일부러
+        // 깨뜨려(com.nonexistent.pkg) 실제로 실패하는 것을 확인했다.
         slices().matching(ROOT + ".(*)..")
                 .should().beFreeOfCycles()
                 .ignoreDependency(layerFree, DescribedPredicate.alwaysTrue())
