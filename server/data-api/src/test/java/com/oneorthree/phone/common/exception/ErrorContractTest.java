@@ -83,7 +83,15 @@ class ErrorContractTest {
             Map.entry(InviteLinkErrorCode.class, c -> new InviteLinkException((InviteLinkErrorCode) c)),
             Map.entry(LeagueErrorCode.class, c -> new LeagueException((LeagueErrorCode) c)),
             Map.entry(StatsErrorCode.class, c -> new StatsException((StatsErrorCode) c)),
-            Map.entry(UserErrorCode.class, c -> new UserException((UserErrorCode) c)));
+            Map.entry(UserErrorCode.class, c -> new UserException((UserErrorCode) c)),
+            // 공통 코드는 프레임워크 예외 핸들러가 직접 봉투에 싣는다 — 도메인 예외로 던져지진 않지만
+            // 같은 (status, name, message) 규칙을 지켜야 하므로 익명 DomainException 으로 같은 경로를 태운다
+            Map.entry(CommonErrorCode.class, c -> new DomainException(c) {
+                @Override
+                public ErrorCode getErrorCode() {
+                    return c;
+                }
+            }));
 
     private static JavaClasses production() {
         return new ClassFileImporter()
@@ -110,11 +118,11 @@ class ErrorContractTest {
         Set<String> known = FACTORIES.keySet().stream().map(Class::getSimpleName).collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(found).as("ErrorCode 구현 enum 이 클래스패스에 있는데 FACTORIES 에 없다").isEqualTo(known);
-        assertThat(found).as("실측 기준 도메인 enum 11개").hasSize(11);
+        assertThat(found).as("실측 기준 도메인 enum 11개 + CommonErrorCode").hasSize(12);
     }
 
     @TestFactory
-    @DisplayName("상수 100개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 115개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -130,7 +138,7 @@ class ErrorContractTest {
                 }));
             }
         }
-        assertThat(tests).as("실측 기준 상수 100개").hasSize(100);
+        assertThat(tests).as("실측 기준 도메인 상수 100개 + 공통 15개").hasSize(115);
         return tests;
     }
 

@@ -66,7 +66,12 @@ class RequestSizeLimitFilterTest {
         MockHttpServletResponse response = callFocusFilter(8 * 1024 + 1);
 
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
-        assertThat(response.getContentAsString()).contains("PAYLOAD_TOO_LARGE");
+        assertThat(response.getContentAsString())
+                .contains("\"error\":\"PAYLOAD_TOO_LARGE\"")
+                .contains("\"code\":\"PAYLOAD_TOO_LARGE\"")
+                .contains("\"message\":\"요청 본문이 너무 큽니다");
+        // charset 없이 writer 를 열면 한글이 ISO-8859-1 로 깨진다 (codex 리뷰)
+        assertThat(response.getCharacterEncoding()).isEqualToIgnoringCase("UTF-8");
     }
 
     @Test
@@ -88,7 +93,12 @@ class RequestSizeLimitFilterTest {
         focusFilter().getFilter().doFilter(request, response, new MockFilterChain());
 
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
-        assertThat(response.getContentAsString()).contains("PAYLOAD_TOO_LARGE");
+        assertThat(response.getContentAsString())
+                .contains("\"error\":\"PAYLOAD_TOO_LARGE\"")
+                .contains("\"code\":\"PAYLOAD_TOO_LARGE\"")
+                .contains("\"message\":\"요청 본문이 너무 큽니다");
+        // charset 없이 writer 를 열면 한글이 ISO-8859-1 로 깨진다 (codex 리뷰)
+        assertThat(response.getCharacterEncoding()).isEqualToIgnoringCase("UTF-8");
     }
 
     @Test

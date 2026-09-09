@@ -19,6 +19,11 @@
 | `code` | 기계용 식별자. **에러코드 enum 상수의 이름 그대로**(`ErrorCode.name()`) | 앱이 `switch`/`===` 로 분기한다 |
 | `message` | 사람이 읽는 문구. enum 에 적힌 문장 그대로 | 화면에 그대로 뜰 수 있다 |
 
+**범위** — `DispatcherServlet` 이 라우팅하는 응답은 `GlobalExceptionHandler` 가, 그 **앞**의 필터 체인이
+직접 쓰는 응답(`JwtFilter` 401 · `RequestSizeLimitFilter` 413)은 필터 자신이 같은 봉투를 손으로 맞춘다.
+필터 쪽은 종전 모양 `{"error": "…"}` 의 `error` 필드를 **별칭으로 남긴 채** `code`·`message` 를 더한다 —
+읽는 소비자는 확인된 바 없지만 빼면 계약 변경이다.
+
 재시도 힌트가 필요한 실패 하나만 필드를 **더한다** — `RetryAfterErrorResponse.retryAfterMs`
 (`RESULT_CLAIM_HELD`). 값은 **상대 지연(ms)**이지 절대 시각이 아니다. 봉투를 바꾸지 않고 상속으로
 늘리는 것이 규칙이다 — 앱이 `code` 로 분기하고 있어 모양을 갈아 끼우면 기존 경로가 통째로 흔들린다.
@@ -35,6 +40,7 @@
 common/exception/ErrorCode          ← 인터페이스: name() · getStatus() · getMessage()
 common/exception/DomainException    ← 추상 베이스: getErrorCode()
 common/exception/GlobalExceptionHandler.handleDomain(DomainException)   ← 하나뿐
+common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검증·파싱·404·405·락 충돌·500)
 
 <domain>/exception/<Domain>ErrorCode   implements ErrorCode   (enum, HttpStatus + 문구)
 <domain>/exception/<Domain>Exception   extends DomainException
@@ -86,20 +92,54 @@ common/exception/GlobalExceptionHandler.handleDomain(DomainException)   ← 하�
 | 지금 상태에선 안 된다 / 동시성 충돌 | 409 | `ALREADY_MEMBER`, `CONCURRENT_UPDATE` |
 | 서버 배선 오류 | 500 | `LOGIN_USER_RESOLUTION_FAILED` — 재시도로 안 풀리는 유일한 계열 |
 
+### 도메인 밖의 실패 — `CommonErrorCode`
+
+프레임워크·인프라 예외는 도메인 예외로 던져지지 않으므로 전역 핸들러가 직접 봉투에 싣는다. 그 코드는
+`common/exception/CommonErrorCode` 가 소유한다 — 종전엔 핸들러가 문자열을 손으로 박았고 낙관락 코드는
+`GroupErrorCode` 를 빌려 써 `common → group` 참조가 있었다.
+
+| 상황 | 상태 | code |
+| --- | --- | --- |
+| 토큰 없음·검증 실패 (필터) | 401 | `UNAUTHORIZED` — `error` 별칭 동반 |
+| 요청 본문 상한 초과 (필터) | 413 | `PAYLOAD_TOO_LARGE` — `error` 별칭 동반 |
+| `@Valid` 실패 · 깨진 JSON | 400 | `INVALID_REQUEST` (검증 실패는 DTO 애노테이션의 문구) |
+| 파라미터 누락 · 타입 불일치 | 400 | `INVALID_PARAMETER` (문구에 파라미터 이름) |
+| 타임존 id 해석 실패 | 400 | `INVALID_TIMEZONE` |
+| 허용 안 된 메서드 | 405 | `METHOD_NOT_ALLOWED` |
+| 받을 수 없는 `Content-Type` | 415 | `UNSUPPORTED_MEDIA_TYPE` |
+| 만들 수 없는 `Accept` | 406 | `NOT_ACCEPTABLE` — **본문은 비어 나간다**: 클라이언트가 JSON 을 거부한 상태라 봉투를 쓸 수 없다. 상태 코드만이 계약이다 |
+| 그 외 스프링 MVC 표준 예외 | 예외의 상태 | 4xx 는 `INVALID_REQUEST`, 5xx 는 `INTERNAL_ERROR` — `org.springframework.web.ErrorResponse` 구현체는 자기 상태를 지킨다(catch-all 로 500 이 되지 않는다) |
+| 없는 경로 | 404 | `RESOURCE_NOT_FOUND` — **`NOT_FOUND` 가 아니다**(아래) |
+| JPA `EntityNotFoundException` | 404 | `ENTITY_NOT_FOUND` — 도메인 코드로 치환되면 안 쓰인다(GROMO-895) |
+| 잡히지 않은 `IllegalArgumentException` | **409** | `ILLEGAL_ARGUMENT` — 400 전환은 계약 변경이라 GROMO-1725 |
+| DB 제약 위반 | 409 | `DATA_INTEGRITY_VIOLATION` |
+| 낙관락·비관락 충돌 | 409 | `CONCURRENT_UPDATE` — 재시도하면 풀린다 |
+| `@LoginUser` 배선 오류 | 500 | `LOGIN_USER_RESOLUTION_FAILED` |
+| 그 외 전부 (catch-all) | 500 | `INTERNAL_ERROR` — 고정 문구, 원인은 로그로만 |
+
+없는 경로에 `NOT_FOUND` 를 쓰지 않는 이유: 앱이 그 문자열을 「그룹이 사라짐」으로 해석하는 분기가
+17곳이다. 오타 난 경로에 그 코드를 주면 엉뚱한 안내가 뜬다.
+
 **같은 404 라도 탈출구가 다르면 코드를 가른다.** 대상 부재는 화면에서 처리할 일이고, 본인 계정 부재는
 재로그인만이 답이다 — 한 코드로 뭉치면 앱이 멀쩡한 방장을 로그아웃시킨다.
 
 ---
 
-## 5. 아직 봉투 밖으로 새는 것 (숨기지 않고 적는다)
+## 5. 봉투 밖으로 새는 것 — 없다 (2026-09-09)
+
+`GlobalExceptionHandler.handleUnexpected(Exception)` 이 catch-all 이라 스프링 기본 `/error` 바디로
+새는 경로는 더 이상 없다. 핸들러가 닿지 않는 필터 체인의 두 응답(`JwtFilter` 401 · `RequestSizeLimitFilter`
+413)도 같은 봉투를 직접 쓴다 — 이 둘은 `@RestControllerAdvice` 가 구조적으로 볼 수 없는 자리라
+**핸들러를 고쳐서는 절대 봉투에 들어오지 않는다**. 새 필터가 응답을 직접 쓰면 `JwtFilter.envelope()` 를 쓴다. `UnhandledEnvelopeTest` 가 종전에 새던 일곱 경로(검증 실패·깨진 JSON·
+파라미터 누락·405·404·`EntityNotFound`·catch-all)를 실제 디스패치로 고정한다.
+
+**남은 것은 «코드가 맞는가»이지 «봉투에 실리는가»가 아니다** — 숨기지 않고 적는다.
 
 | 무엇 | 지금 | 이관처 |
 | --- | --- | --- |
-| `@Valid` 실패 (컨트롤러 26곳) | `MethodArgumentNotValidException` 핸들러가 없어 스프링 기본 바디, `code` 없음 | GROMO-1657 후속 PR |
-| 깨진 JSON 바디 | `HttpMessageNotReadableException` 미처리 | GROMO-1657 후속 PR |
-| 어디서도 안 잡힌 예외 | catch-all 없음 → 500 기본 바디 | GROMO-1657 후속 PR |
-| `EntityNotFoundException` (item) | 매핑 없음 → **500** (404 여야 함) | GROMO-895 |
-| `IllegalArgumentException` 그물 | 409 + `e.getMessage()` 반사. 이 그물에 걸리는 raw `IllegalArgumentException` 은 **21건**(throw 20 + 람다 1). 참고로 전 타입 raw 예외는 47건 = IAE 21 + `IllegalStateException` 25(throw 22 + 람다 3) + `EntityNotFoundException` 1(람다, item) 이고, 뒤의 26건은 이 그물이 아니라 매핑 부재로 500 이 된다 | 반사 제거는 1657 후속 PR, 400 전환은 GROMO-1725, 치환은 GROMO-895 |
+| `IllegalArgumentException` 그물 | 409 `ILLEGAL_ARGUMENT`. 잘못된 입력에 «충돌»이라 답한다. 이 그물에 걸리는 raw `IllegalArgumentException` 21건(throw 20 + 람다 1) | 400 전환은 GROMO-1725(계약 변경), 도메인 코드 치환은 GROMO-895 |
+| `IllegalStateException` 25건 | catch-all 로 500 `INTERNAL_ERROR` — 종전엔 봉투도 없었다 | 프로그래밍 오류 계열이라 그대로 500 이 맞다. 입력 검증에 쓰인 것이 있으면 895 에서 치환 |
+| item 의 `EntityNotFoundException` | 404 `ENTITY_NOT_FOUND` — 종전엔 500. 핸들러 도달 시 warn 이 남는다 | 도메인 코드(`ItemErrorCode`) 치환 → GROMO-895 |
 | `NOT_FOUND` 두 도메인 중복 | 앱 17곳이 «그룹이 사라짐»으로 해석 | GROMO-1725 |
 | 앱 죽은 분기 3종 | `CHALLENGE_NOT_FOUND`·`CHALLENGE_HAS_OPEN_BET`·`CHALLENGE_ALREADY_EXISTS` — 서버가 내지 않음 | GROMO-1725 |
 
@@ -109,7 +149,7 @@ common/exception/GlobalExceptionHandler.handleDomain(DomainException)   ← 하�
 
 `ErrorContractTest` 는 목록을 손으로 적지 않는다 — `ErrorCode` 를 구현한 enum 을 **클래스패스에서 찾아**
 상수마다 예외를 만들어 `handleDomain` 에 통과시키고 `(status, code, message)` 를 단언한다(2026-09-09
-기준 100개). 그래서 잡히는 것:
+기준 115개 = 도메인 100 + `CommonErrorCode` 15). 그래서 잡히는 것:
 
 - 핸들러가 `code.name()` 이 아닌 것을 `code` 로 싣는다 → 100건 실패 (실제로 넣어 확인)
 - 도메인별 핸들러가 다시 생긴다 → 「하나뿐」 단언 실패 (실제로 넣어 확인)
