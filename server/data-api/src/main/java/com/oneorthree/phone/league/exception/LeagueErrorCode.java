@@ -1,5 +1,6 @@
 package com.oneorthree.phone.league.exception;
 
+import com.oneorthree.phone.common.exception.ErrorCode;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
@@ -8,7 +9,7 @@ import org.springframework.http.HttpStatus;
  * 고르지 않는다.
  */
 @Getter
-public enum LeagueErrorCode {
+public enum LeagueErrorCode implements ErrorCode {
 
     BATCH_ALREADY_RUN(HttpStatus.CONFLICT, "이번 주차 리그 배치가 이미 실행되었습니다."),
     // BATCH_ALREADY_RUN 의 거울상 — resume 은 "run 이후"가 정의라 가드 anchor 부재도 같은 409(상태 충돌)다.

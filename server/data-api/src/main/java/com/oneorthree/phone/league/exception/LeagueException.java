@@ -1,5 +1,6 @@
 package com.oneorthree.phone.league.exception;
 
+import com.oneorthree.phone.common.exception.DomainException;
 import lombok.Getter;
 
 /**
@@ -7,7 +8,7 @@ import lombok.Getter;
  * {@link LeagueErrorCode} 의 상태·문구로 응답을 만든다.
  */
 @Getter
-public class LeagueException extends RuntimeException {
+public class LeagueException extends DomainException {
 
     /** 응답 상태와 문구를 결정하는 실패 사유. */
     private final LeagueErrorCode errorCode;
@@ -18,7 +19,7 @@ public class LeagueException extends RuntimeException {
      * @param errorCode 실패 사유
      */
     public LeagueException(LeagueErrorCode errorCode) {
-        super(errorCode.getMessage());
+        super(errorCode);
         this.errorCode = errorCode;
     }
 }

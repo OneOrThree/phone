@@ -1,5 +1,6 @@
 package com.oneorthree.phone.auth.exception;
 
+import com.oneorthree.phone.common.exception.ErrorCode;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
@@ -13,7 +14,7 @@ import org.springframework.http.HttpStatus;
  * 거절이며, 갱신·로그아웃 양쪽의 타입 가드와 해시 불일치가 모두 이 코드로 나온다.
  */
 @Getter
-public enum InvalidTokenErrorCode {
+public enum InvalidTokenErrorCode implements ErrorCode {
 
     KAKAO_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Kakao Token"),
     REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Refresh Token"),

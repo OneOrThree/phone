@@ -1,10 +1,12 @@
 package com.oneorthree.phone.friend.exception;
 
+import com.oneorthree.phone.common.exception.DomainException;
+
 /**
  * 친구·핀 도메인의 업무 규칙 위반. 언체크 예외라 서비스가 그대로 던지면 트랜잭션이 롤백되고,
  * 공통 핸들러가 {@link FriendErrorCode} 의 상태·문구로 응답을 만든다.
  */
-public class FriendException extends RuntimeException {
+public class FriendException extends DomainException {
     /** 응답 상태와 문구를 결정하는 실패 사유. */
     private final FriendErrorCode errorCode;
 
@@ -14,7 +16,7 @@ public class FriendException extends RuntimeException {
      * @param errorCode 실패 사유
      */
     public FriendException(FriendErrorCode errorCode) {
-        super(errorCode.getMessage());
+        super(errorCode);
         this.errorCode = errorCode;
     }
 

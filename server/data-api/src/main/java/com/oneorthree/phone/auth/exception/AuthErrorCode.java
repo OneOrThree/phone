@@ -1,5 +1,6 @@
 package com.oneorthree.phone.auth.exception;
 
+import com.oneorthree.phone.common.exception.ErrorCode;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
@@ -12,7 +13,7 @@ import org.springframework.http.HttpStatus;
  * enum 이름이 응답 본문의 {@code code} 가 되므로, <b>상수 이름을 바꾸면 앱의 분기가 깨진다</b>.
  */
 @Getter
-public enum AuthErrorCode {
+public enum AuthErrorCode implements ErrorCode {
 
     // 게스트가 이미 다른 계정에 연동된 소셜 계정으로 업그레이드를 시도한 경우 (GROMO-585).
     // 게스트 상태는 유지하고 클라이언트가 기존 소셜 계정으로 로그인하도록 유도한다.

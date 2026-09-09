@@ -1,5 +1,6 @@
 package com.oneorthree.phone.invitelink.exception;
 
+import com.oneorthree.phone.common.exception.ErrorCode;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
@@ -9,7 +10,7 @@ import org.springframework.http.HttpStatus;
  * <p>이름은 응답 본문의 {@code code} 로 그대로 나가 앱이 분기에 쓴다(스펙 §4-2 계약) — 변경 금지.
  */
 @Getter
-public enum InviteLinkErrorCode {
+public enum InviteLinkErrorCode implements ErrorCode {
 
     GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "그룹을 찾을 수 없습니다."),
     NOT_MEMBER(HttpStatus.FORBIDDEN, "그룹원만 초대 링크를 만들 수 있습니다."),

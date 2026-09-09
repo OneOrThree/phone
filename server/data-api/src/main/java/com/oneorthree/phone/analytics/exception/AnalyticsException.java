@@ -1,5 +1,6 @@
 package com.oneorthree.phone.analytics.exception;
 
+import com.oneorthree.phone.common.exception.DomainException;
 import lombok.Getter;
 
 /**
@@ -7,7 +8,7 @@ import lombok.Getter;
  * status·message 를 그대로 응답으로 바꾸므로, 던지는 쪽은 사유만 고르면 된다.
  */
 @Getter
-public class AnalyticsException extends RuntimeException {
+public class AnalyticsException extends DomainException {
 
     /** 응답 status·message 의 출처가 되는 거절 사유. */
     private final AnalyticsErrorCode errorCode;
@@ -18,7 +19,7 @@ public class AnalyticsException extends RuntimeException {
      * @param errorCode 거절 사유. 예외 메시지도 이 코드의 message 를 그대로 쓴다
      */
     public AnalyticsException(AnalyticsErrorCode errorCode) {
-        super(errorCode.getMessage());
+        super(errorCode);
         this.errorCode = errorCode;
     }
 }

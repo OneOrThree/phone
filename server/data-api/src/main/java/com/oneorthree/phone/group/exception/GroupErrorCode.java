@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.exception;
 
+import com.oneorthree.phone.common.exception.ErrorCode;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
@@ -10,7 +11,7 @@ import org.springframework.http.HttpStatus;
  * 여기에 상수를 더해 표현한다. 문구는 응답 바디에 그대로 실리는 사용자 문장이다.
  */
 @Getter
-public enum GroupErrorCode {
+public enum GroupErrorCode implements ErrorCode {
     // 권한
     GUEST_FORBIDDEN(HttpStatus.FORBIDDEN, "게스트는 이 작업을 수행할 권한이 없습니다."),
     NOT_OWNER(HttpStatus.FORBIDDEN, "그룹장만 수행할 수 있습니다."),

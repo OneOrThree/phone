@@ -1,5 +1,6 @@
 package com.oneorthree.phone.currency.exception;
 
+import com.oneorthree.phone.common.exception.DomainException;
 import lombok.Getter;
 
 /**
@@ -7,7 +8,7 @@ import lombok.Getter;
  * 지갑 차감과 원장 기입이 함께 롤백되고, 잔액은 호출 전 상태 그대로 남는다.
  */
 @Getter
-public class CurrencyException extends RuntimeException {
+public class CurrencyException extends DomainException {
 
     /** 응답 status·message 의 출처가 되는 거절 사유. */
     private final CurrencyErrorCode errorCode;
@@ -18,7 +19,7 @@ public class CurrencyException extends RuntimeException {
      * @param errorCode 거절 사유. 예외 메시지도 이 코드의 message 를 그대로 쓴다
      */
     public CurrencyException(CurrencyErrorCode errorCode) {
-        super(errorCode.getMessage());
+        super(errorCode);
         this.errorCode = errorCode;
     }
 }

@@ -1,5 +1,6 @@
 package com.oneorthree.phone.analytics.exception;
 
+import com.oneorthree.phone.common.exception.ErrorCode;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
@@ -8,7 +9,7 @@ import org.springframework.http.HttpStatus;
  * 앱이 보낸 요청이 계약을 어긴 경우만 여기에 들어온다.
  */
 @Getter
-public enum AnalyticsErrorCode {
+public enum AnalyticsErrorCode implements ErrorCode {
 
     UNSUPPORTED_EVENT(HttpStatus.BAD_REQUEST, "허용되지 않은 이벤트입니다."),
     INVALID_PAYLOAD(HttpStatus.BAD_REQUEST, "payload 형식이 올바르지 않습니다.");
