@@ -236,7 +236,7 @@ public class UserService {
      *
      * <p><b>호출 순서 제약</b>: 그룹 내기 해제의 환불이 이 유저의 지갑에 입금되므로
      * ({@code GroupMemberService.detachWithdrawnUser}), 그보다 <b>뒤</b>에 불려야 한다 —
-     * 지갑을 먼저 지우면 환불이 {@code NOT_FOUND} 로 터진다.
+     * 지갑을 먼저 지우면 환불이 {@code TARGET_USER_NOT_FOUND} 로 터진다.
      *
      * @param userId 탈퇴 중인 유저
      */
@@ -468,7 +468,7 @@ public class UserService {
     public void unlinkSocialAccount(UUID userId, Provider provider) {
         // users 행은 읽기만 하고 social_accounts 만 변경 — 공유 락 (GROMO-801, GROMO-1237).
         // 잠금 순서는 user → social_accounts 로 withdraw(배타 락 → social 정리)와 동일 방향이라
-        // AB-BA 교착이 없다. 탈퇴가 먼저 커밋되면 재평가로 빈 결과 → NOT_FOUND(404).
+        // AB-BA 교착이 없다. 탈퇴가 먼저 커밋되면 재평가로 빈 결과 → USER_NOT_FOUND(404).
         User user = userQueryService.getCallerForShare(userId);
         // 비관적 잠금으로 활성 연동 전체 조회 — count와 대상 계정을 한 번에 확보해 원자성 보장
         List<SocialAccount> activeAccounts = socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user);
