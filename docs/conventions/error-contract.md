@@ -99,7 +99,7 @@ common/exception/GlobalExceptionHandler.handleDomain(DomainException)   ← 하�
 | 깨진 JSON 바디 | `HttpMessageNotReadableException` 미처리 | GROMO-1657 후속 PR |
 | 어디서도 안 잡힌 예외 | catch-all 없음 → 500 기본 바디 | GROMO-1657 후속 PR |
 | `EntityNotFoundException` (item) | 매핑 없음 → **500** (404 여야 함) | GROMO-895 |
-| `IllegalArgumentException` 그물 | 409 + `e.getMessage()` 반사. 이 그물에 걸리는 raw `IllegalArgumentException` 은 **21건**(throw 20 + 람다 1). 참고로 전 타입 raw 예외는 47건이지만 `IllegalStateException` 25건은 이 그물이 아니라 catch-all 부재로 500 이 된다 | 반사 제거는 1657 후속 PR, 400 전환은 GROMO-1725, 치환은 GROMO-895 |
+| `IllegalArgumentException` 그물 | 409 + `e.getMessage()` 반사. 이 그물에 걸리는 raw `IllegalArgumentException` 은 **21건**(throw 20 + 람다 1). 참고로 전 타입 raw 예외는 47건 = IAE 21 + `IllegalStateException` 25(throw 22 + 람다 3) + `EntityNotFoundException` 1(람다, item) 이고, 뒤의 26건은 이 그물이 아니라 매핑 부재로 500 이 된다 | 반사 제거는 1657 후속 PR, 400 전환은 GROMO-1725, 치환은 GROMO-895 |
 | `NOT_FOUND` 두 도메인 중복 | 앱 17곳이 «그룹이 사라짐»으로 해석 | GROMO-1725 |
 | 앱 죽은 분기 3종 | `CHALLENGE_NOT_FOUND`·`CHALLENGE_HAS_OPEN_BET`·`CHALLENGE_ALREADY_EXISTS` — 서버가 내지 않음 | GROMO-1725 |
 
