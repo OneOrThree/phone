@@ -1013,13 +1013,13 @@ class GroupServiceTest {
         // given: 요청자는 멀쩡하다 — 그래야 그룹 부재가 단독 원인이 된다 (GROMO-1247 순서 계약)
         given(userQueryService.getCaller(USER_ID)).willReturn(normalUser());
         given(groupQueryService.getGroup(GROUP_ID_99))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupOverview(GROUP_ID_99, USER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
@@ -1118,22 +1118,22 @@ class GroupServiceTest {
         User guest = User.builder().isGuest(true).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest);
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
-    @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
+    @DisplayName("존재하지 않는 그룹 → GROUP_NOT_FOUND")
     void renewGroupCodeGroupNotFound() {
         // given
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupQueryService.getGroup(GROUP_ID_99))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID_99, USER_ID))
@@ -1274,22 +1274,22 @@ class GroupServiceTest {
         given(userQueryService.getCaller(USER_ID))
                 .willReturn(User.builder().isGuest(true).build());
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
-    @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
+    @DisplayName("존재하지 않는 그룹 → GROUP_NOT_FOUND")
     void getGroupDetailGroupNotFound() {
         // given
         given(userQueryService.getCaller(USER_ID)).willReturn(normalUser());
         given(groupQueryService.getGroup(GROUP_ID_99))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID_99, USER_ID, LocalDate.of(2026, 7, 3)))
@@ -1347,22 +1347,22 @@ class GroupServiceTest {
         given(userQueryService.getCaller(USER_ID))
                 .willReturn(User.builder().isGuest(true).build());
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
-    @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
+    @DisplayName("존재하지 않는 그룹 → GROUP_NOT_FOUND")
     void getAnnouncementsGroupNotFound() {
         // given
         given(userQueryService.getCaller(USER_ID)).willReturn(normalUser());
         given(groupQueryService.getGroup(GROUP_ID_99))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID_99, USER_ID))
@@ -1427,22 +1427,22 @@ class GroupServiceTest {
         given(userQueryService.getCaller(USER_ID))
                 .willReturn(User.builder().isGuest(true).build());
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
-    @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
+    @DisplayName("존재하지 않는 그룹 → GROUP_NOT_FOUND")
     void getChallengesGroupNotFound() {
         // given
         given(userQueryService.getCaller(USER_ID)).willReturn(normalUser());
         given(groupQueryService.getGroup(GROUP_ID_99))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID_99, USER_ID, null))
@@ -1528,23 +1528,23 @@ class GroupServiceTest {
         User guest = User.builder().isGuest(true).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest);
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
         verify(groupMemberRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("존재하지 않는 그룹 → GroupException NOT_FOUND")
+    @DisplayName("존재하지 않는 그룹 → GroupException GROUP_NOT_FOUND")
     void joinGroupNotFound() {
         // given
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupQueryService.getGroup(GROUP_ID_99))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID_99, USER_ID, new JoinGroupRequest()))
@@ -1571,7 +1571,7 @@ class GroupServiceTest {
 
         // (2) 그룹 부재 — 같은 엔드포인트, 같은 404, 다른 결론("사라진 그룹")
         given(groupQueryService.getGroup(GROUP_ID_99))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
         Throwable groupThrown = catchThrowable(
                 () -> groupService.joinGroup(GROUP_ID_99, USER_ID, new JoinGroupRequest()));
         assertThat(groupThrown).isInstanceOf(GroupException.class);
@@ -1581,7 +1581,7 @@ class GroupServiceTest {
         assertThat(userAbsent.getErrorCode().getStatus())
                 .isEqualTo(groupAbsent.getErrorCode().getStatus());
         assertThat(userAbsent.getErrorCode().name()).isEqualTo("USER_NOT_FOUND");
-        assertThat(groupAbsent.getErrorCode().name()).isEqualTo("NOT_FOUND");
+        assertThat(groupAbsent.getErrorCode().name()).isEqualTo("GROUP_NOT_FOUND");   // GROMO-1725: «무엇이 없는가»를 코드로
         assertThat(userAbsent.getErrorCode().name())
                 .isNotEqualTo(groupAbsent.getErrorCode().name());
     }
@@ -2049,13 +2049,13 @@ class GroupServiceTest {
         given(userQueryService.getTargetForShare(TARGET_USER_ID))
                 .willReturn(userWithNickname(TARGET_USER_ID, "대상"));
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
@@ -2094,13 +2094,13 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
+    @DisplayName("존재하지 않는 그룹 → GROUP_NOT_FOUND")
     void transferOwnerGroupNotFound() {
         // given
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(userQueryService.getTargetForShare(TARGET_USER_ID)).willReturn(userWithNickname(TARGET_USER_ID, "대상"));
         given(groupQueryService.getGroup(GROUP_ID_99))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID_99, TARGET_USER_ID, USER_ID))

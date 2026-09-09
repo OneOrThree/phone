@@ -68,8 +68,8 @@ public class GroupMemberService {
         //
         // GROMO-1247: 여기는 <b>대상</b> 유저라 USER_NOT_FOUND(요청자 세션 사망 → 재로그인)로 바꾸지
         // 않는다. 방장이 없는 유저를 지목한 것이지 내 세션이 죽은 게 아니다 — 바꾸면 앱이 멀쩡한
-        // 방장을 로그아웃시킨다. 바로 아래 멤버십 조회의 GroupErrorCode.NOT_FOUND 와 같은 버킷
-        // ("지목한 대상이 없다")이고, 둘 다 code 문자열 "NOT_FOUND" 로 나가 앱 분기가 일치한다.
+        // 방장을 로그아웃시킨다. GROMO-1725: 대상 유저 부재는 TARGET_USER_NOT_FOUND, 바로 아래
+        // 멤버십 부재는 NOT_FOUND(그룹 안의 것) — 앱이 둘을 다른 문구로 가른다(1726).
         User targetUser = userQueryService.getTargetForShare(targetUserId);
 
         Group group = groupQueryService.getGroup(groupId);
@@ -113,7 +113,7 @@ public class GroupMemberService {
         // 강퇴 대상도 활성 검증 + 공유 락 (GROMO-1227) — 위 transferOwner 대상과 같은 논증이다.
         // GroupMember 에 @Version 이 없어 kick() 의 full-row UPDATE 가, 대상의 계정 탈퇴가 같은
         // 행에 이미 flush 한 변경(leave)을 stale 스냅샷으로 덮어쓴다(lost update). 탈퇴가 먼저
-        // 커밋되면 여기서 삭제를 관측하고 기존 계약대로 NOT_FOUND 로 거절된다.
+        // 커밋되면 여기서 삭제를 관측하고 TARGET_USER_NOT_FOUND 로 거절된다(GROMO-1725).
         // GROMO-1247: transferOwner 대상과 같은 이유로 USER_NOT_FOUND 로 바꾸지 않는다(대상 유저다).
         User targetUser = userQueryService.getTargetForShare(targetUserId);
         GroupMember target = groupQueryService.findMembership(targetUser, group)

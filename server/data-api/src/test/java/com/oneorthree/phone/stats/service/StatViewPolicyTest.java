@@ -123,7 +123,7 @@ class StatViewPolicyTest {
         User caller = User.builder().id(USER_ID).build();
         given(userQueryService.getCaller(USER_ID)).willReturn(caller);
         given(userQueryService.getTarget(FRIEND_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         assertThatThrownBy(() -> statViewPolicy.resolveTargetUserId(USER_ID, FRIEND_ID))
                 .isInstanceOf(UserException.class);

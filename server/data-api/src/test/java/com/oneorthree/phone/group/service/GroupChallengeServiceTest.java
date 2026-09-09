@@ -271,13 +271,13 @@ class GroupChallengeServiceTest {
         // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCaller(USER_ID)).willReturn(guest());
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
@@ -1527,13 +1527,13 @@ class GroupChallengeServiceTest {
         // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest());
         given(groupQueryService.getGroupForUpdate(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, null))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
@@ -2676,6 +2676,6 @@ class GroupChallengeServiceTest {
         assertThatThrownBy(() -> groupChallengeService.deleteChallenge(GROUP_ID, CHALLENGE_ID, USER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.CHALLENGE_NOT_FOUND);
     }
 }

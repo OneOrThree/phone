@@ -52,7 +52,7 @@ public class InventoryServiceTest {
     void getInventorySuccess() {
         // given
         User user = User.builder().nickname("테스터").build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getCaller(USER_ID)).willReturn(user);
         given(userItemRepository.findByUser(user)).willReturn(List.of());
 
         // when
@@ -67,13 +67,13 @@ public class InventoryServiceTest {
     @DisplayName("존재하지 않는(또는 탈퇴한) 유저 인벤토리 조회 시 UserException NOT_FOUND (GROMO-1237 예외 통일)")
     void getInventoryFailUserNotFound() {
         // given
-        given(userQueryService.getTarget(USER_ID_99)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getCaller(USER_ID_99)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> inventoryService.getInventory(USER_ID_99))
                 .isInstanceOf(UserException.class)
                 .extracting(e -> ((UserException) e).getErrorCode())
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     @Test
@@ -83,7 +83,7 @@ public class InventoryServiceTest {
         User user = User.builder().nickname("테스터").build();
         Item item = Item.builder().name("모자").slotType(SlotType.HAIR).grade("COMMON").build();
         // GROMO-1237: 지급(변경) 경로는 공유 락 활성 조회를 쓴다(락 규율).
-        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(itemQueryService.getItem(ITEM_ID)).willReturn(item);
 
         // when

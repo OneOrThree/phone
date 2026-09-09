@@ -92,7 +92,7 @@ class FocusTagSetupWithdrawRaceIntegrationTest extends IntegrationTestBase {
                     return true;
                 } catch (UserException e) {
                     // 탈퇴가 먼저 커밋됐으면 공유 락 조회가 재평가로 빈 결과 → 404 거절이 정상이다.
-                    assertThat(e.getErrorCode()).isEqualTo(UserErrorCode.NOT_FOUND);
+                    assertThat(e.getErrorCode()).isEqualTo(UserErrorCode.USER_NOT_FOUND);
                     return false;
                 }
             });

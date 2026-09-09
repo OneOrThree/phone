@@ -353,7 +353,7 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
                 () -> groupBetJoinService.joinWeek(group.getId(), foreign.getId(), member.getId(), null))) {
             assertThatThrownBy(call::run)
                     .isInstanceOf(GroupException.class)
-                    .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.NOT_FOUND);
+                    .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.CHALLENGE_NOT_FOUND);
         }
         assertThat(balanceOf(member)).isEqualTo(BALANCE);
         assertThat(groupChallengeBetParticipantRepository

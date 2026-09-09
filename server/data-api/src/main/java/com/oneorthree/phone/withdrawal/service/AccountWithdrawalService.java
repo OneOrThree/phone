@@ -72,7 +72,7 @@ public class AccountWithdrawalService {
     public void withdraw(UUID userId) {
         // 배타 락으로 로드 (GROMO-801) — 아래 소셜 관계 정리와 새 관계 생성(친구 요청·핀)을 직렬화한다.
         // 락이 없으면 READ COMMITTED 에서 정리 스캔 이후·커밋 이전에 낀 요청이 정리를 빠져나가 유령으로 남는다.
-        User user = userQueryService.getTargetForUpdate(userId);
+        User user = userQueryService.getCallerForUpdate(userId);
 
         // 그룹: 소유 그룹 정리 → HOST_WITHDRAW 판정 → OPEN 내기 해제(환불) → 판정 근거 박제 → 멤버십 이탈.
         // 제약 ①②의 왼쪽이 여기다 — 환불은 지갑 삭제보다, 박제는 익명화보다 앞서야 한다.

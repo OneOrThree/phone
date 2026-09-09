@@ -49,7 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 에러 응답 계약을 상수 단위로 고정한다 (GROMO-1657).
  *
  * <p><b>무엇을 지키는가.</b> 앱은 {@code body.code} 문자열로 분기한다. 그래서 계약은 봉투 모양이
- * 아니라 <b>「이 상수는 이 상태·이 code·이 문구로 나간다」</b>라는 100개의 개별 사실이다. 종전엔
+ * 아니라 <b>「이 상수는 이 상태·이 code·이 문구로 나간다」</b>라는 103개의 개별 사실이다. 종전엔
  * 그 사실을 지키는 테스트가 낙관락 1건뿐이었고, 도메인 핸들러 11개는 직접 테스트가 없었다 —
  * 핸들러 하나가 {@code e.getMessage()} 대신 다른 것을 실어도 아무것도 빨개지지 않았다.
  *
@@ -122,7 +122,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 115개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 118개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -138,7 +138,7 @@ class ErrorContractTest {
                 }));
             }
         }
-        assertThat(tests).as("실측 기준 도메인 상수 100개 + 공통 15개").hasSize(115);
+        assertThat(tests).as("실측 기준 도메인 상수 103개 + 공통 15개").hasSize(118);
         return tests;
     }
 

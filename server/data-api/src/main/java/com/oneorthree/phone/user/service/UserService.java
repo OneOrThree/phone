@@ -95,7 +95,7 @@ public class UserService {
     public void setupProfile(UUID userId, UserProfileSetupRequest body) {
         // users 행(닉네임·직군·국가)을 변경하는 트랜잭션 — 처음부터 배타 락 (GROMO-801 락 선택 원칙,
         // GROMO-1237). 공유 락으로 읽고 나중에 UPDATE 하면 락 승급 교착 대상이 된다.
-        User user = userQueryService.getTargetForUpdate(userId);
+        User user = userQueryService.getCallerForUpdate(userId);
 
         changeNickname(user, body.getNickname());
         if (body.getOccupation() != null) {
@@ -128,7 +128,7 @@ public class UserService {
     @Transactional
     public void updateProfile(UUID userId, UserProfileUpdateRequest body) {
         // users 행(닉네임·국가)을 변경할 수 있는 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
-        User user = userQueryService.getTargetForUpdate(userId);
+        User user = userQueryService.getCallerForUpdate(userId);
 
         // PATCH 의미론 유지 — null 은 "변경 안 함". 빈문자열·공백-only 는 changeNickname 의
         // 형식 검증(2~10자)이 400 으로 차단한다 (GROMO-1215 — 이전엔 "" 가 그대로 저장되는 구멍).
@@ -292,7 +292,7 @@ public class UserService {
      * @throws UserException 탈퇴했거나 지갑·설정 행 중 하나라도 없으면 404
      */
     public UserProfileResponse getProfile(UUID userId) {
-        User user = userQueryService.getTarget(userId);
+        User user = userQueryService.getCaller(userId);
         UserWallet wallet = userQueryService.getWallet(userId);
         UserScreenTimeSettings screenSettings = userQueryService.getScreenTimeSettings(userId);
         UserFocusTimeSettings focusSettings = userQueryService.getFocusTimeSettings(userId);
@@ -325,7 +325,7 @@ public class UserService {
     @Transactional
     public void updateStatVisibility(UUID userId, StatVisibility statVisibility) {
         // users 행(stat_visibility) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
-        User user = userQueryService.getTargetForUpdate(userId);
+        User user = userQueryService.getCallerForUpdate(userId);
         user.setStatVisibility(statVisibility);
         userActivityEventLogger.log(UserActivityEvent.STAT_VISIBILITY_UPDATED,
                 Map.of("visibility", statVisibility.name()));
@@ -361,7 +361,7 @@ public class UserService {
     @Transactional
     public void updateScreenTimeGoal(UUID userId, int dailyScreenTimeGoalMinutes) {
         // users 행은 읽기만(country_code → 오늘 계산)하고 설정 테이블만 변경 — 공유 락 (GROMO-801, GROMO-1237).
-        User user = userQueryService.getTargetForShare(userId);
+        User user = userQueryService.getCallerForShare(userId);
         UserScreenTimeSettings settings = userQueryService.getScreenTimeSettings(userId);
         settings.changeGoal(dailyScreenTimeGoalMinutes, todayOf());
         userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
@@ -377,7 +377,7 @@ public class UserService {
     @Transactional
     public void updateFocusTimeGoal(UUID userId, int dailyFocusTimeGoalMinutes) {
         // users 행은 읽기만(country_code → 오늘 계산)하고 설정 테이블만 변경 — 공유 락 (GROMO-801, GROMO-1237).
-        User user = userQueryService.getTargetForShare(userId);
+        User user = userQueryService.getCallerForShare(userId);
         UserFocusTimeSettings settings = userQueryService.getFocusTimeSettings(userId);
         settings.changeGoal(dailyFocusTimeGoalMinutes, todayOf());
         userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
@@ -397,7 +397,7 @@ public class UserService {
     public void updateOccupation(UUID userId, Occupation occupation) {
         requireActiveOccupation(occupation);
         // users 행(occupation) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
-        User user = userQueryService.getTargetForUpdate(userId);
+        User user = userQueryService.getCallerForUpdate(userId);
         user.setOccupation(occupation);
     }
 
@@ -421,7 +421,7 @@ public class UserService {
     @Transactional
     public void registerDeviceToken(UUID userId, String deviceToken) {
         // users 행(device_token) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
-        User user = userQueryService.getTargetForUpdate(userId);
+        User user = userQueryService.getCallerForUpdate(userId);
         user.setDeviceToken(deviceToken);
     }
 
@@ -433,7 +433,7 @@ public class UserService {
     @Transactional
     public void clearDeviceToken(UUID userId) {
         // users 행(device_token) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
-        User user = userQueryService.getTargetForUpdate(userId);
+        User user = userQueryService.getCallerForUpdate(userId);
         user.setDeviceToken(null);
     }
 
@@ -445,7 +445,7 @@ public class UserService {
      * @return 해제되지 않은 연동만. 해제한 연동은 행이 남아 있어도 빠진다
      */
     public List<SocialLinkResponse> getSocialLinks(UUID userId) {
-        User user = userQueryService.getTarget(userId);
+        User user = userQueryService.getCaller(userId);
         return socialAccountRepository.findAllByUserAndDeletedAtIsNull(user).stream()
                 .map(account -> new SocialLinkResponse(account.getProvider().name(), account.getCreatedAt()))
                 .toList();
@@ -469,7 +469,7 @@ public class UserService {
         // users 행은 읽기만 하고 social_accounts 만 변경 — 공유 락 (GROMO-801, GROMO-1237).
         // 잠금 순서는 user → social_accounts 로 withdraw(배타 락 → social 정리)와 동일 방향이라
         // AB-BA 교착이 없다. 탈퇴가 먼저 커밋되면 재평가로 빈 결과 → NOT_FOUND(404).
-        User user = userQueryService.getTargetForShare(userId);
+        User user = userQueryService.getCallerForShare(userId);
         // 비관적 잠금으로 활성 연동 전체 조회 — count와 대상 계정을 한 번에 확보해 원자성 보장
         List<SocialAccount> activeAccounts = socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user);
         SocialAccount socialAccount = activeAccounts.stream()

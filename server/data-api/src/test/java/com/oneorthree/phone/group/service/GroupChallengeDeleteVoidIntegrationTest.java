@@ -277,7 +277,7 @@ class GroupChallengeDeleteVoidIntegrationTest extends IntegrationTestBase {
                 .deleteChallenge(group.getId(), challenge.getId(), owner.getId()))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.CHALLENGE_NOT_FOUND);
     }
 
     @Test

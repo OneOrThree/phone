@@ -87,7 +87,7 @@ public class EquipmentServiceTest {
     @DisplayName("장착 상태 조회 성공 — 순수 읽기는 무락 활성 조회로 로드한다 (GROMO-1237 락 규율)")
     void getEquipmentSuccess() {
         // given
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getCaller(USER_ID)).willReturn(user);
         given(characterEquipmentRepo.findByUser(user)).willReturn(List.of());
 
         // when
@@ -95,7 +95,7 @@ public class EquipmentServiceTest {
 
         // then
         assertThat(result).isEmpty();
-        verify(userQueryService).getTarget(USER_ID);
+        verify(userQueryService).getCaller(USER_ID);
         verify(userQueryService, never()).getAny(USER_ID);
     }
 
@@ -103,20 +103,20 @@ public class EquipmentServiceTest {
     @DisplayName("존재하지 않는(또는 탈퇴한) 유저 장착 상태 조회 시 UserException NOT_FOUND (GROMO-1237 예외 통일)")
     void getEquipmentFailUserNotFound() {
         // given
-        given(userQueryService.getTarget(USER_ID_99)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getCaller(USER_ID_99)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         // when + then — EntityNotFoundException(핸들러 미등록 → 500) 대신 404 로 통일됐다.
         assertThatThrownBy(() -> equipmentService.getEquipment(USER_ID_99))
                 .isInstanceOf(UserException.class)
                 .extracting(e -> ((UserException) e).getErrorCode())
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     @Test
     @DisplayName("아이템 장착 성공 — 요청자는 공유 락 활성 조회로 로드한다 (GROMO-1237 락 규율)")
     void equipSuccess() {
         // given
-        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(itemQueryService.getItem(ITEM_ID)).willReturn(item);
         given(userItemRepo.findByUserAndItem(user, item)).willReturn(Optional.of(userItem));
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAIR)).willReturn(Optional.empty());
@@ -129,7 +129,7 @@ public class EquipmentServiceTest {
         assertThat(result.getItem().getName()).isEqualTo(item.getName());
         assertThat(result.getSlotType()).isEqualTo(SlotType.HAIR.name());
         // 락 규율 (GROMO-1237): 변경 트랜잭션은 공유 락 활성 조회 — 무락·무필터 getAny 금지.
-        verify(userQueryService).getTargetForShare(USER_ID);
+        verify(userQueryService).getCallerForShare(USER_ID);
         verify(userQueryService, never()).getAny(USER_ID);
     }
 
@@ -137,7 +137,7 @@ public class EquipmentServiceTest {
     @DisplayName("아이템 장착 성공 → ITEM_EQUIPPED(slot_type·item_type·grade·acquired_at) 발행 — 명시 userId 오버로드")
     void equipEmitsItemEquipped() {
         // given
-        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(itemQueryService.getItem(ITEM_ID)).willReturn(item);
         given(userItemRepo.findByUserAndItem(user, item)).willReturn(Optional.of(userItem));
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAIR)).willReturn(Optional.empty());
@@ -159,7 +159,7 @@ public class EquipmentServiceTest {
     @DisplayName("보유하지 않은 아이템 장착 시 예외 + ITEM_EQUIPPED 미발행")
     void equipFailNotOwned() {
         // given
-        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(itemQueryService.getItem(ITEM_ID)).willReturn(item);
         given(userItemRepo.findByUserAndItem(user, item)).willReturn(Optional.empty());
 
@@ -174,13 +174,13 @@ public class EquipmentServiceTest {
     @DisplayName("존재하지 않는(또는 탈퇴한) 유저 장착 시 UserException NOT_FOUND (GROMO-1237 예외 통일)")
     void equipFailUserNotFound() {
         // given
-        given(userQueryService.getTargetForShare(USER_ID_99)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getCallerForShare(USER_ID_99)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         // when + then — EntityNotFoundException(핸들러 미등록 → 500) 대신 404 로 통일됐다.
         assertThatThrownBy(() -> equipmentService.equip(USER_ID_99, ITEM_ID))
                 .isInstanceOf(UserException.class)
                 .extracting(e -> ((UserException) e).getErrorCode())
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     @Test
@@ -193,7 +193,7 @@ public class EquipmentServiceTest {
                 .build();
         equipment.equip(item);
 
-        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAIR)).willReturn(Optional.of(equipment));
 
         // when

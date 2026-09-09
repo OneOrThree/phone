@@ -104,7 +104,7 @@ class GroupQueryServiceTest {
         assertThatThrownBy(() -> groupQueryService.getGroup(GROUP_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
@@ -124,7 +124,7 @@ class GroupQueryServiceTest {
         assertThatThrownBy(() -> groupQueryService.getGroupForUpdate(GROUP_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     /**
@@ -278,7 +278,7 @@ class GroupQueryServiceTest {
         assertThatThrownBy(() -> groupQueryService.getJoinCode(GROUP_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
         assertThat(groupQueryService.findJoinCode(GROUP_ID)).isEmpty();
         verify(groupJoinCodeRepository, times(2)).findById(GROUP_ID);
     }

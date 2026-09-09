@@ -47,7 +47,7 @@ import java.util.UUID;
  * 지갑({@code user_wallets})과 설정 3종({@code user_*_settings})은 가입 시
  * {@code AuthService} 가 함께 만드는 유저당 한 행짜리 부속 테이블이라, {@code userId} 가 곧 PK 다.
  * 이 조회도 같은 갈래 문제를 갖고 있었다 — <b>같은 부재를 소유 도메인은 오류로, 빌리는 도메인은
- * 정상으로</b> 취급한다. {@code user}·{@code currency} 는 {@link UserErrorCode#NOT_FOUND} 를 던지고
+ * 정상으로</b> 취급한다. {@code user}·{@code currency} 는 {@link UserErrorCode#TARGET_USER_NOT_FOUND} 를 던지고
  * (16건), {@code stats}·{@code focus}·{@code screentime}·{@code group}·{@code notification} 은
  * {@code orElse(0)}·{@code orElse(false)}·{@code orElse(null)} 로 조용히 기본값을 쓴다(10건).
  *
@@ -61,7 +61,7 @@ import java.util.UUID;
  * 락 3종이 다 쓰이는데, 권한 회수(배타)와 내기 참가 가드(공유)가 같은 행에서 경합하기 때문이다.
  *
  * <h2>왜 예외가 두 갈래인가</h2>
- * {@code getTarget*} 은 <b>요청이 지목한</b> 유저 부재라 {@link UserErrorCode#NOT_FOUND},
+ * {@code getTarget*} 은 <b>요청이 지목한</b> 유저 부재라 {@link UserErrorCode#TARGET_USER_NOT_FOUND},
  * {@code getCaller*} 는 <b>요청자 본인</b>의 활성 계정 부재라 {@link UserErrorCode#USER_NOT_FOUND} 를
  * 던진다. 앱이 이 code 문자열로 분기하므로(GROMO-1247) 둘을 합치면 계약이 깨진다 — 시그니처로 갈라둔다.
  */
@@ -90,10 +90,10 @@ public class UserQueryService {
      *
      * @param id 조회 대상
      * @return 활성 유저
-     * @throws UserException 없거나 탈퇴했으면 {@link UserErrorCode#NOT_FOUND}
+     * @throws UserException 없거나 탈퇴했으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}
      */
     public User getTarget(UUID id) {
-        return findActive(id).orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        return findActive(id).orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
     }
 
     /**
@@ -127,11 +127,11 @@ public class UserQueryService {
      *
      * @param id 조회 대상
      * @return 활성 유저
-     * @throws UserException 없거나 탈퇴했으면 {@link UserErrorCode#NOT_FOUND}
+     * @throws UserException 없거나 탈퇴했으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}
      */
     public User getTargetForShare(UUID id) {
         return userRepository.findActiveByIdForShare(id)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
     }
 
     /**
@@ -151,11 +151,25 @@ public class UserQueryService {
      *
      * @param id 조회 대상
      * @return 활성 유저
-     * @throws UserException 없거나 탈퇴했으면 {@link UserErrorCode#NOT_FOUND}
+     * @throws UserException 없거나 탈퇴했으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}
      */
     public User getTargetForUpdate(UUID id) {
         return userRepository.findActiveByIdForUpdate(id)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
+    }
+
+    /**
+     * 요청자 본인의 활성 계정 — <b>배타 락</b>. 이 트랜잭션이 요청자의 users 행을 변경할 때 쓴다
+     * (프로필 수정·탈퇴·캐릭터 생성 등). GROMO-1725 에서 요청자 부재를 전 도메인
+     * {@link UserErrorCode#USER_NOT_FOUND} 로 통일하면서 생겼다.
+     *
+     * @param id 요청자
+     * @return 잠긴 활성 유저
+     * @throws UserException 없거나 탈퇴했으면 {@link UserErrorCode#USER_NOT_FOUND}
+     */
+    public User getCallerForUpdate(UUID id) {
+        return findActiveForUpdate(id)
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
     }
 
     /**
@@ -170,11 +184,11 @@ public class UserQueryService {
      *
      * @param id 조회 대상
      * @return 유저. <b>탈퇴(소프트딜리트)했어도 그대로 반환한다</b>
-     * @throws UserException 행 자체가 없으면 {@link UserErrorCode#NOT_FOUND}
+     * @throws UserException 행 자체가 없으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}
      */
     public User getAny(UUID id) {
         return userRepository.findById(id)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
     }
 
     /**
@@ -196,12 +210,12 @@ public class UserQueryService {
      *
      * @param userId 지갑 주인
      * @return 지갑
-     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}. 가입 시 함께 만들어지므로
+     * @throws UserException 없으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}. 가입 시 함께 만들어지므로
      *     부재는 사실상 데이터 손상이다
      */
     public UserWallet getWallet(UUID userId) {
         return userWalletRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
     }
 
     /**
@@ -212,11 +226,11 @@ public class UserQueryService {
      *
      * @param userId 지갑 주인
      * @return 잠긴 지갑
-     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}
+     * @throws UserException 없으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}
      */
     public UserWallet getWalletForUpdate(UUID userId) {
         return userWalletRepository.findByIdForUpdate(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -228,11 +242,11 @@ public class UserQueryService {
      *
      * @param userId 설정 주인
      * @return 설정
-     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}
+     * @throws UserException 없으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}
      */
     public UserScreenTimeSettings getScreenTimeSettings(UUID userId) {
         return userScreenTimeSettingsRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
     }
 
     /**
@@ -266,11 +280,11 @@ public class UserQueryService {
      *
      * @param userId 설정 주인
      * @return 잠긴 설정
-     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}
+     * @throws UserException 없으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}
      */
     public UserScreenTimeSettings getScreenTimeSettingsForUpdate(UUID userId) {
         return userScreenTimeSettingsRepository.findByIdForUpdate(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
     }
 
     /**
@@ -292,11 +306,11 @@ public class UserQueryService {
      *
      * @param userId 설정 주인
      * @return 설정
-     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}
+     * @throws UserException 없으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}
      */
     public UserFocusTimeSettings getFocusTimeSettings(UUID userId) {
         return userFocusTimeSettingsRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
     }
 
     /**
@@ -314,11 +328,11 @@ public class UserQueryService {
      *
      * @param userId 설정 주인
      * @return 설정
-     * @throws UserException 없으면 {@link UserErrorCode#NOT_FOUND}
+     * @throws UserException 없으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}
      */
     public UserNotificationSettings getNotificationSettings(UUID userId) {
         return userNotificationSettingsRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
     }
 
     /**

@@ -387,7 +387,7 @@ class UserControllerTest {
     @Test
     @DisplayName("알림 설정 조회 - 설정 없음 → 404")
     void getNotificationSettingsNotFoundReturns404() throws Exception {
-        willThrow(new UserException(UserErrorCode.NOT_FOUND))
+        willThrow(new UserException(UserErrorCode.USER_NOT_FOUND))
                 .given(userService).getNotificationSettings(any());
 
         mockMvc.perform(get("/api/v1/users/me/notification-settings")

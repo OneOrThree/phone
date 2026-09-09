@@ -325,7 +325,7 @@ class StatsServiceTest {
     @DisplayName("오늘 요약 — 유저 없음 → UserException")
     void getTodayStatsUserNotFound() {
         given(userQueryService.getTarget(USER_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         assertThatThrownBy(() -> statsService.getTodayStats(USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(UserException.class);
@@ -1013,7 +1013,7 @@ class StatsServiceTest {
     @DisplayName("스크린타임 — 유저 없음 → UserException(NOT_FOUND)")
     void getScreenTimePeriodStatsUserNotFound() {
         given(userQueryService.getTarget(USER_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         assertThatThrownBy(() ->
                 statsService.getScreenTimePeriodStats(USER_ID, StatsPeriod.DAY, FIXED_TODAY))

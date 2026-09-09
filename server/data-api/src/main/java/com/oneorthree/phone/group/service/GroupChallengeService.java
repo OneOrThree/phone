@@ -751,7 +751,7 @@ public class GroupChallengeService {
         // 챌린지에 참가비가 걸린 회차가 매달린다(종전 삭제 락 유지 — N42 계열).
         GroupChallenge groupChallenge = groupChallengeRepository
                 .findByIdAndGroupAndDeletedAtIsNullForUpdate(challengeId, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new GroupException(GroupErrorCode.CHALLENGE_NOT_FOUND));
 
         // to-be(FR-12, GROMO-1272): 삭제는 언제든 가능하다 — 종전 "OPEN 있으면 삭제 차단"
         // (CHALLENGE_HAS_OPEN_BET)을 대체한다. OPEN 회차(예약된 미래 포함)는 전부
@@ -791,7 +791,7 @@ public class GroupChallengeService {
 
         GroupChallenge groupChallenge = groupChallengeRepository
                 .findByIdAndGroupAndDeletedAtIsNullForUpdate(challengeId, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new GroupException(GroupErrorCode.CHALLENGE_NOT_FOUND));
 
         // 멱등 — 이미 종료된 챌린지의 재종료 요청은 무해하다(ended_at 도 당겨쓰지 않는다).
         if (groupChallenge.getStatus() == GroupChallengeStatus.ENDED) {

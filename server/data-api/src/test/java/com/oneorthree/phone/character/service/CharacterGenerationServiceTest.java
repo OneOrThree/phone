@@ -63,7 +63,7 @@ class CharacterGenerationServiceTest {
 
     // GROMO-1237: 쿼터 경로는 trial 앵커 UPDATE 가능성이 있어 배타 락 조회를 쓴다(락 규율).
     private void givenUser(User user) {
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
     }
 
     private void givenWindowCount(long count) {
@@ -150,7 +150,7 @@ class CharacterGenerationServiceTest {
         service.getQuota(USER_ID);
 
         // 앵커 lazy 초기화가 users 행을 UPDATE 할 수 있으므로 처음부터 배타 락(승급 교착 방지).
-        verify(userQueryService).getTargetForUpdate(USER_ID);
+        verify(userQueryService).getCallerForUpdate(USER_ID);
         verify(userQueryService, never()).getAny(USER_ID);
     }
 }

@@ -134,7 +134,7 @@ class GroupAnnouncementServiceTest {
         // given: 게스트 유저, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user(true));
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
 
@@ -142,7 +142,7 @@ class GroupAnnouncementServiceTest {
         assertThatThrownBy(() -> groupAnnouncementService.createAnnouncement(GROUP_ID, USER_ID, request))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
         verify(groupAnnouncementRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }
 
@@ -230,13 +230,13 @@ class GroupAnnouncementServiceTest {
         // given: 게스트 유저, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userQueryService.getCaller(USER_ID)).willReturn(user(true));
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test

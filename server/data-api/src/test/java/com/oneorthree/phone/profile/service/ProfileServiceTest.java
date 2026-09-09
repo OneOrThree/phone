@@ -129,12 +129,12 @@ class ProfileServiceTest {
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getPublicProfile_userNotFound() {
         given(userQueryService.getTarget(USER_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         assertThatThrownBy(() -> profileService.getPublicProfile(OTHER_ID, USER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
     }
 
     // ── 소프트딜리트 유저 → 404 ───────────────────────────────────────────
@@ -144,12 +144,12 @@ class ProfileServiceTest {
     void getPublicProfile_deletedUser() {
         // 탈퇴 판정은 조회 계층이 한다 — 여기서는 그 404 가 그대로 올라오는지만 본다 (GROMO-1655).
         given(userQueryService.getTarget(USER_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         assertThatThrownBy(() -> profileService.getPublicProfile(OTHER_ID, USER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
     }
 
     @Test
@@ -515,12 +515,12 @@ class ProfileServiceTest {
     @DisplayName("존재하지 않는 targetUserId → UserException(NOT_FOUND)")
     void getUserStats_targetNotFound_throws404() {
         given(userQueryService.getTarget(USER_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         assertThatThrownBy(() -> profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
     }
 
     @Test
@@ -528,11 +528,11 @@ class ProfileServiceTest {
     void getUserStats_deletedTarget_throws404() {
         // 탈퇴 판정은 조회 계층이 한다 — 여기서는 그 404 가 그대로 올라오는지만 본다 (GROMO-1655).
         given(userQueryService.getTarget(USER_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+                .willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         assertThatThrownBy(() -> profileService.getUserStats(OTHER_ID, USER_ID, LocalDate.of(2026, 7, 3)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
     }
 }

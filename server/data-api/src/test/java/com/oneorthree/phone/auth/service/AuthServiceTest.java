@@ -112,7 +112,7 @@ class AuthServiceTest {
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(savedUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -144,7 +144,7 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.of(existingAccount));
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(existingUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(existingUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -170,7 +170,7 @@ class AuthServiceTest {
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(savedUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -194,7 +194,7 @@ class AuthServiceTest {
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(savedUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -229,7 +229,7 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.of(deletedAccount));
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(existingUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(existingUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -260,7 +260,7 @@ class AuthServiceTest {
         given(socialAccountRepository.save(any(SocialAccount.class)))
                 .willThrow(new DataIntegrityViolationException("uq_social_accounts_provider_id"));
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(existingUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(existingUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -291,12 +291,12 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.of(existingAccount));
         // 배타 락 재검증이 탈퇴를 관측 — 활성 조회 빈 결과
-        given(userQueryService.getTargetForUpdate(USER_ID))
-                .willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getCallerForUpdate(USER_ID))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         assertThatThrownBy(() -> authService.socialLogin(Provider.KAKAO, "kakao-token", null))
                 .isInstanceOf(UserException.class)
-                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.NOT_FOUND);
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.USER_NOT_FOUND);
         // 토큰 상태 변경 없음 — 발급 자체가 시작되지 않는다
         assertThat(existingUser.getRefreshTokenHash()).isNull();
         verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean());
@@ -321,7 +321,7 @@ class AuthServiceTest {
         // 먼저여야 하고, 잠그는 대상은 활성 게스트 행뿐이다(isGuest 술어 — 계정 전환 2행 잠금 교착 방지).
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.of(guestUser));
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getTargetForUpdate(GUEST_ID)).willReturn(guestUser);
+        given(userQueryService.getCallerForUpdate(GUEST_ID)).willReturn(guestUser);
         // 승격 직후 발급 — isGuest=false 상태의 토큰이 나간다 (GROMO-1229)
         given(jwtProvider.generateAccessToken(GUEST_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(GUEST_ID, false)).willReturn("refresh-token");
@@ -387,7 +387,7 @@ class AuthServiceTest {
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(savedUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -416,7 +416,7 @@ class AuthServiceTest {
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.of(guestUser));
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
-        given(userQueryService.getTargetForUpdate(GUEST_ID)).willReturn(guestUser);
+        given(userQueryService.getCallerForUpdate(GUEST_ID)).willReturn(guestUser);
         // 승격 직후 발급 — isGuest=false 상태의 토큰이 나간다 (GROMO-1229)
         given(jwtProvider.generateAccessToken(GUEST_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(GUEST_ID, false)).willReturn("refresh-token");
@@ -447,7 +447,7 @@ class AuthServiceTest {
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(savedUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -472,7 +472,7 @@ class AuthServiceTest {
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(savedUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -533,7 +533,7 @@ class AuthServiceTest {
         given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
         given(userQueryService.findActive(GUEST_ID)).willReturn(Optional.of(promotedUser));
-        given(userQueryService.getTargetForUpdate(GUEST_ID)).willReturn(promotedUser);
+        given(userQueryService.getCallerForUpdate(GUEST_ID)).willReturn(promotedUser);
         given(jwtProvider.generateAccessToken(GUEST_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(GUEST_ID, false)).willReturn("refresh-token");
 
@@ -594,7 +594,7 @@ class AuthServiceTest {
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(accountOwner);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(accountOwner);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -620,7 +620,7 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(savedUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -646,7 +646,7 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(savedUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
@@ -673,7 +673,7 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
-        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(savedUser);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 

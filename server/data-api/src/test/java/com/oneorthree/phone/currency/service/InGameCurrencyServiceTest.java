@@ -64,12 +64,12 @@ class InGameCurrencyServiceTest {
     @Test
     @DisplayName("지갑 없음 → UserException(NOT_FOUND)")
     void getCurrencyBalanceUserNotFound() {
-        given(userQueryService.getWallet(USER_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getWallet(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         assertThatThrownBy(() -> inGameCurrencyService.getCurrencyBalance(USER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     // ── getCurrencyTransactions ───────────────────────────────────────────
@@ -78,7 +78,7 @@ class InGameCurrencyServiceTest {
     @DisplayName("거래내역 조회 성공 → 최신순 TransactionsResponse 매핑")
     void getCurrencyTransactionsSuccess() {
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTarget(USER_ID)).willReturn(user);
+        given(userQueryService.getCaller(USER_ID)).willReturn(user);
 
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         Instant earlier = Instant.parse("2025-12-31T00:00:00Z");
@@ -104,12 +104,12 @@ class InGameCurrencyServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getCurrencyTransactionsUserNotFound() {
-        given(userQueryService.getTarget(USER_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getCaller(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         assertThatThrownBy(() -> inGameCurrencyService.getCurrencyTransactions(USER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     // ── earnCurrency (currency 폐쇄 — no-op) ──────────────────────────────
@@ -135,7 +135,7 @@ class InGameCurrencyServiceTest {
     @DisplayName("사용 사유가 서버 전용(BET_*) → CurrencyException(ILLEGAL_SPEND_REASON)")
     void spendCurrencyRejectsServerOnlyTypes() {
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
 
         // spend 는 PURCHASE 만 허용하므로 BET_* 는 원래 걸리지만, 그 성질을 테스트로 못 박아 둔다.
         assertThatThrownBy(() ->
@@ -153,14 +153,14 @@ class InGameCurrencyServiceTest {
     void spendCurrencySuccess() {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(1000).build();
-        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(userQueryService.getWallet(USER_ID)).willReturn(wallet);
 
         inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 300);
 
         assertThat(wallet.getBalance()).isEqualTo(700);
         // 락 규율 (GROMO-1237): 돈이 움직이는 변경 트랜잭션은 공유 락 활성 조회 — 무락·무필터 getAny 금지.
-        verify(userQueryService).getTargetForShare(USER_ID);
+        verify(userQueryService).getCallerForShare(USER_ID);
         verify(userQueryService, never()).getAny(USER_ID);
 
         ArgumentCaptor<CurrencyTransaction> captor = ArgumentCaptor.forClass(CurrencyTransaction.class);
@@ -173,20 +173,20 @@ class InGameCurrencyServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void spendCurrencyUserNotFound() {
-        given(userQueryService.getTargetForShare(USER_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getCallerForShare(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         assertThatThrownBy(() ->
                 inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 300))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     @Test
     @DisplayName("사용 사유가 PURCHASE 아님 → CurrencyException(ILLEGAL_SPEND_REASON)")
     void spendCurrencyIllegalReason() {
         User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
 
         assertThatThrownBy(() ->
                 inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.SESSION_COMPLETE, 300))
@@ -203,7 +203,7 @@ class InGameCurrencyServiceTest {
     void spendCurrencyInsufficientBalance() {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(50).build();
-        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(userQueryService.getWallet(USER_ID)).willReturn(wallet);
 
         assertThatThrownBy(() ->
@@ -220,7 +220,7 @@ class InGameCurrencyServiceTest {
     void spendCurrencyNonPositiveAmount() {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(1000).build();
-        given(userQueryService.getTargetForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(userQueryService.getWallet(USER_ID)).willReturn(wallet);
 
         assertThatThrownBy(() ->

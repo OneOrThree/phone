@@ -111,14 +111,14 @@ class GroupMemberServiceTest {
         User owner = User.builder().id(OWNER_ID).build();
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         // 탈퇴가 먼저 커밋된 대상 — 활성 조회(공유 락)가 빈 결과를 돌려준다
-        given(userQueryService.getTargetForShare(TARGET_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getTargetForShare(TARGET_ID)).willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         // GROMO-1247: 여기는 대상 유저다 — 요청자 세션 사망 코드(USER_NOT_FOUND)로 새면 앱이
         // 멀쩡한 방장을 로그아웃시킨다. 대상 부재는 기존 NOT_FOUND 그대로 유지한다.
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND)
+                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND)
                 .isNotEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
@@ -131,13 +131,13 @@ class GroupMemberServiceTest {
         given(userQueryService.getTargetForShare(TARGET_ID))
                 .willReturn(User.builder().id(TARGET_ID).build());
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
@@ -165,13 +165,13 @@ class GroupMemberServiceTest {
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
@@ -279,14 +279,14 @@ class GroupMemberServiceTest {
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(owner);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(ownerMember));
-        given(userQueryService.getTargetForShare(TARGET_ID)).willThrow(new UserException(UserErrorCode.NOT_FOUND));
+        given(userQueryService.getTargetForShare(TARGET_ID)).willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
 
         // when & then: 거절 + 이탈 이벤트 없음
         // GROMO-1247: 대상 유저 부재라 NOT_FOUND 유지 — transferOwner 대상과 같은 논증이다.
         assertThatThrownBy(() -> groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND)
+                .isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND)
                 .isNotEqualTo(UserErrorCode.USER_NOT_FOUND);
         verify(userActivityEventLogger, never()).log(any(), any());
     }
@@ -361,13 +361,13 @@ class GroupMemberServiceTest {
         User guest = User.builder().id(OWNER_ID).isGuest(true).build();
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(guest);
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     // ── withdrawGroup ─────────────────────────────────────────────────────
@@ -450,13 +450,13 @@ class GroupMemberServiceTest {
         User user = User.builder().id(OWNER_ID).isGuest(true).build();
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.NOT_FOUND));
+                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.withdrawGroup(GROUP_ID, OWNER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.NOT_FOUND);
+                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test

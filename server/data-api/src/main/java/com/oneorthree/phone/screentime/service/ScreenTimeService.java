@@ -173,7 +173,7 @@ public class ScreenTimeService {
      * 거절한다. 쓰기 트랜잭션({@code @Transactional})을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userQueryService.getTargetForShare(userId);
+        return userQueryService.getCallerForShare(userId);
     }
 
     /**

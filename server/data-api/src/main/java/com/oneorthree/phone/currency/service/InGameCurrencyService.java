@@ -54,7 +54,7 @@ public class InGameCurrencyService {
      */
     public List<TransactionsResponse> getCurrencyTransactions(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
-        User user = userQueryService.getTarget(userId);
+        User user = userQueryService.getCaller(userId);
 
         return currencyTransactionRepository.findByUserOrderByCreatedAtDesc(user)
                 .stream()
@@ -124,6 +124,6 @@ public class InGameCurrencyService {
      * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        return userQueryService.getTargetForShare(userId);
+        return userQueryService.getCallerForShare(userId);
     }
 }

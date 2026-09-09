@@ -167,7 +167,7 @@ public class GroupBetService {
         // 매달린다.
         GroupChallenge challenge = groupChallengeRepository
                 .findByIdAndGroupAndDeletedAtIsNullForUpdate(challengeId, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new GroupException(GroupErrorCode.CHALLENGE_NOT_FOUND));
         if (challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
             throw new GroupException(GroupErrorCode.BET_CHALLENGE_INACTIVE);
         }
@@ -1073,7 +1073,7 @@ public class GroupBetService {
         Group group = requireGroupMembership(user, groupId);
         // 삭제된 챌린지의 히스토리는 진입점(챌린지 카드)이 없다 — 조회 경로 공통 규칙대로 404.
         groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(challengeId, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new GroupException(GroupErrorCode.CHALLENGE_NOT_FOUND));
 
         Slice<GroupChallengeBetSession> slice;
         if (cursor == null) {
