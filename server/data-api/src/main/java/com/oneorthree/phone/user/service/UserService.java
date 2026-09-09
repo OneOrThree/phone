@@ -236,7 +236,7 @@ public class UserService {
      *
      * <p><b>호출 순서 제약</b>: 그룹 내기 해제의 환불이 이 유저의 지갑에 입금되므로
      * ({@code GroupMemberService.detachWithdrawnUser}), 그보다 <b>뒤</b>에 불려야 한다 —
-     * 지갑을 먼저 지우면 환불이 {@code USER_NOT_FOUND} 로 터진다.
+     * 지갑을 먼저 지우면 환불이 {@code TARGET_USER_NOT_FOUND} 로 터진다(원장은 대상 축).
      *
      * @param userId 탈퇴 중인 유저
      */
