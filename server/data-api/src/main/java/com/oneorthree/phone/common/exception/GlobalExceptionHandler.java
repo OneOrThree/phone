@@ -264,7 +264,12 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
-        return body(CommonErrorCode.METHOD_NOT_ALLOWED);
+        // 405 는 Allow 헤더가 규약상 필수다(RFC 9110 §15.5.6) — 스프링 기본 처리기는 실어 보내는데 봉투를
+        // 만들면서 버리고 있었다(codex 리뷰). 예외가 이미 만들어 둔 헤더를 그대로 복사한다.
+        return ResponseEntity.status(CommonErrorCode.METHOD_NOT_ALLOWED.getStatus())
+                .headers(e.getHeaders())
+                .body(new ErrorResponse(CommonErrorCode.METHOD_NOT_ALLOWED.name(),
+                        CommonErrorCode.METHOD_NOT_ALLOWED.getMessage()));
     }
 
     /**
@@ -320,7 +325,8 @@ public class GlobalExceptionHandler {
         // 나열한 타입은 전부 org.springframework.web.ErrorResponse 를 구현한다 — 상속 계층은 제각각이라
         // (ServletException 계열·RuntimeException 계열) 인터페이스로는 @ExceptionHandler 를 못 걸고
         // 스프링 자신의 ResponseEntityExceptionHandler 처럼 목록으로 잡는다.
-        HttpStatusCode status = ((org.springframework.web.ErrorResponse) e).getStatusCode();
+        org.springframework.web.ErrorResponse errorResponse = (org.springframework.web.ErrorResponse) e;
+        HttpStatusCode status = errorResponse.getStatusCode();
         CommonErrorCode code;
         if (status.value() == 415) {
             code = CommonErrorCode.UNSUPPORTED_MEDIA_TYPE;
@@ -332,7 +338,9 @@ public class GlobalExceptionHandler {
             log.error("프레임워크 예외 → {} INTERNAL_ERROR", status.value(), e);
             code = CommonErrorCode.INTERNAL_ERROR;
         }
-        return ResponseEntity.status(status).body(new ErrorResponse(code.name(), code.getMessage()));
+        // 예외가 만든 헤더(415 의 Accept 등)도 함께 — 상태만 옮기고 헤더를 버리면 규약이 깨진다.
+        return ResponseEntity.status(status).headers(errorResponse.getHeaders())
+                .body(new ErrorResponse(code.name(), code.getMessage()));
     }
 
     /**

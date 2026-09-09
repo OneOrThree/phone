@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -107,7 +108,9 @@ class UnhandledEnvelopeTest {
     void methodNotAllowedIsEnveloped() throws Exception {
         mockMvc.perform(post("/__envelope/param"))
                 .andExpect(status().isMethodNotAllowed())
-                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"))
+                // 405 는 Allow 가 규약상 필수 — 봉투를 만들면서 버리면 클라이언트가 지원 메서드를 알 수 없다
+                .andExpect(header().string("Allow", org.hamcrest.Matchers.containsString("GET")));
     }
 
     @Test
@@ -142,7 +145,9 @@ class UnhandledEnvelopeTest {
     void unsupportedMediaTypeKeepsItsStatus() throws Exception {
         mockMvc.perform(post("/__envelope/valid").contentType(MediaType.TEXT_PLAIN).content("name=x"))
                 .andExpect(status().isUnsupportedMediaType())
-                .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"))
+                // 예외가 만든 Accept(지원 타입 목록) 헤더도 함께 나가야 한다
+                .andExpect(header().string("Accept", org.hamcrest.Matchers.containsString("application/json")));
     }
 
     @Test
