@@ -111,7 +111,7 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 | 그 외 스프링 MVC 표준 예외 | 예외의 상태 | 4xx 는 `INVALID_REQUEST`, 5xx 는 `INTERNAL_ERROR` — `org.springframework.web.ErrorResponse` 구현체는 자기 상태를 지킨다(catch-all 로 500 이 되지 않는다) |
 | 없는 경로 | 404 | `RESOURCE_NOT_FOUND` — **`NOT_FOUND` 가 아니다**(아래) |
 | JPA `EntityNotFoundException` | 404 | `ENTITY_NOT_FOUND` — 도메인 코드로 치환되면 안 쓰인다(GROMO-895) |
-| 잡히지 않은 `IllegalArgumentException` | **409** | `ILLEGAL_ARGUMENT` — 400 전환은 계약 변경이라 GROMO-1725 |
+| 잡히지 않은 `IllegalArgumentException` | 400 | `ILLEGAL_ARGUMENT` — 종전 409, GROMO-1725 에서 전환. 앱까지 닿던 raw 발급 3곳은 도메인 코드로 치환됐다 |
 | DB 제약 위반 | 409 | `DATA_INTEGRITY_VIOLATION` |
 | 낙관락·비관락 충돌 | 409 | `CONCURRENT_UPDATE` — 재시도하면 풀린다 |
 | `@LoginUser` 배선 오류 | 500 | `LOGIN_USER_RESOLUTION_FAILED` |
@@ -137,7 +137,7 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 
 | 무엇 | 지금 | 이관처 |
 | --- | --- | --- |
-| `IllegalArgumentException` 그물 | 409 `ILLEGAL_ARGUMENT`. 잘못된 입력에 «충돌»이라 답한다. 이 그물에 걸리는 raw `IllegalArgumentException` 21건(throw 20 + 람다 1) | 400 전환은 GROMO-1725(계약 변경), 도메인 코드 치환은 GROMO-895 |
+| `IllegalArgumentException` 그물 | 해소 — 400 `ILLEGAL_ARGUMENT`(GROMO-1725). 앱 도달 3곳(집중 세션 시각 → `INVALID_DATE_RANGE`, 친구 검색 수단 → `INVALID_SEARCH_TYPE`, 소셜 제공자 → `UNSUPPORTED_PROVIDER`)은 도메인 코드로. 그물에 남은 raw throw 17건은 리포지토리·값객체 내부 가드 | 895 는 item·screentime 예외 신설만 남음 |
 | `IllegalStateException` 25건 | catch-all 로 500 `INTERNAL_ERROR` — 종전엔 봉투도 없었다 | 프로그래밍 오류 계열이라 그대로 500 이 맞다. 입력 검증에 쓰인 것이 있으면 895 에서 치환 |
 | item 의 `EntityNotFoundException` | 404 `ENTITY_NOT_FOUND` — 종전엔 500. 핸들러 도달 시 warn 이 남는다 | 도메인 코드(`ItemErrorCode`) 치환 → GROMO-895 |
 | `NOT_FOUND` 두 도메인 중복 | 앱 17곳이 «그룹이 사라짐»으로 해석 | GROMO-1725 |
@@ -149,7 +149,7 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 
 `ErrorContractTest` 는 목록을 손으로 적지 않는다 — `ErrorCode` 를 구현한 enum 을 **클래스패스에서 찾아**
 상수마다 예외를 만들어 `handleDomain` 에 통과시키고 `(status, code, message)` 를 단언한다(2026-09-09
-기준 115개 = 도메인 100 + `CommonErrorCode` 15). 그래서 잡히는 것:
+기준 117개 = 도메인 102 + `CommonErrorCode` 15 — GROMO-1725 에서 `INVALID_SEARCH_TYPE`·`UNSUPPORTED_PROVIDER` 추가). 그래서 잡히는 것:
 
 - 핸들러가 `code.name()` 이 아닌 것을 `code` 로 싣는다 → 100건 실패 (실제로 넣어 확인)
 - 도메인별 핸들러가 다시 생긴다 → 「하나뿐」 단언 실패 (실제로 넣어 확인)

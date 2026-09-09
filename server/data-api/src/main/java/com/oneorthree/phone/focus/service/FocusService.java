@@ -377,11 +377,11 @@ public class FocusService {
         User user = requireActiveUser(userId);
 
         if (body.getStartedAt() == null || body.getEndedAt() == null) {
-            throw new IllegalArgumentException("시작/종료 시간은 필수입니다");
+            throw new FocusException(FocusErrorCode.INVALID_DATE_RANGE);   // 400 (GROMO-1725, 종전 IAE 409)
         }
 
         if (body.getEndedAt().isBefore(body.getStartedAt())) {
-            throw new IllegalArgumentException("종료 시간이 시작 시간보다 앞설 수 없습니다");
+            throw new FocusException(FocusErrorCode.INVALID_DATE_RANGE);
         }
 
         UserFocusTag tag = resolveOwnedTag(userId, body.getFocusTagId());

@@ -770,7 +770,7 @@ class FocusServiceTest {
     }
 
     @Test
-    @DisplayName("시작/종료 시간 누락 → IllegalArgumentException")
+    @DisplayName("시작/종료 시간 누락 → 400 INVALID_DATE_RANGE (GROMO-1725, 종전 IllegalArgumentException 409)")
     void saveFocusSessionNullTime() {
         // given: 유저는 존재하지만 startedAt/endedAt 이 null
         User user = User.builder().id(USER_ID).build();
@@ -779,12 +779,13 @@ class FocusServiceTest {
 
         // when & then
         assertThatThrownBy(() -> focusService.saveFocusSession(USER_ID, body))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode").isEqualTo(FocusErrorCode.INVALID_DATE_RANGE);
         verify(focusSessionRepository, never()).save(any(FocusSession.class));
     }
 
     @Test
-    @DisplayName("종료 시간이 시작보다 앞섬 → IllegalArgumentException")
+    @DisplayName("종료 시간이 시작보다 앞섬 → 400 INVALID_DATE_RANGE (GROMO-1725)")
     void saveFocusSessionEndBeforeStart() {
         // given: endedAt < startedAt
         User user = User.builder().id(USER_ID).build();
@@ -793,7 +794,8 @@ class FocusServiceTest {
 
         // when & then
         assertThatThrownBy(() -> focusService.saveFocusSession(USER_ID, body))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode").isEqualTo(FocusErrorCode.INVALID_DATE_RANGE);
         verify(focusSessionRepository, never()).save(any(FocusSession.class));
     }
 

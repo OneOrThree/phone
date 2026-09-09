@@ -131,10 +131,10 @@ class UnhandledEnvelopeTest {
     }
 
     @Test
-    @DisplayName("IllegalArgumentException → 409 그대로이되 예외 메시지를 더 이상 반사하지 않는다")
-    void illegalArgumentKeepsStatusButStopsReflectingMessage() throws Exception {
+    @DisplayName("IllegalArgumentException → 400 ILLEGAL_ARGUMENT (GROMO-1725, 종전 409) — 예외 메시지를 반사하지 않는다")
+    void illegalArgumentIs400AndStopsReflectingMessage() throws Exception {
         mockMvc.perform(get("/__envelope/illegal-argument"))
-                .andExpect(status().isConflict())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ILLEGAL_ARGUMENT"))
                 .andExpect(jsonPath("$.message").value(CommonErrorCode.ILLEGAL_ARGUMENT.getMessage()))
                 .andExpect(jsonPath("$.message").value(not("internal-detail-that-must-not-leak")));

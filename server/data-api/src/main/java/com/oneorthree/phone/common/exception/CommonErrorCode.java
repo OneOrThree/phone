@@ -12,8 +12,9 @@ import org.springframework.http.HttpStatus;
  *
  * <p><b>이름은 계약이다.</b> 종전에도 나가던 다섯({@code INVALID_PARAMETER} · {@code INVALID_TIMEZONE} ·
  * {@code DATA_INTEGRITY_VIOLATION} · {@code CONCURRENT_UPDATE} · {@code LOGIN_USER_RESOLUTION_FAILED})은
- * 문자열·상태·문구가 종전과 글자 그대로 같다. {@code ILLEGAL_ARGUMENT} 는 <b>문자열·상태만</b> 같고
- * 문구는 일부러 바꿨다 — 종전엔 예외 메시지를 그대로 반사해 내부 구현이 드러났다.
+ * 문자열·상태·문구가 종전과 글자 그대로 같다. {@code ILLEGAL_ARGUMENT} 는 <b>문자열만</b> 같다 —
+ * 문구는 일부러 바꿨고(종전엔 예외 메시지를 그대로 반사해 내부 구현이 드러났다), 상태는 GROMO-1725 에서
+ * 409 → 400 으로 바꿨다.
  * {@code UNAUTHORIZED} · {@code PAYLOAD_TOO_LARGE} 는 필터가 {@code {"error": …}} 로 내던 것에
  * 같은 이름으로 {@code code}·{@code message} 를 <b>더한</b> 것이다({@code error} 필드는 남긴다).
  * 그 외 새로 생긴 것은 종전에 봉투 없이 새던 경로에 처음으로 {@code code} 를 주는 것이라 앱 계약을
@@ -49,10 +50,13 @@ public enum CommonErrorCode implements ErrorCode {
      */
     ENTITY_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 대상을 찾을 수 없습니다."),
     /**
-     * 어디서도 잡히지 않은 {@code IllegalArgumentException}. 종전과 같은 409 다 — 400 으로 바꾸는 것은
-     * 상태 코드가 바뀌는 계약 변경이라 GROMO-1725 가 받는다. 문구는 더 이상 예외 메시지를 반사하지 않는다.
+     * 어디서도 잡히지 않은 {@code IllegalArgumentException} — 잘못된 입력이라 <b>400</b> 이다 (GROMO-1725).
+     * 종전엔 409 였는데, 앱이 «충돌 → 재시도»로 오해할 수 있었다. 앱의 {@code status === 409} 분기 6곳은
+     * 전부 도메인 코드(닉네임 중복·이미 친구·마지막 소셜 연동)가 원천이라 이 전환에 영향이 없다(실측).
+     * 앱까지 닿던 raw 발급 3곳(집중 세션 시각·친구 검색 수단·소셜 제공자)은 도메인 코드로 치환됐으므로
+     * 이 그물에 남는 것은 리포지토리·값객체 내부 가드뿐이다. 문구는 예외 메시지를 반사하지 않는다.
      */
-    ILLEGAL_ARGUMENT(HttpStatus.CONFLICT, "요청을 처리할 수 없습니다."),
+    ILLEGAL_ARGUMENT(HttpStatus.BAD_REQUEST, "요청을 처리할 수 없습니다."),
     /** DB 유니크·무결성 제약 위반 — 사전 검사를 뚫은 동시 요청의 최종 폴백. */
     DATA_INTEGRITY_VIOLATION(HttpStatus.CONFLICT, "요청이 기존 데이터와 충돌합니다."),
     /** 낙관락·비관락 충돌 — 트랜잭션은 롤백됐고 그대로 재시도하면 풀린다. */
