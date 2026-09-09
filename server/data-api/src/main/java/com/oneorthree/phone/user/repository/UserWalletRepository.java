@@ -40,7 +40,7 @@ public interface UserWalletRepository extends JpaRepository<UserWallet, UUID> {
      *
      * @param userId 지갑 주인. 여러 지갑을 잡는 경로는 이 값 <b>오름차순</b>으로만 접근해야 교착이 없다
      * @return 잠긴 지갑. 없으면 빈 값이다 — <b>유일한 호출측</b>
-     *     {@link UserQueryService#getWalletForUpdate} 는 생성하지 않고
+     *     {@link UserQueryService#getTargetWalletForUpdate} 는 생성하지 않고
      *     {@code USER_NOT_FOUND} 를 던진다(요청자 축 — 호출처가 전부 본인). 지갑은 가입 시 함께 만들어지므로 부재는 데이터 손상이다
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

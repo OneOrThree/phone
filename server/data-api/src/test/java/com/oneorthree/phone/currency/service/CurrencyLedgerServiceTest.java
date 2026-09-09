@@ -53,7 +53,7 @@ class CurrencyLedgerServiceTest {
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(100).build();
         given(currencyTransactionRepository.existsByIdempotencyKey(REWARD_KEY)).willReturn(false);
         // 잔액 변경 경로는 배타 락 조회를 쓴다 — 표시용 getWallet 이 아니다(동시 변경 롤백 방지).
-        given(userQueryService.getWalletForUpdate(USER_ID)).willReturn(wallet);
+        given(userQueryService.getTargetWalletForUpdate(USER_ID)).willReturn(wallet);
 
         boolean applied = currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE,
                 357, REWARD_KEY);
@@ -78,8 +78,8 @@ class CurrencyLedgerServiceTest {
 
         assertThat(applied).isFalse();
         // 멱등키 선점이면 지갑 행을 잠그지도 않는다 — 불필요한 락으로 남의 결제를 막지 않는다.
-        verify(userQueryService, never()).getWalletForUpdate(any());
-        verify(userQueryService, never()).getWallet(any());
+        verify(userQueryService, never()).getTargetWalletForUpdate(any());
+        verify(userQueryService, never()).getTargetWallet(any());
         verify(currencyTransactionRepository, never()).save(any());
     }
     // ── debit ─────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ class CurrencyLedgerServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(100).build();
         given(currencyTransactionRepository.existsByIdempotencyKey(REWARD_KEY)).willReturn(false);
-        given(userQueryService.getWalletForUpdate(USER_ID)).willReturn(wallet);
+        given(userQueryService.getTargetWalletForUpdate(USER_ID)).willReturn(wallet);
 
         boolean applied = currencyLedgerService.debit(user, CurrencyTransactionType.PURCHASE, 30, REWARD_KEY);
 
@@ -108,7 +108,7 @@ class CurrencyLedgerServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(10).build();
         given(currencyTransactionRepository.existsByIdempotencyKey(REWARD_KEY)).willReturn(false);
-        given(userQueryService.getWalletForUpdate(USER_ID)).willReturn(wallet);
+        given(userQueryService.getTargetWalletForUpdate(USER_ID)).willReturn(wallet);
 
         assertThatThrownBy(() -> currencyLedgerService.debit(
                 user, CurrencyTransactionType.PURCHASE, 30, REWARD_KEY))

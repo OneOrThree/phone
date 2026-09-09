@@ -30,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link InGameCurrencyService} 의 기입 관행과 같다.
  *
  * <p><b>잠금 규율</b>: 잔액을 <b>바꾸는</b> {@link #debit}/{@link #credit} 만 지갑 행을 배타 락으로
- * 잡고({@link UserQueryService#getWalletForUpdate}), 표시용 {@link #balanceOf} 는 락 없이 읽는다.
+ * 잡고({@link UserQueryService#getTargetWalletForUpdate}), 표시용 {@link #balanceOf} 는 락 없이 읽는다.
  * 여러 지갑을 한 트랜잭션에서 만지는 경로(내기 지급·다회차 환불)는 <b>userId 오름차순</b>으로만
  * 접근해야 한다 — 순서가 갈리면 이 배타 락이 곧바로 교착이 된다(계약 §3).
  */
@@ -113,7 +113,7 @@ public class CurrencyLedgerService {
 
     /**
      * 잔액을 바꾸기 직전의 지갑 로드 — <b>행 배타 락</b>을 잡는다
-     * ({@link UserQueryService#getWalletForUpdate} → {@code UserWalletRepository.findByIdForUpdate}).
+     * ({@link UserQueryService#getTargetWalletForUpdate} → {@code UserWalletRepository.findByIdForUpdate}).
      *
      * <p>낙관락만으로는 같은 지갑에 동시에 들어온 두 트랜잭션 중 늦은 쪽이 0행 갱신으로 터져
      * <b>트랜잭션 전체가 롤백</b>된다 — 챌린지 삭제처럼 한 트랜잭션이 여러 참가자의 환불을 묶어
@@ -121,12 +121,12 @@ public class CurrencyLedgerService {
      * 지갑을 여러 개 잡는 경로는 전부 userId 오름차순이라 대기 사슬이 순환하지 않는다(계약 §3).
      */
     private UserWallet walletForUpdate(User user) {
-        return userQueryService.getWalletForUpdate(user.getId());
+        return userQueryService.getTargetWalletForUpdate(user.getId());
     }
 
     /** 표시용 잔액 로드 — <b>락 없음</b>. 순수 조회가 배타 락을 잡으면 무관한 결제·정산이 막힌다. */
     private UserWallet wallet(User user) {
-        return userQueryService.getWallet(user.getId());
+        return userQueryService.getTargetWallet(user.getId());
     }
 
     private void record(User user, CurrencyTransactionType type, int amount, String idempotencyKey) {

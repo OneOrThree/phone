@@ -211,12 +211,12 @@ public class UserQueryService {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * 지갑 조회 — 락 없음. 잔액을 <b>읽기만</b> 하는 경로에서 쓴다.
+     * <b>요청자 본인</b> 지갑 조회 — 락 없음. 잔액을 <b>읽기만</b> 하는 경로(프로필·잔액 조회)에서 쓴다.
      *
-     * @param userId 지갑 주인
+     * @param userId 요청자
      * @return 지갑
-     * @throws UserException 없으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}. 가입 시 함께 만들어지므로
-     *     부재는 사실상 데이터 손상이다
+     * @throws UserException 없으면 {@link UserErrorCode#USER_NOT_FOUND}. 가입 시 함께 만들어지므로
+     *     부재는 사실상 데이터 손상이고, 본인 축이라 처방은 재로그인이다
      */
     public UserWallet getWallet(UUID userId) {
         return userWalletRepository.findById(userId)
@@ -224,18 +224,33 @@ public class UserQueryService {
     }
 
     /**
-     * 지갑 조회 — <b>배타 락</b>. 이 트랜잭션이 잔액을 고칠 때 쓴다.
+     * <b>원장 대상</b> 지갑 조회 — 락 없음. {@code CurrencyLedgerService} 처럼 요청자가 아닌 임의 유저
+     * (정산·환불 참가자)의 지갑을 다루는 경로에서 쓴다. 부재는 «지목한 유저의 것이 없다»라
+     * {@link UserErrorCode#TARGET_USER_NOT_FOUND} — 방장이 남의 환불을 요청했는데 그 참가자 지갑이
+     * 사라졌다고 방장을 로그아웃시키면 안 된다(GROMO-1725, codex 리뷰).
+     *
+     * @param userId 지갑 주인(임의 대상)
+     * @return 지갑
+     * @throws UserException 없으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND}
+     */
+    public UserWallet getTargetWallet(UUID userId) {
+        return userWalletRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
+    }
+
+    /**
+     * <b>원장 대상</b> 지갑 조회 — <b>배타 락</b>. 이 트랜잭션이 잔액을 고칠 때 쓴다.
      *
      * <p>여러 유저의 지갑을 한 트랜잭션에서 다루면 {@code userId} 오름차순으로 불러야 교착이 나지
      * 않는다({@link UserWalletRepository} 의 논증 참조). {@code readOnly} 트랜잭션에서는 쓸 수 없다.
      *
-     * @param userId 지갑 주인
+     * @param userId 지갑 주인(임의 대상)
      * @return 잠긴 지갑
-     * @throws UserException 없으면 {@link UserErrorCode#USER_NOT_FOUND}
+     * @throws UserException 없으면 {@link UserErrorCode#TARGET_USER_NOT_FOUND} — {@link #getTargetWallet} 과 같은 이유
      */
-    public UserWallet getWalletForUpdate(UUID userId) {
+    public UserWallet getTargetWalletForUpdate(UUID userId) {
         return userWalletRepository.findByIdForUpdate(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

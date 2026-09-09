@@ -199,11 +199,11 @@ class UserQueryServiceTest {
 
     @Test
     @DisplayName("지갑 변경 경로는 배타 락 쿼리를 탄다 — 락 없는 조회로 내려가면 잔액 경합이 열린다")
-    void getWalletForUpdate_usesExclusiveLock() {
+    void getTargetWalletForUpdate_usesExclusiveLock() {
         UserWallet wallet = UserWallet.builder().userId(ID).build();
         given(userWalletRepository.findByIdForUpdate(ID)).willReturn(Optional.of(wallet));
 
-        assertThat(userQueryService.getWalletForUpdate(ID)).isSameAs(wallet);
+        assertThat(userQueryService.getTargetWalletForUpdate(ID)).isSameAs(wallet);
         verify(userWalletRepository).findByIdForUpdate(ID);
         verify(userWalletRepository, never()).findById(ID);
     }
