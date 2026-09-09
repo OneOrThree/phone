@@ -32,4 +32,11 @@ public class UserProfileUpdateRequest {
 
     @Pattern(regexp = "^[A-Z]{2}$", message = "ISO 3166-1 alpha-2 형식이어야 합니다")
     String countryCode;
+
+    /**
+     * 앱이 적용 중인 표시 언어 (GROMO-1692). 앱의 {@code SUPPORTED_LOCALES} 와 같은 집합만 받는다 —
+     * {@code 'system'} 은 앱이 기기 언어로 해석해 보내므로 여기 오지 않는다. null 은 «변경 안 함».
+     */
+    @Pattern(regexp = "^(ko|en|ja|zh-Hant)$", message = "지원하지 않는 언어입니다 (ko·en·ja·zh-Hant)")
+    String language;
 }

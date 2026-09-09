@@ -138,6 +138,10 @@ public class UserService {
         if (body.getCountryCode() != null) {
             user.setCountryCode(body.getCountryCode());
         }
+        // 표시 언어(GROMO-1692) — 푸시 렌더 언어의 정본. 값 검증은 DTO @Pattern 이 400 으로 막는다.
+        if (body.getLanguage() != null) {
+            user.setLanguage(body.getLanguage());
+        }
 
         // 날짜는 한 번만 구해 두 설정에 같은 값을 넘긴다(코드리뷰) — 각자 todayOf 를 부르면
         // 자정을 걸칠 때 두 설정의 발효일이 하루 어긋나, 방금 끝난 날짜의 리포트가 한쪽은 새 목표로
@@ -272,6 +276,8 @@ public class UserService {
         user.setDeviceToken(null);
         user.setRefreshTokenHash(null);
         user.setCountryCode(null);
+        // 표시 언어도 프로필 개인정보다 — 국가처럼 탈퇴 시 파기 (codex 리뷰, GROMO-1659)
+        user.setLanguage(null);
         user.setDeleted(true);
 
         socialAccountRepository.deleteByUserId(user.getId());
@@ -305,8 +311,8 @@ public class UserService {
                 occupation,
                 // 서버 날짜 버킷 존 — 앱이 업로드 날짜 키를 같은 축으로 만들게 내려준다(GROMO-1252).
                 // GROMO-1259 부터 항상 KST 고정(country_code 무관, N8/FR-19 — 해외 유저는 L5 수용).
-                ZonePolicy.KST.getId()
-        );
+                ZonePolicy.KST.getId(),
+                user.getLanguage());
     }
 
     /**

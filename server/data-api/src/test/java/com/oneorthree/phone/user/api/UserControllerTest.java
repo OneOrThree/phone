@@ -1,5 +1,7 @@
 package com.oneorthree.phone.user.api;
 
+import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
+import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.user.UserController;
@@ -500,5 +502,34 @@ class UserControllerTest {
                         .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isConflict())
                 .andDo(print());
+    }
+    // ── language (GROMO-1659 D11 · 1692 계약) ────────────────────────────
+
+    @Test
+    @DisplayName("PATCH /users/me language=zh-Hant → 204, 서비스에 그대로 전달")
+    void patchProfileAcceptsSupportedLanguage() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .requestAttr(com.oneorthree.phone.common.auth.AuthAttributes.USER_ID, LOGIN_USER_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"language\":\"zh-Hant\"}"))
+                .andExpect(status().isNoContent());
+
+        org.mockito.ArgumentCaptor<UserProfileUpdateRequest> captor =
+                org.mockito.ArgumentCaptor.forClass(UserProfileUpdateRequest.class);
+        verify(userService).updateProfile(org.mockito.ArgumentMatchers.eq(LOGIN_USER_ID), captor.capture());
+        assertThat(captor.getValue().getLanguage()).isEqualTo("zh-Hant");
+    }
+
+    @Test
+    @DisplayName("지원하지 않는 language → 400 INVALID_REQUEST 봉투 (앱 SUPPORTED_LOCALES 밖의 값)")
+    void patchProfileRejectsUnsupportedLanguage() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .requestAttr(com.oneorthree.phone.common.auth.AuthAttributes.USER_ID, LOGIN_USER_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"language\":\"fr\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        verify(userService, org.mockito.Mockito.never()).updateProfile(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 }

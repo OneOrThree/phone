@@ -19,5 +19,7 @@ public record UserProfileResponse(
         String countryCode,
         String statVisibility,
         String occupation,
-        String timeZone
+        String timeZone,
+        /** 앱이 보고한 표시 언어(ko·en·ja·zh-Hant). 아직 보고 전이면 null (GROMO-1692) */
+        String language
 ) {}

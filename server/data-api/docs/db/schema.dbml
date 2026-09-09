@@ -231,6 +231,7 @@ Table users [note: '서비스 사용자 계정 (소셜 로그인 기반, 소프�
 
   nickname                       varchar(255) [note: '표시 닉네임']
   country_code                   varchar(2)  [note: 'ISO 3166-1 alpha-2 (예: KR, US)']
+  language                       varchar(8)  [note: '앱이 적용 중인 표시 언어(BCP-47: ko·en·ja·zh-Hant). 푸시 렌더 언어의 정본. NULL=미보고. 국가와 다른 축. GROMO-1659 D11 · 1692 계약, V50']
 
   occupation                     occupation  [note: '유저 직업/신분 (온보딩에서 수집, 가입 시 null)']
 

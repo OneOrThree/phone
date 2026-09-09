@@ -163,7 +163,7 @@ class UserServiceTest {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
-                "새닉네임", null, null, "US");
+                "새닉네임", null, null, "US", null);
 
         userService.updateProfile(USER_ID, body);
 
@@ -179,7 +179,7 @@ class UserServiceTest {
         given(userRepository.existsByNicknameAndIdNot("남의닉", USER_ID)).willReturn(true);
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
-                "남의닉", null, null, null);
+                "남의닉", null, null, null, null);
 
         assertThatThrownBy(() -> userService.updateProfile(USER_ID, body))
                 .isInstanceOf(UserException.class)
@@ -199,7 +199,7 @@ class UserServiceTest {
         given(userQueryService.getFocusTimeSettings(USER_ID)).willReturn(focus);
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
-                null, 150, 60, null);
+                null, 150, 60, null, null);
 
         userService.updateProfile(USER_ID, body);
 
@@ -310,7 +310,7 @@ class UserServiceTest {
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
 
         assertThatThrownBy(() -> userService.updateProfile(
-                USER_ID, new UserProfileUpdateRequest("", null, null, null)))
+                USER_ID, new UserProfileUpdateRequest("", null, null, null, null)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_INVALID);
@@ -324,7 +324,7 @@ class UserServiceTest {
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
 
         assertThatThrownBy(() -> userService.updateProfile(
-                USER_ID, new UserProfileUpdateRequest("   ", null, null, null)))
+                USER_ID, new UserProfileUpdateRequest("   ", null, null, null, null)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_INVALID);
@@ -338,7 +338,7 @@ class UserServiceTest {
         given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
 
         assertThatThrownBy(() -> userService.updateProfile(
-                USER_ID, new UserProfileUpdateRequest("가".repeat(11), null, null, null)))
+                USER_ID, new UserProfileUpdateRequest("가".repeat(11), null, null, null, null)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_INVALID);
@@ -356,7 +356,7 @@ class UserServiceTest {
                 .given(userRepository).flush();
 
         assertThatThrownBy(() -> userService.updateProfile(
-                USER_ID, new UserProfileUpdateRequest("경합닉", null, null, null)))
+                USER_ID, new UserProfileUpdateRequest("경합닉", null, null, null, null)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_DUPLICATE);
@@ -376,6 +376,31 @@ class UserServiceTest {
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_DUPLICATE);
+    }
+
+    // ── language (GROMO-1659 D11 · 1692 계약) ────────────────────────────
+
+    @Test
+    @DisplayName("PATCH 에 language 가 오면 users.language 에 저장된다 — 푸시 렌더 언어의 정본")
+    void updateProfileStoresLanguage() {
+        User user = User.builder().id(USER_ID).build();
+        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
+
+        userService.updateProfile(USER_ID, new UserProfileUpdateRequest(null, null, null, null, "zh-Hant"));
+
+        assertThat(user.getLanguage()).isEqualTo("zh-Hant");
+    }
+
+    @Test
+    @DisplayName("language 가 null 이면 기존 값을 건드리지 않는다 — PATCH 의미론")
+    void updateProfileLeavesLanguageWhenAbsent() {
+        User user = User.builder().id(USER_ID).language("ja").build();
+        given(userQueryService.getTargetForUpdate(USER_ID)).willReturn(user);
+
+        userService.updateProfile(USER_ID, new UserProfileUpdateRequest(null, null, null, "KR", null));
+
+        assertThat(user.getLanguage()).isEqualTo("ja");
+        assertThat(user.getCountryCode()).isEqualTo("KR");
     }
 
     // ── 탈퇴 시 user 도메인이 맡는 몫 ────────────────────────────────────
@@ -398,7 +423,8 @@ class UserServiceTest {
     @DisplayName("PII 파기 + 소프트딜리트 + 소셜연동 삭제 — user 행은 지우지 않는다 (GROMO-635)")
     void erasePersonalDataKeepsRowButDestroysPii() {
         User user = User.builder().id(USER_ID)
-                .nickname("조재영").refreshTokenHash("rt-hash").deviceToken("dt").countryCode("KR").build();
+                .nickname("조재영").refreshTokenHash("rt-hash").deviceToken("dt").countryCode("KR")
+                .language("ja").build();
 
         userService.erasePersonalData(user);
 
@@ -407,6 +433,7 @@ class UserServiceTest {
         assertThat(user.getRefreshTokenHash()).isNull();
         assertThat(user.getDeviceToken()).isNull();
         assertThat(user.getCountryCode()).isNull();
+        assertThat(user.getLanguage()).isNull();
         // 하드 삭제는 불가능하다 — 다수 테이블이 NOT NULL FK 로 이 행을 참조한다
         verify(userRepository, never()).delete(any());
         // 소셜 연동만 하드 삭제 — provider_id 가 PII 이고 같은 계정으로 재가입할 수 있어야 한다
@@ -437,6 +464,7 @@ class UserServiceTest {
                 .id(USER_ID)
                 .nickname("조재영")
                 .countryCode("KR")
+                .language("ja")
                 .occupation(Occupation.UNIVERSITY)
                 .build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(500).build();
@@ -460,6 +488,7 @@ class UserServiceTest {
         assertThat(response.statVisibility()).isEqualTo("FRIENDS"); // 기본값
         assertThat(response.occupation()).isEqualTo("UNIVERSITY"); // 준비 시험 enum name (GROMO-757)
         assertThat(response.timeZone()).isEqualTo("Asia/Seoul"); // 서버 날짜 버킷 존 (GROMO-1252)
+        assertThat(response.language()).isEqualTo("ja"); // 앱이 보고한 표시 언어 그대로 (GROMO-1659, claude 리뷰)
     }
 
     @Test

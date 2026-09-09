@@ -73,6 +73,15 @@ public class User {
     @Column(name = "country_code")
     private String countryCode;
 
+    /**
+     * 앱이 적용 중인 표시 언어(BCP-47: {@code ko}·{@code en}·{@code ja}·{@code zh-Hant}) — 푸시를 이 언어로
+     * 렌더링한다(GROMO-1659 D11). 앱이 {@code PATCH /users/me} 로 채운다(GROMO-1692). {@code null} =
+     * 아직 보고된 적 없음(구앱·미접속) — 소비자가 기본 언어로 폴백한다. 국가({@link #countryCode})와는
+     * 다른 축이다: 한국에 사는 일본어 사용자가 있다.
+     */
+    @Column(length = 8)
+    private String language;
+
     @Enumerated(EnumType.STRING)
     private Occupation occupation;
 
