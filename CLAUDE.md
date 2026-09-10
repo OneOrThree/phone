@@ -20,8 +20,9 @@ shop items. Company `oneorthree`; iOS bundle id `com.oneorthree.gromo`.
 | `app/assets/`           | Source design assets (app icons, character art, videos) — tracked binaries, not bundled app resources (those live in `app/app-dev/src/assets/`). |
 | `app/scripts/`          | Local web-run helpers (`local-web.sh`, `local-web.command`). |
 | `server/data-api/`      | Spring Boot 4 + Java 17 + PostgreSQL REST API. See `server/data-api/CLAUDE.md`. |
+| `server/chat/`          | Spring Boot 4 chat service — WebSocket/STOMP + Redis, its own `gromo_chat` DB. A **separate** Gradle project sharing no code with `data-api`. See `server/chat/CLAUDE.md`. |
 | `server/observability/` | Prometheus / Grafana / Loki / Datadog configs for the dev observability overlay. See `server/observability/README.md`. |
-| `server/scripts/`       | The five `docker-compose.*.yml` files (`dev` / `local` / `prod` / `datadog` / `observability`). |
+| `server/scripts/`       | The `docker-compose.*.yml` files (`dev` / `local` / `prod` / `datadog` / `observability` / `chat`). |
 | `loadtest/`             | k6 load-testing harness (scenarios, GCP runner terraform, trigger dashboard). See `loadtest/README.md`. |
 | `docs/`                 | **Team-shared** docs, tracked in git: `docs/prd/<feature>/` with PRD, policy, IA, high-level/low-level design, diagrams; repo-wide conventions in `docs/conventions/`. See `docs/README.md`. |
 | `.github/workflows/`    | CI/CD pipelines (see below). |
@@ -86,6 +87,9 @@ changes trigger different jobs. This list rots; the authoritative source is
 
 - **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**`;
   `app-android-build.yml` — Android build checks on native-affecting paths.
+- **Chat**: `chat-ci.yml` — `./gradlew build` (Checkstyle + SpotBugs + Testcontainers tests
+  + bootJar) plus a no-push Docker build, path-filtered to `server/chat/**`. It does **not**
+  reuse the `be-*.yml` workflows because those hardcode `working-directory: server/data-api`.
 - **Backend PR gate + dev deploy**: `dev-ci.yml` orchestrates the reusable
   (`workflow_call`) `be-check-style.yml` / `be-test.yml` / `be-spot-bugs.yml` —
   Checkstyle, tests (JUnit + Testcontainers), and SpotBugs on `server/data-api/**`.
