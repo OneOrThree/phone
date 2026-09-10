@@ -73,7 +73,7 @@
     <text x="520" y="282">gromo</text>
     <text x="500" y="54">/l/match · referrer</text>
     <text x="300" y="79">링크 발급 · joined · revoke · withdraw</text>
-    <text x="560" y="91">relay 재전달 (withdraw 미전달분)</text>
+    <text x="560" y="91">relay 재전달 (withdraw · revoke 미전달분)</text>
     <text x="758" y="365" text-anchor="end">gromo_notification</text>
     <text x="786" y="432" text-anchor="start">콘솔 → admin API</text>
     <text x="140" y="420" fill="#1F6F8B">이벤트 (요청형)</text>

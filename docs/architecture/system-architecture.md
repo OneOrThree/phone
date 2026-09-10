@@ -43,7 +43,8 @@ flowchart TB
   DATA -.->|"events"| KF
   KF -.-> NS
   NS -->|"리컨실"| DATA
-  BIZ -->|"발급 API"| VERCEL
+  BIZ -->|"발급 API · claim · revoke · withdraw"| VERCEL
+  DATA -->|"relay 재전달 (withdraw · revoke 미전달분)"| VERCEL
   VERCEL -->|"콘솔 → admin API"| NX
   DATA --> RDS
   NS --> RDS
