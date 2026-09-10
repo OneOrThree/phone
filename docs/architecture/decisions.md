@@ -98,6 +98,8 @@
 | ㊯ **주차 0점 초기화는 최신 점수를 덮지 않게**(version 비교 = 사실상 `NX`, 또는 shadow ZSET 원자 교체) — DB 폴백은 조회만 보호한다.
 | ㊰ **종료된 세션의 라이브 값은 고정**: 종료 트랜잭션에서 presence 에 `endedAt` 을 내구 표시 — 안 그러면 소비 지연 동안 끝난 세션이 TTL 까지 계속 가산되고, TTL 뒤엔 완료 점수마저 없다.
 | ㊱ **소유권 mutation 도 멱등 재생**: version 이 전진하므로 응답 유실 후 재시도가 낡은 값으로 거부된다 → `Idempotency-Key` 로 결과 토큰을 저장·재생(거부가 아니라 성공으로).
+| ㊲ **삭제 outbox 는 DELETE 처리 자리에서 만든다**: 앱은 토큰 DELETE 와 logout 을 별개 요청으로 보내고 Business 는 무상태라 값을 이어줄 수 없다 → DELETE 를 받은 Business 가 직접 삭제 실패 시 그 자리에서 Data outbox 생성 요청.
+| ㊳ **presence 고정값도 주차로 자른다**(`endedAt - max(startedAt, weekStartAt)`): 전체 길이로 고정하면 주 경계 세션의 전주분이 이번 주 랭킹에 중복된다 — 이벤트를 주차별로 쪼갠 것과 같은 규칙.
 | ⓖ **위성 쓰기 전 활성 검사** — 위성 직행 쓰기는 Data 의 `X-User-Id` 검사를 안 거친다. | PR #731 codex 6~9라운드 (실코드 대조로 확인) | 09-10 |
 
 ## 산출물
