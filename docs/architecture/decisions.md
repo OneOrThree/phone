@@ -126,8 +126,8 @@
 | ㋛ **claim 무효화는 commit sequence 로 가른다**: `claimSeq > revokeSeq` — 링크 서버만으로는 「전이 전 정상 claim」과 「전이 후 지연 claim」이 같은 epoch 라 구분되지 않는다.
 | ㋜ **늦은 시작 이벤트도 거부**: 시작 적용에 세션 lifecycle version/tombstone 대조(또는 DB 미종료 확인) — 종료 뒤 재처리된 시작이 presence 를 되살려 이중 계상.
 | ㋝ **주차 ZSET 은 보존 기간 제한**: 매주 전체 사용자를 적재하므로 `사용자 수 × 주차 수`로 는다 → 현재 주 + 조회 대상만, 나머지 TTL(DB 가 정본이라 재구축 가능).
-| ㋞ **무토큰 소유권 이전엔 `deviceBootstrap` 자격**(로그인 시 1회용): AT 만 받으면 개별 로그아웃이 세대를 안 올리는 탓에 A 의 지연 등록이 B 를 밀어낸다.
-| ㋟ **claim 유효 판정 순서는 Data 가 갖는다**: `claimSeq` 는 판정 순서일 뿐 링크 기록 순서가 아니다 → 링크는 **잠정 기록**, Data 의 멤버십 락 아래 **확정(confirm)** 이 와야 유효.
+| ㋞ **축은 셋이다** — 유저(`authGeneration`: 탈퇴·전 기기 로그아웃) · 기기(`ownershipVersion`: 같은 유저의 요청 순서) · **세션(`deviceBootstrap`: 그 로그인 세션이 살아 있는가)**. 무토큰 이전엔 `deviceBootstrap` 을 요구하고, **개별 로그아웃이 그 nonce 를 내구 폐기**한다 — 「1회용」만으로는 미사용 상태의 지연 요청을 못 막는다. 개별 기기 로그아웃은 유저도 기기도 아닌 **「세션」이 끝나는 사건**이다.
+| ㋟ **claim 유효 판정 순서는 Data 가 갖는다**: `claimSeq` 는 판정 순서일 뿐 링크 기록 순서가 아니다 → 링크는 **잠정 기록**, Data 의 멤버십 락 아래 남긴 **확정 레코드**가 와야 유효. **전달은 `link.claimConfirmed` outbox + relay** — 락을 잡은 채 직접 호출은 §3 위반이고, 락이 풀린 뒤 Business 가 보내면 그 사이 revoke 가 끼어든다.
 | ㋠ **④‴ 전에 정지 창 큐를 전부 반영·검증**: 큐에만 있는 「알림 끔」을 두고 스케줄러를 켜면 거부한 푸시가 먼저 나간다.
 | ㋢ **`group.closed`(그룹 삭제·종료)도 링크에 전달**: `resolveLanding`·`InviteLinkMatchService` **양쪽이 `findActiveGroup` 으로 실시간 판정**하므로, 안 보내면 죽은 그룹 slug 가 계속 랜딩·매치에 성공한다. `link.revoked`(발급자 탈퇴·강퇴)와 별개 사건.
 | ㋡ **링크 표시정보는 갱신 경로가 필요**: 현행은 랜딩마다 현재 그룹명·닉네임을 조회하므로, 스냅샷 고정이면 공유된 slug 가 만료까지 옛 이름을 노출한다 → 변경 이벤트 relay(version 대조).
