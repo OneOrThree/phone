@@ -184,6 +184,9 @@ flowchart LR
   DATA -->|"league:* · presence:* 쓰기"| REDIS
   BIZ -.->|"이벤트"| MQ[["MQ notification-events<br/>(1658)"]]
   DATA -.->|"정산 이벤트"| MQ
+  DATA -.->|"점수 이벤트 (주차 절대값+version)"| MQS[["MQ score-events<br/>+ .DLT"]]
+  MQS -.-> RC["랭킹 컨슈머 ×N"]
+  RC -->|"ZADD 절대값 · presence 종결"| REDIS
   MQ -.-> NSJ["알림 서버 — 판정"]
   NSJ -->|"deliveries 미발송 행 기록"| NDB[("gromo_notification")]
   NSW["알림 워커 ×N (분리 배포)"] -->|"lease 로 선점"| NDB
