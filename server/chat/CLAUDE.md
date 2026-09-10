@@ -84,6 +84,11 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   on a single instance — `ChatWebSocketIntegrationTest` covers that regression.
 - **Membership invalidation is TTL-only** (`chat.membership.cache-ttl-seconds`). Leaving a
   group takes effect up to that long later.
+- **A subscription is authorized once, at SUBSCRIBE time.** Someone removed from a group
+  keeps *receiving* until their socket closes — TTL does not help, because an established
+  subscription is never re-checked. Sending and new subscriptions are still blocked.
+  Accepted for now; fixing it needs either per-broadcast re-authorization (a membership
+  lookup per subscriber) or a membership-change event from Data API.
 
 ## Redis keys (A19 namespace table)
 
