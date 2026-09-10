@@ -90,7 +90,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | `DB_URL/USER/PASS` (gromo) | data-api |
 | `NOTI_DB_URL/USER/PASS` (gromo_notification) | notification |
 | `FCM_SERVICE_ACCOUNT_JSON_BASE64` | notification **만** (data-api 에서 제거) |
-| `SVC_TOKEN_BIZ_TO_DATA` · `SVC_TOKEN_TO_NOTI` · `SVC_TOKEN_CONSOLE_TO_NOTI` · `SVC_TOKEN_TO_LINK` | 발신·수신 양쪽 |
+| `SVC_TOKEN_BIZ_TO_DATA` · **`SVC_TOKEN_NOTI_TO_DATA`**(리컨실 — 서비스 전용 호출) · `SVC_TOKEN_TO_NOTI`(Business/Data → 알림: 이벤트·기기 토큰·설정 명령) · `SVC_TOKEN_CONSOLE_TO_NOTI` · `SVC_TOKEN_TO_LINK` | 발신·수신 양쪽 |
 | 콘솔 비밀번호 4개(해시) | Vercel env (링크 레포) |
 | `LINK_IP_SALT` · SKAN 키 | 링크 서버 (Vercel env) |
 
@@ -111,6 +111,8 @@ prod 는 Secrets Manager(`gromo/prod/env` JSON), dev 는 GCP 메타데이터/env
 
 server/.github/workflows/
   dev-ci.yml        paths 매트릭스: services/<name>/** 가 바뀐 서비스만 → be-check-style / be-test / be-spot-bugs → 이미지 <name>:<sha> push
+                    ※ 공통 입력(settings.gradle · gradle wrapper · 공통 build script · .github/workflows/be-*.yml · deploy/) 이 바뀌면
+                      매트릭스를 전 서비스로 fan-out — 서비스 폴더 밖 변경이 검증 없이 머지되거나 이미지에 반영되지 않는 걸 막는다
   dev-cd.yml        (workflow_call from ci + workflow_dispatch — 사람·CI 같은 버튼) 입력: service · digest · env → deploy/<env>.yml 갱신·커밋 → SSH/SSM: compose pull + up -d <service> → 헬스체크
   prod-ci.yml / prod-cd.yml / prod-rollback.yml   동일 구조, ECR, rollback = 서비스별 이미지 태그
   api-dog-generate  service 별 OpenAPI (business-api 가 앱 계약의 정본, data-api 는 /internal 문서)

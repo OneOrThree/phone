@@ -76,6 +76,7 @@ flowchart LR
 |---|---|
 | Business → Data (조회·명령·패스스루) | Data → Business |
 | Business / Data → 알림 (이벤트, 발행 주체 = 그 유스케이스를 완료한 프로세스) | 알림 → `gromo` database 직접 읽기 |
+| **Business → 알림 (동기 명령)** — 앱의 기존 계약 `PUT/DELETE /users/me/device-token` · `PUT /users/me/notification-settings` 가 패스스루로 오면 `POST/DELETE /internal/devices` · `PUT /internal/users/{id}/notification-settings` 로 전달(서비스 토큰 + `X-User-Id`). 데이터가 `gromo_notification` 소유라 이벤트로는 못 쓴다 | 알림 → Business |
 | 알림 → Data (`GET /internal/users/notification-snapshot` 하나) | 알림 → Data 쓰기 |
 | Business → 링크 (발급·joined·revoke, 표시정보 스냅샷 동봉) | 링크 → 코어 어떤 것도 |
 | 링크(콘솔) → 알림 admin API | 알림 → 링크 (Target-1; `type=push` 링크가 필요해지면 알림 → 링크 호출만, 폴백 스킴) |
@@ -97,7 +98,8 @@ flowchart LR
 - **AT**: Business API 가 HS256 `JWT_SECRET` 으로 서명·검증. 다른 서비스는 키를 갖지 않는다.
 - **RT**: Data API `users.refresh_token` 에 저장. refresh 요청 → Business API → Data API `/internal/auth/refresh`(대조·회전·탈퇴 검사) → Business API 가 새 AT 서명.
 - **탈퇴·무효 유저**: 매 요청 검사는 없다(stateless). Data API 가 `/internal/*` 호출마다 `X-User-Id` 활성 검사(현 `JwtFilter` 로직 이관) — Target-1 에선 모든 앱 요청이 Data API 를 거치므로 실질 동일. AT 3600s 창 수용.
-- **내부**: 서비스 토큰 4종(A11 ⑥). 콘솔 사람 인증은 링크 대시보드의 비밀번호 2겹(D18), 알림 서버는 사람을 모른다.
+- **내부**: 서비스 토큰 5종(A11 ⑥). 호출은 두 종류 — **사용자 위임**(서비스 토큰 + `X-User-Id`)과 **서비스 전용**(토큰만: `/internal/auth/*` · 배치 트리거 · 리컨실). 콘솔 사람 인증은 링크 대시보드의 비밀번호 2겹(D18), 알림 서버는 사람을 모른다.
+- **로그아웃 시 기기 토큰 삭제**는 Business → 알림 `DELETE /internal/devices` 로 반드시 전달한다 — 빠지면 로그아웃한 이전 계정의 푸시가 같은 기기로 계속 간다.
 
 ## 6. 배치의 자리 (A4 · A5)
 
@@ -139,7 +141,7 @@ flowchart LR
 ```
 
 - **MQ**: 이벤트 어댑터 교체(HTTP → 브로커), at-least-once 는 이미 `eventId` 멱등으로 준비됨. DLQ·재시도는 1658 범위.
-- **Redis**: 리그 랭킹 ZSET(리그 BFF 의 50페이지 클라 합산 제거, "지금 N위" 정확도 — D9 해소) · 프레즌스 리스 · RT 블랙리스트(강제 로그아웃) · Business API 다중 인스턴스 락 · 알림 카운터.
+- **Redis**: 리그 랭킹 ZSET — **완료분만** 담고 진행 중 세션은 `presence:*` 로 조회 시 가산한다(A20; 가산 없이 ZSET 만 읽으면 집중 중인 유저 순위가 멈춘다). 리그 BFF 의 50페이지 클라 합산 제거, "지금 N위" 정확도 — D9 해소 · 프레즌스 리스 · RT 블랙리스트(강제 로그아웃) · Business API 다중 인스턴스 락 · 알림 카운터.
 - **알림 워커 분리 배포**: 판정과 워커 사이에 큐가 있으므로 코드 무변경으로 워커만 스케일.
 - **알림 DB 별도 인스턴스**: 부하가 보이면 (A10).
 - **공유 저장소 규칙(A19)**: Redis 키는 네임스페이스 표(`decisions.md` A19)에 있는 것만 — `league:*`·`presence:*` 는 Data 가 쓰고 Business 가 읽으며, `noti:*`·`auth:rt:*` 는 소유자 전용, `cache:<svc>:*`·`lock:<svc>:*` 는 각 서비스 자기 것만(서비스 간 공유 캐시·락 금지). **Redis ACL** 로 서비스별 유저에 키 패턴·명령 권한을 주어 강제한다. 사본이므로 소유자가 재구축 가능해야 한다 — 단방향 규칙의 저장소 판.
