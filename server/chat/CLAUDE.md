@@ -84,6 +84,11 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   on a single instance — `ChatWebSocketIntegrationTest` covers that regression.
 - **Membership invalidation is TTL-only** (`chat.membership.cache-ttl-seconds`). Leaving a
   group takes effect up to that long later.
+- **`id` is assigned at INSERT, not at COMMIT.** A smaller id can commit later, so a client
+  scrolling upward with a kept cursor can miss that one message, and the unread badge can
+  under-count it. The message itself is not lost — it is committed and shows up on the newest
+  page. The window is INSERT→COMMIT of a single-row insert (microseconds). Closing it properly
+  needs a commit-ordered sequence; tracked as a follow-up.
 - **A subscription is authorized once, at SUBSCRIBE time.** Someone removed from a group
   keeps *receiving* until their socket closes — TTL does not help, because an established
   subscription is never re-checked. Sending and new subscriptions are still blocked.
