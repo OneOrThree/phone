@@ -121,9 +121,13 @@ architecture decision A19 table.
 | `chat:fanout` | chat | pub/sub | cross-instance delivery |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
 
-Deployment gives the chat Redis user `presence:*` through a **separate read-only ACL
-selector** (`%R~presence:*`) — A19 spells out why it cannot share a selector with the
-writable patterns.
+**This ownership is a code convention, not an enforced boundary — yet.** A19 says the chat
+Redis user should get `presence:*` through a **separate read-only ACL selector**
+(`%R~presence:*`; A19 explains why it cannot share a selector with the writable patterns),
+but no deployment applies it: the dev overlay runs stock Redis with no ACL file and no
+credentials, so both services share the default all-access user. Until GROMO-1744 lands,
+nothing stops this service from writing `presence:*` except the rule below — which means a
+mistake here silently disables "no chat while focusing" instead of failing loudly.
 
 Data API also keeps `presence:focus:{userId}:closed` in that namespace — a short-lived
 "this session already ended" marker it uses to order its own writes. Chat never reads it,
