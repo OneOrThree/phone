@@ -310,6 +310,24 @@ class ChatWebSocketIntegrationTest {
         assertThat(tabletErrors.poll(2, TimeUnit.SECONDS)).isNull();
     }
 
+    @Test
+    @DisplayName("남이 브로커 목적지로 직접 쏜 말은 그 방에 «도착하지 않는다» — 위조 메시지 봉쇄")
+    void directBrokerSendNeverReachesTheRoom() throws Exception {
+        givenMemberOf(resident, island);
+        givenMemberOf(outsider, UUID.randomUUID());
+
+        // 주민은 정상적으로 자기 섬을 듣고 있다.
+        StompSession residentSession = connect(resident, new RecordingHandler());
+        deliveries = subscribeToIsland(residentSession, island);
+
+        // 외부인은 «컨트롤러를 거치지 않고» 브로커 목적지로 직접 쏜다. 목적지 검사가 없으면
+        // 이 프레임은 그대로 구독자에게 전달된다 — 멤버십·집중·본문 검증·저장을 전부 건너뛰고.
+        StompSession outsiderSession = connect(outsider, new RecordingHandler());
+        outsiderSession.send("/topic/groups/" + island, new SendMessageRequest("위조", UUID.randomUUID()));
+
+        assertThat(deliveries.poll(3, TimeUnit.SECONDS)).isNull();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private void givenMemberOf(UUID userId, UUID groupId) {

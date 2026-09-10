@@ -152,6 +152,24 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
+    @DisplayName("SEND — 브로커 목적지로 직접 보내면 거절한다. 이게 뚫리면 컨트롤러를 통째로 우회한다")
+    void directSendToBrokerDestinationIsRejected() {
+        // /topic 은 브로커 목적지다. 목적지를 안 보면 이 프레임이 애플리케이션 목적지(/app)가 아니라
+        // 브로커로 곧장 가서 그 방 구독자에게 전달된다 — 멤버십·집중·본문 검증·DB 저장을 전부 건너뛰고.
+        for (String destination : new String[] {
+                "/topic/groups/" + groupId, "/topic/groups/*", "/queue/anything", "/app/groups/" + groupId,
+        }) {
+            StompHeaderAccessor accessor = accessor(StompCommand.SEND);
+            accessor.setUser(new ChatPrincipal(userId, BEARER));
+            accessor.setDestination(destination);
+
+            assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
+                    .describedAs("목적지 %s", destination)
+                    .isInstanceOf(DomainException.class);
+        }
+    }
+
+    @Test
     @DisplayName("SEND — 인증된 세션은 통과한다. 규칙 판정은 서비스 몫이라 여기서 관문을 부르지 않는다")
     void authenticatedSendPassesWithoutDomainCheck() {
         StompHeaderAccessor accessor = accessor(StompCommand.SEND);

@@ -940,6 +940,41 @@ class FocusServiceTest {
         verify(userStreakService, never()).updateOnSessionComplete(any(), any());
     }
 
+    @Test
+    @DisplayName("POST 폴백이 열린 마커를 «선점»했으면 프레즌스 리스도 해제한다 — 안 그러면 아무도 못 지운다")
+    void saveFocusSessionClearsPresenceWhenMarkerClaimed() {
+        // PATCH 가 실패해 앱이 POST 로 폴백했고, 그 POST 가 열려 있던 마커를 선점(row=1)해 닫은 상황.
+        // 이 경로에서 안 지우면 아무도 못 지운다 — PATCH 는 실패했고, 앱의 병행 취소는 이미 닫힌
+        // 마커라 409 를 받는다. 그러면 실제로 집중이 끝난 사람이 TTL(13h) 내내 채팅에서 막힌다.
+        User user = User.builder().id(USER_ID).build();
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(focusSessionRepository.claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class)))
+                .willReturn(1);
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0, null, SESSION_ID));
+
+        verify(focusPresencePort).focusEnded(USER_ID);
+    }
+
+    @Test
+    @DisplayName("선점에 «실패»했으면 리스를 건드리지 않는다 — 그 사이 시작된 새 집중을 날리면 안 된다")
+    void saveFocusSessionDoesNotClearPresenceWhenClaimLost() {
+        User user = User.builder().id(USER_ID).build();
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        // row=0 = 그 마커는 다른 경로가 이미 닫았고 그쪽이 리스를 지웠다.
+        given(focusSessionRepository.claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class)))
+                .willReturn(0);
+        given(focusSessionRepository.findByIdAndUserForUpdate(SESSION_ID, user))
+                .willReturn(Optional.of(FocusSession.builder()
+                        .id(SESSION_ID).user(user).status(FocusSessionStatus.COMPLETED).build()));
+        given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.empty());
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0, null, SESSION_ID));
+
+        verify(focusPresencePort, never()).focusEnded(any());
+    }
+
     /**
      * GROMO-1214 코드리뷰(기기 시계 스큐) — 마커 폴백 POST 는 마커 id 로도 중복이 걸려야 한다.
      *

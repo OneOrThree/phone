@@ -25,10 +25,13 @@ import java.util.regex.Pattern;
  * 일치할 때만 검사」로는 {@code /topic/groups/*} 같은 «패턴 구독»이 검사를 통째로 비켜 간다 —
  * 자세한 근거는 {@code authorizeSubscription} 에 있다.
  *
+ * <p><b>SEND 도 허용 목록 방식이다.</b> {@code /topic} 은 브로커 목적지라, 목적지를 검사하지 않으면
+ * 클라이언트가 {@code /topic/groups/{남의 섬}} 으로 직접 SEND 해서 <b>컨트롤러를 거치지 않고</b>
+ * 그 방 구독자에게 위조 메시지를 꽂을 수 있다 — 근거는 {@code authorizeSend} 에 있다.
+ *
  * <p>SEND 의 <b>도메인 규칙</b>(같은 섬인가·집중 중인가)은 여기서 보지 않는다.
  * {@code ChatMessageService.send} 가 같은 {@link ChatAccessGuard} 를 부르기 때문이고, 두 곳에서
- * 검사하면 언젠가 한쪽만 바뀐다. <b>다만 «누구인가»는 여기서 본다</b> — 그건 컨트롤러에 도달하기
- * 전에 이미 필요한 정보라서다(아래 {@code requireAuthenticatedSend} 참고).
+ * 검사하면 언젠가 한쪽만 바뀐다.
  *
  * <h2>왜 핸드셰이크가 아니라 CONNECT 에서 인증하는가</h2>
  * 브라우저·React Native 의 WebSocket 은 핸드셰이크에 임의 헤더를 싣지 못하는 경우가 있다. 토큰을
@@ -78,6 +81,13 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      */
     private static final String PERSONAL_ERROR_QUEUE = "/user/queue/errors";
 
+    /**
+     * 유일하게 허용하는 발신 목적지. {@code ChatStompController} 의 {@code @MessageMapping} 과
+     * <b>같은 모양이어야 한다</b> — 매핑을 늘리면 여기도 늘려야 하고, 그게 강제되는 것이 이 방식의 값어치다.
+     */
+    private static final Pattern SEND_DESTINATION =
+            Pattern.compile("^/app/groups/([0-9a-fA-F-]{36})/send$");
+
     private final JwtValidator jwtValidator;
     private final ChatAccessGuard accessGuard;
 
@@ -91,7 +101,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         switch (accessor.getCommand()) {
             case CONNECT -> authenticate(accessor);
             case SUBSCRIBE -> authorizeSubscription(accessor);
-            case SEND -> requireAuthenticatedSend(accessor);
+            case SEND -> authorizeSend(accessor);
             default -> {
                 // 나머지 프레임(SEND·DISCONNECT·ACK…)은 그대로 흘린다. SEND 의 규칙 검사는 서비스가 한다.
             }
@@ -164,22 +174,35 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     }
 
     /**
-     * SEND — <b>인증 여부만</b> 본다. 규칙 판정은 서비스가 한다.
+     * SEND — <b>목적지를 허용 목록으로 좁히고</b>, 인증 여부를 본다.
      *
-     * <p>이 검사가 없으면 CONNECT 를 건너뛰고 SEND 부터 보내는 클라이언트(프로토콜 위반이지만
-     * 실제로 가능하다)에서 {@code accessor.getUser()} 가 null 이 되고, 그 null 이 컨트롤러 파라미터로
-     * 그대로 주입돼 <b>{@code principal.userId()} 에서 NPE</b> 가 난다. 결과가 안전하긴 하다 —
-     * 저장·브로드캐스트 전이라 새는 것은 없다. 문제는 «어떻게» 실패하느냐다:
-     * <ul>
-     *   <li>의도한 거절({@code UNAUTHORIZED})이 아니라 그물({@code INTERNAL_ERROR})로 떨어진다.
-     *       프로토콜 위반 클라이언트 하나가 error 레벨 스택트레이스를 계속 남긴다 — 「의도된 거절은
-     *       debug, 몰랐던 고장은 error」라는 이 서비스의 로그 원칙이 거기서 깨진다.</li>
-     *   <li>SUBSCRIBE 는 같은 케이스를 이미 명시적으로 막고 있었다. 대칭이 아니었다.</li>
-     * </ul>
+     * <h3>목적지를 안 보면 규칙 전체가 우회된다</h3>
+     * {@code /topic} 은 브로커 목적지다({@code enableSimpleBroker}). 그래서 클라이언트가
+     * <b>{@code /topic/groups/{남의 섬}} 으로 직접 SEND</b> 하면 그 프레임은 애플리케이션 목적지
+     * ({@code /app})가 아니라 <b>브로커로 곧장 가서 그 방 구독자 전원에게 전달된다</b> —
+     * {@code ChatMessageService.send} 를 거치지 않으므로 멤버십·집중·본문 검증·DB 저장이 통째로
+     * 건너뛰어진다. 인증만 통과하면 <b>아무 섬에나 위조 메시지를 꽂을 수 있었다.</b>
      *
-     * <p>여기를 통과하면 컨트롤러의 {@code ChatPrincipal} 파라미터는 <b>null 이 아님이 보장된다</b>.
+     * <p>구독 쪽과 같은 이유로 «허용을 열거»한다 — 지금 허용하는 건 {@code /app/groups/{uuid}/send}
+     * 하나뿐이다. {@code @MessageMapping} 이 하나 더 생기면 여기도 같이 늘려야 하고, 그게 강제되는
+     * 것이 이 방식의 값어치다.
+     *
+     * <h3>인증은 여기서, 도메인 규칙은 서비스에서</h3>
+     * 이 검사가 없으면 CONNECT 를 건너뛴 세션의 {@code accessor.getUser()} 가 null 이 되고, 그 null 이
+     * 컨트롤러 파라미터로 주입돼 <b>{@code principal.userId()} 에서 NPE</b> 가 난다 — 의도한 거절
+     * ({@code UNAUTHORIZED}) 대신 그물({@code INTERNAL_ERROR})로 떨어져, 프로토콜 위반 클라이언트
+     * 하나가 error 레벨 스택트레이스를 계속 남긴다.
+     *
+     * <p>「같은 섬인가·집중 중인가」는 여기서 보지 않는다 — 그건 {@code ChatMessageService.send} 한
+     * 곳이고, 두 곳에서 검사하면 언젠가 한쪽만 바뀐다.
      */
-    private void requireAuthenticatedSend(StompHeaderAccessor accessor) {
+    private void authorizeSend(StompHeaderAccessor accessor) {
+        String destination = String.valueOf(accessor.getDestination());
+        if (!SEND_DESTINATION.matcher(destination).matches()) {
+            // 브로커 목적지(/topic/**)로의 직접 발신이 여기로 떨어진다.
+            log.debug("허용되지 않은 발신 목적지 — {}", destination);
+            throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
+        }
         if (!(accessor.getUser() instanceof ChatPrincipal)) {
             throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
         }

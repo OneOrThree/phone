@@ -427,8 +427,22 @@ public class FocusService {
         // 보게 된다. 마커가 없거나(구버전·오프라인) 남의 것이면 잠글 대상이 없으므로 종전대로 진행한다.
         // 잠금 순서는 PATCH(endFocusSession)와 동일하다 — users(공유, requireActiveUser) → focus_sessions 마커 행
         // → 지갑 → daily_focus_stats. 두 경로가 같은 순서라 교착이 생기지 않는다(GROMO-801 락 규율).
+        int markerClaimed = body.getSessionId() != null
+                ? focusSessionRepository.claimMarkerIfActive(body.getSessionId(), user, now)
+                : 0;
+
+        // GROMO-292: 선점 성공(row=1) = **이 POST 가 열려 있던 마커를 방금 닫았다** → 집중이 끝났다.
+        // 이 경로에서 리스를 안 지우면 아무도 못 지운다: PATCH 는 실패했고(그래서 POST 폴백이다),
+        // 앱의 병행 취소는 이미 닫힌 마커라 409 를 받는다. 그러면 실제로 집중이 끝난 사람이 TTL(13h)
+        // 내내 채팅에서 막힌다.
+        // 선점 실패(row=0)일 때는 «지우지 않는다» — 그 마커는 다른 경로가 이미 닫았고(그쪽이 지웠다),
+        // 그 사이 새로 시작한 집중의 리스를 여기서 날리면 안 된다.
+        if (markerClaimed > 0) {
+            focusPresencePort.focusEnded(userId);
+        }
+
         boolean markerAlreadyCompleted = body.getSessionId() != null
-                && focusSessionRepository.claimMarkerIfActive(body.getSessionId(), user, now) == 0
+                && markerClaimed == 0
                 && focusSessionRepository.findByIdAndUserForUpdate(body.getSessionId(), user)
                         .map(marker -> marker.getStatus() == FocusSessionStatus.COMPLETED)
                         .orElse(false);
