@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans KR, Apple SD Gothic Neo, sans-serif" viewBox="0 0 1000 620" role="img" aria-label="Target-1 서비스 구도 — 앱은 Business API 만 부르고, 데이터는 Data API 만 만지며, 알림과 링크는 코어를 부르지 않는다">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1B2430"/></marker>
+    <marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1F6F8B"/></marker>
+  </defs>
+  <g stroke="#1B2430" stroke-width="1.75" fill="none" stroke-linejoin="miter" stroke-linecap="square">
+    <!-- 앱 → Edge → Business (세로) -->
+    <path d="M130,90 V150" marker-end="url(#a)"/>
+    <path d="M130,210 V260" marker-end="url(#a)"/>
+    <!-- Business → Data -->
+    <path d="M220,290 H320" marker-end="url(#a)"/>
+    <!-- Data → RDS -->
+    <path d="M500,290 H600" marker-end="url(#a)"/>
+    <!-- 앱 → 링크 -->
+    <path d="M220,60 H840" marker-end="url(#a)"/>
+    <!-- Business → 링크 (발급) -->
+    <path d="M220,270 H280 V85 H840" marker-end="url(#a)"/>
+    <!-- 링크 → Neon -->
+    <path d="M940,100 V400" marker-end="url(#a)"/>
+    <!-- 링크(콘솔) → 알림 admin -->
+    <path d="M870,100 V440 H780" marker-end="url(#a)"/>
+    <!-- 알림 → RDS (gromo_notification) -->
+    <path d="M750,400 V320" marker-end="url(#a)"/>
+    <!-- 알림 → FCM -->
+    <path d="M690,460 V540" marker-end="url(#a)"/>
+  </g>
+  <g stroke="#1F6F8B" stroke-width="1.75" fill="none" stroke-dasharray="7 5" stroke-linejoin="miter" stroke-linecap="square">
+    <!-- Business → Kafka -->
+    <path d="M130,320 V430 H320" marker-end="url(#ad)"/>
+    <!-- Data → Kafka -->
+    <path d="M410,320 V400" marker-end="url(#ad)"/>
+    <!-- Kafka → 알림 -->
+    <path d="M500,430 H600" marker-end="url(#ad)"/>
+  </g>
+  <g stroke="#1B2430" stroke-width="1.5" fill="none" stroke-dasharray="2 4" stroke-linejoin="miter">
+    <!-- 알림 → Data 리컨실 -->
+    <path d="M620,400 V360 H470 V320" marker-end="url(#a)"/>
+  </g>
+
+  <!-- boxes -->
+  <g stroke="#1B2430" stroke-width="1.75" fill="#FFFFFF">
+    <rect x="40" y="30" width="180" height="60"/>
+    <rect x="40" y="150" width="180" height="60"/>
+    <rect x="40" y="260" width="180" height="60" fill="#E3EFF3" stroke="#1F6F8B"/>
+    <rect x="320" y="260" width="180" height="60" fill="#E3EFF3" stroke="#1F6F8B"/>
+    <rect x="600" y="260" width="180" height="60"/>
+    <rect x="320" y="400" width="180" height="60" stroke="#1F6F8B"/>
+    <rect x="600" y="400" width="180" height="60" fill="#E3EFF3" stroke="#1F6F8B"/>
+    <rect x="600" y="540" width="180" height="60"/>
+    <rect x="840" y="30" width="140" height="70"/>
+    <rect x="840" y="400" width="140" height="60"/>
+  </g>
+  <g font-size="15" font-weight="600" text-anchor="middle" fill="#1B2430">
+    <text x="130" y="55">gromo 앱</text><text x="130" y="76" font-size="12" font-weight="400" fill="#5E6670">React Native</text>
+    <text x="130" y="175">Cloudflare · nginx</text><text x="130" y="196" font-size="12" font-weight="400" fill="#5E6670">/api /auth 전량</text>
+    <text x="130" y="285">Business API</text><text x="130" y="306" font-size="12" font-weight="400" fill="#5E6670">인증 · BFF · 패스스루 · DB 없음</text>
+    <text x="410" y="285">Data API</text><text x="410" y="306" font-size="12" font-weight="400" fill="#5E6670">DB 유일 소유 · TX · 정산 크론</text>
+    <text x="690" y="285">RDS PostgreSQL</text><text x="690" y="306" font-size="12" font-weight="400" fill="#5E6670">gromo · gromo_notification</text>
+    <text x="410" y="425">Kafka</text><text x="410" y="446" font-size="12" font-weight="400" fill="#5E6670">단일 노드 · notification-events</text>
+    <text x="690" y="425">알림 서버</text><text x="690" y="446" font-size="12" font-weight="400" fill="#5E6670">등록부 크론 · 템플릿 · 워커</text>
+    <text x="690" y="575">FCM</text>
+    <text x="910" y="58">링크 서버</text><text x="910" y="78" font-size="12" font-weight="400" fill="#5E6670">Vercel · MMP</text><text x="910" y="93" font-size="12" font-weight="400" fill="#5E6670">+ 알림 콘솔</text>
+    <text x="910" y="435">Neon</text><text x="910" y="452" font-size="12" font-weight="400" fill="#5E6670">links · clicks</text>
+  </g>
+  <!-- line labels -->
+  <g font-size="12" fill="#5E6670">
+    <text x="240" y="282">조회 · 명령</text>
+    <text x="520" y="282">gromo</text>
+    <text x="500" y="54">/l/match · referrer</text>
+    <text x="300" y="79">링크 발급 · joined · revoke</text>
+    <text x="758" y="365" text-anchor="end">gromo_notification</text>
+    <text x="786" y="432" text-anchor="start">콘솔 → admin API</text>
+    <text x="140" y="420" fill="#1F6F8B">이벤트 (요청형)</text>
+    <text x="418" y="395" fill="#1F6F8B">이벤트 (정산형)</text>
+    <text x="510" y="420" fill="#1F6F8B">consume</text>
+    <text x="480" y="376">리컨실 1종 · 새벽 1회</text>
+  </g>
+</svg>

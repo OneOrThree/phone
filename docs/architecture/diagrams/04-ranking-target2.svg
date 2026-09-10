@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans KR, Apple SD Gothic Neo, sans-serif" viewBox="0 0 1000 500" role="img" aria-label="Target-2: 세션 종료가 score-events 를 Kafka 에 발행, 컨슈머가 Redis ZSET 을 ZINCRBY, Business API 는 ZREVRANGE·ZREVRANK 로 O(log N) 조회, 진실원천은 DB, 장애 시 replay">
+  <defs>
+    <marker id="rc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1B2430"/></marker>
+    <marker id="rcd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1F6F8B"/></marker>
+  </defs>
+  <g stroke="#1B2430" stroke-width="1.75" fill="none" stroke-linejoin="miter" stroke-linecap="square">
+    <path d="M200,80 H280" marker-end="url(#rc)"/>
+    <path d="M380,110 V170" marker-end="url(#rc)"/>
+    <path d="M580,80 H480" marker-end="url(#rc)"/>
+    <path d="M710,110 V200 H480" marker-end="url(#rc)"/>
+    <path d="M200,440 H280" marker-end="url(#rc)"/>
+    <path d="M480,440 H580" marker-end="url(#rc)"/>
+  </g>
+  <g stroke="#1F6F8B" stroke-width="1.75" fill="none" stroke-dasharray="7 5" stroke-linejoin="miter" stroke-linecap="square">
+    <path d="M280,100 H240 V320 H280" marker-end="url(#rcd)"/>
+    <path d="M480,320 H580" marker-end="url(#rcd)"/>
+    <path d="M710,350 V410" marker-end="url(#rcd)"/>
+    <path d="M840,320 H900 V440 H840" marker-end="url(#rcd)"/>
+  </g>
+  <g stroke="#1B2430" stroke-width="1.75" fill="#FFFFFF">
+    <rect x="40" y="50" width="160" height="60"/>
+    <rect x="280" y="50" width="200" height="60"/>
+    <rect x="580" y="50" width="260" height="60"/>
+    <rect x="280" y="170" width="200" height="60"/>
+    <rect x="280" y="290" width="200" height="60" fill="#E3EFF3" stroke="#1F6F8B"/>
+    <rect x="580" y="290" width="260" height="60" fill="#E3EFF3" stroke="#1F6F8B"/>
+    <rect x="40" y="410" width="160" height="60"/>
+    <rect x="280" y="410" width="200" height="60"/>
+    <rect x="580" y="410" width="260" height="60" fill="#E3EFF3" stroke="#1F6F8B"/>
+  </g>
+  <g font-size="15" font-weight="600" text-anchor="middle" fill="#1B2430">
+    <text x="120" y="75">세션 종료</text><text x="120" y="96" font-size="12" font-weight="400" fill="#5E6670">저녁 버스트</text>
+    <text x="380" y="75">Data API</text><text x="380" y="96" font-size="12" font-weight="400" fill="#5E6670">한 TX 커밋 후 발행</text>
+    <text x="710" y="75">주간 정산 배치</text><text x="710" y="96" font-size="12" font-weight="400" fill="#5E6670">DB 스냅샷으로 확정 — ZSET 은 안 믿음</text>
+    <text x="380" y="195">daily_focus_stats</text><text x="380" y="216" font-size="12" font-weight="400" fill="#5E6670">진실원천은 여전히 DB</text>
+    <text x="380" y="315">Kafka · score-events</text><text x="380" y="336" font-size="12" font-weight="400" fill="#5E6670">버스트 흡수 · eventId 멱등</text>
+    <text x="710" y="315">컨슈머 ×N</text><text x="710" y="336" font-size="12" font-weight="400" fill="#5E6670">ZINCRBY Δ · dedup</text>
+    <text x="120" y="435">gromo 앱</text><text x="120" y="456" font-size="12" font-weight="400" fill="#5E6670">리그 화면 1콜</text>
+    <text x="380" y="435">Business API</text><text x="380" y="456" font-size="12" font-weight="400" fill="#5E6670">/bff/league</text>
+    <text x="710" y="435">Redis ZSET</text><text x="710" y="456" font-size="12" font-weight="400" fill="#5E6670">ZREVRANGE 0 99 · ZREVRANK me · O(log N)</text>
+  </g>
+  <g font-size="12" fill="#5E6670">
+    <text x="208" y="72">종료</text>
+    <text x="388" y="145">INSERT 초</text>
+    <text x="488" y="72">같은 read model</text>
+    <text x="718" y="160">DB 로 정산</text>
+    <text x="232" y="215" text-anchor="end" fill="#1F6F8B">발행 (Δ초, eventId)</text>
+    <text x="500" y="312" fill="#1F6F8B">consume</text>
+    <text x="718" y="385" fill="#1F6F8B">ZINCRBY</text>
+    <text x="906" y="385" fill="#1F6F8B">장애 시</text><text x="906" y="400" fill="#1F6F8B">replay 재구축</text>
+    <text x="488" y="432">O(log N) 조회</text>
+  </g>
+</svg>

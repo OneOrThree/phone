@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans KR, Apple SD Gothic Neo, sans-serif" viewBox="0 0 1000 200" role="img" aria-label="레포 네 개 — server, app, link, docs — 와 허브 한 장">
+  <g stroke="#1B2430" stroke-width="1.75" fill="#FFFFFF">
+    <rect x="40" y="90" width="200" height="70" fill="#E3EFF3" stroke="#1F6F8B"/>
+    <rect x="280" y="90" width="200" height="70"/>
+    <rect x="520" y="90" width="200" height="70"/>
+    <rect x="760" y="90" width="200" height="70"/>
+    <rect x="280" y="10" width="440" height="44"/>
+  </g>
+  <g stroke="#1B2430" stroke-width="1.5" fill="none" stroke-linejoin="miter">
+    <path d="M500,54 V72 H140 V90"/><path d="M500,72 H380 V90"/><path d="M500,72 H620 V90"/><path d="M500,72 H860 V90"/>
+  </g>
+  <g font-size="15" font-weight="600" text-anchor="middle" fill="#1B2430">
+    <text x="500" y="37">허브 한 장 — docs.oneorthree.world/spec/architecture</text>
+    <text x="140" y="118">oneorthree/server</text><text x="140" y="140" font-size="12" font-weight="400" fill="#5E6670">JVM 5 · compose · docs</text>
+    <text x="380" y="118">OneOrThree/app</text><text x="380" y="140" font-size="12" font-weight="400" fill="#5E6670">React Native · 스토어</text>
+    <text x="620" y="118">oneorthree/link</text><text x="620" y="140" font-size="12" font-weight="400" fill="#5E6670">Next.js · Vercel · Neon</text>
+    <text x="860" y="118">docs 사이트</text><text x="860" y="140" font-size="12" font-weight="400" fill="#5E6670">Next.js · 허브 페이지</text>
+  </g>
+</svg>

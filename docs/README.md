@@ -10,6 +10,7 @@
 ```
 docs/
 ├── README.md                          # 이 파일
+├── architecture/                      # 목표 아키텍처 정본 (서비스·시스템·결정 장부·다이어그램)
 ├── conventions/                       # 팀 전체 규약
 │   ├── jira-conventions.md            # 지라 4축 규약 (도메인·Label·Epic·fixVersion)
 │   └── date-axis.md                   # 날짜 축(로컬·KST·UTC) 규약
@@ -24,7 +25,7 @@ docs/
         └── diagrams/                  # 다이어그램 (형식 자유)
 ```
 
-기능 문서가 아닌 **팀 전체 규약**은 `docs/conventions/` 에 둔다 — 현재 `jira-conventions.md`
+시스템 전체를 가로지르는 **목표 아키텍처**(서비스·시스템·결정 장부)는 `docs/architecture/` 에 둔다 — 새 서비스·통신 경로·저장소를 추가하기 전에 먼저 본다. 기능 문서가 아닌 **팀 전체 규약**은 `docs/conventions/` 에 둔다 — 현재 `jira-conventions.md`
 (티켓을 어떤 `도메인`·Label·Epic·fixVersion 으로 분류하는지)와 `date-axis.md`
 (날짜 축 규약) 둘이다.
 
