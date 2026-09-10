@@ -80,6 +80,6 @@
     <text x="418" y="395" fill="#1F6F8B">이벤트 (정산형)</text>
     <text x="510" y="420" fill="#1F6F8B">consume</text>
     <text x="300" y="516">기기 토큰 · 알림 설정 (동기 명령·조회)</text>
-    <text x="480" y="376">조회 2종 (리컨실 · ack 수렴)</text>
+    <text x="480" y="376">조회 3종 (리컨실 · ack · 적격)</text>
   </g>
 </svg>
