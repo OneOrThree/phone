@@ -4,11 +4,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -17,9 +20,26 @@ import java.util.UUID;
  * <p>이 서비스가 <b>유일한 쓰기 주인</b>이다(A19). 채팅 서버는 같은 키를 읽기 전용 ACL 로만 받는다 —
  * 읽는 쪽이 지울 수 있게 되는 순간 「집중 중엔 채팅 불가」는 채팅이 스스로 해제할 수 있는 규칙이 된다.
  *
- * <h2>값이 아니라 «존재»가 신호다</h2>
- * 값으로 {@code "1"} 을 넣지만 읽는 쪽은 그 값을 보지 않기로 약속했다. 값을 해석하기 시작하면 이 파일의
- * 포맷이 곧 채팅과의 계약이 되어, 여기를 바꾸는 순간 저쪽이 조용히 오판한다.
+ * <h2>값은 세션 id 다 — 읽는 쪽은 여전히 «존재»만 본다</h2>
+ * 값을 싣는 이유는 읽는 쪽에 정보를 주려는 게 아니라 <b>쓰기끼리의 순서를 정하기 위해서</b>다.
+ * 채팅은 존재 여부만 보기로 약속했고 그 약속은 그대로다 — 값의 의미는 이 클래스만 안다.
+ *
+ * <h2>왜 조건부 연산인가 (단순 SET/DEL 이면 13시간 차단이 난다)</h2>
+ * 커밋 이후 콜백은 트랜잭션마다 다른 스레드에서 돌아서, 서로 다른 요청의 Redis 연산이 DB 커밋 순서와
+ * <b>어긋난 순서로 도착</b>할 수 있다(뽀모도로 회전처럼 종료와 시작이 겹치는 순간). 값 없는 SET/DEL 이면:
+ * <ul>
+ *   <li>시작의 {@code SET} 이 종료의 {@code DEL} <b>뒤에</b> 도착 → 이미 끝난 집중의 리스가 되살아나
+ *       <b>최대 13시간 채팅이 막힌다</b></li>
+ *   <li>종료의 {@code DEL} 이 새 시작의 {@code SET} 뒤에 도착 → 진행 중인 집중의 리스가 사라진다
+ *       (수용하는 방향이지만 역시 틀린 상태다)</li>
+ * </ul>
+ *
+ * <p>세션 id 비교만으로는 <b>한 방향이 남는다</b> — 지연된 시작 콜백이 종료 «뒤에» 도착하면 그때 리스
+ * 키는 비어 있어서 「더 새로운가」 비교가 무의미해지고 이미 끝난 집중의 리스가 되살아난다. 그래서
+ * 종료가 {@link #CLOSED_SUFFIX} 표식을 함께 남기고, 시작은 그 표식보다 새로울 때만 쓴다.
+ * 그래서 두 연산 모두 Lua 로 <b>조건부</b>다: 쓰기는 「지금 값보다 새로운 세션일 때만」, 해제는
+ * 「지금 값이 바로 그 세션일 때만」. 세션 id 가 UUID v7 이라 <b>문자열 사전순 비교 = 시간 순서</b>이고
+ * (앞자리가 epoch 밀리초의 상위 비트), 그래서 「더 새로움」을 Redis 안에서 판정할 수 있다.
  *
  * <h2>커밋 이후에만 반영한다</h2>
  * 트랜잭션 안에서 리스를 놓으면 롤백됐을 때 <b>세션은 없는데 리스만 남는다</b> — 그 사람은 TTL 이
@@ -48,20 +68,90 @@ public class RedisFocusPresence implements FocusPresencePort {
 
     private static final String KEY_PREFIX = "presence:focus:";
 
+    /**
+     * 「이 세션은 이미 끝났다」 표식. <b>리스와 다른 키</b>라 읽는 쪽({@code presence:focus:{userId}} 만
+     * 본다)에는 보이지 않는다.
+     *
+     * <p>이게 없으면 마지막 한 방향이 남는다 — <b>지연된 시작 콜백이 종료 뒤에 도착</b>하는 경우.
+     * 그때 리스 키는 비어 있으므로({@code cur == false}) 「더 새로운가」 비교가 무의미해지고, 이미
+     * 끝난 집중의 리스가 되살아나 <b>TTL 13시간 내내 채팅이 막힌다</b>. 표식이 있으면 그 시작은
+     * 「이미 끝난(또는 더 오래된) 세션」으로 걸러진다.
+     */
+    private static final String CLOSED_SUFFIX = ":closed";
+
+    /**
+     * 표식 수명. 막아야 하는 창은 「커밋 이후 콜백이 다음 종료보다 늦게 도착하는」 정도라 초 단위지만,
+     * 넉넉히 잡아도 비용이 키 하나뿐이다. 반대로 너무 길게 잡으면 정상적인 재시작이 막힐 수 있는데,
+     * 새 세션은 항상 더 «새로운» id 라 표식보다 크므로 그 걱정은 없다.
+     */
+    private static final Duration CLOSED_TTL = Duration.ofMinutes(5);
+
+    /**
+     * 「지금 값이 없거나, 내가 더 새로우면 쓴다」.
+     *
+     * <p>{@code >=} 인 것은 같은 세션으로 다시 오는 시작(순서 역전 방어 경로에서 열린 마커의 id 를
+     * 그대로 싣는 경우)이 TTL 을 갱신할 수 있어야 하기 때문이다.
+     */
+    private static final RedisScript<Long> SET_IF_NEWER = new DefaultRedisScript<>(
+            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식 / ARGV[1]=sessionId, ARGV[2]=리스 TTL(초)
+            "local closed = redis.call('GET', KEYS[2])\n"
+            + "if closed ~= false and ARGV[1] <= closed then\n"
+            + "  return 0\n"                                    // 이미 끝난(또는 더 오래된) 세션의 지연 도착
+            + "end\n"
+            + "local cur = redis.call('GET', KEYS[1])\n"
+            + "if cur == false or ARGV[1] >= cur then\n"
+            + "  redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])\n"
+            + "  return 1\n"
+            + "end\n"
+            + "return 0", Long.class);
+
+    /** 「지금 값이 바로 그 세션일 때만 지운다」 — 그 사이 시작된 새 집중의 리스를 날리지 않는다. */
+    private static final RedisScript<Long> DELETE_IF_SAME = new DefaultRedisScript<>(
+            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식 / ARGV[1]=sessionId, ARGV[2]=표식 TTL(초)
+            // 표식을 «먼저» 남긴다 — 리스가 이미 다른 세션 것이어서 지우지 못하더라도, 이 세션의
+            // 지연된 시작이 나중에 되살리는 건 막아야 하기 때문이다.
+            "local closed = redis.call('GET', KEYS[2])\n"
+            + "if closed == false or ARGV[1] > closed then\n"
+            + "  redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])\n"
+            + "end\n"
+            + "if redis.call('GET', KEYS[1]) == ARGV[1] then\n"
+            + "  return redis.call('DEL', KEYS[1])\n"
+            + "end\n"
+            + "return 0", Long.class);
+
     private final StringRedisTemplate redis;
 
     @Override
-    public void focusStarted(UUID userId) {
-        afterCommit(() -> redis.opsForValue().set(key(userId), "1", LEASE_TTL), "리스 설정", userId);
+    public void focusStarted(UUID userId, UUID sessionId) {
+        if (sessionId == null) {
+            // 가리킬 세션이 없으면 순서를 정할 근거도 없다. 무조건 쓰면 늦게 도착한 옛 시작이
+            // 진행 중인 새 집중을 덮어써, 종료가 «자기 것»을 못 알아보고 리스가 남는다.
+            log.debug("세션 id 없는 집중 시작 — 프레즌스 생략, userId={}", userId);
+            return;
+        }
+        afterCommit(() -> redis.execute(SET_IF_NEWER, List.of(key(userId), closedKey(userId)),
+                sessionId.toString(), String.valueOf(LEASE_TTL.toSeconds())), "리스 설정", userId);
     }
 
     @Override
-    public void focusEnded(UUID userId) {
-        afterCommit(() -> redis.delete(key(userId)), "리스 해제", userId);
+    public void focusEnded(UUID userId, UUID sessionId) {
+        if (sessionId == null) {
+            // 어느 리스를 지워야 할지 모르는 채로 지우면 그 사이 시작된 새 집중을 푸는 셈이 된다.
+            // 그 경우의 백스톱은 TTL 과 orphan 스윕이다.
+            log.debug("세션 id 없는 집중 종료 — 프레즌스 생략, userId={}", userId);
+            return;
+        }
+        afterCommit(() -> redis.execute(DELETE_IF_SAME, List.of(key(userId), closedKey(userId)),
+                sessionId.toString(), String.valueOf(CLOSED_TTL.toSeconds())), "리스 해제", userId);
     }
 
     private static String key(UUID userId) {
         return KEY_PREFIX + userId;
+    }
+
+    /** 「이 세션은 끝났다」 표식 키. 읽는 쪽은 이 키를 모른다 — 리스 키와 이름이 다르다. */
+    private static String closedKey(UUID userId) {
+        return KEY_PREFIX + userId + CLOSED_SUFFIX;
     }
 
     /**

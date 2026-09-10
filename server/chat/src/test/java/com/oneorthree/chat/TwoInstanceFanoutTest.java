@@ -111,8 +111,8 @@ class TwoInstanceFanoutTest {
         aliceBearer = bearerOf(alice);
         bobBearer = bearerOf(bob);
 
-        given(groupClient.fetchMyGroupIds(aliceBearer)).willReturn(Set.of(island));
-        given(groupClient.fetchMyGroupIds(bobBearer)).willReturn(Set.of(island));
+        given(groupClient.fetchMyGroupIds(aliceBearer)).willReturn(GroupClient.Membership.of(Set.of(island)));
+        given(groupClient.fetchMyGroupIds(bobBearer)).willReturn(GroupClient.Membership.of(Set.of(island)));
 
         stompClient = new WebSocketStompClient(new StandardWebSocketClient());
         stompClient.setMessageConverter(new CompositeMessageConverter(
@@ -209,8 +209,8 @@ class TwoInstanceFanoutTest {
         GroupClient stubGroupClient() {
             return new GroupClient("http://localhost:1", 100) {
                 @Override
-                public Set<UUID> fetchMyGroupIds(String bearerToken) {
-                    return Set.of(sharedIsland);
+                public Membership fetchMyGroupIds(String bearerToken) {
+                    return Membership.of(Set.of(sharedIsland));
                 }
             };
         }

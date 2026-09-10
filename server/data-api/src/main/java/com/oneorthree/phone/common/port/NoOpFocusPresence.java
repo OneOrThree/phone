@@ -24,12 +24,12 @@ import java.util.UUID;
 public class NoOpFocusPresence implements FocusPresencePort {
 
     @Override
-    public void focusStarted(UUID userId) {
-        log.debug("NoOp 프레즌스 — 집중 시작 무시, userId={}", userId);
+    public void focusStarted(UUID userId, UUID sessionId) {
+        log.debug("NoOp 프레즌스 — 집중 시작 무시, userId={} sessionId={}", userId, sessionId);
     }
 
     @Override
-    public void focusEnded(UUID userId) {
-        log.debug("NoOp 프레즌스 — 집중 종료 무시, userId={}", userId);
+    public void focusEnded(UUID userId, UUID sessionId) {
+        log.debug("NoOp 프레즌스 — 집중 종료 무시, userId={} sessionId={}", userId, sessionId);
     }
 }

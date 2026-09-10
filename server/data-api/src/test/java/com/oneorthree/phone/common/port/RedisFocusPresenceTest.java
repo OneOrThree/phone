@@ -1,136 +1,264 @@
 package com.oneorthree.phone.common.port;
 
-import org.junit.jupiter.api.AfterEach;
+import com.fasterxml.uuid.Generators;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.utility.DockerImageName;
 
-import java.time.Duration;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.willThrow;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
- * 프레즌스 어댑터의 세 가지 규율 — <b>커밋 이후에만</b>, <b>실패를 삼킨다</b>, <b>TTL 은 백스톱</b>.
+ * 프레즌스 리스 — <b>실제 Redis</b> 위에서 본다.
  *
- * <p>세 가지 전부 «없어도 정상으로 보이는» 성질이다. 커밋 전에 써도 대부분의 요청은 커밋되니 잘
- * 돌아가고, 예외를 안 삼켜도 Redis 가 멀쩡하면 아무 일도 안 나며, TTL 이 없어도 종료가 지워 주면
- * 문제가 없다. 셋 다 «드문 경로»에서만 드러나므로 여기서 못 박는다.
+ * <p>이 클래스의 핵심은 Lua 두 줄의 조건이고, 그건 목으로는 <b>한 글자도 검증되지 않는다</b>.
+ * 특히 「커밋 이후 콜백이 어긋난 순서로 도착하는」 경우가 그렇다 — 값 비교·표식이 실제로 그 순서를
+ * 바로잡는지는 Redis 가 스크립트를 돌려 봐야 안다.
+ *
+ * <p>세 규율을 본다: <b>커밋 이후에만</b>, <b>실패를 삼킨다</b>, <b>순서가 어긋나도 상태가 맞다</b>.
+ * 셋 다 «없어도 정상으로 보이는» 성질이라 여기서 못 박는다.
  */
-@ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class RedisFocusPresenceTest {
 
-    private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
-    private static final String KEY = "presence:focus:" + USER_ID;
+    @SuppressWarnings("resource")
+    private static final GenericContainer<?> REDIS =
+            new GenericContainer<>(DockerImageName.parse("redis:7-alpine")).withExposedPorts(6379);
 
-    @Mock
-    private StringRedisTemplate redis;
+    private static LettuceConnectionFactory connectionFactory;
+    private static StringRedisTemplate redis;
 
-    @Mock
-    private ValueOperations<String, String> valueOperations;
+    private UUID userId;
+    private String key;
 
-    @AfterEach
-    void clearSynchronization() {
+    @BeforeAll
+    static void startRedis() {
+        REDIS.start();
+        connectionFactory = new LettuceConnectionFactory(REDIS.getHost(), REDIS.getFirstMappedPort());
+        connectionFactory.afterPropertiesSet();
+        redis = new StringRedisTemplate(connectionFactory);
+        redis.afterPropertiesSet();
+    }
+
+    @AfterAll
+    static void stopRedis() {
+        connectionFactory.destroy();
+        REDIS.stop();
+    }
+
+    @BeforeEach
+    void setUp() {
+        userId = UUID.randomUUID();
+        key = "presence:focus:" + userId;
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.clearSynchronization();
         }
     }
 
-    @Test
-    @DisplayName("트랜잭션 밖에서는 즉시 리스를 놓는다")
-    void writesImmediatelyOutsideTransaction() {
-        given(redis.opsForValue()).willReturn(valueOperations);
+    @Nested
+    @DisplayName("정상 경로")
+    class HappyPath {
 
-        presence().focusStarted(USER_ID);
+        @Test
+        @DisplayName("시작하면 리스가 생기고, 그 세션이 끝나면 사라진다")
+        void setAndClear() {
+            UUID session = sessionId();
 
-        // 값이 아니라 «존재»가 신호다 — 읽는 쪽은 값을 보지 않기로 약속했다.
-        verify(valueOperations).set(eq(KEY), any(), eq(Duration.ofHours(13)));
+            presence().focusStarted(userId, session);
+            assertThat(redis.hasKey(key)).isTrue();
+
+            presence().focusEnded(userId, session);
+            assertThat(redis.hasKey(key)).isFalse();
+        }
+
+        @Test
+        @DisplayName("리스에는 «반드시» 수명이 있다 — 종료가 유실돼도 스스로 풀려야 한다")
+        void leaseAlwaysExpires() {
+            presence().focusStarted(userId, sessionId());
+
+            assertThat(redis.getExpire(key)).isNotNull().isPositive();
+        }
+
+        @Test
+        @DisplayName("세션 id 가 없으면 아무것도 하지 않는다 — 어느 리스인지 모르는 채로 건드리지 않는다")
+        void nullSessionIsNoop() {
+            presence().focusStarted(userId, sessionId());
+
+            presence().focusEnded(userId, null);
+
+            assertThat(redis.hasKey(key)).isTrue();
+        }
     }
 
-    @Test
-    @DisplayName("트랜잭션 안에서는 «아직» 쓰지 않는다 — 롤백되면 세션 없이 리스만 남는다")
-    void defersUntilCommit() {
-        given(redis.opsForValue()).willReturn(valueOperations);
-        TransactionSynchronizationManager.initSynchronization();
+    @Nested
+    @DisplayName("커밋 경계")
+    class CommitBoundary {
 
-        presence().focusStarted(USER_ID);
+        @Test
+        @DisplayName("트랜잭션 안에서는 «아직» 쓰지 않는다 — 롤백되면 세션 없이 리스만 남는다")
+        void defersUntilCommit() {
+            TransactionSynchronizationManager.initSynchronization();
 
-        verifyNoInteractions(valueOperations);
-        assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(1);
+            presence().focusStarted(userId, sessionId());
+
+            assertThat(redis.hasKey(key)).isFalse();
+            assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("커밋 콜백이 돌면 그때 쓴다")
+        void writesOnCommit() {
+            TransactionSynchronizationManager.initSynchronization();
+            presence().focusStarted(userId, sessionId());
+
+            TransactionSynchronizationManager.getSynchronizations().forEach(s -> s.afterCommit());
+
+            assertThat(redis.hasKey(key)).isTrue();
+        }
+
+        @Test
+        @DisplayName("롤백되면(콜백 미실행) 아무것도 쓰지 않는다")
+        void writesNothingOnRollback() {
+            TransactionSynchronizationManager.initSynchronization();
+
+            presence().focusStarted(userId, sessionId());
+            // afterCommit 을 부르지 않는다 = 롤백된 상황.
+
+            assertThat(redis.hasKey(key)).isFalse();
+        }
     }
 
-    @Test
-    @DisplayName("커밋 콜백이 돌면 그때 쓴다")
-    void writesOnCommitCallback() {
-        given(redis.opsForValue()).willReturn(valueOperations);
-        TransactionSynchronizationManager.initSynchronization();
-        presence().focusStarted(USER_ID);
+    @Nested
+    @DisplayName("순서가 어긋나 도착해도 상태가 맞다")
+    class OutOfOrder {
 
-        TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.afterCommit());
+        @Test
+        @DisplayName("«이미 끝난 세션»의 지연된 시작은 리스를 되살리지 못한다 — 되살면 13시간 차단이다")
+        void lateStartCannotResurrect() {
+            UUID session = sessionId();
+            presence().focusStarted(userId, session);
+            presence().focusEnded(userId, session);
 
-        verify(valueOperations).set(eq(KEY), any(), eq(Duration.ofHours(13)));
+            // 그 세션의 시작 콜백이 «종료 뒤에» 뒤늦게 도착한 상황.
+            presence().focusStarted(userId, session);
+
+            assertThat(redis.hasKey(key)).isFalse();
+        }
+
+        @Test
+        @DisplayName("옛 세션의 지연된 종료는 «새 집중»의 리스를 지우지 못한다")
+        void lateEndCannotClearNewerLease() {
+            UUID older = sessionId();
+            UUID newer = sessionId();
+            presence().focusStarted(userId, older);
+            presence().focusStarted(userId, newer);
+
+            presence().focusEnded(userId, older);
+
+            assertThat(redis.hasKey(key)).isTrue();
+            assertThat(redis.opsForValue().get(key)).isEqualTo(newer.toString());
+        }
+
+        @Test
+        @DisplayName("옛 세션의 지연된 시작은 «새 집중»의 리스를 덮어쓰지 못한다")
+        void lateStartCannotOverwriteNewerLease() {
+            UUID older = sessionId();
+            UUID newer = sessionId();
+            presence().focusStarted(userId, newer);
+
+            presence().focusStarted(userId, older);
+
+            assertThat(redis.opsForValue().get(key)).isEqualTo(newer.toString());
+        }
+
+        @Test
+        @DisplayName("종료 → 새 시작 순서는 정상적으로 새 리스를 놓는다 — 표식이 정상 재시작을 막으면 안 된다")
+        void restartAfterEndStillWorks() {
+            UUID first = sessionId();
+            presence().focusStarted(userId, first);
+            presence().focusEnded(userId, first);
+
+            UUID second = sessionId();
+            presence().focusStarted(userId, second);
+
+            assertThat(redis.opsForValue().get(key)).isEqualTo(second.toString());
+        }
+
+        @Test
+        @DisplayName("같은 세션의 재시작은 TTL 을 갱신한다 — 순서 역전 방어 경로가 그렇게 부른다")
+        void sameSessionRefreshesLease() {
+            UUID session = sessionId();
+            presence().focusStarted(userId, session);
+
+            assertThatCode(() -> presence().focusStarted(userId, session)).doesNotThrowAnyException();
+
+            assertThat(redis.opsForValue().get(key)).isEqualTo(session.toString());
+            assertThat(redis.getExpire(key)).isNotNull().isPositive();
+        }
     }
 
-    @Test
-    @DisplayName("종료는 리스를 지운다")
-    void deletesOnEnd() {
-        presence().focusEnded(USER_ID);
+    @Nested
+    @DisplayName("실패는 집중을 막지 않는다")
+    class FailureIsSwallowed {
 
-        verify(redis).delete(KEY);
-    }
+        @Test
+        @DisplayName("Redis 가 닿지 않아도 예외가 올라가지 않는다")
+        void swallowsFailures() {
+            LettuceConnectionFactory dead = new LettuceConnectionFactory("127.0.0.1", 1);
+            dead.afterPropertiesSet();
+            StringRedisTemplate deadTemplate = new StringRedisTemplate(dead);
+            deadTemplate.afterPropertiesSet();
+            RedisFocusPresence presence = new RedisFocusPresence(deadTemplate);
 
-    @Test
-    @DisplayName("Redis 가 죽어도 예외가 올라가지 않는다 — 부가 기능이 집중을 죽이면 안 된다")
-    void swallowsFailures() {
-        given(redis.opsForValue()).willReturn(valueOperations);
-        willThrow(new org.springframework.dao.QueryTimeoutException("redis down"))
-                .given(valueOperations).set(any(), any(), any(Duration.class));
+            assertThatCode(() -> presence.focusStarted(userId, sessionId())).doesNotThrowAnyException();
+            assertThatCode(() -> presence.focusEnded(userId, sessionId())).doesNotThrowAnyException();
 
-        assertThatCode(() -> presence().focusStarted(USER_ID)).doesNotThrowAnyException();
-    }
+            dead.destroy();
+        }
 
-    @Test
-    @DisplayName("커밋 «콜백 안»에서 죽어도 삼킨다 — 이미 커밋된 요청을 실패로 보이게 하면 안 된다")
-    void swallowsFailuresInsideCommitCallback() {
-        willThrow(new org.springframework.dao.QueryTimeoutException("redis down"))
-                .given(redis).delete(KEY);
-        TransactionSynchronizationManager.initSynchronization();
-        presence().focusEnded(USER_ID);
+        @Test
+        @DisplayName("커밋 «콜백 안»에서 죽어도 삼킨다 — 이미 커밋된 요청을 실패로 보이게 하면 안 된다")
+        void swallowsFailuresInsideCommitCallback() {
+            LettuceConnectionFactory dead = new LettuceConnectionFactory("127.0.0.1", 1);
+            dead.afterPropertiesSet();
+            StringRedisTemplate deadTemplate = new StringRedisTemplate(dead);
+            deadTemplate.afterPropertiesSet();
 
-        assertThatCode(() -> TransactionSynchronizationManager.getSynchronizations()
-                .forEach(sync -> sync.afterCommit()))
-                .doesNotThrowAnyException();
-    }
+            TransactionSynchronizationManager.initSynchronization();
+            new RedisFocusPresence(deadTemplate).focusEnded(userId, sessionId());
 
-    @Test
-    @DisplayName("롤백되면(콜백 미실행) 아무것도 쓰지 않는다")
-    void writesNothingOnRollback() {
-        given(redis.opsForValue()).willReturn(valueOperations);
-        TransactionSynchronizationManager.initSynchronization();
+            assertThatCode(() -> TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(s -> s.afterCommit()))
+                    .doesNotThrowAnyException();
 
-        presence().focusStarted(USER_ID);
-        // afterCommit 을 부르지 않는다 = 롤백된 상황.
-
-        verify(valueOperations, never()).set(any(), any(), any(Duration.class));
+            dead.destroy();
+        }
     }
 
     private RedisFocusPresence presence() {
         return new RedisFocusPresence(redis);
+    }
+
+    /**
+     * 세션 id 는 <b>UUID v7 이어야</b> 하고, <b>생성기를 공유해야</b> 한다.
+     *
+     * <p>v4 면 「문자열 사전순 = 시간 순서」가 성립하지 않아 순서 테스트가 무의미해지고,
+     * v7 이라도 <b>호출마다 새 생성기를 만들면 같은 밀리초 안에서 절반이 역전한다</b>(실측: 20,000건 중
+     * 9,993건). 이 클래스의 테스트는 연속 두 호출의 대소를 단언하므로, 그러면 무작위로 깨진다.
+     */
+    private static final com.fasterxml.uuid.impl.TimeBasedEpochGenerator ID_GENERATOR =
+            Generators.timeBasedEpochGenerator();
+
+    private static UUID sessionId() {
+        return ID_GENERATOR.generate();
     }
 }

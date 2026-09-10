@@ -105,6 +105,10 @@ Deployment gives the chat Redis user `presence:*` through a **separate read-only
 selector** (`%R~presence:*`) — A19 spells out why it cannot share a selector with the
 writable patterns.
 
+Data API also keeps `presence:focus:{userId}:closed` in that namespace — a short-lived
+"this session already ended" marker it uses to order its own writes. Chat never reads it,
+and it is a *different key* from the lease, so the `hasKey` check is unaffected.
+
 ## API surface
 
 The ticket (GROMO-292/293) predates the current conventions, so the endpoints were

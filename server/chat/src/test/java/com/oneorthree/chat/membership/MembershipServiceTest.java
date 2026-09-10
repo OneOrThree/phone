@@ -60,7 +60,7 @@ class MembershipServiceTest {
     @Test
     @DisplayName("캐시 미스면 상류를 부르고, 두 번째부터는 부르지 않는다")
     void cachesAfterFirstLookup() {
-        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(Set.of(groupId));
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.of(Set.of(groupId)));
 
         assertThat(membershipService.isMember(groupId, userId, BEARER)).isTrue();
         assertThat(membershipService.isMember(groupId, userId, BEARER)).isTrue();
@@ -71,7 +71,7 @@ class MembershipServiceTest {
     @Test
     @DisplayName("아무 섬에도 안 속한 사람도 캐시된다 — 안 그러면 매 요청이 상류로 샌다")
     void cachesEmptyMembership() {
-        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(Set.of());
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.of(Set.of()));
 
         assertThat(membershipService.isMember(groupId, userId, BEARER)).isFalse();
         assertThat(membershipService.isMember(groupId, userId, BEARER)).isFalse();
@@ -82,9 +82,27 @@ class MembershipServiceTest {
     }
 
     @Test
+    @DisplayName("상류가 «이 토큰»을 거절해서 나온 빈 집합은 캐시하지 않는다 — 토큰 갱신이 무의미해진다")
+    void doesNotCacheRejectionDerivedEmptyMembership() {
+        // 장시간 열린 STOMP 세션에서 AT 가 만료된 직후 캐시 미스가 나면 상류가 401 을 준다.
+        // 그걸 캐시하면 캐시는 userId 로만 조회되므로, 유저가 즉시 토큰을 갱신해 새로 붙어도
+        // 새 토큰이 상류에 닿지 못한 채 TTL 동안 «모든 방»에서 NOT_A_MEMBER 로 막힌다.
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.rejected());
+
+        assertThat(membershipService.myGroupIds(userId, BEARER)).isEmpty();
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isFalse();
+
+        // 그래서 «갱신된 토큰»으로 온 다음 요청은 상류에 그대로 닿는다.
+        String renewed = "Bearer renewed-token";
+        given(groupClient.fetchMyGroupIds(renewed)).willReturn(GroupClient.Membership.of(Set.of(groupId)));
+        assertThat(membershipService.isMember(groupId, userId, renewed)).isTrue();
+    }
+
+    @Test
     @DisplayName("캐시에는 «반드시» 수명이 걸려 있다 — 수명 없는 캐시는 영구 멤버십이다")
     void cachedMembershipAlwaysExpires() {
-        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(Set.of(groupId));
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.of(Set.of(groupId)));
         membershipService.myGroupIds(userId, BEARER);
 
         // 이 서비스는 탈퇴·강퇴를 «캐시 만료»로만 반영한다. 값과 수명을 두 명령으로 나눠 쓰면
@@ -97,7 +115,7 @@ class MembershipServiceTest {
     @DisplayName("여러 섬에 속해도 전부 되살아난다 — 값을 한 문자열로 접어도 잃지 않는다")
     void roundTripsMultipleGroups() {
         UUID second = UUID.randomUUID();
-        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(Set.of(groupId, second));
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.of(Set.of(groupId, second)));
         membershipService.myGroupIds(userId, BEARER);
 
         assertThat(membershipService.myGroupIds(userId, BEARER)).containsExactlyInAnyOrder(groupId, second);
@@ -115,7 +133,7 @@ class MembershipServiceTest {
     @Test
     @DisplayName("캐시가 살아 있으면 상류가 죽어도 판정이 계속된다")
     void servesFromCacheWhileUpstreamIsDown() {
-        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(Set.of(groupId));
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.of(Set.of(groupId)));
         membershipService.myGroupIds(userId, BEARER);
 
         willThrow(new UpstreamUnavailableException()).given(groupClient).fetchMyGroupIds(BEARER);
@@ -126,7 +144,7 @@ class MembershipServiceTest {
     @Test
     @DisplayName("남의 섬은 캐시에 있어도 false 다")
     void otherIslandIsNotMine() {
-        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(Set.of(groupId));
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.of(Set.of(groupId)));
 
         assertThat(membershipService.isMember(UUID.randomUUID(), userId, BEARER)).isFalse();
         verify(groupClient, never()).fetchMyGroupIds("Bearer other");

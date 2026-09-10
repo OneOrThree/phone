@@ -78,7 +78,7 @@ class ChatControllerTest {
         bearer = bearerOf(userId);
         redis.delete(RedisKeys.memberCache(userId));
         redis.delete(RedisKeys.focusPresence(userId));
-        given(groupClient.fetchMyGroupIds(bearer)).willReturn(Set.of(island));
+        given(groupClient.fetchMyGroupIds(bearer)).willReturn(GroupClient.Membership.of(Set.of(island)));
     }
 
     @AfterEach

@@ -60,7 +60,7 @@ class GroupClientTest {
         respondWith(200, "[{\"groupId\":\"" + groupId + "\",\"name\":\"우리 섬\",\"currentMembers\":3,"
                 + "\"role\":\"MEMBER\",\"isPrivate\":false}]");
 
-        assertThat(groupClient.fetchMyGroupIds(BEARER)).containsExactly(groupId);
+        assertThat(groupClient.fetchMyGroupIds(BEARER).groupIds()).containsExactly(groupId);
     }
 
     @Test
@@ -74,11 +74,12 @@ class GroupClientTest {
     }
 
     @Test
-    @DisplayName("빈 배열은 「아무 섬에도 안 속함」이다 — 예외가 아니다")
+    @DisplayName("빈 배열은 「아무 섬에도 안 속함」이다 — 예외가 아니고, 캐시해도 되는 답이다")
     void emptyMembershipIsNotAnError() {
         respondWith(200, "[]");
 
-        assertThat(groupClient.fetchMyGroupIds(BEARER)).isEmpty();
+        assertThat(groupClient.fetchMyGroupIds(BEARER).groupIds()).isEmpty();
+        assertThat(groupClient.fetchMyGroupIds(BEARER).cacheable()).isTrue();
     }
 
     @Test
@@ -87,7 +88,9 @@ class GroupClientTest {
         // 이 본문이 핵심이다. List<GroupRef> 로 읽으려 들면 변환이 터지고, 그러면 503 으로 뒤집힌다.
         respondWith(401, "{\"code\":\"UNAUTHORIZED\",\"message\":\"인증이 필요합니다.\"}");
 
-        assertThat(groupClient.fetchMyGroupIds(BEARER)).isEmpty();
+        assertThat(groupClient.fetchMyGroupIds(BEARER).groupIds()).isEmpty();
+        // 「소속이 없다」가 아니라 「이 토큰으로는 못 본다」 — 캐시하면 토큰 갱신이 무의미해진다.
+        assertThat(groupClient.fetchMyGroupIds(BEARER).cacheable()).isFalse();
     }
 
     @Test
@@ -95,7 +98,8 @@ class GroupClientTest {
     void forbiddenFoldsToEmpty() {
         respondWith(403, "{\"code\":\"FORBIDDEN\",\"message\":\"권한이 없습니다.\"}");
 
-        assertThat(groupClient.fetchMyGroupIds(BEARER)).isEmpty();
+        assertThat(groupClient.fetchMyGroupIds(BEARER).groupIds()).isEmpty();
+        assertThat(groupClient.fetchMyGroupIds(BEARER).cacheable()).isFalse();
     }
 
     @Test

@@ -953,7 +953,7 @@ class FocusServiceTest {
 
         focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0, null, SESSION_ID));
 
-        verify(focusPresencePort).focusEnded(USER_ID);
+        verify(focusPresencePort).focusEnded(eq(USER_ID), any());
     }
 
     @Test
@@ -972,7 +972,7 @@ class FocusServiceTest {
 
         focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0, null, SESSION_ID));
 
-        verify(focusPresencePort, never()).focusEnded(any());
+        verify(focusPresencePort, never()).focusEnded(any(), any());
     }
 
     /**
@@ -2574,7 +2574,7 @@ class FocusServiceTest {
         focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, null));
 
         // then
-        verify(focusPresencePort).focusStarted(USER_ID);
+        verify(focusPresencePort).focusStarted(eq(USER_ID), any());
     }
 
     @Test
@@ -2598,7 +2598,9 @@ class FocusServiceTest {
         // then: 마커는 안 생겼지만(sessionId null) 리스는 놓였다
         assertThat(response.sessionId()).isNull();
         verify(focusSessionRepository, never()).save(any(FocusSession.class));
-        verify(focusPresencePort).focusStarted(USER_ID);
+        // 새 마커를 안 만들었으므로 «열려 있던 그 마커»의 id 를 실어야 한다 — 그래야 그 마커의 종료가
+        // 「내가 놓은 리스」를 알아보고 지운다.
+        verify(focusPresencePort).focusStarted(USER_ID, SESSION_ID);
     }
 
     @Test
@@ -2611,7 +2613,7 @@ class FocusServiceTest {
         // when & then
         assertThatThrownBy(() -> focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, START)))
                 .isInstanceOf(UserException.class);
-        verify(focusPresencePort, never()).focusStarted(any());
+        verify(focusPresencePort, never()).focusStarted(any(), any());
     }
 
     @Test
@@ -2630,7 +2632,7 @@ class FocusServiceTest {
         focusService.cancelFocusSession(USER_ID, new FocusSessionCancelRequest(SESSION_ID));
 
         // then
-        verify(focusPresencePort).focusEnded(USER_ID);
+        verify(focusPresencePort).focusEnded(USER_ID, SESSION_ID);
     }
 
     @Test
@@ -2648,7 +2650,7 @@ class FocusServiceTest {
         // when & then
         assertThatThrownBy(() -> focusService.cancelFocusSession(USER_ID, new FocusSessionCancelRequest(SESSION_ID)))
                 .isInstanceOf(FocusException.class);
-        verify(focusPresencePort, never()).focusEnded(any());
+        verify(focusPresencePort, never()).focusEnded(any(), any());
     }
 
     @Test
@@ -2668,7 +2670,7 @@ class FocusServiceTest {
         focusService.sweepOrphanSessions(NOW);
 
         // then
-        verify(focusPresencePort).focusEnded(USER_ID);
+        verify(focusPresencePort).focusEnded(USER_ID, SESSION_ID);
     }
 
     @Test
@@ -2689,7 +2691,7 @@ class FocusServiceTest {
         focusService.sweepOrphanSessions(NOW);
 
         // then
-        verify(focusPresencePort, never()).focusEnded(any());
+        verify(focusPresencePort, never()).focusEnded(any(), any());
     }
 
     // ── startFocusSession — focus_type 인입(GROMO-733) ──────────────────────

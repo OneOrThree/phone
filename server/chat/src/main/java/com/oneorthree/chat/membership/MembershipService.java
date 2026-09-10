@@ -34,6 +34,11 @@ import java.util.stream.Collectors;
  * SET 으로 캐시하면 키가 아예 안 생기는데(그래서 매 요청이 상류로 샌다), 문자열은 빈 값
  * ({@code ""})을 그대로 담을 수 있다.
  *
+ * <h2>캐시하지 «않는» 답이 하나 있다</h2>
+ * 상류가 이 토큰을 거절해서(401/403) 나온 빈 집합은 적재하지 않는다 — 자세한 근거는
+ * {@link GroupClient.Membership} 에 있다. 「소속이 없다」와 「이 토큰으로는 못 본다」는 둘 다
+ * 빈 집합이지만 캐시해도 되는지가 정반대다.
+ *
  * <h2>무효화는 TTL 뿐이다</h2>
  * 가입·탈퇴·강퇴가 즉시 반영되지 않는다. 최대 {@code chat.membership.cache-ttl-seconds} 만큼
  * 늦는다 — 탈퇴한 사람이 그동안 대화를 계속 볼 수 있다는 뜻이라, TTL 을 늘리는 건 상류 부하를
@@ -81,9 +86,14 @@ public class MembershipService {
             return parse(cached);
         }
 
-        Set<UUID> fresh = groupClient.fetchMyGroupIds(bearerToken);
-        store(key, fresh);
-        return fresh;
+        GroupClient.Membership fresh = groupClient.fetchMyGroupIds(bearerToken);
+        // 상류가 «이 토큰»을 거절해서 나온 빈 집합은 캐시하지 않는다. 캐시는 userId 로만 조회되므로,
+        // 만료 토큰의 401 을 적재하면 유저가 곧바로 토큰을 갱신해 새로 붙어도 그 새 토큰이 상류에
+        // 닿지 못한 채 TTL 동안 모든 방에서 차단된다 — 토큰 만료가 「2분간 전면 차단」으로 번진다.
+        if (fresh.cacheable()) {
+            store(key, fresh.groupIds());
+        }
+        return fresh.groupIds();
     }
 
     /**

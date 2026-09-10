@@ -438,7 +438,7 @@ public class FocusService {
         // 선점 실패(row=0)일 때는 «지우지 않는다» — 그 마커는 다른 경로가 이미 닫았고(그쪽이 지웠다),
         // 그 사이 새로 시작한 집중의 리스를 여기서 날리면 안 된다.
         if (markerClaimed > 0) {
-            focusPresencePort.focusEnded(userId);
+            focusPresencePort.focusEnded(userId, body.getSessionId());
         }
 
         boolean markerAlreadyCompleted = body.getSessionId() != null
@@ -878,12 +878,6 @@ public class FocusService {
     public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
         User user = requireActiveUserForUpdate(userId);
 
-        // 집중 프레즌스 리스 (GROMO-292) — 채팅 서버가 「집중 중엔 못 들어온다」를 판정하는 근거다.
-        // 여기 한 번만 부르는 이유: 아래 두 반환 경로가 «둘 다 집중 중»이기 때문이다(새 마커를 만든
-        // 경우와, 이미 열린 마커가 있어 만들지 않은 경우). 실제 반영은 커밋 이후이고, 아래 검증에서
-        // 예외가 나 롤백되면 콜백 자체가 돌지 않는다(RedisFocusPresence).
-        focusPresencePort.focusStarted(userId);
-
         // GROMO-1214: 클라 시각 클램프 — 창(과거 5분·미래 0분) 밖이면 서버 수신 시각으로 대체한다.
         Instant now = clock.instant();
         Instant startedAt = clampToServerNow(body.startedAt(), now);
@@ -906,6 +900,9 @@ public class FocusService {
             // 역순 도착한 start 들은 서로 다른 블록이라, 같은 id 를 주면 뒤늦은 PATCH 가
             // SESSION_ALREADY_ENDED(앱이 POST 폴백을 하지 않는 코드)를 받아 그 블록의 시간·코인이
             // 영구 유실된다. null 이면 앱이 uploadFocusBlock 의 '마커 없음' 경로로 곧바로 POST 한다.
+            // 집중 프레즌스 리스 (GROMO-292) — 마커를 «새로 만들지 않았을 뿐» 이 사람은 집중 중이다.
+            // 그 열린 마커의 id 를 싣는다: 값이 세션 id 여야 종료가 「내가 놓은 리스」를 알아본다.
+            focusPresencePort.focusStarted(userId, liveMarker.get().getId());
             return new FocusSessionStartResponse(null, startedAt);
         }
 
@@ -924,6 +921,10 @@ public class FocusService {
                 // 순서 판정 전용 — 저장·집계·보상은 위 startedAt(클램프 값)만 본다.
                 .clientStartedAt(body.startedAt())
                 .build());
+
+        // 집중 프레즌스 리스 (GROMO-292) — 채팅이 「집중 중엔 못 들어온다」를 판정하는 근거다.
+        // 반영은 커밋 이후이고(RedisFocusPresence), 이 트랜잭션이 롤백되면 콜백 자체가 돌지 않는다.
+        focusPresencePort.focusStarted(userId, saved.getId());
 
         return new FocusSessionStartResponse(saved.getId(), saved.getStartedAt());
     }
@@ -1019,7 +1020,8 @@ public class FocusService {
         earlyWinConfirmationPort.confirmWins(userId, credited.focusSeconds().keySet());
 
         // 종료가 «성사된» 요청만 여기 온다(위 updated==0 은 예외로 빠졌다) — 리스 해제도 여기서 한 번.
-        focusPresencePort.focusEnded(userId);
+        // 그 사이 새 집중이 시작됐다면 리스 주인이 바뀌었으므로 이 해제는 아무것도 지우지 않는다.
+        focusPresencePort.focusEnded(userId, body.sessionId());
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
         // GROMO-806: 그날 누적·스트릭 인정 여부 / GROMO-1214: 지급 코인·잔액을 응답에 추가(additive, POST 응답과 동일 의미).
@@ -1060,7 +1062,7 @@ public class FocusService {
 
         session.cancel(canceledAt);
         // 취소도 집중의 끝이다 — 리스를 남기면 그 사람은 TTL 이 끝날 때까지 채팅에 못 들어간다.
-        focusPresencePort.focusEnded(userId);
+        focusPresencePort.focusEnded(userId, body.sessionId());
     }
 
     /**
@@ -1103,7 +1105,7 @@ public class FocusService {
             // 실제로 마감시킨 세션만 지운다 — 경합으로 유저가 먼저 정상 종료했다면 그쪽이 이미 지웠고,
             // 여기서 또 지우면 그 사이 새로 시작한 집중의 리스를 날린다.
             if (updated > 0 && session.getUser() != null) {
-                focusPresencePort.focusEnded(session.getUser().getId());
+                focusPresencePort.focusEnded(session.getUser().getId(), session.getId());
             }
         }
         return closed;

@@ -331,7 +331,7 @@ class ChatWebSocketIntegrationTest {
     // ── helpers ──────────────────────────────────────────────────────────
 
     private void givenMemberOf(UUID userId, UUID groupId) {
-        given(groupClient.fetchMyGroupIds(bearerOf(userId))).willReturn(Set.of(groupId));
+        given(groupClient.fetchMyGroupIds(bearerOf(userId))).willReturn(GroupClient.Membership.of(Set.of(groupId)));
     }
 
     private StompSession connect(UUID userId, RecordingHandler handler) throws Exception {

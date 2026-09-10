@@ -16,6 +16,9 @@ spring:
       # 읽기·쓰기, presence:* 는 읽기 전용 selector 로만 받는다.
       username: ${REDIS_USERNAME:}
       password: ${REDIS_PASSWORD:}
+      # 연결 수립 제한. 없으면 Lettuce 기본값(10초)이라, Redis 가 패킷을 드롭할 때 STOMP 채널
+      # 스레드가 10초씩 잠긴다 — 채널 스레드는 풀이라 곧 전부 소진돼 채팅 전체가 멈춘다.
+      connect-timeout: 500ms
       timeout: 2s
 
   flyway:

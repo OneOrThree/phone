@@ -74,10 +74,12 @@ public class GroupClient {
      *
      * @param bearerToken {@code Authorization} 헤더 <b>통째로</b>({@code "Bearer …"} 포함). 접두를
      *                    떼서 넘기면 상류가 401 을 주고, 그 401 은 빈 집합으로 접혀 「비멤버」가 된다
-     * @return 활성 그룹 id 들. 상류가 401/403 을 주면 빈 집합
+     * @return 활성 그룹 id 들과 <b>그 답을 캐시해도 되는지</b>. 상류가 401/403 을 주면 빈 집합이지만
+     *         {@code cacheable=false} 다 — 그건 「이 사람은 아무 섬에도 없다」가 아니라
+     *         「이 토큰으로는 못 본다」이기 때문이다
      * @throws UpstreamUnavailableException 상류가 응답하지 않아 <b>판정을 내릴 수 없을 때</b>
      */
-    public Set<UUID> fetchMyGroupIds(String bearerToken) {
+    public Membership fetchMyGroupIds(String bearerToken) {
         try {
             return restClient.get()
                     .uri("/api/v1/groups")
@@ -95,18 +97,18 @@ public class GroupClient {
                         if (status.value() == HttpStatus.UNAUTHORIZED.value()
                                 || status.value() == HttpStatus.FORBIDDEN.value()) {
                             log.debug("그룹 조회 거절 — status={}", status.value());
-                            return Set.<UUID>of();
+                            return Membership.rejected();
                         }
                         if (!status.is2xxSuccessful()) {
                             // 5xx·그 밖의 4xx = 판정 불가. 빈 집합으로 접으면 장애가 «전원 비멤버»가 된다.
                             throw new UpstreamUnavailableException();
                         }
                         List<GroupRef> groups = response.bodyTo(new ParameterizedTypeReference<List<GroupRef>>() { });
-                        return groups == null ? Set.<UUID>of()
+                        return Membership.of(groups == null ? Set.of()
                                 : groups.stream()
                                         .map(GroupRef::groupId)
                                         .filter(Objects::nonNull)
-                                        .collect(Collectors.toSet());
+                                        .collect(Collectors.toSet()));
                     });
         } catch (UpstreamUnavailableException e) {
             throw e;
@@ -114,6 +116,31 @@ public class GroupClient {
             // 연결 불가·타임아웃·본문 변환 실패. 어느 쪽이든 «답을 못 받았다»이지 «아니오»가 아니다.
             log.warn("그룹 조회 실패 — 상류 응답 없음", e);
             throw new UpstreamUnavailableException();
+        }
+    }
+
+    /**
+     * 상류의 답 — <b>「소속이 없다」와 「이 토큰으로는 못 본다」를 구분</b>한다.
+     *
+     * <h3>왜 구분해야 하나</h3>
+     * 둘 다 «빈 집합»이지만 캐시해도 되는지가 정반대다. 장시간 열린 STOMP 세션에서 AT 가 만료된
+     * 직후 캐시 미스가 나면 상류가 401 을 주는데, 그걸 그냥 캐시하면 <b>유저가 즉시 토큰을 갱신해
+     * 새로 붙어도 캐시는 {@code userId} 로만 조회되므로 새 토큰이 상류에 닿지 않는다</b> — 그동안
+     * 모든 방에서 {@code NOT_A_MEMBER} 로 막힌다. 토큰 만료가 «2분간 전면 차단»으로 번지는 셈이다.
+     *
+     * @param groupIds 활성 그룹 id 들
+     * @param cacheable 이 답을 캐시해도 되는가. 401/403 에서 나온 빈 집합이면 false
+     */
+    public record Membership(Set<UUID> groupIds, boolean cacheable) {
+
+        /** 상류가 답한 «사실» — 캐시해도 된다. 빈 집합이면 정말 아무 섬에도 안 속한 것이다. */
+        public static Membership of(Set<UUID> groupIds) {
+            return new Membership(groupIds, true);
+        }
+
+        /** 상류가 이 토큰을 거절했다 — 답은 비었지만 «이 사람의 소속»에 대한 사실이 아니다. */
+        public static Membership rejected() {
+            return new Membership(Set.of(), false);
         }
     }
 

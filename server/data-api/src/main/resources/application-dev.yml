@@ -126,4 +126,10 @@ spring.data.redis:
   port: ${REDIS_PORT:6379}
   username: ${REDIS_USERNAME:}
   password: ${REDIS_PASSWORD:}
+  # timeout 은 «명령 응답» 대기만 제한한다 — 연결 수립은 connect-timeout 이 따로 막는다.
+  # 이걸 비워 두면 Lettuce 기본값(10초)이라, Redis 주소가 패킷을 드롭하는 장애에서 요청 스레드가
+  # 10초를 통째로 기다린다. 프레즌스는 AFTER_COMMIT 에서 «동기»로 도는데, 그 시점엔 집중 시작·종료가
+  # 이미 커밋돼 있다 — 즉 부가 기능의 연결 지연이 핵심 기능의 응답을 10초 늦추고 클라 재시도를 부른다.
+  # best-effort 라면 «빨리» 실패해야 한다.
+  connect-timeout: 500ms
   timeout: 2s
