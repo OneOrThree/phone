@@ -57,6 +57,7 @@ flowchart TB
 | 경로 | 대상 | 인증 |
 |---|---|---|
 | `/api/v1/auth/**` — 소셜 로그인 6종 · 게스트 · refresh · logout | business-api | **없음 (pre-auth)** — AT 발급 **전**에 호출하는 경로다. 앱 현행 계약이 `/api/v1/auth/*` 이므로 Target-1 도 이 접두를 유지한다(경로를 `/auth/**` 로 옮기려면 배포된 앱이 있어 이관 절차가 따로 필요). 현 `JwtFilter` 화이트리스트 8종이 여기로 옮겨온다. **단 소셜 로그인은 「무인증」이 아니라 「선택적 인증」이다** — AT 가 실려 오면 `access` 타입인지 검증해 그 `userId` 를 Data 로그인 명령에 넘겨야 **게스트 → 소셜 승격**이 성립한다(순수 익명으로 구현하면 새 `User` 가 생겨 기존 기록을 잃는다, 서비스 §5) |
+| **`DELETE /api/v1/users/me/device-token`** | business-api | **AT 만으로는 부족** — 현 `deleteDeviceToken`(`userApi.ts:88-94`)은 **refresh 인터셉터가 없는 bare axios 에 기존 AT** 를 싣고 `App.tsx:293-306,528` 은 실패를 삼킨다. 앱을 1시간 넘게 안 쓴 뒤 로그아웃·계정 전환하면 **만료 AT 로 401 이 나 Business 에 닿지도 못해 outbox 조차 안 남고**, 뒤의 `/auth/logout` 에는 대상 토큰·소유권 값이 없어 복구 불가다. 그래서 **이 삭제만은 RT(또는 별도 기기 자격)로 인증**하거나, **세션 전환을 깨지 않는 방식으로 fresh AT 를 확보한 뒤** outbox 기록까지 끝낸다 |
 | 그 외 `/api/v1/**` · `/bff/**` | business-api | JWT (Business API 서명 검증) |
 | `/internal/admin/**` | notification | 서비스 토큰(콘솔 전용). Vercel egress IP 는 가변이라 IP 허용 목록 없음 |
 | `/health` | business-api (각 서비스 헬스는 compose 내부) | 없음 |
@@ -91,7 +92,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | 시크릿 | 보유 |
 |---|---|
 | `JWT_SECRET` | 최종적으로 business-api **만**. **회수 시점은 FCM(아래)과 같은 순서다** — 현 `application-prod.yml:30` 이 기본값 없는 필수 placeholder 라, 라우팅 전환보다 먼저 data-api 에서 빼거나 **직전 digest 로 롤백**하면 **Data 가 기동하지 못해 전체 API 가 멈춘다**. **business-api 에 먼저 병행 배포 → 인증 트래픽 전환과 구 인증 코드 제거 확인 → 롤백 창 종료 → 그다음 data-api 에서 회수** |
-| **`APPLE_CLIENT_ID` · `GOOGLE_CLIENT_ID`**(+ 그 밖의 provider 설정) | **business-api** — IdP 토큰 검증을 옮겼으므로 함께 옮긴다. 현 `application-prod.yml:39·46` 이 **기본값 없는 필수 주입**이라 빠뜨리면 placeholder 해석 단계에서 **기동 자체가 실패**하고 해당 소셜 로그인이 전부 중단된다 |
+| **`APPLE_CLIENT_ID` · `GOOGLE_CLIENT_ID`**(+ 그 밖의 provider 설정) | 최종적으로 **business-api** — IdP 토큰 검증을 옮기므로 함께 옮긴다. **회수 시점은 `JWT_SECRET`·FCM 과 같다**(병행 배포 → 인증 트래픽 전환·구 인증 코드 제거 확인 → 롤백 창 종료 → data-api 에서 회수). 현 `application-prod.yml:39·46` 이 **기본값 없는 필수 주입**이라 빠뜨리면 placeholder 해석 단계에서 **기동 자체가 실패**하고 해당 소셜 로그인이 전부 중단된다 |
 | **`API_DB_URL` · `API_DB_USERNAME` · `API_DB_PASSWORD`** (gromo) | data-api — **현 `application-prod.yml:3-5` 이 읽는 실제 이름이다**(기본값 없음). 표에 다른 이름을 적어 두면 그대로 배포했을 때 기동 실패 |
 | `NOTI_DB_URL` · `NOTI_DB_USERNAME` · `NOTI_DB_PASSWORD` (gromo_notification) | notification — 신규라 이름을 새로 정하지만 **Data API 의 `API_DB_*` 와 같은 형태로 맞춘다** |
 | **`FCM_PROJECT_ID` · `FCM_SERVICE_ACCOUNT_JSON`** | 최종적으로 notification **만**. **단 회수 시점은 Target-1 배포 시점이 아니다** — 이관 절차 ④′ 까지는 Data API 안의 구 `NotificationScheduler` 가 실제 푸시를 계속 보내야 하는데, `FcmPushNotificationClient` 는 **둘 중 하나만 없어도 기동을 막는 fail-fast** 생성자라 배포와 동시에 빼면 **Data API 가 아예 안 뜨거나 구 발송 경로를 먼저 죽여야** 해서 이중 쓰기·백필·drain 기간의 알림이 끊긴다. 순서: **전환용 Data 이미지에는 자격을 병행 배포 → ④′ drain 과 legacy FCM 빈 제거 확인 → 그 다음 배포에서 data-api 자격 회수** — `FcmPushNotificationClient` 는 **둘 중 하나라도 없으면 기동을 실패**시키고, 프로퍼티 키가 env 자동 변환과 정확히 일치해야 한다(그 클래스 주석). `_BASE64` 접미사 붙은 이름이 아니고, **project ID 도 함께 옮겨야 한다** |
@@ -101,7 +102,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | **`OPENAI_API_KEY`** | **data-api** — `/api/v1/character/moderation`(캐릭터 이미지 모더레이션)은 도메인 기능이라 Data 에 남고 Business 는 패스스루한다. 현 배포 생성기 `.github/scripts/write-compose-env.py:24` 가 **필수로 취급**하고 `OpenAiModerationClient:69` 는 값이 없으면 **모든 모더레이션 요청을 예외로 차단**하므로, 표에서 빠지면 그 경로가 전면 실패한다 |
 | 콘솔 비밀번호 4개(해시) | Vercel env (링크 레포) |
 | `LINK_IP_SALT` · SKAN 키 | 링크 서버 (Vercel env) — **기존 운영 값을 그대로 복사한다(새로 생성 금지)** |
-| **`LINK_CAPABILITY_KEY`**(§3 비공개 가입 자격 서명) | **링크 서버(발급) 와 data-api(검증) 양쪽** — HMAC 공유 비밀 또는 링크 서버 개인키/Data 공개키 쌍. 없으면 Data 는 자격의 발급자를 확인할 수 없어 **가입을 전부 실패시키거나, 서명을 안 보고 클라이언트가 준 `groupId`·`inviterId`·`membershipVersion` 을 믿어 비공개 그룹 가입이 우회**된다. **회전은 구·신 키 병행 검증 기간을 두고**(자격 만료보다 긴 창) 그 뒤 구 키를 폐기한다 |
+| **`LINK_CAPABILITY_KEY`**(§3 비공개 가입 자격 서명) | **링크 서버(발급) 와 data-api(검증) 양쪽** — HMAC 공유 비밀 또는 링크 서버 개인키/Data 공개키 쌍. 없으면 Data 는 자격의 발급자를 확인할 수 없어 **가입을 전부 실패시키거나, 서명을 안 보고 클라이언트가 준 `groupId`·`inviterId`·`membershipEpoch` 를 믿어 비공개 그룹 가입이 우회**된다. **회전은 구·신 키 병행 검증 기간을 두고**(자격 만료보다 긴 창) 그 뒤 구 키를 폐기한다 |
 | **`LINK_PROXY_SECRET`**(§2.1 의 프록시 전용 공유 시크릿) | **nginx 와 링크 서버 양쪽** — 서비스 토큰과 별개다. 이게 없으면 legacy `/l/match` 프록시가 신뢰 가능한 전달 IP 를 못 실어 링크 서버가 Vercel 이 본 EC2 주소로 해시하고, **정상 클릭도 `matched:false`** 가 된다 |
 
 prod 는 Secrets Manager(`gromo/prod/env` JSON), dev 는 GCP 메타데이터/env — 현행 방식에 키만 추가.
