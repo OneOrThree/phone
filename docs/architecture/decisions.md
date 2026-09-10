@@ -123,7 +123,7 @@
 | ㋘ **DB↔Redis 는 한 트랜잭션이 아니다**: 종료 표시도 DB outbox 에서 재전달하고 미적용 행이 있는 동안 조회는 DB 폴백 — 어느 쪽을 먼저 써도 한쪽이 틀린다.
 | ㋙ **폐기는 그 사이 수락된 claim 까지 되돌린다**: relay 지연 중 링크는 active 로 보여 claim 을 기록하는데, 그룹 HLD 는 폐기 후 claim 을 no-op 으로 둔다 → 유효하지 않은 초대가 귀속·전환에 영구 집계.
 | ㋚ **소유권 판정은 두 갈래**: 토큰 있으면 최신일 때만(같은 유저 지연 차단), **토큰 없으면 유효 AT 로 이전 허용**(새 토큰 발급) — 안 그러면 relay 삭제 후 응답 유실 시 계정 전환 등록이 영구 거부된다. 유저 간 전환은 세대 tombstone 이 막는다.
-| ㋛ **claim 무효화는 commit sequence 로 가른다**: `claimSeq > revokeSeq` — 링크 서버만으로는 「전이 전 정상 claim」과 「전이 후 지연 claim」이 같은 epoch 라 구분되지 않는다.
+| ㋛ ~~**claim 무효화는 commit sequence 로 가른다**: `claimSeq > revokeSeq`~~ → **㋟ 로 뒤집혔다**: `claimSeq` 는 판정 순서일 뿐 링크 기록 순서가 아니라, 판정 10 을 받은 pending claim 이 revoke 11 뒤에 기록되면 이 규칙만으론 살아남는다. **pending→confirm 과 `(groupId, inviterId)` 전이 tombstone 만 유효하다**. 원 서술: — 링크 서버만으로는 「전이 전 정상 claim」과 「전이 후 지연 claim」이 같은 epoch 라 구분되지 않는다.
 | ㋜ **늦은 시작 이벤트도 거부**: 시작 적용에 세션 lifecycle version/tombstone 대조(또는 DB 미종료 확인) — 종료 뒤 재처리된 시작이 presence 를 되살려 이중 계상.
 | ㋝ **주차 ZSET 은 보존 기간 제한**: 매주 전체 사용자를 적재하므로 `사용자 수 × 주차 수`로 는다 → 현재 주 + 조회 대상만, 나머지 TTL(DB 가 정본이라 재구축 가능).
 | ㋞ **축은 셋이다** — 유저(`authGeneration`: 탈퇴·전 기기 로그아웃) · 기기(`ownershipVersion`: 같은 유저의 요청 순서) · **세션(`deviceBootstrap`: 그 로그인 세션이 살아 있는가)**. 무토큰 이전엔 `deviceBootstrap` 을 요구하고, **개별 로그아웃이 그 nonce 를 내구 폐기**한다 — 「1회용」만으로는 미사용 상태의 지연 요청을 못 막는다. 개별 기기 로그아웃은 유저도 기기도 아닌 **「세션」이 끝나는 사건**이다.
@@ -136,6 +136,10 @@
 | ㋥ **confirm/revoke 는 링크 서버가 `(groupId, inviterId)` 전이 seq 로 거른다**: 같은 outbox 라도 HTTP 적용 순서는 안 보장되고, A21 직렬화는 같은 `userId` 단위인데 claim 사용자와 발급자는 다르다.
 | ㋦ **컷오버 창에 놓친 크론을 재생**: ④′~④‴ 사이엔 어느 쪽도 잡을 안 돌리는데 주간 결과처럼 다음 실행이 일주일 뒤인 잡이 있고 놓친 실행은 자동 복구되지 않는다.
 | ㋧ **브로커 전환 대상에 `score-events`·랭킹 소비자 포함**: 알림 소비자만 drain 하면 점수 backlog 가 유실돼 완료 점수가 안 오르고 presence 도 안 지워진다.
+| ㋨ **확인과 mutation 을 한 경계로**: 동기 세션 확인만으로는 TOCTOU 가 남는다 → Data 가 `sessionEpoch` fencing 값을 돌려주고 알림 서버가 자기 tombstone 과 **원자 대조**한 뒤에만 소유권 변경.
+| ㋩ **outbox 기록 실패 경로도 닫는다**: ⓐ 가 실패해도 ⓑ(직접 삭제)는 시도하고, 둘 다 실패하면 **앱이 내구 재시도** — 앱은 실패를 삼키고 로컬 인증을 지운다.
+| ㋪ **기존 RT 승격은 expand/contract**: 구 RT 엔 `sessionId` 가 없다 → legacy 세션 행 백필 + 최대 수명 동안 병행 조회 + 첫 refresh 에서 회전. 곧장 전환하면 **게스트는 계정을 잃는다**.
+| ㋫ **이벤트 리스너도 별도 컷**: `@Async @TransactionalEventListener(AFTER_COMMIT)` 리스너가 구 FCM 경로를 계속 돈다 → 리스너 정지 → 인플라이트 drain → outbox watermark → 신 소비자. 예약 잡 컷만으로는 이중 발송/누락이 남는다.
 | ⓖ **위성 쓰기 전 활성 검사** — 위성 직행 쓰기는 Data 의 `X-User-Id` 검사를 안 거친다. | PR #731 codex 6~9라운드 (실코드 대조로 확인) | 09-10 |
 
 ## 산출물
