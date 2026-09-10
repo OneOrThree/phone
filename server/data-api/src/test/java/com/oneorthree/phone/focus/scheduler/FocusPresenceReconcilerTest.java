@@ -11,6 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
@@ -24,6 +25,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -33,8 +35,10 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willReturn;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -185,7 +189,9 @@ class FocusPresenceReconcilerTest {
         given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any()))
                 .willReturn(List.of(open, ended));
         // 읽고 쓰는 사이에 끝났다 — 그 종료의 Redis 쓰기가 실패했다면 «끝났다» 표식조차 없다.
-        given(focusSessionRepository.findByIdInAndEndedAtIsNotNull(any())).willReturn(List.of(ended));
+        // ⚠️ given(mock.call(...)) 형태로 «다시» 스텁하면 그 순간 실제 호출이 일어나 앞의 willThrow 가
+        //    터진다. 이미 예외를 스텁해 둔 메서드는 반드시 willReturn(...).given(mock) 순서로 바꾼다.
+        willReturn(List.of(ended)).given(focusSessionRepository).findByIdInAndEndedAtIsNotNull(any());
 
         reconciler(INLINE).onApplicationReady();
 
@@ -204,6 +210,37 @@ class FocusPresenceReconcilerTest {
         reconciler(INLINE).onApplicationReady();
 
         verify(focusSessionRepository, never()).findByIdInAndEndedAtIsNotNull(any());
+    }
+
+    @Test
+    @DisplayName("되묻기가 터진 세션은 «다음 회차»에 다시 든다 — 안 그러면 두 번 다시 후보가 안 된다")
+    void aFailedRecheckIsRetriedOnTheNextCycle() {
+        UUID userId = UUID.randomUUID();
+        FocusSession open = openMarker(userId);
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of(open));
+        // 1회차: 되묻기 조회가 터진다.
+        willThrow(new IllegalStateException("db down"))
+                .given(focusSessionRepository).findByIdInAndEndedAtIsNotNull(any());
+
+        FocusPresenceReconciler reconciler = reconciler(INLINE);
+        reconciler.reconcilePeriodically();
+
+        // 2회차: 그 세션은 이미 끝나서 «진행 중» 조회에는 잡히지 않는다. 대기 목록이 없으면 여기서
+        // 영영 사라지고, 잘못 놓인 리스는 TTL(시작 기준 13시간)까지 채팅을 막는다.
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
+        FocusSession ended = openMarker(userId);
+        ReflectionTestUtils.setField(ended, "id", open.getId());
+        // ⚠️ given(mock.call(...)) 형태로 «다시» 스텁하면 그 순간 실제 호출이 일어나 앞의 willThrow 가
+        //    터진다. 이미 예외를 스텁해 둔 메서드는 반드시 willReturn(...).given(mock) 순서로 바꾼다.
+        willReturn(List.of(ended)).given(focusSessionRepository).findByIdInAndEndedAtIsNotNull(any());
+
+        reconciler.reconcilePeriodically();
+
+        ArgumentCaptor<Collection<UUID>> asked = ArgumentCaptor.forClass(Collection.class);
+        verify(focusSessionRepository, times(2)).findByIdInAndEndedAtIsNotNull(asked.capture());
+        assertThat(asked.getAllValues().get(1)).contains(open.getId());
+        // 그리고 실제로 회수된다.
+        verify(focusPresencePort).focusEnded(userId, open.getId());
     }
 
     @Test

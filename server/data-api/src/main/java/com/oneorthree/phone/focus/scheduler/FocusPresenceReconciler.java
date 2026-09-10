@@ -22,7 +22,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 기동 시 <b>DB 정본에서 집중 프레즌스 리스를 재구축</b>한다 (GROMO-292).
@@ -79,6 +81,21 @@ public class FocusPresenceReconciler {
 
     /** 조회 상한(초). 근거는 {@link #readOnlyWithTimeout} 에 있다. */
     private static final int READ_TIMEOUT_SECONDS = 10;
+
+    /** 되묻기 대기 목록 상한. 근거는 {@link #rememberForNextCycle} 에 있다. */
+    private static final int MAX_PENDING_RECHECK = 1_000;
+
+    /**
+     * 되묻기가 <b>실패한</b> 세션 id — 다음 회차가 다시 든다.
+     *
+     * <p>이게 없으면 되묻기 조회가 한 번 터진 세션은 영영 회수되지 않는다. 그 세션은 이미
+     * {@code endedAt} 이 차서 진행 중 조회에 다시는 잡히지 않고, 되묻기 후보는 「이번 회차가 방금
+     * 쓴 것」뿐이기 때문이다. 남는 백스톱이 TTL 하나가 되어 <b>최대 13시간 채팅이 막힌다.</b>
+     *
+     * <p>인스턴스 안에만 있는 상태다 — 재기동하면 사라지고, 다른 인스턴스는 모른다. 그래도 되는
+     * 이유는 이게 «추가» 재시도이지 유일한 수단이 아니어서다(정상 경로는 종료 자신의 해제다).
+     */
+    private final Set<UUID> pendingRecheck = ConcurrentHashMap.newKeySet();
 
     private final FocusSessionRepository focusSessionRepository;
     private final FocusPresencePort focusPresencePort;
@@ -208,7 +225,11 @@ public class FocusPresenceReconciler {
         }
         log.info("집중 프레즌스 재구축 — 진행 중 세션 {}건", restored.size());
 
-        releaseWhatEndedMeanwhile(restored);
+        // 지난 회차가 되묻지 못한 것들을 함께 싣는다 — 그것들은 이미 endedAt 이 차서 위 조회에
+        // 다시는 잡히지 않으므로, 여기서 다시 들지 않으면 «영영» 회수되지 않는다.
+        List<UUID> candidates = new ArrayList<>(restored);
+        candidates.addAll(pendingRecheck);
+        releaseWhatEndedMeanwhile(candidates);
     }
 
     /**
@@ -225,18 +246,24 @@ public class FocusPresenceReconciler {
      * <p>비용은 한 번의 IN 조회다 — 모수가 방금 쓴 id 목록이라 동시 집중 인원 규모를 넘지 않는다.
      * 회수 자체는 조건부 삭제({@code focusEnded})라 그 사이 새로 시작된 집중의 리스는 건드리지 않는다.
      */
-    private void releaseWhatEndedMeanwhile(List<UUID> restored) {
-        if (restored.isEmpty()) {
+    private void releaseWhatEndedMeanwhile(List<UUID> candidates) {
+        if (candidates.isEmpty()) {
             return;
         }
         List<FocusSession> ended;
         try {
             ended = transactionOperations.execute(status ->
-                    focusSessionRepository.findByIdInAndEndedAtIsNotNull(restored));
+                    focusSessionRepository.findByIdInAndEndedAtIsNotNull(candidates));
         } catch (RuntimeException e) {
-            log.error("집중 프레즌스 되묻기 실패 — 그 사이 끝난 집중의 리스가 남아 채팅을 막을 수 있다", e);
+            // 다음 회차가 다시 든다. 여기서 그냥 포기하면 이 세션들은 «두 번 다시» 후보에 오르지
+            // 않는다 — 이미 endedAt 이 차서 진행 중 조회에 안 잡히기 때문이다. 그러면 남는 백스톱은
+            // TTL 뿐이고, 그건 10분이 아니라 «시작 기준 13시간»이다.
+            rememberForNextCycle(candidates);
+            log.error("집중 프레즌스 되묻기 실패 — 다음 회차에 다시 시도한다(대기 {}건)", pendingRecheck.size(), e);
             return;
         }
+        // 확인이 끝났으므로 대기 목록에서 뺀다. 아직 진행 중인 것은 다음 회차의 재구축이 다시 싣는다.
+        candidates.forEach(pendingRecheck::remove);
 
         for (FocusSession session : ended) {
             if (session.getUser() != null) {
@@ -245,6 +272,23 @@ public class FocusPresenceReconciler {
         }
         if (!ended.isEmpty()) {
             log.info("집중 프레즌스 되묻기 — 그 사이 끝난 세션 {}건 회수", ended.size());
+        }
+    }
+
+    /**
+     * 되묻기 대기 목록에 넣는다 — <b>상한을 둔다.</b>
+     *
+     * <p>DB 가 오래 흔들리면 매 회차가 후보를 쌓기만 한다. 그 목록이 무한히 자라면 이 컴포넌트가
+     * 장애를 «메모리 누수»로 번역하는 셈이 된다. 상한을 넘으면 더 담지 않고 TTL 백스톱에 맡긴다 —
+     * 부가 기능이 코어를 해치지 않는다는 이 클래스의 규율과 같은 방향이다.
+     */
+    private void rememberForNextCycle(List<UUID> candidates) {
+        for (UUID id : candidates) {
+            if (pendingRecheck.size() >= MAX_PENDING_RECHECK) {
+                log.warn("되묻기 대기 목록 상한({}) 도달 — 나머지는 TTL 백스톱에 맡긴다", MAX_PENDING_RECHECK);
+                return;
+            }
+            pendingRecheck.add(id);
         }
     }
 
