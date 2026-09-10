@@ -54,7 +54,8 @@ flowchart TB
 
 | 경로 | 대상 | 인증 |
 |---|---|---|
-| `/api/v1/**` · `/bff/**` · `/auth/**` | business-api | JWT (Business API) |
+| `/api/v1/auth/**` — 소셜 로그인 6종 · 게스트 · refresh · logout | business-api | **없음 (pre-auth)** — AT 발급 **전**에 호출하는 경로다. 앱 현행 계약이 `/api/v1/auth/*` 이므로 Target-1 도 이 접두를 유지한다(경로를 `/auth/**` 로 옮기려면 배포된 앱이 있어 이관 절차가 따로 필요). 현 `JwtFilter` 화이트리스트 8종이 여기로 옮겨온다 |
+| 그 외 `/api/v1/**` · `/bff/**` | business-api | JWT (Business API 서명 검증) |
 | `/internal/admin/**` | notification | 서비스 토큰(콘솔 전용). Vercel egress IP 는 가변이라 IP 허용 목록 없음 |
 | `/health` | business-api (각 서비스 헬스는 compose 내부) | 없음 |
 | `/l/**` · `/.well-known/**` | **nginx 가 아니라 DNS** — `link.oneorthree.world` → Vercel | — |
@@ -69,7 +70,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | business-api | 8080 | 512 MB | DB 없음, 커넥션 풀 없음. 패스스루 라우터 + BFF |
 | data-api | 8081 | 1 GB | 현 app 그대로. 커넥션 풀 = Hikari 기본 10(prod 에 명시 설정 없음) |
 | notification | 8082 | 512 MB | FCM 풀 · 크론 풀 6+ · 커넥션 풀 작게(≤5) |
-| **kafka** (A12) | 9092 (compose 내부만) | **512 MB** + 페이지 캐시 | `apache/kafka` KRaft 단일 노드, retention 7일, 볼륨 필수(디스크 감시). 외부 미노출 — Vercel 은 붙지 않음 |
+| **kafka** (A12) | 9092 (compose 내부만) | **512 MB** + 페이지 캐시 | `apache/kafka` KRaft 단일 노드, retention 7일, **내부 토픽 복제 계수 1**(`OFFSETS_TOPIC_REPLICATION_FACTOR`·트랜잭션 사용 시 `TRANSACTION_STATE_LOG_*` 도 — 기본 3 이면 컨슈머 그룹 불가), 볼륨 필수(디스크 감시). 외부 미노출 — Vercel 은 붙지 않음 |
 | nginx · datadog-agent | 443 · 8126 | — | 현행 |
 
 힙 합계 2 GB 는 실사용으로 ≈1.3~1.5배(메타스페이스·스택·다이렉트 버퍼) = 2.6~3 GB 로 본다. dev e2-medium(4 GB)에 JVM 셋 **+ Kafka 512 MB** + Postgres + agent 는 **넘친다** — dev 는 `notification`·`business-api` 힙 256 MB, Kafka 384 MB 로 시작해도 여유가 거의 없어 **e2-standard-2(8 GB) 사이즈업을 전제**로 본다. prod 는 **A14 사이즈업(t4g.large 권장)** 전제 — 현 타입 실측 후 차이만 티켓에.
@@ -115,7 +116,7 @@ server/.github/workflows/
   api-dog-generate  service 별 OpenAPI (business-api 가 앱 계약의 정본, data-api 는 /internal 문서)
 ```
 
-- 변경된 서비스만 빌드·배포(경로 필터로 결정). compose 는 환경당 1파일에 **컨테이너 6개**(JVM 서비스 3 + nginx · kafka · datadog-agent), 오버레이(datadog·observability) 유지.
+- 변경된 서비스만 빌드·배포(경로 필터로 결정). compose 는 환경당 1파일 — **prod 6개**(JVM 서비스 3 + nginx · kafka · datadog-agent, DB 는 RDS), **dev 7개**(같은 6개 + Postgres `db` 컨테이너, §6·A10). 오버레이(datadog·observability) 유지.
 - 헬스체크: `GET /health` 각 서비스, CD 는 변경된 서비스만 기다림(300s).
 - 롤백: `prod-rollback.yml` 에 `service` 입력 추가 — 이미지 태그만 되돌림, compose·스키마 유지(현행 원칙).
 - 링크 서버는 Vercel Git 연동(별도 레포) — 이 파이프라인 밖.
@@ -159,13 +160,14 @@ server/.github/workflows/
 ## 8. 열린 점
 
 1. ~~prod 인스턴스 사양~~ → **실측 완료(09-10)**: EC2 t4g.medium → large 사이즈업(A14). RDS db.t4g.micro(1 GB) — 알림 database 동거 시 small 승격 여부는 커넥션 대기·freeable memory 실측 후.
-4. **A13** 배포 정의 소유자(`phone` vs `Infra`) · 1660 티켓 본문(범위 4 "클릭 적재 MQ 비동기")이 링크 v3(Vercel·Neon 직접 적재)와 어긋남 → 1660 재정의에 포함.
 2. **dev nginx 유무** — 호스트 nginx 인지 Cloudflare 직행인지 확인 후 §6 확정.
 3. Vercel Pro vs Cloudflare(링크 장부 미결) — 알림 콘솔 편집자 수가 변수.
+4. **GROMO-1660 재정의** — 티켓 본문 범위 4("클릭 적재를 MQ 비동기 경로로")가 링크 v3(Vercel·Neon 직접 적재, 단방향)와 어긋난다. (배포 정의 소유자는 A17 로 확정 — `oneorthree/server` 안, 레포 간 dispatch 없음)
+5. **A18(보류)** — Kafka 발행 실패 정책(유실 수용 / 발행 실패 테이블 재발행 / HTTP 자동 폴백).
 
 ## 9. 08-12 AS-IS 대비 변경 요약
 
-- 배포 단위 1(`app`) → **컨테이너 6**(JVM 서비스 3 + nginx · kafka · datadog-agent) + 외부 1(link/Vercel). 레포 1 → 4 (A17: server · app · link · docs).
+- 배포 단위 1(`app`) → **컨테이너 prod 6 / dev 7**(JVM 서비스 3 + nginx · kafka · datadog-agent, dev 는 + Postgres `db`) + 외부 1(link/Vercel). 레포 1 → 4 (A17: server · app · link · docs).
 - DB 1 database → 같은 인스턴스 2 database + Neon.
 - 노출면: `app:8080` 직접 → nginx 가 business/notification 만. data-api 내부화.
 - 시크릿: JWT·FCM 이 각각 한 서비스로 이동.
