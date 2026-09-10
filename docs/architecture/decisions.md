@@ -15,12 +15,16 @@
 | ⓓ **결과 ack ↔ 대기 푸시**: 현행은 `BetResultAckSuppressionListener` 가 **같은 트랜잭션에서** 클레임을 종결한다. 알림 DB 분리 후 Kafka 만 쓰면 5분 flush 가 끼어들어 **이미 본 결과가 다시 간다**. → **prepare(HELD 잠금) → Data ack 커밋 → commit** 2단계. **리스 만료는 fail-closed** — `NEEDS_CONFIRM` 으로 넘겨 flush 가 계속 건너뛰고, 해제는 commit·`abort`·**Data 정본 ack 조회로 자기 수렴**(알림 → Data 조회 2종의 두 번째). 조회 경로가 없으면 **롤백 직후 프로세스가 죽는 구간에서 abort 행이 안 생겨 영구 억제가 실재한다**. 「동기 종결 1회」로는 부족하다 — 순서에 따라 발송이 새거나 **영구 억제**된다.
 | ⓔ **내기 승리 발행**: `GroupBetEarlyWinConfirmer.confirmWins` 가 집중 세션 트랜잭션 안에서 발행하고 응답에 안 실린다 → **Business 는 발생 사실을 모른다**. 발행 주체는 Data API.
 | ⓕ **이관은 이중 쓰기 → 백필 순서**, 클릭만은 **구 랜딩을 잠깐 세워(302 아님 — 302 는 반대 방향 창을 연다) 마지막 증분을 끝낸 뒤 랜딩·매치를 한 nginx reload 로 함께 전환**(fail-closed: 랜딩 잠깐 닫힘 < 되돌릴 수 없는 `matched:false`). 부트스트랩 컷은 시각이 아니라 **outbox 단조 커서**(또는 선소비-버퍼링 + `eventId` dedup). `LINK_IP_SALT` 는 **기존 값 그대로** 이관(새로 만들면 매치 전멸).
-| ⓚ **비공개 가입 검증을 트랜잭션 경계까지**: Data 는 Neon 을 못 읽고 Business 는 링크 확인과 가입을 별도 호출로 조합하므로 그 사이 탈퇴·revoke 를 놓친다 → 링크 서버가 **서명한 자격**(slug·groupId·inviterId·membershipVersion·만료)을 Data 명령에 실어 **커밋 안에서 대조** — **대조만으로 부족하다**: `GroupMember` 에 `@Version` 이 없고 조회가 무락이라, 판독 직후 커밋된 동시 탈퇴를 못 본다. 버전 컬럼 + 락/조건부 갱신으로 **판독과 커밋을 같은 순서 경계에** 묶는다. 서명 검증 키(`LINK_CAPABILITY_KEY`)는 링크·Data 양쪽 보유.
+| ⓚ **비공개 가입 검증을 트랜잭션 경계까지**: Data 는 Neon 을 못 읽고 Business 는 링크 확인과 가입을 별도 호출로 조합하므로 그 사이 탈퇴·revoke 를 놓친다 → 링크 서버가 **서명한 자격**(slug·groupId·inviterId·membershipVersion·만료)을 Data 명령에 실어 **커밋 안에서 대조** — **대조만으로 부족하다**: `GroupMember` 에 `@Version` 이 없고 조회가 무락이라, 판독 직후 커밋된 동시 탈퇴를 못 본다. **`membershipEpoch`(탈퇴·강퇴·재가입 때만 증가, 일반 낙관락 `version` 과 분리)** + 공유 락으로 **판독과 커밋을 같은 순서 경계에** 묶는다. 낙관락 `version` 을 쓰면 첫 가입이 버전을 올려 **재사용 링크의 이후 수신자가 전부 실패**한다. 서명 검증 키(`LINK_CAPABILITY_KEY`)는 링크·Data 양쪽 보유.
 | ⓛ **클릭 이관은 상태 전이까지**: `invite_link_clicks` 엔 `updated_at` 이 없다 → 커서를 `GREATEST(clicked_at, matched_at, claimed_at)` 로 잡고, 정지 창에서 **랜딩뿐 아니라 match·claim 쓰기도 함께 멈춘다**(안 그러면 이미 복사된 행이 미매치·미귀속으로 남아 재매치·귀속 유실).
 | ⓜ **코어 조회로 성립하던 억제**: `FriendNotificationService` 는 발송 직전 `friendships` 를 재조회해 이미 처리된 요청을 거른다 → 분리 후엔 `friend.request.resolved` 를 알림 서버에 투영해 재현.
 | ⓝ **Data 잔류 잡의 발송 명령도 내구화**: 동기 호출만으로 끝내면 알림 서버 장애 시 그 단계 알림이 영구 소실(`InactiveReturn` 은 그 하루만 조회) → 결정적 키로 outbox + `noti_delivered_at` relay.
 | ⓞ **presence 종결 계약**: 완료 소비자가 `ZINCRBY` 와 presence 제거를 **한 Lua 로 원자 수행**, 취소·자동 종료는 별도 제거 전이. TTL 은 안전망일 뿐 종결 수단이 아니다(안 정하면 이중 계상 또는 점수 실종).
 | ⓟ **ZSET 재구축은 이벤트 커서와 함께**: 소비 정지·drain 후 교체(1순위) / Kafka watermark 동시 확정 / 버전 붙은 절대 점수 쓰기. 안 맞추면 미소비 이벤트가 스냅샷 위에 한 번 더 더해진다.
+| ⓠ **RT 회전은 서명(Business)과 저장(Data)이 갈린다**: RT 도 `JWT_SECRET` 서명 JWT(`AuthService:424`) → Business 가 후보 서명 → Data 가 **조건부 UPDATE 한 번**으로 대조·저장(0행이면 구 RT 유지 · 동시 refresh 는 한쪽만 성공).
+| ⓡ **기기 토큰 삭제에 등록 세대**: 지연된 삭제가 **같은 사용자의 재로그인 등록**을 지운다(「타 유저 행 제거」 방어로는 못 막는다) → 현재 세대보다 오래된 삭제를 거부.
+| ⓢ **알림 발송 이력은 읽기 전환부터 roll-forward 전용**: `deliveries` → 구 `notification_sent_logs` 역기록 경로가 없다(§3 금지 · 계정 격리). 롤백하면 `rescanAndFlush` 가 재발송.
+| ⓣ **랜딩은 DNS 라 nginx 와 원자 전환 불가**: 컷에서는 랜딩도 nginx 프록시로 붙여 매치·claim 과 함께 넘기고 **DNS 이전은 그 뒤 따로**. claim 은 Business 경유라 reload 로 안 바뀐다.
 | ⓖ **위성 쓰기 전 활성 검사** — 위성 직행 쓰기는 Data 의 `X-User-Id` 검사를 안 거친다. | PR #731 codex 6~9라운드 (실코드 대조로 확인) | 09-10 |
 
 ## 산출물
