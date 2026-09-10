@@ -127,7 +127,7 @@ Business API 는 크론을 갖지 않는다 → 단일/다중 인스턴스 무�
 ```mermaid
 flowchart LR
   BIZ["Business API ×N"] -->|"조회·명령"| DATA["Data API"]
-  BIZ -->|"league:* 읽기 · auth:rt:* · cache:business:* · lock:business:*"| REDIS[("Redis · ACL")]
+  BIZ -->|"league:* · presence:* 읽기 · auth:rt:* · cache:business:* · lock:business:*"| REDIS[("Redis · ACL")]
   DATA -->|"league:* · presence:* 쓰기"| REDIS
   BIZ -.->|"이벤트"| MQ[["MQ notification-events<br/>(1658)"]]
   DATA -.->|"정산 이벤트"| MQ

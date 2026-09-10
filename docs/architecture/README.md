@@ -32,7 +32,7 @@
 4. **이벤트를 내나 받나** — 발행 주체 = 그 유스케이스를 완료한 프로세스. 봉투는 `eventId`·`type`·`occurredAt`·`userId`·`params`, 소비 측 멱등.
 5. **어떻게 뜨나** — `system-architecture.md` §2.2 자원표(포트·힙)·§2.4 시크릿·§3 CI 경로 필터·§4 `DD_SERVICE` 에 한 줄씩 추가하고, 메모리 합계가 인스턴스를 넘지 않는지 A14 기준으로 계산한다.
 6. **밖에서 닿아야 하나** — 외부(앱·Vercel 콘솔·웹훅)가 부르는 경로가 있으면 `system-architecture.md` §2.1 공인 노출면 표에 행을 추가하고 nginx 라우팅·인증 방식을 적는다. 없으면 "노출 0"을 명시한다(data-api 처럼).
-7. **그림을 고친다** — `service-architecture.md` §1 mermaid 와 `diagrams/01-service-target1.svg`(+ 배치 `05`, 필요 시 랭킹)에 상자·화살표를 추가한다. 그림·허용 표·본문 셋이 같은 화살표 집합이어야 한다 — 리뷰 기준이다.
+7. **그림을 고친다** — mermaid 소스 둘(`service-architecture.md` §1, `system-architecture.md` §2 — 6단계의 nginx 라우팅이 여기 그려진다)과 그 정적 사본 `diagrams/01-service-target1.svg`·`05-deploy-target1.svg`(필요 시 랭킹 `02~04`)에 상자·화살표를 추가한다. 그림·허용 표·본문 셋이 같은 화살표 집합이어야 한다 — 리뷰 기준이다.
 8. **결정을 남긴다** — 위에서 규칙을 바꾼 게 있으면 `decisions.md` 에 A 번호로.
 
 ## 바꾸는 법
