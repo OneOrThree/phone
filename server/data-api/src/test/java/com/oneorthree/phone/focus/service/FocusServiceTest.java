@@ -17,6 +17,8 @@ import com.oneorthree.phone.focus.dto.FocusSessionEndResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionSaveResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
+import com.oneorthree.phone.common.port.FocusPresencePort;
+import com.oneorthree.phone.focus.dto.FocusSessionCancelRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
@@ -125,6 +127,11 @@ class FocusServiceTest {
     // 통합 테스트(GroupBetEarlyWinIntegrationTest)가 본다. 여기서는 부수 호출로만 존재한다.
     @Mock
     private GroupBetEarlyWinConfirmer groupBetEarlyWinConfirmer;
+
+    // GROMO-292: 집중 프레즌스 리스. 실제 Redis 쓰기는 어댑터(RedisFocusPresence)의 몫이고,
+    // 여기서는 «서비스가 이 포트를 부르는가»만 본다 — 그 배선이 빠지면 채팅의 집중 차단이 통째로 죽는다.
+    @Mock
+    private FocusPresencePort focusPresencePort;
 
     // GROMO-1723: 서비스 시계를 고정한다. 종전엔 마커 테스트가 NOW 기준 «지금 - 1시간» 세션을
     // 만들어 KST 00~01시에 자정을 걸쳤고, 날짜 분할(GROMO-1252)이 정상 동작하면서 단언이 깨졌다.
@@ -2514,6 +2521,99 @@ class FocusServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(FocusErrorCode.FORBIDDEN);
         verify(focusSessionRepository, never()).save(any(FocusSession.class));
+    }
+
+    // ── 집중 프레즌스 리스 배선(GROMO-292) ──────────────────────────────────
+    //
+    // 이 배선이 빠지면 채팅 서버의 「집중 중엔 못 들어온다」가 조용히 사라진다 — 이쪽 테스트는 전부
+    // 초록이고, 저쪽 테스트도(리스를 직접 심으니까) 전부 초록이다. 그래서 여기서 못 박는다.
+
+    @Test
+    @DisplayName("집중 시작 → 프레즌스 리스를 놓는다")
+    void startFocusSessionMarksPresence() {
+        // given
+        User user = User.builder().id(USER_ID).build();
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
+
+        // when
+        focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, null));
+
+        // then
+        verify(focusPresencePort).focusStarted(USER_ID);
+    }
+
+    @Test
+    @DisplayName("이미 열린 마커가 있어 새로 만들지 않아도 리스는 놓는다 — 그 사람도 «집중 중»이다")
+    void startFocusSessionMarksPresenceEvenWhenMarkerNotCreated() {
+        // given: 열린 마커가 이 요청보다 «논리적으로 뒤» 라서 새 마커를 만들지 않는 경로
+        User user = User.builder().id(USER_ID).build();
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.of(FocusSession.builder()
+                        .id(SESSION_ID)
+                        .user(user)
+                        .startedAt(NOW)
+                        .clientStartedAt(NOW)
+                        .build()));
+
+        // when: 마커의 원시 시각과 같으면 «이르거나 같음» 이라 마커를 만들지 않는다
+        FocusSessionStartResponse response =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, NOW));
+
+        // then: 마커는 안 생겼지만(sessionId null) 리스는 놓였다
+        assertThat(response.sessionId()).isNull();
+        verify(focusSessionRepository, never()).save(any(FocusSession.class));
+        verify(focusPresencePort).focusStarted(USER_ID);
+    }
+
+    @Test
+    @DisplayName("유저 검증에서 막히면 리스도 놓지 않는다")
+    void startFocusSessionDoesNotMarkPresenceWhenRejected() {
+        // given
+        given(userQueryService.getCallerForUpdate(USER_ID))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+
+        // when & then
+        assertThatThrownBy(() -> focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, START)))
+                .isInstanceOf(UserException.class);
+        verify(focusPresencePort, never()).focusStarted(any());
+    }
+
+    @Test
+    @DisplayName("세션 취소도 집중의 끝이다 → 리스를 해제한다")
+    void cancelFocusSessionClearsPresence() {
+        // given
+        User user = User.builder().id(USER_ID).build();
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(FocusSession.builder()
+                .id(SESSION_ID)
+                .user(user)
+                .startedAt(START)
+                .build());
+        given(focusSessionRepository.cancelSessionIfActive(any(), any())).willReturn(1);
+
+        // when
+        focusService.cancelFocusSession(USER_ID, new FocusSessionCancelRequest(SESSION_ID));
+
+        // then
+        verify(focusPresencePort).focusEnded(USER_ID);
+    }
+
+    @Test
+    @DisplayName("이미 끝난 세션의 취소(409)는 리스를 건드리지 않는다 — 남의 진행 중 집중을 풀 수 없다")
+    void cancelAlreadyEndedSessionDoesNotClearPresence() {
+        // given
+        User user = User.builder().id(USER_ID).build();
+        given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(FocusSession.builder()
+                .id(SESSION_ID)
+                .user(user)
+                .startedAt(START)
+                .build());
+        given(focusSessionRepository.cancelSessionIfActive(any(), any())).willReturn(0);
+
+        // when & then
+        assertThatThrownBy(() -> focusService.cancelFocusSession(USER_ID, new FocusSessionCancelRequest(SESSION_ID)))
+                .isInstanceOf(FocusException.class);
+        verify(focusPresencePort, never()).focusEnded(any());
     }
 
     // ── startFocusSession — focus_type 인입(GROMO-733) ──────────────────────

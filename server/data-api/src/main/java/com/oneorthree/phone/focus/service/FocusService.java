@@ -34,6 +34,7 @@ import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.DefaultTagRepository;
 import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
 import com.oneorthree.phone.common.port.EarlyWinConfirmationPort;
+import com.oneorthree.phone.common.port.FocusPresencePort;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
 import com.oneorthree.phone.focus.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
@@ -134,6 +135,7 @@ public class FocusService {
     private final UserStreakService userStreakService;
     private final CurrencyLedgerService currencyLedgerService;
     private final EarlyWinConfirmationPort earlyWinConfirmationPort;
+    private final FocusPresencePort focusPresencePort;
     /**
      * 서버 시계 (GROMO-1723) — 클램프 창·귀속 날짜·지급 창이 전부 «지금»에 기대므로 벽시계를 직접 읽지
      * 않고 주입받는다. 운영에선 {@code config/ClockConfig} 의 시스템 시계, 테스트에선 고정 시계다.
@@ -862,6 +864,12 @@ public class FocusService {
     public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
         User user = requireActiveUserForUpdate(userId);
 
+        // 집중 프레즌스 리스 (GROMO-292) — 채팅 서버가 「집중 중엔 못 들어온다」를 판정하는 근거다.
+        // 여기 한 번만 부르는 이유: 아래 두 반환 경로가 «둘 다 집중 중»이기 때문이다(새 마커를 만든
+        // 경우와, 이미 열린 마커가 있어 만들지 않은 경우). 실제 반영은 커밋 이후이고, 아래 검증에서
+        // 예외가 나 롤백되면 콜백 자체가 돌지 않는다(RedisFocusPresence).
+        focusPresencePort.focusStarted(userId);
+
         // GROMO-1214: 클라 시각 클램프 — 창(과거 5분·미래 0분) 밖이면 서버 수신 시각으로 대체한다.
         Instant now = clock.instant();
         Instant startedAt = clampToServerNow(body.startedAt(), now);
@@ -996,6 +1004,9 @@ public class FocusService {
         // 그룹 내기 개인 승리 조기 확정(GROMO-1268, N11) — POST 완료 저장 경로와 동일 배선.
         earlyWinConfirmationPort.confirmWins(userId, credited.focusSeconds().keySet());
 
+        // 종료가 «성사된» 요청만 여기 온다(위 updated==0 은 예외로 빠졌다) — 리스 해제도 여기서 한 번.
+        focusPresencePort.focusEnded(userId);
+
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
         // GROMO-806: 그날 누적·스트릭 인정 여부 / GROMO-1214: 지급 코인·잔액을 응답에 추가(additive, POST 응답과 동일 의미).
         return new FocusSessionEndResponse(session.getId(), session.getStartedAt(), endedAt,
@@ -1034,6 +1045,8 @@ public class FocusService {
         }
 
         session.cancel(canceledAt);
+        // 취소도 집중의 끝이다 — 리스를 남기면 그 사람은 TTL 이 끝날 때까지 채팅에 못 들어간다.
+        focusPresencePort.focusEnded(userId);
     }
 
     /**

@@ -59,6 +59,11 @@ decorator:
 # 관측 — dev(588)와 동일 패턴 + SLO 버킷 추가. 격리 VPC 지만 관리 포트 분리를 유지해
 # 8080(부하 트래픽)과 9091(Prometheus 스크레이프) 경로를 나눈다.
 management:
+  health:
+    redis:
+      # Redis 는 이 서비스의 «부가» 의존성이다. 켜 두면 Redis 장애가 곧 컨테이너 unhealthy 가 되어
+      # 멀쩡한 배포를 실패시킨다 — 정작 이 서비스의 Redis 쓰기는 실패해도 무해한데.
+      enabled: false
   server:
     port: 9091
   endpoints:

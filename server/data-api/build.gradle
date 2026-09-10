@@ -68,6 +68,12 @@ dependencies {
 	implementation 'org.flywaydb:flyway-core'
 	runtimeOnly 'org.flywaydb:flyway-database-postgresql'
 
+	// Redis (GROMO-292) — 집중 프레즌스 리스(presence:focus:*)를 채팅 서버가 읽는다.
+	// 이 서비스에서 Redis 는 «부가»다: 쓰기는 전부 best-effort 라 Redis 가 죽어도 집중은 그대로 돌아간다.
+	// 그래서 헬스 인디케이터도 끈다(management.health.redis.enabled=false) — 켜 두면 부가 의존성의
+	// 장애가 컨테이너를 unhealthy 로 만들어 배포를 실패시킨다.
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
 	// UUID v7 생성 (시간 정렬, B-tree 인덱스 지역성 최적화)
 	implementation 'com.fasterxml.uuid:java-uuid-generator:5.1.0'
 
