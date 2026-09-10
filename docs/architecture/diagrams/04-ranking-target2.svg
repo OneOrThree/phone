@@ -35,11 +35,11 @@
     <text x="380" y="75">Data API</text><text x="380" y="96" font-size="12" font-weight="400" fill="#5E6670">한 TX 커밋 후 발행</text>
     <text x="710" y="75">주간 정산 배치</text><text x="710" y="96" font-size="12" font-weight="400" fill="#5E6670">DB 스냅샷으로 확정 — ZSET 은 안 믿음</text>
     <text x="380" y="195">daily_focus_stats</text><text x="380" y="216" font-size="12" font-weight="400" fill="#5E6670">진실원천은 여전히 DB</text>
-    <text x="380" y="315">Kafka · score-events</text><text x="380" y="336" font-size="12" font-weight="400" fill="#5E6670">버스트 흡수 · eventId 멱등</text>
+    <text x="380" y="312">Kafka · score-events</text><text x="380" y="330" font-size="12" font-weight="400" fill="#5E6670">버스트 흡수 · eventId 멱등</text><text x="380" y="345" font-size="12" font-weight="400" fill="#5E6670">주차별 (weekStartAt, Δ)</text>
     <text x="710" y="315">컨슈머 ×N</text><text x="710" y="336" font-size="12" font-weight="400" fill="#5E6670">ZINCRBY Δ · dedup</text>
     <text x="120" y="435">gromo 앱</text><text x="120" y="456" font-size="12" font-weight="400" fill="#5E6670">리그 화면 1콜</text>
     <text x="380" y="435">Business API</text><text x="380" y="456" font-size="12" font-weight="400" fill="#5E6670">/bff/league</text>
-    <text x="710" y="432">Redis</text><text x="710" y="450" font-size="12" font-weight="400" fill="#5E6670">league:* ZSET — 완료분만</text><text x="710" y="465" font-size="12" font-weight="400" fill="#5E6670">presence:* — 진행 중 세션</text>
+    <text x="710" y="428">Redis</text><text x="710" y="446" font-size="12" font-weight="400" fill="#5E6670">league:&lt;weekStartAt&gt;:* — 완료분만</text><text x="710" y="461" font-size="12" font-weight="400" fill="#5E6670">presence:* — 진행 중 세션</text>
   </g>
   <g font-size="12" fill="#5E6670">
     <text x="208" y="72">종료</text>
@@ -47,7 +47,7 @@
     <text x="388" y="145">INSERT 초</text>
     <text x="488" y="72">같은 read model</text>
     <text x="718" y="160">DB 로 정산</text>
-    <text x="232" y="215" text-anchor="end" fill="#1F6F8B">발행 (Δ초, eventId)</text>
+    <text x="232" y="208" text-anchor="end" fill="#1F6F8B">발행 — (weekStartAt, Δ초) 별로</text><text x="232" y="223" text-anchor="end" fill="#1F6F8B">쪼갠다 (주 경계 세션 = 2건)</text>
     <text x="500" y="312" fill="#1F6F8B">consume</text>
     <text x="718" y="385" fill="#1F6F8B">ZINCRBY</text>
     <text x="906" y="392" fill="#1F6F8B">DB 정본으로</text><text x="906" y="407" fill="#1F6F8B">주기 대조·재구축</text>
