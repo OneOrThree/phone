@@ -80,6 +80,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 ### 2.3 DB (A10)
 
 - RDS 한 인스턴스에 database **2개**: `gromo`(data-api 유저) · `gromo_notification`(notification 유저). 서로의 database 에 권한 없음 → 교차 조인 물리적으로 불가.
+- **prod 도 배포 전에 database·유저를 먼저 만든다.** Flyway 는 **접속 대상 database 자체와 로그인 유저를 만들지 못하므로**, 운영 RDS 에 `CREATE DATABASE gromo_notification` + 전용 유저 + 권한 부여가 사전에 없으면 notification 이미지는 **연결 단계에서 기동 실패**한다(dev 의 §6 절차와 같은 이유, 다른 장소). 마스터 계정으로 도는 **일회성 프로비저닝 단계(또는 IaC)를 릴리즈 절차의 이미지 배포 앞에 못 박는다** — dev 는 컨테이너 Postgres, prod 는 RDS 라 스크립트는 다르지만 「Flyway 앞에 database·유저가 있어야 한다」는 조건은 동일하다.
 - db.t4g.micro 의 `max_connections` ≈ **112**(`LEAST(메모리/9531392, 5000)`), 풀 합계 data-api 10 + notification ≤5 → 커넥션은 여유. 병목은 RAM 1 GB(shared_buffers 공유) — §8.
 - Flyway 2벌: `services/data-api/.../db/migration/V*` · `services/notification/.../db/migration/**`. **알림도 `V1__…` 로 시작한다** — Flyway 기본 `sql-migration-prefix` 가 `V` 라 `N*` 파일은 그냥 무시되고 스키마가 안 올라간다(현 설정에도 prefix 변경 없음). database·이력 테이블이 분리돼 있어 번호가 겹쳐도 무방하다. `N` 을 굳이 쓰려면 알림 서버에 `spring.flyway.sql-migration-prefix=N` 을 함께 설정해야 한다. CI 는 지금처럼 마이그레이션을 돌리지 않으므로(메모리: 엔티티↔DDL 드리프트는 dev 부팅에서만 터짐) **알림 서버 CI 에 Testcontainers + Flyway 부팅 테스트를 처음부터** 넣는다.
 - 백업·파라미터·모니터링은 인스턴스 단위 그대로. Neon 은 링크 서버 소유(링크 장부).
@@ -92,11 +93,13 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | `DB_URL/USER/PASS` (gromo) | data-api |
 | `NOTI_DB_URL/USER/PASS` (gromo_notification) | notification |
 | `FCM_SERVICE_ACCOUNT_JSON_BASE64` | notification **만** (data-api 에서 제거) |
-| `SVC_TOKEN_BIZ_TO_DATA` · **`SVC_TOKEN_NOTI_TO_DATA`**(리컨실 — 서비스 전용 호출) · `SVC_TOKEN_TO_NOTI`(Business/Data → 알림: 이벤트·기기 토큰·설정 명령) · `SVC_TOKEN_CONSOLE_TO_NOTI` · `SVC_TOKEN_TO_LINK` | 발신·수신 양쪽 |
+| `SVC_TOKEN_BIZ_TO_DATA` · **`SVC_TOKEN_NOTI_TO_DATA`**(리컨실 — 서비스 전용 호출) · `SVC_TOKEN_TO_NOTI`(Business/Data → 알림: 이벤트·기기 토큰·설정 명령) · `SVC_TOKEN_CONSOLE_TO_NOTI` · **`SVC_TOKEN_TO_LINK`(발신 = business-api **와** data-api 둘 다 — relay 의 withdraw 재전달, §3 허용 표)** | 발신·수신 양쪽 |
 | 콘솔 비밀번호 4개(해시) | Vercel env (링크 레포) |
-| `LINK_IP_SALT` · SKAN 키 | 링크 서버 (Vercel env) |
+| `LINK_IP_SALT` · SKAN 키 | 링크 서버 (Vercel env) — **기존 운영 값을 그대로 복사한다(새로 생성 금지)** |
 
 prod 는 Secrets Manager(`gromo/prod/env` JSON), dev 는 GCP 메타데이터/env — 현행 방식에 키만 추가.
+
+**`LINK_IP_SALT` 는 전환 불변식이다.** 현 `invite_link_clicks.ip_hash` 는 운영 `LINK_IP_SALT`(`application-prod.yml`)로 이미 계산돼 있어서, Vercel 에 **새 salt 를 생성하면 백필한 클릭의 해시와 설치 시 새 서버가 계산한 해시가 전부 어긋나** IP·OS 가 같은 정상 설치도 3시간 매치 창 내내 `matched:false` 가 된다. 그래서 ⓐ 이관 시 **기존 값을 그대로 옮기고** ⓑ 미매치 클릭이 남아 있는 동안(= 최소 매치 창 3시간)은 회전하지 않으며 ⓒ 나중에 회전한다면 **구·신 salt 를 모두 계산해 조회하는 기간**을 두고 그 기간이 끝난 뒤 구 salt 를 폐기한다.
 
 ## 3. CI/CD 표준 (A11)
 

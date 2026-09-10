@@ -41,7 +41,8 @@ flowchart LR
   KAFKA -.->|"consume · DLQ · 재시도"| NS
   BIZ -->|"동기 명령·조회<br/>기기 토큰 · 알림 설정"| NS
   NS -->|"리컨실 1종 (새벽 1회)"| DATA
-  BIZ -->|"링크 발급 · joined · revoke"| LK
+  BIZ -->|"링크 발급 · joined · revoke · withdraw"| LK
+  DATA -->|"relay 재전달 (withdraw 미전달분)"| LK
   DATA -->|"gromo"| PG
   NS -->|"gromo_notification"| PG
   LK --> NEON
@@ -68,7 +69,7 @@ flowchart LR
 앱 → Business API → Data API
         │               │
         ├──이벤트──▶ 알림 서버 ◀──이벤트──┘        알림 서버 → Data API : 리컨실 1종만
-        └──발급────▶ 링크 서버                     링크 서버 → (아무도 부르지 않음)
+        └──발급────▶ 링크 서버 ◀──relay 재전달──┘  링크 서버 → (아무도 부르지 않음)
                      ▲
               콘솔 → 알림 서버 admin API
 ```
@@ -80,6 +81,7 @@ flowchart LR
 | **Business → 알림 (동기 명령·조회)** — 앱의 기존 계약 `PUT/DELETE /users/me/device-token` · `PUT`·**`GET`** `/users/me/notification-settings` 가 패스스루로 오면 `POST/DELETE /internal/devices` · `PUT`·**`GET`** `/internal/users/{id}/notification-settings` 로 전달(서비스 토큰 + `X-User-Id`). 설정 정본이 `gromo_notification` 이라 **GET 도 알림 서버에서 읽어야 한다** — Data API 패스스루로는 정본을 못 읽는다. 데이터가 `gromo_notification` 소유라 이벤트로는 못 쓴다 | 알림 → Business |
 | 알림 → Data (`GET /internal/users/notification-snapshot` 하나) | 알림 → Data 쓰기 |
 | Business → 링크 (발급 · **claim** · joined · revoke · **withdraw**, 표시정보 스냅샷 동봉) — 링크 서버는 Kafka 에 붙지 않으므로 `user.withdrawn` 을 받을 방법이 없다. 탈퇴 tombstone 은 **Business → 링크 `POST /internal/users/{id}/withdraw`(서비스 토큰, 멱등·재시도 가능)** 로 전달한다 — 앱의 기존 계약 `POST /api/v1/invite-links/claim` 이 패스스루로 오면 `POST /internal/links/{slug}/claim {userId}`(서비스 토큰)로 전달한다. `link_clicks` 에 유저를 붙이는 일이라 링크 서버만 할 수 있고, 이 경로가 없으면 **설치 매치는 성공해도 최종 귀속이 기록되지 않는다** | 링크 → 코어 어떤 것도 |
+| **Data → 링크 (relay 재전달 1종)** — A21 outbox 의 링크 대상 미전달분(`user.withdrawn`)을 relay 잡이 `POST /internal/users/{id}/withdraw` 로 재호출한다. Business 는 크론이 없고(§6) 링크는 Kafka 를 안 쓰므로 **outbox 와 같은 DB 를 가진 Data API 만 재시도할 수 있다**. 이것 외의 Data → 링크 호출은 금지 | Data → 링크 (relay 재전달 외 전부) |
 | 링크(콘솔) → 알림 admin API | 알림 → 링크 (Target-1; `type=push` 링크가 필요해지면 알림 → 링크 호출만, 폴백 스킴) |
 | 앱 → Business, 앱 → 링크(match·referrer) | 앱 → Data · 앱 → 알림 |
 
@@ -89,7 +91,7 @@ flowchart LR
 
 | 방식 | Target-1 | Target-2 |
 |---|---|---|
-| 동기 내부 HTTP | 서비스 토큰(Bearer) + `X-User-Id`. 타임아웃·재시도(멱등 GET 만)·서킷을 **공통 RestClient 팩토리**에 처음부터 | 동일 |
+| 동기 내부 HTTP | 서비스 토큰(Bearer) + `X-User-Id`. 타임아웃·재시도·서킷을 **공통 RestClient 팩토리**에 처음부터. **재시도 대상 = 멱등 GET + 멱등이 보장된 명령**(전체 교체 `PUT`, `DELETE /internal/devices`, `POST …/withdraw`) — GET 만 재시도하면 로그아웃의 기기 토큰 삭제가 일시 오류 한 번에 영구 실패한다. 앱은 그 실패를 무시하고 로컬 토큰을 지워 **사용자가 재시도할 방법이 없고**, 알림 DB 에 남은 이전 계정 토큰으로 푸시가 계속 간다. 재시도까지 실패한 삭제는 **A21 outbox 에 적재해 relay 가 이어받는다**(§6) | 동일 |
 | 이벤트 | **A21**: Data API 명령 트랜잭션이 이벤트 레코드를 함께 저장하고 결정적 `eventId` 를 돌려준다 — 발행은 그 레코드에서. **Kafka 단일 노드 컨테이너**(A12) — 토픽 `notification-events`(파티션 3, 키 = userId) + `.dlq`, 봉투 = `eventId` · `type` · `occurredAt` · `scheduledAt` · `userId` · `locale` · `subjectId` · `params`. 소비 측 `eventId` UNIQUE 멱등 + Spring Kafka 재시도·DLQ + 1일 1회 리컨실 (D7·D19). `POST /internal/events` 는 **수동 재전송·리컨실 입구**(자동 폴백 채택 여부는 A18 보류) | 관리형 브로커(MSK 등)로 승격 또는 그대로. 봉투·어댑터 동일 |
 | 공유 저장소 | 없음 | Redis — **A19 네임스페이스 표 + ACL**: `league:*`·`presence:*`(Data 쓰기 · Business 읽기) · `noti:*`(알림) · `auth:rt:*`(Business) · `cache:<svc>:*`·`lock:<svc>:*`(각자, 공유 금지) |
 | 앱 ↔ 서버 | REST `/api/v1`(패스스루) + `/bff/*` + `/auth/*` | 동일 |
@@ -138,7 +140,8 @@ Business API 는 크론을 갖지 않는다 → 단일/다중 인스턴스 무�
 |---|---|
 | ① 이중 쓰기 | 전환 창 동안 구·신 양쪽에 쓴다(읽기는 아직 구). 롤백이 데이터 손실이 되지 않게 하는 유일한 장치이자, ②의 누락 창을 없애는 장치. **단 `invite_link_clicks` 는 예외** — 새 클릭은 앱·브라우저가 Vercel 로 **직접** 보내 Neon 에 쌓이는데 링크 서버는 코어를 부를 수 없어 구 테이블에 같이 쓸 방법이 없다. 이 리소스만 **원자적 전환**으로 간다(아래 §7.2) |
 | ② 백필 | 구 저장소 → 새 저장소 과거분 복사(`device_token`·설정 → `gromo_notification`, 링크 2테이블 → Neon). slug·user_id 는 **불변**이라 키 변환 없음. **이중 쓰기가 이미 넣은 최신 행을 덮지 않도록 `ON CONFLICT DO NOTHING`**(또는 원본이 더 최신일 때만 갱신)으로 넣는다 |
-| ③ 검증 | 건수·체크섬 대조(유저별 토큰 유무, 설정 3필드, 링크 slug 집합). 불일치 0 이 전환 조건 |
+| ②′ 투영 부트스트랩 | 알림 서버는 코어 DB 를 안 읽고 **자체 `user_snapshot`·`bet_participations` 로 판정**한다. 이벤트는 소비 시작 이후 것만 오고 새벽 리컨실은 **유저 스냅샷만** 다루므로, 부트스트랩 없이 켜면 **전환 당시 진행 중이던 내기가 나중에 정산돼도 참가자 투영이 없어 결과 알림이 안 나간다**. 소비자·잡을 켜기 **전에** ⓐ 전 유저 스냅샷(표시명·언어·설정) ⓑ **진행 중·미정산 내기의 참가 상태**를 DB 스냅샷으로 초기 적재하고, 그 스냅샷 시각을 이벤트 watermark 로 삼아 이후 이벤트와 이어 붙인다 |
+| ③ 검증 | 건수·체크섬 대조 — 유저별 토큰 유무, **설정 5필드 전량**(`notification_enabled` · `sound_enabled` · `night_mode_enabled` · **`night_start_time`** · **`night_end_time`**, `V1__baseline.sql`), 링크 slug 집합, ②′ 투영 건수. 심야 두 시각은 **nullable 이라 null 상태 자체를 대조 대상에 포함**한다 — 플래그 3개만 보면 시각이 누락·오변환돼도 「불일치 0」을 통과해 심야 사용자 푸시가 엉뚱한 시각에 나간다. 불일치 0 이 전환 조건 |
 | ④ 읽기 전환 | 새 저장소로 읽기 이동. 여기까지가 되돌릴 수 있는 마지막 지점 |
 | ⑤ 구 저장소 제거 | 관찰 기간(최소 1 릴리즈) 뒤 컬럼·테이블 드롭 — **롤백 창을 벗어난 뒤**(§3 expand/contract) |
 
@@ -146,10 +149,14 @@ Business API 는 크론을 갖지 않는다 → 단일/다중 인스턴스 무�
 
 클릭 쓰기의 주체가 **코어가 아니라 방문자 → Vercel** 이라 이중 쓰기가 성립하지 않는다. 순서를 이렇게 고정한다:
 
-1. **링크 서버 먼저 배포**(랜딩·클릭 적재를 Neon 으로) — 이 시점부터 새 클릭은 Neon 에만 쌓인다.
-2. **매치도 같은 배포에서 링크 서버로 넘긴다** — 클릭과 매치가 항상 같은 저장소를 보게 한다(둘을 쪼개면 새 클릭을 구 `/l/match` 가 못 찾는다).
-3. 그 직전까지의 구 클릭은 ② 백필로 옮겨 두고, **전환 시각 이후 구 테이블은 읽지 않는다**.
-4. **롤백하면 전환 창의 클릭은 유실된다** — 되돌릴 수 있는 지점은 2 이전뿐이고, 이후는 roll-forward. 매치 창이 3시간이라 손실 범위도 3시간으로 한정된다(그 사실을 감수하고 전환한다).
+**백필이 라우팅 전환보다 먼저다.** 링크 서버는 코어를 부를 수 없어 구 `invite_link_clicks` 를 대신 조회할 수단이 없으므로, 전환 순간 Neon 에 없는 클릭은 그대로 `matched:false` 가 되고 **뒤늦은 백필은 이미 나간 응답을 되돌리지 못한다**. 매치 창이 3시간이라 위험 구간은 「전환 직전 3시간의 클릭」 전부다.
+
+1. **구 클릭을 Neon 으로 백필**(§7.1 ②) — 여기까지는 라우팅을 안 건드리므로 언제 해도 안전하다.
+2. **전환 직전 증분 백필을 짧은 주기로 반복**해 미반영 창을 분 단위 → 초 단위까지 좁힌다(`clicked_at > 마지막 커서`, 멱등 upsert).
+3. **그다음** 링크 서버 배포 + 라우팅 전환 — 랜딩·클릭 적재와 **매치를 같은 배포에서 함께** 넘긴다(둘을 쪼개면 새 클릭을 구 `/l/match` 가 못 찾는다).
+4. **전환 후에도 매치 창(3시간) 동안 증분 백필을 계속 돌린다** — 전환 순간의 초 단위 갭에 들어온 클릭도 앱이 설치·매치를 부르기 전에 Neon 에 도착한다. 3시간이 지나면 커서가 더 안 움직이는 걸 확인하고 중단한다.
+5. 그 뒤로 **구 테이블은 읽지 않는다**.
+6. **롤백하면 전환 창의 클릭은 유실된다** — 되돌릴 수 있는 지점은 3 이전뿐이고, 이후는 roll-forward. 손실 범위는 매치 창과 같은 3시간으로 한정된다(그 사실을 감수하고 전환한다).
 
 
 ## 8. Target-2 에서 달라지는 것
