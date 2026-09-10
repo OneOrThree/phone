@@ -90,7 +90,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 
 | 시크릿 | 보유 |
 |---|---|
-| `JWT_SECRET` | business-api **만** |
+| `JWT_SECRET` | 최종적으로 business-api **만**. **회수 시점은 FCM(아래)과 같은 순서다** — 현 `application-prod.yml:30` 이 기본값 없는 필수 placeholder 라, 라우팅 전환보다 먼저 data-api 에서 빼거나 **직전 digest 로 롤백**하면 **Data 가 기동하지 못해 전체 API 가 멈춘다**. **business-api 에 먼저 병행 배포 → 인증 트래픽 전환과 구 인증 코드 제거 확인 → 롤백 창 종료 → 그다음 data-api 에서 회수** |
 | **`APPLE_CLIENT_ID` · `GOOGLE_CLIENT_ID`**(+ 그 밖의 provider 설정) | **business-api** — IdP 토큰 검증을 옮겼으므로 함께 옮긴다. 현 `application-prod.yml:39·46` 이 **기본값 없는 필수 주입**이라 빠뜨리면 placeholder 해석 단계에서 **기동 자체가 실패**하고 해당 소셜 로그인이 전부 중단된다 |
 | **`API_DB_URL` · `API_DB_USERNAME` · `API_DB_PASSWORD`** (gromo) | data-api — **현 `application-prod.yml:3-5` 이 읽는 실제 이름이다**(기본값 없음). 표에 다른 이름을 적어 두면 그대로 배포했을 때 기동 실패 |
 | `NOTI_DB_URL` · `NOTI_DB_USERNAME` · `NOTI_DB_PASSWORD` (gromo_notification) | notification — 신규라 이름을 새로 정하지만 **Data API 의 `API_DB_*` 와 같은 형태로 맞춘다** |

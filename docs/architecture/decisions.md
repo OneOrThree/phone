@@ -6,12 +6,12 @@
 | A22 | **분리가 깨뜨리는 「한 트랜잭션」 목록과 그 대체 계약.** 지금 한 DB·한 트랜잭션이라 공짜로 성립하던 불변식들이 소유권을 나누는 순간 전부 깨진다. 리뷰 6~9라운드가 실제 코드에서 찾아낸 것들이고, **산문에서 사라지면 조용히 회귀하므로 여기에 못 박는다** — 구현 시 이 표의 항목마다 대체 계약이 살아 있는지 확인한다.
 | ⓐ **탈퇴 → 위성 정리**: 알림은 `user.withdrawn` + 멱등 삭제 + 새벽 리컨실, 링크는 **Business → withdraw** 이고 미전달분은 **Data relay**. tombstone 은 이후 쓰기만 막으므로 **withdraw 가 기존 `claimed_user_id` 도 같은 트랜잭션에서 익명화**해야 한다(`InviteLinkClick:127` = 최초 1회만 기록이라 되돌릴 길이 없다).
 | ⓑ′ **가입 귀속 전달**: `GroupService.publishJoinAttribution` 은 **커밋 후 fire-and-forget** 이라 응답 유실·프로세스 종료 시 보낼 주체가 사라진다 → 멤버십 트랜잭션의 `link.joined` outbox + relay.
-| ⓑ″ **발급 ↔ 폐기 순서 역전**: revoke 가 먼저 도착하면 no-op 이 되고 **지연된 발급이 새 active slug 를 만든다** → 링크 서버가 `(groupId, inviterId)` 멤버십 tombstone/버전으로 오래된 발급을 거부. **revoke 도 slug 가 아니라 `(groupId, inviterId, membershipVersion)` 로 보낸다** — 구 테이블 제거 후 Data 는 slug 를 모른다.
+| ⓑ″ **발급 ↔ 폐기 순서 역전**: revoke 가 먼저 도착하면 no-op 이 되고 **지연된 발급이 새 active slug 를 만든다** → 링크 서버가 `(groupId, inviterId)` 멤버십 tombstone/버전으로 오래된 발급을 거부. **revoke 는 slug 가 아니라 `(groupId, inviterId, linkVersion, membershipEpoch)` 로 보낸다** — **두 값을 분리해야 한다**: 활성 링크가 epoch N 에서 발급된 뒤 탈퇴가 N+1 을 만들면, **새 값만 실은 revoke 는 「정확히 일치」 조건 때문에 링크 N 을 못 지우고**, 반대로 **옛 값 N 만 실으면 「최대값보다 오래된 명령 거부」 규칙에 걸려** 지연 발급 N 을 못 막는다. 그래서 outbox 에 **폐기 대상 `linkVersion=N` 과 전이 후 `membershipEpoch=N+1` 을 함께** 싣고, 링크 서버는 **`linkVersion` 이 일치하는 링크를 폐기하면서 tombstone 을 `N+1` 로 갱신**한다 — 구 테이블 제거 후 Data 는 slug 를 모른다.
 | ⓗ **발송 이력**: `notification_sent_logs` → `deliveries` 를 **상태·사건 키까지** 이관. 빈 채 시작하면 `rescanAndFlush` 가 48시간 회차를 재선점해 **결과 푸시 재발송**(`V45:53-61` 이 같은 위험을 명시), `PENDING`·`DEFERRED` 는 반대로 유실.
 | ⓘ **판정 잡의 자리**: ②′ 투영으로 판정되면 알림 서버, **코어 이력을 읽어야 하면 Data API 에 남긴다** — `last_active_at`(D+3/7/14)은 이미 비활성인 유저가 이벤트를 안 만들어 투영으로 복구 불가. 판돈 동결 감지(`GroupBetFreezeMonitor`)도 Data 잔류(빠뜨리면 묶인 참가비 탐지 경로 소멸).
 | ⓙ **링크 백필은 폐기 상태를 확정하고 옮긴다** — `group_invite_links` 엔 폐기 컬럼이 없고 만료가 **런타임 코어 조회**라, 그대로 복사하면 죽은 slug 가 되살아난다.
 | ⓑ **탈퇴·강퇴 → 링크 폐기**: Business 의 revoke 만 실패하면 예전 slug 가 살아 **비공개 그룹 무단 가입**(그룹 HLD `01-acquisition/high-level-design.md:70·83`). → 멤버십 전이 트랜잭션에서 `link.revoked` outbox, Data relay 재전달.
-| ⓒ **로그아웃·계정 전환 → 기기 토큰 삭제**: 앱이 실패를 삼킨다(`App.tsx:528`). → ~~Data `/internal/auth/logout` 트랜잭션의 outbox~~ → **㊲ 로 정정: 「DELETE 를 처리하는 자리」에서 outbox 생성**(로그아웃 요청엔 대상 토큰·소유권 값이 없다) + **등록 시 같은 FCM 토큰의 타 유저 행 제거**(두 번째 방어선) + **로그아웃이 올린 세대는 `auth.generation.bumped` 로 별도 전달**.
+| ⓒ **기기 토큰 삭제(로그아웃·계정 전환)** — **세대 증가는 여기 결합되지 않는다**(㊼: 유저 공통 `authGeneration` 은 **탈퇴·전 기기 로그아웃**에만. 개별 기기·계정 전환은 `ownershipVersion` 이 담당한다): 앱이 실패를 삼킨다(`App.tsx:528`). → ~~Data `/internal/auth/logout` 트랜잭션의 outbox~~ → **㊲ 로 정정: 「DELETE 를 처리하는 자리」에서 outbox 생성**(로그아웃 요청엔 대상 토큰·소유권 값이 없다) + **등록 시 같은 FCM 토큰의 타 유저 행 제거**(두 번째 방어선) + **로그아웃이 올린 세대는 `auth.generation.bumped` 로 별도 전달**.
 | ⓓ **결과 ack ↔ 대기 푸시**: 현행은 `BetResultAckSuppressionListener` 가 **같은 트랜잭션에서** 클레임을 종결한다. 알림 DB 분리 후 Kafka 만 쓰면 5분 flush 가 끼어들어 **이미 본 결과가 다시 간다**. → **prepare(HELD 잠금) → Data ack 커밋 → commit** 2단계. **리스 만료는 fail-closed** — `NEEDS_CONFIRM` 으로 넘겨 flush 가 계속 건너뛰고, 해제는 commit·`abort`·**Data 정본 ack 조회로 자기 수렴**(알림 → Data 조회 3종의 두 번째). 조회 경로가 없으면 **롤백 직후 프로세스가 죽는 구간에서 abort 행이 안 생겨 영구 억제가 실재한다**. 「동기 종결 1회」로는 부족하다 — 순서에 따라 발송이 새거나 **영구 억제**된다.
 | ⓔ **내기 승리 발행**: `GroupBetEarlyWinConfirmer.confirmWins` 가 집중 세션 트랜잭션 안에서 발행하고 응답에 안 실린다 → **Business 는 발생 사실을 모른다**. 발행 주체는 Data API.
 | ⓕ **이관은 이중 쓰기 → 백필 순서**, 클릭만은 **구 랜딩을 잠깐 세워(302 아님 — 302 는 반대 방향 창을 연다) 마지막 증분을 끝낸 뒤 랜딩·매치를 한 nginx reload 로 함께 전환**(fail-closed: 랜딩 잠깐 닫힘 < 되돌릴 수 없는 `matched:false`). 부트스트랩 컷은 시각이 아니라 **outbox 단조 커서**(또는 선소비-버퍼링 + `eventId` dedup). `LINK_IP_SALT` 는 **기존 값 그대로** 이관(새로 만들면 매치 전멸).
@@ -111,6 +111,10 @@
 | ㊼ **세대는 유저 축, 소유권은 기기 축 — 섞지 않는다**: 유저 공통 `authGeneration` 을 **개별 기기 로그아웃**에 올리면 로그인 중인 다른 기기의 `onTokenRefresh` 등록이 거부돼 푸시가 끊긴다 → 유저 축은 **탈퇴·전 기기 로그아웃**만, 기기 축은 `ownershipVersion`.
 | ㊽ **동점자는 자르기 전에 전부 가져온다**: 컷오프 점수 동점자가 N 보다 많으면 `ZREVRANGE` 가 UUID 내림차순 쪽만 줘 정본상 앞선 사용자가 후보에서 탈락한다(새 주차 0점에서 대량 발생) → 경계 점수 구간을 통째로 조회 후 절단.
 | ㊾ **Cloudflare 뒤의 원본 IP 는 검증해서 재작성**: `$remote_addr` 는 CF 엣지 IP 라 매치가 전멸하고, `CF-Connecting-IP` 를 그대로 믿으면 오리진 직접 호출자가 위조한다 → `set_real_ip_from` = CF CIDR + 오리진 방화벽.
+| ㊿ **삭제 outbox 는 시도 「전에」 기록**하고 직접 전달 성공 시 완료 표시 — 실패 후 기록이면 그 사이 죽었을 때 둘 다 안 남고 앱은 실패를 삼킨다.
+| ㋐ **presence 종결은 `sessionId` compare-and-delete**: 유저 단위로 지우면 `.DLT` 재처리분이 그 사이 시작된 새 세션의 presence 를 지운다.
+| ㋑ **revoke 는 `linkVersion`(폐기 대상)과 `membershipEpoch`(전이 후)를 분리해 싣는다**: 한 값만 쓰면 「정확 일치」로 못 지우거나 「오래된 명령 거부」로 지연 발급을 못 막는다.
+| ㋒ **인증 시크릿도 병행 배포 후 회수**(FCM ㊈ 과 같은 순서): `JWT_SECRET`·IdP 설정은 현 prod yml 의 필수 placeholder 라 조기 회수·롤백 시 Data 가 기동하지 못해 전체 API 가 멈춘다.
 | ⓖ **위성 쓰기 전 활성 검사** — 위성 직행 쓰기는 Data 의 `X-User-Id` 검사를 안 거친다. | PR #731 codex 6~9라운드 (실코드 대조로 확인) | 09-10 |
 
 ## 산출물
