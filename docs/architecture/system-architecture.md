@@ -60,7 +60,7 @@ flowchart TB
 | `/internal/admin/**` | notification | 서비스 토큰(콘솔 전용). Vercel egress IP 는 가변이라 IP 허용 목록 없음 |
 | `/health` | business-api (각 서비스 헬스는 compose 내부) | 없음 |
 | `/l/**` · `/.well-known/**` | **nginx 가 아니라 DNS** — `link.oneorthree.world` → Vercel | — |
-| **`/l/match` · `/l/referrer` (이관 호환)** | nginx → **Vercel 프록시** — 배포된 앱이 `${API_URL}/l/match`(= `api.oneorthree.world`)로 부르고 있어(`deferredInvite.ts`) 이 경로를 지우면 설치 매치가 실패하고 3시간 어트리뷰션 창을 잃는다. **원본 IP 를 반드시 보존한다** — 매치는 클릭 때 저장한 `ip_hash`(SHA-256(ip+salt))와 대조하는데, 그냥 프록시하면 링크 서버엔 EC2 주소가 보여 **정상 설치도 `matched:false`** 가 된다. nginx 가 `X-Forwarded-For` 를 **덮어쓰고**(클라이언트가 위조한 값 무시) 프록시 전용 공유 시크릿 헤더를 함께 실으며, 링크 서버는 **그 시크릿이 있을 때만** XFF 첫 토큰을 신뢰한다(없으면 소켓 주소 사용) | 무인증(현행과 동일) + 프록시 시크릿 |
+| **`/l/match` · `/l/referrer` (이관 호환)** | nginx → **Vercel 프록시** — 배포된 앱이 `${API_URL}/l/match`(= `api.oneorthree.world`)로 부르고 있어(`deferredInvite.ts`) 이 경로를 지우면 설치 매치가 실패하고 3시간 어트리뷰션 창을 잃는다. **원본 IP 를 반드시 보존한다** — 매치는 클릭 때 저장한 `ip_hash`(SHA-256(ip+salt))와 대조하는데, 그냥 프록시하면 링크 서버엔 EC2 주소가 보여 **정상 설치도 `matched:false`** 가 된다. nginx 가 `X-Forwarded-For` 를 **덮어쓰고**(클라이언트가 위조한 값 무시) 프록시 전용 공유 시크릿 헤더를 함께 실으며, 링크 서버는 **그 시크릿이 있을 때만** XFF 첫 토큰을 신뢰한다. **시크릿이 없는 직접 요청(방문자 → Vercel)은 소켓 주소가 아니라 Vercel 이 보장하는 클라이언트 IP 헤더**를 쓴다 — 서버리스 함수의 소켓 상대는 방문자가 아니라 플랫폼 프록시이고 실행 방식에 따라 소켓 정보가 아예 없어서, 소켓을 쓰면 클릭에 방문자가 아닌 IP 가 저장돼 나중에 nginx 가 전달한 실제 IP 와 해시가 어긋난다 | 무인증(현행과 동일) + 프록시 시크릿 |
 | 그 외 `/internal/**` | **차단** | — |
 
 data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만). notification 은 `/internal/admin/*` 만 nginx 를 통해 노출.
@@ -81,7 +81,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 
 - RDS 한 인스턴스에 database **2개**: `gromo`(data-api 유저) · `gromo_notification`(notification 유저). 서로의 database 에 권한 없음 → 교차 조인 물리적으로 불가.
 - db.t4g.micro 의 `max_connections` ≈ **112**(`LEAST(메모리/9531392, 5000)`), 풀 합계 data-api 10 + notification ≤5 → 커넥션은 여유. 병목은 RAM 1 GB(shared_buffers 공유) — §8.
-- Flyway 2벌: `server/data-api/.../db/migration/V*` · `server/notification/.../db/migration/N*`. CI 는 지금처럼 마이그레이션을 돌리지 않으므로(메모리: 엔티티↔DDL 드리프트는 dev 부팅에서만 터짐) **알림 서버 CI 에 Testcontainers + Flyway 부팅 테스트를 처음부터** 넣는다.
+- Flyway 2벌: `services/data-api/.../db/migration/V*` · `services/notification/.../db/migration/**`. **알림도 `V1__…` 로 시작한다** — Flyway 기본 `sql-migration-prefix` 가 `V` 라 `N*` 파일은 그냥 무시되고 스키마가 안 올라간다(현 설정에도 prefix 변경 없음). database·이력 테이블이 분리돼 있어 번호가 겹쳐도 무방하다. `N` 을 굳이 쓰려면 알림 서버에 `spring.flyway.sql-migration-prefix=N` 을 함께 설정해야 한다. CI 는 지금처럼 마이그레이션을 돌리지 않으므로(메모리: 엔티티↔DDL 드리프트는 dev 부팅에서만 터짐) **알림 서버 CI 에 Testcontainers + Flyway 부팅 테스트를 처음부터** 넣는다.
 - 백업·파라미터·모니터링은 인스턴스 단위 그대로. Neon 은 링크 서버 소유(링크 장부).
 
 ### 2.4 시크릿 (A11 ⑥)
@@ -113,8 +113,11 @@ prod 는 Secrets Manager(`gromo/prod/env` JSON), dev 는 GCP 메타데이터/env
 
 server/.github/workflows/
   dev-ci.yml        paths 매트릭스: services/<name>/** 가 바뀐 서비스만 → be-check-style / be-test / be-spot-bugs → 이미지 <name>:<sha> push
-                    ※ 공통 입력(settings.gradle · gradle wrapper · 공통 build script · .github/workflows/be-*.yml · deploy/) 이 바뀌면
+                    ※ 공통 입력(settings.gradle · gradle wrapper · 공통 build script · .github/workflows/be-*.yml · deploy/compose·nginx) 이 바뀌면
                       매트릭스를 전 서비스로 fan-out — 서비스 폴더 밖 변경이 검증 없이 머지되거나 이미지에 반영되지 않는 걸 막는다
+                    ※ 단 CD 가 자동 커밋하는 deploy/<env>.yml 매니페스트는 fan-out 에서 제외한다(paths-ignore) —
+                      포함하면 배포 → 매니페스트 커밋 → 전 서비스 CI → 새 SHA 이미지 → 다시 배포 로 무한 재빌드가 돈다.
+                      봇 커밋은 push 트리거에서 빼거나(actor 조건) 커밋 메시지에 [skip ci] 를 붙인다
   dev-cd.yml        (workflow_call from ci + workflow_dispatch — 사람·CI 같은 버튼) 입력: service · digest · env → deploy/<env>.yml 갱신·커밋 → SSH/SSM: compose pull + up -d <service> → 헬스체크
   prod-ci.yml / prod-cd.yml / prod-rollback.yml   동일 구조, ECR, rollback = 서비스별 이미지 태그
   api-dog-generate  service 별 OpenAPI (business-api 가 앱 계약의 정본, data-api 는 /internal 문서)
