@@ -44,7 +44,7 @@ flowchart TB
   KF -.-> NS
   NS -->|"리컨실"| DATA
   BIZ -->|"발급 API · claim · revoke · withdraw"| VERCEL
-  DATA -->|"relay 재전달 (withdraw · revoke 미전달분)"| VERCEL
+  DATA -->|"relay 재전달 (withdraw · revoke · joined)"| VERCEL
   VERCEL -->|"콘솔 → admin API"| NX
   DATA --> RDS
   NS --> RDS
@@ -119,6 +119,12 @@ server/.github/workflows/
   dev-ci.yml        paths 매트릭스: services/<name>/** 가 바뀐 서비스만 → be-check-style / be-test / be-spot-bugs → 이미지 <name>:<sha> push
                     ※ 공통 입력(settings.gradle · gradle wrapper · 공통 build script · .github/workflows/be-*.yml · deploy/compose·nginx) 이 바뀌면
                       매트릭스를 전 서비스로 fan-out — 서비스 폴더 밖 변경이 검증 없이 머지되거나 이미지에 반영되지 않는 걸 막는다
+                    ※ 전 서비스 fan-out 시 각 CD 가 같은 deploy/<env>.yml 을 따로 커밋하면 충돌한다 —
+                      호출자 SHA 를 checkout 하는 현 dev-cd.yml 구조 그대로면 첫 CD 가 봇 커밋을 push 한 뒤
+                      나머지는 그 커밋이 없는 같은 부모에서 push 해 non-fast-forward 로 실패하고,
+                      병렬이면 서로의 digest 를 덮는다. 환경별 concurrency 만으로는 낡은 checkout 이 갱신되지 않는다.
+                      → 한 작업이 모든 digest 를 원자적으로 커밋하거나, 각 CD 가 최신 매니페스트 위로
+                        fetch/rebase 한 뒤 충돌 시 재시도하도록 표준에 넣는다
                     ※ 단 CD 가 자동 커밋하는 deploy/<env>.yml 매니페스트는 fan-out 에서 제외한다(paths-ignore) —
                       포함하면 배포 → 매니페스트 커밋 → 전 서비스 CI → 새 SHA 이미지 → 다시 배포 로 무한 재빌드가 돈다.
                       봇 커밋은 push 트리거에서 빼거나(actor 조건) 커밋 메시지에 [skip ci] 를 붙인다

@@ -5,11 +5,16 @@
 > 본문의 숫자만 있는 티켓 번호(1643 · 1658 · 1659 · 1660 · 1661 · 1695 …)는 전부 Jira **GROMO-####** 이다(예: 1658 = GROMO-1658). "후속 논의"는 같은 날 뒤이어 진행된 다른 설계 세션(MQ · 레포 분리)을 뜻한다.
 | A22 | **분리가 깨뜨리는 「한 트랜잭션」 목록과 그 대체 계약.** 지금 한 DB·한 트랜잭션이라 공짜로 성립하던 불변식들이 소유권을 나누는 순간 전부 깨진다. 리뷰 6~9라운드가 실제 코드에서 찾아낸 것들이고, **산문에서 사라지면 조용히 회귀하므로 여기에 못 박는다** — 구현 시 이 표의 항목마다 대체 계약이 살아 있는지 확인한다.
 | ⓐ **탈퇴 → 위성 정리**: 알림은 `user.withdrawn` + 멱등 삭제 + 새벽 리컨실, 링크는 **Business → withdraw** 이고 미전달분은 **Data relay**. tombstone 은 이후 쓰기만 막으므로 **withdraw 가 기존 `claimed_user_id` 도 같은 트랜잭션에서 익명화**해야 한다(`InviteLinkClick:127` = 최초 1회만 기록이라 되돌릴 길이 없다).
+| ⓑ′ **가입 귀속 전달**: `GroupService.publishJoinAttribution` 은 **커밋 후 fire-and-forget** 이라 응답 유실·프로세스 종료 시 보낼 주체가 사라진다 → 멤버십 트랜잭션의 `link.joined` outbox + relay.
+| ⓑ″ **발급 ↔ 폐기 순서 역전**: revoke 가 먼저 도착하면 no-op 이 되고 **지연된 발급이 새 active slug 를 만든다** → 링크 서버가 `(groupId, inviterId)` 멤버십 tombstone/버전으로 오래된 발급을 거부.
+| ⓗ **발송 이력**: `notification_sent_logs` → `deliveries` 를 **상태·사건 키까지** 이관. 빈 채 시작하면 `rescanAndFlush` 가 48시간 회차를 재선점해 **결과 푸시 재발송**(`V45:53-61` 이 같은 위험을 명시), `PENDING`·`DEFERRED` 는 반대로 유실.
+| ⓘ **판정 잡의 자리**: ②′ 투영으로 판정되면 알림 서버, **코어 이력을 읽어야 하면 Data API 에 남긴다** — `last_active_at`(D+3/7/14)은 이미 비활성인 유저가 이벤트를 안 만들어 투영으로 복구 불가. 판돈 동결 감지(`GroupBetFreezeMonitor`)도 Data 잔류(빠뜨리면 묶인 참가비 탐지 경로 소멸).
+| ⓙ **링크 백필은 폐기 상태를 확정하고 옮긴다** — `group_invite_links` 엔 폐기 컬럼이 없고 만료가 **런타임 코어 조회**라, 그대로 복사하면 죽은 slug 가 되살아난다.
 | ⓑ **탈퇴·강퇴 → 링크 폐기**: Business 의 revoke 만 실패하면 예전 slug 가 살아 **비공개 그룹 무단 가입**(그룹 HLD `01-acquisition/high-level-design.md:70·83`). → 멤버십 전이 트랜잭션에서 `link.revoked` outbox, Data relay 재전달.
 | ⓒ **로그아웃·계정 전환 → 기기 토큰 삭제**: 앱이 실패를 삼킨다(`App.tsx:528`). → Data `/internal/auth/logout` 트랜잭션의 outbox + **등록 시 같은 FCM 토큰의 타 유저 행 제거**(두 번째 방어선).
-| ⓓ **결과 ack ↔ 대기 푸시**: 현행은 `BetResultAckSuppressionListener` 가 **같은 트랜잭션에서** 클레임을 종결한다. 알림 DB 분리 후 Kafka 만 쓰면 5분 flush 가 끼어들어 **이미 본 결과가 다시 간다**. → 동기 `result-ack` 명령으로 원자 종결.
+| ⓓ **결과 ack ↔ 대기 푸시**: 현행은 `BetResultAckSuppressionListener` 가 **같은 트랜잭션에서** 클레임을 종결한다. 알림 DB 분리 후 Kafka 만 쓰면 5분 flush 가 끼어들어 **이미 본 결과가 다시 간다**. → **prepare(HELD 잠금, 리스 만료 있음) → Data ack 커밋 → commit** 2단계. 「동기 종결 1회」로는 부족하다 — 순서에 따라 발송이 새거나 **영구 억제**된다.
 | ⓔ **내기 승리 발행**: `GroupBetEarlyWinConfirmer.confirmWins` 가 집중 세션 트랜잭션 안에서 발행하고 응답에 안 실린다 → **Business 는 발생 사실을 모른다**. 발행 주체는 Data API.
-| ⓕ **이관은 이중 쓰기 → 백필 순서**, 클릭만은 **구 쓰기를 302 로 닫고 마지막 증분을 끝낸 뒤** 매치 전환(원자적 컷). `LINK_IP_SALT` 는 **기존 값 그대로** 이관(새로 만들면 매치 전멸).
+| ⓕ **이관은 이중 쓰기 → 백필 순서**, 클릭만은 **구 쓰기를 302 로 닫고 마지막 증분을 끝낸 뒤** — **302 와 매치 프록시 전환은 한 nginx reload 로 원자 적용**(쪼개면 반대 방향 누락 창). 부트스트랩 컷은 시각이 아니라 **outbox 단조 커서**(또는 선소비-버퍼링 + `eventId` dedup). `LINK_IP_SALT` 는 **기존 값 그대로** 이관(새로 만들면 매치 전멸).
 | ⓖ **위성 쓰기 전 활성 검사** — 위성 직행 쓰기는 Data 의 `X-User-Id` 검사를 안 거친다. | PR #731 codex 6~9라운드 (실코드 대조로 확인) | 09-10 |
 
 ## 산출물
