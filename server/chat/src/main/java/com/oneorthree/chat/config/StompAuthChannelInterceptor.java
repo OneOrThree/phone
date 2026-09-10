@@ -6,6 +6,7 @@ import com.oneorthree.chat.common.exception.CommonErrorCode;
 import com.oneorthree.chat.common.exception.DomainException;
 import com.oneorthree.chat.message.service.ChatAccessGuard;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
@@ -18,7 +19,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * STOMP 프레임 두 종류에 관문을 세운다 — CONNECT(누구인가)와 SUBSCRIBE(들어가도 되는가).
+ * STOMP 프레임에 관문을 세운다 — CONNECT·SUBSCRIBE·SEND.
+ *
+ * <p><b>SUBSCRIBE 는 허용 목록 방식이다</b>(허용할 목적지를 열거하고 나머지는 거절). 「그룹 토픽에
+ * 일치할 때만 검사」로는 {@code /topic/groups/*} 같은 «패턴 구독»이 검사를 통째로 비켜 간다 —
+ * 자세한 근거는 {@code authorizeSubscription} 에 있다.
  *
  * <p>SEND 의 <b>도메인 규칙</b>(같은 섬인가·집중 중인가)은 여기서 보지 않는다.
  * {@code ChatMessageService.send} 가 같은 {@link ChatAccessGuard} 를 부르기 때문이고, 두 곳에서
@@ -53,6 +58,7 @@ import java.util.regex.Pattern;
  * 쪽으로 맡긴다 — 앱이 안 끊어도 발신은 서비스가 막고, 채팅에는 푸시가 없어 구독이 살아 있어도
  * 집중을 방해하지 않는다.
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class StompAuthChannelInterceptor implements ChannelInterceptor {
@@ -65,6 +71,12 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      * 맡긴다. 정규식으로 UUID 를 엄밀히 표현하려 들면 길고 틀리기 쉽다.
      */
     private static final Pattern GROUP_TOPIC = Pattern.compile("^/topic/groups/([0-9a-fA-F-]{36})$");
+
+    /**
+     * 발신 실패 통지를 받는 개인 큐. <b>정확히 이 문자열만</b> 허용한다 —
+     * {@code startsWith("/user/")} 같은 접두 매칭으로 열어 두면 그 접두 아래로 패턴 구독이 다시 들어온다.
+     */
+    private static final String PERSONAL_ERROR_QUEUE = "/user/queue/errors";
 
     private final JwtValidator jwtValidator;
     private final ChatAccessGuard accessGuard;
@@ -102,18 +114,38 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     }
 
     /**
-     * SUBSCRIBE — {@code /topic/groups/{groupId}} 만 검사한다.
+     * SUBSCRIBE — <b>허용 목록에 없는 목적지는 전부 거절한다.</b>
      *
-     * <p>그 밖의 목적지({@code /user/queue/**} 개인 큐 등)는 통과시킨다. 개인 큐는 Spring 이 세션별로
-     * 이름을 갈라 주므로 남의 큐를 구독할 수 없다.
+     * <h3>왜 「그룹 토픽만 검사」가 아니라 「나머지 전부 거절」인가</h3>
+     * 종전에는 {@code /topic/groups/{uuid}} «에 일치할 때만» 검사하고 나머지는 흘렸다. 그건
+     * <b>인가 우회</b>였다 — {@code /topic/groups/*} 나 {@code /topic/groups/**} 는 그 정규식에
+     * 걸리지 않아 검사 없이 통과하는데, Spring 의 {@code SimpleBroker} 구독 레지스트리는 목적지를
+     * <b>AntPath 패턴으로 매칭</b>하므로 그 구독은 이후 <b>모든 섬의 브로드캐스트를 받는다</b>.
+     * 인증만 하면 누구나 전 섬의 대화를 실시간으로 볼 수 있었다는 뜻이다.
      *
-     * <p><b>주체가 없으면 거절한다.</b> CONNECT 없이 SUBSCRIBE 가 올 수 있고(프로토콜 위반이지만
-     * 클라이언트가 그렇게 보낼 수는 있다), 그때 null 을 그냥 흘리면 인증 없이 구독이 성립한다.
+     * <p>패턴 문자를 «금지»하는 방식(와일드카드 문자 거르기)으로는 못 막는다 — 막아야 할 것을
+     * 빠짐없이 열거해야 하고, 그 목록은 브로커의 매칭 규칙이 바뀌면 조용히 낡는다. 반대로
+     * <b>허용할 모양을 열거</b>하면 새 목적지를 추가할 때 «여기도 고쳐야 한다»가 강제된다.
+     *
+     * <h3>허용하는 둘</h3>
+     * <ul>
+     *   <li>{@code /topic/groups/{uuid}} — 정확히 이 모양일 때만. 그다음 멤버십·집중을 본다</li>
+     *   <li>{@code /user/queue/errors} — 발신 실패 통지. Spring 이 세션별로 이름을 갈라 라우팅하므로
+     *       남의 큐를 구독할 수 없다(그래서 인가 대상이 아니다)</li>
+     * </ul>
      */
     private void authorizeSubscription(StompHeaderAccessor accessor) {
-        Matcher matcher = GROUP_TOPIC.matcher(String.valueOf(accessor.getDestination()));
-        if (!matcher.matches()) {
+        String destination = String.valueOf(accessor.getDestination());
+
+        if (PERSONAL_ERROR_QUEUE.equals(destination)) {
             return;
+        }
+
+        Matcher matcher = GROUP_TOPIC.matcher(destination);
+        if (!matcher.matches()) {
+            // 알 수 없는 목적지 — 패턴 구독(/topic/groups/*)이 여기로 떨어진다.
+            log.debug("허용되지 않은 구독 목적지 — {}", destination);
+            throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
         }
 
         if (!(accessor.getUser() instanceof ChatPrincipal principal)) {
@@ -124,7 +156,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         try {
             groupId = UUID.fromString(matcher.group(1));
         } catch (IllegalArgumentException e) {
-            // 36자 모양은 맞는데 UUID 가 아니다 — 그런 섬은 없으므로 인증 실패가 아니라 인가 실패다.
+            // 36자 모양은 맞는데 UUID 가 아니다 — 그런 섬은 없다.
             throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
         }
 

@@ -69,25 +69,38 @@ class MembershipServiceTest {
     }
 
     @Test
-    @DisplayName("아무 섬에도 안 속한 사람도 캐시된다 — 표식이 없으면 매 요청이 상류로 샌다")
+    @DisplayName("아무 섬에도 안 속한 사람도 캐시된다 — 안 그러면 매 요청이 상류로 샌다")
     void cachesEmptyMembership() {
         given(groupClient.fetchMyGroupIds(BEARER)).willReturn(Set.of());
 
         assertThat(membershipService.isMember(groupId, userId, BEARER)).isFalse();
         assertThat(membershipService.isMember(groupId, userId, BEARER)).isFalse();
 
-        // 이 단언이 이 클래스에서 가장 중요하다. 표식을 빼면 키가 아예 안 생겨 두 번 호출된다.
+        // SET 으로 저장하면 「빈 SET」이 Redis 에 존재하지 않아 키가 아예 안 생기고, 그러면 두 번 호출된다.
         verify(groupClient, times(1)).fetchMyGroupIds(BEARER);
         assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isTrue();
     }
 
     @Test
-    @DisplayName("표식은 그룹 id 로 새어 나오지 않는다")
-    void sentinelIsNotExposed() {
+    @DisplayName("캐시에는 «반드시» 수명이 걸려 있다 — 수명 없는 캐시는 영구 멤버십이다")
+    void cachedMembershipAlwaysExpires() {
         given(groupClient.fetchMyGroupIds(BEARER)).willReturn(Set.of(groupId));
         membershipService.myGroupIds(userId, BEARER);
 
-        assertThat(membershipService.myGroupIds(userId, BEARER)).containsExactly(groupId);
+        // 이 서비스는 탈퇴·강퇴를 «캐시 만료»로만 반영한다. 값과 수명을 두 명령으로 나눠 쓰면
+        // 그 사이에 프로세스가 죽는 한 번의 사고로 그 유저가 영구 멤버십을 얻는다.
+        Long ttl = redis.getExpire(RedisKeys.memberCache(userId));
+        assertThat(ttl).isNotNull().isPositive();
+    }
+
+    @Test
+    @DisplayName("여러 섬에 속해도 전부 되살아난다 — 값을 한 문자열로 접어도 잃지 않는다")
+    void roundTripsMultipleGroups() {
+        UUID second = UUID.randomUUID();
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(Set.of(groupId, second));
+        membershipService.myGroupIds(userId, BEARER);
+
+        assertThat(membershipService.myGroupIds(userId, BEARER)).containsExactlyInAnyOrder(groupId, second);
     }
 
     @Test

@@ -44,6 +44,14 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
      */
     List<ChatMessage> findByGroupIdAndIdLessThanOrderByIdDesc(UUID groupId, UUID cursor, Pageable pageable);
 
+    /**
+     * 「이 메시지가 정말 이 섬의 것인가」 — 읽음 커서 갱신 전 검증에 쓴다.
+     *
+     * <p>id 만으로 찾지 않는 것이 핵심이다. 존재 여부만 보면 «다른 방의 메시지 id» 가 통과하고,
+     * 그건 그 방의 커서를 남의 방 시간축으로 밀어 버린다.
+     */
+    boolean existsByIdAndGroupId(UUID id, UUID groupId);
+
     /** 방 목록의 「마지막 말」 미리보기. 그룹 하나짜리 조회라, 여러 방은 {@link #findLatestPerGroup} 을 쓴다. */
     Optional<ChatMessage> findFirstByGroupIdOrderByIdDesc(UUID groupId);
 

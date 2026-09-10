@@ -2616,6 +2616,47 @@ class FocusServiceTest {
         verify(focusPresencePort, never()).focusEnded(any());
     }
 
+    @Test
+    @DisplayName("고아 스윕이 마감한 세션은 리스도 해제한다 — 안 그러면 TTL(13h)이 유일한 해제 수단이 된다")
+    void sweepClearsPresenceForClosedSessions() {
+        // given: 12h 임계값을 넘긴 미종료 세션 하나
+        User user = User.builder().id(USER_ID).build();
+        FocusSession orphan = FocusSession.builder()
+                .id(SESSION_ID)
+                .user(user)
+                .startedAt(NOW.minus(Duration.ofHours(20)))
+                .build();
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any())).willReturn(List.of(orphan));
+        given(focusSessionRepository.markAutoClosedIfOpen(eq(SESSION_ID), any())).willReturn(1);
+
+        // when
+        focusService.sweepOrphanSessions(NOW);
+
+        // then
+        verify(focusPresencePort).focusEnded(USER_ID);
+    }
+
+    @Test
+    @DisplayName("경합으로 이미 유저가 종료한 세션은 리스를 건드리지 않는다 — 새로 시작한 집중을 날리면 안 된다")
+    void sweepDoesNotClearPresenceWhenRaceLost() {
+        // given: 스윕이 목록을 읽은 뒤 유저가 먼저 정상 종료해 markAutoClosedIfOpen 이 0 을 준 상황.
+        // 그쪽 경로가 이미 리스를 지웠고, 그 사이 새 집중이 시작됐을 수 있다 — 여기서 또 지우면 그걸 날린다.
+        User user = User.builder().id(USER_ID).build();
+        FocusSession orphan = FocusSession.builder()
+                .id(SESSION_ID)
+                .user(user)
+                .startedAt(NOW.minus(Duration.ofHours(20)))
+                .build();
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any())).willReturn(List.of(orphan));
+        given(focusSessionRepository.markAutoClosedIfOpen(eq(SESSION_ID), any())).willReturn(0);
+
+        // when
+        focusService.sweepOrphanSessions(NOW);
+
+        // then
+        verify(focusPresencePort, never()).focusEnded(any());
+    }
+
     // ── startFocusSession — focus_type 인입(GROMO-733) ──────────────────────
 
     @Test

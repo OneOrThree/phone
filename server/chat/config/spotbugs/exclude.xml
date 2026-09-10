@@ -16,12 +16,6 @@
     <Bug pattern="EQ_UNUSUAL"/>
   </Match>
 
-  <!-- Spring Security 미적용 상태에서의 오탐 (Security 활성화 후 이 항목 삭제 권장) -->
-  <!-- <Match>
-    <Bug category="SECURITY"/>
-    <Class name="~com\.oneorthree\.phone\..*"/>
-  </Match> -->
-
   <!-- 테스트 코드는 일부 패턴 허용 (프로덕션 코드엔 적용) -->
   <Match>
     <Class name="~.*Test.*"/>

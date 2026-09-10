@@ -5,6 +5,8 @@ import com.oneorthree.chat.membership.MembershipService;
 import com.oneorthree.chat.message.dto.ChatMessageResponse;
 import com.oneorthree.chat.message.dto.ChatRoomResponse;
 import com.oneorthree.chat.message.repository.ChatMessageRepository;
+import com.oneorthree.chat.message.exception.ChatErrorCode;
+import com.oneorthree.chat.message.exception.ChatException;
 import com.oneorthree.chat.message.repository.ChatReadCursorRepository;
 import com.oneorthree.chat.message.repository.domain.ChatMessage;
 import lombok.RequiredArgsConstructor;
@@ -99,9 +101,21 @@ public class ChatRoomService {
      *
      * <p>여기도 트랜잭션을 열지 않는다({@code myRooms} 와 같은 이유). 쓰기는 UPSERT 한 문장이고,
      * 그 문장의 트랜잭션은 리포지토리 메서드가 스스로 연다.
+     *
+     * <h3>커서가 «그 방의 메시지»인지 반드시 검증한다</h3>
+     * 멤버십만 보고 값을 그대로 저장하면, 클라이언트가 다른 방의 id 나 <b>임의의 큰 UUID</b> 를 한 번
+     * 보내는 것으로 그 방을 영구히 침묵시킬 수 있다. 안 읽음은 {@code id > 커서} 로 세고 커서는 뒤로
+     * 가지 않으므로, 미래 시각의 v7 이 한 번 박히면 그 방의 <b>앞으로 올 메시지까지 전부 읽은 것으로
+     * 숨겨진다</b> — 게다가 스스로 풀리지 않는다. 검증 한 번(인덱스 조회)이 그 문을 닫는다.
+     *
+     * @throws ChatException {@code INVALID_CURSOR} — 그 섬에 없는 메시지 id
      */
     public void markRead(UUID groupId, UUID userId, UUID lastReadMessageId, String bearerToken) {
         accessGuard.requireCanChat(groupId, userId, bearerToken);
+
+        if (!chatMessageRepository.existsByIdAndGroupId(lastReadMessageId, groupId)) {
+            throw new ChatException(ChatErrorCode.INVALID_CURSOR);
+        }
 
         chatReadCursorRepository.upsertIfNewer(
                 UuidV7.next(), groupId, userId, lastReadMessageId, clock.instant());

@@ -2,7 +2,10 @@ package com.oneorthree.chat.message;
 
 import com.oneorthree.chat.TestcontainersConfiguration;
 import com.oneorthree.chat.common.redis.RedisKeys;
+import com.oneorthree.chat.common.id.UuidV7;
 import com.oneorthree.chat.membership.client.GroupClient;
+import com.oneorthree.chat.message.repository.ChatMessageRepository;
+import com.oneorthree.chat.message.repository.domain.ChatMessage;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.AfterEach;
@@ -54,6 +57,9 @@ class ChatControllerTest {
 
     @Autowired
     private StringRedisTemplate redis;
+
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
 
     @Value("${jwt.secret}")
     private String jwtSecret;
@@ -143,7 +149,7 @@ class ChatControllerTest {
     @Test
     @DisplayName("읽음 표시는 204 이고, 같은 위치를 다시 보내도 여전히 204 다(커서가 안 움직였을 뿐)")
     void markReadIsIdempotent() throws Exception {
-        String body = "{\"lastReadMessageId\":\"" + UUID.randomUUID() + "\"}";
+        String body = "{\"lastReadMessageId\":\"" + messageIn(island).getId() + "\"}";
 
         for (int i = 0; i < 2; i++) {
             mockMvc.perform(post("/api/v1/chat/rooms/" + island + "/read")
@@ -152,6 +158,32 @@ class ChatControllerTest {
                             .content(body))
                     .andExpect(status().isNoContent());
         }
+    }
+
+    @Test
+    @DisplayName("그 섬에 없는 메시지 id 로는 커서를 못 옮긴다 — 임의의 큰 UUID 하나로 방을 침묵시킬 수 있다")
+    void rejectsReadCursorFromAnotherRoom() throws Exception {
+        // 안 읽음은 id > 커서 로 세고 커서는 뒤로 가지 않는다. 미래 시각의 v7 이 한 번 박히면
+        // «앞으로 올 메시지까지» 전부 읽은 것으로 숨겨지고, 스스로 풀리지도 않는다.
+        UUID foreign = messageIn(UUID.randomUUID()).getId();
+
+        mockMvc.perform(post("/api/v1/chat/rooms/" + island + "/read")
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lastReadMessageId\":\"" + foreign + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_CURSOR"));
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 메시지 id 도 거절한다")
+    void rejectsUnknownReadCursor() throws Exception {
+        mockMvc.perform(post("/api/v1/chat/rooms/" + island + "/read")
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lastReadMessageId\":\"" + UuidV7.next() + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_CURSOR"));
     }
 
     @Test
@@ -191,6 +223,17 @@ class ChatControllerTest {
                         .param("size", "100000")
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isOk());
+    }
+
+    /** 그 섬에 메시지 한 건을 심는다. 읽음 커서 검증이 «실제 행»을 요구하므로 필요하다. */
+    private ChatMessage messageIn(UUID groupId) {
+        return chatMessageRepository.saveAndFlush(ChatMessage.builder()
+                .groupId(groupId)
+                .senderId(UUID.randomUUID())
+                .content("안녕")
+                .clientMessageId(UUID.randomUUID())
+                .sentAt(java.time.Instant.now())
+                .build());
     }
 
     private String bearerOf(UUID id) {

@@ -1067,6 +1067,9 @@ public class FocusService {
      *
      * @param now 이 틱의 기준 시각. {@code now - 12h} 이전에 시작한 미종료 세션이 대상이고,
      *            각 세션의 종료 시각은 그 세션의 {@code startedAt + 12h} 로 박힌다(now 가 아니다)
+     * <p>GROMO-292: 마감시킨 세션의 <b>집중 프레즌스 리스도 함께 해제</b>한다. 안 그러면 리스는
+     * TTL(13h)로만 풀리는데, 그동안 그 사람은 이미 끝난 집중 때문에 채팅에 못 들어간다.
+     *
      * @return 자동 종료한 세션 수(경합으로 이미 완료된 세션 제외)
      */
     @Transactional
@@ -1076,7 +1079,18 @@ public class FocusService {
         int closed = 0;
         for (FocusSession session : orphans) {
             Instant cappedEnd = session.getStartedAt().plus(ORPHAN_TIMEOUT);
-            closed += focusSessionRepository.markAutoClosedIfOpen(session.getId(), cappedEnd);
+            int updated = focusSessionRepository.markAutoClosedIfOpen(session.getId(), cappedEnd);
+            closed += updated;
+
+            // GROMO-292: 자동 종료도 «집중의 끝»이다 — 리스를 남기면 그 사람은 TTL(13h)이 다 지날
+            // 때까지 채팅에 못 들어간다. 특히 늦게 도착한 start 가 열린 마커 때문에 새 마커를 만들지
+            // 않고 반환하는 경로에서도 리스는 그때마다 now+13h 로 갱신되므로, 스윕이 안 지우면
+            // 「이미 끝난 집중 때문에 하루 가까이 차단」이 실제로 생긴다.
+            // 실제로 마감시킨 세션만 지운다 — 경합으로 유저가 먼저 정상 종료했다면 그쪽이 이미 지웠고,
+            // 여기서 또 지우면 그 사이 새로 시작한 집중의 리스를 날린다.
+            if (updated > 0 && session.getUser() != null) {
+                focusPresencePort.focusEnded(session.getUser().getId());
+            }
         }
         return closed;
     }

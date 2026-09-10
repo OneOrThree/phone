@@ -99,6 +99,37 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
+    @DisplayName("SUBSCRIBE — 패턴 구독(/topic/groups/*)은 거절한다. 이게 뚫리면 전 섬 대화가 샌다")
+    void wildcardGroupSubscriptionIsRejected() {
+        // SimpleBroker 의 구독 레지스트리는 목적지를 AntPath 로 «패턴 매칭»한다. 그래서 이 목적지가
+        // 통과하면 그 세션은 이후 모든 /topic/groups/<uuid> 브로드캐스트를 받는다 — 멤버십 검사를
+        // 한 번도 거치지 않고. 종전 구현은 「정규식에 일치할 때만 검사」라 여기가 그냥 열려 있었다.
+        for (String destination : new String[] {
+                "/topic/groups/*", "/topic/groups/**", "/topic/**", "/topic/groups/",
+        }) {
+            StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE);
+            accessor.setUser(new ChatPrincipal(userId, BEARER));
+            accessor.setDestination(destination);
+
+            assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
+                    .describedAs("목적지 %s", destination)
+                    .isInstanceOf(DomainException.class);
+        }
+        verifyNoInteractions(accessGuard);
+    }
+
+    @Test
+    @DisplayName("SUBSCRIBE — 개인 큐도 «정확히 그 문자열»일 때만 통과한다")
+    void personalQueuePatternIsRejected() {
+        StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE);
+        accessor.setUser(new ChatPrincipal(userId, BEARER));
+        accessor.setDestination("/user/queue/**");
+
+        assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
+                .isInstanceOf(DomainException.class);
+    }
+
+    @Test
     @DisplayName("SUBSCRIBE — 개인 큐는 인가 대상이 아니다(Spring 이 세션별로 이름을 가른다)")
     void personalQueueSubscriptionPasses() {
         StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE);

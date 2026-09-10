@@ -39,7 +39,10 @@ public class RedisFocusPresence implements FocusPresencePort {
      * 오래 살면 <b>이미 끝난 집중 때문에 채팅이 막히는</b> 상태가 된다. 반대로 이보다 짧게 잡으면
      * 진짜 집중 중인데 리스가 먼저 사라져 규칙이 조용히 풀린다.
      *
-     * <p>TTL 은 «백스톱»이지 «메커니즘»이 아니다 — 정상 경로에서는 종료가 리스를 지운다.
+     * <p>TTL 은 «백스톱»이지 «메커니즘»이 아니다 — 정상 경로에서는 종료가 리스를 지운다. 유저가
+     * 끝내지 않은 세션(앱 강제종료)은 orphan 스윕이 마감하면서 함께 지운다
+     * ({@code FocusService#sweepOrphanSessions}). 그 배선이 빠지면 TTL 이 «백스톱»이 아니라 «유일한
+     * 해제 수단»이 되어, 이미 끝난 집중 때문에 하루 가까이 채팅이 막히는 상태가 실제로 생긴다.
      */
     private static final Duration LEASE_TTL = Duration.ofHours(13);
 

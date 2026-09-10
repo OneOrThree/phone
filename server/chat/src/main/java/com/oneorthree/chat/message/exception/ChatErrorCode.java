@@ -42,7 +42,17 @@ public enum ChatErrorCode implements ErrorCode {
     /** 본문이 상한(2000자)을 넘었다. 상한은 DB 컬럼 길이가 아니라 이 규칙이 정한다. */
     CONTENT_TOO_LONG(HttpStatus.BAD_REQUEST, "메시지가 너무 깁니다."),
 
-    /** 커서가 UUID 로 파싱되지 않는다. 파싱 실패를 조용히 «처음부터»로 떨어뜨리면 페이징이 무한 반복된다. */
+    /**
+     * 커서가 쓸 수 없는 값이다 — 두 경우가 여기로 합쳐진다.
+     *
+     * <ul>
+     *   <li>히스토리 커서가 UUID 로 파싱되지 않음. 조용히 «처음부터»로 떨어뜨리면 무한 스크롤이
+     *       맨 위에서 같은 페이지를 영원히 다시 받는다</li>
+     *   <li>읽음 커서가 <b>그 섬의 메시지가 아님</b>. 검증 없이 저장하면 임의의 큰 UUID 한 번으로
+     *       그 방의 앞으로 올 메시지까지 전부 읽은 것으로 숨길 수 있고, 커서는 뒤로 가지 않으므로
+     *       스스로 풀리지도 않는다</li>
+     * </ul>
+     */
     INVALID_CURSOR(HttpStatus.BAD_REQUEST, "잘못된 커서입니다.");
 
     private final HttpStatus status;

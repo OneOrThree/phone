@@ -8,6 +8,10 @@
 #
 # ⚠️ 이 오버레이는 redis 를 정의하지 않는다 — docker-compose.dev.yml 이 이미 정의한다.
 #    단독으로 쓰면 depends_on 이 없는 서비스를 가리켜 파싱이 깨진다.
+#
+# ⚠️ **dev 전용이다.** prod 는 DB 가 RDS 라 compose 에 db 서비스가 없고 redis 도 아직 없다 —
+#    이 파일을 prod 에 그대로 얹으면 depends_on 이 없는 서비스를 가리킨다. prod 배선은 채팅이
+#    dev 에서 안정된 뒤 docker-compose.prod.yml 에 직접 넣는다(그때 Redis ACL 도 함께 건다).
 
 name: phone
 

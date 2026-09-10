@@ -1,11 +1,11 @@
 package com.oneorthree.chat;
 
-import com.oneorthree.chat.common.exception.ErrorResponse;
 import com.oneorthree.chat.common.redis.RedisKeys;
 import com.oneorthree.chat.fanout.ChatFanout;
 import com.oneorthree.chat.fanout.ChatFanoutEvent;
 import com.oneorthree.chat.membership.client.GroupClient;
 import com.oneorthree.chat.message.dto.ChatMessageResponse;
+import com.oneorthree.chat.message.dto.SendFailureResponse;
 import com.oneorthree.chat.message.dto.SendMessageRequest;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -232,13 +232,17 @@ class ChatWebSocketIntegrationTest {
     void invalidPayloadDoesNotKillTheSession() throws Exception {
         givenMemberOf(resident, island);
         StompSession session = connect(resident, new RecordingHandler());
-        BlockingQueue<String> errors = subscribeToPersonalErrors(session);
+        BlockingQueue<SendFailureResponse> errors = subscribeToPersonalErrors(session);
         deliveries = subscribeToIsland(session, island);
 
         // clientMessageId 없이 보낸다(@NotNull 위반). 핸들러가 없으면 ERROR 프레임 + 소켓 종료다.
         session.send("/app/groups/" + island + "/send", new SendMessageRequest("안녕", null));
 
-        assertThat(errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isEqualTo("INVALID_REQUEST");
+        SendFailureResponse failure = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(failure).isNotNull();
+        assertThat(failure.getCode()).isEqualTo("INVALID_REQUEST");
+        // 본문을 못 읽어 생긴 실패라 서버도 어느 요청인지 특정할 수 없다.
+        assertThat(failure.getClientMessageId()).isNull();
         assertThat(session.isConnected()).isTrue();
 
         // 그리고 같은 세션으로 «정상» 발신이 계속 된다 — 이게 「죽지 않았다」의 실질적 확인이다.
@@ -253,15 +257,20 @@ class ChatWebSocketIntegrationTest {
     void sendWhileFocusingIsRefusedOnPersonalQueue() throws Exception {
         givenMemberOf(resident, island);
         StompSession session = connect(resident, new RecordingHandler());
-        BlockingQueue<String> errors = subscribeToPersonalErrors(session);
+        BlockingQueue<SendFailureResponse> errors = subscribeToPersonalErrors(session);
 
         // 연결 «뒤에» 집중이 시작된 상황 — 서버는 세션을 끊지 않고 발신만 막는다(C5).
         redis.opsForValue().set(RedisKeys.focusPresence(resident), "1", Duration.ofMinutes(5));
 
+        UUID clientMessageId = UUID.randomUUID();
         session.send("/app/groups/" + island + "/send",
-                new SendMessageRequest("집중 중인데 보냅니다", UUID.randomUUID()));
+                new SendMessageRequest("집중 중인데 보냅니다", clientMessageId));
 
-        assertThat(errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isEqualTo("FOCUS_IN_PROGRESS");
+        SendFailureResponse failure = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(failure).isNotNull();
+        assertThat(failure.getCode()).isEqualTo("FOCUS_IN_PROGRESS");
+        // 실패 봉투에 멱등 키가 실려야 앱이 «어느» 낙관적 말풍선을 실패로 그릴지 안다.
+        assertThat(failure.getClientMessageId()).isEqualTo(clientMessageId);
         assertThat(session.isConnected()).isTrue();
     }
 
@@ -280,6 +289,25 @@ class ChatWebSocketIntegrationTest {
                         handshakeHeaders, authHeaders(bearerOf(resident)), new RecordingHandler())
                 .get(TIMEOUT_SECONDS, TimeUnit.SECONDS))
                 .isInstanceOf(Exception.class);
+    }
+
+    @Test
+    @DisplayName("발신 실패는 «그 세션»에만 간다 — 같은 유저의 다른 기기가 보내지도 않은 실패를 받으면 안 된다")
+    void sendFailureDoesNotReachTheUsersOtherSessions() throws Exception {
+        givenMemberOf(resident, island);
+        StompSession phone = connect(resident, new RecordingHandler());
+        StompSession tablet = connect(resident, new RecordingHandler());
+        BlockingQueue<SendFailureResponse> phoneErrors = subscribeToPersonalErrors(phone);
+        BlockingQueue<SendFailureResponse> tabletErrors = subscribeToPersonalErrors(tablet);
+
+        redis.opsForValue().set(RedisKeys.focusPresence(resident), "1", Duration.ofMinutes(5));
+        phone.send("/app/groups/" + island + "/send",
+                new SendMessageRequest("폰에서 보냅니다", UUID.randomUUID()));
+
+        // @SendToUser 의 broadcast 기본값(true)이면 태블릿에도 같은 실패가 도착하고,
+        // 그 기기는 «보낸 적도 없는» 말풍선을 실패 처리하려 든다.
+        assertThat(phoneErrors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
+        assertThat(tabletErrors.poll(2, TimeUnit.SECONDS)).isNull();
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
@@ -382,18 +410,18 @@ class ChatWebSocketIntegrationTest {
         return null;
     }
 
-    /** 발신 실패 통지를 받는 개인 큐. 봉투의 {@code code} 만 모은다. */
-    private BlockingQueue<String> subscribeToPersonalErrors(StompSession session) {
-        BlockingQueue<String> errors = new LinkedBlockingQueue<>();
+    /** 발신 실패 통지를 받는 개인 큐. 봉투를 «통째로» 모은다 — clientMessageId 까지 봐야 해서다. */
+    private BlockingQueue<SendFailureResponse> subscribeToPersonalErrors(StompSession session) {
+        BlockingQueue<SendFailureResponse> errors = new LinkedBlockingQueue<>();
         session.subscribe("/user/queue/errors", new StompFrameHandler() {
             @Override
             public @NonNull Type getPayloadType(@NonNull StompHeaders headers) {
-                return ErrorResponse.class;
+                return SendFailureResponse.class;
             }
 
             @Override
             public void handleFrame(@NonNull StompHeaders headers, Object payload) {
-                errors.add(((ErrorResponse) payload).getCode());
+                errors.add((SendFailureResponse) payload);
             }
         });
         return errors;
