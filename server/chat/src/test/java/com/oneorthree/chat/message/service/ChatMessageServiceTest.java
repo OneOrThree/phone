@@ -123,6 +123,20 @@ class ChatMessageServiceTest {
     }
 
     @Test
+    @DisplayName("NUL 이 든 본문은 DB 까지 가지 않고 400 으로 거절한다 — 가면 소켓이 끊긴다")
+    void rejectsNulCharacter() {
+        assertThatThrownBy(() -> chatMessageService.send(
+                groupId, senderId, request("\uc548\u0000\ub155"), BEARER, SESSION_ID))
+                .isInstanceOf(ChatException.class)
+                .extracting(e -> ((ChatException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.INVALID_CONTENT);
+
+        // DB 까지 가면 재전송 예외와 «같은 타입»으로 터져 400 이 아니라 ERROR 프레임 + 연결 종료가 된다.
+        verify(chatMessageRepository, never()).save(any());
+        verify(chatFanout, never()).broadcast(any());
+    }
+
+    @Test
     @DisplayName("상한 «정확히»는 통과한다 — 경계에서 한 칸 어긋나지 않는지")
     void allowsExactlyMaxLength() {
         givenSaveEchoes();

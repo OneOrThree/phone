@@ -43,6 +43,20 @@ public enum ChatErrorCode implements ErrorCode {
     CONTENT_TOO_LONG(HttpStatus.BAD_REQUEST, "메시지가 너무 깁니다."),
 
     /**
+     * 본문에 <b>저장할 수 없는 문자</b>가 있다 — 지금은 NUL({@code U+0000}) 하나다.
+     *
+     * <p>NUL 은 JSON 문자열로는 멀쩡히 실려 오지만 PostgreSQL 의 {@code varchar} 가 저장하지 못한다.
+     * 여기서 막지 않으면 INSERT 가 {@code DataIntegrityViolationException} 을 내는데, 그 예외는
+     * 「멱등 재전송」 경로가 기다리는 것과 <b>같은 타입</b>이라 원본을 찾다 실패하고 그대로 올라간다 —
+     * 결과는 400 이 아니라 <b>ERROR 프레임 + 소켓 종료</b>다. 즉 클라이언트가 문자 하나로 자기
+     * 연결을 끊을 수 있다.
+     *
+     * <p>지우지 않고 «거절»하는 이유: 서버가 보관하고 방송할 내용을 조용히 고쳐 쓰지 않는다. 그리고
+     * 정상 클라이언트의 텍스트 입력에서는 NUL 이 나올 수 없어, 이 코드가 보이면 보내는 쪽이 깨진 것이다.
+     */
+    INVALID_CONTENT(HttpStatus.BAD_REQUEST, "메시지에 사용할 수 없는 문자가 있습니다."),
+
+    /**
      * 커서가 쓸 수 없는 값이다 — 두 경우가 여기로 합쳐진다.
      *
      * <ul>

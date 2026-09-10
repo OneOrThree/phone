@@ -41,6 +41,9 @@ public class ChatMessageService {
      */
     public static final int MAX_CONTENT_LENGTH = 2000;
 
+    /** PostgreSQL 의 {@code varchar} 가 저장하지 못하는 유일한 문자. */
+    private static final char NUL = '\u0000';
+
     /** 히스토리 한 페이지 기본 크기. */
     public static final int DEFAULT_PAGE_SIZE = 30;
 
@@ -187,6 +190,12 @@ public class ChatMessageService {
         }
         if (content.length() > MAX_CONTENT_LENGTH) {
             throw new ChatException(ChatErrorCode.CONTENT_TOO_LONG);
+        }
+        if (content.indexOf(NUL) >= 0) {
+            // 여기서 막지 않으면 DB 까지 가서 «재전송 예외와 같은 타입»으로 터진다 — 자세한 사정은
+            // ChatErrorCode.INVALID_CONTENT 에 있다. NUL «하나»만 보는 것도 의도다: varchar 가
+            // 거부하는 문자는 이것뿐이라, 다른 제어문자까지 넓히면 정상 본문을 막는 쪽으로 틀린다.
+            throw new ChatException(ChatErrorCode.INVALID_CONTENT);
         }
         return content;
     }

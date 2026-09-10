@@ -21,6 +21,14 @@ on:
       - 'server/chat/**'
       - '.github/workflows/chat-ci.yml'
 
+# 통합 브랜치 푸시가 «겹치지» 않게 한다. 겹치면 늦게 끝난 «옛» 빌드가 :latest 를 되가리켜,
+# compose 의 기본 배포가 이전 코드로 되돌아간다. 그룹 이름은 dev-ci 의 것과 달라야 한다
+# (같으면 두 파이프라인이 서로를 막는다).
+concurrency:
+  group: chat-ci-${{ github.ref }}
+  # PR 의 이전 실행은 취소하되, 이미지를 올리는 실행은 중간에 끊지 않는다(dev-ci 와 같은 규율).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   GAR_HOST: asia-northeast3-docker.pkg.dev
   # docker-compose.chat.yml 의 CHAT_IMAGE 기본값과 «같은 경로»여야 한다 — 어긋나면 올리는 곳과
@@ -76,6 +84,10 @@ jobs:
   # 바뀌어도 배포될 길이 없다. 배포 호스트에는 레포 체크아웃이 없어 거기서 빌드할 수도 없다.
   docker-build:
     name: 채팅 이미지 build${{ github.event_name == 'push' && ' · GAR push' || ' · cache' }}
+    # 검증이 끝난 뒤에만 올린다. 이게 없으면 두 잡이 나란히 돌아, 테스트·checkstyle·spotbugs 가
+    # 깨진 리비전도 이미지 빌드(bootJar 는 -x test 다)만 성공해 :latest 로 올라간다 — 그리고
+    # compose 의 기본값이 바로 그 태그다.
+    needs: [build]
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 25
     permissions:

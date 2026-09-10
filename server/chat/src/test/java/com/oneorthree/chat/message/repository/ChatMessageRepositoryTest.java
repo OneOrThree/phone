@@ -95,6 +95,27 @@ class ChatMessageRepositoryTest {
     }
 
     @Nested
+    @DisplayName("저장할 수 없는 문자")
+    class UnstorableCharacters {
+
+        @Test
+        @DisplayName("NUL 이 든 본문은 «실제로» 저장에 실패한다 — 서비스가 먼저 막는 이유의 근거")
+        void nulCannotBeStored() {
+            // 이 전제가 틀리면 ChatMessageService 의 NUL 검사는 근거 없는 거절이 된다. 그래서
+            // 가정하지 않고 실물 Postgres 에 물어본다.
+            //
+            // 「그 실패가 재전송과 구별되지 않는다」까지 여기서 이어 보려다 접었다 — 이 테스트는 한
+            // 트랜잭션 안이라 실패한 뒤 «그 트랜잭션이 통째로 abort» 되어, 운영과 다른 이유로 깨진다.
+            // 운영의 send() 는 비트랜잭션이라 그 조회가 «새» 트랜잭션에서 빈손으로 돌아오고, 그래서
+            // 원래 예외가 그대로 올라간다. 그 경로에 도달하지 않는다는 것은 서비스 단위 테스트가 본다.
+            assertThatThrownBy(() ->
+                    chatMessageRepository.saveAndFlush(message(groupA, alice, "\uc548\u0000\ub155", uuid())))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+        }
+
+    }
+
+    @Nested
     @DisplayName("커서 페이징")
     class Paging {
 
