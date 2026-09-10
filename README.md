@@ -6,7 +6,7 @@
 | | |
 | --- | --- |
 | 회사 · 앱 | `oneorthree` · gromo (`1.1.0`) |
-| 서버 | Spring Boot `4.0.6` · Java 17 · PostgreSQL · 도메인 17종 · 컨트롤러 30 · 엔티티 47 |
+| 서버 | Spring Boot `4.0.6` · Java 17 · PostgreSQL · 도메인 17종 · 컨트롤러 31 · 엔티티 44 |
 | 앱 | React Native `0.86` · Expo SDK `57` · React `19.2.3` · TypeScript(strict) |
 | 번들 id | iOS · Android 모두 `com.oneorthree.gromo` |
 | 지원 언어 | 한국어 · English · 日本語 · 繁體中文 |
@@ -22,8 +22,8 @@ gromo/
 │   │   │   ├── <domain>/        #   도메인 17종 — 각자 controller·service·repository 를 소유
 │   │   │   ├── common/          #   소유 도메인이 없는 공유물 (port·id·exception·logging)
 │   │   │   └── config/          #   Spring 배선 · 서블릿 필터 · 스케줄링 · ShedLock
-│   │   ├── src/main/resources/db/migration/   # Flyway V1~V49 — 스키마의 정본
-│   │   ├── src/test/java/       #   테스트 클래스 185개 (Testcontainers · ArchUnit)
+│   │   ├── src/main/resources/db/migration/   # Flyway V1~V50 — 스키마의 정본
+│   │   ├── src/test/java/       #   테스트 클래스 199개 (Testcontainers · ArchUnit)
 │   │   ├── config/checkstyle/ · config/spotbugs/
 │   │   └── Dockerfile           #   멀티스테이지 · Datadog 에이전트 내장(비활성)
 │   ├── observability/           # Prometheus · Grafana · Loki · Promtail · Datadog 설정
@@ -128,6 +128,19 @@ PostgreSQL             스키마의 정본은 Flyway 마이그레이션
 | `notification` | 알림 생성 · FCM 푸시 발송 |
 | `analytics` | 이벤트 수집 · GA4 전송 (영속 계층 없음) |
 
+### 규모 (2026-09-11 실측)
+
+| 항목 | 수 | 집계 기준 |
+| --- | --- | --- |
+| 도메인 패키지 | 17 | `com/oneorthree/phone/` 1-depth (`common`·`config` 제외) |
+| 컨트롤러 | 31 | 파일명 `*Controller.java` (`*ControllerDocs.java` 제외) |
+| 엔티티 | 44 | 줄 첫머리 `@Entity` — 단순 `grep @Entity` 는 `@EntityGraph` 3건을 함께 세어 47이 됩니다 |
+| 스프링 서비스 빈 | 58 | `@Service` 애노테이션. 그중 파일명이 `*Service.java` 인 것은 54(`*QueryService` 7 포함)이고, 나머지는 `LeagueUserSettler`·`GroupBetSettler`·`BotSimulator` 처럼 이름이 역할을 말하는 클래스입니다 |
+| `ErrorCode` enum | 12 | `implements ErrorCode` |
+| 테스트 클래스 | 199 | `src/test/java` 의 `*Test.java` — 그 밖에 `PhoneApplicationTests` 1개가 더 있습니다 |
+| Flyway 마이그레이션 | 49 | `V1`~`V50` (V24 결번) |
+| ShedLock 잠금 잡 | 22 | `@SchedulerLock(name = …)` |
+
 ### 패키지 표준 레이아웃
 
 ```
@@ -150,7 +163,7 @@ com.oneorthree.phone.<domain>/
 
 | | |
 | --- | --- |
-| 마이그레이션 | `src/main/resources/db/migration/` — **V1~V49** (파일 48개, V24 결번) |
+| 마이그레이션 | `src/main/resources/db/migration/` — **V1~V50** (파일 49개, V24 결번) |
 | dev/prod 기동 | `spring.jpa.hibernate.ddl-auto: validate` — **엔티티↔DB 드리프트면 기동을 거부**합니다 |
 | dev 특례 | `baseline-on-migrate` + `out-of-order: true` — 병렬 브랜치에서 번호가 역전 도착하는 dev 특성 대응. prod 는 미적용 |
 | PK | **UUID v7** — `@GeneratedUuidV7`(`common/id`). 시간 정렬이라 B-tree 인덱스 지역성이 좋습니다 |
@@ -297,8 +310,10 @@ app/app-dev/src/
 └── types/           api.ts(공용 DTO) · storage.ts · dto/
 ```
 
-- **모든 백엔드 호출은 `src/services/api.ts` 의 axios 인스턴스를 거칩니다** — JWT 주입과
-  401 재발급 재시도가 여기 한 곳에 있습니다. 로그인 전 auth 호출만 인터셉터 없는 맨 `axios` 를 씁니다.
+- **백엔드 호출은 원칙적으로 `src/services/api.ts` 의 axios 인스턴스를 거칩니다** — JWT 주입과
+  401 재발급 재시도가 여기 한 곳에 있습니다. 인터셉터를 **일부러 우회하는 예외 셋**이 있습니다:
+  소셜·게스트 로그인과 로그아웃(`services/auth.ts`), 디바이스 토큰 삭제(`services/userApi.ts`),
+  그리고 `api.ts` 자신의 `doRefreshAccessToken` — 401 인터셉터 재귀·데드락을 피하려고 맨 `axios` 를 씁니다.
 - 전역 상태는 Context + hooks 이며 `UserProvider › CoinProvider › EquipmentProvider ›
   FocusProvider › SubjectProvider` 순으로 중첩됩니다. AsyncStorage 로 영속화하고 서버와 동기화합니다.
 - iOS 는 메인 타겟 외에 확장 타겟 6종을 함께 빌드합니다 — `screentimereport` · `GromoScreenTimeMonitor` ·
@@ -317,7 +332,7 @@ app/app-dev/src/
                                      ├─ @Scheduled + ShedLock (정산·판정·알림 22잡) ─┘
                                      └─ FCM HTTP v1 ─→ 푸시 ─→ 앱
 
-   Flyway V1~V49 ─→ PostgreSQL 스키마 = 단일 진실 공급원
+   Flyway V1~V50 ─→ PostgreSQL 스키마 = 단일 진실 공급원
    Actuator/micrometer :9091 ─→ Prometheus·Grafana·Loki / Datadog APM·RUM
 ```
 
@@ -502,6 +517,7 @@ cd app/app-dev/ios
 | `npm run format:fix`   | Prettier 포맷 적용                 |
 | `npm run typecheck`    | `tsc --noEmit` 타입 검사           |
 | `npm test`             | Jest (테스트 파일 195개)           |
+| `./scripts/e2e.sh`     | Maestro E2E — Release 시뮬 빌드 후 `.maestro/flows/` 01→02→03 |
 
 ---
 
