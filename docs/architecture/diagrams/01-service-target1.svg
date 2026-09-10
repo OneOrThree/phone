@@ -24,6 +24,8 @@
     <path d="M750,400 V320" marker-end="url(#a)"/>
     <!-- 알림 → FCM -->
     <path d="M690,460 V540" marker-end="url(#a)"/>
+    <!-- Business → 알림 동기 명령·조회 (기기 토큰 · 알림 설정) -->
+    <path d="M220,310 H260 V500 H740 V460" marker-end="url(#a)"/>
   </g>
   <g stroke="#1F6F8B" stroke-width="1.75" fill="none" stroke-dasharray="7 5" stroke-linejoin="miter" stroke-linecap="square">
     <!-- Business → Kafka -->
@@ -74,6 +76,7 @@
     <text x="140" y="420" fill="#1F6F8B">이벤트 (요청형)</text>
     <text x="418" y="395" fill="#1F6F8B">이벤트 (정산형)</text>
     <text x="510" y="420" fill="#1F6F8B">consume</text>
+    <text x="300" y="516">기기 토큰 · 알림 설정 (동기 명령·조회)</text>
     <text x="480" y="376">리컨실 1종 · 새벽 1회</text>
   </g>
 </svg>

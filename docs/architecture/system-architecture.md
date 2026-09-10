@@ -38,6 +38,7 @@ flowchart TB
   NX --> BIZ
   NX --> NS
   BIZ --> DATA
+  BIZ -->|"기기 토큰 · 알림 설정(동기)"| NS
   BIZ -.->|"events"| KF
   DATA -.->|"events"| KF
   KF -.-> NS
@@ -59,7 +60,7 @@ flowchart TB
 | `/internal/admin/**` | notification | 서비스 토큰(콘솔 전용). Vercel egress IP 는 가변이라 IP 허용 목록 없음 |
 | `/health` | business-api (각 서비스 헬스는 compose 내부) | 없음 |
 | `/l/**` · `/.well-known/**` | **nginx 가 아니라 DNS** — `link.oneorthree.world` → Vercel | — |
-| **`/l/match` · `/l/referrer` (이관 호환)** | nginx → **Vercel 프록시** — 배포된 앱이 `${API_URL}/l/match`(= `api.oneorthree.world`)로 부르고 있어(`deferredInvite.ts`) 이 경로를 지우면 설치 매치가 실패하고 3시간 어트리뷰션 창을 잃는다 | 무인증(현행과 동일) |
+| **`/l/match` · `/l/referrer` (이관 호환)** | nginx → **Vercel 프록시** — 배포된 앱이 `${API_URL}/l/match`(= `api.oneorthree.world`)로 부르고 있어(`deferredInvite.ts`) 이 경로를 지우면 설치 매치가 실패하고 3시간 어트리뷰션 창을 잃는다. **원본 IP 를 반드시 보존한다** — 매치는 클릭 때 저장한 `ip_hash`(SHA-256(ip+salt))와 대조하는데, 그냥 프록시하면 링크 서버엔 EC2 주소가 보여 **정상 설치도 `matched:false`** 가 된다. nginx 가 `X-Forwarded-For` 를 **덮어쓰고**(클라이언트가 위조한 값 무시) 프록시 전용 공유 시크릿 헤더를 함께 실으며, 링크 서버는 **그 시크릿이 있을 때만** XFF 첫 토큰을 신뢰한다(없으면 소켓 주소 사용) | 무인증(현행과 동일) + 프록시 시크릿 |
 | 그 외 `/internal/**` | **차단** | — |
 
 data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만). notification 은 `/internal/admin/*` 만 nginx 를 통해 노출.
