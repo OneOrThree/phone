@@ -30,7 +30,10 @@ chat:
   membership:
     cache-ttl-seconds: 120
   websocket:
-    allowed-origins: "*"
+    # dev·prod 의 «실제» 기본값과 같은 빈 값으로 둔다. "*" 로 두면 가장 위험한 경로(빈 문자열이
+    # String[] 로 어떻게 바인딩되는가, 그리고 그 상태로 핸드셰이크가 되는가)가 테스트에서 안 돈다.
+    # 네이티브 앱은 Origin 헤더를 보내지 않으므로 빈 값이어도 붙는다 — 그 전제를 여기서 확인한다.
+    allowed-origins: ""
 
 logging:
   level:

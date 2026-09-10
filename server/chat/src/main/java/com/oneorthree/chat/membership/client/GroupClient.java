@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -74,20 +75,35 @@ public class GroupClient {
      */
     public Set<UUID> fetchMyGroupIds(String bearerToken) {
         try {
-            List<GroupRef> groups = restClient.get()
+            return restClient.get()
                     .uri("/api/v1/groups")
                     .header("Authorization", bearerToken)
-                    .retrieve()
-                    // 상류가 «판정»을 내린 4xx 는 예외로 만들지 않고 빈 목록으로 떨어뜨린다.
-                    .onStatus(HttpStatusCode::is4xxClientError, (req, res) -> { })
-                    .body(new ParameterizedTypeReference<List<GroupRef>>() { });
-
-            return groups == null ? Set.of()
-                    : groups.stream()
-                            .map(GroupRef::groupId)
-                            .filter(Objects::nonNull)
-                            .collect(Collectors.toSet());
-        } catch (RestClientException e) {
+                    // retrieve() 가 아니라 exchange() 인 이유: 4xx 를 «본문 변환 전에» 가로채야 하기 때문이다.
+                    // retrieve() 경로에서는 상태 판정과 무관하게 본문을 List<GroupRef> 로 읽으려 들고,
+                    // 401 의 본문은 에러 봉투({code, message})라 변환이 터진다 — 그 예외가 아래 catch 로
+                    // 떨어지면 «판정 완료(비멤버)»가 «판정 불가(503)»로 뒤집힌다.
+                    .exchange((request, response) -> {
+                        HttpStatusCode status = response.getStatusCode();
+                        if (status.is4xxClientError()) {
+                            // 상류가 «판정»을 내렸다 — 이 토큰으로는 아무 그룹도 볼 수 없다.
+                            log.debug("그룹 조회 거절 — status={}", status.value());
+                            return Set.<UUID>of();
+                        }
+                        if (!status.is2xxSuccessful()) {
+                            // 5xx = 판정 불가. 빈 집합으로 접으면 장애가 «전원 비멤버»로 읽힌다.
+                            throw new UpstreamUnavailableException();
+                        }
+                        List<GroupRef> groups = response.bodyTo(new ParameterizedTypeReference<List<GroupRef>>() { });
+                        return groups == null ? Set.<UUID>of()
+                                : groups.stream()
+                                        .map(GroupRef::groupId)
+                                        .filter(Objects::nonNull)
+                                        .collect(Collectors.toSet());
+                    });
+        } catch (UpstreamUnavailableException e) {
+            throw e;
+        } catch (RestClientException | UncheckedIOException e) {
+            // 연결 불가·타임아웃·본문 변환 실패. 어느 쪽이든 «답을 못 받았다»이지 «아니오»가 아니다.
             log.warn("그룹 조회 실패 — 상류 응답 없음", e);
             throw new UpstreamUnavailableException();
         }
