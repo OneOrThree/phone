@@ -57,7 +57,7 @@ flowchart LR
 
 | 컴포넌트 | 소유 데이터 | 하는 일 | **안 하는 일** |
 |---|---|---|---|
-| **Business API** (신규, `server/services/business-api`) | 없음 (stateless) | 앱 진입점. **인증**(IdP 검증·게스트·AT 서명·refresh·logout, A7) · 화면 단위 BFF(`/bff/*`) · 아직 BFF 가 없는 엔드포인트 **패스스루**(A8) · 요청형 유스케이스 조합 · 요청형 이벤트 발행(친구·챌린지 개설·내기 승리 등) · 링크 발급 호출 | DB 접근 · 트랜잭션 · 크론 · 정산 |
+| **Business API** (신규, `server/services/business-api`) | 없음 (stateless) | 앱 진입점. **인증**(IdP 검증·게스트·AT 서명·refresh·logout, A7) · 화면 단위 BFF(`/bff/*`) · 아직 BFF 가 없는 엔드포인트 **패스스루**(A8) · 요청형 유스케이스 조합 · 요청형 이벤트 발행(친구·챌린지 개설 등 — **Business 가 유스케이스를 완료하는 것만**. `내기 승리`는 제외: 현행 `GroupBetEarlyWinConfirmer.confirmWins` 가 집중 세션 저장 **트랜잭션 안에서** `GroupBetWonEvent` 를 발행하고 응답엔 어떤 참가자가 확정됐는지도 없어 Business 는 발생 사실을 알 수 없다 → **Data API 가 그 트랜잭션의 outbox 에 기록·발행**한다, A4·A21) · 링크 발급 호출 | DB 접근 · 트랜잭션 · 크론 · 정산 |
 | **Data API** (현 `server/services/data-api`) | `gromo` database 전체 | 데이터 서빙(`/internal/*` 조회·명령, A9) · **트랜잭션 경계·쓰기 불변식** · Flyway · **정산·정리 크론**(내기 3 · 리그 주간 · orphan sweep, A4) · 정산형 이벤트 발행(D10) · RT 저장·대조·회전·탈퇴 검사(A7) | 공인 노출 · JWT 검증 · FCM · 문구 · 알림 크론 |
 | **알림 서버** (신규, `server/services/notification`) | `gromo_notification` database (templates · kinds · jobs · deeplinks · deliveries · device_tokens · settings · snapshots) | 이벤트 소비 · 스냅샷 · 등록부 크론 22 · 판정(quiet hours·쿨다운·dedup) · 템플릿 렌더(ICU, 4 locale) · FCM 발송·재시도·이력 · `/internal/admin/*` | 도메인 테이블 읽기(D4) · Data API 쓰기 · 화면 |
 | **링크 서버** (별도 레포 `oneorthree/link`, Vercel + Neon) | `links` · `link_clicks` · SKAN·Referrer 원장 · 캠페인 비용 | 랜딩 · 지문 매치 · claim 귀속 · SKAN 포스트백 · Install Referrer · 캠페인 링크 대시보드 · **알림 콘솔 화면**(D17) | 코어 호출(단방향) · 유저 인증(콘솔 비밀번호 2겹은 별개, D18) |
@@ -91,7 +91,7 @@ flowchart LR
 
 | 방식 | Target-1 | Target-2 |
 |---|---|---|
-| 동기 내부 HTTP | 서비스 토큰(Bearer) + `X-User-Id`. 타임아웃·재시도·서킷을 **공통 RestClient 팩토리**에 처음부터. **재시도 대상 = 멱등 GET + 멱등이 보장된 명령**(전체 교체 `PUT`, `DELETE /internal/devices`, `POST …/withdraw`) — GET 만 재시도하면 로그아웃의 기기 토큰 삭제가 일시 오류 한 번에 영구 실패한다. 앱은 그 실패를 무시하고 로컬 토큰을 지워 **사용자가 재시도할 방법이 없고**, 알림 DB 에 남은 이전 계정 토큰으로 푸시가 계속 간다. 재시도까지 실패한 삭제는 **A21 outbox 에 적재해 relay 가 이어받는다**(§6) | 동일 |
+| 동기 내부 HTTP | 서비스 토큰(Bearer) + `X-User-Id`. 타임아웃·재시도·서킷을 **공통 RestClient 팩토리**에 처음부터. **재시도 대상 = 멱등 GET + 멱등이 보장된 명령**(전체 교체 `PUT`, `DELETE /internal/devices`, `POST …/withdraw`) — GET 만 재시도하면 로그아웃의 기기 토큰 삭제가 일시 오류 한 번에 영구 실패한다. 앱은 그 실패를 무시하고 로컬 토큰을 지워 **사용자가 재시도할 방법이 없고**, 알림 DB 에 남은 이전 계정 토큰으로 푸시가 계속 간다. 재시도까지 실패한 삭제는 **Data API 의 outbox 에 적재해 relay 가 이어받는다** — Business API 는 DB 가 없어 스스로 내구화할 수 없으므로, 로그아웃이 RT 폐기를 위해 어차피 부르는 **Data API `/internal/auth/logout` 트랜잭션에서 `device.token.deleted` outbox 행을 함께 만든다**(A21 과 같은 모양). 그리고 relay 의 전달 표시에 **`noti_delivered_at` 을 추가**한다 — 기존 `kafka_published_at`·`link_delivered_at` 만으로는 알림 서버 직접 호출분을 표시할 칸이 없다 | 동일 |
 | 이벤트 | **A21**: Data API 명령 트랜잭션이 이벤트 레코드를 함께 저장하고 결정적 `eventId` 를 돌려준다 — 발행은 그 레코드에서. **Kafka 단일 노드 컨테이너**(A12) — 토픽 `notification-events`(파티션 3, 키 = userId) + `.dlq`, 봉투 = `eventId` · `type` · `occurredAt` · `scheduledAt` · `userId` · `locale` · `subjectId` · `params`. 소비 측 `eventId` UNIQUE 멱등 + Spring Kafka 재시도·DLQ + 1일 1회 리컨실 (D7·D19). `POST /internal/events` 는 **수동 재전송·리컨실 입구**(자동 폴백 채택 여부는 A18 보류) | 관리형 브로커(MSK 등)로 승격 또는 그대로. 봉투·어댑터 동일 |
 | 공유 저장소 | 없음 | Redis — **A19 네임스페이스 표 + ACL**: `league:*`·`presence:*`(Data 쓰기 · Business 읽기) · `noti:*`(알림) · `auth:rt:*`(Business) · `cache:<svc>:*`·`lock:<svc>:*`(각자, 공유 금지) |
 | 앱 ↔ 서버 | REST `/api/v1`(패스스루) + `/bff/*` + `/auth/*` | 동일 |
@@ -104,7 +104,7 @@ flowchart LR
 - **내부**: 서비스 토큰 5종(A11 ⑥). 호출은 두 종류 — **사용자 위임**(서비스 토큰 + `X-User-Id`)과 **서비스 전용**(토큰만: `/internal/auth/*` · 배치 트리거 · 리컨실). 콘솔 사람 인증은 링크 대시보드의 비밀번호 2겹(D18), 알림 서버는 사람을 모른다.
 - **로그아웃 시 기기 토큰 삭제**는 Business → 알림 `DELETE /internal/devices` 로 반드시 전달한다 — 빠지면 로그아웃한 이전 계정의 푸시가 같은 기기로 계속 간다.
 - **탈퇴 시 알림 DB 정리**: `settings`·`device_tokens`·`user_snapshot`·`bet_participations` 는 `gromo_notification` 소유라 Data API 트랜잭션으로 못 지운다. 탈퇴 커밋 후 **`user.withdrawn` 이벤트 + 알림 서버의 멱등 삭제**(같은 userId 로 여러 번 와도 안전)로 처리하고, **미처리분은 새벽 리컨실이 잡는다**(스냅샷에 있는데 Data API 에 없는 유저 = 삭제 대상). 이 경로가 없으면 탈퇴 후에도 푸시가 계속 간다.
-- **탈퇴 경합 차단(tombstone)**: 활성 검사와 위성 쓰기 사이에 탈퇴가 커밋되면, 지연 도착한 기기 토큰 등록·claim 이 **삭제된 유저 데이터를 되살린다**(다음 새벽까지 푸시 가능). 그래서 위성은 삭제 시 **tombstone(`user_id` + `withdrawn_at`)을 남기고, 그 이후 도착한 같은 유저의 쓰기를 거부**한다. 링크 서버도 같은 tombstone 을 갖는다(링크엔 리컨실 경로가 없어 이게 유일한 방어) — **전달은 Kafka 가 아니라 Business → 링크 `POST /internal/users/{id}/withdraw`** 다(링크는 브로커에 붙지 않는다). 실패 시 재시도하고, **미전달분은 Data API 의 relay 잡이 재호출한다**(§6) — Business API 는 크론을 갖지 않고(§6) 링크 서버는 Kafka 를 소비하지 않으므로, 전달을 되살릴 수 있는 주체는 **탈퇴 트랜잭션과 같은 DB 에 outbox 행을 가진 Data API** 뿐이다. outbox 행은 대상별 전달 표시(`kafka_published_at` · `link_delivered_at`)를 따로 갖고 relay 는 **비어 있는 쪽만** 재시도한다(링크의 withdraw 는 멱등이라 중복 호출이 안전). 탈퇴 이벤트가 늦게 와도 tombstone 이 먼저 도착한 쓰기를 되돌린다 — 순서 보장이 아니라 **거부 규칙**으로 푼다.
+- **탈퇴 경합 차단(tombstone)**: 활성 검사와 위성 쓰기 사이에 탈퇴가 커밋되면, 지연 도착한 기기 토큰 등록·claim 이 **삭제된 유저 데이터를 되살린다**(다음 새벽까지 푸시 가능). 그래서 위성은 삭제 시 **tombstone(`user_id` + `withdrawn_at`)을 남기고, 그 이후 도착한 같은 유저의 쓰기를 거부**한다. 링크 서버도 같은 tombstone 을 갖는다(링크엔 리컨실 경로가 없어 이게 유일한 방어). **tombstone 은 이후 쓰기만 막으므로 그 전에 이미 수락된 claim 은 따로 되돌려야 한다** — 탈퇴 커밋 뒤 지연된 claim 이 withdraw 보다 **먼저** 도착하면 정상 수락되고, `invite_link_clicks.claimed_user_id` 는 현행 계약상 **최초 1회만 기록**이라 나중에 온 withdraw 가 그냥 두면 탈퇴 유저의 귀속이 남는다. 따라서 **withdraw 는 한 트랜잭션에서 ⓐ 그 유저의 기존 claim 을 제거·익명화하고 ⓑ tombstone 을 기록한다**(순서 역전에 무관하게 수렴) — **전달은 Kafka 가 아니라 Business → 링크 `POST /internal/users/{id}/withdraw`** 다(링크는 브로커에 붙지 않는다). 실패 시 재시도하고, **미전달분은 Data API 의 relay 잡이 재호출한다**(§6) — Business API 는 크론을 갖지 않고(§6) 링크 서버는 Kafka 를 소비하지 않으므로, 전달을 되살릴 수 있는 주체는 **탈퇴 트랜잭션과 같은 DB 에 outbox 행을 가진 Data API** 뿐이다. outbox 행은 대상별 전달 표시(`kafka_published_at` · `link_delivered_at`)를 따로 갖고 relay 는 **비어 있는 쪽만** 재시도한다(링크의 withdraw 는 멱등이라 중복 호출이 안전). 탈퇴 이벤트가 늦게 와도 tombstone 이 먼저 도착한 쓰기를 되돌린다 — 순서 보장이 아니라 **거부 규칙**으로 푼다.
 
 ## 6. 배치의 자리 (A4 · A5)
 
@@ -153,10 +153,11 @@ Business API 는 크론을 갖지 않는다 → 단일/다중 인스턴스 무�
 
 1. **구 클릭을 Neon 으로 백필**(§7.1 ②) — 여기까지는 라우팅을 안 건드리므로 언제 해도 안전하다.
 2. **전환 직전 증분 백필을 짧은 주기로 반복**해 미반영 창을 분 단위 → 초 단위까지 좁힌다(`clicked_at > 마지막 커서`, 멱등 upsert).
-3. **그다음** 링크 서버 배포 + 라우팅 전환 — 랜딩·클릭 적재와 **매치를 같은 배포에서 함께** 넘긴다(둘을 쪼개면 새 클릭을 구 `/l/match` 가 못 찾는다).
-4. **전환 후에도 매치 창(3시간) 동안 증분 백필을 계속 돌린다** — 전환 순간의 초 단위 갭에 들어온 클릭도 앱이 설치·매치를 부르기 전에 Neon 에 도착한다. 3시간이 지나면 커서가 더 안 움직이는 걸 확인하고 중단한다.
-5. 그 뒤로 **구 테이블은 읽지 않는다**.
-6. **롤백하면 전환 창의 클릭은 유실된다** — 되돌릴 수 있는 지점은 3 이전뿐이고, 이후는 roll-forward. 손실 범위는 매치 창과 같은 3시간으로 한정된다(그 사실을 감수하고 전환한다).
+3. **구 클릭 쓰기를 먼저 닫는다** — 구 랜딩을 새 링크 호스트로 **302 리다이렉트**로 바꿔 이 순간부터 구 테이블에 새 행이 생기지 않게 한다(리다이렉트된 클릭은 곧바로 Neon 에 적재된다). 「전환 후 비동기 백필이 앱의 매치보다 빠를 것」이라는 가정에 기대면 안 된다 — 마지막 커서 이후 구 저장소에 기록된 클릭의 사용자가 전환 직후 매치를 부르면 **그 자리에서 `matched:false`** 가 나가고, 뒤늦은 백필로는 이미 나간 응답을 복구할 수 없다.
+4. **쓰기가 멎은 뒤 마지막 증분 백필을 끝까지 돌려 커서가 멈춘 것을 확인한다** — 구 쓰기가 닫혔으므로 이 작업은 유한하게 종료된다. 여기까지가 원자적 컷이다.
+5. **그다음** 매치를 링크 서버로 넘긴다 — 3~5 사이(수십 초 규모)에는 구 테이블에 새 클릭이 없고 Neon 은 전량 최신이므로, 어느 쪽으로 매치가 가도 같은 답이 나온다.
+6. 그 뒤로 **구 테이블은 읽지 않는다**.
+7. **롤백하면 전환 창의 클릭은 유실된다** — 되돌릴 수 있는 지점은 3(구 쓰기를 닫기) 이전뿐이고, 이후는 roll-forward. 손실 범위는 매치 창과 같은 3시간으로 한정된다(그 사실을 감수하고 전환한다).
 
 
 ## 8. Target-2 에서 달라지는 것
@@ -175,7 +176,7 @@ flowchart LR
   NSJ & NSW -->|"noti:* · cache:notification:* · lock:notification:*"| REDIS
 ```
 
-- **MQ**: 이벤트 어댑터 교체(HTTP → 브로커), at-least-once 는 이미 `eventId` 멱등으로 준비됨. DLQ·재시도는 1658 범위.
+- **MQ**: **Target-1 이 이미 Kafka 다**(A12) — Target-2 의 변경점은 어댑터 교체가 아니라 **자체 호스팅 단일 노드 → 관리형 브로커(MSK 등)로의 접속·운영 전환**이다(부트스트랩 주소·인증·복제 계수·모니터링·업그레이드 주체가 바뀔 뿐, 프로듀서·컨슈머 코드와 봉투는 그대로). at-least-once 는 이미 `eventId` 멱등으로 준비됨.
 - **Redis**: 리그 랭킹 ZSET — **완료분만** 담고 진행 중 세션은 `presence:*` 로 조회 시 가산한다(A20). 후보는 **ZSET 상위 N + presence 활성 유저 전원**이며 가산 후 재정렬한다(상위 100 으로 먼저 자르면 101위 이하의 긴 세션이 누락). ZSET 은 DB 정본과 주기 대조·재구축한다. 리그 BFF 의 50페이지 클라 합산 제거, "지금 N위" 정확도 — D9 해소 · 프레즌스 리스 · RT 블랙리스트(강제 로그아웃) · Business API 다중 인스턴스 락 · 알림 카운터.
 - **알림 워커 분리 배포**: 판정과 워커 사이에 큐가 있으므로 코드 무변경으로 워커만 스케일.
 - **알림 DB 별도 인스턴스**: 부하가 보이면 (A10).
