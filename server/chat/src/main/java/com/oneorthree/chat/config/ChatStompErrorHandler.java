@@ -32,6 +32,9 @@ import java.nio.charset.StandardCharsets;
 @RequiredArgsConstructor
 public class ChatStompErrorHandler extends StompSubProtocolErrorHandler {
 
+    /** 원인 사슬 순회 상한 — 순환하는 예외에서 무한 루프를 막는다. */
+    private static final int MAX_CAUSE_DEPTH = 16;
+
     private final ObjectMapper objectMapper;
 
     @Override
@@ -60,13 +63,19 @@ public class ChatStompErrorHandler extends StompSubProtocolErrorHandler {
      * 한 겹 감싸서 올린다. 최상위 타입만 보면 우리 거절이 전부 «예상치 못한 예외»로 떨어진다.
      */
     private ErrorCode resolve(Throwable ex) {
-        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+        // 깊이에 상한을 둔다. 자기 자신을 cause 로 갖는 예외뿐 아니라 A→B→A 같은 «순환»도 실제로
+        // 나오는데(재시도 래퍼가 원인을 다시 감싸는 경우), 그때 상한이 없으면 이 메서드가 영영 돌면서
+        // 메시지 채널 스레드를 하나 잡아먹는다. 우리 거절은 래핑이 한두 겹이라 이 깊이면 충분하다.
+        Throwable cause = ex;
+        for (int depth = 0; cause != null && depth < MAX_CAUSE_DEPTH; depth++) {
             if (cause instanceof DomainException domainException) {
                 return domainException.getErrorCode();
             }
-            if (cause == cause.getCause()) {
+            Throwable next = cause.getCause();
+            if (next == cause) {
                 break;
             }
+            cause = next;
         }
         return null;
     }

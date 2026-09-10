@@ -2,7 +2,10 @@ package com.oneorthree.chat.common.exception;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -32,10 +35,26 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(code.getStatus()).body(ErrorResponse.from(code));
     }
 
-    /** {@code @Valid} 위반. 어느 필드가 왜 틀렸는지는 로그에만 남긴다(본문에 실으면 내부 필드명이 샌다). */
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException e) {
-        log.debug("요청 검증 실패 — {}", e.getMessage());
+    /**
+     * 요청이 형식을 어긴 경우 전부 — {@code @Valid} 위반, 경로·파라미터 타입 불일치, 깨진 JSON 본문,
+     * 필수 헤더 누락.
+     *
+     * <p>타입 불일치를 여기 넣는 것이 중요하다. {@code @PathVariable UUID groupId} 에 UUID 가 아닌 값이
+     * 오면({@code /rooms/abc/messages}) Spring 이
+     * {@code MethodArgumentTypeMismatchException} 을 던지는데, 이걸 따로 안 잡으면 아래 그물에 걸려
+     * <b>400 이어야 할 것이 500 으로 나간다</b> — 클라이언트 실수가 서버 장애로 보이고, 로그에는
+     * 스택트레이스가 쌓여 진짜 고장이 묻힌다.
+     *
+     * <p>어느 필드가 왜 틀렸는지는 로그에만 남긴다. 본문에 실으면 내부 필드명·타입이 샌다.
+     */
+    @ExceptionHandler({
+            MethodArgumentNotValidException.class,
+            MethodArgumentTypeMismatchException.class,
+            HttpMessageNotReadableException.class,
+            MissingRequestHeaderException.class,
+    })
+    public ResponseEntity<ErrorResponse> handleBadRequest(Exception e) {
+        log.debug("요청 형식 오류 — {}: {}", e.getClass().getSimpleName(), e.getMessage());
         return ResponseEntity.status(CommonErrorCode.INVALID_REQUEST.getStatus())
                 .body(ErrorResponse.from(CommonErrorCode.INVALID_REQUEST));
     }

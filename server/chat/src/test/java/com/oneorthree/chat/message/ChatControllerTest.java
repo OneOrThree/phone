@@ -165,6 +165,34 @@ class ChatControllerTest {
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
+    @Test
+    @DisplayName("경로의 섬 id 가 UUID 가 아니면 400 이다 — 클라 실수가 500 으로 둔갑하면 안 된다")
+    void rejectsNonUuidPathVariable() throws Exception {
+        mockMvc.perform(get("/api/v1/chat/rooms/abc/messages").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("본문 JSON 이 깨졌으면 400 이다")
+    void rejectsMalformedBody() throws Exception {
+        mockMvc.perform(post("/api/v1/chat/rooms/" + island + "/read")
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{not json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("size 는 상한으로 잘릴 뿐 거절되지 않는다 — 페이징은 UI 편의다")
+    void clampsRatherThanRejects() throws Exception {
+        mockMvc.perform(get("/api/v1/chat/rooms/" + island + "/messages")
+                        .param("size", "100000")
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk());
+    }
+
     private String bearerOf(UUID id) {
         return "Bearer " + Jwts.builder()
                 .subject(id.toString())
