@@ -265,6 +265,23 @@ class ChatWebSocketIntegrationTest {
         assertThat(session.isConnected()).isTrue();
     }
 
+    @Test
+    @DisplayName("다른 Origin 의 핸드셰이크는 거절된다 — 브라우저에서 임의 페이지가 소켓을 열 수 없다")
+    void crossOriginHandshakeIsRejected() {
+        givenMemberOf(resident, island);
+
+        // 네이티브 앱은 Origin 헤더 자체가 없어 영향이 없다(다른 테스트가 그 경로다). 여기서는
+        // 브라우저처럼 Origin 을 실어 보내, 빈 allowed-origins 가 「전부 허용」이 아님을 못 박는다.
+        // 이 단언이 없으면 그 성질이 Spring 내부 배선에만 기대게 된다.
+        WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
+        handshakeHeaders.add("Origin", "https://evil.example");
+
+        assertThatThrownBy(() -> stompClient.connectAsync("ws://localhost:" + port + "/ws/chat",
+                        handshakeHeaders, authHeaders(bearerOf(resident)), new RecordingHandler())
+                .get(TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                .isInstanceOf(Exception.class);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private void givenMemberOf(UUID userId, UUID groupId) {
@@ -276,13 +293,18 @@ class ChatWebSocketIntegrationTest {
     }
 
     private StompSession connectWith(String authorization, RecordingHandler handler) throws Exception {
+        return stompClient.connectAsync("ws://localhost:" + port + "/ws/chat",
+                        new WebSocketHttpHeaders(), authHeaders(authorization), handler)
+                .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /** CONNECT 프레임에 실을 헤더. 핸드셰이크 헤더(Origin 등)와 «다른 층»이라 섞지 않는다. */
+    private static StompHeaders authHeaders(String authorization) {
         StompHeaders connectHeaders = new StompHeaders();
         if (authorization != null) {
             connectHeaders.add("Authorization", authorization);
         }
-        return stompClient.connectAsync("ws://localhost:" + port + "/ws/chat",
-                        new WebSocketHttpHeaders(), connectHeaders, handler)
-                .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        return connectHeaders;
     }
 
     /**

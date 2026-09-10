@@ -4,6 +4,7 @@ import com.oneorthree.chat.common.exception.UpstreamUnavailableException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -37,6 +38,9 @@ import java.util.stream.Collectors;
  * 조용히 차단된다 — 화면에는 「이 섬의 멤버가 아닙니다」가 뜨고 아무도 원인을 못 찾는다. 그래서
  * {@link UpstreamUnavailableException} 으로 갈라 던져 503 으로 나가게 한다. 401/403 은 다르다 —
  * 그건 상류가 «판정을 내린» 것이라 빈 집합으로 접는다.
+ *
+ * <p><b>그 밖의 4xx(400·404 등)는 접지 않는다.</b> 그건 이 유저에 대한 판정이 아니라 우리 쪽 요청이나
+ * 배포가 어긋났다는 신호라, 빈 집합으로 접으면 배선 사고가 「전원 비멤버」라는 조용한 차단으로 나타난다.
  */
 @Slf4j
 @Component
@@ -84,13 +88,17 @@ public class GroupClient {
                     // 떨어지면 «판정 완료(비멤버)»가 «판정 불가(503)»로 뒤집힌다.
                     .exchange((request, response) -> {
                         HttpStatusCode status = response.getStatusCode();
-                        if (status.is4xxClientError()) {
-                            // 상류가 «판정»을 내렸다 — 이 토큰으로는 아무 그룹도 볼 수 없다.
+                        // «판정을 내린» 4xx 는 401·403 둘뿐이다. 4xx 전체를 접지 않는 이유:
+                        // 400(우리 요청이 잘못됨)·404(엔드포인트가 사라짐)는 상류가 이 유저에 대해
+                        // 판정을 내린 게 아니라 «우리 쪽 또는 배포가 어긋났다»는 신호다. 그걸 빈 집합으로
+                        // 접으면 배선 사고가 「전원 비멤버」라는 조용한 차단으로 나타난다.
+                        if (status.value() == HttpStatus.UNAUTHORIZED.value()
+                                || status.value() == HttpStatus.FORBIDDEN.value()) {
                             log.debug("그룹 조회 거절 — status={}", status.value());
                             return Set.<UUID>of();
                         }
                         if (!status.is2xxSuccessful()) {
-                            // 5xx = 판정 불가. 빈 집합으로 접으면 장애가 «전원 비멤버»로 읽힌다.
+                            // 5xx·그 밖의 4xx = 판정 불가. 빈 집합으로 접으면 장애가 «전원 비멤버»가 된다.
                             throw new UpstreamUnavailableException();
                         }
                         List<GroupRef> groups = response.bodyTo(new ParameterizedTypeReference<List<GroupRef>>() { });

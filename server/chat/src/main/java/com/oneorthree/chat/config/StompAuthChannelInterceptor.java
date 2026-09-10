@@ -20,8 +20,10 @@ import java.util.regex.Pattern;
 /**
  * STOMP 프레임 두 종류에 관문을 세운다 — CONNECT(누구인가)와 SUBSCRIBE(들어가도 되는가).
  *
- * <p>SEND 는 여기서 막지 않는다. {@code ChatMessageService.send} 가 같은
- * {@link ChatAccessGuard} 를 부르기 때문이고, 두 곳에서 검사하면 언젠가 한쪽만 바뀐다.
+ * <p>SEND 의 <b>도메인 규칙</b>(같은 섬인가·집중 중인가)은 여기서 보지 않는다.
+ * {@code ChatMessageService.send} 가 같은 {@link ChatAccessGuard} 를 부르기 때문이고, 두 곳에서
+ * 검사하면 언젠가 한쪽만 바뀐다. <b>다만 «누구인가»는 여기서 본다</b> — 그건 컨트롤러에 도달하기
+ * 전에 이미 필요한 정보라서다(아래 {@code requireAuthenticatedSend} 참고).
  *
  * <h2>왜 핸드셰이크가 아니라 CONNECT 에서 인증하는가</h2>
  * 브라우저·React Native 의 WebSocket 은 핸드셰이크에 임의 헤더를 싣지 못하는 경우가 있다. 토큰을
@@ -77,6 +79,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         switch (accessor.getCommand()) {
             case CONNECT -> authenticate(accessor);
             case SUBSCRIBE -> authorizeSubscription(accessor);
+            case SEND -> requireAuthenticatedSend(accessor);
             default -> {
                 // 나머지 프레임(SEND·DISCONNECT·ACK…)은 그대로 흘린다. SEND 의 규칙 검사는 서비스가 한다.
             }
@@ -126,6 +129,28 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         }
 
         accessGuard.requireCanChat(groupId, principal.userId(), principal.bearer());
+    }
+
+    /**
+     * SEND — <b>인증 여부만</b> 본다. 규칙 판정은 서비스가 한다.
+     *
+     * <p>이 검사가 없으면 CONNECT 를 건너뛰고 SEND 부터 보내는 클라이언트(프로토콜 위반이지만
+     * 실제로 가능하다)에서 {@code accessor.getUser()} 가 null 이 되고, 그 null 이 컨트롤러 파라미터로
+     * 그대로 주입돼 <b>{@code principal.userId()} 에서 NPE</b> 가 난다. 결과가 안전하긴 하다 —
+     * 저장·브로드캐스트 전이라 새는 것은 없다. 문제는 «어떻게» 실패하느냐다:
+     * <ul>
+     *   <li>의도한 거절({@code UNAUTHORIZED})이 아니라 그물({@code INTERNAL_ERROR})로 떨어진다.
+     *       프로토콜 위반 클라이언트 하나가 error 레벨 스택트레이스를 계속 남긴다 — 「의도된 거절은
+     *       debug, 몰랐던 고장은 error」라는 이 서비스의 로그 원칙이 거기서 깨진다.</li>
+     *   <li>SUBSCRIBE 는 같은 케이스를 이미 명시적으로 막고 있었다. 대칭이 아니었다.</li>
+     * </ul>
+     *
+     * <p>여기를 통과하면 컨트롤러의 {@code ChatPrincipal} 파라미터는 <b>null 이 아님이 보장된다</b>.
+     */
+    private void requireAuthenticatedSend(StompHeaderAccessor accessor) {
+        if (!(accessor.getUser() instanceof ChatPrincipal)) {
+            throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
+        }
     }
 
     /**

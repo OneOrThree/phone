@@ -99,6 +99,20 @@ class GroupClientTest {
     }
 
     @Test
+    @DisplayName("400·404 는 접지 않는다 — 이 유저에 대한 판정이 아니라 «우리 쪽이 어긋났다»는 신호다")
+    void otherClientErrorsAreNotSilentDenial() {
+        // 401/403 과 «같은 4xx» 라는 이유로 함께 접으면, 배선 사고(엔드포인트 이동·요청 형식 변경)가
+        // 「전원 비멤버」라는 조용한 차단으로 나타난다.
+        respondWith(404, "{\"code\":\"NOT_FOUND\"}");
+        assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
+                .isInstanceOf(UpstreamUnavailableException.class);
+
+        respondWith(400, "{\"code\":\"INVALID_REQUEST\"}");
+        assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
+                .isInstanceOf(UpstreamUnavailableException.class);
+    }
+
+    @Test
     @DisplayName("5xx 는 «모르겠다»다 — 빈 집합으로 접으면 장애가 조용한 전원 차단이 된다")
     void serverErrorIsNotSilentDenial() {
         respondWith(500, "{\"code\":\"INTERNAL_ERROR\"}");

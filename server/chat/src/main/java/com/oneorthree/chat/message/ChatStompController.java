@@ -39,7 +39,9 @@ public class ChatStompController {
 
     /**
      * @param principal CONNECT 때 세션에 묶인 주체. <b>본문에서 발신자를 받지 않는다</b> —
-     *                  받는 순간 남의 이름으로 보내는 요청이 형식상 정상이 된다
+     *                  받는 순간 남의 이름으로 보내는 요청이 형식상 정상이 된다.
+     *                  null 이 아님은 {@code StompAuthChannelInterceptor} 의 SEND 관문이 보장한다
+     *                  (그 검사를 지우면 CONNECT 없이 온 SEND 가 여기서 NPE 로 떨어진다)
      */
     @MessageMapping("/groups/{groupId}/send")
     public void send(@DestinationVariable UUID groupId,

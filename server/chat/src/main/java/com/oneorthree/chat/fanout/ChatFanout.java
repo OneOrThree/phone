@@ -29,9 +29,15 @@ import java.util.UUID;
  * 대가는 각 인스턴스가 자기와 무관한 메시지도 받는다는 것이고, 그건 {@code SimpMessagingTemplate} 이
  * 「그 토픽 구독자 없음」으로 즉시 버린다. 방 수가 커져 이 낭비가 문제가 되면 그때 쪼갠다.
  *
- * <h2>발행 실패는 삼키지 않는다</h2>
+ * <h2>전달 실패는 «둘 다» 삼킨다</h2>
  * 로컬 전달을 먼저 하고 Redis 발행을 나중에 한다. Redis 가 흔들려도 <b>같은 인스턴스에 붙은 사람끼리는
  * 계속 대화가 되고</b>, 못 받은 쪽은 히스토리 조회로 메운다. 순서를 뒤집으면 Redis 장애가 곧 전면 정지다.
+ *
+ * <p><b>둘 중 어느 쪽이 실패해도 요청을 실패시키지 않는다.</b> 이 메서드가 불리는 시점엔 메시지가
+ * 이미 저장·커밋된 뒤라, 여기서 예외를 올리면 발신자에게는 「실패」로 보이는데 실제로는 성사된
+ * 상태가 된다 — 앱이 재전송하면 멱등 키 덕에 중복은 안 생기지만, 화면은 계속 실패로 남는다.
+ * 로컬 전달만 감싸지 않으면 대칭도 깨진다: 로컬 전달이 던지는 순간 <b>Redis 발행에 도달조차 못 해
+ * 다른 인스턴스로도 안 나간다</b>.
  */
 @Slf4j
 @Component
@@ -63,7 +69,13 @@ public class ChatFanout {
      *                말이 생긴다
      */
     public void broadcast(ChatMessageResponse message) {
-        deliverLocally(message);
+        try {
+            deliverLocally(message);
+        } catch (RuntimeException e) {
+            // 이 인스턴스 구독자만 실시간으로 못 받는다. 저장은 이미 끝났으니 유실이 아니라 지연이고,
+            // 무엇보다 여기서 멈추면 아래 Redis 발행에 도달하지 못해 «다른 인스턴스까지» 못 받는다.
+            log.error("로컬 전달 실패 — messageId={} groupId={}", message.messageId(), message.groupId(), e);
+        }
 
         try {
             // Jackson 3 은 직렬화 예외가 비검사(JacksonException extends RuntimeException)라
