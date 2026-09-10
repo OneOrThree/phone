@@ -912,6 +912,12 @@ public class FocusService {
         //  유니크 위반 회피 조건이 된다 — 뒤집으면 정상 회전이 500 이 된다.)
         focusSessionRepository.autoCloseOpenMarkersOf(user, now);
 
+        // GROMO-292: 회전에서 «방금 닫은» 이전 마커의 종료도 알린다. 아래 focusStarted 가 어차피 새
+        // 세션으로 리스를 덮어쓰지만, 그 쓰기가 한 번 실패하면 키에 이미 닫힌 이전 세션 id 가 남고
+        // 그 마커는 고아 스윕 대상도 아니라 아무도 못 지운다. 해제를 먼저 등록해 두면 그 경우에도
+        // 리스가 남지 않는다(같은 트랜잭션의 커밋 콜백은 등록 순서대로 돈다).
+        liveMarker.map(FocusSession::getId).ifPresent(closed -> focusPresencePort.focusEnded(userId, closed));
+
         // GROMO-733: focus_type 인입 — null 이면 INFINITE 기본(엔티티 @Builder.Default 정합, 하위호환).
         FocusSession saved = focusSessionRepository.save(FocusSession.builder()
                 .user(user)

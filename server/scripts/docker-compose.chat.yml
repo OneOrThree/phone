@@ -6,6 +6,9 @@
 #
 #   docker compose -f docker-compose.dev.yml -f docker-compose.chat.yml up -d
 #
+# 데이터베이스(gromo_chat)는 아래 chat-db-init 잡이 «있으면 두고 없으면 만든다» — 따로 손으로 만들
+# 필요가 없고, 여러 번 돌려도 안전하다.
+#
 # ⚠️ 이 오버레이는 redis 를 정의하지 않는다 — docker-compose.dev.yml 이 이미 정의한다.
 #    단독으로 쓰면 depends_on 이 없는 서비스를 가리켜 파싱이 깨진다.
 #
@@ -16,6 +19,38 @@
 name: phone
 
 services:
+  # 채팅 데이터베이스를 «있으면 두고 없으면 만든다». 한 번 돌고 끝나는 잡이다.
+  #
+  # 왜 필요한가 — dev 의 postgres 는 ${POSTGRES_DB} 하나만 초기 생성한다. Flyway 는 «스키마»를 만들지
+  # «데이터베이스»를 만들지 않으므로, 이 잡이 없으면 문서에 적은 실행 한 줄이 곧바로
+  # `database "gromo_chat" does not exist` 로 죽는다.
+  #
+  # 왜 docker-entrypoint-initdb.d 스크립트가 아닌가 — 그건 «빈 볼륨의 첫 기동»에만 돈다. dev 에는 이미
+  # 데이터가 있는 볼륨이 있어서 그 경로로는 영영 만들어지지 않는다. 이 잡은 볼륨 상태와 무관하게 돈다.
+  #
+  # CREATE DATABASE 는 IF NOT EXISTS 가 없다 — 그래서 존재 여부를 먼저 보고 없을 때만 만든다.
+  # 여러 번 돌려도 안전하다(이미 있으면 아무 일도 하지 않는다).
+  chat-db-init:
+    image: postgres:16-alpine
+    container_name: phone-chat-db-init
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      CHAT_DB: ${CHAT_POSTGRES_DB:-gromo_chat}
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        psql -h db -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tAc
+        "SELECT 1 FROM pg_database WHERE datname='$$CHAT_DB'" | grep -q 1
+        || psql -h db -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "CREATE DATABASE \"$$CHAT_DB\""
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: "no"
+
   chat:
     image: ${CHAT_IMAGE:-asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/chat:latest}
     container_name: phone-chat
@@ -42,6 +77,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # 데이터베이스가 «만들어진 뒤에» 뜬다. 안 그러면 Flyway 가 없는 database 에 붙으려다 죽는다.
+      chat-db-init:
+        condition: service_completed_successfully
     networks:
       - app-network
     restart: unless-stopped

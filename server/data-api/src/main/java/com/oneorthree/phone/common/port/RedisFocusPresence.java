@@ -105,8 +105,21 @@ public class RedisFocusPresence implements FocusPresencePort {
             + "end\n"
             + "return 0", Long.class);
 
-    /** 「지금 값이 바로 그 세션일 때만 지운다」 — 그 사이 시작된 새 집중의 리스를 날리지 않는다. */
-    private static final RedisScript<Long> DELETE_IF_SAME = new DefaultRedisScript<>(
+    /**
+     * 「지금 값이 <b>나보다 새롭지 않을 때만</b> 지운다」 — 같거나 더 오래된 리스를 치운다.
+     *
+     * <p>「정확히 같을 때만」이 아닌 이유는 <b>잔존 리스를 스스로 치우기 위해서</b>다. 뽀모도로 회전은
+     * 이전 마커를 닫고 새 마커를 여는데, 그 사이 Redis 쓰기가 한 번 실패하면 키에 <b>이미 닫힌</b>
+     * 이전 세션 id 가 남는다. 그 마커는 종료됐으니 고아 스윕 대상도 아니라서, 엄격한 동일 비교로는
+     * 새 세션을 정상 종료해도 그 키를 못 지운다 — 그 사람은 남은 TTL(최대 13시간) 내내 막힌다.
+     *
+     * <p>더 오래된 리스를 지우는 것이 안전한 근거는 <b>「유저당 열린 마커는 1개」</b> 불변식이다
+     * ({@code FocusService#startFocusSession} 의 {@code autoCloseOpenMarkersOf}). 내 세션이 끝나는
+     * 시점에 나보다 오래된 세션이 아직 열려 있을 수는 없다.
+     *
+     * <p>반대로 <b>나보다 새로운</b> 리스는 건드리지 않는다 — 그 사이 시작된 집중을 푸는 셈이 된다.
+     */
+    private static final RedisScript<Long> DELETE_IF_NOT_NEWER = new DefaultRedisScript<>(
             // KEYS[1]=리스, KEYS[2]=끝난 세션 표식 / ARGV[1]=sessionId, ARGV[2]=표식 TTL(초)
             // 표식을 «먼저» 남긴다 — 리스가 이미 다른 세션 것이어서 지우지 못하더라도, 이 세션의
             // 지연된 시작이 나중에 되살리는 건 막아야 하기 때문이다.
@@ -114,7 +127,8 @@ public class RedisFocusPresence implements FocusPresencePort {
             + "if closed == false or ARGV[1] > closed then\n"
             + "  redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])\n"
             + "end\n"
-            + "if redis.call('GET', KEYS[1]) == ARGV[1] then\n"
+            + "local cur = redis.call('GET', KEYS[1])\n"
+            + "if cur ~= false and cur <= ARGV[1] then\n"
             + "  return redis.call('DEL', KEYS[1])\n"
             + "end\n"
             + "return 0", Long.class);
@@ -141,7 +155,7 @@ public class RedisFocusPresence implements FocusPresencePort {
             log.debug("세션 id 없는 집중 종료 — 프레즌스 생략, userId={}", userId);
             return;
         }
-        afterCommit(() -> redis.execute(DELETE_IF_SAME, List.of(key(userId), closedKey(userId)),
+        afterCommit(() -> redis.execute(DELETE_IF_NOT_NEWER, List.of(key(userId), closedKey(userId)),
                 sessionId.toString(), String.valueOf(CLOSED_TTL.toSeconds())), "리스 해제", userId);
     }
 

@@ -2604,6 +2604,28 @@ class FocusServiceTest {
     }
 
     @Test
+    @DisplayName("회전(열린 마커를 닫고 새로 여는 경우) — 닫은 마커의 종료도 «함께» 알린다")
+    void startFocusSessionClearsRotatedMarkerPresence() {
+        // 새 세션의 리스 쓰기가 한 번 실패하면 키에 이미 닫힌 이전 세션 id 가 남는데, 그 마커는
+        // 고아 스윕 대상도 아니라 아무도 못 지운다. 해제를 «함께» 등록해 두면 그 경우에도 안 남는다.
+        User user = User.builder().id(USER_ID).build();
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.of(FocusSession.builder()
+                        .id(SESSION_ID)
+                        .user(user)
+                        .startedAt(NOW.minus(Duration.ofHours(1)))
+                        .clientStartedAt(NOW.minus(Duration.ofHours(1)))
+                        .build()));
+
+        focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, null));
+
+        // 닫힌 이전 마커의 해제 + 새 마커의 리스, 둘 다.
+        verify(focusPresencePort).focusEnded(USER_ID, SESSION_ID);
+        verify(focusPresencePort).focusStarted(eq(USER_ID), any());
+    }
+
+    @Test
     @DisplayName("유저 검증에서 막히면 리스도 놓지 않는다")
     void startFocusSessionDoesNotMarkPresenceWhenRejected() {
         // given

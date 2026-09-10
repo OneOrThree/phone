@@ -181,6 +181,22 @@ class RedisFocusPresenceTest {
         }
 
         @Test
+        @DisplayName("회전 중 쓰기가 실패해 남은 «이미 닫힌» 옛 리스를, 새 세션의 종료가 치운다")
+        void newerEndClearsStaleOlderLease() {
+            // 뽀모도로 회전: 이전 마커를 닫고 새 마커를 여는데, 그 사이 새 세션의 SET 이 실패해
+            // 키에 «이미 닫힌» 이전 세션 id 가 남은 상황을 만든다. 그 마커는 종료됐으니 고아 스윕
+            // 대상도 아니라, 엄격한 동일 비교로는 아무도 이 키를 못 지운다 — 최대 13시간 차단이다.
+            UUID stale = sessionId();
+            presence().focusStarted(userId, stale);
+
+            UUID current = sessionId();
+            // (current 의 SET 이 실패했다고 가정 — 일부러 부르지 않는다)
+            presence().focusEnded(userId, current);
+
+            assertThat(redis.hasKey(key)).isFalse();
+        }
+
+        @Test
         @DisplayName("종료 → 새 시작 순서는 정상적으로 새 리스를 놓는다 — 표식이 정상 재시작을 막으면 안 된다")
         void restartAfterEndStillWorks() {
             UUID first = sessionId();
