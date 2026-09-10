@@ -80,6 +80,7 @@ class FocusPresenceReconcilerTest {
     void releaseSucceedsByDefault() {
         // 대부분의 테스트는 「지워졌다」를 전제한다. 「못 지웠다」는 아래 전용 테스트가 본다.
         given(focusPresencePort.releaseLeaseNow(any(), any())).willReturn(true);
+        given(focusPresencePort.restoreLeaseIfMissing(any(), any(), any())).willReturn(true);
     }
 
     private FocusPresenceReconciler reconciler(AsyncTaskExecutor executor) {
@@ -217,6 +218,47 @@ class FocusPresenceReconcilerTest {
         reconciler(INLINE).onApplicationReady();
 
         verify(focusSessionRepository, never()).findByIdInAndEndedAtIsNotNull(any());
+    }
+
+    @Test
+    @DisplayName("저장소가 흔들리면 «첫 실패에서» 멈춘다 — 남은 건마다 타임아웃을 기다리면 안 된다")
+    void stopsAtTheFirstStorageFailure() {
+        List<FocusSession> many = List.of(openMarker(UUID.randomUUID()), openMarker(UUID.randomUUID()),
+                openMarker(UUID.randomUUID()));
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(many);
+        willReturn(false).given(focusPresencePort).restoreLeaseIfMissing(any(), any(), any());
+
+        reconciler(INLINE).onApplicationReady();
+
+        // Redis 가 드롭된 상태에서 셋을 다 시도하면 스케줄러 슬롯을 세 배로 점유한다.
+        // 다음 회차가 같은 목록을 다시 읽으므로 여기서 멈춰도 잃는 것이 없다.
+        verify(focusPresencePort, times(1)).restoreLeaseIfMissing(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("해제도 첫 실패에서 멈추고, 못 한 것은 «전부» 다음 회차로 넘긴다")
+    void stopsReleasingAtTheFirstFailureAndPostponesTheRest() {
+        UUID firstUser = UUID.randomUUID();
+        FocusSession first = openMarker(firstUser);
+        FocusSession second = openMarker(UUID.randomUUID());
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any()))
+                .willReturn(List.of(first, second));
+        given(focusSessionRepository.findByIdInAndEndedAtIsNotNull(any()))
+                .willReturn(List.of(first, second));
+        willReturn(false).given(focusPresencePort).releaseLeaseNow(firstUser, first.getId());
+
+        FocusPresenceReconciler reconciler = reconciler(INLINE);
+        reconciler.reconcilePeriodically();
+
+        // 첫 건이 실패하면 둘째는 «시도조차» 하지 않는다.
+        verify(focusPresencePort, times(1)).releaseLeaseNow(any(), any());
+
+        // 그리고 둘 다 다음 회차 후보로 남는다 — 둘째는 아직 손도 안 댔으니까.
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
+        ArgumentCaptor<Collection<UUID>> asked = ArgumentCaptor.forClass(Collection.class);
+        reconciler.reconcilePeriodically();
+        verify(focusSessionRepository, times(2)).findByIdInAndEndedAtIsNotNull(asked.capture());
+        assertThat(asked.getAllValues().get(1)).contains(first.getId(), second.getId());
     }
 
     @Test

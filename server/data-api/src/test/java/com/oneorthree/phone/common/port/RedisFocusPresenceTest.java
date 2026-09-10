@@ -174,6 +174,30 @@ class RedisFocusPresenceTest {
 
             assertThat(redis.hasKey(key)).isFalse();
         }
+
+        @Test
+        @DisplayName("Redis 가 닿지 않으면 false 다 — 부르는 쪽이 남은 건을 이어 가지 않게")
+        void reportsFailureWhenRedisIsDown() {
+            LettuceConnectionFactory dead = new LettuceConnectionFactory("127.0.0.1", 1);
+            dead.afterPropertiesSet();
+            StringRedisTemplate deadTemplate = new StringRedisTemplate(dead);
+            deadTemplate.afterPropertiesSet();
+
+            assertThat(new RedisFocusPresence(deadTemplate, CLOCK)
+                    .restoreLeaseIfMissing(userId, sessionId(), STARTED_AT)).isFalse();
+
+            dead.destroy();
+        }
+
+        @Test
+        @DisplayName("쓸 것이 없어도 true 다 — 이미 있거나 백스톱을 넘긴 경우는 «실패»가 아니다")
+        void nothingToWriteIsStillSuccess() {
+            presence().focusStarted(userId, sessionId(), STARTED_AT);
+            assertThat(presence().restoreLeaseIfMissing(userId, sessionId(), STARTED_AT)).isTrue();
+
+            assertThat(presence().restoreLeaseIfMissing(userId, sessionId(),
+                    NOW.minus(Duration.ofHours(14)))).isTrue();
+        }
     }
 
     @Nested

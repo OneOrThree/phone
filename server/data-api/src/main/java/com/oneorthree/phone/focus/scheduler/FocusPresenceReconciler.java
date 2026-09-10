@@ -225,11 +225,19 @@ public class FocusPresenceReconciler {
         // 트랜잭션이 «닫힌 뒤» 쓴다 — 안에서 쓰면 커밋 콜백으로 밀려 한 시점에 전부 몰린다.
         List<UUID> restored = new ArrayList<>();
         for (FocusSession session : alive) {
-            if (session.getUser() != null) {
-                focusPresencePort.restoreLeaseIfMissing(session.getUser().getId(), session.getId(),
-                        session.getStartedAt());
-                restored.add(session.getId());
+            if (session.getUser() == null) {
+                continue;
             }
+            if (!focusPresencePort.restoreLeaseIfMissing(session.getUser().getId(), session.getId(),
+                    session.getStartedAt())) {
+                // 저장소가 흔들린다. 남은 건을 이어 가면 «각각» 타임아웃을 기다려, 부가 기능의 장애가
+                // 스케줄러 슬롯을 인원수배로 점유한다 — 같은 풀의 다른 크론이 그만큼 밀린다.
+                // 여기서 멈춰도 잃는 것이 없다: 다음 회차가 같은 목록을 다시 읽는다.
+                log.warn("집중 프레즌스 재구축 중단(저장소 실패) — {}건 중 {}건까지, 다음 회차가 이어 간다",
+                        alive.size(), restored.size());
+                break;
+            }
+            restored.add(session.getId());
         }
         log.info("집중 프레즌스 재구축 — 진행 중 세션 {}건", restored.size());
 
@@ -275,20 +283,31 @@ public class FocusPresenceReconciler {
         candidates.stream().filter(id -> !endedIds.contains(id)).forEach(pendingRecheck::remove);
 
         int reclaimed = 0;
+        List<UUID> postponed = new ArrayList<>();
+        boolean storageDown = false;
         for (FocusSession session : ended) {
+            if (storageDown) {
+                // 첫 실패 뒤로는 «시도조차» 하지 않는다 — 각 건이 타임아웃을 하나씩 더 기다린다.
+                postponed.add(session.getId());
+                continue;
+            }
+            if (session.getUser() == null) {
+                // 누구의 리스인지 알 수 없어 다시 시도해도 소용이 없다.
+                pendingRecheck.remove(session.getId());
+                continue;
+            }
             // 「지웠는가」를 확인하고 뺀다. 조회가 성공해도 해제가 실패할 수 있는데(그쪽은 별개의
             // Redis 연산이다), 그걸 성공으로 치고 빼면 그 세션은 진행 중 조회에도 안 잡히고
             // 대기 목록에도 없어 «아무도» 리스를 못 치운다 — 시작 기준 13시간 차단이다.
-            boolean released = session.getUser() != null
-                    && focusPresencePort.releaseLeaseNow(session.getUser().getId(), session.getId());
-            if (released || session.getUser() == null) {
-                // 유저가 끊긴 행은 누구의 리스인지 알 수 없어 다시 시도해도 소용이 없다.
+            if (focusPresencePort.releaseLeaseNow(session.getUser().getId(), session.getId())) {
                 pendingRecheck.remove(session.getId());
-                reclaimed += released ? 1 : 0;
+                reclaimed++;
             } else {
-                rememberForNextCycle(List.of(session.getId()));
+                storageDown = true;
+                postponed.add(session.getId());
             }
         }
+        rememberForNextCycle(postponed);
         if (!ended.isEmpty()) {
             log.info("집중 프레즌스 되묻기 — 끝난 세션 {}건 중 {}건 회수(대기 {}건)",
                     ended.size(), reclaimed, pendingRecheck.size());
@@ -303,6 +322,9 @@ public class FocusPresenceReconciler {
      * 부가 기능이 코어를 해치지 않는다는 이 클래스의 규율과 같은 방향이다.
      */
     private void rememberForNextCycle(List<UUID> candidates) {
+        if (candidates.isEmpty()) {
+            return;
+        }
         for (UUID id : candidates) {
             if (pendingRecheck.size() >= MAX_PENDING_RECHECK) {
                 log.warn("되묻기 대기 목록 상한({}) 도달 — 나머지는 TTL 백스톱에 맡긴다", MAX_PENDING_RECHECK);

@@ -67,12 +67,20 @@ public interface FocusPresencePort {
      * <p>실패는 여기서도 삼킨다 — 재구축은 <b>주기적으로</b> 돌아서, 이번에 못 놓은 리스는 다음
      * 회차가 놓는다. 그게 「Redis 가 살아난 뒤에 누가 다시 시도하는가」에 대한 답이다.
      *
+     * <p>다만 <b>실패했다는 사실은 알려 준다.</b> 저장소가 드롭된 상태에서 진행 중 인원만큼 이 호출을
+     * 이어 가면 매 건이 연결·명령 타임아웃을 하나씩 기다려, 부가 기능의 장애가 스케줄러 슬롯을
+     * 인원수배로 점유한다 — 같은 풀의 다른 크론이 그만큼 밀린다. 부르는 쪽은 첫 실패에서 멈추고
+     * 다음 회차에 이어 가면 된다.
+     *
+     * @return 저장소 연산이 성사됐으면 true(쓸 것이 없어 안 쓴 경우도 포함). <b>false 면 저장소가
+     *         흔들린다는 뜻이라, 남은 건을 이어 가지 말 것</b>
+     *
      * @param startedAt 그 마커가 시작한 시각. 리스는 «놓는 시점»이 아니라 <b>이 시각</b>을 기준으로
      *                  만료한다 — 그러지 않으면 백스톱이 늘어난다(아래 참조)
      * @param sessionId 정본에서 읽은 진행 중 마커의 id. 그 사이 세션이 끝났다면 그 종료가 남긴
      *                  표식에 걸려 쓰기가 거부된다 — 끝난 집중이 되살아나지 않는다
      */
-    void restoreLeaseIfMissing(UUID userId, UUID sessionId, Instant startedAt);
+    boolean restoreLeaseIfMissing(UUID userId, UUID sessionId, Instant startedAt);
 
     /**
      * <b>재구축용 해제</b> — 지금 지우고, <b>지웠는지</b>를 돌려준다.

@@ -193,19 +193,26 @@ public class RedisFocusPresence implements FocusPresencePort {
     }
 
     @Override
-    public void restoreLeaseIfMissing(UUID userId, UUID sessionId, Instant startedAt) {
+    public boolean restoreLeaseIfMissing(UUID userId, UUID sessionId, Instant startedAt) {
         if (sessionId == null) {
             log.debug("세션 id 없는 재구축 요청 — 생략, userId={}", userId);
-            return;
+            return true;
         }
         long ttlSeconds = remainingLeaseSeconds(startedAt);
         if (ttlSeconds <= 0) {
             log.debug("백스톱을 넘긴 마커 — 재구축 생략, userId={} sessionId={}", userId, sessionId);
-            return;
+            return true;
         }
-        // 커밋을 기다리지 않는다 — 이미 커밋된 정본을 읽어 미러를 맞추는 작업이라 되돌려질 게 없다.
-        run(() -> redis.execute(SET_IF_ABSENT, List.of(key(userId), closedKey(userId)),
-                sessionId.toString(), String.valueOf(ttlSeconds)), "리스 재구축", userId);
+        try {
+            // 커밋을 기다리지 않는다 — 이미 커밋된 정본을 읽어 미러를 맞추는 작업이라 되돌려질 게 없다.
+            redis.execute(SET_IF_ABSENT, List.of(key(userId), closedKey(userId)),
+                    sessionId.toString(), String.valueOf(ttlSeconds));
+            return true;
+        } catch (RuntimeException e) {
+            // 여기서만 false 다 — 부르는 쪽은 이걸 보고 남은 건을 이어 가지 않는다.
+            log.warn("집중 프레즌스 리스 재구축 실패 — userId={}", userId, e);
+            return false;
+        }
     }
 
     /**

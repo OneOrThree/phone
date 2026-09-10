@@ -54,6 +54,19 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.addEndpoint("/ws/chat")
                 .setAllowedOriginPatterns(allowedOrigins);
         registry.setErrorHandler(chatStompErrorHandler);
+        // ⚠️ setPreserveReceiveOrder(true) 를 «켜지 마라» — 이 설계에서는 거절 통지가 통째로 사라진다.
+        //
+        // 켜야 할 이유는 있다: 인바운드 채널이 스레드 풀이라 한 세션의 두 SEND 가 동시에 처리될 수
+        // 있고, 그러면 나중에 보낸 말이 먼저 id·sentAt 을 받아 히스토리 순서가 뒤집힌다(GROMO-1746).
+        //
+        // 그런데 켜 보면 «거절이 클라이언트에 도달하지 않는다». 이 서비스의 관문은
+        // StompAuthChannelInterceptor 의 preSend 에서 «예외를 던져» 거절하는데, 순서 보존 데코레이터가
+        // 그 경로에서 세션의 다음 전송을 풀어 주지 않아 ERROR 프레임이 큐에 남는다. 실측: 켠 채로
+        // ChatWebSocketIntegrationTest 의 거절 3종(토큰 없음·남의 섬 구독·집중 중 CONNECT)이 전부
+        // 30초 타임아웃 후 null 로 실패하고, 이 한 줄만 지우면 전부 통과한다.
+        //
+        // 즉 「순서가 가끔 뒤집힌다」를 고치려다 「거절이 영영 안 온다」를 만든다 — 후자가 훨씬 나쁘다.
+        // 순서를 고치려면 관문이 예외 대신 다른 방식으로 거절하도록 먼저 바꿔야 한다(GROMO-1746).
     }
 
     @Override
