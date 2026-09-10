@@ -95,6 +95,11 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   broadcast *is* the ack), a resend would otherwise get no answer at all and the client would retry
   forever — so it is echoed to that one sender on `/user/queue/duplicates`. The destination lives in
   `ChatFanout.DUPLICATE_QUEUE` and the SUBSCRIBE allow-list reads that same constant.
+- **A user destination without a session id reaches every session that user has.** The echo above
+  carries the sending session's id for exactly this reason: a person with a phone and a tablet open
+  would otherwise get one device's resend answer on the other, which already had the message from the
+  first broadcast. `@SendToUser(broadcast = false)` is the annotation form of the same guard, and the
+  error queue uses it.
 - **A subscription is authorized once, at SUBSCRIBE time.** Someone removed from a group
   keeps *receiving* until their socket closes — TTL does not help, because an established
   subscription is never re-checked. Sending and new subscriptions are still blocked.

@@ -4,6 +4,9 @@ import com.oneorthree.chat.common.redis.RedisKeys;
 import com.oneorthree.chat.message.dto.ChatMessageResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.messaging.MessageHeaders;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
+import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
@@ -97,15 +100,23 @@ public class ChatFanout {
      * 사람들에게 두 번 도착하면 안 된다) 그대로 두면 재전송한 클라이언트는 <b>영영 응답을 못 받아
      * 무한히 다시 보낸다</b>. 그래서 그 한 사람에게만 원본을 되돌린다.
      *
+     * <p><b>그 «세션»에게만</b> 간다. 세션을 지정하지 않으면 {@code convertAndSendToUser} 는 같은
+     * 사람의 <b>모든</b> 세션으로 보내므로, 폰과 태블릿을 함께 켠 사람은 한쪽의 재전송 응답을 다른
+     * 쪽도 받는다 — 그쪽은 최초 브로드캐스트로 이미 그 말을 받았으니 같은 {@code messageId} 를 두 번
+     * 처리하게 된다. 「방에 두 번 보내지 않는다」를 고쳐 놓고 「기기에 두 번 보내는」 셈이다.
+     * ({@code ChatStompController} 의 {@code @SendToUser(broadcast = false)} 가 실패 통지에 대해
+     * 막고 있는 것과 같은 함정이다.)
+     *
      * <p>Redis 로 전파하지 않는다. 재전송을 처리하는 인스턴스가 곧 그 사람이 붙어 있는 인스턴스다 —
      * 그 SEND 프레임이 이 프로세스로 들어왔기 때문이다.
      *
      * <p>구독 인가는 {@code StompAuthChannelInterceptor} 가 이 목적지를 허용 목록으로 되읽는다 —
      * <b>여기를 바꾸면 거기도 같이 바꿔야 한다.</b>
      */
-    public void deliverToSender(UUID userId, ChatMessageResponse message) {
+    public void deliverToSender(UUID userId, String sessionId, ChatMessageResponse message) {
         try {
-            messagingTemplate.convertAndSendToUser(userId.toString(), DUPLICATE_QUEUE, message);
+            messagingTemplate.convertAndSendToUser(userId.toString(), DUPLICATE_QUEUE, message,
+                    onlyThisSession(sessionId));
         } catch (RuntimeException e) {
             // 되돌리지 못하면 그 클라이언트는 재전송을 계속한다. 저장은 이미 끝났으니 방에는 하나뿐이고,
             // 사용자에게는 「말풍선이 계속 전송 중」으로 보인다 — 아프지만 요청을 실패시킬 일은 아니다.
@@ -116,6 +127,19 @@ public class ChatFanout {
     /** 이 프로세스에 붙어 있는 그 방 구독자에게 민다. 구독자가 없으면 조용히 버려진다. */
     void deliverLocally(ChatMessageResponse message) {
         messagingTemplate.convertAndSend(topicOf(message.groupId()), message);
+    }
+
+    /**
+     * 「이 세션에만」 라우팅하는 헤더.
+     *
+     * <p>{@code setLeaveMutable(true)} 가 필요하다 — 그러지 않으면 헤더가 굳어 브로커가 목적지를
+     * 다시 쓰지 못한다.
+     */
+    private static MessageHeaders onlyThisSession(String sessionId) {
+        SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
+        accessor.setSessionId(sessionId);
+        accessor.setLeaveMutable(true);
+        return accessor.getMessageHeaders();
     }
 
     /**

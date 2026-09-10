@@ -81,10 +81,13 @@ public class ChatMessageService {
      * @param senderId 보낸 사람 = 인증된 요청자. 본문에서 오지 않는다
      * @param request 본문과 멱등 키
      * @param bearerToken 멤버십 캐시 미스 시 상류 조회에 쓸 {@code Authorization} 헤더
+     * @param sessionId 이 발신이 들어온 STOMP 세션. 재전송 되돌림을 <b>그 세션에만</b> 보내기 위해
+     *                  필요하다 — 지정하지 않으면 같은 사람의 다른 기기까지 받는다
      * @return 저장된 메시지. <b>재전송이면 처음 저장된 그 메시지</b>가 그대로 돌아온다
      * @throws ChatException 집중 중 · 비멤버 · 빈 본문 · 길이 초과
      */
-    public ChatMessageResponse send(UUID groupId, UUID senderId, SendMessageRequest request, String bearerToken) {
+    public ChatMessageResponse send(UUID groupId, UUID senderId, SendMessageRequest request,
+            String bearerToken, String sessionId) {
         accessGuard.requireCanChat(groupId, senderId, bearerToken);
 
         String content = normalizeContent(request.content());
@@ -94,7 +97,7 @@ public class ChatMessageService {
             chatFanout.broadcast(stored.message());
         } else {
             // 방송은 하지 않되 «보낸 사람»은 알아야 한다 — 안 그러면 무한히 다시 보낸다.
-            chatFanout.deliverToSender(senderId, stored.message());
+            chatFanout.deliverToSender(senderId, sessionId, stored.message());
         }
         return stored.message();
     }

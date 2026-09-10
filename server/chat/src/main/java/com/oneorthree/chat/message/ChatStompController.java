@@ -12,9 +12,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.converter.MessageConversionException;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.handler.annotation.support.MethodArgumentNotValidException;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.stereotype.Controller;
 
@@ -55,15 +57,19 @@ public class ChatStompController {
      *                  받는 순간 남의 이름으로 보내는 요청이 형식상 정상이 된다.
      *                  null 이 아님은 {@code StompAuthChannelInterceptor} 의 SEND 관문이 보장한다
      *                  (그 검사를 지우면 CONNECT 없이 온 SEND 가 여기서 NPE 로 떨어진다)
+     * @param sessionId 이 프레임이 들어온 STOMP 세션. 재전송 되돌림을 <b>그 세션에만</b> 보내기
+     *                  위해 서비스로 넘긴다 — 없으면 같은 사람의 다른 기기도 받아 같은 메시지를
+     *                  두 번 처리한다({@code ChatFanout#deliverToSender})
      * @return 실패 통지, 또는 성공이면 {@code null}(아무것도 보내지 않는다)
      */
     @MessageMapping("/groups/{groupId}/send")
     @SendToUser(destinations = "/queue/errors", broadcast = false)
     public SendFailureResponse send(@DestinationVariable UUID groupId,
             @Payload @Valid SendMessageRequest request,
-            ChatPrincipal principal) {
+            ChatPrincipal principal,
+            @Header(SimpMessageHeaderAccessor.SESSION_ID_HEADER) String sessionId) {
         try {
-            chatMessageService.send(groupId, principal.userId(), request, principal.bearer());
+            chatMessageService.send(groupId, principal.userId(), request, principal.bearer(), sessionId);
             return null;
         } catch (DomainException e) {
             log.debug("발신 거절 — code={}", e.getErrorCode().name());

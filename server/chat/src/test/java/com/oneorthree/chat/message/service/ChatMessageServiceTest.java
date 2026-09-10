@@ -50,6 +50,9 @@ import static org.mockito.Mockito.verify;
 class ChatMessageServiceTest {
 
     private static final String BEARER = "Bearer test-token";
+
+    /** 재전송 되돌림이 «이 세션에만» 가야 한다 — 값 자체엔 의미가 없고, 전달되는지가 요점이다. */
+    private static final String SESSION_ID = "stomp-session-1";
     private static final Instant NOW = Instant.parse("2026-09-11T00:00:00Z");
 
     @Mock
@@ -80,7 +83,7 @@ class ChatMessageServiceTest {
         willThrow(new ChatException(ChatErrorCode.FOCUS_IN_PROGRESS))
                 .given(accessGuard).requireCanChat(groupId, senderId, BEARER);
 
-        assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request("안녕"), BEARER))
+        assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request("안녕"), BEARER, SESSION_ID))
                 .isInstanceOf(ChatException.class);
 
         verify(chatMessageRepository, never()).save(any());
@@ -90,7 +93,7 @@ class ChatMessageServiceTest {
     @Test
     @DisplayName("공백만 있는 말은 거절한다 — 방에 빈 말풍선을 남기지 않는다")
     void rejectsBlank() {
-        assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request("   \n "), BEARER))
+        assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request("   \n "), BEARER, SESSION_ID))
                 .isInstanceOf(ChatException.class)
                 .extracting(e -> ((ChatException) e).getErrorCode())
                 .isEqualTo(ChatErrorCode.BLANK_CONTENT);
@@ -101,7 +104,7 @@ class ChatMessageServiceTest {
     void stripsSurroundingWhitespace() {
         givenSaveEchoes();
 
-        ChatMessageResponse sent = chatMessageService.send(groupId, senderId, request("  안녕  "), BEARER);
+        ChatMessageResponse sent = chatMessageService.send(groupId, senderId, request("  안녕  "), BEARER, SESSION_ID);
 
         assertThat(sent.content()).isEqualTo("안녕");
     }
@@ -111,7 +114,7 @@ class ChatMessageServiceTest {
     void rejectsTooLong() {
         String tooLong = "가".repeat(ChatMessageService.MAX_CONTENT_LENGTH + 1);
 
-        assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request(tooLong), BEARER))
+        assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request(tooLong), BEARER, SESSION_ID))
                 .isInstanceOf(ChatException.class)
                 .extracting(e -> ((ChatException) e).getErrorCode())
                 .isEqualTo(ChatErrorCode.CONTENT_TOO_LONG);
@@ -125,7 +128,7 @@ class ChatMessageServiceTest {
         givenSaveEchoes();
         String exact = "가".repeat(ChatMessageService.MAX_CONTENT_LENGTH);
 
-        assertThat(chatMessageService.send(groupId, senderId, request(exact), BEARER).content())
+        assertThat(chatMessageService.send(groupId, senderId, request(exact), BEARER, SESSION_ID).content())
                 .hasSize(ChatMessageService.MAX_CONTENT_LENGTH);
     }
 
@@ -140,7 +143,7 @@ class ChatMessageServiceTest {
                 .willReturn(Optional.of(original));
 
         ChatMessageResponse sent = chatMessageService.send(
-                groupId, senderId, new SendMessageRequest("안녕", clientMessageId), BEARER);
+                groupId, senderId, new SendMessageRequest("안녕", clientMessageId), BEARER, SESSION_ID);
 
         assertThat(sent.messageId()).isEqualTo(original.getId());
     }
@@ -155,7 +158,7 @@ class ChatMessageServiceTest {
         given(chatMessageRepository.findByGroupIdAndSenderIdAndClientMessageId(groupId, senderId, clientMessageId))
                 .willReturn(Optional.of(original));
 
-        chatMessageService.send(groupId, senderId, new SendMessageRequest("안녕", clientMessageId), BEARER);
+        chatMessageService.send(groupId, senderId, new SendMessageRequest("안녕", clientMessageId), BEARER, SESSION_ID);
 
         verify(chatFanout, never()).broadcast(any());
     }
@@ -170,10 +173,10 @@ class ChatMessageServiceTest {
         given(chatMessageRepository.findByGroupIdAndSenderIdAndClientMessageId(groupId, senderId, clientMessageId))
                 .willReturn(Optional.of(original));
 
-        chatMessageService.send(groupId, senderId, new SendMessageRequest("안녕", clientMessageId), BEARER);
+        chatMessageService.send(groupId, senderId, new SendMessageRequest("안녕", clientMessageId), BEARER, SESSION_ID);
 
         ArgumentCaptor<ChatMessageResponse> echoed = ArgumentCaptor.forClass(ChatMessageResponse.class);
-        verify(chatFanout).deliverToSender(eq(senderId), echoed.capture());
+        verify(chatFanout).deliverToSender(eq(senderId), eq(SESSION_ID), echoed.capture());
         assertThat(echoed.getValue().messageId()).isEqualTo(original.getId());
     }
 
@@ -182,10 +185,10 @@ class ChatMessageServiceTest {
     void firstSendDoesNotAlsoEchoPersonally() {
         givenSaveEchoes();
 
-        chatMessageService.send(groupId, senderId, request("안녕"), BEARER);
+        chatMessageService.send(groupId, senderId, request("안녕"), BEARER, SESSION_ID);
 
         verify(chatFanout).broadcast(any());
-        verify(chatFanout, never()).deliverToSender(any(), any());
+        verify(chatFanout, never()).deliverToSender(any(), any(), any());
     }
 
     @Test
@@ -198,7 +201,7 @@ class ChatMessageServiceTest {
                 .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> chatMessageService.send(
-                groupId, senderId, new SendMessageRequest("안녕", clientMessageId), BEARER))
+                groupId, senderId, new SendMessageRequest("안녕", clientMessageId), BEARER, SESSION_ID))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -207,7 +210,7 @@ class ChatMessageServiceTest {
     void broadcastsSavedMessage() {
         givenSaveEchoes();
 
-        ChatMessageResponse sent = chatMessageService.send(groupId, senderId, request("안녕"), BEARER);
+        ChatMessageResponse sent = chatMessageService.send(groupId, senderId, request("안녕"), BEARER, SESSION_ID);
 
         verify(chatFanout).broadcast(sent);
     }

@@ -177,6 +177,45 @@ class ChatWebSocketIntegrationTest {
     }
 
     @Test
+    @DisplayName("재전송 되돌림은 «그 세션에만» 간다 — 같은 사람의 다른 기기는 받지 않는다")
+    void duplicateEchoGoesToTheRequestingSessionOnly() throws Exception {
+        givenMemberOf(resident, island);
+
+        StompSession phone = connect(resident, new RecordingHandler());
+        StompSession tablet = connect(resident, new RecordingHandler());
+        BlockingQueue<ChatMessageResponse> phoneEchoes = subscribeToDuplicateEchoes(phone);
+        BlockingQueue<ChatMessageResponse> tabletEchoes = subscribeToDuplicateEchoes(tablet);
+        deliveries = subscribeToIsland(phone, island);
+
+        UUID clientMessageId = UUID.randomUUID();
+        SendMessageRequest request = new SendMessageRequest("한 번만 말한다", clientMessageId);
+        assertThat(sendUntilDelivered(phone, island, request)).isNotNull();
+
+        // ① 먼저 «태블릿»이 재전송해 그쪽 되돌림 큐가 살아 있음을 확인한다. 이걸 안 하면 아래
+        //    「태블릿은 못 받는다」가 구독이 아직 등록되지 않아서인지 라우팅 때문인지 구별되지 않는다.
+        ChatMessageResponse tabletEcho = null;
+        for (int attempt = 0; attempt < 20 && tabletEcho == null; attempt++) {
+            tablet.send("/app/groups/" + island + "/send", request);
+            tabletEcho = tabletEchoes.poll(500, TimeUnit.MILLISECONDS);
+        }
+        assertThat(tabletEcho).as("태블릿의 되돌림 큐가 등록되지 않았다").isNotNull();
+        tabletEchoes.clear();
+        phoneEchoes.clear();
+
+        // ② 이제 «폰»이 재전송한다. 되돌림은 폰에게만 가야 한다.
+        ChatMessageResponse phoneEcho = null;
+        for (int attempt = 0; attempt < 20 && phoneEcho == null; attempt++) {
+            phone.send("/app/groups/" + island + "/send", request);
+            phoneEcho = phoneEchoes.poll(500, TimeUnit.MILLISECONDS);
+        }
+
+        assertThat(phoneEcho).isNotNull();
+        assertThat(phoneEcho.clientMessageId()).isEqualTo(clientMessageId);
+        // 폰이 스무 번 가까이 재전송했는데도 태블릿엔 한 건도 오지 않는다.
+        assertThat(tabletEchoes.poll(1, TimeUnit.SECONDS)).isNull();
+    }
+
+    @Test
     @DisplayName("남의 섬은 구독조차 못 한다 — 관문이 실제로 배선되어 있는가")
     void outsiderCannotSubscribe() throws Exception {
         givenMemberOf(outsider, UUID.randomUUID());
