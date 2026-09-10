@@ -14,7 +14,9 @@ import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -73,11 +75,15 @@ import java.util.List;
 @ConditionalOnProperty(name = "focus.presence.enabled", havingValue = "true")
 public class FocusPresenceReconciler {
 
+    /** 조회 상한(초). 근거는 {@link #readOnlyWithTimeout} 에 있다. */
+    private static final int READ_TIMEOUT_SECONDS = 10;
+
     private final FocusSessionRepository focusSessionRepository;
     private final FocusPresencePort focusPresencePort;
     private final TransactionOperations transactionOperations;
     private final AsyncTaskExecutor applicationTaskExecutor;
     private final Clock clock;
+
 
     /**
      * 재구축 전용 스레드를 <b>스스로</b> 만든다.
@@ -100,10 +106,32 @@ public class FocusPresenceReconciler {
     public FocusPresenceReconciler(
             FocusSessionRepository focusSessionRepository,
             FocusPresencePort focusPresencePort,
-            TransactionOperations transactionOperations,
+            PlatformTransactionManager transactionManager,
             Clock clock) {
-        this(focusSessionRepository, focusPresencePort, transactionOperations,
+        this(focusSessionRepository, focusPresencePort, readOnlyWithTimeout(transactionManager),
                 new SimpleAsyncTaskExecutor("focus-presence-reconcile-"), clock);
+    }
+
+    /**
+     * 조회에 <b>시간 상한</b>을 건다.
+     *
+     * <p>이 조회는 «아무도 기다리지 않는» 스레드에서 돈다. HTTP 요청이라면 톰캣·클라이언트 타임아웃이
+     * 결국 끊어 주지만 여기엔 그런 바깥 경계가 없어서, DB 가 응답 없이 걸리면 이 스레드와 커넥션 하나가
+     * <b>영영 묶인다</b>. 주기 실행이라 그런 회차가 쌓일 수도 있다(ShedLock 의 {@code lockAtMostFor} 는
+     * 락만 풀지 스레드를 끊지 않는다).
+     *
+     * <p>{@value #READ_TIMEOUT_SECONDS}초는 넉넉하다 — 조회 모수가 부분 인덱스
+     * ({@code idx_focus_sessions_live_marker}, {@code WHERE ended_at IS NULL})의 크기,
+     * 즉 <b>동시 집중 인원</b>이다.
+     *
+     * <p>읽기 전용으로 여는 것은 의도다. 이 트랜잭션 안에서는 아무것도 쓰지 않는다 — 리스 쓰기는
+     * 트랜잭션이 «닫힌 뒤»에 한다.
+     */
+    private static TransactionOperations readOnlyWithTimeout(PlatformTransactionManager transactionManager) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setReadOnly(true);
+        template.setTimeout(READ_TIMEOUT_SECONDS);
+        return template;
     }
 
     /** 테스트용 — 실행기를 「제자리 실행」으로 바꿔 재구축 내용을 결정적으로 단언한다. */
