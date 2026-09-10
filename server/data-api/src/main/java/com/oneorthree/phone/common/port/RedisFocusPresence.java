@@ -106,6 +106,28 @@ public class RedisFocusPresence implements FocusPresencePort {
             + "return 0", Long.class);
 
     /**
+     * 「리스가 <b>비어 있을 때만</b> 놓는다」 — 재구축 전용.
+     *
+     * <p>{@link #SET_IF_NEWER} 와 갈라 둔 이유는 <b>있는 리스를 절대 만지지 않기</b> 위해서다.
+     * 재구축은 주기적으로 도는데, 매 회차가 TTL 을 지금부터 다시 13시간으로 밀면 고아 스윕이 멈춘
+     * 동안 「끝난 집중이 채팅을 막는」 창이 13시간에서 25시간(12h 조회 상한 + 13h TTL)으로 늘어난다.
+     * 채우기만 하면 그 창은 원래대로다.
+     *
+     * <p>「끝났다」 표식 검사는 그대로다 — 조회와 쓰기 사이에 끝난 세션이 되살아나면 안 된다.
+     */
+    private static final RedisScript<Long> SET_IF_ABSENT = new DefaultRedisScript<>(
+            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식 / ARGV[1]=sessionId, ARGV[2]=리스 TTL(초)
+            "if redis.call('EXISTS', KEYS[1]) == 1 then\n"
+            + "  return 0\n"                                   // 이미 있다 — 남의 것일 수도 있으니 손대지 않는다
+            + "end\n"
+            + "local closed = redis.call('GET', KEYS[2])\n"
+            + "if closed ~= false and ARGV[1] <= closed then\n"
+            + "  return 0\n"                                   // 조회 뒤에 끝난 세션 — 되살리지 않는다
+            + "end\n"
+            + "redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])\n"
+            + "return 1", Long.class);
+
+    /**
      * 「지금 값이 <b>나보다 새롭지 않을 때만</b> 지운다」 — 같거나 더 오래된 리스를 치운다.
      *
      * <p>「정확히 같을 때만」이 아닌 이유는 <b>잔존 리스를 스스로 치우기 위해서</b>다. 뽀모도로 회전은
@@ -145,6 +167,17 @@ public class RedisFocusPresence implements FocusPresencePort {
         }
         afterCommit(() -> redis.execute(SET_IF_NEWER, List.of(key(userId), closedKey(userId)),
                 sessionId.toString(), String.valueOf(LEASE_TTL.toSeconds())), "리스 설정", userId);
+    }
+
+    @Override
+    public void restoreLeaseIfMissing(UUID userId, UUID sessionId) {
+        if (sessionId == null) {
+            log.debug("세션 id 없는 재구축 요청 — 생략, userId={}", userId);
+            return;
+        }
+        // 커밋을 기다리지 않는다 — 이미 커밋된 정본을 읽어 미러를 맞추는 작업이라 되돌려질 게 없다.
+        run(() -> redis.execute(SET_IF_ABSENT, List.of(key(userId), closedKey(userId)),
+                sessionId.toString(), String.valueOf(LEASE_TTL.toSeconds())), "리스 재구축", userId);
     }
 
     @Override

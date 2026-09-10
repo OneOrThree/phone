@@ -89,10 +89,40 @@ public class ChatFanout {
         }
     }
 
+    /**
+     * <b>보낸 사람에게만</b> 되돌린다 — 재전송이 「이미 저장돼 있다」를 알아채는 유일한 경로다.
+     *
+     * <p>STOMP 발신은 성공 시 아무것도 돌려주지 않고 <b>브로드캐스트가 곧 응답</b>이다
+     * ({@code ChatStompController}). 그런데 재전송은 다시 방송하지 않으므로(같은 messageId 가 방
+     * 사람들에게 두 번 도착하면 안 된다) 그대로 두면 재전송한 클라이언트는 <b>영영 응답을 못 받아
+     * 무한히 다시 보낸다</b>. 그래서 그 한 사람에게만 원본을 되돌린다.
+     *
+     * <p>Redis 로 전파하지 않는다. 재전송을 처리하는 인스턴스가 곧 그 사람이 붙어 있는 인스턴스다 —
+     * 그 SEND 프레임이 이 프로세스로 들어왔기 때문이다.
+     *
+     * <p>구독 인가는 {@code StompAuthChannelInterceptor} 가 이 목적지를 허용 목록으로 되읽는다 —
+     * <b>여기를 바꾸면 거기도 같이 바꿔야 한다.</b>
+     */
+    public void deliverToSender(UUID userId, ChatMessageResponse message) {
+        try {
+            messagingTemplate.convertAndSendToUser(userId.toString(), DUPLICATE_QUEUE, message);
+        } catch (RuntimeException e) {
+            // 되돌리지 못하면 그 클라이언트는 재전송을 계속한다. 저장은 이미 끝났으니 방에는 하나뿐이고,
+            // 사용자에게는 「말풍선이 계속 전송 중」으로 보인다 — 아프지만 요청을 실패시킬 일은 아니다.
+            log.error("재전송 되돌림 실패 — userId={} messageId={}", userId, message.messageId(), e);
+        }
+    }
+
     /** 이 프로세스에 붙어 있는 그 방 구독자에게 민다. 구독자가 없으면 조용히 버려진다. */
     void deliverLocally(ChatMessageResponse message) {
         messagingTemplate.convertAndSend(topicOf(message.groupId()), message);
     }
+
+    /**
+     * 재전송 되돌림을 받는 개인 큐. {@code convertAndSendToUser} 가 앞에 {@code /user} 를 붙이므로
+     * 클라이언트가 구독하는 실제 목적지는 {@code /user/queue/duplicates} 다.
+     */
+    public static final String DUPLICATE_QUEUE = "/queue/duplicates";
 
     /**
      * 그 섬의 브로드캐스트 토픽.

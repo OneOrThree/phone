@@ -4,6 +4,7 @@ import com.oneorthree.chat.auth.ChatPrincipal;
 import com.oneorthree.chat.auth.JwtValidator;
 import com.oneorthree.chat.common.exception.CommonErrorCode;
 import com.oneorthree.chat.common.exception.DomainException;
+import com.oneorthree.chat.fanout.ChatFanout;
 import com.oneorthree.chat.message.service.ChatAccessGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -134,6 +135,17 @@ class StompAuthChannelInterceptorTest {
     void personalQueueSubscriptionPasses() {
         StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE);
         accessor.setDestination("/user/queue/errors");
+
+        assertThatCode(() -> interceptor.preSend(message(accessor), null)).doesNotThrowAnyException();
+        verifyNoInteractions(accessGuard);
+    }
+
+    @Test
+    @DisplayName("SUBSCRIBE — 재전송 되돌림 큐도 열려 있다. 막혀 있으면 재전송이 영원히 응답을 못 받는다")
+    void duplicateEchoQueueSubscriptionPasses() {
+        StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE);
+        // 서버가 «보내는» 목적지와 같은 문자열이어야 한다 — 상수를 되읽어 둘이 어긋나는 순간 깨지게 한다.
+        accessor.setDestination("/user" + ChatFanout.DUPLICATE_QUEUE);
 
         assertThatCode(() -> interceptor.preSend(message(accessor), null)).doesNotThrowAnyException();
         verifyNoInteractions(accessGuard);

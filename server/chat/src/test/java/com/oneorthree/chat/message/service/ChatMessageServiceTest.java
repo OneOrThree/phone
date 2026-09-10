@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -32,6 +33,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
@@ -141,6 +143,49 @@ class ChatMessageServiceTest {
                 groupId, senderId, new SendMessageRequest("안녕", clientMessageId), BEARER);
 
         assertThat(sent.messageId()).isEqualTo(original.getId());
+    }
+
+    @Test
+    @DisplayName("재전송은 «다시 방송하지 않는다» — 같은 messageId 가 두 번 도착하면 대화가 겹쳐 보인다")
+    void resendDoesNotRebroadcast() {
+        UUID clientMessageId = uuid();
+        ChatMessage original = persisted(groupId, senderId, "안녕", clientMessageId);
+
+        willThrow(new DataIntegrityViolationException("unique")).given(chatMessageRepository).save(any());
+        given(chatMessageRepository.findByGroupIdAndSenderIdAndClientMessageId(groupId, senderId, clientMessageId))
+                .willReturn(Optional.of(original));
+
+        chatMessageService.send(groupId, senderId, new SendMessageRequest("안녕", clientMessageId), BEARER);
+
+        verify(chatFanout, never()).broadcast(any());
+    }
+
+    @Test
+    @DisplayName("재전송은 «보낸 사람에게만» 원본을 되돌린다 — 없으면 그 클라이언트는 무한히 다시 보낸다")
+    void resendEchoesBackToTheSenderOnly() {
+        UUID clientMessageId = uuid();
+        ChatMessage original = persisted(groupId, senderId, "안녕", clientMessageId);
+
+        willThrow(new DataIntegrityViolationException("unique")).given(chatMessageRepository).save(any());
+        given(chatMessageRepository.findByGroupIdAndSenderIdAndClientMessageId(groupId, senderId, clientMessageId))
+                .willReturn(Optional.of(original));
+
+        chatMessageService.send(groupId, senderId, new SendMessageRequest("안녕", clientMessageId), BEARER);
+
+        ArgumentCaptor<ChatMessageResponse> echoed = ArgumentCaptor.forClass(ChatMessageResponse.class);
+        verify(chatFanout).deliverToSender(eq(senderId), echoed.capture());
+        assertThat(echoed.getValue().messageId()).isEqualTo(original.getId());
+    }
+
+    @Test
+    @DisplayName("처음 저장은 방송만 한다 — 발신자에게 토픽과 개인 큐로 «두 번» 도착하면 안 된다")
+    void firstSendDoesNotAlsoEchoPersonally() {
+        givenSaveEchoes();
+
+        chatMessageService.send(groupId, senderId, request("안녕"), BEARER);
+
+        verify(chatFanout).broadcast(any());
+        verify(chatFanout, never()).deliverToSender(any(), any());
     }
 
     @Test

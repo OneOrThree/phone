@@ -5,12 +5,14 @@ import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.service.FocusService;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -49,13 +51,22 @@ import java.util.List;
  *       전부 몰린다. 조회 트랜잭션을 닫고 «밖에서» 써야 각 쓰기가 곧바로 실행된다.</li>
  * </ol>
  *
- * <h2>여러 인스턴스가 동시에 돌아도 안전하다</h2>
- * 쓰기가 「더 새로운 세션일 때만」인 조건부 연산이라 같은 값을 여러 번 써도 결과가 같고, 그 사이 끝난
- * 세션은 «끝났다» 표식에 걸려 되살아나지 않는다({@code RedisFocusPresence}). 그래서 ShedLock 으로
- * 한 대만 돌게 묶지 않는다 — 묶으면 그 한 대가 실패했을 때 아무도 재구축하지 않는다.
+ * <h2>기동 «한 번»으로는 모자란다 — 그래서 주기적으로도 돈다</h2>
+ * 기동 시점의 한 번은 그 순간 Redis 가 흔들리고 있으면 그대로 끝난다. 쓰기 실패는 계약상 삼켜지므로
+ * (부가 기능이 집중을 막으면 안 된다) <b>아무도 알아채지 못한 채</b> 그날 진행 중이던 사람들은 세션이
+ * 끝날 때까지 집중 중에도 채팅이 열린다. Redis 가 몇 분 뒤 정상으로 돌아와도 마찬가지다 — 다시
+ * 시도하는 주체가 없기 때문이다. 운영 중 Redis 가 비워지는 경우(플러시·축출)도 같은 구멍이다.
  *
- * <p>기동 시 한 번만 돈다. 운영 중 Redis 가 비는 경우는 재기동이 덮는다 — 주기 실행으로 넓히려면
- * 그때는 잡 등록부(ShedLock)로 옮기는 편이 낫다.
+ * <p>그래서 주기 실행을 둔다. <b>재시도 로직을 따로 짜지 않는 것이 핵심</b>이다 — 실패를 감지해
+ * 백오프로 되돌아오는 코드는 「몇 번까지·얼마나 오래」를 정해야 하고 그 답은 항상 틀린다. 주기 실행은
+ * 실패를 감지할 필요가 없다: 다음 회차가 정본을 다시 읽어 어긋난 것만 채운다.
+ *
+ * <p>주기 실행이 안전한 이유는 재구축 쓰기가 <b>「비어 있을 때만 채운다」</b>이기 때문이다
+ * ({@code FocusPresencePort#restoreLeaseIfMissing}). 있는 리스의 TTL 을 밀지 않으므로 매 회차가
+ * 무해하고, 그 사이 끝난 세션은 «끝났다» 표식에 걸려 되살아나지 않는다.
+ *
+ * <p>여러 인스턴스에서 중복으로 돌 이유는 없어 다른 크론과 같이 ShedLock 으로 묶는다. 한 대가
+ * 실패해도 다음 회차에 다른 대가 락을 잡으므로 「그 한 대가 죽으면 아무도 안 한다」가 아니다.
  */
 @Slf4j
 @Component
@@ -109,10 +120,25 @@ public class FocusPresenceReconciler {
         this.clock = clock;
     }
 
-    /** 기동을 붙잡지 않는다 — 재구축 전체를 별도 스레드로 넘기고 즉시 반환한다. */
+    /** 기동을 붙잡지 않는다 — 재구축 전체를 전용 스레드로 넘기고 즉시 반환한다. */
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
         applicationTaskExecutor.execute(this::reconcile);
+    }
+
+    /**
+     * 주기 재구축 — <b>기동 때의 실패를 되찾는 유일한 경로</b>다.
+     *
+     * <p>여기서는 전용 스레드로 넘기지 않는다. 스케줄러 풀(6스레드)이 그 역할이고, 늦어져도 막히는
+     * 것은 다른 크론뿐이지 기동·readiness 가 아니다. {@code lockAtMostFor} 기본 10분이 상한이다.
+     *
+     * <p>5분 주기는 다른 크론과 맞춘 값이다. 이 값이 곧 <b>「Redis 가 살아난 뒤 규칙이 다시 걸리기까지」</b>
+     * 의 상한이다.
+     */
+    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
+    @SchedulerLock(name = "focus-presence-reconcile")
+    public void reconcilePeriodically() {
+        reconcile();
     }
 
     /**
@@ -126,6 +152,10 @@ public class FocusPresenceReconciler {
      *
      * <p>이미 끝난 집중을 되살릴 걱정은 없다 — 조회 조건이 {@code endedAt IS NULL} 이고, 조회와
      * 쓰기 사이에 끝난 세션은 그 종료가 남긴 표식에 걸려 쓰기가 거부된다.
+     *
+     * <p>쓰기가 <b>「비어 있을 때만」</b>이라 몇 번을 돌려도 무해하다 — 이 성질이 주기 실행을
+     * 가능하게 하는 전부다. 「있으면 갱신」이었다면 매 회차가 TTL 을 밀어, 고아 스윕이 멈춘 동안
+     * 끝난 집중이 채팅을 막는 창이 13시간에서 25시간으로 늘어난다.
      */
     void reconcile() {
         List<FocusSession> alive;
@@ -141,7 +171,7 @@ public class FocusPresenceReconciler {
         int restored = 0;
         for (FocusSession session : alive) {
             if (session.getUser() != null) {
-                focusPresencePort.focusStarted(session.getUser().getId(), session.getId());
+                focusPresencePort.restoreLeaseIfMissing(session.getUser().getId(), session.getId());
                 restored++;
             }
         }

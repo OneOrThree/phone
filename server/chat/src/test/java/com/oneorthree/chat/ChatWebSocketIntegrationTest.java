@@ -147,6 +147,36 @@ class ChatWebSocketIntegrationTest {
     }
 
     @Test
+    @DisplayName("재전송은 방에 다시 방송되지 않고, 보낸 사람에게만 원본이 되돌아온다")
+    void resendEchoesToSenderOnly() throws Exception {
+        givenMemberOf(resident, island);
+
+        StompSession session = connect(resident, new RecordingHandler());
+        BlockingQueue<ChatMessageResponse> echoes = subscribeToDuplicateEchoes(session);
+        deliveries = subscribeToIsland(session, island);
+
+        UUID clientMessageId = UUID.randomUUID();
+        ChatMessageResponse first = sendUntilDelivered(session, island,
+                new SendMessageRequest("한 번만 말한다", clientMessageId));
+        assertThat(first).isNotNull();
+
+        // 같은 키로 다시 보낸다. 되돌림이 올 때까지 반복해도 안전하다 — 저장도 방송도 늘지 않는다.
+        ChatMessageResponse echo = null;
+        for (int attempt = 0; attempt < 20 && echo == null; attempt++) {
+            session.send("/app/groups/" + island + "/send",
+                    new SendMessageRequest("한 번만 말한다", clientMessageId));
+            echo = echoes.poll(500, TimeUnit.MILLISECONDS);
+        }
+
+        // 보낸 사람은 «원본»을 받는다 — 이게 없으면 클라이언트는 응답을 못 받아 계속 다시 보낸다.
+        assertThat(echo).isNotNull();
+        assertThat(echo.messageId()).isEqualTo(first.messageId());
+        assertThat(echo.clientMessageId()).isEqualTo(clientMessageId);
+        // 그리고 방에는 다시 오지 않는다 — 재전송 20번을 했는데도.
+        assertThat(deliveries.poll(1, TimeUnit.SECONDS)).isNull();
+    }
+
+    @Test
     @DisplayName("남의 섬은 구독조차 못 한다 — 관문이 실제로 배선되어 있는가")
     void outsiderCannotSubscribe() throws Exception {
         givenMemberOf(outsider, UUID.randomUUID());
@@ -359,7 +389,7 @@ class ChatWebSocketIntegrationTest {
      * <p>구독이 «서버에 등록되기를» 기다리지 않는다 — 기다릴 방법이 없기 때문이다. Spring 의
      * {@code SimpleBroker} 는 SUBSCRIBE 에 RECEIPT 를 돌려주지 않고(DISCONNECT 에만 준다),
      * 인바운드 채널이 비동기라 {@code SessionSubscribeEvent} 도 등록 완료를 보장하지 않는다.
-     * 그래서 도달 보장은 {@link #sendUntilDelivered} 쪽에서 «멱등 재전송»으로 만든다.
+     * 그래서 도달 보장은 {@link #awaitSubscriptionRegistered} 쪽에서 «버리는 말»로 만든다.
      */
     private BlockingQueue<ChatMessageResponse> subscribeToIsland(StompSession session, UUID groupId) {
         BlockingQueue<ChatMessageResponse> queue = new LinkedBlockingQueue<>();
@@ -378,25 +408,41 @@ class ChatWebSocketIntegrationTest {
     }
 
     /**
-     * 도착할 때까지 <b>같은 {@code clientMessageId} 로</b> 다시 보낸다.
+     * 구독이 «등록된 뒤» 본 메시지를 한 번 보낸다.
      *
-     * <p>구독 등록과 발신 사이의 경합을 {@code sleep} 으로 눈감는 대신 재전송으로 없앤다. 같은 키로
-     * 다시 보내는 건 안전하다 — 서버가 유니크 제약으로 «처음 저장된 그 메시지»를 돌려주고 다시
-     * 브로드캐스트하므로, 몇 번을 보내도 방에 남는 말은 하나다. 덕분에 이 테스트는 재전송 멱등 경로까지
-     * 함께 태운다.
+     * <p>예전에는 같은 {@code clientMessageId} 로 도착할 때까지 재전송했다. 이제 서버가 재전송을
+     * <b>다시 방송하지 않으므로</b>(같은 messageId 가 방 사람들에게 두 번 도착하면 대화가 겹쳐
+     * 보인다) 그 방식은 첫 발신을 놓치는 순간 영원히 못 받는다.
+     *
+     * <p>대신 <b>버리는 말</b>로 등록을 관측한다 — 아무 말이나 도착하면 그 시점부터 구독은 확실히
+     * 살아 있다. 큐를 비우고 본 메시지를 보내면 그 뒤는 경합이 없다.
      *
      * @return 받은 메시지. 끝내 못 받으면 null
      */
     private ChatMessageResponse sendUntilDelivered(StompSession session, UUID groupId,
             SendMessageRequest request) throws InterruptedException {
+        awaitSubscriptionRegistered(session, groupId);
+        session.send("/app/groups/" + groupId + "/send", request);
+        return deliveries.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * 버리는 말이 되돌아올 때까지 보내, 구독이 브로커에 «등록됐음»을 관측한다.
+     *
+     * <p>버리는 말마다 {@code clientMessageId} 가 달라야 한다 — 같으면 두 번째부터는 저장도 방송도
+     * 되지 않아 영원히 되돌아오지 않는다. 그 말들은 방에 남지만, 이 테스트들은 히스토리 «개수»를
+     * 보지 않는다(그건 {@code ChatMessageRepositoryTest} 의 몫이다).
+     */
+    private void awaitSubscriptionRegistered(StompSession session, UUID groupId) throws InterruptedException {
         for (int attempt = 0; attempt < 20; attempt++) {
-            session.send("/app/groups/" + groupId + "/send", request);
-            ChatMessageResponse received = deliveries.poll(500, TimeUnit.MILLISECONDS);
-            if (received != null) {
-                return received;
+            session.send("/app/groups/" + groupId + "/send",
+                    new SendMessageRequest("구독 등록 확인용", UUID.randomUUID()));
+            if (deliveries.poll(500, TimeUnit.MILLISECONDS) != null) {
+                deliveries.clear();
+                return;
             }
         }
-        return null;
+        throw new AssertionError("구독이 끝내 등록되지 않았다 — 브로커 배선이나 인가를 의심할 것");
     }
 
     /**
@@ -410,7 +456,7 @@ class ChatWebSocketIntegrationTest {
     }
 
     /**
-     * 구독 등록 경합을 재발행으로 없앤다({@link #sendUntilDelivered} 와 같은 이유).
+     * 구독 등록 경합을 재발행으로 없앤다({@link #awaitSubscriptionRegistered} 와 같은 이유).
      *
      * <p>Pub/Sub 는 저장하지 않으므로 구독 전에 흘린 것은 그대로 사라진다 — 한 번만 쏘면 CI 부하에서
      * 간헐적으로 놓친다.
@@ -426,6 +472,28 @@ class ChatWebSocketIntegrationTest {
             }
         }
         return null;
+    }
+
+    /**
+     * 재전송 되돌림을 받는 개인 큐.
+     *
+     * <p>목적지를 문자열로 적지 않고 서버 상수를 되읽는다 — 둘이 어긋나면 서버는 보내는데 아무도
+     * 못 받는 상태가 되고, 그건 «조용히» 깨진다.
+     */
+    private BlockingQueue<ChatMessageResponse> subscribeToDuplicateEchoes(StompSession session) {
+        BlockingQueue<ChatMessageResponse> queue = new LinkedBlockingQueue<>();
+        session.subscribe("/user" + ChatFanout.DUPLICATE_QUEUE, new StompFrameHandler() {
+            @Override
+            public @NonNull Type getPayloadType(@NonNull StompHeaders headers) {
+                return ChatMessageResponse.class;
+            }
+
+            @Override
+            public void handleFrame(@NonNull StompHeaders headers, Object payload) {
+                queue.add((ChatMessageResponse) payload);
+            }
+        });
+        return queue;
     }
 
     /** 발신 실패 통지를 받는 개인 큐. 봉투를 «통째로» 모은다 — clientMessageId 까지 봐야 해서다. */

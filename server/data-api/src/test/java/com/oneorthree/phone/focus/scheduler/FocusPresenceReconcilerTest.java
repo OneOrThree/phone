@@ -13,10 +13,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.support.TransactionOperations;
 
+import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -55,6 +58,9 @@ class FocusPresenceReconcilerTest {
     /** 제자리에서 실행 — 재구축의 «내용»을 결정적으로 단언하기 위해. */
     private static final AsyncTaskExecutor INLINE = Runnable::run;
 
+    /** 넘긴 일을 «돌리지 않는다» — 주기 진입점이 기동 실행기를 타지 않는다는 것도 같이 못 박는다. */
+    private static final AsyncTaskExecutor NEVER_RUNS = task -> { };
+
     @Mock
     private FocusSessionRepository focusSessionRepository;
 
@@ -80,8 +86,8 @@ class FocusPresenceReconcilerTest {
 
         reconciler(INLINE).onApplicationReady();
 
-        verify(focusPresencePort).focusStarted(firstUser, first.getId());
-        verify(focusPresencePort).focusStarted(secondUser, second.getId());
+        verify(focusPresencePort).restoreLeaseIfMissing(firstUser, first.getId());
+        verify(focusPresencePort).restoreLeaseIfMissing(secondUser, second.getId());
     }
 
     @Test
@@ -108,7 +114,7 @@ class FocusPresenceReconcilerTest {
 
         reconciler(INLINE).onApplicationReady();
 
-        verify(focusPresencePort, never()).focusStarted(any(), any());
+        verify(focusPresencePort, never()).restoreLeaseIfMissing(any(), any());
     }
 
     @Test
@@ -118,7 +124,7 @@ class FocusPresenceReconcilerTest {
 
         reconciler(INLINE).onApplicationReady();
 
-        verify(focusPresencePort, never()).focusStarted(any(), any());
+        verify(focusPresencePort, never()).restoreLeaseIfMissing(any(), any());
     }
 
     @Test
@@ -166,6 +172,30 @@ class FocusPresenceReconcilerTest {
         given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
         deferred.get(0).run();
         verify(focusSessionRepository).findByEndedAtIsNullAndStartedAtAfter(any());
+    }
+
+    @Test
+    @DisplayName("주기 진입점도 같은 재구축을 돈다 — 기동 때 실패한 리스를 되찾는 유일한 경로다")
+    void periodicEntryPointRunsTheSameReconciliation() {
+        UUID userId = UUID.randomUUID();
+        FocusSession open = openMarker(userId);
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of(open));
+
+        // 기동 리스너와 달리 «제자리에서» 돈다 — 스케줄러 풀이 이미 별도 스레드다.
+        reconciler(NEVER_RUNS).reconcilePeriodically();
+
+        verify(focusPresencePort).restoreLeaseIfMissing(userId, open.getId());
+    }
+
+    @Test
+    @DisplayName("주기 진입점에 크론과 ShedLock 이름이 붙어 있다 — 떼면 「기동 한 번」으로 조용히 되돌아간다")
+    void periodicEntryPointIsScheduledAndLocked() throws NoSuchMethodException {
+        Method entry = FocusPresenceReconciler.class.getMethod("reconcilePeriodically");
+
+        assertThat(entry.getAnnotation(Scheduled.class)).isNotNull()
+                .extracting(Scheduled::cron).asString().isNotBlank();
+        assertThat(entry.getAnnotation(SchedulerLock.class)).isNotNull()
+                .extracting(SchedulerLock::name).isEqualTo("focus-presence-reconcile");
     }
 
     private FocusSession openMarker(UUID userId) {

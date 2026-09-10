@@ -141,20 +141,28 @@ class TwoInstanceFanoutTest {
         StompSession onB = connect(portB, bobBearer);
         BlockingQueue<ChatMessageResponse> heardOnB = subscribe(onB, island);
 
-        // 구독 등록과 발신 사이의 경합은 «멱등 재전송»으로 없앤다(같은 clientMessageId 라 방에 남는 말은 하나다).
-        UUID clientMessageId = UUID.randomUUID();
-        ChatMessageResponse received = null;
-        for (int attempt = 0; attempt < 30 && received == null; attempt++) {
+        // 구독 등록과 발신 사이의 경합은 «버리는 말»로 없앤다. 재전송으로는 안 된다 — 서버가 같은
+        // clientMessageId 의 재전송을 다시 방송하지 않으므로(중복 도착 방지), 첫 발신이 등록 전에
+        // 나가면 그 뒤 몇 번을 보내도 건너편엔 영원히 도착하지 않는다.
+        for (int attempt = 0; attempt < 30; attempt++) {
             onA.send("/app/groups/" + island + "/send",
-                    new SendMessageRequest("건너편 인스턴스에 들리나요", clientMessageId));
-            received = heardOnB.poll(500, TimeUnit.MILLISECONDS);
+                    new SendMessageRequest("구독 등록 확인용", UUID.randomUUID()));
+            if (heardOnB.poll(500, TimeUnit.MILLISECONDS) != null) {
+                heardOnB.clear();
+                break;
+            }
         }
+
+        UUID clientMessageId = UUID.randomUUID();
+        onA.send("/app/groups/" + island + "/send",
+                new SendMessageRequest("건너편 인스턴스에 들리나요", clientMessageId));
+        ChatMessageResponse received = heardOnB.poll(10, TimeUnit.SECONDS);
 
         assertThat(received).as("frameErrors=%s", frameErrors).isNotNull();
         assertThat(received.content()).isEqualTo("건너편 인스턴스에 들리나요");
         assertThat(received.senderId()).isEqualTo(alice);
         assertThat(received.groupId()).isEqualTo(island);
-        // 재전송을 몇 번 했든 저장된 말은 하나다 — 그 하나가 계속 다시 방송된 것이다.
+        // 건너편이 받은 것이 «그 말»이지 등록 확인용이 아니다.
         assertThat(received.clientMessageId()).isEqualTo(clientMessageId);
     }
 

@@ -13,6 +13,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.time.Duration;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -96,6 +97,71 @@ class RedisFocusPresenceTest {
             presence().focusEnded(userId, null);
 
             assertThat(redis.hasKey(key)).isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("재구축 — 채우기만 하고 만지지 않는다")
+    class Reconciliation {
+
+        @Test
+        @DisplayName("리스가 없으면 채운다 — 이게 「Redis 가 비었을 때」의 복구 경로다")
+        void fillsWhenMissing() {
+            UUID session = sessionId();
+
+            presence().restoreLeaseIfMissing(userId, session);
+
+            assertThat(redis.opsForValue().get(key)).isEqualTo(session.toString());
+            assertThat(redis.getExpire(key)).isNotNull().isPositive();
+        }
+
+        @Test
+        @DisplayName("이미 있는 리스는 «값도 수명도» 건드리지 않는다 — 주기 실행이 TTL 을 밀면 차단 창이 두 배가 된다")
+        void neverTouchesAnExistingLease() {
+            UUID live = sessionId();
+            presence().focusStarted(userId, live);
+            // 남은 수명을 눈에 띄게 줄여 둔다 — 「밀지 않았다」를 관측하려면 기준선이 달라야 한다.
+            redis.expire(key, Duration.ofMinutes(30));
+            Long before = redis.getExpire(key);
+
+            presence().restoreLeaseIfMissing(userId, sessionId());
+
+            assertThat(redis.opsForValue().get(key)).isEqualTo(live.toString());
+            assertThat(redis.getExpire(key)).isNotNull().isLessThanOrEqualTo(before);
+        }
+
+        @Test
+        @DisplayName("조회와 쓰기 사이에 끝난 세션은 되살리지 않는다 — 「끝났다」 표식이 막는다")
+        void doesNotResurrectASessionThatEndedMeanwhile() {
+            UUID session = sessionId();
+            presence().focusStarted(userId, session);
+            presence().focusEnded(userId, session);
+
+            // 정본을 읽은 시점엔 진행 중이었으나 그 사이 끝난 경우다.
+            presence().restoreLeaseIfMissing(userId, session);
+
+            assertThat(redis.hasKey(key)).isFalse();
+        }
+
+        @Test
+        @DisplayName("그 뒤 시작된 «더 새로운» 집중은 정상적으로 재구축된다 — 표식이 영구 차단이 되면 안 된다")
+        void restoresANewerSessionAfterAnEnd() {
+            UUID ended = sessionId();
+            presence().focusStarted(userId, ended);
+            presence().focusEnded(userId, ended);
+
+            UUID newer = sessionId();
+            presence().restoreLeaseIfMissing(userId, newer);
+
+            assertThat(redis.opsForValue().get(key)).isEqualTo(newer.toString());
+        }
+
+        @Test
+        @DisplayName("세션 id 가 없으면 아무것도 하지 않는다")
+        void nullSessionIsNoop() {
+            presence().restoreLeaseIfMissing(userId, null);
+
+            assertThat(redis.hasKey(key)).isFalse();
         }
     }
 
@@ -237,6 +303,8 @@ class RedisFocusPresenceTest {
 
             assertThatCode(() -> presence.focusStarted(userId, sessionId())).doesNotThrowAnyException();
             assertThatCode(() -> presence.focusEnded(userId, sessionId())).doesNotThrowAnyException();
+            // 재구축도 같다 — 여기서 던지면 주기 크론이 매 회차 스택트레이스를 뱉는다.
+            assertThatCode(() -> presence.restoreLeaseIfMissing(userId, sessionId())).doesNotThrowAnyException();
 
             dead.destroy();
         }

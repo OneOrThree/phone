@@ -63,6 +63,20 @@ public class ChatMessageService {
      * <p>브로드캐스트는 저장이 커밋된 <b>뒤</b>다. 순서를 뒤집으면 소켓으로는 왔는데 히스토리에는
      * 없는 말이 생긴다.
      *
+     * <p><b>브로드캐스트는 「처음 저장됐을 때」 한 번뿐이다.</b> 재전송은 저장을 늘리지 않으므로
+     * 방송도 늘리지 않는다 — 늘리면 같은 {@code messageId} 가 방 사람들에게 두 번 도착해 대화가
+     * 겹쳐 보인다. 발신자는 재전송의 «응답»으로 처음 저장된 그 메시지를 받으므로 낙관적 말풍선을
+     * 갈아 끼우는 데는 지장이 없다.
+     *
+     * <p>대신 재전송은 <b>보낸 사람에게만</b> 원본을 되돌린다({@code /user/queue/duplicates}).
+     * STOMP 발신은 성공 시 아무것도 돌려주지 않고 브로드캐스트가 곧 응답이라, 이 되돌림이 없으면
+     * 재전송한 클라이언트는 영영 응답을 못 받아 <b>무한히 다시 보낸다</b>.
+     *
+     * <p>대가는 있다 — 처음 발신의 방송이 유실됐다면(팬아웃 실패는 삼켜진다) 재전송이 그걸
+     * 방 사람들에게 되살려 주지는 않는다. 그 경우의 복구는 <b>정본을 다시 읽는 쪽</b>이다:
+     * 메시지는 커밋돼 있어 히스토리 조회에 나온다. 「모두에게 매번 중복 도착」보다 「드물게 한 번
+     * 밀림」이 낫다고 봤다.
+     *
      * @param groupId 목적지 섬
      * @param senderId 보낸 사람 = 인증된 요청자. 본문에서 오지 않는다
      * @param request 본문과 멱등 키
@@ -75,9 +89,22 @@ public class ChatMessageService {
 
         String content = normalizeContent(request.content());
 
-        ChatMessageResponse saved = insertOrFindExisting(groupId, senderId, request.clientMessageId(), content);
-        chatFanout.broadcast(saved);
-        return saved;
+        Stored stored = insertOrFindExisting(groupId, senderId, request.clientMessageId(), content);
+        if (stored.freshlyInserted()) {
+            chatFanout.broadcast(stored.message());
+        } else {
+            // 방송은 하지 않되 «보낸 사람»은 알아야 한다 — 안 그러면 무한히 다시 보낸다.
+            chatFanout.deliverToSender(senderId, stored.message());
+        }
+        return stored.message();
+    }
+
+    /**
+     * 저장 결과 — <b>그 말이 이번에 처음 저장됐는가</b>까지 같이 돌려준다.
+     *
+     * <p>메시지만 돌려주면 재전송인지 알 수 없어 방송을 한 번으로 묶을 수 없다.
+     */
+    private record Stored(ChatMessageResponse message, boolean freshlyInserted) {
     }
 
     /**
@@ -91,7 +118,7 @@ public class ChatMessageService {
      * 그건 우리가 예상한 재전송이 아니므로 원래 예외를 그대로 올려 500 으로 드러낸다 — 조용히
      * 삼키면 메시지가 사라지는데 아무도 모른다.
      */
-    private ChatMessageResponse insertOrFindExisting(UUID groupId, UUID senderId, UUID clientMessageId,
+    private Stored insertOrFindExisting(UUID groupId, UUID senderId, UUID clientMessageId,
             String content) {
         try {
             ChatMessage saved = chatMessageRepository.save(ChatMessage.builder()
@@ -101,11 +128,11 @@ public class ChatMessageService {
                     .clientMessageId(clientMessageId)
                     .sentAt(clock.instant())
                     .build());
-            return ChatMessageResponse.from(saved);
+            return new Stored(ChatMessageResponse.from(saved), true);
         } catch (DataIntegrityViolationException e) {
             return chatMessageRepository
                     .findByGroupIdAndSenderIdAndClientMessageId(groupId, senderId, clientMessageId)
-                    .map(ChatMessageResponse::from)
+                    .map(existing -> new Stored(ChatMessageResponse.from(existing), false))
                     .orElseThrow(() -> e);
         }
     }

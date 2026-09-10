@@ -89,6 +89,12 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   under-count it. The message itself is not lost — it is committed and shows up on the newest
   page. The window is INSERT→COMMIT of a single-row insert (microseconds). Closing it properly
   needs a commit-ordered sequence; tracked as a follow-up.
+- **A resend is never re-broadcast.** `clientMessageId` makes `send` idempotent, and a resend
+  returns the originally stored message — but it does *not* go to the room again, or every other
+  member would see the same `messageId` twice. Since a successful STOMP send returns nothing (the
+  broadcast *is* the ack), a resend would otherwise get no answer at all and the client would retry
+  forever — so it is echoed to that one sender on `/user/queue/duplicates`. The destination lives in
+  `ChatFanout.DUPLICATE_QUEUE` and the SUBSCRIBE allow-list reads that same constant.
 - **A subscription is authorized once, at SUBSCRIBE time.** Someone removed from a group
   keeps *receiving* until their socket closes — TTL does not help, because an established
   subscription is never re-checked. Sending and new subscriptions are still blocked.
@@ -125,6 +131,7 @@ designed fresh.
 | `SEND /app/groups/{groupId}/send` | post a message; returns nothing (the broadcast is the ack) |
 | `SUB /topic/groups/{groupId}` | that island's broadcast; members only |
 | `SUB /user/queue/errors` | send failures, same `{code, message}` envelope |
+| `SUB /user/queue/duplicates` | a resend's ack — the message already stored, sent to that sender only |
 | `GET /api/v1/chat/rooms` | my islands + unread counts |
 | `GET /api/v1/chat/rooms/{groupId}/messages?cursor&size` | history, newest → oldest |
 | `POST /api/v1/chat/rooms/{groupId}/read` | advance the read cursor (forward only) |

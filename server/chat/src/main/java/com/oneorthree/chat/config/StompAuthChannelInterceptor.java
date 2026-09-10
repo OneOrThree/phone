@@ -1,6 +1,7 @@
 package com.oneorthree.chat.config;
 
 import com.oneorthree.chat.auth.ChatPrincipal;
+import com.oneorthree.chat.fanout.ChatFanout;
 import com.oneorthree.chat.auth.JwtValidator;
 import com.oneorthree.chat.common.exception.CommonErrorCode;
 import com.oneorthree.chat.common.exception.DomainException;
@@ -82,6 +83,12 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private static final String PERSONAL_ERROR_QUEUE = "/user/queue/errors";
 
     /**
+     * 재전송 되돌림을 받는 개인 큐 — {@code ChatFanout#DUPLICATE_QUEUE} 와 <b>같은 목적지</b>여야 한다.
+     * 여기에 없으면 서버는 보내는데 클라이언트는 구독조차 못 해, 재전송이 영원히 응답을 못 받는다.
+     */
+    private static final String PERSONAL_DUPLICATE_QUEUE = "/user" + ChatFanout.DUPLICATE_QUEUE;
+
+    /**
      * 유일하게 허용하는 발신 목적지. {@code ChatStompController} 의 {@code @MessageMapping} 과
      * <b>같은 모양이어야 한다</b> — 매핑을 늘리면 여기도 늘려야 하고, 그게 강제되는 것이 이 방식의 값어치다.
      */
@@ -147,7 +154,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private void authorizeSubscription(StompHeaderAccessor accessor) {
         String destination = String.valueOf(accessor.getDestination());
 
-        if (PERSONAL_ERROR_QUEUE.equals(destination)) {
+        if (PERSONAL_ERROR_QUEUE.equals(destination) || PERSONAL_DUPLICATE_QUEUE.equals(destination)) {
             return;
         }
 

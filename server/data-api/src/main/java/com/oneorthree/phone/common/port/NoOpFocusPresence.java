@@ -29,6 +29,11 @@ public class NoOpFocusPresence implements FocusPresencePort {
     }
 
     @Override
+    public void restoreLeaseIfMissing(UUID userId, UUID sessionId) {
+        log.debug("NoOp 프레즌스 — 재구축 무시, userId={} sessionId={}", userId, sessionId);
+    }
+
+    @Override
     public void focusEnded(UUID userId, UUID sessionId) {
         log.debug("NoOp 프레즌스 — 집중 종료 무시, userId={} sessionId={}", userId, sessionId);
     }
