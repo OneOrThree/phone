@@ -86,8 +86,12 @@ public class FocusService {
 
     /**
      * orphan(앱 강제종료로 endedAt 미기록) 자동 종료 임계값 — 이보다 오래된 진행 중 세션은 상한으로 종료.
+     *
+     * <p>공개인 이유: {@code FocusPresenceReconciler} 가 「아직 orphan 이 아닌 세션」의 경계로 같은 값을
+     * 써야 한다(GROMO-292). 두 곳에 따로 적으면 한쪽만 바뀌는 순간 재구축이 이미 끝난 집중의 리스를
+     * 되살린다.
      */
-    private static final Duration ORPHAN_TIMEOUT = Duration.ofHours(12);
+    public static final Duration ORPHAN_TIMEOUT = Duration.ofHours(12);
 
     /**
      * GROMO-806: 스트릭 인정 최소 누적 집중 시간(초) = 10분. 그날 누적이 이 값 이상일 때만 스트릭을 갱신한다.

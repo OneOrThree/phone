@@ -3,37 +3,48 @@ package com.oneorthree.phone.focus.scheduler;
 import com.oneorthree.phone.common.port.FocusPresencePort;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.transaction.UnexpectedRollbackException;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
- * 기동 시 DB 정본에서 프레즌스를 재구축하는지.
+ * 기동 시 DB 정본에서 프레즌스를 재구축하는지, 그리고 그 재구축이 <b>기동을 붙잡지 않는지</b>.
  *
- * <p>이게 없으면 {@code focus.presence.enabled} 를 «처음 켜는» 순간 이미 진행 중이던 집중은 리스가
- * 없어, 그 사람들은 세션이 끝날 때까지 집중 중에도 채팅에 들어가고 발신할 수 있다 — 롤아웃 창 전체가
- * 규칙 밖이 된다. Redis 가 비었을 때도 같다.
+ * <p>재구축이 없으면 {@code focus.presence.enabled} 를 «처음 켜는» 순간 이미 진행 중이던 집중은
+ * 리스가 없어, 그 사람들은 세션이 끝날 때까지 집중 중에도 채팅에 들어가고 발신할 수 있다 — 롤아웃 창
+ * 전체가 규칙 밖이 된다. Redis 가 비었을 때도 같다. 목표 아키텍처 A19 의 「Redis 는 사본이라 소유자가
+ * DB 정본에서 재구축할 수 있어야 한다」가 프레즌스 쪽에서 구현된 자리이기도 하다.
  *
- * <p>목표 아키텍처 A19 의 「Redis 는 사본이라 소유자가 DB 정본에서 재구축할 수 있어야 한다」가
- * 프레즌스 쪽에서 구현된 자리이기도 하다.
+ * <p><b>여기서 실행기를 가짜로 주입하는 이유.</b> 진짜 실행기를 쓰면 단언이 워커 스레드와 경주하게 돼
+ * 테스트가 간헐적으로 통과한다. 대신 「제자리에서 실행」과 「받아만 두고 실행하지 않음」 두 벌을 써서,
+ * 재구축 «내용»과 「기동 스레드에서 돌지 않는다」는 «성질»을 따로 못 박는다.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -41,15 +52,21 @@ class FocusPresenceReconcilerTest {
 
     private static final Instant NOW = Instant.parse("2026-09-11T00:00:00Z");
 
+    /** 제자리에서 실행 — 재구축의 «내용»을 결정적으로 단언하기 위해. */
+    private static final AsyncTaskExecutor INLINE = Runnable::run;
+
     @Mock
     private FocusSessionRepository focusSessionRepository;
 
     @Mock
     private FocusPresencePort focusPresencePort;
 
-    private FocusPresenceReconciler reconciler() {
-        return new FocusPresenceReconciler(focusSessionRepository, focusPresencePort,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+    /** 트랜잭션 경계를 흉내만 낸다 — 이 클래스가 검증하려는 것은 경계의 «위치»지 트랜잭션 자체가 아니다. */
+    private final TransactionOperations transactions = TransactionOperations.withoutTransaction();
+
+    private FocusPresenceReconciler reconciler(AsyncTaskExecutor executor) {
+        return new FocusPresenceReconciler(focusSessionRepository, focusPresencePort, transactions,
+                executor, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -59,12 +76,25 @@ class FocusPresenceReconcilerTest {
         UUID secondUser = UUID.randomUUID();
         FocusSession first = openMarker(firstUser);
         FocusSession second = openMarker(secondUser);
-        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any())).willReturn(List.of(first, second));
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of(first, second));
 
-        reconciler().restoreLeasesOnStartup();
+        reconciler(INLINE).onApplicationReady();
 
         verify(focusPresencePort).focusStarted(firstUser, first.getId());
         verify(focusPresencePort).focusStarted(secondUser, second.getId());
+    }
+
+    @Test
+    @DisplayName("이미 고아 판정 시각을 넘긴 세션은 모수에서 빠진다 — 되살리면 TTL 이 지금부터 다시 13시간이다")
+    void queriesOnlyWithinTheOrphanWindow() {
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
+
+        reconciler(INLINE).onApplicationReady();
+
+        ArgumentCaptor<Instant> threshold = ArgumentCaptor.forClass(Instant.class);
+        verify(focusSessionRepository).findByEndedAtIsNullAndStartedAtAfter(threshold.capture());
+        // 스윕과 «같은» 기준이어야 한다. 여기만 넓히면 스윕이 곧 끝낼 세션의 리스를 되살리게 된다.
+        assertThat(threshold.getValue()).isEqualTo(NOW.minus(FocusService.ORPHAN_TIMEOUT));
     }
 
     @Test
@@ -74,9 +104,9 @@ class FocusPresenceReconcilerTest {
                 .id(UUID.randomUUID())
                 .startedAt(NOW.minusSeconds(60))
                 .build();
-        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any())).willReturn(List.of(orphaned));
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of(orphaned));
 
-        reconciler().restoreLeasesOnStartup();
+        reconciler(INLINE).onApplicationReady();
 
         verify(focusPresencePort, never()).focusStarted(any(), any());
     }
@@ -84,20 +114,58 @@ class FocusPresenceReconcilerTest {
     @Test
     @DisplayName("진행 중인 세션이 없으면 아무것도 하지 않는다")
     void doesNothingWhenNoOpenMarkers() {
-        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any())).willReturn(List.of());
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
 
-        reconciler().restoreLeasesOnStartup();
+        reconciler(INLINE).onApplicationReady();
 
         verify(focusPresencePort, never()).focusStarted(any(), any());
     }
 
     @Test
-    @DisplayName("재구축이 실패해도 «기동»을 막지 않는다 — Redis 때문에 코어 API 가 못 뜨면 안 된다")
+    @DisplayName("조회가 터져도 «기동»을 막지 않는다 — Redis·DB 때문에 코어 API 가 못 뜨면 안 된다")
     void failureDoesNotBlockStartup() {
-        willThrow(new IllegalStateException("redis down"))
-                .given(focusSessionRepository).findByEndedAtIsNullAndStartedAtBefore(any());
+        willThrow(new IllegalStateException("db down"))
+                .given(focusSessionRepository).findByEndedAtIsNullAndStartedAtAfter(any());
 
-        assertThatCode(() -> reconciler().restoreLeasesOnStartup()).doesNotThrowAnyException();
+        assertThatCode(() -> reconciler(INLINE).onApplicationReady()).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("트랜잭션이 «반환 후» 던지는 UnexpectedRollbackException 도 삼킨다 — 경계가 메서드 안이라서")
+    void rollbackExceptionFromTheTransactionBoundaryIsSwallowed() {
+        TransactionOperations rollingBack = new TransactionOperations() {
+            @Override
+            public <T> T execute(org.springframework.transaction.support.TransactionCallback<T> action) {
+                throw new UnexpectedRollbackException("커밋이 롤백으로 끝났다");
+            }
+        };
+        FocusPresenceReconciler reconciler = new FocusPresenceReconciler(focusSessionRepository, focusPresencePort,
+                rollingBack, INLINE, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThatCode(reconciler::onApplicationReady).doesNotThrowAnyException();
+        verifyNoInteractions(focusPresencePort);
+    }
+
+    @Test
+    @DisplayName("기동 스레드에서는 «한 줄도» 돌지 않는다 — Redis 가 죽으면 유저 수만큼 타임아웃을 기다리게 된다")
+    void reconciliationNeverRunsOnTheStartupThread() {
+        AtomicInteger submitted = new AtomicInteger();
+        List<Runnable> deferred = new ArrayList<>();
+        AsyncTaskExecutor capturing = task -> {
+            submitted.incrementAndGet();
+            deferred.add(task);
+        };
+
+        reconciler(capturing).onApplicationReady();
+
+        // 리스너가 반환된 시점에 조회조차 시작되지 않았다.
+        assertThat(submitted.get()).isEqualTo(1);
+        verifyNoInteractions(focusSessionRepository, focusPresencePort);
+
+        // 그리고 넘긴 일은 진짜 재구축이다 — 「그냥 아무것도 안 한다」와 구별한다.
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
+        deferred.get(0).run();
+        verify(focusSessionRepository).findByEndedAtIsNullAndStartedAtAfter(any());
     }
 
     private FocusSession openMarker(UUID userId) {

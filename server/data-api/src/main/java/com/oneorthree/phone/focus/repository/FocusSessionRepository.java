@@ -7,6 +7,7 @@ import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -147,6 +148,18 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * @param threshold 이 시각 <b>이전</b>에 시작한 미종료 세션만 — 보통 {@code now - ORPHAN_TIMEOUT(12h)}
      * @return 스윕 후보. 상태는 아직 ACTIVE 이고 실제 마감은 {@link #markAutoClosedIfOpen} 이 조건부로 한다
      */
+    /**
+     * <b>아직 orphan 이 아닌</b> 진행 중 세션 — {@code startedAt} 이 임계 시각 «이후»인 미종료 마커.
+     *
+     * <p>프레즌스 재구축이 쓴다(GROMO-292). 「미종료 전부」로 잡으면 <b>이미 orphan 인 세션</b>까지
+     * 딸려 오고, 그 리스를 다시 놓으면 TTL 이 지금부터 13시간으로 재설정돼 <b>실제로는 끝난 집중
+     * 때문에 다음 스윕까지(최대 1시간, 스윕이 또 실패하면 더) 채팅이 막힌다.</b>
+     *
+     * @param threshold 보통 {@code now - ORPHAN_TIMEOUT}. 이 시각 이후에 시작한 것만 살아 있다고 본다
+     */
+    @EntityGraph(attributePaths = "user")
+    List<FocusSession> findByEndedAtIsNullAndStartedAtAfter(Instant threshold);
+
     List<FocusSession> findByEndedAtIsNullAndStartedAtBefore(Instant threshold);
 
     /**
