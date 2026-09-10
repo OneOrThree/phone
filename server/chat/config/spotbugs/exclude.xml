@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter
+    xmlns="https://github.com/spotbugs/filter/3.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="https://github.com/spotbugs/filter/3.0.0 https://raw.githubusercontent.com/spotbugs/spotbugs/3.1.0/spotbugs/etc/findbugsfilter.xsd">
+
+  <!--
+    SpotBugs 예외 필터
+    새로운 예외를 추가할 때는 반드시 이유를 주석으로 기재할 것
+    근거 없는 예외 추가는 보안 취약점을 숨길 수 있음
+  -->
+
+  <!-- Lombok 생성 코드: @Data, @Builder 등이 만드는 equals/hashCode/toString 오탐 제외 -->
+  <Match>
+    <Class name="~.*\..*"/>
+    <Bug pattern="EQ_UNUSUAL"/>
+  </Match>
+
+  <!-- Spring Security 미적용 상태에서의 오탐 (Security 활성화 후 이 항목 삭제 권장) -->
+  <!-- <Match>
+    <Bug category="SECURITY"/>
+    <Class name="~com\.oneorthree\.phone\..*"/>
+  </Match> -->
+
+  <!-- 테스트 코드는 일부 패턴 허용 (프로덕션 코드엔 적용) -->
+  <Match>
+    <Class name="~.*Test.*"/>
+    <Bug pattern="RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT"/>
+  </Match>
+
+</FindBugsFilter>

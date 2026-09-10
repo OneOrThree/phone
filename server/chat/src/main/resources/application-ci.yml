@@ -1,0 +1,37 @@
+# 테스트 프로파일. Testcontainers 가 datasource·redis 를 @ServiceConnection 으로 덮어쓴다.
+#
+# ⚠️ Data API 의 ci 프로파일과 «일부러 다르다». 그쪽은 create-drop + Flyway OFF 라 엔티티에서
+#    스키마를 만든다 — 그러면 마이그레이션 SQL 과 엔티티가 어긋나도 CI 가 초록이고, 그 드리프트는
+#    dev/prod 부팅에서야 터진다(GROMO-1506 이 정확히 그 사고였다).
+#    채팅은 반대로 간다: 테스트가 Flyway 를 돌려 V1 로 스키마를 만들고 ddl-auto=validate 로 검증한다.
+#    엔티티와 DDL 이 어긋나면 «테스트가 뜨지도 못한다» — 그 실패를 CI 로 끌어온 것이 이 설정의 목적이다.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+
+jwt:
+  # 길이가 HMAC-SHA256 최소치(32바이트)를 넘어야 한다 — 짧으면 부팅 자체가 실패한다.
+  secret: ci-test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256
+
+chat:
+  data-api:
+    # 테스트는 GroupClient 를 스텁으로 갈아 끼운다. 실제로 호출되면 즉시 실패해야 하므로
+    # 닿지 않는 주소를 둔다 — 조용히 어딘가로 나가는 것보다 낫다.
+    base-url: http://localhost:1
+    timeout-ms: 200
+  membership:
+    cache-ttl-seconds: 120
+  websocket:
+    allowed-origins: "*"
+
+logging:
+  level:
+    com.oneorthree.chat: DEBUG

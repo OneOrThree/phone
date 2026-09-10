@@ -1,0 +1,43 @@
+// 채팅 서비스 DB 스키마 정본 (database: gromo_chat)
+//
+// server/data-api/docs/db/schema.dbml 과 같은 규율 — 마이그레이션과 «같은 커밋»에 담는다.
+// 이 파일이 어긋나면 스키마를 읽는 사람이 거짓을 정본으로 삼게 된다.
+//
+// 이 데이터베이스에는 채팅이 소유한 두 테이블만 있다. groups·users 는 Data API 의 gromo 에 있고
+// 여기서 FK 로 걸지 않는다(다른 데이터베이스라 불가능하고, 가능해도 두 서비스의 마이그레이션이
+// 한 몸이 되므로 걸지 않는다). 참조 무결성은 쓰기 시점의 멤버십 검사가 대신한다.
+
+Project gromo_chat {
+  database_type: 'PostgreSQL'
+  Note: '채팅 서비스(GROMO-292). 섬(그룹)당 방 하나.'
+}
+
+Table chat_messages {
+  id uuid [pk, note: 'UUID v7 — 정렬 = 시간순. 커서 페이징·안 읽음 집계가 이 단조성에 얹혀 있다']
+  group_id uuid [not null, note: '섬(그룹) id. Data API 소유라 FK 없음']
+  sender_id uuid [not null, note: '보낸 사람. 탈퇴해도 이 행은 남는다(대화의 앞뒤가 맞아야 하므로)']
+  content varchar(2000) [not null]
+  client_message_id uuid [not null, note: '클라이언트 생성 멱등 키. 재전송 차단은 아래 유니크 인덱스가 한다']
+  sent_at "timestamp(6) with time zone" [not null, note: '서버 수신 시각. 클라 시각을 쓰면 기기 시계로 순서가 뒤집힌다']
+
+  Indexes {
+    (group_id, sender_id, client_message_id) [unique, name: 'ux_chat_messages_dedup', note: '재전송 차단 — 애플리케이션 검사에는 창이 있고 이 제약에는 없다']
+    (group_id, id) [name: 'ix_chat_messages_group_id_desc', note: 'DESC. 히스토리 페이징 + 방 목록의 DISTINCT ON']
+  }
+
+  Note: '섬 안에서 오간 말. 삭제·수정 기능은 아직 없다(컬럼도 없다)'
+}
+
+Table chat_read_cursors {
+  id uuid [pk, note: '대리 PK(UUID v7). 자연키는 아래 유니크 인덱스']
+  group_id uuid [not null]
+  user_id uuid [not null]
+  last_read_message_id uuid [not null, note: '여기까지 읽었다(포함). 안 읽음 = 이보다 큰 id 의 개수']
+  updated_at "timestamp(6) with time zone" [not null]
+
+  Indexes {
+    (group_id, user_id) [unique, name: 'ux_chat_read_cursors_group_user', note: '읽음 갱신 UPSERT 의 ON CONFLICT 대상 — 빼면 UPSERT 가 런타임에 실패한다']
+  }
+
+  Note: '채팅에 푸시가 없으므로 안 읽은 양은 이 커서로만 드러난다. 커서는 앞으로만 간다(UPSERT 의 WHERE 절)'
+}

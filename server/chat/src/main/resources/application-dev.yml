@@ -1,0 +1,31 @@
+# dev 배포용. 값은 전부 환경변수 주입이라 시크릿이 파일에 없다(그래서 커밋한다).
+spring:
+  datasource:
+    # 채팅은 자기 데이터베이스를 갖는다(gromo_chat) — 같은 인스턴스 안의 별도 database 로,
+    # Data API 의 gromo 와 스키마·마이그레이션·백업 경계를 나눈다(A10 의 알림 서버와 같은 모양).
+    url: ${CHAT_DB_URL}
+    username: ${CHAT_DB_USERNAME}
+    password: ${CHAT_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      # A19: 서비스별 Redis 유저 + 키 패턴 ACL. 채팅은 cache:chat:* · lock:chat:* · chat:fanout 은
+      # 읽기·쓰기, presence:* 는 읽기 전용 selector 로만 받는다.
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+
+  flyway:
+    # 기존 DB 를 V1 으로 표시하고 그다음부터 적용한다(빈 DB 는 V1 부터 실행).
+    baseline-on-migrate: true
+
+jwt:
+  # Data API 와 «같은 값»이어야 한다. 채팅은 이 키로 서명을 검증만 한다 — 발급하지 않는다.
+  secret: ${JWT_SECRET}
+
+chat:
+  data-api:
+    base-url: ${DATA_API_BASE_URL}

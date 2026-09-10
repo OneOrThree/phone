@@ -1,0 +1,124 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.0.6'
+	id 'io.spring.dependency-management' version '1.1.7'
+
+	// CI: 코드 스타일 + 정적 분석 + 커버리지
+	id 'checkstyle'
+	id 'com.github.spotbugs' version '6.0.18'
+	id 'jacoco'
+}
+
+group = 'com.oneorthree'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// Spring Web + MVC (REST 히스토리·읽음 API, 내장 Tomcat)
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+
+	// WebSocket + STOMP — 채팅의 본체. 브로커는 SimpleBroker(인메모리)이고
+	// 인스턴스 간 전파는 Redis Pub/Sub 이 맡는다(fanout 패키지).
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+	// JPA / Hibernate — chat_messages · chat_read_cursors
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+	// Redis (Lettuce) — 이 서비스의 하드 의존성이다. 팬아웃·멤버십 캐시·집중 프레즌스가 전부 여기 얹힌다.
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
+	// 요청 본문 검증 (@Valid)
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+	// 멤버십 조회용 아웃바운드 HTTP(RestClient) — Data API 의 GET /api/v1/groups
+	implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+	// 관측 — Actuator 헬스·메트릭 + Prometheus 레지스트리. data-api 와 같은 규율로
+	// 관리 포트(9091)에 격리 노출한다(호스트 publish 금지).
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'io.micrometer:micrometer-registry-prometheus'
+
+	// JJWT — AT 로컬 검증(서명·만료·type 클레임). data-api 와 같은 jwt.secret 을 공유한다.
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+	runtimeOnly 'org.postgresql:postgresql'
+
+	// Flyway — Boot 4.0 은 오토컨피그가 기술별 모듈이라 3개가 다 필요하다(data-api 와 동일).
+	implementation 'org.springframework.boot:spring-boot-flyway'
+	implementation 'org.flywaydb:flyway-core'
+	runtimeOnly 'org.flywaydb:flyway-database-postgresql'
+
+	// UUID v7 — 시간 정렬 PK. 커서 페이징이 id 단조성에 기대므로 v4 로 바꾸면 페이징이 깨진다.
+	implementation 'com.fasterxml.uuid:java-uuid-generator:5.1.0'
+
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	// 테스트 — Postgres 와 Redis 둘 다 Testcontainers 로 띄운다.
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	// @AutoConfigureMockMvc — Boot 4 는 MVC 테스트 오토컨피그가 별도 스타터다. 이게 있어야 MockMvc 가
+	// FilterRegistrationBean 으로 등록한 JwtFilter 까지 포함한 «실제 필터 체인»으로 조립된다.
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation 'org.testcontainers:junit-jupiter:1.20.1'
+	testImplementation 'org.testcontainers:postgresql:1.20.1'
+	testCompileOnly 'org.projectlombok:lombok'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+	finalizedBy jacocoTestReport
+}
+
+// ── Checkstyle ────────────────────────────────────────────────────────────
+checkstyle {
+	toolVersion = '10.21.4'
+	configFile = file("config/checkstyle/checkstyle.xml")
+	ignoreFailures = false
+}
+
+checkstyleTest.enabled = false
+
+// ── SpotBugs ─────────────────────────────────────────────────────────────
+spotbugs {
+	toolVersion = '4.8.6'
+	effort = 'max'
+	reportLevel = 'high'
+	excludeFilter = file("config/spotbugs/exclude.xml")
+}
+
+tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
+	reports {
+		xml.required = true
+		html.required = true
+	}
+}
+
+spotbugsTest.enabled = false
+
+// ── JaCoCo ───────────────────────────────────────────────────────────────
+jacoco {
+	toolVersion = '0.8.12'
+}
+
+jacocoTestReport {
+	reports {
+		xml.required = true
+		html.required = true
+	}
+}
+
