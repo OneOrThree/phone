@@ -21,7 +21,7 @@ flowchart TB
     VERCEL["Vercel — oneorthree/link<br/>랜딩 · /l/* · SKAN · 대시보드(+알림 콘솔)"]
     NEON[("Neon Postgres")]
   end
-  subgraph VM["prod: AWS t4g · Docker Compose (dev: GCP e2-medium, 동일 구성)"]
+  subgraph VM["prod: AWS t4g.large · Docker Compose (dev: GCP e2-standard-2, 동일 구성 + db)"]
     NX["nginx :443<br/>/api /auth → business<br/>/internal/admin → notification<br/>/health"]
     BIZ["business-api :8080"]
     DATA["data-api :8081<br/>(compose 내부망만)"]
@@ -121,7 +121,7 @@ server/.github/workflows/
 
 - 변경된 서비스만 빌드·배포(경로 필터로 결정). compose 는 환경당 1파일 — **prod 6개**(JVM 서비스 3 + nginx · kafka · datadog-agent, DB 는 RDS), **dev 7개**(같은 6개 + Postgres `db` 컨테이너, §6·A10). 오버레이(datadog·observability) 유지.
 - 헬스체크: `GET /health` 각 서비스, CD 는 변경된 서비스만 기다림(300s).
-- 롤백: `prod-rollback.yml` 에 `service` 입력 추가 — 이미지 태그만 되돌림, compose·스키마 유지(현행 원칙). **단 이 원칙은 스키마가 이전 바이너리와 호환될 때만 성립한다** — 이 레포엔 `V16__rename_refresh_token_to_hash.sql` 같은 rename 과 `DROP COLUMN` 이 실재해서, 그런 마이그레이션이 포함된 배포는 이미지를 되돌리면 이전 코드가 없는 컬럼을 읽어 기동·요청이 깨진다. 규칙: **① 롤백 가능 기간(직전 1 릴리즈) 동안은 파괴적 DDL 금지** — rename·drop 은 expand/contract 2단계로 나눈다(새 컬럼 추가 → 백필 → 읽기 전환 → **다음** 릴리즈에서 구 컬럼 제거). **② 파괴적 DDL 이 든 릴리즈는 롤백 대상이 아니다** — roll-forward(수정 배포)만 하고, PR 본문 「DB 변경」 절에 그 사실을 적는다.
+- 롤백: `prod-rollback.yml` 에 `service` 입력 추가 — **이전 digest 를 `deploy/<env>.yml` 매니페스트에 먼저 기록·커밋한 뒤 그 상태를 적용한다**(태그만 되돌리고 매니페스트를 두면, 다음 호스트 재구축이나 전체 `compose up` 이 매니페스트의 문제 digest 를 다시 배포해 롤백이 취소된다). compose·스키마는 유지(현행 원칙). **단 이 원칙은 스키마가 이전 바이너리와 호환될 때만 성립한다** — 이 레포엔 `V16__rename_refresh_token_to_hash.sql` 같은 rename 과 `DROP COLUMN` 이 실재해서, 그런 마이그레이션이 포함된 배포는 이미지를 되돌리면 이전 코드가 없는 컬럼을 읽어 기동·요청이 깨진다. 규칙: **① 롤백 가능 기간(직전 1 릴리즈) 동안은 파괴적 DDL 금지** — rename·drop 은 expand/contract 2단계로 나눈다(새 컬럼 추가 → 백필 → 읽기 전환 → **다음** 릴리즈에서 구 컬럼 제거). **② 파괴적 DDL 이 든 릴리즈는 롤백 대상이 아니다** — roll-forward(수정 배포)만 하고, PR 본문 「DB 변경」 절에 그 사실을 적는다.
 - 링크 서버는 Vercel Git 연동(별도 레포) — 이 파이프라인 밖.
 
 ## 4. 관측
