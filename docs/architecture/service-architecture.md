@@ -40,7 +40,7 @@ flowchart LR
   DATA -.->|"이벤트 (정산형: bet.settled · league.settled)"| KAFKA
   KAFKA -.->|"consume · DLQ · 재시도"| NS
   BIZ -->|"동기 명령·조회<br/>기기 토큰 · 알림 설정"| NS
-  NS -->|"리컨실 1종 (새벽 1회)"| DATA
+  NS -->|"조회 2종 (리컨실 · ack 수렴)"| DATA
   BIZ -->|"링크 발급 · joined · revoke · withdraw"| LK
   DATA -->|"relay 재전달 (withdraw · revoke · joined)"| LK
   DATA -->|"gromo"| PG
@@ -68,7 +68,7 @@ flowchart LR
 ```
 앱 → Business API → Data API
         │               │
-        ├──이벤트──▶ 알림 서버 ◀──이벤트──┘        알림 서버 → Data API : 리컨실 1종만
+        ├──이벤트──▶ 알림 서버 ◀──이벤트──┘        알림 서버 → Data API : 조회 2종만
         └──발급────▶ 링크 서버 ◀──relay 재전달──┘  링크 서버 → (아무도 부르지 않음)
                      ▲
               콘솔 → 알림 서버 admin API
@@ -79,8 +79,8 @@ flowchart LR
 | Business → Data (조회·명령·패스스루) | Data → Business |
 | Business / Data → 알림 (이벤트, 발행 주체 = 그 유스케이스를 완료한 프로세스) | 알림 → `gromo` database 직접 읽기 |
 | **Business → 알림 (동기 명령·조회)** — 앱의 기존 계약 `PUT/DELETE /users/me/device-token` · `PUT`·**`GET`** `/users/me/notification-settings` 가 패스스루로 오면 `POST/DELETE /internal/devices` · `PUT`·**`GET`** `/internal/users/{id}/notification-settings` 로 전달(서비스 토큰 + `X-User-Id`). 설정 정본이 `gromo_notification` 이라 **GET 도 알림 서버에서 읽어야 한다** — Data API 패스스루로는 정본을 못 읽는다. 데이터가 `gromo_notification` 소유라 이벤트로는 못 쓴다 | 알림 → Business |
-| 알림 → Data (`GET /internal/users/notification-snapshot` 하나) | 알림 → Data 쓰기 |
-| Business → 링크 (발급 · **claim** · joined · revoke · **withdraw**, 표시정보 스냅샷 동봉) — 링크 서버는 Kafka 에 붙지 않으므로 `user.withdrawn` 을 받을 방법이 없다. 탈퇴 tombstone 은 **Business → 링크 `POST /internal/users/{id}/withdraw`(서비스 토큰, 멱등·재시도 가능)** 로 전달한다 — 앱의 기존 계약 `POST /api/v1/invite-links/claim` 이 패스스루로 오면 `POST /internal/links/{slug}/claim {userId}`(서비스 토큰)로 전달한다. `link_clicks` 에 유저를 붙이는 일이라 링크 서버만 할 수 있고, 이 경로가 없으면 **설치 매치는 성공해도 최종 귀속이 기록되지 않는다** | 링크 → 코어 어떤 것도 |
+| 알림 → Data (**조회 2종**: `GET /internal/users/notification-snapshot`(리컨실) · `GET /internal/users/{id}/result-ack?sessionId=`(`NEEDS_CONFIRM` 수렴)) | 알림 → Data 쓰기 · 그 밖의 조회 |
+| Business → 링크 (발급 · **claim** · joined · revoke · **withdraw**, 표시정보 스냅샷 동봉) — 링크 서버는 Kafka 에 붙지 않으므로 `user.withdrawn` 을 받을 방법이 없다. 탈퇴 tombstone 은 **Business → 링크 `POST /internal/users/{id}/withdraw`(서비스 토큰, 멱등·재시도 가능)** 로 전달한다 — 앱의 기존 계약 `POST /api/v1/invite-links/claim` 이 패스스루로 오면 `POST /internal/links/{slug}/claim {userId}`(서비스 토큰)로 전달한다. `link_clicks` 에 유저를 붙이는 일이라 링크 서버만 할 수 있고, 이 경로가 없으면 **설치 매치는 성공해도 최종 귀속이 기록되지 않는다**. **비공개 그룹 가입은 여기서 한 겹 더 필요하다** — 그룹 HLD `01-acquisition/high-level-design.md:70` 은 「가입 가능한 그룹·그룹 일치·미폐기·**발급자 활성 멤버십**을 모두 확인할 때만 허용」을 요구하는데, 트랜잭션을 가진 Data 는 Neon 을 못 읽고 Business 는 링크 확인과 가입을 **별도 호출로 조합**할 수밖에 없어, 그 사이에 발급자가 탈퇴하거나 revoke 가 처리되면 **Data 는 모른 채 멤버십을 만든다**. 그래서 링크 서버가 **서명한 자격**(`slug` · `groupId` · `inviterId` · `membershipVersion` · 만료)을 돌려주고 Business 가 그것을 Data 가입 명령에 실어 보내며, **Data 가 커밋 안에서 현재 그룹 상태·멤버십 버전과 대조**한다 — 검증 결과를 트랜잭션 경계까지 끌고 오는 계약이다 | 링크 → 코어 어떤 것도 |
 | **Data → 링크 (relay 재전달)** — A21 outbox 의 링크 대상 미전달분을 relay 잡이 재호출한다: `user.withdrawn` → `POST /internal/users/{id}/withdraw`, **`link.revoked` → `POST /internal/links/revoke {groupId, inviterId, membershipVersion}`** — **slug 로 지정할 수 없다**: 구 `group_invite_links` 를 제거한 뒤 Data API 는 Neon 을 못 읽어 멤버십 전이 트랜잭션에서 slug 를 알 방법이 없고, 그러면 outbox 행 자체를 만들 수 없어 폐기가 영영 전달되지 않는다. **Data 가 아는 키로 보내고 대상 링크는 링크 서버가 찾는다**(아래 멤버십 버전과 같은 키라 순서 역전 방어와도 맞물린다), **`link.joined` → `POST /internal/links/{slug}/joined`**. joined 를 포함하는 이유는 현 `GroupService.publishJoinAttribution` 이 **커밋 후 fire-and-forget** 으로 발행하기 때문이다 — 가입이 Data 에서 커밋된 직후 응답이 유실되거나 Business 가 죽으면 보낼 주체가 사라져 **가입 귀속·캠페인 전환 데이터가 영구 누락**된다(A21 의 요청형 내구성이 그대로 적용된다). 그래서 멤버십 트랜잭션에서 `link.joined` outbox 행을 함께 만든다. 폐기를 포함하는 이유는 **그룹 탈퇴·강퇴가 Data 트랜잭션에서 커밋된 뒤 Business 의 revoke 호출만 재시도 한도를 넘겨 실패하면 예전 slug 가 계속 살아 있기 때문**이다 — 그룹 HLD(`docs/prd/group/features/01-acquisition/high-level-design.md:83`)는 발급자 탈퇴·강퇴 시 active 링크를 **멤버십 전이와 함께** 폐기하도록 요구하고, 같은 문서 70행대로 비공개 그룹 가입이 slug 유효성에 걸려 있어 폐기 누락은 **비공개 그룹 무단 가입**으로 이어진다. 그래서 **멤버십 전이 트랜잭션에서 `link.revoked` outbox 행을 함께 만든다**. **다만 내구성만으로는 순서 역전을 못 막는다** — 발급자가 멤버십 검사를 통과한 뒤 강퇴되고 `link.revoked` 가 **먼저** 도착하면 폐기할 링크가 없어 멱등 no-op 이 되고, **뒤늦게 도착한 발급이 새 active slug 를 만들어** 이후엔 폐기할 사건조차 없다. 그래서 링크 서버는 **`(groupId, inviterId)` 별 멤버십 tombstone/버전**을 두고 **그보다 오래된 발급을 거부**한다(claim tombstone 과 같은 거부 규칙의 적용). Business 는 크론이 없고(§6) 링크는 Kafka 를 안 쓰므로 **outbox 와 같은 DB 를 가진 Data API 만 재시도할 수 있다**. 이것 외의 Data → 링크 호출은 금지 | Data → 링크 (relay 재전달 외 전부) |
 | 링크(콘솔) → 알림 admin API | 알림 → 링크 (Target-1; `type=push` 링크가 필요해지면 알림 → 링크 호출만, 폴백 스킴) |
 | 앱 → Business, 앱 → 링크(match·referrer) | 앱 → Data · 앱 → 알림 |
@@ -104,7 +104,7 @@ flowchart LR
 - **내부**: 서비스 토큰 5종(A11 ⑥). 호출은 두 종류 — **사용자 위임**(서비스 토큰 + `X-User-Id`)과 **서비스 전용**(토큰만: `/internal/auth/*` · 배치 트리거 · 리컨실). 콘솔 사람 인증은 링크 대시보드의 비밀번호 2겹(D18), 알림 서버는 사람을 모른다.
 - **로그아웃 시 기기 토큰 삭제**는 Business → 알림 `DELETE /internal/devices` 로 반드시 전달한다 — 빠지면 로그아웃한 이전 계정의 푸시가 같은 기기로 계속 간다.
 - **탈퇴 시 알림 DB 정리**: `settings`·`device_tokens`·`user_snapshot`·`bet_participations` 는 `gromo_notification` 소유라 Data API 트랜잭션으로 못 지운다. 탈퇴 커밋 후 **`user.withdrawn` 이벤트 + 알림 서버의 멱등 삭제**(같은 userId 로 여러 번 와도 안전)로 처리하고, **미처리분은 새벽 리컨실이 잡는다**(스냅샷에 있는데 Data API 에 없는 유저 = 삭제 대상). 이 경로가 없으면 탈퇴 후에도 푸시가 계속 간다.
-- **결과 확인(ack) ↔ 대기 중 푸시 직렬화**: 현행 `ChallengeResultAckService.acknowledge` 는 **확인 트랜잭션 안에서** `BetResultAcknowledgedEvent` 의 동기 리스너(`BetResultAckSuppressionListener`)가 대기 중인 알림 클레임·tombstone 을 함께 갱신해, 5분 flush 가 **이미 본 결과를 뒤늦게 보내지 못하게** 막는다. 알림 DB 를 분리하면 그 갱신 대상이 `gromo_notification` 으로 넘어가 **같은 트랜잭션에 담을 수 없고**, ack 를 Kafka 이벤트로만 보내면 Data 커밋과 알림 소비 사이에 flush 가 끼어들어 **사용자가 이미 확인한 결과 푸시를 다시 받는다**. 두 DB 를 한 트랜잭션에 못 넣으므로 **prepare/commit 2단계**로 순서 경계를 만든다: ⓐ **prepare** — Data ack 를 커밋하기 **전에** 알림 서버에 `POST /internal/users/{id}/result-ack/prepare {sessionId}` 를 보내 대기 클레임을 **`HELD`(발송 보류) 로 잠근다**. flush 는 `HELD` 를 건너뛰므로 이 순간부터 발송이 막힌다. ⓑ **Data ack 커밋.** ⓒ **commit** — `.../result-ack/commit` 으로 클레임을 종결한다. 재시도까지 실패하면 `noti_delivered_at` 미표시로 relay 가 이어받는다(멱등). **단순 「동기 종결 1회」로는 안 된다** — Data ack 를 먼저 커밋하면 명령이 나가기 전에 flush 가 발송할 수 있고, 알림 종결을 먼저 하면 뒤이은 Data ack 실패 때 푸시가 **영구 억제**된다. **`HELD` 의 만료는 「발송 재개」가 아니라 「확인 대기」다(fail-closed).** 리스가 지나면 자동 해제되게 두면, prepare 성공 → **Data ack 는 커밋됐는데** 알림 서버 장애로 commit 전달만 리스보다 늦어진 경우 **복구 직후 flush 가 relay 보다 먼저 돌아 이미 확인한 결과를 발송**한다. 그래서 만료된 `HELD` 는 `NEEDS_CONFIRM` 으로 넘어가 **flush 가 계속 건너뛰고**, 해제는 두 경로로만 일어난다 — ⓒ **commit 도착**(정상 종결), 또는 **Data ack 가 실제로 롤백됐을 때 오는 `result-ack/abort`**. abort 도 **같은 outbox 로 내구화**하므로 결국 도착한다(영구 억제로 굳지 않는다). 잠깐 늦게 보내는 것보다 **이미 본 결과를 다시 보내는 쪽이 나쁘다**는 판단이다.
+- **결과 확인(ack) ↔ 대기 중 푸시 직렬화**: 현행 `ChallengeResultAckService.acknowledge` 는 **확인 트랜잭션 안에서** `BetResultAcknowledgedEvent` 의 동기 리스너(`BetResultAckSuppressionListener`)가 대기 중인 알림 클레임·tombstone 을 함께 갱신해, 5분 flush 가 **이미 본 결과를 뒤늦게 보내지 못하게** 막는다. 알림 DB 를 분리하면 그 갱신 대상이 `gromo_notification` 으로 넘어가 **같은 트랜잭션에 담을 수 없고**, ack 를 Kafka 이벤트로만 보내면 Data 커밋과 알림 소비 사이에 flush 가 끼어들어 **사용자가 이미 확인한 결과 푸시를 다시 받는다**. 두 DB 를 한 트랜잭션에 못 넣으므로 **prepare/commit 2단계**로 순서 경계를 만든다: ⓐ **prepare** — Data ack 를 커밋하기 **전에** 알림 서버에 `POST /internal/users/{id}/result-ack/prepare {sessionId}` 를 보내 대기 클레임을 **`HELD`(발송 보류) 로 잠근다**. flush 는 `HELD` 를 건너뛰므로 이 순간부터 발송이 막힌다. ⓑ **Data ack 커밋.** ⓒ **commit** — `.../result-ack/commit` 으로 클레임을 종결한다. 재시도까지 실패하면 `noti_delivered_at` 미표시로 relay 가 이어받는다(멱등). **단순 「동기 종결 1회」로는 안 된다** — Data ack 를 먼저 커밋하면 명령이 나가기 전에 flush 가 발송할 수 있고, 알림 종결을 먼저 하면 뒤이은 Data ack 실패 때 푸시가 **영구 억제**된다. **`HELD` 의 만료는 「발송 재개」가 아니라 「확인 대기」다(fail-closed).** 리스가 지나면 자동 해제되게 두면, prepare 성공 → **Data ack 는 커밋됐는데** 알림 서버 장애로 commit 전달만 리스보다 늦어진 경우 **복구 직후 flush 가 relay 보다 먼저 돌아 이미 확인한 결과를 발송**한다. 그래서 만료된 `HELD` 는 `NEEDS_CONFIRM` 으로 넘어가 **flush 가 계속 건너뛰고**, 해제는 세 경로다 — ⓒ **commit 도착**(정상 종결), **Data ack 가 롤백됐을 때 오는 `result-ack/abort`**(같은 outbox 로 내구화), 그리고 **어느 것도 오지 않을 때의 자기 수렴**: `NEEDS_CONFIRM` 인 클레임은 알림 서버가 **Data 정본에 ack 여부를 조회해**(§3 허용 표의 알림 → Data 두 번째 경로) commit 또는 해제로 스스로 수렴한다. **이 세 번째 경로가 없으면 영구 억제가 실재한다** — Data ack 트랜잭션이 롤백되면 abort 행을 **같은 트랜잭션에 담을 수 없고**, 보상 트랜잭션을 써도 롤백 직후 프로세스가 죽는 구간에서는 행이 아예 안 생긴다. 그러면 ack 는 반영되지도 않았는데 클레임만 영구 제외돼 **사용자가 받아야 할 결과 푸시가 사라진다**. 조회로 수렴하면 어느 쪽으로 죽어도 정본이 답을 준다. 잠깐 늦게 보내는 것보다 **이미 본 결과를 다시 보내는 쪽이 나쁘다**는 판단이다.
 - **탈퇴 경합 차단(tombstone)**: 활성 검사와 위성 쓰기 사이에 탈퇴가 커밋되면, 지연 도착한 기기 토큰 등록·claim 이 **삭제된 유저 데이터를 되살린다**(다음 새벽까지 푸시 가능). 그래서 위성은 삭제 시 **tombstone(`user_id` + `withdrawn_at`)을 남기고, 그 이후 도착한 같은 유저의 쓰기를 거부**한다. 링크 서버도 같은 tombstone 을 갖는다(링크엔 리컨실 경로가 없어 이게 유일한 방어). **tombstone 은 이후 쓰기만 막으므로 그 전에 이미 수락된 claim 은 따로 되돌려야 한다** — 탈퇴 커밋 뒤 지연된 claim 이 withdraw 보다 **먼저** 도착하면 정상 수락되고, `invite_link_clicks.claimed_user_id` 는 현행 계약상 **최초 1회만 기록**이라 나중에 온 withdraw 가 그냥 두면 탈퇴 유저의 귀속이 남는다. 따라서 **withdraw 는 한 트랜잭션에서 ⓐ 그 유저의 기존 claim 을 제거·익명화하고 ⓑ tombstone 을 기록한다**(순서 역전에 무관하게 수렴) — **전달은 Kafka 가 아니라 Business → 링크 `POST /internal/users/{id}/withdraw`** 다(링크는 브로커에 붙지 않는다). 실패 시 재시도하고, **미전달분은 Data API 의 relay 잡이 재호출한다**(§6) — Business API 는 크론을 갖지 않고(§6) 링크 서버는 Kafka 를 소비하지 않으므로, 전달을 되살릴 수 있는 주체는 **탈퇴 트랜잭션과 같은 DB 에 outbox 행을 가진 Data API** 뿐이다. outbox 행은 대상별 전달 표시(`kafka_published_at` · `link_delivered_at`)를 따로 갖고 relay 는 **비어 있는 쪽만** 재시도한다(링크의 withdraw 는 멱등이라 중복 호출이 안전). 탈퇴 이벤트가 늦게 와도 tombstone 이 먼저 도착한 쓰기를 되돌린다 — 순서 보장이 아니라 **거부 규칙**으로 푼다.
 
 ## 6. 배치의 자리 (A4 · A5)
@@ -156,9 +156,9 @@ Business API 는 크론을 갖지 않는다 → 단일/다중 인스턴스 무�
 **백필이 라우팅 전환보다 먼저다.** 링크 서버는 코어를 부를 수 없어 구 `invite_link_clicks` 를 대신 조회할 수단이 없으므로, 전환 순간 Neon 에 없는 클릭은 그대로 `matched:false` 가 되고 **뒤늦은 백필은 이미 나간 응답을 되돌리지 못한다**. 매치 창이 3시간이라 위험 구간은 「전환 직전 3시간의 클릭」 전부다.
 
 1. **구 클릭을 Neon 으로 백필**(§7.1 ②) — 여기까지는 라우팅을 안 건드리므로 언제 해도 안전하다.
-2. **전환 직전 증분 백필을 짧은 주기로 반복**해 미반영 창을 분 단위 → 초 단위까지 좁힌다(`clicked_at > 마지막 커서`, 멱등 upsert).
-3. **구 랜딩을 잠깐 멈춘다(302 아님)** — 구 `/l/{slug}` 를 **짧은 점검 응답으로 세워** 이 순간부터 구 테이블에 새 클릭 행이 생기지 않게 한다. **302 로 바꾸면 안 된다** — 리다이렉트된 클릭은 Neon 에만 쌓이는데 구 `/l/match` 는 아직 구 저장소를 읽으므로, 그 사이 링크를 열고 곧바로 앱으로 돌아온 사용자가 **즉시 `matched:false`** 를 받고 그 응답은 복구되지 않는다. 랜딩이 잠깐 안 열리는 건 사용자가 다시 누르면 되지만, `matched:false` 는 **되돌릴 수 없는 오답**이다(fail-closed 를 택한다).
-4. **랜딩이 멎은 뒤 마지막 증분 백필을 끝까지 돌려 커서가 멈춘 것을 확인한다** — 새 클릭이 없으므로 유한하게 종료된다.
+2. **전환 직전 증분 백필을 짧은 주기로 반복**해 미반영 창을 분 단위 → 초 단위까지 좁힌다. **커서는 `clicked_at` 단독이 아니라 `GREATEST(clicked_at, matched_at, claimed_at)`** 로 잡는다 — `invite_link_clicks` 에는 `updated_at` 이 없고(`V21`), ①~④ 동안 구 `/l/match`·claim 이 **이미 복사된 행의 `matched`·`matched_device_id`·`claimed_user_id` 를 계속 갱신**한다. 새 행만 다시 집으면 Neon 에는 그 행들이 **미매치·미귀속으로 남아** 다른 기기에 재매치되거나 가입 귀속이 유실된다. 멱등 upsert 로 상태 전이까지 덮어쓴다.
+3. **구 랜딩과 함께 구 match·claim 쓰기도 멈춘다(302 아님)** — 구 `/l/{slug}` 를 **짧은 점검 응답으로 세우고**, 같은 창에서 구 `/l/match`·claim 도 함께 세워 **진행 중 트랜잭션이 비워질 때까지 기다린다**. 랜딩만 막으면 새 행은 안 생겨도 **기존 행의 상태 전이는 계속 일어나** 마지막 동기화가 또 뒤처진다. **302 로 바꾸면 안 된다** — 리다이렉트된 클릭은 Neon 에만 쌓이는데 구 `/l/match` 는 아직 구 저장소를 읽으므로, 그 사이 링크를 열고 곧바로 앱으로 돌아온 사용자가 **즉시 `matched:false`** 를 받고 그 응답은 복구되지 않는다. 랜딩이 잠깐 안 열리는 건 사용자가 다시 누르면 되지만, `matched:false` 는 **되돌릴 수 없는 오답**이다(fail-closed 를 택한다).
+4. **쓰기가 전부 멎고 진행 중 트랜잭션이 비워진 뒤 마지막 동기화를 돌린다** — 새 클릭도 상태 전이도 없으므로 유한하게 종료되고, 이 시점의 Neon 이 구 저장소와 **행 단위로 같다**.
 5. **랜딩과 매치를 함께 전환한다** — 둘 다 nginx 설정이므로 **한 설정 변경 + 한 reload** 로 점검 응답을 걷어내며 랜딩·매치를 동시에 링크 서버로 넘긴다. 3~5 는 수십 초 규모의 **한 정지 창**이고, 이 창 안에는 구·신 어느 쪽에도 새 클릭이 없으므로 순서 역전이 성립하지 않는다. 정지 창을 못 만드는 경우에만 차선으로 **그 구간의 매치가 양쪽 저장소를 함께 조회**하게 한다.
 6. 그 뒤로 **구 테이블은 읽지 않는다**.
 7. **롤백하면 전환 창의 클릭은 유실된다** — 되돌릴 수 있는 지점은 3(랜딩 정지) 이전뿐이고, 이후는 roll-forward. 손실 범위는 매치 창과 같은 3시간으로 한정된다(그 사실을 감수하고 전환한다).
@@ -190,7 +190,7 @@ flowchart LR
 
 | 시안 | 이 문서 |
 |---|---|
-| 알림 서버가 Data API 로 템플릿·이력·토큰 왕복 | 알림 DB 별도, 코어 호출은 리컨실 1종 |
+| 알림 서버가 Data API 로 템플릿·이력·토큰 왕복 | 알림 DB 별도, 코어 호출은 조회 2종(리컨실 · ack 수렴) |
 | 이벤트 발행 = Data API | 발행 = 유스케이스를 완료한 프로세스(요청형 Business · 정산형 Data) |
 | MQ(Kafka/SQS)·Redis 첫날부터 | Target-1 = **Kafka 단일 노드 컨테이너**만, Redis 는 Target-2 |
 | `/bff/*` 만 Business, 나머지 133 직행 | **전량 Business 경유**, Data API 공인 노출 0 |
