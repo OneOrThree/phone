@@ -229,6 +229,25 @@ public class RedisFocusPresence implements FocusPresencePort {
     }
 
     @Override
+    public boolean releaseLeaseNow(UUID userId, UUID sessionId) {
+        if (sessionId == null) {
+            log.debug("세션 id 없는 재구축 해제 — 생략, userId={}", userId);
+            return true;
+        }
+        try {
+            // 스크립트가 0 을 돌려주는 경우(그 사이 새 집중이 리스 주인이 됨)도 «성공»이다 —
+            // 남의 리스를 지우지 않는 것이 옳은 결과이고, 다시 시도할 이유가 없다.
+            redis.execute(DELETE_IF_NOT_NEWER, List.of(key(userId), closedKey(userId)),
+                    sessionId.toString(), String.valueOf(CLOSED_TTL.toSeconds()));
+            return true;
+        } catch (RuntimeException e) {
+            // 여기서만 false 다. 부르는 쪽이 다음 회차에 다시 든다.
+            log.warn("집중 프레즌스 재구축 해제 실패 — userId={}", userId, e);
+            return false;
+        }
+    }
+
+    @Override
     public void focusEnded(UUID userId, UUID sessionId) {
         if (sessionId == null) {
             // 어느 리스를 지워야 할지 모르는 채로 지우면 그 사이 시작된 새 집중을 푸는 셈이 된다.

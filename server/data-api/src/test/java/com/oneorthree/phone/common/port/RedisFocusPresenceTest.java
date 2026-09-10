@@ -177,6 +177,55 @@ class RedisFocusPresenceTest {
     }
 
     @Nested
+    @DisplayName("재구축용 해제 — «지웠는가»를 돌려준다")
+    class ReleaseForReconciliation {
+
+        @Test
+        @DisplayName("지우고 true 를 돌려준다")
+        void deletesAndReportsSuccess() {
+            UUID session = sessionId();
+            presence().focusStarted(userId, session, STARTED_AT);
+
+            assertThat(presence().releaseLeaseNow(userId, session)).isTrue();
+            assertThat(redis.hasKey(key)).isFalse();
+        }
+
+        @Test
+        @DisplayName("지울 것이 없어도 true 다 — 그 사이 새 집중이 주인이 됐으면 «안 지우는 것»이 옳다")
+        void nothingToDeleteIsStillSuccess() {
+            // UUID v7 이라 «먼저 뽑힌 것이 더 오래된» id 다.
+            UUID olderSession = sessionId();
+            UUID newerSession = sessionId();
+            // 그 사이 새 집중이 시작해 리스 주인이 «더 새로운» 세션으로 바뀐 상황.
+            presence().focusStarted(userId, newerSession, STARTED_AT);
+
+            // 옛 세션의 해제는 그 리스를 건드리면 안 된다 — 그래도 재시도할 이유가 없으므로 성공이다.
+            assertThat(presence().releaseLeaseNow(userId, olderSession)).isTrue();
+            assertThat(redis.opsForValue().get(key)).isEqualTo(newerSession.toString());
+        }
+
+        @Test
+        @DisplayName("Redis 가 닿지 않으면 false 다 — 부르는 쪽이 다음 회차에 다시 든다")
+        void reportsFailureWhenRedisIsDown() {
+            LettuceConnectionFactory dead = new LettuceConnectionFactory("127.0.0.1", 1);
+            dead.afterPropertiesSet();
+            StringRedisTemplate deadTemplate = new StringRedisTemplate(dead);
+            deadTemplate.afterPropertiesSet();
+
+            assertThat(new RedisFocusPresence(deadTemplate, CLOCK).releaseLeaseNow(userId, sessionId()))
+                    .isFalse();
+
+            dead.destroy();
+        }
+
+        @Test
+        @DisplayName("세션 id 가 없으면 true 다 — 다시 시도해도 지울 대상을 알 수 없다")
+        void unknownSessionIsNotRetried() {
+            assertThat(presence().releaseLeaseNow(userId, null)).isTrue();
+        }
+    }
+
+    @Nested
     @DisplayName("리스는 «시작한 지» 13시간에 만료한다 — 놓은 지가 아니라")
     class LeaseExpiresFromStart {
 

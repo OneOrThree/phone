@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * 기동 시 <b>DB 정본에서 집중 프레즌스 리스를 재구축</b>한다 (GROMO-292).
@@ -262,16 +263,28 @@ public class FocusPresenceReconciler {
             log.error("집중 프레즌스 되묻기 실패 — 다음 회차에 다시 시도한다(대기 {}건)", pendingRecheck.size(), e);
             return;
         }
-        // 확인이 끝났으므로 대기 목록에서 뺀다. 아직 진행 중인 것은 다음 회차의 재구축이 다시 싣는다.
-        candidates.forEach(pendingRecheck::remove);
+        Set<UUID> endedIds = ended.stream().map(FocusSession::getId).collect(Collectors.toSet());
+        // 아직 «진행 중»으로 확인된 후보는 여기서 뺀다 — 다음 회차의 재구축이 다시 싣는다.
+        candidates.stream().filter(id -> !endedIds.contains(id)).forEach(pendingRecheck::remove);
 
+        int reclaimed = 0;
         for (FocusSession session : ended) {
-            if (session.getUser() != null) {
-                focusPresencePort.focusEnded(session.getUser().getId(), session.getId());
+            // 「지웠는가」를 확인하고 뺀다. 조회가 성공해도 해제가 실패할 수 있는데(그쪽은 별개의
+            // Redis 연산이다), 그걸 성공으로 치고 빼면 그 세션은 진행 중 조회에도 안 잡히고
+            // 대기 목록에도 없어 «아무도» 리스를 못 치운다 — 시작 기준 13시간 차단이다.
+            boolean released = session.getUser() != null
+                    && focusPresencePort.releaseLeaseNow(session.getUser().getId(), session.getId());
+            if (released || session.getUser() == null) {
+                // 유저가 끊긴 행은 누구의 리스인지 알 수 없어 다시 시도해도 소용이 없다.
+                pendingRecheck.remove(session.getId());
+                reclaimed += released ? 1 : 0;
+            } else {
+                rememberForNextCycle(List.of(session.getId()));
             }
         }
         if (!ended.isEmpty()) {
-            log.info("집중 프레즌스 되묻기 — 그 사이 끝난 세션 {}건 회수", ended.size());
+            log.info("집중 프레즌스 되묻기 — 끝난 세션 {}건 중 {}건 회수(대기 {}건)",
+                    ended.size(), reclaimed, pendingRecheck.size());
         }
     }
 

@@ -5,6 +5,7 @@ import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.user.repository.domain.User;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -74,6 +75,12 @@ class FocusPresenceReconcilerTest {
 
     /** 트랜잭션 경계를 흉내만 낸다 — 이 클래스가 검증하려는 것은 경계의 «위치»지 트랜잭션 자체가 아니다. */
     private final TransactionOperations transactions = TransactionOperations.withoutTransaction();
+
+    @BeforeEach
+    void releaseSucceedsByDefault() {
+        // 대부분의 테스트는 「지워졌다」를 전제한다. 「못 지웠다」는 아래 전용 테스트가 본다.
+        given(focusPresencePort.releaseLeaseNow(any(), any())).willReturn(true);
+    }
 
     private FocusPresenceReconciler reconciler(AsyncTaskExecutor executor) {
         return new FocusPresenceReconciler(focusSessionRepository, focusPresencePort, transactions,
@@ -198,8 +205,8 @@ class FocusPresenceReconcilerTest {
         verify(focusPresencePort).restoreLeaseIfMissing(stillFocusing, open.getId(), open.getStartedAt());
         verify(focusPresencePort).restoreLeaseIfMissing(justEnded, ended.getId(), ended.getStartedAt());
         // 끝난 쪽만 회수한다 — 진행 중인 쪽을 함께 풀면 규칙이 통째로 사라진다.
-        verify(focusPresencePort).focusEnded(justEnded, ended.getId());
-        verify(focusPresencePort, never()).focusEnded(eq(stillFocusing), any());
+        verify(focusPresencePort).releaseLeaseNow(justEnded, ended.getId());
+        verify(focusPresencePort, never()).releaseLeaseNow(eq(stillFocusing), any());
     }
 
     @Test
@@ -210,6 +217,28 @@ class FocusPresenceReconcilerTest {
         reconciler(INLINE).onApplicationReady();
 
         verify(focusSessionRepository, never()).findByIdInAndEndedAtIsNotNull(any());
+    }
+
+    @Test
+    @DisplayName("해제가 «실패»하면 다음 회차에 다시 든다 — 조회 성공과 해제 성공은 다른 연산이다")
+    void aFailedReleaseIsRetriedOnTheNextCycle() {
+        UUID userId = UUID.randomUUID();
+        FocusSession open = openMarker(userId);
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of(open));
+        given(focusSessionRepository.findByIdInAndEndedAtIsNotNull(any())).willReturn(List.of(open));
+        // 조회는 성공했는데 리스 삭제만 타임아웃 — Redis 가 간헐적으로 흔들릴 때의 모습이다.
+        given(focusPresencePort.releaseLeaseNow(userId, open.getId())).willReturn(false);
+
+        FocusPresenceReconciler reconciler = reconciler(INLINE);
+        reconciler.reconcilePeriodically();
+
+        // 다음 회차: 그 세션은 진행 중 조회에 안 잡힌다. 대기 목록이 잡아 주지 않으면 영영 끝이다.
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
+        willReturn(true).given(focusPresencePort).releaseLeaseNow(userId, open.getId());
+
+        reconciler.reconcilePeriodically();
+
+        verify(focusPresencePort, times(2)).releaseLeaseNow(userId, open.getId());
     }
 
     @Test
@@ -240,7 +269,7 @@ class FocusPresenceReconcilerTest {
         verify(focusSessionRepository, times(2)).findByIdInAndEndedAtIsNotNull(asked.capture());
         assertThat(asked.getAllValues().get(1)).contains(open.getId());
         // 그리고 실제로 회수된다.
-        verify(focusPresencePort).focusEnded(userId, open.getId());
+        verify(focusPresencePort).releaseLeaseNow(userId, open.getId());
     }
 
     @Test

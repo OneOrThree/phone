@@ -35,6 +35,13 @@ public class NoOpFocusPresence implements FocusPresencePort {
     }
 
     @Override
+    public boolean releaseLeaseNow(UUID userId, UUID sessionId) {
+        log.debug("NoOp 프레즌스 — 재구축 해제 무시, userId={} sessionId={}", userId, sessionId);
+        // 다시 시도하게 두면 대기 목록이 영영 안 빈다 — 놓는 것이 없으니 지울 것도 없다.
+        return true;
+    }
+
+    @Override
     public void focusEnded(UUID userId, UUID sessionId) {
         log.debug("NoOp 프레즌스 — 집중 종료 무시, userId={} sessionId={}", userId, sessionId);
     }
