@@ -10,7 +10,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -169,27 +171,61 @@ public class RedisFocusPresence implements FocusPresencePort {
 
     private final StringRedisTemplate redis;
 
+    /** 남은 리스 수명을 재는 시계. 벽시계를 직접 부르면 테스트가 시간에 묶인다. */
+    private final Clock clock;
+
     @Override
-    public void focusStarted(UUID userId, UUID sessionId) {
+    public void focusStarted(UUID userId, UUID sessionId, Instant startedAt) {
         if (sessionId == null) {
             // 가리킬 세션이 없으면 순서를 정할 근거도 없다. 무조건 쓰면 늦게 도착한 옛 시작이
             // 진행 중인 새 집중을 덮어써, 종료가 «자기 것»을 못 알아보고 리스가 남는다.
             log.debug("세션 id 없는 집중 시작 — 프레즌스 생략, userId={}", userId);
             return;
         }
+        long ttlSeconds = remainingLeaseSeconds(startedAt);
+        if (ttlSeconds <= 0) {
+            // 이 마커는 이미 백스톱을 넘겼다. 지금 놓으면 «지금부터» 다시 살아나는 리스가 된다.
+            log.debug("백스톱을 넘긴 마커 — 프레즌스 생략, userId={} sessionId={}", userId, sessionId);
+            return;
+        }
         afterCommit(() -> redis.execute(SET_IF_NEWER, List.of(key(userId), closedKey(userId)),
-                sessionId.toString(), String.valueOf(LEASE_TTL.toSeconds())), "리스 설정", userId);
+                sessionId.toString(), String.valueOf(ttlSeconds)), "리스 설정", userId);
     }
 
     @Override
-    public void restoreLeaseIfMissing(UUID userId, UUID sessionId) {
+    public void restoreLeaseIfMissing(UUID userId, UUID sessionId, Instant startedAt) {
         if (sessionId == null) {
             log.debug("세션 id 없는 재구축 요청 — 생략, userId={}", userId);
             return;
         }
+        long ttlSeconds = remainingLeaseSeconds(startedAt);
+        if (ttlSeconds <= 0) {
+            log.debug("백스톱을 넘긴 마커 — 재구축 생략, userId={} sessionId={}", userId, sessionId);
+            return;
+        }
         // 커밋을 기다리지 않는다 — 이미 커밋된 정본을 읽어 미러를 맞추는 작업이라 되돌려질 게 없다.
         run(() -> redis.execute(SET_IF_ABSENT, List.of(key(userId), closedKey(userId)),
-                sessionId.toString(), String.valueOf(LEASE_TTL.toSeconds())), "리스 재구축", userId);
+                sessionId.toString(), String.valueOf(ttlSeconds)), "리스 재구축", userId);
+    }
+
+    /**
+     * {@code startedAt + }{@link #LEASE_TTL} <b>까지</b> 남은 초.
+     *
+     * <p>「지금부터 13시간」이 아니라 「시작한 지 13시간」이다. 전자로 잡으면 <b>늦게 놓을수록 백스톱이
+     * 뒤로 밀린다</b> — 재구축이 11시간 59분 된 집중의 리스를 그때 처음 놓으면 만료가 시작 기준
+     * 25시간이 되어, 고아 스윕이 멈춘 동안 이미 끝난 집중이 하루 넘게 채팅을 막는다. 백스톱의 정의는
+     * 「그 집중이 시작한 지 13시간」이다.
+     *
+     * <p>{@code startedAt} 이 없으면(있어선 안 되지만) 순서를 정할 근거가 없는 경우와 같이 취급해
+     * 아무것도 쓰지 않는다 — 0 을 돌려준다.
+     *
+     * @return 남은 초. 0 이하면 <b>쓰지 않는다</b>
+     */
+    private long remainingLeaseSeconds(Instant startedAt) {
+        if (startedAt == null) {
+            return 0;
+        }
+        return Duration.between(clock.instant(), startedAt.plus(LEASE_TTL)).toSeconds();
     }
 
     @Override

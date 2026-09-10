@@ -2574,7 +2574,7 @@ class FocusServiceTest {
         focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, null));
 
         // then
-        verify(focusPresencePort).focusStarted(eq(USER_ID), any());
+        verify(focusPresencePort).focusStarted(eq(USER_ID), any(), any());
     }
 
     @Test
@@ -2600,7 +2600,9 @@ class FocusServiceTest {
         verify(focusSessionRepository, never()).save(any(FocusSession.class));
         // 새 마커를 안 만들었으므로 «열려 있던 그 마커»의 id 를 실어야 한다 — 그래야 그 마커의 종료가
         // 「내가 놓은 리스」를 알아보고 지운다.
-        verify(focusPresencePort).focusStarted(USER_ID, SESSION_ID);
+        // 그리고 «그 마커가 시작한 시각»을 실어야 한다 — 리스는 놓는 시점이 아니라 시작 시점 기준으로
+        // 만료한다. 여기서 now 를 실으면 오래 열려 있던 마커의 백스톱이 뒤로 밀린다.
+        verify(focusPresencePort).focusStarted(USER_ID, SESSION_ID, NOW);
     }
 
     @Test
@@ -2622,7 +2624,7 @@ class FocusServiceTest {
 
         // 닫힌 이전 마커의 해제 + 새 마커의 리스, 둘 다.
         verify(focusPresencePort).focusEnded(USER_ID, SESSION_ID);
-        verify(focusPresencePort).focusStarted(eq(USER_ID), any());
+        verify(focusPresencePort).focusStarted(eq(USER_ID), any(), any());
     }
 
     @Test
@@ -2635,7 +2637,7 @@ class FocusServiceTest {
         // when & then
         assertThatThrownBy(() -> focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, START)))
                 .isInstanceOf(UserException.class);
-        verify(focusPresencePort, never()).focusStarted(any(), any());
+        verify(focusPresencePort, never()).focusStarted(any(), any(), any());
     }
 
     @Test

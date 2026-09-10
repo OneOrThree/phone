@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -24,12 +25,12 @@ import java.util.UUID;
 public class NoOpFocusPresence implements FocusPresencePort {
 
     @Override
-    public void focusStarted(UUID userId, UUID sessionId) {
+    public void focusStarted(UUID userId, UUID sessionId, Instant startedAt) {
         log.debug("NoOp 프레즌스 — 집중 시작 무시, userId={} sessionId={}", userId, sessionId);
     }
 
     @Override
-    public void restoreLeaseIfMissing(UUID userId, UUID sessionId) {
+    public void restoreLeaseIfMissing(UUID userId, UUID sessionId, Instant startedAt) {
         log.debug("NoOp 프레즌스 — 재구축 무시, userId={} sessionId={}", userId, sessionId);
     }
 

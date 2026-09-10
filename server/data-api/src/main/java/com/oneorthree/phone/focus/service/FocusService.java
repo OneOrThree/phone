@@ -906,7 +906,8 @@ public class FocusService {
             // 영구 유실된다. null 이면 앱이 uploadFocusBlock 의 '마커 없음' 경로로 곧바로 POST 한다.
             // 집중 프레즌스 리스 (GROMO-292) — 마커를 «새로 만들지 않았을 뿐» 이 사람은 집중 중이다.
             // 그 열린 마커의 id 를 싣는다: 값이 세션 id 여야 종료가 「내가 놓은 리스」를 알아본다.
-            focusPresencePort.focusStarted(userId, liveMarker.get().getId());
+            focusPresencePort.focusStarted(userId, liveMarker.get().getId(),
+                    liveMarker.get().getStartedAt());
             return new FocusSessionStartResponse(null, startedAt);
         }
 
@@ -934,7 +935,7 @@ public class FocusService {
 
         // 집중 프레즌스 리스 (GROMO-292) — 채팅이 「집중 중엔 못 들어온다」를 판정하는 근거다.
         // 반영은 커밋 이후이고(RedisFocusPresence), 이 트랜잭션이 롤백되면 콜백 자체가 돌지 않는다.
-        focusPresencePort.focusStarted(userId, saved.getId());
+        focusPresencePort.focusStarted(userId, saved.getId(), saved.getStartedAt());
 
         return new FocusSessionStartResponse(saved.getId(), saved.getStartedAt());
     }

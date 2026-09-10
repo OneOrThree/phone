@@ -87,8 +87,8 @@ class FocusPresenceReconcilerTest {
 
         reconciler(INLINE).onApplicationReady();
 
-        verify(focusPresencePort).restoreLeaseIfMissing(firstUser, first.getId());
-        verify(focusPresencePort).restoreLeaseIfMissing(secondUser, second.getId());
+        verify(focusPresencePort).restoreLeaseIfMissing(firstUser, first.getId(), first.getStartedAt());
+        verify(focusPresencePort).restoreLeaseIfMissing(secondUser, second.getId(), second.getStartedAt());
     }
 
     @Test
@@ -115,7 +115,7 @@ class FocusPresenceReconcilerTest {
 
         reconciler(INLINE).onApplicationReady();
 
-        verify(focusPresencePort, never()).restoreLeaseIfMissing(any(), any());
+        verify(focusPresencePort, never()).restoreLeaseIfMissing(any(), any(), any());
     }
 
     @Test
@@ -125,7 +125,7 @@ class FocusPresenceReconcilerTest {
 
         reconciler(INLINE).onApplicationReady();
 
-        verify(focusPresencePort, never()).restoreLeaseIfMissing(any(), any());
+        verify(focusPresencePort, never()).restoreLeaseIfMissing(any(), any(), any());
     }
 
     @Test
@@ -189,8 +189,8 @@ class FocusPresenceReconcilerTest {
 
         reconciler(INLINE).onApplicationReady();
 
-        verify(focusPresencePort).restoreLeaseIfMissing(stillFocusing, open.getId());
-        verify(focusPresencePort).restoreLeaseIfMissing(justEnded, ended.getId());
+        verify(focusPresencePort).restoreLeaseIfMissing(stillFocusing, open.getId(), open.getStartedAt());
+        verify(focusPresencePort).restoreLeaseIfMissing(justEnded, ended.getId(), ended.getStartedAt());
         // 끝난 쪽만 회수한다 — 진행 중인 쪽을 함께 풀면 규칙이 통째로 사라진다.
         verify(focusPresencePort).focusEnded(justEnded, ended.getId());
         verify(focusPresencePort, never()).focusEnded(eq(stillFocusing), any());
@@ -227,7 +227,7 @@ class FocusPresenceReconcilerTest {
         // 기동 리스너와 달리 «제자리에서» 돈다 — 스케줄러 풀이 이미 별도 스레드다.
         reconciler(NEVER_RUNS).reconcilePeriodically();
 
-        verify(focusPresencePort).restoreLeaseIfMissing(userId, open.getId());
+        verify(focusPresencePort).restoreLeaseIfMissing(userId, open.getId(), open.getStartedAt());
     }
 
     @Test

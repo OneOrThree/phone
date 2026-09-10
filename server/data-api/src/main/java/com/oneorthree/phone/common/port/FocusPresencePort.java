@@ -1,5 +1,6 @@
 package com.oneorthree.phone.common.port;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -32,17 +33,24 @@ import java.util.UUID;
  * 「내가 놓은 그 세션일 때만」. 세션 id 가 UUID v7(시간 정렬)이라 「더 새로움」을 값 비교로 판정할 수 있다.
  *
  * <p>읽는 쪽(채팅)은 여전히 <b>존재 여부만</b> 본다 — 값의 의미는 쓰는 쪽만 안다.
+ *
+ * <h2>리스는 «언제나» {@code startedAt + 리스 수명} 에 만료한다</h2>
+ * 그래서 두 쓰기 메서드가 모두 {@code startedAt} 을 받는다. 「놓는 시점부터 N시간」으로 잡으면
+ * <b>늦게 놓을수록 백스톱이 뒤로 밀린다</b> — 11시간 59분 된 집중을 재구축이 그때 처음 놓으면 만료가
+ * 시작 기준 25시간이 되어, 고아 스윕이 멈춘 동안 <b>이미 끝난 집중이 하루 넘게 채팅을 막는다.</b>
+ * 백스톱의 정의는 「그 집중이 시작한 지 N시간」이지 「리스를 놓은 지 N시간」이 아니다.
  */
 public interface FocusPresencePort {
 
     /**
      * 집중이 시작됐다 — 리스를 놓는다.
      *
+     * @param startedAt 그 마커가 «시작한» 시각. 리스의 만료 기준이다 — 아래 참조
      * @param sessionId 이 시작이 가리키는 <b>진행 중 마커</b>의 id. 새로 만든 마커이거나(정상 경로),
      *                  이미 열려 있어 새로 만들지 않은 마커의 id다(순서 역전 방어 경로). 이 값보다
      *                  <b>오래된</b> 세션의 쓰기는 무시되므로, 늦게 도착한 옛 시작이 새 집중을 덮지 않는다
      */
-    void focusStarted(UUID userId, UUID sessionId);
+    void focusStarted(UUID userId, UUID sessionId, Instant startedAt);
 
     /**
      * <b>재구축</b> — 정본에 진행 중인 집중이 있는데 리스가 «없을 때만» 놓는다.
@@ -59,10 +67,12 @@ public interface FocusPresencePort {
      * <p>실패는 여기서도 삼킨다 — 재구축은 <b>주기적으로</b> 돌아서, 이번에 못 놓은 리스는 다음
      * 회차가 놓는다. 그게 「Redis 가 살아난 뒤에 누가 다시 시도하는가」에 대한 답이다.
      *
+     * @param startedAt 그 마커가 시작한 시각. 리스는 «놓는 시점»이 아니라 <b>이 시각</b>을 기준으로
+     *                  만료한다 — 그러지 않으면 백스톱이 늘어난다(아래 참조)
      * @param sessionId 정본에서 읽은 진행 중 마커의 id. 그 사이 세션이 끝났다면 그 종료가 남긴
      *                  표식에 걸려 쓰기가 거부된다 — 끝난 집중이 되살아나지 않는다
      */
-    void restoreLeaseIfMissing(UUID userId, UUID sessionId);
+    void restoreLeaseIfMissing(UUID userId, UUID sessionId, Instant startedAt);
 
     /**
      * 집중이 끝났다(정상 종료·취소·POST 폴백 선점·고아 스윕) — 리스를 지운다.

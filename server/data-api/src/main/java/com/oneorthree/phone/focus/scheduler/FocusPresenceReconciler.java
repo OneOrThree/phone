@@ -201,7 +201,8 @@ public class FocusPresenceReconciler {
         List<UUID> restored = new ArrayList<>();
         for (FocusSession session : alive) {
             if (session.getUser() != null) {
-                focusPresencePort.restoreLeaseIfMissing(session.getUser().getId(), session.getId());
+                focusPresencePort.restoreLeaseIfMissing(session.getUser().getId(), session.getId(),
+                        session.getStartedAt());
                 restored.add(session.getId());
             }
         }
