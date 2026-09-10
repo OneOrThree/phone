@@ -225,6 +225,23 @@ class ChatControllerTest {
                 .andExpect(status().isOk());
     }
 
+    @Test
+    @DisplayName("매핑 없는 경로는 404 다 — 그물에 걸리면 오타 URL 하나가 «서버 장애»로 기록된다")
+    void unknownPathIsNotFound() throws Exception {
+        // 컨테이너를 실제로 띄워 보고서야 드러난 결함이다. /actuator/health 를 본 포트로 치는 흔한
+        // 실수와 스캐너의 임의 경로가 전부 500 + error 스택트레이스였다.
+        mockMvc.perform(get("/nope"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("관리 엔드포인트는 본 포트에 없다 — 포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단이다")
+    void actuatorIsNotOnTheMainPort() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isNotFound());
+    }
+
     /** 그 섬에 메시지 한 건을 심는다. 읽음 커서 검증이 «실제 행»을 요구하므로 필요하다. */
     private ChatMessage messageIn(UUID groupId) {
         return chatMessageRepository.saveAndFlush(ChatMessage.builder()

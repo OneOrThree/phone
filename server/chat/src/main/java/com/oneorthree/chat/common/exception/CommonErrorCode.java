@@ -29,6 +29,9 @@ public enum CommonErrorCode implements ErrorCode {
      */
     UPSTREAM_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "잠시 후 다시 시도해 주세요."),
 
+    /** 그런 경로가 없다. 어떤 경로가 있는지는 본문에 싣지 않는다 — 탐색을 도울 이유가 없다. */
+    NOT_FOUND(HttpStatus.NOT_FOUND, "요청하신 경로를 찾을 수 없습니다."),
+
     /** 위 어디에도 안 걸린 예외. 원인 문자열은 로그에만 남기고 본문에는 절대 싣지 않는다. */
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "일시적인 오류가 발생했습니다.");
 
