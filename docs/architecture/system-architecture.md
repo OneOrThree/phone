@@ -56,7 +56,7 @@ flowchart TB
 
 | 경로 | 대상 | 인증 |
 |---|---|---|
-| `/api/v1/auth/**` — 소셜 로그인 6종 · 게스트 · refresh · logout | business-api | **없음 (pre-auth)** — AT 발급 **전**에 호출하는 경로다. 앱 현행 계약이 `/api/v1/auth/*` 이므로 Target-1 도 이 접두를 유지한다(경로를 `/auth/**` 로 옮기려면 배포된 앱이 있어 이관 절차가 따로 필요). 현 `JwtFilter` 화이트리스트 8종이 여기로 옮겨온다 |
+| `/api/v1/auth/**` — 소셜 로그인 6종 · 게스트 · refresh · logout | business-api | **없음 (pre-auth)** — AT 발급 **전**에 호출하는 경로다. 앱 현행 계약이 `/api/v1/auth/*` 이므로 Target-1 도 이 접두를 유지한다(경로를 `/auth/**` 로 옮기려면 배포된 앱이 있어 이관 절차가 따로 필요). 현 `JwtFilter` 화이트리스트 8종이 여기로 옮겨온다. **단 소셜 로그인은 「무인증」이 아니라 「선택적 인증」이다** — AT 가 실려 오면 `access` 타입인지 검증해 그 `userId` 를 Data 로그인 명령에 넘겨야 **게스트 → 소셜 승격**이 성립한다(순수 익명으로 구현하면 새 `User` 가 생겨 기존 기록을 잃는다, 서비스 §5) |
 | 그 외 `/api/v1/**` · `/bff/**` | business-api | JWT (Business API 서명 검증) |
 | `/internal/admin/**` | notification | 서비스 토큰(콘솔 전용). Vercel egress IP 는 가변이라 IP 허용 목록 없음 |
 | `/health` | business-api (각 서비스 헬스는 compose 내부) | 없음 |
