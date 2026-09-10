@@ -91,12 +91,14 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | 시크릿 | 보유 |
 |---|---|
 | `JWT_SECRET` | business-api **만** |
+| **`APPLE_CLIENT_ID` · `GOOGLE_CLIENT_ID`**(+ 그 밖의 provider 설정) | **business-api** — IdP 토큰 검증을 옮겼으므로 함께 옮긴다. 현 `application-prod.yml:39·46` 이 **기본값 없는 필수 주입**이라 빠뜨리면 placeholder 해석 단계에서 **기동 자체가 실패**하고 해당 소셜 로그인이 전부 중단된다 |
 | `DB_URL/USER/PASS` (gromo) | data-api |
 | `NOTI_DB_URL/USER/PASS` (gromo_notification) | notification |
 | `FCM_SERVICE_ACCOUNT_JSON_BASE64` | notification **만** (data-api 에서 제거) |
 | `SVC_TOKEN_BIZ_TO_DATA` · **`SVC_TOKEN_NOTI_TO_DATA`**(리컨실 — 서비스 전용 호출) · `SVC_TOKEN_TO_NOTI`(Business/Data → 알림: 이벤트·기기 토큰·설정 명령) · `SVC_TOKEN_CONSOLE_TO_NOTI` · **`SVC_TOKEN_TO_LINK`(발신 = business-api **와** data-api 둘 다 — relay 의 withdraw 재전달, §3 허용 표)** | 발신·수신 양쪽 |
 | 콘솔 비밀번호 4개(해시) | Vercel env (링크 레포) |
 | `LINK_IP_SALT` · SKAN 키 | 링크 서버 (Vercel env) — **기존 운영 값을 그대로 복사한다(새로 생성 금지)** |
+| **`LINK_CAPABILITY_KEY`**(§3 비공개 가입 자격 서명) | **링크 서버(발급) 와 data-api(검증) 양쪽** — HMAC 공유 비밀 또는 링크 서버 개인키/Data 공개키 쌍. 없으면 Data 는 자격의 발급자를 확인할 수 없어 **가입을 전부 실패시키거나, 서명을 안 보고 클라이언트가 준 `groupId`·`inviterId`·`membershipVersion` 을 믿어 비공개 그룹 가입이 우회**된다. **회전은 구·신 키 병행 검증 기간을 두고**(자격 만료보다 긴 창) 그 뒤 구 키를 폐기한다 |
 | **`LINK_PROXY_SECRET`**(§2.1 의 프록시 전용 공유 시크릿) | **nginx 와 링크 서버 양쪽** — 서비스 토큰과 별개다. 이게 없으면 legacy `/l/match` 프록시가 신뢰 가능한 전달 IP 를 못 실어 링크 서버가 Vercel 이 본 EC2 주소로 해시하고, **정상 클릭도 `matched:false`** 가 된다 |
 
 prod 는 Secrets Manager(`gromo/prod/env` JSON), dev 는 GCP 메타데이터/env — 현행 방식에 키만 추가.
