@@ -30,7 +30,15 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ChatMessageService {
 
-    /** 본문 길이 상한. DB 컬럼도 같은 값이지만 <b>거절은 여기서</b> 한다 — DB 까지 가면 500 이 된다. */
+    /**
+     * 본문 길이 상한. DB 컬럼({@code varchar(2000)})도 같은 값이지만 <b>거절은 여기서</b> 한다 —
+     * DB 까지 가면 400 이 아니라 500 이 된다.
+     *
+     * <p>두 상한의 «단위»가 다르다는 점이 안전한 방향으로 작용한다: 자바 {@code length()} 는 UTF-16
+     * 단위이고 Postgres 의 varchar 길이는 문자 수라, 이모지처럼 대리쌍을 쓰는 문자는 자바가 2, DB 가
+     * 1 로 센다. 즉 <b>여기를 통과한 문자열이 컬럼을 넘칠 수는 없다</b>(반대로 이모지만 있는 긴 글은
+     * 실제 문자 수가 상한에 못 미쳐도 거절될 수 있는데, 그건 수용한다).
+     */
     public static final int MAX_CONTENT_LENGTH = 2000;
 
     /** 히스토리 한 페이지 기본 크기. */

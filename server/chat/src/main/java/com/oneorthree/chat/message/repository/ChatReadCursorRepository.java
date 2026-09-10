@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -32,10 +33,16 @@ public interface ChatReadCursorRepository extends JpaRepository<ChatReadCursor, 
      * <p>{@code WHERE} 절이 거짓이면(= 뒤로 가는 요청) 아무 행도 바뀌지 않고 <b>예외도 나지 않는다</b>.
      * 호출부는 그걸 정상으로 다룬다 — 「이미 더 읽었다」는 실패가 아니다.
      *
+     * <p>{@code @Transactional} 이 <b>여기</b> 붙어 있다. {@code @Modifying} 네이티브 쿼리는 쓰기
+     * 트랜잭션을 요구하는데(조회 계열과 달리 리포지토리 기본값이 열어 주지 않는다), 그걸 서비스에
+     * 붙이면 관문의 Redis·HTTP 호출까지 트랜잭션 안으로 끌려 들어와 DB 커넥션을 쥔 채 네트워크를
+     * 기다리게 된다. 문장 하나짜리 트랜잭션은 문장 옆에 두는 편이 좁다.
+     *
      * @param id 새로 만들 때 쓸 PK. 갱신 경로에서는 무시된다 — 그래서 호출부가 매번 새 UUID v7 을
      *           만들어 넘겨도 기존 행의 id 는 바뀌지 않는다
      * @return 실제로 바뀐 행 수(0 또는 1)
      */
+    @Transactional
     @Modifying
     @Query(value = """
             INSERT INTO chat_read_cursors (id, group_id, user_id, last_read_message_id, updated_at)

@@ -9,7 +9,6 @@ import com.oneorthree.chat.message.repository.ChatReadCursorRepository;
 import com.oneorthree.chat.message.repository.domain.ChatMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -47,9 +46,13 @@ public class ChatRoomService {
      * <p>쿼리는 그룹 수와 무관하게 3회다(멤버십 1 + 마지막 메시지 1 + 안 읽음 1). 방마다 도는 모양으로
      * 바꾸면 섬이 늘수록 선형으로 느려진다.
      *
+     * <p><b>트랜잭션을 열지 않는다.</b> 관문과 멤버십 조회가 Redis·서버 간 HTTP 를 타는데, 그걸
+     * 트랜잭션 안에 넣으면 <b>DB 커넥션을 쥔 채 네트워크를 기다린다</b> — 상류가 느려지는 순간
+     * 커넥션 풀이 마르고, 그러면 채팅과 무관한 조회까지 같이 멈춘다. 두 집계 쿼리를 한 스냅샷으로
+     * 묶을 이유도 없다(화면 목록이라 약간의 어긋남이 무해하다).
+     *
      * @return 마지막 말이 최근인 섬부터. 아직 아무 말도 없는 섬은 맨 뒤로 밀린다
      */
-    @Transactional(readOnly = true)
     public List<ChatRoomResponse> myRooms(UUID userId, String bearerToken) {
         accessGuard.requireNotFocusing(userId);
 
@@ -93,8 +96,10 @@ public class ChatRoomService {
      *
      * <p>새 행에 쓸 id 를 여기서 만들어 넘긴다. 엔티티를 저장하는 게 아니라 native UPSERT 라
      * Hibernate 의 id 생성기가 개입하지 않기 때문이다 — 같은 UUID v7 을 써야 PK 정렬 관례가 유지된다.
+     *
+     * <p>여기도 트랜잭션을 열지 않는다({@code myRooms} 와 같은 이유). 쓰기는 UPSERT 한 문장이고,
+     * 그 문장의 트랜잭션은 리포지토리 메서드가 스스로 연다.
      */
-    @Transactional
     public void markRead(UUID groupId, UUID userId, UUID lastReadMessageId, String bearerToken) {
         accessGuard.requireCanChat(groupId, userId, bearerToken);
 
