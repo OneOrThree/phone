@@ -170,6 +170,22 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
+    @DisplayName("SEND — 36자지만 UUID 가 아닌 목적지는 «관문»에서 거절한다. 안 그러면 연결이 끊긴다")
+    void malformedGroupIdInSendDestination() {
+        // 관문이 안 거르면 컨트롤러의 @DestinationVariable UUID 변환이 메시징 계층의
+        // MethodArgumentTypeMismatchException 을 던지는데, 그 타입은 handleInvalidPayload 가 잡는
+        // 둘에 없어서 ERROR 프레임 + 연결 종료로 이어진다 — 오타 하나가 세션을 죽인다.
+        StompHeaderAccessor accessor = accessor(StompCommand.SEND);
+        accessor.setUser(new ChatPrincipal(userId, BEARER));
+        accessor.setDestination("/app/groups/" + "-".repeat(36) + "/send");
+
+        assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.INVALID_REQUEST);
+    }
+
+    @Test
     @DisplayName("SEND — 인증된 세션은 통과한다. 규칙 판정은 서비스 몫이라 여기서 관문을 부르지 않는다")
     void authenticatedSendPassesWithoutDomainCheck() {
         StompHeaderAccessor accessor = accessor(StompCommand.SEND);

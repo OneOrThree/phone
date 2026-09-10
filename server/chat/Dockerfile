@@ -23,6 +23,14 @@ RUN ./gradlew bootJar -x test --no-daemon
 
 FROM eclipse-temurin:17-jre-jammy
 
+# 헬스체크가 curl 을 쓴다(docker-compose.chat.yml). 이 베이스 이미지에 지금은 curl 이 들어 있지만
+# «보장»된 것이 아니다 — 17-jre-jammy 는 움직이는 태그라, 베이스가 한 번 슬림해지는 것만으로
+# 매 검사가 `curl: not found` 가 되어 앱과 readiness 가 멀쩡한데도 컨테이너가 계속 unhealthy 로
+# 판정된다. 그 의존을 이미지 안에 못 박는다.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 ENV JAVA_OPTS="-Djava.security.egd=file:/dev/./urandom"

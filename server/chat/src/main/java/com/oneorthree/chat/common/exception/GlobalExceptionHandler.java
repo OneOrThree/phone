@@ -77,6 +77,10 @@ public class GlobalExceptionHandler {
      * 드러났다 — {@code /actuator/health} 를 본 포트로 치는 흔한 실수 하나, 스캐너의 임의 경로 하나가
      * 「서버 장애」로 기록되고, 그 노이즈에 진짜 고장이 묻힌다.
      *
+     * <p><b>로그 레벨은 상태로 가른다.</b> {@code ErrorResponse} 를 구현하면서 5xx 를 싣는 예외가 있어서
+     * ({@code ResponseStatusException}), 인터페이스만으로 가르면 진짜 고장이 스택트레이스 없이 debug 로
+     * 묻힌다. 4xx 는 debug, 5xx 는 언제나 error 다.
+     *
      * <p>상태는 Spring 이 정한 것을 그대로 쓴다 — 우리가 다시 판단하면 405·415 가 뭉뚱그려진다.
      * 봉투의 {@code code} 만 우리 어휘로 바꾼다. 본문에는 원인 문자열을 절대 싣지 않는다:
      * 예외 메시지에는 SQL·호스트·키 이름이 섞여 나오고, 그게 그대로 화면과 로그 수집기에 실린다.
@@ -92,8 +96,17 @@ public class GlobalExceptionHandler {
                             ? CommonErrorCode.INVALID_REQUEST
                             : CommonErrorCode.INTERNAL_ERROR);
 
-            // 클라이언트 실수는 debug 다 — 스택트레이스를 남기면 그게 곧 노이즈다.
-            log.debug("웹 예외 — status={} {}", status.value(), e.getClass().getSimpleName());
+            if (status.is5xxServerError()) {
+                // ⚠️ ErrorResponse 를 구현하면서도 5xx 를 싣는 예외가 있다 —
+                //    org.springframework.web.server.ResponseStatusException 이 대표적이고, 그건
+                //    「우리가 몰랐던 고장」을 알리는 표준 관용구다. 인터페이스만으로 갈라 전부 debug 로
+                //    보내면 이 클래스가 바로 아래에서 막으려는 것("노이즈에 진짜 고장이 묻힌다")이
+                //    반대편에서 재현된다 — 상태는 맞게 나가는데 스택트레이스가 사라진다.
+                log.error("웹 예외(5xx) — status={}", status.value(), e);
+            } else {
+                // 클라이언트 실수는 debug 다 — 스택트레이스를 남기면 그게 곧 노이즈다.
+                log.debug("웹 예외 — status={} {}", status.value(), e.getClass().getSimpleName());
+            }
             return ResponseEntity.status(status).body(ErrorResponse.from(code));
         }
 

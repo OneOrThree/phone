@@ -198,11 +198,23 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      */
     private void authorizeSend(StompHeaderAccessor accessor) {
         String destination = String.valueOf(accessor.getDestination());
-        if (!SEND_DESTINATION.matcher(destination).matches()) {
-            // 브로커 목적지(/topic/**)로의 직접 발신이 여기로 떨어진다.
+        Matcher matcher = SEND_DESTINATION.matcher(destination);
+        if (!matcher.matches()) {
+            // 브로커 목적지(/topic/**·/queue/**)로의 직접 발신이 여기로 떨어진다.
             log.debug("허용되지 않은 발신 목적지 — {}", destination);
             throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
         }
+
+        // 36자 모양만 맞고 UUID 가 아닌 목적지를 «여기서» 거른다. 안 거르면 컨트롤러의
+        // @DestinationVariable UUID 변환이 메시징 계층의 MethodArgumentTypeMismatchException 을 던지는데,
+        // 그 타입은 handleInvalidPayload 가 잡는 둘에 없어서 ERROR 프레임 + «연결 종료»로 이어진다 —
+        // 오타 하나가 세션을 죽인다. SUBSCRIBE 와 같은 자리에서 같은 방식으로 막는다.
+        try {
+            UUID.fromString(matcher.group(1));
+        } catch (IllegalArgumentException e) {
+            throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
+        }
+
         if (!(accessor.getUser() instanceof ChatPrincipal)) {
             throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
         }
