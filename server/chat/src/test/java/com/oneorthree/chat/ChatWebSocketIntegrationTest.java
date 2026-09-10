@@ -172,8 +172,8 @@ class ChatWebSocketIntegrationTest {
         assertThat(echo).isNotNull();
         assertThat(echo.messageId()).isEqualTo(first.messageId());
         assertThat(echo.clientMessageId()).isEqualTo(clientMessageId);
-        // 그리고 방에는 다시 오지 않는다 — 재전송 20번을 했는데도.
-        assertThat(deliveries.poll(1, TimeUnit.SECONDS)).isNull();
+        // 그리고 «그 말»은 방에 다시 오지 않는다 — 재전송 20번을 했는데도.
+        assertThat(awaitDelivery(clientMessageId, 1_000L)).isNull();
     }
 
     @Test
@@ -199,8 +199,10 @@ class ChatWebSocketIntegrationTest {
             tabletEcho = tabletEchoes.poll(500, TimeUnit.MILLISECONDS);
         }
         assertThat(tabletEcho).as("태블릿의 되돌림 큐가 등록되지 않았다").isNotNull();
-        tabletEchoes.clear();
-        phoneEchoes.clear();
+        // 위 루프가 첫 도착에 멈춰도 그때 이미 보낸 재전송들의 되돌림이 뒤늦게 온다 — 멎을 때까지
+        // 걷어내야 아래 「태블릿엔 안 온다」가 그 잔여를 잡는 오탐이 되지 않는다.
+        drainUntilQuiet(tabletEchoes);
+        drainUntilQuiet(phoneEchoes);
 
         // ② 이제 «폰»이 재전송한다. 되돌림은 폰에게만 가야 한다.
         ChatMessageResponse phoneEcho = null;
@@ -462,7 +464,36 @@ class ChatWebSocketIntegrationTest {
             SendMessageRequest request) throws InterruptedException {
         awaitSubscriptionRegistered(session, groupId);
         session.send("/app/groups/" + groupId + "/send", request);
-        return deliveries.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        return awaitDelivery(request.clientMessageId(), TIMEOUT_SECONDS * 1_000L);
+    }
+
+    /**
+     * <b>그 {@code clientMessageId} 의</b> 메시지가 올 때까지 기다린다 — 나머지는 버린다.
+     *
+     * <p>큐에서 그냥 하나 꺼내면 «등록 확인용으로 흘린 말»이 잡힌다. 등록 확인 루프는 첫 도착을
+     * 보자마자 멈추지만 <b>그때 이미 보낸 나머지가 뒤늦게 도착</b>하기 때문이다 — 느린 러너에서만
+     * 드러나는 종류라, 실제로 로컬은 통과하고 CI 에서 깨졌다(도착한 것이 본 메시지가 아니어서
+     * {@code messageId} 단언이 어긋났다). 키로 고르면 그 창이 통째로 사라진다.
+     *
+     * @return 그 메시지, 또는 시간 안에 오지 않으면 null
+     */
+    private ChatMessageResponse awaitDelivery(UUID clientMessageId, long timeoutMillis)
+            throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (System.currentTimeMillis() < deadline) {
+            ChatMessageResponse received = deliveries.poll(200, TimeUnit.MILLISECONDS);
+            if (received != null && clientMessageId.equals(received.clientMessageId())) {
+                return received;
+            }
+        }
+        return null;
+    }
+
+    /** 뒤늦게 도착하는 것들이 멎을 때까지 비운다 — 「이 뒤로는 안 온다」를 단언하기 전에 필요하다. */
+    private static void drainUntilQuiet(BlockingQueue<ChatMessageResponse> queue) throws InterruptedException {
+        while (queue.poll(300, TimeUnit.MILLISECONDS) != null) {
+            // 버린다.
+        }
     }
 
     /**

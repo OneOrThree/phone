@@ -156,7 +156,17 @@ class TwoInstanceFanoutTest {
         UUID clientMessageId = UUID.randomUUID();
         onA.send("/app/groups/" + island + "/send",
                 new SendMessageRequest("건너편 인스턴스에 들리나요", clientMessageId));
-        ChatMessageResponse received = heardOnB.poll(10, TimeUnit.SECONDS);
+
+        // «그 키»가 올 때까지 기다린다 — 그냥 하나 꺼내면 등록 확인용으로 흘린 말 중 뒤늦게 도착한
+        // 것이 잡힌다(등록 확인 루프는 첫 도착에 멈추지만 그때 이미 보낸 나머지가 남아 있다).
+        ChatMessageResponse received = null;
+        long deadline = System.currentTimeMillis() + 10_000L;
+        while (received == null && System.currentTimeMillis() < deadline) {
+            ChatMessageResponse candidate = heardOnB.poll(200, TimeUnit.MILLISECONDS);
+            if (candidate != null && clientMessageId.equals(candidate.clientMessageId())) {
+                received = candidate;
+            }
+        }
 
         assertThat(received).as("frameErrors=%s", frameErrors).isNotNull();
         assertThat(received.content()).isEqualTo("건너편 인스턴스에 들리나요");
