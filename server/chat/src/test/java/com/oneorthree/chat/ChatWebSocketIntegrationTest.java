@@ -1,5 +1,6 @@
 package com.oneorthree.chat;
 
+import com.oneorthree.chat.common.exception.ErrorResponse;
 import com.oneorthree.chat.common.redis.RedisKeys;
 import com.oneorthree.chat.fanout.ChatFanout;
 import com.oneorthree.chat.fanout.ChatFanoutEvent;
@@ -226,6 +227,44 @@ class ChatWebSocketIntegrationTest {
         assertThat(deliveries.poll(2, TimeUnit.SECONDS)).isNull();
     }
 
+    @Test
+    @DisplayName("본문이 틀린 발신 한 건은 «그 건만» 거절된다 — 세션이 죽지 않는다")
+    void invalidPayloadDoesNotKillTheSession() throws Exception {
+        givenMemberOf(resident, island);
+        StompSession session = connect(resident, new RecordingHandler());
+        BlockingQueue<String> errors = subscribeToPersonalErrors(session);
+        deliveries = subscribeToIsland(session, island);
+
+        // clientMessageId 없이 보낸다(@NotNull 위반). 핸들러가 없으면 ERROR 프레임 + 소켓 종료다.
+        session.send("/app/groups/" + island + "/send", new SendMessageRequest("안녕", null));
+
+        assertThat(errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isEqualTo("INVALID_REQUEST");
+        assertThat(session.isConnected()).isTrue();
+
+        // 그리고 같은 세션으로 «정상» 발신이 계속 된다 — 이게 「죽지 않았다」의 실질적 확인이다.
+        ChatMessageResponse recovered = sendUntilDelivered(session, island,
+                new SendMessageRequest("다시 안녕", UUID.randomUUID()));
+        assertThat(recovered).isNotNull();
+        assertThat(recovered.content()).isEqualTo("다시 안녕");
+    }
+
+    @Test
+    @DisplayName("집중 중 발신은 개인 큐로 거절이 오고 세션은 살아 있다")
+    void sendWhileFocusingIsRefusedOnPersonalQueue() throws Exception {
+        givenMemberOf(resident, island);
+        StompSession session = connect(resident, new RecordingHandler());
+        BlockingQueue<String> errors = subscribeToPersonalErrors(session);
+
+        // 연결 «뒤에» 집중이 시작된 상황 — 서버는 세션을 끊지 않고 발신만 막는다(C5).
+        redis.opsForValue().set(RedisKeys.focusPresence(resident), "1", Duration.ofMinutes(5));
+
+        session.send("/app/groups/" + island + "/send",
+                new SendMessageRequest("집중 중인데 보냅니다", UUID.randomUUID()));
+
+        assertThat(errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isEqualTo("FOCUS_IN_PROGRESS");
+        assertThat(session.isConnected()).isTrue();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private void givenMemberOf(UUID userId, UUID groupId) {
@@ -319,6 +358,23 @@ class ChatWebSocketIntegrationTest {
             }
         }
         return null;
+    }
+
+    /** 발신 실패 통지를 받는 개인 큐. 봉투의 {@code code} 만 모은다. */
+    private BlockingQueue<String> subscribeToPersonalErrors(StompSession session) {
+        BlockingQueue<String> errors = new LinkedBlockingQueue<>();
+        session.subscribe("/user/queue/errors", new StompFrameHandler() {
+            @Override
+            public @NonNull Type getPayloadType(@NonNull StompHeaders headers) {
+                return ErrorResponse.class;
+            }
+
+            @Override
+            public void handleFrame(@NonNull StompHeaders headers, Object payload) {
+                errors.add(((ErrorResponse) payload).getCode());
+            }
+        });
+        return errors;
     }
 
     private String bearerOf(UUID userId) {

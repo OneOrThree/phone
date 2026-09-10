@@ -1,6 +1,7 @@
 package com.oneorthree.chat.message;
 
 import com.oneorthree.chat.auth.ChatPrincipal;
+import com.oneorthree.chat.common.exception.CommonErrorCode;
 import com.oneorthree.chat.common.exception.DomainException;
 import com.oneorthree.chat.common.exception.ErrorResponse;
 import com.oneorthree.chat.message.dto.SendMessageRequest;
@@ -8,10 +9,12 @@ import com.oneorthree.chat.message.service.ChatMessageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.converter.MessageConversionException;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.messaging.handler.annotation.support.MethodArgumentNotValidException;
 import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.stereotype.Controller;
 
@@ -59,5 +62,23 @@ public class ChatStompController {
     public ErrorResponse handleDomain(DomainException e) {
         log.debug("발신 거절 — code={}", e.getErrorCode().name());
         return ErrorResponse.from(e.getErrorCode());
+    }
+
+    /**
+     * 본문이 형식을 어겼을 때({@code clientMessageId} 누락 등) — <b>연결을 끊지 않는다</b>.
+     *
+     * <p>이 핸들러가 없으면 검증 예외가 컨트롤러 밖으로 나가 {@code ChatStompErrorHandler} 가 받고,
+     * 그건 ERROR 프레임을 보낸 뒤 <b>소켓을 닫는다</b>. 즉 클라이언트의 사소한 실수 한 번이 세션을
+     * 죽이고, 앱은 재연결·재구독을 처음부터 해야 한다. 잘못 보낸 한 건만 거절하는 게 맞다.
+     *
+     * <p>메시징 계층의 검증 예외는 웹 MVC 의 그것과 <b>이름은 같고 패키지가 다르다</b>
+     * ({@code …messaging.handler.annotation.support}). 웹 쪽 타입으로 잡으면 컴파일은 되고 매칭만
+     * 조용히 안 된다.
+     */
+    @MessageExceptionHandler({MethodArgumentNotValidException.class, MessageConversionException.class})
+    @SendToUser("/queue/errors")
+    public ErrorResponse handleInvalidPayload(Exception e) {
+        log.debug("발신 본문 오류 — {}", e.getClass().getSimpleName());
+        return ErrorResponse.from(CommonErrorCode.INVALID_REQUEST);
     }
 }
