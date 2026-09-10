@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans KR, Apple SD Gothic Neo, sans-serif" viewBox="0 0 1000 500" role="img" aria-label="Target-2: 세션 종료가 score-events 를 Kafka 에 발행, 컨슈머가 Redis ZSET(완료분)을 ZINCRBY, Data API 는 진행 중 세션을 presence 로 기록, Business API 는 ZSET 상위 N 과 presence 활성 유저 전원을 후보로 합쳐 가산·재정렬, 진실원천은 DB, 장애 시 DB 정본으로 재구축">
+<svg xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans KR, Apple SD Gothic Neo, sans-serif" viewBox="0 0 1000 500" role="img" aria-label="Target-2: 세션 종료가 score-events 를 Kafka 에 발행, 컨슈머가 Redis ZSET(완료분)을 주차별 절대값으로 ZADD(낮은 version 무시), Data API 는 진행 중 세션을 presence 로 기록, Business API 는 ZSET 상위 N 과 presence 활성 유저 전원을 후보로 합쳐 가산·재정렬, 진실원천은 DB, 장애 시 DB 정본으로 재구축">
   <defs>
     <marker id="rc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1B2430"/></marker>
     <marker id="rcd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1F6F8B"/></marker>
@@ -35,8 +35,8 @@
     <text x="380" y="75">Data API</text><text x="380" y="96" font-size="12" font-weight="400" fill="#5E6670">한 TX 커밋 후 발행</text>
     <text x="710" y="75">주간 정산 배치</text><text x="710" y="96" font-size="12" font-weight="400" fill="#5E6670">DB 스냅샷으로 확정 — ZSET 은 안 믿음</text>
     <text x="380" y="195">daily_focus_stats</text><text x="380" y="216" font-size="12" font-weight="400" fill="#5E6670">진실원천은 여전히 DB</text>
-    <text x="380" y="312">Kafka · score-events</text><text x="380" y="330" font-size="12" font-weight="400" fill="#5E6670">버스트 흡수 · eventId 멱등</text><text x="380" y="345" font-size="12" font-weight="400" fill="#5E6670">주차별 (weekStartAt, Δ)</text>
-    <text x="710" y="315">컨슈머 ×N</text><text x="710" y="336" font-size="12" font-weight="400" fill="#5E6670">ZINCRBY Δ · dedup</text>
+    <text x="380" y="312">Kafka · score-events</text><text x="380" y="330" font-size="12" font-weight="400" fill="#5E6670">버스트 흡수 · eventId 멱등</text><text x="380" y="345" font-size="12" font-weight="400" fill="#5E6670">주차별 절대값 · 낮은 version 무시</text>
+    <text x="710" y="315">컨슈머 ×N</text><text x="710" y="336" font-size="12" font-weight="400" fill="#5E6670">ZADD 절대값 · dedup</text>
     <text x="120" y="435">gromo 앱</text><text x="120" y="456" font-size="12" font-weight="400" fill="#5E6670">리그 화면 1콜</text>
     <text x="380" y="435">Business API</text><text x="380" y="456" font-size="12" font-weight="400" fill="#5E6670">/bff/league</text>
     <text x="710" y="428">Redis</text><text x="710" y="446" font-size="12" font-weight="400" fill="#5E6670">league:&lt;weekStartAt&gt;:* — 완료분만</text><text x="710" y="461" font-size="12" font-weight="400" fill="#5E6670">presence:* — 진행 중 세션</text>
@@ -47,9 +47,9 @@
     <text x="388" y="145">INSERT 초</text>
     <text x="488" y="72">같은 read model</text>
     <text x="718" y="160">DB 로 정산</text>
-    <text x="232" y="208" text-anchor="end" fill="#1F6F8B">발행 — (weekStartAt, Δ초) 별로</text><text x="232" y="223" text-anchor="end" fill="#1F6F8B">쪼갠다 (주 경계 세션 = 2건)</text>
+    <text x="232" y="208" text-anchor="end" fill="#1F6F8B">발행 — 주차별 절대값 + version</text><text x="232" y="223" text-anchor="end" fill="#1F6F8B">(주 경계 세션 = 2건)</text>
     <text x="500" y="312" fill="#1F6F8B">consume</text>
-    <text x="718" y="385" fill="#1F6F8B">ZINCRBY</text>
+    <text x="718" y="385" fill="#1F6F8B">ZADD</text>
     <text x="906" y="392" fill="#1F6F8B">DB 정본으로</text><text x="906" y="407" fill="#1F6F8B">주기 대조·재구축</text>
     <text x="488" y="426">ZSET 상위 N + presence 활성 전원</text>
     <text x="488" y="441">→ 가산 후 재정렬 · 내 순위 보정</text>
