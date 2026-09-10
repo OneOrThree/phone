@@ -89,7 +89,7 @@ flowchart LR
 |---|---|---|
 | 동기 내부 HTTP | 서비스 토큰(Bearer) + `X-User-Id`. 타임아웃·재시도(멱등 GET 만)·서킷을 **공통 RestClient 팩토리**에 처음부터 | 동일 |
 | 이벤트 | **Kafka 단일 노드 컨테이너**(A12) — 토픽 `notification-events`(파티션 3, 키 = userId) + `.dlq`, 봉투 = `eventId` · `type` · `occurredAt` · `scheduledAt` · `userId` · `locale` · `subjectId` · `params`. 소비 측 `eventId` UNIQUE 멱등 + Spring Kafka 재시도·DLQ + 1일 1회 리컨실 (D7·D19). `POST /internal/events` 는 폴백·수동 재전송 | 관리형 브로커(MSK 등)로 승격 또는 그대로. 봉투·어댑터 동일 |
-| 공유 저장소 | 없음 | Redis — 리그 랭킹 ZSET · 프레즌스 리스 · RT 블랙리스트 · 분산 락 · 알림 카운터 |
+| 공유 저장소 | 없음 | Redis — **A19 네임스페이스 표 + ACL**: `league:*`·`presence:*`(Data 쓰기 · Business 읽기) · `noti:*`(알림) · `auth:rt:*`(Business) · `cache:<svc>:*`·`lock:<svc>:*`(각자, 공유 금지) |
 | 앱 ↔ 서버 | REST `/api/v1`(패스스루) + `/bff/*` + `/auth/*` | 동일 |
 
 ## 5. 인증 경계 (A7 · A8)
@@ -127,22 +127,22 @@ Business API 는 크론을 갖지 않는다 → 단일/다중 인스턴스 무�
 ```mermaid
 flowchart LR
   BIZ["Business API ×N"] -->|"조회·명령"| DATA["Data API"]
-  BIZ -->|"ZRANK · 캐시 · RT 블랙리스트 · 락"| REDIS[("Redis")]
-  DATA -->|"ZSET 갱신 · 프레즌스"| REDIS
+  BIZ -->|"league:* 읽기 · auth:rt:* · cache:business:* · lock:business:*"| REDIS[("Redis · ACL")]
+  DATA -->|"league:* · presence:* 쓰기"| REDIS
   BIZ -.->|"이벤트"| MQ[["MQ notification-events<br/>(1658)"]]
   DATA -.->|"정산 이벤트"| MQ
   MQ -.-> NSJ["알림 서버 — 판정"]
   NSJ -.->|"발송 잡"| MQ2[["MQ delivery"]]
   MQ2 -.-> NSW["알림 워커 ×N (분리 배포)"]
   NSW --> FCM["FCM"]
-  NSJ & NSW --> REDIS
+  NSJ & NSW -->|"noti:* · cache:notification:* · lock:notification:*"| REDIS
 ```
 
 - **MQ**: 이벤트 어댑터 교체(HTTP → 브로커), at-least-once 는 이미 `eventId` 멱등으로 준비됨. DLQ·재시도는 1658 범위.
 - **Redis**: 리그 랭킹 ZSET(리그 BFF 의 50페이지 클라 합산 제거, "지금 N위" 정확도 — D9 해소) · 프레즌스 리스 · RT 블랙리스트(강제 로그아웃) · Business API 다중 인스턴스 락 · 알림 카운터.
 - **알림 워커 분리 배포**: 판정과 워커 사이에 큐가 있으므로 코드 무변경으로 워커만 스케일.
 - **알림 DB 별도 인스턴스**: 부하가 보이면 (A10).
-- **공유 저장소 규칙(A19)**: Redis 키는 소유자 네임스페이스(`league:*`·`presence:*` = Data API, `noti:*` = 알림, `auth:rt:*` = Business), 쓰기는 소유자만, 사본이므로 소유자가 재구축 가능해야 한다 — 단방향 규칙의 저장소 판.
+- **공유 저장소 규칙(A19)**: Redis 키는 네임스페이스 표(`decisions.md` A19)에 있는 것만 — `league:*`·`presence:*` 는 Data 가 쓰고 Business 가 읽으며, `noti:*`·`auth:rt:*` 는 소유자 전용, `cache:<svc>:*`·`lock:<svc>:*` 는 각 서비스 자기 것만(서비스 간 공유 캐시·락 금지). **Redis ACL** 로 서비스별 유저에 키 패턴·명령 권한을 주어 강제한다. 사본이므로 소유자가 재구축 가능해야 한다 — 단방향 규칙의 저장소 판.
 
 ## 9. 08-25 시안 대비 변경 요약
 
