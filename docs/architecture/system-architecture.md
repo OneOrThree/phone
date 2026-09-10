@@ -96,6 +96,8 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | `NOTI_DB_URL` · `NOTI_DB_USERNAME` · `NOTI_DB_PASSWORD` (gromo_notification) | notification — 신규라 이름을 새로 정하지만 **Data API 의 `API_DB_*` 와 같은 형태로 맞춘다** |
 | **`FCM_PROJECT_ID` · `FCM_SERVICE_ACCOUNT_JSON`** | notification **만** (data-api 에서 제거) — `FcmPushNotificationClient` 는 **둘 중 하나라도 없으면 기동을 실패**시키고, 프로퍼티 키가 env 자동 변환과 정확히 일치해야 한다(그 클래스 주석). `_BASE64` 접미사 붙은 이름이 아니고, **project ID 도 함께 옮겨야 한다** |
 | `SVC_TOKEN_BIZ_TO_DATA` · **`SVC_TOKEN_NOTI_TO_DATA`**(리컨실 — 서비스 전용 호출) · `SVC_TOKEN_TO_NOTI`(Business/Data → 알림: 이벤트·기기 토큰·설정 명령) · `SVC_TOKEN_CONSOLE_TO_NOTI` · **`SVC_TOKEN_TO_LINK`(발신 = business-api **와** data-api 둘 다 — relay 의 withdraw 재전달, §3 허용 표)** | 발신·수신 양쪽 |
+| **`BATCH_ADMIN_KEY`** (배치 트리거 `X-Batch-Admin-Key` 대조값) | **data-api** — A8 이 「⑴ nginx·Business 허용목록에서 `/api/v1/**` 의 배치 경로 제외 ⑵ `/internal/*` 로만 노출 ⑶ 그때까지 가드 유지」를 동시에 요구하므로, 세 조건이 갖춰지기 전까지 이 키는 **계속 배포된다**. `@Value("${BATCH_ADMIN_KEY:}")` 라 미주입이 기동을 막지는 않지만, **빈 값이면 가드가 사실상 열린다** |
+| **GA4 4종**(`GA4_FIREBASE_APP_ID` · `GA4_APP_API_SECRET` · `GA4_WEB_MEASUREMENT_ID` · `GA4_WEB_API_SECRET`) | **data-api** — 가입 귀속 발행(`publishJoinAttribution`)이 GA4 전송을 겸하고 그 코드가 Data 에 남으므로 함께 남는다. 넷 다 **기본값 있는 선택 주입**이라 미주입이 기동을 막지 않고 WARN 1회만 남긴다(FCM 의 fail-fast 와 대비 — 분석 배선 누락이 서비스를 세우면 안 된다는 현행 판단을 유지) |
 | 콘솔 비밀번호 4개(해시) | Vercel env (링크 레포) |
 | `LINK_IP_SALT` · SKAN 키 | 링크 서버 (Vercel env) — **기존 운영 값을 그대로 복사한다(새로 생성 금지)** |
 | **`LINK_CAPABILITY_KEY`**(§3 비공개 가입 자격 서명) | **링크 서버(발급) 와 data-api(검증) 양쪽** — HMAC 공유 비밀 또는 링크 서버 개인키/Data 공개키 쌍. 없으면 Data 는 자격의 발급자를 확인할 수 없어 **가입을 전부 실패시키거나, 서명을 안 보고 클라이언트가 준 `groupId`·`inviterId`·`membershipVersion` 을 믿어 비공개 그룹 가입이 우회**된다. **회전은 구·신 키 병행 검증 기간을 두고**(자격 만료보다 긴 창) 그 뒤 구 키를 폐기한다 |
