@@ -89,6 +89,10 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   under-count it. The message itself is not lost — it is committed and shows up on the newest
   page. The window is INSERT→COMMIT of a single-row insert (microseconds). Closing it properly
   needs a commit-ordered sequence; tracked as a follow-up.
+- **An expired access token surfaces as `UNAUTHORIZED`, not `NOT_A_MEMBER`.** A STOMP session keeps
+  the token it connected with, so a long-lived socket eventually calls Data API with an expired one.
+  Folding that 401 into "no groups" would tell the app to drop the room; the app must refresh and
+  reconnect instead. 403 still folds to an (uncached) empty membership — refreshing would not help.
 - **A resend is never re-broadcast.** `clientMessageId` makes `send` idempotent, and a resend
   returns the originally stored message — but it does *not* go to the room again, or every other
   member would see the same `messageId` twice. Since a successful STOMP send returns nothing (the

@@ -1,5 +1,7 @@
 package com.oneorthree.chat.membership.client;
 
+import com.oneorthree.chat.common.exception.CommonErrorCode;
+import com.oneorthree.chat.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.chat.common.exception.UpstreamUnavailableException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -83,22 +85,33 @@ class GroupClientTest {
     }
 
     @Test
-    @DisplayName("401 은 «상류가 내린 판정»이라 빈 집합으로 접는다 — 본문이 에러 봉투여도 터지지 않는다")
-    void unauthorizedFoldsToEmpty() {
+    @DisplayName("401 은 «비멤버»가 아니다 — UNAUTHORIZED 로 올려 앱이 토큰을 갱신하게 한다")
+    void unauthorizedSurfacesAsUnauthorized() {
         // 이 본문이 핵심이다. List<GroupRef> 로 읽으려 들면 변환이 터지고, 그러면 503 으로 뒤집힌다.
         respondWith(401, "{\"code\":\"UNAUTHORIZED\",\"message\":\"인증이 필요합니다.\"}");
 
-        assertThat(groupClient.fetchMyGroupIds(BEARER).groupIds()).isEmpty();
-        // 「소속이 없다」가 아니라 「이 토큰으로는 못 본다」 — 캐시하면 토큰 갱신이 무의미해진다.
-        assertThat(groupClient.fetchMyGroupIds(BEARER).cacheable()).isFalse();
+        assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
+                .isInstanceOf(UpstreamRejectedCredentialException.class)
+                .extracting(e -> ((UpstreamRejectedCredentialException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.UNAUTHORIZED);
     }
 
     @Test
-    @DisplayName("403 도 마찬가지로 빈 집합")
+    @DisplayName("401 을 «판정 불가»(503)로 뒤집지 않는다 — 본문이 에러 봉투여도 그물에 안 걸린다")
+    void unauthorizedIsNotFlippedToUpstreamUnavailable() {
+        respondWith(401, "{\"code\":\"UNAUTHORIZED\",\"message\":\"인증이 필요합니다.\"}");
+
+        assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
+                .isNotInstanceOf(UpstreamUnavailableException.class);
+    }
+
+    @Test
+    @DisplayName("403 은 판정이라 빈 집합으로 접는다 — 갱신해도 달라지지 않으니 UNAUTHORIZED 가 아니다")
     void forbiddenFoldsToEmpty() {
         respondWith(403, "{\"code\":\"FORBIDDEN\",\"message\":\"권한이 없습니다.\"}");
 
         assertThat(groupClient.fetchMyGroupIds(BEARER).groupIds()).isEmpty();
+        // 「이 사람의 소속」에 대한 사실이 아니므로 캐시하지 않는다.
         assertThat(groupClient.fetchMyGroupIds(BEARER).cacheable()).isFalse();
     }
 

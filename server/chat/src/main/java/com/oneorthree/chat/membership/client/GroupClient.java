@@ -1,5 +1,6 @@
 package com.oneorthree.chat.membership.client;
 
+import com.oneorthree.chat.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.chat.common.exception.UpstreamUnavailableException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -90,13 +91,22 @@ public class GroupClient {
                     // 떨어지면 «판정 완료(비멤버)»가 «판정 불가(503)»로 뒤집힌다.
                     .exchange((request, response) -> {
                         HttpStatusCode status = response.getStatusCode();
-                        // «판정을 내린» 4xx 는 401·403 둘뿐이다. 4xx 전체를 접지 않는 이유:
-                        // 400(우리 요청이 잘못됨)·404(엔드포인트가 사라짐)는 상류가 이 유저에 대해
-                        // 판정을 내린 게 아니라 «우리 쪽 또는 배포가 어긋났다»는 신호다. 그걸 빈 집합으로
-                        // 접으면 배선 사고가 「전원 비멤버」라는 조용한 차단으로 나타난다.
-                        if (status.value() == HttpStatus.UNAUTHORIZED.value()
-                                || status.value() == HttpStatus.FORBIDDEN.value()) {
-                            log.debug("그룹 조회 거절 — status={}", status.value());
+                        // 401 은 «비멤버»가 아니다 — 「토큰을 갱신하고 다시 붙어라」다. 빈 집합으로
+                        // 접으면 앱은 갱신이 필요하다는 것을 알 길이 없어, 그 세션이 살아 있는 내내
+                        // 모든 방이 「이 섬의 멤버가 아닙니다」로 막힌다(STOMP 세션은 CONNECT 때의
+                        // 토큰을 그대로 들고 오래 산다). 그래서 코드를 갈라 올린다.
+                        if (status.value() == HttpStatus.UNAUTHORIZED.value()) {
+                            log.debug("그룹 조회 거절 — 토큰이 거절됐다(401)");
+                            throw new UpstreamRejectedCredentialException();
+                        }
+                        // 403 은 판정이다 — 토큰은 멀쩡한데 이 자원을 못 본다. 갱신해도 달라지지 않으므로
+                        // 「소속 없음」으로 접되 캐시하지는 않는다.
+                        //
+                        // 4xx 전체를 접지 않는 이유: 400(우리 요청이 잘못됨)·404(엔드포인트가 사라짐)는
+                        // 상류가 이 유저에 대해 판정을 내린 게 아니라 «우리 쪽 또는 배포가 어긋났다»는
+                        // 신호다. 그걸 빈 집합으로 접으면 배선 사고가 「전원 비멤버」라는 조용한 차단이 된다.
+                        if (status.value() == HttpStatus.FORBIDDEN.value()) {
+                            log.debug("그룹 조회 거절 — status=403");
                             return Membership.rejected();
                         }
                         if (!status.is2xxSuccessful()) {
@@ -110,7 +120,8 @@ public class GroupClient {
                                         .filter(Objects::nonNull)
                                         .collect(Collectors.toSet()));
                     });
-        } catch (UpstreamUnavailableException e) {
+        } catch (UpstreamUnavailableException | UpstreamRejectedCredentialException e) {
+            // 둘 다 «우리가 내린 판정»이다 — 아래 RestClientException 그물에 걸려 503 으로 뒤집히면 안 된다.
             throw e;
         } catch (RestClientException | UncheckedIOException e) {
             // 연결 불가·타임아웃·본문 변환 실패. 어느 쪽이든 «답을 못 받았다»이지 «아니오»가 아니다.
@@ -138,7 +149,12 @@ public class GroupClient {
             return new Membership(groupIds, true);
         }
 
-        /** 상류가 이 토큰을 거절했다 — 답은 비었지만 «이 사람의 소속»에 대한 사실이 아니다. */
+        /**
+     * 상류가 403 으로 거절했다 — 답은 비었지만 «이 사람의 소속»에 대한 사실이 아니다.
+     *
+     * <p>401 은 여기 오지 않는다. 그건 {@code UpstreamRejectedCredentialException} 으로 올라가
+     * 앱에 「토큰을 갱신하라」가 전달된다.
+     */
         public static Membership rejected() {
             return new Membership(Set.of(), false);
         }

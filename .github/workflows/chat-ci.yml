@@ -21,6 +21,12 @@ on:
       - 'server/chat/**'
       - '.github/workflows/chat-ci.yml'
 
+env:
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  # docker-compose.chat.yml 의 CHAT_IMAGE 기본값과 «같은 경로»여야 한다 — 어긋나면 올리는 곳과
+  # 받는 곳이 달라져 「올렸는데 안 뜬다」가 된다.
+  CHAT_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/chat
+
 jobs:
   build:
     runs-on: [self-hosted, ci, spot]
@@ -63,20 +69,47 @@ jobs:
           path: server/chat/build/test-results/
           retention-days: 7
 
-  # 이미지가 «빌드는 되는가»만 본다(푸시 없음). data-api 의 dev-ci 가 PR 에서 하는 것과 같은 규율 —
-  # Dockerfile 이 깨진 채로 머지되면 그 사실은 배포 시점에야 드러난다.
+  # PR 에서는 «빌드는 되는가»만 보고(푸시 없음), main push 에서는 GAR 에 올린다.
+  #
+  # 푸시가 필요한 이유: server/scripts/docker-compose.chat.yml 이 이 이미지를 «받아서» 띄운다.
+  # 아무도 올리지 않으면 새 호스트에서 `up` 이 이미지를 못 찾아 컨테이너가 아예 뜨지 않고, 코드가
+  # 바뀌어도 배포될 길이 없다. 배포 호스트에는 레포 체크아웃이 없어 거기서 빌드할 수도 없다.
   docker-build:
+    name: 채팅 이미지 build${{ github.event_name == 'push' && ' · GAR push' || ' · cache' }}
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 25
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
+      # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud 도 키 파일도 필요 없다(dev-ci 와 같은 방식).
+      # PR 에서도 로그인한다: cache-to 가 레지스트리를 쓰기 때문이다.
+      - name: GAR 인증
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+
       - uses: docker/setup-buildx-action@v3
 
-      - name: Build image (no push)
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: server/chat
-          push: false
-          cache-from: type=gha,scope=chat
-          cache-to: type=gha,mode=max,scope=chat
+          platforms: linux/amd64
+          # PR 이 만든 태그를 배포 신뢰점으로 삼지 않는다 — main push 실행만 올린다(dev-ci 와 같은 규율).
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          provenance: false
+          # :<sha> 가 «진짜» 신뢰점이다. :latest 는 compose 의 기본값이 그것이라 함께 올릴 뿐이고,
+          # 배포를 되돌릴 때는 CHAT_IMAGE 로 sha 를 못 박는 편이 낫다.
+          tags: |
+            ${{ env.CHAT_IMAGE_REPOSITORY }}:${{ github.sha }}
+            ${{ env.CHAT_IMAGE_REPOSITORY }}:latest
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=registry,ref=${{ env.CHAT_IMAGE_REPOSITORY }}:cache-amd64
+          cache-to: type=registry,ref=${{ env.CHAT_IMAGE_REPOSITORY }}:cache-amd64,mode=max

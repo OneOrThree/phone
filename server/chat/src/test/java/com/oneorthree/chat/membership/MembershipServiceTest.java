@@ -1,5 +1,6 @@
 package com.oneorthree.chat.membership;
 
+import com.oneorthree.chat.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.chat.TestcontainersConfiguration;
 import com.oneorthree.chat.common.exception.UpstreamUnavailableException;
 import com.oneorthree.chat.common.redis.RedisKeys;
@@ -79,6 +80,18 @@ class MembershipServiceTest {
         // SET 으로 저장하면 「빈 SET」이 Redis 에 존재하지 않아 키가 아예 안 생기고, 그러면 두 번 호출된다.
         verify(groupClient, times(1)).fetchMyGroupIds(BEARER);
         assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isTrue();
+    }
+
+    @Test
+    @DisplayName("상류가 토큰을 거절하면(401) 그대로 올린다 — 빈 집합으로 접으면 앱이 갱신할 줄 모른다")
+    void unauthorizedPropagatesInsteadOfLookingLikeNonMembership() {
+        given(groupClient.fetchMyGroupIds(BEARER)).willThrow(new UpstreamRejectedCredentialException());
+
+        assertThatThrownBy(() -> membershipService.myGroupIds(userId, BEARER))
+                .isInstanceOf(UpstreamRejectedCredentialException.class);
+
+        // 「소속 없음」으로 캐시되면 갱신된 토큰조차 TTL 동안 상류에 못 닿는다.
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isFalse();
     }
 
     @Test
