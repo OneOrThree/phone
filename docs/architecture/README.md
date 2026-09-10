@@ -6,7 +6,7 @@
 |---|---|
 | [`service-architecture.md`](service-architecture.md) | 어떤 프로세스가 무엇을 소유하고 누구를 부르나 — 단방향 규칙 · 통신 방식 · 인증 경계 · 배치의 자리 |
 | [`system-architecture.md`](system-architecture.md) | 어디에 떠 있고 어떻게 배포·관측하나 — 환경 실측 · 노출면 · DB · CI/CD · Target-2 진입 조건 |
-| [`decisions.md`](decisions.md) | 왜 그렇게 정했나 — 결정 장부 A1~A18 (**충돌 시 정본**) |
+| [`decisions.md`](decisions.md) | 왜 그렇게 정했나 — 결정 장부 A1~A19 (**충돌 시 정본**). 본문의 숫자 티켓은 Jira `GROMO-####` |
 | [`diagrams/`](diagrams/) | 직각 연결선 SVG 6장 — 서비스 구도 · 랭킹 3시점 · 배치 · 레포 |
 
 ## 한 문장
@@ -23,6 +23,15 @@
 - 이벤트 발행 주체 = 그 유스케이스를 완료한 프로세스 (요청형 Business API · 정산형 Data API).
 - 배포 단위는 레포가 아니라 이미지. 서비스 하나가 바뀌면 그 이미지만 빌드·교체, 롤백은 직전 digest.
 - Target-2 로 가는 신호는 감이 아니라 수치 — `system-architecture.md` §7.
+
+## 새 서비스를 붙일 때 — 순서대로
+
+1. **어느 무리인가** — JVM 이면 `oneorthree/server` 의 `services/<name>/`(A17), 스택이 다르면 별도 레포. 서브모듈은 쓰지 않는다(A15).
+2. **누구를 부르고 누가 부르나** — `service-architecture.md` §3 허용/금지 표에 새 행·열을 추가한다. 위성이면 코어를 부르지 않는다. 필요한 사실은 이벤트·발급 시 동봉하고, 정합은 리컨실로.
+3. **무엇을 소유하나** — §7 데이터 소유 표에 저장소를 등록한다. 코어 database 는 Data API 만. 자기 데이터가 있으면 같은 RDS 의 별도 database(A10). Redis 를 쓰면 키 네임스페이스와 쓰기 소유자를 정한다(A19).
+4. **이벤트를 내나 받나** — 발행 주체 = 그 유스케이스를 완료한 프로세스. 봉투는 `eventId`·`type`·`occurredAt`·`userId`·`params`, 소비 측 멱등.
+5. **어떻게 뜨나** — `system-architecture.md` §2.2 자원표(포트·힙)·§2.4 시크릿·§3 CI 경로 필터·§4 `DD_SERVICE` 에 한 줄씩 추가하고, 메모리 합계가 인스턴스를 넘지 않는지 A14 기준으로 계산한다.
+6. **결정을 남긴다** — 위 다섯 중 규칙을 바꾼 게 있으면 `decisions.md` 에 A 번호로.
 
 ## 바꾸는 법
 

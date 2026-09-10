@@ -1,6 +1,6 @@
 # gromo 시스템 아키텍처 (물리) — Target-1 · Target-2
 
-> 정본(2026-09-10 승격). 논리 구도는 `service-architecture.md`, 결정은 `decisions.md` A1~A11.
+> 정본(2026-09-10 승격). 논리 구도는 `service-architecture.md`, 결정은 `decisions.md` A1~A19.
 > AS-IS 원본: 08-12 AS-IS 다이어그램(개인 보관).
 
 ## 1. 환경 실측 (2026-09-09)
@@ -67,16 +67,17 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | 서비스 | 포트 | JVM 힙(초기) | 비고 |
 |---|---|---|---|
 | business-api | 8080 | 512 MB | DB 없음, 커넥션 풀 없음. 패스스루 라우터 + BFF |
-| data-api | 8081 | 1 GB | 현 app 그대로. 커넥션 풀 = 현재 값 |
+| data-api | 8081 | 1 GB | 현 app 그대로. 커넥션 풀 = Hikari 기본 10(prod 에 명시 설정 없음) |
 | notification | 8082 | 512 MB | FCM 풀 · 크론 풀 6+ · 커넥션 풀 작게(≤5) |
 | **kafka** (A12) | 9092 (compose 내부만) | **512 MB** + 페이지 캐시 | `apache/kafka` KRaft 단일 노드, retention 7일, 볼륨 필수(디스크 감시). 외부 미노출 — Vercel 은 붙지 않음 |
 | nginx · datadog-agent | 443 · 8126 | — | 현행 |
 
-dev e2-medium(4 GB)에 JVM 셋(≈2 GB) **+ Kafka 512 MB** + Postgres + agent 는 **넘친다** — dev 는 `notification`·`business-api` 힙 256 MB, Kafka 384 MB 로 시작해도 여유가 거의 없어 **e2-standard-2(8 GB) 사이즈업을 전제**로 본다. prod 는 **A14 사이즈업(t4g.large 권장)** 전제 — 현 타입 실측 후 차이만 티켓에.
+힙 합계 2 GB 는 실사용으로 ≈1.3~1.5배(메타스페이스·스택·다이렉트 버퍼) = 2.6~3 GB 로 본다. dev e2-medium(4 GB)에 JVM 셋 **+ Kafka 512 MB** + Postgres + agent 는 **넘친다** — dev 는 `notification`·`business-api` 힙 256 MB, Kafka 384 MB 로 시작해도 여유가 거의 없어 **e2-standard-2(8 GB) 사이즈업을 전제**로 본다. prod 는 **A14 사이즈업(t4g.large 권장)** 전제 — 현 타입 실측 후 차이만 티켓에.
 
 ### 2.3 DB (A10)
 
 - RDS 한 인스턴스에 database **2개**: `gromo`(data-api 유저) · `gromo_notification`(notification 유저). 서로의 database 에 권한 없음 → 교차 조인 물리적으로 불가.
+- db.t4g.micro 의 `max_connections` ≈ **112**(`LEAST(메모리/9531392, 5000)`), 풀 합계 data-api 10 + notification ≤5 → 커넥션은 여유. 병목은 RAM 1 GB(shared_buffers 공유) — §8.
 - Flyway 2벌: `server/data-api/.../db/migration/V*` · `server/notification/.../db/migration/N*`. CI 는 지금처럼 마이그레이션을 돌리지 않으므로(메모리: 엔티티↔DDL 드리프트는 dev 부팅에서만 터짐) **알림 서버 CI 에 Testcontainers + Flyway 부팅 테스트를 처음부터** 넣는다.
 - 백업·파라미터·모니터링은 인스턴스 단위 그대로. Neon 은 링크 서버 소유(링크 장부).
 
@@ -114,7 +115,7 @@ server/.github/workflows/
   api-dog-generate  service 별 OpenAPI (business-api 가 앱 계약의 정본, data-api 는 /internal 문서)
 ```
 
-- 변경된 서비스만 빌드·배포(경로 필터로 결정). compose 는 환경당 1파일에 서비스 4개, 오버레이(datadog·observability) 유지.
+- 변경된 서비스만 빌드·배포(경로 필터로 결정). compose 는 환경당 1파일에 **컨테이너 6개**(JVM 서비스 3 + nginx · kafka · datadog-agent), 오버레이(datadog·observability) 유지.
 - 헬스체크: `GET /health` 각 서비스, CD 는 변경된 서비스만 기다림(300s).
 - 롤백: `prod-rollback.yml` 에 `service` 입력 추가 — 이미지 태그만 되돌림, compose·스키마 유지(현행 원칙).
 - 링크 서버는 Vercel Git 연동(별도 레포) — 이 파이프라인 밖.
@@ -147,11 +148,13 @@ server/.github/workflows/
 
 | 추가 | 배치 | 조건(수치) |
 |---|---|---|
-| MQ 관리형 승격 (MSK 등) | Target-1 은 EC2 위 Kafka 단일 노드(A12) — 관리형은 브로커 장애가 앱과 반경을 공유하는 게 문제될 때 | 브로커 장애로 발송 지연 발생 또는 디스크·업그레이드 운영이 월 1회 이상 손이 갈 때 |
-| Redis | prod ElastiCache(최소) / dev 컨테이너 | 리그 BFF 착수(50페이지 클라 합산 제거) 또는 Business API 2 인스턴스 |
+| MQ 관리형 승격 (MSK 등) | Target-1 은 EC2 위 Kafka 단일 노드(A12) | 브로커 다운으로 **30분 이상** 발송 지연이 **월 1회 이상**, 또는 디스크·업그레이드 수동 작업이 월 1회 이상 |
+| Redis | prod ElastiCache(최소) / dev 컨테이너 | 리그 화면 **p95 > 1.5s** 또는 `findRankOf` **p95 > 500ms**(APM), 또는 Business API 2 인스턴스 필요(아래) |
 | 알림 워커 분리 배포 | 같은 compose 에 `notification-worker` 서비스, 큐 소비만 | 팬아웃 잡 5분 초과 또는 대상 2,000명 초과 (알림 실측 §0) |
-| 알림 DB 별도 인스턴스 | RDS 추가 | `gromo_notification` 이 인스턴스 CPU/커넥션의 유의미한 몫이 될 때 |
-| Business API 다중 인스턴스 | compose replicas 또는 VM 추가 + nginx upstream | p95 지연·CPU 실측 |
+| 알림 DB 별도 인스턴스 | RDS 추가 | `gromo_notification` 이 RDS CPU **30% 이상** 지속 또는 커넥션 대기(`Hikari pending`) **> 0** 이 일 1회 이상 |
+| Business API 다중 인스턴스 | compose replicas 또는 VM 추가 + nginx upstream | 앱 API **p95 > 1s** 가 일 3회 이상, 또는 CPU **70% 이상 10분** 지속 |
+
+임계값은 **초기값**이다 — 첫 분기 실측 후 `decisions.md` 에 A 번호로 조정한다.
 
 ## 8. 열린 점
 
@@ -162,7 +165,7 @@ server/.github/workflows/
 
 ## 9. 08-12 AS-IS 대비 변경 요약
 
-- 배포 단위 1(`app`) → **4**(business · data · notification · kafka) + 외부 1(link/Vercel). 레포 1 → 4 (A17: server · app · link · docs).
+- 배포 단위 1(`app`) → **컨테이너 6**(JVM 서비스 3 + nginx · kafka · datadog-agent) + 외부 1(link/Vercel). 레포 1 → 4 (A17: server · app · link · docs).
 - DB 1 database → 같은 인스턴스 2 database + Neon.
 - 노출면: `app:8080` 직접 → nginx 가 business/notification 만. data-api 내부화.
 - 시크릿: JWT·FCM 이 각각 한 서비스로 이동.
