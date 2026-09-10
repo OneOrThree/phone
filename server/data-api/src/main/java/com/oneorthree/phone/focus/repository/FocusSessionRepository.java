@@ -163,6 +163,21 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     List<FocusSession> findByEndedAtIsNullAndStartedAtBefore(Instant threshold);
 
     /**
+     * 방금 리스를 놓아 준 세션들 중 <b>그 사이 끝난 것</b> — 프레즌스 재구축의 되묻기(GROMO-292).
+     *
+     * <p>재구축은 「읽고 → 쓴다」라 그 사이에 세션이 끝날 수 있다. 보통은 종료가 남긴 «끝났다» 표식이
+     * 늦은 쓰기를 막아 주지만, <b>그 종료의 Redis 쓰기가 실패했다면 표식이 없다</b>(장애 중 종료가
+     * 정확히 그 경우다). 그러면 재구축이 <b>이미 끝난 집중의 리스를 새로 13시간 놓고</b>, 다음 회차
+     * 조회는 {@code endedAt} 이 찬 행을 제외하므로 <b>그 리스를 치울 주체가 영영 없다.</b>
+     *
+     * <p>그래서 놓아 준 직후 정본에 다시 묻는다. 모수가 방금 쓴 id 목록이라 한 번의 IN 조회로 끝난다.
+     *
+     * @param ids 이번 회차에 리스를 놓아 준 세션 id 들
+     */
+    @EntityGraph(attributePaths = "user")
+    List<FocusSession> findByIdInAndEndedAtIsNotNull(Collection<UUID> ids);
+
+    /**
      * 오늘(KST 하루) 완료된 실집중 세션 보유 유저 id — 재참여(GROMO-841)·순위 추월(GROMO-851)
      * '오늘 집중 여부' 판정용.
      * endedAt 이 [from,to) 에 든 세션만(취소·orphan 자동종료 제외). DailyFocusStat.date(country_code 로컬 버킷)와 달리

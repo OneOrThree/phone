@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
@@ -172,6 +173,48 @@ class FocusPresenceReconcilerTest {
         given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
         deferred.get(0).run();
         verify(focusSessionRepository).findByEndedAtIsNullAndStartedAtAfter(any());
+    }
+
+    @Test
+    @DisplayName("놓아 준 뒤 «그 사이 끝난» 세션의 리스는 회수한다 — 안 하면 아무도 안 치운다")
+    void releasesLeasesForSessionsThatEndedDuringTheRebuild() {
+        UUID stillFocusing = UUID.randomUUID();
+        UUID justEnded = UUID.randomUUID();
+        FocusSession open = openMarker(stillFocusing);
+        FocusSession ended = openMarker(justEnded);
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any()))
+                .willReturn(List.of(open, ended));
+        // 읽고 쓰는 사이에 끝났다 — 그 종료의 Redis 쓰기가 실패했다면 «끝났다» 표식조차 없다.
+        given(focusSessionRepository.findByIdInAndEndedAtIsNotNull(any())).willReturn(List.of(ended));
+
+        reconciler(INLINE).onApplicationReady();
+
+        verify(focusPresencePort).restoreLeaseIfMissing(stillFocusing, open.getId());
+        verify(focusPresencePort).restoreLeaseIfMissing(justEnded, ended.getId());
+        // 끝난 쪽만 회수한다 — 진행 중인 쪽을 함께 풀면 규칙이 통째로 사라진다.
+        verify(focusPresencePort).focusEnded(justEnded, ended.getId());
+        verify(focusPresencePort, never()).focusEnded(eq(stillFocusing), any());
+    }
+
+    @Test
+    @DisplayName("되묻기는 «놓아 준 것이 있을 때만» 한다 — 빈 회차가 매번 쿼리를 하나 더 치면 안 된다")
+    void doesNotRequeryWhenNothingWasRestored() {
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
+
+        reconciler(INLINE).onApplicationReady();
+
+        verify(focusSessionRepository, never()).findByIdInAndEndedAtIsNotNull(any());
+    }
+
+    @Test
+    @DisplayName("되묻기가 터져도 기동·다음 회차를 막지 않는다")
+    void requeryFailureIsSwallowed() {
+        FocusSession open = openMarker(UUID.randomUUID());
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of(open));
+        willThrow(new IllegalStateException("db down"))
+                .given(focusSessionRepository).findByIdInAndEndedAtIsNotNull(any());
+
+        assertThatCode(() -> reconciler(INLINE).onApplicationReady()).doesNotThrowAnyException();
     }
 
     @Test

@@ -20,7 +20,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 기동 시 <b>DB 정본에서 집중 프레즌스 리스를 재구축</b>한다 (GROMO-292).
@@ -196,14 +198,53 @@ public class FocusPresenceReconciler {
         }
 
         // 트랜잭션이 «닫힌 뒤» 쓴다 — 안에서 쓰면 커밋 콜백으로 밀려 한 시점에 전부 몰린다.
-        int restored = 0;
+        List<UUID> restored = new ArrayList<>();
         for (FocusSession session : alive) {
             if (session.getUser() != null) {
                 focusPresencePort.restoreLeaseIfMissing(session.getUser().getId(), session.getId());
-                restored++;
+                restored.add(session.getId());
             }
         }
-        log.info("집중 프레즌스 재구축 — 진행 중 세션 {}건", restored);
+        log.info("집중 프레즌스 재구축 — 진행 중 세션 {}건", restored.size());
+
+        releaseWhatEndedMeanwhile(restored);
+    }
+
+    /**
+     * 방금 놓아 준 리스 중 <b>그 사이 끝난 세션의 것</b>을 회수한다.
+     *
+     * <p><b>왜 필요한가.</b> 재구축은 「읽고 → 쓴다」라 그 사이에 세션이 끝날 수 있다. 보통은 종료가
+     * 남긴 «끝났다» 표식이 늦은 쓰기를 막지만, <b>그 종료의 Redis 쓰기가 실패했다면 표식이 없다</b> —
+     * 그리고 그게 정확히 이 재구축이 존재하는 이유인 「Redis 장애」 중에 벌어지는 일이다. 표식 없이
+     * 리스가 놓이면 <b>이미 끝난 집중이 13시간 채팅을 막고</b>, 다음 회차 조회는 {@code endedAt} 이
+     * 찬 행을 제외하므로 <b>아무도 그 리스를 치우지 않는다.</b>
+     *
+     * <p>즉 이 되묻기가 없으면, <b>재구축이 스스로 만든 고장을 스스로는 못 고친다.</b>
+     *
+     * <p>비용은 한 번의 IN 조회다 — 모수가 방금 쓴 id 목록이라 동시 집중 인원 규모를 넘지 않는다.
+     * 회수 자체는 조건부 삭제({@code focusEnded})라 그 사이 새로 시작된 집중의 리스는 건드리지 않는다.
+     */
+    private void releaseWhatEndedMeanwhile(List<UUID> restored) {
+        if (restored.isEmpty()) {
+            return;
+        }
+        List<FocusSession> ended;
+        try {
+            ended = transactionOperations.execute(status ->
+                    focusSessionRepository.findByIdInAndEndedAtIsNotNull(restored));
+        } catch (RuntimeException e) {
+            log.error("집중 프레즌스 되묻기 실패 — 그 사이 끝난 집중의 리스가 남아 채팅을 막을 수 있다", e);
+            return;
+        }
+
+        for (FocusSession session : ended) {
+            if (session.getUser() != null) {
+                focusPresencePort.focusEnded(session.getUser().getId(), session.getId());
+            }
+        }
+        if (!ended.isEmpty()) {
+            log.info("집중 프레즌스 되묻기 — 그 사이 끝난 세션 {}건 회수", ended.size());
+        }
     }
 
     private List<FocusSession> readAliveMarkers() {
