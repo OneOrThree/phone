@@ -97,6 +97,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | `SVC_TOKEN_BIZ_TO_DATA` · **`SVC_TOKEN_NOTI_TO_DATA`**(리컨실 — 서비스 전용 호출) · `SVC_TOKEN_TO_NOTI`(Business/Data → 알림: 이벤트·기기 토큰·설정 명령) · `SVC_TOKEN_CONSOLE_TO_NOTI` · **`SVC_TOKEN_TO_LINK`(발신 = business-api **와** data-api 둘 다 — relay 의 withdraw 재전달, §3 허용 표)** | 발신·수신 양쪽 |
 | 콘솔 비밀번호 4개(해시) | Vercel env (링크 레포) |
 | `LINK_IP_SALT` · SKAN 키 | 링크 서버 (Vercel env) — **기존 운영 값을 그대로 복사한다(새로 생성 금지)** |
+| **`LINK_PROXY_SECRET`**(§2.1 의 프록시 전용 공유 시크릿) | **nginx 와 링크 서버 양쪽** — 서비스 토큰과 별개다. 이게 없으면 legacy `/l/match` 프록시가 신뢰 가능한 전달 IP 를 못 실어 링크 서버가 Vercel 이 본 EC2 주소로 해시하고, **정상 클릭도 `matched:false`** 가 된다 |
 
 prod 는 Secrets Manager(`gromo/prod/env` JSON), dev 는 GCP 메타데이터/env — 현행 방식에 키만 추가.
 
