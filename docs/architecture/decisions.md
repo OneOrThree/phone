@@ -12,7 +12,7 @@
 | ⓙ **링크 백필은 폐기 상태를 확정하고 옮긴다** — `group_invite_links` 엔 폐기 컬럼이 없고 만료가 **런타임 코어 조회**라, 그대로 복사하면 죽은 slug 가 되살아난다.
 | ⓑ **탈퇴·강퇴 → 링크 폐기**: Business 의 revoke 만 실패하면 예전 slug 가 살아 **비공개 그룹 무단 가입**(그룹 HLD `01-acquisition/high-level-design.md:70·83`). → 멤버십 전이 트랜잭션에서 `link.revoked` outbox, Data relay 재전달.
 | ⓒ **로그아웃·계정 전환 → 기기 토큰 삭제**: 앱이 실패를 삼킨다(`App.tsx:528`). → Data `/internal/auth/logout` 트랜잭션의 outbox + **등록 시 같은 FCM 토큰의 타 유저 행 제거**(두 번째 방어선).
-| ⓓ **결과 ack ↔ 대기 푸시**: 현행은 `BetResultAckSuppressionListener` 가 **같은 트랜잭션에서** 클레임을 종결한다. 알림 DB 분리 후 Kafka 만 쓰면 5분 flush 가 끼어들어 **이미 본 결과가 다시 간다**. → **prepare(HELD 잠금) → Data ack 커밋 → commit** 2단계. **리스 만료는 fail-closed** — `NEEDS_CONFIRM` 으로 넘겨 flush 가 계속 건너뛰고, 해제는 commit·`abort`·**Data 정본 ack 조회로 자기 수렴**(알림 → Data 조회 2종의 두 번째). 조회 경로가 없으면 **롤백 직후 프로세스가 죽는 구간에서 abort 행이 안 생겨 영구 억제가 실재한다**. 「동기 종결 1회」로는 부족하다 — 순서에 따라 발송이 새거나 **영구 억제**된다.
+| ⓓ **결과 ack ↔ 대기 푸시**: 현행은 `BetResultAckSuppressionListener` 가 **같은 트랜잭션에서** 클레임을 종결한다. 알림 DB 분리 후 Kafka 만 쓰면 5분 flush 가 끼어들어 **이미 본 결과가 다시 간다**. → **prepare(HELD 잠금) → Data ack 커밋 → commit** 2단계. **리스 만료는 fail-closed** — `NEEDS_CONFIRM` 으로 넘겨 flush 가 계속 건너뛰고, 해제는 commit·`abort`·**Data 정본 ack 조회로 자기 수렴**(알림 → Data 조회 3종의 두 번째). 조회 경로가 없으면 **롤백 직후 프로세스가 죽는 구간에서 abort 행이 안 생겨 영구 억제가 실재한다**. 「동기 종결 1회」로는 부족하다 — 순서에 따라 발송이 새거나 **영구 억제**된다.
 | ⓔ **내기 승리 발행**: `GroupBetEarlyWinConfirmer.confirmWins` 가 집중 세션 트랜잭션 안에서 발행하고 응답에 안 실린다 → **Business 는 발생 사실을 모른다**. 발행 주체는 Data API.
 | ⓕ **이관은 이중 쓰기 → 백필 순서**, 클릭만은 **구 랜딩을 잠깐 세워(302 아님 — 302 는 반대 방향 창을 연다) 마지막 증분을 끝낸 뒤 랜딩·매치를 한 nginx reload 로 함께 전환**(fail-closed: 랜딩 잠깐 닫힘 < 되돌릴 수 없는 `matched:false`). 부트스트랩 컷은 시각이 아니라 **outbox 단조 커서**(또는 선소비-버퍼링 + `eventId` dedup). `LINK_IP_SALT` 는 **기존 값 그대로** 이관(새로 만들면 매치 전멸).
 | ⓚ **비공개 가입 검증을 트랜잭션 경계까지**: Data 는 Neon 을 못 읽고 Business 는 링크 확인과 가입을 별도 호출로 조합하므로 그 사이 탈퇴·revoke 를 놓친다 → 링크 서버가 **서명한 자격**(slug·groupId·inviterId·membershipVersion·만료)을 Data 명령에 실어 **커밋 안에서 대조** — **대조만으로 부족하다**: `GroupMember` 에 `@Version` 이 없고 조회가 무락이라, 판독 직후 커밋된 동시 탈퇴를 못 본다. **`membershipEpoch`(탈퇴·강퇴·재가입 때만 증가, 일반 낙관락 `version` 과 분리)** + 공유 락으로 **판독과 커밋을 같은 순서 경계에** 묶는다. 낙관락 `version` 을 쓰면 첫 가입이 버전을 올려 **재사용 링크의 이후 수신자가 전부 실패**한다. 서명 검증 키(`LINK_CAPABILITY_KEY`)는 링크·Data 양쪽 보유.
@@ -41,6 +41,10 @@
 | ㉵ **Data 명령 응답은 완성된 봉투**(`version` 포함): Business 는 DB 가 없어 outbox 시퀀스를 다시 읽을 수 없다.
 | ㉶ **스케줄러 컷오버는 저장소 전환과 별개 단계**: 두 ShedLock 이 다른 DB 에 있어 서로 배제하지 못한다 → 구 정지 → drain → 신 활성화 → legacy 제거 확인.
 | ㉷ **Target-2 판정↔워커 전달도 내구화**: 기본값은 **워커가 `deliveries` 미발송 행을 lease 로 선점**(ⓑ), 폴링이 안 되면 알림 DB outbox(ⓐ).
+| ㉸ **외부 `X-User-Id` 는 폐기하고 다시 설정한다**: Data 가 `JwtFilter` 를 떼고 헤더를 신뢰하므로, 앱 헤더가 새어 들어가면 정상 AT 로 **남의 데이터를 읽고 쓴다**. Business 가 무조건 제거 → 검증한 AT subject 로 1회 설정(패스스루·BFF·위성 전부).
+| ㉹ **내부 HTTP 도 expand/contract**: 이벤트와 방향이 **반대**다 — **제공자 선배포 · 소비자 후배포**. additive-only · 제거는 다음 릴리즈 · 양방향 계약 테스트. 못 지키면 상호 의존 이미지를 한 매니페스트로 원자 배포.
+| ㉺ **스케줄러는 「분리 후 이관분만 정지」**: 현 `NotificationScheduler` 하나에 `@Scheduled` 17개가 모여 Data 잔류 잡까지 같이 있다 — 통째로 끄면 그 잡들이 사라진다.
+| ㉻ **`rescanAndFlush` 는 쪼갠다**: Data 가 재훑어 발송 명령(outbox)만 만들고 claim·flush 는 알림 서버가 자기 DB 에서. A18 이 비요청형 유실을 허용할 수 있어 이 복구 경로를 잃으면 결과·환불 푸시가 영구 누락.
 | ⓖ **위성 쓰기 전 활성 검사** — 위성 직행 쓰기는 Data 의 `X-User-Id` 검사를 안 거친다. | PR #731 codex 6~9라운드 (실코드 대조로 확인) | 09-10 |
 
 ## 산출물
@@ -81,7 +85,7 @@
 
 | 시안 | 현재 결정 | 출처 |
 |---|---|---|
-| 알림 서버 → Data API 호출(템플릿·sent_logs·토큰) | 알림 DB 별도, Data API 호출은 리컨실 1종 | 알림 D3 · D8 |
+| 알림 서버 → Data API 호출(템플릿·sent_logs·토큰) | 알림 DB 별도, Data API 호출은 조회 3종(리컨실 · ack 수렴 · 발송 적격) | 알림 D3 · D8 |
 | MQ·Redis 전제 | Target-1 은 **Kafka 단일 노드 컨테이너**(A12 확정) — `POST /internal/events` 는 **수동 재전송·리컨실 입구**이고 자동 폴백 채택은 **A18(보류)**. Redis 는 리그 BFF 때 | 알림 D19 · A12 · A18 |
 | 링크 서버 없음 | 별도 레포 `oneorthree/link`, Vercel/Neon, 단방향(코어 → link) | 링크 v3 |
 | 운영 콘솔 없음 | link 대시보드 동거, 비밀번호 2겹 | 알림 D17 · D18 |
