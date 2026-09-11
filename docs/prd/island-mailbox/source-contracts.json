@@ -1,0 +1,50 @@
+[
+  {
+    "id": "messages",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/messages",
+    "method": "GET",
+    "path": "/islands/{islandId}/messages",
+    "request_example": {
+      "cursor": null,
+      "limit": 30
+    },
+    "response_example": {
+      "data": {
+        "items": [
+          {
+            "id": "m1",
+            "userId": "minji",
+            "name": "민지",
+            "catColor": "ginger",
+            "text": "오늘도 힘내!",
+            "createdAt": "2026-09-11T09:10:00Z"
+          }
+        ],
+        "nextCursor": null
+      }
+    }
+  },
+  {
+    "id": "message",
+    "source_method": "POST",
+    "source_path": "/v1/islands/{islandId}/messages",
+    "method": "POST",
+    "path": "/islands/{islandId}/messages",
+    "request_example": {
+      "clientMessageId": "local-1",
+      "text": "오늘도 같이 집중하자"
+    },
+    "response_example": {
+      "data": {
+        "id": "m2",
+        "clientMessageId": "local-1",
+        "userId": "me",
+        "name": "수빈",
+        "catColor": "black",
+        "text": "오늘도 같이 집중하자",
+        "createdAt": "2026-09-11T09:10:00Z"
+      }
+    }
+  }
+]
