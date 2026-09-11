@@ -47,3 +47,9 @@
 - ack 보류 해제 후 같은 키 재시도, 첫 후보의 렌더 오류, 보류 후보 25개 뒤의 정상 발송, 모집·종료 사건 수신과 flush의 교차, import와 open의 경합을 실제 DB에서 검증한다(A22 ㋴). 계정 전환 중 부분 저장과 rollback에는 이전 RT 폐기 명령을 함께 대조한다(A22 ㋵).
 
 Link/MMP의 실제 저장소는 [OneOrThree/mmp-custom](https://github.com/OneOrThree/mmp-custom)이다(A17). 알림은 현재 `server/notification/`에 유지하며 최종 JVM 레포 경로 전환은 1695와 맞춘다. 기존 파일 미리보기 캐시의 Target-1 예외와 ACL은 A22 ㋺를 따른다.
+
+- Kafka 로그·KRaft 메타데이터 경로와 영속 볼륨 경로가 같은지 확인하고 컨테이너 재생성 후 메시지를 읽는다(`test_kafka_persistence.py`). FCM `UNREGISTERED`만으로 성공 이력이 없는 알림을 완료 처리하지 않는지도 검사한다(A22 ㊚).
+
+- 설정 동시 변경은 실제 PG의 잠금 대기와 최종 행·봉투를 대조한다(A22 ㋕). 앱 업그레이드 후 첫 등록 전 로그아웃은 SDK 토큰 정리 경로의 사전 배선과 조회 실패 시 RT 폐기 유지를 검사한다(A22 ㋲).
+
+- 내부 HTTP 서킷은 정상 4xx와 시간 예산 부족 이후에도 복구되는지 검사한다(A22 ㋽, `InternalHttpClientRecoveryTest`).

@@ -292,6 +292,11 @@ class DispatchService {
         for (Map<String, Object> row : ready) {
             if (failed) {
                 retry((UUID) row.get("id"), "FCM_RETRY");
+            } else if (store.one("SELECT 1 FROM delivery_devices WHERE delivery_id=? LIMIT 1",
+                    row.get("id")) == null) {
+                // UNREGISTERED는 성공이 아니다. 이 알림의 성공 이력이 전혀 없으면 정상 토큰을
+                // 기다린다. 다른 기기에 이미 성공한 알림은 무효 토큰 때문에 다시 보내지 않는다.
+                retry((UUID) row.get("id"), "NO_ACTIVE_DEVICE");
             } else {
                 store.update("UPDATE deliveries SET status='SENT',sent_at=?,attempts=attempts+1,"
                         + "last_error=NULL WHERE id=?",

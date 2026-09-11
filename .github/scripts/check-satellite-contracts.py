@@ -207,6 +207,26 @@ require('snapshot_id=?' in migration_service and 'migration_snapshots' in migrat
         and 'retire(migrationId' in migration_service and 'settings.imported_by' in migration_service,
         'A22 ㋼: 최종 전체 집합 검증·빈 스냅샷 등록·이관 소유 행 정리 경계 누락')
 
+require('SELECT 1 FROM delivery_devices WHERE delivery_id=? LIMIT 1' in dispatch_service,
+        'A22 ㊚: 성공 이력이 없는 UNREGISTERED 알림을 완료 처리함')
+kafka_compose = source('server/scripts/docker-compose.kafka.yml')
+require('KAFKA_LOG_DIRS: /var/lib/kafka/data' in kafka_compose
+        and 'kafka-data:/var/lib/kafka/data' in kafka_compose,
+        'A12: Kafka 로그 경로와 영속 볼륨 경로가 연결되지 않음')
+
+data_settings = source('server/data-api/src/main/java/com/oneorthree/phone/user/service/UserSatelliteCommandService.java')
+require('userQueryService.getNotificationSettingsForUpdate(userId)' in data_settings,
+        'A22 ㋕: 설정을 잠금 없이 읽은 뒤 버전만 직렬화함')
+push = source('app/app-dev/src/services/push.ts')
+require('setInstalledDeviceTokenResolver(async () =>' in push
+        and 'const target = await deletionTarget(userId)' in app_commands,
+        'A22 ㋲: 첫 등록 전 구 기기의 SDK 토큰 정리 경로가 연결되지 않음')
+
+internal_http = source('server/business-api/src/main/java/com/oneorthree/business/common/http/InternalHttpClient.java')
+require(internal_http.index('deadline.hasRoomFor(readTimeout)') < internal_http.index('circuitBreaker.allowRequest(')
+        and 'if (!outcomeRecorded)' in internal_http and 'catch (UpstreamDomainException' in internal_http,
+        'A22 ㋽: 복구 탐침이 예산 부족 또는 비재시도 예외에서 해제되지 않음')
+
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)

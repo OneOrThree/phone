@@ -104,6 +104,8 @@ class DeviceTransportContinuityTest {
         assertThat(store.one("SELECT active,transport_invalid FROM device_tokens WHERE device_token='fcm-old'"))
                 .containsEntry("active", true).containsEntry("transport_invalid", true);
         assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", first)).isEmpty();
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", first))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "NO_ACTIVE_DEVICE");
 
         // 그래도 다음 발송의 대상에서는 빠진다 — 무효 토큰에 계속 때리지 않는다.
         UUID second = enqueue("two");
@@ -125,10 +127,28 @@ class DeviceTransportContinuityTest {
         assertThat(refreshed.get("ownershipToken")).isNotEqualTo(owner);
 
         when(clock.instant()).thenReturn(DAY.plusSeconds(120));
+        dispatch.dispatch(first);
         dispatch.dispatch(second);
-        verify(transport).send(eq("fcm-new"), any(), anyBoolean(), anyString());
+        verify(transport, times(2)).send(eq("fcm-new"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", first))
+                .containsEntry("status", "SENT");
         assertThat(store.one("SELECT status FROM deliveries WHERE id=?", second))
                 .containsEntry("status", "SENT");
+    }
+
+    @Test
+    void successfulDeviceStillCompletesWhenAnotherTokenIsUnregistered() {
+        register("fcm-valid", "boot-valid", 1, "reg-valid");
+        register("fcm-invalid", "boot-invalid", 1, "reg-invalid");
+        when(transport.send(eq("fcm-invalid"), any(), anyBoolean(), anyString()))
+                .thenReturn(PushTransport.Result.UNREGISTERED);
+        UUID id = enqueue("mixed");
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "SENT");
+        assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id)).hasSize(1);
+        dispatch.dispatch(id);
+        verify(transport).send(eq("fcm-valid"), any(), anyBoolean(), anyString());
     }
 
     /**

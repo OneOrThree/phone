@@ -11,9 +11,8 @@ import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.dto.NotificationSettingsResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
-import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import lombok.RequiredArgsConstructor;
@@ -72,7 +71,6 @@ public class UserSatelliteCommandService {
 
     private final UserRepository userRepository;
     private final UserQueryService userQueryService;
-    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final OutboxCommandPort outboxCommandPort;
 
     /**
@@ -151,7 +149,7 @@ public class UserSatelliteCommandService {
     @Transactional
     public EventEnvelope recordNotificationSettings(
             UUID userId, NotificationSettingsRequest request, String idempotencyKey) {
-        // 모든 설정 writer가 user → aggregate 순서로 직렬화한다. 재생 전에도 탈퇴를 재검사한다.
+        // 모든 설정 writer가 user → settings → aggregate 순서로 직렬화한다. 재생 전에도 탈퇴를 재검사한다.
         User user = userQueryService.getCallerForUpdate(userId);
         return outboxCommandPort.runIdempotent(
                 InternalCommands.idempotency(idempotencyKey, userId, "notification-settings",
@@ -159,9 +157,18 @@ public class UserSatelliteCommandService {
                         request.getNightModeEnabled(), request.getNightStartTime(), request.getNightEndTime()),
                 EventEnvelope.class,
                 () -> {
-                    UserNotificationSettings settings = userNotificationSettingsRepository.findById(userId)
-                            .filter(row -> row.getDeletedAt() == null)
-                            .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+                    // ⚠️ 잠금 조회가 «상태 판독보다 앞»이다(㋕). 락 없이 읽으면 서로 다른 멱등 키의 두
+                    // 요청이 같은 이전 상태를 본다 — 켜짐에서 「끄기」와 「켜짐 유지」가 겹치면 끄기가
+                    // 먼저 커밋된 뒤 둘째는 더 높은 version 의 「켬」 봉투를 내보내지만 엔티티 스냅샷이
+                    // 그대로라 Hibernate 가 UPDATE 를 생략한다. 그러면 Data 는 꺼짐 · 알림 서버는 켬이다.
+                    // version 발급(append 안의 aggregate 잠금)에서만 직렬화해서는 늦다 — 그때는 이미
+                    // 낡은 값을 읽은 뒤다. 사용자 행 다음에 설정 행, 마지막에 aggregate 행을 잠근다.
+                    // 알림 전반의 잠금 순서 보증은 아니다 — 다중 수신자 USER 축 교착은
+                    // GROMO-893 으로 미해결이다.
+                    UserNotificationSettings settings = userQueryService.getNotificationSettingsForUpdate(userId);
+                    if (settings.getDeletedAt() != null) {
+                        throw new UserException(UserErrorCode.USER_NOT_FOUND);
+                    }
                     settings.setNotificationEnabled(request.getNotificationEnabled());
                     settings.setSoundEnabled(request.getSoundEnabled());
                     settings.setNightModeEnabled(request.getNightModeEnabled());
@@ -189,9 +196,10 @@ public class UserSatelliteCommandService {
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
     public EventEnvelope patchNotificationSettings(UUID userId, boolean enabled) {
         User user = userQueryService.getCallerForUpdate(userId);
-        UserNotificationSettings settings = userNotificationSettingsRepository.findById(userId)
-                .filter(row -> row.getDeletedAt() == null)
-                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+        UserNotificationSettings settings = userQueryService.getNotificationSettingsForUpdate(userId);
+        if (settings.getDeletedAt() != null) {
+            throw new UserException(UserErrorCode.USER_NOT_FOUND);
+        }
         settings.setNotificationEnabled(enabled);
         return append(EVENT_SETTINGS_CHANGED, userId,
                 Map.of("mask", List.of("notificationEnabled"),

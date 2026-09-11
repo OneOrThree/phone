@@ -3,7 +3,10 @@
 // 서버(392)는 firebase-admin으로 발송한다. iOS는 오는 알림을 표시/라우팅만 담당한다.
 import messaging, { type FirebaseMessagingTypes } from '@react-native-firebase/messaging';
 import * as Notifications from 'expo-notifications';
-import { queueDeviceRegistration } from '@/services/notificationCommands';
+import {
+  queueDeviceRegistration,
+  setInstalledDeviceTokenResolver,
+} from '@/services/notificationCommands';
 import { addToInbox } from '@/services/notificationInbox';
 import { notifyBetResultPush } from '@/services/betResultSignal';
 import { markRefundPushIntent } from '@/services/refundPushIntent';
@@ -27,6 +30,21 @@ Notifications.setNotificationHandler({
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
+});
+
+// 로그아웃·계정 전환의 마지막 정리 경로가 «이 기기에 이미 발급된» FCM 토큰을 물어볼 자리.
+// 구 앱에서 업그레이드한 기기는 서버에 구 앱이 등록한 토큰이 남아 있는데, 새 앱의 첫 등록이
+// 권한 거부·getToken 실패로 건너뛰어지면 로컬엔 소유권도 대기 명령도 없어 삭제 대상을 만들 수 없다.
+// 등록이 쓰는 것과 «같은» getToken 이라 새 값을 지어내지 않는다. 실패하면 null 을 주고,
+// 호출부는 유저 단위 삭제로 넓히지 않는다(notificationCommands deletionTarget ③).
+setInstalledDeviceTokenResolver(async () => {
+  // E2E(Maestro) 빌드는 registerPushToken 과 같은 이유로 FCM 에 닿지 않는다(GROMO-947).
+  if (process.env.EXPO_PUBLIC_E2E === '1') return null;
+  try {
+    return await messaging().getToken();
+  } catch {
+    return null;
+  }
 });
 
 // FCM 토큰을 먼저 내구 저장하고 재시도에도 같은 멱등 키를 사용한다.

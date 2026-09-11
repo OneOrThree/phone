@@ -47,6 +47,8 @@ services:
       # ── 보존·파티션 ───────────────────────────────────────────────────
       # 7일(A12). 리플레이에 기대지 않는 설계라(A20) 더 길게 잡을 이유가 없고, 디스크가 20GB 라
       # 더 짧게 잡으면 장애 복구 창이 좁아진다.
+      # 공식 이미지 기본 로그 경로는 볼륨 밖이다. KRaft 메타데이터도 이 경로에 함께 보존한다.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
       KAFKA_LOG_RETENTION_HOURS: "168"
       KAFKA_NUM_PARTITIONS: "3"
       # 토픽 자동 생성을 끈다. notification-events 와 .DLT 는 «각 3파티션»이 계약인데,
