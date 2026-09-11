@@ -10,6 +10,7 @@
 | RK-P06 | rank/items/myRank/분모/표시 점수는 같은 immutable snapshot | 기술 결정. 안정된 keyset만으로 변하는 점수 snapshot이 생기지 않음 |
 | RK-P07 | 다음 페이지도 현재 계정/소속/시설 검사. cursor15분 만료, 만료/파기409 CURSOR_EXPIRED | A0 공통. 서명은 인가/암호화가 아님 |
 | RK-P08 | 사용자·섬 이름/색은 공개 projection, 개인 subject/내부 지갑은 금지 | 원본 공개 DTO 최소화. 실제 UUID 및 계정 catColor 정본 재사용 |
+| RK-P09 | Data snapshot 생성/페이지 반환과 중앙 withdraw는 공통 lifecycle 공유/배타 잠금으로 직렬화. 타인 포함 전체 사용자 역색인의 payload 파기·무효화는 탈퇴와 같은 TX. 무효 snapshot은409 CURSOR_EXPIRED, 외부 payload 캐시 금지 | 개인정보 기술 경계. 잠금 순서/실제 경합 검증 전 공개 활성화 금지 |
 
 ## 미결과 추천을 구분한다
 

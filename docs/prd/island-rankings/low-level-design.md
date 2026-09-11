@@ -113,7 +113,7 @@ N과 D의 모수·가입 처리·부분 주 계산은 같은 policy revision에�
 
 ## 4. immutable snapshot과15분 cursor
 
-동적 정렬에 keyset만 붙여서는 페이지 사이 점수 변경으로 생기는 누락/중복을 막을 수 없다. 첫 페이지는 승인된 policy/cohort에 대해 Data 단일 SELECT 또는 REPEATABLE READ에서 점수·순위·myRank·평균 분모·공개 행·asOf를 고정한 immutable snapshot을 만든다. 이후 HTTP는 같은 저장 결과를 읽는다. HTTP 사이 DB transaction을 계속 열어두지 않는다.
+동적 정렬에 keyset만 붙여서는 페이지 사이 점수 변경으로 생기는 누락/중복을 막을 수 없다. 첫 페이지는 승인된 policy/cohort에 대해 lifecycle 공유 잠금 획득 후 Data READ COMMITTED TX의 단일 SELECT statement snapshot에서 점수·순위·myRank·평균 분모·공개 행·asOf를 고정한 immutable snapshot을 만든다. 이후 HTTP는 같은 저장 결과를 읽는다. HTTP 사이 DB transaction을 계속 열어두지 않는다.
 
 논리 snapshot은 임의의 snapshotId, kind,week,policyRevision,asOf,참가/cohort revision,검증 주체/context 범위 digest,만료시각,정렬된 공개 결과/순위 인덱스로 구성한다. 실제 저장소는 Data의 제한된 projection 저장을 사용하고 Business 메모리에만 둬 인스턴스마다 다른 표를 만들지 않는다. 1769/1777이 함께 구현할 Data 불변 조회 snapshot 공통 모듈을 사용한다. 기준 main의 LeagueRankSnapshot은 사용자·날짜별 rank를 덮어쓰는 저장소이므로 이 불변 페이지 정본을 대신하지 못하며, 공통 HMAC cursor 역시 snapshot 보관소가 아니다. 일관된 조회 결과를 snapshot/역색인과 함께 저장하는 TX는 쓰기 가능해야 하고 readOnly TX에서 INSERT하지 않는다. 서비스별 새 HTTP 클라이언트는 만들지 않는다. DB 원본을 asOf로 재조회하면 같은 내용일 것이라고 가정하지 않는다.
 
@@ -123,10 +123,53 @@ cursor는 A0의 HMAC 서명·별도 키/키회전 규약을 따른다. 내부 sn
 - 발급 시점 기준15분 후 만료. 다음 페이지를 읽어도 연장하지 않는다. snapshot은 적어도 그 cursor 유효기간 동안 유지하되 개인정보 파기·인가 관련 무효화가 우선한다.
 - 만료 또는 snapshot 조기 파기면409 CURSOR_EXPIRED(retryable=false,field=cursor). 새 첫 페이지로 시작한다. 조용히 최신 표로 넘어가지 않는다.
 - 서명/사용자/week/kind/context/limit 불일치는400 INVALID_CURSOR. 조회자 비활성404 USER_NOT_FOUND, 현재 소속/시설 상실403이 우선하며 cursor 자체가 과거 인가를 유지하지 않는다.
-- included user의 PII 파기나 공개 범위 변화로 원 snapshot을 내릴 수 없으면 전체 해당 snapshot을 무효화한다. 일부 행만 삭제하고 순위/분모는 옛값으로 남겨 새 표처럼 전달하지 않는다. 사용자 역색인과 탈퇴 파기 작업을 연결한다.
+- included user의 PII 파기나 공개 범위 변화는 아래 동일 lifecycle 잠금과 중앙 withdraw TX에서 전체 snapshot을 즉시 무효화하고 payload를 파기한다. 일부 행만 삭제하고 순위/분모는 옛값으로 남겨 새 표처럼 전달하지 않는다.
 - snapshot TTL은 조회 기술 수명이고 과거 주 결과 보관/마감 수정 정책과 다르다. 현재 주 snapshot 갱신 주기·과거 주 final cutoff는 RK-D03/04에서 확정한다.
 
-권한 검사 이후 추가 멤버십 변화가 생길 수 있으므로 snapshot 생성/조회에서 정책이 요구하는 lifecycle/context 일관성을 확보한다. Redis 캐시에 공개 결과를 두더라도 현재 사용자/시설 판정을 생략하지 않고, 같은 snapshot identity로만 읽는다. cache miss를 현재 DB 재계산으로 채우지 말고 저장 정본 또는 CURSOR_EXPIRED로 처리한다.
+### 탈퇴와 snapshot 반환의 동일 원자 경계
+
+요청자만 재인가하면 snapshot 안에 복사된 다른 주민의 PII를 보호할 수 없다. 초기 구현은 Data DB의
+공통 transaction-scoped lifecycle 잠금 `public-statistics-snapshot-lifecycle`을 사용한다. snapshot 생성과
+모든 페이지 반환은 공유 잠금, 중앙 withdraw와 공개 범위 축소·PII 파기는 같은 키의 배타 잠금을 취득한다.
+이는 새 논리 잠금 계약이며 기준 main에 이미 있는 기능이 아니다. 단일 키는 초기 안전성을 위한 기술 선택이고,
+나중에 분할하려면 같은 원자 조건과 잠금 순서를 경합 테스트로 다시 입증해야 한다.
+
+잠금 순서는 **공통 lifecycle 잠금 → 사용자 lifecycle 행(ID 정렬) → 섬/context(ID 정렬) → snapshot(ID 정렬)**이다.
+중앙 withdraw의 모든 진입점은 사용자 락을 잡기 전에 배타 잠금을 얻어야 한다. 이미 사용자/섬 락을 잡은
+상태에서 이 공통 잠금을 뒤늦게 추가하지 않는다. snapshot 만료 정리도 lifecycle 잠금 후 snapshot 순서를
+따르며, 기존 사용자→섬 순서를 역전시키지 않는다. 회관/랭킹 두 모듈은 정확히 같은 잠금 키·프로토콜을 사용한다.
+
+1. 생성: 공유 잠금을 먼저 얻고 현재 인가/피관측자 공개 조건을 검사한 뒤 일관된 집계를 만든다. 정렬 결과와
+   `snapshotId → 관련 사용자` 및 `사용자 → snapshotId` 역색인을 **같은 쓰기 TX**에 저장한다. 관련 사용자는
+   현재 페이지뿐 아니라 전체 결과·myRank·분모·집계 기여에 포함된 사용자까지 포함한다. 초기 구현은 READ COMMITTED
+   TX에서 잠금을 먼저 취득한 다음, **다음 SQL statement의 단일 SELECT/CTE**로 집계 전체를 고정한다.
+   REPEATABLE READ에서 잠금 SELECT가 대기 전에 고정한 오래된 view를 재사용하는 구현은 허용하지 않는다.
+   잠금 전 읽기 결과는 권한·유효성 판정에 쓰지 않으며, 페이지 반환도 같은 READ COMMITTED 순서를 따른다.
+2. 페이지: 공유 잠금 아래 현재 요청자의 활성 계정/소속/시설 권한을 재검사하고, 정본 snapshot의 유효 상태·TTL·
+   scope·정책 revision을 함께 확인한 후 응답에 필요한 공개 결과를 확정한다. 중간에 TX를 끝내고 유효 상태를
+   다시 확인하지 않은 payload를 별도 조회하지 않는다. Data 응답 DTO와 직렬화할 내용을 이 TX에서 확정하며
+   lazy loading/후속 DB 조회를 하지 않는다. 정본 검사 전 Business 캐시에서 응답을 반환할 수 없다.
+3. 탈퇴: 배타 잠금을 얻은 중앙 withdraw가 사용자 비활성/PII 파기와 함께 역색인으로 영향받는 **전체 snapshot**을
+   찾아 무효화하고 복사된 결과 payload·개인정보 인덱스를 삭제한다. 원본 사용자 파기와 무효화/삭제는 같은 Data TX로
+   커밋하거나 전부 rollback한다. 비동기 outbox/TTL/배치가 나중에 snapshot을 내릴 때까지 기다리는 방식은 금지다.
+   외부 서비스 후속 파기가 있더라도 Data 안의 이 원자 작업을 대체하지 않는다.
+4. 재조회: 현재 요청자 권한이 없으면 기존403/404가 우선한다. 요청자는 여전히 인가됐지만 snapshot이 타인의
+   탈퇴로 무효화됐으면409 `CURSOR_EXPIRED`(field=cursor,retryable=false)로 첫 페이지 재조회를 요구한다.
+   중간 행만 빼거나 분모/순위를 그대로 둔 수정본을 기존 snapshotId로 반환하지 않는다. 비민감 무효화 표시만
+   남기거나 snapshot을 완전히 지울 수 있으며, 두 경우 모두 같은 cursor 오류로 처리한다.
+
+반환의 선형화 지점은 공유 잠금 안의 최종 유효성 검사와 응답 내용 확정이다. 탈퇴가 먼저 커밋하면 이후 페이지는
+이전 PII를 받을 수 없다. 페이지가 먼저 이 지점을 통과하면 탈퇴가 공유 잠금 해제까지 기다리므로 조회가 먼저
+일어난 순서다. 이미 인가되어 전송 중인 HTTP 응답을 네트워크에서 회수한다는 보장은 하지 않는다. 여러 HTTP 요청
+사이에 DB TX를 유지하지 않으며, TTL15분은 이 동기 파기 경계를 늦추는 유예 기간이 아니다.
+
+현재 설계는 Data 밖 Redis/Business/local/CDN에 공개 snapshot payload를 복제·캐시하지 않는다. Business는
+Data가 확정한 이번 응답을 전달할 뿐 재사용하지 않고 공개 HTTP에 `Cache-Control: no-store`를 지정한다.
+다른 저장소 캐시는 원자 무효화와 반환 직전 정본 조건 검증을 같은 수준으로 증명하는 별도 설계 전까지 금지한다.
+중앙 withdraw·공개 범위 writer 전수 참여, 전체 사용자 역색인, 실제 PostgreSQL 경합 검증이 없으면1769/1777의
+snapshot 공개 경로를 활성화하지 않는다. 이 gate는 제품 분모·귀속·동점 정책 승인과 별개다.
+
+[회관 기록의 동일 프로토콜](../island-records/low-level-design.md)과 공통 구현을 사용한다. 두 모듈별로 별도 잠금 키를 만들면 중앙 탈퇴의 원자 경계가 깨진다.
 
 ## 5. 저장·부수효과·계약 경계
 
@@ -165,6 +208,6 @@ main529a 실제 코드 근거:
 
 1777 구현 순서: RC-D01/랭킹 정책 결정 → 고정 기여·cohort 및 legacy 이관 → 순수 집계/순위 함수 → immutable snapshot·인가된 cursor → 공개 HTTP → 실제 PostgreSQL·경합 검증. BFF는 뒤에서 이 재료를 사용한다.
 
-필수 회귀는 ISO week-year/자정/휴식, 진행→완료 중복0, 페이지 경계 동점·myRank 전체순위, 분모0/0초 주민/중도가입/강퇴·재가입/1→2→1, 개인전체와 섬귀속 이동, 같은 snapshot에 완료·이름변경이 끼어도 페이지 안정, cursor 위조·타인·다른주·scope·limit·만료, 다음 페이지 전 탈퇴/시설·소속 상실·PII 파기, 과거 cutoff 뒤 지연반영, relay 중복/재집계 보상0이다. 미결 정책은 승인된 fixture 표가 생긴 뒤 테스트 통과를 판단한다.
+필수 회귀는 ISO week-year/자정/휴식, 진행→완료 중복0, 페이지 경계 동점·myRank 전체순위, 분모0/0초 주민/중도가입/강퇴·재가입/1→2→1, 개인전체와 섬귀속 이동, 같은 snapshot에 완료·이름변경이 끼어도 페이지 안정, cursor 위조·타인·다른주·scope·limit·만료, 다음 페이지 전 탈퇴/시설·소속 상실·PII 파기, 과거 cutoff 뒤 지연반영, relay 중복/재집계 보상0이다. 페이지에 아직 나오지 않은 사용자 또는 섬 평균 기여자의 탈퇴도 전체 snapshot 무효화를 검증한다. 생성/페이지 확정과 중앙 withdraw의 양방향 경합, 역색인 누락 방지, 파기 실패 시 전체 rollback, 탈퇴 선커밋 후 이전 payload 반환0을 실제 PostgreSQL에서 확인한다. 미결 정책은 승인된 fixture 표가 생긴 뒤 테스트 통과를 판단한다.
 
 로그는 requestId, snapshot lookup outcome, operation, durationMs, policyRevision, bounded counts로 남기고 cursor 원문·사용자명·전체 결과·토큰을 남기지 않는다. snapshot 생성시간/보관량/만료율·집계 지연·분모 이상을 유한 label로 계측한다. 빌드·실서비스 검증을 이 문서 작성의 완료 증거로 주장하지 않는다.

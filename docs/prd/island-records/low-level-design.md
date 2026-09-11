@@ -147,13 +147,54 @@ PR743의 단일 계산식을 사용한다. ACTIVE 구간은 `[start,end)`, 진�
 | ACTIVE 23:59~00:00 정확 종료 | 전일60초, 다음날0 |
 | ACTIVE 23:59:59.800~00:00:00.800 | 총1초, 정본 누적 규칙으로 전일1·당일0 |
 
-완료 날짜 기여·진행 상태·구간은 단일 SELECT 또는 read-only REPEATABLE READ snapshot에서 함께 읽는다. 완료 projection 캐시와 현재 Redis live 값을 별도 조회해 더하지 않는다. finish와 경쟁해도 동일 세션이 완료+진행 양쪽에 잡히지 않아야 한다. read projection의 순수 합산은 보상/종료 명령을 호출하지 않는다.
+완료 날짜 기여·진행 상태·구간은 lifecycle 공유 잠금 획득 후 READ COMMITTED TX의 단일 SELECT statement snapshot에서 함께 읽는다. 완료 projection 캐시와 현재 Redis live 값을 별도 조회해 더하지 않는다. finish와 경쟁해도 동일 세션이 완료+진행 양쪽에 잡히지 않아야 한다. read projection의 순수 합산은 보상/종료 명령을 호출하지 않는다.
 
-scope=me records 정렬은 completedAt DESC, UUID DESC, scope=island members는 UUID ASC다. 페이지 기본30/상한100은 A0를 따르고 선택 limit 확장은 기술 query다. limit/filter/scope를 바꾸면 첫 조회다. immutable snapshot에 total/series/records 또는 members의 정렬 결과와 asOf·정책 revision을 고정한다. Data의 일관된 읽기 TX에서 projection을 만들고 commit 후 페이지로 제공하며 HTTP 사이 장시간 DB TX를 유지하지 않는다.
+scope=me records 정렬은 completedAt DESC, UUID DESC, scope=island members는 UUID ASC다. 페이지 기본30/상한100은 A0를 따르고 선택 limit 확장은 기술 query다. limit/filter/scope를 바꾸면 첫 조회다. immutable snapshot에 total/series/records 또는 members의 정렬 결과와 asOf·정책 revision을 고정한다. Data READ COMMITTED 쓰기 TX의 단일 SELECT로 일관된 projection을 만들고 결과·역색인을 함께 저장한다. 같은 TX에서 첫 응답 내용을 확정하고 commit 후 전달하며 HTTP 사이 장시간 DB TX를 유지하지 않는다.
 
 cursor는 A0의 별도 HMAC 키로 서명한 opaque 토큰이다. 내부 schemaVersion/snapshotId/주체scope digest/islandId-context digest/from/to/timezone/scope/limit/정렬/last key/정책 revision/발급·만료를 결합한다. 서명은 암호화가 아니므로 subject/name/원시 개인정보를 토큰에 넣지 않는다. 완료 시각·세션 ID의 실제 정렬 경계는 서버 snapshot에 보관하고 cursor에는 비민감 경계 참조를 써서 개인 활동 시각을 URL에 노출하지 않는다. 수명은15분, 이어지는 페이지로 만료를 연장하지 않는다. Data snapshot도 해당 원 cursor 만료까지 있어야 하며 조기 삭제·만료·PII 파기면409 CURSOR_EXPIRED 후 첫 페이지를 다시 읽는다. asOf만 남기고 현재 DB로 페이지를 재생성하지 않는다.
 
-각 페이지는 현재 활성 계정/소속/회관 접근을 재검사한다. 탈퇴·비공개화·소속 상실로 더는 공개할 수 없는 주민 데이터가 snapshot에 있으면 영향을 받는 snapshot을 무효화하고 다시 조회하게 한다. 새 current 권한이 없는 요청자는403/404로 먼저 거절한다. immutable snapshot은 개인정보 파기 의무를 우회하는 보관소가 아니며 사용자별 역색인/파기 작업을 계정 탈퇴와 연결한다.
+### 탈퇴와 snapshot 반환의 동일 원자 경계
+
+요청자만 재인가하면 snapshot 안에 복사된 다른 주민의 PII를 보호할 수 없다. 초기 구현은 Data DB의
+공통 transaction-scoped lifecycle 잠금 `public-statistics-snapshot-lifecycle`을 사용한다. snapshot 생성과
+모든 페이지 반환은 공유 잠금, 중앙 withdraw와 공개 범위 축소·PII 파기는 같은 키의 배타 잠금을 취득한다.
+이는 새 논리 잠금 계약이며 기준 main에 이미 있는 기능이 아니다. 단일 키는 초기 안전성을 위한 기술 선택이고,
+나중에 분할하려면 같은 원자 조건과 잠금 순서를 경합 테스트로 다시 입증해야 한다.
+
+잠금 순서는 **공통 lifecycle 잠금 → 사용자 lifecycle 행(ID 정렬) → 섬/context(ID 정렬) → snapshot(ID 정렬)**이다.
+중앙 withdraw의 모든 진입점은 사용자 락을 잡기 전에 배타 잠금을 얻어야 한다. 이미 사용자/섬 락을 잡은
+상태에서 이 공통 잠금을 뒤늦게 추가하지 않는다. snapshot 만료 정리도 lifecycle 잠금 후 snapshot 순서를
+따르며, 기존 사용자→섬 순서를 역전시키지 않는다. 회관/랭킹 두 모듈은 정확히 같은 잠금 키·프로토콜을 사용한다.
+
+1. 생성: 공유 잠금을 먼저 얻고 현재 인가/피관측자 공개 조건을 검사한 뒤 일관된 집계를 만든다. 정렬 결과와
+   `snapshotId → 관련 사용자` 및 `사용자 → snapshotId` 역색인을 **같은 쓰기 TX**에 저장한다. 관련 사용자는
+   현재 페이지뿐 아니라 전체 결과·myRank·분모·집계 기여에 포함된 사용자까지 포함한다. 초기 구현은 READ COMMITTED
+   TX에서 잠금을 먼저 취득한 다음, **다음 SQL statement의 단일 SELECT/CTE**로 집계 전체를 고정한다.
+   REPEATABLE READ에서 잠금 SELECT가 대기 전에 고정한 오래된 view를 재사용하는 구현은 허용하지 않는다.
+   잠금 전 읽기 결과는 권한·유효성 판정에 쓰지 않으며, 페이지 반환도 같은 READ COMMITTED 순서를 따른다.
+2. 페이지: 공유 잠금 아래 현재 요청자의 활성 계정/소속/시설 권한을 재검사하고, 정본 snapshot의 유효 상태·TTL·
+   scope·정책 revision을 함께 확인한 후 응답에 필요한 공개 결과를 확정한다. 중간에 TX를 끝내고 유효 상태를
+   다시 확인하지 않은 payload를 별도 조회하지 않는다. Data 응답 DTO와 직렬화할 내용을 이 TX에서 확정하며
+   lazy loading/후속 DB 조회를 하지 않는다. 정본 검사 전 Business 캐시에서 응답을 반환할 수 없다.
+3. 탈퇴: 배타 잠금을 얻은 중앙 withdraw가 사용자 비활성/PII 파기와 함께 역색인으로 영향받는 **전체 snapshot**을
+   찾아 무효화하고 복사된 결과 payload·개인정보 인덱스를 삭제한다. 원본 사용자 파기와 무효화/삭제는 같은 Data TX로
+   커밋하거나 전부 rollback한다. 비동기 outbox/TTL/배치가 나중에 snapshot을 내릴 때까지 기다리는 방식은 금지다.
+   외부 서비스 후속 파기가 있더라도 Data 안의 이 원자 작업을 대체하지 않는다.
+4. 재조회: 현재 요청자 권한이 없으면 기존403/404가 우선한다. 요청자는 여전히 인가됐지만 snapshot이 타인의
+   탈퇴로 무효화됐으면409 `CURSOR_EXPIRED`(field=cursor,retryable=false)로 첫 페이지 재조회를 요구한다.
+   중간 행만 빼거나 분모/순위를 그대로 둔 수정본을 기존 snapshotId로 반환하지 않는다. 비민감 무효화 표시만
+   남기거나 snapshot을 완전히 지울 수 있으며, 두 경우 모두 같은 cursor 오류로 처리한다.
+
+반환의 선형화 지점은 공유 잠금 안의 최종 유효성 검사와 응답 내용 확정이다. 탈퇴가 먼저 커밋하면 이후 페이지는
+이전 PII를 받을 수 없다. 페이지가 먼저 이 지점을 통과하면 탈퇴가 공유 잠금 해제까지 기다리므로 조회가 먼저
+일어난 순서다. 이미 인가되어 전송 중인 HTTP 응답을 네트워크에서 회수한다는 보장은 하지 않는다. 여러 HTTP 요청
+사이에 DB TX를 유지하지 않으며, TTL15분은 이 동기 파기 경계를 늦추는 유예 기간이 아니다.
+
+현재 설계는 Data 밖 Redis/Business/local/CDN에 공개 snapshot payload를 복제·캐시하지 않는다. Business는
+Data가 확정한 이번 응답을 전달할 뿐 재사용하지 않고 공개 HTTP에 `Cache-Control: no-store`를 지정한다.
+다른 저장소 캐시는 원자 무효화와 반환 직전 정본 조건 검증을 같은 수준으로 증명하는 별도 설계 전까지 금지한다.
+중앙 withdraw·공개 범위 writer 전수 참여, 전체 사용자 역색인, 실제 PostgreSQL 경합 검증이 없으면1769/1777의
+snapshot 공개 경로를 활성화하지 않는다. 이 gate는 제품 분모·귀속·동점 정책 승인과 별개다.
 
 ## 4. 기기 측정 PUT: 실제 수집·내구 저장·CAS
 
@@ -195,7 +236,7 @@ Data TX 순서: 영향 사용자 lifecycle 잠금·활성/session generation 재
 
 집중 finish가 이미 세션별 보상/날짜 기여를 반영한다. 새 집계 재구축/랭킹 새로고침/relay 재전달은 FocusService.recordCompletion 또는 기존 screen goal 지급을 호출하지 않는다. 퀘스트 회차 지급은 해당 도메인의 유일성/receipt/TX가 소유하며 screen PUT 성공만으로 보상을 발생시키지 않는다. 표시 정정과 이미 마감된 보상 변경은 RC-D04 별도 결정이다.
 
-탈퇴와 수집은 사용자 lifecycle 동일 잠금 경계에 참여한다. raw/latest/projection/receipt·내구 payload·snapshot의 사용자 PII를 계정 파기 전수표에 포함하고 지연 업로드/재전달이 부활시키지 않게 한다. 범용 로그에 user가 보낸 본문·deviceId·토큰·앱 목록을 남기지 않는다.
+탈퇴와 수집은 사용자 lifecycle 동일 잠금 경계에 참여한다. §3의 snapshot 공통 lifecycle 배타 잠금을 사용자 잠금보다 먼저 취득하고, 영향 snapshot payload 파기/무효화를 중앙 withdraw와 같은 TX에서 수행한다. raw/latest/projection/receipt·내구 payload·snapshot의 사용자 PII를 계정 파기 전수표에 포함하고 지연 업로드/재전달이 부활시키지 않게 한다. 범용 로그에 user가 보낸 본문·deviceId·토큰·앱 목록을 남기지 않는다.
 
 ## 6. 오류·검증·실제 근거
 
@@ -227,6 +268,6 @@ main529a 근거(기존 동작과 신규 요구를 구분):
 
 1769 순서: 정책/기기 바인딩 확정 → ACTIVE/귀속 기반·legacy 호환 통합 → strict DTO/기기 원본/CAS → 승인 projection/내구 후속 → 조회 snapshot/cursor → 실제 PostgreSQL·HTTP·OS fixture 회귀. BFF는 이 재료가 준비된 뒤 구성한다.
 
-검증 사례는 KST 자정/월경계/초 잔여, 진행→완료 중복0, 전체합의 페이지 독립, 같은날 A/B 기기와 시간 역순/동일시각 충돌/미래시각, 실제0/권한없음/결측·부분 기간, DST 두 날짜 접힘, 탈퇴와 저장 양방향 경합, legacy/new 동시 보고, receipt/outbox rollback·재전달 부수효과0, cursor 위조/타인/기간변조/만료/권한상실이다. 서버 fixture만으로 OS 정확성 검증 완료라 하지 않으며 실제 지원 OS·선택 범위의 측정 근거를 남긴다.
+검증 사례는 KST 자정/월경계/초 잔여, 진행→완료 중복0, 전체합의 페이지 독립, 같은날 A/B 기기와 시간 역순/동일시각 충돌/미래시각, 실제0/권한없음/결측·부분 기간, DST 두 날짜 접힘, 탈퇴와 저장 양방향 경합, legacy/new 동시 보고, receipt/outbox rollback·재전달 부수효과0, cursor 위조/타인/기간변조/만료/권한상실이다. snapshot 생성/페이지 반환과 포함된 타인의 탈퇴를 각 방향으로 경합시켜, 탈퇴 선커밋 후 이전 payload 반환0·조회 선확정 시 탈퇴 대기·역색인/파기 rollback 원자성·현재 페이지 밖 기여자 파기도 전체 snapshot 무효화를 확인한다. 서버 fixture만으로 OS 정확성 검증 완료라 하지 않으며 실제 지원 OS·선택 범위의 측정 근거를 남긴다.
 
 관측 로그는 서버 requestId/commandId/eventId, operation/phase/outcome/durationMs·정책 revision만 연결한다. 역순/동일시각 충돌·측정 결측·snapshot 만료·relay 지연을 유한 label로 계측한다. 이 문서 작업에서는 빌드·실서비스 테스트를 실행하지 않는다.

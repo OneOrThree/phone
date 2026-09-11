@@ -7,3 +7,8 @@ GROMO-1776 설계, 구현1777. [PRD](prd.md)·[정책](policy.md)·[HLD](high-le
 [같은 PR 회관 기록](../island-records/README.md), [날짜 축](../../conventions/date-axis.md), [공통 PR738](https://github.com/OneOrThree/phone/pull/738), [소속 PR741](https://github.com/OneOrThree/phone/pull/741), [집중 PR743](https://github.com/OneOrThree/phone/pull/743)을 참조한다. main529a의 기존 리그는 실제 집계지만 섬 주간 랭킹은 아니다.
 
 분모·동점·가입/이탈·현재 주 진행분·지난 주 마감은 미결이다. 안정된 snapshot 기술을 정했다고 이 제품 정책을 확정한 것으로 계산하지 않는다. 정책 확정 완료 조건과 공개 출시에는 별도 결정이 필요하다.
+
+PII snapshot 동기 파기는 별도 구현 gate다. 현재 요청자 재인가뿐 아니라 표에 포함된 타인의 탈퇴도
+중앙 withdraw와 같은 Data TX에서 전체 snapshot payload를 파기한다. 생성·페이지 반환은 같은 lifecycle
+공유 잠금에 참여하며 외부 캐시는 사용하지 않는다. [LLD](low-level-design.md)의 잠금 순서와 양방향 경합
+검증이 구현되기 전 공개 활성화를 허용하지 않는다. 이미 서비스에 적용된 기능이라는 뜻은 아니다.

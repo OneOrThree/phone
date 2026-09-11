@@ -15,6 +15,7 @@
 | RC-P09 | 업로드는 실제 세션·측정기기 바인딩/소유를 검증. 임의 deviceId를 새 신뢰 기기로 자동 등록하지 않음 | 보안 기술 경계. FCM 토큰 ownership과 다른 식별자 |
 | RC-P10 | 집중 GET data.asOf 추가. 한 snapshot 관측 시각이며 실제 snapshot identity는 cursor 내부 | 승인된 기술 확장. timestamp만으로 과거 DB snapshot 복원 불가 |
 | RC-P11 | 측정 원본·최신 포인터·파생 projection·receipt·내구 후속 사건은 Data가 저장. GET/재전달/보정은 보상 지급 없음 | 기존 집중/경제/공통 원자 경계 |
+| RC-P12 | Data snapshot 생성/페이지 반환과 중앙 withdraw는 공통 lifecycle 공유/배타 잠금으로 직렬화. 타인 포함 전체 사용자 역색인의 payload 파기·무효화는 탈퇴와 같은 TX. 무효 snapshot은409 CURSOR_EXPIRED, 외부 payload 캐시 금지 | 개인정보 기술 경계. 잠금 순서/실제 경합 검증 전 공개 활성화 금지 |
 
 ## 원본과 채택의 차이
 
