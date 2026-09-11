@@ -7,10 +7,19 @@ import java.util.Objects;
 import java.util.UUID;
 
 /** 앱 이벤트 봉투. schemaVersion과 자원 버전은 별개이며 이 계약은 버전 1이다. */
-public record RealtimeEventEnvelope(UUID eventId, RealtimeEventType type, UUID islandId,
+public record RealtimeEventEnvelope(UUID eventId, int schemaVersion, RealtimeEventType type, UUID islandId,
         Long aggregateVersion, Instant occurredAt, JsonNode payload) {
 
+    /** 현재 생산자는 스키마 1로 발행하며 자원 버전과 독립이다. */
+    public RealtimeEventEnvelope(UUID eventId, RealtimeEventType type, UUID islandId,
+            Long aggregateVersion, Instant occurredAt, JsonNode payload) {
+        this(eventId, 1, type, islandId, aggregateVersion, occurredAt, payload);
+    }
+
     public RealtimeEventEnvelope {
+        if (schemaVersion != 1) {
+            throw new IllegalArgumentException("지원하지 않는 이벤트 스키마 버전입니다.");
+        }
         Objects.requireNonNull(eventId, "eventId");
         Objects.requireNonNull(type, "type");
         Objects.requireNonNull(occurredAt, "occurredAt");

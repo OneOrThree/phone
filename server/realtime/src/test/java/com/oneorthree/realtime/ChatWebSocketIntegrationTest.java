@@ -17,6 +17,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -454,6 +455,50 @@ class ChatWebSocketIntegrationTest {
                 .fetchMyGroupIds(expiredBearer);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"/ws/chat", "/ws/realtime"})
+    @DisplayName("수신 전용 소켓은 JWT 만료 시 닫히고 새 자격으로 다시 수신할 수 있다")
+    void receiveOnlyExpiredSocketClosesWithoutAClientCommand(String endpoint) throws Exception {
+        givenMemberOf(resident, island);
+        Instant expiration = Instant.now().plusSeconds(6);
+        String shortBearer = "Bearer " + Jwts.builder()
+                .subject(resident.toString()).claim("type", "access")
+                .expiration(Date.from(expiration))
+                .signWith(Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8))).compact();
+        given(groupClient.fetchMyGroupIds(shortBearer)).willReturn(GroupClient.Membership.of(Set.of(island)));
+        RecordingHandler receiverHandler = new RecordingHandler();
+        StompSession receiver = stompClient.connectAsync("ws://localhost:" + port + endpoint,
+                new WebSocketHttpHeaders(), authHeaders(shortBearer), receiverHandler)
+                .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        BlockingQueue<ChatMessageResponse> receiverQueue = subscribeToIsland(receiver, island);
+        // 같은 사람의 다른 기기다. 수신 전용 기기는 최초 SUBSCRIBE 뒤 어떤 명령도 보내지 않는다.
+        StompSession freshDevice = connect(resident, new RecordingHandler());
+        BlockingQueue<ChatMessageResponse> freshQueue = subscribeToIsland(freshDevice, island);
+        deliveries = receiverQueue;
+        assertThat(sendUntilDelivered(freshDevice, island,
+                new SendMessageRequest("만료 전 정상 수신", UUID.randomUUID()))).isNotNull();
+        drainUntilQuiet(receiverQueue);
+        while (Instant.now().isBefore(expiration.plusMillis(100))) {
+            Thread.sleep(50);
+        }
+        assertThat(new JwtValidator(jwtSecret).extractUserId(shortBearer.substring(7))).isEmpty();
+        deliveries = freshQueue;
+        assertThat(sendUntilDelivered(freshDevice, island,
+                new SendMessageRequest("만료 후 전달 금지", UUID.randomUUID()))).isNotNull();
+        // null drop만으로는 발생하지 않는 실제 transport 종료를 관측한다.
+        assertThat(receiverHandler.transportErrors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
+        assertThat(receiver.isConnected()).isFalse();
+        assertThat(receiverQueue.poll(300, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(freshDevice.isConnected()).isTrue();
+
+        StompSession reconnected = stompClient.connectAsync("ws://localhost:" + port + endpoint,
+                new WebSocketHttpHeaders(), authHeaders(bearerOf(resident)), new RecordingHandler())
+                .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        deliveries = subscribeToIsland(reconnected, island);
+        assertThat(sendUntilDelivered(freshDevice, island,
+                new SendMessageRequest("갱신 후 다시 수신", UUID.randomUUID()))).isNotNull();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private void givenMemberOf(UUID userId, UUID groupId) {
@@ -694,6 +739,12 @@ class ChatWebSocketIntegrationTest {
     private static class RecordingHandler extends StompSessionHandlerAdapter {
 
         private final BlockingQueue<String> errors = new LinkedBlockingQueue<>();
+        private final BlockingQueue<Throwable> transportErrors = new LinkedBlockingQueue<>();
+
+        @Override
+        public void handleTransportError(@NonNull StompSession session, @NonNull Throwable exception) {
+            transportErrors.add(exception);
+        }
 
         /** ERROR 본문은 JSON 이지만 여기서는 파싱하지 않는다 — 변환을 태우면 실패 지점이 하나 늘어난다. */
         @Override

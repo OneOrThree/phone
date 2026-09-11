@@ -1,6 +1,7 @@
 package com.oneorthree.realtime.event;
 
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -42,6 +43,32 @@ class EventRouterTest {
                     ? "/user/queue/events" : "/topic/islands/" + island + "/" + suffix);
             assertThat(mapper.writeValueAsString(type)).isEqualTo("\"" + type.wireName() + "\"");
         }
+    }
+
+    @Test
+    void serializedEnvelopeCarriesSchemaVersionIndependentOfResourceVersion() {
+        for (RealtimeEventType type : RealtimeEventType.values()) {
+            RealtimeEventEnvelope original = event(type, island);
+            JsonNode json = mapper.readTree(mapper.writeValueAsString(original));
+            assertThat(json.size()).isEqualTo(7);
+            assertThat(json.get("schemaVersion").asInt()).isEqualTo(1);
+            if (type == RealtimeEventType.FOCUS_EMOTE) {
+                assertThat(json.get("aggregateVersion").isNull()).isTrue();
+            }
+            assertThat(mapper.readValue(json.toString(), RealtimeEventEnvelope.class)).isEqualTo(original);
+        }
+    }
+
+    @Test
+    void absentAndUnsupportedSchemaVersionsAreRejected() {
+        ObjectNode json = (ObjectNode) mapper.readTree(
+                mapper.writeValueAsString(event(RealtimeEventType.ISLAND_UPDATED, island)));
+        json.remove("schemaVersion");
+        assertThatThrownBy(() -> mapper.readValue(json.toString(), RealtimeEventEnvelope.class))
+                .isInstanceOf(RuntimeException.class);
+        json.put("schemaVersion", 2);
+        assertThatThrownBy(() -> mapper.readValue(json.toString(), RealtimeEventEnvelope.class))
+                .isInstanceOf(RuntimeException.class);
     }
 
     @Test

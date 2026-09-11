@@ -51,13 +51,15 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         if (!groupMessage && !duplicate) {
             return message; // 개인 오류 큐는 집중 거절을 알릴 수 있어야 한다.
         }
-        ChatPrincipal principal = sessions.find(SimpMessageHeaderAccessor.getSessionId(message.getHeaders()));
+        String sessionId = SimpMessageHeaderAccessor.getSessionId(message.getHeaders());
+        ChatPrincipal principal = sessions.find(sessionId);
         if (principal == null) {
             return null;
         }
         String bearer = principal.bearer();
         String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : null;
         if (jwtValidator.extractUserId(token).filter(principal.userId()::equals).isEmpty()) {
+            sessions.closeUnauthorized(sessionId);
             return null;
         }
         try {

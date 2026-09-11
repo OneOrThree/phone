@@ -5,9 +5,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
+import org.springframework.web.socket.handler.WebSocketHandlerDecorator;
 
 /**
  * STOMP 배선.
@@ -39,6 +43,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final StompAuthChannelInterceptor stompAuthChannelInterceptor;
     private final ChatStompErrorHandler chatStompErrorHandler;
     private final ChatOutboundChannelInterceptor chatOutboundChannelInterceptor;
+    private final RealtimeSessionRegistry sessions;
 
     /**
      * 핸드셰이크에서 허용할 Origin.
@@ -68,6 +73,32 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         //
         // 즉 「순서가 가끔 뒤집힌다」를 고치려다 「거절이 영영 안 온다」를 만든다 — 후자가 훨씬 나쁘다.
         // 순서를 고치려면 관문이 예외 대신 다른 방식으로 거절하도록 먼저 바꿔야 한다(GROMO-1741 §①).
+    }
+
+    /** STOMP 세션 ID와 같은 실제 소켓을 등록하고 모든 연결 종료 경로에서 정리한다. */
+    @Override
+    public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
+        registration.addDecoratorFactory(handler -> new WebSocketHandlerDecorator(handler) {
+            @Override
+            public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+                sessions.opened(session);
+                try {
+                    super.afterConnectionEstablished(session);
+                } catch (Exception e) {
+                    sessions.closed(session.getId());
+                    throw e;
+                }
+            }
+
+            @Override
+            public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+                try {
+                    super.afterConnectionClosed(session, status);
+                } finally {
+                    sessions.closed(session.getId());
+                }
+            }
+        });
     }
 
     @Override

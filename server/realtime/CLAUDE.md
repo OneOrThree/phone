@@ -65,8 +65,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   (measured: ~50% inversions). Cursor paging, `hasMore`, and unread counts all rest on
   `id` ordering, so the damage shows up as "messages occasionally out of order" — never
   reproducible. The measurements are in that class's javadoc.
-- **Two places encode the topic path** (`ChatFanout.topicOf` and the regex in
-  `StompAuthChannelInterceptor`). Change one without the other and subscriptions still
+- **Three places encode the topic path** (`ChatFanout.topicOf` and the regexes in
+  `StompAuthChannelInterceptor` and `ChatOutboundChannelInterceptor`). Change one without the other and subscriptions still
   work — only the authorization check silently stops matching.
 - **`presence:*` is read-only here.** Data API owns it. A write or delete from this
   service would let chat cancel the focus rule.
@@ -82,7 +82,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   needs a commit-ordered sequence; tracked as a follow-up.
 - **만료된 access token은 `UNAUTHORIZED`로 거절한다.** CONNECT·SEND·SUBSCRIBE에서 검증하고,
   아웃바운드 채팅에서도 CONNECT 주체의 토큰을 다시 검증한다. 다른 기기가 멤버십 캐시를 갱신해도
-  만료된 소켓은 채팅을 송수신할 수 없다. 갱신된 토큰으로 다시 연결한다.
+  만료된 소켓은 채팅을 송수신할 수 없다. 전달 시 만료를 감지하면 실제 소켓을
+  WebSocket 1008/UNAUTHORIZED로 종료하여 수신 전용 앱도 토큰을 갱신하고 다시 연결할 수 있다.
 - **A resend is never re-broadcast.** `clientMessageId` makes `send` idempotent, and a resend
   returns the originally stored message — but it does *not* go to the room again, or every other
   member would see the same `messageId` twice. Since a successful STOMP send returns nothing (the
@@ -175,7 +176,8 @@ Chat never touches the `gromo` database and Data API never touches `gromo_chat`.
 
 `event/EventRouter.route(RealtimeEventEnvelope, RealtimeAudience)`가 14종 이벤트의 단일 내부 진입점이다.
 이름별 고정 목적지만 계산하고 payload의 destination을 거절한다. 개인 자산은 소유자 한 명의 개인큐로만,
-공동 자산은 같은 섬으로만 보낸다. 안전 정수 버전·payload version 일치·owner/currency 범위를 검사한다.
+공동 자산은 같은 섬으로만 보낸다. 필수 `schemaVersion: 1`과 안전 정수 자원 버전을 구분하고, payload version 일치·owner/currency 범위를 검사한다.
+알 수 없거나 누락된 schemaVersion은 거절한다. emote도 schemaVersion은 1이고 aggregateVersion만 null이다.
 
 `DisabledRealtimeDelivery`는 항상 거절한다. 새 SUBSCRIBE/SEND 및 새 채널의 아웃바운드도 닫혀 있다.
 새 생산자 HTTP endpoint·Redis fanout 채널·샘플 메시지는 만들지 않았다. 14종 전체 payload 스키마,
