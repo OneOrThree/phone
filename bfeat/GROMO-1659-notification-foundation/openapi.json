@@ -969,6 +969,47 @@
         }
       }
     },
+    "/internal/auth/sessions/verify": {
+      "post": {
+        "tags": [
+          "internal-auth-controller"
+        ],
+        "operationId": "verifySession",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceSessionVerifyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/auth/device-sessions/verify": {
       "post": {
         "tags": [
@@ -7180,17 +7221,16 @@
           "slug"
         ]
       },
-      "DeviceSessionVerifyRequest": {
+      "SessionVerifyRequest": {
         "type": "object",
         "properties": {
-          "deviceBootstrap": {
+          "sessionId": {
             "type": "string",
-            "maxLength": 512,
-            "minLength": 0
+            "format": "uuid"
           }
         },
         "required": [
-          "deviceBootstrap"
+          "sessionId"
         ]
       },
       "DeviceSessionVerifyResponse": {
@@ -7204,6 +7244,19 @@
             "format": "int64"
           }
         }
+      },
+      "DeviceSessionVerifyRequest": {
+        "type": "object",
+        "properties": {
+          "deviceBootstrap": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "deviceBootstrap"
+        ]
       },
       "UserProfileSetupRequest": {
         "type": "object",
