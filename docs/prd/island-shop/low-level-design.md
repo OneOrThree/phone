@@ -74,7 +74,20 @@ previewUrl/blockedReason/requiredBuilding은 nullable.
 현재 판매 중이라는 보증은 아니다. 선행을 아직 소유하지 않았는데 퇴역하여 구매할 수 없다면 대상 상품도
 available=false로 안내하고, 상세 이동의404는 판매 종료 상태로 처리한다. 이미 소유한 선행 상품은 판매 퇴역과
 관계없이 보유 조건을 충족한다. 구매 TX는 안내를 신뢰하지 않고 실제 소유와 현재 판매 조건을 다시 검사한다.
- 다른 시설용 building_theme은 대상 buildingId를 추가 반환한다.
+
+**대상 건물 필드:** 상세 data는 `targetBuilding:BuildingId|null`을 반드시 포함한다. `kind=building_theme`이면 불변 자산 정의의 실제 대상 건물 ID이며 null을 허용하지 않는다. 다른 kind이면 null이다. 구매 허용 시설 조건인 `requiredBuilding`과 구분한다. 이 필드는 앞의 원본 예시를 변경하지 않는 응답 확장이다.
+
+추가 필드 예시(회관 테마와 음원 각각):
+
+```json
+{"targetBuilding":"hall"}
+```
+
+```json
+{"targetBuilding":null}
+```
+
+앱은 이 값으로 `buildingThemes`의 적용 대상 key를 선택하며 상품 이름이나 ID에서 대상을 추측하지 않는다.
 previewUrl은 서버 등록 media 자산만 반환하고 사용자 URL을 받아 서버가 대신 가져오는 기능을 만들지 않는다.
 미리듣기는 기기 로컬이며 shared playback을 변경하지 않는다. 비활성/삭제 상품은404 PRODUCT_NOT_FOUND 또는 이미 소유한
 상품의 별도 표시 가능 여부를 catalog 생명주기 정책과 함께 정한다. 과거 주문 snapshot을 이404로 삭제하지 않는다.

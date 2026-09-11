@@ -169,6 +169,8 @@ A02/A03의 미결 제품 정책은 최초 활성화 전에 정하며 이후 기�
 1754의 schemaVersion=1을 포함한 7필드 봉투를 사용하며 payload.version=aggregateVersion이다. 두 외양 사건의 outbox 저장·즉시 발행·재전달에도 최초 schemaVersion과 완성된 봉투를 보존한다. 개인외양은개인자산잔액/보유목록과달리주민에게
 보이는전체착용상태만전달한다.공동외양은PATCH본문의부분맵이아니라반영된전체맵이다.
 
+Data의 두 외양 PATCH 내부 응답은 `{data:<공개 전체 외양 DTO>,events:[<완성 RealtimeEventEnvelope>...]}`다. events는 위 7필드 전체를 담으며, 개인 변경은 실제 표시 대상 섬별 `member.appearance.updated`, 공동 변경은 해당 섬의 `island.appearance.updated`다. 대상 섬이 없거나 실제 변경 없는 새 요청은 빈 배열이다. 작성 TX에서 확정한 data와 events를 함께 receipt에 저장하고 같은 키 재생에서 원 목록과 eventId/version을 복원한다. Business는 events로 즉시 전달 경로를 호출하며 앱에는 기존200 `{data}`만 반환한다. 실패한 즉시 전달은 같은 저장 사건의 relay가 복구한다. DB 재조회나 새 eventId로 봉투를 재구성하지 않으며 기존 10필드 저장용 EventEnvelope를 7필드 공개 사건으로 간주하지 않는다.
+
 개인외양을여러섬으로발행하면대상별eventId/envelope.islandId를갖고같은userappearanceversion을유지한다.
 지연된과거가입이벤트로이미권한이없는섬에전달하지않도록현재membership/수신자권한을최종검사한다.
 가입/탈퇴가동시에일어나놓친표시는도메인snapshot과새로고침으로복구한다.지연된event만으로새주민을만들지않는다.
@@ -194,7 +196,8 @@ GET inventory 또는해당화면snapshot을읽고버전기준을다시설치한�
 |시설 완공만 발생·응답 유실 재시도|같은 TX의 appearance.version+전체 default 포함 이벤트1건, 재시도 추가 버전/사건 없음|
 |시설 완공과 테마 PATCH 경합·outbox 저장 실패|최신 전체 맵 보존 또는409, 실패 시 시설/외양/version/outbox 모두 rollback|
 |보유 상품 가격 개정/퇴역 뒤 재착용·무관한 슬롯 PATCH|불변 의미로 성공, 판매 상태로 기존 착용을 소급 거절하지 않음|
-|같은key응답유실후version전진|원결과재생,이벤트추가발행없음|
+|같은key응답유실후version전진|원 data/events 재생, 추가 사건 생성 없음; 즉시 재전달·relay는 같은 eventId로 중복 제거|
+|개인 여러 섬/공동 변경/무변경의 내부 응답|대상별 완성7필드 봉투와 receipt 일치, 무변경 events=[], 공개 DTO에 events 유출 없음|
 |신규key로같은효과|200,불필요version/event증가없음|
 |회원탈퇴/강퇴/방장이양과적용경합|유령착용/권한상실후신규공동변경없음|
 |구매와동시착용|commit되지않은소유로착용불가;승인된구매직후재시도성공|

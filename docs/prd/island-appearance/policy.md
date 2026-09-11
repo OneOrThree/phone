@@ -54,7 +54,7 @@ TBD로 두었으며 양쪽이 서로 다른 기본값을 내리지 않는다.
 상대변경을 지우지 않는다. stale전체객체를 자동재전송하지 않으며 네트워크재시도는같은key/본문으로만 한다.
 
 외양버전은 실제변경이 확정될 때 단조증가한다. 같은 효과의 새 요청은200 최신상태와receipt만 만들고 불필요한
-version/event를 발행하지 않는 기술안을 채택한다. 소유목록과 외양의 version은 분리한다.
+version/event를 발행하지 않는 기술안을 채택한다. Data는 전체 외양 data와 대상별 완성 사건 events를 같은 receipt에 저장·반환하며 Business는 공개 data만 앱에 반환한다. 재생은 원 봉투를 재사용하고 새 사건을 만들지 않는다. 소유목록과 외양의 version은 분리한다.
 시설 완공으로 전체 buildingThemes의 건물 집합이 바뀌는 경우도 외양 변경이다. 시설 producer가 같은 TX에서
 공동 appearance.version을 올리고 전체 맵의 island.appearance.updated outbox를 저장한다. 현재 미지원인 철거
 기능을 추가하지 않으며 향후 승인된 writer에도 이 전체 상태 불변식을 적용한다.

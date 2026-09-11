@@ -30,14 +30,14 @@ sequenceDiagram
   B->>D: 검증 subject·동일 key·존재 mask와 patch values
   D->>P: BEGIN / 활성 user·receipt 확인
   alt 확정 결과 재시도
-    P-->>D: 원200·원외양version
+    P-->>D: 원200·원 data/events
   else 새 변경
     D->>P: 생명주기 → catalog → inventory → appearance 잠금
     D->>P: 필드병합·전체호환검증·version 증가
     D->>P: 현재 표시 가능한 섬별 outbox·receipt 저장
     D->>P: COMMIT
   end
-  D-->>B: 전체 외양과 version
+  D-->>B: data 전체 외양·version + events 완성 봉투 목록
   B-->>A: 200 data
 ```
 
