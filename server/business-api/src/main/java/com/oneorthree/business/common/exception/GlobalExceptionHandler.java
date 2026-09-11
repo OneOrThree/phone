@@ -240,7 +240,8 @@ public class GlobalExceptionHandler {
         return switch (code) {
             case INVALID_IDEMPOTENCY_KEY, IDEMPOTENCY_KEY_REUSED -> "Idempotency-Key";
             case INVALID_CURSOR, CURSOR_EXPIRED -> "cursor";
-            case INVITATION_EXPIRED -> "code";
+            case INVITATION_EXPIRED, SLUG_NOT_FOUND -> "code";
+            case UNSUPPORTED_PROVIDER -> "provider";
             default -> null;
         };
     }

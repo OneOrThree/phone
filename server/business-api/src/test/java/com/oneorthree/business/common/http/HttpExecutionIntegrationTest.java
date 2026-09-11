@@ -6,6 +6,8 @@ import com.oneorthree.business.common.exception.UpstreamCredentialRejectedExcept
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.exception.UpstreamTimeoutException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -311,6 +313,25 @@ class HttpExecutionIntegrationTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({"401,slow", "403,slow", "404,slow", "429,slow", "403,closed", "403,drip"})
+    void partialClientErrorIsTerminalEvenWhenOptionalAllowsTimeout(int status, String mode) throws Exception {
+        String path = "/partial/" + status + "/" + mode;
+        try (Fixture server = new Fixture(); InternalHttpClient client = new InternalHttpClient(UpstreamTarget.DATA,
+                new UpstreamProperties(server.base(), "server-only-token", Duration.ofMillis(150),
+                        Duration.ofMillis(100), 10, Duration.ofSeconds(1), 3, Duration.ZERO, 2, 2), new ObjectMapper());
+                ScreenComposer composer = new ScreenComposer(2, 2, Duration.ofSeconds(2))) {
+            assertThatThrownBy(() -> composer.compose(context(1500), List.of(
+                    fragment("main", true, client, "/ok"), fragment("denied", false, client, path))))
+                    .isInstanceOf(UpstreamContractMismatchException.class);
+            assertThat(server.count(path)).as("4xx를 받았으므로 재시도하지 않는다").isEqualTo(1);
+            if (!mode.equals("closed")) {
+                assertThat(server.closed.await(1, TimeUnit.SECONDS)).as("부분 오류 연결도 실제로 닫는다").isTrue();
+            }
+            assertThat(client.exchange(call("/ok"), context(1000), TYPE).value()).isEqualTo("ok");
+        }
+    }
+
     private static long elapsed(long started) {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
     }
@@ -410,6 +431,25 @@ class HttpExecutionIntegrationTest {
                         write(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{");
                     }
                     blocked.countDown();
+                    if (reader.read() == -1) {
+                        closed.countDown();
+                    }
+                    return;
+                }
+                if (path.startsWith("/partial/")) {
+                    String[] parts = path.split("/");
+                    write(socket, "HTTP/1.1 " + parts[2] + " Test\r\nContent-Type: application/json\r\n"
+                            + "Content-Length: 1000\r\n\r\n{");
+                    if (parts[3].equals("closed")) {
+                        return;
+                    }
+                    if (parts[3].equals("drip")) {
+                        // read timeout 이내에 bytes를 계속 주어 attempt Future의 시간 상한을 검증한다.
+                        for (int i = 0; i < 100; i++) {
+                            Thread.sleep(20);
+                            write(socket, " ");
+                        }
+                    }
                     if (reader.read() == -1) {
                         closed.countDown();
                     }

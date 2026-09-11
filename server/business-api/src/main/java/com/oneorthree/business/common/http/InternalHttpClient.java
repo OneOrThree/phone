@@ -37,6 +37,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 내부 HTTP의 유일한 창구. 전체 예산에는 큐·연결·본문·재시도가 모두 포함된다.
@@ -155,10 +156,11 @@ public class InternalHttpClient implements AutoCloseable {
         request.setConfig(RequestConfig.custom().setConnectionRequestTimeout(Timeout.ofNanoseconds(nanos))
                 .setResponseTimeout(timeout(properties.readTimeout())).build());
         Runnable unregister = context.onCancel(request::cancel);
+        AtomicInteger responseStatus = new AtomicInteger();
         Future<T> future = null;
         try {
             context.checkActive();
-            future = workers.submit(() -> send(request, call.body(), responseType, context));
+            future = workers.submit(() -> send(request, call.body(), responseType, context, responseStatus));
             // enqueue 비용도 예산이다. 대기 시작 때 남은 시간을 다시 읽는다.
             nanos = Math.min(nanos, context.deadline().remaining().toNanos());
             T result = future.get(nanos, TimeUnit.NANOSECONDS);
@@ -168,6 +170,7 @@ public class InternalHttpClient implements AutoCloseable {
             context.checkActive();
             throw new CompositionCapacityExceededException(target + " HTTP 실행 큐 포화", e);
         } catch (TimeoutException | CancellationException e) {
+            rejectPartialClientError(responseStatus.get(), context);
             throw new UpstreamTimeoutException(target + " HTTP 시간 제한 또는 취소", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -207,7 +210,7 @@ public class InternalHttpClient implements AutoCloseable {
     }
 
     private <T> T send(HttpUriRequestBase request, Object body, ParameterizedTypeReference<T> responseType,
-            UpstreamRequestContext context) {
+            UpstreamRequestContext context, AtomicInteger responseStatus) {
         context.checkActive();
         if (body != null) {
             try {
@@ -220,6 +223,7 @@ public class InternalHttpClient implements AutoCloseable {
         try {
             return http.execute(request, response -> {
                 int status = response.getCode();
+                responseStatus.set(status);
                 byte[] bytes = response.getEntity() == null ? new byte[0]
                         : response.getEntity().getContent().readNBytes(MAX_RESPONSE_BYTES + 1);
                 if (bytes.length > MAX_RESPONSE_BYTES) {
@@ -241,10 +245,19 @@ public class InternalHttpClient implements AutoCloseable {
                 throw classify(status, new String(bytes, StandardCharsets.UTF_8), retryAfter);
             });
         } catch (SocketTimeoutException e) {
+            rejectPartialClientError(responseStatus.get(), context);
             throw new UpstreamTimeoutException(target + " 연결 또는 읽기 시간 제한", e);
         } catch (IOException e) {
-            context.checkActive();
+            rejectPartialClientError(responseStatus.get(), context);
             throw new RetryableFailure(null);
+        }
+    }
+
+    /** 이미 받은 4xx는 오류 본문 유실로 재시도/선택 null이 될 수 없다. 전체 취소·예산은 우선한다. */
+    private void rejectPartialClientError(int status, UpstreamRequestContext context) {
+        context.checkActive();
+        if (status >= 400 && status < 500) {
+            throw new UpstreamContractMismatchException(target + " 상류 오류 본문 수신 실패 status=" + status);
         }
     }
 

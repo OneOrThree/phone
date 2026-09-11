@@ -69,8 +69,8 @@ class PublicApiContractTest extends UpstreamTestBase {
     @Test
     void freezesPublishedErrorNames() {
         assertThat(ApiErrorCode.values()).extracting(Enum::name).containsExactlyInAnyOrder(
-                "INVALID_REQUEST", "INVALID_PARAMETER", "INVALID_IDEMPOTENCY_KEY", "INVALID_CURSOR", "UNAUTHORIZED",
-                "FORBIDDEN", "FACILITY_LOCKED", "NOT_FOUND", "USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "PRODUCT_NOT_FOUND", "METHOD_NOT_ALLOWED", "VERSION_CONFLICT", "STATE_CONFLICT",
+                "INVALID_REQUEST", "INVALID_PARAMETER", "INVALID_IDEMPOTENCY_KEY", "INVALID_CURSOR", "UNSUPPORTED_PROVIDER", "UNAUTHORIZED",
+                "FORBIDDEN", "FACILITY_LOCKED", "NOT_FOUND", "USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "PRODUCT_NOT_FOUND", "SLUG_NOT_FOUND", "METHOD_NOT_ALLOWED", "VERSION_CONFLICT", "STATE_CONFLICT",
                 "INSUFFICIENT_FUNDS", "IDEMPOTENCY_KEY_REUSED", "REQUEST_IN_PROGRESS", "CURSOR_EXPIRED",
                 "INVITATION_EXPIRED", "REQUEST_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "OUT_OF_RANGE", "RATE_LIMITED", "INTERNAL_ERROR",
                 "UPSTREAM_CONTRACT_ERROR", "UPSTREAM_AUTH_FAILED", "SERVICE_UNAVAILABLE", "UPSTREAM_TIMEOUT");
@@ -273,6 +273,23 @@ class PublicApiContractTest extends UpstreamTestBase {
                         org.hamcrest.Matchers.containsString("PRIVATE_RAW_DETAIL"))));
     }
 
+    @ParameterizedTest
+    @CsvSource({"SLUG_NOT_FOUND,404,code", "UNSUPPORTED_PROVIDER,400,provider"})
+    void upstreamInputErrorsKeepRegisteredStatusAndRecoveryField(String code, int httpStatus, String field)
+            throws Exception {
+        mockMvc.perform(auth(get(ROOT + "/error/" + code))).andExpect(status().is(httpStatus))
+                .andExpect(jsonPath("$.error.code").value(code))
+                .andExpect(jsonPath("$.error.field").value(field))
+                .andExpect(jsonPath("$.error.retryable").value(false))
+                .andExpect(jsonPath("$.error.length()").value(4))
+                .andExpect(jsonPath("$.requestId").isString())
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("PRIVATE_RAW_DETAIL"))));
+        mockMvc.perform(auth(get("/api/v1/_contract/error/" + code))).andExpect(status().is(httpStatus))
+                .andExpect(jsonPath("$.code").value(code))
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
     @Test
     void inactiveCallerKeepsPublicRecoveryAndLegacyStatus() throws Exception {
         mockMvc.perform(auth(get(ROOT + "/error/inactive"))).andExpect(status().isNotFound())
@@ -379,8 +396,10 @@ class PublicApiContractTest extends UpstreamTestBase {
         @GetMapping({ROOT + "/error/{kind}", "/api/v1/_contract/error/{kind}"})
         Object error(@PathVariable String kind) {
             throw switch (kind) {
-                case "USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "PRODUCT_NOT_FOUND" ->
+                case "USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "PRODUCT_NOT_FOUND", "SLUG_NOT_FOUND" ->
                         new UpstreamDomainException(404, kind, "PRIVATE_RAW_DETAIL", null);
+                case "UNSUPPORTED_PROVIDER" ->
+                        new UpstreamDomainException(400, kind, "PRIVATE_RAW_DETAIL", null);
                 case "inactive" -> new com.oneorthree.business.common.exception.DomainException(
                         com.oneorthree.business.common.exception.CommonErrorCode.USER_INACTIVE);
                 case "timeout" -> new UpstreamTimeoutException("PRIVATE_RAW_DETAIL");
