@@ -91,7 +91,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 |POST|`/islands/{islandId}/host-transfer`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |DELETE|`/islands/{islandId}/members/{userId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |DELETE|`/islands/{islandId}/memberships/me`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
-|POST|`/islands/{islandId}/constructions`|필수|작업에islandId 포함, buildingId는본문. 건설유일성+차감 같은 TX|
+|POST|`/islands/{islandId}/constructions`|필수|작업에islandId 포함, buildingId·expectedVersion·expectedCostPolicyVersion은본문 fingerprint. 건설유일성+검증한 가격 차감 같은 TX|
 |POST|`/islands/{islandId}/notices`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |PATCH|`/islands/{islandId}/notices/{noticeId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |DELETE|`/islands/{islandId}/notices/{noticeId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
@@ -104,7 +104,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 |PATCH|`/me/appearance`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |PATCH|`/islands/{islandId}/appearance`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |PATCH|`/islands/{islandId}/playback`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
-|PUT|`/islands/{islandId}/construction-target`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
+|PUT|`/islands/{islandId}/construction-target`|필수|method+라우트·islandId·buildingId·expectedVersion을 fingerprint에 포함. 차감 없음; expectedCostPolicyVersion 불필요|
 |DELETE|`/me/join-requests/{requestId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 
 추가 경계:
@@ -120,13 +120,22 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 - 메시지의 clientMessageId는 UUID 계약을 유지한다. 원본 `local-1`은 목업 값이다. 새 우체통에 같은 ID/다른 text가 오면409 `IDEMPOTENCY_KEY_REUSED`(field=`clientMessageId`, retryable=false)로 처리하고, 기존 chat API의 원문 재생 동작은 호환 경로에 보존하는 어댑터 결정을1774/1775에서 반영한다. 응답/이벤트의 id와 clientMessageId로 앱이 중복을 제거한다.
 - Idempotency-Key와 clientMessageId를 둘 다 보내도 메시지 저장의 유일성 정본은 clientMessageId다. 일반 미들웨어는 메시지 endpoint에 receipt를 만들지 않는다.
 
+### 신규 로그인 승격 오류 보존 — 1757 활성화 조건
+
+기준 main [AuthErrorCode:20/25](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/auth/exception/AuthErrorCode.java#L20)는 SOCIAL_ACCOUNT_ALREADY_LINKED와 GUEST_ALREADY_PROMOTED를 HttpStatus.CONFLICT로 정의한다. [AuthService:252/296](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/auth/service/AuthService.java#L252)의 실제 승격 충돌 경로를 보존한다.
+
+- POST `/auth/sessions`에서 다른 계정에 이미 연결된 소셜 계정이면409 SOCIAL_ACCOUNT_ALREADY_LINKED, error.field=provider, retryable=false다. 기존 게스트를 임의 병합/삭제하거나 신규 계정 생성으로 우회하지 않는다.
+- 이미 다른 계정으로 승격된 게스트의 경쟁 패자는409 GUEST_ALREADY_PROMOTED, error.field=null, retryable=false다. 같은 자격을 무한 재시도하거나 유령 계정을 생성하지 않고 계정 설계의 재로그인 복구를 따른다.
+- 1757에서 해당 내부 제공자 응답을 공개 registry에 등록하고 같은 code/status로 매핑한 뒤 신규 로그인 경로를 활성화한다. 실제 HTTP에서 선택 게스트 AT와 각 충돌 fixture를 사용해409·오류4필드·현재 requestId를 검증하며502 UPSTREAM_CONTRACT_ERROR로 바뀌지 않는지 고정한다. 다른 계정의 식별자/자격은 current에 노출하지 않는다.
+- 지금 사용하지 않는 공통 구현 enum 추가를 선행 작업으로 요구하지 않는다. 원래 compat 경로의 status/code 보존도 유지하며, 계정 CAS 재준비와 영구 비활성화는 [계정 PR740](https://github.com/OneOrThree/phone/pull/740)의 별도 상태 전이로 구분한다.
+
 ### 키와 fingerprint
 
 scope는 `(authenticatedUserId, operation, normalizedKey)`다. operation에는 HTTP 의미와 라우트, 실제 경로 자원ID를 포함한다. 예를 들어 `focus.finish:<sessionId>`와 `focus.pause:<sessionId>`는 다른 작업이다. 사용자가 다른 섬에 같은 UUID를 사용해도 다른 작업이지만, 앱은 새 의도마다 새 키를 생성한다.
 
 UUID36자는1659의 base key150자 제한 안에 들어간다. 공개 키는 정규화한 UUID만 전달하고 내부 단계 접미는 기존 `RequestIdempotencyKeys.forStep` 규칙을 재사용한다. suffix를 중복으로 붙이거나 길이를 잘라 충돌시키지 않는다. 오래된 optional key 라우트는 별도 정책으로 남긴다.
 
-fingerprint는 **검증한 요청 DTO의 의미**로 만든다. 필드 이름 정렬, 객체 key 정렬, 배열 순서 보존, 숫자 표현 정규화, null/누락의 도메인 의미를 명시하고 SHA-256을 적용한다. HTTP method·정규 라우트·실제 경로 자원ID와 의미 있는 query를 포함한다. 섬에 결합된 작업은 경로/본문이 지정한 대상 섬 식별자도 포함한다. 재시도 때 바뀔 수 있는 현재섬 조회 결과나 서버의 현재 resourceVersion을 새로 섞지 않는다. 서버가 첫 수락 시 보완한 context가 있다면 receipt에 고정해 재생하며, 새 현재 context로 원 요청을 다른 명령으로 바꾸지 않는다. 외부 requestId·Authorization·멱등키·추적 헤더는 제외한다. `expectedVersion`/`expectedWalletVersion`/`expectedProductVersion`은 포함하므로 충돌 후 새 버전으로 다시 확정하는 의도는 새 키를 사용한다.
+fingerprint는 **검증한 요청 DTO의 의미**로 만든다. 필드 이름 정렬, 객체 key 정렬, 배열 순서 보존, 숫자 표현 정규화, null/누락의 도메인 의미를 명시하고 SHA-256을 적용한다. HTTP method·정규 라우트·실제 경로 자원ID와 의미 있는 query를 포함한다. 섬에 결합된 작업은 경로/본문이 지정한 대상 섬 식별자도 포함한다. 재시도 때 바뀔 수 있는 현재섬 조회 결과나 서버의 현재 resourceVersion을 새로 섞지 않는다. 서버가 첫 수락 시 보완한 context가 있다면 receipt에 고정해 재생하며, 새 현재 context로 원 요청을 다른 명령으로 바꾸지 않는다. 외부 requestId·Authorization·멱등키·추적 헤더는 제외한다. `expectedVersion`/`expectedWalletVersion`/`expectedProductVersion`/`expectedCostPolicyVersion`은 포함하므로 충돌 후 새 버전으로 다시 확정하는 의도는 새 키를 사용한다.
 
 문자열을 임의 strip하거나 배열을 정렬해 서로 다른 의도를 합치지 않는다. 이름·text·암호·토큰 원문을 fingerprint 로그에 남기지 않는다. 로그인 자격 원문은 범용 fingerprint 대상 밖이다. 일반 receipt는 cookie·Authorization·토큰 발급 응답을 저장/재생하지 않으며, 로그인/refresh의 결정적 토큰 복구는 계정 전용 설계에서 검토·확정한다. P13의 cookie 비재생을 로그인 복구를 금지하는 정책으로 해석하지 않는다.
 
@@ -169,7 +178,7 @@ contractVersion은 **저장 receipt의 버전**이며 앱이 임의 입력하는
 
 ## 3. expectedVersion 적용 자원
 
-아래 첫 표는 **원문에 있던** version 입력9개, 즉 `expectedVersion` 8개와 `expectedWalletVersion` 1개를 열거한다. 이어지는 별도 표는 이미 채택된 상점 한정 기술 확장1개다. 최종 제출 축은 총10개이며 다른 자원에 무조건 version을 강제하는 변경은 아니다. 필수형은0 이상의 정수(자원 GET이 반환한 실제 version), Java/DB에서는 overflow를 검사한다. 공개 숫자는0~9007199254740991 범위에서만 발행하고 범위를 넘기기 전 계약을 개정한다.
+아래 첫 표는 **원문에 있던** version 입력9개, 즉 `expectedVersion` 8개와 `expectedWalletVersion` 1개를 열거한다. 이어지는 별도 표들은 승인된 상점 한정 기술 확장1개와 건설 한정 기술 확장1개다. 원본9+상품1+비용1로 최종 제출 축은 총11개이며 다른 자원에 무조건 version을 강제하는 변경은 아니다. 필수형은0 이상의 정수(자원 GET이 반환한 실제 version), Java/DB에서는 overflow를 검사한다. 공개 숫자는0~9007199254740991 범위에서만 발행하고 범위를 넘기기 전 계약을 개정한다.
 
 | 자원/버전 축 | 변경 요청 | 제출 필드 | 최신 상태 출처 |
 | --- | --- | --- | --- |
@@ -194,6 +203,19 @@ contractVersion은 **저장 receipt의 버전**이며 앱이 임의 입력하는
 - 가격·currency·ownerType 등 **상품 정의의 결제 지갑 선택 조건**이 바뀌면 productVersion을 올린다. 지갑 잔액 version이 같거나 다른 통화 지갑의 version이 우연히 같아도 상품 revision 불일치로 차감을 거절한다. 현재 섬 이동으로 대상 context가 달라지는 문제는 별도 현재 섬/operation scope 검사로 다룬다.
 - 현재 인증·재생 열람 권한을 확인한 동일 키의 확정 receipt 재생은 현재 상품/지갑 버전 검사보다 먼저다. 새 실행에서만 같은 Data TX의 상품 revision과 지갑 잠금 아래 버전 검사·실제 차감·소유권/주문/receipt/outbox를 확정한다. 상품 개정과 구매도 같은 잠금/조건부 쓰기에 참여해 검사 이후 가격이 바뀌는 경합을 막는다.
 - 상품 revision 충돌은409 VERSION_CONFLICT, field=expectedProductVersion, 허용된 current에는 최신 상품 정의의 version/resource를 제공한다. 앱은 최신 가격·통화·소유 구분을 다시 표시하고 해당 지갑 버전을 재조회한 뒤 사용자가 재확정한 **새 키**로 요청한다. 자동 새 키 구매·자동 상향 가격 차감은 금지한다. 운영 가격 값과 공동 소비 권한의 미결 상태는 그대로다.
+
+**건설 설계1766의 명시 개정 — 원본9개·상점1개와 구분**
+
+| 자원/버전 축 | 변경 요청 | 제출 필드 | 최신 상태 출처 |
+| --- | --- | --- | --- |
+| 서버 건설 비용 정책 publication revision | POST `/islands/{islandId}/constructions` | **expectedCostPolicyVersion** 필수 | GET `/islands/{islandId}/construction-options`의 costPolicyVersion |
+
+2026-09-12 승인된 건설 가격 동의 확장이다. 원본 세 계약 JSON은 바꾸지 않는다. 건설 POST는 buildingId·expectedVersion·expectedCostPolicyVersion을 받고, 가격/통화/잔액은 서버 정본으로 결정한다. 차감 없는 PUT `/islands/{islandId}/construction-target`은 기존 expectedVersion만 사용하며 비용 버전을 요구하지 않는다.
+
+- GET construction-options는 인가된 현재 옵션·가격·잔액·islandVersion과 costPolicyVersion을 같은 일관된 스냅샷으로 제공한다. 비용 revision은 섬 상태 version과 별개다. 비용 변경은 불변 revision을 발행하고 현재 publication 포인터를 전환한다.
+- 새 POST는 같은 Data TX의 정책 publication/시설/지갑 잠금 경계에서 두 버전을 비교하고 검증한 비용으로 시설·차감·각 projection·receipt/outbox를 확정한다. 가격 publication writer도 같은 경계에 참여하여 검사와 실제 차감 사이 가격 교체를 막는다. 섬 버전이 같아도 가격 정책 버전이 다르면 차감하지 않는다.
+- 충돌은409 VERSION_CONFLICT, error.field=`expectedCostPolicyVersion`, retryable=false다. 인가된 top-level `current`를 제공할 때 `current.version`은 최신 costPolicyVersion이고 `current.resource`는 그 비용 revision과 일치하는 공개 construction-options DTO(가격·통화·islandVersion·costPolicyVersion 포함)다. 내부 정책 행이나 비공개 운영 정보는 노출하지 않는다.
+- 앱은 현재 비용을 다시 표시하고 사용자 재확인 후 최신 두 버전과 **새 키**를 제출한다. 서버가 새 비용 버전으로 자동 치환하거나 차감하지 않는다. 원 scope·fingerprint와 현재 재생 권한이 맞는 확정 receipt는 현재 섬/비용 버전 검사보다 먼저 원 결과를 재생한다. 원본의 방송기100P 외 목업 가격과 공동 소비 권한 미결을 이 확장으로 확정하지 않는다.
 
 섬 건설·목표·공동 외양의 물리 aggregate를 공유할지는 각 도메인 설계가 정한다. 공유하면 GET과 모든 변경/이벤트가 같은 version을 반환해야 하고, 별도면 각 응답에 어느 자원 version인지 구별되어야 한다. 이 표를 근거로 서로 다른 자원에 같은 섬 최대 version 하나를 적용하지 않는다. `contextVersion`·멤버십 epoch·이벤트 schema 버전은 자원 version과 다르다.
 
@@ -265,7 +287,9 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | encoded/matrix URI·중복헤더·위조 X-User-Id·AT만료 | 무접두어 변경 중 인증 우회/타인 주체 전달 |
 | Postgres 두 동시 동일key·본문불일치·커밋후응답유실·rollback | 이중 차감/보상, 잘못된 결과 재생 |
 | 동일key 성공후 stale expectedVersion·다른key 종료/구매 | 원 성공409오인 또는 도메인유일성 누락 |
+| 신규 로그인1757 게스트 승격의 SOCIAL_ACCOUNT_ALREADY_LINKED/GUEST_ALREADY_PROMOTED 실제 HTTP409 | 기존 계정 충돌을 미등록502로 오인하거나 유령 계정 생성 |
 | 지갑 불변 중 상품 가격/통화/ownerType 개정·expectedProductVersion 충돌 | 사용자 동의 없는 조건으로 차감 |
+| 섬 version 불변 중 건설 비용 publication 교체·expectedCostPolicyVersion 충돌/같은 키 확정 재생·목표 PUT 무차감 | 건설 가격 동의 우회, 성공 재생409 오인, 무료 목표에 비용 버전 강제 |
 | 섬1759·집중1764 신규 경로의 기존 GROUP_NOT_FOUND/SESSION_NOT_FOUND | 활성화 전404 코드 보존/명시 매핑과 실제 route 회귀 필수, 정상 부재의 미등록502 금지 |
 | 초대 부재404 SLUG_NOT_FOUND·만료410 INVITATION_EXPIRED·field=code·retryable=false | 입력 수정과 만료를502로 오인 |
 | 미지원 provider400 UNSUPPORTED_PROVIDER·field=provider·legacy 상태 보존 | 지원하지 않는 입력을 상류 장애502로 오인 |
@@ -279,4 +303,4 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | bounded 병렬·context/큐/enqueue 전후 예산 소진504·executor 포화503·선택 timeout과 전체504 경계·필수/선택 즉시 실패·모든 조기 종료의 실제 I/O 취소 후 자원회수 | thread/connection 고갈, 권한상실 은폐 |
 | 1659 auth/key/내부토큰 회귀·기존미리보기 전체 회귀 | 이미 해결한 인증·위성·SSRF 회귀 |
 
-이번 문서 작업에서는 원본 복사본 SHA-256/바이트 비교, 66개 원본 method/path 대조, 변경36개 전수 적용표, 원본 버전필드9개+상점 기술 확장1개 대조, Markdown 상대 링크와 Mermaid fence 짝을 확인한다. 빌드·단위/통합 테스트는 문서 변경에 실행하지 않으며 위 표의 통과를 주장하지 않는다. 실제 검증 결과는 구현 PR에 명령·exit code·결과 파일과 함께 남긴다.
+이번 문서 작업에서는 원본 복사본 SHA-256/바이트 비교, 66개 원본 method/path 대조, 변경36개 전수 적용표, 원본 버전필드9개+상점 기술 확장1개+건설 비용 기술 확장1개(총11축) 대조, Markdown 상대 링크와 Mermaid fence 짝을 확인한다. 빌드·단위/통합 테스트는 문서 변경에 실행하지 않으며 위 표의 통과를 주장하지 않는다. 실제 검증 결과는 구현 PR에 명령·exit code·결과 파일과 함께 남긴다.

@@ -54,8 +54,10 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |404|PRODUCT_NOT_FOUND|false|field=null, 미등록/접근 불가 상품. 상점·외양의 구체 대상 부재|
 |404|SLUG_NOT_FOUND|false|field=`code`, 존재하지 않는 초대 코드. 기존 InviteLinkErrorCode의404 보존, 입력 수정/새 초대 확인. 같은 잘못된 코드 자동 재시도 금지|
 |405|METHOD_NOT_ALLOWED|false|신규 공개 경로의 미지원 method. Allow 헤더 유지|
-|409|VERSION_CONFLICT|false|field는 제출한 버전 필드(`expectedVersion`, `expectedWalletVersion`, `expectedProductVersion`), 허용된 current 제공 후 사용자 재확인|
+|409|VERSION_CONFLICT|false|field는 제출한 버전 필드(`expectedVersion`, `expectedWalletVersion`, `expectedProductVersion`, `expectedCostPolicyVersion`), 허용된 current 제공 후 사용자 재확인|
 |409|STATE_CONFLICT|false|현재 상태에서 실행 불가. 공개 current가 안전하면 포함|
+|409|SOCIAL_ACCOUNT_ALREADY_LINKED|false|field=`provider`, 다른 계정에 이미 연결된 소셜 계정으로 게스트 승격 시도. 기존 AuthErrorCode409 보존; 신규 로그인1757 활성화 전 registry/실제 HTTP 검증 필수|
+|409|GUEST_ALREADY_PROMOTED|false|field=null, 같은 게스트의 승격 경쟁에서 이미 다른 계정으로 승격됨. 기존 AuthErrorCode409 보존; 신규 로그인1757 활성화 전 registry/실제 HTTP 검증 필수|
 |409|INSUFFICIENT_FUNDS|false|잔액 부족. 같은 요청 자동 반복 금지|
 |409|IDEMPOTENCY_KEY_REUSED|false|저장된 처리중/확정 scope/key에 다른 본문. 일반 명령 field=`Idempotency-Key`, 메시지는 field=`clientMessageId`. **기존 요청 본문·결과는 노출하지 않음**|
 |409|REQUEST_IN_PROGRESS|true|같은 명령의 실행이 아직 확정 전. Retry-After:1, 같은 키·본문으로 재시도|
@@ -72,6 +74,8 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |504|UPSTREAM_TIMEOUT|true|필수 호출/화면 전체 deadline 초과. 쓰기의 커밋 여부는 미확정이므로 같은 키로 복구|
 
 후속 섬1759·집중1764는 신규 경로를 활성화하기 전에 기존 `GroupQueryService`의 `404 GROUP_NOT_FOUND`와 `FocusQueryService`의 `404 SESSION_NOT_FOUND`를 각각 같은 코드/404로 보존하거나 명시적인 공개404 매핑을 등록하고 계약 테스트로 고정해야 한다. 정상 대상 부재를 미등록502로 바꾸는 상태로 출시하지 않는다. 이 두 도메인 경로는 아직 구현 전이므로 이번 공통 enum에 모든 도메인 상수를 미리 추가하지 않으며, 매핑 구현·회귀는 해당 티켓의 진입/완료 조건으로 추적한다.
+
+신규 로그인1757의 게스트 승격은 기존 `AuthErrorCode.SOCIAL_ACCOUNT_ALREADY_LINKED`와 `GUEST_ALREADY_PROMOTED`의 **409와 코드 이름을 그대로 보존**한다. 두 코드는 기준 main AuthErrorCode:20/25와 AuthService:252/296의 실제 충돌이며 신규 경로에서 미등록502로 바꾸지 않는다. 계정 PR740의 field/retryable 의미와 함께 로그인 활성화 전 공개 registry/handler 매핑·실제 HTTP 회귀를 완료한다. 이는 후속 로그인 구현의 진입 조건이며 이번 공통 구현에 아직 사용하지 않는 enum을 즉시 추가하라는 요구가 아니다. 이미 구현된 설정 경로의 오류 집합과도 구분한다.
 
 도메인 사유를 추가할 때는 이 표의 의미와 충돌하지 않게 구체 코드를 추가한다. 예를 들어 `FOCUS_IN_PROGRESS`는 기존 chat409/false 코드이고 새로운 우체통에도 같은 사유가 채택되면 그 명칭을 유지할 수 있다. 세션 종료 재시도는 이미 확정된 receipt가 있으면 오류 표로 가지 않고 성공을 재생한다.
 
@@ -92,8 +96,9 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 | 성공 `{data}`, 실패 error4필드+requestId | 채택, 바이너리 예외·필터 오류 경계 추가 | 공통 기술 결정 P02/P03 |
 | 409이면 최신 상태를 받아 재확인 | 409의 선택 `current`에 최신 공개 자원 DTO+version | 공통 기술 결정. 새 외부 확장, 원본에 이미 있다고 주장하지 않음 |
 | 변경 요청 키 UUID 제안 | LLD 적용표 대상 필수, auth·메시지·조회형 POST 예외 명시 | 모든 POST 자동 필수화 금지 |
-| 명시하지 않은 자원에 무조건 version 제출하지 않음 | 원본 expectedVersion 8개+구매 expectedWalletVersion 1개를 원본 표로 유지 | 아래 상점 한정 기술 개정1개를 별도로 구분, 총10개 제출 축 |
+| 명시하지 않은 자원에 무조건 version 제출하지 않음 | 원본 expectedVersion 8개+구매 expectedWalletVersion 1개를 원본 표로 유지 | 아래 상점 한정1개와 건설 한정1개 기술 개정을 별도로 구분, 원본9+상품1+비용1=총11개 제출 축 |
 | 구매 body의 productId+expectedWalletVersion | expectedProductVersion 추가 필수, 상품 정의 변경 시409 VERSION_CONFLICT | 2026-09-12 D18·상점 설계1780/PR742에서 이미 채택한 가격 동의 보호 계약의 공통 문서 반영 |
+| 건설 POST body의 buildingId+expectedVersion | expectedCostPolicyVersion 추가 필수, GET construction-options에 costPolicyVersion 추가 | 2026-09-12 건설 설계1766의 승인된 가격 동의 보호. 차감 없는 construction-target PUT에는 추가하지 않음 |
 | POST `/auth/sessions`에 시도 ID 전달 위치 없음 | 필수 `X-Login-Attempt-Id` UUID 헤더, 같은 로그인 재시도에 같은 값·자격·본문 유지 | [계정 PR740](https://github.com/OneOrThree/phone/pull/740) LLD §2.1의 기존 확장 동기화. loginAttemptId 본문 필드는 추가하지 않음 |
 | POST `/islands` 이름 누락422 | 400 INVALID_REQUEST, field=name | 원본 api-create의 필수 입력 누락 상태를 공통 형식 검증으로 명시 override. 존재하는 이름의 길이/허용값 오류422와 구분 |
 | GET `/islands/discover` 잘못된 cursor422 | 400 INVALID_CURSOR, field=cursor | 원본 api-island-discover의 커서 형식/서명 오류를 공통 커서 규칙으로 명시 override. 만료409 CURSOR_EXPIRED와 구분 |
