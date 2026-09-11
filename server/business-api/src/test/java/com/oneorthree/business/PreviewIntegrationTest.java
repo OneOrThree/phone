@@ -9,6 +9,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -16,6 +17,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -138,13 +141,27 @@ class PreviewIntegrationTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void acceptsMaximumUnicodeBatchWithUtf8AndJsonEscaping(boolean escaped) throws Exception {
+        String prefix = "https://example.com/";
+        String url = prefix + "한".repeat(4096 - prefix.length());
+        String encoded = escaped ? url.replace("한", "\\uD55C") : url;
+        String json = "{\"urls\":[" + String.join(",", Collections.nCopies(10, "\"" + encoded + "\"")) + "]}";
+        assertThat(json.getBytes(StandardCharsets.UTF_8).length).isGreaterThan(48 * 1024);
+        when(resolver.resolve(any())).thenReturn(new PreviewContent("파일", "application/zip", null, "FILE", null));
+        mvc.perform(post("/api/v1/link-previews").header("Authorization", token)
+                .contentType("application/json").content(json.getBytes(StandardCharsets.UTF_8)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(10));
+    }
+
     @Test
     void rejectsOversizeBatchBodyAndLimitsRequests() throws Exception {
         mvc.perform(post("/api/v1/link-previews").header("Authorization", token)
                 .contentType("application/json").content("{\"urls\":[]}"))
                 .andExpect(status().isBadRequest());
         mvc.perform(post("/api/v1/link-previews").header("Authorization", token)
-                .contentType("application/json").content("x".repeat(50_000)))
+                .contentType("application/json").content("x".repeat(300_000)))
                 .andExpect(status().isPayloadTooLarge());
         redis.opsForValue().set("cache:business:rate:" + user, "240");
         mvc.perform(get("/api/v1/link-previews/abc").header("Authorization", token))

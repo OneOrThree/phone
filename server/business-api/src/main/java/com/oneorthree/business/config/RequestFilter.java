@@ -20,7 +20,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class RequestFilter extends OncePerRequestFilter {
 
     private static final Logger LOG = LoggerFactory.getLogger(RequestFilter.class);
-    private static final int MAX_BODY = 48 * 1024;
+    // URL 4096 UTF-16 단위 × 10개 × JSON Unicode escape 최대 6바이트 + JSON 구조를 수용한다.
+    private static final int MAX_BODY = 256 * 1024;
     private final JwtValidator jwt;
 
     public RequestFilter(JwtValidator jwt) {

@@ -62,7 +62,7 @@ Java 17 / Spring Boot 4.0.6의 독립 Gradle 프로젝트다. 기존 서버와 �
 
 실패 이유 예: `NOT_PUBLIC_OR_NOT_FOUND`, `DRIVE_NOT_CONFIGURED`, `BLOCKED_ADDRESS`, `FILE_TOO_LARGE`, `REDIRECT_REJECTED`, `FETCH_TIMEOUT`, `FETCH_FAILED`, `BUSY`. 공개 권한이나 파일 크기 검증 실패는 `FAILED`, 공개 파일을 얻은 후 손상된 이미지/PDF·썸네일 실패는 `READY` 카드로 축소한다. 원본 URL을 표시하는 앱은 미리보기 실패를 채팅 전송 실패로 취급하면 안 된다.
 
-HTTP 오류는 `{ "code": "...", "message": "..." }`다. 잘못된 요청은 400, 인증 실패는 401, 본문 48KiB 초과는 413(Content-Length가 없는 요청은 스트림 제한에 의해 400), 요청량 초과는 429(`Retry-After: 60`), Redis 장애는 503(`Retry-After: 10`)이다.
+HTTP 오류는 `{ "code": "...", "message": "..." }`다. 잘못된 요청은 400, 인증 실패는 401, 본문 256KiB 초과는 413(Content-Length가 없는 요청은 스트림 제한에 의해 400), 요청량 초과는 429(`Retry-After: 60`), Redis 장애는 503(`Retry-After: 10`)이다.
 
 ## 앱 연결 흐름
 
