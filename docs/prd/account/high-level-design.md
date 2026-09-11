@@ -110,6 +110,7 @@ sequenceDiagram
     D->>DB: group_challenge_members 사용자 측정 원본 hard delete
     D->>DB: 멤버십·친구 정리, 집중/통계 귀속 익명화
     D->>DB: group_announcements.user_id nullify
+    D->>DB: 알림 발송 이력의 수신자·사용자 상대 연계 파기
     D->>DB: 지갑·설정 삭제, 직접 PII·신규 프로필 파기
     D->>DB: soft delete + 결과 receipt + COMMIT
     D-->>B: deleted true
