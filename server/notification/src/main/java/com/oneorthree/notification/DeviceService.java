@@ -1,5 +1,7 @@
 package com.oneorthree.notification;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -8,9 +10,21 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
 class DeviceService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(DeviceService.class);
+
+    /**
+     * 소유권 값의 <b>정규</b> 표기(8-4-4-4-12). {@code UUID.fromString} 을 그대로 쓰면 안 된다 —
+     * 그 파서는 {@code "1-1-1-1-1"} 같은 축약형도 받아 들여 «정규 표기로 다시 쓰면 다른 문자열»이
+     * 되는 값을 통과시킨다. 소유권은 앱이 보관했다가 그대로 되싣는 CAS 값이라, 같은 소유권이
+     * 표기에 따라 둘로 갈리면 CAS 비교(문자열 대조)가 조용히 어긋난다.
+     */
+    private static final Pattern CANONICAL_UUID = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
     private final Store store;
     private final boolean generationRequired;
@@ -46,8 +60,27 @@ class DeviceService {
      */
     @Transactional
     public Map<String, Object> register(UUID user, Map<String, Object> body, String key) {
+        requireCanonicalOwnership(Json.nullableText(body, "ownershipToken"));
         return store.command("device-register:" + user, key, intent(body),
                 () -> registerLocked(user, body, false), false, () -> registerLocked(user, body, true));
+    }
+
+    /**
+     * 앱이 실어 보낸 소유권 값의 형식 검사 — <b>동기 경로에서만</b> 쓴다.
+     *
+     * <p>소유권은 우리가 {@code UUID.randomUUID()} 로 발급해 돌려준 값이고 열도 {@code uuid} 다.
+     * 정규 표기가 아닌 값은 어느 행에도 맞지 않으므로 이 요청은 «CAS 가 깨진 요청»이지
+     * «소유권 없는 요청»이 아니다 — 그래서 값을 버려 {@code null}(= CAS 검사 없음)로 접지 않고
+     * 여기서 거절한다. 접으면 방금 재등록된 기기까지 지우는 넓은 삭제가 된다(A22 ㊚).
+     *
+     * <p>이 검사가 <b>내구 기록보다 앞</b>이라는 것이 핵심이다. Business 가 Data outbox 에 먼저
+     * 적고(㊲) relay 가 그 봉투를 여기로 보내므로, 형식이 깨진 값이 봉투에 실리면 그 유저의
+     * 순서 축이 통째로 막힌다(A18 고갈 처리 없음).
+     */
+    private static void requireCanonicalOwnership(String ownership) {
+        if (ownership != null && !CANONICAL_UUID.matcher(ownership).matches()) {
+            throw new NotificationFailure(400, "INVALID_ownershipToken");
+        }
     }
 
     /**
@@ -229,6 +262,9 @@ class DeviceService {
     @Transactional
     public Map<String, Object> delete(UUID user, String token, String owner, Long generation,
             String key) {
+        // 멱등 원장에 담기 «전»이다. 담은 뒤에 거절하면 깨진 값이 request_hash 로 굳어, 같은 키로
+        // 다시 오는 «고친» 재시도가 IDEMPOTENCY_KEY_CONFLICT 로 영구히 막힌다.
+        requireCanonicalOwnership(owner);
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("deviceToken", token);
         request.put("ownershipToken", owner);
@@ -239,7 +275,29 @@ class DeviceService {
         });
     }
 
+    /**
+     * 삭제의 실제 반영. <b>이미 내구화된 봉투</b>도 여기로 들어온다({@code InboundService} 의
+     * {@code notification.deviceToken.deleted}) — 그래서 동기 경로와 달리 형식이 깨진 소유권을
+     * <b>거절하지 않는다</b>.
+     *
+     * <p>세 갈래 중 하나를 골라야 한다.
+     * <ul>
+     *   <li><b>예외</b>: relay 는 고갈 처리가 없어(A18) 그 행을 최대 백오프로 영원히 재시도하고,
+     *       순서 축별로 가장 낮은 미전달 하나만 후보가 되므로 <b>그 유저의 뒤 이벤트가 전부 막힌다</b>.
+     *       세션 폐기·탈퇴 tombstone 까지 같이 막히니 가장 나쁘다.</li>
+     *   <li><b>{@code null} 로 접기</b>: 소유권 검사가 사라져 그 사이 재등록된 <b>지금 기기</b>까지
+     *       지운다. 낡은 삭제를 거르라고 둔 CAS 를 낡은 삭제가 우회하는 꼴이다(㊚).</li>
+     *   <li><b>아무 행에도 맞지 않는 소유권으로 소비</b>(여기): 뜻 그대로다. 깨진 CAS 는 어떤 행과도
+     *       일치하지 않으므로 <b>아무것도 바꾸지 않고</b> 봉투만 소비한다. tombstone 도 남기지
+     *       않는다 — 소유권이 맞지 않는 삭제는 그 토큰을 죽일 자격이 없다.</li>
+     * </ul>
+     */
     void deleteLocked(UUID user, String token, String owner, Long generation) {
+        if (owner != null && !CANONICAL_UUID.matcher(owner).matches()) {
+            LOG.warn("기기 토큰 삭제 — 소유권 값의 형식이 깨졌다. 어느 행에도 맞지 않으므로 아무것도 지우지 않고"
+                    + " 소비한다. userId={}", user);
+            return;
+        }
         store.lock("device-ownership");
         userFence(user);
         if (token != null) {

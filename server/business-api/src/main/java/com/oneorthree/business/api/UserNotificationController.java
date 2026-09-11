@@ -36,6 +36,12 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>DELETE 의 대상 토큰·CAS 값은 <b>헤더로</b> 받는다 — 현 요청에는 본문이 아예 없어서
  * ({@code userApi.ts:91-94} 의 bare axios) 본문으로 요구하면 구 앱의 로그아웃이 전부 거부된다
  * (A22 ㊪ · ㊟). 헤더가 없으면 거절하지 않고 그대로 진행하며, 그 기간의 경합을 인정한다.
+ *
+ * <p><b>「없음」과 「깨짐」은 다르다.</b> {@code X-Device-Ownership} 이 실렸는데 정규 UUID 표기가
+ * 아니면 400 으로 거절한다 — 그 값은 알림 서버가 발급한 CAS 이므로 어느 행에도 맞지 않고, 「없음」
+ * 으로 접으면 CAS 검사가 사라져 그 사이 재등록된 지금 기기까지 지운다(㊚). 판정은
+ * {@link com.oneorthree.business.common.validation.DeviceOwnershipTokens} 한 곳에만 둔다 — 같은 규칙을
+ * 컨트롤러에도 복제하면 그중 하나만 고쳐지는 날이 온다.
  */
 @RestController
 @RequestMapping("/api/v1")

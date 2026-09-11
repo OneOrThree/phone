@@ -133,6 +133,8 @@ def render_service(secret: dict[str, Any], image: str, service: str,
     required = SERVICE_REQUIRED_KEYS[service]
     if service == "data-api" and phase == "transition":
         required += TRANSITION_KEYS
+    if service == "business-api" and environment == "prod":
+        required += ("LINK_PROXY_SECRET",)
     require(secret, required)
     values: list[tuple[str, Any]] = [
         (IMAGE_KEYS[service], image), ("SPRING_PROFILES_ACTIVE", environment + ",satellites" if service == "data-api" else environment),

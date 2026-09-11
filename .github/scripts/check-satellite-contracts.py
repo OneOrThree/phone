@@ -97,6 +97,9 @@ require('"SLUG_NOT_FOUND"' in termination and '"USER_WITHDRAWN"' in termination
         'A22 ㋹: 확정 거절 허용목록 또는 일시적 실패 보존 누락')
 
 writer = source('.github/scripts/write-compose-env.py')
+require('if service == "business-api" and environment == "prod":' in writer
+        and 'required += ("LINK_PROXY_SECRET",)' in writer,
+        'A22 ㋯: 운영 Business 프록시 시크릿 필수 검증 누락')
 compose = source('server/scripts/docker-compose.satellites.yml')
 require('business_redis_acl' in writer and '~cache:business:*' in writer
         and 'user default off' in writer and 'BUSINESS_REDIS_PASSWORD' in writer,
@@ -104,7 +107,23 @@ require('business_redis_acl' in writer and '~cache:business:*' in writer
 require('networks: [business-cache]' in compose and 'internal: true' in compose,
         'A22 ㋺: Redis 캐시 전용 내부 네트워크 누락')
 
+auth_service = source('server/data-api/src/main/java/com/oneorthree/phone/auth/service/AuthService.java')
+refresh_entry = auth_service.split('public TokenRefreshResponse refreshToken(String refreshToken)', 1)[1].split(
+        'private TokenRefreshResponse refreshOnSession', 1)[0]
+require(refresh_entry.index('findActiveByIdForUpdate') < refresh_entry.index('findByRefreshToken'),
+        'A22 ㋣: 사용자 잠금 뒤 세션 원장을 조회하는 갱신 순서 누락')
+require('rotateActive(session, refreshToken, rotatedRefreshToken)' in auth_service
+        and 'currentHash.equals(user.getRefreshTokenHash())' in auth_service,
+        'A22 ㋣: 세션별 RT 회전 또는 다른 기기 단일 해시 보존 누락')
+user_commands = source('server/data-api/src/main/java/com/oneorthree/phone/user/service/UserSatelliteCommandService.java')
+require('DeviceOwnershipTokens.isCanonicalOrAbsent(request.ownershipToken())' in user_commands,
+        'A22 ㋗: 소유권 형식의 Data 내구 기록 전 검증 누락')
+
 device = source('server/notification/src/main/java/com/oneorthree/notification/DeviceService.java')
+inbound = source('server/notification/src/main/java/com/oneorthree/notification/InboundService.java')
+require('requireCanonicalOwnership(owner)' in device and 'CANONICAL_UUID.matcher(owner).matches()' in device
+        and 'rawOwnership(params)' in inbound,
+        'A22 ㋗: 동기 삭제 검증 또는 잘못된 내구 소유권의 소비 경계 누락')
 store = source('server/notification/src/main/java/com/oneorthree/notification/Store.java')
 app_commands = source('app/app-dev/src/services/notificationCommands.ts')
 require('intent.remove("sessionEpoch")' in device and 'registerLocked(user, body, true)' in device

@@ -35,7 +35,15 @@ import java.util.UUID;
  * 구 RT 에는 {@code sessionId} 가 없다(㋪). 그래서 이 테이블은 {@code users.refresh_token_hash}
  * 경로와 <b>병행</b>한다 — 로그인·회전이 세션 행을 함께 쓰되, 세션 행이 없는 구 RT 도 기존대로
  * 동작한다. 곧장 전환하면 최대 RT 수명 동안 구 토큰을 든 사용자가 전부 끊기고, 게스트에게 그것은
- * 계정 소실이다.
+ * 계정 소실이다. <b>다만 세션 행이 있는 RT 는 이 행이 판정·회전의 권위다</b> — 유저 행의 해시를
+ * 먼저 보면 B 기기 로그인이 그 값을 덮는 순간 A 기기가 통째로 끊긴다(GROMO-1659 codex R10).
+ *
+ * <h2>회전·자격 재발급은 이 엔티티에 쓰지 않는다</h2>
+ * 회전 경로는 세션을 <b>락 없이</b> 읽으므로, 그 스냅샷으로 dirty checking 을 하면 동시 회전 둘이 다
+ * 성공하거나 그 사이 커밋된 폐기를 되살린다. {@code refreshTokenHash}·{@code sessionEpoch}·
+ * {@code bootstrapNonceHash} 는 {@code AuthSessionRepository.rotateIfCurrent} 의 조건부 UPDATE 로만
+ * 바뀐다. {@link #revoke} 만 엔티티 쓰기인데, 호출부가 {@code users} 행 배타 락 아래에서 부르기
+ * 때문이다.
  */
 @Entity
 @Table(name = "auth_sessions")
@@ -93,26 +101,6 @@ public class AuthSession {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
-
-    /**
-     * 회전 — RT 해시를 갈아끼우고 fencing 값을 전진시킨다.
-     *
-     * @param newRefreshTokenHash 새 RT 의 SHA-256 hex
-     * @param newSessionEpoch     유저 축 잠금 아래 새로 발급받은 값. 이전 값보다 커야 한다
-     */
-    public void rotate(String newRefreshTokenHash, long newSessionEpoch) {
-        this.refreshTokenHash = newRefreshTokenHash;
-        this.sessionEpoch = newSessionEpoch;
-    }
-
-    /**
-     * 이 세션의 bootstrap 자격을 새로 건다 — 발급 응답에 실어 보낸 값의 해시다.
-     *
-     * @param nonceHash 새 nonce 의 SHA-256 hex
-     */
-    public void bindBootstrapNonce(String nonceHash) {
-        this.bootstrapNonceHash = nonceHash;
-    }
 
     /**
      * 폐기 — <b>이미 폐기된 행은 시각을 덮지 않는다</b>. 덮으면 「전 기기 로그아웃이 먼저 끊은 세션을

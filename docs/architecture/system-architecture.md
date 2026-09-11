@@ -107,7 +107,7 @@ A22 ㋺의 기존 미리보기 통합으로 Business 컨테이너 한도는 2 Gi
 | 콘솔 비밀번호 4개(해시) | Vercel env (링크 레포) |
 | `LINK_IP_SALT` · SKAN 키 | 링크 서버 (Vercel env) — **기존 운영 값을 그대로 복사한다(새로 생성 금지)** |
 | **`LINK_CAPABILITY_KEY`**(§3 비공개 가입 자격 서명) | **링크 서버(발급) 와 data-api(검증) 양쪽** — HMAC 공유 비밀 또는 링크 서버 개인키/Data 공개키 쌍. 없으면 Data 는 자격의 발급자를 확인할 수 없어 **가입을 전부 실패시키거나, 서명을 안 보고 클라이언트가 준 `groupId`·`inviterId`·`membershipEpoch` 를 믿어 비공개 그룹 가입이 우회**된다. **회전은 구·신 키 병행 검증 기간을 두고**(자격 만료보다 긴 창) 그 뒤 구 키를 폐기한다 |
-| **`LINK_PROXY_SECRET`**(§2.1 의 프록시 전용 공유 시크릿) | **nginx 와 링크 서버 양쪽** — 서비스 토큰과 별개다. 이게 없으면 legacy `/l/match` 프록시가 신뢰 가능한 전달 IP 를 못 실어 링크 서버가 Vercel 이 본 EC2 주소로 해시하고, **정상 클릭도 `matched:false`** 가 된다 |
+| **`LINK_PROXY_SECRET`**(§2.1 의 프록시 전용 공유 시크릿) | **nginx·링크 서버·Business API** — 서비스 토큰과 별개다. 운영 Business는 기본값 없이 참조하므로 env 생성 전에 필수 검증한다(A22 ㋯). 이게 없으면 legacy `/l/match` 프록시가 신뢰 가능한 전달 IP 를 못 실어 링크 서버가 Vercel 이 본 EC2 주소로 해시하고, **정상 클릭도 `matched:false`** 가 된다 |
 
 **런타임 시크릿 공급 경로(A22 ㋯):** prod 는 Secrets Manager(`gromo/prod/env` JSON), **dev 도 Secrets Manager(`gromo/dev/env`)** 이다. 현 `dev-cd.yml:79-90` 은 AWS OIDC 자격으로 JSON 을 읽어 `.github/scripts/write-compose-env.py` 를 통해 checkout 밖의 `dev.env` 로 쓴다. 같은 워크플로의 GCP 메타데이터 호출(`:92-98`)은 **GAR 이미지 pull 인증용**이다.
 
@@ -229,3 +229,7 @@ GROMO-1659의 Data export는 settings·device·delivery·user·participation 다
 Business 내부 HTTP의 복구 탐침은 요청 예산 검사 후에만 획득하며, 4xx 판정·자격 거절·계약 오류·요청 구성 예외에서도 정리한다(A22 ㋽). 기존 오류 분류와 재시도 범위를 유지하고 상류 복구 뒤 후속 요청이 통과하는지 실제 HTTP 응답으로 검증한다.
 
 게이트 close는 같은 키의 재시도도 다시 닫고 발송 drain을 기다린다. open 재시도는 게이트 잠금 아래 현재 개방과 실제 데이터를 재검증하며, 이후 close로 닫혔으면 `409 DISPATCH_OPEN_REPLAY_STALE`로 거절한다. 의도적인 재개는 새 open 키를 사용한다. 실제 데이터 재검증 실패는 발송을 닫고 drain한 뒤 검증 태그를 지운다(A22 ㋾). GroupMember의 역할·권한·설정 변경은 실제 변경 컬럼만 저장해 동시 표시 버전 갱신을 보존한다(A22 ㋻).
+
+refresh는 서명된 userId의 활성 users 행을 잠근 뒤 RT 세션을 조회한다. 세션이 있으면 그 행의 소유자·폐기를 판정하고 세션 RT를 조건부 회전한다. users의 단일 해시는 세션 없는 구 RT의 승격에만 유효성 근거로 사용하며, 회전 시에도 같은 옛 해시를 가리킬 때만 동기화한다. 다른 기기의 로그인·회전·개별 로그아웃은 살아 있는 세션의 갱신을 무효화하지 않는다. (A22 ㋣)
+
+소유권 값은 null 또는 정규 UUID 표기만 받는다. 잘못된 값은 Business 상류 호출·Data 내구 기록 전에 400으로 거절하며 null로 바꿔 삭제 범위를 넓히지 않는다. 이미 내구화된 잘못된 소유권 삭제 사건은 Notification이 어떤 기기도 변경하지 않고 소비 완료해 후속 사용자 사건을 막지 않는다. (A22 ㋗)

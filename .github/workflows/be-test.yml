@@ -6,7 +6,9 @@ on:
 jobs:
   test:
     runs-on: [self-hosted, ci, spot]
-    timeout-minutes: 20
+    # 서비스 분리 회귀를 포함한 전체 테스트가 공유 러너에서 20분을 넘을 수 있다.
+    # 실행 중단 없이 결과·JAR 측정까지 마치도록 유한 상한을 30분으로 둔다.
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16-alpine

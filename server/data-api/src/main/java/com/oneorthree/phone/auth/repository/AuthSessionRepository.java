@@ -4,9 +4,11 @@ import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -26,6 +28,42 @@ public interface AuthSessionRepository extends JpaRepository<AuthSession, UUID> 
      *     「끊긴 세션」을 구분해야 한다
      */
     Optional<AuthSession> findByRefreshTokenHash(String refreshTokenHash);
+
+    /**
+     * 세션 회전 — <b>조건부 UPDATE(compare-and-swap)</b> 다 (A22 ㋣ · GROMO-1659 codex R10).
+     *
+     * <p><b>왜 엔티티 dirty checking 이 아닌가.</b> 회전 경로는 세션을 <b>락 없이</b>
+     * ({@link #findByRefreshTokenHash}) 읽는다. 그 스냅샷으로 엔티티를 고쳐 두면 ① 같은 RT 로 들어온
+     * 동시 갱신 둘이 «둘 다» 성공해 나중 커밋이 먼저 커밋의 새 RT 를 덮고(먼저 받은 클라이언트는
+     * 죽은 RT 를 쥔 채 남는다), ② 그 사이 커밋된 로그아웃·탈퇴의 {@code revoked_at} 을 낡은 스냅샷이
+     * 되살린다. 조건이 곧 CAS 라, 「여전히 그 RT 를 인정하고 여전히 살아 있을 때만」 바뀐다.
+     *
+     * <p><b>0 이면 회전을 포기하고 거절해야 한다</b> — 동시 회전의 패자거나 그 사이 세션이 끊긴
+     * 것이고, 끊긴 세션은 되살리지 않는다.
+     *
+     * <p><b>호출 뒤 그 {@link AuthSession} 엔티티를 고치지 마라.</b> 벌크 UPDATE 는 영속성 컨텍스트를
+     * 갱신하지 않아, 이후 dirty checking 이 붙으면 full-row UPDATE 가 방금 쓴 값을 되돌린다.
+     * {@code updatedAt} 을 인자로 받는 것도 같은 이유다 — {@code @UpdateTimestamp} 는 벌크 경로에
+     * 붙지 않는다.
+     *
+     * @param id           회전할 세션
+     * @param expectedHash 조회 때 본 옛 RT 해시 — CAS 의 기대값
+     * @param newHash      새 RT 의 SHA-256 hex
+     * @param nonceHash    이 회전 뒤의 bootstrap 자격 해시. 이미 있던 값이면 그대로 넘긴다
+     * @param sessionEpoch 유저 축 잠금 아래 새로 발급받은 fencing 값
+     * @param now          갱신 시각
+     * @return 1이면 회전 성공. 0이면 동시 회전의 패자이거나 이미 폐기된 세션이다
+     */
+    @Modifying
+    @Query("UPDATE AuthSession s SET s.refreshTokenHash = :newHash, s.sessionEpoch = :sessionEpoch,"
+            + " s.bootstrapNonceHash = :nonceHash, s.updatedAt = :now"
+            + " WHERE s.id = :id AND s.refreshTokenHash = :expectedHash AND s.revokedAt IS NULL")
+    int rotateIfCurrent(@Param("id") UUID id,
+                        @Param("expectedHash") String expectedHash,
+                        @Param("newHash") String newHash,
+                        @Param("nonceHash") String nonceHash,
+                        @Param("sessionEpoch") long sessionEpoch,
+                        @Param("now") Instant now);
 
     /**
      * 기기 등록의 세션 확인(㋤) — <b>배타 잠금</b>으로 읽는다.
