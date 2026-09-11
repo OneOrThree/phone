@@ -25,7 +25,7 @@ GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [원본 예�
 
 ### 2.1 POST /auth/sessions
 
-필수 `X-Login-Attempt-Id: <하이픈 포함 36자 UUID>`는 앱이 시도 시작 시 한 번 생성한다(v4/v7 생성 권고이며 다른 UUID 버전을 거부하지 않음). 외부 AT는 선택 사항이며 제공했다면 유효 access 타입의 서명·만료·주체를 검증한다. 유효한 guest=false AT도 정상 계정 전환으로 허용하고 게스트 승격 대상에서만 제외한다. 이 경우 제공자 증명이 가리키는 기존 계정 로그인/정상 신규 가입을 계속하며, 현재 비게스트 계정과 대상 계정을 합치지 않는다. guest=true는 기존 활성 게스트/이미 승격된 주체 판정 규칙으로 처리한다. 잘못된 AT를 익명 로그인으로 조용히 강등하지 않는다. 기존 legacy 경로의 선택 AT 동작은 별도 보존한다.
+필수 `X-Login-Attempt-Id: <하이픈 포함 36자 UUID>`는 앱이 시도 시작 시 한 번 생성한다(v4/v7 생성 권고이며 다른 UUID 버전을 거부하지 않음). 외부 AT는 선택 사항이며 제공했다면 유효 access 타입의 서명·만료·주체와 Data의 현재 사용자·세션 활성/세대를 검증한다. 서명 검증만으로 승격 권한을 인정하지 않으며 [선택 AT의 세션 폐기 관문](#선택-at의-세션-폐기-관문)을 prepare·complete·결과 재생에 공통 적용한다. 유효한 guest=false AT도 정상 계정 전환으로 허용하고 게스트 승격 대상에서만 제외한다. 이 경우 제공자 증명이 가리키는 기존 계정 로그인/정상 신규 가입을 계속하며, 현재 비게스트 계정과 대상 계정을 합치지 않는다. guest=true는 기존 활성 게스트/이미 승격된 주체 판정 규칙으로 처리한다. 잘못된 AT를 익명 로그인으로 조용히 강등하지 않는다. 기존 legacy 경로의 선택 AT 동작은 별도 보존한다.
 
 | 요청 필드 | 타입·규칙 |
 | --- | --- |
@@ -181,7 +181,7 @@ Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를
 
 | 상태/자료 | 내용·제약 |
 | --- | --- |
-| attempt scope | 로그인 시도 ID, provider, 검증된 provider subject의 비가역 digest, 선택 AT의 검증된 주체/guest 구분 및 별도의 승격 대상 guest userId, termsVersion. 외부 userId는 사용하지 않음 |
+| attempt scope | 로그인 시도 ID, provider, 검증된 provider subject의 비가역 digest, 선택 AT의 검증된 주체/guest·원 sessionId/세대(legacy는 입증된 결합 증거) 및 별도의 승격 대상 guest userId, termsVersion. 외부 userId는 사용하지 않음 |
 | 자격 digest | 매 요청이 실제 원 code/credential을 제시하고 Business가 provider·credential 종류와 함께 keyed digest를 계산한다. 앱이 제출한 digest를 자격으로 수락하지 않는다. 원문 자격/원문 JWT 저장 금지 |
 | 고정 서명 재료 | userId, sessionId, jti, iat, exp, guest, authGeneration, sessionEpoch, signing key ID, 직렬화 버전. AT/RT 타입별 claims 구분. bootstrap 재생에 필요한 key ID도 고정 |
 | PENDING | upsert와 서명 재료를 저장했으나 RT 미확정. 외부 사용자 세션으로 사용할 수 없음 |
@@ -197,10 +197,23 @@ bootstrap도 로그인 성공 재개에서 같은 값이어야 한다. 기술 �
 
 완료 CAS는 활성 사용자, 해당 sessionId, nonce, 미폐기 epoch를 한 경계에서 확인한다. 같은 시도의 성공 완료/동일 hash이면 최초 201을 복원할 수 있지만 다른 시도나 폐기된 세션의 실패를 성공으로 접지 않는다. 같은 제공자로 재가입해도 soft-deleted user를 부활시키지 않고 새 계정으로 처리한다.
 
+### 선택 AT의 세션 폐기 관문
+
+선택 AT를 보냈다면 guest 여부와 무관하게 현재 유효한 사용자 자격이어야 한다. 특히 개별 logout은 사용자를 비활성화하거나 authGeneration을 증가시키지 않으므로, 활성 users·서명·exp만 검사해 폐기된 게스트의 지갑/그룹을 새 제공자 계정에 연결하면 안 된다. Business의 JWT 검증 뒤 Data가 서명으로 증명된 subject와 sid에 해당하는 **같은 사용자 세션**을 잠그고 `revokedAt IS NULL`·현재 authGeneration 일치·현재 만료를 확인한다. 없는 세션·타인 sid·폐기/세대 불일치는 기존 `401 UNAUTHORIZED`이며 선택 AT를 없던 것으로 취급해 승격/신규 로그인으로 우회하지 않는다. 유효한 guest=false의 정상 계정 전환과 두 계정 비합병은 유지한다.
+
+호환 기간의 sidless AT도 원 자격과 신뢰 가능한 백필 legacy 세션의 결합 및 그 세션의 미폐기를 확인해야 한다. 사용자 UUID에 활성 legacy 행이 하나 있다는 사실만으로 원 AT가 그 행에서 발급됐다고 추정하지 않는다. 원 세션이 폐기된 뒤 새 legacy 세션이 생겨도 옛 AT의 승격 권한을 되살리지 않도록 발급 자격의 결합과 폐기 fence를 유지한다. gen 없는 legacy 자격은 입증된 백필 당시 세대/폐기 경계로 검사하며 현재 세대를 임의 대입하지 않는다. 현재 자료로 원 자격의 결합을 입증할 수 없으면 새 로그인에서 명시 거절하고 기존 RT 기반 전환/복구 gate를 따른다. 이 호환 검증은 후속 구현 의무이며 sidless JWT의 subject만으로 구현 완료 처리하지 않는다. Q06의 복구 시간·장기 실패 정책은 여기서 정하지 않는다.
+
+- 내구 attempt scope에 선택 AT의 검증 주체/guest뿐 아니라 **원 세션 식별·세대와 필요한 legacy 결합 증거**를 고정한다. 외부 sessionId/digest를 자격 대신 받거나 원문 AT를 저장하지 않는다. 다른 활성 세션을 제시해 폐기된 원 세션의 attempt를 이어받을 수 없다.
+- IdP 전 내구 조회, prepare의 첫 도메인 변경, complete의 CAS, COMPLETED 결과 재생에서 이 관문을 다시 적용한다. IdP 호출 중에는 DB 잠금을 풀지만 반환 뒤 쓰기 TX에서 재검사한다. 결과 PENDING은 외부 사용 가능한 활성 세션이 아니라 동일 nonce의 미폐기 준비 상태로 검사하고, COMPLETED 결과만 활성 세션을 요구한다. 원 선택 세션 또는 준비된 결과 세션이 폐기됐으면 INVALIDATED로 종료하며 재준비/토큰 재생으로 우회하지 않는다. 원 결과 재생이 새 실행의 버전 검사보다 먼저라는 일반 규칙은 **현재 자격 검사보다 먼저**라는 뜻이 아니다.
+- 신규 로그인 TX는 필요한 users를 먼저 확보한 뒤 auth_sessions → attempt/receipt → 사용자 aggregate 및 outbox 순서로 진행한다. 동일 사용자 승격은 users 배타 잠금 하나를 사용한다. 비게스트 계정 전환처럼 증명 사용자와 대상 사용자가 다르면 알려진 사용자 ID를 UUID 오름차순으로 잠그고 상태/대상 매핑을 재검사하며, sessions/receipt를 잠근 뒤 다른 users를 추가로 잠그지 않는다. 무락 사전 조회는 잠글 ID 발견용이고 인가 결과로 사용하지 않는다. 순서 밖 대상 변경은 rollback 후 재시도한다. 기존 AuthService의 게스트 한정 단일 사용자 잠금 경로를 무심코 현재→대상 두 행 잠금으로 바꾸지 않는다.
+- logout·withdraw·refresh와 새 로그인은 같은 users 잠금을 가장 먼저 유지하여 직렬화한다. logout/withdraw가 먼저 커밋하면 prepare/complete/재생은 거절된다. 새 로그인의 해당 TX가 먼저 끝난 경우에도 후속 단계는 원 선택 세션을 다시 검사한다. 외부 네트워크 동안 잠금을 유지하거나 폐기보다 먼저 읽은 엔티티/캐시 결과를 쓰기 권한으로 재사용하지 않는다.
+
+비교 근거는 [PR751의 SessionLogoutService](https://github.com/OneOrThree/phone/blob/a61859049808e47027dac605bfeb547a4c38133b/server/data-api/src/main/java/com/oneorthree/phone/auth/service/SessionLogoutService.java#L30)의 users → session 잠금과 개별 폐기, 같은 기반 `AuthSessionService.verifySession`의 sid/사용자 행 조회다. 후자는 조회된 행을 반환할 뿐 호출자의 `isActive`/세대 검사를 대신하지 않고 sidless면 empty다. 따라서 해당 선행 코드가 신규 선택 AT/legacy 결합 관문까지 구현했다고 주장하지 않는다.
+
 ### 제공자 교환 전에 내구 시도를 조회한다
 
 1. Business는 스키마·provider/credential 종류·선택 AT를 검증하고, 요청이 실제 제출한 원 code/credential로 keyed digest를 계산한다. `X-Login-Attempt-Id`나 digest만 받는 공개 복구 API를 만들지 않는다. provider·credential 종류·선택 AT의 검증 주체/guest·승격 대상·termsVersion 등 교환 전에 확정할 수 있는 scope를 결합한다. provider subject는 미검증 요청에서 받지 않고, 최초 검증 결과를 저장한 뒤 그 시도의 고정 scope로 사용한다.
-2. 기존 신뢰된 Business→Data 내부 인증으로 내구 시도를 **먼저 조회**한다. 저장된 검증 결과가 있으면 원 자격 digest·scope 일치와 사용자 활성·현재 authGeneration/sessionEpoch·고정 토큰 만료/원 복구 마감·INVALIDATED 여부를 검사한 뒤 준비/확정 결과를 반환한다. provider subject는 그 일치한 내구 검증 결과에서만 복원한다. PENDING은 기존 고정 재료로 complete를 잇고 COMPLETED는 원 결과를 재생하며 REPREPARE_REQUIRED는 아래 전이를 따른다. 이 분기에서 IdP 교환 횟수는 0이다. 불일치·만료·INVALIDATED를 “시도 없음”으로 바꿔 새 로그인으로 우회하지 않는다.
+2. 기존 신뢰된 Business→Data 내부 인증으로 내구 시도를 **먼저 조회**한다. 저장된 검증 결과가 있으면 원 자격 digest·scope 일치와 사용자 활성·현재 authGeneration/sessionEpoch·원 선택 세션의 활성·결과 세션의 상태별 유효성(PENDING은 동일 nonce의 미폐기 준비, COMPLETED는 활성)·고정 토큰 만료/원 복구 마감·INVALIDATED 여부를 검사한 뒤 준비/확정 결과를 반환한다. provider subject는 그 일치한 내구 검증 결과에서만 복원한다. PENDING은 기존 고정 재료로 complete를 잇고 COMPLETED는 원 결과를 재생하며 REPREPARE_REQUIRED는 아래 전이를 따른다. 이 분기에서 IdP 교환 횟수는 0이다. 불일치·만료·INVALIDATED를 “시도 없음”으로 바꿔 새 로그인으로 우회하지 않는다.
 3. 내구 검증 결과가 없고 아직 제공자 호출을 시작하지 않은 안전한 최초 실행만 동일 attempt의 실행 소유권을 확보해 IdP를 호출한다. 경합한 요청은 저장 상태를 재조회하거나 기존 REQUEST_IN_PROGRESS를 반환하고 같은 code를 동시에 교환하지 않는다. 네트워크 동안 사용자/세션 DB 잠금이나 TX를 유지하지 않는다. 검증 성공 뒤 prepareLogin TX가 provider 검증 결과·자격 digest/scope·PENDING 세션·고정 서명 재료를 함께 저장한다. 쓰기 직전에도 같은 attempt/scope와 현재 사용자 상태를 대조한다.
 4. **IdP 성공과 내구 저장 사이의 장애는 별도 한계다.** 일회성 code가 소비됐지만 검증 결과가 저장되지 않았다면 로컬 메모리나 digest만으로 provider subject/토큰을 복원할 수 없다. 실행 소유권 만료만 보고 그 요청을 미실행으로 간주하지 않는다. 제공자가 보장하는 복구 수단이 실제 검증되지 않았다면 교환 결과 불명확으로 실패시키고 새 제공자 자격·새 attempt로 재인증한다. “prepare 이후 동일 결과 재생”을 이 구간의 무손실 보장으로 확대하지 않는다. 새 시도도 기존 guest 승격/계정 연결의 활성·경쟁 검사를 따르며 자동 새 guest 생성·자산 이전으로 복구를 대신하지 않는다.
 
@@ -365,7 +378,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | Redis 랭킹의 모든 주차 ZSET·presence·지연 점수 사건 | 중앙 soft delete만으로 제거 보장 안 됨 | 같은 탈퇴 TX에 version을 가진 user.withdrawn outbox를 내구화. 랭킹 소비자는 tombstone/version 설정과 모든 주차 ZSET·presence 제거를 원자 적용하고 지연·DLT 점수의 부활을 거부 |
 | gromo_chat.chat_read_cursors의 user_id/group_id/last_read_message_id/updated_at | 기준 main·PR739 이름 전환 코드에 커서 UPSERT가 있으나 탈퇴 삭제/consumer/fencing 없음 | 해당 user_id의 모든 방 커서 행 hard delete. 중앙 TX의 user.withdrawn 내구 전달 뒤 chat/realtime 로컬 TX에서 tombstone/version·DELETE·수신 완료를 함께 확정하고 모든 cursor writer와 직렬화. 메시지 본문/sender_id 보존은 변경하지 않음 |
 | user_focus_tags.user_id, source_occupation_default_tag_id, default_tags.name 연결 | 기존 erase에는 삭제 없음 | FocusSession이 user_focus_tags를 참조하므로 직접 user_id만 nullify해도 사용자 역추적 경로가 남음. 정산 증거 동결 뒤 태그의 사용자 귀속/직군 출처를 끊는 nullable migration 또는 세션 태그 연결 해제 후 개인 채택 행 파기를 비교 검증. 공유 default_tags는 일괄 삭제하지 않음. 두 대안 모두 setupFocusTag/updateFocusTag 및 복원·관리 writer의 활성 users 공유 잠금과 탈퇴 배타 잠금으로 직렬화 |
-| character_generation.user_id, created_at, client_generation_id | 기존 erase에는 정리 없음 | 개인 생성 요청 식별·사용자 연계 자료 파기 경로를 해당 소유 서비스와 연결. 공유 정산 근거와 동일 보존 사유로 뭉뚱그리지 않음 |
+| character_generation.user_id, created_at, client_generation_id | 기존 erase에는 정리 없음 | 같은 중앙 탈퇴 TX에서 해당 user_id의 모든 생성 이력 hard delete. 기존 recordGeneration의 users 배타 잠금 → 사용자 advisory → 이력 순서를 유지하여 삭제 뒤 재생성을 차단하고 타인 이력은 보존 |
 | invite_link_clicks.claimedUserId·클릭 연결 | main 직접 파기 없음 | 1659의 claimed user 익명화·링크 위성 폐기 전달 재사용. ipHash/userAgent/device/app 식별 자료도 사용자 연계가 남는지 링크 소유 정리 명령에서 확인 |
 | 신규 auth session RT/bootstrap hash·로그인 시도 자격 digest·고정 서명 재료 | main 새 모델 없음 | legacy 승격 전용 복구 receipt/고정 재료도 탈퇴 때 폐기하고 세션 폐기와 원문 재발급을 차단. 남기는 폐기 tombstone은 최소 sessionId/epoch/만료 정보로 제한하고 사용자 연계 자격은 파기 |
 | 신규 일반 receipt·outbox·위성 projection 속 name/catColor/기기 자격 | 신규 자료 | 탈퇴 TX에서 직접 PII가 든 중앙 복사본 제거/대체, 대상별 outbox로 위성 파기. 삭제 receipt는 deleted 결과만 보유하며 개인 응답 재생 금지 |
@@ -373,9 +386,15 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 
 main User 주석은 retention→purge를 언급하지만 현재 조회한 `erasePersonalData`는 즉시 물리 삭제가 아니다. 기존 행의 보존 근거/기간 없이 무기한 보존을 새 정책으로 채택하지 않는다. 위 표에서 '추가'로 표시한 파기는 해당 소유 모델과 FK를 실제 검증해야 하며 새 catColor 하나만 null 처리하고 전수 파기 완료로 닫지 않는다.
 
+### 캐릭터 생성 이력 파기
+
+`V23__character_generation.sql:7~14`는 NOT NULL 사용자 FK와 생성 시각·선택 client_generation_id를 저장한다. 기준 `CharacterGenerationService.recordGeneration:78~102`는 먼저 `requireActiveUser` → `getCallerForUpdate`로 users 배타 잠금을 잡고 사용자 advisory 잠금 뒤 중복 조회/쿼터 판정/INSERT한다. trial anchor를 users에 쓸 수 있으므로 이를 공유 잠금으로 약화하지 않는다. 기존 멱등키 재시도도 활성 사용자 검사보다 앞서 성공 재생하지 않는다.
+
+후속 탈퇴 구현은 같은 users 배타 잠금을 유지한 중앙 TX에서 캐릭터 소유 서비스에 위임해 `DELETE FROM character_generation WHERE user_id=:userId`를 실행한다. 생성 시각이나 client_generation_id 유무와 무관하게 본인 행 전체를 삭제하며 nullify/기간 제한 정리로 대체하지 않는다. 다른 사용자의 생성 이력과 보유/정산 증거는 보존한다. 현 AccountWithdrawalService/UserService에 이 삭제 호출이 없으므로 실제 배선이 완료 조건이다. 복원/관리·비동기 기록을 추가하더라도 활성 users 잠금 → 사용자 advisory(사용 시) → 이력 순서를 지키고 오래된 User 객체로 우회 저장하지 않는다. writer가 먼저 커밋한 행은 탈퇴가 삭제하고, 탈퇴 선행이면 늦은 기록/동일 client_generation_id 재시도도 활성 검사에서 거절한다. 삭제 직후 실패 시 생성 이력·계정·환불·receipt/outbox가 함께 rollback되어야 한다.
+
 ### 중앙 TX의 순서 제약
 
-`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹·chat/realtime 대상 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 양방향 group_invites·user_blocks 및 본인 user_streaks 삭제와 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
+`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹·chat/realtime 대상 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_generation 본인 생성 이력 및 character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 양방향 group_invites·user_blocks 및 본인 user_streaks 삭제와 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
 
 `socialAccountRepository.deleteByUserId`는 `flushAutomatically` 후 `clearAutomatically`로 영속성 컨텍스트를 비운다. 따라서 user.catColor 등 엔티티 변경을 그 뒤에 붙이면 저장되지 않는다. 모든 엔티티 파기를 앞에 배치하고 마지막 bulk delete 뒤에는 분리된 엔티티를 수정하지 않는다. 멱등 결과 저장은 이 clear를 고려해 명시적으로 영속화하며 사용자 PII 수정의 순서를 뒤집지 않는다.
 
@@ -559,6 +578,10 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 미지원 provider 문자열·어댑터 미구성·잘못된 credential 조합 | provider는400 UNSUPPORTED_PROVIDER, 지원 provider의 미지원 credential.type만422, 잘못된 구조400 |
 | 유효 guest=false AT를 동봉한 기존 소셜 로그인/계정 전환 | 제공자 대상 계정으로 정상 로그인/가입, 게스트 승격 대상 제외·기존 계정 합병0; 위조/만료 AT는 별도거부 |
 | 6개 제공자의 위조·만료·aud 오류 및 잘못된 RT logout | 해당 *_TOKEN401과 REFRESH_TOKEN401 보존, 내부 서비스401을 사용자 오류로 매핑하지 않음 |
+| 게스트 개별 logout 뒤 만료 전 선택 AT + 정상 제공자 자격 | users 활성/gen 불변이어도 원 sid 폐기로401, 기존 지갑/그룹의 계정 연결·토큰 반환0 |
+| 선택 AT의 타인 sid·세대 불일치·sidless 폐기 후 새 legacy 세션 | 원 세션 결합/폐기 fence 검사, userId만 맞춘 새 세션으로 옛 AT 승인0; 입증 불가 시 명시 거절 |
+| 선택 세션 logout/withdraw와 IdP·prepare·complete·성공 receipt 재생의 양방향 경합 | 각 TX의 users 우선 잠금, 폐기 선행 시 INVALIDATED·토큰 재생0, 원 복구창 연장0 |
+| 비게스트 A→B/B→A 동시 전환·대상 매핑 변경 | 필요한 users UUID 정렬 후 session/attempt 잠금, 순서 역전/교착0, 정상 계정 전환 유지·계정 합병0 |
 | 6개 제공자/guest 승격 | 같은 userId·지갑·집중·그룹 유지, 타 제공자 token·RT-as-AT 거부 |
 | 승인된 완료 판정 false→true / 이미 true→true / 동일 키 재생 | 첫 전이만 user.onboarded 내구화, 미완료 시점의 기존 점수도 주차별 절대값 재적재, 재생·무전이의 추가 사건0 |
 | name 변경+catColor/온보딩 동시 변경·동일 키·무변경 | 기존 동기 이름 writer에 위임해 필요한 멤버십별 표시 사건만 생성, caller 이중 append0; name 생략/무변경/receipt 재생은 이름 사건0 |
@@ -589,6 +612,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 공지 생성·타인 수정과 탈퇴의 양방향 경쟁·중간 실패 | 생성 선행이면 user_id=null, 탈퇴 선행이면 생성 USER_NOT_FOUND. 타인 수정의 지연 flush도 작성자 FK 부활 0, 공지 내용 보존, rollback 시 작성자 연결도 복구 |
 | setupFocusTag/updateFocusTag·태그 복원/관리·세션 재연결과 탈퇴 양방향 경합 | 같은 users 잠금, 이름 변경이 만든 새 채택/세션 연결도 파기·탈퇴 뒤 귀속 부활0, 공유 태그·타인 채택 보존 |
 | character_equipment full fixture·equip/unequip/복원과 탈퇴 양방향 경합·강제 rollback | 대상 장착0·타인 장착 및 user_items/원장 보존, 지연 flush 부활0, 실패 시 태그/장착/세션 연결 포함 전체 rollback |
+| character_generation 과거/현재·client_generation_id null/값·타인 fixture | 탈퇴자 모든 이력0, 타인 이력 보존, NOT NULL FK의 실제 schema 대조 |
+| recordGeneration/동일 키 재시도/복원과 탈퇴 양방향 실제 PG 경합·삭제 직후 실패 | users 배타 잠금 우선, 선행 생성까지 삭제·탈퇴 뒤 이력 부활0, 생성 이력/환불/계정/receipt/outbox 전체 rollback |
 | 프로필과 탈퇴 경쟁 | 마지막 커밋 이후 name/catColor·PII 부활 없음 |
 | group_challenge_members 보고/탈퇴 양방향 경쟁·동결 후 삭제 | 사용자 원본행0, 선행 승리/과거 정산 결과 유지, 삭제 뒤 upsert 부활0 |
 | OPEN 참가 target 결손·증거 확정 불가·삭제 직후 실패 | 동결 완료로 위장하지 않음, 중앙 TX rollback, 기존 원본과 환불 정합 유지 |

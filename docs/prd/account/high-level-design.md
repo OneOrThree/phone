@@ -47,7 +47,8 @@ sequenceDiagram
     A->>B: POST /auth/sessions + 로그인 시도 ID
     B->>B: 앱 키·스키마·선택 AT 검증 및 guest 구분
     B->>B: 실제 원 code/credential로 keyed digest 계산
-    B->>D: 시도 ID + 자격 digest + 검증된 요청 scope로 내구 상태 조회
+    B->>D: 시도 ID + 자격 digest + 원 선택 세션 증명으로 내구 상태 조회
+    D->>D: users 먼저 잠금 → 선택 세션 활성/세대·legacy 결합 검사
     alt 검증 결과가 저장된 동일 시도
         D->>D: scope·원 자격 일치, 활성 사용자·세대/epoch·고정 만료 검사
         break 불일치·만료·INVALIDATED
@@ -61,17 +62,17 @@ sequenceDiagram
         B->>P: 제공자 증명 검증 또는 code 교환
         P-->>B: 검증된 provider subject
         B->>D: prepareLogin(검증 결과, 자격 digest, 검증된 scope, 시도 ID)
-        Note over D: TX1: 활성 사용자/게스트 잠금, upsert<br/>검증 결과·PENDING 세션·고정 서명 재료를 함께 저장
+        Note over D: TX1: users → 원 선택 세션 잠금/재검증, upsert<br/>검증 결과·PENDING 세션·고정 서명 재료를 함께 저장
         D-->>B: userId, sessionId, nonce, 고정 claims
     end
     B->>B: 동일 key/claims로 AT·RT 서명
     B->>D: completeLogin(nonce, RT hash)
-    Note over D: TX2: 활성/epoch/CAS 대조<br/>세션 활성화·RT hash 확정
+    Note over D: TX2: users → 선택 세션 활성·결과 준비 상태/세대/epoch·CAS 대조<br/>세션 활성화·RT hash 확정
     D-->>B: 확정 결과 또는 같은 성공 시도의 결과
     B-->>A: 201 data(accessToken, refreshToken, userId, onboardingComplete)
 ```
 
-유효한 선택 AT가 guest=false이면 기존 계정 전환을 허용하고 제공자 계정으로 로그인/가입한다. 이를 게스트 증명 실패로 거부하거나 두 소셜 계정을 합치지 않는다. guest=true일 때만 기존 승격 대상과 userId 보존 규칙을 적용한다. 제공자 자격 실패는 기존 6개 제공자별 *_TOKEN401을 유지하며 UNAUTHORIZED로 뭉개지 않는다.
+선택 AT의 서명만으로 승격 권한을 인정하지 않는다. Data는 users 우선 잠금 아래 원 sid의 미폐기/현재 세대 또는 입증된 sidless legacy 결합·폐기 fence를 내구 조회·prepare·complete·성공 재생마다 검사한다. 개별 logout은 users 활성/gen이 그대로여도 해당 AT를 거절하게 한다. 비게스트 전환에서 두 사용자 잠금이 필요하면 UUID 정렬 후 session/attempt를 잠그며 IdP 대기 중에는 유지하지 않는다. [상세 관문](low-level-design.md#선택-at의-세션-폐기-관문)의 실제 구현/경합 검증 전 활성화하지 않는다. 유효한 선택 AT가 guest=false이면 기존 계정 전환을 허용하고 제공자 계정으로 로그인/가입한다. 이를 게스트 증명 실패로 거부하거나 두 소셜 계정을 합치지 않는다. guest=true일 때만 기존 승격 대상과 userId 보존 규칙을 적용한다. 제공자 자격 실패는 기존 6개 제공자별 *_TOKEN401을 유지하며 UNAUTHORIZED로 뭉개지 않는다.
 
 제공자 네트워크 호출은 Data TX 밖이다. 모든 요청은 실제 원 code/credential을 제시하고 Business가 digest를 계산해 내구 시도를 먼저 조회한다. 앱이 보낸 digest나 provider subject만으로 재생하지 않는다. TX1 이후 Business가 죽으면 같은 시도 ID와 같은 자격 증명으로 준비 결과를 되찾아 재개하며, 이미 소비된 일회성 code를 다시 교환하지 않는다. 성공했는데 응답만 잃었으면 고정 claims로 같은 토큰을 복원한다. Data에는 원문 토큰 대신 해시·서명 재료만 남긴다. 재개는 원래 제공자 자격의 digest와 시도 범위가 일치해야 하며 시도 ID 하나만 알아서 토큰을 얻을 수 없다. 제공자 검증 성공 직후 TX1 저장 전에 죽으면 그 검증 결과는 내구화되지 않았으므로 이 복구로 재생할 수 없다. 교환 결과가 불명확한 실행을 안전한 최초 시도로 돌려 code를 무조건 다시 쓰지 않는다. 제공자의 검증된 복구 수단이 없으면 새 제공자 자격과 새 시도로 재인증해야 하며, guest 복구·Q06 정책을 임의 대체하지 않는다. [LLD의 재개 순서와 장애 경계](low-level-design.md#제공자-교환-전에-내구-시도를-조회한다)를 따른다.
 
@@ -163,7 +164,7 @@ sequenceDiagram
     D->>DB: 알림 발송 이력의 수신자·사용자 상대 연계 파기
     D->>DB: 리그 일간 삭제·주간 개인 결과 파기와 최소 완료 마커 분리
     D->>DB: 양방향 user_blocks·본인 user_streaks 삭제
-    D->>DB: character_equipment 장착 행·지갑·설정 삭제, 직접 PII·신규 프로필 파기
+    D->>DB: character_generation 본인 전체 이력·character_equipment 장착 행·지갑·설정 삭제, 직접 PII·신규 프로필 파기
     D->>DB: soft delete + 결과 receipt + COMMIT
     D-->>B: deleted true
     B-->>A: 200 data(deleted true)
@@ -217,5 +218,7 @@ sequenceDiagram
 6. 앱 계약 7종과 legacy 호환을 함께 검증한 뒤 세션 정본을 전환한다. legacy 읽기 제거는 호환 창 종료 후 별도 단계다.
 
 리그 개인 이력 파기와 최소 완료 마커 보존은 중복 정산 방지와 함께 검증한다. 랭킹 user.withdrawn outbox도 중앙 탈퇴와 같은 TX이며, 모든 주차 ZSET/presence와 지연·DLT 재생의 차단은 [LLD의 리그 파기 경계](low-level-design.md#리그-이력랭킹-투영-파기)를 따른다. 현재 main에서 완료됐다고 주장하지 않는다.
+
+캐릭터 생성 이력은 기존 recordGeneration의 users 배타 잠금 → 사용자 advisory → 이력 순서를 유지하고 같은 중앙 탈퇴 TX에서 본인 전체 행을 hard delete한다. 생성 선행이면 해당 행까지 삭제하고 탈퇴 선행이면 동일 client_generation_id 재시도도 거절한다. fixture에는 null/값 키·과거/현재·타인 행을 넣고 삭제 직후 실패의 전체 rollback을 검증한다. 이 삭제 배선은 후속 구현이며 현 코드에 있다고 간주하지 않는다.
 
 태그 생성뿐 아니라 updateFocusTag의 새 채택/과거 세션 재연결과 복원·관리 writer도 활성 users 공유 잠금을 먼저 확보한다. 탈퇴 배타 잠금 아래의 태그 연결 파기·character_equipment hard delete와 같은 순서로 직렬화한다. 기존 EquipmentService의 equip/unequip 공유 잠금은 유지하고 user_items 보유 증거는 장착 설정과 구분해 보존한다. 실제 양방향 경합·늦은 flush·rollback 검증 전 전수 파기 완료로 표시하지 않는다.
