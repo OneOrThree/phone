@@ -229,18 +229,24 @@ Servlet의 모든 클라이언트 연결 종료를 자동 감지해 이 context�
 
 | 설정 | 기본값/의미 |
 | --- | --- |
-| `business.upstream.composition.pool-size` | 16, JVM 화면 조합 worker 수 |
+| `business.upstream.composition.pool-size` | 4, JVM 화면 조합 worker 수 |
 | `business.upstream.composition.queue-capacity` | 64, 화면 조합 대기열 |
 | `business.upstream.composition.deadline` | 3s, 선행 context 조회부터 조합 종료까지 |
 | `business.upstream.{data,notification,link}.base-url` / `.service-token` | 기본값 없음, 프로파일별 명시 주입 |
 | 각 대상의 `.connect-timeout` / `.read-timeout` | 500ms / 1500ms |
 | 각 대상의 `.max-attempts` / `.retry-delay` | 총 2회 / 50ms, 유효 Retry-After가 있으면 그 대기 적용 |
-| 각 대상의 `.max-connections` / `.queue-capacity` | 16 / 64, 대상별 HTTP 연결·worker와 대기열 |
+| 각 대상의 `.max-connections` / `.queue-capacity` | 4 / 64, 대상별 HTTP 연결·worker와 대기열 |
 | 각 대상의 `.failure-threshold` / `.open-duration` | 연속 5회 / 10s, 대상별 circuit breaker |
 | `business.cursor.enabled` | 미설정 시 비활성 |
 | `business.cursor.active-key` / `.keys` | 기본 서명키 없음, 활성화 시 독립 키 필수 |
 
 위 용량은 초기 안전 상한이며 운영 처리량/SLO 보장값은 아니다.
+대상별 HTTP worker 셋과 조합 worker의 **합계는 16 이하**로 기동 시 검증한다. 환경 설정으로 한 대상만
+늘려도 총합을 넘으면 부팅을 거절한다. 서비스/관리 Tomcat worker는 각각 최대16으로 제한해 합계32이며,
+preview/DNS8 외에 JVM·Redis·PDF 자식 프로세스가 사용할 PID 여유를 남긴다. Compose의 PID128 상한을
+올리지 않으며, 운영 모니터링·부하 검증을 대신하는 처리량 보장은 아니다.
+신규 동기 요청은 상류의 정상 `504 UPSTREAM_TIMEOUT` 응답을 제한 재시도한 뒤에도 504로 반환한다.
+503 장애와 시간 초과의 종류를 합치지 않고, legacy 오류 매핑과 선택 조각의 허용된 null 폴백은 유지한다.
 HTTP 응답 본문은 시도당 1MiB로 제한하고 초과는 계약 오류로 처리한다.
 `upstream_retry`, `screen_optional_unavailable` 로그는 서버 request_id로 연결한다.
 토큰·원문 URL·본문·cursor를 로그에 추가하지 않는다.
