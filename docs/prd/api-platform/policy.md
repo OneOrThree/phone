@@ -46,7 +46,7 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |405|METHOD_NOT_ALLOWED|false|신규 공개 경로의 미지원 method. Allow 헤더 유지|
 |409|VERSION_CONFLICT|false|field는 제출한 버전 필드(`expectedVersion` 또는 `expectedWalletVersion`), 허용된 current 제공 후 사용자 재확인|
 |409|STATE_CONFLICT|false|현재 상태에서 실행 불가. 공개 current가 안전하면 포함|
-|409|INSUFFICIENT_BALANCE|false|잔액 부족. 같은 요청 자동 반복 금지|
+|409|INSUFFICIENT_FUNDS|false|잔액 부족. 같은 요청 자동 반복 금지|
 |409|IDEMPOTENCY_KEY_REUSED|false|저장된 처리중/확정 scope/key에 다른 본문. field=`Idempotency-Key`, **기존 요청 본문·결과는 노출하지 않음**|
 |409|REQUEST_IN_PROGRESS|true|같은 명령의 실행이 아직 확정 전. Retry-After:1, 같은 키·본문으로 재시도|
 |409|CURSOR_EXPIRED|false|field=`cursor`, 같은 필터로 첫 페이지를 새로 조회|
