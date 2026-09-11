@@ -30,6 +30,16 @@ interface Ownership {
 let storageTail: Promise<unknown> = Promise.resolve();
 let ownershipTail: Promise<unknown> = Promise.resolve();
 let delivery: Promise<void> | null = null;
+let installedDeviceToken: (() => Promise<string | null>) | null = null;
+
+// 구 앱에서 업그레이드한 기기의 «마지막» 정리 경로. 이 기기에 이미 발급돼 있는 FCM 토큰을
+// 돌려준다 — push 계층(messaging)이 배선한다. 여기서 직접 import 하지 않는 이유는 두 가지다:
+// push.ts 가 이미 이 모듈을 import 하고 있어 순환이 되고, 웹 번들(push.web.ts)엔 FCM 자체가 없다.
+export function setInstalledDeviceTokenResolver(
+  resolver: (() => Promise<string | null>) | null,
+): void {
+  installedDeviceToken = resolver;
+}
 
 function storage<T>(operation: () => Promise<T>): Promise<T> {
   const next = storageTail.then(operation, operation);
@@ -392,21 +402,69 @@ export async function queueDeviceRegistration(deviceToken: string): Promise<void
   await flushNotificationCommands();
 }
 
-export async function queueDeviceDeletion(accessToken: string): Promise<void> {
+// 이 사용자의 기기 삭제 대상. 소유권 기록 → 미전송 등록 → «구 앱 잔여 토큰» 순으로 좁힌다.
+//
+// ① 응답으로 받은 소유권 기록이 이 사용자의 것이면 그것이 정확한 대상이다.
+// ② 아직 등록 응답을 못 받았어도 요청에 사용한 FCM 토큰은 큐에 남아 있다 — 그것을 보존한다.
+// ③ 둘 다 없는 경우가 «구 앱에서 업그레이드한 기기»다. 서버엔 구 앱이 등록한 토큰이 그대로 있는데
+//    새 앱의 첫 등록은 권한 거부·getToken 실패로 건너뛰어질 수 있고(push.ts registerPushToken),
+//    그러면 로컬엔 소유권도 대기 명령도 없다. 여기서 대상을 못 만들면 삭제 요청 자체가 생략되고
+//    (로그아웃 본문도 deviceToken:null 이라 서버가 삭제를 건너뛴다, AuthService ㋗) 이전 계정 푸시가
+//    이 기기로 계속 간다. 그래서 등록이 쓰는 것과 «같은» getToken 으로 대상 토큰만 되찾는다.
+//
+// 대상 토큰이 없을 때 «유저 단위 삭제»로 넓히지 않는다 — 그 요청은 그 계정의 다른 기기 등록까지
+// 함께 비활성화한다(DeviceService.deleteLocked 의 device_token IS NULL 분기, Data
+// clearDeviceTokenUnconditionally). 모르면 모르는 채로 둔다.
+//
+// ③ 은 «자격»을 만들어 내지 않는다: ownershipToken 은 null 로 둔다. 삭제는 CAS 없이도 통과하지만
+//    (deleteLocked 의 `?::text IS NULL OR ownership_token=?`) 판정은 여전히 user_id AND device_token
+//    으로 좁혀지고, 구 AT 는 gen 클레임이 없어 세대 비교도 건너뛴다(AccessTokenClaims ㊍).
+//    그래서 계정 전환 중이라 그 토큰이 이미 새 계정 행이 됐다면 이 삭제는 그 행에 닿지 못하고
+//    (user_id 가 다르다) 조용히 no-op 이 된다 — 새 계정 소유권을 덮지 않는다. 반대로 아직 구 계정
+//    행이면 그 한 행만 지운다.
+async function deletionTarget(userId: string | null): Promise<{
+  deviceToken: string | null;
+  ownershipToken: string | null;
+  sessionId: string | null;
+}> {
+  // 사용자를 읽지 못한 AT 로는 어떤 기록도 이 사람의 것이라고 말할 수 없다 — 폴백도 쓰지 않는다.
+  if (!userId) return { deviceToken: null, ownershipToken: null, sessionId: null };
   const previous = await ownership();
-  const userId = getUserIdFromToken(accessToken);
-  // 아직 새 등록 응답을 못 받았어도 요청에 사용한 정확한 FCM 토큰을 삭제 대상으로 보존한다.
+  if (previous?.userId === userId)
+    return {
+      deviceToken: previous.deviceToken || null,
+      ownershipToken: previous.ownershipToken ?? null,
+      sessionId: previous.sessionId,
+    };
   const pending = (await storage(readQueue))
     .slice()
     .reverse()
     .find((item) => item.kind === 'register' && item.userId === userId);
-  const target = previous?.userId === userId ? previous : pending?.body;
-  if (typeof target?.deviceToken !== 'string' || !target.deviceToken) return;
+  if (pending)
+    return {
+      deviceToken:
+        typeof pending.body.deviceToken === 'string' && pending.body.deviceToken
+          ? pending.body.deviceToken
+          : null,
+      ownershipToken:
+        typeof pending.body.ownershipToken === 'string' ? pending.body.ownershipToken : null,
+      sessionId: pending.sessionId,
+    };
+  // 어느 세션에도 묶이지 않은 잔여 토큰이라 세션은 null 이다 — 세션 폐기(auth.session.revoked)가
+  // bootstrap·legacy sid 로 잇는 두 축 어디에도 이 행은 없다(DeviceService.revokeSession).
+  const installed = installedDeviceToken ? await installedDeviceToken().catch(() => null) : null;
+  return { deviceToken: installed || null, ownershipToken: null, sessionId: null };
+}
+
+export async function queueDeviceDeletion(accessToken: string): Promise<void> {
+  const userId = getUserIdFromToken(accessToken);
+  const target = await deletionTarget(userId);
+  if (!target.deviceToken) return;
   await enqueue(
     'delete',
-    { deviceToken: target?.deviceToken ?? null, ownershipToken: target?.ownershipToken ?? null },
+    { deviceToken: target.deviceToken, ownershipToken: target.ownershipToken },
     accessToken,
-    previous?.userId === userId ? previous.sessionId : (pending?.sessionId ?? null),
+    target.sessionId,
   );
   // 인증 전환 mutex 안에서 호출되므로 refresh를 쓰는 전체 flush는 기다리지 않는다.
   const queue = await storage(readQueue);
@@ -422,26 +480,17 @@ export async function queueSessionLogout(
   accessToken: string,
   options?: { prepareAccountSwitch: true; sessionId: string | null },
 ): Promise<void> {
-  const previous = await ownership();
   const userId = getUserIdFromToken(accessToken);
-  const pending = (await storage(readQueue))
-    .slice()
-    .reverse()
-    .find((item) => item.kind === 'register' && item.userId === userId);
-  const target = previous?.userId === userId ? previous : pending?.body;
+  const target = await deletionTarget(userId);
   const command = await enqueue(
     'logout',
     {
       refreshToken,
-      deviceToken: target?.deviceToken ?? null,
-      ownershipToken: target?.ownershipToken ?? null,
+      deviceToken: target.deviceToken,
+      ownershipToken: target.ownershipToken,
     },
     accessToken,
-    options
-      ? options.sessionId
-      : previous?.userId === userId
-        ? previous.sessionId
-        : (pending?.sessionId ?? null),
+    options ? options.sessionId : target.sessionId,
     options?.prepareAccountSwitch,
   );
   if (!options?.prepareAccountSwitch) await send(command).catch(() => {});

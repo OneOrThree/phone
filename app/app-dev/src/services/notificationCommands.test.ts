@@ -9,6 +9,7 @@ import {
   queueNotificationSettings,
   queueSessionLogout,
   reportNotificationLanguage,
+  setInstalledDeviceTokenResolver,
 } from './notificationCommands';
 
 function token(user: string) {
@@ -74,6 +75,8 @@ const settings = { notificationEnabled: true, soundEnabled: true, nightModeEnabl
 
 beforeEach(async () => {
   jest.restoreAllMocks();
+  // push 계층이 배선하는 값이라 기본은 «없음»이다 — 필요한 시험만 직접 붙인다.
+  setInstalledDeviceTokenResolver(null);
   await AsyncStorage.clear();
   await session('a');
 });
@@ -247,6 +250,135 @@ test('기기 토큰을 모르면 사용자 전체 삭제 요청을 만들지 않
   const del = jest.spyOn(axios, 'delete').mockResolvedValue({ data: {} });
   await queueDeviceDeletion(token('a'));
   expect(del).not.toHaveBeenCalled();
+  expect(await queue()).toEqual([]);
+});
+
+// 구 앱에서 업그레이드했는데 «새 앱의 첫 등록»이 건너뛰어진 기기(권한 거부·getToken 실패).
+// 소유권 기록도 대기 등록도 없지만 서버엔 구 앱이 등록한 토큰이 남아 있다.
+async function upgradedWithoutFirstRegistration(deviceToken: string | null) {
+  await AsyncStorage.removeItem(STORAGE_KEYS.deviceOwnership);
+  setInstalledDeviceTokenResolver(async () => deviceToken);
+  await legacySession('a');
+  expect(await queue()).toEqual([]);
+}
+
+test('첫 등록 없이 업그레이드한 기기의 로그아웃도 구 앱 토큰을 정확히 지운다', async () => {
+  await upgradedWithoutFirstRegistration('fcm-legacy');
+  const del = jest.spyOn(axios, 'delete').mockResolvedValue({ data: {} });
+  const post = jest.spyOn(axios, 'post').mockResolvedValue({ data: {} });
+  const accessToken = expiredToken('a');
+
+  await queueDeviceDeletion(accessToken);
+  expect(del.mock.calls[0][1]?.headers).toMatchObject({
+    Authorization: `Bearer ${accessToken}`,
+    'X-Device-Token': 'fcm-legacy',
+  });
+  // 자격을 지어내지 않는다 — CAS 없이 user_id AND device_token 으로만 좁혀 지운다.
+  expect(del.mock.calls[0][1]?.headers).not.toHaveProperty('X-Device-Ownership');
+
+  await queueSessionLogout('a-refresh', accessToken);
+  expect(post.mock.calls[0][1]).toEqual({
+    refreshToken: 'a-refresh',
+    deviceToken: 'fcm-legacy',
+    ownershipToken: null,
+  });
+  expect(await queue()).toEqual([]);
+});
+
+test('계정 전환 뒤 정리는 새 계정 소유권을 이전 계정 삭제에 싣지 않는다', async () => {
+  await upgradedWithoutFirstRegistration('fcm-legacy');
+  // 전환이 끝나 새 계정 b 가 같은 기기를 자기 소유권으로 등록해 둔 상태.
+  await session('b');
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.deviceOwnership,
+    JSON.stringify({
+      deviceToken: 'fcm-legacy',
+      ownershipToken: 'owner-b',
+      userId: 'b',
+      sessionId: 'b-session',
+    }),
+  );
+  const del = jest.spyOn(axios, 'delete').mockResolvedValue({ data: {} });
+  const previousAccessToken = expiredToken('a');
+
+  await queueDeviceDeletion(previousAccessToken);
+  expect(del.mock.calls[0][1]?.headers).toMatchObject({
+    Authorization: `Bearer ${previousAccessToken}`,
+    'X-Device-Token': 'fcm-legacy',
+  });
+  expect(del.mock.calls[0][1]?.headers).not.toHaveProperty('X-Device-Ownership');
+  expect(JSON.stringify(del.mock.calls[0][1]?.headers)).not.toContain('owner-b');
+  // 새 계정의 소유권 기록은 그대로다 — 이 정리는 b 의 등록을 건드리지 않는다.
+  expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.deviceOwnership))!)).toMatchObject({
+    userId: 'b',
+    ownershipToken: 'owner-b',
+  });
+});
+
+test('같은 계정의 새 세션 소유권을 legacy 폴백으로 대체하지 않는다', async () => {
+  let asked = 0;
+  setInstalledDeviceTokenResolver(async () => {
+    asked += 1;
+    return 'fcm-legacy';
+  });
+  // 같은 계정이 다른 세션에서 새로 등록해 둔 상태 — 폴백이 끼어들면 이 «현재» 등록을 놓친다.
+  await session('a', 'new-session');
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.deviceOwnership,
+    JSON.stringify({
+      deviceToken: 'fcm-a',
+      ownershipToken: 'owner-new',
+      userId: 'a',
+      sessionId: 'new-session',
+    }),
+  );
+  const del = jest.spyOn(axios, 'delete').mockResolvedValue({ data: {} });
+
+  await queueDeviceDeletion(token('a'));
+  expect(del.mock.calls[0][1]?.headers).toMatchObject({
+    'X-Device-Token': 'fcm-a',
+    'X-Device-Ownership': 'owner-new',
+  });
+  expect(asked).toBe(0);
+  expect((await queue()).length).toBe(0);
+});
+
+test('다른 계정의 미전송 등록은 이 계정의 삭제 대상이 아니다', async () => {
+  await upgradedWithoutFirstRegistration('fcm-legacy');
+  // 큐에 남은 등록은 «b» 의 의도다. userId 필터가 없으면 이것이 a 의 삭제 대상이 된다.
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.notificationCommands,
+    JSON.stringify([legacyRegister('b', 'b-register', 'fcm-b')]),
+  );
+  const del = jest.spyOn(axios, 'delete').mockResolvedValue({ data: {} });
+
+  await queueDeviceDeletion(expiredToken('a'));
+  expect(del.mock.calls[0][1]?.headers).toMatchObject({ 'X-Device-Token': 'fcm-legacy' });
+  expect(JSON.stringify(del.mock.calls[0][1]?.headers)).not.toContain('fcm-b');
+  // b 의 등록 의도는 그대로 남는다.
+  expect((await queue()).map((item: { id: string }) => item.id)).toEqual(['b-register']);
+});
+
+test('getToken 마저 실패해도 RT 로그아웃은 그대로 보내고 삭제만 넓히지 않는다', async () => {
+  await upgradedWithoutFirstRegistration(null);
+  setInstalledDeviceTokenResolver(async () => {
+    throw new Error('permission denied');
+  });
+  const del = jest.spyOn(axios, 'delete').mockResolvedValue({ data: {} });
+  const post = jest.spyOn(axios, 'post').mockResolvedValue({ data: {} });
+
+  await queueDeviceDeletion(expiredToken('a'));
+  expect(del).not.toHaveBeenCalled();
+
+  await queueSessionLogout('a-refresh', expiredToken('a'));
+  // 세션 폐기는 대상 토큰과 무관하게 끝까지 간다. 서버는 deviceToken 이 없으면 기기 삭제만
+  // 건너뛴다(AuthService) — 여기서 유저 단위 삭제로 승격하지 않는 것이 이 시험의 요지다.
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(post.mock.calls[0][1]).toEqual({
+    refreshToken: 'a-refresh',
+    deviceToken: null,
+    ownershipToken: null,
+  });
   expect(await queue()).toEqual([]);
 });
 

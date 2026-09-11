@@ -56,9 +56,15 @@ import java.util.UUID;
  * {@code false} 인지는 그 화면의 정책이지 영속성 관심사가 아니다. 통일하기로 하면 그때 고칠 자리는
  * 한 곳이다.
  *
- * <p><b>집중 시간·알림 설정에는 락 판을 만들지 않았다.</b> 두 리포지토리에 락 메서드 자체가
- * 없고 그걸 요구하는 호출부도 없다 — 감춘 게 아니라 그 조합이 존재하지 않는다. 스크린타임만
- * 락 3종이 다 쓰이는데, 권한 회수(배타)와 내기 참가 가드(공유)가 같은 행에서 경합하기 때문이다.
+ * <p><b>집중 시간 설정에는 락 판을 만들지 않았다.</b> 리포지토리에 락 메서드 자체가 없고 그걸
+ * 요구하는 호출부도 없다 — 감춘 게 아니라 그 조합이 존재하지 않는다. 스크린타임은 락 3종이 다
+ * 쓰이는데, 권한 회수(배타)와 내기 참가 가드(공유)가 같은 행에서 경합하기 때문이다.
+ *
+ * <p><b>알림 설정에는 배타 락만 있다</b>(GROMO-1659). 그 행에 쓰기 주체가 둘이 됐다 — 공개 설정
+ * 저장과 위성 내구 명령이다. 둘 다 «읽은 상태»를 근거로 전체 교체를 하고 한쪽은 그 판정으로 순서용
+ * version 까지 발급하므로, 판독을 직렬화하지 않으면 행과 봉투가 갈라진다
+ * ({@link UserNotificationSettingsRepository#findByIdForUpdate} 의 상세 논증 참조). 발송 경로의 대량
+ * 조회는 그대로 락 없이 읽는다 — 거기서 잠그면 설정 하나가 묶음 발송 전체를 막는다.
  *
  * <h2>왜 예외가 두 갈래인가</h2>
  * {@code getTarget*} 은 <b>요청이 지목한</b> 유저 부재라 {@link UserErrorCode#TARGET_USER_NOT_FOUND},
@@ -379,6 +385,30 @@ public class UserQueryService {
      */
     public UserNotificationSettings getNotificationSettings(UUID userId) {
         return userNotificationSettingsRepository.findById(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+    }
+
+    /**
+     * 알림 설정 — <b>배타 락</b>. 이 트랜잭션이 설정을 고칠 때 쓴다 (GROMO-1659).
+     *
+     * <p>잠금을 <b>상태 판독 앞에</b> 둔다. 뒤에 두면(예: 락 없이 읽고 version 발급에서만 직렬화)
+     * 이미 낡은 값을 읽은 뒤라 순서가 고쳐지지 않고, Hibernate 가 「변경 없음」으로 UPDATE 를 생략해
+     * 행은 먼저 커밋된 값 · 봉투는 더 높은 version 의 다른 값으로 갈라진다.
+     *
+     * <p><b>파기(soft delete) 필터는 붙이지 않는다 — 락만 다른 {@link #getNotificationSettings} 의
+     * 짝이기 때문이다.</b> 이름·예외·부재 취급이 그 메서드와 같고 «잠금 강도»만 다르다
+     * ({@code findScreenTimeSettingsForShare} ↔ {@code getScreenTimeSettingsForUpdate} 와 같은 짝 구조).
+     * 이 클래스가 소프트딜리트를 접는 것은 {@code users} 축({@code getCaller*}·{@code getTarget*})이고,
+     * 부속 설정 행의 {@code deletedAt} 은 지금 호출부마다 취급이 갈려 있어 어느 쪽으로도 접지 않는다 —
+     * 여기서 한쪽으로 접으면 다른 호출부의 계약이 조용히 바뀐다. 파기를 오류로 보는 호출부는
+     * 받은 행에서 직접 판정한다.
+     *
+     * @param userId 설정 주인
+     * @return 잠긴 설정
+     * @throws UserException 없으면 {@link UserErrorCode#USER_NOT_FOUND}
+     */
+    public UserNotificationSettings getNotificationSettingsForUpdate(UUID userId) {
+        return userNotificationSettingsRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
     }
 
