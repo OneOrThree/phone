@@ -805,7 +805,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/DurableCommandAckResponse"
+                  "$ref": "#/components/schemas/ClaimIntentAckResponse"
                 }
               }
             }
@@ -7098,6 +7098,25 @@
         "required": [
           "slug"
         ]
+      },
+      "ClaimIntentAckResponse": {
+        "type": "object",
+        "properties": {
+          "commandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "completed": {
+            "type": "boolean"
+          }
+        }
       },
       "ClaimIntentLeaseRequest": {
         "type": "object",
