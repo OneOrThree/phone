@@ -21,6 +21,8 @@
 | FR-P13 | 집중 중 채팅 차단은 유지하고 CONNECT 전체를 집중 상태로 막지 않음 | 사용자 D04·1754/1755 |
 | FR-P14 | HTTP data 봉투, error4필드+requestId, 409의 current는 인가된 공개 DTO만 | 공통 PR738 |
 | FR-P15 | 이벤트 schemaVersion=1 포함 7필드. sessionVersion·주민 projection version·receipt contractVersion 구분 | D23·PR737/739 |
+| FR-P16 | 신규 상세 세션의 legacy live 랭킹·표시도 ACTIVE 구간 합을 사용. pause 고정·resume 추가분·finish 중복 없는 조회 회귀 전 신규 활성화 금지 | 기존 now-start 쿼리의 휴식 가산 결함 방지, LLD §5.1 |
+| FR-P17 | 신규 API 비활성 상태로 상세를 인식하는 legacy writer/reader를 먼저 전량 배포하고, 실제 rollback 최소 호환 baseline 이동·구 이미지 실행 차단 후 신규 활성화 | 기존 이미지 존재 확인만 하는 rollback과 마커 자동 종료의 결함 방지, LLD §5.2 |
 
 본 문서의 원자성은 Data 내부 상태에 대한 약속이다. DB commit과 Redis/TCP 전달을 하나의 트랜잭션이라고
 표현하지 않는다. 후자는 outbox/relay, 현재 인가, 스냅샷 복구로 처리한다.

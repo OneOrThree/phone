@@ -196,6 +196,57 @@ v0.3 상세는 기존 orphan 스윕의12h AUTO_CLOSED 대상에서 제외한다.
 출시 성공이 아니다. 계정 탈퇴는 상세 subject·구간·정산 개인정보 파기를 기존 세션 익명화와 같은 TX에 포함하고
 receipt 재생으로 제거한 개인정보를 되살리지 않는다.
 
+### 5.1 기존 live reader도 출시 전환 대상이다
+
+main의 `LeagueRankingQueryRepository.LIVE_SESSIONS`(`:91~99`)는 상세 lifecycle을 읽지 않고
+`ended_at IS NULL`인 마커를 고른다. `LIVE_SECONDS`(`:124~128`)는 세션 최초 시작부터 현재까지를 더한다.
+v0.3 paused 상세도 기본 마커는 ACTIVE/endedAt=null이므로, 현재 쿼리를 유지하면 휴식 시간이 랭킹에
+포함된다. `FocusLiveInfoLookup`과 이를 사용하는 legacy live DTO/화면 표시도 같은 전환 조사 대상이다.
+
+신규 상세가 **없는** legacy 세션은 기존 읽기 계약을 유지한다. 상세가 **있는** 세션은 요청의 같은 `now`와
+KST 주간 범위에 걸친 ACTIVE interval의 합을 읽는다. 이미 닫힌 ACTIVE 구간의 합에, lifecycle이 active인
+경우에만 현재 열린 ACTIVE 구간의 현재까지 몫을 더한다. paused에서는 값이 고정되고 REST 구간은 항상 0이다.
+paused 행을 통째로 빼서 이전 집중분을 0으로 만들거나, resume 시 최초 startedAt부터 다시 세지 않는다.
+완료된 상세는 같은 snapshot에서 진행분 대상에서 빠지고 확정 일 집계에 한 번만 들어간다.
+
+랭킹 정렬과 응답/앱의 live 표시도 함께 맞춘다. 기존 응답의 `totalFocusSeconds`는 확정값이고 앱은
+`focusStartedAt` 이후 경과를 더한다는 전제(`LeagueRankingQueryRepository.java:67~79`)가 있으므로,
+서버 정렬만 고치거나 최초 시작 앵커를 그대로 반환하면 화면은 여전히 휴식을 더한다. 상세 lifecycle·
+누적 ACTIVE 초·현재 ACTIVE 앵커를 이해하는 reader/응답 어댑터와 배포된 클라이언트의 호환 동작을
+확정·검증하기 전 신규 세션을 열지 않는다. 기존 필드의 의미를 설명 없이 바꾸거나 진행분을 양쪽에 더하지 않는다.
+주간 정산과 알림용 keyset 페이지는 기존 확정값 정렬 계약을 유지하며 live 보정을 무조건 확대하지 않는다.
+
+출시 회귀는 `start → ACTIVE 누적 → pause → 시간 경과 → resume → finish` 전체에서 순위 비교와 화면
+표시를 같은 관측 시각으로 대조한다. pause 동안 불변, resume 뒤 추가 ACTIVE만 증가, finish 전후 동일한
+순수 누적량, 자정/주 경계 clipping, legacy 혼합 사용자, 전이 동시 조회의 완료+진행 이중 계상 0을 단정한다.
+이 검증은 finish 정산 테스트만으로 대신할 수 없다.
+
+### 5.2 호환 baseline을 먼저 배포하고 신규 API를 나중에 연다
+
+현재 `.github/workflows/prod-rollback.yml`의 `image_sha` 입력은 commit/tag를 받고, `:50~60`의 검사는
+ECR 이미지 존재 여부뿐이다. `:62~69`는 해당 이미지를 SSM 배포에 넘긴다. focus 상세 호환 여부를 검사하는
+현재 guard는 없다. DB를 되돌리지 않아도 옛 `FocusService.startFocusSession`의
+`autoCloseOpenMarkersOf` 호출(`:918`)과 `FocusSessionRepository.java:387~394`의 bulk update,
+`FocusService.sweepOrphanSessions`(`:1105~1113`)가 새 상세를 모른 채 기본 마커를 마감할 수 있다.
+따라서 “스키마 expand라 구 이미지로 언제든 롤백 가능”은 이 설계에서 성립하지 않는다.
+
+| 단계 | 반드시 완료할 작업 | 활성화/롤백 조건 |
+| --- | --- | --- |
+| 1. 호환본 선행 배포 | 새 API·새 상세 생성은 비활성. 스키마 expand 후 모든 legacy start/save/end/cancel·orphan·presence writer와 §5.1 reader가 상세를 인식하는 호환 이미지를 전량 배포 | 구/신 인스턴스 혼재가 끝날 때까지 새 세션 생성 금지. 기존 legacy 요청 회귀 유지 |
+| 1. 롤백 baseline 이동 | 호환 이미지의 정확한 digest/프로토콜 지원을 릴리스 증거에 기록하고 rollback workflow·실제 SSM 배포 등 이미지 교체 진입점에서 그보다 비호환인 이미지의 실행을 거절하도록 구현 | 이미지 존재 확인만으로 통과 금지. 임의 구 SHA/tag를 지정해도 배포 호출 전에 거절되는 실제 검증 필요 |
+| 2. 새 API 활성화 | reader/writer 회귀, 정책 FR-D01~06의 해당 결정, 최소 호환 baseline의 전량 적용 및 구 이미지 차단 검증을 모두 확인 | 그 다음에만 신규 start/pause/resume/finish와 해당 구독 기능을 단계적으로 개방 |
+| 활성화 후 장애 | 새 세션 생성의 활성화 flag를 닫고 상세를 이해하는 호환 이미지로만 rollback/roll-forward | 이미 존재하는 active/paused 상세·구간·정산을 보존하고 승인된 재개/종료 경로 유지. 비호환 구 이미지로 복귀 금지 |
+
+최소 호환 baseline은 단순 tag 문자열의 사전순 비교가 아니라 검증된 이미지/프로토콜 호환 증거로 판단한다.
+DB에 신규 상세 행이 남아 있는 동안 flag를 껐다는 이유로 baseline 제한을 해제하지 않는다. 배포·롤백
+guard 구현과 실제 거절/복구 검증은 후속 구현의 release gate이며, 이 문서 PR이 workflow를 수정하거나
+운영 배포를 실행한 것은 아니다. 안전한 baseline이 없으면 신규 API를 계속 비활성으로 둔다.
+
+검증 환경에서 active와 paused 상세를 각각 만든 뒤 비호환 구 이미지 롤백을 요청해 **실행 전에 차단**되는지,
+호환 baseline으로 롤백한 뒤 legacy start/orphan/presence 작업이 해당 기본 마커·상세·구간을 훼손하지 않는지
+확인한다. 신규 생성 gate와 기존 상세 복구 경로를 구분해, 생성을 닫아도 기존 상세의 재개/종료·완료 receipt 재생이
+보존되는지 함께 확인한다.
+
 ## 6. 이벤트·스냅샷·presence
 
 공통 봉투는 `{schemaVersion,eventId,type,islandId,aggregateVersion,occurredAt,payload}` **7필드**,
@@ -281,6 +332,9 @@ CONNECT 자체에 적용하지 않는다. JWT 만료는 기존 PR739의 명시 �
 | active→pause→active의 지연 presence 갱신·Redis 재시작 | 같은 sessionId의 오래된 상태가 채팅 가드 덮음 |
 | emote paused/타인session/다른섬/만료/속도제한·소속철회 | 부적격 송수신·무한 재생 |
 | 기존 오프라인 업로드·orphan·일 목표/내기/코인 회귀 | 기존 계약 파손·신규 fish와 이중 지급 |
+| pause/resume/finish 전후 legacy live 랭킹 정렬·앱 표시·KST 주 경계·동시 조회 | 휴식 시간 가산·pause 시 누적 소실·완료와 진행분 이중 계상 |
+| 신규 비활성 호환본 전량 배포 → rollback baseline 제한 → 신규 활성화 | 혼재/구 이미지의 마커 자동 종료·orphan 처리로 신규 상세 파손 |
+| active/paused 상세를 가진 상태의 구 이미지 롤백 거절·호환 이미지 롤백 | flag 해제로 호환 제한 우회·재개/종료 및 receipt 복구 불가 |
 
 운영 로그는 서버 requestId, commandId, sessionId, eventId, policyRevision, 이전/다음 상태·version,
 active 구간 수, 계산 초, 충돌/재생/정산 결과 코드, TX 시간·lock 대기·outbox 지연을 기록한다.

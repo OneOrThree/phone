@@ -16,6 +16,9 @@ flowchart LR
 
 **상태: 구현용 설계 초안. 보상·기여 배분·휴식 채팅 등 제품 결정 대기.** 보상 정책까지 확정됐다는
 Jira 완료 주장이나 9개 API 구현 완료 주장이 아니다. 소스 수정·배포·빌드는 포함하지 않는다.
+출시에는 기존 live 랭킹/표시의 ACTIVE 구간 인식과 **신규 비활성 호환본 선행 배포 → rollback 최소 호환
+baseline 제한·구 이미지 차단 검증 → 신규 활성화**가 필수다. [LLD §5](low-level-design.md#5-legacy-공존과-전환-gate)에
+실제 기존 쿼리·마커 writer·rollback workflow 근거와 전환 순서를 명시한다.
 문서 경로는 배치 조정자가 지정한 `docs/prd/focus-rest-session/`다. 티켓 본문의 초기 제안 경로
 `docs/prd/focus-session/`과 다르며 동일 GROMO-1763 산출물을 가리킨다.
 
