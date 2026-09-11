@@ -6,6 +6,7 @@ import com.oneorthree.business.common.exception.UpstreamCredentialRejectedExcept
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.exception.UpstreamTimeoutException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.core.ParameterizedTypeReference;
@@ -180,6 +181,39 @@ class HttpExecutionIntegrationTest {
                         assertThat(e.getRetryAfterMs()).isEqualTo(2000L);
                     });
             assertThat(server.count("/rate")).isEqualTo(1);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"503,SERVICE_UNAVAILABLE,false,3600,false", "504,UPSTREAM_TIMEOUT,false,3600,false",
+            "503,SERVICE_UNAVAILABLE,true,3600,false", "504,UPSTREAM_TIMEOUT,true,3600,false",
+            "503,SERVICE_UNAVAILABLE,true,2,true", "504,UPSTREAM_TIMEOUT,true,2,true"})
+    @Timeout(2)
+    void excessiveRetryAfterTerminatesWithoutWaitingOrAnotherAttempt(int status, String code, boolean strict,
+            int retrySeconds, boolean bounded) throws Exception {
+        String path = "/long-cooldown/" + status + "/" + code + "/" + retrySeconds;
+        try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 3, 2)) {
+            UpstreamRequestContext request = new UpstreamRequestContext(UUID.randomUUID().toString(), USER,
+                    bounded ? Deadline.startingNow(Duration.ofSeconds(10)) : Deadline.unbounded());
+            UpstreamRequestContext context = strict ? request.forReads() : request;
+            long started = System.nanoTime();
+            assertThatThrownBy(() -> client.exchange(call(path), context, TYPE))
+                    .isInstanceOf(strict && status == 504 ? UpstreamTimeoutException.class
+                            : com.oneorthree.business.common.exception.UpstreamUnavailableException.class);
+            assertThat(elapsed(started)).isLessThan(1500);
+            assertThat(server.count(path)).isEqualTo(1);
+            // 대기 중인 worker/연결이 남지 않아 같은 작은 클라이언트로 바로 다음 호출이 가능하다.
+            assertThat(client.exchange(call("/ok"), context(500), TYPE).value()).isEqualTo("ok");
+            assertThat(server.count(path)).isEqualTo(1);
+        }
+    }
+
+    @Test
+    @Timeout(2)
+    void zeroRetryAfterStillRetriesAndSucceeds() throws Exception {
+        try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 3, 2)) {
+            assertThat(client.exchange(call("/retry-zero"), Deadline.unbounded(), TYPE).value()).isEqualTo("ok");
+            assertThat(server.count("/retry-zero")).isEqualTo(2);
         }
     }
 
@@ -513,14 +547,15 @@ class HttpExecutionIntegrationTest {
                     }
                     return;
                 }
-                if (path.startsWith("/structured/")) {
+                if (path.startsWith("/structured/") || path.startsWith("/long-cooldown/")) {
                     if (waitForBlocked) {
                         blocked.await(1, TimeUnit.SECONDS);
                     }
                     String[] parts = path.split("/");
                     String json = "{\"code\":\"" + parts[3] + "\",\"message\":\"synthetic\"}";
+                    String retry = path.startsWith("/long-cooldown/") ? "Retry-After: " + parts[4] + "\r\n" : "";
                     write(socket, "HTTP/1.1 " + parts[2] + " Test\r\nContent-Type: application/json\r\n"
-                            + "Connection: close\r\nContent-Length: "
+                            + retry + "Connection: close\r\nContent-Length: "
                             + json.getBytes(StandardCharsets.UTF_8).length + "\r\n\r\n" + json);
                     return;
                 }
@@ -533,6 +568,7 @@ class HttpExecutionIntegrationTest {
                     case "/rate" -> 429;
                     case "/unavailable", "/cooldown" -> 503;
                     case "/retry" -> count(path) < 3 ? 503 : 200;
+                    case "/retry-zero" -> count(path) < 2 ? 503 : 200;
                     default -> 200;
                 };
                 String json = switch (path) {
@@ -545,7 +581,11 @@ class HttpExecutionIntegrationTest {
                     case "/rate" -> "{\"code\":\"RATE_LIMITED\",\"message\":\"later\"}";
                     default -> "{\"value\":\"ok\"}";
                 };
-                String retry = path.equals("/cooldown") || path.equals("/rate") ? "Retry-After: 2\r\n" : "";
+                String retry = switch (path) {
+                    case "/cooldown", "/rate" -> "Retry-After: 2\r\n";
+                    case "/retry-zero" -> "Retry-After: 0\r\n";
+                    default -> "";
+                };
                 write(socket, "HTTP/1.1 " + status + " Test\r\nContent-Type: application/json\r\nConnection: close\r\n"
                         + retry + "Content-Length: " + json.getBytes(StandardCharsets.UTF_8).length + "\r\n\r\n" + json);
             } catch (IOException e) {
