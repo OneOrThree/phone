@@ -1,6 +1,7 @@
 package com.oneorthree.business.common.http;
 
 import com.oneorthree.business.common.exception.UpstreamTimeoutException;
+import com.oneorthree.business.config.RequestEnvelopeFilter;
 import org.springframework.http.HttpMethod;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -22,13 +23,14 @@ public final class UpstreamRequestContext {
     private final Deadline deadline;
     private final Cancellation cancellation;
     private final boolean readOnly;
+    private final boolean strictErrorContract;
 
     public UpstreamRequestContext(String requestId, UUID subject, Deadline deadline) {
-        this(requestId, subject, deadline, new Cancellation(), false);
+        this(requestId, subject, deadline, new Cancellation(), false, false);
     }
 
     private UpstreamRequestContext(String requestId, UUID subject, Deadline deadline,
-            Cancellation cancellation, boolean readOnly) {
+            Cancellation cancellation, boolean readOnly, boolean strictErrorContract) {
         if (requestId == null || !requestId.matches("[A-Za-z0-9_-]{1,128}")) {
             throw new IllegalArgumentException("서버 requestId 형식이 올바르지 않습니다.");
         }
@@ -37,6 +39,7 @@ public final class UpstreamRequestContext {
         this.deadline = Objects.requireNonNull(deadline, "deadline");
         this.cancellation = cancellation;
         this.readOnly = readOnly;
+        this.strictErrorContract = strictErrorContract;
     }
 
     /** 기존 동기 facade 호환. 앱 헤더는 읽지 않고 필터가 만든 서버 속성만 읽는다. */
@@ -49,9 +52,12 @@ public final class UpstreamRequestContext {
             return bound;
         }
         RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
-        Object id = attributes == null ? null : attributes.getAttribute("requestId", RequestAttributes.SCOPE_REQUEST);
+        Object id = attributes == null ? null
+                : attributes.getAttribute(RequestEnvelopeFilter.REQUEST_ID, RequestAttributes.SCOPE_REQUEST);
+        boolean strict = attributes != null && Boolean.TRUE.equals(attributes.getAttribute(
+                RequestEnvelopeFilter.STRICT_ERROR_CONTRACT, RequestAttributes.SCOPE_REQUEST));
         return new UpstreamRequestContext(id instanceof String value ? value : UUID.randomUUID().toString(),
-                subject, deadline);
+                subject, deadline, new Cancellation(), false, strict);
     }
 
     public String requestId() {
@@ -67,7 +73,11 @@ public final class UpstreamRequestContext {
     }
 
     UpstreamRequestContext forReads() {
-        return new UpstreamRequestContext(requestId, subject, deadline, cancellation, true);
+        return new UpstreamRequestContext(requestId, subject, deadline, cancellation, true, true);
+    }
+
+    boolean strictErrorContract() {
+        return strictErrorContract;
     }
 
     /** 기존 facade에도 명시 context를 연결하되 풀 스레드에 요청 주체가 남지 않게 복원한다. */
