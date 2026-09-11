@@ -8,6 +8,8 @@ GROMO-1782 · [정책](policy.md) · [HLD](high-level-design.md)
 제거했다. ProductId/ThemeId/BuildingId는 승인된 catalog 문자열, UUID는 실제 user/island 식별자다. 버전은 Data의 단조 정수이며,
 공개 범위는 0~9007199254740991이다. 이벤트 version은 변경 후 1 이상이다. 개인과 공동 ownership/appearance를 구분한다.
 
+409의 선택 top-level `current`는 [공통1750 LLD §1](https://github.com/OneOrThree/phone/blob/doc/prd-api-platform/docs/prd/api-platform/low-level-design.md)의 `{version,resource}` 계약을 사용한다. 공동 외양 충돌에서는 version이 해당 appearance.version이고 resource가 인가된 최신 전체 외양 DTO다. error/data 안에 넣지 않으며 공개 자격이 없으면 current를 생략한다. 새 외양 전용 오류 봉투를 만들지 않는다.
+
 ### 1.1 inventory — GET `/me/inventory`
 
 현재 섬 선택 없이 본인 인증으로 조회한다. Data의 한 읽기 snapshot에서 소유 목록과 착용 상태를 함께 반환한다.
@@ -36,6 +38,20 @@ Headers: JWT, application/json, Idempotency-Key 필수. 최소한 하나의 외�
 |hull|현재 값 유지|422|raft 또는본인 소유+kind=hull+승인된 재착용/호환 규칙|
 |position|현재 값 유지|422|front/back만 허용|
 
+#### PATCH 존재 여부와 멱등 지문
+
+개인·공동 PATCH 모두 필드마다 `Absent`, `ExplicitNull`, `Value<T>`의 세 상태를 보존한다. 일반 nullable 필드 하나로 이 세 상태를 표현하지 않는다. Business는 원 JSON 객체의 `has(field)`와 `isNull()`을 구분해 읽고, 허용 필드·타입을 검사한 뒤 다음 내부 전달 계약으로 변환한다.
+
+```json
+{"fields":["clothes","decor"],"values":{"clothes":"scarf","decor":null}}
+```
+
+- fields는 **실제로 제출한** 최상위 외양 필드의 중복 없는 목록이며 values의 key 집합과 정확히 같아야 한다. 위 요청은 clothes 변경과 decor 해제이며 hull/position은 유지다. fields에 없는 값을 values에 넣거나 fields에 있으나 값을 누락한 내부 요청은400 INVALID_REQUEST다.
+- Business→Data 재직렬화에서 명시 null을 제외하지 않는다. Data도 fields/values를 검사해 동일한 tri-state로 복원한다. JSON 필드 순서는 의미가 없지만 제출 여부는 의미다. 공동 expectedVersion은 별도 필수 명령 값으로 함께 전달하며 외양 field mask에 넣지 않는다.
+- buildingThemes가 제출되면 내부 객체에 실제 존재하는 BuildingId key만 부분 패치한다. 없는 key를 null/default로 채우지 않고 null 맵·null value는 앞서 정한422 규약으로 거절한다. 명시한 `default` 문자열만 해제다.
+- fingerprint는 내부 carrier 구조 자체가 아니라 mask와 values에서 복원한 **검증된 공개 의미 객체**로 계산한다. Absent는 key를 생략하고 ExplicitNull은 key:null로 포함한다. `{"clothes":"scarf"}`와 `{"clothes":"scarf","decor":null}`은 다른 지문이므로 같은 키로 보내면409다. 객체 key 정렬·숫자 정규화·배열 순서 보존은 공통 규칙을 사용한다. 현재 외양을 먼저 병합한 전체 상태로 지문을 만들지 않는다.
+- 신규 실행에서만 잠금 후 현재 상태에 제출 필드를 병합한다. 재생은 원 mask/values/expectedVersion의 의미 지문을 대조하고 현재 version 검사보다 먼저 원 결과를 복구한다. 이 carrier는 외부 PATCH body를 변경하지 않는 내부 기술 계약이다.
+
 200 응답은 반영 후 전체 상태다. 사용자 생성 버전이나 개인 expectedVersion을 받지 않는다. 원본에 없는 필드를 자동으로 필수화하지 않는다.
 
 ```json
@@ -48,7 +64,7 @@ Headers: JWT, application/json, Idempotency-Key 필수. 최소한 하나의 외�
 
 같은 key/본문은 원 응답 전체와 version을 재생하고, 다른 본문은 409 IDEMPOTENCY_KEY_REUSED로 거절한다. 서버 직렬화 뒤 동일 효과인 새 요청은
 200 현재 상태와 receipt만 확정하고 추가 사건을 만들지 않는다. 미보유는 403 FORBIDDEN, 잘못된 종류/배치는 422 OUT_OF_RANGE,
-미등록 상품은 404 NOT_FOUND, 미확정 활성화는 503 SERVICE_UNAVAILABLE를 사용한다. 내부 예외를 원문 문구로 전달하지 않는다.
+미등록 상품은 404 PRODUCT_NOT_FOUND, 미확정 활성화는 503 SERVICE_UNAVAILABLE를 사용한다. 내부 예외를 원문 문구로 전달하지 않는다.
 
 ### 1.3 shared-inventory — GET `/islands/{islandId}/inventory`
 
@@ -83,7 +99,7 @@ null 맵/null value는 422이며 전체 삭제로 해석하지 않는다. 빈 �
 
 200 응답은 전체 상태다. expectedVersion은 이 appearance.version이며 walletVersion/island 정보 version이 아니다.
 신규 실행은 Data에서 current-island context와 활성 membership/SHARED_APPEARANCE 권한/시설/보유를 검증한다.
-버전 충돌은 409 VERSION_CONFLICT(field=expectedVersion, current=인가된 최신 전체 외양)이며, 사용자가 최신 상태를 보고 새 키로 재확정한다.
+버전 충돌은 409 VERSION_CONFLICT(field=expectedVersion, current={version:최신 appearance.version,resource:인가된 최신 전체 외양})이며, 사용자가 최신 상태를 보고 새 키로 재확정한다.
 같은 key의 확정 성공은 현재 version 검사 전에 원 결과를 재생한다. 현재 응답 공개 인가 실패를 receipt로 우회하지 않는다.
 
 ## 2. 논리 모델과 원자 변경
@@ -104,12 +120,12 @@ null 맵/null value는 422이며 전체 삭제로 해석하지 않는다. 빈 �
 
 1. 인증·형식검증 → receipt동일의도결과복구. 새실행일때만아래변경검증.
 2. 활성user및해당context/멤버십/역할/시설을같은TX의공통생명주기잠금으로검증.
-3. catalog/소유목록/appearance를공통잠금순서로읽고,직접받은패치필드와현재상태를병합.
+3. catalog 활성 publication/상품 revision → inventory → appearance 순서로 잠금을 획득하고, 존재 mask로 복원한 제출 필드만 현재 상태에 병합.
 4. 병합된전체상태의owner/kind/선행/호환을검증.한필드라도실패하면전체rollback.
 5. 변경있으면appearanceversion증가+정본저장+전체상태outbox생성.변경없으면사건생략.
 6. 같은TXreceipt저장후COMMIT.추가WebSocket전달실패는outbox재전달,rollback된사건발행금지.
 
-공통잠금순서는계정/섬생명주기→catalog→inventory→appearance를제안한다.상점·탈퇴·강퇴·방장이양·시설변경과
+공통 잠금 순서는 계정/섬 생명주기 → catalog 활성 publication/상품 revision → wallet → inventory → appearance다. 외양은 wallet을 사용하지 않으므로 해당 축만 건너뛰어 catalog → inventory → appearance 순서를 유지한다. 상점·탈퇴·강퇴·방장이양·시설변경과
 같은primitive를사용하도록구현전합의한다.권한확인후역할이변경된stale허가가commit되는틈을남기지않는다.
 실제Migration번호/물리schema는구현담당과조정자소유이며이문서에서번호를배정하지않는다.
 
@@ -138,6 +154,9 @@ GET inventory 또는해당화면snapshot을읽고버전기준을다시설치한�
 |타인옷·다른섬테마·음원을옷slot에적용|403/422,appearance/receipt/outbox 변경없음|
 |다른건물전용테마를hall에적용|422,부분맵도저장되지않음|
 |clothes만PATCH,decor=null,hull=null,position허용범위|생략보존/해제/null거절/허용값정확분기|
+|Business 파싱→내부 mask/values JSON→Data 파싱 왕복|Absent/ExplicitNull/Value 보존, 임의 null 채우기/삭제 없음|
+|같은 key의 decor 생략 vs decor:null·공동 건물 맵 부분 입력|서로 다른 지문409, 미제출 외양/건물 보존|
+|구매·개인/공동 외양·소유 회수 writer 경합|공통 잠금 순서 준수, inventory/appearance 역순 대기 없음|
 |서로다른필드동시PATCH|행잠금뒤병합,상대필드유실없음|
 |동일필드동시PATCH|서버직렬화최종상태·단조version,두receipt는각원결과|
 |공동외양동시expectedVersion동일|한변경성공·다른409,최신current재조회|

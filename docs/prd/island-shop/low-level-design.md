@@ -5,7 +5,8 @@ GROMO-1780 · 상태: 구조/와이어 설계, 제품 정책 미결 · [정책](
 ## 1. 공통 와이어와 context
 
 신규 API 성공은 `{data:...}`. 오류는 `{error:{code,message,field,retryable},requestId}`이고 현재 서버 생성
-requestId를 헤더와 본문에 쓴다. UUID는 데이터 ID, ProductId는 카탈로그 문자열, 시각은 UTC instant다.
+requestId를 헤더와 본문에 쓴다. **409에만** 선택 top-level `current:{version,resource}`를 추가할 수 있다. 이는 [공통1750 LLD §1](https://github.com/OneOrThree/phone/blob/doc/prd-api-platform/docs/prd/api-platform/low-level-design.md)의 기존 계약이다. version은 충돌한 자원 축, resource는 현재 인가된 공개 DTO이며 공개할 수 없으면 current 전체를 생략한다. error 내부나 data 내부에 current를 넣지 않는다.
+UUID는 데이터 ID, ProductId는 카탈로그 문자열, 시각은 UTC instant다.
 정수 balance/price/version은0~9007199254740991 범위이며 server/DB 연산도 overflow를 검사한다.
 보상/가격은 정수이고 요청 소수/음수는422 OUT_OF_RANGE, 구조·필수필드 오류는400 INVALID_REQUEST다.
 
@@ -45,8 +46,9 @@ Query: `category=personal|island|sound` 필수, `cursor` 선택, `limit` 선택(
 price는 승인된 활성 revision의 정수이며 미승인 catalog preview를 허용한다면 null+available=false를 명시하는 별도
 도메인 상태로 다룬다. 운영 초기값을 목업으로 채우지 않는다. catalog를 공개할지 자체도 경제 활성화 설정을 따른다.
 카테고리가 같아도 권한·시설·소유·선행선체 조건은 상품별로 계산한다. `available`은 조회 시점 안내이며 구매 허가증이 아니다.
-정렬 `(displayOrder ASC, productId ASC)`와 catalog 활성 revision을 cursor에 고정한다. 해당 revision이 더는 제공되지
-않으면409 CURSOR_EXPIRED이며 첫 페이지부터 다시 읽는다. 사용자·현재섬·category·limit을 cursor scope에 포함한다.
+정렬 `(displayOrder ASC, productId ASC)`와 **컬렉션 단위 catalogPublicationVersion**을 cursor에 고정한다. 첫 페이지는 활성 publication을 한 번 읽고 이후 페이지는 동일 publication의 불변 entry를 조회한다. entry에 고정된 productRevision/category/displayOrder로 집합과 순서를 복원하며, 이후 활성화된 상품 revision을 페이지 중간에 끼워 넣지 않는다. 사용자·현재 섬·category·limit·마지막 정렬키도 cursor에 포함한다.
+
+publication은 목록 정의의 snapshot이며 사용자 owned/available·현재 멤버십/시설의 고정 snapshot은 아니다. 이 동적 값은 매 요청 현재 권한 아래 계산하며 구매도 현재 상품 정의를 다시 확인한다. 단순 catalog 교체로 기존 cursor의 집합을 바꾸지 않는다. publication이 보존 만료·명시 폐기로 제공되지 않으면409 CURSOR_EXPIRED, 처음부터 다시 읽는다. 즉시 상품 비공개가 필요하면 영향을 받는 publication을 폐기해 옛 페이지 재생을 막으며 레코드를 일부 수정해 snapshot을 변조하지 않는다.
 
 ### 2.3 product — GET `/islands/{islandId}/shop/products/{productId}`
 
@@ -56,7 +58,7 @@ price는 승인된 활성 revision의 정수이며 미승인 catalog preview를 
 
 previewUrl/blockedReason/requiredBuilding은 nullable. 다른 시설용 building_theme은 대상 buildingId를 추가 반환한다.
 previewUrl은 서버 등록 media 자산만 반환하고 사용자 URL을 받아 서버가 대신 가져오는 기능을 만들지 않는다.
-미리듣기는 기기 로컬이며 shared playback을 변경하지 않는다. 비활성/삭제 상품은404 NOT_FOUND 또는 이미 소유한
+미리듣기는 기기 로컬이며 shared playback을 변경하지 않는다. 비활성/삭제 상품은404 PRODUCT_NOT_FOUND 또는 이미 소유한
 상품의 별도 표시 가능 여부를 catalog 생명주기 정책과 함께 정한다. 과거 주문 snapshot을 이404로 삭제하지 않는다.
 
 ### 2.4 buy — POST `/islands/{islandId}/shop/orders`
@@ -70,7 +72,7 @@ Headers: 유효 JWT, application/json, 필수 UUID `Idempotency-Key`.
 `expectedProductVersion`은 **1780 상세 설계에서 추가 채택한 명시적 확장**이다(2026-09-12 조정자 동의).
 원본의 두필드 body만으로는 wallet 변동없이 가격이 오를 때 동의를 확인할 수 없다. 상품 조회가 반환한
 productVersion을 비교하고 stale이면409 VERSION_CONFLICT, field=expectedProductVersion으로 최신 공개 상품을
-current에 제공한다. 앱은 새 가격/조건을 사용자에게 다시 보여준 뒤 새 키로 요청한다. 서버가 가격을 임의로 받는
+공통 top-level `current:{version:<최신 productVersion>,resource:<인가된 상품 상세 DTO>}`에 제공한다. 앱은 새 가격/조건을 사용자에게 다시 보여준 뒤 새 키로 요청한다. 서버가 가격을 임의로 받는
 방식이나 오래된 가격에 무조건 판매하는 방식이 아니다. 원본9개 버전제출표에 없던 **상점 한정 추가**다.
 
 expectedWalletVersion은 상품 currency가 fish면 fishVersion, village_points면 villagePointsVersion이다.
@@ -87,7 +89,7 @@ ownerType/ownerId/currency/price/quantity를 요청에서 받지 않는다. 미�
 경로 islandId가 다르면 공통 규약상 별도 operation scope이므로 같은 key라도 다른 명령으로 처리한다. 앱은 새 의도마다 새 키를 생성한다.
 새 key인데 해당 owner가 이미 소유했으면409 STATE_CONFLICT이며 차감0이다.
 
-실패:401 UNAUTHORIZED,403 FORBIDDEN/FACILITY_LOCKED,404 NOT_FOUND,409 VERSION_CONFLICT/STATE_CONFLICT/
+실패:401 UNAUTHORIZED,403 FORBIDDEN/FACILITY_LOCKED,404 PRODUCT_NOT_FOUND,409 VERSION_CONFLICT/STATE_CONFLICT/
 INSUFFICIENT_FUNDS/IDEMPOTENCY_KEY_REUSED/REQUEST_IN_PROGRESS,422 OUT_OF_RANGE,503/504 공통 일시 실패.
 예상 못한 내부 code/status는 공통 UPSTREAM_CONTRACT_ERROR로 처리하고 임의 문자열을 외부에 노출하지 않는다.
 
@@ -108,7 +110,10 @@ Query: `scope=personal|shared` 필수, cursor 선택, limit 기본30/최대100.
 
 |aggregate/논리행|필수 내용·제약|
 |---|---|
-|catalog product revision|productId+revision 유일, kind/ownerType/currency/price/requiredBuilding/requiredProduct/targetBuilding/mediaKey/displayOrder, 활성 revision 참조|
+|catalog product revision|productId+revision 유일, kind/ownerType/currency/price/requiredBuilding/requiredProduct/targetBuilding/mediaKey. 발행 후 불변|
+|catalog publication|catalogPublicationVersion 유일, publishedAt/retiredAt/invalidatedAt. 컬렉션 전체의 불변 발행본|
+|catalog publication entry|publicationVersion+productId 유일, productRevision FK, category/displayOrder. 해당 발행본의 상품 집합/정렬을 복원|
+|catalog active pointer|현재 publicationVersion 한 개를 참조. 상품별 현재 정의도 이 publication의 entry로 결정하며 별도 가변 상품 포인터와 이중 정본을 두지 않음|
 |economy wallet|ownerType+ownerId+currency 유일, balance>=0, version. user/fish 또는 island/village_points 조합만 허용|
 |economy ledger|entryId, wallet FK, signedDelta, balanceAfter, 원인 order/settlement, 원인별 유일성, immutable|
 |owned product|ownerType+ownerId+productId 유일, grantedOrderId/명시 지급 근거, grantedAt. user/island 실제FK무결성 확보|
@@ -120,6 +125,10 @@ Query: `scope=personal|shared` 필수, cursor 선택, limit 기본30/최대100.
 User/Group 소프트삭제와 실제FK를 만족하려면 polymorphic ownerId 하나의 선언만으로 FK 검증을 끝냈다고
 주장하지 않는다. 개인/섬 소유 테이블 분리 또는 nullable userId/groupId + 정확히하나 CHECK와FK 중 구현 담당이
 정본 schema에 맞춰 확정한다. Flyway 번호와 schema.dbml 변경은 조정자 소유다.
+
+catalog publication 발행은 모든 product revision/entry를 준비한 뒤 Data 한 TX에서 활성 포인터를 교체한다. 상품 하나의 가격 변경도 새 product revision과 그 revision을 가리키는 새 publication으로 공개한다. 다른 상품만 바뀌면 해당 상품의 productVersion은 유지하며 collection version만 오른다. 주문의 expectedProductVersion은 product revision과 비교하고 collection version을 요구하지 않는다.
+
+퇴역한 publication/entry와 참조 product revision은 공통 cursor 최대 유효기간(초기15분) 동안 제공한다. 정확한 보존 하한은 retiredAt + 최대 cursor 수명이며 continuation이 최초 cursor 만료시각을 연장하지 않는다. 즉시 폐기한 publication은 명시409로 끝낸다. 주문/소유가 참조하는 상품 revision은 cursor 만료만으로 삭제하지 않는다. 물리 보존/파기 작업은 별도 정책을 따르며 이 문서가 자동 GC를 활성화하지 않는다.
 
 소유권 revocation/환불은 현재9계약에 없다. 이후 추가하더라도 소유 삭제 후 같은 주문키를 새구매로 재사용하거나
 지갑 version을 되감지 않는다. 탈퇴는 기존 환불→증거보존→익명화→지갑/설정삭제→PII 순서에 새 자산을 합류시킨다.
@@ -134,12 +143,12 @@ User/Group 소프트삭제와 실제FK를 만족하려면 polymorphic ownerId �
 6. 잔액이 모자라면409 INSUFFICIENT_FUNDS, 어떤 row도 확정하지 않는다. 차감/ledger/order/owned/inventory version/receipt/outbox를 함께 기록한다.
 7. DB commit 후만 응답/relay전달. 외부전달 실패로 committed order를 취소하지 않고 outbox 재전달한다. DB rollback이면 원장/보유/receipt/outbox모두없다.
 
-공통 잠금 계열은 **활성 user → current-context/group/membership/시설 → product revision → wallet → inventory**다.
+공통 잠금 계열은 **활성 user → current-context/group/membership/시설 → catalog 활성 publication/상품 revision → wallet → inventory → appearance**다. 주문은 appearance를 변경하지 않으므로 마지막 축을 건너뛰며 외양은 wallet만 건너뛴다.
 이것은 구현자가 타 도메인과 별도로 확정할 락순서가 아니다. 계정탈퇴·섬전환·집중보상·건설·공동테마가 실제로
 사용하는 순서와 대조하고 공통순서에 합류한 뒤 코드화한다. 여러 user/group/wallet을 잡는 명령은 각 종류에서
 정렬된 ID 순서로 잡는다. shared구매의 승인근거 역할을 읽은 뒤 host-transfer가 commit하는 틈도 같은 잠금으로 닫는다.
 
-상품 revision행만 immutable이어도 활성 포인터가 바뀌면 oldrevision주문이 끼어들 수 있다. 새 구매는 활성 포인터를
+상품 revision행만 immutable이어도 catalog 활성 publication 포인터가 바뀌면 oldrevision주문이 끼어들 수 있다. 새 구매는 활성 publication 포인터를
 읽고 commit까지 직렬화하거나 비교조건으로 새revision활성화와 순서를 보장한다. 카탈로그 publish도 이 규율을 따른다.
 Data 두 endpoint로 debit→grant를 나누거나 Business 보상요청으로 rollback을 흉내 내지 않는다.
 
@@ -172,6 +181,8 @@ wallet aggregateVersion은 해당 지갑 version, inventory는 해당 owner 목�
 |wallet성공후owned/receipt/outbox 실패주입|전체rollback; DB유일성예외catch후같은깨진TX재사용금지|
 |개인 이벤트/내역을 타인·다른섬이 요청|개인정보비노출, 401/403이null이나성공으로숨겨지지않음|
 |catalog/order cursor변조·다른scope·만료·동률|공통400/409, 중복페이징루프없음|
+|catalog 페이지 사이 상품 추가/삭제/가격/displayOrder 개정|원 publication entry로 중복/누락 없이 탐색; 현재 구매는 새 productVersion 검사|
+|publication 퇴역/폐기·cursor 수명 경계|보존 기간 조회 또는 명시 CURSOR_EXPIRED, 최신 publication으로 조용히 갈아타지 않음|
 |Data timeout·outbox지연|같은키로원결과복구, DBcommit재실행없음|
 
 이 표는 실행 예정 검증이며 현재 통과 결과가 아니다. 이번 작업은 문서9계약/링크/도식 정합 검토만 수행한다.

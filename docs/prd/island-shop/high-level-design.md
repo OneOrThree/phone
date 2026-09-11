@@ -25,6 +25,12 @@ Business는 DB나 별도 지갑 캐시 정본을 만들지 않는다. 조회의 
 않는다. 주문이 양쪽 지갑을 동시에 차감하는 동작은 이 스펙에 없다. 건설/퀘스트/집중 정산은 같은
 지갑·원장 서비스와 잠금 순서를 공유한다.
 
+## 공인 라우팅 연결의 선행 조건
+
+[기존 Target-1 nginx 노출면](../../architecture/system-architecture.md#21-공인-노출면-nginx)은 기존 `/api/v1/**`·`/bff/**`를 기술한다. 이 문서의 무접두어 경로는 이후 사용자 결정이며 기존 접두어로 되돌리지 않는다. 공통 라우팅1751과 배포 연결 작업에서 `/me/**`·`/islands/**` 중 승인된 공개 계약을 Business upstream에 전달하는 ingress 규칙을 추가해야 한다. Business의 정확한 공개 경로/method 및 JWT 검증을 유지하고 외부 `/internal/**` 차단이나 기존 별칭을 완화하지 않는다.
+
+이 설계 PR은 nginx나 운영 배포를 완료하지 않는다. 상점1781·외양1783의 공개 활성화 전에 ingress를 통한 9개 method/path 도달, 인증 없음401, 허용하지 않은 경로 거절, 기존 API 호환을 검증해야 한다. 로컬 Controller 테스트 성공만으로 공인 도달성 검증을 대체하지 않는다.
+
 ## 주문과 응답 유실
 
 ```mermaid
@@ -34,14 +40,15 @@ sequenceDiagram
   participant D as Data
   participant P as PostgreSQL
   participant R as Relay/Realtime
-  A->>B: POST order / K / productId / expectedWalletVersion
-  B->>D: 검증한 userId·동일 K·동일 의도
+  A->>B: POST order / K / productId / expectedWalletVersion / expectedProductVersion
+  B->>D: 검증 userId·동일 K·productId·expectedWalletVersion·expectedProductVersion
   D->>P: BEGIN / 현재 자격 및 receipt scope 잠금
   alt 같은 명령의 확정 receipt 존재
     P-->>D: 원201·orderId·금액·walletVersion
   else 새 실행
-    D->>P: context·멤버십·권한·시설·상품revision 검증
-    D->>P: 지갑 잠금·버전/잔액·소유 유일성 확인
+    D->>P: 생명주기 잠금·context/멤버십/권한/시설 확인
+    D->>P: catalog 활성 publication 잠금·현재 productVersion 확인
+    D->>P: wallet → inventory 잠금·지갑버전/잔액·소유 유일성 확인
     D->>P: 차감·원장·소유·order·receipt·outbox 저장
     D->>P: COMMIT
   end
@@ -58,7 +65,7 @@ receipt 재생은 인증을 생략하지 않는다. 개인 결과는 본인, 공
 
 ## 락과 이벤트
 
-Data의 공통 사용자/섬 생명주기 잠금 순서를 따른다. 상세 순서는 LLD의 제안이며 focus/건설·계정탈퇴
+Data의 공통 잠금 순서는 생명주기 → catalog 활성 publication/상품 revision → wallet → inventory → appearance이며 사용하지 않는 축만 건너뛴다. 상세 순서는 LLD에 있고 focus/건설·계정탈퇴
 담당과 함께 확정한다. 사용자·멤버십 자격을 잠그지 않고 먼저 wallet을 잠그면 탈퇴 정리 이후 유령 소유가
 생길 수 있다. 어떤 예외든 주문과 원장·소유·receipt·outbox가 같이 rollback되어야 한다.
 

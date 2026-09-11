@@ -27,12 +27,12 @@ sequenceDiagram
   participant D as Data
   participant P as PostgreSQL
   A->>B: PATCH me/appearance / K / 바꿀 필드
-  B->>D: 검증 subject·동일 key·본문
+  B->>D: 검증 subject·동일 key·존재 mask와 patch values
   D->>P: BEGIN / 활성 user·receipt 확인
   alt 확정 결과 재시도
     P-->>D: 원200·원외양version
   else 새 변경
-    D->>P: 외양잠금·소유목록잠금·catalog 검증
+    D->>P: 생명주기 → catalog → inventory → appearance 잠금
     D->>P: 필드병합·전체호환검증·version 증가
     D->>P: 현재 표시 가능한 섬별 outbox·receipt 저장
     D->>P: COMMIT
@@ -40,6 +40,8 @@ sequenceDiagram
   D-->>B: 전체 외양과 version
   B-->>A: 200 data
 ```
+
+필드의 미전달/명시 null/값은 [LLD의 tri-state 전달 규약](low-level-design.md#patch-존재-여부와-멱등-지문)을 따라 Business 역직렬화부터 Data 병합까지 보존한다. 일반 nullable DTO나 null 필드 생략 serializer로 정보를 지우지 않는다. 외양은 wallet을 변경하지 않으므로 공통 생명주기 → catalog → wallet → inventory → appearance 순서 중 wallet만 건너뛴다.
 
 개인외양은 user 하나의 정본이므로 섬이 달라도 같은 version을 사용한다. 여러 섬으로 전달해야 할 때는
 섬별 envelope/eventId를 따로 내구화하고 같은 전체 외양/version을 넣는다. 어디에 보이는지의 membership은
@@ -53,6 +55,8 @@ islandId의 소유목록/시설/appearance/역할 검증을 한 TX에 묶는다.
 
 구매→테마적용→음원재생을 한 요청으로 묶지 않는다. 한 단계 실패가 이미 완료된 구매를 암묵 취소하지 않는다.
 공동적용권한은1761 권한행렬과 같은 정책provider에서 얻으며 미정이면 전달/변경 기능을 켜지 않는다.
+
+공인 무접두어 `/me/**`·`/islands/**`의 전달은 [공통 라우팅·배포 선행 조건](../island-shop/high-level-design.md#공인-라우팅-연결의-선행-조건)에 따른다. nginx 연결과 JWT 경계 검증 전 외양 endpoint를 공개 사용 가능으로 표시하지 않는다.
 
 ## 기존 코드와 후속 의존
 

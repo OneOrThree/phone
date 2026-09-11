@@ -14,7 +14,7 @@ GROMO-1782 · [PRD](prd.md) · [LLD](low-level-design.md)
 |건물 테마|경로 island|같음|buildingThemes의 BuildingId→ThemeId, default해제|
 |공용 음원|경로 island|공용 playback의 별도변경|이 네 계약은 조회만, 재생을 수행하지 않음|
 
-PATCH에서 미전달 키는 유지한다. 개인 null해제와 공동문자열 default해제는 원본의 구별을 유지한다.
+PATCH에서 미전달 키는 유지한다. 개인 null해제와 공동문자열 default해제는 원본의 구별을 유지한다. [LLD의 tri-state 전달 계약](low-level-design.md#patch-존재-여부와-멱등-지문)에 따라 Business/Data 사이에도 존재 mask와 values를 보존하며 fingerprint에서 생략과 명시 null을 합치지 않는다.
 공동 buildingThemes는 전달한 건물만 바꾸며 생략한 건물을 default로 덮어쓰지 않는다.
 
 ## 선체 계보 — 구매와 착용을 구분
@@ -57,4 +57,4 @@ TBD로 두었으며 양쪽이 서로 다른 기본값을 내리지 않는다.
 version/event를 발행하지 않는 기술안을 채택한다. 소유목록과 외양의 version은 분리한다.
 
 기본표현 default/raft는 판매상품ID와 충돌하지 않는 예약키로 취급한다. 소유가 없는 유료상품을 default라는 이유로
-허용하지 않는다. 미등록 catalog키는404, 등록됐지만 종류/대상시설이 다르면422, 보유권한이없으면403이다.
+허용하지 않는다. 미등록 catalog 상품 키는404 PRODUCT_NOT_FOUND, 등록됐지만 종류/대상시설이 다르면422, 보유권한이없으면403이다.
