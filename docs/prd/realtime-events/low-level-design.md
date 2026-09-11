@@ -142,7 +142,7 @@ record UserAudience(Set<UUID> userIds) implements RealtimeAudience {}
 
 `JsonNode`는 `tools.jackson.databind.JsonNode`다. payload 수신 후 type에 맞는 validator를 거쳐야 하며 임의 JsonNode를 그대로 방송하지 않는다. UserAudience는 비어 있지 않은 불변 Set을 복사해 보유한다. 섬 이벤트는 IslandAudience와 같은 islandId여야 하고 개인/신청 이벤트는 UserAudience만 허용한다. enum은 §2의 대문자 상수와 dotted wire 값을 명시적으로 매핑한다.
 
-라우터 흐름: 봉투/payload 검증 → type+ownerType으로 허용 audience 검증 → 현재 수신 정책 확인 → 고정 목적지 계산 → 유효 로컬 세션 전달/내부 fanout. `event.payload.destination`이나 호출자가 넘긴 임의 경로를 사용하지 않는다. domain producer/내부 authenticated consumer만 호출하며 payload에 적힌 신청 방장 ID를 검증 없이 신뢰하지 않는다.
+라우터 흐름: 봉투/payload 검증 → type+ownerType으로 허용 audience 검증 → 현재 수신 정책 확인 → 고정 목적지 계산 → 유효 로컬 세션 전달/내부 fanout. `event.payload.destination`이나 호출자가 넘긴 임의 경로를 사용하지 않는다. domain producer/내부 authenticated consumer만 호출하며 payload에 적힌 신청 방장 ID를 검증 없이 신뢰하지 않는다. 후속 가입 요청 전달 기능을 활성화할 때는 `EventRouter`가 신뢰된 membership resolver를 호출해 요청자와 현재 방장으로 `UserAudience`를 새로 구성한다. producer/relay가 전달한 과거 audience는 이 결과로 대체하며, resolver가 현재 권한을 확인하지 못하면 전달하지 않는다. 이 재구성은 전달 직전 세션별 인가 검사와 별개이며, 1755의 비활성 골격에 이미 구현됐다는 뜻은 아니다.
 
 1755 구현은 EventRouter **구체 클래스**의 위 route 메서드와 구조/매핑/공통 유효성 검사를 제공한다. 별도 router interface 추상화를 필수로 요구하지 않는다. 1755의 검증 범위는 공통 봉투 필수값, 타입, version 안전 정수/nullable 규칙, payload.version이 있을 때 aggregateVersion과 일치, wallet/inventory ownerType·ownerId·currency 및 audience 일치다. **14종 전체 세부 payload의 필드/상태/시설/소유 검증은 각 producer와 후속 adapter 활성화 작업의 책임**이다. 공통 검증만 통과한 payload가 완전한 도메인 검증을 통과했다고 주장하지 않는다.
 
