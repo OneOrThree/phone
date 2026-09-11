@@ -8276,6 +8276,9 @@
             "type": "integer",
             "format": "int64"
           },
+          "displayName": {
+            "type": "string"
+          },
           "locale": {
             "type": "string"
           },
