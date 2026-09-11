@@ -104,6 +104,24 @@ class FocusPresenceReconcilerTest {
     }
 
     @Test
+    @DisplayName("한 유저에게 열린 마커가 여럿이면 «최신 것만» 복원한다 — 오래된 것이 키를 차지하면 안 된다")
+    void restoresOnlyTheNewestMarkerPerUser() {
+        UUID userId = UUID.randomUUID();
+        FocusSession older = markerStartedAt(userId, NOW.minusSeconds(3600));
+        FocusSession newer = markerStartedAt(userId, NOW.minusSeconds(60));
+        // 조회에는 정렬이 없다 — 오래된 것이 먼저 올 수 있다.
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any()))
+                .willReturn(List.of(older, newer));
+
+        reconciler(INLINE).onApplicationReady();
+
+        // 오래된 마커가 리스를 차지하면, 그 마커가 끝날 때 리스가 지워지는데 최신 마커는 아직 살아 있다
+        // — 그 사람은 집중 중인데 다음 회차까지 채팅이 열린다.
+        verify(focusPresencePort).restoreLeaseIfMissing(userId, newer.getId(), newer.getStartedAt());
+        verify(focusPresencePort, never()).restoreLeaseIfMissing(any(), eq(older.getId()), any());
+    }
+
+    @Test
     @DisplayName("이미 고아 판정 시각을 넘긴 세션은 모수에서 빠진다 — 되살리면 TTL 이 지금부터 다시 13시간이다")
     void queriesOnlyWithinTheOrphanWindow() {
         given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
@@ -347,6 +365,14 @@ class FocusPresenceReconcilerTest {
                 .extracting(Scheduled::cron).asString().isNotBlank();
         assertThat(entry.getAnnotation(SchedulerLock.class)).isNotNull()
                 .extracting(SchedulerLock::name).isEqualTo("focus-presence-reconcile");
+    }
+
+    private FocusSession markerStartedAt(UUID userId, java.time.Instant startedAt) {
+        return FocusSession.builder()
+                .id(UUID.randomUUID())
+                .user(User.builder().id(userId).build())
+                .startedAt(startedAt)
+                .build();
     }
 
     private FocusSession openMarker(UUID userId) {

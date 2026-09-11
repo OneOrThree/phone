@@ -21,7 +21,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -228,10 +230,7 @@ public class FocusPresenceReconciler {
 
         // 트랜잭션이 «닫힌 뒤» 쓴다 — 안에서 쓰면 커밋 콜백으로 밀려 한 시점에 전부 몰린다.
         List<UUID> restored = new ArrayList<>();
-        for (FocusSession session : alive) {
-            if (session.getUser() == null) {
-                continue;
-            }
+        for (FocusSession session : newestPerUser(alive)) {
             if (!focusPresencePort.restoreLeaseIfMissing(session.getUser().getId(), session.getId(),
                     session.getStartedAt())) {
                 // 저장소가 흔들린다. 남은 건을 이어 가면 «각각» 타임아웃을 기다려, 부가 기능의 장애가
@@ -336,6 +335,39 @@ public class FocusPresenceReconciler {
             }
             pendingRecheck.add(id);
         }
+    }
+
+    /**
+     * 유저당 <b>가장 최근에 시작한</b> 마커 하나만 남긴다.
+     *
+     * <p><b>유저당 열린 마커가 하나라는 보장이 없다.</b> 마이그레이션 이전 스냅샷과 ci 스키마에는
+     * 여럿이 남아 있을 수 있다({@code V47__focus_sessions_single_live_marker.sql} 주석). 그대로
+     * 전부 놓으면 리스 키를 <b>먼저 도착한 행</b>이 차지한다 — 조회에 정렬이 없으니 그게 «오래된»
+     * 마커일 수 있고, 쓰기는 「비어 있을 때만」이라 뒤에 오는 최신 마커는 아무것도 못 한다.
+     *
+     * <p>그러면 그 오래된 마커가 종료될 때 리스가 지워지는데 <b>최신 마커는 아직 살아 있다</b> —
+     * 그 사람은 집중 중인데 다음 회차(5분)까지 채팅이 열린다.
+     *
+     * <p>기준을 {@code startedAt} 내림차순으로 잡은 것은 <b>{@code FocusService} 가 「라이브 마커」로
+     * 보는 기준과 같게</b> 하기 위해서다({@code findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc}).
+     * 그래야 그 마커의 종료가 «자기가 놓은» 리스를 알아본다. 동률이면 더 큰 id(= 나중에 발급)를 쓴다.
+     */
+    private static List<FocusSession> newestPerUser(List<FocusSession> markers) {
+        Map<UUID, FocusSession> newest = new LinkedHashMap<>();
+        for (FocusSession marker : markers) {
+            if (marker.getUser() == null) {
+                // 누구의 리스인지 알 수 없다 — 놓을 수도, 지울 수도 없다.
+                continue;
+            }
+            newest.merge(marker.getUser().getId(), marker,
+                    (kept, candidate) -> isNewer(candidate, kept) ? candidate : kept);
+        }
+        return List.copyOf(newest.values());
+    }
+
+    private static boolean isNewer(FocusSession candidate, FocusSession kept) {
+        int byStart = candidate.getStartedAt().compareTo(kept.getStartedAt());
+        return byStart != 0 ? byStart > 0 : candidate.getId().compareTo(kept.getId()) > 0;
     }
 
     private List<FocusSession> readAliveMarkers() {

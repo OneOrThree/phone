@@ -74,7 +74,15 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      * <p>UUID 를 {@code [0-9a-fA-F-]{36}} 로 느슨하게 잡고 실제 파싱은 {@code UUID.fromString} 에
      * 맡긴다. 정규식으로 UUID 를 엄밀히 표현하려 들면 길고 틀리기 쉽다.
      */
-    private static final Pattern GROUP_TOPIC = Pattern.compile("^/topic/groups/([0-9a-fA-F-]{36})$");
+    /**
+     * 그 섬의 브로드캐스트 토픽. <b>소문자 UUID 만</b> 받는다.
+     *
+     * <p>대문자를 허용하면 {@code UUID.fromString} 은 통과시키지만 <b>구독은 원문 그대로</b> 브로커에
+     * 등록되는 반면 발행은 {@code ChatFanout.topicOf} 가 {@code UUID.toString()}(소문자)로 한다 —
+     * 그래서 {@code /topic/groups/ABC…} 로 구독한 클라이언트는 <b>인가에 성공하고도 아무것도 못
+     * 받는다.</b> 거절되면 클라이언트가 즉시 알지만, 통과시키면 «조용히» 안 된다.
+     */
+    private static final Pattern GROUP_TOPIC = Pattern.compile("^/topic/groups/([0-9a-f-]{36})$");
 
     /**
      * 발신 실패 통지를 받는 개인 큐. <b>정확히 이 문자열만</b> 허용한다 —
@@ -93,7 +101,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      * <b>같은 모양이어야 한다</b> — 매핑을 늘리면 여기도 늘려야 하고, 그게 강제되는 것이 이 방식의 값어치다.
      */
     private static final Pattern SEND_DESTINATION =
-            Pattern.compile("^/app/groups/([0-9a-fA-F-]{36})/send$");
+            Pattern.compile("^/app/groups/([0-9a-f-]{36})/send$");
 
     private final JwtValidator jwtValidator;
     private final ChatAccessGuard accessGuard;

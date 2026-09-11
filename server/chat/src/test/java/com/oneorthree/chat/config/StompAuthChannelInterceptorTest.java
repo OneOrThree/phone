@@ -20,6 +20,7 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.MessageBuilder;
 
 import java.util.Optional;
+import java.util.Locale;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -149,6 +150,29 @@ class StompAuthChannelInterceptorTest {
 
         assertThatCode(() -> interceptor.preSend(message(accessor), null)).doesNotThrowAnyException();
         verifyNoInteractions(accessGuard);
+    }
+
+    @Test
+    @DisplayName("SUBSCRIBE — 대문자 UUID 목적지는 «거절»한다. 통과시키면 조용히 아무것도 못 받는다")
+    void uppercaseUuidDestinationIsRejected() {
+        StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE);
+        // UUID.fromString 은 통과시키지만, 발행은 언제나 소문자(UUID.toString)로 간다.
+        // 여기서 허용하면 구독은 되고 메시지는 영영 안 온다 — 클라이언트가 원인을 알 길이 없다.
+        accessor.setDestination("/topic/groups/" + groupId.toString().toUpperCase(Locale.ROOT));
+
+        assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
+                .isInstanceOf(DomainException.class);
+    }
+
+    @Test
+    @DisplayName("SEND — 대문자 UUID 목적지도 같은 이유로 거절한다")
+    void uppercaseUuidSendDestinationIsRejected() {
+        StompHeaderAccessor accessor = accessor(StompCommand.SEND);
+        accessor.setUser(new ChatPrincipal(userId, BEARER));
+        accessor.setDestination("/app/groups/" + groupId.toString().toUpperCase(Locale.ROOT) + "/send");
+
+        assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
+                .isInstanceOf(DomainException.class);
     }
 
     @Test
