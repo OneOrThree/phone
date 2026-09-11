@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: business-api
+  data:
+    redis:
+      host: ${BUSINESS_REDIS_HOST:localhost}
+      port: ${BUSINESS_REDIS_PORT:6379}
+      username: ${BUSINESS_REDIS_USERNAME:}
+      password: ${BUSINESS_REDIS_PASSWORD:}
+      connect-timeout: 2s
+      timeout: 2s
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+
+server:
+  port: 8082
+  tomcat:
+    connection-timeout: 10s
+    max-swallow-size: 0
+
+jwt:
+  secret: ${JWT_SECRET}
+
+business:
+  drive-api-key: ${GOOGLE_DRIVE_API_KEY:}
+
+management:
+  server:
+    port: 9091
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,redis
+
+logging:
+  level:
+    com.oneorthree.business: INFO
+    org.apache.hc.client5.http: WARN
+  file:
+    name: ${BUSINESS_LOG_PATH:logs/business-api.log}
+  logback:
+    rollingpolicy:
+      max-file-size: 20MB
+      max-history: 7
+      total-size-cap: 200MB
