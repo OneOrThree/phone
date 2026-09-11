@@ -12,7 +12,9 @@ package com.oneorthree.business.upstream.notification.dto;
  * @param deviceToken     FCM registration token — 행의 키다(토큰은 기기 단위 유일)
  * @param ownershipToken  앱이 보관 중인 CAS 값. <b>없을 수 있다</b> — 롤아웃 ②기간과 부트스트랩 예외(㊦)
  * @param deviceBootstrap 그 로그인 세션의 1회용 자격. 토큰 없는 «소유권 이전» 요청에 필요하다(㋚ ⓑ)
- * @param sessionEpoch    Data 의 동기 확인이 준 fencing 값. 알림 서버가 자기 tombstone 과 원자 대조한다(㋨)
+ * @param sessionEpoch    Data 의 동기 확인이 준 fencing 값. 알림 서버가 자기 tombstone 과 원자 대조한다(㋨).
+ *                        RT 회전만으로도 커지므로 알림 서버의 멱등 비교 기준에선 <b>빠져 있다</b> —
+ *                        같은 의도의 재시도가 키 충돌로 막히지 않게. 대신 재생 때도 이 값으로 다시 검증한다
  * @param authGeneration  AT 의 {@code gen} claim. <b>없으면 null</b> — 현재 세대로 채우면 tombstone 우회(㊍)
  */
 public record DeviceRegistration(

@@ -26,6 +26,11 @@ server:
   # ⚠️ 8082 로 두지 않는다 — 위성 배포에서 그 포트는 알림 서버 몫이다.
   port: ${SERVER_PORT:8080}
   tomcat:
+    # cgroup pids_limit 128에는 JVM 스레드·PDF 자식 프로세스도 포함된다.
+    # 서비스/관리 커넥터가 각각 32개를 써도 런타임·Redis·변환 작업 여유를 남긴다.
+    threads:
+      max: 32
+      min-spare: 4
     # 구 앱 match 예산이 5초다. 그 안에서 상류 재시도까지 끝나야 하므로 요청 처리 자체가 늦게 시작되면
     # 예산이 먼저 마른다 — 커넥션 대기 시간을 짧게 잡아 「대기하다 죽는」 대신 빨리 실패하게 한다.
     connection-timeout: 3s

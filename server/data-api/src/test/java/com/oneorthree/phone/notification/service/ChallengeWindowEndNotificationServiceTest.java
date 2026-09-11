@@ -17,6 +17,8 @@ import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationOutboxProducer;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
@@ -45,6 +47,8 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -80,6 +84,10 @@ class ChallengeWindowEndNotificationServiceTest {
      * 의존성은 null 로 둔다.
      */
     private ChallengeWindowEndNotificationService service() {
+        return service(legacyDispatcher(pushNotificationService));
+    }
+
+    private ChallengeWindowEndNotificationService service(NotificationDispatcher dispatcher) {
         return new ChallengeWindowEndNotificationService(
                 groupChallengeRepository,
                 groupChallengeWindowRepository,
@@ -89,7 +97,7 @@ class ChallengeWindowEndNotificationServiceTest {
                         userQueryService,
                         notificationSentLogRepository,
                         pushNotificationService,
-                        legacyDispatcher(pushNotificationService)));
+                        dispatcher));
     }
 
     /**
@@ -185,6 +193,41 @@ class ChallengeWindowEndNotificationServiceTest {
         // 창 해석은 저장 Instant 의 KST 벽시계 시각을 KST 날짜에 얹는다(GROMO-1100) —
         // 즉 "09:00 창" 은 KST 09:00 이다(WindowFocusAggregator 주석의 단일 기준).
         return LocalTime.of(kstHour, kstMinute);
+    }
+
+    @Test
+    @DisplayName("OUTBOX 종료 사건마다 원본 배치 구성원과 생성순 대표를 보존한다")
+    void outboxCarriesCompleteBatchMembershipAndStableRepresentative() {
+        GroupChallenge first = challenge();
+        GroupChallenge later = GroupChallenge.builder().id(UUID.randomUUID()).group(group())
+                .category(MissionCategory.FOCUS).type(MissionType.TIME_WINDOW)
+                .status(GroupChallengeStatus.ACTIVE).createdAt(Instant.EPOCH.plusSeconds(1)).build();
+        givenChallenges(List.of(later, first),
+                List.of(window(later, kstTimeOf(9, 0), kstTimeOf(12, 0)),
+                        window(first, kstTimeOf(9, 0), kstTimeOf(12, 0))));
+        User member = user(UUID.randomUUID());
+        givenMembers(first, member);
+        givenNoSentLogs();
+        givenNoSettings();
+        NotificationDispatchProperties properties = new NotificationDispatchProperties();
+        properties.setMode(NotificationDispatchProperties.Mode.OUTBOX);
+        NotificationOutboxProducer producer = mock(NotificationOutboxProducer.class);
+
+        service(new NotificationDispatcher(properties, producer, pushNotificationService))
+                .sendWindowEndNotifications(kst(2026, 8, 2, 12, 5));
+
+        ArgumentCaptor<NotificationRequest> requests = ArgumentCaptor.forClass(NotificationRequest.class);
+        verify(producer, times(2)).append(requests.capture());
+        List<NotificationRequest> sent = requests.getAllValues();
+        assertThat(sent).extracting(NotificationRequest::subjectId).containsExactly(first.getId(), later.getId());
+        for (NotificationRequest request : sent) {
+            assertThat(request.userId()).isEqualTo(member.getId());
+            assertThat(request.groupId()).isEqualTo(GROUP_ID);
+            assertThat(request.slotAt()).isEqualTo(kst(2026, 8, 2, 0, 0));
+            assertThat(request.params()).containsEntry("bundleRepresentative", first.getId().toString())
+                    .containsEntry("bundleMembers", List.of(first.getId().toString(), later.getId().toString()));
+        }
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
     }
 
     @Test

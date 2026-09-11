@@ -179,7 +179,7 @@ class ChallengeEndPushDispatcher {
                         boolean queuedAny = false;
                         for (GroupChallenge challenge : pending) {
                             queuedAny |= notificationDispatcher.dispatch(user, settings,
-                                    request(kind, user, challenge, now), message, now)
+                                    request(kind, user, challenge, pending, now), message, now)
                                     == NotificationDispatchOutcome.QUEUED;
                         }
                         // 전부 중복이면 「이미 적혀 있다」 — 구 경로의 dedup 과 같은 뜻이다.
@@ -189,7 +189,7 @@ class ChallengeEndPushDispatcher {
                             deduped++;
                         }
                     } else if (notificationDispatcher.dispatch(user, settings,
-                            request(kind, user, pending.get(0), now), message, now).recordsLegacyLog()) {
+                            request(kind, user, pending.get(0), pending, now), message, now).recordsLegacyLog()) {
                         sent++;
                         pending.forEach(challenge -> {
                             alreadySent.add(new SentKey(user.getId(), challenge.getId()));
@@ -262,18 +262,34 @@ class ChallengeEndPushDispatcher {
      * <p>슬롯을 KST 하루의 시작으로 박는다. 구 경로의 dedup 이 「당일 {@code sent_at}」이었으므로
      * 묶음도 같은 폭이라야 창형(15분 크론)의 여러 틱이 하루 안에서 한 건으로 접힌다.
      *
+     * <p><b>배치 메타 둘을 같이 싣는다.</b> 구 경로의 보장은 「한 배치당 (유저 × 그룹) 한 건」이고,
+     * 신 경로는 그 한 건을 사건 {@code batch.size()} 개로 쪼개 보낸다. 알림 서버가 이것을 다시
+     * 한 건으로 접으려면 <b>수신 순서에 기댈 수 없는 두 가지</b>를 알아야 한다 — relay 재전달이나
+     * 처리 경합에서 순서는 생성 순서와 갈라지고, 첫 사건만 도착한 사이에 발송이 끼면 같은 배치가
+     * 두 번 나간다:
+     * <ul>
+     *   <li>{@code bundleMembers} — 이 배치가 이 (유저 × 그룹)에 적는 <b>대상 id 전부</b>. 알림 서버는
+     *       이 집합이 다 도착했을 때만 묶음을 낸다. 개수가 아니라 집합인 것은 (유저 × 그룹 × 그날)
+     *       축에 하루 동안 여러 배치가 겹쳐 들어오기 때문이다.</li>
+     *   <li>{@code bundleRepresentative} — 딥링크에 실을 대표 챌린지(= 가장 먼저 만들어진 것).
+     *       {@code batch} 가 생성순이므로 첫 원소다.</li>
+     * </ul>
+     *
      * @param kind      알림 종류
      * @param user      수신자
      * @param challenge 대상 챌린지
+     * @param batch     이 수신자에게 이번 배치로 나갈 챌린지 전부 — <b>생성순</b>이어야 한다
      * @param now       판정 시각
      * @return 요청
      */
     private static NotificationRequest request(NotificationKind kind, User user, GroupChallenge challenge,
-                                               Instant now) {
+                                               List<GroupChallenge> batch, Instant now) {
         Instant daySlot = now.atZone(KST).toLocalDate().atStartOfDay(KST).toInstant();
         return new NotificationRequest(kind, user.getId(), challenge.getId(),
                 challenge.getGroup().getId(), daySlot, now, user.getLanguage(),
-                Map.of("challengeId", challenge.getId().toString()));
+                Map.of("challengeId", challenge.getId().toString(),
+                        "bundleRepresentative", batch.get(0).getId().toString(),
+                        "bundleMembers", batch.stream().map(member -> member.getId().toString()).toList()));
     }
 
     /** 푸시 문구 — 감지 경로마다 한 쌍씩 고정한다. */

@@ -22,7 +22,10 @@ class Renderer {
     RenderedPush renderBundle(List<Map<String, Object>> rows) {
         Map<String, Object> first = rows.get(0);
         String locale = (String) first.get("locale");
-        if (rows.size() == 1) {
+        Bundles.Family family = Bundles.of(first.get("kind"));
+        // 종료 알림은 묶여도 «대표 1건 그대로» 렌더한다 — 구 경로가 (유저 × 그룹) 한 건을 개수 없는
+        // 같은 문구로 보냈고, 딥링크의 challengeId 도 대표(가장 먼저 만들어진 챌린지)였다.
+        if (rows.size() == 1 || (family != null && family.rendersAsFirst())) {
             return render(first.get("kind").toString(), locale, Json.map(first.get("payload").toString()));
         }
         long refunds = rows.stream().filter(row -> "BET_VOID_REFUND".equals(row.get("kind"))).count();

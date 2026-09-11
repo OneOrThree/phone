@@ -89,7 +89,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 
 ### 2.4 시크릿 (A11 ⑥)
 
-A22 ㋺의 기존 미리보기 통합으로 Business 컨테이너 한도는 2 GiB이며 전용 Redis 캐시는 192 MiB를 추가한다. `business-cache` 내부 네트워크에는 Business와 Redis만 연결하고, Redis 포트는 publish하지 않는다. JVM 힙은 512 MiB, PDF 프로세스 한도는 기존 값을 유지한다. 이는 공유 Redis·리그 전환을 앞당기는 변경이 아니다.
+A22 ㋺의 기존 미리보기 통합으로 Business 컨테이너 한도는 2 GiB이며 전용 Redis 캐시는 192 MiB를 추가한다. `business-cache` 내부 네트워크에는 Business와 Redis만 연결하고, Redis 포트는 publish하지 않는다. JVM 힙은 512 MiB, PDF 프로세스 한도는 기존 값을 유지한다. PID 한도 128 안에서 JVM·Redis 연결·PDF 프로세스가 함께 동작하도록 Tomcat 요청 스레드를 최대 32·최소 대기 4로 제한한다. 이는 공유 Redis·리그 전환을 앞당기는 변경이 아니다.
 
 | 시크릿 | 보유 |
 |---|---|

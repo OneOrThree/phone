@@ -40,9 +40,9 @@
 결정을 바꾸려면 `decisions.md` 에 A 번호를 추가하고(뒤집힌 항목은 취소선 + 후속 번호), 두 문서를 그에 맞게 고친 뒤 `doc/fix-prd-architecture` 브랜치로 PR 을 연다.
 
 - Kafka 소비자를 붙일 때 `.DLT` 접미사·원본 파티션을 명시하고, 실패 토픽 장애 시 원본 offset이 보존되는지 실제 브로커로 검증한다(A22 ㋱). Spring Kafka 4의 기본 `-dlt`에 맡기지 않는다.
-- 응답 유실 재시도에서는 RT 로그아웃·갱신 capability·기기 토큰 교체가 같은 명령으로 수렴하는지 확인한다(A22 ㋲). 정적 경계는 `.github/scripts/check-satellite-contracts.py`, 실행 보장은 각 서비스의 DB·Kafka·앱 재시도 테스트가 검사한다.
+- 응답 유실 재시도에서는 RT 로그아웃·갱신 capability·기기 토큰 교체가 같은 명령으로 수렴하는지 확인한다(A22 ㋲). 오프라인 연속 등록의 소유권 승계와 RT 회전 뒤 재생도 검사하며, 다른 세션 또는 이미 전송한 명령의 본문은 바꾸지 않는다. 정적 경계는 `.github/scripts/check-satellite-contracts.py`, 실행 보장은 각 서비스의 DB·Kafka·앱 재시도 테스트가 검사한다.
 - 이관 직렬화는 양 서비스의 실제 라이브러리로 체크섬을 대조하고, 빈 자원·제어문자·미래 이월 알림도 검증한다(A22 ㋳).
 - 초기 user·participation 투영까지 다섯 자원을 대조하고 같은 원본 재적재·탈퇴 fence를 검사한다(A22 ㋶). Link 이관은 LEGACY 귀속과 필드별 표시 version을 복원한다(A22 ㋷·㋸).
-- ack 보류 해제 후 같은 키 재시도, 첫 후보의 렌더 오류, import와 open의 경합을 실제 DB에서 검증한다(A22 ㋴). 계정 전환 중 부분 저장과 rollback에는 이전 RT 폐기 명령을 함께 대조한다(A22 ㋵).
+- ack 보류 해제 후 같은 키 재시도, 첫 후보의 렌더 오류, 보류 후보 25개 뒤의 정상 발송, 종료 사건 수신과 flush의 교차, import와 open의 경합을 실제 DB에서 검증한다(A22 ㋴). 계정 전환 중 부분 저장과 rollback에는 이전 RT 폐기 명령을 함께 대조한다(A22 ㋵).
 
 Link/MMP의 실제 저장소는 [OneOrThree/mmp-custom](https://github.com/OneOrThree/mmp-custom)이다(A17). 알림은 현재 `server/notification/`에 유지하며 최종 JVM 레포 경로 전환은 1695와 맞춘다. 기존 파일 미리보기 캐시의 Target-1 예외와 ACL은 A22 ㋺를 따른다.

@@ -108,6 +108,30 @@ async function remove(id: string) {
   });
 }
 
+// 선행 등록이 받은 소유권을 «아직 보내지 않은» 같은 세션의 후속 등록에 승계한다.
+// 오프라인에 fcm-old·fcm-new 등록이 함께 쌓이면 둘 다 등록 당시의 소유권과 같은 bootstrap 을 싣는데,
+// 복구 후 첫 등록이 그 bootstrap 을 소비하고 소유권을 회전시키므로 승계하지 않은 두 번째 명령은
+// 영구히 DEVICE_OWNERSHIP_CONFLICT 다. 이미 전송한 명령(started)은 그 키의 본문이 계약이라 건드리지
+// 않고, 다른 사용자·다른 세션의 의도에는 승계하지 않는다.
+async function inheritOwnership(command: Command, ownershipToken: string | null) {
+  if (!ownershipToken) return;
+  await storage(async () => {
+    const queue = await readQueue();
+    const heirs = queue.filter(
+      (item) =>
+        item.id !== command.id &&
+        item.kind === 'register' &&
+        !item.started &&
+        item.userId === command.userId &&
+        item.sessionId === command.sessionId &&
+        item.body.ownershipToken !== ownershipToken,
+    );
+    if (!heirs.length) return;
+    for (const heir of heirs) heir.body.ownershipToken = ownershipToken;
+    await AsyncStorage.setItem(STORAGE_KEYS.notificationCommands, JSON.stringify(queue));
+  });
+}
+
 async function completeLogout(command: Command) {
   await storage(async () => {
     const queue = await readQueue();
@@ -190,6 +214,7 @@ async function send(command: Command): Promise<boolean> {
       command.body,
       { headers, timeout: 10000 },
     );
+    const ownershipToken = response.data?.ownershipToken ?? null;
     const current = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
     if (
       current &&
@@ -200,11 +225,12 @@ async function send(command: Command): Promise<boolean> {
         STORAGE_KEYS.deviceOwnership,
         JSON.stringify({
           deviceToken: command.body.deviceToken,
-          ownershipToken: response.data?.ownershipToken ?? null,
+          ownershipToken,
           userId: command.userId,
           sessionId: command.sessionId,
         }),
       );
+      await inheritOwnership(command, ownershipToken);
     }
   } else if (command.kind === 'delete') {
     if (typeof command.body.deviceToken === 'string')

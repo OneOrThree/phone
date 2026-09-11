@@ -19,12 +19,30 @@ class DeviceService {
         this.generationRequired = generationRequired;
     }
 
+    /**
+     * 기기 등록. 멱등 비교 기준은 <b>의도</b>(기기 · 소유권 · 1회용 자격)이고 {@code sessionEpoch} 는
+     * 뺀다 — 등록이 커밋된 뒤 응답만 유실되고 재시도 전에 RT 가 회전하면 같은 의도의 재시도가 새 epoch
+     * 를 싣고 오므로, 본문 전체 해시로는 영구 {@code IDEMPOTENCY_KEY_CONFLICT} 가 되어 앱이 복구되지
+     * 못한다. 대신 <b>재생 때도</b> 같은 fencing 을 «지금» 값으로 다시 본다: 폐기된 세션 · 낡은 세대의
+     * 재시도는 옛 성공 응답을 받지 못한다.
+     */
     @Transactional
     public Map<String, Object> register(UUID user, Map<String, Object> body, String key) {
-        return store.command("device-register:" + user, key, body, () -> registerLocked(user, body));
+        return store.command("device-register:" + user, key, intent(body),
+                () -> registerLocked(user, body, false), false, () -> registerLocked(user, body, true));
     }
 
-    private Map<String, Object> registerLocked(UUID user, Map<String, Object> body) {
+    /**
+     * 멱등 비교 기준. {@code authGeneration} 은 남긴다 — 세대가 오른 등록은 「같은 의도」가 아니라
+     * 이미 폐기된 등록이고, 그 재생은 죽은 기기 행에 성공을 돌려주게 된다.
+     */
+    private Map<String, Object> intent(Map<String, Object> body) {
+        Map<String, Object> intent = new LinkedHashMap<>(body);
+        intent.remove("sessionEpoch");
+        return intent;
+    }
+
+    private Map<String, Object> registerLocked(UUID user, Map<String, Object> body, boolean replay) {
         store.lock("device-ownership");
         Map<String, Object> fence = userFence(user);
         Long generation = Json.nullableNumber(body, "authGeneration");
@@ -57,6 +75,12 @@ class DeviceService {
                     || epoch < ((Number) session.get("epoch")).longValue())) {
                 throw new NotificationFailure(409, "SESSION_REVOKED");
             }
+        }
+        if (replay) {
+            // 저장된 응답을 돌려주기 직전이다. 세 축 검증은 위에서 «지금» 값으로 끝냈고, 소유권은 첫
+            // 요청이 이미 옮겼으므로 CAS 는 다시 보지 않는다 — 보면 자기가 성공시킨 등록의 재시도가
+            // 제 손으로 회전시킨 소유권에 걸린다.
+            return null;
         }
         boolean cas = knownOwner != null && user.equals(knownOwner.get("user_id"))
                 && Boolean.TRUE.equals(knownOwner.get("active"))

@@ -104,6 +104,27 @@ require('business_redis_acl' in writer and '~cache:business:*' in writer
 require('networks: [business-cache]' in compose and 'internal: true' in compose,
         'A22 ㋺: Redis 캐시 전용 내부 네트워크 누락')
 
+device = source('server/notification/src/main/java/com/oneorthree/notification/DeviceService.java')
+store = source('server/notification/src/main/java/com/oneorthree/notification/Store.java')
+app_commands = source('app/app-dev/src/services/notificationCommands.ts')
+require('intent.remove("sessionEpoch")' in device and 'registerLocked(user, body, true)' in device
+        and 'revalidate.run()' in store,
+        'A22 ㋲: 기기 등록 의도와 현재 세션 fencing의 분리 또는 재생 검증 누락')
+require('inheritOwnership(command, ownershipToken)' in app_commands
+        and '!item.started' in app_commands and 'item.sessionId === command.sessionId' in app_commands
+        and 'item.userId === command.userId' in app_commands,
+        'A22 ㋲: 같은 사용자·세션의 미전송 등록에 대한 소유권 승계 경계 누락')
+
+end_producer = source('server/data-api/src/main/java/com/oneorthree/phone/notification/service/ChallengeEndPushDispatcher.java')
+dispatch = source('server/notification/src/main/java/com/oneorthree/notification/DispatchService.java')
+families = source('server/notification/src/main/java/com/oneorthree/notification/Bundles.java')
+require('"bundleMembers"' in end_producer and '"bundleRepresentative"' in end_producer
+        and '"bundleMembers"' in dispatch and 'containsAll(declared)' in dispatch,
+        'A22 ㋴: 종료 묶음의 원본 구성원 선언 또는 수신 완료 대조 누락')
+require('"CHALLENGE_WINDOW_END"' in families and '"CHALLENGE_ENDED"' in families
+        and 'holdUntil(' in dispatch and 'held_until' in dispatch,
+        'A22 ㋴: 종료 묶음 종류 또는 슬롯·ACK 보류의 후보 이월 누락')
+
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)

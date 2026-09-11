@@ -49,6 +49,16 @@ class Store {
      */
     Map<String, Object> command(String scope, String key, Object request, Supplier<Map<String, Object>> action,
             boolean reassert) {
+        return command(scope, key, request, action, reassert, null);
+    }
+
+    /**
+     * {@code revalidate} 는 «재생 직전»에 지금 상태를 다시 보는 검증이다. 멱등 비교 기준에서 뺀
+     * 인증 수명 값(등록의 {@code sessionEpoch})은 여기서 검사해야 한다 — 빼기만 하면 폐기된 세션의
+     * 재시도까지 옛 성공 응답을 받는다. 실패하면 재생 대신 그 예외가 오른다.
+     */
+    Map<String, Object> command(String scope, String key, Object request, Supplier<Map<String, Object>> action,
+            boolean reassert, Runnable revalidate) {
         if (key == null || key.isBlank() || key.length() > 200) {
             throw new NotificationFailure(400, "IDEMPOTENCY_KEY_REQUIRED");
         }
@@ -60,7 +70,13 @@ class Store {
             if (!hash.equals(saved.get("request_hash"))) {
                 throw new NotificationFailure(409, "IDEMPOTENCY_KEY_CONFLICT");
             }
-            return reassert ? action.get() : Json.map(saved.get("response"));
+            if (reassert) {
+                return action.get();
+            }
+            if (revalidate != null) {
+                revalidate.run();
+            }
+            return Json.map(saved.get("response"));
         }
         Map<String, Object> result = action.get();
         update("INSERT INTO commands(scope,command_key,request_hash,response) VALUES(?,?,?,?::jsonb)",
