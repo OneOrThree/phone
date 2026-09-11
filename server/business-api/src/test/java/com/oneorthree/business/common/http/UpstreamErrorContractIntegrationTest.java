@@ -59,9 +59,10 @@ class UpstreamErrorContractIntegrationTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {500, 502})
-    void legacySynchronousUnknownServerErrorKeepsRetries(int upstreamStatus) throws Exception {
-        structured(upstreamStatus, "UNREGISTERED_FAILURE");
+    @CsvSource({"500,UNREGISTERED_FAILURE", "502,UNREGISTERED_FAILURE", "500,INTERNAL_ERROR",
+            "502,UPSTREAM_CONTRACT_ERROR", "502,UPSTREAM_AUTH_FAILED"})
+    void legacySynchronousServerErrorKeepsRetries(int upstreamStatus, String code) throws Exception {
+        structured(upstreamStatus, code);
         mockMvc.perform(get(LEGACY + "/sync").header("Authorization", "Bearer " + Tokens.access(USER))
                         .header("X-Strict-Error-Contract", "true"))
                 .andExpect(status().isServiceUnavailable())
