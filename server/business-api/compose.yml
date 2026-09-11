@@ -1,0 +1,38 @@
+# 로컬 단독 실행. JWT_SECRET은 data-api와 동일하게 주입한다.
+name: phone-business
+services:
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --maxmemory, 128mb, --maxmemory-policy, allkeys-lru, --save, '', --appendonly, 'no']
+    mem_limit: 192m
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+  business-api:
+    build: .
+    ports: ['127.0.0.1:8082:8082']
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET을 설정하세요}
+      GOOGLE_DRIVE_API_KEY: ${GOOGLE_DRIVE_API_KEY:-}
+      BUSINESS_REDIS_HOST: redis
+    depends_on:
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs: ['/tmp:size=64m,mode=1777']
+    volumes: [business-logs:/app/logs]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, curl, -fsS, 'http://localhost:9091/actuator/health/readiness']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+volumes:
+  business-logs:

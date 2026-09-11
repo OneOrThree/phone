@@ -1,0 +1,80 @@
+name: Business API CI
+on:
+  pull_request:
+    paths:
+      - 'server/business-api/**'
+      - 'server/scripts/docker-compose.business.yml'
+      - '.github/workflows/business-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/business-api/**'
+      - 'server/scripts/docker-compose.business.yml'
+      - '.github/workflows/business-ci.yml'
+concurrency:
+  group: business-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: server/business-api
+    steps:
+      - uses: actions/checkout@v4
+      - name: 전용 Gradle 홈 설정
+        run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle-business" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.GRADLE_USER_HOME }}/caches
+            ${{ env.GRADLE_USER_HOME }}/wrapper
+          key: ${{ runner.os }}-business-gradle-v1-${{ hashFiles('server/business-api/**/*.gradle*', 'server/business-api/**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-business-gradle-v1-
+      - name: PDF 테스트 의존성 설치
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils util-linux
+      - name: 빌드·정적 분석·테스트
+        run: ./gradlew build --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: business-api-test-results
+          path: |
+            server/business-api/build/test-results/
+            server/business-api/build/reports/
+          retention-days: 7
+  docker-build:
+    needs: [build]
+    runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 25
+    env:
+      IMAGE: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/business-api
+    steps:
+      - uses: actions/checkout@v4
+      - name: GAR 인증
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin asia-northeast3-docker.pkg.dev
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: server/business-api
+          platforms: linux/amd64
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          provenance: false
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
