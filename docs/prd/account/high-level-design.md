@@ -66,9 +66,10 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Entry[신규 /me 계열 진입] --> AT{AT에 sid 존재?}
-    AT -->|없음 또는 AT 갱신 필요| Refresh[기존 refresh 경로 강제 호출]
-    AT -->|유효 sid AT| Ready[세션 검증을 받는 신규 요청]
+    Entry[신규 /me 계열 진입] --> AT{검증된 AT/RT 묶음인가?}
+    AT -->|sidless 또는 원 legacy RT 혼합| Refresh[기존 refresh 경로 강제 호출]
+    AT -->|동일 subject·sid·gen 및 유효 자격| Ready[세션 검증을 받는 신규 요청]
+    AT -->|자격 불일치·부재| Closed[gate 유지·기존 인증 복구/Q06]
     Refresh --> RT[유효 RT]
     RT --> SID{sid 존재?}
     SID -->|없음| Receipt{승격 완료 receipt 존재?}
@@ -90,7 +91,7 @@ flowchart TD
     Store --> Ready
 ```
 
-현재 앱 `getFreshAccessToken`은 만료가 남은 AT를 바로 반환하므로 서버의 legacy RT 승격만으로 새 `/me` 진입이 보장되지 않는다. 새 앱은 이 빠른 반환 전에 sidless AT 전환 gate를 둔다. 기존 `/api/v1/auth/refresh`를 single-flight로 호출하고 로그인/로그아웃 generation을 대조한 뒤, AT/RT를 하나의 커밋된 인증 묶음으로 원자 저장·공개해야 gate가 열린다. 현행 두 번의 `AsyncStorage.setItem`은 이 원자성을 보장하지 않는다. 강제 승격에서는 새 sid AT와 sid RT가 모두 필요하며 클라이언트가 sid를 만들어 붙이지 않는다. 응답 유실·저장 실패 시 부분 토큰으로 진행하지 않고 같은 원 legacy RT로 승격 전용 receipt의 동일 AT/RT를 복원한다. 이 receipt는 현재 main/조사한1659에 없는 구현 의존이다. 현재 세션·epoch/gen·새 RT hash·원 RT 및 고정 토큰 만료·복구창이 모두 유효해야 재생하며, 소비된 bootstrap은 되살리지 않는다. 복구창 밖의 소셜 계정은 제공자 재인증이 가능하지만 제공자 없는 게스트의 대체 복구는 승인되지 않았다. Q06 결정과 서버 복구 검증 전에 강제 승격을 출시하지 않는다. [상세 진입 gate](low-level-design.md#유효한-sidless-at를-가진-기존-앱-설치의-진입-gate)를 따른다.
+현재 앱 `getFreshAccessToken`은 만료가 남은 AT를 바로 반환하므로 서버의 legacy RT 승격만으로 새 `/me` 진입이 보장되지 않는다. 새 앱은 이 빠른 반환 전에 AT/RT의 타입·subject·sid·authGeneration 및 만료를 함께 검사하는 전환 gate를 둔다. AT만 sid가 있어도 원 legacy RT가 남은 구 앱 혼합 저장은 Ready가 아니다. AT 만료를 기다리지 않고 원 RT 승격 receipt를 복구하고 기존 sid AT와 복구 결과의 주체·세션·세대를 대조한다. 기존 `/api/v1/auth/refresh`를 single-flight로 호출하고 로그인/로그아웃 generation을 대조한 뒤, AT/RT를 하나의 커밋된 인증 묶음으로 원자 저장·공개해야 gate가 열린다. 현행 두 번의 `AsyncStorage.setItem`은 이 원자성을 보장하지 않는다. 강제 승격에서는 새 sid AT와 sid RT가 모두 필요하며 클라이언트가 sid를 만들어 붙이지 않는다. 응답 유실·저장 실패 시 부분 토큰으로 진행하지 않고 같은 원 legacy RT로 승격 전용 receipt의 동일 AT/RT를 복원한다. 이 receipt는 현재 main/조사한1659에 없는 구현 의존이다. 현재 세션·epoch/gen·새 RT hash·원 RT 및 고정 토큰 만료·복구창이 모두 유효해야 재생하며, 소비된 bootstrap은 되살리지 않는다. 복구창 밖의 소셜 계정은 제공자 재인증이 가능하지만 제공자 없는 게스트의 대체 복구는 승인되지 않았다. Q06 결정과 서버 복구 검증 전에 강제 승격을 출시하지 않는다. [상세 진입 gate](low-level-design.md#유효한-sidless-at를-가진-기존-앱-설치의-진입-gate)를 따른다.
 
 기기 A와 B는 서로 다른 sessionId를 가진다. B 로그인은 A 세션의 RT를 교체하지 않는다. sid 없는 legacy RT를 이름만 바꿔 폐기하지 않고, 기존 토큰의 최대 유효 수명과 실제 만료 시각을 기준으로 호환 창을 닫는다. prod/dev의 AT TTL이 다르므로 임의의 1시간을 전체 환경 공통 전제로 삼지 않는다.
 
@@ -115,12 +116,12 @@ sequenceDiagram
     D->>DB: 방장 조건·내기 해제/환불·증거 동결
     Note over D,DB: 필요한 판정 근거가 불명확하면 전체 롤백
     D->>DB: group_challenge_members 사용자 측정 원본 hard delete
-    D->>DB: 멤버십·친구 정리, 집중/통계 귀속 익명화
+    D->>DB: 멤버십·친구 정리, 집중/통계 및 개인 태그 연결 파기
     D->>DB: group_announcements.user_id nullify
     D->>DB: 알림 발송 이력의 수신자·사용자 상대 연계 파기
     D->>DB: 리그 일간 삭제·주간 개인 결과 파기와 최소 완료 마커 분리
     D->>DB: 양방향 user_blocks·본인 user_streaks 삭제
-    D->>DB: 지갑·설정 삭제, 직접 PII·신규 프로필 파기
+    D->>DB: character_equipment 장착 행·지갑·설정 삭제, 직접 PII·신규 프로필 파기
     D->>DB: soft delete + 결과 receipt + COMMIT
     D-->>B: deleted true
     B-->>A: 200 data(deleted true)
@@ -171,3 +172,5 @@ sequenceDiagram
 6. 앱 계약 7종과 legacy 호환을 함께 검증한 뒤 세션 정본을 전환한다. legacy 읽기 제거는 호환 창 종료 후 별도 단계다.
 
 리그 개인 이력 파기와 최소 완료 마커 보존은 중복 정산 방지와 함께 검증한다. 랭킹 user.withdrawn outbox도 중앙 탈퇴와 같은 TX이며, 모든 주차 ZSET/presence와 지연·DLT 재생의 차단은 [LLD의 리그 파기 경계](low-level-design.md#리그-이력랭킹-투영-파기)를 따른다. 현재 main에서 완료됐다고 주장하지 않는다.
+
+태그 생성뿐 아니라 updateFocusTag의 새 채택/과거 세션 재연결과 복원·관리 writer도 활성 users 공유 잠금을 먼저 확보한다. 탈퇴 배타 잠금 아래의 태그 연결 파기·character_equipment hard delete와 같은 순서로 직렬화한다. 기존 EquipmentService의 equip/unequip 공유 잠금은 유지하고 user_items 보유 증거는 장착 설정과 구분해 보존한다. 실제 양방향 경합·늦은 flush·rollback 검증 전 전수 파기 완료로 표시하지 않는다.

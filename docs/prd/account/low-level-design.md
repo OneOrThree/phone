@@ -234,17 +234,23 @@ expand 순서는 세션 저장소 및 승격 전용 복구 receipt 추가 → �
 현재 `app/app-dev/src/services/api.ts:getFreshAccessToken`은 exp가 충분히 남았으면 저장된 AT를 그대로
 반환한다(200~209행). 그래서 RT 승격 구현만으로는 기존 설치가 새 `/me` 계열에 진입할 수 없다.
 **신규 경로를 처음 사용하기 전에 세션 형식 자격으로의 전환을 완료하는 앱 gate를 추가**한다.
-AT가 아직 유효해도 sid가 없으면 만료를 기다리지 않고 legacy RT로 기존 `/api/v1/auth/refresh`를 강제 호출한다.
+AT가 아직 유효해도 sid가 없거나 저장 RT와 사용자·sid·authGeneration이 일치하는 완전한 묶음이 아니면
+만료까지 기다리는 빠른 반환을 허용하지 않는다. 새 sid AT + 원 legacy RT의 혼합도 전환 미완료이며
+원 legacy RT로 기존 `/api/v1/auth/refresh`의 승격 receipt 복구를 즉시 수행한다.
 새 일반 `/me` 경로에서 sidless AT를 임의의 활성 세션에 연결하거나 사용자 ID로 fake sid를 합성하지 않는다.
 
 1. 앱의 기존 auth-session transition/single-flight 잠금을 획득해 로그인·로그아웃·401 refresh·신규 경로 전환을
    직렬화한다. generation과 현재 자격 묶음을 읽는다. 로컬 JWT payload의 sid 확인은 전환 필요 여부만 결정하며
    인증/주체 허가를 대신하지 않는다.
-2. 이미 세션 형식 AT/RT라면 현재 토큰 유효성 경로를 따른다. sidless AT이면 **exp 기반 조기 반환을 우회**해
+2. AT/RT가 모두 존재하고 access/refresh 타입, 동일 subject·sid·authGeneration 및 필요한 만료 조건이
+   일치하는 커밋된 묶음일 때만 현재 토큰 유효성 경로의 빠른 반환을 허용한다. 로컬 전환 generation과 JWT의
+   authGeneration은 다른 축이며 각각 대조한다. 어느 한 토큰에 sid가 있다는 사실만으로 Ready가 되지 않는다.
+   sidless AT이면 **exp 기반 조기 반환을 우회**해
    저장 RT를 제출한다. RT도 legacy면 서버는 실제 서명/만료/저장 해시를 검사한 첫 refresh에서 같은 userId의
    세션과 sid AT/RT 쌍을 확정한다. RT가 이미 sid 형식이면 해당 세션을 refresh하고 미회전 null 규칙을 따른다.
 3. 요청 이후 generation이나 저장 RT가 달라졌으면 지연 응답을 버린다. 최초 legacy RT 승격 응답은 sid가 같은
-   새 AT와 새 RT가 모두 필요하다. 그 경로의 refreshToken:null·누락·사용자/세션 불일치는 전환 완료가 아니다.
+   새 AT와 새 RT가 모두 필요하며 subject·sid·authGeneration이 서로 일치해야 한다.
+   그 경로의 refreshToken:null·누락·사용자/세션/세대 불일치는 전환 완료가 아니다.
    세션 형식 RT의 정상 미회전 응답만 기존 RT와 새 AT를 묶을 수 있다.
 4. 새 AT/RT·사용자·형식 버전을 **하나의 인증 상태 묶음으로 원자 저장/공개**하고 나서 신규 `/me` 요청 gate를 연다.
    현재처럼 accessToken과 refreshToken 키를 두 번 setItem하는 구현을 원자 교체라고 간주하지 않는다.
@@ -254,6 +260,15 @@ AT가 아직 유효해도 sid가 없으면 만료를 기다리지 않고 legacy 
    섞지 않는다. 서버 승격 후 응답/로컬 commit을 잃었으면 **같은 원 legacy RT로 승격 전용 receipt 결과를 재생**해
    동일 sid AT/RT 묶음을 다시 저장한다. 원 RT를 현재 해시로 되돌리지 않는다. 제공자 자격 없는 게스트에게
    소셜 재인증을 유일한 복구 수단으로 요구하거나 자동 guest 신규 생성으로 기존 userId·자산을 버리지 않는다.
+
+서버 승격 선배포 뒤 구 앱이 `api.ts:168`의 AT 저장까지만 끝내고170행의 RT 저장 전에 종료한 설치도
+검증 대상이다. 업데이트 앱은 구 분리 저장값을 무검증으로 새 bundle에 가져오지 않는다. 새 sid AT와 원 legacy
+RT가 섞여 있으면 AT 만료 전에 원 RT를 제출하고, 서버는 **원 RT의 승격 완료 receipt**와 현재 활성 세션·
+epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를 복원한다. 기존 sid AT가 있는 혼합 상태는
+복구된 결과의 subject·sid·authGeneration과도 대조하고, 불일치하면 그 AT와 결과를 섞어 Ready로 만들지 않는다.
+서로 다른 sid/user/세대의 세션형 토큰이나 RT 부재는 임의 세션 선택/가짜 sid/새 guest 생성으로 수리하지 않는다.
+해당 상태는 gate를 닫고 기존 인증 복구 또는 Q06의 미결 복구 조건으로 처리한다. 구 저장 키 정리도 새 bundle의
+검증·원자 commit 뒤 수행하며, 구 앱의 순차 저장을 거친 혼합 fixture와 양쪽 토큰의 타입/세대 불일치를 회귀한다.
 
 네트워크/5xx는 전환 대기 상태로 같은 원 RT를 재시도하며 일반 인증 실패와 구분한다. 실제 RT 부재·만료·폐기나
 복구창 종료는 REFRESH_TOKEN401이며 소셜 계정은 제공자 재인증이 가능하다. **게스트의 복구창 밖 처리에는
@@ -318,10 +333,11 @@ AT가 아직 유효해도 sid가 없으면 만료를 기다리지 않고 legacy 
 | user_streaks.user_id/last_session_date/streak_count/longest_streak_count/updated_at | V2 이후 user_id 자체가 PK/FK. 현재 실제 탈퇴 경로에 삭제 없음 | 집중 정산 증거 동결 뒤 같은 TX에서 사용자 streak 행 hard delete. legacy entity의 '현재 withdraw 하드삭제' 주석을 구현 근거로 삼지 않음 |
 | 친구 관계·pin | 친구 soft delete, 관련 pin hard delete | 새 검색/목록은 활성 조건으로 가림 |
 | user_items, currency_transactions | user FK로 이력 보존 | 기존 정산/보유 관계의 증거. 서버 공개 projection에서 탈퇴자 name/catColor를 재생하지 않음 |
+| character_equipment.user_id/item_id/slot_type/equipped_at | V1의 별도 장착 행이며 user_id NOT NULL. 현재 중앙 탈퇴에 삭제 호출 없음 | user_items 보유·거래 증거와 구분한 개인 설정이다. 같은 탈퇴 TX에서 해당 사용자 장착 행 hard delete. EquipmentService의 활성 users 공유 잠금과 직렬화하고 타인 장착·보유/원장은 보존 |
 | league_rank_snapshots.user_id/rank/created_at | V14 이후 실제 전역 일간 순위 테이블. 현재 탈퇴 삭제 없음 | 같은 탈퇴 TX에서 사용자 행 hard delete. 순위 snapshot writer는 활성 users 공유 잠금을 얻은 뒤 기록하여 파기 후 재생성 차단 |
 | league_weekly_results.user_id/focus_seconds/tier/acknowledged_at | 실제 주간 정산 결과이며 사용자·주차 유일성이 중복 정산 방지에도 쓰임. 현재 탈퇴 삭제 없음 | 개인 순위/집중량/티어 변경/확인 시각은 같은 TX에서 파기. 중복 정산을 막는 최소 userId/weekStart 완료 마커만 분리 보존하고 활성 사용자 재검사로 탈퇴 뒤 정산·재생성 차단. 원 결과를 일반 API로 노출하지 않음 |
 | Redis 랭킹의 모든 주차 ZSET·presence·지연 점수 사건 | 중앙 soft delete만으로 제거 보장 안 됨 | 같은 탈퇴 TX에 version을 가진 user.withdrawn outbox를 내구화. 랭킹 소비자는 tombstone/version 설정과 모든 주차 ZSET·presence 제거를 원자 적용하고 지연·DLT 점수의 부활을 거부 |
-| user_focus_tags.user_id, source_occupation_default_tag_id, default_tags.name 연결 | 기존 erase에는 삭제 없음 | FocusSession이 user_focus_tags를 참조하므로 직접 user_id만 nullify해도 사용자 역추적 경로가 남음. 정산 증거 동결 뒤 태그의 사용자 귀속/직군 출처를 끊는 nullable migration 또는 세션 태그 연결 해제 후 개인 채택 행 파기를 비교 검증. 공유 default_tags는 일괄 삭제하지 않음 |
+| user_focus_tags.user_id, source_occupation_default_tag_id, default_tags.name 연결 | 기존 erase에는 삭제 없음 | FocusSession이 user_focus_tags를 참조하므로 직접 user_id만 nullify해도 사용자 역추적 경로가 남음. 정산 증거 동결 뒤 태그의 사용자 귀속/직군 출처를 끊는 nullable migration 또는 세션 태그 연결 해제 후 개인 채택 행 파기를 비교 검증. 공유 default_tags는 일괄 삭제하지 않음. 두 대안 모두 setupFocusTag/updateFocusTag 및 복원·관리 writer의 활성 users 공유 잠금과 탈퇴 배타 잠금으로 직렬화 |
 | character_generation.user_id, created_at, client_generation_id | 기존 erase에는 정리 없음 | 개인 생성 요청 식별·사용자 연계 자료 파기 경로를 해당 소유 서비스와 연결. 공유 정산 근거와 동일 보존 사유로 뭉뚱그리지 않음 |
 | invite_link_clicks.claimedUserId·클릭 연결 | main 직접 파기 없음 | 1659의 claimed user 익명화·링크 위성 폐기 전달 재사용. ipHash/userAgent/device/app 식별 자료도 사용자 연계가 남는지 링크 소유 정리 명령에서 확인 |
 | 신규 auth session RT/bootstrap hash·로그인 시도 자격 digest·고정 서명 재료 | main 새 모델 없음 | legacy 승격 전용 복구 receipt/고정 재료도 탈퇴 때 폐기하고 세션 폐기와 원문 재발급을 차단. 남기는 폐기 tombstone은 최소 sessionId/epoch/만료 정보로 제한하고 사용자 연계 자격은 파기 |
@@ -332,9 +348,30 @@ main User 주석은 retention→purge를 언급하지만 현재 조회한 `erase
 
 ### 중앙 TX의 순서 제약
 
-`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → 지갑·설정 삭제 → 양방향 user_blocks·user_streaks 삭제 및 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
+`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 양방향 user_blocks·user_streaks 삭제 및 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
 
 `socialAccountRepository.deleteByUserId`는 `flushAutomatically` 후 `clearAutomatically`로 영속성 컨텍스트를 비운다. 따라서 user.catColor 등 엔티티 변경을 그 뒤에 붙이면 저장되지 않는다. 모든 엔티티 파기를 앞에 배치하고 마지막 bulk delete 뒤에는 분리된 엔티티를 수정하지 않는다. 멱등 결과 저장은 이 clear를 고려해 명시적으로 영속화하며 사용자 PII 수정의 순서를 뒤집지 않는다.
+
+#### 집중 태그·캐릭터 장착 writer와 파기 경계
+
+기준 `FocusService.setupFocusTag:212`는 requireActiveUser를 거치지만 `updateFocusTag:250~301`은
+태그를 먼저 읽고 이름 변경 시 새 user_focus_tags를 저장한 뒤 과거 focus_sessions를 재연결한다.
+이 경로에는 활성 users 잠금이 없어 탈퇴의 파기 스캔 뒤 사용자 귀속을 다시 만들 수 있다. 후속 구현은
+setup/update 및 태그 복원·관리 import·세션 태그 재연결의 모든 writer에서 **태그/세션을 읽거나 쓰기 전에**
+같은 TX의 활성 users FOR SHARE를 획득하고 종료까지 유지한다. 이미 읽은 tag.getUser()나 과거 활성 조회를
+대신 쓰지 않는다. 탈퇴는 users FOR UPDATE 뒤 증거 동결·세션 귀속 해제와 표의 태그 파기를 수행한다.
+nullable 전환과 연결 해제 후 삭제 중 어떤 방식을 채택해도 이 잠금 조건은 같다. 공유 default_tags의
+전역 이름/다른 사용자 채택은 파기하지 않으며, 실제 FK migration/파기 대안 자체는 구현 검증 항목으로 유지한다.
+
+`character_equipment`는 user_items 보유 증거와 별도인 현재 장착 설정이다. 중앙 탈퇴 TX에서
+`DELETE FROM character_equipment WHERE user_id=:withdrawnUserId`로 사용자 행을 모두 지운다.
+기존 `EquipmentService.equip/unequip:70/113`은 requireActiveUser → getCallerForShare:136~137를
+사용하므로 그 잠금을 유지하며 탈퇴의 users FOR UPDATE 뒤 DELETE와 직렬화한다. 미래 복원/관리 writer도
+같은 관문을 거치고 equipment 행을 먼저 잠근 뒤 users를 역순으로 잠그지 않는다. user_items와
+currency_transactions를 장착 삭제에 연쇄 삭제하지 않는다. 대상/타인의 장착·보유·원장을 함께 넣은 실제 DB
+fixture에서 writer 선행이면 삭제에 포함, 탈퇴 선행이면 활성 검사 거절, 지연 flush/재연결 뒤 부활0,
+중간 실패이면 장착·태그·세션 연결까지 전체 rollback을 검증한다. 현재 탈퇴가 이미 이 추가 파기를
+수행한다고 주장하지 않는다.
 
 #### 리그 이력·랭킹 투영 파기
 
@@ -474,6 +511,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 위조 시도 ID·다른 자격·탈퇴 후 재개 | 토큰 반환 없음, 내구 시도 상태로 차단 |
 | RT 회전 경계·동시 CAS | 미회전 null과 경쟁 0행 401 구분 |
 | 아직 유효한 sidless AT로 앱 업데이트·신규 /me 진입 | exp와 무관한 강제 refresh1회, 동일 userId의 sid 자격 commit 후에만 호출 |
+| 구 앱 AT setItem 뒤 RT setItem 전 종료 → 새 앱 업데이트 | 새 sid AT+원 legacy RT도 Ready 금지, AT 만료 전 원 RT receipt 복구·동일 subject/sid/gen 묶음 원자 commit. Q06 창 미결 유지 |
+| AT/RT sid·subject·authGeneration 불일치·한쪽 부재 및 지연 복구 | 로컬 generation과 서버 세대 각각 검증, 다른 세션/사용자 조합으로 Ready 또는 자동 새 guest 생성0 |
 | 강제 승격과 로그인/logout/401 경합·자격 저장 중 종료 | single-flight/generation fencing, AT/RT 혼합0·옛 응답 덮어쓰기0, 불완전 저장은 gate 미개방 |
 | legacy 게스트 승격 커밋 뒤 응답 유실·앱 원자 저장 실패·동시 같은 원RT | 같은 승격 receipt의 동일 sid/AT/RT 복구, userId/지갑/집중/그룹 보존, 새 guest·중복 세션·옛 해시 부활0 |
 | 승격 복구와 logout/탈퇴/후속회전·복구창 종료 경쟁 | 폐기 자격 재생0, 복구창/토큰 만료 연장0, 게스트 장기 복구 gate 충족 전 출시 금지 |
@@ -484,6 +523,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 같은 기기 삭제 키에 다른 대상/ownership/주체 |409 또는 인가 거절, 원 결과/기기 자격 노출0 |
 | 기기 DELETE와 RT-only logout 분리·지연 삭제 | RT만으로 타 기기 등록 삭제 0, DELETE만 대상 토큰/ownership outbox 기록, 신규 ownership 등록을 옛 삭제가 제거하지 않음 |
 | 공지 생성·타인 수정과 탈퇴의 양방향 경쟁·중간 실패 | 생성 선행이면 user_id=null, 탈퇴 선행이면 생성 USER_NOT_FOUND. 타인 수정의 지연 flush도 작성자 FK 부활 0, 공지 내용 보존, rollback 시 작성자 연결도 복구 |
+| setupFocusTag/updateFocusTag·태그 복원/관리·세션 재연결과 탈퇴 양방향 경합 | 같은 users 잠금, 이름 변경이 만든 새 채택/세션 연결도 파기·탈퇴 뒤 귀속 부활0, 공유 태그·타인 채택 보존 |
+| character_equipment full fixture·equip/unequip/복원과 탈퇴 양방향 경합·강제 rollback | 대상 장착0·타인 장착 및 user_items/원장 보존, 지연 flush 부활0, 실패 시 태그/장착/세션 연결 포함 전체 rollback |
 | 프로필과 탈퇴 경쟁 | 마지막 커밋 이후 name/catColor·PII 부활 없음 |
 | group_challenge_members 보고/탈퇴 양방향 경쟁·동결 후 삭제 | 사용자 원본행0, 선행 승리/과거 정산 결과 유지, 삭제 뒤 upsert 부활0 |
 | OPEN 참가 target 결손·증거 확정 불가·삭제 직후 실패 | 동결 완료로 위장하지 않음, 중앙 TX rollback, 기존 원본과 환불 정합 유지 |
