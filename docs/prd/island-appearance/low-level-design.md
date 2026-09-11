@@ -120,7 +120,7 @@ null 맵/null value는 422이며 전체 삭제로 해석하지 않는다. 빈 �
 |member.appearance.updated|user전체appearanceversion|userId,appearance:{clothes,decor,hull,position},version|표시권한이있는각섬주민|
 |island.appearance.updated|섬appearanceversion|islandThemeId,buildingThemes,version|해당섬주민|
 
-1754의6필드봉투를사용하며payload.version=aggregateVersion.개인외양은개인자산잔액/보유목록과달리주민에게
+1754의 schemaVersion=1을 포함한 7필드 봉투를 사용하며 payload.version=aggregateVersion이다. 두 외양 사건의 outbox 저장·즉시 발행·재전달에도 최초 schemaVersion과 완성된 봉투를 보존한다. 개인외양은개인자산잔액/보유목록과달리주민에게
 보이는전체착용상태만전달한다.공동외양은PATCH본문의부분맵이아니라반영된전체맵이다.
 
 개인외양을여러섬으로발행하면대상별eventId/envelope.islandId를갖고같은userappearanceversion을유지한다.

@@ -146,7 +146,7 @@ Data 두 endpoint로 debit→grant를 나누거나 Business 보상요청으로 r
 ## 5. 이벤트와 수신자
 
 같은 주문에서 wallet.updated와 inventory.updated 두 eventId를 만들고 receipt 재생 때 새로 만들지 않는다.
-wallet aggregateVersion은 해당 지갑 version, inventory는 해당 owner 목록 version이다. payload.version과 봉투version 일치.
+wallet aggregateVersion은 해당 지갑 version, inventory는 해당 owner 목록 version이다. payload.version과 aggregateVersion이 일치한다. 공통 봉투는 schemaVersion=1을 포함한 7필드이며 outbox·즉시 발행·재전달에 그대로 보존한다.
 
 |종류|개인|공동|
 |---|---|---|
