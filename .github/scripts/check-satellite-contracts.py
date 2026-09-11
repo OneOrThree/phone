@@ -118,7 +118,8 @@ require('inheritOwnership(command, ownershipToken)' in app_commands
 api_refresh = source('app/app-dev/src/services/api.ts')
 biz_device = source('server/business-api/src/main/java/com/oneorthree/business/usecase/DeviceTokenUseCase.java')
 require('notification.legacy-device-registration' in device and 'staleGeneration(generation, fence)' in device
-        and 'legacyRow(previous, user)' in device and 'previous.get("bootstrap_hash") == null' in device,
+        and 'legacyRow(previous, user)' in device and 'previous.get("bootstrap_hash") == null' in device
+        and 'previous.get("legacy_session_id") == null' in device,
         'A22 ㋲: 구 앱 호환과 gen 축 분리 또는 현대 기기 소유권 보호 누락')
 require('legacy_session_fences' in device and 'legacy_session_id' in device
         and 'legacyFirstUse ? legacyTakeover(previous)' in device
@@ -146,6 +147,30 @@ require('"bundleMembers"' in open_producer and 'openBundleMembers(due, joined, m
 require('"CHALLENGE_WINDOW_END"' in families and '"CHALLENGE_ENDED"' in families
         and 'holdUntil(' in dispatch and 'held_until' in dispatch,
         'A22 ㋴: 종료 묶음 종류 또는 슬롯·ACK 보류의 후보 이월 누락')
+
+batch_retry = source('server/data-api/src/main/java/com/oneorthree/phone/notification/service/NotificationBatchRetry.java')
+require('"40001".equals(sql.getSQLState())' in batch_retry
+        and 'properties.isOutboxMode() ? MAX_ATTEMPTS : 1' in batch_retry
+        and 'batch.accept(slot)' in batch_retry and 'isActualTransactionActive()' in batch_retry,
+        'A22 ㋴: RR 배치의 OUTBOX 한정·동일 슬롯·트랜잭션 외부 재시도 경계 누락')
+for entry, count in [('scheduler/NotificationScheduler.java', 7),
+                     ('NotificationBatchController.java', 5),
+                     ('migration/NotificationCronReplayService.java', 7)]:
+    body = source('server/data-api/src/main/java/com/oneorthree/phone/notification/' + entry)
+    require(body.count('batchRetry.run(') == count,
+            f'A22 ㋴: {entry}의 리그 판정 진입점이 재시도 경계를 우회함')
+
+membership_events = source('server/data-api/src/main/java/com/oneorthree/phone/group/service/LinkMembershipEventService.java')
+member_repository = source('server/data-api/src/main/java/com/oneorthree/phone/group/repository/GroupMemberRepository.java')
+require(membership_events.count('lockActiveMembershipId(') == 2
+        and 'member.applyDisplaySnapshot(' not in membership_events
+        and 'SET gm.snapshotVersion = :snapshotVersion' in member_repository
+        and 'gm.isLeft = false' in member_repository,
+        'A22 ㋻: 표시정보 갱신이 멤버십 엔티티 전체를 덮거나 이탈 조건을 누락함')
+require('AggregateRef.ofUser(joinedUserId)' in membership_events
+        and 'joinedUserId + ":" + joinEpoch' in membership_events
+        and 'LINK_SLUG.matcher(slug).matches()' in membership_events,
+        'A22 ㋻: 가입 사실의 가입자 축·재가입 사건 키·선택 slug 형식 경계 누락')
 
 if errors:
     print('\n'.join(errors), file=sys.stderr)

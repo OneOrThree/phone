@@ -2,6 +2,7 @@ package com.oneorthree.phone.notification;
 
 import com.oneorthree.phone.notification.service.InactiveReturnNotificationService;
 import com.oneorthree.phone.notification.service.LeagueNotificationService;
+import com.oneorthree.phone.notification.service.NotificationBatchRetry;
 import com.oneorthree.phone.notification.service.RankOvertakeNotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Profile({"local", "ci", "dev", "staging"})
 public class NotificationBatchController implements NotificationBatchControllerDocs {
 
+    private final NotificationBatchRetry batchRetry;
     private final LeagueNotificationService leagueNotificationService;
     private final InactiveReturnNotificationService inactiveReturnNotificationService;
     private final RankOvertakeNotificationService rankOvertakeNotificationService;
@@ -33,35 +35,35 @@ public class NotificationBatchController implements NotificationBatchControllerD
     @Override
     @PostMapping("/notifications/league/results/run")
     public ResponseEntity<Void> runWeeklyResultNotifications() {
-        leagueNotificationService.sendWeeklyResultNotifications();
+        batchRetry.run(leagueNotificationService::sendWeeklyResultNotifications);
         return ResponseEntity.noContent().build();
     }
 
     @Override
     @PostMapping("/notifications/league/deadline/run")
     public ResponseEntity<Void> runDeadlineReminders() {
-        leagueNotificationService.sendDeadlineReminders();
+        batchRetry.run(leagueNotificationService::sendDeadlineReminders);
         return ResponseEntity.noContent().build();
     }
 
     @Override
     @PostMapping("/notifications/league/crisis/run")
     public ResponseEntity<Void> runSundayCrisisReminders() {
-        leagueNotificationService.sendSundayCrisisReminders();
+        batchRetry.run(leagueNotificationService::sendSundayCrisisReminders);
         return ResponseEntity.noContent().build();
     }
 
     @Override
     @PostMapping("/notifications/league/relegation-warning/run")
     public ResponseEntity<Void> runRelegationWarnings() {
-        leagueNotificationService.sendRelegationWarnings();
+        batchRetry.run(leagueNotificationService::sendRelegationWarnings);
         return ResponseEntity.noContent().build();
     }
 
     @Override
     @PostMapping("/notifications/league/final-deadline/run")
     public ResponseEntity<Void> runFinalDeadlineReminders() {
-        leagueNotificationService.sendFinalDeadlineReminders();
+        batchRetry.run(leagueNotificationService::sendFinalDeadlineReminders);
         return ResponseEntity.noContent().build();
     }
 

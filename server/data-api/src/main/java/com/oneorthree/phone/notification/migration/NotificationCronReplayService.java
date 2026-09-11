@@ -6,6 +6,7 @@ import com.oneorthree.phone.notification.service.ChallengeDurationEndNotificatio
 import com.oneorthree.phone.notification.service.ChallengeWindowEndNotificationService;
 import com.oneorthree.phone.notification.service.InactiveReturnNotificationService;
 import com.oneorthree.phone.notification.service.LeagueNotificationService;
+import com.oneorthree.phone.notification.service.NotificationBatchRetry;
 import com.oneorthree.phone.notification.service.LeagueReengagementNotificationService;
 import com.oneorthree.phone.notification.service.SessionOpenNotificationService;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,7 @@ import java.time.Instant;
 public class NotificationCronReplayService {
 
     private final NotificationDispatcher notificationDispatcher;
+    private final NotificationBatchRetry batchRetry;
     private final LeagueNotificationService leagueNotificationService;
     private final LeagueReengagementNotificationService leagueReengagementNotificationService;
     private final InactiveReturnNotificationService inactiveReturnNotificationService;
@@ -131,14 +133,18 @@ public class NotificationCronReplayService {
      */
     private void invoke(NotificationCronReplayJob job, Instant missedAt) {
         switch (job) {
-            case LEAGUE_WEEKLY_RESULTS -> leagueNotificationService.sendWeeklyResultNotifications(missedAt);
-            case LEAGUE_DEADLINE -> leagueNotificationService.sendDeadlineReminders(missedAt);
-            case LEAGUE_SUNDAY_CRISIS -> leagueNotificationService.sendSundayCrisisReminders(missedAt);
-            case LEAGUE_RELEGATION_WARNING -> leagueNotificationService.sendRelegationWarnings(missedAt);
-            case LEAGUE_FINAL_DEADLINE -> leagueNotificationService.sendFinalDeadlineReminders(missedAt);
+            case LEAGUE_WEEKLY_RESULTS ->
+                    batchRetry.run(missedAt, leagueNotificationService::sendWeeklyResultNotifications);
+            case LEAGUE_DEADLINE -> batchRetry.run(missedAt, leagueNotificationService::sendDeadlineReminders);
+            case LEAGUE_SUNDAY_CRISIS -> batchRetry.run(missedAt, leagueNotificationService::sendSundayCrisisReminders);
+            case LEAGUE_RELEGATION_WARNING ->
+                    batchRetry.run(missedAt, leagueNotificationService::sendRelegationWarnings);
+            case LEAGUE_FINAL_DEADLINE ->
+                    batchRetry.run(missedAt, leagueNotificationService::sendFinalDeadlineReminders);
             case INACTIVE_RETURN -> inactiveReturnNotificationService.sendInactiveReturnNotifications(missedAt);
-            case MISSED_FOCUS_TODAY -> leagueReengagementNotificationService.sendMissedFocusToday(missedAt);
-            case STREAK_AT_RISK -> leagueReengagementNotificationService.sendStreakAtRisk(missedAt);
+            case MISSED_FOCUS_TODAY ->
+                    batchRetry.run(missedAt, leagueReengagementNotificationService::sendMissedFocusToday);
+            case STREAK_AT_RISK -> batchRetry.run(missedAt, leagueReengagementNotificationService::sendStreakAtRisk);
             case BET_EVENT_RESCAN -> betEventNotificationService.rescanAndFlush(missedAt);
             case SESSION_OPEN -> sessionOpenNotificationService.sendSessionOpenNotifications(missedAt);
             case CHALLENGE_WINDOW_END ->

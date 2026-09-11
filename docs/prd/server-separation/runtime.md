@@ -127,6 +127,9 @@ V3의 실행 job은 `bundle-flush`, `ack-reconcile`, `user-reconcile`이다. 기
 따라 Data에 남기므로 문서의 과거 "22잡 이관" 숫자만 보고 메서드를 통째로 끄면 안 된다.
 `JobRegistry`가 cron과 `job_runs`의 재생 요청을 함께 소비한다. Data 소유 잡은 호출할 수 없으며,
 실행 오류는 완료로 기록하지 않는다. 다중 Notification 인스턴스는 자기 DB의 ShedLock을 공유한다.
+Data의 리그 RR 배치는 OUTBOX 모드에서 DB 직렬화 충돌(40001)만 최대 3회 시도한다.
+전체 트랜잭션 롤백 후 동일 슬롯으로 다시 판정한다. 소진되면 스케줄 실패 로그의 슬롯을 확인하고
+`--notification.migration.replay=<잡 이름>@<놓친 슬롯 ISO-8601>`로 유효기간 안에 재생한다. LEGACY 모드는 FCM 중복을 피하기 위해 자동 재시도하지 않는다.
 `user-reconcile`은 Data snapshot의 탈퇴·세대·locale/version만 반영하고 위성 설정·기기 소유권은 덮지 않는다.
 
 최초 gate 개방과 이후 재개는 `docs/contracts/notification-admin-api.yaml`의 import/verify/open/close를
@@ -146,3 +149,8 @@ Data의 CLI를 `notification.migration.enabled=true`로 기동하고 `notificati
 발급하는 Data 인증 제공자를 앱 변경보다 먼저 배포한다. 갱신 장애나 세션 응답 미지원은 미전송 큐로 남긴다.
 구 앱은 계속 무자격 본문을 보내므로 Business가 서명된 sid를 검증해 별도 legacy 세션 fence에 연결한다.
 이 호환 경로는 현대 bootstrap 행을 덮지 않는다. 현대 등록 이후 구 JS로 롤백하는 배포는 호환 범위에 포함하지 않는다.
+
+
+Data→Link 가입 relay를 활성화하기 전에 MMP의 A22 ㋻ 가입 귀속 검증을 배포·검증한다.
+Data가 알 수 없는 새 slug도 가입 사실로 전달하므로, MMP의 그룹 일치·셀프 초대 제외 검증 없이
+가입 relay부터 켜면 잘못된 귀속이 남는다. Data 제공자 배포 → MMP 검증 배포 → 가입 relay 개방 순서다.

@@ -14,6 +14,7 @@ import com.oneorthree.phone.invitelink.repository.InviteClaimIntentRepository;
 import com.oneorthree.phone.invitelink.repository.domain.InviteClaimIntent;
 import com.oneorthree.phone.invitelink.repository.domain.InviteClaimIntentStatus;
 import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
+import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.exception.UserException;
@@ -32,6 +33,15 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import javax.sql.DataSource;
+import java.sql.Array;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -46,6 +56,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -89,6 +100,10 @@ class SatelliteCommandConcurrencyTest {
     EventOutboxRepository eventOutboxRepository;
     @Autowired
     PlatformTransactionManager transactionManager;
+    @Autowired
+    DataSource dataSource;
+    @PersistenceContext
+    EntityManager entityManager;
 
     private TransactionTemplate tx() {
         return new TransactionTemplate(transactionManager);
@@ -130,6 +145,134 @@ class SatelliteCommandConcurrencyTest {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    @Test
+    @DisplayName("강퇴 «도중» 들어온 이름 변경이 강퇴를 되살리지 않는다 — 표시 갱신의 전 컬럼 UPDATE 회귀")
+    void displaySnapshotUpdateCannotResurrectAKickedMembership() throws Exception {
+        UUID ownerId = newUser();
+        UUID memberId = newUser();
+        Group group = newGroup(ownerId);
+        addMember(group, memberId);
+
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        AtomicReference<Future<?>> renameRef = new AtomicReference<>();
+        AtomicInteger renamePid = new AtomicInteger();
+        CountDownLatch renameStarted = new CountDownLatch(1);
+        try {
+            // ① 강퇴 트랜잭션이 «커밋 전» 상태로 멤버십 행 잠금만 쥔다. 테스트가 직접
+            //    트랜잭션을 열어야 두 커넥션의 시점을 겹칠 수 있다 — latch 로 동시에 출발만 시키면
+            //    잠금이 빠져도 우연히 초록이 된다.
+            tx().executeWithoutResult(status -> {
+                int kickPid = backendPid();
+                GroupMember target = groupMemberRepository
+                        .findActiveByUserIdAndGroupIdForUpdate(memberId, group.getId()).orElseThrow();
+                target.kick();
+
+                // ② 그 사이 이름 변경이 들어온다. 대상 목록을 읽는 시점에는 강퇴가 아직 커밋 전이라
+                //    이 멤버가 «활성»으로 보이고, 그 뒤 멤버 행 잠금에서 멈춘다.
+                Future<?> rename = pool.submit(() -> {
+                    tx().executeWithoutResult(inner -> {
+                        renamePid.set(backendPid());
+                        renameStarted.countDown();
+                        Group renamed = groupRepository.findById(group.getId()).orElseThrow();
+                        renamed.updateName("바뀐 이름");
+                        linkMembershipEventService.recordGroupRenamed(renamed);
+                    });
+                    return null;
+                });
+                renameRef.set(rename);
+
+                // ⚠️ 이 확인이 「정말로 그 창에 들어왔는가」다. 타임아웃만으로는 스레드가 아직 출발도
+                //    안 했는지, 정말 잠금을 기다리는지 구분되지 않는다. 그래서 PostgreSQL 에게 직접
+                //    묻는다 — 이름 변경 백엔드가 «Lock» 을 기다리고 있고 그 차단자가 이 강퇴 백엔드여야
+                //    한다. 그래야 아래 단정이 「경합 창을 실제로 통과한 결과」가 된다.
+                try {
+                    assertThat(renameStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                    awaitBlockedBy(renamePid.get(), kickPid);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                } catch (SQLException e) {
+                    throw new IllegalStateException(e);
+                }
+                // 표시 변경이 aggregate부터 잠갔다면 여기서 ABBA 교착이 난다.
+                // 멤버 → aggregate 순서가 같아야 강퇴를 커밋하고 표시 변경을 깨울 수 있다.
+                linkMembershipEventService.recordMembershipRevoked(target);
+                // 잠금을 쥔 채로는 아직 끝나지 않는다.
+                assertThatThrownBy(() -> rename.get(1, TimeUnit.SECONDS))
+                        .isInstanceOf(TimeoutException.class);
+            });
+
+            // ③ 강퇴가 커밋된 뒤 이름 변경이 깨어난다. 옛 구현은 여기서 «잠금 전에 로드한» 엔티티에
+            //    더티 체킹을 걸어 전 컬럼 UPDATE 를 냈고, is_left·left_reason·membership_epoch 가
+            //    강퇴 이전 값으로 되돌아갔다.
+            renameRef.get().get(30, TimeUnit.SECONDS);
+
+            GroupMember after = tx().execute(status -> groupMemberRepository
+                    .findAnyByUserAndGroup(userRepository.findById(memberId).orElseThrow(),
+                            groupRepository.findById(group.getId()).orElseThrow())
+                    .orElseThrow());
+            assertThat(after.isKicked()).isTrue();
+            assertThat(after.getMembershipEpoch()).isEqualTo(2L);
+            // 이름 변경 자체는 성공한다 — 「경합이면 전부 막는다」가 아니다.
+            String renamedName = tx().execute(status ->
+                    groupRepository.findById(group.getId()).orElseThrow().getName());
+            assertThat(renamedName).isEqualTo("바뀐 이름");
+            // 폐기된 링크에는 표시 갱신을 보내지 않는다(조건부 UPDATE 가 0행이면 명령도 없다).
+            assertThat(renameEnvelopesFor(group.getId(), memberId)).isEmpty();
+            // 남아 있는 방장에게는 그대로 나간다 — 「떠난 사람만 뺀다」다.
+            assertThat(renameEnvelopesFor(group.getId(), ownerId)).hasSize(1);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** 지금 트랜잭션이 쥐고 있는 커넥션의 PostgreSQL 백엔드 PID. */
+    private int backendPid() {
+        return ((Number) entityManager.createNativeQuery("SELECT pg_backend_pid()")
+                .getSingleResult()).intValue();
+    }
+
+    /**
+     * {@code blockedPid} 백엔드가 <b>실제로</b> 잠금을 기다리고 있고 그 차단자에 {@code blockerPid} 가
+     * 들어 있을 때까지 기다린다 — 관측은 «제3의 커넥션»으로 한다(당사자 둘은 모두 대기 중이다).
+     *
+     * @throws AssertionError 제한 시간 안에 그 상태를 못 보면 경합 창을 통과하지 못한 것이다
+     */
+    private void awaitBlockedBy(int blockedPid, int blockerPid) throws SQLException, InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        String lastWait = null;
+        List<Integer> lastBlockers = List.of();
+        try (Connection observer = dataSource.getConnection();
+                PreparedStatement query = observer.prepareStatement(
+                        "SELECT wait_event_type, pg_blocking_pids(pid) FROM pg_stat_activity WHERE pid = ?")) {
+            while (System.nanoTime() < deadline) {
+                query.setInt(1, blockedPid);
+                try (ResultSet row = query.executeQuery()) {
+                    if (row.next()) {
+                        lastWait = row.getString(1);
+                        Array blockers = row.getArray(2);
+                        lastBlockers = blockers == null ? List.of()
+                                : List.of((Integer[]) blockers.getArray());
+                        if ("Lock".equals(lastWait) && lastBlockers.contains(blockerPid)) {
+                            return;
+                        }
+                    }
+                }
+                TimeUnit.MILLISECONDS.sleep(100);
+            }
+        }
+        throw new AssertionError("이름 변경이 강퇴의 잠금 대기에 도달하지 않았다 — wait_event_type="
+                + lastWait + " blocking_pids=" + lastBlockers + " (기대 차단자 " + blockerPid + ")");
+    }
+
+    /** {@code (groupId, inviterId)} 축으로 나간 그룹명 변경 명령. */
+    private List<EventOutbox> renameEnvelopesFor(UUID groupId, UUID inviterId) {
+        return tx().execute(status -> eventOutboxRepository.findAll().stream()
+                .filter(row -> "group.renamed".equals(row.getType()))
+                .filter(row -> (groupId + ":" + inviterId).equals(row.getAggregateId()))
+                .toList());
     }
 
     @Test

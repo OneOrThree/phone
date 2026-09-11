@@ -12,7 +12,9 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.group.dto.JoinGroupRequest;
 import com.oneorthree.phone.group.service.GroupMemberService;
+import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.internal.dto.ClaimIntentPageResponse;
 import com.oneorthree.phone.internal.dto.FrozenClickCandidateResponse;
 import com.oneorthree.phone.internal.service.InternalClickMigrationService;
@@ -81,6 +83,8 @@ class SatelliteCoreContractIntegrationTest {
     GroupMemberRepository groupMemberRepository;
     @Autowired
     GroupMemberService groupMemberService;
+    @Autowired
+    GroupService groupService;
     @Autowired
     AccountWithdrawalService accountWithdrawalService;
     @Autowired
@@ -296,6 +300,122 @@ class SatelliteCoreContractIntegrationTest {
         assertThat(revoked.get(0).getAggregateType()).isEqualTo("LINK_MEMBERSHIP");
         assertThat(revoked.get(0).getAggregateId())
                 .isEqualTo(group.getId() + ":" + memberId);
+    }
+
+    @Test
+    @DisplayName("초대 링크 재가입은 «회차별» 사건으로 적힌다 — 같은 키면 가입 트랜잭션이 통째로 롤백된다")
+    void rejoiningThroughAnInviteLinkWritesASecondJoinEvent() {
+        UUID ownerId = newUser();
+        UUID joinerId = newUser();
+        Group group = newGroup(ownerId);
+        String first = slug("ra");
+        String second = slug("rb");
+        tx().executeWithoutResult(status ->
+                inviteLinkRepository.save(new GroupInviteLink(first, group.getId(), ownerId)));
+
+        groupService.joinGroup(group.getId(), joinerId, joinRequest(first, "invite"));
+        assertThat(joinEnvelopes(joinerId)).hasSize(1);
+
+        // 자진 탈퇴 — 행은 남고 세대만 오른다(A-0 소프트삭제).
+        groupMemberService.withdrawGroup(group.getId(), joinerId);
+
+        // ⚠️ 여기가 회귀 지점이다. 키가 (groupId, joinedUserId) 뿐이면 이 호출이
+        //    uq_event_outbox_event_id 위반으로 «가입 자체»를 롤백시킨다 — 링크 귀속 하나 때문에
+        //    사용자가 그룹에 못 들어간다. 그리고 재가입은 이렇게 «다른 발급자의 다른 링크»로 들어오는
+        //    경우가 흔해서 「이미 있으면 건너뛴다」로 접을 수도 없다.
+        groupService.joinGroup(group.getId(), joinerId, joinRequest(second, "invite"));
+
+        List<EventOutbox> joined = joinEnvelopes(joinerId);
+        assertThat(joined).hasSize(2);
+        assertThat(joined).extracting(EventOutbox::getEventId).doesNotHaveDuplicates();
+        // 회차는 가입자 자신의 멤버십 세대다 — 최초 1, 탈퇴 2, 재가입 3.
+        assertThat(joined).extracting(row -> row.getParams().get("joinEpoch"))
+                .containsExactlyInAnyOrder(1, 3);
+        assertThat(joined).extracting(row -> row.getParams().get("slug"))
+                .containsExactlyInAnyOrder(first, second);
+        // 재가입도 멤버십 전이라 폐기 명령이 함께 있어야 한다(ⓚ).
+        assertThat(envelopes(joinerId, "link.revoked")).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("코어에 없는 새 slug 도 가입 사실이 적힌다 — 발급자는 «추정하지 않고» 링크가 판정한다")
+    void joiningWithALinkServerSlugStillRecordsTheJoinFact() {
+        UUID ownerId = newUser();
+        UUID joinerId = newUser();
+        Group group = newGroup(ownerId);
+        // 새 링크 서버가 발급한 slug — group_invite_links 에 행이 없다(claim 도 선행하지 않는다).
+        String fresh = slug("ln");
+        assertThat(inviteLinkRepository.findBySlug(fresh)).isEmpty();
+
+        groupService.joinGroup(group.getId(), joinerId, joinRequest(fresh, "invite"));
+
+        List<EventOutbox> joined = joinEnvelopes(joinerId);
+        assertThat(joined).hasSize(1);
+        EventOutbox envelope = joined.get(0);
+        assertThat(envelope.getEventId())
+                .isEqualTo("link.joined:" + group.getId() + ":" + joinerId + ":1");
+        // 순서 축은 «가입자»다 — 발급자를 모르면 발급자 축은 만들 수조차 없다.
+        assertThat(envelope.getAggregateType()).isEqualTo("USER");
+        assertThat(envelope.getAggregateId()).isEqualTo(joinerId.toString());
+        assertThat(envelope.getSubjectId()).isEqualTo(group.getId().toString());
+        assertThat(envelope.getParams())
+                .containsEntry("slug", fresh)
+                .containsEntry("groupId", group.getId().toString())
+                .containsEntry("joinedUserId", joinerId.toString())
+                .containsEntry("joinMethod", "invite")
+                // 발급자를 «추정»하지 않는다 — 미검증 입력이 초대 보상의 근거가 되면 안 된다.
+                .doesNotContainKey("inviterId");
+        // 가입 자체도 정상이다 — 귀속은 부가 정보라 가입 성공을 claim 선행에 묶지 않는다.
+        assertThat(groupMemberRepository.existsByGroupIdAndUserId(group.getId(), joinerId)).isTrue();
+    }
+
+    @Test
+    @DisplayName("형식이 어긋난 slug 는 버리고 가입은 성공한다 — 영원히 400 인 명령을 큐에 남기지 않는다")
+    void malformedSlugIsDroppedWithoutBlockingTheJoin() {
+        UUID ownerId = newUser();
+        UUID joinerId = newUser();
+        Group group = newGroup(ownerId);
+
+        // 링크 계약은 ^[a-z0-9]{1,12}$ 다. 요청 DTO 에는 길이·문자 제약이 없어 여기로 그대로 들어온다.
+        groupService.joinGroup(group.getId(), joinerId, joinRequest("NOT-A-SLUG-AT-ALL", "invite"));
+
+        assertThat(joinEnvelopes(joinerId)).isEmpty();
+        assertThat(groupMemberRepository.existsByGroupIdAndUserId(group.getId(), joinerId)).isTrue();
+    }
+
+    @Test
+    @DisplayName("다른 그룹을 가리키는 slug 도 가입 사실은 그대로 간다 — 판정은 원장을 가진 링크가 한다")
+    void slugPointingAtAnotherGroupIsStillForwardedForTheLedgerToJudge() {
+        UUID ownerId = newUser();
+        UUID joinerId = newUser();
+        Group group = newGroup(ownerId);
+        Group other = newGroup(newUser());
+        String foreign = slug("fg");
+        tx().executeWithoutResult(status ->
+                inviteLinkRepository.save(new GroupInviteLink(foreign, other.getId(), ownerId)));
+
+        groupService.joinGroup(group.getId(), joinerId, joinRequest(foreign, "invite"));
+
+        // 코어는 이 불일치를 «판정하지 않는다». 봉투에는 실제 들어간 그룹이 실리고, 링크 서버가
+        // 자기 원장의 slug→그룹과 대조해 어긋나면 귀속하지 않는다(applied:false).
+        List<EventOutbox> joined = joinEnvelopes(joinerId);
+        assertThat(joined).hasSize(1);
+        assertThat(joined.get(0).getParams())
+                .containsEntry("groupId", group.getId().toString())
+                .containsEntry("slug", foreign);
+    }
+
+    /** {@code link.joined} 봉투 — 가입자 축이라 {@code userId} 가 가입자다. */
+    private List<EventOutbox> joinEnvelopes(UUID joinedUserId) {
+        return envelopes(joinedUserId, "link.joined");
+    }
+
+    private static JoinGroupRequest joinRequest(String inviteSlug, String joinMethod) {
+        return JoinGroupRequest.builder()
+                .joinMethod(joinMethod)
+                .inviteSlug(inviteSlug)
+                .appInstanceId("inst-test")
+                .build();
     }
 
     @Test

@@ -87,6 +87,12 @@ flowchart LR
 
 원칙: **위성(알림·링크)은 코어를 부르지 않고, 코어가 위성에 밀어준다.** 위성이 코어의 사실을 알아야 하면 이벤트/발급 시 **동봉**하고, 정합은 리컨실/PATCH 로 맞춘다.
 
+`link.joined`는 코어 그룹 가입과 같은 커밋에 기록한다(A22 ㋻). 가입자 USER 축의 version과
+`link.joined:<groupId>:<joinedUserId>:<가입자 membershipEpoch>` 키를 쓰고, params에
+`groupId`, `slug`, `joinMethod`를 전달한다. Link가 소유한 slug 원장으로 그룹 일치·셀프 초대 제외를
+판정한다. 직접 초대에는 claim이 없을 수 있으므로 가입 사건을 claim 완료에 종속시키지 않는다.
+미존재·불일치 후보는 `applied:false`로 완료하며 가입 자체는 유지한다.
+
 ## 4. 통신 방식
 
 | 방식 | Target-1 | Target-2 |
@@ -257,5 +263,5 @@ flowchart LR
 `legacySessionId`·`sessionEpoch`를 전달한다. Notification은 별도 legacy 세션 fence의 최초 사용에만
 bootstrap 미연결 구 행의 이전·재등록을 허용하고, 이후에는 같은 세션의 활성 연결을 통한 토큰 회전만 허용한다.
 현대 bootstrap 행은 호환 경로로 덮지 않으며, `auth.session.revoked`는 연결된 구 앱 기기도 비활성화한다.
-sid 없는 구 AT만 행 부재 또는 같은 사용자의 활성·bootstrap 미연결 행에 한정한다. bootstrap 자격은 대신 발급하지 않는다.
+sid 없는 구 AT만 행 부재 또는 같은 사용자의 활성·세션 미연결 행에 한정한다. bootstrap 자격은 대신 발급하지 않는다.
 새 앱은 최초 기기 등록 전에 sid 없는 로그인을 승격하고, 같은 로그인 승격 표식과 일치할 때만 명령을 승계한다. 발급된 bootstrap은 미전송 명령에만 저장하며, 이미 전송한 요청의 키·본문을 바꾸지 않는다.

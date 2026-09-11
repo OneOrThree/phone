@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * 멤버십 전이·표시정보 변경을 <b>링크 서버로 가는 내구 명령</b>으로 적는다 (A22 ⓑ · ⓑ′ · ⓑ″ · ㋢ · ㋡).
@@ -35,6 +36,11 @@ import java.util.UUID;
  * <h2>순서 축은 {@code (groupId, inviterId)} 다</h2>
  * V51 의 직렬화는 같은 {@code userId} 단위인데, claim 사용자와 발급자는 서로 다른 유저다(㋥).
  * 그래서 링크 대상 봉투는 {@link AggregateRef#ofLinkMembership} 축에 적는다.
+ *
+ * <p><b>예외가 하나 있다 — {@code link.joined}.</b> 그 사건의 주체는 «가입자»이고, 새 링크 서버가
+ * 발급한 slug 는 코어가 발급자를 알 수 없다(그 원장이 여기 없다). 발급자를 모르면 발급자 축을 만들
+ * 수조차 없으므로 그 사건만 {@link AggregateRef#ofUser} 가입자 축에 적는다 — 같은 트랜잭션의 재가입
+ * 전이와도 같은 축이라 순서가 갈리지 않는다.
  */
 @Slf4j
 @Service
@@ -72,6 +78,12 @@ public class LinkMembershipEventService {
     public static final String ENDPOINT_DISPLAY_NAME_CHANGED = "link.displayNameChanged";
 
     private static final int SCHEMA_VERSION = 1;
+
+    /**
+     * 링크 서버가 받아들이는 slug 형식({@code text(params.slug, 12)} 과 랜딩·이관 계약의 공통 규칙).
+     * 요청 DTO 에는 제약이 없어 여기서 거른다 — 형식이 어긋난 값은 재시도해도 영원히 400 이다.
+     */
+    private static final Pattern LINK_SLUG = Pattern.compile("^[a-z0-9]{1,12}$");
 
     private final OutboxCommandPort outboxCommandPort;
     private final GroupMemberRepository groupMemberRepository;
@@ -137,34 +149,59 @@ public class LinkMembershipEventService {
     }
 
     /**
-     * 가입 귀속을 내구 기록한다 (ⓑ′).
+     * 가입 <b>사실</b>을 내구 기록한다 (ⓑ′) — 귀속 판정은 <b>slug 원장을 가진 링크 서버</b>가 한다.
      *
-     * <p>초대 slug 가 없으면(코드 가입·검색 가입) <b>적지 않는다</b> — 링크 서버가 귀속시킬 대상이
-     * 없는 사건을 보내면 그쪽 원장에 의미 없는 행이 쌓이고, 그 행들이 전환 퍼널의 분모를 흐린다.
+     * <h2>왜 Data 가 발급자를 정하지 않는가</h2>
+     * 발급이 Business·Link 로 넘어가면 새 slug 는 링크 원장에만 생기고 {@code group_invite_links} 에는
+     * 행이 없다. 그런데 이미 로그인한 사용자가 링크를 직접 눌러 들어오는 경로({@code GroupInviteSheet}
+     * → {@code joinGroup({inviteSlug})})에는 claim 도 선행하지 않는다 — claim 은 로그인 직후 1회만
+     * 나가고, 클릭 후보가 없으면 링크가 {@code claimId=null} 로 정상 완료한다. 그래서 Data 가 아는 것은
+     * <b>앱이 보낸 slug 문자열</b>뿐이고, 그걸로 발급자를 «추정»하면 검증되지 않은 입력이 초대 보상의
+     * 근거가 된다.
+     *
+     * <p>그래서 여기서는 「이 사용자가 이 slug 를 들고 이 그룹에 들어왔다」는 <b>사실</b>만 적는다.
+     * 링크 서버가 자기 원장에서 slug → 링크를 찾아 <b>그룹 일치·셀프 초대 배제</b>를 판정하고, 어긋나면
+     * 귀속하지 않는다. 판정 주체가 원장 소유자여야 코어가 미검증 입력을 신뢰하지 않는다.
+     *
+     * <h2>축과 키</h2>
+     * 순서 축은 <b>가입자의 유저 축</b>이다. 발급자 축({@code (groupId, inviterId)})은 발급자를 모르면
+     * 만들 수조차 없고, 이 사건의 주체는 가입자다. {@code subjectId} 는 들어간 그룹이다.
+     *
+     * <p>사건 키에 <b>가입 회차</b>가 들어간다. 자진 탈퇴 후 다시 초대로 들어오면 같은
+     * {@code (groupId, joinedUserId)} 가 두 번 생기는데, 그 둘로만 키를 만들면
+     * {@code uq_event_outbox_event_id} 위반으로 <b>재가입 트랜잭션 전체가 롤백</b>된다. 「이미 있으면
+     * 건너뛴다」로 접지 않는 이유는 재가입이 <b>다른 발급자의 다른 링크</b>로 들어오는 경우가 흔하고,
+     * 그때 건너뛰면 그 초대가 아무 귀속도 남기지 못하기 때문이다. 링크 원장의 {@code joined_events} 는
+     * {@code event_id} PK 라 회차별 행을 그대로 받는다.
+     *
+     * <h2>형식이 맞는 slug 만 적는다</h2>
+     * {@code inviteSlug} 는 앱이 보낸 임의 문자열이고 요청 DTO 에 길이 제약이 없다. 링크 서버의 계약은
+     * {@code ^[a-z0-9]{1,12}$} 라, 형식이 어긋난 값을 실어 보내면 재시도해도 영원히 400 인 명령이 relay
+     * 큐에 남는다. 형식 미달은 <b>선택 어트리뷰션을 버릴 뿐</b> 가입 자체는 그대로 성공시킨다.
      *
      * @param groupId      가입한 그룹
-     * @param joinedUserId 가입자
-     * @param inviterId    초대 링크의 발급자
-     * @param slug         초대 링크
+     * @param joinedUserId 가입자 — 이 사건의 주체이자 순서 축
+     * @param slug         앱이 보낸 초대 slug. 형식이 어긋나거나 비면 적지 않는다
      * @param joinMethod   참여 경로 — 계약이 정한 값으로 이미 좁혀진 문자열
+     * @param joinEpoch    가입 «직후» 가입자의 멤버십 세대 — 최초 가입은 1, 전이마다 커진다
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public void recordJoinAttribution(UUID groupId, UUID joinedUserId, UUID inviterId, String slug,
-            String joinMethod) {
-        if (slug == null || slug.isBlank() || inviterId == null) {
+    public void recordJoinAttribution(UUID groupId, UUID joinedUserId, String slug, String joinMethod,
+            long joinEpoch) {
+        if (slug == null || !LINK_SLUG.matcher(slug).matches()) {
             return;
         }
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("groupId", groupId.toString());
-        params.put("inviterId", inviterId.toString());
         params.put("joinedUserId", joinedUserId.toString());
         params.put("slug", slug);
         params.put("joinMethod", joinMethod);
+        params.put("joinEpoch", joinEpoch);
 
-        // 봉투의 userId 는 «가입자»다 — 귀속의 주체가 그 사람이고, 링크 서버의 dedup 도 그 축이다.
-        appendLinkCommand(EVENT_LINK_JOINED,
-                EVENT_LINK_JOINED + ":" + groupId + ":" + joinedUserId,
-                joinedUserId, groupId, inviterId, params, ENDPOINT_LINK_JOINED);
+        appendCommand(EVENT_LINK_JOINED,
+                EVENT_LINK_JOINED + ":" + groupId + ":" + joinedUserId + ":" + joinEpoch,
+                joinedUserId, groupId.toString(), AggregateRef.ofUser(joinedUserId),
+                params, ENDPOINT_LINK_JOINED);
     }
 
     /**
@@ -202,15 +239,33 @@ public class LinkMembershipEventService {
      * <p>이름이 바뀌었다고 멤버십 세대가 오르면 그 순간 공유된 링크가 전부 무효가 된다. 표시정보는
      * 별도 {@code snapshotVersion} 으로만 전진한다.
      *
+     * <h2>멤버십 행을 엔티티로 고쳐 쓰지 않는다</h2>
+     * 대상 목록은 <b>잠금 없이</b> 뜬다. 그 뒤 링크 멤버십 aggregate 잠금을 기다리는 동안 그 멤버의
+     * 탈퇴·강퇴가 먼저 커밋될 수 있는데, 이미 로드된 엔티티에는 그 사실이 반영되지 않는다.
+     * {@code GroupMember} 에는 {@code @Version} 도 {@code @DynamicUpdate} 도 없어 더티 체킹이
+     * <b>전 컬럼 UPDATE</b> 를 내므로, 그 상태로 표시 버전만 올려도 {@code is_left}·
+     * {@code left_reason}·{@code membership_epoch} 까지 옛 값으로 되돌아간다 — <b>강퇴된 사용자의
+     * 접근 권한이 되살아난다.</b> 그래서 이 경로는 유저 PK 만 읽고, 쓰기는 표시 버전 컬럼 하나로
+     * 좁힌 조건부 UPDATE 로 한다.
+     *
+     * <p>그 UPDATE 가 0행이면 그 사이 이탈이다 — 명령도 적지 않는다. 폐기된 링크의 표시정보를
+     * 갱신할 이유가 없고, 그 시점엔 {@code link.revoked} 가 이미 같은 축에 적혀 있다. 이때 발급받은
+     * version 은 쓰이지 않고 <b>번호에 구멍</b>이 남는데, relay 는 축별 「가장 낮은 «미전달 행»」을
+     * 고르지 번호의 연속성을 요구하지 않으므로 그 구멍은 아무것도 막지 않는다(A21 ①).
+     *
      * @param group 새 이름이 «이미 반영된» 그룹
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void recordGroupRenamed(Group group) {
-        for (GroupMember member : groupMemberRepository.findByGroup(group)) {
-            UUID inviterId = member.getUser().getId();
+        for (UUID inviterId : groupMemberRepository.findActiveMemberUserIdsByGroupId(group.getId())) {
+            if (groupMemberRepository.lockActiveMembershipId(group.getId(), inviterId).isEmpty()) {
+                continue;
+            }
             long snapshotVersion = outboxCommandPort.allocateVersion(
                     AggregateRef.ofLinkMembership(group.getId(), inviterId));
-            member.applyDisplaySnapshot(snapshotVersion);
+            if (groupMemberRepository.advanceSnapshotVersion(group.getId(), inviterId, snapshotVersion) == 0) {
+                continue;
+            }
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("groupId", group.getId().toString());
             params.put("inviterId", inviterId.toString());
@@ -229,16 +284,23 @@ public class LinkMembershipEventService {
      * 바뀌었는가」를 payload 의 null 여부로 추측하게 되고, 그러면 「이름을 지웠다」와 「안 바뀌었다」가
      * 구분되지 않는다.
      *
+     * <p>그룹명 변경과 같은 이유로 멤버십 행은 <b>엔티티로 고쳐 쓰지 않는다</b> — 근거는
+     * {@link #recordGroupRenamed} 에 적어 두었다(표시 버전 갱신이 탈퇴를 되살리는 문제).
+     *
      * @param userId      닉네임이 바뀐 유저
      * @param displayName 새 닉네임
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void recordDisplayNameChanged(UUID userId, String displayName) {
-        for (GroupMember member : groupMemberRepository.findActiveMembershipsByUserId(userId)) {
-            UUID groupId = member.getGroup().getId();
+        for (UUID groupId : groupMemberRepository.findActiveGroupIdsByUserId(userId)) {
+            if (groupMemberRepository.lockActiveMembershipId(groupId, userId).isEmpty()) {
+                continue;
+            }
             long snapshotVersion =
                     outboxCommandPort.allocateVersion(AggregateRef.ofLinkMembership(groupId, userId));
-            member.applyDisplaySnapshot(snapshotVersion);
+            if (groupMemberRepository.advanceSnapshotVersion(groupId, userId, snapshotVersion) == 0) {
+                continue;
+            }
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("groupId", groupId.toString());
             params.put("inviterId", userId.toString());
@@ -252,14 +314,20 @@ public class LinkMembershipEventService {
 
     private void appendLinkCommand(String type, String eventId, UUID userId, UUID groupId, UUID inviterId,
             Map<String, Object> params, String endpointKey) {
+        appendCommand(type, eventId, userId, groupId + ":" + inviterId,
+                AggregateRef.ofLinkMembership(groupId, inviterId), params, endpointKey);
+    }
+
+    private void appendCommand(String type, String eventId, UUID userId, String subjectId,
+            AggregateRef aggregate, Map<String, Object> params, String endpointKey) {
         outboxCommandPort.append(new OutboxAppendCommand(
                 eventId,
                 SCHEMA_VERSION,
                 type,
                 userId,
                 null,
-                groupId + ":" + inviterId,
-                AggregateRef.ofLinkMembership(groupId, inviterId),
+                subjectId,
+                aggregate,
                 null,
                 params,
                 List.of(OutboxDeliveryRequest.toLink(endpointKey, null))));

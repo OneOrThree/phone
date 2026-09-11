@@ -7,6 +7,7 @@ import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -157,6 +158,70 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
      */
     @Query("SELECT gm FROM GroupMember gm WHERE gm.user = :user AND gm.group = :group")
     Optional<GroupMember> findAnyByUserAndGroup(@Param("user") User user, @Param("group") Group group);
+
+    /**
+     * 표시정보 갱신(A22 ㋡) 대상 — <b>엔티티가 아니라 유저 PK 만</b> 돌려준다.
+     *
+     * <p>엔티티를 로드하지 않는 것이 이 조회의 존재 이유다. {@link #findByGroup} 으로 멤버를 읽어
+     * 두면 그 스냅샷은 <b>잠금 없이</b> 뜬 값인데, 이름 변경 트랜잭션은 그 뒤에 링크 멤버십
+     * aggregate 잠금을 기다린다 — 그 대기 중에 커밋된 탈퇴·강퇴는 이미 로드된 엔티티에 반영되지
+     * 않는다. {@code GroupMember} 에는 {@code @Version} 도 {@code @DynamicUpdate} 도 없어
+     * 더티 체킹이 <b>전 컬럼 UPDATE</b> 를 내므로, 그 상태로 표시 버전만 올려도 {@code is_left}·
+     * {@code left_reason}·{@code membership_epoch} 까지 옛 값으로 되돌아간다(강퇴자 부활).
+     *
+     * <p>{@code id} 오름차순은 동시 이름 변경끼리 같은 순서로 행을 잠그게 해 교착을 막는다.
+     *
+     * @param groupId 표시정보가 바뀐 그룹
+     * @return 활성 멤버의 유저 PK — 이 값으로 {@link #advanceSnapshotVersion} 을 건다
+     */
+    @Query("SELECT gm.user.id FROM GroupMember gm "
+            + "WHERE gm.group.id = :groupId AND gm.isLeft = false ORDER BY gm.id")
+    List<UUID> findActiveMemberUserIdsByGroupId(@Param("groupId") UUID groupId);
+
+    /**
+     * 닉네임 변경(A22 ㋡) 대상 — 그 유저가 활성 멤버인 그룹 PK 만. 근거는
+     * {@link #findActiveMemberUserIdsByGroupId} 와 같다(엔티티를 로드하지 않는다).
+     *
+     * @param userId 닉네임이 바뀐 유저
+     * @return 활성 멤버십의 그룹 PK
+     */
+    @Query("SELECT gm.group.id FROM GroupMember gm "
+            + "WHERE gm.user.id = :userId AND gm.isLeft = false ORDER BY gm.id")
+    List<UUID> findActiveGroupIdsByUserId(@Param("userId") UUID userId);
+
+    /**
+     * 표시 변경도 탈퇴·강퇴와 같이 멤버 행을 먼저 잠근 뒤 aggregate를 잠근다.
+     * 엔티티는 로드하지 않으며 기다리는 동안 이탈한 행은 제외한다.
+     *
+     * @param groupId 그룹
+     * @param userId 멤버
+     * @return 잠근 활성 멤버 PK
+     */
+    @Query(value = "SELECT id FROM group_members WHERE group_id = :groupId AND user_id = :userId "
+            + "AND is_left = false FOR UPDATE", nativeQuery = true)
+    Optional<UUID> lockActiveMembershipId(@Param("groupId") UUID groupId, @Param("userId") UUID userId);
+
+    /**
+     * 표시정보 스냅샷 버전만 전진시킨다 (A22 ㋡) — <b>컬럼 하나짜리 UPDATE</b> 다.
+     *
+     * <p>더티 체킹으로 올리면 전 컬럼 UPDATE 가 나가 멤버십 축({@code is_left}·{@code left_reason}·
+     * {@code membership_epoch}·{@code transition_seq})까지 옛 스냅샷으로 덮인다. 표시 축과 멤버십
+     * 축은 서로를 건드리지 않아야 하므로 쓰기도 컬럼 단위로 좁힌다.
+     *
+     * <p>{@code is_left = false} 조건이 곧 경합 판정이다. 링크 멤버십 aggregate 잠금 아래에서 돌기
+     * 때문에, 먼저 커밋된 탈퇴·강퇴가 있으면 여기서 0행이 되고 호출측은 명령 자체를 적지 않는다 —
+     * 그 링크는 이미 폐기됐으니 표시정보를 갱신할 대상이 아니다.
+     *
+     * @param groupId         대상 그룹
+     * @param userId          대상 멤버
+     * @param snapshotVersion aggregate 잠금 아래 발급받은 단조값
+     * @return 갱신된 행 수 — <b>0 이면 그 사이 이탈</b>이다
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE GroupMember gm SET gm.snapshotVersion = :snapshotVersion "
+            + "WHERE gm.group.id = :groupId AND gm.user.id = :userId AND gm.isLeft = false")
+    int advanceSnapshotVersion(@Param("groupId") UUID groupId, @Param("userId") UUID userId,
+            @Param("snapshotVersion") long snapshotVersion);
 
     /**
      * A-2: 계정 탈퇴 시 방장으로 남은 그룹 정리용 — 유저가 현재 방장(활성)인 멤버십과 그 그룹.

@@ -278,6 +278,11 @@ class DeviceReplayTest {
         // 남의 세션 id 로도 통과하지 못한다 — fence 는 유저까지 함께 본다.
         UUID session = UUID.randomUUID();
         devices.register(USER, legacySessionBody("fcm-a", session, 1L), "mine");
+        // sid 없는 구 AT가 새 세션 연결을 지우면 이후 로그아웃의 폐기가 이 기기에 닿지 못한다.
+        assertThatThrownBy(() -> devices.register(USER, legacyBody("fcm-a", null), "downgrade"))
+                .hasMessage("DEVICE_OWNERSHIP_CONFLICT");
+        assertThat(store.one("SELECT legacy_session_id FROM device_tokens WHERE device_token='fcm-a'"))
+                .containsEntry("legacy_session_id", session);
         assertThatThrownBy(() -> devices.register(OTHER, legacySessionBody("fcm-a", session, 1L), "borrowed"))
                 .hasMessage("SESSION_REVOKED");
     }

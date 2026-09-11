@@ -6,6 +6,7 @@ import com.oneorthree.phone.notification.service.ChallengeDurationEndNotificatio
 import com.oneorthree.phone.notification.service.ChallengeWindowEndNotificationService;
 import com.oneorthree.phone.notification.service.InactiveReturnNotificationService;
 import com.oneorthree.phone.notification.service.LeagueNotificationService;
+import com.oneorthree.phone.notification.service.NotificationBatchRetry;
 import com.oneorthree.phone.notification.service.LeagueReengagementNotificationService;
 import com.oneorthree.phone.notification.service.RankOvertakeNotificationService;
 import com.oneorthree.phone.notification.service.SessionOpenNotificationService;
@@ -40,6 +41,7 @@ public class NotificationScheduler {
      */
     static final String FANOUT_LOCK = "PT1H";
 
+    private final NotificationBatchRetry batchRetry;
     private final LeagueNotificationService leagueNotificationService;
     private final InactiveReturnNotificationService inactiveReturnNotificationService;
     private final RankOvertakeNotificationService rankOvertakeNotificationService;
@@ -58,9 +60,9 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-league-weekly-results", lockAtMostFor = FANOUT_LOCK)
     public void sendWeeklyResultNotifications() {
         try {
-            leagueNotificationService.sendWeeklyResultNotifications();
+            batchRetry.run(leagueNotificationService::sendWeeklyResultNotifications);
         } catch (Exception e) {
-            // 실패가 같은 시각 다른 스케줄/다음 주기에 전파되지 않게 격리 — 해당 주 알림은 유실 허용(로그 감시)
+            // 재시도 소진은 로그 감시 후 원래 슬롯으로 수동 재생한다(OUTBOX 모드).
             log.error("주간 리그 결과 알림 스케줄 실패", e);
         }
     }
@@ -72,7 +74,7 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-league-deadline", lockAtMostFor = FANOUT_LOCK)
     public void sendDeadlineReminders() {
         try {
-            leagueNotificationService.sendDeadlineReminders();
+            batchRetry.run(leagueNotificationService::sendDeadlineReminders);
         } catch (Exception e) {
             log.error("리그 마감 임박 알림 스케줄 실패", e);
         }
@@ -85,7 +87,7 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-league-sunday-crisis", lockAtMostFor = FANOUT_LOCK)
     public void sendSundayCrisisReminders() {
         try {
-            leagueNotificationService.sendSundayCrisisReminders();
+            batchRetry.run(leagueNotificationService::sendSundayCrisisReminders);
         } catch (Exception e) {
             log.error("일요일 위기 알림(강등 경고·마감 D-1) 스케줄 실패", e);
         }
@@ -98,7 +100,7 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-league-relegation-warning", lockAtMostFor = FANOUT_LOCK)
     public void sendRelegationWarnings() {
         try {
-            leagueNotificationService.sendRelegationWarnings();
+            batchRetry.run(leagueNotificationService::sendRelegationWarnings);
         } catch (Exception e) {
             log.error("일요일 저녁 강등 경고 재발송 스케줄 실패", e);
         }
@@ -111,7 +113,7 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-league-final-deadline", lockAtMostFor = FANOUT_LOCK)
     public void sendFinalDeadlineReminders() {
         try {
-            leagueNotificationService.sendFinalDeadlineReminders();
+            batchRetry.run(leagueNotificationService::sendFinalDeadlineReminders);
         } catch (Exception e) {
             log.error("리그 마감 2시간 전 알림 스케줄 실패", e);
         }
@@ -151,7 +153,7 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-missed-focus-today", lockAtMostFor = FANOUT_LOCK)
     public void sendMissedFocusToday() {
         try {
-            leagueReengagementNotificationService.sendMissedFocusToday();
+            batchRetry.run(leagueReengagementNotificationService::sendMissedFocusToday);
         } catch (Exception e) {
             log.error("오늘 미집중 푸시 스케줄 실패", e);
         }
@@ -167,7 +169,7 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-streak-at-risk", lockAtMostFor = FANOUT_LOCK)
     public void sendStreakAtRisk() {
         try {
-            leagueReengagementNotificationService.sendStreakAtRisk();
+            batchRetry.run(leagueReengagementNotificationService::sendStreakAtRisk);
         } catch (Exception e) {
             log.error("스트릭 위기 푸시 스케줄 실패", e);
         }

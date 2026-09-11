@@ -345,17 +345,21 @@ public class GroupService {
         }
 
         // 6. 자진 탈퇴자 재가입이면 기존 행 되살리기(유니크 제약 회피), 아니면 신규 저장 (role = MEMBER)
+        GroupMember membership;
         if (priorMembership.isPresent()) {
-            priorMembership.get().rejoin();
+            membership = priorMembership.get();
+            membership.rejoin();
             // 재가입도 멤버십 전이다(ⓚ: 탈퇴·강퇴·«재가입»). 여기서 세대를 올리지 않으면 탈퇴 전에
             // 공유된 옛 링크가 재가입과 함께 그대로 되살아난다.
-            linkMembershipEventService.recordMembershipRejoined(priorMembership.get());
+            linkMembershipEventService.recordMembershipRejoined(membership);
         } else {
-            groupMemberRepository.save(GroupMember.builder()
+            // 최초 가입의 세대는 1 이다(엔티티 기본값) — 아래 귀속 사건 키의 «회차»가 이 값이다.
+            membership = GroupMember.builder()
                     .user(user)
                     .group(group)
                     .role(GroupMemberRole.MEMBER)
-                    .build());
+                    .build();
+            groupMemberRepository.save(membership);
         }
 
         // 7. 어트리뷰션 — 참여 경로(join_method)와 초대 slug 를 두 트랙에 기록한다.
@@ -366,11 +370,15 @@ public class GroupService {
         // 링크 서버로 가는 귀속은 «커밋 후 fire-and-forget» 이면 안 된다(ⓑ′) — 응답 유실·프로세스
         // 종료 시 보낼 주체가 사라진다. 위 두 트랙(GA4·Track2)과 달리 이쪽은 같은 트랜잭션의
         // outbox 에 적고 relay 가 재전달한다.
-        if (invite != null) {
-            linkMembershipEventService.recordJoinAttribution(
-                    groupId, userId, invite.inviterId(), invite.slug(),
-                    normalizeJoinMethod(request.getJoinMethod()));
-        }
+        //
+        // ⚠️ 위 두 트랙과 «조건»이 다르다. 여기는 로컬 조회가 성사된 초대가 아니라 앱이 보낸 slug
+        //    그대로를 싣는다 — 새 링크 서버가 발급한 slug 는 코어 DB 에 행이 아예 없고, 이미 로그인한
+        //    사용자의 직접 링크 가입에는 claim 도 선행하지 않기 때문이다. 그 slug 가 누구의 링크인지는
+        //    원장을 가진 링크 서버가 판정한다(그룹 일치·셀프 초대 배제). 코어는 발급자를 추정하지 않고,
+        //    Track2·GA4 의 inviter_id 는 여전히 «로컬에서 검증된» 귀속에서만 나온다.
+        linkMembershipEventService.recordJoinAttribution(
+                groupId, userId, request.getInviteSlug(),
+                normalizeJoinMethod(request.getJoinMethod()), membership.getMembershipEpoch());
     }
 
     /**
@@ -383,6 +391,12 @@ public class GroupService {
      * </ul>
      *
      * <p>slug 가 없으면 조회 자체를 하지 않는다(구버전 앱 요청은 DB 왕복 0회).
+     *
+     * <p><b>여기서 못 찾는 slug 가 정상일 수 있다</b>(A22 ㋟). 발급이 링크 서버로 넘어가면 새 slug 는
+     * 그쪽 원장에만 생겨 이 조회는 빈손이 된다. 그래도 <b>Track2·GA4 는 그대로 둔다</b> — 두 트랙의
+     * {@code inviter_id} 는 코어가 «검증한» 사실이어야 하고, 미검증 입력으로 채우면 분석 퍼널의
+     * 초대자가 앱이 보낸 문자열이 된다. 링크 원장으로 가는 가입 사실은 별도로
+     * {@code recordJoinAttribution} 이 slug 그대로 싣고, 판정은 원장 소유자가 한다.
      */
     private InviteAttribution resolveInviteAttribution(UUID groupId, UUID userId, String inviteSlug) {
         if (inviteSlug == null || inviteSlug.isBlank()) {

@@ -319,7 +319,7 @@ class DeviceService {
     private boolean legacyRow(Map<String, Object> previous, UUID user) {
         return previous == null
                 || (user.equals(previous.get("user_id")) && Boolean.TRUE.equals(previous.get("active"))
-                        && previous.get("bootstrap_hash") == null);
+                        && previous.get("bootstrap_hash") == null && previous.get("legacy_session_id") == null);
     }
 
     private Map<String, Object> userFence(UUID user) {
