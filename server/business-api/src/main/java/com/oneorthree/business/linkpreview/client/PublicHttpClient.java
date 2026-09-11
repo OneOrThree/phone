@@ -5,11 +5,13 @@ import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
+import java.net.SocketTimeoutException;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hc.client5.http.DnsResolver;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
 import org.apache.hc.client5.http.config.RequestConfig;
@@ -33,7 +35,7 @@ public class PublicHttpClient {
         URI current = uri;
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         for (int hop = 0; hop <= 3; hop++) {
-            PublicAddressPolicy.parse(current.toString());
+            current = PublicAddressPolicy.parse(current.toString());
             InetAddress[] pinned = PublicAddressPolicy.resolve(current.getHost());
             DnsResolver resolver = new DnsResolver() {
                 @Override
@@ -60,7 +62,11 @@ public class PublicHttpClient {
             if (remaining <= 0) {
                 throw new PreviewException("FETCH_TIMEOUT");
             }
-            var cancellation = deadlines.schedule(request::cancel, remaining, TimeUnit.NANOSECONDS);
+            AtomicBoolean timedOut = new AtomicBoolean();
+            var cancellation = deadlines.schedule(() -> {
+                timedOut.set(true);
+                request.cancel();
+            }, remaining, TimeUnit.NANOSECONDS);
             try (var client = HttpClients.custom().setConnectionManager(manager).setDefaultRequestConfig(config)
                     .disableRedirectHandling().disableAutomaticRetries().disableCookieManagement()
                     .disableContentCompression().build();
@@ -72,7 +78,7 @@ public class PublicHttpClient {
                         if (location == null || hop == 3 || metadata) {
                             throw new PreviewException("REDIRECT_REJECTED");
                         }
-                        URI next = current.resolve(location.getValue());
+                        URI next = PublicAddressPolicy.parse(current.resolve(location.getValue()).toString());
                         if ("https".equals(current.getScheme()) && !"https".equals(next.getScheme())) {
                             throw new PreviewException("REDIRECT_REJECTED");
                         }
@@ -109,6 +115,11 @@ public class PublicHttpClient {
                     // 무제한 본문을 close 시 배출하지 않도록 먼저 연결을 중단한다.
                     request.cancel();
                 }
+            } catch (IOException e) {
+                if (timedOut.get() || e instanceof SocketTimeoutException || System.nanoTime() >= deadline) {
+                    throw new PreviewException("FETCH_TIMEOUT");
+                }
+                throw e;
             } finally {
                 cancellation.cancel(false);
             }

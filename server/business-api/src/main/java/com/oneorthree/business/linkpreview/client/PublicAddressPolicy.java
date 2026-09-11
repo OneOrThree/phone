@@ -28,7 +28,7 @@ public final class PublicAddressPolicy {
     public static URI parse(String url) {
         try {
             URI uri = URI.create(url.split("#", 2)[0]);
-            String scheme = uri.getScheme();
+            String scheme = uri.getScheme() == null ? null : uri.getScheme().toLowerCase(Locale.ROOT);
             if (url.length() > 4096 || uri.getHost() == null || uri.getRawUserInfo() != null
                     || !("https".equals(scheme) || "http".equals(scheme))
                     || (uri.getPort() != -1 && uri.getPort() != ("https".equals(scheme) ? 443 : 80))) {
@@ -39,7 +39,8 @@ public final class PublicAddressPolicy {
                     || host.endsWith(".internal") || host.endsWith(".")) {
                 throw new PreviewException("BLOCKED_ADDRESS");
             }
-            return uri;
+            // 원문 escape를 보존하며 스킴만 정규화한다. 리다이렉트의 downgrade 검사도 같은 값을 사용한다.
+            return URI.create(scheme + uri.toString().substring(uri.getScheme().length()));
         } catch (IllegalArgumentException e) {
             throw new PreviewException("INVALID_URL");
         }
@@ -95,6 +96,7 @@ public final class PublicAddressPolicy {
         }
         // IPv6는 전역 유니캐스트만 허용하고 전환·문서용 네트워크도 차단한다.
         return (first & 0xe0) == 0x20
+                && !(first == 0x3f && second == 0xff && (Byte.toUnsignedInt(bytes[2]) & 0xf0) == 0)
                 && !(first == 0x20 && second == 0x02)
                 && !(first == 0x20 && second == 0x01
                 && (Byte.toUnsignedInt(bytes[2]) < 2
