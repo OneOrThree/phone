@@ -129,16 +129,20 @@ public interface UserControllerDocs {
     /**
      * @param body   설정 <b>전체 교체</b> — 한 항목만 바꾸려 해도 나머지를 현재값으로 함께 보내야 한다
      * @param userId 본인
+     * @param idempotencyKey 선택 재시도 키. 없으면 기존처럼 각 요청을 별도 명령으로 처리한다
      * @return 본문 없는 204
      */
     @Operation(summary = "알림·심야·소리 설정 저장",
-            description = "유저 전역 알림/심야 모드/소리 설정 저장. 성공 시 204 반환.")
+            description = "유저 전역 알림/심야 모드/소리 설정 저장. 성공 시 204 반환. "
+                    + "선택 Idempotency-Key를 재시도에서 유지하면 같은 명령을 재생한다.")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "저장 성공"),
         @ApiResponse(responseCode = "400", description = "필수 필드 누락"),
-        @ApiResponse(responseCode = "404", description = "유저 없음")
+        @ApiResponse(responseCode = "404", description = "유저 없음"),
+        @ApiResponse(responseCode = "409", description = "같은 멱등 키에 다른 설정 본문")
     })
-    ResponseEntity<Void> updateNotificationSettings(NotificationSettingsRequest body, UUID userId);
+    ResponseEntity<Void> updateNotificationSettings(NotificationSettingsRequest body, UUID userId,
+            String idempotencyKey);
 
     /**
      * @param userId 본인
