@@ -117,7 +117,9 @@ DB저장 성공뒤프로필조합/응답전송/최종 인가실패가있어도�
 
 ## 5. 히스토리·프로필·실시간 병합
 
-DB조회는id DESC,과거쪽id<cursor로limit+1을받는다. nextCursor anchor는그선택집합의가장작은id이며응답items를id ASC로뒤집어반환한다(앱한묶음오름차순). 클라이언트도서버id순서를우선하고표시createdAt만으로동시노드순서를재정렬하지않는다. 프로필배치정렬이나items반전후잘못된끝값을nextCursor로쓰지않는다.
+DB조회는id DESC,과거쪽id<cursor로limit+1을받는다. 초과한1행은 hasMore 판정에만 쓰고 실제 반환 집합은 처음 limit행이다. 초과행이 있을 때 nextCursor anchor는 **실제 반환한 처음 limit행의 최소id**이며, 초과행이 없으면 nextCursor=null이다. cursor를 확정한 뒤 반환 집합만 id ASC로 뒤집는다(앱한묶음오름차순). 클라이언트도서버id순서를우선하고표시createdAt만으로동시노드순서를재정렬하지않는다. 프로필배치정렬이나items반전후잘못된끝값을nextCursor로쓰지않는다.
+
+검증: ID100~70의31행, limit30이면 DESC 선택에서100~71의30행만 반환 대상으로 잡고 nextCursor anchor는71이다. wire items는 그 뒤71~100으로 반전하며, 다음 id<71 조회에70이 포함되어야 한다. 초과행70을 cursor로 쓰면70이 누락되므로 금지한다. 마지막 페이지에 초과행이 없으면 nextCursor=null을 검증한다. 이 숫자는 정렬 경계를 설명하는 예시이며 실제 ID 형식은 기존 UUID 계약을 유지한다.
 
 공통HMAC cursor의actor/island/order/limit/anchor/발급·만료/keyId결박을사용한다. 문자열UUID를직접opaque커서로받지않는다. 잘못된형식/위조/다른 사용자·섬400 INVALID_CURSOR,만료409 CURSOR_EXPIRED. 현재 인가를매페이지검증한다. legacyUUID커서/size clamp는원경로에서유지한다.
 
