@@ -557,13 +557,17 @@ writer가 먼저 잠그면 소비자가 기다렸다가 방금 쓴 커서까지 
 기준 main의 [InviteLinkClick.claim](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/domain/InviteLinkClick.java#L126-L131)은
 claimed user의 null 여부만 검사한다. 후속 Data 구현은 **claimed_user_id IS NULL AND claimed_at IS NULL**을
 후보 SQL과 도메인 claim 양쪽에 적용하고 기존 클릭 행 잠금·최초 1회 귀속 조건을 유지한다.
+후속 중앙 claim은 legacy 진입도 포함해 현재 claimant의 활성 users 공유 잠금을 클릭 잠금보다 먼저 잡고
+TX 종료까지 유지하여 탈퇴와 직렬화한다. 발급자도 잠그는 경로는 기존 복수 사용자 UUID 정렬 및
+users→그룹/클릭 순서를 유지하며 클릭을 먼저 잡고 사용자 잠금을 역으로 얻지 않는다. 컨트롤러 인증이나
+잠금 없는 사전 사용자 조회만으로 이 fence가 구현됐다고 간주하지 않는다.
 익명화는 claimed_user_id만 끊고 기존 claimed_at을 비식별 소진 근거로 유지한다. 클릭 전체를 되살리는
 복원/이관/재시도도 그 표지를 보존하며, claimed_at을 추후 지워야 한다면 비식별 consumed 표지로 먼저
 이행한 뒤 같은 판정을 유지한다. 시각이나 UUID가 null이라는 이유만으로 미사용으로 초기화하지 않는다.
-Link 위성은 별도 선행 1660 브랜치의 고정 커밋 `11d2f1c519422c3e068c53658dac283562c2e3c0`
-[claim 후보](https://github.com/OneOrThree/phone/blob/11d2f1c519422c3e068c53658dac283562c2e3c0/link/src/lib/links.ts#L143-L163)에서
+Link 위성은 별도 선행 1660 브랜치의 원격 게시된 고정 커밋 `0c4deeded1ed0eb3a3abe04d8d19bdbda951cf9c`
+[claim 후보](https://github.com/OneOrThree/phone/blob/0c4deeded1ed0eb3a3abe04d8d19bdbda951cf9c/link/src/lib/links.ts#L143-L163)에서
 이미 claimed_user_id·claim_id·claimed_at이 모두 null인 행만 선택한다. 이 방어를 미구현으로 취급하지 않고
-[폐기 후 지연 import 회귀](https://github.com/OneOrThree/phone/blob/11d2f1c519422c3e068c53658dac283562c2e3c0/link/tests/migration.test.ts#L196-L205)와 함께 보존한다.
+[폐기 후 지연 import 회귀](https://github.com/OneOrThree/phone/blob/0c4deeded1ed0eb3a3abe04d8d19bdbda951cf9c/link/tests/migration.test.ts#L167-L178)와 함께 보존한다.
 소진 표지는 캐시된 완료 결과의 현재 인가를 대신하지 않는다. 완료 재생도 기존 탈퇴/소유 검증을 적용하며,
 새 claim action의 활성 검사만으로 캐시 재생까지 보호됐다고 주장하지 않는다.
 A가 claim한 뒤 탈퇴 → 같은 slug의 B claim, 그리고 탈퇴/claim의 양방향 경합에서 A의 원 UUID는
