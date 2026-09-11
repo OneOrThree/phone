@@ -42,7 +42,7 @@ home의 date 누락은 서버 KST 오늘. hall from/to/scope와31일 기술 상�
 - members: items/nextCursor/**version**. joinRequests: items[{id,applicantId,name,status,version}]/nextCursor. 일반주민에게는후자를조회하지 않는다.
 - quests/notices:1773/1771 목록공개 DTO. 카드마다progress/detail을추가HTTP로조회하지 않는다. 각item의실제 버전/회차/페이지정보를보존한다.
 - memberRankings/islandRankings: PR748의같은관측시각·승인된cohort/순위정책. myRank는현재페이지번호가아니라전체snapshot순위다.
-- products:1781목록의ownerType/productVersion/owned/available/reason 포함. wallets의fishVersion/villagePointsVersion은각지갑축이다. sharedInventory의inventoryVersion/appearance.version, inventory의inventoryVersion/equipped.version도유지한다.
+- products:1781목록의ownerType/productVersion/owned/available/reason 포함. wallets의fishVersion/villagePointsVersion은각지갑축이다. sharedInventory의inventoryVersion/appearance.version, inventory의inventoryVersion/equipped.version도 유지한다. 이 ownerType·productVersion·inventory/외양 버전은 원본 HTML에 있던 필드라는 뜻이 아니라 [1780 상점 설계](../island-shop/low-level-design.md)와 [1782 보유품 설계](../island-appearance/low-level-design.md)의 명시 확장을 BFF가 상속한다는 뜻이다.
 - me:1757의id/name/catColor/linkedProviders/onboardingComplete. 공개색상/온보딩정책이 미결이면기본값을발명하지 않는다.
 
 ### N 상태 불변식
@@ -774,7 +774,7 @@ Data는 단일 SELECT 또는 REPEATABLE READ의 일관된 snapshot에서 다음�
 
 retryable은A0표를사용한다. 명시된409stateconflict는false, REQUEST_IN_PROGRESS는범용명령용이며BFF가새명령receipt를만들어발생시키지않는다.503/504/429는일시분류와알려진Retry-After에따라유한재조회한다.500/계약502/auth실패를무한반복하지 않는다.405/413/415/빈406도공통정본을유지한다.
 
-**PR744후속검증 gate**: 조사시점InternalHttpClient는구조화된영구500/502를일시5xx로접을수있었고현재엄격분류수정중이다. 신규 public+composition은서버판정context로strict분류,legacy 동기 호환은별도유지한다. 앱헤더로strict/legacy를선택하게하지 않는다. 실제 TCP에서영구500/502·미지원구조화5xx·known503·부분본문/EOF가각각계약대로종료되고재시도/optional축소가없다는최신회귀가통과하기전BFF활성화하지 않는다. 이 문서에그수정/배포가끝났다고기록하지 않는다.
+**PR744후속검증 gate**: 조사시점InternalHttpClient는구조화된영구500/502를일시5xx로접을수있었고현재엄격분류수정중이다. 신규 public+composition은서버판정context로strict분류,legacy 동기 호환은별도유지한다. 앱헤더로strict/legacy를선택하게하지 않는다. 실제 TCP에서영구500/502·미지원구조화5xx·known503·부분본문/EOF가각각 계약대로 처리되고 영구·계약 실패에는 재시도/optional 축소가 없으며 알려진 일시503은 공통 한도 안에서 재시도한다는 최신 회귀가통과하기전BFF활성화하지 않는다. 이 문서에그수정/배포가끝났다고기록하지 않는다.
 
 `required=true`는결과의nonnull/도메인불변식검증을대신하지 않는다. 기존 HTTP의빈2xx→null과정상`data:null`은adapter에서구분하고,필수 필드누락·타입 coercion·ID불일치·version범위·watermark누락·availability불일치를502로거절한다. 초 단위/정수·UUID·enum은원 도메인의strict DTO로검증한다. ReadFragment.responseType만등록하고Map을그대로신뢰하지 않는다.
 

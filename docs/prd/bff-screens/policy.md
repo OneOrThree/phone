@@ -46,7 +46,7 @@ availability의 available은 해당 조각이 도메인 계약대로 조회됐�
 | BG01 | IM-D06 currentIsland=null 복구·가입/이동 context | home/현재 섬 화면. 임의 첫 소속·자동 생성·시설 우회 금지 |
 | BG02 | 초기 건설 기여/목표 DTO·가격/공동권한, focus 보상·강퇴·입력정책 | 필요한 island/session 재료가 실제로완성되기 전 해당 화면 활성화 금지. 조회가미답 정책을 채택하지 않음 |
 | BG03 | 기록 개인범위/측정기기 병합/기간 상태와 랭킹 분모·동점·참가·마감 | hall/tower. 미결을0초/eligible로 반환하지 않음 |
-| BG04 | 신규 me/catColor 및 inventory·미디어 소유/길이·1759/1783 섬 외양 버전 및1765/1783 집중 주민 개인 외양 버전 제공 | boat/sound/shop 및 해당 섬 화면. 예시색/무료곡/샘플완공을 운영기본값으로 쓰지 않음. 두 appearanceVersion의 각 정본 직접매핑·역순 외양사건·늦은 GET 응답 회귀 필요. 집중 주민의 도메인 GET/BFF가 같은 개인 외양 버전을 제공하기 전 focus 화면 활성화 금지 |
+| BG04 | 신규 me/catColor 및 1780/1782 명시 확장인 products.ownerType/productVersion·inventoryVersion/equipped.version/appearance.version·미디어 소유/길이·1759/1783 섬 외양 버전 및1765/1783 집중 주민 개인 외양 버전 제공 | home/travel/island-manage/focus/sound/shop/boat 7개 화면. 예시색/무료곡/샘플완공을 운영기본값으로 쓰지 않음. 두 appearanceVersion의 각 정본 직접매핑·역순 외양사건·늦은 GET 응답 회귀 필요. 집중 주민의 도메인 GET/BFF가 같은 개인 외양 버전을 제공하기 전 focus 화면 활성화 금지 |
 | BG05 | private 비소속 visit의 초대 읽기자격 전달 | 기존 무자격GET403 유지. 원본resolve 공개요약 재사용 또는 명시자격 read-model 연동 전 해당 private 진입 활성화 금지 |
 | BG06 | PR744의 구조화된 영구5xx strict 분류와 실제 HTTP 회귀 | 신규 public+composition 엄격 분류는 수정 중. legacy 동기호환과 분리하고 완료/배포로 가정하지 않음 |
 | BG07 | Data 화면 read-model GET 제공자·정확 allowlist·strict DTO·인가/snapshot 검증 | A9의 D42 예외 범위와 LLD §3의 13개 GET을 대조하고 기존 query 모듈을 재사용한다. 13개 BFF controller만 추가해 완료로 계산하지 않음 |
