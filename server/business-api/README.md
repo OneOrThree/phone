@@ -866,9 +866,13 @@ sequenceDiagram
         D-->>B: REALTIME_NOT_READY (변경 없음)
         B-->>App: 503 SERVICE_UNAVAILABLE
     else 검증 환경의 명령 경로
-        D->>DB: 사용자·그룹·멤버십 잠금, 현재 인증 확인
-        D->>DB: 원 receipt 조회 또는 역할 교체
-        D->>DB: 주민 version·최소 결과·REALTIME 전달 행 동시 저장
+        D->>DB: 사용자 잠금·현재 세션 인증·원 receipt 조회
+        alt 완료 receipt 있음
+            D->>D: 현재 본인 인증과 원 명령 지문 재검사
+        else 새 명령
+            D->>DB: 그룹·멤버십 잠금 후 현재 방장·대상 확인
+            D->>DB: 역할 교체·주민 version·최소 결과·REALTIME 전달 행 저장
+        end
         DB-->>D: 모두 커밋
         D-->>B: hostUserId + 원 version
         B-->>App: data 봉투
@@ -882,6 +886,9 @@ sequenceDiagram
 
 신규 `REALTIME` 대상은 Notification/Kafka/Link로 보내지 않는다. 전용 transport가 없으면 기존 relay는
 이 대상을 선점하지 않고 전달 행을 보존한다. 기존 내부 알림 봉투와 공개 실시간 봉투는 다른 계약이다.
+기존 가입·위임·이탈·계정 탈퇴도 같은 주민 버전과 REALTIME 전달 행을 기록하므로 새 공개 위임이
+비활성이어도 보류 행은 쌓인다. 이 단계에는 자동 소진/삭제가 없으며 전용 전달 경로를 붙일 때
+보류량·가장 오래된 행과 재전달 결과를 확인해야 한다. 보류를 전달 성공으로 표시하지 않는다.
 이 대상의 내부 userId는 인증된 명령 주체 참조이며 수신자 선택 근거가 아니다. 향후 전용 어댑터는
 현재 섬 주민/권한을 확인하고 공개 `{islandId,version}`만 구성해야 한다. 내부 역할 변경 정보나 명령
 주체를 개인 알림 수신자로 재해석하지 않는다. 저장·Redis publish·실제 소켓 전달 완료를 합치지 않는다.
