@@ -343,6 +343,7 @@ class MigrationService {
         Map<String, Long> skipped = new TreeMap<>();
         List<Map<String, Object>> failures = new ArrayList<>();
         long failed = 0;
+        boolean resumed = Boolean.TRUE.equals(gate().get("everOpened"));
         for (Map<String, Object> row : rows) {
             String recordKey = row.get("record_key").toString();
             int separator = recordKey.indexOf(':');
@@ -352,7 +353,7 @@ class MigrationService {
                     .append(recordKey).append('=').append(row.get("checksum")).append('\n');
             // SKIPPED 는 탈퇴 tombstone·세대 펜스로 «일부러» 넣지 않은 레코드다. 대상 행이 없는 게 정상이다.
             boolean fenced = "SKIPPED".equals(row.get("status"));
-            Map<String, Object> failure = fenced ? null : compare(resource, Json.map(row.get("record")));
+            Map<String, Object> failure = fenced ? null : compare(resource, Json.map(row.get("record")), resumed);
             if (failure != null) {
                 failed++;
                 if (failures.size() < MAX_FAILURES) {
@@ -386,6 +387,12 @@ class MigrationService {
             Map<String, Object> checksums, List<Map<String, Object>> failures) {
         Map<String, Object> declared = AdminCatalog.object(manifest, "resources");
         long failed = 0;
+        for (String resource : MigrationRecords.RESOURCES) {
+            if (!declared.containsKey(resource)) {
+                failed++;
+                failures.add(fail("REQUIRED_RESOURCE_MISSING", resource, null, null));
+            }
+        }
         for (String resource : counts.keySet()) {
             if (!declared.containsKey(resource)) {
                 failed++;
@@ -432,11 +439,11 @@ class MigrationService {
         return failure;
     }
 
-    private Map<String, Object> compare(String resource, Map<String, Object> source) {
+    private Map<String, Object> compare(String resource, Map<String, Object> source, boolean resumed) {
         return switch (resource) {
             case "settings" -> compareSettings(source);
             case "device" -> compareDevice(source);
-            case "delivery" -> compareDelivery(source);
+            case "delivery" -> compareDelivery(source, resumed);
             case "user" -> compareProjection(MigrationRecords.USER_PROJECTION, "user", source,
                     MigrationRecords.uuid(source.get("userId")), "");
             case "participation" -> compareProjection(MigrationRecords.PARTICIPATION_PROJECTION,
@@ -520,7 +527,7 @@ class MigrationService {
         return null;
     }
 
-    private Map<String, Object> compareDelivery(Map<String, Object> source) {
+    private Map<String, Object> compareDelivery(Map<String, Object> source, boolean resumed) {
         Map<String, Object> row = store.one("SELECT * FROM deliveries WHERE event_id=?", source.get("eventId"));
         if (row == null) {
             return fail("TARGET_ROW_MISSING", "delivery", null, null);
@@ -533,8 +540,15 @@ class MigrationService {
         }
         String sourceStatus = source.get("status").toString();
         String targetStatus = target.get("status").toString();
+        boolean pendingSource = "PENDING".equals(sourceStatus) || "DEFERRED".equals(sourceStatus);
+        if (resumed && pendingSource && Json.number(target, "attempts") < Json.number(source, "attempts")) {
+            return fail("ATTEMPTS_REGRESSED", "delivery", source.get("attempts"), target.get("attempts"));
+        }
         if (sourceStatus.equals(targetStatus)) {
-            mismatch = diff(source, target, "delivery", "attempts", "nextAttemptAt", "sentAt");
+            // 최초 개방 전에는 원본 전체를 검증한다. 개방 뒤에는 정상 재시도가 attempts와 due를
+            // 전진시키므로 그 런타임 상태를 원본 이관값으로 되돌리도록 요구하지 않는다.
+            mismatch = resumed && pendingSource ? diff(source, target, "delivery", "sentAt")
+                    : diff(source, target, "delivery", "attempts", "nextAttemptAt", "sentAt");
             if (mismatch != null) {
                 return mismatch;
             }

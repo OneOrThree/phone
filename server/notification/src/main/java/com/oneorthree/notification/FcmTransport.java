@@ -88,7 +88,12 @@ class FcmTransport implements PushTransport {
                     "payload", Map.of("aps", Map.of("content-available", 1))));
             message.put("android", Map.of("priority", "HIGH"));
         } else {
-            message.put("notification", Map.of("title", push.title(), "body", push.body()));
+            Map<String, String> notification = new LinkedHashMap<>();
+            if (push.title() != null) {
+                notification.put("title", push.title());
+            }
+            notification.put("body", push.body());
+            message.put("notification", notification);
             message.put("apns", Map.of("headers", Map.of("apns-collapse-id", collapse),
                     "payload", Map.of("aps", sound ? Map.of("sound", "default") : Map.of())));
             message.put("android", Map.of("notification", Map.of("tag", collapse)));

@@ -223,7 +223,7 @@ paths:
                   templateId: { type: string }
                   kind: { type: string }
                   locale: { type: string }
-                  title: { type: string, nullable: true }
+                  title: { type: string, nullable: true, description: null이면 표시 푸시의 FCM title 필드를 생략한다 }
                   body: { type: string }
                   data: { type: object, additionalProperties: { type: string } }
                   silent: { type: boolean }
@@ -503,7 +503,10 @@ paths:
 
         성공하면 `dispatch_control.enabled=true` · `ever_opened=true` 가 되고 `opened_at` 이 한 번만 찍힌다.
         **`ever_opened` 는 어떤 경로로도 false 로 돌아가지 않는다** — 이 시점부터 roll-forward 전용이고,
-        구 파이프라인 복귀에는 §7.1 ④의 역백필·검증이 따로 필요하다.
+        이후 중지·재개도 신 경로에서 수행한다. 최초 개방 전에는 이관한 발송 상태 필드까지 일치해야 한다.
+        개방 이후 재개는 미발송 원본의 정상 재시도(attempts 증가·nextAttemptAt 변경)를 허용한다.
+        사건 불변 입력(userId·kind·subjectId·groupId·slotAt·locale·params)과 attempts 비퇴행은 계속 검사한다.
+        필수 다섯 자원을 누락한 manifest는 `REQUIRED_RESOURCE_MISSING`으로 검증 실패한다.
       parameters:
         - { name: migrationId, in: path, required: true, schema: { type: string } }
         - { $ref: '#/components/parameters/IdempotencyKey' }
@@ -678,7 +681,7 @@ components:
         id: { type: string, description: '`<kind>.<locale>`' }
         kind: { type: string }
         locale: { type: string, enum: [ko, en, ja, zh-Hant] }
-        title: { type: string, nullable: true }
+        title: { type: string, nullable: true, description: null이면 표시 푸시의 FCM title 필드를 생략한다 }
         body: { type: string }
         enabled: { type: boolean }
         version: { type: integer, format: int64 }
@@ -689,7 +692,7 @@ components:
       properties:
         kind: { type: string }
         locale: { type: string, enum: [ko, en, ja, zh-Hant] }
-        title: { type: string, nullable: true }
+        title: { type: string, nullable: true, description: null이면 표시 푸시의 FCM title 필드를 생략한다 }
         body: { type: string, description: ICU MessageFormat 패턴 }
         enabled: { type: boolean }
         sampleParams:

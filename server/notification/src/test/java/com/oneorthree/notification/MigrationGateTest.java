@@ -73,6 +73,7 @@ class MigrationGateTest {
     @Autowired DeviceService devices;
     @Autowired SettingsService settings;
     @Autowired AckService ack;
+    @Autowired DispatchService dispatch;
     @MockitoBean PushTransport transport;
     @MockitoBean DataClient data;
     @MockitoBean Clock clock;
@@ -179,6 +180,55 @@ class MigrationGateTest {
         assertThat(code(post("/internal/admin/migration/m1/verify", null, Map.of("manifest", manifest))))
                 .isEqualTo("INVALID_stopWindow");
         assertThat(store.one("SELECT enabled FROM dispatch_control WHERE id=1")).containsEntry("enabled", false);
+    }
+
+    @Test
+    void missingWholeResourcesCannotVerifyOrOpenEvenWhenNoRowsWereImported() throws Exception {
+        for (boolean omitAll : List.of(true, false)) {
+            Map<String, Object> manifest = manifest(List.of(), 1, 0);
+            Map<String, Object> resources = new LinkedHashMap<>(Json.map(manifest.get("resources")));
+            if (omitAll) {
+                resources.clear();
+            } else {
+                resources.remove("settings");
+            }
+            manifest.put("resources", resources);
+            var verified = body(post("/internal/admin/migration/m1/verify", null, Map.of("manifest", manifest)));
+            assertThat(verified).containsEntry("verified", false);
+            assertThat(Json.write(verified)).contains("REQUIRED_RESOURCE_MISSING");
+            assertThat(code(post("/internal/admin/migration/m1/dispatch/open", "missing-" + omitAll,
+                    Map.of("manifest", manifest)))).isEqualTo("MIGRATION_NOT_VERIFIED");
+            assertThat(store.one("SELECT enabled,ever_opened FROM dispatch_control WHERE id=1"))
+                    .containsEntry("enabled", false).containsEntry("ever_opened", false);
+        }
+    }
+
+    @Test
+    void retryStateMustMatchBeforeFirstOpen() throws Exception {
+        var records = records(true, 5);
+        load("i1", records);
+        store.update("UPDATE deliveries SET attempts=attempts+1 WHERE event_id='ev-1'");
+        var report = body(verify(records, 1, 0));
+        assertThat(report).containsEntry("verified", false);
+        assertThat(Json.write(report)).contains("delivery.attempts");
+    }
+
+    @Test
+    void actualFcmRetryDoesNotPreventReopenButImmutablePayloadStillMustMatch() throws Exception {
+        var records = records(true, 5);
+        load("i1", records);
+        assertThat(body(verify(records, 1, 0))).containsEntry("verified", true);
+        assertThat(Json.map(body(open("o1", records, 1)).get("dispatch"))).containsEntry("enabled", true);
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.RETRY);
+        dispatch.dispatch((UUID) store.one("SELECT id FROM deliveries WHERE event_id='ev-1'").get("id"));
+        assertThat(store.one("SELECT status,attempts,last_error FROM deliveries WHERE event_id='ev-1'"))
+                .containsEntry("status", "PENDING").containsEntry("attempts", 1).containsEntry("last_error", "FCM_RETRY");
+        post("/internal/admin/dispatch/close", "c1", Map.of());
+        assertThat(Json.map(body(open("o2", records, 1)).get("dispatch"))).containsEntry("enabled", true);
+        // 재개가 바뀐 발송 입력까지 허용하는 것은 아니다.
+        post("/internal/admin/dispatch/close", "c2", Map.of());
+        store.update("UPDATE deliveries SET payload='{\"count\":2}'::jsonb WHERE event_id='ev-1'");
+        assertThat(code(open("o3", records, 1))).isEqualTo("VERIFICATION_FAILED");
     }
 
     @Test

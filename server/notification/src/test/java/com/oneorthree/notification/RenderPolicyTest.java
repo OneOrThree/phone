@@ -57,4 +57,12 @@ class RenderPolicyTest {
                 .containsEntry("apns-collapse-id", Json.digest("event"));
         assertThat(Json.map(Json.map(Json.map(normal.get("apns")).get("payload")).get("aps"))).isEmpty();
     }
+    @Test
+    void visiblePushWithoutOptionalTitleSerializesBody() {
+        var message = Json.map(FcmTransport.payload("device", new RenderedPush(null, "본문", Map.of(), false),
+                false, "event").get("message"));
+        assertThat(Json.map(message.get("notification"))).containsEntry("body", "본문").doesNotContainKey("title");
+        assertThat(Json.write(message)).contains("본문");
+    }
+
 }

@@ -172,6 +172,16 @@ require('AggregateRef.ofUser(joinedUserId)' in membership_events
         and 'LINK_SLUG.matcher(slug).matches()' in membership_events,
         'A22 ㋻: 가입 사실의 가입자 축·재가입 사건 키·선택 slug 형식 경계 누락')
 
+migration_service = source('server/notification/src/main/java/com/oneorthree/notification/MigrationService.java')
+require('for (String resource : MigrationRecords.RESOURCES)' in migration_service
+        and 'REQUIRED_RESOURCE_MISSING' in migration_service,
+        'A22 ㋭: manifest의 다섯 필수 자원 누락을 허용함')
+require('resumed && pendingSource' in migration_service and 'ATTEMPTS_REGRESSED' in migration_service,
+        'A22 ㋭: 최초 이관 검증과 개방 후 정상 재시도 재개를 구분하지 않음')
+fcm_transport = source('server/notification/src/main/java/com/oneorthree/notification/FcmTransport.java')
+require('if (push.title() != null)' in fcm_transport,
+        'TemplateWrite: nullable title을 FCM 표시 payload에 안전하게 직렬화하지 않음')
+
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)

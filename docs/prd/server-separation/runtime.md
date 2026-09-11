@@ -154,3 +154,12 @@ Data의 CLI를 `notification.migration.enabled=true`로 기동하고 `notificati
 Data→Link 가입 relay를 활성화하기 전에 MMP의 A22 ㋻ 가입 귀속 검증을 배포·검증한다.
 Data가 알 수 없는 새 slug도 가입 사실로 전달하므로, MMP의 그룹 일치·셀프 초대 제외 검증 없이
 가입 relay부터 켜면 잘못된 귀속이 남는다. Data 제공자 배포 → MMP 검증 배포 → 가입 relay 개방 순서다.
+
+
+## OUTBOX 후보 배치 활성화 선행 조건
+
+[GROMO-893](https://romance.atlassian.net/browse/GROMO-893)의 다중 수신자 USER 잠금 경계를
+완료·검증하기 전에는 `NOTIFICATION_DISPATCH_MODE=OUTBOX`로 전환하지 않는다. 기본 LEGACY를
+유지한다. 여러 페이지·그룹을 넘는 트랜잭션은 부분 정렬로 순서가 통일되지 않아 교착 시
+생성 요청이나 해당 알림 슬롯 전체가 롤백될 수 있다. Foundation 코드 머지가 이 운영 조건의
+해결을 뜻하지 않는다. 코어 mutation/outbox 원자성과 RR 판정 의미를 보존하는 수정이 선행한다.
