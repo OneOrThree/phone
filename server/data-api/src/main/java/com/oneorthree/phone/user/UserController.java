@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -107,8 +108,9 @@ public class UserController implements UserControllerDocs {
     @PutMapping("/users/me/notification-settings")
     public ResponseEntity<Void> updateNotificationSettings(
             @Valid @RequestBody NotificationSettingsRequest body,
-            @LoginUser UUID userId) {
-        userService.updateNotificationSettings(userId, body);
+            @LoginUser UUID userId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        userService.updateNotificationSettings(userId, body, idempotencyKey);
         return ResponseEntity.noContent().build();
     }
 

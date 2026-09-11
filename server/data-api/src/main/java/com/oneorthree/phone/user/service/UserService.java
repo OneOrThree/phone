@@ -523,7 +523,12 @@ public class UserService {
      */
     @Transactional
     public void updateNotificationSettings(UUID userId, NotificationSettingsRequest request) {
-        // 구 공개 5필드·204는 유지하며 같은 mirror/version/outbox 소유자에 위임한다.
-        userSatelliteCommandService.recordNotificationSettings(userId, request, null);
+        updateNotificationSettings(userId, request, null);
+    }
+
+    /** 앱의 내구 큐가 보낸 키를 보존한다. 키 없는 구 호출은 기존 명령별 발급을 유지한다. */
+    @Transactional
+    public void updateNotificationSettings(UUID userId, NotificationSettingsRequest request, String idempotencyKey) {
+        userSatelliteCommandService.recordNotificationSettings(userId, request, idempotencyKey);
     }
 }
