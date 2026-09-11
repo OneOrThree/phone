@@ -105,6 +105,7 @@ public class InternalHttpClient implements AutoCloseable {
         context.validate(call);
         for (int attempt = 1; ; attempt++) {
             context.checkActive();
+            requireStartBudget(call.retryable(), context);
             if (!circuitBreaker.allowRequest(System.currentTimeMillis())) {
                 throw new UpstreamUnavailableException(target + " 서킷 오픈");
             }
@@ -114,6 +115,11 @@ public class InternalHttpClient implements AutoCloseable {
                 circuitBreaker.recordSuccess();
                 return result;
             } catch (RetryableFailure | UpstreamTimeoutException failure) {
+                if (failure instanceof InsufficientStartBudgetException) {
+                    // 큐 대기/직렬화 중 줄어든 로컬 예산은 상류 장애가 아니다. 탐침만 반납한다.
+                    circuitBreaker.recordIgnored();
+                    throw failure;
+                }
                 // 부모 취소·인터럽트·전체 예산 소진은 새 시도로 바꾸지 않는다.
                 if (context.cancelled() || Thread.currentThread().isInterrupted()
                         || context.deadline().remaining().isZero()) {
@@ -160,7 +166,8 @@ public class InternalHttpClient implements AutoCloseable {
         Future<T> future = null;
         try {
             context.checkActive();
-            future = workers.submit(() -> send(request, call.body(), responseType, context, responseStatus));
+            future = workers.submit(() ->
+                    send(request, call.body(), responseType, context, responseStatus, call.retryable()));
             // enqueue 비용도 예산이다. 대기 시작 때 남은 시간을 다시 읽는다.
             nanos = Math.min(nanos, context.deadline().remaining().toNanos());
             T result = future.get(nanos, TimeUnit.NANOSECONDS);
@@ -192,6 +199,21 @@ public class InternalHttpClient implements AutoCloseable {
         }
     }
 
+    /** 시작 시 설정된 한 시도 예산을 확보한다. 네트워크 실패 뒤 원자적 취소를 보장하는 장치는 아니다. */
+    private void requireStartBudget(boolean retryable, UpstreamRequestContext context) {
+        context.checkActive();
+        if (!retryable && !context.deadline().hasRoomFor(
+                properties.connectTimeout().plus(properties.readTimeout()))) {
+            throw new InsufficientStartBudgetException();
+        }
+    }
+
+    private static final class InsufficientStartBudgetException extends UpstreamTimeoutException {
+        private InsufficientStartBudgetException() {
+            super("재시도 불가능한 상류 명령을 시작할 요청 예산이 부족합니다.");
+        }
+    }
+
     private HttpUriRequestBase request(InternalCall call, UpstreamRequestContext context) {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(properties.baseUrl()).path(call.path());
         call.query().forEach(builder::queryParam);
@@ -210,8 +232,9 @@ public class InternalHttpClient implements AutoCloseable {
     }
 
     private <T> T send(HttpUriRequestBase request, Object body, ParameterizedTypeReference<T> responseType,
-            UpstreamRequestContext context, AtomicInteger responseStatus) {
+            UpstreamRequestContext context, AtomicInteger responseStatus, boolean retryable) {
         context.checkActive();
+        requireStartBudget(retryable, context);
         if (body != null) {
             try {
                 request.setEntity(new ByteArrayEntity(
@@ -220,6 +243,8 @@ public class InternalHttpClient implements AutoCloseable {
                 throw new UpstreamContractMismatchException(target + " 요청 DTO 변환 실패");
             }
         }
+        // 직렬화가 느렸더라도 재시도 불가능한 쓰기를 짧은 남은 예산으로 시작하지 않는다.
+        requireStartBudget(retryable, context);
         try {
             return http.execute(request, response -> {
                 int status = response.getCode();
