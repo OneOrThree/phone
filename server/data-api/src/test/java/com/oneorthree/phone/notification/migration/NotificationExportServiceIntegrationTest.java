@@ -296,6 +296,12 @@ class NotificationExportServiceIntegrationTest {
         assertThat(document.manifest().version()).isEqualTo(NotificationMigrationManifest.VERSION);
         assertThat(document.manifest().stopWindow().source())
                 .isEqualTo(NotificationMigrationManifest.StopWindow.SOURCE);
+        NotificationExportDocument next = exportService.export(MIGRATION_ID, null, false, true);
+        assertThat(UUID.fromString(document.manifest().snapshot())).isNotNull();
+        assertThat(next.manifest().snapshot()).isNotEqualTo(document.manifest().snapshot());
+        // 같은 커서·내용이어도 별도 export는 다른 전체 집합이다. 청크는 이 문서의 식별자를 재사용한다.
+        assertThat(next.manifest().stopWindow().cursor()).isEqualTo(document.manifest().stopWindow().cursor());
+        assertThat(next.manifest().resources()).isEqualTo(resources);
     }
 
     // ── 투영 bootstrap (승인 계획 ②′) ──────────────────────────────────

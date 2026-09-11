@@ -28,11 +28,24 @@ interface Ownership {
 }
 
 let storageTail: Promise<unknown> = Promise.resolve();
+let ownershipTail: Promise<unknown> = Promise.resolve();
 let delivery: Promise<void> | null = null;
 
 function storage<T>(operation: () => Promise<T>): Promise<T> {
   const next = storageTail.then(operation, operation);
   storageTail = next.catch(() => {});
+  return next;
+}
+
+// 소유권 회전 경계. 등록 응답이 돌려준 소유권의 «저장+승계»와, 후속 등록의 «소유권 조회+적재»를
+// 같은 경계에 둔다. 둘이 겹치면 후속 명령은 이미 회전한 낡은 소유권을 읽고, 그 시점에 큐에 없어
+// 승계 대상에서도 빠진다 — 소비된 bootstrap 과 낡은 소유권을 함께 실어 영구히 거절된다.
+// storage() 와는 «별개의» 잠금이다: 여기 들어오는 두 구간이 안에서 다시 storage() 를 잡으므로
+// 같은 tail 을 쓰면 자기 자신을 기다린다. 잠금 순서는 언제나 auth mutex → 이 경계 한 방향뿐이고,
+// 이 안에서는 auth mutex 를 잡지 않는다.
+function ownershipCritical<T>(operation: () => Promise<T>): Promise<T> {
+  const next = ownershipTail.then(operation, operation);
+  ownershipTail = next.catch(() => {});
   return next;
 }
 
@@ -279,12 +292,15 @@ async function send(command: Command): Promise<boolean> {
       { headers, timeout: 10000 },
     );
     const ownershipToken = response.data?.ownershipToken ?? null;
-    const current = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
-    if (
-      current &&
-      getUserIdFromToken(current) === command.userId &&
-      command.sessionId === (await AsyncStorage.getItem(STORAGE_KEYS.authSessionId))
-    ) {
+    // 저장과 승계는 한 구간이다 — 그 사이에 적재된 후속 등록은 둘 중 어느 쪽으로도 소유권을 받지 못한다.
+    await ownershipCritical(async () => {
+      const current = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+      if (
+        !current ||
+        getUserIdFromToken(current) !== command.userId ||
+        command.sessionId !== (await AsyncStorage.getItem(STORAGE_KEYS.authSessionId))
+      )
+        return;
       await AsyncStorage.setItem(
         STORAGE_KEYS.deviceOwnership,
         JSON.stringify({
@@ -295,7 +311,7 @@ async function send(command: Command): Promise<boolean> {
         }),
       );
       await inheritOwnership(command, ownershipToken);
-    }
+    });
   } else if (command.kind === 'delete') {
     if (typeof command.body.deviceToken === 'string')
       headers['X-Device-Token'] = command.body.deviceToken;
@@ -352,20 +368,27 @@ export async function queueNotificationSettings(body: NotificationSettingsReques
 }
 
 export async function queueDeviceRegistration(deviceToken: string): Promise<void> {
-  await runAuthSessionTransition(async () => {
-    const previous = await ownership();
-    const bootstrap = await AsyncStorage.getItem(STORAGE_KEYS.deviceBootstrap);
-    const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
-    const userId = token && getUserIdFromToken(token);
-    const sessionId = await AsyncStorage.getItem(STORAGE_KEYS.authSessionId);
-    await enqueue('register', {
-      deviceToken,
-      ...(bootstrap ? { deviceBootstrap: bootstrap } : {}),
-      ...(previous?.userId === userId && previous.sessionId === sessionId && previous.ownershipToken
-        ? { ownershipToken: previous.ownershipToken }
-        : {}),
-    });
-  });
+  await runAuthSessionTransition(() =>
+    // 조회와 적재 사이에 이전 등록의 응답이 소유권을 회전시키면, 읽은 값은 이미 낡았고 승계도
+    // 지나간 뒤다. 두 구간을 같은 경계에 두면 어느 순서로 겹쳐도 — 먼저면 회전한 값을 읽고,
+    // 나중이면 승계가 이 명령을 찾아 — 최신 소유권을 싣는다.
+    ownershipCritical(async () => {
+      const previous = await ownership();
+      const bootstrap = await AsyncStorage.getItem(STORAGE_KEYS.deviceBootstrap);
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+      const userId = token && getUserIdFromToken(token);
+      const sessionId = await AsyncStorage.getItem(STORAGE_KEYS.authSessionId);
+      await enqueue('register', {
+        deviceToken,
+        ...(bootstrap ? { deviceBootstrap: bootstrap } : {}),
+        ...(previous?.userId === userId &&
+        previous.sessionId === sessionId &&
+        previous.ownershipToken
+          ? { ownershipToken: previous.ownershipToken }
+          : {}),
+      });
+    }),
+  );
   await flushNotificationCommands();
 }
 

@@ -27,6 +27,7 @@ class MigrationService {
 
     private static final int MAX_REPLAY = 200;
     private static final int MAX_FAILURES = 50;
+    private static final int MAX_SNAPSHOT_ID = 200;
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private final Store store;
     private final AdminAudit audit;
@@ -58,6 +59,12 @@ class MigrationService {
         result.put("openedAt", state == null ? null : AdminCatalog.instant(state.get("opened_at")));
         result.put("imported", store.rows("SELECT split_part(record_key,':',1) AS resource,count(*) AS total"
                 + " FROM imports WHERE migration_id=? GROUP BY 1 ORDER BY 1", migrationId));
+        // 세대별 분해. 「어느 스냅샷을 지목해야 하는가」를 운영자가 원장에서 바로 읽게 한다.
+        result.put("snapshots", store.rows("SELECT s.snapshot_id,s.registered_at,"
+                + "(SELECT count(*) FROM imports i WHERE i.migration_id=s.migration_id"
+                + " AND i.snapshot_id=s.snapshot_id) AS members"
+                + " FROM migration_snapshots s WHERE s.migration_id=? ORDER BY s.registered_at,s.snapshot_id",
+                migrationId));
         result.put("dispatch", gate());
         return result;
     }
@@ -112,10 +119,12 @@ class MigrationService {
     /** 게이트가 한 번이라도 열린 뒤에는 적재를 받지 않는다 — 개방 시점부터 roll-forward 전용이다. */
     @Transactional
     public Map<String, Object> importRecords(String actor, String migrationId, Map<String, Object> body, String key) {
-        List<?> records = list(body);
-        audit.record(actor, "migration.import", migrationId, Map.of("records", records.size()));
+        String snapshot = snapshot(body);
+        List<?> records = list(body, snapshot);
+        audit.record(actor, "migration.import", migrationId,
+                Map.of("records", records.size(), "snapshot", snapshot));
         return store.command("migration-import:" + migrationId, key,
-                Map.of("migrationId", migrationId, "records", records), () -> {
+                Map.of("migrationId", migrationId, "snapshot", snapshot, "records", records), () -> {
                     // 배타 잠금이다 — 동시에 들어온 open 은 이 적재가 커밋된 «뒤에» 최종 검사를 시작한다.
                     // FOR SHARE 로는 open 이 검사를 먼저 끝내고 그 결과로 열어 버릴 수 있다.
                     Map<String, Object> control = lockGate(migrationId, true);
@@ -123,12 +132,19 @@ class MigrationService {
                         throw new NotificationFailure(409, "IMPORT_CLOSED");
                     }
                     bind(migrationId);
-                    return apply(migrationId, records);
+                    return apply(migrationId, snapshot, records);
                 });
     }
 
-    private List<?> list(Map<String, Object> body) {
-        if (!(body.get("records") instanceof List<?> records) || records.isEmpty()) {
+    /**
+     * 빈 {@code records} 는 <b>스냅샷을 선언했을 때만</b> 받는다 — 「구성원이 하나도 없는 최종
+     * 스냅샷」은 실재하는 정당한 상태다(마지막 회차가 전부 정산됐거나 대상 유저가 전부 탈퇴).
+     * 그것을 400 으로 막으면 전량 제거를 선언할 길이 없어 최종 매니페스트와 영영 어긋난다.
+     * 스냅샷 없는 빈 요청은 아무 뜻도 없으므로 그대로 400 이다.
+     */
+    private List<?> list(Map<String, Object> body, String snapshot) {
+        if (!(body.get("records") instanceof List<?> records)
+                || (records.isEmpty() && snapshot.isEmpty())) {
             throw new NotificationFailure(400, "INVALID_records");
         }
         if (records.size() > MigrationRecords.MAX_RECORDS) {
@@ -137,9 +153,32 @@ class MigrationService {
         return records;
     }
 
-    private Map<String, Object> apply(String migrationId, List<?> records) {
+    /**
+     * 이 청크가 실어 온 «스냅샷 세대». 한 export 를 {@code MAX_RECORDS} 씩 쪼개 올릴 때 모든 청크가
+     * 같은 값을 반복한다 — 그래야 「이 키가 최신 스냅샷의 구성원인가」를 배치 경계와 무관하게 말할 수 있다.
+     *
+     * <p>선언하지 않으면 빈 문자열이다(단일 스냅샷 운용). 빈 문자열도 하나의 세대이고,
+     * 검증이 아무 세대도 지목하지 않으면 원장 전체를 보므로 기존 운용은 그대로 통과한다.
+     */
+    private static String snapshot(Map<String, Object> body) {
+        String declared = Json.nullableText(body, "snapshot");
+        if (declared == null) {
+            return "";
+        }
+        if (declared.isBlank() || declared.length() > MAX_SNAPSHOT_ID) {
+            throw new NotificationFailure(400, "INVALID_snapshot");
+        }
+        return declared;
+    }
+
+    private Map<String, Object> apply(String migrationId, String snapshot, List<?> records) {
         Map<String, Long> outcome = new TreeMap<>();
         List<String> seen = new ArrayList<>();
+        if (!snapshot.isEmpty()) {
+            // 레코드가 0건이어도 등재한다. 「선언된 공집합」이 「모르는 스냅샷」과 구분되는 근거다.
+            store.update("INSERT INTO migration_snapshots(migration_id,snapshot_id) VALUES(?,?)"
+                    + " ON CONFLICT DO NOTHING", migrationId, snapshot);
+        }
         for (Object entry : records) {
             if (!(entry instanceof Map<?, ?>)) {
                 throw new NotificationFailure(400, "INVALID_records");
@@ -158,37 +197,43 @@ class MigrationService {
             }
             seen.add(recordKey);
             String checksum = MigrationRecords.checksum(canonical);
-            Map<String, Object> previous = store.one("SELECT checksum FROM imports"
+            Map<String, Object> previous = store.one("SELECT checksum,snapshot_id FROM imports"
                     + " WHERE migration_id=? AND record_key=? FOR UPDATE", migrationId, recordKey);
             boolean projection = "user".equals(resource) || "participation".equals(resource);
             // 투영은 같은 원본 재적재에도 실제 행·탈퇴 fence를 다시 보장한다.
-            if (!projection && previous != null && checksum.equals(previous.get("checksum"))) {
+            // «같은 스냅샷»의 같은 체크섬만 건너뛴다 — 세대가 바뀌면 내용이 그대로여도 다시 적재해
+            // snapshot_id 를 전진시킨다. 안 그러면 최종에도 그대로 있는 키가 옛 세대에 묶여
+            // 구성원에서 빠지고, 그 행이 «사라진 것»으로 정리된다.
+            if (!projection && previous != null && checksum.equals(previous.get("checksum"))
+                    && snapshot.equals(previous.get("snapshot_id"))) {
                 outcome.merge("SKIPPED", 1L, Long::sum);
                 continue;
             }
             // 체크섬이 다르면 «전체 레코드»를 다시 쓴다. 부분 갱신은 뒤늦은 opt-out 을 영구히 건너뛴다.
-            String status = write(resource, canonical);
-            store.update("INSERT INTO imports(migration_id,record_key,checksum,record,status,imported_at)"
-                    + " VALUES(?,?,?,?::jsonb,?,?) ON CONFLICT(migration_id,record_key) DO UPDATE SET"
-                    + " checksum=EXCLUDED.checksum,record=EXCLUDED.record,status=EXCLUDED.status,"
+            String status = write(migrationId, resource, canonical);
+            store.update("INSERT INTO imports(migration_id,record_key,checksum,record,snapshot_id,status,"
+                    + "imported_at) VALUES(?,?,?,?::jsonb,?,?,?) ON CONFLICT(migration_id,record_key)"
+                    + " DO UPDATE SET checksum=EXCLUDED.checksum,record=EXCLUDED.record,"
+                    + "snapshot_id=EXCLUDED.snapshot_id,status=EXCLUDED.status,"
                     + "imported_at=EXCLUDED.imported_at", migrationId, recordKey, checksum,
-                    Json.write(canonical), status, Timestamp.from(clock.instant()));
+                    Json.write(canonical), snapshot, status, Timestamp.from(clock.instant()));
             outcome.merge(status, 1L, Long::sum);
         }
         // 데이터가 바뀌었으므로 이전 검증은 무효다. 재검증 없이 열 수 없게 만든다.
         store.update("UPDATE migration_state SET verified_at=NULL WHERE id=?", migrationId);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("migrationId", migrationId);
+        result.put("snapshot", snapshot);
         result.put("total", (long) records.size());
         result.put("outcome", outcome);
         result.put("verificationCleared", true);
         return result;
     }
 
-    private String write(String resource, Map<String, Object> record) {
+    private String write(String migrationId, String resource, Map<String, Object> record) {
         return switch (resource) {
-            case "settings" -> writeSettings(record);
-            case "device" -> writeDevice(record);
+            case "settings" -> writeSettings(migrationId, record);
+            case "device" -> writeDevice(migrationId, record);
             case "delivery" -> writeDelivery(record);
             case "user" -> writeProjection(MigrationRecords.USER_PROJECTION,
                     MigrationRecords.uuid(record.get("userId")), "", record);
@@ -224,17 +269,40 @@ class MigrationService {
         return written == 0 ? "SUPERSEDED" : "IMPORTED";
     }
 
-    private String writeSettings(Map<String, Object> record) {
+    /**
+     * 설정 적재. 더 높은 라이브 version 은 그대로 보존하되, <b>같은 version 의 «이관이 만든 행»</b> 은
+     * 최종 스냅샷으로 다시 쓴다.
+     *
+     * <h2>같은 version 에서 멈추면 안 되는 이유 — 구 경로가 version 을 올리지 않는다</h2>
+     * 구 Data 의 {@code UserService.updateNotificationSettings()} 는 유저 aggregate version 을 올리지
+     * 않는다. 그런데 {@code NotificationExportService} 는 그 version 을 설정 자원의 version 으로 싣는다.
+     * 그래서 초기 백필 뒤 사용자가 구 앱에서 알림을 끄면, 최종 export 는 <b>값만 바뀌고 version 은 같은</b>
+     * 레코드로 온다. {@code <} 만 보면 그 opt-out 은 영영 적재되지 않고, {@code compareSettings()} 의
+     * 필드 불일치도 해소되지 않아 게이트가 닫힌 채 남는다 — 반복 적재로도 풀리지 않는다.
+     *
+     * <h2>경계는 «이관 소유»다 — 라이브 쓰기가 닿은 행은 같은 version 에서 덮지 않는다</h2>
+     * {@code imported_by} 는 이 행을 마지막으로 쓴 것이 이관인지 말한다. 라이브 명령
+     * ({@code SettingsService.applyLocked}) 은 쓸 때 이 값을 NULL 로 지운다. 조건을
+     * {@code settings.imported_by=EXCLUDED.imported_by} 로 두면 NULL 은 결코 같지 않으므로
+     * 라이브 소유 행은 제외되고, 같은 이관이 만든 행만 갱신된다. 라이브 소유 행이 같은 version 에서
+     * 내용이 어긋나면 조용히 덮지 않고 {@code compareSettings()} 가 FIELD_MISMATCH 로 닫는다.
+     *
+     * <p>이 갱신 창은 개방 전으로 이미 닫혀 있다 — 개방 뒤 적재는 {@code IMPORT_CLOSED} 다.
+     */
+    private String writeSettings(String migrationId, Map<String, Object> record) {
         UUID user = MigrationRecords.uuid(record.get("userId"));
-        // 라이브 변경이 더 최신이면 덮지 않는다. SettingsService 와 같은 version 규칙이다.
         int written = store.update("INSERT INTO settings(user_id,version,notification_enabled,sound_enabled,"
-                + "night_mode_enabled,night_start_time,night_end_time) VALUES(?,?,?,?,?,?::time,?::time)"
+                + "night_mode_enabled,night_start_time,night_end_time,imported_by)"
+                + " VALUES(?,?,?,?,?,?::time,?::time,?)"
                 + " ON CONFLICT(user_id) DO UPDATE SET version=EXCLUDED.version,"
                 + "notification_enabled=EXCLUDED.notification_enabled,sound_enabled=EXCLUDED.sound_enabled,"
                 + "night_mode_enabled=EXCLUDED.night_mode_enabled,night_start_time=EXCLUDED.night_start_time,"
-                + "night_end_time=EXCLUDED.night_end_time WHERE settings.version<EXCLUDED.version",
+                + "night_end_time=EXCLUDED.night_end_time,imported_by=EXCLUDED.imported_by"
+                + " WHERE settings.version<EXCLUDED.version"
+                + " OR (settings.version=EXCLUDED.version AND settings.imported_by=EXCLUDED.imported_by)",
                 user, record.get("version"), record.get("notificationEnabled"), record.get("soundEnabled"),
-                record.get("nightModeEnabled"), record.get("nightStartTime"), record.get("nightEndTime"));
+                record.get("nightModeEnabled"), record.get("nightStartTime"), record.get("nightEndTime"),
+                migrationId);
         return written == 0 ? "SUPERSEDED" : "IMPORTED";
     }
 
@@ -244,8 +312,13 @@ class MigrationService {
      * 건드리지 않는다 — 계정 전환으로 B 에게 넘어간 토큰을 A 의 구 export 가 되돌리면 A 의 알림이
      * B 의 기기로 가고, ownership_token 은 B 값 그대로라 등록 CAS 로도 잡히지 않는다.
      * 전역 락은 «동시 실행»만 막지 순서 역행을 막지 못하므로 provenance 로 닫는다.
+     *
+     * <p>{@code imported_by} 를 함께 본다 — 컬럼 «모양»만으로는 이관이 만든 행과 sid 없는 구 앱의
+     * 최초 등록이 만든 행을 구분할 수 없다(둘 다 bootstrap·세션·legacy 가 NULL 이고
+     * {@code ownership_version=1} 인 활성 행이다). 그래서 이관은 자기가 찍어 둔 표식이 그대로 남아
+     * 있는 행만 갱신한다. 라이브 등록은 그 표식을 NULL 로 지운다({@code DeviceService}).
      */
-    private String writeDevice(Map<String, Object> record) {
+    private String writeDevice(String migrationId, Map<String, Object> record) {
         UUID user = MigrationRecords.uuid(record.get("userId"));
         store.lock("device-ownership");
         Long generation = record.get("authGeneration") == null ? null
@@ -263,13 +336,16 @@ class MigrationService {
         }
         // ownership_token 은 충돌 시 손대지 않는다. active 는 AND 로만 접혀 tombstone 을 되살리지 못한다(ⓡ).
         int written = store.update("INSERT INTO device_tokens(device_token,user_id,ownership_token,auth_generation,"
-                + "active) VALUES(?,?,?,?,?) ON CONFLICT(device_token) DO UPDATE SET "
+                + "active,imported_by) VALUES(?,?,?,?,?,?) ON CONFLICT(device_token) DO UPDATE SET "
                 + "auth_generation=GREATEST(COALESCE(device_tokens.auth_generation,0),"
                 + "COALESCE(EXCLUDED.auth_generation,0)),active=device_tokens.active AND EXCLUDED.active,"
+                + "imported_by=EXCLUDED.imported_by,"
                 + "updated_at=now() WHERE device_tokens.user_id=EXCLUDED.user_id"
                 + " AND device_tokens.bootstrap_hash IS NULL AND device_tokens.session_epoch IS NULL"
-                + " AND device_tokens.ownership_version=1 AND device_tokens.active",
-                record.get("deviceToken"), user, UUID.randomUUID(), generation, record.get("active"));
+                + " AND device_tokens.legacy_session_id IS NULL AND device_tokens.ownership_version=1"
+                + " AND device_tokens.active AND device_tokens.imported_by=EXCLUDED.imported_by",
+                record.get("deviceToken"), user, UUID.randomUUID(), generation, record.get("active"),
+                migrationId);
         return written == 0 ? "SUPERSEDED" : "IMPORTED";
     }
 
@@ -327,10 +403,22 @@ class MigrationService {
         return report;
     }
 
-    /** 실제 DB 를 훑는다. imports 의 소스 레코드와 «필드 단위»로 대조하고 미발송 행은 렌더까지 돌린다. */
+    /**
+     * 실제 DB 를 훑는다. imports 의 소스 레코드와 «필드 단위»로 대조하고 미발송 행은 렌더까지 돌린다.
+     *
+     * <p>매니페스트가 스냅샷을 지목하면 <b>그 스냅샷의 구성원만</b> 센다. 초기 적재와 최종 재동기화
+     * 사이에 회차가 정산되거나 유저가 탈퇴하면, 그 키는 최종 export 에서 빠진다
+     * ({@code NotificationExportService} 는 OPEN 회차·미탈퇴 유저만 싣는다). 원장은 추가·갱신만 하므로
+     * 지목 없이 전부 세면 그 키들이 남아 건수·체크섬이 영구히 어긋난다.
+     */
     private Map<String, Object> inspect(String migrationId, Map<String, Object> manifest) {
-        List<Map<String, Object>> rows = store.rows("SELECT record_key,checksum,status,record::text AS record"
-                + " FROM imports WHERE migration_id=? ORDER BY record_key", migrationId);
+        String snapshot = snapshot(manifest);
+        List<Map<String, Object>> rows = snapshot.isEmpty()
+                ? store.rows("SELECT record_key,checksum,status,record::text AS record"
+                        + " FROM imports WHERE migration_id=? ORDER BY record_key", migrationId)
+                : store.rows("SELECT record_key,checksum,status,record::text AS record"
+                        + " FROM imports WHERE migration_id=? AND snapshot_id=? ORDER BY record_key",
+                        migrationId, snapshot);
         Map<String, Long> counts = new TreeMap<>();
         Map<String, StringBuilder> folds = new TreeMap<>();
         // 0건 자원도 «접은 값»이 있어야 한다. Data 내보내기는 다섯 자원을 언제나 manifest 에 싣고 빈
@@ -368,10 +456,12 @@ class MigrationService {
         }
         Map<String, Object> checksums = new TreeMap<>();
         folds.forEach((resource, fold) -> checksums.put(resource, Json.digest(fold.toString())));
+        failed += snapshotGaps(migrationId, snapshot, rows.size(), failures);
         failed += manifestGaps(manifest, counts, checksums, failures);
         failed += stopWindow(manifest, failures);
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("migrationId", migrationId);
+        report.put("snapshot", snapshot);
         report.put("verified", failed == 0);
         report.put("records", (long) rows.size());
         report.put("counts", counts);
@@ -381,6 +471,37 @@ class MigrationService {
         report.put("failureCount", failed);
         report.put("failures", failures);
         return report;
+    }
+
+    /**
+     * 스냅샷 지목 자체가 성립하는가. 「최종 스냅샷에서 빠진 키」와 「태그를 빠뜨린 적재」는 둘 다
+     * 구성원 0 으로 보이므로, 건수만으로는 <b>정당한 전량 제거</b>와 <b>오조작</b>을 구분할 수 없다.
+     *
+     * <ul>
+     *   <li>{@code SNAPSHOT_EMPTY} — 지목한 스냅샷이 <b>등재된 적이 없다</b>. 적재 때 {@code snapshot}
+     *       을 빠뜨렸거나 오타다. 등재된 공집합(전량 제거)은 여기 걸리지 않는다.</li>
+     *   <li>{@code SNAPSHOT_REQUIRED} — 원장에 스냅샷이 둘 이상인데 매니페스트가 지목하지 않았다.
+     *       전체 집계는 옛 세대의 구성원을 섞으므로 어느 쪽이 정본인지 말하게 한다.</li>
+     * </ul>
+     */
+    private long snapshotGaps(String migrationId, String snapshot, int members,
+            List<Map<String, Object>> failures) {
+        if (snapshot.isEmpty()) {
+            long generations = ((Number) store.one("SELECT count(DISTINCT snapshot_id) AS total FROM imports"
+                    + " WHERE migration_id=?", migrationId).get("total")).longValue();
+            if (generations > 1) {
+                failures.add(fail("SNAPSHOT_REQUIRED", "snapshot", 1L, generations));
+                return 1;
+            }
+            return 0;
+        }
+        boolean registered = store.one("SELECT snapshot_id FROM migration_snapshots"
+                + " WHERE migration_id=? AND snapshot_id=?", migrationId, snapshot) != null;
+        if (!registered) {
+            failures.add(fail("SNAPSHOT_EMPTY", "snapshot", snapshot, (long) members));
+            return 1;
+        }
+        return 0;
     }
 
     private long manifestGaps(Map<String, Object> manifest, Map<String, Long> counts,
@@ -601,7 +722,7 @@ class MigrationService {
         return store.command("dispatch-open:" + migrationId, key, Map.of("manifest", manifest), () -> {
             // 게이트 «먼저». 이 배타 잠금이 풀릴 때까지 다른 적재는 커밋을 끝내고, 여기 아래의 최종
             // 검사는 그 이후의 DB 만 본다. 순서를 뒤집으면 검사에 안 잡힌 쓰기를 안은 채 열린다.
-            lockGate(migrationId, true);
+            Map<String, Object> control = lockGate(migrationId, true);
             Map<String, Object> state = store.one("SELECT version,manifest::text AS manifest,verified_at,opened_at"
                     + " FROM migration_state WHERE id=? FOR UPDATE", migrationId);
             if (state == null || state.get("verified_at") == null) {
@@ -631,16 +752,119 @@ class MigrationService {
                 // 컨트롤러가 이 트랜잭션이 «끝난 뒤» invalidate 를 호출한다.
                 throw new NotificationFailure(409, "VERIFICATION_FAILED");
             }
+            // 검사가 끝난 «뒤», 게이트를 켜기 «전». 최종 스냅샷에서 빠진 이관 행을 여기서 접는다 —
+            // 열고 나서 하면 그 사이 한 틱이 옛 기기로 나간다.
+            Map<String, Object> retired = Boolean.TRUE.equals(control.get("ever_opened")) ? Map.of()
+                    : retire(migrationId, Json.nullableText(manifest, "snapshot"));
             store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true,active_migration_id=?,"
                     + "updated_at=now() WHERE id=1", migrationId);
             store.update("UPDATE migration_state SET opened_at=COALESCE(opened_at,?) WHERE id=?",
                     Timestamp.from(clock.instant()), migrationId);
-            audit.record(actor, "dispatch.opened", migrationId, Map.of("records", report.get("records")));
+            audit.record(actor, "dispatch.opened", migrationId,
+                    Map.of("records", report.get("records"), "retired", retired));
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("dispatch", gate());
             result.put("report", report);
+            result.put("retired", retired);
             return result;
         });
+    }
+
+    /**
+     * 최종 스냅샷에서 빠진 «이관 소유» 실제 행을 접는다 — 집계에서 빼는 것만으로는 부족하다.
+     *
+     * <h2>왜 필요한가</h2>
+     * 구 {@code DEVICE_SQL} 은 유저의 토큰이 지워지거나 회전하면 그 토큰을 export 에서 통째로 뺀다.
+     * 초기 적재로 만들어 둔 {@code active=true} 행은 그대로 남아, 개방 직후부터 <b>주인이 더는 쓰지
+     * 않는 기기로 계속 발송된다</b>. 참가·유저 투영도 오늘은 bootstrap 전용이라 「정산·탈퇴 이벤트가
+     * 나중에 치워 줄 것」이라고 전제할 수 없다. 미발송 delivery 도 구 시스템이 이미 처리한 사건이면
+     * 개방과 함께 중복으로 나간다.
+     *
+     * <h2>손대는 범위 — «변경되지 않은 이관 소유» 행뿐</h2>
+     * 라이브 흔적이 하나라도 있으면(기기의 bootstrap·세션·올라간 ownership_version, 설정의
+     * {@code imported_by IS NULL}, 투영의 더 높은 version, 이미 전진한 delivery) 손대지 않는다.
+     * 전부 조건부 한 문장이라 멱등이고, <b>원장 행은 지우지 않는다</b>(이력 보존).
+     *
+     * <p>스냅샷을 지목하지 않았거나 이미 열린 이관에서는 아무것도 하지 않는다 — 지목이 없으면
+     * 「빠졌다」는 판정 자체가 성립하지 않고, 개방 뒤는 라이브가 모든 행의 주인이다.
+     */
+    private Map<String, Object> retire(String migrationId, String snapshot) {
+        Map<String, Object> retired = new TreeMap<>();
+        if (snapshot == null || snapshot.isBlank()) {
+            return retired;
+        }
+        List<Map<String, Object>> obsolete = store.rows("SELECT record_key,record::text AS record FROM imports"
+                + " WHERE migration_id=? AND snapshot_id<>? ORDER BY record_key", migrationId, snapshot);
+        for (Map<String, Object> row : obsolete) {
+            String recordKey = row.get("record_key").toString();
+            int separator = recordKey.indexOf(':');
+            String resource = separator < 0 ? "" : recordKey.substring(0, separator);
+            Map<String, Object> record = Json.map(row.get("record"));
+            int folded = switch (resource) {
+                case "settings" -> retireSettings(migrationId, record);
+                case "device" -> retireDevice(migrationId, record);
+                case "delivery" -> retireDelivery(record);
+                case "user" -> retireProjection(MigrationRecords.USER_PROJECTION, record, "");
+                case "participation" -> retireProjection(MigrationRecords.PARTICIPATION_PROJECTION, record,
+                        record.get("sessionId").toString());
+                default -> 0;
+            };
+            if (folded > 0) {
+                retired.merge(resource, (long) folded, (left, right) -> ((Number) left).longValue()
+                        + ((Number) right).longValue());
+            }
+        }
+        return retired;
+    }
+
+    /** 설정 행을 지운다 — 알림 서버 기본값으로 되돌아간다. 라이브가 한 번이라도 쓴 행은 제외다. */
+    private int retireSettings(String migrationId, Map<String, Object> record) {
+        return store.update("DELETE FROM settings WHERE user_id=? AND imported_by=? AND version=?",
+                MigrationRecords.uuid(record.get("userId")), migrationId, record.get("version"));
+    }
+
+    /**
+     * 기기는 지우지 않고 {@code active=false} 로 접는다 — 그 값이 「소유권 폐기」의 정본 표식이고,
+     * 되살아나면 안 되는 tombstone 이라 뒤늦은 구 export 가 다시 켜지 못한다.
+     *
+     * <p>{@code imported_by} 가 판정의 중심이다. 나머지 가드({@code writeDevice}·
+     * {@code DeviceService.legacyRow} 와 같은 라이브 흔적)만으로는 <b>sid 없는 구 앱의 최초 등록</b>이
+     * 만든 살아 있는 행과 구분되지 않는다 — 그 행도 bootstrap·세션·legacy 가 NULL 이고
+     * {@code ownership_version=1} 인 활성 행이다. 모양으로 가르면 방금 등록한 기기를 끄게 된다.
+     */
+    private int retireDevice(String migrationId, Map<String, Object> record) {
+        return store.update("UPDATE device_tokens SET active=false,updated_at=now()"
+                + " WHERE device_token=? AND user_id=? AND active AND imported_by=? AND bootstrap_hash IS NULL"
+                + " AND session_epoch IS NULL AND legacy_session_id IS NULL AND ownership_version=1",
+                record.get("deviceToken"), MigrationRecords.uuid(record.get("userId")), migrationId);
+    }
+
+    /**
+     * 미발송 delivery 는 {@code SUPPRESSED} 로 종결한다 — 삭제하면 {@code delivery_devices} 의 전송
+     * 이력이 참조를 잃는다.
+     *
+     * <p>「손대지 않은 행」의 정의는 {@code DispatchService} 가 실제로 무엇을 전진시키는지에서 온다 —
+     * 선점({@code lease_token}) · 재시도({@code attempts}·{@code next_attempt_at}) · 상태다.
+     * 넷 중 하나라도 적재값과 다르면 라이브가 이미 그 행의 주인이므로 접지 않는다.
+     */
+    private int retireDelivery(Map<String, Object> record) {
+        return store.update("UPDATE deliveries SET status='SUPPRESSED' WHERE event_id=? AND user_id=?"
+                + " AND status=? AND status IN ('PENDING','DEFERRED') AND attempts=? AND next_attempt_at=?"
+                + " AND lease_token IS NULL AND sent_at IS NULL",
+                record.get("eventId"), MigrationRecords.uuid(record.get("userId")),
+                record.get("status"), record.get("attempts"),
+                MigrationRecords.timestamp(record.get("nextAttemptAt")));
+    }
+
+    /**
+     * 투영은 <b>적재한 payload 가 그대로 남아 있을 때만</b> 지운다. version 만 보면 나중에 같은
+     * version 으로 쓰는 경로가 생겼을 때 조용히 라이브 값을 지우게 된다 — 오늘 라이브 두 경로
+     * ({@code InboundService.project}·{@code SnapshotReconciler})가 {@code <} 인 사실에 기대지 않는다.
+     */
+    private int retireProjection(String type, Map<String, Object> record, String subject) {
+        return store.update("DELETE FROM projections WHERE projection_type=? AND user_id=? AND subject_id=?"
+                + " AND version=? AND payload=?::jsonb", type, MigrationRecords.uuid(record.get("userId")),
+                subject, record.get("version"), Json.write(record));
     }
 
     /** 재검증에 실패한 뒤 남은 낡은 «검증 통과» 표시를 지운다. open 트랜잭션이 끝난 뒤에 불린다. */

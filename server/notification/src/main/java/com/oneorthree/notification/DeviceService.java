@@ -194,7 +194,7 @@ class DeviceService {
                 + "device_key=EXCLUDED.device_key,"
                 + "ownership_version=device_tokens.ownership_version+1,auth_generation=EXCLUDED.auth_generation,"
                 + "bootstrap_hash=EXCLUDED.bootstrap_hash,session_epoch=EXCLUDED.session_epoch,"
-                + "legacy_session_id=EXCLUDED.legacy_session_id,active=true,transport_invalid=false,"
+                + "legacy_session_id=EXCLUDED.legacy_session_id,active=true,transport_invalid=false,imported_by=NULL,"
                 + "updated_at=now()",
                 token, user, next, deviceKey, generation, hash, epoch, legacySession);
         return Map.of("ownershipToken", next.toString());

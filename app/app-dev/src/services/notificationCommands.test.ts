@@ -54,6 +54,19 @@ async function session(user: string, id = `${user}-session`) {
     [STORAGE_KEYS.deviceBootstrap, `${id}-bootstrap`],
   ]);
 }
+/** 이벤트 루프를 한 턴 넘긴다 — 대기 중인 promise 연쇄가 끝까지 진행할 기회를 준다(경과 시간 아님). */
+function turn() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+/** 조건이 참이 될 때까지 턴을 돌린다. 시간이 아니라 턴 수로 한계를 둔다. */
+async function waitFor(condition: () => boolean, turns = 20) {
+  for (let i = 0; i < turns && !condition(); i += 1) await turn();
+  if (!condition()) throw new Error('기다리던 상태가 되지 않았습니다.');
+}
+/** 풀어준 연쇄가 더 갈 수 있는 데까지 가도록 턴을 돌린다. 목 응답은 타이머 없이 promise 로만 진행한다. */
+async function drain(turns = 10) {
+  for (let i = 0; i < turns; i += 1) await turn();
+}
 async function queue() {
   return JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.notificationCommands)) ?? '[]');
 }
@@ -137,6 +150,66 @@ test('오프라인에 쌓인 토큰 교체는 선행 등록의 소유권을 이�
   expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.deviceOwnership))!)).toMatchObject({
     deviceToken: 'fcm-new',
     ownershipToken: 'owner-new',
+  });
+});
+
+// 결정적 재현: 「소유권 조회」와 「직전 응답의 소유권 회전」을 서로 엇갈리게 세운다.
+// 후속 등록이 소유권을 읽은 «직후» 이전 응답이 도착하도록 barrier 로 고정하면, 직렬화가 없을 때는
+// 그 응답의 승계가 아직 큐에 없는 이 명령을 지나치고 명령은 낡은 소유권으로 굳는다.
+test('직전 등록 응답의 소유권 회전과 후속 등록 적재는 서로를 추월하지 않는다', async () => {
+  const put = jest.spyOn(axios, 'put').mockResolvedValue({ data: { ownershipToken: 'owner-0' } });
+  await queueDeviceRegistration('fcm-0');
+  expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.deviceOwnership))!)).toMatchObject({
+    ownershipToken: 'owner-0',
+  });
+
+  // 두 번째 등록의 «응답»을 barrier 가 열 때까지 붙잡는다 — 이 사이에 FCM 토큰이 또 갱신된다.
+  let openResponse!: () => void;
+  const response = new Promise<void>((resolve) => {
+    openResponse = resolve;
+  });
+  put
+    .mockClear()
+    .mockImplementationOnce(async () => {
+      await response;
+      return { data: { ownershipToken: 'owner-1' } };
+    })
+    .mockResolvedValue({ data: { ownershipToken: 'owner-2' } });
+  const rotating = queueDeviceRegistration('fcm-1');
+  await waitFor(() => put.mock.calls.length === 1);
+
+  // 세 번째 등록이 소유권을 읽은 «바로 그 자리»에서 두 번째 응답을 풀고, 그 연쇄가 갈 수 있는 데까지
+  // 턴을 돌린다. 직렬화가 없으면 회전·승계·전송이 이 턴들 안에서 모두 끝나 이 명령을 지나치고,
+  // 직렬화가 있으면 경계에서 멈춰 적재를 기다린다 — 어느 쪽도 경과 시간에 기대지 않는다.
+  const getItem = jest.mocked(AsyncStorage.getItem);
+  const original = getItem.getMockImplementation()!;
+  let crossed = false;
+  getItem.mockImplementation(async (storageKey: string) => {
+    const value = await original(storageKey);
+    if (storageKey === STORAGE_KEYS.deviceOwnership && !crossed) {
+      crossed = true;
+      openResponse();
+      await drain();
+    }
+    return value;
+  });
+  try {
+    await Promise.all([queueDeviceRegistration('fcm-2'), rotating]);
+  } finally {
+    getItem.mockImplementation(original);
+  }
+  expect(crossed).toBe(true);
+
+  // 낡은 owner-0 을 그대로 실으면 소비된 bootstrap 과 함께 영구히 거절된다.
+  expect(put.mock.calls[1][1]).toMatchObject({
+    deviceToken: 'fcm-2',
+    ownershipToken: 'owner-1',
+  });
+  expect(put).toHaveBeenCalledTimes(2);
+  expect(await queue()).toEqual([]);
+  expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.deviceOwnership))!)).toMatchObject({
+    deviceToken: 'fcm-2',
+    ownershipToken: 'owner-2',
   });
 });
 

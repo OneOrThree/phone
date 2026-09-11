@@ -140,6 +140,8 @@ Data의 리그 RR 배치는 OUTBOX 모드에서 DB 직렬화 충돌(40001)만 �
 
 Data의 CLI를 `notification.migration.enabled=true`로 기동하고 `notification.migration.export-to=<로컬 파일>` 및 `notification.migration.id=<고정 ID>`를 지정한다. 구 발송·쓰기 인플라이트를 실제로 drain한 뒤 최종본에는 `notification.migration.closed-at=<epoch millis>`와 `notification.migration.inflight-drained=true`를 함께 준다. 최초 탐색에서는 두 값을 생략한다. 재조립 실패 또는 미전달 outbox가 남으면 최종본을 만들지 않는다.
 
+export마다 고유한 `manifest.snapshot`이 만들어진다. 모든 `*.import-####.json`은 같은 `snapshot`을 포함하며, 빈 전체 export도 `records: []`인 import 파일 하나를 만든다. 한 export의 청크와 manifest를 섞지 않고 재시도에는 같은 파일·명령 키를 사용한다. 재추출은 새 snapshot이며 최종 verify/open은 그 새 manifest로 수행한다. import 멱등 키는 `noti-import:<snapshot>:<청크 번호>`처럼 export·청크별로 발급한다. 새 snapshot에 이전 요청 키를 재사용하면 본문 충돌이므로 새 키를 쓰고, 같은 파일 재전송만 같은 키를 유지한다. 부분 적재는 검증 실패로 닫힌 채 재개하고, 최초 개방 직전에 선택한 집합 밖의 변경되지 않은 이관 소유 행만 정리한다. 라이브 설정·기기 소유권·더 높은 버전은 보존한다.
+
 `*.import-0000.json`의 500건 이하 배치를 Noti import API에 순서대로 전달하고, `*.verify.json`의 manifest로 검증한다. PENDING·DEFERRED는 미발송 데이터로 적재하며 queueDepth에는 포함하지 않는다. 빈 settings/device/delivery도 count 0과 SHA256(empty)를 manifest에 기록한다. 각 파일은 생성 시 0600이며 기존 파일을 덮지 않는다. 동일 원본 재시도는 새 출력 경로를 지정해 같은 migrationId에 반영한다.
 
 직렬화 호환 검증은 Noti bootJar 빌드 뒤 `python3 .github/scripts/check-migration-checksum.py`로 실행한다. 발송 개방 전 실제 DB의 건수·체크섬·필드·미발송 렌더 검증은 별도로 통과해야 한다.
@@ -158,8 +160,12 @@ Data가 알 수 없는 새 slug도 가입 사실로 전달하므로, MMP의 그�
 
 ## OUTBOX 후보 배치 활성화 선행 조건
 
-[GROMO-893](https://romance.atlassian.net/browse/GROMO-893)의 다중 수신자 USER 잠금 경계를
+[GROMO-893](https://romance.atlassian.net/browse/GROMO-893)의 다중 수신자 USER 잠금 경계와
+결과·환불 후보 배치의 수신 완료 경계를
 완료·검증하기 전에는 `NOTIFICATION_DISPATCH_MODE=OUTBOX`로 전환하지 않는다. 기본 LEGACY를
 유지한다. 여러 페이지·그룹을 넘는 트랜잭션은 부분 정렬로 순서가 통일되지 않아 교착 시
 생성 요청이나 해당 알림 슬롯 전체가 롤백될 수 있다. Foundation 코드 머지가 이 운영 조건의
 해결을 뜻하지 않는다. 코어 mutation/outbox 원자성과 RR 판정 의미를 보존하는 수정이 선행한다.
+결과·환불 재훑기는 이미 닫힌 같은 슬롯의 여러 사건을 생산하지만 현재 `bundleMembers`를
+전달하지 않는다. 두 수신 사이에 flush가 실행되면 한 배치가 여러 푸시로 나갈 수 있으므로,
+이 경계의 수정과 실제 수신·flush 교차 회귀도 위 선행 작업에 포함한다.
