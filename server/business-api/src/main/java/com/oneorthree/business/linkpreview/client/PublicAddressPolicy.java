@@ -99,7 +99,27 @@ public final class PublicAddressPolicy {
                 && !(first == 0x3f && second == 0xff && (Byte.toUnsignedInt(bytes[2]) & 0xf0) == 0)
                 && !(first == 0x20 && second == 0x02)
                 && !(first == 0x20 && second == 0x01
-                && (Byte.toUnsignedInt(bytes[2]) < 2
+                && (Byte.toUnsignedInt(bytes[2]) < 2 && !isGlobalProtocolAssignment(bytes)
                 || (Byte.toUnsignedInt(bytes[2]) == 0x0d && Byte.toUnsignedInt(bytes[3]) == 0xb8)));
+    }
+
+    private static boolean isGlobalProtocolAssignment(byte[] bytes) {
+        // 2001::/23 중 IANA가 Globally Reachable로 지정한 하위 할당만 예외로 허용한다.
+        int subnet = (Byte.toUnsignedInt(bytes[2]) << 8) | Byte.toUnsignedInt(bytes[3]);
+        if (subnet == 3 || (subnet == 4 && bytes[4] == 1 && bytes[5] == 0x12)
+                || (subnet & 0xfff0) == 0x20 || (subnet & 0xfff0) == 0x30) {
+            return true;
+        }
+        if (subnet != 1) {
+            return false;
+        }
+        for (int i = 4; i < 15; i++) {
+            if (bytes[i] != 0) {
+                return false;
+            }
+        }
+        // PCP, TURN, DNS-SD anycast의 세 /128 주소다. 인접 주소는 포함하지 않는다.
+        int last = Byte.toUnsignedInt(bytes[15]);
+        return last >= 1 && last <= 3;
     }
 }

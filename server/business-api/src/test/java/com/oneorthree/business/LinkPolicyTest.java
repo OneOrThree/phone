@@ -29,6 +29,25 @@ class LinkPolicyTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"2001:1::1", "2001:1::2", "2001:1::3",
+            "2001:3::", "2001:3:ffff:ffff:ffff:ffff:ffff:ffff",
+            "2001:4:112::", "2001:4:112:ffff:ffff:ffff:ffff:ffff",
+            "2001:20::", "2001:2f:ffff:ffff:ffff:ffff:ffff:ffff",
+            "2001:30::", "2001:3f:ffff:ffff:ffff:ffff:ffff:ffff"})
+    void allowsGlobalIetfProtocolAssignments(String address) throws Exception {
+        assertThat(PublicAddressPolicy.isPublic(InetAddress.getByName(address))).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"2001::1", "2001:1::", "2001:1::4", "2001:1::101", "2001:1:0:0:0:1:0:1",
+            "2001:2::", "2001:2:ffff:ffff:ffff:ffff:ffff:ffff", "2001:4:111:ffff:ffff:ffff:ffff:ffff",
+            "2001:4:113::", "2001:4:12::", "2001:10::", "2001:1f:ffff:ffff:ffff:ffff:ffff:ffff",
+            "2001:40::", "2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff"})
+    void keepsNonGlobalIetfProtocolAssignmentsBlocked(String address) throws Exception {
+        assertThat(PublicAddressPolicy.isPublic(InetAddress.getByName(address))).isFalse();
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"file:///etc/passwd", "ftp://example.com/a", "https://user:pass@example.com/a",
             "http://localhost/a", "http://metadata.google.internal/a", "https://example.com:8443/a",
             "http://example.com./a", "HTTPS://example.com:80/a", "HTTP://example.com:443/a", "//example.com", "https://example.com\\@localhost"})
