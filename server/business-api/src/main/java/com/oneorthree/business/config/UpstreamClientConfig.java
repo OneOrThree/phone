@@ -1,6 +1,8 @@
 package com.oneorthree.business.config;
 
 import com.oneorthree.business.common.http.InternalHttpClient;
+import com.oneorthree.business.common.http.ScreenComposer;
+import jakarta.annotation.PreDestroy;
 import com.oneorthree.business.common.http.UpstreamProperties;
 import com.oneorthree.business.common.http.UpstreamTarget;
 import com.oneorthree.business.upstream.data.DataApiClient;
@@ -10,6 +12,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import tools.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * 상류 클라이언트 셋을 만든다 — <b>대상별로 별개의 인스턴스, 별개의 토큰</b>.
@@ -27,23 +33,57 @@ import tools.jackson.databind.ObjectMapper;
 @EnableConfigurationProperties({UpstreamConfigProperties.class, CompatProperties.class})
 public class UpstreamClientConfig {
 
+    private final Queue<InternalHttpClient> ownedClients = new ConcurrentLinkedQueue<>();
+
+    @Bean
+    public ScreenComposer screenComposer(UpstreamConfigProperties properties) {
+        UpstreamConfigProperties.Composition composition = properties.getComposition();
+        return new ScreenComposer(composition.getPoolSize(), composition.getQueueCapacity(), composition.getDeadline());
+    }
+
+    private InternalHttpClient client(UpstreamTarget target, UpstreamProperties properties, ObjectMapper mapper) {
+        InternalHttpClient client = new InternalHttpClient(target, properties, mapper);
+        ownedClients.add(client);
+        return client;
+    }
+
+    /** 대상별 HTTP 풀과 worker를 애플리케이션 종료에 함께 회수한다. */
+    @PreDestroy
+    public void closeClients() throws IOException {
+        IOException failure = null;
+        for (InternalHttpClient client : ownedClients) {
+            try {
+                client.close();
+            } catch (IOException e) {
+                if (failure == null) {
+                    failure = e;
+                } else {
+                    failure.addSuppressed(e);
+                }
+            }
+        }
+        if (failure != null) {
+            throw failure;
+        }
+    }
+
     @Bean
     public DataApiClient dataApiClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
         return new DataApiClient(
-                new InternalHttpClient(UpstreamTarget.DATA, convert(properties.getData()), objectMapper));
+                client(UpstreamTarget.DATA, convert(properties.getData()), objectMapper));
     }
 
     @Bean
     public NotificationApiClient notificationApiClient(UpstreamConfigProperties properties,
             ObjectMapper objectMapper) {
-        return new NotificationApiClient(new InternalHttpClient(
+        return new NotificationApiClient(client(
                 UpstreamTarget.NOTIFICATION, convert(properties.getNotification()), objectMapper));
     }
 
     @Bean
     public LinkApiClient linkApiClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
         return new LinkApiClient(
-                new InternalHttpClient(UpstreamTarget.LINK, convert(properties.getLink()), objectMapper));
+                client(UpstreamTarget.LINK, convert(properties.getLink()), objectMapper));
     }
 
     private UpstreamProperties convert(UpstreamConfigProperties.Target target) {
@@ -53,6 +93,10 @@ public class UpstreamClientConfig {
                 target.getConnectTimeout(),
                 target.getReadTimeout(),
                 target.getFailureThreshold(),
-                target.getOpenDuration());
+                target.getOpenDuration(),
+                target.getMaxAttempts(),
+                target.getRetryDelay(),
+                target.getMaxConnections(),
+                target.getQueueCapacity());
     }
 }

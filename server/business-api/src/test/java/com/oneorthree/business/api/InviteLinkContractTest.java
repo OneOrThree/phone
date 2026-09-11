@@ -255,12 +255,8 @@ class InviteLinkContractTest extends UpstreamTestBase {
         DATA.on("POST /internal/invite-links/claim-intents", request ->
                 new MockUpstream.Response(200,
                         "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1,\"completed\":false}"));
-        // ⚠️ 본문에 code 를 실어도 «401 은» 도메인 판정으로 들어오지 않는다. SimpleClientHttpRequestFactory
-        //    (JDK HttpURLConnection)가 401 의 오류 본문을 인증 처리 과정에서 흘려 버려 raw 가 비고,
-        //    classify 는 「코드 없는 401」 = UpstreamCredentialRejectedException 으로 접는다.
-        //    그래서 앱이 받는 것은 502 다 — 그게 계약이다(CommonErrorCode.UPSTREAM_CREDENTIAL_REJECTED:
-        //    「배포·시크릿 배선 사고이므로 사용자에게 401 을 주지 않는다. 그러면 정상 세션이 전부
-        //    재로그인으로 튄다」). 403 은 인증 챌린지가 없어 본문이 살아 오고, 그 경로는 아래 테스트가 본다.
+        // 서비스 401은 본문 INVALID_SERVICE_TOKEN도 명시적으로 서비스 자격 실패로 분류한다.
+        // 앱에는 502를 내려 배포·시크릿 배선 장애가 정상 사용자 세션의 재로그인을 유발하지 않게 한다.
         LINK.on("POST /internal/links/abc123/claim", request ->
                 new MockUpstream.Response(401,
                         "{\"code\":\"INVALID_SERVICE_TOKEN\",\"message\":\"INVALID_SERVICE_TOKEN\"}"));

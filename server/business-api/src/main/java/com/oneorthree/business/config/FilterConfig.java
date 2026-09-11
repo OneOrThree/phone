@@ -1,6 +1,7 @@
 package com.oneorthree.business.config;
 
 import com.oneorthree.business.auth.AccessTokenVerifier;
+import com.oneorthree.business.common.api.ApiResponses;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,9 +31,9 @@ import org.springframework.context.annotation.Configuration;
 public class FilterConfig {
 
     @Bean
-    public FilterRegistrationBean<RequestEnvelopeFilter> requestEnvelopeFilterRegistration() {
+    public FilterRegistrationBean<RequestEnvelopeFilter> requestEnvelopeFilterRegistration(ApiResponses responses) {
         FilterRegistrationBean<RequestEnvelopeFilter> registration =
-                new FilterRegistrationBean<>(new RequestEnvelopeFilter());
+                new FilterRegistrationBean<>(new RequestEnvelopeFilter(responses));
         registration.addUrlPatterns("/*");
         registration.setOrder(0);
         return registration;
@@ -40,9 +41,9 @@ public class FilterConfig {
 
     @Bean
     public FilterRegistrationBean<AccessTokenFilter> accessTokenFilterRegistration(
-            AccessTokenVerifier verifier) {
+            AccessTokenVerifier verifier, ApiResponses responses) {
         FilterRegistrationBean<AccessTokenFilter> registration =
-                new FilterRegistrationBean<>(new AccessTokenFilter(verifier));
+                new FilterRegistrationBean<>(new AccessTokenFilter(verifier, responses));
         registration.addUrlPatterns("/*");
         registration.setOrder(1);
         return registration;

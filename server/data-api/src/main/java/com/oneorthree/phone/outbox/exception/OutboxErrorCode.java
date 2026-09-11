@@ -18,6 +18,9 @@ public enum OutboxErrorCode implements ErrorCode {
      */
     IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "같은 요청 키로 다른 요청이 이미 처리되었습니다."),
 
+    /** 지원하지 않는 공개 명령 결과 계약. 키를 제거하거나 원 명령을 재실행하지 않는다. */
+    PUBLIC_COMMAND_CONTRACT_UNSUPPORTED(HttpStatus.CONFLICT, "이전 요청 결과의 계약 버전을 지원하지 않습니다."),
+
     /** 저장된 응답을 요청한 타입으로 되살리지 못했다 — 명령의 응답 타입이 배포 사이에 바뀐 경우다. */
     IDEMPOTENT_REPLAY_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "이전 요청 결과를 복원하지 못했습니다."),
 
