@@ -53,3 +53,5 @@ Link/MMP의 실제 저장소는 [OneOrThree/mmp-custom](https://github.com/OneOr
 - 설정 동시 변경은 실제 PG의 잠금 대기와 최종 행·봉투를 대조한다(A22 ㋕). 앱 업그레이드 후 첫 등록 전 로그아웃은 SDK 토큰 정리 경로의 사전 배선과 조회 실패 시 RT 폐기 유지를 검사한다(A22 ㋲).
 
 - 내부 HTTP 서킷은 정상 4xx와 시간 예산 부족 이후에도 복구되는지 검사한다(A22 ㋽, `InternalHttpClientRecoveryTest`).
+
+- 게이트 재시도의 실제 drain·닫힌 상태 보호·새 키 재개와 멤버 역할 변경의 동시 표시 버전 보존을 검사한다(A22 ㋾·㋻).

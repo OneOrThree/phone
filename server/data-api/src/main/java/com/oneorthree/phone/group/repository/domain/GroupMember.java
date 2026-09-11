@@ -19,6 +19,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
@@ -33,12 +34,32 @@ import java.util.UUID;
  *
  * <p>재참여도 행 재삽입이 아니라 {@link #rejoin()} 으로 기존 행을 되살린다 — unique 제약 때문에 새로 넣을
  * 수 없다.
+ *
+ * <h2>{@code @DynamicUpdate} 가 붙어 있는 이유 (GROMO-1659)</h2>
+ * 이 행에는 <b>서로 다른 축</b>이 함께 산다 — 역할·공지 권한·알림 on/off 는 «요청자가 고치는 값»이고,
+ * {@code membership_epoch}·{@code transition_seq}·{@code snapshot_version} 은 «다른 트랜잭션이
+ * 잠금 아래 전진시키는 값»이다({@link #applyDisplaySnapshot(long)} 은 컬럼 하나짜리 조건부 UPDATE 로도
+ * 올라간다 — {@code GroupMemberRepository.advanceSnapshotVersion}).
+ *
+ * <p>기본 더티 체킹은 <b>전 컬럼 UPDATE</b> 를 낸다. 그래서 잠금 없이 로드한 엔티티(예:
+ * {@code transferOwner}·{@code updateGroupSettings} 의 {@code findByUserAndGroup})가 역할 하나만
+ * 고쳐도, 그 사이 커밋된 표시 스냅샷 전진이 <b>옛 값으로 되돌아간다</b> — 링크 서버에는 새 버전이
+ * 이미 나갔는데 코어의 원장만 뒤로 감기는 셈이다(늦게 온 relay 가 최신 이름을 덮는 길이 열린다).
+ * {@code @DynamicUpdate} 는 <b>정말 바뀐 컬럼만</b> 싣게 해 그 덮어쓰기를 막는다. 전이가 실제로
+ * 일어난 쓰기({@link #leave()}·{@link #kick()}·{@link #rejoin()}·
+ * {@link #applyMembershipTransition(long)}) 는 그 컬럼들이 더티가 되므로 그대로 나간다.
+ *
+ * <p><b>이것은 낙관락이 아니다.</b> 「안 바꾼 컬럼을 덮지 않는다」까지만 보장한다 — 두 트랜잭션이
+ * <b>같은 컬럼</b>을 읽고-고쳐-쓰면 여전히 뒤엣것이 이긴다. 그래서 멤버십 축을 바꾸는 경로는
+ * 지금처럼 행 잠금({@code findActiveByUserIdAndGroupIdForUpdate}·{@code lockActiveMembershipId})
+ * 을 계속 걸어야 하고, 표시 축은 컬럼 단위 조건부 UPDATE 를 계속 쓴다.
  */
 @Entity
 @Table(
         name = "group_members",
         uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "group_id"})
 )
+@DynamicUpdate
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

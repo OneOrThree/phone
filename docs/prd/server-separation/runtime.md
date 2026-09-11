@@ -134,6 +134,7 @@ Data의 리그 RR 배치는 OUTBOX 모드에서 DB 직렬화 충돌(40001)만 �
 
 최초 gate 개방과 이후 재개는 `docs/contracts/notification-admin-api.yaml`의 import/verify/open/close를
 사용한다. open은 manifest를 실제 DB와 다시 대조한다. 실패하면 닫은 채 최종 import/verify로 돌아간다.
+같은 close 키의 재시도도 다시 닫고 drain한다. 응답 유실로 open을 같은 키로 재전송할 때에는 현재 개방과 실제 데이터를 재검증한다. 이후 close로 닫혔으면 `409 DISPATCH_OPEN_REPLAY_STALE`이며 자동 재개하지 않는다. 의도적으로 다시 열 때에는 새 open 키로 전체 검증을 거친다.
 한 번 열린 뒤에는 구 Data FCM 경로로 되돌리지 않는다. close가 진행 중 발송을 drain한 뒤 새 경로를 수정한다.
 
 ## 최종 알림 export
