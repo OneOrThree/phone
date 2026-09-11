@@ -4,7 +4,7 @@ import { fail, object, text, uuid, version } from './errors';
 import { activeUsers, idempotent, lock } from './ledger';
 import { generateSlug } from './public-contract';
 import { capability } from './auth';
-import { auditTransition, importClicks, openRun, requireDirectWrites } from './migration';
+import { auditTransition, auditTransitions, importClicks, openRun, requireDirectWrites } from './migration';
 import { analytics } from './analytics';
 
 export interface LinkRow {
@@ -69,7 +69,7 @@ export async function issue(input: unknown, key: string, delegated?: string) {
   return result;
 }
 
-export async function revoke(input: unknown, key: string) {
+export async function revoke(input: unknown, key: string, envelope?: unknown) {
   const body = object(input), group = uuid(body.groupId), inviter = uuid(body.inviterId);
   const epoch = version(body.membershipEpoch), target = version(body.linkVersion), seq = version(body.transitionSeq);
   return idempotent(`revoke:${group}:${inviter}`, key, body, async tx => {
@@ -82,9 +82,9 @@ export async function revoke(input: unknown, key: string) {
       WHERE group_id=$1 AND inviter_id=$2 AND link_version=$3`, [group, inviter, target]);
     // 이미 확정된 정상 귀속은 보존하고, 지연 중 수락된 잠정 귀속만 폐기한다.
     await tx.query(`UPDATE link_claims SET status='REVOKED',revoked_at=now() WHERE group_id=$1 AND inviter_id=$2
-      AND membership_epoch=$3 AND status='PENDING'`, [group, inviter, target]);
+      AND membership_epoch=$3 AND status IN ('PENDING','LEGACY')`, [group, inviter, target]);
     return { applied: true };
-  });
+  }, envelope);
 }
 
 export async function recordClick(link: LinkRow, ipHash: string, os: string, ua: string, refererHost = '') {
@@ -116,7 +116,7 @@ export async function match(input: unknown) {
     const cutoff = new Date(Date.now() - matchWindowHours() * 3600000);
     const prior = await tx.query<LinkRow>(`SELECT l.* FROM link_clicks c JOIN links l ON l.id=c.link_id
       WHERE c.matched=true AND c.matched_device_id=$1 AND c.matched_at>$2 ORDER BY c.matched_at DESC LIMIT 1`, [device, cutoff]);
-    if (prior.rowCount) { replay = true; return matchResult(prior.rows[0]); }
+    if (prior.rowCount && live(prior.rows[0]!)) { replay = true; return matchResult(prior.rows[0]); }
     const candidate = await tx.query<LinkRow & { click_id: string }>(`SELECT l.*,c.id AS click_id FROM link_clicks c JOIN links l ON l.id=c.link_id
       WHERE c.ip_hash=$1 AND c.os=$2 AND c.matched=false AND c.clicked_at>$3
       ORDER BY c.clicked_at DESC LIMIT 1 FOR UPDATE OF c SKIP LOCKED`, [ip, os, cutoff]);
@@ -130,7 +130,7 @@ export async function match(input: unknown) {
     await membership(tx, row.group_id, row.inviter_id);
     const fresh = (await tx.query<LinkRow>('SELECT * FROM links WHERE id=$1 FOR SHARE', [row.id])).rows[0];
     // 판정이 뒤집혀도 소진 자체는 그대로 둔다 — 죽은 후보가 남으면 같은 IP·OS 의 이후 클릭을 계속 가린다.
-    await tx.query('UPDATE link_clicks SET matched=true,matched_at=now(),matched_device_id=$2,app_instance_id=$3 WHERE id=$1', [row.click_id, device, instance]);
+    await tx.query('UPDATE link_clicks SET matched=true,matched_at=now(),matched_device_id=$2,app_instance_id=$3 WHERE id=$1', [row.click_id, fresh && live(fresh) ? device : null, instance]);
     await auditTransition(tx, row.click_id);
     return matchResult(fresh);
   });
@@ -155,7 +155,7 @@ export async function claim(slug: string, userId: string, key: string) {
     const prior = (await tx.query('SELECT id,status FROM link_claims WHERE link_id=$1 AND claimed_user_id=$2', [link.id, userId])).rows[0];
     if (prior) return { claimId: prior.id, capability: capability(link), groupId: link.group_id };
     const click = (await tx.query(`SELECT id FROM link_clicks WHERE link_id=$1 AND matched=true AND claimed_user_id IS NULL
-      AND claim_id IS NULL ORDER BY matched_at DESC LIMIT 1 FOR UPDATE SKIP LOCKED`, [link.id])).rows[0];
+      AND claim_id IS NULL AND claimed_at IS NULL ORDER BY matched_at DESC LIMIT 1 FOR UPDATE SKIP LOCKED`, [link.id])).rows[0];
     if (!click) return { claimId: null, capability: null, groupId: link.group_id };
     const created = (await tx.query(`INSERT INTO link_claims(link_id,slug,group_id,inviter_id,claimed_user_id,click_id,membership_epoch)
       VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [link.id, slug, link.group_id, link.inviter_id, userId, click.id, link.link_version])).rows[0];
@@ -171,7 +171,7 @@ export async function claim(slug: string, userId: string, key: string) {
   return { ...result, capability: capability(link) };
 }
 
-export async function confirm(claimId: string, input: unknown, key: string) {
+export async function confirm(claimId: string, input: unknown, key: string, envelope?: unknown) {
   const body = object(input), group = uuid(body.groupId), inviter = uuid(body.inviterId);
   const seq = version(body.transitionSeq), epoch = version(body.membershipEpoch);
   const proof = object(body.proof);
@@ -196,10 +196,10 @@ export async function confirm(claimId: string, input: unknown, key: string) {
     await tx.query(`UPDATE link_claims SET status='CONFIRMED',confirm_proof=$2,confirmed_at=$3,confirm_transition_seq=$4 WHERE id=$1`,
       [claimId, JSON.stringify(immutable), immutable.committedAt, seq]);
     return { applied: true };
-  });
+  }, envelope);
 }
 
-export async function withdraw(userId: string, input: unknown, key: string) {
+export async function withdraw(userId: string, input: unknown, key: string, envelope?: unknown) {
   const body = object(input), seq = version(body.transitionSeq);
   return idempotent(`withdraw:${userId}`, key, body, async tx => {
     await requireDirectWrites(tx);
@@ -208,23 +208,32 @@ export async function withdraw(userId: string, input: unknown, key: string) {
       ON CONFLICT(user_id) DO UPDATE SET transition_seq=GREATEST(user_tombstones.transition_seq,EXCLUDED.transition_seq)`, [userId, seq]);
     const claims = await tx.query("UPDATE link_claims SET claimed_user_id=NULL,status='ANONYMIZED',anonymized_at=now() WHERE claimed_user_id=$1", [userId]);
     const clicks = await tx.query('UPDATE link_clicks SET claimed_user_id=NULL WHERE claimed_user_id=$1 RETURNING id', [userId]);
-    for (const click of clicks.rows) await auditTransition(tx, click.id);
+    await auditTransitions(tx, clicks.rows.map(click => click.id));
     await tx.query('UPDATE joined_events SET user_id=NULL,anonymized_at=now() WHERE user_id=$1', [userId]);
     await tx.query('UPDATE user_tombstones SET anonymized_claims=anonymized_claims+$2,anonymized_clicks=anonymized_clicks+$3 WHERE user_id=$1',
       [userId, claims.rowCount, clicks.rowCount]);
     await tx.query(`UPDATE links SET inviter_name=NULL,status='REVOKED',revoked_at=COALESCE(revoked_at,now()),revoke_reason='USER_WITHDRAWN'
       WHERE inviter_id=$1`, [userId]);
-    await tx.query("UPDATE link_claims SET status='REVOKED',revoked_at=now() WHERE inviter_id=$1 AND status='PENDING'", [userId]);
+    await tx.query("UPDATE link_claims SET status='REVOKED',revoked_at=now() WHERE inviter_id=$1 AND status IN ('PENDING','LEGACY')", [userId]);
     return { applied: true };
-  });
+  }, envelope);
 }
 
-export async function updateSnapshot(kind: 'groups' | 'users', id: string, input: unknown, key: string, closed = false) {
+// 동결 DTO는 membership 표시 version만 제공한다. 서로 다른 aggregate version을 추정해
+// 그룹·사용자 전체를 덮으면 지연 명령이 이관한 이름을 되돌린다. 이관 대상은 events 경로를 쓴다.
+async function requireAggregateSnapshotVersion(tx: PoolClient, column: 'group_id' | 'inviter_id', id: string) {
+  const imported = await tx.query(`SELECT 1 FROM migration_links m JOIN links l ON l.id=m.link_id
+    WHERE l.${column}=$1 LIMIT 1`, [id]);
+  if (imported.rowCount) fail(409, 'AGGREGATE_SNAPSHOT_VERSION_UNAVAILABLE');
+}
+
+export async function updateSnapshot(kind: 'groups' | 'users', id: string, input: unknown, key: string, closed = false, envelope?: unknown) {
   const body = object(input), incoming = version(body.version);
   return idempotent(`snapshot:${kind}:${id}`, key, { ...body, closed }, async tx => {
     await requireDirectWrites(tx);
     if (kind === 'groups') {
       await lock(tx, `group:${id}`);
+      if (!closed) await requireAggregateSnapshotVersion(tx, 'group_id', id);
       const previous = (await tx.query('SELECT * FROM group_snapshots WHERE group_id=$1', [id])).rows[0];
       if (!closed && previous && BigInt(previous.version) >= BigInt(incoming)) return { applied: false };
       const existingName = closed && !previous ? (await tx.query('SELECT group_name FROM links WHERE group_id=$1 LIMIT 1', [id])).rows[0]?.group_name : undefined;
@@ -236,6 +245,7 @@ export async function updateSnapshot(kind: 'groups' | 'users', id: string, input
         [id, name, permanentlyClosed, closed]);
     } else {
       await activeUsers(tx, id);
+      await requireAggregateSnapshotVersion(tx, 'inviter_id', id);
       const previous = (await tx.query('SELECT version FROM user_snapshots WHERE user_id=$1', [id])).rows[0];
       if (previous && BigInt(previous.version) >= BigInt(incoming)) return { applied: false };
       const name = body.displayName == null ? null : text(body.displayName);
@@ -244,10 +254,10 @@ export async function updateSnapshot(kind: 'groups' | 'users', id: string, input
       await tx.query('UPDATE links SET inviter_name=$2 WHERE inviter_id=$1', [id, name]);
     }
     return { applied: true };
-  });
+  }, envelope);
 }
 
-export async function joined(slug: string, input: unknown, key: string) {
+export async function joined(slug: string, input: unknown, key: string, envelope?: unknown) {
   const body = object(input), user = uuid(body.userId), event = text(body.eventId);
   return idempotent(`joined:${event}`, key, body, async tx => {
     await requireDirectWrites(tx);
@@ -257,7 +267,7 @@ export async function joined(slug: string, input: unknown, key: string) {
     await tx.query('INSERT INTO joined_events(event_id,link_id,user_id,occurred_at) VALUES($1,$2,$3,$4) ON CONFLICT(event_id) DO NOTHING',
       [event, link.id, user, text(body.occurredAt, 40)]);
     return { applied: true };
-  });
+  }, envelope);
 }
 
 // undefined는 이번 사건에서 해당 필드가 바뀌지 않았음을 뜻하고 null은 명시적인 닉네임 삭제다.
@@ -276,7 +286,7 @@ async function displaySnapshot(tx: PoolClient, group: string, inviter: string, i
   return previous;
 }
 
-export async function updateMembershipDisplay(input: unknown, key: string, kind: 'group' | 'inviter') {
+export async function updateMembershipDisplay(input: unknown, key: string, kind: 'group' | 'inviter', envelope?: unknown) {
   const body = object(input), group = uuid(body.groupId), inviter = uuid(body.inviterId);
   const incoming = version(body.snapshotVersion);
   return idempotent(`display:${group}:${inviter}:${kind}`, key, body, async tx => {
@@ -291,5 +301,5 @@ export async function updateMembershipDisplay(input: unknown, key: string, kind:
     if (kind === 'group') await tx.query('UPDATE links SET group_name=$3 WHERE group_id=$1 AND inviter_id=$2', [group, inviter, names.group_name]);
     else await tx.query('UPDATE links SET inviter_name=$3 WHERE group_id=$1 AND inviter_id=$2', [group, inviter, names.inviter_name]);
     return { applied: true };
-  });
+  }, envelope);
 }

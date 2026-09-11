@@ -162,7 +162,7 @@ describe('소진과 폐기의 직렬화', () => {
     }
     // 판정이 뒤집혀도 후보는 소진한다 — 죽은 클릭이 남아 이후 클릭을 가리면 안 된다.
     const click = (await getPool().query('SELECT matched,matched_device_id FROM link_clicks WHERE link_id=$1', [link.id])).rows[0];
-    expect(click).toMatchObject({ matched: true, matched_device_id: device });
+    expect(click).toMatchObject({ matched: true, matched_device_id: null });
   });
 
   it('탈퇴가 소진 직전에 커밋돼도 폐기된 링크로 매치되지 않는다', async () => {
@@ -183,4 +183,18 @@ describe('소진과 폐기의 직렬화', () => {
       blocker.release();
     }
   });
+});
+
+it('폐기 후보 소진과 과거 매치가 같은 기기의 새 정상 초대를 가리지 않는다', async () => {
+  const dead = await fixture(), good = await fixture(), ip = hashIp(randomUUID()), device = randomUUID();
+  await recordClick(dead.link, ip, 'ios', 'iPhone');
+  await revoke({ ...dead.body, transitionSeq: 2 }, randomUUID());
+  expect(await match({ ipHash: ip, os: 'ios', deviceId: device })).toEqual({ matched: false });
+  expect((await getPool().query('SELECT matched,matched_device_id FROM link_clicks WHERE link_id=$1', [dead.link.id])).rows[0])
+    .toEqual({ matched: true, matched_device_id: null });
+  // 이전 버전이 이미 기기에 묶어 둔 죽은 매치도 새 초대를 가리지 않아야 한다.
+  await getPool().query('UPDATE link_clicks SET matched_device_id=$2 WHERE link_id=$1', [dead.link.id, device]);
+  await recordClick(good.link, ip, 'ios', 'iPhone');
+  expect(await match({ ipHash: ip, os: 'ios', deviceId: device }))
+    .toEqual({ matched: true, slug: good.link.slug, groupId: good.link.group_id });
 });

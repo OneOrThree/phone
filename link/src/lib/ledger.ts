@@ -26,9 +26,11 @@ export async function activeUsers(tx: PoolClient, ...userIds: string[]): Promise
 }
 
 export async function idempotent<T>(scope: string, key: string, body: unknown,
-  action: (tx: PoolClient) => Promise<T>): Promise<T> {
+  action: (tx: PoolClient) => Promise<T>, envelope?: unknown): Promise<T> {
   text(key, 200);
-  const digest = checksum(body);
+  // relay eventId는 명령 종류·사용자와 무관하게 봉투 전체를 식별한다.
+  if (envelope !== undefined) scope = 'event';
+  const digest = checksum(envelope ?? body);
   return withTransaction(async tx => {
     await lock(tx, `command:${scope}:${key}`);
     const prior = await tx.query('SELECT request_hash, response FROM idempotency_results WHERE scope=$1 AND key=$2', [scope, key]);

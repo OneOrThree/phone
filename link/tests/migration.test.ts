@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it } from 'vitest';
-import { frozen, frozenLink, importBatch, verifyMigration } from '../src/lib/migration';
+import { frozen, frozenLink, importBatch, importClicks, openRun, verifyMigration } from '../src/lib/migration';
 import { checksum } from '../src/lib/ledger';
 import { hashIp } from '../src/lib/public-contract';
-import { claim, confirm, findLink, match, revoke, withdraw } from '../src/lib/links';
+import { claim, confirm, findLink, match, revoke, updateSnapshot, withdraw } from '../src/lib/links';
 import { ingestEvent } from '../src/lib/events';
 import { getPool } from '../src/lib/db/pool';
 
@@ -171,6 +171,7 @@ it('탈퇴 뒤 늦게 도착한 import는 익명화된 귀속을 되살리지 �
   const click = (await getPool().query('SELECT claimed_user_id,claimed_at,claim_id FROM link_clicks WHERE id=$1', [row.clickId])).rows[0];
   expect(click.claimed_user_id).toBeNull();
   expect(click.claim_id).toBeNull();
+  expect((await claim(row.slug, randomUUID(), randomUUID())).claimId).toBeNull();
   expect((await getPool().query('SELECT count(*)::int AS n FROM link_claims WHERE claimed_user_id=$1', [user])).rows[0].n).toBe(0);
   // 원본과 달라진 상태는 같은 TX 의 감사로 설명된다 — 검증이 이관 종료를 막으면 안 된다.
   expect((await verifyMigration(migrationId)).verified).toBe(1);
@@ -195,4 +196,127 @@ it('호환 소진과 벌크 적재가 동시에 돌아도 독점 run 락 없이 
     [rows.map(row => row.clickId)]);
   expect(consumed.rows.map(row => row.matched_device_id).sort()).toEqual([...devices].sort());
   expect((await verifyMigration(migrationId)).verified).toBe(2);
+});
+
+it.each(['revoke', 'withdraw'] as const)('LEGACY 적재 뒤 %s는 지연 확정에서도 귀속을 폐기 상태로 유지한다', async action => {
+  const row = claimed(randomUUID());
+  await importBatch(clickManifest(row, randomUUID()));
+  const legacy = (await getPool().query('SELECT id FROM link_claims WHERE link_id=$1', [row.linkId])).rows[0];
+  const body = { groupId: row.groupId, inviterId: row.inviterId, membershipEpoch: row.membershipEpoch,
+    linkVersion: row.linkVersion, transitionSeq: '2' };
+  if (action === 'revoke') await revoke(body, randomUUID());
+  else await withdraw(row.inviterId, { transitionSeq: '2' }, randomUUID());
+  expect(await confirm(legacy.id, { ...body, transitionSeq: '3', proof: {
+    confirmationId: randomUUID(), committedAt: new Date().toISOString(),
+  } }, randomUUID())).toEqual({ applied: false });
+  expect((await getPool().query('SELECT status FROM link_claims WHERE id=$1', [legacy.id])).rows[0].status).toBe('REVOKED');
+});
+
+it.each(['bulk', 'compat'] as const)('탈퇴 초대자 링크의 늦은 %s 적재는 원본 변조 없이 거부한다', async mode => {
+  const row = source(), migrationId = randomUUID(), body = clickManifest(row, migrationId);
+  await importBatch({ ...body, links: [], clicks: [] });
+  await withdraw(row.inviterId, { transitionSeq: '1' }, randomUUID());
+  const request = mode === 'bulk' ? importBatch(body)
+    : match({ ipHash: row.ipHash, os: row.os, deviceId: randomUUID(), migrationId, frozenCandidates: body.clicks });
+  await expect(request).rejects.toMatchObject({ code: 'INVITER_WITHDRAWN' });
+  expect(await findLink(row.slug)).toBeUndefined();
+  expect((await getPool().query('SELECT count(*)::int AS n FROM link_display_snapshots WHERE inviter_id=$1', [row.inviterId])).rows[0].n).toBe(0);
+});
+
+it('그룹 순서가 뒤집힌 혼합 배치도 서로 다른 링크의 공유 표시 행을 교착 없이 적재한다', async () => {
+  const [low, high] = [randomUUID(), randomUUID()].sort();
+  const rows = [high, low, low, high].map(groupId => frozen({ ...source(), groupId }));
+  const links = rows.map(row => ({ source: frozenLink(row), sourceChecksum: checksum(frozenLink(row)) }));
+  const clicks = [rows[1]!, rows[3]!].map(row => ({ source: row, sourceChecksum: checksum(row) }));
+  const migrationId = randomUUID(), manifest = { migrationId, expectedLinks: 4, expectedClicks: 2,
+    sourceChecksum: checksum(clicks.map(e => ({ clickId: e.source.clickId, sourceChecksum: e.sourceChecksum }))
+      .sort((a, b) => a.clickId.localeCompare(b.clickId))),
+    linkChecksum: checksum(links.map(e => ({ linkId: e.source.linkId, sourceChecksum: e.sourceChecksum }))
+      .sort((a, b) => a.linkId.localeCompare(b.linkId))) };
+  await importBatch({ ...manifest, links: [], clicks: [] });
+  await getPool().query("INSERT INTO group_snapshots(group_id,name,version,closed) VALUES($1,'기존 그룹',0,false),($2,'기존 그룹',0,false)", [low, high]);
+  // 실제 공유 행 UPDATE를 늦춰 두 배치가 각자의 첫 그룹을 잡는 경합 창을 넓힌다.
+  await getPool().query(`CREATE FUNCTION test_import_group_delay() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN PERFORM pg_sleep(0.15); RETURN NEW; END $$`);
+  await getPool().query('CREATE TRIGGER test_import_group_delay BEFORE UPDATE ON group_snapshots FOR EACH ROW EXECUTE FUNCTION test_import_group_delay()');
+  try {
+    const results = await Promise.allSettled([
+      importBatch({ ...manifest, links: [links[0]], clicks: [clicks[0]] }),
+      importBatch({ ...manifest, links: [links[2]], clicks: [clicks[1]] }),
+    ]);
+    for (const result of results) expect(result.status).toBe('fulfilled');
+    expect((await verifyMigration(migrationId, true)).verified).toBe(2);
+  } finally {
+    await getPool().query('DROP TRIGGER test_import_group_delay ON group_snapshots');
+    await getPool().query('DROP FUNCTION test_import_group_delay()');
+  }
+});
+
+it('검증이 이관 잠금을 기다리는 동안 커밋된 마지막 배치를 현재 스냅샷으로 확인한다', async () => {
+  const row = source(), migrationId = randomUUID(), body = clickManifest(row, migrationId);
+  await importBatch({ ...body, links: [], clicks: [] });
+  const importer = await getPool().connect();
+  let checking: Promise<unknown> | undefined;
+  try {
+    await importer.query('BEGIN');
+    await openRun(importer, migrationId);
+    await importClicks(importer, migrationId, body.clicks);
+    checking = verifyMigration(migrationId, true);
+    // verify의 FOR UPDATE가 실제로 importer를 기다리는지 확인한 다음 커밋한다.
+    let blocked = false;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const waiting = await getPool().query(`SELECT count(*)::int AS n FROM pg_stat_activity
+        WHERE datname=current_database() AND query LIKE 'SELECT id FROM migration_runs%' AND wait_event_type='Lock'`);
+      if (waiting.rows[0].n > 0) { blocked = true; break; }
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    await importer.query('COMMIT');
+    expect(blocked).toBe(true);
+    expect(await checking).toMatchObject({ verified: 1 });
+  } finally {
+    await importer.query('ROLLBACK');
+    await checking?.catch(() => undefined);
+    importer.release();
+  }
+});
+
+it('이관한 이름은 version 축을 알 수 없는 aggregate 스냅샷으로 덮지 않고 그룹 종료는 허용한다', async () => {
+  const row = source();
+  await importBatch({ ...linkManifest(row), migrationId: randomUUID(), expectedClicks: 0, sourceChecksum: checksum([]), clicks: [] });
+  await expect(updateSnapshot('groups', row.groupId, { version: 1, groupName: '오래된 그룹명' }, randomUUID()))
+    .rejects.toMatchObject({ code: 'AGGREGATE_SNAPSHOT_VERSION_UNAVAILABLE' });
+  await expect(updateSnapshot('users', row.inviterId, { version: 1, displayName: '오래된 닉네임' }, randomUUID()))
+    .rejects.toMatchObject({ code: 'AGGREGATE_SNAPSHOT_VERSION_UNAVAILABLE' });
+  expect(await findLink(row.slug)).toMatchObject({ group_name: row.groupName, inviter_name: row.inviterName });
+  await updateSnapshot('groups', row.groupId, { version: 1 }, randomUUID(), true);
+  expect(await findLink(row.slug)).toMatchObject({ group_closed: true, group_name: row.groupName });
+});
+
+it('대량 탈퇴의 이관 감사가 같은 트랜잭션에 전부 남고 클릭을 재귀속하지 않는다', async () => {
+  const user = randomUUID(), first = claimed(user), migrationId = randomUUID();
+  const rows = Array.from({ length: 500 }, () => frozen({ ...first, clickId: randomUUID() }));
+  const entries = rows.map(source => ({ source, sourceChecksum: checksum(source) }));
+  const manifest = { ...linkManifest(first), migrationId, expectedClicks: rows.length, clicks: [],
+    sourceChecksum: checksum(entries.map(e => ({ clickId: e.source.clickId, sourceChecksum: e.sourceChecksum }))
+      .sort((a, b) => a.clickId.localeCompare(b.clickId))) };
+  await importBatch({ ...manifest, links: [] });
+  await match({ ipHash: first.ipHash, os: first.os, deviceId: randomUUID(), migrationId, frozenCandidates: entries });
+  await withdraw(user, { transitionSeq: '2' }, randomUUID());
+  expect((await verifyMigration(migrationId, true)).verified).toBe(500);
+  expect((await getPool().query(`SELECT count(*)::int AS n FROM migration_audit WHERE migration_id=$1
+    AND result->>'claimed_user_id' IS NULL`, [migrationId])).rows[0].n).toBe(500);
+  expect((await claim(first.slug, randomUUID(), randomUUID())).claimId).toBeNull();
+});
+
+it('eventId는 종류와 사용자 및 봉투 필드가 바뀌어도 별도 명령으로 실행되지 않는다', async () => {
+  const row = source(), event = { eventId: randomUUID(), schemaVersion: 1, type: 'group.closed',
+    version: 1, userId: row.inviterId, occurredAt: new Date().toISOString(), params: { groupId: row.groupId } };
+  await ingestEvent(event);
+  expect(await ingestEvent({ ...event })).toEqual({ applied: true });
+  for (const changed of [
+    { ...event, type: 'user.withdrawn' },
+    { ...event, userId: randomUUID() },
+    { ...event, occurredAt: new Date(Date.now() + 1000).toISOString() },
+  ]) await expect(ingestEvent(changed)).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_CONFLICT' });
+  expect((await getPool().query('SELECT count(*)::int AS n FROM user_tombstones WHERE user_id=$1', [row.inviterId])).rows[0].n).toBe(0);
 });

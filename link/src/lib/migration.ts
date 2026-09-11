@@ -1,7 +1,7 @@
 import type { PoolClient } from './db/pool';
 import { withTransaction } from './db/pool';
 import { fail, object, text, uuid, version } from './errors';
-import { canonical, checksum, lock } from './ledger';
+import { canonical, checksum } from './ledger';
 import { optional } from './env';
 
 export async function requireDirectWrites(tx: PoolClient) {
@@ -79,6 +79,21 @@ async function lockImportRows(tx: PoolClient, clickIds: string[], linkIds: strin
   await tx.query("SELECT pg_advisory_xact_lock(hashtextextended(key,0)) FROM (SELECT unnest($1::text[]) AS key ORDER BY 1) keys", [keys]);
 }
 
+/** 탈퇴와 같은 사용자 잠금을 SQL 쓰기 전에 전부 잡아, 초대자·귀속자 간 순서 역전을 막는다. */
+async function lockImportUsers(tx: PoolClient, sources: (FrozenLink | FrozenClick)[]) {
+  const users = new Set<string>();
+  for (const source of sources) {
+    users.add(source.inviterId);
+    if ('claimedUserId' in source && source.claimedUserId) users.add(source.claimedUserId);
+  }
+  const keys = [...users].map(id => `user:${id}`).sort();
+  if (keys.length) await tx.query("SELECT pg_advisory_xact_lock(hashtextextended(key,0)) FROM (SELECT unnest($1::text[]) AS key ORDER BY 1) keys", [keys]);
+  const inviters = [...new Set(sources.map(source => source.inviterId))];
+  const withdrawn = await tx.query('SELECT user_id FROM user_tombstones WHERE user_id=ANY($1::uuid[]) LIMIT 1', [inviters]);
+  // 동결 원본을 조작해서 checksum을 맞추지 않는다. 탈퇴자 원본은 운영자가 이관 범위를 재확인한다.
+  if (withdrawn.rowCount) fail(409, 'INVITER_WITHDRAWN');
+}
+
 /** 백필은 «더 높은 version 의 현재 값» 을 되돌리지 않는다 — 표시정보를 필드별로 원자 병합한다. */
 const displayMerge = `ON CONFLICT(group_id,inviter_id) DO UPDATE SET
   group_name=CASE WHEN EXCLUDED.group_name_version>link_display_snapshots.group_name_version
@@ -98,6 +113,7 @@ export async function importClicks(tx: PoolClient, migrationId: string, values: 
     entries.set(source.clickId, { source, sourceChecksum });
   }
   if (!entries.size) return;
+  await lockImportUsers(tx, [...entries.values()].map(entry => entry.source));
   // run 락을 공유로 낮췄으므로 «조회 전에» 행 잠금을 잡아야 검사-후-삽입이 원자로 성립한다.
   await lockImportRows(tx, [...entries.keys()], [...entries.values()].map(e => e.source.linkId));
   const previous = await tx.query('SELECT click_id,source_checksum FROM migration_clicks WHERE migration_id=$1 AND click_id=ANY($2::uuid[])',
@@ -138,9 +154,8 @@ async function importLegacyClaims(tx: PoolClient, sources: FrozenClick[]) {
   const clickIds = sources.map(source => source.clickId);
   const users = [...new Set(sources.map(source => source.claimedUserId).filter((id): id is string => id !== null))].sort();
   if (!users.length) return;
-  // 탈퇴 검사 전에 사용자 축을 먼저 잠근다 — 원장의 activeUsers 와 같은 순서·같은 락 이름이다.
-  // 안 잡으면 tombstone 을 읽은 «뒤» 커밋된 탈퇴의 익명화를 이 import 가 그대로 되살린다.
-  for (const id of users) await lock(tx, `user:${id}`);
+  // 진입점 lockImportUsers가 모든 사용자 축을 SQL 쓰기 전에 일괄 선점했다.
+  // 500개 후보에서도 사용자별 재잠금 왕복을 반복하지 않는다.
   // 탈퇴는 동결된 원본보다 «뒤» 사건이다. 익명화된 귀속을 백필이 되살리지 않는다.
   const withdrawn = await tx.query(`UPDATE link_clicks c SET claimed_user_id=NULL
     FROM user_tombstones t WHERE c.id=ANY($1::uuid[]) AND c.claimed_user_id=t.user_id RETURNING c.id`, [clickIds]);
@@ -158,7 +173,7 @@ async function importLegacyClaims(tx: PoolClient, sources: FrozenClick[]) {
     WHERE c.id=ANY($1::uuid[]) AND c.claim_id IS NULL AND c.claimed_user_id IS NOT NULL
       AND k.link_id=c.link_id AND k.claimed_user_id=c.claimed_user_id`, [clickIds]);
   // 익명화로 원본과 달라진 행은 감사에 실제 상태를 남긴다(verify 는 그 뒤 audit 를 기대값으로 본다).
-  for (const row of withdrawn.rows) await auditTransition(tx, row.id);
+  await auditTransitions(tx, withdrawn.rows.map(row => row.id));
 }
 
 async function importLinks(tx: PoolClient, migrationId: string, sources: FrozenLink[]) {
@@ -237,23 +252,36 @@ export async function importBatch(input: unknown) {
     await tx.query("INSERT INTO migration_runs(id,source_checksum,state,expected_clicks,expected_links,link_checksum) VALUES($1,$2,'IMPORTING',$3,$4,$5) ON CONFLICT(id) DO NOTHING", [id, manifest, count, expectedLinks, linkChecksum]);
     const run = await openRun(tx, id);
     if (run.source_checksum !== manifest || run.expected_clicks !== count || run.expected_links !== expectedLinks || run.link_checksum !== linkChecksum) fail(409, 'MANIFEST_CHANGED');
+    await lockImportUsers(tx, [...linkSources, ...clickSources]);
     // 이 트랜잭션이 건드릴 링크·클릭 락을 «한 번에» 전역 순서로 잡는다. 링크를 먼저 잡는 경로와
     // 클릭을 먼저 잡는 경로가 섞이면 run 독점 락 없이는 교착이므로, 하위 단계는 재확인만 하게 만든다.
     await lockImportRows(tx, clickSources.map(source => source.clickId),
       [...linkSources.map(source => source.linkId), ...clickSources.map(source => source.linkId)]);
-    await importLinks(tx, id, linkSources);
+    // 두 배열의 링크를 합쳐 display/group 행도 한 번의 정렬된 패스로 잠근다.
+    await importLinks(tx, id, [...linkSources, ...clickSources.map(frozenLink)]);
     await importClicks(tx, id, entries);
     return { imported: entries.length, importedLinks: links.length };
   });
 }
 
 export async function auditTransition(tx: PoolClient, clickId: string) {
-  const markers = await tx.query('SELECT migration_id FROM migration_clicks WHERE click_id=$1 FOR UPDATE', [clickId]);
-  for (const marker of markers.rows) {
-    const current = (await tx.query('SELECT matched,matched_at,matched_device_id,app_instance_id,claimed_user_id,claimed_at FROM link_clicks WHERE id=$1', [clickId])).rows[0];
-    await tx.query('UPDATE migration_clicks SET compat_applied=true WHERE migration_id=$1 AND click_id=$2', [marker.migration_id, clickId]);
-    await tx.query("INSERT INTO migration_audit(migration_id,click_id,action,result) VALUES($1,$2,'TRANSITION',$3)", [marker.migration_id, clickId, JSON.stringify(current)]);
-  }
+  await auditTransitions(tx, [clickId]);
+}
+
+/** 대량 탈퇴도 클릭 수만큼 왕복하지 않는다. marker 변경과 실제 소비 상태를 한 SQL로 기록한다. */
+export async function auditTransitions(tx: PoolClient, clickIds: string[]) {
+  if (!clickIds.length) return;
+  await tx.query(`WITH marked AS (
+    UPDATE migration_clicks SET compat_applied=true WHERE click_id=ANY($1::uuid[])
+    RETURNING migration_id,click_id
+  ) INSERT INTO migration_audit(migration_id,click_id,action,result)
+    SELECT m.migration_id,m.click_id,'TRANSITION',jsonb_build_object(
+      'matched',c.matched,
+      'matched_at',to_char(c.matched_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+      'matched_device_id',c.matched_device_id,'app_instance_id',c.app_instance_id,
+      'claimed_user_id',c.claimed_user_id,
+      'claimed_at',to_char(c.claimed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+    FROM marked m JOIN link_clicks c ON c.id=m.click_id`, [clickIds]);
 }
 
 async function verify(tx: PoolClient, id: string) {
@@ -282,9 +310,9 @@ async function verify(tx: PoolClient, id: string) {
 
 export async function verifyMigration(id: string, close = false) {
   return withTransaction(async tx => {
-    await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-    // 독점 run 락이 기존 import/compat TX를 drain하고 늦은 import를 막는다.
-    await tx.query(`SELECT id FROM migration_runs WHERE id=$1 FOR ${close ? 'UPDATE' : 'SHARE'}`, [id]);
+    // 검사도 독점 run 락으로 import/compat를 drain한다. READ COMMITTED여야 락을 기다리는 동안
+    // 커밋된 행이 이후 검증 SELECT에 보인다. RR은 대기 전 snapshot으로 거짓 누락을 보고한다.
+    await tx.query('SELECT id FROM migration_runs WHERE id=$1 FOR UPDATE', [id]);
     const result = await verify(tx, id);
     if (close) await tx.query("UPDATE migration_runs SET state='IMPORT_CLOSED',closed_at=COALESCE(closed_at,now()) WHERE id=$1", [id]);
     return result;

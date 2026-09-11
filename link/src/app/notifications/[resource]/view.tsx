@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { ConsoleRequestError, IdempotencyKeyring } from '@/lib/console-idempotency';
 import './console.css';
 
 const labels: Record<string, string> = { jobs: '예약 작업', templates: '알림 템플릿', deeplinks: '이동 경로', deliveries: '발송 이력' };
@@ -19,21 +20,32 @@ export default function Console({ resource }: { resource: string }) {
   const [selected, setSelected] = useState<Row | null>(null);
   const [draft, setDraft] = useState('{}');
   const [notice, setNotice] = useState('');
+  const [keyring] = useState(() => new IdempotencyKeyring());
 
-  const request = useCallback(async (url: string, init?: RequestInit) => {
-    const response = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message ?? data.code ?? '요청을 처리하지 못했습니다.');
-    return data;
+  const request = useCallback(async <T = unknown,>(url: string, init?: RequestInit): Promise<T> => {
+    let response: Response;
+    try { response = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } }); }
+    // 응답을 받지 못했으므로 서버가 명령을 처리했는지 알 수 없다 — status 를 지어내지 않는다.
+    catch { throw new ConsoleRequestError('서버에 닿지 못했습니다. 잠시 후 다시 시도해 주세요.', null); }
+    const body = await response.text();
+    let data: unknown = null;
+    try { data = body ? JSON.parse(body) : null; }
+    // 프록시가 끼워 넣은 비-JSON 응답이다. 2xx 였다면 명령은 이미 커밋됐을 수 있다.
+    catch { throw new ConsoleRequestError('요청을 처리하지 못했습니다.', response.ok ? null : response.status); }
+    if (!response.ok) {
+      const detail = (data ?? {}) as { message?: string; code?: string };
+      throw new ConsoleRequestError(detail.message ?? detail.code ?? '요청을 처리하지 못했습니다.', response.status);
+    }
+    return data as T;
   }, []);
 
   const fetchRows = useCallback(async (next?: string) => {
     const query = new URLSearchParams({ environment, limit: '50' });
     if (next) query.set('cursor', next);
-    const data = await request(`/console/notification/${resource}?${query}`);
-    const items: Row[] = Array.isArray(data) ? data : data.items;
+    const data = await request<{ items?: Row[]; nextCursor?: string | null } | Row[]>(`/console/notification/${resource}?${query}`);
+    const items = Array.isArray(data) ? data : data.items;
     if (!Array.isArray(items)) throw new Error('목록 응답을 확인하지 못했습니다.');
-    return { items, nextCursor: data.nextCursor ?? null };
+    return { items, nextCursor: (Array.isArray(data) ? null : data.nextCursor) ?? null };
   }, [environment, request, resource]);
 
   const load = useCallback(async (next?: string) => {
@@ -42,7 +54,7 @@ export default function Console({ resource }: { resource: string }) {
     setCursor(data.nextCursor);
   }, [fetchRows]);
 
-  useEffect(() => { request('/console/session').then(setSession).catch(() => setSession(null)); }, [request]);
+  useEffect(() => { request<Session>('/console/session').then(setSession).catch(() => setSession(null)); }, [request]);
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
@@ -57,7 +69,7 @@ export default function Console({ resource }: { resource: string }) {
     try {
       await request('/console/session', { method: 'POST', headers: { 'X-CSRF-Token': session?.csrfToken ?? '' },
         body: JSON.stringify({ password, action: sudo ? 'sudo' : 'login' }) });
-      setSession(await request('/console/session')); setPassword('');
+      setSession(await request<Session>('/console/session')); setPassword('');
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }
@@ -69,10 +81,14 @@ export default function Console({ resource }: { resource: string }) {
     setBusy(true); setError(''); setNotice('');
     try {
       const parsed = JSON.parse(draft);
-      const result = await request(`/console/notification/${resource}/${encodeURIComponent(id)}${action ? `/${action}` : ''}?environment=${environment}`,
-        { method: action ? 'POST' : 'PUT', headers: { 'X-CSRF-Token': session.csrfToken, 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify(parsed) });
+      // 응답이 유실돼 사용자가 다시 누르면 «같은» 키로 가야 한다 — 재전송이 두 번 나가면 안 된다.
+      const result = await keyring.run({ resource, environment, id, action }, key => request(
+        `/console/notification/${resource}/${encodeURIComponent(id)}${action ? `/${action}` : ''}?environment=${environment}`,
+        { method: action ? 'POST' : 'PUT', headers: { 'X-CSRF-Token': session.csrfToken, 'Idempotency-Key': key }, body: JSON.stringify(parsed) }));
       setNotice(action === 'preview' ? JSON.stringify(result, null, 2) : '반영했습니다.');
-      await load();
+      // 쓰기는 이미 확정됐다 — 목록 갱신 실패를 «다시 실행해야 하는 오류»로 보여주지 않는다.
+      try { await load(); }
+      catch (cause) { setError(`반영은 끝났습니다. 목록만 다시 불러오지 못했습니다 — ${(cause as Error).message} 새로고침해 주세요.`); }
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }

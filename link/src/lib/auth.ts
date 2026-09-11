@@ -32,9 +32,11 @@ const permissions = {
     ['POST', /^\/internal\/links\/[a-z0-9]{1,12}\/claim$/],
     ['POST', /^\/internal\/links\/match$/],
   ],
+  // Data 는 relay 자격만 가진다. 링크 «발급»은 위임 사용자를 요구하는 Business 전용 경로다 —
+  // 여기에 두면 Data 토큰만으로 임의의 groupId·inviterId 링크를 만들 수 있다.
   data: [
     ['POST', /^\/internal\/events$/],
-    ['POST', /^\/internal\/links$/], ['POST', /^\/internal\/links\/revoke$/],
+    ['POST', /^\/internal\/links\/revoke$/],
     ['POST', /^\/internal\/links\/[a-z0-9]{1,12}\/joined$/],
     ['POST', /^\/internal\/links\/claims\/[0-9a-f-]{36}\/confirm$/],
     ['POST', /^\/internal\/users\/[0-9a-f-]{36}\/withdraw$/],

@@ -29,8 +29,16 @@ async function verifyPassword(password: string, encoded: string): Promise<boolea
   return secretEqual(derived.toString('hex'), hash);
 }
 
-async function passwordAttempt(request: Request, check: () => Promise<number>): Promise<number> {
-  const ip = hashIp(clientIp(request.headers));
+/**
+ * 실패 횟수를 «시도 종류»별로 따로 센다.
+ *
+ * <p>로그인과 sudo 가 IP 하나의 행을 공유하면, 자기 계정 비밀번호를 아는 사용자가
+ * sudo 를 네 번 찍고 정상 로그인 한 번으로 기록을 지우는 것을 반복할 수 있어
+ * 5회 잠금이 sudo 무차별 대입을 전혀 막지 못한다. 그래서 `ip_hash` 키에 scope 를 붙여
+ * 두 계열이 서로의 실패를 지우지도, 서로의 잠금을 나누지도 않게 한다.
+ */
+async function passwordAttempt(request: Request, scope: 'login' | 'sudo', check: () => Promise<number>): Promise<number> {
+  const ip = `${scope}:${hashIp(clientIp(request.headers))}`;
   const result = await withTransaction(async tx => {
     await lock(tx, `console-login:${ip}`);
     const prior = (await tx.query('SELECT * FROM console_login_attempts WHERE ip_hash=$1', [ip])).rows[0];
@@ -49,7 +57,7 @@ async function passwordAttempt(request: Request, check: () => Promise<number>): 
 
 export async function login(request: Request, password: string): Promise<string> {
   assertOrigin(request);
-  const slot = await passwordAttempt(request, async () => {
+  const slot = await passwordAttempt(request, 'login', async () => {
     // 각 슬롯을 모두 검사해 계정 슬롯의 순서를 응답 시간으로 노출하지 않는다.
     const matches = await Promise.all([1, 2, 3].map(slot => verifyPassword(password, required(`CONSOLE_PASSWORD_${slot}_HASH`))));
     return matches.findIndex(Boolean) + 1;
@@ -77,7 +85,7 @@ export async function sudo(request: Request, password: string) {
   const session = await readSession(cookieFrom(request));
   assertOrigin(request);
   if (!secretEqual(request.headers.get('x-csrf-token') ?? '', csrfToken(session.id))) fail(403, 'CSRF_TOKEN_MISMATCH');
-  await passwordAttempt(request, async () => await verifyPassword(password, required('CONSOLE_SUDO_HASH')) ? 1 : 0);
+  await passwordAttempt(request, 'sudo', async () => await verifyPassword(password, required('CONSOLE_SUDO_HASH')) ? 1 : 0);
   await getPool().query("UPDATE console_sessions SET sudo_until=now()+interval '10 minutes' WHERE id=$1", [session.id]);
   return { sudo: true };
 }
