@@ -88,6 +88,9 @@ async function lockImportUsers(tx: PoolClient, sources: (FrozenLink | FrozenClic
   }
   const keys = [...users].map(id => `user:${id}`).sort();
   if (keys.length) await tx.query("SELECT pg_advisory_xact_lock(hashtextextended(key,0)) FROM (SELECT unnest($1::text[]) AS key ORDER BY 1) keys", [keys]);
+}
+
+async function rejectWithdrawnInviters(tx: PoolClient, sources: (FrozenLink | FrozenClick)[]) {
   const inviters = [...new Set(sources.map(source => source.inviterId))];
   const withdrawn = await tx.query('SELECT user_id FROM user_tombstones WHERE user_id=ANY($1::uuid[]) LIMIT 1', [inviters]);
   // 동결 원본을 조작해서 checksum을 맞추지 않는다. 탈퇴자 원본은 운영자가 이관 범위를 재확인한다.
@@ -123,6 +126,7 @@ export async function importClicks(tx: PoolClient, migrationId: string, values: 
     entries.delete(row.click_id);
   }
   if (!entries.size) return;
+  await rejectWithdrawnInviters(tx, [...entries.values()].map(e => e.source));
   await importLinks(tx, migrationId, [...entries.values()].map(e => frozenLink(e.source)));
   const existing = await tx.query('SELECT id FROM link_clicks WHERE id=ANY($1::uuid[]) LIMIT 1', [[...entries.keys()]]);
   if (existing.rowCount) fail(409, 'UNTRACKED_LEGACY_CLICK');
@@ -193,6 +197,7 @@ async function importLinks(tx: PoolClient, migrationId: string, sources: FrozenL
     entries.delete(row.link_id);
   }
   if (!entries.size) return;
+  await rejectWithdrawnInviters(tx, [...entries.values()].map(e => e.source));
   const payload = JSON.stringify([...entries.values()]);
   await tx.query(`INSERT INTO membership_epochs(group_id,inviter_id,epoch,transition_seq)
     SELECT DISTINCT ON (s->>'groupId',s->>'inviterId') (s->>'groupId')::uuid,(s->>'inviterId')::uuid,

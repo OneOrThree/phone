@@ -320,3 +320,13 @@ it('eventId는 종류와 사용자 및 봉투 필드가 바뀌어도 별도 명�
   ]) await expect(ingestEvent(changed)).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_CONFLICT' });
   expect((await getPool().query('SELECT count(*)::int AS n FROM user_tombstones WHERE user_id=$1', [row.inviterId])).rows[0].n).toBe(0);
 });
+
+it('이미 적재된 탈퇴 초대자의 후보 재전송은 재적재 없이 호환 매치를 계속한다', async () => {
+  const row = source(), migrationId = randomUUID(), body = clickManifest(row, migrationId);
+  await importBatch(body);
+  await withdraw(row.inviterId, { transitionSeq: '2' }, randomUUID());
+  await importBatch(body);
+  expect(await match({ ipHash: row.ipHash, os: row.os, deviceId: randomUUID(), migrationId,
+    frozenCandidates: body.clicks })).toEqual({ matched: false });
+  expect(await findLink(row.slug)).toMatchObject({ status: 'REVOKED', inviter_name: null });
+});

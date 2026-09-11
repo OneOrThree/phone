@@ -7,3 +7,6 @@ CREATE TABLE migration_links (
     frozen_source jsonb NOT NULL,
     PRIMARY KEY (migration_id, link_id)
 );
+
+-- aggregate snapshot 보호는 run을 모른 채 link_id로 이관 여부를 조회한다.
+CREATE INDEX idx_migration_links_link ON migration_links (link_id);

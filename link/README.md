@@ -30,7 +30,7 @@ npm run verify
 | `/notifications/{jobs,templates,deeplinks,deliveries}` | 알림 설정·미리보기·테스트·재발송 | 콘솔 세션, 쓰기 sudo |
 | `GET /health` | DB 접속과 필수 테이블 확인 | 공개, 상세·자격 미노출 |
 
-Business와 Data 서비스 토큰은 서로 다른 값이다. Data용 경로를 Business 자격으로 호출하면 403이다. 모든 내부 명령은 같은 재시도 키와 본문을 사용한다. 같던 키의 본문이 달라지면 409다. `/internal/events`는 봉투 `eventId`를 사용한다. 지원하지 않는 schemaVersion/type은 422로 실패하며 성공으로 소실시키지 않는다.
+Business와 Data 서비스 토큰은 서로 다른 값이다. Data용 경로를 Business 자격으로 호출하면 403이다. 모든 내부 명령은 같은 재시도 키와 본문을 사용한다. 같던 키의 본문이 달라지면 409다. `/internal/events`는 봉투 `eventId`를 공통 멱등 scope로 사용하며, 같은 eventId의 type·userId·occurredAt 등 봉투 필드가 바뀌면 409다. 지원하지 않는 schemaVersion/type은 422로 실패하며 성공으로 소실시키지 않는다.
 
 콘솔은 각자 다른 비밀번호 세 개와 sudo 비밀번호 한 개를 해시로 보관한다. `scripts/hash-password.mjs`는 표준 입력을 받아 scrypt 해시만 출력한다. 세션은 DB에서 만료·철회되며 쿠키는 HttpOnly·Secure(HTTPS)다. 쓰기는 Origin·CSRF·sudo를 검사한다. Notification의 서비스 토큰은 서버 측 프록시에만 있고 브라우저 응답으로 내보내지 않는다. 실제 감사 주체는 `member-1`~`member-3`다.
 
@@ -56,7 +56,7 @@ Business와 Data 서비스 토큰은 서로 다른 값이다. Data용 경로를 
 - importer 사이에는 run 단위 독점 잠금을 쓰지 않는다. drain은 `migration_runs` 행의 공유(import·호환·직접쓰기)/독점(`verify`·`close`) 쌍이 맡고, 병렬 importer 사이의 원자성은 `migration-click:` → `migration-link:` 전역 사전순 행 잠금이 맡는다. 서로 겹치지 않는 후보 batch는 병렬로 진행한다. 사용자 잠금은 초대자·귀속자를 합쳐 먼저 정렬하고, 링크 배열과 클릭 배열의 링크를 합쳐 표시·그룹 행도 한 번의 정렬된 패스로 잠근다.
 - 초대자 탈퇴 tombstone이 있는 원본은 `INVITER_WITHDRAWN`(409)으로 거부한다. checksum을 임의로 다시 만들지 말고 이관 대상과 동결 시점을 재확인한다. LEGACY 귀속도 초대자 탈퇴·멤버십 폐기 시 `REVOKED`가 되어 지연 확정으로 살아나지 않는다.
 - 이관 대상의 이름 갱신은 필드별 membership version을 쓰는 `/internal/events`로 전달한다. 별도 그룹·사용자 aggregate version은 동결 DTO에 없으므로 해당 대상의 aggregate snapshot 명령은 `AGGREGATE_SNAPSHOT_VERSION_UNAVAILABLE`(409)로 차단한다. 이름을 바꾸지 않는 그룹 종료는 허용한다.
-- `verify` 성공 뒤 `close`가 실행 중 import/호환 TX를 drain하고 종료한다. 실패하면 원본을 바꾸지 않고 같은 run에서 누락 batch를 재실행한다. `close` 후 늦은 importer는 409다.
+- `verify` 성공 뒤 `close`가 실행 중 import/호환 TX를 drain하고 종료한다. 검증은 독점 잠금을 기다린 뒤 커밋된 행을 READ COMMITTED로 읽는다. 실패하면 원본을 바꾸지 않고 같은 run에서 누락 batch를 재실행한다. `close` 후 늦은 importer는 409다.
 - `close` 후 Data의 outbox와 Business claim-intent 재개 CLI를 처리한다. 이 시점 이후에는 Neon 장부를 유지하며 앞으로 수정한다. 구 DB로 자동 복귀하지 않는다.
 
 운영 Neon·Vercel 연결, 실제 시크릿 주입, Android 서명값, DNS/프록시 전환과 실데이터 백필은 별도 실행 단계다. 로컬 테스트 통과가 운영 이관 검증을 대신하지 않는다.

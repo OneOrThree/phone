@@ -75,6 +75,7 @@ CREATE UNIQUE INDEX uq_links_active_group_inviter
     ON links (group_id, inviter_id) WHERE status = 'ACTIVE';
 
 CREATE INDEX idx_links_group_inviter ON links (group_id, inviter_id);
+CREATE INDEX idx_links_inviter ON links (inviter_id);
 
 -- ── 클릭 + 매치 + claim 상태 ────────────────────────────────────────
 -- 구 invite_link_clicks 와 같은 상태 기계다(클릭 → 매치 → claim). 한 행이 전이를
