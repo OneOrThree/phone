@@ -1,0 +1,37 @@
+{
+  "name": "gromo-link",
+  "version": "0.1.0",
+  "private": true,
+  "description": "gromo 초대 링크·어트리뷰션 서비스 (GROMO-1660) — Next.js + Neon Postgres 독립 프로젝트",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "migrate": "node scripts/migrate.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "pg": "8.23.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "3.3.4",
+    "@types/node": "22.20.2",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.4",
+    "typescript": "5.9.3",
+    "vitest": "5.0.0"
+  }
+}

@@ -1,0 +1,27 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #23352d; background: #f5f7f3; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.console { max-width: 1240px; margin: 0 auto; padding: 24px; }
+header, .heading, .actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+header { padding-bottom: 24px; border-bottom: 1px solid #d4ded5; }
+.brand { font-weight: 800; font-size: 28px; }
+.brand small { margin-left: 12px; font-size: 14px; font-weight: 500; }
+nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 20px 0; }
+nav a { color: inherit; text-decoration: none; padding: 10px 16px; border-radius: 6px; }
+nav a[aria-current] { background: #dce9df; font-weight: 700; }
+h1 { font-size: 30px; margin: 8px 0 24px; } h2 { font-size: 19px; }
+.eyebrow { color: #53665a; font-size: 13px; }
+button, input, select, textarea { font: inherit; border: 1px solid #b8c9bd; border-radius: 6px; padding: 10px 12px; background: white; }
+button { cursor: pointer; } button:hover { background: #edf4ee; } button:disabled { opacity: .55; cursor: wait; }
+.primary { background: #2d6447; color: white; border-color: #2d6447; }.primary:hover { background: #254f3a; }
+label { display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); gap: 24px; }
+.list, aside, .login { background: white; border: 1px solid #d4ded5; border-radius: 10px; padding: 24px; }
+.login { max-width: 420px; margin: 80px auto; }.login button { margin-top: 20px; width: 100%; }
+table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px; } th, td { text-align: left; border-bottom: 1px solid #e0e8e1; padding: 14px 8px; word-break: break-word; }
+td button { border: 0; padding: 0; text-align: left; background: none; color: #215b3b; } tr:hover { background: #f7faf7; }
+textarea { width: 100%; font: 13px/1.6 ui-monospace, monospace; margin: 8px 0 16px; }.actions { flex-wrap: wrap; justify-content: flex-start; }
+.error { padding: 14px; color: #872727; background: #fff0ee; border-radius: 6px; }.notice { white-space: pre-wrap; background: #e6f1e8; padding: 16px; }
+.environment { background: #fff1d6; color: #704411; padding: 12px; border-radius: 6px; }
+aside form button { margin-top: 12px; }
+@media (max-width: 800px) { .workspace { grid-template-columns: 1fr; }.console { padding: 16px; }.heading { align-items: flex-start; } }
