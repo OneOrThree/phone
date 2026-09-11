@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.UUID;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +23,8 @@ public class RequestFilter extends OncePerRequestFilter {
     private static final Logger LOG = LoggerFactory.getLogger(RequestFilter.class);
     // URL 4096 UTF-16 단위 × 10개 × JSON Unicode escape 최대 6바이트 + JSON 구조를 수용한다.
     private static final int MAX_BODY = 256 * 1024;
+    private static final Set<String> PUBLIC_PATHS = Set.of("/actuator", "/actuator/health",
+            "/actuator/health/liveness", "/actuator/health/readiness", "/actuator/info", "/actuator/prometheus");
     private final JwtValidator jwt;
 
     public RequestFilter(JwtValidator jwt) {
@@ -30,7 +33,9 @@ public class RequestFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith("/api/");
+        // MVC는 경로를 디코딩하고 matrix parameter를 제거한다. 원문 /api/ 접두어로 인증을 결정하면 우회된다.
+        // 관리 엔드포인트만 정확히 예외 처리하고 나머지 요청에는 항상 인증을 적용한다.
+        return PUBLIC_PATHS.contains(request.getRequestURI());
     }
 
     @Override

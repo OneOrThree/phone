@@ -6,6 +6,9 @@ import com.oneorthree.business.linkpreview.support.PreviewContent;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
@@ -21,6 +24,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -43,7 +48,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(properties = {"jwt.secret=" + PreviewIntegrationTest.SECRET, "management.server.port=0"})
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"jwt.secret=" + PreviewIntegrationTest.SECRET, "management.server.port=0"})
 @AutoConfigureMockMvc
 @Testcontainers
 class PreviewIntegrationTest {
@@ -55,6 +60,8 @@ class PreviewIntegrationTest {
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
     }
+    @LocalServerPort int port;
+    @LocalManagementPort int managementPort;
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper mapper;
     @Autowired StringRedisTemplate redis;
@@ -139,6 +146,39 @@ class PreviewIntegrationTest {
             mvc.perform(get("/api/v1/link-previews/abc").header("Authorization", invalid))
                     .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/api;v=1/v1/link-previews", "/%61pi/v1/link-previews"})
+    void rejectsUnauthenticatedAlternateApiPaths(String path) throws Exception {
+        when(resolver.resolve(any())).thenReturn(new PreviewContent("파일", "application/zip", null, "FILE", null));
+        var realRequest = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        "{\"urls\":[\"https://example.com/auth-boundary\"]}"))
+                .build();
+        assertThat(HttpClient.newHttpClient().send(realRequest,
+                HttpResponse.BodyHandlers.discarding()).statusCode()).isEqualTo(401);
+        mvc.perform(post(URI.create(path)).contentType("application/json")
+                .content("{\"urls\":[\"https://example.com/auth-boundary\"]}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get(URI.create(path + "/" + "a".repeat(64))))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get(URI.create(path + "/" + "a".repeat(64) + "/thumbnail")))
+                .andExpect(status().isUnauthorized());
+        assertThat(redis.hasKey("cache:business:rate:null")).isFalse();
+        mvc.perform(post(URI.create(path)).header("Authorization", token).contentType("application/json")
+                .content("{\"urls\":[\"https://example.com/auth-boundary\"]}"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
+        assertThat(redis.hasKey("cache:business:rate:" + user)).isTrue();
+    }
+
+    @Test
+    void keepsManagementReadinessAvailableWithoutAuthentication() throws Exception {
+        var request = HttpRequest.newBuilder(URI.create("http://localhost:" + managementPort
+                + "/actuator/health/readiness")).GET().build();
+        assertThat(HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.discarding())
+                .statusCode()).isEqualTo(200);
     }
 
     @ParameterizedTest
