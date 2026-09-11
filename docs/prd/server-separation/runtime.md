@@ -1,5 +1,6 @@
 # 링크·알림 분리의 실행 환경
 
+서비스별 env·이미지 digest와 nginx 적용 준비는 [deployment.md](deployment.md)를 따른다.
 정본은 `docs/architecture/decisions.md` A1~A22와 서비스 아키텍처 §7이다. 이 문서는 그 절차를 실행하는 도구의 입력을 설명한다. DB·시크릿·라우팅·발송 gate 전환은 서로 다른 단계다.
 
 ## 서비스별 시크릿 생성

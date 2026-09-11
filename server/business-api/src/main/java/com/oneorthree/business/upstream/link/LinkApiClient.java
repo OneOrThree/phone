@@ -17,11 +17,9 @@ import java.util.UUID;
 /**
  * 링크 서버로 나가는 유일한 창구.
  *
- * <h2>⚠️ 이 표면은 링크 쪽에 아직 없다</h2>
- * L 담당의 워크트리({@code bfeat-GROMO-1660-link-service/link})에는 {@code contracts/}·{@code docs/}
- * 디렉터리만 있고 파일이 없다(실제 확인). 여기 적힌 경로·스키마는
- * {@code docs/contracts/business-satellite-api.yaml} 로 제안한 계약이고, <b>링크 OpenAPI 가 확정되면
- * 그것에 맞춰 최종 검증해야 한다</b>. 지금 상태로는 연결되지 않는다.
+ * <p>링크 구현은 GROMO-1660의 독립 서비스가 제공한다. 경로·요청·응답 계약은
+ * {@code docs/contracts/business-satellite-api.yaml}과 Link 내부 API를 함께 대조한다.
+ * 제공자 API를 먼저 배포·검증한 뒤 Business 경로를 전환한다.
  *
  * <h2>Business 가 링크에 confirm 을 보내지 않는다</h2>
  * claim 확정 전달은 <b>Data 의 락 아래 outbox + relay</b> 가 맡는다(A22 ㋟). Business 가 응답을 받은
