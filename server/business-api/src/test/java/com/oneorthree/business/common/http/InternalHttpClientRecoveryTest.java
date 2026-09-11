@@ -18,6 +18,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -91,6 +93,40 @@ class InternalHttpClientRecoveryTest {
     }
 
     @Test
+    void shortBudgetNonIdempotentWriteNeverReachesServerOrConsumesProbe() {
+        status.set(200);
+        assertThatThrownBy(() -> client.execute(call(), Deadline.startingNow(Duration.ofMillis(100))))
+                .isInstanceOf(UpstreamTimeoutException.class);
+        // setup의 503 한 건뿐이다. 짧은 예산의 명령은 TCP 서버에 도착하지 않았다.
+        assertThat(requests.get()).isEqualTo(1);
+        assertThatCode(() -> client.execute(call(), Deadline.startingNow(Duration.ofSeconds(5))))
+                .doesNotThrowAnyException();
+        assertThat(requests.get()).isEqualTo(2);
+    }
+
+    @Test
+    void explicitlyIdempotentWriteCanUseShortRemainingBudget() {
+        status.set(200);
+        InternalCall safe = InternalCall.to(HttpMethod.POST, "/probe").idempotentCommand().build();
+        assertThatCode(() -> client.execute(safe, Deadline.startingNow(Duration.ofSeconds(1))))
+                .doesNotThrowAnyException();
+        assertThat(requests.get()).isEqualTo(2);
+    }
+
+    @Test
+    void serializationThatConsumesStartBudgetNeverSendsAndReleasesAcquiredProbe() {
+        status.set(200);
+        Deadline deadline = Deadline.startingNow(Duration.ofSeconds(3));
+        BudgetConsumingPayload payload = new BudgetConsumingPayload(deadline);
+        InternalCall write = InternalCall.to(HttpMethod.POST, "/probe").body(payload).build();
+        assertThatThrownBy(() -> client.execute(write, deadline)).isInstanceOf(UpstreamTimeoutException.class);
+        assertThat(payload.visited.get()).isTrue();
+        assertThat(requests.get()).isEqualTo(1);
+        assertThatCode(() -> client.execute(call(), Deadline.unbounded())).doesNotThrowAnyException();
+        assertThat(requests.get()).isEqualTo(2);
+    }
+
+    @Test
     void requestSerializationFailureAlsoReleasesProbe() {
         // 새 URI 빌더는 중괄호를 안전하게 인코딩한다. 실제 DTO 직렬화 실패의 탐침 정리를 검증한다.
         InternalCall malformed = InternalCall.to(HttpMethod.POST, "/probe").body(new BrokenPayload()).build();
@@ -104,6 +140,23 @@ class InternalHttpClientRecoveryTest {
 
     private InternalCall call() {
         return InternalCall.to(HttpMethod.POST, "/probe").build();
+    }
+
+    public static class BudgetConsumingPayload {
+        private final Deadline deadline;
+        private final AtomicBoolean visited = new AtomicBoolean();
+
+        BudgetConsumingPayload(Deadline deadline) {
+            this.deadline = deadline;
+        }
+
+        public String getValue() {
+            visited.set(true);
+            while (deadline.remaining().compareTo(Duration.ofMillis(1500)) > 0) {
+                LockSupport.parkNanos(Duration.ofMillis(5).toNanos());
+            }
+            return "serialized-after-budget-was-consumed";
+        }
     }
 
     public static class BrokenPayload {
