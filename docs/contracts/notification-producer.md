@@ -163,12 +163,27 @@ FCM 으로도 가고 Kafka 로도 간다.
 
 | | 경로 | 용도 |
 | --- | --- | --- |
-| ① | `GET /internal/users/notification-snapshot?cursor=&limit=` | 유저 투영 부트스트랩 |
+| ① | `GET /internal/users/notification-snapshot?cursor=&limit=` | 유저 투영 부트스트랩 · 새벽 리컨실 |
 | ② | `GET /internal/users/{userId}/result-ack?sessionId=` | 정본 ack — `HELD` 만료(`NEEDS_CONFIRM`)의 **유일한 탈출구** |
 | ③ | `POST /internal/notifications/eligibility` | 발송 직전 상태 재확인 |
 
 **개수가 계약이다.** 후보 탐색·정산·회계용 코어 조회를 하나씩 더하다 보면 알림 서버가 사실상
 코어 DB 를 읽는 상태가 되고, 그때는 DB 를 나눈 의미가 남지 않는다.
+
+**그리고 `projections` 는 이 셋을 대신하지 않는다.** 컷오버 이관이 `user`·`participation` 두 자원으로
+알림 서버의 `projections` 를 **한 번 세우지만**(승인 계획 ②′ · 이관 계약의 `UserProjectionRecord` ·
+`ParticipationProjectionRecord`), **그 투영을 갱신할 이벤트 producer 가 아직 하나도 없다** —
+`InboundService.PROJECTIONS` 6종 중 어느 것도 Data·Business 가 발행하지 않는다. 즉 적재된 값은
+**그 시점에 박제된 bootstrap** 이다.
+
+그래서 발송 판정은 계속 **코어 정본**이 소유한다: 적격성은 ③, 탈퇴·세대는 Data 명령/outbox 이벤트,
+설정은 알림 서버의 `settings` 테이블(이관 `settings` 자원이 채우고 `notification.settings.changed` 가
+갱신한다)이다. 「투영이 있으니 읽어도 되겠지」로 판정을 옮기면 **변경 피드가 없는 채로 조용히 옛
+상태로 판정**하게 된다 — 판정을 투영으로 옮기려면 **그 투영의 producer 를 먼저 배선**해야 한다.
+
+① 의 항목은 **표시명(`displayName`)·언어·설정 5필드 존재/null·탈퇴·세대**를 싣는다. 표시명은 지금
+어떤 템플릿도 쓰지 않지만 제공자를 먼저 배포해 둔다(A22 ㉹) — 템플릿이 투영 표시명을 쓰기 시작하는
+순간, 그때 비어 있으면 **개명한 적 없는 유저 전원이 빈 이름으로 렌더된다**.
 
 ②는 `InternalNotificationController` 가 제공한다. `InternalChallengeResultController`(선점·확인,
 호출자는 Business)와 나눠 둔 이유는 **호출자가 다르기 때문**이다 — ②의 호출자는 알림 서버다.

@@ -42,4 +42,5 @@
 - Kafka 소비자를 붙일 때 `.DLT` 접미사·원본 파티션을 명시하고, 실패 토픽 장애 시 원본 offset이 보존되는지 실제 브로커로 검증한다(A22 ㋱). Spring Kafka 4의 기본 `-dlt`에 맡기지 않는다.
 - 응답 유실 재시도에서는 RT 로그아웃·갱신 capability·기기 토큰 교체가 같은 명령으로 수렴하는지 확인한다(A22 ㋲). 정적 경계는 `.github/scripts/check-satellite-contracts.py`, 실행 보장은 각 서비스의 DB·Kafka·앱 재시도 테스트가 검사한다.
 - 이관 직렬화는 양 서비스의 실제 라이브러리로 체크섬을 대조하고, 빈 자원·제어문자·미래 이월 알림도 검증한다(A22 ㋳).
+- 초기 user·participation 투영까지 다섯 자원을 대조하고 같은 원본 재적재·탈퇴 fence를 검사한다(A22 ㋶). Link 이관은 LEGACY 귀속과 필드별 표시 version을 복원한다(A22 ㋷·㋸).
 - ack 보류 해제 후 같은 키 재시도, 첫 후보의 렌더 오류, import와 open의 경합을 실제 DB에서 검증한다(A22 ㋴). 계정 전환 중 부분 저장과 rollback에는 이전 RT 폐기 명령을 함께 대조한다(A22 ㋵).

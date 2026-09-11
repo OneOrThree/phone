@@ -53,6 +53,21 @@ require('${OUTBOX_RELAY_ENABLED:false}' in profile, 'A18 미확정 상태에서 
 for path in (ROOT / 'server/notification/src/main/resources').glob('application-*.yml'):
     require('API_DB_' not in path.read_text(), f'{path.relative_to(ROOT)}: 알림이 core DB 자격을 받음')
 
+migration_records = source('server/data-api/src/main/java/com/oneorthree/phone/notification/migration/NotificationMigrationRecord.java')
+export_resources = set(re.findall(r'RESOURCE_[A-Z]+ = "([a-z]+)"', migration_records))
+noti_records = source('server/notification/src/main/java/com/oneorthree/notification/MigrationRecords.java')
+resource_list = re.search(r'RESOURCES = List.of\(([^;]+)\);', noti_records)
+import_resources = set(re.findall(r'"([a-z]+)"', resource_list.group(1))) if resource_list else set()
+require(export_resources == import_resources == {'settings', 'device', 'delivery', 'user', 'participation'},
+        'A22 ㋶: Data export와 Noti import의 다섯 이관 자원이 다름')
+probe = source('.github/scripts/check-migration-checksum.py')
+require('MigrationRecords.canonical(' in probe and 'NotificationMigrationRecord.of(' in probe,
+        'A22 ㋳: 체크섬 검사가 실제 export/import 정규화 함수를 통과하지 않음')
+frozen = source('server/data-api/src/main/java/com/oneorthree/phone/internal/service/InternalClickMigrationService.java')
+for field in ['groupNameVersion', 'inviterNameVersion']:
+    require(frozen.count(f'source.put("{field}"') == 2,
+            f'A22 ㋸: frozen click/link 양쪽의 {field} 누락')
+
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)

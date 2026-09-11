@@ -52,6 +52,9 @@ class MigrationGateTest {
     @Container
     static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:16-alpine");
     static final UUID USER = UUID.fromString("33333333-3333-4333-8333-333333333333");
+    static final UUID SESSION = UUID.fromString("77777777-7777-4777-8777-777777777777");
+    static final UUID CHALLENGE = UUID.fromString("88888888-8888-4888-8888-888888888888");
+    static final UUID GROUP = UUID.fromString("99999999-9999-4999-8999-999999999999");
     static final Instant DAY = Instant.parse("2026-09-11T03:00:00Z");
     static final long CLOSED_AT = DAY.minusSeconds(600).toEpochMilli();
 
@@ -308,7 +311,7 @@ class MigrationGateTest {
     }
 
     /**
-     * 알림 이력이 아직 없는 환경의 «정상» Data export — 세 자원이 전부 0건이다.
+     * 알림 이력도 투영도 아직 없는 환경의 «정상» Data export — 다섯 자원이 전부 0건이다.
      * Data 는 빈 자원도 manifest 에 SHA256("") 로 싣는다(NotificationMigrationManifest.ResourceDigest).
      * 알림 쪽이 적재 행이 있는 자원만 접으면 그 자원의 체크섬이 null 이라 건수 0 은 맞는데도
      * 매번 CHECKSUM_MISMATCH 로 막혀 verify 도 최초 개방도 끝낼 수 없다.
@@ -321,16 +324,18 @@ class MigrationGateTest {
         Map<String, Object> report = body(post("/internal/admin/migration/m1/verify", null,
                 Map.of("manifest", empty)));
         assertThat(report).containsEntry("verified", true).containsEntry("records", 0);
+        // 투영 bootstrap 두 자원이 늘어도 같다 — 빠뜨린 것과 비어 있는 것을 구분해야 한다.
         assertThat(Json.map(report.get("checksums")))
                 .containsEntry("settings", Json.digest("")).containsEntry("device", Json.digest(""))
-                .containsEntry("delivery", Json.digest(""));
+                .containsEntry("delivery", Json.digest("")).containsEntry("user", Json.digest(""))
+                .containsEntry("participation", Json.digest(""));
         Map<String, Object> opened = body(post("/internal/admin/migration/m1/dispatch/open", "o1",
                 Map.of("manifest", empty)));
         assertThat(Json.map(opened.get("dispatch"))).containsEntry("enabled", true)
                 .containsEntry("everOpened", true).containsEntry("activeMigrationId", "m1");
     }
 
-    /** 셋 중 «하나만» 비어도 같다. 그리고 0건이 아닌데 0건이라 선언하면 여전히 걸린다. */
+    /** 다섯 중 «하나만» 비어도 같다. 그리고 0건이 아닌데 0건이라 선언하면 여전히 걸린다. */
     @Test
     void aResourceDeclaredWithZeroRecordsIsCheckedAgainstTheEmptyChecksum() throws Exception {
         List<Map<String, Object>> partial = List.of(settingsRecord(true, 5), deviceRecord(3L, true));
@@ -340,6 +345,122 @@ class MigrationGateTest {
         assertThat(Json.map(report.get("checksums"))).containsEntry("delivery", Json.digest(""));
         load("i2", List.of(deliveryRecord("PENDING", 0)));
         assertThat(reasons(body(verify(partial, 2, 0)))).contains("COUNT_MISMATCH", "CHECKSUM_MISMATCH");
+    }
+
+    // ── 투영 bootstrap (승인 계획 ②′) ──────────────────────────────────
+
+    /**
+     * 투영 bootstrap 은 «판정 테이블»이 아니라 {@code projections} 로만 간다. 그리고 같은 version 의
+     * 재적재는 <b>실제로 필드를 복구</b>해야 한다 — 라이브 경로의 {@code version <} 가드를 그대로
+     * 쓰면 부분 적재를 이어 붙이는 재시도가 조용한 no-op 이 되어 현장에서 원인이 안 보인다.
+     */
+    @Test
+    void projectionBootstrapWritesBothTypesAndReimportAtTheSameVersionRestoresFields() throws Exception {
+        assertThat(Json.map(body(load("i1", List.of(userRecord("가나다", 5), participationRecord(SESSION, 5))))
+                .get("outcome"))).containsEntry("IMPORTED", 2);
+        Map<String, Object> user = store.one("SELECT version,payload::text AS payload FROM projections"
+                + " WHERE projection_type='user.snapshot' AND user_id=? AND subject_id=''", USER);
+        assertThat(user).containsEntry("version", 5L);
+        assertThat(Json.map(user.get("payload"))).containsEntry("displayName", "가나다")
+                .containsEntry("settingsPresent", true).containsEntry("nightStartTime", "23:00:00");
+        Map<String, Object> participation = store.one("SELECT version,payload::text AS payload"
+                + " FROM projections WHERE projection_type='participation.updated'"
+                + " AND user_id=? AND subject_id=?", USER, SESSION.toString());
+        assertThat(Json.map(participation.get("payload"))).containsEntry("sessionId", SESSION.toString())
+                .containsEntry("stake", 30).containsEntry("achieved", null);
+        // 같은 version 으로 고쳐 보낸 재적재 — 값이 실제로 복구돼야 한다.
+        assertThat(body(load("i2", List.of(userRecord("라마바", 5)))).get("outcome"))
+                .isEqualTo(Map.of("IMPORTED", 1));
+        assertThat(Json.map(store.one("SELECT payload::text AS payload FROM projections"
+                + " WHERE projection_type='user.snapshot' AND user_id=? AND subject_id=''", USER)
+                .get("payload"))).containsEntry("displayName", "라마바");
+    }
+
+    @Test
+    void reimportOfIdenticalProjectionRepairsTheActualPayload() throws Exception {
+        List<Map<String, Object>> records = List.of(userRecord("원본", 5), participationRecord(SESSION, 5));
+        load("i1", records);
+        store.update("UPDATE projections SET payload=jsonb_set(payload,'{displayName}',"
+                + "'\"불완전한 값\"') WHERE projection_type='user.snapshot' AND user_id=?", USER);
+        assertThat(body(verify(records, 1, 0))).containsEntry("verified", false);
+        assertThat(body(load("i2", records)).get("outcome")).isEqualTo(Map.of("IMPORTED", 2));
+        assertThat(body(verify(records, 2, 0))).containsEntry("verified", true);
+    }
+
+    @Test
+    void reimportAfterWithdrawalRefreshesTheFenceOutcomeWithoutRestoringProjections() throws Exception {
+        List<Map<String, Object>> records = List.of(userRecord("원본", 5), participationRecord(SESSION, 5));
+        load("i1", records);
+        devices.generation(USER, 6, true);
+        assertThat(store.rows("SELECT * FROM projections WHERE user_id=?", USER)).isEmpty();
+        assertThat(body(load("i2", records)).get("outcome")).isEqualTo(Map.of("SKIPPED", 2));
+        assertThat(store.rows("SELECT * FROM projections WHERE user_id=?", USER)).isEmpty();
+        assertThat(body(verify(records, 1, 0))).containsEntry("verified", true);
+    }
+
+    /** 더 높은 라이브 version 은 bootstrap 이 되돌리지 못한다 — 옛 스냅샷이 새 상태를 덮으면 안 된다. */
+    @Test
+    void aHigherLiveProjectionVersionIsPreserved() throws Exception {
+        load("i1", List.of(userRecord("가나다", 5)));
+        store.update("UPDATE projections SET version=9,payload=jsonb_set(payload,'{displayName}',"
+                + "'\"라이브\"') WHERE projection_type='user.snapshot' AND user_id=?", USER);
+        assertThat(body(load("i2", List.of(userRecord("옛이름", 5)))).get("outcome"))
+                .isEqualTo(Map.of("SUPERSEDED", 1));
+        Map<String, Object> row = store.one("SELECT version,payload::text AS payload FROM projections"
+                + " WHERE projection_type='user.snapshot' AND user_id=?", USER);
+        assertThat(row).containsEntry("version", 9L);
+        assertThat(Json.map(row.get("payload"))).containsEntry("displayName", "라이브");
+        // 라이브가 더 최신인 방향은 검증 실패가 아니다 — SUPERSEDED 로 드러날 뿐이다.
+        Map<String, Object> report = body(verify(List.of(userRecord("옛이름", 5)), 1, 0));
+        assertThat(report).containsEntry("verified", true);
+        assertThat(Json.map(report.get("supersededByLiveWrite"))).containsEntry("user", 1);
+    }
+
+    /**
+     * 탈퇴 tombstone 은 적재 경로에서도 지켜야 한다. {@code InboundService.project()} 만 막고 여기를
+     * 열어 두면 export~import 사이에 탈퇴한 유저의 PII 투영이 되살아난다(A22 ⓐ) —
+     * {@code DeviceService} 가 탈퇴 때 지운 바로 그 행이다.
+     */
+    @Test
+    void projectionImportHonoursTheWithdrawalTombstone() throws Exception {
+        store.update("INSERT INTO user_fences(user_id,auth_generation,withdrawn) VALUES(?,0,true)", USER);
+        assertThat(Json.map(body(load("i1", List.of(userRecord("가나다", 5), participationRecord(SESSION, 5))))
+                .get("outcome"))).containsEntry("SKIPPED", 2);
+        assertThat(store.rows("SELECT * FROM projections")).isEmpty();
+        // 펜스로 «일부러» 안 넣은 행은 대상 행이 없어도 검증 실패가 아니다.
+        Map<String, Object> report = body(verify(
+                List.of(userRecord("가나다", 5), participationRecord(SESSION, 5)), 1, 0));
+        assertThat(report).containsEntry("verified", true);
+        assertThat(Json.map(report.get("skippedByFence")))
+                .containsEntry("user", 1).containsEntry("participation", 1);
+    }
+
+    /** 회차는 subject 축으로 갈린다 — 한 회차가 다른 회차를 덮으면 그 회차의 참가자가 영영 사라진다(A22 ㊂). */
+    @Test
+    void participationRowsAreKeyedPerSessionSoOneSessionCannotOverwriteAnother() throws Exception {
+        UUID other = UUID.fromString("66666666-6666-4666-8666-666666666666");
+        List<Map<String, Object>> both = List.of(participationRecord(SESSION, 5), participationRecord(other, 5));
+        assertThat(Json.map(body(load("i1", both)).get("outcome"))).containsEntry("IMPORTED", 2);
+        assertThat(store.rows("SELECT subject_id FROM projections"
+                + " WHERE projection_type='participation.updated' AND user_id=?", USER)).hasSize(2);
+        assertThat(store.rows("SELECT record_key FROM imports ORDER BY record_key"))
+                .extracting(row -> row.get("record_key").toString())
+                .contains("participation:" + USER + ":" + SESSION, "participation:" + USER + ":" + other);
+        assertThat(body(verify(both, 1, 0))).containsEntry("verified", true);
+    }
+
+    /** 같은 version 인데 투영 내용이 다르면 검증이 필드 단위로 잡는다 — 존재 검사로 퇴화하지 않는다. */
+    @Test
+    void verifyComparesProjectionPayloadsFieldByField() throws Exception {
+        List<Map<String, Object>> records = List.of(userRecord("가나다", 5));
+        load("i1", records);
+        assertThat(body(verify(records, 1, 0))).containsEntry("verified", true);
+        store.update("UPDATE projections SET payload=jsonb_set(payload,'{locale}','\"en\"')"
+                + " WHERE projection_type='user.snapshot' AND user_id=?", USER);
+        Map<String, Object> report = body(verify(records, 1, 0));
+        assertThat(report).containsEntry("verified", false);
+        assertThat(Json.map(((List<?>) report.get("failures")).get(0)))
+                .containsEntry("reason", "FIELD_MISMATCH").containsEntry("scope", "user.locale");
     }
 
     /**
@@ -461,6 +582,36 @@ class MigrationGateTest {
         return record("delivery", data);
     }
 
+    private static Map<String, Object> userRecord(String displayName, long version) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("userId", USER.toString());
+        data.put("version", version);
+        data.put("displayName", displayName);
+        data.put("locale", "ko");
+        data.put("settingsPresent", true);
+        data.put("notificationEnabled", true);
+        data.put("soundEnabled", false);
+        data.put("nightModeEnabled", true);
+        data.put("nightStartTime", "23:00:00");
+        data.put("nightEndTime", "07:00:00");
+        return record("user", data);
+    }
+
+    private static Map<String, Object> participationRecord(UUID session, long version) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("userId", USER.toString());
+        data.put("sessionId", session.toString());
+        data.put("version", version);
+        data.put("challengeId", CHALLENGE.toString());
+        data.put("groupId", GROUP.toString());
+        data.put("sessionStatus", "OPEN");
+        data.put("stake", 30);
+        data.put("joinClosesAt", DAY.toEpochMilli());
+        // 정산 전에는 판정이 «없다» — false 로 접으면 상태가 하나 사라진다.
+        data.put("achieved", null);
+        return record("participation", data);
+    }
+
     private static Map<String, Object> record(String resource, Map<String, Object> data) {
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("resource", resource);
@@ -470,7 +621,7 @@ class MigrationGateTest {
 
     /**
      * N2 가 계산해야 할 매니페스트를 «테스트가 직접» 접어서 만든다 — 서버 값을 되받아 쓰지 않는다.
-     * Data 의 내보내기와 같은 모양으로 세 자원을 «언제나» 싣는다: 0건 자원도 count=0 · SHA256("") 다
+     * Data 의 내보내기와 같은 모양으로 다섯 자원을 «언제나» 싣는다: 0건 자원도 count=0 · SHA256("") 다
      * (NotificationMigrationManifest.ResourceDigest). 빠뜨린 것과 비어 있는 것을 구분하기 위해서다.
      */
     private static Map<String, Object> manifest(List<Map<String, Object>> records, long version, long queueDepth) {

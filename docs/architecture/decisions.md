@@ -150,6 +150,10 @@
 | ㋳ **이관 체크섬은 양쪽 실제 직렬화로 검증한다**: Data export와 Noti import는 재귀 Java UTF-16 키 정렬, compact UTF-8 JSON, 정수·null 보존, 제어문자 escape의 대문자 HEX까지 같아야 한다. `.github/scripts/check-migration-checksum.py`가 실제 Noti bootJar의 Jackson과 Data 소스를 함께 실행해 대조한다. 미발송 PENDING·DEFERRED는 이관할 데이터이며 정지 창 잔여 큐에 더하지 않는다. 최종 export는 별도 인플라이트 drain 확인과 미전달 Kafka·Noti outbox 0건을 요구한다.
 | ㋴ **실패한 단계의 재개는 현재 상태를 다시 보장한다**: ack prepare 재요청은 과거 HELD 응답만 재생하지 않고 같은 사건 잠금 아래 HELD를 다시 확보한다. 한 발송의 렌더 오류는 별도 트랜잭션에 다음 시도·오류를 남기며 뒤의 정상 후보를 막지 않는다. 이관 import·verify·open은 공통 gate부터 같은 순서로 잠그고, 최종 검사는 개방의 배타 잠금을 잡은 뒤 수행한다. 한 전역 저장소에는 하나의 activeMigrationId만 허용하고 같은 ID로 재개한다. 건수 0인 자원도 SHA256(empty)를 대조한다.
 | ㋵ **계정 전환의 이전 RT 폐기 의도는 새 세션 저장 전에 내구화한다**: 새 세션 커밋 뒤 큐 저장이 실패하면 이전 RT를 잃고 앱에는 실패한 로그인과 새 토큰이 혼재한다. 준비 명령은 인증 전환 잠금이 풀리고 실제 세션 교체를 확인한 뒤에만 발송한다. 저장 rollback이면 구 세션을 폐기하지 않고, 커밋 뒤 후처리 실패는 준비된 명령으로 재시도한다.
+| ㋶ **초기 투영도 이관 검증에 포함한다**: `user`·`participation`을 settings·device·delivery와 같은 Data RR 스냅샷에서 내보내고, 같은 스냅샷의 USER aggregate version을 싣는다. 참가 키는 `(userId, sessionId)`다. import는 탈퇴 fence를 지키고 같은 version 재적재의 필드를 복구하며 더 높은 live version을 보존한다. 다섯 자원은 0건도 manifest에 선언한다. 이번 두 티켓의 투영은 bootstrap이며, 변경 feed가 연결되기 전까지 현재 발송 판정은 Data 명령과 허용된 eligibility 조회가 맡는다. 투영을 최신 상태로 간주하지 않는다.
+| ㋷ **구 클릭 귀속을 확정 근거로 바꾸지 않는다**: 이관된 `claimed_user_id`·`claimed_at`은 `LEGACY` claim으로 보존하고 같은 사용자 재시도를 같은 claim에 연결한다. 구 귀속에는 가입 검증이 없으므로 임의 confirmProof를 만들지 않는다. 실제 Data의 proof·membershipEpoch·transitionSeq 검증을 통과해야 CONFIRMED가 되며, 더 최신 폐기·탈퇴를 이관이 되돌리지 않는다.
+| ㋸ **동결된 표시명에는 표시 version을 함께 싣는다**: Link의 frozen click/link는 groupNameVersion·inviterNameVersion을 포함한다. import는 필드별 표시 snapshot과 version을 같은 트랜잭션에서 복원하고, 동결 전 지연된 개명이 현재 이름을 덮지 못하게 한다. 누락된 version은 0으로 대신하지 않고 import·verify에서 거부한다.
+
 | ⓖ **위성 쓰기 전 활성 검사** — 위성 직행 쓰기는 Data 의 `X-User-Id` 검사를 안 거친다. | PR #731 codex 6~9라운드 (실코드 대조로 확인) | 09-10 |
 
 ## 산출물

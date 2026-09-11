@@ -16,8 +16,21 @@ import java.util.UUID;
 final class MigrationRecords {
 
     static final int MAX_RECORDS = 500;
-    /** 이관이 다루는 자원 전부. Data manifest 는 0건이어도 이 셋을 «언제나» 싣는다. */
-    static final List<String> RESOURCES = List.of("delivery", "device", "settings");
+    /**
+     * 이관이 다루는 자원 전부. Data manifest 는 0건이어도 이 다섯을 «언제나» 싣는다.
+     *
+     * <p>앞 셋({@code delivery}·{@code device}·{@code settings})은 알림 서버의 <b>정본 테이블</b>로
+     * 가고, 뒤 둘({@code participation}·{@code user})은 {@code projections} 투영 <b>bootstrap</b> 이다
+     * (승인 계획 ②′). 뒤 둘은 적재 시점에 박제된 값이며 <b>발송 판정의 근거가 아니다</b> —
+     * 판정은 계속 Data 명령·적격성 조회가 소유한다.
+     */
+    static final List<String> RESOURCES = List.of("delivery", "device", "participation", "settings", "user");
+
+    /** 유저 투영 타입 — 새벽 리컨실({@code SnapshotReconciler})이 쓰는 것과 «같은» 타입이다. */
+    static final String USER_PROJECTION = "user.snapshot";
+
+    /** 참가 투영 타입 — 수신 이벤트 타입({@code InboundService.PROJECTIONS})과 «같은» 이름이다. */
+    static final String PARTICIPATION_PROJECTION = "participation.updated";
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private MigrationRecords() { }
@@ -28,6 +41,8 @@ final class MigrationRecords {
             case "settings" -> settings(data);
             case "device" -> device(data);
             case "delivery" -> delivery(data);
+            case "user" -> user(data);
+            case "participation" -> participation(data);
             default -> throw new NotificationFailure(400, "UNKNOWN_MIGRATION_RESOURCE");
         };
     }
@@ -39,6 +54,9 @@ final class MigrationRecords {
             // FCM 토큰 원문을 원장(imports)에 한 벌 더 남기지 않는다.
             case "device" -> Json.digest(canonical.get("deviceToken").toString());
             case "delivery" -> canonical.get("eventId").toString();
+            case "user" -> canonical.get("userId").toString();
+            // 회차마다 별도 키다. 유저로 접으면 한 회차가 다른 회차를 덮어 그 회차의 참가자가 사라진다.
+            case "participation" -> canonical.get("userId") + ":" + canonical.get("sessionId");
             default -> throw new NotificationFailure(400, "UNKNOWN_MIGRATION_RESOURCE");
         };
     }
@@ -86,6 +104,64 @@ final class MigrationRecords {
         record.put("sentAt", Json.nullableNumber(data, "sentAt"));
         record.put("params", AdminCatalog.object(data, "params"));
         return record;
+    }
+
+    /**
+     * 유저 투영 bootstrap — 필드 순서·타입·null 이 Data 의 {@code readUsers()} 와 한 벌이다.
+     *
+     * <p>설정 5필드는 {@code settingsPresent=false} 면 <b>전부 null</b> 이다. 여기서 기본값을 채우면
+     * 「사용자가 직접 켠 것」과 구분되지 않고, 나중에 기본값이 바뀌어도 옛 값이 박제된다.
+     * 이 자원은 정본 {@code settings} 테이블을 건드리지 않는다 — {@code projections} 로만 간다.
+     */
+    private static Map<String, Object> user(Map<String, Object> data) {
+        Map<String, Object> record = new LinkedHashMap<>();
+        record.put("userId", Json.uuid(data, "userId").toString());
+        record.put("version", Json.number(data, "version"));
+        record.put("displayName", Json.nullableText(data, "displayName"));
+        record.put("locale", Json.nullableText(data, "locale"));
+        record.put("settingsPresent", Json.bool(data, "settingsPresent"));
+        record.put("notificationEnabled", nullableBool(data, "notificationEnabled"));
+        record.put("soundEnabled", nullableBool(data, "soundEnabled"));
+        record.put("nightModeEnabled", nullableBool(data, "nightModeEnabled"));
+        record.put("nightStartTime", time(data, "nightStartTime"));
+        record.put("nightEndTime", time(data, "nightEndTime"));
+        return record;
+    }
+
+    /**
+     * 참가 투영 bootstrap — <b>진행 중·미정산</b> 회차 한 건. 축은 {@code (userId, sessionId)} 다.
+     *
+     * <p>{@code achieved} 는 정산 전에도 조기 확정으로 true 가 될 수 있어 nullable 이다 —
+     * null 은 「아직 판정 없음」이고 false 와 다르다.
+     */
+    private static Map<String, Object> participation(Map<String, Object> data) {
+        Map<String, Object> record = new LinkedHashMap<>();
+        record.put("userId", Json.uuid(data, "userId").toString());
+        record.put("sessionId", Json.uuid(data, "sessionId").toString());
+        record.put("version", Json.number(data, "version"));
+        record.put("challengeId", Json.uuid(data, "challengeId").toString());
+        record.put("groupId", Json.uuid(data, "groupId").toString());
+        record.put("sessionStatus", Json.text(data, "sessionStatus"));
+        record.put("stake", Json.number(data, "stake"));
+        record.put("joinClosesAt", Json.number(data, "joinClosesAt"));
+        record.put("achieved", nullableBool(data, "achieved"));
+        return record;
+    }
+
+    /**
+     * 투영 행 → 정규형. 저장한 payload 가 곧 정규형 레코드라 되읽으면 된다 — 다만
+     * {@code version} 만은 <b>컬럼</b> 값을 쓴다. 보존 판정({@code version} 가드)이 보는 것이 그
+     * 컬럼이고, payload 안의 숫자는 그 판정에 참여하지 않기 때문이다.
+     */
+    static Map<String, Object> fromProjection(Map<String, Object> row) {
+        Map<String, Object> record = new LinkedHashMap<>(Json.map(row.get("payload")));
+        record.put("version", ((Number) row.get("version")).longValue());
+        return record;
+    }
+
+    /** {@code null} 을 «값 없음»으로 보존하는 불리언 — {@code false} 로 접으면 상태가 하나 사라진다. */
+    private static Boolean nullableBool(Map<String, Object> data, String key) {
+        return data.get(key) == null ? null : Json.bool(data, key);
     }
 
     static String status(String value) {

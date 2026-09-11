@@ -49,6 +49,7 @@ public class NotificationSnapshotService {
             SELECT u.id,
                    u.is_deleted,
                    u.auth_generation,
+                   u.nickname,
                    u.language,
                    (u.device_token IS NOT NULL) AS has_device_token,
                    (s.user_id IS NOT NULL) AS settings_present,
@@ -126,21 +127,22 @@ public class NotificationSnapshotService {
      * @return 항목
      */
     private static NotificationSnapshotItem toItem(Object[] row) {
-        boolean settingsPresent = toBoolean(row[5]);
+        boolean settingsPresent = toBoolean(row[6]);
         return new NotificationSnapshotItem(
                 toUuid(row[0]),
                 toBoolean(row[1]),
                 ((Number) row[2]).longValue(),
                 (String) row[3],
-                toBoolean(row[4]),
+                (String) row[4],
+                toBoolean(row[5]),
                 settingsPresent,
-                settingsPresent ? toBoolean(row[6]) : null,
                 settingsPresent ? toBoolean(row[7]) : null,
                 settingsPresent ? toBoolean(row[8]) : null,
-                toLocalTime(row[9]),
+                settingsPresent ? toBoolean(row[9]) : null,
                 toLocalTime(row[10]),
-                toInstant(row[11]),
-                row[12] == null ? 0L : ((Number) row[12]).longValue());
+                toLocalTime(row[11]),
+                toInstant(row[12]),
+                row[13] == null ? 0L : ((Number) row[13]).longValue());
     }
 
     private static UUID toUuid(Object value) {

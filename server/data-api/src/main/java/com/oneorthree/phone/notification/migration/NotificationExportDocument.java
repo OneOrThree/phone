@@ -7,7 +7,8 @@ import java.util.Map;
 /**
  * 이관 export 한 벌 — <b>한 트랜잭션 · 한 스냅샷</b>에서 읽은 전부.
  *
- * <p>세 자원(설정 · 기기 · 발송 이력)과 그 manifest, 그리고 재조립 실패 목록을 함께 담는다.
+ * <p>다섯 자원(설정 · 기기 · 발송 이력 · 유저 투영 · 참가 투영)과 그 manifest, 그리고 재조립 실패
+ * 목록을 함께 담는다.
  * 따로 읽으면 그 사이의 변경 때문에 「토큰은 있는데 설정 행이 없는 유저」 같은 <b>어느 시점에도
  * 존재하지 않았던 상태</b>가 파일에 남고, 그것이 그대로 알림 DB 의 초기 상태가 된다.
  *
@@ -18,7 +19,8 @@ import java.util.Map;
  * @param exportedAt   추출 시각
  * @param migrationId  이 export 가 겨냥한 이관 id. 운영자 입력
  * @param manifest     verify 에 그대로 실을 manifest
- * @param records      import 에 실을 wire 레코드 전량(자원 혼재, recordKey 오름차순)
+ * @param records      import 에 실을 wire 레코드 전량. 자원 순서대로 이어 붙이며 순서 자체는
+ *                     계약이 아니다 — 자원 체크섬이 recordKey 로 다시 정렬해 접는다
  * @param failures     재조립 불가 목록 — 비어 있지 않으면 최종 manifest·개방 금지
  * @param report       사람이 눈으로 대조할 부가 정보(중복 토큰·상태별 집계)
  */

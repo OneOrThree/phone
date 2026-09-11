@@ -362,7 +362,9 @@ class SatelliteCoreContractIntegrationTest {
         assertThat(candidates).hasSize(1);
         Map<String, Object> source = candidates.get(0).source();
         // 링크 importer 의 frozen() 이 요구하는 24필드 — 하나라도 빠지면 그쪽이 400 으로 막는다.
-        assertThat(source).hasSize(24)
+        assertThat(source).hasSize(26)
+                .containsEntry("groupNameVersion", "0")
+                .containsEntry("inviterNameVersion", "0")
                 .containsEntry("groupId", group.getId().toString())
                 .containsEntry("inviterId", ownerId.toString())
                 .containsEntry("os", "ios")

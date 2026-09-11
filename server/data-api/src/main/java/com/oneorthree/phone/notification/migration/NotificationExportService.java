@@ -54,6 +54,14 @@ import java.util.UUID;
  * <h2>코어 데이터를 필요 이상 담지 않는다</h2>
  * 담는 것은 wire 계약이 요구하는 값뿐이다. 기기 토큰은 계약상 원문이 필요해 {@code device} 레코드에
  * 그대로 들어가지만, 사람이 읽는 {@code report} 쪽에는 앞 8자만 남긴다.
+ *
+ * <h2>{@code user}·{@code participation} 은 <b>bootstrap</b> 이다 — 정본이 아니다</h2>
+ * 이 두 자원은 알림 서버의 {@code projections} 를 <b>한 번 세우는</b> 값이다(승인 계획 ②′).
+ * 그 투영을 갱신할 <b>이벤트 producer 가 아직 하나도 없어서</b>(변경 피드가 없다) 적재된 값은
+ * 그 시점에 박제된다. 그래서 발송 판정(적격성·탈퇴·설정)은 <b>계속 코어 정본</b>(내부 조회 3종과
+ * Data 명령/outbox)이 담당한다 — 「투영이 있으니 읽어도 되겠지」로 판정을 옮기는 순간
+ * <b>조용히 옛 상태로 판정</b>하게 된다. 계약 문서에도 같은 문장을 못 박아 뒀다
+ * ({@code docs/contracts/notification-producer.md}).
  */
 @Slf4j
 @Service
@@ -123,6 +131,72 @@ public class NotificationExportService {
                     AND av.aggregate_id = CAST(u.id AS varchar)
              WHERE u.is_bot = false
              ORDER BY u.id
+            """;
+
+    /**
+     * 유저 투영 bootstrap — 봇과 <b>탈퇴자를 뺀</b> 전 유저.
+     *
+     * <p>탈퇴자를 빼는 이유는 둘이다. ① 알림 서버의 적재 경로는 {@code user_fences.withdrawn} 을
+     * 보고 <b>어차피 건너뛴다</b>(그리고 {@code DeviceService} 는 탈퇴 시 그 유저의 투영을 통째로
+     * 지운다) — 넣어도 행이 생기지 않는다. ② 그런데 파일에는 표시명이 남는다. 아무 효과 없이 PII 만
+     * 한 벌 더 만드는 셈이라 뺀다. {@code settings}·{@code device} 자원이 탈퇴자를 싣는 것과 방향이
+     * 다른 이유도 여기 있다 — 그쪽은 「그 기기의 토큰을 꺼야 한다」는 <b>할 일</b>이 있다.
+     *
+     * <p>{@code version} 은 {@code settings} 자원과 <b>같은 축·같은 값</b>이다(유저 축
+     * {@code aggregate_versions.last_version}). 그래야 스냅샷 이전에 발행돼 백로그에 남아 있던
+     * 사건이 늦게 도착해도 <b>거부</b>되고, 이후 사건만 적용된다 — 「시각이 아니라 커서」가 별도
+     * 커서 없이 닫힌다(A22 ㋖).
+     */
+    private static final String USERS_SQL = """
+            SELECT CAST(u.id AS varchar),
+                   u.nickname,
+                   u.language,
+                   (s.user_id IS NOT NULL) AS settings_present,
+                   s.notification_enabled,
+                   s.sound_enabled,
+                   s.night_mode_enabled,
+                   s.night_start_time,
+                   s.night_end_time,
+                   COALESCE(av.last_version, 0) AS version
+              FROM users u
+              LEFT JOIN user_notification_settings s
+                     ON s.user_id = u.id AND s.deleted_at IS NULL
+              LEFT JOIN aggregate_versions av
+                     ON av.aggregate_type = :aggregateType
+                    AND av.aggregate_id = CAST(u.id AS varchar)
+             WHERE u.is_bot = false AND u.is_deleted = false
+             ORDER BY u.id
+            """;
+
+    /**
+     * 참가 투영 bootstrap — <b>진행 중·미정산</b> 회차의 참가 행만.
+     *
+     * <p>{@code status = 'OPEN'} 이 「아직 결과가 없다」의 단일 정의다({@code GroupBetStatus} 주석).
+     * {@code settled_at IS NULL} 을 함께 적는 것은 중복이지만, 「미정산」이 무엇인지 질의만 보고
+     * 알 수 있게 남긴다.
+     *
+     * <p>이미 정산돼 <b>발송만 기다리는</b> 건은 이 범위 밖이다 — 그쪽은 {@code delivery} 자원이
+     * 미발송 로그로 이미 옮긴다(승인 계획 ②′ 단서). 여기서 또 실으면 같은 사건이 두 축으로 들어간다.
+     */
+    private static final String PARTICIPATIONS_SQL = """
+            SELECT CAST(p.user_id AS varchar),
+                   CAST(s.id AS varchar),
+                   CAST(s.challenge_id AS varchar),
+                   CAST(s.group_id AS varchar),
+                   CAST(s.status AS varchar),
+                   s.stake,
+                   s.join_closes_at,
+                   p.achieved,
+                   COALESCE(av.last_version, 0) AS version
+              FROM group_challenge_bet_participants p
+              JOIN group_challenge_bet_sessions s ON s.id = p.session_id
+              JOIN users u ON u.id = p.user_id
+              LEFT JOIN aggregate_versions av
+                     ON av.aggregate_type = :aggregateType
+                    AND av.aggregate_id = CAST(p.user_id AS varchar)
+             WHERE s.status = 'OPEN' AND s.settled_at IS NULL
+               AND u.is_bot = false AND u.is_deleted = false
+             ORDER BY p.user_id, s.id
             """;
 
     private static final String DUPLICATE_TOKEN_SQL = """
@@ -201,6 +275,8 @@ public class NotificationExportService {
         List<NotificationMigrationRecord> settings = readSettings();
         List<NotificationMigrationRecord> devices = readDevices();
         List<NotificationMigrationRecord> deliveries = readDeliveries(failures);
+        List<NotificationMigrationRecord> users = readUsers();
+        List<NotificationMigrationRecord> participations = readParticipations();
 
         Map<String, Long> queueBreakdown = readQueueBreakdown();
         // 이관할 화물(migrationPayload)은 잔여가 아니다 — 빼고 센다. 자세한 이유는 QUEUE_DEPTH_SQL 주석.
@@ -217,21 +293,30 @@ public class NotificationExportService {
                         NotificationMigrationRecord.RESOURCE_DEVICE, digest(
                                 NotificationMigrationRecord.RESOURCE_DEVICE, devices),
                         NotificationMigrationRecord.RESOURCE_DELIVERY, digest(
-                                NotificationMigrationRecord.RESOURCE_DELIVERY, deliveries)),
+                                NotificationMigrationRecord.RESOURCE_DELIVERY, deliveries),
+                        NotificationMigrationRecord.RESOURCE_USER, digest(
+                                NotificationMigrationRecord.RESOURCE_USER, users),
+                        NotificationMigrationRecord.RESOURCE_PARTICIPATION, digest(
+                                NotificationMigrationRecord.RESOURCE_PARTICIPATION, participations)),
                 new NotificationMigrationManifest.StopWindow(
                         closedAt, readCursor(), queueDepth,
                         NotificationMigrationManifest.StopWindow.SOURCE));
 
         List<NotificationMigrationRecord> records = new ArrayList<>(
-                settings.size() + devices.size() + deliveries.size());
+                settings.size() + devices.size() + deliveries.size()
+                        + users.size() + participations.size());
         records.addAll(settings);
         records.addAll(devices);
         records.addAll(deliveries);
+        records.addAll(users);
+        records.addAll(participations);
 
         Map<String, Long> counts = new TreeMap<>();
         counts.put("settings", (long) settings.size());
         counts.put("device", (long) devices.size());
         counts.put("delivery", (long) deliveries.size());
+        counts.put("user", (long) users.size());
+        counts.put("participation", (long) participations.size());
         counts.put("failures", (long) failures.size());
         counts.put("queueDepth", queueDepth);
 
@@ -264,10 +349,10 @@ public class NotificationExportService {
                     "정지 창을 닫았는데 아직 내보내지 못한 outbox 전달이 " + queueDepth
                             + "건 남아 있습니다 — drain 이 끝나지 않았습니다. 내역: " + queueBreakdown);
         }
-        log.info("알림 이관 export — settings {}건, device {}건, delivery {}건, 실패 {}건, "
-                        + "잔여 queueDepth {} (화물 {}건) {}",
-                settings.size(), devices.size(), deliveries.size(), failures.size(),
-                queueDepth, queueBreakdown.getOrDefault(PAYLOAD_KEY, 0L), queueBreakdown);
+        log.info("알림 이관 export — settings {}건, device {}건, delivery {}건, user {}건, "
+                        + "participation {}건, 실패 {}건, 잔여 queueDepth {} (화물 {}건) {}",
+                settings.size(), devices.size(), deliveries.size(), users.size(), participations.size(),
+                failures.size(), queueDepth, queueBreakdown.getOrDefault(PAYLOAD_KEY, 0L), queueBreakdown);
         return document;
     }
 
@@ -330,6 +415,71 @@ public class NotificationExportService {
             data.put("active", !Boolean.TRUE.equals(row[3]));
             records.add(NotificationMigrationRecord.of(NotificationMigrationRecord.RESOURCE_DEVICE,
                     MigrationCanonicalJson.sha256Hex(token.getBytes(StandardCharsets.UTF_8)), data));
+        }
+        return records;
+    }
+
+    /**
+     * 유저 투영 bootstrap 자원 — 설정 5필드는 <b>행이 없으면 전부 {@code null}</b> 이다.
+     *
+     * <p>{@code settingsPresent} 를 따로 싣는 이유는 {@code NotificationSnapshotItem} 과 같다 —
+     * 기본값을 여기서 채워 보내면 「사용자가 직접 켠 것」과 구분되지 않는다. 그리고 그 구분이
+     * 사라지면 나중에 기본값이 바뀌어도 옛 값이 박제된다.
+     */
+    private List<NotificationMigrationRecord> readUsers() {
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = entityManager.createNativeQuery(USERS_SQL)
+                .setParameter("aggregateType", AggregateRef.TYPE_USER)
+                .getResultList();
+        List<NotificationMigrationRecord> records = new ArrayList<>(rows.size());
+        for (Object[] row : rows) {
+            String userId = String.valueOf(row[0]);
+            boolean settingsPresent = Boolean.TRUE.equals(row[3]);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("userId", userId);
+            data.put("version", ((Number) row[9]).longValue());
+            data.put("displayName", blankToNull(row[1]));
+            data.put("locale", blankToNull(row[2]));
+            data.put("settingsPresent", settingsPresent);
+            data.put("notificationEnabled", settingsPresent ? Boolean.TRUE.equals(row[4]) : null);
+            data.put("soundEnabled", settingsPresent ? Boolean.TRUE.equals(row[5]) : null);
+            data.put("nightModeEnabled", settingsPresent ? Boolean.TRUE.equals(row[6]) : null);
+            data.put("nightStartTime", toTimeText(row[7]));
+            data.put("nightEndTime", toTimeText(row[8]));
+            records.add(NotificationMigrationRecord.of(
+                    NotificationMigrationRecord.RESOURCE_USER, userId, data));
+        }
+        return records;
+    }
+
+    /**
+     * 참가 투영 bootstrap 자원 — {@code recordKey} 는 {@code "<userId>:<sessionId>"} 다(계약).
+     *
+     * <p>키에 회차를 넣는 것이 이 자원의 전부다. 유저 하나로 접으면 <b>한 회차가 다른 회차를
+     * 덮어</b> 그 회차가 정산됐을 때 참가자를 몰라 결과 알림이 통째로 누락된다(A22 ㊂).
+     */
+    private List<NotificationMigrationRecord> readParticipations() {
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = entityManager.createNativeQuery(PARTICIPATIONS_SQL)
+                .setParameter("aggregateType", AggregateRef.TYPE_USER)
+                .getResultList();
+        List<NotificationMigrationRecord> records = new ArrayList<>(rows.size());
+        for (Object[] row : rows) {
+            String userId = String.valueOf(row[0]);
+            String sessionId = String.valueOf(row[1]);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("userId", userId);
+            data.put("sessionId", sessionId);
+            data.put("version", ((Number) row[8]).longValue());
+            data.put("challengeId", String.valueOf(row[2]));
+            data.put("groupId", String.valueOf(row[3]));
+            data.put("sessionStatus", String.valueOf(row[4]));
+            data.put("stake", ((Number) row[5]).longValue());
+            data.put("joinClosesAt", toInstant(row[6]).toEpochMilli());
+            // 정산 전에도 조기 확정(confirmWin)으로 true 가 될 수 있다 — null 은 「아직 판정 없음」이다.
+            data.put("achieved", row[7] == null ? null : Boolean.TRUE.equals(row[7]));
+            records.add(NotificationMigrationRecord.of(
+                    NotificationMigrationRecord.RESOURCE_PARTICIPATION, userId + ":" + sessionId, data));
         }
         return records;
     }
@@ -622,6 +772,21 @@ public class NotificationExportService {
 
     private static Long toMillis(Instant value) {
         return value == null ? null : value.toEpochMilli();
+    }
+
+    /**
+     * 빈 문자열을 «값 없음»으로 접는다 — 빈 표시명은 이름이 아니다.
+     *
+     * <p>그냥 두면 수신 측의 문자열 검증({@code Json.text} 는 공백을 거절한다)이 <b>배치 전체를
+     * 400 으로 되돌린다</b>. 한 유저의 빈 닉네임이 컷오버를 막는 셈이라, 뜻이 같은 {@code null} 로
+     * 보낸다.
+     */
+    private static String blankToNull(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value);
+        return text.isBlank() ? null : text;
     }
 
     /** {@code HH:mm:ss} — wire 계약의 표기다. {@code LocalTime.toString()} 은 초가 0 이면 «HH:mm» 이다. */

@@ -160,7 +160,9 @@ class MigrationService {
             String checksum = MigrationRecords.checksum(canonical);
             Map<String, Object> previous = store.one("SELECT checksum FROM imports"
                     + " WHERE migration_id=? AND record_key=? FOR UPDATE", migrationId, recordKey);
-            if (previous != null && checksum.equals(previous.get("checksum"))) {
+            boolean projection = "user".equals(resource) || "participation".equals(resource);
+            // 투영은 같은 원본 재적재에도 실제 행·탈퇴 fence를 다시 보장한다.
+            if (!projection && previous != null && checksum.equals(previous.get("checksum"))) {
                 outcome.merge("SKIPPED", 1L, Long::sum);
                 continue;
             }
@@ -188,8 +190,38 @@ class MigrationService {
             case "settings" -> writeSettings(record);
             case "device" -> writeDevice(record);
             case "delivery" -> writeDelivery(record);
+            case "user" -> writeProjection(MigrationRecords.USER_PROJECTION,
+                    MigrationRecords.uuid(record.get("userId")), "", record);
+            case "participation" -> writeProjection(MigrationRecords.PARTICIPATION_PROJECTION,
+                    MigrationRecords.uuid(record.get("userId")), record.get("sessionId").toString(), record);
             default -> throw new NotificationFailure(400, "UNKNOWN_MIGRATION_RESOURCE");
         };
+    }
+
+    /**
+     * 투영 bootstrap 적재(승인 계획 ②′). {@code InboundService.project()} 와 <b>같은 잠금·같은 펜스</b>를
+     * 지난다 — 탈퇴 tombstone 을 여기서만 빠뜨리면 export~import 사이에 탈퇴한 유저의 PII 투영이
+     * 되살아난다({@code DeviceService} 가 탈퇴 때 지운 바로 그 행이다).
+     *
+     * <h2>가드가 {@code &lt;=} 인 이유 — 라이브 경로의 {@code &lt;} 와 다르다</h2>
+     * 라이브 이벤트는 같은 {@code version} 이면 <b>이미 적용된 것</b>이라 건너뛰는 게 맞다.
+     * 반면 bootstrap 의 재적재는 <b>운영자가 다시 미는 같은 값</b>이다 — {@code &lt;} 로 두면 부분
+     * 적재를 이어 붙이는 재시도가 조용한 no-op 이 되어 「왜 안 먹지」가 현장에서 보이지 않는다.
+     * 같은 version 이면 payload 를 실제로 다시 쓰고, <b>더 높은 라이브 version 은 그대로 보존</b>한다.
+     *
+     * @param subject 컬렉션 투영의 축. 유저당 한 행인 투영은 빈 문자열이다(스키마 기본값과 같다)
+     */
+    private String writeProjection(String type, UUID user, String subject, Map<String, Object> record) {
+        store.lock("device-ownership");
+        if (withdrawn(user)) {
+            return "SKIPPED";
+        }
+        int written = store.update("INSERT INTO projections(projection_type,user_id,subject_id,version,payload)"
+                + " VALUES(?,?,?,?,?::jsonb) ON CONFLICT(projection_type,user_id,subject_id)"
+                + " DO UPDATE SET version=EXCLUDED.version,payload=EXCLUDED.payload"
+                + " WHERE projections.version<=EXCLUDED.version", type, user, subject,
+                ((Number) record.get("version")).longValue(), Json.write(record));
+        return written == 0 ? "SUPERSEDED" : "IMPORTED";
     }
 
     private String writeSettings(Map<String, Object> record) {
@@ -301,7 +333,7 @@ class MigrationService {
                 + " FROM imports WHERE migration_id=? ORDER BY record_key", migrationId);
         Map<String, Long> counts = new TreeMap<>();
         Map<String, StringBuilder> folds = new TreeMap<>();
-        // 0건 자원도 «접은 값»이 있어야 한다. Data 내보내기는 세 자원을 언제나 manifest 에 싣고 빈
+        // 0건 자원도 «접은 값»이 있어야 한다. Data 내보내기는 다섯 자원을 언제나 manifest 에 싣고 빈
         // 집합을 SHA256("") 로 채운다(NotificationMigrationManifest.ResourceDigest). 여기서 비워 두면
         // 그 자원의 checksums 가 null 이라, 알림 이력이 아직 없는 환경의 «정상» export 가 건수 0 은
         // 맞는데도 매번 CHECKSUM_MISMATCH 로 막혀 verify·최초 개방을 끝낼 수 없다.
@@ -405,8 +437,39 @@ class MigrationService {
             case "settings" -> compareSettings(source);
             case "device" -> compareDevice(source);
             case "delivery" -> compareDelivery(source);
+            case "user" -> compareProjection(MigrationRecords.USER_PROJECTION, "user", source,
+                    MigrationRecords.uuid(source.get("userId")), "");
+            case "participation" -> compareProjection(MigrationRecords.PARTICIPATION_PROJECTION,
+                    "participation", source, MigrationRecords.uuid(source.get("userId")),
+                    source.get("sessionId").toString());
             default -> fail("UNKNOWN_MIGRATION_RESOURCE", resource, null, null);
         };
+    }
+
+    /**
+     * 투영 대조 — 실제 {@code projections} 행을 <b>필드 단위</b>로 본다(존재 검사로 퇴화하지 않는다).
+     *
+     * <p>라이브 투영이 더 최신인 방향({@code target.version > source.version})만 허용한다.
+     * 되돌아간 방향은 {@code VERSION_REGRESSED} 이고, 같은 version 인데 내용이 다르면
+     * {@code FIELD_MISMATCH} 다 — 적재가 도중에 끊겨 옛 payload 가 남은 경우가 여기서 잡힌다.
+     */
+    private Map<String, Object> compareProjection(String type, String scope, Map<String, Object> source,
+            UUID user, String subject) {
+        Map<String, Object> row = store.one("SELECT version,payload::text AS payload FROM projections"
+                + " WHERE projection_type=? AND user_id=? AND subject_id=?", type, user, subject);
+        if (row == null) {
+            return fail("TARGET_ROW_MISSING", scope, null, null);
+        }
+        long sourceVersion = ((Number) source.get("version")).longValue();
+        long targetVersion = ((Number) row.get("version")).longValue();
+        if (targetVersion < sourceVersion) {
+            return fail("VERSION_REGRESSED", scope, sourceVersion, targetVersion);
+        }
+        if (targetVersion > sourceVersion) {
+            return null;
+        }
+        Map<String, Object> target = MigrationRecords.fromProjection(row);
+        return diff(source, target, scope, source.keySet().toArray(new String[0]));
     }
 
     private Map<String, Object> compareSettings(Map<String, Object> source) {

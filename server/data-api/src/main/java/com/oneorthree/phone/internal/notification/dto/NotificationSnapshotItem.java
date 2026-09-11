@@ -28,6 +28,11 @@ import java.util.UUID;
  * @param withdrawn         탈퇴했는가. 탈퇴자도 스냅샷에 <b>포함한다</b> — 그 기기의 토큰을 지워야
  *                          이전 계정 푸시가 그 기기로 가지 않는다
  * @param authGeneration    유저 축 세대(㊼ — 탈퇴·전 기기 로그아웃에만 증가)
+ * @param displayName       표시 닉네임({@code users.nickname}). 미설정은 {@code null}. <b>additive</b> 로
+ *                          넣는다 — 승인 계획 ②′ ⓐ 가 「표시명·언어·설정」을 요구하는데 이 자리가
+ *                          비어 있었다. 지금 템플릿은 이 값을 쓰지 않지만, 쓰기 시작하는 순간
+ *                          <b>개명한 적 없는 유저 전원이 빈 이름으로 렌더된다</b> — 제공자를 먼저
+ *                          배포해 둔다(A22 ㉹)
  * @param locale            보고된 표시 언어. 미보고는 {@code null}(수신 측이 ko 폴백)
  * @param hasDeviceToken    코어가 아는 기기 토큰이 있는가 — 이관 검증용 대조값이지
  *                          <b>발송 판정 근거가 아니다</b>(토큰 정본은 이관 후 알림 DB 다)
@@ -44,6 +49,7 @@ public record NotificationSnapshotItem(
         UUID userId,
         boolean withdrawn,
         long authGeneration,
+        String displayName,
         String locale,
         boolean hasDeviceToken,
         boolean settingsPresent,

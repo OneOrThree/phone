@@ -1,7 +1,23 @@
 package com.oneorthree.phone.notification.migration;
 
+import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
+import com.oneorthree.phone.group.repository.domain.GroupChallenge;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBet;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.notification.producer.NotificationEventKey;
 import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -18,6 +34,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -49,6 +67,8 @@ class NotificationExportServiceIntegrationTest {
 
     private static final String MIGRATION_ID = "test-cutover";
     private static final Instant SLOT = Instant.parse("2026-09-11T12:00:00Z");
+    private static final int STAKE = 30;
+    private static final int GOAL_MINUTES = 60;
 
     @Autowired
     NotificationExportService exportService;
@@ -58,8 +78,25 @@ class NotificationExportServiceIntegrationTest {
     EntityManager entityManager;
     @Autowired
     PlatformTransactionManager transactionManager;
+    @Autowired
+    GroupRepository groupRepository;
+    @Autowired
+    GroupChallengeRepository challengeRepository;
+    @Autowired
+    GroupChallengeDurationRepository challengeDurationRepository;
+    @Autowired
+    GroupChallengeBetRepository betRepository;
+    @Autowired
+    GroupChallengeBetSessionRepository sessionRepository;
+    @Autowired
+    GroupChallengeBetParticipantRepository participantRepository;
 
     private User user;
+    private Group group;
+    private final List<GroupChallengeBetSession> sessions = new ArrayList<>();
+    private final List<GroupChallengeBet> bets = new ArrayList<>();
+    private final List<GroupChallenge> challenges = new ArrayList<>();
+    private final List<User> extraUsers = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -84,7 +121,34 @@ class NotificationExportServiceIntegrationTest {
                                 "DELETE FROM notification_sent_logs WHERE user_id = :userId")
                         .setParameter("userId", user.getId())
                         .executeUpdate());
+        sessions.forEach(session -> participantRepository
+                .deleteAll(participantRepository.findBySessionIdIn(List.of(session.getId()))));
+        sessionRepository.deleteAll(sessions);
+        betRepository.deleteAll(bets);
+        challenges.forEach(challenge -> challengeDurationRepository.findById(challenge.getId())
+                .ifPresent(challengeDurationRepository::delete));
+        challengeRepository.deleteAll(challenges);
+        if (group != null) {
+            groupRepository.delete(group);
+        }
+        deleteVersions(user.getId());
+        extraUsers.forEach(extra -> deleteVersions(extra.getId()));
+        userRepository.deleteAll(extraUsers);
         userRepository.delete(user);
+        sessions.clear();
+        bets.clear();
+        challenges.clear();
+        extraUsers.clear();
+        group = null;
+    }
+
+    private void deleteVersions(UUID userId) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                entityManager.createNativeQuery("DELETE FROM aggregate_versions"
+                                + " WHERE aggregate_type = :type AND aggregate_id = :id")
+                        .setParameter("type", AggregateRef.TYPE_USER)
+                        .setParameter("id", userId.toString())
+                        .executeUpdate());
     }
 
     /**
@@ -212,8 +276,8 @@ class NotificationExportServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("manifest 는 자원 셋을 모두 갖고, 빈 자원도 체크섬을 갖는다")
-    void manifestAlwaysCarriesAllThreeResources() {
+    @DisplayName("manifest 는 자원 다섯을 모두 갖고, 빈 자원도 체크섬을 갖는다")
+    void manifestAlwaysCarriesAllFiveResources() {
         NotificationExportDocument document = exportService.export(MIGRATION_ID, null, false, true);
 
         Map<String, NotificationMigrationManifest.ResourceDigest> resources =
@@ -221,12 +285,182 @@ class NotificationExportServiceIntegrationTest {
         assertThat(resources).containsOnlyKeys(
                 NotificationMigrationRecord.RESOURCE_SETTINGS,
                 NotificationMigrationRecord.RESOURCE_DEVICE,
-                NotificationMigrationRecord.RESOURCE_DELIVERY);
+                NotificationMigrationRecord.RESOURCE_DELIVERY,
+                NotificationMigrationRecord.RESOURCE_USER,
+                NotificationMigrationRecord.RESOURCE_PARTICIPATION);
+        // counts 도 같은 다섯 축을 싣는다 — 사람이 읽는 쪽에서 자원 하나가 조용히 빠지지 않게.
+        assertThat(document.report().counts()).containsKeys("settings", "device", "delivery",
+                "user", "participation");
         // 「행이 없다」와 「자원을 통째로 빠뜨렸다」가 구분돼야 한다.
         resources.values().forEach(digest -> assertThat(digest.checksum()).hasSize(64));
         assertThat(document.manifest().version()).isEqualTo(NotificationMigrationManifest.VERSION);
         assertThat(document.manifest().stopWindow().source())
                 .isEqualTo(NotificationMigrationManifest.StopWindow.SOURCE);
+    }
+
+    // ── 투영 bootstrap (승인 계획 ②′) ──────────────────────────────────
+
+    @Test
+    @DisplayName("유저 투영 bootstrap 은 표시명·언어를 싣고, 설정 행이 없으면 5필드를 전부 null 로 둔다")
+    void userBootstrapCarriesDisplayNameAndLeavesAbsentSettingsNull() {
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, null, false, true);
+
+        assertThat(userRecordOf(document)).isNotNull().satisfies(record -> {
+            assertThat(record.recordKey()).isEqualTo(user.getId().toString());
+            assertThat(record.data())
+                    .containsEntry("displayName", user.getNickname())
+                    .containsEntry("locale", "ko")
+                    // 설정 행은 지연 생성이다 — 기본값을 여기서 채우면 「사용자가 직접 켠 것」과
+                    // 구분되지 않고, 나중에 기본값이 바뀌어도 옛 값이 박제된다.
+                    .containsEntry("settingsPresent", false)
+                    .containsEntry("notificationEnabled", null)
+                    .containsEntry("soundEnabled", null)
+                    .containsEntry("nightModeEnabled", null)
+                    .containsEntry("nightStartTime", null)
+                    .containsEntry("nightEndTime", null);
+        });
+    }
+
+    @Test
+    @DisplayName("탈퇴자는 유저 투영에 싣지 않는다 — 수신 측이 어차피 tombstone 으로 건너뛰므로 PII 만 남는다")
+    void withdrawnUsersAreNotProjected() {
+        User withdrawn = userRepository.save(User.builder()
+                .nickname("탈퇴-" + UUID.randomUUID().toString().substring(0, 8))
+                .language("ko")
+                .build());
+        extraUsers.add(withdrawn);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                entityManager.createNativeQuery("UPDATE users SET is_deleted = true WHERE id = :id")
+                        .setParameter("id", withdrawn.getId())
+                        .executeUpdate());
+
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, null, false, true);
+
+        assertThat(recordsOf(document, NotificationMigrationRecord.RESOURCE_USER)).noneSatisfy(record ->
+                assertThat(record.data()).containsEntry("userId", withdrawn.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("참가 투영은 회차마다 별도 키다 — 유저로 접으면 한 회차가 다른 회차를 덮어 그 회차 참가자가 사라진다")
+    void participationBootstrapKeysEverySessionSeparately() {
+        GroupChallengeBetSession first = openSession();
+        GroupChallengeBetSession second = openSession();
+        participantRepository.save(GroupChallengeBetParticipant.builder()
+                .session(first).user(user).build());
+        participantRepository.save(GroupChallengeBetParticipant.builder()
+                .session(second).user(user).build());
+
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, null, false, true);
+
+        List<NotificationMigrationRecord> records = participationsOf(document);
+        assertThat(records).hasSize(2);
+        assertThat(records).extracting(NotificationMigrationRecord::recordKey)
+                .containsExactlyInAnyOrder(user.getId() + ":" + first.getId(),
+                        user.getId() + ":" + second.getId());
+        assertThat(records.get(0).data())
+                .containsEntry("groupId", group.getId().toString())
+                .containsEntry("sessionStatus", GroupBetStatus.OPEN.name())
+                .containsEntry("stake", (long) STAKE)
+                // 정산 전에는 판정이 «없다» — false 로 접으면 상태가 하나 사라진다.
+                .containsEntry("achieved", null);
+    }
+
+    @Test
+    @DisplayName("정산이 끝난 회차의 참가는 투영 밖이다 — 그쪽은 미발송 delivery 가 이미 옮긴다")
+    void settledSessionsAreOutOfProjectionScope() {
+        GroupChallengeBetSession settled = openSession();
+        participantRepository.save(GroupChallengeBetParticipant.builder()
+                .session(settled).user(user).build());
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                entityManager.createNativeQuery("UPDATE group_challenge_bet_sessions"
+                                + " SET status = 'SETTLED', settled_at = now() WHERE id = :id")
+                        .setParameter("id", settled.getId())
+                        .executeUpdate());
+
+        assertThat(participationsOf(exportService.export(MIGRATION_ID, null, false, true))).isEmpty();
+    }
+
+    /**
+     * bootstrap 의 {@code version} 이 0 이면, 스냅샷 이전에 발행돼 백로그에 남아 있던 사건(version ≥ 1)이
+     * 전부 「더 새것」으로 통과해 <b>최신 스냅샷 위에 옛 상태를 덮는다</b>. 그래서 유저 축의 현재
+     * version 을 그대로 스탬프한다 — 그러면 이전 사건은 정확히 거부되고 이후 사건만 적용된다.
+     */
+    @Test
+    @DisplayName("두 투영 모두 «지금 유저 축 version» 으로 스탬프된다 — 0 을 박으면 백로그가 스냅샷을 덮는다")
+    void bothProjectionsAreStampedWithTheCurrentUserAxisVersion() {
+        GroupChallengeBetSession session = openSession();
+        participantRepository.save(GroupChallengeBetParticipant.builder()
+                .session(session).user(user).build());
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                entityManager.createNativeQuery("INSERT INTO aggregate_versions"
+                                + "(aggregate_type, aggregate_id, last_version, updated_at)"
+                                + " VALUES (:type, :id, 7, now())")
+                        .setParameter("type", AggregateRef.TYPE_USER)
+                        .setParameter("id", user.getId().toString())
+                        .executeUpdate());
+
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, null, false, true);
+
+        assertThat(userRecordOf(document).data()).containsEntry("version", 7L);
+        assertThat(participationsOf(document)).singleElement()
+                .satisfies(record -> assertThat(record.data()).containsEntry("version", 7L));
+        // 설정 자원도 같은 축·같은 값이다 — 둘이 갈리면 한쪽만 옛 사건을 받아들인다.
+        assertThat(recordsOf(document, NotificationMigrationRecord.RESOURCE_SETTINGS))
+                .allSatisfy(record -> assertThat(record.data()).containsKey("version"));
+    }
+
+    // ── 투영 픽스처 ────────────────────────────────────────────────────
+
+    /** 진행 중·미정산 회차 하나. 참가 투영이 읽는 조건({@code status='OPEN'})을 그대로 만든다. */
+    private GroupChallengeBetSession openSession() {
+        if (group == null) {
+            group = groupRepository.save(Group.builder().name("이관검증").build());
+        }
+        GroupChallenge challenge;
+        GroupChallengeBet bet;
+        if (challenges.isEmpty()) {
+            challenge = challengeRepository.save(GroupChallenge.builder()
+                    .group(group).category(MissionCategory.FOCUS).type(MissionType.DURATION).build());
+            challenges.add(challenge);
+            challengeDurationRepository.save(GroupChallengeDuration.builder()
+                    .challenge(challenge).category(MissionCategory.FOCUS)
+                    .durationMinutes(GOAL_MINUTES).build());
+            bet = betRepository.save(GroupChallengeBet.builder()
+                    .group(group).challenge(challenge).stake(STAKE).enabled(true).build());
+            bets.add(bet);
+        } else {
+            challenge = challenges.get(0);
+            bet = bets.get(0);
+        }
+        GroupChallengeBetSession session = sessionRepository.save(GroupChallengeBetSession.builder()
+                .bet(bet).group(group).challenge(challenge)
+                .sessionDate(LocalDate.now().plusDays(sessions.size()))
+                .stake(STAKE).goalMinutes(GOAL_MINUTES)
+                .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
+                .status(GroupBetStatus.OPEN)
+                .startsAt(SLOT).joinClosesAt(SLOT).closesAt(SLOT).settleAfter(SLOT)
+                .build());
+        sessions.add(session);
+        return session;
+    }
+
+    private List<NotificationMigrationRecord> recordsOf(NotificationExportDocument document,
+            String resource) {
+        return document.records().stream()
+                .filter(record -> resource.equals(record.resource()))
+                .toList();
+    }
+
+    private NotificationMigrationRecord userRecordOf(NotificationExportDocument document) {
+        return recordsOf(document, NotificationMigrationRecord.RESOURCE_USER).stream()
+                .filter(record -> user.getId().toString().equals(record.data().get("userId")))
+                .findFirst().orElse(null);
+    }
+
+    private List<NotificationMigrationRecord> participationsOf(NotificationExportDocument document) {
+        return recordsOf(document, NotificationMigrationRecord.RESOURCE_PARTICIPATION).stream()
+                .filter(record -> user.getId().toString().equals(record.data().get("userId")))
+                .toList();
     }
 
     @Test

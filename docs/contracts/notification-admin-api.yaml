@@ -329,7 +329,8 @@ paths:
         | settings | 대상 `version` 이 «더 크면» 덮지 않는다(SettingsService 와 같은 규칙) |
         | device | **라이브 흔적이 있는 행은 건드리지 않는다** — 아래 참조 |
         | delivery | 대상이 `SENT`·`SUPPRESSED` 면 미발송으로 되돌리지 않는다(A22 ⓗ) |
-        | device · delivery | `user_fences.withdrawn` 인 유저는 `SKIPPED` |
+        | user · participation | 대상 투영의 `version` 이 «더 크면» 덮지 않는다. **같은 version 은 덮는다** — 아래 참조 |
+        | device · delivery · user · participation | `user_fences.withdrawn` 인 유저는 `SKIPPED` |
         | device | source `authGeneration` 이 현재 `user_fences.auth_generation` 보다 낮으면 `SKIPPED`(A22 ㉴ — 오래된 «등록»도 막는다) |
 
         ### 기기 토큰: 이관은 «자기가 만든 최초 행»만 갱신한다
@@ -355,9 +356,28 @@ paths:
         `400 DUPLICATE_RECORD_KEY`, 배치를 나눠 오면 두 번째가 `SUPERSEDED` 가 된 뒤
         **검증에서 `FIELD_MISMATCH device.userId` 로 실패**한다 — 조용히 넘어가지 않는다.
 
+        ### 투영 bootstrap: 같은 version 의 재적재는 «실제로» 덮는다
+
+        `user`·`participation` 은 `projections` 로만 간다(승인 계획 ②′). 적용 가드가 라이브 수신 경로
+        (`InboundService.project()`)의 `version <` 가 아니라 **`version <=`** 다.
+
+        라이브 이벤트는 같은 version 이면 **이미 적용된 것**이라 건너뛰는 게 맞다. 반면 bootstrap 의
+        재적재는 **운영자가 다시 미는 같은 값**이다 — `<` 로 두면 부분 적재를 이어 붙이는 재시도가
+        조용한 no-op 이 되어 「왜 안 먹지」가 현장에서 보이지 않는다. 같은 version 이면 payload 를 실제로
+        다시 쓰고, **더 높은 라이브 version 은 그대로 보존**해 `SUPERSEDED` 로 보고한다.
+
+        적재는 라이브 투영과 **같은 잠금(`device-ownership` advisory)·같은 탈퇴 펜스**를 지난다.
+        여기서만 빠뜨리면 export~import 사이에 탈퇴한 유저의 PII 투영이 되살아난다(A22 ⓐ) —
+        탈퇴 처리가 지운 바로 그 행이다.
+
+        **이 두 자원은 판정의 근거가 아니다.** 투영을 갱신할 이벤트 producer 가 아직 하나도 없어
+        적재된 값은 그 시점에 박제된다. 발송 판정(적격성·탈퇴·설정)은 계속 Data 정본(§7 조회 3종과
+        Data 명령/outbox)이 소유한다.
+
         `recordKey` 는 **서버가 레코드에서 유도**한다(`settings`=userId · `device`=sha256hex(deviceToken) ·
-        `delivery`=eventId). 보내면 대조해서 다르면 `400 RECORD_KEY_MISMATCH` 다 — 내보내기 버그를
-        조용히 통과시키지 않기 위함이고, 원장(`imports`)에 FCM 토큰 원문을 한 벌 더 남기지 않기 위함이다.
+        `delivery`=eventId · `user`=userId · `participation`=`"<userId>:<sessionId>"`). 보내면 대조해서
+        다르면 `400 RECORD_KEY_MISMATCH` 다 — 내보내기 버그를 조용히 통과시키지 않기 위함이고,
+        원장(`imports`)에 FCM 토큰 원문을 한 벌 더 남기지 않기 위함이다.
 
         **적재는 언제나 이전 검증을 무효화한다**(`verificationCleared: true`). 재검증 없이는 열 수 없다.
 
@@ -407,13 +427,17 @@ paths:
 
         1. **건수** — 자원별 `imports` 건수가 매니페스트와 다르면 `COUNT_MISMATCH`.
         2. **체크섬** — 자원별 접은 값이 다르면 `CHECKSUM_MISMATCH`. **0건 자원도 대조 대상이다** —
-           지원 자원(`settings`·`device`·`delivery`)의 접은 값은 적재 행이 하나도 없어도 `SHA256("")` 로 채워진다.
-           Data 내보내기가 세 자원을 «언제나» manifest 에 싣기 때문이고(빠뜨린 것과 비어 있는 것을 구분한다),
+           지원 자원(`settings`·`device`·`delivery`·`user`·`participation`)의 접은 값은 적재 행이 하나도 없어도
+           `SHA256("")` 로 채워진다.
+           Data 내보내기가 다섯 자원을 «언제나» manifest 에 싣기 때문이고(빠뜨린 것과 비어 있는 것을 구분한다),
            비워 두면 알림 이력이 없는 환경의 정상 export 가 건수 0 은 맞는데도 매번 `CHECKSUM_MISMATCH` 로 막힌다.
         3. **필드 단위 대조** — `imports.record`(소스 레코드)와 «대상 테이블의 실제 행»을 필드별로 비교한다.
            존재 여부 검사로 퇴화하지 않는다(§7.1 ②가 명시). 대상 행이 없으면 `TARGET_ROW_MISSING`.
-           라이브 쓰기가 이긴 방향(settings version 증가 · device 비활성화 · 미발송→종결)은 허용하고
+           라이브 쓰기가 이긴 방향(settings·투영 version 증가 · device 비활성화 · 미발송→종결)은 허용하고
            **되돌아간 방향**(`VERSION_REGRESSED` · `TOMBSTONE_RESURRECTED` · `STATUS_REGRESSED`)은 실패다.
+           투영 두 자원은 실제 `projections` 행의 payload 를 **필드 단위**로 대조한다 — 같은 version 인데
+           내용이 다르면 `FIELD_MISMATCH`(예: `user.locale`)로, 적재가 도중에 끊겨 옛 payload 가 남은 경우가
+           여기서 잡힌다.
            기기 소유자 불일치는 **라이브 흔적(bootstrap_hash · session_epoch · ownership_version>1)이 있을 때만**
            허용한다 — 흔적 없이 주인이 다르면 내보내기 쪽 토큰 중복이므로 `FIELD_MISMATCH` 로 실패다.
            `SKIPPED`(탈퇴·세대 펜스)로 «일부러» 넣지 않은 레코드는 대상 행이 없는 게 정상이라 비교 대상이 아니고
@@ -730,7 +754,7 @@ components:
       type: object
       required: [resource, data]
       properties:
-        resource: { type: string, enum: [settings, device, delivery] }
+        resource: { type: string, enum: [settings, device, delivery, user, participation] }
         recordKey:
           type: string
           description: 선택. 보내면 서버가 유도한 값과 대조해 다르면 `400 RECORD_KEY_MISMATCH`
@@ -739,6 +763,8 @@ components:
             - $ref: '#/components/schemas/SettingsRecord'
             - $ref: '#/components/schemas/DeviceRecord'
             - $ref: '#/components/schemas/DeliveryRecord'
+            - $ref: '#/components/schemas/UserProjectionRecord'
+            - $ref: '#/components/schemas/ParticipationProjectionRecord'
 
     SettingsRecord:
       type: object
@@ -784,6 +810,64 @@ components:
           type: object
           description: §7.1.1 로 보강한 발송 입력. 미발송 행은 이것만으로 렌더돼야 한다
 
+    UserProjectionRecord:
+      type: object
+      description: |
+        유저 투영 **bootstrap**(승인 계획 ②′ ⓐ). `projections('user.snapshot', userId, '')` 한 행이 된다.
+
+        **정본 테이블이 아니다.** `settings` 자원과 달리 알림 서버의 `settings` 테이블을 건드리지 않는다 —
+        그쪽은 발송 판정이 읽는 정본이고 이쪽은 투영 캐시다. 한 자원으로 합치면 한쪽 보존 규칙이 다른 쪽에 샌다.
+
+        `version` 은 **내보내기와 같은 RR 트랜잭션에서 읽은 그 유저의 유저 축 `aggregate_versions.last_version`**
+        이다(`settings` 자원의 `version` 과 같은 값). 0 을 박으면 스냅샷 이전에 발행돼 백로그에 남아 있던
+        사건(version ≥ 1)이 전부 「더 새것」으로 통과해 **최신 스냅샷 위에 옛 상태를 덮는다**(A22 ㋖·ⓟ).
+      required: [userId, version, displayName, locale, settingsPresent, notificationEnabled, soundEnabled,
+                 nightModeEnabled, nightStartTime, nightEndTime]
+      properties:
+        userId: { type: string, format: uuid }
+        version: { type: integer, format: int64, description: 스냅샷 시점의 유저 축 version. 투영 보존 판정의 축이다 }
+        displayName: { type: string, nullable: true, description: '`users.nickname`. 미설정은 null' }
+        locale: { type: string, nullable: true, description: 미보고는 null (수신 측이 ko 폴백) }
+        settingsPresent:
+          type: boolean
+          description: |
+            설정 행이 실재하는가. `false` 면 아래 5필드는 **전부 null** 이다 — 기본값을 채워 보내면
+            「사용자가 직접 켠 것」과 구분되지 않고, 나중에 기본값이 바뀌어도 옛 값이 박제된다.
+        notificationEnabled: { type: boolean, nullable: true }
+        soundEnabled: { type: boolean, nullable: true }
+        nightModeEnabled: { type: boolean, nullable: true }
+        nightStartTime: { type: string, nullable: true, pattern: '^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]$' }
+        nightEndTime: { type: string, nullable: true, pattern: '^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]$' }
+
+    ParticipationProjectionRecord:
+      type: object
+      description: |
+        진행 중·미정산 내기 참가 투영 **bootstrap**(승인 계획 ②′ ⓑ).
+        `projections('participation.updated', userId, sessionId)` 한 행이 된다.
+
+        **컬렉션 투영이라 회차마다 별도 행이다**(A22 ㊂) — 유저 하나로 접으면 회차 B 를 적용한 뒤 도착한
+        회차 A 가 「오래된 것」으로 거부돼 **A 의 참가 행이 영영 안 생기고**, A 가 정산돼도 참가자를 몰라
+        결과 알림이 통째로 누락된다. 그래서 `recordKey` 는 `"<userId>:<sessionId>"` 다.
+
+        **이미 정산돼 발송만 기다리는 건은 이 범위 밖이다** — 그쪽은 `delivery` 자원이 미발송 로그로
+        이미 옮긴다. 여기서 또 실으면 같은 사건이 두 축으로 들어간다.
+      required: [userId, sessionId, version, challengeId, groupId, sessionStatus, stake, joinClosesAt, achieved]
+      properties:
+        userId: { type: string, format: uuid }
+        sessionId: { type: string, format: uuid, description: 회차 = 투영의 subject 축 }
+        version: { type: integer, format: int64, description: 유저 투영과 «같은» 유저 축 version }
+        challengeId: { type: string, format: uuid }
+        groupId: { type: string, format: uuid }
+        sessionStatus: { type: string, description: 범위상 언제나 `OPEN`. 값을 지어내지 않고 그대로 싣는다 }
+        stake: { type: integer, format: int64, description: 회차에 박제된 참가비 }
+        joinClosesAt: { type: integer, format: int64, description: epoch 밀리초 }
+        achieved:
+          type: boolean
+          nullable: true
+          description: |
+            null 은 「아직 판정 없음」이고 `false` 와 **다르다**. 정산 전에도 조기 확정(`confirmWin`)으로
+            true 가 될 수 있어 nullable 이다.
+
     Manifest:
       type: object
       required: [version, resources, stopWindow]
@@ -800,7 +884,8 @@ components:
                 type: string
                 description: |
                   위 「체크섬 계산」의 resourceChecksum. **빈 자원도 반드시 싣는다** — 0건이면 `SHA256("")`
-                  (`e3b0c442…`) 다. Data 는 `settings`·`device`·`delivery` 세 자원을 언제나 선언한다.
+                  (`e3b0c442…`) 다. Data 는 `settings`·`device`·`delivery`·`user`·`participation`
+                  다섯 자원을 언제나 선언한다.
         stopWindow:
           type: object
           required: [closedAt, cursor, queueDepth, source]
@@ -821,7 +906,7 @@ components:
         checksums:
           type: object
           additionalProperties: { type: string }
-          description: 지원 자원 세 개가 «항상» 들어 있다. 적재 행이 없는 자원은 `SHA256("")` 이다
+          description: 지원 자원 다섯 개가 «항상» 들어 있다. 적재 행이 없는 자원은 `SHA256("")` 이다
         supersededByLiveWrite:
           type: object
           additionalProperties: { type: integer }
