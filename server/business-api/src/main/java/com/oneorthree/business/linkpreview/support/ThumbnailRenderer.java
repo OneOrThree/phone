@@ -41,28 +41,46 @@ public class ThumbnailRenderer {
                 int sample = Math.max(1, Math.max(width, height) / EDGE);
                 parameters.setSourceSubsampling(sample, sample, 0, 0);
                 BufferedImage decoded = reader.read(0, parameters);
-                double scale = Math.min(1, (double) EDGE / Math.max(decoded.getWidth(), decoded.getHeight()));
-                BufferedImage output = new BufferedImage(Math.max(1, (int) (decoded.getWidth() * scale)),
-                        Math.max(1, (int) (decoded.getHeight() * scale)), BufferedImage.TYPE_INT_RGB);
-                Graphics2D graphics = output.createGraphics();
                 try {
-                    graphics.setColor(java.awt.Color.WHITE);
-                    graphics.fillRect(0, 0, output.getWidth(), output.getHeight());
-                    graphics.drawImage(decoded, 0, 0, output.getWidth(), output.getHeight(), null);
+                    int edge = EDGE;
+                    while (true) {
+                        byte[] encoded = encode(decoded, edge);
+                        if (encoded.length <= MAX_THUMBNAIL) {
+                            return Base64.getEncoder().encodeToString(encoded);
+                        }
+                        if (edge == 1) {
+                            throw new PreviewException("THUMBNAIL_TOO_LARGE");
+                        }
+                        // 노이즈가 많은 정상 이미지도 PNG 바이트 한도에 맞을 때까지 치수를 줄인다.
+                        edge = Math.max(1, edge * 3 / 4);
+                    }
                 } finally {
-                    graphics.dispose();
                     decoded.flush();
                 }
-                ByteArrayOutputStream encoded = new ByteArrayOutputStream();
-                ImageIO.write(output, "png", encoded);
-                output.flush();
-                if (encoded.size() > MAX_THUMBNAIL) {
-                    throw new PreviewException("THUMBNAIL_TOO_LARGE");
-                }
-                return Base64.getEncoder().encodeToString(encoded.toByteArray());
             } finally {
                 reader.dispose();
             }
+        }
+    }
+
+    private byte[] encode(BufferedImage source, int edge) throws IOException {
+        double scale = Math.min(1, (double) edge / Math.max(source.getWidth(), source.getHeight()));
+        BufferedImage output = new BufferedImage(Math.max(1, (int) (source.getWidth() * scale)),
+                Math.max(1, (int) (source.getHeight() * scale)), BufferedImage.TYPE_INT_RGB);
+        try {
+            Graphics2D graphics = output.createGraphics();
+            try {
+                graphics.setColor(java.awt.Color.WHITE);
+                graphics.fillRect(0, 0, output.getWidth(), output.getHeight());
+                graphics.drawImage(source, 0, 0, output.getWidth(), output.getHeight(), null);
+            } finally {
+                graphics.dispose();
+            }
+            ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+            ImageIO.write(output, "png", encoded);
+            return encoded.toByteArray();
+        } finally {
+            output.flush();
         }
     }
 
@@ -84,7 +102,7 @@ public class ThumbnailRenderer {
             if (!process.waitFor(8, TimeUnit.SECONDS)) {
                 throw new PreviewException("RENDER_TIMEOUT");
             }
-            if (process.exitValue() != 0 || !Files.exists(output) || Files.size(output) > MAX_THUMBNAIL) {
+            if (process.exitValue() != 0 || !Files.exists(output) || Files.size(output) > 2 * 1024 * 1024) {
                 throw new PreviewException("INVALID_PDF");
             }
             return image(Files.readAllBytes(output));

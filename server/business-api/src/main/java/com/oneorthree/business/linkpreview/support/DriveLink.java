@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 public record DriveLink(String fileId, String resourceKey) {
 
     private static final Pattern PATH = Pattern.compile(
-            "^/(?:file|document|spreadsheets|presentation)/d/([A-Za-z0-9_-]+)(?:/.*)?$");
+            "^/(?:file|document|spreadsheets|presentation)(?:/u/[0-9]+)?/d/([A-Za-z0-9_-]+)(?:/.*)?$");
     private static final Set<String> HOSTS = Set.of("drive.google.com", "docs.google.com");
 
     public static Optional<DriveLink> from(URI uri) {

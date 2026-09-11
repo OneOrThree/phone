@@ -82,6 +82,6 @@ public class PreviewResolver {
     }
 
     private String limit(String value) {
-        return value.substring(0, Math.min(value.length(), 300));
+        return value.substring(0, value.offsetByCodePoints(0, Math.min(value.codePointCount(0, value.length()), 300)));
     }
 }

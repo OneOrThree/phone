@@ -62,6 +62,20 @@ class PreviewResolverTest {
     }
 
     @Test
+    void truncatesFileAndDriveTitlesAtCodePointBoundary() throws Exception {
+        String title = "a".repeat(299) + "😀" + "extra";
+        when(http.fetch(any(), anyMap(), eq(false)))
+                .thenReturn(new PublicHttpClient.Resource("application/zip", null, new byte[0]));
+        when(http.fetch(any(), anyMap(), eq(true)))
+                .thenReturn(new PublicHttpClient.Resource("application/json", null,
+                        ("{\"name\":\"" + title + "\",\"mimeType\":\"application/pdf\"}").getBytes(StandardCharsets.UTF_8)));
+        assertThat(resolver.resolve(URI.create("https://example.com/" + title)).title())
+                .isEqualTo("a".repeat(299) + "😀");
+        assertThat(resolver.resolve(URI.create("https://docs.google.com/document/d/abc/edit")).title())
+                .isEqualTo("a".repeat(299) + "😀");
+    }
+
+    @Test
     void brokenPdfFallsBackToFileCard() throws Exception {
         when(http.fetch(any(), anyMap(), eq(false))).thenReturn(new PublicHttpClient.Resource("application/pdf", 10L, new byte[]{1}));
         when(renderer.pdf(any())).thenThrow(new PreviewException("RENDER_TIMEOUT"));

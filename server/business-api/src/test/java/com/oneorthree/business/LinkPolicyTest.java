@@ -47,7 +47,10 @@ class LinkPolicyTest {
             "https://drive.google.com/open?id=abc_123&resourcekey=0-key",
             "https://docs.google.com/document/d/abc_123/edit?resourcekey=0-key",
             "https://docs.google.com/spreadsheets/d/abc_123/edit?resourcekey=0-key#gid=0",
-            "https://docs.google.com/presentation/d/abc_123/edit?resourcekey=0-key"})
+            "https://docs.google.com/presentation/d/abc_123/edit?resourcekey=0-key",
+            "https://docs.google.com/document/u/0/d/abc_123/edit?resourcekey=0-key",
+            "https://docs.google.com/spreadsheets/u/1/d/abc_123/edit?resourcekey=0-key",
+            "https://docs.google.com/presentation/u/12/d/abc_123/edit?resourcekey=0-key"})
     void preservesDriveFileAndResourceKey(String url) {
         assertThat(DriveLink.from(PublicAddressPolicy.parse(url))).contains(new DriveLink("abc_123", "0-key"));
     }
