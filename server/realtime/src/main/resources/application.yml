@@ -59,6 +59,17 @@ chat:
     # 비워 두면 아무 Origin 도 허용하지 않는다(네이티브 앱은 Origin 을 보내지 않아 영향 없다).
     allowed-origins: ${CHAT_WS_ALLOWED_ORIGINS:}
 
+# Data 내부 인가를 먼저 배포하고 sid/gen AT 전환을 끝낸 뒤 명시적으로 켠다.
+# OFF에서는 기존 멤버십 캐시를 유지하며 새 서비스 자격은 필요하지 않다.
+realtime:
+  membership-authorization:
+    enabled: ${REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED:false}
+    base-url: ${REALTIME_AUTHORIZATION_DATA_URL:}
+    service-token: ${SVC_TOKEN_REALTIME_TO_DATA:}
+    connect-timeout: ${REALTIME_AUTHORIZATION_CONNECT_TIMEOUT:500ms}
+    request-timeout: ${REALTIME_AUTHORIZATION_REQUEST_TIMEOUT:1500ms}
+    max-in-flight: ${REALTIME_AUTHORIZATION_MAX_IN_FLIGHT:16}
+
 logging:
   level:
     com.oneorthree.realtime: INFO

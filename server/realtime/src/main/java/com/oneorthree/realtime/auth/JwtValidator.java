@@ -6,11 +6,20 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.Base64;
+import java.util.Date;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -25,11 +34,13 @@ import java.util.UUID;
  * 무력화된다 — 그래서 {@code type=access} 가 아닌 토큰은 서명이 맞아도 거절한다. 비교를 상수 쪽에서
  * 시작해 클레임이 없는 구 토큰({@code null})도 NPE 없이 거절된다(fail-closed).
  *
- * <p><b>알려진 한계(수용)</b> — 탈퇴 유저를 걸러내지 못한다. Data API 의 {@code JwtFilter} 는 매 요청
+ * <p><b>legacy extractUserId의 알려진 한계(기본 OFF 모드)</b> — 탈퇴 유저를 걸러내지 못한다.
+ * Data API 의 {@code JwtFilter} 는 매 요청
  * {@code users.is_deleted} 를 확인하지만 채팅에는 유저 테이블이 없다. 따라서 탈퇴 직전에 발급된 AT 로
  * 최대 만료까지(기본 1시간) 채팅에 붙을 수 있다. 다만 탈퇴는 그룹 멤버십도 정리하므로 실제 영향은
- * 멤버십 캐시 TTL(5분) 안쪽으로 좁혀지고, 그 뒤에는 {@code NOT_A_MEMBER} 로 막힌다. 위성 서비스의
- * AT 수명 창을 수용한다는 목표 아키텍처 §5 의 판단과 같은 선택이다.
+ * 멤버십 캐시 TTL(설정 기본120초) 안쪽으로 좁혀지고, 그 뒤에는 {@code NOT_A_MEMBER} 로 막힌다.
+ * 신규 opt-in 그룹별 관문은 strict sid/gen과 Data 현재 판정을 추가하지만
+ * CONNECT 등 이 메서드만 쓰는 경계까지 강화됐다는 뜻은 아니다.
  */
 @Slf4j
 @Component
@@ -41,17 +52,27 @@ public class JwtValidator {
     private static final String CLAIM_TYPE = "type";
 
     private final SecretKey secretKey;
+    private final Clock clock;
+    private static final JsonMapper STRICT_JSON = JsonMapper.builder()
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
 
     /**
      * @param secret HMAC-SHA 서명키 원문. 비어 있으면 부팅을 실패시킨다 — 런타임에 발견하면 그때는 이미
      *               서명 검증 없이 뜬 서버가 돌고 있다. Data API 와 <b>같은 값</b>이어야 하며, 길이가
      *               알고리즘 최소치(HS256 기준 32바이트)에 못 미치면 {@code Keys.hmacShaKeyFor} 가 거부한다
      */
-    public JwtValidator(@Value("${jwt.secret}") String secret) {
+    public JwtValidator(String secret) {
+        this(secret, Clock.systemUTC());
+    }
+
+    @Autowired
+    public JwtValidator(@Value("${jwt.secret}") String secret, Clock clock) {
         if (secret == null || secret.isBlank()) {
             throw new IllegalStateException("jwt.secret 미설정");
         }
         this.secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        this.clock = java.util.Objects.requireNonNull(clock);
     }
 
     /**
@@ -88,4 +109,58 @@ public class JwtValidator {
             return Optional.empty();
         }
     }
+
+    /** 신규 현재 인가 전용. legacy extractUserId의 claim 수용 범위를 바꾸지 않는다. */
+    public Optional<VerifiedAccessIdentity> extractSessionProof(String token) {
+        if (token == null || token.isBlank() || token.length() > 8192) {
+            return Optional.empty();
+        }
+        try {
+            String[] parts = token.split("\\.", -1);
+            if (parts.length != 3) {
+                return Optional.empty();
+            }
+            JsonNode header = STRICT_JSON.readTree(Base64.getUrlDecoder().decode(parts[0]));
+            // 현재 issuer는 압축 JWT를 발급하지 않는다. 검증 전 압축 해제/크기 증폭을 열지 않는다.
+            if (header == null || !header.isObject() || header.has("zip")) {
+                return Optional.empty();
+            }
+            Jwts.parser().verifyWith(secretKey).clock(() -> Date.from(clock.instant())).build()
+                    .parseSignedClaims(token);
+            // JJWT가 exp를 Date로 변환하기 전 wire 타입도 검사한다. 서명된 같은 payload만 읽는다.
+            JsonNode claims = STRICT_JSON.readTree(Base64.getUrlDecoder().decode(parts[1]));
+            if (claims == null || !claims.isObject() || !claims.path("type").isTextual()
+                    || !TYPE_ACCESS.equals(claims.path("type").stringValue())) {
+                return Optional.empty();
+            }
+            UUID userId = strictUuid(claims.get("sub"));
+            UUID sessionId = strictUuid(claims.get("sid"));
+            JsonNode generation = claims.get("gen");
+            JsonNode expiration = claims.get("exp");
+            if (generation == null || !generation.isIntegralNumber() || !generation.canConvertToLong()
+                    || expiration == null || !expiration.isIntegralNumber() || !expiration.canConvertToLong()) {
+                return Optional.empty();
+            }
+            Instant expiresAt = Instant.ofEpochSecond(expiration.longValue());
+            if (!expiresAt.isAfter(clock.instant())) {
+                return Optional.empty();
+            }
+            return Optional.of(new VerifiedAccessIdentity(userId, sessionId, generation.longValue(), expiresAt));
+        } catch (RuntimeException e) {
+            // JWT/JSON 예외에 token·subject 원문이 들어갈 수 있어 메시지/원인은 기록하지 않는다.
+            return Optional.empty();
+        }
+    }
+
+    private static UUID strictUuid(JsonNode value) {
+        if (value == null || !value.isTextual() || value.stringValue().length() != 36) {
+            throw new IllegalArgumentException("세션 식별자가 올바르지 않습니다.");
+        }
+        UUID result = UUID.fromString(value.stringValue());
+        if (!result.toString().equalsIgnoreCase(value.stringValue())) {
+            throw new IllegalArgumentException("세션 식별자가 올바르지 않습니다.");
+        }
+        return result;
+    }
+
 }

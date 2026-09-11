@@ -2,7 +2,7 @@
 
 **gromo**의 섬 실시간 서비스. 채팅은 이 프로세스의 기존 도메인이다. A **separate** Spring Boot project from `server/data-api/`:
 its own Gradle build, its own database, its own package root (`com.oneorthree.realtime`).
-The two share **no code** — only two contracts, both listed below. Loads in addition to
+The two share **no code** — their external contracts are listed below, including an optional current-membership HTTP provider. Loads in addition to
 the root `CLAUDE.md`. Run all commands from inside `server/realtime/`.
 
 ## 서비스의 두 규칙
@@ -49,7 +49,7 @@ Domain-based, mirroring `server/data-api/`'s conventions (see
 | `common/exception/` | The `{code, message}` envelope, `ErrorCode`, `DomainException`, the single `GlobalExceptionHandler` |
 | `common/id/` | `UuidV7` (the **only** id source) + the Hibernate generator |
 | `common/redis/` | `RedisKeys` — every Redis key this service touches, in one file |
-| `membership/` | "Is this person on this island" + its Redis cache; `client/GroupClient` is the only outbound call |
+| `membership/` | 기존 Redis 소속 캐시 + `client/GroupClient`; 옵션 ON의 전용 Data 현재 인가 client는 아래 별도 계약 |
 | `presence/` | `FocusPresenceReader` — **read-only** view of `presence:focus:*` |
 | `fanout/` | Redis Pub/Sub publish + subscribe, and local delivery |
 | `message/` | The chat domain: controllers at the package root, `service/`, `repository/`(+`repository/domain/`), `dto/`, `exception/` |
@@ -73,8 +73,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
 - **The simple broker only knows subscribers in this JVM.** Cross-instance delivery is
   `fanout/` and nothing else. A missing `RedisMessageListenerContainer` bean is invisible
   on a single instance — `ChatWebSocketIntegrationTest` covers that regression.
-- **Membership invalidation is TTL-only** (`chat.membership.cache-ttl-seconds`). Leaving a
-  group takes effect up to that long later.
+- **현재 인가 옵션 OFF의 멤버십은 TTL 캐시** (`chat.membership.cache-ttl-seconds`)다. ON이면 지정된
+  `requireCanChat` 경계가 PR753 Data 현재 인가를 매번 조회한다. 방 목록·duplicates·개인큐는 새 조회 범위가 아니다.
 - **`id` is assigned at INSERT, not at COMMIT.** A smaller id can commit later, so a client
   scrolling upward with a kept cursor can miss that one message, and the unread badge can
   under-count it. The message itself is not lost — it is committed and shows up on the newest
@@ -96,8 +96,9 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   first broadcast. `@SendToUser(broadcast = false)` is the annotation form of the same guard, and the
   error queue uses it.
 - **기존 구독도 전달 직전에 재검사한다.** `ChatOutboundChannelInterceptor`가 JWT·집중 상태와
-  멤버십을 다시 검사한다. Redis/상류 판정 실패는 본문 전달을 거절한다. 기존 멤버십 캐시는 TTL 방식이라
-  탈퇴·강퇴는 캐시 만료까지 지연될 수 있다. 새 보호 채널은 이 한계를 그대로 승계하지 않으며,
+  멤버십을 다시 검사한다. Redis/상류 판정 실패는 본문 전달을 거절한다. 옵션 OFF의 멤버십 캐시는 TTL 방식이라
+  탈퇴·강퇴가 캐시 만료까지 지연될 수 있다. ON의 기존 그룹 채팅은 Data 현재 인가를 조회하되
+  최종 beforeHandle 이후 DB 변경과 TCP 전송을 원자화하지 않는다. 새 보호 채널은 이 연결만으로 열리지 않으며,
   현재 도메인의 권한 회수·시설 접근·스냅샷을 검증하기 전까지 활성화하지 않는다.
 
 ## Redis keys (A19 namespace table)
@@ -160,15 +161,51 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 
 ## Contracts with Data API
 
-Only two, and both are one-directional:
+기존 두 계약과 선택적인 현재 인가 HTTP 계약이다. 모두 서비스 경계를 넘는 명시적인 읽기이며 DB를 공유하지 않는다:
 
 1. `GET /api/v1/groups` with the requester's own access token → their island ids.
-   Called only from `membership/client/GroupClient`. Target architecture A9 moves this to
-   `/internal/*` + a service token; that surface does not exist yet (epic 1643), and when
-   it lands only that one class changes.
+   `membership/client/GroupClient`가 기존 소속 캐시·방 목록에 사용한다. 새 옵션 ON의 특정 그룹
+   채팅 검사는 아래3번을 쓰지만 방 목록까지 내부 현재 인가로 전환한 것은 아니다.
 2. `presence:focus:{userId}` in shared Redis — Data API writes, chat reads.
    Data API's side is `common/port/FocusPresencePort` and is **best-effort**: if the lease
    write fails, focus still starts and chat stays open for that person.
+
+3. 선택 `POST /internal/realtime/membership-authorization` — 선행 PR753 Data 제공자를 별도 배포해야 한다.
+   전용 서비스 Bearer + 검증된 subject의 X-User-Id, body `{sessionId,authGeneration,islandId}`를 보내고
+   평평한 `{allowed:boolean}`을 받는다. Data는 primary 한 SQL snapshot으로 사용자/세션/섬/소속을 확인한다.
+
+### 선택적 현재 멤버십 인가
+
+`realtime.membership-authorization.enabled`는 기본 false다. `ChatAccessGuard.requireCanChat`은
+집중 여부를 먼저 확인하고, OFF이면 기존 캐시를 사용한다. ON이면 원 AT의 서명·subject/sid/gen/exp를
+엄격히 검증한 뒤 Data 현재 인가를 호출하고 HTTP 대기 뒤 exp를 재확인한다. 양의 승인 캐시나
+ON 실패 시 기존 캐시 fallback은 없다. `allowed:false`는 `NOT_A_MEMBER`이며 어떤 내부 조건이
+실패했는지 추측하지 않는다. 로컬 invalid AT는401, 서비스401/403/404·5xx·malformed·timeout은503이다.
+
+현재 연결 범위는 그룹 SUBSCRIBE, SEND 서비스, 히스토리 GET, 읽음 POST, 기존 그룹 outbound
+`beforeHandle`이다. CONNECT·방 목록·duplicates·개인큐는 이 추가 조회 범위가 아니다.
+새14개 이벤트·시설·snapshot·재연결·transport는 계속 닫혀 있고 host-transfer도 OFF다.
+rooms 목록·개인 duplicates의 오래된 재전송 응답까지 현재 세션을 검사하는 것은 아니므로
+“로그아웃 후 채팅 전체 즉시 차단”·“Realtime 전체 세션 철회 완료”로 설명하지 않는다.
+
+같은 prefix의 `base-url`, `service-token`, `connect-timeout`, `request-timeout`, `max-in-flight`가
+내부 HTTP의 대상·자격·연결/총deadline·동시수 상한을 정한다. 응답1KiB 제한, redirect 금지,
+application-level 재시도0, 원 토큰/개인 body 로그 금지를 지킨다. 응답은 exactly allowed:boolean 한 필드다.
+unknown/duplicate/trailing/빈본문/타입 오류는503이다. 초기값은 connect500ms/request1500ms/inflight16,
+상한은 timeout10초/inflight64이며 실제 운영 부하 검증 결과를 뜻하지 않는다.
+
+ON은 PR753 전용 caller/feature/env 배포, 기존 sidless AT 마이그레이션 정책·발급 전환,
+부하/용량 검증 이후에만 고려한다. 기존 sidless 자격으로 ON하면 그룹 채팅 경계에서401이 된다.
+DB 판정 뒤 beforeHandle/TCP까지의 분산 원자성이나 이미 보낸 프레임의 회수는 보장하지 않는다.
+관련59개(HTTP35·verifier10·JWT11·config3)는14초에 실패0·오류0·skip0, CheckstyleMain·SpotBugsMain PASS다.
+전체 Realtime build1분1초 PASS, 테스트200개(기존141+신규59)·실패0·오류0·skip0을 확인했다.
+실제 PostgreSQL/Redis 기존 회귀를 포함한다. CheckstyleMain·SpotBugsMain은 앞선 PASS 뒤 full에서
+UP-TO-DATE였으며 테스트 소스 정적 검사 task는 기존 설정대로 skip이다. Docker는 빌드 중으로 아직 PASS가 아니다.
+beforeHandle 검증은 실제 interceptor와
+실제 TCP 가짜 Data 응답의 회귀이며, 운영 Data/Realtime 두 노드 production 연동 검증이 아니다.
+ELI5의 Mermaid2개는 조정자가 CLI11.17.0으로 SVG 실렌더 exit0을 확인했다.
+
+상세 ELI5와 검증 범위: [현재 멤버십 client](../../docs/architecture/realtime-current-membership-client.md).
 
 Chat never touches the `gromo` database and Data API never touches `gromo_chat`.
 

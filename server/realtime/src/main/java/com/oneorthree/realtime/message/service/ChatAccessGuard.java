@@ -4,7 +4,9 @@ import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.presence.FocusPresenceReader;
-import lombok.RequiredArgsConstructor;
+import com.oneorthree.realtime.membership.CurrentMembershipVerifier;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
@@ -26,11 +28,26 @@ import java.util.UUID;
  * 집중이 끝나기 전에는 알 수 없다. 채팅에서 그 정도 지연은 무해하다고 보고 수용한다.
  */
 @Component
-@RequiredArgsConstructor
 public class ChatAccessGuard {
 
     private final FocusPresenceReader focusPresenceReader;
     private final MembershipService membershipService;
+    private final ObjectProvider<CurrentMembershipVerifier> currentVerifier;
+
+    /** 기존 직접 생성 호출은 OFF 의미를 유지한다. */
+    public ChatAccessGuard(FocusPresenceReader focusPresenceReader, MembershipService membershipService) {
+        this.focusPresenceReader = focusPresenceReader;
+        this.membershipService = membershipService;
+        this.currentVerifier = null;
+    }
+
+    @Autowired
+    public ChatAccessGuard(FocusPresenceReader focusPresenceReader, MembershipService membershipService,
+            ObjectProvider<CurrentMembershipVerifier> currentVerifier) {
+        this.focusPresenceReader = focusPresenceReader;
+        this.membershipService = membershipService;
+        this.currentVerifier = currentVerifier;
+    }
 
     /**
      * 「지금 이 사람이 이 섬의 채팅에 들어올 수 있는가」.
@@ -49,6 +66,11 @@ public class ChatAccessGuard {
      */
     public void requireCanChat(UUID groupId, UUID userId, String bearerToken) {
         requireNotFocusing(userId);
+        CurrentMembershipVerifier verifier = currentVerifier == null ? null : currentVerifier.getIfAvailable();
+        if (verifier != null) {
+            verifier.requireMember(groupId, userId, bearerToken);
+            return;
+        }
         if (!membershipService.isMember(groupId, userId, bearerToken)) {
             throw new ChatException(ChatErrorCode.NOT_A_MEMBER);
         }
