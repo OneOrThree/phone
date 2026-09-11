@@ -42,7 +42,7 @@ home의 date 누락은 서버 KST 오늘. hall from/to/scope와31일 기술 상�
 - members: items/nextCursor/**version**. joinRequests: items[{id,applicantId,name,status,version}]/nextCursor. 일반주민에게는후자를조회하지 않는다.
 - quests/notices:1773/1771 목록공개 DTO. 카드마다progress/detail을추가HTTP로조회하지 않는다. 각item의실제 버전/회차/페이지정보를보존한다.
 - memberRankings/islandRankings: PR748의같은관측시각·승인된cohort/순위정책. myRank는현재페이지번호가아니라전체snapshot순위다.
-- products:1781목록의ownerType/productVersion/owned/available/reason 포함. wallets의fishVersion/villagePointsVersion은각지갑축이다. sharedInventory의inventoryVersion/appearance.version, inventory의inventoryVersion/equipped.version도 유지한다. 이 ownerType·productVersion·inventory/외양 버전은 원본 HTML에 있던 필드라는 뜻이 아니라 [1780 상점 설계](../island-shop/low-level-design.md)와 [1782 보유품 설계](../island-appearance/low-level-design.md)의 명시 확장을 BFF가 상속한다는 뜻이다.
+- products:1781목록의ownerType/productVersion/owned/available/reason 포함. wallets의fishVersion/villagePointsVersion은각지갑축이다. sharedInventory의inventoryVersion/appearance.version, inventory의inventoryVersion/equipped.version도 유지한다. 이 ownerType·productVersion·inventory/외양 버전은 원본 HTML에 있던 필드라는 뜻이 아니라 [1780 상점 설계](https://github.com/OneOrThree/phone/blob/89ebd156ac24cf7a69eb6eb9b10a48b121df4476/docs/prd/island-shop/low-level-design.md)와 [1782 보유품 설계](https://github.com/OneOrThree/phone/blob/89ebd156ac24cf7a69eb6eb9b10a48b121df4476/docs/prd/island-appearance/low-level-design.md)의 명시 확장을 BFF가 상속한다는 뜻이다.
 - me:1757의id/name/catColor/linkedProviders/onboardingComplete. 공개색상/온보딩정책이 미결이면기본값을발명하지 않는다.
 
 ### N 상태 불변식
