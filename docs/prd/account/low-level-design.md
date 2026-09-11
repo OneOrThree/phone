@@ -132,6 +132,16 @@ receipt·실제 mutation·inbound 완료는 알림 DB의 같은 TX에서 확정�
 수행**한다. 새 명령만 현재 ownership CAS를 검사한다. 같은 키에 다른 토큰/ownership/body면409이며 다른 주체가
 receipt를 읽지 못한다. 결과 재생은 이미 끝난 삭제의 증거만 반환하고, 새 등록 B/새 ownership을 다시 삭제하지 않는다.
 
+기기별 순서 장벽은 삭제 receipt와 별개다. [아키텍처 ㉴·㋓](../../architecture/decisions.md)에 따라
+Notification은 토큰 행을 물리 삭제하지 않고 **토큰별 tombstone과 최대 `ownershipVersion`**을 보존한다.
+현재 선행 구현 `DeviceService.deleteLocked`는 같은 `device-ownership` 잠금 아래 미존재 토큰도 비활성
+행으로 남기며, 일치하는 활성 소유권을 삭제할 때 `active=false`와 `ownership_version+1`을 함께 적용한다.
+등록도 같은 잠금에서 현재 활성 ownership CAS와 세션 폐기/epoch를 검사하고 기존 행 갱신은 버전을 증가시킨다.
+그러므로 새 멱등 키를 가진 오래된 등록도 삭제 receipt를 우회해 부활할 수 없으며, tombstone을 행 없음으로
+취급해 bootstrap 예외로 통과시키지 않는다. 정당한 새 로그인/계정 전환은 기존 활성 세션의 검증된 bootstrap 또는
+허용된 legacy session 창과 현재 소유권 규칙을 따르고 최대 버전을 초기화하지 않는다. `ownershipToken`은 실제로
+서버 발급 UUID CAS 값이며, 이것만으로 앱을 인증하는 서명된 기기 토큰이라고 해석하지 않는다.
+
 삭제가 적용된 뒤 응답 또는 Data 완료 표시가 유실돼도 직접 재시도/relay가 같은 결과를 받아 완료할 수 있다.
 현재 DeviceTokenUseCase.delete의 Data 완료 표시 실패는 원 삭제 성공을 뒤집지 않고 relay가 복구한다.
 이때 outbox에는 삭제할 토큰·원 ownership·동일 키·필요한 generation만 남기며 일반 로그에는 기록하지 않는다.
@@ -141,9 +151,28 @@ receipt를 읽지 못한다. 결과 재생은 이미 끝난 삭제의 증거만 
 기기 삭제 큐는 원 사용자·대상 토큰·ownership·고정 키 및 필요한 인증 맥락을 안전하게 보존하되, 일반 로그나
 새 계정의 삭제 명령으로 옮기지 않는다. RT-only logout 성공으로 미완료 기기 삭제 큐를 소진하지 않는다.
 
-세션/로컬 인증 폐기 뒤 큐의 기존 AT가 무효해졌을 때 재전송 인증을 어떻게 회복할지는 아직 구현·정책 gate다.
-큐 저장만으로 인증된 재전송이 보장된다고 주장하거나 폐기 RT를 기기 DELETE의 새 인증 수단으로 사용하지 않는다.
-이 복구 경로와 실패 주입 검증은 앱 내구 삭제 흐름의 완료 조건이며, 미결이라는 이유로 RT 세션 폐기를 보류하지 않는다.
+**로그아웃 뒤 AT 재인증을 기다리지 않는 보안 경계**는 기존 [아키텍처 ㋗·㋞·㋤·㋨](../../architecture/decisions.md)의
+검증된 세션 연결과 내구 폐기다. 선행 PR745의 `DeviceTokenUseCase.register`는 현재 Data 세션의
+bootstrap 또는 sid를 검증한 뒤 등록하고, `DeviceService`는 그 bootstrap hash 또는 `legacy_session_id`와
+sessionEpoch를 기기 행에 연결한다. RT-only logout은 세션/bootstrap 폐기와 **`auth.session.revoked` outbox**를
+같은 Data TX에 남긴다. Notification의 `InboundService` → `DeviceService.revokeSession`은 같은 로컬 TX의
+`device-ownership` 잠금 아래 session fence의 폐기/최대 epoch와 그 세션에 연결된 기기 행의 `active=false`를
+함께 적용한다. 따라서 AT가 만료되고 별도 DELETE의 outbox도 없더라도, 세션 폐기 전달은 서비스 자격으로
+재전달되어 그 세션의 푸시 등록을 비활성화한다. 새 DELETE용 JWT나 폐기 RT의 일반 인증 권한을 발명할 필요가 없다.
+지연 등록은 Data의 활성 검사와 Notification의 같은 잠금 내 세션 fence 대조를 모두 통과해야 하며,
+다른 세션 B의 등록이나 새 로그인으로 연결이 바뀐 행은 폐기 대상에 포함하지 않는다.
+
+이는 **검증된 sid/bootstrap에 연결된 등록의 동등한 보안 장벽**이지 독립 DELETE를 대신 실행하거나 그 큐를
+성공 처리하는 계약이 아니다. logout 200은 Data의 폐기/전달 내구화이고 Notification 적용은 relay 완료 뒤다.
+미완료 DELETE 큐를 기존 AT로 무조건 재전송할 수 있다고 주장하지 않으며 원 대상·키와 미완료 상태를 유지한다.
+세션에 연결되지 않은 legacy 등록까지 이 보장에 포함하지 않는다. 새 앱 전환 시 해당 등록을 검증된 현재
+sid/bootstrap으로 연결하고, 기존 ownership·legacy 허용 창을 우회하지 않는 전환을 확인해야 한다.
+이 연결 및 삭제 실패→RT-only logout→relay 재전달→지연 등록 거절의 실제 회귀가 **앱 전환 활성 조건**이다.
+미연결 행을 방치한 채 새 로그아웃 흐름을 활성화하거나, 활성 조건을 이유로 사용자의 RT 폐기 자체를 보류하지 않는다.
+
+기존 RT 인증 `AuthService.logout(LogoutRequest)`는 명시적 대상 FCM/ownership이 있으면 삭제 outbox와
+세션 폐기를 같은 TX에 기록하는 별도 호환 경로다(㋗). 이미 비활성 세션은 즉시 반환하므로 RT-only logout 뒤
+그 경로에 처음 기기 값을 보내면 새 삭제가 내구화된다고 가정하지 않는다. 신규 본문 없는 RT-only 계약은 그대로 유지한다.
 
 ### 2.5 DELETE /me
 
@@ -607,7 +636,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | logout 응답 유실·중복·회전 전 RT 재사용 | 실제 폐기 증명만 200 재생, sessionEpoch 전진/bootstrap 폐기 1회, 기기 삭제 outbox 0건, 옛 RT 거부 |
 | 기기 삭제 적용 후 응답/완료 표시 유실·재등록 뒤 동일키 재시도 | 직접/relay 같은 K:device-delete, 원 성공 재생이 옛 ownership 거절보다 먼저, 새 등록 재삭제0 |
 | 같은 기기 삭제 키에 다른 대상/ownership/주체 |409 또는 인가 거절, 원 결과/기기 자격 노출0 |
-| 기기 DELETE와 RT-only logout 분리·지연 삭제 | outbox/직접 삭제 양쪽 실패에도 RT 폐기·원 세션 로컬 정리 진행, 미완료 큐/원 키 보존·새 로그인 자격 보존. 폐기 뒤 재전송 인증 복구는 별도 gate, RT-only 성공을 기기 삭제 성공으로 오인하지 않음 |
+| 기기 삭제 뒤 다른 키의 지연 등록·미존재 토큰 삭제·새 로그인 재등록 | 토큰별 tombstone/최대 ownershipVersion 보존, 행 없음 bootstrap 우회·옛 세션 부활0, 정당한 새 등록도 버전 초기화0 |
+| 기기 DELETE와 RT-only logout 분리·지연 삭제 | outbox/직접 삭제 양쪽 실패에도 RT 폐기·원 세션 로컬 정리 진행, 미완료 큐/원 키 보존·새 로그인 자격 보존. 검증된 sid/bootstrap 연결 등록은 auth.session.revoked의 내구 fence로 비활성화·지연 등록 거절, 미연결 legacy 전환 검증 전 활성 금지, RT-only 성공을 기기 삭제 성공으로 오인하지 않음 |
 | group_invites 양방향·전체 상태·타인 초대와 탈퇴 rollback | inviter 또는 invitee가 본인인 행만 전량 삭제, 무관한 타인 초대 보존, 실패 시 초대/계정/환불/outbox 전체 rollback |
 | 공지 생성·타인 수정과 탈퇴의 양방향 경쟁·중간 실패 | 생성 선행이면 user_id=null, 탈퇴 선행이면 생성 USER_NOT_FOUND. 타인 수정의 지연 flush도 작성자 FK 부활 0, 공지 내용 보존, rollback 시 작성자 연결도 복구 |
 | setupFocusTag/updateFocusTag·태그 복원/관리·세션 재연결과 탈퇴 양방향 경합 | 같은 users 잠금, 이름 변경이 만든 새 채택/세션 연결도 파기·탈퇴 뒤 귀속 부활0, 공유 태그·타인 채택 보존 |
