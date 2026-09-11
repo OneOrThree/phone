@@ -173,7 +173,7 @@ Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를
 | 상태/자료 | 내용·제약 |
 | --- | --- |
 | attempt scope | 로그인 시도 ID, provider, 검증된 provider subject의 비가역 digest, 선택 AT의 검증된 주체/guest 구분 및 별도의 승격 대상 guest userId, termsVersion. 외부 userId는 사용하지 않음 |
-| 자격 digest | 제출된 code/credential을 keyed digest로 결합해 같은 시도의 재개 증명을 확인. 원문 자격/원문 JWT 저장 금지 |
+| 자격 digest | 매 요청이 실제 원 code/credential을 제시하고 Business가 provider·credential 종류와 함께 keyed digest를 계산한다. 앱이 제출한 digest를 자격으로 수락하지 않는다. 원문 자격/원문 JWT 저장 금지 |
 | 고정 서명 재료 | userId, sessionId, jti, iat, exp, guest, authGeneration, sessionEpoch, signing key ID, 직렬화 버전. AT/RT 타입별 claims 구분. bootstrap 재생에 필요한 key ID도 고정 |
 | PENDING | upsert와 서명 재료를 저장했으나 RT 미확정. 외부 사용자 세션으로 사용할 수 없음 |
 | COMPLETED | 해당 nonce의 RT hash CAS 성공. 동일 시도의 동일 결과만 재생 |
@@ -182,11 +182,20 @@ Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를
 
 bootstrap도 로그인 성공 재개에서 같은 값이어야 한다. 기술 선택은 Business 전용 bootstrap HMAC 키와 고정 sessionId/jti의 도메인 분리 입력으로 불투명 값을 결정적으로 만들고, completeLogin에 해시만 전달하는 것이다. 키는 JWT 서명 키와 분리하고 재개 창 동안 key ID를 고정한다. 1659의 무작위 nonce 발급 경로를 그대로 재호출하면 재생 값이 달라지므로 신규 준비/확정 경로에서 기존 AuthSession에 미리 계산한 hash를 확정하는 확장이 필요하다. 소비된 bootstrap의 사용 상태를 재개가 초기화하지 않으며 활성 세션/epoch/소유권 대조는 기존 방식대로 유지한다.
 
-첫 prepare는 제공자 검증 완료 후에만 가능하다. 재개는 원 시도와 같은 자격 digest를 증명하면 이미 검증한 제공자 결과를 제한된 재개 창에서 재사용하여 일회성 authorizationCode를 반복 교환하지 않는다. 기술 초기값은 준비/응답 복구 창 5분이고 고정 AT/RT 만료 이전으로 제한한다. 재개 창 이후는 새 제공자 인증 시도가 필요하다. 시간 제한은 receipt 전체 영구 보존 정책과 다르다. 로그인 자격/서명 재료는 범용 receipt에 넣지 않으며 복구 창 종료·계정 탈퇴 시 안전하게 폐기한다.
+첫 prepare는 제공자 검증 완료 후에만 가능하지만, **기존 내구 시도 조회는 제공자 검증/code 교환보다 먼저** 수행한다. 재개는 실제 원 자격 제시와 동일 scope 확인을 거쳐 이미 검증한 제공자 결과를 제한된 재개 창에서 재사용하며 일회성 authorizationCode를 반복 교환하지 않는다. 기술 초기값은 준비/응답 복구 창 5분이고 고정 AT/RT 만료 이전으로 제한한다. 재개 창 이후는 새 제공자 인증 시도가 필요하다. 시간 제한은 receipt 전체 영구 보존 정책과 다르다. 로그인 자격/서명 재료는 범용 receipt에 넣지 않으며 복구 창 종료·계정 탈퇴 시 안전하게 폐기한다.
 
 같은 attempt ID의 다른 자격/본문은 409 `IDEMPOTENCY_KEY_REUSED`, 다른 실행자가 같은 준비/확정을 진행 중이면 409 `REQUEST_IN_PROGRESS`다. 실행 중인 소유자가 없는 PENDING 재개는 저장된 현재 generation/서명 재료를 사용하여 확정을 이어가며 무조건 진행 중 오류를 반복하지 않는다. 반환 field는 범용 키가 아니라 `X-Login-Attempt-Id`다. 재개 시 서명 key ID·직렬화·claims가 같아야 토큰 원문과 RT hash가 같으므로 해당 짧은 창 동안 서명 키를 제거하지 않는다. 서명 서버 시간으로 iat를 새로 찍지 않는다.
 
 완료 CAS는 활성 사용자, 해당 sessionId, nonce, 미폐기 epoch를 한 경계에서 확인한다. 같은 시도의 성공 완료/동일 hash이면 최초 201을 복원할 수 있지만 다른 시도나 폐기된 세션의 실패를 성공으로 접지 않는다. 같은 제공자로 재가입해도 soft-deleted user를 부활시키지 않고 새 계정으로 처리한다.
+
+### 제공자 교환 전에 내구 시도를 조회한다
+
+1. Business는 스키마·provider/credential 종류·선택 AT를 검증하고, 요청이 실제 제출한 원 code/credential로 keyed digest를 계산한다. `X-Login-Attempt-Id`나 digest만 받는 공개 복구 API를 만들지 않는다. provider·credential 종류·선택 AT의 검증 주체/guest·승격 대상·termsVersion 등 교환 전에 확정할 수 있는 scope를 결합한다. provider subject는 미검증 요청에서 받지 않고, 최초 검증 결과를 저장한 뒤 그 시도의 고정 scope로 사용한다.
+2. 기존 신뢰된 Business→Data 내부 인증으로 내구 시도를 **먼저 조회**한다. 저장된 검증 결과가 있으면 원 자격 digest·scope 일치와 사용자 활성·현재 authGeneration/sessionEpoch·고정 토큰 만료/원 복구 마감·INVALIDATED 여부를 검사한 뒤 준비/확정 결과를 반환한다. provider subject는 그 일치한 내구 검증 결과에서만 복원한다. PENDING은 기존 고정 재료로 complete를 잇고 COMPLETED는 원 결과를 재생하며 REPREPARE_REQUIRED는 아래 전이를 따른다. 이 분기에서 IdP 교환 횟수는 0이다. 불일치·만료·INVALIDATED를 “시도 없음”으로 바꿔 새 로그인으로 우회하지 않는다.
+3. 내구 검증 결과가 없고 아직 제공자 호출을 시작하지 않은 안전한 최초 실행만 동일 attempt의 실행 소유권을 확보해 IdP를 호출한다. 경합한 요청은 저장 상태를 재조회하거나 기존 REQUEST_IN_PROGRESS를 반환하고 같은 code를 동시에 교환하지 않는다. 네트워크 동안 사용자/세션 DB 잠금이나 TX를 유지하지 않는다. 검증 성공 뒤 prepareLogin TX가 provider 검증 결과·자격 digest/scope·PENDING 세션·고정 서명 재료를 함께 저장한다. 쓰기 직전에도 같은 attempt/scope와 현재 사용자 상태를 대조한다.
+4. **IdP 성공과 내구 저장 사이의 장애는 별도 한계다.** 일회성 code가 소비됐지만 검증 결과가 저장되지 않았다면 로컬 메모리나 digest만으로 provider subject/토큰을 복원할 수 없다. 실행 소유권 만료만 보고 그 요청을 미실행으로 간주하지 않는다. 제공자가 보장하는 복구 수단이 실제 검증되지 않았다면 교환 결과 불명확으로 실패시키고 새 제공자 자격·새 attempt로 재인증한다. “prepare 이후 동일 결과 재생”을 이 구간의 무손실 보장으로 확대하지 않는다. 새 시도도 기존 guest 승격/계정 연결의 활성·경쟁 검사를 따르며 자동 새 guest 생성·자산 이전으로 복구를 대신하지 않는다.
+
+이는 호출 순서와 증명 경계 보완이다. 기존 고정 복구 마감을 연장하거나 Q06의 legacy 게스트 복구창·장기 실패 정책, 약관 값을 새로 정하지 않는다. prepare/complete 및 내구 실행 소유권·장애 분기 구현/회귀 전 전체 로그인 이관이 완료됐다고 표시하지 않는다.
 
 ### 로그인 CAS 충돌의 재준비 전이
 
@@ -527,7 +536,10 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 유효 guest=false AT를 동봉한 기존 소셜 로그인/계정 전환 | 제공자 대상 계정으로 정상 로그인/가입, 게스트 승격 대상 제외·기존 계정 합병0; 위조/만료 AT는 별도거부 |
 | 6개 제공자의 위조·만료·aud 오류 및 잘못된 RT logout | 해당 *_TOKEN401과 REFRESH_TOKEN401 보존, 내부 서비스401을 사용자 오류로 매핑하지 않음 |
 | 6개 제공자/guest 승격 | 같은 userId·지갑·집중·그룹 유지, 타 제공자 token·RT-as-AT 거부 |
-| login 준비 후 장애·확정 응답 유실 | 같은 시도/증명 재개, 동일 generation이면 동일 RT, 새 세션 중복 없음 |
+| login 준비 후 장애·확정 응답 유실 | 실제 원 code/credential + 같은 attempt로 내구 조회를 먼저 수행, 재개 시 IdP 호출0·동일 generation이면 동일 RT·새 세션 중복0 |
+| 재개 시 원 자격 없이 attempt/digest만 제시·다른 provider/선택 주체/본문 | 준비 자료·provider subject·토큰 반환0. 앱 digest를 원 자격으로 신뢰하지 않음 |
+| 재개 시 고정 만료/복구창 종료·사용자 비활성·세대/epoch 변경·INVALIDATED | IdP 재교환·새 준비로 우회0, 기존 거절 유지·복구 마감 연장0 |
+| 같은 최초 attempt 동시 실행·IdP 성공 직후 prepare 저장 전 강제 종료 | 동시에 code 교환하지 않음. 내구 결과 없는 불명확 실행을 성공 재생하지 않으며, 제공자 복구 보장 없이는 재인증 분기로 명시 실패 |
 | 로그인 CAS 경쟁·같은 attempt 동시 재준비·옛 complete 지연 | REPREPARE_REQUIRED에서 g+1을 한 번만 발급, g 토큰 반환/재활성화 0, g+1 응답 유실은 동일 재료 재생 |
 | 로그인 CAS 경쟁 뒤 탈퇴/epoch 폐기 | INVALIDATED로 종료, 새 nonce·서명 재료 발급 0, 복구 마감 연장 0 |
 | 위조 시도 ID·다른 자격·탈퇴 후 재개 | 토큰 반환 없음, 내구 시도 상태로 차단 |

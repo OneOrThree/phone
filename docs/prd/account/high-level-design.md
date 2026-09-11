@@ -44,11 +44,24 @@ sequenceDiagram
     participant D as Data
     A->>B: POST /auth/sessions + 로그인 시도 ID
     B->>B: 앱 키·스키마·선택 AT 검증 및 guest 구분
-    B->>P: 제공자 증명 검증 또는 code 교환
-    P-->>B: 검증된 provider subject
-    B->>D: prepareLogin(증명 digest, 게스트 주체, 시도 ID)
-    Note over D: TX1: 활성 사용자/게스트 잠금, upsert<br/>PENDING 세션과 고정 서명 재료 저장
-    D-->>B: userId, sessionId, nonce, 고정 claims
+    B->>B: 실제 원 code/credential로 keyed digest 계산
+    B->>D: 시도 ID + 자격 digest + 검증된 요청 scope로 내구 상태 조회
+    alt 검증 결과가 저장된 동일 시도
+        D->>D: scope·원 자격 일치, 활성 사용자·세대/epoch·고정 만료 검사
+        break 불일치·만료·INVALIDATED
+            D-->>B: 기존 자격/상태 오류
+            B-->>A: 실패, IdP 교환·토큰 반환 없음
+        end
+        D-->>B: 유효한 준비/확정 결과와 고정 claims
+        Note over B,P: 제공자 재교환 없음. INVALIDATED/불일치는 여기서 거절
+    else 검증 결과 없는 안전한 최초 실행
+        Note over B,D: 같은 시도의 실행 소유권 확보. 다른 실행자는 재조회/진행 중 응답
+        B->>P: 제공자 증명 검증 또는 code 교환
+        P-->>B: 검증된 provider subject
+        B->>D: prepareLogin(검증 결과, 자격 digest, 검증된 scope, 시도 ID)
+        Note over D: TX1: 활성 사용자/게스트 잠금, upsert<br/>검증 결과·PENDING 세션·고정 서명 재료를 함께 저장
+        D-->>B: userId, sessionId, nonce, 고정 claims
+    end
     B->>B: 동일 key/claims로 AT·RT 서명
     B->>D: completeLogin(nonce, RT hash)
     Note over D: TX2: 활성/epoch/CAS 대조<br/>세션 활성화·RT hash 확정
@@ -58,7 +71,7 @@ sequenceDiagram
 
 유효한 선택 AT가 guest=false이면 기존 계정 전환을 허용하고 제공자 계정으로 로그인/가입한다. 이를 게스트 증명 실패로 거부하거나 두 소셜 계정을 합치지 않는다. guest=true일 때만 기존 승격 대상과 userId 보존 규칙을 적용한다. 제공자 자격 실패는 기존 6개 제공자별 *_TOKEN401을 유지하며 UNAUTHORIZED로 뭉개지 않는다.
 
-제공자 네트워크 호출은 Data TX 밖이다. TX1 이후 Business가 죽으면 같은 시도 ID와 같은 자격 증명으로 준비 결과를 되찾아 재개한다. 성공했는데 응답만 잃었으면 고정 claims로 같은 토큰을 복원한다. Data에는 원문 토큰 대신 해시·서명 재료만 남긴다. 재개는 원래 제공자 자격의 digest와 시도 범위가 일치해야 하며 시도 ID 하나만 알아서 토큰을 얻을 수 없다.
+제공자 네트워크 호출은 Data TX 밖이다. 모든 요청은 실제 원 code/credential을 제시하고 Business가 digest를 계산해 내구 시도를 먼저 조회한다. 앱이 보낸 digest나 provider subject만으로 재생하지 않는다. TX1 이후 Business가 죽으면 같은 시도 ID와 같은 자격 증명으로 준비 결과를 되찾아 재개하며, 이미 소비된 일회성 code를 다시 교환하지 않는다. 성공했는데 응답만 잃었으면 고정 claims로 같은 토큰을 복원한다. Data에는 원문 토큰 대신 해시·서명 재료만 남긴다. 재개는 원래 제공자 자격의 digest와 시도 범위가 일치해야 하며 시도 ID 하나만 알아서 토큰을 얻을 수 없다. 제공자 검증 성공 직후 TX1 저장 전에 죽으면 그 검증 결과는 내구화되지 않았으므로 이 복구로 재생할 수 없다. 교환 결과가 불명확한 실행을 안전한 최초 시도로 돌려 code를 무조건 다시 쓰지 않는다. 제공자의 검증된 복구 수단이 없으면 새 제공자 자격과 새 시도로 재인증해야 하며, guest 복구·Q06 정책을 임의 대체하지 않는다. [LLD의 재개 순서와 장애 경계](low-level-design.md#제공자-교환-전에-내구-시도를-조회한다)를 따른다.
 
 탈퇴·세션 폐기가 먼저 확정됐으면 성공 시도라도 토큰을 다시 발급하지 않는다. 로그인 결과가 불명확하다고 매번 새 시도를 만들면 세션이 늘고 게스트 승격 경쟁이 생기므로 앱은 먼저 같은 시도를 재개한다. 로그인 CAS의 단순 경쟁 패배는 REPREPARE_REQUIRED로 분리하고 같은 attempt/자격으로 새 generation/nonce·고정 재료를 한 번 준비한다. 동시에 재개해도 같은 새 준비를 받고, 이전 nonce의 지연 완료는 거부한다. 탈퇴·epoch 폐기나 복구 창 종료는 INVALIDATED이며 재준비하지 않는다. [LLD 상태 전이](low-level-design.md#로그인-cas-충돌의-재준비-전이)를 따른다. 이는 refresh CAS 경쟁에서 진 요청을 성공 처리하는 규칙이 아니다.
 
