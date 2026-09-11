@@ -11,7 +11,7 @@ GROMO-1750 · 2026-09-12 · [색인](README.md) · [LLD](low-level-design.md)
 | P01 | 신규 Business 경로에는 `/api`·`/v1` 접두어 없음. 기존 Data/chat 공개 계약 유지 | 사용자 결정. 새로운 URI가 자동으로 기존 URI 폐기를 뜻하지 않음 |
 | P02 | JSON 성공 `{data:...}`. 빈 단건 `data:null`, 목록 `{items:[],nextCursor:null}`. PNG·파일 스트림·관리 Actuator·기존 호환 경로는 JSON 성공 봉투 대상 제외 | HTML 제안 + 바이너리 보존 결정. 신규 JSON은 데이터 없는 성공도200+data:null이며204로 바꾸지 않음 |
 | P03 | JSON 실패는 `error.code/message/field/retryable` 4필드와 top-level `requestId`. 409에만 선택 top-level `current` 허용 | 신규 외부 계약. `current`는 인가된 공개 자원 DTO와 최신 version이며 DB행·내부정보·타인 데이터 금지 |
-| P04 | 앱 소유 UUID Idempotency-Key, scope는 검증 사용자+작업+키. 확정된 같은 본문 재시도는 원 결과·HTTP 상태 재생, 저장된 처리중/확정 키의 다른 본문409 | 아키텍처 ㉼. **대상은 LLD 표로 열거**, 모든 POST나 모든 인증 경로에 일괄 적용하지 않음 |
+| P04 | 앱 소유 UUID Idempotency-Key, scope는 검증 사용자+작업+키. 확정된 같은 본문 재시도는 현재 재생 권한·응답 계약 호환성을 검사한 뒤 원 결과·HTTP 상태 재생, 저장된 처리중/확정 키의 다른 본문409 | 아키텍처 ㉼. **대상은 LLD 표로 열거**, 모든 POST나 모든 인증 경로에 일괄 적용하지 않음 |
 | P05 | 키는 정확한 UUID 문자열36자(v4/v7 생성 권고), 누락/형식 오류400. 대소문자 UUID는 동일 값으로 정규화. 같은 키 새 의도 재사용 금지 | 신규 키 필수 대상만. 내부 1659 기본키150자 상한/접미단계 규약과 호환. 기존 API optional 키를 소급 변경하지 않음 |
 | P06 | 확정 receipt는 초기 구현에서 자동 TTL 삭제하지 않음. 보존·키 폐기 정책 승인 전 GC 금지 | 응답 유실 후 오래된 키가 새 실행으로 바뀌는 결함 방지. 영구·무제한 운영 보관 약속은 아님. 보존 변경 때 만료 receipt 거절/키 재사용 금지/PII 파기를 함께 설계 |
 | P07 | expectedVersion은 LLD 열거 자원에만 필수. 동일 키의 성공 재생을 버전 재검사보다 먼저 수행 | 응답 유실 후 원 요청의 오래된 version이 이미 성공한 명령을409로 만들면 안 됨 |
@@ -19,14 +19,18 @@ GROMO-1750 · 2026-09-12 · [색인](README.md) · [LLD](low-level-design.md)
 | P09 | 외부 X-User-Id는 모든 헤더 접근에서 제거. 내부 요청은 검증 subject로 딱 한 번 새로 설정 | 아키텍처 ㉸. Authorization 등 앱 헤더 일괄 복사 금지, 서비스토큰+audience·메서드/경로 허용목록 적용 |
 | P10 | Business는 DB 없이 인증·정책 조합·화면 읽기를 담당. 돈·보상·소유·정산 불변식은 Data 단일 원자 명령에서 완료 | 아키텍처 A4/A9. HTTP 여러 쓰기를 순서대로 호출하는 분산 TX 흉내 금지 |
 | P11 | 화면 첫 조회는 BFF 1콜. 사용자·현재 섬 context를 한 번 확정하고 독립 읽기를 전체 deadline 아래 병렬 조합 | 사용자 결정. 여러 HTTP 결과를 같은 DB snapshot이라고 부르지 않음. 버전 정합성이 필요한 조합은 Data snapshot 계약 필요 |
-| P12 | 선택 조각의 일시 장애만 null 허용. 인증·인가 실패·상류 계약 위반은 선택 조각에서도 전체 오류 | 권한 상실·잘못된 DTO를 데이터 없음으로 숨기지 않음. 공개/방문 화면에는 권한 없는 조각을 호출 자체에서 제외 |
+| P12 | 전체 deadline 안에서 발생한 선택 조각의 개별 일시 장애만 null 허용. 전체 예산 소진은 504 우선이며 인증·인가 실패·상류 계약 위반도 전체 오류 | 권한 상실·잘못된 DTO를 데이터 없음으로 숨기지 않음. 공개/방문 화면에는 권한 없는 조각을 호출 자체에서 제외 |
 | P13 | requestId는 서버 생성 UUID, 요청마다 새 값. 응답 X-Request-Id와 오류 본문 requestId가 일치 | 앱 제공 ID/키/URL/토큰으로 생성하지 않음. 재생 receipt에는 원 결과·상태만 있고 현재 requestId·Retry-After·cookie는 재생하지 않음 |
-| P14 | 집중 쓰기는 REST, 집중/휴식 구독·emote는 STOMP. 공통 HTTP 봉투가 STOMP 이벤트 봉투를 덮지 않음 | 사용자 결정. 토픽·6필드 이벤트·개인 수신자·만료는 실시간 설계 1754 소유 |
-| P15 | 시각 전달은 UTC instant. 날짜 집계는 기존 KST 정본과 정합을 유지 | 임의 사용자 타임존 지원을 이 문서에서 신설하지 않음. 별도 제품 결정 시 기존 저장/집계/조회 정책까지 함께 검토 |
+| P14 | 집중 쓰기는 REST, 집중/휴식 구독·emote는 STOMP. 공통 HTTP 봉투가 STOMP 이벤트 봉투를 덮지 않음 | 사용자 결정. 토픽·schemaVersion을 포함한 7필드 이벤트·개인 수신자·만료는 실시간 설계 1754 소유 |
+| P15 | 시각 전달은 UTC instant. 날짜 집계는 KST이며 timezone 입력 4종은 Asia/Seoul만 허용, 누락 시 같은 값으로 정규화 | 임의 사용자 타임존 지원을 이 문서에서 신설하지 않음. 별도 제품 결정 시 기존 저장/집계/조회 정책까지 함께 검토 |
 
 P04의 결과 재생은 확정 receipt가 있는 요청을 대상으로 한다. 실행 전 검증4xx로 rollback되어 receipt가 남지 않은 요청은 결과 재생 보장 밖이다. 앱은 입력 수정·버전 재확인으로 의도가 바뀌면 이 경우에도 새 키를 사용한다. 이미 저장된 처리중/확정 scope/key와 다른 본문은409로 거절한다.
 
-P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를 계측하고 보관량 알림을 둔다. 이름·메시지·원문 토큰 등 민감 데이터를 중복 저장하지 않도록 도메인별 최소 결과를 설계한다. 탈퇴 시 기존 PII 파기 정책이 우선한다. 탈퇴한 사용자의 다른 receipt를 응답 재생 때문에 복구하거나 보존하지 않으며, 탈퇴 결과는 재인증·인가 규칙을 통과한 동일 사용자에게 비민감 `{deleted:true}` 증거만 반환할 수 있다. 이 특수 경계는 계정 설계에서 제공되기 전 일반 receipt 기능으로 공개하지 않는다.
+P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를 계측하고 보관량 알림을 둔다. 이름·메시지·원문 토큰 등 민감 데이터를 중복 저장하지 않도록 도메인별 최소 결과를 설계한다. 탈퇴 시 기존 PII 파기 정책이 우선한다. 탈퇴한 사용자의 receipt를 응답 재생 때문에 복구하거나 개인 응답을 보존하지 않는다. 비활성 계정은 일반 재생을 거절한다. 계정 설계 1756의 신규 계약은 탈퇴 후 404, 위조·만료 자격은 401이며 탈퇴 완료 증거도 범용 재생으로 열지 않는다.
+
+계정 비활성과 **활성 사용자의 자원 권한 소멸**은 구분한다. 현재 권한이 있으면 승인된 원 결과를 재생할 수 있다. leave/host-transfer 완료 때문에 소속·관리 권한을 잃은 활성 본인에게는, 원 명령의 주체·operation scope·fingerprint가 일치하고 해당 도메인이 명시한 경우에만 비민감 최소 완료 증거를 제한 재생한다. 저장 응답 전체·관리자 정보·초대 자격을 돌려주거나 현재 권한 검사를 전역으로 우회하지 않는다. 제한 증거 계약이 없는 도메인은 현재 접근 정책의 403/404로 거절한다.
+
+모든 확정 receipt에는 `contractVersion`을 저장한다. 이 버전은 자원 version이나 이벤트 schemaVersion과 다르며, 저장 결과 형식과 원 요청의 정규화 규칙을 식별한다. 구버전 reader와 검증된 순수 응답 변환으로 현재 공개 계약을 충족할 때만 재생한다. 지원하지 않는 버전은 409 `STATE_CONFLICT`(retryable=false, field=null)로 거절하고 원 명령을 다시 실행하지 않는다. 상세 호환·파기 규칙은 LLD의 receipt 계약을 따른다.
 
 ## HTTP 상태·외부 오류 코드
 
@@ -37,6 +41,7 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 | HTTP | code | retryable | field / 복구 |
 | --- | --- | --- | --- |
 |400|INVALID_REQUEST|false|깨진 JSON·필수 필드 누락·타입 오류. 가능한 공개 필드 경로, 없으면null|
+|400|INVALID_PARAMETER|false|지원하지 않는 timezone 등 명시한 입력 정책 위반. field는 해당 입력 이름|
 |400|INVALID_IDEMPOTENCY_KEY|false|필수 키 누락/UUID 형식 오류. field=`Idempotency-Key`|
 |400|INVALID_CURSOR|false|서명/형식/사용자·자원·필터 불일치. field=`cursor`, 현재 필터로 처음부터 조회|
 |401|UNAUTHORIZED|false|없거나 위조·만료된 사용자 자격. 재인증 후 별도 시도. 내부 서비스토큰 거부를 이 코드로 오인시키지 않음|
@@ -47,7 +52,7 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |409|VERSION_CONFLICT|false|field는 제출한 버전 필드(`expectedVersion` 또는 `expectedWalletVersion`), 허용된 current 제공 후 사용자 재확인|
 |409|STATE_CONFLICT|false|현재 상태에서 실행 불가. 공개 current가 안전하면 포함|
 |409|INSUFFICIENT_FUNDS|false|잔액 부족. 같은 요청 자동 반복 금지|
-|409|IDEMPOTENCY_KEY_REUSED|false|저장된 처리중/확정 scope/key에 다른 본문. field=`Idempotency-Key`, **기존 요청 본문·결과는 노출하지 않음**|
+|409|IDEMPOTENCY_KEY_REUSED|false|저장된 처리중/확정 scope/key에 다른 본문. 일반 명령 field=`Idempotency-Key`, 메시지는 field=`clientMessageId`. **기존 요청 본문·결과는 노출하지 않음**|
 |409|REQUEST_IN_PROGRESS|true|같은 명령의 실행이 아직 확정 전. Retry-After:1, 같은 키·본문으로 재시도|
 |409|CURSOR_EXPIRED|false|field=`cursor`, 같은 필터로 첫 페이지를 새로 조회|
 |413|REQUEST_TOO_LARGE|false|바디 상한 초과. field=null, 본문 축소|
@@ -76,10 +81,23 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 | 409이면 최신 상태를 받아 재확인 | 409의 선택 `current`에 최신 공개 자원 DTO+version | 공통 기술 결정. 새 외부 확장, 원본에 이미 있다고 주장하지 않음 |
 | 변경 요청 키 UUID 제안 | LLD 적용표 대상 필수, auth·메시지·조회형 POST 예외 명시 | 모든 POST 자동 필수화 금지 |
 | 명시하지 않은 자원에 무조건 version 제출하지 않음 | 원본 expectedVersion 8명령과 구매 expectedWalletVersion 1명령의 자원별 축을 고정 | LLD 버전 표 외 추가는 해당 도메인 설계 개정 필요 |
-| 날짜/IANA timezone 표현 | 시각UTC, 집계는 기존 KST 정본 우선 | 기존 날짜 정책을 예상 예제로 덮지 않음 |
+| 날짜/IANA timezone 표현 | 시각UTC, 집계KST. 아래 4개 입력은 누락 시 Asia/Seoul, 그 외 값은400 INVALID_PARAMETER | 원본 입력 예시는 원문 HTML에 보존하며 사용자 시간대 날짜 지원으로 해석하지 않음 |
 | 300초/물고기·건설비·상품가격·퀘스트10P | 목업 표시 유지. 운영값 미채택 | 보상/경제 정책 질문 대기. 방송기100P는 원본이 확정 가격으로 표기 |
 | 읽음/안읽음 필드 없음 | 새 우체통 UI 계약과 기존 내부 읽음커서를 구분 | 상세 사용자 선택 대기, 이 문서로DB삭제 결정하지 않음 |
 | 66개 도메인 계약 중심 | BFF13종을 마지막 단계에 추가, 화면 첫 조회1콜 | 사용자 결정. mutation은 개별 명령 API |
+
+## KST 날짜 입력의 채택 계약
+
+| 신규 API | timezone 위치 | 날짜 의미 |
+| --- | --- | --- |
+| GET `/islands/{islandId}/statistics/focus` | query | from/to는 KST 날짜 |
+| GET `/islands/{islandId}/statistics/screen-time` | query | from/to는 KST 날짜 |
+| PUT `/me/screen-time/{date}` | JSON body | 경로 date는 KST 측정일 |
+| GET `/me/focus-summary` | query | date는 KST 날짜 |
+
+4개 API 모두 `timezone`을 생략하면 `Asia/Seoul`로 정규화한다. 명시하면 정확한 문자열 `Asia/Seoul`만 허용한다. 다른 IANA 값·UTC·별칭·빈 문자열·JSON null·타입 불일치는 400 `INVALID_PARAMETER`, field=`timezone`, retryable=false다. 중복 query timezone도 같은 오류이며 임의 하나를 선택하지 않는다. 입력을 무시하거나 다른 시간대를 KST로 조용히 바꾸지 않는다. 누락과 명시한 Asia/Seoul은 같은 정규 요청이므로 측정 명령 fingerprint도 동일하다. 측정 instant인 `measuredAt`은 UTC이고 날짜 버킷을 단말 시간대로 재해석하지 않는다.
+
+원본 입력 예시는 [변경하지 않은 HTML](source-api-v03.html)의 `focus-stats`, `screen-stats`, `screen-upload`, `home-summary` 항목에 별첨으로 보존한다. 원문 screen-upload의 사용자 시간대 날짜 설명은 이번 KST 채택 계약으로 대체한다. 복수 기기 측정 병합·집중의 섬 귀속 정책은 이 정규화로 확정되지 않는다.
 
 ## 결정 로그와 미결 항목
 

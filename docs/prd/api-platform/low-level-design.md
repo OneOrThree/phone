@@ -57,10 +57,10 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 
 | method | 신규 경로 | 공통 키 | 작업 범위·도메인 추가 조건 |
 | --- | --- | --- | --- |
-|POST|`/auth/sessions`|범용 대상 제외|인증 전에는 userId가 없다. 계정 설계에서 검증 provider identity·로그인 2단계/결과 재생 계약을 확정해야 함. 원문 authorizationCode를 generic receipt에 저장하지 않음|
+|POST|`/auth/sessions`|범용 대상 제외|AT 없는 로그인과 검증된 선택적 게스트 AT 승격을 구분. 후자는 검증 subject를 내부 계약에 전달해 기존 계정 승계. A7·㊒·1756의 로그인/CAS 전용 계약; authorizationCode는 generic receipt 저장 금지|
 |PATCH|`/me`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
-|DELETE|`/auth/sessions/current`|범용 대상 제외|현재 인증 세션 철회. 계정 설계의 사용자+기기/RT 세션 식별자로 멱등 처리. 재시도에 현재 세션이 다른 세션으로 바뀌지 않게 고정|
-|DELETE|`/me`|필수·계정 특례|검증된 동일 사용자+탈퇴 의도. 기존 탈퇴 원자 명령·PII 파기 보존. 탈퇴 후 재생은 계정 설계의 제한된 증거 조회만|
+|DELETE|`/auth/sessions/current`|범용 대상 제외|현재 인증 세션 철회. 계정 설계의 RT로 식별한 사용자+세션을 고정해 철회/완료 재생. 개별 철회는 authGeneration을 올리지 않으며 세션 epoch와 기기 ownershipVersion 경계를 구분(㊼)|
+|DELETE|`/me`|필수·PII 파기|검증된 동일 사용자+탈퇴 의도. 기존 탈퇴 원자 명령·PII 파기 보존. 비활성 계정 재생 금지; 탈퇴 후404, 위조·만료 자격401|
 |PATCH|`/me/settings`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/islands`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/islands/{islandId}/memberships`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
@@ -86,7 +86,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 |POST|`/islands/{islandId}/quests`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |PATCH|`/islands/{islandId}/quests/{questId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/islands/{islandId}/quests/{questId}/claims`|필수|작업에islandId+questId 포함, occurrenceId는본문. 정산유일성+지급 같은 TX|
-|POST|`/islands/{islandId}/messages`|clientMessageId 대체|사용자+islandId+clientMessageId로 메시지 저장1회. 일반 receipt와 중복 권위 생성 금지|
+|POST|`/islands/{islandId}/messages`|clientMessageId 대체|사용자+islandId+clientMessageId로 메시지 저장1회. 일반 receipt와 중복 권위 금지. 신규 REST는1774/1775 후속 계약이며 기존 STOMP 발신을 이미 대체했다는 뜻이 아님|
 |POST|`/islands/{islandId}/shop/orders`|필수|작업에islandId 포함, productId는본문 fingerprint. 차감+소유권+주문 원자성 및소유유일성 별도|
 |PATCH|`/me/appearance`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |PATCH|`/islands/{islandId}/appearance`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
@@ -98,8 +98,10 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 
 - 신규 `POST /link-previews`는 조회성 비동기 미리보기 작업이며 공통 명령키 필수가 아니다. 기존 사용자+URL cache/claim을 재사용한다. 같은 URL 재조회와 재화 mutation의 영속 명령을 같은 receipt 정책으로 묶지 않는다.
 - GET30개와 BFF GET13개는 공통 키 대상이 아니다. GET에 키가 있어도 쓰기처럼 예약하지 않는다.
-- 로그인과 로그아웃은 공통 키를 안 받는다는 이유로 무조건 비멱등이어도 된다는 뜻이 아니다. 로그인 전 key scope를 임의의 외부 X-User-Id로 만들지 않는다. 검증한 provider+provider subject를 사용자 상관관계로 쓰는 계정 계약과 아키텍처가 요구한 Data 로그인/CAS·Business 결정적 토큰 재생 흐름은1756에서 실제 구현과 대조해 확정해야 할 요구다. 기준 main이나1659에 이 전체 로그인 복구 흐름이 이미 구현됐다는 주장은 아니다. **한 번 쓴 authorizationCode 재검증·로그인 응답 유실을 이 공통 문서만으로 해결했다고 표시하지 않는다.**
-- 메시지의 clientMessageId는 UUID 계약을 유지한다. 원본 `local-1`은 목업 값이다. 새 우체통에 같은 ID/다른 text가 오면409 `IDEMPOTENCY_KEY_REUSED`로 처리하고, 기존 chat API의 원문 재생 동작은 호환 경로에 보존하는 어댑터 결정을1774/1775에서 반영한다. 응답/이벤트의 id와 clientMessageId로 앱이 중복을 제거한다.
+- 로그인과 로그아웃의 범용 키 제외는 전용 멱등 계약을 없애지 않는다. [아키텍처 결정 장부](../../architecture/decisions.md)의 **A7·㊑·㊒·㊔·㊙·㊡·㉮·㊼**를 기준으로 1756이 실제 구현과 대조한다. 로그인은 Data의 시도 키 기반 upsert/CAS nonce → Business의 고정 jti/발급시각 기반 서명 → Data의 CAS 확정이며, 성공은 같은 서명 재료로 복구하고 CAS 충돌은 시도 재개 규약을 따른다. refresh 회전 CAS 0행은 ㉮에 따라 세션 종료이며 로그인 성공 재생과 혼동하지 않는다.
+- AT 없는 로그인은 검증한 provider identity로 시작한다. **유효한 선택적 게스트 AT가 있으면 검증한 subject를 Data 로그인 계약에 전달**하고 기존 UUID·집중 기록·지갑·그룹을 보존하며 소셜 계정으로 승격한다. 제시한 AT가 위조·만료·잘못된 타입이면401이고 익명 신규 가입으로 강등하지 않는다. 외부 X-User-Id나 본문 userId로 guest subject를 대체하지 않는다. 로그인 자격·토큰은 범용 receipt 저장 대상이 아니다.
+- 현재 세션 철회는 1756의 RT 증명으로 대상 사용자/세션을 고정한다. 개별 로그아웃의 sessionEpoch와 기기 ownershipVersion은 각각 해당 경계만 바꾸고, 유저 공통 authGeneration은 탈퇴·전 기기 로그아웃에만 증가한다(㊼). 기준 main/1659에 세션별 로그인 복구 이관이 이미 끝났다고 주장하지 않는다. 한 번 사용한 authorizationCode와 응답 유실 복구는 계정 전용 시도 상태·재개 창에서 검증한다.
+- 메시지의 clientMessageId는 UUID 계약을 유지한다. 원본 `local-1`은 목업 값이다. 새 우체통에 같은 ID/다른 text가 오면409 `IDEMPOTENCY_KEY_REUSED`(field=`clientMessageId`, retryable=false)로 처리하고, 기존 chat API의 원문 재생 동작은 호환 경로에 보존하는 어댑터 결정을1774/1775에서 반영한다. 응답/이벤트의 id와 clientMessageId로 앱이 중복을 제거한다.
 - Idempotency-Key와 clientMessageId를 둘 다 보내도 메시지 저장의 유일성 정본은 clientMessageId다. 일반 미들웨어는 메시지 endpoint에 receipt를 만들지 않는다.
 
 ### 키와 fingerprint
@@ -120,18 +122,32 @@ fingerprint는 **검증한 요청 DTO의 의미**로 만든다. 필드 이름 �
 | fingerprint | 같은 key/다른 의미의 요청 거절 |
 | 상태·실행 소유 | 처리중/확정/실패 분류. 재선점이 있으면 기존1659 lease/소유 토큰 규약을 재사용 |
 | 원 HTTP 상태·공개 결과 | 성공 응답 유실 복구. 전체 HTTP 패킷을 저장하지 않음 |
+| contractVersion | 양의 정수. 해당 operation의 저장 응답 형식과 원 요청 정규화 규약 버전. 초기 신규 계약은1이며 변경 이력을 유지 |
 | commandId·eventId·aggregateVersion | 도메인 정본/원장/outbox 추적, 결정적 재전달 |
 | 생성/확정시각 | 운영 관측·향후 보존 정책의 근거 |
 
 별도 Business DB를 만들지 않는다. Data의 기존 명령 저장·유일성 기능을 같은 도메인 TX에 합쳐 구현한다. 도메인 저장이 성공했는데 receipt만 롤백되거나 그 반대인 구조는 허용하지 않는다. 위성 소유 쓰기는 기존 승인된 영속 command/outbox 계약을 사용하며 Business가 위성 DB의 트랜잭션을 흉내 내지 않는다.
 
-1. 외부 인증·입력검증 후 scope를 확정한다. 존재 여부/소유를 노출하지 않도록 공개 접근 규칙을 지킨다.
-2. 이미 확정된 receipt가 있으면 fingerprint 일치 확인 후 원 상태/data를 반환한다. **현재 자원 version을 비교해 원 성공을409로 바꾸지 않는다.** 탈퇴 등 현재 인가가 소멸한 사용자의 재생은 계정의 제한된 특례만 허용한다.
-3. 같은 scope의 실행을 유일성·잠금으로 직렬화한다. 경합 중 DB transaction이 오류 상태라면 같은 TX에서 예외를 삼켜 재조회하지 않는다. 기존1659의 경합 처리 패턴을 재사용한다.
-4. 새 실행만 도메인 활성/소유·상태·expectedVersion을 검사한다. 실패 후 rollback이면 명령은 미실행이다. 이런 검증4xx를 성공 receipt로 저장하지 않는다. rollback으로 처리중/확정 receipt가 남지 않은 경우는 결과 재생 보장 밖이다. 앱은 수정된 의도를 새 키로 제출하며, 이미 저장된 처리중/확정 scope/key의 다른 본문은 앞 단계에서409로 거절한다.
-5. 도메인 상태·잔액·원장·보상/소유 유일성·응답 결과·outbox를 같은 TX에서 확정한다.
-6. 커밋 전 장애는 rollback, 커밋 후 응답 유실은 같은 키 재생이다. timeout만 보고 성공으로 접거나 새 키로 다시 쓰지 않는다.
-7. receipt GC는 초기 구현에 없다. 기존 계정 PII 파기 정책이 우선한다. 보존 정책 변경 시 최소 재시도 보장창·만료/삭제된키의 명시 거절·원장/도메인 유일성·개인정보 파기를 함께 검증한 후 적용한다.
+1. 외부 인증·주체 활성 확인 후 operation/scope를 확정한다. 재시도에서도 현재 재생 권한을 검사하며 receipt 존재만으로 접근권을 부여하지 않는다. 기존 키는 저장 contractVersion의 요청 reader로 원 fingerprint를 대조할 수 있게 한다. 최신 DTO의 신규 필수 필드를 먼저 강제해 호환 가능한 옛 재시도를 막지 않는다.
+2. 확정 receipt가 있으면 원 주체·scope·fingerprint를 확인하고 아래 응답 계약 호환 절차에 따라 재생한다. **현재 자원 version을 비교해 원 성공을409로 바꾸지 않는다.** 비활성 계정과 활성 사용자의 자원 권한 소멸은 아래처럼 구분한다. 본문 불일치면409이며 원 결과는 노출하지 않는다.
+3. receipt가 없으면 같은 scope의 실행을 직렬화하는 Data 잠금을 획득하고, **잠금 대기 종료 뒤 receipt를 다시 조회**한다. 선행 실행이 확정했으면2단계로 돌아가 새 도메인 쓰기를 하지 않는다. 모든 경합 실행자가 같은 사용자/aggregate 잠금 또는 DB의 동등한 직렬화 primitive를 사용해야 한다. READ COMMITTED에서 잠금 전 조회 결과를 재사용하지 않는다. 빈 키의 행 잠금만으로 없는 행이 잠긴다고 가정하지 않는다.
+4. 재조회에도 없을 때만 새 명령의 현재 활성·소유·상태·expectedVersion을 검사한다. 해당 도메인 행/지갑 잠금은 버전 검사부터 실제 조건부 갱신·원장/receipt/outbox 저장과 커밋까지 유지한다. 같은 자원을 쓰는 legacy/new 경로도 같은 불변식·잠금 순서에 참여해야 한다. 실패로 rollback되어 처리중/확정 receipt가 남지 않은 검증4xx는 결과 재생 보장 밖이다. 의도가 바뀌면 앱은 새 키를 제출한다.
+5. 도메인 상태·잔액·원장·보상/소유 유일성·응답 결과와 contractVersion·outbox를 같은 TX에서 확정한다. receipt UNIQUE는 마지막 방어선이다. JPA flush/INSERT의 UNIQUE 위반으로 오류 상태가 된 TX에서 예외를 삼켜 SELECT를 계속하지 않는다. 예기치 않은 충돌은 전체 TX를 rollback한 뒤 별도 정상 TX에서 같은 scope 결과를 조회하거나, 미리 검증한 비예외 SQL 충돌 처리 primitive로 다룬다. 두 방식 모두 원 쓰기를 부분 커밋하거나 중복 실행해서는 안 된다. Chat JDBC의 insert-catch 코드를 JPA TX에 그대로 복사하지 않는다.
+6. 커밋 전 장애는 rollback, 커밋 후 응답 유실은 같은 키 재생이다. timeout만 보고 성공으로 접거나 새 키로 다시 쓰지 않는다. 확정 여부가 아직 없으면 기존 처리중/lease 계약과 전체 deadline을 적용한다.
+7. receipt GC는 초기 구현에 없다. 기존 계정 PII 파기 정책이 우선한다. 보존 정책 변경 시 최소 재시도 보장창·만료/삭제된 키의 명시 거절·원장/도메인 유일성·개인정보 파기를 함께 검증한 후 적용한다.
+
+### 재생 권한과 계약 버전
+
+- **비활성 계정**: 신규 계정 계약1756에 따라 탈퇴 후404, 위조·만료 자격401이며 일반 receipt나 탈퇴 완료 증거로 우회하지 않는다. 계정 파기로 제거된 payload를 재생 목적으로 복구하지 않는다.
+- **활성 본인, 자원 접근권 유지**: 원 명령 scope/fingerprint와 현재 결과 열람 권한을 확인해 승인된 원 결과를 재생한다. 원 잔액·상태를 현재 값으로 다시 계산하지 않는다.
+- **활성 본인, 원 leave/host-transfer 완료로 권한 소멸**: 도메인이 명시한 비민감 최소 완료 증거에 한해 제한 재생한다. 저장 응답 전체·관리자 정보·초대 자격·현재 비공개 자원 정보는 반환하지 않는다. 증거의 정확한 DTO와 대상 명령은 해당 도메인 계약에 열거하며 범용 미들웨어가 임의 축소 응답을 만들지 않는다. 허용 계약이 없거나 다른 권한 소멸 사유면 현재 접근 정책의403/404다.
+
+contractVersion은 **저장 receipt의 버전**이며 앱이 임의 입력하는 자원 expectedVersion이 아니다. 같은 operation의 원 요청 정규화 규칙과 공개 결과 schema가 바뀌면 버전을 올린다. 영구 receipt가 존재하는 동안 다음 정책을 유지한다.
+
+1. 현재 버전과 같은 receipt는 승인된 원 HTTP 상태/data를 재생한다. 현재 requestId·cookie·동적 헤더는 저장 결과에서 재생하지 않는다.
+2. 지원하는 구버전은 버전별 reader로 fingerprint/결과를 해석한다. 원 payload가 현재 계약에도 유효하면 원 결과를 유지하고, 그렇지 않으면 명시된 순수 응답 adapter로만 변환한다. adapter는 DB 쓰기·현재 상태 재계산·원장/보상/outbox 생성·권한 확대를 하지 않는다. 계정/도메인 제한 증거 정책도 동일하게 적용한다.
+3. 이해할 수 없거나 안전한 변환이 없는 구버전은409 `STATE_CONFLICT`, field=null, retryable=false로 거절한다. 저장된 구형 payload를 그대로 노출하거나 성공했다고 가장하지 않으며, **키를 삭제하거나 새 명령으로 재실행하지 않는다**. 앱에도 새 키 자동 재시도를 지시하지 않는다. 지원 가능한 reader 복구나 별도 GET으로 확인한다.
+4. 오프라인 schema 이관은 원 operation/scope/key·fingerprint 의미·HTTP 상태·명령 식별자를 보존하고 원 명령을 호출하지 않는 검증된 데이터 변환만 허용한다. 사용한 변환 버전과 이관 이력을 남긴다. 원 요청 canonicalization reader까지 안전하게 이관할 수 없으면 해당 contractVersion을 유지한다. 기존 PII 파기와 키 tombstone 정책을 이관이 되돌리지 않는다.
 
 일반 명령 receipt가 단일 종료를 영원히 보장하는 유일한 장치는 아니다. 세션 종료/보상, 주문 소유권, 건물, 퀘스트 회차에는 **도메인 유일성**을 따로 둔다. 같은 작업을 새 key로 다시 요청했을 때 성공 재생인지 이미 완료409인지는 도메인 정책이 정하지만 중복 돈 이동은 언제나 금지다. 집중 finish는1763 요구에 따라 이미 종료된 세션의 확정 결과 복구도 설계해야 한다.
 
@@ -188,13 +204,16 @@ sequenceDiagram
 
 ## 5. 화면 조합과 오류 변환
 
-화면 조합기는 독립 **읽기**만 병렬 처리한다. 제안 설정 기본값은 bounded pool16, queue64, 화면 전체 deadline3초다. 서비스별 connect/read/재시도는1659 `InternalHttpClient`와 `Deadline`을 기반으로 보완하고 이3초 예산을 넘겨 독자적인 timeout을 중첩하지 않는다. 조사 시 클라이언트는 `MAX_ATTEMPTS=2` 하드코딩·readTimeout 입구 예산 검사만 있으며 requestId 전파가 없다. 재시도 횟수 설정, 남은 예산에 connect/read/대기 포함, 요청 추적 헤더 전달, 취소 시 실제 I/O 종료는 **1753 추가 구현 항목**이다. 이 수치는 초기 기술 설정이며 처리량/SLO를 실측한 운영 보장이 아니다. 1753에서 부하·고갈 테스트 후 필요하면 문서와 함께 조정한다.
+화면 조합기는 독립 **읽기**만 병렬 처리한다. 제안 설정 기본값은 bounded pool16, queue64, 화면 전체 deadline3초다. 서비스별 connect/read/재시도는1659 `InternalHttpClient`와 `Deadline`을 기반으로 보완하고 이3초 예산을 넘겨 독자적인 timeout을 중첩하지 않는다. 과거 조사 스냅샷의 클라이언트는 `MAX_ATTEMPTS=2` 하드코딩·readTimeout 입구 예산 검사만 있으며 requestId 전파가 없다. 재시도 횟수 설정, 남은 예산에 connect/read/대기 포함, 요청 추적 헤더 전달, 취소 시 실제 I/O 종료는 **1753 추가 구현 항목**이다. 이 수치는 초기 기술 설정이며 처리량/SLO를 실측한 운영 보장이 아니다. 1753에서 부하·고갈 테스트 후 필요하면 문서와 함께 조정한다.
 
-각 조각은 `name`, `required`, 공개 DTO type, 허용한 일시실패 분류, 같은 context/deadline을 받는다. 전체 남은 예산이 없으면 더 enqueue하지 않고504 `UPSTREAM_TIMEOUT`으로 종료한다. context 조회·큐 대기·enqueue 전후 어느 지점에서 소진돼도 같은 시간 초과 계약을 적용한다. 예산이 남아 있지만 executor가 포화면503 `SERVICE_UNAVAILABLE`로 종료한다. 완료하지 않은 작업은 취소하고 underlying HTTP 요청/연결이 계속 살아남지 않는지 검증한다. pool 공유범위와 서비스별 연결 상한을 함께 둔다.
+각 조각은 `name`, `required`, 공개 DTO type, 허용한 일시실패 분류, 같은 context/deadline을 받는다. 전체 남은 예산이 없으면 더 enqueue하지 않고504 `UPSTREAM_TIMEOUT`으로 종료한다. context 조회·큐 대기·enqueue 전후 어느 지점에서 소진돼도 같은 시간 초과 계약을 적용한다. 예산이 남아 있지만 executor가 포화면503 `SERVICE_UNAVAILABLE`로 종료한다. 전체 화면 응답을 조기에 확정하는 **모든 경로**에서 미완료 작업을 취소한다. 예산 초과·포화뿐 아니라 필수/선택 조각의401/403/502 등 즉시 실패도 포함한다. Future 취소만으로 완료로 보지 않고 underlying HTTP I/O 중단·연결 반환/폐기·큐 작업 제거를 검증한다. pool 공유범위와 서비스별 연결 상한을 함께 둔다.
+
+전체 deadline 판정은 선택 조각 폴백보다 우선한다. 필수 조각이 먼저 완료됐어도 마지막 선택 조각을 기다리다 전체3초를 소진하면504다. 개별 조각 timeout이 **전체 예산이 남아 있을 때** 발생한 경우에만 선택 필드를 null로 둘 수 있다. 성공/부분 성공 응답을 확정하는 마지막 지점에서도 deadline을 검사하며, 소진했으면200으로 보내지 않는다. 이미 응답이 확정된 뒤 시간을 다시 판정해 HTTP 응답을 바꾸는 의미는 아니다.
 
 | 실패 | 필수 조각 | 선택 조각 |
 | --- | --- | --- |
-| 일시503/timeout/회로열림 | 화면503/504 | 해당 필드null, requestId·조각명·사유 로그 |
+| 전체 deadline 소진 | 화면504 UPSTREAM_TIMEOUT | 동일504, null 폴백보다 우선 |
+| 전체 예산이 남은 개별 일시503/timeout/회로열림 | 화면503/504 | 해당 필드null, requestId·조각명·사유 로그 |
 | 주체401/도메인403 | 화면401/403 | 화면401/403; null로 숨기지 않음 |
 | 상류 서비스토큰 거절 | 502 UPSTREAM_AUTH_FAILED | 같은502 |
 | 상류 DTO/오류 계약 위반 | 502 UPSTREAM_CONTRACT_ERROR | 같은502 |
@@ -217,8 +236,12 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | Postgres 두 동시 동일key·본문불일치·커밋후응답유실·rollback | 이중 차감/보상, 잘못된 결과 재생 |
 | 동일key 성공후 stale expectedVersion·다른key 종료/구매 | 원 성공409오인 또는 도메인유일성 누락 |
 | 현재requestId와원result 분리·새id요청 로그 연결 | 과거requestId/다른현재잔액을 재생 |
+| 구버전 receipt reader/순수 adapter/미지원409·배포 후 같은 키 복구 | 구형 DTO 노출, 원 명령·차감 재실행 |
+| 활성 본인의 leave/transfer 제한 증거·타인 scope·권한 소멸·비활성 계정 | 관리자/초대 자격 노출, 탈퇴 인증 우회 |
+| 4개 timezone 누락/Asia/Seoul/다른 값/null·측정 fingerprint 동일성 | 날짜 버킷 분산·재시도 충돌 |
+| 선택적 게스트 AT subject 승계·위조/만료 AT·메시지 field=clientMessageId | 계정 데이터 분리·오류 입력 오표시 |
 | cursor 서명/만료/타사용자/필터/동률/메시지방향 | 정보유출·페이지중복/누락·무한스크롤루프 |
-| bounded 병렬·context/큐/enqueue 전후 예산 소진504·executor 포화503·필수/선택 실패·권한오류·취소 후 자원회수 | thread/connection 고갈, 권한상실 은폐 |
+| bounded 병렬·context/큐/enqueue 전후 예산 소진504·executor 포화503·선택 timeout과 전체504 경계·필수/선택 즉시 실패·모든 조기 종료의 실제 I/O 취소 후 자원회수 | thread/connection 고갈, 권한상실 은폐 |
 | 1659 auth/key/내부토큰 회귀·기존미리보기 전체 회귀 | 이미 해결한 인증·위성·SSRF 회귀 |
 
 이번 문서 작업에서는 원본 복사본 SHA-256/바이트 비교, 66개 원본 method/path 대조, 변경36개 전수 적용표, 버전필드9개 대조, Markdown 상대 링크와 Mermaid fence 짝을 확인한다. 빌드·단위/통합 테스트는 문서 변경에 실행하지 않으며 위 표의 통과를 주장하지 않는다. 실제 검증 결과는 구현 PR에 명령·exit code·결과 파일과 함께 남긴다.
