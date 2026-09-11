@@ -1,5 +1,7 @@
 package com.oneorthree.chat;
 
+import com.oneorthree.chat.auth.JwtValidator;
+import com.oneorthree.chat.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.chat.common.redis.RedisKeys;
 import com.oneorthree.chat.fanout.ChatFanout;
 import com.oneorthree.chat.fanout.ChatFanoutEvent;
@@ -13,6 +15,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,6 +27,7 @@ import org.springframework.lang.NonNull;
 import org.springframework.messaging.converter.CompositeMessageConverter;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
 import org.springframework.messaging.converter.SimpleMessageConverter;
+import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
@@ -51,6 +56,8 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
  * 실제 소켓으로 두 규칙을 확인한다 — <b>같은 섬 안에서만</b>, <b>집중 중엔 못 들어온다</b>.
@@ -397,6 +404,53 @@ class ChatWebSocketIntegrationTest {
         outsiderSession.send("/topic/groups/" + island, new SendMessageRequest("위조", UUID.randomUUID()));
 
         assertThat(deliveries.poll(3, TimeUnit.SECONDS)).isNull();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = StompCommand.class,
+            names = {"SEND", "SUBSCRIBE"})
+    @DisplayName("다른 기기가 캐시를 채워도 만료된 소켓의 새 구독과 발신은 거절된다")
+    void expiredSocketCannotUseOtherDevicesMembershipCache(
+            StompCommand command) throws Exception {
+        Instant expiration = Instant.now().plusSeconds(4);
+        String expiredBearer = "Bearer " + Jwts.builder()
+                .subject(resident.toString())
+                .claim("type", "access")
+                .expiration(Date.from(expiration))
+                .signWith(Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8)))
+                .compact();
+        given(groupClient.fetchMyGroupIds(expiredBearer))
+                .willThrow(new UpstreamRejectedCredentialException());
+        givenMemberOf(resident, island);
+
+        RecordingHandler expiredHandler = new RecordingHandler();
+        StompSession expiredPhone = connectWith(expiredBearer, expiredHandler);
+        while (Instant.now().isBefore(expiration.plusMillis(100))) {
+            Thread.sleep(100);
+        }
+        assertThat(new JwtValidator(jwtSecret)
+                .extractUserId(expiredBearer.substring(7))).isEmpty();
+
+        // 새 토큰을 가진 두 번째 기기가 실제 SUBSCRIBE 로 공유 캐시를 채운다.
+        StompSession freshTablet = connect(resident, new RecordingHandler());
+        subscribeToIsland(freshTablet, island);
+        long cacheDeadline = System.currentTimeMillis() + 10_000;
+        while (!Boolean.TRUE.equals(redis.hasKey(RedisKeys.memberCache(resident)))
+                && System.currentTimeMillis() < cacheDeadline) {
+            Thread.sleep(50);
+        }
+        assertThat(redis.opsForValue().get(RedisKeys.memberCache(resident)))
+                .contains(island.toString());
+
+        if (command == StompCommand.SUBSCRIBE) {
+            subscribeToIsland(expiredPhone, island);
+        } else {
+            expiredPhone.send("/app/groups/" + island + "/send",
+                    new SendMessageRequest("만료된 토큰의 발신", UUID.randomUUID()));
+        }
+        assertThat(expiredHandler.awaitError()).isEqualTo("UNAUTHORIZED");
+        verify(groupClient, never())
+                .fetchMyGroupIds(expiredBearer);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────

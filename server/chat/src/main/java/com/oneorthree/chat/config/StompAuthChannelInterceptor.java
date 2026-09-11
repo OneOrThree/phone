@@ -163,6 +163,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         String destination = String.valueOf(accessor.getDestination());
 
         if (PERSONAL_ERROR_QUEUE.equals(destination) || PERSONAL_DUPLICATE_QUEUE.equals(destination)) {
+            requireAuthenticated(accessor);
             return;
         }
 
@@ -173,9 +174,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
         }
 
-        if (!(accessor.getUser() instanceof ChatPrincipal principal)) {
-            throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
-        }
+        ChatPrincipal principal = requireAuthenticated(accessor);
 
         UUID groupId;
         try {
@@ -230,9 +229,21 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
         }
 
-        if (!(accessor.getUser() instanceof ChatPrincipal)) {
+        requireAuthenticated(accessor);
+    }
+
+    /** 사용자별 멤버십 캐시와 무관하게, 이 세션의 토큰이 지금도 유효한지 확인한다. */
+    private ChatPrincipal requireAuthenticated(StompHeaderAccessor accessor) {
+        if (!(accessor.getUser() instanceof ChatPrincipal principal)) {
             throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
         }
+        String bearer = principal.bearer();
+        String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : null;
+        // 다른 기기가 캐시를 갱신해도 만료된 소켓의 인증 수명이 연장되면 안 된다.
+        jwtValidator.extractUserId(token)
+                .filter(principal.userId()::equals)
+                .orElseThrow(() -> new StompAuthException(CommonErrorCode.UNAUTHORIZED));
+        return principal;
     }
 
     /**

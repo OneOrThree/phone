@@ -134,8 +134,10 @@ class StompAuthChannelInterceptorTest {
     @Test
     @DisplayName("SUBSCRIBE — 개인 큐는 인가 대상이 아니다(Spring 이 세션별로 이름을 가른다)")
     void personalQueueSubscriptionPasses() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
         StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE);
         accessor.setDestination("/user/queue/errors");
+        accessor.setUser(new ChatPrincipal(userId, BEARER));
 
         assertThatCode(() -> interceptor.preSend(message(accessor), null)).doesNotThrowAnyException();
         verifyNoInteractions(accessGuard);
@@ -144,11 +146,34 @@ class StompAuthChannelInterceptorTest {
     @Test
     @DisplayName("SUBSCRIBE — 재전송 되돌림 큐도 열려 있다. 막혀 있으면 재전송이 영원히 응답을 못 받는다")
     void duplicateEchoQueueSubscriptionPasses() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
         StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE);
         // 서버가 «보내는» 목적지와 같은 문자열이어야 한다 — 상수를 되읽어 둘이 어긋나는 순간 깨지게 한다.
         accessor.setDestination("/user" + ChatFanout.DUPLICATE_QUEUE);
+        accessor.setUser(new ChatPrincipal(userId, BEARER));
 
         assertThatCode(() -> interceptor.preSend(message(accessor), null)).doesNotThrowAnyException();
+        verifyNoInteractions(accessGuard);
+    }
+
+    @Test
+    @DisplayName("SUBSCRIBE — 개인 큐도 인증되지 않은 세션이나 만료 토큰에는 열리지 않는다")
+    void personalQueuesRequireValidAuthentication() {
+        for (String destination : new String[] {"/user/queue/errors", "/user" + ChatFanout.DUPLICATE_QUEUE}) {
+            StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE);
+            accessor.setDestination(destination);
+            assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
+                    .isInstanceOf(DomainException.class)
+                    .extracting(e -> ((DomainException) e).getErrorCode())
+                    .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+
+            accessor.setUser(new ChatPrincipal(userId, BEARER));
+            given(jwtValidator.extractUserId("test-token")).willReturn(Optional.empty());
+            assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
+                    .isInstanceOf(DomainException.class)
+                    .extracting(e -> ((DomainException) e).getErrorCode())
+                    .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+        }
         verifyNoInteractions(accessGuard);
     }
 
@@ -224,6 +249,7 @@ class StompAuthChannelInterceptorTest {
     @Test
     @DisplayName("SEND — 인증된 세션은 통과한다. 규칙 판정은 서비스 몫이라 여기서 관문을 부르지 않는다")
     void authenticatedSendPassesWithoutDomainCheck() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
         StompHeaderAccessor accessor = accessor(StompCommand.SEND);
         accessor.setDestination("/app/groups/" + groupId + "/send");
         accessor.setUser(new ChatPrincipal(userId, BEARER));
@@ -247,6 +273,7 @@ class StompAuthChannelInterceptorTest {
         StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE);
         accessor.setUser(new ChatPrincipal(userId, BEARER));
         accessor.setDestination("/topic/groups/" + "-".repeat(36));
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
 
         assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
                 .isInstanceOf(DomainException.class)

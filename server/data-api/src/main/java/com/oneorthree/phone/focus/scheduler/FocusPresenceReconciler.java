@@ -235,7 +235,9 @@ public class FocusPresenceReconciler {
                     session.getStartedAt())) {
                 // 저장소가 흔들린다. 남은 건을 이어 가면 «각각» 타임아웃을 기다려, 부가 기능의 장애가
                 // 스케줄러 슬롯을 인원수배로 점유한다 — 같은 풀의 다른 크론이 그만큼 밀린다.
-                // 여기서 멈춰도 잃는 것이 없다: 다음 회차가 같은 목록을 다시 읽는다.
+                // 응답 타임아웃이어도 Redis 쓰기는 성사됐을 수 있다. 그 사이 종료된 세션은 다음
+                // 진행 중 조회에서 빠지므로, 실패한 이번 시도도 되묻기 후보에 남긴다.
+                rememberForNextCycle(List.of(session.getId()));
                 log.warn("집중 프레즌스 재구축 중단(저장소 실패) — {}건 중 {}건까지, 다음 회차가 이어 간다",
                         alive.size(), restored.size());
                 break;
