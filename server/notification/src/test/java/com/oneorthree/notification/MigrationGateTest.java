@@ -232,6 +232,74 @@ class MigrationGateTest {
     }
 
     @Test
+    void closeReplayClosesAReopenedGateAndDrainsAgain() throws Exception {
+        var records = records(true, 5);
+        load("i1", records);
+        verify(records, 1, 0);
+        open("o1", records, 1);
+        post("/internal/admin/dispatch/close", "c1", Map.of());
+        assertThat(open("o2", records, 1).getResponse().getStatus()).isEqualTo(200);
+        var replay = body(post("/internal/admin/dispatch/close", "c1", Map.of()));
+        assertThat(replay).containsEntry("drained", true);
+        assertThat(Json.map(replay.get("dispatch"))).containsEntry("enabled", false);
+        assertThat(store.one("SELECT enabled FROM dispatch_control WHERE id=1"))
+                .containsEntry("enabled", false);
+    }
+
+    @Test
+    void openReplayCannotUndoALaterCloseButANewOpenCanResume() throws Exception {
+        var records = records(true, 5);
+        load("i1", records);
+        verify(records, 1, 0);
+        assertThat(open("o1", records, 1).getResponse().getStatus()).isEqualTo(200);
+        assertThat(open("o1", records, 1).getResponse().getStatus()).isEqualTo(200);
+        post("/internal/admin/dispatch/close", "c1", Map.of());
+        assertThat(code(open("o1", records, 1))).isEqualTo("DISPATCH_OPEN_REPLAY_STALE");
+        assertThat(store.one("SELECT enabled FROM dispatch_control WHERE id=1"))
+                .containsEntry("enabled", false);
+        assertThat(open("o2", records, 1).getResponse().getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void closeReplayWaitsForAnInflightDispatchGateLock() throws Exception {
+        var records = records(true, 5);
+        load("i1", records);
+        verify(records, 1, 0);
+        open("o1", records, 1);
+        post("/internal/admin/dispatch/close", "c1", Map.of());
+        open("o2", records, 1);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try (Connection inflight = dataSource.getConnection()) {
+            inflight.setAutoCommit(false);
+            try (Statement statement = inflight.createStatement()) {
+                statement.execute("SELECT enabled FROM dispatch_control WHERE id=1 FOR SHARE");
+            }
+            Future<MvcResult> closing = worker.submit(() ->
+                    post("/internal/admin/dispatch/close", "c1", Map.of()));
+            awaitBlockedOnTheGate();
+            assertThat(closing.isDone()).isFalse();
+            inflight.commit();
+            var response = body(closing.get(30, TimeUnit.SECONDS));
+            assertThat(response).containsEntry("drained", true);
+            assertThat(Json.map(response.get("dispatch"))).containsEntry("enabled", false);
+        } finally {
+            worker.shutdownNow();
+        }
+    }
+
+    @Test
+    void openReplayRevalidatesTheActualRows() throws Exception {
+        var records = records(true, 5);
+        load("i1", records);
+        verify(records, 1, 0);
+        assertThat(open("o1", records, 1).getResponse().getStatus()).isEqualTo(200);
+        store.update("UPDATE settings SET night_end_time='08:00:00' WHERE user_id=?", USER);
+        assertThat(code(open("o1", records, 1))).isEqualTo("VERIFICATION_FAILED");
+        assertThat(store.one("SELECT enabled FROM dispatch_control WHERE id=1"))
+                .containsEntry("enabled", false);
+    }
+
+    @Test
     void openReRunsVerificationAndEverOpenedNeverGoesBack() throws Exception {
         List<Map<String, Object>> records = records(true, 5);
         load("i1", records);

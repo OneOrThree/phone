@@ -516,6 +516,9 @@ paths:
         전부 커밋을 끝내므로, 여기 아래의 검사는 그 이후의 DB 만 본다. 같은 이유로 import 와 잠금 순서가
         같아야 한다(반대 순서면 교착한다).
 
+        같은 키 재시도도 게이트 배타 잠금 아래 현재 개방·실제 검증을 다시 확인한다. 이후 close로
+        닫혔으면 `409 DISPATCH_OPEN_REPLAY_STALE`로 거절한다. 의도적인 재개에는 새 open 키를 사용한다.
+        실제 데이터 재검증 실패는 개방 트랜잭션 종료 후 발송을 닫고 drain하며 검증 태그를 지운다.
         성공하면 `dispatch_control.enabled=true` · `ever_opened=true` 가 되고 `opened_at` 이 한 번만 찍힌다.
         **`ever_opened` 는 어떤 경로로도 false 로 돌아가지 않는다** — 이 시점부터 roll-forward 전용이고,
         이후 중지·재개도 신 경로에서 수행한다. 최초 개방 전에는 이관한 발송 상태 필드까지 일치해야 한다.
@@ -553,6 +556,7 @@ paths:
       description: |
         `dispatch_control` 행을 UPDATE 한다. DispatchService 는 발송 트랜잭션 내내 그 행에 `FOR SHARE` 를
         걸고 있으므로, 이 UPDATE 는 **진행 중이던 발송이 전부 커밋될 때까지 대기**한다.
+        같은 키 재시도도 이 UPDATE와 drain을 다시 수행한다.
         따라서 이 호출이 200 으로 돌아온 시점에는 인플라이트 발송이 남아 있지 않다(`drained: true`).
 
         닫힌 게이트는 **발송만** 막는다. 알림 설정·기기 등록/삭제·탈퇴 tombstone·결과 ack 억제 같은

@@ -165,9 +165,8 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
      * <p>엔티티를 로드하지 않는 것이 이 조회의 존재 이유다. {@link #findByGroup} 으로 멤버를 읽어
      * 두면 그 스냅샷은 <b>잠금 없이</b> 뜬 값인데, 이름 변경 트랜잭션은 그 뒤에 링크 멤버십
      * aggregate 잠금을 기다린다 — 그 대기 중에 커밋된 탈퇴·강퇴는 이미 로드된 엔티티에 반영되지
-     * 않는다. {@code GroupMember} 에는 {@code @Version} 도 {@code @DynamicUpdate} 도 없어
-     * 더티 체킹이 <b>전 컬럼 UPDATE</b> 를 내므로, 그 상태로 표시 버전만 올려도 {@code is_left}·
-     * {@code left_reason}·{@code membership_epoch} 까지 옛 값으로 되돌아간다(강퇴자 부활).
+     * 않는다. 변경 컬럼만 저장해도 이 활성 판정은 새로 해야 한다. PK로 행을 잠근 뒤 조건부
+     * UPDATE의 {@code is_left=false}와 갱신 행 수로 실제 갱신 대상을 확인한다.
      *
      * <p>{@code id} 오름차순은 동시 이름 변경끼리 같은 순서로 행을 잠그게 해 교착을 막는다.
      *
@@ -204,9 +203,8 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     /**
      * 표시정보 스냅샷 버전만 전진시킨다 (A22 ㋡) — <b>컬럼 하나짜리 UPDATE</b> 다.
      *
-     * <p>더티 체킹으로 올리면 전 컬럼 UPDATE 가 나가 멤버십 축({@code is_left}·{@code left_reason}·
-     * {@code membership_epoch}·{@code transition_seq})까지 옛 스냅샷으로 덮인다. 표시 축과 멤버십
-     * 축은 서로를 건드리지 않아야 하므로 쓰기도 컬럼 단위로 좁힌다.
+     * <p>동적 더티 갱신과 별개로, 활성 조건과 갱신 행 수를 같은 SQL에서 판정하기 위해 명시적인
+     * 컬럼 UPDATE를 유지한다. 표시 축은 멤버십 축을 변경하지 않는다.
      *
      * <p>{@code is_left = false} 조건이 곧 경합 판정이다. 링크 멤버십 aggregate 잠금 아래에서 돌기
      * 때문에, 먼저 커밋된 탈퇴·강퇴가 있으면 여기서 0행이 되고 호출측은 명령 자체를 적지 않는다 —

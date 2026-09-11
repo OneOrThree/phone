@@ -24,8 +24,8 @@ import java.util.UUID;
  * 그룹 멤버십을 <b>바꾸는</b> 경로 — 방장 위임·강퇴·그룹 탈퇴. 조회는 {@code GroupService} 가 맡는다.
  *
  * <p>세 경로 모두 요청자(대상이 있으면 대상까지) users 행을 공유 락으로 읽는다. 계정 탈퇴와
- * 직렬화되지 않으면 탈퇴 확정 계정이 방장을 넘겨받거나, {@code GroupMember} 에 {@code @Version}
- * 이 없어 탈퇴가 쓴 이탈 표시를 이 트랜잭션의 full-row UPDATE 가 통째로 되살린다.
+ * 직렬화되지 않으면 탈퇴 확정 계정이 방장을 넘겨받을 수 있다. 변경 컬럼만 저장하더라도
+ * 활성 계정 판정과 권한 변경의 순서는 이 공유 락으로 계속 보장해야 한다.
  *
  * <p>404 가 두 버킷으로 갈린다 — 요청자 세션이 죽었으면 {@code USER_NOT_FOUND}(재로그인),
  * 지목한 <b>대상</b>이 없으면 {@code NOT_FOUND} 다. 대상 부재를 전자로 바꾸면 앱이 멀쩡한 방장을
@@ -66,10 +66,8 @@ public class GroupMemberService {
         User user = requireActiveUser(userId);
 
         // 위임 대상은 활성 검증 + 공유 락 (GROMO-801, codex 리뷰) — 락 없는 findById 면 대상의 계정
-        // 탈퇴(유저 행 배타 락)와 직렬화되지 않는다. 탈퇴가 owner 검사·멤버십 leave 를 끝낸 뒤 이
-        // 위임이 flush 되면 GroupMember 에 @Version 이 없어 full-row UPDATE 가 is_left=false 를
-        // 되살리며 role=OWNER 를 세워, 탈퇴한 유저가 오너인(그리고 전 오너는 이미 강등된) 그룹이
-        // 남는다. 탈퇴가 먼저 커밋되면 여기서 삭제를 관측하고 기존 계약대로 NOT_FOUND 로 거절된다.
+        // 탈퇴(유저 행 배타 락)와 직렬화되지 않는다. 변경 컬럼만 저장해도 활성 판정 뒤 탈퇴한 계정에
+        // OWNER 역할을 넘기는 경합은 막지 못한다. 탈퇴가 먼저 커밋되면 여기서 삭제를 관측해 거절한다.
         //
         // GROMO-1247: 여기는 <b>대상</b> 유저라 USER_NOT_FOUND(요청자 세션 사망 → 재로그인)로 바꾸지
         // 않는다. 방장이 없는 유저를 지목한 것이지 내 세션이 죽은 게 아니다 — 바꾸면 앱이 멀쩡한
@@ -116,8 +114,7 @@ public class GroupMemberService {
         }
 
         // 강퇴 대상도 활성 검증 + 공유 락 (GROMO-1227) — 위 transferOwner 대상과 같은 논증이다.
-        // GroupMember 에 @Version 이 없어 kick() 의 full-row UPDATE 가, 대상의 계정 탈퇴가 같은
-        // 행에 이미 flush 한 변경(leave)을 stale 스냅샷으로 덮어쓴다(lost update). 탈퇴가 먼저
+        // kick()과 계정 탈퇴의 leave()는 같은 이탈 사유를 바꾸므로 변경 컬럼만 저장해도 경합한다. 탈퇴가 먼저
         // 커밋되면 여기서 삭제를 관측하고 TARGET_USER_NOT_FOUND 로 거절된다(GROMO-1725).
         // GROMO-1247: transferOwner 대상과 같은 이유로 USER_NOT_FOUND 로 바꾸지 않는다(대상 유저다).
         User targetUser = userQueryService.getTargetForShare(targetUserId);
