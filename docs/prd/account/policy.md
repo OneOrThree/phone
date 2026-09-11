@@ -13,20 +13,20 @@ GROMO-1756 · 2026-09-12 · [색인](README.md) · [상세 계약](low-level-des
 | A05 | AT/RT 타입·서명·만료를 검증하고 RT 원문을 DB/로그에 저장하지 않는다. | 기존 JwtProvider·TokenHasher |
 | A06 | 로그인은 Data upsert → Business 서명 → Data CAS 확정이다. 같은 성공 준비 generation은 고정 서명 재료로 재생한다. 폐기 아닌 CAS 경쟁은 동일 attempt/자격의 새 nonce 재준비이며 INVALIDATED와 분리한다. | 이미 확정된 장부 ㊑/㊔/㊙/㊡. 현재 main의 구현 완료를 뜻하지 않음 |
 | A07 | 회전하지 않는 refresh는 새 AT와 `refreshToken:null`을 반환한다. 회전 CAS 0행은 401이다. | 기존 AuthService와 장부 ㉮ |
-| A08 | RT 정본을 `(userId, sessionId)`로 전환한다. 개별 로그아웃은 해당 세션/Bootstrap만 폐기하고 기기 삭제 outbox를 만들지 않는다. 대상 토큰·ownership DELETE가 기기 삭제를 소유하며, authGeneration은 탈퇴·전 기기 로그아웃만 증가시킨다. | 장부 ㋣/㊼ |
-| A09 | sid 없는 legacy RT는 최대 유효 수명 동안 병행 조회하고 첫 refresh에서 세션 토큰으로 승격한다. | 장부 ㋪. 타입 없는 잘못된 토큰을 허용한다는 뜻이 아님 |
+| A08 | RT 정본을 `(userId, sessionId)`로 전환한다. 개별 로그아웃은 해당 세션/Bootstrap만 폐기하고 기기 삭제 outbox를 만들지 않는다. 대상 토큰·ownership DELETE가 기기 삭제를 소유한다. 새 앱은 삭제 큐 생성 시 고정 Idempotency-Key를 저장하고 직접 전달/outbox relay가 같은 파생 키를 사용하며, 완료 재생은 원 명령 인증·scope·fingerprint 대조 후 과거 ownership 거절보다 먼저 판정한다. authGeneration은 탈퇴·전 기기 로그아웃만 증가시킨다. | 장부 ㋣/㊼ |
+| A09 | sid 없는 legacy RT는 최대 유효 수명 동안 병행 조회하고 첫 refresh에서 세션 토큰으로 승격한다. 앱은 sid 없는 유효 AT도 신규 /me 계열 진입 전에 기존 refresh로 강제 전환하고 AT/RT 묶음을 원자 저장·공개한다. 가짜 sid는 만들지 않는다. | 장부 ㋪. 타입 없는 잘못된 토큰을 허용한다는 뜻이 아님 |
 | A10 | 탈퇴의 환불·증거 동결·관계 정리·파기는 Data 단일 TX다. 주민이 남은 방장은 위임 전 `HOST_WITHDRAW`이며 혼자면 그룹도 닫는다. | 기존 AccountWithdrawalService·GroupMemberService |
-| A11 | 계정은 soft delete한다. 직접 PII 파기와 정산·관계 증거의 보존을 구분하고, 현재 남아 있는 개인 필드는 파기 누락으로 드러낸다. group_announcements.user_id도 같은 탈퇴 TX에서 nullify하고 생성과 users 잠금으로 직렬화한다. | 기존 FK·정산 근거 및 1756 완료 조건. 보존 행이 있으므로 완전 익명화/모든 행 삭제라고 표현하지 않음 |
+| A11 | 계정은 soft delete한다. 직접 PII 파기와 정산·관계 증거의 보존을 구분하고, 현재 남아 있는 개인 필드는 파기 누락으로 드러낸다. group_announcements.user_id도 같은 탈퇴 TX에서 nullify하고 생성과 users 잠금으로 직렬화한다. group_challenge_members의 사용자별 창형 측정 원본은 판정에 필요한 증거 확정을 검증한 뒤 같은 TX에서 hard delete한다. 필요한 판정이 불명확하면 탈퇴 성공을 확정하지 않는다. 최소 정산 증거는 별도 참가 행에 보존하고 원본 측정 이력/프로필로 노출하지 않는다. | 기존 FK·정산 근거 및 1756 완료 조건. 보존 행이 있으므로 완전 익명화/모든 행 삭제라고 표현하지 않음 |
 | A12 | 신규 계정 조회·변경은 동기 활성 검사를 수행한다. 로그인에는 제공자 증명과 대상 계정 활성 검사, 로그아웃에는 RT 증명과 대상 세션 검사를 적용한다. | 1757 완료 조건. legacy 조회의 AT 만료까지 읽기 창은 별도 호환 계약. 본인 부재는 기존 404 USER_NOT_FOUND를 보존 |
 | A13 | 알림 선호 정본은 이관 뒤 알림 서버다. Data는 내구 명령/outbox, Business는 전달·응답을 맡는다. | 1659 기반 재사용. 새 Data 설정 정본을 중복 생성하지 않음 |
 | A14 | `notifications` PATCH는 부분 명령과 field mask를 끝까지 유지한다. 적용 순서 역전에 대비해 알림 서버에 필드별 적용 버전을 둔다. | 기술 결정. 기존 전체 PUT은 5개 필드를 모두 선택하고 각 버전을 전진시킴 |
 | A15 | 음량·음소거·진동·동작 줄이기는 기기 로컬, OS 알림 권한은 OS 정본이다. | 원본 설정 계약. `notifications=true`가 OS 허용을 뜻하지 않음 |
 | A16 | PATCH 프로필·PATCH 설정·DELETE 계정에는 1750의 범용 멱등 키를 적용한다. 로그인/로그아웃은 별도 인증 계약이다. | 선행 1750 적용 표. 일반 receipt에 토큰이나 cookie를 저장하지 않음 |
 | A17 | 본문 없는 로그아웃의 RT는 `X-Refresh-Token` 전용 헤더로 전달한다. AT가 같이 있으면 같은 사용자·세션이어야 한다. AT 만료가 유효 RT 폐기를 막지 않도록 RT가 인증 정본이다. | 기술 결정. 기존 RT 증명 의도 유지, 요청/추적/프록시 로그에서 헤더 삭제 |
-| A18 | 기존 제공자의 token 검증 경로는 명시적 `credential` 확장으로 유지한다. `authorizationCode`는 실제 교환 어댑터가 처리하며 JWT 검증 함수에 대신 넣지 않는다. | 기술 결정. 원본 code-only 대비 변경은 LLD에 명시 |
+| A18 | 기존 제공자의 token 검증 경로는 명시적 `credential` 확장으로 유지한다. `authorizationCode`는 실제 교환 어댑터가 처리하며 JWT 검증 함수에 대신 넣지 않는다. 미지원 provider는 기존 400 UNSUPPORTED_PROVIDER를 보존하고, 알려진 provider의 지원하지 않는 credential 종류와 구분한다. | 기술 결정. 원본 code-only 대비 변경은 LLD에 명시 |
 | A19 | 앱 명령/로그인 시도 ID는 하이픈 포함 36자 UUID이며 v4/v7은 생성 권고다. 다른 버전 비트라는 이유로 거부하지 않는다. | 선행 공통 UUID 규약과 일치 |
 
-A06/A08/A09는 목표 계약이다. main은 Data에서 JWT를 발급하고 `users.refreshTokenHash` 하나를 보관한다. 미통합 1659에는 세션 확인·bootstrap·outbox 기반이 있으나 세션별 RT 정본 전환이나 전체 Business 로그인 이관이 끝난 것은 아니다.
+A06/A08/A09 및 A11의 추가 파기·검증은 목표 계약이다. 기존 기기 DELETE의 키 생략 호환은 유지하되 새 앱 삭제 흐름에는 고정 키가 필수다. main은 Data에서 JWT를 발급하고 `users.refreshTokenHash` 하나를 보관한다. 미통합 1659에는 세션 확인·bootstrap·outbox 기반이 있으나 세션별 RT 정본 전환이나 전체 Business 로그인 이관이 끝난 것은 아니다.
 
 ## RT 장부 대조
 
@@ -37,6 +37,7 @@ A06/A08/A09는 목표 계약이다. main은 Data에서 JWT를 발급하고 `user
 | ⓠ | Business 후보 서명·Data CAS. 구 RT 유지 문구는 취소되고 ㉮ 우선 | 실제 서명/저장 분리 근거로 함께 대조 |
 | ㊑/㊔ | userId upsert 뒤 서명, 로그인 시도 nonce로 조건부 저장 | 준비·확정 명령과 내구 시도 상태 |
 | ㊙/㊡ | 고정 서명 재료, 성공 CAS 재생·경쟁 충돌 재준비 | 같은 attempt/자격으로 generation+nonce를 한 번 재발급. 폐기 INVALIDATED 및 refresh 경쟁 실패와 분리 |
+| ㊱ | ownership 변경 뒤 삭제 성공 응답 재시도 | 같은 사용자·scope·fingerprint의 고정 키 완료 재생을 과거 ownership 거절보다 먼저 판정. 새 등록은 삭제하지 않음 |
 | ㊲/㊨/㊪ | 기기 DELETE 위치에서 대상 FCM·소유권 outbox 기록 | RT-only logout에는 세션/bootstrap 폐기만. X-Device-Token·X-Device-Ownership은 별도 DELETE가 처리 |
 | ㊒ | 선택적 AT로 게스트 승격 | 기존 userId·지갑·집중·그룹 보존 |
 | ㋣/㋪ | 세션별 RT, legacy expand/contract | 기기 B 로그인이 A의 RT를 없애지 않음 |

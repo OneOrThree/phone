@@ -64,7 +64,11 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    RT[유효 RT] --> SID{sid 존재?}
+    Entry[신규 /me 계열 진입] --> AT{AT에 sid 존재?}
+    AT -->|없음 또는 AT 갱신 필요| Refresh[기존 refresh 경로 강제 호출]
+    AT -->|유효 sid AT| Ready[세션 검증을 받는 신규 요청]
+    Refresh --> RT[유효 RT]
+    RT --> SID{sid 존재?}
     SID -->|없음| Legacy[legacy 해시와 활성 사용자 대조]
     Legacy --> Promote[첫 refresh에서 세션 행과 sid 토큰으로 원자 승격]
     SID -->|있음| Session[해당 사용자·세션 해시 대조]
@@ -73,13 +77,19 @@ flowchart TD
     Due -->|맞음| CAS[기존 해시 조건부 교체]
     CAS -->|1행| New[새 AT + 새 RT]
     CAS -->|0행| Fail[401 REFRESH_TOKEN]
+    Promote --> Store[AT와 RT 묶음 원자 저장·공개]
+    Keep --> Store
+    New --> Store
+    Store --> Ready
 ```
+
+현재 앱 `getFreshAccessToken`은 만료가 남은 AT를 바로 반환하므로 서버의 legacy RT 승격만으로 새 `/me` 진입이 보장되지 않는다. 새 앱은 이 빠른 반환 전에 sidless AT 전환 gate를 둔다. 기존 `/api/v1/auth/refresh`를 single-flight로 호출하고 로그인/로그아웃 generation을 대조한 뒤, AT/RT를 하나의 커밋된 인증 묶음으로 원자 저장·공개해야 gate가 열린다. 현행 두 번의 `AsyncStorage.setItem`은 이 원자성을 보장하지 않는다. 강제 승격에서는 새 sid AT와 sid RT가 모두 필요하며 클라이언트가 sid를 만들어 붙이지 않는다. 응답 유실·저장 실패 시 부분 토큰으로 진행하지 않고, 구 RT가 이미 폐기됐다면 정상 제공자 재인증으로 복구한다. [상세 진입 gate](low-level-design.md#유효한-sidless-at를-가진-기존-앱-설치의-진입-gate)를 따른다.
 
 기기 A와 B는 서로 다른 sessionId를 가진다. B 로그인은 A 세션의 RT를 교체하지 않는다. sid 없는 legacy RT를 이름만 바꿔 폐기하지 않고, 기존 토큰의 최대 유효 수명과 실제 만료 시각을 기준으로 호환 창을 닫는다. prod/dev의 AT TTL이 다르므로 임의의 1시간을 전체 환경 공통 전제로 삼지 않는다.
 
 `DELETE /auth/sessions/current`는 정확한 경로·메서드만 AT 필수 검사에서 제외하고 RT 전용 검증으로 인증한다. `X-Refresh-Token`은 필수이며 AT를 보냈다면 유효하고 같은 세션이어야 한다. 만료된 AT를 아예 보내지 않고 유효 RT만으로 종료할 수 있다. Data 한 TX에서 해당 세션과 bootstrap만 폐기한다. RT에는 대상 FCM 토큰/소유권 값이 없어 기기 삭제 outbox를 여기서 만들지 않는다. 응답을 잃고 같은 RT를 다시 보낸 경우, 아직 유효한 원 RT의 폐기 증명 해시가 일치하고 사용자도 활성일 때만 200을 재생한다.
 
-기기 등록 삭제는 별도 `DELETE /api/v1/users/me/device-token`이 `X-Device-Token`·`X-Device-Ownership`을 받아 처리한다(장부 ㊲·㊨·㊪). 앱은 자격 정리 전에 이 DELETE의 실패를 내구 재시도하며 logout 200을 기기 삭제 성공으로 간주하지 않는다. 사용자 전체 등록을 지우지 않고 대상 토큰의 ownership을 대조해 다른 기기와 재등록을 보존한다.
+기기 등록 삭제는 별도 `DELETE /api/v1/users/me/device-token`이 `X-Device-Token`·`X-Device-Ownership`을 받아 처리한다(장부 ㊲·㊨·㊪). 새 앱은 큐 생성 시 대상과 고정 `Idempotency-Key`를 함께 저장한다. Data outbox 생성은 `K:device-delete-outbox`, 알림 직접 전달과 relay는 동일 `K:device-delete`를 사용한다. 원 사용자·명령 scope·fingerprint 검증 후 완료된 같은 키를 과거 ownership 거절보다 먼저 재생한다. 성공 후 바뀐 ownership으로 원 삭제가 실패하지 않으며 새 등록을 다시 삭제하지 않는다. 기존 클라이언트의 키 생략 호환과 이 새 앱의 필수 키 계약은 구분한다. 앱은 자격 정리 전에 이 DELETE의 실패를 내구 재시도하며 logout 200을 기기 삭제 성공으로 간주하지 않는다. 사용자 전체 등록을 지우지 않고 대상 토큰의 ownership을 대조해 다른 기기와 재등록을 보존한다.
 
 ## 탈퇴: 중앙 원자 처리와 위성 정리
 
@@ -96,6 +106,8 @@ sequenceDiagram
     D->>DB: BEGIN + 활성 users 배타 잠금
     D->>DB: 멱등/권한 검사 + 세션 폐기·위성 명령 기록
     D->>DB: 방장 조건·내기 해제/환불·증거 동결
+    Note over D,DB: 필요한 판정 근거가 불명확하면 전체 롤백
+    D->>DB: group_challenge_members 사용자 측정 원본 hard delete
     D->>DB: 멤버십·친구 정리, 집중/통계 귀속 익명화
     D->>DB: group_announcements.user_id nullify
     D->>DB: 지갑·설정 삭제, 직접 PII·신규 프로필 파기
@@ -106,6 +118,8 @@ sequenceDiagram
     R->>S: 사용자 폐기·개인자료 정리 재전달
     S-->>R: 대상별 적용 확인
 ```
+
+기존 `freezeEvidenceForAccountErasure`는 달성 결과를 참가 행에 확정하지만 판정 target이 없으면 건너뛴다. 이 skip을 파기 준비 완료로 취급하지 않는다. OPEN 내기의 필요한 판정 근거가 확정되었는지 검증한 다음 원본 `group_challenge_members`를 삭제한다. 해당 `user_id`는 NOT NULL FK라 nullify할 수 없다. 최소 정산 결과는 별도 참가 행에 남으며 측정 이력이나 프로필로 공개하지 않는다. 측정 보고의 users 공유 잠금과 탈퇴의 배타 잠금으로 삭제 후 재생성도 차단한다. 새 검증/삭제는 후속 구현 사항이다.
 
 공지 생성은 users 공유 잠금, 탈퇴는 같은 users 배타 잠금을 먼저 사용한다. 생성 선행이면 새 공지도 nullify하고 탈퇴 선행이면 생성은 404 `USER_NOT_FOUND`로 거부한다. 공지 내용은 기존 보존 규칙을 유지한다.
 
@@ -138,7 +152,7 @@ sequenceDiagram
 
 1. 1659 및 공통 계약 통합 상태를 대조하고 중복 엔드포인트/저장소를 막는다.
 2. Q03~Q05 입력을 연결하며 catColor·온보딩·약관 스키마와 세션 expand migration을 준비한다.
-3. 로그인 준비/확정·RT 세션 전환과 회귀 검증을 먼저 완료한다.
+3. 로그인 준비/확정·RT 세션 전환과 앱 sidless 진입 gate·인증 묶음 원자 저장의 회귀 검증을 먼저 완료한다.
 4. 프로필·동기 활성 조회·logout을 연결하고 탈퇴 전수 파기와 경쟁을 검증한다.
 5. 알림 부분 명령·field mask·필드별 version을 양쪽 서비스에 연결한다.
 6. 앱 계약 7종과 legacy 호환을 함께 검증한 뒤 세션 정본을 전환한다. legacy 읽기 제거는 호환 창 종료 후 별도 단계다.
