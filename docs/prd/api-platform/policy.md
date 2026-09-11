@@ -78,6 +78,10 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 
 후속 섬1759·집중1764는 신규 경로를 활성화하기 전에 기존 `GroupQueryService`의 `404 GROUP_NOT_FOUND`와 `FocusQueryService`의 `404 SESSION_NOT_FOUND`를 각각 같은 코드/404로 보존하거나 명시적인 공개404 매핑을 등록하고 계약 테스트로 고정해야 한다. 정상 대상 부재를 미등록502로 바꾸는 상태로 출시하지 않는다. 이 두 도메인 경로는 아직 구현 전이므로 이번 공통 enum에 모든 도메인 상수를 미리 추가하지 않으며, 매핑 구현·회귀는 해당 티켓의 진입/완료 조건으로 추적한다.
 
+신규 섬 조회·관리·공지 어댑터가 기존 Data 경로를 연결할 때 `(403, MEMBER_ONLY)`, `(403, NOT_OWNER)`, `(403, NOTICE_FORBIDDEN)`은 공개 `403 FORBIDDEN`(`retryable=false`, `field=null`)으로 명시 매핑한다. 기준 main `529a396e5f0f88cb78c172110920e1fa6b9388a9`의 `GroupQueryService.getMembership`·`GroupMemberService.transferOwner/kickMember`·`GroupAnnouncementService.createAnnouncement`가 이 사유를 실제 반환하며 `GroupErrorCode`가 모두403을 고정한다. 1759/1762/1771의 해당 경로 활성화 전에 실제 HTTP 회귀에서 비소속·비방장·공지 권한 거절을 각각 검증한다. 잘못된 status/code 조합은 계속502이며, 내부 caller 거부를 사용자 권한 거부로 접지 않는다. legacy `/api/v1`과1659 compat는 기존 세 코드/403을 그대로 보존한다. 이 도메인 등록 의무는 아직 사용하지 않는 모든 상수를 공통 enum에 선제 추가하라는 뜻이 아니다.
+
+집중 종료의 기존 `409 SESSION_ALREADY_ENDED`·`409 SESSION_DISCARDED`는 legacy 경로에서 보존한다. 신규 finish는 [집중 도메인의 완료 결과 복구 계약](https://github.com/OneOrThree/phone/blob/509fe0a68dfdb6e895121efd35d032049bea8827/docs/prd/focus-rest-session/low-level-design.md#L67)에 따라 별도 구현한다. 이미 완료된 새 세션은 현재 결과 열람 권한을 확인한 뒤 원 정산 결과200을 재생하고, legacy 완료행을 새 finish 대상으로 연결하지 않는다. 기존 종료 함수를 그대로 연결한 뒤 두 정상 충돌을 미등록502로 바꾸거나 새 정산을 추정해서 지급하지 않는다. legacy와 신규의 실제 HTTP 회귀를 각각 검증하기 전 신규 finish를 활성화하지 않는다.
+
 신규 로그인1757의 게스트 승격은 기존 `AuthErrorCode.SOCIAL_ACCOUNT_ALREADY_LINKED`와 `GUEST_ALREADY_PROMOTED`의 **409와 코드 이름을 그대로 보존**한다. 두 코드는 기준 main AuthErrorCode:20/25와 AuthService:252/296의 실제 충돌이며 신규 경로에서 미등록502로 바꾸지 않는다. 계정 PR740의 field/retryable 의미와 함께 로그인 활성화 전 공개 registry/handler 매핑·실제 HTTP 회귀를 완료한다. 이는 후속 로그인 구현의 진입 조건이며 이번 공통 구현에 아직 사용하지 않는 enum을 즉시 추가하라는 요구가 아니다. 이미 구현된 설정 경로의 오류 집합과도 구분한다.
 
 계정 PR740의 제공자6종 `*_TOKEN`401과 refresh/RT-only logout의 `REFRESH_TOKEN`401도 신규 해당 경로를 활성화하기 전에 같은 code/status로 등록한다. 로그인 제공자 실패를 UNAUTHORIZED로 합치거나 미등록502로 바꾸지 않으며, 내부 서비스 토큰401은 기존 UPSTREAM_AUTH_FAILED502로 유지한다. 실제 provider/RT 실패 fixture와 위조 서비스 토큰을 따로 검증한다.

@@ -76,7 +76,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 |DELETE|`/me`|필수·PII 파기|검증된 동일 사용자+탈퇴 의도. 기존 탈퇴 원자 명령·PII 파기 보존. 비활성 계정 재생 금지; 탈퇴 후404 USER_NOT_FOUND, 위조·만료 자격401|
 |PATCH|`/me/settings`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/islands`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
-|POST|`/islands/{islandId}/memberships`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
+|POST|`/islands/{islandId}/memberships`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증. 초대 기반은 아래 가입 TX 자격 검증 정본 적용|
 |POST|`/invitations/resolve`|불필요|초대 해석 조회. 키로 조회 결과를 영구 고정하지 않음. claim/가입은 별도 명령|
 |PUT|`/me/current-island`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/focus-sessions`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
@@ -106,6 +106,8 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 |PATCH|`/islands/{islandId}/playback`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |PUT|`/islands/{islandId}/construction-target`|필수|method+라우트·islandId·buildingId·expectedVersion을 fingerprint에 포함. 차감 없음; expectedCostPolicyVersion 불필요|
 |DELETE|`/me/join-requests/{requestId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
+
+초대 기반 memberships 및 방장의 가입 승인에는 [섬 도메인의 가입 TX 정본](https://github.com/OneOrThree/phone/blob/dcade7cd1ab54fd5ba1e4a88a8c8cfc8d35e04dc/docs/prd/island-membership/low-level-design.md#L117)을 적용한다. 서명 capability의 groupId/inviterId/membershipEpoch/원 만료와 신청자·섬 결합, 현재 활성 발급자·멤버십, 폐기 근거를 Data 가입·승인 TX의 잠금 경계에서 대조한다. Business 사전 resolve만으로 가입을 허용하지 않으며, 검증 근거 및 이탈·폐기·가입 경합 회귀가 없으면 활성화하지 않는다. 서명 키·capability와 원자 가입/claim outbox의 상세는 기존 아키텍처와 도메인 정본에 두고, 공통 멱등 표가 이를 대체하지 않는다. 초대 TTL·승인 우회 제품 정책은 계속 미결이다.
 
 추가 경계:
 
@@ -292,6 +294,8 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | 섬 version 불변 중 건설 비용 publication 교체·expectedCostPolicyVersion 충돌/같은 키 확정 재생·목표 PUT 무차감 | 건설 가격 동의 우회, 성공 재생409 오인, 무료 목표에 비용 버전 강제 |
 | 섬 가입1760 기존 ALREADY_MEMBER/GROUP_LIMIT_EXCEEDED/ROOM_FULL409 | 같은 코드/상태 공개등록 및 실제HTTP회귀, 정상 가입 충돌의502변환 금지 |
 | 섬1759·집중1764 신규 경로의 기존 GROUP_NOT_FOUND/SESSION_NOT_FOUND | 활성화 전404 코드 보존/명시 매핑과 실제 route 회귀 필수, 정상 부재의 미등록502 금지 |
+| 섬1759/1762·공지1771의 기존 MEMBER_ONLY/NOT_OWNER/NOTICE_FORBIDDEN | 해당 신규 route의 실제403을 FORBIDDEN403으로 명시 매핑·HTTP 회귀. legacy/compat 원코드 보존, 미등록502로 출시 금지 |
+| 집중1764 legacy 종료와 신규 finish | legacy 두409 보존, 새 완료 세션의 같은키/새키 원 정산200 복구·추가정산0. legacy 완료행 새 finish 연결 금지 |
 | 초대 부재404 SLUG_NOT_FOUND·만료410 INVITATION_EXPIRED·field=code·retryable=false | 입력 수정과 만료를502로 오인 |
 | 미지원 provider400 UNSUPPORTED_PROVIDER·field=provider·legacy 상태 보존 | 지원하지 않는 입력을 상류 장애502로 오인 |
 | 로그아웃 RT 전용 헤더·AT 없음/다른 세션/만료·회전 전 RT·동일 폐기 해시 재시도 | 타 세션 폐기, 응답 유실 후 복구 불가, 기기 소유권 삭제와 혼합 |
