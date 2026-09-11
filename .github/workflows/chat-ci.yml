@@ -44,6 +44,9 @@ jobs:
         working-directory: server/chat
     env:
       GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+      # 같은 VM의 다른 러너가 공유 홈에 캐시를 복원하는 동안 JAR을 덮어쓸 수 있다.
+      # Gradle 실행과 캐시 복원을 모두 이 잡의 임시 디렉터리로 격리한다.
+      GRADLE_USER_HOME: ${{ runner.temp }}/gradle-chat
     steps:
       - uses: actions/checkout@v4
 
@@ -55,10 +58,11 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            /home/runner/.gradle/caches
-            /home/runner/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-chat-${{ hashFiles('server/chat/**/*.gradle*', 'server/chat/**/gradle-wrapper.properties') }}
-          restore-keys: ${{ runner.os }}-gradle-chat-
+            ${{ env.GRADLE_USER_HOME }}/caches
+            ${{ env.GRADLE_USER_HOME }}/wrapper
+          # 공유 홈에서 저장한 캐시를 다시 가져오지 않는다.
+          key: ${{ runner.os }}-chat-gradle-v2-${{ hashFiles('server/chat/**/*.gradle*', 'server/chat/**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-chat-gradle-v2-
 
       - run: chmod +x gradlew
 
@@ -68,7 +72,7 @@ jobs:
       - name: Build (checkstyle + spotbugs + test + bootJar)
         env:
           SPRING_PROFILES_ACTIVE: ci
-        run: ./gradlew build
+        run: ./gradlew build --stacktrace
 
       - uses: actions/upload-artifact@v4
         if: always()
