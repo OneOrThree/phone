@@ -107,7 +107,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 |PUT|`/islands/{islandId}/construction-target`|필수|method+라우트·islandId·buildingId·expectedVersion을 fingerprint에 포함. 차감 없음; expectedCostPolicyVersion 불필요|
 |DELETE|`/me/join-requests/{requestId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 
-초대 기반 memberships 및 방장의 가입 승인에는 [섬 도메인의 가입 TX 정본](https://github.com/OneOrThree/phone/blob/dcade7cd1ab54fd5ba1e4a88a8c8cfc8d35e04dc/docs/prd/island-membership/low-level-design.md#L117)을 적용한다. 서명 capability의 groupId/inviterId/membershipEpoch/원 만료와 신청자·섬 결합, 현재 활성 발급자·멤버십, 폐기 근거를 Data 가입·승인 TX의 잠금 경계에서 대조한다. Business 사전 resolve만으로 가입을 허용하지 않으며, 검증 근거 및 이탈·폐기·가입 경합 회귀가 없으면 활성화하지 않는다. 서명 키·capability와 원자 가입/claim outbox의 상세는 기존 아키텍처와 도메인 정본에 두고, 공통 멱등 표가 이를 대체하지 않는다. 초대 TTL·승인 우회 제품 정책은 계속 미결이다.
+초대 기반 memberships 및 **초대로 생성된 pending 요청의 방장 승인**에는 [섬 도메인의 가입 TX 정본](https://github.com/OneOrThree/phone/blob/dcade7cd1ab54fd5ba1e4a88a8c8cfc8d35e04dc/docs/prd/island-membership/low-level-design.md#L117)을 적용한다. 서명 capability의 groupId/inviterId/membershipEpoch/원 만료와 신청자·섬 결합, 현재 활성 발급자·멤버십, 폐기 근거를 Data 가입·승인 TX의 잠금 경계에서 대조한다. Business 사전 resolve만으로 가입을 허용하지 않으며, 검증 근거 및 이탈·폐기·가입 경합 회귀가 없으면 활성화하지 않는다. 서명 키·capability와 원자 가입/claim outbox의 상세는 기존 아키텍처와 도메인 정본에 두고, 공통 멱등 표가 이를 대체하지 않는다. 초대 TTL·승인 우회 제품 정책은 계속 미결이다. 초대 없이 생성된 일반 신청의 승인에는 inviterId/capability를 요구하지 않으며, 해당 도메인의 신청자·정원·현재 소속 등 일반 승인 조건을 적용한다.
 
 추가 경계:
 
