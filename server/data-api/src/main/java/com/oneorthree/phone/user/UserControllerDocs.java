@@ -129,7 +129,8 @@ public interface UserControllerDocs {
     /**
      * @param body   설정 <b>전체 교체</b> — 한 항목만 바꾸려 해도 나머지를 현재값으로 함께 보내야 한다
      * @param userId 본인
-     * @param idempotencyKey 선택 재시도 키. 없으면 기존처럼 각 요청을 별도 명령으로 처리한다
+     * @param idempotencyKey 선택 재시도 키(trim 후 최대150자). Business와 동일한 settings-outbox 단계 키로
+     *                       저장하며, 없으면 기존처럼 각 요청을 별도 명령으로 처리한다
      * @return 본문 없는 204
      */
     @Operation(summary = "알림·심야·소리 설정 저장",

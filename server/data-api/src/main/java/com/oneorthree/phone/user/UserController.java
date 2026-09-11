@@ -15,6 +15,7 @@ import com.oneorthree.phone.user.dto.StatVisibilityUpdateRequest;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.service.UserService;
+import com.oneorthree.phone.user.support.NotificationSettingsCommandKeys;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.user.dto.UserProfileResponse;
 import jakarta.validation.Valid;
@@ -110,7 +111,8 @@ public class UserController implements UserControllerDocs {
             @Valid @RequestBody NotificationSettingsRequest body,
             @LoginUser UUID userId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
-        userService.updateNotificationSettings(userId, body, idempotencyKey);
+        userService.updateNotificationSettings(userId, body,
+                NotificationSettingsCommandKeys.fromPublicHeader(idempotencyKey));
         return ResponseEntity.noContent().build();
     }
 
