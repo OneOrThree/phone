@@ -65,8 +65,10 @@ class DispatchService {
         if (candidate == null) {
             return;
         }
+        // bundleCandidates는 같은 user_id만 묶는다. 같은 사용자 opt-out은 전송까지 직렬화한다.
+        store.lock("user-state:" + candidate.get("user_id"));
         List<Map<String, Object>> rows = bundleCandidates(candidate);
-        // 고정 순서: gate → device → ack → delivery. prepare와 flush가 같은 사건 잠금을 쓴다.
+        // 고정 순서: gate → device → user → ack → delivery. prepare와 flush는 같은 사건 잠금이다.
         for (Map<String, Object> row : rows) {
             if ("BET_RESULT".equals(row.get("kind")) && row.get("subject_id") != null) {
                 store.lock("ack:" + row.get("user_id") + ":" + row.get("subject_id"));

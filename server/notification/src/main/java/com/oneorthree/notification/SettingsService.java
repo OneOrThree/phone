@@ -106,8 +106,8 @@ class SettingsService {
     }
 
     private boolean live(UUID user, Long generation) {
-        // 탈퇴·기기 소유권·projection과 같은 잠금. 검사 뒤 삭제/부활이 엇갈리지 않는다.
-        store.lock("device-ownership");
+        // 탈퇴·같은 사용자 발송과 직렬화하되 다른 사용자의 외부 발송을 기다리지 않는다.
+        store.lock("user-state:" + user);
         Map<String, Object> fence = store.one("SELECT auth_generation,withdrawn FROM user_fences WHERE user_id=?",
                 user);
         if (fence == null) {

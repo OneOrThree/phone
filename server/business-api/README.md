@@ -751,7 +751,14 @@ flowchart LR
 신규 partial/초기화는 개방 전409 MIGRATION_NOT_READY를 반환하고 Business는503으로 안내한다.
 발송을 잠시 중지해 `enabled=false`가 되어도 ever_opened는 유지되어 설정 변경은 계속 가능하다.
 
-설정·탈퇴·이관은 `gate → device-ownership → 실제 행` 순서를 공유한다.
+Notification 설정은 `gate FOR SHARE → user-state:{userId} → 실제 행` 순서로 잠근다.
+기기 소유권의 기존 전역 `device-ownership` 잠금은 유지한다. 사용자 fence를 쓰는 기기 등록/삭제/세대 변경은
+`device-ownership → user-state:{userId} → 실제 행`으로 진행하고, 발송은
+`gate FOR SHARE → device-ownership → user-state:{userId} → ack/delivery` 순서다.
+발송 묶음은 같은 user_id만 포함한다. 느린 A의 외부 발송 중 B의 설정 GET/PATCH는 전역 잠금을 기다리지
+않고, 같은 A의 opt-out과 발송은 기존처럼 직렬화한다. settings가 사용자 잠금 뒤 전역 잠금을 요구하지 않는다.
+이관 import/최초 open의 정리는 `gate FOR UPDATE → device-ownership → 실제 행`을 유지한다.
+배타 gate 자체가 설정을 막으므로 이관에 다중 사용자 잠금을 추가하지 않는다.
 탈퇴는 설정을 지우고 사용자 tombstone을 남긴다. 뒤늦은 직접 요청/완료 재생은 거부하고,
 relay는 수신 완료 no-op, 이관은 SKIPPED로 처리해 설정을 다시 만들지 않는다.
 기존5필드 PUT의 세대 생략 호환은 유지하지만 탈퇴 tombstone은 항상 우선한다.

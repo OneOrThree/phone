@@ -8,6 +8,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -16,8 +18,13 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,6 +53,7 @@ class NotificationStoreTest {
         registry.add("spring.datasource.password", PG::getPassword);
     }
     @Autowired Store store;
+    @Autowired PlatformTransactionManager transactions;
     @Autowired DeviceService devices;
     @Autowired InboundService inbound;
     @Autowired SettingsService settings;
@@ -391,6 +399,103 @@ class NotificationStoreTest {
         inbound.accept(event("logout", "auth.session.revoked", USER, 2, null,
                 Map.of("bootstrapNonceHash", Json.digest("bootstrap"), "sessionEpoch", 2)));
         assertThat(store.rows("SELECT * FROM device_tokens WHERE active")).isEmpty();
+    }
+
+    @Test
+    void slowDispatchDoesNotBlockAnotherUsersSettingsInitializationAndPatch() throws Exception {
+        UUID other = UUID.fromString("22222222-2222-4222-8222-222222222222");
+        UUID pending = prepareSettingsRaceDelivery();
+        var sending = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        AtomicInteger dispatchPid = new AtomicInteger();
+        holdTransport(sending, release, dispatchPid);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var sent = executor.submit(() -> dispatch.dispatch(pending));
+            assertThat(sending.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(store.one("SELECT pid FROM pg_locks WHERE pid=? AND locktype='advisory' AND granted LIMIT 1",
+                    dispatchPid.get())).isNotNull();
+            var changed = executor.submit(() -> {
+                assertThat(settings.initialize(other, Map.of("version", 0, "authGeneration", 0,
+                        "settings", preferences(true)))).containsEntry("notificationEnabled", true);
+                return settings.patch(other, settingsPatch(false), 1, "other-off");
+            });
+            // 실제 전송 TX를 열린 채 유지한다. Business 3초 예산보다 먼저 두 서비스 호출이 끝나야 한다.
+            assertThat(changed.get(2, TimeUnit.SECONDS)).containsEntry("applied", true);
+            assertThat(release.getCount()).isEqualTo(1);
+            assertThat(settings.read(other)).containsEntry("notificationEnabled", false);
+            release.countDown();
+            sent.get(5, TimeUnit.SECONDS);
+            assertThat(status(pending)).isEqualTo("SENT");
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void sameUsersOptOutStillSerializesWithDispatchAndSuppressesTheNextDelivery() throws Exception {
+        UUID pending = prepareSettingsRaceDelivery();
+        var sending = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        AtomicInteger dispatchPid = new AtomicInteger();
+        AtomicInteger settingsPid = new AtomicInteger();
+        holdTransport(sending, release, dispatchPid);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var sent = executor.submit(() -> dispatch.dispatch(pending));
+            assertThat(sending.await(5, TimeUnit.SECONDS)).isTrue();
+            var changed = executor.submit(() -> new TransactionTemplate(transactions).execute(status -> {
+                settingsPid.set(((Number) store.one("SELECT pg_backend_pid() AS pid").get("pid")).intValue());
+                return settings.patch(USER, settingsPatch(false), 1, "same-user-off");
+            }));
+            long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            boolean blocked = false;
+            while (!blocked && System.nanoTime() < until) {
+                blocked = store.one("SELECT pid FROM pg_stat_activity WHERE pid=? AND wait_event_type='Lock'"
+                        + " AND ?=ANY(pg_blocking_pids(pid))", settingsPid.get(), dispatchPid.get()) != null;
+                if (!blocked) {
+                    Thread.sleep(10);
+                }
+            }
+            assertThat(blocked).isTrue();
+            release.countDown();
+            sent.get(5, TimeUnit.SECONDS);
+            assertThat(changed.get(5, TimeUnit.SECONDS)).containsEntry("applied", true);
+            inbound.accept(event("after-opt-out", "notification.requested", USER, 2,
+                    UUID.randomUUID().toString(), Map.of("kind", "BET_RESULT", "count", 1)));
+            UUID next = delivery("after-opt-out");
+            dispatch.dispatch(next);
+            assertThat(status(next)).isEqualTo("SUPPRESSED");
+            verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private UUID prepareSettingsRaceDelivery() {
+        register(USER, "settings-race-device", "settings-race-bootstrap", "settings-race-register");
+        inbound.accept(event("settings-race-delivery", "notification.requested", USER, 1,
+                UUID.randomUUID().toString(), Map.of("kind", "BET_RESULT", "count", 1)));
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        return delivery("settings-race-delivery");
+    }
+
+    private void holdTransport(CountDownLatch sending, CountDownLatch release, AtomicInteger pid) {
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(invocation -> {
+            pid.set(((Number) store.one("SELECT pg_backend_pid() AS pid").get("pid")).intValue());
+            sending.countDown();
+            if (!release.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("전송 경합 테스트 해제 시간 초과");
+            }
+            return PushTransport.Result.SENT;
+        });
+    }
+
+    private static Map<String, Object> settingsPatch(boolean enabled) {
+        return Map.of("mask", List.of("notificationEnabled"), "patch", Map.of("notificationEnabled", enabled),
+                "baseline", preferences(enabled), "authGeneration", 0);
     }
 
     private String register(UUID user, String token, String bootstrap, String key) {
