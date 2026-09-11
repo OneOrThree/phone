@@ -182,6 +182,17 @@ fcm_transport = source('server/notification/src/main/java/com/oneorthree/notific
 require('if (push.title() != null)' in fcm_transport,
         'TemplateWrite: nullable title을 FCM 표시 payload에 안전하게 직렬화하지 않음')
 
+settings_service = source('server/notification/src/main/java/com/oneorthree/notification/SettingsService.java')
+require('DateTimeFormatter.ofPattern("HH:mm")' in settings_service
+        and settings_service.count('.format(API_TIME)') == 2,
+        'A22 ㋕: 앱용 야간 설정 응답이 HH:mm 계약을 보존하지 않음')
+
+dispatch_service = source('server/notification/src/main/java/com/oneorthree/notification/DispatchService.java')
+require('AND active AND NOT transport_invalid' in dispatch_service
+        and 'SET transport_invalid=true' in dispatch_service
+        and 'delivery_devices WHERE delivery_id=? AND device_key=?' in dispatch_service,
+        'A22 ㊚: FCM 토큰 유효성·소유권·기기별 성공 이력을 같은 축으로 처리함')
+
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)

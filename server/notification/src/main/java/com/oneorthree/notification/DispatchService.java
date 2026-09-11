@@ -251,18 +251,23 @@ class DispatchService {
     private void deliver(List<Map<String, Object>> ready) {
         UUID user = (UUID) ready.get(0).get("user_id");
         boolean sound = Boolean.TRUE.equals(settings.read(user).get("soundEnabled"));
-        List<Map<String, Object>> tokens = store.rows("SELECT device_token,ownership_token FROM device_tokens"
-                + " WHERE user_id=? AND active ORDER BY device_token", user);
+        // 두 축을 모두 본다: active 는 «소유권이 살아 있는가»(로그아웃·삭제·탈퇴·세션 폐기),
+        // transport_invalid 는 «FCM 이 이 토큰을 아직 받는가». 전자만 보면 UNREGISTERED 토큰에
+        // 계속 때리고, 후자를 active 에 적으면 정상 세션의 토큰 교체가 막힌다.
+        List<Map<String, Object>> tokens = store.rows("SELECT device_token,device_key FROM device_tokens"
+                + " WHERE user_id=? AND active AND NOT transport_invalid ORDER BY device_token", user);
         if (tokens.isEmpty()) {
             ready.forEach(row -> retry((UUID) row.get("id"), "NO_ACTIVE_DEVICE"));
             return;
         }
         boolean failed = false;
         for (Map<String, Object> token : tokens) {
-            UUID ownership = (UUID) token.get("ownership_token");
+            // 중복 방지의 키는 «기기»다. 소유권은 등록마다 회전하므로(A22 ㊚) 그것으로 세면 재시도
+            // 사이에 앱을 재시작한 기기가 미전송으로 되돌아가 같은 알림을 두 번 받는다.
+            UUID device = (UUID) token.get("device_key");
             List<Map<String, Object>> unsent = ready.stream().filter(row -> store.one(
-                    "SELECT 1 FROM delivery_devices WHERE delivery_id=? AND ownership_token=?",
-                    row.get("id"), ownership) == null).toList();
+                    "SELECT 1 FROM delivery_devices WHERE delivery_id=? AND device_key=?",
+                    row.get("id"), device) == null).toList();
             if (unsent.isEmpty()) {
                 continue;
             }
@@ -271,12 +276,15 @@ class DispatchService {
                     collapseEventId(ready));
             if (result == PushTransport.Result.SENT) {
                 for (Map<String, Object> row : unsent) {
-                    store.update("INSERT INTO delivery_devices(delivery_id,ownership_token) VALUES(?,?)"
-                            + " ON CONFLICT DO NOTHING", row.get("id"), ownership);
+                    store.update("INSERT INTO delivery_devices(delivery_id,device_key) VALUES(?,?)"
+                            + " ON CONFLICT DO NOTHING", row.get("id"), device);
                 }
             } else if (result == PushTransport.Result.UNREGISTERED) {
-                store.update("UPDATE device_tokens SET active=false,updated_at=now()"
-                        + " WHERE device_token=? AND ownership_token=?", token.get("device_token"), ownership);
+                // 전송 자격만 내린다. 소유권(active)까지 끄면 앱의 onTokenRefresh 가 그 소유권으로
+                // 가져오는 새 토큰이 CAS 에 걸리고(활성 행만 본다) 1회용 자격도 이미 소비되어,
+                // 정상 로그인 세션인데도 재로그인 전까지 푸시가 복구되지 않는다.
+                store.update("UPDATE device_tokens SET transport_invalid=true,updated_at=now()"
+                        + " WHERE device_token=? AND device_key=?", token.get("device_token"), device);
             } else {
                 failed = true;
             }

@@ -32,10 +32,21 @@ CREATE TABLE legacy_session_fences (
     session_id uuid PRIMARY KEY, user_id uuid NOT NULL, epoch bigint NOT NULL,
     revoked boolean NOT NULL DEFAULT false, used boolean NOT NULL DEFAULT false
 );
+-- 한 행에 «세 축»이 함께 있다. 섞으면 한 축의 사고가 다른 축을 같이 닫는다.
+--   ① ownership_token — 매 등록마다 회전하는 1회용 소유권. 낡은 CAS·낡은 삭제를 걸러 낸다(A22 ㊚).
+--   ② device_key — «같은 기기»의 변하지 않는 신원. 전송 이력(delivery_devices)의 키다. 소유권이
+--      회전해도 승인된 같은 기기의 재등록·토큰 회전에서는 그대로 이어진다 — 이 둘을 한 값으로 쓰면
+--      앱 재시작 한 번이 「아직 못 받은 기기」를 만들어 같은 알림을 다시 보낸다.
+--   ③ active / transport_invalid — 끊는 이유가 다르다. active=false 는 «소유권 폐기»(로그아웃 ·
+--      삭제 · 탈퇴 · 세션 폐기)라 되살아나면 안 되는 tombstone 이고, transport_invalid 는 FCM 이
+--      그 토큰을 UNREGISTERED 로 돌려준 «전송 자격 상실»이다. 후자를 active 로 적으면 정상 세션의
+--      토큰 교체가 자기 소유권에 걸려(CAS 는 활성 행만 본다) 재로그인 전까지 푸시가 끊긴다.
 CREATE TABLE device_tokens (
     device_token text PRIMARY KEY, user_id uuid NOT NULL, ownership_token uuid NOT NULL UNIQUE,
+    device_key uuid NOT NULL DEFAULT gen_random_uuid(),
     ownership_version bigint NOT NULL DEFAULT 1, auth_generation bigint, bootstrap_hash text,
     session_epoch bigint, legacy_session_id uuid, active boolean NOT NULL DEFAULT true,
+    transport_invalid boolean NOT NULL DEFAULT false,
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX device_tokens_user ON device_tokens(user_id) WHERE active;
@@ -75,9 +86,11 @@ CREATE INDEX deliveries_due ON deliveries(next_attempt_at) WHERE status IN ('PEN
 CREATE UNIQUE INDEX deliveries_subject ON deliveries(user_id,kind,subject_id) WHERE subject_id IS NOT NULL AND admin_actor IS NULL
     AND kind IN ('BET_RESULT','BET_VOID_REFUND','BET_WON','BET_SILENT_FLUSH',
                  'CHALLENGE_SESSION_OPEN','CHALLENGE_CREATED');
+-- 「이 알림이 이 기기에 이미 갔는가」. 키는 소유권이 아니라 기기 신원이다 — 소유권은 등록마다
+-- 회전하므로, 그것으로 적으면 부분 실패 재시도 사이에 앱을 재시작한 기기가 미전송으로 되돌아간다.
 CREATE TABLE delivery_devices (
-    delivery_id uuid NOT NULL REFERENCES deliveries(id), ownership_token uuid NOT NULL,
-    sent_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(delivery_id,ownership_token)
+    delivery_id uuid NOT NULL REFERENCES deliveries(id), device_key uuid NOT NULL,
+    sent_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(delivery_id,device_key)
 );
 CREATE TABLE result_ack (
     user_id uuid NOT NULL, session_id uuid NOT NULL,

@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -11,6 +12,7 @@ import java.util.UUID;
 @Service
 class SettingsService {
 
+    private static final DateTimeFormatter API_TIME = DateTimeFormatter.ofPattern("HH:mm");
     private final Store store;
 
     SettingsService(Store store) {
@@ -50,9 +52,9 @@ class SettingsService {
         result.put("soundEnabled", row == null || Boolean.TRUE.equals(row.get("sound_enabled")));
         result.put("nightModeEnabled", row != null && Boolean.TRUE.equals(row.get("night_mode_enabled")));
         result.put("nightStartTime", row == null || row.get("night_start_time") == null
-                ? null : row.get("night_start_time").toString());
+                ? null : LocalTime.parse(row.get("night_start_time").toString()).format(API_TIME));
         result.put("nightEndTime", row == null || row.get("night_end_time") == null
-                ? null : row.get("night_end_time").toString());
+                ? null : LocalTime.parse(row.get("night_end_time").toString()).format(API_TIME));
         return result;
     }
 

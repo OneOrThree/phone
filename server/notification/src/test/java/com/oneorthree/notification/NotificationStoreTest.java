@@ -76,6 +76,22 @@ class NotificationStoreTest {
     }
 
     @Test
+    void savedQuietTimesRoundTripThroughThePublicMinutePrecisionContract() {
+        Map<String, Object> body = preferences(true);
+        body.put("nightModeEnabled", true);
+        body.put("nightStartTime", "23:05");
+        body.put("nightEndTime", "07:09");
+        settings.apply(USER, body, 1, "quiet-settings");
+
+        Map<String, Object> read = settings.read(USER);
+        assertThat(read).containsEntry("nightStartTime", "23:05").containsEntry("nightEndTime", "07:09");
+        read.put("soundEnabled", false);
+        settings.apply(USER, read, 2, "quiet-settings-sound-off");
+        assertThat(settings.read(USER)).containsEntry("soundEnabled", false)
+                .containsEntry("nightStartTime", "23:05").containsEntry("nightEndTime", "07:09");
+    }
+
+    @Test
     void legacySessionRevocationWithoutNonceIsAcceptedWithoutTouchingANewSession() {
         register(USER, "device", "new-bootstrap", "register");
         Map<String, Object> params = new LinkedHashMap<>();
