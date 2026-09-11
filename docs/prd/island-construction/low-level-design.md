@@ -128,9 +128,9 @@
 
 | API | request | data |
 | --- | --- | --- |
-| GET options | query/body 없음 | islandVersion, **costPolicyVersion**, selectedBuildingId nullable, villagePoints, items[] |
+| GET options | query/body 없음 | islandVersion, **costPolicyVersion**, selectedBuildingId nullable, villagePoints, **walletVersion**, items[] |
 | PUT target | buildingId, expectedVersion 필수 | buildingId, selected=true, spent=0, version |
-| POST constructions | buildingId, expectedVersion, **expectedCostPolicyVersion** 필수 | buildingId, status=completed, spent:{currency,amount}, version, villagePoints |
+| POST constructions | buildingId, expectedVersion, **expectedCostPolicyVersion** 필수 | buildingId, status=completed, spent:{currency,amount}, version, villagePoints, **walletVersion** |
 
 items의 id/name/cost/currency/selectable/buildable/blockedReason은 모두 필수이며 blockedReason만 nullable이다. 완료 시설은 options에서 제외한다. GET의 목록은 게시판 이후 후보 tower/mail/gram/shop이고 초기 hall/board 진행량은 이 목록에 가짜 상품으로 추가하지 않는다. 초기 단계의 선택 불가 상태에서 목록·가격의 반환 방식은 정책 P-D02 결정 시 함께 고정하며 그 전에 해당 조회 화면을 활성화하지 않는다. `buildingId`는 서버 시설 식별자이고 없는 ID는422 OUT_OF_RANGE(field=buildingId), 문자열 아닌 값/누락은400 INVALID_REQUEST다.
 
