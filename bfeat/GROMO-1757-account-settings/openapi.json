@@ -7211,7 +7211,8 @@
           "ownershipToken": {
             "type": "string",
             "maxLength": 512,
-            "minLength": 0
+            "minLength": 0,
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
           },
           "authGeneration": {
             "type": "integer",
