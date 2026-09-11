@@ -44,9 +44,7 @@ class FocusPresenceWiringIntegrationTest {
 
     @DynamicPropertySource
     static void overrideProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", TestPostgres.INSTANCE::getJdbcUrl);
-        registry.add("spring.datasource.username", TestPostgres.INSTANCE::getUsername);
-        registry.add("spring.datasource.password", TestPostgres.INSTANCE::getPassword);
+        TestPostgres.registerIsolatedSchema(registry);
     }
 
     @Autowired

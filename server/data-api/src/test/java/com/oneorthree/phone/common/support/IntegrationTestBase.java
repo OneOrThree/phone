@@ -7,12 +7,9 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest
 public abstract class IntegrationTestBase {
 
-    // 컨테이너는 TestPostgres 로 통합 — RepositoryTestBase 와 같은 JDBC URL 을 주입해야
-    // Spring 테스트 컨텍스트 캐시가 재사용된다(사유는 TestPostgres 주석 참고).
+    // 컨테이너만 공유하고 컨텍스트별 create-drop 스키마 수명은 격리한다.
     @DynamicPropertySource
     static void overrideProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", TestPostgres.INSTANCE::getJdbcUrl);
-        registry.add("spring.datasource.username", TestPostgres.INSTANCE::getUsername);
-        registry.add("spring.datasource.password", TestPostgres.INSTANCE::getPassword);
+        TestPostgres.registerIsolatedSchema(registry);
     }
 }
