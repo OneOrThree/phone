@@ -1,0 +1,12 @@
+# satellites 프로필에 선택적으로 더한다. 기존 Business/Notification 자격을 재사용하지 않는다.
+# 이 프로필만으로 내부 표면이나 공개 방장 위임을 켜지 않는다.
+internal:
+  realtime:
+    authorization:
+      enabled: ${REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED:false}
+  api:
+    callers:
+      realtime:
+        token: ${SVC_TOKEN_REALTIME_TO_DATA}
+        allow:
+          - 'POST /internal/realtime/membership-authorization'
