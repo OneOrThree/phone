@@ -115,12 +115,34 @@ require('inheritOwnership(command, ownershipToken)' in app_commands
         and 'item.userId === command.userId' in app_commands,
         'A22 ㋲: 같은 사용자·세션의 미전송 등록에 대한 소유권 승계 경계 누락')
 
+api_refresh = source('app/app-dev/src/services/api.ts')
+biz_device = source('server/business-api/src/main/java/com/oneorthree/business/usecase/DeviceTokenUseCase.java')
+require('notification.legacy-device-registration' in device and 'staleGeneration(generation, fence)' in device
+        and 'legacyRow(previous, user)' in device and 'previous.get("bootstrap_hash") == null' in device,
+        'A22 ㋲: 구 앱 호환과 gen 축 분리 또는 현대 기기 소유권 보호 누락')
+require('legacy_session_fences' in device and 'legacy_session_id' in device
+        and 'legacyFirstUse ? legacyTakeover(previous)' in device
+        and 'legacyLinkedActive && legacyRotation(previous, user, legacySession)' in device,
+        'A22 ㋲: 구 앱 세션 최초 사용·활성 연결·폐기 경계 누락')
+require('dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadline)' in biz_device
+        and 'STORAGE_KEYS.authSessionPromotion' in api_refresh
+        and 'promotion?.userId !== command.userId || promotion?.sessionId !== stored' in app_commands,
+        'A22 ㋲: 서명된 sid 활성 확인 또는 같은 로그인 승격 경계 누락')
+require("requireSession: command.kind === 'register' && !command.started" in app_commands
+        and 'prepareRegistration(command)' in app_commands and 'options.requireSession' in api_refresh,
+        'A22 ㋲: 새 앱 최초 등록 전 세션 승격·미전송 자격 저장 경계 누락')
+
+
 end_producer = source('server/data-api/src/main/java/com/oneorthree/phone/notification/service/ChallengeEndPushDispatcher.java')
 dispatch = source('server/notification/src/main/java/com/oneorthree/notification/DispatchService.java')
 families = source('server/notification/src/main/java/com/oneorthree/notification/Bundles.java')
 require('"bundleMembers"' in end_producer and '"bundleRepresentative"' in end_producer
         and '"bundleMembers"' in dispatch and 'containsAll(declared)' in dispatch,
         'A22 ㋴: 종료 묶음의 원본 구성원 선언 또는 수신 완료 대조 누락')
+open_producer = source('server/data-api/src/main/java/com/oneorthree/phone/notification/service/SessionOpenNotificationService.java')
+require('"bundleMembers"' in open_producer and 'openBundleMembers(due, joined, membersByGroupId)' in open_producer
+        and 'key -> new ArrayList<>()).add(session.getId().toString())' in open_producer,
+        'A22 ㋴: 모집 묶음의 수신자별 회차 구성원 선언 누락')
 require('"CHALLENGE_WINDOW_END"' in families and '"CHALLENGE_ENDED"' in families
         and 'holdUntil(' in dispatch and 'held_until' in dispatch,
         'A22 ㋴: 종료 묶음 종류 또는 슬롯·ACK 보류의 후보 이월 누락')

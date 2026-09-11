@@ -59,7 +59,8 @@ class NotificationStoreTest {
 
     @BeforeEach
     void resetState() {
-        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,session_fences,"
+        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
+                + "session_fences,legacy_session_fences,"
                 + "user_fences,settings,projections,result_ack,templates,deeplinks,kinds CASCADE");
         store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false,active_migration_id=NULL");
         store.update("DELETE FROM job_runs");

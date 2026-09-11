@@ -23,6 +23,16 @@ import org.springframework.stereotype.Service;
  * 확인</b>(㋤)하고 {@code sessionEpoch} 를 받아 → ③ 알림 서버에 등록. ②를 비동기 폐기에만 맡기면
  * relay 지연 사이에 도착한 지연 등록이 «미사용 1회용» 자격으로 통과해 소유권이 되돌아간다.
  *
+ * <p><b>자격이 없어도 ②는 건너뛰지 않는다.</b> 구 앱은 {@code deviceBootstrap} 을 저장하지 않지만 그
+ * 앱이 쓰는 AT 에도 서명된 {@code sid} 가 있다 — 그 값으로 세션 활성을 같은 자리에서 확인하고,
+ * 확인된 sid 를 {@code legacySessionId} 로 실어 보낸다. 알림 서버는 그 값으로 <b>키가 다른 별도 fence</b>
+ * 를 잡는다. 없이 두면 로그아웃한 세션의 AT 가 만료 전까지 <b>다른 새 FCM 토큰</b>을 등록할 수 있고,
+ * 그 행은 어느 세션에도 묶여 있지 않아 폐기 relay 가 닿지 못하는 데다 로그아웃은 유저 세대를 올리지
+ * 않으므로(㊼) <b>영구히</b> 남는다.
+ *
+ * <p>반대로 자격을 대신 발급해 주는 것(= 위조)은 하지 않는다 — 그건 소유권 이전까지 열어 현대 앱의
+ * CAS 판정을 이 경로로 우회시킨다. 두 축은 <b>함께 싣지 않는다</b>: 자격이 있으면 자격 축으로만 간다.
+ *
  * <h2>삭제 순서 — 뒤집으면 안 된다</h2>
  * ① 활성 검사 없음(탈퇴자도 자기 토큰은 지워야 한다) → ② <b>Data outbox 를 먼저 기록</b>(㊲ · ㊿) →
  * ③ 알림 서버에 직접 삭제 → ④ 성공하면 outbox 완료 표시.
@@ -47,8 +57,11 @@ public class DeviceTokenUseCase {
 
     /**
      * @param deviceBootstrap 앱이 실은 그 로그인 세션의 1회용 자격. <b>없을 수 있다</b> — 현 앱은
-     *                        {@code {deviceToken}} 만 보낸다({@code userApi.ts:81-83}). 없으면 세션 확인을
-     *                        건너뛰고 알림 서버가 롤아웃 단계에 따라 판정한다(㊟ ②기간의 「검사 없이 수락」)
+     *                        {@code {deviceToken}} 만 보낸다({@code userApi.ts:81-83}). 없으면 AT 의
+     *                        {@code sid} 로 세션 활성을 확인하고 그 값을 {@code legacySessionId} 로 실어
+     *                        보낸다 — 자격 축은 비운 채, 구 앱 세션 축으로 판정된다(㊟ ②기간의 구 앱 창).
+     *                        {@code sid} 도 없는 구 AT 만 확인 없이 내려간다 — 그 토큰은 최대 AT 수명 안에
+     *                        모두 만료된다
      * @param ownershipToken  앱이 보관 중인 CAS 값. 없으면 부트스트랩 예외 경로다(㊦)
      * @return 알림 서버가 발급한 새 {@code ownershipToken} — 앱이 다음 요청에 실어 보낸다(㊚)
      */
@@ -58,6 +71,7 @@ public class DeviceTokenUseCase {
         activeUserGuard.requireActive(claims.userId(), deadline);
 
         Long sessionEpoch = null;
+        String legacySessionId = null;
         if (deviceBootstrap != null && !deviceBootstrap.isBlank()) {
             // 확인과 mutation 을 같은 순서 경계에 넣기 위한 fencing 값을 받는다(㋨).
             // 확인만으로는 TOCTOU 가 남는다 — 알림 서버가 자기 tombstone 과 이 값을 원자 대조한다.
@@ -70,10 +84,28 @@ public class DeviceTokenUseCase {
                 throw new DomainException(CommonErrorCode.USER_INACTIVE);
             }
             sessionEpoch = check.sessionEpoch();
+        } else if (claims.sessionId() != null) {
+            // 자격을 싣지 못하는 구 앱이다. 그래도 «서명된 sid» 는 있으므로 세션 활성만은 같은
+            // 동기 경계에서 확인한다 — 이게 없으면 로그아웃한 세션의 AT 가 만료 전까지 «다른 새 FCM
+            // 토큰»을 등록할 수 있고, 그 행은 자격에 묶여 있지 않아 세션 폐기 relay 도 닿지 못한다
+            // (로그아웃은 유저 세대를 올리지 않는다 ㊼). 즉 로그아웃이 푸시를 끊지 못한다.
+            DeviceSessionCheck check =
+                    dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadline);
+            if (check == null || !check.active()) {
+                log.info("AT 의 sid 세션 비활성 — 등록 거절");
+                throw new DomainException(CommonErrorCode.USER_INACTIVE);
+            }
+            // 확인된 세션을 «별도 축»으로 실어 보낸다. 자격 해시로 키가 잡힌 세션 tombstone 에는 이
+            // 요청을 묶을 수 없으므로(자격이 없다), 알림 서버가 sid 로 키를 잡는 구 앱 fence 를 따로
+            // 둔다 — 그래야 이 로그인의 기기를 로그아웃이 실제로 끊는다. epoch 은 그 fence 의 fencing
+            // 값이라 함께 보낸다.
+            sessionEpoch = check.sessionEpoch();
+            legacySessionId = claims.sessionId().toString();
         }
 
         DeviceRegistration registration = new DeviceRegistration(
-                deviceToken, ownershipToken, deviceBootstrap, sessionEpoch, claims.authGeneration());
+                deviceToken, ownershipToken, deviceBootstrap, sessionEpoch, claims.authGeneration(),
+                legacySessionId);
         return notificationApiClient.registerDevice(
                 claims.userId(), registration, keys.forStep("device-register"), deadline);
     }

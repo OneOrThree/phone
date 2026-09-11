@@ -108,6 +108,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             API_DB_USERNAME="gromo_data", API_DB_PASSWORD="data-only",
             NOTI_DB_URL="jdbc:postgresql://db:5432/gromo_notification",
             NOTI_DB_USERNAME="gromo_notification", NOTI_DB_PASSWORD="noti-only",
+            NOTIFICATION_GENERATION_REQUIRED="true", NOTIFICATION_LEGACY_DEVICE_REGISTRATION="false",
             SVC_TOKEN_BIZ_TO_DATA="biz-data", SVC_TOKEN_BIZ_TO_NOTI="biz-noti",
             BUSINESS_REDIS_PASSWORD="redis-only-password", GOOGLE_DRIVE_API_KEY="drive-only",
             SVC_TOKEN_BIZ_TO_LINK="biz-link", SVC_TOKEN_DATA_TO_NOTI="data-noti",
@@ -154,6 +155,9 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertEqual(set(services["business-redis"]["networks"]), {"business-cache"})
             self.assertNotIn("environment", services["business-redis"])
             self.assertEqual(noti["NOTI_DB_PASSWORD"], "noti-only")
+            self.assertEqual(noti["NOTIFICATION_GENERATION_REQUIRED"], "true")
+            self.assertEqual(noti["NOTIFICATION_LEGACY_DEVICE_REGISTRATION"], "false")
+            self.assertNotIn("NOTIFICATION_LEGACY_DEVICE_REGISTRATION", biz)
             self.assertEqual(noti["SVC_TOKEN_DATA_TO_NOTI"], "data-noti")
             self.assertEqual(noti["SVC_TOKEN_CONSOLE_TO_NOTI"], "console-noti")
             self.assertEqual(noti["KAFKA_BOOTSTRAP_SERVERS"], "kafka:9092")

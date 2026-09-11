@@ -8,6 +8,7 @@ export const STORAGE_KEYS = {
   refreshToken: 'gromo:refreshToken',
   deviceBootstrap: 'gromo:auth:deviceBootstrap',
   authSessionId: 'gromo:auth:sessionId',
+  authSessionPromotion: 'gromo:auth:sessionPromotion', // sessionId 없던 구 세션이 refresh 에서 승격된 사실 {userId,sessionId} — 「같은 로그인의 승격」과 「계정·로그인 교체」를 구분한다(GROMO-1659)
   notificationCommands: 'gromo:notification:commands', // 로그아웃 뒤에도 삭제·로그아웃 재전달을 보존한다.
   deviceOwnership: 'gromo:notification:deviceOwnership',
   languageReported: 'gromo:notification:languageReported',

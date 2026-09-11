@@ -164,6 +164,13 @@ public class SessionOpenNotificationService {
                             .collect(Collectors.groupingBy(member -> member.getGroup().getId(),
                                     Collectors.mapping(GroupMember::getUser, Collectors.toList())));
 
+            // 신 경로는 묶음 구성원을 사건마다 실어 보낸다 — 그래야 첫 사건만 도착한 사이에 flush 가
+            // 끼어도 알림 서버가 나머지를 기다려 (유저 × 그룹 × 슬롯) 한 건 보장을 지킨다(종료 알림과
+            // 같은 규율). 이 종류의 대상은 «회차»이므로 구성원도 회차 id 집합이다.
+            Map<BundleKey, List<String>> bundleMembers = notificationDispatcher.isOutboxMode()
+                    ? openBundleMembers(due, joined, membersByGroupId)
+                    : Map.of();
+
             for (GroupChallengeBetSession session : due) {
                 Instant slotAt = slotOf(slotStartOf(session));
                 for (User member : membersByGroupId.getOrDefault(
@@ -183,7 +190,9 @@ public class SessionOpenNotificationService {
                                 member.getLanguage(),
                                 Map.of("challengeId", session.getChallenge().getId().toString(),
                                         "stake", session.getStake(),
-                                        "deferExpiresAt", session.getJoinClosesAt().toString())))
+                                        "deferExpiresAt", session.getJoinClosesAt().toString(),
+                                        "bundleMembers", bundleMembers.get(new BundleKey(
+                                                member.getId(), session.getGroup().getId(), slotAt)))))
                                 == NotificationDispatchOutcome.QUEUED) {
                             queued++;
                         } else {
@@ -217,6 +226,41 @@ public class SessionOpenNotificationService {
                     summary.dedupedCount(), summary.skippedCount());
         }
         return summary;
+    }
+
+    /**
+     * 이번 스캔이 <b>수신 대상별로</b> 적을 묶음 구성원 — (유저 × 그룹 × 슬롯)마다 그 묶음에 드는
+     * 회차 id 전부.
+     *
+     * <p>구 경로의 보장은 {@link #sendBundles} 의 「한 스캔당 (유저 × 그룹 × 슬롯) 한 건」이었다.
+     * 신 경로는 그 한 건을 사건 N 개로 쪼개 outbox 에 적고 relay 가 유저별로 다른 틱에 전달하므로,
+     * 구성원을 선언하지 않으면 첫 사건만 도착한 사이에 낀 flush 가 그대로 한 건을 내보내고 나머지가
+     * 두 번째 푸시가 된다.
+     *
+     * <p>같은 묶음이라도 회차마다 마감·참가자가 다르므로 구성원은 «수신자별»로 갈린다 — 이미 참가한
+     * 사람의 회차를 남의 묶음에 넣으면 그 유저의 묶음은 영영 도착 완료가 되지 않는다.
+     *
+     * @param due             슬롯에 도달한 회차
+     * @param joined          이미 참가한 (회차, 유저) 키
+     * @param membersByGroupId 그룹별 생존 그룹원
+     * @return 묶음별 회차 id 집합
+     */
+    private static Map<BundleKey, List<String>> openBundleMembers(
+            List<GroupChallengeBetSession> due, Set<String> joined,
+            Map<UUID, List<User>> membersByGroupId) {
+        Map<BundleKey, List<String>> members = new LinkedHashMap<>();
+        for (GroupChallengeBetSession session : due) {
+            Instant slotAt = slotOf(slotStartOf(session));
+            for (User member : membersByGroupId.getOrDefault(session.getGroup().getId(), List.of())) {
+                if (joined.contains(joinKey(session.getId(), member.getId()))) {
+                    continue;
+                }
+                members.computeIfAbsent(
+                        new BundleKey(member.getId(), session.getGroup().getId(), slotAt),
+                        key -> new ArrayList<>()).add(session.getId().toString());
+            }
+        }
+        return members;
     }
 
     /**

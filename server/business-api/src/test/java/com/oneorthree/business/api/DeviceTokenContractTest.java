@@ -145,7 +145,8 @@ class DeviceTokenContractTest extends UpstreamTestBase {
                 request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"own-next\"}"));
 
         mockMvc.perform(put("/api/v1/users/me/device-token")
-                        .header("Authorization", "Bearer " + Tokens.accessWithGeneration(USER, 9))
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 9,
+                                UUID.fromString("cccccccc-0000-0000-0000-000000000009")))
                         .contentType("application/json")
                         .content("""
                                 {"deviceToken":"fcm-token-1","ownershipToken":"own-prev",
@@ -157,6 +158,10 @@ class DeviceTokenContractTest extends UpstreamTestBase {
         String body = NOTI.receivedFor("POST /internal/devices").get(0).body();
         assertThat(body).contains("fcm-token-1", "own-prev", "boot-1",
                 "\"sessionEpoch\":42", "\"authGeneration\":9");
+        // AT 에 sid 가 있어도 자격이 있으면 자격 축으로만 간다 — 두 축을 함께 주면 어느 쪽으로
+        // 판정했는지가 사라지고, 알림 서버의 「처음 쓰는 세션」 판정이 자격 판정과 겹친다.
+        assertThat(body).contains("\"legacySessionId\":null");
+        assertThat(DATA.hits("POST /internal/auth/sessions/verify")).isZero();
     }
 
     @Test
@@ -173,5 +178,69 @@ class DeviceTokenContractTest extends UpstreamTestBase {
                 .andExpect(status().isUnauthorized());
 
         assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("자격 없는 구 앱 등록도 AT 의 sid 로 세션 활성을 확인한다 — 로그아웃된 세션은 거절")
+    void 자격없는등록도sid로세션확인() throws Exception {
+        UUID sessionId = UUID.fromString("cccccccc-0000-0000-0000-000000000001");
+        stubActiveUser(USER);
+        DATA.on("POST /internal/auth/sessions/verify", request ->
+                new MockUpstream.Response(200, "{\"active\":false,\"sessionEpoch\":12}"));
+
+        // 구 앱 본문 — deviceToken 만. 그래도 AT 에는 서명된 sid 가 있다.
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, sessionId))
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":\"fcm-token-1\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER_INACTIVE"));
+
+        // 확인 요청에는 sid 만 실린다 — 자격은 주지도 받지도 않는다.
+        String verifyBody = DATA.receivedFor("POST /internal/auth/sessions/verify").get(0).body();
+        assertThat(verifyBody).contains(sessionId.toString()).doesNotContain("deviceBootstrap");
+        // 로그아웃된 세션의 AT 가 「다른 새 FCM 토큰」을 등록하지 못한다 — 그 행은 자격에 묶이지 않아
+        // 세션 폐기 relay 도 닿지 못하므로, 여기서 막지 않으면 영구히 남는다.
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("살아 있는 세션이면 구 앱 등록은 확인된 sid 를 별도 축으로 싣고 통과한다")
+    void 살아있는세션의구앱등록은통과() throws Exception {
+        UUID sessionId = UUID.fromString("cccccccc-0000-0000-0000-000000000002");
+        stubActiveUser(USER);
+        DATA.on("POST /internal/auth/sessions/verify", request ->
+                new MockUpstream.Response(200, "{\"active\":true,\"sessionEpoch\":12}"));
+        NOTI.on("POST /internal/devices",
+                request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"own-next\"}"));
+
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, sessionId))
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":\"fcm-token-1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownershipToken").value("own-next"));
+
+        // 자격 축은 «비운 채», 구 앱 세션 축에 확인된 sid 와 그 fencing 값을 싣는다. 자격을 지어내지
+        // 않는 것이 계약이다 — deviceBootstrap 은 null 그대로 간다.
+        String body = NOTI.receivedFor("POST /internal/devices").get(0).body();
+        assertThat(body).contains("fcm-token-1", "\"authGeneration\":0", "\"deviceBootstrap\":null",
+                "\"sessionEpoch\":12", "\"legacySessionId\":\"" + sessionId + "\"");
+    }
+
+    @Test
+    @DisplayName("sid 도 gen 도 없는 구 AT 은 세션 확인 없이 내려간다 — 그 토큰은 AT 수명 안에 만료된다")
+    void sid없는구AT는세션확인없음() throws Exception {
+        stubActiveUser(USER);
+        NOTI.on("POST /internal/devices",
+                request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"own-next\"}"));
+
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":\"fcm-token-1\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(DATA.hits("POST /internal/auth/sessions/verify")).isZero();
     }
 }

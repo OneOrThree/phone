@@ -132,7 +132,7 @@ Business API 는 크론을 갖지 않는다 → 단일/다중 인스턴스 무�
 
 **판정 잡의 분류 기준**: ②′ 투영으로 판정이 성립하면 알림 서버, **코어 이력을 읽어야 하면 Data API 에 남긴다.** `last_active_at` 같은 값은 전환 시점에 **이미 비활성인 유저가 이후 이벤트를 만들지 않아** 투영으로 복구되지 않고, 그 잡의 창(D+3/7/14 단일 KST 날짜)은 한 번 놓치면 다음 단계까지 대상에서 빠진다. 마찬가지로 **판돈 동결 감지는 `GroupChallengeBetSessionRepository` 를 읽어야 해서** 알림 서버로 옮기면 단방향 규칙 위반이고, 표에서 빠뜨리면 **정산 배치가 조용히 멈춘 경우 묶인 참가비를 탐지할 경로가 사라진다.**
 
-발송 후보의 결과 슬롯·ACK 보류는 다음 가능 시각으로 이월해 다른 사용자의 큐를 막지 않는다(A22 ㋴). 챌린지 종료 두 kind는 각각 사용자·그룹·일 슬롯으로 묶으며, `bundleMembers`의 수신 완료를 확인하고 `bundleRepresentative`의 딥링크를 보존한다. 불완전 묶음은 계속 복구 가능한 보류로 남긴다.
+발송 후보의 결과 슬롯·ACK 보류는 다음 가능 시각으로 이월해 다른 사용자의 큐를 막지 않는다(A22 ㋴). 챌린지 종료 두 kind는 각각 사용자·그룹·일 슬롯으로 묶으며, `bundleMembers`의 수신 완료를 확인하고 `bundleRepresentative`의 딥링크를 보존한다. 모집 알림은 수신자·그룹·슬롯별 대상 회차의 `sessionId` 집합을 `bundleMembers`로 선언하며, 해당 수신자가 이미 참가해 사건을 만들지 않는 회차는 제외한다. 불완전 묶음은 계속 복구 가능한 보류로 남긴다.
 
 ## 7. 데이터 소유 (A10)
 
@@ -249,3 +249,13 @@ flowchart LR
 
 - D9 만 잠정. (A12 Kafka 확정 · A14 EC2 사이즈업 · A17 서버 모노 확정)
 - **레포(A17)**: 앱 `OneOrThree/app` · 링크 `OneOrThree/mmp-custom` · docs 사이트 · **JVM 서비스 5개 = `oneorthree/server`**(`services/data-api|business-api|notification|chat|file-upload` + `deploy/` + `docs/`). 이력서·팀 사이트는 허브 1장(`docs/architecture` 승격본)으로.
+
+
+구 앱 기기 등록 호환은 `NOTIFICATION_LEGACY_DEVICE_REGISTRATION`으로 제어하며, gen 없는 AT를 거절하는
+`NOTIFICATION_GENERATION_REQUIRED`와 분리한다(A22 ㋲). 새 AT의 gen 존재가 앱의 ownership 지원을 뜻하지 않는다.
+서명된 sid가 있으면 Business는 Data `/internal/auth/sessions/verify`로 현재 세션을 확인하고
+`legacySessionId`·`sessionEpoch`를 전달한다. Notification은 별도 legacy 세션 fence의 최초 사용에만
+bootstrap 미연결 구 행의 이전·재등록을 허용하고, 이후에는 같은 세션의 활성 연결을 통한 토큰 회전만 허용한다.
+현대 bootstrap 행은 호환 경로로 덮지 않으며, `auth.session.revoked`는 연결된 구 앱 기기도 비활성화한다.
+sid 없는 구 AT만 행 부재 또는 같은 사용자의 활성·bootstrap 미연결 행에 한정한다. bootstrap 자격은 대신 발급하지 않는다.
+새 앱은 최초 기기 등록 전에 sid 없는 로그인을 승격하고, 같은 로그인 승격 표식과 일치할 때만 명령을 승계한다. 발급된 bootstrap은 미전송 명령에만 저장하며, 이미 전송한 요청의 키·본문을 바꾸지 않는다.

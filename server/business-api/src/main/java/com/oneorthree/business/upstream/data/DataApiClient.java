@@ -33,6 +33,7 @@ public class DataApiClient {
 
     private static final String PATH_ACTIVATION = "/internal/users/{userId}/activation";
     private static final String PATH_DEVICE_SESSION_VERIFY = "/internal/auth/device-sessions/verify";
+    private static final String PATH_SESSION_VERIFY = "/internal/auth/sessions/verify";
     private static final String PATH_DEVICE_TOKEN_DELETIONS = "/internal/users/{userId}/device-token-deletions";
     private static final String PATH_NOTIFICATION_SETTINGS_COMMANDS =
             "/internal/users/{userId}/notification-settings-commands";
@@ -84,6 +85,26 @@ public class DataApiClient {
                 InternalCall.to(HttpMethod.POST, PATH_DEVICE_SESSION_VERIFY)
                         .onBehalfOf(userId)
                         .body(Map.of("deviceBootstrap", deviceBootstrap))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<DeviceSessionCheck>() { });
+    }
+
+    /**
+     * 서명된 {@code sid} 로 하는 세션 활성 확인 — <b>자격을 싣지 못하는 구 앱</b> 경로(A22 ㋤).
+     *
+     * <p>확인만 하고 <b>자격은 받지 않는다</b>: 응답에는 활성 여부와 fencing 값만 있다. 자격을 받아
+     * 등록 봉투에 실으면 저장하지도 않은 앱이 1회용 자격을 가진 것처럼 되어, 현대 앱의 소유권·CAS
+     * 판정이 이 경로로 우회된다.
+     *
+     * @param sessionId AT 의 {@code sid} claim — 서버가 서명한 값이라 앱이 만들어낼 수 없다
+     */
+    public DeviceSessionCheck verifySession(UUID userId, UUID sessionId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, PATH_SESSION_VERIFY)
+                        .onBehalfOf(userId)
+                        .body(Map.of("sessionId", sessionId.toString()))
                         .idempotentCommand()
                         .build(),
                 deadline,

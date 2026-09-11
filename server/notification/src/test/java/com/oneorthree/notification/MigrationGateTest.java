@@ -79,7 +79,8 @@ class MigrationGateTest {
 
     @BeforeEach
     void resetState() {
-        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,session_fences,"
+        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
+                + "session_fences,legacy_session_fences,"
                 + "user_fences,settings,projections,result_ack,templates,deeplinks,kinds,jobs,job_runs,"
                 + "admin_audit,imports,migration_state CASCADE");
         store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false,active_migration_id=NULL");

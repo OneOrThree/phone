@@ -243,6 +243,26 @@ public class AuthSessionService {
     }
 
     /**
+     * 서명된 {@code sid} 로 하는 세션 확인 (㋤ 의 구 앱 경로).
+     *
+     * <p>구 앱은 {@code deviceBootstrap} 을 저장하지 않아 자격을 제시하지 못한다. 그래도 그 앱이 쓰는
+     * AT 는 이제 이 서버가 발급하며 {@code sid} 를 싣는다 — <b>위조할 수 없는 값</b>이고, 자격 원문을
+     * 주고받지 않으므로 1회용 자격을 대신 발급해 주는 것(= 위조)과는 다르다. 자격 축의 「미사용
+     * 1회용」 판정은 여기서 하지 않는다: 이 확인은 <b>세션이 지금 살아 있는가</b>만 답한다.
+     *
+     * @param userId    확인 대상 유저
+     * @param sessionId AT 의 {@code sid} claim
+     * @return 세션이 있으면 그 행. 없거나 남의 것이면 비어 있다
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<AuthSession> verifySession(UUID userId, UUID sessionId) {
+        if (sessionId == null) {
+            return Optional.empty();
+        }
+        return authSessionRepository.findByIdAndUserIdForUpdate(sessionId, userId);
+    }
+
+    /**
      * 자격이 없는 세션에만 새로 건다 — 있는 자격은 건드리지 않는다.
      *
      * @param session 회전 중인 세션

@@ -216,3 +216,8 @@ server/.github/workflows/
 ### Target-1 이관 검증 산출물
 
 GROMO-1659의 Data export는 settings·device·delivery·user·participation 다섯 자원의 건수·체크섬을 같은 RR 스냅샷에서 생성한다. 실제 Noti bootJar의 정규화·키 유도 함수와 Data export 직렬화를 CI에서 함께 실행한다(A22 ㋳·㋶). Link 이관에는 필드별 표시 version과 LEGACY 귀속을 포함하며, 서비스별 시크릿·이미지 digest·nginx 적용 준비는 `docs/prd/server-separation/deployment.md`를 따른다(A22 ㋷·㋸).
+
+
+기기 등록 롤아웃은 두 설정을 따로 전환한다(A22 ㋲). `NOTIFICATION_GENERATION_REQUIRED`는 구 AT 수명 대기 뒤
+켜고, `NOTIFICATION_LEGACY_DEVICE_REGISTRATION`은 소유권 프로토콜 미지원 구 앱 지원 종료 뒤 끈다.
+둘은 Notification 전용 env로 주입한다. 구 앱도 새 AT의 gen·sid를 사용할 수 있으므로 gen 존재로 앱 전환을 추정하지 않는다.

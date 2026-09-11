@@ -23,3 +23,4 @@ notification:
   scheduling-enabled: ${NOTIFICATION_SCHEDULING_ENABLED:false}
   kafka-enabled: ${NOTIFICATION_KAFKA_ENABLED:false}
   generation-required: ${NOTIFICATION_GENERATION_REQUIRED:false}
+  legacy-device-registration: ${NOTIFICATION_LEGACY_DEVICE_REGISTRATION:true}

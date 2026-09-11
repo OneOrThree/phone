@@ -4,6 +4,7 @@ import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.internal.dto.DeviceSessionVerifyRequest;
 import com.oneorthree.phone.internal.dto.DeviceSessionVerifyResponse;
+import com.oneorthree.phone.internal.dto.SessionVerifyRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -56,6 +57,30 @@ public class InternalAuthController {
                 authSessionService.verifyBootstrap(userId, request.deviceBootstrap());
         // 자격 자체가 없으면 «활성 아님 + epoch 0» 이다. 이 조합은 「그런 세션이 없다」는 뜻이라,
         // 수신 측은 어떤 소유권 변경도 허용하지 않는다(0 보다 오래된 tombstone 은 존재할 수 없다).
+        return ResponseEntity.ok(session
+                .map(row -> new DeviceSessionVerifyResponse(row.isActive(), row.getSessionEpoch()))
+                .orElseGet(() -> new DeviceSessionVerifyResponse(false, 0L)));
+    }
+
+    /**
+     * 자격을 싣지 못하는 구 앱의 세션 확인 — 근거는 <b>서명된 {@code sid}</b> 다.
+     *
+     * <p>구 앱은 {@code deviceBootstrap} 을 저장하지 않아 위 확인을 탈 수 없다. 그렇다고 자격을 새로
+     * 만들어 주면(= 위조) 그 앱이 1회용 자격 축을 가진 «것처럼» 되어 현대 앱의 소유권·CAS 판정이
+     * 무너진다. 그래서 <b>확인만</b> 한다: 로그아웃된 세션의 AT 가 남아 있어도 새 기기 토큰을 등록하지
+     * 못하게 막는 것이 이 표면의 전부이고, 소유권 이전은 여전히 자격이 있어야 한다.
+     *
+     * @param userId  {@code X-User-Id} — 남의 세션 id 를 통과시키지 않도록 조회 조건에 함께 들어간다
+     * @param request AT 에서 꺼낸 {@code sid}
+     * @return 활성 여부와 fencing 값. 위 확인과 같은 이유로 <b>비활성일 때도 마지막 값</b>을 채운다
+     */
+    @Transactional
+    @PostMapping("/sessions/verify")
+    public ResponseEntity<DeviceSessionVerifyResponse> verifySession(
+            @RequestHeader("X-User-Id") UUID userId,
+            @Valid @RequestBody SessionVerifyRequest request) {
+
+        Optional<AuthSession> session = authSessionService.verifySession(userId, request.sessionId());
         return ResponseEntity.ok(session
                 .map(row -> new DeviceSessionVerifyResponse(row.isActive(), row.getSessionEpoch()))
                 .orElseGet(() -> new DeviceSessionVerifyResponse(false, 0L)));

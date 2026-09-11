@@ -44,6 +44,7 @@ public class AccessTokenVerifier {
     private static final String CLAIM_TYPE = "type";
     private static final String CLAIM_GUEST = "guest";
     private static final String CLAIM_GENERATION = "gen";
+    private static final String CLAIM_SESSION = "sid";
 
     private final SecretKey secretKey;
 
@@ -102,7 +103,8 @@ public class AccessTokenVerifier {
                 return Optional.empty();
             }
             UUID userId = UUID.fromString(claims.getSubject());
-            return Optional.of(new AccessTokenClaims(userId, guestOf(claims), generationOf(claims)));
+            return Optional.of(
+                    new AccessTokenClaims(userId, guestOf(claims), generationOf(claims), sessionOf(claims)));
         } catch (JwtException | IllegalArgumentException e) {
             // 서명 불일치·만료·subject 가 UUID 가 아님. 어느 쪽이든 결론은 같아서 구분하지 않는다.
             // 토큰 문자열 자체는 절대 로그에 남기지 않는다 — 로그 수집기로 흘러가면 그게 곧 자격증명 유출이다.
@@ -115,6 +117,23 @@ public class AccessTokenVerifier {
     private boolean guestOf(Claims claims) {
         Boolean guest = claims.get(CLAIM_GUEST, Boolean.class);
         return Boolean.TRUE.equals(guest);
+    }
+
+    /**
+     * {@code sid} 클레임 — 이 AT 가 속한 로그인 세션. <b>없으면 null 이고, 만들지 않는다</b>.
+     *
+     * <p>{@code gen} 과 같은 이유로 토큰 전체를 거절하지는 않는다. 「세션을 모른다」로 접으면 세션 확인을
+     * 건너뛴 채 롤아웃 단계의 판정으로 내려가고, 「현재 세션」으로 채우면 이미 로그아웃된 AT 가 살아 있는
+     * 세션의 것처럼 통과한다 — 그건 바로 이 클레임으로 막으려는 것이다.
+     */
+    private UUID sessionOf(Claims claims) {
+        try {
+            String sid = claims.get(CLAIM_SESSION, String.class);
+            return sid == null ? null : UUID.fromString(sid);
+        } catch (RequiredTypeException | IllegalArgumentException e) {
+            log.debug("sid 클레임 형식 불일치 — 세션 없음으로 처리");
+            return null;
+        }
     }
 
     /**

@@ -99,6 +99,8 @@ class InternalSurfaceIntegrationTest {
                 () -> "POST /internal/invite-links/claim-intents/*/completed");
         registry.add("internal.api.callers.business.allow[11]",
                 () -> "POST /internal/invite-links/claim-intents/*/abandoned");
+        registry.add("internal.api.callers.business.allow[12]",
+                () -> "POST /internal/auth/sessions/verify");
         registry.add("internal.api.callers.notification.token", () -> NOTI_TOKEN);
         registry.add("internal.api.callers.notification.allow[0]",
                 () -> "GET /internal/users/*/result-ack");
@@ -976,6 +978,71 @@ class InternalSurfaceIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.active").value(false))
                 .andExpect(jsonPath("$.sessionEpoch").value(0));
+    }
+
+    @Test
+    @DisplayName("서명된 sid 확인은 살아 있는 세션에만 true 이고, 자격(bootstrap)은 절대 돌려주지 않는다")
+    void sessionVerifyBySignedIdNeverReturnsTheBootstrapCredential() throws Exception {
+        UUID userId = newUser();
+        String bootstrap = "bootstrap-" + UUID.randomUUID();
+        long epoch = 11L;
+        tx().executeWithoutResult(status -> authSessionRepository.save(AuthSession.builder()
+                .userId(userId)
+                .refreshTokenHash(TokenHasher.sha256Hex("rt-sid-" + userId))
+                .bootstrapNonceHash(TokenHasher.sha256Hex(bootstrap))
+                .sessionEpoch(epoch)
+                .build()));
+        UUID sessionId = authSessionRepository
+                .findByRefreshTokenHash(TokenHasher.sha256Hex("rt-sid-" + userId)).orElseThrow().getId();
+
+        String body = mockMvc.perform(post("/internal/auth/sessions/verify")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString())
+                        .contentType("application/json")
+                        .content("{\"sessionId\":\"" + sessionId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(true))
+                .andExpect(jsonPath("$.sessionEpoch").value((int) epoch))
+                .andReturn().getResponse().getContentAsString();
+        // 이 표면은 «확인»만 한다. 자격을 돌려주면 저장하지 않는 앱에 1회용 자격을 발급하는 셈이라
+        // 소유권 이전이 자격 없이 성립하게 된다(= bootstrap 위조).
+        assertThat(body).doesNotContain(bootstrap, TokenHasher.sha256Hex(bootstrap));
+
+        tx().executeWithoutResult(status -> {
+            AuthSession session = authSessionRepository
+                    .findByRefreshTokenHash(TokenHasher.sha256Hex("rt-sid-" + userId)).orElseThrow();
+            session.revoke(Instant.now(), "LOGOUT");
+            authSessionRepository.save(session);
+        });
+
+        // 로그아웃 뒤에도 그 세션의 AT 는 만료 전까지 서명이 유효하다 — 그 AT 로 오는 등록을 막는 것이
+        // 이 확인의 존재 이유다.
+        mockMvc.perform(post("/internal/auth/sessions/verify")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString())
+                        .contentType("application/json")
+                        .content("{\"sessionId\":\"" + sessionId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(false))
+                .andExpect(jsonPath("$.sessionEpoch").value((int) epoch));
+
+        // 남의 sid 는 조회되지 않는다 — 조회 조건에 userId 가 함께 들어간다.
+        mockMvc.perform(post("/internal/auth/sessions/verify")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", newUser().toString())
+                        .contentType("application/json")
+                        .content("{\"sessionId\":\"" + sessionId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(false))
+                .andExpect(jsonPath("$.sessionEpoch").value(0));
+
+        // sessionId 없는 본문은 400 — 「확인하지 못했다」가 통과로 접히면 안 된다.
+        mockMvc.perform(post("/internal/auth/sessions/verify")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString())
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
     }
 
     private String enqueueIntent(UUID userId, String slug) throws Exception {

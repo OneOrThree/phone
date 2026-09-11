@@ -24,22 +24,32 @@ public final class Tokens {
     }
 
     public static String access(UUID userId) {
-        return build(userId, "access", false, null, 3600);
+        return build(userId, "access", false, null, null, 3600);
     }
 
     /** {@code gen} claim 을 실은 AT — 세대가 봉투에 실려 나가는지 보기 위한 것. */
     public static String accessWithGeneration(UUID userId, long generation) {
-        return build(userId, "access", false, generation, 3600);
+        return build(userId, "access", false, generation, null, 3600);
+    }
+
+    /**
+     * {@code gen} · {@code sid} 를 모두 실은 AT — <b>지금 AuthService 가 발급하는 모양</b>이다.
+     *
+     * <p>구 앱도 이 토큰을 쓴다(토큰은 서버가 만들고 본문은 앱이 만든다). 그래서 「sid 가 있다」는
+     * 「앱이 자격을 저장한다」가 아니라 「이 요청의 세션을 서버가 안다」는 뜻이다.
+     */
+    public static String accessWithSession(UUID userId, long generation, UUID sessionId) {
+        return build(userId, "access", false, generation, sessionId, 3600);
     }
 
     /** refresh 토큰 — 서명이 맞아도 거절돼야 한다(type 가드). */
     public static String refresh(UUID userId) {
-        return build(userId, "refresh", false, null, 3600);
+        return build(userId, "refresh", false, null, null, 3600);
     }
 
     /** 만료된 AT. */
     public static String expired(UUID userId) {
-        return build(userId, "access", false, null, -60);
+        return build(userId, "access", false, null, null, -60);
     }
 
     /** 다른 키로 서명한 AT — 서명 검증에서 떨어져야 한다. */
@@ -98,7 +108,8 @@ public final class Tokens {
                 .compact();
     }
 
-    private static String build(UUID userId, String type, boolean guest, Long generation, long ttlSeconds) {
+    private static String build(UUID userId, String type, boolean guest, Long generation, UUID sessionId,
+            long ttlSeconds) {
         long now = System.currentTimeMillis();
         var builder = Jwts.builder()
                 .subject(userId.toString())
@@ -108,6 +119,9 @@ public final class Tokens {
                 .expiration(new Date(now + ttlSeconds * 1000L));
         if (generation != null) {
             builder.claim("gen", generation);
+        }
+        if (sessionId != null) {
+            builder.claim("sid", sessionId.toString());
         }
         return builder.signWith(key()).compact();
     }

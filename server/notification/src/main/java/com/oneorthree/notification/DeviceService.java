@@ -13,10 +13,27 @@ class DeviceService {
 
     private final Store store;
     private final boolean generationRequired;
+    private final boolean legacyRegistrationAllowed;
 
-    DeviceService(Store store, @Value("${notification.generation-required:false}") boolean generationRequired) {
+    /**
+     * 롤아웃 축은 <b>둘이고 서로 독립</b>이다 — 하나로 묶으면 구 앱 호환이 세대 게이트에 끌려다닌다.
+     *
+     * <ul>
+     *   <li>{@code generation-required}: <b>AT 축</b>. {@code gen} claim 이 없는 AT 를 언제부터 거절하는가.
+     *       구 AT 가 모두 만료된 뒤 켠다.</li>
+     *   <li>{@code legacy-device-registration}: <b>앱 축</b>. 소유권·세션 자격을 싣지 않는 구 앱의 등록을
+     *       계속 받아 줄 것인가. 구 앱 사용자가 충분히 빠진 뒤 끈다(단계 ③ = 둘 다 전환).</li>
+     * </ul>
+     *
+     * <p>둘을 한 조건으로 묶으면 「AT 에 gen 이 있다 = 앱이 소유권 프로토콜을 지원한다」가 되는데,
+     * <b>그 둘은 다른 축이다</b>: 구 앱도 새 {@code AuthService} 가 발급한 {@code gen} 을 그대로 싣고
+     * 다닌다(토큰은 서버가 만들고, 본문은 앱이 만든다).
+     */
+    DeviceService(Store store, @Value("${notification.generation-required:false}") boolean generationRequired,
+            @Value("${notification.legacy-device-registration:true}") boolean legacyRegistrationAllowed) {
         this.store = store;
         this.generationRequired = generationRequired;
+        this.legacyRegistrationAllowed = legacyRegistrationAllowed;
     }
 
     /**
@@ -39,6 +56,16 @@ class DeviceService {
     private Map<String, Object> intent(Map<String, Object> body) {
         Map<String, Object> intent = new LinkedHashMap<>(body);
         intent.remove("sessionEpoch");
+        // 세대 «없음»과 «0» 은 멱등 비교에서만 같게 본다. 첫 시도가 구 AT(gen 없음)로 나가고 응답만
+        // 유실된 뒤, 만료된 AT 를 갱신한 재시도는 승격된 AT 의 gen=0 을 싣고 같은 키로 온다 — 그 둘을
+        // 다르게 보면 같은 의도의 첫 재시도가 영구 IDEMPOTENCY_KEY_CONFLICT 다.
+        //
+        // 인증·fence 입력은 그대로 둔다(아래 registerLocked 는 body 를 본다). 거기서 null 을 0 으로
+        // 채우면 로그아웃 전에 발급된 AT 가 「세대 0 을 가진 요청」이 되어 tombstone 을 우회한다(㊍).
+        // 높은 세대는 여전히 다른 의도다 — 1 과 0 은 섞이지 않는다.
+        if (intent.get("authGeneration") == null) {
+            intent.put("authGeneration", 0L);
+        }
         return intent;
     }
 
@@ -47,7 +74,7 @@ class DeviceService {
         Map<String, Object> fence = userFence(user);
         Long generation = Json.nullableNumber(body, "authGeneration");
         if (Boolean.TRUE.equals(fence.get("withdrawn")) || (generationRequired && generation == null)
-                || (generation != null && generation < ((Number) fence.get("auth_generation")).longValue())) {
+                || staleGeneration(generation, fence)) {
             throw new NotificationFailure(409, "STALE_AUTH_GENERATION");
         }
         String token = Json.text(body, "deviceToken");
@@ -55,14 +82,21 @@ class DeviceService {
         String hash = bootstrap == null ? null : Json.digest(bootstrap);
         Long epoch = Json.nullableNumber(body, "sessionEpoch");
         String ownership = Json.nullableText(body, "ownershipToken");
+        // 구 앱 세션 축. 자격을 저장하지 않는 앱이라 1회용 자격 대신 «서명된 sid» 로 세션을 건다 —
+        // Business 가 Data 에 그 sid 의 활성을 동기 확인한 뒤에만 실어 보낸다(A22 ㋤ 구 앱 경로).
+        UUID legacySession = Json.nullableText(body, "legacySessionId") == null ? null
+                : Json.uuid(body, "legacySessionId");
         Map<String, Object> previous = store.one("SELECT * FROM device_tokens WHERE device_token=? FOR UPDATE", token);
         Map<String, Object> knownOwner = ownership == null ? null
                 : store.one("SELECT * FROM device_tokens WHERE ownership_token::text=? FOR UPDATE", ownership);
-        // CAS 재등록에서 자격이 생략되어도 기존 세션 연결을 버리지 않는다.
+        // CAS 재등록에서 자격이 생략되어도 기존 세션 연결을 버리지 않는다 — 구 앱 세션 축도 같다.
         if (hash == null && knownOwner != null && user.equals(knownOwner.get("user_id"))) {
             hash = (String) knownOwner.get("bootstrap_hash");
             epoch = knownOwner.get("session_epoch") == null ? null
                     : ((Number) knownOwner.get("session_epoch")).longValue();
+            if (legacySession == null) {
+                legacySession = (UUID) knownOwner.get("legacy_session_id");
+            }
         }
         Map<String, Object> session = null;
         if (hash != null) {
@@ -76,6 +110,24 @@ class DeviceService {
                 throw new NotificationFailure(409, "SESSION_REVOKED");
             }
         }
+        Map<String, Object> legacyFence = null;
+        boolean legacyLinkedActive = false;
+        if (hash == null && legacySession != null) {
+            if (epoch == null) {
+                throw new NotificationFailure(400, "SESSION_EPOCH_REQUIRED");
+            }
+            legacyFence = store.one("SELECT * FROM legacy_session_fences WHERE session_id=? FOR UPDATE",
+                    legacySession);
+            if (legacyFence != null && (!user.equals(legacyFence.get("user_id"))
+                    || Boolean.TRUE.equals(legacyFence.get("revoked"))
+                    || epoch < ((Number) legacyFence.get("epoch")).longValue())) {
+                throw new NotificationFailure(409, "SESSION_REVOKED");
+            }
+            // 구 앱엔 ownership 이 없다. 「이 세션의 기기」를 찾는 유일한 길이 sid 링크다.
+            legacyLinkedActive = !store.rows("SELECT device_token FROM device_tokens"
+                    + " WHERE user_id=? AND legacy_session_id=? AND active FOR UPDATE",
+                    user, legacySession).isEmpty();
+        }
         if (replay) {
             // 저장된 응답을 돌려주기 직전이다. 세 축 검증은 위에서 «지금» 값으로 끝냈고, 소유권은 첫
             // 요청이 이미 옮겼으므로 CAS 는 다시 보지 않는다 — 보면 자기가 성공시킨 등록의 재시도가
@@ -87,15 +139,40 @@ class DeviceService {
                 && (previous == null || ownership.equals(previous.get("ownership_token").toString()));
         boolean freshBootstrap = hash != null
                 && (session == null || !Boolean.TRUE.equals(session.get("used")));
-        boolean legacyWindow = !generationRequired && generation == null && hash == null && previous == null
-                && ((Number) fence.get("auth_generation")).longValue() == 0;
-        if (!cas && !freshBootstrap && !legacyWindow) {
+        // 구 앱 세션 창. 판정 기준은 «AT 에 gen 이 실렸는가»가 아니라 «요청이 무엇을 근거로 오는가»다.
+        // 구 앱도 새 AuthService 가 발급한 AT 를 쓰므로 gen=0 을 싣고 오지만, 로그인·refresh 응답의
+        // deviceBootstrap 은 저장하지 않고 여전히 {deviceToken} 만 보낸다. gen 유무를 프로토콜 지원
+        // 판정에 쓰면 그 앱의 신규 등록과 FCM 토큰 회전이 전부 거절된다.
+        //
+        // 대신 서명된 sid 가 근거다. 처음 쓰는 세션만 자격 없는 구 행을 가져오거나 되살릴 수 있고
+        // (새 로그인 = 새 sid), 이미 쓴 세션은 «자기 활성 행»이 남아 있을 때만 같은 기기의 토큰 회전을
+        // 이어 간다 — 삭제 tombstone 뒤에 새 토큰으로 부활하는 길을 닫는다.
+        boolean legacyFirstUse = legacyFence == null || !Boolean.TRUE.equals(legacyFence.get("used"));
+        boolean legacySessionWindow = legacyRegistrationAllowed && hash == null && legacySession != null
+                && ownership == null
+                && (legacyFirstUse ? legacyTakeover(previous)
+                        : legacyLinkedActive && legacyRotation(previous, user, legacySession));
+        // sid 도 없는 구 AT(이 배포 전 발급분)만 남는 제한된 창. AT 최대 수명으로 노출이 한정된다.
+        boolean legacyWindow = legacyRegistrationAllowed && ownership == null && hash == null
+                && legacySession == null && legacyRow(previous, user);
+        if (!cas && !freshBootstrap && !legacySessionWindow && !legacyWindow) {
             throw new NotificationFailure(409, "DEVICE_OWNERSHIP_CONFLICT");
         }
         if (hash != null) {
             store.update("INSERT INTO session_fences(bootstrap_hash,user_id,epoch,used) VALUES(?,?,?,true)"
                     + " ON CONFLICT(bootstrap_hash) DO UPDATE SET epoch=GREATEST(session_fences.epoch,EXCLUDED.epoch),"
                     + "used=true", hash, user, epoch);
+        }
+        if (hash == null && legacySession != null) {
+            store.update("INSERT INTO legacy_session_fences(session_id,user_id,epoch,used) VALUES(?,?,?,true)"
+                    + " ON CONFLICT(session_id) DO UPDATE SET"
+                    + " epoch=GREATEST(legacy_session_fences.epoch,EXCLUDED.epoch),used=true",
+                    legacySession, user, epoch);
+            // 같은 세션의 토큰 회전 — 구 앱엔 ownership 이 없으므로 sid 링크로 옛 행을 접는다.
+            // 접지 않으면 한 로그인이 활성 기기 행을 여러 개 남기고, 그만큼 중복 푸시가 된다.
+            store.update("UPDATE device_tokens SET active=false,ownership_version=ownership_version+1,"
+                    + "updated_at=now() WHERE user_id=? AND legacy_session_id=? AND active AND device_token<>?",
+                    user, legacySession, token);
         }
         UUID next = UUID.randomUUID();
         if (cas && !token.equals(knownOwner.get("device_token"))) {
@@ -104,12 +181,13 @@ class DeviceService {
                     knownOwner.get("ownership_token"));
         }
         store.update("INSERT INTO device_tokens(device_token,user_id,ownership_token,auth_generation,"
-                + "bootstrap_hash,session_epoch) VALUES(?,?,?,?,?,?) ON CONFLICT(device_token) DO UPDATE SET "
+                + "bootstrap_hash,session_epoch,legacy_session_id) VALUES(?,?,?,?,?,?,?)"
+                + " ON CONFLICT(device_token) DO UPDATE SET "
                 + "user_id=EXCLUDED.user_id,ownership_token=EXCLUDED.ownership_token,"
                 + "ownership_version=device_tokens.ownership_version+1,auth_generation=EXCLUDED.auth_generation,"
                 + "bootstrap_hash=EXCLUDED.bootstrap_hash,session_epoch=EXCLUDED.session_epoch,"
-                + "active=true,updated_at=now()",
-                token, user, next, generation, hash, epoch);
+                + "legacy_session_id=EXCLUDED.legacy_session_id,active=true,updated_at=now()",
+                token, user, next, generation, hash, epoch, legacySession);
         return Map.of("ownershipToken", next.toString());
     }
 
@@ -142,20 +220,34 @@ class DeviceService {
                 user, token, token, owner, owner, generation, generation);
     }
 
+    /**
+     * 세션 폐기 — <b>두 축을 모두</b> 끊는다. 자격 축은 nonce 해시로, 구 앱 축은 sid 로 잇는다.
+     * 이벤트에는 둘 다 실려 오므로(Data {@code appendSessionRevoked}) Data 계약을 바꿀 일이 없다.
+     *
+     * <p>구 앱 축이 없던 동안에는 nonce 가 없는 세션의 폐기가 <b>아무 기기도 끊지 못했다</b> — 그 앱의
+     * 등록 행은 어느 세션에도 묶여 있지 않았고, 개별 로그아웃은 유저 세대를 올리지 않기 때문이다(㊼).
+     */
     void revokeSession(UUID user, Map<String, Object> params) {
         store.lock("device-ownership");
         String hash = Json.nullableText(params, "bootstrapNonceHash");
         long epoch = Json.number(params, "sessionEpoch");
-        // 이관된 구 RT 세션은 bootstrap 을 발급한 적이 없다. 폐기할 nonce 도 없으며,
-        // 해당 기기 삭제는 Data 가 같은 로그아웃 트랜잭션에 넣은 별도 명령으로 전달한다.
-        if (hash == null) {
+        if (hash != null) {
+            store.update("INSERT INTO session_fences(bootstrap_hash,user_id,epoch,revoked) VALUES(?,?,?,true)"
+                    + " ON CONFLICT(bootstrap_hash) DO UPDATE SET epoch=GREATEST(session_fences.epoch,"
+                    + "EXCLUDED.epoch),revoked=true", hash, user, epoch);
+            store.update("UPDATE device_tokens SET active=false,updated_at=now() WHERE user_id=? AND bootstrap_hash=?"
+                    + " AND session_epoch<=?", user, hash, epoch);
+        }
+        if (Json.nullableText(params, "sessionId") == null) {
             return;
         }
-        store.update("INSERT INTO session_fences(bootstrap_hash,user_id,epoch,revoked) VALUES(?,?,?,true)"
-                + " ON CONFLICT(bootstrap_hash) DO UPDATE SET epoch=GREATEST(session_fences.epoch,EXCLUDED.epoch),"
-                + "revoked=true", hash, user, epoch);
-        store.update("UPDATE device_tokens SET active=false,updated_at=now() WHERE user_id=? AND bootstrap_hash=?"
-                + " AND session_epoch<=?", user, hash, epoch);
+        // 구 앱 축. tombstone 을 남겨야 폐기 뒤 도착한 지연 등록이 「처음 쓰는 세션」 행세를 못 한다.
+        UUID session = Json.uuid(params, "sessionId");
+        store.update("INSERT INTO legacy_session_fences(session_id,user_id,epoch,revoked) VALUES(?,?,?,true)"
+                + " ON CONFLICT(session_id) DO UPDATE SET epoch=GREATEST(legacy_session_fences.epoch,"
+                + "EXCLUDED.epoch),revoked=true", session, user, epoch);
+        store.update("UPDATE device_tokens SET active=false,updated_at=now() WHERE user_id=?"
+                + " AND legacy_session_id=? AND session_epoch<=?", user, session, epoch);
     }
 
     void generation(UUID user, long generation, boolean withdrawn) {
@@ -171,6 +263,63 @@ class DeviceService {
                     user);
             store.update("DELETE FROM projections WHERE user_id=?", user);
         }
+    }
+
+    /**
+     * 유저 축 tombstone 대조. {@code gen} 을 실은 요청은 값으로 정렬하고, <b>싣지 못한</b> 요청은
+     * 「세대가 한 번도 오르지 않은 유저」에게만 통한다 — 정렬할 수 없는 요청을 세대가 오른 유저에게
+     * 허용하면 폐기된 로그인의 지연 등록이 tombstone 을 넘어간다.
+     *
+     * <p>이 판정이 창 계산이 아니라 <b>맨 앞</b>에 있는 이유: 재생(replay)은 창 계산에 닿기 전에
+     * 저장된 응답으로 빠져나간다. 창 쪽에만 두면 세대가 오른 뒤 온 gen 없는 재시도가 이미 죽은 기기
+     * 행에 대해 옛 성공 응답을 받는다.
+     */
+    private boolean staleGeneration(Long generation, Map<String, Object> fence) {
+        long current = ((Number) fence.get("auth_generation")).longValue();
+        return generation == null ? current > 0 : generation < current;
+    }
+
+    /**
+     * <b>처음 쓰는</b> 구 앱 세션이 손댈 수 있는 행. 행이 없거나(최초 등록 · 토큰 회전), 자격에 묶이지
+     * 않은 구 행이면 된다 — 비활성 행의 부활과 다른 계정으로의 이전도 여기에 들어간다. 근거는 이
+     * 기기에서 <b>지금 살아 있는 로그인</b>이고(Data 가 동기 확인했다), 새 로그인은 새 sid 를 받으므로
+     * 「한 번 쓴 세션」과 구분된다.
+     *
+     * <p>{@code bootstrap_hash} 가 있는 현대 행은 제외다 — 자격 없는 요청이 소유권 · CAS 를 우회하는
+     * 자리가 되어선 안 된다.
+     */
+    private boolean legacyTakeover(Map<String, Object> previous) {
+        return previous == null || previous.get("bootstrap_hash") == null;
+    }
+
+    /**
+     * <b>이미 쓴</b> 구 앱 세션이 이어 갈 수 있는 것은 같은 기기의 토큰 회전뿐이다. 새 토큰(행 부재)은
+     * 호출부에서 «그 세션의 활성 행이 남아 있을 때»만 허용하고, 기존 행은 자기 세션의 활성 행이어야
+     * 한다.
+     *
+     * <p>이 좁힘이 닫는 구멍: 로그아웃·삭제로 그 세션의 기기가 전부 비활성이 된 뒤 같은 sid 로 오는
+     * 등록. 허용하면 삭제가 새 FCM 토큰 하나로 되돌아간다. 복구는 <b>새 로그인의 새 sid</b> 로만 한다.
+     */
+    private boolean legacyRotation(Map<String, Object> previous, UUID user, UUID legacySession) {
+        return previous == null
+                || (previous.get("bootstrap_hash") == null && user.equals(previous.get("user_id"))
+                        && Boolean.TRUE.equals(previous.get("active"))
+                        && legacySession.equals(previous.get("legacy_session_id")));
+    }
+
+    /**
+     * sid 도 실리지 않은 구 AT 의 제한된 창에서, 이 등록이 <b>남의 것을 가져가지 않는가</b>. 행이 없는
+     * 경우(최초 등록 · FCM 토큰 회전)와, 이미 자기 것이면서 세션에 묶이지 않은 활성 행의 재등록만
+     * 허용한다(구 앱은 실행할 때마다 같은 토큰을 다시 올린다).
+     *
+     * <p>제외하는 것이 보장이다: <b>비활성 행</b>은 로그아웃 · 탈퇴 · 삭제가 남긴 tombstone 이라 구 앱
+     * 모양 요청으로 되살릴 수 없고, <b>bootstrap_hash 가 있는 행</b>은 현대 앱이 세션 축에 묶어 둔
+     * 등록이라 자격 없는 요청이 소유권 · CAS 를 우회하지 못한다. 남의 유저 행도 물론 제외다.
+     */
+    private boolean legacyRow(Map<String, Object> previous, UUID user) {
+        return previous == null
+                || (user.equals(previous.get("user_id")) && Boolean.TRUE.equals(previous.get("active"))
+                        && previous.get("bootstrap_hash") == null);
     }
 
     private Map<String, Object> userFence(UUID user) {

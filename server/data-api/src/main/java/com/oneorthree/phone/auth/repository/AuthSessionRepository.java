@@ -43,6 +43,23 @@ public interface AuthSessionRepository extends JpaRepository<AuthSession, UUID> 
             @Param("userId") UUID userId, @Param("nonceHash") String nonceHash);
 
     /**
+     * 자격 없는 기기 등록의 세션 확인(㋤ 의 구 앱 경로) — <b>배타 잠금</b>으로 읽는다.
+     *
+     * <p>{@code deviceBootstrap} 을 저장하지 않는 구 앱은 자격을 제시하지 못한다. 그 대신 <b>서버가
+     * 서명한 AT 의 {@code sid}</b> 로 같은 확인을 한다 — 위조할 수 없고, 자격 원문을 주고받지도
+     * 않는다. 잠금이 필요한 이유는 위 조회와 같다: 무락으로 읽으면 확인 직후 커밋된 로그아웃을
+     * 못 본다.
+     *
+     * @param userId    확인 대상 유저 — 남의 세션 id 를 통과시키지 않으려면 조건에 함께 넣어야 한다
+     * @param sessionId AT 의 {@code sid} claim
+     * @return 그 유저의 세션. 폐기 여부는 <b>거르지 않는다</b> — 호출부가 판정한다
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM AuthSession s WHERE s.id = :sessionId AND s.userId = :userId")
+    Optional<AuthSession> findByIdAndUserIdForUpdate(
+            @Param("sessionId") UUID sessionId, @Param("userId") UUID userId);
+
+    /**
      * @param userId 유저
      * @return 그 유저의 살아 있는 세션 전부 — 전 기기 로그아웃·탈퇴가 이 목록을 폐기한다
      */

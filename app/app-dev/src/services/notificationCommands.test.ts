@@ -14,6 +14,38 @@ import {
 function token(user: string) {
   return `header.${btoa(JSON.stringify({ sub: user, exp: Math.floor(Date.now() / 1000) + 3600 }))}.sig`;
 }
+/** 만료된 AT — 전송 직전 getFreshAccessToken() 이 실제로 갱신을 타게 한다. */
+function expiredToken(user: string) {
+  return `header.${btoa(JSON.stringify({ sub: user, exp: Math.floor(Date.now() / 1000) - 60 }))}.sig`;
+}
+/** sessionId·bootstrap 이 «없는» 구 로그인 상태. 구 앱으로 로그인한 뒤 아직 회전하지 않은 세션이다. */
+async function legacySession(user: string) {
+  await AsyncStorage.multiSet([
+    [STORAGE_KEYS.accessToken, expiredToken(user)],
+    [STORAGE_KEYS.refreshToken, `${user}-refresh`],
+  ]);
+  await AsyncStorage.multiRemove([
+    STORAGE_KEYS.authSessionId,
+    STORAGE_KEYS.deviceBootstrap,
+    STORAGE_KEYS.authSessionPromotion,
+  ]);
+}
+// sessionId 는 두 모양으로 저장된다 — 키가 없으면 null, 세션 없는 로그인 응답을 저장한 자리는 ''.
+function legacyRegister(
+  user: string,
+  id: string,
+  deviceToken: string,
+  sessionId: string | null = null,
+) {
+  return {
+    id,
+    kind: 'register',
+    userId: user,
+    accessToken: expiredToken(user),
+    sessionId,
+    body: { deviceToken },
+  };
+}
 async function session(user: string, id = `${user}-session`) {
   await AsyncStorage.multiSet([
     [STORAGE_KEYS.accessToken, token(user)],
@@ -312,4 +344,124 @@ test('표시 언어 실패도 보존하고 성공한 언어는 다시 전송하�
   expect(patch.mock.calls[1][2]?.headers?.['Idempotency-Key']).toBe(saved.id);
   await reportNotificationLanguage('zh-Hant');
   expect(patch).toHaveBeenCalledTimes(2);
+});
+
+test('구 세션 승격은 아직 못 보낸 기기 등록을 폐기하지 않는다', async () => {
+  await legacySession('a');
+  const [first, second] = [
+    legacyRegister('a', 'legacy-1', 'fcm'),
+    // 빈 문자열로 저장된 「세션 없음」도 같은 승계를 받아야 한다.
+    legacyRegister('a', 'legacy-2', 'fcm-2', ''),
+  ];
+  await AsyncStorage.setItem(STORAGE_KEYS.notificationCommands, JSON.stringify([first, second]));
+  // AT 만료 → refresh 가 «처음으로» sessionId 를 준다(서버의 구 세션 승격).
+  const post = jest.spyOn(axios, 'post').mockResolvedValue({
+    data: {
+      accessToken: token('a'),
+      sessionId: 'promoted-session',
+      deviceBootstrap: 'promoted-bootstrap',
+    },
+  });
+  const put = jest.spyOn(axios, 'put').mockResolvedValue({ data: { ownershipToken: 'owner-a' } });
+
+  await flushNotificationCommands();
+
+  // 승격을 세션 불일치로 읽으면 이 등록은 HTTP 를 한 번도 타지 못한 채 사라진다.
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(put).toHaveBeenCalledTimes(2);
+  expect(put.mock.calls[0][1]).toEqual({
+    deviceToken: 'fcm',
+    deviceBootstrap: 'promoted-bootstrap',
+  });
+  expect(put.mock.calls[0][2]?.headers?.['Idempotency-Key']).toBe('legacy-1');
+  // 형제 명령도 함께 승계된다 — 하나만 옮기면 다음 차례에 같은 불일치로 삭제된다.
+  expect(put.mock.calls[1][2]?.headers?.['Idempotency-Key']).toBe('legacy-2');
+  expect(await queue()).toEqual([]);
+  expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.deviceOwnership))!)).toMatchObject({
+    userId: 'a',
+    sessionId: 'promoted-session',
+  });
+});
+
+test('승격이 아닌 로그인 교체는 세션 없는 등록을 종전대로 폐기한다', async () => {
+  await legacySession('a');
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.notificationCommands,
+    JSON.stringify([legacyRegister('a', 'legacy-1', 'fcm')]),
+  );
+  // 같은 사용자가 다시 로그인해 새 세션이 저장됐다. 승격 표식은 그 «이전» 세션을 가리킨다.
+  await AsyncStorage.multiSet([
+    [STORAGE_KEYS.accessToken, token('a')],
+    [STORAGE_KEYS.authSessionId, 'fresh-login-session'],
+    [
+      STORAGE_KEYS.authSessionPromotion,
+      JSON.stringify({ userId: 'a', sessionId: 'older-promoted-session' }),
+    ],
+  ]);
+  const put = jest.spyOn(axios, 'put').mockResolvedValue({ data: {} });
+
+  await flushNotificationCommands();
+
+  expect(put).not.toHaveBeenCalled();
+  expect(await queue()).toEqual([]);
+});
+
+test('구 세션 승격 표식은 이후 로그인 교체를 승계하지 않는다', async () => {
+  await legacySession('a');
+  const post = jest.spyOn(axios, 'post').mockResolvedValue({
+    data: { accessToken: token('a'), sessionId: 'promoted-session' },
+  });
+  const put = jest.spyOn(axios, 'put').mockRejectedValue(new Error('offline'));
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.notificationCommands,
+    JSON.stringify([legacyRegister('a', 'legacy-1', 'fcm')]),
+  );
+  await flushNotificationCommands();
+  // 승계된 명령은 승격 세션의 것이다 — 저장된 sessionId 가 그 사실을 남긴다.
+  expect((await queue())[0]).toMatchObject({ id: 'legacy-1', sessionId: 'promoted-session' });
+  expect(post).toHaveBeenCalledTimes(1);
+
+  // 그 뒤 진짜 로그인 교체가 오면 승격 세션의 의도는 더 이상 보내지 않는다.
+  await session('a', 'replacement-session');
+  put.mockClear().mockResolvedValue({ data: {} });
+  await flushNotificationCommands();
+  expect(put).not.toHaveBeenCalled();
+  expect(await queue()).toEqual([]);
+});
+
+test('유효한 구 AT도 첫 등록 전에 승격하고 응답 유실 뒤 같은 키와 본문을 재생한다', async () => {
+  await legacySession('a');
+  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, token('a'));
+  const post = jest.spyOn(axios, 'post').mockResolvedValue({
+    data: {
+      accessToken: token('a'),
+      sessionId: 'promoted-session',
+      deviceBootstrap: 'promoted-bootstrap',
+    },
+  });
+  const put = jest.spyOn(axios, 'put').mockRejectedValue(new Error('response lost'));
+  await queueDeviceRegistration('fcm');
+  expect(post).toHaveBeenCalledTimes(1);
+  const [pending] = await queue();
+  expect(pending).toMatchObject({
+    started: true,
+    sessionId: 'promoted-session',
+    body: { deviceToken: 'fcm', deviceBootstrap: 'promoted-bootstrap' },
+  });
+  expect(put.mock.calls[0][1]).toEqual(pending.body);
+  put.mockResolvedValue({ data: { ownershipToken: 'owner-a' } });
+  await flushNotificationCommands();
+  expect(put.mock.calls[1][1]).toEqual(put.mock.calls[0][1]);
+  expect(put.mock.calls[1][2]?.headers?.['Idempotency-Key']).toBe(pending.id);
+  expect(await queue()).toEqual([]);
+});
+
+test('최초 등록 전 세션 승격 장애는 미전송 명령으로 남는다', async () => {
+  await legacySession('a');
+  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, token('a'));
+  jest.spyOn(axios, 'post').mockRejectedValue(new Error('offline'));
+  const put = jest.spyOn(axios, 'put').mockResolvedValue({ data: {} });
+  await queueDeviceRegistration('fcm');
+  expect(put).not.toHaveBeenCalled();
+  expect((await queue())[0].started).not.toBe(true);
 });

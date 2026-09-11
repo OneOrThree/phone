@@ -433,3 +433,9 @@ ICU 4-locale 템플릿 seed 용이다.
 
 같은 파일의 `bundleRenderKinds` 에 묶음 렌더 전용 4종(`*_BUNDLE`)의 구 Data 문구를 참고값으로
 담았다 — **Data 는 이 4종을 발행하지 않는다.** 개별 사건만 낸다.
+
+
+모집(`CHALLENGE_SESSION_OPEN`)은 Data가 수신자·그룹·슬롯별로 사건을 만들 대상 `sessionId` 집합을
+`params.bundleMembers`에 함께 싣는다. 이미 참가해 사건을 만들지 않는 회차는 해당 수신자의 집합에서 제외한다.
+Notification은 이미 `SENT`·`SUPPRESSED`인 구성원까지 수신 완료로 세고, 불완전 묶음은 보류한다.
+수신 사이에 flush가 실행되어도 먼저 도착한 일부만 발송하지 않으며, 기존 FCM 재시도와 조용한 시간 이월은 보존한다.

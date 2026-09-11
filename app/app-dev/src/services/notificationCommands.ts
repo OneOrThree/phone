@@ -132,6 +132,71 @@ async function inheritOwnership(command: Command, ownershipToken: string | null)
   });
 }
 
+// 이 등록 의도가 «지금 세션»의 것인가. 다르면 보내지 않는다 — 이전 로그인의 자격을 새 세션으로
+// 재등록하면 남의 기기 소유권을 되찾아간다.
+//
+// 단 하나의 예외가 구 세션 승격이다. sessionId 가 없던 로그인은 서버가 첫 RT 회전에서
+// 세션 축으로 올리고(AuthService ㋪) refresh 응답의 sid 가 저장된다 — 같은 사용자·같은 로그인인데
+// 저장 값만 null → sid 로 바뀐다. 이것을 불일치로 읽으면 HTTP 등록을 «한 번도» 못 한 명령이 다음
+// flush 에서 삭제되고, PushGate 는 userId 가 바뀔 때만 재등록하므로 주기적 flush 로도 복구되지
+// 않는다(그 기기는 영구 미등록). 그래서 승격 표식이 지금 세션을 가리킬 때만 세션을 승계한다.
+// 진짜 계정·로그인 교체는 표식의 sid 와 저장된 sid 가 어긋나므로 종전대로 폐기된다.
+async function sessionMatches(command: Command): Promise<boolean> {
+  const stored = await AsyncStorage.getItem(STORAGE_KEYS.authSessionId);
+  if (command.sessionId === stored || (sessionless(command.sessionId) && sessionless(stored)))
+    return true;
+  if (!sessionless(command.sessionId) || sessionless(stored)) return false;
+  const marker = await AsyncStorage.getItem(STORAGE_KEYS.authSessionPromotion);
+  const promotion = marker ? (JSON.parse(marker) as { userId?: string; sessionId?: string }) : null;
+  if (promotion?.userId !== command.userId || promotion?.sessionId !== stored) return false;
+  await adoptPromotedSession(command, stored);
+  return true;
+}
+
+// 「세션 없음」은 두 모양으로 저장된다 — 키가 아예 없으면 null 이고, 세션 없는 로그인 응답을 저장한
+// 자리는 빈 문자열이다(auth.ts 의 multiSet 은 키를 지우지 않는다). 둘을 다르게 보면 같은 구 세션이
+// 저장 경로에 따라 「불일치」가 되어 멀쩡한 명령이 폐기된다.
+function sessionless(value: string | null): boolean {
+  return value === null || value === '';
+}
+
+// 승격된 세션으로 «아직 보내지 않은 것까지» 함께 옮긴다. 하나만 옮기면 형제 등록(오프라인에 쌓인
+// 토큰 교체 등)이 다음 차례에 같은 불일치로 삭제된다. 여기서는 본문을 건드리지 않는다 — 이미 전송한 키의
+// 본문은 계약이고(같은 키·다른 본문은 IDEMPOTENCY_KEY_CONFLICT), 승격이 바꾸는 것은 「어느 세션의
+// 의도인가」뿐이다. 미전송 명령의 자격은 별도 prepareRegistration에서 같은 로그인임을 다시 확인한 뒤 붙인다.
+async function adoptPromotedSession(command: Command, sessionId: string) {
+  command.sessionId = sessionId;
+  await storage(async () => {
+    const queue = await readQueue();
+    const heirs = queue.filter(
+      (item) =>
+        item.kind === 'register' && item.userId === command.userId && sessionless(item.sessionId),
+    );
+    if (!heirs.length) return;
+    for (const heir of heirs) heir.sessionId = sessionId;
+    await AsyncStorage.setItem(STORAGE_KEYS.notificationCommands, JSON.stringify(queue));
+  });
+}
+
+// 최초 전송 전에만 현재 로그인 자격을 붙인다. 먼저 큐에 기록하므로 갱신 장애도 재시도할 수 있다.
+async function prepareRegistration(command: Command): Promise<boolean> {
+  return runAuthSessionTransition(async () => {
+    const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+    if (!token || getUserIdFromToken(token) !== command.userId || !(await sessionMatches(command)))
+      return false;
+    const bootstrap = await AsyncStorage.getItem(STORAGE_KEYS.deviceBootstrap);
+    await storage(async () => {
+      const queue = await readQueue();
+      const pending = queue.find((item) => item.id === command.id);
+      if (!pending || pending.started) return;
+      if (!pending.body.deviceBootstrap && bootstrap) pending.body.deviceBootstrap = bootstrap;
+      command.body = { ...pending.body };
+      await AsyncStorage.setItem(STORAGE_KEYS.notificationCommands, JSON.stringify(queue));
+    });
+    return true;
+  });
+}
+
 async function completeLogout(command: Command) {
   await storage(async () => {
     const queue = await readQueue();
@@ -170,19 +235,18 @@ async function send(command: Command): Promise<boolean> {
   if (command.kind === 'settings' || command.kind === 'register' || command.kind === 'language') {
     const current = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
     if (!current || getUserIdFromToken(current) !== command.userId) return false;
-    if (
-      command.kind === 'register' &&
-      command.sessionId !== (await AsyncStorage.getItem(STORAGE_KEYS.authSessionId))
-    ) {
+    if (command.kind === 'register' && !(await sessionMatches(command))) {
       await remove(command.id);
       return true;
     }
-    token = (await getFreshAccessToken()) ?? current;
+    token =
+      (await getFreshAccessToken(undefined, {
+        requireSession: command.kind === 'register' && !command.started,
+      })) ?? current;
     if (getUserIdFromToken(token) !== command.userId) return false;
-    if (
-      command.kind === 'register' &&
-      command.sessionId !== (await AsyncStorage.getItem(STORAGE_KEYS.authSessionId))
-    )
+    // 위 갱신이 구 세션을 승격시켰을 수 있다 — 그때의 불일치는 폐기가 아니라 승계다.
+    if (command.kind === 'register' && !(await sessionMatches(command))) return false;
+    if (command.kind === 'register' && !command.started && !(await prepareRegistration(command)))
       return false;
   }
   await storage(async () => {

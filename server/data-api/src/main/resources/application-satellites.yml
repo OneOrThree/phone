@@ -17,6 +17,7 @@ internal:
         allow:
           - 'GET /internal/users/*/activation'
           - 'POST /internal/auth/device-sessions/verify'
+          - 'POST /internal/auth/sessions/verify'
           - 'POST /internal/users/*/device-token-deletions'
           - 'PUT /internal/users/*/notification-settings-commands'
           - 'POST /internal/outbox-commands/*/delivered'

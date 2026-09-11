@@ -15,6 +15,9 @@ import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationOutboxProducer;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
+import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
@@ -34,6 +37,8 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -42,7 +47,9 @@ import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -53,7 +60,8 @@ import static org.mockito.Mockito.verify;
  * ④ 조용한 시간에 걸려도 <b>종료 시점에 아직 참가할 수 있으면 이월</b>하고, 종료 시점에 이미
  *    마감된 것만 버린다(N44 + 그 단서),
  * ⑤ 이월분은 조용한 시간이 끝난 틱에 실제로 나간다,
- * ⑥ 스캔 이후 참가가 커밋된 유저에게는 발송 직전 재검증으로 모집 푸시가 가지 않는다.
+ * ⑥ 스캔 이후 참가가 커밋된 유저에게는 발송 직전 재검증으로 모집 푸시가 가지 않는다,
+ * ⑦ 신 경로(OUTBOX)는 사건마다 <b>수신 대상별</b> 묶음 구성원을 실어 보낸다(도착 완료 판정).
  */
 @ExtendWith(MockitoExtension.class)
 class SessionOpenNotificationServiceTest {
@@ -382,6 +390,59 @@ class SessionOpenNotificationServiceTest {
         assertThat(summary.sentCount()).isZero();
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
         verify(notificationSentLogRepository).deleteByIds(anyCollection());
+    }
+
+    @Test
+    @DisplayName("OUTBOX 모집 사건마다 수신 대상별 묶음 구성원(회차 id)을 실어 보낸다")
+    void outboxCarriesRecipientScopedBundleMembership() {
+        GroupChallengeBetSession first = durationSession();
+        GroupChallengeBetSession second = durationSession();
+        User all = user("전부미참가");
+        User one = user("하나참가");
+        given(groupChallengeBetSessionRepository.findOpenJoinableSessions(any(), any()))
+                .willReturn(List.of(first, second));
+        given(groupMemberRepository.findByGroupIdIn(anyCollection())).willReturn(List.of(
+                GroupMember.builder().group(first.getGroup()).user(all).build(),
+                GroupMember.builder().group(first.getGroup()).user(one).build()));
+        // one 은 second 에 이미 참가했다 — 그 회차는 one 의 묶음에 들어가서는 안 된다.
+        given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
+                .willReturn(List.of(GroupChallengeBetParticipant.builder()
+                        .id(UUID.randomUUID()).session(second).user(one).build()));
+        NotificationDispatchProperties properties = new NotificationDispatchProperties();
+        properties.setMode(NotificationDispatchProperties.Mode.OUTBOX);
+        NotificationOutboxProducer producer = mock(NotificationOutboxProducer.class);
+        given(producer.append(any())).willReturn(Optional.of(envelope()));
+        SessionOpenNotificationService outbox = new SessionOpenNotificationService(
+                groupChallengeBetSessionRepository, groupQueryService,
+                groupChallengeBetParticipantRepository, groupMemberRepository,
+                notificationSentLogRepository, userQueryService, pushNotificationService,
+                new NotificationDispatcher(properties, producer, pushNotificationService));
+
+        PushDispatchSummaryResponse summary =
+                outbox.sendSessionOpenNotifications(DAY.atTime(8, 0).atZone(KST).toInstant());
+
+        assertThat(summary.sentCount()).isEqualTo(3);
+        ArgumentCaptor<NotificationRequest> requests =
+                ArgumentCaptor.forClass(NotificationRequest.class);
+        verify(producer, times(3)).append(requests.capture());
+        List<String> bothSessions = List.of(first.getId().toString(), second.getId().toString());
+        for (NotificationRequest request : requests.getAllValues()) {
+            assertThat(request.params()).containsEntry("bundleMembers",
+                    request.userId().equals(all.getId())
+                            ? bothSessions
+                            : List.of(first.getId().toString()));
+        }
+        // 참가한 회차는 사건 자체가 나가지 않는다 — 구성원에서만 빼면 그 사건이 영영 미달로 남는다.
+        assertThat(requests.getAllValues()).noneMatch(request ->
+                request.userId().equals(one.getId()) && request.subjectId().equals(second.getId()));
+        // 신 경로는 구 클레임·발송을 건드리지 않는다.
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    private static EventEnvelope envelope() {
+        return new EventEnvelope("noti", 1, NotificationOutboxProducer.EVENT_TYPE,
+                DAY.atTime(8, 0).atZone(KST).toInstant(), null, UUID.randomUUID(), "ko", null, 1L,
+                Map.of());
     }
 
     private static UserNotificationSettings nightSettings(

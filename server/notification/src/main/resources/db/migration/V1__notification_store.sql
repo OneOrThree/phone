@@ -24,12 +24,23 @@ CREATE TABLE session_fences (
     bootstrap_hash text PRIMARY KEY, user_id uuid NOT NULL, epoch bigint NOT NULL, revoked boolean NOT NULL DEFAULT false,
     used boolean NOT NULL DEFAULT false
 );
+-- 구 앱 세션 축. 자격(deviceBootstrap)을 저장하지 않는 앱은 session_fences 에 키를 만들 수 없다 —
+-- 그 앱의 AT 에 실린 «서명된 sid» 를 대신 키로 쓴다. 같은 표에 섞지 않는 이유는 키의 근거가 다르기
+-- 때문이다: 저쪽은 앱이 제시한 1회용 자격, 이쪽은 서버가 서명해 내려 준 세션 id 다. 섞으면 「자격
+-- 없이도 자격 있는 것과 같은 권한」이 조용히 성립한다.
+CREATE TABLE legacy_session_fences (
+    session_id uuid PRIMARY KEY, user_id uuid NOT NULL, epoch bigint NOT NULL,
+    revoked boolean NOT NULL DEFAULT false, used boolean NOT NULL DEFAULT false
+);
 CREATE TABLE device_tokens (
     device_token text PRIMARY KEY, user_id uuid NOT NULL, ownership_token uuid NOT NULL UNIQUE,
     ownership_version bigint NOT NULL DEFAULT 1, auth_generation bigint, bootstrap_hash text,
-    session_epoch bigint, active boolean NOT NULL DEFAULT true, updated_at timestamptz NOT NULL DEFAULT now()
+    session_epoch bigint, legacy_session_id uuid, active boolean NOT NULL DEFAULT true,
+    updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX device_tokens_user ON device_tokens(user_id) WHERE active;
+-- 구 앱엔 ownership 이 없다. 회전·폐기가 「그 세션의 기기」를 찾는 유일한 길이 이 인덱스다.
+CREATE INDEX device_tokens_legacy_session ON device_tokens(user_id, legacy_session_id) WHERE active;
 CREATE TABLE settings (
     user_id uuid PRIMARY KEY, version bigint NOT NULL DEFAULT 0, notification_enabled boolean NOT NULL DEFAULT true,
     sound_enabled boolean NOT NULL DEFAULT true, night_mode_enabled boolean NOT NULL DEFAULT false,

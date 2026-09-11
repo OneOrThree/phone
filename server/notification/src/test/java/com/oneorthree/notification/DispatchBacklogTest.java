@@ -70,7 +70,8 @@ class DispatchBacklogTest {
 
     @BeforeEach
     void resetState() {
-        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,session_fences,"
+        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
+                + "session_fences,legacy_session_fences,"
                 + "user_fences,settings,projections,result_ack,templates,deeplinks,kinds CASCADE");
         store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
         store.update("INSERT INTO kinds(id,quiet_policy,eligibility_required) VALUES('BET_RESULT','DEFER',true)");

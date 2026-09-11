@@ -76,7 +76,8 @@ python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 | Data `OUTBOX_RELAY_ENABLED` | false | A18 재시도 정책 입력과 Kafka/HTTP 목적지 준비 후 true |
 | Data `NOTIFICATION_DISPATCH_MODE` | LEGACY | 구 FCM·리스너·flush 정지/drain 후 OUTBOX |
 | Notification `NOTIFICATION_KAFKA_ENABLED` | false | `.DLT`까지 토픽 준비 후 true. 수신·내구 적재만 시작 |
-| Notification `NOTIFICATION_GENERATION_REQUIRED` | false | Business/앱의 gen 롤아웃 + 구 AT 최대수명 대기 후 true |
+| Notification `NOTIFICATION_GENERATION_REQUIRED` | false | gen 발급 롤아웃 + 구 AT 최대수명 대기 후 true |
+| Notification `NOTIFICATION_LEGACY_DEVICE_REGISTRATION` | true | 소유권·bootstrap 미지원 구 앱 지원 종료 후 false. AT의 gen 존재와 별개인 앱 롤아웃 축 |
 | Notification `NOTIFICATION_SCHEDULING_ENABLED` | false | 각 등록부 job 활성화와 함께 true. 공통 gate는 계속 별도 |
 | Notification `dispatch_control.enabled` | false | 최종 import/verify/stopWindow 검증 후 Console open으로만 true |
 
@@ -139,3 +140,9 @@ Data의 CLI를 `notification.migration.enabled=true`로 기동하고 `notificati
 `*.import-0000.json`의 500건 이하 배치를 Noti import API에 순서대로 전달하고, `*.verify.json`의 manifest로 검증한다. PENDING·DEFERRED는 미발송 데이터로 적재하며 queueDepth에는 포함하지 않는다. 빈 settings/device/delivery도 count 0과 SHA256(empty)를 manifest에 기록한다. 각 파일은 생성 시 0600이며 기존 파일을 덮지 않는다. 동일 원본 재시도는 새 출력 경로를 지정해 같은 migrationId에 반영한다.
 
 직렬화 호환 검증은 Noti bootJar 빌드 뒤 `python3 .github/scripts/check-migration-checksum.py`로 실행한다. 발송 개방 전 실제 DB의 건수·체크섬·필드·미발송 렌더 검증은 별도로 통과해야 한다.
+
+
+앱의 최초 기기 등록은 sid 없는 로그인을 먼저 refresh해 승격한 뒤 전송한다. 따라서 gen·sid·bootstrap을
+발급하는 Data 인증 제공자를 앱 변경보다 먼저 배포한다. 갱신 장애나 세션 응답 미지원은 미전송 큐로 남긴다.
+구 앱은 계속 무자격 본문을 보내므로 Business가 서명된 sid를 검증해 별도 legacy 세션 fence에 연결한다.
+이 호환 경로는 현대 bootstrap 행을 덮지 않는다. 현대 등록 이후 구 JS로 롤백하는 배포는 호환 범위에 포함하지 않는다.
