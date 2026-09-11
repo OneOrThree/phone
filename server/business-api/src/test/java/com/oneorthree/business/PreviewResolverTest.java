@@ -8,6 +8,8 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.*;
@@ -49,6 +51,14 @@ class PreviewResolverTest {
         var file = withoutKey.resolve(URI.create("https://example.com/a.zip"));
         assertThat(file.title()).isEqualTo("a.zip");
         assertThat(file.thumbnailBase64()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://example.com", "https://example.com?x=1", "https://example.com/"})
+    void usesHostForLinksWithoutFileName(String url) throws Exception {
+        when(http.fetch(any(), anyMap(), eq(false)))
+                .thenReturn(new PublicHttpClient.Resource("text/html", null, new byte[0]));
+        assertThat(resolver.resolve(URI.create(url)).title()).isEqualTo("example.com");
     }
 
     @Test

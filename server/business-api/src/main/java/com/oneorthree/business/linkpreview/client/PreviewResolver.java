@@ -35,7 +35,8 @@ public class PreviewResolver {
         }
         var resource = http.fetch(uri, Map.of(), false);
         String path = uri.getPath();
-        String title = path == null || path.endsWith("/") ? uri.getHost() : path.substring(path.lastIndexOf('/') + 1);
+        String title = path == null || path.isEmpty() || path.endsWith("/")
+                ? uri.getHost() : path.substring(path.lastIndexOf('/') + 1);
         String thumbnail = null;
         if (resource.body().length > 0) {
             try {
