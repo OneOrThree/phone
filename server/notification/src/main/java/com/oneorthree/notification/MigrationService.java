@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * 이관 적재·검증과 «공통 발송 게이트»(§7.1.2 · A22 ㋭).
@@ -96,7 +97,7 @@ class MigrationService {
      * @param exclusive open·import 처럼 뒤에 쓰기가 따르면 true (FOR UPDATE), verify 는 false (FOR SHARE)
      */
     private Map<String, Object> lockGate(String migrationId, boolean exclusive) {
-        Map<String, Object> control = store.one("SELECT ever_opened,active_migration_id FROM dispatch_control"
+        Map<String, Object> control = store.one("SELECT enabled,ever_opened,active_migration_id FROM dispatch_control"
                 + " WHERE id=1 " + (exclusive ? "FOR UPDATE" : "FOR SHARE"));
         if (control == null) {
             throw new NotificationFailure(409, "DISPATCH_CONTROL_MISSING");
@@ -727,7 +728,7 @@ class MigrationService {
         Map<String, Object> manifest = AdminCatalog.object(body, "manifest");
         audit.record(actor, "dispatch.open", migrationId, Map.of("manifestVersion",
                 Json.number(manifest, "version")));
-        return store.command("dispatch-open:" + migrationId, key, Map.of("manifest", manifest), () -> {
+        Supplier<Map<String, Object>> activate = () -> {
             // 게이트 «먼저». 이 배타 잠금이 풀릴 때까지 다른 적재는 커밋을 끝내고, 여기 아래의 최종
             // 검사는 그 이후의 DB 만 본다. 순서를 뒤집으면 검사에 안 잡힌 쓰기를 안은 채 열린다.
             Map<String, Object> control = lockGate(migrationId, true);
@@ -775,7 +776,16 @@ class MigrationService {
             result.put("report", report);
             result.put("retired", retired);
             return result;
-        });
+        };
+        return store.command("dispatch-open:" + migrationId, key, Map.of("manifest", manifest), activate,
+                false, () -> {
+                    // 과거 개방 재시도가 이후의 운영 중지를 뒤집어서는 안 된다. 같은 gate 잠금 아래
+                    // 현재 개방을 확인한 뒤 실제 검증도 다시 수행한다. 재개 의도에는 새 키가 필요하다.
+                    if (!Boolean.TRUE.equals(lockGate(migrationId, true).get("enabled"))) {
+                        throw new NotificationFailure(409, "DISPATCH_OPEN_REPLAY_STALE");
+                    }
+                    activate.get();
+                });
     }
 
     /**
@@ -877,9 +887,11 @@ class MigrationService {
                 subject, record.get("version"), Json.write(record));
     }
 
-    /** 재검증에 실패한 뒤 남은 낡은 «검증 통과» 표시를 지운다. open 트랜잭션이 끝난 뒤에 불린다. */
-    @Transactional
+    /** 재검증 실패 후 발송을 닫고 낡은 검증 표시를 지운다. open 트랜잭션이 끝난 뒤에 불린다. */
+    @Transactional(timeout = 120)
     public void invalidate(String actor, String migrationId) {
+        lockGate(migrationId, true);
+        store.update("UPDATE dispatch_control SET enabled=false,updated_at=now() WHERE id=1");
         store.update("UPDATE migration_state SET verified_at=NULL WHERE id=?", migrationId);
         audit.record(actor, "migration.verification.cleared", migrationId, Map.of());
     }
@@ -898,7 +910,7 @@ class MigrationService {
             result.put("dispatch", gate());
             result.put("drained", true);
             return result;
-        });
+        }, true);
     }
 
     // ── 놓친 잡 재생 ────────────────────────────────────────────────────

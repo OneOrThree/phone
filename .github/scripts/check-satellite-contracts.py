@@ -238,6 +238,16 @@ require(bool(re.search(r'catch \(UpstreamDomainException.*?UpstreamContractMisma
                            r'\s*circuitBreaker\.recordIgnored\(\);', exchange)),
         'A22 ㋽: 비재시도 응답의 탐침 종료 또는 실행 취소·실패의 탐침 반환 경계 누락')
 
+
+member_entity = source('server/data-api/src/main/java/com/oneorthree/phone/group/repository/domain/GroupMember.java')
+require('@DynamicUpdate' in member_entity,
+        'A22 ㋻: 멤버 역할·권한 변경이 동시 표시 버전을 전체 행 저장으로 되돌릴 수 있음')
+gate_commands = source('server/notification/src/main/java/com/oneorthree/notification/MigrationService.java')
+close_command = gate_commands.split('public Map<String, Object> close(', 1)[1].split('// ──', 1)[0]
+require('DISPATCH_OPEN_REPLAY_STALE' in gate_commands and 'activate.get();' in gate_commands
+        and '}, true);' in close_command,
+        'A22 ㋾: 게이트 재시도의 현재 검증·중지 보호·재차 drain 경계 누락')
+
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)

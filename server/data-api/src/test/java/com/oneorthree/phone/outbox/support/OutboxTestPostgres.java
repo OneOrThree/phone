@@ -17,7 +17,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  */
 public final class OutboxTestPostgres {
 
-    /** 클래스 하나가 아니라 JVM 하나당 컨테이너 하나 — 컨텍스트 캐시 키를 같게 유지한다. */
+    /** 클래스 하나가 아니라 JVM 하나당 컨테이너 하나 — 서로 다른 테스트 컨텍스트도 DB를 공유한다. */
     public static final PostgreSQLContainer<?> INSTANCE;
 
     static {
@@ -40,9 +40,11 @@ public final class OutboxTestPostgres {
         registry.add("spring.datasource.url", INSTANCE::getJdbcUrl);
         registry.add("spring.datasource.username", INSTANCE::getUsername);
         registry.add("spring.datasource.password", INSTANCE::getPassword);
-        // 설정이 다른 Spring 캐시마다 기본 10개 idle 연결을 채우면 공유 PG의 100개 상한을 넘는다.
-        // 테스트도 최대 동시 연결 수는 유지하고 실제로 필요한 연결만 연다. 운영 풀 설정과 무관하다.
+        // 컨텍스트 캐시마다 기본 idle 10개를 채우면 공유 PG의 max_connections를 소진한다.
+        // 동시 쓰기 두 개와 잠금 관측용 연결은 허용하되 유휴 컨텍스트는 연결을 붙잡지 않는다.
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> 6);
         registry.add("spring.datasource.hikari.minimum-idle", () -> 0);
+        registry.add("spring.datasource.hikari.idle-timeout", () -> 10000);
         registry.add("spring.flyway.enabled", () -> true);
         registry.add("spring.flyway.locations", () -> "classpath:db/migration");
         // 빈 DB 에서 V1 부터 전부 실행한다 — 「이미 있는 스키마를 baseline 으로 넘긴다」가 아니다.
