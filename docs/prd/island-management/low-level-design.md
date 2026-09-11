@@ -58,7 +58,7 @@ Query `{cursor?,limit?}` 기본30/상한100을 원본 빈 query에 **유한 목�
 
 입력 `{decision:approve|reject}`. 성공200 승인 `{data:{status:"approved",memberId,version}}`, 거절 `{data:{status:"rejected",memberId:null,version}}`. memberId는 사용자 ID다. 원본에 없는 거절 예시의 memberId는 null로 명시한다. version은 해당 요청 버전이다.
 
-현재 host 권한과 request.islandId 일치, pending 상태, 신청자 계정 활성, 과거 KICKED/기존 membership/소속 상한/정원을 검사한다. approve는 요청 approved 전이와 membership 생성 또는 재활성화, 주민 version/outbox를 한 TX에서 커밋한다. 요청만 먼저 approved로 만들지 않는다. 신청자가 다른 섬에서 집중 중에 원격 승인을 받아도 **currentIslandId는 바꾸지 않는다**. 현재 섬으로 이동하는 시점에 별도 switch 가드를 사용한다.
+공통으로 현재 host 권한과 request.islandId 일치, pending 상태를 검사한다. 신청자 계정 활성, 과거 KICKED/기존 membership/소속 상한/정원 검사는 **approve에만** 적용한다. reject는 가입 자격이나 남은 자리와 무관하게 pending 요청을 정리할 수 있다. approve는 요청 approved 전이와 membership 생성 또는 재활성화, 주민 version/outbox를 한 TX에서 커밋한다. 요청만 먼저 approved로 만들지 않는다. 신청자가 다른 섬에서 집중 중에 원격 승인을 받아도 **currentIslandId는 바꾸지 않는다**. 현재 섬으로 이동하는 시점에 별도 switch 가드를 사용한다.
 
 reject는 membership을 만들지 않고 요청 terminal 상태와 join.request.updated를 남긴다. 같은 키는 기존 결과를 재생하고, 다른 키로 이미 terminal인 요청을 처리하면409다. approve와 cancel/reject 경합에서 한 전이만 승리한다. 승인 시 신청자의 상한과 섬 정원은 사전 snapshot이 아니라 잠금 아래 다시 판정한다.
 
@@ -136,7 +136,7 @@ manage는 island.updated, 승인/위임/강퇴/탈퇴는 island.members.updated,
 |---|---|
 | 권한 행렬 | 확정 행의 host/member/visitor·pending/다른 섬 host·삭제 계정; TBD를 허용으로 계산하지 않음 |
 | 요청 IDOR | 다른 섬 requestId, 남의 own-request, 타섬 targetUserId, 이전 host의 새 요청403 |
-| 승인 경합 | approve/reject/cancel 중 한 승자, 마지막 자리 승인/즉시 가입 중 한 승자, 신청자 상한과 동시 가입 |
+| 승인 경합 | 만원·신청자 소속 상한 도달 중에도 reject 성공, approve/reject/cancel 중 한 승자, 마지막 자리 승인/즉시 가입 중 한 승자, 신청자 상한과 동시 가입 |
 | 위임 경합 | 동시 두 위임, 위임 vs 대상 탈퇴/계정 삭제/강퇴, 자기 위임, 활성 host 정확히1명 |
 | 이탈 경합 | 마지막 주민 leave vs join/approve, leave vs focus-start/pause/resume, legacy/new writer 혼합 |
 | 초기/빈/오류 | 이름 null/빈 값/bidi/길이, 미전달 필드 보존, 빈 PATCH no-op, 같은 성공 receipt 재생, 다른 본문409 |
