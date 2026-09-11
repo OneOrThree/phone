@@ -26,6 +26,8 @@ GROMO-1659(알림 서버 분리)·GROMO-1660(초대 링크 서버 분리)의 **�
 | `aggregate_versions` | 시퀀스의 「할당 순서 ≠ 커밋 순서」로 최신 상태가 폐기되는 것 (㊸) |
 | `command_idempotency` | 첫 응답이 유실된 재시도가 **새 도메인 객체 + 새 봉투**를 만드는 것 |
 
+`command_idempotency`의 물리 키는 `(userId, 원래 멱등 키)`의 SHA-256이다. 서로 다른 사용자가 같은 헤더를 사용해도 독립적으로 실행하며, 같은 사용자의 키를 다른 명령·본문으로 재사용하면 409로 거부한다.
+
 컬럼별 근거는 `server/data-api/src/main/resources/db/migration/V51__event_outbox.sql` 과
 `server/data-api/docs/db/schema.dbml` §9 에 있다.
 

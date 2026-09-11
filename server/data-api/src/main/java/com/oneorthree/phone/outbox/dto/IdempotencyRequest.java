@@ -1,5 +1,9 @@
 package com.oneorthree.phone.outbox.dto;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.UUID;
 
 /**
@@ -34,6 +38,17 @@ public record IdempotencyRequest(String key, UUID userId, String commandType, St
         }
         if (fingerprint == null || fingerprint.isBlank()) {
             throw new IllegalArgumentException("요청 본문 지문은 필수입니다.");
+        }
+    }
+
+    /** 사용자별 키 공간. 다른 사용자의 같은 헤더가 명령을 차단하거나 응답을 공유하지 않는다. */
+    public String storageKey() {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest((userId + "\0" + key).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 미지원", e);
         }
     }
 }

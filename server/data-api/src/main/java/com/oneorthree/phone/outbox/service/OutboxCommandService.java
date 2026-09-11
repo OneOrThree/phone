@@ -120,24 +120,29 @@ public class OutboxCommandService implements OutboxCommandPort {
     public <T> IdempotentOutcome<T> runIdempotent(
             IdempotencyRequest request, Class<T> responseType, Supplier<T> command) {
         Instant now = clock.instant();
+        String storageKey = request.storageKey();
         int claimed = idempotencyRepository.insertClaim(
-                request.key(), request.userId(), request.commandType(), request.fingerprint(), now);
+                storageKey, request.userId(), request.commandType(), request.fingerprint(), now);
 
         if (claimed == 0) {
-            Optional<CommandIdempotency> stored = idempotencyRepository.findById(request.key());
+            Optional<CommandIdempotency> stored = idempotencyRepository.findById(storageKey);
             if (stored.isPresent()) {
                 return new IdempotentOutcome<>(replay(stored.get(), request, responseType), true);
             }
             // 선점자가 롤백해 행이 사라졌다 — 이 호출이 그 자리를 이어받는다. 한 번만 다시 시도한다:
             // 여기서 무한 재시도를 돌리면 계속 롤백하는 명령이 요청 스레드를 붙잡는다.
-            idempotencyRepository.insertClaim(
-                    request.key(), request.userId(), request.commandType(), request.fingerprint(), now);
+            int reclaimed = idempotencyRepository.insertClaim(
+                    storageKey, request.userId(), request.commandType(), request.fingerprint(), now);
+            if (reclaimed == 0) {
+                CommandIdempotency existing = idempotencyRepository.findById(storageKey).orElseThrow();
+                return new IdempotentOutcome<>(replay(existing, request, responseType), true);
+            }
         }
 
         T value = command.get();
         // 선점 행은 같은 트랜잭션에서 만들었으므로 반드시 있다. 응답은 지금 채워지고 커밋도 함께다 —
         // 그래서 «커밋된 행 = 응답 있음» 이 성립하고, 재생 경로가 빈 응답을 만날 수 없다.
-        CommandIdempotency claim = idempotencyRepository.findById(request.key())
+        CommandIdempotency claim = idempotencyRepository.findById(storageKey)
                 .orElseThrow(() -> new IllegalStateException(
                         "멱등 선점 행이 같은 트랜잭션에서 사라졌습니다 — key=" + request.key()));
         claim.completeWith(OutboxEnvelopeCodec.toJson(value));

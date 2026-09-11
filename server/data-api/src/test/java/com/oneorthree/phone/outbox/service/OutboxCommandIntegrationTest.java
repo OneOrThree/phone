@@ -250,7 +250,6 @@ class OutboxCommandIntegrationTest {
                 .extracting(e -> ((OutboxException) e).getErrorCode())
                 .isEqualTo(OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         for (IdempotencyRequest differentOwnerOrCommand : List.of(
-                new IdempotencyRequest(key, UUID.randomUUID(), "createChallenge", "fingerprint-a"),
                 new IdempotencyRequest(key, userId, "anotherCommand", "fingerprint-a"))) {
             assertThatThrownBy(() -> tx().execute(status -> outboxCommandPort.runIdempotent(
                     differentOwnerOrCommand, StoredResponse.class, () -> {
@@ -260,6 +259,30 @@ class OutboxCommandIntegrationTest {
                     .extracting(e -> ((OutboxException) e).getErrorCode())
                     .isEqualTo(OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
+    }
+
+    @Test
+    @DisplayName("두 사용자의 같은 멱등 헤더는 각각 실행되고 자기 응답만 재생한다")
+    void idempotencyKeysAreScopedToTheRequestingUser() {
+        String key = "shared-key";
+        UUID firstUser = UUID.randomUUID();
+        UUID secondUser = UUID.randomUUID();
+        AtomicInteger executions = new AtomicInteger();
+        for (UUID userId : List.of(firstUser, secondUser)) {
+            IdempotentOutcome<StoredResponse> first = tx().execute(status ->
+                    outboxCommandPort.runIdempotent(request(key, userId), StoredResponse.class, () -> {
+                        executions.incrementAndGet();
+                        return new StoredResponse(userId.toString(), 1L);
+                    }));
+            assertThat(first.replayed()).isFalse();
+            IdempotentOutcome<StoredResponse> replay = tx().execute(status ->
+                    outboxCommandPort.runIdempotent(request(key, userId), StoredResponse.class, () -> {
+                        throw new AssertionError("같은 사용자의 재시도는 실행하지 않는다");
+                    }));
+            assertThat(replay.replayed()).isTrue();
+            assertThat(replay.value()).isEqualTo(new StoredResponse(userId.toString(), 1L));
+        }
+        assertThat(executions.get()).isEqualTo(2);
     }
 
     @Test
