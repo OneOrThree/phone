@@ -124,6 +124,19 @@ class UpstreamErrorContractIntegrationTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
+    @CsvSource({"503,SERVICE_UNAVAILABLE,SERVICE_UNAVAILABLE", "503,UPSTREAM_UNAVAILABLE,SERVICE_UNAVAILABLE",
+            "504,UPSTREAM_TIMEOUT,UPSTREAM_TIMEOUT"})
+    void exhaustedSynchronousRetryKeepsPublicStatusAndCode(int upstreamStatus, String code, String publicCode)
+            throws Exception {
+        structured(upstreamStatus, code);
+        mockMvc.perform(get(PUBLIC + "/sync").header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().is(upstreamStatus))
+                .andExpect(jsonPath("$.error.code").value(publicCode))
+                .andExpect(jsonPath("$.error.retryable").value(true));
+        assertThat(DATA.hits(UPSTREAM)).isEqualTo(3);
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"<html>temporary proxy failure</html>", "{}"})
     void publicPlainProxyServerErrorsKeepRetries(String body) throws Exception {
         DATA.on(UPSTREAM, request -> new MockUpstream.Response(502, body));

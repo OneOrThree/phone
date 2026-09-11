@@ -131,6 +131,9 @@ public class InternalHttpClient implements AutoCloseable {
                     if (failure instanceof UpstreamTimeoutException timeout) {
                         throw timeout;
                     }
+                    if (failure instanceof RetryableFailure retry && retry.timeout) {
+                        throw new UpstreamTimeoutException(target + " 상류 타임아웃 응답", failure);
+                    }
                     throw new UpstreamUnavailableException(target + " 일시 응답 실패", failure);
                 }
                 Duration delay = failure instanceof RetryableFailure retry && retry.retryAfter != null
@@ -312,7 +315,7 @@ public class InternalHttpClient implements AutoCloseable {
         // legacy 동기 호출과 코드 없는 프록시 5xx의 기존 재시도 의미는 유지한다.
         if (status >= 500 && status <= 599
                 && (!strictErrorContract || !structured || transientServerError)) {
-            return new RetryableFailure(parseRetryAfter(retryAfter));
+            return new RetryableFailure(parseRetryAfter(retryAfter), strictErrorContract && status == 504);
         }
         if (structured) {
             Duration wait = parseRetryAfter(retryAfter);
@@ -376,10 +379,16 @@ public class InternalHttpClient implements AutoCloseable {
     private static final class RetryableFailure extends RuntimeException {
         private static final long serialVersionUID = 1L;
         private final Duration retryAfter;
+        private final boolean timeout;
 
         private RetryableFailure(Duration retryAfter) {
+            this(retryAfter, false);
+        }
+
+        private RetryableFailure(Duration retryAfter, boolean timeout) {
             super("상류 연결 또는 서버 일시 실패");
             this.retryAfter = retryAfter;
+            this.timeout = timeout;
         }
     }
 }

@@ -247,6 +247,30 @@ class HttpExecutionIntegrationTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({"504,UPSTREAM_TIMEOUT,true", "503,SERVICE_UNAVAILABLE,false", "503,UPSTREAM_UNAVAILABLE,false"})
+    void exhaustedRetryPreservesTheTransientFailureKind(int status, String code, boolean timeout)
+            throws Exception {
+        String path = "/structured/" + status + "/" + code;
+        try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 2, 2)) {
+            assertThatThrownBy(() -> client.exchange(call(path), context(1500).forReads(), TYPE))
+                    .isInstanceOf(timeout ? UpstreamTimeoutException.class
+                            : com.oneorthree.business.common.exception.UpstreamUnavailableException.class);
+            assertThat(server.count(path)).isEqualTo(2);
+        }
+    }
+
+    @Test
+    void legacy504KeepsItsOriginalUnavailableClassification() throws Exception {
+        String path = "/structured/504/UPSTREAM_TIMEOUT";
+        try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 2, 2)) {
+            assertThatThrownBy(() -> client.exchange(call(path),
+                    Deadline.startingNow(Duration.ofSeconds(2)), TYPE))
+                    .isInstanceOf(com.oneorthree.business.common.exception.UpstreamUnavailableException.class);
+            assertThat(server.count(path)).isEqualTo(2);
+        }
+    }
+
     @Test
     void optionalCannotHideWholeDeadlineAndQueuedWorkNeverMakesHttpRequest() throws Exception {
         try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 1, 1);
