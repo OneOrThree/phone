@@ -25,14 +25,17 @@ final class SettingsContract {
         return normalized;
     }
 
-    static Command command(JsonNode value, boolean requested) {
+    static Command command(JsonNode value, boolean requested, long authenticatedGeneration) {
         object(value);
         UUID id = uuid(value, "commandId");
         if (!id.equals(uuid(value, "eventId"))) {
             throw invalid();
         }
         long version = number(value, "version");
-        number(value, "authGeneration");
+        // 과거 receipt는 원 세대를 유지하지만 현재 서명 자격보다 미래인 세대로 권한을 높일 수 없다.
+        if (number(value, "authGeneration") > authenticatedGeneration) {
+            throw invalid();
+        }
         JsonNode mask = value.get("mask");
         if (mask == null || !mask.isArray() || mask.size() != 1
                 || !mask.get(0).isString() || !"notificationEnabled".equals(mask.get(0).stringValue())) {

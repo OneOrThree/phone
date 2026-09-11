@@ -298,6 +298,42 @@ class AccountSettingsContractTest extends UpstreamTestBase {
         assertThat(DATA.hits(DELIVERED)).isEqualTo(1);
     }
 
+    @ParameterizedTest
+    @ValueSource(longs = {4, 9007199254740991L})
+    void futureGenerationCannotReachNotificationOrAcknowledgeCommand(long generation) throws Exception {
+        DATA.on(DATA_PATCH, request -> ok(command(false).replace(
+                "\"authGeneration\":3", "\"authGeneration\":" + generation)));
+        // 수신자가 미래 세대를 받아도 되는 상태여도 Business가 원 서명 자격과 대조해 차단해야 한다.
+        NOTI.on(APPLY, request -> ok("{\"applied\":true}"));
+        DATA.on(DELIVERED, request -> ok(null));
+        mockMvc.perform(write("{\"notifications\":false}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"))
+                .andExpect(jsonPath("$.error.retryable").value(false))
+                .andExpect(jsonPath("$.data").doesNotExist());
+        assertThat(DATA.hits(DATA_PATCH)).isEqualTo(1);
+        assertThat(DATA.receivedFor(DATA_PATCH).get(0).body()).contains("\"authGeneration\":3");
+        assertThat(NOTI.received()).isEmpty();
+        assertThat(DATA.hits(DELIVERED)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, 2, 3})
+    void originalPastOrCurrentGenerationRemainsUnchangedWhenNotificationAccepts(long generation) throws Exception {
+        DATA.on(DATA_PATCH, request -> ok(command(false).replace(
+                "\"authGeneration\":3", "\"authGeneration\":" + generation)));
+        NOTI.on(APPLY, request -> ok("{\"applied\":true}"));
+        DATA.on(DELIVERED, request -> ok(null));
+        mockMvc.perform(write("{\"notifications\":false}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.notifications").value(false));
+        assertThat(DATA.receivedFor(DATA_PATCH).get(0).body()).contains("\"authGeneration\":3");
+        assertThat(NOTI.received()).hasSize(1);
+        assertThat(NOTI.receivedFor(APPLY).get(0).body()).contains("\"authGeneration\":" + generation);
+        assertThat(NOTI.receivedFor(APPLY).get(0).header("Idempotency-Key")).isEqualTo(COMMAND);
+        assertThat(DATA.hits(DELIVERED)).isEqualTo(1);
+        assertThat(DATA.hits(DATA_SNAPSHOT)).isZero();
+    }
+
     @Test
     void replayPreservesOriginalGenerationInsteadOfUpgradingItToCurrentClaims() throws Exception {
         DATA.on(DATA_PATCH, request -> ok(command(false).replace("\"authGeneration\":3", "\"authGeneration\":2")));

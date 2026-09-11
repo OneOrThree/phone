@@ -36,7 +36,7 @@ public class AccountSettingsUseCase {
     public Result patch(AccessTokenClaims claims, boolean notifications, UUID key, Deadline deadline) {
         SettingsContract.Command command = SettingsContract.command(dataCall(() -> data.patchSettings(
                 claims.userId(), claims.sessionId(), claims.authGeneration(), notifications, key, deadline)),
-                notifications);
+                notifications, claims.authGeneration());
         JsonNode original = command.data();
         Map<String, Object> body = Map.of("mask", original.get("mask"), "patch", original.get("patch"),
                 "baseline", original.get("baseline"), "authGeneration", original.get("authGeneration"));
