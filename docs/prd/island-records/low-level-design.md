@@ -216,7 +216,7 @@ screentimeSync:45~65의 로컬 정오→KST 전달은 UTC-3 이하에서 날짜�
 
 논리 저장은 (사용자,검증 기기,날짜,measuredAt)의 불변 관측값과 (사용자,기기,날짜)의 최신 선택 포인터, 사용자/날짜 파생 projection·정책 revision이다. 기존 daily_screen_time_stats(user,date) 유일성을 device별로 바꾸지 않는다. 실제 테이블/컬럼/마이그레이션 번호는1769 조정자가 정하며 공통 receipt/outbox는 재사용한다. 원본 관측 보관기간·PII 삭제 정책은 계정 정책과 함께 정하고 영구 보존을 약속하지 않는다.
 
-Data TX 순서: 영향 사용자 lifecycle 잠금·활성/session generation 재검증 → 공통 receipt 선점 → 영향을 받는 섬/context를 ID 순서로 잠금 → 측정기기 session 바인딩/소유 및 기기/날짜 최신 행 → 승인된 퀘스트 projection과 outbox. 다른 명령과 공통 잠금 순서를 맞추고 섬을 잡은 뒤 새 사용자 잠금을 역순 취득하지 않는다. 세션/기기 바인딩의 구체 등록 방식은 RC-D02 승인 전 gate이며 이번5계약에 임의 등록 endpoint를 만들지 않는다. user scope가 없는 전역 deviceId 조회를 쓰지 않는다.
+Data TX 순서: §3의 공통 snapshot lifecycle 공유 잠금 → 영향 사용자 lifecycle 잠금·활성/session generation 재검증 → 공통 receipt 선점 → 영향을 받는 섬/context를 ID 순서로 잠금 → 측정기기 session 바인딩/소유 및 기기/날짜 최신 행 → 승인된 퀘스트 projection과 outbox. 다른 명령과 공통 잠금 순서를 맞추고 섬을 잡은 뒤 새 사용자 잠금을 역순 취득하지 않는다. 세션/기기 바인딩의 구체 등록 방식은 RC-D02 승인 전 gate이며 이번5계약에 임의 등록 endpoint를 만들지 않는다. user scope가 없는 전역 deviceId 조회를 쓰지 않는다.
 
 - 같은 키의 확정 결과는 현재 사용자·세션·기기 재생 권한 확인 후 원 data를 재생한다. 이전 measuredAt이 되었다는 이유로 원 성공을 뒤집지 않는다.
 - 새 키/동일 measuredAt/동일 정규 내용은 무변경200. 같은 시각 다른 minutes/status는409 STATE_CONFLICT(field=measuredAt), 첫 확정 관측을 보존한다. 비교 시 timezone 누락과 Asia/Seoul은 동일하다.
@@ -236,7 +236,7 @@ Data TX 순서: 영향 사용자 lifecycle 잠금·활성/session generation 재
 
 집중 finish가 이미 세션별 보상/날짜 기여를 반영한다. 새 집계 재구축/랭킹 새로고침/relay 재전달은 FocusService.recordCompletion 또는 기존 screen goal 지급을 호출하지 않는다. 퀘스트 회차 지급은 해당 도메인의 유일성/receipt/TX가 소유하며 screen PUT 성공만으로 보상을 발생시키지 않는다. 표시 정정과 이미 마감된 보상 변경은 RC-D04 별도 결정이다.
 
-탈퇴와 수집은 사용자 lifecycle 동일 잠금 경계에 참여한다. §3의 snapshot 공통 lifecycle 배타 잠금을 사용자 잠금보다 먼저 취득하고, 영향 snapshot payload 파기/무효화를 중앙 withdraw와 같은 TX에서 수행한다. raw/latest/projection/receipt·내구 payload·snapshot의 사용자 PII를 계정 파기 전수표에 포함하고 지연 업로드/재전달이 부활시키지 않게 한다. 범용 로그에 user가 보낸 본문·deviceId·토큰·앱 목록을 남기지 않는다.
+탈퇴와 수집은 공통 snapshot lifecycle → 사용자 lifecycle의 같은 순서에 참여한다. 수집 PUT은 공통 공유 잠금을 먼저 취득하고, 중앙 탈퇴·PII 파기는 공통 배타 잠금을 먼저 취득한다. 따라서 탈퇴가 사용자 행을 기다리는 동안 PUT이 공통 잠금을 역순으로 기다리는 경로가 없다. 영향 snapshot payload 파기/무효화는 중앙 withdraw와 같은 TX에서 수행한다. raw/latest/projection/receipt·내구 payload·snapshot의 사용자 PII를 계정 파기 전수표에 포함하고 지연 업로드/재전달이 부활시키지 않게 한다. 범용 로그에 user가 보낸 본문·deviceId·토큰·앱 목록을 남기지 않는다.
 
 ## 6. 오류·검증·실제 근거
 
