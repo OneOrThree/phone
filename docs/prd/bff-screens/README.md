@@ -15,3 +15,7 @@ GROMO-1784 설계. 구현은1785(생활5),1786(회관·게시판·전망대4),17
 개인 외양 복구 보완: 집중 주민 항목의 `appearanceVersion`을 실제 user appearance.version에서 직접 매핑한다. 섬 외양/집중 투영과 다른 축이며1765/1783 제공자·도메인 주민 GET/BFF·앱의 역순 사건 및 늦은 응답 회귀가 활성화 조건이다. 원본22개 GET JSON은 이 확장 때문에 변경하지 않았다.
 
 구현 배정은 독립 활성화를 뜻하지 않는다. home/travel/island-manage/focus/sound/shop/boat는 [BG04 제공자 gate](policy.md)를 충족해야 하며 나머지 화면도 공통 인가·필수 재료·정책 gate를 따른다.
+
+목록은 도메인의 페이지 여부를 보존한다. memberships는 전량이고, host 신청 목록은 PR741에서 명시한
+cursor 확장을 사용한다. [LLD](low-level-design.md)에 두 정본 근거와 출시 전 상호운용 검증을 연결했다.
+공개 오류의 `retryable`은 [A0 고정 커밋의 코드별 표](https://github.com/OneOrThree/phone/blob/0646e6e764bba5340cc23f9be8f6e30e25a863fd/docs/prd/api-platform/policy.md#http-상태외부-오류-코드)를 따른다.

@@ -26,7 +26,11 @@ UUID 입력은 하이픈 포함36자 필수, v4/v7 생성 권고다. userId/curr
 | `/screens/shop` | category? | 현재 섬 + shop, ShopScene |
 | `/screens/boat` | 없음 | 본인만, BoatScene. 현재 섬 요구 없음 |
 
-첫 페이지는 도메인 정본의 기본limit(목록에 명시 없으면30,상한100)로 만든다. BFF에는cursor/offset/limit을 추가하지 않는다. 반환된 조각의 nextCursor는 원 도메인 endpoint에서 그대로 이어받을 수 있게 동일kind/scope/filter/limit/snapshot으로 발행한다. 직접 도메인 GET과 이어질 수 없는 BFF 전용 cursor를 같은 문자열 형식으로 위장하지 않는다. 후속 페이지에서 또 모든 화면재료를 새로 읽지 않는다.
+**도메인에 페이지 계약이 있는 목록만** 정본 기본limit(별도 명시가 없으면30,상한100)로 첫 페이지를 만든다. BFF에는cursor/offset/limit을 추가하지 않는다. 반환된 조각의 nextCursor는 원 도메인 endpoint에서 그대로 이어받을 수 있게 동일kind/scope/filter/limit/snapshot으로 발행한다. 직접 도메인 GET과 이어질 수 없는 BFF 전용 cursor를 같은 문자열 형식으로 위장하지 않는다. 후속 페이지에서 또 모든 화면재료를 새로 읽지 않는다.
+
+- `memberships`(`/screens/explore`의 `GET /me/islands`)는 **완전 목록 예외**다. [PR741 소속 LLD §3.5](https://github.com/OneOrThree/phone/blob/dcade7cd1ab54fd5ba1e4a88a8c8cfc8d35e04dc/docs/prd/island-membership/low-level-design.md#35-memberships--get-meislands)는 기존 소속 상한10을 보존하는 동안 전량 반환·nextCursor=null로 명시한다. BFF 기본30/상한100을 적용해 자르지 않는다. 향후 소속 상한이 바뀌면 도메인 페이지 계약을 함께 개정해야 하며 BFF가 임의 cursor를 만들지 않는다. 전체 결과를 예산 안에 만들지 못하면 해당 원인에 맞는 화면 전체 오류로 실패하고 일부 목록을 성공처럼 반환하지 않는다.
+- `joinRequests`(`/screens/island-manage`의 `GET /islands/{islandId}/join-requests`)는 [PR741 관리 LLD §3.3](https://github.com/OneOrThree/phone/blob/dcade7cd1ab54fd5ba1e4a88a8c8cfc8d35e04dc/docs/prd/island-management/low-level-design.md#33-requests--get-islandsislandidjoin-requests)에서 이미 원본 빈 query에 `{cursor?,limit?}`와 응답 `nextCursor`를 **유한 목록 확장**으로 정의했다(기본30/상한100). host의 다음 신청은 이 도메인 GET으로 조회한다. 원본 source-contracts.json은 해당 확장 이전 예시를 보존한 것이며 BFF가31번째 신청을 버려도 된다는 계약이 아니다. 제공자가 이 확장을 구현하고 BFF cursor와의 상호운용 회귀를 통과하기 전 해당 host 화면을 활성화하지 않는다.
+
 
 home의 date 누락은 서버 KST 오늘. hall from/to/scope와31일 기술 상한, tower ISOweek는 PR743/748 규약을 따른다. timezone 누락은Asia/Seoul, 다른 값·별칭·빈값·null/중복은400 INVALID_PARAMETER. from/to는KST 날짜 포함 범위이고 시각창은[from00:00,to+1일00:00)이다. 같은 값을 두 하위 query가 각각 다른 시각/locale로정규화하지 않는다. 요청에 쓸 수 없는 field·중복query·GET body는400 INVALID_PARAMETER로거절하고 enum/기간범위는 원 도메인의422 OUT_OF_RANGE를 보존한다. q의 검색 길이/문자와 category의 허용집합은1759/1781 정본을 재사용한다.
 
@@ -772,7 +776,7 @@ Data는 단일 SELECT 또는 REPEATABLE READ의 일관된 snapshot에서 다음�
 | 상류DTO/상태·오류계약위반 | 전체502 UPSTREAM_CONTRACT_ERROR |
 |400/404/409/422/429 도메인실패|등록된공개status/code보존. 자동N/null로변환하지않음|
 
-retryable은A0표를사용한다. 명시된409stateconflict는false, REQUEST_IN_PROGRESS는범용명령용이며BFF가새명령receipt를만들어발생시키지않는다.503/504/429는일시분류와알려진Retry-After에따라유한재조회한다.500/계약502/auth실패를무한반복하지 않는다.405/413/415/빈406도공통정본을유지한다.
+retryable은 [A0의 HTTP 상태·외부 오류 코드 정본 표](https://github.com/OneOrThree/phone/blob/0646e6e764bba5340cc23f9be8f6e30e25a863fd/docs/prd/api-platform/policy.md#http-상태외부-오류-코드)의 코드별 boolean을 사용한다. PR738의 고정 커밋을 참조하며, 이 문서의 요약 상태만 보고 retryable을 추정하지 않는다. 명시된409stateconflict는false, REQUEST_IN_PROGRESS는범용명령용이며BFF가새명령receipt를만들어발생시키지않는다.503/504/429는일시분류와알려진Retry-After에따라유한재조회한다.500/계약502/auth실패를무한반복하지 않는다.405/413/415/빈406도공통정본을유지한다.
 
 **PR744후속검증 gate**: 조사시점InternalHttpClient는구조화된영구500/502를일시5xx로접을수있었고현재엄격분류수정중이다. 신규 public+composition은서버판정context로strict분류,legacy 동기 호환은별도유지한다. 앱헤더로strict/legacy를선택하게하지 않는다. 실제 TCP에서영구500/502·미지원구조화5xx·known503·부분본문/EOF가각각 계약대로 처리되고 영구·계약 실패에는 재시도/optional 축소가 없으며 알려진 일시503은 공통 한도 안에서 재시도한다는 최신 회귀가통과하기전BFF활성화하지 않는다. 이 문서에그수정/배포가끝났다고기록하지 않는다.
 
@@ -790,7 +794,7 @@ session.version은집중세션명령축이다. focus/rest snapshot은각사용�
 
 playback.positionSeconds는effectiveAt에서의위치다. BFFasOf를effectiveAt로치환하거나이미현재위치로계산한뒤옛anchor를붙여두번더하지 않는다. durationSeconds확장과producer/validator동기화는PR746/1779선행gate이며로컬volume/mute를공유상태로바꾸지않는다.
 
-다음페이지는해당도메인nextCursor를사용한다. 사용자/섬/기간/scope/category/limit·정렬/snapshot결합과15분만료를유지한다. focusStatistics/rankings의asOf와불변snapshot,상품catalogpublication과동적owned/available의의미차이를보존한다. 페이지변경으로다른조각의총합/분모/인가를섞지않으며도메인이첫페이지재조회요구하면기존페이지를완성된snapshot처럼합치지않는다.
+페이지형 목록의 다음페이지는해당도메인nextCursor를사용한다. §1의 memberships는 완전 목록이므로 다음 페이지가 없고, joinRequests는 PR741의 명시 확장 계약을 따른다. 사용자/섬/기간/scope/category/limit·정렬/snapshot결합과15분만료를유지한다. focusStatistics/rankings의asOf와불변snapshot,상품catalogpublication과동적owned/available의의미차이를보존한다. 페이지변경으로다른조각의총합/분모/인가를섞지않으며도메인이첫페이지재조회요구하면기존페이지를완성된snapshot처럼합치지않는다.
 
 ## 7. 캐시·로그·구현 검증
 
@@ -817,7 +821,7 @@ playback.positionSeconds는effectiveAt에서의위치다. BFFasOf를effectiveAt�
 |shop구매중wallet/owned/inventory,boat현재 섬없음|불일치snapshot·가짜잔액/보유·불필요시설강제|
 |hall기간/timezone/scope·towerasOf/cohort/분모|개인records누출·페이지합중복·랭킹정책가정|
 |섬/집중 주민 appearanceVersion 각 정본·개인 v10 snapshot 뒤 v9/v11 사건·v11 적용 뒤 늦은 v10 응답·focus/restwatermarks·playbackanchor|잘못된축비교·누락된초기버전·시간이중가산|
-|원 도메인 cursor다음페이지·15분만료·PII파기·scope변조|BFF전용cursor위장·옛권한재생|
+|가입 신청31번째 도메인 cursor연결·비페이지 소속 전량/예산실패·원 도메인 cursor다음페이지·15분만료·PII파기·scope변조|BFF전용cursor위장·옛권한재생|
 |주민/상품/퀘스트수가늘어도HTTP횟수고정|서버N+1·최초화면중복재조회|
 |GET/재조회/cache복구 전후원장·세션·receipt·outbox|경제지급/구매/건설/종료부수효과0|
 

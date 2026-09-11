@@ -65,3 +65,8 @@ sequenceDiagram
 BFF GET은 사건을 생산하지 않는다. 처음 받은 focus/rest/playback snapshot을 곧바로 같은 GET로 다시 요청하지 않는다. 돈을 빼거나 집중을 끝내는 행동은 기존 명령 endpoint와 키/version을 그대로 사용한다.
 
 집중 주민의 표시 외양도 독립적인 버전이 필요하다. Data는 같은 snapshot에서 각 주민의 외양과 실제 user appearance.version을 읽어 `focusMembers.items[].appearanceVersion`으로 직접 반환한다. 앱은 `(member.appearance,userId)` 축에서만 사건·조회 응답을 비교하고 더 오래된 응답으로 이미 적용한 외양을 되감지 않는다. 섬 외양 버전이나 집중 투영 버전을 대신 쓰지 않는다.1765/1783 제공자와 도메인 주민 GET/BFF·앱의 역순 회귀를 함께 준비한 뒤 focus 화면을 활성화한다.
+
+첫 목록을 만드는 read-model은 도메인의 페이지 규약을 그대로 사용한다. explore의 memberships는 소속
+전량·nextCursor=null이며, 관리 화면의 joinRequests는 PR741이 확장한 cursor 페이지다. 그 cursor는 다음
+도메인 GET이 그대로 받아야 한다. 완전 목록의 예산 초과를 목록 절단으로 숨기지 않는다. [LLD](low-level-design.md)의
+명시 예외와 상호운용 검증을 구현 전제에 포함한다.

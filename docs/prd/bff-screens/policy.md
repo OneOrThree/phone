@@ -13,11 +13,13 @@
 | B07 | data.asOf는 같은 Data snapshot의 관측 UTC instant. 자원 버전/커서 snapshot ID가 아님 | 신규 BFF 기술 계약. 여러asOf 문자열을 맞추는 것으로 snapshot을 위조하지 않음 |
 | B08 | 현재 주체는 서버검증 값, session/islandId/currentContext를 Data에서 재검사 | 사용자 입력·헤더 복사로 주체/role/현재 섬 선택 금지 |
 | B09 | domain version/watermark/cursor를 원래 자원 축으로 보존 | PR737/738. maxversion 하나로 합치지 않음 |
-| B10 | 첫 화면 페이지는 BFF, 다음 페이지/개별상세/재연결은 기존 도메인 GET | 기술 선택. 화면 BFF에서 cursor/offset을 임의 혼합하지 않음 |
+| B10 | 페이지형 목록의 첫 화면 페이지는 BFF, 다음 페이지/개별상세/재연결은 기존 도메인 GET. memberships는 전량·nextCursor=null, joinRequests는 PR741 명시 cursor 확장 | [LLD §1](low-level-design.md)의 정본 근거. 비페이지 목록을 잘라 성공하거나 cursor를 임의 추가하지 않음 |
 | B11 |13개 외부 응답 TTL0, Cache-Control:no-store | 초기 기술 선택. 내부 불변 snapshot/자산 재사용도 현재 인가 필요 |
 | B12 | 쓰기·자동 권한 복구·가입/세션 생성·정산·outbox는 화면GET의 부수효과가 아님 | 원본 행동 분리·공통 GET-only 조합 |
 | B13 | MemberIslandDetail에 island.appearanceVersion 필수 제공. 실제 appearance.version에 직접 매핑 | 승인된 기술 확장. 원본/기존 부분 응답에 이미 있던 필드가 아님. island.version과 별도 watermark |
 | B14 | focusMembers.items[].appearanceVersion은 같은 snapshot의 user appearance.version을 직접 반환 | 승인된 필수 응답 확장. 개인 외양 축 (member.appearance,userId)이며 focus.member/session/island 외양 버전과 비교하지 않음 |
+
+공개 오류의 code/status/retryable은 [A0 고정 정본 표](https://github.com/OneOrThree/phone/blob/0646e6e764bba5340cc23f9be8f6e30e25a863fd/docs/prd/api-platform/policy.md#http-상태외부-오류-코드)를 사용한다. 아래 화면별 실패 요약으로 별도의 boolean 정책을 만들지 않는다.
 
 ## 화면별 적용표
 
