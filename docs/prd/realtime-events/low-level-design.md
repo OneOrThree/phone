@@ -5,10 +5,11 @@
 
 ## 1. 공통 봉투
 
-신규 사건은 다음 **6개 필드**를 가진다. 기존 채팅 토픽의 `ChatMessageResponse`를 이 봉투로 강제 교체하지 않는다.
+신규 사건은 다음 **7개 필드**를 가진다. 기존 채팅 토픽의 `ChatMessageResponse`를 이 봉투로 강제 교체하지 않는다.
 
 ```json
 {
+  "schemaVersion": 1,
   "eventId": "019f16a0-0000-7000-8000-000000000001",
   "type": "playback.updated",
   "islandId": "019f16a0-0000-7000-8000-000000000002",
@@ -30,12 +31,15 @@
 
 | 필드 | 타입/규칙 |
 |---|---|
+| `schemaVersion` | 양의 정수, 이 계약은 1. 상태 순서용 aggregateVersion과 별개인 wire 호환성 버전. 생산자는 지원하는 1만 발행하며 누락/미지원 버전은 검증 거절 |
 | `eventId` | UUID. 생산자가 한 사건에 한 번 부여. 전달·HTTP 재시도·relay 재전달에서 유지. 다른 사건에 재사용하지 않음 |
 | `type` | §2의 dotted string 14종 중 하나. 모르는 타입은 전파하지 않고 관측 |
 | `islandId` | UUID 또는 null. 섬 범위 사건은 필수. 개인 wallet/inventory만 null 사용. 개인 상품을 어느 섬에서 샀는지 이 필드로 공개하지 않음 |
 | `aggregateVersion` | 양의 정수. `focus.emote`만 null. 값과 범위는 §2 정본. client 안전 정수 범위(1~9007199254740991) 밖은 직렬화 거절; 소비자가 부동소수로 반올림해 비교하지 않음 |
 | `occurredAt` | 서버 UTC ISO-8601 instant. 상태 변경 때 고정; relay가 전달 시각으로 바꾸지 않음. 정렬/중복 판정에 사용하는 값이 아님 |
 | `payload` | 타입별 object. 개인 토큰·HTTP header·임의 수신 destination 없음 |
+
+기존 [아키텍처 결정 ⓦ](../../architecture/decisions.md)의 `schemaVersion`과 expand/contract 규약을 적용한다. 같은 schemaVersion 안의 추가 필드는 소비자가 무시할 수 있지만 필드 제거/의미 변경은 소비자 선배포 후 별도 버전으로 진행한다. 소비자는 누락/미지원 schemaVersion의 payload를 적용하거나 watermark를 올리지 않고 관측 후 지원하는 REST 정본을 재조회한다. 알 수 없는 스키마를 버전 1로 추정하지 않는다.
 
 `version`이 payload에 있는 유형은 `aggregateVersion == payload.version`을 검사한다. 집중/휴식의 `sessionVersion`은 **다른 축**이며 REST 세션 낙관락에 쓰는 값이다. 동일 세션 변경에서 만든 focus/rest 사건은 서로 다른 eventId를 갖고 세션 버전은 같을 수 있다.
 
@@ -124,6 +128,7 @@ HTTP 집중 쓰기는 `POST /focus-sessions`, `POST /focus-sessions/{sessionId}/
 
 ```java
 record RealtimeEventEnvelope(
+    int schemaVersion,
     UUID eventId,
     RealtimeEventType type,
     UUID islandId,
@@ -148,7 +153,7 @@ record UserAudience(Set<UUID> userIds) implements RealtimeAudience {}
 
 신규 권한 제공자가 없는 channel의 allowlist 등록은 곧 허용을 뜻하지 않는다. 1755의 신규 전달 adapter는 비활성 상태를 명시적으로 거절하고, 신규 SUBSCRIBE/SEND 및 outbound를 닫는다. handler·시설·멤버십·snapshot·세부 payload validator가 준비된 기능만 후속 단계에서 활성화한다.
 
-추가 다중노드 fanout의 후속 계약은 `chat:events:v1`에 `{originInstanceId,event,audience}` 내부 봉투를 사용하는 것이다. 기존 `chat:fanout`과 payload를 보존한다. 이 추가 채널이 현재 배포돼 있다는 뜻은 아니며, 실제 구현 작업에서 ACL·serializer·배포 호환 검증을 붙인다. 클라이언트는 이 내부 봉투를 받지 않고 6필드 event만 받는다.
+추가 다중노드 fanout의 후속 계약은 `chat:events:v1`에 `{originInstanceId,event,audience}` 내부 봉투를 사용하는 것이다. 기존 `chat:fanout`과 payload를 보존한다. 이 추가 채널이 현재 배포돼 있다는 뜻은 아니며, 실제 구현 작업에서 ACL·serializer·배포 호환 검증을 붙인다. 클라이언트는 이 내부 봉투를 받지 않고 7필드 event만 받는다.
 
 ## 4. 인가·철회·집중 제한
 
@@ -235,7 +240,7 @@ watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없�
 | malformed envelope/미지원 type | 해당 사건 전파 거절, 원문본문 로깅 금지, producer 알람 | adapter 수정 후 내구 사건 재전달 |
 | emote 전송 실패/만료 | 재저장·outbox·오프라인 replay 없음 | 복구하지 않음 |
 
-로그는 `requestId`(현재 HTTP 시도), `eventId`, `type`, `projection`, `aggregateVersion`, `phase`, `outcome`, `durationMs`, relay retry/lease를 연결한다. 공개 이벤트 봉투에 requestId를 추가해 7필드로 바꾸지 않고 내부 전송 메타데이터/로그에서 연결한다. 메시지 text, subject, payload JSON, 토큰, 원시 헤더는 기록하지 않는다. 메트릭 label은 이벤트 종류/결과/목적지 유형처럼 유한 집합만 사용한다.
+로그는 `requestId`(현재 HTTP 시도), `eventId`, `type`, `projection`, `aggregateVersion`, `phase`, `outcome`, `durationMs`, relay retry/lease를 연결한다. 공개 이벤트 봉투에 requestId를 추가하지 않고 내부 전송 메타데이터/로그에서 연결한다. 메시지 text, subject, payload JSON, 토큰, 원시 헤더는 기록하지 않는다. 메트릭 label은 이벤트 종류/결과/목적지 유형처럼 유한 집합만 사용한다.
 
 필수 지표: accepted/rejected events, authorization rejection, expired token/emote, invalid audience, snapshot retry/overflow, private delivery 실패, fanout publish/parse 실패, outbox oldest age/retry. '연결 수'만 정상이라고 전체 전달이 정상이라고 보고하지 않는다.
 
