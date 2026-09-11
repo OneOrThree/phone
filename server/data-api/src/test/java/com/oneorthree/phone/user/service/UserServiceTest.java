@@ -765,7 +765,8 @@ class UserServiceTest {
     @DisplayName("알림·심야·소리 설정 저장 → notification settings 필드 반영")
     void updateNotificationSettings() {
         UserNotificationSettings settings = UserNotificationSettings.builder().userId(USER_ID).build();
-        given(userQueryService.getNotificationSettings(USER_ID)).willReturn(settings);
+        // 저장 경로는 배타 락 조회를 쓴다 (GROMO-1659) — 락 없는 조회로 스텁하면 직렬화가 빠져도 초록이 된다.
+        given(userQueryService.getNotificationSettingsForUpdate(USER_ID)).willReturn(settings);
 
         NotificationSettingsRequest request = mock(NotificationSettingsRequest.class);
         given(request.getNotificationEnabled()).willReturn(true);
@@ -786,7 +787,8 @@ class UserServiceTest {
     @Test
     @DisplayName("알림 설정 저장 - 설정 없음 → UserException(NOT_FOUND)")
     void updateNotificationSettingsNotFound() {
-        given(userQueryService.getNotificationSettings(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+        given(userQueryService.getNotificationSettingsForUpdate(USER_ID))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         assertThatThrownBy(() ->
                 userService.updateNotificationSettings(USER_ID, mock(NotificationSettingsRequest.class)))
@@ -804,7 +806,7 @@ class UserServiceTest {
                 .nightStartTime(LocalTime.of(22, 0))
                 .nightEndTime(LocalTime.of(7, 0))
                 .build();
-        given(userQueryService.getNotificationSettings(USER_ID)).willReturn(settings);
+        given(userQueryService.getNotificationSettingsForUpdate(USER_ID)).willReturn(settings);
 
         NotificationSettingsRequest request = mock(NotificationSettingsRequest.class);
         given(request.getNotificationEnabled()).willReturn(true);

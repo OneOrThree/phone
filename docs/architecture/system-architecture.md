@@ -74,7 +74,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | business-api | 8080 | 512 MB | DB 없음, 커넥션 풀 없음. 패스스루 라우터 + BFF |
 | data-api | 8081 | 1 GB | 현 app 그대로. 커넥션 풀 = Hikari 기본 10(prod 에 명시 설정 없음) |
 | notification | 8082 | 512 MB | FCM 풀 · 크론 풀 6+ · 커넥션 풀 작게(≤5) |
-| **kafka** (A12) | 9092 (compose 내부만) | **512 MB** + 페이지 캐시 | `apache/kafka` KRaft 단일 노드, retention 7일, **내부 토픽 복제 계수 1**(`OFFSETS_TOPIC_REPLICATION_FACTOR`·트랜잭션 사용 시 `TRANSACTION_STATE_LOG_*` 도 — 기본 3 이면 컨슈머 그룹 불가), 볼륨 필수(디스크 감시). 외부 미노출 — Vercel 은 붙지 않음 |
+| **kafka** (A12) | 9092 (compose 내부만) | **512 MB** + 페이지 캐시 | `apache/kafka` KRaft 단일 노드, retention 7일, **내부 토픽 복제 계수 1**(`OFFSETS_TOPIC_REPLICATION_FACTOR`·트랜잭션 사용 시 `TRANSACTION_STATE_LOG_*` 도 — 기본 3 이면 컨슈머 그룹 불가), `KAFKA_LOG_DIRS=/var/lib/kafka/data`와 같은 경로의 볼륨 필수(디스크 감시). 컨테이너 재생성 후 토픽·메시지 보존을 검증한다. 외부 미노출 — Vercel 은 붙지 않음 |
 | nginx · datadog-agent | 443 · 8126 | — | 현행 |
 
 힙 합계 2 GB 는 실사용으로 ≈1.3~1.5배(메타스페이스·스택·다이렉트 버퍼) = 2.6~3 GB 로 본다. dev e2-medium(4 GB)에 JVM 셋 **+ Kafka 512 MB** + Postgres + agent 는 **넘친다** — dev 는 `notification`·`business-api` 힙 256 MB, Kafka 384 MB 로 시작해도 여유가 거의 없어 **e2-standard-2(8 GB) 사이즈업을 전제**로 본다. prod 는 **A14 사이즈업(t4g.large 권장)** 전제 — 현 타입 실측 후 차이만 티켓에.
@@ -223,3 +223,5 @@ GROMO-1659의 Data export는 settings·device·delivery·user·participation 다
 기기 등록 롤아웃은 두 설정을 따로 전환한다(A22 ㋲). `NOTIFICATION_GENERATION_REQUIRED`는 구 AT 수명 대기 뒤
 켜고, `NOTIFICATION_LEGACY_DEVICE_REGISTRATION`은 소유권 프로토콜 미지원 구 앱 지원 종료 뒤 끈다.
 둘은 Notification 전용 env로 주입한다. 구 앱도 새 AT의 gen·sid를 사용할 수 있으므로 gen 존재로 앱 전환을 추정하지 않는다.
+
+앱 업그레이드 호환 정리는 소유권 기록이 없는 기기의 SDK 토큰 조회에도 의존한다(A22 ㋲). SDK 조회까지 실패한 세션 미연결 구 토큰의 정리는 보장하지 않으며, 사용자 전체 삭제로 다른 기기를 비활성화하지 않는다. RT 폐기는 계속 수행한다.

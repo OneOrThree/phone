@@ -10,7 +10,7 @@ import com.oneorthree.phone.user.dto.DeviceTokenDeletionRequest;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
@@ -69,7 +69,7 @@ public class UserSatelliteCommandService {
     private static final int SCHEMA_VERSION = 1;
 
     private final UserRepository userRepository;
-    private final UserNotificationSettingsRepository userNotificationSettingsRepository;
+    private final UserQueryService userQueryService;
     private final OutboxCommandPort outboxCommandPort;
 
     /**
@@ -155,9 +155,18 @@ public class UserSatelliteCommandService {
                         request.getNightModeEnabled(), request.getNightStartTime(), request.getNightEndTime()),
                 EventEnvelope.class,
                 () -> {
-                    UserNotificationSettings settings = userNotificationSettingsRepository.findById(userId)
-                            .filter(row -> row.getDeletedAt() == null)
-                            .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+                    // ⚠️ 잠금 조회가 «상태 판독보다 앞»이다(㋕). 락 없이 읽으면 서로 다른 멱등 키의 두
+                    // 요청이 같은 이전 상태를 본다 — 켜짐에서 「끄기」와 「켜짐 유지」가 겹치면 끄기가
+                    // 먼저 커밋된 뒤 둘째는 더 높은 version 의 「켬」 봉투를 내보내지만 엔티티 스냅샷이
+                    // 그대로라 Hibernate 가 UPDATE 를 생략한다. 그러면 Data 는 꺼짐 · 알림 서버는 켬이다.
+                    // version 발급(append 안의 aggregate 잠금)에서만 직렬화해서는 늦다 — 그때는 이미
+                    // 낡은 값을 읽은 뒤다. 이 트랜잭션이 잡는 잠금은 설정 행 → aggregate 행 둘뿐이고,
+                    // 보장 범위도 그 판독 직렬화까지다(알림 전반의 잠금 순서 보증이 아니다 — 다중
+                    // 수신자 USER 축 교착은 GROMO-893 으로 미해결이다).
+                    UserNotificationSettings settings = userQueryService.getNotificationSettingsForUpdate(userId);
+                    if (settings.getDeletedAt() != null) {
+                        throw new UserException(UserErrorCode.USER_NOT_FOUND);
+                    }
                     settings.setNotificationEnabled(request.getNotificationEnabled());
                     settings.setSoundEnabled(request.getSoundEnabled());
                     settings.setNightModeEnabled(request.getNightModeEnabled());
