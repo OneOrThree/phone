@@ -51,7 +51,7 @@ sequenceDiagram
 
 ## 4. 권한 상실 전파
 
-Data 상태 전이와 membership epoch/outbox를 함께 커밋한다. 초대 pending에는 서버 전용 증거 참조를 보존하고 승인 TX에서 서명/발급자 활성/epoch/만료를 다시 검사한다. 초대 가입의 link.joined와 실제 pending claim의 link.claimConfirmed도 membership TX의 outbox이며 Business의 사후 호출로 대체하지 않는다. 링크 자격 폐기는 링크 서버에 HTTP로 내구 재전달하며 Realtime은 현재 역할·멤버십을 서버에서 다시 검사한다. 공개 `island.members.updated`에는 섬ID/목록version만 보내고, 이탈 대상·사유·권한 철회 제어자료는 내부 데이터로 분리한다.
+Data 상태 전이와 membership epoch/outbox를 함께 커밋한다. 관리에서 실제 이름이 바뀌면 island.updated와 링크 대상 group.renamed를 같은 TX에 기록하여 기존 초대 랜딩의 이름 스냅샷을 갱신한다. 표시 변경은 membership epoch를 증가시키지 않는다. 초대 pending에는 서버 전용 증거 참조를 보존하고 승인 TX에서 서명/발급자 활성/epoch/만료를 다시 검사한다. 초대 가입의 link.joined와 실제 pending claim의 link.claimConfirmed도 membership TX의 outbox이며 Business의 사후 호출로 대체하지 않는다. 링크 자격 폐기는 링크 서버에 HTTP로 내구 재전달하며 Realtime은 현재 역할·멤버십을 서버에서 다시 검사한다. 공개 `island.members.updated`에는 섬ID/목록version만 보내고, 이탈 대상·사유·권한 철회 제어자료는 내부 데이터로 분리한다.
 
 `join.request.updated`는 신청자 본인과 전달 시점 현재 방장에게만 간다. 이전 방장의 개인큐에 이미 적재된 신청정보도 전달 직전 인가에서 차단한다. 소속 상실자는 앱 UNSUBSCRIBE 없이도 새 보호 프레임을 받지 않아야 한다. 전체소켓 종료 방식이면 앱은 새 허용 채널을 다시 구독한다.
 

@@ -36,7 +36,7 @@ Id/Version/Cursor/PublicIslandSummary는 [소속 값 타입](../island-membershi
 
 입력 `{name?:string,intro?:string,approvalRequired?:boolean}`. 성공200 `{data:{id,name,intro,approvalRequired,version}}`. 현재 host만 실행할 수 있고 섬 생존을 확인한다. version은 `(island,islandId)` 축이다. 승인 방식 변경이 과거 pending 요청을 자동 승인/거절하지 않는다. 기존 요청은 명시적으로 처리하거나 별도 정책 변경을 거쳐야 한다.
 
-그룹 상태 변경과 island.updated/outbox를 같은 TX에 저장한다. 같은 키 재생은 같은 결과, 새 키 no-op은 새 사건을 만들지 않는다. 늦게 도착한 이전 host의 새 요청은 현재 역할 검사에서403이다. 필드별 업데이트로 미전달 설정을 보존한다. 결과 intro는 기존 description이 null이어도 공개 매퍼에서 빈 문자열로 반환하며 DB의 기존 null을 변경할 필요는 없다.
+그룹 상태 변경과 island.updated/outbox를 같은 TX에 저장한다. **name의 실제 값이 바뀌면** 같은 TX에서 링크 대상 `group.renamed` outbox도 기록한다. 기존 `GroupService.updateGroup` → `LinkMembershipEventService.recordGroupRenamed`와 [링크 표시정보 갱신 정본](../../architecture/service-architecture.md)의 계약을 재사용한다. 링크는 코어를 조회할 수 없으므로 island.updated만으로 기존 slug의 랜딩 이름을 갱신할 수 없다. 각 활성 발급자에 groupId/inviterId/groupName/snapshotVersion을 기록하고 기존 링크 멤버십 aggregate/relay의 버전 대조로 늦은 이름이 최신 이름을 덮지 않게 한다. 표시정보 변경은 membershipEpoch를 올리지 않으며 이탈한 발급자의 멤버십을 복원하지 않는다. 같은 키 재생은 같은 결과, 새 키 no-op은 새 사건을 만들지 않는다. 늦게 도착한 이전 host의 새 요청은 현재 역할 검사에서403이다. 필드별 업데이트로 미전달 설정을 보존한다. 결과 intro는 기존 description이 null이어도 공개 매퍼에서 빈 문자열로 반환하며 DB의 기존 null을 변경할 필요는 없다.
 
 ### 3.2 members — GET /islands/{islandId}/members
 
@@ -130,7 +130,7 @@ membershipEpoch는 이탈/재가입 자격 축이므로 단순 위임 때 올리
 
 ## 6. 공개 결과·이벤트·로그
 
-manage는 island.updated, 승인/위임/강퇴/탈퇴는 island.members.updated, 요청 생성/처리는 join.request.updated를 발행한다. 마지막 주민 이탈/그룹 종료에는 island.updated와 링크 대상 group.closed를 추가하고 pending의 cancelled 전이마다 신청자 개인 join.request.updated를 함께 기록한다. 초대 근거의 즉시 가입/승인은 link.joined, 실제 pending claim의 확정은 link.claimConfirmed를 같은 membership TX에 기록한다. 거절은 주민 수가 바뀌지 않으므로 불필요한 members 사건을 만들지 않는다. GET은 이벤트를 생산하지 않는다. 공개 Realtime 사건의 payload.version은 해당 envelope.aggregateVersion과 일치해야 한다. 링크 대상 내부 outbox는 기존1659 봉투/version·transition 계약을 그대로 따르며 공개 Realtime 봉투로 바꾸지 않는다.
+manage는 island.updated를 기록하고 실제 name 변경에는 같은 TX의 링크 대상 group.renamed를 추가한다. intro/approvalRequired만 바뀌거나 이름이 같으면 group.renamed는 만들지 않는다. 승인/위임/강퇴/탈퇴는 island.members.updated, 요청 생성/처리는 join.request.updated를 발행한다. 마지막 주민 이탈/그룹 종료에는 island.updated와 링크 대상 group.closed를 추가하고 pending의 cancelled 전이마다 신청자 개인 join.request.updated를 함께 기록한다. 초대 근거의 즉시 가입/승인은 link.joined, 실제 pending claim의 확정은 link.claimConfirmed를 같은 membership TX에 기록한다. 거절은 주민 수가 바뀌지 않으므로 불필요한 members 사건을 만들지 않는다. GET은 이벤트를 생산하지 않는다. 공개 Realtime 사건의 payload.version은 해당 envelope.aggregateVersion과 일치해야 한다. 링크 대상 내부 outbox는 기존1659 봉투/version·transition 계약을 그대로 따르며 공개 Realtime 봉투로 바꾸지 않는다.
 
 공개 members 사건은 `{islandId,version}`, join.request 사건은 `{requestId,applicantId,status,version}`이다. 요청 이벤트 수신자는 본인과 현재 host만이며 이를 일반 섬 events 토픽으로 보내지 않는다. 초대 폐기/세션 철회/개인 current context 제어는 신뢰된 내부 자료로 분리한다.
 
@@ -147,6 +147,7 @@ manage는 island.updated, 승인/위임/강퇴/탈퇴는 island.members.updated,
 | 승인 경합 | 만원·신청자 소속 상한 도달 중에도 reject 성공, approve/reject/cancel 중 한 승자, 마지막 자리 승인/즉시 가입 중 한 승자, 신청자 상한과 동시 가입 |
 | 위임 경합 | 동시 두 위임, 위임 vs 대상 탈퇴/계정 삭제/강퇴, 자기 위임, 활성 host 정확히1명 |
 | 이탈 경합 | 마지막 주민 leave vs join/approve/pending 생성, pending 전건 cancelled 및 개인 알림, group.closed/island.updated 원자 기록·rollback, leave vs focus-start/pause/resume, legacy/new writer 혼합 |
+| 이름 변경·동일 이름·intro만 변경·receipt 재생·relay 역순 | 실제 이름 변경 TX에만 group.renamed, 재생 신규 사건0, 기존 slug의 최신 이름 유지, membershipEpoch 불변; outbox 실패 시 그룹 변경도 rollback |
 | 초기/빈/오류 | 이름 null/빈 값/bidi/길이, 미전달 필드 보존, 빈 PATCH no-op, 같은 성공 receipt 재생, 다른 본문409 |
 | 목록/이벤트 | 같은 snapshot의 members version, 재연결 중 신규/삭제 주민과 요청, 페이지 간 version 변경, 다른 aggregate의 높은 version |
 | 링크 | pending 이후 발급자 이탈/링크 폐기/만료/epoch 변경의 승인 거절, 초대 즉시가입·승인의 joined/claimConfirmed 원자 저장·응답유실 복구, 발급자 이탈 후 늦은 발급/가입 거절, 단순 위임 링크 유지, 재가입 새 epoch, 폐기의 내구 재전달 |
