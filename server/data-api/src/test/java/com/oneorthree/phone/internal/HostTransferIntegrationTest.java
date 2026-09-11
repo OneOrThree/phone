@@ -147,34 +147,44 @@ class HostTransferIntegrationTest {
         UUID nextId = jwt.extractUserId(next.accessToken());
         String slug = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         GroupInviteLink link = inviteLinks.save(new GroupInviteLink(slug, f.islandId(), f.owner().id()));
-        InviteLinkClick click = new InviteLinkClick(link.getId(), "0".repeat(64), "ios", "test-agent");
-        click.markMatched("withdrawal-device", "withdrawal-app");
-        click = inviteClicks.save(click);
-        String request = "{\"slug\":\"" + slug + "\"}";
+        UUID clickId = null;
+        try {
+            InviteLinkClick click = new InviteLinkClick(link.getId(), "0".repeat(64), "ios", "test-agent");
+            click.markMatched("withdrawal-device", "withdrawal-app");
+            click = inviteClicks.save(click);
+            clickId = click.getId();
+            String request = "{\"slug\":\"" + slug + "\"}";
 
-        mvc.perform(post("/api/v1/invite-links/claim").header("Authorization", "Bearer " + first.accessToken())
-                        .contentType("application/json").content(request))
-                .andExpect(status().isOk());
-        InviteLinkClick claimed = inviteClicks.findById(click.getId()).orElseThrow();
-        assertThat(claimed.getClaimedUserId()).isEqualTo(firstId);
-        Instant claimedAt = claimed.getClaimedAt();
-        assertThat(claimedAt).isNotNull();
+            mvc.perform(post("/api/v1/invite-links/claim").header("Authorization", "Bearer " + first.accessToken())
+                            .contentType("application/json").content(request))
+                    .andExpect(status().isOk());
+            InviteLinkClick claimed = inviteClicks.findById(click.getId()).orElseThrow();
+            assertThat(claimed.getClaimedUserId()).isEqualTo(firstId);
+            Instant claimedAt = claimed.getClaimedAt();
+            assertThat(claimedAt).isNotNull();
 
-        withdrawal.withdraw(firstId);
+            withdrawal.withdraw(firstId);
 
-        assertThat(count("select count(*) from users where id=? and is_deleted=true", firstId)).isEqualTo(1);
-        InviteLinkClick anonymized = inviteClicks.findById(click.getId()).orElseThrow();
-        assertThat(anonymized.getClaimedUserId()).isNull();
-        assertThat(anonymized.getClaimedAt()).isEqualTo(claimedAt);
-        mvc.perform(post("/api/v1/invite-links/claim").header("Authorization", "Bearer " + next.accessToken())
-                        .contentType("application/json").content(request))
-                .andExpect(status().isOk());
+            assertThat(count("select count(*) from users where id=? and is_deleted=true", firstId)).isEqualTo(1);
+            InviteLinkClick anonymized = inviteClicks.findById(click.getId()).orElseThrow();
+            assertThat(anonymized.getClaimedUserId()).isNull();
+            assertThat(anonymized.getClaimedAt()).isEqualTo(claimedAt);
+            mvc.perform(post("/api/v1/invite-links/claim").header("Authorization", "Bearer " + next.accessToken())
+                            .contentType("application/json").content(request))
+                    .andExpect(status().isOk());
 
-        InviteLinkClick stillConsumed = inviteClicks.findById(click.getId()).orElseThrow();
-        assertThat(stillConsumed.getClaimedUserId()).isNull();
-        assertThat(stillConsumed.getClaimedAt()).isEqualTo(claimedAt);
-        assertThat(stillConsumed.isMatched()).isTrue();
-        assertThat(count("select count(*) from users where id=? and is_deleted=false", nextId)).isEqualTo(1);
+            InviteLinkClick stillConsumed = inviteClicks.findById(click.getId()).orElseThrow();
+            assertThat(stillConsumed.getClaimedUserId()).isNull();
+            assertThat(stillConsumed.getClaimedAt()).isEqualTo(claimedAt);
+            assertThat(stillConsumed.isMatched()).isTrue();
+            assertThat(count("select count(*) from users where id=? and is_deleted=false", nextId)).isEqualTo(1);
+        } finally {
+            // Flyway 테스트 DB는 컨텍스트 종료 뒤에도 남으므로 이 테스트가 만든 행만 역순으로 지운다.
+            if (clickId != null) {
+                inviteClicks.deleteById(clickId);
+            }
+            inviteLinks.deleteById(link.getId());
+        }
     }
 
     @Test
