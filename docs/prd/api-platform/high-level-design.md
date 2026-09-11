@@ -41,7 +41,7 @@ flowchart LR
 
 - [RequestFilter](../../../server/business-api/src/main/java/com/oneorthree/business/config/RequestFilter.java): JWT·requestId·256KiB body limit·정확한 관리경로 예외. `/api` 접두어로 인증을 골라 처리하지 않는다.
 - [ApiExceptionHandler](../../../server/business-api/src/main/java/com/oneorthree/business/config/ApiExceptionHandler.java): Preview/validation/Redis 예외, 기존 code와 Retry-After.
-- [PreviewController](../../../server/business-api/src/main/java/com/oneorthree/business/linkpreview/PreviewController.java): 기존 `/api/v1/link-previews`, 객체/목록 직접 반환, PNG byte 응답.
+- [PreviewController](../../../server/business-api/src/main/java/com/oneorthree/business/linkpreview/PreviewController.java): 기존 `/api/v1/link-previews`, 객체/목록 직접 반환, PNG byte 응답. 1751의 확정 목표는 이 호환 별칭·본문·오류·thumbnailURL을 유지하면서 신규 `/link-previews`의 봉투와 새 thumbnailURL을 응답 매핑으로 추가하는 것이다. 미리보기 저장/캐시를 경로별로 복제하지 않는다.
 - [FocusService](../../../server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java): 기존 종료의 조건부 UPDATE·정산·통계 TX 패턴. 신규 pause/resume·물고기 계약이 구현된 것이 아니다.
 - [CurrencyLedgerService](../../../server/data-api/src/main/java/com/oneorthree/phone/currency/service/CurrencyLedgerService.java): 지갑/원장 원자성과 멱등키 유일성 패턴. 기존 코인과 새 섬 재화를 같은 값으로 취급하지 않는다.
 - [아키텍처 결정 장부](../../architecture/decisions.md): A4/A9의 원자성, ㉸의 외부 주체 폐기, ㉼의 앱 키, A21의 outbox 재전달.

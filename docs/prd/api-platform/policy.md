@@ -22,7 +22,7 @@ GROMO-1750 · 2026-09-12 · [색인](README.md) · [LLD](low-level-design.md)
 | P12 | 전체 deadline 안에서 발생한 선택 조각의 개별 일시 장애만 null 허용. 전체 예산 소진은 504 우선이며 인증·인가 실패·상류 계약 위반도 전체 오류 | 권한 상실·잘못된 DTO를 데이터 없음으로 숨기지 않음. 공개/방문 화면에는 권한 없는 조각을 호출 자체에서 제외 |
 | P13 | requestId는 서버 생성 UUID, 요청마다 새 값. 응답 X-Request-Id와 오류 본문 requestId가 일치 | 앱 제공 ID/키/URL/토큰으로 생성하지 않음. 재생 receipt에는 원 결과·상태만 있고 현재 requestId·Retry-After·cookie는 재생하지 않음 |
 | P14 | 집중 쓰기는 REST, 집중/휴식 구독·emote는 STOMP. 공통 HTTP 봉투가 STOMP 이벤트 봉투를 덮지 않음 | 사용자 결정. 토픽·schemaVersion을 포함한 7필드 이벤트·개인 수신자·만료는 실시간 설계 1754 소유 |
-| P15 | 시각 전달은 UTC instant. 날짜 집계는 KST이며 timezone 입력 4종은 Asia/Seoul만 허용, 누락 시 같은 값으로 정규화 | 임의 사용자 타임존 지원을 이 문서에서 신설하지 않음. 별도 제품 결정 시 기존 저장/집계/조회 정책까지 함께 검토 |
+| P15 | 시각 전달은 UTC instant. 날짜 집계는 KST이며 timezone 입력 5종은 Asia/Seoul만 허용, 누락 시 같은 값으로 정규화 | 임의 사용자 타임존 지원을 이 문서에서 신설하지 않음. 별도 제품 결정 시 기존 저장/집계/조회 정책까지 함께 검토 |
 
 P04의 결과 재생은 확정 receipt가 있는 요청을 대상으로 한다. 실행 전 검증4xx로 rollback되어 receipt가 남지 않은 요청은 결과 재생 보장 밖이다. 앱은 입력 수정·버전 재확인으로 의도가 바뀌면 이 경우에도 새 키를 사용한다. 이미 저장된 처리중/확정 scope/key와 다른 본문은409로 거절한다.
 
@@ -49,12 +49,13 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |403|FACILITY_LOCKED|false|필요한 시설 미해금. field=null, 도메인 선행 조건 확인|
 |404|NOT_FOUND|false|대상 없음 또는 도메인 정책상 존재 비공개. 빈 현재세션/빈 목록과 구분|
 |405|METHOD_NOT_ALLOWED|false|신규 공개 경로의 미지원 method. Allow 헤더 유지|
-|409|VERSION_CONFLICT|false|field는 제출한 버전 필드(`expectedVersion` 또는 `expectedWalletVersion`), 허용된 current 제공 후 사용자 재확인|
+|409|VERSION_CONFLICT|false|field는 제출한 버전 필드(`expectedVersion`, `expectedWalletVersion`, `expectedProductVersion`), 허용된 current 제공 후 사용자 재확인|
 |409|STATE_CONFLICT|false|현재 상태에서 실행 불가. 공개 current가 안전하면 포함|
 |409|INSUFFICIENT_FUNDS|false|잔액 부족. 같은 요청 자동 반복 금지|
 |409|IDEMPOTENCY_KEY_REUSED|false|저장된 처리중/확정 scope/key에 다른 본문. 일반 명령 field=`Idempotency-Key`, 메시지는 field=`clientMessageId`. **기존 요청 본문·결과는 노출하지 않음**|
 |409|REQUEST_IN_PROGRESS|true|같은 명령의 실행이 아직 확정 전. Retry-After:1, 같은 키·본문으로 재시도|
 |409|CURSOR_EXPIRED|false|field=`cursor`, 같은 필터로 첫 페이지를 새로 조회|
+|410|INVITATION_EXPIRED|false|POST `/invitations/resolve`의 만료 초대. field=`code`, 새 유효 초대를 받아 다시 해석. 같은 만료 코드 자동 재시도 금지|
 |413|REQUEST_TOO_LARGE|false|바디 상한 초과. field=null, 본문 축소|
 |415|UNSUPPORTED_MEDIA_TYPE|false|해당 신규 JSON 요청은 application/json 필요|
 |422|OUT_OF_RANGE|false|해석 가능한 값이 길이·범위·허용값 제약 위반. field는 첫 오류 공개 필드 경로|
@@ -67,7 +68,9 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 
 도메인 사유를 추가할 때는 이 표의 의미와 충돌하지 않게 구체 코드를 추가한다. 예를 들어 `FOCUS_IN_PROGRESS`는 기존 chat409/false 코드이고 새로운 우체통에도 같은 사유가 채택되면 그 명칭을 유지할 수 있다. 세션 종료 재시도는 이미 확정된 receipt가 있으면 오류 표로 가지 않고 성공을 재생한다.
 
-미리보기 호환 매핑은 분리한다. `RATE_LIMITED`·`NOT_FOUND`는 유지, 요청 유효성 `INVALID_REQUEST`는400으로 유지한다. 기존 provider 실패 코드(`FETCH_TIMEOUT` 등)가 **Preview 객체의 실패 상태 데이터**이면 POST200의 data 안에 남는다. 이를 HTTP504로 바꾸지 않는다. 예외로 나오는 미리보기400의 세부 코드는 1751에서 원 코드 목록을 그대로 계약 테스트에 고정한다. PNG 생성 성공은 image/png이고 실패만 JSON 공통 오류다.
+`INVITATION_EXPIRED`는 원본의 초대 만료 HTTP410을 유지하기 위해 신규 공개 오류로 등록한다. 기준 main의 `InviteLinkErrorCode`에는 대응하는 만료 상수가 없으므로 기존 `SLUG_NOT_FOUND`404를 바꾸지 않는다. 신규 내부 제공자가 이 사유를 확정해 반환할 때 Business의 등록된410/INVITATION_EXPIRED 조합으로 전달한다. 초대 TTL·재발급·승인 생략 등 미결 제품 정책을 이 오류 이름으로 결정하지 않는다.
+
+미리보기 호환 매핑은 분리한다. `RATE_LIMITED`·`NOT_FOUND`는 유지, 요청 유효성 `INVALID_REQUEST`는400으로 유지한다. 기존 provider 실패 코드(`FETCH_TIMEOUT` 등)가 **Preview 객체의 실패 상태 데이터**이면 POST200을 유지한다. 신규 경로는 data 안에, 기존 호환 경로는 원래 직접 반환하던 객체/목록 안에 남는다. 이를 HTTP504로 바꾸지 않는다. 예외로 나오는 미리보기400의 세부 코드는 1751에서 원 코드 목록을 그대로 계약 테스트에 고정한다. 기존 `/api/v1/link-previews`는 성공 본문과 `{code,message}` 평면 오류, 기존 `/api/v1/link-previews/{id}/thumbnail` URL을 보존한다. 신규 `/link-previews`는 JSON 봉투·공통 오류·신규 `/link-previews/{id}/thumbnail` URL을 사용한다. 공유 Preview 캐시의 저장 URL을 전역 변경하지 않고 신규 응답 매핑에서만 URL을 바꾼다. PNG 성공은 양쪽 모두 image/png이며 실패는 각 경로의 오류 형식을 따른다.
 
 ## 원본과 채택 계약 대조
 
@@ -80,8 +83,10 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 | 성공 `{data}`, 실패 error4필드+requestId | 채택, 바이너리 예외·필터 오류 경계 추가 | 공통 기술 결정 P02/P03 |
 | 409이면 최신 상태를 받아 재확인 | 409의 선택 `current`에 최신 공개 자원 DTO+version | 공통 기술 결정. 새 외부 확장, 원본에 이미 있다고 주장하지 않음 |
 | 변경 요청 키 UUID 제안 | LLD 적용표 대상 필수, auth·메시지·조회형 POST 예외 명시 | 모든 POST 자동 필수화 금지 |
-| 명시하지 않은 자원에 무조건 version 제출하지 않음 | 원본 expectedVersion 8명령과 구매 expectedWalletVersion 1명령의 자원별 축을 고정 | LLD 버전 표 외 추가는 해당 도메인 설계 개정 필요 |
-| 날짜/IANA timezone 표현 | 시각UTC, 집계KST. 아래 4개 입력은 누락 시 Asia/Seoul, 그 외 값은400 INVALID_PARAMETER | 원본 입력 예시는 원문 HTML에 보존하며 사용자 시간대 날짜 지원으로 해석하지 않음 |
+| 명시하지 않은 자원에 무조건 version 제출하지 않음 | 원본 expectedVersion 8개+구매 expectedWalletVersion 1개를 원본 표로 유지 | 아래 상점 한정 기술 개정1개를 별도로 구분, 총10개 제출 축 |
+| 구매 body의 productId+expectedWalletVersion | expectedProductVersion 추가 필수, 상품 정의 변경 시409 VERSION_CONFLICT | 2026-09-12 D18·상점 설계1780/PR742에서 이미 채택한 가격 동의 보호 계약의 공통 문서 반영 |
+| 초대 해석의410 만료 | 410 INVITATION_EXPIRED, field=code, retryable=false | 원본 상태 유지. 만료를502 상류 계약 오류로 바꾸지 않음 |
+| 날짜/IANA timezone 표현 | 시각UTC, 집계KST. 아래 5개 입력은 누락 시 Asia/Seoul, 그 외 값은400 INVALID_PARAMETER | 퀘스트 생성의 원본 시간대 오류422도400으로 명시 변경. 원본 입력 예시는 HTML에 보존 |
 | 300초/물고기·건설비·상품가격·퀘스트10P | 목업 표시 유지. 운영값 미채택 | 보상/경제 정책 질문 대기. 방송기100P는 원본이 확정 가격으로 표기 |
 | 읽음/안읽음 필드 없음 | 새 우체통 UI 계약과 기존 내부 읽음커서를 구분 | 상세 사용자 선택 대기, 이 문서로DB삭제 결정하지 않음 |
 | 66개 도메인 계약 중심 | BFF13종을 마지막 단계에 추가, 화면 첫 조회1콜 | 사용자 결정. mutation은 개별 명령 API |
@@ -94,10 +99,11 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 | GET `/islands/{islandId}/statistics/screen-time` | query | from/to는 KST 날짜 |
 | PUT `/me/screen-time/{date}` | JSON body | 경로 date는 KST 측정일 |
 | GET `/me/focus-summary` | query | date는 KST 날짜 |
+| POST `/islands/{islandId}/quests` | JSON body | windowStart/windowEnd는 KST 시각, 회차 날짜 경계도 KST |
 
-4개 API 모두 `timezone`을 생략하면 `Asia/Seoul`로 정규화한다. 명시하면 정확한 문자열 `Asia/Seoul`만 허용한다. 다른 IANA 값·UTC·별칭·빈 문자열·JSON null·타입 불일치는 400 `INVALID_PARAMETER`, field=`timezone`, retryable=false다. 중복 query timezone도 같은 오류이며 임의 하나를 선택하지 않는다. 입력을 무시하거나 다른 시간대를 KST로 조용히 바꾸지 않는다. 누락과 명시한 Asia/Seoul은 같은 정규 요청이므로 측정 명령 fingerprint도 동일하다. 측정 instant인 `measuredAt`은 UTC이고 날짜 버킷을 단말 시간대로 재해석하지 않는다.
+5개 API 모두 `timezone`을 생략하면 `Asia/Seoul`로 정규화한다. 명시하면 정확한 문자열 `Asia/Seoul`만 허용한다. 다른 IANA 값·UTC·별칭·빈 문자열·JSON null·타입 불일치는 400 `INVALID_PARAMETER`, field=`timezone`, retryable=false다. 중복 query timezone도 같은 오류이며 임의 하나를 선택하지 않는다. 입력을 무시하거나 다른 시간대를 KST로 조용히 바꾸지 않는다. 누락과 명시한 Asia/Seoul은 같은 정규 요청이므로 측정 업로드와 퀘스트 생성 명령의 fingerprint도 동일하다. 측정 instant인 `measuredAt`은 UTC이고 날짜 버킷을 단말 시간대로 재해석하지 않는다.
 
-원본 입력 예시는 [변경하지 않은 HTML](source-api-v03.html)의 `focus-stats`, `screen-stats`, `screen-upload`, `home-summary` 항목에 별첨으로 보존한다. 원문 screen-upload의 사용자 시간대 날짜 설명은 이번 KST 채택 계약으로 대체한다. 복수 기기 측정 병합·집중의 섬 귀속 정책은 이 정규화로 확정되지 않는다.
+원본 입력 예시는 [변경하지 않은 HTML](source-api-v03.html)의 `focus-stats`, `screen-stats`, `screen-upload`, `quest-create`, `home-summary` 항목에 별첨으로 보존한다. 원문 screen-upload의 사용자 시간대 날짜 설명은 이번 KST 채택 계약으로 대체한다. **quest-create의 원본 시간대 오류422는 공통 입력 정책에 맞춰400 INVALID_PARAMETER로 명시 변경한다.** 제목·목표·시간창의 다른 도메인 범위 오류422까지400으로 바꾸는 것은 아니다. 원본66개 endpoint의 요청 JSON/Query를 전수 확인한 timezone 입력은 이5개이며, 퀘스트 조회 응답의 timezone은 입력 건수에 포함하지 않는다. 복수 기기 측정 병합·집중의 섬 귀속 정책은 이 정규화로 확정되지 않는다.
 
 ## 결정 로그와 미결 항목
 

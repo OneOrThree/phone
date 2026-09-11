@@ -17,6 +17,17 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 | 데이터 없는 신규 JSON mutation | `200 {"data":null}`; 삭제 확인 DTO가 정해졌으면 그 DTO |
 | PNG 썸네일 | `200 image/png`, bytes 원문, JSON 래핑 금지 |
 
+### 미리보기 호환 별칭
+
+| 계약 | 기존 `/api/v1/link-previews` 계열 | 신규 `/link-previews` 계열 |
+| --- | --- | --- |
+| POST/GET 성공 JSON | 기존 Preview 객체/목록 직접 반환 | `{data: ...}` 봉투 |
+| 실패 JSON | 기존 `{code,message}` 평면 오류 | 공통 error4필드+requestId |
+| Preview.thumbnailUrl | 기존 `/api/v1/link-previews/{id}/thumbnail` 유지 | `/link-previews/{id}/thumbnail` |
+| thumbnail 성공 | image/png bytes·기존 인증 | 같은 PNG bytes·인증 |
+
+두 계열은 같은 사용자별 Preview 저장/캐시를 사용한다. 신규 URL은 공개 응답 매핑에서 만들고 기존 캐시 객체·호환 응답을 바꾸지 않는다. 기존 별칭을 삭제하는 선택은 이번1751 구현 범위에 없다.
+
 성공의 requestId는 `X-Request-Id` 헤더에 둔다. 오류 본문에는 같은 값을 넣는다. 서버는 들어온 `X-Request-Id`를 인증 근거나 서버 ID로 사용하지 않는다.
 
 ```json
@@ -110,7 +121,7 @@ scope는 `(authenticatedUserId, operation, normalizedKey)`다. operation에는 H
 
 UUID36자는1659의 base key150자 제한 안에 들어간다. 공개 키는 정규화한 UUID만 전달하고 내부 단계 접미는 기존 `RequestIdempotencyKeys.forStep` 규칙을 재사용한다. suffix를 중복으로 붙이거나 길이를 잘라 충돌시키지 않는다. 오래된 optional key 라우트는 별도 정책으로 남긴다.
 
-fingerprint는 **검증한 요청 DTO의 의미**로 만든다. 필드 이름 정렬, 객체 key 정렬, 배열 순서 보존, 숫자 표현 정규화, null/누락의 도메인 의미를 명시하고 SHA-256을 적용한다. HTTP method·정규 라우트·실제 경로 자원ID와 의미 있는 query를 포함한다. 섬에 결합된 작업은 경로/본문이 지정한 대상 섬 식별자도 포함한다. 재시도 때 바뀔 수 있는 현재섬 조회 결과나 서버의 현재 resourceVersion을 새로 섞지 않는다. 서버가 첫 수락 시 보완한 context가 있다면 receipt에 고정해 재생하며, 새 현재 context로 원 요청을 다른 명령으로 바꾸지 않는다. 외부 requestId·Authorization·멱등키·추적 헤더는 제외한다. `expectedVersion`/`expectedWalletVersion`은 포함하므로 충돌 후 새 버전으로 다시 확정하는 의도는 새 키를 사용한다.
+fingerprint는 **검증한 요청 DTO의 의미**로 만든다. 필드 이름 정렬, 객체 key 정렬, 배열 순서 보존, 숫자 표현 정규화, null/누락의 도메인 의미를 명시하고 SHA-256을 적용한다. HTTP method·정규 라우트·실제 경로 자원ID와 의미 있는 query를 포함한다. 섬에 결합된 작업은 경로/본문이 지정한 대상 섬 식별자도 포함한다. 재시도 때 바뀔 수 있는 현재섬 조회 결과나 서버의 현재 resourceVersion을 새로 섞지 않는다. 서버가 첫 수락 시 보완한 context가 있다면 receipt에 고정해 재생하며, 새 현재 context로 원 요청을 다른 명령으로 바꾸지 않는다. 외부 requestId·Authorization·멱등키·추적 헤더는 제외한다. `expectedVersion`/`expectedWalletVersion`/`expectedProductVersion`은 포함하므로 충돌 후 새 버전으로 다시 확정하는 의도는 새 키를 사용한다.
 
 문자열을 임의 strip하거나 배열을 정렬해 서로 다른 의도를 합치지 않는다. 이름·text·암호·토큰 원문을 fingerprint 로그에 남기지 않는다. 로그인 자격 원문은 범용 fingerprint 대상 밖이다. 일반 receipt는 cookie·Authorization·토큰 발급 응답을 저장/재생하지 않으며, 로그인/refresh의 결정적 토큰 복구는 계정 전용 설계에서 검토·확정한다. P13의 cookie 비재생을 로그인 복구를 금지하는 정책으로 해석하지 않는다.
 
@@ -153,7 +164,7 @@ contractVersion은 **저장 receipt의 버전**이며 앱이 임의 입력하는
 
 ## 3. expectedVersion 적용 자원
 
-원문에서 version 입력이 있는 모든 변경을 열거했다. `expectedVersion` 8개와 `expectedWalletVersion` 1개다. 필수형은0 이상의 정수(자원 GET이 반환한 실제 version), Java/DB에서는 overflow를 검사한다. 공개 숫자는0~9007199254740991 범위에서만 발행하고 범위를 넘기기 전 계약을 개정한다.
+아래 첫 표는 **원문에 있던** version 입력9개, 즉 `expectedVersion` 8개와 `expectedWalletVersion` 1개를 열거한다. 이어지는 별도 표는 이미 채택된 상점 한정 기술 확장1개다. 최종 제출 축은 총10개이며 다른 자원에 무조건 version을 강제하는 변경은 아니다. 필수형은0 이상의 정수(자원 GET이 반환한 실제 version), Java/DB에서는 overflow를 검사한다. 공개 숫자는0~9007199254740991 범위에서만 발행하고 범위를 넘기기 전 계약을 개정한다.
 
 | 자원/버전 축 | 변경 요청 | 제출 필드 | 최신 상태 출처 |
 | --- | --- | --- | --- |
@@ -166,6 +177,18 @@ contractVersion은 **저장 receipt의 버전**이며 앱이 임의 입력하는
 | 섬 공용 재생(islandId) | PATCH `/islands/{islandId}/playback` | expectedVersion | GET `/islands/{islandId}/playback` |
 | 섬 건설 목표(islandId) | PUT `/islands/{islandId}/construction-target` | expectedVersion | 섬/건설 목표 공개 상태 version |
 | 실제 결제 지갑(ownerType+ownerId+currency) | POST `/islands/{islandId}/shop/orders` | **expectedWalletVersion** | GET `/islands/{islandId}/shop/wallets`의 fishVersion 또는 villagePointsVersion |
+
+**상점 설계1780의 명시 개정 — 원본9개와 구분**
+
+| 자원/버전 축 | 변경 요청 | 제출 필드 | 최신 상태 출처 |
+| --- | --- | --- | --- |
+| 상품의 불변 정의 revision(productId) | POST `/islands/{islandId}/shop/orders` | **expectedProductVersion** 필수 | GET `/islands/{islandId}/shop/products/{productId}` 및 상품 목록의 productVersion |
+
+2026-09-12 결정 D18과 [상점 설계 PR742](https://github.com/OneOrThree/phone/pull/742)가 채택한 계약을 공통층에도 반영한다. 원문 구매 body에 이미 있었다는 뜻이 아니다. 구매 body는 productId·expectedWalletVersion·expectedProductVersion이며, 가격·통화·지갑 소유 구분은 서버 상품 정의가 정한다.
+
+- 가격·currency·ownerType 등 **상품 정의의 결제 지갑 선택 조건**이 바뀌면 productVersion을 올린다. 지갑 잔액 version이 같거나 다른 통화 지갑의 version이 우연히 같아도 상품 revision 불일치로 차감을 거절한다. 현재 섬 이동으로 대상 context가 달라지는 문제는 별도 현재 섬/operation scope 검사로 다룬다.
+- 현재 인증·재생 열람 권한을 확인한 동일 키의 확정 receipt 재생은 현재 상품/지갑 버전 검사보다 먼저다. 새 실행에서만 같은 Data TX의 상품 revision과 지갑 잠금 아래 버전 검사·실제 차감·소유권/주문/receipt/outbox를 확정한다. 상품 개정과 구매도 같은 잠금/조건부 쓰기에 참여해 검사 이후 가격이 바뀌는 경합을 막는다.
+- 상품 revision 충돌은409 VERSION_CONFLICT, field=expectedProductVersion, 허용된 current에는 최신 상품 정의의 version/resource를 제공한다. 앱은 최신 가격·통화·소유 구분을 다시 표시하고 해당 지갑 버전을 재조회한 뒤 사용자가 재확정한 **새 키**로 요청한다. 자동 새 키 구매·자동 상향 가격 차감은 금지한다. 운영 가격 값과 공동 소비 권한의 미결 상태는 그대로다.
 
 섬 건설·목표·공동 외양의 물리 aggregate를 공유할지는 각 도메인 설계가 정한다. 공유하면 GET과 모든 변경/이벤트가 같은 version을 반환해야 하고, 별도면 각 응답에 어느 자원 version인지 구별되어야 한다. 이 표를 근거로 서로 다른 자원에 같은 섬 최대 version 하나를 적용하지 않는다. `contextVersion`·멤버십 epoch·이벤트 schema 버전은 자원 version과 다르다.
 
@@ -235,13 +258,15 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | encoded/matrix URI·중복헤더·위조 X-User-Id·AT만료 | 무접두어 변경 중 인증 우회/타인 주체 전달 |
 | Postgres 두 동시 동일key·본문불일치·커밋후응답유실·rollback | 이중 차감/보상, 잘못된 결과 재생 |
 | 동일key 성공후 stale expectedVersion·다른key 종료/구매 | 원 성공409오인 또는 도메인유일성 누락 |
+| 지갑 불변 중 상품 가격/통화/ownerType 개정·expectedProductVersion 충돌 | 사용자 동의 없는 조건으로 차감 |
+| 초대 만료410 INVITATION_EXPIRED·field=code·retryable=false | 만료를502로 오인 |
 | 현재requestId와원result 분리·새id요청 로그 연결 | 과거requestId/다른현재잔액을 재생 |
 | 구버전 receipt reader/순수 adapter/미지원409·배포 후 같은 키 복구 | 구형 DTO 노출, 원 명령·차감 재실행 |
 | 활성 본인의 leave/transfer 제한 증거·타인 scope·권한 소멸·비활성 계정 | 관리자/초대 자격 노출, 탈퇴 인증 우회 |
-| 4개 timezone 누락/Asia/Seoul/다른 값/null·측정 fingerprint 동일성 | 날짜 버킷 분산·재시도 충돌 |
+| 5개 timezone 누락/Asia/Seoul/다른 값/null·측정/퀘스트 fingerprint 동일성 | 날짜 버킷 분산·재시도 충돌 |
 | 선택적 게스트 AT subject 승계·위조/만료 AT·메시지 field=clientMessageId | 계정 데이터 분리·오류 입력 오표시 |
 | cursor 서명/만료/타사용자/필터/동률/메시지방향 | 정보유출·페이지중복/누락·무한스크롤루프 |
 | bounded 병렬·context/큐/enqueue 전후 예산 소진504·executor 포화503·선택 timeout과 전체504 경계·필수/선택 즉시 실패·모든 조기 종료의 실제 I/O 취소 후 자원회수 | thread/connection 고갈, 권한상실 은폐 |
 | 1659 auth/key/내부토큰 회귀·기존미리보기 전체 회귀 | 이미 해결한 인증·위성·SSRF 회귀 |
 
-이번 문서 작업에서는 원본 복사본 SHA-256/바이트 비교, 66개 원본 method/path 대조, 변경36개 전수 적용표, 버전필드9개 대조, Markdown 상대 링크와 Mermaid fence 짝을 확인한다. 빌드·단위/통합 테스트는 문서 변경에 실행하지 않으며 위 표의 통과를 주장하지 않는다. 실제 검증 결과는 구현 PR에 명령·exit code·결과 파일과 함께 남긴다.
+이번 문서 작업에서는 원본 복사본 SHA-256/바이트 비교, 66개 원본 method/path 대조, 변경36개 전수 적용표, 원본 버전필드9개+상점 기술 확장1개 대조, Markdown 상대 링크와 Mermaid fence 짝을 확인한다. 빌드·단위/통합 테스트는 문서 변경에 실행하지 않으며 위 표의 통과를 주장하지 않는다. 실제 검증 결과는 구현 PR에 명령·exit code·결과 파일과 함께 남긴다.
