@@ -62,7 +62,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 | 사용자 없는 내부 인증/배치 | 해당 서비스전용 allowlist만, X-User-Id를 임의 생성하지 않음 |
 | Data→Business | 내부 DTO/도메인 오류; 서비스 자격 실패는 앱401로 그대로 전달하지 않음 |
 
-내부 요청에 앱 cookie·X-Batch-Admin-Key·전달받은 서비스토큰·임의 X-*를 복사하지 않는다. 사용자별 캐시를 사용해도 세션 AT 만료 검증은 생략할 수 없다. JSON 바디 제한은 기존256KiB를 재사용하고 chunked 스트림에도 적용한다.
+내부 요청에 앱 cookie·X-Batch-Admin-Key·전달받은 서비스토큰·임의 X-*를 복사하지 않는다. 사용자별 캐시를 사용해도 세션 AT 만료 검증은 생략할 수 없다. JSON 바디 제한은 기존256KiB를 재사용하고 chunked 스트림에도 적용한다. 1751은 스트림 제한의 명시적 예외 및 HttpMessageNotReadableException의 원인 체인을413 REQUEST_TOO_LARGE 봉투로 변환해야 한다. 선행 구현 PR744의 GlobalExceptionHandler.handleBodyTooLarge/handleUnreadable와 PublicApiContractTest.declaredAndUnknownLengthBodiesCannotBypassLimit가 이 변환 및 Content-Length 없는 body/reader 경로를 검증한다. 기준 main의 IOException 문자열만으로413이 이미 구현됐다는 뜻이 아니다. 실제 ingress에서도 Transfer-Encoding:chunked 초과413을 검증한다.
 
 ## 2. Idempotency-Key 적용 목록
 
@@ -290,6 +290,7 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | 신규 로그인1757 게스트 승격의 SOCIAL_ACCOUNT_ALREADY_LINKED/GUEST_ALREADY_PROMOTED 실제 HTTP409 | 기존 계정 충돌을 미등록502로 오인하거나 유령 계정 생성 |
 | 지갑 불변 중 상품 가격/통화/ownerType 개정·expectedProductVersion 충돌 | 사용자 동의 없는 조건으로 차감 |
 | 섬 version 불변 중 건설 비용 publication 교체·expectedCostPolicyVersion 충돌/같은 키 확정 재생·목표 PUT 무차감 | 건설 가격 동의 우회, 성공 재생409 오인, 무료 목표에 비용 버전 강제 |
+| 섬 가입1760 기존 ALREADY_MEMBER/GROUP_LIMIT_EXCEEDED/ROOM_FULL409 | 같은 코드/상태 공개등록 및 실제HTTP회귀, 정상 가입 충돌의502변환 금지 |
 | 섬1759·집중1764 신규 경로의 기존 GROUP_NOT_FOUND/SESSION_NOT_FOUND | 활성화 전404 코드 보존/명시 매핑과 실제 route 회귀 필수, 정상 부재의 미등록502 금지 |
 | 초대 부재404 SLUG_NOT_FOUND·만료410 INVITATION_EXPIRED·field=code·retryable=false | 입력 수정과 만료를502로 오인 |
 | 미지원 provider400 UNSUPPORTED_PROVIDER·field=provider·legacy 상태 보존 | 지원하지 않는 입력을 상류 장애502로 오인 |

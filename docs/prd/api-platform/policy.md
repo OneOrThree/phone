@@ -60,6 +60,7 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |409|STATE_CONFLICT|false|현재 상태에서 실행 불가. 공개 current가 안전하면 포함|
 |409|SOCIAL_ACCOUNT_ALREADY_LINKED|false|field=`provider`, 다른 계정에 이미 연결된 소셜 계정으로 게스트 승격 시도. 기존 AuthErrorCode409 보존; 신규 로그인1757 활성화 전 registry/실제 HTTP 검증 필수|
 |409|GUEST_ALREADY_PROMOTED|false|field=null, 같은 게스트의 승격 경쟁에서 이미 다른 계정으로 승격됨. 기존 AuthErrorCode409 보존; 신규 로그인1757 활성화 전 registry/실제 HTTP 검증 필수|
+|409|ALREADY_MEMBER / GROUP_LIMIT_EXCEEDED / ROOM_FULL|false|field=null, 기존 섬 가입의 참여 중·가입 수 제한·정원 충돌. 신규 가입1760 활성 전 같은 code/status 등록과 실제 HTTP 회귀|
 |409|INSUFFICIENT_FUNDS|false|잔액 부족. 같은 요청 자동 반복 금지|
 |409|IDEMPOTENCY_KEY_REUSED|false|저장된 처리중/확정 scope/key에 다른 본문. 일반 명령 field=`Idempotency-Key`, 메시지는 field=`clientMessageId`. **기존 요청 본문·결과는 노출하지 않음**|
 |409|REQUEST_IN_PROGRESS|true|같은 명령의 실행이 아직 확정 전. Retry-After:1, 같은 키·본문으로 재시도|
@@ -106,6 +107,7 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 | POST `/auth/sessions`에 시도 ID 전달 위치 없음 | 필수 `X-Login-Attempt-Id` UUID 헤더, 같은 로그인 재시도에 같은 값·자격·본문 유지 | [계정 PR740](https://github.com/OneOrThree/phone/pull/740) LLD §2.1의 기존 확장 동기화. loginAttemptId 본문 필드는 추가하지 않음 |
 | POST `/islands` 이름 누락422 | 400 INVALID_REQUEST, field=name | 원본 api-create의 필수 입력 누락 상태를 공통 형식 검증으로 명시 override. 존재하는 이름의 길이/허용값 오류422와 구분 |
 | GET `/islands/discover` 잘못된 cursor422 | 400 INVALID_CURSOR, field=cursor | 원본 api-island-discover의 커서 형식/서명 오류를 공통 커서 규칙으로 명시 override. 만료409 CURSOR_EXPIRED와 구분 |
+| GET `/islands`의 cursor 형식/서명 오류422 | 400 INVALID_CURSOR, field=cursor | 원본 api-islands의 검색·페이지 인자 오류 중 cursor만 공통 규칙으로 override. 다른 검색 인자 의미 오류와 구분 |
 | 본문 없는 DELETE `/auth/sessions/current` | 필수 `X-Refresh-Token`, 선택 AT, 동일 RT 해시로 철회·완료 복구 | [계정 설계 PR740](https://github.com/OneOrThree/phone/pull/740)의 전용 인증 계약. 원본에 없던 헤더 위치를 명시한 기술 보완이며 body는 추가하지 않음 |
 | 초대 해석의410 만료 | 410 INVITATION_EXPIRED, field=code, retryable=false | 원본 상태 유지. 만료를502 상류 계약 오류로 바꾸지 않음 |
 | 날짜/IANA timezone 표현 | 시각UTC, 집계KST. 아래 5개 입력은 누락 시 Asia/Seoul, 그 외 값은400 INVALID_PARAMETER | 퀘스트 생성의 원본 시간대 오류422도400으로 명시 변경. 원본 입력 예시는 HTML에 보존 |

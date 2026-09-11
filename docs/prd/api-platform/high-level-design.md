@@ -39,7 +39,7 @@ flowchart LR
 
 기준 main `529a396e5f0f88cb78c172110920e1fa6b9388a9`에 있는 코드:
 
-- [RequestFilter](../../../server/business-api/src/main/java/com/oneorthree/business/config/RequestFilter.java): JWT·requestId·256KiB body limit·정확한 관리경로 예외. `/api` 접두어로 인증을 골라 처리하지 않는다.
+- [RequestFilter](../../../server/business-api/src/main/java/com/oneorthree/business/config/RequestFilter.java): JWT·requestId·256KiB 제한 스트림·정확한 관리경로 예외. 기준 main의 이 스트림만으로 chunked 초과의413 봉투까지 완성되는 것은 아니다. 1751은 본문 변환기가 감싼 제한 예외도413 REQUEST_TOO_LARGE로 매핑한다. `/api` 접두어로 인증을 골라 처리하지 않는다.
 - [ApiExceptionHandler](../../../server/business-api/src/main/java/com/oneorthree/business/config/ApiExceptionHandler.java): Preview/validation/Redis 예외, 기존 code와 Retry-After.
 - [PreviewController](../../../server/business-api/src/main/java/com/oneorthree/business/linkpreview/PreviewController.java): 기존 `/api/v1/link-previews`, 객체/목록 직접 반환, PNG byte 응답. 1751의 확정 목표는 이 호환 별칭·본문·오류·thumbnailURL을 유지하면서 신규 `/link-previews`의 봉투와 새 thumbnailURL을 응답 매핑으로 추가하는 것이다. 미리보기 저장/캐시를 경로별로 복제하지 않는다.
 - [FocusService](../../../server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java): 기존 종료의 조건부 UPDATE·정산·통계 TX 패턴. 신규 pause/resume·물고기 계약이 구현된 것이 아니다.
