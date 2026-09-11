@@ -14,7 +14,7 @@
 | M06 | 최신 묶음부터 과거 방향 cursor; 화면은 한 묶음 안에서 오름차순 | 저장 UUID 순서가 안정 tie-breaker. sentAt만으로 전체 전송 순서 보장하지 않음 |
 | M07 | 원본 신규 DTO/이벤트에 읽음/안읽음 없음. 기존 본인 unread 계산과 상대 읽음 영수증은 구별 | 기존 DB 삭제 여부는 MQ01. 새 read endpoint 추가 없음 |
 | M08 | 기존 집중 중 chat 차단을 보존. 공통 realtime CONNECT에는 집중 가드를 붙이지 않음 | 집중/휴식 구독·emote를 함께 막지 않기 위한 분리. 신규 message 제한 세부는 MQ02 |
-| M09 | 메시지 커밋 뒤 fanout, 히스토리가 복구 정본 | 이벤트1754. DB/TCP 원자성·Redis 무손실·내구 outbox 이미 구현 주장 금지 |
+| M09 | 메시지 커밋 뒤 fanout, 재연결은 최신 history로 페이지 캐시를 재초기화. UUID/known ID를 커밋 완료 watermark나 완전 gap 복구 근거로 쓰지 않음 | 이벤트1754. DB/TCP 원자성·Redis 무손실·내구 outbox 이미 구현 주장 금지 |
 | M10 | 텍스트 strip 후 비어 있음·NUL·2000 UTF-16 초과 거절 | 기존 ChatMessageService 동작 유지. 원본text에 매핑 |
 | M11 | 과거 메시지 원문과 senderId는 기존 보존 의도 유지, 이름/외양 영구 사본을 새로 저장하지 않음 | 기존 ChatMessage 문서: 탈퇴 후 메시지 보존·표시는 알 수 없음. 계정파기/비노출 배선은 후속 구현 의존 |
 
@@ -27,3 +27,5 @@
 | MQ03 | 탈퇴·섬 이탈 작성자의 프로필 표시와 원문 내 개인정보 대응 | 기존 탈퇴자 알 수 없음 표시는 유지 기준. 신규 nullable display와 실제 파기·차단 원칙은 LLD, 새 원문 보존 기간/자동 삭제 정책은 별도 승인 필요 |
 
 본인 unread는 peer에게 보내는 읽음 영수증이 아니다. M07을 근거로 chat_read_cursors DROP이나 legacy unreadCount 제거를 수행하지 않는다. 인가·키·cursor·REST 어댑터는 독립 구현 가능하나 미답 정책을 우회해 신규 서비스를 열지는 않는다.
+
+현재 history는 조회된 페이지 범위의 저장 이력을 복구한다. 모든 지연 커밋·누락 사건의 무손실 자동 복구는 별도 커밋 가시성 기반과 모든 writer·이벤트·앱 검증이 필요한 기술 gate다. 고정 overlap/단순 sequence로 완료를 주장하지 않는다.

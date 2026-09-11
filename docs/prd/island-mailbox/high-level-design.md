@@ -39,6 +39,6 @@ sequenceDiagram
 
 공통 `/ws/realtime` CONNECT는 집중 중에도 인증할 수 있어야 집중·휴식·emote가 동작한다. 새 우체통의 읽기·쓰기·수신을 어디까지 제한할지는 별도 정책이며 아직 미답이다. legacy chat 규칙은 보존한다. 같은 소켓의 음악/집중 이벤트를 message 제한 때문에 모두 차단하지 않는다.
 
-message.created는 Data outbox가 아니다. 기존 메시지 커밋 뒤 best-effort fanout을 사용하며 DB/TCP 원자성은 없다. 수신 누락은 history 재조회로 복구하고, 내구 fanout 추가가 필요하면 별도 chat DB outbox 설계·범위를 승인해야 한다. 이 설계가 이미 존재하는 것처럼 쓰지 않는다.
+message.created는 Data outbox가 아니다. 기존 메시지 커밋 뒤 best-effort fanout을 사용하며 DB/TCP 원자성은 없다. 재연결은 이전 페이지 캐시를 버리고 최신 history부터 실제 조회 범위를 다시 표시한다. 발급 UUID가 커밋순서는 아니므로 known ID/고정 overlap까지 읽었다고 모든 수신 누락의 복구를 보장하지 않는다. 완전 복구는 LLD의 별도 커밋 가시성 기반 gate이며, 내구 fanout 추가가 필요하면 별도 chat DB outbox 설계·범위를 승인해야 한다. 이 설계가 이미 존재하는 것처럼 쓰지 않는다.
 
 구현 순서: 읽음/집중 정책 → 내부 어댑터/현재 인가 → strict dedup/공개 DTO·프로필 → signed cursor와 history → 신규 event/재연결·권한회수 → legacy/실소켓 테스트. 새로운 메시지 저장소나1:1채팅 기능을 만들지 않는다.

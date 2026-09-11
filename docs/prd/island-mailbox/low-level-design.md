@@ -113,7 +113,7 @@ Realtime은Data의신뢰된 권한 조회어댑터에서현재활성 사용자/�
 5. legacy로먼저저장된행도신규재시도시실제저장text를비교하고일치할때만재생한다. 서버가계산한검증가능한backfill과동일원문비교로전환하고메타데이터없음을무조건새 메시지로취급하지않는다.
 6. legacy/new 어느 입구든 처음 저장한 행의 커밋 후에는 기존 fanout과 신규 event adapter를 연결한다. legacy wire는 유지하고 새 구독자의 현재 인가를 별도로 확인한다. 새 adapter 미활성 상태를 성공 전달로 과장하지 않는다. 새 행 커밋 후만 fanout한다. 중복재시도는방전체재방송없음,HTTP는원 결과201,legacy는발신세션duplicates큐.프로필은현재 인가된표시projection이라이름변경은재조회에반영될수있으며불변메시지결과(id/text/시간/키)와구분한다. 이표시정책을범용 receipt의원비즈니스결과재생보장과혼동하지않는다.
 
-DB저장 성공뒤프로필조합/응답전송/최종 인가실패가있어도저장된행을숨겨다시INSERT하지않는다. 원키재시도가이를복구한다. 실패한fanout은로그/지표에남고history정본으로복구한다. message.created의내구outbox발행은1754범위에없으며존재하는것처럼표시하지않는다. Data의account/membership파기제어는별도내구경로다.
+DB저장 성공뒤프로필조합/응답전송/최종 인가실패가있어도저장된행을숨겨다시INSERT하지않는다. 원키재시도가이를복구한다. 실패한fanout은로그/지표에남고history 최신 페이지 재초기화로 확인 가능한 저장 범위를 복구한다. 전체 누락 자동 복구의 한계와 강화 gate는 다음 절을 따른다. message.created의내구outbox발행은1754범위에없으며존재하는것처럼표시하지않는다. Data의account/membership파기제어는별도내구경로다.
 
 ## 5. 히스토리·프로필·실시간 병합
 
@@ -125,7 +125,9 @@ Realtime저장DTO에는name/catColor가없다. Business는허가된메시지send
 
 message.created의7필드(schemaVersion1,eventId,type,islandId,aggregateVersion,occurredAt,payload)를사용한다. payload={id,clientMessageId,userId,text,createdAt},aggregateVersion=1,key=(message,id),고정eventId와occurredAt는메시지생성과연결한다. 새topic은`/topic/islands/{islandId}/messages`;legacyChatMessageResponse를이봉투로강제교체하지않는다. event에는name/catColor를몰래추가하지않고필요한profile은허가된GET/BFF정본으로얻는다.
 
-SUBSCRIBE RECEIPT확인→event버퍼→history설치→id 및(userId,clientMessageId)로병합한다. 서로다른메시지를aggregateVersion1로덮어쓰거나다른 사용자의같은client키를접지않는다. POST/이벤트/history가어떤순서여도낙관적말풍선은 1개다. 연결세대가바뀌면이전요청응답을버리고재연결/foreground에최신history부터마지막known id까지페이지조회해누락을채운다. 한페이지에새 메시지 30개를넘었다고첫페이지조회로복구완료하지않는다. 복구중지한계/버퍼overflow는화면을재초기화하며무한버퍼를만들지않는다.
+SUBSCRIBE RECEIPT확인→event버퍼→history설치→id 및(userId,clientMessageId)로병합한다. 서로다른메시지를aggregateVersion1로덮어쓰거나다른 사용자의같은client키를접지않는다. POST/이벤트/history가어떤순서여도낙관적말풍선은 1개다. 연결세대가바뀌면이전요청응답과이전페이지캐시를버리고 최신history 조회로 화면을재초기화한다. 현재 조회에서 받은 페이지 범위만 확인된 이력으로 취급하며 과거 탐색은 새 cursor로 이어간다. UUID 발급 순서와 커밋 순서는 다르므로 **마지막 known id에 도달했다고 누락 복구가 끝났다고 판정하지 않는다**. ID100의 늦은 커밋이 이미 본ID101보다 뒤에 보일 수 있다. 한 페이지나 고정N개 overlap은 무손실 복구 근거가 아니다.
+
+현재 history의 id DESC seek는 각 조회 시점에 보이는 저장 행을 탐색하는 계약이며, 여러 페이지가 고정된 하나의 snapshot이거나 모든 지연 커밋을 빠짐없이 읽는 보장은 없다. 새 조회는 최신 페이지에서 다시 시작하고 UI는 실제 읽은 범위만 표시한다. 과거 캐시와 합쳐 완전한 연속 이력이라고 표시하지 않는다. 범위밖 지연 커밋·누락 사건의 완전 자동 복구가 요구되면, 커밋 가시성을 가진 복구 cursor/log 또는 그와 동등하게 검증된 기반을 **모든 legacy/new writer와 함께** 먼저 구현하고1754/1755·앱 계약을 동기화해야 한다. 단순 DB sequence를 커밋순서라고 쓰지 않는다. 이 강화 보장은 현재 미구현이며 검증 전 활성화하지 않는다. 버퍼overflow/복구중단은 표시 범위를 재초기화하며 무한 버퍼를 만들지 않는다.
 
 ## 6. 읽음·개인정보·검증
 
@@ -135,4 +137,4 @@ ChatRoomService:58의unreadCount는본인배지, :113의markRead는해당방메�
 
 로그에는requestId,messageId,단계,결과code,인가실패범주,fanout실패/지연·복구건수만남긴다. text/name/catColor/토큰·원키·원 상류 본문금지. broker내부Redis namespace/chatDB를개명때교체하지않는다.
 
-검증: 실제Servlet신규GET/POST와legacySTOMP같은저장소;키UUID/unknown/strictlimit;같은 키같은 본문·다른 본문·legacy먼저저장·두인스턴스경쟁;DB성공뒤응답/프로필/fanout실패;30개초과재연결gap과정렬/cursor;historyprofile권한누출·탈퇴자null;Data권한장애failclosed·구독후이탈/강퇴·집중/휴식정책;공통CONNECT가focus/emote를막지않음;기존read/unreadAPI회귀. production권한seam을가짜override한테스트만으로인가완료를주장하지않는다.
+검증: 실제Servlet신규GET/POST와legacySTOMP같은저장소;키UUID/unknown/strictlimit;같은 키같은 본문·다른 본문·legacy먼저저장·두인스턴스경쟁;DB성공뒤응답/프로필/fanout실패;30개초과재연결·ID100지연커밋/ID101선행커밋·캐시무효화/정렬/cursor 및 knownID를완전복구로오인하지않음;historyprofile권한누출·탈퇴자null;Data권한장애failclosed·구독후이탈/강퇴·집중/휴식정책;공통CONNECT가focus/emote를막지않음;기존read/unreadAPI회귀. production권한seam을가짜override한테스트만으로인가완료를주장하지않는다.
