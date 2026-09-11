@@ -273,11 +273,6 @@ public class InternalHttpClient implements AutoCloseable {
         } catch (JacksonException e) {
             parsed = null;
         }
-        // 명시적 계약·서비스 인증·내부 결함은 재시도하거나 선택 조각의 null 성공으로 접지 않는다.
-        boolean permanentServerError = parsed != null && parsed.code() != null && switch (parsed.code()) {
-            case "INTERNAL_ERROR", "UPSTREAM_CONTRACT_ERROR", "UPSTREAM_AUTH_FAILED" -> true;
-            default -> false;
-        };
         boolean structured = parsed != null && parsed.code() != null && !parsed.code().isBlank();
         boolean transientServerError = structured && switch (parsed.code()) {
             case "SERVICE_UNAVAILABLE", "UPSTREAM_UNAVAILABLE" -> status == 503;
@@ -286,7 +281,7 @@ public class InternalHttpClient implements AutoCloseable {
         };
         // 공개/화면 계약은 등록된 일시 status+code 쌍만 재시도한다. 불명 구조화 오류는 종결한다.
         // legacy 동기 호출과 코드 없는 프록시 5xx의 기존 재시도 의미는 유지한다.
-        if (status >= 500 && status <= 599 && !permanentServerError
+        if (status >= 500 && status <= 599
                 && (!strictErrorContract || !structured || transientServerError)) {
             return new RetryableFailure(parseRetryAfter(retryAfter));
         }
