@@ -27,17 +27,10 @@ final class SettingsContract {
 
     static Command command(JsonNode value, boolean requested) {
         object(value);
-        String commandId = text(value, "commandId");
-        UUID id;
-        try {
-            id = UUID.fromString(commandId);
-            if (commandId.length() != 36 || !id.toString().equalsIgnoreCase(commandId)) {
-                throw invalid();
-            }
-        } catch (IllegalArgumentException e) {
+        UUID id = uuid(value, "commandId");
+        if (!id.equals(uuid(value, "eventId"))) {
             throw invalid();
         }
-        text(value, "eventId");
         long version = number(value, "version");
         number(value, "authGeneration");
         JsonNode mask = value.get("mask");
@@ -84,6 +77,19 @@ final class SettingsContract {
             throw invalid();
         }
         return child.booleanValue();
+    }
+
+    private static UUID uuid(JsonNode value, String field) {
+        String raw = text(value, field);
+        try {
+            UUID id = UUID.fromString(raw);
+            if (raw.length() != 36 || !id.toString().equalsIgnoreCase(raw)) {
+                throw invalid();
+            }
+            return id;
+        } catch (IllegalArgumentException e) {
+            throw invalid();
+        }
     }
 
     private static long number(JsonNode value, String field) {

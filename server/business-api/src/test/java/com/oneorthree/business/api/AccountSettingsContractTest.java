@@ -251,6 +251,53 @@ class AccountSettingsContractTest extends UpstreamTestBase {
         assertThat(NOTI.received()).isEmpty();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"", "not-a-uuid", "1-1-1-1-1", "dddddddd-0000-7000-8000-000000000002"})
+    void invalidOrMismatchedEventIdCannotApplyOrCloseAnyOutboxCommand(String eventId) throws Exception {
+        DATA.on(DATA_PATCH, request -> ok(command(false).replace(
+                "\"eventId\":\"" + COMMAND + "\"", "\"eventId\":\"" + eventId + "\"")));
+        mockMvc.perform(write("{\"notifications\":false}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+        assertThat(NOTI.received()).isEmpty();
+        assertThat(DATA.received()).hasSize(1);
+        assertThat(DATA.hits(DATA_PATCH)).isEqualTo(1);
+        assertThat(DATA.hits(DELIVERED)).isZero();
+    }
+
+    @Test
+    void missingNullOrNumericEventIdCannotApplyOrAcknowledge() throws Exception {
+        String field = "\"eventId\":\"" + COMMAND + "\"";
+        for (String body : List.of(command(false).replace(field + ",", ""),
+                command(false).replace(field, "\"eventId\":null"),
+                command(false).replace(field, "\"eventId\":1"))) {
+            DATA.on(DATA_PATCH, request -> ok(body));
+            mockMvc.perform(write("{\"notifications\":false}"))
+                    .andExpect(status().isBadGateway())
+                    .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+        }
+        assertThat(NOTI.received()).isEmpty();
+        assertThat(DATA.received()).hasSize(3);
+        assertThat(DATA.hits(DATA_PATCH)).isEqualTo(3);
+        assertThat(DATA.hits(DELIVERED)).isZero();
+    }
+
+    @Test
+    void equivalentUuidCasingWithResponseExtensionsStillAppliesAndAcknowledgesOriginalCommand() throws Exception {
+        DATA.on(DATA_PATCH, request -> ok(command(false).replace(
+                "\"eventId\":\"" + COMMAND + "\"",
+                "\"eventId\":\"" + COMMAND.toUpperCase(java.util.Locale.ROOT) + "\"")
+                .replace("{", "{\"futureField\":true,")));
+        NOTI.on(APPLY, request -> ok("{\"applied\":true,\"futureField\":true}"));
+        DATA.on(DELIVERED, request -> ok(null));
+        mockMvc.perform(write("{\"notifications\":false}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.notifications").value(false));
+        assertThat(NOTI.received()).hasSize(1);
+        assertThat(NOTI.receivedFor(APPLY).get(0).header("Idempotency-Key")).isEqualTo(COMMAND);
+        assertThat(NOTI.receivedFor(APPLY).get(0).body()).doesNotContain("futureField");
+        assertThat(DATA.hits(DELIVERED)).isEqualTo(1);
+    }
+
     @Test
     void replayPreservesOriginalGenerationInsteadOfUpgradingItToCurrentClaims() throws Exception {
         DATA.on(DATA_PATCH, request -> ok(command(false).replace("\"authGeneration\":3", "\"authGeneration\":2")));
