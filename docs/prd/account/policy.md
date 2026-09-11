@@ -25,6 +25,7 @@ GROMO-1756 · 2026-09-12 · [색인](README.md) · [상세 계약](low-level-des
 | A17 | 본문 없는 로그아웃의 RT는 `X-Refresh-Token` 전용 헤더로 전달한다. AT가 같이 있으면 같은 사용자·세션이어야 한다. AT 만료가 유효 RT 폐기를 막지 않도록 RT가 인증 정본이다. | 기술 결정. 기존 RT 증명 의도 유지, 요청/추적/프록시 로그에서 헤더 삭제 |
 | A18 | 기존 제공자의 token 검증 경로는 명시적 `credential` 확장으로 유지한다. `authorizationCode`는 실제 교환 어댑터가 처리하며 JWT 검증 함수에 대신 넣지 않는다. 미지원 provider는 기존 400 UNSUPPORTED_PROVIDER를 보존하고, 알려진 provider의 지원하지 않는 credential 종류와 구분한다. 제공자 자격 실패는 KAKAO_TOKEN·APPLE_TOKEN·GOOGLE_TOKEN·LINE_TOKEN·INSTAGRAM_TOKEN·FACEBOOK_TOKEN 각각 401, refresh와 logout의 RT 자격 실패는 REFRESH_TOKEN401을 보존한다. | 기술 결정. 원본 code-only 대비 변경은 LLD에 명시 |
 | A19 | 앱 명령/로그인 시도 ID는 하이픈 포함 36자 UUID이며 v4/v7은 생성 권고다. 다른 버전 비트라는 이유로 거부하지 않는다. | 선행 공통 UUID 규약과 일치 |
+| A20 | 승인된 완료 판정의 false→true는 user.onboarded, 실제 이름 변경은 기존 동기 writer의 user.displayNameChanged를 프로필·receipt와 같은 Data TX에 내구화한다. 완료 재생·무변경은 새 사건을 만들지 않는다. 랭킹은 기존 사용자 점수/상태 version과 주차별 절대 점수, Link는 멤버십 snapshotVersion과 폐기 상태를 대조하며 두 축은 별개다. 생산자/소비자 구현·회귀 전 활성화하지 않는다. | 기존 아키텍처 ㊣/㋡. 이름 writer는 선행 재사용; Q03/Q04 판정·제품 정책은 미결 유지 |
 
 A06/A08/A09 및 A11의 추가 파기·검증은 목표 계약이다. 기존 기기 DELETE의 키 생략 호환은 유지하되 새 앱 삭제 흐름에는 고정 키가 필수다. main은 Data에서 JWT를 발급하고 `users.refreshTokenHash` 하나를 보관한다. 미통합 1659에는 세션 확인·bootstrap·outbox 기반이 있으나 세션별 RT 정본 전환이나 전체 Business 로그인 이관이 끝난 것은 아니다.
 

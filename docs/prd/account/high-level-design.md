@@ -75,6 +75,33 @@ sequenceDiagram
 
 탈퇴·세션 폐기가 먼저 확정됐으면 성공 시도라도 토큰을 다시 발급하지 않는다. 로그인 결과가 불명확하다고 매번 새 시도를 만들면 세션이 늘고 게스트 승격 경쟁이 생기므로 앱은 먼저 같은 시도를 재개한다. 로그인 CAS의 단순 경쟁 패배는 REPREPARE_REQUIRED로 분리하고 같은 attempt/자격으로 새 generation/nonce·고정 재료를 한 번 준비한다. 동시에 재개해도 같은 새 준비를 받고, 이전 nonce의 지연 완료는 거부한다. 탈퇴·epoch 폐기나 복구 창 종료는 INVALIDATED이며 재준비하지 않는다. [LLD 상태 전이](low-level-design.md#로그인-cas-충돌의-재준비-전이)를 따른다. 이는 refresh CAS 경쟁에서 진 요청을 성공 처리하는 규칙이 아니다.
 
+## 프로필: 상태와 전달할 사실을 같이 저장
+
+새 PATCH는 활성 users를 배타 잠그고 완료 receipt를 먼저 확인한다. 새 실행만 기존 name 변경 primitive에 위임하고 catColor를 적용한 뒤 Q03/Q04의 승인된 동일 판정으로 완료 전이를 비교한다. false→true이면 `user.onboarded`, 실제 이름 변경이면 기존 동기 리스너를 통한 `user.displayNameChanged`가 필요하다. 프로필·전이·receipt·outbox가 같은 Data TX이므로 하나라도 저장에 실패하면 모두 rollback한다. 동일 키 재생·무변경은 전이/사건을 다시 만들지 않는다.
+
+```mermaid
+sequenceDiagram
+    participant B as Business
+    participant D as Data 프로필 TX
+    participant O as Data outbox
+    participant C as 랭킹·Link 소비자
+    B->>D: PATCH /me + 검증 주체 + 동일 명령 키
+    D->>D: users 배타 잠금·receipt 우선·변경 전후 비교
+    opt 실제 이름 변경
+        D->>D: 기존 이름 primitive → 동기 표시정보 리스너
+        D->>O: user.displayNameChanged + 멤버십 snapshotVersion
+    end
+    opt 승인된 완료 판정 false에서 true
+        D->>O: user.onboarded + 사용자 점수/상태 version
+    end
+    Note over D,O: 프로필·결과 receipt·필요한 사건을 같은 TX로 커밋
+    D-->>B: 원 공개 프로필 응답
+    O->>C: 커밋 후 기존 relay/스트림으로 재전달
+    Note over C: 랭킹은 주차별 절대 점수·tombstone<br/>Link는 자기 snapshotVersion·폐기 상태
+```
+
+표시정보 writer는 미통합 선행에 있으므로 새 PATCH에 연결해 재사용하며 별도 이중 outbox를 만들지 않는다. `user.onboarded` 생산자와 랭킹 소비자는 후속 통합 의무다. 두 version 축은 비교하지 않는다. 이 흐름은 기존 아키텍처 ㊣/㋡의 내부 상태 계약이고 섬 STOMP 14종이나 공개 API 66종을 추가한 것이 아니다. Q03/Q04 판정 및 원자 저장·중복/역순/탈퇴 회귀 전 새 경로를 활성화하지 않는다. [LLD 원자 경계와 실제 선행 코드](low-level-design.md#프로필-변경과-기존-상태-사건의-원자-경계)를 따른다.
+
 ## RT 전환과 로그아웃
 
 ```mermaid

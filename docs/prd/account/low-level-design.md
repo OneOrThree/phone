@@ -75,9 +75,18 @@ name/catColor null 허용은 온보딩 전 상태를 표현하기 위한 원본 
 
 요청 `{ "name": "수빈", "catColor": "calico" }`. 두 필드 중 하나 이상 필수이고 생략한 필드는 보존한다. null·빈 객체는 400이다. name은 기존 nickname의 trim/2~10 UTF-16 단위/중복 정책을 사용한다. 자체 신규 정규화나 대소문자 접기를 추가하지 않는다. catColor는 Q03 카탈로그의 허용 ID만 저장하며 문자열을 이미지 URL·파일 경로로 해석하지 않는다.
 
-활성 사용자 배타 잠금 → 멱등 명령 확인 → name 검증/유일 제약 → catColor 적용 → 결과와 receipt 한 TX 순서다. name 검증 실패 시 catColor만 저장되는 부분 성공은 없다. 현재 User 엔티티는 전체 컬럼 UPDATE이므로 공유 잠금 뒤 승급하거나 잠금 전에 읽은 엔티티를 저장하지 않는다.
+활성 사용자 배타 잠금 → 기존 멱등 결과 확인 → 변경 전 완료 상태 판정 → name 검증/유일 제약과 기존 표시정보 writer 위임 → catColor 적용 → 변경 후 완료 상태 판정 → 필요한 전이 사건과 결과/receipt를 같은 Data TX에 기록하는 순서다. name 검증 실패나 사건/outbox 저장 실패 시 프로필·완료 전이·receipt·사건 모두 rollback하며 부분 성공은 없다. 현재 User 엔티티는 전체 컬럼 UPDATE이므로 공유 잠금 뒤 승급하거나 잠금 전에 읽은 엔티티를 저장하지 않는다.
 
 200은 변경 후 `{id,name,catColor}` 3필드다. `onboardingComplete`는 이 응답에 추가하지 않고 필요하면 GET `/me`로 확인한다. 전체 사용자 엔티티·RT 해시·countryCode 등을 직렬화하지 않는다.
+
+#### 프로필 변경과 기존 상태 사건의 원자 경계
+
+- **완료 전이:** Q03/Q04로 승인된 동일 판정 함수를 잠금 안의 변경 전·후에 적용한다. `onboardingComplete`가 false→true일 때만 기존 [아키텍처 ㊣](../../architecture/decisions.md)의 `user.onboarded`를 프로필 변경·receipt와 같은 Data TX의 outbox에 기록한다. 미결 판정식을 “이름이 있으면 완료” 등의 기본값으로 확정하지 않는다. GET/로그인 응답과 PATCH가 다른 완료 함수를 사용하지 않는다. 같은 키 완료 재생, 무변경 및 이미 true→true인 수정에서는 이 전이 사건을 다시 만들지 않는다.
+- **랭킹 전달:** `user.onboarded`는 기존 `score-events`의 적격성 상태 계약이다. 점수·다른 상태 전이와 같은 사용자 단조 version 경계를 사용하고, 소비자는 현재 적격성/탈퇴 tombstone을 확인해 DB 정본의 주차별 절대 점수를 재적재한다. 온보딩 전에 쌓인 점수를 0으로 초기화하거나 delta를 더하지 않는다. 중복·역순·DLT 재전달에서 낮은 version이 새 상태를 되돌리거나 탈퇴자를 되살리지 못한다. [기존 랭킹 계약](../../architecture/service-architecture.md)을 따르며 새 섬 랭킹의 분모·직군·보상 정책을 여기서 결정하지 않는다. 이 producer/소비자 통합은 기준 main의 완료 구현이 아니다.
+- **이름 전이:** 정규화된 실제 name이 바뀌면 기존 사용자 표시정보 변경 경로를 사용한다. 선행 [UserService.changeNickname](https://github.com/OneOrThree/phone/blob/6a9ddd1367a3d5d3d5cc940b57faa8addd9d9b64/server/data-api/src/main/java/com/oneorthree/phone/user/service/UserService.java#L228)이 `UserDisplayNameChangedEvent`를 발행하고, [동기 리스너](https://github.com/OneOrThree/phone/blob/6a9ddd1367a3d5d3d5cc940b57faa8addd9d9b64/server/data-api/src/main/java/com/oneorthree/phone/group/listener/LinkDisplayNameChangeListener.java#L29)가 [recordDisplayNameChanged](https://github.com/OneOrThree/phone/blob/6a9ddd1367a3d5d3d5cc940b57faa8addd9d9b64/server/data-api/src/main/java/com/oneorthree/phone/group/service/LinkMembershipEventService.java#L291)에 위임한다. `MANDATORY` TX 안에서 활성 `(groupId,userId)` 멤버십의 `snapshotVersion`을 전진시키고 `user.displayNameChanged`/`link.displayNameChanged` outbox를 만든다. 기준 main에는 이 선행 경로가 없으며 새 PATCH가 이미 연결됐다고 주장하지 않는다. 현재 private 이름 변경 primitive를 새 진입점과 공유할 수 있도록 연결하되 기존 legacy writer 동작과 의존 방향을 보존하고 신규 caller가 표시정보 outbox를 이중 append하지 않는다. 새 PATCH에서 name 생략·정규화 후 무변경·확정 receipt 재생은 이름 writer를 다시 실행하지 않는다.
+- **링크 적용:** 기존 [㋡](../../architecture/decisions.md)에 따라 커밋 후 relay가 새 표시정보를 전달한다. Link는 같은 멤버십 snapshot 축의 version과 폐기 상태를 대조해 이미 공유된 slug의 표시를 갱신하며 낮은 version·중복·탈퇴 후 지연 전달이 옛 이름/링크를 부활시키지 않는다. `user.onboarded`의 사용자 점수 축과 링크 `snapshotVersion`을 서로 비교하지 않는다. Data TX 안에서 Link HTTP를 기다리거나 AFTER_COMMIT/fire-and-forget만으로 내구 기록을 대체하지 않는다.
+
+프로필 한 번이 두 전이를 모두 만들면 필요한 두 사건을 같은 TX에 담는다. 현재 사용자 인가와 기존 users→멤버십→aggregate 잠금 순서를 지켜 legacy 이름 writer·탈퇴와의 경합을 검증한다. 온보딩 판정·생산자 연결·동일 TX rollback/중복 회귀 전 새 PATCH를 활성화하지 않고, Redis 랭킹/Link snapshot 소비 경로도 각 version·재전달 회귀를 통과하기 전 활성화하지 않는다. 기존 DB 조회와 선행 구현, 목표 소비자 계약을 구분한다. 이 두 사건은 기존 내부 랭킹/링크 계약이며 신규 공개 API 66종이나 섬 STOMP 14종의 개수를 늘리지 않는다. 공개 PATCH 응답 `{id,name,catColor}`도 유지한다.
 
 ### 2.4 DELETE /auth/sessions/current
 
@@ -536,6 +545,11 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 유효 guest=false AT를 동봉한 기존 소셜 로그인/계정 전환 | 제공자 대상 계정으로 정상 로그인/가입, 게스트 승격 대상 제외·기존 계정 합병0; 위조/만료 AT는 별도거부 |
 | 6개 제공자의 위조·만료·aud 오류 및 잘못된 RT logout | 해당 *_TOKEN401과 REFRESH_TOKEN401 보존, 내부 서비스401을 사용자 오류로 매핑하지 않음 |
 | 6개 제공자/guest 승격 | 같은 userId·지갑·집중·그룹 유지, 타 제공자 token·RT-as-AT 거부 |
+| 승인된 완료 판정 false→true / 이미 true→true / 동일 키 재생 | 첫 전이만 user.onboarded 내구화, 미완료 시점의 기존 점수도 주차별 절대값 재적재, 재생·무전이의 추가 사건0 |
+| name 변경+catColor/온보딩 동시 변경·동일 키·무변경 | 기존 동기 이름 writer에 위임해 필요한 멤버십별 표시 사건만 생성, caller 이중 append0; name 생략/무변경/receipt 재생은 이름 사건0 |
+| 프로필/완료 변경 뒤 어느 outbox 또는 receipt 저장 실패 | name·catColor·완료 전이·두 사건과 결과 모두 rollback, 부분 성공0 |
+| user.onboarded 재전달/역순/DLT·탈퇴 경합 | 주차별 절대 점수·공통 version 및 tombstone 대조, 기존 점수 누락/중복가산/탈퇴자 부활0 |
+| 이름 A→B 뒤 역순 relay·답장 유실·탈퇴/멤버십 종료 | 공유 slug는 최신 snapshotVersion만 적용, 낮은 버전 이름 복구/폐기 링크 부활0; 기존 legacy 이름 writer 회귀 유지 |
 | login 준비 후 장애·확정 응답 유실 | 실제 원 code/credential + 같은 attempt로 내구 조회를 먼저 수행, 재개 시 IdP 호출0·동일 generation이면 동일 RT·새 세션 중복0 |
 | 재개 시 원 자격 없이 attempt/digest만 제시·다른 provider/선택 주체/본문 | 준비 자료·provider subject·토큰 반환0. 앱 digest를 원 자격으로 신뢰하지 않음 |
 | 재개 시 고정 만료/복구창 종료·사용자 비활성·세대/epoch 변경·INVALIDATED | IdP 재교환·새 준비로 우회0, 기존 거절 유지·복구 마감 연장0 |
