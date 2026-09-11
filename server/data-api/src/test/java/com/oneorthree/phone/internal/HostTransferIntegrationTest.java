@@ -1,14 +1,17 @@
 package com.oneorthree.phone.internal;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.service.SessionLogoutService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.config.OutboxRelayProperties;
+import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.JoinGroupRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.service.GroupChallengeService;
 import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.internal.dto.HostTransferRequest;
@@ -63,6 +66,7 @@ class HostTransferIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("island-management.host-transfer-enabled", () -> true);
+        registry.add("notification.dispatch.mode", () -> "OUTBOX");
         registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]",
@@ -73,6 +77,8 @@ class HostTransferIntegrationTest {
     InternalHostTransferService service;
     @Autowired
     GroupService groups;
+    @Autowired
+    GroupChallengeService challenges;
     @Autowired
     GroupMemberService members;
     @Autowired
@@ -343,6 +349,54 @@ class HostTransferIntegrationTest {
         }, () -> failure(() -> transfer(f, UUID.randomUUID())));
         assertThat(failure).isInstanceOfSatisfying(GroupException.class,
                 e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("챌린지 생성의 그룹 잠금과 탈퇴의 USER outbox 잠금이 커밋 전 알림에서 역전되지 않는다")
+    void challengeCreationBeforeWithdrawalDoesNotDeadlockUserOutbox() throws Exception {
+        Fixture f = fixture();
+        // first는 실제 createChallenge를 호출한 채 TX를 열어 둔다. 후행 탈퇴의 PG 잠금 대기를
+        // 확인한 뒤 first가 커밋되어야 BEFORE_COMMIT 알림이 USER aggregate를 획득한다.
+        afterBlocked(() -> createChallenge(f), () -> {
+            withdrawal.withdraw(f.target().id());
+            return null;
+        });
+        assertTargetWithdrawn(f);
+        assertThat(challengeNotificationCount(f.target())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("탈퇴가 먼저 커밋되면 챌린지 생성은 기다린 뒤 탈퇴자를 알림 수신자에서 제외한다")
+    void withdrawalBeforeChallengeCreationExcludesDepartedRecipient() throws Exception {
+        Fixture f = fixture();
+        afterBlocked(() -> {
+            withdrawal.withdraw(f.target().id());
+            return null;
+        }, () -> createChallenge(f));
+        assertTargetWithdrawn(f);
+        assertThat(challengeNotificationCount(f.target())).isZero();
+    }
+
+    private UUID createChallenge(Fixture f) throws Exception {
+        CreateChallengeRequest request = new ObjectMapper().readValue(
+                "{\"missionCategory\":\"FOCUS\",\"missionType\":\"DURATION\",\"durationMinutes\":30}",
+                CreateChallengeRequest.class);
+        return challenges.createChallenge(f.islandId(), f.owner().id(), request).getId();
+    }
+
+    private long challengeNotificationCount(Actor recipient) {
+        return count("select count(*) from event_outbox where user_id=? and type='notification.requested'"
+                + " and params->>'kind'='CHALLENGE_CREATED'", recipient.id());
+    }
+
+    private void assertTargetWithdrawn(Fixture f) {
+        assertThat(count("select count(*) from users where id=? and is_deleted=true", f.target().id()))
+                .isEqualTo(1);
+        assertThat(count("select count(*) from group_members where user_id=? and is_left=false", f.target().id()))
+                .isZero();
+        assertThat(count("select count(*) from event_outbox where user_id=? and type='user.withdrawn'", f.target().id()))
+                .isEqualTo(1);
+        assertOwner(f, f.owner());
     }
 
     private Fixture fixture() {

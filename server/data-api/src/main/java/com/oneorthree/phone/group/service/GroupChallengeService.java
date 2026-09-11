@@ -532,9 +532,9 @@ public class GroupChallengeService {
         // 상세를 읽는다.
         groupBetJoinService.createBetOnChallengeCreation(group, savedChallenge, request.getBet());
 
-        // 그룹원 개설 알림(GROMO-1089) — 발송은 알림 도메인이 AFTER_COMMIT 으로 받아 처리한다.
-        // 여기서 직접 푸시를 부르지 않는 이유: 이 트랜잭션이 뒤에서 롤백되면 챌린지는 없는데 알림만
-        // 나간 상태가 되기 때문이다. 이벤트 발행은 커밋되지 않으면 리스너까지 가지 않는다.
+        // 그룹원 개설 알림 — OUTBOX 모드는 BEFORE_COMMIT에서 그룹 → 수신자 USER aggregate
+        // 순서로 내구 사건을 적는다. LEGACY 모드만 AFTER_COMMIT에서 직접 발송한다.
+        // 그룹을 기다릴 수 있는 계정 탈퇴는 USER aggregate보다 관련 그룹을 먼저 선점해야 한다.
         eventPublisher.publishEvent(new GroupChallengeCreatedEvent(
                 savedChallenge.getId(), group.getId(), userId));
 

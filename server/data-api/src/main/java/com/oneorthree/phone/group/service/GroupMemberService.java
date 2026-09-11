@@ -15,6 +15,7 @@ import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -182,6 +183,21 @@ public class GroupMemberService {
     }
 
     /**
+     * 계정 탈퇴의 users 배타 잠금 직후, 세션·USER outbox보다 먼저 관련 그룹을 전부 잠근다.
+     * 챌린지 생성의 BEFORE_COMMIT 알림은 그룹 → 수신자 USER aggregate 순서이므로 탈퇴도
+     * 같은 순서를 따른다. 가입·이탈은 users 잠금과 직렬화되어 이 목록은 탈퇴 TX 동안 안정적이다.
+     *
+     * @param user 호출자가 배타 잠금으로 로드한 탈퇴 대상
+     * @return 선점한 활성 그룹 ID 목록
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<UUID> lockGroupsForAccountWithdrawal(User user) {
+        List<UUID> groupIds = groupMemberRepository.findActiveGroupIdsByUserId(user.getId());
+        membershipLocks.lockGroups(groupIds);
+        return groupIds;
+    }
+
+    /**
      * 계정 탈퇴자를 그룹에서 떼어낸다 (GROMO-801, GROMO-1423 · 이동 GROMO-1656).
      *
      * <p><b>이 메서드가 여기 있는 이유.</b> 종전엔 {@code UserService.withdraw} 안에 이 네 단계가
@@ -217,10 +233,9 @@ public class GroupMemberService {
     @Transactional
     public void detachWithdrawnUser(User user) {
         UUID userId = user.getId();
-        // users EX를 호출자가 유지한다. 스칼라 조회 뒤 그룹 전부를 잠그고 멤버십을 다시 읽는다.
+        // 원 진입점은 USER outbox 전에 이미 선점했다. 직접 진입도 같은 그룹 잠금을 재확인한다.
         // 환불은 기존대로 모든 bet ID를 먼저 잠근 뒤 수행하며 그룹별 환불 루프로 바꾸지 않는다.
-        List<UUID> groupIds = groupMemberRepository.findActiveGroupIdsByUserId(userId);
-        membershipLocks.lockGroups(groupIds);
+        List<UUID> groupIds = lockGroupsForAccountWithdrawal(user);
         groupIds.stream().distinct().sorted()
                 .forEach(groupId -> membershipLocks.lockMembers(groupId, List.of(userId)));
 

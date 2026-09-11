@@ -81,6 +81,9 @@ public class AccountWithdrawalService {
         // 배타 락으로 로드 (GROMO-801) — 아래 소셜 관계 정리와 새 관계 생성(친구 요청·핀)을 직렬화한다.
         // 락이 없으면 READ COMMITTED 에서 정리 스캔 이후·커밋 이전에 낀 요청이 정리를 빠져나가 유령으로 남는다.
         User user = userQueryService.getCallerForUpdate(userId);
+        // 챌린지 생성은 그룹을 잠근 채 커밋 전 수신자 USER outbox를 적는다. 그 반대 순서를
+        // 만들지 않도록 세션 폐기·USER 버전 발급 전에 모든 관련 그룹을 UUID 순서로 선점한다.
+        groupMemberService.lockGroupsForAccountWithdrawal(user);
 
         // ── 위성 경계 정리 (A22 ⓐ · ㊼ · ㊹ · ㊲) ──────────────────────────────
         // 여기가 «같은 트랜잭션»이어야 하는 이유: tombstone·세션 폐기·토큰 삭제가 커밋과 갈라지면,
