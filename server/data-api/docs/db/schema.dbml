@@ -982,6 +982,7 @@ Table auth_sessions [note: '로그인 세션 한 건 — 세션 축 (V52, A22 �
   session_epoch        bigint      [not null, note: 'fencing 값 (A22 ㋨) — 알림 서버가 자기 tombstone 과 원자 대조해 이보다 오래된 소유권 변경을 거부한다. 유저 축 aggregate 잠금 아래 발급된다']
   revoked_at           timestamptz [note: '폐기 시각. 개별 로그아웃은 이 행만, 전 기기 로그아웃·탈퇴는 유저의 모든 행']
   revoke_reason        varchar(30)
+  logout_refresh_expires_at timestamptz [note: 'V53 신규 RT-only 로그아웃에서 확정한 원 RT 만료. 원 refresh hash와 LOGOUT 사유로만 재생하며 기존 행 NULL은 증명 아님']
   legacy               boolean     [not null, default: false, note: '구 RT 승격 행인가(㋪). 백필 행은 bootstrap nonce 가 없어 무토큰 소유권 이전 예외를 열지 않는다']
   created_at           timestamptz [not null]
   updated_at           timestamptz [not null]

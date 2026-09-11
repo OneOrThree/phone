@@ -78,6 +78,10 @@ public class AuthSession {
     @Column(name = "revoke_reason", length = 30)
     private String revokeReason;
 
+    /** 신규 RT 전용 로그아웃이 확정한 원 RT 만료. null인 legacy 종료는 신규 재생 증명이 아니다. */
+    @Column(name = "logout_refresh_expires_at")
+    private Instant logoutRefreshExpiresAt;
+
     /**
      * 구 RT 를 승격해 만든 행인가 (㋪). 백필 행에는 bootstrap nonce 가 없어 <b>무토큰 소유권 이전</b>
      * 경로를 열 수 없다 — 「행이 있다」만으로 그 경로를 열면 구 앱 전체가 그 예외를 통과한다.
@@ -129,6 +133,16 @@ public class AuthSession {
         this.revokedAt = at;
         this.revokeReason = reason;
         return true;
+    }
+
+    /** 현재 세션의 종료 증거와 fencing 값을 같은 변경으로 확정한다. */
+    public void revokeForLogout(Instant at, Instant refreshExpiresAt, long epoch) {
+        if (!isActive()) {
+            throw new IllegalStateException("이미 종료된 세션의 증거를 바꿀 수 없습니다.");
+        }
+        this.logoutRefreshExpiresAt = refreshExpiresAt;
+        this.sessionEpoch = epoch;
+        revoke(at, "LOGOUT");
     }
 
     /**

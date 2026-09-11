@@ -10,6 +10,7 @@ public enum ApiErrorCode implements ErrorCode {
     INVALID_IDEMPOTENCY_KEY(HttpStatus.BAD_REQUEST, "명령 키가 올바르지 않습니다.", false),
     INVALID_CURSOR(HttpStatus.BAD_REQUEST, "목록 커서가 올바르지 않습니다.", false),
     UNSUPPORTED_PROVIDER(HttpStatus.BAD_REQUEST, "지원하지 않는 소셜 로그인 제공자입니다.", false),
+    REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "로그인 자격이 유효하지 않습니다.", false),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다. 다시 로그인해 주세요.", false),
     FORBIDDEN(HttpStatus.FORBIDDEN, "이 작업을 수행할 권한이 없습니다.", false),
     FACILITY_LOCKED(HttpStatus.FORBIDDEN, "필요한 시설을 먼저 열어 주세요.", false),

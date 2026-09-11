@@ -776,3 +776,56 @@ relay는 수신 완료 no-op, 이관은 SKIPPED로 처리해 설정을 다시 �
 
 신규 커서 키나 경제 설정값은 이 두 경로에 필요하지 않다. Notification 이관 개방을 임의로 실행하지 않으며
 이 구현이 저장소 이관 완료나 운영 배포 완료를 뜻하지 않는다.
+
+## 현재 세션 로그아웃: RT로 내 열쇠 하나만 돌려주기
+
+`DELETE /auth/sessions/current`는 앱이 가진 RT로 종료할 세션을 증명한다. AT가 만료됐어도
+Authorization을 **생략**하고 요청할 수 있다. Authorization을 보내면 유효한 AT여야 하며,
+Data가 RT와 사용자·세션·현재 인증 세대의 일치를 다시 검사한다. 만료된 AT를 보내 놓고 무시해 달라는
+뜻은 아니다. 다른 기기 세션이나 사용자 전체를 종료하지 않는다.
+
+```mermaid
+sequenceDiagram
+    participant App as 앱
+    participant B as Business
+    participant D as Data
+    participant DB as Data DB
+    App->>B: DELETE /auth/sessions/current + X-Refresh-Token
+    Note over App,B: 본문 없음, Authorization은 선택
+    B->>B: 정확한 원문 경로·method / 헤더 중복·길이 / 제공된 AT 검증
+    B->>D: POST /internal/auth/sessions/logout (원 RT, 선택 원 AT)
+    Note over B,D: 서비스 토큰 사용, X-User-Id 위임 없음
+    D->>DB: 사용자와 세션 잠금 → RT 확인 → 해당 세션 종료 및 내구 전달
+    DB-->>D: 종료 증거 커밋
+    D-->>B: revoked=true
+    B-->>App: data.revoked=true
+    Note over B,D: 응답 유실 시 같은 RT/AT로 제한 재시도
+```
+
+공개 요청은 `X-Refresh-Token` 헤더 하나가 필수이며, 토큰을 본문·query로 받지 않는다.
+Authorization도 최대 하나만 받으며 있다면 `Bearer <AT>` 형식이다. 두 자격 헤더는 각각 8192자 이하여야
+한다. 비어 있거나 중복·쉼표 결합인 자격은 거절한다. 이 예외는 원문 URI가 정확히
+`/auth/sessions/current`인 DELETE만 적용한다. 인코딩·matrix·끝 슬래시 변형이나 다른 method,
+다른 `/auth` 경로를 RT로 열지 않는다.
+
+Business는 RT의 서명이나 폐기 상태를 추정하지 않는다. 내부 요청의 `refreshToken`과 `accessToken`에
+원 토큰을 넣고, 대상별 서비스 토큰으로 Data를 호출한다. AT를 함께 보내더라도 `X-User-Id`는 붙이지
+않으며 Data가 자격에서 사용자를 직접 확인한다. `DataApiClient.logoutSession`의
+`endUserAuthErrors()`는 정확한 내부 POST 로그아웃 경로만 허용한다. 해당 호출의 구조화된
+`401 REFRESH_TOKEN`과 `401 UNAUTHORIZED`만 사용자 401로 전달한다. 서비스 토큰 거절이나 코드 없는
+401은 `502 UPSTREAM_AUTH_FAILED`다. 탈퇴 사용자는 `404 USER_NOT_FOUND`로 안내한다.
+
+Data의 성공은 `revoked`가 boolean `true`일 때만 인정한다. 누락·null·문자열·false는
+`502 UPSTREAM_CONTRACT_ERROR`이며 알 수 없는 응답 확장 필드는 허용하되 공개 결과로 복사하지 않는다.
+RT 자체로 같은 종료를 식별하므로 공개 Idempotency-Key는 요구하지 않는다. 응답 유실 재시도는
+원 RT/AT를 그대로 유지하며 기존 전체 deadline·취소·strict 상류 오류 계약을 적용한다.
+Data가 저장한 종료 증거의 유효성, 사용자 비활성·세대 변경·RT 만료 검사는 매번 Data가 결정한다.
+
+세션 종료는 기기 푸시 등록 삭제와 별개다. 기기 삭제 API나 Notification 직접 호출을 이 경로에 끼워 넣지
+않는다. 자격 원문을 로그에 쓰지 않고 `LogoutCredentials.toString()`도 숨긴다. 요청 연결에는
+`requestId`를 쓰며 응답 본문이나 토큰으로 추적하지 않는다.
+
+`SessionLogoutContractTest`는 실제 필터·JWT 서명 검사·TCP 상류로 RT-only/선택 AT, 경로 우회,
+입력 및 성공 DTO의 엄격한 검증, Data 401과 서비스 401 구분, 수신 후 응답 유실과 동일 자격 재시도를
+검증한다. Data의 DB 잠금·폐기 원자성과 재생 권한은 Data 세션 종료 테스트에서 별도로 확인한다.
+이 경로 추가가 다른 계정 API나 전체 66개 계약의 구현 완료를 뜻하지 않는다.

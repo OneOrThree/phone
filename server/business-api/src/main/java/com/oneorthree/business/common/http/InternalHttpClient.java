@@ -160,7 +160,7 @@ public class InternalHttpClient implements AutoCloseable {
         Future<T> future = null;
         try {
             context.checkActive();
-            future = workers.submit(() -> send(request, call.body(), responseType, context, responseStatus));
+            future = workers.submit(() -> send(request, call, responseType, context, responseStatus));
             // enqueue 비용도 예산이다. 대기 시작 때 남은 시간을 다시 읽는다.
             nanos = Math.min(nanos, context.deadline().remaining().toNanos());
             T result = future.get(nanos, TimeUnit.NANOSECONDS);
@@ -209,13 +209,13 @@ public class InternalHttpClient implements AutoCloseable {
         return request;
     }
 
-    private <T> T send(HttpUriRequestBase request, Object body, ParameterizedTypeReference<T> responseType,
+    private <T> T send(HttpUriRequestBase request, InternalCall call, ParameterizedTypeReference<T> responseType,
             UpstreamRequestContext context, AtomicInteger responseStatus) {
         context.checkActive();
-        if (body != null) {
+        if (call.body() != null) {
             try {
                 request.setEntity(new ByteArrayEntity(
-                        objectMapper.writeValueAsBytes(body), ContentType.APPLICATION_JSON));
+                        objectMapper.writeValueAsBytes(call.body()), ContentType.APPLICATION_JSON));
             } catch (JacksonException e) {
                 throw new UpstreamContractMismatchException(target + " 요청 DTO 변환 실패");
             }
@@ -243,7 +243,7 @@ public class InternalHttpClient implements AutoCloseable {
                 String retryAfter = response.getFirstHeader("Retry-After") == null ? null
                         : response.getFirstHeader("Retry-After").getValue();
                 throw classify(status, new String(bytes, StandardCharsets.UTF_8), retryAfter,
-                        context.strictErrorContract());
+                        context.strictErrorContract(), call.endUserAuthErrors());
             });
         } catch (SocketTimeoutException e) {
             rejectPartialClientError(responseStatus.get(), context);
@@ -262,16 +262,21 @@ public class InternalHttpClient implements AutoCloseable {
         }
     }
 
-    private RuntimeException classify(int status, String raw, String retryAfter, boolean strictErrorContract) {
-        // 내부 HTTP Authorization은 서비스 자격이다. 본문 코드가 있어도 사용자 401로 노출하지 않는다.
-        if (status == 401) {
-            return new UpstreamCredentialRejectedException(target + " 서비스 자격 거부 status=401");
-        }
+    private RuntimeException classify(int status, String raw, String retryAfter, boolean strictErrorContract,
+            boolean endUserAuthErrors) {
         UpstreamError parsed;
         try {
             parsed = objectMapper.readValue(raw, UpstreamError.class);
         } catch (JacksonException e) {
             parsed = null;
+        }
+        // 코드 없는 내부 필터 거절은 언제나 서비스 인증 오류다. RT 증명 계약만 사용자 401을 구분한다.
+        if (status == 401) {
+            if (endUserAuthErrors && parsed != null
+                    && ("REFRESH_TOKEN".equals(parsed.code()) || "UNAUTHORIZED".equals(parsed.code()))) {
+                return new UpstreamDomainException(status, parsed.code(), parsed.message(), null);
+            }
+            return new UpstreamCredentialRejectedException(target + " 서비스 자격 거부 status=401");
         }
         boolean structured = parsed != null && parsed.code() != null && !parsed.code().isBlank();
         boolean transientServerError = structured && switch (parsed.code()) {

@@ -28,6 +28,7 @@ import java.util.Map;
  * @param onBehalfOfUserId  사용자 위임 호출이면 그 userId(검증한 AT subject), 서비스 전용이면 null
  * @param idempotencyKey    {@code Idempotency-Key} 헤더 값. <b>재시도에서 같은 값을 유지</b>한다(㉼)
  * @param declaredHeaders   유스케이스가 명시한 그 밖의 헤더
+ * @param endUserAuthErrors RT 증명 엔드포인트에서 등록된 사용자 401을 구분하는가
  * @param retryable         멱등이 보장되는 호출인가. <b>opt-in 이다</b> — §4 의 재시도 대상 규칙
  */
 public record InternalCall(
@@ -38,7 +39,8 @@ public record InternalCall(
         java.util.UUID onBehalfOfUserId,
         String idempotencyKey,
         Map<String, String> declaredHeaders,
-        boolean retryable) {
+        boolean retryable,
+        boolean endUserAuthErrors) {
 
     private static final String HEADER_AUTHORIZATION = "authorization";
     private static final String HEADER_USER_ID = "x-user-id";
@@ -46,6 +48,10 @@ public record InternalCall(
     public InternalCall {
         if (method == null || path == null || path.isBlank()) {
             throw new IllegalArgumentException("method·path 는 필수다");
+        }
+        if (endUserAuthErrors && (!HttpMethod.POST.equals(method)
+                || !"/internal/auth/sessions/logout".equals(path))) {
+            throw new IllegalArgumentException("사용자 인증 오류 구분은 세션 로그아웃 계약에만 허용한다");
         }
         query = query == null ? Map.of() : Map.copyOf(query);
         declaredHeaders = declaredHeaders == null ? Map.of() : Map.copyOf(declaredHeaders);
@@ -76,6 +82,7 @@ public record InternalCall(
         private java.util.UUID userId;
         private String idempotencyKey;
         private boolean retryable;
+        private boolean endUserAuthErrors;
 
         private Builder(HttpMethod method, String path) {
             this.method = method;
@@ -123,9 +130,16 @@ public record InternalCall(
             return this;
         }
 
+        /** RT 증명 실패와 서비스 토큰 거부를 구분하는 정확한 로그아웃 계약 전용이다. */
+        public Builder endUserAuthErrors() {
+            this.endUserAuthErrors = true;
+            return this;
+        }
+
         public InternalCall build() {
             boolean retry = retryable || HttpMethod.GET.equals(method);
-            return new InternalCall(method, path, query, body, userId, idempotencyKey, headers, retry);
+            return new InternalCall(method, path, query, body, userId, idempotencyKey,
+                    headers, retry, endUserAuthErrors);
         }
     }
 }
