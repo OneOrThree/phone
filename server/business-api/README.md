@@ -773,6 +773,9 @@ Notification 설정은 `gate FOR SHARE → user-state:{userId} → 실제 행` �
 relay는 수신 완료 no-op, 이관은 SKIPPED로 처리해 설정을 다시 만들지 않는다.
 기존5필드 PUT의 세대 생략 호환은 유지하지만 탈퇴 tombstone은 항상 우선한다.
 신규 partial/초기화에는 세대가 반드시 있어야 한다.
+Data 설정 명령의 응답 세대가 현재 서명된 AT 세대보다 크면 Business는 502 계약 불일치로 거절한다.
+이때 Notification 적용과 delivered 표시는 실행하지 않는다. 과거 receipt의 세대는 원값을 유지해
+Notification의 현재 fence가 적용 여부를 판단하며 최신 세대로 덮어쓰지 않는다.
 
 ### 코드와 운영 확인
 
