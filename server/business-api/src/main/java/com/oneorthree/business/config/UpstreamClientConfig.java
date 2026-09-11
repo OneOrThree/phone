@@ -35,6 +35,10 @@ public class UpstreamClientConfig {
 
     private final Queue<InternalHttpClient> ownedClients = new ConcurrentLinkedQueue<>();
 
+    public UpstreamClientConfig(UpstreamConfigProperties properties) {
+        properties.validateWorkerBudget();
+    }
+
     @Bean
     public ScreenComposer screenComposer(UpstreamConfigProperties properties) {
         UpstreamConfigProperties.Composition composition = properties.getComposition();

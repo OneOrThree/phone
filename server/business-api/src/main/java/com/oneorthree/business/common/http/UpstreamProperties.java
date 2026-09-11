@@ -11,7 +11,7 @@ public record UpstreamProperties(String baseUrl, String serviceToken, Duration c
     public UpstreamProperties(String baseUrl, String serviceToken, Duration connectTimeout,
             Duration readTimeout, int failureThreshold, Duration openDuration) {
         this(baseUrl, serviceToken, connectTimeout, readTimeout, failureThreshold, openDuration,
-                2, Duration.ofMillis(50), 16, 64);
+                2, Duration.ofMillis(50), 4, 64);
     }
 
     public UpstreamProperties {
