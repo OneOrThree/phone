@@ -134,7 +134,7 @@
 
 items의 id/name/cost/currency/selectable/buildable/blockedReason은 모두 필수이며 blockedReason만 nullable이다. 완료 시설은 options에서 제외한다. GET의 목록은 게시판 이후 후보 tower/mail/gram/shop이고 초기 hall/board 진행량은 이 목록에 가짜 상품으로 추가하지 않는다. 초기 단계의 선택 불가 상태에서 목록·가격의 반환 방식은 정책 P-D02 결정 시 함께 고정하며 그 전에 해당 조회 화면을 활성화하지 않는다. `buildingId`는 서버 시설 식별자이고 없는 ID는422 OUT_OF_RANGE(field=buildingId), 문자열 아닌 값/누락은400 INVALID_REQUEST다.
 
-selectable은 현재 사용자 실행 권한과 시설 선행 조건을 만족하는지 나타내며 잔액은 보지 않는다. buildable은 selectable에 건설 가능 상태와 현재 잔액을 더해 평가한다. blockedReason은 HTTP 오류 code가 아닌 UI 사유다. 우선순위는 FORBIDDEN → FACILITY_LOCKED → REQUIRES_TOWER_AND_MAIL → INSUFFICIENT_FUNDS이며 통과하면 null이다. 상점은 tower/mail가 하나라도 없으면 REQUIRES_TOWER_AND_MAIL이다. 서버 실행도 같은 evaluator를 쓰되 TX 안에서 재검사한다. 승인되지 않은 권한/가격 정책을 evaluator 기본값으로 통과시키지 않는다.
+GET options는 활성 주민의 조회다. 변경 권한이 없는 주민도 GET에서는 항목별 selectable=false/blockedReason=FORBIDDEN을 받으며 변경 권한만으로 GET 전체를403으로 거절하지 않는다. PUT/POST는 승인된 실행 권한을 요구한다. selectable은 현재 사용자 실행 권한과 시설 선행 조건을 만족하는지 나타내며 잔액은 보지 않는다. buildable은 selectable에 건설 가능 상태와 현재 잔액을 더해 평가한다. blockedReason은 HTTP 오류 code가 아닌 UI 사유다. 우선순위는 FORBIDDEN → FACILITY_LOCKED → REQUIRES_TOWER_AND_MAIL → INSUFFICIENT_FUNDS이며 통과하면 null이다. 상점은 tower/mail가 하나라도 없으면 REQUIRES_TOWER_AND_MAIL이다. 서버 실행도 같은 evaluator를 쓰되 TX 안에서 재검사한다. 승인되지 않은 권한/가격 정책을 evaluator 기본값으로 통과시키지 않는다.
 
 다음은 **승인된 추가 필드만** 보여주는 실행 예시다. 원본 응답 값/가격을 변경한 것이 아니다.
 
@@ -154,7 +154,7 @@ PUT/POST에 Idempotency-Key(UUID36)를 요구한다. scope는 검증 사용자 +
 | --- | --- | --- |
 |400 INVALID_REQUEST / INVALID_IDEMPOTENCY_KEY|해당 입력 / Idempotency-Key|false, 누락·타입·키 수정|
 |401 UNAUTHORIZED| null |false, 사용자 인증 복구|
-|403 FORBIDDEN| null |false, 비주민/실행 권한 없음|
+|403 FORBIDDEN| null |false, 모든 API의 비주민; 실행 권한 없음은 PUT/POST에만 적용|
 |403 FACILITY_LOCKED| null |false, 목표 선택의 게시판 미해금|
 |404 USER_NOT_FOUND / GROUP_NOT_FOUND| null |false, 기존 대상 부재404 보존. GROUP_NOT_FOUND 공개 등록/명시404 매핑은1767 활성화 전 검증|
 |409 VERSION_CONFLICT|expectedVersion 또는 expectedCostPolicyVersion|false, 현재 공개 상태 재확인|
@@ -169,6 +169,8 @@ PUT/POST에 Idempotency-Key(UUID36)를 요구한다. scope는 검증 사용자 +
 |500 INTERNAL_ERROR| null |false, 서버 requestId로 조사|
 
 상위 공통의413/415/405/빈406도 적용한다. code/message/field/retryable + requestId 기본 봉투를 유지하고 허용된409에만 top-level current를 추가한다. current는 공개 DTO·그 버전만, 내부 행/타인 정보/원 요청 본문은 금지한다. 예상 버전 충돌은 새 버전으로 자동 재실행하지 않는다. 검증4xx로 rollback되어 receipt가 없으면 재생 보장 밖이며 수정된 의도는 새 키다.
+
+Data 커밋 뒤 응답 변환 실패 등으로500을 받으면 실패가 미차감을 증명하지 않는다. 공통 retryable=false를 유지하고 requestId로 조사·정본 GET 재확인 후 원 키/본문으로 receipt를 복구한다. 결과가 불명확하다고 새 키로 같은 건설을 다시 실행하지 않는다. 500을 무한 자동 재시도하거나 성공으로 추정하지 않는다.
 
 ## 4. Data 저장·원자 경계
 

@@ -11,7 +11,7 @@
 | C05 | 개인 `user/fish`와 공동 `island/village_points`만 지갑 축으로 사용 | PR742. 초기 집중 기여는 건설 진행량이며 `island/fish` 지갑을 만들지 않음 |
 | C06 | 완료한 시설의 재건설은 새 키이면409 STATE_CONFLICT, 원 키이면 원 성공 재생 | 기술 선택. 이미 완료했다는 이유로 새 결제하지 않음 |
 | C07 | 건설 직후 외양의 새 시설 기본 테마를 포함한 전체 buildingThemes와 외양 version 갱신·전체 사건을 같은 TX에 저장 | PR742. GET에서 버전 없이 키를 늘리지 않음 |
-| C08 | 공동 건설/목표 변경 권한은 방장 UI가 서버 정책 승인을 뜻하지 않음 | 원본·공동 소비 권한 미결. P-D01 출시 차단 |
+| C08 | GET options는 활성 주민 조회이며 변경 권한이 없는 주민도 항목별 FORBIDDEN 사유를 본다. PUT/POST 실행 권한은 별도이고 방장 UI가 서버 정책 승인을 뜻하지 않음 | 원본·공동 소비 권한 미결. P-D01 출시 차단 |
 | C09 | 초기 집중 기여의 시간 배분·완공 경계·초과분 보존은 PR743 FR-D02를 따른다 | 미결. 개인 지급/기여를 중복하거나 초과분을 버리지 않음 |
 | C10 | 가격 정책은 불변 revision과 현재 publication 포인터로 관리; GET costPolicyVersion, POST expectedCostPolicyVersion 필수 | 승인된 기술 확장. 섬 version과 별개이며 목표 PUT에는 불필요 |
 | C12 | GET options와 POST 건설 응답의 walletVersion은 같은 snapshot의 공동 지갑 version. 잔액과 buildable의 최신성은 이 축으로 판정 | 명시 응답 확장. islandVersion/costPolicyVersion과 독립 |
