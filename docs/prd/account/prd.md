@@ -28,12 +28,12 @@ refresh는 위 7종의 새 기능 개수로 더하지 않는다. 장부상 기�
 | --- | --- | --- |
 | FR01 | 7개 요청·응답 필드와 null/생략·오류를 명시 | LLD 스키마, source-contracts.json |
 | FR02 | 게스트→소셜 승격은 기존 userId·집중·지갑·그룹을 보존 | 장부㊒, 기존 AuthService |
-| FR03 | 최초 로그인 upsert→서명→조건부 저장, 고정서명재료로 성공 재생 | 장부㊑/㊔/㊙; 현재 main 구현 완료로 오인 금지 |
+| FR03 | 최초 로그인 upsert→서명→조건부 저장, 고정서명재료로 성공 재생, 로그인 CAS 경쟁은 동일 attempt/자격의 새 nonce 재준비 | 장부㊑/㊔/㊙; 현재 main 구현 완료로 오인 금지 |
 | FR04 | 회전 없음과 CAS0행을 구분. CAS0행은401, 구 RT 부활 금지 | 장부㉮/ⓠ |
-| FR05 | RT는 사용자+세션 축; 개별 로그아웃이 다른 기기를 끝내지 않음 | 장부㋣/㋪ 및1659 통합 의존 |
-| FR06 | nickname/name·catColor 등 신규 프로필과 기존 인증 PII를 탈퇴 목록에 포함 | LLD 파기/보존 전수 표 |
+| FR05 | RT는 사용자+세션 축; 개별 로그아웃은 세션/bootstrap 폐기만. 토큰/ownership 기기 DELETE와 분리하여 다른 기기를 끝내지 않음 | 장부㋣/㋪ 및1659 통합 의존 |
+| FR06 | nickname/name·catColor 등 신규 프로필과 기존 인증 PII·group_announcements.user_id nullify를 탈퇴 목록에 포함하고 공지 생성과 직렬화 | LLD 파기/보존 전수 표 |
 | FR07 | 탈퇴의 환불·증거 보존·익명화·지갑/설정·친구·PII 순서와 단일 TX 유지 | 기존 AccountWithdrawalService |
-| FR08 | 탈퇴 후 신규7개 경로에서 같은 폐기 자격은401/404 | 신규 조회에도 활성 검사, 레거시 읽기창과 구분 |
+| FR08 | 탈퇴 후 신규7개 경로에서 같은 폐기 자격은401, 본인 계정 부재는404 USER_NOT_FOUND | 신규 조회에도 활성 검사, 레거시 읽기창과 구분 |
 | FR09 | notifications만 서버 동기화, 음량/음소거/진동/동작 줄이기는 기기 로컬 | 원본 설정 계약 |
 | FR10 | 기존 soundEnabled/nightMode를 새1필드 PATCH가 덮어쓰지 않음 | 알림 서버 원자 부분변경과 내구 전달 |
 
