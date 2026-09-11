@@ -1,0 +1,139 @@
+# 계정·설정 — HLD
+
+GROMO-1756 · [정책](policy.md) · [상세 설계](low-level-design.md)
+
+## 쉽게 보는 구조
+
+Business는 입구에서 신분증을 확인하고 앱이 쓰는 모양으로 답한다. Data는 계정 장부와 세션 장부를 잠근 뒤 변경한다. 알림 서버는 알림 선호를 보관한다. 계정을 지울 때 장부를 여러 서버에 나눠서 조금씩 고치지 않는다. Data에서 함께 바뀌어야 하는 항목을 한 번에 확정하고, 다른 서버에 전달할 일도 같은 순간 outbox에 기록한다.
+
+```mermaid
+flowchart LR
+    App[앱] -->|공개 7개 계약| B[Business API]
+    Provider[기존 소셜 제공자] -->|검증한 제공자 주체| B
+    B -->|내부 인증과 검증한 사용자 위임| D[Data API]
+    D --> DB[(계정·세션·명령·outbox DB)]
+    B -->|설정 조회·부분 명령 전달| N[알림 서버]
+    N --> NDB[(알림 선호·필드별 적용 버전)]
+    DB --> Relay[outbox relay]
+    Relay -->|설정 변경·탈퇴| N
+    Relay -->|탈퇴·표시정보 정리| L[링크 등 위성 서비스]
+    App --> Local[기기 음량·진동·OS 권한]
+```
+
+화살표는 통신/자료 흐름이지 DB 공유 권한이 아니다. Business에 계정 DB를 추가하지 않는다. 신규 `/me` 한 번의 조회는 Data의 계정 projection을 사용하며 섬·지갑·화면 집계를 여기 끼워 넣지 않는다. 화면 BFF 13개는 후반 배치의 책임이다.
+
+## 현재 코드와 목표의 거리
+
+| 영역 | 기준 main에서 확인한 것 | 미통합 1659 기반 | 1757이 연결/추가할 것 |
+| --- | --- | --- | --- |
+| 인증 | Data AuthService가 제공자 검증·사용자 생성·JWT 발급 | 내부 bootstrap/session 확인, auth session row | Business 검증/서명, 로그인 준비·확정, 공개 7개 경로 |
+| RT | users의 단일 해시, 조건부 회전 | 세션 보조 행과 epoch, 기존 users 해시도 사용 | 세션별 정본 전환과 legacy 병행/승격 |
+| 프로필 | nickname·기존 프로필, active user lock | 내부 사용자 위임/활성 검사 | name 매핑·catColor 저장·완료 판정 |
+| 탈퇴 | 환불·익명화·PII 파기가 Data 단일 TX | 세션 폐기, authGeneration, 알림/링크 outbox | 새 프로필·로그인/명령 자료 파기 포함 |
+| 설정 | Data의 기존 5필드 설정 | 알림 서버 정본 이관, Data outbox·직접 전달 | 1필드 공개 PATCH와 field mask·필드별 버전 |
+
+1659 `AuthSessionService`의 존재만으로 계정 전체 이관이 완료됐다고 판단하지 않는다. 반대로 동일한 internal client, caller 인증, 위성 명령/outbox를 계정에서 다시 만들지도 않는다. 선행 공통 봉투·deadline·requestId 구현은 1751~1753 및 1659 통합에 의존한다.
+
+## 로그인: 잠깐 준비하고, 서명 뒤 확정
+
+```mermaid
+sequenceDiagram
+    participant A as 앱
+    participant B as Business
+    participant P as 제공자 어댑터
+    participant D as Data
+    A->>B: POST /auth/sessions + 로그인 시도 ID
+    B->>B: 앱 키·스키마·선택적 게스트 AT 검증
+    B->>P: 제공자 증명 검증 또는 code 교환
+    P-->>B: 검증된 provider subject
+    B->>D: prepareLogin(증명 digest, 게스트 주체, 시도 ID)
+    Note over D: TX1: 활성 사용자/게스트 잠금, upsert<br/>PENDING 세션과 고정 서명 재료 저장
+    D-->>B: userId, sessionId, nonce, 고정 claims
+    B->>B: 동일 key/claims로 AT·RT 서명
+    B->>D: completeLogin(nonce, RT hash)
+    Note over D: TX2: 활성/epoch/CAS 대조<br/>세션 활성화·RT hash 확정
+    D-->>B: 확정 결과 또는 같은 성공 시도의 결과
+    B-->>A: 201 data(accessToken, refreshToken, userId, onboardingComplete)
+```
+
+제공자 네트워크 호출은 Data TX 밖이다. TX1 이후 Business가 죽으면 같은 시도 ID와 같은 자격 증명으로 준비 결과를 되찾아 재개한다. 성공했는데 응답만 잃었으면 고정 claims로 같은 토큰을 복원한다. Data에는 원문 토큰 대신 해시·서명 재료만 남긴다. 재개는 원래 제공자 자격의 digest와 시도 범위가 일치해야 하며 시도 ID 하나만 알아서 토큰을 얻을 수 없다.
+
+탈퇴·세션 폐기가 먼저 확정됐으면 성공 시도라도 토큰을 다시 발급하지 않는다. 로그인 결과가 불명확하다고 매번 새 시도를 만들면 세션이 늘고 게스트 승격 경쟁이 생기므로 앱은 먼저 같은 시도를 재개한다. 이는 refresh CAS 경쟁에서 진 요청을 성공 처리하는 규칙이 아니다.
+
+## RT 전환과 로그아웃
+
+```mermaid
+flowchart TD
+    RT[유효 RT] --> SID{sid 존재?}
+    SID -->|없음| Legacy[legacy 해시와 활성 사용자 대조]
+    Legacy --> Promote[첫 refresh에서 세션 행과 sid 토큰으로 원자 승격]
+    SID -->|있음| Session[해당 사용자·세션 해시 대조]
+    Session --> Due{회전 시점?}
+    Due -->|아님| Keep[새 AT + refreshToken null]
+    Due -->|맞음| CAS[기존 해시 조건부 교체]
+    CAS -->|1행| New[새 AT + 새 RT]
+    CAS -->|0행| Fail[401 REFRESH_TOKEN]
+```
+
+기기 A와 B는 서로 다른 sessionId를 가진다. B 로그인은 A 세션의 RT를 교체하지 않는다. sid 없는 legacy RT를 이름만 바꿔 폐기하지 않고, 기존 토큰의 최대 유효 수명과 실제 만료 시각을 기준으로 호환 창을 닫는다. prod/dev의 AT TTL이 다르므로 임의의 1시간을 전체 환경 공통 전제로 삼지 않는다.
+
+`DELETE /auth/sessions/current`는 정확한 경로·메서드만 AT 필수 검사에서 제외하고 RT 전용 검증으로 인증한다. `X-Refresh-Token`은 필수이며 AT를 보냈다면 유효하고 같은 세션이어야 한다. 만료된 AT를 아예 보내지 않고 유효 RT만으로 종료할 수 있다. Data 한 TX에서 해당 세션을 폐기하고 bootstrap/기기 정리 명령을 기록한다. 응답을 잃고 같은 RT를 다시 보낸 경우, 아직 유효한 원 RT의 폐기 증명 해시가 일치하고 사용자도 활성일 때만 200을 재생한다.
+
+## 탈퇴: 중앙 원자 처리와 위성 정리
+
+```mermaid
+sequenceDiagram
+    participant A as 앱
+    participant B as Business
+    participant D as Data
+    participant DB as Data DB
+    participant R as relay
+    participant S as 알림·링크 서버
+    A->>B: DELETE /me, confirmation, Idempotency-Key
+    B->>D: 검증한 주체로 withdraw 명령
+    D->>DB: BEGIN + 활성 users 배타 잠금
+    D->>DB: 멱등/권한 검사 + 세션 폐기·위성 명령 기록
+    D->>DB: 방장 조건·내기 해제/환불·증거 동결
+    D->>DB: 멤버십·친구 정리, 집중/통계 귀속 익명화
+    D->>DB: 지갑·설정 삭제, 직접 PII·신규 프로필 파기
+    D->>DB: soft delete + 결과 receipt + COMMIT
+    D-->>B: deleted true
+    B-->>A: 200 data(deleted true)
+    R->>DB: 커밋된 outbox 읽기
+    R->>S: 사용자 폐기·개인자료 정리 재전달
+    S-->>R: 대상별 적용 확인
+```
+
+방장 위임 조건 실패나 환불·outbox 기록 실패는 중앙 TX 전체를 롤백한다. 지갑을 먼저 삭제해서 내기 환불 경로를 끊지 않는다. 위성 전송 실패는 이미 확정된 중앙 탈퇴를 되돌리지 않고 대상별 미전달 상태로 남긴다. 그러므로 200은 중앙 계정 폐기 완료이며, 모든 위성의 물리 파기가 같은 순간 끝났다는 뜻은 아니다. 지연 요청은 각 위성의 generation/epoch tombstone으로 차단한다.
+
+## 설정: 한 필드만 바꾸기
+
+```mermaid
+sequenceDiagram
+    participant A as 앱
+    participant B as Business
+    participant D as Data
+    participant N as 알림 서버
+    A->>B: PATCH /me/settings {notifications:false} + key
+    B->>D: 활성 주체·세션 확인 + 부분 명령 기록
+    Note over D: 사용자 잠금, 명령 ID/버전/outbox 한 TX
+    D-->>B: commandId, version, mask, authGeneration
+    B->>N: 동일 부분 명령 적용
+    Note over N: tombstone 대조 + 선택 필드별 version 비교<br/>notificationEnabled만 원자 변경
+    N-->>B: 해당 명령 적용 결과
+    B->>D: 전달 완료 기록
+    B-->>A: 200 data(notifications:false)
+```
+
+알림 서버가 아직 적용하지 못하면 outbox에 넣었다는 이유만으로 성공을 반환하지 않는다. 동일 키 재시도는 같은 명령을 재전달한다. 완료 표시만 실패했으면 relay 재전달이 멱등 처리된다. 이미 적용된 false 명령의 재시도 뒤 최신 설정이 true로 바뀌었어도 원 명령의 결과는 false이며 현재 상태는 별도 GET으로 읽는다. 버전은 모든 설정 필드에 공통 순서를 부여하되 적용 여부는 선택 필드마다 비교한다.
+
+## 관측과 구현 순서
+
+로그에는 requestId, route, 안전한 error code, commandId, 단계, 처리 시간, 재시도 횟수, outbox 대상별 상태를 남긴다. Authorization, X-Refresh-Token, 제공자 자격, 이름·색상·동의 본문, RT 해시·서명 재료·bootstrap nonce는 기록하지 않는다. 본문 전체와 내부 오류 원문을 무차별로 로깅하지 않는다.
+
+1. 1659 및 공통 계약 통합 상태를 대조하고 중복 엔드포인트/저장소를 막는다.
+2. Q03~Q05 입력을 연결하며 catColor·온보딩·약관 스키마와 세션 expand migration을 준비한다.
+3. 로그인 준비/확정·RT 세션 전환과 회귀 검증을 먼저 완료한다.
+4. 프로필·동기 활성 조회·logout을 연결하고 탈퇴 전수 파기와 경쟁을 검증한다.
+5. 알림 부분 명령·field mask·필드별 version을 양쪽 서비스에 연결한다.
+6. 앱 계약 7종과 legacy 호환을 함께 검증한 뒤 세션 정본을 전환한다. legacy 읽기 제거는 호환 창 종료 후 별도 단계다.

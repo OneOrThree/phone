@@ -1,0 +1,44 @@
+# 계정·설정 API — PRD
+
+GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [LLD](low-level-design.md)
+
+## 문제와 목표
+
+새 앱은 로그인·내 프로필·설정을 7개 계약으로 읽는다. 기존 서버의 인증·프로필·알림·탈퇴 경로를 단순히 이름만 바꾸면 인증 재료, 세션 축, 신규 고양이 색상, 탈퇴 파기 대상과 설정 저장 주체가 맞지 않는다.
+
+목표는 7개 공개 계약의 스키마와 기존 상태의 호환 경계를 정하고, 로그아웃/탈퇴 뒤 유효하지 않은 주체가 새 계정 API를 다시 사용하지 못하게 하는 것이다. 인증은 Business, 계정·세션 상태와 원자 탈퇴는 Data, 알림 선호 정본은 이관 뒤 알림 서버가 소유한다. 새 계약을 만든다는 이유로 Data의 탈퇴 TX를 여러 HTTP 요청으로 쪼개지 않는다.
+
+## 공개 계약 7종
+
+| 원본 ID | 신규 경로 | 결과 |
+| --- | --- | --- |
+|auth|POST `/auth/sessions`|AT·RT·userId·onboardingComplete|
+|me|GET `/me`|id·name·catColor·linkedProviders·onboardingComplete|
+|profile|PATCH `/me`|id·name·catColor|
+|logout|DELETE `/auth/sessions/current`|revoked|
+|delete|DELETE `/me`|deleted|
+|settings|GET `/me/settings`|notifications|
+|settings-save|PATCH `/me/settings`|notifications|
+
+refresh는 위 7종의 새 기능 개수로 더하지 않는다. 장부상 기존 `/auth/refresh`를 유지/이관하기 위한 세션 기반 의존으로 설계한다. 기존 Data `/api/v1/auth/*`, `/api/v1/users/me`와 `/notification-settings` 계약은 호환 대상으로 보존한다. 신규 endpoint에서 필드 이름이 `name`이라고 기존 DB의 `nickname`을 무조건 rename하지 않는다.
+
+## 요구사항
+
+| ID | 요구사항 | 근거/문서 |
+| --- | --- | --- |
+| FR01 | 7개 요청·응답 필드와 null/생략·오류를 명시 | LLD 스키마, source-contracts.json |
+| FR02 | 게스트→소셜 승격은 기존 userId·집중·지갑·그룹을 보존 | 장부㊒, 기존 AuthService |
+| FR03 | 최초 로그인 upsert→서명→조건부 저장, 고정서명재료로 성공 재생 | 장부㊑/㊔/㊙; 현재 main 구현 완료로 오인 금지 |
+| FR04 | 회전 없음과 CAS0행을 구분. CAS0행은401, 구 RT 부활 금지 | 장부㉮/ⓠ |
+| FR05 | RT는 사용자+세션 축; 개별 로그아웃이 다른 기기를 끝내지 않음 | 장부㋣/㋪ 및1659 통합 의존 |
+| FR06 | nickname/name·catColor 등 신규 프로필과 기존 인증 PII를 탈퇴 목록에 포함 | LLD 파기/보존 전수 표 |
+| FR07 | 탈퇴의 환불·증거 보존·익명화·지갑/설정·친구·PII 순서와 단일 TX 유지 | 기존 AccountWithdrawalService |
+| FR08 | 탈퇴 후 신규7개 경로에서 같은 폐기 자격은401/404 | 신규 조회에도 활성 검사, 레거시 읽기창과 구분 |
+| FR09 | notifications만 서버 동기화, 음량/음소거/진동/동작 줄이기는 기기 로컬 | 원본 설정 계약 |
+| FR10 | 기존 soundEnabled/nightMode를 새1필드 PATCH가 덮어쓰지 않음 | 알림 서버 원자 부분변경과 내구 전달 |
+
+## 범위와 검토 상태
+
+이 티켓은 설계다. 실제 7종 통합 테스트·마이그레이션·서비스 배포는 후속1757의 책임이다. `catColor` 6종의 정확한 자산 목록, 기존 사용자 기본색/온보딩 승계, 실제 약관 문서 버전은 추가 입력이 필요하다. 제공자 자격 호환과 RT 전용 헤더 로그아웃은 기존 보안 의도를 보존하는 기술 결정으로 정했다. [정책의 결정 대기 표](policy.md#결정-대기)는 구현 gate이며 그 답을 문서의 샘플 값으로 대신하지 않는다.
+
+배치 전체 정책 질문과 별개로 기존 닉네임 유일성·길이, 탈퇴 방장 위임, KST, RT 해시 보관, 로컬 설정 구분은 기존 정책을 유지하는 방향으로 먼저 문서화한다. 새로운 자산 승계·경제·공동소비 정책은 계정 스키마를 빌미로 결정하지 않는다.
