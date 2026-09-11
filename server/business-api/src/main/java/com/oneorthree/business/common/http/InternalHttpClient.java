@@ -48,6 +48,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class InternalHttpClient implements AutoCloseable {
 
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
+    private static final Duration MAX_RETRY_WAIT = Duration.ofSeconds(1);
 
     private final UpstreamTarget target;
     private final UpstreamProperties properties;
@@ -128,18 +129,17 @@ public class InternalHttpClient implements AutoCloseable {
                 }
                 circuitBreaker.recordFailure(System.currentTimeMillis());
                 if (!call.retryable() || attempt >= properties.maxAttempts()) {
-                    if (failure instanceof UpstreamTimeoutException timeout) {
-                        throw timeout;
-                    }
-                    if (failure instanceof RetryableFailure retry && retry.timeout) {
-                        throw new UpstreamTimeoutException(target + " 상류 타임아웃 응답", failure);
-                    }
-                    throw new UpstreamUnavailableException(target + " 일시 응답 실패", failure);
+                    throw exhaustedFailure(failure);
                 }
                 Duration delay = failure instanceof RetryableFailure retry && retry.retryAfter != null
                         ? retry.retryAfter : properties.retryDelay();
                 if (delay.compareTo(context.deadline().remaining()) >= 0) {
                     throw new UpstreamTimeoutException("재시도 대기가 전체 요청 예산을 초과합니다.");
+                }
+                // legacy의 unbounded deadline도 상류가 지정한 시간만큼 Tomcat을 붙들 수는 없다.
+                // read timeout과 고정 1초 중 작은 상한을 넘으면 조기 재시도 없이 원 장애로 종결한다.
+                if (delay.compareTo(properties.readTimeout()) > 0 || delay.compareTo(MAX_RETRY_WAIT) > 0) {
+                    throw exhaustedFailure(failure);
                 }
                 log.warn("upstream_retry request_id={} target={} attempt={}",
                         context.requestId(), target, attempt + 1);
@@ -154,6 +154,16 @@ public class InternalHttpClient implements AutoCloseable {
                 throw terminal;
             }
         }
+    }
+
+    private RuntimeException exhaustedFailure(RuntimeException failure) {
+        if (failure instanceof UpstreamTimeoutException timeout) {
+            return timeout;
+        }
+        if (failure instanceof RetryableFailure retry && retry.timeout) {
+            return new UpstreamTimeoutException(target + " 상류 타임아웃 응답", failure);
+        }
+        return new UpstreamUnavailableException(target + " 일시 응답 실패", failure);
     }
 
     private <T> T attempt(InternalCall call, UpstreamRequestContext context,
