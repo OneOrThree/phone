@@ -33,3 +33,5 @@ PR 740 검토 반영: 공지 작성자 FK 파기와 생성 경합, RT-only 로�
 선택 AT·생성 이력 보완: 개별 logout 후에도 users가 활성이라는 이유로 게스트 승격을 허용하지 않는다. 원 선택 세션 활성/세대·sidless legacy 결합과 폐기 fence를 prepare/complete/성공 재생에서 재검사한다. 신규 로그인은 users 우선 및 다중 사용자 UUID 정렬로 logout/withdraw와 직렬화한다. character_generation 본인 전체 이력은 같은 중앙 탈퇴 TX에서 hard delete하고 기존 recordGeneration의 users 배타 잠금과 fixture·양방향 경합·rollback을 완료 조건에 넣었다. 실제 배선·검증은 후속 구현이며 Q06과 원본7계약은 유지한다.
 
 채팅 읽음 이력 파기 보완: 기존 `gromo_chat.chat_read_cursors`의 사용자별 읽음 위치·갱신 시각을 위성 파기 대상에 포함한다. 중앙 탈퇴의 `user.withdrawn` 내구 전달과 chat/realtime의 같은 로컬 TX 내 tombstone·커서 삭제·모든 cursor writer 차단이 필요하다. 현재 소비자/쓰기 fencing은 미구현이므로 통합·경합 검증을 완료 조건으로 둔다. 메시지 본문·sender_id 보존 규칙과 우체통 읽음 표시 정책은 변경하지 않는다.
+
+초대 링크 발급자 파기 보완: V21의 group_invite_links.inviter_id는 nullable 확장 후 같은 탈퇴 TX에서 비식별화한다. 타인 퍼널의 링크/클릭 FK 앵커는 보존하되 폐기 링크 재사용·발급자 복원을 차단하고, 발급 writer 직렬화·이관 호환·rollback 검증을 구현 완료 조건에 포함한다.

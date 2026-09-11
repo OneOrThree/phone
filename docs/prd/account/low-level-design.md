@@ -408,6 +408,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | gromo_chat.chat_read_cursors의 user_id/group_id/last_read_message_id/updated_at | 기준 main·PR739 이름 전환 코드에 커서 UPSERT가 있으나 탈퇴 삭제/consumer/fencing 없음 | 해당 user_id의 모든 방 커서 행 hard delete. 중앙 TX의 user.withdrawn 내구 전달 뒤 chat/realtime 로컬 TX에서 tombstone/version·DELETE·수신 완료를 함께 확정하고 모든 cursor writer와 직렬화. 메시지 본문/sender_id 보존은 변경하지 않음 |
 | user_focus_tags.user_id, source_occupation_default_tag_id, default_tags.name 연결 | 기존 erase에는 삭제 없음 | FocusSession이 user_focus_tags를 참조하므로 직접 user_id만 nullify해도 사용자 역추적 경로가 남음. 정산 증거 동결 뒤 태그의 사용자 귀속/직군 출처를 끊는 nullable migration 또는 세션 태그 연결 해제 후 개인 채택 행 파기를 비교 검증. 공유 default_tags는 일괄 삭제하지 않음. 두 대안 모두 setupFocusTag/updateFocusTag 및 복원·관리 writer의 활성 users 공유 잠금과 탈퇴 배타 잠금으로 직렬화 |
 | character_generation.user_id, created_at, client_generation_id | 기존 erase에는 정리 없음 | 같은 중앙 탈퇴 TX에서 해당 user_id의 모든 생성 이력 hard delete. 기존 recordGeneration의 users 배타 잠금 → 사용자 advisory → 이력 순서를 유지하여 삭제 뒤 재생성을 차단하고 타인 이력은 보존 |
+| group_invite_links.inviter_id 및 slug·그룹·발급 시각으로 이어지는 발급자 연결 | V21은 inviter_id NOT NULL users FK이며 현 탈퇴는 claimed_user_id만 익명화 | nullable 확장 후 같은 중앙 TX에서 본인 inviter_id를 nullify. 링크/종속 클릭은 타인 퍼널의 FK 앵커로 보존하되 발급자 없는 링크는 폐기로 취급하며 재발급·매치·claim·이관으로 UUID를 복구하지 않음 |
 | invite_link_clicks.claimedUserId·클릭 연결 | main 직접 파기 없음 | 1659의 claimed user 익명화·링크 위성 폐기 전달 재사용. ipHash/userAgent/device/app 식별 자료도 사용자 연계가 남는지 링크 소유 정리 명령에서 확인 |
 | 신규 auth session RT/bootstrap hash·로그인 시도 자격 digest·고정 서명 재료 | main 새 모델 없음 | legacy 승격 전용 복구 receipt/고정 재료도 탈퇴 때 폐기하고 세션 폐기와 원문 재발급을 차단. 남기는 폐기 tombstone은 최소 sessionId/epoch/만료 정보로 제한하고 사용자 연계 자격은 파기 |
 | 신규 일반 receipt·outbox·위성 projection 속 name/catColor/기기 자격 | 신규 자료 | 탈퇴 TX에서 직접 PII가 든 중앙 복사본 제거/대체, 대상별 outbox로 위성 파기. 삭제 receipt는 deleted 결과만 보유하며 개인 응답 재생 금지 |
@@ -423,7 +424,7 @@ main User 주석은 retention→purge를 언급하지만 현재 조회한 `erase
 
 ### 중앙 TX의 순서 제약
 
-`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹·chat/realtime 대상 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_generation 본인 생성 이력 및 character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 양방향 group_invites·user_blocks 및 본인 user_streaks 삭제와 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
+`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹·chat/realtime 대상 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_generation 본인 생성 이력 및 character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 본인 group_invite_links.inviter_id 비식별화·양방향 group_invites·user_blocks 및 본인 user_streaks 삭제와 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
 
 `socialAccountRepository.deleteByUserId`는 `flushAutomatically` 후 `clearAutomatically`로 영속성 컨텍스트를 비운다. 따라서 user.catColor 등 엔티티 변경을 그 뒤에 붙이면 저장되지 않는다. 모든 엔티티 파기를 앞에 배치하고 마지막 bulk delete 뒤에는 분리된 엔티티를 수정하지 않는다. 멱등 결과 저장은 이 clear를 고려해 명시적으로 영속화하며 사용자 PII 수정의 순서를 뒤집지 않는다.
 
@@ -454,6 +455,35 @@ writer가 먼저 잠그면 소비자가 기다렸다가 방금 쓴 커서까지 
 두 참여 사용자를 UUID 순서로 활성 검사·공유 잠금한 뒤 쓰도록 탈퇴 잠금과 직렬화해야 한다.
 기존 행 fixture는 본인이 초대한 경우/초대받은 경우 각각 PENDING·ACCEPTED·DECLINED와 무관한 타인 행을
 함께 넣어 양방향 파기·타인 보존을 검증하고, 중간 실패 시 초대 행을 포함한 전체 탈퇴 rollback을 확인한다.
+
+#### 기존 초대 링크의 발급자 연결 파기
+
+`V21__group_invite_links.sql:8~24`는 `group_invite_links.inviter_id`를 NOT NULL users FK로,
+종속 `invite_link_clicks.link_id`도 NOT NULL 링크 FK로 둔다. 현재 `AccountWithdrawalService`의
+`anonymizeClaimedUser`는 클릭의 수신자 귀속만 끊으므로 발급자 UUID는 남는다.
+후속 구현은 **inviter_id를 nullable로 확장한 뒤 본인이 발급자인 행의 inviter_id만 같은 중앙 탈퇴 TX에서
+nullify**한다. 기존 `InviteLinkClickRepository.anonymizeClaimedUser`가 명시한 타인 퍼널 집계 근거를
+보존하기 위해 링크와 종속 클릭을 연쇄 삭제하지 않는다. slug·그룹·링크 ID는 클릭의 FK 앵커로만 남기고
+원 발급자 UUID를 별도 컬럼·대체 사용자·해시로 옮기지 않는다. 무관한 발급자의 링크와 타인 claimed_user_id는
+이 발급자 정리 때문에 변경하지 않는다. 본인 claimed_user_id 파기는 기존 별도 규칙을 그대로 적용한다.
+
+발급자 없는 링크는 활성 초대가 아니다. 랜딩·신규 및 재시도 매치·claim은 기존 만료/매치 없음 규칙으로
+처리하며 이 링크를 재발급하거나 다른 발급자에게 재연결하지 않는다. 캐시/사전 조회의 옛 inviter UUID만으로
+판정하지 않고 변경을 확정하는 TX에서 현재 발급자 활성·링크 연결을 재검사하여 폐기 뒤 claim을 허용하지 않는다.
+현재 `InviteLinkService.issue`는
+그룹/멤버십 검사 뒤 저장하지만 발급자 users 공유 잠금을 잡지 않는다. 발급·복원/import 등 발급자 UUID를
+쓰는 모든 경로는 **활성 users 공유 잠금 → 기존 그룹/멤버십 검증 → 링크 저장**을 같은 TX에서 수행해
+탈퇴의 users 배타 잠금과 직렬화한다. 발급 선행이면 탈퇴가 신규 행까지 nullify하고, 탈퇴 선행이면
+늦은 저장은 거절한다. 현재 없는 보호를 이미 구현됐다고 주장하지 않는다.
+
+Link 위성의 기존 user.withdrawn·멤버십 폐기 전달은 유지한다. 이관/export가 null 발급자를 활성 링크나
+다른 사용자로 복원하지 않도록 함께 수정해야 한다. 현재 `InternalClickMigrationService`는
+`getInviterId().toString()`을 호출하므로 nullable 변경만 먼저 배포하면 실패한다. DB/엔티티 확장,
+기존 조회·writer 및 이관의 null-safe 폐기 처리와 탈퇴 정리를 함께 검증하기 전 이 파기를 활성화하지 않는다.
+기존 snapshot 복사본도 같은 발급자 연결을 복구하지 않도록 위성 파기 계약에 포함하며 새 보존 기간은 정하지 않는다.
+fixture는 본인 발급 링크(클릭 없음/타인 claim 있음), 무관한 발급자의 링크, 본인 claimed 클릭을 함께 넣어
+발급자 null·FK/타인 귀속 보존·본인 claimed 파기·만료 응답을 검증한다. 양방향 발급/탈퇴 경합과
+파기 직후 실패를 주입해 UUID 재부착0 및 링크·클릭·계정·환불·outbox 전체 rollback을 확인한다.
 
 #### 집중 태그·캐릭터 장착 writer와 파기 경계
 
@@ -638,6 +668,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 같은 기기 삭제 키에 다른 대상/ownership/주체 |409 또는 인가 거절, 원 결과/기기 자격 노출0 |
 | 기기 삭제 뒤 다른 키의 지연 등록·미존재 토큰 삭제·새 로그인 재등록 | 토큰별 tombstone/최대 ownershipVersion 보존, 행 없음 bootstrap 우회·옛 세션 부활0, 정당한 새 등록도 버전 초기화0 |
 | 기기 DELETE와 RT-only logout 분리·지연 삭제 | outbox/직접 삭제 양쪽 실패에도 RT 폐기·원 세션 로컬 정리 진행, 미완료 큐/원 키 보존·새 로그인 자격 보존. 검증된 sid/bootstrap 연결 등록은 auth.session.revoked의 내구 fence로 비활성화·지연 등록 거절, 미연결 legacy 전환 검증 전 활성 금지, RT-only 성공을 기기 삭제 성공으로 오인하지 않음 |
+| 본인 발급 링크·타인 claim·발급/탈퇴 경합·파기 후 rollback | inviter_id nullify, 링크/클릭 FK·타인 귀속 보존, 폐기 링크 재사용/UUID 복원0, 늦은 발급 거절, 중간 실패는 전체 rollback |
 | group_invites 양방향·전체 상태·타인 초대와 탈퇴 rollback | inviter 또는 invitee가 본인인 행만 전량 삭제, 무관한 타인 초대 보존, 실패 시 초대/계정/환불/outbox 전체 rollback |
 | 공지 생성·타인 수정과 탈퇴의 양방향 경쟁·중간 실패 | 생성 선행이면 user_id=null, 탈퇴 선행이면 생성 USER_NOT_FOUND. 타인 수정의 지연 flush도 작성자 FK 부활 0, 공지 내용 보존, rollback 시 작성자 연결도 복구 |
 | setupFocusTag/updateFocusTag·태그 복원/관리·세션 재연결과 탈퇴 양방향 경합 | 같은 users 잠금, 이름 변경이 만든 새 채택/세션 연결도 파기·탈퇴 뒤 귀속 부활0, 공유 태그·타인 채택 보존 |
