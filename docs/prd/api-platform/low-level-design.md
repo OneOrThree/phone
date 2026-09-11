@@ -28,6 +28,8 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 
 두 계열은 같은 사용자별 Preview 저장/캐시를 사용한다. 신규 URL은 공개 응답 매핑에서 만들고 기존 캐시 객체·호환 응답을 바꾸지 않는다. 기존 별칭을 삭제하는 선택은 이번1751 구현 범위에 없다.
 
+썸네일 클라이언트는 `Accept: image/png, application/json`으로 PNG 성공과 JSON 오류를 함께 허용한다. 양쪽 경로 모두 image/png 단독 요청의 성공 PNG 및 도메인 실패 JSON을 보존한다. 선행 [PR744 PreviewExceptionHandler](https://github.com/OneOrThree/phone/blob/3cbccfb1600af6282d32f3662ba537fb0443309b/server/business-api/src/main/java/com/oneorthree/business/linkpreview/exception/PreviewExceptionHandler.java#L47-L61)는 오류의 Content-Type을 application/json으로 명시한다. [기존 회귀 테스트](https://github.com/OneOrThree/phone/blob/3cbccfb1600af6282d32f3662ba537fb0443309b/server/business-api/src/test/java/com/oneorthree/business/common/api/PublicApiContractTest.java#L125-L145)는 신규/legacy 양쪽 image/png 요청의 NOT_FOUND404 JSON과, application/json 단독 요청의 서비스 미호출406·빈 본문을 구분한다. 따라서 도메인 실패 JSON을 image/png 단독이라는 이유만으로406으로 바꾸지 않는다. 실제406은 공통 예외 규약대로 빈 본문·X-Request-Id를 유지하며 성공 봉투로 감싸지 않는다. mixed Accept의 성공/실패 조합도1751 회귀에 포함한다. 이 단락은 선행 구현의 확인이며 기준 main에 이미 통합됐다는 뜻은 아니다.
+
 성공의 requestId는 `X-Request-Id` 헤더에 둔다. 오류 본문에는 같은 값을 넣는다. 서버는 들어온 `X-Request-Id`를 인증 근거나 서버 ID로 사용하지 않는다.
 
 ```json
@@ -285,14 +287,14 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | 구현 티켓 검증 | 실패하면 나타날 문제 |
 | --- | --- |
 | 필터401/413·MVC400/404/405/415/422·상류502/503/504·500 JSON 스냅샷 및406빈본문 | 앱이 같은 실패를 다른 구조로 받음 |
-| JSON null/빈items/201·바이너리PNG·기존API 경로 계약 | 이중 봉투, thumbnail 손상, 구앱 호환 파괴 |
+| JSON null/빈items/201·바이너리PNG·기존API 경로 계약; 양쪽 thumbnail mixed/image-only Accept의 PNG 성공·JSON 오류, JSON-only406빈본문 | 이중 봉투, thumbnail 손상, 구앱 호환 파괴·도메인404를406으로 오인 |
 | encoded/matrix URI·중복헤더·위조 X-User-Id·AT만료 | 무접두어 변경 중 인증 우회/타인 주체 전달 |
 | Postgres 두 동시 동일key·본문불일치·커밋후응답유실·rollback | 이중 차감/보상, 잘못된 결과 재생 |
 | 동일key 성공후 stale expectedVersion·다른key 종료/구매 | 원 성공409오인 또는 도메인유일성 누락 |
 | 신규 로그인1757 게스트 승격의 SOCIAL_ACCOUNT_ALREADY_LINKED/GUEST_ALREADY_PROMOTED 실제 HTTP409 | 기존 계정 충돌을 미등록502로 오인하거나 유령 계정 생성 |
 | 지갑 불변 중 상품 가격/통화/ownerType 개정·expectedProductVersion 충돌 | 사용자 동의 없는 조건으로 차감 |
 | 섬 version 불변 중 건설 비용 publication 교체·expectedCostPolicyVersion 충돌/같은 키 확정 재생·목표 PUT 무차감 | 건설 가격 동의 우회, 성공 재생409 오인, 무료 목표에 비용 버전 강제 |
-| 섬 가입1760 기존 ALREADY_MEMBER/GROUP_LIMIT_EXCEEDED/ROOM_FULL409 | 같은 코드/상태 공개등록 및 실제HTTP회귀, 정상 가입 충돌의502변환 금지 |
+| 섬 가입1760 기존 ALREADY_MEMBER/GROUP_LIMIT_EXCEEDED/ROOM_FULL409 및 KICKED_CANNOT_REJOIN403 | 세409는 같은 코드/상태 공개등록, 강퇴 재가입403은 신규 FORBIDDEN·legacy 원코드 유지. 실제HTTP회귀 전 활성화 금지, 정상 거절의502변환 금지 |
 | 섬1759·집중1764 신규 경로의 기존 GROUP_NOT_FOUND/SESSION_NOT_FOUND | 활성화 전404 코드 보존/명시 매핑과 실제 route 회귀 필수, 정상 부재의 미등록502 금지 |
 | 섬1759/1762·공지1771의 기존 MEMBER_ONLY/NOT_OWNER/NOTICE_FORBIDDEN | 해당 신규 route의 실제403을 FORBIDDEN403으로 명시 매핑·HTTP 회귀. legacy/compat 원코드 보존, 미등록502로 출시 금지 |
 | 위임/강퇴 대상 사용자 삭제·멤버 이탈·요청자 본인 부재 | TARGET_USER_NOT_FOUND/대상 NOT_FOUND는 공개 NOT_FOUND404와 해당 대상 필드, 요청자 USER_NOT_FOUND404는 별도 유지. HTTP 회귀 전 활성화 금지 |
@@ -303,7 +305,7 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | 현재requestId와원result 분리·새id요청 로그 연결 | 과거requestId/다른현재잔액을 재생 |
 | 구버전 receipt reader/순수 adapter/미지원409·배포 후 같은 키 복구 | 구형 DTO 노출, 원 명령·차감 재실행 |
 | 활성 본인의 leave/transfer 제한 증거·타인 scope·권한 소멸·비활성 계정 | 관리자/초대 자격 노출, 탈퇴 인증 우회 |
-| 5개 timezone 누락/Asia/Seoul/다른 값/null·측정/퀘스트 fingerprint 동일성 | 날짜 버킷 분산·재시도 충돌 |
+| 5개 timezone 누락/Asia/Seoul/다른 값/null·측정/퀘스트 fingerprint 동일성; 퀘스트 창 KST HH:mm·UTC instant/초/offset 입력 거절 | 날짜 버킷 분산·재시도 충돌·18:00 실행 창의9시간 이동. 정확 형식/정규화는 policy의 KST 계약 준수 |
 | 선택적 게스트 AT subject 승계·위조/만료 AT·메시지 field=clientMessageId | 계정 데이터 분리·오류 입력 오표시 |
 | cursor 서명/만료/타사용자/필터/동률/메시지방향 | 정보유출·페이지중복/누락·무한스크롤루프 |
 | bounded 병렬·context/큐/enqueue 전후 예산 소진504·executor 포화503·선택 timeout과 전체504 경계·필수/선택 즉시 실패·모든 조기 종료의 실제 I/O 취소 후 자원회수 | thread/connection 고갈, 권한상실 은폐 |
