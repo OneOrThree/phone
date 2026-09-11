@@ -178,12 +178,14 @@ public class NotificationMigrationCliRunner implements ApplicationRunner {
         // 둔다. 운영 중에 손으로 자르면 자른 자리가 검증에 남지 않는다.
         List<NotificationMigrationRecord> records = document.records();
         int batches = 0;
-        for (int from = 0; from < records.size(); from += IMPORT_BATCH_SIZE) {
+        // 빈 전체 스냅샷도 명시적으로 등재한다. 파일이 없으면 미적재와 전체 삭제를 구분할 수 없다.
+        for (int from = 0; from < Math.max(1, records.size()); from += IMPORT_BATCH_SIZE) {
             List<Map<String, Object>> wire = records
                     .subList(from, Math.min(from + IMPORT_BATCH_SIZE, records.size()))
                     .stream().map(NotificationMigrationRecord::toWire).toList();
             Path batchPath = siblingOf(target, String.format("import-%04d.json", batches));
-            writeOwnerOnly(batchPath, writer.writeValueAsString(Map.of("records", wire)));
+            writeOwnerOnly(batchPath, writer.writeValueAsString(
+                    Map.of("snapshot", document.manifest().snapshot(), "records", wire)));
             batches++;
         }
         Path manifestPath = siblingOf(target, "verify.json");

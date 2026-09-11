@@ -9,11 +9,13 @@ import java.util.Map;
  * 같은 개수의 다른 내용을 구분하지 못하고, 체크섬만으로는 자원 하나를 통째로 빠뜨린 것을 잡지 못한다.
  *
  * @param version    manifest 스키마 버전 — 현재 1
+ * @param snapshot   export 한 벌의 식별자. 모든 import 청크와 verify/open에서 같은 값을 사용한다
  * @param resources  자원별 {@code {count, checksum}}
  * @param stopWindow 정지 창 증거
  */
 public record NotificationMigrationManifest(
         int version,
+        String snapshot,
         Map<String, ResourceDigest> resources,
         StopWindow stopWindow) {
 

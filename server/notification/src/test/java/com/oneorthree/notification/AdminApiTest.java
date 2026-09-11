@@ -67,7 +67,7 @@ class AdminApiTest {
         store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,"
                 + "user_fences,settings,projections,result_ack,templates,deeplinks,kinds,jobs,job_runs,"
-                + "admin_audit,imports,migration_state CASCADE");
+                + "admin_audit,imports,migration_snapshots,migration_state CASCADE");
         store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false,active_migration_id=NULL");
         store.update("INSERT INTO kinds(id,quiet_policy) VALUES('BET_RESULT','BYPASS')");
         store.update("INSERT INTO templates(id,kind,locale,title,body)"

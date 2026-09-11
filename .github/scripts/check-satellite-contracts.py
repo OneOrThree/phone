@@ -182,6 +182,31 @@ fcm_transport = source('server/notification/src/main/java/com/oneorthree/notific
 require('if (push.title() != null)' in fcm_transport,
         'TemplateWrite: nullable title을 FCM 표시 payload에 안전하게 직렬화하지 않음')
 
+settings_service = source('server/notification/src/main/java/com/oneorthree/notification/SettingsService.java')
+require('DateTimeFormatter.ofPattern("HH:mm")' in settings_service
+        and settings_service.count('.format(API_TIME)') == 2,
+        'A22 ㋕: 앱용 야간 설정 응답이 HH:mm 계약을 보존하지 않음')
+
+dispatch_service = source('server/notification/src/main/java/com/oneorthree/notification/DispatchService.java')
+require('AND active AND NOT transport_invalid' in dispatch_service
+        and 'SET transport_invalid=true' in dispatch_service
+        and 'delivery_devices WHERE delivery_id=? AND device_key=?' in dispatch_service,
+        'A22 ㊚: FCM 토큰 유효성·소유권·기기별 성공 이력을 같은 축으로 처리함')
+
+app_commands = source('app/app-dev/src/services/notificationCommands.ts')
+require('function ownershipCritical' in app_commands
+        and app_commands.count('ownershipCritical(async () =>') == 2,
+        'A22 ㋲: 소유권 조회·후속 적재와 응답 저장·승계가 같은 직렬화 경계를 쓰지 않음')
+export_manifest = source('server/data-api/src/main/java/com/oneorthree/phone/notification/migration/NotificationMigrationManifest.java')
+export_cli = source('server/data-api/src/main/java/com/oneorthree/phone/notification/migration/NotificationMigrationCliRunner.java')
+require('String snapshot' in export_manifest
+        and '"snapshot", document.manifest().snapshot(), "records", wire' in export_cli
+        and 'Math.max(1, records.size())' in export_cli,
+        'A22 ㋼: export 스냅샷 식별자·모든 청크 연결·명시적 빈 청크 중 일부 누락')
+require('snapshot_id=?' in migration_service and 'migration_snapshots' in migration_service
+        and 'retire(migrationId' in migration_service and 'settings.imported_by' in migration_service,
+        'A22 ㋼: 최종 전체 집합 검증·빈 스냅샷 등록·이관 소유 행 정리 경계 누락')
+
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)

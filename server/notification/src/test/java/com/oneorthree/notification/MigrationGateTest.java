@@ -83,7 +83,7 @@ class MigrationGateTest {
         store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,"
                 + "user_fences,settings,projections,result_ack,templates,deeplinks,kinds,jobs,job_runs,"
-                + "admin_audit,imports,migration_state CASCADE");
+                + "admin_audit,imports,migration_snapshots,migration_state CASCADE");
         store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false,active_migration_id=NULL");
         store.update("INSERT INTO kinds(id,quiet_policy) VALUES('BET_RESULT','BYPASS')");
         store.update("INSERT INTO templates(id,kind,locale,title,body)"
@@ -578,6 +578,168 @@ class MigrationGateTest {
         throw new IllegalStateException("open 이 게이트 잠금을 기다리지 않는다 — 잠금 순서가 통일되지 않았다");
     }
 
+    // ── 같은 aggregate version 의 뒤늦은 opt-out ────────────────────────
+
+    /**
+     * 구 {@code UserService.updateNotificationSettings()} 는 유저 aggregate version 을 올리지 않는다.
+     * 그래서 백필 뒤 구 앱에서 알림을 끄면 최종 export 는 «값만 다르고 version 은 같은» 설정으로 온다.
+     * 이것이 적재되지 않으면 필드 불일치가 영영 풀리지 않아 게이트를 열 수 없다.
+     */
+    @Test
+    void aLateOptOutThatDidNotBumpTheAggregateVersionIsStillImported() throws Exception {
+        load("i1", records(true, 5));
+        assertThat(store.one("SELECT notification_enabled,imported_by FROM settings WHERE user_id=?", USER))
+                .containsEntry("notification_enabled", true).containsEntry("imported_by", "m1");
+        // 최종 export — 같은 version(5), 값만 false 다.
+        List<Map<String, Object>> last = records(false, 5);
+        assertThat(body(load("i2", last)).get("outcome")).isEqualTo(Map.of("IMPORTED", 1, "SKIPPED", 2));
+        assertThat(store.one("SELECT notification_enabled,version FROM settings WHERE user_id=?", USER))
+                .containsEntry("notification_enabled", false).containsEntry("version", 5L);
+        assertThat(body(verify(last, 1, 0))).containsEntry("verified", true);
+    }
+
+    /** 더 높은 라이브 version 은 그대로다 — 뒤늦은 재적재가 라이브 설정을 되돌리지 못한다. */
+    @Test
+    void aHigherLiveSettingsVersionSurvivesTheFinalSnapshot() throws Exception {
+        load("i1", records(true, 5));
+        Map<String, Object> live = NotificationStoreTest.preferences(false);
+        live.put("soundEnabled", false);
+        settings.applyLocked(USER, live, 9);
+        assertThat(body(load("i2", records(true, 6))).get("outcome"))
+                .isEqualTo(Map.of("SUPERSEDED", 1, "SKIPPED", 2));
+        assertThat(store.one("SELECT notification_enabled,version,imported_by FROM settings WHERE user_id=?", USER))
+                .containsEntry("notification_enabled", false).containsEntry("version", 9L)
+                .containsEntry("imported_by", null);
+        // 라이브가 더 최신이므로 검증은 통과한다 — 되돌리라고 요구하지 않는다.
+        assertThat(body(verify(records(true, 6), 1, 0))).containsEntry("verified", true);
+    }
+
+    /**
+     * 같은 version 이라도 «라이브가 쓴» 행은 이관이 덮지 않는다. 재동기화 창은 이관이 만든 행에만 열린다.
+     * 덮지 않은 어긋남은 조용히 통과시키지 않고 그대로 검증 실패로 닫는다.
+     */
+    @Test
+    void liveOwnedSettingsAtTheSameVersionAreNeverOverwrittenByAnImport() throws Exception {
+        settings.applyLocked(USER, Map.of("notificationEnabled", true, "soundEnabled", true,
+                "nightModeEnabled", true, "nightStartTime", "23:00", "nightEndTime", "07:00"), 5);
+        assertThat(body(load("i1", List.of(settingsRecord(false, 5)))).get("outcome"))
+                .isEqualTo(Map.of("SUPERSEDED", 1));
+        assertThat(store.one("SELECT notification_enabled,imported_by FROM settings WHERE user_id=?", USER))
+                .containsEntry("notification_enabled", true).containsEntry("imported_by", null);
+        assertThat(reasons(body(verify(List.of(settingsRecord(false, 5)), 1, 0)))).contains("FIELD_MISMATCH");
+    }
+
+    // ── 최종 스냅샷 구성원 ──────────────────────────────────────────────
+
+    /**
+     * 초기 적재와 최종 재동기화 사이에 회차가 정산되고 기기 토큰이 지워지면, 그 키는 최종 export 에서
+     * 빠진다. 원장은 추가·갱신만 하므로 전부 세면 건수·체크섬이 영영 어긋난다.
+     * 지목한 스냅샷의 구성원만 세고, 빠진 이관 행은 개방 직전에 접는다.
+     */
+    @Test
+    void keysDroppedFromTheFinalSnapshotStopCountingAndTheirImportedRowsAreRetired() throws Exception {
+        List<Map<String, Object>> first = new ArrayList<>(records(true, 5));
+        first.add(deviceRecord("tok-2", 3L, true));
+        first.add(userRecord("두부", 5));
+        first.add(participationRecord(SESSION, 5));
+        first.add(participationRecord(UUID.randomUUID(), 5));
+        load("i1", "snap-1", first);
+        // 최종 export — tok-2 는 토큰이 지워졌고 OTHER_SESSION 은 정산됐다.
+        List<Map<String, Object>> last = new ArrayList<>(records(true, 5));
+        last.add(userRecord("두부", 5));
+        last.add(participationRecord(SESSION, 5));
+        load("i2", "snap-2", last);
+        assertThat(body(verify("snap-2", last))).containsEntry("verified", true);
+        // 지목 없이 검증하면 두 세대가 섞이므로 어느 쪽이 정본인지 말하게 한다.
+        assertThat(reasons(body(verify(last, 1, 0)))).contains("SNAPSHOT_REQUIRED");
+        assertThat(body(verify("snap-2", last))).containsEntry("verified", true);
+        Map<String, Object> opened = body(open("o1", "snap-2", last));
+        assertThat(Json.map(opened.get("retired")))
+                .isEqualTo(Map.of("device", 1, "participation", 1));
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='tok-2'"))
+                .containsEntry("active", false);
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='tok-1'"))
+                .containsEntry("active", true);
+        assertThat(store.rows("SELECT subject_id FROM projections WHERE projection_type=?",
+                MigrationRecords.PARTICIPATION_PROJECTION))
+                .extracting(row -> row.get("subject_id")).containsExactly(SESSION.toString());
+        // 원장은 지우지 않는다 — 빠진 키의 이력은 옛 세대 태그를 단 채 남는다.
+        assertThat(store.rows("SELECT record_key FROM imports WHERE snapshot_id='snap-1'")).hasSize(2);
+    }
+
+    /**
+     * sid 도 bootstrap 도 없는 구 앱의 «최초» 등록이 만든 행은 이관이 만든 행과 컬럼 모양이 같다.
+     * 모양만 보고 접으면 방금 등록한 살아 있는 기기를 끈다.
+     */
+    @Test
+    void aLiveLegacyRegistrationWithTheSameShapeSurvivesSnapshotRemoval() throws Exception {
+        load("i1", "snap-1", records(true, 5));
+        // 구 앱 최초 등록 — bootstrap·세션·legacy 전부 없고 ownership_version 은 1 이다.
+        devices.register(USER, Map.of("deviceToken", "tok-live", "authGeneration", 3), "d1");
+        // 같은 토큰을 초기 export도 봤다. 원장에는 남지만 실제 행은 라이브 소유로 보존해야 한다.
+        assertThat(body(load("i1-live", "snap-1", List.of(deviceRecord("tok-live", 3L, true))))
+                .get("outcome")).isEqualTo(Map.of("SUPERSEDED", 1));
+        assertThat(store.one("SELECT ownership_version,bootstrap_hash,session_epoch,legacy_session_id,imported_by"
+                + " FROM device_tokens WHERE device_token='tok-live'"))
+                .containsEntry("ownership_version", 1L).containsEntry("bootstrap_hash", null)
+                .containsEntry("session_epoch", null).containsEntry("legacy_session_id", null)
+                .containsEntry("imported_by", null);
+        load("i2", "snap-2", records(true, 5));
+        assertThat(body(verify("snap-2", records(true, 5)))).containsEntry("verified", true);
+        assertThat(Json.map(body(open("o1", "snap-2", records(true, 5))).get("retired"))).isEmpty();
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='tok-live'"))
+                .containsEntry("active", true);
+    }
+
+    /** 최종 스냅샷을 일부만 올린 뒤 검증하면 건수로 막힌다 — 부분 적재가 조용히 지우지 못한다. */
+    @Test
+    void aPartiallyLoadedFinalSnapshotCannotVerify() throws Exception {
+        List<Map<String, Object>> all = new ArrayList<>(records(true, 5));
+        all.add(userRecord("두부", 5));
+        load("i1", "snap-1", all);
+        // 최종 스냅샷의 첫 청크만 도착했다.
+        load("i2", "snap-2", List.of(settingsRecord(true, 5)));
+        assertThat(reasons(body(verify("snap-2", all)))).contains("COUNT_MISMATCH");
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='tok-1'"))
+                .containsEntry("active", true);
+    }
+
+    /** 태그를 빠뜨린 적재는 「전량 제거」처럼 보인다. 등재된 적 없는 스냅샷 지목은 실패다. */
+    @Test
+    void aManifestNamingAnUnregisteredSnapshotIsRejected() throws Exception {
+        load("i1", "snap-1", records(true, 5));
+        assertThat(reasons(body(verify("snap-2", List.of())))).contains("SNAPSHOT_EMPTY");
+    }
+
+    /**
+     * 반대로 «선언된» 공집합은 정당하다 — 마지막 회차가 전부 정산되고 대상이 사라진 최종 export 다.
+     * {@code records:[]} 로 세대를 등재할 수 있어야 하고, 그 세대의 구성원 0 은 실패가 아니다.
+     */
+    @Test
+    void anExplicitlyDeclaredEmptyFinalSnapshotVerifiesAndRetiresEverythingItDropped() throws Exception {
+        List<Map<String, Object>> first = new ArrayList<>(records(true, 5));
+        first.add(userRecord("두부", 5));
+        first.add(participationRecord(SESSION, 5));
+        load("i1", "snap-1", first);
+        assertThat(load("i2", "snap-2", List.of()).getResponse().getStatus()).isEqualTo(200);
+        assertThat(body(verify("snap-2", List.of()))).containsEntry("verified", true);
+        assertThat(Json.map(body(open("o1", "snap-2", List.of())).get("retired"))).isEqualTo(
+                Map.of("delivery", 1, "device", 1, "participation", 1, "settings", 1, "user", 1));
+        assertThat(store.rows("SELECT user_id FROM settings")).isEmpty();
+        assertThat(store.rows("SELECT projection_type FROM projections")).isEmpty();
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='tok-1'"))
+                .containsEntry("active", false);
+        // 발송 이력의 참조가 남아 있으므로 삭제가 아니라 종결이다.
+        assertThat(store.one("SELECT status FROM deliveries WHERE event_id='ev-1'"))
+                .containsEntry("status", "SUPPRESSED");
+    }
+
+    /** 세대를 선언하지 않은 빈 적재는 아무 뜻도 없다 — 전량 제거 선언으로 받아 주지 않는다. */
+    @Test
+    void anEmptyImportWithoutASnapshotIsStillRejected() throws Exception {
+        assertThat(code(load("i1", List.of()))).isEqualTo("INVALID_records");
+    }
+
     // ── 레코드·매니페스트 ──────────────────────────────────────────────
 
     private static Map<String, Object> window(int hours) {
@@ -676,6 +838,11 @@ class MigrationGateTest {
      * (NotificationMigrationManifest.ResourceDigest). 빠뜨린 것과 비어 있는 것을 구분하기 위해서다.
      */
     private static Map<String, Object> manifest(List<Map<String, Object>> records, long version, long queueDepth) {
+        return manifest(null, records, version, queueDepth);
+    }
+
+    private static Map<String, Object> manifest(String snapshot, List<Map<String, Object>> records, long version,
+            long queueDepth) {
         Map<String, List<String>> lines = new TreeMap<>();
         MigrationRecords.RESOURCES.forEach(resource -> lines.put(resource, new ArrayList<>()));
         for (Map<String, Object> entry : records) {
@@ -700,6 +867,9 @@ class MigrationGateTest {
         stopWindow.put("source", "data-api");
         Map<String, Object> manifest = new LinkedHashMap<>();
         manifest.put("version", version);
+        if (snapshot != null) {
+            manifest.put("snapshot", snapshot);
+        }
         manifest.put("resources", resources);
         manifest.put("stopWindow", stopWindow);
         return manifest;
@@ -711,14 +881,30 @@ class MigrationGateTest {
         return post("/internal/admin/migration/m1/import", key, Map.of("records", records));
     }
 
+    /** 스냅샷 세대를 실어 올리는 적재. 운영 CLI 는 한 export 의 모든 청크에 같은 값을 반복한다. */
+    private MvcResult load(String key, String snapshot, List<Map<String, Object>> records) throws Exception {
+        return post("/internal/admin/migration/m1/import", key,
+                Map.of("snapshot", snapshot, "records", records));
+    }
+
     private MvcResult verify(List<Map<String, Object>> records, long version, long queueDepth) throws Exception {
         return post("/internal/admin/migration/m1/verify", null,
-                Map.of("manifest", manifest(records, version, queueDepth)));
+                Map.of("manifest", manifest(null, records, version, queueDepth)));
+    }
+
+    private MvcResult verify(String snapshot, List<Map<String, Object>> records) throws Exception {
+        return post("/internal/admin/migration/m1/verify", null,
+                Map.of("manifest", manifest(snapshot, records, 1, 0)));
     }
 
     private MvcResult open(String key, List<Map<String, Object>> records, long version) throws Exception {
         return post("/internal/admin/migration/m1/dispatch/open", key,
-                Map.of("manifest", manifest(records, version, 0)));
+                Map.of("manifest", manifest(null, records, version, 0)));
+    }
+
+    private MvcResult open(String key, String snapshot, List<Map<String, Object>> records) throws Exception {
+        return post("/internal/admin/migration/m1/dispatch/open", key,
+                Map.of("manifest", manifest(snapshot, records, 1, 0)));
     }
 
     private MvcResult post(String path, String key, Map<String, Object> body) throws Exception {

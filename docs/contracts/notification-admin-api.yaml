@@ -319,6 +319,12 @@ paths:
         그 잠금 아래에서 `active_migration_id` 를 이 `migrationId` 로 묶는다. 다른 id 가 이미 묶여 있으면
         `409 MIGRATION_ID_CONFLICT` 이고, 같은 id 의 재개는 그대로 통과한다.
 
+        **전체 스냅샷 식별자(A22 ㋼).** Data export의 `manifest.snapshot`을 모든 import 청크의 `snapshot`으로
+        전달하고 verify/open에 같은 manifest를 사용한다. 멱등 의도에는 snapshot도 포함되므로 새 export에는
+        새 요청 키를 발급하고 같은 청크 재전송만 기존 키를 유지한다. 빈 전체 집합도 `snapshot`과 `records: []`로
+        등재한다. 부분 청크의 부재만으로 삭제하지 않으며 선택한 전체 집합의 건수·체크섬 검증을 먼저 통과해야 한다.
+        최초 open 직전에 집합 밖의 변경되지 않은 이관 소유 행만 정리하고 라이브 상태는 보존한다.
+
         **키별 멱등 + 전체 레코드 갱신.** 같은 `recordKey` 의 체크섬이 같으면 건너뛰고(`SKIPPED`),
         다르면 **레코드 전체를 다시 쓴다**. `ON CONFLICT DO NOTHING` 은 쓰지 않는다 —
         이중 쓰기로 행이 한 번 생긴 뒤 구 DB 에만 성공한 opt-out 을 영구히 건너뛰기 때문이다(§7.1 ②).
@@ -326,7 +332,7 @@ paths:
         **보존 규칙(라이브 쓰기가 이기는 방향만 접는다 → `SUPERSEDED`)**
         | 자원 | 접는 조건 |
         |---|---|
-        | settings | 대상 `version` 이 «더 크면» 덮지 않는다(SettingsService 와 같은 규칙) |
+        | settings | 대상 version이 더 크거나, 같은 version에서 라이브 소유인 행은 덮지 않는다. 같은 이관이 만든 동일 version 행은 최종 값을 반영한다 |
         | device | **라이브 흔적이 있는 행은 건드리지 않는다** — 아래 참조 |
         | delivery | 대상이 `SENT`·`SUPPRESSED` 면 미발송으로 되돌리지 않는다(A22 ⓗ) |
         | user · participation | 대상 투영의 `version` 이 «더 크면» 덮지 않는다. **같은 version 은 덮는다** — 아래 참조 |
@@ -392,10 +398,19 @@ paths:
             schema:
               type: object
               required: [records]
+              anyOf:
+                - properties:
+                    records: { minItems: 1 }
+                - required: [snapshot]
               properties:
+                snapshot:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: 모든 청크와 manifest가 공유하는 Data export 식별자. 빈 records에는 필수다.
                 records:
                   type: array
-                  minItems: 1
+                  minItems: 0
                   maxItems: 500
                   items: { $ref: '#/components/schemas/ImportRecord' }
       responses:
@@ -425,7 +440,7 @@ paths:
       description: |
         **매니페스트 태그를 믿지 않고 실제 DB 를 훑는다.** 네 가지를 한 번에 닫는다:
 
-        1. **건수** — 자원별 `imports` 건수가 매니페스트와 다르면 `COUNT_MISMATCH`.
+        1. **건수** — manifest.snapshot이 지목한 자원별 `imports` 건수가 매니페스트와 다르면 `COUNT_MISMATCH`.
         2. **체크섬** — 자원별 접은 값이 다르면 `CHECKSUM_MISMATCH`. **0건 자원도 대조 대상이다** —
            지원 자원(`settings`·`device`·`delivery`·`user`·`participation`)의 접은 값은 적재 행이 하나도 없어도
            `SHA256("")` 로 채워진다.
@@ -875,6 +890,11 @@ components:
       type: object
       required: [version, resources, stopWindow]
       properties:
+        snapshot:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Data export 전체 집합의 식별자. 같은 값을 가진 import 청크만 검증한다.
         version: { type: integer, format: int64, description: 단조 증가. 낮추면 `409 MANIFEST_VERSION_REGRESSED` }
         resources:
           type: object

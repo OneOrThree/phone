@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -11,6 +12,7 @@ import java.util.UUID;
 @Service
 class SettingsService {
 
+    private static final DateTimeFormatter API_TIME = DateTimeFormatter.ofPattern("HH:mm");
     private final Store store;
 
     SettingsService(Store store) {
@@ -34,11 +36,15 @@ class SettingsService {
         }
         LocalTime start = time(body, "nightStartTime");
         LocalTime end = time(body, "nightEndTime");
+        // imported_by 를 NULL 로 지운다 — 이 행의 주인이 «라이브»로 넘어왔다는 표식이다.
+        // 이관은 같은 version 에서 자기가 만든 행만 다시 쓰므로(MigrationService.writeSettings),
+        // 이 한 줄이 「뒤늦은 재적재가 라이브 변경을 되돌리는 일」을 닫는다.
         store.update("INSERT INTO settings(user_id,version,notification_enabled,sound_enabled,night_mode_enabled,"
                 + "night_start_time,night_end_time) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET "
                 + "version=EXCLUDED.version,notification_enabled=EXCLUDED.notification_enabled,"
                 + "sound_enabled=EXCLUDED.sound_enabled,night_mode_enabled=EXCLUDED.night_mode_enabled,"
-                + "night_start_time=EXCLUDED.night_start_time,night_end_time=EXCLUDED.night_end_time"
+                + "night_start_time=EXCLUDED.night_start_time,night_end_time=EXCLUDED.night_end_time,"
+                + "imported_by=NULL"
                 + " WHERE settings.version<EXCLUDED.version", user, version, enabled, sound, night, start, end);
     }
 
@@ -50,9 +56,9 @@ class SettingsService {
         result.put("soundEnabled", row == null || Boolean.TRUE.equals(row.get("sound_enabled")));
         result.put("nightModeEnabled", row != null && Boolean.TRUE.equals(row.get("night_mode_enabled")));
         result.put("nightStartTime", row == null || row.get("night_start_time") == null
-                ? null : row.get("night_start_time").toString());
+                ? null : LocalTime.parse(row.get("night_start_time").toString()).format(API_TIME));
         result.put("nightEndTime", row == null || row.get("night_end_time") == null
-                ? null : row.get("night_end_time").toString());
+                ? null : LocalTime.parse(row.get("night_end_time").toString()).format(API_TIME));
         return result;
     }
 

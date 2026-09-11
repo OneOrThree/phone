@@ -287,6 +287,7 @@ public class NotificationExportService {
 
         NotificationMigrationManifest manifest = new NotificationMigrationManifest(
                 NotificationMigrationManifest.VERSION,
+                UUID.randomUUID().toString(),
                 Map.of(
                         NotificationMigrationRecord.RESOURCE_SETTINGS, digest(
                                 NotificationMigrationRecord.RESOURCE_SETTINGS, settings),

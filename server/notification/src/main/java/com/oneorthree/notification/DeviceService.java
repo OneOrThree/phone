@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -111,6 +112,7 @@ class DeviceService {
             }
         }
         Map<String, Object> legacyFence = null;
+        List<Map<String, Object>> legacyLinked = List.of();
         boolean legacyLinkedActive = false;
         if (hash == null && legacySession != null) {
             if (epoch == null) {
@@ -124,9 +126,10 @@ class DeviceService {
                 throw new NotificationFailure(409, "SESSION_REVOKED");
             }
             // 구 앱엔 ownership 이 없다. 「이 세션의 기기」를 찾는 유일한 길이 sid 링크다.
-            legacyLinkedActive = !store.rows("SELECT device_token FROM device_tokens"
+            legacyLinked = store.rows("SELECT device_token,device_key FROM device_tokens"
                     + " WHERE user_id=? AND legacy_session_id=? AND active FOR UPDATE",
-                    user, legacySession).isEmpty();
+                    user, legacySession);
+            legacyLinkedActive = !legacyLinked.isEmpty();
         }
         if (replay) {
             // 저장된 응답을 돌려주기 직전이다. 세 축 검증은 위에서 «지금» 값으로 끝냈고, 소유권은 첫
@@ -175,20 +178,52 @@ class DeviceService {
                     user, legacySession, token);
         }
         UUID next = UUID.randomUUID();
+        UUID deviceKey = deviceIdentity(user, previous, cas ? knownOwner : null, legacySessionWindow ? legacyLinked
+                : List.of());
         if (cas && !token.equals(knownOwner.get("device_token"))) {
             // FCM 토큰 회전도 기존 소유권을 확인한 뒤 교체한다.
             store.update("UPDATE device_tokens SET active=false WHERE ownership_token=?",
                     knownOwner.get("ownership_token"));
         }
-        store.update("INSERT INTO device_tokens(device_token,user_id,ownership_token,auth_generation,"
-                + "bootstrap_hash,session_epoch,legacy_session_id) VALUES(?,?,?,?,?,?,?)"
+        // transport_invalid 는 여기서 반드시 내린다 — 새 토큰(또는 다시 올라온 같은 토큰)은 «아직
+        // 거절당한 적 없는» 전송 자격이다. 남겨 두면 등록은 성공했는데 발송 대상에서는 빠진다.
+        store.update("INSERT INTO device_tokens(device_token,user_id,ownership_token,device_key,auth_generation,"
+                + "bootstrap_hash,session_epoch,legacy_session_id) VALUES(?,?,?,?,?,?,?,?)"
                 + " ON CONFLICT(device_token) DO UPDATE SET "
                 + "user_id=EXCLUDED.user_id,ownership_token=EXCLUDED.ownership_token,"
+                + "device_key=EXCLUDED.device_key,"
                 + "ownership_version=device_tokens.ownership_version+1,auth_generation=EXCLUDED.auth_generation,"
                 + "bootstrap_hash=EXCLUDED.bootstrap_hash,session_epoch=EXCLUDED.session_epoch,"
-                + "legacy_session_id=EXCLUDED.legacy_session_id,active=true,updated_at=now()",
-                token, user, next, generation, hash, epoch, legacySession);
+                + "legacy_session_id=EXCLUDED.legacy_session_id,active=true,transport_invalid=false,imported_by=NULL,"
+                + "updated_at=now()",
+                token, user, next, deviceKey, generation, hash, epoch, legacySession);
         return Map.of("ownershipToken", next.toString());
+    }
+
+    /**
+     * 이 등록이 가리키는 <b>기기 신원</b>. 소유권({@code ownership_token})은 매 등록마다 회전해야
+     * 낡은 CAS·낡은 삭제를 걸러 낼 수 있지만(A22 ㊚), 「이 알림이 이 기기에 이미 갔는가」는 그
+     * 회전과 <b>다른 축</b>이다. 두 축을 한 값으로 쓰면 부분 전송 실패의 재시도 사이에 앱을 재시작한
+     * 기기가 미전송으로 되돌아가 같은 알림을 두 번 받는다.
+     *
+     * <p>이어받는 자리는 <b>승인된 같은 기기</b>뿐이다 — 같은 계정의 같은 FCM 토큰 행(재등록),
+     * CAS 로 확인된 소유권의 토큰 회전, 그리고 sid 로 확인된 구 앱 세션의 토큰 회전. 계정이 바뀌는
+     * 이관은 이어받지 않는다: 남의 전송 이력을 물려받으면 새 주인이 못 받은 알림이 받은 것이 된다.
+     */
+    private UUID deviceIdentity(UUID user, Map<String, Object> previous, Map<String, Object> owner,
+            List<Map<String, Object>> legacyLinked) {
+        if (previous != null && user.equals(previous.get("user_id"))) {
+            return (UUID) previous.get("device_key");
+        }
+        if (owner != null) {
+            return (UUID) owner.get("device_key");
+        }
+        // 구 앱 세션의 회전. 등록마다 «자기 세션의 다른 활성 행»을 접으므로 링크는 한 행이다 —
+        // 여러 행이 보이면 어느 것이 이 기기인지 알 수 없으니 이어받지 않는다.
+        if (legacyLinked.size() == 1) {
+            return (UUID) legacyLinked.get(0).get("device_key");
+        }
+        return UUID.randomUUID();
     }
 
     @Transactional
