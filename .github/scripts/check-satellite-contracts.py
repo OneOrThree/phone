@@ -222,6 +222,11 @@ require('setInstalledDeviceTokenResolver(async () =>' in push
         and 'const target = await deletionTarget(userId)' in app_commands,
         'A22 ㋲: 첫 등록 전 구 기기의 SDK 토큰 정리 경로가 연결되지 않음')
 
+internal_http = source('server/business-api/src/main/java/com/oneorthree/business/common/http/InternalHttpClient.java')
+require(internal_http.index('deadline.hasRoomFor(readTimeout)') < internal_http.index('circuitBreaker.allowRequest(')
+        and 'if (!outcomeRecorded)' in internal_http and 'catch (UpstreamDomainException' in internal_http,
+        'A22 ㋽: 복구 탐침이 예산 부족 또는 비재시도 예외에서 해제되지 않음')
+
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)

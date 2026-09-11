@@ -51,3 +51,5 @@ Link/MMP의 실제 저장소는 [OneOrThree/mmp-custom](https://github.com/OneOr
 - Kafka 로그·KRaft 메타데이터 경로와 영속 볼륨 경로가 같은지 확인하고 컨테이너 재생성 후 메시지를 읽는다(`test_kafka_persistence.py`). FCM `UNREGISTERED`만으로 성공 이력이 없는 알림을 완료 처리하지 않는지도 검사한다(A22 ㊚).
 
 - 설정 동시 변경은 실제 PG의 잠금 대기와 최종 행·봉투를 대조한다(A22 ㋕). 앱 업그레이드 후 첫 등록 전 로그아웃은 SDK 토큰 정리 경로의 사전 배선과 조회 실패 시 RT 폐기 유지를 검사한다(A22 ㋲).
+
+- 내부 HTTP 서킷은 정상 4xx와 시간 예산 부족 이후에도 복구되는지 검사한다(A22 ㋽, `InternalHttpClientRecoveryTest`).

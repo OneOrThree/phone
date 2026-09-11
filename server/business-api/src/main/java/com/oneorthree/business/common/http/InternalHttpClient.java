@@ -102,21 +102,31 @@ public class InternalHttpClient {
     public <T> T exchange(InternalCall call, Deadline deadline, ParameterizedTypeReference<T> responseType) {
         RestClientException lastFailure = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            if (!circuitBreaker.allowRequest(System.currentTimeMillis())) {
-                throw new UpstreamUnavailableException(target + " 서킷 오픈 — " + call.method() + " " + call.path());
-            }
             if (!deadline.hasRoomFor(readTimeout)) {
                 // 예산이 read timeout 을 못 담는다. 첫 시도라면 예산 설정 자체가 잘못됐다는 뜻이므로
                 // 남은 예산을 로그에 남긴다 — 조용히 짧은 타임아웃으로 대체하지 않는다.
                 throw new UpstreamUnavailableException(target + " 시간 예산 소진 — remaining="
                         + deadline.remaining().toMillis() + "ms, readTimeout=" + readTimeout.toMillis() + "ms");
             }
+            // 예산 부족으로 요청을 시작하지 않을 때는 half-open 탐침도 획득하지 않는다.
+            if (!circuitBreaker.allowRequest(System.currentTimeMillis())) {
+                throw new UpstreamUnavailableException(target + " 서킷 오픈 — " + call.method() + " " + call.path());
+            }
+            boolean outcomeRecorded = false;
             try {
                 T body = send(call, responseType);
                 circuitBreaker.recordSuccess();
+                outcomeRecorded = true;
                 return body;
+            } catch (UpstreamDomainException | UpstreamCredentialRejectedException
+                    | UpstreamContractMismatchException e) {
+                // 상류의 응답은 도착했다. 오류 분류는 그대로 전달하되 복구 탐침을 영구 점유하지 않는다.
+                circuitBreaker.recordSuccess();
+                outcomeRecorded = true;
+                throw e;
             } catch (UpstreamRetryableFailure e) {
                 circuitBreaker.recordFailure(System.currentTimeMillis());
+                outcomeRecorded = true;
                 lastFailure = e.cause();
                 if (!call.retryable() || attempt == MAX_ATTEMPTS) {
                     throw new UpstreamUnavailableException(
@@ -124,6 +134,11 @@ public class InternalHttpClient {
                 }
                 // ⚠️ 같은 call 객체를 그대로 다시 보낸다 — Idempotency-Key 가 유지되는 것이 핵심이다.
                 log.warn("{} 재시도 {}/{} — {} {}", target, attempt + 1, MAX_ATTEMPTS, call.method(), call.path());
+            } finally {
+                if (!outcomeRecorded) {
+                    // URI·요청 구성 등 예상 밖 예외도 원래 예외를 유지하면서 탐침 상태를 정리한다.
+                    circuitBreaker.recordFailure(System.currentTimeMillis());
+                }
             }
         }
         throw new UpstreamUnavailableException(target + " 응답 없음 — " + call.method() + " " + call.path(),
