@@ -23,3 +23,5 @@ PR 740 검토 반영: 공지 작성자 FK 파기와 생성 경합, RT-only 로�
 최신 검토 반영: 양방향 `user_blocks`와 본인 `user_streaks`의 파기·writer 직렬화, 유효한 비게스트 AT의 정상 계정 전환, 제공자 6종 `*_TOKEN` 및 refresh/logout `REFRESH_TOKEN`의 기존 401을 유지한다. 최초 legacy RT 승격의 응답 유실에는 원 RT 해시·고정 서명 재료를 가진 전용 인증 receipt가 필요하다. 현재 미구현임을 구분하고, 동일 sid AT/RT 재생 조건과 폐기 우선 규칙을 정했다. 게스트의 복구창/장기 실패 처리(Q06)와 실패 주입 검증은 강제 전환 출시 조건으로 남긴다.
 
 추가 호환·파기 보완: 구 앱의 새 AT/원 legacy RT 혼합 저장도 신규 진입을 막고 원 RT 승격 receipt로 복구한다. Ready는 AT/RT 타입·주체·sid·세대 일치를 요구하며 Q06 복구 시간은 미결로 유지한다. updateFocusTag의 새 채택·세션 재연결과 탈퇴를 직렬화하고 character_equipment 장착 행을 같은 탈퇴 TX에서 파기한다. 원본7계약과 보유/정산 증거 보존 규칙은 변경하지 않았다.
+
+로그아웃 순서·잔존 초대 파기 보완: 기기 삭제 실패는 RT 폐기와 로컬 정리의 선행 조건이 아니다. 미완료 삭제의 기기 자격/원 키 큐를 보존하고 폐기 후 재전송 인증 복구는 별도 gate로 남긴다. 미사용 `group_invites`도 본인이 inviter/invitee인 모든 상태를 같은 탈퇴 TX에서 파기하고 타인 행·rollback을 검증한다. snapshot writer 잠금과 Redis 랭킹 파기는 후속 구현 의무이며 현재 구현 완료로 표시하지 않는다.

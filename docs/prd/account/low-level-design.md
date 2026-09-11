@@ -89,11 +89,11 @@ name/catColor null 허용은 온보딩 전 상태를 표현하기 위한 원본 
 4. 응답 유실 복구용 폐기 증명에는 실제로 폐기한 RT의 해시와 원 만료 시각만 둔다. 같은 서명/만료 검증을 통과한 RT가 정확히 그 해시와 맞고 사용자가 활성이라면 200을 재생한다. 임의의 유효 JWT나 이미 회전한 옛 해시에는 적용하지 않는다.
 5. 처음/동일 완료 재시도 모두 `{ "data": { "revoked": true } }`. 재생은 sessionEpoch를 다시 증가시키거나 bootstrap을 다시 발급하지 않는다. 이미 탈퇴한 사용자면 404 `USER_NOT_FOUND`이며 만료·위조·타입/해시 불일치 RT는 기존 401 `REFRESH_TOKEN`이다.
 
-legacy sid 없는 RT는 백필한 legacy 세션 축으로 대조한다. AT에도 sid가 없으면 검증된 같은 사용자와 해당 legacy 해시의 관계를 대조한다. sid가 있는 AT를 다른 legacy RT와 느슨하게 사용자 ID만 보고 결합하지 않는다. 새/구 토큰 조합의 식별이 모호하면 401이며 RT 단독으로 재시도할 수 있다.
+legacy sid 없는 RT는 백필한 legacy 세션 축으로 대조한다. AT에도 sid가 없으면 검증된 같은 사용자와 해당 legacy 해시의 관계를 대조한다. RT에 sid가 없어도 검증된 RT의 정확한 해시로 현재 세션 행을 찾았고 AT의 sid가 그 행의 id와 일치하면 정상 조합으로 허용한다. 실제 기존 발급기가 만드는 sid AT + sid 없는 RT도 이 증명을 사용한다. 같은 사용자라는 사실만으로 다른 세션의 AT를 허용하거나, 세션 행이 없어 sid를 증명할 수 없는 혼합 조합을 허용하지 않는다. 주체·현재 authGeneration·각 자격 만료 검증은 유지하고 식별이 모호하면 401이며 RT 단독으로 재시도할 수 있다.
 
 RT 헤더는 프록시·access log·HTTP client debug·trace attribute·오류 덤프에서 제거한다. 쿠키를 새로 요구하지 않는다. 로그아웃의 200은 세션/bootstrap 폐기 완료이며 푸시 기기 등록 삭제까지 뜻하지 않는다.
 
-기기 등록 정리는 별도 `DELETE /api/v1/users/me/device-token`의 소유다. 앱이 대상 `X-Device-Token`과 `X-Device-Ownership`을 보내고, Business의 기존 `DeviceTokenUseCase.delete`가 해당 토큰·소유권 값으로 Data outbox를 먼저 기록한 뒤 직접 삭제/완료 표시를 처리한다(장부 ㊲·㊨·㊪·㊿). RT subject만 보고 사용자 전체 기기를 삭제하지 않는다. 지연된 A의 삭제는 A의 ownershipToken으로만 비교하여 B 또는 재등록한 A의 최신 등록을 지우지 않는다. 헤더 누락의 legacy 허용 창은 기존 ㊟ 롤아웃 규칙이며 새 문서가 이를 필수화했다고 주장하지 않는다. 앱은 세션 자격을 폐기하기 전에 별도 기기 DELETE의 결과를 확인하고 실패를 삼키지 않는 내구 재시도 ㋩를 유지한다. outbox·직접 삭제 둘 다 실패하면 재시도 근거가 앱에만 남으며, outbox만 성공해도 직접 삭제 실패를 성공으로 숨기지 않는다. RT-only logout을 이 별도 DELETE의 성공으로 간주하거나 두 요청 사이의 값을 무상태 Business 메모리에 보관하지 않는다. 두 기기 헤더도 자격이므로 로그에 남기지 않는다.
+기기 등록 정리는 별도 `DELETE /api/v1/users/me/device-token`의 소유다. 앱이 대상 `X-Device-Token`과 `X-Device-Ownership`을 보내고, Business의 기존 `DeviceTokenUseCase.delete`가 해당 토큰·소유권 값으로 Data outbox를 먼저 기록한 뒤 직접 삭제/완료 표시를 처리한다(장부 ㊲·㊨·㊪·㊿). RT subject만 보고 사용자 전체 기기를 삭제하지 않는다. 지연된 A의 삭제는 A의 ownershipToken으로만 비교하여 B 또는 재등록한 A의 최신 등록을 지우지 않는다. 헤더 누락의 legacy 허용 창은 기존 ㊟ 롤아웃 규칙이며 새 문서가 이를 필수화했다고 주장하지 않는다. 앱은 로그아웃 시작 시 대상 기기 자격·원 사용자·고정 키를 내구 큐에 보존하고 기기 DELETE를 시도한다. 삭제 성공 여부와 무관하게 원 세션의 RT-only logout과 로컬 인증 정리를 계속하며, 기기 삭제 실패 때문에 활성 세션을 남기지 않는다(장부 ㋩, `app/app-dev/src/App.tsx:293~306`). outbox·직접 삭제 둘 다 실패하면 재시도 근거가 앱에만 남으며, outbox만 성공해도 직접 삭제 실패를 성공으로 숨기지 않는다. RT-only logout을 이 별도 DELETE의 성공으로 간주하거나 두 요청 사이의 값을 무상태 Business 메모리에 보관하지 않는다. 두 기기 헤더도 자격이므로 로그에 남기지 않는다.
 
 #### 기기 DELETE의 동일 명령 재생
 
@@ -126,8 +126,15 @@ receipt를 읽지 못한다. 결과 재생은 이미 끝난 삭제의 증거만 
 삭제가 적용된 뒤 응답 또는 Data 완료 표시가 유실돼도 직접 재시도/relay가 같은 결과를 받아 완료할 수 있다.
 현재 DeviceTokenUseCase.delete의 Data 완료 표시 실패는 원 삭제 성공을 뒤집지 않고 relay가 복구한다.
 이때 outbox에는 삭제할 토큰·원 ownership·동일 키·필요한 generation만 남기며 일반 로그에는 기록하지 않는다.
-큐 삭제와 후속 RT-only logout은 이 명령의 성공 확인 뒤 진행한다. 둘 다 실패해도 앱에 남은 내구 증거를 반드시
-유지하고, RT-only logout 성공으로 기기 삭제 큐를 임의 소진하지 않는다.
+기기 삭제 큐 항목은 해당 삭제의 성공이 확인됐을 때만 소진한다. **RT-only logout은 기기 DELETE 성공을 기다리는
+조건부 단계가 아니다.** outbox·직접 삭제가 모두 실패해도 원 세션 폐기를 독립적으로 시도하고 로컬 인증을 정리한다.
+각 비동기 단계는 기존 앱의 logoutSessionGeneration을 확인하여 새 로그인 세션의 RT나 로컬 자격을 지우지 않는다.
+기기 삭제 큐는 원 사용자·대상 토큰·ownership·고정 키 및 필요한 인증 맥락을 안전하게 보존하되, 일반 로그나
+새 계정의 삭제 명령으로 옮기지 않는다. RT-only logout 성공으로 미완료 기기 삭제 큐를 소진하지 않는다.
+
+세션/로컬 인증 폐기 뒤 큐의 기존 AT가 무효해졌을 때 재전송 인증을 어떻게 회복할지는 아직 구현·정책 gate다.
+큐 저장만으로 인증된 재전송이 보장된다고 주장하거나 폐기 RT를 기기 DELETE의 새 인증 수단으로 사용하지 않는다.
+이 복구 경로와 실패 주입 검증은 앱 내구 삭제 흐름의 완료 조건이며, 미결이라는 이유로 RT 세션 폐기를 보류하지 않는다.
 
 ### 2.5 DELETE /me
 
@@ -329,6 +336,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | group_challenge_members의 user_id/progress_minutes/usage_date/measured_at 및 생성/수정 시각 | 현재 탈퇴는 원본 보고 행을 유지. user_id는 NOT NULL FK | 그룹 내기 증거 동결을 먼저 검증한 뒤 해당 사용자의 원본 보고 행 전체를 같은 탈퇴 TX에서 hard delete. 단순 nullify/soft delete로 원문을 남기지 않음 |
 | group_challenge_bet_participants의 확정 achieved/achieved_at/progress_minutes/payout·회차/사용자 관계 | 기존 정산/동결 증거 보존 | 원본 날짜별 보고와 구분한 최소 정산 근거. 정산·기존 결과 복구 범위로만 사용, 탈퇴자 프로필/측정 원본 조회 금지. 보존 기간을 새로 무기한 확정하지 않음 |
 | group_members, 혼자 소유한 group | membership leave, 필요 시 close | 남은 주민이 있으면 HOST_WITHDRAW 전체 rollback. 기존 정산 관계 이력 보존 |
+| group_invites.inviter_id/invitee_id 및 상태·초대/응답 시각 | V1의 두 사용자 FK가 NOT NULL. 직접 초대 기능은 미사용이나 테이블은 유지되고 현재 탈퇴 삭제 호출 없음 | inviter_id 또는 invitee_id가 탈퇴자인 행을 상태와 무관하게 같은 중앙 TX에서 hard delete. 다른 사용자끼리의 초대·그룹·기존 링크/정산 증거는 보존 |
 | user_blocks.blocker_id/blocked_id/created_at | 양쪽 NOT NULL users FK. 현재 탈퇴 정리 호출 없음; 차단 writer는 아직 미구현 | blocker 또는 blocked가 탈퇴자인 행 모두 같은 TX에서 hard delete. 한 방향만 삭제하거나 삭제 flag로 관계 원문을 남기지 않음 |
 | user_streaks.user_id/last_session_date/streak_count/longest_streak_count/updated_at | V2 이후 user_id 자체가 PK/FK. 현재 실제 탈퇴 경로에 삭제 없음 | 집중 정산 증거 동결 뒤 같은 TX에서 사용자 streak 행 hard delete. legacy entity의 '현재 withdraw 하드삭제' 주석을 구현 근거로 삼지 않음 |
 | 친구 관계·pin | 친구 soft delete, 관련 pin hard delete | 새 검색/목록은 활성 조건으로 가림 |
@@ -348,9 +356,23 @@ main User 주석은 retention→purge를 언급하지만 현재 조회한 `erase
 
 ### 중앙 TX의 순서 제약
 
-`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 양방향 user_blocks·user_streaks 삭제 및 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
+`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 양방향 group_invites·user_blocks 및 본인 user_streaks 삭제와 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
 
 `socialAccountRepository.deleteByUserId`는 `flushAutomatically` 후 `clearAutomatically`로 영속성 컨텍스트를 비운다. 따라서 user.catColor 등 엔티티 변경을 그 뒤에 붙이면 저장되지 않는다. 모든 엔티티 파기를 앞에 배치하고 마지막 bulk delete 뒤에는 분리된 엔티티를 수정하지 않는다. 멱등 결과 저장은 이 clear를 고려해 명시적으로 영속화하며 사용자 PII 수정의 순서를 뒤집지 않는다.
+
+#### 기존 직접 초대 관계의 파기
+
+`V1__baseline.sql:209~217`의 `group_invites`는 `inviter_id`와 `invitee_id`가 모두 NOT NULL이며 각각 users FK다.
+`GroupInvite.java:26~28`·`GroupInviteRepository.java:13~15`는 직접 초대 기능을 접고 테이블을 유지한다고 명시한다.
+기준 main의 Java 참조는 이 entity/repository 선언에만 있어 현재 서비스·컨트롤러 writer는 확인되지 않는다.
+미사용이라는 사실은 기존 행의 개인 관계·상태·시각 보존 근거가 아니며, `group_invite_links`와 다른 테이블이다.
+
+후속 탈퇴 구현은 users 배타 잠금 아래 `inviter_id = userId OR invitee_id = userId`인 모든 상태의 행을
+같은 중앙 TX에서 삭제한다. nullify나 status 변경으로 관계를 남기지 않는다. 그룹 도메인 정리 함수를 통해
+연결하며 다른 사용자끼리의 초대는 삭제하지 않는다. 향후 직접 초대 writer나 이관 writer를 재활성화한다면
+두 참여 사용자를 UUID 순서로 활성 검사·공유 잠금한 뒤 쓰도록 탈퇴 잠금과 직렬화해야 한다.
+기존 행 fixture는 본인이 초대한 경우/초대받은 경우 각각 PENDING·ACCEPTED·DECLINED와 무관한 타인 행을
+함께 넣어 양방향 파기·타인 보존을 검증하고, 중간 실패 시 초대 행을 포함한 전체 탈퇴 rollback을 확인한다.
 
 #### 집중 태그·캐릭터 장착 writer와 파기 경계
 
@@ -382,11 +404,11 @@ fixture에서 writer 선행이면 삭제에 포함, 탈퇴 선행이면 활성 �
 마커는 정산 재실행 방지에만 쓰며 공개 랭킹/프로필/결과 응답이나 측정 원본 재생에 사용하지 않는다. 새 무기한 보존 기간을 정하지 않는다.
 새 마커 저장소와 실제 FK/settler 전환은 구현 gate이며, 단순 결과 DELETE 뒤 과거 주차를 다시 정산하면 안 된다.
 
-snapshot upsert·결과 확인 writer는 같은 TX의 활성 users 공유 잠금 뒤 해당 행을 쓴다. 주간 settler는 기존 findActiveForUpdate 배타 잠금을 유지하며 공유 잠금으로 약화하지 않는다. 탈퇴도 users 배타 잠금으로 직렬화한다.
+snapshot upsert·결과 확인 writer는 **후속 구현에서** 같은 TX의 활성 users 공유 잠금 뒤 해당 행을 쓰도록 변경해야 한다. 현재 `RankOvertakeNotificationService:44/200`의 REPEATABLE_READ 배치·`LeagueRankSnapshotUpsertRepository:40`의 JDBC upsert와 `LeagueService:262~263`의 acknowledge에는 이 users 잠금이 없으므로 이미 보호되는 경로라고 간주하지 않는다. 주간 settler는 기존 findActiveForUpdate 배타 잠금을 유지하며 공유 잠금으로 약화하지 않는다. 탈퇴도 users 배타 잠금으로 직렬화한다.
 이전 활성 조회나 배치 후보 목록만으로 새 INSERT/재생성을 허용하지 않는다. writer 선행이면 삭제에 포함하고 탈퇴 선행이면 기록을 거절한다.
 주간 마커 전환·개인 결과 파기·랭킹 outbox 중 어느 단계 실패든 중앙 탈퇴 전체를 rollback한다.
 
-[아키텍처 장부](../../architecture/decisions.md)의 ㊃/㊶/㊐에 따라 중앙 커밋과 함께 `user.withdrawn` 랭킹 사건을 내구화한다.
+[아키텍처 장부](../../architecture/decisions.md)의 ㊃/㊶/㊐에 따라 중앙 커밋과 함께 `user.withdrawn` 랭킹 사건을 내구화하는 것이 목표다. 해당 Redis 랭킹 소비자·outbox 실행 경로는 향후 랭킹 계층이 존재하고 통합·검증된 뒤의 활성화 조건이며, 현재 chat presence 구현을 이 랭킹 제거의 완료 근거로 사용하지 않는다.
 랭킹 소비자는 사용자 tombstone/단조 version 기록과 **모든 주차 ZSET + 진행 중 presence 제거**를 같은 원자 처리로 적용한다.
 ZREM만 하고 presence를 남기지 않으며 eventId dedup만으로 오래된 점수를 수용하지 않는다. 늦은 live/daily 점수·DLT·리컨실은 tombstone에서 거절한다.
 탈퇴 tombstone의 수명은 재생 가능한 원본보다 짧게 잡지 않으며 최소 정보로 유지한다. relay 전송 실패는 중앙 탈퇴를 재실행하지 않고 같은 사건을 재전달한다.
@@ -517,11 +539,12 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | legacy 게스트 승격 커밋 뒤 응답 유실·앱 원자 저장 실패·동시 같은 원RT | 같은 승격 receipt의 동일 sid/AT/RT 복구, userId/지갑/집중/그룹 보존, 새 guest·중복 세션·옛 해시 부활0 |
 | 승격 복구와 logout/탈퇴/후속회전·복구창 종료 경쟁 | 폐기 자격 재생0, 복구창/토큰 만료 연장0, 게스트 장기 복구 gate 충족 전 출시 금지 |
 | legacy guest RT 첫 refresh·다중 기기 | 계정 손실 0, B 로그인/A logout이 다른 기기 RT를 지우지 않음 |
-| logout RT-only·만료 AT 동봉·타 세션 AT | RT-only 성공, 잘못 동봉한 AT는 401, prefix 인증 예외 없음 |
+| logout RT-only·실제 기존 발급기 AT/RT·만료/타 세션 AT | RT-only 및 RT 해시→세션 행 id와 일치하는 sid AT는 최초/재생 성공. 행 증명 없는 혼합·타 세션·잘못 동봉한 AT는401, prefix 인증 예외 없음 |
 | logout 응답 유실·중복·회전 전 RT 재사용 | 실제 폐기 증명만 200 재생, sessionEpoch 전진/bootstrap 폐기 1회, 기기 삭제 outbox 0건, 옛 RT 거부 |
 | 기기 삭제 적용 후 응답/완료 표시 유실·재등록 뒤 동일키 재시도 | 직접/relay 같은 K:device-delete, 원 성공 재생이 옛 ownership 거절보다 먼저, 새 등록 재삭제0 |
 | 같은 기기 삭제 키에 다른 대상/ownership/주체 |409 또는 인가 거절, 원 결과/기기 자격 노출0 |
-| 기기 DELETE와 RT-only logout 분리·지연 삭제 | RT만으로 타 기기 등록 삭제 0, DELETE만 대상 토큰/ownership outbox 기록, 신규 ownership 등록을 옛 삭제가 제거하지 않음 |
+| 기기 DELETE와 RT-only logout 분리·지연 삭제 | outbox/직접 삭제 양쪽 실패에도 RT 폐기·원 세션 로컬 정리 진행, 미완료 큐/원 키 보존·새 로그인 자격 보존. 폐기 뒤 재전송 인증 복구는 별도 gate, RT-only 성공을 기기 삭제 성공으로 오인하지 않음 |
+| group_invites 양방향·전체 상태·타인 초대와 탈퇴 rollback | inviter 또는 invitee가 본인인 행만 전량 삭제, 무관한 타인 초대 보존, 실패 시 초대/계정/환불/outbox 전체 rollback |
 | 공지 생성·타인 수정과 탈퇴의 양방향 경쟁·중간 실패 | 생성 선행이면 user_id=null, 탈퇴 선행이면 생성 USER_NOT_FOUND. 타인 수정의 지연 flush도 작성자 FK 부활 0, 공지 내용 보존, rollback 시 작성자 연결도 복구 |
 | setupFocusTag/updateFocusTag·태그 복원/관리·세션 재연결과 탈퇴 양방향 경합 | 같은 users 잠금, 이름 변경이 만든 새 채택/세션 연결도 파기·탈퇴 뒤 귀속 부활0, 공유 태그·타인 채택 보존 |
 | character_equipment full fixture·equip/unequip/복원과 탈퇴 양방향 경합·강제 rollback | 대상 장착0·타인 장착 및 user_items/원장 보존, 지연 flush 부활0, 실패 시 태그/장착/세션 연결 포함 전체 rollback |
