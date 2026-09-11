@@ -269,8 +269,18 @@
           "user"
         ],
         "summary": "알림·심야·소리 설정 저장",
-        "description": "유저 전역 알림/심야 모드/소리 설정 저장. 성공 시 204 반환.",
+        "description": "유저 전역 알림/심야 모드/소리 설정 저장. 성공 시 204 반환. 선택 Idempotency-Key를 재시도에서 유지하면 같은 명령을 재생한다.",
         "operationId": "updateNotificationSettings",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -290,6 +300,9 @@
           },
           "404": {
             "description": "유저 없음"
+          },
+          "409": {
+            "description": "같은 멱등 키에 다른 설정 본문"
           }
         }
       }
