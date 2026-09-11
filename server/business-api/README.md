@@ -130,7 +130,7 @@ docker compose logs -f business-api
 ./gradlew bootRun
 ```
 
-로컬 Compose는 `127.0.0.1:8082`만 publish한다. 관리 포트 `9091`은 컨테이너 내부 전용이다. dev는 기존 compose에 `server/scripts/docker-compose.business.yml`을 덧씌워 수동 활성화한다. CI는 독립 Gradle 홈에서 테스트·Checkstyle·SpotBugs·bootJar, Docker 빌드를 검증하고 main push에서만 GAR에 SHA와 latest 태그를 올린다. 자동 배포는 추가하지 않는다. 운영 활성화에는 라우팅·TLS와 Google API 키 설정이 필요하다.
+로컬 Compose는 `127.0.0.1:8082`만 publish한다. 관리 포트 `9091`은 컨테이너 내부 전용이다. dev는 기존 compose에 `server/scripts/docker-compose.business.yml`을 덧씌워 수동 활성화한다. CI는 도구가 설치된 테스트 컨테이너와 독립 Gradle 홈에서 테스트·Checkstyle·SpotBugs·bootJar, Docker 빌드를 검증하고 main push에서만 GAR에 SHA와 latest 태그를 올린다. 자동 배포는 추가하지 않는다. 운영 활성화에는 라우팅·TLS와 Google API 키 설정이 필요하다.
 
 ## 로그 확인
 

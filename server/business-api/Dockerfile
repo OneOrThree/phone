@@ -1,3 +1,9 @@
+# CI 검증 도구는 러너 호스트에 설치하지 않는다.
+FROM eclipse-temurin:17-jdk-jammy AS test
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
 FROM --platform=$BUILDPLATFORM eclipse-temurin:17-jdk-jammy AS builder
 WORKDIR /app
 COPY gradlew build.gradle settings.gradle ./
