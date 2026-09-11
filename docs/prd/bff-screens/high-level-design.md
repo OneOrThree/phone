@@ -21,6 +21,10 @@ flowchart LR
 
 공통 ScreenComposer는 독립 GET 병렬 처리·예산·취소를 제공한다. 초기 13개 화면의 주요 재료는 하나의 Data 원자 읽기 묶음이므로 R 조각 하나로 호출할 수 있다. 원래 작은 도메인 query들을 Data facade에서 재사용한다. 공개 도메인 API를 제거하거나 새로운 HTTP 클라이언트·BFF 전용 DB를 만드는 구조가 아니다.
 
+이 묶음은 기술 결정 D42가 채택한 [아키텍처 A9](../../architecture/decisions.md)의 접근 패턴 예외다. 서로 다른 자원의 인가·잔액·보유·진행 상태를 하나의 DB snapshot에서 읽어야 하는 경우로 한정하며, 단순 화면 추가나 필드 조합은 기존 정규 리소스·ids 배치와 Business 조합을 따른다. 예외의 내부 표면은 LLD §3의 13개 GET으로 제한하고 임의 화면 이름이나 wildcard allowlist로 확장하지 않는다.
+
+앱의 `/screens/...` 요청은 Nginx를 거쳐 Business로 진입한다. 사용자 무접두 결정에 따라 [선행 PR744](https://github.com/OneOrThree/phone/pull/744)가 `/screens`와 그 하위의 ingress 설정을 제공한다. 이 설계는 해당 설정과 BFF 제공자의 통합·배포 검증을 BG08로 요구하며, 기존 `/api/v1` 계약을 바꾸거나 현재 운영 도달성을 가정하지 않는다.
+
 ```mermaid
 sequenceDiagram
   participant A as 앱

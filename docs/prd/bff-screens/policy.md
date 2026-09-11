@@ -5,7 +5,7 @@
 | ID | 규칙 | 근거·상태 |
 | --- | --- | --- |
 | B01 | 신규 GET /screens13종. 도메인66계약과 별도로 보존 | 사용자 화면당1콜 결정·1784~1787 |
-| B02 | 적용 가능한 재료는 단일 Data read-model snapshot의 R(필수) 묶음 | 승인된 초기 기술 선택. Business 다중HTTP에 DB원자성을 기대하지 않음 |
+| B02 | 적용 가능한 재료는 단일 Data read-model snapshot의 R(필수) 묶음 | 기술 결정 D42. [아키텍처 A9](../../architecture/decisions.md)의 “접근 패턴이 근본적으로 다를 때” 예외를 교차 리소스 원자 조회에 한정한다. 새 화면 자체는 예외 사유가 아니다 |
 | B03 | N은 검증된 비적용으로 **조회하지 않음**. 실제403은 전체 실패 | A0·PR741.1786의 권한 없는 조각 문구를 이 의미로 구체화 |
 | B04 | 초기 13개에 O(일시 실패 선택 조각)는 없음 | 승인된 기술 선택. 동일DB TX 실패를 부분 성공으로 꾸미지 않음 |
 | B05 | 추후 독립O를 추가하려면 공개 상태/복구/시간 차 허용을 개정. 허용된 일시 실패만null | A0. auth·계약 실패·전체504는 항상 화면 전체 실패 |
@@ -49,6 +49,7 @@ availability의 available은 해당 조각이 도메인 계약대로 조회됐�
 | BG04 | 신규 me/catColor 및 inventory·미디어 소유/길이·1759/1783 섬 외양 버전 및1765/1783 집중 주민 개인 외양 버전 제공 | boat/sound/shop 및 해당 섬 화면. 예시색/무료곡/샘플완공을 운영기본값으로 쓰지 않음. 두 appearanceVersion의 각 정본 직접매핑·역순 외양사건·늦은 GET 응답 회귀 필요. 집중 주민의 도메인 GET/BFF가 같은 개인 외양 버전을 제공하기 전 focus 화면 활성화 금지 |
 | BG05 | private 비소속 visit의 초대 읽기자격 전달 | 기존 무자격GET403 유지. 원본resolve 공개요약 재사용 또는 명시자격 read-model 연동 전 해당 private 진입 활성화 금지 |
 | BG06 | PR744의 구조화된 영구5xx strict 분류와 실제 HTTP 회귀 | 신규 public+composition 엄격 분류는 수정 중. legacy 동기호환과 분리하고 완료/배포로 가정하지 않음 |
-| BG07 | Data 화면 read-model GET 제공자·정확 allowlist·strict DTO·인가/snapshot 검증 |13개 BFF controller만 추가해 완료로 계산하지 않음 |
+| BG07 | Data 화면 read-model GET 제공자·정확 allowlist·strict DTO·인가/snapshot 검증 | A9의 D42 예외 범위와 LLD §3의 13개 GET을 대조하고 기존 query 모듈을 재사용한다. 13개 BFF controller만 추가해 완료로 계산하지 않음 |
+| BG08 | PR744의 무접두 `/screens` ingress 설정 통합·배포 확인 | `/screens` 및 `/` 하위의 Business 연결과 URI 보존, 유사 접두어 제외·내부 경로 차단을 실제 배포 구성에서 검증하기 전 해당 화면 활성화 금지. 설정 예시·로컬 회귀가 운영 적용 완료의 증거는 아니다 |
 
 현재 작업은 설계이며 O가 없다는 선택이 향후 제품 부분 실패 지원을 영구 금지하지 않는다. O를 추가할 때도 N의 의미와 auth 실패 처리를 바꾸지 않는다.

@@ -702,6 +702,8 @@ manage의 joinRequestsAvailability는 available|host_only다. available은현재
 
 ### 단일 read-model 제공자
 
+**A9 예외의 범위:** [아키텍처 A9](../../architecture/decisions.md)의 기본은 정규 리소스와 `ids` 배치다. 기술 결정 D42는 아래 13개 화면에서 적용되는 R 재료와 현재 인가를 같은 DB snapshot으로 읽는 접근 패턴에 한해 원자 read-model을 채택했다. 단순 새 화면·필드 조합만으로 내부 API를 늘리는 일반 허가는 아니다. 기존 query 모듈을 단일 Data TX 안에서 재사용하고, 아래 정확 GET 경로 외 추가·변경은 원자 조회 필요성과 A9 예외 범위를 다시 검토한다. Business의 화면 DTO·N 상태 매핑 책임과 공개 도메인 GET은 유지한다.
+
 Business 화면 usecase는 필터가 검증한 subject/자격과 서버 requestId를 받고, **currentcontext 조회 전에** `ScreenComposer.start`로 전체 deadline을 시작한다. 기존 InternalHttpClient를 통해 화면별R read-model 한 개를 부른다.13개 내부 GET 경로를 다음처럼 제안하며 아직 존재하는 endpoint라고 주장하지 않는다.
 
 | 공개 화면 | 내부 GET 제안 | 같은 Data snapshot에서 읽을 모듈 |
@@ -800,12 +802,13 @@ playback.positionSeconds는effectiveAt에서의위치다. BFFasOf를effectiveAt�
 
 1. 각 도메인의미결정책/typed공개 DTO·현재session/context/물리aggregate를완료한다. source22개GET를기계적인alias로만들지않는다.
 2. Data화면 read-model13종과query모듈재사용·정확GETallowlist·lifecycle인가·단일 snapshot을구현한다. 원 도메인 public endpoint를HTTP재호출하지 않는다.
-3. PR744strict5xx·취소/queue회귀를확인하고Business1785/1786/1787의typedDTO와R/N응답매퍼를연결한다. Controller/registry/공통조합기소유중복을조정한다.
+3. PR744strict5xx·취소/queue회귀를확인하고Business1785/1786/1787의typedDTO와R/N응답매퍼를연결한다. Controller/registry/공통조합기소유중복을조정한다. PR744의 `/screens` ingress 설정도 통합하고 실제 배포 구성에서 무접두 URI가 Business에 도달하는지 BG08을 검증한다.
 4. 앱에N상태·watermark/기존도메인 cursor복구를연결하고BFF후즉시중복GET를제거한다. 사용자쓰기 행동은기존API로유지한다.
 5. 실제 HTTP·PostgreSQL·WebSocket/부하에서아래케이스를검증한후화면별활성화한다.
 
 | 실제검증 | 실패를찾는지점 |
 | --- | --- |
+|실제 ingress의 `/screens`·하위 URI/쿼리 보존, `/screens-other` 제외·내부 경로 차단|Nginx 미연결·잘못된 prefix 재작성·내부 노출|
 |13화면정상·각R실패·N미호출조회횟수|누락재료·권한없는query실행·오류null축소|
 |영구500/502·known503·403부분본문·빈200/204·깨진DTO|strict분류·실제null의미·조기전체 실패|
 |전체 deadline/큐포화/형제작업취소·연결반환|초과뒤200·유휴worker/소켓누수|
@@ -826,5 +829,7 @@ playback.positionSeconds는effectiveAt에서의위치다. BFFasOf를effectiveAt�
 - [UpstreamRequestContext:20~24/89~96](https://github.com/OneOrThree/phone/blob/2e11b50b4/server/business-api/src/main/java/com/oneorthree/business/common/http/UpstreamRequestContext.java#L20):subject/deadline/취소/GET-only는있지만currentIslandId·역할·시설·sessionproof는BFF도메인context가별도로검증해야한다.
 - [ReadFragment:10~22](https://github.com/OneOrThree/phone/blob/2e11b50b4/server/business-api/src/main/java/com/oneorthree/business/common/http/ReadFragment.java#L10):responseType등록은strict필드검증이아니다.
 - [기준HTTP:233~288](https://github.com/OneOrThree/phone/blob/2e11b50b4/server/business-api/src/main/java/com/oneorthree/business/common/http/InternalHttpClient.java#L233):빈2xx/기존5xx분류한계를이번문서가완료구현으로포장하지 않는다. 최신보완은[PR744](https://github.com/OneOrThree/phone/pull/744)의별도검증gate다.
+
+- [PR744 ingress 설정](https://github.com/OneOrThree/phone/blob/a0a621f1ad587048806849f3942b623da7c96fbd/server/scripts/nginx-satellites.include.conf.example#L26): `/screens` 정확 루트·하위를 Business에 연결하고 URI를 재작성하지 않는다. [실제 Nginx 회귀](https://github.com/OneOrThree/phone/blob/a0a621f1ad587048806849f3942b623da7c96fbd/.github/scripts/test_public_api_ingress.py#L129)는 루트/하위/쿼리 보존과 유사 접두어 제외·내부 차단을 검증하는 기반이다. 이 예시 파일의 존재를 운영 Nginx에 적용됐다는 증거로 쓰지 않으며 BG08은 별도 배포 검증이다.
 
 기준main529a와core의차이,선행도메인PR문서와실제배포상태를구분한다. public route패턴에/screens가등록되어있어도이문서의13개endpoint가이미동작한다는증거는아니다.
