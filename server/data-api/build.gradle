@@ -151,6 +151,9 @@ tasks.withType(Javadoc).configureEach {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// 전체 통합 테스트의 Spring 컨텍스트·Kafka/HTTP 자원 보관을 제한한다. 운영 JVM과 무관하다.
+	maxHeapSize = '1g'
+	systemProperty 'spring.test.context.cache.maxSize', '8'
 	// 테스트 완료 후 JaCoCo 리포트 자동 생성
 	finalizedBy jacocoTestReport
 }
