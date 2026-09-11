@@ -561,6 +561,41 @@ paths:
       x-idempotent: true
       x-retryable: true
 
+  /internal/invite-links/claim-intents/{commandId}/abandoned:
+    post:
+      tags: [data-초대]
+      operationId: abandonClaimIntent
+      summary: 확정할 것이 없던 의도를 요청자 자신이 종결 — 사용자 위임
+      description: |
+        **`claimId=null` 의 의도를 닫는 유일한 손이다.** 링크 서버가 셀프 초대·붙일 클릭 없음에
+        `claimId: null` 을 «정상»으로 주면(`link/src/lib/links.ts:145·149`) 확정 호출이 없고, 확정이
+        없으면 `claim-confirmations` 가 의도를 닫아 주지도 못한다. 그 한 건이 `PENDING` 으로 남으면
+        `pendingTotal` 이 0 이 되지 않아 **정상 처리된 claim 이 「미완료 0」 gate 를 영구히 막는다**.
+
+        ⚠️ **`/completed` 를 요청 경로가 빌려 쓰게 하지 말 것.** 그것은 lease 를 쥔 **서비스 전용**
+        재개 표면이고, 요청 경로에 그 권한을 주면 임의 의도를 선점·완료할 수 있게 된다. 이 경로는
+        **소유자 검사를 조회 조건에 박은** 최소 권한 표면이다 — 남의 `commandId` 로는 아무것도 닫지 못한다.
+
+        ⚠️ **`outbox-commands/{id}/delivered` 로 닫을 수 없다.** 그쪽은 봉투의 `eventId` 로 **알림 대상
+        전달**을 닫는 경로이고, claim 의도는 outbox 행이 아니다(아무 데도 안 가는 봉투는 유실과 구분되지
+        않으므로 의도는 Data 소유 상태로 남는다) — 의도 id 를 그 경로에 보내면 **항상 404** 다.
+
+        종결 상태는 `ABANDONED` 다(확정이 없었으므로 「확정까지 끝났다」로 적으면 원장이 거짓이 된다).
+        이미 종결된 의도에 다시 와도 **200**(멱등) — 요청 경로는 이 호출의 실패를 삼키므로, 409 로
+        답하면 정상 재시도가 오류 로그로만 쌓인다.
+      parameters:
+        - $ref: '#/components/parameters/CommandIdPath'
+        - $ref: '#/components/parameters/XUserId'
+      responses:
+        '200': { description: 종결됨(또는 이미 종결 — 멱등) }
+        '404':
+          description: |
+            없거나 **요청자의 것이 아니다** — 둘을 한 코드로 접는다(`CLAIM_INTENT_NOT_FOUND`).
+            존재 여부가 응답으로 갈리면 그 자체가 남의 의도 id 를 탐색하는 수단이다.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+      x-idempotent: true
+      x-retryable: true
+
   /internal/invite-links/claim-confirmations:
     post:
       tags: [data-초대]
@@ -1335,7 +1370,8 @@ components:
       schema: { type: string, maxLength: 200 }
       description: |
         **키 소유자는 앱**이다(A22 ㉼) — 호출자는 첫 응답 전엔 `eventId` 를 모르고 Business 는 무상태라
-        앱 재시도마다 새 키가 생긴다. Business 는 앱이 보낸 값에 단계별 접미(`:<step>`)를 붙여 파생한다
+        앱 재시도마다 새 키가 생긴다. 공개 Business 입력은 150자 이내이며 초과는 400이다.
+        이 내부 표면의 200자 한도는 단계 접미를 포함한다. Business 는 앱이 보낸 값에 단계별 접미(`:<step>`)를 붙여 파생한다
         (한 키를 여러 상류에 그대로 보내면 두 저장소의 멱등 테이블이 서로 다른 명령을 같은 키로 본다).
 
         수신 측은 UNIQUE 저장 후 **응답을 재생**한다. ⚠️ **요청 본문 해시를 영구 멱등키로 쓰지 말라**

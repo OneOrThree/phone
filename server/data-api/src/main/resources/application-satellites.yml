@@ -25,6 +25,7 @@ internal:
           - 'GET /internal/invite-links/claim-intents'
           - 'POST /internal/invite-links/claim-intents/*/lease'
           - 'POST /internal/invite-links/claim-intents/*/completed'
+          - 'POST /internal/invite-links/claim-intents/*/abandoned'
           - 'POST /internal/invite-links/claim-confirmations'
           - 'GET /internal/migrations/*/invite-link-clicks/candidates'
           - 'POST /internal/users/*/challenge-results/*/claim'

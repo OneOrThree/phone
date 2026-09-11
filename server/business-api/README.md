@@ -62,7 +62,7 @@ tombstone 을 우회**한다(A22 ㊍).
 기기 토큰 삭제가 일시 오류 한 번에 영구 실패하고, 앱은 그 실패를 삼키고 로컬 토큰을 지워 사용자가
 재시도할 방법이 없다. 결과 선점·ack 는 조건부 원자 UPDATE 라 **재시도하지 않는다**.
 
-`Idempotency-Key` 는 **앱이 소유**한다(A22 ㉼). Business 는 그 값에 단계별 접미(`:<step>`)를 붙여
+`Idempotency-Key` 는 **앱이 소유**한다(A22 ㉼). 공개 입력은 150자 이내이며 초과는 상류 호출 전 400으로 거부한다. Business 는 그 값에 단계별 접미(`:<step>`)를 붙여
 파생하고, **재시도에서 같은 값을 유지**한다. 구 앱은 키를 안 보내므로 매 호출 새 키가 되고, 그 기간엔
 「Business 내부 재시도만 보호」로 인정한다. **요청 본문 해시를 영구 멱등키로 쓰지 않는다**(A22 ㊞).
 
@@ -76,7 +76,7 @@ tombstone 을 우회**한다(A22 ㊍).
 
 ### Data API — `/internal/*` 컨트롤러 **0건**
 실제 확인: `grep -rn "/internal" server/data-api/src/main/java` → 0건 (main `69d05f873`).
-필요한 14개 경로는 `docs/contracts/business-satellite-api.yaml` 에 스키마·상태·멱등까지 정의했다.
+필요한 15개 경로는 `docs/contracts/business-satellite-api.yaml` 에 스키마·상태·멱등까지 정의했다.
 가장 놓치기 쉬운 것들:
 - `activation` 응답에 **`authGeneration` 을 담지 말 것** — 담으면 AT 의 빈 `gen` 을 채우려는 유혹이
   생기고 그게 tombstone 우회다(㊍).
@@ -86,7 +86,13 @@ tombstone 을 우회**한다(A22 ㊍).
   클릭을 하나 더 소진한다. 그리고 **`pendingTotal`**(인플라이트 포함 전체 미완료)을 줘야 한다 —
   「빈 페이지 = 전부 완료」로 접으면 미완료를 남긴 채 절차가 넘어간다.
 - `claim-intents/{id}/lease` 는 **`leaseToken` 을 발급**하고 `.../completed` 는 그것으로 **CAS** 해야
-  한다. 없으면 임대 만료 뒤 깨어난 옛 작업자가 새 임대의 작업을 완료로 뺀다.
+  한다. 없으면 임대 만료 뒤 깨어난 옛 작업자가 새 임대의 작업을 완료로 뺀다. 그리고 **확정이 의도를
+  닫을 때 그 리스의 토큰을 완료 토큰으로 물려받아야** 한다 — `null` 로 닫으면 확정을 몰고 온 그
+  실행자의 완료 보고가 409 가 되어 성공한 재개가 실패로 세어진다.
+- `claim-intents/{id}/abandoned` 는 **`claimId=null`(셀프 초대·붙일 클릭 없음)의 의도를 닫는 유일한
+  손**이다. 확정이 없으면 Data 도 큐를 닫아 주지 못하므로, 이 경로가 없으면 정상 처리된 claim 이
+  `pendingTotal` 에 영구히 남는다. `outbox-commands/{id}/delivered` 로는 닫히지 않는다(그쪽은 봉투
+  `eventId` 로 알림 전달을 닫는 경로라 의도 id 는 **항상 404**).
 - 커서는 **시각이 아니라 commit sequence** — 시각 커서는 늦게 커밋된 행을 영구히 건너뛴다(㋖).
 - `DurableCommandAck.version` 은 **aggregate 행 잠금 아래** 발급(㊸).
 

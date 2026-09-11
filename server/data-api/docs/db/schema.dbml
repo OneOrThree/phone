@@ -1141,7 +1141,7 @@ Table aggregate_versions [note: '순서용 version 발급구 (V51, A22 ㊸) — 
 }
 
 Table command_idempotency [note: '명령 멱등 기록 (V51, A21 · A22 ㊼) — 키의 소유자는 앱이다. 커밋 직후 응답이 유실돼 같은 POST 가 다시 오면 두 번째 트랜잭션이 새 도메인 객체와 새 outbox 행을 만든다'] {
-  idempotency_key     varchar(200) [pk, note: '앱이 재시도 간 보존하는 키 (Idempotency-Key 헤더)']
+  idempotency_key     varchar(200) [pk, note: 'SHA-256(userId + NUL + Idempotency-Key 헤더)의 64자 hex. 원 요청 키는 사용자별로 격리한다']
   user_id             uuid         [not null, note: '명령 주체']
   command_type        varchar(100) [not null]
   request_fingerprint varchar(64)  [not null, note: 'SHA-256 hex. «영구 멱등 키가 아니다» — 계약 §3 이 본문 해시를 키로 쓰는 것을 금지한다. 같은 키로 «다른» 본문이 왔는지만 본다']

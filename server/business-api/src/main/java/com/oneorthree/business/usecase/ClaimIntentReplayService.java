@@ -33,6 +33,10 @@ import java.time.Duration;
  * 멱등 저장이 이 claim 을 «새 명령»으로 보아 <b>클릭을 하나 더 소진</b>한다. 키가 비어 오면
  * 재생하지 않고 실패로 센다.
  *
+ * <p>그래서 저장값에서 <b>base 를 복원</b>해 쓴다({@link RequestIdempotencyKeys#fromStepKey}) —
+ * 저장된 것은 원 요청이 «적재 단계»에 쓴 {@code base:claim-intent} 이고, 그것을 base 로 삼으면
+ * 파생 키가 원 시도와 달라진다.
+ *
  * <h2>lease 는 토큰으로 CAS 한다</h2>
  * {@code leased} 만 보면 <b>임대가 만료된 뒤 깨어난 옛 작업자가 「새 임대 소유자의 작업」을 완료
  * 표시</b>해 확정되지 않은 claim 이 큐에서 사라진다. 그래서 임대에 묶인 {@code leaseToken} 을 받아
@@ -155,7 +159,12 @@ public class ClaimIntentReplayService {
         }
 
         try {
-            RequestIdempotencyKeys keys = RequestIdempotencyKeys.from(intent.idempotencyKey());
+            // 저장값은 원 요청이 «적재 단계»에 쓴 키(base:claim-intent)다 — 그 값을 다시 base 로 삼으면
+            // 링크 claim 키가 base:claim-intent:link-claim 이 되어 원 시도의 base:link-claim 과 달라진다.
+            // 상류의 자연키 방어(링크 link_claims · Data findByClaimId)가 지금은 중복을 막아 주지만,
+            // 그중 하나라도 걷히는 날 이 키 차이가 곧 클릭 중복 소진이다.
+            RequestIdempotencyKeys keys =
+                    RequestIdempotencyKeys.fromStepKey(intent.idempotencyKey(), "claim-intent");
             LinkClaimResult pending =
                     linkApiClient.claim(intent.userId(), intent.slug(), keys.forStep("link-claim"), deadline);
 

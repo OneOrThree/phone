@@ -9,7 +9,10 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
+import com.oneorthree.phone.invitelink.repository.InviteClaimIntentRepository;
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.domain.InviteClaimIntent;
+import com.oneorthree.phone.invitelink.repository.domain.InviteClaimIntentStatus;
 import com.oneorthree.phone.outbox.repository.EventOutboxDeliveryRepository;
 import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
 import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
@@ -94,6 +97,8 @@ class InternalSurfaceIntegrationTest {
                 () -> "POST /internal/invite-links/claim-intents/*/lease");
         registry.add("internal.api.callers.business.allow[10]",
                 () -> "POST /internal/invite-links/claim-intents/*/completed");
+        registry.add("internal.api.callers.business.allow[11]",
+                () -> "POST /internal/invite-links/claim-intents/*/abandoned");
         registry.add("internal.api.callers.notification.token", () -> NOTI_TOKEN);
         registry.add("internal.api.callers.notification.allow[0]",
                 () -> "GET /internal/users/*/result-ack");
@@ -137,6 +142,8 @@ class InternalSurfaceIntegrationTest {
     @Autowired
     EventOutboxDeliveryRepository eventOutboxDeliveryRepository;
     @Autowired
+    InviteClaimIntentRepository inviteClaimIntentRepository;
+    @Autowired
     PlatformTransactionManager transactionManager;
 
     private TransactionTemplate tx() {
@@ -162,6 +169,10 @@ class InternalSurfaceIntegrationTest {
                     .build());
             return group;
         });
+    }
+
+    private InviteClaimIntent intentOf(String commandId) {
+        return inviteClaimIntentRepository.findById(UUID.fromString(commandId)).orElseThrow();
     }
 
     private List<EventOutbox> envelopesOf(UUID userId, String type) {
@@ -521,6 +532,167 @@ class InternalSurfaceIntegrationTest {
                         .contentType("application/json")
                         .content("{\"leaseToken\":\"" + leaseToken + "\"}"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("재개가 «확정으로» 끝낸 의도는 그 리스의 완료 보고를 200 으로 받는다 — 성공한 재개를 실패로 세지 않는다")
+    void completionAfterConfirmationAcceptsTheLeaseThatDroveIt() throws Exception {
+        UUID ownerId = newUser();
+        UUID claimerId = newUser();
+        Group group = newGroup(ownerId);
+        long exp = Instant.now().getEpochSecond() + 300;
+
+        String commandId = commandIdOf(enqueueIntent(claimerId, "rsm001"));
+
+        // 재개 실행자의 순서 그대로다 — lease → 링크 잠정(여기선 자격 생성) → Data 확정 → 완료 보고.
+        String leaseToken = valueOf(mockMvc.perform(
+                        post("/internal/invite-links/claim-intents/{id}/lease", commandId)
+                                .header("Authorization", "Bearer " + BIZ_TOKEN)
+                                .contentType("application/json")
+                                .content("{\"leaseSeconds\":60}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.leased").value(true))
+                .andReturn().getResponse().getContentAsString(), "leaseToken");
+
+        mockMvc.perform(post("/internal/invite-links/claim-confirmations")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", claimerId.toString())
+                        .header("Idempotency-Key", "rsm001:claim-confirm")
+                        .contentType("application/json")
+                        .content("{\"claimId\":\"" + UUID.randomUUID()
+                                + "\",\"slug\":\"rsm001\",\"capability\":\""
+                                + capability("rsm001", group.getId(), ownerId, 1L, exp) + "\"}"))
+                .andExpect(status().isOk());
+
+        // 확정이 의도를 닫는다 — 그때 «그 리스의 토큰»을 완료 토큰으로 물려받아야 한다. null 로 닫으면
+        // 바로 뒤에 오는 이 보고가 409 가 되어 성공한 재개가 실패로 세어지고, 그 실패가 gate 를 막는다.
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/completed", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .contentType("application/json")
+                        .content("{\"leaseToken\":\"" + leaseToken + "\"}"))
+                .andExpect(status().isOk());
+        // 응답이 유실돼 같은 보고가 다시 와도 200 이다.
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/completed", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .contentType("application/json")
+                        .content("{\"leaseToken\":\"" + leaseToken + "\"}"))
+                .andExpect(status().isOk());
+
+        // 그러나 «다른 토큰»은 그대로 409 다 — 펜싱이 느슨해지지 않았다.
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/completed", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .contentType("application/json")
+                        .content("{\"leaseToken\":\"" + UUID.randomUUID() + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CLAIM_INTENT_LEASE_STALE"));
+
+        InviteClaimIntent closed = intentOf(commandId);
+        assertThat(closed.getStatus()).isEqualTo(InviteClaimIntentStatus.CONSUMED);
+        assertThat(closed.getCompletedByLeaseToken()).isEqualTo(UUID.fromString(leaseToken));
+    }
+
+    @Test
+    @DisplayName("리스가 재선점되면 옛 실행자의 완료 보고는 확정 뒤에도 409 — 새 소유자의 것만 닫는다")
+    void reLeasedIntentStillFencesTheExpiredWorker() throws Exception {
+        UUID ownerId = newUser();
+        UUID claimerId = newUser();
+        Group group = newGroup(ownerId);
+        long exp = Instant.now().getEpochSecond() + 300;
+
+        String commandId = commandIdOf(enqueueIntent(claimerId, "rsm002"));
+
+        String expiredToken = valueOf(mockMvc.perform(
+                        post("/internal/invite-links/claim-intents/{id}/lease", commandId)
+                                .header("Authorization", "Bearer " + BIZ_TOKEN)
+                                .contentType("application/json")
+                                .content("{\"leaseSeconds\":60}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(), "leaseToken");
+
+        // A 의 리스를 만료시킨다 — 실제로는 A 가 느려진 사이 시간이 지난 상태다.
+        tx().executeWithoutResult(state -> intentOf(commandId)
+                .lease("expired-worker", UUID.fromString(expiredToken), Instant.now().minusSeconds(1)));
+
+        String freshToken = valueOf(mockMvc.perform(
+                        post("/internal/invite-links/claim-intents/{id}/lease", commandId)
+                                .header("Authorization", "Bearer " + BIZ_TOKEN)
+                                .contentType("application/json")
+                                .content("{\"leaseSeconds\":60}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.leased").value(true))
+                .andReturn().getResponse().getContentAsString(), "leaseToken");
+        assertThat(freshToken).isNotEqualTo(expiredToken);
+
+        mockMvc.perform(post("/internal/invite-links/claim-confirmations")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", claimerId.toString())
+                        .header("Idempotency-Key", "rsm002:claim-confirm")
+                        .contentType("application/json")
+                        .content("{\"claimId\":\"" + UUID.randomUUID()
+                                + "\",\"slug\":\"rsm002\",\"capability\":\""
+                                + capability("rsm002", group.getId(), ownerId, 1L, exp) + "\"}"))
+                .andExpect(status().isOk());
+
+        // 뒤늦게 깨어난 A. 확정이 끝났어도 이 보고는 받지 않는다 — 받으면 「낡은 완료 표시」를 거부하는
+        // 장치가 통째로 사라진다.
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/completed", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .contentType("application/json")
+                        .content("{\"leaseToken\":\"" + expiredToken + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CLAIM_INTENT_LEASE_STALE"));
+
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/completed", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .contentType("application/json")
+                        .content("{\"leaseToken\":\"" + freshToken + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("확정이 없던 의도는 주인이 종결한다 — 남의 것은 404 고, outbox 완료표시로는 애초에 닫히지 않는다")
+    void ownerAbandonsIntentThatHadNothingToConfirm() throws Exception {
+        UUID userId = newUser();
+        UUID strangerId = newUser();
+
+        String commandId = commandIdOf(enqueueIntent(userId, "rsm003"));
+
+        // ⚠️ 이 경로로 의도를 닫으려던 배선이 있었다 — 봉투 eventId 로 «알림 대상 전달»을 닫는 경로라
+        // 의도 id 로는 항상 404 다. 그 실패는 조용히 삼켜지고 의도만 PENDING 으로 남는다.
+        mockMvc.perform(post("/internal/outbox-commands/{id}/delivered", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString()))
+                .andExpect(status().isNotFound());
+        assertThat(intentOf(commandId).getStatus()).isEqualTo(InviteClaimIntentStatus.PENDING);
+
+        // 남의 의도는 「없음」과 같게 접는다 — 존재 여부가 응답으로 갈리면 그 자체가 탐색 수단이다.
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/abandoned", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", strangerId.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CLAIM_INTENT_NOT_FOUND"));
+        assertThat(intentOf(commandId).getStatus()).isEqualTo(InviteClaimIntentStatus.PENDING);
+
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/abandoned", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString()))
+                .andExpect(status().isOk());
+        // 확정이 «없었으므로» CONSUMED 가 아니다 — 그렇게 적으면 원장이 「확정까지 끝났다」고 거짓말한다.
+        assertThat(intentOf(commandId).getStatus()).isEqualTo(InviteClaimIntentStatus.ABANDONED);
+
+        // 재시도는 멱등 성공이다 — 요청 경로가 이 실패를 삼키므로 409 면 정상 재시도가 오류로만 쌓인다.
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/abandoned", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString()))
+                .andExpect(status().isOk());
+
+        // 종결된 의도는 재개 대상 목록에서 빠진다 — 남으면 gate 가 영구히 막힌다.
+        String page = mockMvc.perform(get("/internal/invite-links/claim-intents")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .param("limit", "200"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(page).doesNotContain(commandId);
     }
 
     @Test

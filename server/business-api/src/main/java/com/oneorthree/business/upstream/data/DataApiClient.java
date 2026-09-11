@@ -46,6 +46,8 @@ public class DataApiClient {
             "/internal/invite-links/claim-intents/{commandId}/lease";
     private static final String PATH_CLAIM_INTENT_COMPLETED =
             "/internal/invite-links/claim-intents/{commandId}/completed";
+    private static final String PATH_CLAIM_INTENT_ABANDONED =
+            "/internal/invite-links/claim-intents/{commandId}/abandoned";
     private static final String PATH_FROZEN_CANDIDATES =
             "/internal/migrations/{migrationId}/invite-link-clicks/candidates";
 
@@ -303,6 +305,31 @@ public class DataApiClient {
                 InternalCall.to(HttpMethod.POST,
                                 PATH_CLAIM_INTENT_COMPLETED.replace("{commandId}", commandId.toString()))
                         .body(Map.of("leaseToken", leaseToken.toString()))
+                        .idempotentCommand()
+                        .build(),
+                deadline);
+    }
+
+    /**
+     * 확정할 것이 없던 claim 의도를 <b>요청자 자신이</b> 종결한다 — 사용자 위임 경로다.
+     *
+     * <p>링크가 {@code claimId=null} 을 주면(셀프 초대 · 붙일 클릭 없음) 확정 호출이 없고, 확정이
+     * 없으면 Data 의 확정 경로가 의도를 닫아 주지도 못한다 — 그 한 건이 {@code PENDING} 으로 남아
+     * <b>정상 처리된 claim 이 「미완료 0」 gate 를 영구히 막는다</b>.
+     *
+     * <p><b>{@link #markCommandDelivered} 로 닫을 수 없다.</b> 그쪽은 봉투의 {@code eventId} 로
+     * 「알림 대상 전달」을 닫는 경로이고 claim 의도는 outbox 행이 아니다 — 의도 id 를 그 경로에 보내면
+     * <b>항상 404</b> 다. 반대로 {@code …/completed} 는 lease 를 쥔 <b>서비스 전용</b> 재개 표면이라
+     * 요청 경로가 빌려 쓰면 임의 의도를 선점·완료할 권한이 생긴다.
+     *
+     * <p>이미 종결된 의도에 다시 와도 200 이다(멱등). 이 호출의 실패는 사용자 요청을 실패시키지
+     * 않는다 — 남은 의도는 재개 CLI 가 한 번 더 밟고, 그쪽도 같은 「붙일 대상 없음」으로 종결한다.
+     */
+    public void abandonClaimIntent(UUID userId, UUID commandId, Deadline deadline) {
+        http.execute(
+                InternalCall.to(HttpMethod.POST,
+                                PATH_CLAIM_INTENT_ABANDONED.replace("{commandId}", commandId.toString()))
+                        .onBehalfOf(userId)
                         .idempotentCommand()
                         .build(),
                 deadline);

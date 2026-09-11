@@ -102,6 +102,24 @@ public class InternalInviteLinkController {
     }
 
     /**
+     * 확정할 것이 없던 의도를 <b>요청자 자신이</b> 종결한다 — <b>사용자 위임</b>({@code X-User-Id}) 경로다.
+     *
+     * <p>링크가 {@code claimId=null} 을 주는 경우(셀프 초대 · 붙일 클릭 없음)에는 확정이 없어
+     * {@link #confirmClaim} 가 의도를 닫아 주지 못한다. 그 한 건이 {@code PENDING} 으로 남으면 「미완료 0」
+     * gate 를 영구히 막는다. 아래 {@code /completed} 를 빌려 쓰지 않는 이유는 그것이 <b>서비스 전용
+     * 재개 표면</b>이기 때문이다 — 요청 경로에 리스 선점·완료 권한을 주면 임의 의도를 닫을 수 있게 된다.
+     *
+     * @param commandId 의도 식별자
+     * @param userId    {@code X-User-Id} — 의도의 주인이어야 한다
+     */
+    @PostMapping("/invite-links/claim-intents/{commandId}/abandoned")
+    public ResponseEntity<Void> abandonClaimIntent(
+            @PathVariable UUID commandId, @RequestHeader("X-User-Id") UUID userId) {
+        internalInviteLinkService.abandonClaimIntent(userId, commandId);
+        return ResponseEntity.ok().build();
+    }
+
+    /**
      * 재개 대상 목록 — <b>서비스 전용</b>이다.
      *
      * <p>{@code pendingCount} 가 0 이어야 「남은 것이 없다」다. 커서는 한 번의 훑기 안에서 페이지를

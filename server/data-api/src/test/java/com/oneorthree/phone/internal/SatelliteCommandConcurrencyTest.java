@@ -6,9 +6,13 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.service.LinkMembershipEventService;
+import com.oneorthree.phone.internal.dto.ClaimIntentLeaseResponse;
 import com.oneorthree.phone.internal.service.InternalInviteLinkService;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.invitelink.exception.InviteLinkException;
+import com.oneorthree.phone.invitelink.repository.InviteClaimIntentRepository;
+import com.oneorthree.phone.invitelink.repository.domain.InviteClaimIntent;
+import com.oneorthree.phone.invitelink.repository.domain.InviteClaimIntentStatus;
 import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
@@ -36,14 +40,17 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 /**
  * 동시 트랜잭션의 <b>경합</b> — 분리가 깨뜨리는 순서 불변식이 실제로 닫히는지 (A22 ⓚ · ㋕ · ㊸).
@@ -76,6 +83,8 @@ class SatelliteCommandConcurrencyTest {
     InternalInviteLinkService internalInviteLinkService;
     @Autowired
     UserSatelliteCommandService userSatelliteCommandService;
+    @Autowired
+    InviteClaimIntentRepository inviteClaimIntentRepository;
     @Autowired
     EventOutboxRepository eventOutboxRepository;
     @Autowired
@@ -176,7 +185,7 @@ class SatelliteCommandConcurrencyTest {
     }
 
     @Test
-    @DisplayName("claim 의도는 동시에 들어와도 한 행이다 — 두 행이면 재개가 같은 귀속을 두 번 밟는다")
+    @DisplayName("claim 의도는 동시에 들어와도 한 행이고 «아무도 실패하지 않는다» — 적재 실패는 곧 claim 실패다")
     void concurrentClaimIntentsCollapseIntoOneRow() throws Exception {
         UUID userId = newUser();
         int threads = 4;
@@ -193,36 +202,129 @@ class SatelliteCommandConcurrencyTest {
                         return internalInviteLinkService
                                 .enqueueClaimIntent(userId, "racyslug", key).commandId();
                     } catch (RuntimeException e) {
-                        // 동시 INSERT 가 UNIQUE 에 걸리는 것은 «정상 경합»이다 — 그 경우도 행은 하나여야 한다.
                         failure.compareAndSet(null, e);
                         return null;
                     }
                 }));
             }
             start.countDown();
+            List<UUID> acked = new java.util.ArrayList<>();
             for (Future<UUID> future : futures) {
-                future.get(30, TimeUnit.SECONDS);
+                acked.add(future.get(30, TimeUnit.SECONDS));
             }
 
-            // 동시 INSERT 가 UNIQUE 에 걸려 한쪽이 실패하는 것은 정상 경합이다. 실패했든 아니든
-            // «행은 하나»여야 한다 — 둘이면 재개가 같은 귀속을 두 번 밟는다.
+            // ⚠️ 「한쪽이 UNIQUE 로 터지는 것은 정상 경합」이 아니다. 이 적재는 202 의 «유일한 근거»라
+            //    (A22 ㊄) 그 500 은 사용자에게 claim 실패로 보이고, 앱은 다음 로그인까지 재시도하지
+            //    않으므로 그 귀속은 영영 사라진다. 그래서 유저 축 잠금 뒤 재조회로 패자를 접는다.
+            assertThat(failure.get()).isNull();
+            // 넷이 «같은» 의도를 받는다 — 응답이 갈리면 앱이 서로 다른 명령으로 본다.
+            assertThat(acked).doesNotContainNull().containsOnly(acked.get(0));
+            // 행은 하나다 — 둘이면 재개가 같은 귀속을 두 번 밟는다.
             assertThat(intentRowsOf(userId, "racyslug")).isEqualTo(1L);
-            if (failure.get() != null) {
-                assertThat(failure.get()).isInstanceOf(RuntimeException.class);
-            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("동시 선점은 «하나»만 성공한다 — 둘 다 true 를 받으면 실행자 둘이 같은 귀속을 민다")
+    void concurrentLeasesElectExactlyOneWorker() throws Exception {
+        UUID userId = newUser();
+        UUID commandId = internalInviteLinkService
+                .enqueueClaimIntent(userId, "leaseslug", "lease-race-key").commandId();
+
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        AtomicReference<Future<ClaimIntentLeaseResponse>> contender = new AtomicReference<>();
+        try {
+            // 테스트가 «직접» 트랜잭션을 열어 첫 선점을 그 안에서 부른다. 서비스가 REQUIRED 로 합류하므로
+            // 행 잠금이 이 블록이 끝날 때까지 유지된다 — 두 커넥션의 시점을 손으로 겹칠 수 있는 유일한 방법이다
+            // (latch 로 「동시에 출발」만 시키면 잠금이 빠져도 우연히 초록이 된다).
+            tx().executeWithoutResult(status -> {
+                ClaimIntentLeaseResponse first = internalInviteLinkService.leaseClaimIntent(commandId, 60);
+                assertThat(first.leased()).isTrue();
+                assertThat(first.leaseToken()).isNotNull();
+
+                Future<ClaimIntentLeaseResponse> second =
+                        pool.submit(() -> internalInviteLinkService.leaseClaimIntent(commandId, 60));
+                contender.set(second);
+                // ⚠️ 이 단정이 「잠갔는가」 그 자체다. 무락이면 둘째는 기다리지 않고 «리스 없음»인 옛 행을
+                //    보고 곧바로 leased=true 를 받는다 — 그 순간 재개 실행자 둘이 같은 의도를 민다.
+                assertThatThrownBy(() -> second.get(2, TimeUnit.SECONDS))
+                        .isInstanceOf(TimeoutException.class);
+            });
+
+            // 첫 리스가 커밋된 뒤에야 깨어나고, «그 리스»를 보고 접힌다. 이건 오류가 아니라 사실이다.
+            ClaimIntentLeaseResponse loser = contender.get().get(30, TimeUnit.SECONDS);
+            assertThat(loser.leased()).isFalse();
+            assertThat(loser.leaseToken()).isNull();
+            assertThat(loser.leaseExpiresAt()).isNotNull();
+            // 시도 수도 한 번만 는다 — 두 번 늘었다면 둘 다 선점에 성공했다는 뜻이다.
+            assertThat(intentOf(commandId).getAttemptCount()).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("낡은 완료 보고는 그 사이의 재선점을 덮지 못한다 — 덮으면 아무도 밟지 않은 귀속이 사라진다")
+    void staleCompletionCannotOverwriteAReLease() throws Exception {
+        UUID userId = newUser();
+        UUID commandId = internalInviteLinkService
+                .enqueueClaimIntent(userId, "staleslug", "stale-race-key").commandId();
+
+        // ① 리스가 «만료된» 옛 실행자를 만든다. holdsLease 는 만료를 보지 않으므로, 이 토큰은 재선점
+        //    전까지는 여전히 「현재 리스」로 통과한다 — 낡은 보고가 위험한 이유가 이것이다.
+        UUID staleToken = UUID.randomUUID();
+        tx().executeWithoutResult(status -> inviteClaimIntentRepository.findById(commandId).orElseThrow()
+                .lease("expired-worker", staleToken, Instant.now().minusSeconds(60)));
+
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        AtomicReference<Future<?>> lateReport = new AtomicReference<>();
+        AtomicReference<UUID> freshToken = new AtomicReference<>();
+        try {
+            tx().executeWithoutResult(status -> {
+                // ② 새 실행자가 재선점한다. 아직 커밋 전이라 행 잠금을 쥐고 있다.
+                ClaimIntentLeaseResponse fresh = internalInviteLinkService.leaseClaimIntent(commandId, 60);
+                assertThat(fresh.leased()).isTrue();
+                freshToken.set(fresh.leaseToken());
+
+                // ③ 그 틈에 옛 실행자의 완료 보고가 도착한다.
+                Future<?> late = pool.submit(() -> {
+                    internalInviteLinkService.completeClaimIntent(commandId, staleToken);
+                    return null;
+                });
+                lateReport.set(late);
+                // ⚠️ 무락이면 여기서 «끝나 버린다» — 재선점 전 행을 읽어 펜싱을 통과하고 의도를 닫는다.
+                assertThatThrownBy(() -> late.get(2, TimeUnit.SECONDS)).isInstanceOf(TimeoutException.class);
+            });
+
+            // ④ 깨어난 뒤에는 재선점된 행을 본다 — 펜싱이 살아 409 다.
+            Throwable thrown = catchThrowable(() -> lateReport.get().get(30, TimeUnit.SECONDS));
+            assertThat(thrown).isInstanceOf(ExecutionException.class);
+            assertThat(thrown.getCause()).isInstanceOf(InviteLinkException.class);
+            assertThat(((InviteLinkException) thrown.getCause()).getErrorCode())
+                    .isEqualTo(InviteLinkErrorCode.CLAIM_INTENT_LEASE_STALE);
+
+            // ⑤ 의도는 여전히 PENDING 이고 리스는 «새» 실행자의 것이다 — 그가 계속 밟을 수 있어야 한다.
+            InviteClaimIntent row = intentOf(commandId);
+            assertThat(row.getStatus()).isEqualTo(InviteClaimIntentStatus.PENDING);
+            assertThat(row.getLeaseToken()).isEqualTo(freshToken.get());
+            assertThat(row.getCompletedByLeaseToken()).isNull();
+            assertThat(row.getConsumedAt()).isNull();
         } finally {
             pool.shutdownNow();
         }
     }
 
     private long intentRowsOf(UUID userId, String slug) {
-        return tx().execute(status -> {
-            var repository = (com.oneorthree.phone.invitelink.repository.InviteClaimIntentRepository)
-                    ReflectionTestUtils.getField(internalInviteLinkService, "inviteClaimIntentRepository");
-            return repository.findAll().stream()
-                    .filter(row -> row.getUserId().equals(userId) && row.getSlug().equals(slug))
-                    .count();
-        });
+        return tx().execute(status -> inviteClaimIntentRepository.findAll().stream()
+                .filter(row -> row.getUserId().equals(userId) && row.getSlug().equals(slug))
+                .count());
+    }
+
+    /** 커밋된 «현재» 행 — 단정은 반드시 새 트랜잭션에서 다시 읽은 값으로 한다. */
+    private InviteClaimIntent intentOf(UUID commandId) {
+        return tx().execute(status -> inviteClaimIntentRepository.findById(commandId).orElseThrow());
     }
 
     private static NotificationSettingsRequest settings(boolean enabled) {

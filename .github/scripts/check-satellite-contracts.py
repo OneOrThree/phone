@@ -68,6 +68,21 @@ for field in ['groupNameVersion', 'inviterNameVersion']:
     require(frozen.count(f'source.put("{field}"') == 2,
             f'A22 ㋸: frozen click/link 양쪽의 {field} 누락')
 
+keys = source('server/business-api/src/main/java/com/oneorthree/business/usecase/RequestIdempotencyKeys.java')
+replay = source('server/business-api/src/main/java/com/oneorthree/business/usecase/ClaimIntentReplayService.java')
+invite = source('server/business-api/src/main/java/com/oneorthree/business/usecase/InviteLinkUseCase.java')
+intent = source('server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/domain/InviteClaimIntent.java')
+require('MAX_KEY_LENGTH = 150' in keys and 'fromStepKey(intent.idempotencyKey(), "claim-intent")' in replay,
+        'A22 ㋹: 외부 키 상한 또는 claim 재개 단계 키 복원 누락')
+require('abandonClaimIntent' in invite and 'markCommandDelivered(' not in invite,
+        'A22 ㋹: claim 의도 UUID를 알림 outbox 전달 완료에 사용함')
+require('complete(at, this.leaseToken)' in intent,
+        'A22 ㋹: 확정이 현재 리스 완료 토큰을 보존하지 않음')
+claim_service = source('server/data-api/src/main/java/com/oneorthree/phone/internal/service/InternalInviteLinkService.java')
+for lookup in ['findByEventIdForUpdate', 'findByIdForUpdate', 'findByIdAndUserIdForUpdate']:
+    require(lookup in claim_service, f'A22 ㋹: claim 의도 전이 잠금 조회 {lookup} 누락')
+
+
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)

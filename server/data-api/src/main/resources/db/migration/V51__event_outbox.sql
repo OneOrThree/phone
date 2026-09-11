@@ -139,6 +139,7 @@ CREATE TABLE public.aggregate_versions (
 -- request_fingerprint 는 «영구 멱등키»가 아니다(계약 §3 이 본문 해시를 키로 쓰는 것을 금지한다).
 -- 같은 키로 «다른 본문»이 오는 것을 거부하기 위한 검사값일 뿐이다 — 키를 재사용한 별개 명령이
 -- 남의 응답을 재생받는 사고를 막는다.
+-- 물리 키는 SHA-256(userId + NUL + 요청 키)의 64자 hex다. 사용자별 같은 헤더는 독립 명령이다.
 CREATE TABLE public.command_idempotency (
     idempotency_key     character varying(200)      NOT NULL,
     user_id             uuid                        NOT NULL,

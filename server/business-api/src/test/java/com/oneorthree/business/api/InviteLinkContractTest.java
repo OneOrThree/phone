@@ -138,8 +138,6 @@ class InviteLinkContractTest extends UpstreamTestBase {
         DATA.on("POST /internal/invite-links/claim-confirmations", request ->
                 new MockUpstream.Response(200,
                         "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"e2\",\"version\":11}"));
-        DATA.on("POST /internal/outbox-commands/" + INTENT_ID + "/delivered",
-                request -> new MockUpstream.Response(200, null));
 
         mockMvc.perform(post("/api/v1/invite-links/claim")
                         .header("Authorization", "Bearer " + Tokens.access(USER))
@@ -160,6 +158,12 @@ class InviteLinkContractTest extends UpstreamTestBase {
         // 링크가 서명한 자격이 Data 확정 요청에 실려 트랜잭션 경계까지 간다(A22 ⓚ).
         assertThat(DATA.receivedFor("POST /internal/invite-links/claim-confirmations").get(0).body())
                 .contains("cap-token", CLAIM_ID);
+
+        // 확정이 있었으므로 의도를 밖에서 닫지 않는다 — Data 가 «멤버십 락 아래» 같은 커밋에서 닫고,
+        // 밖에서 덮으면 그 확정을 몰고 온 재개 실행자의 완료 보고가 낡은 보고로 거절된다.
+        assertThat(DATA.hits("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/abandoned")).isZero();
+        // 그리고 이 경로로는 애초에 닫히지 않는다 — 봉투 eventId 로 알림 전달을 닫는 표면이라 항상 404 다.
+        assertThat(DATA.hits("POST /internal/outbox-commands/" + INTENT_ID + "/delivered")).isZero();
     }
 
     @Test
@@ -191,7 +195,7 @@ class InviteLinkContractTest extends UpstreamTestBase {
         // link/src/lib/links.ts:145·149 — 셀프 초대이거나 붙일 클릭이 없으면 이 모양이 «정상»이다.
         LINK.on("POST /internal/links/abc123/claim", request ->
                 new MockUpstream.Response(200, "{\"claimId\":null,\"capability\":null,\"groupId\":null}"));
-        DATA.on("POST /internal/outbox-commands/" + INTENT_ID + "/delivered",
+        DATA.on("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/abandoned",
                 request -> new MockUpstream.Response(200, null));
 
         mockMvc.perform(post("/api/v1/invite-links/claim")
@@ -202,6 +206,37 @@ class InviteLinkContractTest extends UpstreamTestBase {
 
         // null claimId 로 확정을 부르면 Data 가 거절한다 — 건너뛰어야 한다.
         assertThat(DATA.hits("POST /internal/invite-links/claim-confirmations")).isZero();
+
+        // 그래서 의도를 닫는 손이 여기뿐이다 — 닫지 않으면 정상 처리된 claim 의 의도가 PENDING 으로
+        // 남아 재개 CLI 의 「미완료 0」 gate 를 영구히 막는다.
+        assertThat(DATA.hits("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/abandoned"))
+                .isEqualTo(1);
+        assertThat(DATA.receivedFor("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/abandoned")
+                .get(0).header("X-User-Id")).isEqualTo(USER.toString());
+        // ⚠️ 봉투 완료표시 경로로는 닫지 않는다 — claim 의도는 outbox 행이 아니라 항상 404 다.
+        assertThat(DATA.hits("POST /internal/outbox-commands/" + INTENT_ID + "/delivered")).isZero();
+    }
+
+    @Test
+    @DisplayName("claim: 의도 종결이 404 로 실패해도 사용자에게는 200 이다 — 남은 의도는 재개 CLI 가 같은 판정으로 닫는다")
+    void 종결실패는사용자요청을깨지않는다() throws Exception {
+        stubActiveUser(USER);
+        DATA.on("POST /internal/invite-links/claim-intents", request ->
+                new MockUpstream.Response(200,
+                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1}"));
+        LINK.on("POST /internal/links/abc123/claim", request ->
+                new MockUpstream.Response(200, "{\"claimId\":null,\"capability\":null,\"groupId\":null}"));
+        // 남의 것·없는 것을 한 코드로 접은 Data 의 판정. 여기서 올리면 아무 문제 없이 끝난 claim 이
+        // 사용자에게 오류로 보인다.
+        DATA.on("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/abandoned", request ->
+                new MockUpstream.Response(404,
+                        "{\"code\":\"CLAIM_INTENT_NOT_FOUND\",\"message\":\"처리할 초대 대기 항목이 없습니다.\"}"));
+
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -218,6 +253,24 @@ class InviteLinkContractTest extends UpstreamTestBase {
                 .andExpect(status().isServiceUnavailable());
 
         // 링크에도 아무것도 가지 않았다.
+        assertThat(LINK.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("claim: 과도하게 긴 Idempotency-Key 는 400 이다 — 상류 컬럼(200자)을 넘겨 500 으로 터지게 두지 않는다")
+    void 긴멱등키는400() throws Exception {
+        stubActiveUser(USER);
+
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "k".repeat(190))
+                        .contentType("application/json")
+                        .content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+
+        // 상류를 부르지 않았다 — 잘라 보내면 서로 다른 명령이 같은 키로 접혀 남의 응답이 재생된다.
+        assertThat(DATA.hits("POST /internal/invite-links/claim-intents")).isZero();
         assertThat(LINK.received()).isEmpty();
     }
 

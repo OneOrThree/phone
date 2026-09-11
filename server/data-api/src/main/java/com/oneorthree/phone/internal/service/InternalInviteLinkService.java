@@ -143,6 +143,7 @@ public class InternalInviteLinkService {
     @Transactional
     public ClaimIntentAck enqueueClaimIntent(UUID userId, String slug, String idempotencyKey) {
         String eventId = "link.claimIntent:" + userId + ":" + slug;
+        // 빠른 경로 — 이미 적재된 의도는 잠금 없이 그대로 재생한다.
         Optional<InviteClaimIntent> existing = inviteClaimIntentRepository.findByEventId(eventId);
         if (existing.isPresent()) {
             InviteClaimIntent intent = existing.get();
@@ -151,7 +152,27 @@ public class InternalInviteLinkService {
         String key = idempotencyKey == null || idempotencyKey.isBlank()
                 ? "claim-intent:" + UUID.randomUUID() : idempotencyKey.trim();
         // 순서 version 은 유저 축 잠금 아래 발급한다 — 이 값이 응답 봉투의 version 이다(㉵).
+        //
+        // 이 잠금이 «검사-후-삽입» 경합도 함께 막는다: 같은 (유저, slug) 로 동시에 들어온 두 요청은
+        // 위 조회를 둘 다 비운 채 통과할 수 있고, 그대로 저장하면 뒤선 쪽이 event_id UNIQUE 에 걸려
+        // 500 이 된다(적재는 202 의 유일한 근거라, 그 500 은 사용자에게 claim 실패로 보인다).
+        // 잠금은 커밋까지 유지되므로 뒤선 트랜잭션은 여기서 «기다리고», 깨어난 뒤 아래에서 다시 본다.
+        //
+        // ⚠️ 이 경로는 «기존» 의도 행을 잠그지 않는다(아래 재조회도 무락이다). 그게 락 순서를 지키는
+        //    방법이다 — 의도 행을 잡은 뒤 aggregate 를 잡는 경로가 하나라도 생기면 확정 경로
+        //    (aggregate → 의도 행)와 고리를 이뤄 교착이 된다. 여기서 필요한 직렬화는 이 잠금이 이미 준다.
         long version = outboxCommandPort.allocateVersion(AggregateRef.ofUser(userId));
+        // 잠금 «뒤» 재조회 — 먼저 들어온 트랜잭션이 커밋한 행은 이 시점에야 보인다(READ COMMITTED).
+        // 제약 위반을 잡아 되돌리는 모양으로 풀지 않는 이유: 예외가 한 번 난 트랜잭션은 rollback-only
+        // 가 되어 이어지는 조회·저장이 전부 무의미해진다.
+        Optional<InviteClaimIntent> raced = inviteClaimIntentRepository.findByEventId(eventId);
+        if (raced.isPresent()) {
+            // 경합의 패자다. 발급한 version 한 칸은 버린다 — 응답은 «먼저 커밋된 행»의 값이어야 하고
+            // (같은 명령에 두 version 을 주면 앱이 순서를 뒤집어 본다), 번호에 빈칸이 생기는 것은
+            // 무해하다(적재는 봉투를 만들지 않으므로 relay 가 기다릴 행이 애초에 없다).
+            InviteClaimIntent intent = raced.get();
+            return new ClaimIntentAck(intent.getId(), intent.getEventId(), intent.getVersion());
+        }
         InviteClaimIntent intent = inviteClaimIntentRepository.save(InviteClaimIntent.builder()
                 .userId(userId)
                 .slug(slug)
@@ -286,10 +307,54 @@ public class InternalInviteLinkService {
 
         // 이 확정으로 끝난 대기 의도가 있으면 함께 닫는다. 안 닫으면 재개 실행자가 이미 끝난 귀속을
         // 다시 밟고, 그 재시도는 매번 「이미 확정됨」으로 접혀 큐가 영원히 비지 않는다.
-        inviteClaimIntentRepository.findByEventId("link.claimIntent:" + userId + ":" + slug)
+        //
+        // ⚠️ consume 은 «현재 리스의 토큰»을 완료 토큰으로 물려받는다 — 이 확정을 몰고 온 것이 재개
+        //    실행자일 때(lease → 링크 잠정 → 이 확정), 바로 뒤에 오는 그 실행자의 완료 보고가
+        //    자기 토큰으로 200 을 받아야 한다. null 로 닫으면 성공한 재개가 409 로 실패로 세어진다.
+        //
+        // ⚠️ 그래서 «잠근 채» 읽어야 한다. 무락으로 읽으면 물려받는 토큰이 옛 값일 수 있고(그 사이
+        //    리스가 만료돼 남이 재선점했다면 완료 토큰이 «이미 죽은» 실행자의 것이 된다), 반대로
+        //    그 재선점이 이 종결을 덮어 끝난 의도가 PENDING 으로 되살아난다.
+        //    락 순서는 aggregate(append) → 이 행이다 — 뒤집으면 enqueue 와 교착의 고리가 생긴다.
+        inviteClaimIntentRepository.findByEventIdForUpdate("link.claimIntent:" + userId + ":" + slug)
                 .ifPresent(intent -> intent.consume(committedAt));
 
         return new ClaimIntentAck(confirmation.getId(), envelope.eventId(), envelope.version());
+    }
+
+    /**
+     * 확정할 것이 없는 의도를 <b>요청자 자신이</b> 종결한다 — 링크가 「붙일 claim 이 없다」고 답한 경우다.
+     *
+     * <h2>왜 별도 표면이 필요한가</h2>
+     * 확정이 있는 경로는 {@link #confirmClaim} 이 멤버십 락 아래에서 의도까지 닫는다. 그런데 링크가
+     * {@code claimId=null} 을 주는 경우(셀프 초대 · 붙일 클릭 없음)에는 <b>확정 자체가 없어</b> 그 닫는
+     * 손이 없다 — 그러면 정상 처리된 claim 의 의도가 {@code PENDING} 으로 남아 「미완료 0」 gate 를
+     * 영구히 막는다. lease·완료 표시({@code /completed})는 <b>서비스 전용 재개 표면</b>이라 요청 경로가
+     * 빌려 쓸 수 없다(그걸 빌리면 요청 경로가 임의 의도를 선점·완료할 권한을 갖는다). 그래서
+     * <b>소유자 검사를 조회 조건에 박은</b> 이 최소 권한 표면을 따로 둔다.
+     *
+     * <p>종결은 {@code ABANDONED} 다 — 확정이 없었으므로 {@code CONSUMED}(「확정까지 끝났다」)로 적으면
+     * 원장이 거짓이 된다.
+     *
+     * <p>이미 종결된 의도에 다시 와도 조용히 성공이다(멱등) — 요청 경로의 이 호출은 실패해도 사용자
+     * 요청을 실패시키지 않아야 하고, 409 로 답하면 정상 재시도가 오류로 보고된다.
+     *
+     * @param userId    {@code X-User-Id} — 의도의 주인이어야 한다
+     * @param commandId 의도 식별자
+     * @throws InviteLinkException {@code CLAIM_INTENT_NOT_FOUND}(404) — 없거나 남의 것이다. 둘을 한
+     *     코드로 접는 이유는 존재 여부가 응답으로 갈리면 그 자체가 남의 의도 id 를 탐색하는 수단이기 때문이다
+     */
+    @Transactional
+    public void abandonClaimIntent(UUID userId, UUID commandId) {
+        // 잠근 채 읽는다 — abandon 도 「PENDING 인가」를 보고 쓰는 전이라, 무락이면 그 판정과 쓰기
+        // 사이에 끼어든 확정·재선점을 못 본다(abandon 이 물려받는 완료 토큰까지 옛 값이 된다).
+        InviteClaimIntent intent = inviteClaimIntentRepository
+                .findByIdAndUserIdForUpdate(commandId, userId)
+                .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.CLAIM_INTENT_NOT_FOUND));
+        // 이미 확정·종결된 의도는 덮지 않는다 — abandon 이 스스로 접는다.
+        if (intent.abandon(clock.instant())) {
+            log.debug("claim 의도 종결 — 붙일 대상이 없었다. commandId={}", commandId);
+        }
     }
 
     /**
@@ -328,7 +393,11 @@ public class InternalInviteLinkService {
      */
     @Transactional
     public ClaimIntentLeaseResponse leaseClaimIntent(UUID commandId, int leaseSeconds) {
-        InviteClaimIntent intent = inviteClaimIntentRepository.findById(commandId)
+        // ⚠️ 배타 잠금이 이 메서드의 계약 그 자체다. 무락으로 읽으면 동시에 들어온 두 선점이 «둘 다»
+        //    만료된(또는 빈) 리스를 보고 둘 다 leased=true 를 받는다 — 마지막 커밋이 토큰을 이기지만
+        //    «응답은 둘 다 성공»이라 재개 실행자 둘이 같은 귀속을 동시에 민다. 뒤선 쪽은 여기서
+        //    기다렸다가 «먼저 커밋된» 리스를 보고 leased=false 로 접힌다.
+        InviteClaimIntent intent = inviteClaimIntentRepository.findByIdForUpdate(commandId)
                 .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.CLAIM_INTENT_NOT_FOUND));
         Instant now = clock.instant();
         if (intent.getStatus() != InviteClaimIntentStatus.PENDING) {
@@ -356,7 +425,10 @@ public class InternalInviteLinkService {
      */
     @Transactional
     public void completeClaimIntent(UUID commandId, UUID leaseToken) {
-        InviteClaimIntent intent = inviteClaimIntentRepository.findById(commandId)
+        // ⚠️ 펜싱 판정은 «잠근 뒤» 읽은 값으로만 뜻이 있다. 무락이면 리스 만료 → 재선점과 겹친 낡은
+        //    보고가 재선점 «전» 행을 보고 holdsLease 를 통과해, 새 실행자가 아직 일하는 의도를
+        //    끝난 것으로 덮는다(lost update). 그 귀속은 아무도 밟지 않은 채 큐에서 사라진다.
+        InviteClaimIntent intent = inviteClaimIntentRepository.findByIdForUpdate(commandId)
                 .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.CLAIM_INTENT_NOT_FOUND));
         if (intent.getStatus() != InviteClaimIntentStatus.PENDING) {
             // 이미 끝났다. 이 호출이 «그 완료를 만든 토큰»이면 멱등 성공이고, 아니면 낡은 보고다.

@@ -122,7 +122,10 @@ public class InviteLinkUseCase {
                 // (link/src/lib/links.ts:145·149). 기존 InviteLinkMatchService:169-177 의 「붙일 곳이 없을
                 // 뿐 오류가 아니다」와 같은 뜻이고, 기존 컨트롤러도 boolean 을 무시하고 항상 200 이었다.
                 // 확정할 것이 없으므로 confirm 을 건너뛴다 — null claimId 로 부르면 Data 가 거절한다.
-                markDeliveredQuietly(userId, intent, deadline);
+                // 그래서 «의도를 닫는 손»도 여기뿐이다 — 확정 경로가 없으면 Data 도 큐를 닫아 주지
+                // 못하므로, 닫지 않으면 정상 처리된 claim 의 의도가 PENDING 으로 남아 「미완료 0」
+                // gate 를 영구히 막는다.
+                abandonIntentQuietly(userId, intent, deadline);
                 log.debug("claim 대상 없음 — slug={} (셀프 초대이거나 붙일 클릭 없음)", slug);
                 return new ClaimOutcome(true);
             }
@@ -130,7 +133,9 @@ public class InviteLinkUseCase {
             // ④ Data 의 멤버십 락 아래 확정 + link.claimConfirmed outbox. 전달은 relay 가 한다.
             DurableCommandAck confirmed = dataApiClient.confirmClaim(userId, pending.claimId(), slug,
                     pending.capability(), keys.forStep("claim-confirm"), deadline);
-            markDeliveredQuietly(userId, intent, deadline);
+            // 여기서는 의도를 닫지 않는다 — Data 가 «멤버십 락 아래» 확정과 같은 커밋에서 닫는다.
+            // 밖에서 한 번 더 닫으면 그 커밋이 정한 완료 시각·완료 토큰을 요청 경로가 덮어, 같은
+            // 확정을 몰고 온 재개 실행자의 완료 보고가 「낡은 보고」로 거절된다.
             log.debug("claim 확정 — slug={} claimId={} version={}", slug, pending.claimId(), confirmed.version());
             return new ClaimOutcome(true);
         } catch (UpstreamDomainException e) {
@@ -153,11 +158,20 @@ public class InviteLinkUseCase {
         }
     }
 
-    private void markDeliveredQuietly(UUID userId, DurableCommandAck intent, Deadline deadline) {
+    /**
+     * 의도 종결은 <b>실패해도 사용자 요청을 실패시키지 않는다</b> — 「붙일 대상 없음」이라는 판정은
+     * 이미 났고, 남은 의도는 재개 CLI 가 같은 판정으로 한 번 더 종결한다. 반대로 여기서 실패를 올리면
+     * 아무 문제 없이 끝난 claim 이 사용자에게 오류로 보인다.
+     *
+     * <p>⚠️ 이 자리에 {@code markCommandDelivered} 를 쓰면 <b>항상 404</b> 다 — 그 경로는 봉투의
+     * {@code eventId} 로 「알림 대상 전달」을 닫고, claim 의도는 outbox 행이 아니다.
+     */
+    private void abandonIntentQuietly(UUID userId, DurableCommandAck intent, Deadline deadline) {
         try {
-            dataApiClient.markCommandDelivered(userId, intent.commandId(), deadline);
+            dataApiClient.abandonClaimIntent(userId, intent.commandId(), deadline);
         } catch (RuntimeException e) {
-            log.warn("claim 의도 완료 표시 실패 — 큐가 한 번 더 처리한다. commandId={}", intent.commandId(), e);
+            log.warn("claim 의도 종결 실패 — 재개 CLI 가 한 번 더 처리한다. commandId={}",
+                    intent.commandId(), e);
         }
     }
 }

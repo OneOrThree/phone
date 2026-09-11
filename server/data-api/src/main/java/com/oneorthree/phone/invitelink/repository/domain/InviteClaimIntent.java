@@ -112,7 +112,9 @@ public class InviteClaimIntent {
     /**
      * 이 의도를 끝낸 리스의 토큰. 같은 토큰의 재보고는 멱등 성공이고, 다른 토큰은 낡은 보고다.
      *
-     * <p>동기 확정(요청 경로)이 끝낸 경우에는 {@code null} 이다 — 그때는 리스가 애초에 없었다.
+     * <p>리스가 걸려 있지 않은 채 끝난 경우에만 {@code null} 이다 — 리스를 쥔 실행자가 확정을
+     * 몰고 왔다면 {@link #consume(Instant)} 가 <b>그 토큰을 그대로 물려받는다</b>. 물려받지 않으면
+     * 정상 완주한 실행자의 완료 보고가 「낡은 보고」로 거절된다(아래 참고).
      */
     @Column(name = "completed_by_lease_token")
     private UUID completedByLeaseToken;
@@ -121,11 +123,18 @@ public class InviteClaimIntent {
      * 소비 완료 표시 — <b>이미 종결된 의도는 덮지 않는다</b>. 덮으면 완료 시각이 뒤로 밀려
      * 재개가 실제로 언제 끝났는지 알 수 없게 된다.
      *
+     * <p><b>현재 리스의 토큰을 완료 토큰으로 물려받는다.</b> 확정은 재개 실행자가 몰고 올 수도 있고
+     * (lease → 링크 잠정 → Data 확정) 그때 확정이 이 의도를 닫는데, 완료 토큰을 {@code null} 로 두면
+     * 바로 뒤에 오는 그 실행자의 «자기 리스» 완료 보고가 {@code CLAIM_INTENT_LEASE_STALE} 로 거절된다
+     * — 재개가 성공했는데 실패로 세어 「미완료 0」 gate 를 거짓으로 막는다. 반대로 토큰을 이어받으면
+     * 펜싱은 그대로다: 리스가 만료돼 남이 재선점한 뒤 뒤늦게 보고하는 옛 실행자의 토큰은 여전히
+     * 현재 완료 토큰과 달라 거절된다.
+     *
      * @param at 완료 시각
      * @return 이번 호출이 실제로 종결했으면 {@code true}
      */
     public boolean consume(Instant at) {
-        return complete(at, null);
+        return complete(at, this.leaseToken);
     }
 
     /**
@@ -188,6 +197,9 @@ public class InviteClaimIntent {
     /**
      * 정본 판정으로 종결 — 실패가 아니다.
      *
+     * <p>{@link #consume(Instant)} 와 같은 이유로 <b>현재 리스의 토큰을 완료 토큰으로 물려받는다</b> —
+     * 이 종결이 리스를 쥔 실행자와 겹쳤을 때 그 실행자의 완료 보고를 낡은 보고로 오인하지 않기 위해서다.
+     *
      * @param at 종결 시각
      * @return 이번 호출이 실제로 종결했으면 {@code true}
      */
@@ -197,6 +209,7 @@ public class InviteClaimIntent {
         }
         this.status = InviteClaimIntentStatus.ABANDONED;
         this.consumedAt = at;
+        this.completedByLeaseToken = this.leaseToken;
         this.leaseOwner = null;
         this.leaseToken = null;
         this.leaseExpiresAt = null;
