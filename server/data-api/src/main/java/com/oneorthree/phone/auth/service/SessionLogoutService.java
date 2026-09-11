@@ -16,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
-import java.util.Objects;
 
 /** RT로 직접 주체를 증명하는 신규 종료. 기존 AuthService.logout의 호환 동작과 분리한다. */
 @Service
@@ -37,7 +36,7 @@ public class SessionLogoutService {
         String hash = TokenHasher.sha256Hex(refreshToken);
         AuthSession session = sessions.findLogoutSessionForUpdate(hash).orElse(null);
         validateRefresh(refresh, user, session, hash);
-        validateAccess(access, refresh, user);
+        validateAccess(access, refresh, user, session);
         if (session != null && !session.isActive()) {
             if (!"LOGOUT".equals(session.getRevokeReason())
                     || !refresh.expiresAt().equals(session.getLogoutRefreshExpiresAt())) {
@@ -88,13 +87,22 @@ public class SessionLogoutService {
         }
     }
 
-    private void validateAccess(LogoutToken access, LogoutToken refresh, User user) {
+    private void validateAccess(LogoutToken access, LogoutToken refresh, User user, AuthSession session) {
         if (access != null && (!clock.instant().isBefore(access.expiresAt())
                 || !access.userId().equals(refresh.userId())
-                || !Objects.equals(access.sessionId(), refresh.sessionId())
+                || !sameSession(access, refresh, session)
                 || (access.generation() != null && access.generation() != user.getAuthGeneration()))) {
             throw new AccessCredentialException();
         }
+    }
+
+    /** sid 없는 RT도 정확한 해시로 찾은 세션 행이 있으면 현재 발급기의 sid AT와 결합할 수 있다. */
+    private static boolean sameSession(LogoutToken access, LogoutToken refresh, AuthSession session) {
+        if (access.sessionId() == null) {
+            return refresh.sessionId() == null;
+        }
+        // 사용자 ID 일치만으로 다른 세션을 허용하지 않는다. 세션 행 없는 혼합도 증명 불가다.
+        return session != null && access.sessionId().equals(session.getId());
     }
 
     private static InvalidTokenException invalidRefresh() {

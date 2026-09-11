@@ -820,6 +820,8 @@ Data의 성공은 `revoked`가 boolean `true`일 때만 인정한다. 누락·nu
 RT 자체로 같은 종료를 식별하므로 공개 Idempotency-Key는 요구하지 않는다. 응답 유실 재시도는
 원 RT/AT를 그대로 유지하며 기존 전체 deadline·취소·strict 상류 오류 계약을 적용한다.
 Data가 저장한 종료 증거의 유효성, 사용자 비활성·세대 변경·RT 만료 검사는 매번 Data가 결정한다.
+기존 발급기의 sid 없는 RT도 정확한 해시로 확인한 Data 세션 행이 있으면, 그 행의 ID와 같은 sid를
+가진 AT를 함께 사용할 수 있다. 사용자 ID만 같은 다른 세션의 AT나 세션 근거 없는 혼합은 거절한다.
 
 세션 종료는 기기 푸시 등록 삭제와 별개다. 기기 삭제 API나 Notification 직접 호출을 이 경로에 끼워 넣지
 않는다. 자격 원문을 로그에 쓰지 않고 `LogoutCredentials.toString()`도 숨긴다. 요청 연결에는

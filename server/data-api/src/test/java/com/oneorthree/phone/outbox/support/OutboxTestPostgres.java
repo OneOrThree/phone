@@ -40,6 +40,9 @@ public final class OutboxTestPostgres {
         registry.add("spring.datasource.url", INSTANCE::getJdbcUrl);
         registry.add("spring.datasource.username", INSTANCE::getUsername);
         registry.add("spring.datasource.password", INSTANCE::getPassword);
+        // 설정이 다른 Spring 캐시마다 기본 10개 idle 연결을 채우면 공유 PG의 100개 상한을 넘는다.
+        // 테스트도 최대 동시 연결 수는 유지하고 실제로 필요한 연결만 연다. 운영 풀 설정과 무관하다.
+        registry.add("spring.datasource.hikari.minimum-idle", () -> 0);
         registry.add("spring.flyway.enabled", () -> true);
         registry.add("spring.flyway.locations", () -> "classpath:db/migration");
         // 빈 DB 에서 V1 부터 전부 실행한다 — 「이미 있는 스키마를 baseline 으로 넘긴다」가 아니다.

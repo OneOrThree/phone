@@ -142,14 +142,37 @@ class SessionLogoutIntegrationTest {
     }
 
     @Test
-    @DisplayName("sid 없는 legacy AT·RT는 같은 사용자만 허용하고 혼합 sid는 거절한다")
+    @DisplayName("실제 guestLogin의 sid AT와 sid 없는 RT 그대로 종료·재생하고 타 세션 AT는 거절한다")
+    void actualIssuerCredentialsProveSessionByRefreshHash() throws Exception {
+        var login = auth.guestLogin();
+        Actor actor = new Actor(jwt.extractUserId(login.accessToken()), login.sessionId(), login.refreshToken());
+        assertThat(jwt.extractSessionId(login.refreshToken())).isNull();
+        assertThat(jwt.extractSessionId(login.accessToken())).isEqualTo(login.sessionId());
+        assertAccessRejected(actor, jwt.generateAccessToken(actor.userId(), true, 0L, UUID.randomUUID()));
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mvc.perform(post(PATH).header("Authorization", "Bearer " + SERVICE_TOKEN)
+                            .contentType("application/json").content(body(login.refreshToken(), login.accessToken())))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.revoked").value(true));
+        }
+        assertThat(row(actor).isActive()).isFalse();
+        assertThat(revocationCount(actor)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("legacy 자격은 같은 주체·세션 증명을 요구하고 근거 없는 혼합은 거절한다")
     void legacyAndMixedCredentials() {
         Actor legacy = actor();
-        assertAccessRejected(legacy, jwt.generateAccessToken(legacy.userId(), true, 0L, legacy.sessionId()));
+        assertAccessRejected(legacy, jwt.generateAccessToken(legacy.userId(), true, 0L, UUID.randomUUID()));
         Actor sid = withRefresh(actor(), true, Instant.now().plusSeconds(3600));
         assertAccessRejected(sid, jwt.generateAccessToken(sid.userId(), true));
         service.logout(legacy.refreshToken(), jwt.generateAccessToken(legacy.userId(), true));
         assertThat(row(legacy).isActive()).isFalse();
+        Actor noSession = actor();
+        jdbc.update("delete from auth_sessions where id=?", noSession.sessionId());
+        String access = jwt.generateAccessToken(noSession.userId(), true, 0L, noSession.sessionId());
+        assertThatThrownBy(() -> service.logout(noSession.refreshToken(), access))
+                .isInstanceOf(AccessCredentialException.class);
+        assertThat(revocationCount(noSession)).isZero();
     }
 
     @Test
