@@ -29,3 +29,5 @@ PR 740 검토 반영: 공지 작성자 FK 파기와 생성 경합, RT-only 로�
 로그인 재개 순서 보완: 실제 원 code/credential로 만든 서버 digest와 검증된 요청 scope로 내구 시도를 먼저 찾는다. 준비/확정 결과가 있으면 활성·세대·고정 만료/폐기를 확인하고 일회성 code를 다시 교환하지 않는다. IdP 성공 뒤 내구 저장 전 장애는 이 재생 보장 밖이며, 제공자 복구 보장이 없으면 새 자격으로 재인증해야 한다. Q06·약관 등 미결 정책과 원본7계약은 변경하지 않았다.
 
 프로필 사건 보완: 승인된 완료 판정 false→true의 user.onboarded와 실제 이름 변경의 user.displayNameChanged를 프로필/receipt와 같은 TX에 기록한다. 이름은 선행의 동기 이벤트·LinkMembershipEventService writer를 공유해 중복 구현하지 않는다. 랭킹 절대 점수 재적재·링크 snapshotVersion/폐기 대조와 생산자/소비자 회귀는 활성화 조건이며 기존 내부 사건을 공개66/섬실시간14의 추가 항목으로 세지 않는다. Q03/Q04 제품 판정은 미결 그대로다.
+
+채팅 읽음 이력 파기 보완: 기존 `gromo_chat.chat_read_cursors`의 사용자별 읽음 위치·갱신 시각을 위성 파기 대상에 포함한다. 중앙 탈퇴의 `user.withdrawn` 내구 전달과 chat/realtime의 같은 로컬 TX 내 tombstone·커서 삭제·모든 cursor writer 차단이 필요하다. 현재 소비자/쓰기 fencing은 미구현이므로 통합·경합 검증을 완료 조건으로 둔다. 메시지 본문·sender_id 보존 규칙과 우체통 읽음 표시 정책은 변경하지 않는다.

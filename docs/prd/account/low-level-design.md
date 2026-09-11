@@ -363,6 +363,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | league_rank_snapshots.user_id/rank/created_at | V14 이후 실제 전역 일간 순위 테이블. 현재 탈퇴 삭제 없음 | 같은 탈퇴 TX에서 사용자 행 hard delete. 순위 snapshot writer는 활성 users 공유 잠금을 얻은 뒤 기록하여 파기 후 재생성 차단 |
 | league_weekly_results.user_id/focus_seconds/tier/acknowledged_at | 실제 주간 정산 결과이며 사용자·주차 유일성이 중복 정산 방지에도 쓰임. 현재 탈퇴 삭제 없음 | 개인 순위/집중량/티어 변경/확인 시각은 같은 TX에서 파기. 중복 정산을 막는 최소 userId/weekStart 완료 마커만 분리 보존하고 활성 사용자 재검사로 탈퇴 뒤 정산·재생성 차단. 원 결과를 일반 API로 노출하지 않음 |
 | Redis 랭킹의 모든 주차 ZSET·presence·지연 점수 사건 | 중앙 soft delete만으로 제거 보장 안 됨 | 같은 탈퇴 TX에 version을 가진 user.withdrawn outbox를 내구화. 랭킹 소비자는 tombstone/version 설정과 모든 주차 ZSET·presence 제거를 원자 적용하고 지연·DLT 점수의 부활을 거부 |
+| gromo_chat.chat_read_cursors의 user_id/group_id/last_read_message_id/updated_at | 기준 main·PR739 이름 전환 코드에 커서 UPSERT가 있으나 탈퇴 삭제/consumer/fencing 없음 | 해당 user_id의 모든 방 커서 행 hard delete. 중앙 TX의 user.withdrawn 내구 전달 뒤 chat/realtime 로컬 TX에서 tombstone/version·DELETE·수신 완료를 함께 확정하고 모든 cursor writer와 직렬화. 메시지 본문/sender_id 보존은 변경하지 않음 |
 | user_focus_tags.user_id, source_occupation_default_tag_id, default_tags.name 연결 | 기존 erase에는 삭제 없음 | FocusSession이 user_focus_tags를 참조하므로 직접 user_id만 nullify해도 사용자 역추적 경로가 남음. 정산 증거 동결 뒤 태그의 사용자 귀속/직군 출처를 끊는 nullable migration 또는 세션 태그 연결 해제 후 개인 채택 행 파기를 비교 검증. 공유 default_tags는 일괄 삭제하지 않음. 두 대안 모두 setupFocusTag/updateFocusTag 및 복원·관리 writer의 활성 users 공유 잠금과 탈퇴 배타 잠금으로 직렬화 |
 | character_generation.user_id, created_at, client_generation_id | 기존 erase에는 정리 없음 | 개인 생성 요청 식별·사용자 연계 자료 파기 경로를 해당 소유 서비스와 연결. 공유 정산 근거와 동일 보존 사유로 뭉뚱그리지 않음 |
 | invite_link_clicks.claimedUserId·클릭 연결 | main 직접 파기 없음 | 1659의 claimed user 익명화·링크 위성 폐기 전달 재사용. ipHash/userAgent/device/app 식별 자료도 사용자 연계가 남는지 링크 소유 정리 명령에서 확인 |
@@ -374,9 +375,23 @@ main User 주석은 retention→purge를 언급하지만 현재 조회한 `erase
 
 ### 중앙 TX의 순서 제약
 
-`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 양방향 group_invites·user_blocks 및 본인 user_streaks 삭제와 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
+`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹·chat/realtime 대상 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 양방향 group_invites·user_blocks 및 본인 user_streaks 삭제와 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
 
 `socialAccountRepository.deleteByUserId`는 `flushAutomatically` 후 `clearAutomatically`로 영속성 컨텍스트를 비운다. 따라서 user.catColor 등 엔티티 변경을 그 뒤에 붙이면 저장되지 않는다. 모든 엔티티 파기를 앞에 배치하고 마지막 bulk delete 뒤에는 분리된 엔티티를 수정하지 않는다. 멱등 결과 저장은 이 clear를 고려해 명시적으로 영속화하며 사용자 PII 수정의 순서를 뒤집지 않는다.
+
+#### 채팅 읽음 이력의 위성 파기와 writer 경계
+
+기준 main의 `server/chat`은 별도 `gromo_chat` DB에 `chat_read_cursors`를 보관한다. `V1__baseline.sql:30~43`의 `user_id`, `group_id`, `last_read_message_id`, `updated_at`은 모두 NOT NULL이며 `(group_id,user_id)`가 유일하다. 커서는 정산 증거나 다른 사람의 메시지 본문이 아니라 특정 사용자의 읽음 위치·활동 시각이다. 별도 보존 근거가 확인되지 않았으므로 nullify/soft delete로 남기지 않고 해당 사용자의 모든 방 행을 hard delete한다. 다른 사용자의 커서와 기존 `chat_messages` 본문·`sender_id` 보존 정책은 바꾸지 않는다.
+
+[PR739](https://github.com/OneOrThree/phone/pull/739)의 `server/realtime`/`com.oneorthree.realtime` 이름 전환 작업에서도 DB `gromo_chat`, 커서 테이블과 `ChatRoomService.markRead` → `ChatReadCursorRepository.upsertIfNewer` 경로는 유지된다. 이름 전환이 데이터 파기 구현을 뜻하지 않는다. 기준 main의 `ChatRoomService:113~121`은 `ChatAccessGuard`의 집중/멤버십 검사와 메시지 소속 확인 뒤 UPSERT를 부르고, 저장 TX는 repository:45~60의 한 문장에만 있다. `MembershipService:59,79~96`의 기본 120초 캐시가 허용한 요청이나 검사 후 대기한 쓰기는 단순 DELETE 뒤 행을 다시 만들 수 있다. `last_read_message_id`의 단조 비교는 사용자 폐기 검사도, 재생성 차단도 아니다.
+
+후속 구현은 기존 중앙 탈퇴 TX의 사용자 aggregate version과 `authGeneration`을 가진 `user.withdrawn` outbox를 **chat/realtime에도 내구 전달**한다. 기존 Notification/Link 전달을 빼거나 같은 사건을 새 공개/STOMP 계약으로 세지 않는다. 수신은 인증된 Data 내부 전달만 허용하고 앱/STOMP 입력으로 폐기 tombstone을 만들 수 없게 한다. 이 소비 대상의 전달/수신 완료를 별도로 추적하고, 수신측 로컬 커밋 후에만 완료 처리한다. 전달 장애·응답 유실은 같은 eventId로 재전달하며 이미 완료한 Data 탈퇴를 다시 실행하지 않는다. 현재 조사한 chat/realtime 코드에는 이 탈퇴 소비자와 커서 파기/fencing이 없으므로 producer 대상 배선·consumer·모든 writer의 통합과 회귀가 신규 탈퇴 구현 완료 조건이다.
+
+chat/realtime 소비자는 **로컬 DB의 사용자별 공통 잠금 → 폐기 tombstone/version 확정 → `DELETE FROM chat_read_cursors WHERE user_id=:userId` → 수신 중복 제거/완료 기록**을 하나의 로컬 TX에서 처리한다. 최초 커서나 tombstone 행이 없는 사용자도 같은 잠금 키를 사용해야 하므로, 후속 구현은 사용자 UUID로 정해지는 transaction-scoped advisory lock을 cursor writer와 소비자 양쪽에 적용한다. tombstone은 최소 사용자 식별·폐기 여부·해당 사용자 aggregate version/세대만 유지하고 읽음 위치·방 목록·시각 원문을 복사하지 않는다. 중복/역순 사건이 폐기 상태를 해제하지 않으며 사용자 UUID를 재사용한 활성화나 과거 snapshot/import로 이를 덮어쓰지 않는다. 보존·키 폐기 정책을 정하기 전 tombstone을 임의 TTL로 삭제하지 않되 무제한 보존 기간을 새 제품 정책으로 확정하지 않는다.
+
+`markRead`의 외부 Redis/HTTP 접근 검사는 DB TX 밖에 유지한다. 그 뒤 **커서 쓰기 로컬 TX에서 같은 사용자 잠금 → tombstone 재검사 → 메시지의 방 소속 재검사 → UPSERT**를 수행하도록 좁은 저장 경계를 추가한다. 폐기됐거나 로컬 검증이 실패하면 쓰기를 거절하고, 기존 집중/멤버십/커서 유효성 검사를 약화하지 않는다. 현재의 repository UPSERT만 호출하는 우회 경로를 남기지 않는다. 기존 REST 읽음, 추가되는 읽음 입력, 복원·관리 import·재시도·배치 등 사용자 cursor를 INSERT/UPDATE하는 모든 writer가 같은 관문을 사용해야 한다.
+
+writer가 먼저 잠그면 소비자가 기다렸다가 방금 쓴 커서까지 삭제한다. 소비자가 먼저면 이미 멤버십 검사를 마친 요청도 잠금 획득 뒤 tombstone을 보고 거절한다. 캐시 무효화는 보조 정리일 뿐이며, 무효화 실패나 늦은 멤버십 응답의 재적재가 폐기 뒤 쓰기를 허용해서는 안 된다. 중앙 커밋부터 소비자 커밋까지의 비동기 전달 지연을 숨기지 않고 대상별 파기 상태로 확인한다. 이 기술 계약은 현존 개인 cursor의 파기 의무이고, 우체통의 읽음 표시 없음/커서 유지 여부 같은 MQ 제품 정책을 승인하거나 해결한 것으로 간주하지 않는다.
 
 #### 기존 직접 초대 관계의 파기
 
@@ -582,6 +597,9 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 양방향 차단·스트릭 full fixture 및 차단/집중 완료와 탈퇴 양방향 경합 | 대상 차단/streak행0·타인행보존·지연 writer 부활0, 삭제 직후 실패하면 전체 rollback |
 | 리그 일간 snapshot·주간 결과 파기와 정산/추월/확인 writer 경합 | 개인 결과0·최소 완료 마커 유지, 이중 정산0·지연 재생성0·타인 결과 보존·중간 실패 전체 rollback |
 | 탈퇴 outbox 응답 유실·relay 재전달·모든 주차/presence·DLT 역순 | tombstone/version 원자 적용, 탈퇴 노출0·점수/후보 부활0, 전달 실패 뒤 같은 사건 복구 |
+| chat/realtime 읽음 커서 전체 방·타인 커서·원문 메시지 fixture | 탈퇴자 cursor만0, 타인 cursor와 기존 메시지 보존 규칙 유지; 서비스 이름 전환 전후 같은 DB/대상 |
+| markRead와 탈퇴 소비자 양방향 실제 PG 경합·캐시 hit/늦은 재적재·지연 UPSERT/import | writer 선행 행도 삭제, 소비자 선행 시 쓰기 거절, tombstone 뒤 읽음 이력 부활0 |
+| chat/realtime user.withdrawn 중복/역순·응답 유실·DELETE 직후 강제 실패 | tombstone·cursor DELETE·수신 완료가 함께 rollback/commit, 실패 재전달 후 제거; 대상별 완료 전 전체 위성 파기 완료 주장 금지 |
 | 탈퇴 full fixture + 강제 rollback | 전수 표 파기·보존 대조, 환불/지갑/outbox 포함 한 TX |
 | 탈퇴 후 신규 7개에 옛 자격 | 로그인 성공 재개/일반 조회·변경 차단. 정상 새 제공자 재가입은 새 userId이며 옛 계정 부활 아님 |
 | 설정 false/true 역전, 다른 필드 역전, legacy 전체 PUT 경쟁 | 필드별 version으로 유실 방지, 재전달 멱등, 원래 명령 결과 재생 |
@@ -617,6 +635,12 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java` | anonymizeWithdrawnUser |
 | `server/data-api/src/main/java/com/oneorthree/phone/stats/service/StatsService.java` | anonymizeWithdrawnUser |
 | `server/data-api/src/main/java/com/oneorthree/phone/screentime/service/ScreenTimeService.java` | anonymizeWithdrawnUser |
+
+추가 채팅 근거: 기준 main의 `server/chat/src/main/resources/db/migration/V1__baseline.sql:30~43`,
+`message/service/ChatRoomService.java:113~121`, `message/repository/ChatReadCursorRepository.java:45~60`,
+`membership/MembershipService.java:59,79~96`, `message/service/ChatAccessGuard.java:47~54`.
+PR739 작업 코드의 같은 상대 경로(`server/realtime`, package `com.oneorthree.realtime`)도 별도로 대조했다.
+해당 main/이름 전환 코드 모두에 `user.withdrawn` 커서 파기 소비자가 있다고 주장하지 않는다.
 
 미통합 1659 작업 코드에서 별도로 읽은 `AuthSessionService`, `NotificationSettingsUseCase`, `WithdrawalSatelliteCommandService`, `InternalAuthController`는 기반 재사용 근거다. 이 목록은 main에 모든 파일/동작이 이미 있다는 주장이 아니다. 구현 시 선행 PR 최종 diff와 대조하고, 특히 users 단일 RT 해시를 계속 정본으로 사용하는 과도 상태를 제거해야 한다.
 

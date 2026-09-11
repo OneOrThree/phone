@@ -17,6 +17,8 @@ flowchart LR
     DB --> Relay[outbox relay]
     Relay -->|설정 변경·탈퇴| N
     Relay -->|탈퇴·표시정보 정리| L[링크 등 위성 서비스]
+    Relay -->|user.withdrawn 내구 전달| C[chat/realtime]
+    C --> CDB[(읽음 커서·폐기 tombstone)]
     App --> Local[기기 음량·진동·OS 권한]
 ```
 
@@ -29,7 +31,7 @@ flowchart LR
 | 인증 | Data AuthService가 제공자 검증·사용자 생성·JWT 발급 | 내부 bootstrap/session 확인, auth session row | Business 검증/서명, 로그인 준비·확정, 공개 7개 경로 |
 | RT | users의 단일 해시, 조건부 회전 | 세션 보조 행과 epoch, 기존 users 해시도 사용 | 세션별 정본 전환과 legacy 병행/승격·원 RT 증명의 결과 복구 receipt |
 | 프로필 | nickname·기존 프로필, active user lock | 내부 사용자 위임/활성 검사 | name 매핑·catColor 저장·완료 판정 |
-| 탈퇴 | 환불·익명화·PII 파기가 Data 단일 TX | 세션 폐기, authGeneration, 알림/링크 outbox | 새 프로필·로그인/명령 자료 파기 포함 |
+| 탈퇴 | 환불·익명화·PII 파기가 Data 단일 TX | 세션 폐기, authGeneration, 알림/링크 outbox | 새 프로필·로그인/명령 자료 및 chat/realtime 읽음 이력 파기·writer fencing 포함 |
 | 설정 | Data의 기존 5필드 설정 | 알림 서버 정본 이관, Data outbox·직접 전달 | 1필드 공개 PATCH와 field mask·필드별 버전 |
 
 1659 `AuthSessionService`의 존재만으로 계정 전체 이관이 완료됐다고 판단하지 않는다. 반대로 동일한 internal client, caller 인증, 위성 명령/outbox를 계정에서 다시 만들지도 않는다. 선행 공통 봉투·deadline·requestId 구현은 1751~1753 및 1659 통합에 의존한다.
@@ -148,11 +150,11 @@ sequenceDiagram
     participant D as Data
     participant DB as Data DB
     participant R as relay
-    participant S as 알림·링크 서버
+    participant S as 알림·링크·chat/realtime 서버
     A->>B: DELETE /me, confirmation, Idempotency-Key
     B->>D: 검증한 주체로 withdraw 명령
     D->>DB: BEGIN + 활성 users 배타 잠금
-    D->>DB: 멱등/권한 검사 + 세션 폐기·위성 명령·랭킹 user.withdrawn 기록
+    D->>DB: 멱등/권한 검사 + 세션 폐기·위성 명령·랭킹 및 chat/realtime user.withdrawn 내구 기록
     D->>DB: 방장 조건·내기 해제/환불·증거 동결
     Note over D,DB: 필요한 판정 근거가 불명확하면 전체 롤백
     D->>DB: group_challenge_members 사용자 측정 원본 hard delete
@@ -167,7 +169,8 @@ sequenceDiagram
     B-->>A: 200 data(deleted true)
     R->>DB: 커밋된 outbox 읽기
     R->>S: 사용자 폐기·개인자료 정리 재전달
-    S-->>R: 대상별 적용 확인
+    Note over S: chat/realtime 로컬 TX: 사용자 잠금 → tombstone/version + 읽음 커서 DELETE + 수신 완료
+    S-->>R: 로컬 커밋 뒤 대상별 적용 확인
     Note over R,S: 랭킹은 tombstone/version + 모든 주차 ZSET·presence 원자 제거
 ```
 
@@ -178,6 +181,8 @@ sequenceDiagram
 공지 생성은 users 공유 잠금, 탈퇴는 같은 users 배타 잠금을 먼저 사용한다. 생성 선행이면 새 공지도 nullify하고 탈퇴 선행이면 생성은 404 `USER_NOT_FOUND`로 거부한다. 공지 내용은 기존 보존 규칙을 유지한다.
 
 방장 위임 조건 실패나 환불·outbox 기록 실패는 중앙 TX 전체를 롤백한다. 지갑을 먼저 삭제해서 내기 환불 경로를 끊지 않는다. 위성 전송 실패는 이미 확정된 중앙 탈퇴를 되돌리지 않고 대상별 미전달 상태로 남긴다. 그러므로 200은 중앙 계정 폐기 완료이며, 모든 위성의 물리 파기가 같은 순간 끝났다는 뜻은 아니다. 지연 요청은 각 위성의 generation/epoch tombstone으로 차단한다.
+
+chat/realtime은 별도 DB이므로 Data의 중앙 TX에서 커서를 직접 지우지 않는다. 읽음 보고가 먼저 로컬 잠금을 얻으면 탈퇴 소비자가 그 커서까지 삭제하고, 탈퇴가 먼저면 늦은 보고는 tombstone을 보고 거절한다. Redis 멤버십 캐시가 최대 120초 남거나 늦은 응답이 캐시를 다시 채워도 DB writer는 폐기를 재검사한다. 현 markRead는 캐시 검사 후 별도 UPSERT만 실행하므로 이 보호가 아직 없다. 소비자·모든 cursor writer 통합과 실제 경합 검증 전 파기 완료로 표시하지 않는다. 기존 메시지 본문/sender_id의 보존 정책과 우체통 읽음 표시 여부는 이 개인 이력 파기와 별개다.
 
 ## 설정: 한 필드만 바꾸기
 
