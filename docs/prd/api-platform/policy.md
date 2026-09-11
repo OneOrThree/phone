@@ -1,0 +1,95 @@
+# 공통 API 계약 — 정책과 결정 장부
+
+GROMO-1750 · 2026-09-12 · [색인](README.md) · [LLD](low-level-design.md)
+
+이 문서에서 **채택**은 이번 신규 API 구현의 기준이라는 뜻이다. 이미 배포된 코드의 동작이나 미답변 제품 정책이 확정됐다는 뜻이 아니다. 사용자 결정과 기존 아키텍처 정본을 바꾸는 권한은 이 문서에 없다.
+
+## 공통 정책
+
+| ID | 채택 규칙 | 근거·범위 |
+| --- | --- | --- |
+| P01 | 신규 Business 경로에는 `/api`·`/v1` 접두어 없음. 기존 Data/chat 공개 계약 유지 | 사용자 결정. 새로운 URI가 자동으로 기존 URI 폐기를 뜻하지 않음 |
+| P02 | JSON 성공 `{data:...}`. 빈 단건 `data:null`, 목록 `{items:[],nextCursor:null}`. PNG·파일 스트림·관리 Actuator·기존 호환 경로는 JSON 성공 봉투 대상 제외 | HTML 제안 + 바이너리 보존 결정. 신규 JSON은 데이터 없는 성공도200+data:null이며204로 바꾸지 않음 |
+| P03 | JSON 실패는 `error.code/message/field/retryable` 4필드와 top-level `requestId`. 409에만 선택 top-level `current` 허용 | 신규 외부 계약. `current`는 인가된 공개 자원 DTO와 최신 version이며 DB행·내부정보·타인 데이터 금지 |
+| P04 | 앱 소유 UUID Idempotency-Key, scope는 검증 사용자+작업+키. 확정된 같은 본문 재시도는 원 결과·HTTP 상태 재생, 저장된 처리중/확정 키의 다른 본문409 | 아키텍처 ㉼. **대상은 LLD 표로 열거**, 모든 POST나 모든 인증 경로에 일괄 적용하지 않음 |
+| P05 | 키는 정확한 UUID 문자열36자(v4/v7 생성 권고), 누락/형식 오류400. 대소문자 UUID는 동일 값으로 정규화. 같은 키 새 의도 재사용 금지 | 신규 키 필수 대상만. 내부 1659 기본키150자 상한/접미단계 규약과 호환. 기존 API optional 키를 소급 변경하지 않음 |
+| P06 | 확정 receipt는 초기 구현에서 자동 TTL 삭제하지 않음. 보존·키 폐기 정책 승인 전 GC 금지 | 응답 유실 후 오래된 키가 새 실행으로 바뀌는 결함 방지. 영구·무제한 운영 보관 약속은 아님. 보존 변경 때 만료 receipt 거절/키 재사용 금지/PII 파기를 함께 설계 |
+| P07 | expectedVersion은 LLD 열거 자원에만 필수. 동일 키의 성공 재생을 버전 재검사보다 먼저 수행 | 응답 유실 후 원 요청의 오래된 version이 이미 성공한 명령을409로 만들면 안 됨 |
+| P08 | 커서는 불투명 문자열, nextCursor=null이면 끝. 사용자·자원·필터·정렬이 다른 곳에 재사용 불가 | 검색/탭/기간 변경 시 앱 초기화. 잘못된 커서를 첫 페이지로 조용히 대체하지 않음 |
+| P09 | 외부 X-User-Id는 모든 헤더 접근에서 제거. 내부 요청은 검증 subject로 딱 한 번 새로 설정 | 아키텍처 ㉸. Authorization 등 앱 헤더 일괄 복사 금지, 서비스토큰+audience·메서드/경로 허용목록 적용 |
+| P10 | Business는 DB 없이 인증·정책 조합·화면 읽기를 담당. 돈·보상·소유·정산 불변식은 Data 단일 원자 명령에서 완료 | 아키텍처 A4/A9. HTTP 여러 쓰기를 순서대로 호출하는 분산 TX 흉내 금지 |
+| P11 | 화면 첫 조회는 BFF 1콜. 사용자·현재 섬 context를 한 번 확정하고 독립 읽기를 전체 deadline 아래 병렬 조합 | 사용자 결정. 여러 HTTP 결과를 같은 DB snapshot이라고 부르지 않음. 버전 정합성이 필요한 조합은 Data snapshot 계약 필요 |
+| P12 | 선택 조각의 일시 장애만 null 허용. 인증·인가 실패·상류 계약 위반은 선택 조각에서도 전체 오류 | 권한 상실·잘못된 DTO를 데이터 없음으로 숨기지 않음. 공개/방문 화면에는 권한 없는 조각을 호출 자체에서 제외 |
+| P13 | requestId는 서버 생성 UUID, 요청마다 새 값. 응답 X-Request-Id와 오류 본문 requestId가 일치 | 앱 제공 ID/키/URL/토큰으로 생성하지 않음. 재생 receipt에는 원 결과·상태만 있고 현재 requestId·Retry-After·cookie는 재생하지 않음 |
+| P14 | 집중 쓰기는 REST, 집중/휴식 구독·emote는 STOMP. 공통 HTTP 봉투가 STOMP 이벤트 봉투를 덮지 않음 | 사용자 결정. 토픽·6필드 이벤트·개인 수신자·만료는 실시간 설계 1754 소유 |
+| P15 | 시각 전달은 UTC instant. 날짜 집계는 기존 KST 정본과 정합을 유지 | 임의 사용자 타임존 지원을 이 문서에서 신설하지 않음. 별도 제품 결정 시 기존 저장/집계/조회 정책까지 함께 검토 |
+
+P04의 결과 재생은 확정 receipt가 있는 요청을 대상으로 한다. 실행 전 검증4xx로 rollback되어 receipt가 남지 않은 요청은 결과 재생 보장 밖이다. 앱은 입력 수정·버전 재확인으로 의도가 바뀌면 이 경우에도 새 키를 사용한다. 이미 저장된 처리중/확정 scope/key와 다른 본문은409로 거절한다.
+
+P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를 계측하고 보관량 알림을 둔다. 이름·메시지·원문 토큰 등 민감 데이터를 중복 저장하지 않도록 도메인별 최소 결과를 설계한다. 탈퇴 시 기존 PII 파기 정책이 우선한다. 탈퇴한 사용자의 다른 receipt를 응답 재생 때문에 복구하거나 보존하지 않으며, 탈퇴 결과는 재인증·인가 규칙을 통과한 동일 사용자에게 비민감 `{deleted:true}` 증거만 반환할 수 있다. 이 특수 경계는 계정 설계에서 제공되기 전 일반 receipt 기능으로 공개하지 않는다.
+
+## HTTP 상태·외부 오류 코드
+
+아래 이름은 **신규 외부 계약의 구체 상수**다. 구현1751의 enum/계약 테스트가 이 표와 같은 이름·상태를 고정한다. 기존 Data/chat의 상수는 변경하지 않고 외부 어댑터에서 매핑한다. 도메인 코드가 추가되면 해당 정책·계약 테스트를 함께 추가하며 전부 `INVALID_REQUEST`로 접지 않는다. 1659의 기존 compat 경로는 기존 상류 domain status/code 보존 계약을 유지한다. 신규 경로는 등록된 domain status/code를 대조해 동일 이름을 보존하거나 명시한 외부 코드로 매핑하며, 미등록 code·status 조합은502 `UPSTREAM_CONTRACT_ERROR`다. 신규 매핑표를 기존 compat에 소급 적용하지 않는다.
+
+`retryable=true`는 **조건을 바꾸지 않고 다시 시도할 가치가 있는 일시 실패**다. 쓰기는 반드시 같은 키·본문으로, `Retry-After`가 있으면 기다린다. false는 영원히 불가능하다는 뜻이 아니라 입력 수정·재인증·재조회·사용자 재확인이 먼저라는 뜻이다. 재시도는 한도를 두며 앱이 무한 루프를 만들지 않는다.
+
+| HTTP | code | retryable | field / 복구 |
+| --- | --- | --- | --- |
+|400|INVALID_REQUEST|false|깨진 JSON·필수 필드 누락·타입 오류. 가능한 공개 필드 경로, 없으면null|
+|400|INVALID_IDEMPOTENCY_KEY|false|필수 키 누락/UUID 형식 오류. field=`Idempotency-Key`|
+|400|INVALID_CURSOR|false|서명/형식/사용자·자원·필터 불일치. field=`cursor`, 현재 필터로 처음부터 조회|
+|401|UNAUTHORIZED|false|없거나 위조·만료된 사용자 자격. 재인증 후 별도 시도. 내부 서비스토큰 거부를 이 코드로 오인시키지 않음|
+|403|FORBIDDEN|false|주체에게 행위 권한 없음. field=null|
+|403|FACILITY_LOCKED|false|필요한 시설 미해금. field=null, 도메인 선행 조건 확인|
+|404|NOT_FOUND|false|대상 없음 또는 도메인 정책상 존재 비공개. 빈 현재세션/빈 목록과 구분|
+|405|METHOD_NOT_ALLOWED|false|신규 공개 경로의 미지원 method. Allow 헤더 유지|
+|409|VERSION_CONFLICT|false|field는 제출한 버전 필드(`expectedVersion` 또는 `expectedWalletVersion`), 허용된 current 제공 후 사용자 재확인|
+|409|STATE_CONFLICT|false|현재 상태에서 실행 불가. 공개 current가 안전하면 포함|
+|409|INSUFFICIENT_BALANCE|false|잔액 부족. 같은 요청 자동 반복 금지|
+|409|IDEMPOTENCY_KEY_REUSED|false|저장된 처리중/확정 scope/key에 다른 본문. field=`Idempotency-Key`, **기존 요청 본문·결과는 노출하지 않음**|
+|409|REQUEST_IN_PROGRESS|true|같은 명령의 실행이 아직 확정 전. Retry-After:1, 같은 키·본문으로 재시도|
+|409|CURSOR_EXPIRED|false|field=`cursor`, 같은 필터로 첫 페이지를 새로 조회|
+|413|REQUEST_TOO_LARGE|false|바디 상한 초과. field=null, 본문 축소|
+|415|UNSUPPORTED_MEDIA_TYPE|false|해당 신규 JSON 요청은 application/json 필요|
+|422|OUT_OF_RANGE|false|해석 가능한 값이 길이·범위·허용값 제약 위반. field는 첫 오류 공개 필드 경로|
+|429|RATE_LIMITED|true|Retry-After:양의 초. 서버가 해당 제한기의 잔여 시간을 계산|
+|500|INTERNAL_ERROR|false|분류되지 않은 결함. 원문 예외/SQL 금지; requestId로 조사, 무한 자동 재시도 금지|
+|502|UPSTREAM_CONTRACT_ERROR|false|잘못된 상류 DTO·미지원 오류 계약. 운영 수정 필요|
+|502|UPSTREAM_AUTH_FAILED|false|서비스토큰·caller 권한 거부. 사용자 로그아웃 유도 금지|
+|503|SERVICE_UNAVAILABLE|true|Redis/DB 연결·서비스 과부하·회로 열림. Retry-After는 알려진 대기시간일 때만|
+|504|UPSTREAM_TIMEOUT|true|필수 호출/화면 전체 deadline 초과. 쓰기의 커밋 여부는 미확정이므로 같은 키로 복구|
+
+도메인 사유를 추가할 때는 이 표의 의미와 충돌하지 않게 구체 코드를 추가한다. 예를 들어 `FOCUS_IN_PROGRESS`는 기존 chat409/false 코드이고 새로운 우체통에도 같은 사유가 채택되면 그 명칭을 유지할 수 있다. 세션 종료 재시도는 이미 확정된 receipt가 있으면 오류 표로 가지 않고 성공을 재생한다.
+
+미리보기 호환 매핑은 분리한다. `RATE_LIMITED`·`NOT_FOUND`는 유지, 요청 유효성 `INVALID_REQUEST`는400으로 유지한다. 기존 provider 실패 코드(`FETCH_TIMEOUT` 등)가 **Preview 객체의 실패 상태 데이터**이면 POST200의 data 안에 남는다. 이를 HTTP504로 바꾸지 않는다. 예외로 나오는 미리보기400의 세부 코드는 1751에서 원 코드 목록을 그대로 계약 테스트에 고정한다. PNG 생성 성공은 image/png이고 실패만 JSON 공통 오류다.
+
+## 원본과 채택 계약 대조
+
+| 원본 HTML 내용 | 이번 채택 | 출처·주의 |
+| --- | --- | --- |
+| `/v1/focus-sessions` 등 모든 `/v1` API | 신규 Business `/focus-sessions` 등으로 `/v1` 제거 | 사용자 결정. 원본 HTML은 수정하지 않음 |
+| `POST /v1/islands/{islandId}/emotes` | 집중 중 emote는 STOMP SEND, HTTP 명령 표에서 제외 | 사용자 결정. 실제 destination은1754 정본 |
+| 전송 방식 WebSocket/SSE 미선정 | STOMP+Redis fanout을 활용해 chat→realtime 확장 | 사용자 결정. 프로세스 개명은 DB명/키 이관과 별개 |
+| GET focus/rest-members 초기 조회 | REST 스냅샷 유지 + STOMP 갱신 구독 | snapshot과 subscribe 사이 유실 방지는1754 시퀀스에서 정의 |
+| 성공 `{data}`, 실패 error4필드+requestId | 채택, 바이너리 예외·필터 오류 경계 추가 | 공통 기술 결정 P02/P03 |
+| 409이면 최신 상태를 받아 재확인 | 409의 선택 `current`에 최신 공개 자원 DTO+version | 공통 기술 결정. 새 외부 확장, 원본에 이미 있다고 주장하지 않음 |
+| 변경 요청 키 UUID 제안 | LLD 적용표 대상 필수, auth·메시지·조회형 POST 예외 명시 | 모든 POST 자동 필수화 금지 |
+| 명시하지 않은 자원에 무조건 version 제출하지 않음 | 원본 expectedVersion 8명령과 구매 expectedWalletVersion 1명령의 자원별 축을 고정 | LLD 버전 표 외 추가는 해당 도메인 설계 개정 필요 |
+| 날짜/IANA timezone 표현 | 시각UTC, 집계는 기존 KST 정본 우선 | 기존 날짜 정책을 예상 예제로 덮지 않음 |
+| 300초/물고기·건설비·상품가격·퀘스트10P | 목업 표시 유지. 운영값 미채택 | 보상/경제 정책 질문 대기. 방송기100P는 원본이 확정 가격으로 표기 |
+| 읽음/안읽음 필드 없음 | 새 우체통 UI 계약과 기존 내부 읽음커서를 구분 | 상세 사용자 선택 대기, 이 문서로DB삭제 결정하지 않음 |
+| 66개 도메인 계약 중심 | BFF13종을 마지막 단계에 추가, 화면 첫 조회1콜 | 사용자 결정. mutation은 개별 명령 API |
+
+## 결정 로그와 미결 항목
+
+| 날짜 | 결정 | 상태/결정 주체 |
+| --- | --- | --- |
+|2026-09-11|무접두어 신규 경로, 기존 Data/chat 호환, 화면1콜 BFF, 집중REST/emoteSTOMP, realtime 개명|사용자 명시 결정|
+|2026-09-12|1750/1754 문서와1755부터 착수, Business 공통은1659 기반 통합 후 확장|사용자 계획 승인. 미답 제품 정책 승인과 분리|
+|2026-09-12|P02~P13의 직렬화/오류/키/버전/커서/추적 기술 규칙|공통 설계 채택. 조정자와409 current·현재 requestId·초기 receipt 비만료 경계를 대조|
+|2026-09-12|메시지 clientMessageId는 도메인 중복키, emote는 휘발, 로그인은 인증 특수흐름으로 분리|범용 키 미들웨어가 인증·전송 계약을 임의 변경하지 않게 함|
+
+미결 제품 정책: 기존 코인/보유품 승계, 새 경제 운영값, 건설 완료 전후 기여/잔량, 공동소비 권한, 우체통 상세 읽음·집중/휴식 접근, 계정 재인증·삭제 보존, 초대 승인 생략, 퀘스트 대상주민·랭킹 분모/섬 귀속, 복수기기 측정 정책. 이 설계로 정책 승인이나 운영 활성화가 이루어지지 않는다.
+
+기술 후속: receipt 보존·파기 정책을 운영량과 계정 정책에 맞춰 확정, 1659 실제 통합 코드의 멱등 응답 저장·상류 오류 분류에 본 계약을 연결, 화면13종의 조각표/정합성/TTL은1784에서 확정한다. 구현이 미결 제품 정책에 의존하면 그 경계의 활성화만 보류하고 독립 기반을 진행한다.
