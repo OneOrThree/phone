@@ -150,6 +150,9 @@ tasks.withType(Javadoc).configureEach {
 }
 
 tasks.named('test') {
+	// 실제 DB 경합 테스트의 여러 Spring 컨텍스트가 기본 512 MiB 힙을 소진한다.
+	// 테스트 JVM에만 1 GiB를 허용해 컨텍스트 생성 중 GC 반복을 방지한다.
+	maxHeapSize = '1g'
 	useJUnitPlatform()
 	// 테스트 완료 후 JaCoCo 리포트 자동 생성
 	finalizedBy jacocoTestReport

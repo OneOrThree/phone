@@ -30,10 +30,15 @@ import java.util.UUID;
  * 기기가 같이 끊기거나(그 하나를 지우면) 아무도 안 끊긴다. 세대(유저 축)를 개별 로그아웃에 올리는
  * 대안은 <b>더 나쁘다</b>(㊼) — 로그인 중인 다른 기기의 재등록이 거부돼 그 기기 푸시가 끊긴다.
  *
+ * <h2>세션 행이 있으면 그 행이 권위다</h2>
+ * {@code users.refresh_token_hash} 는 <b>마지막 로그인 하나</b>만 담는다. 그걸 먼저 보면 B 기기
+ * 로그인이 그 값을 덮는 순간 A 기기의 갱신·회전이 전부 실패해, 세션 축을 따로 둔 의미가 사라진다
+ * (codex R10 P1). 그래서 <b>세션 행이 있는 RT 는 이 축이 판정·회전</b>하고, 유저 행의 해시는
+ * 세션 행이 없는 구 RT 의 판정에만 쓴다.
+ *
  * <h2>기존 경로를 깨지 않는다</h2>
- * {@code users.refresh_token_hash} 는 그대로다. 이 서비스는 그 옆에 세션 행을 <b>함께</b> 쓰고,
- * 세션 행이 없는 구 RT 도 기존대로 동작한다(㋪ — 곧장 전환하면 최대 RT 수명 동안 구 토큰을 든
- * 사용자가 전부 끊기고, 게스트에게 그것은 계정 소실이다).
+ * 그 구 RT 경로는 그대로 산다(㋪ — 곧장 전환하면 최대 RT 수명 동안 구 토큰을 든 사용자가 전부
+ * 끊기고, 게스트에게 그것은 계정 소실이다). 승격은 {@link #promoteLegacy} 의 첫 회전에서만 일어난다.
  *
  * <h2>전부 호출자의 트랜잭션 안에서</h2>
  * {@code Propagation.MANDATORY} 다. 세션 행과 outbox 봉투는 <b>로그인·로그아웃 트랜잭션과 같은
@@ -88,35 +93,71 @@ public class AuthSessionService {
     }
 
     /**
-     * RT 회전에 맞춰 세션을 갱신한다.
+     * 살아 있는 세션의 RT 회전 — <b>그 세션 행만</b> 갈아끼운다 (A22 ㋣).
      *
-     * <p>세션 행이 없으면 <b>승격(백필)</b> 한다(㋪) — 구 RT 에는 {@code sessionId} 가 없으므로 첫
-     * 회전에서 세션 축에 올려 준다. 그 행은 {@code legacy=true} 이고 bootstrap nonce 가 없어,
-     * 「무토큰 소유권 이전」 예외 경로를 열지 않는다.
+     * <p>{@code users.refresh_token_hash} 가 아니라 <b>이 행</b>이 회전의 권위다. 유저 행의 해시는
+     * 하나뿐이라 B 기기 로그인이 그 값을 덮으면 A 기기의 회전이 영영 실패한다 — 세션이 여럿이라는
+     * 계약은 세션 행 CAS 위에서만 성립한다(codex R10 P1).
      *
-     * @param userId          세션 주인
-     * @param oldRefreshToken 회전 전 RT 원문
+     * <p><b>전제</b>: 호출부가 {@code users} 행 배타 락을 쥐고 있고, 넘겨준 세션은 그 락 아래에서
+     * 조회됐다. 같은 유저의 로그인·갱신·로그아웃·탈퇴가 모두 그 락을 선두에서 잡으므로,
+     * 여기서 잡는 {@code aggregate_versions} → {@code auth_sessions} 순서는 다른 auth 경로와
+     * 경합하지 않는다.
+     *
+     * <p>그래도 쓰기는 {@link AuthSessionRepository#rotateIfCurrent} 의 조건부 UPDATE 로 낸다 —
+     * 락 규율이 깨지는 날 엔티티 dirty checking 은 동시 회전 둘을 다 성공시키거나 그 사이의 폐기를
+     * 되살리지만, CAS 는 조용히 덮는 대신 <b>0 을 돌려준다</b>. 대신 벌크 UPDATE 는 영속성 컨텍스트를
+     * 갱신하지 않으므로 <b>넘겨받은 엔티티는 읽기만 하고 고치지 않는다</b>.
+     *
+     * @param session         {@link #findByRefreshToken} 으로 읽은 현재 세션 행
+     * @param oldRefreshToken 회전 전 RT 원문 — CAS 기대값의 재료
      * @param newRefreshToken 회전 후 RT 원문
-     * @return 갱신·승격된 세션의 식별·fencing 값. bootstrap 은 회전에서 새로 발급하지 않는다
+     * @return 회전된 세션의 식별·fencing 값. <b>비어 있으면</b> 동시 회전의 패자이거나 그 사이
+     *     세션이 끊긴 것이므로 호출부가 거절해야 한다
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public IssuedSession rotate(UUID userId, String oldRefreshToken, String newRefreshToken) {
-        long sessionEpoch = outboxCommandPort.allocateVersion(AggregateRef.ofUser(userId));
-        String newHash = TokenHasher.sha256Hex(newRefreshToken);
-        Optional<AuthSession> existing =
-                authSessionRepository.findByRefreshTokenHash(TokenHasher.sha256Hex(oldRefreshToken));
-        if (existing.isPresent() && existing.get().getUserId().equals(userId)) {
-            AuthSession session = existing.get();
-            session.rotate(newHash, sessionEpoch);
-            // 자격이 이미 있으면 «그대로 둔다». 회전마다 새로 발급하면 그 응답이 유실됐을 때 앱이 든
-            // 값이 영구히 낡아, 세션 확인이 되는 기기가 오히려 확인 없는 경로로 떨어진다.
-            return new IssuedSession(session.getId(), sessionEpoch, rebindIfMissing(session));
+    public Optional<IssuedSession> rotateActive(AuthSession session, String oldRefreshToken,
+                                                String newRefreshToken) {
+        // fencing 값은 유저 축 aggregate 행 잠금 아래 발급한다(㊸) — open() 과 같은 이유다.
+        // 호출부가 users 를 이미 잠갔으므로 여기서의 순서는 aggregate → auth_sessions 이고,
+        // 그것은 로그인(open)·로그아웃(revoke)·탈퇴(revokeAll)가 같은 락 아래에서 쓰는 순서와 같다.
+        long sessionEpoch = outboxCommandPort.allocateVersion(AggregateRef.ofUser(session.getUserId()));
+        // 자격이 이미 있으면 «그대로 둔다». 회전마다 새로 발급하면 그 응답이 유실됐을 때 앱이 든
+        // 값이 영구히 낡아, 세션 확인이 되는 기기가 오히려 확인 없는 경로로 떨어진다.
+        String issuedBootstrap = session.getBootstrapNonceHash() == null ? newBootstrapNonce() : null;
+        String nonceHash = issuedBootstrap == null
+                ? session.getBootstrapNonceHash()
+                : TokenHasher.sha256Hex(issuedBootstrap);
+        int rotated = authSessionRepository.rotateIfCurrent(
+                session.getId(),
+                TokenHasher.sha256Hex(oldRefreshToken),
+                TokenHasher.sha256Hex(newRefreshToken),
+                nonceHash,
+                sessionEpoch,
+                clock.instant());
+        if (rotated == 0) {
+            return Optional.empty();
         }
-        // 구 RT 승격(㋪) — 여기가 세션 축에 올리는 유일한 자리다. 자격도 이때 처음 발급한다.
+        return Optional.of(new IssuedSession(session.getId(), sessionEpoch, issuedBootstrap));
+    }
+
+    /**
+     * 구 RT 승격(백필) — 세션 축에 올리는 <b>유일한</b> 자리다 (㋪).
+     *
+     * <p>구 RT 에는 {@code sessionId} 가 없어 첫 회전에서만 세션 행을 만들 수 있다. 그 행은
+     * {@code legacy=true} 이고, 자격도 이때 처음 발급한다.
+     *
+     * @param userId          세션 주인 — 승격 직전 {@code users} CAS 로 소유가 확인된 유저다
+     * @param newRefreshToken 회전 후 RT 원문
+     * @return 승격된 세션의 식별·fencing 값과 처음 발급한 자격 원문
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public IssuedSession promoteLegacy(UUID userId, String newRefreshToken) {
+        long sessionEpoch = outboxCommandPort.allocateVersion(AggregateRef.ofUser(userId));
         String bootstrap = newBootstrapNonce();
         AuthSession promoted = authSessionRepository.save(AuthSession.builder()
                 .userId(userId)
-                .refreshTokenHash(newHash)
+                .refreshTokenHash(TokenHasher.sha256Hex(newRefreshToken))
                 .bootstrapNonceHash(TokenHasher.sha256Hex(bootstrap))
                 .sessionEpoch(sessionEpoch)
                 .legacy(true)
@@ -260,21 +301,6 @@ public class AuthSessionService {
             return Optional.empty();
         }
         return authSessionRepository.findByIdAndUserIdForUpdate(sessionId, userId);
-    }
-
-    /**
-     * 자격이 없는 세션에만 새로 건다 — 있는 자격은 건드리지 않는다.
-     *
-     * @param session 회전 중인 세션
-     * @return 새로 발급한 자격 원문. 이미 있었으면 {@code null}
-     */
-    private String rebindIfMissing(AuthSession session) {
-        if (session.getBootstrapNonceHash() != null) {
-            return null;
-        }
-        String bootstrap = newBootstrapNonce();
-        session.bindBootstrapNonce(TokenHasher.sha256Hex(bootstrap));
-        return bootstrap;
     }
 
     private void appendSessionRevoked(AuthSession session) {

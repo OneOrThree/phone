@@ -46,7 +46,7 @@ class InboundService {
         Map<String, Object> params = event.params();
         switch (event.type()) {
             case "notification.deviceToken.deleted" -> devices.deleteLocked(event.userId(),
-                    Json.nullableText(params, "deviceToken"), Json.nullableText(params, "ownershipToken"),
+                    Json.nullableText(params, "deviceToken"), rawOwnership(params),
                     Json.nullableNumber(params, "authGeneration"));
             case "notification.settings.changed" -> settings.applyLocked(event.userId(), params, event.version());
             case "auth.session.revoked" -> devices.revokeSession(event.userId(), params);
@@ -62,6 +62,24 @@ class InboundService {
                 project(event);
             }
         }
+    }
+
+    /**
+     * <b>이미 내구화된</b> 봉투의 소유권 값을 꺼낸다 — 형식 판정은 {@code DeviceService} 가 한다.
+     *
+     * <p>{@code Json.nullableText} 를 쓰면 안 된다: 그 함수는 빈 문자열·공백·문자열 아닌 값을
+     * <b>400 으로 거절</b>하는데, 여기서 400 이 나면 relay 가 그 행을 영원히 재시도하고(A18 고갈
+     * 처리 없음) 순서 축이 같은 <b>그 유저의 뒤 이벤트가 전부</b> 막힌다. 동기 경로에서는 그 거절이
+     * 맞지만(앱이 고쳐 다시 보낼 수 있다), 봉투는 고칠 수가 없다.
+     *
+     * <p><b>{@code null} 로 접지도 않는다.</b> {@code null} 은 「CAS 검사 없음」이라는 다른 뜻이라,
+     * 문자열이 아닌 값을 그리로 접으면 그 삭제가 소유권 검사를 잃고 지금 등록된 기기까지 지운다(㊚).
+     * 그래서 {@code null} 만 「없음」으로 두고 나머지는 <b>있는 그대로</b> 넘긴다 — 정규 표기가
+     * 아니면 {@code deleteLocked} 가 「어느 행에도 맞지 않는 소유권」으로 보고 무해하게 소비한다.
+     */
+    private static String rawOwnership(Map<String, Object> params) {
+        Object value = params.get("ownershipToken");
+        return value == null ? null : String.valueOf(value);
     }
 
     void enqueue(Envelope event) {

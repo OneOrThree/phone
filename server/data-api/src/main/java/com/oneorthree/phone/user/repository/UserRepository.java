@@ -19,7 +19,7 @@ import java.util.UUID;
  *
  * <p><b>소프트 딜리트</b> — 탈퇴는 행 삭제가 아니라 {@code is_deleted=true} 다. 그래서 활성 유저만 봐야 하는
  * 경로는 이름에 그 조건이 드러난 메서드를 쓰고, 조건이 없는 메서드({@link #findByNickname},
- * {@link #findByRefreshTokenHash} 등)는 <b>탈퇴 유저까지 잡는다</b> — 호출측이 따로 걸러야 한다.
+ * {@link #existsByNicknameAndIdNot} 등)는 <b>탈퇴 유저까지 잡는다</b> — 호출측이 따로 걸러야 한다.
  *
  * <p><b>락 선택</b> — 그 트랜잭션이 users 행을 <b>변경</b>하면 처음부터 배타 락({@link #findActiveByIdForUpdate}),
  * <b>읽기만</b> 하면 공유 락({@link #findActiveByIdForShare})이다. 공유로 읽고 나중에 UPDATE 하면 락 승급
@@ -221,25 +221,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     boolean existsByNicknameAndIdNot(String nickname, UUID id);
 
     /**
-     * refresh 토큰 회전·검증 진입점 — 해시로 세션 주인을 찾는다.
-     *
-     * <p><b>락도 활성 조건도 없다.</b> 그래서 여기서 얻은 엔티티는 이미 낡았을 수 있고, 그 스냅샷을
-     * 더티 체킹으로 저장하면 그 사이 커밋된 탈퇴를 통째로 되살린다 — 회전은 반드시
-     * {@link #rotateRefreshTokenHash} 의 조건부 UPDATE 로 해야 한다.
-     *
-     * @param hash 클라가 제시한 refresh 토큰의 해시
-     * @return 그 해시를 들고 있는 유저. 탈퇴 유저도 잡히므로 활성 여부는 호출측이 확인한다
-     */
-    Optional<User> findByRefreshTokenHash(String hash);
-
-    /**
      * refresh 토큰 해시 조건부 교체 (GROMO-1509) — 회전 전용. 바뀐 행 수를 반환한다.
      *
-     * <p>엔티티 필드를 고쳐 dirty checking 에 맡기면 안 된다. {@link User} 에는 {@code @Version} 도
-     * {@code @DynamicUpdate} 도 없어 <b>full-row UPDATE</b> 가 나가는데, 회전 경로는 해시를 락 없이
-     * ({@link #findByRefreshTokenHash}) 읽으므로 그 스냅샷이 이미 낡았을 수 있다. 조회와 flush 사이에
-     * 탈퇴(withdraw, 배타 락)가 커밋되면 낡은 스냅샷이 {@code is_deleted=true} 와 파기된 PII 를 통째로
-     * 되살리고, 그 계정에 유효한 refresh 토큰까지 쥐여준다.
+     * <p><b>해시로 유저를 찾는 진입점은 더 이상 없다</b>(GROMO-1659 codex R10) — 유저 행의 해시는
+     * 「마지막 로그인」 하나뿐이라 세션이 여럿이면 판정 근거가 될 수 없다. 갱신은 서명된 RT 의
+     * userId 로 {@link #findActiveByIdForUpdate} 배타 락을 잡은 뒤 세션 원장으로 판정한다.
+     *
+     * <p>그 락 아래에서도 엔티티 필드를 고쳐 dirty checking 에 맡기지 않는다. {@link User} 에는
+     * {@code @Version} 도 {@code @DynamicUpdate} 도 없어 <b>full-row UPDATE</b> 가 나가는데, 한 컬럼을
+     * 바꾸자고 전 컬럼을 이 트랜잭션의 스냅샷으로 덮는 것은 같은 행을 건드리는 다른 경로(탈퇴의
+     * PII 파기 등)가 하나만 끼어도 곧장 되살림 사고가 된다. 컬럼 하나만, 그것도 조건부로 바꾼다.
      *
      * <p>그래서 해시 컬럼만, 그것도 "여전히 활성이고 해시가 그대로일 때만" 바꾸는 조건부 UPDATE 로
      * 쓴다. 다른 컬럼을 건드리지 않으니 되살릴 것이 없고, 조건이 곧 compare-and-swap 이라 탈퇴·

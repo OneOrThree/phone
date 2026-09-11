@@ -46,6 +46,7 @@ def secret() -> dict[str, str]:
         keys |= set(required)
     data = {key: f"secretvalue-{key.lower()}" for key in sorted(keys)}
     # 관측 백엔드 키와 콘솔 비밀번호는 공유 시크릿에 «있지만» 어느 서비스에도 가면 안 된다.
+    data["LINK_PROXY_SECRET"] = "secretvalue-link-proxy"
     data["DD_API_KEY"] = "secretvalue-dd-api-key"
     data["GRAFANA_ADMIN_PASSWORD"] = "secretvalue-grafana"
     return data
