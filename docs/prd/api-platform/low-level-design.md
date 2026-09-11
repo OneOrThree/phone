@@ -190,7 +190,7 @@ sequenceDiagram
 
 화면 조합기는 독립 **읽기**만 병렬 처리한다. 제안 설정 기본값은 bounded pool16, queue64, 화면 전체 deadline3초다. 서비스별 connect/read/재시도는1659 `InternalHttpClient`와 `Deadline`을 기반으로 보완하고 이3초 예산을 넘겨 독자적인 timeout을 중첩하지 않는다. 조사 시 클라이언트는 `MAX_ATTEMPTS=2` 하드코딩·readTimeout 입구 예산 검사만 있으며 requestId 전파가 없다. 재시도 횟수 설정, 남은 예산에 connect/read/대기 포함, 요청 추적 헤더 전달, 취소 시 실제 I/O 종료는 **1753 추가 구현 항목**이다. 이 수치는 초기 기술 설정이며 처리량/SLO를 실측한 운영 보장이 아니다. 1753에서 부하·고갈 테스트 후 필요하면 문서와 함께 조정한다.
 
-각 조각은 `name`, `required`, 공개 DTO type, 허용한 일시실패 분류, 같은 context/deadline을 받는다. 전체 남은 예산이 없거나 executor가 포화면 더 enqueue하지 않고503으로 종료한다. 완료하지 않은 작업은 취소하고 underlying HTTP 요청/연결이 계속 살아남지 않는지 검증한다. pool 공유범위와 서비스별 연결 상한을 함께 둔다.
+각 조각은 `name`, `required`, 공개 DTO type, 허용한 일시실패 분류, 같은 context/deadline을 받는다. 전체 남은 예산이 없으면 더 enqueue하지 않고504 `UPSTREAM_TIMEOUT`으로 종료한다. context 조회·큐 대기·enqueue 전후 어느 지점에서 소진돼도 같은 시간 초과 계약을 적용한다. 예산이 남아 있지만 executor가 포화면503 `SERVICE_UNAVAILABLE`로 종료한다. 완료하지 않은 작업은 취소하고 underlying HTTP 요청/연결이 계속 살아남지 않는지 검증한다. pool 공유범위와 서비스별 연결 상한을 함께 둔다.
 
 | 실패 | 필수 조각 | 선택 조각 |
 | --- | --- | --- |
@@ -218,7 +218,7 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | 동일key 성공후 stale expectedVersion·다른key 종료/구매 | 원 성공409오인 또는 도메인유일성 누락 |
 | 현재requestId와원result 분리·새id요청 로그 연결 | 과거requestId/다른현재잔액을 재생 |
 | cursor 서명/만료/타사용자/필터/동률/메시지방향 | 정보유출·페이지중복/누락·무한스크롤루프 |
-| bounded 병렬·필수/선택 실패·권한오류·취소 후 자원회수 | thread/connection 고갈, 권한상실 은폐 |
+| bounded 병렬·context/큐/enqueue 전후 예산 소진504·executor 포화503·필수/선택 실패·권한오류·취소 후 자원회수 | thread/connection 고갈, 권한상실 은폐 |
 | 1659 auth/key/내부토큰 회귀·기존미리보기 전체 회귀 | 이미 해결한 인증·위성·SSRF 회귀 |
 
 이번 문서 작업에서는 원본 복사본 SHA-256/바이트 비교, 66개 원본 method/path 대조, 변경36개 전수 적용표, 버전필드9개 대조, Markdown 상대 링크와 Mermaid fence 짝을 확인한다. 빌드·단위/통합 테스트는 문서 변경에 실행하지 않으며 위 표의 통과를 주장하지 않는다. 실제 검증 결과는 구현 PR에 명령·exit code·결과 파일과 함께 남긴다.
