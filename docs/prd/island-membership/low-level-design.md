@@ -34,6 +34,8 @@
 
 필수 필드: `id:Id`, `name:string`, `intro:string`, `visibility:public|private`, `approvalRequired:boolean`, `memberCount:integer>=0`, `membershipStatus:none|pending|active`, `growthStage:string`, `themeId:string`.
 
+`intro`는 기존 `Group.description`의 공개 projection이다. 기존 nullable 행과 소개 없이 생성된 그룹도 `COALESCE(description, '')`로 항상 문자열을 반환한다. PublicIslandSummary를 사용하는 탐색/검색/상세/본인 소속/초대 요약 및 이를 확장하는 MemberIslandDetail, 관리 응답에 같은 매퍼를 적용한다. DB의 null을 일괄 변경하거나 legacy 응답 규칙을 바꾸지 않는다. 근거는 `Group.java:51`의 nullable description과 `CreateGroupRequest.java:39~40`의 선택 입력이다.
+
 `joinRequestId:Id?`를 본인 최신 신청 연결용으로 추가하는 **기술 설계 확장**이다. 본인의 최신 요청이 있으면 ID를, 없으면 null을 준다. 승인/거절/취소의 상세 상태는 본인 join-status 계약에서 읽는다. 자신의 archived 요청 존재를 다른 사용자에게 보여주지 않는다. pending 요청자도 role/관리 데이터를 받지 않는다.
 
 방문 외관에 필요한 `assetVersion:string`·`buildingThemes:object<BuildingId,ThemeId>`를 상세 공개 DTO에서 추가할 수 있다. 아래 필드는 방문자 응답에 키 자체가 없어야 한다: `role`, `permissions`, `initialConstruction`, `constructionTarget`, 지갑/원장/보유품, focus/session/통계, 편지/읽음, 주민 개인 목록, 다른 신청자/가입코드. 초기 기여량은 경제 진행 데이터이므로 방문자에게 노출하지 않는다.
@@ -93,6 +95,8 @@ private 초대 resolve가 반환한 공개 요약은 초대 흐름에서 사용�
 
 입력 `{islandId:Id}`, 성공200 `{data:{currentIslandId:Id}}`. 목적 섬은 본인의 활성 소속이어야 하고 생존해야 한다. 새 변경은 active/paused가 없어야 하며 첫 소속 이후 출발 섬 전망대가 필요하다. 같은 섬 PUT는 실질 이동이 없는 상태확인으로 처리하고 이벤트/새 membership을 만들지 않는다.
 
+`currentIslandId=null`을 첫 소속으로 간주하지 않는다. 상실 이유별 복구는 [IM-D06 추천 복구 전이](./prd.md#im-d06-추천-복구-전이승인-전-비활성)를 따른다. 이 추천안이 승인되기 전에는 null 복구/현재 섬 상실을 유발하는 신규 분기를 활성화하지 않는다.
+
 서버의 current context와 live session을 같은 직렬화 경계로 검사한다. 과거 성공의 receipt 재생이 최신 current context를 되돌려 쓰지 않는다. 재생 응답은 당시 성공결과이며 앱은 최신 화면 context를 재조회한다. `currentIslandId` 개인 선택 변경을 island.members.updated 가입/이탈로 방송하지 않는다.
 
 ### 3.7 join — POST /islands/{islandId}/memberships
@@ -106,9 +110,21 @@ public/privacy/password/approvalRequired는 독립 축이다. 유효 초대가 �
 
 이미 active이면 새 키의 신규가입은409, 같은 성공 receipt는 저장 결과 재생. 같은 사용자·섬의 pending 요청이 이미 있으면 같은 pending 자원 반환을 제안하며 DB 부분 유일성으로 중복을 막는다. terminal 뒤 새 요청 정책은 IM-D05를 따른다. 즉시 가입의 current 이동은 switch와 같은 guard. **pending 신청만 만드는 것과 실제 이동을 구분**하며 신청자 집중 상태만으로 UI 원격승인을 현재 섬 이동으로 바꾸지 않는다.
 
+초대 근거가 있는 즉시 가입은 아래의 초대 증거 검증과 링크 귀속 outbox를 실제 membership TX 안에서 수행한다. pending 생성은 가입/claim 확정이 아니므로 `link.joined`나 `link.claimConfirmed`를 미리 기록하지 않는다.
+
+### 초대 기반 pending과 실제 가입 커밋
+
+IM-D03의 승인 유지 추천안이 채택될 경우, JoinRequest에는 `admissionSource=invitation`과 신청자/섬에 결합한 불변 `invitationEvidenceRef`를 보존한다. 참조 대상은 기존 서명 capability와 검증한 `slug, groupId, inviterId, membershipEpoch, expiresAt`, 기존 계약에 있는 linkVersion/transition 식별 자료 및 pending claim이 실제 존재할 때의 claimId를 보유한다. 이것은 서버 전용 가입 증거다. 외부 DTO·요청 이벤트·로그·분석 payload에 원문 token/capability/slug/발급자 정보를 복사하지 않고 다른 신청자의 증거로 갈아 끼울 수 없게 한다. 기존 서명 체계를 재사용하고 임의로 만료를 늘리거나 서명 없는 필드 복사본을 자격으로 인정하지 않는다.
+
+즉시 가입 및 방장 승인 모두 Data의 동일 그룹/발급자 멤버십 직렬화 경계에서 서명·groupId/신청자 결합·미종료 그룹·발급자 계정과 현재 활성 membership·현재 membershipEpoch·원 만료를 커밋 직전에 재검사한다. linkVersion/폐기 transition도 기존 내부 링크 계약의 Data 측 근거와 대조한다. Business의 사전 resolve 성공과 신청 당시 유효성만으로 승인하지 않는다. 발급자 이탈/강퇴/재가입, 링크 폐기, 만료 또는 그룹 종료가 앞서 확정됐으면 membership을 만들지 않는다. 폐기 사실을 Data TX에서 검증할 기존 근거가 없다면 그 경로는 미구현 차단 조건이며, TX 안에서 링크 HTTP 조회로 대체하지 않는다. 만료/폐기 승인은 410 `INVITATION_EXPIRED`이며 승인 전이를 커밋하지 않는다. host의 reject와 신청자 cancel은 만료된 자격을 요구하지 않는다. 승인 우회 여부 자체는 여전히 IM-D03 미답이다.
+
+초대 가입 커밋에는 membership 생성/재활성화, 승인 요청 terminal(해당할 때), 자원 version/공개 사건과 함께 기존 `link.joined` outbox를 저장한다. 실제 pending claim이 연결된 경우 그 claim의 Data 확정 레코드와 `link.claimConfirmed` outbox도 같은 TX에 넣는다. claim이 없는 단순 초대를 위해 가짜 claimId/확정을 만들지 않는다. 같은 키 재생은 원 사건 식별자를 재사용하고 outbox를 중복 발행하지 않는다. Data TX 종료 후 relay가 joined/confirm을 전달하며, Business의 응답 이후 fire-and-forget 호출에 의존하지 않는다. 기존 `(groupId,inviterId)` transition sequence/tombstone 규칙으로 revoke 이후 지연 confirm이 귀속을 부활시키지 못하게 한다. 가입 응답 유실·Business 종료·relay 역순과 재시도도 이 내구 기록으로 복구한다.
+
+정본은 [서비스 아키텍처 §3](../../architecture/service-architecture.md)와 [결정 장부 ㋟](../../architecture/decisions.md)다. 선행1659의 `group/service/LinkMembershipEventService.recordJoinAttribution` 및 `internal/service/InternalInviteLinkService.confirmClaim`은 재사용 근거이며 기준 main에 이미 모두 구현됐다는 주장이 아니다.
+
 ### 3.8 join-status — GET /me/join-requests/{requestId}
 
-성공200 `{data:{id,islandId,status:pending|approved|rejected|cancelled,version}}`. 요청자 본인 소유 검사 `id+applicantId`로 읽는다. 남의 요청은404로 범위 밖임을 처리하고 개인정보를 반환하지 않는다. 승인 상태를 읽었다고 현재 섬을 변경하지 않는다.
+성공200 `{data:{id,islandId,status:pending|approved|rejected|cancelled,version}}`. 요청자 본인 소유 검사 `id+applicantId`로 읽는다. 남의 요청은404로 범위 밖임을 처리하고 개인정보를 반환하지 않는다. 승인 상태를 읽었다고 현재 섬을 변경하지 않는다. 섬 종료가 pending을 cancelled로 종결한 요청도 본인 소유로 계속 조회할 수 있어야 하며, 그룹 생존 가드의404로 이 terminal 결과를 가리지 않는다. 공개 상태 enum은 그대로이고 내부 종결 원인은 `island_closed`다.
 
 ### 3.9 join-cancel — DELETE /me/join-requests/{requestId}
 
@@ -136,8 +152,8 @@ public/privacy/password/approvalRequired는 독립 축이다. 유효 초대가 �
 |---|---|---|
 | Group | 기존 groups.id, 생존=(deletedAt=null AND status!=ENDED), maxMembers | approvalRequired와 성장/외양은 별도 소유 projection 또는 추가 필드. password 보존 |
 | Membership | 기존 unique(userId,groupId), isLeft/leftReason, role | rejoin행 재사용. epoch는 이탈/강퇴/재가입 때만 증가, 역할/닉네임 수정으로 초대 무효화 금지 |
-| JoinRequest | requestId, islandId, applicantId, status, version, createdAt/resolvedAt | pending에 대해 `(islandId,applicantId)` 부분유일성. terminal 이력과 재신청 분리 |
-| UserIslandContext | userId PK, currentIslandId nullable, contextVersion | 새 영속 선택. 실제 FK 존재만으로 활성 membership을 보장하지 않아 TX 검증 필요 |
+| JoinRequest | requestId, islandId, applicantId, status, version, createdAt/resolvedAt, terminalReason, admissionSource, invitationEvidenceRef | pending 부분유일성 유지. 섬 종료는 cancelled/내부 island_closed. 초대 참조는 신청자/섬에 불변 결합하고 실제 승인 TX에서 재검증 |
+| UserIslandContext | userId PK, currentIslandId nullable, contextVersion; 추천 추가자료 lossReason/previousIslandId/recoveryGeneration 및 서버 복구 증거 | IM-D06 승인 전 복구 분기 비활성. null/첫 소속/강퇴·종료·자진 이탈을 구분하고 출발 시설 검사를 임의 생략하지 않음 |
 | DiscoverSession | 무작위 sessionId, ownerScopeDigest, filterDigest, orderedCandidateIds, expiresAt | 조회용 유한 수명 상태. 권한·정원 예약 아님 |
 | Command receipt/outbox | 기존 내부 명령의 user/operation/key + fingerprint/result | 새 이름의 중복 receipt/outbox를 만들지 않음 |
 
@@ -179,7 +195,7 @@ discover 초기 요청은 유한한 후보 집합을 구성해 한 번 shuffle�
 | 코드 만료/폐기 | 410 | expiresAt 경계·폐기·발급자 이탈·늦은 token |
 | cursor 오류 | 공통400/409 | 사용자·필터·limit·서명·TTL |
 
-실제 DB 통합 검증에는 마지막 자리 동시2가입, 동시 승인과 즉시 가입, 계정9소속에서 동시2가입, 승인과 취소/거절, 재가입 unique/epoch, 발급자 이탈과 초대 가입, 마지막 주민 이탈과 신규 가입을 포함한다. 현재 섬 이동과 focus-start/paused, 생성/가입을 통한 이동 우회, legacy/new writer 혼합도 검증한다.
+실제 DB 통합 검증에는 마지막 자리 동시2가입, 동시 승인과 즉시 가입, 계정9소속에서 동시2가입, 승인과 취소/거절, 재가입 unique/epoch, 발급자 이탈과 초대 가입, 마지막 주민 이탈과 신규 가입을 포함한다. 섬 종료와 pending 생성/승인/취소 경합에서 terminal 유실 0, 종료 후 join-status cancelled와 신청자 개인 이벤트를 확인한다. 초대 pending 생성 뒤 발급자 이탈/epoch 변경/링크 폐기/만료가 발생한 승인 실패, 즉시 가입/승인의 joined 및 실제 claim confirm outbox 원자 rollback·재전달, nullable 소개를 가진 legacy 행의 모든 신규 projection도 검증한다. IM-D06 미승인 활성화 차단과 이유 없는 null의 시설 우회 차단을 검증한다. 현재 섬 이동과 focus-start/paused, 생성/가입을 통한 이동 우회, legacy/new writer 혼합도 검증한다.
 
 공개 범위 검증은 비소속 응답에서 민감 필드의 값이 null인지에 그치지 않고 **키 부재**를 검사한다. private 이름 검색0건, 정확 code 검증, 다른 사용자의 requestId/current context 비노출, discover cursor 권한 재검증, 자격 검증 중 상류 실패가 허용으로 바뀌지 않음도 포함한다. 이 초안 작성에서는 테스트/빌드를 실행하지 않았다.
 

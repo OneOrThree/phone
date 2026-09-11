@@ -36,7 +36,7 @@ Id/Version/Cursor/PublicIslandSummary는 [소속 값 타입](../island-membershi
 
 입력 `{name?:string,intro?:string,approvalRequired?:boolean}`. 성공200 `{data:{id,name,intro,approvalRequired,version}}`. 현재 host만 실행할 수 있고 섬 생존을 확인한다. version은 `(island,islandId)` 축이다. 승인 방식 변경이 과거 pending 요청을 자동 승인/거절하지 않는다. 기존 요청은 명시적으로 처리하거나 별도 정책 변경을 거쳐야 한다.
 
-그룹 상태 변경과 island.updated/outbox를 같은 TX에 저장한다. 같은 키 재생은 같은 결과, 새 키 no-op은 새 사건을 만들지 않는다. 늦게 도착한 이전 host의 새 요청은 현재 역할 검사에서403이다. 필드별 업데이트로 미전달 설정을 보존한다.
+그룹 상태 변경과 island.updated/outbox를 같은 TX에 저장한다. 같은 키 재생은 같은 결과, 새 키 no-op은 새 사건을 만들지 않는다. 늦게 도착한 이전 host의 새 요청은 현재 역할 검사에서403이다. 필드별 업데이트로 미전달 설정을 보존한다. 결과 intro는 기존 description이 null이어도 공개 매퍼에서 빈 문자열로 반환하며 DB의 기존 null을 변경할 필요는 없다.
 
 ### 3.2 members — GET /islands/{islandId}/members
 
@@ -59,6 +59,8 @@ Query `{cursor?,limit?}` 기본30/상한100을 원본 빈 query에 **유한 목�
 입력 `{decision:approve|reject}`. 성공200 승인 `{data:{status:"approved",memberId,version}}`, 거절 `{data:{status:"rejected",memberId:null,version}}`. memberId는 사용자 ID다. 원본에 없는 거절 예시의 memberId는 null로 명시한다. version은 해당 요청 버전이다.
 
 공통으로 현재 host 권한과 request.islandId 일치, pending 상태를 검사한다. 신청자 계정 활성, 과거 KICKED/기존 membership/소속 상한/정원 검사는 **approve에만** 적용한다. reject는 가입 자격이나 남은 자리와 무관하게 pending 요청을 정리할 수 있다. approve는 요청 approved 전이와 membership 생성 또는 재활성화, 주민 version/outbox를 한 TX에서 커밋한다. 요청만 먼저 approved로 만들지 않는다. 신청자가 다른 섬에서 집중 중에 원격 승인을 받아도 **currentIslandId는 바꾸지 않는다**. 현재 섬으로 이동하는 시점에 별도 switch 가드를 사용한다.
+
+초대 기반 pending 승인은 [소속 LLD의 초대 증거/커밋 규칙](../island-membership/low-level-design.md#초대-기반-pending과-실제-가입-커밋)을 추가로 적용한다. 저장된 invitationEvidenceRef의 원 서명·그룹·발급자 활성 membership·현재 epoch·폐기/만료를 membership TX에서 재검증한다. 승인 유지/우회 선택(IM-D03)은 아직 미정이며 이 증거 검증을 생략할 근거가 아니다. 유효 초대 승인에는 같은 TX의 link.joined, 실제 pending claim이 있으면 Data 확정 레코드와 link.claimConfirmed outbox가 필요하다.
 
 reject는 membership을 만들지 않고 요청 terminal 상태와 join.request.updated를 남긴다. 같은 키는 기존 결과를 재생하고, 다른 키로 이미 terminal인 요청을 처리하면409다. approve와 cancel/reject 경합에서 한 전이만 승리한다. 승인 시 신청자의 상한과 섬 정원은 사전 snapshot이 아니라 잠금 아래 다시 판정한다.
 
@@ -83,6 +85,10 @@ membershipEpoch는 이탈/재가입 자격 축이므로 단순 위임 때 올리
 본문 없음. 성공200 `{data:{left:true}}`. 본인 활성 membership, active/paused 진행 세션 없음이 필수다. 다인 host는 위임 필요409, 마지막 1인이면 그룹 ENDED로 전이한다. 기존 OPEN 내기 참가 정리/환불 규칙과 순서를 유지한다.
 
 상태 전이·현재 context 무효화·membershipEpoch·초대 폐기 제어·outbox를 같은 TX에 묶는다. 마지막 주민 판정은 동시 가입/승인과 직렬화한다. 이미 나간 상태에서 다른 키로 호출하면 현재 미소속403이며, 앱은 본인 소속 조회로 사후조건을 확인해 안전하게 복귀할 수 있다. 불명확한404를 모두 성공으로 접지 않는다. 같은 성공 키의 제한된 명령 증거 재생은 §4에서 다룬다.
+
+마지막 주민 이탈로 ENDED가 되는 경우에는 같은 TX에 `island.members.updated` 외에 `island.updated`와 링크 대상 `group.closed` outbox를 반드시 기록한다. 발급자별 `link.revoked`가 group.closed를 대신하지 않는다(장부 ㋢). 공개 projection의 종료 상태와 링크 landing/match 폐기가 모두 같은 중앙 종료에 수렴하도록 기존 버전/relay 규칙을 사용한다.
+
+같은 그룹 잠금 아래 남아 있는 모든 pending JoinRequest를 기존 terminal 상태 `cancelled`로 전이하고 내부 `terminalReason=island_closed`, resolvedAt과 요청별 version을 기록한다. 신규 상태 enum을 만들지 않는다. 신청 생성/approve/cancel도 같은 그룹 생존/잠금 경계를 사용하므로 종료 스캔 뒤 pending이 새로 남지 않는다. 각 신청자에게 비민감 `{requestId,applicantId,status:"cancelled",version}`의 join.request.updated 개인 전달 outbox를 같은 TX에 저장한다. 종료 후에는 현재 host 수신자가 없으므로 옛 host/주민 토픽에 요청 상세를 보내지 않는다. 신청자는 그룹 조회가404여도 본인 join-status에서 cancelled를 확인하여 대기를 끝낼 수 있다. 실패하면 ENDED/멤버십/요청 terminal/모든 outbox를 함께 rollback한다. 계정 탈퇴나 legacy 마지막 이탈로 닫히는 경우에도 동일 종료 primitive를 재사용한다.
 
 현재 선택 섬을 잃은 뒤 대체 섬 선택은 소속 IM-D06 결정 대기다. 이미 다른 섬을 현재로 쓰고 있다면 그 선택을 이탈 명령이 null로 덮지 않도록 조건부 갱신한다.
 
@@ -124,7 +130,7 @@ membershipEpoch는 이탈/재가입 자격 축이므로 단순 위임 때 올리
 
 ## 6. 공개 결과·이벤트·로그
 
-manage는 island.updated, 승인/위임/강퇴/탈퇴는 island.members.updated, 요청 생성/처리는 join.request.updated를 발행한다. 거절은 주민 수가 바뀌지 않으므로 불필요한 members 사건을 만들지 않는다. GET은 이벤트를 생산하지 않는다. payload.version은 해당 envelope.aggregateVersion과 일치해야 한다.
+manage는 island.updated, 승인/위임/강퇴/탈퇴는 island.members.updated, 요청 생성/처리는 join.request.updated를 발행한다. 마지막 주민 이탈/그룹 종료에는 island.updated와 링크 대상 group.closed를 추가하고 pending의 cancelled 전이마다 신청자 개인 join.request.updated를 함께 기록한다. 초대 근거의 즉시 가입/승인은 link.joined, 실제 pending claim의 확정은 link.claimConfirmed를 같은 membership TX에 기록한다. 거절은 주민 수가 바뀌지 않으므로 불필요한 members 사건을 만들지 않는다. GET은 이벤트를 생산하지 않는다. 공개 Realtime 사건의 payload.version은 해당 envelope.aggregateVersion과 일치해야 한다. 링크 대상 내부 outbox는 기존1659 봉투/version·transition 계약을 그대로 따르며 공개 Realtime 봉투로 바꾸지 않는다.
 
 공개 members 사건은 `{islandId,version}`, join.request 사건은 `{requestId,applicantId,status,version}`이다. 요청 이벤트 수신자는 본인과 현재 host만이며 이를 일반 섬 events 토픽으로 보내지 않는다. 초대 폐기/세션 철회/개인 current context 제어는 신뢰된 내부 자료로 분리한다.
 
@@ -140,10 +146,10 @@ manage는 island.updated, 승인/위임/강퇴/탈퇴는 island.members.updated,
 | 요청 IDOR | 다른 섬 requestId, 남의 own-request, 타섬 targetUserId, 이전 host의 새 요청403 |
 | 승인 경합 | 만원·신청자 소속 상한 도달 중에도 reject 성공, approve/reject/cancel 중 한 승자, 마지막 자리 승인/즉시 가입 중 한 승자, 신청자 상한과 동시 가입 |
 | 위임 경합 | 동시 두 위임, 위임 vs 대상 탈퇴/계정 삭제/강퇴, 자기 위임, 활성 host 정확히1명 |
-| 이탈 경합 | 마지막 주민 leave vs join/approve, leave vs focus-start/pause/resume, legacy/new writer 혼합 |
+| 이탈 경합 | 마지막 주민 leave vs join/approve/pending 생성, pending 전건 cancelled 및 개인 알림, group.closed/island.updated 원자 기록·rollback, leave vs focus-start/pause/resume, legacy/new writer 혼합 |
 | 초기/빈/오류 | 이름 null/빈 값/bidi/길이, 미전달 필드 보존, 빈 PATCH no-op, 같은 성공 receipt 재생, 다른 본문409 |
 | 목록/이벤트 | 같은 snapshot의 members version, 재연결 중 신규/삭제 주민과 요청, 페이지 간 version 변경, 다른 aggregate의 높은 version |
-| 링크 | 발급자 이탈 후 늦은 발급/가입 거절, 단순 위임 링크 유지, 재가입 새 epoch, 폐기의 내구 재전달 |
+| 링크 | pending 이후 발급자 이탈/링크 폐기/만료/epoch 변경의 승인 거절, 초대 즉시가입·승인의 joined/claimConfirmed 원자 저장·응답유실 복구, 발급자 이탈 후 늦은 발급/가입 거절, 단순 위임 링크 유지, 재가입 새 epoch, 폐기의 내구 재전달 |
 | 실시간 | 이전 host의 신규 신청 프레임 차단, 탈퇴/강퇴자의 보호 프레임 차단, 모든 노드 캐시/구독 정리, 토큰 만료 |
 | 보상 | 기존 내기 회귀, 개인 확정 원장 보존, 새 정책 결정 후 진행 세션/회차별 검증 추가 |
 
