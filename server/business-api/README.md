@@ -219,7 +219,11 @@ flowchart TD
 서비스별 토큰·HTTP 풀은 분리되어 있고 requestId는 재시도에도 유지한다.
 GET과 명시적 `idempotentCommand()`만 재시도하며 기본 **최대 2회는 최초 호출을 포함한 총 시도 수**다.
 429는 도메인 제한으로 전달하고 재시도하지 않는다. 5xx·전송 실패는 예산 내에서 재시도하며,
-Retry-After가 남은 전체 예산보다 길면 새 시도를 하지 않고 timeout으로 끝낸다.
+Retry-After가 남은 전체 예산 이상이면 새 시도를 하지 않고 timeout으로 끝낸다.
+추가로 재시도 한 번의 대기는 **해당 상류의 `read-timeout`과 고정 1초 중 작은 값**을 넘지 않는다.
+이 상한은 legacy의 `Deadline.unbounded()`에도 적용한다. 상한보다 긴 Retry-After나 설정 retry-delay는
+짧게 잘라 재시도하지 않고 즉시 원 장애 종류로 종료한다(일시 불가 또는 신규 strict의 504 timeout).
+유한한 전체 예산 부족 판정은 이 대기 상한보다 먼저 적용하며, legacy/strict 오류 분류와 429 비재시도는 유지한다.
 
 신규 외부 응답은 시간 초과 504 `UPSTREAM_TIMEOUT`, 용량 초과·일시 장애 503 `SERVICE_UNAVAILABLE`,
 상류 계약 오류 502 `UPSTREAM_CONTRACT_ERROR`, 서비스 자격 오류 502 `UPSTREAM_AUTH_FAILED`다.
