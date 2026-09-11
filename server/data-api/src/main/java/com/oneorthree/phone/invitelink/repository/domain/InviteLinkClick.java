@@ -109,7 +109,7 @@ public class InviteLinkClick {
     /**
      * 가입/로그인한 유저를 이 클릭에 붙인다 — 최초 1회만.
      *
-     * <p>이미 claim 됐거나 초대자 본인이면 아무것도 하지 않고 {@code false}(셀프 초대 방지·멱등).
+     * <p>이미 claim 됐거나(탈퇴 후 귀속만 익명화된 경우 포함) 초대자 본인이면 아무것도 하지 않고 {@code false}(셀프 초대 방지·멱등).
      *
      * <p><b>전제: {@link #markMatched} 와 같다 — 호출측이 비관적 락을 쥐고 있어야 한다.</b> 락 없이
      * 부르면 동시 claim 두 건이 같은 행을 덮어써 "최초 1회" 가 lost update 로 뒤집힌다. 유일한 정상
@@ -124,7 +124,7 @@ public class InviteLinkClick {
      *         중복 보상이 나간다</b>
      */
     public boolean claim(UUID userId, UUID inviterId) {
-        if (claimedUserId != null || userId.equals(inviterId)) {
+        if (claimedUserId != null || claimedAt != null || userId.equals(inviterId)) {
             return false;
         }
         this.claimedUserId = userId;

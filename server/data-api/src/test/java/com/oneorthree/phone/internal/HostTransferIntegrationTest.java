@@ -17,6 +17,10 @@ import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.internal.dto.HostTransferRequest;
 import com.oneorthree.phone.internal.dto.HostTransferResponse;
 import com.oneorthree.phone.internal.service.InternalHostTransferService;
+import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
+import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
+import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.domain.InviteLinkClick;
 import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.outbox.repository.EventOutboxDeliveryRepository;
 import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
@@ -41,6 +45,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -90,6 +95,10 @@ class HostTransferIntegrationTest {
     @Autowired
     AccountWithdrawalService withdrawal;
     @Autowired
+    GroupInviteLinkRepository inviteLinks;
+    @Autowired
+    InviteLinkClickRepository inviteClicks;
+    @Autowired
     EventOutboxRepository events;
     @Autowired
     EventOutboxDeliveryRepository deliveries;
@@ -126,6 +135,46 @@ class HostTransferIntegrationTest {
                 f.islandId().toString())).isZero();
         assertThat(count("select count(*) from event_outbox where subject_id=?"
                 + " and params->>'changeKind'='HOST_TRANSFER'", f.islandId().toString())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("실제 탈퇴 후 다른 활성 사용자가 HTTP claim 해도 익명화된 클릭은 소진 상태를 유지한다")
+    void withdrawnClaimantClickCannotBeConsumedByAnotherActiveUser() throws Exception {
+        Fixture f = fixture();
+        var first = auth.guestLogin();
+        var next = auth.guestLogin();
+        UUID firstId = jwt.extractUserId(first.accessToken());
+        UUID nextId = jwt.extractUserId(next.accessToken());
+        String slug = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        GroupInviteLink link = inviteLinks.save(new GroupInviteLink(slug, f.islandId(), f.owner().id()));
+        InviteLinkClick click = new InviteLinkClick(link.getId(), "0".repeat(64), "ios", "test-agent");
+        click.markMatched("withdrawal-device", "withdrawal-app");
+        click = inviteClicks.save(click);
+        String request = "{\"slug\":\"" + slug + "\"}";
+
+        mvc.perform(post("/api/v1/invite-links/claim").header("Authorization", "Bearer " + first.accessToken())
+                        .contentType("application/json").content(request))
+                .andExpect(status().isOk());
+        InviteLinkClick claimed = inviteClicks.findById(click.getId()).orElseThrow();
+        assertThat(claimed.getClaimedUserId()).isEqualTo(firstId);
+        Instant claimedAt = claimed.getClaimedAt();
+        assertThat(claimedAt).isNotNull();
+
+        withdrawal.withdraw(firstId);
+
+        assertThat(count("select count(*) from users where id=? and is_deleted=true", firstId)).isEqualTo(1);
+        InviteLinkClick anonymized = inviteClicks.findById(click.getId()).orElseThrow();
+        assertThat(anonymized.getClaimedUserId()).isNull();
+        assertThat(anonymized.getClaimedAt()).isEqualTo(claimedAt);
+        mvc.perform(post("/api/v1/invite-links/claim").header("Authorization", "Bearer " + next.accessToken())
+                        .contentType("application/json").content(request))
+                .andExpect(status().isOk());
+
+        InviteLinkClick stillConsumed = inviteClicks.findById(click.getId()).orElseThrow();
+        assertThat(stillConsumed.getClaimedUserId()).isNull();
+        assertThat(stillConsumed.getClaimedAt()).isEqualTo(claimedAt);
+        assertThat(stillConsumed.isMatched()).isTrue();
+        assertThat(count("select count(*) from users where id=? and is_deleted=false", nextId)).isEqualTo(1);
     }
 
     @Test

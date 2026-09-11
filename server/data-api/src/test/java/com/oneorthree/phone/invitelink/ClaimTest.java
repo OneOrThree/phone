@@ -2,6 +2,7 @@ package com.oneorthree.phone.invitelink;
 
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
+import com.oneorthree.phone.invitelink.repository.domain.InviteLinkClick;
 import com.oneorthree.phone.invitelink.service.InviteLinkMatchService;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,8 +10,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -36,6 +41,8 @@ class ClaimTest extends InviteLinkTestSupport {
 
     @Autowired
     InviteLinkMatchService inviteLinkMatchService;
+    @Autowired
+    PlatformTransactionManager transactions;
 
     private Group group;
     private User inviter;
@@ -61,6 +68,64 @@ class ClaimTest extends InviteLinkTestSupport {
 
         claim(latecomer).andExpect(status().isOk());
         assertThat(onlyClickOf(link).getClaimedUserId()).isEqualTo(joiner.getId());
+    }
+
+    @Test
+    @DisplayName("탈퇴 DML로 귀속을 지워도 소진된 클릭은 다시 claim 되지 않는다")
+    void anonymizedClaimRemainsConsumed() throws Exception {
+        matchedClick();
+        User first = newUser("최초가입자");
+        claim(first).andExpect(status().isOk());
+        Instant claimedAt = onlyClickOf(link).getClaimedAt();
+        assertThat(claimedAt).isNotNull();
+
+        anonymizeClaim(first);
+        claim(newUser("다음가입자")).andExpect(status().isOk());
+
+        assertThat(onlyClickOf(link).getClaimedUserId()).isNull();
+        assertThat(onlyClickOf(link).getClaimedAt()).isEqualTo(claimedAt);
+    }
+
+    @Test
+    @DisplayName("가장 최근 클릭이 익명화된 소진 행이면 그 뒤의 미소진 클릭을 claim 한다")
+    void anonymizedLatestClaimDoesNotHideOlderUnclaimedClick() throws Exception {
+        matchedClick();
+        User first = newUser("최초가입자");
+        claim(first).andExpect(status().isOk());
+        InviteLinkClick consumed = onlyClickOf(link);
+        Instant claimedAt = consumed.getClaimedAt();
+        anonymizeClaim(first);
+
+        InviteLinkClick fresh = new InviteLinkClick(link.getId(), "0".repeat(64), "ios", IPHONE_UA);
+        fresh.markMatched("older-unclaimed-device", "older-unclaimed-app");
+        // 실행 속도나 시계 해상도에 의존하지 않고 조회 순서를 고정한다.
+        ReflectionTestUtils.setField(fresh, "matchedAt", consumed.getMatchedAt().minusSeconds(1));
+        fresh = clickRepository.save(fresh);
+        User next = newUser("다음가입자");
+
+        claim(next).andExpect(status().isOk());
+
+        InviteLinkClick stillConsumed = clickRepository.findById(consumed.getId()).orElseThrow();
+        InviteLinkClick newlyClaimed = clickRepository.findById(fresh.getId()).orElseThrow();
+        assertThat(stillConsumed.getClaimedUserId()).isNull();
+        assertThat(stillConsumed.getClaimedAt()).isEqualTo(claimedAt);
+        assertThat(newlyClaimed.getClaimedUserId()).isEqualTo(next.getId());
+        assertThat(newlyClaimed.getClaimedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("도메인을 직접 호출해도 익명화된 클릭의 최초 claim 시각과 소진 상태를 보존한다")
+    void domainRejectsReclaimAfterAnonymization() throws Exception {
+        matchedClick();
+        User first = newUser("최초가입자");
+        claim(first).andExpect(status().isOk());
+        Instant claimedAt = onlyClickOf(link).getClaimedAt();
+        anonymizeClaim(first);
+        InviteLinkClick consumed = onlyClickOf(link);
+
+        assertThat(consumed.claim(newUser("다음가입자").getId(), inviter.getId())).isFalse();
+        assertThat(consumed.getClaimedUserId()).isNull();
+        assertThat(consumed.getClaimedAt()).isEqualTo(claimedAt);
     }
 
     @Test
@@ -127,6 +192,16 @@ class ClaimTest extends InviteLinkTestSupport {
     }
 
     // ── 헬퍼 ──────────────────────────────────────────────────────────────
+
+    /** 실제 탈퇴 서비스가 쓰는 동일 DML을 별도 커밋해 영속성 컨텍스트의 오래된 값을 피한다. */
+    private void anonymizeClaim(User user) {
+        new TransactionTemplate(transactions).executeWithoutResult(status ->
+                assertThat(clickRepository.anonymizeClaimedUser(user.getId())).isEqualTo(1));
+        InviteLinkClick anonymized = onlyClickOf(link);
+        assertThat(anonymized.getClaimedUserId()).isNull();
+        assertThat(anonymized.getClaimedAt()).isNotNull();
+        assertThat(anonymized.isMatched()).isTrue();
+    }
 
     /** 랜딩 클릭 → 매치까지 진행된 상태(= claim 대상이 존재하는 상태)를 만든다. */
     private void matchedClick() throws Exception {
