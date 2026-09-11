@@ -109,7 +109,7 @@ null 맵/null value는 422이며 전체 삭제로 해석하지 않는다. 빈 �
 |personal appearance|userId유일/FK,clothes nullable/decor nullable/hull/position/version.같은user전체외양단위|
 |island appearance|groupId유일/FK,islandThemeId,buildingThemes또는정규화child rows,version.전체결과단위|
 |owned product + inventory aggregate|상점정본재사용.새로운보유판정캐시/중복테이블을외양담당이만들지않음|
-|catalog|kind/ownerType/targetBuilding/선체계보/호환revision.의미없는문자열prefix로종류판정금지|
+|catalog asset definition|productId별 불변 kind/ownerType/targetBuilding/선체계보/착용호환. 판매 활성 revision과 분리, 퇴역해도 보유품 해석 유지. 문자열prefix로 종류판정 금지|
 |receipt/outbox|공통내구명령/사건정본.개인또는섬외양변경과같은TX|
 
 정규화한building child rows를개별수정하더라도부모appearance.version을같은TX에서단조증가시켜전체스냅샷의
@@ -120,14 +120,42 @@ null 맵/null value는 422이며 전체 삭제로 해석하지 않는다. 빈 �
 
 1. 인증·형식검증 → receipt동일의도결과복구. 새실행일때만아래변경검증.
 2. 활성user및해당context/멤버십/역할/시설을같은TX의공통생명주기잠금으로검증.
-3. catalog 활성 publication/상품 revision → inventory → appearance 순서로 잠금을 획득하고, 존재 mask로 복원한 제출 필드만 현재 상태에 병합.
-4. 병합된전체상태의owner/kind/선행/호환을검증.한필드라도실패하면전체rollback.
+3. catalog 불변 자산 정의 → inventory → appearance 순서로 읽기/잠금 규율을 지키고, 존재 mask로 복원한 제출 필드만 현재 상태에 병합. 판매 활성 publication은 외양 적용의 허가 조건이 아니다.
+4. 병합된 전체 상태의 실제 owner/kind/대상/착용 호환을 불변 자산 정의로 검증. 구매 때의 선행 조건·현재 가격·판매 여부를 소급 검사하지 않는다. 한 필드라도 실패하면 전체 rollback.
 5. 변경있으면appearanceversion증가+정본저장+전체상태outbox생성.변경없으면사건생략.
 6. 같은TXreceipt저장후COMMIT.추가WebSocket전달실패는outbox재전달,rollback된사건발행금지.
 
-공통 잠금 순서는 계정/섬 생명주기 → catalog 활성 publication/상품 revision → wallet → inventory → appearance다. 외양은 wallet을 사용하지 않으므로 해당 축만 건너뛰어 catalog → inventory → appearance 순서를 유지한다. 상점·탈퇴·강퇴·방장이양·시설변경과
+공통 잠금 순서는 계정/섬 생명주기 → catalog 자산 정의/판매 publication·revision → wallet → inventory → appearance다. 외양은 불변 자산 정의를 조회하고 판매 활성 포인터와 wallet 축은 사용하지 않으므로 해당 축을 건너뛰어 catalog → inventory → appearance 순서를 유지한다. 상점·탈퇴·강퇴·방장이양·시설변경과
 같은primitive를사용하도록구현전합의한다.권한확인후역할이변경된stale허가가commit되는틈을남기지않는다.
 실제Migration번호/물리schema는구현담당과조정자소유이며이문서에서번호를배정하지않는다.
+
+### 시설 완공도 전체 외양의 writer
+
+전체 buildingThemes의 key 집합은 승인된 시설 정본의 **외양 대상 완공 건물 집합**과 일치한다.
+각 건물의 적용 테마가 없으면 default를 반환한다. GET 시 새 건물만 즉석에서 추가하고 이전 appearance.version을
+붙이면 같은 버전의 서로 다른 전체 상태가 생기므로 허용하지 않는다.
+
+시설 완공 TX는 시설 행과 공동 appearance를 공통 순서로 잠근 뒤 새 건물의 default 상태를 반영한다.
+외부 전체 buildingThemes가 달라졌다면 **그 TX에서 appearance.version 증가와 완성된 전체 상태의
+island.appearance.updated outbox를 함께 저장**한다. 시설 자체의 island.updated와는 다른 eventId/버전 축이다.
+시설 상태만 먼저 commit하고 외양을 후속 비동기 writer가 따로 고치는 방식은 사용하지 않는다.
+건설 명령/집중 정산 재생에서는 원 사건을 재사용하고 버전을 다시 올리지 않는다.
+
+완공과 테마 PATCH가 겹치면 같은 appearance 행에서 직렬화한다. 먼저 완공된 뒤 낡은 expectedVersion의
+PATCH는409이고 current는 새 기본 테마가 포함된 인가된 전체 외양이다. PATCH가 먼저라면 완공은 그 테마 변경을
+보존한 전체 맵에 새 건물을 더한다. 건물이 늘지 않고 전체 외양이 동일하면 외양 version/event는 불필요하게 만들지 않는다.
+
+이 계약은 시설1767/초기건설 완료 producer의 구현 의존이다. **철거 API/제품 기능은 신설하지 않는다.**
+향후 승인된 어떤 writer든 전체 맵을 바꾸면 같은 TX의 version/event 규율에 참여해야 한다는 불변식만 둔다.
+카탈로그 판매 퇴역은 시설 집합 변화도 소유권 회수도 아니므로 그 이유로 buildingThemes를 지우지 않는다.
+
+### 보유 상품의 안정적인 해석
+
+[상점의 불변 자산 정의](../island-shop/low-level-design.md#보유-의미와-판매-revision-분리)를 사용한다.
+미등록 productId는404지만 판매가 종료된 보유품은 미등록과 다르다. 퇴역 후 inventory/착용 상태/다른 슬롯
+PATCH도 같은 kind·ownerType·대상·호환으로 검증한다. 전체 병합 검증이 active catalog에 없는 기존 착용품을
+404로 거절해서는 안 된다. 가격 개정과 requiredProduct 같은 새 구매 조건은 착용을 해제하거나 재적용을 막지 않는다.
+A02/A03의 미결 제품 정책은 최초 활성화 전에 정하며 이후 기존 ID의 의미를 몰래 바꾸지 않는다.
 
 ## 3. 사건·전체상태·재연결
 
@@ -160,6 +188,9 @@ GET inventory 또는해당화면snapshot을읽고버전기준을다시설치한�
 |서로다른필드동시PATCH|행잠금뒤병합,상대필드유실없음|
 |동일필드동시PATCH|서버직렬화최종상태·단조version,두receipt는각원결과|
 |공동외양동시expectedVersion동일|한변경성공·다른409,최신current재조회|
+|시설 완공만 발생·응답 유실 재시도|같은 TX의 appearance.version+전체 default 포함 이벤트1건, 재시도 추가 버전/사건 없음|
+|시설 완공과 테마 PATCH 경합·outbox 저장 실패|최신 전체 맵 보존 또는409, 실패 시 시설/외양/version/outbox 모두 rollback|
+|보유 상품 가격 개정/퇴역 뒤 재착용·무관한 슬롯 PATCH|불변 의미로 성공, 판매 상태로 기존 착용을 소급 거절하지 않음|
 |같은key응답유실후version전진|원결과재생,이벤트추가발행없음|
 |신규key로같은효과|200,불필요version/event증가없음|
 |회원탈퇴/강퇴/방장이양과적용경합|유령착용/권한상실후신규공동변경없음|

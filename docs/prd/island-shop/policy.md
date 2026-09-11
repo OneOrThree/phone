@@ -47,9 +47,11 @@ GROMO-1780 · [PRD](prd.md) · [LLD](low-level-design.md)
 
 ## 상세 설계에서 채택할 기술 불변식
 
-- 가격과 prerequisite는 immutable product revision에 기록한다. 컬렉션은 catalogPublicationVersion과 불변 publication entry(productId→productRevision/category/displayOrder)로 식별한다. 발행 시 새 publication 전체를 단일 활성 포인터로 원자 전환하며 상품별 productVersion과 컬렉션 version을 혼용하지 않는다.
+- productId의 kind/ownerType/targetBuilding/선체 계보·착용 호환 의미는 불변 자산 정의에 고정한다. 변경하려면 새 productId가 필요하다. 가격과 구매용 prerequisite는 immutable 판매 product revision에 기록한다. 컬렉션은 catalogPublicationVersion과 불변 publication entry(productId→productRevision/category/displayOrder)로 식별한다. 발행 시 새 publication 전체를 단일 활성 포인터로 원자 전환하며 상품별 productVersion과 컬렉션 version을 혼용하지 않는다.
 - 페이지 cursor는 첫 publication을 고정하고 이후 상품 개정으로 정렬 집합을 바꾸지 않는다. 현재 소유/권한/available은 별도 현재 상태이며 목록 snapshot이 구매 허가를 예약하지 않는다. 퇴역 publication 보존·폐기는 LLD의 cursor 수명 규약을 따른다.
-- 주문은 현재 활성 revision을 Data TX에서 확인하고 price/currency/owner를 snapshot으로 보존한다.
+- 주문은 현재 활성 판매 revision을 Data TX에서 확인하고 price/currency/owner를 snapshot으로 보존한다. D18의 version 검사는 가격/결제 조건 동의 보호이며 동일 productId의 ownerType 변경 허가가 아니다. 현재 user/fish·island/village_points 조합을 깨는 통화 revision도 거절한다.
+- 판매 퇴역/가격 개정은 기존 소유의 종류·대상·호환·착용을 바꾸지 않는다. 보유 조회/외양은 active publication 대신 불변 자산 정의를 사용하고 정의는 소유가 남아 있는 동안 보존한다. 구매용 prerequisite 변경을 기존 착용에 소급하지 않는다.
+- product 상세는 선택 nullable requiredProduct:{id,title}를 명시 확장으로 제공한다. blockedReason은 원인 코드이고 선행 자산 식별자가 아니다. 실제 ID는 서버 카탈로그에서 얻으며 새 API를 추가하지 않는다.
 - 같은 key·같은 본문 receipt는 원201과 결과를 재생한다. 새로운 key라도 `(ownerType,ownerId,productId)` 유일성이 중복 차감을 막는다.
 - 개인 wallet/inventory는 ownerType=user, ownerId=subject, envelope.islandId=null. 공동은 ownerType=island, ownerId=envelope.islandId.
 - receipt는 초기 자동TTL 삭제하지 않는다(1750). PII 최소화·탈퇴 파기 규율을 지킨다. 다른 사용자의 receipt를 복구/재생하지 않는다.

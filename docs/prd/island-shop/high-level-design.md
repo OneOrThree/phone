@@ -65,13 +65,17 @@ receipt 재생은 인증을 생략하지 않는다. 개인 결과는 본인, 공
 
 ## 락과 이벤트
 
-Data의 공통 잠금 순서는 생명주기 → catalog 활성 publication/상품 revision → wallet → inventory → appearance이며 사용하지 않는 축만 건너뛴다. 상세 순서는 LLD에 있고 focus/건설·계정탈퇴
+Data의 공통 잠금 순서는 생명주기 → catalog 자산 정의/판매 publication·revision → wallet → inventory → appearance이며 사용하지 않는 축만 건너뛴다. 상세 순서는 LLD에 있고 focus/건설·계정탈퇴
 담당과 함께 확정한다. 사용자·멤버십 자격을 잠그지 않고 먼저 wallet을 잠그면 탈퇴 정리 이후 유령 소유가
 생길 수 있다. 어떤 예외든 주문과 원장·소유·receipt·outbox가 같이 rollback되어야 한다.
 
 이벤트가 늦거나 유실돼도 GET wallet/inventory/orders가 복구 정본이다. 이벤트에는 잔액 전체나 개인
 구매 내역을 넣지 않는다. 1754의 버전 무효화 신호를 받아 같은 정본을 다시 조회한다. 실제 내구 relay와
 최신 수신권한은 기존 공통 전달 기반 및 각 도메인 활성화가 제공한다.
+
+보유품은 판매 여부와 별개다. productId의 종류·소유자 종류·대상 건물·착용 호환은 불변 자산 정의로
+유지하고, 가격/구매 선행/판매 가능 여부만 판매 revision으로 관리한다. 퇴역한 상품도 inventory/착용은
+불변 정의로 복원한다. 상세의 requiredProduct 구조화 필드는 구매 안내이며 새 endpoint가 아니다.
 
 ## 기존 구현 재사용의 한계
 

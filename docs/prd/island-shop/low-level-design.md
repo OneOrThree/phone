@@ -56,7 +56,25 @@ publication은 목록 정의의 snapshot이며 사용자 owned/available·현재
 {"data":{"id":"rain","kind":"audio","title":"오두막의 빗소리","price":30,"currency":"village_points","ownerType":"island","productVersion":5,"previewUrl":"https://media.gromo.example/rain-preview.wav","owned":false,"available":true,"blockedReason":null,"requiredBuilding":"gram"}}
 ```
 
-previewUrl/blockedReason/requiredBuilding은 nullable. 다른 시설용 building_theme은 대상 buildingId를 추가 반환한다.
+previewUrl/blockedReason/requiredBuilding은 nullable.
+
+**선행 상품 안내 확장(2026-09-12, PR742 리뷰 반영):** 상세 data에 선택 필드
+`requiredProduct:{id:ProductId,title:string}|null`을 추가한다. 이는 기존 product GET의 구조화된 안내 필드이며
+새 endpoint가 아니다. 위 원본 JSON 예시는 그대로 보존한다. 새 서버는 선행 상품이 없으면 null, 있으면
+현재 판매 revision이 가리키는 실제 카탈로그 ID와 그 불변 자산 정의의 표시 이름을 반환한다.
+
+응답 data에 추가되는 필드만 보인 예시(실제 ID·표시 이름은 승인 카탈로그 사용):
+
+```json
+{"requiredProduct":{"id":"sailboat","title":"돛단배"}}
+```
+
+`blockedReason`은 실패 사유 코드이므로 선행 상품 ID를 대신하지 않는다. 앱은 reason 문구를 파싱하거나
+선실 배의 선행 ID를 하드코딩하지 않고 requiredProduct.id로 상세 조회를 연결한다. 이 필드는 선행 상품이
+현재 판매 중이라는 보증은 아니다. 선행을 아직 소유하지 않았는데 퇴역하여 구매할 수 없다면 대상 상품도
+available=false로 안내하고, 상세 이동의404는 판매 종료 상태로 처리한다. 이미 소유한 선행 상품은 판매 퇴역과
+관계없이 보유 조건을 충족한다. 구매 TX는 안내를 신뢰하지 않고 실제 소유와 현재 판매 조건을 다시 검사한다.
+ 다른 시설용 building_theme은 대상 buildingId를 추가 반환한다.
 previewUrl은 서버 등록 media 자산만 반환하고 사용자 URL을 받아 서버가 대신 가져오는 기능을 만들지 않는다.
 미리듣기는 기기 로컬이며 shared playback을 변경하지 않는다. 비활성/삭제 상품은404 PRODUCT_NOT_FOUND 또는 이미 소유한
 상품의 별도 표시 가능 여부를 catalog 생명주기 정책과 함께 정한다. 과거 주문 snapshot을 이404로 삭제하지 않는다.
@@ -110,13 +128,14 @@ Query: `scope=personal|shared` 필수, cursor 선택, limit 기본30/최대100.
 
 |aggregate/논리행|필수 내용·제약|
 |---|---|
-|catalog product revision|productId+revision 유일, kind/ownerType/currency/price/requiredBuilding/requiredProduct/targetBuilding/mediaKey. 발행 후 불변|
+|catalog asset definition|productId 유일. kind/ownerType/targetBuilding/선체 계보·착용 호환 의미는 productId 수명 동안 불변. 과거 소유의 해석 정본이며 판매 퇴역 후에도 유지|
+|catalog product revision|productId+revision 유일, asset definition FK, currency/price/구매용 requiredBuilding/requiredProduct/preview mediaKey. 발행 후 불변. 소유 의미를 덮어쓰지 않음|
 |catalog publication|catalogPublicationVersion 유일, publishedAt/retiredAt/invalidatedAt. 컬렉션 전체의 불변 발행본|
 |catalog publication entry|publicationVersion+productId 유일, productRevision FK, category/displayOrder. 해당 발행본의 상품 집합/정렬을 복원|
 |catalog active pointer|현재 publicationVersion 한 개를 참조. 상품별 현재 정의도 이 publication의 entry로 결정하며 별도 가변 상품 포인터와 이중 정본을 두지 않음|
 |economy wallet|ownerType+ownerId+currency 유일, balance>=0, version. user/fish 또는 island/village_points 조합만 허용|
 |economy ledger|entryId, wallet FK, signedDelta, balanceAfter, 원인 order/settlement, 원인별 유일성, immutable|
-|owned product|ownerType+ownerId+productId 유일, grantedOrderId/명시 지급 근거, grantedAt. user/island 실제FK무결성 확보|
+|owned product|ownerType+ownerId+productId 유일, 불변 asset definition FK, grantedOrderId/명시 지급 근거, grantedAt. 판매 활성 포인터와 무관하게 의미 복원, user/island 실제FK무결성 확보|
 |inventory aggregate|ownerType+ownerId 유일, 목록의 단조version; 개인과 섬 독립|
 |order|orderId, requesterId, ownerType/ownerId, productId+productVersion, paidPrice/currency, walletVersionAfter, createdAt. 확정 주문 immutable|
 |command receipt|검증사용자+정규 operation+key 유일, canonical request hash, 원status/result. 원문JWT·결제정보 금지|
@@ -125,6 +144,30 @@ Query: `scope=personal|shared` 필수, cursor 선택, limit 기본30/최대100.
 User/Group 소프트삭제와 실제FK를 만족하려면 polymorphic ownerId 하나의 선언만으로 FK 검증을 끝냈다고
 주장하지 않는다. 개인/섬 소유 테이블 분리 또는 nullable userId/groupId + 정확히하나 CHECK와FK 중 구현 담당이
 정본 schema에 맞춰 확정한다. Flyway 번호와 schema.dbml 변경은 조정자 소유다.
+
+### 보유 의미와 판매 revision 분리
+
+이 설계는 **소유 행을 가변 판매 revision에 고정하는 대신 productId의 자산 의미를 불변으로 제한**한다.
+kind·ownerType·targetBuilding·선체 계보·착용 호환 조건을 바꾸려면 새 productId를 발행한다.
+기존 상품 ID를 재사용하여 옷을 음원으로, 개인 소유를 섬 소유로, hall 테마를 board 테마로 바꾸지 않는다.
+미결 A02/A03 정책은 최초 상품 활성화 전에 확정하고 그 productId의 의미에 고정한다. 기존 보유 의미를
+개정/승격하는 기능은 현재 계약에 없으며 향후 필요하면 별도 명시 이관 계약으로 다룬다.
+
+가격·판매 선행 조건·판매 가능 여부는 새 판매 revision/publication에서 바뀔 수 있다. `requiredProduct`는
+새 구매 시 검사하는 선행 조건이며 이미 보유한 상품의 사용권을 소급해서 바꾸지 않는다. 외양은 제출한 상품과
+기존 착용품 모두 불변 자산 정의+실제 보유+현재 적용 권한/시설로 검사하고, 현재 판매 revision의 가격·판매 선행·
+판매 활성 여부를 착용 조건으로 재검사하지 않는다. 따라서 다른 필드만 PATCH해도 퇴역한 기존 옷 때문에 실패하지 않는다.
+
+D18의 expectedProductVersion 검사는 **허용된 판매 정의 변경에 대한 동의 보호**이지 ownerType 변경을
+허가하는 정책이 아니다. 이 상세 모델은 ownerType을 productId 수명 동안 불변으로 더 좁게 제한한다.
+현재 통화 조합도 user/fish·island/village_points뿐이므로 같은 productId의 통화를 다른 소유 지갑으로 바꾸는
+revision은 발행 validation에서 거절한다. 가격만 변경해도 productVersion은 반드시 오른다.
+향후 승인된 통화 확장이 생긴다면 소유 의미를 유지하는 허용 통화 변경에도 version 검사가 필요하며,
+이 문서가 그 확장을 미리 활성화하지 않는다. 주문은 결제 당시 owner/currency/price/revision을 그대로 보존한다.
+
+판매 퇴역은 신규 주문과 상품 상세 노출을 제어하며 소유권 회수·착용 해제·자산 정의 삭제를 뜻하지 않는다.
+inventory GET, 외양 병합 검증, 재적용은 active publication에 없는 보유품도 불변 정의로 복원한다.
+상품 상세의 보유자 별도 표시 정책이 미정이더라도 이 내부 소유 해석은 계속 가능해야 한다.
 
 catalog publication 발행은 모든 product revision/entry를 준비한 뒤 Data 한 TX에서 활성 포인터를 교체한다. 상품 하나의 가격 변경도 새 product revision과 그 revision을 가리키는 새 publication으로 공개한다. 다른 상품만 바뀌면 해당 상품의 productVersion은 유지하며 collection version만 오른다. 주문의 expectedProductVersion은 product revision과 비교하고 collection version을 요구하지 않는다.
 
@@ -143,7 +186,7 @@ catalog publication 발행은 모든 product revision/entry를 준비한 뒤 Dat
 6. 잔액이 모자라면409 INSUFFICIENT_FUNDS, 어떤 row도 확정하지 않는다. 차감/ledger/order/owned/inventory version/receipt/outbox를 함께 기록한다.
 7. DB commit 후만 응답/relay전달. 외부전달 실패로 committed order를 취소하지 않고 outbox 재전달한다. DB rollback이면 원장/보유/receipt/outbox모두없다.
 
-공통 잠금 계열은 **활성 user → current-context/group/membership/시설 → catalog 활성 publication/상품 revision → wallet → inventory → appearance**다. 주문은 appearance를 변경하지 않으므로 마지막 축을 건너뛰며 외양은 wallet만 건너뛴다.
+공통 잠금 계열은 **활성 user → current-context/group/membership/시설 → catalog 자산 정의/판매 publication·revision → wallet → inventory → appearance**다. 주문은 appearance를 변경하지 않으므로 마지막 축을 건너뛰며 외양은 wallet만 건너뛴다.
 이것은 구현자가 타 도메인과 별도로 확정할 락순서가 아니다. 계정탈퇴·섬전환·집중보상·건설·공동테마가 실제로
 사용하는 순서와 대조하고 공통순서에 합류한 뒤 코드화한다. 여러 user/group/wallet을 잡는 명령은 각 종류에서
 정렬된 ID 순서로 잡는다. shared구매의 승인근거 역할을 읽은 뒤 host-transfer가 commit하는 틈도 같은 잠금으로 닫는다.
@@ -175,6 +218,9 @@ wallet aggregateVersion은 해당 지갑 version, inventory는 해당 owner 목�
 |새키로 동일상품 재구매·다른주민 공동중복구매|소유유일성이 이중차감 방지, 실패TX원장없음|
 |다른상품 동시 구매|버전충돌 또는 직렬화 결과, 음수잔액없음, balance=원장합|
 |가격만 변경·wallet불변|expectedProductVersion 충돌, 새가격재확인 없이 차감없음|
+|기존 productId의 kind/ownerType/targetBuilding/착용 호환 변경 발행|catalog validation 거절. 다른 의미에는 새 productId 필요|
+|소유 상품 가격개정·퇴역 후 inventory/재착용·다른 슬롯PATCH|기존 소유 의미와 착용 유지, 현재 판매 revision 때문에403/404/422 발생하지 않음|
+|선행 상품 requiredProduct 안내·선행 판매퇴역|구조화된 실제 ID/표시 이름 반환, 이미 보유한 선행은 인정, 미보유·구매불가이면 대상 available=false|
 |이미 성공한키 이후 가격/지갑변경|현재version검사앞에서 원결과재생|
 |권한위조·경로다른섬·current섬전환경쟁|잘못된섬 포인트 사용없음, role상실뒤새명령403|
 |판매/시설/선체선행 변경과 동시주문|커밋경계에서 정본검증, partiallygranted상태없음|

@@ -55,6 +55,13 @@ TBD로 두었으며 양쪽이 서로 다른 기본값을 내리지 않는다.
 
 외양버전은 실제변경이 확정될 때 단조증가한다. 같은 효과의 새 요청은200 최신상태와receipt만 만들고 불필요한
 version/event를 발행하지 않는 기술안을 채택한다. 소유목록과 외양의 version은 분리한다.
+시설 완공으로 전체 buildingThemes의 건물 집합이 바뀌는 경우도 외양 변경이다. 시설 producer가 같은 TX에서
+공동 appearance.version을 올리고 전체 맵의 island.appearance.updated outbox를 저장한다. 현재 미지원인 철거
+기능을 추가하지 않으며 향후 승인된 writer에도 이 전체 상태 불변식을 적용한다.
+
+보유품의 kind/ownerType/targetBuilding/선체계보·착용호환은 productId 수명 동안 불변이다. 판매 가격 개정·퇴역은
+기존 소유·착용 의미를 바꾸지 않는다. 외양 검증은 현재 판매 revision/구매 prerequisite가 아닌 불변 자산 정의와
+실제 보유·현재 적용 권한/시설을 사용한다. [상점의 분리 규칙](../island-shop/low-level-design.md#보유-의미와-판매-revision-분리)을 함께 따른다.
 
 기본표현 default/raft는 판매상품ID와 충돌하지 않는 예약키로 취급한다. 소유가 없는 유료상품을 default라는 이유로
 허용하지 않는다. 미등록 catalog 상품 키는404 PRODUCT_NOT_FOUND, 등록됐지만 종류/대상시설이 다르면422, 보유권한이없으면403이다.
