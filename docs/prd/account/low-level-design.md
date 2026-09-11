@@ -25,7 +25,7 @@ GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [원본 예�
 
 ### 2.1 POST /auth/sessions
 
-필수 `X-Login-Attempt-Id: <하이픈 포함 36자 UUID>`는 앱이 시도 시작 시 한 번 생성한다(v4/v7 생성 권고이며 다른 UUID 버전을 거부하지 않음). 외부 AT는 선택 사항이며 제공했다면 유효 access 타입의 현재 게스트 증명으로 검증한다. 잘못된 AT를 익명 로그인으로 조용히 강등하지 않는다. 기존 legacy 경로의 선택 AT 동작은 별도 보존한다.
+필수 `X-Login-Attempt-Id: <하이픈 포함 36자 UUID>`는 앱이 시도 시작 시 한 번 생성한다(v4/v7 생성 권고이며 다른 UUID 버전을 거부하지 않음). 외부 AT는 선택 사항이며 제공했다면 유효 access 타입의 서명·만료·주체를 검증한다. 유효한 guest=false AT도 정상 계정 전환으로 허용하고 게스트 승격 대상에서만 제외한다. 이 경우 제공자 증명이 가리키는 기존 계정 로그인/정상 신규 가입을 계속하며, 현재 비게스트 계정과 대상 계정을 합치지 않는다. guest=true는 기존 활성 게스트/이미 승격된 주체 판정 규칙으로 처리한다. 잘못된 AT를 익명 로그인으로 조용히 강등하지 않는다. 기존 legacy 경로의 선택 AT 동작은 별도 보존한다.
 
 | 요청 필드 | 타입·규칙 |
 | --- | --- |
@@ -43,7 +43,7 @@ GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [원본 예�
 | facebook | `credential.type=id_token` → 기존 Facebook JWT 어댑터 | 기존 제한/설정 보존 |
 | kakao, line, instagram | `credential.type=access_token` → 기존 사용자 정보 검증 어댑터 | token 문자열을 우리 AT/RT로 해석하지 않음 |
 
-지원 집합 밖의 provider 문자열 또는 해당 provider 어댑터 미구성은 기존 400 `UNSUPPORTED_PROVIDER`, field=`provider`로 거절한다. provider 누락/타입 오류는400 INVALID_REQUEST와 구분한다. 각 제공자의 code 경로는 구현·설정된 capability만 허용한다. 제공자 자체를 없애는 대신 기존 credential 경로를 유지한다. 미지원 credential 조합은 422, 자격 검증 실패는 401이다. 타입 혼합·두 자격 동시 제출은 400이다. 신규 guest 생성은 이 7개에 추가하지 않으며 기존 `/api/v1/auth/guest`의 userId 보존과 세션 전환을 함께 검증한다.
+지원 집합 밖의 provider 문자열 또는 해당 provider 어댑터 미구성은 기존 400 `UNSUPPORTED_PROVIDER`, field=`provider`로 거절한다. provider 누락/타입 오류는400 INVALID_REQUEST와 구분한다. 각 제공자의 code 경로는 구현·설정된 capability만 허용한다. 제공자 자체를 없애는 대신 기존 credential 경로를 유지한다. 미지원 credential 조합은 422, 제공자 자격 검증 실패는 해당 제공자의 기존 401 *_TOKEN 코드다. 우리 AT 검증 실패의 UNAUTHORIZED와 합치지 않는다. 타입 혼합·두 자격 동시 제출은 400이다. 신규 guest 생성은 이 7개에 추가하지 않으며 기존 `/api/v1/auth/guest`의 userId 보존과 세션 전환을 함께 검증한다.
 
 201 응답은 정확히 다음 4필드다. 실제 userId는 UUID이고 원본 예시의 `me`는 placeholder다.
 
@@ -87,7 +87,7 @@ name/catColor null 허용은 온보딩 전 상태를 표현하기 위한 원본 
 2. 활성 사용자와 세션 행을 잠근다. 활성 상태라면 현재 저장된 RT 해시 일치를 요구한다. 회전 전의 옛 RT로 새 세션을 종료할 수 없다.
 3. 해당 세션 RT를 폐기하고 sessionEpoch를 전진시킨다. 해당 세션 bootstrap도 같은 TX에서 폐기한다. 이 RT 전용 요청은 대상 FCM 토큰/ownershipToken을 받지 않으므로 기기 삭제 outbox를 생성하지 않는다. 사용자 authGeneration은 증가시키지 않는다.
 4. 응답 유실 복구용 폐기 증명에는 실제로 폐기한 RT의 해시와 원 만료 시각만 둔다. 같은 서명/만료 검증을 통과한 RT가 정확히 그 해시와 맞고 사용자가 활성이라면 200을 재생한다. 임의의 유효 JWT나 이미 회전한 옛 해시에는 적용하지 않는다.
-5. 처음/동일 완료 재시도 모두 `{ "data": { "revoked": true } }`. 재생은 sessionEpoch를 다시 증가시키거나 bootstrap을 다시 발급하지 않는다. 이미 탈퇴한 사용자면 404 `USER_NOT_FOUND`이며 만료·위조 RT는 401이다.
+5. 처음/동일 완료 재시도 모두 `{ "data": { "revoked": true } }`. 재생은 sessionEpoch를 다시 증가시키거나 bootstrap을 다시 발급하지 않는다. 이미 탈퇴한 사용자면 404 `USER_NOT_FOUND`이며 만료·위조·타입/해시 불일치 RT는 기존 401 `REFRESH_TOKEN`이다.
 
 legacy sid 없는 RT는 백필한 legacy 세션 축으로 대조한다. AT에도 sid가 없으면 검증된 같은 사용자와 해당 legacy 해시의 관계를 대조한다. sid가 있는 AT를 다른 legacy RT와 느슨하게 사용자 ID만 보고 결합하지 않는다. 새/구 토큰 조합의 식별이 모호하면 401이며 RT 단독으로 재시도할 수 있다.
 
@@ -165,7 +165,7 @@ Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를
 
 | 상태/자료 | 내용·제약 |
 | --- | --- |
-| attempt scope | 로그인 시도 ID, provider, 검증된 provider subject의 비가역 digest, 선택적 guest userId, termsVersion. 외부 userId는 사용하지 않음 |
+| attempt scope | 로그인 시도 ID, provider, 검증된 provider subject의 비가역 digest, 선택 AT의 검증된 주체/guest 구분 및 별도의 승격 대상 guest userId, termsVersion. 외부 userId는 사용하지 않음 |
 | 자격 digest | 제출된 code/credential을 keyed digest로 결합해 같은 시도의 재개 증명을 확인. 원문 자격/원문 JWT 저장 금지 |
 | 고정 서명 재료 | userId, sessionId, jti, iat, exp, guest, authGeneration, sessionEpoch, signing key ID, 직렬화 버전. AT/RT 타입별 claims 구분. bootstrap 재생에 필요한 key ID도 고정 |
 | PENDING | upsert와 서명 재료를 저장했으나 RT 미확정. 외부 사용자 세션으로 사용할 수 없음 |
@@ -215,19 +215,19 @@ stateDiagram-v2
 
 | 경우 | 결과 |
 | --- | --- |
-| RT 타입/서명/만료/저장 해시 불일치 | 401 `REFRESH_TOKEN` |
+| RT 타입/서명/만료/저장 해시 불일치 | 401 `REFRESH_TOKEN`. 단, 이미 완료된 최초 legacy 승격은 현재 원 해시 부재 판정보다 아래 receipt 재생 조건을 먼저 검사 |
 | sid 있는 활성 세션, 회전 시점 아님 | 새 AT와 `refreshToken:null`, 앱은 기존 RT 유지 |
 | sid 있는 활성 세션, 회전 필요, CAS 1행 | 새 AT·RT, 같은 sessionId |
 | 같은 구 해시로 회전 경쟁, CAS 0행 | 401 `REFRESH_TOKEN`, 구 RT 유지 성공 금지 |
 | sid 없는 legacy, 기존 해시 일치 | 첫 refresh에서 세션 생성/매핑과 새 sid RT hash를 원자 확정. 회전 시점 이전이어도 승격 |
-| 이미 승격에 사용한 legacy RT 재사용 | 기존 매핑으로 새 hash를 덮지 않음. 실패하면 401 |
+| 이미 승격에 사용한 legacy RT 재사용 | 아래 승격 전용 인증 receipt의 동일 결과 재생 조건을 먼저 검사. 불일치/폐기/복구창 종료는401 REFRESH_TOKEN이며 새 hash를 덮지 않음 |
 | 기기 B 로그인 | A의 RT·sessionEpoch를 변경하지 않음 |
 | A 개별 logout | A만 폐기, B 계속 유효 |
 | 탈퇴/전 기기 logout | 모든 세션과 bootstrap 폐기, authGeneration 증가 |
 
 기준 main의 회전은 RT 남은 수명이 절반 미만일 때다. prod AT 3600초, RT 30일, 게스트 RT 90일이고 dev AT는 30일 설정이므로 환경별 실제 설정을 읽는다. legacy 호환 창은 배포일부터 일률 30일이 아니라 마지막 legacy 발급 시점과 토큰의 실제 최대 만료를 기준으로 한다. 구 발급 경로를 계속 열고 있으면 호환 창도 끝나지 않는다.
 
-expand 순서는 세션 저장소 추가 → 기존 해시의 legacy 세션 백필 → 로그인/refresh/logout 이중 호환 → 세션 정본으로 쓰기 전환 → legacy 발급 중단 확인 → 최대 유효 수명 경과·잔여 legacy 측정 → 조회 제거다. 기존 users 단일 해시를 새 세션 로그인마다 덮어쓰는 dual-write는 금지한다. 그것은 여러 기기 보존과 충돌한다. 기존 guest가 새 계정으로 떨어지는 일이 없도록 UUID/FK/지갑을 전환 전후 대조한다.
+expand 순서는 세션 저장소 및 승격 전용 복구 receipt 추가 → 기존 해시의 legacy 세션 백필 → 로그인/refresh/logout 이중 호환 → 세션 정본으로 쓰기 전환 → legacy 발급 중단 확인 → 최대 유효 수명 경과·잔여 legacy 측정 → 조회 제거다. 기존 users 단일 해시를 새 세션 로그인마다 덮어쓰는 dual-write는 금지한다. 그것은 여러 기기 보존과 충돌한다. 기존 guest가 새 계정으로 떨어지는 일이 없도록 UUID/FK/지갑을 전환 전후 대조한다.
 
 ### 유효한 sidless AT를 가진 기존 앱 설치의 진입 gate
 
@@ -251,13 +251,47 @@ AT가 아직 유효해도 sid가 없으면 만료를 기다리지 않고 legacy 
    단일 credential bundle의 원자 저장 또는 검증된 journal/commit-pointer 방식을 구현하고, 모든 인증 reader/writer를
    그 accessor로 전환해야 한다. AsyncStorage.multiSet의 이름만 보고 crash atomicity를 가정하지 않는다.
 5. 저장 도중 종료/실패하면 신규 경로 gate를 열지 않는다. 복구는 완전히 commit된 자격 묶음만 읽고 새 AT+옛 RT를
-   섞지 않는다. 서버 승격은 성공했으나 응답/로컬 commit을 잃어 옛 RT가401인 경우, 옛 RT 해시를 부활시키지 않고
-   정상 제공자 재인증으로 복구한다. 자동 guest 신규 생성으로 기존 userId·자산을 버리지 않는다.
+   섞지 않는다. 서버 승격 후 응답/로컬 commit을 잃었으면 **같은 원 legacy RT로 승격 전용 receipt 결과를 재생**해
+   동일 sid AT/RT 묶음을 다시 저장한다. 원 RT를 현재 해시로 되돌리지 않는다. 제공자 자격 없는 게스트에게
+   소셜 재인증을 유일한 복구 수단으로 요구하거나 자동 guest 신규 생성으로 기존 userId·자산을 버리지 않는다.
 
-네트워크/5xx는 전환 대기 상태로 재시도하며 일반 인증 실패와 구분한다. RT 부재·만료·폐기는 재인증이 필요하다.
-세션 저장소/legacy RT 승격 서버 → 앱 원자 자격 accessor와 강제 refresh gate → 신규 계정 라우팅 활성화 순서로
+네트워크/5xx는 전환 대기 상태로 같은 원 RT를 재시도하며 일반 인증 실패와 구분한다. 실제 RT 부재·만료·폐기나
+복구창 종료는 REFRESH_TOKEN401이며 소셜 계정은 제공자 재인증이 가능하다. **게스트의 복구창 밖 처리에는
+아직 승인된 대체 복구 수단이 없다**. Q06의 복구 창·장기 실패 처리와 실패 주입 검증 없이 강제 전환을 출시하지 않는다.
+세션 저장소/legacy RT 승격 및 결과 복구 서버 → 앱 원자 자격 accessor와 강제 refresh gate → 신규 계정 라우팅 활성화 순서로
 배포한다. server-only 변경 후 기존 앱이 새 경로를 곧바로 쓰게 하지 않는다. 기존 `/api/v1`의 sidless AT 호환은
 별도 롤아웃 창 동안 유지하며 신규 경로의 동기 활성 검사를 약하게 만들어 우회하지 않는다.
+
+### legacy RT 승격 전용 결과 복구
+
+이 승격은 정상 세션 RT의 주기적 회전과 구분한다. main에는 승격 전용 receipt가 없고, 조사한 선행1659의
+`AuthService.refreshToken`은 원 해시로 사용자를 찾은 뒤 CAS로 새 해시를 저장한다. `AuthSessionService.rotate`는
+새 해시/epoch/bootstrap을 저장하지만 원 legacy RT 해시와 고정 AT/RT 결과를 복구하는 인증 receipt가 없다.
+일반 `PublicCommandService`에 토큰을 저장하거나 기존 세션 행이 있다는 이유로 복구가 구현됐다고 표시하지 않는다.
+
+| 자료 | 승격 전용 인증 저장소의 계약 |
+| --- | --- |
+| 유일 scope | operation=LEGACY_RT_PROMOTION, 검증한 userId, 원 legacy RT의 hash. 원 RT 원문/새 토큰 원문을 범용 receipt나 로그에 보관하지 않음 |
+| 고정 발급 재료 | 동일 userId·sid·guest·authGeneration·sessionEpoch, AT/RT별 jti/iat/exp/keyId·서명/직렬화 버전. 기존 refresh 응답에 bootstrap이 있으면 그 결과 복원 재료도 고정 |
+| 완료 증거 | 새 RT hash, 준비 nonce/CAS 조건, PENDING/COMPLETED/INVALIDATED, 최초 완료 시각, recoveryExpiresAt. 새 세션과 COMPLETE는 같은 TX에서 확정 |
+| 복구 유효성 | 원 RT 서명/refresh 타입/subject/만료, receipt scope, 활성 사용자, 같은 미폐기 세션·epoch/gen, 현재 세션 RT hash가 원 완료의 새 hash와 일치, 고정 AT/RT 만료 전·복구창 이내 |
+
+1. **준비**: 원 RT를 검증하고 users → 세션/승격 receipt 순서로 잠근다. 같은 원 RT의 동시 준비는 같은 sid와
+   고정 발급 재료를 받는다. 기존 유효 해시와 주체 상태를 확인하기 전에 재생 가능한 자료를 발급하지 않는다.
+2. **서명·확정**: Business는 저장된 고정 재료로 후보를 서명하고 Data가 기존 해시 CAS·세션 전환·새 RT hash·
+   receipt COMPLETE를 한 TX에 확정한다. 준비만으로 새 자격을 외부에 반환하지 않는다. 확정 실패면 모두 rollback한다.
+3. **응답 유실 복구**: 원 RT의 서명/타입/만료 검증 뒤, 현재 users 원 해시 조회가 실패했다는 이유로 즉시401을 내기
+   **전에** 승격 receipt를 찾고 위 복구 조건을 검사한다. 같은 완료 결과의 AT/RT와 sid를 복원하며 발급 시각·만료·
+   복구창을 연장하지 않는다. CAS 패자도 이 원 RT의 성공 receipt가 정확히 일치할 때만 이미 확정된 결과를 받는다.
+4. **폐기 우선**: logout·탈퇴·전체 세대 변경·후속 RT 회전이 먼저 완료됐으면 재생하지 않는다. 계정 비활성은
+   USER_NOT_FOUND404, 원 RT/완료 자격 불일치는 REFRESH_TOKEN401이다. 재생이 bootstrap 소비 상태를 초기화하거나
+   새 nonce를 생성하지 않는다. 실제 원 RT의 제시 없이 userId/attemptId만 아는 요청은 복구할 수 없다.
+5. **수명·출시 gate**: 복구 창은 최초 완료 기준의 명시 설정이며 원 RT 만료·고정 AT/RT 만료를 넘지 않는다.
+   그 기간의 서명/복원 keyId를 유지하고 만료/폐기 자료는 정리한다. 일반 로그인 시도5분 설정을 근거 없이 이곳에
+   복사하지 않는다. Q06 및 게스트의 응답 유실/앱 crash/장기 오프라인 복구 검증 전에는 강제 legacy 승격을 활성화하지 않는다.
+
+일반 sid RT 회전의 CAS0행=401 규칙은 유지한다. 예외는 **같은 원 legacy RT로 확정된 최초 승격 결과의 제한 재생**뿐이다.
+새 게스트 계정 생성/기존 자산 이전이라는 제품 동작을 추가하지 않는다.
 
 ## 4. 탈퇴 파기·보존 전수 표
 
@@ -280,12 +314,14 @@ AT가 아직 유효해도 sid가 없으면 만료를 기다리지 않고 legacy 
 | group_challenge_members의 user_id/progress_minutes/usage_date/measured_at 및 생성/수정 시각 | 현재 탈퇴는 원본 보고 행을 유지. user_id는 NOT NULL FK | 그룹 내기 증거 동결을 먼저 검증한 뒤 해당 사용자의 원본 보고 행 전체를 같은 탈퇴 TX에서 hard delete. 단순 nullify/soft delete로 원문을 남기지 않음 |
 | group_challenge_bet_participants의 확정 achieved/achieved_at/progress_minutes/payout·회차/사용자 관계 | 기존 정산/동결 증거 보존 | 원본 날짜별 보고와 구분한 최소 정산 근거. 정산·기존 결과 복구 범위로만 사용, 탈퇴자 프로필/측정 원본 조회 금지. 보존 기간을 새로 무기한 확정하지 않음 |
 | group_members, 혼자 소유한 group | membership leave, 필요 시 close | 남은 주민이 있으면 HOST_WITHDRAW 전체 rollback. 기존 정산 관계 이력 보존 |
+| user_blocks.blocker_id/blocked_id/created_at | 양쪽 NOT NULL users FK. 현재 탈퇴 정리 호출 없음; 차단 writer는 아직 미구현 | blocker 또는 blocked가 탈퇴자인 행 모두 같은 TX에서 hard delete. 한 방향만 삭제하거나 삭제 flag로 관계 원문을 남기지 않음 |
+| user_streaks.user_id/last_session_date/streak_count/longest_streak_count/updated_at | V2 이후 user_id 자체가 PK/FK. 현재 실제 탈퇴 경로에 삭제 없음 | 집중 정산 증거 동결 뒤 같은 TX에서 사용자 streak 행 hard delete. legacy entity의 '현재 withdraw 하드삭제' 주석을 구현 근거로 삼지 않음 |
 | 친구 관계·pin | 친구 soft delete, 관련 pin hard delete | 새 검색/목록은 활성 조건으로 가림 |
 | user_items, currency_transactions, league_arena_users | user FK로 이력 보존 | 기존 정산/보유 관계의 증거. 서버 공개 projection에서 탈퇴자 name/catColor를 재생하지 않음 |
 | user_focus_tags.user_id, source_occupation_default_tag_id, default_tags.name 연결 | 기존 erase에는 삭제 없음 | FocusSession이 user_focus_tags를 참조하므로 직접 user_id만 nullify해도 사용자 역추적 경로가 남음. 정산 증거 동결 뒤 태그의 사용자 귀속/직군 출처를 끊는 nullable migration 또는 세션 태그 연결 해제 후 개인 채택 행 파기를 비교 검증. 공유 default_tags는 일괄 삭제하지 않음 |
 | character_generation.user_id, created_at, client_generation_id | 기존 erase에는 정리 없음 | 개인 생성 요청 식별·사용자 연계 자료 파기 경로를 해당 소유 서비스와 연결. 공유 정산 근거와 동일 보존 사유로 뭉뚱그리지 않음 |
 | invite_link_clicks.claimedUserId·클릭 연결 | main 직접 파기 없음 | 1659의 claimed user 익명화·링크 위성 폐기 전달 재사용. ipHash/userAgent/device/app 식별 자료도 사용자 연계가 남는지 링크 소유 정리 명령에서 확인 |
-| 신규 auth session RT/bootstrap hash·로그인 시도 자격 digest·고정 서명 재료 | main 새 모델 없음 | 세션 폐기와 원문 재발급 방지. 남기는 폐기 tombstone은 최소 sessionId/epoch/만료 정보로 제한하고 사용자 연계 자격은 파기 |
+| 신규 auth session RT/bootstrap hash·로그인 시도 자격 digest·고정 서명 재료 | main 새 모델 없음 | legacy 승격 전용 복구 receipt/고정 재료도 탈퇴 때 폐기하고 세션 폐기와 원문 재발급을 차단. 남기는 폐기 tombstone은 최소 sessionId/epoch/만료 정보로 제한하고 사용자 연계 자격은 파기 |
 | 신규 일반 receipt·outbox·위성 projection 속 name/catColor/기기 자격 | 신규 자료 | 탈퇴 TX에서 직접 PII가 든 중앙 복사본 제거/대체, 대상별 outbox로 위성 파기. 삭제 receipt는 deleted 결과만 보유하며 개인 응답 재생 금지 |
 | 로그·trace·dead-letter payload | 경로별 다름 | 애초에 자격/PII 본문을 남기지 않음. 잘못 수집한 자료를 기능 DB 삭제만으로 지웠다고 주장하지 않음 |
 
@@ -293,9 +329,29 @@ main User 주석은 retention→purge를 언급하지만 현재 조회한 `erase
 
 ### 중앙 TX의 순서 제약
 
-`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 지갑·설정 삭제 → 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
+`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 지갑·설정 삭제 → 양방향 user_blocks·user_streaks 삭제 및 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
 
 `socialAccountRepository.deleteByUserId`는 `flushAutomatically` 후 `clearAutomatically`로 영속성 컨텍스트를 비운다. 따라서 user.catColor 등 엔티티 변경을 그 뒤에 붙이면 저장되지 않는다. 모든 엔티티 파기를 앞에 배치하고 마지막 bulk delete 뒤에는 분리된 엔티티를 수정하지 않는다. 멱등 결과 저장은 이 clear를 고려해 명시적으로 영속화하며 사용자 PII 수정의 순서를 뒤집지 않는다.
+
+#### 차단 관계·개인 스트릭의 파기와 writer 경계
+
+`UserBlock`과 V7은 blocker_id/blocked_id 모두 NOT NULL users FK다. V2 이후 `UserStreak`는 user_id가
+PK인1:1행이라 단순 user_id=null로 익명화할 수 없다. 기준 migration에는 두 테이블을 참조하는 inbound FK가
+확인되지 않았다. 탈퇴 TX는 `DELETE FROM user_blocks WHERE blocker_id=:id OR blocked_id=:id`와
+`DELETE FROM user_streaks WHERE user_id=:id`를 수행한다. 같은 상대와 양방향 차단이 있어도 두 행 모두 대상이다.
+다른 두 활성 사용자의 차단과 streak는 보존한다. 정산 증거는 앞서 동결하고 이 파생 활동 이력을 보존 근거로 사용하지 않는다.
+
+현재 차단은 schema/repository 선반영뿐이고 `UserBlockRepository`의 생산 writer는 없다. 후속 차단 생성/복원 writer는
+**blocker와 blocked 양쪽의 활성 users 행**을 DB UUID 오름차순으로 공유 잠근 뒤 쓰며 TX 종료까지 유지한다.
+호출자만 검사하면 상대가 탈퇴한 뒤 새 차단 행을 만들 수 있다. 탈퇴는 자신의 users 배타 잠금 후 양방향 행을 삭제하므로
+writer 선행이면 신규 행도 삭제에 포함되고 탈퇴 선행이면 상대/호출자 활성 검사에서 거절한다. 탈퇴 삭제가 상대 users까지
+추가로 잠그는 순서를 만들지 않는다. 뒤늦은 저장/복원·관리용 import도 이 관문을 우회하지 않는다.
+
+현재 streak writer는 `FocusService.recordCompletion` → `UserStreakService.updateOnSessionComplete`이며,
+FocusService의 활성 users FOR SHARE를 완료·streak 저장 TX 끝까지 유지한다. 탈퇴 FOR UPDATE와 직렬화된다.
+독립 호출/배치 writer를 추가하면 stale User 객체만 받아 저장하지 말고 같은 TX에서 활성 users 잠금을 먼저 확보한다.
+이것은 미래 writer의 의무이며 현재 UserStreakService 자체에 활성 잠금 검사가 있다고 과장하지 않는다.
+양방향 경합·지연 flush·rollback을 실제 DB에서 검증하고, 과거 DailyFocusStat로 탈퇴자의 streak를 재생성하지 않는다.
 
 #### 알림 발송 이력의 파기 경계
 
@@ -351,8 +407,14 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 400 NICKNAME_INVALID | false | `name`, 기존 trim/길이 정책 실패 |
 | 400 UNSUPPORTED_PROVIDER | false | `provider`, 지원 집합 밖 또는 해당 provider 어댑터 미구성. 기존 AuthErrorCode 유지 |
 | 400 HOST_WITHDRAW | false | null, 남은 주민이 있는 방장 탈퇴 |
-| 401 UNAUTHORIZED | false | null, 새 공개 경로의 위조/만료/타입/주체 오류 |
-| 401 REFRESH_TOKEN | false | null, 기존 refresh RT 검증 또는 회전 CAS 0행 |
+| 401 UNAUTHORIZED | false | null, 새 공개 경로의 AT 검증 또는 로그인 시도 재개 자격 오류. 제공자/RT 검증 오류는 아래 전용 코드로 구분 |
+| 401 REFRESH_TOKEN | false | null, refresh 및 RT-only logout의 RT 타입·서명·만료·해시 불일치, 일반 회전 CAS0행, 승격 복구 불가 |
+| 401 KAKAO_TOKEN | false | `provider`, Kakao 자격 검증 실패 |
+| 401 APPLE_TOKEN | false | `provider`, Apple 자격 검증 실패 |
+| 401 GOOGLE_TOKEN | false | `provider`, Google 자격 검증 실패 |
+| 401 LINE_TOKEN | false | `provider`, LINE 자격 검증 실패 |
+| 401 INSTAGRAM_TOKEN | false | `provider`, Instagram 자격 검증 실패 |
+| 401 FACEBOOK_TOKEN | false | `provider`, Facebook 자격 검증 실패 |
 | 404 USER_NOT_FOUND | false | null, 비활성/없는 본인 계정. 기존 UserErrorCode와 앱 재로그인 분기를 그대로 보존하며 NOT_FOUND로 치환하지 않음 |
 | 409 NICKNAME_DUPLICATE | false | `name`, 이름 경쟁/중복 |
 | 409 SOCIAL_ACCOUNT_ALREADY_LINKED | false | `provider`, 기존 게스트 승격 계정 충돌 |
@@ -381,6 +443,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | --- | --- |
 | 7개 원본 예시와 공개 스키마 대조 | method/path 7개, 성공 필드 손실 0, source override 명시 |
 | 미지원 provider 문자열·어댑터 미구성·잘못된 credential 조합 | provider는400 UNSUPPORTED_PROVIDER, 지원 provider의 미지원 credential.type만422, 잘못된 구조400 |
+| 유효 guest=false AT를 동봉한 기존 소셜 로그인/계정 전환 | 제공자 대상 계정으로 정상 로그인/가입, 게스트 승격 대상 제외·기존 계정 합병0; 위조/만료 AT는 별도거부 |
+| 6개 제공자의 위조·만료·aud 오류 및 잘못된 RT logout | 해당 *_TOKEN401과 REFRESH_TOKEN401 보존, 내부 서비스401을 사용자 오류로 매핑하지 않음 |
 | 6개 제공자/guest 승격 | 같은 userId·지갑·집중·그룹 유지, 타 제공자 token·RT-as-AT 거부 |
 | login 준비 후 장애·확정 응답 유실 | 같은 시도/증명 재개, 동일 generation이면 동일 RT, 새 세션 중복 없음 |
 | 로그인 CAS 경쟁·같은 attempt 동시 재준비·옛 complete 지연 | REPREPARE_REQUIRED에서 g+1을 한 번만 발급, g 토큰 반환/재활성화 0, g+1 응답 유실은 동일 재료 재생 |
@@ -389,7 +453,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | RT 회전 경계·동시 CAS | 미회전 null과 경쟁 0행 401 구분 |
 | 아직 유효한 sidless AT로 앱 업데이트·신규 /me 진입 | exp와 무관한 강제 refresh1회, 동일 userId의 sid 자격 commit 후에만 호출 |
 | 강제 승격과 로그인/logout/401 경합·자격 저장 중 종료 | single-flight/generation fencing, AT/RT 혼합0·옛 응답 덮어쓰기0, 불완전 저장은 gate 미개방 |
-| 승격 응답 유실·RT 폐기·refresh 5xx | 5xx 대기/재시도와 RT401 재인증 구분, fake sid·새 guest·옛 RT 부활0 |
+| legacy 게스트 승격 커밋 뒤 응답 유실·앱 원자 저장 실패·동시 같은 원RT | 같은 승격 receipt의 동일 sid/AT/RT 복구, userId/지갑/집중/그룹 보존, 새 guest·중복 세션·옛 해시 부활0 |
+| 승격 복구와 logout/탈퇴/후속회전·복구창 종료 경쟁 | 폐기 자격 재생0, 복구창/토큰 만료 연장0, 게스트 장기 복구 gate 충족 전 출시 금지 |
 | legacy guest RT 첫 refresh·다중 기기 | 계정 손실 0, B 로그인/A logout이 다른 기기 RT를 지우지 않음 |
 | logout RT-only·만료 AT 동봉·타 세션 AT | RT-only 성공, 잘못 동봉한 AT는 401, prefix 인증 예외 없음 |
 | logout 응답 유실·중복·회전 전 RT 재사용 | 실제 폐기 증명만 200 재생, sessionEpoch 전진/bootstrap 폐기 1회, 기기 삭제 outbox 0건, 옛 RT 거부 |
@@ -402,6 +467,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | OPEN 참가 target 결손·증거 확정 불가·삭제 직후 실패 | 동결 완료로 위장하지 않음, 중앙 TX rollback, 기존 원본과 환불 정합 유지 |
 | 알림 로그 수신자/친구 상대/라이벌·챌린지 키·PENDING/DEFERRED/SENT | 사용자 연계 대상만 파기, 다른 수신자의 비사용자 키 보존, 기본 NOT NULL/FK 실DB 대조 |
 | 친구/추월/claim writer와 탈퇴의 양방향 경합·늦은 FCM 응답·위성 relay/import | 중앙/위성 이력 부활0, 실패 시 중앙 TX rollback, 내구 재전달로 위성 파기 확인 |
+| 양방향 차단·스트릭 full fixture 및 차단/집중 완료와 탈퇴 양방향 경합 | 대상 차단/streak행0·타인행보존·지연 writer 부활0, 삭제 직후 실패하면 전체 rollback |
 | 탈퇴 full fixture + 강제 rollback | 전수 표 파기·보존 대조, 환불/지갑/outbox 포함 한 TX |
 | 탈퇴 후 신규 7개에 옛 자격 | 로그인 성공 재개/일반 조회·변경 차단. 정상 새 제공자 재가입은 새 userId이며 옛 계정 부활 아님 |
 | 설정 false/true 역전, 다른 필드 역전, legacy 전체 PUT 경쟁 | 필드별 version으로 유실 방지, 재전달 멱등, 원래 명령 결과 재생 |
@@ -439,3 +505,12 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `server/data-api/src/main/java/com/oneorthree/phone/screentime/service/ScreenTimeService.java` | anonymizeWithdrawnUser |
 
 미통합 1659 작업 코드에서 별도로 읽은 `AuthSessionService`, `NotificationSettingsUseCase`, `WithdrawalSatelliteCommandService`, `InternalAuthController`는 기반 재사용 근거다. 이 목록은 main에 모든 파일/동작이 이미 있다는 주장이 아니다. 구현 시 선행 PR 최종 diff와 대조하고, 특히 users 단일 RT 해시를 계속 정본으로 사용하는 과도 상태를 제거해야 한다.
+
+추가 코드 대조: `user/repository/domain/UserBlock.java`, V7의 양쪽 FK;
+`focus/repository/domain/UserStreak.java`, V2의 user_id PK 전환;
+`focus/service/UserStreakService.java:103~130`, `FocusService.java:1137~1138,1317`의 현재 writer/잠금;
+`auth/service/AuthService.java:239~264`, `AuthServiceTest.nonGuestAccountSwitchIsNotBlocked`,
+`app/app-dev/src/services/auth.ts:71`의 비게스트 AT 계정 전환;
+`auth/exception/InvalidTokenErrorCode.java`의7개401 코드.
+미통합1659의 `AuthSessionService.rotate` 및 `AuthService.refreshToken`은 원RT 승격 결과 복구 receipt가 없는
+비교 근거이며, 후속 구현에 고정 서명 재료/복구 창/폐기 경계를 추가해야 한다.

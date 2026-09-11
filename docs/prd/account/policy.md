@@ -9,21 +9,21 @@ GROMO-1756 · 2026-09-12 · [색인](README.md) · [상세 계약](low-level-des
 | A01 | 신규 Business 경로에는 접두어를 붙이지 않고 JSON 성공은 `{data}`로 감싼다. 기존 Data/chat 경로는 보존한다. | 사용자 확정·선행 1750 |
 | A02 | 공개 `name`은 기존 `users.nickname`이다. trim 후 2~10 UTF-16 단위, 다른 사용자와 중복 금지다. | main `UserService.changeNickname`과 DB 유일 제약 유지 |
 | A03 | 프로필 변경과 탈퇴는 활성 `users` 행을 수정하기 전에 배타 잠금한다. | 기술 결정. `User`에 `@Version`이 없어 늦은 전체 UPDATE가 파기된 PII를 되살릴 수 있음 |
-| A04 | 게스트 승격은 검증한 선택적 AT의 기존 userId를 사용한다. 기존 6개 소셜 제공자와 게스트 생성 경로를 보존한다. | 장부 ㊒·기존 AuthService. 원본 Apple 예시는 제공자 축소 결정이 아님 |
+| A04 | 선택적 AT는 서명·access 타입·만료·주체를 검증한다. guest=true일 때만 기존 게스트 승격 규칙을 적용하고 기존 userId를 보존한다. 유효한 guest=false AT는 정상 계정 전환을 막지 않으며 제공자 계정 로그인/가입을 진행한다. 기존 6개 소셜 제공자와 게스트 생성 경로를 보존한다. | 장부 ㊒·기존 AuthService. 원본 Apple 예시는 제공자 축소 결정이 아님 |
 | A05 | AT/RT 타입·서명·만료를 검증하고 RT 원문을 DB/로그에 저장하지 않는다. | 기존 JwtProvider·TokenHasher |
 | A06 | 로그인은 Data upsert → Business 서명 → Data CAS 확정이다. 같은 성공 준비 generation은 고정 서명 재료로 재생한다. 폐기 아닌 CAS 경쟁은 동일 attempt/자격의 새 nonce 재준비이며 INVALIDATED와 분리한다. | 이미 확정된 장부 ㊑/㊔/㊙/㊡. 현재 main의 구현 완료를 뜻하지 않음 |
-| A07 | 회전하지 않는 refresh는 새 AT와 `refreshToken:null`을 반환한다. 회전 CAS 0행은 401이다. | 기존 AuthService와 장부 ㉮ |
+| A07 | 회전하지 않는 refresh는 새 AT와 `refreshToken:null`을 반환한다. 정상 sid RT 회전 CAS 0행은 401 REFRESH_TOKEN이다. 최초 legacy 승격에서만 원 RT로 증명한 동일 완료 결과를 제한 재생하며 구 해시를 부활시키지 않는다. | 기존 AuthService와 장부 ㉮ |
 | A08 | RT 정본을 `(userId, sessionId)`로 전환한다. 개별 로그아웃은 해당 세션/Bootstrap만 폐기하고 기기 삭제 outbox를 만들지 않는다. 대상 토큰·ownership DELETE가 기기 삭제를 소유한다. 새 앱은 삭제 큐 생성 시 고정 Idempotency-Key를 저장하고 직접 전달/outbox relay가 같은 파생 키를 사용하며, 완료 재생은 원 명령 인증·scope·fingerprint 대조 후 과거 ownership 거절보다 먼저 판정한다. authGeneration은 탈퇴·전 기기 로그아웃만 증가시킨다. | 장부 ㋣/㊼ |
-| A09 | sid 없는 legacy RT는 최대 유효 수명 동안 병행 조회하고 첫 refresh에서 세션 토큰으로 승격한다. 앱은 sid 없는 유효 AT도 신규 /me 계열 진입 전에 기존 refresh로 강제 전환하고 AT/RT 묶음을 원자 저장·공개한다. 가짜 sid는 만들지 않는다. | 장부 ㋪. 타입 없는 잘못된 토큰을 허용한다는 뜻이 아님 |
+| A09 | sid 없는 legacy RT는 최대 유효 수명 동안 병행 조회하고 첫 refresh에서 세션 토큰으로 승격한다. 앱은 sid 없는 유효 AT도 신규 /me 계열 진입 전에 기존 refresh로 강제 전환하고 AT/RT 묶음을 원자 저장·공개한다. 가짜 sid는 만들지 않는다. 승격 응답 유실은 원 RT 해시와 고정 서명 재료를 가진 전용 인증 receipt로 동일 sid AT/RT를 복원한다. 이 복구는 아직 미구현이며 Q06 해결·실패 주입 검증 전 강제 전환을 출시하지 않는다. | 장부 ㋪. 타입 없는 잘못된 토큰을 허용한다는 뜻이 아님 |
 | A10 | 탈퇴의 환불·증거 동결·관계 정리·파기는 Data 단일 TX다. 주민이 남은 방장은 위임 전 `HOST_WITHDRAW`이며 혼자면 그룹도 닫는다. | 기존 AccountWithdrawalService·GroupMemberService |
-| A11 | 계정은 soft delete한다. 직접 PII 파기와 정산·관계 증거의 보존을 구분하고, 현재 남아 있는 개인 필드는 파기 누락으로 드러낸다. group_announcements.user_id도 같은 탈퇴 TX에서 nullify하고 생성과 users 잠금으로 직렬화한다. notification_sent_logs의 탈퇴 수신자 및 사용자 상대 이력은 종류별 의미를 확인해 같은 TX에서 파기하고 동시 writer·위성 이관 재생과 직렬화한다. group_challenge_members의 사용자별 창형 측정 원본은 판정에 필요한 증거 확정을 검증한 뒤 같은 TX에서 hard delete한다. 필요한 판정이 불명확하면 탈퇴 성공을 확정하지 않는다. 최소 정산 증거는 별도 참가 행에 보존하고 원본 측정 이력/프로필로 노출하지 않는다. | 기존 FK·정산 근거 및 1756 완료 조건. 보존 행이 있으므로 완전 익명화/모든 행 삭제라고 표현하지 않음 |
+| A11 | 계정은 soft delete한다. user_blocks는 blocker/blocked 양방향을, user_streaks는 본인 행을 같은 TX에서 hard delete하며 현재·미래 writer와 users 잠금으로 직렬화한다. 직접 PII 파기와 정산·관계 증거의 보존을 구분하고, 현재 남아 있는 개인 필드는 파기 누락으로 드러낸다. group_announcements.user_id도 같은 탈퇴 TX에서 nullify하고 생성과 users 잠금으로 직렬화한다. notification_sent_logs의 탈퇴 수신자 및 사용자 상대 이력은 종류별 의미를 확인해 같은 TX에서 파기하고 동시 writer·위성 이관 재생과 직렬화한다. group_challenge_members의 사용자별 창형 측정 원본은 판정에 필요한 증거 확정을 검증한 뒤 같은 TX에서 hard delete한다. 필요한 판정이 불명확하면 탈퇴 성공을 확정하지 않는다. 최소 정산 증거는 별도 참가 행에 보존하고 원본 측정 이력/프로필로 노출하지 않는다. | 기존 FK·정산 근거 및 1756 완료 조건. 보존 행이 있으므로 완전 익명화/모든 행 삭제라고 표현하지 않음 |
 | A12 | 신규 계정 조회·변경은 동기 활성 검사를 수행한다. 로그인에는 제공자 증명과 대상 계정 활성 검사, 로그아웃에는 RT 증명과 대상 세션 검사를 적용한다. | 1757 완료 조건. legacy 조회의 AT 만료까지 읽기 창은 별도 호환 계약. 본인 부재는 기존 404 USER_NOT_FOUND를 보존 |
 | A13 | 알림 선호 정본은 이관 뒤 알림 서버다. Data는 내구 명령/outbox, Business는 전달·응답을 맡는다. | 1659 기반 재사용. 새 Data 설정 정본을 중복 생성하지 않음 |
 | A14 | `notifications` PATCH는 부분 명령과 field mask를 끝까지 유지한다. 적용 순서 역전에 대비해 알림 서버에 필드별 적용 버전을 둔다. | 기술 결정. 기존 전체 PUT은 5개 필드를 모두 선택하고 각 버전을 전진시킴 |
 | A15 | 음량·음소거·진동·동작 줄이기는 기기 로컬, OS 알림 권한은 OS 정본이다. | 원본 설정 계약. `notifications=true`가 OS 허용을 뜻하지 않음 |
 | A16 | PATCH 프로필·PATCH 설정·DELETE 계정에는 1750의 범용 멱등 키를 적용한다. 로그인/로그아웃은 별도 인증 계약이다. | 선행 1750 적용 표. 일반 receipt에 토큰이나 cookie를 저장하지 않음 |
 | A17 | 본문 없는 로그아웃의 RT는 `X-Refresh-Token` 전용 헤더로 전달한다. AT가 같이 있으면 같은 사용자·세션이어야 한다. AT 만료가 유효 RT 폐기를 막지 않도록 RT가 인증 정본이다. | 기술 결정. 기존 RT 증명 의도 유지, 요청/추적/프록시 로그에서 헤더 삭제 |
-| A18 | 기존 제공자의 token 검증 경로는 명시적 `credential` 확장으로 유지한다. `authorizationCode`는 실제 교환 어댑터가 처리하며 JWT 검증 함수에 대신 넣지 않는다. 미지원 provider는 기존 400 UNSUPPORTED_PROVIDER를 보존하고, 알려진 provider의 지원하지 않는 credential 종류와 구분한다. | 기술 결정. 원본 code-only 대비 변경은 LLD에 명시 |
+| A18 | 기존 제공자의 token 검증 경로는 명시적 `credential` 확장으로 유지한다. `authorizationCode`는 실제 교환 어댑터가 처리하며 JWT 검증 함수에 대신 넣지 않는다. 미지원 provider는 기존 400 UNSUPPORTED_PROVIDER를 보존하고, 알려진 provider의 지원하지 않는 credential 종류와 구분한다. 제공자 자격 실패는 KAKAO_TOKEN·APPLE_TOKEN·GOOGLE_TOKEN·LINE_TOKEN·INSTAGRAM_TOKEN·FACEBOOK_TOKEN 각각 401, refresh와 logout의 RT 자격 실패는 REFRESH_TOKEN401을 보존한다. | 기술 결정. 원본 code-only 대비 변경은 LLD에 명시 |
 | A19 | 앱 명령/로그인 시도 ID는 하이픈 포함 36자 UUID이며 v4/v7은 생성 권고다. 다른 버전 비트라는 이유로 거부하지 않는다. | 선행 공통 UUID 규약과 일치 |
 
 A06/A08/A09 및 A11의 추가 파기·검증은 목표 계약이다. 기존 기기 DELETE의 키 생략 호환은 유지하되 새 앱 삭제 흐름에는 고정 키가 필수다. main은 Data에서 JWT를 발급하고 `users.refreshTokenHash` 하나를 보관한다. 미통합 1659에는 세션 확인·bootstrap·outbox 기반이 있으나 세션별 RT 정본 전환이나 전체 Business 로그인 이관이 끝난 것은 아니다.
@@ -32,7 +32,7 @@ A06/A08/A09 및 A11의 추가 파기·검증은 목표 계약이다. 기존 기�
 
 | 요청받은 참조 | 실제 장부 | 반영 |
 | --- | --- | --- |
-| ㉮ | RT 회전 0행 = 세션 종료 401 | 실패한 후보나 구 RT를 성공 응답으로 내리지 않음 |
+| ㉮ | 정상 sid RT 회전 0행 = 세션 종료 401 | 실패한 후보나 구 RT를 성공 응답으로 내리지 않음. 최초 legacy 승격의 동일 성공 결과 제한 재생은 별도 이관 복구 계약 |
 | ㉠ | 기준 main 장부에 해당 기호 없음 | 참조 오류 가능성을 기록. 없는 의미를 만들어 쓰지 않음 |
 | ⓠ | Business 후보 서명·Data CAS. 구 RT 유지 문구는 취소되고 ㉮ 우선 | 실제 서명/저장 분리 근거로 함께 대조 |
 | ㊑/㊔ | userId upsert 뒤 서명, 로그인 시도 nonce로 조건부 저장 | 준비·확정 명령과 내구 시도 상태 |
@@ -62,6 +62,7 @@ GET 후 5개 필드 PUT을 조립하면 다른 기기의 변경을 덮어쓴다.
 | Q03 | `catColor` 6종의 정확한 자산 ID와 기존 사용자 초기값 | 원본 샘플 black/calico/ginger만으로 6개 enum을 만들어내지 않는다. 기존 사용자에게 재선택을 요구할지, 승인한 기본색을 줄지 확인 필요 |
 | Q04 | Q03에 따른 기존 사용자 온보딩 승계 | 신규 사용자는 유효 name과 catColor를 모두 저장하면 완료로 계산하는 안을 권고한다. 기존 isNewUser는 완료 여부가 아니므로 그대로 매핑하지 않는다. legacy 사용자의 재진입 여부는 Q03과 함께 확정 |
 | Q05 | 실제 수락 가능한 약관 문서 버전 | `2026-09`는 예시다. 버전 카탈로그를 배포 설정으로 주입하고 실제 약관 문서와 연결해야 한다. 별도 보존 기간을 이 설계에서 임의로 정하지 않는다 |
+| Q06 | legacy 게스트 승격 결과의 복구 창과 창 밖 장기 실패 처리 | 원 RT 증명·같은 활성 세션·고정 만료 이내의 동일 결과 재생을 구현한다. 복구 창 수치는 임의 확정하지 않는다. 제공자 없는 게스트의 창 밖 대체 복구는 미승인이며 자동 신규 계정 생성/자산 이전으로 대신하지 않는다. 해당 결정과 응답 유실·앱 종료 검증 전 강제 승격 출시 보류 |
 
 R61 PDF 17쪽을 시각 확인했으나 계정/프로필/색상 선택 화면이 없었다. 15~17쪽은 상점·착장 예시이며 색상 6종의 문자열 enum이나 legacy 기본값의 근거가 아니다. 약관·자산 입력이 없는 상태를 서비스 출시 가능으로 표시하지 않는다.
 
