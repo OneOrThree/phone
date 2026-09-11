@@ -14,6 +14,7 @@
 | C08 | 공동 건설/목표 변경 권한은 방장 UI가 서버 정책 승인을 뜻하지 않음 | 원본·공동 소비 권한 미결. P-D01 출시 차단 |
 | C09 | 초기 집중 기여의 시간 배분·완공 경계·초과분 보존은 PR743 FR-D02를 따른다 | 미결. 개인 지급/기여를 중복하거나 초과분을 버리지 않음 |
 | C10 | 가격 정책은 불변 revision과 현재 publication 포인터로 관리; GET costPolicyVersion, POST expectedCostPolicyVersion 필수 | 승인된 기술 확장. 섬 version과 별개이며 목표 PUT에는 불필요 |
+| C12 | GET options와 POST 건설 응답의 walletVersion은 같은 snapshot의 공동 지갑 version. 잔액과 buildable의 최신성은 이 축으로 판정 | 명시 응답 확장. islandVersion/costPolicyVersion과 독립 |
 | C11 | 실제 상태가 바뀔 때만 해당 aggregate version과 사건 증가. 같은 값 목표 PUT은 현재 version 확인 후 무변경200 | 기술 선택. receipt는 저장하되 새 사건/차감 없음 |
 
 ## 원본 대조·타입

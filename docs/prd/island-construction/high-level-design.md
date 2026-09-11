@@ -38,7 +38,7 @@ sequenceDiagram
   participant R as Realtime
   A->>B: GET construction-options
   B->>D: 검증 주체로 현재 옵션 조회
-  D-->>A: islandVersion + costPolicyVersion + 잔액/가능 사유
+  D-->>A: islandVersion + costPolicyVersion + walletVersion + 잔액/가능 사유
   A->>B: POST constructions + 두 expectedVersion + 같은 의도 키
   B->>D: 검증 주체·키·서버 requestId
   D->>DB: 사용자/receipt/섬/정책/지갑/외양 잠금·재검증
@@ -56,3 +56,7 @@ sequenceDiagram
 Business가 지갑 서비스 차감 후 별도 시설 저장을 조합하지 않는다. 섬 버전·지갑 버전·외양 버전은 각 projection의 시계다. 같은 커밋이라고 모두 같은 숫자를 붙이지 않는다. outbox 저장 봉투와 공개 전달 봉투도 구분한다.
 
 기준 main `Group.java`는 기존 그룹 정보·낙관 버전만 갖고 신규 시설 상태가 없다. 기존 CurrencyLedgerService는 User 지갑 대상이다. 이 그림은 새 계약 설계이며 main에서 공용 건설이 이미 동작한다는 설명이 아니다.
+
+## 공인 경로와 활성화 선행 조건
+
+사용자 결정에 따라 신규5계약은 `/islands/**`를 사용한다. 기준 main의 Target-1 공인 노출은 `/api/v1/**`와 `/bff/**`만 허용하므로 Controller 추가만으로 외부에서 도달하지 않는다. 공통 구현 [PR744](https://github.com/OneOrThree/phone/pull/744)의 `server/scripts/nginx-satellites.include.conf.example` 및 인증 필터 통합을 먼저 적용하고 실제 공인 ingress에서 다섯 계약의 라우팅·JWT·외부 위임헤더 제거·내부경로 차단을 검증한 뒤1767/1779를 연다. 기존 `/api/v1` 경로는 유지한다. 이는 선행 배포 요구이며 이 문서 PR에서 운영 nginx를 변경했다는 주장이 아니다.

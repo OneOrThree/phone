@@ -142,7 +142,7 @@ selectable은 현재 사용자 실행 권한과 시설 선행 조건을 만족�
 {"buildingId":"gram","expectedVersion":4,"expectedCostPolicyVersion":1}
 ```
 
-GET은 원본 data와 같은 스냅샷에서 읽은 `costPolicyVersion:1`을 추가한다. 이 숫자1은 예시 revision이다. cost revision이 바뀌었으면 섬 version이 같아도409 VERSION_CONFLICT(field=expectedCostPolicyVersion)다. current에는 현재 사용자가 볼 수 있는 options 공개 DTO만 넣고 재조회·금액 재확인 후 새 키를 사용한다. 가격 publication과 명령이 같은 정책 잠금 경계를 사용하여 검증 직후 가격만 교체되는 경합을 막는다.
+GET은 원본 data와 같은 스냅샷에서 읽은 `costPolicyVersion:1`을 추가한다. GET과 POST의 data에는 `walletVersion`도 필수 추가하며 반환 villagePoints의 공동 지갑 version이다. 원본 JSON은 보존하고 추가 필드 예시는 `{"walletVersion":7}`이다. islandVersion 및 costPolicyVersion과 비교하지 않는다. 앱은 응답 walletVersion이 이미 관측한 wallet.updated보다 낮으면 잔액과 잔액 의존 buildable을 적용하지 않고 새 GET으로 복구한다. 같은 지갑 버전이어도 island/cost 축이 낮으면 해당 옵션 부분을 적용하지 않는다. POST receipt는 원 walletVersion과 원 잔액을 보존하며 과거 성공 재생으로 최신 화면을 되돌리지 않는다. 이 숫자1은 예시 revision이다. cost revision이 바뀌었으면 섬 version이 같아도409 VERSION_CONFLICT(field=expectedCostPolicyVersion)다. current에는 현재 사용자가 볼 수 있는 options 공개 DTO만 넣고 재조회·금액 재확인 후 새 키를 사용한다. 가격 publication과 명령이 같은 정책 잠금 경계를 사용하여 검증 직후 가격만 교체되는 경합을 막는다.
 
 목표 PUT은 costPolicyVersion과 잔액을 요구하지 않는다. target 변경에는 island version만 증가하고 wallet/appearance 사건은 없다. 같은 목표·현재 version은200/차감0/기존 version이며 receipt에 빈 events를 저장한다. 건설은 원본처럼 buildingId를 명시하는 별도 명령으로, 숨은 '현재 선택 목표와 반드시 일치' 제약을 새로 추가하지 않는다.
 
@@ -211,3 +211,5 @@ PUT/POST에 Idempotency-Key(UUID36)를 요구한다. scope는 검증 사용자 +
 - 실제 HTTP 공개 오류 registry와 current 필드, 각 이벤트7필드·자기 axis 버전, 지갑 정보 audience 검사.
 
 로그는 서버 requestId, commandId/eventId, operation, phase, outcome, durationMs와 정책 revision을 연결한다. 키 원문·토큰·헤더·전체 payload는 기록하지 않는다. debit/완공/재생·conflict·relay 지연은 유한 label로 계측한다. 이 문서 작업에서 빌드·테스트를 실행했다는 주장은 하지 않는다.
+
+검증 추가: 다른 주민 거래/GET/POST receipt가 역순 도착해도 walletVersion으로 오래된 잔액·buildable 적용을 막고 새 options GET으로 복구한다. 무접두어 공인 ingress/JWT/내부 차단은 HLD 선행 조건을 실제 배포 환경에서 검증한다.
