@@ -408,8 +408,8 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | gromo_chat.chat_read_cursors의 user_id/group_id/last_read_message_id/updated_at | 기준 main·PR739 이름 전환 코드에 커서 UPSERT가 있으나 탈퇴 삭제/consumer/fencing 없음 | 해당 user_id의 모든 방 커서 행 hard delete. 중앙 TX의 user.withdrawn 내구 전달 뒤 chat/realtime 로컬 TX에서 tombstone/version·DELETE·수신 완료를 함께 확정하고 모든 cursor writer와 직렬화. 메시지 본문/sender_id 보존은 변경하지 않음 |
 | user_focus_tags.user_id, source_occupation_default_tag_id, default_tags.name 연결 | 기존 erase에는 삭제 없음 | FocusSession이 user_focus_tags를 참조하므로 직접 user_id만 nullify해도 사용자 역추적 경로가 남음. 정산 증거 동결 뒤 태그의 사용자 귀속/직군 출처를 끊는 nullable migration 또는 세션 태그 연결 해제 후 개인 채택 행 파기를 비교 검증. 공유 default_tags는 일괄 삭제하지 않음. 두 대안 모두 setupFocusTag/updateFocusTag 및 복원·관리 writer의 활성 users 공유 잠금과 탈퇴 배타 잠금으로 직렬화 |
 | character_generation.user_id, created_at, client_generation_id | 기존 erase에는 정리 없음 | 같은 중앙 탈퇴 TX에서 해당 user_id의 모든 생성 이력 hard delete. 기존 recordGeneration의 users 배타 잠금 → 사용자 advisory → 이력 순서를 유지하여 삭제 뒤 재생성을 차단하고 타인 이력은 보존 |
-| group_invite_links.inviter_id 및 slug·그룹·발급 시각으로 이어지는 발급자 연결 | V21은 inviter_id NOT NULL users FK이며 현 탈퇴는 claimed_user_id만 익명화 | nullable 확장 후 같은 중앙 TX에서 본인 inviter_id를 nullify. 링크/종속 클릭은 타인 퍼널의 FK 앵커로 보존하되 발급자 없는 링크는 폐기로 취급하며 재발급·매치·claim·이관으로 UUID를 복구하지 않음 |
-| invite_link_clicks.claimedUserId·클릭 연결 | main 직접 파기 없음 | 1659의 claimed user 익명화·링크 위성 폐기 전달 재사용. ipHash/userAgent/device/app 식별 자료도 사용자 연계가 남는지 링크 소유 정리 명령에서 확인 |
+| group_invite_links.inviter_id 및 slug·그룹·발급 시각으로 이어지는 발급자 연결 | V21은 inviter_id NOT NULL users FK. 기준 main에는 claimed 파기 없음; [선행 PR745의 withdraw 호출자](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/withdrawal/service/AccountWithdrawalService.java#L104)만 claimed_user_id 익명화를 연결하며 발급자 파기는 없음 | nullable 확장 후 같은 중앙 TX에서 본인 inviter_id를 nullify. 링크/종속 클릭은 타인 퍼널의 FK 앵커로 보존하되 발급자 없는 링크는 폐기로 취급하며 재발급·매치·claim·이관으로 UUID를 복구하지 않음 |
+| invite_link_clicks.claimedUserId·클릭 연결 | main 직접 파기 없음 | 선행 PR745(9ad4236, 1659 기반)의 [InviteLinkClickRepository.anonymizeClaimedUser](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/InviteLinkClickRepository.java#L128-L140)와 링크 위성 폐기 전달 재사용. ipHash/userAgent/device/app 식별 자료도 사용자 연계가 남는지 링크 소유 정리 명령에서 확인 |
 | 신규 auth session RT/bootstrap hash·로그인 시도 자격 digest·고정 서명 재료 | main 새 모델 없음 | legacy 승격 전용 복구 receipt/고정 재료도 탈퇴 때 폐기하고 세션 폐기와 원문 재발급을 차단. 남기는 폐기 tombstone은 최소 sessionId/epoch/만료 정보로 제한하고 사용자 연계 자격은 파기 |
 | 신규 일반 receipt·outbox·위성 projection 속 name/catColor/기기 자격 | 신규 자료 | 탈퇴 TX에서 직접 PII가 든 중앙 복사본 제거/대체, 대상별 outbox로 위성 파기. 삭제 receipt는 deleted 결과만 보유하며 개인 응답 재생 금지 |
 | 로그·trace·dead-letter payload | 경로별 다름 | 애초에 자격/PII 본문을 남기지 않음. 잘못 수집한 자료를 기능 DB 삭제만으로 지웠다고 주장하지 않음 |
@@ -459,10 +459,13 @@ writer가 먼저 잠그면 소비자가 기다렸다가 방금 쓴 커서까지 
 #### 기존 초대 링크의 발급자 연결 파기
 
 `V21__group_invite_links.sql:8~24`는 `group_invite_links.inviter_id`를 NOT NULL users FK로,
-종속 `invite_link_clicks.link_id`도 NOT NULL 링크 FK로 둔다. 현재 `AccountWithdrawalService`의
-`anonymizeClaimedUser`는 클릭의 수신자 귀속만 끊으므로 발급자 UUID는 남는다.
+종속 `invite_link_clicks.link_id`도 NOT NULL 링크 FK로 둔다. **기준 main에는 claimed-user 파기 구현이 없다.**
+이 절의 구현 근거는 선행 PR745의 고정 커밋 `9ad423605f28577924516a809b2be6e3c0c2ec8c`다.
+그 커밋의 [AccountWithdrawalService.withdraw](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/withdrawal/service/AccountWithdrawalService.java#L104)는 **호출자**이며,
+[InviteLinkClickRepository.anonymizeClaimedUser](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/InviteLinkClickRepository.java#L128-L140)가 익명화 메서드·UPDATE의 **소유자**다.
+이 선행 구현은 클릭의 수신자 귀속만 끊으므로 발급자 UUID는 남는다. 기준 main에 이미 통합됐다는 뜻이 아니다.
 후속 구현은 **inviter_id를 nullable로 확장한 뒤 본인이 발급자인 행의 inviter_id만 같은 중앙 탈퇴 TX에서
-nullify**한다. 기존 `InviteLinkClickRepository.anonymizeClaimedUser`가 명시한 타인 퍼널 집계 근거를
+nullify**한다. 위 선행 PR745의 repository 메서드가 명시한 타인 퍼널 집계 근거를
 보존하기 위해 링크와 종속 클릭을 연쇄 삭제하지 않는다. slug·그룹·링크 ID는 클릭의 FK 앵커로만 남기고
 원 발급자 UUID를 별도 컬럼·대체 사용자·해시로 옮기지 않는다. 무관한 발급자의 링크와 타인 claimed_user_id는
 이 발급자 정리 때문에 변경하지 않는다. 본인 claimed_user_id 파기는 기존 별도 규칙을 그대로 적용한다.
@@ -477,8 +480,10 @@ nullify**한다. 기존 `InviteLinkClickRepository.anonymizeClaimedUser`가 명�
 늦은 저장은 거절한다. 현재 없는 보호를 이미 구현됐다고 주장하지 않는다.
 
 Link 위성의 기존 user.withdrawn·멤버십 폐기 전달은 유지한다. 이관/export가 null 발급자를 활성 링크나
-다른 사용자로 복원하지 않도록 함께 수정해야 한다. 현재 `InternalClickMigrationService`는
-`getInviterId().toString()`을 호출하므로 nullable 변경만 먼저 배포하면 실패한다. DB/엔티티 확장,
+다른 사용자로 복원하지 않도록 함께 수정해야 한다. 기준 main에 없는 이관 서비스는 같은 선행 PR745 커밋의
+[InternalClickMigrationService의 클릭 export](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/internal/service/InternalClickMigrationService.java#L346)와
+[링크 export](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/internal/service/InternalClickMigrationService.java#L380)를 가리킨다.
+두 경로가 `getInviterId().toString()`을 호출하므로 선행을 통합할 때 nullable 변경만 먼저 배포하면 실패한다. DB/엔티티 확장,
 기존 조회·writer 및 이관의 null-safe 폐기 처리와 탈퇴 정리를 함께 검증하기 전 이 파기를 활성화하지 않는다.
 기존 snapshot 복사본도 같은 발급자 연결을 복구하지 않도록 위성 파기 계약에 포함하며 새 보존 기간은 정하지 않는다.
 fixture는 본인 발급 링크(클릭 없음/타인 claim 있음), 무관한 발급자의 링크, 본인 claimed 클릭을 함께 넣어
