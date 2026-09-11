@@ -52,7 +52,7 @@
 | `rest.member.updated` | 휴식 자리·시작 시각을 갱신 | 같은 섬 주민 |
 | `focus.emote` | 만료 전 말풍선 표시 | 같은 섬에서 현재 집중 중인 사용자 |
 | `playback.updated` | 곡/재생 anchor 갱신, 기기 음량 유지 | 방송기 해금 섬 주민 |
-| `message.created` | 편지 추가, messageId/clientMessageId 중복 병합 | 우체통 접근 권한이 있는 해당 섬 주민; 신규 시설 정책은 우체통 설계에서 확정 |
+| `message.created` | 편지 추가, payload.id와 (userId, clientMessageId) 중복 병합 | 우체통 접근 권한이 있는 해당 섬 주민; 신규 시설 정책은 우체통 설계에서 확정 |
 | `quest.progress.updated` | 해당 회차의 퀘스트 카드 재조회 | 같은 섬 주민 |
 | `wallet.updated` | 해당 지갑 재조회 | 개인 물고기는 본인, 섬 포인트는 해당 섬 주민 |
 | `inventory.updated` | 보유 배지/내 배/음원 목록 재조회 | 개인 소유는 본인, 공동 소유는 해당 섬 주민 |

@@ -42,7 +42,7 @@ sequenceDiagram
     B->>D: 검증한 userId + 원자 명령
     D->>DB: 권한/상태 검사, aggregate 잠금
     D->>DB: 상태 + version + outbox + 멱등 결과 COMMIT
-    D-->>B: 확정 결과와 eventId
+    D-->>B: 확정 결과 + 커밋된 전체 이벤트 봉투 목록
     B-->>A: REST 결과
     Note over D,B: 여기서 응답이 사라져도 outbox가 남는다
     L->>DB: lease로 미전달 건 선점
@@ -52,6 +52,8 @@ sequenceDiagram
 ```
 
 [결정 장부](../../architecture/decisions.md)의 A4만 읽고 Business 메모리에 이벤트를 만들지 않는다. A21에 따라 Data 상태를 바꾸는 요청형 사건은 해당 TX에 내구화한다. aggregate version은 갱신 행/명시한 투영 aggregate의 잠금 아래 상태와 함께 증가한다. DB sequence 할당 순서를 커밋 순서라고 가정하지 않는다.
+
+Data 내부 명령 응답은 확정 결과와 `events: RealtimeEventEnvelope[]`를 반환한다. 각 항목은 outbox에 커밋된 `eventId`, `type`, `islandId`, `aggregateVersion`, `occurredAt`, `payload` 전체이며, 한 명령이 여러 사건을 만들면 전부 포함한다. Business는 이 봉투를 그대로 즉시 발행하고 별도 DB 조회나 현재 시각으로 재구성하지 않는다. 재시도에도 저장된 같은 봉투 목록을 재생한다. 이는 내부 응답이며 앱의 REST `{data}`에 내부 이벤트 목록을 자동 노출하는 규칙이 아니다.
 
 릴레이의 선점·만료·재시도·대상별 전달 표시는 내부 명령 기반을 재사용한다. 즉시 발행과 relay가 같은 사건을 중복 전달할 수 있으므로 eventId는 재사용한다. 구독자가 없거나 Redis fanout이 끊겼어도 상태는 REST로 회복된다. 브로커 ACK는 모든 기기의 표시 완료 ACK가 아니다.
 
