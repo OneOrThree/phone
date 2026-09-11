@@ -44,11 +44,13 @@ jobs:
         working-directory: server/chat
     env:
       GRADLE_OPTS: "-Dorg.gradle.daemon=false"
-      # 같은 VM의 다른 러너가 공유 홈에 캐시를 복원하는 동안 JAR을 덮어쓸 수 있다.
-      # Gradle 실행과 캐시 복원을 모두 이 잡의 임시 디렉터리로 격리한다.
-      GRADLE_USER_HOME: ${{ runner.temp }}/gradle-chat
     steps:
       - uses: actions/checkout@v4
+
+      # 같은 VM의 다른 러너가 공유 홈에 캐시를 복원하는 동안 JAR을 덮어쓸 수 있다.
+      # Gradle 실행과 캐시 복원을 모두 이 잡의 임시 디렉터리로 격리한다.
+      - name: 채팅 전용 Gradle 홈 설정
+        run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle-chat" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:
