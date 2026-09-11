@@ -51,7 +51,7 @@ class ShedLockIntegrationTest extends IntegrationTestBase {
         // local·ci 는 엔티티에서 스키마를 만드는데 shedlock 은 엔티티가 아니다(V45 에서만 생성).
         // ShedLockSchemaInitializer 가 그 구멍을 메운다 — 테스트가 손으로 깔면 이 구멍이 가려진다.
         assertThat(new JdbcTemplate(dataSource).queryForObject(
-                "SELECT to_regclass('public.shedlock') IS NOT NULL", Boolean.class)).isTrue();
+                "SELECT to_regclass(current_schema() || '.shedlock') IS NOT NULL", Boolean.class)).isTrue();
     }
 
     @Test
