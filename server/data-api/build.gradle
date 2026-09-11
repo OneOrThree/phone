@@ -150,9 +150,6 @@ tasks.withType(Javadoc).configureEach {
 }
 
 tasks.named('test') {
-	// 실제 DB 경합 테스트의 여러 Spring 컨텍스트가 기본 512 MiB 힙을 소진한다.
-	// 테스트 JVM에만 1 GiB를 허용해 컨텍스트 생성 중 GC 반복을 방지한다.
-	maxHeapSize = '1g'
 	useJUnitPlatform()
 	// 전체 통합 테스트의 Spring/Kafka 컨텍스트가 기본 512MiB 테스트 힙을 넘는다. 운영 JVM과 무관하다.
 	// 공유 create-drop DB는 컨텍스트 조기 퇴출 시 다른 테스트의 스키마가 지워져 기본 캐시를 유지한다.

@@ -276,6 +276,55 @@ class SessionLogoutIntegrationTest {
     }
 
     @Test
+    @DisplayName("B가 단일 해시를 가진 뒤 회전한 A의 실제 새 자격은 종료·재생되고 B는 유지된다")
+    void rotatedSessionLogsOutWithoutRevokingOtherDevice() throws Exception {
+        Actor first = actor();
+        // 실제 발급기와 같은 JWT 구조에 짧은 수명만 주어 생산 refresh의 회전을 유도한다.
+        String expiring = new JwtProvider(secret, 3600L, 600L, 600L)
+                .generateRefreshToken(first.userId(), true);
+        replaceRefresh(first, expiring);
+        String second = jwt.generateRefreshToken(first.userId(), true);
+        UUID secondId = tx().execute(status -> {
+            users.getCallerForUpdate(first.userId()).setRefreshTokenHash(TokenHasher.sha256Hex(second));
+            return sessions.open(first.userId(), second).sessionId();
+        });
+        var rotated = auth.refreshToken(expiring);
+        assertThat(rotated.refreshToken()).isNotBlank();
+        assertThat(rotated.sessionId()).isEqualTo(first.sessionId());
+        assertThat(jwt.extractSessionId(rotated.refreshToken())).isNull();
+        assertThat(jwt.extractSessionId(rotated.accessToken())).isEqualTo(first.sessionId());
+        var afterRotation = row(first);
+        long rotationEpoch = afterRotation.getSessionEpoch();
+        String bootstrapHash = afterRotation.getBootstrapNonceHash();
+
+        mvc.perform(post(PATH).header("Authorization", "Bearer " + SERVICE_TOKEN)
+                        .contentType("application/json").content(body(rotated.refreshToken(), rotated.accessToken())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.revoked").value(true));
+        long logoutEpoch = row(first).getSessionEpoch();
+        assertThat(logoutEpoch).isGreaterThan(rotationEpoch);
+        mvc.perform(post(PATH).header("Authorization", "Bearer " + SERVICE_TOKEN)
+                        .contentType("application/json").content(body(rotated.refreshToken(), rotated.accessToken())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.revoked").value(true));
+
+        var stopped = row(first);
+        assertThat(stopped.isActive()).isFalse();
+        assertThat(stopped.getSessionEpoch()).isEqualTo(logoutEpoch);
+        assertThat(stopped.getRevokeReason()).isEqualTo("LOGOUT");
+        assertThat(stopped.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex(rotated.refreshToken()));
+        assertThat(stopped.getLogoutRefreshExpiresAt())
+                .isEqualTo(jwt.extractExpiration(rotated.refreshToken()).toInstant());
+        assertThat(stopped.getBootstrapNonceHash()).isEqualTo(bootstrapHash);
+        assertThat(revocationCount(first)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select refresh_token_hash from users where id=?", String.class, first.userId()))
+                .isEqualTo(TokenHasher.sha256Hex(second));
+        assertThat(sessionRows.findById(secondId).orElseThrow().isActive()).isTrue();
+        assertThat(auth.refreshToken(second).sessionId()).isEqualTo(secondId);
+        assertThatThrownBy(() -> auth.refreshToken(expiring)).isInstanceOf(InvalidTokenException.class);
+        assertThatThrownBy(() -> service.logout(expiring, null)).isInstanceOf(InvalidTokenException.class);
+        assertThatThrownBy(() -> auth.refreshToken(rotated.refreshToken())).isInstanceOf(InvalidTokenException.class);
+    }
+
+    @Test
     @DisplayName("바깥 TX rollback은 users 해시·epoch·종료 증거·outbox를 모두 되돌린다")
     void transactionRollback() {
         Actor actor = actor();
@@ -343,6 +392,54 @@ class SessionLogoutIntegrationTest {
             future.get(20, TimeUnit.SECONDS);
             assertThat(row(actor).isActive()).isTrue();
             assertThat(revocationCount(actor)).isZero();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("신규 종료가 먼저 커밋되면 실제 users 잠금을 기다린 refresh는 거절되고 종료 증거는 재생된다")
+    void logoutCommitsBeforeRefresh() throws Exception {
+        Actor original = actor();
+        String expiring = new JwtProvider(secret, 3600L, 600L, 600L)
+                .generateRefreshToken(original.userId(), true);
+        replaceRefresh(original, expiring);
+        Actor actor = new Actor(original.userId(), original.sessionId(), expiring);
+        long before = row(actor).getSessionEpoch();
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var future = tx().execute(status -> {
+                service.logout(actor.refreshToken(), null);
+                CountDownLatch started = new CountDownLatch(1);
+                AtomicInteger pid = new AtomicInteger();
+                var pending = executor.submit(() -> tx().executeWithoutResult(inner -> {
+                    pid.set(jdbc.queryForObject("select pg_backend_pid()", Integer.class));
+                    started.countDown();
+                    assertThatThrownBy(() -> auth.refreshToken(actor.refreshToken()))
+                            .isInstanceOf(InvalidTokenException.class);
+                    inner.setRollbackOnly();
+                }));
+                await(started);
+                awaitDatabaseLock(pid.get());
+                return pending;
+            });
+            future.get(20, TimeUnit.SECONDS);
+            var stopped = row(actor);
+            long logoutEpoch = stopped.getSessionEpoch();
+            Instant revokedAt = stopped.getRevokedAt();
+            assertThat(logoutEpoch).isGreaterThan(before);
+            assertThat(stopped.isActive()).isFalse();
+            assertThat(stopped.getRevokeReason()).isEqualTo("LOGOUT");
+            assertThat(stopped.getLogoutRefreshExpiresAt()).isEqualTo(jwt.extractExpiration(expiring).toInstant());
+            assertThat(stopped.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex(expiring));
+            mvc.perform(post(PATH).header("Authorization", "Bearer " + SERVICE_TOKEN)
+                            .contentType("application/json").content(body(expiring, null)))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.revoked").value(true));
+            assertThat(row(actor).getSessionEpoch()).isEqualTo(logoutEpoch);
+            assertThat(row(actor).getRevokedAt()).isEqualTo(revokedAt);
+            assertThat(revocationCount(actor)).isEqualTo(1);
+            assertThat(jdbc.queryForObject("select refresh_token_hash from users where id=?", String.class,
+                    actor.userId())).isNull();
         } finally {
             executor.shutdownNow();
         }
