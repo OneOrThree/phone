@@ -305,7 +305,7 @@ class SatelliteRoutingExampleTest(unittest.TestCase):
         mapping = re.compile(r'@(?:Get|Post|Put|Delete|Patch)Mapping\(\s*(?:value\s*=\s*)?"([^"]+)"')
         base = re.compile(r'@RequestMapping\("([^"]+)"\)')
         missing = []
-        for path in sorted(BUSINESS_API.glob("*.java")):
+        for path in sorted(BUSINESS_API.parent.rglob("*Controller.java")):
             text = path.read_text(encoding="utf-8")
             prefix_match = base.search(text)
             prefix = prefix_match.group(1) if prefix_match else ""

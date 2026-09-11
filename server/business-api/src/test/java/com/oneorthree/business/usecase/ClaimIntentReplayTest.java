@@ -209,6 +209,46 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("USER_WITHDRAWN(410)도 완료로 종결한다 — 탈퇴 익명화는 되돌릴 수 없다")
+    void 탈퇴판정은종결() {
+        stubPending("\"k\"", "abc123", 2);
+        stubLeased(true);
+        // link/src/lib/ledger.ts:24 — claim 하는 사람이나 초대자가 탈퇴했다.
+        LINK.on("POST /internal/links/abc123/claim", request ->
+                new MockUpstream.Response(410,
+                        "{\"code\":\"USER_WITHDRAWN\",\"message\":\"USER_WITHDRAWN\"}"));
+        stubCompleted();
+
+        ClaimIntentReplayService.Result result = runner.replayAll();
+
+        assertThat(result.completed()).isEqualTo(1);
+        assertThat(result.failed()).isZero();
+    }
+
+    @Test
+    @DisplayName("코드가 실린 403 은 «완료 표시하지 않는다» — 접으면 아무것도 claim 안 하고 gate 가 통과한다")
+    void 배선거절은완료표시금지() {
+        stubPending("\"k\"", "abc123", 1);
+        stubLeased(true);
+        stubCompleted();
+        // ⚠️ 링크 서버는 «모든» 실패 본문에 code 를 싣는다(link/src/lib/errors.ts respond). 403 은
+        //    인증 챌린지가 없어 본문이 살아 오므로, 경로 허용목록 배선 사고(link/src/lib/auth.ts:60)가
+        //    UpstreamCredentialRejectedException 이 아니라 «도메인 판정»으로 들어온다.
+        //    예전처럼 「판정 = 종결」로 접으면 이 한 번의 잘못된 배포로 큐 전체가 «완료» 표시되어
+        //    사라지고, CLI 는 「미완료 0」이라고 보고한다 — 되돌릴 수 없는 유실이다.
+        LINK.on("POST /internal/links/abc123/claim", request ->
+                new MockUpstream.Response(403,
+                        "{\"code\":\"SERVICE_ROUTE_FORBIDDEN\",\"message\":\"SERVICE_ROUTE_FORBIDDEN\"}"));
+
+        ClaimIntentReplayService.Result result = runner.replayAll();
+
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.completed()).isZero();
+        assertThat(DATA.hits("POST /internal/invite-links/claim-intents/" + CMD_1 + "/completed")).isZero();
+        assertThat(result.gatePassed()).isFalse();
+    }
+
+    @Test
     @DisplayName("판정 불가는 완료 표시하지 않고 실패로 센다 — lease 만료로 다음 실행이 집는다")
     void 판정불가는미완료() {
         stubPending("\"k\"", "abc123", 1);

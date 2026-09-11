@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -36,6 +37,7 @@ SERVICE_REQUIRED_KEYS = {
     "business-api": (
         "JWT_SECRET", "SVC_TOKEN_BIZ_TO_DATA", "SVC_TOKEN_BIZ_TO_NOTI", "SVC_TOKEN_BIZ_TO_LINK",
         "LINK_IP_SALT", "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",
+        "BUSINESS_REDIS_PASSWORD",
     ),
     "notification": (
         "NOTI_DB_URL", "NOTI_DB_USERNAME", "NOTI_DB_PASSWORD",
@@ -67,6 +69,7 @@ SERVICE_OPTIONAL_KEYS = {
         "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID", "LINK_IP_SALT", "LINK_PROXY_SECRET",
         "LINK_TRUSTED_IP_HEADERS", "COMPAT_MATCH_HANDLER_ENABLED", "COMPAT_IMPORT_CONTRACT_READY",
         "COMPAT_MIGRATION_ID", "BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED",
+        "GOOGLE_DRIVE_API_KEY",
     ),
     "notification": (
         "NOTIFICATION_SCHEDULING_ENABLED", "NOTIFICATION_KAFKA_ENABLED", "NOTIFICATION_GENERATION_REQUIRED",
@@ -139,18 +142,32 @@ def render_service(secret: dict[str, Any], image: str, service: str,
     return "".join(f"{key}={dotenv_quote(value)}\n" for key, value in values)
 
 
-def write_atomic(output: Path, content: str) -> None:
+def business_redis_acl(secret: dict[str, Any]) -> str:
+    """Business 캐시만 허용한다. 비밀번호 원문은 Redis 설정·인자에 넣지 않는다."""
+    require(secret, ("BUSINESS_REDIS_PASSWORD",))
+    password = secret["BUSINESS_REDIS_PASSWORD"]
+    if not isinstance(password, str):
+        raise ValueError("BUSINESS_REDIS_PASSWORD는 문자열이어야 합니다")
+    digest = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return ("user default off\n"
+            "user health on nopass +ping\n"
+            f"user business on #{digest} ~cache:business:* "
+            "+get +set +incrby +expire +eval +evalsha +script|load "
+            "+ping +hello +info +select +client|setinfo +client|setname\n")
+
+
+def write_atomic(output: Path, content: str, mode: int = 0o600) -> None:
     output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(output.parent, 0o700)
     fd, temporary = tempfile.mkstemp(prefix=f".{output.name}.", dir=output.parent, text=True)
     try:
-        os.fchmod(fd, 0o600)
+        os.fchmod(fd, mode)
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, output)
-        os.chmod(output, 0o600)
+        os.chmod(output, mode)
     except BaseException:
         try:
             os.close(fd)
@@ -170,12 +187,20 @@ def main() -> None:
     parser.add_argument("--service", choices=("legacy", *SERVICE_REQUIRED_KEYS), default="legacy")
     parser.add_argument("--phase", choices=("transition", "final"), default="transition")
     parser.add_argument("--environment", choices=("dev", "prod"), default="dev")
+    parser.add_argument("--redis-acl-output", type=Path)
     args = parser.parse_args()
 
     secret = json.load(sys.stdin)
     if not isinstance(secret, dict):
         raise ValueError("SecretString은 JSON object여야 합니다")
-    write_atomic(args.output, render(secret, args.app_image, args.service, args.phase, args.environment))
+    rendered = render(secret, args.app_image, args.service, args.phase, args.environment)
+    if args.redis_acl_output:
+        if args.service != "business-api" or args.redis_acl_output.resolve() == args.output.resolve():
+            raise ValueError("Redis ACL은 business-api env와 다른 파일로 작성해야 합니다")
+        acl = business_redis_acl(secret)
+        # 부모 디렉터리는 0700. 컨테이너의 redis uid가 읽을 수 있게 해시 ACL 파일만 0644다.
+        write_atomic(args.redis_acl_output, acl, mode=0o644)
+    write_atomic(args.output, rendered)
 
 
 if __name__ == "__main__":

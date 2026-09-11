@@ -285,6 +285,10 @@ def main() -> None:
 
     # compose 가 보간할 값. 여기에는 비밀이 없다.
     compose_values: dict[str, str] = {"DEPLOY_ENV": args.environment}
+    redis_acl = output_dir / "business-redis.acl"
+    guard_output_path(redis_acl, args.shared_env_file)
+    acl_text = writer.business_redis_acl(secret)
+    compose_values["BUSINESS_REDIS_ACL_FILE"] = str(redis_acl)
     for service, path in written.items():
         compose_values[COMPOSE_FILE_KEYS[service]] = str(path)
         compose_values[writer.IMAGE_KEYS[service]] = images[service]
@@ -315,6 +319,7 @@ def main() -> None:
 
     for service, path in written.items():
         writer.write_atomic(path, rendered[service])
+    writer.write_atomic(redis_acl, acl_text, mode=0o644)
     writer.write_atomic(compose_env, "".join(
         f"{key}={writer.dotenv_quote(value)}\n" for key, value in sorted(compose_values.items())))
 

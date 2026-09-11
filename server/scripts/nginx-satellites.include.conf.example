@@ -20,6 +20,15 @@ location ^~ /actuator/ { return 404; }
 location = /actuator { return 404; }
 # management(9091)는 사설망에서만 접근한다.
 
+# 기존 Business 파일 미리보기. 인증·SSRF·본문 상한은 해당 서비스에서 검사한다.
+location = /api/v1/link-previews {
+    proxy_pass http://__BUSINESS_UPSTREAM__;
+}
+location ^~ /api/v1/link-previews/ {
+    # 카드 조회 및 thumbnail
+    proxy_pass http://__BUSINESS_UPSTREAM__;
+}
+
 location = /api/v1/users/me/device-token {
     proxy_pass http://__BUSINESS_UPSTREAM__;
     include /etc/nginx/snippets/gromo-satellites-proxy-headers.conf;

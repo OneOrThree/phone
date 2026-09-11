@@ -2,6 +2,10 @@
 
 앱이 들어오는 유일한 표면이자 코어·위성 조합의 주체다(목표 아키텍처 §2 · A22 ㊫).
 
+**두 가지 일을 한다.** ① 링크·알림 위성을 조합하는 외부 경로와 이관 정지 창의 구·신 조합(GROMO-1659),
+② 채팅에 공유한 공개 파일 링크의 미리보기 생성(GROMO-1747). 둘은 같은 프로세스·같은 보안 경계 위에
+있고 서로의 저장소·상류를 건드리지 않는다 — 조합 API 는 상류 HTTP 만, 미리보기는 전용 Redis 만 쓴다.
+
 > **이것은 최소 구현이다.** 1661 의 전체 BFF/IdP 이전과 구분한다 — 여기 있는 것은 「링크·알림 위성을
 > 조합해야만 성립하는 기존 외부 경로」와 「이관 정지 창의 구·신 조합」뿐이다. 인증 발급(AT 서명 ·
 > refresh 회전 · logout · 최초 로그인 RT 2단계 · 소셜 선택적 인증)과 그 밖의 패스스루는 **아직 Data
@@ -11,20 +15,54 @@
 
 | 없는 것 | 왜 |
 | --- | --- |
-| DB · 트랜잭션 | §2 「안 하는 일」. `build.gradle` 에 JPA·Flyway 의존성 자체를 넣지 않아, 나중에 누가 저장소를 붙이려 하면 빌드 파일에서 먼저 걸린다 |
+| 도메인 DB · 트랜잭션 | §2 「안 하는 일」. `build.gradle` 에 JPA·Flyway 의존성 자체를 넣지 않아, 나중에 누가 도메인 저장소를 붙이려 하면 빌드 파일에서 먼저 걸린다 |
 | 크론(`@Scheduled`) | §6. 재개가 필요한 단 하나의 동작(claim 의도)은 **운영자가 실행하는 일회성 CLI** 로 두어 스케줄을 런북에 남겼다 |
 | FCM 발송 경로 | 신 서버의 모든 발송은 공통 `dispatch_enabled` 게이트 뒤에서만 일어난다(A22 ㋭). **발송 경로가 없는 것이 그 게이트를 지키는 방법**이다 |
 | 링크 `confirm`·`revoke`·`withdraw` 호출 | claim 확정 전달은 Data 의 락 아래 outbox + relay 가 한다(A22 ㋟). Business 가 응답을 받은 뒤 보내면 그때는 이미 락이 풀려 그 사이 revoke 가 끼어든다. 있으면 누가 그 경로를 쓴다 |
 | 범용 프록시 | 인바운드 헤더를 복사할 통로가 없다. `InternalCall` 이 `Authorization`·`X-User-Id` 를 거부하고, 경로는 각 클라이언트의 상수뿐이다 |
 
-## 보안 경계 두 줄
+> **⚠️ 「저장소가 없다」가 아니다.** 이 서비스에는 **미리보기 전용 Redis 가 있다** — A19 네임스페이스 표의
+> `cache:business:*` 소유자다. 그것이 위 계약과 함께 성립하는 이유는 **사본이기 때문**이다: 정본이 없고,
+> 비워도 다음 요청이 다시 만들며, 어떤 도메인 판정도 거기에 의존하지 않는다(담기는 것은 미리보기
+> 메타데이터와 축소 PNG 뿐이다). 도메인 상태를 여기 얹는 순간 그 구분이 무너진다.
+>
+> A19 및 A22 ㋺에 따라 `business` ACL 사용자는 `cache:business:*`와 캐시 명령만 사용한다.
+> `default` 사용자는 비활성화되며, Redis는 내부 `business-cache` 네트워크에서만 접근한다.
+> `BUSINESS_REDIS_PASSWORD`는 Business 전용 env에, 해시된 ACL은 별도 파일에 주입한다.
 
-1. **AT 검증** — 서명 · 만료 · `type=access` · subject UUID. refresh 는 서명이 맞아도 거절한다(같은 키로
-   서명되므로 서명 검증만으로는 구분되지 않고, 수명 30일 RT 로 위성 쓰기에 닿으면 AT 1시간 만료 정책이
-   통째로 무력화된다).
+## 보안 경계 — 필터 두 장
+
+요청은 **봉투 → 인증 → 컨트롤러** 순으로 지난다. 순서가 곧 계약이다.
+
+| 순서 | 필터 | 범위 | 하는 일 |
+| --- | --- | --- | --- |
+| 0 | `RequestEnvelopeFilter` | `/*` (공개 경로 포함) | `X-Request-Id` · `Cache-Control: no-store` · 본문 **256KiB** 상한(초과 시 413) |
+| 1 | `AccessTokenFilter` | `/*` — `PUBLIC_PATHS` 정확 일치만 통과 | AT 검증 · 외부 `X-User-Id` 폐기 · 신원을 요청 속성으로만 흘림 |
+
+1. **AT 검증** — 서명 · **`exp` 존재 + 미경과** · `type=access` · **subject 존재 + UUID**. refresh 는
+   서명이 맞아도 거절한다(같은 키로 서명되므로 서명 검증만으로는 구분되지 않고, 수명 30일 RT 로 위성
+   쓰기에 닿으면 AT 1시간 만료 정책이 통째로 무력화된다). **`exp` 와 `sub` 는 JWT 스펙상 선택 필드라
+   파서가 통과시킨다** — 막지 않으면 전자는 영구 유효 AT 가 되고, 후자는 `UUID.fromString(null)` 의
+   NPE 가 401 이 아니라 500 으로 샌다.
 2. **외부 `X-User-Id` 폐기 후 재설정**(A22 ㉸) — Data 가 `JwtFilter` 를 떼고 이 헤더를 신뢰하게 되므로,
    앱 헤더가 새어 들어가면 정상 AT 를 가진 사용자가 **남의 데이터를 읽고 쓴다**. 필터 통과 후로는
    인바운드 헤더에서 온 사용자 신원이 존재하지 않는다.
+
+**경로 선택은 「전부 막고 열거한 것만 연다」.** 접두어로 인증 대상을 고르면(예: `/api/` 로 시작할 때만)
+우회가 된다 — MVC 는 경로를 디코딩하고 matrix parameter 를 제거하므로 `/%61pi/v1/...` 와
+`/api;v=1/v1/...` 가 **같은 컨트롤러로 라우팅되면서 접두어 검사에는 걸리지 않는다**. 그래서 필터를
+`/*` 에 걸고 `getRequestURI()`(디코딩 전 원문) **정확 일치**로만 예외를 연다.
+
+무인증으로 열린 것은 셋뿐이다.
+
+| 경로 | 왜 열려 있나 |
+| --- | --- |
+| `GET /health` | 컨테이너 헬스체크. 관리 포트 9091 을 호스트에 publish 하지 않으므로 서비스 포트에 정보를 담지 않는 최소 응답 하나를 둔다 |
+| `POST /l/match` | 정지 창의 구 앱 deferred 매치. 거기 닿는 사람은 아직 우리 유저가 아니다(설치 직후 첫 실행) — 인증을 붙이면 구 앱의 매치가 전멸한다 |
+| `/actuator/*` 6종 | 포트 9091 로 격리돼 있다. 서비스 포트로 불렸을 때 **401 이 아니라 404** 여야 포트 격리가 라우팅 문제를 가리지 않는다 |
+
+**본문 상한이 인증보다 앞인 이유**: 상한을 인증 필터 안에 두면 위 공개 경로들이 **상한 없이** 노출된다.
+`/l/match` 는 정지 창 동안 구 앱 전체가 두드리는 외부 진입점이라 오히려 더 필요하다.
 
 `gen` claim 은 **없으면 없는 채로 흘린다.** 구 AT 에는 `gen` 이 없는데(현 `JwtProvider` 는 `type`·`guest`
 만 싣는다) Data 의 현재 세대로 채우면 로그아웃 전에 발급된 옛 AT 가 최신 세대로 태깅돼 **기기 토큰
@@ -157,22 +195,34 @@ CLI 는 **실패가 남았을 때와 `pendingTotal` 이 남았을 때 모두 비
 
 ```bash
 export JAVA_HOME=/Users/jojaeyoung/Library/Java/JavaVirtualMachines/corretto-17.0.10/Contents/Home
-SPRING_PROFILES_ACTIVE=ci ./gradlew build   # 테스트 + checkstyleMain + spotbugsMain
+./gradlew build   # 테스트 + checkstyleMain + spotbugsMain
 ```
 
-테스트는 **실제 필터 체인 + 실제 컨트롤러 + 실제 클라이언트**를 띄우고 상류만 JDK 내장 `HttpServer`
-(`MockUpstream`)로 바꾼다. 클라이언트를 모킹하면 이 서비스의 계약 대부분(어떤 헤더가 나가는가, 재시도에서
-그 헤더가 유지되는가, 상태별로 실패가 어떻게 갈라지는가)이 검증 대상에서 빠진다.
+**한 번에 두 기능을 검증한다.** `SPRING_PROFILES_ACTIVE` 를 밖에서 주지 않는다 — 프로파일은 각 테스트가
+`@ActiveProfiles("ci")` 로 선언한다(미리보기 테스트도 마찬가지다: 한 컨텍스트에 상류 클라이언트 셋이
+함께 뜨고 그 생성자는 base-url·service-token 이 비면 부팅에서 던지므로, ci 프로파일의 더미 값이 필요하다).
+
+| 축 | 방식 |
+| --- | --- |
+| 조합 API | **실제 필터 체인 + 실제 컨트롤러 + 실제 클라이언트**, 상류만 JDK 내장 `HttpServer`(`MockUpstream`). 클라이언트를 모킹하면 계약 대부분(어떤 헤더가 나가는가, 재시도에서 유지되는가, 상태별로 실패가 어떻게 갈라지는가)이 검증 대상에서 빠진다 |
+| 미리보기 | **실제 Redis**(Testcontainers `redis:7-alpine`) + 실제 필터 체인. 수집기(`PreviewResolver`)만 대체해 외부 네트워크를 끊는다. Lua 스크립트·TTL·세대 교체는 스텁으로 볼 수 없다 |
+| 보안 경계 | 두 축이 공유한다 — 인증 우회 경로(percent encoding · matrix parameter), 공개 경로 도달, 본문 상한, 봉투 헤더 |
+
+**필요한 로컬 도구**: JDK 17, Docker(Testcontainers), Poppler(`pdftoppm`). Linux 는 `util-linux`(`prlimit`)도
+필요하다 — 없으면 PDF 썸네일 테스트가 실패한다. CI 는 그 도구가 설치된 컨테이너 안에서 gradle 을 돌린다.
 
 포트: 서비스 8080(`SERVER_PORT`), 관리 9091. **9091 은 호스트에 publish 하지 않는다** — 포트 격리가
 `/actuator/*` 를 사설로 유지하는 유일한 수단이다. compose 헬스체크용으로 서비스 포트에 정보를 담지 않는
 `GET /health` 하나를 둔다.
 
-## 실행한 원시 검사 결과 (2026-09-11)
+## 실행한 원시 검사 결과 (2026-09-11, **미리보기 통합 전**)
+
+> ⚠️ 아래 수치는 `server/business-api` 에 미리보기(1747)를 합치기 **전** 조합 API 단독 기준이다.
+> 통합 후의 테스트 수·검사 결과는 다시 측정해야 한다.
 
 | 검사 | 결과 |
 | --- | --- |
-| `SPRING_PROFILES_ACTIVE=ci ./gradlew build` | **exit 0** — 91 tests / 0 failures / 0 errors (`test` + `checkstyleMain` + `spotbugsMain`) |
+| `SPRING_PROFILES_ACTIVE=ci ./gradlew build` | **exit 0** — 91 tests / 0 failures / 0 errors (`test` + `checkstyleMain` + `spotbugsMain`). 통합 후 재측정 필요 |
 | `docker build -t business-api-verify:local .` | **exit 0** |
 | 컨테이너 부팅(prod 프로파일, 합성 시크릿) | `Started BusinessApplication`, `GET /health` → **200** `{"status":"UP"}` |
 | 무인증 `GET /api/v1/users/me/notification-settings` | **401** `{"code":"UNAUTHORIZED",…}` |
@@ -210,3 +260,172 @@ SPRING_PROFILES_ACTIVE=ci ./gradlew build   # 테스트 + checkstyleMain + spotb
 claim 의도는 사용자·요청 키별로 구분한다. 같은 사용자·slug라도 새 키는 별도 대기 의도를 만든다.
 Data의 enqueue 응답이 `completed=true`면 이전 요청의 종결 결과를 200으로 재생하고 Link를 다시 호출하지 않는다.
 따라서 과거에 종결된 의도를 새 202의 내구 근거로 재사용하지 않는다.
+
+
+---
+
+# 파일 미리보기 (GROMO-1747)
+
+채팅에 공유한 URL의 파일명·유형·썸네일을 만드는 별도 서버다. 채팅 메시지는 원본 URL만 유지하고, 미리보기는 실패하거나 만료되어도 다시 만들 수 있는 부가 정보로 취급한다.
+
+## 지원 범위
+
+| 링크 | 결과 |
+| --- | --- |
+| 공개 Drive 파일, Docs·Sheets·Slides | 파일명·MIME·크기(제공되는 경우), 제공되는 썸네일을 PNG로 변환 |
+| 직접 PNG·JPEG·GIF URL | 파일명·크기·최대 480px PNG 썸네일, 첫 프레임만 |
+| 직접 PDF URL | 파일명·크기·첫 페이지 PNG 썸네일 |
+| 기타 파일·미지원 이미지·일반 페이지 | URL 경로의 이름·응답 MIME·크기, 썸네일 없음 |
+
+Docs·Sheets·Slides의 다중 계정 경로(`/u/0/d/...` 등)도 인식한다. 카드 제목은 최대 300 Unicode 코드 포인트로 자른다.
+
+비공개 Drive와 폴더·공개 게시용 `/d/e/` 링크는 지원하지 않는다. HTML Open Graph 수집은 하지 않는다. HTTP 응답이 성공했어도 로그인 HTML을 반환하는 일반 파일 서버는 내용 기반 접근 권한을 판별할 수 없다. 이때 파일 다운로드나 HTML 렌더링 없이 일반 링크 카드만 반환한다.
+
+**직접 파일 업로드와 원본 파일의 영구 저장은 없다.** 다운로드는 메모리에서 최대 10MiB까지만 처리한다. PDF 변환에는 권한이 제한된 임시 디렉터리를 사용하고 종료·실패 때 삭제한다. Docker의 `/tmp`는 용량 64MiB인 tmpfs여서 컨테이너 종료 시에도 사라진다. Redis에는 메타데이터와 축소 PNG만 잠시 보관한다.
+
+## 아키텍처
+
+```mermaid
+flowchart LR
+  App[앱] -->|메시지 전송·원본 URL| Chat[채팅 서버]
+  App -->|access JWT + URL| Business[Business API :8080]
+  Business --> Cache[(전용 Redis / TTL 캐시)]
+  Business --> Worker[작업 4개 + 대기 8개]
+  Worker --> Guard[URL·DNS·리다이렉트 검증]
+  Guard --> Drive[공개 Google Drive API]
+  Guard --> File[외부 파일 서버]
+  Worker --> Image[이미지 축소]
+  Worker --> PDF[제한된 PDF 변환 프로세스]
+  Image --> Cache
+  PDF --> Cache
+```
+
+Java 17 / Spring Boot 4.0.6의 독립 Gradle 프로젝트다. 기존 서버와 코드·DB를 공유하지 않는다. JWT 서명 키와 `type=access`·UUID subject 계약만 data-api와 맞춘다. 토큰 발급·갱신은 data-api가 담당한다. 탈퇴·로그아웃 직후의 토큰 폐기는 조회하지 않으므로 access token 만료까지의 창을 허용한다.
+
+## API 계약
+
+미리보기 API는 모두 `Authorization: Bearer <access-token>`이 필요하다. HTTP 응답에는 `X-Request-Id`와 `Cache-Control: no-store`가 붙는다 — 이 두 헤더는 봉투 필터가 붙이므로 공개 경로와 401 응답에도 나온다.
+
+| API | 의미 |
+| --- | --- |
+| `POST /api/v1/link-previews` | `{ "urls": ["https://example.com/guide.pdf"] }`, 1~10개, URL당 최대 4096자. 같은 순서의 미리보기 배열 반환 |
+| `GET /api/v1/link-previews/{id}` | 상태 및 카드 조회. 캐시가 없거나 다른 사용자이면 404 |
+| `GET /api/v1/link-previews/{id}/thumbnail` | 인증된 PNG 바이트. 캐시나 썸네일이 없으면 404 |
+
+```json
+{
+  "id": "64자리 SHA-256 문자열",
+  "status": "READY",
+  "originalUrl": "https://example.com/guide.pdf",
+  "title": "guide.pdf",
+  "mimeType": "application/pdf",
+  "sizeBytes": 102400,
+  "provider": "FILE",
+  "thumbnailUrl": "/api/v1/link-previews/<id>/thumbnail",
+  "errorCode": null
+}
+```
+
+`status`는 `PENDING`·`READY`·`FAILED`, `provider`는 `FILE`·`GOOGLE_DRIVE`다. 준비 전 또는 실패 시 제목·유형·provider 등이 null이다. `READY`라도 썸네일이 null일 수 있으므로 MIME별 기본 아이콘을 표시한다. URL fragment(`#...`)는 외부 조회·캐시 식별에서 제외하고 쿼리 문자열(Drive resourcekey, 서명 파라미터 등)은 보존한다. 앱은 원본 메시지 URL로 열면 특정 페이지·시트 fragment도 유지된다.
+
+실패 이유 예: `NOT_PUBLIC_OR_NOT_FOUND`, `DRIVE_NOT_CONFIGURED`, `BLOCKED_ADDRESS`, `FILE_TOO_LARGE`, `REDIRECT_REJECTED`, `FETCH_TIMEOUT`, `FETCH_FAILED`, `BUSY`. 공개 권한이나 파일 크기 검증 실패는 `FAILED`, 공개 파일을 얻은 후 손상된 이미지/PDF·썸네일 실패는 `READY` 카드로 축소한다. 원본 URL을 표시하는 앱은 미리보기 실패를 채팅 전송 실패로 취급하면 안 된다.
+
+HTTP 오류는 `{ "code": "...", "message": "..." }`다. 미리보기 전용 예외(`PreviewException`·Redis 장애)는
+`PreviewExceptionHandler` 가 **`PreviewController` 에만 붙어** 최우선으로 처리한다 — 전역 핸들러의
+`Exception` 그물이 먼저 걸리면 429·404 같은 미리보기 계약이 500 으로 접히고, 반대로 스코프가 없으면 이
+핸들러가 조합 API 의 상류 판정 중계 봉투까지 바꿔 버린다. 잘못된 요청은 400, 인증 실패는 401, 본문 256KiB 초과는 413(Content-Length가 없는 요청은 스트림 제한에 의해 400), 요청량 초과는 429(`Retry-After: 60`), Redis 장애는 503(`Retry-After: 10`)이다.
+
+## 앱 연결 흐름
+
+현재 `legacy/screens/group/ChatTab.tsx`는 전송 기능이 준비 중인 화면이다. 이번 PR은 그 화면을 실제 채팅으로 전환하지 않으며 다음 계약으로 연결한다.
+
+```mermaid
+sequenceDiagram
+  participant A as 앱
+  participant C as 채팅 서버
+  participant B as Business API
+  participant R as Redis
+  participant F as 공개 파일 서버
+  A->>C: 원본 URL을 포함한 메시지 전송
+  C-->>A: 메시지 표시
+  A->>B: 화면에 보이는 URL들을 배치 POST
+  B->>R: 사용자+URL로 조회 / PENDING 선점
+  B-->>A: READY 또는 PENDING 배열
+  B->>F: 공개 접근 확인·제한된 다운로드
+  F-->>B: 메타데이터·파일
+  B->>R: PNG 축소본 + READY (5분)
+  A->>B: PENDING 항목 GET
+  B-->>A: READY 및 thumbnailUrl
+  A->>B: 같은 JWT로 thumbnail GET
+  B-->>A: image/png
+  Note over A: 카드 탭 → 원본 메시지 URL 열기
+```
+
+- 발신자·수신자·이전 메시지 모두 화면에 보이는 URL을 배치한다. 최대 10개씩 보낸다.
+- PENDING은 예를 들어 2초→4초→8초 간격, 최대 90초까지만 확인한다. 화면을 나가면 중단한다. GET 404면 원본 URL로 POST를 다시 요청한다.
+- 실패는 30초 동안 캐시한다. 즉시 반복 재요청하지 않고 기본 링크를 표시한다.
+- 썸네일 URL은 서비스 기준 상대 경로다. 이미지 요청에도 Authorization 헤더를 넣는다. GET 404/401 시 기본 아이콘으로 돌아간다.
+- 카드 탭은 서버를 통한 다운로드가 아니라 원본 메시지 링크 열기다. 실제 채팅 전송 API 연결과 앱 카드 컴포넌트는 후속 작업이다.
+
+## 제한·캐시·복구
+
+- 사용자별 캐시: `cache:business:preview:{userId}:{urlHash}`. ID를 알아도 다른 계정의 URL·이미지는 볼 수 없다. 같은 공개 링크를 받은 사용자는 자기 계정으로 POST하면 된다. 중복 방지는 같은 사용자 내에서 적용된다.
+- PENDING 90초 / READY 300초 / FAILED 30초. SET NX로 선점하고 완료 시 원래 generation이 그대로 있을 때만 교체한다. 만료 후 재생성 중에 이전 작업이 끝나도 새 결과를 덮어쓰지 못한다.
+- 프로세스 종료·Redis 장애로 결과 저장이 실패하면 pending TTL 후 POST로 복구한다. GET만으로 작업을 생성하지 않는다. Redis eviction으로 일찍 사라질 수도 있다.
+- 전용 Redis는 128MiB·allkeys-lru·영속화 없음. 캐시 손실이 허용되며 기존 채팅/프레즌스 Redis와 분리한다. 메모리 압박 시 rate key도 eviction될 수 있어 이 제한은 남용 방어의 보조 수단이다. 인터넷 경계의 인증/IP 요청 제한과 함께 운영한다.
+- 1분 240 비용: 배치 POST URL당 4, GET/썸네일당 1. 프로세스별 동시 작업 4·대기 8, 초과는 `BUSY`로 30초 캐시한다.
+- 파일 최대 10MiB, Google 메타데이터 64KiB. 이미지 최대 2천만 픽셀·출력 480px/512KiB. PNG가 바이트 한도를 넘으면 치수를 더 줄여 재인코딩한다. SVG/WebP/HTML은 렌더링하지 않는다.
+- HTTP(S) 기본 포트만 허용한다. 사설·루프백·링크 로컬·예약 IP 및 IPv6 전환 주소를 차단한다. DNS 결과 전체를 검사하고 실제 연결 주소로 고정한다. 최대 3회 리다이렉트마다 재검증하며 HTTPS→HTTP를 거절한다. 쿠키·자동 압축·자동 재시도는 끈다. Google 키는 메타데이터 API 첫 요청에만 전송하고 Google 메타데이터 리다이렉트는 거절한다.
+- DNS 대기 2초·조회 스레드 최대 4. HTTP 체인 10초(재검증 DNS 시간은 별도로 최대 2초), 응답 읽기 5초. PDF는 프로세스 8초·Linux 주소 공간 256MiB/CPU 6초/출력 2MiB. Docker 컨테이너도 메모리·PID·CPU를 제한한다.
+- 공개→비공개 변경이 기존 READY에 반영되기까지 최대 5분의 창이 있다. 만료 후에는 Drive API를 다시 검증한다. CDN/브라우저에 영구 캐시하지 않으며 Google의 만료되는 thumbnailLink는 클라이언트에 노출하지 않는다.
+
+## 실행·검증
+
+환경변수:
+
+| 변수 | 내용 |
+| --- | --- |
+| `JWT_SECRET` | 필수. data-api와 같은 UTF-8 HMAC 키 원문, 최소 32바이트. 기본값 없음 |
+| `GOOGLE_DRIVE_API_KEY` | Drive API를 활성화한 프로젝트의 서버 API 키. API 제한은 Drive API로 설정하고 배포 egress IP 제한을 권장. 미설정 시 일반 파일은 동작하고 Drive만 `DRIVE_NOT_CONFIGURED` |
+| `BUSINESS_REDIS_HOST/PORT/USERNAME/PASSWORD` | Redis 접속, 기본 localhost:6379. Compose는 전용 Redis 주소 주입 |
+| `BUSINESS_LOG_PATH` | 기본 `logs/business-api.log` |
+
+```sh
+# deployment.md의 준비 절차로 만든 compose.env의 절대 경로를 사용한다.
+# 서비스별 env와 ACL 파일 경로만 이 파일에서 읽고 실제 자격은 별도 파일에 둔다.
+docker compose --env-file /absolute/path/to/prepared/compose.env up --build -d
+docker compose --env-file /absolute/path/to/prepared/compose.env logs -f business-api
+
+# 로컬 JDK17, Docker, Poppler(pdftoppm) 필요. Linux는 util-linux(prlimit)도 필요.
+./gradlew build
+# bootRun은 Redis와 dev/prod 상류 환경변수를 주입한 뒤 해당 프로파일로 실행한다.
+SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
+```
+
+로컬 Compose(`compose.yml`)는 `127.0.0.1:8082` → 컨테이너 `8080`을 publish한다.
+`prepare-satellite-deploy.py`가 만든 `BUSINESS_API_ENV_FILE`과 `BUSINESS_REDIS_ACL_FILE` 경로를
+지정해야 한다. 상류 주소·토큰과 Redis 암호가 빠지면 시작하지 않는다. Redis는 내부 네트워크에만
+붙고 호스트에 publish하지 않는다. 관리 포트 `9091`은 컨테이너 내부 전용이다.
+
+배포 절차는 [`deployment.md`](../../docs/prd/server-separation/deployment.md)를 따른다.
+`server/scripts/docker-compose.satellites.yml`과 Business 단독 compose는 같은 env/ACL 계약을 사용한다.
+`.github/workflows/satellite-ci.yml`이 Poppler를 포함한 테스트·이미지 검증을 담당한다.
+운영 활성화에는 라우팅·TLS와 Google API 키 설정이 함께 필요하다.
+
+API 경로의 percent encoding·matrix parameter 표기에도 인증·본문 제한·요청 로그를 동일하게 적용한다.
+인증 예외는 `GET /health`, `POST /l/match`, 그리고 관리용 `/actuator`, `/actuator/health`,
+`/actuator/health/liveness`, `/actuator/health/readiness`, `/actuator/info`, `/actuator/prometheus`의
+**정확한 경로**뿐이다. 관리 포트는 내부 네트워크에서만 접근한다.
+
+## 로그 확인
+
+표준 출력과 rolling 파일(파일당 20MB, 7일, 총 200MB)을 함께 기록한다. Compose의 `business-logs` 볼륨에 보관한다.
+
+- `business_request`: request_id, HTTP method, status, duration_ms. 모든 API 요청과 인증 실패 포함.
+- `preview_cache`: request_id, preview_id, 캐시 status.
+- `preview_completed`: request_id, preview_id, status, provider, error reason, thumbnail 존재 여부, duration_ms.
+- `preview_failure`, `preview_rejected`, `preview_cache_write_failed`: 실패 분류·과부하·저장 실패. 원문 예외 메시지 대신 예외 타입만 기록한다.
+
+`X-Request-Id`로 HTTP 요청과 비동기 완료를 연결한다. 원본 URL·쿼리·Drive resourcekey·JWT·API 키·파일명·외부 응답 내용은 로그에 기록하지 않는다. 파일명은 외부 입력이므로 앱에서 텍스트로만 표시한다. `/actuator/health/readiness`는 Redis 장애를 반영하고 `/actuator/prometheus`에서 기본 HTTP/JVM 메트릭을 제공한다.
+
+참고: [Drive 공개 API 키](https://developers.google.com/workspace/guides/create-credentials), [파일 메타데이터·thumbnailLink 제약](https://developers.google.com/workspace/drive/api/reference/rest/v3/files), [resourcekey 전달](https://developers.google.com/workspace/drive/api/guides/resource-keys), [Apache HttpClient DNS 연결 설정](https://hc.apache.org/components/httpcomponents-client-5.2.x/5.2.3/httpclient5/apidocs/org/apache/hc/client5/http/class-use/DnsResolver.html).

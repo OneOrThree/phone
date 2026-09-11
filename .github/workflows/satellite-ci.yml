@@ -10,6 +10,7 @@ on:
       - 'server/data-api/src/main/resources/application-satellites.yml'
       - 'docs/architecture/**'
       - 'server/scripts/docker-compose.satellites*.yml'
+      - 'server/scripts/docker-compose.business.yml'
       - 'server/scripts/prepare-satellite-deploy.py'
       - 'server/scripts/nginx-satellites*.example'
       - 'server/scripts/provision-notification-db.*'
@@ -26,6 +27,7 @@ on:
       - 'server/data-api/src/main/resources/application-satellites.yml'
       - 'docs/architecture/**'
       - 'server/scripts/docker-compose.satellites*.yml'
+      - 'server/scripts/docker-compose.business.yml'
       - 'server/scripts/prepare-satellite-deploy.py'
       - 'server/scripts/nginx-satellites*.example'
       - 'server/scripts/provision-notification-db.*'
@@ -84,7 +86,28 @@ jobs:
             ${{ env.GRADLE_USER_HOME }}/wrapper
           key: ${{ runner.os }}-${{ matrix.service }}-gradle-v1-${{ hashFiles(format('server/{0}/**/*.gradle*', matrix.service), format('server/{0}/**/gradle-wrapper.properties', matrix.service)) }}
           restore-keys: ${{ runner.os }}-${{ matrix.service }}-gradle-v1-
-      - name: 실제 테스트 · 정적 검사 · bootJar
+      - name: Business PDF 테스트 도구 이미지
+        if: matrix.service == 'business-api'
+        run: docker build --target test -t "business-api-test:${GITHUB_RUN_ID}" .
+      - name: Business 실제 테스트 · 정적 검사 · bootJar
+        if: matrix.service == 'business-api'
+        run: |
+          mkdir -p "$GRADLE_USER_HOME"
+          docker run --rm --network host \
+            --user "$(id -u):$(id -g)" \
+            --group-add "$(stat -c '%g' /var/run/docker.sock)" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
+            -v "$GRADLE_USER_HOME:/gradle" \
+            -e GRADLE_USER_HOME=/gradle -e SPRING_PROFILES_ACTIVE=ci \
+            -e TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1 \
+            -w "$GITHUB_WORKSPACE/server/business-api" \
+            "business-api-test:${GITHUB_RUN_ID}" ./gradlew build --no-daemon --stacktrace
+      - name: Business 테스트 도구 이미지 정리
+        if: always() && matrix.service == 'business-api'
+        run: docker image rm "business-api-test:${GITHUB_RUN_ID}" || true
+      - name: Notification 실제 테스트 · 정적 검사 · bootJar
+        if: matrix.service == 'notification'
         run: ./gradlew build --stacktrace
       - name: Data export와 실제 Noti Jackson 체크섬 대조
         if: matrix.service == 'notification'
@@ -93,7 +116,9 @@ jobs:
         if: always()
         with:
           name: ${{ matrix.service }}-test-results
-          path: server/${{ matrix.service }}/build/test-results/
+          path: |
+            server/${{ matrix.service }}/build/test-results/
+            server/${{ matrix.service }}/build/reports/
           retention-days: 7
 
   images:

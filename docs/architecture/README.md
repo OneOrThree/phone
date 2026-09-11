@@ -44,3 +44,5 @@
 - 이관 직렬화는 양 서비스의 실제 라이브러리로 체크섬을 대조하고, 빈 자원·제어문자·미래 이월 알림도 검증한다(A22 ㋳).
 - 초기 user·participation 투영까지 다섯 자원을 대조하고 같은 원본 재적재·탈퇴 fence를 검사한다(A22 ㋶). Link 이관은 LEGACY 귀속과 필드별 표시 version을 복원한다(A22 ㋷·㋸).
 - ack 보류 해제 후 같은 키 재시도, 첫 후보의 렌더 오류, import와 open의 경합을 실제 DB에서 검증한다(A22 ㋴). 계정 전환 중 부분 저장과 rollback에는 이전 RT 폐기 명령을 함께 대조한다(A22 ㋵).
+
+Link/MMP의 실제 저장소는 [OneOrThree/mmp-custom](https://github.com/OneOrThree/mmp-custom)이다(A17). 알림은 현재 `server/notification/`에 유지하며 최종 JVM 레포 경로 전환은 1695와 맞춘다. 기존 파일 미리보기 캐시의 Target-1 예외와 ACL은 A22 ㋺를 따른다.

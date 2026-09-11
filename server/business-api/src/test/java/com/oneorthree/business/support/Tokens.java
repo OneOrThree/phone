@@ -56,6 +56,37 @@ public final class Tokens {
                 .compact();
     }
 
+    /**
+     * {@code exp} 가 «아예 없는» AT — 거절돼야 한다.
+     *
+     * <p>exp 는 JWT 스펙상 선택 필드라 파서가 「만료되지 않았다」로 통과시킨다. 막지 않으면 서명만
+     * 맞으면 영구히 유효한 AT 가 되어 AT 1시간 만료 정책이 통째로 무력화된다.
+     */
+    public static String withoutExpiration(UUID userId) {
+        return Jwts.builder()
+                .subject(userId.toString())
+                .claim("type", "access")
+                .issuedAt(new Date(System.currentTimeMillis()))
+                .signWith(key())
+                .compact();
+    }
+
+    /**
+     * {@code sub} 가 없는 AT — 401 이어야 한다(500 이 아니라).
+     *
+     * <p>{@code UUID.fromString(null)} 은 IllegalArgumentException 이 아니라 NPE 다. 검증기가 subject
+     * 존재를 먼저 보지 않으면 그 NPE 가 필터 밖으로 새어 500 이 된다.
+     */
+    public static String withoutSubject() {
+        long now = System.currentTimeMillis();
+        return Jwts.builder()
+                .claim("type", "access")
+                .issuedAt(new Date(now))
+                .expiration(new Date(now + 3_600_000L))
+                .signWith(key())
+                .compact();
+    }
+
     /** {@code type} claim 이 아예 없는 구 토큰 — fail-closed 로 거절돼야 한다. */
     public static String withoutTypeClaim(UUID userId) {
         long now = System.currentTimeMillis();

@@ -146,6 +146,24 @@ public class InviteLinkUseCase {
         } catch (UpstreamDomainException e) {
             // 상류가 «판정»을 내렸다(예: SLUG_NOT_FOUND). 202 로 접으면 앱은 다음 로그인까지 기다리는데
             // 그 사이 큐에 남은 의도가 같은 판정을 또 받는다 — 판정은 그대로 앱에 돌려준다.
+            //
+            // 다만 «다시 물어도 같은 답»인 판정이면 내가 만든 의도를 내가 닫는다. 안 닫으면 아무도
+            // 못 닫는다: 확정이 없어 Data 의 종결 경로가 돌지 않고, 앱은 claim 용 Idempotency-Key 를
+            // 보내지 않아(deferredInvite.ts) 로그인마다 «새» 의도를 하나씩 더 쌓는다 — 죽은 slug 를
+            // 가진 사용자 수 × 로그인 횟수만큼 「미완료 0」 gate 가 올라간다. 재개 CLI 가 같은 판정에
+            // 하는 일과 같고, 판정 기준도 한 자리({@link ClaimIntentTermination})에서 공유한다.
+            if (ClaimIntentTermination.isTerminal(e)) {
+                // ⚠️ 종결은 «조용히» 한다 — 실패해도 아래 throw 가 원래 상태·코드를 그대로 올린다.
+                //    앱이 분기하는 것은 상류 판정이지 우리 뒷정리 결과가 아니다.
+                abandonIntentQuietly(userId, intent, deadline);
+                log.debug("claim 판정 종결 — slug={} code={} commandId={}", slug, e.getCode(),
+                        intent.commandId());
+            } else {
+                // 408·429·권한 거절(403)처럼 「나중엔 답이 다를 수 있는」 거절이다. 의도를 남겨 두면
+                // 앱의 다음 시도나 재개 CLI 가 이어받는다 — 여기서 지우면 그 근거가 사라진다.
+                log.warn("claim 거절 — 재시도 여지가 있어 의도를 남긴다. slug={} status={} code={}",
+                        slug, e.getStatus(), e.getCode());
+            }
             throw e;
         } catch (RuntimeException e) {
             if (!compatProperties.isClaimQueueReplayEnabled()) {
@@ -164,9 +182,10 @@ public class InviteLinkUseCase {
     }
 
     /**
-     * 의도 종결은 <b>실패해도 사용자 요청을 실패시키지 않는다</b> — 「붙일 대상 없음」이라는 판정은
-     * 이미 났고, 남은 의도는 재개 CLI 가 같은 판정으로 한 번 더 종결한다. 반대로 여기서 실패를 올리면
-     * 아무 문제 없이 끝난 claim 이 사용자에게 오류로 보인다.
+     * 의도 종결은 <b>실패해도 사용자 요청의 결과를 바꾸지 않는다</b> — 부르는 자리가 둘이고 둘 다
+     * 판정은 이미 나 있다: 「붙일 대상 없음」(200) 과 「다시 물어도 같은 답인 거절」(상류 상태 그대로).
+     * 남은 의도는 재개 CLI 가 같은 판정으로 한 번 더 종결한다. 반대로 여기서 실패를 올리면 결론이 난
+     * claim 이 사용자에게 <b>다른 오류</b>로 보이고, 거절 경로에서는 앱이 분기하는 코드까지 바뀐다.
      *
      * <p>⚠️ 이 자리에 {@code markCommandDelivered} 를 쓰면 <b>항상 404</b> 다 — 그 경로는 봉투의
      * {@code eventId} 로 「알림 대상 전달」을 닫고, claim 의도는 outbox 행이 아니다.

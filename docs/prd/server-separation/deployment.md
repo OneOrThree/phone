@@ -12,7 +12,7 @@ python3 server/scripts/prepare-satellite-deploy.py \
   --notification-image 'NOTIFICATION_REPOSITORY@sha256:DIGEST' < /보호된경로/SecretString.json
 ```
 
-입력은 실제 배포의 SecretString과 기존 compose 보간 env다. 이미지 태그·누락 자격·존재하지 않는 기존 env는 거부한다. prod에서는 현재 스택과 같은 `--project-name`을 명시한다. 출력은 0700 디렉터리의 0600 파일이며 값은 로그에 남기지 않는다. 입력의 relay·스케줄 설정은 그대로 전달하므로 준비 도구가 이를 꺼 준다고 가정하지 않는다.
+입력은 실제 배포의 SecretString과 기존 compose 보간 env다. 이미지 태그·누락 자격·존재하지 않는 기존 env는 거부한다. prod에서는 현재 스택과 같은 `--project-name`을 명시한다. env·절차 출력은 0700 디렉터리의 0600 파일이며 값은 로그에 남기지 않는다. 입력의 relay·스케줄 설정은 그대로 전달하므로 준비 도구가 이를 꺼 준다고 가정하지 않는다.
 
 ## Data 전용 환경 연결
 
@@ -39,3 +39,13 @@ nginx·인증서는 Infra 소유다. `nginx-satellites.include.conf.example`과 
 ## 검증
 
 `python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v`로 서비스별 값·파일 권한·누락 입력과 실제 compose 병합 결과를 검증한다. compose 전체 출력에는 비밀이 포함될 수 있으므로 운영 로그에 남기지 않는다. nginx 예시는 합성 upstream으로 syntax 검사하고 운영에서는 실제 Infra 설정과 합쳐 `nginx -t`를 통과한 뒤 reload한다.
+
+## 기존 Business 미리보기 통합
+
+Business 전용 `BUSINESS_REDIS_PASSWORD`를 SecretString에 추가한다. 선택적인 `GOOGLE_DRIVE_API_KEY`도 Business env에만 전달한다. 준비 도구는 `business-redis.acl`과 그 경로 `BUSINESS_REDIS_ACL_FILE`을 생성한다. ACL에는 원문 비밀번호 대신 SHA-256이 들어가며, 0700 디렉터리 안의 ACL 파일만 Redis 컨테이너 UID가 읽도록 0644다. 다른 env 파일은 0600을 유지한다.
+
+Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 쓴다. default 계정·다른 키·CONFIG/ACL/FLUSHALL은 거부하며 health 계정은 PING만 수행한다. 기존 미리보기의 2 GiB 컨테이너 한도, PDF 도구와 CPU·PID·tmpfs·비특권 실행을 보존한다. 대상 EC2의 전체 메모리 실측 뒤 기동한다.
+
+단독 로컬 실행도 `write-compose-env.py --service business-api --redis-acl-output <경로>`가 생성한 env와 ACL을 사용한다. `BUSINESS_API_ENV_FILE`·`BUSINESS_REDIS_ACL_FILE`을 지정해 `server/business-api/compose.yml`을 실행하면 호스트 `127.0.0.1:8082`가 컨테이너 8080으로 연결된다. 시크릿이 포함된 파일은 커밋하지 않는다.
+
+Link/MMP는 `OneOrThree/mmp-custom`의 별도 배포다. 여기서 Vercel·Neon 연결이나 DNS 전환을 수행하지 않는다.

@@ -61,6 +61,33 @@ class AccessTokenBoundaryTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("exp 가 없는 AT 는 거절한다 — 파서는 통과시킨다(영구 유효 토큰이 된다)")
+    void 만료클레임없음() throws Exception {
+        mockMvc.perform(get("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + Tokens.withoutExpiration(USER)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("subject 가 없는 AT 는 401 이다 — 500 이면 NPE 가 필터 밖으로 샌 것이다")
+    void subject없음() throws Exception {
+        mockMvc.perform(get("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + Tokens.withoutSubject()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    @DisplayName("과도하게 긴 Authorization 헤더는 파서에 넘기지 않는다")
+    void 헤더길이상한() throws Exception {
+        mockMvc.perform(get("/api/v1/users/me/notification-settings")
+                        .header("Authorization", "Bearer " + "a".repeat(9000)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     @DisplayName("다른 키로 서명한 AT 는 거절한다")
     void 서명불일치() throws Exception {
         mockMvc.perform(get("/api/v1/users/me/notification-settings")

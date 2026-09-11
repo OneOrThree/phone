@@ -89,6 +89,21 @@ require('claimIntentEventId(userId, key)' in claim_service
 require('intent.completed()' in invite,
         'A22 ㋹: 종결된 요청을 하위 claim 없이 완료로 재생하지 않음')
 
+termination = source('server/business-api/src/main/java/com/oneorthree/business/usecase/ClaimIntentTermination.java')
+require('ClaimIntentTermination.isTerminal(e)' in invite and 'ClaimIntentTermination.isTerminal(e)' in replay,
+        'A22 ㋹: 요청과 재개 경로의 확정 거절 종결 판정이 공유되지 않음')
+require('"SLUG_NOT_FOUND"' in termination and '"USER_WITHDRAWN"' in termination
+        and 'getRetryAfterMs()' in termination and '408' in termination and '429' in termination,
+        'A22 ㋹: 확정 거절 허용목록 또는 일시적 실패 보존 누락')
+
+writer = source('.github/scripts/write-compose-env.py')
+compose = source('server/scripts/docker-compose.satellites.yml')
+require('business_redis_acl' in writer and '~cache:business:*' in writer
+        and 'user default off' in writer and 'BUSINESS_REDIS_PASSWORD' in writer,
+        'A22 ㋺: Business 전용 캐시 ACL 또는 시크릿 공급 누락')
+require('networks: [business-cache]' in compose and 'internal: true' in compose,
+        'A22 ㋺: Redis 캐시 전용 내부 네트워크 누락')
+
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)

@@ -109,6 +109,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             NOTI_DB_URL="jdbc:postgresql://db:5432/gromo_notification",
             NOTI_DB_USERNAME="gromo_notification", NOTI_DB_PASSWORD="noti-only",
             SVC_TOKEN_BIZ_TO_DATA="biz-data", SVC_TOKEN_BIZ_TO_NOTI="biz-noti",
+            BUSINESS_REDIS_PASSWORD="redis-only-password", GOOGLE_DRIVE_API_KEY="drive-only",
             SVC_TOKEN_BIZ_TO_LINK="biz-link", SVC_TOKEN_DATA_TO_NOTI="data-noti",
             SVC_TOKEN_DATA_TO_LINK="data-link", SVC_TOKEN_NOTI_TO_DATA="noti-data",
             SVC_TOKEN_CONSOLE_TO_NOTI="console-noti", LINK_CAPABILITY_KEY="capability",
@@ -134,7 +135,8 @@ class WriteComposeEnvTest(unittest.TestCase):
                 f"BUSINESS_API_IMAGE=example/business-api:test\n"
                 f"NOTIFICATION_IMAGE=example/notification:test\n"
                 f"BUSINESS_API_ENV_FILE={paths['business-api']}\n"
-                f"NOTIFICATION_ENV_FILE={paths['notification']}\n",
+                f"NOTIFICATION_ENV_FILE={paths['notification']}\n"
+                f"BUSINESS_REDIS_ACL_FILE={root / 'business.acl'}\n",
             )
             result = subprocess.run(
                 ["docker", "compose", "--env-file", str(interpolation), "-f", str(compose),
@@ -146,6 +148,11 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertEqual(biz["SVC_TOKEN_BIZ_TO_DATA"], "biz-data")
             self.assertEqual(biz["SVC_TOKEN_BIZ_TO_LINK"], "biz-link")
             self.assertEqual(biz["JWT_SECRET"], combined["JWT_SECRET"])
+            self.assertEqual(biz["BUSINESS_REDIS_PASSWORD"], "redis-only-password")
+            self.assertEqual(biz["GOOGLE_DRIVE_API_KEY"], "drive-only")
+            self.assertEqual(biz["BUSINESS_REDIS_USERNAME"], "business")
+            self.assertEqual(set(services["business-redis"]["networks"]), {"business-cache"})
+            self.assertNotIn("environment", services["business-redis"])
             self.assertEqual(noti["NOTI_DB_PASSWORD"], "noti-only")
             self.assertEqual(noti["SVC_TOKEN_DATA_TO_NOTI"], "data-noti")
             self.assertEqual(noti["SVC_TOKEN_CONSOLE_TO_NOTI"], "console-noti")
@@ -153,7 +160,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             for key in ("FCM_SERVICE_ACCOUNT_JSON", "NOTI_DB_PASSWORD", "API_DB_PASSWORD",
                         "SVC_TOKEN_CONSOLE_TO_NOTI", "SVC_TOKEN_DATA_TO_LINK"):
                 self.assertNotIn(key, biz)
-            for key in ("JWT_SECRET", "API_DB_PASSWORD", "SVC_TOKEN_BIZ_TO_LINK", "LINK_CAPABILITY_KEY"):
+            for key in ("JWT_SECRET", "API_DB_PASSWORD", "SVC_TOKEN_BIZ_TO_LINK", "LINK_CAPABILITY_KEY", "BUSINESS_REDIS_PASSWORD", "GOOGLE_DRIVE_API_KEY"):
                 self.assertNotIn(key, noti)
             for environment in (biz, noti):
                 self.assertNotIn("DD_API_KEY", environment)

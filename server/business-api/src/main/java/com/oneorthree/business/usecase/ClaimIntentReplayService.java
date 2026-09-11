@@ -182,8 +182,20 @@ public class ClaimIntentReplayService {
             dataApiClient.completeClaimIntent(intent.commandId(), lease.leaseToken(), deadline);
             result.completed++;
         } catch (UpstreamDomainException e) {
-            // 상류가 «판정»을 내렸다(SLUG_NOT_FOUND · CLAIM_MISMATCH 등). 재시도해도 답이 같으므로
-            // 완료로 표시해 큐에서 뺀다 — 안 그러면 이 한 건이 gate 를 영구히 막는다. 판정 내용은 남긴다.
+            // 상류가 «판정»을 내렸다. 다시 물어도 같은 답인 것만 완료로 표시해 큐에서 뺀다 —
+            // 안 그러면 이 한 건이 gate 를 영구히 막는다.
+            //
+            // ⚠️ «모든» 판정을 종결로 접으면 안 된다. 링크 서버는 실패 본문에 항상 code 를 싣기 때문에
+            //    (link/src/lib/errors.ts respond) 경로 허용목록 오배선의 403 까지 도메인 판정으로
+            //    들어온다. 그것을 완료로 표시하면 «아무것도 claim 되지 않았는데» 큐가 비고 gate 가
+            //    통과한다 — 유실을 성공으로 위장하는 정확한 형태다. 판정 기준은 요청 경로와 같은
+            //    자리({@link ClaimIntentTermination})를 쓴다.
+            if (!ClaimIntentTermination.isTerminal(e)) {
+                log.error("claim 재개 실패 — 종결 대상이 아닌 거절이라 완료 표시하지 않는다."
+                        + " commandId={} status={} code={}", intent.commandId(), e.getStatus(), e.getCode());
+                result.failed++;
+                return;
+            }
             log.warn("claim 재개 — 상류 판정으로 종결. commandId={} code={}", intent.commandId(), e.getCode());
             try {
                 dataApiClient.completeClaimIntent(intent.commandId(), lease.leaseToken(),

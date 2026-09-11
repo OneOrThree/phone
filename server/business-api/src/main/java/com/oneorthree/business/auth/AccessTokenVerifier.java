@@ -16,7 +16,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * access token 을 로컬에서 검증한다 — <b>서명 · 만료 · {@code type} 클레임 · subject UUID</b> 네 가지.
+ * access token 을 로컬에서 검증한다 — <b>서명 · 만료(<code>exp</code> 존재 + 미경과) ·
+ * {@code type} 클레임 · subject 존재 + UUID 형식</b> 다섯 가지.
  *
  * <p><b>전환 기간에는 검증만 한다.</b> A7 의 최종 그림에서는 이 서비스가 AT 서명 주체가 되지만,
  * legacy issuer(Data API {@code AuthService})가 아직 발급 중이므로 지금은 같은 {@code jwt.secret}
@@ -59,7 +60,11 @@ public class AccessTokenVerifier {
     }
 
     /**
-     * 토큰에서 요청자 신원을 꺼낸다 — 네 검증이 모두 통과할 때만.
+     * 토큰에서 요청자 신원을 꺼낸다 — 다섯 검증이 모두 통과할 때만.
+     *
+     * <p><b>{@code exp} 와 {@code subject} 는 있어야 한다.</b> 둘 다 JWT 스펙상 선택 필드라 파서가
+     * 통과시키지만, exp 없는 토큰은 영구 유효 AT 가 되고 subject 없는 토큰은 {@code UUID.fromString}
+     * 에서 NPE 로 500 이 된다. 이 서비스는 둘 다 거절한다(구 {@code JwtValidator} 와 같은 강도).
      *
      * <p>실패를 예외로 올리지 않고 {@code Optional.empty()} 로 접는 이유는 호출부가 전부 같은 방식으로
      * 다루기 때문이다 — 401 거절. 구분해서 다룰 곳이 없는 예외를 타입으로 남기면 호출부마다 catch 를
@@ -81,6 +86,19 @@ public class AccessTokenVerifier {
 
             // 상수를 왼쪽에 둔다 — type 클레임이 없는 구 토큰은 null 이고, 그때도 NPE 없이 false 가 된다.
             if (!TYPE_ACCESS.equals(claims.get(CLAIM_TYPE, String.class))) {
+                return Optional.empty();
+            }
+            // ⚠️ exp 는 JWT 스펙상 «선택» 필드다. 파서는 exp 가 없는 토큰을 「만료되지 않았다」로 통과시키므로,
+            //    여기서 막지 않으면 서명만 맞으면 «영구히 유효한» AT 가 성립한다 — AT 1시간 만료 정책이
+            //    통째로 무력화되고 로그아웃·탈퇴 후에도 그 토큰이 계속 먹는다.
+            if (claims.getExpiration() == null) {
+                log.debug("AT 검증 실패 — exp 클레임 없음");
+                return Optional.empty();
+            }
+            // subject 가 null 이면 UUID.fromString 이 IllegalArgumentException 이 아니라 «NPE» 를 던진다.
+            // 아래 catch 는 NPE 를 잡지 않으므로 그대로 새어나가 401 이 아니라 500 이 된다.
+            if (claims.getSubject() == null) {
+                log.debug("AT 검증 실패 — subject 없음");
                 return Optional.empty();
             }
             UUID userId = UUID.fromString(claims.getSubject());
