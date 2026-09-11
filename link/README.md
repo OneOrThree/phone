@@ -50,7 +50,10 @@ Business와 Data 서비스 토큰은 서로 다른 값이다. Data용 경로를 
 - 각 checksum은 키를 재귀적으로 정렬한 UTF-8 JSON의 SHA-256이다. 배열 순서는 보존한다.
 - 전체 클릭 checksum은 clickId 오름차순 `[{clickId,sourceChecksum}]`, 전체 링크 checksum은 linkId 오름차순 `[{linkId,sourceChecksum}]`에서 계산한다.
 - 클릭이 0개인 링크도 `links`에 포함한다. 그렇지 않으면 기존 공유 slug가 사라진다.
+- `groupNameVersion`·`inviterNameVersion`은 동결 시점 (groupId, inviterId)의 표시정보 축 version이다. 이 값이 없으면 `link_display_snapshots`가 0에서 시작해 동결 이전에 발행된 지연 `group.renamed`·`user.displayNameChanged`가 다시 적용되어 이름이 되돌아간다. 복원 누락은 `verify`가 `FROZEN_DISPLAY_VERSION_MISMATCH`로 잡는다.
+- 구 `claimed_user_id`는 `link_claims`에 `status='LEGACY'`로만 복원한다. 구 운영은 가입 검증 없이 이 값을 찍었으므로 확정 근거와 보상 자격을 만들지 않는다. Data가 멤버십 락 아래 만든 확정 명령이 와야 `CONFIRMED`로 승격된다. 같은 (link, user)에 이미 claim이 있으면 덮지 않고, 탈퇴 tombstone이 있는 사용자는 귀속을 되살리지 않고 감사에 남긴다.
 - 같은 클릭의 호환 소진과 백필은 Neon 트랜잭션의 marker·원본 checksum·audit로 병합한다. 이미 소진한 행을 구 값으로 덮지 않는다.
+- run 단위 독점 잠금은 쓰지 않는다. drain은 `migration_runs` 행의 공유(import·호환·직접쓰기)/독점(`close`) 쌍이 맡고, 병렬 importer 사이의 원자성은 `migration-click:` → `migration-link:` 전역 사전순 행 잠금이 맡는다. 그래서 호환 매치 500 후보가 다른 batch를 막지 않는다.
 - `verify` 성공 뒤 `close`가 실행 중 import/호환 TX를 drain하고 종료한다. 실패하면 원본을 바꾸지 않고 같은 run에서 누락 batch를 재실행한다. `close` 후 늦은 importer는 409다.
 - `close` 후 Data의 outbox와 Business claim-intent 재개 CLI를 처리한다. 이 시점 이후에는 Neon 장부를 유지하며 앞으로 수정한다. 구 DB로 자동 복귀하지 않는다.
 

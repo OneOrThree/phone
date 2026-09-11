@@ -155,7 +155,11 @@ CREATE TABLE link_claims (
     revoked_at             timestamptz,
     anonymized_at          timestamptz,
 
-    CONSTRAINT ck_claims_status CHECK (status IN ('PENDING', 'CONFIRMED', 'REVOKED', 'ANONYMIZED')),
+    -- LEGACY = 구 invite_link_clicks.claimed_user_id 를 이관한 «근거만» 있는 귀속이다.
+    -- 구 운영은 가입 검증 없이 이 값을 찍었으므로 확정(CONFIRMED)으로 올리면 멤버십·보상 자격을
+    -- 날조하게 된다. 유효 집계는 CONFIRMED 기준이라 LEGACY 는 아무 자격도 만들지 않고,
+    -- Data 가 멤버십 락 아래 만든 확정 근거를 보내면 그때 CONFIRMED 로 승격된다(A22 ㋟).
+    CONSTRAINT ck_claims_status CHECK (status IN ('PENDING', 'CONFIRMED', 'REVOKED', 'ANONYMIZED', 'LEGACY')),
     CONSTRAINT ck_claims_confirm CHECK ((confirm_proof IS NOT NULL) = (confirmed_at IS NOT NULL))
 );
 

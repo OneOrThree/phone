@@ -115,16 +115,24 @@ export async function match(input: unknown) {
     await lock(tx, `match-device:${device}`);
     const cutoff = new Date(Date.now() - matchWindowHours() * 3600000);
     const prior = await tx.query<LinkRow>(`SELECT l.* FROM link_clicks c JOIN links l ON l.id=c.link_id
-      WHERE c.matched_device_id=$1 AND c.matched_at>$2 ORDER BY c.matched_at DESC LIMIT 1`, [device, cutoff]);
+      WHERE c.matched=true AND c.matched_device_id=$1 AND c.matched_at>$2 ORDER BY c.matched_at DESC LIMIT 1`, [device, cutoff]);
     if (prior.rowCount) { replay = true; return matchResult(prior.rows[0]); }
     const candidate = await tx.query<LinkRow & { click_id: string }>(`SELECT l.*,c.id AS click_id FROM link_clicks c JOIN links l ON l.id=c.link_id
       WHERE c.ip_hash=$1 AND c.os=$2 AND c.matched=false AND c.clicked_at>$3
       ORDER BY c.clicked_at DESC LIMIT 1 FOR UPDATE OF c SKIP LOCKED`, [ip, os, cutoff]);
     const row = candidate.rows[0];
     if (!row) return matchResult();
+    // 후보 «클릭» 만 잠그면 폐기·탈퇴·그룹 종료와 직렬화되지 않는다 — 조인으로 함께 읽은 links 는
+    // 그 시점의 사본이라, 소진 직전에 커밋된 폐기를 못 보고 죽은 링크를 살아있다고 돌려준다.
+    // 원장 공통 순서(group → membership)를 그대로 따라 잠그고, 링크를 다시 읽어 판정한다.
+    // revoke 는 group 락을 안 잡고 withdraw 는 둘 다 안 잡으므로 links 행 공유 락까지 있어야 닫힌다.
+    await lock(tx, `group:${row.group_id}`);
+    await membership(tx, row.group_id, row.inviter_id);
+    const fresh = (await tx.query<LinkRow>('SELECT * FROM links WHERE id=$1 FOR SHARE', [row.id])).rows[0];
+    // 판정이 뒤집혀도 소진 자체는 그대로 둔다 — 죽은 후보가 남으면 같은 IP·OS 의 이후 클릭을 계속 가린다.
     await tx.query('UPDATE link_clicks SET matched=true,matched_at=now(),matched_device_id=$2,app_instance_id=$3 WHERE id=$1', [row.click_id, device, instance]);
     await auditTransition(tx, row.click_id);
-    return matchResult(row);
+    return matchResult(fresh);
   });
   if (!replay) await analytics(instance ? 'app' : 'web', instance ?? device, 'invite_match_resolved', {
     matched: result.matched, matched_by: 'ip_os_window', slug: result.slug, group_id: result.groupId,
@@ -142,6 +150,8 @@ export async function claim(slug: string, userId: string, key: string) {
     await membership(tx, link.group_id, link.inviter_id);
     const current = (await tx.query<LinkRow>('SELECT * FROM links WHERE id=$1', [link.id])).rows[0];
     if (!current || !live(current) || userId === link.inviter_id) return { claimId: null, capability: null, groupId: link.group_id };
+    // 이관된 LEGACY 귀속도 여기서 잡힌다 — 원장 행이 없으면 아래 후보 조회가 (claimed_user_id 가 찍힌)
+    // 구 클릭을 걸러내 같은 사용자가 capability 없이 끝난다.
     const prior = (await tx.query('SELECT id,status FROM link_claims WHERE link_id=$1 AND claimed_user_id=$2', [link.id, userId])).rows[0];
     if (prior) return { claimId: prior.id, capability: capability(link), groupId: link.group_id };
     const click = (await tx.query(`SELECT id FROM link_clicks WHERE link_id=$1 AND matched=true AND claimed_user_id IS NULL
@@ -178,7 +188,10 @@ export async function confirm(claimId: string, input: unknown, key: string) {
       if (row.confirm_proof.confirmationId !== immutable.confirmationId || row.confirm_transition_seq !== seq) fail(409, 'CONFIRMATION_IMMUTABLE');
       return { applied: row.status === 'CONFIRMED' };
     }
-    if (row.status !== 'PENDING' || (current && (BigInt(current.transition_seq) > BigInt(seq) || BigInt(current.epoch) > BigInt(epoch)))) return { applied: false };
+    // LEGACY 는 구 운영이 가입 검증 없이 남긴 귀속이다. 아래 epoch·transitionSeq 대조를 통과한
+    // «진짜» Data 확정 명령에만 CONFIRMED 로 올라간다 — 이관 자체가 확정을 만들지는 않는다.
+    if ((row.status !== 'PENDING' && row.status !== 'LEGACY')
+      || (current && (BigInt(current.transition_seq) > BigInt(seq) || BigInt(current.epoch) > BigInt(epoch)))) return { applied: false };
     await tx.query('UPDATE membership_epochs SET transition_seq=$3,updated_at=now() WHERE group_id=$1 AND inviter_id=$2', [group, inviter, seq]);
     await tx.query(`UPDATE link_claims SET status='CONFIRMED',confirm_proof=$2,confirmed_at=$3,confirm_transition_seq=$4 WHERE id=$1`,
       [claimId, JSON.stringify(immutable), immutable.committedAt, seq]);

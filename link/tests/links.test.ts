@@ -140,3 +140,47 @@ describe('Data HTTP 봉투 계약', () => {
     await expect(issue({ ...body, snapshotVersion: 9 }, randomUUID())).rejects.toMatchObject({ code: 'GROUP_CLOSED' });
   });
 });
+
+describe('소진과 폐기의 직렬화', () => {
+  it('폐기가 소진 직전에 커밋되면 옛 ACTIVE 사본으로 매치를 성립시키지 않는다', async () => {
+    const { link, body } = await fixture(), ip = hashIp(randomUUID()), device = randomUUID();
+    await recordClick(link, ip, 'ios', 'iPhone');
+    // 진행 중인 폐기를 흉내 낸다 — revoke 가 잡는 membership 락을 실제로 먼저 쥔다.
+    const blocker = await getPool().connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`membership:${body.groupId}:${body.inviterId}`]);
+      const pending = match({ ipHash: ip, os: 'ios', deviceId: device });
+      // match 가 후보를 고른 «뒤» 락에서 대기하는 동안 폐기를 커밋한다.
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await blocker.query("UPDATE links SET status='REVOKED',revoked_at=now(),revoke_reason='MEMBERSHIP_ENDED' WHERE id=$1", [link.id]);
+      await blocker.query('COMMIT');
+      // 잠그지 않으면 조인으로 함께 읽은 옛 ACTIVE 사본을 그대로 믿어 matched:true 를 돌려준다.
+      expect(await pending).toEqual({ matched: false });
+    } finally {
+      blocker.release();
+    }
+    // 판정이 뒤집혀도 후보는 소진한다 — 죽은 클릭이 남아 이후 클릭을 가리면 안 된다.
+    const click = (await getPool().query('SELECT matched,matched_device_id FROM link_clicks WHERE link_id=$1', [link.id])).rows[0];
+    expect(click).toMatchObject({ matched: true, matched_device_id: device });
+  });
+
+  it('탈퇴가 소진 직전에 커밋돼도 폐기된 링크로 매치되지 않는다', async () => {
+    const { link, body } = await fixture(), ip = hashIp(randomUUID()), device = randomUUID();
+    await recordClick(link, ip, 'ios', 'iPhone');
+    // withdraw 는 group·membership 락을 잡지 않는다 — links 행 공유 락만이 이 경합을 닫는다.
+    const blocker = await getPool().connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query("SELECT * FROM links WHERE id=$1 FOR UPDATE", [link.id]);
+      const pending = match({ ipHash: ip, os: 'ios', deviceId: device });
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await blocker.query(`UPDATE links SET inviter_name=NULL,status='REVOKED',revoked_at=now(),revoke_reason='USER_WITHDRAWN'
+        WHERE inviter_id=$1`, [body.inviterId]);
+      await blocker.query('COMMIT');
+      expect(await pending).toEqual({ matched: false });
+    } finally {
+      blocker.release();
+    }
+  });
+});
