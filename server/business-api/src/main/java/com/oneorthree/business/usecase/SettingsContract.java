@@ -3,6 +3,8 @@ package com.oneorthree.business.usecase;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.request.ResourceVersions;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.UUID;
 
@@ -13,17 +15,18 @@ final class SettingsContract {
     }
 
     static JsonNode snapshot(JsonNode value, long generation) {
-        object(value, 3);
+        object(value);
         number(value, "version");
         if (number(value, "authGeneration") != generation) {
             throw invalid();
         }
-        settings(value.get("settings"));
-        return value;
+        ObjectNode normalized = project(value, "version", "authGeneration");
+        normalized.set("settings", settings(value.get("settings")));
+        return normalized;
     }
 
     static Command command(JsonNode value, boolean requested) {
-        object(value, 8);
+        object(value);
         String commandId = text(value, "commandId");
         UUID id;
         try {
@@ -43,29 +46,33 @@ final class SettingsContract {
             throw invalid();
         }
         JsonNode patch = value.get("patch");
-        object(patch, 1);
+        object(patch);
         JsonNode result = value.get("result");
-        object(result, 1);
+        object(result);
         settings(value.get("baseline"));
         if (bool(patch, "notificationEnabled") != requested || bool(result, "notifications") != requested
                 || bool(value.get("baseline"), "notificationEnabled") != requested) {
             throw invalid();
         }
-        return new Command(id, version, value, requested);
+        ObjectNode normalized = project(value, "commandId", "eventId", "version", "authGeneration", "mask", "result");
+        normalized.set("patch", project(patch, "notificationEnabled"));
+        normalized.set("baseline", settings(value.get("baseline")));
+        return new Command(id, version, normalized, requested);
     }
 
     static JsonNode settings(JsonNode value) {
-        object(value, 5);
+        object(value);
         bool(value, "notificationEnabled");
         bool(value, "soundEnabled");
         bool(value, "nightModeEnabled");
         time(value, "nightStartTime");
         time(value, "nightEndTime");
-        return value;
+        return project(value, "notificationEnabled", "soundEnabled", "nightModeEnabled",
+                "nightStartTime", "nightEndTime");
     }
 
     static void applied(JsonNode value) {
-        object(value, 1);
+        object(value);
         if (!bool(value, "applied")) {
             throw invalid();
         }
@@ -104,10 +111,19 @@ final class SettingsContract {
         }
     }
 
-    private static void object(JsonNode value, int size) {
-        if (value == null || !value.isObject() || value.size() != size) {
+    private static void object(JsonNode value) {
+        if (value == null || !value.isObject()) {
             throw invalid();
         }
+    }
+
+    /** 응답 확장은 허용하되 알 수 없는 필드를 다른 서비스의 명령으로 전달하지 않는다. */
+    private static ObjectNode project(JsonNode value, String... fields) {
+        ObjectNode result = JsonNodeFactory.instance.objectNode();
+        for (String field : fields) {
+            result.set(field, value.get(field));
+        }
+        return result;
     }
 
     private static UpstreamContractMismatchException invalid() {

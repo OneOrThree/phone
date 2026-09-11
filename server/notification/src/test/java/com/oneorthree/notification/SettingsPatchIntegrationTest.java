@@ -63,6 +63,17 @@ class SettingsPatchIntegrationTest {
     }
 
     @Test
+    void repeatedInitializationDoesNotCreateAnotherPostgresRowVersion() {
+        open();
+        settings.initialize(USER, baseline(7, 0, full(true)));
+        Map<String, Object> before = store.one("SELECT xmin::text AS row_version FROM settings WHERE user_id=?", USER);
+        assertThat(settings.initialize(USER, baseline(0, 0, full(false))))
+                .containsEntry("notificationEnabled", true);
+        assertThat(store.one("SELECT xmin::text AS row_version FROM settings WHERE user_id=?", USER))
+                .isEqualTo(before);
+    }
+
+    @Test
     void firstPartialUsesVerifiedBaselineAndRelayCanInitializeWithoutBusiness() {
         open();
         Map<String, Object> body = partial("notificationEnabled", false, 0);

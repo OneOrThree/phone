@@ -129,10 +129,13 @@ class SettingsService {
 
     private void initializeVersions(UUID user) {
         List<String> assignments = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
         for (String column : SettingsPatch.COLUMNS.values()) {
             assignments.add(column + "_version=COALESCE(" + column + "_version,version)");
+            missing.add(column + "_version IS NULL");
         }
-        store.update("UPDATE settings SET " + String.join(",", assignments) + " WHERE user_id=?", user);
+        store.update("UPDATE settings SET " + String.join(",", assignments) + " WHERE user_id=? AND ("
+                + String.join(" OR ", missing) + ")", user);
     }
 
     private void mergeFields(UUID user, Map<String, Object> values, long version) {

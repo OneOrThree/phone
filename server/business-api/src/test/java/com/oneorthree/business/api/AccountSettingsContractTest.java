@@ -95,6 +95,26 @@ class AccountSettingsContractTest extends UpstreamTestBase {
     }
 
     @Test
+    void rollingProviderResponseExtensionsAreIgnoredAndNeverForwardedAsCommands() throws Exception {
+        DATA.on(DATA_SNAPSHOT, request -> ok(snapshot().replace("{", "{\"futureField\":true,")));
+        NOTI.on(INITIALIZE, request -> {
+            assertThat(request.body()).doesNotContain("futureField");
+            return ok(settings(false).replace("{", "{\"futureField\":true,"));
+        });
+        mockMvc.perform(auth(get("/me/settings")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.notifications").value(false));
+        DATA.on(DATA_PATCH, request -> ok(command(false).replace("{", "{\"futureField\":true,")));
+        NOTI.on(APPLY, request -> {
+            assertThat(request.body()).doesNotContain("futureField");
+            return ok("{\"applied\":true,\"futureField\":true}");
+        });
+        DATA.on(DELIVERED, request -> ok(null));
+        mockMvc.perform(write("{\"notifications\":false}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.notifications").value(false));
+        assertThat(DATA.hits(DELIVERED)).isEqualTo(1);
+    }
+
+    @Test
     void applyFailureKeepsFailureThenSameKeyRecoversOriginalResult() throws Exception {
         DATA.on(DATA_PATCH, request -> ok(command(false)));
         AtomicBoolean unavailable = new AtomicBoolean(true);
