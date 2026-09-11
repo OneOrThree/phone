@@ -69,11 +69,14 @@ class PublicApiContractTest extends UpstreamTestBase {
     @Test
     void freezesPublishedErrorNames() {
         assertThat(ApiErrorCode.values()).extracting(Enum::name).containsExactlyInAnyOrder(
-                "INVALID_REQUEST", "INVALID_PARAMETER", "INVALID_IDEMPOTENCY_KEY", "INVALID_CURSOR", "UNSUPPORTED_PROVIDER", "UNAUTHORIZED", "REFRESH_TOKEN",
-                "FORBIDDEN", "FACILITY_LOCKED", "NOT_FOUND", "USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "PRODUCT_NOT_FOUND", "SLUG_NOT_FOUND", "METHOD_NOT_ALLOWED", "VERSION_CONFLICT", "STATE_CONFLICT",
+                "INVALID_REQUEST", "INVALID_PARAMETER", "INVALID_IDEMPOTENCY_KEY", "INVALID_CURSOR",
+                "UNSUPPORTED_PROVIDER", "UNAUTHORIZED", "REFRESH_TOKEN", "FORBIDDEN", "FACILITY_LOCKED",
+                "NOT_FOUND", "USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "GROUP_NOT_FOUND", "PRODUCT_NOT_FOUND",
+                "SLUG_NOT_FOUND", "METHOD_NOT_ALLOWED", "VERSION_CONFLICT", "STATE_CONFLICT",
                 "INSUFFICIENT_FUNDS", "IDEMPOTENCY_KEY_REUSED", "REQUEST_IN_PROGRESS", "CURSOR_EXPIRED",
-                "INVITATION_EXPIRED", "REQUEST_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "OUT_OF_RANGE", "RATE_LIMITED", "INTERNAL_ERROR",
-                "UPSTREAM_CONTRACT_ERROR", "UPSTREAM_AUTH_FAILED", "SERVICE_UNAVAILABLE", "UPSTREAM_TIMEOUT");
+                "INVITATION_EXPIRED", "REQUEST_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "OUT_OF_RANGE",
+                "RATE_LIMITED", "INTERNAL_ERROR", "UPSTREAM_CONTRACT_ERROR", "UPSTREAM_AUTH_FAILED",
+                "SERVICE_UNAVAILABLE", "UPSTREAM_TIMEOUT");
     }
 
     @Test
@@ -264,7 +267,7 @@ class PublicApiContractTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @CsvSource({"USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "PRODUCT_NOT_FOUND"})
+    @CsvSource({"USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "GROUP_NOT_FOUND", "PRODUCT_NOT_FOUND"})
     void upstreamMissingResourcesKeepRecoveryMeaning(String code) throws Exception {
         mockMvc.perform(auth(get(ROOT + "/error/" + code))).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value(code))
@@ -396,7 +399,7 @@ class PublicApiContractTest extends UpstreamTestBase {
         @GetMapping({ROOT + "/error/{kind}", "/api/v1/_contract/error/{kind}"})
         Object error(@PathVariable String kind) {
             throw switch (kind) {
-                case "USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "PRODUCT_NOT_FOUND", "SLUG_NOT_FOUND" ->
+                case "USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "GROUP_NOT_FOUND", "PRODUCT_NOT_FOUND", "SLUG_NOT_FOUND" ->
                         new UpstreamDomainException(404, kind, "PRIVATE_RAW_DETAIL", null);
                 case "UNSUPPORTED_PROVIDER" ->
                         new UpstreamDomainException(400, kind, "PRIVATE_RAW_DETAIL", null);

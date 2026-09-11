@@ -71,6 +71,7 @@ public class GroupChallengeService {
 
     private final GroupMemberRepository groupMemberRepository;
     private final GroupQueryService groupQueryService;
+    private final GroupMembershipMutationLocks membershipLocks;
     private final UserQueryService userQueryService;
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
@@ -737,6 +738,7 @@ public class GroupChallengeService {
     public void deleteChallenge(UUID groupId, UUID challengeId, UUID userId) {
         User user = requireActiveUser(userId);
 
+        membershipLocks.lockGroup(groupId);
         Group group = groupQueryService.getGroup(groupId);
 
         GroupMember groupMember = groupQueryService.getMembership(user, group);
@@ -782,6 +784,7 @@ public class GroupChallengeService {
     public void endChallenge(UUID groupId, UUID challengeId, UUID userId) {
         User user = requireActiveUser(userId);
 
+        membershipLocks.lockGroup(groupId);
         Group group = groupQueryService.getGroup(groupId);
 
         GroupMember groupMember = groupQueryService.getMembership(user, group);

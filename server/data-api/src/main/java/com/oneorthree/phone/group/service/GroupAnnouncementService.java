@@ -31,6 +31,7 @@ import java.util.UUID;
 public class GroupAnnouncementService {
 
     private final GroupQueryService groupQueryService;
+    private final GroupMembershipMutationLocks membershipLocks;
     private final UserQueryService userQueryService;
     private final GroupAnnouncementRepository groupAnnouncementRepository;
 
@@ -48,6 +49,7 @@ public class GroupAnnouncementService {
     public void createAnnouncement(UUID groupId, UUID userId, CreateAnnouncementRequest request) {
         User user = requireActiveUser(userId);
 
+        membershipLocks.lockGroup(groupId);
         Group group = groupQueryService.getGroup(groupId);
 
         GroupMember groupMember = groupQueryService.getMembership(user, group);
@@ -105,6 +107,7 @@ public class GroupAnnouncementService {
     public void updateAnnouncement(UUID groupId, UUID announcementId, UUID userId, CreateAnnouncementRequest request) {
         User user = requireActiveUser(userId);
 
+        membershipLocks.lockGroup(groupId);
         Group group = groupQueryService.getGroup(groupId);
 
         GroupMember member = groupQueryService.getMembership(user, group);
@@ -129,6 +132,7 @@ public class GroupAnnouncementService {
     public void deleteAnnouncement(UUID groupId, UUID announcementId, UUID userId) {
         User user = requireActiveUser(userId);
 
+        membershipLocks.lockGroup(groupId);
         Group group = groupQueryService.getGroup(groupId);
 
         GroupMember member = groupQueryService.getMembership(user, group);

@@ -56,6 +56,12 @@ class AccountWithdrawalServiceTest {
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
     @Mock
+    private com.oneorthree.phone.group.service.GroupMembershipMutationLocks membershipLocks;
+
+    @Mock
+    private com.oneorthree.phone.group.service.IslandMembershipEvents membershipEvents;
+
+    @Mock
     private UserQueryService userQueryService;
     @Mock
     private GroupMemberService groupMemberService;

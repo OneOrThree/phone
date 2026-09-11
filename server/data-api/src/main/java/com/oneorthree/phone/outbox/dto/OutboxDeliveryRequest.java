@@ -56,4 +56,9 @@ public record OutboxDeliveryRequest(OutboxTarget target, Map<String, Object> pay
     public static OutboxDeliveryRequest toNotification(String endpointKey, Map<String, Object> payload) {
         return new OutboxDeliveryRequest(OutboxTarget.NOTI, payload, endpointKey);
     }
+
+    /** 새 섬 사건의 내구 전달 요구. 등록된 전용 transport가 없으면 relay가 선점하지 않는다. */
+    public static OutboxDeliveryRequest toRealtime(String endpointKey, Map<String, Object> payload) {
+        return new OutboxDeliveryRequest(OutboxTarget.REALTIME, payload, endpointKey);
+    }
 }

@@ -61,6 +61,19 @@ public class DataApiClient {
         this.http = http;
     }
 
+    /** 같은 앱 UUID 키로 원 Data receipt를 재생한다. 사용자/세션은 서명된 AT에서만 가져온다. */
+    public JsonNode transferIslandHost(UUID userId, UUID sessionId, long generation, UUID islandId,
+            UUID targetUserId, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, "/internal/islands/" + islandId + "/host-transfer")
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(Map.of("sessionId", sessionId, "authGeneration", generation,
+                                "targetUserId", targetUserId))
+                        .idempotentCommand()
+                        .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
+    }
+
     /** 원 RT의 폐기 증명으로 재시도 가능한 로그아웃. 주체는 Data가 자격에서 직접 검증한다. */
     public JsonNode logoutSession(LogoutCredentials credentials, Deadline deadline) {
         return http.exchange(

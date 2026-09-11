@@ -9,6 +9,7 @@ import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncementGrant;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
@@ -81,6 +82,8 @@ import java.util.stream.Collectors;
 public class GroupService {
 
     private final GroupRepository groupRepository;
+    private final GroupMembershipMutationLocks membershipLocks;
+    private final IslandMembershipEvents membershipEvents;
     private final GroupQueryService groupQueryService;
     private final GroupJoinCodeRepository groupJoinCodeRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -184,6 +187,8 @@ public class GroupService {
                 .group(group)
                 .role(GroupMemberRole.OWNER)
                 .build());
+
+        membershipEvents.changed(group.getId(), userId, "MEMBER_ADDED");
 
         // 6) 응답 반환
         return new CreateGroupResponse(group.getId(), uniqueCode);
@@ -315,7 +320,11 @@ public class GroupService {
         User user = requireActiveUser(userId);
 
         // 2. 그룹 조회 → NOT_FOUND
+        membershipLocks.lockGroup(groupId);
         Group group = groupQueryService.getGroup(groupId);
+        if (group.getDeletedAt() != null || group.getStatus() == GroupStatus.ENDED) {
+            throw new GroupException(GroupErrorCode.GROUP_NOT_FOUND);
+        }
 
         // 3. 이미 활성 멤버 → ALREADY_MEMBER
         if (groupQueryService.findMembership(user, group).isPresent()) {
@@ -361,6 +370,8 @@ public class GroupService {
                     .build();
             groupMemberRepository.save(membership);
         }
+
+        membershipEvents.changed(groupId, userId, "MEMBER_ADDED");
 
         // 7. 어트리뷰션 — 참여 경로(join_method)와 초대 slug 를 두 트랙에 기록한다.
         //    공유 URL 의 ?g= 는 변조 가능하므로 "링크의 group_id == 참여 그룹" 만이 신뢰 근거다(스펙 §6-3).
@@ -554,6 +565,7 @@ public class GroupService {
         // Deprecated 지만 변경 트랜잭션이므로 락 규율은 동일하게 적용 (GROMO-1237).
         User user = requireActiveUser(userId);
 
+        membershipLocks.lockGroup(groupId);
         Group group = groupQueryService.getGroup(groupId);
 
         Optional<GroupMember> groupMember = groupQueryService.findMembership(user, group);
@@ -671,6 +683,7 @@ public class GroupService {
     public void updateGroup(UUID groupId, UUID userId, UpdateGroupRequest request) {
         User user = requireActiveUser(userId);
 
+        membershipLocks.lockGroup(groupId);
         Group group = groupQueryService.getGroup(groupId);
 
         GroupMember groupMember = groupQueryService.getMembership(user, group);
@@ -766,6 +779,7 @@ public class GroupService {
     public void updateGroupSettings(UUID groupId, UUID userId, UpdateGroupSettingsRequest request) {
         User user = requireActiveUser(userId);
 
+        membershipLocks.lockGroup(groupId);
         Group group = groupQueryService.getGroup(groupId);
 
         GroupMember groupMember = groupQueryService.getMembership(user, group);

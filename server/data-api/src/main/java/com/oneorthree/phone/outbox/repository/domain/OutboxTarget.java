@@ -19,5 +19,11 @@ public enum OutboxTarget {
     LINK,
 
     /** 알림 서버로 가는 동기 명령의 <b>재시도 실패분</b> — HTTP. 기기 토큰 삭제·설정 최종 상태 등. */
-    NOTI
+    NOTI,
+
+    /**
+     * 새 섬 이벤트·권한 제어. 수신·인가·snapshot 복구가 준비되기 전에는 transport를 등록하지 않고
+     * 미전달 행을 보존한다. NOTI/Kafka로 우회하거나 저장만으로 전달 완료 처리하지 않는다.
+     */
+    REALTIME
 }

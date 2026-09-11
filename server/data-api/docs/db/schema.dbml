@@ -1107,7 +1107,7 @@ Table event_outbox [note: '내구 이벤트 봉투 (V51, A21) — 명령 트랜�
 Table event_outbox_deliveries [note: '대상별 전달 상태 (V51, A21) — 표시가 단일 published_at 이 아닌 이유: 링크 서버는 Kafka 를 소비하지 않아 같은 사건이 브로커로도 HTTP 로도 간다. 합치면 한쪽 실패에 성공한 쪽까지 재전달(중복)되거나 실패한 쪽이 영영 안 간다(유실)'] {
   id                uuid         [pk]
   outbox_id         uuid         [not null, note: 'FK → event_outbox.id (ON DELETE CASCADE)']
-  target            varchar(20)  [not null, note: "CHECK 'KAFKA' | 'LINK' | 'NOTI'"]
+  target            varchar(20)  [not null, note: "CHECK 'KAFKA' | 'LINK' | 'NOTI' | 'REALTIME'; REALTIME 전용 수신·복구 구현 전 내구 보류"]
 
   aggregate_type    varchar(60)  [not null, note: '봉투에서 복제 — 선행 미전달 검사(NOT EXISTS)가 이 테이블 안에서 끝나게 한다. 봉투가 불변이라 복제본이 낡을 수 없다']
   aggregate_id      varchar(200) [not null, note: '봉투에서 복제']
