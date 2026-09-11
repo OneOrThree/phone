@@ -44,7 +44,7 @@ sequenceDiagram
   B->>D: 검증 userId·동일 K·productId·expectedWalletVersion·expectedProductVersion
   D->>P: BEGIN / 현재 자격 및 receipt scope 잠금
   alt 같은 명령의 확정 receipt 존재
-    P-->>D: 원201·orderId·금액·walletVersion
+    P-->>D: 원201·주문 data·완성 events 2개
   else 새 실행
     D->>P: 생명주기 잠금·context/멤버십/권한/시설 확인
     D->>P: catalog 활성 publication 잠금·현재 productVersion 확인
@@ -52,7 +52,7 @@ sequenceDiagram
     D->>P: 차감·원장·소유·order·receipt·outbox 저장
     D->>P: COMMIT
   end
-  D-->>B: 원자 명령 결과
+  D-->>B: data(주문 DTO) + events(완성7필드 봉투 2개)
   B-->>A: 201 data / 현재 requestId
   P-->>R: commit된 outbox 재전달
   R-->>A: wallet.updated / inventory.updated
@@ -71,7 +71,9 @@ Data의 공통 잠금 순서는 생명주기 → catalog 자산 정의/판매 pu
 
 이벤트가 늦거나 유실돼도 GET wallet/inventory/orders가 복구 정본이다. 이벤트에는 잔액 전체나 개인
 구매 내역을 넣지 않는다. 1754의 버전 무효화 신호를 받아 같은 정본을 다시 조회한다. 실제 내구 relay와
-최신 수신권한은 기존 공통 전달 기반 및 각 도메인 활성화가 제공한다.
+최신 수신권한은 기존 공통 전달 기반 및 각 도메인 활성화가 제공한다. Data 내부 응답은 원 주문 data와
+완성된 wallet/inventory Realtime 봉투 목록을 함께 반환하고 공개 앱 응답에는 주문 data만 둔다.
+기존 재화 REQ-E1의 currency_spent는 별도 서버 분석 대상이며 최초 성공의 내구 기록1건, receipt 재생0건을1781에서 검증한다.
 
 보유품은 판매 여부와 별개다. productId의 종류·소유자 종류·대상 건물·착용 호환은 불변 자산 정의로
 유지하고, 가격/구매 선행/판매 가능 여부만 판매 revision으로 관리한다. 퇴역한 상품도 inventory/착용은

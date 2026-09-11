@@ -128,7 +128,7 @@ Query: `scope=personal|shared` 필수, cursor 선택, limit 기본30/최대100.
 
 |aggregate/논리행|필수 내용·제약|
 |---|---|
-|catalog asset definition|productId 유일. kind/ownerType/targetBuilding/선체 계보·착용 호환 의미는 productId 수명 동안 불변. 과거 소유의 해석 정본이며 판매 퇴역 후에도 유지|
+|catalog asset definition|productId 유일, title:string 필수. title은 해당 자산의 불변 표시 이름이며 일반 상품/선행 상품 표시의 단일 정본. kind/ownerType/targetBuilding/선체 계보·착용 호환 의미는 productId 수명 동안 불변. 과거 소유의 해석 정본이며 판매 퇴역 후에도 유지|
 |catalog product revision|productId+revision 유일, asset definition FK, currency/price/구매용 requiredBuilding/requiredProduct/preview mediaKey. 발행 후 불변. 소유 의미를 덮어쓰지 않음|
 |catalog publication|catalogPublicationVersion 유일, publishedAt/retiredAt/invalidatedAt. 컬렉션 전체의 불변 발행본|
 |catalog publication entry|publicationVersion+productId 유일, productRevision FK, category/displayOrder. 해당 발행본의 상품 집합/정렬을 복원|
@@ -144,6 +144,8 @@ Query: `scope=personal|shared` 필수, cursor 선택, limit 기본30/최대100.
 User/Group 소프트삭제와 실제FK를 만족하려면 polymorphic ownerId 하나의 선언만으로 FK 검증을 끝냈다고
 주장하지 않는다. 개인/섬 소유 테이블 분리 또는 nullable userId/groupId + 정확히하나 CHECK와FK 중 구현 담당이
 정본 schema에 맞춰 확정한다. Flyway 번호와 schema.dbml 변경은 조정자 소유다.
+
+catalog/product의 `title`과 `requiredProduct.title`은 모두 `catalog asset definition.title`에서 읽는다. 판매 revision은 제목을 중복 저장하거나 덮어쓰지 않는다. 선행 상품이 활성 publication에서 퇴역해도 자산 정의와 title을 유지하므로 requiredProduct를 복원할 수 있다. 이 설계는 가변 제목 편집 기능을 추가하지 않는다.
 
 ### 보유 의미와 판매 revision 분리
 
@@ -183,7 +185,7 @@ catalog publication 발행은 모든 product revision/entry를 준비한 뒤 Dat
 3. **새 실행만** 사용자/current-island context, membership/역할, 시설 상태와 상품 활성 revision을 정본 TX 안에서 확인한다. 앱/BFF가 넘긴 cached permit 금지.
 4. 공유 변경은 `SHARED_PURCHASE` 권한 제공자 결정이 있어야 한다. 미구현/미승인 권한 제공자를 true로 대체하지 않는다.
 5. 해당 owner wallet 잠금, inventory aggregate 잠금을 정해진 순서로 획득한다. 현재 productVersion과 walletVersion 비교 후 owned unique 및 prerequisites 확인.
-6. 잔액이 모자라면409 INSUFFICIENT_FUNDS, 어떤 row도 확정하지 않는다. 차감/ledger/order/owned/inventory version/receipt/outbox를 함께 기록한다.
+6. 잔액이 모자라면409 INSUFFICIENT_FUNDS, 어떤 row도 확정하지 않는다. 차감/ledger/order/owned/inventory version/receipt/outbox를 함께 기록한다. 최초 구매 차감 성공의 서버 분석 `currency_spent` 전달 의도도 같은 TX에서 내구 기록한다(아래 기존 계측 의무).
 7. DB commit 후만 응답/relay전달. 외부전달 실패로 committed order를 취소하지 않고 outbox 재전달한다. DB rollback이면 원장/보유/receipt/outbox모두없다.
 
 공통 잠금 계열은 **활성 user → current-context/group/membership/시설 → catalog 자산 정의/판매 publication·revision → wallet → inventory → appearance**다. 주문은 appearance를 변경하지 않으므로 마지막 축을 건너뛰며 외양은 wallet만 건너뛴다.
@@ -200,6 +202,10 @@ Data 두 endpoint로 debit→grant를 나누거나 Business 보상요청으로 r
 같은 주문에서 wallet.updated와 inventory.updated 두 eventId를 만들고 receipt 재생 때 새로 만들지 않는다.
 wallet aggregateVersion은 해당 지갑 version, inventory는 해당 owner 목록 version이다. payload.version과 aggregateVersion이 일치한다. 공통 봉투는 schemaVersion=1을 포함한 7필드이며 outbox·즉시 발행·재전달에 그대로 보존한다.
 
+Data의 내부 주문 응답은 공개 주문 DTO와 구분하여 `{data:<공개 주문 DTO>,events:[<wallet.updated 완성 봉투>,<inventory.updated 완성 봉투>]}`를 반환한다. events의 각 항목은 **7필드 RealtimeEventEnvelope**(`eventId,schemaVersion,type,islandId,aggregateVersion,occurredAt,payload`) 전체이며 작성 TX에서 실제 eventId·각 aggregateVersion·발생 시각·payload를 확정한다. 같은 TX의 receipt에 이 목록을 원 data와 함께 저장하고 같은 키 재생에서 동일 목록을 복원한다. Business는 이 내부 events를 앱 주문 응답에 추가하지 않고, 공개201 `{data:<주문 DTO>}`만 반환하며 내부 봉투로 기존 즉시 전달 경로를 호출한다. 재생/relay 재전달도 같은 eventId로 중복 제거하며 새 사건/버전을 생성하거나 DB 재조회로 봉투를 보충하지 않는다.
+
+실제 Data outbox의 저장용 10필드 `EventEnvelope`와 위 내부 응답의 7필드 Realtime 봉투 목록은 별도 개념이다. 작성 TX가 저장·전달에 필요한 두 표현을 모두 보관하며 기존 위성 전달봉투를 그대로 공개 Realtime DTO로 간주하거나 새 carrier 필드를 추가하지 않는다.
+
 |종류|개인|공동|
 |---|---|---|
 |wallet.updated|islandId=null, ownerType=user, ownerId=subject, currency=fish|islandId=ownerId=경로섬, ownerType=island, currency=village_points|
@@ -210,16 +216,24 @@ wallet aggregateVersion은 해당 지갑 version, inventory는 해당 owner 목�
 라우터 및 1755 골격만 있다고 사건전달이 구현됐다고 주장하지 않는다. 전체payloadvalidator/내구producer/수신인가
 활성화가 구현 티켓1781의 선행 검증이다.
 
+### 기존 재화 계측 의무
+
+[재화 PRD §3.3·REQ-E1](../currency/prd.md)의 구매 차감 성공 `currency_spent` 서버 MP 발행 요구를 새 주문에서도 누락하지 않는다. `type=PURCHASE`, 실제 차감한 `amount`, 해당 지갑의 확정 `balance_after`를 원장/주문과 같은 TX의 내구 발행 자료로 고정하고 커밋 뒤 전달한다. 원인 orderId/분석 eventId의 유일성으로 최초 실행에 한 건만 기록하며 receipt 재생, 이미 소유한 상품의 실패, 잔액 부족, rollback은 새 계측 사건0건이다. 전달 재시도는 같은 eventId를 유지하고 기존 서버 분석 중복 제거 계약을 검증한다. 외부 MP 수신 자체의 exactly-once를 DB 원자성으로 보장한다고 주장하지 않는다.
+
+이 분석 사건은 서버 분석 대상이며 주민 토픽에 개인 잔액을 보내는 Realtime 사건이 아니다. `wallet.updated`/`inventory.updated`의 공개 payload에 balance_after나 개인 주문을 추가하지 않는다. 개인 fish와 공동 village_points를 기존 개인 재화 지표 하나로 합산하지 않도록 1781에서 통화/소유 축의 분석 매핑도 검증해야 한다. 기존 `InGameCurrencyService.spendCurrency`는 현재 차감·원장 저장만 하고 서버 MP 호출이 없으므로 **이미 계측이 구현되어 있다는 주장이 아니라 기존 요구를 이행할 후속1781 검증 의무**다. 가격·보상·공동 소비 권한의 미답변 정책은 이 계측 요구로 결정하지 않는다.
+
 ## 6. 구현 검증 표
 
 |조건|필수 증거|
 |---|---|
-|같은키 동시2건 및 commit후응답유실|order/ledger/owned 각1건, receipt동일201, outbox각type1건|
+|같은키 동시2건 및 commit후응답유실|order/ledger/owned 각1건, receipt동일201·원 data/events, 실시간 outbox각type1건|
+|Data 내부 주문 응답과 공개 응답|내부 events의 wallet/inventory 완성7필드 각각1개, 공개는 기존 주문 data만; 재생·재전달의 eventId/버전 불변|
 |새키로 동일상품 재구매·다른주민 공동중복구매|소유유일성이 이중차감 방지, 실패TX원장없음|
 |다른상품 동시 구매|버전충돌 또는 직렬화 결과, 음수잔액없음, balance=원장합|
 |가격만 변경·wallet불변|expectedProductVersion 충돌, 새가격재확인 없이 차감없음|
 |기존 productId의 kind/ownerType/targetBuilding/착용 호환 변경 발행|catalog validation 거절. 다른 의미에는 새 productId 필요|
 |소유 상품 가격개정·퇴역 후 inventory/재착용·다른 슬롯PATCH|기존 소유 의미와 착용 유지, 현재 판매 revision 때문에403/404/422 발생하지 않음|
+|상품 title 저장·선행 판매퇴역|catalog/product/requiredProduct.title은 보존된 불변 asset definition.title에서 동일하게 복원|
 |선행 상품 requiredProduct 안내·선행 판매퇴역|구조화된 실제 ID/표시 이름 반환, 이미 보유한 선행은 인정, 미보유·구매불가이면 대상 available=false|
 |이미 성공한키 이후 가격/지갑변경|현재version검사앞에서 원결과재생|
 |권한위조·경로다른섬·current섬전환경쟁|잘못된섬 포인트 사용없음, role상실뒤새명령403|
@@ -229,6 +243,7 @@ wallet aggregateVersion은 해당 지갑 version, inventory는 해당 owner 목�
 |catalog/order cursor변조·다른scope·만료·동률|공통400/409, 중복페이징루프없음|
 |catalog 페이지 사이 상품 추가/삭제/가격/displayOrder 개정|원 publication entry로 중복/누락 없이 탐색; 현재 구매는 새 productVersion 검사|
 |publication 퇴역/폐기·cursor 수명 경계|보존 기간 조회 또는 명시 CURSOR_EXPIRED, 최신 publication으로 조용히 갈아타지 않음|
+|최초 구매·receipt 재생·실패/rollback·분석 전송 재시도|currency_spent 내구 의도 최초1/재생0, 원 amount/balance_after 보존, 동일 분석 eventId 재전달·중복제거; 개인/공동 통화 축 혼합 없음|
 |Data timeout·outbox지연|같은키로원결과복구, DBcommit재실행없음|
 
 이 표는 실행 예정 검증이며 현재 통과 결과가 아니다. 이번 작업은 문서9계약/링크/도식 정합 검토만 수행한다.

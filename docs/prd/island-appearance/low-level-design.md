@@ -18,7 +18,9 @@ GROMO-1782 · [정책](policy.md) · [HLD](high-level-design.md)
 {"data":{"clothes":["scarf"],"decor":["flag"],"hulls":["raft","sailboat"],"inventoryVersion":2,"equipped":{"clothes":"scarf","decor":"flag","hull":"sailboat","position":"front","version":4}}}
 ```
 
-배열은 항상 존재하며, 보유품이 없으면 빈 배열로 표현한다. raft는 기본 외양이며 유료품 무상 지급이나 기존 자산 승계를 뜻하지 않는다.
+배열은 항상 존재한다. `clothes`/`decor`는 실제 보유 목록이므로 보유품이 없으면 `[]`다. **`hulls`는 원본 예시처럼 기본 예약키 `raft`와 실제 보유한 유료 선체 ID를 함께 담는 표시 목록**이다. 유료 선체가 없으면 `hulls:["raft"]`이며 `[]`로 숨기지 않는다. raft를 위해 owned product/grant/order를 만들지 않고 inventoryVersion도 기본 표현만으로 증가시키지 않는다. raft 표시는 유료품 무상 지급이나 기존 자산 승계를 뜻하지 않는다.
+
+목록에 표시된다는 사실은 현재 적용을 허가한다는 뜻이 아니다. 상위 선체 구매 후 raft/하위 선체 재착용은 기존 A02 미결 gate를 그대로 따른다. 이 설명은 원본 표시 예시와 빈 목록 문구의 모순을 닫은 것이며 자유 재착용이나 새로운 지급 정책을 승인한 것이 아니다.
 inventoryVersion과 equipped.version은 원본에 없던 **복구용 명시 확장**이다. 1754의 목록 무효화와 전체 외양 이벤트를
 각각 비교하려면 같은 조회에도 두 version 축이 필요하다. 배열은 ProductId 오름차순으로 정렬한다.
 소유품 수의 상한과 페이지 필요성은 카탈로그 규모 검증에서 정한다. 원본의 단일 배열을 임의 cursor API로 늘리지 않는다.
@@ -179,6 +181,7 @@ GET inventory 또는해당화면snapshot을읽고버전기준을다시설치한�
 
 |시나리오|기대증거|
 |---|---|
+|유료 선체/옷/소품 미보유|hulls=[raft], clothes/decor=[]; raft 소유/grant/order 생성 없음; 표시만으로 A02 재착용 허가를 우회하지 않음|
 |타인옷·다른섬테마·음원을옷slot에적용|403/422,appearance/receipt/outbox 변경없음|
 |다른건물전용테마를hall에적용|422,부분맵도저장되지않음|
 |clothes만PATCH,decor=null,hull=null,position허용범위|생략보존/해제/null거절/허용값정확분기|
