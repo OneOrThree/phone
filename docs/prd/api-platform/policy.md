@@ -44,6 +44,7 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |400|INVALID_PARAMETER|false|지원하지 않는 timezone 등 명시한 입력 정책 위반. field는 해당 입력 이름|
 |400|INVALID_IDEMPOTENCY_KEY|false|필수 키 누락/UUID 형식 오류. field=`Idempotency-Key`|
 |400|INVALID_CURSOR|false|서명/형식/사용자·자원·필터 불일치. field=`cursor`, 현재 필터로 처음부터 조회|
+|400|UNSUPPORTED_PROVIDER|false|field=`provider`, 지원 집합 밖 또는 해당 provider 어댑터 미구성. 기존 AuthErrorCode의400을 보존; 지원 provider의 credential 조합 유효성422와 구분|
 |401|UNAUTHORIZED|false|없거나 위조·만료된 사용자 자격. 재인증 후 별도 시도. 내부 서비스토큰 거부를 이 코드로 오인시키지 않음|
 |403|FORBIDDEN|false|주체에게 행위 권한 없음. field=null|
 |403|FACILITY_LOCKED|false|필요한 시설 미해금. field=null, 도메인 선행 조건 확인|
@@ -51,6 +52,7 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |404|USER_NOT_FOUND|false|field=null, 본인 계정 부재/탈퇴. 기존 사용자 코드 보존, 로그인 상태 정리·재인증|
 |404|RESOURCE_NOT_FOUND|false|field=null, 존재하지 않는 HTTP 경로. 사용자나 섬 부재로 해석하지 않음|
 |404|PRODUCT_NOT_FOUND|false|field=null, 미등록/접근 불가 상품. 상점·외양의 구체 대상 부재|
+|404|SLUG_NOT_FOUND|false|field=`code`, 존재하지 않는 초대 코드. 기존 InviteLinkErrorCode의404 보존, 입력 수정/새 초대 확인. 같은 잘못된 코드 자동 재시도 금지|
 |405|METHOD_NOT_ALLOWED|false|신규 공개 경로의 미지원 method. Allow 헤더 유지|
 |409|VERSION_CONFLICT|false|field는 제출한 버전 필드(`expectedVersion`, `expectedWalletVersion`, `expectedProductVersion`), 허용된 current 제공 후 사용자 재확인|
 |409|STATE_CONFLICT|false|현재 상태에서 실행 불가. 공개 current가 안전하면 포함|
@@ -71,7 +73,7 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 
 도메인 사유를 추가할 때는 이 표의 의미와 충돌하지 않게 구체 코드를 추가한다. 예를 들어 `FOCUS_IN_PROGRESS`는 기존 chat409/false 코드이고 새로운 우체통에도 같은 사유가 채택되면 그 명칭을 유지할 수 있다. 세션 종료 재시도는 이미 확정된 receipt가 있으면 오류 표로 가지 않고 성공을 재생한다.
 
-`INVITATION_EXPIRED`는 원본의 초대 만료 HTTP410을 유지하기 위해 신규 공개 오류로 등록한다. 기준 main의 `InviteLinkErrorCode`에는 대응하는 만료 상수가 없으므로 기존 `SLUG_NOT_FOUND`404를 바꾸지 않는다. 신규 내부 제공자가 이 사유를 확정해 반환할 때 Business의 등록된410/INVITATION_EXPIRED 조합으로 전달한다. 초대 TTL·재발급·승인 생략 등 미결 제품 정책을 이 오류 이름으로 결정하지 않는다.
+`INVITATION_EXPIRED`는 원본의 초대 만료 HTTP410을 유지하기 위해 신규 공개 오류로 등록한다. 기준 main의 `InviteLinkErrorCode`에는 대응하는 만료 상수가 없으므로 기존 `SLUG_NOT_FOUND`404를 바꾸지 않고 위 공개 표에 같은 이름·상태와 field=`code`로 등록한다. 부재404와 만료410을502로 바꾸거나 서로 합치지 않는다. 신규 내부 제공자가 이 사유를 확정해 반환할 때 Business의 등록된410/INVITATION_EXPIRED 조합으로 전달한다. 초대 TTL·재발급·승인 생략 등 미결 제품 정책을 이 오류 이름으로 결정하지 않는다.
 
 미리보기 호환 매핑은 분리한다. `RATE_LIMITED`·`NOT_FOUND`는 유지, 요청 유효성 `INVALID_REQUEST`는400으로 유지한다. 기존 provider 실패 코드(`FETCH_TIMEOUT` 등)가 **Preview 객체의 실패 상태 데이터**이면 POST200을 유지한다. 신규 경로는 data 안에, 기존 호환 경로는 원래 직접 반환하던 객체/목록 안에 남는다. 이를 HTTP504로 바꾸지 않는다. 예외로 나오는 미리보기400의 세부 코드는 1751에서 원 코드 목록을 그대로 계약 테스트에 고정한다. 기존 `/api/v1/link-previews`는 성공 본문과 `{code,message}` 평면 오류, 기존 `/api/v1/link-previews/{id}/thumbnail` URL을 보존한다. 신규 `/link-previews`는 JSON 봉투·공통 오류·신규 `/link-previews/{id}/thumbnail` URL을 사용한다. 공유 Preview 캐시의 저장 URL을 전역 변경하지 않고 신규 응답 매핑에서만 URL을 바꾼다. PNG 성공은 양쪽 모두 image/png이며 실패는 각 경로의 오류 형식을 따른다.
 
@@ -90,6 +92,7 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 | 변경 요청 키 UUID 제안 | LLD 적용표 대상 필수, auth·메시지·조회형 POST 예외 명시 | 모든 POST 자동 필수화 금지 |
 | 명시하지 않은 자원에 무조건 version 제출하지 않음 | 원본 expectedVersion 8개+구매 expectedWalletVersion 1개를 원본 표로 유지 | 아래 상점 한정 기술 개정1개를 별도로 구분, 총10개 제출 축 |
 | 구매 body의 productId+expectedWalletVersion | expectedProductVersion 추가 필수, 상품 정의 변경 시409 VERSION_CONFLICT | 2026-09-12 D18·상점 설계1780/PR742에서 이미 채택한 가격 동의 보호 계약의 공통 문서 반영 |
+| 본문 없는 DELETE `/auth/sessions/current` | 필수 `X-Refresh-Token`, 선택 AT, 동일 RT 해시로 철회·완료 복구 | [계정 설계 PR740](https://github.com/OneOrThree/phone/pull/740)의 전용 인증 계약. 원본에 없던 헤더 위치를 명시한 기술 보완이며 body는 추가하지 않음 |
 | 초대 해석의410 만료 | 410 INVITATION_EXPIRED, field=code, retryable=false | 원본 상태 유지. 만료를502 상류 계약 오류로 바꾸지 않음 |
 | 날짜/IANA timezone 표현 | 시각UTC, 집계KST. 아래 5개 입력은 누락 시 Asia/Seoul, 그 외 값은400 INVALID_PARAMETER | 퀘스트 생성의 원본 시간대 오류422도400으로 명시 변경. 원본 입력 예시는 HTML에 보존 |
 | 300초/물고기·건설비·상품가격·퀘스트10P | 목업 표시 유지. 운영값 미채택 | 보상/경제 정책 질문 대기. 방송기100P는 원본이 확정 가격으로 표기 |

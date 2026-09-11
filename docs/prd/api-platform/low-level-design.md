@@ -54,6 +54,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 | 경계 | 허용하는 헤더/값 |
 | --- | --- |
 | 앱→Business | Bearer AT(인증 공개 경로 예외), application/json, 적용표의 Idempotency-Key |
+| 앱→Business 로그아웃 전용 | `DELETE /auth/sessions/current`만 필수 `X-Refresh-Token: <RT>`, 본문 없음. AT는 선택이며 제시하면 유효하고 RT와 사용자·세션이 일치해야 함. 이 자격 헤더는 로그/범용 내부 헤더 복사 대상 아님 |
 | Business 인바운드 | X-User-Id를 getHeader/getHeaders/getHeaderNames 모두에서 제거. 중복·대소문자 헤더 변형도 동일 처리 |
 | Business 내부 context | 검증한 userId, 한 번 확정한 currentIslandId/contextVersion, 서버 requestId, deadline |
 | Business→Data | 서버가 고른 서비스토큰 Authorization, 검증한 X-User-Id 1개, 새 X-Request-Id, 정규 명령키, 필요한 Content-Type |
@@ -70,7 +71,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 | --- | --- | --- | --- |
 |POST|`/auth/sessions`|범용 대상 제외|AT 없는 로그인과 검증된 선택적 게스트 AT 승격을 구분. 후자는 검증 subject를 내부 계약에 전달해 기존 계정 승계. A7·㊒·1756의 로그인/CAS 전용 계약; authorizationCode는 generic receipt 저장 금지|
 |PATCH|`/me`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
-|DELETE|`/auth/sessions/current`|범용 대상 제외|현재 인증 세션 철회. 계정 설계의 RT로 식별한 사용자+세션을 고정해 철회/완료 재생. 개별 철회는 authGeneration을 올리지 않으며 세션 epoch와 기기 ownershipVersion 경계를 구분(㊼)|
+|DELETE|`/auth/sessions/current`|범용 대상 제외|본문 없이 필수 X-Refresh-Token으로 사용자+세션·RT 해시를 식별하여 철회/완료 재생. AT 선택·제공 시 동일 세션 검증. [계정 PR740](https://github.com/OneOrThree/phone/pull/740)·아래 전용 규칙 참조. 세션 epoch/bootstrap만 폐기하며 authGeneration·기기 ownershipVersion을 올리지 않음(㊼)|
 |DELETE|`/me`|필수·PII 파기|검증된 동일 사용자+탈퇴 의도. 기존 탈퇴 원자 명령·PII 파기 보존. 비활성 계정 재생 금지; 탈퇴 후404 USER_NOT_FOUND, 위조·만료 자격401|
 |PATCH|`/me/settings`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/islands`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
@@ -111,7 +112,9 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 - GET30개와 BFF GET13개는 공통 키 대상이 아니다. GET에 키가 있어도 쓰기처럼 예약하지 않는다.
 - 로그인과 로그아웃의 범용 키 제외는 전용 멱등 계약을 없애지 않는다. [아키텍처 결정 장부](../../architecture/decisions.md)의 **A7·㊑·㊒·㊔·㊙·㊡·㉮·㊼**를 기준으로 1756이 실제 구현과 대조한다. 로그인은 Data의 시도 키 기반 upsert/CAS nonce → Business의 고정 jti/발급시각 기반 서명 → Data의 CAS 확정이며, 성공은 같은 서명 재료로 복구하고 CAS 충돌은 시도 재개 규약을 따른다. refresh 회전 CAS 0행은 ㉮에 따라 세션 종료이며 로그인 성공 재생과 혼동하지 않는다.
 - AT 없는 로그인은 검증한 provider identity로 시작한다. **유효한 선택적 게스트 AT가 있으면 검증한 subject를 Data 로그인 계약에 전달**하고 기존 UUID·집중 기록·지갑·그룹을 보존하며 소셜 계정으로 승격한다. 제시한 AT가 위조·만료·잘못된 타입이면401이고 익명 신규 가입으로 강등하지 않는다. 외부 X-User-Id나 본문 userId로 guest subject를 대체하지 않는다. 로그인 자격·토큰은 범용 receipt 저장 대상이 아니다.
-- 현재 세션 철회는 1756의 RT 증명으로 대상 사용자/세션을 고정한다. 개별 로그아웃의 sessionEpoch와 기기 ownershipVersion은 각각 해당 경계만 바꾸고, 유저 공통 authGeneration은 탈퇴·전 기기 로그아웃에만 증가한다(㊼). 기준 main/1659에 세션별 로그인 복구 이관이 이미 끝났다고 주장하지 않는다. 한 번 사용한 authorizationCode와 응답 유실 복구는 계정 전용 시도 상태·재개 창에서 검증한다.
+- 현재 세션 철회는 [계정 설계 PR740](https://github.com/OneOrThree/phone/pull/740)의 LLD §2.4를 따른다. `DELETE /auth/sessions/current`는 **본문 없이 필수 `X-Refresh-Token: <우리 RT>`**를 받는다. RT의 서명·타입·만료를 검증하고 sid(legacy는 정확한 RT 해시)로 사용자·세션을 식별한다. AT는 생략할 수 있으나 제시하면 서명·타입·만료 및 RT와 사용자/세션 일치를 모두 검증한다. 만료 AT를 같이 보내면401이므로 앱은 RT만으로 정상 폐기할 수 있다. 인증 예외는 정확한 method/path 한 곳만이며 `/auth/**` 전체를 열지 않는다.
+- 최초 로그아웃은 활성 사용자와 대상 세션을 잠근 Data TX에서 **현재 저장 RT 해시 일치**를 확인한 뒤 RT/sessionEpoch·bootstrap을 폐기한다. 회전 전 옛 RT나 다른 세션 AT로 현재 세션을 폐기할 수 없다. 완료 복구에는 폐기한 RT의 증명 해시와 원 만료시각을 남기며, 같은 유효·미만료 RT 해시와 활성 본인을 확인한 재시도만200 `{"data":{"revoked":true}}`를 재생한다. 재생은 epoch를 다시 올리거나 bootstrap을 부활시키지 않는다. 위조·만료 자격은401, 본인 계정 부재/탈퇴는404 USER_NOT_FOUND이며 범용 receipt/AT만으로 이 특례를 열지 않는다. sid 없는 legacy 자격은 정확한 legacy RT 해시와 사용자로 결합할 수 있을 때만 허용하고 현재 세션으로 추정 보완하지 않는다.
+- 개별 로그아웃은 유저 공통 authGeneration이나 기기 ownershipVersion을 올리지 않고 **FCM 기기 삭제 outbox를 만들지 않는다**. 기기 삭제는 별도 `DELETE /api/v1/users/me/device-token`의 `X-Device-Token`·`X-Device-Ownership` 증명/소유권 대조 계약(㊲·㊨·㊪)이다. `X-Refresh-Token` 원문과 RT 해시는 프록시 access log, 클라이언트 debug, trace, 예외 로그에서 제거한다. 앱 헤더를 내부에 통째로 복사하지 않고 검증한 세션 증명을 전용 auth DTO로만 전달한다. 기준 main/1659에 계정 전용 복구 이관이 이미 완료되었다고 주장하지 않는다.
 - 메시지의 clientMessageId는 UUID 계약을 유지한다. 원본 `local-1`은 목업 값이다. 새 우체통에 같은 ID/다른 text가 오면409 `IDEMPOTENCY_KEY_REUSED`(field=`clientMessageId`, retryable=false)로 처리하고, 기존 chat API의 원문 재생 동작은 호환 경로에 보존하는 어댑터 결정을1774/1775에서 반영한다. 응답/이벤트의 id와 clientMessageId로 앱이 중복을 제거한다.
 - Idempotency-Key와 clientMessageId를 둘 다 보내도 메시지 저장의 유일성 정본은 clientMessageId다. 일반 미들웨어는 메시지 endpoint에 receipt를 만들지 않는다.
 
@@ -247,7 +250,7 @@ sequenceDiagram
 
 HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만, 기존 클라이언트의 횟수 상한 안에서 같은 deadline·키로 수행한다. 인증/인가/형식/버전 충돌은 자동 재시도하지 않는다. `Retry-After`를 기다리면 전체 deadline을 넘는 경우 지금 응답을 끝내고 앱에 복구 규칙을 전달한다.
 
-지원할 수 없는 Accept는406+빈 본문이며 X-Request-Id를 유지한다. 없는 HTTP 경로는404 RESOURCE_NOT_FOUND, 본인 계정 부재는404 USER_NOT_FOUND, 상품 부재는404 PRODUCT_NOT_FOUND로 복구 의미를 구분한다. 기존 preview NOT_FOUND는 보존한다.
+지원할 수 없는 Accept는406+빈 본문이며 X-Request-Id를 유지한다. 없는 HTTP 경로는404 RESOURCE_NOT_FOUND, 본인 계정 부재는404 USER_NOT_FOUND, 상품 부재는404 PRODUCT_NOT_FOUND로 복구 의미를 구분한다. 기존 preview NOT_FOUND는 보존한다. 초대 코드 부재는 기존404 SLUG_NOT_FOUND(field=`code`), 미지원 provider는 기존400 UNSUPPORTED_PROVIDER(field=`provider`)를 등록표에서 보존하고 둘 다 retryable=false다. 부재 초대404를 만료 초대410이나502로 바꾸지 않는다.
 
 필터에서 직접 쓰는401/413, Jackson/validation의400/422, 미지원 경로/메서드의404/405, 미리보기 예외, 내부 호출 예외, 예상 못한500이 같은 외부 오류 serializer를 사용한다. 기존1659 compat 경로는 원래 상류 domain status/code 보존 규약대로 남긴다. 신규 도메인 경로만 승인된 status/code registry와 대조하여 보존/명시 매핑하며, 등록되지 않은 조합은502 `UPSTREAM_CONTRACT_ERROR`로 드러낸다. ResponseBodyAdvice 사용 여부는 구현 선택이지만 Error DTO 이중감싸기·PNG bytes·Actuator·legacy응답 래핑을 막는 범위 테스트가 필수다. 관리 포트 노출/인증예외 정책은 기존 보안 경계를 그대로 따른다.
 
@@ -261,7 +264,9 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | Postgres 두 동시 동일key·본문불일치·커밋후응답유실·rollback | 이중 차감/보상, 잘못된 결과 재생 |
 | 동일key 성공후 stale expectedVersion·다른key 종료/구매 | 원 성공409오인 또는 도메인유일성 누락 |
 | 지갑 불변 중 상품 가격/통화/ownerType 개정·expectedProductVersion 충돌 | 사용자 동의 없는 조건으로 차감 |
-| 초대 만료410 INVITATION_EXPIRED·field=code·retryable=false | 만료를502로 오인 |
+| 초대 부재404 SLUG_NOT_FOUND·만료410 INVITATION_EXPIRED·field=code·retryable=false | 입력 수정과 만료를502로 오인 |
+| 미지원 provider400 UNSUPPORTED_PROVIDER·field=provider·legacy 상태 보존 | 지원하지 않는 입력을 상류 장애502로 오인 |
+| 로그아웃 RT 전용 헤더·AT 없음/다른 세션/만료·회전 전 RT·동일 폐기 해시 재시도 | 타 세션 폐기, 응답 유실 후 복구 불가, 기기 소유권 삭제와 혼합 |
 | 현재requestId와원result 분리·새id요청 로그 연결 | 과거requestId/다른현재잔액을 재생 |
 | 구버전 receipt reader/순수 adapter/미지원409·배포 후 같은 키 복구 | 구형 DTO 노출, 원 명령·차감 재실행 |
 | 활성 본인의 leave/transfer 제한 증거·타인 scope·권한 소멸·비활성 계정 | 관리자/초대 자격 노출, 탈퇴 인증 우회 |
