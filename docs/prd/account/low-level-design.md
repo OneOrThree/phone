@@ -88,6 +88,19 @@ name/catColor null 허용은 온보딩 전 상태를 표현하기 위한 원본 
 
 프로필 한 번이 두 전이를 모두 만들면 필요한 두 사건을 같은 TX에 담는다. 현재 사용자 인가와 기존 users→멤버십→aggregate 잠금 순서를 지켜 legacy 이름 writer·탈퇴와의 경합을 검증한다. 온보딩 판정·생산자 연결·동일 TX rollback/중복 회귀 전 새 PATCH를 활성화하지 않고, Redis 랭킹/Link snapshot 소비 경로도 각 version·재전달 회귀를 통과하기 전 활성화하지 않는다. 기존 DB 조회와 선행 구현, 목표 소비자 계약을 구분한다. 이 두 사건은 기존 내부 랭킹/링크 계약이며 신규 공개 API 66종이나 섬 STOMP 14종의 개수를 늘리지 않는다. 공개 PATCH 응답 `{id,name,catColor}`도 유지한다.
 
+**완료 전이는 모든 프로필 writer의 공통 책임이다.** 기준 main
+[UserService.setupProfile/updateProfile](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/server/data-api/src/main/java/com/oneorthree/phone/user/service/UserService.java#L95-L137)는
+보존되는 `POST/PATCH /api/v1/users/me`에서도 같은 users 배타 잠금과 nickname 변경을 사용한다.
+후속 구현은 신규 PATCH만 감싸지 않고 이 두 legacy 경로와 복원/관리 등 완료 판정 입력을 바꾸는 writer가
+**변경 전 판정 → 기존 프로필 변경 → 변경 후 판정 → 필요한 user.onboarded outbox**의 공통 경계를
+같은 TX에서 사용하도록 연결한다. 신규 키가 없는 legacy에도 새 필수 키를 소급 요구하지 않는다.
+직렬화된 실제 false→true 전이가 한 번이면 사건도 한 번이며, 같은 값을 다시 저장한 true→true나 신규
+receipt 재생은 발행하지 않는다. 이름만의 helper 안에서 먼저 판정하지 않고 해당 요청의 완료 입력 변경을
+모두 적용한 뒤 동일 Q03/Q04 판정 함수를 실행한다. 기존 user.displayNameChanged writer와 이중 발행하지 않는다.
+신규 catColor 저장 뒤 legacy nickname 저장, 그 반대 순서, 양쪽 동시 저장과 outbox 실패를 검증해
+전이 누락/중복0·전체 rollback을 보장하기 전 활성화하지 않는다. 색상 6종/기존 사용자 기본값과 완료 판정의
+미결 제품 조건은 유지하며, 이 공통 producer가 기준 main에 이미 있다는 뜻은 아니다.
+
 ### 2.4 DELETE /auth/sessions/current
 
 요청 본문 없음. 필수 헤더 `X-Refresh-Token: <우리 RT>`. Authorization AT는 생략할 수 있으나 제공하면 서명·타입·만료 및 RT와의 사용자/세션 일치가 필수다. 만료 AT를 실어 보내면 401이므로 앱은 RT만으로 로그아웃할 수 있다. 보안 예외는 이 method/path 하나에만 적용하고 `/auth/**` 전체를 공개하지 않는다.
@@ -473,10 +486,10 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | user_focus_tags.user_id, source_occupation_default_tag_id, default_tags.name 연결 | 기존 erase에는 삭제 없음 | FocusSession이 user_focus_tags를 참조하므로 직접 user_id만 nullify해도 사용자 역추적 경로가 남음. 정산 증거 동결 뒤 태그의 사용자 귀속/직군 출처를 끊는 nullable migration 또는 세션 태그 연결 해제 후 개인 채택 행 파기를 비교 검증. 공유 default_tags는 일괄 삭제하지 않음. 두 대안 모두 setupFocusTag/updateFocusTag 및 복원·관리 writer의 활성 users 공유 잠금과 탈퇴 배타 잠금으로 직렬화 |
 | character_generation.user_id, created_at, client_generation_id | 기존 erase에는 정리 없음 | 같은 중앙 탈퇴 TX에서 해당 user_id의 모든 생성 이력 hard delete. 기존 recordGeneration의 users 배타 잠금 → 사용자 advisory → 이력 순서를 유지하여 삭제 뒤 재생성을 차단하고 타인 이력은 보존 |
 | group_invite_links.inviter_id 및 slug·그룹·발급 시각으로 이어지는 발급자 연결 | V21은 inviter_id NOT NULL users FK. 기준 main에는 claimed 파기 없음; [선행 PR745의 withdraw 호출자](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/withdrawal/service/AccountWithdrawalService.java#L104)만 claimed_user_id 익명화를 연결하며 발급자 파기는 없음 | nullable 확장 후 같은 중앙 TX에서 본인 inviter_id를 nullify. 링크/종속 클릭은 타인 퍼널의 FK 앵커로 보존하되 발급자 없는 링크는 폐기로 취급하며 재발급·매치·claim·이관으로 UUID를 복구하지 않음 |
-| invite_link_clicks.claimedUserId·클릭 연결 | main 직접 파기 없음 | 선행 PR745(9ad4236, 1659 기반)의 [InviteLinkClickRepository.anonymizeClaimedUser](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/InviteLinkClickRepository.java#L128-L140)와 링크 위성 폐기 전달 재사용. ipHash/userAgent/device/app 식별 자료도 사용자 연계가 남는지 링크 소유 정리 명령에서 확인 |
+| invite_link_clicks.claimedUserId·클릭 연결 | main 직접 파기 없음 | 선행 PR745(9ad4236, 1659 기반)의 [InviteLinkClickRepository.anonymizeClaimedUser](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/InviteLinkClickRepository.java#L128-L140)와 링크 위성 폐기 전달 재사용. claimed_at 소진 표지는 보존하며 Data 후보/domain 모두 claimed_user_id IS NULL AND claimed_at IS NULL만 미소비로 인정. ipHash/userAgent/device/app 식별 자료도 사용자 연계가 남는지 링크 소유 정리 명령에서 확인 |
 | 신규 auth session RT/bootstrap hash·로그인 시도 자격 digest·고정 서명 재료 | main 새 모델 없음 | legacy 승격 전용 복구 receipt/고정 재료도 탈퇴 때 폐기하고 세션 폐기와 원문 재발급을 차단. 남기는 폐기 tombstone은 최소 sessionId/epoch/만료 정보로 제한하고 사용자 연계 자격은 파기 |
 | 신규 일반 receipt·outbox·위성 projection 속 name/catColor/기기 자격 | 신규 자료 | 탈퇴 TX에서 직접 PII가 든 중앙 복사본 제거/대체, 대상별 outbox로 위성 파기. 삭제 receipt는 deleted 결과만 보유하며 개인 응답 재생 금지 |
-| 로그·trace·dead-letter payload | 경로별 다름 | 애초에 자격/PII 본문을 남기지 않음. 잘못 수집한 자료를 기능 DB 삭제만으로 지웠다고 주장하지 않음 |
+| user-activity user_id·APP MDC user_id 및 로컬/회전/호스트·외부 적재 로그/trace/DLT 복사본 | 정상 계측도 사용자 UUID를 남김. main 로그 설정과 운영 compose에 파일·외부 전송 경로가 있으나 실제 외부 구성/파기 구현은 미확인 | 저장소별 정상 수집 UUID·사용자 연결을 삭제/비식별화. 중앙 탈퇴의 내구 파기 작업, sink 직전 폐기 fence·기존 queue/rotate/upload 재생 차단 및 복사본별 완료 검증이 필요. maxHistory를 승인된 보존 근거로 대신하지 않음 |
 
 main User 주석은 retention→purge를 언급하지만 현재 조회한 `erasePersonalData`는 즉시 물리 삭제가 아니다. 기존 행의 보존 근거/기간 없이 무기한 보존을 새 정책으로 채택하지 않는다. 위 표에서 '추가'로 표시한 파기는 해당 소유 모델과 FK를 실제 검증해야 하며 새 catColor 하나만 null 처리하고 전수 파기 완료로 닫지 않는다.
 
@@ -536,6 +549,26 @@ writer가 먼저 잠그면 소비자가 기다렸다가 방금 쓴 커서까지 
 두 참여 사용자를 UUID 순서로 활성 검사·공유 잠금한 뒤 쓰도록 탈퇴 잠금과 직렬화해야 한다.
 기존 행 fixture는 본인이 초대한 경우/초대받은 경우 각각 PENDING·ACCEPTED·DECLINED와 무관한 타인 행을
 함께 넣어 양방향 파기·타인 보존을 검증하고, 중간 실패 시 초대 행을 포함한 전체 탈퇴 rollback을 확인한다.
+
+#### 익명화한 초대 클릭의 소진 상태 보존
+
+개인 UUID 파기는 이미 소비된 클릭을 새 초대로 되돌리지 않는다. 선행 PR745 `9ad4236`의
+[후보 조회](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/InviteLinkClickRepository.java#L69)와
+기준 main의 [InviteLinkClick.claim](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/domain/InviteLinkClick.java#L126-L131)은
+claimed user의 null 여부만 검사한다. 후속 Data 구현은 **claimed_user_id IS NULL AND claimed_at IS NULL**을
+후보 SQL과 도메인 claim 양쪽에 적용하고 기존 클릭 행 잠금·최초 1회 귀속 조건을 유지한다.
+익명화는 claimed_user_id만 끊고 기존 claimed_at을 비식별 소진 근거로 유지한다. 클릭 전체를 되살리는
+복원/이관/재시도도 그 표지를 보존하며, claimed_at을 추후 지워야 한다면 비식별 consumed 표지로 먼저
+이행한 뒤 같은 판정을 유지한다. 시각이나 UUID가 null이라는 이유만으로 미사용으로 초기화하지 않는다.
+Link 위성은 별도 선행 1660 브랜치의 고정 커밋 `11d2f1c519422c3e068c53658dac283562c2e3c0`
+[claim 후보](https://github.com/OneOrThree/phone/blob/11d2f1c519422c3e068c53658dac283562c2e3c0/link/src/lib/links.ts#L143-L163)에서
+이미 claimed_user_id·claim_id·claimed_at이 모두 null인 행만 선택한다. 이 방어를 미구현으로 취급하지 않고
+[폐기 후 지연 import 회귀](https://github.com/OneOrThree/phone/blob/11d2f1c519422c3e068c53658dac283562c2e3c0/link/tests/migration.test.ts#L196-L205)와 함께 보존한다.
+소진 표지는 캐시된 완료 결과의 현재 인가를 대신하지 않는다. 완료 재생도 기존 탈퇴/소유 검증을 적용하며,
+새 claim action의 활성 검사만으로 캐시 재생까지 보호됐다고 주장하지 않는다.
+A가 claim한 뒤 탈퇴 → 같은 slug의 B claim, 그리고 탈퇴/claim의 양방향 경합에서 A의 원 UUID는
+없어지고 같은 클릭의 재귀속·추가 보상은 0이어야 한다. 원래 미소비였던 별도 클릭은 정상 claim 가능하며,
+익명화 실패 시 UUID·소진 상태·중앙 탈퇴는 함께 rollback한다.
 
 #### 기존 초대 링크의 발급자 연결 파기
 
@@ -630,6 +663,42 @@ FocusService의 활성 users FOR SHARE를 완료·streak 저장 TX 끝까지 유
 독립 호출/배치 writer를 추가하면 stale User 객체만 받아 저장하지 말고 같은 TX에서 활성 users 잠금을 먼저 확보한다.
 이것은 미래 writer의 의무이며 현재 UserStreakService 자체에 활성 잠금 검사가 있다고 과장하지 않는다.
 양방향 경합·지연 flush·rollback을 실제 DB에서 검증하고, 과거 DailyFocusStat로 탈퇴자의 streak를 재생성하지 않는다.
+
+#### 사용자 활동 로그와 외부 복사본의 파기 경계
+
+기준 main `529a396e5f0f88cb78c172110920e1fa6b9388a9`의
+[UserActivityEventLogger.emit](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/server/data-api/src/main/java/com/oneorthree/phone/common/logging/UserActivityEventLogger.java#L78-L99)는
+정상 계측에도 최상위 user_id 원문을 기록한다. payload 마스킹만으로 이 UUID가 없어지지 않는다.
+[logback 설정](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/server/data-api/src/main/resources/logback-spring.xml#L15-L75)은
+APP의 MDC user_id와 별도 user-activity 파일·일별 회전본·AsyncAppender 큐를 갖고,
+[운영 compose](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/server/scripts/docker-compose.prod.yml#L38-L72)는
+호스트 로그 바인딩과 S3/Datadog 전송 경로를 설명한다. 이는 저장소 조사 근거이며 실제 운영 S3 적재·외부 보존
+설정·삭제 API까지 확인됐다는 뜻이 아니다. maxHistory=30은 롤링 설정일 뿐 승인된 제품/법적 보존 기간이 아니다.
+
+확정 최소 처리는 **정상 수집된 자료도 탈퇴 사용자의 UUID/직접 연결을 제거**하는 것이다. user_id,
+MDC 및 payload의 동일 사용자 연결을 비식별화하고, 안전하게 분리할 수 없는 해당 레코드는 삭제한다.
+원 UUID를 해시·별도 인덱스·대체 사용자에 옮겨 연결을 남기지 않는다. 타인 기록이나 사용자 연결 없는 운영
+집계까지 일괄 삭제하지 않으며, 계정·정산 증거의 기존 보존 계약은 별개다. 예외 보존은 구체 자료·근거·기간이
+별도로 확정돼야 하며 이 문서가 새 기간이나 법적 의무를 정하지 않는다.
+
+중앙 탈퇴 TX에는 기존 user.withdrawn/outbox 계약을 이용한 **로그 파기 작업의 내구 근거**를 함께 남긴다.
+외부 파일/S3 작업을 Data TX 안에서 실행하지 않는다. 후속 소유자는 실제 저장소 목록을 확정하고 활성 파일,
+회전본·호스트 볼륨, 실제 사용 중인 S3 객체/버전·적재 임시본·검색 인덱스 및 APP stdout/trace/DLT 복사본별로
+대상/처리 상태/실패 재시도/완료 증거를 기록한다. 구성 주석만으로 없는 저장소의 완료를 주장하지 않고,
+실제 외부 보존·삭제 제약이 확인되지 않은 저장소는 미확인 상태로 남긴다. 기존 200은 중앙 탈퇴 커밋을 뜻하며
+모든 복사본의 파기 완료와 구분한다. 완료 증거는 내부 작업 상태로 관리하며 새 공개 탈퇴 상태 endpoint를 추가하지 않는다.
+
+비동기 log emit 이전의 활성 확인만으로는 충분하지 않다. 탈퇴 사용자에 대한 최소 폐기 fence를 소비자에
+내구 적용하고, **각 sink에 기록·재적재하기 직전** 그 fence와 기록을 같은 로컬 직렬화 경계에서 대조한다.
+이미 큐에 들어간 UUID·회전 전 파일·늦은 업로드·DLT/복원도 폐기 후 원문을 다시 쓰지 못한다. 기존 writer를
+우회한 파일 경로를 남기지 않으며, 외부 업로드는 진행 중 작업의 drain 또는 동등한 완료 장벽과 사후 대조로
+삭제 직후 옛 객체가 다시 올라오는 경합을 막는다. 중앙 세대와 sink fence의 재전달은 멱등이며 보호용 최소
+폐기 증거에 활동 payload를 복사하지 않는다. 이것은 현재 logback/운영 파이프라인의 완료 구현이 아니다.
+
+실제 sink 구성·파기 책임자·내구 전달·모든 writer fencing·검증 가능한 완료 확인을 연결하기 전 신규 탈퇴의
+로그 파기 완료를 선언하지 않는다. fixture에는 정상 user_id와 payload/MDC, 타인 자료, 큐 대기·rotation·업로드
+진행 중 탈퇴, 중복/지연 재전달·작업자 재시작을 넣어 사용자 연결 잔존/재부착0과 타인 보존을 검증한다.
+외부 처리 실패는 재시도 대상으로 남기고 이미 커밋한 중앙 탈퇴를 재실행하지 않는다.
 
 #### 알림 발송 이력의 파기 경계
 
@@ -773,6 +842,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 계정 전환 준비/부분 저장/commit 직후 crash·DELETE/outbox 실패·역방향 전환 | commit 전 삭제/RT 폐기0, rollback A 등록 보존, commit 뒤 원 주체/키로 재개·B 자격 및 새 ownership 보존 |
 | 6개 제공자/guest 승격 | 같은 userId·지갑·집중·그룹 유지, 타 제공자 token·RT-as-AT 거부 |
 | 승인된 완료 판정 false→true / 이미 true→true / 동일 키 재생 | 첫 전이만 user.onboarded 내구화, 미완료 시점의 기존 점수도 주차별 절대값 재적재, 재생·무전이의 추가 사건0 |
+| 신규 color 저장→legacy POST/PATCH nickname 및 역순/동시 저장 | 공통 승인 판정·users EX 아래 false→true 사건1회, 기존 점수 절대 재적재, 무전이0·outbox 실패 전체 rollback |
 | name 변경+catColor/온보딩 동시 변경·동일 키·무변경 | 기존 동기 이름 writer에 위임해 필요한 멤버십별 표시 사건만 생성, caller 이중 append0; name 생략/무변경/receipt 재생은 이름 사건0 |
 | 프로필/완료 변경 뒤 어느 outbox 또는 receipt 저장 실패 | name·catColor·완료 전이·두 사건과 결과 모두 rollback, 부분 성공0 |
 | user.onboarded 재전달/역순/DLT·탈퇴 경합 | 주차별 절대 점수·공통 version 및 tombstone 대조, 기존 점수 누락/중복가산/탈퇴자 부활0 |
@@ -803,6 +873,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 추월 알림을 이번 주 2회 받은 활성 수신자·상대 탈퇴·동시 발송 writer | 상대 UUID null, 기존 카운트2/추가 발송0, 본인 탈퇴 이력 삭제 유지, nullify/위성 재전달 멱등·전체 rollback |
 | FCM 성공 → 상대 탈퇴 → 늦은 로그/중복 결과·수신자 탈퇴 | 원 발송 증거/고정 ID로 target=null 집계1회, 원 발송 주차 유지·상대 연결 복원0; 증거 없으면 허위 카운트0, 수신자 탈퇴면 재생0 |
 | 내기 결과 열람 3필드·claim/renew/ack와 탈퇴 양방향 경합 | 본인 열람/lease만 null, 정산 근거·타인 결과 불변, 지연 부활/탈퇴 결과 노출0·전체 rollback |
+| A claim→A 탈퇴→B 동일 slug claim·지연 import/역순·양방향 경합 | UUID 파기 후 소진 표지 유지, 원 클릭 재귀속/추가 보상0, 별도 미소비 클릭 정상·전체 rollback |
 | 본인 발급 링크·타인 claim·발급/탈퇴 경합·파기 후 rollback | inviter_id nullify, 링크/클릭 FK·타인 귀속 보존, 폐기 링크 재사용/UUID 복원0, 늦은 발급 거절, 중간 실패는 전체 rollback |
 | group_invites 양방향·전체 상태·타인 초대와 탈퇴 rollback | inviter 또는 invitee가 본인인 행만 전량 삭제, 무관한 타인 초대 보존, 실패 시 초대/계정/환불/outbox 전체 rollback |
 | 공지 생성·타인 수정과 탈퇴의 양방향 경쟁·중간 실패 | 생성 선행이면 user_id=null, 탈퇴 선행이면 생성 USER_NOT_FOUND. 타인 수정의 지연 flush도 작성자 FK 부활 0, 공지 내용 보존, rollback 시 작성자 연결도 복구 |
@@ -826,6 +897,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 설정 false/true 역전, 다른 필드 역전, legacy 전체 PUT 경쟁 | 필드별 version으로 유실 방지, 재전달 멱등, 원래 명령 결과 재생 |
 | 알림 서버 장애·완료 표시 유실 | outbox만 저장됐는데 200 반환 금지, 같은 commandId로 복구 |
 | 로그 캡처/에러/trace | 자격 헤더·PII·원문 제공자 payload·서명 재료 노출 0 |
+| 정상 계측 UUID·APP MDC·큐/회전/외부 upload와 탈퇴 경합 | sink별 사용자 연결 제거·늦은 재부착0, 타인 보존·실패 내구 재시도·복사본별 완료 증거, 미확인 외부 저장소 완료 주장0 |
 
 기준 main 근거:
 
