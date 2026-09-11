@@ -9,6 +9,9 @@ import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.league.support.LeagueWeek;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -24,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -56,6 +60,7 @@ public class LeagueNotificationService {
     private final LeagueTierConfigRepository leagueTierConfigRepository;
     private final UserQueryService userQueryService;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
     private final LeagueWeek leagueWeek;
     private final EntityManager entityManager;
 
@@ -120,7 +125,16 @@ public class LeagueNotificationService {
                     composeRelegation(result.getPreviousTierLevel(), result.getNewTierLevel(), soundEnabled);
                 case STAY -> composeNewLeagueStart(soundEnabled);
             };
-            pushNotificationService.sendIfAllowed(user, settings, message, now);
+            // 신 경로는 문구가 아니라 «분기와 티어»를 싣는다 — 승격/강등/잔류 문구와 로케일 변형은
+            // 알림 서버의 kind x locale 템플릿이 소유한다(계약 §5).
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("result", result.getResult().name());
+            params.put("previousTierLevel", result.getPreviousTierLevel());
+            params.put("newTierLevel", result.getNewTierLevel());
+            notificationDispatcher.dispatch(user, settings,
+                    new NotificationRequest(NotificationKind.LEAGUE_WEEKLY_RESULT, user.getId(),
+                            null, null, null, now, localeOf(user), params),
+                    message, now);
             processedCount++;
         }
         return processedCount;
@@ -138,7 +152,7 @@ public class LeagueNotificationService {
      *            다시 부르면 같은 유저가 또 받는다
      */
     public void sendDeadlineReminders(Instant now) {
-        sendDeadlineSequence(now, "마감 4시간 전", this::composeDeadline);
+        sendDeadlineSequence(now, "마감 4시간 전", NotificationKind.LEAGUE_DEADLINE, this::composeDeadline);
     }
 
     /** 마감 2시간 전 알림 — 스케줄러(일 22:00 KST)·수동 트리거 진입점. 진행 중 전원. */
@@ -153,11 +167,13 @@ public class LeagueNotificationService {
      *            다시 부르면 같은 유저가 또 받는다
      */
     public void sendFinalDeadlineReminders(Instant now) {
-        sendDeadlineSequence(now, "마감 2시간 전", this::composeFinalDeadline);
+        sendDeadlineSequence(now, "마감 2시간 전", NotificationKind.LEAGUE_FINAL_DEADLINE,
+                this::composeFinalDeadline);
     }
 
     /** 전역 랭킹을 keyset 페이지로 순회하며 각 유저의 현재 순위로 마감 시퀀스 알림을 발송한다. */
-    private void sendDeadlineSequence(Instant now, String label, DeadlineMessageComposer composer) {
+    private void sendDeadlineSequence(Instant now, String label, NotificationKind kind,
+                                      DeadlineMessageComposer composer) {
         LocalDate fromDate = leagueWeek.currentWeekStartDate(now);
         LocalDate toDate = leagueWeek.currentDate(now);
         int processedCount = 0;
@@ -173,7 +189,7 @@ public class LeagueNotificationService {
             boolean hasMore = fetched.size() > NOTIFICATION_PAGE_SIZE;
             List<LeagueRankingRow> page = hasMore
                     ? fetched.subList(0, NOTIFICATION_PAGE_SIZE) : fetched;
-            processedCount += sendDeadlinePage(page, rankOffset, now, composer);
+            processedCount += sendDeadlinePage(page, rankOffset, now, kind, composer);
             rankOffset += page.size();
             entityManager.flush();
             entityManager.clear();
@@ -292,34 +308,73 @@ public class LeagueNotificationService {
             }
             UserNotificationSettings settings = settingsByUserId.get(row.userId());
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
-            PushMessage message = composeCrisisMessage(row, config, includeDeadlineDMinusOne, soundEnabled);
-            if (message == null) {
+            Crisis crisis = composeCrisis(row, config, includeDeadlineDMinusOne, soundEnabled);
+            if (crisis == null) {
                 continue; // 안전권(승급 확정권/최상위) → 무발송
             }
-            pushNotificationService.sendIfAllowed(user, settings, message, now);
+            notificationDispatcher.dispatch(user, settings,
+                    new NotificationRequest(crisis.kind(), row.userId(), null, null, null, now,
+                            localeOf(user), Map.of("shortfallSeconds", crisis.shortfallSeconds())),
+                    crisis.message(), now);
             processedCount++;
         }
         return processedCount;
     }
 
-    /** 유저당 1건 분기: 강등 위험 &gt; 마감 D-1(승급 독려) &gt; 무발송(안전권). */
-    private PushMessage composeCrisisMessage(LeagueRankingRow row, LeagueTierConfig config,
-                                             boolean includeDeadlineDMinusOne, boolean soundEnabled) {
+    /**
+     * 유저당 1건 분기: 강등 위험 &gt; 마감 D-1(승급 독려) &gt; 무발송(안전권).
+     *
+     * <p>문구만이 아니라 <b>어느 분기인지</b>를 함께 돌려준다 — 신 경로의 kind 가 그 분기다.
+     * 문구가 같다고 한 kind 로 합치면 일 09:00 과 18:00 의 «의도된 두 번 발송»이 결정적 키
+     * 하나로 접혀 저녁분이 영영 안 나간다.
+     */
+    private Crisis composeCrisis(LeagueRankingRow row, LeagueTierConfig config,
+                                 boolean includeDeadlineDMinusOne, boolean soundEnabled) {
         int total = row.totalFocusSeconds();
         // 1. 강등 위험 — T1 제외(강등 임계값 0), 이번 주 누적이 현재 티어 강등 임계값 미달
         if (row.tierLevel() > 1 && total < config.getRelegationTime()) {
-            return composeRelegationWarning(config.getRelegationTime() - total, soundEnabled);
+            int shortfall = config.getRelegationTime() - total;
+            // includeDeadlineDMinusOne == false 는 «일 18:00 재발송» 진입점이다(sendRelegationWarnings).
+            NotificationKind kind = includeDeadlineDMinusOne
+                    ? NotificationKind.LEAGUE_RELEGATION_WARNING
+                    : NotificationKind.LEAGUE_RELEGATION_WARNING_EVENING;
+            return new Crisis(kind, shortfall, composeRelegationWarning(shortfall, soundEnabled));
         }
         // 2. 마감 D-1 승급 독려 — 최상위(T5) 제외, 아직 승급 임계값 미달. 저녁 재발송(false)엔 생략
         if (includeDeadlineDMinusOne && row.tierLevel() < MAX_TIER_LEVEL && total < config.getPromotionTime()) {
-            return composeDeadlineDMinusOne(config.getPromotionTime() - total, soundEnabled);
+            int shortfall = config.getPromotionTime() - total;
+            return new Crisis(NotificationKind.LEAGUE_DEADLINE_D1, shortfall,
+                    composeDeadlineDMinusOne(shortfall, soundEnabled));
         }
         // 3. 안전권(승급 확정권/최상위) → 무발송
         return null;
     }
 
+    /**
+     * 위기 분기 하나 — 신 경로의 kind·렌더 입력과 구 경로의 완성 문구를 함께 들고 다닌다.
+     *
+     * @param kind             신 경로의 알림 종류
+     * @param shortfallSeconds 모자란 초 — 문구의 유일한 변수이자 렌더 입력
+     * @param message          구 경로로 나갈 완성 문구
+     */
+    private record Crisis(NotificationKind kind, int shortfallSeconds, PushMessage message) {
+    }
+
+    /**
+     * 수신자의 보고된 로케일 — <b>모르면 {@code null}</b> 이다.
+     *
+     * <p>여기서 {@code ko} 로 채우면 「보고받은 ko」와 「모름」이 영영 구분되지 않아, 나중에 앱이
+     * 언어를 보고하기 시작해도 이미 나간 사건을 되짚을 수 없다(계약 봉투 {@code locale} 주석).
+     *
+     * @param user 수신자
+     * @return 로케일 문자열 또는 {@code null}
+     */
+    private static String localeOf(User user) {
+        return user.getLanguage();
+    }
+
     private int sendDeadlinePage(List<LeagueRankingRow> page, int rankOffset, Instant now,
-                                 DeadlineMessageComposer composer) {
+                                 NotificationKind kind, DeadlineMessageComposer composer) {
         List<UUID> userIds = page.stream().map(LeagueRankingRow::userId).toList();
         Map<UUID, User> usersById = loadUsers(userIds);
         Map<UUID, UserNotificationSettings> settingsByUserId = loadSettings(userIds);
@@ -333,8 +388,11 @@ public class LeagueNotificationService {
             }
             UserNotificationSettings settings = settingsByUserId.get(userId);
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
-            pushNotificationService.sendIfAllowed(
-                    user, settings, composer.compose(rankOffset + index + 1, soundEnabled), now);
+            int rank = rankOffset + index + 1;
+            notificationDispatcher.dispatch(user, settings,
+                    new NotificationRequest(kind, userId, null, null, null, now, localeOf(user),
+                            Map.of("rank", rank)),
+                    composer.compose(rank, soundEnabled), now);
             processedCount++;
         }
         return processedCount;

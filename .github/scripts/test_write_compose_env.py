@@ -102,6 +102,93 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(env_file.read_text(encoding="utf-8"), "previous")
 
+    def test_공유_secret의_서비스별_자격이_실제_compose에서_격리된다(self) -> None:
+        combined = secret(
+            API_DB_URL="jdbc:postgresql://db:5432/gromo",
+            API_DB_USERNAME="gromo_data", API_DB_PASSWORD="data-only",
+            NOTI_DB_URL="jdbc:postgresql://db:5432/gromo_notification",
+            NOTI_DB_USERNAME="gromo_notification", NOTI_DB_PASSWORD="noti-only",
+            SVC_TOKEN_BIZ_TO_DATA="biz-data", SVC_TOKEN_BIZ_TO_NOTI="biz-noti",
+            SVC_TOKEN_BIZ_TO_LINK="biz-link", SVC_TOKEN_DATA_TO_NOTI="data-noti",
+            SVC_TOKEN_DATA_TO_LINK="data-link", SVC_TOKEN_NOTI_TO_DATA="noti-data",
+            SVC_TOKEN_CONSOLE_TO_NOTI="console-noti", LINK_CAPABILITY_KEY="capability",
+            LINK_IP_SALT="existing-salt", DD_API_KEY="agent-only", CONSOLE_SUDO_PASSWORD_HASH="console-only",
+            DATA_API_BASE_URL="http://app:8080", NOTIFICATION_BASE_URL="http://notification:8082",
+            LINK_BASE_URL="https://link.example.test", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+            FCM_SERVICE_ACCOUNT_JSON={"project_id": "test", "private_key": "fake$'\\\nkey"},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {}
+            for service in ("data-api", "business-api", "notification"):
+                path = root / service / "service.env"
+                subprocess.run(
+                    [sys.executable, str(SCRIPT), "--output", str(path), "--service", service,
+                     "--image", f"example/{service}:test", "--environment", "dev"],
+                    input=json.dumps(combined), text=True, check=True, capture_output=True,
+                )
+                paths[service] = path
+            compose = SCRIPT.parents[2] / "server/scripts/docker-compose.satellites.yml"
+            interpolation = root / "compose.env"
+            interpolation.write_text(
+                f"BUSINESS_API_IMAGE=example/business-api:test\n"
+                f"NOTIFICATION_IMAGE=example/notification:test\n"
+                f"BUSINESS_API_ENV_FILE={paths['business-api']}\n"
+                f"NOTIFICATION_ENV_FILE={paths['notification']}\n",
+            )
+            result = subprocess.run(
+                ["docker", "compose", "--env-file", str(interpolation), "-f", str(compose),
+                 "config", "--format", "json"], check=True, capture_output=True, text=True,
+            )
+            services = json.loads(result.stdout)["services"]
+            biz = services["business-api"]["environment"]
+            noti = services["notification"]["environment"]
+            self.assertEqual(biz["SVC_TOKEN_BIZ_TO_DATA"], "biz-data")
+            self.assertEqual(biz["SVC_TOKEN_BIZ_TO_LINK"], "biz-link")
+            self.assertEqual(biz["JWT_SECRET"], combined["JWT_SECRET"])
+            self.assertEqual(noti["NOTI_DB_PASSWORD"], "noti-only")
+            self.assertEqual(noti["SVC_TOKEN_DATA_TO_NOTI"], "data-noti")
+            self.assertEqual(noti["SVC_TOKEN_CONSOLE_TO_NOTI"], "console-noti")
+            self.assertEqual(noti["KAFKA_BOOTSTRAP_SERVERS"], "kafka:9092")
+            for key in ("FCM_SERVICE_ACCOUNT_JSON", "NOTI_DB_PASSWORD", "API_DB_PASSWORD",
+                        "SVC_TOKEN_CONSOLE_TO_NOTI", "SVC_TOKEN_DATA_TO_LINK"):
+                self.assertNotIn(key, biz)
+            for key in ("JWT_SECRET", "API_DB_PASSWORD", "SVC_TOKEN_BIZ_TO_LINK", "LINK_CAPABILITY_KEY"):
+                self.assertNotIn(key, noti)
+            for environment in (biz, noti):
+                self.assertNotIn("DD_API_KEY", environment)
+                self.assertNotIn("CONSOLE_SUDO_PASSWORD_HASH", environment)
+            self.assertNotIn("ports", services["business-api"])
+            self.assertNotIn("ports", services["notification"])
+
+    def test_전환용_Data는_구_기동_자격을_보존하고_final은_회수한다(self) -> None:
+        combined = secret(
+            API_DB_URL="jdbc:postgresql://db/gromo", API_DB_USERNAME="data", API_DB_PASSWORD="pw",
+            SVC_TOKEN_BIZ_TO_DATA="bd", SVC_TOKEN_NOTI_TO_DATA="nd",
+            SVC_TOKEN_DATA_TO_NOTI="dn", SVC_TOKEN_DATA_TO_LINK="dl", LINK_CAPABILITY_KEY="key",
+            LINK_IP_SALT="existing-salt", LINK_BASE_URL="https://links.example.test",
+            NOTIFICATION_BASE_URL="http://notification:8082", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+        )
+        transition = MODULE.render(combined, "example/data:1", "data-api")
+        final = MODULE.render(combined, "example/data:2", "data-api", "final", "prod")
+        for key in ("JWT_SECRET", "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID", "FCM_PROJECT_ID",
+                    "FCM_SERVICE_ACCOUNT_JSON"):
+            self.assertIn(f"{key}=", transition)
+            self.assertNotIn(f"{key}=", final)
+        self.assertIn("SVC_TOKEN_DATA_TO_LINK='dl'", final)
+        self.assertIn("SPRING_PROFILES_ACTIVE='prod,satellites'", final)
+
+    def test_신규_서비스의_필수값_누락_null_공백은_실패한다(self) -> None:
+        baseline = {
+            "JWT_SECRET": "jwt", "SVC_TOKEN_BIZ_TO_DATA": "bd",
+            "SVC_TOKEN_BIZ_TO_NOTI": "bn", "SVC_TOKEN_BIZ_TO_LINK": "bl",
+        }
+        for key in baseline:
+            for value in (None, "", "  "):
+                with self.subTest(key=key, value=value):
+                    with self.assertRaisesRegex(ValueError, key):
+                        MODULE.render({**baseline, key: value}, "example/biz:1", "business-api")
+
 
 if __name__ == "__main__":
     unittest.main()

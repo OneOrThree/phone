@@ -1,6 +1,9 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -54,6 +57,7 @@ public class InactiveReturnNotificationService {
     private final UserRepository userRepository;
     private final UserQueryService userQueryService;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
 
     /** 스케줄러(매일 10:00 KST)·수동 트리거 진입점. */
     public void sendInactiveReturnNotifications() {
@@ -95,7 +99,12 @@ public class InactiveReturnNotificationService {
             User user = target.user();
             UserNotificationSettings settings = settingsByUserId.get(user.getId());
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
-            pushNotificationService.sendIfAllowed(user, settings, target.stage().compose(soundEnabled), now);
+            // 신 경로가 싣는 것은 단계(D3·D7·D14)뿐이다 — 세 단계의 문구는 kind x locale 템플릿이 갖는다.
+            notificationDispatcher.dispatch(user, settings,
+                    new NotificationRequest(NotificationKind.INACTIVE_RETURN, user.getId(), null, null,
+                            null, now, user.getLanguage(),
+                            Map.of("stage", target.stage().name())),
+                    target.stage().compose(soundEnabled), now);
         }
         log.info("미접속 복귀 푸시 — 대상 {}건 처리 완료 (today={})", targets.size(), today);
     }

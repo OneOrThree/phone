@@ -97,7 +97,7 @@ public class AuthController implements AuthControllerDocs {
     @Override
     @PostMapping("/auth/logout")
     public ResponseEntity<Void> logout(@RequestBody LogoutRequest request) {
-        authService.logout(request.refreshToken());
+        authService.logout(request);
         return ResponseEntity.noContent().build();
     }
 }

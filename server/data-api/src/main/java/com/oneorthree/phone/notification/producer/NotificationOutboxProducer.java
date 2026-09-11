@@ -1,0 +1,134 @@
+package com.oneorthree.phone.notification.producer;
+
+import com.oneorthree.phone.outbox.dto.AggregateRef;
+import com.oneorthree.phone.outbox.dto.EventEnvelope;
+import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
+import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
+import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
+import com.oneorthree.phone.outbox.service.OutboxCommandPort;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * 알림 요청을 <b>내구 이벤트</b>로 적는 유일한 자리 (A21 · A22 · 계약 §5).
+ *
+ * <h2>같은 트랜잭션</h2>
+ * {@link OutboxCommandPort#append} 는 {@code Propagation.MANDATORY} 다. 그래서 이 클래스도
+ * {@code MANDATORY} 로 호출부의 트랜잭션에 <b>반드시 합류</b>한다 — 별도 트랜잭션으로 열리면
+ * 「도메인이 롤백돼도 알림만 나간다」는 정확히 반대 방향의 사고가 난다.
+ *
+ * <h2>{@code AFTER_COMMIT} 을 쓰지 않는 이유</h2>
+ * 요청형 알림(친구 요청·챌린지 개설·회차 종료)의 구 경로는 {@code @TransactionalEventListener
+ * (AFTER_COMMIT)} 이다. 커밋과 리스너 사이에 프로세스가 죽으면 <b>그 알림은 아무 흔적 없이 사라진다</b>
+ * — 재훑기가 있는 내기 계열만 겨우 회수된다. 새 경로는 {@code BEFORE_COMMIT} 동기 리스너에서
+ * 이 producer 를 불러 <b>도메인 커밋과 같은 원자 단위</b>로 outbox 행을 남기고, 실제 발행은 relay 가
+ * 트랜잭션 밖에서 한다.
+ *
+ * <h2>중복 키는 「이미 있다」로 접는다</h2>
+ * {@code append} 는 같은 {@code eventId} 두 번이면 UNIQUE 위반으로 죽는다 — 그 판단은 호출부
+ * 몫이라고 명시돼 있다. 알림 사건은 <b>결정적 키</b>라 재훑기·중복 크론이 같은 키를 다시 만드는 것이
+ * 정상 동작이므로, 여기서 먼저 조회해 있으면 그대로 둔다. 이것이 구 경로의 선점
+ * ({@code notification_sent_logs} UNIQUE)을 대체한다.
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class NotificationOutboxProducer {
+
+    /** 정본 봉투의 {@code type} — 알림 요청은 한 종류다. 실제 종류는 {@code params.kind} 가 가른다. */
+    public static final String EVENT_TYPE = "notification.requested";
+
+    /** 봉투 스키마 버전(ⓦ). 필드를 더할 때는 올리지 않는다 — additive 는 같은 버전이다. */
+    static final int SCHEMA_VERSION = 1;
+
+    private final OutboxCommandPort outboxCommandPort;
+    private final EventOutboxRepository eventOutboxRepository;
+
+    /**
+     * 알림 요청 하나를 outbox 에 적는다 — <b>호출부의 도메인 트랜잭션 안에서</b>.
+     *
+     * @param request 판정이 끝난 요청
+     * @return 새로 적었으면 그 봉투. 같은 결정적 키가 <b>이미 있으면</b> {@link Optional#empty()} —
+     *     호출부는 이것을 「중복 감지」로 세고 실패로 다루지 않는다
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<EventEnvelope> append(NotificationRequest request) {
+        AggregateRef aggregate = AggregateRef.ofUser(request.userId());
+        // 「있으면 두고 없으면 적는다」는 조회와 삽입 사이에 창이 있다. 그 창에 같은 결정적 키가
+        // 동시에 들어오면 둘 다 「없다」를 보고 둘 다 INSERT 해, 한쪽이 UNIQUE 위반으로 죽으면서
+        // «도메인 트랜잭션 전체»를 되돌린다 — 중복 알림 하나를 막으려다 정산·친구 요청이 롤백된다.
+        //
+        // 그래서 조회 «전에» 유저 축 행을 배타 잠금한다. 이 유저의 알림 사건은 이 지점에서
+        // 직렬화되므로 뒤따르는 조회가 앞선 삽입을 반드시 본다. 잠금은 트랜잭션이 끝날 때까지 유지된다.
+        //
+        // 대가는 version 번호가 띈다는 것이다(중복이라 append 하지 않은 호출도 번호를 하나 쓴다).
+        // 소비 측은 «단조 증가»만 보고 «연속»에 기대지 않으므로 빈 번호는 무해하다.
+        outboxCommandPort.allocateVersion(aggregate);
+        String eventId = eventIdOf(request);
+        if (eventOutboxRepository.findByEventId(eventId).isPresent()) {
+            // 재훑기·겹치는 크론이 같은 사건을 다시 집은 것 — 정상이다.
+            return Optional.empty();
+        }
+        // scheduledAt 은 언제나 null 이다 — 이월(DEFER)은 «발행»을 미루는 일이 아니라 «발송»을 미루는
+        // 일이고, 그 판정에 필요한 조용한 시간 설정의 정본은 알림 DB 에 있다. relay 를 붙잡아 두면
+        // 설정이 그사이 바뀌어도 이미 박힌 시각으로 나가고, Kafka 에 아직 없는 사건은 알림 서버가
+        // 상태(설정 삭제·탈퇴·ack)를 반영할 기회조차 갖지 못한다.
+        EventEnvelope envelope = outboxCommandPort.append(new OutboxAppendCommand(
+                eventId,
+                SCHEMA_VERSION,
+                EVENT_TYPE,
+                request.userId(),
+                request.locale(),
+                request.subjectId() == null ? null : request.subjectId().toString(),
+                aggregate,
+                null,
+                paramsOf(request),
+                List.of(OutboxDeliveryRequest.toKafka())));
+        return Optional.of(envelope);
+    }
+
+    /**
+     * 결정적 사건 키 — {@code noti:<kind>:<userId>:<subjectId|none>:<시간축|none>}.
+     *
+     * <p>네 축이 전부 필요하다. kind 가 없으면 같은 회차의 결과와 환불이 한 건으로 접히고, userId 가
+     * 없으면 fan-out 이 첫 수신자 한 명으로 줄고, subjectId 가 없으면 서로 다른 회차가 뭉치고,
+     * 시간축이 없으면 매일 반복되는 알림이 첫날 이후 안 나간다.
+     *
+     * @param request 요청
+     * @return 결정적 키
+     */
+    String eventIdOf(NotificationRequest request) {
+        return NotificationEventKey.of(request.kind(), request.userId(), request.subjectId(),
+                request.occurredAtKeyHint());
+    }
+
+    /**
+     * 봉투 {@code params} 조립 — kind·묶음 메타·조용한 시간 정책을 공통으로 얹고 그 위에 렌더 입력을 둔다.
+     *
+     * <p>렌더 입력이 공통 키를 덮지 못하게 <b>공통을 나중에 넣는다</b> — {@code params.kind} 가
+     * 호출부 실수로 바뀌면 알림 서버가 다른 템플릿으로 렌더한다.
+     *
+     * @param request 요청
+     * @return 봉투에 실릴 params
+     */
+    private Map<String, Object> paramsOf(NotificationRequest request) {
+        Map<String, Object> params = new LinkedHashMap<>(request.params());
+        params.put("kind", request.kind().name());
+        params.put("quietPolicy", request.kind().quietPolicy().name());
+        if (request.groupId() != null) {
+            params.put("groupId", request.groupId().toString());
+        }
+        if (request.slotAt() != null) {
+            params.put("slotAt", request.slotAt().toString());
+        }
+        return params;
+    }
+}

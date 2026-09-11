@@ -110,6 +110,39 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     int clearDeviceToken(@Param("id") UUID id, @Param("invalidToken") String invalidToken);
 
     /**
+     * 삭제 명령이 지정한 토큰만 지운다 — <b>탈퇴 유저도 대상이다</b> (A22 ㊲ · ㊨).
+     *
+     * <p>{@link #clearDeviceToken} 과 나눈 이유는 {@code isDeleted = false} 조건 하나다. 탈퇴한 계정도
+     * 자기 기기 토큰은 지워져야 한다 — 안 그러면 <b>이전 계정 푸시가 그 기기로 계속 간다</b>. 앱은
+     * 토큰 DELETE 실패를 삼키고 로컬 인증을 지우므로 아무도 재시도하지 않는다.
+     *
+     * <p>대상 토큰 조건은 그대로 둔다 — 그 사이 같은 유저가 새 토큰을 등록했으면 그것까지 지워서는
+     * 안 된다(지연된 삭제가 새 등록을 지우는 ㊨ 와 같은 이유).
+     *
+     * @param id     대상 유저
+     * @param target 삭제 명령이 지목한 <b>바로 그</b> 토큰
+     * @return 지운 행 수. 0 은 토큰이 이미 바뀐 경우이고 오류가 아니다
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = false)
+    @Query("UPDATE User u SET u.deviceToken = null"
+            + " WHERE u.id = :id AND u.deviceToken = :target")
+    int clearDeviceTokenIncludingWithdrawn(@Param("id") UUID id, @Param("target") String target);
+
+    /**
+     * 유저의 기기 토큰을 조건 없이 지운다 — <b>대상 토큰을 모를 때만</b> (A22 ㊪).
+     *
+     * <p>현 앱의 {@code DELETE /users/me/device-token} 에는 본문이 없어 어떤 토큰을 지울지 알 수 없다.
+     * 그 기간에는 유저 단위로 지우고 그 경합(같은 유저의 새 등록을 지울 수 있다)을 인정한다 —
+     * 남겨 두면 이전 계정 푸시가 계속 가는 쪽이 더 나쁘다.
+     *
+     * @param id 대상 유저
+     * @return 지운 행 수
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = false)
+    @Query("UPDATE User u SET u.deviceToken = null WHERE u.id = :id AND u.deviceToken IS NOT NULL")
+    int clearDeviceTokenUnconditionally(@Param("id") UUID id);
+
+    /**
      * 게스트 승격(loginOrRegister) 전용 — 활성 **게스트** 행만 배타 락으로 잠근다 (GROMO-801, codex 리뷰 4차).
      * isGuest 술어가 쿼리 안에 있는 이유: 비게스트 인증 상태로 다른 소셜 계정에 로그인하는 "계정 전환"
      * 에서 (버려질) 현재 유저 A 까지 잠그면 트랜잭션 하나가 users 2행(현재 A + 로그인 대상 B)을 잠가,

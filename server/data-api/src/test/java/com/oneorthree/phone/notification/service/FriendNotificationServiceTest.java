@@ -3,17 +3,19 @@ package com.oneorthree.phone.notification.service;
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
+import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -56,8 +58,39 @@ class FriendNotificationServiceTest {
     private NotificationSentLogRepository notificationSentLogRepository;
     @Mock
     private PushNotificationService pushNotificationService;
-    @InjectMocks
+
     private FriendNotificationService service;
+
+    /**
+     * 서비스는 테스트마다 새로 조립한다 — {@code @InjectMocks} 로는 아래 {@code legacyDispatcher}
+     * 처럼 «목이 아닌 실물»을 끼워 넣을 수 없다.
+     *
+     * <p>{@code EntityManager} 는 {@code null} 이다. 그것을 쓰는 자리는 신 경로의
+     * {@code BEFORE_COMMIT} 적재뿐이고, 이 테스트가 보는 구 경로는 거기 닿지 않는다.
+     */
+    @BeforeEach
+    void assembleService() {
+        service = new FriendNotificationService(
+                friendshipRepository,
+                userQueryService,
+                notificationSentLogRepository,
+                pushNotificationService,
+                legacyDispatcher(pushNotificationService),
+                null);
+    }
+
+    /**
+     * 구 경로로 고정한 dispatcher — 이 테스트가 검증하는 것은 {@code LEGACY} 동작이다.
+     *
+     * <p>producer 를 {@code null} 로 둔다. 신 경로로 새면 곧바로 NPE 로 죽으므로, 기본 모드가
+     * 실수로 {@code OUTBOX} 로 바뀌면 이 테스트가 «조용히 통과»하지 않고 터진다.
+     *
+     * @param pushNotificationService 목으로 둔 발송부
+     * @return 구 경로 dispatcher
+     */
+    private static NotificationDispatcher legacyDispatcher(PushNotificationService pushNotificationService) {
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService);
+    }
 
     private static User user(UUID id, String nickname) {
         return User.builder().id(id).nickname(nickname).deviceToken("token-" + id).build();

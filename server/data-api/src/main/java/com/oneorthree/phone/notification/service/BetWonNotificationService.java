@@ -3,6 +3,10 @@ package com.oneorthree.phone.notification.service;
 import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.group.event.GroupBetWonEvent;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
@@ -49,6 +53,7 @@ public class BetWonNotificationService {
     private final UserQueryService userQueryService;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
 
     /**
      * 발송 본체 — 진입점(커밋 이후·비동기)은 {@code BetWonNotificationListener} 가 맡는다.
@@ -84,7 +89,11 @@ public class BetWonNotificationService {
         }
         boolean soundEnabled = settings == null || settings.isSoundEnabled();
         try {
-            if (pushNotificationService.sendIfAllowed(user, settings, compose(event, soundEnabled), now)) {
+            NotificationRequest request = new NotificationRequest(NotificationKind.BET_WON, user.getId(),
+                    event.sessionId(), event.groupId(), now, null, user.getLanguage(),
+                    Map.of("challengeId", event.challengeId().toString()));
+            if (notificationDispatcher.dispatch(user, settings, request,
+                    compose(event, soundEnabled), now).recordsLegacyLog()) {
                 notificationSentLogRepository.updateStatusByIds(
                         List.of(rowId), NotificationSendStatus.SENT, now);
                 log.info("승리 확정 푸시 — userId={}, sessionId={}", user.getId(), event.sessionId());
@@ -97,6 +106,40 @@ public class BetWonNotificationService {
         // 필터 스킵·발송 실패 — 선점을 반납한다(조기 확정은 재발행이 드물어 재시도 경로는 얇다).
         notificationSentLogRepository.deleteByIds(List.of(rowId));
         return false;
+    }
+
+
+    /**
+     * 신 경로 진입점 — <b>승리 확정 트랜잭션 안에서</b> 사건을 적는다.
+     *
+     * <p>구 경로는 선점 행({@code notification_sent_logs})으로 중복을 막았다. 신 경로는 그 자리를
+     * 결정적 사건 키가 대신하므로 <b>선점 행을 만들지 않는다</b> — 만들면 Data 와 알림 DB 두 곳에
+     * 발송 이력이 생겨 이관 후 어느 쪽이 정본인지가 흐려진다(계약 §5).
+     *
+     * <p>조용한 시간 판정도 하지 않는다. {@code BET_WON} 의 정책({@code DROP})만 봉투에 실어 보내고
+     * 실제 판정은 설정의 정본을 가진 알림 서버가 한다.
+     *
+     * @param event 승리가 확정된 참가자
+     * @return 적었으면 true
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean enqueueWonNotification(GroupBetWonEvent event) {
+        return notificationDispatcher.enqueueOnly(new NotificationRequest(
+                NotificationKind.BET_WON, event.userId(), event.sessionId(), event.groupId(),
+                null, null, localeOf(event.userId()),
+                Map.of("challengeId", event.challengeId().toString())))
+                == NotificationDispatchOutcome.QUEUED;
+    }
+
+    /**
+     * 수신자의 보고된 로케일 — 모르면 {@code null}(수신 측이 ko 폴백). 탈퇴자는 조회되지 않으므로
+     * 역시 {@code null} 이 되고, 발송 여부 자체는 알림 서버의 적격성 판정이 다시 가른다.
+     *
+     * @param userId 수신자
+     * @return 로케일 또는 {@code null}
+     */
+    private String localeOf(UUID userId) {
+        return userQueryService.findActive(userId).map(User::getLanguage).orElse(null);
     }
 
     /** payload = groupId + challengeId(IA §4.2). link 는 싣지 않는다 — 앱이 groupId 로 합성한다. */

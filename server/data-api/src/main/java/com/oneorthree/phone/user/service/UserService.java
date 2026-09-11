@@ -25,11 +25,13 @@ import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
+import com.oneorthree.phone.user.event.UserDisplayNameChangedEvent;
 import com.oneorthree.phone.user.dto.NotificationSettingsResponse;
 import com.oneorthree.phone.user.dto.SocialLinkResponse;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.user.dto.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,6 +72,11 @@ public class UserService {
     private final SocialAccountRepository socialAccountRepository;
     private final OccupationInfoRepository occupationInfoRepository;
     private final UserActivityEventLogger userActivityEventLogger;
+    /**
+     * 닉네임 변경 사실을 위로 올리는 통로 (A22 ㋡). {@code user} 는 모든 도메인의 바닥이라 갱신
+     * 대상인 {@code group} 을 직접 참조할 수 없다 — 소비자는 동기 리스너라 같은 트랜잭션에서 돈다.
+     */
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 닉네임 규칙 단일점 (GROMO-1215) — trim 후 2~10자. 검사(check API)와 저장(POST/PATCH)이
@@ -218,6 +225,11 @@ public class UserService {
         } catch (DataIntegrityViolationException e) {
             throw new UserException(UserErrorCode.NICKNAME_DUPLICATE);
         }
+        // 링크 랜딩이 표시할 «발급자 닉네임»의 정본이 바뀌었다(A22 ㋡). 현행 resolveLanding 은 열
+        // 때마다 여기를 다시 읽지만 링크가 분리되면 그 조회가 불가능하다 — 같은 트랜잭션에서
+        // 갱신 명령을 만들어 둔다. 직접 호출이 아니라 이벤트인 이유는 의존 방향뿐이다(GROMO-1656):
+        // user 는 바닥이라 group 을 참조할 수 없고, 소비자는 동기 @EventListener 라 이 트랜잭션에서 돈다.
+        eventPublisher.publishEvent(new UserDisplayNameChangedEvent(user.getId(), nickname));
     }
 
     /**

@@ -3,7 +3,7 @@
 // 서버(392)는 firebase-admin으로 발송한다. iOS는 오는 알림을 표시/라우팅만 담당한다.
 import messaging, { type FirebaseMessagingTypes } from '@react-native-firebase/messaging';
 import * as Notifications from 'expo-notifications';
-import { api } from '@/services/api';
+import { queueDeviceRegistration } from '@/services/notificationCommands';
 import { addToInbox } from '@/services/notificationInbox';
 import { notifyBetResultPush } from '@/services/betResultSignal';
 import { markRefundPushIntent } from '@/services/refundPushIntent';
@@ -29,14 +29,12 @@ Notifications.setNotificationHandler({
   }),
 });
 
-const DEVICE_TOKEN_ENDPOINT = '/api/v1/users/me/device-token';
-
-// FCM 토큰을 서버에 등록. 실패해도 앱 흐름은 막지 않는다.
+// FCM 토큰을 먼저 내구 저장하고 재시도에도 같은 멱등 키를 사용한다.
 async function putDeviceToken(deviceToken: string): Promise<void> {
   try {
-    await api.put(DEVICE_TOKEN_ENDPOINT, { deviceToken });
+    await queueDeviceRegistration(deviceToken);
   } catch {
-    // TODO: 등록 실패 재시도 정책(예: 다음 앱 진입 시 재시도). 현재는 조용히 무시.
+    // 로컬 저장 실패는 다음 권한 확인/토큰 갱신 때 다시 시도한다.
   }
 }
 

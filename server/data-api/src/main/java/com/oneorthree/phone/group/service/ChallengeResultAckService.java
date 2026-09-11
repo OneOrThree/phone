@@ -230,6 +230,36 @@ public class ChallengeResultAckService {
         eventPublisher.publishEvent(new BetResultAcknowledgedEvent(userId, sessionId, now));
     }
 
+    /**
+     * 정본 ack 상태 조회 — <b>알림 서버의 자기 수렴 경로</b>다 (A22 ⓓ · 조회 3종의 두 번째).
+     *
+     * <p>없으면 영구 억제가 실재한다: {@code HELD} 리스 만료는 {@code NEEDS_CONFIRM} 으로 넘어가
+     * flush 가 계속 건너뛰는데, 해제는 {@code commit} · {@code abort} · <b>이 조회</b> 세 길뿐이다.
+     * 「롤백 직후 프로세스가 죽는 구간」에서는 abort 행이 안 생기므로 이 조회가 <b>유일한 탈출구</b>다.
+     *
+     * <p><b>행이 없어도 예외가 아니다.</b> 「아직 확인되지 않았다」와 「그 참가가 없다」는 억제를
+     * 푸는 쪽에서는 결론이 같고, 여기서 404 를 던지면 수렴 경로가 그 예외에 막힌다.
+     *
+     * @param userId    확인 주체
+     * @param sessionId 회차
+     * @return 확인 여부와 시각. 행이 없으면 「미확인」
+     */
+    @Transactional(readOnly = true)
+    public ResultAckState readAckState(UUID userId, UUID sessionId) {
+        return readClaimState(userId, sessionId)
+                .map(state -> new ResultAckState(state.getAcknowledgedAt() != null, state.getAcknowledgedAt()))
+                .orElseGet(() -> new ResultAckState(false, null));
+    }
+
+    /**
+     * 정본 ack 상태.
+     *
+     * @param acknowledged   확인 표시가 찍혔는가
+     * @param acknowledgedAt 확인 시각. 미확인이면 {@code null}
+     */
+    public record ResultAckState(boolean acknowledged, Instant acknowledgedAt) {
+    }
+
     /** 조회 축과 같은 락 없는 활성 검증(GROMO-1230) — 잠글 대상은 참가 행이지 유저 행이 아니다. */
     private void requireActiveUser(UUID userId) {
         userQueryService.getCaller(userId);

@@ -92,6 +92,11 @@ public class GroupService {
     private final UserActivityEventLogger userActivityEventLogger;
     private final InviteAttributionPort inviteAttributionPort;
     private final Ga4MeasurementClient ga4MeasurementClient;
+    /**
+     * 가입 귀속·그룹명 변경을 링크 서버로 나르는 내구 명령 (A22 ⓑ′ · ㋡). 커밋 후 발행이 아니라
+     * 같은 트랜잭션의 outbox 여야 한다 — 응답 유실·프로세스 종료 시 보낼 주체가 사라진다.
+     */
+    private final LinkMembershipEventService linkMembershipEventService;
 
     /**
      * 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 참가 코드 생성 전용 상수다.
@@ -342,6 +347,9 @@ public class GroupService {
         // 6. 자진 탈퇴자 재가입이면 기존 행 되살리기(유니크 제약 회피), 아니면 신규 저장 (role = MEMBER)
         if (priorMembership.isPresent()) {
             priorMembership.get().rejoin();
+            // 재가입도 멤버십 전이다(ⓚ: 탈퇴·강퇴·«재가입»). 여기서 세대를 올리지 않으면 탈퇴 전에
+            // 공유된 옛 링크가 재가입과 함께 그대로 되살아난다.
+            linkMembershipEventService.recordMembershipRejoined(priorMembership.get());
         } else {
             groupMemberRepository.save(GroupMember.builder()
                     .user(user)
@@ -355,6 +363,14 @@ public class GroupService {
         //    불일치·미존재면 slug 만 버리고 참여 자체는 정상 진행한다 — 초대 어트리뷰션은 부가 정보다.
         InviteAttribution invite = resolveInviteAttribution(groupId, userId, request.getInviteSlug());
         publishJoinAttribution(group, request, invite);
+        // 링크 서버로 가는 귀속은 «커밋 후 fire-and-forget» 이면 안 된다(ⓑ′) — 응답 유실·프로세스
+        // 종료 시 보낼 주체가 사라진다. 위 두 트랙(GA4·Track2)과 달리 이쪽은 같은 트랜잭션의
+        // outbox 에 적고 relay 가 재전달한다.
+        if (invite != null) {
+            linkMembershipEventService.recordJoinAttribution(
+                    groupId, userId, invite.inviterId(), invite.slug(),
+                    normalizeJoinMethod(request.getJoinMethod()));
+        }
     }
 
     /**
@@ -650,6 +666,12 @@ public class GroupService {
 
         if (request.getName() != null) {
             group.updateName(request.getName());
+            // 표시정보 스냅샷 갱신 (A22 ㋡) — 현행 resolveLanding 은 랜딩을 «열 때마다» 현재 이름을
+            // 조회한다. 링크가 분리되면 그 조회가 불가능하므로 변경을 전달해야 하고, 늦게 온 갱신이
+            // 최신 이름을 덮지 않도록 snapshotVersion 을 함께 올린다.
+            // ⚠️ 멤버십 세대는 «건드리지 않는다» — 이름이 바뀌었다고 세대가 오르면 그 순간 공유된
+            //    링크가 전부 무효가 된다.
+            linkMembershipEventService.recordGroupRenamed(group);
         }
 
         if (request.getMaxMembers() != null) {

@@ -61,6 +61,7 @@ import { beginTagEditTransition } from '@/screens/focus/tagSync';
 import { abortFocusRestore } from '@/screens/focus/focusRestore';
 import { PendingFocusUploader } from '@/screens/focus/PendingFocusUploader';
 import { PushGate } from '@/components/PushGate';
+import { NotificationCommandGate } from '@/components/NotificationCommandGate';
 import { UpdateAlert } from '@/components/UpdateAlert';
 import { PendingGoalApplier } from '@/components/PendingGoalApplier';
 import { ScreenTimeSyncer } from '@/components/ScreenTimeSyncer';
@@ -321,6 +322,8 @@ function App() {
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.accessToken,
         STORAGE_KEYS.refreshToken,
+        STORAGE_KEYS.deviceBootstrap,
+        STORAGE_KEYS.authSessionId,
         STORAGE_KEYS.user,
         STORAGE_KEYS.onboardingComplete,
         STORAGE_KEYS.focusCategory,
@@ -629,6 +632,7 @@ function App() {
       style={Platform.OS === 'web' ? styles.webRoot : undefined}
     >
       <ToastProvider>
+        <NotificationCommandGate />
         <DeepLinkGate />
         {/* 앱스토어 새 버전 업데이트 권장 알림 — **인증 분기 밖**: 로그인·온보딩 화면에서도
             앱 시작 시 확인이 돌아야 한다(코드리뷰). 오버레이 조정은 컴포넌트가 모듈 통로

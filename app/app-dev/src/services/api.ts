@@ -116,6 +116,8 @@ export function triggerRelogin(opts?: { fromGuest?: boolean }): Promise<void> {
 interface RefreshResponse {
   accessToken: string;
   refreshToken?: string;
+  deviceBootstrap?: string;
+  sessionId?: string;
 }
 
 // 진행 중인 토큰 갱신 Promise. 동시 다발 401이 와도 갱신은 한 번만 실행되도록
@@ -169,6 +171,9 @@ async function doRefreshAccessToken(
     if (data.refreshToken) {
       await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
     }
+    if (data.deviceBootstrap)
+      await AsyncStorage.setItem(STORAGE_KEYS.deviceBootstrap, data.deviceBootstrap);
+    if (data.sessionId) await AsyncStorage.setItem(STORAGE_KEYS.authSessionId, data.sessionId);
     return data.accessToken;
   } finally {
     release?.();

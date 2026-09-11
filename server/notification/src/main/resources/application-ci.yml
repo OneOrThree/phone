@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/notification_test
+    username: test
+    password: test
+  kafka:
+    bootstrap-servers: localhost:9092
+notification:
+  tokens:
+    business: test-business
+    data: test-data
+    console: test-console
+  data-url: http://localhost:18080
+  data-token: test-noti-to-data

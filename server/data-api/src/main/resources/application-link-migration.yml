@@ -1,0 +1,13 @@
+# 이관 창에만 dev/prod,satellites 뒤에 추가한다. 기존 운영자 자격을 사용하며 서비스 토큰과 공유하지 않는다.
+# 정상 서비스 프로파일에는 이 caller가 없다. 정지·drain 확인 후 freeze를 호출하고 완료 뒤 프로파일을 회수한다.
+internal:
+  api:
+    callers:
+      migration:
+        token: ${BATCH_ADMIN_KEY}
+        allow:
+          - 'POST /internal/migrations/*/invite-link-clicks/freeze'
+          - 'GET /internal/migrations/*/invite-link-clicks/manifest'
+          - 'GET /internal/migrations/*/invite-link-clicks/clicks'
+          - 'GET /internal/migrations/*/invite-links'
+          - 'POST /internal/migrations/*/invite-link-clicks/close-import'

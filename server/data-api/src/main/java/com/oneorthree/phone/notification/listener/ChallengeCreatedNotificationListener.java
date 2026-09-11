@@ -2,6 +2,7 @@ package com.oneorthree.phone.notification.listener;
 
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
 import com.oneorthree.phone.config.NotificationAsyncConfig;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.service.ChallengeCreatedNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +35,7 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class ChallengeCreatedNotificationListener {
 
+    private final NotificationDispatcher notificationDispatcher;
     private final ChallengeCreatedNotificationService challengeCreatedNotificationService;
 
     /**
@@ -52,6 +54,11 @@ public class ChallengeCreatedNotificationListener {
     @Async(NotificationAsyncConfig.PUSH_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onChallengeCreated(GroupChallengeCreatedEvent event) {
+        if (notificationDispatcher.isOutboxMode()) {
+            // 신 경로에서는 BEFORE_COMMIT 리스너가 이미 사건을 적었다. 여기서 또 처리하면 같은
+            // 알림이 FCM 으로도 가고 Kafka 로도 간다 — 챌린지 개설 알림이 두 번 도착한다.
+            return;
+        }
         try {
             challengeCreatedNotificationService.sendCreatedNotifications(event, Instant.now());
         } catch (RuntimeException e) {

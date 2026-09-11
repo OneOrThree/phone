@@ -42,6 +42,11 @@ public class GroupMemberService {
     private final UserQueryService userQueryService;
     private final UserActivityEventLogger userActivityEventLogger;
     private final GroupBetService groupBetService;
+    /**
+     * 멤버십 전이·그룹 종료를 링크 서버로 나르는 내구 명령 (A22 ⓑ · ㋢). 같은 트랜잭션에서 적는다 —
+     * 커밋 후 발행이면 응답 유실·프로세스 종료 시 보낼 주체가 사라진다.
+     */
+    private final LinkMembershipEventService linkMembershipEventService;
 
     /**
      * 방장을 넘긴다 — 대상이 OWNER 로 오르고 요청자는 같은 트랜잭션에서 MEMBER 로 내려온다.
@@ -121,6 +126,10 @@ public class GroupMemberService {
 
         // 강퇴 마킹. 진행 중 내기 판돈은 건드리지 않는다(지갑 생존 → 정산 시 정상 지급/환불, 엔진 무변경).
         target.kick();
+        // 멤버십 전이 = 그 (그룹, 발급자) 링크의 폐기다(A22 ⓑ). Business 의 revoke 만 있으면
+        // 그것이 실패했을 때 예전 slug 가 살아 «비공개 그룹 무단 가입»이 된다 — 같은 트랜잭션에서
+        // outbox 를 적고 relay 가 재전달한다.
+        linkMembershipEventService.recordMembershipRevoked(target);
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
     }
 
@@ -156,9 +165,14 @@ public class GroupMemberService {
 
         if (groupMembers.size() == 1) {
             groupMember.leave();
+            linkMembershipEventService.recordMembershipRevoked(groupMember);
             group.close();
+            // 그룹 종료는 폐기와 «별개 사건»이다(㋢) — 현행 랜딩·매치가 둘 다 findActiveGroup 으로
+            // 실시간 판정하므로, 안 보내면 죽은 그룹의 slug 가 계속 랜딩·매치에 성공한다.
+            linkMembershipEventService.recordGroupClosed(group);
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
             groupMember.leave();
+            linkMembershipEventService.recordMembershipRevoked(groupMember);
         }
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
     }
@@ -203,7 +217,10 @@ public class GroupMemberService {
         for (GroupMember ownerMembership : groupMemberRepository.findActiveOwnerMembershipsByUserId(userId)) {
             if (groupMemberRepository.findByGroup(ownerMembership.getGroup()).size() <= 1) {
                 ownerMembership.leave();
+                linkMembershipEventService.recordMembershipRevoked(ownerMembership);
                 ownerMembership.getGroup().close();
+                // 그룹 종료도 함께 전달한다(㋢). 폐기만 보내면 그 그룹의 «다른» 발급자 링크가 남는다.
+                linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup());
             }
         }
 
@@ -216,6 +233,7 @@ public class GroupMemberService {
 
         for (GroupMember membership : groupMemberRepository.findByUser(user)) {
             membership.leave();
+            linkMembershipEventService.recordMembershipRevoked(membership);
         }
     }
 

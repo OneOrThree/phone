@@ -59,6 +59,13 @@ import static org.mockito.Mockito.verify;
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
 
+    /**
+     * 닉네임 변경 사실을 위로 올리는 통로 (GROMO-1660 · A22 ㋡) — 소비자(링크 표시정보 갱신)는
+     * group 도메인에 있고, 이 클래스가 보는 것은 user 쪽 저장 규칙이라 발행만 목으로 확인한다.
+     */
+    @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+
     @InjectMocks
     private UserService userService;
 

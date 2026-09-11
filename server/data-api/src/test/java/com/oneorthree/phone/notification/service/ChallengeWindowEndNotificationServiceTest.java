@@ -15,6 +15,8 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.service.WindowFocusAggregator;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
+import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
@@ -86,7 +88,21 @@ class ChallengeWindowEndNotificationServiceTest {
                         groupMemberRepository,
                         userQueryService,
                         notificationSentLogRepository,
-                        pushNotificationService));
+                        pushNotificationService,
+                        legacyDispatcher(pushNotificationService)));
+    }
+
+    /**
+     * 구 경로로 고정한 dispatcher — 이 테스트가 검증하는 것은 {@code LEGACY} 동작이다.
+     *
+     * <p>producer 를 {@code null} 로 둔다. 신 경로로 새면 곧바로 NPE 로 죽으므로, 기본 모드가
+     * 실수로 {@code OUTBOX} 로 바뀌면 이 테스트가 «조용히 통과»하지 않고 터진다.
+     *
+     * @param pushNotificationService 목으로 둔 발송부
+     * @return 구 경로 dispatcher
+     */
+    private static NotificationDispatcher legacyDispatcher(PushNotificationService pushNotificationService) {
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService);
     }
 
     private static Group group() {

@@ -69,6 +69,19 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     List<GroupMember> findByUser(@Param("user") User user);
 
     /**
+     * 유저 PK 로 활성 멤버십 전부 (GROMO-1660) — 표시정보 변경 relay 의 대상 목록이다(A22 ㋡).
+     *
+     * <p>{@link #findByUser} 와 나눈 이유는 <b>인자</b> 하나다. 닉네임 변경은 {@code user} 도메인에서
+     * 시작하는데 그쪽은 이 도메인을 참조할 수 없어(레이어 방향) {@code User} 엔티티가 아니라 PK 만
+     * 건네진다 — 여기서 유저를 다시 로드하면 그 한 번의 왕복이 순전히 타입을 맞추려는 비용이 된다.
+     *
+     * @param userId 유저 PK
+     * @return 이탈하지 않은 멤버십 전부
+     */
+    @Query("SELECT gm FROM GroupMember gm WHERE gm.user.id = :userId AND gm.isLeft = false")
+    List<GroupMember> findActiveMembershipsByUserId(@Param("userId") UUID userId);
+
+    /**
      * 활성 멤버십만 — 강퇴/탈퇴(is_left)는 없는 것으로 본다(멤버십 검증·권한 판정 공용).
      *
      * @param user 검증할 유저

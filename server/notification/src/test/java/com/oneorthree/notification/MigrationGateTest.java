@@ -1,0 +1,541 @@
+package com.oneorthree.notification;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.Statement;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.when;
+
+/** 이관 적재·검증·발송 게이트. 매니페스트 태그가 아니라 «실제 PG 행»으로 닫는다. */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("ci")
+@Testcontainers
+class MigrationGateTest {
+
+    @Container
+    static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final UUID USER = UUID.fromString("33333333-3333-4333-8333-333333333333");
+    static final Instant DAY = Instant.parse("2026-09-11T03:00:00Z");
+    static final long CLOSED_AT = DAY.minusSeconds(600).toEpochMilli();
+
+    @DynamicPropertySource
+    static void database(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", PG::getJdbcUrl);
+        registry.add("spring.datasource.username", PG::getUsername);
+        registry.add("spring.datasource.password", PG::getPassword);
+        // 최초 게이트 개방은 구 AT 롤아웃 창이 닫힌 뒤에만 허용된다(root 운영 제약).
+        registry.add("notification.generation-required", () -> "true");
+    }
+
+    @Autowired MockMvc mvc;
+    @Autowired Store store;
+    @Autowired DataSource dataSource;
+    @Autowired DeviceService devices;
+    @Autowired SettingsService settings;
+    @Autowired AckService ack;
+    @MockitoBean PushTransport transport;
+    @MockitoBean DataClient data;
+    @MockitoBean Clock clock;
+
+    @BeforeEach
+    void resetState() {
+        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,session_fences,"
+                + "user_fences,settings,projections,result_ack,templates,deeplinks,kinds,jobs,job_runs,"
+                + "admin_audit,imports,migration_state CASCADE");
+        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false,active_migration_id=NULL");
+        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('BET_RESULT','BYPASS')");
+        store.update("INSERT INTO templates(id,kind,locale,title,body)"
+                + " VALUES('BET_RESULT.ko','BET_RESULT','ko','결과','내기 {count}건')");
+        reset(transport, data, clock);
+        when(clock.instant()).thenReturn(DAY);
+        when(clock.getZone()).thenReturn(ZoneOffset.UTC);
+        when(data.eligible(any(), anyString(), any(), any())).thenReturn(true);
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.SENT);
+    }
+
+    @Test
+    void reimportSkipsUnchangedKeysAndRewritesTheWholeRecordWhenItChanges() throws Exception {
+        Map<String, Object> first = body(load("i1", records(true, 5)));
+        assertThat(Json.map(first.get("outcome"))).containsEntry("IMPORTED", 3);
+        assertThat(body(load("i2", records(true, 5))).get("outcome"))
+                .isEqualTo(Map.of("SKIPPED", 3));
+        assertThat(store.rows("SELECT * FROM imports")).hasSize(3);
+        // 이미 행이 있어도 뒤늦은 opt-out 이 반드시 반영돼야 한다(ON CONFLICT DO NOTHING 금지, §7.1 ②).
+        assertThat(body(load("i3", List.of(settingsRecord(false, 6)))).get("outcome"))
+                .isEqualTo(Map.of("IMPORTED", 1));
+        assertThat(store.one("SELECT notification_enabled,version FROM settings WHERE user_id=?", USER))
+                .containsEntry("notification_enabled", false).containsEntry("version", 6L);
+    }
+
+    @Test
+    void importNeverResurrectsTombstonedDevicesOrSentDeliveries() throws Exception {
+        load("i1", records(true, 5));
+        devices.delete(USER, "tok-1", null, null, "logout");
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='tok-1'"))
+                .containsEntry("active", false);
+        Map<String, Object> laterDevice = deviceRecord(4L, true);
+        assertThat(body(load("i2", List.of(laterDevice))).get("outcome")).isEqualTo(Map.of("SUPERSEDED", 1));
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='tok-1'"))
+                .containsEntry("active", false);
+        // 종결된 발송을 미발송으로 되돌리면 재훑기가 같은 회차를 다시 선점한다(A22 ⓗ).
+        store.update("UPDATE deliveries SET status='SENT',sent_at=? WHERE event_id='ev-1'",
+                java.sql.Timestamp.from(DAY));
+        Map<String, Object> reopened = deliveryRecord("PENDING", 7);
+        assertThat(body(load("i3", List.of(reopened))).get("outcome")).isEqualTo(Map.of("SUPERSEDED", 1));
+        assertThat(store.one("SELECT status,attempts FROM deliveries WHERE event_id='ev-1'"))
+                .containsEntry("status", "SENT").containsEntry("attempts", 0);
+    }
+
+    @Test
+    void verifyComparesActualRowsFieldByFieldAndRendersUnsentOnes() throws Exception {
+        List<Map<String, Object>> records = records(true, 5);
+        load("i1", records);
+        assertThat(verify(records, 1, 0).getResponse().getStatus()).isEqualTo(200);
+        assertThat(store.one("SELECT verified_at FROM migration_state WHERE id='m1'").get("verified_at")).isNotNull();
+        // 필드 하나만 어긋나도 걸린다 — 존재 여부 검사로 퇴화하지 않는다.
+        store.update("UPDATE settings SET sound_enabled=false WHERE user_id=?", USER);
+        Map<String, Object> report = body(verify(records, 1, 0));
+        assertThat(report).containsEntry("verified", false);
+        assertThat(reasons(report)).contains("FIELD_MISMATCH");
+        assertThat(Json.map(((List<?>) report.get("failures")).get(0)))
+                .containsEntry("scope", "settings.soundEnabled");
+        assertThat(store.one("SELECT verified_at FROM migration_state WHERE id='m1'").get("verified_at")).isNull();
+        store.update("UPDATE settings SET sound_enabled=true WHERE user_id=?", USER);
+        assertThat(body(verify(records, 1, 0))).containsEntry("verified", true);
+        // 미발송 행은 코어 추가 조회 없이 렌더돼야 한다(§7.1.1).
+        store.update("DELETE FROM templates WHERE id='BET_RESULT.ko'");
+        assertThat(reasons(body(verify(records, 1, 0)))).contains("RENDER_FAILED");
+    }
+
+    @Test
+    void manifestCountAndChecksumGapsFailVerification() throws Exception {
+        List<Map<String, Object>> records = records(true, 5);
+        load("i1", records);
+        Map<String, Object> manifest = manifest(records, 1, 0);
+        Map<String, Object> resources = new LinkedHashMap<>(Json.map(manifest.get("resources")));
+        Map<String, Object> settingsEntry = new LinkedHashMap<>(Json.map(resources.get("settings")));
+        settingsEntry.put("count", 2);
+        resources.put("settings", settingsEntry);
+        manifest.put("resources", resources);
+        assertThat(reasons(body(post("/internal/admin/migration/m1/verify", null,
+                Map.of("manifest", manifest))))).contains("COUNT_MISMATCH");
+        settingsEntry.put("count", 1);
+        settingsEntry.put("checksum", Json.digest("손댄 값"));
+        resources.put("settings", settingsEntry);
+        manifest.put("resources", resources);
+        assertThat(reasons(body(post("/internal/admin/migration/m1/verify", null,
+                Map.of("manifest", manifest))))).contains("CHECKSUM_MISMATCH");
+    }
+
+    @Test
+    void stopWindowEvidenceIsRequiredAndMustBeDrained() throws Exception {
+        List<Map<String, Object>> records = records(true, 5);
+        load("i1", records);
+        assertThat(reasons(body(verify(records, 1, 3)))).contains("STOP_WINDOW_NOT_DRAINED");
+        Map<String, Object> manifest = manifest(records, 1, 0);
+        manifest.remove("stopWindow");
+        // 증거 자체가 없으면 fail-closed 다.
+        assertThat(code(post("/internal/admin/migration/m1/verify", null, Map.of("manifest", manifest))))
+                .isEqualTo("INVALID_stopWindow");
+        assertThat(store.one("SELECT enabled FROM dispatch_control WHERE id=1")).containsEntry("enabled", false);
+    }
+
+    @Test
+    void openReRunsVerificationAndEverOpenedNeverGoesBack() throws Exception {
+        List<Map<String, Object>> records = records(true, 5);
+        load("i1", records);
+        assertThat(body(verify(records, 1, 0))).containsEntry("verified", true);
+        // verified_at 태그가 서 있어도 개방 시점에 DB 가 어긋나 있으면 열리지 않는다.
+        store.update("UPDATE settings SET night_end_time='08:00:00' WHERE user_id=?", USER);
+        assertThat(code(open("o1", records, 1))).isEqualTo("VERIFICATION_FAILED");
+        assertThat(store.one("SELECT enabled,ever_opened FROM dispatch_control WHERE id=1"))
+                .containsEntry("enabled", false).containsEntry("ever_opened", false);
+        assertThat(store.one("SELECT verified_at FROM migration_state WHERE id='m1'").get("verified_at")).isNull();
+        store.update("UPDATE settings SET night_end_time='07:00:00' WHERE user_id=?", USER);
+        assertThat(body(verify(records, 1, 0))).containsEntry("verified", true);
+        Map<String, Object> opened = body(open("o2", records, 1));
+        assertThat(Json.map(opened.get("dispatch"))).containsEntry("enabled", true)
+                .containsEntry("everOpened", true);
+        assertThat(store.one("SELECT opened_at FROM migration_state WHERE id='m1'").get("opened_at")).isNotNull();
+        // 닫아도 ever_opened 는 되돌아가지 않는다 — 개방 이후는 roll-forward 전용이다(A22 ㋭).
+        Map<String, Object> closed = body(post("/internal/admin/dispatch/close", "c1", Map.of()));
+        assertThat(Json.map(closed.get("dispatch"))).containsEntry("enabled", false)
+                .containsEntry("everOpened", true);
+        assertThat(closed).containsEntry("drained", true);
+        assertThat(code(load("i9", records))).isEqualTo("IMPORT_CLOSED");
+    }
+
+    @Test
+    void anyImportInvalidatesAnEarlierVerification() throws Exception {
+        List<Map<String, Object>> records = records(true, 5);
+        load("i1", records);
+        assertThat(body(verify(records, 1, 0))).containsEntry("verified", true);
+        UUID other = UUID.fromString("44444444-4444-4444-8444-444444444444");
+        Map<String, Object> extra = new LinkedHashMap<>(settingsRecord(true, 1));
+        Map<String, Object> payload = new LinkedHashMap<>(Json.map(extra.get("data")));
+        payload.put("userId", other.toString());
+        extra.put("data", payload);
+        assertThat(body(load("i2", List.of(extra)))).containsEntry("verificationCleared", true);
+        assertThat(code(open("o1", records, 1))).isEqualTo("MIGRATION_NOT_VERIFIED");
+    }
+
+    @Test
+    void closedGateStillAppliesSettingsDeviceAndAck() {
+        assertThat(store.one("SELECT enabled FROM dispatch_control WHERE id=1")).containsEntry("enabled", false);
+        Map<String, Object> preferences = new LinkedHashMap<>();
+        preferences.put("notificationEnabled", false);
+        preferences.put("soundEnabled", true);
+        preferences.put("nightModeEnabled", false);
+        preferences.put("nightStartTime", null);
+        preferences.put("nightEndTime", null);
+        settings.apply(USER, preferences, 3, "s1");
+        assertThat(settings.read(USER)).containsEntry("notificationEnabled", false);
+        devices.register(USER, Map.of("deviceToken", "tok-live", "deviceBootstrap", "b", "sessionEpoch", 1,
+                "authGeneration", 0), "d1");
+        devices.delete(USER, "tok-live", null, null, "d2");
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='tok-live'"))
+                .containsEntry("active", false);
+        UUID session = UUID.randomUUID();
+        assertThat(ack.command(USER, session, "prepare", "a1")).containsEntry("state", "HELD");
+    }
+
+    @Test
+    void replayQueuesMissedRunsWithoutMarkingThemDone() throws Exception {
+        store.update("INSERT INTO jobs(id,owner,cron) VALUES('league-weekly','DATA','0 0 7 * * MON'),"
+                + "('bundle-flush','NOTIFICATION','0 0 * * * *')");
+        assertThat(code(post("/internal/admin/jobs/ghost/replay", "r0", window(5)))).isEqualTo("UNKNOWN_JOB");
+        assertThat(store.rows("SELECT * FROM job_runs")).isEmpty();
+        assertThat(code(post("/internal/admin/jobs/league-weekly/replay", "r1", window(5))))
+                .isEqualTo("JOB_OWNED_BY_DATA");
+        Map<String, Object> replayed = body(post("/internal/admin/jobs/bundle-flush/replay", "r2", window(5)));
+        assertThat(replayed).containsEntry("missed", 5).containsEntry("queued", 5).containsEntry("executed", false);
+        assertThat(store.rows("SELECT * FROM job_runs WHERE completed_at IS NULL")).hasSize(5);
+        // 같은 창을 다시 요청해도 이미 등록된 회차를 두 번 만들지 않는다.
+        assertThat(body(post("/internal/admin/jobs/bundle-flush/replay", "r3", window(5))))
+                .containsEntry("missed", 5).containsEntry("queued", 0);
+        assertThat(code(post("/internal/admin/jobs/bundle-flush/replay", "r4", window(300))))
+                .isEqualTo("REPLAY_WINDOW_TOO_LARGE");
+        assertThat(code(post("/internal/admin/jobs/bundle-flush/replay", "r5", Map.of())))
+                .isEqualTo("REPLAY_WINDOW_REQUIRED");
+    }
+
+    /**
+     * A 계정의 구 export 를 적재한 뒤 같은 기기가 B 계정으로 라이브 전환되면,
+     * 뒤늦게 «다시» 도착한 A 의 export 는 그 토큰을 되찾아가면 안 된다.
+     * 되돌리면 ownership_token 은 B 값 그대로인 채 user_id 만 A 가 되어 A 의 알림이 B 의 기기로 간다.
+     */
+    @Test
+    void aLateLegacyExportCannotTakeBackATokenThatLiveRegistrationMovedToAnotherAccount() throws Exception {
+        UUID accountB = UUID.fromString("55555555-5555-4555-8555-555555555555");
+        assertThat(body(load("i1", List.of(deviceRecord(3L, true)))).get("outcome"))
+                .isEqualTo(Map.of("IMPORTED", 1));
+        UUID importedOwnership = (UUID) store.one("SELECT ownership_token FROM device_tokens"
+                + " WHERE device_token='tok-1'").get("ownership_token");
+        devices.register(accountB, Map.of("deviceToken", "tok-1", "deviceBootstrap", "switch",
+                "sessionEpoch", 1, "authGeneration", 0), "switch");
+        // 증분 백필 재시도로 A 의 export 가 한 번 더 도착한다.
+        assertThat(body(load("i2", List.of(deviceRecord(4L, true)))).get("outcome"))
+                .isEqualTo(Map.of("SUPERSEDED", 1));
+        Map<String, Object> after = store.one("SELECT * FROM device_tokens WHERE device_token='tok-1'");
+        assertThat(after).containsEntry("user_id", accountB).containsEntry("active", true);
+        assertThat(after.get("ownership_token")).isNotEqualTo(importedOwnership);
+        // A 의 세대(4)가 B 의 행에 얹히지도 않는다.
+        assertThat(after).containsEntry("auth_generation", 0L);
+        // 라이브 쓰기가 설명하는 어긋남이므로 검증은 통과하되 SUPERSEDED 로 드러난다.
+        Map<String, Object> report = body(verify(List.of(deviceRecord(4L, true)), 1, 0));
+        assertThat(report).containsEntry("verified", true);
+        assertThat(Json.map(report.get("supersededByLiveWrite"))).containsEntry("device", 1);
+    }
+
+    /** 반대로 라이브 흔적이 «없는» 최초 적재 행은 뒤늦은 export 변경을 그대로 받아야 한다. */
+    @Test
+    void anImportOnlyRowStillAcceptsLaterExportChanges() throws Exception {
+        load("i1", List.of(deviceRecord("tok-2", 3L, true)));
+        assertThat(body(load("i2", List.of(deviceRecord("tok-2", 3L, false)))).get("outcome"))
+                .isEqualTo(Map.of("IMPORTED", 1));
+        assertThat(store.one("SELECT active,ownership_version FROM device_tokens WHERE device_token='tok-2'"))
+                .containsEntry("active", false).containsEntry("ownership_version", 1L);
+    }
+
+    /** 세대가 이미 올라간 뒤 도착한 구 export 는 등록으로 취급하지 않는다(A22 ㉴). */
+    @Test
+    void anExportOlderThanTheCurrentAuthGenerationIsFenced() throws Exception {
+        store.update("INSERT INTO user_fences(user_id,auth_generation) VALUES(?,7)", USER);
+        assertThat(body(load("i1", List.of(deviceRecord(3L, true)))).get("outcome"))
+                .isEqualTo(Map.of("SKIPPED", 1));
+        assertThat(store.rows("SELECT * FROM device_tokens")).isEmpty();
+        // 펜스로 «일부러» 안 넣은 행은 대상 행이 없어도 검증 실패가 아니다.
+        Map<String, Object> report = body(verify(List.of(deviceRecord(3L, true)), 1, 0));
+        assertThat(report).containsEntry("verified", true);
+        assertThat(Json.map(report.get("skippedByFence"))).containsEntry("device", 1);
+    }
+
+    /**
+     * 알림 이력이 아직 없는 환경의 «정상» Data export — 세 자원이 전부 0건이다.
+     * Data 는 빈 자원도 manifest 에 SHA256("") 로 싣는다(NotificationMigrationManifest.ResourceDigest).
+     * 알림 쪽이 적재 행이 있는 자원만 접으면 그 자원의 체크섬이 null 이라 건수 0 은 맞는데도
+     * 매번 CHECKSUM_MISMATCH 로 막혀 verify 도 최초 개방도 끝낼 수 없다.
+     */
+    @Test
+    void anExportWhoseResourcesAreAllEmptyStillVerifiesAndOpensTheGate() throws Exception {
+        Map<String, Object> empty = manifest(List.of(), 1, 0);
+        assertThat(Json.map(Json.map(empty.get("resources")).get("delivery")))
+                .containsEntry("count", 0).containsEntry("checksum", Json.digest(""));
+        Map<String, Object> report = body(post("/internal/admin/migration/m1/verify", null,
+                Map.of("manifest", empty)));
+        assertThat(report).containsEntry("verified", true).containsEntry("records", 0);
+        assertThat(Json.map(report.get("checksums")))
+                .containsEntry("settings", Json.digest("")).containsEntry("device", Json.digest(""))
+                .containsEntry("delivery", Json.digest(""));
+        Map<String, Object> opened = body(post("/internal/admin/migration/m1/dispatch/open", "o1",
+                Map.of("manifest", empty)));
+        assertThat(Json.map(opened.get("dispatch"))).containsEntry("enabled", true)
+                .containsEntry("everOpened", true).containsEntry("activeMigrationId", "m1");
+    }
+
+    /** 셋 중 «하나만» 비어도 같다. 그리고 0건이 아닌데 0건이라 선언하면 여전히 걸린다. */
+    @Test
+    void aResourceDeclaredWithZeroRecordsIsCheckedAgainstTheEmptyChecksum() throws Exception {
+        List<Map<String, Object>> partial = List.of(settingsRecord(true, 5), deviceRecord(3L, true));
+        load("i1", partial);
+        Map<String, Object> report = body(verify(partial, 1, 0));
+        assertThat(report).containsEntry("verified", true);
+        assertThat(Json.map(report.get("checksums"))).containsEntry("delivery", Json.digest(""));
+        load("i2", List.of(deliveryRecord("PENDING", 0)));
+        assertThat(reasons(body(verify(partial, 2, 0)))).contains("COUNT_MISMATCH", "CHECKSUM_MISMATCH");
+    }
+
+    /**
+     * settings·device_tokens·deliveries 는 이관들 사이에 «공유»된다. 서로 다른 migrationId 가 같은
+     * 저장소에 적재하면 한쪽의 최종 검사 대상과 실제로 열리는 데이터가 어긋난다 — 전역 활성 이관
+     * 하나를 게이트 행에 묶어 둘째 id 를 아예 들이지 않는다. 같은 id 의 재개는 그대로 이어진다.
+     */
+    @Test
+    void aSecondMigrationIdCannotTouchTheStoreWhileAnotherOneIsActive() throws Exception {
+        List<Map<String, Object>> records = records(true, 5);
+        load("i1", records);
+        assertThat(store.one("SELECT active_migration_id FROM dispatch_control WHERE id=1"))
+                .containsEntry("active_migration_id", "m1");
+        assertThat(code(post("/internal/admin/migration/m2/import", "x1", Map.of("records", records))))
+                .isEqualTo("MIGRATION_ID_CONFLICT");
+        assertThat(code(post("/internal/admin/migration/m2/verify", null,
+                Map.of("manifest", manifest(records, 1, 0))))).isEqualTo("MIGRATION_ID_CONFLICT");
+        assertThat(code(post("/internal/admin/migration/m2/dispatch/open", "x2",
+                Map.of("manifest", manifest(records, 1, 0))))).isEqualTo("MIGRATION_ID_CONFLICT");
+        assertThat(store.rows("SELECT * FROM imports WHERE migration_id='m2'")).isEmpty();
+        assertThat(body(load("i2", records)).get("outcome")).isEqualTo(Map.of("SKIPPED", 3));
+    }
+
+    /**
+     * 게이트 잠금을 «최종 검사 뒤»에 얻으면, 그 사이 커밋된 다른 적재의 미검증 쓰기를 안은 채 열린다.
+     * 여기서는 진행 중인 적재가 잡고 있는 것과 같은 게이트 행 잠금을 밖에서 걸어 두고, open 이
+     * 그 잠금을 기다리는 동안 검증을 깨뜨리는 쓰기를 커밋한다. 순서가 맞다면 open 은 그 쓰기를
+     * 보고 닫힌 채로 남아야 한다.
+     */
+    @Test
+    void openTakesTheGateBeforeItsFinalCheckSoConcurrentImportsCannotSlipIn() throws Exception {
+        List<Map<String, Object>> records = records(true, 5);
+        load("i1", records);
+        assertThat(body(verify(records, 1, 0))).containsEntry("verified", true);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try (Connection blocker = dataSource.getConnection()) {
+            blocker.setAutoCommit(false);
+            try (Statement statement = blocker.createStatement()) {
+                statement.execute("SELECT ever_opened FROM dispatch_control WHERE id=1 FOR UPDATE");
+            }
+            Future<MvcResult> opening = worker.submit(() -> open("o1", records, 1));
+            awaitBlockedOnTheGate();
+            // 아직 검증되지 않은 쓰기. open 이 최종 검사를 먼저 끝냈다면 이것을 못 보고 열어 버린다.
+            store.update("UPDATE settings SET sound_enabled=false WHERE user_id=?", USER);
+            blocker.commit();
+            assertThat(code(opening.get(30, TimeUnit.SECONDS))).isEqualTo("VERIFICATION_FAILED");
+        } finally {
+            worker.shutdownNow();
+        }
+        assertThat(store.one("SELECT enabled,ever_opened FROM dispatch_control WHERE id=1"))
+                .containsEntry("enabled", false).containsEntry("ever_opened", false);
+        assertThat(store.one("SELECT verified_at FROM migration_state WHERE id='m1'").get("verified_at")).isNull();
+    }
+
+    /** open 스레드가 실제로 게이트 행 잠금에서 «대기»하기 시작할 때까지 기다린다. */
+    private void awaitBlockedOnTheGate() throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (System.nanoTime() < deadline) {
+            if (!store.rows("SELECT 1 FROM pg_locks WHERE NOT granted").isEmpty()) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        throw new IllegalStateException("open 이 게이트 잠금을 기다리지 않는다 — 잠금 순서가 통일되지 않았다");
+    }
+
+    // ── 레코드·매니페스트 ──────────────────────────────────────────────
+
+    private static Map<String, Object> window(int hours) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("from", DAY.minusSeconds(hours * 3600L).toEpochMilli());
+        body.put("to", DAY.toEpochMilli());
+        return body;
+    }
+
+    private static List<Map<String, Object>> records(boolean enabled, long version) {
+        return List.of(settingsRecord(enabled, version), deviceRecord(3L, true), deliveryRecord("PENDING", 0));
+    }
+
+    private static Map<String, Object> settingsRecord(boolean enabled, long version) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("userId", USER.toString());
+        data.put("version", version);
+        data.put("notificationEnabled", enabled);
+        data.put("soundEnabled", true);
+        data.put("nightModeEnabled", true);
+        data.put("nightStartTime", "23:00:00");
+        data.put("nightEndTime", "07:00:00");
+        return record("settings", data);
+    }
+
+    private static Map<String, Object> deviceRecord(long generation, boolean active) {
+        return deviceRecord("tok-1", generation, active);
+    }
+
+    private static Map<String, Object> deviceRecord(String token, long generation, boolean active) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("deviceToken", token);
+        data.put("userId", USER.toString());
+        data.put("authGeneration", generation);
+        data.put("active", active);
+        return record("device", data);
+    }
+
+    private static Map<String, Object> deliveryRecord(String status, long attempts) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("eventId", "ev-1");
+        data.put("userId", USER.toString());
+        data.put("kind", "BET_RESULT");
+        data.put("subjectId", null);
+        data.put("groupId", null);
+        data.put("slotAt", null);
+        data.put("locale", "ko");
+        data.put("status", status);
+        data.put("attempts", attempts);
+        data.put("nextAttemptAt", DAY.toEpochMilli());
+        data.put("sentAt", null);
+        data.put("params", Map.of("count", 1));
+        return record("delivery", data);
+    }
+
+    private static Map<String, Object> record(String resource, Map<String, Object> data) {
+        Map<String, Object> record = new LinkedHashMap<>();
+        record.put("resource", resource);
+        record.put("data", data);
+        return record;
+    }
+
+    /**
+     * N2 가 계산해야 할 매니페스트를 «테스트가 직접» 접어서 만든다 — 서버 값을 되받아 쓰지 않는다.
+     * Data 의 내보내기와 같은 모양으로 세 자원을 «언제나» 싣는다: 0건 자원도 count=0 · SHA256("") 다
+     * (NotificationMigrationManifest.ResourceDigest). 빠뜨린 것과 비어 있는 것을 구분하기 위해서다.
+     */
+    private static Map<String, Object> manifest(List<Map<String, Object>> records, long version, long queueDepth) {
+        Map<String, List<String>> lines = new TreeMap<>();
+        MigrationRecords.RESOURCES.forEach(resource -> lines.put(resource, new ArrayList<>()));
+        for (Map<String, Object> entry : records) {
+            String resource = entry.get("resource").toString();
+            Map<String, Object> canonical = MigrationRecords.canonical(resource, Json.map(entry.get("data")));
+            lines.computeIfAbsent(resource, ignored -> new ArrayList<>())
+                    .add(resource + ":" + MigrationRecords.recordKey(resource, canonical)
+                            + "=" + MigrationRecords.checksum(canonical));
+        }
+        Map<String, Object> resources = new LinkedHashMap<>();
+        lines.forEach((resource, folded) -> {
+            List<String> sorted = new ArrayList<>(folded);
+            java.util.Collections.sort(sorted);
+            StringBuilder fold = new StringBuilder();
+            sorted.forEach(line -> fold.append(line).append('\n'));
+            resources.put(resource, Map.of("count", sorted.size(), "checksum", Json.digest(fold.toString())));
+        });
+        Map<String, Object> stopWindow = new LinkedHashMap<>();
+        stopWindow.put("closedAt", CLOSED_AT);
+        stopWindow.put("cursor", "outbox-4821");
+        stopWindow.put("queueDepth", queueDepth);
+        stopWindow.put("source", "data-api");
+        Map<String, Object> manifest = new LinkedHashMap<>();
+        manifest.put("version", version);
+        manifest.put("resources", resources);
+        manifest.put("stopWindow", stopWindow);
+        return manifest;
+    }
+
+    // ── HTTP 도구 ──────────────────────────────────────────────────────
+
+    private MvcResult load(String key, List<Map<String, Object>> records) throws Exception {
+        return post("/internal/admin/migration/m1/import", key, Map.of("records", records));
+    }
+
+    private MvcResult verify(List<Map<String, Object>> records, long version, long queueDepth) throws Exception {
+        return post("/internal/admin/migration/m1/verify", null,
+                Map.of("manifest", manifest(records, version, queueDepth)));
+    }
+
+    private MvcResult open(String key, List<Map<String, Object>> records, long version) throws Exception {
+        return post("/internal/admin/migration/m1/dispatch/open", key,
+                Map.of("manifest", manifest(records, version, 0)));
+    }
+
+    private MvcResult post(String path, String key, Map<String, Object> body) throws Exception {
+        MockHttpServletRequestBuilder builder = MockMvcRequestBuilders.post(path)
+                .header("Authorization", "Bearer test-console").header("X-Console-Actor", "member-2")
+                .contentType(MediaType.APPLICATION_JSON).content(Json.write(body));
+        return mvc.perform(key == null ? builder : builder.header("Idempotency-Key", key)).andReturn();
+    }
+
+    private static List<String> reasons(Map<String, Object> report) {
+        return ((List<?>) report.get("failures")).stream()
+                .map(failure -> Json.map(failure).get("reason").toString()).toList();
+    }
+
+    private static Map<String, Object> body(MvcResult result) throws Exception {
+        return Json.map(result.getResponse().getContentAsString());
+    }
+
+    private static String code(MvcResult result) throws Exception {
+        return String.valueOf(body(result).get("code"));
+    }
+}

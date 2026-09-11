@@ -15,6 +15,10 @@ import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -87,6 +91,67 @@ public class ChallengeCreatedNotificationService {
     private final UserQueryService userQueryService;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
+
+    /**
+     * 신 경로 진입점 — <b>챌린지 생성 트랜잭션 안에서</b> 그룹원별 사건을 적는다.
+     *
+     * <p>구 경로({@link #sendCreatedNotifications})는 {@code AFTER_COMMIT} + {@code @Async} 라
+     * 커밋과 리스너 사이에 프로세스가 죽으면 그 개설 알림이 <b>아무 흔적 없이 사라진다</b> —
+     * 재훑기가 없는 1회성 사건이라 회수할 길도 없다. 여기는 {@code MANDATORY} 로 원 트랜잭션에
+     * 합류하므로 커밋된 챌린지에는 반드시 사건이 따라붙는다.
+     *
+     * <p>커밋 전이라 「그사이 삭제·종료」 재검사를 하지 않는다 — 아직 일어날 수 없는 일이다.
+     * 그 뒤에 삭제되면 알림 서버가 발송 직전 {@code POST /internal/notifications/eligibility} 로
+     * 되묻는다.
+     *
+     * @param event 개설된 챌린지
+     * @return 적은 사건 수. 이미 적혀 있던 것은 세지 않는다
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int enqueueCreatedNotifications(GroupChallengeCreatedEvent event) {
+        GroupChallenge challenge = groupQueryService.findChallenge(event.challengeId()).orElse(null);
+        if (challenge == null) {
+            return 0;
+        }
+        String missionLabel = missionLabel(challenge);
+        int queued = 0;
+        for (GroupMember member : groupMemberRepository.findByGroup(challenge.getGroup())) {
+            User user = member.getUser();
+            if (user.isDeleted() || user.getId().equals(event.creatorUserId())) {
+                continue;
+            }
+            if (notificationDispatcher.enqueueOnly(request(challenge, user, missionLabel, null))
+                    == NotificationDispatchOutcome.QUEUED) {
+                queued++;
+            }
+        }
+        log.info("챌린지 개설 사건 적재 — challengeId={}, {}건", challenge.getId(), queued);
+        return queued;
+    }
+
+    /**
+     * 신 경로의 요청 하나 — 대상은 챌린지, 렌더 입력은 그룹명과 목표 한 줄이다.
+     *
+     * <p>목표 문구({@code missionLabel})를 <b>Data 가 만들어 싣는다</b>. 이것만은 예외인데,
+     * 목표 문장은 앱의 챌린지 카드·내기 시트와 <b>같은 문장</b>이어야 하고 그 조립 규칙이 코어의
+     * {@code GroupChallengeDuration}/{@code Window} 상세 행에 있기 때문이다. 알림 서버가 이 값을
+     * 다시 만들려면 코어 DB 를 읽어야 한다(계약 §2 금지).
+     *
+     * @param challenge    대상 챌린지
+     * @param user         수신자
+     * @param missionLabel 목표 한 줄
+     * @param keyAt        결정적 키의 시간축 힌트. 축이 없는 kind 라 {@code null} 이어도 된다
+     * @return 요청
+     */
+    private static NotificationRequest request(GroupChallenge challenge, User user, String missionLabel,
+                                               Instant keyAt) {
+        return new NotificationRequest(NotificationKind.CHALLENGE_CREATED, user.getId(),
+                challenge.getId(), challenge.getGroup().getId(), null, keyAt, user.getLanguage(),
+                Map.of("challengeId", challenge.getId().toString(),
+                        "groupName", challenge.getGroup().getName(),
+                        "missionLabel", missionLabel));
+    }
 
     /**
      * 발송 본체. 진입점(커밋 이후·비동기)은 {@code ChallengeCreatedNotificationListener} 가 맡는다.
@@ -145,8 +210,9 @@ public class ChallengeCreatedNotificationService {
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
             try {
                 // 알림 off·토큰 없음·야간 모드는 sendIfAllowed 가 걸러 false 를 돌려준다.
-                if (pushNotificationService.sendIfAllowed(
-                        user, settings, compose(challenge, missionLabel, soundEnabled), now)) {
+                if (notificationDispatcher.dispatch(user, settings,
+                        request(challenge, user, missionLabel, now),
+                        compose(challenge, missionLabel, soundEnabled), now).recordsLegacyLog()) {
                     sent++;
                     newLogs.add(NotificationSentLog.builder()
                             .userId(user.getId())

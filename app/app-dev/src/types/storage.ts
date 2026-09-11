@@ -6,6 +6,11 @@ export const STORAGE_KEYS = {
   deviceId: 'gromo:deviceId',
   accessToken: 'gromo:accessToken',
   refreshToken: 'gromo:refreshToken',
+  deviceBootstrap: 'gromo:auth:deviceBootstrap',
+  authSessionId: 'gromo:auth:sessionId',
+  notificationCommands: 'gromo:notification:commands', // 로그아웃 뒤에도 삭제·로그아웃 재전달을 보존한다.
+  deviceOwnership: 'gromo:notification:deviceOwnership',
+  languageReported: 'gromo:notification:languageReported',
   user: 'gromo:user',
   onboardingComplete: 'gromo:onboardingComplete',
   focusCategory: 'gromo:focusCategory', // (구 키) 준비 시험 한글 표시명 — 정본은 서버 users.occupation. OTA 롤백 시 구 번들이 이 키만 읽으므로 계속 갱신한다(GROMO-1624)

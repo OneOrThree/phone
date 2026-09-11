@@ -1,0 +1,44 @@
+# 기존 환경 compose와 함께 사용하는 신규 위성 서비스. env 파일은 서비스별 writer로 생성한다.
+# 이 파일을 추가하는 것만으로 기존 API 라우팅이나 발송 gate를 열지 않는다.
+name: phone
+
+services:
+  business-api:
+    image: ${BUSINESS_API_IMAGE:?Business 이미지 digest 필요}
+    env_file:
+      - ${BUSINESS_API_ENV_FILE:?Business 전용 env 파일 필요}
+    environment:
+      SERVER_PORT: "8080"
+      DD_SERVICE: gromo-business-${DEPLOY_ENV:-dev}
+    expose: ["8080"]
+    networks: [app-network]
+    restart: unless-stopped
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  notification:
+    image: ${NOTIFICATION_IMAGE:?Notification 이미지 digest 필요}
+    env_file:
+      - ${NOTIFICATION_ENV_FILE:?Notification 전용 env 파일 필요}
+    environment:
+      SERVER_PORT: "8082"
+      DD_SERVICE: gromo-notification-${DEPLOY_ENV:-dev}
+    expose: ["8082"]
+    networks: [app-network]
+    restart: unless-stopped
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8082/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+networks:
+  app-network:
+    driver: bridge

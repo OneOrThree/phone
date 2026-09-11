@@ -1,0 +1,101 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.0.6'
+	id 'io.spring.dependency-management' version '1.1.7'
+
+	// CI: 코드 스타일 + 정적 분석 + 커버리지 (server/chat 과 같은 규율)
+	id 'checkstyle'
+	id 'com.github.spotbugs' version '6.0.18'
+	id 'jacoco'
+}
+
+group = 'com.oneorthree'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// Spring Web + MVC — 앱이 들어오는 유일한 표면(REST). 내장 Tomcat.
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+
+	// 요청 본문 검증 (@Valid) — 기존 Data API 의 DTO 제약을 그대로 옮겨 400 을 보존한다.
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+	// 아웃바운드 내부 HTTP(RestClient) — Data · 알림 · 링크 세 상류.
+	implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+	// 관측 — Actuator 헬스·메트릭. 관리 포트(9091)에 격리 노출한다(호스트 publish 금지).
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'io.micrometer:micrometer-registry-prometheus'
+
+	// JJWT — AT 로컬 «검증». 이 서비스가 최종적으로 서명 주체가 되지만(A7) 그 이전은 검증만 한다.
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	// ⚠️ DB · Flyway · Redis · 스케줄러 의존성을 «일부러 넣지 않는다» — 이 서비스는 무상태다(A22 ㊫·§2).
+	//    의존성이 없으면 나중에 누가 저장소를 붙이려 할 때 build.gradle 에서 먼저 걸린다.
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	// @AutoConfigureMockMvc — Boot 4 는 MVC 테스트 오토컨피그가 별도 스타터다. 이게 있어야
+	// FilterRegistrationBean 으로 등록한 AccessTokenFilter 까지 포함한 «실제 필터 체인»이 조립된다.
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testCompileOnly 'org.projectlombok:lombok'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+	finalizedBy jacocoTestReport
+}
+
+// ── Checkstyle ────────────────────────────────────────────────────────────
+checkstyle {
+	toolVersion = '10.21.4'
+	configFile = file("config/checkstyle/checkstyle.xml")
+	ignoreFailures = false
+}
+
+checkstyleTest.enabled = false
+
+// ── SpotBugs ─────────────────────────────────────────────────────────────
+spotbugs {
+	toolVersion = '4.8.6'
+	effort = 'max'
+	reportLevel = 'high'
+	excludeFilter = file("config/spotbugs/exclude.xml")
+}
+
+tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
+	reports {
+		xml.required = true
+		html.required = true
+	}
+}
+
+spotbugsTest.enabled = false
+
+// ── JaCoCo ───────────────────────────────────────────────────────────────
+jacoco {
+	toolVersion = '0.8.12'
+}
+
+jacocoTestReport {
+	reports {
+		xml.required = true
+		html.required = true
+	}
+}

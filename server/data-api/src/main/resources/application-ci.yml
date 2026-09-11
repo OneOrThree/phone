@@ -54,6 +54,11 @@ jwt:
 # 초대 링크 — 테스트가 URL 형식을 문자열로 단정하므로 고정값이어야 한다.
 link:
   base-url: https://link.test
+  # 링크 서버가 서명한 가입 자격의 검증 키 (GROMO-1660 · A22 ⓚ) — 링크·Data 양쪽이 보유한다.
+  # 테스트에서 서명과 검증을 같은 키로 맞추기 위한 «고정 값»이고 운영 값과 무관하다.
+  # 내부 표면(internal.api.enabled)이 꺼진 프로파일에서는 이 값이 없어도 기동한다 — 그때는 자격
+  # 검증이 전량 «거절»이고, 그 경로를 부를 수 있는 호출자도 없다.
+  capability-key: ci-link-capability-key-for-tests-only
   match-window-hours: 3
   ip-salt: ci-test-salt
   store-ios-url: https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679

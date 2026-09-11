@@ -62,7 +62,7 @@ flowchart TB
 | `/internal/admin/**` | notification | 서비스 토큰(콘솔 전용). Vercel egress IP 는 가변이라 IP 허용 목록 없음 |
 | `/health` | business-api (각 서비스 헬스는 compose 내부) | 없음 |
 | `/l/**` · `/.well-known/**` | **nginx 가 아니라 DNS** — `link.oneorthree.world` → Vercel | — |
-| **`/l/match` · `/l/referrer` (이관 호환)** | nginx → **Vercel 프록시** — 배포된 앱이 `${API_URL}/l/match`(= `api.oneorthree.world`)로 부르고 있어(`deferredInvite.ts`) 이 경로를 지우면 설치 매치가 실패하고 3시간 어트리뷰션 창을 잃는다. **원본 IP 를 반드시 보존한다** — 매치는 클릭 때 저장한 `ip_hash`(SHA-256(ip+salt))와 대조하는데, 그냥 프록시하면 링크 서버엔 EC2 주소가 보여 **정상 설치도 `matched:false`** 가 된다. nginx 가 `X-Forwarded-For` 를 **검증된 원본 IP 로 재작성하고**(클라이언트가 위조한 값 무시) — **`$remote_addr` 로 그냥 덮으면 안 된다**: 운영 경로가 **앱 → Cloudflare → nginx** 라 그 값은 **Cloudflare 엣지 IP** 이고, 그러면 Vercel 랜딩 때 저장한 방문자 IP 해시와 달라 **정상 설치도 `matched:false`** 가 된다. 반대로 요청의 `CF-Connecting-IP` 를 **그대로 믿으면 오리진을 직접 때린 호출자가 위조**할 수 있다. 그래서 **`set_real_ip_from` 에 Cloudflare CIDR 만 등록하고(+ 오리진 방화벽으로 CF 외 접근 차단) 그때만 `CF-Connecting-IP` 를 신뢰해 XFF 를 재작성**한다 프록시 전용 공유 시크릿 헤더를 함께 실으며, 링크 서버는 **그 시크릿이 있을 때만** XFF 첫 토큰을 신뢰한다. **시크릿이 없는 직접 요청(방문자 → Vercel)은 소켓 주소가 아니라 Vercel 이 보장하는 클라이언트 IP 헤더**를 쓴다 — 서버리스 함수의 소켓 상대는 방문자가 아니라 플랫폼 프록시이고 실행 방식에 따라 소켓 정보가 아예 없어서, 소켓을 쓰면 클릭에 방문자가 아닌 IP 가 저장돼 나중에 nginx 가 전달한 실제 IP 와 해시가 어긋난다 | 무인증(현행과 동일) + 프록시 시크릿 |
+| **`/l/match` · `/l/referrer` (이관 호환)** | nginx → **Vercel 프록시** — 배포된 앱이 `${API_URL}/l/match`(= `api.oneorthree.world`)로 부르고 있어(`deferredInvite.ts`) 이 경로를 지우면 설치 매치가 실패하고 3시간 어트리뷰션 창을 잃는다. **원본 IP 를 반드시 보존한다** — 매치는 클릭 때 저장한 `ip_hash`(SHA-256(ip+salt))와 대조하는데, 그냥 프록시하면 링크 서버엔 EC2 주소가 보여 **정상 설치도 `matched:false`** 가 된다. nginx 가 `X-Forwarded-For` 를 **검증된 원본 IP 로 재작성하고**(클라이언트가 위조한 값 무시) — **`$remote_addr` 로 그냥 덮으면 안 된다**: 운영 경로가 **앱 → Cloudflare → nginx** 라 그 값은 **Cloudflare 엣지 IP** 이고, 그러면 Vercel 랜딩 때 저장한 방문자 IP 해시와 달라 **정상 설치도 `matched:false`** 가 된다. 반대로 요청의 `CF-Connecting-IP` 를 **그대로 믿으면 오리진을 직접 때린 호출자가 위조**할 수 있다. 그래서 **`set_real_ip_from` 에 Cloudflare CIDR 만 등록하고(+ 오리진 방화벽으로 CF 외 접근 차단) 그때만 `CF-Connecting-IP` 를 신뢰해 XFF 를 재작성**한다. Vercel은 수신 XFF를 플랫폼에서 덮어쓰므로 nginx는 같은 검증된 IP를 **`X-Link-Client-IP`에도 실어야 한다**. `X-Link-Proxy-Secret`에 프록시 전용 공유 시크릿을 함께 실으며, 링크 서버는 **그 시크릿이 유효할 때만 `X-Link-Client-IP`의 단일 IP를 신뢰**한다. **시크릿이 없는 직접 요청(방문자 → Vercel)은 소켓 주소가 아니라 Vercel 이 보장하는 클라이언트 IP 헤더**를 쓴다 — 서버리스 함수의 소켓 상대는 방문자가 아니라 플랫폼 프록시이고 실행 방식에 따라 소켓 정보가 아예 없어서, 소켓을 쓰면 클릭에 방문자가 아닌 IP 가 저장돼 나중에 nginx 가 전달한 실제 IP 와 해시가 어긋난다 | 무인증(현행과 동일) + 프록시 시크릿 |
 | 그 외 `/internal/**` | **차단** | — |
 
 data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만). notification 은 `/internal/admin/*` 만 nginx 를 통해 노출.
@@ -105,7 +105,15 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | **`LINK_CAPABILITY_KEY`**(§3 비공개 가입 자격 서명) | **링크 서버(발급) 와 data-api(검증) 양쪽** — HMAC 공유 비밀 또는 링크 서버 개인키/Data 공개키 쌍. 없으면 Data 는 자격의 발급자를 확인할 수 없어 **가입을 전부 실패시키거나, 서명을 안 보고 클라이언트가 준 `groupId`·`inviterId`·`membershipEpoch` 를 믿어 비공개 그룹 가입이 우회**된다. **회전은 구·신 키 병행 검증 기간을 두고**(자격 만료보다 긴 창) 그 뒤 구 키를 폐기한다 |
 | **`LINK_PROXY_SECRET`**(§2.1 의 프록시 전용 공유 시크릿) | **nginx 와 링크 서버 양쪽** — 서비스 토큰과 별개다. 이게 없으면 legacy `/l/match` 프록시가 신뢰 가능한 전달 IP 를 못 실어 링크 서버가 Vercel 이 본 EC2 주소로 해시하고, **정상 클릭도 `matched:false`** 가 된다 |
 
-prod 는 Secrets Manager(`gromo/prod/env` JSON), dev 는 GCP 메타데이터/env — 현행 방식에 키만 추가.
+**런타임 시크릿 공급 경로(A22 ㋯):** prod 는 Secrets Manager(`gromo/prod/env` JSON), **dev 도 Secrets Manager(`gromo/dev/env`)** 이다. 현 `dev-cd.yml:79-90` 은 AWS OIDC 자격으로 JSON 을 읽어 `.github/scripts/write-compose-env.py` 를 통해 checkout 밖의 `dev.env` 로 쓴다. 같은 워크플로의 GCP 메타데이터 호출(`:92-98`)은 **GAR 이미지 pull 인증용**이다.
+
+**Target-1 최초 배포 전에 공급 경로 전체를 수정한다.** 현 `write-compose-env.py:44-57` 은 `REQUIRED_KEYS` 와 Grafana 키만 출력해, JSON 에 `NOTI_DB_*`·`SVC_TOKEN_*` 를 추가해도 env 파일에는 나타나지 않는다. 구현 순서는 다음과 같다.
+
+1. 위 표의 **서비스별 보유 목록**으로 env 생성기의 출력·필수값 검증을 나눈다. 배포 단계별 병행 보유(JWT·FCM 회수 전)도 명시하고, 해당 서비스의 필수 키 누락은 배포 전에 실패시킨다. 모든 JSON 키를 모든 서비스에 전달하는 방식은 사용하지 않는다.
+2. `gromo/dev/env` 에 새 키를 등록하고, CD 가 생성하는 env 파일에 반영한다. compose 의 각 서비스 `environment` 또는 전용 `env_file` 에도 **허용된 키만** 연결한다. 표의 DB 이름·서비스 토큰 audience 와 실제 런타임 프로퍼티가 일치해야 한다.
+3. **합성 시크릿 JSON → env 생성기 → `docker compose config`** 검증을 CI 에 넣는다. `NOTI_DB_*` 와 호출자별 서비스 토큰의 전달, 다른 서비스 시크릿의 미노출, 필수 키 누락 시 실패를 확인한다. 실제 시크릿 값은 검증 로그에 출력하지 않는다. prod 의 별도 배포 경로에도 같은 서비스별 전달 검증을 적용한다.
+
+이 생성기·compose 변경은 **구현 착수 시 해야 할 작업**이며, 현 코드에 이미 새 서비스 지원이 있다는 뜻이 아니다.
 
 **`LINK_IP_SALT` 는 전환 불변식이다.** 현 `invite_link_clicks.ip_hash` 는 운영 `LINK_IP_SALT`(`application-prod.yml`)로 이미 계산돼 있어서, Vercel 에 **새 salt 를 생성하면 백필한 클릭의 해시와 설치 시 새 서버가 계산한 해시가 전부 어긋나** IP·OS 가 같은 정상 설치도 3시간 매치 창 내내 `matched:false` 가 된다. 그래서 ⓐ 이관 시 **기존 값을 그대로 옮기고** ⓑ 미매치 클릭이 남아 있는 동안(= 최소 매치 창 3시간)은 회전하지 않으며 ⓒ 나중에 회전한다면 **구·신 salt 를 모두 계산해 조회하는 기간**을 두고 그 기간이 끝난 뒤 구 salt 를 폐기한다.
 
@@ -197,3 +205,5 @@ server/.github/workflows/
 - 노출면: `app:8080` 직접 → nginx 가 business/notification 만. data-api 내부화.
 - 시크릿: JWT·FCM 이 각각 한 서비스로 이동.
 - 관측: 서비스 3개 `DD_SERVICE`, 알림은 메트릭 직접 계측.
+
+소비자의 실패 토픽 resolver는 배포된 `notification-events.DLT`와 같은 이름을 명시한다(A22 ㋱). Spring Kafka 4의 `-dlt` 기본값과 자동 토픽 생성에 의존하지 않는다.

@@ -48,6 +48,22 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
     Optional<Group> findByIdForUpdate(@Param("id") UUID id);
 
     /**
+     * 그룹 행 <b>공유 락</b> — 「읽은 상태가 커밋까지 유지돼야 하지만 그룹을 바꾸지는 않는」 판정용
+     * (GROMO-1660 · A22 ⓚ).
+     *
+     * <p>초대 자격 확정이 그 자리다. 무락으로 읽으면 판독 직후 커밋된 그룹 종료를 못 보고, 그 창으로
+     * <b>이미 닫힌 그룹의 초대가 유효 귀속으로 확정</b>된다. 배타 락을 쓰지 않는 이유는 이 경로가
+     * 그룹 행을 바꾸지 않기 때문이다 — 동시 확정끼리는 막을 이유가 없다.
+     *
+     * @param id 대상 그룹
+     * @return 그 그룹. 소프트삭제·종료 여부는 <b>호출부가</b> 판정한다 — 여기서 걸러 내면
+     *     「없는 그룹」과 「닫힌 그룹」이 한 값으로 뭉개진다
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select g from Group g where g.id = :id")
+    Optional<Group> findByIdForShare(@Param("id") UUID id);
+
+    /**
      * GROMO-676: groups.host_id 폐기 — 방장 여부는 group_members.role=OWNER 기준으로 판단한다.
      * A-0 소프트삭제: 활성 멤버십(is_left=false)만 센다. 이 필터가 없으면 종료된 그룹·위임 전 소유의
      * 잔존 OWNER 행이 남아, 계정 탈퇴가 영구히 막힌다(그룹 종료 시 방장 행은 leave 로 is_left=true 가 된다).

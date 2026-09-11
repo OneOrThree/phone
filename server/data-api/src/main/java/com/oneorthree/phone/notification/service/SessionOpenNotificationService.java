@@ -10,6 +10,10 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
@@ -101,6 +105,7 @@ public class SessionOpenNotificationService {
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final UserQueryService userQueryService;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
 
     /** 소유한 클레임 1건 — 행 id 와 그 사건의 회차·수신자. */
     private record Claim(UUID rowId, User user, GroupChallengeBetSession session) {
@@ -138,6 +143,7 @@ public class SessionOpenNotificationService {
 
         int targets = 0;
         int deduped = 0;
+        int queued = 0;
         List<Claim> owned = new ArrayList<>();
         if (!due.isEmpty()) {
             Set<UUID> sessionIds = due.stream()
@@ -166,6 +172,25 @@ public class SessionOpenNotificationService {
                         continue;
                     }
                     targets++;
+                    if (notificationDispatcher.isOutboxMode()) {
+                        // 신 경로: 선점도 묶음도 이월도 여기서 하지 않는다. 후보를 사건으로 적고
+                        // claim/render/send/flush 는 알림 서버가 소유한다(계약 §5).
+                        // 이월 만료(참가 마감)를 함께 실어 보낸다 — 조용한 시간이 끝났을 때 이미
+                        // 마감이면 「참여하세요」가 거짓말이 되므로 그때 버려야 한다(N44 단서).
+                        if (notificationDispatcher.enqueueOnly(new NotificationRequest(
+                                NotificationKind.CHALLENGE_SESSION_OPEN, member.getId(),
+                                session.getId(), session.getGroup().getId(), slotAt, null,
+                                member.getLanguage(),
+                                Map.of("challengeId", session.getChallenge().getId().toString(),
+                                        "stake", session.getStake(),
+                                        "deferExpiresAt", session.getJoinClosesAt().toString())))
+                                == NotificationDispatchOutcome.QUEUED) {
+                            queued++;
+                        } else {
+                            deduped++;
+                        }
+                        continue;
+                    }
                     UUID rowId = Generators.timeBasedEpochRandomGenerator().generate();
                     int claimed = notificationSentLogRepository.insertPendingClaim(rowId,
                             member.getId(), NotificationSentLog.TYPE_CHALLENGE_SESSION_OPEN,
@@ -178,9 +203,12 @@ public class SessionOpenNotificationService {
                 }
             }
         }
-        targets += collectCarriedClaims(owned, now);
-
-        int sent = sendBundles(owned, now);
+        // 이월 회수와 묶음 발송은 구 경로 전용이다 — 신 경로에서 부르면 Data 가 발송 이력을
+        // 완료 처리하게 되어 두 DB 의 이력이 갈린다(계약 §5).
+        if (!notificationDispatcher.isOutboxMode()) {
+            targets += collectCarriedClaims(owned, now);
+        }
+        int sent = notificationDispatcher.isOutboxMode() ? queued : sendBundles(owned, now);
         PushDispatchSummaryResponse summary =
                 summary(targets, sent, deduped, targets - sent - deduped, startedAtMillis);
         if (targets > 0) {

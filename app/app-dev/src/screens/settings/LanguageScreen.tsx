@@ -1,3 +1,4 @@
+import { reportNotificationLanguage } from '@/services/notificationCommands';
 import { useState } from 'react';
 import { Text, TouchableOpacity, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -81,7 +82,7 @@ export default function LanguageScreen() {
     if (busy || selected === applied) return;
     setBusy(true);
 
-    // ① 저장이 먼저다. 언어는 서버로 안 나가므로 로컬 저장이 유일한 정본 —
+    // ① 화면 언어의 정본을 먼저 저장하고 알림 언어는 별도 내구 재전달한다.
     //    저장 실패를 무시하고 화면만 바꾸면 앱 재시작 때 조용히 되돌아가 '설정이 고장났다'가 된다.
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.locale, selected);
@@ -93,6 +94,7 @@ export default function LanguageScreen() {
 
     const before = getLocale();
     const after = applyLocalePref(selected);
+    reportNotificationLanguage(after).catch(() => {});
     logLanguageChanged({ app_language: after, previous_app_language: applied });
     setApplied(selected);
 

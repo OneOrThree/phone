@@ -82,6 +82,17 @@ dependencies {
 	implementation 'net.javacrumbs.shedlock:shedlock-spring:5.16.0'
 	implementation 'net.javacrumbs.shedlock:shedlock-provider-jdbc-template:5.16.0'
 
+	// Kafka (GROMO-1659·1660 공통 기반) — outbox relay 가 notification-events 로 발행한다(A12·A21).
+	// 이 서비스에서 Kafka 는 «relay 를 켰을 때만» 쓴다: OutboxRelayConfig 가 outbox.relay.enabled=true
+	// 에서만 로드되므로, 의존성이 클래스패스에 있어도 꺼진 기동은 브로커에 붙지 않는다.
+	// spring-kafka 는 KafkaTemplate·KafkaAdmin 오토컨피그를 함께 가져오는데, NewTopic 빈이 없으면
+	// KafkaAdmin 은 아무것도 하지 않는다(그 빈도 relay 설정 안에만 있다).
+	// ⚠️ Spring Boot 4 는 오토컨피그를 기술별 모듈로 분리했다(위 Flyway 주석과 같은 함정) —
+	// spring-kafka 만으로는 KafkaProperties·KafkaAdmin 이 붙지 않아 spring.kafka.* 바인딩도,
+	// NewTopic 빈의 자동 생성도 동작하지 않는다. spring-boot-kafka(오토컨피그) + spring-kafka(엔진).
+	implementation 'org.springframework.boot:spring-boot-kafka'
+	implementation 'org.springframework.kafka:spring-kafka'
+
 	// BIZEVENT 구조화 JSON 로그 인코더 (GROMO-384)
 	implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
 
@@ -96,6 +107,10 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'	//Testcontainers
 	testImplementation 'org.testcontainers:junit-jupiter:1.20.1'
 	testImplementation 'org.testcontainers:postgresql:1.20.1'
+	// outbox relay 통합 테스트는 «진짜 브로커»에 붙는다 — 발행·재전달·파티션 계약을 목으로 세우면
+	// 검증되는 것이 목의 기대치뿐이다(계약 §8).
+	testImplementation 'org.testcontainers:kafka:1.20.1'
+	testImplementation 'org.springframework.kafka:spring-kafka-test'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 

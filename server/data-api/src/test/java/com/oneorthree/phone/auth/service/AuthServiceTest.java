@@ -1,11 +1,13 @@
 package com.oneorthree.phone.auth.service;
 
 import com.oneorthree.phone.auth.client.SocialLoginClient;
+import com.oneorthree.phone.auth.dto.req.LogoutRequest;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
+import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.user.repository.domain.Provider;
@@ -22,6 +24,7 @@ import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
 import com.oneorthree.phone.auth.support.TokenHasher;
 import com.oneorthree.phone.auth.support.JwtProvider;
+import com.oneorthree.phone.user.service.UserSatelliteCommandService;
 import io.jsonwebtoken.JwtException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -44,10 +47,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -73,6 +78,12 @@ class AuthServiceTest {
     private JwtProvider jwtProvider;
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
+    /** 세션 축(GROMO-1659) — 이 클래스의 단언은 기존 RT 경로라, 세션 쓰기는 목으로 둔다. */
+    @Mock
+    private AuthSessionService authSessionService;
+    /** 로그아웃의 기기 토큰 삭제 명령(A22 ㋗) — 같은 이유로 목이다. */
+    @Mock
+    private UserSatelliteCommandService userSatelliteCommandService;
 
     // provider별 검증 클라이언트 (모킹) — provider()로 Map이 구성된다
     @Mock
@@ -84,6 +95,8 @@ class AuthServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID GUEST_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
+    /** 세션 축 식별자 — AT 의 sid claim 이 되는 값(A22 ㋞). 값 자체엔 의미가 없다. */
+    private static final UUID SESSION_ID = UUID.fromString("00000000-0000-0000-0000-000000000003");
     /** RT 만료 시각 — 회전 판정 스텁의 매칭 키. 값 자체엔 의미가 없고 같은 객체로 오가기만 하면 된다. */
     private static final Date RT_EXPIRES_AT = Date.from(Instant.parse("2026-09-01T00:00:00Z"));
 
@@ -91,10 +104,19 @@ class AuthServiceTest {
     void setUp() {
         given(kakaoClient.provider()).willReturn(Provider.KAKAO);
         given(appleClient.provider()).willReturn(Provider.APPLE);
+        // 세션 축은 이 클래스의 검증 대상이 아니다 — 발급 경로가 sessionId 를 읽을 수 있게만 세운다.
+        // lenient 인 이유: 로그인 실패를 단언하는 테스트들은 이 경로에 도달조차 하지 않는다.
+        lenient().when(authSessionService.open(any(), anyString()))
+                .thenReturn(new AuthSessionService.IssuedSession(SESSION_ID, 1L, "bootstrap"));
+        lenient().when(authSessionService.rotate(any(), anyString(), anyString()))
+                .thenReturn(new AuthSessionService.IssuedSession(SESSION_ID, 2L, null));
+        lenient().when(authSessionService.findByRefreshToken(anyString()))
+                .thenReturn(java.util.Optional.empty());
         authService = new AuthService(
                 userRepository, userQueryService, userWalletRepository, userScreenTimeSettingsRepository,
                 userFocusTimeSettingsRepository, userNotificationSettingsRepository,
                 socialAccountRepository, jwtProvider, userActivityEventLogger,
+                authSessionService, userSatelliteCommandService,
                 List.of(kakaoClient, appleClient), null);
         // 런타임엔 @Lazy 프록시가 주입되는 self — 단위 테스트에선 자기 자신으로 대체(재시도 경로가 실제 로직을 타도록)
         ReflectionTestUtils.setField(authService, "self", authService);
@@ -113,7 +135,7 @@ class AuthServiceTest {
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         // when
@@ -145,7 +167,7 @@ class AuthServiceTest {
                 .willReturn(Optional.of(existingAccount));
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(existingUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         // when
@@ -171,7 +193,7 @@ class AuthServiceTest {
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         // when
@@ -195,7 +217,7 @@ class AuthServiceTest {
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         // when
@@ -231,7 +253,7 @@ class AuthServiceTest {
                 .willReturn(Optional.of(deletedAccount));
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(existingUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         // when
@@ -262,7 +284,7 @@ class AuthServiceTest {
                 .willThrow(new DataIntegrityViolationException("uq_social_accounts_provider_id"));
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(existingUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         // when
@@ -300,7 +322,7 @@ class AuthServiceTest {
                 .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.USER_NOT_FOUND);
         // 토큰 상태 변경 없음 — 발급 자체가 시작되지 않는다
         assertThat(existingUser.getRefreshTokenHash()).isNull();
-        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean());
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
         verify(jwtProvider, never()).generateRefreshToken(any(UUID.class), anyBoolean());
     }
 
@@ -324,7 +346,7 @@ class AuthServiceTest {
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
         given(userQueryService.getCallerForUpdate(GUEST_ID)).willReturn(guestUser);
         // 승격 직후 발급 — isGuest=false 상태의 토큰이 나간다 (GROMO-1229)
-        given(jwtProvider.generateAccessToken(GUEST_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(GUEST_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(GUEST_ID, false)).willReturn("refresh-token");
 
         // when
@@ -389,7 +411,7 @@ class AuthServiceTest {
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         SocialLoginResponse response =
@@ -419,7 +441,7 @@ class AuthServiceTest {
                 .willReturn(Optional.empty());
         given(userQueryService.getCallerForUpdate(GUEST_ID)).willReturn(guestUser);
         // 승격 직후 발급 — isGuest=false 상태의 토큰이 나간다 (GROMO-1229)
-        given(jwtProvider.generateAccessToken(GUEST_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(GUEST_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(GUEST_ID, false)).willReturn("refresh-token");
 
         SocialLoginResponse response =
@@ -449,7 +471,7 @@ class AuthServiceTest {
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         // when
@@ -474,7 +496,7 @@ class AuthServiceTest {
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         SocialLoginResponse response =
@@ -512,7 +534,7 @@ class AuthServiceTest {
         // 유령 계정 차단 — 신규 User·소셜 연동 어느 쪽도 저장되지 않고 토큰도 발급되지 않는다
         verify(userRepository, never()).save(any(User.class));
         verify(socialAccountRepository, never()).save(any(SocialAccount.class));
-        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean());
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
     }
 
     @Test
@@ -535,7 +557,7 @@ class AuthServiceTest {
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
         given(userQueryService.findActive(GUEST_ID)).willReturn(Optional.of(promotedUser));
         given(userQueryService.getCallerForUpdate(GUEST_ID)).willReturn(promotedUser);
-        given(jwtProvider.generateAccessToken(GUEST_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(GUEST_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(GUEST_ID, false)).willReturn("refresh-token");
 
         SocialLoginResponse response =
@@ -573,7 +595,7 @@ class AuthServiceTest {
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.GUEST_ALREADY_PROMOTED);
         verify(userRepository, never()).save(any(User.class));
-        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean());
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
     }
 
     @Test
@@ -596,7 +618,7 @@ class AuthServiceTest {
         given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(accountOwner);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         SocialLoginResponse response =
@@ -622,7 +644,7 @@ class AuthServiceTest {
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         SocialLoginResponse response =
@@ -648,7 +670,7 @@ class AuthServiceTest {
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         SocialLoginResponse response =
@@ -675,7 +697,7 @@ class AuthServiceTest {
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
         SocialLoginResponse response =
@@ -694,7 +716,7 @@ class AuthServiceTest {
         User savedUser = User.builder().id(USER_ID).isGuest(true).build();
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         // 게스트 발급 경로는 guest=true 클레임을 싣는다 (GROMO-1229)
-        given(jwtProvider.generateAccessToken(USER_ID, true)).willReturn("access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(true), anyLong(), any())).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID, true)).willReturn("refresh-token");
 
         // when
@@ -719,8 +741,10 @@ class AuthServiceTest {
         // 조회 키는 원본 RT 가 아니라 그 해시여야 한다 — 서비스가 해싱을 빠뜨리면 stub 이 매칭되지 않아 실패한다 (GROMO-713)
         given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("valid-rt")))
                 .willReturn(Optional.of(user));
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("new-access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("new-access-token");
         given(jwtProvider.isRefreshRotationDue(RT_EXPIRES_AT, false)).willReturn(false);
+        given(authSessionService.findByRefreshToken("valid-rt"))
+                .willReturn(Optional.of(AuthSession.builder().id(UUID.randomUUID()).userId(USER_ID).build()));
 
         // when
         TokenRefreshResponse response = authService.refreshToken("valid-rt");
@@ -741,7 +765,7 @@ class AuthServiceTest {
         given(jwtProvider.extractExpiration("old-rt")).willReturn(RT_EXPIRES_AT);
         given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("old-rt")))
                 .willReturn(Optional.of(user));
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("new-access-token");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("new-access-token");
         given(jwtProvider.isRefreshRotationDue(RT_EXPIRES_AT, false)).willReturn(true);
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("rotated-rt");
         given(userRepository.rotateRefreshTokenHash(USER_ID, TokenHasher.sha256Hex("old-rt"),
@@ -767,15 +791,18 @@ class AuthServiceTest {
         given(jwtProvider.extractExpiration("old-rt")).willReturn(RT_EXPIRES_AT);
         given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("old-rt")))
                 .willReturn(Optional.of(user));
-        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("new-access-token");
         given(jwtProvider.isRefreshRotationDue(RT_EXPIRES_AT, false)).willReturn(true);
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("rotated-rt");
         given(userRepository.rotateRefreshTokenHash(USER_ID, TokenHasher.sha256Hex("old-rt"),
                 TokenHasher.sha256Hex("rotated-rt"))).willReturn(0);
 
-        // when & then: 새 AT 를 이미 만들었더라도 반환하지 않는다
+        // when & then: 401 이고, AT 는 «아예 만들어지지도 않는다».
+        // 종전에는 CAS 보다 «먼저» AT 를 만들어 두고 버렸는데, GROMO-1659 에서 AT 에 세션 식별자
+        // (sid)가 실리면서 발급 시점이 CAS 뒤로 옮겨졌다 — 회전 결과를 모르는 채로는 어느 세션의
+        // 토큰인지 정할 수 없기 때문이다. 겉으로 보이는 계약(401·토큰 없음)은 그대로다.
         assertThatThrownBy(() -> authService.refreshToken("old-rt"))
                 .isInstanceOf(InvalidTokenException.class);
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
     }
 
     @Test
@@ -788,7 +815,7 @@ class AuthServiceTest {
         given(jwtProvider.extractExpiration("guest-rt")).willReturn(RT_EXPIRES_AT);
         given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("guest-rt")))
                 .willReturn(Optional.of(guest));
-        given(jwtProvider.generateAccessToken(USER_ID, true)).willReturn("guest-at");
+        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(true), anyLong(), any())).willReturn("guest-at");
         given(jwtProvider.isRefreshRotationDue(RT_EXPIRES_AT, true)).willReturn(true);
         given(jwtProvider.generateRefreshToken(USER_ID, true)).willReturn("guest-rotated-rt");
         given(userRepository.rotateRefreshTokenHash(USER_ID, TokenHasher.sha256Hex("guest-rt"),
@@ -858,7 +885,7 @@ class AuthServiceTest {
         given(jwtProvider.extractType("access-token")).willReturn(JwtProvider.TYPE_ACCESS);
 
         // when & then — 남의 세션을 access 토큰으로 끊을 수 없다
-        assertThatThrownBy(() -> authService.logout("access-token"))
+        assertThatThrownBy(() -> authService.logout(new LogoutRequest("access-token")))
                 .isInstanceOf(InvalidTokenException.class);
         verify(userRepository, never()).findByRefreshTokenHash(anyString());
     }
