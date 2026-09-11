@@ -696,6 +696,154 @@ class InternalSurfaceIntegrationTest {
     }
 
     @Test
+    @DisplayName("적재의 축은 «요청 키»다 — 같은 키는 한 행, 다른 키는 새 PENDING, 같은 키·다른 slug 는 409")
+    void claimIntentKeyIsTheIdempotencyAxisNotTheSlug() throws Exception {
+        UUID userId = newUser();
+
+        String first = enqueueIntent(userId, "rsm010", "k-alpha");
+        // 같은 키의 재시도는 같은 행·같은 응답이다. completed 는 아직 false — 밟지도 않은 claim 을
+        // 「끝났다」로 접으면 Business 가 링크 단계를 통째로 건너뛴다.
+        assertThat(enqueueIntent(userId, "rsm010", "k-alpha")).isEqualTo(first);
+        assertThat(first).contains("\"completed\":false");
+
+        // 다른 키는 같은 (유저, slug) 라도 «자기» 의도를 받는다. 한 요청의 종결이 다른 요청을 삼키면
+        // 뒤 요청은 재개가 잡지 못하는 종결 행을 받아 귀속이 사라진다.
+        String second = enqueueIntent(userId, "rsm010", "k-beta");
+        assertThat(commandIdOf(second)).isNotEqualTo(commandIdOf(first));
+        assertThat(second).contains("\"completed\":false");
+        assertThat(intentOf(commandIdOf(second)).getStatus()).isEqualTo(InviteClaimIntentStatus.PENDING);
+
+        // 같은 키로 «다른 링크»가 오면 재시도가 아니라 키를 재사용한 별개 명령이다. 저장된 응답을
+        // 재생하면 이번 claim 은 아무 데도 적재되지 않은 채 성공 응답을 받는다 — 유실과 구분되지 않는다.
+        mockMvc.perform(post("/internal/invite-links/claim-intents")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString())
+                        .header("Idempotency-Key", "k-alpha")
+                        .contentType("application/json")
+                        .content("{\"slug\":\"rsm011\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_CONFLICT"));
+    }
+
+    @Test
+    @DisplayName("종결된 의도는 같은 키엔 completed=true 로 재생되고, 새 키엔 새 PENDING 의도를 준다")
+    void settledIntentReplaysAsCompletedAndANewKeyReopensTheQueue() throws Exception {
+        UUID userId = newUser();
+
+        String commandId = commandIdOf(enqueueIntent(userId, "rsm012", "k-first"));
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/abandoned", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString()))
+                .andExpect(status().isOk());
+        assertThat(intentOf(commandId).getStatus()).isEqualTo(InviteClaimIntentStatus.ABANDONED);
+
+        // 같은 키의 재요청은 «같은 행»을 completed=true 로 돌려준다. false 로 주면 Business 가 이걸
+        // 202 로 접고, 재개 sweep 은 PENDING 만 보므로 아무도 이어받지 않는 거짓 약속이 된다.
+        String replayed = enqueueIntent(userId, "rsm012", "k-first");
+        assertThat(commandIdOf(replayed)).isEqualTo(commandId);
+        assertThat(replayed).contains("\"completed\":true");
+
+        // 새 키는 «새 PENDING 의도»다 — 뒤늦게 클릭 귀속이 잡혀 같은 slug 를 다시 claim 하는 정상
+        // 경로가 여기서 되살아난다. 앞 의도의 ABANDONED 를 물려받으면 그 경로가 통째로 막힌다.
+        String reopened = enqueueIntent(userId, "rsm012", "k-second");
+        String reopenedId = commandIdOf(reopened);
+        assertThat(reopenedId).isNotEqualTo(commandId);
+        assertThat(reopened).contains("\"completed\":false");
+        assertThat(intentOf(reopenedId).getStatus()).isEqualTo(InviteClaimIntentStatus.PENDING);
+
+        // 그리고 재개가 실제로 «집을 수 있어야» 한다 — 상태만 PENDING 이고 선점이 안 되면 같은 유실이다.
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/lease", reopenedId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .contentType("application/json")
+                        .content("{\"leaseSeconds\":60}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.leased").value(true));
+
+        // 종결된 앞 의도는 여전히 목록 밖이다.
+        String page = mockMvc.perform(get("/internal/invite-links/claim-intents")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .param("limit", "200"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(page).doesNotContain(commandId);
+    }
+
+    @Test
+    @DisplayName("확정 하나가 그 (유저, slug) 의 대기 의도를 «전부» 닫는다 — 재생 요청도 같고, 다른 slug 는 그대로다")
+    void confirmationClosesEveryPendingIntentOfThatSlugOnly() throws Exception {
+        UUID ownerId = newUser();
+        UUID claimerId = newUser();
+        Group group = newGroup(ownerId);
+        long exp = Instant.now().getEpochSecond() + 300;
+
+        // 같은 slug 에 키가 다른 의도 둘 — 앱이 응답을 못 받고 새 키로 다시 보낸 흔한 모양이다.
+        String firstId = commandIdOf(enqueueIntent(claimerId, "rsm013", "k-c1"));
+        String secondId = commandIdOf(enqueueIntent(claimerId, "rsm013", "k-c2"));
+        // 다른 slug 의 의도 — 이 확정과 아무 상관이 없다.
+        String otherId = commandIdOf(enqueueIntent(claimerId, "rsm014", "k-c3"));
+
+        UUID claimId = UUID.randomUUID();
+        mockMvc.perform(post("/internal/invite-links/claim-confirmations")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", claimerId.toString())
+                        .header("Idempotency-Key", "rsm013:claim-confirm")
+                        .contentType("application/json")
+                        .content("{\"claimId\":\"" + claimId + "\",\"slug\":\"rsm013\",\"capability\":\""
+                                + capability("rsm013", group.getId(), ownerId, 1L, exp) + "\"}"))
+                .andExpect(status().isOk());
+
+        // 실제 claim 은 (유저, 링크) 당 하나다 — 그러니 확정 하나가 그 조합의 대기 의도를 모두 끝낸다.
+        // 하나라도 남기면 재개가 이미 끝난 귀속을 다시 밟고, 그 재시도는 매번 「이미 확정됨」으로
+        // 접혀 큐가 영영 비지 않는다.
+        assertThat(intentOf(firstId).getStatus()).isEqualTo(InviteClaimIntentStatus.CONSUMED);
+        assertThat(intentOf(secondId).getStatus()).isEqualTo(InviteClaimIntentStatus.CONSUMED);
+        // 다른 링크의 의도까지 닫으면 «확정이 선 적 없는» 귀속이 사라진다.
+        assertThat(intentOf(otherId).getStatus()).isEqualTo(InviteClaimIntentStatus.PENDING);
+
+        // 확정 뒤에 적재된 의도는 «재생 요청»이 닫는다. 세 재생 경로가 있고 두 개는 confirmOnce 를
+        // 아예 실행하지 않으므로(같은 키 → 응답 캐시, 다른 키 → 저장된 확정 조기 반환), 종결을
+        // confirmOnce 안에 두면 이 행이 영영 남는다.
+        String lateSameKey = commandIdOf(enqueueIntent(claimerId, "rsm013", "k-c4"));
+        mockMvc.perform(post("/internal/invite-links/claim-confirmations")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", claimerId.toString())
+                        .header("Idempotency-Key", "rsm013:claim-confirm")
+                        .contentType("application/json")
+                        .content("{\"claimId\":\"" + claimId + "\",\"slug\":\"rsm013\",\"capability\":\""
+                                + capability("rsm013", group.getId(), ownerId, 1L, exp) + "\"}"))
+                .andExpect(status().isOk());
+        assertThat(intentOf(lateSameKey).getStatus()).isEqualTo(InviteClaimIntentStatus.CONSUMED);
+
+        String lateOtherKey = commandIdOf(enqueueIntent(claimerId, "rsm013", "k-c5"));
+        mockMvc.perform(post("/internal/invite-links/claim-confirmations")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", claimerId.toString())
+                        .header("Idempotency-Key", "rsm013:claim-confirm-retry")
+                        .contentType("application/json")
+                        .content("{\"claimId\":\"" + claimId + "\",\"slug\":\"rsm013\",\"capability\":\""
+                                + capability("rsm013", group.getId(), ownerId, 1L, exp) + "\"}"))
+                .andExpect(status().isOk());
+        assertThat(intentOf(lateOtherKey).getStatus()).isEqualTo(InviteClaimIntentStatus.CONSUMED);
+
+        // 확정은 여전히 한 건이다 — 재생이 새 봉투를 만들면 같은 귀속이 두 번 집계된다.
+        assertThat(envelopesOf(claimerId, "link.claimConfirmed")).hasSize(1);
+        assertThat(intentOf(otherId).getStatus()).isEqualTo(InviteClaimIntentStatus.PENDING);
+
+        // 같은 claim id 에 «다른 링크»를 붙여 오면 거절한다 — 통과시키면 확정이 선 적 없는 rsm014 의
+        // 의도가 「확정됐다」는 이유로 닫힌다.
+        mockMvc.perform(post("/internal/invite-links/claim-confirmations")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", claimerId.toString())
+                        .header("Idempotency-Key", "rsm014:claim-confirm")
+                        .contentType("application/json")
+                        .content("{\"claimId\":\"" + claimId + "\",\"slug\":\"rsm014\",\"capability\":\""
+                                + capability("rsm014", group.getId(), ownerId, 1L, exp) + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CLAIM_CAPABILITY_INVALID"));
+        assertThat(intentOf(otherId).getStatus()).isEqualTo(InviteClaimIntentStatus.PENDING);
+    }
+
+    @Test
     @DisplayName("정지 링크 export는 두 표시정보 버전을 이름과 함께 고정한다")
     void frozenLinksPreserveDisplayVersionAtFreeze() throws Exception {
         UUID ownerId = newUser();
@@ -831,10 +979,15 @@ class InternalSurfaceIntegrationTest {
     }
 
     private String enqueueIntent(UUID userId, String slug) throws Exception {
+        return enqueueIntent(userId, slug, "intent-" + slug);
+    }
+
+    /** 키를 손으로 정한 적재 — 사건 키가 {@code (유저, 키)} 라서 키가 곧 «어느 의도인가»다. */
+    private String enqueueIntent(UUID userId, String slug, String key) throws Exception {
         return mockMvc.perform(post("/internal/invite-links/claim-intents")
                         .header("Authorization", "Bearer " + BIZ_TOKEN)
                         .header("X-User-Id", userId.toString())
-                        .header("Idempotency-Key", "intent-" + slug)
+                        .header("Idempotency-Key", key)
                         .contentType("application/json")
                         .content("{\"slug\":\"" + slug + "\"}"))
                 .andExpect(status().isOk())

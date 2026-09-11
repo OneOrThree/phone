@@ -185,22 +185,62 @@ class SatelliteCommandConcurrencyTest {
     }
 
     @Test
-    @DisplayName("claim 의도는 동시에 들어와도 한 행이고 «아무도 실패하지 않는다» — 적재 실패는 곧 claim 실패다")
-    void concurrentClaimIntentsCollapseIntoOneRow() throws Exception {
+    @DisplayName("«같은 키»의 동시 적재는 한 행이고 아무도 실패하지 않는다 — 적재 실패는 곧 claim 실패다")
+    void concurrentClaimIntentsWithTheSameKeyCollapseIntoOneRow() throws Exception {
         UUID userId = newUser();
-        int threads = 4;
+        // ⚠️ 네 스레드가 «같은» 키를 든다. 키가 갈리면 사건 키도 갈려 이 테스트는 경합을 만들지
+        //    못한다 — 각자 자기 행을 조용히 만들고 끝나므로, 「한 행」 단정이 우연히 초록이 아니라
+        //    아예 다른 것을 재게 된다.
+        String sharedKey = "intent-shared-key";
+        List<UUID> acked = enqueueConcurrently(userId, "racyslug", i -> sharedKey, 4);
+
+        // 「한쪽이 UNIQUE 로 터지는 것은 정상 경합」이 아니다. 이 적재는 202 의 «유일한 근거»라
+        // (A22 ㊄) 그 500 은 사용자에게 claim 실패로 보이고, 앱은 다음 로그인까지 재시도하지
+        // 않으므로 그 귀속은 영영 사라진다. 그래서 유저 축 잠금 뒤 재조회로 패자를 접는다.
+        //
+        // 넷이 «같은» 의도를 받는다 — 응답이 갈리면 앱이 서로 다른 명령으로 본다.
+        assertThat(acked).doesNotContainNull().containsOnly(acked.get(0));
+        // 행은 하나다 — 둘이면 재개가 같은 귀속을 두 번 밟는다.
+        assertThat(intentRowsOf(userId, "racyslug")).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("«다른 키»면 같은 (유저, slug) 라도 각자 의도를 받는다 — 한 요청의 종결이 다른 요청을 삼키면 안 된다")
+    void differentKeysGetTheirOwnIntentForTheSameUserAndSlug() throws Exception {
+        UUID userId = newUser();
+        List<UUID> acked = enqueueConcurrently(userId, "twinslug", i -> "intent-key-" + i, 2);
+
+        // 응답이 갈려야 한다. 같으면 뒤 요청이 앞 요청의 «상태»를 물려받는다는 뜻이고, 앞 의도가
+        // ABANDONED 로 끝나 있으면 뒤 요청은 재개가 잡지 못하는 종결 행을 받아 귀속이 사라진다.
+        assertThat(acked).doesNotContainNull().doesNotHaveDuplicates();
+        assertThat(intentRowsOf(userId, "twinslug")).isEqualTo(2L);
+    }
+
+    /**
+     * 같은 {@code (유저, slug)} 로 여러 요청을 «동시에» 적재한다.
+     *
+     * @param userId  claim 주체
+     * @param slug    초대 링크
+     * @param keyOf   스레드 번호 → 멱등 키
+     * @param threads 동시 요청 수
+     * @return 각 요청이 받은 {@code commandId} — 실패는 여기서 바로 단정으로 걸러진다
+     */
+    private List<UUID> enqueueConcurrently(
+            UUID userId, String slug, java.util.function.IntFunction<String> keyOf, int threads)
+            throws Exception {
+
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         try {
             List<Future<UUID>> futures = new java.util.ArrayList<>();
             for (int i = 0; i < threads; i++) {
-                String key = "intent-key-" + i;
+                String key = keyOf.apply(i);
                 futures.add(pool.submit(() -> {
                     start.await(10, TimeUnit.SECONDS);
                     try {
                         return internalInviteLinkService
-                                .enqueueClaimIntent(userId, "racyslug", key).commandId();
+                                .enqueueClaimIntent(userId, slug, key).commandId();
                     } catch (RuntimeException e) {
                         failure.compareAndSet(null, e);
                         return null;
@@ -212,15 +252,8 @@ class SatelliteCommandConcurrencyTest {
             for (Future<UUID> future : futures) {
                 acked.add(future.get(30, TimeUnit.SECONDS));
             }
-
-            // ⚠️ 「한쪽이 UNIQUE 로 터지는 것은 정상 경합」이 아니다. 이 적재는 202 의 «유일한 근거»라
-            //    (A22 ㊄) 그 500 은 사용자에게 claim 실패로 보이고, 앱은 다음 로그인까지 재시도하지
-            //    않으므로 그 귀속은 영영 사라진다. 그래서 유저 축 잠금 뒤 재조회로 패자를 접는다.
             assertThat(failure.get()).isNull();
-            // 넷이 «같은» 의도를 받는다 — 응답이 갈리면 앱이 서로 다른 명령으로 본다.
-            assertThat(acked).doesNotContainNull().containsOnly(acked.get(0));
-            // 행은 하나다 — 둘이면 재개가 같은 귀속을 두 번 밟는다.
-            assertThat(intentRowsOf(userId, "racyslug")).isEqualTo(1L);
+            return acked;
         } finally {
             pool.shutdownNow();
         }

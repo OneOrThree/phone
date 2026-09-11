@@ -97,6 +97,9 @@ ALTER TABLE public.group_members
 CREATE TABLE public.invite_claim_intents (
     id          uuid                        NOT NULL,
     user_id     uuid                        NOT NULL,
+    -- 사건 키에는 들어가지 않고 «대조»에만 쓴다(아래 event_id 주석). 확정이 대기 의도를 닫을 때
+    -- 고르는 축이기도 하다 — 실제 claim 은 (유저, 링크) 당 하나라, 확정 하나가 그 조합의 대기 의도를
+    -- 전부 끝낸다.
     slug        character varying(12)       NOT NULL,
     -- PENDING(대기) · CONSUMED(확정까지 끝남) · ABANDONED(정본 판정으로 더 밟을 것이 없음)
     status      character varying(20)       NOT NULL
@@ -105,7 +108,14 @@ CREATE TABLE public.invite_claim_intents (
                 'PENDING'::character varying,
                 'CONSUMED'::character varying,
                 'ABANDONED'::character varying])::text[])),
-    -- 결정적 사건 키. 같은 (유저, slug) 의 대기 중 의도가 둘이 되지 않게 한다.
+    -- 결정적 사건 키 — link.claimIntent:<user_id>:<SHA-256(정규화된 멱등 키)> 다(17+36+1+64=118자라
+    -- 상한 200 안이고, 새 컬럼도 확장도 필요 없다). 같은 «요청 키»의 재시도가 새 행을 만들지 않게 한다.
+    --
+    -- ⚠️ slug 는 키에 «들어가지 않는다». (유저, slug) 를 키로 잡으면 그 조합이 한 번 종결된 뒤에는
+    -- 새 의도가 영영 생기지 않는다 — 클릭 귀속이 뒤늦게 잡혀 같은 slug 를 다시 claim 하는 정상 경로가
+    -- 종결된 행을 그대로 재생받고, 재개 sweep 은 status='PENDING' 만 보므로 그 뒤의 202 는 아무도
+    -- 이어받지 않는 거짓 약속이 된다(귀속 유실). 대신 같은 키로 다른 slug 가 오면 그건 재시도가 아니라
+    -- 키를 재사용한 별개 명령이라, 아래 slug 와 대조해 409(IDEMPOTENCY_KEY_CONFLICT)로 거절한다.
     event_id    character varying(200)      NOT NULL,
     -- 재개 실행자가 «같은 멱등 키»로 링크 pending·Data confirm 을 재생하기 위해 보관한다(㉼).
     -- 새 키를 만들면 재개가 중복 명령이 되어, 이미 확정된 귀속을 한 번 더 집계한다.

@@ -130,7 +130,7 @@ class InviteLinkContractTest extends UpstreamTestBase {
         stubActiveUser(USER);
         DATA.on("POST /internal/invite-links/claim-intents", request ->
                 new MockUpstream.Response(200,
-                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1}"));
+                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1,\"completed\":false}"));
         LINK.on("POST /internal/links/abc123/claim", request ->
                 new MockUpstream.Response(200,
                         "{\"claimId\":\"" + CLAIM_ID + "\",\"capability\":\"cap-token\",\"groupId\":\""
@@ -172,7 +172,7 @@ class InviteLinkContractTest extends UpstreamTestBase {
         stubActiveUser(USER);
         DATA.on("POST /internal/invite-links/claim-intents", request ->
                 new MockUpstream.Response(200,
-                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1}"));
+                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1,\"completed\":false}"));
         LINK.on("POST /internal/links/nope/claim", request ->
                 new MockUpstream.Response(404,
                         "{\"code\":\"SLUG_NOT_FOUND\",\"message\":\"초대 링크를 찾을 수 없습니다.\"}"));
@@ -191,7 +191,7 @@ class InviteLinkContractTest extends UpstreamTestBase {
         stubActiveUser(USER);
         DATA.on("POST /internal/invite-links/claim-intents", request ->
                 new MockUpstream.Response(200,
-                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1}"));
+                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1,\"completed\":false}"));
         // link/src/lib/links.ts:145·149 — 셀프 초대이거나 붙일 클릭이 없으면 이 모양이 «정상»이다.
         LINK.on("POST /internal/links/abc123/claim", request ->
                 new MockUpstream.Response(200, "{\"claimId\":null,\"capability\":null,\"groupId\":null}"));
@@ -223,7 +223,7 @@ class InviteLinkContractTest extends UpstreamTestBase {
         stubActiveUser(USER);
         DATA.on("POST /internal/invite-links/claim-intents", request ->
                 new MockUpstream.Response(200,
-                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1}"));
+                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1,\"completed\":false}"));
         LINK.on("POST /internal/links/abc123/claim", request ->
                 new MockUpstream.Response(200, "{\"claimId\":null,\"capability\":null,\"groupId\":null}"));
         // 남의 것·없는 것을 한 코드로 접은 Data 의 판정. 여기서 올리면 아무 문제 없이 끝난 claim 이

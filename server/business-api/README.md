@@ -206,3 +206,7 @@ SPRING_PROFILES_ACTIVE=ci ./gradlew build   # 테스트 + checkstyleMain + spotb
 
 > **운영 완료가 아니다.** 위는 전부 로컬 검사다. Data `/internal/*` 제공자가 0건이므로 이 서비스는
 > 아직 어떤 환경에서도 실제 트래픽을 처리할 수 없다. dev 배포·prod 전환은 미실행이다.
+
+claim 의도는 사용자·요청 키별로 구분한다. 같은 사용자·slug라도 새 키는 별도 대기 의도를 만든다.
+Data의 enqueue 응답이 `completed=true`면 이전 요청의 종결 결과를 200으로 재생하고 Link를 다시 호출하지 않는다.
+따라서 과거에 종결된 의도를 새 202의 내구 근거로 재사용하지 않는다.

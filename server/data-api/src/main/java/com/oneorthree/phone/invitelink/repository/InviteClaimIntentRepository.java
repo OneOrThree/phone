@@ -16,8 +16,13 @@ import java.util.UUID;
 /**
  * claim 의도 큐 저장소 (A22 ㊄).
  *
- * <p>{@code eventId} 조회가 멱등의 축이다 — 같은 {@code (유저, slug)} 로 다시 들어온 의도는 새 행을
- * 만들지 않고 기존 행을 그대로 돌려줘야 한다. 새로 만들면 재개가 같은 귀속을 두 번 밟는다.
+ * <p>{@code eventId} 조회가 멱등의 축이다 — <b>같은 요청 키</b>로 다시 들어온 의도는 새 행을 만들지
+ * 않고 기존 행을 그대로 돌려줘야 한다. 새로 만들면 재개가 같은 귀속을 두 번 밟는다.
+ *
+ * <p>⚠️ 키는 {@code (유저, 멱등 키)} 다 — <b>slug 가 아니다</b>. {@code (유저, slug)} 로 잡으면 한 번
+ * 종결된 조합에 새 의도가 영영 생기지 않아, 뒤늦게 잡힌 클릭 귀속으로 같은 slug 를 다시 claim 할 때
+ * 종결된 행이 그대로 재생된다 — 아무도 이어받지 않는 202 가 나가고 귀속이 사라진다. 대신 같은 키로
+ * 다른 slug 가 오면 그건 재시도가 아니라 키를 재사용한 별개 명령이라 409 로 거절한다(서비스에서 대조).
  *
  * <h2>락 등급이 계약이다 — 상태를 바꿀 조회는 {@code ...ForUpdate} 여야 한다</h2>
  * 이 행의 전이(lease · 완료 · 종결 · 확정에 의한 소비)는 전부 <b>「읽고 판정한 뒤 쓴다」</b> 꼴인데,
@@ -37,25 +42,50 @@ public interface InviteClaimIntentRepository extends JpaRepository<InviteClaimIn
 
     /**
      * 적재의 <b>무락</b> 빠른 경로 — 이미 적재된 의도를 그대로 재생할 뿐 상태를 바꾸지 않는다.
-     * 상태를 바꿀 거면 {@link #findByEventIdForUpdate(String)} 를 써야 한다.
+     * 상태를 바꿀 거면 {@link #findPendingByUserAndSlugForUpdate(UUID, String)} 를 써야 한다.
      *
-     * @param eventId 결정적 사건 키
+     * @param eventId 결정적 사건 키 — {@code link.claimIntent:<userId>:<SHA-256(멱등 키)>}
      * @return 이미 적재된 의도
      */
     Optional<InviteClaimIntent> findByEventId(String eventId);
 
     /**
-     * 확정이 의도를 닫기 위한 <b>배타 잠금</b> 조회.
+     * 확정이 의도를 닫기 위한 <b>배타 잠금</b> 조회 — {@code (유저, slug)} 의 <b>대기 중</b> 의도 전부.
      *
-     * <p>{@code consume} 은 현재 리스 토큰을 완료 토큰으로 물려받는다 — 그 토큰을 잠그지 않고 읽으면
-     * 「방금 남이 재선점한 리스」의 토큰을 물려받거나, 반대로 재선점이 이 종결을 덮는다.
+     * <p>왜 한 건이 아니라 목록인가: 키마다 행이 나뉘므로 같은 {@code (유저, slug)} 에 서로 다른 요청
+     * 키의 의도가 여럿 대기할 수 있다. 실제 claim 은 {@code (유저, 링크)} 당 하나라는 자연키를 갖는
+     * 사실이므로, 확정 하나가 그 조합의 대기 의도를 <b>모두</b> 끝낸다 — 남기면 재개 실행자가 이미
+     * 끝난 귀속을 다시 밟고 그 재시도는 매번 「이미 확정됨」으로 접혀 큐가 영영 비지 않는다.
      *
-     * @param eventId 결정적 사건 키
-     * @return 잠긴 채로 돌아온 의도
+     * <p><b>{@code id} 오름차순으로 잠근다.</b> 동시 확정 둘이 같은 집합을 서로 다른 순서로 잡으면
+     * 그 둘 사이에 교착이 생긴다 — 순서를 한 줄로 고정하는 것이 그 방지책이다.
+     *
+     * <p>{@code consume} 은 <b>각 의도가 현재 쥐고 있는</b> 리스 토큰을 완료 토큰으로 물려받는다 —
+     * 그 토큰을 잠그지 않고 읽으면 「방금 남이 재선점한 리스」의 토큰을 물려받거나, 반대로 재선점이
+     * 이 종결을 덮는다.
+     *
+     * @param userId claim 주체
+     * @param slug   초대 링크
+     * @param status 고를 상태 — 확정이 닫는 것은 {@code PENDING} 뿐이다
+     * @return 잠긴 채로 돌아온 그 상태의 의도들 — 오래된 것부터
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT i FROM InviteClaimIntent i WHERE i.eventId = :eventId")
-    Optional<InviteClaimIntent> findByEventIdForUpdate(@Param("eventId") String eventId);
+    @Query("SELECT i FROM InviteClaimIntent i WHERE i.userId = :userId AND i.slug = :slug "
+            + "AND i.status = :status ORDER BY i.id ASC")
+    List<InviteClaimIntent> findByUserIdAndSlugAndStatusForUpdate(
+            @Param("userId") UUID userId, @Param("slug") String slug,
+            @Param("status") InviteClaimIntentStatus status);
+
+    /**
+     * 확정이 닫아야 할 대기 의도들 — 위 잠금 조회를 {@code PENDING} 으로 고정한 이름이다.
+     *
+     * @param userId claim 주체
+     * @param slug   초대 링크
+     * @return 잠긴 채로 돌아온 대기 의도들 — 오래된 것부터
+     */
+    default List<InviteClaimIntent> findPendingByUserAndSlugForUpdate(UUID userId, String slug) {
+        return findByUserIdAndSlugAndStatusForUpdate(userId, slug, InviteClaimIntentStatus.PENDING);
+    }
 
     /**
      * 선점·완료 보고가 쓰는 <b>배타 잠금</b> 조회 — 이 경로들은 서비스 전용이라 소유자 조건이 없다.

@@ -6,6 +6,7 @@ import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentLease;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentPage;
 import com.oneorthree.business.upstream.data.dto.DeviceSessionCheck;
+import com.oneorthree.business.upstream.data.dto.ClaimIntentAck;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.data.dto.FrozenClickCandidate;
 import com.oneorthree.business.upstream.data.dto.InviteIssueContext;
@@ -174,7 +175,7 @@ public class DataApiClient {
      * <p>정지 창의 claim 은 거절이 아니라 대기다(A22 ㊄: 앱은 다음 로그인까지 재시도하지 않는다).
      * 전역 15초를 넘길 위험이 있으면 {@code 202} 로 받되, <b>큐 커밋 전에는 202 를 응답하지 않는다</b>.
      */
-    public DurableCommandAck enqueueClaimIntent(UUID userId, String slug, String idempotencyKey,
+    public ClaimIntentAck enqueueClaimIntent(UUID userId, String slug, String idempotencyKey,
             Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, PATH_CLAIM_INTENTS)
@@ -184,7 +185,7 @@ public class DataApiClient {
                         .idempotentCommand()
                         .build(),
                 deadline,
-                new ParameterizedTypeReference<DurableCommandAck>() { });
+                new ParameterizedTypeReference<ClaimIntentAck>() { });
     }
 
     /**

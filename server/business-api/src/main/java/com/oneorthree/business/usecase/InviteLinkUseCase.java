@@ -6,6 +6,7 @@ import com.oneorthree.business.common.exception.UpstreamUnavailableException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.CompatProperties;
 import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.dto.ClaimIntentAck;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.data.dto.InviteIssueContext;
 import com.oneorthree.business.upstream.link.LinkApiClient;
@@ -110,8 +111,12 @@ public class InviteLinkUseCase {
         activeUserGuard.requireActive(userId, deadline);
 
         // ② 내구 적재 — 이 커밋이 202 의 유일한 근거다. 실패하면 202 를 줄 수 없으므로 예외가 올라간다.
-        DurableCommandAck intent = dataApiClient.enqueueClaimIntent(
+        ClaimIntentAck intent = dataApiClient.enqueueClaimIntent(
                 userId, slug, keys.forStep("claim-intent"), deadline);
+        // 종결된 같은 요청을 202로 다시 접수하지 않는다. 새 요청 키는 별도 PENDING 의도를 받는다.
+        if (intent.completed()) {
+            return new ClaimOutcome(true);
+        }
 
         try {
             // ③ 링크의 잠정 기록 + 서명 자격. SLUG_NOT_FOUND(404) 는 기존 계약대로 중계된다.
@@ -166,7 +171,7 @@ public class InviteLinkUseCase {
      * <p>⚠️ 이 자리에 {@code markCommandDelivered} 를 쓰면 <b>항상 404</b> 다 — 그 경로는 봉투의
      * {@code eventId} 로 「알림 대상 전달」을 닫고, claim 의도는 outbox 행이 아니다.
      */
-    private void abandonIntentQuietly(UUID userId, DurableCommandAck intent, Deadline deadline) {
+    private void abandonIntentQuietly(UUID userId, ClaimIntentAck intent, Deadline deadline) {
         try {
             dataApiClient.abandonClaimIntent(userId, intent.commandId(), deadline);
         } catch (RuntimeException e) {

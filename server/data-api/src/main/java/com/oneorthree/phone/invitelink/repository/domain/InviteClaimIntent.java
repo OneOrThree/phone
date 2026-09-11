@@ -55,7 +55,20 @@ public class InviteClaimIntent {
     @Builder.Default
     private InviteClaimIntentStatus status = InviteClaimIntentStatus.PENDING;
 
-    /** 결정적 사건 키 — 같은 {@code (유저, slug)} 의 대기 중 의도가 둘이 되지 않게 한다. */
+    /**
+     * 결정적 사건 키 — {@code link.claimIntent:<userId>:<SHA-256(정규화된 멱등 키)>} 다.
+     *
+     * <p><b>slug 가 들어가지 않는다.</b> 키의 주인은 앱이고, 같은 키로 다른 slug 가 오면 그건 재시도가
+     * 아니라 «키를 재사용한 별개 명령»이다 — 그래서 그 조합은 키로 접히지 않고 {@code
+     * IDEMPOTENCY_KEY_CONFLICT}(409) 로 거절된다. slug 는 이 행에 저장해 두고 대조에만 쓴다.
+     *
+     * <p><b>{@code (유저, slug)} 를 키로 쓰지 않는 이유</b>: 그러면 한 번 종결된 조합으로는 새 의도가
+     * 영영 생기지 않는다. 클릭 귀속이 뒤늦게 잡혀 같은 slug 를 다시 claim 하는 것은 정상 경로인데,
+     * 종결된 행이 그대로 재생되면 아무도 이어받지 않는 202 가 나간다(귀속 유실). 요청 키마다 행을
+     * 나누면 같은 키의 재시도는 그대로 접히고, 새 키는 «새 PENDING 의도»를 받는다.
+     *
+     * <p>길이는 {@code 17 + 36 + 1 + 64 = 118} 로 상한 200 안이다 — 새 컬럼·확장이 필요 없다.
+     */
     @Column(name = "event_id", nullable = false, length = 200)
     private String eventId;
 
@@ -192,6 +205,19 @@ public class InviteClaimIntent {
      */
     public boolean holdsLease(UUID token) {
         return this.leaseToken != null && this.leaseToken.equals(token);
+    }
+
+    /**
+     * 이 의도가 <b>이미 끝났는가</b> — 적재 응답의 {@code completed} 다.
+     *
+     * <p>같은 요청 키로 다시 온 claim 은 이 값이 {@code true} 면 더 밟을 것이 없다. Business 가
+     * 이걸 보고 «내구 큐가 이어받는다»는 뜻의 202 를 주지 않는다 — 종결된 의도는 재개 sweep
+     * ({@code status='PENDING'})에 잡히지 않으므로 그 202 는 아무도 이어받지 않는 거짓말이 된다.
+     *
+     * @return {@code CONSUMED} 또는 {@code ABANDONED} 면 {@code true}
+     */
+    public boolean isSettled() {
+        return this.status != InviteClaimIntentStatus.PENDING;
     }
 
     /**

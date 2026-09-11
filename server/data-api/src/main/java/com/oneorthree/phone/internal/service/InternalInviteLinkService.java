@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.oneorthree.phone.common.support.InternalCommands;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -23,6 +24,8 @@ import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
 import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
+import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
+import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -61,6 +64,9 @@ public class InternalInviteLinkService {
 
     /** 사건 종류 — 잠정 claim 이 확정됐다. */
     public static final String EVENT_CLAIM_CONFIRMED = "link.claimConfirmed";
+
+    /** claim 의도 사건 키의 접두. 뒤에 {@code :<userId>:<SHA-256(멱등 키)>} 가 붙는다. */
+    public static final String EVENT_CLAIM_INTENT = "link.claimIntent";
 
     /** 링크 서버의 확정 전달 논리 키. */
     public static final String ENDPOINT_CLAIM_CONFIRMED = "link.claimConfirmed";
@@ -129,8 +135,21 @@ public class InternalInviteLinkService {
     /**
      * claim 의도를 <b>내구 적재</b>한다 — {@code 202} 를 줄 수 있는 유일한 근거 (㊄ · ㊺).
      *
-     * <p>같은 {@code (유저, slug)} 로 다시 오면 <b>새 행을 만들지 않는다</b>. 만들면 재개가 같은 귀속을
-     * 두 번 밟는다.
+     * <h2>멱등의 축은 {@code (유저, 요청 키)} 다 — {@code (유저, slug)} 가 아니다</h2>
+     * <b>같은 요청 키</b>로 다시 오면 새 행을 만들지 않고 그 행을 그대로 재생한다. 만들면 재개가 같은
+     * 귀속을 두 번 밟는다.
+     *
+     * <p>반대로 <b>다른 요청 키</b>는 같은 {@code (유저, slug)} 라도 새 {@code PENDING} 의도를 받는다.
+     * {@code (유저, slug)} 를 키로 잡으면 그 조합이 한 번 종결된 뒤에는 새 의도가 영영 생기지 않아,
+     * 뒤늦게 잡힌 클릭 귀속으로 같은 slug 를 다시 claim 하는 <b>정상 경로</b>가 종결된 행을 그대로
+     * 재생받는다 — 재개 sweep 은 {@code PENDING} 만 보므로 그 뒤에 나가는 202 는 아무도 이어받지
+     * 않는 거짓 약속이 되고 귀속이 사라진다. 한 의도의 {@code ABANDONED} 를 다른 요청이 물려받지
+     * 않는 것도 같은 이유다.
+     *
+     * <p><b>같은 키로 다른 slug 가 오면 재시도가 아니다.</b> 키의 주인은 앱이고, 키를 재사용한 별개
+     * 명령에 남의 응답을 재생해 주면 「보냈는데 아무것도 안 만들어졌다」가 된다 — 저장된 slug 와
+     * 대조해 {@code IDEMPOTENCY_KEY_CONFLICT}(409) 로 거절한다. 이건 outbox 멱등 계층이 본문 지문으로
+     * 하는 판정과 같은 것이고, 그래서 같은 코드를 쓴다.
      *
      * <p>⚠️ 이 큐를 <b>Data 가 스스로 소비하지 않는다.</b> 링크 조회·claim 실행은 단방향 규칙(§3)과
      * ㋟ 를 동시에 어긴다 — 재개는 Business 쪽 실행자가 같은 조합(링크 잠정 → Data 확정)을 다시 밟는다.
@@ -138,22 +157,24 @@ public class InternalInviteLinkService {
      * @param userId         claim 주체
      * @param slug           초대 링크
      * @param idempotencyKey {@code Idempotency-Key}
-     * @return 의도 식별자와 순서 version
+     * @return 의도 식별자 · 순서 version · 이미 종결됐는가
+     * @throws OutboxException {@code IDEMPOTENCY_KEY_CONFLICT}(409) — 같은 키로 다른 slug 가 왔다
      */
     @Transactional
     public ClaimIntentAck enqueueClaimIntent(UUID userId, String slug, String idempotencyKey) {
-        String eventId = "link.claimIntent:" + userId + ":" + slug;
+        // 헤더가 없으면 이번 호출용 키를 만든다 — 그 키로 사건 키를 계산하므로, 키 없는 요청은
+        // «매번 새 의도»가 된다(현행과 같은 수준이다. 앱 재시도는 원래 이 서버가 접지 못한다).
+        String key = idempotencyKey == null || idempotencyKey.isBlank()
+                ? "claim-intent:" + UUID.randomUUID() : idempotencyKey.trim();
+        String eventId = claimIntentEventId(userId, key);
         // 빠른 경로 — 이미 적재된 의도는 잠금 없이 그대로 재생한다.
         Optional<InviteClaimIntent> existing = inviteClaimIntentRepository.findByEventId(eventId);
         if (existing.isPresent()) {
-            InviteClaimIntent intent = existing.get();
-            return new ClaimIntentAck(intent.getId(), intent.getEventId(), intent.getVersion());
+            return replayIntent(existing.get(), slug);
         }
-        String key = idempotencyKey == null || idempotencyKey.isBlank()
-                ? "claim-intent:" + UUID.randomUUID() : idempotencyKey.trim();
         // 순서 version 은 유저 축 잠금 아래 발급한다 — 이 값이 응답 봉투의 version 이다(㉵).
         //
-        // 이 잠금이 «검사-후-삽입» 경합도 함께 막는다: 같은 (유저, slug) 로 동시에 들어온 두 요청은
+        // 이 잠금이 «검사-후-삽입» 경합도 함께 막는다: 같은 요청 키로 동시에 들어온 두 요청은
         // 위 조회를 둘 다 비운 채 통과할 수 있고, 그대로 저장하면 뒤선 쪽이 event_id UNIQUE 에 걸려
         // 500 이 된다(적재는 202 의 유일한 근거라, 그 500 은 사용자에게 claim 실패로 보인다).
         // 잠금은 커밋까지 유지되므로 뒤선 트랜잭션은 여기서 «기다리고», 깨어난 뒤 아래에서 다시 본다.
@@ -170,8 +191,7 @@ public class InternalInviteLinkService {
             // 경합의 패자다. 발급한 version 한 칸은 버린다 — 응답은 «먼저 커밋된 행»의 값이어야 하고
             // (같은 명령에 두 version 을 주면 앱이 순서를 뒤집어 본다), 번호에 빈칸이 생기는 것은
             // 무해하다(적재는 봉투를 만들지 않으므로 relay 가 기다릴 행이 애초에 없다).
-            InviteClaimIntent intent = raced.get();
-            return new ClaimIntentAck(intent.getId(), intent.getEventId(), intent.getVersion());
+            return replayIntent(raced.get(), slug);
         }
         InviteClaimIntent intent = inviteClaimIntentRepository.save(InviteClaimIntent.builder()
                 .userId(userId)
@@ -182,7 +202,41 @@ public class InternalInviteLinkService {
                 .version(version)
                 .nextAttemptAt(clock.instant())
                 .build());
-        return new ClaimIntentAck(intent.getId(), eventId, version);
+        // 방금 만든 행은 PENDING 이다 — 새로 적재된 의도에 completed=true 를 주면 Business 가 아직
+        // 밟지도 않은 claim 을 「끝났다」로 접는다.
+        return new ClaimIntentAck(intent.getId(), eventId, version, false);
+    }
+
+    /**
+     * 이미 적재된 의도를 그대로 재생한다 — 저장된 slug 와 대조한 뒤에만.
+     *
+     * @param intent 저장된 의도
+     * @param slug   이번 요청의 slug
+     * @return 저장된 값 그대로의 ack
+     */
+    private static ClaimIntentAck replayIntent(InviteClaimIntent intent, String slug) {
+        if (!intent.getSlug().equals(slug)) {
+            // 같은 키로 다른 링크가 왔다. 저장된 응답을 재생하면 이번 claim 은 아무 데도 적재되지
+            // 않은 채 성공 응답을 받는다 — 유실과 구분되지 않는다.
+            throw new OutboxException(OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        }
+        return new ClaimIntentAck(
+                intent.getId(), intent.getEventId(), intent.getVersion(), intent.isSettled());
+    }
+
+    /**
+     * 의도의 결정적 사건 키.
+     *
+     * <p>키 원문을 그대로 붙이지 않는 이유 둘: 앱이 소유한 키는 길이·문자 구성이 자유라 컬럼 상한
+     * (200)을 넘길 수 있고, 사건 키는 로그·응답에 그대로 실려 나간다. 해시로 접으면 길이가
+     * {@code 17 + 36 + 1 + 64 = 118} 로 고정된다.
+     *
+     * @param userId        claim 주체
+     * @param normalizedKey 정규화된 멱등 키(공백 제거 또는 이번 호출용 생성값)
+     * @return {@code link.claimIntent:<userId>:<SHA-256 hex>}
+     */
+    private static String claimIntentEventId(UUID userId, String normalizedKey) {
+        return EVENT_CLAIM_INTENT + ":" + userId + ":" + InternalCommands.fingerprint(normalizedKey);
     }
 
     /**
@@ -204,16 +258,61 @@ public class InternalInviteLinkService {
      * @return 완성된 봉투
      * @throws InviteLinkException {@code CLAIM_CAPABILITY_INVALID} · {@code CLAIM_REVOKED}(409)
      */
+    // 이 경로는 확정이 선 뒤 같은 (유저, slug) 의 «대기 의도 전부»를 닫는다 — 아래 closePendingIntents.
     @Transactional
     public ClaimIntentAck confirmClaim(UUID userId, UUID claimId, String slug, String capability,
             String idempotencyKey) {
 
         // capability는 재시도 때 만료 시각을 갱신하는 자격이다. 명령 식별자는 변하지 않는다.
-        return outboxCommandPort.runIdempotent(
+        ClaimIntentAck ack = outboxCommandPort.runIdempotent(
                 InternalCommands.idempotency(idempotencyKey, userId, "claim-confirmation",
                         claimId, slug),
                 ClaimIntentAck.class,
                 () -> confirmOnce(userId, claimId, slug, capability)).value();
+
+        // 확정이 «성공 응답»으로 선 뒤에 닫는다 — 이 자리여야 세 경로가 모두 덮인다.
+        //
+        //   ① 이번에 확정한 경우            → confirmOnce 가 방금 만든 확정
+        //   ② 같은 claim 이 다른 키로 온 경우 → confirmOnce 의 조기 반환(저장된 확정 재생)
+        //   ③ 같은 «키»로 다시 온 경우       → runIdempotent 의 응답 캐시가 confirmOnce 자체를 건너뛴다
+        //
+        // ③ 을 confirmOnce 안에서 닫는 방식으로는 못 막는다 — 그 메서드가 아예 실행되지 않기 때문이다.
+        // 그런데 ②·③ 은 «앱이 응답을 못 받아 다시 보낸» 흔한 모양이고, 그 재시도 직전에 새 의도가
+        // 적재됐을 수 있다(요청 키가 다르면 새 PENDING 행이다). 여기서 닫지 않으면 그 행은 이미 끝난
+        // 귀속을 들고 큐에 영원히 남아 「미완료 0」 gate 를 막는다.
+        //
+        // 같은 트랜잭션이다 — 확정과 의도 종결이 갈라져 커밋되면 그 사이에 재개가 끼어든다.
+        closePendingIntents(userId, slug);
+        return ack;
+    }
+
+    /**
+     * 확정이 선 {@code (유저, slug)} 의 대기 의도를 <b>전부</b> 닫는다.
+     *
+     * <p>키마다 행이 나뉘므로 같은 조합에 의도가 여럿 대기할 수 있는데, 실제 claim 은
+     * {@code (유저, 링크)} 당 하나라는 자연키를 갖는 사실이다 — 그러니 확정 하나가 그 조합의 대기
+     * 의도를 모두 끝낸 것이 맞다. 남기면 재개 실행자가 이미 끝난 귀속을 다시 밟고, 그 재시도는 매번
+     * 「이미 확정됨」으로 접혀 큐가 영영 비지 않는다.
+     *
+     * <p>⚠️ {@code consume} 은 <b>각 의도가 지금 쥐고 있는</b> 리스 토큰을 완료 토큰으로 물려받는다 —
+     * 이 확정을 몰고 온 것이 재개 실행자일 때(lease → 링크 잠정 → 이 확정), 바로 뒤에 오는 그 실행자의
+     * 완료 보고가 자기 토큰으로 200 을 받아야 한다. null 로 닫으면 성공한 재개가 409 로 실패로 세어진다.
+     *
+     * <p>⚠️ 그래서 «잠근 채» 읽어야 한다. 무락으로 읽으면 물려받는 토큰이 옛 값일 수 있고(그 사이
+     * 리스가 만료돼 남이 재선점했다면 완료 토큰이 «이미 죽은» 실행자의 것이 된다), 반대로 그 재선점이
+     * 이 종결을 덮어 끝난 의도가 {@code PENDING} 으로 되살아난다. 락 순서는 aggregate(append) → 이
+     * 행들이다 — 뒤집으면 enqueue 와 교착의 고리가 생긴다. 행 사이 순서는 {@code id} 오름차순으로
+     * 고정돼 있어 동시 확정끼리도 고리를 만들지 않는다.
+     *
+     * @param userId claim 주체
+     * @param slug   초대 링크
+     */
+    private void closePendingIntents(UUID userId, String slug) {
+        Instant closedAt = clock.instant();
+        for (InviteClaimIntent intent
+                : inviteClaimIntentRepository.findPendingByUserAndSlugForUpdate(userId, slug)) {
+            intent.consume(closedAt);
+        }
     }
 
     private ClaimIntentAck confirmOnce(UUID userId, UUID claimId, String slug, String capability) {
@@ -222,9 +321,14 @@ public class InternalInviteLinkService {
         Optional<InviteClaimConfirmation> already = inviteClaimConfirmationRepository.findByClaimId(claimId);
         if (already.isPresent()) {
             InviteClaimConfirmation stored = already.get();
-            if (!stored.getUserId().equals(userId)) {
-                // 남의 claim id 로 왔다. 저장된 응답을 그대로 돌려주면 그 안의 확정 근거·version 이
-                // 새고, 그 자체가 남의 claim id 를 탐색하는 수단이 된다 — 「없는 자격」과 같게 접는다.
+            if (!stored.getUserId().equals(userId) || !stored.getSlug().equals(slug)) {
+                // 남의 claim id 로 왔거나, 같은 claim id 에 «다른 링크»를 붙여 왔다. 저장된 응답을
+                // 그대로 돌려주면 그 안의 확정 근거·version 이 새고, 그 자체가 남의 claim id 를
+                // 탐색하는 수단이 된다 — 「없는 자격」과 같게 접는다.
+                //
+                // ⚠️ slug 대조가 특히 필요한 이유: 이 조기 반환 뒤에 «요청의 slug» 로 대기 의도를
+                //    닫는다. 저장된 확정이 다른 링크의 것인데 그대로 통과시키면, 확정이 선 적 없는
+                //    링크의 의도가 「확정됐다」는 이유로 닫힌다 — 그 귀속은 아무도 밟지 않는다.
                 throw new InviteLinkException(InviteLinkErrorCode.CLAIM_CAPABILITY_INVALID);
             }
             return new ClaimIntentAck(stored.getId(), stored.getEventId(), stored.getVersion());
@@ -305,20 +409,9 @@ public class InternalInviteLinkService {
         // 응답을 재생하기 위한 값이다(㉵).
         confirmation.applyEnvelopeVersion(envelope.version());
 
-        // 이 확정으로 끝난 대기 의도가 있으면 함께 닫는다. 안 닫으면 재개 실행자가 이미 끝난 귀속을
-        // 다시 밟고, 그 재시도는 매번 「이미 확정됨」으로 접혀 큐가 영원히 비지 않는다.
-        //
-        // ⚠️ consume 은 «현재 리스의 토큰»을 완료 토큰으로 물려받는다 — 이 확정을 몰고 온 것이 재개
-        //    실행자일 때(lease → 링크 잠정 → 이 확정), 바로 뒤에 오는 그 실행자의 완료 보고가
-        //    자기 토큰으로 200 을 받아야 한다. null 로 닫으면 성공한 재개가 409 로 실패로 세어진다.
-        //
-        // ⚠️ 그래서 «잠근 채» 읽어야 한다. 무락으로 읽으면 물려받는 토큰이 옛 값일 수 있고(그 사이
-        //    리스가 만료돼 남이 재선점했다면 완료 토큰이 «이미 죽은» 실행자의 것이 된다), 반대로
-        //    그 재선점이 이 종결을 덮어 끝난 의도가 PENDING 으로 되살아난다.
-        //    락 순서는 aggregate(append) → 이 행이다 — 뒤집으면 enqueue 와 교착의 고리가 생긴다.
-        inviteClaimIntentRepository.findByEventIdForUpdate("link.claimIntent:" + userId + ":" + slug)
-                .ifPresent(intent -> intent.consume(committedAt));
-
+        // 대기 의도 종결은 여기서 하지 않는다 — confirmClaim 이 «멱등 캐시 재생까지 포함한» 성공
+        // 응답 뒤에 같은 트랜잭션에서 닫는다. 이 안에서 닫으면 키 캐시가 이 메서드를 통째로 건너뛰는
+        // 재시도에서 아무도 닫지 않는다.
         return new ClaimIntentAck(confirmation.getId(), envelope.eventId(), envelope.version());
     }
 
@@ -454,7 +547,30 @@ public class InternalInviteLinkService {
      * @param commandId 완료 표시 대상
      * @param eventId   불변 사건 식별자
      * @param version   순서 version
+     * @param completed 이 명령이 <b>이미 종결</b>됐는가 — 적재 경로에서만 뜻이 있다. 같은 요청 키로
+     *                  다시 온 종결된 의도가 {@code true} 다. 확정 경로는 항상 {@code false} 인데,
+     *                  확정 응답에는 「큐에 남았는가」라는 물음 자체가 없기 때문이다
      */
-    public record ClaimIntentAck(UUID commandId, String eventId, long version) {
+    public record ClaimIntentAck(UUID commandId, String eventId, long version, boolean completed) {
+
+        /**
+         * 확정 경로용 3인자 생성자 — {@code completed} 는 의미가 없어 {@code false} 로 고정한다.
+         *
+         * <p>남겨 두는 이유: 확정 응답은 {@code DurableCommandAckResponse} 로 나가고 그 계약에
+         * {@code completed} 가 없다. 여기서 호출부마다 {@code false} 를 적게 하면 그 값이 «뜻 있는
+         * 판정»처럼 읽힌다.
+         *
+         * <p>{@code Mode.DISABLED} 는 Jackson 이 이 생성자를 «역직렬화 통로»로 고르지 못하게 한다.
+         * 확정 응답은 멱등 캐시에 JSON 으로 저장됐다가 그대로 되살아나는데, 4필드 JSON 이 3인자
+         * 생성자로 들어가면 {@code completed} 가 조용히 버려진다.
+         *
+         * @param commandId 완료 표시 대상
+         * @param eventId   불변 사건 식별자
+         * @param version   순서 version
+         */
+        @JsonCreator(mode = JsonCreator.Mode.DISABLED)
+        public ClaimIntentAck(UUID commandId, String eventId, long version) {
+            this(commandId, eventId, version, false);
+        }
     }
 }

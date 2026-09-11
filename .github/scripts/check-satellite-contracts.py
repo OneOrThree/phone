@@ -79,9 +79,15 @@ require('abandonClaimIntent' in invite and 'markCommandDelivered(' not in invite
 require('complete(at, this.leaseToken)' in intent,
         'A22 ㋹: 확정이 현재 리스 완료 토큰을 보존하지 않음')
 claim_service = source('server/data-api/src/main/java/com/oneorthree/phone/internal/service/InternalInviteLinkService.java')
-for lookup in ['findByEventIdForUpdate', 'findByIdForUpdate', 'findByIdAndUserIdForUpdate']:
+for lookup in ['findPendingByUserAndSlugForUpdate', 'findByIdForUpdate', 'findByIdAndUserIdForUpdate']:
     require(lookup in claim_service, f'A22 ㋹: claim 의도 전이 잠금 조회 {lookup} 누락')
 
+require('claimIntentEventId(userId, key)' in claim_service
+        and 'IDEMPOTENCY_KEY_CONFLICT' in claim_service
+        and 'intent.isSettled()' in claim_service,
+        'A22 ㋹: 요청 키별 의도 식별·본문 충돌 판정·종결 결과 재생 누락')
+require('intent.completed()' in invite,
+        'A22 ㋹: 종결된 요청을 하위 claim 없이 완료로 재생하지 않음')
 
 if errors:
     print('\n'.join(errors), file=sys.stderr)

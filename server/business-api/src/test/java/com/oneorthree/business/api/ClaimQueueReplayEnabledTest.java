@@ -9,6 +9,7 @@ import org.springframework.test.context.TestPropertySource;
 
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -26,7 +27,7 @@ class ClaimQueueReplayEnabledTest extends UpstreamTestBase {
         stubActiveUser(USER);
         DATA.on("POST /internal/invite-links/claim-intents", request ->
                 new MockUpstream.Response(200,
-                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e\",\"version\":1}"));
+                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e\",\"version\":1,\"completed\":false}"));
         LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(500, "{}"));
 
         mockMvc.perform(post("/api/v1/invite-links/claim")
@@ -49,4 +50,32 @@ class ClaimQueueReplayEnabledTest extends UpstreamTestBase {
                         .content("{\"slug\":\"abc123\"}"))
                 .andExpect(status().isServiceUnavailable());
     }
+    @Test
+    @DisplayName("종결된 같은 요청은 200으로 재생하고 새 키의 대기 의도만 202를 받는다")
+    void completedRequestDoesNotPretendToQueueAgain() throws Exception {
+        stubActiveUser(USER);
+        DATA.on("POST /internal/invite-links/claim-intents", request -> {
+            boolean completed = "finished:claim-intent".equals(request.header("Idempotency-Key"));
+            return new MockUpstream.Response(200, """
+                    {"commandId":"%s","eventId":"e","version":1,"completed":%s}
+                    """.formatted(INTENT_ID, completed));
+        });
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(500, "{}"));
+
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "finished")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isOk());
+        assertThat(LINK.received()).isEmpty();
+
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "new-attempt")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isAccepted());
+        assertThat(LINK.received()).isNotEmpty();
+        assertThat(DATA.hits("POST /internal/invite-links/claim-confirmations")).isZero();
+    }
+
 }

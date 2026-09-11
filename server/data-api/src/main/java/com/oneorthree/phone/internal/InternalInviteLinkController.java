@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.internal.dto.ClaimConfirmationRequest;
+import com.oneorthree.phone.internal.dto.ClaimIntentAckResponse;
 import com.oneorthree.phone.internal.dto.ClaimIntentCompletionRequest;
 import com.oneorthree.phone.internal.dto.ClaimIntentLeaseRequest;
 import com.oneorthree.phone.internal.dto.ClaimIntentLeaseResponse;
@@ -64,21 +65,29 @@ public class InternalInviteLinkController {
     /**
      * claim 의도 내구 적재 — {@code 202} 를 줄 수 있는 유일한 근거 (㊄ · ㊺).
      *
+     * <p><b>이 표면만 {@link ClaimIntentAckResponse} 를 쓴다</b> — 공용 ack 에 {@code completed} 를
+     * 더한 것이다. 같은 요청 키로 다시 온 «이미 종결된» 의도는 {@code completed=true} 로 돌아오고,
+     * Business 는 그걸 202 로 접지 않는다(재개 sweep 은 {@code PENDING} 만 보므로 그 202 는 아무도
+     * 이어받지 않는다). 다른 키는 같은 slug 라도 새 {@code PENDING} 의도를 받아 {@code false} 다.
+     *
+     * <p>같은 키로 <b>다른 slug</b> 가 오면 재시도가 아니라 키를 재사용한 별개 명령이다 —
+     * {@code IDEMPOTENCY_KEY_CONFLICT}(409) 로 거절된다.
+     *
      * @param userId         {@code X-User-Id}
      * @param request        초대 slug
      * @param idempotencyKey {@code Idempotency-Key}
-     * @return 의도 식별자와 순서 version
+     * @return 의도 식별자 · 순서 version · 이미 종결됐는가
      */
     @PostMapping("/invite-links/claim-intents")
-    public ResponseEntity<DurableCommandAckResponse> enqueueClaimIntent(
+    public ResponseEntity<ClaimIntentAckResponse> enqueueClaimIntent(
             @RequestHeader("X-User-Id") UUID userId,
             @Valid @RequestBody ClaimIntentRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 
         InternalInviteLinkService.ClaimIntentAck ack =
                 internalInviteLinkService.enqueueClaimIntent(userId, request.slug(), idempotencyKey);
-        return ResponseEntity.ok(
-                new DurableCommandAckResponse(ack.commandId(), ack.eventId(), ack.version()));
+        return ResponseEntity.ok(new ClaimIntentAckResponse(
+                ack.commandId(), ack.eventId(), ack.version(), ack.completed()));
     }
 
     /**
