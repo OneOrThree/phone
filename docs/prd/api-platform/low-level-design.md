@@ -71,7 +71,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 |POST|`/auth/sessions`|범용 대상 제외|AT 없는 로그인과 검증된 선택적 게스트 AT 승격을 구분. 후자는 검증 subject를 내부 계약에 전달해 기존 계정 승계. A7·㊒·1756의 로그인/CAS 전용 계약; authorizationCode는 generic receipt 저장 금지|
 |PATCH|`/me`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |DELETE|`/auth/sessions/current`|범용 대상 제외|현재 인증 세션 철회. 계정 설계의 RT로 식별한 사용자+세션을 고정해 철회/완료 재생. 개별 철회는 authGeneration을 올리지 않으며 세션 epoch와 기기 ownershipVersion 경계를 구분(㊼)|
-|DELETE|`/me`|필수·PII 파기|검증된 동일 사용자+탈퇴 의도. 기존 탈퇴 원자 명령·PII 파기 보존. 비활성 계정 재생 금지; 탈퇴 후404, 위조·만료 자격401|
+|DELETE|`/me`|필수·PII 파기|검증된 동일 사용자+탈퇴 의도. 기존 탈퇴 원자 명령·PII 파기 보존. 비활성 계정 재생 금지; 탈퇴 후404 USER_NOT_FOUND, 위조·만료 자격401|
 |PATCH|`/me/settings`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/islands`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/islands/{islandId}/memberships`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
@@ -149,7 +149,7 @@ fingerprint는 **검증한 요청 DTO의 의미**로 만든다. 필드 이름 �
 
 ### 재생 권한과 계약 버전
 
-- **비활성 계정**: 신규 계정 계약1756에 따라 탈퇴 후404, 위조·만료 자격401이며 일반 receipt나 탈퇴 완료 증거로 우회하지 않는다. 계정 파기로 제거된 payload를 재생 목적으로 복구하지 않는다.
+- **비활성 계정**: 신규 계정 계약1756에 따라 탈퇴 후404 USER_NOT_FOUND, 위조·만료 자격401이며 일반 receipt나 탈퇴 완료 증거로 우회하지 않는다. 계정 파기로 제거된 payload를 재생 목적으로 복구하지 않는다.
 - **활성 본인, 자원 접근권 유지**: 원 명령 scope/fingerprint와 현재 결과 열람 권한을 확인해 승인된 원 결과를 재생한다. 원 잔액·상태를 현재 값으로 다시 계산하지 않는다.
 - **활성 본인, 원 leave/host-transfer 완료로 권한 소멸**: 도메인이 명시한 비민감 최소 완료 증거에 한해 제한 재생한다. 저장 응답 전체·관리자 정보·초대 자격·현재 비공개 자원 정보는 반환하지 않는다. 증거의 정확한 DTO와 대상 명령은 해당 도메인 계약에 열거하며 범용 미들웨어가 임의 축소 응답을 만들지 않는다. 허용 계약이 없거나 다른 권한 소멸 사유면 현재 접근 정책의403/404다.
 
@@ -247,13 +247,15 @@ sequenceDiagram
 
 HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만, 기존 클라이언트의 횟수 상한 안에서 같은 deadline·키로 수행한다. 인증/인가/형식/버전 충돌은 자동 재시도하지 않는다. `Retry-After`를 기다리면 전체 deadline을 넘는 경우 지금 응답을 끝내고 앱에 복구 규칙을 전달한다.
 
+지원할 수 없는 Accept는406+빈 본문이며 X-Request-Id를 유지한다. 없는 HTTP 경로는404 RESOURCE_NOT_FOUND, 본인 계정 부재는404 USER_NOT_FOUND, 상품 부재는404 PRODUCT_NOT_FOUND로 복구 의미를 구분한다. 기존 preview NOT_FOUND는 보존한다.
+
 필터에서 직접 쓰는401/413, Jackson/validation의400/422, 미지원 경로/메서드의404/405, 미리보기 예외, 내부 호출 예외, 예상 못한500이 같은 외부 오류 serializer를 사용한다. 기존1659 compat 경로는 원래 상류 domain status/code 보존 규약대로 남긴다. 신규 도메인 경로만 승인된 status/code registry와 대조하여 보존/명시 매핑하며, 등록되지 않은 조합은502 `UPSTREAM_CONTRACT_ERROR`로 드러낸다. ResponseBodyAdvice 사용 여부는 구현 선택이지만 Error DTO 이중감싸기·PNG bytes·Actuator·legacy응답 래핑을 막는 범위 테스트가 필수다. 관리 포트 노출/인증예외 정책은 기존 보안 경계를 그대로 따른다.
 
 ## 6. 검증 계획과 이번 문서의 실제 확인
 
 | 구현 티켓 검증 | 실패하면 나타날 문제 |
 | --- | --- |
-| 필터401/413·MVC400/404/405/415/422·상류502/503/504·500 JSON 스냅샷 | 앱이 같은 실패를 다른 구조로 받음 |
+| 필터401/413·MVC400/404/405/415/422·상류502/503/504·500 JSON 스냅샷 및406빈본문 | 앱이 같은 실패를 다른 구조로 받음 |
 | JSON null/빈items/201·바이너리PNG·기존API 경로 계약 | 이중 봉투, thumbnail 손상, 구앱 호환 파괴 |
 | encoded/matrix URI·중복헤더·위조 X-User-Id·AT만료 | 무접두어 변경 중 인증 우회/타인 주체 전달 |
 | Postgres 두 동시 동일key·본문불일치·커밋후응답유실·rollback | 이중 차감/보상, 잘못된 결과 재생 |

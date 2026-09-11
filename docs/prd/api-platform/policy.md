@@ -26,7 +26,7 @@ GROMO-1750 · 2026-09-12 · [색인](README.md) · [LLD](low-level-design.md)
 
 P04의 결과 재생은 확정 receipt가 있는 요청을 대상으로 한다. 실행 전 검증4xx로 rollback되어 receipt가 남지 않은 요청은 결과 재생 보장 밖이다. 앱은 입력 수정·버전 재확인으로 의도가 바뀌면 이 경우에도 새 키를 사용한다. 이미 저장된 처리중/확정 scope/key와 다른 본문은409로 거절한다.
 
-P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를 계측하고 보관량 알림을 둔다. 이름·메시지·원문 토큰 등 민감 데이터를 중복 저장하지 않도록 도메인별 최소 결과를 설계한다. 탈퇴 시 기존 PII 파기 정책이 우선한다. 탈퇴한 사용자의 receipt를 응답 재생 때문에 복구하거나 개인 응답을 보존하지 않는다. 비활성 계정은 일반 재생을 거절한다. 계정 설계 1756의 신규 계약은 탈퇴 후 404, 위조·만료 자격은 401이며 탈퇴 완료 증거도 범용 재생으로 열지 않는다.
+P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를 계측하고 보관량 알림을 둔다. 이름·메시지·원문 토큰 등 민감 데이터를 중복 저장하지 않도록 도메인별 최소 결과를 설계한다. 탈퇴 시 기존 PII 파기 정책이 우선한다. 탈퇴한 사용자의 receipt를 응답 재생 때문에 복구하거나 개인 응답을 보존하지 않는다. 비활성 계정은 일반 재생을 거절한다. 계정 설계 1756의 신규 계약은 탈퇴 후404 USER_NOT_FOUND, 위조·만료 자격은 401이며 탈퇴 완료 증거도 범용 재생으로 열지 않는다.
 
 계정 비활성과 **활성 사용자의 자원 권한 소멸**은 구분한다. 현재 권한이 있으면 승인된 원 결과를 재생할 수 있다. leave/host-transfer 완료 때문에 소속·관리 권한을 잃은 활성 본인에게는, 원 명령의 주체·operation scope·fingerprint가 일치하고 해당 도메인이 명시한 경우에만 비민감 최소 완료 증거를 제한 재생한다. 저장 응답 전체·관리자 정보·초대 자격을 돌려주거나 현재 권한 검사를 전역으로 우회하지 않는다. 제한 증거 계약이 없는 도메인은 현재 접근 정책의 403/404로 거절한다.
 
@@ -47,7 +47,10 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |401|UNAUTHORIZED|false|없거나 위조·만료된 사용자 자격. 재인증 후 별도 시도. 내부 서비스토큰 거부를 이 코드로 오인시키지 않음|
 |403|FORBIDDEN|false|주체에게 행위 권한 없음. field=null|
 |403|FACILITY_LOCKED|false|필요한 시설 미해금. field=null, 도메인 선행 조건 확인|
-|404|NOT_FOUND|false|대상 없음 또는 도메인 정책상 존재 비공개. 빈 현재세션/빈 목록과 구분|
+|404|NOT_FOUND|false|기존 preview 및 그룹 내부 자원 호환 의미만 보존. 신규 대상 부재에 일괄 재사용하지 않음|
+|404|USER_NOT_FOUND|false|field=null, 본인 계정 부재/탈퇴. 기존 사용자 코드 보존, 로그인 상태 정리·재인증|
+|404|RESOURCE_NOT_FOUND|false|field=null, 존재하지 않는 HTTP 경로. 사용자나 섬 부재로 해석하지 않음|
+|404|PRODUCT_NOT_FOUND|false|field=null, 미등록/접근 불가 상품. 상점·외양의 구체 대상 부재|
 |405|METHOD_NOT_ALLOWED|false|신규 공개 경로의 미지원 method. Allow 헤더 유지|
 |409|VERSION_CONFLICT|false|field는 제출한 버전 필드(`expectedVersion`, `expectedWalletVersion`, `expectedProductVersion`), 허용된 current 제공 후 사용자 재확인|
 |409|STATE_CONFLICT|false|현재 상태에서 실행 불가. 공개 current가 안전하면 포함|
@@ -71,6 +74,8 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 `INVITATION_EXPIRED`는 원본의 초대 만료 HTTP410을 유지하기 위해 신규 공개 오류로 등록한다. 기준 main의 `InviteLinkErrorCode`에는 대응하는 만료 상수가 없으므로 기존 `SLUG_NOT_FOUND`404를 바꾸지 않는다. 신규 내부 제공자가 이 사유를 확정해 반환할 때 Business의 등록된410/INVITATION_EXPIRED 조합으로 전달한다. 초대 TTL·재발급·승인 생략 등 미결 제품 정책을 이 오류 이름으로 결정하지 않는다.
 
 미리보기 호환 매핑은 분리한다. `RATE_LIMITED`·`NOT_FOUND`는 유지, 요청 유효성 `INVALID_REQUEST`는400으로 유지한다. 기존 provider 실패 코드(`FETCH_TIMEOUT` 등)가 **Preview 객체의 실패 상태 데이터**이면 POST200을 유지한다. 신규 경로는 data 안에, 기존 호환 경로는 원래 직접 반환하던 객체/목록 안에 남는다. 이를 HTTP504로 바꾸지 않는다. 예외로 나오는 미리보기400의 세부 코드는 1751에서 원 코드 목록을 그대로 계약 테스트에 고정한다. 기존 `/api/v1/link-previews`는 성공 본문과 `{code,message}` 평면 오류, 기존 `/api/v1/link-previews/{id}/thumbnail` URL을 보존한다. 신규 `/link-previews`는 JSON 봉투·공통 오류·신규 `/link-previews/{id}/thumbnail` URL을 사용한다. 공유 Preview 캐시의 저장 URL을 전역 변경하지 않고 신규 응답 매핑에서만 URL을 바꾼다. PNG 성공은 양쪽 모두 image/png이며 실패는 각 경로의 오류 형식을 따른다.
+
+406은 JSON 오류 표의 예외다. [기존 오류 규약 §4](../../conventions/error-contract.md#4-상태-매핑-규칙)에 따라 지원할 수 없는 Accept는 **406+빈 본문**으로 반환하며 서버 X-Request-Id는 유지한다. JSON을 거부한 요청을 봉투 직렬화 때문에500으로 만들지 않는다. 이 빈 응답을 data:null 성공으로 감싸지 않는다.
 
 ## 원본과 채택 계약 대조
 
