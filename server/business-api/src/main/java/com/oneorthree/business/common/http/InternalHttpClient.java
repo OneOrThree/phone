@@ -242,7 +242,8 @@ public class InternalHttpClient implements AutoCloseable {
                 }
                 String retryAfter = response.getFirstHeader("Retry-After") == null ? null
                         : response.getFirstHeader("Retry-After").getValue();
-                throw classify(status, new String(bytes, StandardCharsets.UTF_8), retryAfter);
+                throw classify(status, new String(bytes, StandardCharsets.UTF_8), retryAfter,
+                        context.strictErrorContract());
             });
         } catch (SocketTimeoutException e) {
             rejectPartialClientError(responseStatus.get(), context);
@@ -261,7 +262,7 @@ public class InternalHttpClient implements AutoCloseable {
         }
     }
 
-    private RuntimeException classify(int status, String raw, String retryAfter) {
+    private RuntimeException classify(int status, String raw, String retryAfter, boolean strictErrorContract) {
         // 내부 HTTP Authorization은 서비스 자격이다. 본문 코드가 있어도 사용자 401로 노출하지 않는다.
         if (status == 401) {
             return new UpstreamCredentialRejectedException(target + " 서비스 자격 거부 status=401");
@@ -272,11 +273,24 @@ public class InternalHttpClient implements AutoCloseable {
         } catch (JacksonException e) {
             parsed = null;
         }
-        // 429는 도메인 제한을 그대로 반환한다. 전송 계층의 5xx 재시도에 섞지 않는다.
-        if (status >= 500 && status <= 599) {
+        // 명시적 계약·서비스 인증·내부 결함은 재시도하거나 선택 조각의 null 성공으로 접지 않는다.
+        boolean permanentServerError = parsed != null && parsed.code() != null && switch (parsed.code()) {
+            case "INTERNAL_ERROR", "UPSTREAM_CONTRACT_ERROR", "UPSTREAM_AUTH_FAILED" -> true;
+            default -> false;
+        };
+        boolean structured = parsed != null && parsed.code() != null && !parsed.code().isBlank();
+        boolean transientServerError = structured && switch (parsed.code()) {
+            case "SERVICE_UNAVAILABLE", "UPSTREAM_UNAVAILABLE" -> status == 503;
+            case "UPSTREAM_TIMEOUT" -> status == 504;
+            default -> false;
+        };
+        // 공개/화면 계약은 등록된 일시 status+code 쌍만 재시도한다. 불명 구조화 오류는 종결한다.
+        // legacy 동기 호출과 코드 없는 프록시 5xx의 기존 재시도 의미는 유지한다.
+        if (status >= 500 && status <= 599 && !permanentServerError
+                && (!strictErrorContract || !structured || transientServerError)) {
             return new RetryableFailure(parseRetryAfter(retryAfter));
         }
-        if (parsed != null && parsed.code() != null && !parsed.code().isBlank()) {
+        if (structured) {
             Duration wait = parseRetryAfter(retryAfter);
             Long waitMillis = parsed.retryAfterMs() != null ? parsed.retryAfterMs()
                     : wait == null ? null : wait.toMillis();

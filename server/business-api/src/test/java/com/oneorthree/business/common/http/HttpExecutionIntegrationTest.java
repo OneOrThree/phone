@@ -213,6 +213,40 @@ class HttpExecutionIntegrationTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({"500,INTERNAL_ERROR", "502,UPSTREAM_CONTRACT_ERROR", "502,UPSTREAM_AUTH_FAILED",
+            "500,UNREGISTERED_FAILURE", "502,UNREGISTERED_FAILURE", "500,SERVICE_UNAVAILABLE",
+            "503,UPSTREAM_TIMEOUT", "504,SERVICE_UNAVAILABLE"})
+    void explicitPermanentServerErrorIsNeverRetriedOrHiddenByOptionalFallback(int status, String code)
+            throws Exception {
+        String path = "/structured/" + status + "/" + code;
+        try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 3, 3);
+                ScreenComposer composer = new ScreenComposer(2, 2, Duration.ofSeconds(2))) {
+            server.waitForBlocked = true;
+            assertThatThrownBy(() -> composer.compose(context(1500), List.of(
+                    fragment("slow", true, client, "/blocked"), fragment("optional", false, client, path))))
+                    .isInstanceOfSatisfying(UpstreamDomainException.class, error -> {
+                        assertThat(error.getStatus()).isEqualTo(status);
+                        assertThat(error.getCode()).isEqualTo(code);
+                    });
+            assertThat(server.count(path)).as("명시적 영구 오류는 최초 응답에서 종결한다").isEqualTo(1);
+            assertThat(server.closed.await(1, TimeUnit.SECONDS))
+                    .as("화면 실패 시 느린 필수 조각의 실제 TCP도 닫는다").isTrue();
+        }
+    }
+
+    @Test
+    void explicitTransientServerErrorKeepsBoundedRetryAndOptionalFallback() throws Exception {
+        String path = "/structured/503/SERVICE_UNAVAILABLE";
+        try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 3, 2);
+                ScreenComposer composer = new ScreenComposer(2, 2, Duration.ofSeconds(2))) {
+            Map<String, Object> result = composer.compose(context(1500), List.of(
+                    fragment("main", true, client, "/ok"), fragment("optional", false, client, path)));
+            assertThat(result).containsEntry("main", new Reply("ok")).containsEntry("optional", null);
+            assertThat(server.count(path)).isEqualTo(3);
+        }
+    }
+
     @Test
     void optionalCannotHideWholeDeadlineAndQueuedWorkNeverMakesHttpRequest() throws Exception {
         try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 1, 1);
@@ -453,6 +487,17 @@ class HttpExecutionIntegrationTest {
                     if (reader.read() == -1) {
                         closed.countDown();
                     }
+                    return;
+                }
+                if (path.startsWith("/structured/")) {
+                    if (waitForBlocked) {
+                        blocked.await(1, TimeUnit.SECONDS);
+                    }
+                    String[] parts = path.split("/");
+                    String json = "{\"code\":\"" + parts[3] + "\",\"message\":\"synthetic\"}";
+                    write(socket, "HTTP/1.1 " + parts[2] + " Test\r\nContent-Type: application/json\r\n"
+                            + "Connection: close\r\nContent-Length: "
+                            + json.getBytes(StandardCharsets.UTF_8).length + "\r\n\r\n" + json);
                     return;
                 }
                 if (waitForBlocked && path.equals("/forbidden")) {

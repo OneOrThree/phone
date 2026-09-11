@@ -2,6 +2,7 @@ package com.oneorthree.business.config;
 
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.ApiResponses;
+import com.oneorthree.business.common.api.PublicApiRoutes;
 import com.oneorthree.business.common.api.RequestBodyTooLargeException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ReadListener;
@@ -29,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 public class RequestEnvelopeFilter extends OncePerRequestFilter {
 
     public static final String REQUEST_ID = "requestId";
+    public static final String STRICT_ERROR_CONTRACT = "business.strictErrorContract";
 
     static final int MAX_BODY = 256 * 1024;
 
@@ -41,6 +43,7 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
         String requestId = UUID.randomUUID().toString();
         long started = System.nanoTime();
         request.setAttribute(REQUEST_ID, requestId);
+        request.setAttribute(STRICT_ERROR_CONTRACT, PublicApiRoutes.usesEnvelope(request));
         response.setHeader("X-Request-Id", requestId);
         response.setHeader("Cache-Control", "no-store");
         if (request.getHeader(HEADER_USER_ID) != null) {
