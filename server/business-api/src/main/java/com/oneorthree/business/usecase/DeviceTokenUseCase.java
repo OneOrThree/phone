@@ -5,6 +5,7 @@ import com.oneorthree.business.common.exception.CommonErrorCode;
 import com.oneorthree.business.common.exception.DomainException;
 import com.oneorthree.business.common.exception.UpstreamUnavailableException;
 import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.validation.DeviceOwnershipTokens;
 import com.oneorthree.business.upstream.data.DataApiClient;
 import com.oneorthree.business.upstream.data.dto.DeviceSessionCheck;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
@@ -68,6 +69,9 @@ public class DeviceTokenUseCase {
     public DeviceRegistrationResult register(AccessTokenClaims claims, String deviceToken, String ownershipToken,
             String deviceBootstrap, RequestIdempotencyKeys keys, Deadline deadline) {
 
+        // 상류에 닿기 «전»이다. 깨진 CAS 값은 어느 행에도 맞지 않아 등록이 어차피 409 로 끝나는데,
+        // 그 전에 활성 검사·세션 확인으로 Data 를 두 번 두드리고 나서야 알게 된다.
+        DeviceOwnershipTokens.requireCanonical(ownershipToken);
         activeUserGuard.requireActive(claims.userId(), deadline);
 
         Long sessionEpoch = null;
@@ -116,10 +120,19 @@ public class DeviceTokenUseCase {
      * @param deviceToken    {@code X-Device-Token} 으로 받은 대상 토큰(㊪). <b>없으면 outbox 를 계약대로
      *                       만들 수 없다</b> — 그래도 요청을 거절하지 않는다(구 앱엔 본문이 없다). 알림
      *                       서버가 유저 단위 삭제로 처리하고, 그 기간의 경합을 인정한다
-     * @param ownershipToken {@code X-Device-Ownership} 으로 받은 CAS 값(㊟)
+     * @param ownershipToken {@code X-Device-Ownership} 으로 받은 CAS 값(㊟). 값이 있으면 <b>정규
+     *                       UUID 표기</b>여야 한다 — 형식이 깨진 값은 내구 기록 전에 400 으로
+     *                       거절한다({@link DeviceOwnershipTokens})
      */
     public void delete(AccessTokenClaims claims, String deviceToken, String ownershipToken,
             RequestIdempotencyKeys keys, Deadline deadline) {
+
+        // ⚠️ 내구 기록(②)보다 «앞»이다. 형식이 깨진 CAS 값이 outbox 봉투에 실리면 알림 서버가 그
+        // 봉투를 계속 실패시키고, relay 는 고갈 처리가 없어(A18) 순서 축이 같은 «그 유저의 뒤
+        // 이벤트 전부»가 막힌다 — 세션 폐기·탈퇴 tombstone 까지 함께 멈춘다. 깨진 값을 null 로
+        // 접어 통과시키지도 않는다: 그건 CAS 없는 넓은 삭제이고, 그 사이 재등록된 지금 기기까지
+        // 지운다(㊚).
+        DeviceOwnershipTokens.requireCanonical(ownershipToken);
 
         DurableCommandAck recorded = null;
         RuntimeException outboxFailure = null;

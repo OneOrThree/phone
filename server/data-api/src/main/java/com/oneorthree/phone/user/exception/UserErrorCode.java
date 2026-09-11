@@ -46,7 +46,15 @@ public enum UserErrorCode implements ErrorCode {
     LAST_SOCIAL_ACCOUNT(HttpStatus.CONFLICT, "마지막 소셜 연동은 해제할 수 없습니다."),
     NICKNAME_DUPLICATE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다."),
     NICKNAME_INVALID(HttpStatus.BAD_REQUEST, "닉네임은 앞뒤 공백 제외 2~10자여야 합니다."),
-    OCCUPATION_NOT_AVAILABLE(HttpStatus.BAD_REQUEST, "선택할 수 없는 직업입니다.");
+    OCCUPATION_NOT_AVAILABLE(HttpStatus.BAD_REQUEST, "선택할 수 없는 직업입니다."),
+    /**
+     * 기기 소유권 값({@code ownershipToken})이 정규 UUID 표기가 아니다 (A22 ㊚ · ㊲).
+     *
+     * <p>이 값은 알림 서버가 발급해 앱이 그대로 되싣는 CAS 값이라, 형식이 깨졌다면 어느 행에도
+     * 맞지 않는다. <b>내구 기록 전에</b> 거절해야 한다 — 봉투에 실리면 그 유저의 순서 축이 통째로
+     * 막히고(A18 고갈 처리 없음), {@code null} 로 접으면 CAS 를 잃은 넓은 삭제가 된다.
+     */
+    DEVICE_OWNERSHIP_INVALID(HttpStatus.BAD_REQUEST, "기기 소유권 값의 형식이 올바르지 않습니다.");
 
     private final HttpStatus status;
     private final String message;

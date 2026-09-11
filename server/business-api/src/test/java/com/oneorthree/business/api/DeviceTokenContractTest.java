@@ -20,6 +20,10 @@ class DeviceTokenContractTest extends UpstreamTestBase {
 
     private static final UUID USER = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
     private static final String COMMAND_ID = "bbbbbbbb-0000-0000-0000-000000000001";
+    // 소유권 값은 알림 서버가 UUID 로 발급해 앱이 그대로 되싣는 CAS 다 — 테스트도 정규 표기를 쓴다.
+    private static final String OWNER = "dddddddd-0000-0000-0000-000000000001";
+    private static final String OWNER_PREV = "dddddddd-0000-0000-0000-000000000002";
+    private static final String OWNER_NEXT = "dddddddd-0000-0000-0000-000000000003";
 
     @Test
     @DisplayName("삭제는 Data outbox 를 「먼저」 기록하고 그다음 직접 삭제한다 — 뒤집으면 둘 다 안 남는다")
@@ -34,7 +38,7 @@ class DeviceTokenContractTest extends UpstreamTestBase {
         mockMvc.perform(delete("/api/v1/users/me/device-token")
                         .header("Authorization", "Bearer " + Tokens.accessWithGeneration(USER, 5))
                         .header("X-Device-Token", "fcm-token-1")
-                        .header("X-Device-Ownership", "own-1"))
+                        .header("X-Device-Ownership", OWNER))
                 .andExpect(status().isNoContent());
 
         // 시간 순서: outbox 기록이 직접 삭제보다 앞에 있어야 한다.
@@ -44,12 +48,12 @@ class DeviceTokenContractTest extends UpstreamTestBase {
         assertThat(NOTI.received()).hasSize(1);
 
         // 대상 토큰·소유권·세대가 outbox 봉투에 전부 실렸다 — 하나라도 빠지면 계약대로 못 만든다.
-        assertThat(all.get(0).body()).contains("fcm-token-1", "own-1", "\"authGeneration\":5");
+        assertThat(all.get(0).body()).contains("fcm-token-1", OWNER, "\"authGeneration\":5");
 
         // 삭제 요청은 본문이 없으므로 세 값이 헤더로 나간다(㊪ · ㊟).
         var deleteRequest = NOTI.received().get(0);
         assertThat(deleteRequest.header("X-Device-Token")).isEqualTo("fcm-token-1");
-        assertThat(deleteRequest.header("X-Device-Ownership")).isEqualTo("own-1");
+        assertThat(deleteRequest.header("X-Device-Ownership")).isEqualTo(OWNER);
         assertThat(deleteRequest.header("X-Auth-Generation")).isEqualTo("5");
     }
 
@@ -105,6 +109,48 @@ class DeviceTokenContractTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("형식이 깨진 X-Device-Ownership 은 400 — Data outbox 에 «적기 전»에 막는다 (R10)")
+    void 깨진소유권은내구기록전에거절() throws Exception {
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithGeneration(USER, 5))
+                        .header("X-Device-Token", "fcm-token-1")
+                        .header("X-Device-Ownership", "not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+
+        // 깨진 값이 봉투에 실리면 알림 서버가 그 봉투를 소비하지 못하고, relay 는 고갈 처리가 없어
+        // 그 유저의 «뒤 이벤트 전부»가 막힌다(A18). 그래서 내구 기록도 직접 삭제도 나가면 안 된다.
+        assertThat(DATA.received()).isEmpty();
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("UUID 축약 표기도 거절한다 — UUID.fromString 은 받지만 정규 표기로 다시 쓰면 다른 값이다")
+    void 축약UUID소유권도거절() throws Exception {
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithGeneration(USER, 5))
+                        .header("X-Device-Token", "fcm-token-1")
+                        .header("X-Device-Ownership", "1-1-1-1-1"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(DATA.received()).isEmpty();
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("등록의 깨진 ownershipToken 도 400 — 상류를 두드리기 전에 막는다")
+    void 등록의깨진소유권도거절() throws Exception {
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":\"fcm-token-1\",\"ownershipToken\":\"not-a-uuid\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(DATA.received()).isEmpty();
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
     @DisplayName("비활성 사용자의 등록은 막는다 — 위성 직행 쓰기는 Data 활성 검사를 안 거친다 (A22 ⓖ)")
     void 비활성사용자등록차단() throws Exception {
         DATA.on("GET /internal/users/" + USER + "/activation",
@@ -142,21 +188,21 @@ class DeviceTokenContractTest extends UpstreamTestBase {
         DATA.on("POST /internal/auth/device-sessions/verify", request ->
                 new MockUpstream.Response(200, "{\"active\":true,\"sessionEpoch\":42}"));
         NOTI.on("POST /internal/devices",
-                request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"own-next\"}"));
+                request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"" + OWNER_NEXT + "\"}"));
 
         mockMvc.perform(put("/api/v1/users/me/device-token")
                         .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 9,
                                 UUID.fromString("cccccccc-0000-0000-0000-000000000009")))
                         .contentType("application/json")
                         .content("""
-                                {"deviceToken":"fcm-token-1","ownershipToken":"own-prev",
-                                 "deviceBootstrap":"boot-1"}"""))
+                                {"deviceToken":"fcm-token-1","ownershipToken":"%s",
+                                 "deviceBootstrap":"boot-1"}""".formatted(OWNER_PREV)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ownershipToken").value("own-next"));
+                .andExpect(jsonPath("$.ownershipToken").value(OWNER_NEXT));
 
         // 세 축의 값이 전부 등록 봉투에 실렸다 — 하나라도 빠지면 막을 수 없는 경합이 남는다(A22 ㋞).
         String body = NOTI.receivedFor("POST /internal/devices").get(0).body();
-        assertThat(body).contains("fcm-token-1", "own-prev", "boot-1",
+        assertThat(body).contains("fcm-token-1", OWNER_PREV, "boot-1",
                 "\"sessionEpoch\":42", "\"authGeneration\":9");
         // AT 에 sid 가 있어도 자격이 있으면 자격 축으로만 간다 — 두 축을 함께 주면 어느 쪽으로
         // 판정했는지가 사라지고, 알림 서버의 「처음 쓰는 세션」 판정이 자격 판정과 겹친다.
@@ -212,14 +258,14 @@ class DeviceTokenContractTest extends UpstreamTestBase {
         DATA.on("POST /internal/auth/sessions/verify", request ->
                 new MockUpstream.Response(200, "{\"active\":true,\"sessionEpoch\":12}"));
         NOTI.on("POST /internal/devices",
-                request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"own-next\"}"));
+                request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"" + OWNER_NEXT + "\"}"));
 
         mockMvc.perform(put("/api/v1/users/me/device-token")
                         .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, sessionId))
                         .contentType("application/json")
                         .content("{\"deviceToken\":\"fcm-token-1\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ownershipToken").value("own-next"));
+                .andExpect(jsonPath("$.ownershipToken").value(OWNER_NEXT));
 
         // 자격 축은 «비운 채», 구 앱 세션 축에 확인된 sid 와 그 fencing 값을 싣는다. 자격을 지어내지
         // 않는 것이 계약이다 — deviceBootstrap 은 null 그대로 간다.
@@ -233,7 +279,7 @@ class DeviceTokenContractTest extends UpstreamTestBase {
     void sid없는구AT는세션확인없음() throws Exception {
         stubActiveUser(USER);
         NOTI.on("POST /internal/devices",
-                request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"own-next\"}"));
+                request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"" + OWNER_NEXT + "\"}"));
 
         mockMvc.perform(put("/api/v1/users/me/device-token")
                         .header("Authorization", "Bearer " + Tokens.access(USER))

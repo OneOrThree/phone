@@ -498,6 +498,59 @@ class NotificationStoreTest {
                 "baseline", preferences(enabled), "authGeneration", 0);
     }
 
+    /**
+     * 앱이 보관하던 소유권 값이 깨진 채로 올라온 경우 (R10).
+     *
+     * <p>세 가지를 한 번에 못 박는다 — ① 동기 경로는 <b>내구 기록보다 먼저</b> 거절하고 멱등 원장에도
+     * 남기지 않는다(남기면 고친 재시도가 같은 키로 영구 충돌한다), ② {@code UUID.fromString} 이
+     * 받아 주는 <b>축약형</b>도 거절한다, ③ 이미 내구화된 봉투는 예외를 던지지도({@code relay} 가
+     * 그 유저의 뒤 이벤트를 전부 막는다) 소유권을 {@code null} 로 접지도(지금 기기까지 지운다)
+     * 않고 <b>아무것도 바꾸지 않은 채</b> 소비하며, 뒤따르는 정상 이벤트는 그대로 반영된다.
+     */
+    @Test
+    void aMalformedOwnershipTokenIsRejectedUpFrontAndNeverPoisonsTheUsersEventOrder() {
+        register(USER, "device", "bootstrap", "register");
+
+        assertThatThrownBy(() -> devices.delete(USER, "device", "not-a-uuid", 0L, "delete-key"))
+                .hasMessage("INVALID_ownershipToken");
+        assertThat(store.one("SELECT command_key FROM commands WHERE command_key='delete-key'")).isNull();
+        // 축약형은 UUID.fromString 이 받지만 정규 표기로 다시 쓰면 다른 문자열이다 — CAS 대조가 어긋난다.
+        assertThatThrownBy(() -> devices.delete(USER, "device", "1-1-1-1-1", 0L, "short-key"))
+                .hasMessage("INVALID_ownershipToken");
+        // 등록도 같은 자리에서 막는다. 여기서 통과시키면 다음 삭제가 깨진 값을 되싣는다.
+        assertThatThrownBy(() -> devices.register(USER,
+                Map.of("deviceToken", "device", "ownershipToken", "not-a-uuid", "authGeneration", 0), "reg-bad"))
+                .hasMessage("INVALID_ownershipToken");
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='device'"))
+                .containsEntry("active", true);
+
+        // 봉투에 실린 값은 «있는 그대로» 꺼낸다. Json.nullableText 로 꺼내면 빈 문자열·공백·문자열
+        // 아닌 값이 400 으로 거절돼 deleteLocked 의 무해 소비에 닿기도 전에 축이 막힌다.
+        // 반대로 null 로 접으면 CAS 검사를 잃어 지금 기기까지 지운다 — 셋 다 「맞지 않는 소유권」이다.
+        long version = 0;
+        for (Object owner : new Object[] {"not-a-uuid", "", "   ", 12345}) {
+            version += 1;
+            Map<String, Object> broken = new LinkedHashMap<>();
+            broken.put("deviceToken", "device");
+            broken.put("ownershipToken", owner);
+            broken.put("authGeneration", 0);
+            assertThat(inbound.accept(event("broken-owner-" + version,
+                    "notification.deviceToken.deleted", USER, version, null, broken)))
+                    .containsEntry("accepted", true);
+            // 아무 행에도 맞지 않는 소유권이므로 지금 살아 있는 기기는 그대로다(범위를 넓히지 않는다).
+            assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='device'"))
+                    .containsEntry("active", true);
+        }
+
+        Map<String, Object> valid = new LinkedHashMap<>();
+        valid.put("deviceToken", "device");
+        valid.put("ownershipToken", null);
+        valid.put("authGeneration", 0);
+        inbound.accept(event("valid-delete", "notification.deviceToken.deleted", USER, version + 1, null, valid));
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='device'"))
+                .containsEntry("active", false);
+    }
+
     private String register(UUID user, String token, String bootstrap, String key) {
         return devices.register(user, Map.of("deviceToken", token, "deviceBootstrap", bootstrap,
                 "sessionEpoch", 1, "authGeneration", 0), key).get("ownershipToken").toString();

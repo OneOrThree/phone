@@ -266,7 +266,8 @@ paths:
                 ownershipToken:
                   type: [string, 'null']
                   maxLength: 512
-                  description: CAS 값(`X-Device-Ownership`, ㊚). 롤아웃 ②기간엔 null 가능
+                  format: uuid
+                  description: CAS 값(`X-Device-Ownership`, ㊚). null 또는 정규 UUID 표기이며, 잘못된 값은 내구 기록 전에 400으로 거절한다.
                 authGeneration:
                   type: [integer, 'null']
                   format: int64
@@ -1011,7 +1012,7 @@ paths:
               required: [deviceToken]
               properties:
                 deviceToken: { type: string, maxLength: 512 }
-                ownershipToken: { type: [string, 'null'], maxLength: 512 }
+                ownershipToken: { type: [string, 'null'], format: uuid, maxLength: 512 }
                 deviceBootstrap: { type: [string, 'null'], maxLength: 512 }
                 legacySessionId:
                   type: [string, 'null']
@@ -1074,7 +1075,8 @@ paths:
         - name: X-Device-Ownership
           in: header
           required: false
-          schema: { type: string, maxLength: 512 }
+          schema: { type: string, format: uuid, maxLength: 512 }
+          description: 정규 UUID 표기. 잘못된 값은 상류 호출 및 내구 기록 전에 400으로 거절한다.
         - name: X-Auth-Generation
           in: header
           required: false
