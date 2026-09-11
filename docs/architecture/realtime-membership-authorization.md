@@ -1,6 +1,6 @@
 # 실시간 멤버십 인가 — 보내기 전에 같은 장부에서 확인하기
 
-이 문서는 Data의 내부 인가 조회 기반을 설명한다. 구현 기준은 PR752의 `9e716680f9be383f7ee5b0c634c09d4b655a63cb` 위의 작업이며, 신규 실시간 채널을 공개하는 작업이 아니다. Data 제공자 코드와 선택 프로필을 작성했고 조정자가 관련 테스트19개(30초) 및 Checkstyle·SpotBugs 통과를 확인했다. 전체 Data 검증은 아직 진행 전이다. 아래 검증 목록에는 후속 Realtime 연결의 완료 조건도 포함되며, 관련19개 통과가 모든 항목 완료를 뜻하지 않는다.
+이 문서는 PR752의 `9e716680f9be383f7ee5b0c634c09d4b655a63cb` 위에 추가한 Data 내부 인가 조회 기반을 설명한다. 관련 실제 PostgreSQL HTTP 회귀19건과 전체 Data2,449건(실패0·오류0·기존skip8), Checkstyle·SpotBugs·build가 통과했다. 전체 실행은3분40초이며 아래 Mermaid2개도 CLI11.17.0으로 SVG 렌더링했다. 이 검증이 신규 실시간 채널 공개나 운영 배포를 뜻하지는 않는다.
 
 학교 방송기가 학생에게 소식을 보내기 전에 학생증과 반 명단을 확인한다고 생각하면 된다. 학생증은 진짜인데 이미 전학했거나, 반에는 남아 있지만 학생증을 폐기했을 수 있다. 따라서 “전에 통과했으니 계속 허용”하지 않고 **같은 순간의 장부에서 사용자·세션·섬·소속을 함께 확인**한다.
 
@@ -134,7 +134,7 @@ sequenceDiagram
 
 | 범위 | 이 문서의 상태 |
 | --- | --- |
-| Data 단일 snapshot 인가 제공자·엄격 DTO·caller 경계 | 같은 브랜치 코드 작성·관련19개 및 정적 검사 통과. 전체 Data 검증은 아직 진행 전 |
+| Data 단일 snapshot 인가 제공자·엄격 DTO·caller 경계 | 실제 HTTP/PG19건 및 전체 Data2,449건·build/static PASS |
 | 기존 Data schema·도메인 명령 의미 | 변경 없음 |
 | Realtime의 원 AT 서명/exp/sid/gen 파서·내부 호출 | 후속, 연결 완료 아님 |
 | 프레임 최종 가드·목적지별 추가 권한·구독 철회 | 후속, 모든14개 이벤트 허용 아님 |
@@ -144,9 +144,11 @@ sequenceDiagram
 
 인가 응답에는 목록 version이나 주민 snapshot이 없다. `island.members.updated`의 사건 봉투/aggregate version을 대신하지 않으며 새15번째 공개 이벤트도 추가하지 않는다. 기존 `/ws/chat`·`/api/v1/chat` 호환 경로가 자동 개명되거나 신규 채널이 개방되는 것도 아니다.
 
-## 7. 검증할 실패 사례
+## 7. 검증한 경계와 남은 실패 사례
 
-조정자가 관련19개 테스트를30초에 통과했고 Checkstyle·SpotBugs도 성공했다고 확인했다. 전체 Data 실행은 아직 진행 전이며 이 문서 작성자가 빌드/테스트를 별도로 실행하지 않았다. 아래는 제공자와 후속 소비자가 함께 충족해야 하는 검증 범위다. Realtime 미구현 항목은 이번 관련19개 결과로 완료 표시하지 않는다.
+관련19건은 실제 Servlet→PostgreSQL 경로의 정상/부정 판정, 생산 logout·withdraw·kick·leave 이후 거절, 주체/세션 혼합 방지, 엄격 입력, 기본 비활성, 무쓰기, 오래된 외부 RR TX에서도 새 폐기 확인, 권위4행의 FOR UPDATE 중 읽기 완료를 검증했다. 전체 Data2,449건도 실패·오류 없이 통과했다(기존skip8). CheckstyleMain·SpotBugsMain과 build가 통과했으며 저장소 설정상 test용 정적 검사 task는 제외돼 있다.
+
+아래 목록의 Realtime 소비자·프레임·장애 주입·배포 부분은 후속 검증이다. 이번 결과를 실제 소켓 전송이나 DB 장애 주입 검증으로 확대하지 않는다.
 
 1. 기본 비활성·잘못된 서비스 토큰·다른 caller·허용목록 밖 경로가 열리지 않는다. 중복 사용자 헤더나 subject와 맞지 않는 body sessionId로 타인의 세션/소속을 이용할 수 없다.
 2. UUID 축약·잘못된 형식·누락/null·unknown·duplicate·trailing JSON 및 소수/문자열/음수/상한 초과 gen은 거절한다. 정상 입력을 실제 controller serializer로 검증한다.
