@@ -242,11 +242,9 @@ public class LinkMembershipEventService {
      * <h2>멤버십 행을 엔티티로 고쳐 쓰지 않는다</h2>
      * 대상 목록은 <b>잠금 없이</b> 뜬다. 그 뒤 링크 멤버십 aggregate 잠금을 기다리는 동안 그 멤버의
      * 탈퇴·강퇴가 먼저 커밋될 수 있는데, 이미 로드된 엔티티에는 그 사실이 반영되지 않는다.
-     * {@code GroupMember} 에는 {@code @Version} 도 {@code @DynamicUpdate} 도 없어 더티 체킹이
-     * <b>전 컬럼 UPDATE</b> 를 내므로, 그 상태로 표시 버전만 올려도 {@code is_left}·
-     * {@code left_reason}·{@code membership_epoch} 까지 옛 값으로 되돌아간다 — <b>강퇴된 사용자의
-     * 접근 권한이 되살아난다.</b> 그래서 이 경로는 유저 PK 만 읽고, 쓰기는 표시 버전 컬럼 하나로
-     * 좁힌 조건부 UPDATE 로 한다.
+     * 동적 더티 갱신은 변경하지 않은 컬럼의 보존만 보장하므로, 활성 판정은 별도로 필요하다.
+     * 이 경로는 유저 PK만 읽고 멤버 행을 잠근 뒤 표시 버전의 조건부 UPDATE로 활성 여부와
+     * 실제 갱신 행 수를 함께 확인한다.
      *
      * <p>그 UPDATE 가 0행이면 그 사이 이탈이다 — 명령도 적지 않는다. 폐기된 링크의 표시정보를
      * 갱신할 이유가 없고, 그 시점엔 {@code link.revoked} 가 이미 같은 축에 적혀 있다. 이때 발급받은
