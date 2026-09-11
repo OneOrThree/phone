@@ -221,6 +221,50 @@ paused 행을 통째로 빼서 이전 집중분을 0으로 만들거나, resume 
 순수 누적량, 자정/주 경계 clipping, legacy 혼합 사용자, 전이 동시 조회의 완료+진행 이중 계상 0을 단정한다.
 이 검증은 finish 정산 테스트만으로 대신할 수 없다.
 
+### 5.1.1 완료 목록과 앱의 재계산도 같은 gate에 포함한다
+
+완료 후에는 문제가 사라진다고 가정하지 않는다. 기존 `FocusService.getFocusSessions`
+(`server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java:330~351`)는
+GET `/api/v1/focus-session`에 기본 행의 `startedAt`, `endedAt`, `totalDistractionSeconds`,
+`focusSecondsByDate`를 그대로 내려준다. 신규 상세의 시작부터 종료까지에는 REST가 들어 있으므로,
+날짜별 net만 정확히 저장해도 다음 기존 소비자는 여전히 다른 값을 계산한다.
+
+| 실제 앱 소비처 (`app/app-dev/src/` 기준) | 현재 계산 | 신규 상세에 필요한 완료 reader |
+| --- | --- | --- |
+| `screens/focus/focusRestore.ts:29~43`, `screens/stats/LongestSessionStat.tsx:54` | `sessionFocusSeconds`가 전체 벽시계 구간에서 방해 초를 차감, 최장 세션에도 사용 | 논리 세션 하나의 확정 ACTIVE 합. REST를 방해 초로 위장하지 않음 |
+| `screens/league/useLeagueRanking.ts:75~85` | 완료 목록을 받아 `sessionFocusSeconds`로 내 주간 시간을 재합산 | 상세의 정확한 ACTIVE 구간/확정 날짜 기여를 해당 주에 합산. 서버 랭킹과 일치 |
+| `screens/stats/format.ts:70~102`, `screens/stats/WeeklyTimetableCard.tsx:140` | `weekdayFocusBlocks`가 startedAt부터 endedAt까지 연속 칠함 | ACTIVE interval만 실제 시각에 표시하고 REST 구간은 비움 |
+| `screens/focus/focusRestore.ts:63~67` | 서버 날짜 분포를 쓰는 조건이 아니면 전체 구간 겹침 추정으로 fallback | 신규 상세는 정확한 구간으로 날짜를 자름. 비KST 기기에서도 REST를 포함한 gross fallback 금지 |
+
+**기본 출시 경로는 완료 조회 계약과 호환 앱을 함께 전환하는 것이다.** 상세가 있는 완료 세션은
+논리 sessionId, 확정 ACTIVE 합, 실제 ACTIVE 구간과 날짜 기여를 구분해 읽을 수 있는 조회 계약을
+준비하고, 위 소비처가 그 계약을 사용하도록 한다. 구체 DTO 확장은 후속 구현에서 버전/협상 계약으로
+고정한다. 기존 DTO에 필드만 추가하고 구 앱도 자동으로 사용한다고 간주하지 않는다. 상세 없는 legacy
+기록의 방해 초·목록·업로드 의미는 그대로 유지한다.
+
+신규 세션 생성 gate는 **서버 완료 reader 준비 + 검증된 앱 최소 호환 버전/기능 지원 + 그 버전이 실제로
+적용되는 접근 경계**를 모두 확인해야 열린다. 같은 계정의 다른 기기나 다운그레이드한 구 앱도 신규 완료
+기록을 읽을 수 있으므로, 신규 시작 요청의 앱 버전만 확인하는 것으로 충분하지 않다. 호환되지 않는
+완료 reader가 그 기록을 소비하지 못하도록 하는 실제 버전 제한/업데이트 경계와 앱 배포·복구 증거를
+릴리스에 남긴다. 제한 방식이 구현·검증되지 않았으면 신규 생성을 계속 닫는다. 구 앱에 오류를 숨기고
+빈 목록을 내려 기록이 사라진 것처럼 만드는 방식은 호환이 아니다.
+
+서버의 **읽기 전용 호환 projection**을 선택하는 대안도 가능하지만, 원 기본 행의 전체 벽시계 구간을
+그대로 반환하거나 총 net만 추가하는 것으로 끝낼 수 없다. 시간표용으로 ACTIVE 구간을 투영하되,
+논리 세션의 식별·최장 세션 합·주간/날짜 기여·기간 필터·cursor 페이지 경계를 함께 정의해야 한다.
+예를 들어 ACTIVE 조각 두 개를 별개 완료 세션으로만 반환하면 시간표는 맞아도 최장 세션이 반으로
+줄어든다. 따라서 구 앱의 모든 위 소비처에 같은 의미를 제공할 수 있다는 계약/회귀 증거가 없는
+projection은 최소 호환 앱 요구를 대체하지 못한다. 이 문서는 어떤 미구현 projection도 이미 안전한
+대안으로 승인하지 않는다. 조회 projection은 추가 완료 행/정산/보상 이벤트를 생성하지 않는다.
+
+회귀 예시는 `10:00~10:10 ACTIVE → 10:10~10:20 REST → 10:20~10:30 ACTIVE → finish`다.
+완료 순수 시간과 논리 최장 세션은 1,200초이고 시간표는 10분 ACTIVE 두 칸 사이의 10분을 비워야 한다.
+완료 목록의 페이지 크기를 작게 해도 중복/누락이 없어야 하며, 휴식이 KST 자정·주 경계를 넘는 경우와
+비KST 기기의 복원, 구/신 기록 혼합, 같은 계정의 구/신 앱·다운그레이드 접근도 검증한다. 기존
+`totalDistractionSeconds`에 REST를 넣거나 net 분포에서 REST를 다시 빼는 보정은 금지한다. 보상 산식이나
+새 최장 세션 제품 규칙을 정하는 것이 아니라, 같은 논리 세션의 순수 ACTIVE 시간과 실제 구간을
+소비처마다 다르게 해석하지 않도록 하는 기술적 활성화 조건이다.
+
 ### 5.2 호환 baseline을 먼저 배포하고 신규 API를 나중에 연다
 
 현재 `.github/workflows/prod-rollback.yml`의 `image_sha` 입력은 commit/tag를 받고, `:50~60`의 검사는
@@ -232,9 +276,9 @@ ECR 이미지 존재 여부뿐이다. `:62~69`는 해당 이미지를 SSM 배포
 
 | 단계 | 반드시 완료할 작업 | 활성화/롤백 조건 |
 | --- | --- | --- |
-| 1. 호환본 선행 배포 | 새 API·새 상세 생성은 비활성. 스키마 expand 후 모든 legacy start/save/end/cancel·orphan·presence writer와 §5.1 reader가 상세를 인식하는 호환 이미지를 전량 배포 | 구/신 인스턴스 혼재가 끝날 때까지 새 세션 생성 금지. 기존 legacy 요청 회귀 유지 |
+| 1. 호환본 선행 배포 | 새 API·새 상세 생성은 비활성. 스키마 expand 후 모든 legacy start/save/end/cancel·orphan·presence writer와 §5.1의 live·완료 reader가 상세를 인식하는 호환 이미지를 전량 배포. §5.1.1의 호환 앱 배포/접근 경계 또는 검증된 조회 projection을 준비 | 구/신 인스턴스 혼재가 끝날 때까지 새 세션 생성 금지. 기존 legacy 요청 회귀 유지 |
 | 1. 롤백 baseline 이동 | 호환 이미지의 정확한 digest/프로토콜 지원을 릴리스 증거에 기록하고 rollback workflow·실제 SSM 배포 등 이미지 교체 진입점에서 그보다 비호환인 이미지의 실행을 거절하도록 구현 | 이미지 존재 확인만으로 통과 금지. 임의 구 SHA/tag를 지정해도 배포 호출 전에 거절되는 실제 검증 필요 |
-| 2. 새 API 활성화 | reader/writer 회귀, 정책 FR-D01~06의 해당 결정, 최소 호환 baseline의 전량 적용 및 구 이미지 차단 검증을 모두 확인 | 그 다음에만 신규 start/pause/resume/finish와 해당 구독 기능을 단계적으로 개방 |
+| 2. 새 API 활성화 | live·완료 reader/writer 및 앱 회귀, §5.1.1의 최소 호환 앱/조회 projection 접근 증거, 정책 FR-D01~06의 해당 결정, 최소 호환 baseline의 전량 적용 및 구 이미지 차단 검증을 모두 확인 | 그 다음에만 신규 start/pause/resume/finish와 해당 구독 기능을 단계적으로 개방 |
 | 활성화 후 장애 | 새 세션 생성의 활성화 flag를 닫고 상세를 이해하는 호환 이미지로만 rollback/roll-forward | 이미 존재하는 active/paused 상세·구간·정산을 보존하고 승인된 재개/종료 경로 유지. 비호환 구 이미지로 복귀 금지 |
 
 최소 호환 baseline은 단순 tag 문자열의 사전순 비교가 아니라 검증된 이미지/프로토콜 호환 증거로 판단한다.
@@ -333,6 +377,8 @@ CONNECT 자체에 적용하지 않는다. JWT 만료는 기존 PR739의 명시 �
 | emote paused/타인session/다른섬/만료/속도제한·소속철회 | 부적격 송수신·무한 재생 |
 | 기존 오프라인 업로드·orphan·일 목표/내기/코인 회귀 | 기존 계약 파손·신규 fish와 이중 지급 |
 | pause/resume/finish 전후 legacy live 랭킹 정렬·앱 표시·KST 주 경계·동시 조회 | 휴식 시간 가산·pause 시 누적 소실·완료와 진행분 이중 계상 |
+| 완료 목록의 합계·논리 최장 세션·시간표/복원, REST 포함 finish·자정/주 경계·페이지 경계 | 휴식 가산·REST 구간 색칠·ACTIVE 조각 분할에 따른 최장값 손실·목록 중복/누락 |
+| 구/신 앱 혼용·다운그레이드와 신규 완료 기록 접근 | 시작 기기의 버전만 확인해 다른 구 앱의 잘못된 계산 허용 |
 | 신규 비활성 호환본 전량 배포 → rollback baseline 제한 → 신규 활성화 | 혼재/구 이미지의 마커 자동 종료·orphan 처리로 신규 상세 파손 |
 | active/paused 상세를 가진 상태의 구 이미지 롤백 거절·호환 이미지 롤백 | flag 해제로 호환 제한 우회·재개/종료 및 receipt 복구 불가 |
 

@@ -18,6 +18,7 @@
 | `common/port/RedisFocusPresence.java:83`, `:178`, `:258` | Data가 presence:focus:*를 commit 뒤 쓰고 세션 토큰으로 해제 | Data 단일 소유 유지. 새 상태와 내구 갱신/복구를 통합 |
 | `FocusPresenceReconciler`, `FocusSessionOrphanScheduler` | 기존 열린 마커 복구와12h 고아 정리 | v0.3 행을 기존 자동정리로 잃지 않도록 protocol 분기 필수 |
 | `league/repository/LeagueRankingQueryRepository.java:91~127` | `ended_at IS NULL` 마커를 골라 `now - GREATEST(started_at, weekStartAt)`를 정렬에 더함. 상세/REST 구간 미인지 | 상세가 있는 세션은 주간 ACTIVE 구간 합으로 읽도록 전환. paused를 단순 제외해 이미 쌓인 ACTIVE 초까지 버리지 않음 |
+| `FocusService.java:330~351`, 앱 `focusRestore.ts:29~43`, `useLeagueRanking.ts:75~85`, `stats/format.ts:70~102` | 완료 목록의 단일 startedAt~endedAt으로 앱이 순수 초/주간 합계와 연속 시간표를 재구성. 날짜별 net만 추가해도 이 경로는 그대로 | 완료 reader와 앱의 ACTIVE 합·구간 인식도 활성화 gate에 포함. 호환 앱 버전/접근 경계 또는 모든 소비처가 검증된 읽기 projection 필요 |
 | `.github/workflows/prod-rollback.yml:11~14,50~65` | 사용자가 지정한 옛 이미지가 ECR에 있는지만 확인한 뒤 SSM으로 재배포. 상세 프로토콜 호환 검사 없음 | 신규 API를 닫은 상태로 호환 reader/writer 먼저 배포하고 롤백 최소 호환 baseline을 올린 뒤 신규 활성화 |
 
 기존 통계는 저장한 net 분포에서 방해를 다시 빼지 않는다. 새 휴식을 `totalDistractionSeconds`로 다시
@@ -59,6 +60,12 @@ legacy 오프라인 완료 업로드가 v0.3 구간과 겹쳐 시간을/재화�
 `startedAt`은 세션 최초 시작이라 pause 후에도 그대로이며, 이를 `now-start`로 읽으면 휴식이 랭킹에 붙는다.
 신규 상세 세션은 주 경계와 교차하는 ACTIVE 구간만 합산하고 정렬·표시가 같은 snapshot을 사용해야 한다.
 휴식/재개/종료를 통과하며 수치가 되돌거나 완료 집계와 중복되지 않는 legacy 응답 어댑터까지 검증한다.
+완료 목록도 같은 대상이다. 기존 앱의 `sessionFocusSeconds`/`fetchMyWeekSeconds`는 전체 벽시계 구간을
+재합산하고 `weekdayFocusBlocks`는 그 구간을 연속으로 칠하므로, 올바른 서버 net만 저장해서는 충분하지 않다.
+완료 ACTIVE 합·구간을 읽는 앱의 최소 호환 버전과 다기기/다운그레이드 접근 경계까지 준비하거나,
+논리 최장 세션·날짜·페이지 의미까지 보존한다고 검증된 읽기 projection을 준비해야 신규 생성 gate를 연다.
+REST를 `totalDistractionSeconds`에 넣는 우회는 금지한다. [LLD §5.1.1](low-level-design.md#511-완료-목록과-앱의-재계산도-같은-gate에-포함한다)에
+실제 소비처와 회귀/대안의 승인 조건을 고정한다.
 
 배포는 두 단계다. **1단계: 신규 API 비활성 상태에서 상세를 인식하는 legacy reader/writer·orphan/presence
 호환본을 전량 배포하고, 실제 롤백 진입점의 최소 호환 이미지 baseline을 이 버전 이상으로 제한한다.**

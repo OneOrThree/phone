@@ -50,6 +50,7 @@
 | 실시간 | snapshot/subscription race·역순·재연결·권한 철회·개별 projection version 검증 |
 | 호환 | 기존 `/api/v1/focus-session*` 경로/업로드 의미 유지, 구 writers가 새 세션을 종료·재지급하지 못함 |
 | live 조회 호환 | 기존 랭킹/표시 reader가 신규 ACTIVE 구간을 인식. pause 동안 불변·resume 후 증가·finish 전후 순수 초 동일·진행/완료 이중 계상 없음 |
+| 완료 조회·앱 호환 | 완료 목록의 순수 합계·주간값·논리 최장 세션·시간표/복원이 ACTIVE만 사용. 최소 호환 앱과 다기기/다운그레이드 접근 경계 또는 검증된 projection 준비 전 신규 활성화 금지. REST를 방해 초로 대체하지 않음 |
 | 배포·롤백 | 신규 비활성 호환본 전량 배포 → 실제 rollback 최소 호환 baseline 이동·구 이미지 차단 검증 → 신규 활성화. active/paused 상세를 유지하는 호환 rollback 검증 |
 | 출시 정책 | FR-D01~06의 필요한 결정과 설정 검증. 미정인 산식을 300초로 채워 출시하지 않음 |
 
