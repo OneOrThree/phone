@@ -174,6 +174,33 @@ sid/bootstrap으로 연결하고, 기존 ownership·legacy 허용 창을 우회�
 세션 폐기를 같은 TX에 기록하는 별도 호환 경로다(㋗). 이미 비활성 세션은 즉시 반환하므로 RT-only logout 뒤
 그 경로에 처음 기기 값을 보내면 새 삭제가 내구화된다고 가정하지 않는다. 신규 본문 없는 RT-only 계약은 그대로 유지한다.
 
+#### 비게스트 계정 전환의 이전 기기 정리
+
+기기 삭제의 내구화는 명시적 로그아웃뿐 아니라 비게스트 A→B 전환에도 적용한다
+([기존 통신 계약](../../architecture/service-architecture.md#4-통신-방식)). 기준 main
+[App.tsx:517~528](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/app-dev/src/App.tsx#L517-L528)는
+새 세션 commit 뒤 이전 AT의 DELETE 실패를 삼킨다. 이 동작만으로 내구 정리가 완료됐다고 주장하지 않는다.
+후속 앱은 **전환 전 준비 → 세션 commit과 삭제 실행 가능 상태 확정 → commit 뒤 전달**을 구분한다.
+
+1. 이전 A의 검증 사용자·세션, 정확한 FCM 토큰·ownership, 고정 키 K와 기존 DELETE용 AT·종결용 원 RT를
+   보호된 내구 큐의 준비 항목으로 저장한다. 자격의 기존 만료를 연장하거나 일반 로그에 남기지 않는다. B의 자격이나 나중에 조회한 현재 기기 값으로 대체하지 않는다.
+   준비 저장에 실패하면 새 세션 commit을 진행하지 않는다. 이 준비 항목은 재시도 worker가 실행할 수 없다.
+2. 새 B의 완전한 세션 snapshot과 해당 전환의 commit 표지를 같은 내구 전환 경계로 확정한다.
+   기존 AsyncStorage multiSet 자체를 DB 원자 TX로 가정하지 않고, 세션 저장 실패 시 이전 snapshot 복구와
+   준비 항목 취소를 기록한다. 앱 재시작은 내구 commit 표지·완전한 세션 snapshot의 정합을 확인한 뒤에만
+   그 전환의 항목을 실행 가능으로 만든다. 미확정/rollback이면 A의 등록 삭제와 원 RT 종결을 실행하지 않는다.
+3. commit 뒤에만 §2.4의 동일 기기 DELETE/outbox 키·fingerprint·완료 재생 경로로 A의 삭제를 시도하고
+   A의 원 RT 세션 폐기도 독립적으로 시도한다. 두 작업의 성공 여부를 따로 보관하며 B의 토큰 저장을
+   되돌리거나 전역 로그아웃시키지 않는다. DELETE 실패에도 원 RT 폐기를 시도하되 DELETE 큐를 성공 소진하지 않는다.
+   검증된 sid/bootstrap 연결과 auth.session.revoked의 내구 fence는 §2.4와 같은 범위에서 적용한다.
+
+전달 도중 B→A 또는 제3계정 전환이 시작돼도 원 항목의 주체·대상·키는 불변이다. 새 로그인은 새로운
+ownership/세션을 가지므로 늦은 삭제·폐기가 새 등록이나 다른 기기를 지우지 않는다. 전환 generation 대조는
+로컬 상태 정리에 사용하며 사용자 authGeneration을 올리거나 계정을 합치지 않는다. 새 계정의 같은 FCM
+등록이 이전 등록을 대체하는 방어는 내구 DELETE를 생략할 이유가 아니다. 구현 활성 전 A→B/B→A 경합,
+전환 전/부분 저장/commit 직후/삭제 응답 유실의 프로세스 종료를 주입해 미확정 전환의 A 등록 보존,
+확정 전환의 원 키 재개·A 정리·B 보존을 검증한다. 새 자격 형식이나 추가 공개 endpoint는 만들지 않는다.
+
 ### 2.5 DELETE /me
 
 요청 `{ "confirmation": "DELETE" }`. 대소문자까지 정확히 일치해야 하며 누락/다른 값은 400이다. 유효 AT와 활성 계정·세션 검사, 필수 멱등 키를 요구한다. confirmation은 재인증 수단이 아니다.
@@ -383,7 +410,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | --- | --- | --- |
 | users.nickname(name), deviceToken, refreshTokenHash, countryCode, language | erasePersonalData에서 null | 유지. 토큰 정리 outbox에 필요한 증명은 파기 전에 기록 |
 | group_announcements.user_id | nullable 작성자 FK이며 schema.dbml은 탈퇴 시 null을 명시하지만 AccountWithdrawalService에는 정리 호출 없음 | 같은 탈퇴 TX에서 해당 user_id를 전부 nullify. 공지 행·내용은 기존 보존 규칙 유지, 작성자 사용자 연계만 제거. 생성의 getCallerForShare와 탈퇴 getCallerForUpdate로 경합 직렬화 |
-| notification_sent_logs.user_id 및 사용자 상대를 뜻하는 target_user_id | 현재 AccountWithdrawalService에 정리 호출 없음. user_id는 NOT NULL, target_user_id는 nullable·종류별 다형 키 | 같은 중앙 TX에서 수신자 user_id가 탈퇴자인 행 전체와 FRIEND_REQUEST/FRIEND_ACCEPTED/RANK_OVERTAKE의 target_user_id가 탈퇴자인 행을 hard delete. PENDING/DEFERRED/SENT 모두 포함. 위성 이관 복사본과 지연 writer는 아래 전용 파기 경계 적용 |
+| notification_sent_logs.user_id 및 사용자 상대를 뜻하는 target_user_id | 현재 AccountWithdrawalService에 정리 호출 없음. user_id는 NOT NULL, target_user_id는 nullable·종류별 다형 키 | 같은 중앙 TX에서 탈퇴 수신자 행 전체와 FRIEND_REQUEST/FRIEND_ACCEPTED의 탈퇴 상대 행은 hard delete. 다른 활성 수신자의 RANK_OVERTAKE는 target_user_id만 nullify하여 기존 user_id/type/sent_at 기반 주간 상한을 보존. 미발송 중단·위성 복사본·지연 writer는 아래 전용 경계 적용 |
 | 신규 users.catColor | 필드 없음 | 이름과 함께 null. 프로필 receipt/투영/캐시의 복사본도 제거 |
 | 신규 온보딩 자료·terms 동의 자료 | 필드/정본 없음 | 사용자 연계 프로필 완료 자료와 로그인 자격 자료 파기. 약관 증거 별도 보존 요구가 있다면 Q05에 문서화하고 일반 프로필 DB에 방치하지 않음 |
 | users.occupation | 현재 그대로 남음 | 직접 프로필 필드이므로 null 파기에 추가. 기존 구현 완료라고 주장하지 않음 |
@@ -423,6 +450,13 @@ main User 주석은 retention→purge를 언급하지만 현재 조회한 `erase
 후속 탈퇴 구현은 같은 users 배타 잠금을 유지한 중앙 TX에서 캐릭터 소유 서비스에 위임해 `DELETE FROM character_generation WHERE user_id=:userId`를 실행한다. 생성 시각이나 client_generation_id 유무와 무관하게 본인 행 전체를 삭제하며 nullify/기간 제한 정리로 대체하지 않는다. 다른 사용자의 생성 이력과 보유/정산 증거는 보존한다. 현 AccountWithdrawalService/UserService에 이 삭제 호출이 없으므로 실제 배선이 완료 조건이다. 복원/관리·비동기 기록을 추가하더라도 활성 users 잠금 → 사용자 advisory(사용 시) → 이력 순서를 지키고 오래된 User 객체로 우회 저장하지 않는다. writer가 먼저 커밋한 행은 탈퇴가 삭제하고, 탈퇴 선행이면 늦은 기록/동일 client_generation_id 재시도도 활성 검사에서 거절한다. 삭제 직후 실패 시 생성 이력·계정·환불·receipt/outbox가 함께 rollback되어야 한다.
 
 ### 중앙 TX의 순서 제약
+
+사용자 잠금 직후, 세션 폐기·USER outbox 버전 발급보다 먼저 관련 그룹을 UUID 순서로 전량 선점한다.
+이는 아래 도메인 처리 순서를 바꾸는 것이 아니라 잠금 선점을 앞당기는 것이다. 선행
+[PR752의 실제 구현](https://github.com/OneOrThree/phone/blob/9288277f9d1db3049a81aa44cabed7d66279c333/server/data-api/src/main/java/com/oneorthree/phone/withdrawal/service/AccountWithdrawalService.java#L79-L99)은
+`getCallerForUpdate` → `lockGroupsForAccountWithdrawal` → 세션/USER outbox 순서다. 기준 main에 이미 있다는 뜻은 아니다.
+챌린지 생성의 그룹 잠금 → BEFORE_COMMIT 알림 USER aggregate와 탈퇴의 반대 순서가 교착하므로,
+후속 파기 구현도 이 선점을 유지하고 실제 PostgreSQL 양방향 경합을 검증한다. 그룹 선점만으로 환불·PII 파기를 먼저 실행하지 않는다.
 
 `getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹·chat/realtime 대상 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_generation 본인 생성 이력 및 character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 본인 group_invite_links.inviter_id 비식별화·양방향 group_invites·user_blocks 및 본인 user_streaks 삭제와 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
 
@@ -552,13 +586,31 @@ FocusService의 활성 users FOR SHARE를 완료·streak 저장 TX 끝까지 유
 
 #### 알림 발송 이력의 파기 경계
 
-`notification_sent_logs`는 애플리케이션 로그 파일이 아니라 쿨다운·중복 발송 방지·미발송 클레임을 보관하는 기능 테이블이다. 기존 별도 보존 근거가 확인되지 않은 사용자 알림/친구 관계 이력을 무기한 보존 대상으로 추가하지 않는다. 수신자 `user_id`는 NOT NULL이므로 그 사용자 행은 nullify 대신 상태와 무관하게 hard delete한다. `target_user_id`가 실제 사용자 상대인 `FRIEND_REQUEST`/`FRIEND_ACCEPTED`/`RANK_OVERTAKE` 행도 파기한다. 이 삭제는 정산 결과 원장을 지우는 작업이 아니다.
+`notification_sent_logs`는 애플리케이션 로그 파일이 아니라 쿨다운·중복 발송 방지·미발송 클레임을 보관하는 기능 테이블이다. 기존 별도 보존 근거가 확인되지 않은 사용자 알림/친구 관계 이력을 무기한 보존 대상으로 추가하지 않는다. 수신자 `user_id`는 NOT NULL이므로 그 사용자 행은 nullify 대신 상태와 무관하게 hard delete한다. `target_user_id`가 탈퇴한 사용자 상대인 `FRIEND_REQUEST`/`FRIEND_ACCEPTED` 행도 파기한다. 다만 다른 활성 수신자의 `RANK_OVERTAKE`는 **target_user_id만 nullify**하고 기존 수신자·type·sent_at 및 발송 집계 근거를 보존한다. 이 삭제는 정산 결과 원장을 지우는 작업이 아니다.
+
+기준 main `529a396e5f0f88cb78c172110920e1fa6b9388a9`의
+[RankOvertakeNotificationService.weeklySentCount](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/server/data-api/src/main/java/com/oneorthree/phone/notification/service/RankOvertakeNotificationService.java#L203-L220)는
+상대와 무관하게 수신자별 이번 주 행을 센다. 상대 탈퇴로 행을 지우면 주 2회 상한이 다시 열리지만,
+`lastSentToRival`은 이미 null 상대를 제외하므로 nullify는 기존 계산과 호환된다. 탈퇴자의 UUID·상대 표시정보는
+남기지 않고 활성 수신자의 기존 상한 근거만 보존한다. 미발송 상대 알림은 중단하고 재생으로 다시 보내지 않는다.
+이전 발송 집계에 포함되던 행을 삭제하거나 sent_at을 바꿔 상한을 줄이지 않으며 새 보존 기간은 정하지 않는다.
 
 `schema.dbml`에는 target_user_id의 users FK 표기가 있지만 V1 실제 SQL과 엔티티에는 그 FK가 없고, 구 BET_RESULT는 회차 ID, CHALLENGE_WINDOW_END/CHALLENGE_ENDED/CHALLENGE_CREATED는 챌린지 ID를 같은 열에 저장한다. V45의 BET_RESULT subject_id 이관도 이 차이를 보여 준다. 따라서 **종류를 보지 않고 모든 target_user_id를 사용자로 간주하지 않는다**. 다른 수신자의 회차/챌린지 키를 UUID 값만 같다는 이유로 지우지 않으며, 후속 구현은 실제 운영 migration의 FK/종류별 의미를 대조한다. FK나 법적 보존 기간을 이 문서에서 새로 확정하지 않는다.
 
-기존 writer는 친구 알림의 `save`, 추월/챌린지 알림의 `saveAll`, 내기·모집·silent flush의 `insertPendingClaim`과 재시도 상태 변경이다. 예를 들어 FriendNotificationService는 현재 수신자·상대의 `findActive` 무락 조회 뒤 발송/저장을 하므로 조회 사실만으로 탈퇴와 직렬화됐다고 볼 수 없다. 후속1757은 **로그/클레임 기록 TX에서 수신자와 실제 사용자 상대를 ID 순서로 활성 공유 잠금·재검증**하고, 탈퇴는 사용자 배타 잠금을 먼저 얻어 삭제와 직렬화한다. 클레임/로그 행 잠금은 이 생명주기 잠금 뒤에 둔다. 늦은 FCM 응답 후 기록, 기존 이벤트 재생, 배치 재선점도 같은 관문을 거쳐야 한다. writer가 먼저 커밋하면 탈퇴가 삭제하고, 탈퇴가 먼저면 새 INSERT/재생성을 거절한다. 외부 전송을 기다리기 위해 새 사용자 잠금의 유지 범위를 늘리지 않는다.
+기존 writer는 친구 알림의 `save`, 추월/챌린지 알림의 `saveAll`, 내기·모집·silent flush의 `insertPendingClaim`과 재시도 상태 변경이다. 예를 들어 FriendNotificationService는 현재 수신자·상대의 `findActive` 무락 조회 뒤 발송/저장을 하므로 조회 사실만으로 탈퇴와 직렬화됐다고 볼 수 없다. 후속1757은 **로그/클레임 기록 TX에서 수신자와 실제 사용자 상대를 ID 순서로 활성 공유 잠금·재검증**하고, 탈퇴는 사용자 배타 잠금을 먼저 얻어 삭제와 직렬화한다. 클레임/로그 행 잠금은 이 생명주기 잠금 뒤에 둔다. 늦은 FCM 응답 후 기록, 기존 이벤트 재생, 배치 재선점도 같은 관문을 거쳐야 한다. writer가 먼저 커밋하면 탈퇴가 위 종류별 삭제/nullify를 적용하고, 탈퇴가 먼저면 새 사용자 연결 INSERT/재생성을 거절한다. 외부 전송을 기다리기 위해 새 사용자 잠금의 유지 범위를 늘리지 않는다.
 
-위성 이관 후에도 중앙 삭제만으로 완료 처리하지 않는다. 기존 `user.withdrawn` 및 알림 대상 내구 파기 명령에 위 수신자/사용자 상대 범위를 포함하고, Notification은 같은 fencing TX에서 미발송을 중단하고 해당 발송 이력·사용자 연계 payload/이관 복사본을 제거해야 한다. 최소 tombstone만 기존 계약대로 유지하여 늦은 direct/relay/import가 삭제한 관계 이력을 부활시키지 못하게 한다. 현재 `DeviceService.generation`의 미발송 SUPPRESSED·projection/settings 삭제만으로 이 발송 이력 파기까지 구현됐다고 주장하지 않는다. 위성별 파기 완료를 확인하며, 재전달 실패는 기존 outbox로 복구하고 중앙 탈퇴를 재실행하지 않는다.
+**FCM 성공 뒤 상대 탈퇴가 먼저 확정되고 로그 결과가 늦게 저장되는 경우는 별도다.** 미발송은 중단하고,
+새 사용자 연결 INSERT는 거절하되, 이미 발송했거나 기존 집계에 포함되는 것이 확정된 `RANK_OVERTAKE`의
+늦은 결과 전체를 버려 활성 수신자의 주간 횟수를 줄이지 않는다. 같은 기록 TX에서 수신자의 활성 생명주기를
+잠금·재검증하고, **검증 가능한 원 발송 증거와 고정 발송 식별자**를 대조한 뒤 `target_user_id=null`인
+수신자 집계 근거만 멱등 저장한다. 같은 발송의 기존 로그·늦은 응답·위성 재전달은 그 식별자로 하나에 수렴한다.
+횟수의 기준 시각은 검증된 원 발송 시각이며 늦은 기록 시각으로 주차를 옮기지 않는다. 삭제한 상대의 UUID·이름을
+복원하지 않고, 검증되지 않은 클라이언트 주장이나 새 랜덤 키만으로 발송 횟수를 만들지 않는다.
+수신자 본인이 탈퇴했다면 이 예외를 적용하지 않고 행 파기·지연 결과 재생 거절을 그대로 유지한다.
+현재 main의 외부 FCM 호출 뒤 `saveAll`만으로 이 증거/멱등 경계가 구현됐다는 뜻은 아니다.
+원 발송 식별자·증거의 내구 보존과 결과 기록 연결을 검증하기 전 이 경합 보호를 완료로 표시하지 않는다.
+
+위성 이관 후에도 중앙 삭제만으로 완료 처리하지 않는다. 기존 `user.withdrawn` 및 알림 대상 내구 파기 명령에 위 수신자/사용자 상대 범위를 포함하고, Notification은 같은 fencing TX에서 미발송을 중단하고 위 종류별 삭제/nullify와 사용자 연계 payload/이관 복사본 제거를 적용해야 한다. 활성 수신자의 RANK_OVERTAKE 상한 근거는 위성에서도 보존하며 파기 재전달로 카운트를 줄이지 않는다. 최소 tombstone만 기존 계약대로 유지하여 늦은 direct/relay/import가 삭제한 관계 이력을 부활시키지 못하게 한다. 현재 `DeviceService.generation`의 미발송 SUPPRESSED·projection/settings 삭제만으로 이 발송 이력 파기까지 구현됐다고 주장하지 않는다. 위성별 파기 완료를 확인하며, 재전달 실패는 기존 outbox로 복구하고 중앙 탈퇴를 재실행하지 않는다.
 
 #### 그룹 창형 화면시간 원본의 파기 경계
 
@@ -646,6 +698,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 선택 AT의 타인 sid·세대 불일치·sidless 폐기 후 새 legacy 세션 | 원 세션 결합/폐기 fence 검사, userId만 맞춘 새 세션으로 옛 AT 승인0; 입증 불가 시 명시 거절 |
 | 선택 세션 logout/withdraw와 IdP·prepare·complete·성공 receipt 재생의 양방향 경합 | 각 TX의 users 우선 잠금, 폐기 선행 시 INVALIDATED·토큰 재생0, 원 복구창 연장0 |
 | 비게스트 A→B/B→A 동시 전환·대상 매핑 변경 | 필요한 users UUID 정렬 후 session/attempt 잠금, 순서 역전/교착0, 정상 계정 전환 유지·계정 합병0 |
+| 계정 전환 준비/부분 저장/commit 직후 crash·DELETE/outbox 실패·역방향 전환 | commit 전 삭제/RT 폐기0, rollback A 등록 보존, commit 뒤 원 주체/키로 재개·B 자격 및 새 ownership 보존 |
 | 6개 제공자/guest 승격 | 같은 userId·지갑·집중·그룹 유지, 타 제공자 token·RT-as-AT 거부 |
 | 승인된 완료 판정 false→true / 이미 true→true / 동일 키 재생 | 첫 전이만 user.onboarded 내구화, 미완료 시점의 기존 점수도 주차별 절대값 재적재, 재생·무전이의 추가 사건0 |
 | name 변경+catColor/온보딩 동시 변경·동일 키·무변경 | 기존 동기 이름 writer에 위임해 필요한 멤버십별 표시 사건만 생성, caller 이중 append0; name 생략/무변경/receipt 재생은 이름 사건0 |
@@ -673,6 +726,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 같은 기기 삭제 키에 다른 대상/ownership/주체 |409 또는 인가 거절, 원 결과/기기 자격 노출0 |
 | 기기 삭제 뒤 다른 키의 지연 등록·미존재 토큰 삭제·새 로그인 재등록 | 토큰별 tombstone/최대 ownershipVersion 보존, 행 없음 bootstrap 우회·옛 세션 부활0, 정당한 새 등록도 버전 초기화0 |
 | 기기 DELETE와 RT-only logout 분리·지연 삭제 | outbox/직접 삭제 양쪽 실패에도 RT 폐기·원 세션 로컬 정리 진행, 미완료 큐/원 키 보존·새 로그인 자격 보존. 검증된 sid/bootstrap 연결 등록은 auth.session.revoked의 내구 fence로 비활성화·지연 등록 거절, 미연결 legacy 전환 검증 전 활성 금지, RT-only 성공을 기기 삭제 성공으로 오인하지 않음 |
+| 추월 알림을 이번 주 2회 받은 활성 수신자·상대 탈퇴·동시 발송 writer | 상대 UUID null, 기존 카운트2/추가 발송0, 본인 탈퇴 이력 삭제 유지, nullify/위성 재전달 멱등·전체 rollback |
+| FCM 성공 → 상대 탈퇴 → 늦은 로그/중복 결과·수신자 탈퇴 | 원 발송 증거/고정 ID로 target=null 집계1회, 원 발송 주차 유지·상대 연결 복원0; 증거 없으면 허위 카운트0, 수신자 탈퇴면 재생0 |
 | 본인 발급 링크·타인 claim·발급/탈퇴 경합·파기 후 rollback | inviter_id nullify, 링크/클릭 FK·타인 귀속 보존, 폐기 링크 재사용/UUID 복원0, 늦은 발급 거절, 중간 실패는 전체 rollback |
 | group_invites 양방향·전체 상태·타인 초대와 탈퇴 rollback | inviter 또는 invitee가 본인인 행만 전량 삭제, 무관한 타인 초대 보존, 실패 시 초대/계정/환불/outbox 전체 rollback |
 | 공지 생성·타인 수정과 탈퇴의 양방향 경쟁·중간 실패 | 생성 선행이면 user_id=null, 탈퇴 선행이면 생성 USER_NOT_FOUND. 타인 수정의 지연 flush도 작성자 FK 부활 0, 공지 내용 보존, rollback 시 작성자 연결도 복구 |

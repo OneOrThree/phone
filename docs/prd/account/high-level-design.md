@@ -142,6 +142,8 @@ flowchart TD
 
 기기 등록 삭제는 별도 `DELETE /api/v1/users/me/device-token`이 `X-Device-Token`·`X-Device-Ownership`을 받아 처리한다(장부 ㊲·㊨·㊪). 새 앱은 큐 생성 시 대상과 고정 `Idempotency-Key`를 함께 저장한다. Data outbox 생성은 `K:device-delete-outbox`, 알림 직접 전달과 relay는 동일 `K:device-delete`를 사용한다. 원 사용자·명령 scope·fingerprint 검증 후 완료된 같은 키를 과거 ownership 거절보다 먼저 재생한다. 성공 후 바뀐 ownership으로 원 삭제가 실패하지 않으며 새 등록을 다시 삭제하지 않는다. 기존 클라이언트의 키 생략 호환과 이 새 앱의 필수 키 계약은 구분한다. 앱은 기기 자격·원 사용자·고정 키를 내구 큐에 보존하고 DELETE를 시도하되, 실패해도 원 세션 RT 폐기와 로컬 인증 정리를 독립적으로 계속한다. 미완료 큐는 보존하며 logout 200을 기기 삭제 성공으로 간주하지 않는다. AT가 만료돼 DELETE를 재전송할 수 없어도 검증된 sid/bootstrap 연결 등록은 같은 Data TX의 auth.session.revoked outbox와 알림 서버의 로컬 세션 fence·비활성화로 정리한다(㋗·㋞·㋨). 선행 PR745에 있는 이 전달은 독립 DELETE 성공을 뜻하지 않으며 relay 적용 전 지연도 남는다. 미연결 legacy 등록을 현재 검증된 세션에 연결하고 경합을 검증하는 것은 새 앱 전환 활성 조건이며, 이를 이유로 RT 폐기 자체를 대기시키지 않는다. 알림 서버는 기기 삭제 때도 토큰별 tombstone·최대 ownershipVersion을 남기고 등록도 같은 잠금에서 이를 대조하여 다른 키의 지연 등록 부활을 막는다(㉴·㋓). 비동기 도중 새 로그인이 시작되면 기존 generation 검사로 새 세션을 보존한다. 사용자 전체 등록을 지우지 않고 대상 토큰의 ownership을 대조해 다른 기기와 재등록을 보존한다.
 
+비게스트 A→B 전환도 이전 기기·ownership·주체·고정 키를 내구 큐에 먼저 준비한다. 준비만으로 DELETE/RT 폐기를 실행하지 않으며, 새 세션과 내구 commit 표지가 확정된 뒤에만 같은 삭제/outbox 경로와 원 세션 폐기를 실행한다. 부분 저장·rollback은 A의 등록을 보존하고, commit 뒤 재전달은 B의 자격과 새 ownership을 보존한다(LLD 계정 전환 절).
+
 ## 탈퇴: 중앙 원자 처리와 위성 정리
 
 ```mermaid
@@ -180,6 +182,8 @@ sequenceDiagram
 차단 관계는 blocker/blocked 어느 쪽이 탈퇴자여도 삭제하고 본인의 user_streaks 행도 hard delete한다. 현재 차단 생성 서비스는 없지만 후속 writer는 두 활성 users를 UUID 오름차순으로 공유 잠근 뒤 관계를 기록해야 한다. 스트릭의 현 writer인 FocusService 완료 TX는 users 공유 잠금을 사용하며 독립 writer도 같은 규칙을 적용한다. UserStreakService가 받은 오래된 User 객체만으로 파기 후 재생성할 수 없게 한다. 현 탈퇴 코드에는 이 두 삭제가 없어 후속 구현과 동시성 검증이 필요하다.
 
 공지 생성은 users 공유 잠금, 탈퇴는 같은 users 배타 잠금을 먼저 사용한다. 생성 선행이면 새 공지도 nullify하고 탈퇴 선행이면 생성은 404 `USER_NOT_FOUND`로 거부한다. 공지 내용은 기존 보존 규칙을 유지한다.
+
+활성 수신자의 추월 알림은 상대 탈퇴 때 target_user_id만 nullify하여 기존 주간 발송 횟수를 보존한다. 수신자 본인의 탈퇴 이력 삭제와 구분하고, 위성 파기·동시 writer도 같은 규칙을 적용한다.
 
 본인 발급 링크의 inviter_id도 같은 중앙 TX에서 nullify한다(nullable 스키마 확장 필요). 링크/종속 클릭은 타인 퍼널의 FK 앵커로 보존하고, 발급자 없는 링크는 랜딩·매치·claim·이관에서 폐기로 취급한다. 활성 users 공유 잠금 아래의 모든 발급 writer를 탈퇴 배타 잠금과 직렬화하며 현재 미구현인 조회/이관 호환까지 검증한 뒤 활성화한다.
 

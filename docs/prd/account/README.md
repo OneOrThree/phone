@@ -35,3 +35,5 @@ PR 740 검토 반영: 공지 작성자 FK 파기와 생성 경합, RT-only 로�
 채팅 읽음 이력 파기 보완: 기존 `gromo_chat.chat_read_cursors`의 사용자별 읽음 위치·갱신 시각을 위성 파기 대상에 포함한다. 중앙 탈퇴의 `user.withdrawn` 내구 전달과 chat/realtime의 같은 로컬 TX 내 tombstone·커서 삭제·모든 cursor writer 차단이 필요하다. 현재 소비자/쓰기 fencing은 미구현이므로 통합·경합 검증을 완료 조건으로 둔다. 메시지 본문·sender_id 보존 규칙과 우체통 읽음 표시 정책은 변경하지 않는다.
 
 초대 링크 발급자 파기 보완: V21의 group_invite_links.inviter_id는 nullable 확장 후 같은 탈퇴 TX에서 비식별화한다. 타인 퍼널의 링크/클릭 FK 앵커는 보존하되 폐기 링크 재사용·발급자 복원을 차단하고, 발급 writer 직렬화·이관 호환·rollback 검증을 구현 완료 조건에 포함한다.
+
+알림 상한·계정 전환 보완: 탈퇴한 상대의 추월 알림 연결만 nullify하여 활성 수신자의 주간 발송 상한을 보존한다. 비게스트 전환도 이전 기기 삭제를 내구 준비하되 새 세션 commit 뒤에만 실행하며, rollback·재시작·역방향 전환에서 이전 등록과 새 계정 자격을 보호한다.
