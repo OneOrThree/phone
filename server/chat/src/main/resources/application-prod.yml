@@ -1,0 +1,33 @@
+# prod 배포용. dev 와 같은 모양이고 값만 다르다 — 두 파일이 갈라지기 시작하면
+# 「dev 에선 되는데 prod 에서만」이 생긴다.
+spring:
+  datasource:
+    url: ${CHAT_DB_URL}
+    username: ${CHAT_DB_USERNAME}
+    password: ${CHAT_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      # 연결 수립 제한. 없으면 Lettuce 기본값(10초)이라, Redis 가 패킷을 드롭할 때 STOMP 채널
+      # 스레드가 10초씩 잠긴다 — 채널 스레드는 풀이라 곧 전부 소진돼 채팅 전체가 멈춘다.
+      connect-timeout: 500ms
+      timeout: 2s
+
+  flyway:
+    baseline-on-migrate: true
+
+jwt:
+  secret: ${JWT_SECRET}
+
+chat:
+  data-api:
+    base-url: ${DATA_API_BASE_URL}
+
+logging:
+  level:
+    com.oneorthree.chat: INFO

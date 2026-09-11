@@ -30,9 +30,19 @@ services:
       # 누끼 유해 이미지 모더레이션 (GROMO-1048) — OpenAI omni-moderation 서버 게이트(1044)가 읽는 키.
       # 미주입 시 서버는 fail-closed(전체 차단)로 동작하므로 dev 컨테이너에 반드시 주입한다.
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # 집중 프레즌스 (GROMO-292) — 채팅 서버가 「집중 중엔 채팅 불가」를 판정하는 근거를 여기에 쓴다.
+      # 기본 false: Redis·채팅이 실제로 뜬 뒤에 .env 에서 켠다. 안 뜬 상태에서 켜면 집중 시작·종료마다
+      # 연결 타임아웃을 문다. 쓰기는 best-effort 라 켜도 Redis 장애가 집중을 막지는 않는다.
+      FOCUS_PRESENCE_ENABLED: ${FOCUS_PRESENCE_ENABLED:-false}
+      REDIS_HOST: redis
     depends_on:
       db:
         condition: service_healthy
+      # ⚠️ redis 는 «일부러» 여기 없다. data-api 에서 Redis 는 부가 의존성이고 프레즌스 쓰기는 전부
+      #    best-effort 라, 기동을 redis 에 묶으면 부가 의존성 하나가 코어 API 의 배포를 막게 된다
+      #    (그건 management.health.redis.enabled=false 로 헬스체크를 끈 판단과 정면으로 어긋난다).
+      #    redis 가 늦게 뜨면 그동안의 리스 쓰기만 실패하고 로그에 warn 이 남는다.
+      #    반대로 chat 은 redis 에 묶는다(docker-compose.chat.yml) — 그쪽은 하드 의존성이다.
     networks:
       - app-network
     restart: unless-stopped
@@ -65,8 +75,32 @@ services:
       timeout: 5s
       retries: 5
 
+  # 공유 Redis (GROMO-292). 호스트에 포트를 열지 않는다 — 같은 compose 네트워크의 app·chat 만 붙는다.
+  # 목표 아키텍처 A19: 서비스별 유저 + 키 패턴 ACL 로 네임스페이스를 강제한다. 지금은 단일 노드에
+  # ACL 없이 뜨고, ACL 적용은 채팅 dev 배포와 함께 온다(그때까지 이 Redis 는 프레즌스 전용이다).
+  redis:
+    image: redis:7-alpine
+    container_name: phone-redis
+    labels:
+      com.datadoghq.tags.env: "dev"
+      com.datadoghq.tags.service: "gromo-redis-dev"
+      com.datadoghq.tags.version: "7-alpine"
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis_dev_data:/data
+
 volumes:
   postgres_dev_data:
+  # 프레즌스·캐시는 사본이라 유실돼도 재구축된다. 그래도 볼륨을 두는 이유는 재시작마다 전원의
+  # 멤버십 캐시가 비어 상류(Data API)로 몰리는 걸 피하기 위해서다.
+  redis_dev_data:
 
 networks:
   app-network:

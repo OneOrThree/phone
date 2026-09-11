@@ -57,3 +57,10 @@ link:
   match-window-hours: 3
   ip-salt: ci-test-salt
   store-ios-url: https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679
+
+management:
+  health:
+    redis:
+      # Redis 는 이 서비스의 «부가» 의존성이다. 켜 두면 Redis 장애가 곧 컨테이너 unhealthy 가 되어
+      # 멀쩡한 배포를 실패시킨다 — 정작 이 서비스의 Redis 쓰기는 실패해도 무해한데.
+      enabled: false

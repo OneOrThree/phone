@@ -1,0 +1,133 @@
+name: Chat CI
+
+# 채팅 서비스 전용 게이트 (GROMO-292).
+#
+# be-check-style / be-test / be-spot-bugs 를 재사용하지 않는 이유: 그 세 워크플로는
+# `working-directory: server/data-api` 를 «하드코딩»하고 있어서, 재사용하려면 입력을 받도록
+# 세 파일을 모두 고쳐야 한다 — 그건 기존 백엔드 게이트를 건드리는 변경이라 이 PR 의 위험을 키운다.
+# 서비스가 더 늘어날 때(A17 의 JVM 5종) 경로를 입력으로 빼는 리팩터링을 한 번에 하는 편이 낫다.
+#
+# 여기서는 잡을 하나로 합쳤다. `./gradlew build` 한 번이 checkstyle · spotbugs · test · bootJar 를
+# 전부 돌리므로, 잡을 셋으로 쪼개면 러너 3개를 물고 Gradle 이 세 번 뜬다(러너는 VM 한 대를 공유한다).
+
+on:
+  pull_request:
+    paths:
+      - 'server/chat/**'
+      - '.github/workflows/chat-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/chat/**'
+      - '.github/workflows/chat-ci.yml'
+
+# 통합 브랜치 푸시가 «겹치지» 않게 한다. 겹치면 늦게 끝난 «옛» 빌드가 :latest 를 되가리켜,
+# compose 의 기본 배포가 이전 코드로 되돌아간다. 그룹 이름은 dev-ci 의 것과 달라야 한다
+# (같으면 두 파이프라인이 서로를 막는다).
+concurrency:
+  group: chat-ci-${{ github.ref }}
+  # PR 의 이전 실행은 취소하되, 이미지를 올리는 실행은 중간에 끊지 않는다(dev-ci 와 같은 규율).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  # docker-compose.chat.yml 의 CHAT_IMAGE 기본값과 «같은 경로»여야 한다 — 어긋나면 올리는 곳과
+  # 받는 곳이 달라져 「올렸는데 안 뜬다」가 된다.
+  CHAT_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/chat
+
+jobs:
+  build:
+    runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: server/chat
+    env:
+      GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+    steps:
+      - uses: actions/checkout@v4
+
+      # 같은 VM의 다른 러너가 공유 홈에 캐시를 복원하는 동안 JAR을 덮어쓸 수 있다.
+      # Gradle 실행과 캐시 복원을 모두 이 잡의 임시 디렉터리로 격리한다.
+      - name: 채팅 전용 Gradle 홈 설정
+        run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle-chat" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.GRADLE_USER_HOME }}/caches
+            ${{ env.GRADLE_USER_HOME }}/wrapper
+          # 공유 홈에서 저장한 캐시를 다시 가져오지 않는다.
+          key: ${{ runner.os }}-chat-gradle-v2-${{ hashFiles('server/chat/**/*.gradle*', 'server/chat/**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-chat-gradle-v2-
+
+      - run: chmod +x gradlew
+
+      # Postgres·Redis 를 services: 로 띄우지 않는다 — 테스트가 Testcontainers 로 직접 띄우고,
+      # @ServiceConnection 이 주소를 빈으로 주입한다. services: 로 띄우면 포트 고정 문제
+      # (러너 3개가 VM 한 대를 공유한다)를 다시 떠안는다.
+      - name: Build (checkstyle + spotbugs + test + bootJar)
+        env:
+          SPRING_PROFILES_ACTIVE: ci
+        run: ./gradlew build --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chat-test-results
+          path: server/chat/build/test-results/
+          retention-days: 7
+
+  # PR 에서는 «빌드는 되는가»만 보고(푸시 없음), main push 에서는 GAR 에 올린다.
+  #
+  # 푸시가 필요한 이유: server/scripts/docker-compose.chat.yml 이 이 이미지를 «받아서» 띄운다.
+  # 아무도 올리지 않으면 새 호스트에서 `up` 이 이미지를 못 찾아 컨테이너가 아예 뜨지 않고, 코드가
+  # 바뀌어도 배포될 길이 없다. 배포 호스트에는 레포 체크아웃이 없어 거기서 빌드할 수도 없다.
+  docker-build:
+    name: 채팅 이미지 build${{ github.event_name == 'push' && ' · GAR push' || ' · cache' }}
+    # 검증이 끝난 뒤에만 올린다. 이게 없으면 두 잡이 나란히 돌아, 테스트·checkstyle·spotbugs 가
+    # 깨진 리비전도 이미지 빌드(bootJar 는 -x test 다)만 성공해 :latest 로 올라간다 — 그리고
+    # compose 의 기본값이 바로 그 태그다.
+    needs: [build]
+    runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud 도 키 파일도 필요 없다(dev-ci 와 같은 방식).
+      # PR 에서도 로그인한다: cache-to 가 레지스트리를 쓰기 때문이다.
+      - name: GAR 인증
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: server/chat
+          platforms: linux/amd64
+          # PR 이 만든 태그를 배포 신뢰점으로 삼지 않는다 — main push 실행만 올린다(dev-ci 와 같은 규율).
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          provenance: false
+          # :<sha> 가 «진짜» 신뢰점이다. :latest 는 compose 의 기본값이 그것이라 함께 올릴 뿐이고,
+          # 배포를 되돌릴 때는 CHAT_IMAGE 로 sha 를 못 박는 편이 낫다.
+          tags: |
+            ${{ env.CHAT_IMAGE_REPOSITORY }}:${{ github.sha }}
+            ${{ env.CHAT_IMAGE_REPOSITORY }}:latest
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=registry,ref=${{ env.CHAT_IMAGE_REPOSITORY }}:cache-amd64
+          cache-to: type=registry,ref=${{ env.CHAT_IMAGE_REPOSITORY }}:cache-amd64,mode=max

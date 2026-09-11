@@ -21,5 +21,19 @@ services:
       timeout: 5s
       retries: 5
 
+  # 채팅 서비스용 (GROMO-292). data-api 는 Redis 없이도 도므로 로컬에서 이 컨테이너를 안 띄워도
+  # 기존 백엔드 개발에는 지장이 없다 — 채팅을 돌릴 때만 필요하다.
+  redis:
+    image: redis:7-alpine
+    container_name: phone-redis-local
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_local_data:

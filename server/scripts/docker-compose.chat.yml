@@ -1,0 +1,101 @@
+# 채팅 서비스 오버레이 (GROMO-292).
+#
+# 왜 dev/prod 파일에 직접 넣지 않았나 — 그 파일들은 «지금 도는 구성»이고, 여기 chat 서비스를 넣는
+# 순간 배포가 아직 GAR 에 없는 이미지를 받으러 가서 실패한다. 채팅 이미지가 올라간 뒤에
+# 이 오버레이를 함께 읽어 띄우고, 안정되면 dev 파일로 접는다.
+#
+#   docker compose -f docker-compose.dev.yml -f docker-compose.chat.yml up -d
+#
+# 데이터베이스(gromo_chat)는 아래 chat-db-init 잡이 «있으면 두고 없으면 만든다» — 따로 손으로 만들
+# 필요가 없고, 여러 번 돌려도 안전하다.
+#
+# ⚠️ 이 오버레이는 redis 를 정의하지 않는다 — docker-compose.dev.yml 이 이미 정의한다.
+#    단독으로 쓰면 depends_on 이 없는 서비스를 가리켜 파싱이 깨진다.
+#
+# ⚠️ **dev 전용이다.** prod 는 DB 가 RDS 라 compose 에 db 서비스가 없고 redis 도 아직 없다 —
+#    이 파일을 prod 에 그대로 얹으면 depends_on 이 없는 서비스를 가리킨다. prod 배선은 채팅이
+#    dev 에서 안정된 뒤 docker-compose.prod.yml 에 직접 넣는다(그때 Redis ACL 도 함께 건다).
+
+name: phone
+
+services:
+  # 채팅 데이터베이스를 «있으면 두고 없으면 만든다». 한 번 돌고 끝나는 잡이다.
+  #
+  # 왜 필요한가 — dev 의 postgres 는 ${POSTGRES_DB} 하나만 초기 생성한다. Flyway 는 «스키마»를 만들지
+  # «데이터베이스»를 만들지 않으므로, 이 잡이 없으면 문서에 적은 실행 한 줄이 곧바로
+  # `database "gromo_chat" does not exist` 로 죽는다.
+  #
+  # 왜 docker-entrypoint-initdb.d 스크립트가 아닌가 — 그건 «빈 볼륨의 첫 기동»에만 돈다. dev 에는 이미
+  # 데이터가 있는 볼륨이 있어서 그 경로로는 영영 만들어지지 않는다. 이 잡은 볼륨 상태와 무관하게 돈다.
+  #
+  # CREATE DATABASE 는 IF NOT EXISTS 가 없다 — 그래서 존재 여부를 먼저 보고 없을 때만 만든다.
+  # 여러 번 돌려도 안전하다(이미 있으면 아무 일도 하지 않는다).
+  chat-db-init:
+    image: postgres:16-alpine
+    container_name: phone-chat-db-init
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      CHAT_DB: ${CHAT_POSTGRES_DB:-gromo_chat}
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        psql -h db -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tAc
+        "SELECT 1 FROM pg_database WHERE datname='$$CHAT_DB'" | grep -q 1
+        || psql -h db -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "CREATE DATABASE \"$$CHAT_DB\""
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: "no"
+
+  chat:
+    # 이 이미지는 main push 때 chat-ci.yml 의 docker-build 잡이 올린다(:<sha> 와 :latest 둘 다).
+    # 경로가 그쪽 CHAT_IMAGE_REPOSITORY 와 «같아야» 한다 — 어긋나면 「올렸는데 안 뜬다」가 된다.
+    #
+    # 되돌릴 때는 CHAT_IMAGE 로 sha 를 못 박는다: CHAT_IMAGE=…/chat:<sha> docker compose … up -d
+    # :latest 는 움직이는 태그라 「지금 뭐가 떠 있는지」를 사후에 알 수 없다.
+    image: ${CHAT_IMAGE:-asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/chat:latest}
+    container_name: phone-chat
+    ports:
+      # 8081 — data-api(8080)와 같은 호스트에 뜨므로 겹치지 않게 잡았다.
+      # 관리 포트 9091 은 절대 여기 올리지 않는다(포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단).
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      # 채팅은 자기 데이터베이스를 갖는다 — 같은 인스턴스 안의 별도 database(A10 의 알림 서버와 같은 모양).
+      # 이 database 는 미리 만들어져 있어야 한다(Flyway 는 스키마를 만들지 database 를 만들지 않는다).
+      CHAT_DB_URL: jdbc:postgresql://db:5432/${CHAT_POSTGRES_DB:-gromo_chat}
+      CHAT_DB_USERNAME: ${POSTGRES_USER}
+      CHAT_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      # Data API 와 «같은 값»이어야 한다. 채팅은 이 키로 서명을 검증만 한다 — 발급하지 않는다.
+      JWT_SECRET: ${JWT_SECRET}
+      # 멤버십 조회 상류. 컨테이너 이름으로 부른다(호스트 포트를 거치지 않는다).
+      DATA_API_BASE_URL: http://app:8080
+      # 네이티브 앱은 Origin 을 보내지 않으므로 비워 둔다 — 웹 클라이언트가 생기면 그 도메인만 넣는다.
+      CHAT_WS_ALLOWED_ORIGINS: ${CHAT_WS_ALLOWED_ORIGINS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # 데이터베이스가 «만들어진 뒤에» 뜬다. 안 그러면 Flyway 가 없는 database 에 붙으려다 죽는다.
+      chat-db-init:
+        condition: service_completed_successfully
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      # 관리 포트는 컨테이너 안에서만 보인다 — 헬스체크는 컨테이너 안에서 돌므로 닿는다.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9091/actuator/health/readiness || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+networks:
+  app-network:
+    driver: bridge
