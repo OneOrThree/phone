@@ -223,9 +223,20 @@ require('setInstalledDeviceTokenResolver(async () =>' in push
         'A22 ㋲: 첫 등록 전 구 기기의 SDK 토큰 정리 경로가 연결되지 않음')
 
 internal_http = source('server/business-api/src/main/java/com/oneorthree/business/common/http/InternalHttpClient.java')
-require(internal_http.index('deadline.hasRoomFor(readTimeout)') < internal_http.index('circuitBreaker.allowRequest(')
-        and 'if (!outcomeRecorded)' in internal_http and 'catch (UpstreamDomainException' in internal_http,
-        'A22 ㋽: 복구 탐침이 예산 부족 또는 비재시도 예외에서 해제되지 않음')
+# HTTP 실행의 실제 복구 동작은 InternalHttpClientRecoveryTest/DeadlineTest가 검증한다.
+# 여기서는 현재 context 예산 검사와 탐침 종료 경계만 확인한다. 누락도 계약 오류로 보고한다.
+exchange_start = internal_http.find('public <T> T exchange(InternalCall call, UpstreamRequestContext context,')
+exchange_end = internal_http.find('private <T> T attempt(', max(0, exchange_start))
+exchange = internal_http[exchange_start:exchange_end] if 0 <= exchange_start < exchange_end else ''
+active_check = exchange.find('context.checkActive();')
+probe_acquire = exchange.find('circuitBreaker.allowRequest(')
+require(0 <= active_check < probe_acquire,
+        'A22 ㋽: 요청 예산·취소 검사가 복구 탐침 획득보다 앞서지 않음')
+require(bool(re.search(r'catch \(UpstreamDomainException.*?UpstreamContractMismatchException terminal\)'
+                       r'\s*\{[^}]*circuitBreaker\.recordSuccess\(\);', exchange, re.S))
+        and bool(re.search(r'catch \(RuntimeException terminal\)\s*\{'
+                           r'\s*circuitBreaker\.recordIgnored\(\);', exchange)),
+        'A22 ㋽: 비재시도 응답의 탐침 종료 또는 실행 취소·실패의 탐침 반환 경계 누락')
 
 if errors:
     print('\n'.join(errors), file=sys.stderr)
