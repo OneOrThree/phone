@@ -189,6 +189,19 @@ class WriteComposeEnvTest(unittest.TestCase):
         self.assertIn("SVC_TOKEN_DATA_TO_LINK='dl'", final)
         self.assertIn("SPRING_PROFILES_ACTIVE='prod,satellites'", final)
 
+    def test_prod_Business의_프록시_시크릿_누락은_출력_전에_차단한다(self) -> None:
+        baseline = {key: "synthetic-value" for key in MODULE.SERVICE_REQUIRED_KEYS["business-api"]}
+        baseline.pop("LINK_PROXY_SECRET", None)
+        for missing in ({}, {"LINK_PROXY_SECRET": None}, {"LINK_PROXY_SECRET": ""},
+                        {"LINK_PROXY_SECRET": "  "}):
+            with self.subTest(missing=missing):
+                with self.assertRaisesRegex(ValueError, "LINK_PROXY_SECRET"):
+                    MODULE.render({**baseline, **missing}, "example/biz:1", "business-api", "final", "prod")
+        rendered = MODULE.render({**baseline, "LINK_PROXY_SECRET": "synthetic-proxy"},
+                                 "example/biz:1", "business-api", "final", "prod")
+        self.assertIn("LINK_PROXY_SECRET='synthetic-proxy'", rendered)
+        self.assertNotIn("LINK_PROXY_SECRET=", MODULE.render(baseline, "example/biz:1", "business-api"))
+
     def test_신규_서비스의_필수값_누락_null_공백은_실패한다(self) -> None:
         baseline = {
             "JWT_SECRET": "jwt", "SVC_TOKEN_BIZ_TO_DATA": "bd",

@@ -31,10 +31,14 @@ import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
 import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
 import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import com.oneorthree.phone.user.dto.DeviceTokenDeletionRequest;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
+import com.oneorthree.phone.user.service.UserSatelliteCommandService;
 import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -61,6 +65,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @SpringBootTest
 class SatelliteCoreContractIntegrationTest {
+
+    /** 소유권 값은 알림 서버가 UUID 로 발급해 앱이 그대로 되싣는 CAS 다 — 정규 표기만 통과한다. */
+    private static final String OWNER = "dddddddd-0000-0000-0000-000000000001";
+    private static final String OWNER_LEGACY = "dddddddd-0000-0000-0000-000000000002";
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -99,6 +107,8 @@ class SatelliteCoreContractIntegrationTest {
     EventOutboxRepository eventOutboxRepository;
     @Autowired
     EventOutboxDeliveryRepository eventOutboxDeliveryRepository;
+    @Autowired
+    UserSatelliteCommandService userSatelliteCommandService;
     @Autowired
     PlatformTransactionManager transactionManager;
 
@@ -171,13 +181,49 @@ class SatelliteCoreContractIntegrationTest {
             userRepository.save(user);
         });
 
-        authService.logout(new LogoutRequest(login.refreshToken(), "fcm-logout", "own-1", null));
+        authService.logout(new LogoutRequest(login.refreshToken(), "fcm-logout", OWNER, null));
         // 첫 응답 유실 뒤 같은 RT 재시도가 삭제 명령을 추가하거나 401 로 갇히지 않는다.
-        authService.logout(new LogoutRequest(login.refreshToken(), "fcm-logout", "own-1", null));
+        authService.logout(new LogoutRequest(login.refreshToken(), "fcm-logout", OWNER, null));
 
         assertThat(userRepository.findById(userId).orElseThrow().getDeviceToken()).isNull();
         assertThat(envelopes(userId, "notification.deviceToken.deleted")).hasSize(1);
         assertThat(envelopes(userId, "auth.session.revoked")).hasSize(1);
+    }
+
+    /**
+     * 형식이 깨진 소유권 값은 <b>내구 기록에 닿기 전에</b> 막힌다 (R10).
+     *
+     * <p>봉투에 실리면 알림 서버가 그 봉투를 소비하지 못하고, relay 는 고갈 처리가 없어(A18)
+     * 순서 축이 같은 그 유저의 뒤 이벤트가 전부 막힌다. 그렇다고 {@code null} 로 접어 통과시키면
+     * CAS 검사가 사라져 그 사이 재등록된 지금 기기까지 지운다(㊚) — 그래서 거절이다.
+     */
+    @Test
+    @DisplayName("형식이 깨진 소유권 값은 outbox 에 적기 전에 거절한다 — 실리면 그 유저의 순서 축이 막힌다")
+    void malformedOwnershipTokenNeverReachesTheDurableOutbox() {
+        GuestLoginResponse login = authService.guestLogin();
+        UUID userId = jwtProvider.extractUserId(login.accessToken());
+
+        assertThatThrownBy(() -> userSatelliteCommandService.recordDeviceTokenDeletion(
+                userId, new DeviceTokenDeletionRequest("fcm-logout", "not-a-uuid", null), "bad-owner"))
+                .isInstanceOf(UserException.class)
+                .extracting(e -> ((UserException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.DEVICE_OWNERSHIP_INVALID);
+        // UUID.fromString 은 축약형도 받는다 — 정규 표기로 다시 쓰면 달라지므로 CAS 대조가 어긋난다.
+        assertThatThrownBy(() -> userSatelliteCommandService.recordDeviceTokenDeletion(
+                userId, new DeviceTokenDeletionRequest("fcm-logout", "1-1-1-1-1", null), "short-owner"))
+                .isInstanceOf(UserException.class);
+        assertThat(envelopes(userId, "notification.deviceToken.deleted")).isEmpty();
+
+        // 로그아웃 본문도 같은 관문을 지난다 — 여기가 세션 폐기와 삭제 기록을 한 커밋에 담는 자리다.
+        assertThatThrownBy(() -> new LogoutRequest(login.refreshToken(), "fcm-logout", "not-a-uuid", null))
+                .isInstanceOf(IllegalArgumentException.class);
+        // 값을 싣지 않는 구 앱 형태는 종전대로 통과한다 — 「없음」과 「깨짐」은 다르다.
+        assertThat(new LogoutRequest(login.refreshToken(), "fcm-logout", null, null).ownershipToken()).isNull();
+
+        // 고친 값은 같은 유저·같은 키로 그대로 통과한다(깨진 본문이 멱등 지문으로 굳지 않았다).
+        userSatelliteCommandService.recordDeviceTokenDeletion(
+                userId, new DeviceTokenDeletionRequest("fcm-logout", OWNER, null), "bad-owner");
+        assertThat(envelopes(userId, "notification.deviceToken.deleted")).hasSize(1);
     }
 
     @Test
@@ -186,7 +232,7 @@ class SatelliteCoreContractIntegrationTest {
         GuestLoginResponse login = authService.guestLogin();
         UUID userId = jwtProvider.extractUserId(login.accessToken());
         authSessionRepository.deleteById(login.sessionId());
-        LogoutRequest request = new LogoutRequest(login.refreshToken(), "old-fcm", "old-owner", "legacy-key");
+        LogoutRequest request = new LogoutRequest(login.refreshToken(), "old-fcm", OWNER_LEGACY, "legacy-key");
         authService.logout(request);
         authService.logout(request);
         assertThat(envelopes(userId, "auth.session.revoked")).hasSize(1);

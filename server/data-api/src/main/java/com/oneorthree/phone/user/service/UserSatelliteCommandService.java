@@ -1,5 +1,6 @@
 package com.oneorthree.phone.user.service;
 
+import com.oneorthree.phone.common.support.DeviceOwnershipTokens;
 import com.oneorthree.phone.common.support.InternalCommands;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
@@ -99,15 +100,28 @@ public class UserSatelliteCommandService {
      * <p><b>탈퇴 유저도 통과시킨다.</b> 자기 토큰을 지우는 일이라 활성 검사를 걸지 않는다 — 막으면
      * 탈퇴 직후의 로그아웃이 실패하고 이전 계정 푸시가 그 기기로 계속 간다.
      *
+     * <p><b>소유권 값의 형식은 append 보다 «먼저» 본다</b> (㊚ · A18). 이 값은 봉투에 실려 영구
+     * 보관되는데, 정규 UUID 표기가 아니면 알림 서버가 그 봉투를 소비하지 못한다 — relay 는 고갈
+     * 처리가 없어 그 행을 영원히 재시도하고, 순서 축이 같은 <b>그 유저의 뒤 이벤트가 전부</b>
+     * 막힌다(세션 폐기·탈퇴 tombstone 포함). 깨진 값을 {@code null} 로 접어 통과시키지도 않는다:
+     * {@code null} 은 「CAS 검사 없음」이라는 다른 뜻이고, 그 뜻으로 접으면 그 사이 재등록된 지금
+     * 기기까지 지운다. 이 검사는 {@code runIdempotent} 바깥이다 — 안에서 던지면 깨진 본문이
+     * 멱등 원장의 지문으로 굳어, 값을 고친 재시도가 같은 키로 영구 충돌한다.
+     *
      * @param userId         대상 유저
      * @param request        대상 토큰·소유권 값·AT 세대. 셋 다 없을 수 있다
      * @param idempotencyKey {@code Idempotency-Key}. 없으면 이번 호출용 키를 만든다(㉼)
      * @return 완성된 봉투 — {@code eventId} 가 곧 완료 표시에 쓸 {@code commandId} 다
+     * @throws UserException 소유권 값이 실렸는데 정규 UUID 표기가 아니면
+     *     {@code DEVICE_OWNERSHIP_INVALID}(400)
      */
     @Transactional
     public EventEnvelope recordDeviceTokenDeletion(
             UUID userId, DeviceTokenDeletionRequest request, String idempotencyKey) {
 
+        if (!DeviceOwnershipTokens.isCanonicalOrAbsent(request.ownershipToken())) {
+            throw new UserException(UserErrorCode.DEVICE_OWNERSHIP_INVALID);
+        }
         return outboxCommandPort.runIdempotent(
                 InternalCommands.idempotency(idempotencyKey, userId, "device-token-deletion",
                         request.deviceToken(), request.ownershipToken(), request.authGeneration()),
