@@ -46,6 +46,8 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |400|INVALID_CURSOR|false|서명/형식/사용자·자원·필터 불일치. field=`cursor`, 현재 필터로 처음부터 조회|
 |400|UNSUPPORTED_PROVIDER|false|field=`provider`, 지원 집합 밖 또는 해당 provider 어댑터 미구성. 기존 AuthErrorCode의400을 보존; 지원 provider의 credential 조합 유효성422와 구분|
 |401|UNAUTHORIZED|false|없거나 위조·만료된 사용자 자격. 재인증 후 별도 시도. 내부 서비스토큰 거부를 이 코드로 오인시키지 않음|
+|401|REFRESH_TOKEN|false|field=null, refresh 및 RT-only logout의 기존 RT 타입·서명·만료·해시 검증 오류 보존|
+|401|KAKAO_TOKEN / APPLE_TOKEN / GOOGLE_TOKEN / LINE_TOKEN / INSTAGRAM_TOKEN / FACEBOOK_TOKEN|false|field=`provider`, 신규 로그인의 제공자 자격 검증 실패. 우리 AT 인증 오류 및 내부 서비스 인증401과 구분|
 |403|FORBIDDEN|false|주체에게 행위 권한 없음. field=null|
 |403|FACILITY_LOCKED|false|필요한 시설 미해금. field=null, 도메인 선행 조건 확인|
 |404|NOT_FOUND|false|기존 preview 및 그룹 내부 자원 호환 의미만 보존. 신규 대상 부재에 일괄 재사용하지 않음|
@@ -76,6 +78,8 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 후속 섬1759·집중1764는 신규 경로를 활성화하기 전에 기존 `GroupQueryService`의 `404 GROUP_NOT_FOUND`와 `FocusQueryService`의 `404 SESSION_NOT_FOUND`를 각각 같은 코드/404로 보존하거나 명시적인 공개404 매핑을 등록하고 계약 테스트로 고정해야 한다. 정상 대상 부재를 미등록502로 바꾸는 상태로 출시하지 않는다. 이 두 도메인 경로는 아직 구현 전이므로 이번 공통 enum에 모든 도메인 상수를 미리 추가하지 않으며, 매핑 구현·회귀는 해당 티켓의 진입/완료 조건으로 추적한다.
 
 신규 로그인1757의 게스트 승격은 기존 `AuthErrorCode.SOCIAL_ACCOUNT_ALREADY_LINKED`와 `GUEST_ALREADY_PROMOTED`의 **409와 코드 이름을 그대로 보존**한다. 두 코드는 기준 main AuthErrorCode:20/25와 AuthService:252/296의 실제 충돌이며 신규 경로에서 미등록502로 바꾸지 않는다. 계정 PR740의 field/retryable 의미와 함께 로그인 활성화 전 공개 registry/handler 매핑·실제 HTTP 회귀를 완료한다. 이는 후속 로그인 구현의 진입 조건이며 이번 공통 구현에 아직 사용하지 않는 enum을 즉시 추가하라는 요구가 아니다. 이미 구현된 설정 경로의 오류 집합과도 구분한다.
+
+계정 PR740의 제공자6종 `*_TOKEN`401과 refresh/RT-only logout의 `REFRESH_TOKEN`401도 신규 해당 경로를 활성화하기 전에 같은 code/status로 등록한다. 로그인 제공자 실패를 UNAUTHORIZED로 합치거나 미등록502로 바꾸지 않으며, 내부 서비스 토큰401은 기존 UPSTREAM_AUTH_FAILED502로 유지한다. 실제 provider/RT 실패 fixture와 위조 서비스 토큰을 따로 검증한다.
 
 도메인 사유를 추가할 때는 이 표의 의미와 충돌하지 않게 구체 코드를 추가한다. 예를 들어 `FOCUS_IN_PROGRESS`는 기존 chat409/false 코드이고 새로운 우체통에도 같은 사유가 채택되면 그 명칭을 유지할 수 있다. 세션 종료 재시도는 이미 확정된 receipt가 있으면 오류 표로 가지 않고 성공을 재생한다.
 
