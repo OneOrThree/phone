@@ -71,6 +71,8 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |503|SERVICE_UNAVAILABLE|true|Redis/DB 연결·서비스 과부하·회로 열림. Retry-After는 알려진 대기시간일 때만|
 |504|UPSTREAM_TIMEOUT|true|필수 호출/화면 전체 deadline 초과. 쓰기의 커밋 여부는 미확정이므로 같은 키로 복구|
 
+후속 섬1759·집중1764는 신규 경로를 활성화하기 전에 기존 `GroupQueryService`의 `404 GROUP_NOT_FOUND`와 `FocusQueryService`의 `404 SESSION_NOT_FOUND`를 각각 같은 코드/404로 보존하거나 명시적인 공개404 매핑을 등록하고 계약 테스트로 고정해야 한다. 정상 대상 부재를 미등록502로 바꾸는 상태로 출시하지 않는다. 이 두 도메인 경로는 아직 구현 전이므로 이번 공통 enum에 모든 도메인 상수를 미리 추가하지 않으며, 매핑 구현·회귀는 해당 티켓의 진입/완료 조건으로 추적한다.
+
 도메인 사유를 추가할 때는 이 표의 의미와 충돌하지 않게 구체 코드를 추가한다. 예를 들어 `FOCUS_IN_PROGRESS`는 기존 chat409/false 코드이고 새로운 우체통에도 같은 사유가 채택되면 그 명칭을 유지할 수 있다. 세션 종료 재시도는 이미 확정된 receipt가 있으면 오류 표로 가지 않고 성공을 재생한다.
 
 `INVITATION_EXPIRED`는 원본의 초대 만료 HTTP410을 유지하기 위해 신규 공개 오류로 등록한다. 기준 main의 `InviteLinkErrorCode`에는 대응하는 만료 상수가 없으므로 기존 `SLUG_NOT_FOUND`404를 바꾸지 않고 위 공개 표에 같은 이름·상태와 field=`code`로 등록한다. 부재404와 만료410을502로 바꾸거나 서로 합치지 않는다. 신규 내부 제공자가 이 사유를 확정해 반환할 때 Business의 등록된410/INVITATION_EXPIRED 조합으로 전달한다. 초대 TTL·재발급·승인 생략 등 미결 제품 정책을 이 오류 이름으로 결정하지 않는다.
@@ -92,6 +94,9 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 | 변경 요청 키 UUID 제안 | LLD 적용표 대상 필수, auth·메시지·조회형 POST 예외 명시 | 모든 POST 자동 필수화 금지 |
 | 명시하지 않은 자원에 무조건 version 제출하지 않음 | 원본 expectedVersion 8개+구매 expectedWalletVersion 1개를 원본 표로 유지 | 아래 상점 한정 기술 개정1개를 별도로 구분, 총10개 제출 축 |
 | 구매 body의 productId+expectedWalletVersion | expectedProductVersion 추가 필수, 상품 정의 변경 시409 VERSION_CONFLICT | 2026-09-12 D18·상점 설계1780/PR742에서 이미 채택한 가격 동의 보호 계약의 공통 문서 반영 |
+| POST `/auth/sessions`에 시도 ID 전달 위치 없음 | 필수 `X-Login-Attempt-Id` UUID 헤더, 같은 로그인 재시도에 같은 값·자격·본문 유지 | [계정 PR740](https://github.com/OneOrThree/phone/pull/740) LLD §2.1의 기존 확장 동기화. loginAttemptId 본문 필드는 추가하지 않음 |
+| POST `/islands` 이름 누락422 | 400 INVALID_REQUEST, field=name | 원본 api-create의 필수 입력 누락 상태를 공통 형식 검증으로 명시 override. 존재하는 이름의 길이/허용값 오류422와 구분 |
+| GET `/islands/discover` 잘못된 cursor422 | 400 INVALID_CURSOR, field=cursor | 원본 api-island-discover의 커서 형식/서명 오류를 공통 커서 규칙으로 명시 override. 만료409 CURSOR_EXPIRED와 구분 |
 | 본문 없는 DELETE `/auth/sessions/current` | 필수 `X-Refresh-Token`, 선택 AT, 동일 RT 해시로 철회·완료 복구 | [계정 설계 PR740](https://github.com/OneOrThree/phone/pull/740)의 전용 인증 계약. 원본에 없던 헤더 위치를 명시한 기술 보완이며 body는 추가하지 않음 |
 | 초대 해석의410 만료 | 410 INVITATION_EXPIRED, field=code, retryable=false | 원본 상태 유지. 만료를502 상류 계약 오류로 바꾸지 않음 |
 | 날짜/IANA timezone 표현 | 시각UTC, 집계KST. 아래 5개 입력은 누락 시 Asia/Seoul, 그 외 값은400 INVALID_PARAMETER | 퀘스트 생성의 원본 시간대 오류422도400으로 명시 변경. 원본 입력 예시는 HTML에 보존 |

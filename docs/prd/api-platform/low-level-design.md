@@ -54,6 +54,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 | 경계 | 허용하는 헤더/값 |
 | --- | --- |
 | 앱→Business | Bearer AT(인증 공개 경로 예외), application/json, 적용표의 Idempotency-Key |
+| 앱→Business 로그인 전용 | `POST /auth/sessions`에 필수 `X-Login-Attempt-Id` UUID36자 헤더. 같은 시도 재개에 같은 ID·자격·본문을 보존하며 계정 PR740 LLD §2.1/§3을 따름 |
 | 앱→Business 로그아웃 전용 | `DELETE /auth/sessions/current`만 필수 `X-Refresh-Token: <RT>`, 본문 없음. AT는 선택이며 제시하면 유효하고 RT와 사용자·세션이 일치해야 함. 이 자격 헤더는 로그/범용 내부 헤더 복사 대상 아님 |
 | Business 인바운드 | X-User-Id를 getHeader/getHeaders/getHeaderNames 모두에서 제거. 중복·대소문자 헤더 변형도 동일 처리 |
 | Business 내부 context | 검증한 userId, 한 번 확정한 currentIslandId/contextVersion, 서버 requestId, deadline |
@@ -69,7 +70,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 
 | method | 신규 경로 | 공통 키 | 작업 범위·도메인 추가 조건 |
 | --- | --- | --- | --- |
-|POST|`/auth/sessions`|범용 대상 제외|AT 없는 로그인과 검증된 선택적 게스트 AT 승격을 구분. 후자는 검증 subject를 내부 계약에 전달해 기존 계정 승계. A7·㊒·1756의 로그인/CAS 전용 계약; authorizationCode는 generic receipt 저장 금지|
+|POST|`/auth/sessions`|범용 대상 제외|AT 없는 로그인과 검증된 선택적 게스트 AT 승격을 구분. 후자는 검증 subject를 내부 계약에 전달해 기존 계정 승계. A7·㊒·1756의 로그인/CAS 전용 계약. 필수 X-Login-Attempt-Id 헤더에 앱 소유 UUID36자를 한 번 생성하고 같은 시도 재개에 보존; authorizationCode는 generic receipt 저장 금지|
 |PATCH|`/me`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |DELETE|`/auth/sessions/current`|범용 대상 제외|본문 없이 필수 X-Refresh-Token으로 사용자+세션·RT 해시를 식별하여 철회/완료 재생. AT 선택·제공 시 동일 세션 검증. [계정 PR740](https://github.com/OneOrThree/phone/pull/740)·아래 전용 규칙 참조. 세션 epoch/bootstrap만 폐기하며 authGeneration·기기 ownershipVersion을 올리지 않음(㊼)|
 |DELETE|`/me`|필수·PII 파기|검증된 동일 사용자+탈퇴 의도. 기존 탈퇴 원자 명령·PII 파기 보존. 비활성 계정 재생 금지; 탈퇴 후404 USER_NOT_FOUND, 위조·만료 자격401|
@@ -111,6 +112,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 - 신규 `POST /link-previews`는 조회성 비동기 미리보기 작업이며 공통 명령키 필수가 아니다. 기존 사용자+URL cache/claim을 재사용한다. 같은 URL 재조회와 재화 mutation의 영속 명령을 같은 receipt 정책으로 묶지 않는다.
 - GET30개와 BFF GET13개는 공통 키 대상이 아니다. GET에 키가 있어도 쓰기처럼 예약하지 않는다.
 - 로그인과 로그아웃의 범용 키 제외는 전용 멱등 계약을 없애지 않는다. [아키텍처 결정 장부](../../architecture/decisions.md)의 **A7·㊑·㊒·㊔·㊙·㊡·㉮·㊼**를 기준으로 1756이 실제 구현과 대조한다. 로그인은 Data의 시도 키 기반 upsert/CAS nonce → Business의 고정 jti/발급시각 기반 서명 → Data의 CAS 확정이며, 성공은 같은 서명 재료로 복구하고 CAS 충돌은 시도 재개 규약을 따른다. refresh 회전 CAS 0행은 ㉮에 따라 세션 종료이며 로그인 성공 재생과 혼동하지 않는다.
+- 로그인 시도 ID의 전달 정본은 [계정 PR740](https://github.com/OneOrThree/phone/pull/740)의 `X-Login-Attempt-Id` 헤더다. 앱은 로그인 시도 시작에 UUID36자를 한 번 생성하고 응답 유실/경쟁 재개에서 같은 ID·자격·의미 본문을 유지한다. Business가 요청마다 새 ID를 만들거나 loginAttemptId 본문 필드를 추가하지 않는다. 복구 창·다른 자격의 같은 ID 거절·CAS 재준비는 계정 LLD의 기존 상태 전이를 그대로 따른다.
 - AT 없는 로그인은 검증한 provider identity로 시작한다. **유효한 선택적 게스트 AT가 있으면 검증한 subject를 Data 로그인 계약에 전달**하고 기존 UUID·집중 기록·지갑·그룹을 보존하며 소셜 계정으로 승격한다. 제시한 AT가 위조·만료·잘못된 타입이면401이고 익명 신규 가입으로 강등하지 않는다. 외부 X-User-Id나 본문 userId로 guest subject를 대체하지 않는다. 로그인 자격·토큰은 범용 receipt 저장 대상이 아니다.
 - 현재 세션 철회는 [계정 설계 PR740](https://github.com/OneOrThree/phone/pull/740)의 LLD §2.4를 따른다. `DELETE /auth/sessions/current`는 **본문 없이 필수 `X-Refresh-Token: <우리 RT>`**를 받는다. RT의 서명·타입·만료를 검증하고 sid(legacy는 정확한 RT 해시)로 사용자·세션을 식별한다. AT는 생략할 수 있으나 제시하면 서명·타입·만료 및 RT와 사용자/세션 일치를 모두 검증한다. 만료 AT를 같이 보내면401이므로 앱은 RT만으로 정상 폐기할 수 있다. 인증 예외는 정확한 method/path 한 곳만이며 `/auth/**` 전체를 열지 않는다.
 - 최초 로그아웃은 활성 사용자와 대상 세션을 잠근 Data TX에서 **현재 저장 RT 해시 일치**를 확인한 뒤 RT/sessionEpoch·bootstrap을 폐기한다. 회전 전 옛 RT나 다른 세션 AT로 현재 세션을 폐기할 수 없다. 완료 복구에는 폐기한 RT의 증명 해시와 원 만료시각을 남기며, 같은 유효·미만료 RT 해시와 활성 본인을 확인한 재시도만200 `{"data":{"revoked":true}}`를 재생한다. 재생은 epoch를 다시 올리거나 bootstrap을 부활시키지 않는다. 위조·만료 자격은401, 본인 계정 부재/탈퇴는404 USER_NOT_FOUND이며 범용 receipt/AT만으로 이 특례를 열지 않는다. sid 없는 legacy 자격은 정확한 legacy RT 해시와 사용자로 결합할 수 있을 때만 허용하고 현재 세션으로 추정 보완하지 않는다.
@@ -264,6 +266,7 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | Postgres 두 동시 동일key·본문불일치·커밋후응답유실·rollback | 이중 차감/보상, 잘못된 결과 재생 |
 | 동일key 성공후 stale expectedVersion·다른key 종료/구매 | 원 성공409오인 또는 도메인유일성 누락 |
 | 지갑 불변 중 상품 가격/통화/ownerType 개정·expectedProductVersion 충돌 | 사용자 동의 없는 조건으로 차감 |
+| 섬1759·집중1764 신규 경로의 기존 GROUP_NOT_FOUND/SESSION_NOT_FOUND | 활성화 전404 코드 보존/명시 매핑과 실제 route 회귀 필수, 정상 부재의 미등록502 금지 |
 | 초대 부재404 SLUG_NOT_FOUND·만료410 INVITATION_EXPIRED·field=code·retryable=false | 입력 수정과 만료를502로 오인 |
 | 미지원 provider400 UNSUPPORTED_PROVIDER·field=provider·legacy 상태 보존 | 지원하지 않는 입력을 상류 장애502로 오인 |
 | 로그아웃 RT 전용 헤더·AT 없음/다른 세션/만료·회전 전 RT·동일 폐기 해시 재시도 | 타 세션 폐기, 응답 유실 후 복구 불가, 기기 소유권 삭제와 혼합 |
