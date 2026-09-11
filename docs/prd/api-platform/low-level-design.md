@@ -295,6 +295,7 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | 섬 가입1760 기존 ALREADY_MEMBER/GROUP_LIMIT_EXCEEDED/ROOM_FULL409 | 같은 코드/상태 공개등록 및 실제HTTP회귀, 정상 가입 충돌의502변환 금지 |
 | 섬1759·집중1764 신규 경로의 기존 GROUP_NOT_FOUND/SESSION_NOT_FOUND | 활성화 전404 코드 보존/명시 매핑과 실제 route 회귀 필수, 정상 부재의 미등록502 금지 |
 | 섬1759/1762·공지1771의 기존 MEMBER_ONLY/NOT_OWNER/NOTICE_FORBIDDEN | 해당 신규 route의 실제403을 FORBIDDEN403으로 명시 매핑·HTTP 회귀. legacy/compat 원코드 보존, 미등록502로 출시 금지 |
+| 위임/강퇴 대상 사용자 삭제·멤버 이탈·요청자 본인 부재 | TARGET_USER_NOT_FOUND/대상 NOT_FOUND는 공개 NOT_FOUND404와 해당 대상 필드, 요청자 USER_NOT_FOUND404는 별도 유지. HTTP 회귀 전 활성화 금지 |
 | 집중1764 legacy 종료와 신규 finish | legacy 두409 보존, 새 완료 세션의 같은키/새키 원 정산200 복구·추가정산0. legacy 완료행 새 finish 연결 금지 |
 | 초대 부재404 SLUG_NOT_FOUND·만료410 INVITATION_EXPIRED·field=code·retryable=false | 입력 수정과 만료를502로 오인 |
 | 미지원 provider400 UNSUPPORTED_PROVIDER·field=provider·legacy 상태 보존 | 지원하지 않는 입력을 상류 장애502로 오인 |

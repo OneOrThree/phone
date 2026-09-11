@@ -50,7 +50,7 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |401|KAKAO_TOKEN / APPLE_TOKEN / GOOGLE_TOKEN / LINE_TOKEN / INSTAGRAM_TOKEN / FACEBOOK_TOKEN|false|field=`provider`, 신규 로그인의 제공자 자격 검증 실패. 우리 AT 인증 오류 및 내부 서비스 인증401과 구분|
 |403|FORBIDDEN|false|주체에게 행위 권한 없음. field=null|
 |403|FACILITY_LOCKED|false|필요한 시설 미해금. field=null, 도메인 선행 조건 확인|
-|404|NOT_FOUND|false|기존 preview 및 그룹 내부 자원 호환 의미만 보존. 신규 대상 부재에 일괄 재사용하지 않음|
+|404|NOT_FOUND|false|기존 preview 및 그룹 내부 자원 호환 의미 보존. 아래 명시한 위임·강퇴의 대상 사용자/멤버 부재에도 사용. 그 밖의 신규 대상 부재에 일괄 재사용하지 않음|
 |404|USER_NOT_FOUND|false|field=null, 본인 계정 부재/탈퇴. 기존 사용자 코드 보존, 로그인 상태 정리·재인증|
 |404|RESOURCE_NOT_FOUND|false|field=null, 존재하지 않는 HTTP 경로. 사용자나 섬 부재로 해석하지 않음|
 |404|PRODUCT_NOT_FOUND|false|field=null, 미등록/접근 불가 상품. 상점·외양의 구체 대상 부재|
@@ -79,6 +79,8 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 후속 섬1759·집중1764는 신규 경로를 활성화하기 전에 기존 `GroupQueryService`의 `404 GROUP_NOT_FOUND`와 `FocusQueryService`의 `404 SESSION_NOT_FOUND`를 각각 같은 코드/404로 보존하거나 명시적인 공개404 매핑을 등록하고 계약 테스트로 고정해야 한다. 정상 대상 부재를 미등록502로 바꾸는 상태로 출시하지 않는다. 이 두 도메인 경로는 아직 구현 전이므로 이번 공통 enum에 모든 도메인 상수를 미리 추가하지 않으며, 매핑 구현·회귀는 해당 티켓의 진입/완료 조건으로 추적한다.
 
 신규 섬 조회·관리·공지 어댑터가 기존 Data 경로를 연결할 때 `(403, MEMBER_ONLY)`, `(403, NOT_OWNER)`, `(403, NOTICE_FORBIDDEN)`은 공개 `403 FORBIDDEN`(`retryable=false`, `field=null`)으로 명시 매핑한다. 기준 main `529a396e5f0f88cb78c172110920e1fa6b9388a9`의 `GroupQueryService.getMembership`·`GroupMemberService.transferOwner/kickMember`·`GroupAnnouncementService.createAnnouncement`가 이 사유를 실제 반환하며 `GroupErrorCode`가 모두403을 고정한다. 1759/1762/1771의 해당 경로 활성화 전에 실제 HTTP 회귀에서 비소속·비방장·공지 권한 거절을 각각 검증한다. 잘못된 status/code 조합은 계속502이며, 내부 caller 거부를 사용자 권한 거부로 접지 않는다. legacy `/api/v1`과1659 compat는 기존 세 코드/403을 그대로 보존한다. 이 도메인 등록 의무는 아직 사용하지 않는 모든 상수를 공통 enum에 선제 추가하라는 뜻이 아니다.
+
+위임·강퇴가 지목한 대상 사용자 부재는 요청자 계정 부재와 구분한다. 기준 main `UserQueryService.getTargetForShare`는 없거나 탈퇴한 대상에 `404 TARGET_USER_NOT_FOUND`를 반환한다. 신규 `host-transfer`와 멤버 강퇴는 이 조합 및 같은 그룹의 대상 멤버 부재 `404 NOT_FOUND`를 공개 `404 NOT_FOUND`로 명시 매핑한다. field는 위임의 `targetUserId`, 강퇴의 경로 `userId`이며 retryable=false다. 요청자 본인 부재는 계속 `404 USER_NOT_FOUND`이고, 대상 탈퇴 때문에 멀쩡한 요청자를 로그아웃시키거나502로 바꾸지 않는다. legacy/compat의 `TARGET_USER_NOT_FOUND` 원 코드도 유지한다. [PR752의 위임 어댑터](https://github.com/OneOrThree/phone/blob/9288277f9d1db3049a81aa44cabed7d66279c333/server/business-api/src/main/java/com/oneorthree/business/usecase/IslandHostTransferUseCase.java#L69)는 이 매핑을 이미 구현했지만 공개 기능은 별도 활성화 조건 때문에 기본 비활성이다. 강퇴 구현도 대상 계정 삭제·대상 멤버 이탈·요청자 부재를 구분하는 HTTP 회귀를 통과하기 전 활성화하지 않는다.
 
 집중 종료의 기존 `409 SESSION_ALREADY_ENDED`·`409 SESSION_DISCARDED`는 legacy 경로에서 보존한다. 신규 finish는 [집중 도메인의 완료 결과 복구 계약](https://github.com/OneOrThree/phone/blob/509fe0a68dfdb6e895121efd35d032049bea8827/docs/prd/focus-rest-session/low-level-design.md#L67)에 따라 별도 구현한다. 이미 완료된 새 세션은 현재 결과 열람 권한을 확인한 뒤 원 정산 결과200을 재생하고, legacy 완료행을 새 finish 대상으로 연결하지 않는다. 기존 종료 함수를 그대로 연결한 뒤 두 정상 충돌을 미등록502로 바꾸거나 새 정산을 추정해서 지급하지 않는다. legacy와 신규의 실제 HTTP 회귀를 각각 검증하기 전 신규 finish를 활성화하지 않는다.
 
