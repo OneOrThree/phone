@@ -887,6 +887,39 @@
         }
       }
     },
+    "/internal/invite-links/claim-intents/{commandId}/abandoned": {
+      "post": {
+        "tags": [
+          "internal-invite-link-controller"
+        ],
+        "operationId": "abandonClaimIntent",
+        "parameters": [
+          {
+            "name": "commandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/internal/invite-links/claim-confirmations": {
       "post": {
         "tags": [
