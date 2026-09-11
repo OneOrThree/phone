@@ -1,0 +1,61 @@
+[
+  {
+    "id": "rank",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/rankings/members",
+    "method": "GET",
+    "path": "/islands/{islandId}/rankings/members",
+    "request_example": {
+      "week": "2026-W37",
+      "cursor": null
+    },
+    "response_example": {
+      "data": {
+        "eligibility": "eligible",
+        "items": [
+          {
+            "rank": 1,
+            "userId": "minji",
+            "name": "민지",
+            "catColor": "ginger",
+            "focusSeconds": 1320
+          }
+        ],
+        "myRank": 4,
+        "nextCursor": null
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1777",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "rank-islands",
+    "source_method": "GET",
+    "source_path": "/v1/rankings/islands",
+    "method": "GET",
+    "path": "/rankings/islands",
+    "request_example": {
+      "week": "2026-W37",
+      "cursor": null
+    },
+    "response_example": {
+      "data": {
+        "items": [
+          {
+            "rank": 1,
+            "islandId": "soda",
+            "name": "소다 섬",
+            "averageFocusSeconds": 18000
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1777",
+    "code": [],
+    "tests": []
+  }
+]
