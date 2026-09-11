@@ -32,7 +32,7 @@ refresh는 위 7종의 새 기능 개수로 더하지 않는다. 장부상 기�
 | FR04 | 회전 없음과 정상 sid RT 회전 CAS0행을 구분. CAS0행은401 REFRESH_TOKEN, 구 RT 부활 금지. 최초 legacy 승격 응답 유실은 원 RT 증명의 전용 인증 receipt로 동일 sid AT/RT를 제한 재생. 서버 복구·Q06 검증 뒤 유효한 sidless AT도 신규 /me 진입 전 refresh하고 AT/RT 묶음 원자 교체 | 장부㉮/ⓠ |
 | FR05 | RT는 사용자+세션 축; 개별 로그아웃은 세션/bootstrap 폐기만. 토큰/ownership 기기 DELETE와 분리하여 다른 기기를 끝내지 않음. 새 앱 삭제는 고정 멱등 키를 직접 전달·outbox relay 끝까지 유지하고 완료 재생을 과거 ownership 거절보다 먼저 판정 | 장부㋣/㋪ 및1659 통합 의존 |
 | FR06 | user_blocks 양방향·본인 user_streaks를 같은 TX에서 삭제하고 차단/스트릭 writer와 직렬화. nickname/name·catColor 등 신규 프로필과 기존 인증 PII·group_announcements.user_id nullify를 탈퇴 목록에 포함하고 공지 생성과 직렬화. group_challenge_members 측정 원본도 검증된 증거 동결 뒤 같은 TX에서 hard delete하고 보고와 직렬화 | LLD 파기/보존 전수 표 |
-| FR07 | 탈퇴의 환불·증거 보존·익명화·지갑/설정·친구·PII 순서와 단일 TX 유지 | 기존 AccountWithdrawalService |
+| FR07 | 리그 일간/주간 개인 이력 파기·최소 정산 완료 마커 및 랭킹 user.withdrawn 내구 제거(tombstone/version·모든 주차 ZSET/presence)를 포함하고 탈퇴의 환불·증거 보존·익명화·지갑/설정·친구·PII 순서와 단일 TX 유지 | 기존 AccountWithdrawalService |
 | FR08 | 탈퇴 후 신규7개 경로에서 같은 폐기 자격은401, 본인 계정 부재는404 USER_NOT_FOUND | 신규 조회에도 활성 검사, 레거시 읽기창과 구분 |
 | FR09 | notifications만 서버 동기화, 음량/음소거/진동/동작 줄이기는 기기 로컬 | 원본 설정 계약 |
 | FR10 | 기존 soundEnabled/nightMode를 새1필드 PATCH가 덮어쓰지 않음 | 알림 서버 원자 부분변경과 내구 전달 |

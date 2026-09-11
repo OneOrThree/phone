@@ -111,13 +111,14 @@ sequenceDiagram
     A->>B: DELETE /me, confirmation, Idempotency-Key
     B->>D: 검증한 주체로 withdraw 명령
     D->>DB: BEGIN + 활성 users 배타 잠금
-    D->>DB: 멱등/권한 검사 + 세션 폐기·위성 명령 기록
+    D->>DB: 멱등/권한 검사 + 세션 폐기·위성 명령·랭킹 user.withdrawn 기록
     D->>DB: 방장 조건·내기 해제/환불·증거 동결
     Note over D,DB: 필요한 판정 근거가 불명확하면 전체 롤백
     D->>DB: group_challenge_members 사용자 측정 원본 hard delete
     D->>DB: 멤버십·친구 정리, 집중/통계 귀속 익명화
     D->>DB: group_announcements.user_id nullify
     D->>DB: 알림 발송 이력의 수신자·사용자 상대 연계 파기
+    D->>DB: 리그 일간 삭제·주간 개인 결과 파기와 최소 완료 마커 분리
     D->>DB: 양방향 user_blocks·본인 user_streaks 삭제
     D->>DB: 지갑·설정 삭제, 직접 PII·신규 프로필 파기
     D->>DB: soft delete + 결과 receipt + COMMIT
@@ -126,6 +127,7 @@ sequenceDiagram
     R->>DB: 커밋된 outbox 읽기
     R->>S: 사용자 폐기·개인자료 정리 재전달
     S-->>R: 대상별 적용 확인
+    Note over R,S: 랭킹은 tombstone/version + 모든 주차 ZSET·presence 원자 제거
 ```
 
 기존 `freezeEvidenceForAccountErasure`는 달성 결과를 참가 행에 확정하지만 판정 target이 없으면 건너뛴다. 이 skip을 파기 준비 완료로 취급하지 않는다. OPEN 내기의 필요한 판정 근거가 확정되었는지 검증한 다음 원본 `group_challenge_members`를 삭제한다. 해당 `user_id`는 NOT NULL FK라 nullify할 수 없다. 최소 정산 결과는 별도 참가 행에 남으며 측정 이력이나 프로필로 공개하지 않는다. 측정 보고의 users 공유 잠금과 탈퇴의 배타 잠금으로 삭제 후 재생성도 차단한다. 새 검증/삭제는 후속 구현 사항이다.
@@ -167,3 +169,5 @@ sequenceDiagram
 4. 프로필·동기 활성 조회·logout을 연결하고 탈퇴 전수 파기와 경쟁을 검증한다.
 5. 알림 부분 명령·field mask·필드별 version을 양쪽 서비스에 연결한다.
 6. 앱 계약 7종과 legacy 호환을 함께 검증한 뒤 세션 정본을 전환한다. legacy 읽기 제거는 호환 창 종료 후 별도 단계다.
+
+리그 개인 이력 파기와 최소 완료 마커 보존은 중복 정산 방지와 함께 검증한다. 랭킹 user.withdrawn outbox도 중앙 탈퇴와 같은 TX이며, 모든 주차 ZSET/presence와 지연·DLT 재생의 차단은 [LLD의 리그 파기 경계](low-level-design.md#리그-이력랭킹-투영-파기)를 따른다. 현재 main에서 완료됐다고 주장하지 않는다.
