@@ -9,6 +9,7 @@ import com.oneorthree.business.upstream.notification.dto.NotificationSettingsVie
 import com.oneorthree.business.upstream.notification.dto.ResultAckPrepareResult;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
+import tools.jackson.databind.JsonNode;
 
 import java.util.Map;
 import java.util.UUID;
@@ -123,6 +124,29 @@ public class NotificationApiClient {
                         .idempotentCommand()
                         .build(),
                 deadline);
+    }
+
+    /** 기본값을 만들어 반환하지 않고 검증된 Data baseline으로 없는 행만 초기화해 정본을 읽는다. */
+    public JsonNode initializedSettings(UUID userId, Object snapshot, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                PATH_SETTINGS.replace("{userId}", userId.toString()) + "/initialized")
+                        .onBehalfOf(userId)
+                        .body(snapshot)
+                        .idempotentCommand()
+                        .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
+    }
+
+    /** 원 명령의 mask/patch/baseline만 전달하며 성공 applied:true를 본문까지 확인한다. */
+    public JsonNode applySettingsPatch(UUID userId, Object patch, long version, String key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PATCH, PATH_SETTINGS.replace("{userId}", userId.toString()))
+                        .onBehalfOf(userId)
+                        .query("version", Long.toString(version))
+                        .idempotencyKey(key)
+                        .body(patch)
+                        .idempotentCommand()
+                        .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
     }
 
     /**

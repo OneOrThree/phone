@@ -38,7 +38,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -64,6 +63,7 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final UserSatelliteCommandService userSatelliteCommandService;
     private final UserQueryService userQueryService;
     private final UserWalletRepository userWalletRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
@@ -523,14 +523,7 @@ public class UserService {
      */
     @Transactional
     public void updateNotificationSettings(UUID userId, NotificationSettingsRequest request) {
-        UserNotificationSettings settings = userQueryService.getNotificationSettings(userId);
-        settings.setNotificationEnabled(request.getNotificationEnabled());
-        settings.setSoundEnabled(request.getSoundEnabled());
-        settings.setNightModeEnabled(request.getNightModeEnabled());
-        // null 입력 시 기존 값을 null 로 명시적 초기화; non-null 일 때만 parse 호출
-        settings.setNightStartTime(
-                request.getNightStartTime() == null ? null : LocalTime.parse(request.getNightStartTime()));
-        settings.setNightEndTime(
-                request.getNightEndTime() == null ? null : LocalTime.parse(request.getNightEndTime()));
+        // 구 공개 5필드·204는 유지하며 같은 mirror/version/outbox 소유자에 위임한다.
+        userSatelliteCommandService.recordNotificationSettings(userId, request, null);
     }
 }

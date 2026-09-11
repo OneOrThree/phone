@@ -126,7 +126,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 130개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 131개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -146,7 +146,7 @@ class ErrorContractTest {
         // CLAIM_INTENT_LEASE_STALE) — 재개 실행자의 「없는 항목」과 「낡은 리스」를 한 코드로 접으면
         // 정상 경합과 배선 사고가 구분되지 않는다.
         assertThat(tests).as("실측 기준 도메인 상수 114개 + 공통 15개 — 2026-09-11 재측정")
-                .hasSize(130);
+                .hasSize(131);
         return tests;
     }
 

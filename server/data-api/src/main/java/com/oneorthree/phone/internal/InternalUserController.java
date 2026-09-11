@@ -2,6 +2,11 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.internal.dto.DurableCommandAckResponse;
 import com.oneorthree.phone.internal.dto.UserActivationResponse;
+import com.oneorthree.phone.internal.dto.NotificationSettingsPatchRequest;
+import com.oneorthree.phone.internal.dto.NotificationSettingsCommandResponse;
+import com.oneorthree.phone.internal.dto.NotificationSettingsSnapshotRequest;
+import com.oneorthree.phone.internal.dto.NotificationSettingsSnapshotResponse;
+import com.oneorthree.phone.internal.service.InternalNotificationSettingsService;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.user.dto.DeviceTokenDeletionRequest;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
@@ -12,6 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -37,6 +43,7 @@ import java.util.UUID;
 public class InternalUserController {
 
     private final UserSatelliteCommandService userSatelliteCommandService;
+    private final InternalNotificationSettingsService notificationSettingsService;
 
     /**
      * 위성 쓰기 전 활성 검사 (ⓖ).
@@ -87,6 +94,21 @@ public class InternalUserController {
 
         return ResponseEntity.ok(ack(
                 userSatelliteCommandService.recordNotificationSettings(userId, request, idempotencyKey)));
+    }
+
+    /** 공개 부분 명령은 서명된 sid/gen과 기존 영속 receipt를 통해 처리한다. */
+    @PatchMapping("/users/{userId}/notification-settings-commands")
+    public ResponseEntity<NotificationSettingsCommandResponse> patchNotificationSettings(
+            @PathVariable UUID userId, @Valid @RequestBody NotificationSettingsPatchRequest request,
+            @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
+        return ResponseEntity.ok(notificationSettingsService.patch(userId, request, idempotencyKey));
+    }
+
+    /** 초기화 snapshot은 자격을 URL에 남기지 않도록 POST 본문으로 받는 조회다. */
+    @PostMapping("/users/{userId}/notification-settings-snapshot")
+    public ResponseEntity<NotificationSettingsSnapshotResponse> notificationSettingsSnapshot(
+            @PathVariable UUID userId, @Valid @RequestBody NotificationSettingsSnapshotRequest request) {
+        return ResponseEntity.ok(notificationSettingsService.snapshot(userId, request));
     }
 
     /**

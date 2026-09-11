@@ -75,6 +75,15 @@ public class AccessTokenVerifier {
      * @return 유효한 access 토큰이면 클레임, 그 밖에는 전부 empty
      */
     public Optional<AccessTokenClaims> verify(String token) {
+        return verify(token, false);
+    }
+
+    /** 신규 세션 API 전용. legacy의 선택 클레임 허용은 변경하지 않는다. */
+    public Optional<AccessTokenClaims> verifySession(String token) {
+        return verify(token, true);
+    }
+
+    private Optional<AccessTokenClaims> verify(String token, boolean strictSession) {
         if (token == null || token.isBlank()) {
             return Optional.empty();
         }
@@ -102,6 +111,9 @@ public class AccessTokenVerifier {
                 log.debug("AT 검증 실패 — subject 없음");
                 return Optional.empty();
             }
+            if (strictSession && !hasStrictSession(claims)) {
+                return Optional.empty();
+            }
             UUID userId = UUID.fromString(claims.getSubject());
             return Optional.of(
                     new AccessTokenClaims(userId, guestOf(claims), generationOf(claims), sessionOf(claims)));
@@ -111,6 +123,18 @@ public class AccessTokenVerifier {
             log.debug("AT 검증 실패 — {}", e.getClass().getSimpleName());
             return Optional.empty();
         }
+    }
+
+    private boolean hasStrictSession(Claims claims) {
+        Object generation = claims.get(CLAIM_GENERATION);
+        // JSON 소수/문자열을 long으로 강제변환하지 않는다.
+        if (!(generation instanceof Integer || generation instanceof Long)
+                || ((Number) generation).longValue() < 0) {
+            return false;
+        }
+        Object session = claims.get(CLAIM_SESSION);
+        return session instanceof String value && value.length() == 36
+                && UUID.fromString(value).toString().equalsIgnoreCase(value);
     }
 
     /** {@code guest} 클레임이 없는 구 토큰은 false 로 본다 — 게스트 제약을 «더 느슨하게» 열지 않는다. */

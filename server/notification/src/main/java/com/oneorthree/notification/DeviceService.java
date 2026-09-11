@@ -297,6 +297,7 @@ class DeviceService {
                     + " AND status IN ('PENDING','DEFERRED')",
                     user);
             store.update("DELETE FROM projections WHERE user_id=?", user);
+            store.update("DELETE FROM settings WHERE user_id=?", user);
         }
     }
 

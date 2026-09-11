@@ -20,6 +20,8 @@ internal:
           - 'POST /internal/auth/sessions/verify'
           - 'POST /internal/users/*/device-token-deletions'
           - 'PUT /internal/users/*/notification-settings-commands'
+          - 'PATCH /internal/users/*/notification-settings-commands'
+          - 'POST /internal/users/*/notification-settings-snapshot'
           - 'POST /internal/outbox-commands/*/delivered'
           - 'GET /internal/groups/*/invite-issue-context'
           - 'POST /internal/invite-links/claim-intents'
