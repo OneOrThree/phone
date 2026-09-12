@@ -73,7 +73,8 @@ public class CompatMatchUseCase {
 
         if (!compatProperties.isImportContractReady()) {
             // 준비 전: 구 후보를 «세기만» 한다. 이 수치가 4단계 진입 판단의 입력이다.
-            int pending = exportFrozen(ipHash, os, deadline).size();
+            // 관측용이라 조회 실패를 삼켜도 매치 결과가 달라지지 않는다.
+            int pending = exportFrozen(ipHash, os, deadline, false).size();
             if (pending > 0) {
                 log.info("구 DB 에만 있는 후보 {}건 — import 계약 준비 전이라 소진하지 않는다", pending);
             }
@@ -89,7 +90,10 @@ public class CompatMatchUseCase {
         // 4단계 진입 후: 구 정지 행 «전체»를 래퍼 그대로 넘겨 링크가 반영·소진하게 한다.
         // 원본 JSON 을 손대지 않는 것이 핵심이다 — sourceChecksum 이 source 객체 전체의 체크섬이라
         // 필드를 풀어 다시 조립하면 SOURCE_CHECKSUM_MISMATCH 가 난다(migration.ts:61).
-        List<LinkMatchCommand.FrozenSource> frozen = exportFrozen(ipHash, os, deadline).stream()
+        // 준비 후에는 이 후보가 «실제로 반영»된다. 조회 실패를 빈 목록으로 접으면 그 IP·OS 의 초대가
+        // 구 DB 에만 있을 때 링크가 matched:false 를 돌려주고, 앱은 응답을 받았다는 이유로 완료 마커를
+        // 세워 다시 시도하지 않는다 — 그 초대는 영구히 사라진다. 그래서 실패를 그대로 올린다.
+        List<LinkMatchCommand.FrozenSource> frozen = exportFrozen(ipHash, os, deadline, true).stream()
                 .map(row -> new LinkMatchCommand.FrozenSource(row.source(), row.sourceChecksum()))
                 .toList();
         return linkApiClient.match(
@@ -100,11 +104,18 @@ public class CompatMatchUseCase {
     }
 
     /**
-     * 구 후보 조회. <b>실패해도 매치를 막지 않는다</b> — Neon 후보만으로도 매치는 성립하고, 구 조회
-     * 실패를 전체 실패로 접으면 이관 도구의 장애가 정상 설치의 초대를 전멸시킨다. 단 로그로 남긴다:
-     * 이 실패가 잦으면 4단계 검증이 닫히지 않는다.
+     * 구 후보 조회.
+     *
+     * <p><b>실패를 삼킬지는 그 결과를 쓰는 쪽이 정한다.</b> 준비 «전»의 조회는 관측용 계수라 실패해도
+     * 매치를 막지 않는다 — Neon 후보만으로도 매치는 성립하고, 이관 도구의 장애로 정상 설치의 초대를
+     * 전멸시킬 이유가 없다. 준비 «후»의 조회는 다르다: 그 목록이 링크에 실제로 반영되므로, 빈 목록으로
+     * 접으면 구 DB 에만 있던 초대가 {@code matched:false} 로 확정되고 앱이 완료 마커를 세워 영구히
+     * 사라진다. 그래서 그때는 오류를 그대로 올려 5xx 로 끝낸다.
+     *
+     * @param required {@code true} 면 조회 실패를 전파한다(준비 후), {@code false} 면 로그만 남긴다
      */
-    private List<FrozenClickCandidate> exportFrozen(String ipHash, String os, Deadline deadline) {
+    private List<FrozenClickCandidate> exportFrozen(String ipHash, String os, Deadline deadline,
+            boolean required) {
         String migrationId = compatProperties.getMigrationId();
         if (migrationId == null || migrationId.isBlank()) {
             return List.of();
@@ -114,6 +125,9 @@ public class CompatMatchUseCase {
                     deadline);
             return rows == null ? List.of() : rows;
         } catch (RuntimeException e) {
+            if (required) {
+                throw e;
+            }
             log.warn("구 정지 스냅샷 후보 조회 실패 — Neon 후보만으로 진행한다", e);
             return List.of();
         }
