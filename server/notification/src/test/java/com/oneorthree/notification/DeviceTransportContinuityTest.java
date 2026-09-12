@@ -346,6 +346,58 @@ class DeviceTransportContinuityTest {
         assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
     }
 
+    /**
+     * 판정이 토큰을 캡처한 <b>뒤</b> 그 기기의 소유권이 넘어가면, 캡처한 발송을 실행해서는 안 된다.
+     *
+     * <p>B 가 같은 {@code device_token} 을 새 bootstrap 으로 가져가면(계정 이전) 그 토큰이 가리키는 기기는
+     * 이제 B 의 것이다. 캡처한 대로 보내면 <b>새 주인에게 A 의 알림 본문이 전송되고</b>, 그 성공이 옛
+     * {@code device_key} 의 이력으로 적혀 원래 수신자는 「이미 갔다」로 접힌다.
+     */
+    @Test
+    void aDeviceWhoseOwnerChangedAfterTheDecisionIsNeverSentTo() {
+        register("fcm-a", "boot-a", 1, "reg-a");
+        register("fcm-b", "boot-b", 1, "reg-b");
+        UUID keptIdentity = deviceKey("fcm-a");
+        when(transport.send(eq("fcm-a"), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            // 첫 기기로 보내는 동안 다른 사용자가 두 번째 토큰을 가져간다.
+            devices.register(OTHER, body("fcm-b", "boot-other", 1L, 0L, null), "steal-b");
+            return PushTransport.Result.SENT;
+        });
+
+        UUID id = enqueue("stolen");
+        dispatch.dispatch(id);
+
+        // 새 주인에게는 아무것도 가지 않는다.
+        verify(transport, never()).send(eq("fcm-b"), any(), anyBoolean(), anyString());
+        assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id))
+                .singleElement()
+                .satisfies(row -> assertThat(row).containsEntry("device_key", keptIdentity));
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
+    /**
+     * 외부 호출이 도는 «사이»에 소유권이 바뀌면 이미 나간 푸시는 되돌릴 수 없다. 그래도 그것을 그
+     * 기기의 <b>성공 이력</b>으로 적어서는 안 된다 — 적으면 원래 수신자는 영영 못 받는다.
+     */
+    @Test
+    void ownershipThatChangesDuringTheCallIsNotRecordedAsThatDevicesSuccess() {
+        register("fcm-single", "boot-single", 1, "reg-single");
+        when(transport.send(eq("fcm-single"), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            devices.register(OTHER, body("fcm-single", "boot-other", 1L, 0L, null), "steal");
+            return PushTransport.Result.SENT;
+        });
+
+        UUID id = enqueue("during");
+        dispatch.dispatch(id);
+
+        assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id)).isEmpty();
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "FCM_RETRY");
+        // 남의 행이 된 토큰의 전송 자격도 건드리지 않는다.
+        assertThat(store.one("SELECT user_id,transport_invalid FROM device_tokens WHERE device_token='fcm-single'"))
+                .containsEntry("user_id", OTHER).containsEntry("transport_invalid", false);
+    }
+
     private UUID deviceKey(String token) {
         return (UUID) store.one("SELECT device_key FROM device_tokens WHERE device_token=?", token).get("device_key");
     }

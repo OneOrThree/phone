@@ -42,6 +42,23 @@ import java.util.UUID;
  * 여전히 같은 사건 잠금 아래에서 직렬화되고, 그 판정이 「보낸다」로 끝난 뒤에 도착한 보류는 예전에도
  * — 잠금이 풀릴 때까지 기다렸다가 — 이미 나간 발송을 되돌리지 못했다. 달라지는 것은 그 보류가
  * 발송이 끝나기를 기다리지 않는다는 것뿐이다.
+ *
+ * <h2>소유권 펜스</h2>
+ * 전역 잠금을 놓는 대신 <b>기기별 펜스</b>를 둔다. 판정 때 기기마다 소유권 세대
+ * ({@code user_id · device_key · ownership_version})를 함께 캡처하고, ① 그 기기로 보내기 <b>직전</b>과
+ * ② 결과를 적을 때 그 세대가 그대로인지 {@code device_tokens} 행을 <b>잠그고</b> 대조한다. 펜스는 새
+ * 잠금이 아니라 등록·삭제·폐기가 이미 잡는 <b>그 행 잠금</b>이라, 전역 잠금 없이도 소유권 변경과
+ * 직렬화된다.
+ *
+ * <p>없으면 이런 일이 난다: 판정이 A 의 토큰을 캡처한 뒤 발송이 도는 사이에 B 가 같은
+ * {@code device_token} 을 새 bootstrap 으로 가져가면(계정 이전), <b>새 주인에게 A 의 알림 본문이
+ * 전송되고</b> 그 성공이 옛 {@code device_key} 의 이력으로까지 적힌다 — 유출이면서 동시에, 원래
+ * 수신자는 「이미 갔다」로 접혀 영영 못 받는다.
+ *
+ * <p>①이 막는 것은 「소유권이 바뀐 뒤에 캡처된 발송을 실행하는 것」이다. 남는 창은 ①의 커밋과
+ * 외부 호출 사이(밀리초)뿐이고, 그 창에 걸린 발송은 ②가 <b>성공으로 적지 않고</b> 재시도로 돌려
+ * 원래 수신자의 현재 기기로 다시 보낸다. 창을 0 으로 만들려면 외부 호출 내내 행 잠금을 쥐어야 하는데,
+ * 그것이 애초의 P1(트랜잭션 안의 외부 호출)이다.
  */
 @Service
 class DispatchService {
@@ -120,6 +137,11 @@ class DispatchService {
         }
         boolean failed = false;
         for (Attempt attempt : plan.attempts()) {
+            if (!Boolean.TRUE.equals(recording.execute(status -> stillOurs(attempt)))) {
+                // 판정 이후 이 기기의 소유권이 바뀌었다 — 지금 보내면 «새 주인»이 남의 알림을 받는다.
+                // 이 기기는 애초에 대상이 아니었던 것처럼 건너뛴다(실패로 세지 않는다).
+                continue;
+            }
             // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
             PushTransport.Result result = transport.send(attempt.token(), attempt.push(), plan.sound(),
                     plan.eventId());
@@ -343,8 +365,9 @@ class DispatchService {
         // 두 축을 모두 본다: active 는 «소유권이 살아 있는가»(로그아웃·삭제·탈퇴·세션 폐기),
         // transport_invalid 는 «FCM 이 이 토큰을 아직 받는가». 전자만 보면 UNREGISTERED 토큰에
         // 계속 때리고, 후자를 active 에 적으면 정상 세션의 토큰 교체가 막힌다.
-        List<Map<String, Object>> tokens = store.rows("SELECT device_token,device_key FROM device_tokens"
-                + " WHERE user_id=? AND active AND NOT transport_invalid ORDER BY device_token", user);
+        List<Map<String, Object>> tokens = store.rows("SELECT device_token,device_key,ownership_version"
+                + " FROM device_tokens WHERE user_id=? AND active AND NOT transport_invalid"
+                + " ORDER BY device_token", user);
         List<UUID> deliveries = ready.stream().map(row -> (UUID) row.get("id")).toList();
         if (tokens.isEmpty()) {
             deliveries.forEach(delivery -> retry(delivery, "NO_ACTIVE_DEVICE"));
@@ -363,7 +386,8 @@ class DispatchService {
             }
             // 렌더도 여기서 끝낸다 — 템플릿 조회가 DB 를 타므로 트랜잭션 밖으로 미룰 이유가 없고,
             // 템플릿 부재(TEMPLATE_UNAVAILABLE)는 «보내기 전»에 드러나야 한다.
-            attempts.add(new Attempt(device, token.get("device_token").toString(), renderer.renderBundle(unsent),
+            attempts.add(new Attempt(user, device, token.get("device_token").toString(),
+                    ((Number) token.get("ownership_version")).longValue(), renderer.renderBundle(unsent),
                     unsent.stream().map(row -> (UUID) row.get("id")).toList()));
         }
         // 펜싱. 외부 호출이 도는 동안 이 행들을 후보 밖에 둔다 — 상태를 맺는 것은 settle 이고,
@@ -387,6 +411,13 @@ class DispatchService {
      * @return 재시도가 필요한가
      */
     private boolean recordAttempt(Attempt attempt, PushTransport.Result result) {
+        if (!stillOurs(attempt)) {
+            // 호출이 도는 사이에 소유권이 바뀌었다. 이미 나간 푸시는 되돌릴 수 없지만, 그 기기의
+            // «성공 이력»으로 적으면 원래 수신자는 「이미 갔다」로 접혀 영영 못 받는다. 전송 자격
+            // (transport_invalid)도 건드리지 않는다 — 이제 남의 행이다. 재시도로 돌려 지금 활성인
+            // 기기로 다시 보낸다.
+            return true;
+        }
         if (result == PushTransport.Result.SENT) {
             for (UUID delivery : attempt.deliveries()) {
                 store.update("INSERT INTO delivery_devices(delivery_id,device_key) VALUES(?,?)"
@@ -428,8 +459,29 @@ class DispatchService {
         }
     }
 
-    /** 기기 한 대로 나갈 외부 호출 하나 — 펜싱의 최소 단위다. */
-    private record Attempt(UUID device, String token, RenderedPush push, List<UUID> deliveries) {
+    /**
+     * 캡처한 소유권 세대가 아직 유효한가 — 기기별 펜스.
+     *
+     * <p>{@code FOR UPDATE} 로 그 행을 잠그고 본다. 등록({@code registerLocked})·삭제·폐기·세대 상향이
+     * 모두 같은 행을 잠그므로, 새 잠금을 만들지 않고도 소유권 변경과 <b>직렬화</b>된다. 전역
+     * {@code device-ownership} 잠금은 쥐지 않으므로 다른 기기·다른 사용자는 그대로 흐른다.
+     *
+     * <p>세 축을 모두 본다: {@code user_id}(계정 이전) · {@code device_key}(신원 교체) ·
+     * {@code ownership_version}(등록마다 오르는 세대). 로그아웃·삭제·폐기·탈퇴는 {@code active} 가 잡고,
+     * 그사이 무효 판정을 받은 토큰은 {@code transport_invalid} 가 잡는다.
+     *
+     * @param attempt 판정 때 캡처한 호출
+     * @return 그 기기가 아직 이 사용자의 같은 세대인가
+     */
+    private boolean stillOurs(Attempt attempt) {
+        return store.one("SELECT 1 FROM device_tokens WHERE device_token=? AND device_key=? AND user_id=?"
+                + " AND ownership_version=? AND active AND NOT transport_invalid FOR UPDATE",
+                attempt.token(), attempt.device(), attempt.user(), attempt.ownership()) != null;
+    }
+
+    /** 기기 한 대로 나갈 외부 호출 하나 — 펜싱의 최소 단위다. 소유권 세대를 함께 들고 다닌다. */
+    private record Attempt(UUID user, UUID device, String token, long ownership, RenderedPush push,
+            List<UUID> deliveries) {
         Attempt {
             deliveries = List.copyOf(deliveries);
         }
