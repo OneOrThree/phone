@@ -401,6 +401,15 @@ class NotificationStoreTest {
         assertThat(store.rows("SELECT * FROM device_tokens WHERE active")).isEmpty();
     }
 
+    /**
+     * 발송이 느려도 <b>다른 사용자의</b> 설정 초기화·부분 변경은 Business 3초 예산 안에 끝난다.
+     *
+     * <p>근거가 GROMO-1659 합류로 바뀌었다. 종전에는 발송이 전역 잠금을 «쥔 채» 외부 호출을 돌았고
+     * 이 테스트는 그 잠금이 잡혀 있음을 확인한 뒤 다른 사용자만 통과함을 봤다. 지금은 판정 트랜잭션이
+     * 커밋하며 잠금을 놓고 외부 호출이 그 «밖»에서 돌므로(DispatchService#dispatch), 전송 중에는
+     * 잡힌 advisory 잠금이 아예 없다 — 그것이 다른 사용자가 막히지 않는 진짜 이유다.
+     * 그래서 「잠금이 잡혀 있다」가 아니라 「잡힌 잠금이 없다」를 단언한다. 되돌리면 이 단언이 깨진다.
+     */
     @Test
     void slowDispatchDoesNotBlockAnotherUsersSettingsInitializationAndPatch() throws Exception {
         UUID other = UUID.fromString("22222222-2222-4222-8222-222222222222");
@@ -413,8 +422,8 @@ class NotificationStoreTest {
         try {
             var sent = executor.submit(() -> dispatch.dispatch(pending));
             assertThat(sending.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(store.one("SELECT pid FROM pg_locks WHERE pid=? AND locktype='advisory' AND granted LIMIT 1",
-                    dispatchPid.get())).isNotNull();
+            // 외부 호출은 트랜잭션·잠금 밖에서 돈다 — 이 순간 잡힌 advisory 잠금이 하나도 없어야 한다.
+            assertThat(store.rows("SELECT 1 FROM pg_locks WHERE locktype='advisory' AND granted")).isEmpty();
             var changed = executor.submit(() -> {
                 assertThat(settings.initialize(other, Map.of("version", 0, "authGeneration", 0,
                         "settings", preferences(true)))).containsEntry("notificationEnabled", true);
@@ -433,35 +442,54 @@ class NotificationStoreTest {
         }
     }
 
+    /**
+     * 같은 사용자의 opt-out 은 발송의 <b>판정</b>과 직렬화되고, 그 뒤의 발송은 억제된다.
+     *
+     * <p>GROMO-1659 합류로 직렬화의 «경계»가 바뀌었다. 종전에는 발송이 외부 호출까지 잠금을 쥐고
+     * 있어 opt-out 이 전송이 끝나기를 기다렸다. 지금은 판정(prepare)이 커밋하며 잠금을 놓으므로
+     * opt-out 은 전송을 기다리지 «않는다» — 이미 「보낸다」로 끝난 판정을 뒤늦은 보류가 되돌리지
+     * 못한다는 점은 종전에도 같았고, 달라진 것은 기다림뿐이다.
+     *
+     * <p>그래서 두 조각으로 나눠 못 박는다. ① 판정은 여전히 {@code user-state:<user>} 로 직렬화된다
+     * — 그 잠금을 테스트가 쥐고 있으면 dispatch 가 기다린다(prepare 에서 이 잠금을 빼면 깨진다).
+     * ② 전송 중의 opt-out 은 기다리지 않고 적용되며, 그 뒤에 선 발송은 SUPPRESSED 로 끝나 외부
+     * 호출은 진행 중이던 한 번뿐이다(설정이 발송 적격성에 반영되지 않으면 깨진다).
+     */
     @Test
-    void sameUsersOptOutStillSerializesWithDispatchAndSuppressesTheNextDelivery() throws Exception {
+    void sameUsersOptOutSerializesWithTheDispatchDecisionAndSuppressesTheNextDelivery() throws Exception {
         UUID pending = prepareSettingsRaceDelivery();
-        var sending = new CountDownLatch(1);
-        var release = new CountDownLatch(1);
-        AtomicInteger dispatchPid = new AtomicInteger();
-        AtomicInteger settingsPid = new AtomicInteger();
-        holdTransport(sending, release, dispatchPid);
         var executor = Executors.newFixedThreadPool(2);
+        var held = new CountDownLatch(1);
+        var releaseLock = new CountDownLatch(1);
         try {
-            var sent = executor.submit(() -> dispatch.dispatch(pending));
-            assertThat(sending.await(5, TimeUnit.SECONDS)).isTrue();
-            var changed = executor.submit(() -> new TransactionTemplate(transactions).execute(status -> {
-                settingsPid.set(((Number) store.one("SELECT pg_backend_pid() AS pid").get("pid")).intValue());
-                return settings.patch(USER, settingsPatch(false), 1, "same-user-off");
+            // ① 판정이 쥐는 것과 «같은» 사용자 잠금을 테스트가 먼저 잡는다.
+            var holder = executor.submit(() -> new TransactionTemplate(transactions).execute(status -> {
+                store.lock("user-state:" + USER);
+                held.countDown();
+                awaitLatch(releaseLock);
+                return null;
             }));
+            assertThat(held.await(5, TimeUnit.SECONDS)).isTrue();
+            var deciding = executor.submit(() -> dispatch.dispatch(pending));
             long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
             boolean blocked = false;
             while (!blocked && System.nanoTime() < until) {
-                blocked = store.one("SELECT pid FROM pg_stat_activity WHERE pid=? AND wait_event_type='Lock'"
-                        + " AND ?=ANY(pg_blocking_pids(pid))", settingsPid.get(), dispatchPid.get()) != null;
+                blocked = store.one("SELECT pid FROM pg_stat_activity WHERE datname=current_database()"
+                        + " AND wait_event_type='Lock' AND query LIKE '%pg_advisory_xact_lock%' LIMIT 1") != null;
                 if (!blocked) {
                     Thread.sleep(10);
                 }
             }
-            assertThat(blocked).isTrue();
-            release.countDown();
-            sent.get(5, TimeUnit.SECONDS);
-            assertThat(changed.get(5, TimeUnit.SECONDS)).containsEntry("applied", true);
+            assertThat(blocked).as("판정은 같은 사용자 잠금으로 직렬화된다").isTrue();
+            releaseLock.countDown();
+            holder.get(5, TimeUnit.SECONDS);
+            deciding.get(10, TimeUnit.SECONDS);
+            assertThat(status(pending)).isEqualTo("SENT");
+            verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+
+            // ② 판정이 끝난 뒤의 opt-out 은 기다림 없이 적용되고, 그 뒤에 선 발송을 억제한다.
+            assertThat(settings.patch(USER, settingsPatch(false), 1, "same-user-off"))
+                    .containsEntry("applied", true);
             inbound.accept(event("after-opt-out", "notification.requested", USER, 2,
                     UUID.randomUUID().toString(), Map.of("kind", "BET_RESULT", "count", 1)));
             UUID next = delivery("after-opt-out");
@@ -469,8 +497,19 @@ class NotificationStoreTest {
             assertThat(status(next)).isEqualTo("SUPPRESSED");
             verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
         } finally {
-            release.countDown();
+            releaseLock.countDown();
             executor.shutdownNow();
+        }
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("테스트 잠금 해제 시간 초과");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("테스트 잠금 대기 중 인터럽트", interrupted);
         }
     }
 
