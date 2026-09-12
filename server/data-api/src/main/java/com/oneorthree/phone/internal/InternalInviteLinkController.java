@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.internal.dto.ClaimConfirmationRequest;
+import com.oneorthree.phone.internal.dto.ClaimIntentAbandonRequest;
 import com.oneorthree.phone.internal.dto.ClaimIntentAckResponse;
 import com.oneorthree.phone.internal.dto.ClaimIntentCompletionRequest;
 import com.oneorthree.phone.internal.dto.ClaimIntentLeaseRequest;
@@ -87,7 +88,7 @@ public class InternalInviteLinkController {
         InternalInviteLinkService.ClaimIntentAck ack =
                 internalInviteLinkService.enqueueClaimIntent(userId, request.slug(), idempotencyKey);
         return ResponseEntity.ok(new ClaimIntentAckResponse(
-                ack.commandId(), ack.eventId(), ack.version(), ack.completed()));
+                ack.commandId(), ack.eventId(), ack.version(), ack.completed(), ack.terminalCode()));
     }
 
     /**
@@ -123,8 +124,10 @@ public class InternalInviteLinkController {
      */
     @PostMapping("/invite-links/claim-intents/{commandId}/abandoned")
     public ResponseEntity<Void> abandonClaimIntent(
-            @PathVariable UUID commandId, @RequestHeader("X-User-Id") UUID userId) {
-        internalInviteLinkService.abandonClaimIntent(userId, commandId);
+            @PathVariable UUID commandId, @RequestHeader("X-User-Id") UUID userId,
+            @RequestBody(required = false) ClaimIntentAbandonRequest request) {
+        internalInviteLinkService.abandonClaimIntent(userId, commandId,
+                request == null ? null : request.terminalCode());
         return ResponseEntity.ok().build();
     }
 
