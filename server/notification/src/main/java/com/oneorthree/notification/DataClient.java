@@ -6,6 +6,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 import java.util.UUID;
 
@@ -30,7 +32,22 @@ class DataClient {
         String body = http.get().uri(builder -> builder.path("/internal/users/{id}/result-ack")
                 .queryParam("sessionId", session).build(user))
                 .header("X-User-Id", user.toString()).retrieve().body(String.class);
-        return Json.bool(Json.map(body), "acknowledged");
+        Map<String, Object> response = decision(body, "acknowledged");
+        boolean acknowledged = (boolean) response.get("acknowledged");
+        Object at = response.get("acknowledgedAt");
+        if (acknowledged) {
+            if (!(at instanceof String timestamp)) {
+                throw new NotificationFailure(502, "UPSTREAM_CONTRACT_MISMATCH");
+            }
+            try {
+                Instant.parse(timestamp);
+            } catch (DateTimeParseException invalid) {
+                throw new NotificationFailure(502, "UPSTREAM_CONTRACT_MISMATCH");
+            }
+        } else if (at != null) {
+            throw new NotificationFailure(502, "UPSTREAM_CONTRACT_MISMATCH");
+        }
+        return acknowledged;
     }
 
     Map<String, Object> snapshot(String cursor, int limit) {
@@ -56,6 +73,24 @@ class DataClient {
     private boolean eligibility(Map<String, Object> request) {
         String body = http.post().uri("/internal/notifications/eligibility")
                 .body(request).retrieve().body(String.class);
-        return Json.bool(Json.map(body), "eligible");
+        Map<String, Object> response = decision(body, "eligible");
+        boolean eligible = (boolean) response.get("eligible");
+        Object reason = response.get("reason");
+        if ((eligible && reason != null)
+                || (!eligible && (!(reason instanceof String code) || code.isBlank()))) {
+            throw new NotificationFailure(502, "UPSTREAM_CONTRACT_MISMATCH");
+        }
+        return eligible;
+    }
+
+    /** HTTP 성공이어도 판정 본문·boolean이 불완전하면 발송/보류 상태를 확정하지 않는다. */
+    private static Map<String, Object> decision(String body, String flag) {
+        try {
+            Map<String, Object> response = Json.map(body);
+            Json.bool(response, flag);
+            return response;
+        } catch (RuntimeException invalid) {
+            throw new NotificationFailure(502, "UPSTREAM_CONTRACT_MISMATCH");
+        }
     }
 }

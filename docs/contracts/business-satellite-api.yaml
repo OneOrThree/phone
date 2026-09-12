@@ -826,7 +826,10 @@ paths:
                 required: [acknowledged]
                 properties:
                   acknowledged: { type: boolean }
-                  acknowledgedAt: { type: [string, 'null'], format: date-time }
+                  acknowledgedAt:
+                    type: [string, 'null']
+                    format: date-time
+                    description: acknowledged=true이면 필수 시각. false이면 null 또는 생략이어야 한다.
       x-idempotent: true
       x-retryable: true
 

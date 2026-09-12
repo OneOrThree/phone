@@ -108,6 +108,12 @@ noti:<KIND>:<userId>:<subjectId|none>:<시간축|none>
 
 공통 `params` 는 위에 더해 `kind` · `quietPolicy` · `groupId`(그룹 사건만) · `slotAt`(묶음 축, ISO-8601 UTC).
 
+`BET_WON`은 발송 직전 Data 정본에서 회차가 `OPEN` 또는 `SETTLED`이고 해당 참가자의
+`achieved=true`일 때만 허용한다. 조기 확정은 정산 전에도 유효하지만, `VOIDED`·`REFUNDED` 등으로
+끝난 회차는 환불 후에도 달성 기록이 남을 수 있어 회차 상태를 함께 확인한다. `achieved_at`은
+V42 이전 이력이나 최종 정산에서 판정된 승자에게 null일 수 있으므로 필수 조건으로 삼지 않는다.
+미확정·패배 참가자는 `WIN_NOT_CONFIRMED`, 무산·환불 등의 회차는 `SESSION_INVALIDATED`로 억제한다.
+
 `CHALLENGE_CREATED.mission`은 `type`(`DURATION`/`TIME_WINDOW`), `category`(`FOCUS`/`SCREEN_TIME`),
 `repeatDays`(월~일 순서의 `MON`…`SUN` 배열), 선택 `durationMinutes`와 `windowStart`·`windowEnd`를
 담는다. 창 시각은 저장된 KST 벽시계의 `HH:mm`이다. Data는 사건 생성 때 상세 행을 읽어 이 값을
@@ -194,6 +200,11 @@ FCM 으로도 가고 Kafka 로도 간다.
 어떤 템플릿도 쓰지 않지만 제공자를 먼저 배포해 둔다(A22 ㉹) — 템플릿이 투영 표시명을 쓰기 시작하는
 순간, 그때 비어 있으면 **개명한 적 없는 유저 전원이 빈 이름으로 렌더된다**.
 
+①의 `nextCursor`는 필수 nullable 필드다. null은 마지막 페이지이고, 다음 페이지가 있으면 현재
+`items`의 마지막 `userId`와 같은 정규 UUID여야 한다. Notification은 페이지를 적용하기 전에 이
+결합과 이전 커서보다 전진했는지 검증한다. 잘못된 커서로 다음 사용자를 건너뛰지 않고 재시도하며,
+UUID 대소문자는 같은 식별자로 처리한다.
+
 ②는 `InternalNotificationController` 가 제공한다. `InternalChallengeResultController`(선점·확인,
 호출자는 Business)와 나눠 둔 이유는 **호출자가 다르기 때문**이다 — ②의 호출자는 알림 서버다.
 읽기 로직 자체는 `ChallengeResultAckService.readAckState` 하나뿐이라 「행이 없을 때」의 처리가
@@ -202,6 +213,10 @@ FCM 으로도 가고 Kafka 로도 간다.
 **②는 행이 없어도 404 가 아니다.** 「미확인」과 「참가 행 없음」은 억제를 푸는 쪽에서 결론이
 같고(둘 다 「확인 표시 없음」), 404 를 던지면 수렴 경로가 그 예외에 막혀 탈출구를 두고도
 빠져나오지 못한다. `{acknowledged:false, acknowledgedAt:null}` 을 그대로 돌려준다.
+
+알림 서버는 `acknowledged=true`일 때 파싱 가능한 `acknowledgedAt` 시각이 함께 있어야 확정한다.
+`false`이면 시각은 null 또는 생략이어야 한다. 모순·필수값 누락·시각 형식 오류는 502 계약 오류로
+남겨 `NEEDS_CONFIRM`과 재조회 예약을 유지하며, 억제를 확정하거나 보류를 해제하지 않는다.
 
 ack 리컨실은 한 번에 최대 25건을 조회한다. 정본 조회가 실패하면 `NEEDS_CONFIRM`을 유지하고
 `next_reconcile_at`에 30초 뒤를 같은 사건 잠금 트랜잭션에서 커밋한다. 다음 tick은 아직 유예 중인
@@ -241,6 +256,10 @@ ack 리컨실은 한 번에 최대 25건을 조회한다. 정본 조회가 실�
 
 일시 오류를 `eligible=false` 로 접지 않는 이유: 장애가 「정책상 안 보냄」으로 둔갑하면 그 동안의
 알림이 통째로 사라지고 되짚을 근거도 남지 않는다.
+
+판정 응답은 `eligible=true`와 null·생략된 `reason`, 또는 `eligible=false`와 비공백 문자열
+`reason`의 조합이어야 한다. 다른 조합은 502 계약 오류로 재시도하며 delivery를 `SUPPRESSED`로
+종결하지 않는다. 관리 시험도 같은 검사를 적용하고 새로운 거절 사유 코드는 허용한다.
 
 친구 요청의 판정 축은 `subjectId`(상대 유저)가 아니라 **`params.requestId`** 다 — 거절 후 재요청이
 같은 행을 되살리므로 상대 유저만으로는 「같은 요청」을 식별할 수 없다.

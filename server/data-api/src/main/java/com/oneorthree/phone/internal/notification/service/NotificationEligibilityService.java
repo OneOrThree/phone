@@ -7,6 +7,7 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityRequest;
@@ -72,6 +73,10 @@ public class NotificationEligibilityService {
     static final String REASON_NOT_PARTICIPANT = "NOT_PARTICIPANT";
     /** 거절 사유 — 회차가 아직 종료되지 않았다(결과 알림 대상이 아니다). */
     static final String REASON_NOT_SETTLED = "NOT_SETTLED";
+    /** 거절 사유 — 승리 알림을 보낼 수 없는 무산·환불 등의 회차다. */
+    static final String REASON_SESSION_INVALIDATED = "SESSION_INVALIDATED";
+    /** 거절 사유 — 해당 참가자의 승리가 확정되지 않았다. */
+    static final String REASON_WIN_NOT_CONFIRMED = "WIN_NOT_CONFIRMED";
 
     /** 친구 요청 판정에 쓰는 {@code params} 키 — 요청 행 id. */
     static final String PARAM_REQUEST_ID = "requestId";
@@ -111,7 +116,8 @@ public class NotificationEligibilityService {
             case CHALLENGE_CREATED -> evaluateChallengeCreated(request);
             case CHALLENGE_SESSION_OPEN -> evaluateSessionOpen(request);
             case BET_RESULT, BET_VOID_REFUND -> evaluateBetResult(request);
-            case BET_WON, BET_SILENT_FLUSH -> evaluateBetParticipation(request);
+            case BET_WON -> evaluateBetWon(request);
+            case BET_SILENT_FLUSH -> evaluateBetParticipation(request);
             case CHALLENGE_WINDOW_END, CHALLENGE_ENDED -> evaluateChallengeEnd(request);
             case FRIEND_REQUEST -> evaluateFriendRequest(request);
             // 추가 도메인 조회가 없는 종류. 시간 제한이 있는 리그·리텐션은 위에서 만료를 확인했다.
@@ -234,7 +240,29 @@ public class NotificationEligibilityService {
         return participantOrDeny(session.getId(), request.userId());
     }
 
-    /** 승리 확정·사일런트 flush — 수신자가 그 회차 참가자이기만 하면 된다. */
+    /**
+     * 승리 확정 — OPEN의 조기 확정과 SETTLED의 승자는 허용하지만 무산·환불 회차는 제외한다.
+     * 환불은 achieved=true를 지우지 않으므로 회차 상태도 함께 대조해야 한다.
+     */
+    private NotificationEligibilityResponse evaluateBetWon(NotificationEligibilityRequest request) {
+        GroupChallengeBetSession session = groupQueryService.findBetSession(request.subjectId()).orElse(null);
+        if (session == null) {
+            return NotificationEligibilityResponse.deny(REASON_SUBJECT_GONE);
+        }
+        if (session.getStatus() != GroupBetStatus.OPEN && session.getStatus() != GroupBetStatus.SETTLED) {
+            return NotificationEligibilityResponse.deny(REASON_SESSION_INVALIDATED);
+        }
+        GroupChallengeBetParticipant participant = betParticipantRepository
+                .findBySessionIdAndUserId(session.getId(), request.userId()).orElse(null);
+        if (participant == null) {
+            return NotificationEligibilityResponse.deny(REASON_NOT_PARTICIPANT);
+        }
+        return Boolean.TRUE.equals(participant.getAchieved())
+                ? NotificationEligibilityResponse.allow()
+                : NotificationEligibilityResponse.deny(REASON_WIN_NOT_CONFIRMED);
+    }
+
+    /** 사일런트 flush — 수신자가 그 회차 참가자이기만 하면 된다. */
     private NotificationEligibilityResponse evaluateBetParticipation(NotificationEligibilityRequest request) {
         if (groupQueryService.findBetSession(request.subjectId()).isEmpty()) {
             return NotificationEligibilityResponse.deny(REASON_SUBJECT_GONE);

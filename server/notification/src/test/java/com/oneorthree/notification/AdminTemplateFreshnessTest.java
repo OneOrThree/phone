@@ -197,7 +197,9 @@ class AdminTemplateFreshnessTest {
                 Object raw = request.get("adminTestRequestedAt");
                 Instant at = raw == null ? null : Instant.parse(raw.toString());
                 boolean fresh = at != null && !NOW.get().isBefore(at) && NOW.get().isBefore(at.plusSeconds(900));
-                byte[] response = Json.write(Map.of("eligible", ACTIVE.get() && fresh)).getBytes(StandardCharsets.UTF_8);
+                Map<String, Object> decision = ACTIVE.get() && fresh ? Map.of("eligible", true)
+                        : Map.of("eligible", false, "reason", ACTIVE.get() ? "EVENT_EXPIRED" : "USER_INACTIVE");
+                byte[] response = Json.write(decision).getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(200, response.length);
                 exchange.getResponseBody().write(response);

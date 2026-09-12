@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -70,6 +71,8 @@ class RecipientEligibilityTest {
     @Autowired DeviceService devices;
     @Autowired InboundService inbound;
     @Autowired DispatchService dispatch;
+    @Autowired AckService ack;
+    @Autowired DataClient data;
     @MockitoBean PushTransport transport;
     @MockitoBean Clock clock;
 
@@ -119,19 +122,77 @@ class RecipientEligibilityTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"UNAVAILABLE", "{}", "null", "{\"eligible\":null}"})
+    @ValueSource(strings = {"UNAVAILABLE", "{}", "null", "{\"eligible\":null}",
+            "{\"eligible\":false}", "{\"eligible\":false,\"reason\":null}",
+            "{\"eligible\":false,\"reason\":\"\"}", "{\"eligible\":false,\"reason\":\"  \"}",
+            "{\"eligible\":false,\"reason\":42}", "{\"eligible\":true,\"reason\":\"USER_INACTIVE\"}",
+            "{\"eligible\":true,\"reason\":\"\"}", "{\"eligible\":true,\"reason\":false}"})
     void anUnavailableRecipientDecisionPreservesTheDeliveryForRetry(String response) {
         UUID id = enqueue("FRIEND_ACCEPTED");
         RESPONSE.set(response);
         RESPONSE_STATUS.set("UNAVAILABLE".equals(response) ? 503 : 200);
-        assertThatThrownBy(() -> dispatch.dispatch(id)).isInstanceOf(RuntimeException.class);
-        verifyNoInteractions(transport);
+        Throwable failure = catchThrowable(() -> dispatch.dispatch(id));
         assertThat(state(id)).isEqualTo("PENDING");
+        assertThat(failure).isInstanceOf(RuntimeException.class);
+        verifyNoInteractions(transport);
         RESPONSE_STATUS.set(200);
         RESPONSE.set("{\"eligible\":true}");
         dispatch.dispatch(id);
         verify(transport).send(anyString(), any(), anyBoolean(), anyString());
         assertThat(state(id)).isEqualTo("SENT");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"acknowledged\":true}", "{\"acknowledged\":true,\"acknowledgedAt\":null}",
+            "{\"acknowledged\":true,\"acknowledgedAt\":\"\"}",
+            "{\"acknowledged\":true,\"acknowledgedAt\":\"not-a-time\"}",
+            "{\"acknowledged\":true,\"acknowledgedAt\":\"2026-09-12T03:00:00\"}",
+            "{\"acknowledged\":true,\"acknowledgedAt\":42}",
+            "{\"acknowledged\":false,\"acknowledgedAt\":\"2026-09-12T03:00:00Z\"}",
+            "{\"acknowledged\":false,\"acknowledgedAt\":\"\"}",
+            "{\"acknowledged\":false,\"acknowledgedAt\":false}"})
+    void contradictoryAckKeepsTheHoldAndSchedulesARecoverableRetry(String response) {
+        UUID session = UUID.randomUUID();
+        UUID id = enqueue("BET_RESULT");
+        store.update("UPDATE deliveries SET subject_id=? WHERE id=?", session.toString(), id);
+        ack.command(USER, session, "abort", "abort");
+        RESPONSE.set(response);
+        Throwable failure = catchThrowable(ack::reconcile);
+        assertThat(store.one("SELECT state,next_reconcile_at FROM result_ack WHERE user_id=? AND session_id=?",
+                USER, session)).containsEntry("state", "NEEDS_CONFIRM")
+                .containsEntry("next_reconcile_at", java.sql.Timestamp.from(NOW.plusSeconds(30)));
+        assertThat(failure).isInstanceOf(RuntimeException.class);
+        assertThat(state(id)).isEqualTo("PENDING");
+        verifyNoInteractions(transport);
+
+        RESPONSE.set("{\"acknowledged\":true,\"acknowledgedAt\":\"2026-09-12T03:00:00Z\"}");
+        when(clock.instant()).thenReturn(NOW.plusSeconds(30));
+        ack.reconcile();
+        assertThat(store.one("SELECT state FROM result_ack WHERE user_id=? AND session_id=?", USER, session))
+                .containsEntry("state", "CONFIRMED");
+        assertThat(state(id)).isEqualTo("SUPPRESSED");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"acknowledged\":false}", "{\"acknowledged\":false,\"acknowledgedAt\":null}"})
+    void aValidUnacknowledgedResultReleasesTheHold(String response) {
+        UUID session = UUID.randomUUID();
+        ack.command(USER, session, "abort", "abort");
+        RESPONSE.set(response);
+        ack.reconcile();
+        assertThat(store.one("SELECT state FROM result_ack WHERE user_id=? AND session_id=?", USER, session))
+                .containsEntry("state", "RELEASED");
+    }
+
+    @Test
+    void adminEligibilityUsesTheSameResponseContractAndAllowsFutureDenialCodes() {
+        RESPONSE.set("{\"eligible\":false}");
+        assertThatThrownBy(() -> data.eligibleTest(USER, "FRIEND_ACCEPTED", null, Map.of(), NOW))
+                .isInstanceOf(RuntimeException.class);
+        RESPONSE.set("{\"eligible\":false,\"reason\":\"FUTURE_POLICY\"}");
+        assertThat(data.eligibleTest(USER, "FRIEND_ACCEPTED", null, Map.of(), NOW)).isFalse();
+        RESPONSE.set("{\"eligible\":true,\"reason\":null}");
+        assertThat(data.eligibleTest(USER, "FRIEND_ACCEPTED", null, Map.of(), NOW)).isTrue();
     }
 
     @Test
@@ -194,6 +255,13 @@ class RecipientEligibilityTest {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/internal/notifications/eligibility", exchange -> {
                 REQUEST.set(Json.map(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
+                byte[] response = RESPONSE.get().getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(RESPONSE_STATUS.get(), response.length);
+                exchange.getResponseBody().write(response);
+                exchange.close();
+            });
+            server.createContext("/internal/users/", exchange -> {
                 byte[] response = RESPONSE.get().getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(RESPONSE_STATUS.get(), response.length);

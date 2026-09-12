@@ -28,19 +28,49 @@ class SnapshotReconciler {
         String cursor = null;
         do {
             Map<String, Object> page = data.snapshot(cursor, 500);
-            if (!(page.get("items") instanceof List<?> items)) {
+            if (page == null || !(page.get("items") instanceof List<?> items)) {
                 throw new NotificationFailure(502, "INVALID_SNAPSHOT_PAGE");
             }
+            String next = nextCursor(page, items, cursor);
             for (Object item : items) {
                 Map<String, Object> row = Json.map(item);
                 transaction.executeWithoutResult(status -> apply(row));
             }
-            String next = Json.nullableText(page, "nextCursor");
-            if (next != null && (items.isEmpty() || (cursor != null && next.compareTo(cursor) <= 0))) {
-                throw new NotificationFailure(502, "SNAPSHOT_CURSOR_DID_NOT_ADVANCE");
-            }
             cursor = next;
         } while (cursor != null);
+    }
+
+    /** 페이지 적용 전에 다음 조회가 현재 페이지의 마지막 사용자부터 이어지는지 검증한다. */
+    private static String nextCursor(Map<String, Object> page, List<?> items, String previous) {
+        if (!page.containsKey("nextCursor")) {
+            throw new NotificationFailure(502, "INVALID_SNAPSHOT_CURSOR");
+        }
+        if (page.get("nextCursor") == null) {
+            return null;
+        }
+        String next = canonicalUuid(page.get("nextCursor"));
+        if (items.isEmpty() || (previous != null && next.compareTo(previous) <= 0)) {
+            throw new NotificationFailure(502, "SNAPSHOT_CURSOR_DID_NOT_ADVANCE");
+        }
+        if (!(items.get(items.size() - 1) instanceof Map<?, ?> last)
+                || !next.equals(canonicalUuid(last.get("userId")))) {
+            throw new NotificationFailure(502, "INVALID_SNAPSHOT_CURSOR");
+        }
+        return next;
+    }
+
+    private static String canonicalUuid(Object value) {
+        if (value instanceof String text) {
+            try {
+                String canonical = UUID.fromString(text).toString();
+                if (canonical.equalsIgnoreCase(text)) {
+                    return canonical;
+                }
+            } catch (IllegalArgumentException invalid) {
+                throw new NotificationFailure(502, "INVALID_SNAPSHOT_CURSOR");
+            }
+        }
+        throw new NotificationFailure(502, "INVALID_SNAPSHOT_CURSOR");
     }
 
     private void apply(Map<String, Object> row) {
