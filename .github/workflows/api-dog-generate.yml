@@ -24,6 +24,16 @@ on:
 # 생기는데 api-docs-cleanup.yml 의 삭제 접두어 목록엔 `bchore/` 가 없어서 그대로 쌓인다.
 # 그래서 이 파일을 고칠 때는 게시 스텝 로직을 «로컬 레포로 재현»해 확인하고 올린다 (GROMO-1790).
 
+# 같은 브랜치의 «뒤처진» 실행은 끝까지 갈 필요가 없다. 새 커밋이 밀고 들어오면 이전 실행을
+# 취소한다 — 그대로 두면 옛 산출물을 최신 tip 위에 올려 문서를 구버전으로 되돌린다(GROMO-1790).
+# 그룹을 ref 로 «가르는» 게 핵심이다. 하나로 묶으면 서로 다른 브랜치의 문서 게시가 서로를 취소한다.
+#
+# 취소는 즉시가 아니라서 이것만으로는 부족하다 — 취소 신호가 오는 사이 push 가 나갈 수 있다.
+# 그래서 게시 스텝이 push «직전»에 브랜치 tip 을 한 번 더 확인한다(아래 「뒤처짐 확인」).
+concurrency:
+  group: api-docs-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   # gh-pages 에 문서 커밋을 push 한다. 기본값에 기대지 않고 이 워크플로가 쓰는 것만 명시한다.
   contents: write
@@ -216,6 +226,21 @@ jobs:
               exit 0
             fi
             git commit -m "docs: update OpenAPI docs for $GITHUB_REF_NAME ($GITHUB_SHA)"
+
+            # 뒤처짐 확인 — 재시도가 만든 «새» 위험이다.
+            # 재시도 전에는 뒤처진 실행의 push 가 non-fast-forward 로 «막혀서» 무해했다. 그런데
+            # 최신 tip 을 받아 다시 올리도록 고치면, 새 커밋의 실행이 먼저 게시한 뒤에도 옛 실행이
+            # 자기 STAGE 를 같은 자리에 덮어써 성공한다 — 문서가 «구버전으로 되돌아간다».
+            # 그래서 매 시도마다, push 바로 앞에서 원본 브랜치 tip 이 아직 내 SHA 인지 확인한다.
+            TIP="$(git ls-remote origin "refs/heads/$GITHUB_REF_NAME" | cut -f1)"
+            if [ -z "$TIP" ]; then
+              echo "$GITHUB_REF_NAME 브랜치가 사라졌다 — 게시하지 않는다(지워진 브랜치 문서를 새로 만들지 않기 위해)."
+              exit 0
+            fi
+            if [ "$TIP" != "$GITHUB_SHA" ]; then
+              echo "이 실행은 뒤처졌다($GITHUB_SHA, 현재 tip $TIP) — 최신 실행이 게시하도록 두고 물러난다."
+              exit 0
+            fi
 
             if git push origin HEAD:gh-pages; then
               echo "gh-pages 갱신 완료(시도 $attempt) — $DEST_DIR"
