@@ -17,6 +17,10 @@ on:
       - '.github/scripts/**'
   workflow_dispatch:
 
+permissions:
+  # gh-pages 에 문서 커밋을 push 한다. 기본값에 기대지 않고 이 워크플로가 쓰는 것만 명시한다.
+  contents: write
+
 jobs:
   generate-docs:
     runs-on: [self-hosted, ci, spot]
@@ -146,15 +150,73 @@ jobs:
           path: server/data-api/build/docs/api/openapi.json
           retention-days: 30
 
+      # ── gh-pages 게시 (GROMO-1790) ──────────────────────────────────────────
+      # gh-pages 에 쓰는 주체는 «둘»이다 — 여기와 api-docs-cleanup.yml.
+      # 예전엔 peaceiris/actions-gh-pages@v4 를 썼는데, 그 액션의 push 는 재시도도 rebase 도 없는
+      # 맨 `git push origin gh-pages` 다(v4 `src/git-utils.ts` L231-236). 그래서 문서 생성이
+      # 브랜치 삭제 cleanup 과 겹치면 non-fast-forward 로 거절되고 **살아 있는 브랜치의 문서
+      # 갱신이 누락**된다. cleanup 쪽에만 재시도를 넣으면 그쪽이 경쟁에서 이기는 만큼 이 손실이
+      # 늘기만 하므로, 양쪽을 같은 규율로 맞춘다 — 최신 tip 을 받아 덮어쓰기를 다시 하고 push 를
+      # 재시도한다. 덮어쓰기는 멱등이라 몇 번을 돌려도 결과가 같다(rebase 였다면 상대 잡이 같은
+      # 디렉터리를 지운 경우 delete/modify 충돌로 멈춘다).
+      #
+      # 공통 concurrency group 으로 직렬화하지 «않는» 이유: 같은 그룹에 pending 이 쌓이면
+      # GitHub 이 직전 pending 을 취소한다(`cancel-in-progress: false` 여도 그렇다). 브랜치 삭제와
+      # 문서 게시가 셋 이상 몰리면 가운데 하나가 통째로 사라진다 — 조용한 유실을 막으려다 더
+      # 조용한 유실을 새로 만드는 셈이다.
+      #
+      # peaceiris 의 `keep_files: true` 와 같은 의미를 유지한다: 덮어쓰되 «지우지 않는다».
+      # 그래서 gh-pages 루트의 `.nojekyll` 과 다른 브랜치 문서 디렉터리는 그대로 남는다.
+      - name: Checkout gh-pages
+        if: steps.check.outputs.exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: .gh-pages
+
       - name: Deploy to gh-pages
         if: steps.check.outputs.exists == 'true'
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: server/data-api/build/docs/api/
-          destination_dir: ${{ steps.dest.outputs.dir }}
-          keep_files: true
+        env:
+          DEST_DIR: ${{ steps.dest.outputs.dir }}
+          SRC_DIR: server/data-api/build/docs/api
+        run: |
+          set -euo pipefail
+          # 산출물을 체크아웃 «밖»으로 뺀다 — 재시도의 `reset --hard` 가 덮치지 않게.
+          STAGE="$RUNNER_TEMP/gh-pages-payload"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          cp -a "$SRC_DIR/." "$STAGE/"
+
+          cd .gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3 4 5; do
+            git fetch --depth=1 origin gh-pages
+            git reset --hard FETCH_HEAD
+            git clean -fdq
+
+            mkdir -p "$DEST_DIR"
+            cp -a "$STAGE/." "$DEST_DIR/"
+            git add -A -- "$DEST_DIR"
+            if git diff --cached --quiet; then
+              echo "gh-pages 에 반영할 변경이 없다 — 문서가 이미 최신이다."
+              exit 0
+            fi
+            git commit -m "docs: update OpenAPI docs for $GITHUB_REF_NAME ($GITHUB_SHA)"
+
+            if git push origin HEAD:gh-pages; then
+              echo "gh-pages 갱신 완료(시도 $attempt) — $DEST_DIR"
+              exit 0
+            fi
+            echo "gh-pages push 가 거절됐다(시도 $attempt) — 최신 tip 에서 다시 덮어쓴다." >&2
+            sleep "$((attempt * 5))"
+          done
+
+          # 조용히 끝내지 않는다. Apidog 가 빈 바디로 200 을 받아 «초록인 채로» 문서가 두 달간
+          # 안 갱신됐던 전례가 이 파일에 있다(아래 Sync to Apidog 주석).
+          echo "gh-pages push 를 5회 재시도했지만 실패했다. $DEST_DIR 문서가 갱신되지 않았다." >&2
+          exit 1
 
       - name: Notify Slack
         if: |

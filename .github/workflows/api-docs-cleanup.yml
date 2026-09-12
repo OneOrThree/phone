@@ -11,11 +11,18 @@ name: Cleanup Feature Docs
 # 접두어 목록은 api-dog-generate.yml 의 `push.branches` 와 «같아야 한다». 그쪽이 문서를 만드는
 # 브랜치와 여기서 지우는 브랜치가 어긋나면 다시 쌓이기 시작한다.
 #
-# gh-pages 에 쓰는 주체가 둘이라는 것도 같이 봐야 한다 — 여기와 api-dog-generate.yml 이다.
-# 그쪽은 peaceiris/actions-gh-pages@v4 를 쓰는데 그 액션의 push 는 재시도도 rebase 도 없는
-# 맨 `git push origin gh-pages` 다(v4 src/git-utils.ts L231-236). 그래서 브랜치를 연달아
-# 지우거나 문서 생성과 겹치면 뒤에 끝난 잡의 push 가 non-fast-forward 로 거절되고, 정작 지웠어야
-# 할 문서 디렉터리가 «조용히» 남는다. 아래 삭제 스텝이 최신 tip 에서 다시 지우는 식으로 재시도한다.
+# gh-pages 에 쓰는 주체가 «둘»이라는 것도 같이 봐야 한다 — 여기와 api-dog-generate.yml 이다.
+# 브랜치를 연달아 지우거나 문서 생성과 겹치면 뒤에 끝난 잡의 push 가 non-fast-forward 로
+# 거절된다. 그럼 이쪽은 지웠어야 할 디렉터리가 «조용히» 남고, 저쪽은 살아 있는 브랜치의 문서
+# 갱신이 누락된다. 그래서 **양쪽을 같은 규율로 맞췄다** — 최신 tip 을 받아 작업을 통째로 다시
+# 하고 push 를 재시도한다(GROMO-1790). 저쪽에서 peaceiris/actions-gh-pages@v4 를 걷어낸 것도
+# 이때다. 그 액션의 push 가 재시도도 rebase 도 없는 맨 `git push origin gh-pages` 였기 때문이다
+# (v4 `src/git-utils.ts` L231-236). 한쪽에만 재시도를 넣으면 그쪽이 경쟁에서 이기는 만큼
+# 반대쪽 손실이 늘 뿐이다.
+#
+# 공통 concurrency group 으로 직렬화하지 «않는» 이유: 같은 그룹에 pending 이 쌓이면 GitHub 이
+# 직전 pending 을 취소한다(`cancel-in-progress: false` 여도 그렇다). 브랜치 셋을 연달아 지우면
+# 가운데 cleanup 이 통째로 사라진다 — 조용한 유실을 막으려다 더 조용한 유실을 만드는 셈이다.
 
 on:
   delete:
@@ -57,6 +64,8 @@ jobs:
           # rebase 였다면 상대 잡이 같은 디렉터리에 파일을 «추가»한 경우 delete/modify 충돌로
           # 멈춘다. 반면 「받아서 → 지우고 → 커밋」은 몇 번을 해도 결과가 같아(멱등) 충돌이 없다.
           # concurrency group 으로 직렬화하지 않는 이유는 워크플로 머리말에 적어 두었다.
+          # 재시도 규율은 api-dog-generate.yml 의 「gh-pages 게시」 스텝과 «같아야 한다» —
+          # 한쪽만 재시도하면 경쟁에서 이긴 쪽이 진 쪽의 손실을 키울 뿐이다.
           for attempt in 1 2 3 4 5; do
             git fetch --depth=1 origin gh-pages
             git reset --hard FETCH_HEAD
