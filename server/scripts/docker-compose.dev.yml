@@ -42,7 +42,7 @@ services:
       #    best-effort 라, 기동을 redis 에 묶으면 부가 의존성 하나가 코어 API 의 배포를 막게 된다
       #    (그건 management.health.redis.enabled=false 로 헬스체크를 끈 판단과 정면으로 어긋난다).
       #    redis 가 늦게 뜨면 그동안의 리스 쓰기만 실패하고 로그에 warn 이 남는다.
-      #    반대로 chat 은 redis 에 묶는다(docker-compose.chat.yml) — 그쪽은 하드 의존성이다.
+      #    반대로 chat 은 redis 에 묶는다(docker-compose.realtime.yml) — 그쪽은 하드 의존성이다.
     networks:
       - app-network
     restart: unless-stopped
