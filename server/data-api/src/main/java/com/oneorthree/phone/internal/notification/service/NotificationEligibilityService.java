@@ -154,7 +154,8 @@ public class NotificationEligibilityService {
     }
 
     /**
-     * 모집 알림 — 회차가 아직 {@code OPEN} 이고 참가 마감 전이며 <b>아직 참가하지 않았어야</b> 한다.
+     * 모집 알림 — 현재 그룹원이며 회차가 아직 {@code OPEN} 이고 참가 마감 전이며
+     * <b>아직 참가하지 않았어야</b> 한다.
      *
      * <p>마지막 조건이 핵심이다. 구 경로는 발송 직전에 참가 여부를 다시 읽었다 — 그러지 않으면
      * 이미 판돈까지 낸 사람에게 「지금 참여할 수 있어요」가 간다.
@@ -170,6 +171,9 @@ public class NotificationEligibilityService {
         }
         if (!clock.instant().isBefore(session.getJoinClosesAt())) {
             return NotificationEligibilityResponse.deny(REASON_JOIN_CLOSED);
+        }
+        if (!groupMemberRepository.existsByGroupIdAndUserId(session.getGroup().getId(), request.userId())) {
+            return NotificationEligibilityResponse.deny(REASON_NOT_GROUP_MEMBER);
         }
         if (betParticipantRepository.findBySessionIdAndUserId(session.getId(), request.userId())
                 .isPresent()) {

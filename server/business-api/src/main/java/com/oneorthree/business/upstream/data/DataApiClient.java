@@ -125,11 +125,17 @@ public class DataApiClient {
      */
     public DurableCommandAck recordDeviceTokenDeletion(UUID userId, String deviceToken, String ownershipToken,
             Long authGeneration, String idempotencyKey, Deadline deadline) {
+        return recordDeviceTokenDeletion(userId, deviceToken, ownershipToken, authGeneration,
+                null, idempotencyKey, deadline);
+    }
+
+    public DurableCommandAck recordDeviceTokenDeletion(UUID userId, String deviceToken, String ownershipToken,
+            Long authGeneration, UUID sessionId, String idempotencyKey, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, PATH_DEVICE_TOKEN_DELETIONS.replace("{userId}", userId.toString()))
                         .onBehalfOf(userId)
                         .idempotencyKey(idempotencyKey)
-                        .body(new DeviceTokenDeletionCommand(deviceToken, ownershipToken, authGeneration))
+                        .body(new DeviceTokenDeletionCommand(deviceToken, ownershipToken, authGeneration, sessionId))
                         .idempotentCommand()
                         .build(),
                 deadline,
@@ -378,7 +384,7 @@ public class DataApiClient {
     }
 
     /** 삭제 outbox 요청 본문. {@code authGeneration} 은 <b>없으면 null</b> 이고 채우지 않는다(㊍). */
-    record DeviceTokenDeletionCommand(String deviceToken, String ownershipToken, Long authGeneration) {
+    record DeviceTokenDeletionCommand(String deviceToken, String ownershipToken, Long authGeneration, UUID sessionId) {
     }
 
     /** claim 확정 요청 본문. */

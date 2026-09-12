@@ -164,7 +164,8 @@ class InternalAuthFilterTest {
     @DisplayName("MVC가 정규화하는 사용자 경로로 주체 대조를 우회할 수 없다")
     void rejectsNonCanonicalUserPathsBeforeMvc(String segment) throws Exception {
         UserSatelliteCommandService service = mock(UserSatelliteCommandService.class);
-        var mvc = MockMvcBuilders.standaloneSetup(new InternalUserController(service))
+        var mvc = MockMvcBuilders.standaloneSetup(new InternalUserController(service,
+                mock(com.oneorthree.phone.internal.InternalDeviceTokenDeletionService.class)))
                 .addFilters(new InternalAuthFilter(enabledProperties())).build();
 
         mvc.perform(get(URI.create("/internal/users/" + segment + "/activation"))

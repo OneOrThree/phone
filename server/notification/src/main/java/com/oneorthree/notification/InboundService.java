@@ -48,8 +48,9 @@ class InboundService {
         Map<String, Object> params = event.params();
         switch (event.type()) {
             case "notification.deviceToken.deleted" -> devices.deleteLocked(event.userId(),
-                    Json.nullableText(params, "deviceToken"), rawOwnership(params),
-                    Json.nullableNumber(params, "authGeneration"));
+                    deletionToken(params), rawOwnership(params),
+                    Json.nullableNumber(params, "authGeneration"), Json.nullableText(params, "sessionId"),
+                    Json.nullableText(params, "bootstrapNonceHash"));
             case "notification.settings.changed" -> settings.applyLocked(event.userId(), params, event.version());
             case "auth.session.revoked" -> devices.revokeSession(event.userId(), params);
             case "auth.generation.bumped" -> devices.generation(event.userId(),
@@ -65,6 +66,12 @@ class InboundService {
                 project(event);
             }
         }
+    }
+
+    private static String deletionToken(Map<String, Object> params) {
+        Object token = params.get("deviceToken");
+        // 직접 DELETE와 같은 의미다. 공백 원문은 Data의 멱등 입력으로 보존되어 올 수 있다.
+        return token instanceof String value && value.isBlank() ? null : Json.nullableText(params, "deviceToken");
     }
 
     /**

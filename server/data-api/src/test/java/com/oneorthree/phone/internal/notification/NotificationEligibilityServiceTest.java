@@ -173,6 +173,7 @@ class NotificationEligibilityServiceTest {
     @DisplayName("이미 참가한 사람에게 모집 알림을 보내지 않는다 — 판돈까지 낸 사람에게 「지금 참여할 수 있어요」")
     void alreadyJoinedDeniesSessionOpen() {
         userIsActive();
+        when(groupMemberRepository.existsByGroupIdAndUserId(GROUP, USER)).thenReturn(true);
         when(groupQueryService.findBetSession(SUBJECT))
                 .thenReturn(Optional.of(session(GroupBetStatus.OPEN, NOW.plusSeconds(3600))));
         when(betParticipantRepository.findBySessionIdAndUserId(SUBJECT, USER))
@@ -180,6 +181,50 @@ class NotificationEligibilityServiceTest {
 
         assertThat(service().evaluate(request("CHALLENGE_SESSION_OPEN", SUBJECT)).reason())
                 .isEqualTo("ALREADY_JOINED");
+    }
+
+    @Test
+    @DisplayName("모집 알림은 발송 시점의 그룹 멤버십을 다시 확인한다")
+    void sessionOpenRechecksMembershipAfterLeavingAndRejoining() {
+        userIsActive();
+        when(groupQueryService.findBetSession(SUBJECT))
+                .thenReturn(Optional.of(session(GroupBetStatus.OPEN, NOW.plusSeconds(3600))));
+        when(groupMemberRepository.existsByGroupIdAndUserId(GROUP, USER))
+                .thenReturn(true, false, true);
+
+        NotificationEligibilityService eligibility = service();
+        assertThat(eligibility.evaluate(request("CHALLENGE_SESSION_OPEN", SUBJECT)).eligible()).isTrue();
+        assertThat(eligibility.evaluate(request("CHALLENGE_SESSION_OPEN", SUBJECT)).reason())
+                .isEqualTo("NOT_GROUP_MEMBER");
+        assertThat(eligibility.evaluate(request("CHALLENGE_SESSION_OPEN", SUBJECT)).eligible()).isTrue();
+    }
+
+    @Test
+    @DisplayName("모집 멤버십은 이벤트 params 대신 실제 회차의 그룹으로 판정한다")
+    void sessionOpenUsesAuthoritativeSessionGroup() {
+        userIsActive();
+        UUID unrelatedGroup = UUID.randomUUID();
+        when(groupQueryService.findBetSession(SUBJECT))
+                .thenReturn(Optional.of(session(GroupBetStatus.OPEN, NOW.plusSeconds(3600))));
+        when(groupMemberRepository.existsByGroupIdAndUserId(unrelatedGroup, USER)).thenReturn(true);
+        when(groupMemberRepository.existsByGroupIdAndUserId(GROUP, USER)).thenReturn(false);
+
+        assertThat(service().evaluate(new NotificationEligibilityRequest(USER, "CHALLENGE_SESSION_OPEN",
+                SUBJECT, Map.of("groupId", unrelatedGroup.toString()))).reason())
+                .isEqualTo("NOT_GROUP_MEMBER");
+    }
+
+    @Test
+    @DisplayName("모집 멤버십 조회 장애는 재시도를 위해 전파한다")
+    void sessionOpenMembershipFailurePropagates() {
+        userIsActive();
+        when(groupQueryService.findBetSession(SUBJECT))
+                .thenReturn(Optional.of(session(GroupBetStatus.OPEN, NOW.plusSeconds(3600))));
+        when(groupMemberRepository.existsByGroupIdAndUserId(GROUP, USER))
+                .thenThrow(new org.springframework.dao.QueryTimeoutException("멤버십 조회 타임아웃"));
+
+        assertThatThrownBy(() -> service().evaluate(request("CHALLENGE_SESSION_OPEN", SUBJECT)))
+                .isInstanceOf(org.springframework.dao.QueryTimeoutException.class);
     }
 
     @Test
@@ -292,6 +337,7 @@ class NotificationEligibilityServiceTest {
     private static GroupChallengeBetSession session(GroupBetStatus status, Instant joinClosesAt) {
         return GroupChallengeBetSession.builder()
                 .id(SUBJECT)
+                .group(Group.builder().id(GROUP).build())
                 .status(status)
                 .joinClosesAt(joinClosesAt)
                 .build();

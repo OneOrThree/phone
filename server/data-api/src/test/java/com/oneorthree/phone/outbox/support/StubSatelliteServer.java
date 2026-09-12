@@ -9,6 +9,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -21,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class StubSatelliteServer {
 
     private final HttpServer server;
+    private volatile ResponseGate responseGate;
     private final AtomicInteger status = new AtomicInteger(200);
     private final List<Received> received = new CopyOnWriteArrayList<>();
 
@@ -56,6 +59,18 @@ public final class StubSatelliteServer {
                 exchange.getRequestURI().getPath(),
                 exchange.getRequestHeaders().getFirst("Authorization"),
                 body));
+        ResponseGate gate = responseGate;
+        if (gate != null) {
+            gate.entered().countDown();
+            try {
+                if (!gate.release().await(10, TimeUnit.SECONDS)) {
+                    throw new IOException("위성 응답 보류 해제 시간 초과");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IOException(interrupted);
+            }
+        }
         int code = status.get();
         exchange.sendResponseHeaders(code, -1);
         exchange.close();
@@ -73,6 +88,17 @@ public final class StubSatelliteServer {
      */
     public void respondWith(int code) {
         status.set(code);
+    }
+
+    public void holdResponses(CountDownLatch entered, CountDownLatch release) {
+        responseGate = new ResponseGate(entered, release);
+    }
+
+    public void resumeResponses() {
+        responseGate = null;
+    }
+
+    private record ResponseGate(CountDownLatch entered, CountDownLatch release) {
     }
 
     /** @return 지금까지 받은 요청들 */

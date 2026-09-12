@@ -265,6 +265,12 @@ class DeviceService {
     @Transactional
     public Map<String, Object> delete(UUID user, String token, String owner, Long generation,
             String key) {
+        return delete(user, token, owner, generation, null, null, key);
+    }
+
+    @Transactional
+    public Map<String, Object> delete(UUID user, String token, String owner, Long generation,
+            String sessionId, String bootstrapHash, String key) {
         // 멱등 원장에 담기 «전»이다. 담은 뒤에 거절하면 깨진 값이 request_hash 로 굳어, 같은 키로
         // 다시 오는 «고친» 재시도가 IDEMPOTENCY_KEY_CONFLICT 로 영구히 막힌다.
         requireCanonicalOwnership(owner);
@@ -272,8 +278,12 @@ class DeviceService {
         request.put("deviceToken", token);
         request.put("ownershipToken", owner);
         request.put("authGeneration", generation);
+        if (sessionId != null) {
+            request.put("sessionId", sessionId);
+            request.put("bootstrapNonceHash", bootstrapHash);
+        }
         return store.command("device-delete:" + user, key, request, () -> {
-            deleteLocked(user, token, owner, generation);
+            deleteLocked(user, token, owner, generation, sessionId, bootstrapHash);
             return Map.of("applied", true);
         });
     }
@@ -296,9 +306,31 @@ class DeviceService {
      * </ul>
      */
     void deleteLocked(UUID user, String token, String owner, Long generation) {
+        deleteLocked(user, token, owner, generation, null, null);
+    }
+
+    void deleteLocked(UUID user, String token, String owner, Long generation,
+            String sessionId, String bootstrapHash) {
         if (owner != null && !CANONICAL_UUID.matcher(owner).matches()) {
             LOG.warn("기기 토큰 삭제 — 소유권 값의 형식이 깨졌다. 어느 행에도 맞지 않으므로 아무것도 지우지 않고"
                     + " 소비한다. userId={}", user);
+            return;
+        }
+        if (token == null || token.isBlank()) {
+            token = null;
+        }
+        if (token == null && owner == null) {
+            // 대상 없는 구 사건도 들어온다. 전체 기기로 넓히지 않고 안전하게 소비한다.
+            if (sessionId == null || !CANONICAL_UUID.matcher(sessionId).matches()
+                    || (bootstrapHash != null && !bootstrapHash.matches("[0-9a-f]{64}"))) {
+                return;
+            }
+            store.lock("device-ownership");
+            userFence(user);
+            store.update("UPDATE device_tokens SET active=false,ownership_version=ownership_version+1,updated_at=now()"
+                    + " WHERE user_id=? AND active AND (legacy_session_id=?::uuid OR bootstrap_hash=?)"
+                    + " AND (?::bigint IS NULL OR auth_generation IS NULL OR auth_generation<=?)",
+                    user, sessionId, bootstrapHash, generation, generation);
             return;
         }
         store.lock("device-ownership");

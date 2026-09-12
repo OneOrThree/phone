@@ -118,21 +118,27 @@ public class UserSatelliteCommandService {
     @Transactional
     public EventEnvelope recordDeviceTokenDeletion(
             UUID userId, DeviceTokenDeletionRequest request, String idempotencyKey) {
+        return recordDeviceTokenDeletion(userId, request, idempotencyKey, null);
+    }
+
+    /** 내부 표면에서 소유자를 검증한 세션 범위를 내구화한다. 명시한 토큰·CAS가 있으면 그 범위가 우선이다. */
+    @Transactional
+    public EventEnvelope recordDeviceTokenDeletion(
+            UUID userId, DeviceTokenDeletionRequest request, String idempotencyKey, String bootstrapNonceHash) {
 
         if (!DeviceOwnershipTokens.isCanonicalOrAbsent(request.ownershipToken())) {
             throw new UserException(UserErrorCode.DEVICE_OWNERSHIP_INVALID);
         }
         return outboxCommandPort.runIdempotent(
-                InternalCommands.idempotency(idempotencyKey, userId, "device-token-deletion",
-                        request.deviceToken(), request.ownershipToken(), request.authGeneration()),
+                request.sessionId() == null
+                        ? InternalCommands.idempotency(idempotencyKey, userId, "device-token-deletion",
+                                request.deviceToken(), request.ownershipToken(), request.authGeneration())
+                        : InternalCommands.idempotency(idempotencyKey, userId, "device-token-deletion",
+                                request.deviceToken(), request.ownershipToken(), request.authGeneration(),
+                                request.sessionId()),
                 EventEnvelope.class,
                 () -> {
-                    if (request.deviceToken() == null || request.deviceToken().isBlank()) {
-                        // 구 앱은 대상 토큰을 못 보낸다(㊪). 유저 단위로 지우고 그 경합을 인정한다 —
-                        // 남겨 두면 이전 계정 푸시가 계속 가는 쪽이 더 나쁘다.
-                        log.info("기기 토큰 삭제 — 대상 토큰 없음(구 앱). 유저 단위로 처리한다. userId={}", userId);
-                        userRepository.clearDeviceTokenUnconditionally(userId);
-                    } else {
+                    if (request.deviceToken() != null && !request.deviceToken().isBlank()) {
                         userRepository.clearDeviceTokenIncludingWithdrawn(userId, request.deviceToken());
                     }
                     Map<String, Object> params = new LinkedHashMap<>();
@@ -141,6 +147,11 @@ public class UserSatelliteCommandService {
                     // ⚠️ null 을 «현재 세대»로 채우지 않는다(㊍) — 로그아웃 전에 발급된 옛 AT 가 최신
                     // 세대로 태깅돼 tombstone 을 우회한다. 없으면 없는 채로 보낸다.
                     params.put("authGeneration", request.authGeneration());
+                    if ((request.deviceToken() == null || request.deviceToken().isBlank())
+                            && request.ownershipToken() == null && request.sessionId() != null) {
+                        params.put("sessionId", request.sessionId().toString());
+                        params.put("bootstrapNonceHash", bootstrapNonceHash);
+                    }
                     return append(EVENT_DEVICE_TOKEN_DELETED, userId, params,
                             OutboxDeliveryRequest.toNotification(ENDPOINT_DEVICE_TOKEN_DELETED, null));
                 }).value();

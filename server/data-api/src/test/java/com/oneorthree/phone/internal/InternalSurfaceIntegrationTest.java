@@ -276,6 +276,88 @@ class InternalSurfaceIntegrationTest {
     }
 
     @Test
+    void headerlessDeletionPreservesTheOtherDevicesLegacyTokenAndCarriesItsSessionScope() throws Exception {
+        UUID userId = newUser();
+        String hash = TokenHasher.sha256Hex("device-bootstrap");
+        UUID sessionId = tx().execute(status -> {
+            User user = userRepository.findById(userId).orElseThrow();
+            user.setDeviceToken("other-session-token");
+            return authSessionRepository.save(AuthSession.builder().userId(userId)
+                    .refreshTokenHash(TokenHasher.sha256Hex("rt-" + userId))
+                    .bootstrapNonceHash(hash).sessionEpoch(3L).build()).getId();
+        });
+        mockMvc.perform(post("/internal/users/{id}/device-token-deletions", userId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString())
+                        .header("Idempotency-Key", "session-delete")
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":null,\"ownershipToken\":null,\"authGeneration\":0,"
+                                + "\"sessionId\":\"" + sessionId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.params.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.params.bootstrapNonceHash").value(hash));
+        assertThat(userRepository.findById(userId).orElseThrow().getDeviceToken())
+                .isEqualTo("other-session-token");
+        assertThat(envelopesOf(userId, "notification.deviceToken.deleted")).singleElement()
+                .satisfies(event -> assertThat(event.getParams())
+                        .containsEntry("sessionId", sessionId.toString())
+                        .containsEntry("bootstrapNonceHash", hash));
+    }
+
+    @Test
+    void deletionWithoutAnyDeviceOrSessionPreservesTheLegacyToken() throws Exception {
+        UUID userId = newUser();
+        tx().executeWithoutResult(status -> userRepository.findById(userId).orElseThrow()
+                .setDeviceToken("other-session-token"));
+        mockMvc.perform(post("/internal/users/{id}/device-token-deletions", userId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString())
+                        .header("Idempotency-Key", "unscoped-delete")
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isOk());
+        assertThat(userRepository.findById(userId).orElseThrow().getDeviceToken())
+                .isEqualTo("other-session-token");
+    }
+
+    @Test
+    void deletionRejectsAnotherUsersSessionBeforeCreatingAnOutbox() throws Exception {
+        UUID userId = newUser();
+        UUID otherUser = newUser();
+        UUID sessionId = tx().execute(status -> authSessionRepository.save(AuthSession.builder()
+                .userId(otherUser).refreshTokenHash(TokenHasher.sha256Hex("rt-" + otherUser))
+                .bootstrapNonceHash(TokenHasher.sha256Hex("other-bootstrap")).sessionEpoch(1L).build()).getId());
+        mockMvc.perform(post("/internal/users/{id}/device-token-deletions", userId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString()).header("Idempotency-Key", "foreign-session")
+                        .contentType("application/json").content("{\"sessionId\":\"" + sessionId + "\"}"))
+                .andExpect(status().isForbidden());
+        assertThat(envelopesOf(userId, "notification.deviceToken.deleted")).isEmpty();
+    }
+
+    @Test
+    void sessionDeletionReplayPreservesTheOriginalScopeAfterBootstrapPromotion() throws Exception {
+        UUID userId = newUser();
+        String refreshHash = TokenHasher.sha256Hex("rt-" + userId);
+        UUID sessionId = tx().execute(status -> authSessionRepository.save(AuthSession.builder()
+                .userId(userId).refreshTokenHash(refreshHash).sessionEpoch(1L).legacy(true).build()).getId());
+        String first = mockMvc.perform(post("/internal/users/{id}/device-token-deletions", userId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString()).header("Idempotency-Key", "legacy-session-delete")
+                        .contentType("application/json").content("{\"sessionId\":\"" + sessionId + "\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        tx().executeWithoutResult(status -> authSessionRepository.rotateIfCurrent(sessionId, refreshHash,
+                TokenHasher.sha256Hex("new-rt-" + userId), TokenHasher.sha256Hex("promoted-bootstrap"),
+                2L, Instant.now()));
+        String replay = mockMvc.perform(post("/internal/users/{id}/device-token-deletions", userId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString()).header("Idempotency-Key", "legacy-session-delete")
+                        .contentType("application/json").content("{\"sessionId\":\"" + sessionId + "\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(replay).isEqualTo(first);
+        assertThat(envelopesOf(userId, "notification.deviceToken.deleted")).hasSize(1);
+    }
+
+    @Test
     @DisplayName("같은 멱등 키의 재시도는 «같은 봉투»를 재생한다 — 새 outbox 행을 만들지 않는다")
     void sameIdempotencyKeyReplaysTheSameEnvelope() throws Exception {
         UUID userId = newUser();

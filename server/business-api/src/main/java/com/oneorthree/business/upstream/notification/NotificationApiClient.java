@@ -76,11 +76,18 @@ public class NotificationApiClient {
      */
     public void deleteDevice(UUID userId, String deviceToken, String ownershipToken, Long authGeneration,
             String idempotencyKey, Deadline deadline) {
+        deleteDevice(userId, deviceToken, ownershipToken, authGeneration, null, null, idempotencyKey, deadline);
+    }
+
+    public void deleteDevice(UUID userId, String deviceToken, String ownershipToken, Long authGeneration,
+            UUID sessionId, String bootstrapNonceHash, String idempotencyKey, Deadline deadline) {
         InternalCall.Builder call = InternalCall.to(HttpMethod.DELETE, PATH_DEVICES)
                 .onBehalfOf(userId)
                 .idempotencyKey(idempotencyKey)
                 .header(HEADER_DEVICE_TOKEN, deviceToken)
                 .header(HEADER_DEVICE_OWNERSHIP, ownershipToken)
+                .header("X-Device-Session", sessionId == null ? null : sessionId.toString())
+                .header("X-Device-Bootstrap-Hash", bootstrapNonceHash)
                 .idempotentCommand();
         if (authGeneration != null) {
             call.header(HEADER_AUTH_GENERATION, Long.toString(authGeneration));

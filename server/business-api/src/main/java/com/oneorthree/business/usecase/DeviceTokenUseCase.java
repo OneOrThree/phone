@@ -15,6 +15,7 @@ import com.oneorthree.business.upstream.notification.dto.DeviceRegistrationResul
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import java.util.UUID;
 
 /**
  * 기기 토큰 등록·삭제 조합. 기존 앱 계약 {@code PUT/DELETE /api/v1/users/me/device-token} 을 보존한다.
@@ -183,9 +184,9 @@ public class DeviceTokenUseCase {
     /**
      * 기기 토큰 삭제 — outbox 를 <b>먼저</b> 기록하고 직접 삭제를 시도한다.
      *
-     * @param deviceToken    {@code X-Device-Token} 으로 받은 대상 토큰(㊪). <b>없으면 outbox 를 계약대로
-     *                       만들 수 없다</b> — 그래도 요청을 거절하지 않는다(구 앱엔 본문이 없다). 알림
-     *                       서버가 유저 단위 삭제로 처리하고, 그 기간의 경합을 인정한다
+     * @param deviceToken    {@code X-Device-Token} 으로 받은 대상 토큰(㊪). 토큰·CAS가 모두 없으면
+     *                       검증한 AT의 sid를 Data에서 해석해 해당 세션의 기기만 지운다.
+     *                       sid도 없으면 성공 no-op이며 사용자 전체 삭제로 넓히지 않는다.
      * @param ownershipToken {@code X-Device-Ownership} 으로 받은 CAS 값(㊟). 값이 있으면 <b>정규
      *                       UUID 표기</b>여야 한다 — 형식이 깨진 값은 내구 기록 전에 400 으로
      *                       거절한다({@link DeviceOwnershipTokens})
@@ -200,20 +201,44 @@ public class DeviceTokenUseCase {
         // 지운다(㊚).
         DeviceOwnershipTokens.requireCanonical(ownershipToken);
 
+        UUID sessionId = (deviceToken == null || deviceToken.isBlank()) && ownershipToken == null
+                ? claims.sessionId() : null;
+
         DurableCommandAck recorded = null;
         RuntimeException outboxFailure = null;
         try {
-            recorded = dataApiClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
-                    claims.authGeneration(), keys.forStep("device-delete-outbox"), deadline);
+            recorded = sessionId == null
+                    ? dataApiClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
+                            claims.authGeneration(), keys.forStep("device-delete-outbox"), deadline)
+                    : dataApiClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
+                            claims.authGeneration(), sessionId, keys.forStep("device-delete-outbox"), deadline);
         } catch (RuntimeException e) {
+            if (sessionId != null) {
+                log.warn("세션 범위 조회·삭제 outbox 기록 실패 — 범위 없는 직접 삭제로 대체하지 않는다", e);
+                throw new UpstreamUnavailableException("기기 삭제의 세션 범위를 확인하지 못했습니다", e);
+            }
             // ㋩: 여기서 멈추면 직접 삭제를 «시도조차» 못 한다. 삼키지 말고 남겨 두고 ③을 시도한다.
             outboxFailure = e;
             log.error("기기 토큰 삭제 outbox 기록 실패 — 직접 삭제를 계속 시도한다", e);
         }
 
+        String bootstrapHash = null;
+        if (sessionId != null) {
+            // Data가 장애이거나 아직 구 응답 계약이면 범위 없는 직접 삭제로 대체하지 않는다.
+            if (recorded == null || recorded.params() == null
+                    || !sessionId.toString().equals(recorded.params().get("sessionId"))) {
+                throw new UpstreamUnavailableException("기기 삭제의 세션 범위를 확인하지 못했습니다", outboxFailure);
+            }
+            bootstrapHash = (String) recorded.params().get("bootstrapNonceHash");
+        }
         try {
-            notificationApiClient.deleteDevice(claims.userId(), deviceToken, ownershipToken,
-                    claims.authGeneration(), keys.forStep("device-delete"), deadline);
+            if (sessionId == null) {
+                notificationApiClient.deleteDevice(claims.userId(), deviceToken, ownershipToken,
+                        claims.authGeneration(), keys.forStep("device-delete"), deadline);
+            } else {
+                notificationApiClient.deleteDevice(claims.userId(), deviceToken, ownershipToken,
+                        claims.authGeneration(), sessionId, bootstrapHash, keys.forStep("device-delete"), deadline);
+            }
         } catch (RuntimeException e) {
             if (outboxFailure != null) {
                 // 둘 다 실패했다 — 남은 재시도 주체는 앱뿐이다. 성공한 척하면 그 재시도조차 사라진다.
