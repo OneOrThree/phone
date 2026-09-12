@@ -28,7 +28,6 @@ import type { LoginResult } from '@/types/api';
 import { STORAGE_KEYS } from '@/types/storage';
 import { t } from '@/i18n';
 import { mockGuestLogin } from '@/mocks/fixtures/session';
-import { queueSessionLogout } from '@/services/notificationCommands';
 
 export { statusCodes };
 export type { AuthMethod };
@@ -100,13 +99,10 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
   const sessionKeys = [
     STORAGE_KEYS.accessToken,
     STORAGE_KEYS.refreshToken,
-    STORAGE_KEYS.deviceBootstrap,
-    STORAGE_KEYS.authSessionId,
     STORAGE_KEYS.user,
   ] as const;
   let previousSession: readonly (readonly [string, string | null])[] = [];
   let sessionWriteStarted = false;
-  let sessionCommitted = false;
   let accountSwitchTransition: AccountSwitchTransition | null = null;
   try {
     previousSession = await AsyncStorage.multiGet([...sessionKeys]);
@@ -124,32 +120,11 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
       accountSwitchTransition = await accountSwitchHandlers.beforeTokenWrite();
     }
 
-    // 이전 RT를 잃기 전에 폐기 의도를 내구화한다. 준비된 명령은 인증 전환 잠금이 풀리고
-    // 실제 세션이 교체된 뒤에만 전송한다. 저장 실패로 rollback되면 구 세션을 유지한다.
-    if (switchingAccount && prevToken) {
-      const previousRefresh = previousSession.find(
-        ([key]) => key === STORAGE_KEYS.refreshToken,
-      )?.[1];
-      const previousSessionId = previousSession.find(
-        ([key]) => key === STORAGE_KEYS.authSessionId,
-      )?.[1];
-      if (previousRefresh)
-        await queueSessionLogout(previousRefresh, prevToken, {
-          prepareAccountSwitch: true,
-          sessionId: previousSessionId ?? null,
-        });
-    }
-
     // 토큰 둘 중 하나만 남는 부분 저장도 실패로 간주하고 아래 snapshot으로 복구한다.
     sessionWriteStarted = true;
     await AsyncStorage.multiSet([
       [STORAGE_KEYS.accessToken, data.accessToken],
       [STORAGE_KEYS.refreshToken, data.refreshToken],
-      [
-        STORAGE_KEYS.deviceBootstrap,
-        typeof data.deviceBootstrap === 'string' ? data.deviceBootstrap : '',
-      ],
-      [STORAGE_KEYS.authSessionId, typeof data.sessionId === 'string' ? data.sessionId : ''],
     ]);
 
     // 게스트/소셜 구분 플래그 — 로그인 시점의 진실. 서버가 isGuest를 응답에 주면(GROMO-606)
@@ -177,16 +152,11 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
     // 새 로컬 세션이 완성된 뒤에만 이전 계정 대기 작업을 폐기한다. 이보다 앞선 저장이 실패하면
     // catch에서 이전 snapshot을 복구한 뒤 rollback으로 gate를 열어 작업을 이어 간다.
     accountSwitchTransition?.commit();
-    sessionCommitted = true;
 
     // 이전 계정 API 정리는 prevToken을 명시해서 호출하므로 새 토큰 저장 뒤에도 안전하다. 세션 로컬
     // snapshot이 모두 저장된 뒤 실행해 저장 실패가 기존 계정 정리만 남기는 상황을 피한다.
     if (switchingAccount && prevToken) {
-      // 후처리 저장·통신 실패는 이미 커밋한 로그인을 실패로 돌리지 않는다.
-      // 이전 RT와 정확한 기기 삭제 대상은 위의 준비 명령에 남아 재시도된다.
-      await Promise.resolve()
-        .then(() => accountSwitchHandlers?.afterCommit(prevToken))
-        .catch(() => {});
+      await accountSwitchHandlers?.afterCommit(prevToken);
     }
 
     setServerZone(result.timeZone);
@@ -203,7 +173,7 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
     markAuthSessionReplacement();
     return result;
   } catch (error) {
-    if (sessionWriteStarted && !sessionCommitted) {
+    if (sessionWriteStarted) {
       // multiSet 자체가 부분 실패했을 수도 있으므로 세 키를 모두 제거한 뒤 이전 snapshot만 복원한다.
       await AsyncStorage.multiRemove([...sessionKeys]).catch(() => {});
       const restorable = previousSession.filter(
@@ -211,7 +181,7 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
       );
       if (restorable.length > 0) await AsyncStorage.multiSet([...restorable]).catch(() => {});
     }
-    if (!sessionCommitted) accountSwitchTransition?.rollback();
+    accountSwitchTransition?.rollback();
     throw error;
   }
 }
@@ -414,9 +384,7 @@ export function guestLogin(): Promise<LoginResult> {
 export async function logout(refreshToken: string): Promise<void> {
   // 호출부가 인증 전환 mutex를 소유한 채 기다린다. 공유 api의 401 refresh는 같은 mutex를
   // 재획득해 교착하므로, refresh token 본문만 필요한 logout은 bare 요청으로 보낸다.
-  const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
-  if (accessToken) await queueSessionLogout(refreshToken, accessToken);
-  else await axios.post(`${API_URL}/api/v1/auth/logout`, { refreshToken });
+  await axios.post(`${API_URL}/api/v1/auth/logout`, { refreshToken });
 }
 
 // ── 마지막 사용 소셜 provider (GROMO-602) ──
