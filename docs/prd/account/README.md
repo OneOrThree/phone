@@ -49,3 +49,5 @@ legacy 온보딩 전이 보완: 신규 PATCH와 기존 POST/PATCH 프로필 writ
 분석 식별자·멤버십·digest 키 보완: GA4 User-ID·app_instance_id·설치 device_id 연결을 파기 범위에 넣고 탈퇴 뒤 앱 이벤트 순서와 지연 전송 재요청을 정했다. claim 클릭의 기기·GA4·IP 해시·UA 식별자를 소진 표지와 분리해 파기하고, 보존 멤버십 행의 그룹 알림·공지 권한·상태·역할을 초기화한다. 로그인 자격 digest는 attempt에 key ID를 고정해 키 교체 뒤에도 IdP 재교환 없이 재개한다.
 
 오류 우선순위·로컬 버킷·digest 재생 보완: 신규 경로의 인증 검사를 AT 검증(401) → 사용자 활성(404 `USER_NOT_FOUND`) → 세션/세대(401) 순서로 고정해 탈퇴 뒤 옛 자격은 404로 통일하고, `DELETE /me` 재시도의 404를 탈퇴 확정으로 처리한다. 탈퇴 확정 때만 기기의 계정별 버킷·UUID 마커·누끼 파일을 writer drain 뒤 지운다. digest는 attempt/key ID 조회 뒤 계산하고 COMPLETED 응답 유실 재생까지 이전 키를 유지한다.
+
+채팅 접근·claim 발급자 보완: 탈퇴 tombstone과 개별 로그아웃 세션 fence를 읽음 커서뿐 아니라 REST·STOMP 인가, 기존 구독 전달, 메시지 저장 writer에 적용하고 멤버십 캐시 삭제·전 인스턴스 소켓 종료를 완료 조건에 넣었다. 초대 claim은 claimant와 현재 발급자 users를 함께 잠그고 링크를 재조회해 탈퇴한 발급자 링크의 지연 귀속을 막는다. 메시지 보존 정책은 바꾸지 않는다.

@@ -178,7 +178,7 @@ sequenceDiagram
     R->>DB: 커밋된 outbox 읽기
     R->>S: 사용자 폐기·개인자료 정리 재전달
     Note over R: GA4 사용자 삭제 요청(user_id·app_instance_id)도 outbox로 재시도하고 지연 수용 기간 뒤 재요청
-    Note over S: chat/realtime 로컬 TX: 사용자 잠금 → tombstone/version + 읽음 커서 DELETE + 수신 완료
+    Note over S: chat/realtime 로컬 TX: 사용자 잠금 → tombstone/version + 읽음 커서 DELETE + 수신 완료<br/>커밋 뒤 멤버십 캐시 삭제·전 인스턴스 소켓 종료, 인가·전달·발신은 fence 재검사
     S-->>R: 로컬 커밋 뒤 대상별 적용 확인
     Note over R,S: 랭킹은 tombstone/version + 모든 주차 ZSET·presence 원자 제거
 ```
@@ -210,6 +210,10 @@ GA4도 User-ID·app_instance_id·설치 device_id로 같은 사용자를 잇는�
 공통 인증 검사는 AT 서명·타입·만료(401) → 사용자 활성(404 `USER_NOT_FOUND`) → 세션·authGeneration(401) 순서다. 탈퇴 뒤 옛 AT는 세션 폐기와 비활성이 함께 참이라 404가 우선하며, 앱은 최초 200이나 같은 `DELETE /me` 재시도의 404를 탈퇴 확정으로 본다. 그때만 일반 로그아웃과 별도로 그 userId의 기기 로컬 버킷·마커·누끼 파일을 writer drain 뒤 지운다. 일반 로그아웃과 계정 전환의 보존 정책은 그대로다.
 
 chat/realtime은 별도 DB이므로 Data의 중앙 TX에서 커서를 직접 지우지 않는다. 읽음 보고가 먼저 로컬 잠금을 얻으면 탈퇴 소비자가 그 커서까지 삭제하고, 탈퇴가 먼저면 늦은 보고는 tombstone을 보고 거절한다. Redis 멤버십 캐시가 최대 120초 남거나 늦은 응답이 캐시를 다시 채워도 DB writer는 폐기를 재검사한다. 현 markRead는 캐시 검사 후 별도 UPSERT만 실행하므로 이 보호가 아직 없다. 소비자·모든 cursor writer 통합과 실제 경합 검증 전 파기 완료로 표시하지 않는다. 기존 메시지 본문/sender_id의 보존 정책과 우체통 읽음 표시 여부는 이 개인 이력 파기와 별개다.
+
+같은 tombstone과 개별 로그아웃의 `auth.session.revoked` 세션 fence는 읽음 커서뿐 아니라 REST·STOMP 인가, 기존 구독의 메시지 전달, 메시지 저장 writer에도 적용한다. 멤버십 캐시 hit나 열린 소켓이 탈퇴·로그아웃 뒤 발신·열람 통로가 되지 않도록 소비자 커밋 뒤 캐시를 지우고 모든 인스턴스의 해당 소켓을 끊되, 그 정리가 실패해도 fence 재검사가 막는다.
+
+초대 claim은 claimant와 현재 발급자의 users를 UUID 순서로 공유 잠근 뒤 링크를 다시 읽어 발급자 연결을 확인하고서야 클릭을 잠근다. 무잠금으로 먼저 읽은 발급자 값으로 탈퇴한 발급자의 링크에 늦게 귀속하지 않는다.
 
 ## 설정: 한 필드만 바꾸기
 
