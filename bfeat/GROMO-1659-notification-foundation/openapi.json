@@ -10283,10 +10283,10 @@
           "focusTagName": {
             "type": "string"
           },
-          "pinned": {
+          "focusing": {
             "type": "boolean"
           },
-          "focusing": {
+          "pinned": {
             "type": "boolean"
           },
           "isPinned": {
