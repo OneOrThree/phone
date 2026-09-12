@@ -135,6 +135,54 @@ class NotificationOutboxProducerIntegrationTest {
                 .toList()).hasSize(2);
     }
 
+    /**
+     * 인접 버킷은 <b>통째로</b> 딸려 온다. {@code 12:01:59} 에 쓰면서 {@code 12:00} 버킷을 보면 118초
+     * 전의 {@code 12:00:01} 사건이 잡힌다 — 거절된 뒤 <b>다시 보낸</b> 친구 요청이 「중복」으로
+     * 사라진다. {@code FriendNotificationService} 가 말하는 창은 1분이지 2분이 아니다.
+     *
+     * <p>그래서 키는 넓게 찾되 찾은 행의 <b>실제 시각</b>으로 다시 거른다.
+     */
+    @Test
+    @DisplayName("인접 버킷이어도 실제로 1분을 넘겼으면 별개다 — 거절 뒤 재요청의 통보가 사라지면 안 된다")
+    void anAdjacentBucketHitThatIsActuallyMoreThanAMinuteApartIsNotADuplicate() {
+        UUID userId = UUID.randomUUID();
+        UUID counterpart = UUID.randomUUID();
+        Instant first = Instant.parse("2026-09-11T12:00:01Z");
+        // 같은 «인접 버킷» 관계지만 실제로는 118초 차다.
+        Instant resent = Instant.parse("2026-09-11T12:01:59Z");
+
+        Optional<EventEnvelope> before = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, first)));
+        Optional<EventEnvelope> after = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, resent)));
+
+        assertThat(before).isPresent();
+        assertThat(after)
+                .as("118초 떨어진 재요청은 중복이 아니다 — 접으면 그 통보가 영영 사라진다")
+                .isPresent();
+        assertThat(outboxRepository.findAll().stream()
+                .filter(row -> userId.equals(row.getUserId()))
+                .toList()).hasSize(2);
+    }
+
+    /** 경계를 사이에 두고도 «실제로» 1분 안이면 여전히 한 건이다 — 넓힌 목적이 사라지면 안 된다. */
+    @Test
+    @DisplayName("경계 너머여도 실제로 1분 안이면 한 건이다 — 거르는 층이 넓힌 층을 무력화하면 안 된다")
+    void anAdjacentBucketHitWithinTheRealMinuteIsStillADuplicate() {
+        UUID userId = UUID.randomUUID();
+        UUID counterpart = UUID.randomUUID();
+        Instant first = Instant.parse("2026-09-11T12:00:59Z");
+        Instant second = Instant.parse("2026-09-11T12:01:30Z");
+
+        Optional<EventEnvelope> before = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, first)));
+        Optional<EventEnvelope> after = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, second)));
+
+        assertThat(before).isPresent();
+        assertThat(after).as("31초 차는 여전히 같은 사건의 재감지다").isEmpty();
+    }
+
     @Test
     @DisplayName("몇 분 떨어진 친구 사건은 별개다 — 폭이 넓어지면 다시 보낸 요청의 통보가 사라진다")
     void friendEventsMinutesApartStayDistinct() {

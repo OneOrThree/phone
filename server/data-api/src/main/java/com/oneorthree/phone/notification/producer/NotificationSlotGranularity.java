@@ -50,7 +50,14 @@ public enum NotificationSlotGranularity {
 
     private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final Duration QUARTER = Duration.ofMinutes(15);
-    private static final Duration MINUTE_WIDTH = Duration.ofMinutes(1);
+    /**
+     * 분 축의 실제 dedup 폭.
+     *
+     * <p>{@link #lookupBucketsOf} 가 이 폭만큼 앞뒤 버킷을 더해 «넓게» 찾고,
+     * {@code NotificationOutboxProducer} 가 찾은 행의 실제 시각을 이 폭으로 다시 걸러 «정확히 1분»을
+     * 만든다. 넓힌 쪽만 있으면 인접 버킷이 통째로 딸려 와 최대 2분이 접힌다.
+     */
+    static final Duration MINUTE_WIDTH = Duration.ofMinutes(1);
 
     /**
      * 사건 키에 들어갈 시간 축 문자열.
