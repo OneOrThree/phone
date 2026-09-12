@@ -220,6 +220,12 @@ legacy 자격은 기존 해시→세션 증명으로 구분하며 sid 부재를 
 
 A의 원 RT 폐기는 재등록 성공을 조건으로 무기한 보류하지 않는다. 폐기가 먼저 적용돼 A에 연결된 행이 비활성화돼도 재등록이 B bootstrap으로 다시 연결하고, 재등록이 먼저면 행의 연결이 B로 바뀌어 A 폐기 fence 대상에서 빠진다(§2.4). A의 DELETE 항목은 그 항목 이후 **같은 토큰**의 재등록 성공과 새 `ownershipToken` 저장이 확정됐을 때만 '대체 완료'로 소진하며 B 등록을 지우지 않는다. 토큰이 다르거나 재등록이 없으면 기존 DELETE 규칙을 따른다. crash 뒤에는 채택 확인 → 재등록 → A 정리 순서에서 남은 단계만 재개한다.
 
+**전환 전에 발송된 푸시의 수신 차단.** DELETE와 `auth.session.revoked`는 **이후 발송**만 막는다. 같은 FCM 토큰으로 A→B를 전환할 때 A 등록이 유효한 순간 발송돼 FCM/APNs에 대기 중인 알림은 B 재등록 뒤에도 도착한다. 기준 main 서버 `FcmPushNotificationClient`는 표시 알림을 `notification`(title/body) 페이로드로 보내 앱이 백그라운드·종료 상태면 OS가 앱 코드 없이 배너를 띄우고, 앱 `push.ts`는 포그라운드 `onMessage`·배너 탭 `onNotificationOpenedApp`·콜드스타트 `getInitialNotification`에서 대상 사용자·세션을 확인하지 않고 `saveToInbox`·로컬 배너·딥링크를 실행한다. 그래서 이 경합에서는 B가 A의 제목·본문을 본다.
+
+후속 계약은 세 겹이다. ① **사용자가 바뀌는 전환**(A≠B)은 B 재등록 전에 기존 FCM 토큰을 폐기하고 새 토큰을 발급받아 등록한다. 옛 토큰으로 대기 중인 메시지가 새 계정 기기로 전달되지 않게 하며, 토큰이 달라졌으므로 A의 DELETE 항목은 위 '대체 완료'가 아니라 기존 DELETE 규칙을 따른다. 같은 사용자 s1→s2는 수신자가 같아 토큰을 강제로 바꾸지 않는다. ② 등록 응답에 `ownershipToken`과 함께 등록마다 달라지는 불투명 `deliveryTag`를 추가하고(기존 204→본문 추가와 같은 additive 확장) 앱이 둘을 원자 저장한다. Notification은 모든 표시·silent 푸시 data에 발송 대상 등록의 `deliveryTag`를 싣는다. ③ 앱은 `onMessage`·`onNotificationOpenedApp`·`getInitialNotification`·백그라운드 data 핸들러에서 **보관함 저장·로컬 배너·딥링크·silent flush 직전** 현재 채택 세션의 저장 태그와 대조하고, 불일치면 저장·표시·이동·flush 없이 버린다. 태그 없는 legacy 푸시는 새 태그를 저장한 뒤로는 같은 방식으로 버린다. 같은 사용자 s1→s2 이전 세션의 푸시가 표시에서 빠질 수 있지만 서버 정본 화면에서 다시 확인된다.
+
+**남는 한계**: 이미 APNs/OS에 넘어가 앱이 백그라운드일 때 OS가 자동 표시한 배너는 서버·앱이 회수할 수 없다. 토큰 교체가 대기분을 줄이고 탭·보관함·딥링크 경로는 태그 대조로 막지만, 전환 직후 짧은 창의 OS 배너 노출은 완료로 표시하지 않고 드러낸다. 전환 시 기존 표시 알림은 로컬에서 모두 지운다. 표시 푸시를 data-only와 로컬 표시로 바꾸는 방안은 iOS 백그라운드 전달 제약을 검증한 뒤 별도로 판단하며 이 문서가 확정하지 않는다.
+
 전달 도중 B→A 또는 제3계정 전환이 시작돼도 원 항목의 주체·대상·키는 불변이다. 새 로그인은 새로운
 ownership/세션을 가지므로 늦은 삭제·폐기가 새 등록이나 다른 기기를 지우지 않는다. 전환 generation 대조는
 로컬 상태 정리에 사용하며 사용자 authGeneration을 올리거나 계정을 합치지 않는다. 새 계정의 같은 FCM
@@ -505,7 +511,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | invite_link_clicks.claimedUserId·클릭 연결 | main 직접 파기 없음 | 선행 PR745(9ad4236, 1659 기반)의 [InviteLinkClickRepository.anonymizeClaimedUser](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/InviteLinkClickRepository.java#L128-L140)와 링크 위성 폐기 전달 재사용. claimed_at 소진 표지는 보존하며 Data 후보/domain 모두 claimed_user_id IS NULL AND claimed_at IS NULL만 미소비로 인정. claim 클릭의 matched_device_id·app_instance_id·ip_hash·user_agent도 같은 중앙 TX와 링크 위성 파기에서 제거하되 GA4 삭제 작업에 필요한 app_instance_id는 먼저 내구 기록. matched·claimed_at·os·시각은 소진·퍼널 근거로 보존 |
 | 신규 auth session RT/bootstrap hash·로그인 시도 자격 digest·고정 서명 재료 | main 새 모델 없음 | legacy 승격 전용 복구 receipt/고정 재료도 탈퇴 때 폐기하고 세션 폐기와 원문 재발급을 차단. 남기는 폐기 tombstone은 최소 sessionId/epoch/만료 정보로 제한하고 사용자 연계 자격은 파기 |
 | 신규 일반 receipt·outbox·위성 projection 속 name/catColor/기기 자격 | 신규 자료 | 탈퇴 TX에서 직접 PII가 든 중앙 복사본 제거/대체, 대상별 outbox로 위성 파기. 삭제 receipt는 deleted 결과만 보유하며 개인 응답 재생 금지 |
-| user-activity user_id·APP MDC user_id 및 로컬/회전/호스트·외부 적재 로그/trace/DLT 복사본 | 정상 계측도 사용자 UUID를 남김. main 로그 설정과 운영 compose에 파일·외부 전송 경로가 있으나 실제 외부 구성/파기 구현은 미확인 | 저장소별 정상 수집 UUID·사용자 연결을 삭제/비식별화. 중앙 탈퇴의 내구 파기 작업, sink 직전 폐기 fence·기존 queue/rotate/upload 재생 차단 및 복사본별 완료 검증이 필요. maxHistory를 승인된 보존 근거로 대신하지 않음. GA4/Firebase의 user_id·app_instance_id·설치 device_id 연결과 서버 MP 전송분도 포함 |
+| user-activity user_id·APP MDC user_id 및 로컬/회전/호스트·외부 적재 로그/trace/DLT 복사본 | 정상 계측도 사용자 UUID를 남김. main 로그 설정과 운영 compose에 파일·외부 전송 경로가 있으나 실제 외부 구성/파기 구현은 미확인 | 저장소별 정상 수집 UUID·사용자 연결을 삭제/비식별화. 중앙 탈퇴의 내구 파기 작업, sink 직전 폐기 fence·기존 queue/rotate/upload 재생 차단 및 복사본별 완료 검증이 필요. maxHistory를 승인된 보존 근거로 대신하지 않음. GA4/Firebase의 user_id·app_instance_id·설치 device_id 연결과 서버 MP 전송분도 포함. 서버 MP는 user_id 없이 app_instance_id만 보내므로 직접 가입 등 서버가 받은 값을 삭제 키 등록부로 보존해 작업 입력에 포함 |
 | 기기 AsyncStorage의 사용자별 버킷·UUID 마커와 로컬 누끼 파일 | 탈퇴 성공도 일반 triggerLogout을 타며, 일반 로그아웃은 equipmentV2·ownedItemsV2 계정별 맵을 의도적으로 보존. character(customUri·createdAt)·groupCardOrder/Emoji·userId가 든 회차 결과/정산/스크린타임 마커도 남음 | 일반 로그아웃·계정 전환의 보존 정책은 유지하고 탈퇴 확정 때만 그 userId 항목·마커·앱 소유 누끼 파일을 writer drain 뒤 제거. 다른 계정 버킷·기기 전역 값은 보존. 아래 기기 로컬 절 적용 |
 
 main User 주석은 retention→purge를 언급하지만 현재 조회한 `erasePersonalData`는 즉시 물리 삭제가 아니다. 기존 행의 보존 근거/기간 없이 무기한 보존을 새 정책으로 채택하지 않는다. 위 표에서 '추가'로 표시한 파기는 해당 소유 모델과 FK를 실제 검증해야 하며 새 catColor 하나만 null 처리하고 전수 파기 완료로 닫지 않는다.
@@ -535,7 +541,7 @@ BEFORE_COMMIT/MANDATORY에서 OUTBOX 모드일 때만 enqueue한다. 이어
 후속 파기 구현도 이 선점을 유지하고 [PR752의 실제 PostgreSQL 양방향 회귀](https://github.com/OneOrThree/phone/blob/9288277f9d1db3049a81aa44cabed7d66279c333/server/data-api/src/test/java/com/oneorthree/phone/internal/HostTransferIntegrationTest.java#L356-L405)를 보존한다.
 그룹 선점만으로 환불·PII 파기를 먼저 실행하지 않는다.
 
-`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹·chat/realtime 대상 user.withdrawn outbox 및 GA4 사용자 삭제 작업(user_id·app_instance_id) 내구 기록 → 그룹 조건·내기 해제 환불·증거 동결·멤버십 이탈과 개인 설정 초기화 → bet participant 열람/표시 lease 3필드 nullify → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_generation 본인 생성 이력 및 character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 본인 group_invite_links.inviter_id 비식별화·claim 클릭의 기기/GA4/IP 해시/UA 식별자 파기·양방향 group_invites·user_blocks·friendships(status·deleted_at 무관)·pinned_users 및 본인 user_streaks 삭제와 신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
+`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹·chat/realtime 대상 user.withdrawn outbox 및 GA4 사용자 삭제 작업(user_id·클릭/등록부 app_instance_id) 내구 기록과 앱 인스턴스 등록부 행 삭제 → 그룹 조건·내기 해제 환불·증거 동결·멤버십 이탈과 개인 설정 초기화 → bet participant 열람/표시 lease 3필드 nullify → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_generation 본인 생성 이력 및 character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 본인 group_invite_links.inviter_id 비식별화·claim 클릭의 기기/GA4/IP 해시/UA 식별자 파기·양방향 group_invites·user_blocks·friendships(status·deleted_at 무관)·pinned_users 및 본인 user_streaks 삭제와 신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
 
 `socialAccountRepository.deleteByUserId`는 `flushAutomatically` 후 `clearAutomatically`로 영속성 컨텍스트를 비운다. 따라서 user.catColor 등 엔티티 변경을 그 뒤에 붙이면 저장되지 않는다. 모든 엔티티 파기를 앞에 배치하고 마지막 bulk delete 뒤에는 분리된 엔티티를 수정하지 않는다. 멱등 결과 저장은 이 clear를 고려해 명시적으로 영속화하며 사용자 PII 수정의 순서를 뒤집지 않는다.
 
@@ -788,7 +794,11 @@ MDC 및 payload의 동일 사용자 연결을 비식별화하고, 안전하게 �
 
 **GA4/Firebase 분석 자료도 같은 파기 범위다.** 기준 main 앱의 `UserContext`는 사용자 UUID를 GA4 User-ID로 설정하고, `AccountScreen.handleWithdraw`는 탈퇴 API 성공 뒤 `setUserId(null)`보다 먼저 `withdrawal_confirmed`를 보낸다. 설치 device_id는 모든 이벤트의 공통 파라미터이고, 서버 `Ga4MeasurementClientImpl`은 `app_instance_id`로 초대 매치·가입 이벤트를 GA4 앱스트림에 보낸다. 위 서버 로그 파기만으로는 외부 분석 저장소의 UUID 행동 이력이 없어지지 않는다.
 
-중앙 탈퇴 TX는 기존 outbox 계약으로 GA4 사용자 삭제 작업의 내구 근거(user_id와 서버가 보유한 claim 클릭의 app_instance_id)를 기록한다. 외부 호출은 TX 밖 소유자가 GA4 사용자 삭제 요청(user_id·app_instance_id 식별자)으로 수행한다. 요청 뒤 늦게 올라온 앱 오프라인 큐나 서버 비동기 MP 전송이 삭제한 연결을 다시 만들 수 있으므로, GA4가 지연 이벤트를 받는 기간이 지난 뒤 같은 식별자로 한 번 더 요청하고 대상/상태/실패 재시도/완료 증거를 남긴다. 작업 입력 식별자는 완료 뒤 지우며 활동 payload를 복사하지 않는다. 폐기된 사용자의 서버 MP 전송은 전송 직전 폐기 fence에서 거절한다.
+중앙 탈퇴 TX는 기존 outbox 계약으로 GA4 사용자 삭제 작업의 내구 근거(user_id, 서버가 보유한 claim 클릭의 app_instance_id, 아래 앱 인스턴스 등록부의 app_instance_id)를 기록한다. 외부 호출은 TX 밖 소유자가 GA4 사용자 삭제 요청(user_id·app_instance_id 식별자)으로 수행한다. 요청 뒤 늦게 올라온 앱 오프라인 큐나 서버 비동기 MP 전송이 삭제한 연결을 다시 만들 수 있으므로, GA4가 지연 이벤트를 받는 기간이 지난 뒤 같은 식별자로 한 번 더 요청하고 대상/상태/실패 재시도/완료 증거를 남긴다. 작업 입력 식별자는 완료 뒤 지우며 활동 payload를 복사하지 않는다. 폐기된 사용자의 서버 MP 전송은 전송 직전 폐기 fence에서 거절한다.
+
+**직접 참가의 앱스트림 식별자.** 기준 main `GroupService.publishJoinAttribution`은 `JoinGroupRequest.appInstanceId`로 GA4 `group_joined`를 커밋 뒤 전송하지만 그 값을 저장하지 않고, `Ga4MeasurementClientImpl.sendAppEvent` 본문은 `app_instance_id`와 이벤트만 담아 `user_id`가 없다. `InviteLinkClick.appInstanceId`는 deferred 매치의 `markMatched`에서만 저장된다. 따라서 user_id 삭제 요청만으로는 직접 초대·검색 가입의 서버 MP 자료가 지워지지 않고, `DELETE /me`는 `confirmation`만 받으며 200 뒤 앱의 식별자 재설정도 과거 자료를 없애지 않는다.
+
+후속 구현은 공개 계약을 바꾸지 않고 Data에 **삭제 키 전용 앱 인스턴스 등록부**(user_id·app_instance_id·최초 기록 시각)를 둔다. 서버가 사용자 맥락으로 app_instance_id를 받아 GA4에 보내는 모든 경로(가입 요청, 매치 claim 등)는 그 요청의 도메인 TX 안에서 등록부에 멱등 기록하고, 전송은 기존대로 커밋 뒤에 한다. 등록부는 GA4 삭제 작업 입력 외 조회·분석·표시에 쓰지 않는다. 중앙 탈퇴 TX는 등록부 값을 삭제 작업 입력으로 옮기고 등록부 행을 삭제하며, 작업 입력은 완료 뒤 지운다. 등록부 도입 전에 전송돼 서버가 모르는 app_instance_id는 되찾을 수 없으므로 완료로 표시하지 않는다. 탈퇴하지 않는 사용자의 등록부 보관은 GA4 데이터 보존 설정을 넘기지 않게 운영 정리하되 이 문서가 새 보존 기간을 확정하지 않는다.
 
 앱은 탈퇴 성공을 받으면 **사용자 연결 이벤트를 더 보내지 않는다.** User-ID와 계정 user property를 해제하고, Firebase 분석 자료 재설정으로 `app_instance_id`를, 설치 device_id도 재발급한 뒤에만 이후 이벤트를 보낸다. 탈퇴 확인 지표가 필요하면 식별자 해제·재설정 뒤의 비연결 이벤트나 서버 집계로 대체한다. 현행처럼 User-ID가 붙은 채 `withdrawal_confirmed`를 보내는 순서는 허용하지 않는다. 실제 GA4 속성·연결된 내보내기·삭제 권한 구성이 확인되기 전에는 GA4 파기 완료를 주장하지 않는다.
 
@@ -975,6 +985,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 정상 회전 CAS commit 뒤 AT만 저장·응답 전체 유실·프로세스 종료 | 동일 sub/sid/gen도 구 RT 혼합을 통과시키지 않음, 미검증 클라이언트/복구 미확정 경로는 회전 비활성, 원 만료 유지·일반 CAS0은401·Q06 미결 유지 |
 | 동일 사용자 s1→s2 재로그인·s3 전환 경합·rollback | commit 뒤 s1의 고정 큐/원 RT만 정리, s2/s3·다른 기기 보존, 동일 sid refresh cleanup0, rollback이면 s1 보존 |
 | 같은 사용자 s1→s2 재로그인의 재등록·s1 DELETE·auth.session.revoked 순서 역전·재등록 전후 crash·푸시 권한 없음·토큰 갱신 | s2 bootstrap 재등록 뒤 푸시 유지·새 ownershipToken 원자 저장으로 다음 logout/전환 DELETE CAS 성공, s1 폐기 선행이어도 재등록이 재연결, 같은 토큰 새 ownership 확인 시에만 s1 DELETE 대체 완료·s2 등록 삭제0, 권한 없음은 대상 없음, 재개는 남은 단계만 |
+| 같은 토큰 A→B 전환 직전 A 발송 푸시가 포그라운드·배너 탭·콜드스타트·백그라운드 data로 도착, 태그 없는 legacy 푸시, 같은 사용자 s1→s2 | A≠B면 토큰 교체 뒤 대기분 전달0, 태그 불일치 푸시의 보관함 저장·로컬 배너·딥링크·flush 0, 전환 시 기존 표시 알림 제거, OS 자동 표시 잔존은 완료 주장0 |
 | AT/RT sid·subject·authGeneration 불일치·한쪽 부재 및 지연 복구 | 로컬 generation과 서버 세대 각각 검증, 다른 세션/사용자 조합으로 Ready 또는 자동 새 guest 생성0 |
 | 강제 승격과 로그인/logout/401 경합·자격 저장 중 종료 | single-flight/generation fencing, AT/RT 혼합0·옛 응답 덮어쓰기0, 불완전 저장은 gate 미개방 |
 | legacy 게스트 승격 커밋 뒤 응답 유실·앱 원자 저장 실패·동시 같은 원RT | 같은 승격 receipt의 동일 sid/AT/RT 복구, userId/지갑/집중/그룹 보존, 새 guest·중복 세션·옛 해시 부활0 |
@@ -1030,6 +1041,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 로그 캡처/에러/trace | 자격 헤더·PII·원문 제공자 payload·서명 재료 노출 0 |
 | 정상 계측 UUID·APP MDC·큐/회전/외부 upload와 탈퇴 경합 | sink별 사용자 연결 제거·늦은 재부착0, 타인 보존·실패 내구 재시도·복사본별 완료 증거, 미확인 외부 저장소 완료 주장0 |
 | GA4 User-ID·app_instance_id·설치 device_id·탈퇴 성공 뒤 앱 이벤트·서버 MP 지연 전송 | 삭제 작업 내구 기록·실패 재시도·지연 기간 뒤 재요청, 탈퇴 뒤 옛 User-ID/app_instance_id/device_id로 전송0, 미확인 GA4 구성의 완료 주장0 |
+| 직접 초대·검색 가입(appInstanceId 포함)·deferred claim 뒤 탈퇴, 가입 TX rollback, 등록부 도입 전 가입 | 삭제 작업 입력에 가입·클릭 app_instance_id 포함·등록부 행0, rollback된 가입은 등록0, 도입 전 식별자는 완료 주장0, DELETE /me 계약 불변 |
 | 탈퇴 200·응답 유실 뒤 재시도 404·다른 기기 탈퇴 뒤 404, 마운트된 Provider의 늦은 쓰기·정리 중 앱 종료, 같은 기기의 다른 계정 버킷 | 탈퇴자 userId 항목·마커·누끼 파일0, 늦은 쓰기 부활0·다음 실행 재개, 다른 계정 버킷·기기 전역 값 보존, 일반 로그아웃/계정 전환 보존 정책 불변 |
 | 미리보기 claim 직후·worker 완료 직전·rate 증가 중 탈퇴, 만료 전 AT의 새 요청/조회/썸네일, HOST_WITHDRAW 실패·응답 유실·표지 뒤 crash | 탈퇴 확정 뒤 preview/rate 키0·재생성0, 확정 실패면 표지 해제로 정상 미리보기 복구, 불명확 결과는 표지 유지·재확인, 표지 뒤 crash 잔존은 TTL 상한 안에서만 남고 완료 주장0 |
 
@@ -1069,6 +1081,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `server/business-api/src/main/java/com/oneorthree/business/linkpreview/repository/PreviewCache.java`, `service/PreviewService.java`, `PreviewController.java` | 사용자 UUID 키·pending 90/READY 300/FAILED 30초·rate 60초, CAS complete, worker 비동기 완료, 활성 검사 없음 |
 | `server/data-api/src/main/java/com/oneorthree/phone/group/service/GroupBetService.java`(toResultParticipants·loadCurrentBets·toSessionResponse·displayNickname), `group/dto/GroupBetResultParticipantResponse.java`·`GroupBetResponse.java`·`GroupBetParticipantResponse.java`·`GroupBetSessionParticipantResponse.java`; 선행 PR745 `9ad4236`의 `server/business-api/.../usecase/NotificationSettingsUseCase.java`·`api/dto/DeviceTokenRegisterResponse.java`·`app/app-dev/src/services/notificationCommands.ts` | 결과·현재 회차·세션 참가자 모두 탈퇴자 닉네임만 치환·실제 userId(creatorUserId 포함) 반환, 설정 GET 정본 조회·PUT 내구 명령 뒤 적용, 등록 응답 ownershipToken과 앱 승계·X-Device-Ownership |
 | `server/data-api/src/main/java/com/oneorthree/phone/common/port/RedisFocusPresence.java`, `focus/scheduler/FocusPresenceReconciler.java`, `app/app-dev/src/components/PushGate.tsx` | AFTER_COMMIT SET_IF_NEWER·SET_IF_ABSENT의 closed/세션 순서 비교, lease 시작 기준 13시간, 트랜잭션 밖 재구축 쓰기, 등록 effect의 [userId] 의존 |
+| `server/data-api/src/main/java/com/oneorthree/phone/notification/client/FcmPushNotificationClient.java`, `group/service/GroupService.java`(publishJoinAttribution·ga4JoinParams), `common/analytics/Ga4MeasurementClientImpl.java`, `app/app-dev/src/services/push.ts`·`pushBackground.ts` | 표시 알림 notification 페이로드·silent content-available, 가입 MP의 app_instance_id 미저장·user_id 없는 본문, 수신·탭·콜드스타트의 대상 미확인 saveToInbox·로컬 배너·딥링크 |
 | `server/data-api/src/main/java/com/oneorthree/phone/invitelink/service/InviteLinkMatchService.java`, `repository/GroupInviteLinkRepository.java`, `repository/InviteLinkClickRepository.java` | claim의 무잠금 findBySlug, 클릭 PESSIMISTIC_WRITE·SKIP LOCKED, 먼저 읽은 inviterId 귀속 |
 | `server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java` | anonymizeWithdrawnUser |
 | `server/data-api/src/main/java/com/oneorthree/phone/stats/service/StatsService.java` | anonymizeWithdrawnUser |

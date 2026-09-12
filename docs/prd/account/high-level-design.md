@@ -154,6 +154,8 @@ flowchart TD
 
 commit 뒤에는 결과 세션 채택 확인에 이어 현재 FCM 토큰을 새 세션 bootstrap으로 다시 등록하고 응답의 새 ownershipToken을 토큰과 함께 원자 저장해 이후 등록·삭제 CAS에 쓴다. 같은 사용자 재로그인은 userId가 같아 기존 등록 effect가 다시 돌지 않으므로, 이 단계가 없으면 이전 세션 정리 뒤 푸시가 끊긴다. 이전 세션 DELETE는 같은 토큰의 새 ownership이 확인됐을 때만 대체 완료로 소진한다.
 
+전환 전에 발송돼 대기 중인 푸시는 DELETE·세션 폐기로 막히지 않는다. 사용자가 바뀌는 전환은 재등록 전에 FCM 토큰을 교체하고, 등록마다 다른 `deliveryTag`를 푸시 data에 실어 앱이 보관함 저장·로컬 배너·딥링크·flush 직전 현재 태그와 대조한다. 이미 OS가 자동 표시한 배너는 회수할 수 없어 한계로 드러낸다.
+
 ## 탈퇴: 중앙 원자 처리와 위성 정리
 
 ```mermaid
@@ -215,6 +217,8 @@ claim 클릭의 matched_device_id·app_instance_id·ip_hash·user_agent도 같�
 Business Redis의 링크 미리보기 캐시와 Data 공유 Redis의 집중 프레즌스도 사용자 UUID 키를 만든다. 미리보기는 Data→Business 전달이 금지이므로 Business가 탈퇴 명령 전에 차단 표지를 두고 비동기 완료·조회가 이를 원자 대조하며, 탈퇴 확정 뒤 prefix를 지운다. 프레즌스는 시작 커밋 콜백과 재구축 Lua가 같은 Redis의 tombstone을 한 스크립트에서 대조해 제거 뒤 재생성을 막는다.
 
 GA4도 User-ID·app_instance_id·설치 device_id로 같은 사용자를 잇는다. 중앙 TX는 GA4 사용자 삭제 작업을 내구 기록하고, TX 밖에서 삭제 요청·지연 이벤트 뒤 재요청·완료 증거를 관리한다. 앱은 탈퇴 성공 뒤 식별자를 해제·재설정하기 전에는 사용자 연결 이벤트를 보내지 않는다.
+
+서버 MP 이벤트는 user_id 없이 app_instance_id만 보내므로, 가입 등에서 서버가 받은 app_instance_id를 삭제 키 전용 등록부에 도메인 TX로 기록하고 탈퇴 때 GA4 삭제 작업 입력으로 옮긴 뒤 행을 지운다. `DELETE /me` 계약은 바꾸지 않는다.
 
 공통 인증 검사는 AT 서명·타입·만료(401) → 사용자 활성(404 `USER_NOT_FOUND`) → 세션·authGeneration(401) 순서다. 탈퇴 뒤 옛 AT는 세션 폐기와 비활성이 함께 참이라 404가 우선하며, 앱은 최초 200이나 같은 `DELETE /me` 재시도의 404를 탈퇴 확정으로 본다. 그때만 일반 로그아웃과 별도로 그 userId의 기기 로컬 버킷·마커·누끼 파일을 writer drain 뒤 지운다. 일반 로그아웃과 계정 전환의 보존 정책은 그대로다.
 
