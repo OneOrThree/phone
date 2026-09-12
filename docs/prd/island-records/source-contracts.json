@@ -1,0 +1,92 @@
+[
+  {
+    "id": "focus-stats",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/statistics/focus",
+    "method": "GET",
+    "path": "/islands/{islandId}/statistics/focus",
+    "request_example": {
+      "from": "2026-09-07",
+      "to": "2026-09-13",
+      "timezone": "Asia/Seoul",
+      "scope": "me",
+      "cursor": null
+    },
+    "response_example": {
+      "data": {
+        "scope": "me",
+        "totalSeconds": 1500,
+        "series": [
+          {
+            "date": "2026-09-11",
+            "seconds": 1500
+          }
+        ],
+        "records": [
+          {
+            "id": "focus-1",
+            "subject": "수학",
+            "activeSeconds": 1500,
+            "completedAt": "2026-09-11T09:10:00Z"
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1769",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "screen-stats",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/statistics/screen-time",
+    "method": "GET",
+    "path": "/islands/{islandId}/statistics/screen-time",
+    "request_example": {
+      "from": "2026-09-07",
+      "to": "2026-09-13",
+      "timezone": "Asia/Seoul",
+      "scope": "me"
+    },
+    "response_example": {
+      "data": {
+        "scope": "me",
+        "measurementStatus": "unavailable",
+        "totalMinutes": null,
+        "series": [],
+        "updatedAt": null
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1769",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "screen-upload",
+    "source_method": "PUT",
+    "source_path": "/v1/me/screen-time/{date}",
+    "method": "PUT",
+    "path": "/me/screen-time/{date}",
+    "request_example": {
+      "minutes": 90,
+      "measurementStatus": "authorized",
+      "timezone": "Asia/Seoul",
+      "measuredAt": "2026-09-11T09:10:00Z",
+      "deviceId": "device-1"
+    },
+    "response_example": {
+      "data": {
+        "date": "2026-09-11",
+        "minutes": 90,
+        "measurementStatus": "authorized"
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1769",
+    "code": [],
+    "tests": []
+  }
+]

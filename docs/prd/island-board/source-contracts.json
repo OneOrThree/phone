@@ -1,0 +1,119 @@
+[
+  {
+    "id": "notices",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/notices",
+    "method": "GET",
+    "path": "/islands/{islandId}/notices",
+    "request_example": {
+      "cursor": null
+    },
+    "response_example": {
+      "data": {
+        "items": [
+          {
+            "id": "welcome",
+            "title": "환영해요",
+            "commentCount": 1
+          }
+        ],
+        "nextCursor": null
+      }
+    }
+  },
+  {
+    "id": "notice",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/notices/{noticeId}",
+    "method": "GET",
+    "path": "/islands/{islandId}/notices/{noticeId}",
+    "request_example": {
+      "commentsCursor": null
+    },
+    "response_example": {
+      "data": {
+        "id": "welcome",
+        "title": "환영해요",
+        "body": "각자의 할 일에 집중해요",
+        "version": 1,
+        "comments": [
+          {
+            "id": "c1",
+            "userId": "minji",
+            "name": "민지",
+            "catColor": "ginger",
+            "text": "좋아요",
+            "createdAt": "2026-09-11T09:10:00Z"
+          }
+        ],
+        "nextCommentsCursor": null
+      }
+    }
+  },
+  {
+    "id": "notice-create",
+    "source_method": "POST",
+    "source_path": "/v1/islands/{islandId}/notices",
+    "method": "POST",
+    "path": "/islands/{islandId}/notices",
+    "request_example": {
+      "title": "공지 제목",
+      "body": "내용"
+    },
+    "response_example": {
+      "data": {
+        "id": "notice-new",
+        "title": "공지 제목",
+        "body": "내용"
+      }
+    }
+  },
+  {
+    "id": "notice-edit",
+    "source_method": "PATCH",
+    "source_path": "/v1/islands/{islandId}/notices/{noticeId}",
+    "method": "PATCH",
+    "path": "/islands/{islandId}/notices/{noticeId}",
+    "request_example": {
+      "title": "수정 제목",
+      "body": "수정 내용"
+    },
+    "response_example": {
+      "data": {
+        "id": "notice-new",
+        "title": "수정 제목",
+        "body": "수정 내용"
+      }
+    }
+  },
+  {
+    "id": "notice-delete",
+    "source_method": "DELETE",
+    "source_path": "/v1/islands/{islandId}/notices/{noticeId}",
+    "method": "DELETE",
+    "path": "/islands/{islandId}/notices/{noticeId}",
+    "request_example": {},
+    "response_example": {
+      "data": {
+        "deleted": true
+      }
+    }
+  },
+  {
+    "id": "comment",
+    "source_method": "POST",
+    "source_path": "/v1/islands/{islandId}/notices/{noticeId}/comments",
+    "method": "POST",
+    "path": "/islands/{islandId}/notices/{noticeId}/comments",
+    "request_example": {
+      "text": "좋아요"
+    },
+    "response_example": {
+      "data": {
+        "id": "c2",
+        "name": "수빈",
+        "text": "좋아요"
+      }
+    }
+  }
+]

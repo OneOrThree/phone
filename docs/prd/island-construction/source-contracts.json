@@ -1,0 +1,109 @@
+[
+  {
+    "id": "buildables",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/construction-options",
+    "method": "GET",
+    "path": "/islands/{islandId}/construction-options",
+    "request_example": {},
+    "response_example": {
+      "data": {
+        "islandVersion": 4,
+        "selectedBuildingId": "gram",
+        "villagePoints": 150,
+        "items": [
+          {
+            "id": "tower",
+            "name": "전망대",
+            "cost": 300,
+            "currency": "village_points",
+            "selectable": true,
+            "buildable": false,
+            "blockedReason": "INSUFFICIENT_FUNDS"
+          },
+          {
+            "id": "mail",
+            "name": "우체통",
+            "cost": 400,
+            "currency": "village_points",
+            "selectable": true,
+            "buildable": false,
+            "blockedReason": "INSUFFICIENT_FUNDS"
+          },
+          {
+            "id": "gram",
+            "name": "꽃나팔 방송기",
+            "cost": 100,
+            "currency": "village_points",
+            "selectable": true,
+            "buildable": true,
+            "blockedReason": null
+          },
+          {
+            "id": "shop",
+            "name": "상점",
+            "cost": 500,
+            "currency": "village_points",
+            "selectable": false,
+            "buildable": false,
+            "blockedReason": "REQUIRES_TOWER_AND_MAIL"
+          }
+        ]
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1767",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "build",
+    "source_method": "POST",
+    "source_path": "/v1/islands/{islandId}/constructions",
+    "method": "POST",
+    "path": "/islands/{islandId}/constructions",
+    "request_example": {
+      "buildingId": "gram",
+      "expectedVersion": 4
+    },
+    "response_example": {
+      "data": {
+        "buildingId": "gram",
+        "status": "completed",
+        "spent": {
+          "currency": "village_points",
+          "amount": 100
+        },
+        "version": 5,
+        "villagePoints": 50
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1767",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "build-target",
+    "source_method": "PUT",
+    "source_path": "/v1/islands/{islandId}/construction-target",
+    "method": "PUT",
+    "path": "/islands/{islandId}/construction-target",
+    "request_example": {
+      "buildingId": "gram",
+      "expectedVersion": 4
+    },
+    "response_example": {
+      "data": {
+        "buildingId": "gram",
+        "selected": true,
+        "spent": 0,
+        "version": 5
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1767",
+    "code": [],
+    "tests": []
+  }
+]

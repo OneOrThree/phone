@@ -1,0 +1,872 @@
+{
+  "source": {
+    "name": "GROMO-화면별-API-스펙.html",
+    "revision": "v0.3-proposed",
+    "bytes": 154704,
+    "sha256": "2b56a4553d75863f1c1db50fd1c1f7123dd21ecf99bac4d38959ad945e9f9c30",
+    "original_domain_contract_count": 66,
+    "original_screen_group_count": 34,
+    "multi_get_group_count": 14,
+    "merged_alias": "screen-stats is the same record UI as screen-hall"
+  },
+  "new_bff_contract_count": 13,
+  "screens": [
+    {
+      "screen": "home",
+      "source_screen_ids": [
+        "screen-home"
+      ],
+      "method": "GET",
+      "path": "/screens/home",
+      "implementation_ticket": "GROMO-1785",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "island",
+        "home-summary",
+        "session"
+      ],
+      "action_ingredient_ids_not_aggregated": [
+        "build"
+      ]
+    },
+    {
+      "screen": "travel",
+      "source_screen_ids": [
+        "screen-travel"
+      ],
+      "method": "GET",
+      "path": "/screens/travel/{islandId}",
+      "implementation_ticket": "GROMO-1785",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "island",
+        "playback"
+      ],
+      "action_ingredient_ids_not_aggregated": [
+        "switch"
+      ]
+    },
+    {
+      "screen": "focus",
+      "source_screen_ids": [
+        "screen-focus"
+      ],
+      "method": "GET",
+      "path": "/screens/focus",
+      "implementation_ticket": "GROMO-1785",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "session",
+        "focus-group",
+        "playback"
+      ],
+      "action_ingredient_ids_not_aggregated": [
+        "emote",
+        "pause",
+        "finish"
+      ]
+    },
+    {
+      "screen": "sound",
+      "source_screen_ids": [
+        "screen-sound"
+      ],
+      "method": "GET",
+      "path": "/screens/sound",
+      "implementation_ticket": "GROMO-1785",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "shared-inventory",
+        "playback"
+      ],
+      "action_ingredient_ids_not_aggregated": [
+        "playback-save"
+      ]
+    },
+    {
+      "screen": "rest",
+      "source_screen_ids": [
+        "screen-rest"
+      ],
+      "method": "GET",
+      "path": "/screens/rest",
+      "implementation_ticket": "GROMO-1785",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "session",
+        "rest-members"
+      ],
+      "action_ingredient_ids_not_aggregated": [
+        "resume",
+        "finish"
+      ]
+    },
+    {
+      "screen": "hall",
+      "source_screen_ids": [
+        "screen-hall",
+        "screen-stats"
+      ],
+      "method": "GET",
+      "path": "/screens/hall",
+      "implementation_ticket": "GROMO-1786",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "focus-stats",
+        "screen-stats"
+      ],
+      "action_ingredient_ids_not_aggregated": []
+    },
+    {
+      "screen": "island-manage",
+      "source_screen_ids": [
+        "screen-manage"
+      ],
+      "method": "GET",
+      "path": "/screens/island-manage",
+      "implementation_ticket": "GROMO-1786",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "island",
+        "members",
+        "requests"
+      ],
+      "action_ingredient_ids_not_aggregated": [
+        "manage",
+        "request-answer",
+        "invite",
+        "transfer",
+        "kick",
+        "leave"
+      ]
+    },
+    {
+      "screen": "board",
+      "source_screen_ids": [
+        "screen-board"
+      ],
+      "method": "GET",
+      "path": "/screens/board",
+      "implementation_ticket": "GROMO-1786",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "quests",
+        "notices"
+      ],
+      "action_ingredient_ids_not_aggregated": []
+    },
+    {
+      "screen": "tower",
+      "source_screen_ids": [
+        "screen-tower"
+      ],
+      "method": "GET",
+      "path": "/screens/tower",
+      "implementation_ticket": "GROMO-1786",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "rank",
+        "rank-islands"
+      ],
+      "action_ingredient_ids_not_aggregated": []
+    },
+    {
+      "screen": "explore",
+      "source_screen_ids": [
+        "screen-explore"
+      ],
+      "method": "GET",
+      "path": "/screens/explore",
+      "implementation_ticket": "GROMO-1787",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "islands",
+        "memberships"
+      ],
+      "action_ingredient_ids_not_aggregated": [
+        "invite-resolve"
+      ]
+    },
+    {
+      "screen": "visit",
+      "source_screen_ids": [
+        "screen-visit"
+      ],
+      "method": "GET",
+      "path": "/screens/visit/{islandId}",
+      "implementation_ticket": "GROMO-1787",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "island",
+        "join-status"
+      ],
+      "action_ingredient_ids_not_aggregated": [
+        "join",
+        "join-cancel"
+      ]
+    },
+    {
+      "screen": "shop",
+      "source_screen_ids": [
+        "screen-shop"
+      ],
+      "method": "GET",
+      "path": "/screens/shop",
+      "implementation_ticket": "GROMO-1787",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "wallet",
+        "catalog",
+        "shared-inventory"
+      ],
+      "action_ingredient_ids_not_aggregated": []
+    },
+    {
+      "screen": "boat",
+      "source_screen_ids": [
+        "screen-boat"
+      ],
+      "method": "GET",
+      "path": "/screens/boat",
+      "implementation_ticket": "GROMO-1787",
+      "implementation_status": "not_started",
+      "read_ingredient_ids": [
+        "inventory",
+        "me"
+      ],
+      "action_ingredient_ids_not_aggregated": []
+    }
+  ],
+  "domain_ingredients": [
+    {
+      "id": "me",
+      "source_method": "GET",
+      "source_path": "/v1/me",
+      "method": "GET",
+      "path": "/me",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "id": "me",
+          "name": "수빈",
+          "catColor": "black",
+          "linkedProviders": [
+            "apple"
+          ],
+          "onboardingComplete": true
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1757",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "islands",
+      "source_method": "GET",
+      "source_path": "/v1/islands",
+      "method": "GET",
+      "path": "/islands",
+      "request_example": {
+        "q": "딸기",
+        "cursor": null,
+        "limit": 20
+      },
+      "response_example": {
+        "data": {
+          "items": [
+            {
+              "id": "strawberry",
+              "name": "딸기 섬",
+              "intro": "각자의 속도로 집중해요",
+              "visibility": "public",
+              "approvalRequired": false,
+              "memberCount": 3,
+              "membershipStatus": "none",
+              "growthStage": "02-notice-board",
+              "themeId": "default"
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1759",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "memberships",
+      "source_method": "GET",
+      "source_path": "/v1/me/islands",
+      "method": "GET",
+      "path": "/me/islands",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "items": [
+            {
+              "id": "strawberry",
+              "name": "딸기 섬",
+              "intro": "각자의 속도로 집중해요",
+              "visibility": "public",
+              "approvalRequired": false,
+              "memberCount": 3,
+              "membershipStatus": "active",
+              "growthStage": "02-notice-board",
+              "themeId": "default"
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1759",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "island",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}",
+      "method": "GET",
+      "path": "/islands/{islandId}",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "id": "soda",
+          "name": "소다 섬",
+          "intro": "각자의 속도로 집중해요",
+          "visibility": "public",
+          "approvalRequired": false,
+          "membershipStatus": "active",
+          "role": "host",
+          "buildings": [
+            "hall"
+          ],
+          "growthStage": "01-village-hall",
+          "assetVersion": "R61",
+          "initialConstruction": {
+            "nextBuildingId": "board",
+            "contributedFish": 12,
+            "requiredFish": 40
+          },
+          "constructionTarget": null,
+          "themeId": "default",
+          "buildingThemes": {},
+          "version": 4
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1759",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "join-status",
+      "source_method": "GET",
+      "source_path": "/v1/me/join-requests/{requestId}",
+      "method": "GET",
+      "path": "/me/join-requests/{requestId}",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "id": "join-1",
+          "islandId": "strawberry",
+          "status": "pending",
+          "version": 1
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1760",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "session",
+      "source_method": "GET",
+      "source_path": "/v1/focus-sessions/current",
+      "method": "GET",
+      "path": "/focus-sessions/current",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "id": "focus-1",
+          "islandId": "soda",
+          "subject": "수학 문제 풀기",
+          "targetMinutes": 25,
+          "status": "active",
+          "activeSeconds": 600,
+          "serverNow": "2026-09-11T09:10:00Z",
+          "startedAt": "2026-09-11T09:00:00Z",
+          "restStartedAt": null,
+          "version": 1
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1764",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "focus-group",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/focus-members",
+      "method": "GET",
+      "path": "/islands/{islandId}/focus-members",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "items": [
+            {
+              "userId": "minji",
+              "name": "민지",
+              "catColor": "ginger",
+              "appearance": {
+                "clothes": "scarf",
+                "decor": "flag",
+                "hull": "sailboat",
+                "position": "front"
+              },
+              "sessionId": "focus-minji",
+              "subject": "영어 단어",
+              "activeSeconds": 1320,
+              "status": "active"
+            }
+          ],
+          "serverNow": "2026-09-11T09:10:00Z"
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1765",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "focus-stats",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/statistics/focus",
+      "method": "GET",
+      "path": "/islands/{islandId}/statistics/focus",
+      "request_example": {
+        "from": "2026-09-07",
+        "to": "2026-09-13",
+        "timezone": "Asia/Seoul",
+        "scope": "me",
+        "cursor": null
+      },
+      "response_example": {
+        "data": {
+          "scope": "me",
+          "totalSeconds": 1500,
+          "series": [
+            {
+              "date": "2026-09-11",
+              "seconds": 1500
+            }
+          ],
+          "records": [
+            {
+              "id": "focus-1",
+              "subject": "수학",
+              "activeSeconds": 1500,
+              "completedAt": "2026-09-11T09:10:00Z"
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1769",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "screen-stats",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/statistics/screen-time",
+      "method": "GET",
+      "path": "/islands/{islandId}/statistics/screen-time",
+      "request_example": {
+        "from": "2026-09-07",
+        "to": "2026-09-13",
+        "timezone": "Asia/Seoul",
+        "scope": "me"
+      },
+      "response_example": {
+        "data": {
+          "scope": "me",
+          "measurementStatus": "unavailable",
+          "totalMinutes": null,
+          "series": [],
+          "updatedAt": null
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1769",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "members",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/members",
+      "method": "GET",
+      "path": "/islands/{islandId}/members",
+      "request_example": {
+        "cursor": null
+      },
+      "response_example": {
+        "data": {
+          "items": [
+            {
+              "id": "minji",
+              "name": "민지",
+              "catColor": "ginger",
+              "role": "member"
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1762",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "requests",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/join-requests",
+      "method": "GET",
+      "path": "/islands/{islandId}/join-requests",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "items": [
+            {
+              "id": "join-1",
+              "name": "새봄",
+              "status": "pending"
+            }
+          ]
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1762",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "notices",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/notices",
+      "method": "GET",
+      "path": "/islands/{islandId}/notices",
+      "request_example": {
+        "cursor": null
+      },
+      "response_example": {
+        "data": {
+          "items": [
+            {
+              "id": "welcome",
+              "title": "환영해요",
+              "commentCount": 1
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1771",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "quests",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/quests/current",
+      "method": "GET",
+      "path": "/islands/{islandId}/quests/current",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "items": [
+            {
+              "id": "q-focus",
+              "occurrenceId": "q-focus-20260911",
+              "title": "저녁 30분 집중",
+              "type": "focus",
+              "windowStart": "18:00",
+              "windowEnd": "23:00",
+              "timezone": "Asia/Seoul",
+              "date": "2026-09-11",
+              "targetMinutes": 30,
+              "myRate": 60,
+              "reward": {
+                "currency": "village_points",
+                "amount": 10
+              },
+              "settlementStatus": "in_progress",
+              "claimable": false,
+              "claimBlockedReason": "MEMBERS_INCOMPLETE",
+              "claimed": false,
+              "version": 1
+            }
+          ]
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1773",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "rank",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/rankings/members",
+      "method": "GET",
+      "path": "/islands/{islandId}/rankings/members",
+      "request_example": {
+        "week": "2026-W37",
+        "cursor": null
+      },
+      "response_example": {
+        "data": {
+          "eligibility": "eligible",
+          "items": [
+            {
+              "rank": 1,
+              "userId": "minji",
+              "name": "민지",
+              "catColor": "ginger",
+              "focusSeconds": 1320
+            }
+          ],
+          "myRank": 4,
+          "nextCursor": null
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1777",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "rank-islands",
+      "source_method": "GET",
+      "source_path": "/v1/rankings/islands",
+      "method": "GET",
+      "path": "/rankings/islands",
+      "request_example": {
+        "week": "2026-W37",
+        "cursor": null
+      },
+      "response_example": {
+        "data": {
+          "items": [
+            {
+              "rank": 1,
+              "islandId": "soda",
+              "name": "소다 섬",
+              "averageFocusSeconds": 18000
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1777",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "wallet",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/shop/wallets",
+      "method": "GET",
+      "path": "/islands/{islandId}/shop/wallets",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "fish": 500,
+          "villagePoints": 1500,
+          "fishVersion": 4,
+          "villagePointsVersion": 7
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1781",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "catalog",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/shop/products",
+      "method": "GET",
+      "path": "/islands/{islandId}/shop/products",
+      "request_example": {
+        "category": "personal",
+        "cursor": null
+      },
+      "response_example": {
+        "data": {
+          "items": [
+            {
+              "id": "scarf",
+              "title": "바다 스카프",
+              "kind": "clothes",
+              "price": 20,
+              "currency": "fish",
+              "owned": false,
+              "available": true,
+              "reason": null
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1781",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "inventory",
+      "source_method": "GET",
+      "source_path": "/v1/me/inventory",
+      "method": "GET",
+      "path": "/me/inventory",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "clothes": [
+            "scarf"
+          ],
+          "decor": [
+            "flag"
+          ],
+          "hulls": [
+            "raft",
+            "sailboat"
+          ],
+          "equipped": {
+            "clothes": "scarf",
+            "decor": "flag",
+            "hull": "sailboat",
+            "position": "front"
+          }
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1783",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "shared-inventory",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/inventory",
+      "method": "GET",
+      "path": "/islands/{islandId}/inventory",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "audio": [
+            "waves",
+            "campfire",
+            "forest-wind"
+          ],
+          "islandThemes": [
+            "soda-theme"
+          ],
+          "buildingThemes": [
+            {
+              "buildingId": "hall",
+              "themeId": "strawberry-roof"
+            }
+          ]
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1783",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "playback",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/playback",
+      "method": "GET",
+      "path": "/islands/{islandId}/playback",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "trackId": "waves",
+          "playing": true,
+          "positionSeconds": 12,
+          "effectiveAt": "2026-09-11T09:10:00Z",
+          "changedBy": "minji",
+          "version": 2,
+          "serverNow": "2026-09-11T09:10:00Z"
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1779",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "rest-members",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/rest-members",
+      "method": "GET",
+      "path": "/islands/{islandId}/rest-members",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "items": [
+            {
+              "userId": "sua",
+              "name": "수아",
+              "catColor": "gray",
+              "restSeat": 1,
+              "restStartedAt": "2026-09-11T09:07:00Z"
+            }
+          ],
+          "serverNow": "2026-09-11T09:10:00Z"
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1765",
+      "code": [],
+      "tests": []
+    },
+    {
+      "id": "home-summary",
+      "source_method": "GET",
+      "source_path": "/v1/me/focus-summary",
+      "method": "GET",
+      "path": "/me/focus-summary",
+      "request_example": {
+        "date": "2026-09-11",
+        "timezone": "Asia/Seoul"
+      },
+      "response_example": {
+        "data": {
+          "date": "2026-09-11",
+          "completedSeconds": 3600,
+          "currentSessionSecondsToday": 600,
+          "totalSeconds": 4200,
+          "serverNow": "2026-09-11T09:10:00Z"
+        }
+      },
+      "implementation_status": "not_started",
+      "implementation_ticket": "GROMO-1764",
+      "code": [],
+      "tests": []
+    }
+  ]
+}
