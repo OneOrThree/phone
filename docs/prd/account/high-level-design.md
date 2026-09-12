@@ -163,11 +163,11 @@ sequenceDiagram
     D->>DB: 방장 조건·내기 해제/환불·증거 동결
     Note over D,DB: 필요한 판정 근거가 불명확하면 전체 롤백
     D->>DB: group_challenge_members 사용자 측정 원본 hard delete
-    D->>DB: 멤버십·친구 정리, group_invites 양방향 삭제<br/>집중/통계 및 개인 태그 연결 파기
+    D->>DB: 멤버십 정리, group_invites 양방향 삭제<br/>집중/통계 및 개인 태그 연결 파기
     D->>DB: group_announcements.user_id nullify
     D->>DB: 알림 발송 이력의 수신자·사용자 상대 연계 파기
     D->>DB: 리그 일간 삭제·주간 개인 결과 파기와 최소 완료 마커 분리
-    D->>DB: 양방향 user_blocks·본인 user_streaks 삭제
+    D->>DB: 양방향 user_blocks·friendships(상태 무관)·pin, 본인 user_streaks 삭제
     D->>DB: character_generation 본인 전체 이력·character_equipment 장착 행·지갑·설정 삭제, 직접 PII·신규 프로필 파기
     D->>DB: soft delete + 결과 receipt + COMMIT
     D-->>B: deleted true
@@ -182,6 +182,8 @@ sequenceDiagram
 기존 `freezeEvidenceForAccountErasure`는 달성 결과를 참가 행에 확정하지만 판정 target이 없으면 건너뛴다. 이 skip을 파기 준비 완료로 취급하지 않는다. OPEN 내기의 필요한 판정 근거가 확정되었는지 검증한 다음 원본 `group_challenge_members`를 삭제한다. 해당 `user_id`는 NOT NULL FK라 nullify할 수 없다. 최소 정산 결과는 별도 참가 행에 남으며 측정 이력이나 프로필로 공개하지 않는다. 측정 보고의 users 공유 잠금과 탈퇴의 배타 잠금으로 삭제 후 재생성도 차단한다. 새 검증/삭제는 후속 구현 사항이다.
 
 차단 관계는 blocker/blocked 어느 쪽이 탈퇴자여도 삭제하고 본인의 user_streaks 행도 hard delete한다. 현재 차단 생성 서비스는 없지만 후속 writer는 두 활성 users를 UUID 오름차순으로 공유 잠근 뒤 관계를 기록해야 한다. 스트릭의 현 writer인 FocusService 완료 TX는 users 공유 잠금을 사용하며 독립 writer도 같은 규칙을 적용한다. UserStreakService가 받은 오래된 User 객체만으로 파기 후 재생성할 수 없게 한다. 현 탈퇴 코드에는 이 두 삭제가 없어 후속 구현과 동시성 검증이 필요하다.
+
+친구 관계는 from/to 어느 쪽이 탈퇴자여도 status나 기존 soft delete 여부와 무관하게 hard delete하고 pin도 양방향 삭제한다. 현재 탈퇴는 활성 행에 deleted_at만 기록해 NOT NULL 사용자 연결과 요청 상태·시각을 남기므로 활성 조회 필터를 파기로 취급하지 않는다. 요청·pin 생성은 두 활성 users 공유 잠금, 수락·거절은 행 배타 잠금으로 이미 직렬화된다. 잠금 없이 읽고 UPDATE하는 친구 삭제는 행 잠금 재조회로 바꿔 삭제된 행에 500 대신 기존 `NOT_FRIEND`를 반환한다.
 
 공지 생성은 users 공유 잠금, 탈퇴는 같은 users 배타 잠금을 먼저 사용한다. 생성 선행이면 새 공지도 nullify하고 탈퇴 선행이면 생성은 404 `USER_NOT_FOUND`로 거부한다. 공지 내용은 기존 보존 규칙을 유지한다.
 

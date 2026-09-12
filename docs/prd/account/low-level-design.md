@@ -476,7 +476,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | group_invites.inviter_id/invitee_id 및 상태·초대/응답 시각 | V1의 두 사용자 FK가 NOT NULL. 직접 초대 기능은 미사용이나 테이블은 유지되고 현재 탈퇴 삭제 호출 없음 | inviter_id 또는 invitee_id가 탈퇴자인 행을 상태와 무관하게 같은 중앙 TX에서 hard delete. 다른 사용자끼리의 초대·그룹·기존 링크/정산 증거는 보존 |
 | user_blocks.blocker_id/blocked_id/created_at | 양쪽 NOT NULL users FK. 현재 탈퇴 정리 호출 없음; 차단 writer는 아직 미구현 | blocker 또는 blocked가 탈퇴자인 행 모두 같은 TX에서 hard delete. 한 방향만 삭제하거나 삭제 flag로 관계 원문을 남기지 않음 |
 | user_streaks.user_id/last_session_date/streak_count/longest_streak_count/updated_at | V2 이후 user_id 자체가 PK/FK. 현재 실제 탈퇴 경로에 삭제 없음 | 집중 정산 증거 동결 뒤 같은 TX에서 사용자 streak 행 hard delete. legacy entity의 '현재 withdraw 하드삭제' 주석을 구현 근거로 삼지 않음 |
-| 친구 관계·pin | 친구 soft delete, 관련 pin hard delete | 새 검색/목록은 활성 조건으로 가림 |
+| friendships.from_user_id/to_user_id/status 및 생성·변경·삭제 시각, pinned_users | V1은 두 사용자 FK가 NOT NULL이고 (from_user_id,to_user_id) 유일. 현재 detachWithdrawnUser는 deleted_at IS NULL 행만 잠가 deleted_at을 기록하고 이미 soft delete된 행은 제외. pin만 양방향 hard delete | 탈퇴자가 from 또는 to인 행을 status·deleted_at과 무관하게 같은 중앙 TX에서 hard delete. 활성 조회 필터나 soft delete를 파기로 취급하지 않음. pin 양방향 hard delete 유지, 두 활성 사용자끼리의 관계·pin 보존. 아래 친구 writer 경계 적용 |
 | user_items, currency_transactions | user FK로 이력 보존 | 기존 정산/보유 관계의 증거. 서버 공개 projection에서 탈퇴자 name/catColor를 재생하지 않음 |
 | character_equipment.user_id/item_id/slot_type/equipped_at | V1의 별도 장착 행이며 user_id NOT NULL. 현재 중앙 탈퇴에 삭제 호출 없음 | user_items 보유·거래 증거와 구분한 개인 설정이다. 같은 탈퇴 TX에서 해당 사용자 장착 행 hard delete. EquipmentService의 활성 users 공유 잠금과 직렬화하고 타인 장착·보유/원장은 보존 |
 | league_rank_snapshots.user_id/rank/created_at | V14 이후 실제 전역 일간 순위 테이블. 현재 탈퇴 삭제 없음 | 같은 탈퇴 TX에서 사용자 행 hard delete. 순위 snapshot writer는 활성 users 공유 잠금을 얻은 뒤 기록하여 파기 후 재생성 차단 |
@@ -518,7 +518,7 @@ BEFORE_COMMIT/MANDATORY에서 OUTBOX 모드일 때만 enqueue한다. 이어
 후속 파기 구현도 이 선점을 유지하고 [PR752의 실제 PostgreSQL 양방향 회귀](https://github.com/OneOrThree/phone/blob/9288277f9d1db3049a81aa44cabed7d66279c333/server/data-api/src/test/java/com/oneorthree/phone/internal/HostTransferIntegrationTest.java#L356-L405)를 보존한다.
 그룹 선점만으로 환불·PII 파기를 먼저 실행하지 않는다.
 
-`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹·chat/realtime 대상 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → bet participant 열람/표시 lease 3필드 nullify → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_generation 본인 생성 이력 및 character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 본인 group_invite_links.inviter_id 비식별화·양방향 group_invites·user_blocks 및 본인 user_streaks 삭제와 친구/pin/신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
+`getCallerForUpdate` → authGeneration/세션 폐기 및 필요한 위성 명령과 랭킹·chat/realtime 대상 user.withdrawn outbox 기록 → 그룹 조건·내기 해제 환불·증거 동결 → bet participant 열람/표시 lease 3필드 nullify → group_challenge_members 원본 보고 파기 → 집중/통계/스크린타임 귀속 및 user_focus_tags 사용자/직군 연결 파기·group_announcements.user_id nullify → notification_sent_logs 수신자·사용자 상대 이력 파기 → 일간 리그 snapshot 삭제·주간 리그 개인 결과 파기/최소 정산 완료 마커 분리 → character_generation 본인 생성 이력 및 character_equipment 사용자 장착 행 삭제·지갑·설정 삭제 → 본인 group_invite_links.inviter_id 비식별화·양방향 group_invites·user_blocks·friendships(status·deleted_at 무관)·pinned_users 및 본인 user_streaks 삭제와 신규 개인자료 정리 → user 직접 PII null 및 soft delete → socialAccounts bulk delete 순서를 유지한다. 중간 실패는 전체 rollback이다.
 
 `socialAccountRepository.deleteByUserId`는 `flushAutomatically` 후 `clearAutomatically`로 영속성 컨텍스트를 비운다. 따라서 user.catColor 등 엔티티 변경을 그 뒤에 붙이면 저장되지 않는다. 모든 엔티티 파기를 앞에 배치하고 마지막 bulk delete 뒤에는 분리된 엔티티를 수정하지 않는다. 멱등 결과 저장은 이 clear를 고려해 명시적으로 영속화하며 사용자 PII 수정의 순서를 뒤집지 않는다.
 
@@ -667,6 +667,36 @@ FocusService의 활성 users FOR SHARE를 완료·streak 저장 TX 끝까지 유
 독립 호출/배치 writer를 추가하면 stale User 객체만 받아 저장하지 말고 같은 TX에서 활성 users 잠금을 먼저 확보한다.
 이것은 미래 writer의 의무이며 현재 UserStreakService 자체에 활성 잠금 검사가 있다고 과장하지 않는다.
 양방향 경합·지연 flush·rollback을 실제 DB에서 검증하고, 과거 DailyFocusStat로 탈퇴자의 streak를 재생성하지 않는다.
+
+#### 친구 관계·pin의 파기와 writer 경계
+
+V1 `friendships`의 `from_user_id`·`to_user_id`는 NOT NULL users FK이고 `(from_user_id, to_user_id)`가 유일하다.
+기준 main `FriendService.detachWithdrawnUser:534~539`는 `findActiveByUserId`로 `deleted_at IS NULL` 행만 배타 잠가
+`softDelete`하고 pin만 `deleteAllInvolving`으로 양방향 hard delete한다. 따라서 요청·수락·거절 상태와 생성/변경/삭제
+시각이 탈퇴자 UUID에 계속 연결되며, 이전 친구 삭제로 이미 soft delete된 행은 탈퇴 정리에서 아예 제외된다.
+목록·검색·카운트의 활성 필터는 조회 차단일 뿐 파기가 아니고, 이 관계 이력의 별도 보존 근거도 확인되지 않았다.
+두 FK가 NOT NULL이라 nullify로 비식별화할 수도 없다.
+
+후속 탈퇴는 users 배타 잠금을 유지한 중앙 TX에서 친구 소유 서비스에 위임해
+`DELETE FROM friendships WHERE from_user_id=:id OR to_user_id=:id`를 status·deleted_at과 무관하게 실행하고
+기존 `pinned_users` 양방향 삭제를 유지한다. 두 활성 사용자끼리의 관계·pin은 보존한다. 벌크 DELETE를 쓰면 같은 TX에서
+먼저 로드한 Friendship 엔티티의 지연 flush가 삭제 행을 되살리거나 0행 UPDATE를 내지 않도록 순서를 검증한다.
+기존 soft delete 복원 분기(`createRequest:140~163`의 `findPair`가 삭제 행까지 읽음)는 호출자와 대상이 모두 활성인 쌍에만
+도달하므로 탈퇴자 행의 잔존에 기대지 않는다. 삭제는 유일 키를 비울 뿐 새 충돌을 만들지 않으며, 정상 재가입은 새 userId다.
+현재 `FriendServiceTest.detachWithdrawnUserSoftDeletesBothStatuses`와 저장소 주석의 soft delete 계약은 구현 때 함께
+바뀌어야 하며, 기존 테스트 통과를 파기 완료 근거로 쓰지 않는다.
+
+요청 생성(복원·REJECTED 재전환 포함)과 `pinFriend`는 현재 `getCallerForShare`·`getTargetForShare`로 **두 활성 users**를
+공유 잠근 뒤 쓰므로 탈퇴 배타 잠금과 직렬화된다. writer 선행이면 새 행도 삭제에 포함되고 탈퇴 선행이면 부재로 거절한다.
+수락·거절은 `findByIdAndDeletedAtIsNull` 행 배타 잠금 뒤 변경하므로 탈퇴 선행이면 `REQUEST_NOT_FOUND`,
+writer 선행이면 탈퇴 DELETE가 행 잠금을 기다렸다가 그 결과까지 지운다. 반면 `deleteFriend:254~260`은 탈퇴자와의 잔존
+관계도 끊도록 `getAny`와 잠금 없는 `findAcceptedBetween` 뒤 엔티티 UPDATE를 한다. soft delete끼리는 늦은 UPDATE가
+성공했지만 hard delete 뒤에는 0행 UPDATE로 500이 날 수 있다. 후속 구현은 이 경로를 행 배타 잠금 재조회로 바꾸고
+행이 없으면 기존 `NOT_FRIEND`를 반환한다(`unpinFriend`의 벌크 DELETE 멱등과 같은 이유). 탈퇴 삭제가 상대 users까지
+추가로 잠그는 순서를 만들지 않으며, 복원/관리 import나 늦은 재시도도 이 관문을 우회하지 않는다.
+
+이미 탈퇴한 사용자의 soft delete 행과 GROMO-801 이전 잔존 행은 새 중앙 TX가 다시 실행되지 않으므로 신규 탈퇴 완료
+조건에 포함되지 않는다. 그 일괄 정리는 별도 데이터 정정으로 판단하며 이 문서에서 완료로 표시하지 않는다.
 
 #### 사용자 활동 로그와 외부 복사본의 파기 경계
 
@@ -890,6 +920,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | OPEN 참가 target 결손·증거 확정 불가·삭제 직후 실패 | 동결 완료로 위장하지 않음, 중앙 TX rollback, 기존 원본과 환불 정합 유지 |
 | 알림 로그 수신자/친구 상대/라이벌·챌린지 키·PENDING/DEFERRED/SENT | 사용자 연계 대상만 파기, 다른 수신자의 비사용자 키 보존, 기본 NOT NULL/FK 실DB 대조 |
 | 친구/추월/claim writer와 탈퇴의 양방향 경합·늦은 FCM 응답·위성 relay/import | 중앙/위성 이력 부활0, 실패 시 중앙 TX rollback, 내구 재전달로 위성 파기 확인 |
+| 친구 PENDING/ACCEPTED/REJECTED·이미 soft delete된 행의 from/to 양방향·pin 양방향·타인 관계 fixture | 탈퇴자 friendships/pin 행0(status·deleted_at 무관), 두 활성 사용자 관계·soft delete 복원 분기 보존, V1 NOT NULL FK·유일 제약 실DB 대조 |
+| 친구 요청/복원·수락/거절·친구 삭제·pin과 탈퇴 양방향 실제 PG 경합·삭제 직후 실패 | writer 선행 행도 삭제·탈퇴 뒤 관계/pin 부활0, 늦은 친구 삭제는 500 없이 NOT_FRIEND, 실패 시 관계/계정/환불/outbox 전체 rollback |
 | 양방향 차단·스트릭 full fixture 및 차단/집중 완료와 탈퇴 양방향 경합 | 대상 차단/streak행0·타인행보존·지연 writer 부활0, 삭제 직후 실패하면 전체 rollback |
 | 리그 일간 snapshot·주간 결과 파기와 정산/추월/확인 writer 경합 | 개인 결과0·최소 완료 마커 유지, 이중 정산0·지연 재생성0·타인 결과 보존·중간 실패 전체 rollback |
 | 탈퇴 outbox 응답 유실·relay 재전달·모든 주차/presence·DLT 역순 | tombstone/version 원자 적용, 탈퇴 노출0·점수/후보 부활0, 전달 실패 뒤 같은 사건 복구 |
@@ -928,7 +960,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `server/data-api/src/main/java/com/oneorthree/phone/group/service/GroupAnnouncementService.java` | createAnnouncement·requireActiveUser의 getCallerForShare |
 | `server/data-api/docs/db/schema.dbml` | group_announcements.user_id: 작성자, 탈퇴 시 null |
 | `server/data-api/src/main/java/com/oneorthree/phone/user/exception/UserErrorCode.java` | 본인 계정 부재 USER_NOT_FOUND |
-| `server/data-api/src/main/java/com/oneorthree/phone/friend/service/FriendService.java` | detachWithdrawnUser |
+| `server/data-api/src/main/java/com/oneorthree/phone/friend/service/FriendService.java` | detachWithdrawnUser의 활성 행 soft delete·pin 양방향 삭제, createRequest 복원 분기와 두 users 공유 잠금, 수락·거절 행 잠금, deleteFriend의 무잠금 조회 뒤 UPDATE |
+| `server/data-api/src/main/java/com/oneorthree/phone/friend/repository/FriendshipRepository.java`, `PinnedUserRepository.java` | findActiveByUserId 배타 잠금·deleted_at 조건, findPair 삭제 행 포함, deleteAllInvolving 양방향 |
 | `server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java` | anonymizeWithdrawnUser |
 | `server/data-api/src/main/java/com/oneorthree/phone/stats/service/StatsService.java` | anonymizeWithdrawnUser |
 | `server/data-api/src/main/java/com/oneorthree/phone/screentime/service/ScreenTimeService.java` | anonymizeWithdrawnUser |
