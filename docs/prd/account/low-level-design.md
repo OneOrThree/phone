@@ -211,15 +211,19 @@ legacy 자격은 기존 해시→세션 증명으로 구분하며 sid 부재를 
    기존 AsyncStorage multiSet 자체를 DB 원자 TX로 가정하지 않고, 세션 저장 실패 시 이전 snapshot 복구와
    준비 항목 취소를 기록한다. 앱 재시작은 내구 commit 표지·완전한 세션 snapshot의 정합을 확인한 뒤에만
    그 전환의 항목을 실행 가능으로 만든다. 미확정/rollback이면 A의 등록 삭제와 원 RT 종결을 실행하지 않는다.
-3. commit 직후 B 자격으로 결과 세션 채택 확인 요청(§3 로그인 CAS 절)을 먼저 보내고, commit 뒤에만 §2.4의 동일 기기 DELETE/outbox 키·fingerprint·완료 재생 경로로 A의 삭제를 시도하고
+3. commit 직후 B 자격으로 결과 세션 채택 확인 요청(§3 로그인 CAS 절)을 먼저 보내고, 이어 **현재 FCM 토큰을 B 세션 bootstrap으로 다시 등록**해 새 ownership을 전환 상태에 내구 기록한다(아래 재등록 문단). commit 뒤에만 §2.4의 동일 기기 DELETE/outbox 키·fingerprint·완료 재생 경로로 A의 삭제를 시도하고
    A의 원 RT 세션 폐기도 독립적으로 시도한다. 두 작업의 성공 여부를 따로 보관하며 B의 토큰 저장을
    되돌리거나 전역 로그아웃시키지 않는다. DELETE 실패에도 원 RT 폐기를 시도하되 DELETE 큐를 성공 소진하지 않는다.
    검증된 sid/bootstrap 연결과 auth.session.revoked의 내구 fence는 §2.4와 같은 범위에서 적용한다.
 
+**새 세션으로의 기기 재등록.** 기준 main `PushGate`는 `useEffect(registerPushToken, [userId])`라 같은 사용자 s1→s2 재로그인에서는 등록을 다시 하지 않는다. 그 상태로 s1 DELETE나 `auth.session.revoked`가 적용되면 s1 bootstrap에 연결된 등록이 비활성화되어 다음 FCM 토큰 갱신까지 푸시가 끊긴다. 후속 앱은 등록 트리거를 userId가 아니라 **검증된 세션 식별(sid/bootstrap)**에 묶고 전환 상태에 재등록 단계를 둔다. 재등록은 §2.4 규칙대로 B의 bootstrap과 현재 소유권 CAS로 수행하며 결과 토큰·새 ownershipVersion을 내구 기록한다. 푸시 권한이나 토큰이 없으면 '대상 없음'으로 끝낸다.
+
+A의 원 RT 폐기는 재등록 성공을 조건으로 무기한 보류하지 않는다. 폐기가 먼저 적용돼 A에 연결된 행이 비활성화돼도 재등록이 B bootstrap으로 다시 연결하고, 재등록이 먼저면 행의 연결이 B로 바뀌어 A 폐기 fence 대상에서 빠진다(§2.4). A의 DELETE 항목은 기록된 재등록이 **같은 토큰**의 더 새 ownership을 확인했을 때만 '대체 완료'로 소진하며 B 등록을 지우지 않는다. 토큰이 다르거나 재등록이 없으면 기존 DELETE 규칙을 따른다. crash 뒤에는 채택 확인 → 재등록 → A 정리 순서에서 남은 단계만 재개한다.
+
 전달 도중 B→A 또는 제3계정 전환이 시작돼도 원 항목의 주체·대상·키는 불변이다. 새 로그인은 새로운
 ownership/세션을 가지므로 늦은 삭제·폐기가 새 등록이나 다른 기기를 지우지 않는다. 전환 generation 대조는
 로컬 상태 정리에 사용하며 사용자 authGeneration을 올리거나 계정을 합치지 않는다. 새 계정의 같은 FCM
-등록이 이전 등록을 대체하는 방어는 내구 DELETE를 생략할 이유가 아니다. 구현 활성 전 A→B/B→A 경합,
+등록이 이전 등록을 대체한다는 추정만으로 내구 DELETE를 생략하지 않으며, 위 재등록 결과로 같은 토큰의 새 ownership이 확인된 경우에만 대체 완료로 소진한다. 구현 활성 전 A→B/B→A 경합,
 전환 전/부분 저장/commit 직후/삭제 응답 유실의 프로세스 종료를 주입해 미확정 전환의 A 등록 보존,
 확정 전환의 원 키 재개·A 정리·B 보존을 검증한다. 같은 사용자 s1→s2와 그 사이 s3 재로그인에서도
 원 큐의 s1만 폐기하고 s2/s3 또는 다른 기기를 사용자 ID만으로 일괄 종료하지 않는다. 새 자격 형식이나 추가 공개 endpoint는 만들지 않는다.
@@ -492,6 +496,8 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | league_rank_snapshots.user_id/rank/created_at | V14 이후 실제 전역 일간 순위 테이블. 현재 탈퇴 삭제 없음 | 같은 탈퇴 TX에서 사용자 행 hard delete. 순위 snapshot writer는 활성 users 공유 잠금을 얻은 뒤 기록하여 파기 후 재생성 차단 |
 | league_weekly_results.user_id/focus_seconds/tier/acknowledged_at | 실제 주간 정산 결과이며 사용자·주차 유일성이 중복 정산 방지에도 쓰임. 현재 탈퇴 삭제 없음 | 개인 순위/집중량/티어 변경/확인 시각은 같은 TX에서 파기. 중복 정산을 막는 최소 userId/weekStart 완료 마커만 분리 보존하고 활성 사용자 재검사로 탈퇴 뒤 정산·재생성 차단. 원 결과를 일반 API로 노출하지 않음 |
 | Redis 랭킹의 모든 주차 ZSET·presence·지연 점수 사건 | 중앙 soft delete만으로 제거 보장 안 됨 | 같은 탈퇴 TX에 version을 가진 user.withdrawn outbox를 내구화. 랭킹 소비자는 tombstone/version 설정과 모든 주차 ZSET·presence 제거를 원자 적용하고 지연·DLT 점수의 부활을 거부 |
+| Data 공유 Redis `presence:focus:{userId}` lease·`:closed` 표식 | 기준 main `RedisFocusPresence.focusStarted`의 AFTER_COMMIT `SET_IF_NEWER`와 reconciler의 `restoreLeaseIfMissing`(`SET_IF_ABSENT`)은 `:closed`·세션 순서만 비교하고 탈퇴 tombstone은 보지 않음. lease는 시작 기준 최대 13시간 | 소비자는 같은 Redis의 사용자 tombstone 기록과 lease·`:closed` 삭제를 한 원자 처리로 적용하고, 두 writer Lua가 그 tombstone을 같은 스크립트에서 대조해 재생성을 거절. 아래 랭킹 절 적용 |
+| Business Redis 링크 미리보기 `cache:business:preview:{userId}:{id}`(원본 URL·Base64 썸네일)·`cache:business:rate:{userId}` | 기준 main `PreviewCache`는 pending 90초·READY 300초·FAILED 30초·rate 60초로 사용자 UUID 키에 저장. `PreviewService`는 worker 스레드에서 비동기 완료하며 탈퇴 정리·활성 검사 없음 | Data→Business 전달이 금지이므로 탈퇴 명령을 받은 Business가 Data 호출 전 차단 표지를 두고 claim·rate·complete·조회가 원자 대조. 탈퇴 확정 뒤 두 prefix 삭제, 확정 실패면 표지 해제. 아래 미리보기 절 적용 |
 | gromo_chat.chat_read_cursors의 user_id/group_id/last_read_message_id/updated_at | 기준 main·PR739 이름 전환 코드에 커서 UPSERT가 있으나 탈퇴 삭제/consumer/fencing 없음 | 해당 user_id의 모든 방 커서 행 hard delete. 중앙 TX의 user.withdrawn 내구 전달 뒤 chat/realtime 로컬 TX에서 tombstone/version·DELETE·수신 완료를 함께 확정하고 모든 cursor writer와 직렬화. 같은 tombstone과 개별 로그아웃의 auth.session.revoked 세션 fence를 REST·STOMP 인가, 기존 구독 전달, 메시지 writer에도 적용하고 멤버십 캐시 삭제·활성 소켓 종료까지 완료 조건. 메시지 본문/sender_id 보존은 변경하지 않음 |
 | user_focus_tags.user_id, source_occupation_default_tag_id, default_tags.name 연결 | 기존 erase에는 삭제 없음 | FocusSession이 user_focus_tags를 참조하므로 직접 user_id만 nullify해도 사용자 역추적 경로가 남음. 정산 증거 동결 뒤 태그의 사용자 귀속/직군 출처를 끊는 nullable migration 또는 세션 태그 연결 해제 후 개인 채택 행 파기를 비교 검증. 공유 default_tags는 일괄 삭제하지 않음. 두 대안 모두 setupFocusTag/updateFocusTag 및 복원·관리 writer의 활성 users 공유 잠금과 탈퇴 배타 잠금으로 직렬화 |
 | character_generation.user_id, created_at, client_generation_id | 기존 erase에는 정리 없음 | 같은 중앙 탈퇴 TX에서 해당 user_id의 모든 생성 이력 hard delete. 기존 recordGeneration의 users 배타 잠금 → 사용자 advisory → 이력 순서를 유지하여 삭제 뒤 재생성을 차단하고 타인 이력은 보존 |
@@ -690,6 +696,10 @@ ZREM만 하고 presence를 남기지 않으며 eventId dedup만으로 오래된 
 탈퇴 tombstone의 수명은 재생 가능한 원본보다 짧게 잡지 않으며 최소 정보로 유지한다. relay 전송 실패는 중앙 탈퇴를 재실행하지 않고 같은 사건을 재전달한다.
 모든 공개 랭킹·프로필 projection은 현재 활성 조건도 확인하여 비동기 제거 대기 중 탈퇴자를 노출하지 않는다.
 
+**프레즌스의 직접 writer도 같은 tombstone을 본다.** 기준 main `RedisFocusPresence.focusStarted`는 집중 시작 TX의 `AFTER_COMMIT`에서 `SET_IF_NEWER` Lua로 `presence:focus:{userId}`를 쓰고, `FocusPresenceReconciler`는 트랜잭션 밖에서 읽어 둔 진행 중 마커로 `restoreLeaseIfMissing`(`SET_IF_ABSENT`)을 부른다. 두 스크립트는 5분짜리 `:closed` 표식과 세션 순서만 비교하며 lease는 시작 기준 최대 13시간 산다. 집중 시작 TX가 탈퇴보다 먼저 커밋되고 그 콜백이 presence 제거보다 늦게 실행되거나, reconciler가 탈퇴 전에 읽은 마커로 제거 뒤에 쓰면 lease가 되살아난다. 소비자의 원자 삭제나 지연 점수 거절만으로는 이 직접 writer를 막지 못한다.
+
+따라서 presence를 제거하는 소비자는 **presence 키와 같은 Redis**에 사용자 tombstone을 기록하고 lease·`:closed` 키 삭제를 한 원자 처리로 적용한다. `SET_IF_NEWER`와 `SET_IF_ABSENT`는 그 tombstone 키를 KEYS에 넣어 존재하면 쓰지 않는다. 다른 저장소의 tombstone으로는 이 원자 대조가 불가능하다. tombstone 수명은 lease 최대 수명과 reconciler 조회 상한을 합친 창보다 짧지 않게 둔다. 탈퇴 TX의 집중 세션 귀속 파기로 이후 조회에는 잡히지 않지만 이미 읽은 마커의 지연 쓰기는 이 원자 대조가 막는다. 시작 콜백·재구축과 소비자의 양방향 순서, lease와 `:closed` 삭제, 타인 lease 보존을 실제 Redis에서 검증한다.
+
 #### 차단 관계·개인 스트릭의 파기와 writer 경계
 
 `UserBlock`과 V7은 blocker_id/blocked_id 모두 NOT NULL users FK다. V2 이후 `UserStreak`는 user_id가
@@ -789,6 +799,14 @@ MDC 및 payload의 동일 사용자 연결을 비식별화하고, 안전하게 �
 일반 로그아웃과 게스트→소셜 전환의 보존·인계 정책은 바꾸지 않는다. **탈퇴 확정**(최초 200, 같은 `DELETE /me` 명령 재시도의 404 `USER_NOT_FOUND`, 또는 같은 세션 세대 요청이 받은 본인 404 `USER_NOT_FOUND`)일 때만 탈퇴 전용 정리를 실행한다. 순서는 ① 세션 세대 전환으로 이전 계정의 요청·재시도 큐 소유권 폐기 ② 그 계정의 Provider와 쓰기 큐(장비·보유·캐릭터·그룹 카드·집중 업로드/취소·스크린타임 보고)의 drain 또는 언마운트 완료 확인 ③ 계정별 맵에서 그 userId 항목만 제거하고 userId를 담은 마커 키·값 삭제, 레거시 `equipment`·`ownedItems`는 `ownedItemsLegacyOwner`가 그 사용자일 때만 제거 ④ `customUri`가 가리키는 앱 소유 로컬 누끼 파일 삭제 ⑤ 위 GA4 식별자 해제·재설정과 설치 device_id 재발급이다. drain 전에 지우면 늦은 쓰기가 옛 userId 항목을 되살리므로 삭제 뒤 그 userId로의 쓰기는 거절한다. 다른 계정 버킷과 계정 무관 기기 전역 값(`locale`·`guide*`)은 보존하고 `lastAuthProvider`는 기존대로 탈퇴 때 초기화한다. 앱 종료로 중단되면 다음 실행에서 남은 정리 표지를 보고 재개하며, 표지에는 userId 외 개인 자료를 담지 않는다.
 
 이것은 앱 후속 구현 조건이며 현재 앱에 탈퇴 전용 정리가 있다고 주장하지 않는다. 서버 7개 계약과 원본 예시는 바꾸지 않는다.
+
+#### Business 링크 미리보기 캐시의 탈퇴 파기
+
+기준 main `server/business-api`의 `PreviewCache`는 `cache:business:preview:{userId}:{id}`에 원본 URL·Base64 썸네일을 담아 pending 90초, READY 300초, FAILED 30초 동안 두고, `cache:business:rate:{userId}` 카운터를 60초 둔다. `PreviewController`는 인증 필터가 넣은 userId만 쓰며 활성 사용자 검사가 없고, `PreviewService`는 worker 스레드에서 비동기로 `complete`한다. `complete`는 현재 값이 pending 그대로일 때만 쓰므로 키를 지운 뒤 이미 claim한 작업이 되살리지는 않는다. 그러나 삭제 직후 도착한 요청의 claim·rate와 만료 전 AT로 들어온 새 요청·조회는 탈퇴 뒤에도 사용자 UUID 키를 다시 만든다.
+
+[서비스 아키텍처 §3](../../architecture/service-architecture.md)은 Data → Business 호출을 금지하므로 이 캐시는 `user.withdrawn` relay 대상이 아니다. 대신 `DELETE /me`를 받는 Business가 **Data 탈퇴 명령을 보내기 전에** 같은 Redis에 사용자 차단 표지를 두고, claim·rate·complete·조회·썸네일 스크립트가 그 표지를 원자 대조해 표지가 있으면 쓰거나 반환하지 않는다. Data가 탈퇴 성공(최초 200 또는 같은 명령의 확정 재생)을 돌려주면 두 prefix를 삭제한다. `HOST_WITHDRAW`처럼 탈퇴가 수행되지 않았음이 확정되면 표지를 해제하고, 응답 유실·timeout처럼 결과가 불명확하면 표지를 유지한 채 같은 멱등 키로 결과를 확인한다. 표지 수명은 기존 AT 최대 수명과 캐시 TTL 중 긴 쪽보다 짧지 않게 둔다. 미리보기 경로에도 신규 경로와 같은 동기 활성 검사를 추가하되 현재 구현이 있다고 주장하지 않는다.
+
+Business가 표지를 두기 전에 죽으면 탈퇴 명령도 전달되지 않는다. 표지를 둔 뒤 prefix 삭제 전에 죽으면 새 기록은 표지가 막지만 이미 기록된 항목은 기존 TTL(최대 300초) 안에서만 남는다. 이 잔존을 숨기지 않고 완료로 표시하지 않는다. 표지를 둔 동안 같은 사용자의 정상 미리보기는 탈퇴 결과가 확정될 때까지 일시 거절될 수 있다(fail-closed).
 
 #### 알림 발송 이력의 파기 경계
 
@@ -952,6 +970,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 구 앱 AT setItem 뒤 RT setItem 전 종료 → 새 앱 업데이트 | 새 sid AT+원 legacy RT도 Ready 금지, AT 만료 전 원 RT receipt 복구·동일 subject/sid/gen 묶음 원자 commit. Q06 창 미결 유지 |
 | 정상 회전 CAS commit 뒤 AT만 저장·응답 전체 유실·프로세스 종료 | 동일 sub/sid/gen도 구 RT 혼합을 통과시키지 않음, 미검증 클라이언트/복구 미확정 경로는 회전 비활성, 원 만료 유지·일반 CAS0은401·Q06 미결 유지 |
 | 동일 사용자 s1→s2 재로그인·s3 전환 경합·rollback | commit 뒤 s1의 고정 큐/원 RT만 정리, s2/s3·다른 기기 보존, 동일 sid refresh cleanup0, rollback이면 s1 보존 |
+| 같은 사용자 s1→s2 재로그인의 재등록·s1 DELETE·auth.session.revoked 순서 역전·재등록 전후 crash·푸시 권한 없음·토큰 갱신 | s2 bootstrap 재등록 뒤 푸시 유지, s1 폐기 선행이어도 재등록이 재연결, 같은 토큰 새 ownership 확인 시에만 s1 DELETE 대체 완료·s2 등록 삭제0, 권한 없음은 대상 없음, 재개는 남은 단계만 |
 | AT/RT sid·subject·authGeneration 불일치·한쪽 부재 및 지연 복구 | 로컬 generation과 서버 세대 각각 검증, 다른 세션/사용자 조합으로 Ready 또는 자동 새 guest 생성0 |
 | 강제 승격과 로그인/logout/401 경합·자격 저장 중 종료 | single-flight/generation fencing, AT/RT 혼합0·옛 응답 덮어쓰기0, 불완전 저장은 gate 미개방 |
 | legacy 게스트 승격 커밋 뒤 응답 유실·앱 원자 저장 실패·동시 같은 원RT | 같은 승격 receipt의 동일 sid/AT/RT 복구, userId/지갑/집중/그룹 보존, 새 guest·중복 세션·옛 해시 부활0 |
@@ -988,6 +1007,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 양방향 차단·스트릭 full fixture 및 차단/집중 완료와 탈퇴 양방향 경합 | 대상 차단/streak행0·타인행보존·지연 writer 부활0, 삭제 직후 실패하면 전체 rollback |
 | 리그 일간 snapshot·주간 결과 파기와 정산/추월/확인 writer 경합 | 개인 결과0·최소 완료 마커 유지, 이중 정산0·지연 재생성0·타인 결과 보존·중간 실패 전체 rollback |
 | 탈퇴 outbox 응답 유실·relay 재전달·모든 주차/presence·DLT 역순 | tombstone/version 원자 적용, 탈퇴 노출0·점수/후보 부활0, 전달 실패 뒤 같은 사건 복구 |
+| 집중 시작 TX 커밋 뒤 탈퇴, AFTER_COMMIT SET_IF_NEWER가 소비자 제거보다 늦음·reconciler가 탈퇴 전 읽은 마커로 제거 뒤 SET_IF_ABSENT | lease·`:closed` 재생성0, 소비자 선행·writer 선행 모두 최종 키0, 타인 lease·다른 사용자 새 집중 불변 |
 | chat/realtime 읽음 커서 전체 방·타인 커서·원문 메시지 fixture | 탈퇴자 cursor만0, 타인 cursor와 기존 메시지 보존 규칙 유지; 서비스 이름 전환 전후 같은 DB/대상 |
 | markRead와 탈퇴 소비자 양방향 실제 PG 경합·캐시 hit/늦은 재적재·지연 UPSERT/import | writer 선행 행도 삭제, 소비자 선행 시 쓰기 거절, tombstone 뒤 읽음 이력 부활0 |
 | chat/realtime user.withdrawn 중복/역순·응답 유실·DELETE 직후 강제 실패 | tombstone·cursor DELETE·수신 완료가 함께 rollback/commit, 실패 재전달 후 제거; 대상별 완료 전 전체 위성 파기 완료 주장 금지 |
@@ -1002,6 +1022,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 정상 계측 UUID·APP MDC·큐/회전/외부 upload와 탈퇴 경합 | sink별 사용자 연결 제거·늦은 재부착0, 타인 보존·실패 내구 재시도·복사본별 완료 증거, 미확인 외부 저장소 완료 주장0 |
 | GA4 User-ID·app_instance_id·설치 device_id·탈퇴 성공 뒤 앱 이벤트·서버 MP 지연 전송 | 삭제 작업 내구 기록·실패 재시도·지연 기간 뒤 재요청, 탈퇴 뒤 옛 User-ID/app_instance_id/device_id로 전송0, 미확인 GA4 구성의 완료 주장0 |
 | 탈퇴 200·응답 유실 뒤 재시도 404·다른 기기 탈퇴 뒤 404, 마운트된 Provider의 늦은 쓰기·정리 중 앱 종료, 같은 기기의 다른 계정 버킷 | 탈퇴자 userId 항목·마커·누끼 파일0, 늦은 쓰기 부활0·다음 실행 재개, 다른 계정 버킷·기기 전역 값 보존, 일반 로그아웃/계정 전환 보존 정책 불변 |
+| 미리보기 claim 직후·worker 완료 직전·rate 증가 중 탈퇴, 만료 전 AT의 새 요청/조회/썸네일, HOST_WITHDRAW 실패·응답 유실·표지 뒤 crash | 탈퇴 확정 뒤 preview/rate 키0·재생성0, 확정 실패면 표지 해제로 정상 미리보기 복구, 불명확 결과는 표지 유지·재확인, 표지 뒤 crash 잔존은 TTL 상한 안에서만 남고 완료 주장0 |
 
 기준 main 근거:
 
@@ -1036,6 +1057,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `app/app-dev/src/App.tsx`, `app/app-dev/src/types/storage.ts`, `app/app-dev/src/store/CharacterContext.tsx`, `app/app-dev/src/services/sessionErrors.ts`, `app/app-dev/src/services/api.ts` | 일반 로그아웃 multiRemove와 equipment·ownedItems 보존 주석, 계정별 맵·userId 마커 키, customUri·createdAt, USER_NOT_FOUND 안내와 401 refresh 실패의 일반 로그아웃 수렴 |
 | `server/chat/src/main/java/com/oneorthree/chat/membership/MembershipService.java`, `message/service/ChatMessageService.java`, `message/service/ChatAccessGuard.java`, `config/StompAuthChannelInterceptor.java`, `auth/ChatPrincipal.java` (기준 main 529a396) | 멤버십 캐시 TTL 무효화뿐, send의 집중·멤버십 판정 뒤 저장, SUBSCRIBE·SEND의 토큰·판정, 만료 시 기존 구독 유지, sid·authGeneration 미검사. 메시지별 전달 검사·연결 레지스트리·폐기 소비자 없음 |
 | `server/realtime/src/main/java/com/oneorthree/realtime/config/ChatOutboundChannelInterceptor.java`, `config/RealtimeSessionRegistry.java` (기준 이후 머지된 PR739 `da1ae5a39`) | 기존 구독 메시지별 토큰·멤버십 재검사, 세션 ID 단위 종료만. 사용자·sid 색인·인스턴스 간 전파·폐기 fence 없음 |
+| `server/business-api/src/main/java/com/oneorthree/business/linkpreview/repository/PreviewCache.java`, `service/PreviewService.java`, `PreviewController.java` | 사용자 UUID 키·pending 90/READY 300/FAILED 30초·rate 60초, CAS complete, worker 비동기 완료, 활성 검사 없음 |
+| `server/data-api/src/main/java/com/oneorthree/phone/common/port/RedisFocusPresence.java`, `focus/scheduler/FocusPresenceReconciler.java`, `app/app-dev/src/components/PushGate.tsx` | AFTER_COMMIT SET_IF_NEWER·SET_IF_ABSENT의 closed/세션 순서 비교, lease 시작 기준 13시간, 트랜잭션 밖 재구축 쓰기, 등록 effect의 [userId] 의존 |
 | `server/data-api/src/main/java/com/oneorthree/phone/invitelink/service/InviteLinkMatchService.java`, `repository/GroupInviteLinkRepository.java`, `repository/InviteLinkClickRepository.java` | claim의 무잠금 findBySlug, 클릭 PESSIMISTIC_WRITE·SKIP LOCKED, 먼저 읽은 inviterId 귀속 |
 | `server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java` | anonymizeWithdrawnUser |
 | `server/data-api/src/main/java/com/oneorthree/phone/stats/service/StatsService.java` | anonymizeWithdrawnUser |
