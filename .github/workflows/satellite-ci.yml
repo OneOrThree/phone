@@ -59,6 +59,40 @@ jobs:
       - name: A22 위성 경계 · producer와 template 계약 검사
         run: python3 .github/scripts/check-satellite-contracts.py
 
+  public-command-contracts:
+    name: 공개 명령 원자성 · 계약
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: server/data-api
+    env:
+      SPRING_PROFILES_ACTIVE: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 실제 Postgres 멱등 · rollback · 재생 · 계층 검증
+        run: >-
+          ./gradlew --no-daemon test
+          --tests '*PublicCommandIntegrationTest'
+          --tests '*PublicCommandFingerprintTest'
+          --tests '*OutboxCommandIntegrationTest'
+          --tests '*ErrorContractTest'
+          --tests '*DomainLayerRulesTest'
+          checkstyleMain spotbugsMain
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-command-contract-results
+          path: |
+            server/data-api/build/test-results/
+            server/data-api/build/reports/
+          retention-days: 7
+
   build:
     name: ${{ matrix.service }} 검증
     runs-on: [self-hosted, ci, spot]
@@ -125,7 +159,7 @@ jobs:
 
   images:
     name: ${{ matrix.service }} 이미지
-    needs: [runtime-contracts, build]
+    needs: [runtime-contracts, public-command-contracts, build]
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 25
     permissions:

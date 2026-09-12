@@ -20,6 +20,30 @@ location ^~ /actuator/ { return 404; }
 location = /actuator { return 404; }
 # management(9091)는 사설망에서만 접근한다.
 
+# 신규 앱 API: 정확한 루트와 / 하위만 연결한다. URI·쿼리·본문을 재작성하지 않는다.
+# /auth/sessions의 선택 AT/RT 등 인증 예외는 Business의 개별 계약이 결정한다.
+# legacy 링크 IP 증명용 시크릿은 필요 없다. 앱 JWT를 검증한 Business만 내부 위임을 만든다.
+location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews)(?:/|$) {
+    proxy_pass http://__BUSINESS_UPSTREAM__;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Connection "";
+    proxy_set_header X-User-Id "";
+    proxy_set_header X-Caller "";
+    proxy_set_header X-Caller-Id "";
+    proxy_set_header X-Internal-Caller "";
+    proxy_set_header X-Service-Caller "";
+    proxy_set_header X-Link-Client-IP "";
+    proxy_set_header X-Link-Proxy-Secret "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Real-IP "";
+    proxy_set_header CF-Connecting-IP "";
+    # Authorization·Idempotency-Key는 원문 그대로 전달한다(중복 키도 서비스가 검사).
+    proxy_connect_timeout 2s;
+    # 상위 설정이 non_idempotent 재시도를 허용해도 쓰기를 다른 upstream에서 재실행하지 않는다.
+    proxy_next_upstream off;
+}
+
 # 기존 Business 파일 미리보기. 인증·SSRF·본문 상한은 해당 서비스에서 검사한다.
 location = /api/v1/link-previews {
     proxy_pass http://__BUSINESS_UPSTREAM__;

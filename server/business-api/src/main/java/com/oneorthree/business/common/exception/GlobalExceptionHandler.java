@@ -1,10 +1,21 @@
 package com.oneorthree.business.common.exception;
 
+import com.oneorthree.business.common.api.ApiErrorCode;
+import com.oneorthree.business.common.api.ApiResponses;
+import com.oneorthree.business.common.api.PublicApiException;
+import com.oneorthree.business.common.api.PublicApiRoutes;
+import com.oneorthree.business.common.api.RequestBodyTooLargeException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
@@ -15,97 +26,223 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
-/**
- * 모든 예외를 {@link ErrorResponse} 봉투 하나로 바꿔 내보낸다.
- *
- * <p><b>가장 중요한 규칙: 상류의 도메인 판정은 재해석하지 않는다.</b> {@link UpstreamDomainException}
- * 은 status·code·message·retryAfterMs 를 그대로 통과시킨다 — 앱이 그 문자열로 분기하고 있어서다.
- * 나머지 상류 실패(응답 없음 · 자격 거절 · 계약 어긋남)는 서로 <b>구분해서</b> 올린다. 한 덩어리로
- * 접으면 「장애」와 「배선 사고」와 「거부」가 같은 응답이 되어 운영에서 가려낼 수 없다.
- */
+import java.util.Comparator;
+
+/** 신규 외부 오류만 공통 봉투로 변환하고 legacy 상류 status/code/message는 그대로 보존한다. */
 @Slf4j
 @RestControllerAdvice
+@RequiredArgsConstructor
 public class GlobalExceptionHandler {
 
-    /** 상류 도메인 판정 중계 — 봉투를 통째로 전달한다. */
+    private final ApiResponses responses;
+
     @ExceptionHandler(UpstreamDomainException.class)
-    public ResponseEntity<ErrorResponse> handleUpstreamDomain(UpstreamDomainException e) {
-        HttpStatus status = e.resolvedStatus();
-        if (e.getRetryAfterMs() != null) {
-            return ResponseEntity.status(status).body(
-                    new RetryAfterErrorResponse(e.getCode(), e.getUpstreamMessage(), e.getRetryAfterMs()));
+    public ResponseEntity<Object> handleUpstreamDomain(UpstreamDomainException error, HttpServletRequest request) {
+        if (!PublicApiRoutes.usesEnvelope(request)) {
+            Object body = error.getRetryAfterMs() == null
+                    ? new ErrorResponse(error.getCode(), error.getUpstreamMessage())
+                    : new RetryAfterErrorResponse(error.getCode(), error.getUpstreamMessage(), error.getRetryAfterMs());
+            return ResponseEntity.status(error.resolvedStatus()).body(body);
         }
-        return ResponseEntity.status(status).body(new ErrorResponse(e.getCode(), e.getUpstreamMessage()));
+        ApiErrorCode mapped = registeredUpstream(error.getCode(), error.getStatus());
+        if (mapped == null) {
+            log.error("등록되지 않은 상류 오류 계약 — status={}", error.getStatus());
+            return responses.error(request, ApiErrorCode.UPSTREAM_CONTRACT_ERROR, null, null);
+        }
+        var result = responses.error(request, mapped, defaultField(mapped), null);
+        if (mapped.isRetryable() && error.getRetryAfterMs() != null && error.getRetryAfterMs() > 0) {
+            long millis = error.getRetryAfterMs();
+            long seconds = millis / 1000 + (millis % 1000 == 0 ? 0 : 1);
+            HttpHeaders headers = new HttpHeaders();
+            headers.putAll(result.getHeaders());
+            headers.set(HttpHeaders.RETRY_AFTER, Long.toString(seconds));
+            return new ResponseEntity<>(result.getBody(), headers, result.getStatusCode());
+        }
+        return result;
     }
 
     @ExceptionHandler(DomainException.class)
-    public ResponseEntity<ErrorResponse> handleDomain(DomainException e) {
-        return body(e.getErrorCode());
+    public ResponseEntity<Object> handleDomain(DomainException error, HttpServletRequest request) {
+        if (!PublicApiRoutes.usesEnvelope(request)) {
+            return legacy(error.getErrorCode());
+        }
+        ApiErrorCode code = publicCode(error.getErrorCode());
+        if (error instanceof PublicApiException apiError) {
+            return responses.error(request, code, apiError.getField(), apiError.getCurrent());
+        }
+        return responses.error(request, code, defaultField(code), null);
     }
 
     @ExceptionHandler(UpstreamUnavailableException.class)
-    public ResponseEntity<ErrorResponse> handleUnavailable(UpstreamUnavailableException e) {
-        log.warn("상류 응답 없음 — {}", e.getMessage());
-        return body(CommonErrorCode.UPSTREAM_UNAVAILABLE);
+    public ResponseEntity<Object> handleUnavailable(UpstreamUnavailableException error, HttpServletRequest request) {
+        log.warn("상류 요청 일시 실패 — type={}", error.getClass().getSimpleName());
+        return mapped(request, CommonErrorCode.UPSTREAM_UNAVAILABLE, ApiErrorCode.SERVICE_UNAVAILABLE, null);
     }
 
-    /** ⚠️ 토큰 값은 로그에 넣지 않는다 — 메시지는 caller·대상까지만 담는다. */
+    @ExceptionHandler(UpstreamTimeoutException.class)
+    public ResponseEntity<Object> handleTimeout(UpstreamTimeoutException error, HttpServletRequest request) {
+        log.warn("상류 요청 시간 초과");
+        return mapped(request, CommonErrorCode.UPSTREAM_UNAVAILABLE, ApiErrorCode.UPSTREAM_TIMEOUT, null);
+    }
+
+    @ExceptionHandler(CompositionCapacityExceededException.class)
+    public ResponseEntity<Object> handleCapacity(CompositionCapacityExceededException error,
+            HttpServletRequest request) {
+        log.warn("화면 조합 처리 용량 초과");
+        return mapped(request, CommonErrorCode.UPSTREAM_UNAVAILABLE, ApiErrorCode.SERVICE_UNAVAILABLE, null);
+    }
+
     @ExceptionHandler(UpstreamCredentialRejectedException.class)
-    public ResponseEntity<ErrorResponse> handleCredentialRejected(UpstreamCredentialRejectedException e) {
-        log.error("상류가 서비스 자격을 거절했다 — {}", e.getMessage());
-        return body(CommonErrorCode.UPSTREAM_CREDENTIAL_REJECTED);
+    public ResponseEntity<Object> handleCredentialRejected(UpstreamCredentialRejectedException error,
+            HttpServletRequest request) {
+        log.error("상류 서비스 자격 거절");
+        return mapped(request, CommonErrorCode.UPSTREAM_CREDENTIAL_REJECTED, ApiErrorCode.UPSTREAM_AUTH_FAILED, null);
     }
 
     @ExceptionHandler(UpstreamContractMismatchException.class)
-    public ResponseEntity<ErrorResponse> handleContractMismatch(UpstreamContractMismatchException e) {
-        log.error("상류 계약 불일치 — {}", e.getMessage());
-        return body(CommonErrorCode.UPSTREAM_CONTRACT_MISMATCH);
+    public ResponseEntity<Object> handleContractMismatch(UpstreamContractMismatchException error,
+            HttpServletRequest request) {
+        log.error("상류 응답 계약 불일치");
+        return mapped(request, CommonErrorCode.UPSTREAM_CONTRACT_MISMATCH, ApiErrorCode.UPSTREAM_CONTRACT_ERROR, null);
     }
 
-    @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class})
-    public ResponseEntity<ErrorResponse> handleInvalidBody(Exception e) {
-        log.debug("요청 본문 거절 — {}", e.getClass().getSimpleName());
-        return body(CommonErrorCode.INVALID_REQUEST);
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Object> handleValidation(MethodArgumentNotValidException error, HttpServletRequest request) {
+        FieldError field = error.getBindingResult().getFieldErrors().stream()
+                .min(Comparator.comparing(FieldError::getField)).orElse(null);
+        ApiErrorCode code = field == null || field.getRejectedValue() == null
+                ? ApiErrorCode.INVALID_REQUEST : ApiErrorCode.OUT_OF_RANGE;
+        return mapped(request, CommonErrorCode.INVALID_REQUEST, code, field == null ? null : field.getField());
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<Object> handleConstraint(ConstraintViolationException error, HttpServletRequest request) {
+        return mapped(request, CommonErrorCode.INVALID_REQUEST, ApiErrorCode.OUT_OF_RANGE, null);
+    }
+
+    @ExceptionHandler(RequestBodyTooLargeException.class)
+    public ResponseEntity<Object> handleBodyTooLarge(RequestBodyTooLargeException error, HttpServletRequest request) {
+        if (PublicApiRoutes.usesEnvelope(request)) {
+            return responses.error(request, ApiErrorCode.REQUEST_TOO_LARGE, null, null);
+        }
+        return ResponseEntity.status(413)
+                    .body(new ErrorResponse("REQUEST_TOO_LARGE", "요청을 처리할 수 없습니다."));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Object> handleUnreadable(HttpMessageNotReadableException error, HttpServletRequest request) {
+        if (RequestBodyTooLargeException.causedBy(error)) {
+            if (PublicApiRoutes.usesEnvelope(request)) {
+                return responses.error(request, ApiErrorCode.REQUEST_TOO_LARGE, null, null);
+            }
+            return ResponseEntity.status(413)
+                    .body(new ErrorResponse("REQUEST_TOO_LARGE", "요청을 처리할 수 없습니다."));
+        }
+        return mapped(request, CommonErrorCode.INVALID_REQUEST, ApiErrorCode.INVALID_REQUEST, null);
     }
 
     @ExceptionHandler({MissingServletRequestParameterException.class, MissingRequestHeaderException.class,
             MethodArgumentTypeMismatchException.class})
-    public ResponseEntity<ErrorResponse> handleInvalidParameter(Exception e) {
-        log.debug("요청 파라미터 거절 — {}", e.getClass().getSimpleName());
-        return body(CommonErrorCode.INVALID_PARAMETER);
+    public ResponseEntity<Object> handleInvalidParameter(Exception error, HttpServletRequest request) {
+        String field = null;
+        if (error instanceof MissingServletRequestParameterException missing) {
+            field = missing.getParameterName();
+        } else if (error instanceof MissingRequestHeaderException missing) {
+            field = missing.getHeaderName();
+        } else if (error instanceof MethodArgumentTypeMismatchException mismatch) {
+            field = mismatch.getName();
+        }
+        return mapped(request, CommonErrorCode.INVALID_PARAMETER, ApiErrorCode.INVALID_REQUEST, field);
     }
 
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
-    public ResponseEntity<ErrorResponse> handleMediaType(HttpMediaTypeNotSupportedException e) {
-        return body(CommonErrorCode.UNSUPPORTED_MEDIA_TYPE);
+    public ResponseEntity<Object> handleMediaType(HttpMediaTypeNotSupportedException error,
+            HttpServletRequest request) {
+        return withHeaders(mapped(request, CommonErrorCode.UNSUPPORTED_MEDIA_TYPE,
+                ApiErrorCode.UNSUPPORTED_MEDIA_TYPE, null), error.getHeaders());
+    }
+
+    /** JSON을 거부한 요청에 오류 JSON을 강제하지 않는다. 오류 규약 §4의 406은 상태만 반환한다. */
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<Void> handleNotAcceptable(HttpMediaTypeNotAcceptableException error) {
+        return ResponseEntity.status(error.getStatusCode()).headers(error.getHeaders()).build();
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ErrorResponse> handleMethod(HttpRequestMethodNotSupportedException e) {
-        return body(CommonErrorCode.METHOD_NOT_ALLOWED);
+    public ResponseEntity<Object> handleMethod(HttpRequestMethodNotSupportedException error,
+            HttpServletRequest request) {
+        return withHeaders(mapped(request, CommonErrorCode.METHOD_NOT_ALLOWED,
+                ApiErrorCode.METHOD_NOT_ALLOWED, null), error.getHeaders());
     }
 
-    /**
-     * 매핑되지 않은 경로 — <b>404 이지 500 이 아니다</b>.
-     *
-     * <p>이 핸들러가 없으면 아래 {@code Exception} 그물에 걸려 500 이 되고, 그러면 라우팅·포트 설정
-     * 문제가 「서버 장애」로 보인다. 관리 포트(9091)로 격리한 {@code /actuator/*} 를 서비스 포트로
-     * 부르는 것이 정확히 그 경우다 — 격리가 정상 동작한 것인데 500 은 그 사실을 가린다.
-     */
     @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
-    public ResponseEntity<ErrorResponse> handleNotFound(Exception e) {
-        log.debug("매핑되지 않은 경로 — {}", e.getClass().getSimpleName());
-        return body(CommonErrorCode.ENDPOINT_NOT_FOUND);
+    public ResponseEntity<Object> handleNotFound(Exception error, HttpServletRequest request) {
+        return mapped(request, CommonErrorCode.ENDPOINT_NOT_FOUND, ApiErrorCode.RESOURCE_NOT_FOUND, null);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleUnexpected(Exception e) {
-        log.error("처리하지 못한 예외", e);
-        return body(CommonErrorCode.INTERNAL_ERROR);
+    public ResponseEntity<Object> handleUnexpected(Exception error, HttpServletRequest request) {
+        // 원문 예외 메시지/본문/SQL을 로그나 공개 응답에 복사하지 않는다.
+        log.error("처리하지 못한 예외 — type={}", error.getClass().getName());
+        return mapped(request, CommonErrorCode.INTERNAL_ERROR, ApiErrorCode.INTERNAL_ERROR, null);
     }
 
-    private ResponseEntity<ErrorResponse> body(ErrorCode code) {
-        return ResponseEntity.status(code.getStatus())
+    private ResponseEntity<Object> mapped(HttpServletRequest request, ErrorCode legacy, ApiErrorCode code,
+            String field) {
+        return PublicApiRoutes.usesEnvelope(request) ? responses.error(request, code, field, null) : legacy(legacy);
+    }
+
+    private ResponseEntity<Object> legacy(ErrorCode code) {
+        return ResponseEntity.status(code.getStatus()).contentType(MediaType.APPLICATION_JSON)
                 .body(new ErrorResponse(code.name(), code.getMessage()));
+    }
+
+    private ResponseEntity<Object> withHeaders(ResponseEntity<Object> result, HttpHeaders extra) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.putAll(extra);
+        headers.putAll(result.getHeaders());
+        return new ResponseEntity<>(result.getBody(), headers, result.getStatusCode());
+    }
+
+    private ApiErrorCode publicCode(ErrorCode code) {
+        if (code instanceof ApiErrorCode api) {
+            return api;
+        }
+        return switch (code.name()) {
+            case "USER_INACTIVE" -> ApiErrorCode.USER_NOT_FOUND;
+            case "ENDPOINT_NOT_FOUND", "COMPAT_HANDLER_DISABLED" -> ApiErrorCode.RESOURCE_NOT_FOUND;
+            case "UPSTREAM_UNAVAILABLE" -> ApiErrorCode.SERVICE_UNAVAILABLE;
+            case "UPSTREAM_CREDENTIAL_REJECTED" -> ApiErrorCode.UPSTREAM_AUTH_FAILED;
+            case "UPSTREAM_CONTRACT_MISMATCH" -> ApiErrorCode.UPSTREAM_CONTRACT_ERROR;
+            default -> {
+                ApiErrorCode registered = registeredUpstream(code.name(), code.getStatus().value());
+                yield registered == null ? ApiErrorCode.UPSTREAM_CONTRACT_ERROR : registered;
+            }
+        };
+    }
+
+    private ApiErrorCode registeredUpstream(String code, int status) {
+        if (status == 409 && "PUBLIC_COMMAND_CONTRACT_UNSUPPORTED".equals(code)) {
+            return ApiErrorCode.STATE_CONFLICT;
+        }
+        if (status == 409 && "IDEMPOTENCY_KEY_CONFLICT".equals(code)) {
+            return ApiErrorCode.IDEMPOTENCY_KEY_REUSED;
+        }
+        try {
+            ApiErrorCode result = ApiErrorCode.valueOf(code);
+            return result.getStatus().value() == status ? result : null;
+        } catch (IllegalArgumentException | NullPointerException ignored) {
+            return null;
+        }
+    }
+
+    private String defaultField(ApiErrorCode code) {
+        return switch (code) {
+            case INVALID_IDEMPOTENCY_KEY, IDEMPOTENCY_KEY_REUSED -> "Idempotency-Key";
+            case INVALID_CURSOR, CURSOR_EXPIRED -> "cursor";
+            case INVITATION_EXPIRED, SLUG_NOT_FOUND -> "code";
+            case UNSUPPORTED_PROVIDER -> "provider";
+            default -> null;
+        };
     }
 }

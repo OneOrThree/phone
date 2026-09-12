@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DeadlineTest {
 
     @Test
-    @DisplayName("예산이 read timeout 을 못 담으면 시도하지 않는다")
+    @DisplayName("요청한 작업 시간보다 예산이 짧은지 확인한다")
     void 여유없으면거절() {
         Deadline deadline = Deadline.startingNow(Duration.ofMillis(100));
         assertThat(deadline.hasRoomFor(Duration.ofMillis(1500))).isFalse();
@@ -31,7 +31,7 @@ class DeadlineTest {
     }
 
     @Test
-    @DisplayName("예산 없는 호출은 상류 read timeout 만이 상한이다")
+    @DisplayName("전체 예산 없는 호환 호출도 명시적으로 구분한다")
     void unbounded() {
         Deadline deadline = Deadline.unbounded();
         assertThat(deadline.isUnbounded()).isTrue();

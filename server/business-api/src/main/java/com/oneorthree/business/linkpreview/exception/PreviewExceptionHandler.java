@@ -1,6 +1,11 @@
 package com.oneorthree.business.linkpreview.exception;
 
+import com.oneorthree.business.common.api.ApiResponses;
+import com.oneorthree.business.common.api.PublicApiRoutes;
 import com.oneorthree.business.common.exception.ErrorResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import com.oneorthree.business.linkpreview.PreviewController;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -26,9 +31,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * <p>봉투는 전역과 같은 {@link ErrorResponse}({@code code} · {@code message})다 — 앱이 {@code code} 로
  * 분기하므로 필드 이름과 값은 계약이다.
  */
+@RequiredArgsConstructor
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(assignableTypes = PreviewController.class)
 public class PreviewExceptionHandler {
+
+    private final ApiResponses responses;
 
     private static final String MESSAGE = "미리보기 요청을 처리할 수 없습니다.";
 
@@ -37,17 +45,20 @@ public class PreviewExceptionHandler {
      * {@code NOT_FOUND} 는 404, 나머지(비공개 링크·렌더 실패 등)는 요청 쪽 문제로 400 이다.
      */
     @ExceptionHandler(PreviewException.class)
-    public ResponseEntity<ErrorResponse> preview(PreviewException error) {
+    public ResponseEntity<Object> preview(PreviewException error, HttpServletRequest request) {
         int status = switch (error.getCode()) {
             case "RATE_LIMITED" -> 429;
             case "NOT_FOUND" -> 404;
             default -> 400;
         };
-        var response = ResponseEntity.status(status);
+        var response = ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON);
         if (status == 429) {
             response.header("Retry-After", "60");
         }
-        return response.body(new ErrorResponse(error.getCode(), MESSAGE));
+        Object body = PublicApiRoutes.usesEnvelope(request)
+                ? responses.envelope(request, error.getCode(), MESSAGE, null, status == 429, null)
+                : new ErrorResponse(error.getCode(), MESSAGE);
+        return response.body(body);
     }
 
     /**
@@ -57,8 +68,11 @@ public class PreviewExceptionHandler {
      * 재시도한다. 이 advice 가 미리보기에만 붙어 있으므로 조합 API 의 상류 503 계약과 섞이지 않는다.
      */
     @ExceptionHandler(DataAccessException.class)
-    public ResponseEntity<ErrorResponse> unavailable(DataAccessException error) {
-        return ResponseEntity.status(503).header("Retry-After", "10")
-                .body(new ErrorResponse("SERVICE_UNAVAILABLE", "잠시 후 다시 시도해 주세요."));
+    public ResponseEntity<Object> unavailable(DataAccessException error, HttpServletRequest request) {
+        Object body = PublicApiRoutes.usesEnvelope(request)
+                ? responses.envelope(request, "SERVICE_UNAVAILABLE", "잠시 후 다시 시도해 주세요.", null, true, null)
+                : new ErrorResponse("SERVICE_UNAVAILABLE", "잠시 후 다시 시도해 주세요.");
+        return ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
+                .header("Retry-After", "10").body(body);
     }
 }

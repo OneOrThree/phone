@@ -33,7 +33,7 @@ class ClaimQueueGateTest extends UpstreamTestBase {
         stubActiveUser(USER);
         DATA.on("POST /internal/invite-links/claim-intents", request ->
                 new MockUpstream.Response(200,
-                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e\",\"version\":1}"));
+                        "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e\",\"version\":1,\"completed\":false}"));
         // 링크가 판정을 못 내린다.
         LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(500, "{}"));
 
