@@ -1071,6 +1071,15 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimIntentAbandonRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -7433,6 +7442,9 @@
           },
           "completed": {
             "type": "boolean"
+          },
+          "terminalCode": {
+            "type": "string"
           }
         }
       },
@@ -7474,6 +7486,14 @@
         "required": [
           "leaseToken"
         ]
+      },
+      "ClaimIntentAbandonRequest": {
+        "type": "object",
+        "properties": {
+          "terminalCode": {
+            "type": "string"
+          }
+        }
       },
       "ClaimConfirmationRequest": {
         "type": "object",
