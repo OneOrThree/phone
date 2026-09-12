@@ -136,6 +136,82 @@ tasks.withType(Javadoc).configureEach {
 
 tasks.named('test') {
 	useJUnitPlatform()
+
+	// ── 테스트 포크 병렬도 (GROMO-1795) ───────────────────────────────────────
+	// 「켠 게」 아니라 「열어둔」 것이다. 기본값 1 = 지금까지와 «완전히» 동일한 단일 포크
+	// 순차 실행이다. 값을 주지 않으면 이 블록이 없던 때와 동작이 1 도 다르지 않다.
+	//
+	//   ./gradlew test -PtestMaxParallelForks=4    (또는 TEST_MAX_PARALLEL_FORKS=4)
+	//
+	// ── 왜 기본이 1 인가 — 지금 올리면 «전체 처리량이 되레 준다» ──────────────
+	// self-hosted 러너 `gromo-dev-build` 는 e2-custom-4-8192(4 vCPU / 8 GB) VM «한 대»를
+	// 러너 프로세스 3개(gromo-dev-build-1/2/3)가 공유한다
+	// (docs/architecture/system-architecture.md §1, be-test.yml 의 services.ports 주석,
+	//  그리고 위 openApi.waitTimeInSeconds 주석의 경합 실측 16.0초 → 40.0초).
+	// 잡 하나의 실효 몫은 **1.33 vCPU / 2.7 GB** 다. 여기서 포크를 늘리면
+	//   - CPU: 실효 1.33 코어를 포크 N 개가 다시 나눠 갖는다. 나눌 코어가 없어 벽시계는
+	//     거의 안 줄고, 컨텍스트 스위칭 비용만 는다.
+	//   - 메모리: maxHeapSize 는 포크«당»이라 N 배로 곱해진다. 1757 스택이 넣은 1g 기준
+	//     4 포크면 힙만 4 GB — 실효 몫 2.7 GB 를 이미 넘는다.
+	//   - 컨테이너: 포크마다 TestPostgres 가 «따로» 뜨고, *MigrationTest 21 개도 클래스마다
+	//     제 컨테이너를 띄운다. 도커 메모리도 같은 배수로 먹는다.
+	// 결국 내 잡 하나도 안 빨라지면서 같은 VM 의 다른 러너 2개를 굶긴다 — 큐 전체가 느려진다.
+	//
+	// ※ `doc/ci-speed-analysis-2026-09-12.md` 는 여기에 `JAVA_TOOL_OPTIONS:
+	//    -XX:MaxRAMPercentage=60` 도 걸려 있다고 적었지만, .github/workflows/ 전수에 그런
+	//    설정은 «없다»(be-test.yml 은 GRADLE_OPTS 로 데몬만 끈다). 찾지 말 것.
+	//    실제 구속조건은 위의 vCPU 몫과 포크당 힙이다.
+	//
+	// ── 언제 올릴 수 있나 — GitHub-hosted 이전(티켓 1793) «뒤» ────────────────
+	// GitHub-hosted 러너는 잡마다 전용 VM 이라 굶길 옆 러너가 없다. 그 이전이 끝나기 전에는
+	// 이 값을 올려도 이득이 없다.
+	//
+	// ── 올릴 땐 «2 부터» — 실측상 4 가 2 보다 느리다 ──────────────────────────
+	// 로컬 실측(2026-09-12, macOS · Docker VM 8 vCPU / 8 GB · 2152 테스트 · 211 스위트,
+	// 셋 다 통과):
+	//
+	//   포크 | 벽시계  | JUnit time 합계 | 합계/벽시계 | 기본 대비
+	//   ----|--------|---------------|-----------|--------
+	//    1  | 190.3초 |     161.9초    |   0.85    |  1.00배   ← 합계 ≥ 벽시계 = 순차
+	//    2  | 138.7초 |     235.9초    |   1.70    |  1.37배
+	//    4  | 143.3초 |     422.7초    |   2.95    |  1.33배   ← 2 보다 «느리다»
+	//
+	// 포크를 2 → 4 로 늘리면 동시성은 1.70 → 2.95 로 늘지만, 경합 탓에 스위트 «하나하나»가
+	// 느려져(합계 235.9 → 422.7초) 벽시계는 오히려 뒤집힌다. 즉 이 스위트의 이득은 포크 수가
+	// 아니라 «실제로 남는 코어 수»가 정한다 — 8 코어에서도 최적이 2 였다. 실효 1.33 vCPU 인
+	// self-hosted 에서 이득이 0 이라는 위 판단의 실측 근거가 이것이다.
+	//
+	// ⚠️ 올릴 때 같이 볼 것: maxHeapSize(포크당) × 포크 수 + 포크당 컨테이너가 러너 메모리에
+	//    들어가는지. 위 4 포크 실측에서 Postgres 컨테이너가 동시에 최대 39 개(약 1.5 GB) 떴다
+	//    — *MigrationTest 는 클래스마다 컨테이너를 띄우고 JVM 이 끝날 때까지 안 닫기 때문이다.
+	//    포크를 올리기 전에 러너의 도커 메모리부터 확인할 것.
+	//
+	// ── 병렬화를 막는 것은 없다 (GROMO-1795 에서 코드로 확인) ─────────────────
+	//  - TestPostgres.INSTANCE 는 JVM 당 static 이라 포크마다 «별개» 컨테이너가 랜덤 호스트
+	//    포트로 뜬다. 포크끼리 같은 DB 를 밟지 않는다.
+	//  - 실행시간의 44% 를 먹는 *MigrationTest 21 개는 이미 클래스별 전용 컨테이너를 직접 띄운다.
+	//  - 고정 포트·withReuse·JUnit 스레드 병렬 설정(@Execution·@ResourceLock)은 테스트 소스에
+	//    하나도 없다.
+	//  - @SpringBootTest 7 개 전부가 TestPostgres 로 datasource 를 덮어쓴다(또는 @Disabled).
+	//    ⚠️ 여기가 유일하게 «깨질 수 있는» 자리다: be-test.yml 은 잡마다 `services: postgres`
+	//    를 띄워 SPRING_DATASOURCE_URL 로 주입한다. 그 DB 는 잡 하나에 «한 개»뿐이라 포크들이
+	//    공유한다. 지금은 그 DB 를 실제로 쓰는 테스트가 하나도 없어 무해하지만, 앞으로
+	//    @DynamicPropertySource 없이 ci 프로파일 DB 를 그대로 쓰는 테스트를 추가하면
+	//    ddl-auto=create-drop 탓에 포크들이 서로의 스키마를 지운다. 그런 테스트를 들일 거면
+	//    이 값을 올리기 전에 포크별 DB 분리부터 해야 한다.
+	def forksRaw = (project.findProperty('testMaxParallelForks')
+			?: System.getenv('TEST_MAX_PARALLEL_FORKS')
+			?: '1').toString().trim()
+	if (!forksRaw.isInteger() || forksRaw.toInteger() < 1) {
+		throw new GradleException(
+				"testMaxParallelForks 는 1 이상의 정수여야 한다 (받은 값: '${forksRaw}')")
+	}
+	maxParallelForks = forksRaw.toInteger()
+	if (maxParallelForks > 1) {
+		logger.lifecycle("[GROMO-1795] test maxParallelForks=${maxParallelForks} " +
+				"— 포크마다 Testcontainers 컨테이너가 따로 뜬다(메모리·디스크 배수 주의)")
+	}
+
 	// 테스트 완료 후 JaCoCo 리포트 자동 생성
 	finalizedBy jacocoTestReport
 }
