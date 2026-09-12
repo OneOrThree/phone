@@ -15,6 +15,7 @@ import com.oneorthree.phone.group.service.ChallengeResultAckService;
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityRequest;
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityResponse;
 import com.oneorthree.phone.internal.notification.service.NotificationEligibilityService;
+import com.oneorthree.phone.internal.notification.service.NotificationRetentionEligibility;
 import com.oneorthree.phone.internal.notification.service.NotificationSnapshotService;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -38,6 +39,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -76,9 +78,11 @@ class NotificationEligibilityServiceTest {
      * 그때 실패 메시지는 원인을 가리키지 않는다.
      */
     private NotificationEligibilityService service() {
+        NotificationRetentionEligibility retention = mock(NotificationRetentionEligibility.class);
+        when(retention.evaluate(any(), any(), any())).thenReturn(NotificationEligibilityResponse.allow());
         return new NotificationEligibilityService(userQueryService, groupQueryService,
                 groupMemberRepository, betParticipantRepository, friendshipRepository,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), retention);
     }
 
     private void userIsActive() {

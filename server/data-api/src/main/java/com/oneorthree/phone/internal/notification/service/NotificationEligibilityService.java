@@ -15,6 +15,7 @@ import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityRes
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationExpiry;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -87,6 +88,7 @@ public class NotificationEligibilityService {
     private final GroupChallengeBetParticipantRepository betParticipantRepository;
     private final FriendshipRepository friendshipRepository;
     private final Clock clock;
+    private final NotificationRetentionEligibility retentionEligibility;
 
     /**
      * 지금 이 알림을 보내도 되는가.
@@ -102,7 +104,8 @@ public class NotificationEligibilityService {
             return NotificationEligibilityResponse.deny(REASON_UNKNOWN_KIND);
         }
         // 모든 종류의 공통 전제 — 탈퇴자에게는 무엇도 보내지 않는다.
-        if (userQueryService.findActive(request.userId()).isEmpty()) {
+        User user = userQueryService.findActive(request.userId()).orElse(null);
+        if (user == null) {
             return NotificationEligibilityResponse.deny(REASON_USER_INACTIVE);
         }
         if (kind.subjectKind() != NotificationKind.SubjectKind.NONE && request.subjectId() == null) {
@@ -120,10 +123,11 @@ public class NotificationEligibilityService {
             case BET_SILENT_FLUSH -> evaluateBetParticipation(request);
             case CHALLENGE_WINDOW_END, CHALLENGE_ENDED -> evaluateChallengeEnd(request);
             case FRIEND_REQUEST -> evaluateFriendRequest(request);
+            case INACTIVE_RETURN, MISSED_FOCUS_TODAY, STREAK_AT_RISK ->
+                    retentionEligibility.evaluate(request, user, clock.instant());
             // 추가 도메인 조회가 없는 종류. 시간 제한이 있는 리그·리텐션은 위에서 만료를 확인했다.
             case FRIEND_ACCEPTED, LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_DEADLINE_D1,
-                 LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE,
-                 INACTIVE_RETURN, MISSED_FOCUS_TODAY, STREAK_AT_RISK ->
+                 LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE ->
                     NotificationEligibilityResponse.allow();
         };
     }

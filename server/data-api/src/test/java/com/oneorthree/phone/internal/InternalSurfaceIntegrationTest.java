@@ -186,6 +186,10 @@ class InternalSurfaceIntegrationTest {
     private static String capability(String slug, UUID groupId, UUID inviterId, long epoch, long expSeconds) {
         String json = "{\"slug\":\"" + slug + "\",\"groupId\":\"" + groupId + "\",\"inviterId\":\""
                 + inviterId + "\",\"membershipEpoch\":\"" + epoch + "\",\"exp\":" + expSeconds + "}";
+        return signedCapability(json);
+    }
+
+    private static String signedCapability(String json) {
         String payload = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(json.getBytes(StandardCharsets.UTF_8));
         try {
@@ -485,6 +489,38 @@ class InternalSurfaceIntegrationTest {
                         .header("X-User-Id", ownerId.toString()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("서명된 자격의 slug 누락은 409로 거절하고 정상 자격으로 같은 키를 재시도할 수 있다")
+    void missingCapabilitySlugRejectsWithoutConfirmationAndAllowsRetry() throws Exception {
+        UUID ownerId = newUser();
+        UUID claimerId = newUser();
+        Group group = newGroup(ownerId);
+        UUID claimId = UUID.randomUUID();
+        long exp = Instant.now().getEpochSecond() + 300;
+        String malformed = signedCapability("{\"groupId\":\"" + group.getId() + "\",\"inviterId\":\""
+                + ownerId + "\",\"membershipEpoch\":\"1\",\"exp\":" + exp + "}");
+        String prefix = "{\"claimId\":\"" + claimId + "\",\"slug\":\"abc123\",\"capability\":\"";
+
+        mockMvc.perform(post("/internal/invite-links/claim-confirmations")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", claimerId.toString())
+                        .header("Idempotency-Key", "missing-slug")
+                        .contentType("application/json")
+                        .content(prefix + malformed + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CLAIM_CAPABILITY_INVALID"));
+        assertThat(envelopesOf(claimerId, "link.claimConfirmed")).isEmpty();
+
+        mockMvc.perform(post("/internal/invite-links/claim-confirmations")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", claimerId.toString())
+                        .header("Idempotency-Key", "missing-slug")
+                        .contentType("application/json")
+                        .content(prefix + capability("abc123", group.getId(), ownerId, 1L, exp) + "\"}"))
+                .andExpect(status().isOk());
+        assertThat(envelopesOf(claimerId, "link.claimConfirmed")).hasSize(1);
     }
 
     @Test

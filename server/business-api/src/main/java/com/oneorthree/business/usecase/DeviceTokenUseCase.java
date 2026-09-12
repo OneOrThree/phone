@@ -224,13 +224,18 @@ public class DeviceTokenUseCase {
         DurableCommandAck recorded = null;
         RuntimeException outboxFailure = null;
         try {
-            recorded = sessionId == null
+            DurableCommandAck response = sessionId == null
                     ? dataApiClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
                             claims.authGeneration(), keys.forStep("device-delete-outbox"), deadline)
                     : dataApiClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
                             claims.authGeneration(), sessionId, keys.forStep("device-delete-outbox"), deadline);
+            requireDeletionRecord(response, sessionId);
+            recorded = response;
         } catch (RuntimeException e) {
             if (sessionId != null) {
+                if (e instanceof UpstreamContractMismatchException) {
+                    throw e;
+                }
                 log.warn("세션 범위 조회·삭제 outbox 기록 실패 — 범위 없는 직접 삭제로 대체하지 않는다", e);
                 throw new UpstreamUnavailableException("기기 삭제의 세션 범위를 확인하지 못했습니다", e);
             }
@@ -241,11 +246,7 @@ public class DeviceTokenUseCase {
 
         String bootstrapHash = null;
         if (sessionId != null) {
-            // Data가 장애이거나 아직 구 응답 계약이면 범위 없는 직접 삭제로 대체하지 않는다.
-            if (recorded == null || recorded.params() == null
-                    || !sessionId.toString().equals(recorded.params().get("sessionId"))) {
-                throw new UpstreamUnavailableException("기기 삭제의 세션 범위를 확인하지 못했습니다", outboxFailure);
-            }
+            // 완전한 내구 응답에서 검증한 범위만 직접 삭제에 재사용한다.
             bootstrapHash = (String) recorded.params().get("bootstrapNonceHash");
         }
         try {
@@ -270,6 +271,27 @@ public class DeviceTokenUseCase {
 
         if (recorded != null) {
             markDeliveredQuietly(claims, recorded, deadline);
+        }
+    }
+
+    /** 부실 2xx를 기록 성공으로 보거나, 누락된 해시를 의도적인 null 범위로 좁히지 않는다. */
+    private static void requireDeletionRecord(DurableCommandAck recorded, UUID sessionId) {
+        if (recorded == null || recorded.commandId() == null || recorded.eventId() == null
+                || recorded.eventId().isBlank() || recorded.version() <= 0) {
+            throw new UpstreamContractMismatchException("기기 삭제 내구 명령 응답이 완전하지 않습니다");
+        }
+        if (sessionId == null) {
+            return;
+        }
+        if (recorded.params() == null
+                || !(recorded.params().get("sessionId") instanceof String returnedSession)
+                || !sessionId.toString().equalsIgnoreCase(returnedSession)
+                || !recorded.params().containsKey("bootstrapNonceHash")) {
+            throw new UpstreamContractMismatchException("기기 삭제 응답의 세션 범위가 완전하지 않습니다");
+        }
+        Object hash = recorded.params().get("bootstrapNonceHash");
+        if (hash != null && (!(hash instanceof String text) || !text.matches("[0-9a-f]{64}"))) {
+            throw new UpstreamContractMismatchException("기기 삭제 응답의 bootstrap 해시가 유효하지 않습니다");
         }
     }
 

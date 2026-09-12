@@ -114,6 +114,16 @@ noti:<KIND>:<userId>:<subjectId|none>:<시간축|none>
 V42 이전 이력이나 최종 정산에서 판정된 승자에게 null일 수 있으므로 필수 조건으로 삼지 않는다.
 미확정·패배 참가자는 `WIN_NOT_CONFIRMED`, 무산·환불 등의 회차는 `SESSION_INVALIDATED`로 억제한다.
 
+리텐션 3종은 만료 검사에 더해 생성 때의 대상 조건을 현재 정본으로 다시 확인한다.
+`INACTIVE_RETURN`은 정식 사용자의 `last_active_at`이 KST 기준 정확히 3·7·14일 전이어야 하며,
+`stage`가 있으면 현재 단계도 일치해야 한다. `MISSED_FOCUS_TODAY`는 이번 주 집중 누적이 양수인
+랭킹 대상이며 KST 오늘 종료한 완료 세션이 없어야 한다. 취소·자동 종료는 완료로 세지 않는다.
+`STREAK_AT_RISK`는 삭제되지 않은 양수 스트릭이 오늘 이어질 수 있고 오늘 집계가 600초 미만이어야
+한다. 후자 두 종류는 12시간 이내에 시작한 미종료 세션이 있으면 `CURRENTLY_FOCUSING`으로 억제한다.
+오늘 완료한 미집중 알림은 `ALREADY_FOCUSED_TODAY`, 600초를 채운 스트릭 알림은
+`STREAK_ALREADY_PRESERVED`, 나머지 대상 조건 변경은 `RETENTION_CONDITION_CHANGED`로 거절한다.
+관리자 시험의 별도 유효기간도 이 현재 상태 검사를 생략하지 않으며, 새 필수 params는 추가하지 않는다.
+
 `CHALLENGE_CREATED.mission`은 `type`(`DURATION`/`TIME_WINDOW`), `category`(`FOCUS`/`SCREEN_TIME`),
 `repeatDays`(월~일 순서의 `MON`…`SUN` 배열), 선택 `durationMinutes`와 `windowStart`·`windowEnd`를
 담는다. 창 시각은 저장된 KST 벽시계의 `HH:mm`이다. Data는 사건 생성 때 상세 행을 읽어 이 값을

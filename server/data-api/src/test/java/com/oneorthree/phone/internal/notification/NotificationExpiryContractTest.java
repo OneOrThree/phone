@@ -5,6 +5,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.internal.notification.service.NotificationEligibilityService;
+import com.oneorthree.phone.internal.notification.service.NotificationRetentionEligibility;
 import com.oneorthree.phone.internal.notification.service.NotificationSnapshotService;
 import com.oneorthree.phone.group.service.ChallengeResultAckService;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -24,6 +25,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
+import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityResponse;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -36,10 +39,12 @@ class NotificationExpiryContractTest {
     private MockMvc httpAt(Instant now) {
         UserQueryService users = mock(UserQueryService.class);
         when(users.findActive(USER)).thenReturn(Optional.of(User.builder().id(USER).build()));
+        NotificationRetentionEligibility retention = mock(NotificationRetentionEligibility.class);
+        when(retention.evaluate(any(), any(), any())).thenReturn(NotificationEligibilityResponse.allow());
         NotificationEligibilityService eligibility = new NotificationEligibilityService(users,
                 mock(GroupQueryService.class), mock(GroupMemberRepository.class),
                 mock(GroupChallengeBetParticipantRepository.class), mock(FriendshipRepository.class),
-                Clock.fixed(now, ZoneOffset.UTC));
+                Clock.fixed(now, ZoneOffset.UTC), retention);
         return MockMvcBuilders.standaloneSetup(new InternalNotificationController(
                 mock(NotificationSnapshotService.class), eligibility, mock(ChallengeResultAckService.class))).build();
     }
@@ -84,10 +89,12 @@ class NotificationExpiryContractTest {
     void everyKindRejectsAnInactiveRecipientBeforeAnyOtherPolicy(NotificationKind kind) throws Exception {
         UserQueryService users = mock(UserQueryService.class);
         when(users.findActive(USER)).thenReturn(Optional.empty());
+        NotificationRetentionEligibility retention = mock(NotificationRetentionEligibility.class);
+        when(retention.evaluate(any(), any(), any())).thenReturn(NotificationEligibilityResponse.allow());
         NotificationEligibilityService eligibility = new NotificationEligibilityService(users,
                 mock(GroupQueryService.class), mock(GroupMemberRepository.class),
                 mock(GroupChallengeBetParticipantRepository.class), mock(FriendshipRepository.class),
-                Clock.systemUTC());
+                Clock.systemUTC(), retention);
         MockMvc http = MockMvcBuilders.standaloneSetup(new InternalNotificationController(
                 mock(NotificationSnapshotService.class), eligibility, mock(ChallengeResultAckService.class))).build();
         http.perform(post("/internal/notifications/eligibility").contentType("application/json")
