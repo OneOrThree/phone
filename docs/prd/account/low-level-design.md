@@ -484,7 +484,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | user_wallet, screen/focus/notification 설정 | hard delete | 중앙 지갑은 내기 해제 환불 뒤 삭제. 알림 이관 후 정본 삭제는 위성 명령에도 포함 |
 | focus_sessions, daily_focus_stats, daily_screen_time_stats | user 귀속 nullify | 그룹 내기 정산 증거를 먼저 동결. 통계 행 자체를 모두 지우는 동작 아님 |
 | group_challenge_members의 user_id/progress_minutes/usage_date/measured_at 및 생성/수정 시각 | 현재 탈퇴는 원본 보고 행을 유지. user_id는 NOT NULL FK | 그룹 내기 증거 동결을 먼저 검증한 뒤 해당 사용자의 원본 보고 행 전체를 같은 탈퇴 TX에서 hard delete. 단순 nullify/soft delete로 원문을 남기지 않음 |
-| group_challenge_bet_participants의 확정 achieved/achieved_at/progress_minutes/payout·회차/사용자 관계 | 기존 정산/동결 증거 보존 | 원본 날짜별 보고와 구분한 최소 정산 근거. 정산·기존 결과 복구 범위로만 사용, 탈퇴자 프로필/측정 원본 조회 금지. 보존 기간을 새로 무기한 확정하지 않음. 공개 결과 DTO는 탈퇴자 행의 userId를 null(목록 key는 회차별 참가 행 id 같은 비연계 값)로 치환하고 내부 정산·중복 지급 근거는 유지 |
+| group_challenge_bet_participants의 확정 achieved/achieved_at/progress_minutes/payout·회차/사용자 관계 | 기존 정산/동결 증거 보존 | 원본 날짜별 보고와 구분한 최소 정산 근거. 정산·기존 결과 복구 범위로만 사용, 탈퇴자 프로필/측정 원본 조회 금지. 보존 기간을 새로 무기한 확정하지 않음. 진행 중 회차(`creatorUserId`·참가자·세션 참가자)와 정산 결과의 공개 DTO 모두 탈퇴자 행의 userId를 null(목록 key는 회차별 참가 행 id 같은 비연계 값)로 치환하고 내부 정산·중복 지급 근거는 유지 |
 | group_challenge_bet_participants.acknowledged_at/display_claimed_at/display_claim_token | V49의 개인 결과 열람 시각·표시 lease이며 정산 증거와 같은 행에 있음 | 같은 탈퇴 TX에서 본인 행의 세 열만 nullify. achieved/progress/payout·정산 멱등 근거는 보존하고 claim/renew/ack 및 완료 재생은 users 생명주기 잠금으로 탈퇴와 직렬화 |
 | group_members, 혼자 소유한 group | membership leave, 필요 시 close. GroupMember.leave()는 is_left/left_reason만 바꿔 notification_enabled·announcement_permission·status·role이 그대로 남음 | 남은 주민이 있으면 HOST_WITHDRAW 전체 rollback. 관계 증거(user_id·group_id·is_left·left_reason·created_at)만 보존하고 같은 TX에서 notification_enabled=false, announcement_permission=DISALLOW, status=INACTIVE, role=MEMBER로 초기화. 아래 보존 멤버십 절 적용 |
 | group_invites.inviter_id/invitee_id 및 상태·초대/응답 시각 | V1의 두 사용자 FK가 NOT NULL. 직접 초대 기능은 미사용이나 테이블은 유지되고 현재 탈퇴 삭제 호출 없음 | inviter_id 또는 invitee_id가 탈퇴자인 행을 상태와 무관하게 같은 중앙 TX에서 hard delete. 다른 사용자끼리의 초대·그룹·기존 링크/정산 증거는 보존 |
@@ -863,6 +863,8 @@ fixture는 confirmed result의 세 필드가 찬 본인 행·타인 행을 넣�
 
 **보존한 결과의 공개 식별자.** 기준 main `GroupBetService.toResultParticipants`는 최근 정산·히스토리·참가자 스코프 결과 조회의 공용 변환이며, 탈퇴자는 `displayNickname`으로 닉네임만 치환하고 `GroupBetResultParticipantResponse.userId`에 실제 UUID를 `achieved`·`payout`·`progressMinutes`와 함께 담아 그룹원 전체에 반환한다. 정산 사실(명단 수·pot·판정·payout)은 보존하되 탈퇴자 행의 공개 `userId`는 null로 치환한다. 목록 key처럼 행 구분이 필요하면 회차별 참가 행 id 같은 사용자 비연계 값을 쓰고, 같은 사용자를 여러 회차에 걸쳐 잇는 안정 식별자·해시를 새로 만들지 않는다. 내부 정산·중복 지급 방지·환불 판정은 기존 user_id 참조를 그대로 쓴다. 치환은 `displayNickname`과 같은 출력 층 단일 지점에서 하고, 응답 DTO의 userId를 nullable로 계약하며 앱의 목록 key·본인 비교·프로필 이동이 null을 처리하는지 함께 검증한다. 현재 구현 완료가 아니다.
 
+**진행 중 회차의 공개 식별자.** 결과 변환만 막으면 정산 전까지 노출이 남는다. 기준 main `GroupBetService.loadCurrentBets`는 `GroupBetResponse.creatorUserId`(최초 참가자)와 `GroupBetParticipantResponse.userId`를 실제 UUID로 채우고, `toSessionResponse`는 시작된 회차에 남은 강퇴·탈퇴 참가자까지 `GroupBetSessionParticipantResponse.userId`와 `progressMinutes`·`achieved`로 반환한다. 이 경로들은 `toResultParticipants`를 거치지 않는다. 따라서 탈퇴자 치환은 결과 변환 한 곳이 아니라 **보존한 참가 행을 공개하는 모든 내기 projection의 공통 출력 지점**(`displayNickname`과 같은 층)에서 적용한다. 탈퇴자인 최초 참가자의 `creatorUserId`도 null로 두며, 구앱의 취소 버튼 판정(개설자·단독·OPEN)은 요청자 본인과의 비교라 다른 그룹원 판정이 바뀌지 않는다. 명단 수·pot·진행분·판정은 정산 사실로 유지하고, 새 내기 projection을 추가할 때도 같은 지점을 거치는지 검증한다.
+
 #### 그룹 창형 화면시간 원본의 파기 경계
 
 기준 `GroupChallengeMember`는 user_id/group_challenge_id가 모두 NOT NULL FK이고 usage_date도 V37에서
@@ -988,6 +990,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | FCM 성공 → 상대 탈퇴 → 늦은 로그/중복 결과·수신자 탈퇴 | 원 발송 증거/고정 ID로 target=null 집계1회, 원 발송 주차 유지·상대 연결 복원0; 증거 없으면 허위 카운트0, 수신자 탈퇴면 재생0 |
 | 내기 결과 열람 3필드·claim/renew/ack와 탈퇴 양방향 경합 | 본인 열람/lease만 null, 정산 근거·타인 결과 불변, 지연 부활/탈퇴 결과 노출0·전체 rollback |
 | 탈퇴자가 포함된 최근 정산·히스토리·참가자 스코프 결과 조회, 여러 탈퇴자·여러 회차 | 탈퇴자 공개 userId null·닉네임 치환, 명단 수·pot·판정·payout 불변, 회차 간 동일인 연결 식별자0, 앱 목록 key·본인 비교 정상 |
+| 취소 마감 뒤 OPEN 회차 탈퇴·탈퇴자가 최초 참가자인 회차의 현재 내기·세션 카드 조회 | creatorUserId·참가자·세션 참가자 userId 모두 null, 닉네임 치환·명단 수·pot·진행분·판정 유지, 구앱 취소 버튼 판정 불변 |
 | A claim→A 탈퇴→B 동일 slug claim·지연 import/역순·양방향 경합 | UUID 파기 후 소진 표지 유지, 원 클릭 재귀속/추가 보상0, 별도 미소비 클릭 정상·전체 rollback |
 | claim 클릭의 matched_device_id·app_instance_id·ip_hash·user_agent·Link 위성/이관 복사본·같은 기기 재시도 | 탈퇴자 클릭 식별자0·matched/claimed_at 보존, 재귀속·추가 보상0, 파기 전 GA4 작업 입력 기록, 이관 대조가 파기 필드를 되살리지 않음·중간 실패 전체 rollback |
 | 본인 발급 링크·타인 claim·발급/탈퇴 경합·파기 후 rollback | inviter_id nullify, 링크/클릭 FK·타인 귀속 보존, 폐기 링크 재사용/UUID 복원0, 늦은 발급 거절, 중간 실패는 전체 rollback |
@@ -1019,7 +1022,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 탈퇴 full fixture + 강제 rollback | 전수 표 파기·보존 대조, 환불/지갑/outbox 포함 한 TX |
 | 탈퇴 후 신규 7개에 옛 자격 | 로그인 성공 재개/일반 조회·변경 차단. 정상 새 제공자 재가입은 새 userId이며 옛 계정 부활 아님 |
 | 탈퇴 직후 만료 전 옛 AT/RT로 7개 경로·refresh·logout·DELETE /me 같은 키 재시도, 활성 사용자의 logout 뒤 옛 AT | 계정 비활성은 모든 경로에서 404 USER_NOT_FOUND 우선, 만료/위조 401, 활성 사용자의 폐기 세션 401. DELETE /me 재시도 404를 앱이 탈퇴 확정·탈퇴 전용 로컬 파기로 처리 |
-| 설정 false/true 역전, 다른 필드 역전, legacy 전체 PUT 경쟁 | 필드별 version으로 유실 방지, 재전달 멱등, 원래 명령 결과 재생 |
+| 설정 false/true 역전, 다른 필드 역전, legacy 전체 PUT 경쟁 | 필드별 version으로 유실 방지, 재전달 멱등(재적용0), 응답은 응답 시점 정본 현재값 |
 | v42(false) 도착 전 v43(true) 적용·v42 최초 처리/재전달·v42 응답 유실 뒤 재시도·다른 기기 변경 | v42는 SUPERSEDED 확정·적용0, 응답은 정본 현재값 true·재생도 현재값, 앱은 마지막 키가 아닌 응답을 버려 false 저장0 |
 | v42(false) APPLIED 뒤 응답 유실 → 다른 기기 v43(true) 적용 → 같은 기기 v42 재시도(Business receipt 재개 포함) | 재적용0, 응답은 현재값 true, Business receipt가 첫 200의 false를 재생0, 앱 false 저장0 |
 | GET 활성 검사 통과 뒤 지연 중 탈퇴·Notification 설정 행 삭제, 누락 행 복구와 탈퇴 소비자 양방향 경합 | 탈퇴 선행이면 설정 행 재생성0·404 USER_NOT_FOUND, GET 선행이면 만든 행도 삭제에 포함, 기본값 응답도 tombstone 검사 |
@@ -1064,7 +1067,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `server/chat/src/main/java/com/oneorthree/chat/membership/MembershipService.java`, `message/service/ChatMessageService.java`, `message/service/ChatAccessGuard.java`, `config/StompAuthChannelInterceptor.java`, `auth/ChatPrincipal.java` (기준 main 529a396) | 멤버십 캐시 TTL 무효화뿐, send의 집중·멤버십 판정 뒤 저장, SUBSCRIBE·SEND의 토큰·판정, 만료 시 기존 구독 유지, sid·authGeneration 미검사. 메시지별 전달 검사·연결 레지스트리·폐기 소비자 없음 |
 | `server/realtime/src/main/java/com/oneorthree/realtime/config/ChatOutboundChannelInterceptor.java`, `config/RealtimeSessionRegistry.java` (기준 이후 머지된 PR739 `da1ae5a39`) | 기존 구독 메시지별 토큰·멤버십 재검사, 세션 ID 단위 종료만. 사용자·sid 색인·인스턴스 간 전파·폐기 fence 없음 |
 | `server/business-api/src/main/java/com/oneorthree/business/linkpreview/repository/PreviewCache.java`, `service/PreviewService.java`, `PreviewController.java` | 사용자 UUID 키·pending 90/READY 300/FAILED 30초·rate 60초, CAS complete, worker 비동기 완료, 활성 검사 없음 |
-| `server/data-api/src/main/java/com/oneorthree/phone/group/service/GroupBetService.java`(toResultParticipants·displayNickname), `group/dto/GroupBetResultParticipantResponse.java`; 선행 PR745 `9ad4236`의 `server/business-api/.../usecase/NotificationSettingsUseCase.java`·`api/dto/DeviceTokenRegisterResponse.java`·`app/app-dev/src/services/notificationCommands.ts` | 탈퇴자 닉네임만 치환·실제 userId 반환, 설정 GET 정본 조회·PUT 내구 명령 뒤 적용, 등록 응답 ownershipToken과 앱 승계·X-Device-Ownership |
+| `server/data-api/src/main/java/com/oneorthree/phone/group/service/GroupBetService.java`(toResultParticipants·loadCurrentBets·toSessionResponse·displayNickname), `group/dto/GroupBetResultParticipantResponse.java`·`GroupBetResponse.java`·`GroupBetParticipantResponse.java`·`GroupBetSessionParticipantResponse.java`; 선행 PR745 `9ad4236`의 `server/business-api/.../usecase/NotificationSettingsUseCase.java`·`api/dto/DeviceTokenRegisterResponse.java`·`app/app-dev/src/services/notificationCommands.ts` | 결과·현재 회차·세션 참가자 모두 탈퇴자 닉네임만 치환·실제 userId(creatorUserId 포함) 반환, 설정 GET 정본 조회·PUT 내구 명령 뒤 적용, 등록 응답 ownershipToken과 앱 승계·X-Device-Ownership |
 | `server/data-api/src/main/java/com/oneorthree/phone/common/port/RedisFocusPresence.java`, `focus/scheduler/FocusPresenceReconciler.java`, `app/app-dev/src/components/PushGate.tsx` | AFTER_COMMIT SET_IF_NEWER·SET_IF_ABSENT의 closed/세션 순서 비교, lease 시작 기준 13시간, 트랜잭션 밖 재구축 쓰기, 등록 effect의 [userId] 의존 |
 | `server/data-api/src/main/java/com/oneorthree/phone/invitelink/service/InviteLinkMatchService.java`, `repository/GroupInviteLinkRepository.java`, `repository/InviteLinkClickRepository.java` | claim의 무잠금 findBySlug, 클릭 PESSIMISTIC_WRITE·SKIP LOCKED, 먼저 읽은 inviterId 귀속 |
 | `server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java` | anonymizeWithdrawnUser |
