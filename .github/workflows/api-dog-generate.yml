@@ -37,6 +37,8 @@ concurrency:
 permissions:
   # gh-pages 에 문서 커밋을 push 한다. 기본값에 기대지 않고 이 워크플로가 쓰는 것만 명시한다.
   contents: write
+  # 게시 스텝이 「나보다 최신인 문서 실행이 있는가」를 Actions API 로 확인한다(아래 「뒤처짐 확인」).
+  actions: read
 
 jobs:
   generate-docs:
@@ -201,6 +203,7 @@ jobs:
         env:
           DEST_DIR: ${{ steps.dest.outputs.dir }}
           SRC_DIR: server/data-api/build/docs/api
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           # 산출물을 체크아웃 «밖»으로 뺀다 — 재시도의 `reset --hard` 가 덮치지 않게.
@@ -231,14 +234,28 @@ jobs:
             # 재시도 전에는 뒤처진 실행의 push 가 non-fast-forward 로 «막혀서» 무해했다. 그런데
             # 최신 tip 을 받아 다시 올리도록 고치면, 새 커밋의 실행이 먼저 게시한 뒤에도 옛 실행이
             # 자기 STAGE 를 같은 자리에 덮어써 성공한다 — 문서가 «구버전으로 되돌아간다».
-            # 그래서 매 시도마다, push 바로 앞에서 원본 브랜치 tip 이 아직 내 SHA 인지 확인한다.
-            TIP="$(git ls-remote origin "refs/heads/$GITHUB_REF_NAME" | cut -f1)"
-            if [ -z "$TIP" ]; then
+            #
+            # ⚠️ 판정 기준은 「브랜치 tip 이 내 SHA 인가」가 «아니다». 이 워크플로는 `push.paths` 로
+            #    걸러지므로, README 처럼 경로 밖 커밋이 하나 얹히면 tip 은 움직이지만 «새 문서 실행은
+            #    생기지 않는다». tip 으로 판정하면 그때 내가 물러나 버려서, 방금 만든 문서가 다음
+            #    관련 커밋까지 영영 게시되지 않는다. 그래서 「나보다 최신인 이 워크플로의 실행이
+            #    실제로 있는가」를 본다.
+            if ! git ls-remote --exit-code --heads origin "$GITHUB_REF_NAME" >/dev/null 2>&1; then
               echo "$GITHUB_REF_NAME 브랜치가 사라졌다 — 게시하지 않는다(지워진 브랜치 문서를 새로 만들지 않기 위해)."
               exit 0
             fi
-            if [ "$TIP" != "$GITHUB_SHA" ]; then
-              echo "이 실행은 뒤처졌다($GITHUB_SHA, 현재 tip $TIP) — 최신 실행이 게시하도록 두고 물러난다."
+            NEWER="$(curl --fail --silent --show-error \
+                  -H "Authorization: Bearer $GITHUB_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/api-dog-generate.yml/runs?per_page=100" \
+                | jq --arg br "$GITHUB_REF_NAME" --argjson me "$GITHUB_RUN_NUMBER" \
+                    '[.workflow_runs[] | select(.head_branch == $br and .run_number > $me)] | length')" || NEWER=""
+            if [ -z "$NEWER" ]; then
+              # 조회 실패를 「물러남」으로 치면 문서가 조용히 안 올라간다. concurrency 취소가
+              # 1차 방어로 남아 있으므로 게시를 진행하되, 시끄럽게 남긴다.
+              echo "⚠️ 최신 실행 조회에 실패했다 — concurrency 취소에 기대고 게시를 진행한다." >&2
+            elif [ "$NEWER" -gt 0 ]; then
+              echo "나보다 최신인 문서 실행이 ${NEWER}개 있다(run_number > $GITHUB_RUN_NUMBER) — 그쪽에 맡기고 물러난다."
               exit 0
             fi
 
