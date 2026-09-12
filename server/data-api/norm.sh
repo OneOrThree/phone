@@ -55,20 +55,33 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! db_ready; then
-    echo "localhost:5432 에 tt_db 가 없다 — 임시 컨테이너를 띄운다."
+# 우리가 띄우는 컨테이너는 «호스트 포트를 고정하지 않는다». 5432 를 박으면 같은 도커
+# 호스트에서 두 체크아웃이 동시에 돌 때 한쪽이 바인딩 단계에서 즉사하고, 더 나쁘게는
+# 한쪽 DB 를 둘이 나눠 쓰다가 ddl-auto=create-drop 이 남의 테스트 도중 스키마를 갈아엎는다.
+# CI 도 같은 이유로 be-test.yml 에서 포트를 도커에 맡기고 실제 매핑 포트를 주입한다.
+PG_PORT=5432
+
+if db_ready; then
+    echo "localhost:5432 의 tt_db 를 그대로 쓴다."
+    echo "  (ci 프로파일은 ddl-auto=create-drop 이다 — 이 DB 의 스키마는 매 실행 새로 만들어진다.)"
+else
+    echo "localhost:5432 에 쓸 수 있는 tt_db 가 없다 — 임시 컨테이너를 띄운다."
     # 이름을 «넘기는 순간» 부터 정리 대상이다. docker run 이 실패해도 컨테이너가
-    # created 상태로 남는 경우가 있어(포트 바인딩 실패가 그렇다), 성공한 뒤에 세우면 샌다.
+    # created 상태로 남는 경우가 있어, 성공한 뒤에 세우면 샌다.
     # 이름은 이 프로세스 고유라 이렇게 해도 남의 컨테이너엔 닿지 않는다.
     STARTED_PG=1
     docker run -d --name "$PG_CONTAINER" \
         -e POSTGRES_DB=tt_db -e POSTGRES_USER=ci -e POSTGRES_PASSWORD=ci \
-        -p 5432:5432 postgres:16-alpine >/dev/null || {
-        echo "5432 바인딩 실패 — 그 포트를 쓰는 무언가가 이미 있는데 tt_db(ci/ci) 로는 붙지 못했다." >&2
-        echo "쓰고 있는 것을 내리거나, tt_db·ci/ci 로 맞춘 DB 를 5432 에 올려 두고 다시 실행하라." >&2
+        -p 5432 postgres:16-alpine >/dev/null || {
+        echo "임시 PostgreSQL 컨테이너를 띄우지 못했다 — 위 도커 오류를 보라." >&2
         exit 1
     }
-    echo -n "PostgreSQL 대기"
+    PG_PORT="$(docker port "$PG_CONTAINER" 5432 | head -1 | sed 's/.*://')"
+    if [ -z "$PG_PORT" ]; then
+        echo "게시된 호스트 포트를 읽지 못했다." >&2
+        exit 1
+    fi
+    echo -n "PostgreSQL 대기 (호스트 포트 $PG_PORT)"
     for _ in $(seq 1 60); do
         if docker exec "$PG_CONTAINER" pg_isready -U ci -d tt_db >/dev/null 2>&1; then
             echo " — 준비 완료"
@@ -78,6 +91,11 @@ if ! db_ready; then
         sleep 1
     done
 fi
+
+# application-ci.yml 은 localhost:5432 를 하드코딩한다. 포트를 도커에 맡겼으므로 실제 매핑
+# 포트로 덮어쓴다 — CI 의 be-test.yml 과 같은 방식이다. (Testcontainers 를 쓰는 테스트는
+# @DynamicPropertySource 가 우선이라 영향 없다.)
+export SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:$PG_PORT/tt_db"
 
 # 세 태스크 모두 --rerun 으로 부른다. CI 는 깨끗한 체크아웃에서 도니 언제나 실제로 돌지만,
 # 로컬은 build/ 가 남아 있어 «소스가 그대로면» Gradle 이 UP-TO-DATE 로 건너뛴다. 문제는

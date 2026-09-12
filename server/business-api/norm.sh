@@ -25,6 +25,29 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
+# 안쪽 테스트가 다시 Testcontainers 를 띄우려면 도커 소켓을 물려줘야 하는데, 그 소켓이
+# 늘 /var/run/docker.sock 인 것은 아니다. rootless 도커는 /run/user/<uid>/docker.sock 이고
+# 활성 컨텍스트가 다른 경로를 가리킬 수도 있다(이 맥의 desktop-linux 가 그렇다 —
+# /var/run/docker.sock 이 ~/.docker/run/docker.sock 으로 걸린 심볼릭 링크다).
+# 그런 기기에서 경로를 박아 두면 docker info 는 멀쩡히 통과하고 마운트 단계에서 죽거나,
+# 붙긴 해도 안쪽 Testcontainers 가 데몬을 못 찾는다. 활성 endpoint 에서 실제 소켓을 찾는다.
+DOCKER_SOCK=""
+case "${DOCKER_HOST:-}" in
+    unix://*) DOCKER_SOCK="${DOCKER_HOST#unix://}" ;;
+esac
+if [ -z "$DOCKER_SOCK" ]; then
+    ENDPOINT="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
+    case "$ENDPOINT" in
+        unix://*) DOCKER_SOCK="${ENDPOINT#unix://}" ;;
+    esac
+fi
+[ -z "$DOCKER_SOCK" ] && DOCKER_SOCK=/var/run/docker.sock
+if [ ! -S "$DOCKER_SOCK" ]; then
+    echo "도커 소켓을 찾지 못했다: $DOCKER_SOCK" >&2
+    echo "DOCKER_HOST 가 unix 소켓이 아니면(TCP 등) 이 스크립트는 쓸 수 없다." >&2
+    exit 1
+fi
+
 cleanup() {
     docker image rm "$IMAGE" >/dev/null 2>&1 || true
 }
@@ -74,8 +97,12 @@ DOCKER_OS_ARGS=()
 if [ "$(uname -s)" = "Linux" ]; then
     TC_HOST=127.0.0.1
     DOCKER_OS_ARGS=(--network host --user "$(id -u):$(id -g)")
-    if [ -S /var/run/docker.sock ]; then
-        DOCKER_OS_ARGS+=(--group-add "$(stat -c '%g' /var/run/docker.sock)")
+    DOCKER_OS_ARGS+=(--group-add "$(stat -c '%g' "$DOCKER_SOCK")")
+    # 소켓이 표준 경로가 아니면(rootless 등) 데몬도 그 경로에 있다. Testcontainers 가
+    # Ryuk 에 마운트할 «호스트» 경로를 그걸로 알려 줘야 한다. macOS(Docker Desktop)에서는
+    # 데몬이 VM 안에 있어 그쪽 경로는 /var/run/docker.sock 이므로 건드리지 않는다.
+    if [ "$DOCKER_SOCK" != "/var/run/docker.sock" ]; then
+        DOCKER_OS_ARGS+=(-e "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=$DOCKER_SOCK")
     fi
 else
     TC_HOST=host.docker.internal
@@ -83,7 +110,8 @@ fi
 
 docker run --rm \
     "${DOCKER_OS_ARGS[@]}" \
-    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "$DOCKER_SOCK:/var/run/docker.sock" \
+    -e DOCKER_HOST=unix:///var/run/docker.sock \
     -v "$REPO_ROOT:$REPO_ROOT" \
     -v "$GRADLE_HOME:/gradle" \
     -e GRADLE_USER_HOME=/gradle \
