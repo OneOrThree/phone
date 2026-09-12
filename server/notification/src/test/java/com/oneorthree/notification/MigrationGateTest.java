@@ -1041,7 +1041,7 @@ class MigrationGateTest {
 
     private MvcResult post(String path, String key, Map<String, Object> body) throws Exception {
         MockHttpServletRequestBuilder builder = MockMvcRequestBuilders.post(path)
-                .header("Authorization", "Bearer test-console").header("X-Console-Actor", "member-2")
+                .header("Authorization", "Bearer test-console-2").header("X-Console-Actor", "member-2")
                 .contentType(MediaType.APPLICATION_JSON).content(Json.write(body));
         return mvc.perform(key == null ? builder : builder.header("Idempotency-Key", key)).andReturn();
     }
