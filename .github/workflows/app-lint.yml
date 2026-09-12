@@ -7,7 +7,9 @@ on:
       - 'app/app-dev/**'
       - '.github/workflows/app-lint.yml'
   pull_request:
-    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드라 제외 (dev-ci.yml과 동일 패턴)
+    # release 대상 PR 만 뺀다 — base 가 다른 브랜치인 스택 PR 에서도 돌아야 한다.
+    # 예전 `branches: [main]` 은 스택 PR 을 통째로 검사에서 빼 버렸다(GROMO-1791).
+    branches-ignore: [release]
     paths:
       - 'app/app-dev/**'
       # 이 워크플로 자신도 트리거에 넣는다 (GROMO-1513). 안 넣으면 app-lint.yml 만 고치는 PR 에서
