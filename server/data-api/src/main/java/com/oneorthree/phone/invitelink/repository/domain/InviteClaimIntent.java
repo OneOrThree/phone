@@ -230,10 +230,29 @@ public class InviteClaimIntent {
      * @return 이번 호출이 실제로 종결했으면 {@code true}
      */
     public boolean abandon(Instant at) {
+        return abandon(at, null);
+    }
+
+    /**
+     * 종결하면서 <b>그 판정의 코드를 원장에 남긴다</b>.
+     *
+     * <p>{@code status} 만으로는 「붙일 대상이 없었다」(정상 200)와 「상류가 내린 거절」(4xx)이
+     * 구분되지 않는다. 둘 다 {@code ABANDONED} 이기 때문이다. 그래서 같은 요청 키로 다시 온 요청이
+     * 재생될 때 <b>첫 요청은 4xx 였는데 재시도는 200</b> 이 되는 계약 위반이 생긴다.
+     *
+     * <p>코드를 남겨 두면 재생이 그 판정을 그대로 돌려줄 수 있다. 「대상 없음」은 판정이 아니라
+     * 정상 종결이므로 {@code null} 로 둔다 — 그것이 둘을 가르는 값이다.
+     *
+     * @param at           종결 시각
+     * @param terminalCode 상류가 내린 종결 판정 코드. 정상 종결이면 {@code null}
+     * @return 이번 호출이 실제로 종결했으면 {@code true}
+     */
+    public boolean abandon(Instant at, String terminalCode) {
         if (this.status != InviteClaimIntentStatus.PENDING) {
             return false;
         }
         this.status = InviteClaimIntentStatus.ABANDONED;
+        this.lastError = terminalCode;
         this.consumedAt = at;
         this.completedByLeaseToken = this.leaseToken;
         this.leaseOwner = null;

@@ -386,14 +386,20 @@ public class DataApiClient {
      * <p>이미 종결된 의도에 다시 와도 200 이다(멱등). 이 호출의 실패는 사용자 요청을 실패시키지
      * 않는다 — 남은 의도는 재개 CLI 가 한 번 더 밟고, 그쪽도 같은 「붙일 대상 없음」으로 종결한다.
      */
-    public void abandonClaimIntent(UUID userId, UUID commandId, Deadline deadline) {
-        http.execute(
-                InternalCall.to(HttpMethod.POST,
-                                PATH_CLAIM_INTENT_ABANDONED.replace("{commandId}", commandId.toString()))
-                        .onBehalfOf(userId)
-                        .idempotentCommand()
-                        .build(),
-                deadline);
+    public void abandonClaimIntent(UUID userId, UUID commandId, String terminalCode, Deadline deadline) {
+        // 종결 코드를 함께 남긴다. 원장이 그 코드를 갖고 있어야 같은 요청 키의 재시도가 「첫 요청이
+        // 받은 그 판정」을 그대로 재생할 수 있다 — 없으면 첫 요청은 4xx, 재시도는 200 이 된다.
+        //
+        // 코드는 «본문»으로 보낸다. 경로에 실으면 같은 종결이 코드마다 다른 URL 이 되어, 경로로
+        // 계약을 고정한 검사들이 값에 따라 갈린다 — 경로는 「무엇을 하는가」지 「왜 하는가」가 아니다.
+        InternalCall.Builder call = InternalCall.to(HttpMethod.POST,
+                        PATH_CLAIM_INTENT_ABANDONED.replace("{commandId}", commandId.toString()))
+                .onBehalfOf(userId)
+                .idempotentCommand();
+        if (terminalCode != null) {
+            call.body(Map.of("terminalCode", terminalCode));
+        }
+        http.execute(call.build(), deadline);
     }
 
     private String resultPath(String template, UUID userId, UUID sessionId) {

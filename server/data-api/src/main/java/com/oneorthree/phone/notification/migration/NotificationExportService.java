@@ -199,10 +199,21 @@ public class NotificationExportService {
              ORDER BY p.user_id, s.id
             """;
 
+    /**
+     * 같은 기기 토큰을 들고 있는 유저 묶음 — <b>게이트 조건</b>이다(단순 보고가 아니다).
+     *
+     * <p>{@code users.device_token} 에는 UNIQUE 가 없어서 로그아웃 없이 계정을 갈아탄 기기의 토큰이
+     * 이전 계정과 현재 계정에 함께 남는다. 그대로 내보내면 두 {@code device} 레코드가 같은
+     * {@code device:<토큰 해시>} 키를 갖는다 — 같은 import 배치면 {@code DUPLICATE_RECORD_KEY} 로
+     * 요청 전체가 실패하고, 다른 배치로 갈리면 한 소유자가 조용히 덮여 manifest 검증이 깨진다.
+     *
+     * <p>범위는 {@link #DEVICE_SQL} 과 <b>같아야 한다</b>. 봇은 export 에 실리지 않으므로 봇의 토큰은
+     * 충돌을 만들 수 없는데, 여기서만 세면 열릴 수 없는 게이트가 된다.
+     */
     private static final String DUPLICATE_TOKEN_SQL = """
             SELECT device_token, ARRAY_AGG(CAST(id AS varchar) ORDER BY id) AS user_ids
               FROM users
-             WHERE device_token IS NOT NULL
+             WHERE device_token IS NOT NULL AND is_bot = false
              GROUP BY device_token
             HAVING COUNT(*) > 1
              ORDER BY device_token
@@ -259,12 +270,12 @@ public class NotificationExportService {
      *                    멈추고 이미 시작된 워커가 끝나기를 기다렸다」는 선언이다. DB 로는 알 수
      *                    없는 사실이라 <b>사람이 말해야만</b> 하고, {@code closedAt} 이 있는 최종
      *                    export 는 이것이 {@code true} 여야 한다
-     * @param strict      {@code true} 면 재조립 실패가 하나라도 있을 때 예외로 죽인다. <b>기본이자
-     *                    정상 운용값</b>이다 — {@code false} 는 「무엇이 안 되는지 보기만 하는」 사전
-     *                    점검용이고, 그 상태로 컷오버하면 그 행들이 영영 나가지 않는다
+     * @param strict      {@code true} 면 재조립 실패나 중복 기기 토큰이 하나라도 있을 때 예외로 죽인다.
+     *                    <b>기본이자 정상 운용값</b>이다 — {@code false} 는 「무엇이 안 되는지 보기만
+     *                    하는」 사전 점검용이고, 그 상태로 컷오버하면 그 행들이 영영 나가지 않는다
      * @return 이관 문서
-     * @throws IllegalStateException {@code strict} 인데 재조립 실패가 있거나, 정지 창을 닫았다면서
-     *     {@code queueDepth} 가 0 이 아닐 때
+     * @throws IllegalStateException {@code strict} 인데 재조립 실패나 중복 기기 토큰이 있거나, 정지 창을
+     *     닫았다면서 drain 확인이 없거나 {@code queueDepth} 가 0 이 아닐 때
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public NotificationExportDocument export(String migrationId, Long closedAt,
@@ -326,8 +337,16 @@ public class NotificationExportService {
                 exportedAt, migrationId, manifest, List.copyOf(records), List.copyOf(failures),
                 new NotificationExportDocument.Report(duplicates, counts, queueBreakdown,
                         inflightDrained, closedAt != null && inflightDrained && failures.isEmpty()
-                                && queueDepth == 0));
+                                && queueDepth == 0 && duplicates.isEmpty()));
 
+        if (strict && !duplicates.isEmpty()) {
+            // 검출해 놓고 통과시키면 검출한 의미가 없다. 같은 토큰이 두 유저에 남은 채 나가면 같은
+            // import 배치에서는 DUPLICATE_RECORD_KEY 로 요청 전체가 실패하고, 배치가 갈리면 한 소유자가
+            // 조용히 덮여 «어느 계정의 푸시가 사라졌는지» 아무도 모르게 된다. 옮기기 전에 정리한다.
+            throw new IllegalStateException(
+                    "같은 기기 토큰을 들고 있는 유저 묶음이 " + duplicates.size() + "건 남아 전환할 수 없습니다. "
+                            + "목록은 export 문서의 report.duplicateDeviceTokens 를 보세요.");
+        }
         if (strict && !failures.isEmpty()) {
             // 여기서 죽는 편이 낫다. 통과시키면 그 행들이 이관되지 않은 채 구 DB 에만 남고,
             // 컷오버 후에는 아무도 그 큐를 보지 않는다.
@@ -503,7 +522,7 @@ public class NotificationExportService {
         UUID rowId = toUuid(row[0]);
         UUID userId = toUuid(row[1]);
         String legacyKind = (String) row[3];
-        UUID subjectId = toUuid(row[4]);
+        UUID legacyTargetId = toUuid(row[5]);
         String status = String.valueOf(row[6]);
         Instant sentAt = toInstant(row[7]);
         Instant claimedAt = toInstant(row[8]);
@@ -521,6 +540,7 @@ public class NotificationExportService {
                     "신 카탈로그에 없는 종류입니다 — 모르는 것을 조용히 버리면 그게 곧 유실입니다."));
             return Optional.empty();
         }
+        UUID subjectId = subjectOf(kind, toUuid(row[4]), legacyTargetId);
         if (kind.subjectKind() != NotificationKind.SubjectKind.NONE && subjectId == null) {
             failures.add(fail(rowId, userId, legacyKind, status, FAIL_NO_SUBJECT,
                     kind + " 는 대상 id 가 필요한데 비어 있습니다 — 키가 유저 × kind 로 뭉칩니다."));
@@ -573,6 +593,37 @@ public class NotificationExportService {
 
         return Optional.of(NotificationMigrationRecord.of(
                 NotificationMigrationRecord.RESOURCE_DELIVERY, eventId, data));
+    }
+
+    /**
+     * 사건 대상 id — 구 행은 그것을 {@code subject_id} 가 아니라 {@code target_user_id} 에 적었다.
+     *
+     * <p>V45 는 {@code subject_id} 를 도입하면서 <b>{@code BET_RESULT} 만</b> 백필했다. 나머지 구 종류는
+     * 일부러 {@code NULL} 로 남겼는데, 그때의 이유는 유니크 {@code (user_id, kind, subject_id)} 였다 —
+     * {@code CHALLENGE_WINDOW_END}·{@code CHALLENGE_ENDED} 는 매일 반복인데 채워 넣으면 이튿날 발송이
+     * 막히기 때문이다({@code CHALLENGE_CREATED}·{@code FRIEND_*} 도 구 모델이라 함께 남겼다).
+     *
+     * <p>그 이유는 <b>이관에는 적용되지 않는다</b>. 새 키는 시간축을 따로 갖고 있어
+     * ({@link NotificationEventKey}) 대상 id 를 채워도 이튿날 키와 충돌하지 않는다. 반대로 여기서
+     * {@code row[4]} 만 읽고 {@code target_user_id} 를 버리면, 그런 운영 이력이 한 건이라도 있는 순간
+     * strict export 가 {@code NO_SUBJECT} 로 죽어 컷오버할 수 없고, lenient 로 우회하면 그 발송 이력이
+     * 통째로 빠져 <b>새 스케줄러가 같은 알림을 다시 보낸다</b>.
+     *
+     * <p>두 컬럼이 동시에 차는 행은 없다 — 구 서비스는 {@code target_user_id} 만, 신 클레임 INSERT 는
+     * {@code subject_id} 만 쓴다. 그래도 <b>폴백은 좁게</b> 건다: {@code subject_id} 가 있으면 그것이
+     * 이기고, 대상이 없는 kind({@link NotificationKind.SubjectKind#NONE} — 리그·리텐션)는 손대지 않는다.
+     * 그 축은 producer 가 {@code null} 로 만들기 때문에, 여기서 값을 얹으면 같은 사건의 키가 갈린다.
+     *
+     * @param kind          신 카탈로그의 종류
+     * @param subjectId     {@code subject_id} 컬럼 — 신 파이프라인이 적은 값
+     * @param legacyTargetId {@code target_user_id} 컬럼 — 구 서비스가 적은 대상 id
+     * @return 사건 대상 id. 대상이 없는 kind 이거나 양쪽 다 비면 {@code null}
+     */
+    private static UUID subjectOf(NotificationKind kind, UUID subjectId, UUID legacyTargetId) {
+        if (subjectId != null || kind.subjectKind() == NotificationKind.SubjectKind.NONE) {
+            return subjectId;
+        }
+        return legacyTargetId;
     }
 
     /**

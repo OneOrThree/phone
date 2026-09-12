@@ -268,8 +268,16 @@ public class InternalHttpClient implements AutoCloseable {
                 }
                 context.checkActive();
                 if (status >= 200 && status < 300) {
-                    if (responseType == null || bytes.length == 0) {
+                    if (responseType == null) {
+                        // 응답 타입을 요구하지 않은 호출이다 — 본문이 있든 없든 읽지 않는다.
                         return null;
+                    }
+                    if (bytes.length == 0) {
+                        // 응답 DTO 를 요구한 호출의 빈 본문을 null 로 접으면, 롤링 배포·프록시가 돌려준
+                        // 200/204 빈 응답이 「상류가 그 일을 했다」로 통과한다. 예: ack prepare 의 빈 응답을
+                        // 허용하면 HELD tombstone 없이 Data ack 가 커밋돼 이미 확인한 결과 푸시가 나간다.
+                        throw new UpstreamContractMismatchException(
+                                target + " 응답 본문이 비어 있습니다 status=" + status);
                     }
                     try {
                         return objectMapper.readValue(bytes, objectMapper.constructType(responseType.getType()));

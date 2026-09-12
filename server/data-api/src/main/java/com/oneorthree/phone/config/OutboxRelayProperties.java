@@ -4,9 +4,11 @@ import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.http.HttpMethod;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -167,8 +169,16 @@ public class OutboxRelayProperties {
         require(endpoint.getToken() != null && !endpoint.getToken().isBlank()
                         && !endpoint.getToken().contains("${"),
                 "outbox.relay.endpoints." + key + ".token 이 필요합니다 — 위성은 caller 별 토큰으로 인증한다.");
-        require(endpoint.getMethod() != null && !endpoint.getMethod().isBlank(),
+        String method = endpoint.getMethod();
+        require(method != null && !method.isBlank(),
                 "outbox.relay.endpoints." + key + ".method 가 필요합니다.");
+        // 「비어 있지 않다」로는 모자란다. Spring 7 의 HttpMethod 는 enum 이 아니라서
+        // HttpMethod.valueOf("POSTT") 도 HttpMethod.valueOf("post") 도 «던지지 않고» 그 이름의
+        // 인스턴스를 만들어 준다. 그래서 오타가 기동을 통과해 그대로 와이어로 나가고, 위성은 405 로
+        // 거절한다 — relay 는 그것을 permanent 로 적으므로 그 축은 설정을 고칠 때까지 멈춘다.
+        // HTTP method 는 대소문자를 가리므로 소문자 post 도 같은 결말이다. 표준 이름만 받는다.
+        require(Arrays.stream(HttpMethod.values()).anyMatch(known -> known.name().equals(method)),
+                "outbox.relay.endpoints." + key + ".method 는 표준 HTTP method 여야 합니다 — " + method);
         String url = endpoint.getUrl();
         require(url != null && !url.isBlank(), "outbox.relay.endpoints." + key + ".url 이 필요합니다.");
         URI uri = URI.create(url.replace("{userId}", "00000000-0000-0000-0000-000000000000"));

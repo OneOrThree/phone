@@ -152,6 +152,25 @@ class HttpExecutionIntegrationTest {
         }
     }
 
+    /**
+     * 응답 DTO 를 요구한 호출의 빈 성공 응답은 «상류가 그 일을 했다»가 아니다 — 롤링 배포나 프록시가
+     * 돌려준 200/204 빈 본문을 null 로 접으면, 예컨대 ack prepare 의 빈 응답이 HELD tombstone 없이
+     * Data ack 를 커밋하게 만든다. 반대로 응답 타입을 요구하지 «않은» 호출(DELETE·PUT 명령)은
+     * 204 가 정상이므로 그대로 통과해야 한다 — 한쪽만 막으면 로그아웃의 기기 삭제가 전부 깨진다.
+     */
+    @Test
+    void emptySuccessBodyIsAContractFailureOnlyWhenAResponseTypeWasRequested() throws Exception {
+        try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 3, 2)) {
+            assertThatThrownBy(() -> client.exchange(call("/no-body"), context(1000), TYPE))
+                    .isInstanceOf(UpstreamContractMismatchException.class);
+            // 재시도 대상이 아니다 — 종결 판정이라 한 번만 나간다.
+            assertThat(server.count("/no-body")).isEqualTo(1);
+
+            client.execute(call("/no-body"), context(1000));
+            assertThat(server.count("/no-body")).isEqualTo(2);
+        }
+    }
+
     @Test
     void malformedDtoAndCredentialRejectionAreNeverRetried() throws Exception {
         try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 3, 2)) {
@@ -545,6 +564,11 @@ class HttpExecutionIntegrationTest {
                     if (reader.read() == -1) {
                         closed.countDown();
                     }
+                    return;
+                }
+                if (path.equals("/no-body")) {
+                    // 응답 타입을 요구한 호출에 «성공 + 빈 본문» — 롤링 배포·프록시가 돌려주는 모양이다.
+                    write(socket, "HTTP/1.1 204 No Content\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
                     return;
                 }
                 if (path.startsWith("/structured/") || path.startsWith("/long-cooldown/")) {

@@ -2,6 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -58,6 +59,18 @@ final class ClaimIntentTermination {
             "USER_WITHDRAWN");
 
     /**
+     * 종결 판정의 <b>원래 응답 상태</b>. 재생할 때 첫 요청과 같은 상태를 줘야 앱의 분기가 같다.
+     *
+     * <p>코드마다 적어 두는 이유: 재생 시점에는 상류를 다시 부르지 않으므로 상태를 어디선가
+     * <b>기억</b>하고 있어야 한다. 원장에 코드만 남기고 상태를 여기서 되찾는 편이, 상태까지 원장에
+     * 넣어 두 값이 서로 어긋날 여지를 만드는 것보다 낫다 — 이 표와 {@link #TERMINAL_CODES} 는 함께
+     * 고친다.
+     */
+    private static final Map<String, Integer> TERMINAL_STATUSES = Map.of(
+            "SLUG_NOT_FOUND", 404,
+            "USER_WITHDRAWN", 410);
+
+    /**
      * 코드가 실려 있어도 «판정»이 아닌 상태들.
      *
      * <p>408·429 는 「지금 말고 나중에」라 정의상 종결이 아니고, 401·403 은 <b>우리 서비스 토큰·경로
@@ -99,5 +112,23 @@ final class ClaimIntentTermination {
         //    접는다) 종결 대상도 아니다.
         String code = e.getCode();
         return code != null && TERMINAL_CODES.contains(code);
+    }
+
+    /**
+     * 원장에 남은 종결 코드로 <b>첫 요청이 받았던 판정</b>을 다시 만든다.
+     *
+     * <p>같은 {@code Idempotency-Key} 의 재시도는 상류를 다시 밟지 않는다 — 의도가 이미 종결됐기
+     * 때문이다. 그때 200 을 주면 <b>첫 요청은 4xx 인데 재시도는 성공</b>이 되어 멱등 계약이 깨진다.
+     * 응답이 유실돼 앱이 그대로 재시도한 경우가 정확히 이 모양이다.
+     *
+     * <p>{@code retryAfterMs} 는 싣지 않는다. 종결 판정은 정의상 「나중에 다시」가 아니고, 실으면
+     * {@link #isTerminal} 이 그 값을 보고 종결이 아니라고 판정해 서로 어긋난다.
+     *
+     * @param code 원장에 남은 종결 코드
+     * @return 첫 요청이 받았던 것과 같은 판정
+     */
+    static UpstreamDomainException replay(String code) {
+        return new UpstreamDomainException(
+                TERMINAL_STATUSES.getOrDefault(code, 409), code, null, null);
     }
 }
