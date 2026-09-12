@@ -94,6 +94,25 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
     List<EventOutboxDelivery> findLeased(@Param("token") UUID token);
 
     /**
+     * 전송 직전 살아 있는 자기 리스만 갱신한다. 만료 토큰은 재선점 전까지 부활시키지 않는다.
+     *
+     * @param id 전달 행
+     * @param token 선점 때 받은 펜싱 토큰
+     * @param now 갱신 시각
+     * @param leaseUntil 새 만료 시각
+     * @return 1 = 갱신됨, 0 = 만료·소유권 상실·이미 완료됨
+     */
+    @Modifying
+    @Query("UPDATE EventOutboxDelivery d SET d.leaseExpiresAt = :leaseUntil "
+            + "WHERE d.id = :id AND d.leaseToken = :token AND d.deliveredAt IS NULL "
+            + "AND d.leaseExpiresAt > :now")
+    int renewLease(
+            @Param("id") UUID id,
+            @Param("token") UUID token,
+            @Param("now") Instant now,
+            @Param("leaseUntil") Instant leaseUntil);
+
+    /**
      * 전달 완료 표시 — <b>토큰이 일치할 때만</b>.
      *
      * <p>여기가 at-least-once 의 이음매다. 발행에 성공하고 이 표시에 실패하면(프로세스 종료·DB 순단)

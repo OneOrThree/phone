@@ -1,6 +1,7 @@
 package com.oneorthree.business.upstream.link;
 
 import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.InternalCall;
 import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.link.dto.LinkClaimResult;
@@ -63,7 +64,7 @@ public class LinkApiClient {
      * <p>같은 키의 재시도는 같은 {@code claimId} 를 재생해야 한다 — 아니면 확정 대상이 여러 개로 갈린다.
      */
     public LinkClaimResult claim(UUID userId, String slug, String idempotencyKey, Deadline deadline) {
-        return http.exchange(
+        LinkClaimResult result = http.exchange(
                 InternalCall.to(HttpMethod.POST, PATH_CLAIM.replace("{slug}", slug))
                         .onBehalfOf(userId)
                         .idempotencyKey(idempotencyKey)
@@ -72,6 +73,16 @@ public class LinkApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<LinkClaimResult>() { });
+        if (result == null) {
+            throw new UpstreamContractMismatchException("잠정 claim 응답에 본문이 없습니다");
+        }
+        boolean noTarget = result.claimId() == null && result.capability() == null;
+        boolean claimWithCapability = result.claimId() != null && result.capability() != null
+                && !result.capability().isBlank();
+        if (!noTarget && !claimWithCapability) {
+            throw new UpstreamContractMismatchException("잠정 claim 식별자와 자격이 일치하지 않습니다");
+        }
+        return result;
     }
 
     /**

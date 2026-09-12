@@ -32,7 +32,13 @@ class InviteLinkContractTest extends UpstreamTestBase {
     static Stream<Arguments> absentPendingBodies() {
         return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
                 Arguments.of(200, "{}"), Arguments.of(200, "{\"capability\":null}"),
-                Arguments.of(200, "{\"claimId\":null}"));
+                Arguments.of(200, "{\"claimId\":null}"),
+                Arguments.of(200, "{\"claimId\":null,\"capability\":\"signed-value\"}"),
+                Arguments.of(200, "{\"claimId\":null,\"capability\":\"\"}"),
+                Arguments.of(200, "{\"claimId\":null,\"capability\":\"  \"}"),
+                Arguments.of(200, "{\"claimId\":\"11111111-1111-4111-8111-111111111111\",\"capability\":null}"),
+                Arguments.of(200, "{\"claimId\":\"11111111-1111-4111-8111-111111111111\",\"capability\":\"\"}"),
+                Arguments.of(200, "{\"claimId\":\"11111111-1111-4111-8111-111111111111\",\"capability\":\"  \"}"));
     }
 
     static Stream<Arguments> incompleteIssuedLinks() {

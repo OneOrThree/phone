@@ -42,6 +42,17 @@ BEGIN
     IF noti_role.oid IS NOT NULL AND pg_has_role(data_role.oid, noti_role.oid, 'MEMBER') THEN
         RAISE EXCEPTION 'Data API 계정이 알림 역할로 전환할 수 있습니다';
     END IF;
+    -- 반대 방향의 grant도 검사한다. NOLOGIN 중간 역할과 ADMIN-only 재부여 경로도 거부한다.
+    -- PG16은 비슈퍼 CREATEROLE 생성자에게 ADMIN membership을 자동 부여한다.
+    -- https://www.postgresql.org/docs/16/role-attributes.html
+    -- 슈퍼유저와 현재 프로비저닝 CREATEROLE 관리자만 예외로 하며 그 하위 수신자는 따로 검사한다.
+    IF noti_role.oid IS NOT NULL AND EXISTS (
+        SELECT FROM pg_roles r WHERE r.oid <> noti_role.oid AND NOT r.rolsuper
+        AND NOT (r.rolname = current_user AND r.rolcreaterole)
+        AND pg_has_role(r.oid, noti_role.oid, 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION '다른 계정 또는 역할이 알림 역할의 권한을 받을 수 있습니다';
+    END IF;
     IF EXISTS (SELECT FROM pg_database WHERE datname = current_setting('gromo.provision_core_db')
                AND datdba = noti_role.oid) THEN
         RAISE EXCEPTION '알림 계정이 기존 코어 database를 소유하고 있습니다';

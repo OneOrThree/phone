@@ -1309,6 +1309,13 @@ paths:
               schema:
                 type: object
                 required: [claimId, capability]
+                oneOf:
+                  - properties:
+                      claimId: { type: 'null' }
+                      capability: { type: 'null' }
+                  - properties:
+                      claimId: { type: string, format: uuid }
+                      capability: { type: string, minLength: 1, pattern: '\S' }
                 properties:
                   claimId:
                     type: [string, 'null']
