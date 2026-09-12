@@ -1,14 +1,10 @@
 // user 도메인 API 래퍼 (UserController + ProfileController, base /api/v1).
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
 // (예외: deleteDeviceToken — 세션 정리용이라 인터셉터 없는 bare axios를 쓴다. 아래 주석 참고.)
-import { api } from '@/services/api';
+import axios from 'axios';
+import { api, API_URL } from '@/services/api';
 import { todayStrKst } from '@/utils/localDate';
 import { setServerZone } from '@/utils/serverZone';
-import {
-  queueDeviceDeletion,
-  queueDeviceRegistration,
-  queueNotificationSettings,
-} from '@/services/notificationCommands';
 import type {
   DeviceTokenRegisterRequest,
   FocusTimeGoalUpdateRequest,
@@ -84,7 +80,7 @@ export async function updateScreenTimePermission(
 
 // PUT /api/v1/users/me/device-token — APNs 디바이스 토큰 등록/갱신.
 export async function registerDeviceToken(body: DeviceTokenRegisterRequest): Promise<void> {
-  await queueDeviceRegistration(body.deviceToken);
+  await api.put('/api/v1/users/me/device-token', body);
 }
 
 // DELETE /api/v1/users/me/device-token — 디바이스 토큰 등록 해제.
@@ -93,12 +89,14 @@ export async function registerDeviceToken(body: DeviceTokenRegisterRequest): Pro
 // 발동시켜 방금 로그인한 계정까지 로그아웃될 수 있어(PR 226 리뷰), 정리 대상 계정의 토큰을
 // 명시한 bare axios로 보낸다.
 export async function deleteDeviceToken(accessToken: string): Promise<void> {
-  await queueDeviceDeletion(accessToken);
+  await axios.delete(`${API_URL}/api/v1/users/me/device-token`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
 }
 
 // PUT /api/v1/users/me/notification-settings — 알림·심야·소리 설정 저장.
 export async function updateNotificationSettings(body: NotificationSettingsRequest): Promise<void> {
-  await queueNotificationSettings(body);
+  await api.put('/api/v1/users/me/notification-settings', body);
 }
 
 // PATCH /api/v1/users/me/screen-time-goal — 일일 스크린타임 목표(분) 수정.
