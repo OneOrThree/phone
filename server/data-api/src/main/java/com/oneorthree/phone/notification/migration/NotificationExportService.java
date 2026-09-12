@@ -8,6 +8,7 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.notification.producer.NotificationEventKey;
 import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationExpiry;
 import com.oneorthree.phone.notification.producer.NotificationSlotGranularity;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
@@ -569,6 +570,7 @@ public class NotificationExportService {
         data.put("attempts", 0L);
         data.put("nextAttemptAt", nextAttemptMillis(status, nextAttemptAt, claimedAt, slotAt, sentAt));
         data.put("sentAt", toMillis(sentAt));
+        NotificationExpiry.addTo(params, kind, occurredAt);
         data.put("params", params);
 
         return Optional.of(NotificationMigrationRecord.of(

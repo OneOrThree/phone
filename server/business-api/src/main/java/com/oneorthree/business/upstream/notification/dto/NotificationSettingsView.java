@@ -1,5 +1,9 @@
 package com.oneorthree.business.upstream.notification.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+
 /**
  * 알림 설정 <b>정본</b>. 설정의 소유자는 {@code gromo_notification} 이라 GET 도 알림 서버에서 읽는다
  * (§3) — Data 패스스루로는 정본을 못 읽는다.
@@ -8,9 +12,9 @@ package com.oneorthree.business.upstream.notification.dto;
  * 시각은 {@code "HH:mm"} 문자열이고 미설정이면 null. 자정을 넘기는 구간(22:00~07:00)도 정상값이다.
  */
 public record NotificationSettingsView(
-        boolean notificationEnabled,
-        boolean soundEnabled,
-        boolean nightModeEnabled,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean notificationEnabled,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean soundEnabled,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean nightModeEnabled,
         String nightStartTime,
         String nightEndTime) {
 }

@@ -94,6 +94,24 @@ class NotificationOutboxProducerIntegrationTest {
                 .satisfies(delivery -> assertThat(delivery.getTarget()).isEqualTo(OutboxTarget.KAFKA));
     }
 
+    @Test
+    @DisplayName("늦게 적은 과거 크론은 원시각과 만료를 내구화하고 재시도로 수명을 늘리지 않는다")
+    void delayedCronKeepsItsOriginalExpiryAcrossProducerRetries() {
+        UUID user = UUID.randomUUID();
+        Instant original = Instant.parse("2026-09-13T11:00:00Z");
+        NotificationRequest request = new NotificationRequest(NotificationKind.LEAGUE_DEADLINE, user,
+                null, null, null, original, "ko", Map.of("rank", 1, "expiresAt", "2099-01-01T00:00:00Z"));
+        EventEnvelope envelope = tx().execute(status -> producer.append(request).orElseThrow());
+        assertThat(envelope.occurredAt()).isNotEqualTo(original);
+        assertThat(envelope.params()).containsEntry("dedupAt", original.toString())
+                .containsEntry("expiresAt", "2026-09-13T15:00:00Z");
+        Optional<EventEnvelope> retried = tx().execute(status -> producer.append(request));
+        assertThat(retried).isEmpty();
+        EventOutbox saved = outboxRepository.findByEventId(envelope.eventId()).orElseThrow();
+        assertThat(saved.getParams()).containsEntry("dedupAt", original.toString())
+                .containsEntry("expiresAt", "2026-09-13T15:00:00Z");
+    }
+
     private static NotificationRequest friendRequest(UUID userId, UUID counterpartId, Instant occurredAt) {
         return new NotificationRequest(NotificationKind.FRIEND_REQUEST, userId, counterpartId, null, null,
                 occurredAt, "ko", Map.of("counterpartUserId", counterpartId.toString(),

@@ -16,8 +16,11 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @ActiveProfiles("ci")
@@ -52,6 +55,8 @@ class NotificationTransportOrderTest {
         devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "bootstrap",
                 "sessionEpoch", 1, "authGeneration", 0), "register");
         reset(transport, data);
+        // Data의 공통 활성 판정을 통과시켜 이 회귀가 로컬 세대·설정 장벽 자체를 검사하게 한다.
+        when(data.eligible(any(), anyString(), any(), any())).thenReturn(true);
     }
 
     @Test

@@ -86,7 +86,7 @@ class NotificationEligibilityServiceTest {
     }
 
     private static NotificationEligibilityRequest request(String kind, UUID subjectId) {
-        return new NotificationEligibilityRequest(USER, kind, subjectId, Map.of());
+        return new NotificationEligibilityRequest(USER, kind, subjectId, Map.of("dedupAt", NOW.toString()));
     }
 
     @Test
@@ -122,7 +122,7 @@ class NotificationEligibilityServiceTest {
     }
 
     @Test
-    @DisplayName("상태 무관형은 수신자만 살아 있으면 통과한다 — 판정 시점의 사실을 알리는 것이라 늦어도 참이다")
+    @DisplayName("시간 제한 종류는 유효기간 안에만 통과하고 친구 수락은 사실 통보로 유지한다")
     void stateIndependentKindsPassOnActiveUser() {
         userIsActive();
 

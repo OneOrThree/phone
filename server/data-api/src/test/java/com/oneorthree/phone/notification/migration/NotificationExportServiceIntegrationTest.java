@@ -202,6 +202,24 @@ class NotificationExportServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("이관 재시도와 선점 갱신은 원 슬롯의 만료를 연장하지 않는다")
+    void exportPreservesOriginalExpiryAcrossLaterClaims() {
+        insertLog(NotificationKind.STREAK_AT_RISK.name(), "PENDING", null);
+        NotificationMigrationRecord before = deliveriesOf(
+                exportService.export(MIGRATION_ID, null, false, true)).get(0);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                entityManager.createNativeQuery("UPDATE notification_sent_logs SET claimed_at=:later WHERE user_id=:user")
+                        .setParameter("later", SLOT.plusSeconds(86400))
+                        .setParameter("user", user.getId()).executeUpdate());
+        NotificationMigrationRecord after = deliveriesOf(
+                exportService.export(MIGRATION_ID, null, false, true)).get(0);
+        assertThat((Map<?, ?>) before.data().get("params")).isEqualTo(after.data().get("params"));
+        Map<?, ?> params = (Map<?, ?>) after.data().get("params");
+        assertThat(params.get("dedupAt")).isEqualTo(SLOT.toString());
+        assertThat(params.get("expiresAt")).isEqualTo("2026-09-11T14:00:00Z");
+    }
+
+    @Test
     @DisplayName("정지 창을 닫았다면서 drain 확인이 없으면 죽는다 — DB 로는 알 수 없는 사실이다")
     void finalExportRequiresInflightDrainAttestation() {
         insertLog(NotificationKind.STREAK_AT_RISK.name(), "PENDING", null);

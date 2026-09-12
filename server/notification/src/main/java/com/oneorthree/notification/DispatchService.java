@@ -385,8 +385,9 @@ class DispatchService {
                 return false;
             }
         }
-        if (Boolean.TRUE.equals(catalog.get("eligibility_required"))
-                && !data.eligible(user, kind, subject, params)) {
+        // 종류별 대상 상태 판정이 없어도 수신자의 현재 활성 상태는 Data에서 재확인한다.
+        // 탈퇴·세대 투영은 지연될 수 있으므로 로컬 fence만으로 발송을 허용할 수 없다.
+        if (!data.eligible(user, kind, subject, params)) {
             suppress(id);
             return false;
         }

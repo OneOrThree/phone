@@ -215,7 +215,7 @@ public class NotificationOutboxProducer {
             // append 시각이라 못 쓴다 — 재훑기가 옛 사건을 지금 적으면 둘이 크게 갈린다.
             // 계약상 params 는 additive 허용이고(additionalProperties: true) 소비자는 모르는 필드를
             // 무시하므로 스키마 버전은 올리지 않는다.
-            params.put(DEDUP_AT, request.occurredAtKeyHint().toString());
+            NotificationExpiry.addTo(params, request.kind(), request.occurredAtKeyHint());
         }
         return params;
     }

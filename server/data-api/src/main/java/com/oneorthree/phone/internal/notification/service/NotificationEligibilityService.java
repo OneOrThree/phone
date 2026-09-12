@@ -12,6 +12,7 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityRequest;
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityResponse;
 import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationExpiry;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +20,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.time.DateTimeException;
 import java.util.UUID;
 
 /**
@@ -100,6 +103,10 @@ public class NotificationEligibilityService {
         if (kind.subjectKind() != NotificationKind.SubjectKind.NONE && request.subjectId() == null) {
             return NotificationEligibilityResponse.deny(REASON_SUBJECT_REQUIRED);
         }
+        NotificationEligibilityResponse expiry = checkExpiry(request, kind);
+        if (expiry != null) {
+            return expiry;
+        }
         return switch (kind) {
             case CHALLENGE_CREATED -> evaluateChallengeCreated(request);
             case CHALLENGE_SESSION_OPEN -> evaluateSessionOpen(request);
@@ -107,13 +114,34 @@ public class NotificationEligibilityService {
             case BET_WON, BET_SILENT_FLUSH -> evaluateBetParticipation(request);
             case CHALLENGE_WINDOW_END, CHALLENGE_ENDED -> evaluateChallengeEnd(request);
             case FRIEND_REQUEST -> evaluateFriendRequest(request);
-            // 상태 무관형 — 판정 시점의 사실을 알리는 것이라 나중에 상태가 바뀌어도 문구가 거짓이
-            // 되지 않는다(수락 통보·리그 결과·마감 독려·리텐션). 수신자 활성 검사는 위에서 끝났다.
+            // 추가 도메인 조회가 없는 종류. 시간 제한이 있는 리그·리텐션은 위에서 만료를 확인했다.
             case FRIEND_ACCEPTED, LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_DEADLINE_D1,
                  LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE,
                  INACTIVE_RETURN, MISSED_FOCUS_TODAY, STREAK_AT_RISK ->
                     NotificationEligibilityResponse.allow();
         };
+    }
+
+    /** null은 시간 판정 통과다. 원시각 없는 과거 봉투를 수신 시각으로 새롭게 만들지 않는다. */
+    private NotificationEligibilityResponse checkExpiry(NotificationEligibilityRequest request, NotificationKind kind) {
+        if (NotificationExpiry.validity(kind) == null) {
+            return null;
+        }
+        Object original = request.params().get(NotificationExpiry.OCCURRED_AT);
+        if (!(original instanceof String occurredAt)) {
+            return NotificationEligibilityResponse.deny("EVENT_TIME_REQUIRED");
+        }
+        try {
+            Instant expiry = NotificationExpiry.expiresAt(kind, Instant.parse(occurredAt));
+            Object declared = request.params().get(NotificationExpiry.EXPIRES_AT);
+            if (declared != null && (!(declared instanceof String value)
+                    || !expiry.equals(Instant.parse(value)))) {
+                return NotificationEligibilityResponse.deny("EVENT_TIME_INVALID");
+            }
+            return clock.instant().isBefore(expiry) ? null : NotificationEligibilityResponse.deny("EVENT_EXPIRED");
+        } catch (DateTimeException | ArithmeticException invalid) {
+            return NotificationEligibilityResponse.deny("EVENT_TIME_INVALID");
+        }
     }
 
     /** 개설 알림 — 챌린지가 아직 살아 있고 수신자가 아직 그 그룹원이어야 한다(ⓩ). */
