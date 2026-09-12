@@ -56,9 +56,7 @@ on:
       - 'app/app-dev/app.config.js'
       - '.github/workflows/app-android-build.yml'
   pull_request:
-    # release 대상 PR 만 뺀다 — base 가 다른 브랜치인 스택 PR 에서도 돌아야 한다.
-    # 예전 `branches: [main]` 은 스택 PR 을 통째로 검사에서 빼 버렸다(GROMO-1791).
-    branches-ignore: [release]
+    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드다 (app-lint.yml 과 같은 패턴)
     # push 필터와 **같은 목록**을 쓴다(YAML 앵커). 두 벌로 두면 한쪽만 고쳐져 갈라진다 —
     # 실제로 코드리뷰에서 네 경로가 한꺼번에 누락된 채로 발견됐다.
     #
