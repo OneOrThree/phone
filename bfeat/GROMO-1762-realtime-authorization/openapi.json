@@ -829,6 +829,62 @@
         }
       }
     },
+    "/internal/islands/{islandId}/host-transfer": {
+      "post": {
+        "tags": [
+          "internal-host-transfer-controller"
+        ],
+        "operationId": "transfer",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostTransferResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/invite-links/claim-intents": {
       "get": {
         "tags": [
@@ -1015,6 +1071,15 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimIntentAbandonRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -1105,6 +1170,36 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/DeviceSessionVerifyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/auth/sessions/logout": {
+      "post": {
+        "tags": [
+          "internal-session-logout-controller"
+        ],
+        "operationId": "logout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionLogoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionLogoutResponse"
                 }
               }
             }
@@ -3534,7 +3629,7 @@
         ],
         "summary": "로그아웃",
         "description": "Refresh Token 무효화. 클라이언트는 로컬 토큰도 삭제해야 함.",
-        "operationId": "logout",
+        "operationId": "logout_1",
         "requestBody": {
           "content": {
             "application/json": {
@@ -7283,6 +7378,41 @@
           }
         }
       },
+      "HostTransferRequest": {
+        "type": "object",
+        "properties": {
+          "targetUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authGeneration": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "authGeneration",
+          "sessionId",
+          "targetUserId"
+        ]
+      },
+      "HostTransferResponse": {
+        "type": "object",
+        "properties": {
+          "hostUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ClaimIntentRequest": {
         "type": "object",
         "properties": {
@@ -7312,6 +7442,9 @@
           },
           "completed": {
             "type": "boolean"
+          },
+          "terminalCode": {
+            "type": "string"
           }
         }
       },
@@ -7353,6 +7486,14 @@
         "required": [
           "leaseToken"
         ]
+      },
+      "ClaimIntentAbandonRequest": {
+        "type": "object",
+        "properties": {
+          "terminalCode": {
+            "type": "string"
+          }
+        }
       },
       "ClaimConfirmationRequest": {
         "type": "object",
@@ -7398,6 +7539,25 @@
           "sessionEpoch": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "SessionLogoutRequest": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          },
+          "accessToken": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionLogoutResponse": {
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "boolean"
           }
         }
       },
