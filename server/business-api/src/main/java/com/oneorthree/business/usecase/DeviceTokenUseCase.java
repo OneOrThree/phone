@@ -110,8 +110,59 @@ public class DeviceTokenUseCase {
         DeviceRegistration registration = new DeviceRegistration(
                 deviceToken, ownershipToken, deviceBootstrap, sessionEpoch, claims.authGeneration(),
                 legacySessionId);
-        return notificationApiClient.registerDevice(
+        DeviceRegistrationResult result = notificationApiClient.registerDevice(
                 claims.userId(), registration, keys.forStep("device-register"), deadline);
+        revokeIfTheSessionEndedDuringRegistration(claims, deviceToken, result, deviceBootstrap, deadline);
+        return result;
+    }
+
+    /**
+     * 확인과 등록 사이에 그 세션이 끝났으면 <b>방금 등록한 토큰을 즉시 되돌린다</b>.
+     *
+     * <h2>왜 필요한가</h2>
+     * 세션 확인이 성공한 직후 Data 의 세션 행 잠금은 HTTP 응답과 함께 풀리고, 실제 등록은 별도
+     * 호출로 나중에 실행된다. 그 사이에 같은 세션의 로그아웃이 커밋되면, 폐기 사건이 알림 서버에
+     * <b>아직 도착하지 않은</b> 동안에는 그쪽 {@code session_fences} 에 tombstone 이 없어 등록이
+     * 성공한다. 그 상태에서 발송이 끼어들면 <b>로그아웃한 기기로 비공개 알림이 간다</b>.
+     *
+     * <h2>무엇이 이미 막고 있는가 — 그리고 무엇이 안 막는가</h2>
+     * 이 구멍은 <b>영구적이지 않다</b>. 폐기 사건이 도착하면 알림 서버의
+     * {@code DeviceService#revokeSession} 이 {@code session_epoch<=epoch} 로 <b>그 창에 등록된 행까지
+     * 비활성화</b>하고, tombstone 이 남아 이후 지연 등록도 {@code SESSION_REVOKED} 로 막는다.
+     * 남는 것은 <b>등록 커밋부터 폐기 사건 도착까지</b>의 시간이고, 그 길이는 relay 의 전달 지연이
+     * 정한다 — 즉 우리가 통제하지 못하는 값이다.
+     *
+     * <p>그래서 그 창을 <b>relay 를 기다리지 않고</b> Business 가 직접 닫는다. 등록이 끝난 뒤 같은
+     * 세션을 한 번 더 확인하고, 그사이 끝났으면 방금 등록한 토큰을 지운다. 창이 「relay 지연」에서
+     * 「왕복 한 번」으로 줄어든다.
+     *
+     * <p><b>완전한 폐쇄는 아니다.</b> 이 재확인과 삭제 사이에도 창이 남는다. 0 으로 만들려면 등록
+     * 의도를 Data 의 세션 잠금 «아래»에 내구 기록해 폐기와 한 순서 축에 놓아야 하는데, 그것은 Data
+     * 의 새 표면과 알림 서버의 소비 경로가 함께 필요한 별도 작업이다.
+     *
+     * <p>되돌리기가 실패해도 <b>등록 자체는 실패시키지 않는다.</b> 앱은 이미 새 소유권을 받아야 하고,
+     * 못 지운 행은 폐기 사건이 도착할 때 원래대로 정리된다 — 여기서 예외를 올리면 정상 로그인이
+     * 실패로 보이면서 정리는 어차피 relay 가 한다.
+     */
+    private void revokeIfTheSessionEndedDuringRegistration(AccessTokenClaims claims, String deviceToken,
+            DeviceRegistrationResult result, String deviceBootstrap, Deadline deadline) {
+        if (deviceBootstrap == null || deviceBootstrap.isBlank() || result == null) {
+            return;
+        }
+        try {
+            DeviceSessionCheck after =
+                    dataApiClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline);
+            if (after != null && after.active()) {
+                return;
+            }
+            log.warn("등록 중 세션이 끝났다 — 방금 등록한 기기 토큰을 되돌린다. userId={}", claims.userId());
+            notificationApiClient.deleteDevice(claims.userId(), deviceToken, result.ownershipToken(),
+                    claims.authGeneration(), RequestIdempotencyKeys.from(null).forStep("device-register-undo"),
+                    deadline);
+        } catch (RuntimeException e) {
+            // 폐기 사건이 도착하면 어차피 정리된다. 정상 로그인을 실패로 만들지 않는다.
+            log.warn("등록 후 세션 재확인·되돌리기 실패 — 폐기 사건 도착 시 정리된다", e);
+        }
     }
 
     /**
