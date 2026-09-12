@@ -503,7 +503,7 @@ public class NotificationExportService {
         UUID rowId = toUuid(row[0]);
         UUID userId = toUuid(row[1]);
         String legacyKind = (String) row[3];
-        UUID subjectId = toUuid(row[4]);
+        UUID legacyTargetId = toUuid(row[5]);
         String status = String.valueOf(row[6]);
         Instant sentAt = toInstant(row[7]);
         Instant claimedAt = toInstant(row[8]);
@@ -521,6 +521,7 @@ public class NotificationExportService {
                     "신 카탈로그에 없는 종류입니다 — 모르는 것을 조용히 버리면 그게 곧 유실입니다."));
             return Optional.empty();
         }
+        UUID subjectId = subjectOf(kind, toUuid(row[4]), legacyTargetId);
         if (kind.subjectKind() != NotificationKind.SubjectKind.NONE && subjectId == null) {
             failures.add(fail(rowId, userId, legacyKind, status, FAIL_NO_SUBJECT,
                     kind + " 는 대상 id 가 필요한데 비어 있습니다 — 키가 유저 × kind 로 뭉칩니다."));
@@ -573,6 +574,37 @@ public class NotificationExportService {
 
         return Optional.of(NotificationMigrationRecord.of(
                 NotificationMigrationRecord.RESOURCE_DELIVERY, eventId, data));
+    }
+
+    /**
+     * 사건 대상 id — 구 행은 그것을 {@code subject_id} 가 아니라 {@code target_user_id} 에 적었다.
+     *
+     * <p>V45 는 {@code subject_id} 를 도입하면서 <b>{@code BET_RESULT} 만</b> 백필했다. 나머지 구 종류는
+     * 일부러 {@code NULL} 로 남겼는데, 그때의 이유는 유니크 {@code (user_id, kind, subject_id)} 였다 —
+     * {@code CHALLENGE_WINDOW_END}·{@code CHALLENGE_ENDED} 는 매일 반복인데 채워 넣으면 이튿날 발송이
+     * 막히기 때문이다({@code CHALLENGE_CREATED}·{@code FRIEND_*} 도 구 모델이라 함께 남겼다).
+     *
+     * <p>그 이유는 <b>이관에는 적용되지 않는다</b>. 새 키는 시간축을 따로 갖고 있어
+     * ({@link NotificationEventKey}) 대상 id 를 채워도 이튿날 키와 충돌하지 않는다. 반대로 여기서
+     * {@code row[4]} 만 읽고 {@code target_user_id} 를 버리면, 그런 운영 이력이 한 건이라도 있는 순간
+     * strict export 가 {@code NO_SUBJECT} 로 죽어 컷오버할 수 없고, lenient 로 우회하면 그 발송 이력이
+     * 통째로 빠져 <b>새 스케줄러가 같은 알림을 다시 보낸다</b>.
+     *
+     * <p>두 컬럼이 동시에 차는 행은 없다 — 구 서비스는 {@code target_user_id} 만, 신 클레임 INSERT 는
+     * {@code subject_id} 만 쓴다. 그래도 <b>폴백은 좁게</b> 건다: {@code subject_id} 가 있으면 그것이
+     * 이기고, 대상이 없는 kind({@link NotificationKind.SubjectKind#NONE} — 리그·리텐션)는 손대지 않는다.
+     * 그 축은 producer 가 {@code null} 로 만들기 때문에, 여기서 값을 얹으면 같은 사건의 키가 갈린다.
+     *
+     * @param kind          신 카탈로그의 종류
+     * @param subjectId     {@code subject_id} 컬럼 — 신 파이프라인이 적은 값
+     * @param legacyTargetId {@code target_user_id} 컬럼 — 구 서비스가 적은 대상 id
+     * @return 사건 대상 id. 대상이 없는 kind 이거나 양쪽 다 비면 {@code null}
+     */
+    private static UUID subjectOf(NotificationKind kind, UUID subjectId, UUID legacyTargetId) {
+        if (subjectId != null || kind.subjectKind() == NotificationKind.SubjectKind.NONE) {
+            return subjectId;
+        }
+        return legacyTargetId;
     }
 
     /**
