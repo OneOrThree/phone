@@ -2,25 +2,30 @@ name: Realtime CI
 
 # 채팅 서비스 전용 게이트 (GROMO-292).
 #
-# be-check-style / be-test / be-spot-bugs 를 재사용하지 않는 이유: 그 세 워크플로는
-# `working-directory: server/data-api` 를 «하드코딩»하고 있어서, 재사용하려면 입력을 받도록
-# 세 파일을 모두 고쳐야 한다 — 그건 기존 백엔드 게이트를 건드리는 변경이라 이 PR 의 위험을 키운다.
-# 서비스가 더 늘어날 때(A17 의 JVM 5종) 경로를 입력으로 빼는 리팩터링을 한 번에 하는 편이 낫다.
+# 검사는 be-gradle.yml 에 위임한다(GROMO-1790). 예전엔 be-check-style / be-test / be-spot-bugs 가
+# `working-directory: server/data-api` 를 하드코딩해 재사용할 수 없어서 이 파일이 잡을 직접 들고
+# 있었는데, 그 셋을 입력 받는 be-gradle.yml 하나로 합치면서 호출부만 남겼다.
 #
-# 여기서는 잡을 하나로 합쳤다. `./gradlew build` 한 번이 checkstyle · spotbugs · test · bootJar 를
-# 전부 돌리므로, 잡을 셋으로 쪼개면 러너 3개를 물고 Gradle 이 세 번 뜬다(러너는 VM 한 대를 공유한다).
+# 잡은 여전히 하나다. `./gradlew build` 한 번이 checkstyle · spotbugs · test · bootJar 를 전부
+# 돌리므로, 잡을 셋으로 쪼개면 러너 3개를 물고 Gradle 이 세 번 뜬다(러너는 VM 한 대를 공유한다).
 
 on:
   pull_request:
     paths:
       - 'server/realtime/**'
       - '.github/workflows/realtime-ci.yml'
+      # 호출하는 재사용 워크플로도 넣는다 — 안 넣으면 be-gradle.yml 만 고치는 PR 에서
+      # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).
+      - '.github/workflows/be-gradle.yml'
       - 'server/scripts/docker-compose.realtime.yml'
   push:
     branches: [main]
     paths:
       - 'server/realtime/**'
       - '.github/workflows/realtime-ci.yml'
+      # 호출하는 재사용 워크플로도 넣는다 — 안 넣으면 be-gradle.yml 만 고치는 PR 에서
+      # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).
+      - '.github/workflows/be-gradle.yml'
       - 'server/scripts/docker-compose.realtime.yml'
 
 # 통합 브랜치 푸시가 «겹치지» 않게 한다. 겹치면 늦게 끝난 «옛» 빌드가 :latest 를 되가리켜,
@@ -38,52 +43,18 @@ env:
   REALTIME_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/realtime
 
 jobs:
+  # `./gradlew build` 한 번이 checkstyle · spotbugs · test · bootJar 를 전부 돈다.
+  #
+  # Postgres·Redis 를 띄우지 않는다(needs-db 기본 false) — 테스트가 Testcontainers 로 직접 띄우고
+  # @ServiceConnection 이 주소를 빈으로 주입한다. 호스트에 DB 를 띄우면 포트 고정 문제
+  # (러너 3개가 VM 한 대를 공유한다)를 다시 떠안는다.
   build:
-    runs-on: [self-hosted, ci, spot]
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: server/realtime
-    env:
-      GRADLE_OPTS: "-Dorg.gradle.daemon=false"
-    steps:
-      - uses: actions/checkout@v4
-
-      # 같은 VM의 다른 러너가 공유 홈에 캐시를 복원하는 동안 JAR을 덮어쓸 수 있다.
-      # Gradle 실행과 캐시 복원을 모두 이 잡의 임시 디렉터리로 격리한다.
-      - name: 채팅 전용 Gradle 홈 설정
-        run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle-realtime" >> "$GITHUB_ENV"
-
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.GRADLE_USER_HOME }}/caches
-            ${{ env.GRADLE_USER_HOME }}/wrapper
-          # 공유 홈에서 저장한 캐시를 다시 가져오지 않는다.
-          key: ${{ runner.os }}-realtime-gradle-v2-${{ hashFiles('server/realtime/**/*.gradle*', 'server/realtime/**/gradle-wrapper.properties') }}
-          restore-keys: ${{ runner.os }}-realtime-gradle-v2-
-
-      - run: chmod +x gradlew
-
-      # Postgres·Redis 를 services: 로 띄우지 않는다 — 테스트가 Testcontainers 로 직접 띄우고,
-      # @ServiceConnection 이 주소를 빈으로 주입한다. services: 로 띄우면 포트 고정 문제
-      # (러너 3개가 VM 한 대를 공유한다)를 다시 떠안는다.
-      - name: Build (checkstyle + spotbugs + test + bootJar)
-        env:
-          SPRING_PROFILES_ACTIVE: ci
-        run: ./gradlew build --stacktrace
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: realtime-test-results
-          path: server/realtime/build/test-results/
-          retention-days: 7
+    uses: ./.github/workflows/be-gradle.yml
+    with:
+      service: realtime
+      tasks: build
+      artifact-name: realtime-test-results
+      artifact-path: build/test-results/
 
   # PR 에서는 «빌드는 되는가»만 보고(푸시 없음), main push 에서는 GAR 에 올린다.
   #

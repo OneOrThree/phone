@@ -1,0 +1,144 @@
+name: Backend Gradle
+
+# 백엔드 서버 넷(data-api · realtime · business-api · notification)의 Gradle 검사를 한 곳에서 돈다.
+#
+# 왜 합쳤나 — 이전의 be-check-style.yml · be-test.yml · be-spot-bugs.yml 은 `workflow_call` 전용인데
+# 입력을 하나도 선언하지 않고 `server/data-api` 를 네 곳(defaults · 캐시 키 hashFiles · 아티팩트
+# path · jar-size 경로)에 박아 뒀다. 아티팩트 «이름»도 고정이라 두 서비스가 같이 부르면 충돌한다.
+# 그래서 realtime 도 business-api 도 이걸 못 부르고 각자 CI 파일을 새로 썼고, 서버가 늘 때마다
+# 같은 일을 다르게 쓰는 파일이 하나씩 늘었다(GROMO-1790).
+#
+# 여기서 해결한 것 둘:
+#   ① `services:` 를 쓰지 않는다. GitHub Actions 는 `services:` 에 `if:` 를 걸 수 없어서
+#      「data-api 만 호스트 Postgres 가 필요하다」를 입력으로 가를 수 없었다(나머지 셋은
+#      Testcontainers 로 직접 띄운다). 스텝에서 `docker run` 으로 띄우면 조건부가 된다.
+#   ② 호스트 포트를 고정하지 않는다. 러너 프로세스 3개가 VM 한 대를 공유해서 5432 를 박으면
+#      동시에 도는 다른 잡과 부딪혀 컨테이너 기동에서 즉사한다
+#      (`Bind for 0.0.0.0:5432 failed: port is already allocated`). 도커가 빈 포트를 고르게 두고
+#      `docker port` 로 실제 포트를 읽어 주입한다.
+#
+# business-api 는 이 파일을 쓰지 않는다 — PDF 미리보기 테스트가 poppler-utils 에 의존하고 그건
+# Dockerfile 의 `test` 스테이지가 깐다. 일반 러너에서 gradle 을 돌리는 이 파일로는 대체할 수 없다.
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "server/ 아래 디렉터리 이름 (data-api · realtime · notification)"
+        type: string
+        required: true
+      tasks:
+        description: "돌릴 Gradle 태스크. 기본 build 는 checkstyle·spotbugs·test·bootJar 를 전부 돈다"
+        type: string
+        default: "build"
+      needs-db:
+        description: >-
+          호스트 Postgres 가 필요한가. data-api 만 true 다 — application-ci.yml 이
+          localhost:5432 를 하드코딩하고 Testcontainers 를 쓰지 않는 테스트가 있다.
+        type: boolean
+        default: false
+      artifact-name:
+        description: "업로드 아티팩트 이름. 호출부마다 달라야 한다 — 같으면 업로드가 충돌한다"
+        type: string
+        required: true
+      artifact-path:
+        description: "업로드할 경로(서비스 디렉터리 기준 상대). 비우면 업로드하지 않는다"
+        type: string
+        default: ""
+      measure-jar:
+        description: >-
+          bootJar 크기를 재서 `jar-size` 아티팩트로 올린다. dev-ci 의 PR 코멘트 생성
+          (.github/scripts/generate-pr-comment.py) 이 `jar-size/jar-size.txt` 경로를 그대로
+          읽으므로 이 아티팩트 «이름»은 바꾸면 안 된다.
+        type: boolean
+        default: false
+
+jobs:
+  gradle:
+    runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: server/${{ inputs.service }}
+    env:
+      GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+      PG_CONTAINER: pg-${{ inputs.service }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 같은 VM 의 다른 러너가 공유 홈에 캐시를 복원하는 동안 JAR 을 덮어쓸 수 있다.
+      # Gradle 실행과 캐시 복원을 이 잡의 임시 디렉터리로 격리한다(realtime-ci 에서 가져온 규율).
+      - name: 서비스 전용 Gradle 홈 설정
+        run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle-${{ inputs.service }}" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.GRADLE_USER_HOME }}/caches
+            ${{ env.GRADLE_USER_HOME }}/wrapper
+          key: ${{ runner.os }}-${{ inputs.service }}-gradle-${{ hashFiles(format('server/{0}/**/*.gradle*', inputs.service), format('server/{0}/**/gradle-wrapper.properties', inputs.service)) }}
+          restore-keys: ${{ runner.os }}-${{ inputs.service }}-gradle-
+
+      - run: chmod +x gradlew
+
+      # `services:` 대신 여기서 띄운다(파일 머리말 ①·② 참고).
+      - name: Postgres 기동
+        if: inputs.needs-db
+        working-directory: .
+        run: |
+          set -euo pipefail
+          docker run -d --name "$PG_CONTAINER" \
+            -e POSTGRES_DB=tt_db -e POSTGRES_USER=ci -e POSTGRES_PASSWORD=ci \
+            --publish 0:5432 \
+            --health-cmd "pg_isready -U ci -d tt_db" \
+            --health-interval 5s --health-timeout 5s --health-retries 12 \
+            postgres:16-alpine
+          for _ in $(seq 1 60); do
+            if [ "$(docker inspect -f '{{.State.Health.Status}}' "$PG_CONTAINER")" = "healthy" ]; then
+              break
+            fi
+            sleep 2
+          done
+          if [ "$(docker inspect -f '{{.State.Health.Status}}' "$PG_CONTAINER")" != "healthy" ]; then
+            echo "Postgres 가 준비되지 않았다." >&2
+            docker logs "$PG_CONTAINER" >&2 || true
+            exit 1
+          fi
+          PORT="$(docker port "$PG_CONTAINER" 5432/tcp | head -1 | sed 's/.*://')"
+          echo "SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:${PORT}/tt_db" >> "$GITHUB_ENV"
+
+      - name: Gradle ${{ inputs.tasks }}
+        env:
+          SPRING_PROFILES_ACTIVE: ci
+        run: ./gradlew ${{ inputs.tasks }} --stacktrace
+
+      - name: Postgres 정리
+        if: always() && inputs.needs-db
+        working-directory: .
+        run: docker rm -f "$PG_CONTAINER" || true
+
+      - name: JAR 크기 측정
+        if: inputs.measure-jar
+        run: |
+          set -euo pipefail
+          ./gradlew bootJar -x test
+          du -sb build/libs/*.jar | awk '{print $1}' > jar-size.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always() && inputs.measure-jar
+        with:
+          name: jar-size
+          path: server/${{ inputs.service }}/jar-size.txt
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        if: always() && inputs.artifact-path != ''
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: server/${{ inputs.service }}/${{ inputs.artifact-path }}
+          retention-days: 7

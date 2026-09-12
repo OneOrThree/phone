@@ -30,7 +30,7 @@ jobs:
           POSTGRES_PASSWORD: ci
         ports:
           # 호스트 포트 고정 금지 — 러너 3개가 VM 한 대를 공유해 5432 가 겹친다.
-          # 상세는 be-test.yml 의 같은 위치 주석 참조 (GROMO-1515).
+          # 상세는 be-gradle.yml 의 «Postgres 기동» 스텝 주석 참조 (GROMO-1515 · GROMO-1790).
           - 5432
         options: >-
           --health-cmd pg_isready

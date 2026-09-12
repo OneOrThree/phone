@@ -89,12 +89,16 @@ changes trigger different jobs. This list rots; the authoritative source is
 - **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**`;
   `app-android-build.yml` — Android build checks on native-affecting paths.
 - **Business API**: `business-ci.yml` — 독립 Gradle build(Checkstyle·SpotBugs·Redis 통합 테스트)와 Docker 빌드. main push에서만 GAR 이미지 게시. 수동 dev overlay는 `docker-compose.business.yml`.
-- **Realtime**: `realtime-ci.yml` — `./gradlew build` (Checkstyle + SpotBugs + Testcontainers tests
-  + bootJar) plus a no-push Docker build, path-filtered to `server/realtime/**`. It does **not**
-  reuse the `be-*.yml` workflows because those hardcode `working-directory: server/data-api`.
-- **Backend PR gate + dev deploy**: `dev-ci.yml` orchestrates the reusable
-  (`workflow_call`) `be-check-style.yml` / `be-test.yml` / `be-spot-bugs.yml` —
-  Checkstyle, tests (JUnit + Testcontainers), and SpotBugs on `server/data-api/**`.
+- **Shared backend gate**: `be-gradle.yml` — the one reusable (`workflow_call`) workflow every
+  JVM service calls for its Gradle checks. Takes `service` / `tasks` / `needs-db` /
+  `artifact-name` / `artifact-path` / `measure-jar`, isolates `GRADLE_USER_HOME` per service, and
+  starts Postgres from a step (not `services:`, which cannot be made conditional) only when
+  `needs-db` is set — data-api is the only caller that needs it.
+- **Realtime**: `realtime-ci.yml` — calls `be-gradle.yml` with `service: realtime` (one
+  `./gradlew build` covers Checkstyle + SpotBugs + Testcontainers tests + bootJar), plus a
+  no-push Docker build, path-filtered to `server/realtime/**`.
+- **Backend PR gate + dev deploy**: `dev-ci.yml` calls `be-gradle.yml` three times
+  (Checkstyle / SpotBugs / tests) on `server/data-api/**`.
   On PRs it also build-verifies the Docker image (no push); on `main` push the same
   run pushes `back:<sha>` to GAR and calls the reusable `dev-cd.yml` with the image
   digest, which deploys to AWS dev (`dev-cd.yml` has no trigger of its own).

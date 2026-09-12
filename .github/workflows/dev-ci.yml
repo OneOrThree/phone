@@ -10,9 +10,7 @@ on:
       # CI 자신과 CI 가 호출하는 워크플로도 트리거에 넣는다. 안 넣으면 이 파일들만
       # 고치는 PR 에서 정작 CI 가 안 돌아 **머지해 봐야** 맞는지 안다 (GROMO-1515).
       - ".github/workflows/dev-ci.yml"
-      - ".github/workflows/be-test.yml"
-      - ".github/workflows/be-check-style.yml"
-      - ".github/workflows/be-spot-bugs.yml"
+      - ".github/workflows/be-gradle.yml"
       - ".github/workflows/dev-cd.yml"
   # squash merge 뒤에는 최종 main SHA를 다시 검사하고, 이 실행에서 배포 이미지를 만든다.
   # PR에서 채운 GAR 캐시를 사용하므로 CD에서 별도로 재빌드하지 않는다.
@@ -23,9 +21,7 @@ on:
       - "server/scripts/docker-compose.dev.yml"
       - "server/scripts/docker-compose.datadog.yml"
       - ".github/workflows/dev-ci.yml"
-      - ".github/workflows/be-test.yml"
-      - ".github/workflows/be-check-style.yml"
-      - ".github/workflows/be-spot-bugs.yml"
+      - ".github/workflows/be-gradle.yml"
       - ".github/workflows/dev-cd.yml"
 
 concurrency:
@@ -38,14 +34,35 @@ env:
   APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back
 
 jobs:
+  # 셋 다 be-gradle.yml 하나를 부른다(GROMO-1790). 아티팩트 이름 `test-results`·`jar-size` 는
+  # 아래 pr-comment 잡이 그 이름으로 내려받아 .github/scripts/generate-pr-comment.py 에 넘기므로
+  # 바꾸면 PR 코멘트가 빈 값으로 나온다.
   checkstyle:
-    uses: ./.github/workflows/be-check-style.yml
+    uses: ./.github/workflows/be-gradle.yml
+    with:
+      service: data-api
+      tasks: checkstyleMain checkstyleTest
+      artifact-name: checkstyle-report
+      artifact-path: build/reports/checkstyle/
 
   spotbugs:
-    uses: ./.github/workflows/be-spot-bugs.yml
+    uses: ./.github/workflows/be-gradle.yml
+    with:
+      service: data-api
+      tasks: spotbugsMain
+      artifact-name: spotbugs-report
+      artifact-path: build/reports/spotbugs/
 
   test:
-    uses: ./.github/workflows/be-test.yml
+    uses: ./.github/workflows/be-gradle.yml
+    with:
+      service: data-api
+      tasks: test
+      # application-ci.yml 이 localhost:5432 를 하드코딩한다 — 네 서버 중 유일하게 호스트 DB 가 필요하다.
+      needs-db: true
+      artifact-name: test-results
+      artifact-path: build/test-results/
+      measure-jar: true
 
   # PR에서는 merge-ref의 build 가능 여부를 검증하고 GAR 캐시만 갱신한다.
   # main에서는 최종 main SHA를 같은 캐시로 build해 GAR에 push한다. 이 job이 반환한

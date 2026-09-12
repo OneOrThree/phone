@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>컨텍스트를 하나 더 띄우는 값은 치른다. 켜진 형상을 부팅하지 않고서는 확인할 방법이 없다.
  *
  * <h2>⚠️ 이 컨텍스트에는 «진짜 Redis 가 없다»</h2>
- * CI({@code .github/workflows/be-test.yml})는 Postgres 만 띄우고 Redis 서비스를 두지 않는다.
+ * CI({@code .github/workflows/be-gradle.yml})는 Postgres 만 띄우고 Redis 서비스를 두지 않는다.
  * 그래도 초록인 이유는 <b>DB 가 비어 있어서</b>다 — 재구축이 진행 중 세션을 하나도 못 찾아 Redis
  * 명령을 <b>한 번도 내지 않고</b>, {@code LettuceConnectionFactory} 는 지연 연결이라 빈 생성만으로는
  * 아무 데도 붙지 않는다. 즉 여기서 확인되는 것은 <b>배선</b>이지 동작이 아니다.

@@ -17,6 +17,9 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  # 이 잡만 be-gradle.yml 을 쓰지 않는다(GROMO-1790). PDF 미리보기 테스트가 poppler-utils·util-linux
+  # 에 의존하는데 그건 Dockerfile 의 `test` 스테이지가 깐다 — 일반 러너에서 gradle 을 돌리는
+  # be-gradle.yml 로는 대체할 수 없다. 그 의존을 걷어내면 그때 호출부로 바꾼다.
   build:
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 25

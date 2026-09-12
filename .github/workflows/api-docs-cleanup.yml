@@ -1,11 +1,28 @@
 name: Cleanup Feature Docs
 
+# 브랜치가 지워지면 그 브랜치의 OpenAPI 문서를 gh-pages 에서도 지운다.
+#
+# ⚠️ 이 워크플로는 2026-09-12 까지 «한 번도 동작한 적이 없다» — 36회 실행 전부 skipped, 성공 0건.
+# 조건이 `startsWith(github.event.ref, 'refs/heads/feat/')` 였는데, `delete` 이벤트의
+# `github.event.ref` 는 **`refs/heads/` 접두어 없이 브랜치 이름만** 온다(태그면 태그 이름).
+# 그래서 조건이 영원히 거짓이었다. 게다가 `feat/` 만 봐서, 접두어를 고쳐도 실제로 문서가 생기는
+# `bfeat/`·`bfix/`·`brefactor/` 는 못 잡았다 — 버그가 둘이었다(GROMO-1790).
+#
+# 접두어 목록은 api-dog-generate.yml 의 `push.branches` 와 «같아야 한다». 그쪽이 문서를 만드는
+# 브랜치와 여기서 지우는 브랜치가 어긋나면 다시 쌓이기 시작한다.
+
 on:
   delete:
 
 jobs:
   cleanup:
-    if: startsWith(github.event.ref, 'refs/heads/feat/')
+    # ref_type 을 먼저 본다 — 같은 이름의 태그가 지워졌을 때 브랜치 문서를 지우지 않도록.
+    if: >-
+      github.event.ref_type == 'branch' &&
+      (startsWith(github.event.ref, 'bfeat/') ||
+       startsWith(github.event.ref, 'bfix/') ||
+       startsWith(github.event.ref, 'brefactor/') ||
+       startsWith(github.event.ref, 'feat/'))
     runs-on: [self-hosted, ci, spot]
 
     steps:
@@ -15,13 +32,25 @@ jobs:
           ref: gh-pages
 
       - name: Remove feature branch docs
+        env:
+          # 표현식을 run 스크립트에 직접 끼우지 않는다 — 브랜치 이름이 셸로 새지 않게.
+          BRANCH_NAME: ${{ github.event.ref }}
         run: |
-          BRANCH="${{ github.event.ref }}"
-          BRANCH_NAME="${BRANCH#refs/heads/}"
-          if [ -d "$BRANCH_NAME" ]; then
-            git rm -rf "$BRANCH_NAME"
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git commit -m "chore: remove docs for deleted branch $BRANCH_NAME"
-            git push
+          set -euo pipefail
+          case "$BRANCH_NAME" in
+            */../*|../*|*/..|..) echo "경로 탈출 시도: $BRANCH_NAME" >&2; exit 1 ;;
+          esac
+          if [ ! -d "$BRANCH_NAME" ]; then
+            echo "gh-pages 에 $BRANCH_NAME 문서가 없다 — 할 일 없음."
+            exit 0
           fi
+          git rm -rf --quiet "$BRANCH_NAME"
+          # 접두어 디렉터리가 비면 같이 치운다(bfeat/ 만 남는 껍데기 방지).
+          PREFIX="${BRANCH_NAME%%/*}"
+          if [ -d "$PREFIX" ] && [ -z "$(ls -A "$PREFIX" 2>/dev/null)" ]; then
+            rmdir "$PREFIX"
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: remove docs for deleted branch $BRANCH_NAME"
+          git push
