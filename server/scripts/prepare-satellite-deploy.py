@@ -24,7 +24,9 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +121,35 @@ def compose_variables(path: Path) -> tuple[set[str], set[str]]:
         else:
             optional.add(name)
     return required, optional - required
+
+
+def empty_compose_values(required: set[str], shared_env: Path, generated_env: str, project: str) -> list[str]:
+    """실제 Compose 문법·shell > generated > shared 우선순위로 필수값만 해석한다. 값은 반환하지 않는다."""
+    with tempfile.TemporaryDirectory(prefix="gromo-compose-check-") as directory:
+        probe = Path(directory) / "probe.json"
+        generated = Path(directory) / "compose.env"
+        # 임시파일에는 변수 이름과 비밀 없는 생성 입력만 쓴다. 공유 env는 원본을 읽기만 한다.
+        probe.write_text(json.dumps({"services": {"probe": {"image": "scratch", "environment": {
+            key: "${" + key + "}" for key in sorted(required)
+        }}}}), encoding="utf-8")
+        generated.write_text(generated_env, encoding="utf-8")
+        try:
+            result = subprocess.run(
+                ["docker", "compose", "-p", project, "-f", str(probe),
+                 "--env-file", str(shared_env), "--env-file", str(generated), "config", "--format", "json"],
+                text=True, capture_output=True, timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError, UnicodeError):
+            raise PrepareError("필수 보간 검사에 Docker Compose CLI가 필요합니다. 읽기 전용 config 실행에 실패했습니다") from None
+        if result.returncode != 0:
+            # dotenv 오류 메시지는 값까지 담을 수 있으므로 stdout/stderr를 전달하지 않는다.
+            raise PrepareError("공유 env의 필수 보간을 Compose로 해석하지 못했습니다. env 문법을 확인하세요")
+        try:
+            values = json.loads(result.stdout)["services"]["probe"]["environment"]
+            return sorted(key for key in required
+                          if not isinstance(values.get(key), str) or not values[key].strip())
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise PrepareError("Compose 필수 보간 검사 결과를 읽지 못했습니다") from None
 
 
 def check_digest(label: str, reference: str) -> str:
@@ -302,16 +333,15 @@ def main() -> None:
     compose_env = output_dir / "compose.env"
     guard_output_path(compose_env, args.shared_env_file)
 
-    # 필수 보간 변수 대조 — 공유 env 의 «키 이름»만 읽는다.
-    shared_keys = set(parse_dotenv_keys(args.shared_env_file.read_text(encoding="utf-8")))
+    # 필수 보간 변수 대조 — 실제 최종값만 검사하며 값은 로그·오류로 내보내지 않는다.
     checked = [args.base_compose, SATELLITES_COMPOSE]
     if "data-api" in written:
         checked.append(DATA_OVERLAY_COMPOSE)
     required: set[str] = set()
     for path in checked:
         required |= compose_variables(path)[0]
-    available = shared_keys | set(compose_values) | {k for k, v in os.environ.items() if v}
-    missing = sorted(required - available)
+    compose_text = "".join(f"{key}={writer.dotenv_quote(value)}\n" for key, value in sorted(compose_values.items()))
+    missing = empty_compose_values(required, args.shared_env_file, compose_text, args.project_name)
     if missing:
         raise PrepareError(
             "compose 보간에 필요한 값이 없습니다 — " + ", ".join(missing)
@@ -320,8 +350,7 @@ def main() -> None:
     for service, path in written.items():
         writer.write_atomic(path, rendered[service])
     writer.write_atomic(redis_acl, acl_text, mode=0o644)
-    writer.write_atomic(compose_env, "".join(
-        f"{key}={writer.dotenv_quote(value)}\n" for key, value in sorted(compose_values.items())))
+    writer.write_atomic(compose_env, compose_text)
 
     plan = build_plan(args, compose_env, with_data="data-api" in written)
     plan_path = output_dir / "deploy-plan.txt"

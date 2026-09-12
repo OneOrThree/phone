@@ -74,7 +74,7 @@ class Fixture:
 
 
 def run(fixture: Fixture, *extra: str, payload: dict | None = None,
-        with_data: bool = True) -> subprocess.CompletedProcess[str]:
+        with_data: bool = True, environment: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     command = [sys.executable, str(SCRIPT), "--environment", "dev",
                "--output-dir", str(fixture.output), "--base-compose", str(fixture.base),
                "--shared-env-file", str(fixture.shared),
@@ -84,10 +84,78 @@ def run(fixture: Fixture, *extra: str, payload: dict | None = None,
         command += ["--data-image", IMAGES["--data-image"]]
     command += list(extra)
     return subprocess.run(command, input=json.dumps(secret() if payload is None else payload),
-                          text=True, capture_output=True)
+                          text=True, capture_output=True, env=environment)
 
 
 class PrepareSatelliteDeployTest(unittest.TestCase):
+
+    def test_필수_공유_보간의_최종_빈값은_기존_산출물_변경전에_거부한다(self) -> None:
+        entries = ("POSTGRES_DB=", "POSTGRES_DB=''", 'POSTGRES_DB=""',
+                   "POSTGRES_DB='  '", 'POSTGRES_DB="\\t"', "POSTGRES_DB='' # comment",
+                   "POSTGRES_DB=gromo\nPOSTGRES_DB=''",
+                   'POSTGRES_DB="${GROMO_TEST_EMPTY_VAR}"',
+                   "POSTGRES_DB=${GROMO_TEST_EMPTY_VAR:-}", "export POSTGRES_DB=''")
+        environment = dict(os.environ)
+        environment.pop("POSTGRES_DB", None)
+        environment.pop("GROMO_TEST_EMPTY_VAR", None)
+        for entry in entries:
+            with self.subTest(entry=entry), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                fixture.shared.write_text(entry + "\nPRIVATE_SENTINEL='never-log-this-value'\n")
+                fixture.output.mkdir()
+                previous = fixture.output / "notification.env"
+                previous.write_text("previous")
+                result = run(fixture, environment=environment)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("POSTGRES_DB", result.stderr)
+                self.assertEqual(previous.read_text(), "previous")
+                self.assertEqual({path.name for path in fixture.output.iterdir()}, {"notification.env"})
+                self.assertNotIn("never-log-this-value", result.stdout + result.stderr)
+
+    def test_쉘_보간값은_빈값도_공유와_생성_env보다_우선한다(self) -> None:
+        for key in ("POSTGRES_DB", "NOTIFICATION_ENV_FILE"):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                result = run(fixture, environment={**os.environ, key: ""})
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(key, result.stderr)
+                self.assertFalse((fixture.output / "compose.env").exists())
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.shared.write_text("POSTGRES_DB=''\n")
+            result = run(fixture, environment={**os.environ, "POSTGRES_DB": "shell-db"})
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_공유_env_해석_오류도_비밀값과_산출물을_남기지_않는다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.shared.write_text("POSTGRES_DB=${GROMO_TEST_PARSE_ERROR:?private-error-value}\n")
+            environment = dict(os.environ)
+            environment.pop("GROMO_TEST_PARSE_ERROR", None)
+            result = run(fixture, environment=environment)
+            self.assertEqual(result.returncode, 1)
+            self.assertNotIn("private-error-value", result.stdout + result.stderr)
+            self.assertFalse((fixture.output / "compose.env").exists())
+            self.assertFalse((fixture.output / "notification.env").exists())
+
+    def test_정상_dotenv_문법과_선택적_기본값은_보존한다(self) -> None:
+        environment = dict(os.environ)
+        environment.pop("POSTGRES_DB", None)
+        environment.pop("GROMO_TEST_EMPTY_VAR", None)
+        entries = ("POSTGRES_DB=gromo", " POSTGRES_DB = gromo ", "export POSTGRES_DB='gromo'",
+                   'POSTGRES_DB="gromo"', "POSTGRES_DB='${GROMO_TEST_EMPTY_VAR}'",
+                   "POSTGRES_DB='multi\nline'", "POSTGRES_DB='hash# and quote\\'value'",
+                   "DATABASE_NAME=gromo\nPOSTGRES_DB=${DATABASE_NAME}",
+                   "POSTGRES_DB=${GROMO_TEST_EMPTY_VAR:-gromo}", "POSTGRES_DB=''\nPOSTGRES_DB=gromo")
+        for entry in entries:
+            with self.subTest(entry=entry), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                fixture.shared.write_text(entry + "\nGROMO_TEST_OPTIONAL=''\n")
+                fixture.base.write_text(fixture.base.read_text()
+                                        + "      OPTIONAL: ${GROMO_TEST_OPTIONAL:-default-value}\n")
+                result = run(fixture, environment=environment)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(fixture.shared.read_text(), entry + "\nGROMO_TEST_OPTIONAL=''\n")
 
     def test_콘솔_단일_토큰은_기존_준비_파일을_변경하지_않고_거부한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
