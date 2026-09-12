@@ -17,6 +17,13 @@ on:
       - '.github/scripts/**'
   workflow_dispatch:
 
+# ⚠️ 이 워크플로는 «PR CI 로 검증되지 않는다». 트리거가 push 뿐이고 브랜치 목록이
+# main·release·bfeat/**·bfix/**·brefactor/** 인데, 워크플로를 고치는 작업은 보통 `bchore/` 라서
+# 여기에 걸리지 않는다(pull_request 트리거도 없다). 즉 이 파일을 고치면 «머지된 뒤 main push 에서
+# 처음» 돈다. `bchore/**` 를 넣어 해결하지는 않는다 — 그러면 chore 브랜치마다 문서 디렉터리가
+# 생기는데 api-docs-cleanup.yml 의 삭제 접두어 목록엔 `bchore/` 가 없어서 그대로 쌓인다.
+# 그래서 이 파일을 고칠 때는 게시 스텝 로직을 «로컬 레포로 재현»해 확인하고 올린다 (GROMO-1790).
+
 permissions:
   # gh-pages 에 문서 커밋을 push 한다. 기본값에 기대지 않고 이 워크플로가 쓰는 것만 명시한다.
   contents: write
