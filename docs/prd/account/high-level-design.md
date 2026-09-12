@@ -213,7 +213,7 @@ chat/realtime은 별도 DB이므로 Data의 중앙 TX에서 커서를 직접 지
 
 같은 tombstone과 개별 로그아웃의 `auth.session.revoked` 세션 fence는 읽음 커서뿐 아니라 REST·STOMP 인가, 기존 구독의 메시지 전달, 메시지 저장 writer에도 적용한다. 멤버십 캐시 hit나 열린 소켓이 탈퇴·로그아웃 뒤 발신·열람 통로가 되지 않도록 소비자 커밋 뒤 캐시를 지우고 모든 인스턴스의 해당 소켓을 끊되, 그 정리가 실패해도 fence 재검사가 막는다.
 
-초대 claim은 claimant와 현재 발급자의 users를 UUID 순서로 공유 잠근 뒤 링크를 다시 읽어 발급자 연결을 확인하고서야 클릭을 잠근다. 무잠금으로 먼저 읽은 발급자 값으로 탈퇴한 발급자의 링크에 늦게 귀속하지 않는다.
+초대 claim은 claimant와 현재 발급자의 users를 UUID 순서로 공유 잠근 뒤 링크를 다시 읽어 발급자 연결을 확인하고서야 클릭을 잠근다. 무잠금으로 먼저 읽은 발급자 값으로 탈퇴한 발급자의 링크에 늦게 귀속하지 않는다. 링크 이관 뒤에는 Link가 Data users를 잠글 수 없으므로 claim을 pending으로만 기록하고, Data가 잠금 아래 남긴 `link.claimConfirmed`가 relay로 와야 확정하며 `(groupId, inviterId)` 전이 tombstone보다 낮은 confirm은 거부한다.
 
 ## 설정: 한 필드만 바꾸기
 

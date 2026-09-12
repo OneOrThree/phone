@@ -51,3 +51,5 @@ legacy 온보딩 전이 보완: 신규 PATCH와 기존 POST/PATCH 프로필 writ
 오류 우선순위·로컬 버킷·digest 재생 보완: 신규 경로의 인증 검사를 AT 검증(401) → 사용자 활성(404 `USER_NOT_FOUND`) → 세션/세대(401) 순서로 고정해 탈퇴 뒤 옛 자격은 404로 통일하고, `DELETE /me` 재시도의 404를 탈퇴 확정으로 처리한다. 탈퇴 확정 때만 기기의 계정별 버킷·UUID 마커·누끼 파일을 writer drain 뒤 지운다. digest는 attempt/key ID 조회 뒤 계산하고 COMPLETED 응답 유실 재생까지 이전 키를 유지한다.
 
 채팅 접근·claim 발급자 보완: 탈퇴 tombstone과 개별 로그아웃 세션 fence를 읽음 커서뿐 아니라 REST·STOMP 인가, 기존 구독 전달, 메시지 저장 writer에 적용하고 멤버십 캐시 삭제·전 인스턴스 소켓 종료를 완료 조건에 넣었다. 초대 claim은 claimant와 현재 발급자 users를 함께 잠그고 링크를 재조회해 탈퇴한 발급자 링크의 지연 귀속을 막는다. 메시지 보존 정책은 바꾸지 않는다.
+
+근거 기준·위성 claim 보완: 채팅 근거를 기준 main `529a396`의 `server/chat`과 기준 이후 머지된 PR739의 `server/realtime` 추가분으로 분리하고, 기준에 없던 메시지별 전달 검사·연결 레지스트리는 구현 조건으로 적었다. 링크 이관 뒤 위성 claim은 장부 ㋟·㋥의 pending → `link.claimConfirmed` → 전이 tombstone 절차를 따른다.

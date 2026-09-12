@@ -529,7 +529,7 @@ BEFORE_COMMIT/MANDATORY에서 OUTBOX 모드일 때만 enqueue한다. 이어
 
 기준 main의 `server/chat`은 별도 `gromo_chat` DB에 `chat_read_cursors`를 보관한다. `V1__baseline.sql:30~43`의 `user_id`, `group_id`, `last_read_message_id`, `updated_at`은 모두 NOT NULL이며 `(group_id,user_id)`가 유일하다. 커서는 정산 증거나 다른 사람의 메시지 본문이 아니라 특정 사용자의 읽음 위치·활동 시각이다. 별도 보존 근거가 확인되지 않았으므로 nullify/soft delete로 남기지 않고 해당 사용자의 모든 방 행을 hard delete한다. 다른 사용자의 커서와 기존 `chat_messages` 본문·`sender_id` 보존 정책은 바꾸지 않는다.
 
-[PR739](https://github.com/OneOrThree/phone/pull/739)의 `server/realtime`/`com.oneorthree.realtime` 이름 전환 작업에서도 DB `gromo_chat`, 커서 테이블과 `ChatRoomService.markRead` → `ChatReadCursorRepository.upsertIfNewer` 경로는 유지된다. 이름 전환이 데이터 파기 구현을 뜻하지 않는다. 기준 main의 `ChatRoomService:113~121`은 `ChatAccessGuard`의 집중/멤버십 검사와 메시지 소속 확인 뒤 UPSERT를 부르고, 저장 TX는 repository:45~60의 한 문장에만 있다. `MembershipService:59,79~96`의 기본 120초 캐시가 허용한 요청이나 검사 후 대기한 쓰기는 단순 DELETE 뒤 행을 다시 만들 수 있다. `last_read_message_id`의 단조 비교는 사용자 폐기 검사도, 재생성 차단도 아니다.
+기준 이후 머지된 [PR739](https://github.com/OneOrThree/phone/pull/739)(`da1ae5a39`)의 `server/realtime`/`com.oneorthree.realtime` 이름 전환에서도 DB `gromo_chat`, 커서 테이블과 `ChatRoomService.markRead` → `ChatReadCursorRepository.upsertIfNewer` 경로는 유지된다. 이름 전환이 데이터 파기 구현을 뜻하지 않는다. 기준 main의 `ChatRoomService:113~121`은 `ChatAccessGuard`의 집중/멤버십 검사와 메시지 소속 확인 뒤 UPSERT를 부르고, 저장 TX는 repository:45~60의 한 문장에만 있다. `MembershipService:59,79~96`의 기본 120초 캐시가 허용한 요청이나 검사 후 대기한 쓰기는 단순 DELETE 뒤 행을 다시 만들 수 있다. `last_read_message_id`의 단조 비교는 사용자 폐기 검사도, 재생성 차단도 아니다.
 
 후속 구현은 기존 중앙 탈퇴 TX의 사용자 aggregate version과 `authGeneration`을 가진 `user.withdrawn` outbox를 **chat/realtime에도 내구 전달**한다. 기존 Notification/Link 전달을 빼거나 같은 사건을 새 공개/STOMP 계약으로 세지 않는다. 수신은 인증된 Data 내부 전달만 허용하고 앱/STOMP 입력으로 폐기 tombstone을 만들 수 없게 한다. 이 소비 대상의 전달/수신 완료를 별도로 추적하고, 수신측 로컬 커밋 후에만 완료 처리한다. 전달 장애·응답 유실은 같은 eventId로 재전달하며 이미 완료한 Data 탈퇴를 다시 실행하지 않는다. 현재 조사한 chat/realtime 코드에는 이 탈퇴 소비자와 커서 파기/fencing이 없으므로 producer 대상 배선·consumer·모든 writer의 통합과 회귀가 신규 탈퇴 구현 완료 조건이다.
 
@@ -539,11 +539,13 @@ chat/realtime 소비자는 **로컬 DB의 사용자별 공통 잠금 → 폐기 
 
 writer가 먼저 잠그면 소비자가 기다렸다가 방금 쓴 커서까지 삭제한다. 소비자가 먼저면 이미 멤버십 검사를 마친 요청도 잠금 획득 뒤 tombstone을 보고 거절한다. 캐시 무효화는 보조 정리일 뿐이며, 무효화 실패나 늦은 멤버십 응답의 재적재가 폐기 뒤 쓰기를 허용해서는 안 된다. 중앙 커밋부터 소비자 커밋까지의 비동기 전달 지연을 숨기지 않고 대상별 파기 상태로 확인한다. 이 기술 계약은 현존 개인 cursor의 파기 의무이고, 우체통의 읽음 표시 없음/커서 유지 여부 같은 MQ 제품 정책을 승인하거나 해결한 것으로 간주하지 않는다.
 
-**읽음 커서만 막으면 탈퇴자가 계속 대화에 참여한다.** 현재 main의 `server/realtime`에서 `MembershipService.myGroupIds`는 Redis 캐시(`chat.membership.cache-ttl-seconds` 기본 120초)가 있으면 Data에 묻지 않고, 클래스 주석도 무효화가 TTL뿐이라 탈퇴자가 그동안 대화를 볼 수 있다고 적는다. `ChatMessageService.send`는 `ChatAccessGuard.requireCanChat`의 집중·멤버십 판정만으로 메시지를 저장하고, `ChatOutboundChannelInterceptor.beforeHandle`은 기존 구독의 메시지마다 토큰 subject와 같은 판정을 다시 볼 뿐이다. `ChatPrincipal`은 토큰 만료 시에도 기존 구독을 강제로 해제하지 않으며, 실시간 인증은 sid·authGeneration을 보지 않아 개별 로그아웃한 세션의 AT도 만료까지 통과한다. `RealtimeSessionRegistry`는 세션 ID 단위 종료만 있고 사용자·세션 fence 소비자는 없다.
+**읽음 커서만 막으면 탈퇴자가 계속 대화에 참여한다.** 기준 main `529a396`의 `server/chat`에서 `MembershipService.myGroupIds`는 Redis 캐시(`chat.membership.cache-ttl-seconds` 기본 120초)가 있으면 Data에 묻지 않고, 클래스 주석도 무효화가 TTL뿐이라 탈퇴자가 그동안 대화를 볼 수 있다고 적는다. `ChatMessageService.send`는 `ChatAccessGuard.requireCanChat`의 집중·멤버십 판정만으로 메시지를 저장하고, `StompAuthChannelInterceptor`는 SUBSCRIBE·SEND 때 토큰 subject와 같은 판정만 본다. `ChatPrincipal` 주석대로 토큰 만료 시에도 기존 구독을 강제로 해제하지 않으며, 실시간 인증은 sid·authGeneration을 보지 않아 개별 로그아웃한 세션의 AT도 만료까지 통과한다. 기준 main의 채팅 코드에는 **이미 구독한 연결의 메시지별 전달 검사, 연결 레지스트리·강제 종료, `user.withdrawn`·`auth.session.revoked` 소비자가 모두 없다.**
 
-후속 구현은 위 tombstone을 **채팅 접근의 공통 fence**로 쓴다. chat/realtime은 `user.withdrawn`과 함께 개별 로그아웃·세션 폐기의 `auth.session.revoked`도 같은 인증된 내구 전달로 받아 사용자 tombstone과 sid 단위 폐기 fence를 로컬에 확정한다. 검사 지점은 REST 인증 뒤 인가, STOMP CONNECT·SUBSCRIBE·SEND, 기존 구독의 `beforeHandle` 전달, 메시지 저장 writer 전부다. 메시지 writer는 cursor writer와 같은 **사용자 잠금 → tombstone·세션 fence 재검사 → INSERT** 로컬 TX를 쓰므로, 멤버십 캐시 hit나 검사 뒤 대기한 발신도 fence 확정 뒤에는 저장·방송되지 않는다. 캐시 hit이거나 조회 장애일 때도 fence 판정은 생략하지 않으며, fence 조회를 캐시하더라도 커밋된 폐기만 채우고 miss·장애는 기존 원칙대로 통과시키지 않는다.
+기준 이후 머지된 [PR739](https://github.com/OneOrThree/phone/pull/739)(`da1ae5a39`)는 `server/realtime`으로 이름을 바꾸며 `ChatOutboundChannelInterceptor.beforeHandle`(기존 구독 메시지마다 토큰 subject·집중·멤버십 재검사)과 `RealtimeSessionRegistry`(세션 ID 단위 소켓 종료)를 추가했다. 이 두 구성요소는 이 문서의 기준 main 근거가 아니며, 있어도 캐시 hit 멤버십을 그대로 재사용할 뿐 사용자·세션 fence, 사용자/sid 색인, 인스턴스 간 종료 전파가 없다. 후속 구현은 대상 코드에 이 구성요소가 없으면 **메시지별 전달 검사와 연결 레지스트리·강제 종료를 신규로 구현**해야 하며, 이미 있다고 전제하지 않는다.
 
-소비자 로컬 커밋 뒤에는 그 사용자의 `cache:chat:member:{userId}` 삭제와 해당 사용자(세션 폐기면 그 sid)의 열린 소켓 종료를 **모든 realtime 인스턴스**에 전파한다. 현재 레지스트리에 사용자·sid 색인과 인스턴스 간 종료 전파가 없으므로 이를 추가해야 한다. 캐시 삭제나 소켓 종료는 보조 정리이며, 실패하거나 늦은 멤버십 응답이 캐시를 다시 채워도 위 fence 재검사가 발신·구독·전달을 막는다. 수신 완료는 로컬 커밋 기준으로 기록하고 종료 전파는 재시도한다. sid가 없는 legacy AT는 입증된 세션 결합이 없으면 세션 단위로 끊을 수 없으므로 A08의 legacy 전환 조건과 같이 AT 만료까지의 한계를 드러내고 완료로 표시하지 않는다.
+후속 구현은 위 tombstone을 **채팅 접근의 공통 fence**로 쓴다. chat/realtime은 `user.withdrawn`과 함께 개별 로그아웃·세션 폐기의 `auth.session.revoked`도 같은 인증된 내구 전달로 받아 사용자 tombstone과 sid 단위 폐기 fence를 로컬에 확정한다. 검사 지점은 REST 인증 뒤 인가, STOMP CONNECT·SUBSCRIBE·SEND, 기존 구독의 메시지별 전달(PR739의 `beforeHandle` 또는 신규 동등 관문), 메시지 저장 writer 전부다. 메시지 writer는 cursor writer와 같은 **사용자 잠금 → tombstone·세션 fence 재검사 → INSERT** 로컬 TX를 쓰므로, 멤버십 캐시 hit나 검사 뒤 대기한 발신도 fence 확정 뒤에는 저장·방송되지 않는다. 캐시 hit이거나 조회 장애일 때도 fence 판정은 생략하지 않으며, fence 조회를 캐시하더라도 커밋된 폐기만 채우고 miss·장애는 기존 원칙대로 통과시키지 않는다.
+
+소비자 로컬 커밋 뒤에는 그 사용자의 `cache:chat:member:{userId}` 삭제와 해당 사용자(세션 폐기면 그 sid)의 열린 소켓 종료를 **모든 realtime 인스턴스**에 전파한다. 기준 main에는 연결 레지스트리 자체가 없고 PR739의 레지스트리에도 사용자·sid 색인과 인스턴스 간 종료 전파가 없으므로 이를 구현 조건으로 추가한다. 캐시 삭제나 소켓 종료는 보조 정리이며, 실패하거나 늦은 멤버십 응답이 캐시를 다시 채워도 위 fence 재검사가 발신·구독·전달을 막는다. 수신 완료는 로컬 커밋 기준으로 기록하고 종료 전파는 재시도한다. sid가 없는 legacy AT는 입증된 세션 결합이 없으면 세션 단위로 끊을 수 없으므로 A08의 legacy 전환 조건과 같이 AT 만료까지의 한계를 드러내고 완료로 표시하지 않는다.
 
 Data 커밋부터 realtime 소비자 커밋까지의 비동기 지연은 이 fence로 없어지지 않는다. 그 사이의 발신·전달을 숨기지 않고 대상별 파기·차단 상태와 지연을 측정하며, 그 구간에 저장된 메시지의 삭제·보존은 기존 메시지 보존 정책을 이 문서가 새로 바꾸지 않는다. 기존 메시지 본문·`sender_id` 보존 정책도 그대로다.
 
@@ -580,7 +582,15 @@ TX 종료까지 유지하여 탈퇴와 직렬화한다. claim은 **발급자 잠
 지연 귀속이 생긴다. 후속 claim은 링크의 현재 inviter_id를 읽어 claimant와 발급자의 활성 users를 UUID 순서로 공유 잠그고,
 링크 행을 공유 잠금으로 **다시 읽어** inviter_id가 그대로이고 null이 아닌지 확인한 뒤에만 클릭을 잠근다.
 발급자가 비활성·null·변경이면 기존 만료/no-op으로 끝내며 옛 값으로 귀속하지 않는다. 순서는 users→링크→클릭이고
-클릭을 먼저 잡고 사용자 잠금을 역으로 얻지 않는다. Link 위성 claim도 같은 발급자·claimant 폐기 재검사를 적용한다. 컨트롤러 인증이나
+클릭을 먼저 잡고 사용자 잠금을 역으로 얻지 않는다. 이 users 잠금 순서는 Data가 클릭을 소유하는 동안의 경로다. **링크 이관 뒤**에는 `link_clicks`가 Link 서버 DB에 있어
+Link가 Data의 claimant·발급자 users를 같은 TX에서 잠글 수 없으므로 로컬 활성 재검사로 대체하지 않는다.
+[아키텍처 장부](../../architecture/decisions.md)의 ㋟·㋥과 [서비스 아키텍처 §3](../../architecture/service-architecture.md)대로
+Link는 claim을 **잠정(pending)으로만 기록**하고, Data가 claimant·발급자 users와 발급자 멤버십을 잠근 상태에서
+두 사용자 활성·미폐기를 확인한 뒤 `link.claimConfirmed`를 같은 TX의 outbox에 남긴다. relay가 이를 전달해야
+유효로 승격하며, Link는 `(groupId, inviterId)`별 전이 sequence/tombstone보다 낮은 confirm을 거부한다.
+발급자 탈퇴·강퇴의 `link.revoked`나 claimant 탈퇴 전달이 먼저 적용됐으면 pending claim은 확정되지 않고,
+확정 뒤 claimant가 탈퇴하면 위 claimed_user_id 익명화·소진 표지 규칙을 따른다. Data의 확정 판정도
+users→그룹 멤버십 잠금 순서를 지키고 잠금을 쥔 채 Link를 호출하지 않는다. 컨트롤러 인증이나
 잠금 없는 사전 사용자 조회만으로 이 fence가 구현됐다고 간주하지 않는다.
 익명화는 claimed_user_id만 끊고 기존 claimed_at을 비식별 소진 근거로 유지한다. 클릭 전체를 되살리는
 복원/이관/재시도도 그 표지를 보존하며, claimed_at을 추후 지워야 한다면 비식별 consumed 표지로 먼저
@@ -950,6 +960,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | claim 클릭의 matched_device_id·app_instance_id·ip_hash·user_agent·Link 위성/이관 복사본·같은 기기 재시도 | 탈퇴자 클릭 식별자0·matched/claimed_at 보존, 재귀속·추가 보상0, 파기 전 GA4 작업 입력 기록, 이관 대조가 파기 필드를 되살리지 않음·중간 실패 전체 rollback |
 | 본인 발급 링크·타인 claim·발급/탈퇴 경합·파기 후 rollback | inviter_id nullify, 링크/클릭 FK·타인 귀속 보존, 폐기 링크 재사용/UUID 복원0, 늦은 발급 거절, 중간 실패는 전체 rollback |
 | 발급자 탈퇴와 타인 claim 양방향 경합·무잠금 링크 조회 뒤 nullify·셀프 초대·claimant 동시 탈퇴 | 탈퇴 선행이면 claim no-op·귀속0, claim 선행이면 귀속 뒤 inviter_id nullify, users→링크→클릭 순서로 교착0, 옛 inviterId 귀속0 |
+| 링크 이관 뒤 Link pending claim·Data 확정 전 발급자 탈퇴/강퇴·claimant 탈퇴·confirm 재시도가 revoke 뒤 도착 | 확정 전 폐기면 pending 미승격·귀속0, 전이 seq보다 낮은 confirm 거부, 로컬 활성 재검사만으로 확정0, 정상 확정 claim 보존 |
 | group_invites 양방향·전체 상태·타인 초대와 탈퇴 rollback | inviter 또는 invitee가 본인인 행만 전량 삭제, 무관한 타인 초대 보존, 실패 시 초대/계정/환불/outbox 전체 rollback |
 | 탈퇴자의 활성·이탈·강퇴·혼자 소유 종료 멤버십과 알림/공지 권한 fixture | 보존 행 notification_enabled=false·announcement_permission=DISALLOW·status=INACTIVE·role=MEMBER, 방장 판정·정원·타인 멤버십·정산 결과 불변, 실패 시 전체 rollback |
 | 공지 생성·타인 수정과 탈퇴의 양방향 경쟁·중간 실패 | 생성 선행이면 user_id=null, 탈퇴 선행이면 생성 USER_NOT_FOUND. 타인 수정의 지연 flush도 작성자 FK 부활 0, 공지 내용 보존, rollback 시 작성자 연결도 복구 |
@@ -1013,7 +1024,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/domain/InviteLinkClick.java`, `InviteLinkClickRepository.java`, `invitelink/support/InviteLinkGa4Events.java`, `common/analytics/Ga4MeasurementClientImpl.java` | ip_hash NOT NULL·user_agent·matched_device_id·app_instance_id, markMatched, 기기 재시도 조회, 서버 MP app_instance_id 전송 |
 | `app/app-dev/src/store/UserContext.tsx`, `app/app-dev/src/screens/settings/AccountScreen.tsx`, `app/app-dev/src/services/analytics.ts` | GA4 setUserId(userId), 탈퇴 성공 뒤 setUserId(null) 이전의 withdrawal_confirmed, 설치 device_id 공통 파라미터·getAppInstanceId |
 | `app/app-dev/src/App.tsx`, `app/app-dev/src/types/storage.ts`, `app/app-dev/src/store/CharacterContext.tsx`, `app/app-dev/src/services/sessionErrors.ts`, `app/app-dev/src/services/api.ts` | 일반 로그아웃 multiRemove와 equipment·ownedItems 보존 주석, 계정별 맵·userId 마커 키, customUri·createdAt, USER_NOT_FOUND 안내와 401 refresh 실패의 일반 로그아웃 수렴 |
-| `server/realtime/.../membership/MembershipService.java`, `message/service/ChatMessageService.java`, `message/service/ChatAccessGuard.java`, `config/StompAuthChannelInterceptor.java`, `config/ChatOutboundChannelInterceptor.java`, `config/RealtimeSessionRegistry.java`, `auth/ChatPrincipal.java` (현재 main) | 멤버십 캐시 TTL 무효화뿐, send의 집중·멤버십 판정 뒤 저장, 구독 전달의 토큰·멤버십 재검사, 세션 ID 단위 종료, sid·authGeneration 미검사 |
+| `server/chat/src/main/java/com/oneorthree/chat/membership/MembershipService.java`, `message/service/ChatMessageService.java`, `message/service/ChatAccessGuard.java`, `config/StompAuthChannelInterceptor.java`, `auth/ChatPrincipal.java` (기준 main 529a396) | 멤버십 캐시 TTL 무효화뿐, send의 집중·멤버십 판정 뒤 저장, SUBSCRIBE·SEND의 토큰·판정, 만료 시 기존 구독 유지, sid·authGeneration 미검사. 메시지별 전달 검사·연결 레지스트리·폐기 소비자 없음 |
+| `server/realtime/src/main/java/com/oneorthree/realtime/config/ChatOutboundChannelInterceptor.java`, `config/RealtimeSessionRegistry.java` (기준 이후 머지된 PR739 `da1ae5a39`) | 기존 구독 메시지별 토큰·멤버십 재검사, 세션 ID 단위 종료만. 사용자·sid 색인·인스턴스 간 전파·폐기 fence 없음 |
 | `server/data-api/src/main/java/com/oneorthree/phone/invitelink/service/InviteLinkMatchService.java`, `repository/GroupInviteLinkRepository.java`, `repository/InviteLinkClickRepository.java` | claim의 무잠금 findBySlug, 클릭 PESSIMISTIC_WRITE·SKIP LOCKED, 먼저 읽은 inviterId 귀속 |
 | `server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java` | anonymizeWithdrawnUser |
 | `server/data-api/src/main/java/com/oneorthree/phone/stats/service/StatsService.java` | anonymizeWithdrawnUser |
@@ -1022,7 +1034,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 추가 채팅 근거: 기준 main의 `server/chat/src/main/resources/db/migration/V1__baseline.sql:30~43`,
 `message/service/ChatRoomService.java:113~121`, `message/repository/ChatReadCursorRepository.java:45~60`,
 `membership/MembershipService.java:59,79~96`, `message/service/ChatAccessGuard.java:47~54`.
-PR739 작업 코드의 같은 상대 경로(`server/realtime`, package `com.oneorthree.realtime`)도 별도로 대조했다.
+기준 이후 머지된 PR739(`da1ae5a39`)의 같은 상대 경로(`server/realtime`, package `com.oneorthree.realtime`)도 별도로 대조했다.
 해당 main/이름 전환 코드 모두에 `user.withdrawn` 커서 파기 소비자가 있다고 주장하지 않는다.
 
 미통합 1659 작업 코드에서 별도로 읽은 `AuthSessionService`, `NotificationSettingsUseCase`, `WithdrawalSatelliteCommandService`, `InternalAuthController`는 기반 재사용 근거다. 이 목록은 main에 모든 파일/동작이 이미 있다는 주장이 아니다. 구현 시 선행 PR 최종 diff와 대조하고, 특히 users 단일 RT 해시를 계속 정본으로 사용하는 과도 상태를 제거해야 한다.
