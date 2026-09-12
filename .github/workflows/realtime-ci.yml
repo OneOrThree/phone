@@ -45,9 +45,8 @@ env:
 jobs:
   # `./gradlew build` 한 번이 checkstyle · spotbugs · test · bootJar 를 전부 돈다.
   #
-  # Postgres·Redis 를 띄우지 않는다(needs-db 기본 false) — 테스트가 Testcontainers 로 직접 띄우고
-  # @ServiceConnection 이 주소를 빈으로 주입한다. 호스트에 DB 를 띄우면 포트 고정 문제
-  # (러너 3개가 VM 한 대를 공유한다)를 다시 떠안는다.
+  # Postgres·Redis 를 띄우지 않는다 — 테스트가 Testcontainers 로 직접 띄우고 주소를 빈으로 주입한다.
+  # be-gradle.yml 은 이제 호스트 DB 를 아예 띄우지 않는다(GROMO-1793) — data-api 도 필요 없었다.
   build:
     uses: ./.github/workflows/be-gradle.yml
     with:

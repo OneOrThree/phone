@@ -56,7 +56,9 @@ jobs:
   # 감당되면서 대기 시간이 제일 크게 줄어드는 조합이다.
   #
   # ⚠️ test 는 옮기지 마라. 실행만 23.7분이라 분 소비가 checkstyle·spotbugs 를 합친 것의 네 배고,
-  #    호스트 Gradle 캐시 효과도 여기서 제일 크다. 아래 build·deploy 도 옮기면 안 된다 —
+  #    호스트 Gradle 캐시 효과도 여기서 제일 크다. (기술적으로는 옮길 수 있다 — GROMO-1793 에서
+  #    `needs-db` 를 들어내 도커 의존이 사라졌으므로 `runs-on` 한 줄이면 된다. 막는 건 월 2,000분
+  #    한도지 기술 제약이 아니다.) 아래 build·deploy 는 «기술적으로도» 옮기면 안 된다 —
   #    GAR 인증이 GCE 메타데이터 토큰을 쓰는데 GitHub-hosted 에는 그 메타데이터가 없다.
   checkstyle:
     uses: ./.github/workflows/be-gradle.yml
@@ -82,8 +84,6 @@ jobs:
     with:
       service: data-api
       tasks: test
-      # application-ci.yml 이 localhost:5432 를 하드코딩한다 — 네 서버 중 유일하게 호스트 DB 가 필요하다.
-      needs-db: true
       artifact-name: test-results
       artifact-path: build/test-results/
       measure-jar: true

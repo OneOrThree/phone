@@ -40,8 +40,13 @@ jobs:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
         ports:
-          # 호스트 포트 고정 금지 — 러너 3개가 VM 한 대를 공유해 5432 가 겹친다.
-          # 상세는 be-gradle.yml 의 «Postgres 기동» 스텝 주석 참조 (GROMO-1515 · GROMO-1790).
+          # 호스트 포트 고정 금지 — 러너 3개가 VM 한 대를 공유해 5432 가 겹치면
+          # `Bind for 0.0.0.0:5432 failed: port is already allocated` 로 즉사한다.
+          # 도커가 빈 포트를 고르게 두고 아래에서 `job.services.postgres.ports` 로 실제 포트를 읽는다.
+          #
+          # 이 워크플로는 be-gradle.yml 과 «다르다» — 저쪽은 테스트만 돌아서 Testcontainers 로
+          # 충분하지만(GROMO-1793 에서 호스트 DB 를 들어냈다), 여기는 `generateOpenApiDocs` 가
+          # 앱을 실제로 부팅하므로 진짜 DB 가 필요하다 (GROMO-1515).
           - 5432
         options: >-
           --health-cmd pg_isready
