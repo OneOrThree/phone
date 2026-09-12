@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""A22 경계의 정적 회귀 검사. 실행·경합 보장은 각 서비스의 실제 DB/Kafka 테스트가 검증한다."""
+"""A22 경계의 정적 회귀 검사. 실행·경합 보장은 각 서비스의 실제 DB/Kafka 테스트가 검증한다.
+
+앱(app/app-dev/**) 을 읽는 단언은 «의도적으로» 없다. 알림 서버 분리(GROMO-1659)는 서버만 다루고
+앱 변경은 별도 PR 로 가므로, 이 스크립트가 앱 소스를 읽으면 서버 전용 브랜치에서 FileNotFoundError
+로 죽는다 — 실제로 그렇게 CI 가 멈췄다. 그래서 ㋲ 축의 앱 절반(소유권 승계·세션 승격 저장·SDK 토큰
+정리)은 여기서 검사하지 않고, 앱 PR 이 자기 CI(app-lint) 와 함께 들고 온다. 서버 절반은 그대로 남아
+있으니 아래 ㋲ 단언들을 지우지 마라.
+"""
 from pathlib import Path
 import re
 import sys
@@ -125,16 +132,11 @@ require('requireCanonicalOwnership(owner)' in device and 'CANONICAL_UUID.matcher
         and 'rawOwnership(params)' in inbound,
         'A22 ㋗: 동기 삭제 검증 또는 잘못된 내구 소유권의 소비 경계 누락')
 store = source('server/notification/src/main/java/com/oneorthree/notification/Store.java')
-app_commands = source('app/app-dev/src/services/notificationCommands.ts')
 require('intent.remove("sessionEpoch")' in device and 'registerLocked(user, body, true)' in device
         and 'revalidate.run()' in store,
         'A22 ㋲: 기기 등록 의도와 현재 세션 fencing의 분리 또는 재생 검증 누락')
-require('inheritOwnership(command, ownershipToken)' in app_commands
-        and '!item.started' in app_commands and 'item.sessionId === command.sessionId' in app_commands
-        and 'item.userId === command.userId' in app_commands,
-        'A22 ㋲: 같은 사용자·세션의 미전송 등록에 대한 소유권 승계 경계 누락')
+# 소유권 승계(inheritOwnership)의 대조 상대는 앱 큐다 — 앱 PR 과 함께 온다(머리말 참조).
 
-api_refresh = source('app/app-dev/src/services/api.ts')
 biz_device = source('server/business-api/src/main/java/com/oneorthree/business/usecase/DeviceTokenUseCase.java')
 require('notification.legacy-device-registration' in device and 'staleGeneration(generation, fence)' in device
         and 'legacyRow(previous, user)' in device and 'previous.get("bootstrap_hash") == null' in device
@@ -144,13 +146,11 @@ require('legacy_session_fences' in device and 'legacy_session_id' in device
         and 'legacyFirstUse ? legacyTakeover(previous)' in device
         and 'legacyLinkedActive && legacyRotation(previous, user, legacySession)' in device,
         'A22 ㋲: 구 앱 세션 최초 사용·활성 연결·폐기 경계 누락')
-require('dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadline)' in biz_device
-        and 'STORAGE_KEYS.authSessionPromotion' in api_refresh
-        and 'promotion?.userId !== command.userId || promotion?.sessionId !== stored' in app_commands,
-        'A22 ㋲: 서명된 sid 활성 확인 또는 같은 로그인 승격 경계 누락')
-require("requireSession: command.kind === 'register' && !command.started" in app_commands
-        and 'prepareRegistration(command)' in app_commands and 'options.requireSession' in api_refresh,
-        'A22 ㋲: 새 앱 최초 등록 전 세션 승격·미전송 자격 저장 경계 누락')
+# 이 단언은 원래 서버·앱 혼합이었다. 앱 절반(승격 저장 키·같은 로그인 대조)은 빠졌지만 서버 절반은
+# 남긴다 — Business 가 «서명된 sid 가 아직 살아 있는가»를 Data 에 확인하는 것이 ㋲ 의 서버측 계약이고,
+# 통째로 지우면 그 확인이 사라진 것을 아무도 못 잡는다.
+require('dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadline)' in biz_device,
+        'A22 ㋲: 서명된 sid 활성 확인 누락')
 
 
 end_producer = source('server/data-api/src/main/java/com/oneorthree/phone/notification/service/ChallengeEndPushDispatcher.java')
@@ -212,10 +212,7 @@ require('AND active AND NOT transport_invalid' in dispatch_service
         and 'delivery_devices WHERE delivery_id=? AND device_key=?' in dispatch_service,
         'A22 ㊚: FCM 토큰 유효성·소유권·기기별 성공 이력을 같은 축으로 처리함')
 
-app_commands = source('app/app-dev/src/services/notificationCommands.ts')
-require('function ownershipCritical' in app_commands
-        and app_commands.count('ownershipCritical(async () =>') == 2,
-        'A22 ㋲: 소유권 조회·후속 적재와 응답 저장·승계가 같은 직렬화 경계를 쓰지 않음')
+# 앱 큐의 직렬화 경계(ownershipCritical)도 앱 PR 이 들고 온다(머리말 참조).
 export_manifest = source('server/data-api/src/main/java/com/oneorthree/phone/notification/migration/NotificationMigrationManifest.java')
 export_cli = source('server/data-api/src/main/java/com/oneorthree/phone/notification/migration/NotificationMigrationCliRunner.java')
 require('String snapshot' in export_manifest
@@ -236,10 +233,7 @@ require('KAFKA_LOG_DIRS: /var/lib/kafka/data' in kafka_compose
 data_settings = source('server/data-api/src/main/java/com/oneorthree/phone/user/service/UserSatelliteCommandService.java')
 require('userQueryService.getNotificationSettingsForUpdate(userId)' in data_settings,
         'A22 ㋕: 설정을 잠금 없이 읽은 뒤 버전만 직렬화함')
-push = source('app/app-dev/src/services/push.ts')
-require('setInstalledDeviceTokenResolver(async () =>' in push
-        and 'const target = await deletionTarget(userId)' in app_commands,
-        'A22 ㋲: 첫 등록 전 구 기기의 SDK 토큰 정리 경로가 연결되지 않음')
+# 첫 등록 전 구 기기 SDK 토큰 정리는 앱 전용 경로다 — 앱 PR 이 들고 온다(머리말 참조).
 
 internal_http = source('server/business-api/src/main/java/com/oneorthree/business/common/http/InternalHttpClient.java')
 # HTTP 실행의 실제 복구 동작은 InternalHttpClientRecoveryTest/DeadlineTest가 검증한다.
