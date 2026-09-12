@@ -45,6 +45,41 @@ class NotificationExpiryContractTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"LEAGUE_DEADLINE", "LEAGUE_DEADLINE_D1", "MISSED_FOCUS_TODAY", "INACTIVE_RETURN",
+            "STREAK_AT_RISK", "LEAGUE_WEEKLY_RESULT"})
+    void anAuthenticatedTemplateTestHasABoundedWindowEvenAfterTheDomainDayEnds(String kind) throws Exception {
+        Instant requested = Instant.parse("2026-09-13T14:30:00Z"); // KST 23:30
+        String body = "{\"userId\":\"" + USER + "\",\"kind\":\"" + kind
+                + "\",\"adminTestRequestedAt\":\"" + requested + "\",\"params\":{}}";
+        httpAt(requested).perform(post("/internal/notifications/eligibility").contentType("application/json")
+                .content(body)).andExpect(status().isOk()).andExpect(jsonPath("$.eligible").value(true));
+        httpAt(requested.plusSeconds(899)).perform(post("/internal/notifications/eligibility")
+                .contentType("application/json").content(body)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(true));
+        httpAt(requested.plusSeconds(900)).perform(post("/internal/notifications/eligibility")
+                .contentType("application/json").content(body)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(false))
+                .andExpect(jsonPath("$.reason").value("EVENT_EXPIRED"));
+        httpAt(requested.minusNanos(1)).perform(post("/internal/notifications/eligibility")
+                .contentType("application/json").content(body)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(false));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"STREAK_AT_RISK", "MISSED_FOCUS_TODAY"})
+    void eventParamsCannotClaimTheTrustedAdminTestContext(String kind) throws Exception {
+        String params = "{\"adminTest\":true,\"adminActor\":\"admin\","
+                + "\"adminTestRequestedAt\":\"2026-09-13T14:30:00Z\","
+                + "\"dedupAt\":\"2026-09-11T12:00:00Z\"}";
+        httpAt(Instant.parse("2026-09-13T14:30:00Z"))
+                .perform(post("/internal/notifications/eligibility").contentType("application/json")
+                        .content("{\"userId\":\"" + USER + "\",\"kind\":\"" + kind + "\",\"params\":"
+                                + params + "}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.eligible").value(false))
+                .andExpect(jsonPath("$.reason").value("EVENT_EXPIRED"));
+    }
+
+    @ParameterizedTest
     @EnumSource(NotificationKind.class)
     void everyKindRejectsAnInactiveRecipientBeforeAnyOtherPolicy(NotificationKind kind) throws Exception {
         UserQueryService users = mock(UserQueryService.class);

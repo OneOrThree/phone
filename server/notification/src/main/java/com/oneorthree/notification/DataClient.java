@@ -42,9 +42,20 @@ class DataClient {
     }
 
     boolean eligible(UUID user, String kind, String subject, Map<String, Object> params) {
+        return eligibility(Map.of("userId", user, "kind", kind, "subjectId", subject == null ? "" : subject,
+                "params", params));
+    }
+
+    /** 시험 정본에서만 얻은 생성 시각이다. 일반 사건 params를 승격하지 않는다. */
+    boolean eligibleTest(UUID user, String kind, String subject, Map<String, Object> params,
+            java.time.Instant requestedAt) {
+        return eligibility(Map.of("userId", user, "kind", kind, "subjectId", subject == null ? "" : subject,
+                "params", params, "adminTestRequestedAt", requestedAt.toString()));
+    }
+
+    private boolean eligibility(Map<String, Object> request) {
         String body = http.post().uri("/internal/notifications/eligibility")
-                .body(Map.of("userId", user, "kind", kind, "subjectId", subject == null ? "" : subject,
-                        "params", params)).retrieve().body(String.class);
+                .body(request).retrieve().body(String.class);
         return Json.bool(Json.map(body), "eligible");
     }
 }

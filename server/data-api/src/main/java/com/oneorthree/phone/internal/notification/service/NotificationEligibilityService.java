@@ -124,6 +124,17 @@ public class NotificationEligibilityService {
 
     /** null은 시간 판정 통과다. 원시각 없는 과거 봉투를 수신 시각으로 새롭게 만들지 않는다. */
     private NotificationEligibilityResponse checkExpiry(NotificationEligibilityRequest request, NotificationKind kind) {
+        Instant testAt = request.adminTestRequestedAt();
+        if (testAt != null) {
+            // 오직 알림 서버의 admin_actor + replay_of 정본 판정에서 오는 맥락이다.
+            // 시험도 새로고침·재시도로 수명이 늘지 않으며, 실제 수신자/대상 검사는 건너뛰지 않는다.
+            Instant now = clock.instant();
+            if (now.isBefore(testAt)) {
+                return NotificationEligibilityResponse.deny("EVENT_TIME_INVALID");
+            }
+            return now.isBefore(testAt.plusSeconds(900)) ? null
+                    : NotificationEligibilityResponse.deny("EVENT_EXPIRED");
+        }
         if (NotificationExpiry.validity(kind) == null) {
             return null;
         }

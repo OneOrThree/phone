@@ -149,6 +149,20 @@ class RecipientEligibilityTest {
         assertThat(state(id)).isEqualTo("SUPPRESSED");
     }
 
+    @Test
+    void runtimePayloadExpansionFailsTheDeliveryWithoutInvalidatingItsDevice() {
+        UUID id = enqueue("FRIEND_ACCEPTED", Map.of("kind", "FRIEND_ACCEPTED", "content", "한".repeat(1500)));
+        store.update("UPDATE templates SET body='{content}' WHERE kind='FRIEND_ACCEPTED'");
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "FAILED").containsEntry("last_error", "FCM_PAYLOAD_TOO_LARGE");
+        assertThat(store.one("SELECT active,transport_invalid FROM device_tokens WHERE user_id=?", USER))
+                .containsEntry("active", true).containsEntry("transport_invalid", false);
+        verifyNoInteractions(transport);
+        dispatch.dispatch(id);
+        verifyNoInteractions(transport);
+    }
+
     private UUID enqueue(String kind) {
         return enqueue(kind, Map.of("kind", kind));
     }

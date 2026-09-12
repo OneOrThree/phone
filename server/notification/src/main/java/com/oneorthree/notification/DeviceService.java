@@ -311,6 +311,11 @@ class DeviceService {
 
     void deleteLocked(UUID user, String token, String owner, Long generation,
             String sessionId, String bootstrapHash) {
+        deleteLocked(user, token, owner, generation, sessionId, bootstrapHash, false);
+    }
+
+    void deleteLocked(UUID user, String token, String owner, Long generation,
+            String sessionId, String bootstrapHash, boolean legacyUnboundOnly) {
         if (owner != null && !CANONICAL_UUID.matcher(owner).matches()) {
             LOG.warn("기기 토큰 삭제 — 소유권 값의 형식이 깨졌다. 어느 행에도 맞지 않으므로 아무것도 지우지 않고"
                     + " 소비한다. userId={}", user);
@@ -318,6 +323,9 @@ class DeviceService {
         }
         if (token == null || token.isBlank()) {
             token = null;
+        }
+        if (legacyUnboundOnly && token == null) {
+            return; // 원래 토큰을 모르는 구 로그아웃을 세션·유저 전체 삭제로 넓히지 않는다.
         }
         if (token == null && owner == null) {
             // 대상 없는 구 사건도 들어온다. 전체 기기로 넓히지 않고 안전하게 소비한다.
@@ -347,8 +355,9 @@ class DeviceService {
         store.update("UPDATE device_tokens SET active=false,ownership_version=ownership_version+1,updated_at=now()"
                 + " WHERE user_id=? AND active AND (?::text IS NULL OR device_token=?)"
                 + " AND (?::uuid IS NULL OR ownership_token=?::uuid)"
-                + " AND (?::bigint IS NULL OR auth_generation IS NULL OR auth_generation<=?)",
-                user, token, token, owner, owner, generation, generation);
+                + " AND (?::bigint IS NULL OR auth_generation IS NULL OR auth_generation<=?)"
+                + " AND (NOT ?::boolean OR (legacy_session_id IS NULL AND bootstrap_hash IS NULL))",
+                user, token, token, owner, owner, generation, generation, legacyUnboundOnly);
     }
 
     /**

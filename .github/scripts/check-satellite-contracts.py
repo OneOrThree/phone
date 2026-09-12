@@ -198,7 +198,9 @@ require('for (String resource : MigrationRecords.RESOURCES)' in migration_servic
 require('resumed && pendingSource' in migration_service and 'ATTEMPTS_REGRESSED' in migration_service,
         'A22 ㋭: 최초 이관 검증과 개방 후 정상 재시도 재개를 구분하지 않음')
 fcm_transport = source('server/notification/src/main/java/com/oneorthree/notification/FcmTransport.java')
-require('if (push.title() != null)' in fcm_transport,
+fcm_payload = source('server/notification/src/main/java/com/oneorthree/notification/FcmPayload.java')
+require('return FcmPayload.create(token, push, sound, eventId);' in fcm_transport
+        and 'if (push.title() != null)' in fcm_payload,
         'TemplateWrite: nullable title을 FCM 표시 payload에 안전하게 직렬화하지 않음')
 
 settings_service = source('server/notification/src/main/java/com/oneorthree/notification/SettingsService.java')

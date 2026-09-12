@@ -387,7 +387,13 @@ class DispatchService {
         }
         // 종류별 대상 상태 판정이 없어도 수신자의 현재 활성 상태는 Data에서 재확인한다.
         // 탈퇴·세대 투영은 지연될 수 있으므로 로컬 fence만으로 발송을 허용할 수 없다.
-        if (!data.eligible(user, kind, subject, params)) {
+        // admin_actor는 콘솔 인증 경로만 쓰는 정본 컬럼이다. payload의 adminTest/adminActor는 믿지 않는다.
+        // 재전송은 replay_of가 있어 원사건 만료를 계속 따른다.
+        boolean adminTest = delivery.get("admin_actor") != null && delivery.get("replay_of") == null;
+        boolean allowed = adminTest
+                ? data.eligibleTest(user, kind, subject, params, ((Timestamp) delivery.get("created_at")).toInstant())
+                : data.eligible(user, kind, subject, params);
+        if (!allowed) {
             suppress(id);
             return false;
         }
@@ -434,8 +440,20 @@ class DispatchService {
             }
             // 렌더도 여기서 끝낸다 — 템플릿 조회가 DB 를 타므로 트랜잭션 밖으로 미룰 이유가 없고,
             // 템플릿 부재(TEMPLATE_UNAVAILABLE)는 «보내기 전»에 드러나야 한다.
+            RenderedPush push = renderer.renderBundle(unsent);
+            try {
+                FcmPayload.requireFits(push, sound, collapseEventId(ready));
+            } catch (NotificationFailure invalid) {
+                if (!"FCM_PAYLOAD_TOO_LARGE".equals(invalid.getMessage())) {
+                    throw invalid;
+                }
+                // 영구 문구 오류는 기기 폐기나 무한 재시도가 아니다. 아직 외부 발송은 시작하지 않았다.
+                deliveries.forEach(delivery -> store.update("UPDATE deliveries SET status='FAILED',last_error=?,"
+                        + "lease_token=NULL,lease_expires_at=NULL WHERE id=?", invalid.getMessage(), delivery));
+                return null;
+            }
             attempts.add(new Attempt(user, device, token.get("device_token").toString(),
-                    ((Number) token.get("ownership_version")).longValue(), renderer.renderBundle(unsent),
+                    ((Number) token.get("ownership_version")).longValue(), push,
                     unsent.stream().map(row -> (UUID) row.get("id")).toList()));
         }
         // 펜싱. 외부 호출이 도는 동안 이 행들을 후보 밖에 둔다 — 상태를 맺는 것은 settle 이고,

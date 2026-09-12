@@ -207,6 +207,10 @@ FCM 으로도 가고 Kafka 로도 간다.
 
 모든 kind는 발송 직전 이 조회를 거친다. 요청의 `params`는 저장된 사건 params 전체이며,
 시간 제한 종류에는 원래 `dedupAt`이 필요하다. 선택적인 `expiresAt`도 값 그대로 전달한다.
+관리 템플릿 시험은 일반 사건이 아니다. 알림 서버가 시험행의 `admin_actor`·`replay_of`·`created_at`을
+확인한 경우에만 별도 top-level `adminTestRequestedAt`을 보낸다. Data는 미래 시각을 거절하고
+최초 생성 후 15분 미만에만 원사건 만료를 대체한다. 일반 이벤트 params를 이 필드로 승격하지 않고,
+수동 재전송은 이 맥락을 갖지 않는다. 수신자 활성·대상 상태 등 다른 적격성은 동일하다.
 
 | 조건 | 결과 |
 | --- | --- |
@@ -499,3 +503,7 @@ Notification은 완료 봉투를 `result_bundle_manifests`에 멱등 저장하�
 멤버 원장으로 백필하고, 완료 작업은 이관 대상 구 `notification_sent_logs`의 결과/환불 사건도
 동일 결정적 키로 포함한다. SENT·SUPPRESSED 이관분은 중복 억제와 수신 완료의 증거로 남는다.
 이 3개 Data 원장과 Notification의 완료 원장은 outbox와 함께 보존해야 한다.
+
+### 구형 앱 RT-only 로그아웃
+
+`notification.legacyDeviceToken.deleted`는 기존 기기 삭제 endpoint(`noti.deviceTokenDeleted`)와 USER 순서 축을 사용하지만 별도 사건 종류다. `params.deviceToken`의 원래 이관 기기 중 같은 사용자이고 `legacy_session_id`·`bootstrap_hash`가 모두 없는 행만 비활성화한다. 새 세션 등록이나 다른 사용자에게 이동한 토큰은 보존한다. 구 소비자의 `UNSUPPORTED_EVENT_TYPE` 응답은 relay 재시도로 남으며, 새 소비자를 먼저 배포해야 한다. Data V54는 구 RT 승격 당시 기기를 보존한다. 기존 승격 세션을 현재 사용자 기기로 역채우지 않는다.

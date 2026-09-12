@@ -3,6 +3,7 @@ package com.oneorthree.phone.internal.notification.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
+import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -19,12 +20,20 @@ import java.util.UUID;
  *                  새 kind 가 붙을 때마다 조용히 재확인을 건너뛴다
  * @param subjectId 사건 대상 id. 대상이 없는 kind 는 {@code null}
  * @param params    kind 별 추가 판정 입력(예: 친구 요청의 {@code requestId}). 없으면 빈 맵
+ * @param adminTestRequestedAt 알림 서버가 관리 시험행의 정본 생성 시각에서만 넣는 선택 맥락.
+ *                  이벤트 params에서 복사하지 않는다. 일반 사건·수동 재전송은 null이다.
  */
 public record NotificationEligibilityRequest(
         @NotNull UUID userId,
         @NotBlank String kind,
         UUID subjectId,
-        Map<String, Object> params) {
+        Map<String, Object> params,
+        Instant adminTestRequestedAt) {
+
+    /** 일반 사건 조회는 관리 시험 맥락을 갖지 않는다. */
+    public NotificationEligibilityRequest(UUID userId, String kind, UUID subjectId, Map<String, Object> params) {
+        this(userId, kind, subjectId, params, null);
+    }
 
     public NotificationEligibilityRequest {
         // 정산 결과의 voidReason 등 nullable 사건 필드는 봉투와 동일하게 보존한다.

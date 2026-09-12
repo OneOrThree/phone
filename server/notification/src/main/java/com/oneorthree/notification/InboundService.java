@@ -51,6 +51,9 @@ class InboundService {
                     deletionToken(params), rawOwnership(params),
                     Json.nullableNumber(params, "authGeneration"), Json.nullableText(params, "sessionId"),
                     Json.nullableText(params, "bootstrapNonceHash"));
+            case "notification.legacyDeviceToken.deleted" -> devices.deleteLocked(event.userId(),
+                    deletionToken(params), rawOwnership(params),
+                    Json.nullableNumber(params, "authGeneration"), null, null, true);
             case "notification.settings.changed" -> settings.applyLocked(event.userId(), params, event.version());
             case "auth.session.revoked" -> devices.revokeSession(event.userId(), params);
             case "auth.generation.bumped" -> devices.generation(event.userId(),

@@ -46,6 +46,7 @@ class RenderPolicyTest {
         // FCM 이 «토큰이 아닌» 필드를 짚었으면 토큰을 죽이지 않는다 — 페이로드 버그 하나로 멀쩡한
         // 기기의 등록이 통째로 사라지면 안 된다.
         assertThat(FcmTransport.unusableToken(400, violation("message.android.notification.color"))).isFalse();
+        assertThat(FcmTransport.unusableToken(400, violation("message.data.token"))).isFalse();
         // 모양을 알 수 없는 400 도 토큰 탓으로 돌리지 않는다.
         assertThat(FcmTransport.unusableToken(400, "{\"error\":{\"message\":\"INVALID_ARGUMENT\"}}")).isFalse();
         assertThat(FcmTransport.unusableToken(500, "{\"error\":{\"status\":\"INTERNAL\"}}")).isFalse();
@@ -62,10 +63,35 @@ class RenderPolicyTest {
     void invalidArgumentCausedByTheTokenTakesTheSameCleanupPathAsUnregistered() {
         assertThat(FcmTransport.unusableToken(400, violation("message.token"))).isTrue();
         assertThat(FcmTransport.unusableToken(400, violation("token"))).isTrue();
-        // 구 경로가 무효 토큰으로 정리하던 모양 — 어느 필드인지 짚지 않은 INVALID_ARGUMENT.
+        // 어느 필드인지 확정하지 않은 INVALID_ARGUMENT는 정상 기기를 폐기할 근거가 아니다.
         assertThat(FcmTransport.unusableToken(400,
                 "{\"error\":{\"status\":\"INVALID_ARGUMENT\",\"message\":\"invalid registration token\"}}"))
-                .isTrue();
+                .isFalse();
+    }
+
+    @Test
+    void anOversizedPayloadDoesNotProveThatTheRegistrationIsInvalid() {
+        assertThat(FcmTransport.unusableToken(400,
+                "{\"error\":{\"status\":\"INVALID_ARGUMENT\",\"message\":\"Message too big\"}}"))
+                .isFalse();
+        assertThat(FcmTransport.unusableToken(400, Json.write(Map.of("error", Map.of(
+                "status", "INVALID_ARGUMENT", "details", List.of(Map.of(
+                        "@type", "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+                        "errorCode", "INVALID_ARGUMENT"))))))).isFalse();
+    }
+
+    @Test
+    void finalPayloadIncludesUtf8TextDataAndEventIdInItsLimit() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> FcmTransport.payload("device",
+                new RenderedPush("제목", "가".repeat(1400), Map.of(), false), true, "event"))
+                .isInstanceOf(NotificationFailure.class).hasMessage("FCM_PAYLOAD_TOO_LARGE");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> FcmTransport.payload("device",
+                new RenderedPush("제목", "본문", Map.of("url", "https://example.com/" + "a".repeat(4096)), false),
+                true, "event"))
+                .isInstanceOf(NotificationFailure.class).hasMessage("FCM_PAYLOAD_TOO_LARGE");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> FcmTransport.payload("device",
+                new RenderedPush("제목", "본문", Map.of(), false), true, "e".repeat(4096)))
+                .isInstanceOf(NotificationFailure.class).hasMessage("FCM_PAYLOAD_TOO_LARGE");
     }
 
     /** FCM 이 어느 필드가 잘못됐는지 짚어 주는 실제 응답 모양. */
