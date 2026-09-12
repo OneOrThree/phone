@@ -55,10 +55,16 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
-# 우리가 띄우는 컨테이너는 «호스트 포트를 고정하지 않는다». 5432 를 박으면 같은 도커
-# 호스트에서 두 체크아웃이 동시에 돌 때 한쪽이 바인딩 단계에서 즉사하고, 더 나쁘게는
-# 한쪽 DB 를 둘이 나눠 쓰다가 ddl-auto=create-drop 이 남의 테스트 도중 스키마를 갈아엎는다.
-# CI 도 같은 이유로 be-test.yml 에서 포트를 도커에 맡기고 실제 매핑 포트를 주입한다.
+# 우리가 띄우는 컨테이너는 «loopback 에, 호스트 포트를 고정하지 않고» 게시한다.
+#   포트를 고정하면(5432) 같은 도커 호스트에서 두 체크아웃이 동시에 돌 때 한쪽이 바인딩
+#   단계에서 즉사하고, 더 나쁘게는 한쪽 DB 를 둘이 나눠 쓰다가 ddl-auto=create-drop 이
+#   남의 테스트 도중 스키마를 갈아엎는다. CI 도 같은 이유로 be-test.yml 에서 포트를
+#   도커에 맡기고 실제 매핑 포트를 주입한다.
+#   주소를 생략하면(-p 5432) 도커는 0.0.0.0 과 [::] 에 게시한다. 자격 증명이 ci/ci 로
+#   저장소에 공개돼 있으므로, 신뢰할 수 없는 네트워크에 물린 노트북에서는 테스트가 도는
+#   동안 그 DB 가 밖에서 열린다. 이 DB 는 호스트의 Gradle 만 쓰므로 loopback 으로 족하다.
+#   (동적 포트를 읽는 곳은 SPRING_DATASOURCE_URL 하나뿐이다 — db_ready 는 5432 를 보고
+#    준비 대기는 docker exec 를 쓴다. 그래서 loopback 으로 좁혀도 잃는 경로가 없다.)
 PG_PORT=5432
 
 if db_ready; then
@@ -72,7 +78,7 @@ else
     STARTED_PG=1
     docker run -d --name "$PG_CONTAINER" \
         -e POSTGRES_DB=tt_db -e POSTGRES_USER=ci -e POSTGRES_PASSWORD=ci \
-        -p 5432 postgres:16-alpine >/dev/null || {
+        -p 127.0.0.1::5432 postgres:16-alpine >/dev/null || {
         echo "임시 PostgreSQL 컨테이너를 띄우지 못했다 — 위 도커 오류를 보라." >&2
         exit 1
     }
