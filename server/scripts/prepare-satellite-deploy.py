@@ -260,7 +260,7 @@ def main() -> None:
                 "선언하므로, 프로젝트명을 명시하지 않으면 기존 prod 스택과 «다른» 프로젝트에 컨테이너가 "
                 "생기고 기존 컨테이너는 고아가 됩니다(docker compose ls 로 현재 이름을 확인하세요)")
         args.project_name = "phone"
-    profiles = args.data_profiles or f"{args.environment},satellites"
+    profiles = args.data_profiles if args.data_profiles is not None else f"{args.environment},satellites"
 
     if not args.base_compose.is_file():
         raise PrepareError(f"기존 환경 compose 를 찾을 수 없습니다: {args.base_compose}")
@@ -298,7 +298,8 @@ def main() -> None:
             continue
         target = output_dir / ENV_FILENAMES[service]
         guard_output_path(target, args.shared_env_file)
-        text = writer.render(secret, images[service], service, args.phase, args.environment)
+        text = writer.render(secret, images[service], service, args.phase, args.environment,
+                             data_profiles=profiles if service == "data-api" else None)
         guard_service_env(service, text)
         rendered[service] = text
         written[service] = target
@@ -308,11 +309,14 @@ def main() -> None:
         active = dotenv_value(rendered["data-api"], "SPRING_PROFILES_ACTIVE")
         if active != profiles:
             raise PrepareError(
-                f"Data 프로파일 불일치: env 파일은 '{active}', 오버레이가 넘길 값은 '{profiles}'. "
+                "Data 프로파일 불일치: env 파일과 오버레이가 넘길 값이 다릅니다. "
                 "기존 compose 의 app.environment 가 env_file 을 «이깁니다» — 두 값이 갈라지면 "
                 "satellites 프로파일이 조용히 빠진 채로 뜹니다")
-        if "satellites" not in (active or ""):
+        if "satellites" not in {profile.strip() for profile in (active or "").split(",")}:
             raise PrepareError("Data 프로파일에 satellites 가 없습니다")
+        if "DATA_API_PROFILES" in os.environ and os.environ["DATA_API_PROFILES"] != profiles:
+            raise PrepareError("셸 DATA_API_PROFILES가 선택한 Data 프로파일을 덮어씁니다. "
+                               "해당 환경변수를 해제하거나 --data-profiles와 같게 지정하세요")
 
     # compose 가 보간할 값. 여기에는 비밀이 없다.
     compose_values: dict[str, str] = {"DEPLOY_ENV": args.environment}

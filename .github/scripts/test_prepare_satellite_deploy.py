@@ -353,11 +353,57 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                     "--data-profiles", "prod,satellites").returncode, 0)
 
     def test_satellites_프로파일이_빠진_Data_는_실패한다(self) -> None:
+        for profiles in ("dev", "dev,not-satellites", "dev,satellites-extra", "dev,SATELLITES", "", "  "):
+            with self.subTest(profiles=profiles), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                result = run(fixture, "--data-profiles", profiles)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("satellites", result.stderr)
+                self.assertFalse((fixture.output / "data-api.env").exists())
+
+    def test_선택_Data_프로파일이_env와_실제_compose에_같이_전달된다(self) -> None:
+        environment = dict(os.environ)
+        environment.pop("DATA_API_PROFILES", None)
+        for profiles in ("prod,satellites,foo", "prod, satellites ,foo"):
+            with self.subTest(profiles=profiles), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                result = run(fixture, "--environment", "prod", "--project-name", "profile-proof",
+                             "--data-profiles", profiles, environment=environment)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("SPRING_PROFILES_ACTIVE=" + WRITER.dotenv_quote(profiles),
+                              (fixture.output / "data-api.env").read_text())
+                configured = subprocess.run([
+                    "docker", "compose", "-p", "profile-proof", "-f", str(fixture.base),
+                    "-f", str(ROOT / "server/scripts/docker-compose.satellites.yml"),
+                    "-f", str(DATA_OVERLAY), "--env-file", str(fixture.shared), "--env-file",
+                    str(fixture.output / "compose.env"), "config", "--format", "json"],
+                    capture_output=True, text=True, env=environment)
+                self.assertEqual(configured.returncode, 0)
+                services = json.loads(configured.stdout)["services"]
+                self.assertEqual(services["app"]["environment"]["SPRING_PROFILES_ACTIVE"], profiles)
+                for service in ("business-api", "notification"):
+                    self.assertEqual(services[service]["environment"]["SPRING_PROFILES_ACTIVE"], "prod")
+
+    def test_다른_쉘_Data_프로파일은_선택값을_조용히_덮어쓸_수_없다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = Fixture(directory)
-            result = run(fixture, "--data-profiles", "dev")
+            result = run(fixture, environment={**os.environ, "DATA_API_PROFILES": "dev,satellites,override"})
             self.assertEqual(result.returncode, 1)
-            self.assertIn("satellites", result.stderr)
+            self.assertIn("DATA_API_PROFILES", result.stderr)
+            self.assertFalse((fixture.output / "data-api.env").exists())
+            matched = run(fixture, "--data-profiles", "dev,satellites,override",
+                          environment={**os.environ, "DATA_API_PROFILES": "dev,satellites,override"})
+            self.assertEqual(matched.returncode, 0, matched.stderr)
+
+    def test_Data를_준비하지_않으면_선택_Data_프로파일은_다른_서비스로_가지_않는다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            result = run(fixture, "--data-profiles", "dev,satellites,foo", with_data=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((fixture.output / "data-api.env").exists())
+            self.assertNotIn("DATA_API_PROFILES=", (fixture.output / "compose.env").read_text())
+            for service in ("business-api", "notification"):
+                self.assertIn("SPRING_PROFILES_ACTIVE='dev'", (fixture.output / f"{service}.env").read_text())
 
     def test_공유_env_파일을_덮어쓰려_하면_거부한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

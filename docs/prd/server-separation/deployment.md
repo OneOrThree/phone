@@ -22,6 +22,8 @@ python3 server/scripts/prepare-satellite-deploy.py \
 
 `docker-compose.satellites.data.yml`을 마지막 `-f`로 넣는다. `env_file: !override`로 prod의 공유 `.env.prod`를 교체하고 `environment: !override`로 dev의 관리자 DB 자격 덮어쓰기를 제거한다. Data 이미지는 `APP_IMAGE`의 검증된 digest를 사용한다. 전용 파일의 `dev,satellites` 또는 `prod,satellites` 프로파일을 검사한다. `!override`를 지원하는 Compose가 필요하며 `config --quiet` 실패 시 진행하지 않는다.
 
+`--data-image`를 지정하면 `--data-profiles`의 선택값을 Data env의 `SPRING_PROFILES_ACTIVE`와 오버레이의 `DATA_API_PROFILES`에 동일하게 전달한다. 생략 시 기본값은 `<environment>,satellites`이며 `--data-profiles=prod,satellites,foo`처럼 추가할 수 있다. 쉼표로 구분한 정확한 `satellites` 항목이 필수이고, 선택값과 다른 셸 `DATA_API_PROFILES`는 준비 단계에서 거부한다. 이 선택값은 Business·Notification에 전달하지 않는다.
+
 Business/Notification만 기동하는 단계와 Data(app)를 재생성하는 단계는 생성된 `deploy-plan.txt`에서 분리한다. 기존 스택의 네트워크·볼륨과 프로젝트명은 유지한다. Data의 prod APM JVM 옵션도 준비한 보간 파일에 포함한다. 운영 DB 초기화·서비스 토큰·A18 입력은 기동 전에 준비한다.
 
 ## 라우팅

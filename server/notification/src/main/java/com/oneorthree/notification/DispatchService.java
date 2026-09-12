@@ -13,6 +13,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -22,8 +23,8 @@ import java.util.UUID;
 /**
  * 외부 발송은 이 클래스 한 곳만 호출한다.
  *
- * <p><b>외부 호출은 트랜잭션 «밖»에서 돈다.</b> 판정(게이트 · 소유권 · ack · 적격성)은 짧은 트랜잭션
- * 하나로 끝내고, FCM 호출은 그것이 커밋된 뒤에 한다. 한 사용자의 활성 기기 수만큼 순차로 도는 외부
+ * <p><b>외부 호출은 트랜잭션 «밖»에서 돈다.</b> 로컬 판정·묶음 수집을 짧게 커밋한 뒤 Data 적격성을
+ * 조회하고, 새 트랜잭션에서 행 동일성·게이트·소유권·ack를 재확인한다. FCM 호출도 커밋 뒤에 한다. 한 사용자의 활성 기기 수만큼 순차로 도는 외부
  * 호출을 트랜잭션 안에 두면 두 가지가 같이 무너진다:
  *
  * <ul>
@@ -148,13 +149,22 @@ class DispatchService {
     /**
      * 후보 한 건(과 같은 묶음에 선 형제들)을 발송한다 — 세 걸음이다.
      *
-     * <p>① 판정 트랜잭션에서 보낼 것을 정하고 펜싱까지 걸어 커밋한다. ② 트랜잭션 밖에서 기기마다
+     * <p>① 로컬 수집 → 외부 Data 조회 → 로컬 재확인으로 보낼 것을 정하고 펜싱을 커밋한다. ② 기기마다
      * 외부 호출을 돈다. ③ 기기 하나의 결과는 그 자리에서 자기 트랜잭션에 적고, 마지막에 행 상태를 맺는다.
      *
      * @param id 발송 후보의 delivery id
      */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void dispatch(UUID id) {
-        Plan plan = preparation.execute(status -> prepare(id));
+        Inspection inspected = preparation.execute(status -> inspect(id));
+        if (inspected == null) {
+            return;
+        }
+        Map<UUID, Boolean> decisions = new LinkedHashMap<>();
+        for (Map<String, Object> row : inspected.ready()) {
+            decisions.put((UUID) row.get("id"), remotelyEligible(row));
+        }
+        Plan plan = preparation.execute(status -> prepare(inspected, decisions));
         if (plan == null) {
             return;
         }
@@ -192,44 +202,88 @@ class DispatchService {
     }
 
     /**
-     * 판정 — 게이트·소유권·ack·적격성을 한 트랜잭션에서 보고 «보낼 계획»만 들고 나온다.
+     * 첫 판정 — 로컬 상태와 묶음 축을 캡처한다. Data 조회는 이 트랜잭션이 끝난 뒤에 한다.
      *
      * <p>판정의 부수 효과(억제·이월·기다림 표식)는 이 트랜잭션과 함께 커밋된다. 잠금은 커밋과 동시에
      * 풀리므로 외부 호출은 아무 잠금도 쥐지 않은 채 돈다.
      *
      * @param id 발송 후보의 delivery id
-     * @return 보낼 계획. 보낼 것이 없으면 {@code null}
+     * @return 조회할 행과 축 스냅샷. 조회할 것이 없으면 {@code null}
      */
-    private Plan prepare(UUID id) {
+    private Inspection inspect(UUID id) {
+        List<Map<String, Object>> rows = lockedCandidates(id);
+        List<Map<String, Object>> ready = ready(rows);
+        // bundleCandidates의 releaseParked와 로컬 hold/suppress 등 자기 변경까지 반영한 축이다.
+        return ready.isEmpty() ? null : new Inspection(id, snapshot(rows), ready);
+    }
+
+    private Plan prepare(Inspection inspected, Map<UUID, Boolean> decisions) {
+        List<Map<String, Object>> rows = lockedCandidates(inspected.id());
+        if (!inspected.axis().equals(snapshot(rows))) {
+            // 새 멤버·이관 교체·다른 워커의 변경에는 조회하지 않은 판정을 재사용하지 않는다.
+            return null;
+        }
+        List<Map<String, Object>> ready = ready(rows);
+        for (Map<String, Object> row : ready) {
+            UUID id = (UUID) row.get("id");
+            if (!decisions.containsKey(id) || !row.equals(inspected.axis().get(id))) {
+                return null;
+            }
+        }
+        List<Map<String, Object>> allowed = new ArrayList<>();
+        for (Map<String, Object> row : ready) {
+            if (Boolean.TRUE.equals(decisions.get(row.get("id")))) {
+                allowed.add(row);
+            } else {
+                suppress((UUID) row.get("id"));
+            }
+        }
+        return allowed.isEmpty() ? null : plan(allowed);
+    }
+
+    /** 잠금 순서는 두 판정 단계 모두 gate → device → ack → delivery로 같다. */
+    private List<Map<String, Object>> lockedCandidates(UUID id) {
         Map<String, Object> gate = store.one("SELECT enabled FROM dispatch_control WHERE id=1 FOR SHARE");
         if (gate == null || !Boolean.TRUE.equals(gate.get("enabled"))) {
-            return null;
+            return List.of();
         }
         store.lock("device-ownership");
         Map<String, Object> candidate = store.one("SELECT * FROM deliveries WHERE id=?", id);
         if (candidate == null) {
-            return null;
+            return List.of();
         }
         List<Map<String, Object>> rows = bundleCandidates(candidate);
-        // 고정 순서: gate → device → ack → delivery. prepare와 flush가 같은 사건 잠금을 쓴다.
         for (Map<String, Object> row : rows) {
             if ("BET_RESULT".equals(row.get("kind")) && row.get("subject_id") != null) {
                 store.lock("ack:" + row.get("user_id") + ":" + row.get("subject_id"));
             }
         }
+        return rows;
+    }
+
+    private List<Map<String, Object>> ready(List<Map<String, Object>> rows) {
         List<Map<String, Object>> ready = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Map<String, Object> delivery = store.one("SELECT * FROM deliveries WHERE id=?"
                     + " AND status IN ('PENDING','DEFERRED') AND next_attempt_at<=? FOR UPDATE SKIP LOCKED",
                     row.get("id"), Timestamp.from(clock.instant()));
-            if (delivery != null && eligible(delivery)) {
+            if (delivery != null && locallyEligible(delivery)) {
                 ready.add(delivery);
             }
         }
-        if (ready.isEmpty()) {
-            return null;
+        return ready;
+    }
+
+    private Map<UUID, Map<String, Object>> snapshot(List<Map<String, Object>> rows) {
+        Map<UUID, Map<String, Object>> captured = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            UUID id = (UUID) row.get("id");
+            captured.put(id, store.one("SELECT * FROM deliveries WHERE id=?", id));
         }
-        return plan(ready);
+        return captured;
+    }
+
+    private record Inspection(UUID id, Map<UUID, Map<String, Object>> axis, List<Map<String, Object>> ready) {
     }
 
     private List<Map<String, Object>> bundleCandidates(Map<String, Object> first) {
@@ -343,7 +397,7 @@ class DispatchService {
                 Timestamp.from(clock.instant().plusSeconds(HOLD_SECONDS)), INCOMPLETE, id, now);
     }
 
-    private boolean eligible(Map<String, Object> delivery) {
+    private boolean locallyEligible(Map<String, Object> delivery) {
         UUID id = (UUID) delivery.get("id");
         UUID user = (UUID) delivery.get("user_id");
         String kind = delivery.get("kind").toString();
@@ -385,18 +439,6 @@ class DispatchService {
                 return false;
             }
         }
-        // 종류별 대상 상태 판정이 없어도 수신자의 현재 활성 상태는 Data에서 재확인한다.
-        // 탈퇴·세대 투영은 지연될 수 있으므로 로컬 fence만으로 발송을 허용할 수 없다.
-        // admin_actor는 콘솔 인증 경로만 쓰는 정본 컬럼이다. payload의 adminTest/adminActor는 믿지 않는다.
-        // 재전송은 replay_of가 있어 원사건 만료를 계속 따른다.
-        boolean adminTest = delivery.get("admin_actor") != null && delivery.get("replay_of") == null;
-        boolean allowed = adminTest
-                ? data.eligibleTest(user, kind, subject, params, ((Timestamp) delivery.get("created_at")).toInstant())
-                : data.eligible(user, kind, subject, params);
-        if (!allowed) {
-            suppress(id);
-            return false;
-        }
         int cooldown = ((Number) catalog.get("cooldown_seconds")).intValue();
         if (cooldown > 0 && store.one("SELECT id FROM deliveries WHERE user_id=? AND kind=? AND status='SENT'"
                 + " AND sent_at>? LIMIT 1", user, kind,
@@ -405,6 +447,22 @@ class DispatchService {
             return false;
         }
         return true;
+    }
+
+    /** 호출자의 트랜잭션도 중단한 상태에서 Data 정본만 조회한다. 실패는 기존 PENDING 재시도로 남는다. */
+    private boolean remotelyEligible(Map<String, Object> delivery) {
+        UUID user = (UUID) delivery.get("user_id");
+        String kind = delivery.get("kind").toString();
+        String subject = (String) delivery.get("subject_id");
+        Map<String, Object> params = Json.map(delivery.get("payload").toString());
+        // 종류별 대상 상태 판정이 없어도 수신자의 현재 활성 상태는 Data에서 재확인한다.
+        // 탈퇴·세대 투영은 지연될 수 있으므로 로컬 fence만으로 발송을 허용할 수 없다.
+        // admin_actor는 콘솔 인증 경로만 쓰는 정본 컬럼이다. payload의 adminTest/adminActor는 믿지 않는다.
+        // 재전송은 replay_of가 있어 원사건 만료를 계속 따른다.
+        boolean adminTest = delivery.get("admin_actor") != null && delivery.get("replay_of") == null;
+        return adminTest
+                ? data.eligibleTest(user, kind, subject, params, ((Timestamp) delivery.get("created_at")).toInstant())
+                : data.eligible(user, kind, subject, params);
     }
 
     /**

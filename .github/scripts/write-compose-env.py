@@ -138,9 +138,11 @@ def dotenv_quote(value: Any) -> str:
 
 
 def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
-           phase: str = "transition", environment: str = "dev") -> str:
+           phase: str = "transition", environment: str = "dev", *, data_profiles: str | None = None) -> str:
     if service != "legacy":
-        return render_service(secret, app_image, service, phase, environment)
+        return render_service(secret, app_image, service, phase, environment, data_profiles=data_profiles)
+    if data_profiles is not None:
+        raise ValueError("Data 프로파일은 data-api에만 지정할 수 있습니다")
     require(secret, REQUIRED_KEYS)
 
     values: list[tuple[str, Any]] = [("APP_IMAGE", app_image)]
@@ -155,13 +157,20 @@ def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
 
 
 def render_service(secret: dict[str, Any], image: str, service: str,
-                   phase: str, environment: str) -> str:
+                   phase: str, environment: str, *, data_profiles: str | None = None) -> str:
     if service not in SERVICE_REQUIRED_KEYS:
         raise ValueError("알 수 없는 서비스")
     if phase not in ("transition", "final") or environment not in ("dev", "prod"):
         raise ValueError("지원하지 않는 배포 단계 또는 환경")
     if not image.strip():
         raise ValueError("서비스 이미지가 필요합니다")
+    profiles = environment
+    if service == "data-api":
+        profiles = data_profiles if data_profiles is not None else f"{environment},satellites"
+        if "satellites" not in {profile.strip() for profile in profiles.split(",")}:
+            raise ValueError("Data 프로파일에 satellites 항목이 필요합니다")
+    elif data_profiles is not None:
+        raise ValueError("Data 프로파일은 data-api에만 지정할 수 있습니다")
     required = SERVICE_REQUIRED_KEYS[service]
     if service == "data-api" and phase == "transition":
         required += TRANSITION_KEYS
@@ -171,7 +180,7 @@ def render_service(secret: dict[str, Any], image: str, service: str,
     if service == "notification":
         validate_notification_tokens(secret)
     values: list[tuple[str, Any]] = [
-        (IMAGE_KEYS[service], image), ("SPRING_PROFILES_ACTIVE", environment + ",satellites" if service == "data-api" else environment),
+        (IMAGE_KEYS[service], image), ("SPRING_PROFILES_ACTIVE", profiles),
     ]
     values.extend((key, secret[key]) for key in required)
     optional = SERVICE_OPTIONAL_KEYS[service] + OBSERVABILITY_KEYS
