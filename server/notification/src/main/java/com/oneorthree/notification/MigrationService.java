@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -30,14 +31,28 @@ class MigrationService {
     private static final int MAX_FAILURES = 50;
     private static final int MAX_SNAPSHOT_ID = 200;
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    /** 임대 재확인 주기 — 발송 하나가 끝나는 즉시 풀려나올 만큼 짧게. */
+    private static final long DRAIN_POLL_MILLIS = 100;
+
     private final Store store;
     private final AdminAudit audit;
     private final Renderer renderer;
     private final Clock clock;
     private final boolean generationRequired;
 
+    /**
+     * 게이트를 닫은 뒤 진행 중인 발송을 기다리는 상한(초).
+     *
+     * <p>정상 발송은 (활성 기기 수 × 토큰당 6초)면 끝난다. 기본값은 그것을 덮되, 발송 도중 죽은
+     * 워커의 임대 만료(120초)까지 기다리지는 않을 만큼이다 — 죽은 워커를 기다리는 것은 드레인이
+     * 아니라 관리자 API 를 붙잡는 것이다.
+     */
+    private final int drainBudgetSeconds;
+
     MigrationService(Store store, AdminAudit audit, Renderer renderer, Clock clock,
-            @Value("${notification.generation-required:false}") boolean generationRequired) {
+            @Value("${notification.generation-required:false}") boolean generationRequired,
+            @Value("${notification.drain-budget-seconds:30}") int drainBudgetSeconds) {
+        this.drainBudgetSeconds = drainBudgetSeconds;
         this.store = store;
         this.audit = audit;
         this.renderer = renderer;
@@ -902,8 +917,22 @@ class MigrationService {
     }
 
     /**
-     * 게이트 닫기. dispatch_control 행 UPDATE 는 DispatchService 가 잡은 FOR SHARE 가 풀릴 때까지
-     * «대기»하므로, 이 호출이 돌아오는 시점에는 진행 중이던 발송이 전부 커밋·drain 돼 있다.
+     * 게이트 닫기 — <b>두 가지를 기다려야 «드레인»이다.</b>
+     *
+     * <p>① {@code dispatch_control} 행 UPDATE 는 {@code DispatchService} 의 판정이 잡은
+     * {@code FOR SHARE} 가 풀릴 때까지 대기한다. 그래서 이 UPDATE 가 돌아온 시점에 <b>판정 중인</b>
+     * 발송은 없다.
+     *
+     * <p>② 그런데 판정이 끝난 워커는 <b>트랜잭션도 잠금도 없이</b> FCM 을 부른다(외부 호출을
+     * 트랜잭션 밖으로 뺀 결과다). 그 워커는 게이트 행을 쥐고 있지 않으므로 ①이 붙잡지 못한다.
+     * ①만 보고 {@code drained=true} 를 돌려주면 <b>긴급 정지 뒤에도 푸시가 계속 나가고</b>, 컷오버가
+     * 이어지면 전환된 발송 경로와 겹쳐 중복이 된다. 그래서 발송 임대
+     * ({@code deliveries.lease_expires_at})가 모두 풀릴 때까지 함께 기다린다.
+     *
+     * <p><b>게이트는 기다리기 «전에» 닫는다.</b> 닫는 것이 안전이고 기다리는 것은 확인이라, 순서를
+     * 바꾸면 기다리는 동안 새 발송이 계속 시작된다. 그래서 예산을 넘겨도 게이트는 닫힌 채다 —
+     * {@code drained} 만 {@code false} 로 정직하게 돌려준다. 운영자는 그 값으로 「지금 컷오버해도
+     * 되는가」를 판단한다. {@code true} 를 무조건 주는 것이 정확히 이 판단을 망가뜨리던 것이다.
      */
     @Transactional(timeout = 120)
     public Map<String, Object> close(String actor, String key) {
@@ -911,11 +940,48 @@ class MigrationService {
         return store.command("dispatch-close", key, Map.of("action", "close"), () -> {
             store.update("UPDATE dispatch_control SET enabled=false,updated_at=now() WHERE id=1");
             audit.record(actor, "dispatch.closed", null, Map.of());
+            boolean drained = awaitInFlightSends();
+            if (!drained) {
+                audit.record(actor, "dispatch.drain.timeout", null, Map.of());
+            }
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("dispatch", gate());
-            result.put("drained", true);
+            result.put("drained", drained);
             return result;
         }, true);
+    }
+
+    /**
+     * 진행 중인 외부 발송이 모두 끝나기를 기다린다.
+     *
+     * <p>임대는 {@code DispatchService} 가 판정 커밋과 함께 걸고 결과를 맺을 때 푼다. 그래서 살아
+     * 있는 임대가 하나라도 있으면 <b>지금 FCM 을 부르는 중인 워커가 있다</b>는 뜻이다.
+     *
+     * <p>무한히 기다리지 않는다. 발송 도중 프로세스가 죽으면 그 임대는 만료까지 남으므로, 기다림에
+     * 상한이 없으면 게이트 닫기가 관리자 API 를 통째로 붙잡는다. 예산을 넘기면 {@code false} 를
+     * 돌려주고 판단은 운영자에게 넘긴다.
+     *
+     * @return 예산 안에 모두 끝났는가
+     */
+    private boolean awaitInFlightSends() {
+        // 예산은 «실제로 흐른 시간»이라 도메인 시계(clock)가 아니라 nanoTime 으로 잰다. clock 은
+        // 테스트에서 고정되므로 그것으로 재면 예산이 영영 끝나지 않아 여기서 멈춘다. 임대 생존
+        // 판정도 같은 이유로 DB 의 now() 를 쓴다 — 둘 다 실시간 축이라야 서로 맞는다.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(drainBudgetSeconds);
+        while (true) {
+            if (store.one("SELECT id FROM deliveries WHERE lease_expires_at>now() LIMIT 1") == null) {
+                return true;
+            }
+            if (System.nanoTime() - deadline >= 0) {
+                return false;
+            }
+            try {
+                Thread.sleep(DRAIN_POLL_MILLIS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
     }
 
     // ── 놓친 잡 재생 ────────────────────────────────────────────────────

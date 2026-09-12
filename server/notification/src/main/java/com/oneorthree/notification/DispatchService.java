@@ -392,10 +392,19 @@ class DispatchService {
         }
         // 펜싱. 외부 호출이 도는 동안 이 행들을 후보 밖에 둔다 — 상태를 맺는 것은 settle 이고,
         // 그 전에 프로세스가 죽어도 임대가 끝나기 전에는 다시 집히지 않는다.
+        //
+        // lease_token·lease_expires_at 을 «함께» 적는 이유는 두 가지다.
+        // ① next_attempt_at 만으로는 「발송 중」과 「재시도 backoff」가 구분되지 않는다. 둘 다 미래
+        //    시각인 PENDING 이라 밖에서 보면 같은 모양이다.
+        // ② 그 구분이 없으면 게이트 닫기(MigrationService.close)가 «진행 중인 발송»을 기다릴 수
+        //    없다. 판정 트랜잭션은 이미 커밋됐으므로 게이트 행 잠금은 그 워커를 붙잡지 못한다.
+        // retireDelivery 가 「손대지 않은 행」의 정의에 lease_token 을 넣어 둔 것도 같은 뜻이다 —
+        // 발송 중인 행은 라이브가 주인이므로 이관이 접으면 안 된다.
         Timestamp lease = Timestamp.from(clock.instant().plusSeconds(SEND_LEASE_SECONDS));
+        UUID leaseToken = UUID.randomUUID();
         for (UUID delivery : deliveries) {
-            store.update("UPDATE deliveries SET next_attempt_at=GREATEST(next_attempt_at,?) WHERE id=?",
-                    lease, delivery);
+            store.update("UPDATE deliveries SET next_attempt_at=GREATEST(next_attempt_at,?),"
+                    + "lease_token=?,lease_expires_at=? WHERE id=?", lease, leaseToken, lease, delivery);
         }
         return new Plan(deliveries, sound, collapseEventId(ready), attempts);
     }
@@ -456,7 +465,20 @@ class DispatchService {
                         + "last_error=NULL WHERE id=? AND status IN ('PENDING','DEFERRED')",
                         Timestamp.from(clock.instant()), delivery);
             }
+            releaseLease(delivery);
         }
+    }
+
+    /**
+     * 발송 임대를 놓는다 — 이 행으로 도는 외부 호출이 <b>끝났다</b>는 뜻이다.
+     *
+     * <p>상태를 맺는 것과 같은 트랜잭션이라야 한다. 따로 놓으면 그 사이에 게이트 닫기가 「드레인
+     * 완료」로 보고 컷오버가 이어진다. {@link #dispatch(UUID)} 가 예외로 끝나 여기 못 오는 경우는
+     * 임대 만료({@link #SEND_LEASE_SECONDS})가 회수한다 — 그때까지는 실제로 결과를 모르는 상태가
+     * 맞으므로 드레인도 기다리는 것이 옳다.
+     */
+    private void releaseLease(UUID id) {
+        store.update("UPDATE deliveries SET lease_token=NULL,lease_expires_at=NULL WHERE id=?", id);
     }
 
     /**

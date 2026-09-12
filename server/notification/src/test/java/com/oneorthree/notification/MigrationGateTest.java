@@ -65,6 +65,8 @@ class MigrationGateTest {
         registry.add("spring.datasource.password", PG::getPassword);
         // 최초 게이트 개방은 구 AT 롤아웃 창이 닫힌 뒤에만 허용된다(root 운영 제약).
         registry.add("notification.generation-required", () -> "true");
+        // 드레인 예산을 짧게 — 「예산을 넘기면 drained=false」를 초 단위로 확인하기 위해서다.
+        registry.add("notification.drain-budget-seconds", () -> "1");
     }
 
     @Autowired MockMvc mvc;
@@ -285,6 +287,41 @@ class MigrationGateTest {
         } finally {
             worker.shutdownNow();
         }
+    }
+
+    /**
+     * 판정이 끝난 워커는 <b>트랜잭션도 잠금도 없이</b> FCM 을 부른다. 그 워커는 게이트 행을 쥐고
+     * 있지 않으므로 {@code dispatch_control} UPDATE 가 붙잡지 못한다.
+     *
+     * <p>그런데도 {@code drained=true} 를 돌려주면 운영자는 「긴급 정지가 끝났다」로 읽고 컷오버를
+     * 이어간다 — 실제로는 그 워커가 남은 기기들에 계속 발송하고, 전환된 경로와 겹쳐 중복이 된다.
+     * 살아 있는 발송 임대가 있으면 드레인은 완료가 아니다.
+     */
+    @Test
+    void closeDoesNotReportDrainedWhileAnExternalSendIsStillInFlight() throws Exception {
+        var records = records(true, 5);
+        load("i1", records);
+        verify(records, 1, 0);
+        open("o1", records, 1);
+
+        // 판정이 끝나 임대를 쥔 채 FCM 을 부르는 중인 워커 — 트랜잭션도 게이트 잠금도 없다.
+        UUID inflight = UUID.randomUUID();
+        store.update("INSERT INTO deliveries(id,event_id,user_id,kind,payload,status,next_attempt_at,"
+                + "lease_token,lease_expires_at) VALUES(?,?,?,?,?::jsonb,'PENDING',now()+interval '120 seconds',"
+                + "?,now()+interval '120 seconds')",
+                inflight, "inflight-1", USER, "BET_RESULT", "{}", UUID.randomUUID());
+
+        var response = body(post("/internal/admin/dispatch/close", "c-inflight", Map.of()));
+        // 게이트는 «먼저» 닫는다 — 닫는 것이 안전이고 기다리는 것은 확인이다.
+        assertThat(Json.map(response.get("dispatch"))).containsEntry("enabled", false);
+        assertThat(response)
+                .as("발송이 아직 도는 중이면 드레인 완료가 아니다")
+                .containsEntry("drained", false);
+
+        // 그 워커가 결과를 맺으면(임대 해제) 같은 명령의 재실행이 드레인 완료를 준다.
+        store.update("UPDATE deliveries SET lease_token=NULL,lease_expires_at=NULL WHERE id=?", inflight);
+        assertThat(body(post("/internal/admin/dispatch/close", "c-inflight", Map.of())))
+                .containsEntry("drained", true);
     }
 
     @Test
