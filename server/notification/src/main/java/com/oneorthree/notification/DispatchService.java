@@ -1,5 +1,6 @@
 package com.oneorthree.notification;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -57,9 +58,28 @@ import java.util.UUID;
  *
  * <p>①이 막는 것은 「소유권이 바뀐 뒤에 캡처된 발송을 실행하는 것」이다. 남는 창은 ①의 커밋과
  * 외부 호출 사이(밀리초)뿐이고, 그 창에 걸린 발송은 ②가 <b>성공으로 적지 않고</b> 재시도로 돌려
- * 원래 수신자의 현재 기기로 다시 보낸다. 창을 0 으로 만들려면 외부 호출 내내 행 잠금을 쥐어야 하는데,
- * 그것이 애초의 P1(트랜잭션 안의 외부 호출)이다.
+ * 원래 수신자의 현재 기기로 다시 보낸다.
+ *
+ * <h2>왜 이 창을 0 으로 만들지 않는가</h2>
+ * 0 으로 만들려면 외부 호출 <b>내내</b> 그 기기의 행 잠금을 쥐어야 한다. 그러면 두 가지가 함께
+ * 되돌아온다.
+ *
+ * <ul>
+ *   <li>외부 호출이 다시 트랜잭션 «안»으로 들어간다 — 애초의 P1 이고,
+ *       {@code DeviceTransportContinuityTest#theExternalSendRunsWithNoTransactionOpen} 이 그것을
+ *       못 하도록 못 박고 있다.</li>
+ *   <li>{@code DeviceService#registerLocked} 는 <b>전역 {@code device-ownership} 잠금을 먼저 잡고
+ *       그다음 행을 잠근다.</b> 그래서 이 행을 기다리는 등록 하나가 전역 잠금을 쥔 채 서고,
+ *       <b>다른 사용자의 등록까지 통째로</b> 그 6초를 기다린다 —
+ *       {@code #anotherUsersRegistrationDoesNotWaitForAPushInFlight} 가 막는 바로 그 회귀다.</li>
+ * </ul>
+ *
+ * <p>즉 이 창은 <b>줄일 수는 있어도(prepare→send 수 초 → precheck→send 밀리초) 없앨 수는 없다.</b>
+ * 없애는 유일한 방법이 더 큰 두 문제를 되살린다. 그래서 대신 <b>보이게</b> 만든다 — 창에 걸린
+ * 발송은 {@code OWNERSHIP_CHANGED} 로 행에 남고 경고 로그를 남긴다. 전송 실패와 같은
+ * {@code FCM_RETRY} 로 접으면 그 사실이 재시도 통계에 섞여 사라진다.
  */
+@Slf4j
 @Service
 class DispatchService {
 
@@ -136,6 +156,7 @@ class DispatchService {
             return;
         }
         boolean failed = false;
+        boolean fenced = false;
         for (Attempt attempt : plan.attempts()) {
             if (!Boolean.TRUE.equals(recording.execute(status -> stillOurs(attempt)))) {
                 // 판정 이후 이 기기의 소유권이 바뀌었다 — 지금 보내면 «새 주인»이 남의 알림을 받는다.
@@ -145,10 +166,16 @@ class DispatchService {
             // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
             PushTransport.Result result = transport.send(attempt.token(), attempt.push(), plan.sound(),
                     plan.eventId());
-            failed |= Boolean.TRUE.equals(recording.execute(status -> recordAttempt(attempt, result)));
+            Outcome outcome = recording.execute(status -> recordAttempt(attempt, result));
+            failed |= outcome != Outcome.DONE;
+            fenced |= outcome == Outcome.OWNERSHIP_CHANGED;
         }
         boolean retried = failed;
-        recording.executeWithoutResult(status -> settle(plan, retried));
+        // 남은 창(대조 커밋 ~ 외부 호출)에 걸린 발송은 FCM 실패와 «원인이 다르다». 같은 FCM_RETRY 로
+        // 적으면 그 사실이 재시도 통계에 섞여 사라지고, 사고 조사에서 「남의 기기로 나간 발송이
+        // 있었는가」를 물을 방법이 없다. 이유를 갈라 행에 남긴다.
+        String reason = fenced ? "OWNERSHIP_CHANGED" : "FCM_RETRY";
+        recording.executeWithoutResult(status -> settle(plan, retried, reason));
     }
 
     /**
@@ -417,22 +444,28 @@ class DispatchService {
      *
      * @param attempt 그 기기로 나간 호출
      * @param result  전송 결과
-     * @return 재시도가 필요한가
+     * @return 이 호출을 어떻게 맺었는가
      */
-    private boolean recordAttempt(Attempt attempt, PushTransport.Result result) {
+    private Outcome recordAttempt(Attempt attempt, PushTransport.Result result) {
         if (!stillOurs(attempt)) {
             // 호출이 도는 사이에 소유권이 바뀌었다. 이미 나간 푸시는 되돌릴 수 없지만, 그 기기의
             // «성공 이력»으로 적으면 원래 수신자는 「이미 갔다」로 접혀 영영 못 받는다. 전송 자격
             // (transport_invalid)도 건드리지 않는다 — 이제 남의 행이다. 재시도로 돌려 지금 활성인
             // 기기로 다시 보낸다.
-            return true;
+            //
+            // 이 자리가 남은 창의 «유일한 증인»이다. 조용히 재시도로 접으면 운영자는 이런 일이
+            // 있었다는 것조차 알 수 없다.
+            log.warn("발송 직후 소유권이 바뀐 기기 — 새 주인에게 도달했을 수 있다."
+                    + " deviceKey={} user={} 세대={} deliveries={}",
+                    attempt.device(), attempt.user(), attempt.ownership(), attempt.deliveries());
+            return Outcome.OWNERSHIP_CHANGED;
         }
         if (result == PushTransport.Result.SENT) {
             for (UUID delivery : attempt.deliveries()) {
                 store.update("INSERT INTO delivery_devices(delivery_id,device_key) VALUES(?,?)"
                         + " ON CONFLICT DO NOTHING", delivery, attempt.device());
             }
-            return false;
+            return Outcome.DONE;
         }
         if (result == PushTransport.Result.UNREGISTERED) {
             // 전송 자격만 내린다. 소유권(active)까지 끄면 앱의 onTokenRefresh 가 그 소유권으로
@@ -440,9 +473,19 @@ class DispatchService {
             // 정상 로그인 세션인데도 재로그인 전까지 푸시가 복구되지 않는다.
             store.update("UPDATE device_tokens SET transport_invalid=true,updated_at=now()"
                     + " WHERE device_token=? AND device_key=?", attempt.token(), attempt.device());
-            return false;
+            return Outcome.DONE;
         }
-        return true;
+        return Outcome.RETRY;
+    }
+
+    /** 기기 한 대로 나간 호출의 끝. 재시도 여부뿐 아니라 «왜»까지 가른다. */
+    private enum Outcome {
+        /** 맺었다 — 성공했거나(SENT) 이 토큰을 더 쓰지 않기로 했다(UNREGISTERED). */
+        DONE,
+        /** 전송이 실패했다. 같은 기기로 다시 시도한다. */
+        RETRY,
+        /** 발송 직후 소유권이 바뀌었다. 성공으로 적지 않고 «지금» 주인의 기기로 다시 보낸다. */
+        OWNERSHIP_CHANGED
     }
 
     /**
@@ -450,11 +493,12 @@ class DispatchService {
      *
      * @param plan   이번 발송의 계획
      * @param failed 기기 하나라도 재시도가 필요했는가
+     * @param reason 재시도로 남길 이유 — 소유권 변경과 전송 실패를 가른다
      */
-    private void settle(Plan plan, boolean failed) {
+    private void settle(Plan plan, boolean failed, String reason) {
         for (UUID delivery : plan.deliveries()) {
             if (failed) {
-                retry(delivery, "FCM_RETRY");
+                retry(delivery, reason);
             } else if (store.one("SELECT 1 FROM delivery_devices WHERE delivery_id=? LIMIT 1", delivery) == null) {
                 // UNREGISTERED는 성공이 아니다. 이 알림의 성공 이력이 전혀 없으면 정상 토큰을
                 // 기다린다. 다른 기기에 이미 성공한 알림은 무효 토큰 때문에 다시 보내지 않는다.

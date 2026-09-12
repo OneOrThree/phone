@@ -392,7 +392,9 @@ class DeviceTransportContinuityTest {
 
         assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id)).isEmpty();
         assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
-                .containsEntry("status", "PENDING").containsEntry("last_error", "FCM_RETRY");
+                .as("창에 걸린 발송은 전송 실패와 «원인이 다르다» — 같은 FCM_RETRY 로 접으면"
+                        + " 사고 조사에서 「남의 기기로 나간 발송이 있었는가」를 물을 수 없다")
+                .containsEntry("status", "PENDING").containsEntry("last_error", "OWNERSHIP_CHANGED");
         // 남의 행이 된 토큰의 전송 자격도 건드리지 않는다.
         assertThat(store.one("SELECT user_id,transport_invalid FROM device_tokens WHERE device_token='fcm-single'"))
                 .containsEntry("user_id", OTHER).containsEntry("transport_invalid", false);
