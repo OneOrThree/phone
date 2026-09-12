@@ -71,6 +71,7 @@ sequenceDiagram
     Note over D: TX2: users → 선택 세션 활성·결과 준비 상태/세대/epoch·CAS 대조<br/>세션 활성화·RT hash 확정
     D-->>B: 확정 결과 또는 같은 성공 시도의 결과
     B-->>A: 201 data(accessToken, refreshToken, userId, onboardingComplete)
+    Note over A,D: 앱의 B 자격 첫 인가 요청이 결과 세션 채택을 기록. 마감 전 미채택이면 그 세션만 폐기
 ```
 
 선택 AT의 서명만으로 승격 권한을 인정하지 않는다. Data는 users 우선 잠금 아래 원 sid의 미폐기/현재 세대 또는 입증된 sidless legacy 결합·폐기 fence를 내구 조회·prepare·complete·성공 재생마다 검사한다. 개별 logout은 users 활성/gen이 그대로여도 해당 AT를 거절하게 한다. 비게스트 전환에서 두 사용자 잠금이 필요하면 UUID 정렬 후 session/attempt를 잠그며 IdP 대기 중에는 유지하지 않는다. [상세 관문](low-level-design.md#선택-at의-세션-폐기-관문)의 실제 구현/경합 검증 전 활성화하지 않는다. 유효한 선택 AT가 guest=false이면 기존 계정 전환을 허용하고 제공자 계정으로 로그인/가입한다. 이를 게스트 증명 실패로 거부하거나 두 소셜 계정을 합치지 않는다. guest=true일 때만 기존 승격 대상과 userId 보존 규칙을 적용한다. 제공자 자격 실패는 기존 6개 제공자별 *_TOKEN401을 유지하며 UNAUTHORIZED로 뭉개지 않는다.
@@ -80,6 +81,8 @@ sequenceDiagram
 자격 digest는 attempt에 고정한 key ID로 계산한다. Business 배포로 digest 키가 바뀌어도 재개는 그 key ID의 이전 키로 같은 digest를 재현하고, 이전 키는 완료 뒤 응답 유실을 복원하는 COMPLETED를 포함해 재생 가능한 attempt의 고정 복구 마감이 끝날 때까지 검증 전용으로 남긴다. 키 교체를 다른 자격으로 오판하지 않는다.
 
 탈퇴·세션 폐기가 먼저 확정됐으면 성공 시도라도 토큰을 다시 발급하지 않는다. 로그인 결과가 불명확하다고 매번 새 시도를 만들면 세션이 늘고 게스트 승격 경쟁이 생기므로 앱은 먼저 같은 시도를 재개한다. 로그인 CAS의 단순 경쟁 패배는 REPREPARE_REQUIRED로 분리하고 같은 attempt/자격으로 새 generation/nonce·고정 재료를 한 번 준비한다. 동시에 재개해도 같은 새 준비를 받고, 이전 nonce의 지연 완료는 거부한다. 탈퇴·epoch 폐기나 복구 창 종료는 INVALIDATED이며 재준비하지 않는다. [LLD 상태 전이](low-level-design.md#로그인-cas-충돌의-재준비-전이)를 따른다. 이는 refresh CAS 경쟁에서 진 요청을 성공 처리하는 규칙이 아니다.
+
+attempt의 INVALIDATED는 재생만 닫고 채택된 세션은 끊지 않는다. 대신 201 유실 뒤 원 선택 세션 폐기나 복구 창 종료로 재생할 수 없게 된 결과 세션이 쌓이지 않도록, 결과 세션의 **채택**(그 sid로 인증된 최초 성공)을 내구 기록하고 고정 복구 마감까지 채택되지 않은 결과 세션만 폐기한다. 정상 전환은 로컬 commit 직후 B 자격으로 채택을 확인하므로 뒤이은 A 폐기가 B를 끊지 않는다.
 
 ## 프로필: 상태와 전달할 사실을 같이 저장
 

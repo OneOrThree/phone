@@ -211,7 +211,7 @@ legacy 자격은 기존 해시→세션 증명으로 구분하며 sid 부재를 
    기존 AsyncStorage multiSet 자체를 DB 원자 TX로 가정하지 않고, 세션 저장 실패 시 이전 snapshot 복구와
    준비 항목 취소를 기록한다. 앱 재시작은 내구 commit 표지·완전한 세션 snapshot의 정합을 확인한 뒤에만
    그 전환의 항목을 실행 가능으로 만든다. 미확정/rollback이면 A의 등록 삭제와 원 RT 종결을 실행하지 않는다.
-3. commit 뒤에만 §2.4의 동일 기기 DELETE/outbox 키·fingerprint·완료 재생 경로로 A의 삭제를 시도하고
+3. commit 직후 B 자격으로 결과 세션 채택 확인 요청(§3 로그인 CAS 절)을 먼저 보내고, commit 뒤에만 §2.4의 동일 기기 DELETE/outbox 키·fingerprint·완료 재생 경로로 A의 삭제를 시도하고
    A의 원 RT 세션 폐기도 독립적으로 시도한다. 두 작업의 성공 여부를 따로 보관하며 B의 토큰 저장을
    되돌리거나 전역 로그아웃시키지 않는다. DELETE 실패에도 원 RT 폐기를 시도하되 DELETE 큐를 성공 소진하지 않는다.
    검증된 sid/bootstrap 연결과 auth.session.revoked의 내구 fence는 §2.4와 같은 범위에서 적용한다.
@@ -267,6 +267,7 @@ Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를
 | COMPLETED | 해당 nonce의 RT hash CAS 성공. 동일 시도의 동일 결과만 재생 |
 | REPREPARE_REQUIRED | 사용자는 활성이고 세션은 미폐기이며 원 epoch는 같지만 로그인 완료 CAS의 경쟁에 패배. 옛 준비 generation/nonce는 폐기하고 같은 시도의 재준비 허용 |
 | INVALIDATED | 탈퇴·명시적 세션 폐기·authGeneration/sessionEpoch 변경 또는 복구 창 종료. 영구 종료 상태이며 같은 시도의 재준비/토큰 재생 금지 |
+| 결과 세션 채택 | COMPLETED로 활성화한 결과 세션은 `adoptedAt` 없이 시작한다. 그 sid AT의 신규 경로 인가 통과·그 세션 RT의 refresh·그 세션 bootstrap 소비 중 최초 성공을 users→session 잠금 아래 조건부로 기록한다. 채택 마감(attempt의 고정 복구 마감) 전에 채택되지 않은 결과 세션만 세션 단위로 폐기하며, 채택된 세션은 attempt INVALIDATED와 무관하다 |
 
 bootstrap도 로그인 성공 재개에서 같은 값이어야 한다. 기술 선택은 Business 전용 bootstrap HMAC 키와 고정 sessionId/jti의 도메인 분리 입력으로 불투명 값을 결정적으로 만들고, completeLogin에 해시만 전달하는 것이다. 키는 JWT 서명 키와 분리하고 재개 창 동안 key ID를 고정한다. 1659의 무작위 nonce 발급 경로를 그대로 재호출하면 재생 값이 달라지므로 신규 준비/확정 경로에서 기존 AuthSession에 미리 계산한 hash를 확정하는 확장이 필요하다. 소비된 bootstrap의 사용 상태를 재개가 초기화하지 않으며 활성 세션/epoch/소유권 대조는 기존 방식대로 유지한다.
 
@@ -321,10 +322,17 @@ stateDiagram-v2
     PENDING --> INVALIDATED: 탈퇴 또는 epoch 폐기 또는 창 종료
     REPREPARE_REQUIRED --> INVALIDATED: 탈퇴 또는 epoch 폐기 또는 창 종료
     COMPLETED --> INVALIDATED: 폐기 또는 복구 창 종료
+    note right of COMPLETED: 결과 세션은 별도 채택 상태.<br/>마감 전 미채택이면 그 세션만 폐기
     INVALIDATED --> [*]
 ```
 
-복구 창 종료에 따른 INVALIDATED는 해당 로그인 시도의 재생 자격만 닫으며 이미 활성화한 세션을 임의 로그아웃시키지 않는다. 실제 세션 폐기는 별도 세션/epoch 상태가 정본이다.
+INVALIDATED는 해당 로그인 시도의 재생 자격만 닫는다. **클라이언트가 채택한** 결과 세션은 임의로 로그아웃시키지 않으며 실제 세션 폐기는 별도 세션/epoch 상태가 정본이다.
+
+그러나 결과를 받지 못한 세션까지 그대로 두면 누적된다. 예를 들어 계정 전환 로그인에서 B 세션 COMPLETED 뒤 201이 유실되고 원 선택 세션 A가 로그아웃·폐기되면 attempt는 INVALIDATED라 B 토큰을 재생할 수 없는데, B 세션은 활성인 채 남는다. 사용자가 새 제공자 로그인으로 복구해도 앱은 B의 RT를 모르므로 현재 세션 전용 logout으로 끊을 수 없고 RT 만료까지 남는다. 복구 창만 끝난 경우도 같다. 반대로 정상 전환도 로컬 commit 뒤 A를 폐기하므로 **A 폐기나 INVALIDATED를 이유로 B를 함께 폐기하지 않는다**.
+
+그래서 결과 세션의 **채택**을 내구 상태로 둔다. B 토큰은 201에만 담기므로 그 sid로 인증된 최초 성공이 곧 결과 수령의 증거다. 채택 기록은 신규 경로의 sid 세션 관문(users→session 잠금·미폐기·세대 확인)을 통과한 요청, 그 세션 RT의 refresh, 그 세션 bootstrap 소비에서만 `adoptedAt IS NULL` 조건부로 한 번 남긴다. sid를 보지 않는 legacy 경로 호출은 채택 증거가 아니다. 앱은 로컬 commit 직후 B 자격으로 신규 `GET /me` 같은 채택 확인 요청을 먼저 보내고 실패하면 재시도한다.
+
+채택 마감은 attempt의 고정 복구 마감을 그대로 쓰며 연장하지 않는다. 마감 뒤 정리 작업은 users→session 순서로 잠그고 `adoptedAt IS NULL`·미폐기를 재확인한 결과 세션만 폐기하며 세션 RT/bootstrap 무효화와 `auth.session.revoked` 내구 전달을 같은 TX에 기록한다. 채택 요청과 정리가 경합하면 먼저 잠근 쪽이 이기고, 정리 뒤 늦은 채택·refresh는 401이다. 다른 세션·원 선택 세션·기기 등록은 이 정리로 건드리지 않는다. legacy 승격이 만든 sid 세션도 같은 채택 규칙을 따르되 Q06의 게스트 복구 정책은 바꾸지 않는다. 로컬 commit 뒤 마감을 넘겨 오프라인이던 앱은 B가 폐기되어 재로그인해야 한다. 이는 결과를 모르는 세션을 남기지 않기 위한 fail-closed 선택이며 계정·자산 상태는 바뀌지 않는다.
 
 옛 g의 지연 complete는 현재 g+1을 무효화하거나 그 재료를 재생하지 않고 409 REQUEST_IN_PROGRESS로 거부한다. g+1의 서명 재료는 그 generation 안에서만 결정적이고 g와는 달라야 한다. 서명 재료를 새로 준비해도 최초 attempt의 5분 복구 마감은 연장하지 않으며 새 토큰의 만료는 실제 환경 TTL과 현재 정책을 지킨다. 연속 경쟁이면 같은 전이를 반복하되 요청 deadline 안에서 무한 재시도하지 않고 같은 409로 앱에 복구 책임을 돌린다. 다른 활성 sessionId의 RT는 이 CAS의 갱신 대상이 아니다. 탈퇴로 INVALIDATED가 된 시도를 재가입 성공으로 승격하지 않으며 새로운 제공자 인증은 새 attempt에서 시작한다.
 
@@ -922,6 +930,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 선택 세션 logout/withdraw와 IdP·prepare·complete·성공 receipt 재생의 양방향 경합 | 각 TX의 users 우선 잠금, 폐기 선행 시 INVALIDATED·토큰 재생0, 원 복구창 연장0 |
 | 비게스트 A→B/B→A 동시 전환·대상 매핑 변경 | 필요한 users UUID 정렬 후 session/attempt 잠금, 순서 역전/교착0, 정상 계정 전환 유지·계정 합병0 |
 | 계정 전환 준비/부분 저장/commit 직후 crash·DELETE/outbox 실패·역방향 전환 | commit 전 삭제/RT 폐기0, rollback A 등록 보존, commit 뒤 원 주체/키로 재개·B 자격 및 새 ownership 보존 |
+| 계정 전환 B 세션 COMPLETED 뒤 201 유실 → A logout/복구 창 종료 → 새 제공자 로그인 | attempt 재생0, 미채택 B는 채택 마감 뒤 세션 단위 폐기·auth.session.revoked 전달, 새 세션·다른 기기·A 정리 결과 불변 |
+| 정상 전환 로컬 commit 뒤 채택 확인과 A 폐기 순서 역전·채택/마감 정리 경합·마감 초과 오프라인 | 채택된 B는 A 폐기·INVALIDATED로 끊기지 않음, 정리 선행이면 늦은 채택·refresh 401, 마감 초과 오프라인은 재로그인 요구·계정 상태 불변 |
 | 6개 제공자/guest 승격 | 같은 userId·지갑·집중·그룹 유지, 타 제공자 token·RT-as-AT 거부 |
 | 승인된 완료 판정 false→true / 이미 true→true / 동일 키 재생 | 첫 전이만 user.onboarded 내구화, 미완료 시점의 기존 점수도 주차별 절대값 재적재, 재생·무전이의 추가 사건0 |
 | 신규 color 저장→legacy POST/PATCH nickname 및 역순/동시 저장 | 공통 승인 판정·users EX 아래 false→true 사건1회, 기존 점수 절대 재적재, 무전이0·outbox 실패 전체 rollback |
