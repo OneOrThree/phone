@@ -198,7 +198,7 @@ public class ClaimIntentReplayService {
             }
             log.warn("claim 재개 — 상류 판정으로 종결. commandId={} code={}", intent.commandId(), e.getCode());
             try {
-                dataApiClient.completeClaimIntent(intent.commandId(), lease.leaseToken(),
+                dataApiClient.completeClaimIntent(intent.commandId(), lease.leaseToken(), e.getCode(),
                         Deadline.startingNow(PER_INTENT_BUDGET));
                 result.completed++;
             } catch (RuntimeException markFailure) {

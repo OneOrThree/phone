@@ -1,6 +1,7 @@
 package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.upstream.data.DataApiClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.notification.dto.ResultAckPrepareResult;
@@ -66,10 +67,13 @@ public class ResultAckUseCase {
 
         ResultAckPrepareResult prepared = notificationApiClient.prepareResultAck(
                 userId, sessionId, keys.forStep("ack-prepare"), deadline);
+        if (prepared == null) {
+            throw new UpstreamContractMismatchException("알림 prepare 응답 본문이 없습니다");
+        }
         // held=false 를 실패로 읽지 않는다 — 「이미 확정돼 잠글 필요가 없다」일 수 있고, 그때도 Data
         // ack 는 진행해야 사용자의 확인이 기록된다. 상태는 관측용으로만 남긴다.
         log.debug("ack prepare 완료 — sessionId={} held={} state={}",
-                sessionId, prepared == null || prepared.held(), prepared == null ? null : prepared.state());
+                sessionId, prepared.held(), prepared.state());
 
         try {
             dataApiClient.acknowledgeResult(userId, sessionId, claimToken, deadline);

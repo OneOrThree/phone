@@ -488,6 +488,24 @@ class InternalSurfaceIntegrationTest {
     }
 
     @Test
+    void aTerminalReplayCompletionIsReturnedOnTheOriginalRequest() throws Exception {
+        UUID user = newUser();
+        String commandId = commandIdOf(enqueueIntent(user, "gone00", "terminal-http"));
+        String lease = mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/lease", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .contentType("application/json").content("{\"leaseSeconds\":60}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/completed", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .contentType("application/json")
+                        .content("{\"leaseToken\":\"" + valueOf(lease, "leaseToken")
+                                + "\",\"terminalCode\":\"SLUG_NOT_FOUND\"}"))
+                .andExpect(status().isOk());
+        assertThat(enqueueIntent(user, "gone00", "terminal-http"))
+                .contains("\"completed\":true", "\"terminalCode\":\"SLUG_NOT_FOUND\"");
+    }
+
+    @Test
     @DisplayName("claim 의도는 같은 (유저, slug) 로 한 행이고, lease→완료가 펜싱 토큰으로 닫힌다")
     void claimIntentQueueIsIdempotentAndFenced() throws Exception {
         UUID userId = newUser();

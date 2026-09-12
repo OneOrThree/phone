@@ -325,6 +325,31 @@ class MigrationGateTest {
     }
 
     @Test
+    void failedRevalidationAlsoDrainsBeforeClearingVerification() throws Exception {
+        var records = records(true, 5);
+        load("i1", records);
+        verify(records, 1, 0);
+        open("o1", records, 1);
+        store.update("INSERT INTO deliveries(id,event_id,user_id,kind,payload,status,next_attempt_at,"
+                + "lease_token,lease_expires_at) VALUES(?,?,?,?,?::jsonb,'PENDING',now()+interval '120 seconds',"
+                + "?,now()+interval '120 seconds')", UUID.randomUUID(), "invalidating-inflight", USER,
+                "BET_RESULT", "{}", UUID.randomUUID());
+        store.update("UPDATE settings SET night_end_time='08:00:00' WHERE user_id=?", USER);
+
+        long started = System.nanoTime();
+        assertThat(code(open("o1", records, 1))).isEqualTo("VERIFICATION_FAILED");
+        assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isGreaterThanOrEqualTo(900);
+        assertThat(store.one("SELECT enabled FROM dispatch_control WHERE id=1")).containsEntry("enabled", false);
+        assertThat(store.one("SELECT verified_at FROM migration_state WHERE id='m1'"))
+                .containsEntry("verified_at", null);
+        assertThat(store.one("SELECT 1 FROM admin_audit WHERE action='dispatch.drain.timeout'"))
+                .isNotNull();
+        assertThat(store.one("SELECT request->>'drained' AS drained FROM admin_audit"
+                + " WHERE action='migration.verification.cleared' AND resource_id='m1'"))
+                .containsEntry("drained", "false");
+    }
+
+    @Test
     void openReplayRevalidatesTheActualRows() throws Exception {
         var records = records(true, 5);
         load("i1", records);

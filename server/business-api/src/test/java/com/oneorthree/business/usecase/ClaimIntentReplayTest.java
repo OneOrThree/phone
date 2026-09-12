@@ -206,6 +206,8 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
 
         assertThat(result.completed()).isEqualTo(1);
         assertThat(result.failed()).isZero();
+        assertThat(DATA.receivedFor("POST /internal/invite-links/claim-intents/" + CMD_1 + "/completed")
+                .get(0).body()).contains("\"terminalCode\":\"SLUG_NOT_FOUND\"");
     }
 
     @Test

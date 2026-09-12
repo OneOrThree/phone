@@ -26,6 +26,22 @@ class ResultAckContractTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("빈 prepare 응답은 계약 오류이며 Data ack를 커밋하지 않는다")
+    void emptyPrepareDoesNotAcknowledge() throws Exception {
+        for (int responseStatus : new int[] {200, 204}) {
+            NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare",
+                    request -> new MockUpstream.Response(responseStatus, null));
+            mockMvc.perform(post(ackPath())
+                            .header("Authorization", "Bearer " + Tokens.access(USER))
+                            .contentType("application/json")
+                            .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                    .andExpect(status().isBadGateway());
+            assertThat(DATA.received()).isEmpty();
+            assertThat(NOTI.hits("POST /internal/users/" + USER + "/result-ack/commit")).isZero();
+        }
+    }
+
+    @Test
     @DisplayName("정상: prepare → Data ack → commit 순서로 간다")
     void 정상순서() throws Exception {
         NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->

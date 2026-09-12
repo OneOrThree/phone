@@ -574,7 +574,8 @@ paths:
         오류로 세고, 그 오류가 「미완료 0」 gate 를 거짓으로 막는다.
 
         CLI 는 **상류가 도메인 판정을 내린 경우에도 완료 표시**한다(예: `SLUG_NOT_FOUND`) — 재시도해도
-        답이 같으므로, 완료로 빼지 않으면 그 한 건이 gate 를 영구히 막는다. 판정 내용은 로그에 남는다.
+        답이 같으므로, 완료로 빼지 않으면 그 한 건이 gate 를 영구히 막는다. `terminalCode`를 원장에
+        보존하여 동일 요청 키의 재시도에도 처음 판정을 반환한다. 정상 완료는 과거 재시도 오류를 지운다.
       parameters:
         - $ref: '#/components/parameters/CommandIdPath'
       requestBody:
@@ -591,6 +592,10 @@ paths:
                   description: |
                     lease 응답으로 받은 CAS 값. **현재 임대의 토큰과 다르면 거부하라** — 만료 뒤
                     깨어난 옛 작업자가 새 임대 소유자의 작업을 완료로 빼는 것을 막는 유일한 장치다.
+                terminalCode:
+                  type: string
+                  nullable: true
+                  description: 종결된 상류 거절 코드. 정상 완료이면 생략한다.
       responses:
         '200': { description: 완료 표시됨(또는 같은 토큰으로 이미 완료 — 멱등) }
         '409':

@@ -912,8 +912,9 @@ class MigrationService {
     public void invalidate(String actor, String migrationId) {
         lockGate(migrationId, true);
         store.update("UPDATE dispatch_control SET enabled=false,updated_at=now() WHERE id=1");
+        boolean drained = drain(actor);
         store.update("UPDATE migration_state SET verified_at=NULL WHERE id=?", migrationId);
-        audit.record(actor, "migration.verification.cleared", migrationId, Map.of());
+        audit.record(actor, "migration.verification.cleared", migrationId, Map.of("drained", drained));
     }
 
     /**
@@ -940,15 +941,21 @@ class MigrationService {
         return store.command("dispatch-close", key, Map.of("action", "close"), () -> {
             store.update("UPDATE dispatch_control SET enabled=false,updated_at=now() WHERE id=1");
             audit.record(actor, "dispatch.closed", null, Map.of());
-            boolean drained = awaitInFlightSends();
-            if (!drained) {
-                audit.record(actor, "dispatch.drain.timeout", null, Map.of());
-            }
+            boolean drained = drain(actor);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("dispatch", gate());
             result.put("drained", drained);
             return result;
         }, true);
+    }
+
+    /** 명시적 close와 재검증 실패 모두 같은 드레인 및 시간 초과 관측을 적용한다. */
+    private boolean drain(String actor) {
+        boolean drained = awaitInFlightSends();
+        if (!drained) {
+            audit.record(actor, "dispatch.drain.timeout", null, Map.of());
+        }
+        return drained;
     }
 
     /**

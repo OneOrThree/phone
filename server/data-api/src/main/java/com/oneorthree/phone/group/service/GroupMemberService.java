@@ -166,7 +166,9 @@ public class GroupMemberService {
             group.close();
             // 그룹 종료는 폐기와 «별개 사건»이다(㋢) — 현행 랜딩·매치가 둘 다 findActiveGroup 으로
             // 실시간 판정하므로, 안 보내면 죽은 그룹의 slug 가 계속 랜딩·매치에 성공한다.
-            linkMembershipEventService.recordGroupClosed(group);
+            // 대상은 leave() «전»에 뜬 groupMembers 다. 여기서 다시 조회하면 방금 이탈한 마지막 1인이
+            // 빠져 목록이 비고, group.closed 봉투가 한 건도 만들어지지 않는다.
+            linkMembershipEventService.recordGroupClosed(group, groupMembers);
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
             groupMember.leave();
             linkMembershipEventService.recordMembershipRevoked(groupMember);
@@ -212,12 +214,15 @@ public class GroupMemberService {
         UUID userId = user.getId();
 
         for (GroupMember ownerMembership : groupMemberRepository.findActiveOwnerMembershipsByUserId(userId)) {
-            if (groupMemberRepository.findByGroup(ownerMembership.getGroup()).size() <= 1) {
+            // 이탈 «전»에 포착한다 — leave() 뒤에 조회하면 isLeft 필터에 걸려 목록이 비고,
+            // 그러면 group.closed 봉투가 한 건도 만들어지지 않는다.
+            List<GroupMember> recipients = groupMemberRepository.findByGroup(ownerMembership.getGroup());
+            if (recipients.size() <= 1) {
                 ownerMembership.leave();
                 linkMembershipEventService.recordMembershipRevoked(ownerMembership);
                 ownerMembership.getGroup().close();
                 // 그룹 종료도 함께 전달한다(㋢). 폐기만 보내면 그 그룹의 «다른» 발급자 링크가 남는다.
-                linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup());
+                linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup(), recipients);
             }
         }
 

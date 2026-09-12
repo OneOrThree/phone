@@ -402,6 +402,7 @@ class GroupMemberServiceTest {
         assertThat(member.getLeftReason()).isEqualTo(GroupLeaveReason.LEFT);
         assertThat(group.getStatus()).isEqualTo(GroupStatus.ENDED);
         verify(groupBetService).releaseFromOpenBets(user, group);
+        verify(linkMembershipEventService).recordGroupClosed(group, List.of(member));
     }
 
     @Test
@@ -533,6 +534,7 @@ class GroupMemberServiceTest {
         // 자동 종료된 그룹이라도 OPEN 내기 판돈이 묶이면 안 된다 — 유저 스코프 일괄 해제는
         // 멤버십·그룹 상태와 무관하게 반드시 불린다
         verify(groupBetService).releaseFromAllOpenBets(user);
+        verify(linkMembershipEventService).recordGroupClosed(soloGroup, List.of(ownerMembership));
     }
 
     @Test

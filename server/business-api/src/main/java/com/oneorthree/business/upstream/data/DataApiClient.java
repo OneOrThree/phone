@@ -323,10 +323,20 @@ public class DataApiClient {
      * <p>같은 토큰으로 다시 와도 200 이어야 한다(멱등) — 409 면 CLI 가 정상 중복을 오류로 센다.
      */
     public void completeClaimIntent(UUID commandId, UUID leaseToken, Deadline deadline) {
+        completeClaimIntent(commandId, leaseToken, null, deadline);
+    }
+
+    /** 재개 중 확정된 거절 코드도 원래 요청의 재생을 위해 전달한다. */
+    public void completeClaimIntent(UUID commandId, UUID leaseToken, String terminalCode, Deadline deadline) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("leaseToken", leaseToken.toString());
+        if (terminalCode != null) {
+            body.put("terminalCode", terminalCode);
+        }
         http.execute(
                 InternalCall.to(HttpMethod.POST,
                                 PATH_CLAIM_INTENT_COMPLETED.replace("{commandId}", commandId.toString()))
-                        .body(Map.of("leaseToken", leaseToken.toString()))
+                        .body(body)
                         .idempotentCommand()
                         .build(),
                 deadline);

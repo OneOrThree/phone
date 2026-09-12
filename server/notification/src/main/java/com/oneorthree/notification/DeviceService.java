@@ -175,7 +175,7 @@ class DeviceService {
         }
         boolean cas = knownOwner != null && user.equals(knownOwner.get("user_id"))
                 && Boolean.TRUE.equals(knownOwner.get("active"))
-                && (previous == null || ownership.equals(previous.get("ownership_token").toString()));
+                && (previous == null || UUID.fromString(ownership).equals(previous.get("ownership_token")));
         boolean freshBootstrap = hash != null
                 && (session == null || !Boolean.TRUE.equals(session.get("used")));
         // 구 앱 세션 창. 판정 기준은 «AT 에 gen 이 실렸는가»가 아니라 «요청이 무엇을 근거로 오는가»다.

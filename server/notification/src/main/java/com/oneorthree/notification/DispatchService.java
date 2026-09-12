@@ -158,15 +158,25 @@ class DispatchService {
         boolean failed = false;
         boolean fenced = false;
         for (Attempt attempt : plan.attempts()) {
+            if (!Boolean.TRUE.equals(recording.execute(status -> renewLease(plan)))) {
+                return;
+            }
             if (!Boolean.TRUE.equals(recording.execute(status -> stillOurs(attempt)))) {
-                // 판정 이후 이 기기의 소유권이 바뀌었다 — 지금 보내면 «새 주인»이 남의 알림을 받는다.
-                // 이 기기는 애초에 대상이 아니었던 것처럼 건너뛴다(실패로 세지 않는다).
+                // 같은 사용자 기기의 정상 토큰 회전이면 새 토큰에 다시 보내야 한다.
+                // 다른 계정으로 이전되거나 삭제된 기기는 더 이상 이 사용자의 수신 대상이 아니다.
+                boolean rotated = store.one("SELECT 1 FROM device_tokens WHERE device_key=? AND user_id=?"
+                        + " AND active AND NOT transport_invalid", attempt.device(), attempt.user()) != null;
+                failed |= rotated;
+                fenced |= rotated;
                 continue;
             }
             // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
             PushTransport.Result result = transport.send(attempt.token(), attempt.push(), plan.sound(),
                     plan.eventId());
-            Outcome outcome = recording.execute(status -> recordAttempt(attempt, result));
+            Outcome outcome = recording.execute(status -> recordAttempt(plan, attempt, result));
+            if (outcome == Outcome.LEASE_LOST) {
+                return;
+            }
             failed |= outcome != Outcome.DONE;
             fenced |= outcome == Outcome.OWNERSHIP_CHANGED;
         }
@@ -433,7 +443,7 @@ class DispatchService {
             store.update("UPDATE deliveries SET next_attempt_at=GREATEST(next_attempt_at,?),"
                     + "lease_token=?,lease_expires_at=? WHERE id=?", lease, leaseToken, lease, delivery);
         }
-        return new Plan(deliveries, sound, collapseEventId(ready), attempts);
+        return new Plan(deliveries, sound, collapseEventId(ready), attempts, leaseToken);
     }
 
     /**
@@ -446,7 +456,7 @@ class DispatchService {
      * @param result  전송 결과
      * @return 이 호출을 어떻게 맺었는가
      */
-    private Outcome recordAttempt(Attempt attempt, PushTransport.Result result) {
+    private Outcome recordAttempt(Plan plan, Attempt attempt, PushTransport.Result result) {
         if (!stillOurs(attempt)) {
             // 호출이 도는 사이에 소유권이 바뀌었다. 이미 나간 푸시는 되돌릴 수 없지만, 그 기기의
             // «성공 이력»으로 적으면 원래 수신자는 「이미 갔다」로 접혀 영영 못 받는다. 전송 자격
@@ -459,6 +469,9 @@ class DispatchService {
                     + " deviceKey={} user={} 세대={} deliveries={}",
                     attempt.device(), attempt.user(), attempt.ownership(), attempt.deliveries());
             return Outcome.OWNERSHIP_CHANGED;
+        }
+        if (!holdsLease(plan)) {
+            return Outcome.LEASE_LOST;
         }
         if (result == PushTransport.Result.SENT) {
             for (UUID delivery : attempt.deliveries()) {
@@ -485,7 +498,9 @@ class DispatchService {
         /** 전송이 실패했다. 같은 기기로 다시 시도한다. */
         RETRY,
         /** 발송 직후 소유권이 바뀌었다. 성공으로 적지 않고 «지금» 주인의 기기로 다시 보낸다. */
-        OWNERSHIP_CHANGED
+        OWNERSHIP_CHANGED,
+        /** 임대가 만료되거나 다른 실행자가 재선점했다. */
+        LEASE_LOST
     }
 
     /**
@@ -496,6 +511,9 @@ class DispatchService {
      * @param reason 재시도로 남길 이유 — 소유권 변경과 전송 실패를 가른다
      */
     private void settle(Plan plan, boolean failed, String reason) {
+        if (!holdsLease(plan)) {
+            return;
+        }
         for (UUID delivery : plan.deliveries()) {
             if (failed) {
                 retry(delivery, reason);
@@ -509,7 +527,7 @@ class DispatchService {
                         + "last_error=NULL WHERE id=? AND status IN ('PENDING','DEFERRED')",
                         Timestamp.from(clock.instant()), delivery);
             }
-            releaseLease(delivery);
+            releaseLease(delivery, plan.leaseToken());
         }
     }
 
@@ -521,8 +539,34 @@ class DispatchService {
      * 임대 만료({@link #SEND_LEASE_SECONDS})가 회수한다 — 그때까지는 실제로 결과를 모르는 상태가
      * 맞으므로 드레인도 기다리는 것이 옳다.
      */
-    private void releaseLease(UUID id) {
-        store.update("UPDATE deliveries SET lease_token=NULL,lease_expires_at=NULL WHERE id=?", id);
+    private void releaseLease(UUID id, UUID leaseToken) {
+        store.update("UPDATE deliveries SET lease_token=NULL,lease_expires_at=NULL WHERE id=? AND lease_token=?",
+                id, leaseToken);
+    }
+
+    /** 매 기기 호출 전에 갱신한다. 전체 기기 수와 무관하게 진행 중인 발송을 드레인이 추적한다. */
+    private boolean renewLease(Plan plan) {
+        if (!holdsLease(plan)) {
+            return false;
+        }
+        Timestamp until = Timestamp.from(clock.instant().plusSeconds(SEND_LEASE_SECONDS));
+        for (UUID id : plan.deliveries()) {
+            store.update("UPDATE deliveries SET lease_expires_at=?,next_attempt_at=GREATEST(next_attempt_at,?)"
+                    + " WHERE id=? AND lease_token=?", until, until, id, plan.leaseToken());
+        }
+        return true;
+    }
+
+    /** 행을 잠근 채 현재 임대만 결과 기록·갱신·완료를 할 수 있게 한다. */
+    private boolean holdsLease(Plan plan) {
+        for (UUID id : plan.deliveries().stream().sorted().toList()) {
+            if (store.one("SELECT 1 FROM deliveries WHERE id=? AND lease_token=?"
+                    + " AND lease_expires_at>? FOR UPDATE", id, plan.leaseToken(),
+                    Timestamp.from(clock.instant())) == null) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -554,7 +598,8 @@ class DispatchService {
     }
 
     /** 판정이 끝난 한 번의 발송 — 트랜잭션 밖으로 들고 나갈 값만 담는다. */
-    private record Plan(List<UUID> deliveries, boolean sound, String eventId, List<Attempt> attempts) {
+    private record Plan(List<UUID> deliveries, boolean sound, String eventId, List<Attempt> attempts,
+            UUID leaseToken) {
         Plan {
             deliveries = List.copyOf(deliveries);
             attempts = List.copyOf(attempts);
@@ -596,7 +641,9 @@ class DispatchService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 30)
     public void backOff(UUID id, String reason) {
-        retry(id, reason);
+        store.update("UPDATE deliveries SET attempts=attempts+1,last_error=?,next_attempt_at=? WHERE id=?"
+                + " AND (lease_expires_at IS NULL OR lease_expires_at<=?)", reason,
+                Timestamp.from(clock.instant().plusSeconds(60)), id, Timestamp.from(clock.instant()));
     }
 
     /**

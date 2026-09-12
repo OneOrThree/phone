@@ -492,6 +492,28 @@ class SatelliteCommandConcurrencyTest {
         }
     }
 
+    @Test
+    void replayCompletionPreservesTerminalCodeAndSuccessfulCompletionClearsRetryError() {
+        UUID user = newUser();
+        UUID rejected = internalInviteLinkService.enqueueClaimIntent(user, "gone", "terminal-key").commandId();
+        ClaimIntentLeaseResponse rejectedLease = internalInviteLinkService.leaseClaimIntent(rejected, 60);
+        internalInviteLinkService.completeClaimIntent(rejected, rejectedLease.leaseToken(), "SLUG_NOT_FOUND");
+        internalInviteLinkService.completeClaimIntent(rejected, rejectedLease.leaseToken(), "SLUG_NOT_FOUND");
+        assertThat(internalInviteLinkService.enqueueClaimIntent(user, "gone", "terminal-key").terminalCode())
+                .isEqualTo("SLUG_NOT_FOUND");
+
+        UUID recovered = internalInviteLinkService.enqueueClaimIntent(user, "live", "recovery-key").commandId();
+        tx().executeWithoutResult(status -> inviteClaimIntentRepository.findById(recovered).orElseThrow()
+                .releaseWithFailure(Instant.now().minusSeconds(1), "일시적인 상류 503"));
+        assertThat(internalInviteLinkService.enqueueClaimIntent(user, "live", "recovery-key").terminalCode())
+                .isNull();
+        ClaimIntentLeaseResponse recoveredLease = internalInviteLinkService.leaseClaimIntent(recovered, 60);
+        internalInviteLinkService.completeClaimIntent(recovered, recoveredLease.leaseToken());
+        assertThat(internalInviteLinkService.enqueueClaimIntent(user, "live", "recovery-key").terminalCode())
+                .isNull();
+        assertThat(intentOf(recovered).getLastError()).isNull();
+    }
+
     private long intentRowsOf(UUID userId, String slug) {
         return tx().execute(status -> inviteClaimIntentRepository.findAll().stream()
                 .filter(row -> row.getUserId().equals(userId) && row.getSlug().equals(slug))
@@ -524,6 +546,39 @@ class SatelliteCommandConcurrencyTest {
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /**
+     * 마지막 1인이 나가 그룹이 자동 종료될 때 <b>{@code group.closed} 봉투가 실제로 만들어지는가</b>.
+     *
+     * <p>자동 종료 경로는 {@code leave()} 로 유일한 멤버를 비활성화한 «뒤» 종료 fan-out 을 부른다.
+     * 그 fan-out 이 {@code isLeft=false} 로 대상을 조회하면, JPQL 실행 전에 변경이 flush 되므로
+     * 목록이 <b>언제나 비어</b> 봉투가 한 건도 안 생긴다. 그러면 링크 서버에 그룹 tombstone 이 남지
+     * 않아 <b>종료된 그룹의 slug 가 계속 랜딩·매치에 성공한다</b>.
+     *
+     * <p>목으로는 재현되지 않는다 — flush 시점이 관여하는 결함이라 실물 DB 와 실제 JPQL 이 필요하다.
+     */
+    @Test
+    void groupClosedFansOutToTheMemberWhoJustLeft() {
+        UUID ownerId = newUser();
+        Group group = newGroup(ownerId);
+
+        tx().executeWithoutResult(status -> {
+            GroupMember membership = groupMemberRepository
+                    .findActiveByUserIdAndGroupIdForUpdate(ownerId, group.getId()).orElseThrow();
+            // 대상은 이탈 «전»에 포착해야 한다 — 운영 경로(GroupMemberService)와 같은 순서다.
+            List<GroupMember> recipients = groupMemberRepository.findByGroup(membership.getGroup());
+            membership.leave();
+            membership.getGroup().close();
+            linkMembershipEventService.recordGroupClosed(membership.getGroup(), recipients);
+        });
+
+        assertThat(eventOutboxRepository.findAll().stream()
+                .filter(row -> "group.closed".equals(row.getType()))
+                .filter(row -> ownerId.equals(row.getUserId()))
+                .toList())
+                .as("종료 사건이 없으면 죽은 그룹의 slug 가 계속 랜딩·매치에 성공한다")
+                .hasSize(1);
     }
 
     private UUID newUser() {

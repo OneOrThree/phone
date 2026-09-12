@@ -162,6 +162,7 @@ public class InviteClaimIntent {
             return false;
         }
         this.status = InviteClaimIntentStatus.CONSUMED;
+        this.lastError = null;
         this.consumedAt = at;
         this.completedByLeaseToken = leaseToken;
         this.leaseOwner = null;

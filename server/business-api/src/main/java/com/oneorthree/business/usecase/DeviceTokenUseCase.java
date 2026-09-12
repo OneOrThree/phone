@@ -112,7 +112,8 @@ public class DeviceTokenUseCase {
                 legacySessionId);
         DeviceRegistrationResult result = notificationApiClient.registerDevice(
                 claims.userId(), registration, keys.forStep("device-register"), deadline);
-        revokeIfTheSessionEndedDuringRegistration(claims, deviceToken, result, deviceBootstrap, deadline);
+        revokeIfTheSessionEndedDuringRegistration(
+                claims, deviceToken, result, deviceBootstrap, legacySessionId, deadline);
         return result;
     }
 
@@ -143,15 +144,29 @@ public class DeviceTokenUseCase {
      * <p>되돌리기가 실패해도 <b>등록 자체는 실패시키지 않는다.</b> 앱은 이미 새 소유권을 받아야 하고,
      * 못 지운 행은 폐기 사건이 도착할 때 원래대로 정리된다 — 여기서 예외를 올리면 정상 로그인이
      * 실패로 보이면서 정리는 어차피 relay 가 한다.
+     *
+     * <h2>확인한 축으로 다시 확인한다 — 구 앱 경로도 예외가 아니다</h2>
+     * 이 창은 <b>자격 경로만의 것이 아니다</b>. {@code sid} 로 판정한 구 앱 요청도 {@code verifySession()}
+     * 을 통과한 직후 로그아웃될 수 있고, 그쪽은 자격 해시가 아니라 sid 로 키가 잡힌 fence 를 쓰므로
+     * 폐기 relay 가 닿기 전까지는 등록이 그대로 살아 있다 — 같은 「로그아웃한 기기로 비공개 알림」이다.
+     * 그래서 <b>등록 전에 확인한 그 축</b>으로 재확인한다: 자격이 있었으면 {@code verifyDeviceSession},
+     * 구 앱이었으면 {@code verifySession}. 어느 축으로도 확인하지 않은 요청(자격도 sid 도 없는 구 AT)만
+     * 재확인 없이 지나간다 — 확인한 적이 없으니 되돌릴 판정 기준도 없다.
+     *
+     * @param legacySessionId 등록 전에 {@code sid} 축으로 판정했을 때만 채워진다. 두 축은 함께 실리지
+     *                        않으므로(자격이 있으면 자격 축으로만 간다) 이 값의 유무가 곧 재확인 축이다
      */
     private void revokeIfTheSessionEndedDuringRegistration(AccessTokenClaims claims, String deviceToken,
-            DeviceRegistrationResult result, String deviceBootstrap, Deadline deadline) {
-        if (deviceBootstrap == null || deviceBootstrap.isBlank() || result == null) {
+            DeviceRegistrationResult result, String deviceBootstrap, String legacySessionId, Deadline deadline) {
+        boolean checkedByBootstrap = deviceBootstrap != null && !deviceBootstrap.isBlank();
+        boolean checkedByLegacySid = legacySessionId != null;
+        if (result == null || (!checkedByBootstrap && !checkedByLegacySid)) {
             return;
         }
         try {
-            DeviceSessionCheck after =
-                    dataApiClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline);
+            DeviceSessionCheck after = checkedByBootstrap
+                    ? dataApiClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline)
+                    : dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadline);
             if (after != null && after.active()) {
                 return;
             }
