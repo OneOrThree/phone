@@ -24,10 +24,13 @@ public final class Deadline {
 
     /** 지금부터 {@code budget} 동안. */
     public static Deadline startingNow(Duration budget) {
+        if (budget == null || budget.isNegative()) {
+            throw new IllegalArgumentException("시간 예산은 0 이상이어야 합니다.");
+        }
         return new Deadline(System.nanoTime(), budget.toNanos());
     }
 
-    /** 예산이 없는 호출 — 상류의 read timeout 만이 상한이다. */
+    /** 화면 예산이 없는 호환 호출 — 각 상류 시도의 연결+읽기 상한은 계속 적용한다. */
     public static Deadline unbounded() {
         return new Deadline(System.nanoTime(), Long.MAX_VALUE);
     }
@@ -44,12 +47,7 @@ public final class Deadline {
         return left <= 0 ? Duration.ZERO : Duration.ofNanos(left);
     }
 
-    /**
-     * {@code need} 만큼이 남아 있는가 — 재시도를 시작해도 되는지 판정에 쓴다.
-     *
-     * <p>여유가 없으면 <b>시도하지 않는다</b>. 시작해 놓고 중간에 끊으면 상류에는 쓰기가 반쯤 적용된
-     * 채로 남고 우리 쪽에는 결과가 없다.
-     */
+    /** 주어진 작업·대기를 담을 예산이 남았는지 확인하는 호환용 조회다. */
     public boolean hasRoomFor(Duration need) {
         if (isUnbounded()) {
             return true;

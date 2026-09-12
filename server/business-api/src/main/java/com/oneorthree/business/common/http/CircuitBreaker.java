@@ -70,6 +70,11 @@ public class CircuitBreaker {
         }
     }
 
+    /** 실행 큐 거부·부모 취소는 상류 실패로 세지 않되 half-open 탐침 자리를 반환한다. */
+    public void recordIgnored() {
+        probeInFlightSince.set(0L);
+    }
+
     /** 관측·테스트용. */
     public boolean isOpen(long nowMillis) {
         long opened = openedAt.get();

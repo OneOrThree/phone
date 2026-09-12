@@ -51,10 +51,12 @@ public record InternalCall(
         declaredHeaders = declaredHeaders == null ? Map.of() : Map.copyOf(declaredHeaders);
         for (String name : declaredHeaders.keySet()) {
             String lower = name.toLowerCase(java.util.Locale.ROOT);
-            if (HEADER_AUTHORIZATION.equals(lower) || HEADER_USER_ID.equals(lower)) {
+            if (HEADER_AUTHORIZATION.equals(lower) || HEADER_USER_ID.equals(lower)
+                    || "x-request-id".equals(lower) || "idempotency-key".equals(lower)
+                    || "host".equals(lower) || "cookie".equals(lower)) {
                 // 여기서 막지 않으면 유스케이스가 실수로 인바운드 값을 실을 수 있고, 그게 곧 A22 ㉸ 위반이다.
                 throw new IllegalArgumentException(
-                        "Authorization·X-User-Id 는 클라이언트가 붙인다 — declaredHeaders 에 넣을 수 없다: " + name);
+                        "주체·추적·자격·라우팅 헤더는 declaredHeaders 에 넣을 수 없다: " + name);
             }
         }
     }

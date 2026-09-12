@@ -3,6 +3,7 @@ package com.oneorthree.business.common.http;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamCredentialRejectedException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
+import com.oneorthree.business.common.exception.UpstreamTimeoutException;
 import com.oneorthree.business.common.exception.UpstreamUnavailableException;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -17,6 +18,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -43,17 +46,21 @@ class InternalHttpClientRecoveryTest {
             exchange.close();
         });
         server.start();
-        // 차단 창 경과를 기다리는 테스트가 아니다. 실제 503으로 열린 뒤 즉시 탐침을 허용한다.
+        // 운영 설정의 양수 제약을 유지하며 짧은 차단 창을 실제 503으로 연다.
         client = new InternalHttpClient(UpstreamTarget.LINK,
                 new UpstreamProperties("http://127.0.0.1:" + server.getAddress().getPort(), "synthetic-token",
-                        Duration.ofSeconds(1), Duration.ofSeconds(1), 1, Duration.ZERO), new ObjectMapper());
+                        Duration.ofSeconds(1), Duration.ofSeconds(1), 1, Duration.ofMillis(1)), new ObjectMapper());
         assertThatThrownBy(() -> client.execute(call(), Deadline.unbounded()))
                 .isInstanceOf(UpstreamUnavailableException.class);
         assertThat(requests.get()).isEqualTo(1);
+        Thread.sleep(5); // 1ms 차단 창 뒤의 half-open 경로가 검증 대상이다.
     }
 
     @AfterEach
-    void stop() {
+    void stop() throws Exception {
+        if (client != null) {
+            client.close();
+        }
         if (server != null) {
             server.stop(0);
         }
@@ -78,7 +85,7 @@ class InternalHttpClientRecoveryTest {
     @Test
     void exhaustedBudgetDoesNotAcquireProbe() {
         assertThatThrownBy(() -> client.execute(call(), Deadline.startingNow(Duration.ZERO)))
-                .isInstanceOf(UpstreamUnavailableException.class).hasMessageContaining("시간 예산 소진");
+                .isInstanceOf(UpstreamTimeoutException.class);
         assertThat(requests.get()).isEqualTo(1);
         status.set(200);
         assertThatCode(() -> client.execute(call(), Deadline.unbounded())).doesNotThrowAnyException();
@@ -86,10 +93,46 @@ class InternalHttpClientRecoveryTest {
     }
 
     @Test
-    void requestConstructionFailureAlsoReleasesProbe() {
-        InternalCall malformed = InternalCall.to(HttpMethod.GET, "/{missing}").build();
+    void shortBudgetNonIdempotentWriteNeverReachesServerOrConsumesProbe() {
+        status.set(200);
+        assertThatThrownBy(() -> client.execute(call(), Deadline.startingNow(Duration.ofMillis(100))))
+                .isInstanceOf(UpstreamTimeoutException.class);
+        // setup의 503 한 건뿐이다. 짧은 예산의 명령은 TCP 서버에 도착하지 않았다.
+        assertThat(requests.get()).isEqualTo(1);
+        assertThatCode(() -> client.execute(call(), Deadline.startingNow(Duration.ofSeconds(5))))
+                .doesNotThrowAnyException();
+        assertThat(requests.get()).isEqualTo(2);
+    }
+
+    @Test
+    void explicitlyIdempotentWriteCanUseShortRemainingBudget() {
+        status.set(200);
+        InternalCall safe = InternalCall.to(HttpMethod.POST, "/probe").idempotentCommand().build();
+        assertThatCode(() -> client.execute(safe, Deadline.startingNow(Duration.ofSeconds(1))))
+                .doesNotThrowAnyException();
+        assertThat(requests.get()).isEqualTo(2);
+    }
+
+    @Test
+    void serializationThatConsumesStartBudgetNeverSendsAndReleasesAcquiredProbe() {
+        status.set(200);
+        Deadline deadline = Deadline.startingNow(Duration.ofSeconds(3));
+        BudgetConsumingPayload payload = new BudgetConsumingPayload(deadline);
+        InternalCall write = InternalCall.to(HttpMethod.POST, "/probe").body(payload).build();
+        assertThatThrownBy(() -> client.execute(write, deadline)).isInstanceOf(UpstreamTimeoutException.class);
+        assertThat(payload.visited.get()).isTrue();
+        assertThat(requests.get()).isEqualTo(1);
+        assertThatCode(() -> client.execute(call(), Deadline.unbounded())).doesNotThrowAnyException();
+        assertThat(requests.get()).isEqualTo(2);
+    }
+
+    @Test
+    void requestSerializationFailureAlsoReleasesProbe() {
+        // 새 URI 빌더는 중괄호를 안전하게 인코딩한다. 실제 DTO 직렬화 실패의 탐침 정리를 검증한다.
+        InternalCall malformed = InternalCall.to(HttpMethod.POST, "/probe").body(new BrokenPayload()).build();
         assertThatThrownBy(() -> client.execute(malformed, Deadline.unbounded()))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(UpstreamContractMismatchException.class);
+        assertThat(requests.get()).isEqualTo(1);
         status.set(200);
         assertThatCode(() -> client.execute(call(), Deadline.unbounded())).doesNotThrowAnyException();
         assertThat(requests.get()).isEqualTo(2);
@@ -97,5 +140,28 @@ class InternalHttpClientRecoveryTest {
 
     private InternalCall call() {
         return InternalCall.to(HttpMethod.POST, "/probe").build();
+    }
+
+    public static class BudgetConsumingPayload {
+        private final Deadline deadline;
+        private final AtomicBoolean visited = new AtomicBoolean();
+
+        BudgetConsumingPayload(Deadline deadline) {
+            this.deadline = deadline;
+        }
+
+        public String getValue() {
+            visited.set(true);
+            while (deadline.remaining().compareTo(Duration.ofMillis(1500)) > 0) {
+                LockSupport.parkNanos(Duration.ofMillis(5).toNanos());
+            }
+            return "serialized-after-budget-was-consumed";
+        }
+    }
+
+    public static class BrokenPayload {
+        public String getValue() {
+            throw new IllegalStateException("직렬화할 수 없는 테스트 DTO");
+        }
     }
 }

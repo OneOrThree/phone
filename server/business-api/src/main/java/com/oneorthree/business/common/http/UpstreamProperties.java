@@ -2,23 +2,26 @@ package com.oneorthree.business.common.http;
 
 import java.time.Duration;
 
-/**
- * 한 상류의 접속·내구성 설정. <b>기본값을 무제한으로 두지 않는다</b> — 기본 RestClient 팩토리는
- * 타임아웃이 없어서, 상류가 멈추면 요청 스레드가 그대로 잠기고 곧 톰캣 풀이 소진돼
- * <b>상류 한 곳의 지연이 진입점 전체의 정지</b>가 된다.
- *
- * @param baseUrl        상류 주소
- * @param serviceToken   이 상류에만 보내는 서비스 토큰(A22 ㊀). 다른 상류에 실리면 최소 권한이 무너진다
- * @param connectTimeout 연결 수립 제한
- * @param readTimeout    응답 대기 제한
- * @param failureThreshold 연속 실패 몇 번에 서킷을 여는가
- * @param openDuration     서킷이 열려 있는 시간. 그 뒤 half-open 으로 한 건만 통과시킨다
- */
-public record UpstreamProperties(
-        String baseUrl,
-        String serviceToken,
-        Duration connectTimeout,
-        Duration readTimeout,
-        int failureThreshold,
-        Duration openDuration) {
+/** 상류별 시간·시도·연결·대기 상한. 무제한 값은 시작할 때 거부한다. */
+public record UpstreamProperties(String baseUrl, String serviceToken, Duration connectTimeout,
+        Duration readTimeout, int failureThreshold, Duration openDuration, int maxAttempts,
+        Duration retryDelay, int maxConnections, int queueCapacity) {
+
+    /** 기존 facade/테스트 생성자의 호환 기본값. */
+    public UpstreamProperties(String baseUrl, String serviceToken, Duration connectTimeout,
+            Duration readTimeout, int failureThreshold, Duration openDuration) {
+        this(baseUrl, serviceToken, connectTimeout, readTimeout, failureThreshold, openDuration,
+                2, Duration.ofMillis(50), 4, 64);
+    }
+
+    public UpstreamProperties {
+        if (connectTimeout == null || connectTimeout.isNegative() || connectTimeout.isZero()
+                || readTimeout == null || readTimeout.isNegative() || readTimeout.isZero()
+                || openDuration == null || openDuration.isNegative() || openDuration.isZero()
+                || retryDelay == null || retryDelay.isNegative()
+                || maxAttempts < 1 || maxAttempts > 10 || failureThreshold < 1
+                || maxConnections < 1 || queueCapacity < 1) {
+            throw new IllegalArgumentException("상류 시간·횟수·용량 설정이 올바르지 않습니다.");
+        }
+    }
 }
