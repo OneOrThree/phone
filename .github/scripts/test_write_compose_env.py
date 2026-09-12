@@ -113,7 +113,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             BUSINESS_REDIS_PASSWORD="redis-only-password", GOOGLE_DRIVE_API_KEY="drive-only",
             SVC_TOKEN_BIZ_TO_LINK="biz-link", SVC_TOKEN_DATA_TO_NOTI="data-noti",
             SVC_TOKEN_DATA_TO_LINK="data-link", SVC_TOKEN_NOTI_TO_DATA="noti-data",
-            SVC_TOKEN_CONSOLE_TO_NOTI="console-noti", LINK_CAPABILITY_KEY="capability",
+            SVC_TOKEN_CONSOLE_TO_NOTI="member-1:console-noti", LINK_CAPABILITY_KEY="capability",
             LINK_IP_SALT="existing-salt", DD_API_KEY="agent-only", CONSOLE_SUDO_PASSWORD_HASH="console-only",
             DATA_API_BASE_URL="http://app:8080", NOTIFICATION_BASE_URL="http://notification:8082",
             LINK_BASE_URL="https://link.example.test", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
@@ -159,7 +159,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertEqual(noti["NOTIFICATION_LEGACY_DEVICE_REGISTRATION"], "false")
             self.assertNotIn("NOTIFICATION_LEGACY_DEVICE_REGISTRATION", biz)
             self.assertEqual(noti["SVC_TOKEN_DATA_TO_NOTI"], "data-noti")
-            self.assertEqual(noti["SVC_TOKEN_CONSOLE_TO_NOTI"], "console-noti")
+            self.assertEqual(noti["SVC_TOKEN_CONSOLE_TO_NOTI"], "member-1:console-noti")
             self.assertEqual(noti["KAFKA_BOOTSTRAP_SERVERS"], "kafka:9092")
             for key in ("FCM_SERVICE_ACCOUNT_JSON", "NOTI_DB_PASSWORD", "API_DB_PASSWORD",
                         "SVC_TOKEN_CONSOLE_TO_NOTI", "SVC_TOKEN_DATA_TO_LINK"):
@@ -212,6 +212,49 @@ class WriteComposeEnvTest(unittest.TestCase):
                 with self.subTest(key=key, value=value):
                     with self.assertRaisesRegex(ValueError, key):
                         MODULE.render({**baseline, key: value}, "example/biz:1", "business-api")
+
+    def test_알림_콘솔_형식과_중복은_실제_소비자_규칙으로_거부한다(self) -> None:
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["notification"]}
+        invalid = ("console-noti", ":secret", "member-4:secret", "member-01:secret",
+                   "member-1:", "member-1: \t", "member-1:\u2028", ",, ,",
+                   "\u2028member-1:secret", "member-1:secret,member-2: secret ",
+                   "member-1:secret,member-1:secret", "${UNRESOLVED}",
+                   {"member-1": "secret"})
+        for console in invalid:
+            with self.subTest(console=console), self.assertRaisesRegex(ValueError, "SVC_TOKEN_CONSOLE_TO_NOTI"):
+                MODULE.render({**baseline, "SVC_TOKEN_CONSOLE_TO_NOTI": console}, "noti:test", "notification")
+        for key in ("SVC_TOKEN_BIZ_TO_NOTI", "SVC_TOKEN_DATA_TO_NOTI"):
+            with self.subTest(collision=key), self.assertRaises(ValueError):
+                MODULE.render({**baseline, "SVC_TOKEN_CONSOLE_TO_NOTI": "member-1: " + baseline[key]},
+                              "noti:test", "notification")
+        with self.assertRaises(ValueError):
+            MODULE.render({**baseline, "SVC_TOKEN_CONSOLE_TO_NOTI": "member-1:console",
+                           "SVC_TOKEN_BIZ_TO_NOTI": "same", "SVC_TOKEN_DATA_TO_NOTI": "same"},
+                          "noti:test", "notification")
+
+    def test_정상_행위자별_토큰은_회전과_구분자_원문을_보존한다(self) -> None:
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["notification"]}
+        # 같은 actor에 다른 토큰은 회전용으로 허용한다. Java trim은 NBSP를 제거하지 않는다.
+        for console in ("member-1:console", " member-1 : one ,member-2:two,member-3:three,",
+                        ",member-1:old, ,member-1:new", "member-1:token:with:colons",
+                        "member-1:\u00a0token,member-2:token", "member-1:\u00a0"):
+            with self.subTest(console=console):
+                rendered = MODULE.render({**baseline, "SVC_TOKEN_CONSOLE_TO_NOTI": console},
+                                         "noti:test", "notification")
+                self.assertIn("SVC_TOKEN_CONSOLE_TO_NOTI=" + MODULE.dotenv_quote(console), rendered)
+
+    def test_잘못된_콘솔_토큰은_기존_env를_덮어쓰지_않는다(self) -> None:
+        payload = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["notification"]}
+        payload["SVC_TOKEN_CONSOLE_TO_NOTI"] = "private-invalid-console-token"
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "notification.env"
+            env_file.write_text("previous")
+            result = subprocess.run([sys.executable, str(SCRIPT), "--output", str(env_file),
+                                     "--service", "notification", "--image", "noti:test"],
+                                    input=json.dumps(payload), text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(env_file.read_text(), "previous")
+            self.assertNotIn(payload["SVC_TOKEN_CONSOLE_TO_NOTI"], result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

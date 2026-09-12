@@ -26,6 +26,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.DefaultApplicationArguments;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +37,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -185,6 +189,25 @@ class NotificationExportServiceIntegrationTest {
                 .filter(record -> NotificationMigrationRecord.RESOURCE_DELIVERY.equals(record.resource()))
                 .filter(record -> user.getId().toString().equals(record.data().get("userId")))
                 .toList();
+    }
+
+    @Test
+    void lenientCliDoesNotPublishAManifestThatOmitsAnUnreconstructableRow(@TempDir Path directory) throws Exception {
+        insertLog("UNRECONSTRUCTABLE_LEGACY_KIND", "PENDING", null);
+        var runner = new NotificationMigrationCliRunner(exportService, null);
+        runner.run(new DefaultApplicationArguments(
+                "--notification.migration.id=" + MIGRATION_ID,
+                "--notification.migration.export-to=" + directory.resolve("export.json"),
+                "--notification.migration.lenient=true",
+                "--notification.migration.closed-at=" + SLOT.toEpochMilli(),
+                "--notification.migration.inflight-drained=true"));
+
+        var diagnostic = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(Files.readString(directory.resolve("export.json")));
+        assertThat(diagnostic.get("report").get("finalEligible").asBoolean()).isFalse();
+        assertThat(diagnostic.get("failures").toString()).contains("UNRECONSTRUCTABLE_LEGACY_KIND");
+        assertThat(directory.resolve("export.verify.json")).doesNotExist();
+        assertThat(directory.resolve("export.import-0000.json")).doesNotExist();
     }
 
     @Test

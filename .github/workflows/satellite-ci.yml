@@ -5,9 +5,8 @@ on:
     paths:
       - 'server/business-api/**'
       - 'server/notification/**'
-      - 'server/data-api/src/main/java/com/oneorthree/phone/notification/**'
-      - 'server/data-api/src/main/java/com/oneorthree/phone/outbox/**'
-      - 'server/data-api/src/main/resources/application-satellites.yml'
+      # 위성 계약은 auth·user·group·internal 등 Data 경계 전반과 테스트에 의존한다.
+      - 'server/data-api/**'
       - 'docs/architecture/**'
       - 'server/scripts/docker-compose.satellites*.yml'
       - 'server/scripts/docker-compose.business.yml'
@@ -23,9 +22,8 @@ on:
     paths:
       - 'server/business-api/**'
       - 'server/notification/**'
-      - 'server/data-api/src/main/java/com/oneorthree/phone/notification/**'
-      - 'server/data-api/src/main/java/com/oneorthree/phone/outbox/**'
-      - 'server/data-api/src/main/resources/application-satellites.yml'
+      # PR과 main/release push에서 같은 Data 계약 검사를 실행한다.
+      - 'server/data-api/**'
       - 'docs/architecture/**'
       - 'server/scripts/docker-compose.satellites*.yml'
       - 'server/scripts/docker-compose.business.yml'

@@ -14,6 +14,8 @@ python3 server/scripts/prepare-satellite-deploy.py \
 
 입력은 실제 배포의 SecretString과 기존 compose 보간 env다. 이미지 태그·누락 자격·존재하지 않는 기존 env는 거부한다. prod에서는 현재 스택과 같은 `--project-name`을 명시한다. env·절차 출력은 0700 디렉터리의 0600 파일이며 값은 로그에 남기지 않는다. 입력의 relay·스케줄 설정은 그대로 전달하므로 준비 도구가 이를 꺼 준다고 가정하지 않는다.
 
+`SVC_TOKEN_CONSOLE_TO_NOTI`는 `member-1:<전용토큰>,member-2:<전용토큰>` 형태이며 행위자는 `member-1`부터 `member-3`까지 허용한다. 단일 공유 토큰, 비어 있는 토큰, 콘솔 토큰 중복 및 Business·Data caller 토큰과의 충돌은 env를 쓰기 전에 거부한다. 같은 행위자의 서로 다른 토큰은 회전을 위해 허용한다. 준비 검사는 알림 `ServiceAuth`의 공백·구분자 규칙을 따르며 입력 원문을 바꾸지 않는다.
+
 ## Data 전용 환경 연결
 
 `docker-compose.satellites.data.yml`을 마지막 `-f`로 넣는다. `env_file: !override`로 prod의 공유 `.env.prod`를 교체하고 `environment: !override`로 dev의 관리자 DB 자격 덮어쓰기를 제거한다. Data 이미지는 `APP_IMAGE`의 검증된 digest를 사용한다. 전용 파일의 `dev,satellites` 또는 `prod,satellites` 프로파일을 검사한다. `!override`를 지원하는 Compose가 필요하며 `config --quiet` 실패 시 진행하지 않는다.

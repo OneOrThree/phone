@@ -262,13 +262,22 @@ ack 리컨실은 한 번에 최대 25건을 조회한다. 정본 조회가 실�
 
 wire 계약의 정본은 알림 서버의 `MigrationRecords.java` 다. 아래는 Data 쪽 산출 규칙이다.
 
-### 산출물 넷
+### 산출물
 
 | 파일 | 내용 |
 | --- | --- |
 | `<이름>.json` | 진단용 전체 문서 — manifest · 레코드 전량 · 실패 목록 · report |
-| `<이름>.import-NNNN.json` | `POST …/import` 본문 `{records:[…]}` — **500건씩** 나눠 둔다 |
-| `<이름>.verify.json` | `POST …/verify` 본문 `{manifest:{…}}` |
+| `<이름>.import-NNNN.json` | 최종 적격 strict export만 생성. `POST …/import` 본문 `{records:[…]}` — **500건씩** 나눠 둔다 |
+| `<이름>.verify.json` | 최종 적격 strict export만 생성. `POST …/verify` 본문 `{manifest:{…}}` |
+
+`lenient=true`는 조건이 충족되어도 진단 전용이다. strict 모드라도 `closedAt` 없는 최초 탐색처럼
+`report.finalEligible=false`이면 전체 진단 JSON만 쓰고 import 배치·verify 파일은 생성하지 않는다.
+따라서 실패 행을 제외한 manifest를 진단 실행의 게시용 산출물로 제공하지 않는다.
+
+같은 출력 이름의 본문·`verify.json`·`import-*.json` 중 하나라도 이미 있으면 새 파일을 쓰기 전에
+실패한다. 본문만 지운 재실행, 이전 실행의 높은 번호 배치도 포함한다. 기존 파일을 삭제하거나
+덮어쓰지 않으므로 새 출력 이름을 사용해야 한다. 정상 최종 export는 모든 import 배치를 쓴 뒤
+verify 파일을 마지막에 생성하며, 도중 실패한 산출물도 새 실행에 재사용하지 않는다.
 
 배치를 미리 나누는 이유: import 상한이 500 인데 운영 중에 손으로 자르면 **자른 자리가 검증에
 남지 않는다**.

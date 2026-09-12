@@ -45,6 +45,7 @@ def secret() -> dict[str, str]:
     for required in WRITER.SERVICE_REQUIRED_KEYS.values():
         keys |= set(required)
     data = {key: f"secretvalue-{key.lower()}" for key in sorted(keys)}
+    data["SVC_TOKEN_CONSOLE_TO_NOTI"] = "member-1:secretvalue-console-one,member-2:secretvalue-console-two"
     # 관측 백엔드 키와 콘솔 비밀번호는 공유 시크릿에 «있지만» 어느 서비스에도 가면 안 된다.
     data["LINK_PROXY_SECRET"] = "secretvalue-link-proxy"
     data["DD_API_KEY"] = "secretvalue-dd-api-key"
@@ -87,6 +88,21 @@ def run(fixture: Fixture, *extra: str, payload: dict | None = None,
 
 
 class PrepareSatelliteDeployTest(unittest.TestCase):
+
+    def test_콘솔_단일_토큰은_기존_준비_파일을_변경하지_않고_거부한다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.output.mkdir()
+            previous = fixture.output / "notification.env"
+            previous.write_text("previous")
+            payload = secret()
+            payload["SVC_TOKEN_CONSOLE_TO_NOTI"] = "private-invalid-console-token"
+            result = run(fixture, payload=payload)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("SVC_TOKEN_CONSOLE_TO_NOTI", result.stderr)
+            self.assertEqual(previous.read_text(), "previous")
+            self.assertEqual({path.name for path in fixture.output.iterdir()}, {"notification.env"})
+            self.assertNotIn(payload["SVC_TOKEN_CONSOLE_TO_NOTI"], result.stdout + result.stderr)
 
     def test_상대_출력경로도_compose에는_절대경로로_기록한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
