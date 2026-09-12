@@ -1,8 +1,11 @@
 package com.oneorthree.notification;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -15,12 +18,50 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-/** 외부 발송은 이 클래스 한 곳만 호출한다. 게이트/소유권/ack의 잠금을 발송까지 유지한다. */
+/**
+ * 외부 발송은 이 클래스 한 곳만 호출한다.
+ *
+ * <p><b>외부 호출은 트랜잭션 «밖»에서 돈다.</b> 판정(게이트 · 소유권 · ack · 적격성)은 짧은 트랜잭션
+ * 하나로 끝내고, FCM 호출은 그것이 커밋된 뒤에 한다. 한 사용자의 활성 기기 수만큼 순차로 도는 외부
+ * 호출을 트랜잭션 안에 두면 두 가지가 같이 무너진다:
+ *
+ * <ul>
+ *   <li>토큰 하나에 최대 6초({@code FcmTransport} 의 연결 2초 + 읽기 4초)라, FCM 이 느릴 때 활성 기기
+ *       열 대면 트랜잭션 상한을 넘긴다. 그 순간 <b>외부 발송은 이미 나갔는데</b>
+ *       {@code delivery_devices} 와 {@code SENT} 만 되감겨, 다음 틱이 <b>같은 푸시를 다시 보낸다</b>.</li>
+ *   <li>전역 {@code device-ownership} 잠금을 쥔 채 기다리므로 그동안 <b>다른 사용자의</b> 기기
+ *       등록·삭제까지 통째로 멈춘다.</li>
+ * </ul>
+ *
+ * <p>대신 <b>펜싱</b>으로 잡는다: 판정 트랜잭션이 커밋되기 전에 보낼 행을 {@link #SEND_LEASE_SECONDS}
+ * 만큼 뒤로 물려 발송이 도는 동안 후보로 다시 서지 않게 하고, 기기 한 대의 결과는 그 기기의 호출이
+ * 끝나는 즉시 <b>자기 트랜잭션</b>으로 내구화한다. 그래서 도중에 무엇이 터져도 «이미 받은 기기»는 받은
+ * 기기로 남고, 재시도는 못 받은 기기에만 간다.
+ *
+ * <p>판정 잠금을 발송까지 끌고 가지 않아도 ack 계약은 그대로다. 보류(ack prepare)와 발송의 <b>판정</b>은
+ * 여전히 같은 사건 잠금 아래에서 직렬화되고, 그 판정이 「보낸다」로 끝난 뒤에 도착한 보류는 예전에도
+ * — 잠금이 풀릴 때까지 기다렸다가 — 이미 나간 발송을 되돌리지 못했다. 달라지는 것은 그 보류가
+ * 발송이 끝나기를 기다리지 않는다는 것뿐이다.
+ */
 @Service
 class DispatchService {
 
     /** 풀릴 시각을 알 수 없는 보류의 재확인 주기 — 상한을 점거하지 않을 만큼만 미룬다. */
     private static final int HOLD_SECONDS = 30;
+
+    /**
+     * 발송 중 펜싱의 길이 — 판정과 상태 맺기 사이에 이 행을 «후보 밖»에 둔다.
+     *
+     * <p>기기 수 × 토큰당 상한(6초)을 넉넉히 덮어야 한다. 짧으면 아직 외부 호출이 도는 행이 다음 틱의
+     * 후보로 다시 서서 같은 푸시가 두 번 나가고, 길면 프로세스가 죽었을 때 회수가 그만큼 늦어진다.
+     */
+    private static final int SEND_LEASE_SECONDS = 120;
+
+    /** 판정 트랜잭션의 상한 — 외부 호출이 빠졌으므로 DB 작업만 담는다. */
+    private static final int PREPARE_TIMEOUT_SECONDS = 30;
+
+    /** 결과를 적는 트랜잭션의 상한 — UPDATE·INSERT 몇 건뿐이다. */
+    private static final int RECORD_TIMEOUT_SECONDS = 15;
 
     /**
      * 「묶음이 다 오기를 기다리는 중」 표식.
@@ -37,15 +78,25 @@ class DispatchService {
     private final Renderer renderer;
     private final PushTransport transport;
     private final Clock clock;
+    private final TransactionTemplate preparation;
+    private final TransactionTemplate recording;
 
     DispatchService(Store store, SettingsService settings, DataClient data, Renderer renderer,
-            PushTransport transport, Clock clock) {
+            PushTransport transport, Clock clock, PlatformTransactionManager manager) {
         this.store = store;
         this.settings = settings;
         this.data = data;
         this.renderer = renderer;
         this.transport = transport;
         this.clock = clock;
+        // REQUIRES_NEW 로 못 박는다 — 나중에 누가 이 메서드를 트랜잭션 안에서 부르더라도 판정이
+        // 그 트랜잭션에 합류해 외부 호출을 다시 감싸는 일이 없도록.
+        this.preparation = new TransactionTemplate(manager);
+        this.preparation.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.preparation.setTimeout(PREPARE_TIMEOUT_SECONDS);
+        this.recording = new TransactionTemplate(manager);
+        this.recording.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.recording.setTimeout(RECORD_TIMEOUT_SECONDS);
     }
 
     List<UUID> candidates() {
@@ -54,16 +105,48 @@ class DispatchService {
                 .stream().map(row -> (UUID) row.get("id")).toList();
     }
 
-    @Transactional(timeout = 60)
+    /**
+     * 후보 한 건(과 같은 묶음에 선 형제들)을 발송한다 — 세 걸음이다.
+     *
+     * <p>① 판정 트랜잭션에서 보낼 것을 정하고 펜싱까지 걸어 커밋한다. ② 트랜잭션 밖에서 기기마다
+     * 외부 호출을 돈다. ③ 기기 하나의 결과는 그 자리에서 자기 트랜잭션에 적고, 마지막에 행 상태를 맺는다.
+     *
+     * @param id 발송 후보의 delivery id
+     */
     public void dispatch(UUID id) {
+        Plan plan = preparation.execute(status -> prepare(id));
+        if (plan == null) {
+            return;
+        }
+        boolean failed = false;
+        for (Attempt attempt : plan.attempts()) {
+            // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
+            PushTransport.Result result = transport.send(attempt.token(), attempt.push(), plan.sound(),
+                    plan.eventId());
+            failed |= Boolean.TRUE.equals(recording.execute(status -> recordAttempt(attempt, result)));
+        }
+        boolean retried = failed;
+        recording.executeWithoutResult(status -> settle(plan, retried));
+    }
+
+    /**
+     * 판정 — 게이트·소유권·ack·적격성을 한 트랜잭션에서 보고 «보낼 계획»만 들고 나온다.
+     *
+     * <p>판정의 부수 효과(억제·이월·기다림 표식)는 이 트랜잭션과 함께 커밋된다. 잠금은 커밋과 동시에
+     * 풀리므로 외부 호출은 아무 잠금도 쥐지 않은 채 돈다.
+     *
+     * @param id 발송 후보의 delivery id
+     * @return 보낼 계획. 보낼 것이 없으면 {@code null}
+     */
+    private Plan prepare(UUID id) {
         Map<String, Object> gate = store.one("SELECT enabled FROM dispatch_control WHERE id=1 FOR SHARE");
         if (gate == null || !Boolean.TRUE.equals(gate.get("enabled"))) {
-            return;
+            return null;
         }
         store.lock("device-ownership");
         Map<String, Object> candidate = store.one("SELECT * FROM deliveries WHERE id=?", id);
         if (candidate == null) {
-            return;
+            return null;
         }
         List<Map<String, Object>> rows = bundleCandidates(candidate);
         // 고정 순서: gate → device → ack → delivery. prepare와 flush가 같은 사건 잠금을 쓴다.
@@ -82,9 +165,9 @@ class DispatchService {
             }
         }
         if (ready.isEmpty()) {
-            return;
+            return null;
         }
-        deliver(ready);
+        return plan(ready);
     }
 
     private List<Map<String, Object>> bundleCandidates(Map<String, Object> first) {
@@ -248,7 +331,13 @@ class DispatchService {
         return true;
     }
 
-    private void deliver(List<Map<String, Object>> ready) {
+    /**
+     * 보낼 기기와 문구를 확정하고 «발송 중» 펜싱을 건다 — 판정 트랜잭션의 마지막 걸음이다.
+     *
+     * @param ready 보낼 자격이 확인된 행들
+     * @return 트랜잭션 밖으로 들고 나갈 계획. 보낼 기기가 없으면 {@code null}
+     */
+    private Plan plan(List<Map<String, Object>> ready) {
         UUID user = (UUID) ready.get(0).get("user_id");
         boolean sound = Boolean.TRUE.equals(settings.read(user).get("soundEnabled"));
         // 두 축을 모두 본다: active 는 «소유권이 살아 있는가»(로그아웃·삭제·탈퇴·세션 폐기),
@@ -256,11 +345,12 @@ class DispatchService {
         // 계속 때리고, 후자를 active 에 적으면 정상 세션의 토큰 교체가 막힌다.
         List<Map<String, Object>> tokens = store.rows("SELECT device_token,device_key FROM device_tokens"
                 + " WHERE user_id=? AND active AND NOT transport_invalid ORDER BY device_token", user);
+        List<UUID> deliveries = ready.stream().map(row -> (UUID) row.get("id")).toList();
         if (tokens.isEmpty()) {
-            ready.forEach(row -> retry((UUID) row.get("id"), "NO_ACTIVE_DEVICE"));
-            return;
+            deliveries.forEach(delivery -> retry(delivery, "NO_ACTIVE_DEVICE"));
+            return null;
         }
-        boolean failed = false;
+        List<Attempt> attempts = new ArrayList<>();
         for (Map<String, Object> token : tokens) {
             // 중복 방지의 키는 «기기»다. 소유권은 등록마다 회전하므로(A22 ㊚) 그것으로 세면 재시도
             // 사이에 앱을 재시작한 기기가 미전송으로 되돌아가 같은 알림을 두 번 받는다.
@@ -271,37 +361,85 @@ class DispatchService {
             if (unsent.isEmpty()) {
                 continue;
             }
-            RenderedPush push = renderer.renderBundle(unsent);
-            PushTransport.Result result = transport.send(token.get("device_token").toString(), push, sound,
-                    collapseEventId(ready));
-            if (result == PushTransport.Result.SENT) {
-                for (Map<String, Object> row : unsent) {
-                    store.update("INSERT INTO delivery_devices(delivery_id,device_key) VALUES(?,?)"
-                            + " ON CONFLICT DO NOTHING", row.get("id"), device);
-                }
-            } else if (result == PushTransport.Result.UNREGISTERED) {
-                // 전송 자격만 내린다. 소유권(active)까지 끄면 앱의 onTokenRefresh 가 그 소유권으로
-                // 가져오는 새 토큰이 CAS 에 걸리고(활성 행만 본다) 1회용 자격도 이미 소비되어,
-                // 정상 로그인 세션인데도 재로그인 전까지 푸시가 복구되지 않는다.
-                store.update("UPDATE device_tokens SET transport_invalid=true,updated_at=now()"
-                        + " WHERE device_token=? AND device_key=?", token.get("device_token"), device);
-            } else {
-                failed = true;
-            }
+            // 렌더도 여기서 끝낸다 — 템플릿 조회가 DB 를 타므로 트랜잭션 밖으로 미룰 이유가 없고,
+            // 템플릿 부재(TEMPLATE_UNAVAILABLE)는 «보내기 전»에 드러나야 한다.
+            attempts.add(new Attempt(device, token.get("device_token").toString(), renderer.renderBundle(unsent),
+                    unsent.stream().map(row -> (UUID) row.get("id")).toList()));
         }
-        for (Map<String, Object> row : ready) {
+        // 펜싱. 외부 호출이 도는 동안 이 행들을 후보 밖에 둔다 — 상태를 맺는 것은 settle 이고,
+        // 그 전에 프로세스가 죽어도 임대가 끝나기 전에는 다시 집히지 않는다.
+        Timestamp lease = Timestamp.from(clock.instant().plusSeconds(SEND_LEASE_SECONDS));
+        for (UUID delivery : deliveries) {
+            store.update("UPDATE deliveries SET next_attempt_at=GREATEST(next_attempt_at,?) WHERE id=?",
+                    lease, delivery);
+        }
+        return new Plan(deliveries, sound, collapseEventId(ready), attempts);
+    }
+
+    /**
+     * 기기 한 대의 결과를 «그 자리에서» 내구화한다 — 이 트랜잭션이 그 발송의 유일한 증거다.
+     *
+     * <p>묶음 전체를 한 트랜잭션으로 맺으면, 뒤쪽 기기에서 터진 실패가 <b>앞서 성공한 기기의 이력까지</b>
+     * 되감는다. 그러면 외부 발송은 이미 나갔는데 못 받은 기기로 되돌아가 재시도가 같은 푸시를 또 보낸다.
+     *
+     * @param attempt 그 기기로 나간 호출
+     * @param result  전송 결과
+     * @return 재시도가 필요한가
+     */
+    private boolean recordAttempt(Attempt attempt, PushTransport.Result result) {
+        if (result == PushTransport.Result.SENT) {
+            for (UUID delivery : attempt.deliveries()) {
+                store.update("INSERT INTO delivery_devices(delivery_id,device_key) VALUES(?,?)"
+                        + " ON CONFLICT DO NOTHING", delivery, attempt.device());
+            }
+            return false;
+        }
+        if (result == PushTransport.Result.UNREGISTERED) {
+            // 전송 자격만 내린다. 소유권(active)까지 끄면 앱의 onTokenRefresh 가 그 소유권으로
+            // 가져오는 새 토큰이 CAS 에 걸리고(활성 행만 본다) 1회용 자격도 이미 소비되어,
+            // 정상 로그인 세션인데도 재로그인 전까지 푸시가 복구되지 않는다.
+            store.update("UPDATE device_tokens SET transport_invalid=true,updated_at=now()"
+                    + " WHERE device_token=? AND device_key=?", attempt.token(), attempt.device());
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * 발송이 끝난 행의 상태를 맺는다.
+     *
+     * @param plan   이번 발송의 계획
+     * @param failed 기기 하나라도 재시도가 필요했는가
+     */
+    private void settle(Plan plan, boolean failed) {
+        for (UUID delivery : plan.deliveries()) {
             if (failed) {
-                retry((UUID) row.get("id"), "FCM_RETRY");
-            } else if (store.one("SELECT 1 FROM delivery_devices WHERE delivery_id=? LIMIT 1",
-                    row.get("id")) == null) {
+                retry(delivery, "FCM_RETRY");
+            } else if (store.one("SELECT 1 FROM delivery_devices WHERE delivery_id=? LIMIT 1", delivery) == null) {
                 // UNREGISTERED는 성공이 아니다. 이 알림의 성공 이력이 전혀 없으면 정상 토큰을
                 // 기다린다. 다른 기기에 이미 성공한 알림은 무효 토큰 때문에 다시 보내지 않는다.
-                retry((UUID) row.get("id"), "NO_ACTIVE_DEVICE");
+                retry(delivery, "NO_ACTIVE_DEVICE");
             } else {
+                // 판정 잠금은 이미 풀렸다 — 상태를 다시 걸어, 그사이 탈퇴가 억제한 행을 되살리지 않는다.
                 store.update("UPDATE deliveries SET status='SENT',sent_at=?,attempts=attempts+1,"
-                        + "last_error=NULL WHERE id=?",
-                        Timestamp.from(clock.instant()), row.get("id"));
+                        + "last_error=NULL WHERE id=? AND status IN ('PENDING','DEFERRED')",
+                        Timestamp.from(clock.instant()), delivery);
             }
+        }
+    }
+
+    /** 기기 한 대로 나갈 외부 호출 하나 — 펜싱의 최소 단위다. */
+    private record Attempt(UUID device, String token, RenderedPush push, List<UUID> deliveries) {
+        Attempt {
+            deliveries = List.copyOf(deliveries);
+        }
+    }
+
+    /** 판정이 끝난 한 번의 발송 — 트랜잭션 밖으로 들고 나갈 값만 담는다. */
+    private record Plan(List<UUID> deliveries, boolean sound, String eventId, List<Attempt> attempts) {
+        Plan {
+            deliveries = List.copyOf(deliveries);
+            attempts = List.copyOf(attempts);
         }
     }
 

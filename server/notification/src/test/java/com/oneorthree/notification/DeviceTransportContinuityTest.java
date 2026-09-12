@@ -12,6 +12,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -19,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -55,7 +58,11 @@ class DeviceTransportContinuityTest {
     @Container
     static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:16-alpine");
     static final UUID USER = UUID.fromString("44444444-4444-4444-8444-444444444444");
+    static final UUID OTHER = UUID.fromString("66666666-6666-4666-8666-666666666666");
     static final Instant DAY = Instant.parse("2026-09-12T03:00:00Z");
+
+    /** {@code DispatchService} 의 발송 펜싱 길이 — 그보다 뒤로 시계를 옮겨야 같은 행이 다시 후보가 된다. */
+    static final int LEASE_SECONDS = 120;
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
@@ -257,6 +264,86 @@ class DeviceTransportContinuityTest {
         UUID other = UUID.fromString("55555555-5555-4555-8555-555555555555");
         devices.register(other, legacyBody("fcm-legacy-2", UUID.randomUUID(), 1L), "transfer");
         assertThat(deviceKey("fcm-legacy-2")).isNotEqualTo(identity);
+    }
+
+    /**
+     * FCM 호출은 <b>트랜잭션 밖</b>에서 돌아야 한다.
+     *
+     * <p>토큰 하나에 최대 6초(연결 2 + 읽기 4)인 호출을 트랜잭션 안에서 기기 수만큼 순차로 돌면, 활성
+     * 기기가 열 대만 돼도 트랜잭션 상한을 넘긴다. 그 순간 <b>외부 발송은 이미 나갔는데</b>
+     * {@code delivery_devices} 와 {@code SENT} 만 되감겨 다음 틱이 같은 푸시를 다시 보낸다.
+     */
+    @Test
+    void theExternalSendRunsWithNoTransactionOpen() {
+        register("fcm-solo", "boot-solo", 1, "reg-solo");
+        AtomicBoolean inTransaction = new AtomicBoolean(true);
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            inTransaction.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return PushTransport.Result.SENT;
+        });
+
+        UUID id = enqueue("outside");
+        dispatch.dispatch(id);
+
+        assertThat(inTransaction).isFalse();
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
+    /**
+     * 발송이 도는 동안 전역 {@code device-ownership} 잠금을 쥐고 있으면 <b>다른 사용자의</b> 기기
+     * 등록·삭제까지 그 시간만큼 멈춘다. 판정이 끝난 뒤에는 그 잠금을 놓아야 한다.
+     */
+    @Test
+    void anotherUsersRegistrationDoesNotWaitForAPushInFlight() {
+        register("fcm-busy", "boot-busy", 1, "reg-busy");
+        AtomicBoolean blocked = new AtomicBoolean(true);
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            Thread other = new Thread(() -> devices.register(OTHER,
+                    body("fcm-other", "boot-other", 1L, 0L, null), "reg-other"));
+            other.start();
+            other.join(3000);
+            blocked.set(other.isAlive());
+            return PushTransport.Result.SENT;
+        });
+
+        dispatch.dispatch(enqueue("concurrent"));
+
+        assertThat(blocked).isFalse();
+        assertThat(store.one("SELECT user_id FROM device_tokens WHERE device_token='fcm-other'"))
+                .containsEntry("user_id", OTHER);
+    }
+
+    /**
+     * 기기 둘 중 앞의 하나가 이미 받은 뒤에 뒤의 하나가 터져도, <b>받은 기기는 받은 기기로 남아야</b> 한다.
+     *
+     * <p>묶음 전체를 한 트랜잭션으로 맺으면 뒤쪽의 실패가 앞쪽의 전송 이력까지 되감는다 — 외부 발송은
+     * 이미 나갔으므로, 그 되감김이 곧 다음 틱의 <b>중복 푸시</b>다.
+     */
+    @Test
+    void aLateFailureDoesNotUndoTheDeviceThatAlreadyReceivedThePush() {
+        register("fcm-first", "boot-first", 1, "reg-first");
+        register("fcm-second", "boot-second", 1, "reg-second");
+        when(transport.send(eq("fcm-second"), any(), anyBoolean(), anyString()))
+                .thenThrow(new IllegalStateException("FCM 응답이 끝내 오지 않았다"));
+
+        UUID id = enqueue("half");
+        assertThatThrownBy(() -> dispatch.dispatch(id)).isInstanceOf(IllegalStateException.class);
+
+        assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id))
+                .singleElement()
+                .satisfies(row -> assertThat(row).containsEntry("device_key", deviceKey("fcm-first")));
+        // 발송 중 펜싱 — 임대가 끝나기 전에는 같은 행이 다시 후보로 서지 않는다.
+        assertThat(dispatch.candidates()).doesNotContain(id);
+
+        when(transport.send(eq("fcm-second"), any(), anyBoolean(), anyString()))
+                .thenReturn(PushTransport.Result.SENT);
+        when(clock.instant()).thenReturn(DAY.plusSeconds(LEASE_SECONDS + 1));
+        dispatch.dispatch(id);
+
+        // 이미 받은 기기에는 다시 보내지 않는다.
+        verify(transport, times(1)).send(eq("fcm-first"), any(), anyBoolean(), anyString());
+        verify(transport, times(2)).send(eq("fcm-second"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
     }
 
     private UUID deviceKey(String token) {
