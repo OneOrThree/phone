@@ -76,6 +76,8 @@ sequenceDiagram
 
 제공자 네트워크 호출은 Data TX 밖이다. 모든 요청은 실제 원 code/credential을 제시하고 Business가 digest를 계산해 내구 시도를 먼저 조회한다. 앱이 보낸 digest나 provider subject만으로 재생하지 않는다. TX1 이후 Business가 죽으면 같은 시도 ID와 같은 자격 증명으로 준비 결과를 되찾아 재개하며, 이미 소비된 일회성 code를 다시 교환하지 않는다. 성공했는데 응답만 잃었으면 고정 claims로 같은 토큰을 복원한다. Data에는 원문 토큰 대신 해시·서명 재료만 남긴다. 재개는 원래 제공자 자격의 digest와 시도 범위가 일치해야 하며 시도 ID 하나만 알아서 토큰을 얻을 수 없다. 제공자 검증 성공 직후 TX1 저장 전에 죽으면 그 검증 결과는 내구화되지 않았으므로 이 복구로 재생할 수 없다. 교환 결과가 불명확한 실행을 안전한 최초 시도로 돌려 code를 무조건 다시 쓰지 않는다. 제공자의 검증된 복구 수단이 없으면 새 제공자 자격과 새 시도로 재인증해야 하며, guest 복구·Q06 정책을 임의 대체하지 않는다. [LLD의 재개 순서와 장애 경계](low-level-design.md#제공자-교환-전에-내구-시도를-조회한다)를 따른다.
 
+자격 digest는 attempt에 고정한 key ID로 계산한다. Business 배포로 digest 키가 바뀌어도 재개는 그 key ID의 이전 키로 같은 digest를 재현하고, 이전 키는 해당 attempt의 복구 창이 끝날 때까지 검증 전용으로 남긴다. 키 교체를 다른 자격으로 오판하지 않는다.
+
 탈퇴·세션 폐기가 먼저 확정됐으면 성공 시도라도 토큰을 다시 발급하지 않는다. 로그인 결과가 불명확하다고 매번 새 시도를 만들면 세션이 늘고 게스트 승격 경쟁이 생기므로 앱은 먼저 같은 시도를 재개한다. 로그인 CAS의 단순 경쟁 패배는 REPREPARE_REQUIRED로 분리하고 같은 attempt/자격으로 새 generation/nonce·고정 재료를 한 번 준비한다. 동시에 재개해도 같은 새 준비를 받고, 이전 nonce의 지연 완료는 거부한다. 탈퇴·epoch 폐기나 복구 창 종료는 INVALIDATED이며 재준비하지 않는다. [LLD 상태 전이](low-level-design.md#로그인-cas-충돌의-재준비-전이)를 따른다. 이는 refresh CAS 경쟁에서 진 요청을 성공 처리하는 규칙이 아니다.
 
 ## 프로필: 상태와 전달할 사실을 같이 저장
@@ -159,11 +161,11 @@ sequenceDiagram
     A->>B: DELETE /me, confirmation, Idempotency-Key
     B->>D: 검증한 주체로 withdraw 명령
     D->>DB: BEGIN + 활성 users 배타 잠금
-    D->>DB: 멱등/권한 검사 + 세션 폐기·위성 명령·랭킹 및 chat/realtime user.withdrawn 내구 기록
+    D->>DB: 멱등/권한 검사 + 세션 폐기·위성 명령·랭킹 및 chat/realtime user.withdrawn·GA4 사용자 삭제 작업 내구 기록
     D->>DB: 방장 조건·내기 해제/환불·증거 동결
     Note over D,DB: 필요한 판정 근거가 불명확하면 전체 롤백
     D->>DB: group_challenge_members 사용자 측정 원본 hard delete
-    D->>DB: 멤버십 정리, group_invites 양방향 삭제<br/>집중/통계 및 개인 태그 연결 파기
+    D->>DB: 멤버십 이탈·개인 설정 초기화, group_invites 양방향 삭제<br/>집중/통계 및 개인 태그 연결 파기
     D->>DB: group_announcements.user_id nullify
     D->>DB: 알림 발송 이력의 수신자·사용자 상대 연계 파기
     D->>DB: 리그 일간 삭제·주간 개인 결과 파기와 최소 완료 마커 분리
@@ -174,6 +176,7 @@ sequenceDiagram
     B-->>A: 200 data(deleted true)
     R->>DB: 커밋된 outbox 읽기
     R->>S: 사용자 폐기·개인자료 정리 재전달
+    Note over R: GA4 사용자 삭제 요청(user_id·app_instance_id)도 outbox로 재시도하고 지연 수용 기간 뒤 재요청
     Note over S: chat/realtime 로컬 TX: 사용자 잠금 → tombstone/version + 읽음 커서 DELETE + 수신 완료
     S-->>R: 로컬 커밋 뒤 대상별 적용 확인
     Note over R,S: 랭킹은 tombstone/version + 모든 주차 ZSET·presence 원자 제거
@@ -193,11 +196,15 @@ sequenceDiagram
 
 소비된 초대 클릭의 claimed_user_id를 익명화해도 claimed_at 소진 표지를 유지한다. Data 후보 조회와 claim은 두 값이 모두 null인 미소비 클릭만 허용하고 이관/복원도 같은 표지를 보존하여 재귀속·보상 중복을 막는다.
 
+claim 클릭의 matched_device_id·app_instance_id·ip_hash·user_agent도 같은 탈퇴 TX에서 파기한다. 두 식별자는 설치 device_id·GA4 기기 식별자와 같아 남기면 익명화한 클릭이 분석 자료로 다시 연결된다. app_instance_id는 지우기 전에 GA4 삭제 작업 입력으로 기록하고 소진 표지·퍼널 근거는 보존한다. 보존하는 group_members 행도 관계 증거만 남기고 그룹 알림·공지 권한·상태·역할을 비개인 기본값으로 초기화한다.
+
 본인 발급 링크의 inviter_id도 같은 중앙 TX에서 nullify한다(nullable 스키마 확장 필요). 링크/종속 클릭은 타인 퍼널의 FK 앵커로 보존하고, 발급자 없는 링크는 랜딩·매치·claim·이관에서 폐기로 취급한다. 활성 users 공유 잠금 아래의 모든 발급 writer를 탈퇴 배타 잠금과 직렬화하며 현재 미구현인 조회/이관 호환까지 검증한 뒤 활성화한다.
 
 방장 위임 조건 실패나 환불·outbox 기록 실패는 중앙 TX 전체를 롤백한다. 지갑을 먼저 삭제해서 내기 환불 경로를 끊지 않는다. 위성 전송 실패는 이미 확정된 중앙 탈퇴를 되돌리지 않고 대상별 미전달 상태로 남긴다. 그러므로 200은 중앙 계정 폐기 완료이며, 모든 위성의 물리 파기가 같은 순간 끝났다는 뜻은 아니다. 지연 요청은 각 위성의 generation/epoch tombstone으로 차단한다.
 
 사용자 활동 로그도 정상적으로 UUID를 기록하므로 별도 파기 대상이다. 중앙 TX는 내구 작업만 남기고 후속 처리자가 실제 파일/회전본/호스트/외부 sink의 연결 제거와 완료를 확인한다. sink 직전 폐기 fence와 기존 큐·지연 업로드의 완료 장벽으로 재부착을 막는다. 운영 주석만으로 S3 구성·보존 기간·파기 완료를 확정하지 않으며 구현·운영 연결을 활성 조건으로 둔다.
+
+GA4도 User-ID·app_instance_id·설치 device_id로 같은 사용자를 잇는다. 중앙 TX는 GA4 사용자 삭제 작업을 내구 기록하고, TX 밖에서 삭제 요청·지연 이벤트 뒤 재요청·완료 증거를 관리한다. 앱은 탈퇴 성공 뒤 식별자를 해제·재설정하기 전에는 사용자 연결 이벤트를 보내지 않는다.
 
 chat/realtime은 별도 DB이므로 Data의 중앙 TX에서 커서를 직접 지우지 않는다. 읽음 보고가 먼저 로컬 잠금을 얻으면 탈퇴 소비자가 그 커서까지 삭제하고, 탈퇴가 먼저면 늦은 보고는 tombstone을 보고 거절한다. Redis 멤버십 캐시가 최대 120초 남거나 늦은 응답이 캐시를 다시 채워도 DB writer는 폐기를 재검사한다. 현 markRead는 캐시 검사 후 별도 UPSERT만 실행하므로 이 보호가 아직 없다. 소비자·모든 cursor writer 통합과 실제 경합 검증 전 파기 완료로 표시하지 않는다. 기존 메시지 본문/sender_id의 보존 정책과 우체통 읽음 표시 여부는 이 개인 이력 파기와 별개다.
 

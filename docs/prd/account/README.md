@@ -45,3 +45,5 @@ legacy 온보딩 전이 보완: 신규 PATCH와 기존 POST/PATCH 프로필 writ
 클릭·활동 로그 파기 보완: claimed_user_id 익명화 뒤에도 소진 표지를 보존해 동일 클릭 재귀속을 막는다. 정상 계측 UUID와 실제 로컬/외부 복사본도 파기 대상으로 포함하며 sink 직전 폐기 검사·지연 큐/업로드 차단·완료 증거를 요구한다. 외부 운영 구성이나 보존 기간을 임의 확정하지 않는다.
 
 친구 관계 파기 보완: 탈퇴자가 from/to인 `friendships`를 soft delete로 남기지 않고 status·기존 deleted_at과 무관하게 같은 중앙 TX에서 hard delete하며 pin 양방향 삭제를 유지한다. 요청·pin 생성의 두 활성 users 공유 잠금과 수락/거절 행 잠금을 보존하고, 잠금 없이 읽고 UPDATE하는 친구 삭제는 행 잠금 재조회로 바꿔 삭제 경합의 500을 기존 `NOT_FRIEND`로 수렴시킨다. 이미 탈퇴한 사용자의 잔존 행 정리는 신규 탈퇴 완료 조건과 구분한다.
+
+분석 식별자·멤버십·digest 키 보완: GA4 User-ID·app_instance_id·설치 device_id 연결을 파기 범위에 넣고 탈퇴 뒤 앱 이벤트 순서와 지연 전송 재요청을 정했다. claim 클릭의 기기·GA4·IP 해시·UA 식별자를 소진 표지와 분리해 파기하고, 보존 멤버십 행의 그룹 알림·공지 권한·상태·역할을 초기화한다. 로그인 자격 digest는 attempt에 key ID를 고정해 키 교체 뒤에도 IdP 재교환 없이 재개한다.
