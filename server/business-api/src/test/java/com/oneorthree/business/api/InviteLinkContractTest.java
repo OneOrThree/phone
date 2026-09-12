@@ -139,7 +139,11 @@ class InviteLinkContractTest extends UpstreamTestBase {
         return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
                 Arguments.of(200, "{\"version\":2}"),
                 Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"version\":2}"),
-                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"  \",\"version\":2}"));
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"  \",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"confirmed\"}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"confirmed\",\"version\":null}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"confirmed\",\"version\":0}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"confirmed\",\"version\":-1}"));
     }
 
     static Stream<Arguments> incompleteIntentBodies() {
@@ -148,7 +152,15 @@ class InviteLinkContractTest extends UpstreamTestBase {
                 Arguments.of(200, "{\"version\":1,\"completed\":true}"),
                 Arguments.of(200, "{\"commandId\":\"" + INTENT_ID + "\",\"version\":1,\"completed\":false}"),
                 Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
-                        + "\",\"eventId\":\"  \",\"version\":1,\"completed\":false}"));
+                        + "\",\"eventId\":\"  \",\"version\":1,\"completed\":false}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
+                        + "\",\"eventId\":\"intent\",\"version\":0,\"completed\":false}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
+                        + "\",\"eventId\":\"intent\",\"version\":-1,\"completed\":false}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
+                        + "\",\"eventId\":\"intent\",\"version\":0,\"completed\":true}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
+                        + "\",\"eventId\":\"intent\",\"version\":-1,\"completed\":true}"));
     }
 
     @ParameterizedTest
@@ -192,6 +204,7 @@ class InviteLinkContractTest extends UpstreamTestBase {
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
         assertThat(DATA.hits("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/abandoned")).isZero();
+        assertThat(DATA.hits("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/completed")).isZero();
         DATA.on("POST /internal/invite-links/claim-confirmations", request -> new MockUpstream.Response(200,
                 "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"e2\",\"version\":2}"));
         mockMvc.perform(post("/api/v1/invite-links/claim")

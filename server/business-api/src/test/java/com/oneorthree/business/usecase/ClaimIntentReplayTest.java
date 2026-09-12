@@ -100,7 +100,11 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
                 Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"version\":2}"),
                 Arguments.of(200, "{\"commandId\":null,\"eventId\":\"confirmed\",\"version\":2}"),
                 Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"\",\"version\":2}"),
-                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\" \",\"version\":2}"));
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\" \",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\"}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\",\"version\":null}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\",\"version\":0}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\",\"version\":-1}"));
     }
 
     @ParameterizedTest

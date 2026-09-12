@@ -215,7 +215,7 @@ public class DataApiClient {
                 deadline,
                 new ParameterizedTypeReference<ClaimIntentAck>() { });
         if (intent == null || intent.commandId() == null
-                || intent.eventId() == null || intent.eventId().isBlank()) {
+                || intent.eventId() == null || intent.eventId().isBlank() || intent.version() <= 0) {
             throw new UpstreamContractMismatchException("초대 claim 의도 응답이 완전하지 않습니다");
         }
         return intent;
@@ -243,7 +243,7 @@ public class DataApiClient {
                 deadline,
                 new ParameterizedTypeReference<DurableCommandAck>() { });
         if (confirmed == null || confirmed.commandId() == null
-                || confirmed.eventId() == null || confirmed.eventId().isBlank()) {
+                || confirmed.eventId() == null || confirmed.eventId().isBlank() || confirmed.version() <= 0) {
             throw new UpstreamContractMismatchException("초대 claim 확정 응답이 완전하지 않습니다");
         }
         return confirmed;

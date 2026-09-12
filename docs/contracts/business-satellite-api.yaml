@@ -1533,8 +1533,10 @@ components:
         version:
           type: integer
           format: int64
+          minimum: 1
           description: |
-            **aggregate 행 잠금 아래** 발급된 단조 version(㊸). DB sequence 는 «할당 순서»만 보장하고
+            **aggregate 행 잠금 아래** 발급된 양수 단조 version(㊸). 0·음수 응답은 직접 적용·완료 전에
+            계약 오류로 거절한다. DB sequence 는 «할당 순서»만 보장하고
             커밋 순서를 보장하지 않아, 먼저 번호를 받고 늦게 커밋한 최신 상태가 폐기된다.
             위성은 이 값으로 역순 적용을 막고, **컬렉션 투영은 aggregate 별 version** 을 쓴다(㊂ —
             유저 단위 최대 version 하나면 지연된 앞 회차가 「오래된 것」으로 거부돼 참가 행이 영구 누락).

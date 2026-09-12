@@ -20,9 +20,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class NotificationSettingsResponseContractTest extends UpstreamTestBase {
     static Stream<Arguments> incompleteCommands() {
+        String identity = "\"commandId\":\"11111111-1111-4111-8111-111111111111\",\"eventId\":\"settings\"";
         return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
                 Arguments.of(200, "{\"version\":2}"),
-                Arguments.of(200, "{\"commandId\":\"11111111-1111-4111-8111-111111111111\",\"version\":2}"));
+                Arguments.of(200, "{\"commandId\":\"11111111-1111-4111-8111-111111111111\",\"version\":2}"),
+                Arguments.of(200, "{" + identity + "}"),
+                Arguments.of(200, "{" + identity + ",\"version\":null}"),
+                Arguments.of(200, "{" + identity + ",\"version\":0}"),
+                Arguments.of(200, "{" + identity + ",\"version\":-1}"),
+                Arguments.of(200, "{" + identity + ",\"version\":-9223372036854775808}"));
     }
 
     static Stream<Arguments> absentSettings() {
@@ -45,6 +51,10 @@ class NotificationSettingsResponseContractTest extends UpstreamTestBase {
         stubActiveUser(USER);
         String record = "PUT " + INTERNAL_PATH + "-commands";
         DATA.on(record, request -> new MockUpstream.Response(responseStatus, body));
+        // Noti는 오래된 version에도 204를 반환하므로 상류 오류에 기대어 우연히 막히면 안 된다.
+        NOTI.on("PUT " + INTERNAL_PATH, request -> new MockUpstream.Response(204, null));
+        DATA.on("POST /internal/outbox-commands/11111111-1111-4111-8111-111111111111/delivered",
+                request -> new MockUpstream.Response(204, null));
         mockMvc.perform(put(PUBLIC_PATH).header("Authorization", "Bearer " + Tokens.access(USER))
                         .header("Idempotency-Key", "incomplete-settings")
                         .contentType("application/json").content(ALL_DISABLED))
@@ -64,6 +74,8 @@ class NotificationSettingsResponseContractTest extends UpstreamTestBase {
                         .contentType("application/json").content(ALL_DISABLED))
                 .andExpect(status().isNoContent());
         assertThat(NOTI.hits("PUT " + INTERNAL_PATH)).isEqualTo(1);
+        assertThat(NOTI.received().get(0).query()).contains("version=2");
+        assertThat(DATA.hits("POST /internal/outbox-commands/" + command + "/delivered")).isEqualTo(1);
         assertThat(DATA.receivedFor(record)).hasSize(2).satisfies(requests ->
                 assertThat(requests.get(0).header("Idempotency-Key"))
                         .isEqualTo(requests.get(1).header("Idempotency-Key")));
@@ -131,12 +143,13 @@ class NotificationSettingsResponseContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.nightEndTime").value("07:00"));
     }
 
-    @Test
-    void disablingAllSettingsStillPersistsAndAppliesBeforeAcknowledging() throws Exception {
+    @ParameterizedTest
+    @ValueSource(longs = {1, 2, Long.MAX_VALUE})
+    void disablingAllSettingsStillPersistsAndAppliesBeforeAcknowledging(long version) throws Exception {
         UUID command = UUID.randomUUID();
         stubActiveUser(USER);
         DATA.on("PUT " + INTERNAL_PATH + "-commands", request -> new MockUpstream.Response(200,
-                "{\"commandId\":\"" + command + "\",\"eventId\":\"settings-disabled\",\"version\":2}"));
+                "{\"commandId\":\"" + command + "\",\"eventId\":\"settings-disabled\",\"version\":" + version + "}"));
         NOTI.on("PUT " + INTERNAL_PATH, request -> new MockUpstream.Response(204, null));
         String delivered = "POST /internal/outbox-commands/" + command + "/delivered";
         DATA.on(delivered, request -> new MockUpstream.Response(204, null));
@@ -153,7 +166,7 @@ class NotificationSettingsResponseContractTest extends UpstreamTestBase {
         assertThat(NOTI.receivedFor("PUT " + INTERNAL_PATH)).singleElement().satisfies(request -> {
             assertThat(request.body()).contains("\"notificationEnabled\":false", "\"soundEnabled\":false",
                     "\"nightModeEnabled\":false");
-            assertThat(request.query()).contains("version=2");
+            assertThat(request.query()).contains("version=" + version);
         });
         assertThat(DATA.hits(delivered)).isEqualTo(1);
     }
