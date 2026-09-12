@@ -68,6 +68,8 @@ class MigrationGateTest {
         registry.add("spring.datasource.password", PG::getPassword);
         // 최초 게이트 개방은 구 AT 롤아웃 창이 닫힌 뒤에만 허용된다(root 운영 제약).
         registry.add("notification.generation-required", () -> "true");
+        // 드레인 예산을 짧게 — 「예산을 넘기면 drained=false」를 초 단위로 확인하기 위해서다.
+        registry.add("notification.drain-budget-seconds", () -> "1");
     }
 
     @Autowired MockMvc mvc;
@@ -378,6 +380,41 @@ class MigrationGateTest {
         } finally {
             worker.shutdownNow();
         }
+    }
+
+    /**
+     * 판정이 끝난 워커는 <b>트랜잭션도 잠금도 없이</b> FCM 을 부른다. 그 워커는 게이트 행을 쥐고
+     * 있지 않으므로 {@code dispatch_control} UPDATE 가 붙잡지 못한다.
+     *
+     * <p>그런데도 {@code drained=true} 를 돌려주면 운영자는 「긴급 정지가 끝났다」로 읽고 컷오버를
+     * 이어간다 — 실제로는 그 워커가 남은 기기들에 계속 발송하고, 전환된 경로와 겹쳐 중복이 된다.
+     * 살아 있는 발송 임대가 있으면 드레인은 완료가 아니다.
+     */
+    @Test
+    void closeDoesNotReportDrainedWhileAnExternalSendIsStillInFlight() throws Exception {
+        var records = records(true, 5);
+        load("i1", records);
+        verify(records, 1, 0);
+        open("o1", records, 1);
+
+        // 판정이 끝나 임대를 쥔 채 FCM 을 부르는 중인 워커 — 트랜잭션도 게이트 잠금도 없다.
+        UUID inflight = UUID.randomUUID();
+        store.update("INSERT INTO deliveries(id,event_id,user_id,kind,payload,status,next_attempt_at,"
+                + "lease_token,lease_expires_at) VALUES(?,?,?,?,?::jsonb,'PENDING',now()+interval '120 seconds',"
+                + "?,now()+interval '120 seconds')",
+                inflight, "inflight-1", USER, "BET_RESULT", "{}", UUID.randomUUID());
+
+        var response = body(post("/internal/admin/dispatch/close", "c-inflight", Map.of()));
+        // 게이트는 «먼저» 닫는다 — 닫는 것이 안전이고 기다리는 것은 확인이다.
+        assertThat(Json.map(response.get("dispatch"))).containsEntry("enabled", false);
+        assertThat(response)
+                .as("발송이 아직 도는 중이면 드레인 완료가 아니다")
+                .containsEntry("drained", false);
+
+        // 그 워커가 결과를 맺으면(임대 해제) 같은 명령의 재실행이 드레인 완료를 준다.
+        store.update("UPDATE deliveries SET lease_token=NULL,lease_expires_at=NULL WHERE id=?", inflight);
+        assertThat(body(post("/internal/admin/dispatch/close", "c-inflight", Map.of())))
+                .containsEntry("drained", true);
     }
 
     @Test
@@ -865,6 +902,33 @@ class MigrationGateTest {
                 .containsEntry("active", true);
     }
 
+    /**
+     * <b>전량 제거를 뜻하는 빈 스냅샷은 {@code imports} 에 행이 하나도 없다.</b> 세대를 거기서만 세면
+     * 그 세대가 통째로 보이지 않아, 스냅샷을 빠뜨린 매니페스트가 「세대는 하나뿐」으로 통과한다.
+     *
+     * <p>그러면 옛 {@code snap-1} 의 건수·체크섬과 맞는 매니페스트로 검증·개방이 끝나고,
+     * {@code retire} 도 지목이 없어 아무 행도 정리하지 않는다 — 최종 스냅샷에서 제거된 기기로 계속
+     * 발송된다. 등재된 공집합도 한 세대로 세야 한다.
+     */
+    @Test
+    void aRegisteredEmptySnapshotStillCountsAsAGenerationSoAnUnnamedManifestIsRejected() throws Exception {
+        List<Map<String, Object>> first = new ArrayList<>(records(true, 5));
+        load("i1", "snap-1", first);
+        // 전량 제거 — 등재는 하되 레코드는 0건이다. imports 에는 snap-2 행이 생기지 않는다.
+        load("i2", "snap-2", List.of());
+        assertThat(store.one("SELECT snapshot_id FROM migration_snapshots WHERE migration_id=? AND snapshot_id=?",
+                "m1", "snap-2"))
+                .as("등재부에는 남아야 한다 — 「선언된 공집합」과 「모르는 스냅샷」을 가르는 근거다")
+                .isNotNull();
+        assertThat(store.rows("SELECT record_key FROM imports WHERE migration_id=? AND snapshot_id=?",
+                "m1", "snap-2"))
+                .as("빈 스냅샷은 imports 에 행이 없다 — 그래서 거기서만 세면 안 보인다")
+                .isEmpty();
+
+        // 지목 없이 옛 세대의 건수·체크섬으로 검증하면 거절돼야 한다.
+        assertThat(reasons(body(verify(first, 1, 0)))).contains("SNAPSHOT_REQUIRED");
+    }
+
     /** 태그를 빠뜨린 적재는 「전량 제거」처럼 보인다. 등재된 적 없는 스냅샷 지목은 실패다. */
     @Test
     void aManifestNamingAnUnregisteredSnapshotIsRejected() throws Exception {
@@ -1126,7 +1190,7 @@ class MigrationGateTest {
 
     private MvcResult post(String path, String key, Map<String, Object> body) throws Exception {
         MockHttpServletRequestBuilder builder = MockMvcRequestBuilders.post(path)
-                .header("Authorization", "Bearer test-console").header("X-Console-Actor", "member-2")
+                .header("Authorization", "Bearer test-console-2").header("X-Console-Actor", "member-2")
                 .contentType(MediaType.APPLICATION_JSON).content(Json.write(body));
         return mvc.perform(key == null ? builder : builder.header("Idempotency-Key", key)).andReturn();
     }

@@ -103,6 +103,47 @@ class NotificationEventKeyTest {
                 .isNotEqualTo(NotificationEventKey.of(NotificationKind.FRIEND_REQUEST, USER, SUBJECT, at));
     }
 
+    /**
+     * 분 축은 <b>고정 버킷</b>이라 같은 사건이 경계에서 갈린다 — 버전 필드가 없는 친구 요청의 재개·수락은
+     * 동시에 처리된 둘이 각자 자기 {@code updatedAt} 을 쓰기 때문이다. 쓰기 키는 결정적이어야 하니 그대로
+     * 두고, 중복 <b>판정</b>이 인접 버킷까지 대조해 「최근 1분」 계약을 실제 1분 구간으로 만든다.
+     */
+    @Test
+    @DisplayName("분 축은 인접 버킷까지 대조한다 — 12:00:59 와 12:01:01 이 두 건이 되면 푸시가 두 번 나간다")
+    void minuteAxisComparesAgainstAdjacentBuckets() {
+        Instant justBefore = Instant.parse("2026-09-11T12:00:59Z");
+        Instant justAfter = Instant.parse("2026-09-11T12:01:01Z");
+        String beforeKey = NotificationEventKey.of(NotificationKind.FRIEND_REQUEST, USER, SUBJECT, justBefore);
+        String afterKey = NotificationEventKey.of(NotificationKind.FRIEND_REQUEST, USER, SUBJECT, justAfter);
+
+        // 쓰기 키 자체는 그대로 갈린다 — 결정적이어야 하므로 넓히지 않는다.
+        assertThat(beforeKey).isNotEqualTo(afterKey);
+        // 대조 목록은 «쓰기 키가 먼저»고, 서로를 덮는다.
+        assertThat(NotificationEventKey.duplicateKeysOf(NotificationKind.FRIEND_REQUEST, USER, SUBJECT, justAfter))
+                .first().isEqualTo(afterKey);
+        assertThat(NotificationEventKey.duplicateKeysOf(NotificationKind.FRIEND_REQUEST, USER, SUBJECT, justAfter))
+                .contains(beforeKey);
+        assertThat(NotificationEventKey.duplicateKeysOf(NotificationKind.FRIEND_REQUEST, USER, SUBJECT, justBefore))
+                .contains(afterKey);
+        // 3분 뒤는 별개다 — 폭이 넓어지면 거절 뒤 다시 보낸 요청의 통보가 사라진다.
+        assertThat(NotificationEventKey.duplicateKeysOf(NotificationKind.FRIEND_REQUEST, USER, SUBJECT, justBefore))
+                .doesNotContain(NotificationEventKey.of(NotificationKind.FRIEND_REQUEST, USER, SUBJECT,
+                        justBefore.plusSeconds(180)));
+    }
+
+    @Test
+    @DisplayName("반복 축(DAY)과 시간축 없는 종류는 넓히지 않는다 — 어제 것 때문에 오늘 것이 사라지면 안 된다")
+    void repeatingAndAxislessKindsCompareOnlyTheirOwnKey() {
+        Instant justAfterMidnight = kst(2026, 9, 12, 0, 1);
+
+        assertThat(NotificationEventKey.duplicateKeysOf(NotificationKind.CHALLENGE_WINDOW_END, USER, SUBJECT,
+                justAfterMidnight))
+                .containsExactly(NotificationEventKey.of(NotificationKind.CHALLENGE_WINDOW_END, USER, SUBJECT,
+                        justAfterMidnight));
+        assertThat(NotificationEventKey.duplicateKeysOf(NotificationKind.BET_RESULT, USER, SUBJECT, null))
+                .containsExactly(NotificationEventKey.of(NotificationKind.BET_RESULT, USER, SUBJECT, null));
+    }
+
     @Test
     @DisplayName("시간축이 있는데 원본 시각이 없으면 죽는다 — 「없으면 지금」으로 접히면 멱등이 무너진다")
     void missingEventTimeFailsLoudly() {

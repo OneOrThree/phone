@@ -195,13 +195,16 @@ public class NotificationMigrationCliRunner implements ApplicationRunner {
                 target.toAbsolutePath(), records.size(), batches, document.failures().size());
         log.info("verify manifest — {}", manifestPath.toAbsolutePath());
         if (document.report().finalEligible()) {
-            log.info("이 문서는 최종 verify 에 쓸 수 있습니다 — 정지 창 확인·drain 확인·실패 0·잔여 큐 0.");
+            log.info("이 문서는 최종 verify 에 쓸 수 있습니다 — "
+                    + "정지 창 확인·drain 확인·실패 0·잔여 큐 0·중복 기기 토큰 0.");
         } else {
             // 「탐색용인지 최종본인지」를 파일 이름으로는 구분할 수 없다. 로그로 분명히 남긴다.
+            // 다섯 조건을 «전부» 적는다 — 하나를 빼면 그것이 원인일 때 운영자가 볼 곳이 없어진다.
             log.warn("이 문서는 최종 verify 에 쓸 수 없습니다(탐색용) — closedAt={}, drain 확인={}, "
-                            + "실패 {}건, 잔여 {}",
+                            + "실패 {}건, 잔여 {}, 중복 기기 토큰 {}건",
                     document.manifest().stopWindow().closedAt(), document.report().inflightDrained(),
-                    document.failures().size(), document.manifest().stopWindow().queueDepth());
+                    document.failures().size(), document.manifest().stopWindow().queueDepth(),
+                    document.report().duplicateDeviceTokens().size());
         }
     }
 

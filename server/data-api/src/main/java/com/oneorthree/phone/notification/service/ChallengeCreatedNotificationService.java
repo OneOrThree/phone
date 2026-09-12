@@ -35,6 +35,7 @@ import java.time.Instant;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -116,7 +117,15 @@ public class ChallengeCreatedNotificationService {
         }
         String missionLabel = missionLabel(challenge);
         int queued = 0;
-        for (GroupMember member : groupMemberRepository.findByGroup(challenge.getGroup())) {
+        // 수신자 순서를 «전역으로 같은 기준»으로 고정한다. OUTBOX 모드의 enqueueOnly 는 수신자마다
+        // aggregate_versions(USER, userId) 를 배타 잠금하고 그 잠금은 원 트랜잭션이 끝날 때까지
+        // 유지된다. findByGroup 에는 ORDER BY 가 없으므로, 공통 멤버가 여럿인 두 그룹에서 챌린지가
+        // 동시에 개설되면 한쪽이 A→B, 다른 쪽이 B→A 로 잠금을 잡아 PostgreSQL 이 한쪽을 deadlock
+        // 으로 중단한다 — 알림 하나가 아니라 «챌린지 개설 트랜잭션 전체»가 롤백된다.
+        // 정렬 기준은 userId 다. 그룹·멤버십 id 로 정렬하면 그룹마다 순서가 달라 같은 문제가 남는다.
+        for (GroupMember member : groupMemberRepository.findByGroup(challenge.getGroup()).stream()
+                .sorted(Comparator.comparing(candidate -> candidate.getUser().getId()))
+                .toList()) {
             User user = member.getUser();
             if (user.isDeleted() || user.getId().equals(event.creatorUserId())) {
                 continue;
