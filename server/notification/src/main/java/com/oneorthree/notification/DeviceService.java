@@ -122,7 +122,10 @@ class DeviceService {
                 : Json.uuid(body, "legacySessionId");
         Map<String, Object> previous = store.one("SELECT * FROM device_tokens WHERE device_token=? FOR UPDATE", token);
         Map<String, Object> knownOwner = ownership == null ? null
-                : store.one("SELECT * FROM device_tokens WHERE ownership_token::text=? FOR UPDATE", ownership);
+                // uuid 값으로 대조한다. ::text 로 비교하면 PostgreSQL 이 소문자로 출력하므로, 앱이 같은
+                // 소유권을 대문자로 정규화해 보내는 순간 «같은 UUID 인데» CAS 가 어긋나 정상 재등록이
+                // DEVICE_OWNERSHIP_CONFLICT 로 거절된다. 형식 검사는 A-F 를 허용하므로 실제로 온다.
+                : store.one("SELECT * FROM device_tokens WHERE ownership_token=?::uuid FOR UPDATE", ownership);
         // CAS 재등록에서 자격이 생략되어도 기존 세션 연결을 버리지 않는다 — 구 앱 세션 축도 같다.
         if (hash == null && knownOwner != null && user.equals(knownOwner.get("user_id"))) {
             hash = (String) knownOwner.get("bootstrap_hash");
@@ -306,9 +309,12 @@ class DeviceService {
             store.update("INSERT INTO device_tokens(device_token,user_id,ownership_token,auth_generation,active)"
                     + " VALUES(?,?,?,?,false) ON CONFLICT DO NOTHING", token, user, tombstoneOwner, generation);
         }
+        // 소유권은 uuid 값으로 대조한다(위 knownOwner 와 같은 이유). 여기서 어긋나면 더 나쁘다 —
+        // 앞선 tombstone INSERT 는 기존 device_token 과 충돌해 아무 일도 하지 않고 이 UPDATE 도 0행이
+        // 되는데, 삭제는 «성공 응답»을 돌려주므로 기기가 활성인 채 계속 알림을 받는다.
         store.update("UPDATE device_tokens SET active=false,ownership_version=ownership_version+1,updated_at=now()"
                 + " WHERE user_id=? AND active AND (?::text IS NULL OR device_token=?)"
-                + " AND (?::text IS NULL OR ownership_token::text=?)"
+                + " AND (?::uuid IS NULL OR ownership_token=?::uuid)"
                 + " AND (?::bigint IS NULL OR auth_generation IS NULL OR auth_generation<=?)",
                 user, token, token, owner, owner, generation, generation);
     }

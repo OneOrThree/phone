@@ -400,6 +400,34 @@ class DeviceTransportContinuityTest {
                 .containsEntry("user_id", OTHER).containsEntry("transport_invalid", false);
     }
 
+    /**
+     * 앱이 소유권 UUID 를 <b>대문자로 정규화해</b> 보내도 같은 값으로 인정돼야 한다.
+     *
+     * <p>형식 검사는 {@code A-F} 를 허용하는데 PostgreSQL 의 {@code uuid::text} 는 소문자로 출력한다.
+     * 문자열로 대조하면 <b>같은 UUID 인데</b> CAS 가 어긋나, 정상 재등록이
+     * {@code DEVICE_OWNERSHIP_CONFLICT} 로 거절되고 삭제는 0행을 지운 채 «성공»을 돌려준다 —
+     * 그 기기는 활성인 채로 계속 알림을 받는다.
+     */
+    @Test
+    void anOwnershipTokenSentInUppercaseIsStillTheSameValue() {
+        String owner = register("fcm-case", "boot-case", 1, "reg-case");
+        String upper = owner.toUpperCase(java.util.Locale.ROOT);
+        assertThat(upper).isNotEqualTo(owner);
+
+        // 재등록(CAS) — 대문자 표기로도 같은 소유권이어야 한다.
+        UUID identity = deviceKey("fcm-case");
+        Map<String, Object> rotated = devices.register(USER, body("fcm-case-2", null, 1L, 0L, upper), "rotate-case");
+        assertThat(rotated).containsKey("ownershipToken");
+        assertThat(deviceKey("fcm-case-2")).isEqualTo(identity);
+
+        // 삭제 — 대문자 표기로도 실제로 그 행을 끊어야 한다.
+        String current = rotated.get("ownershipToken").toString();
+        devices.delete(USER, "fcm-case-2", current.toUpperCase(java.util.Locale.ROOT), 0L, "delete-case");
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='fcm-case-2'"))
+                .as("성공 응답만 주고 행이 활성으로 남으면 그 기기는 계속 알림을 받는다")
+                .containsEntry("active", false);
+    }
+
     private UUID deviceKey(String token) {
         return (UUID) store.one("SELECT device_key FROM device_tokens WHERE device_token=?", token).get("device_key");
     }
