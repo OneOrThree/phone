@@ -123,6 +123,9 @@ public class DeviceTokenUseCase {
         if (result == null) {
             throw new UpstreamContractMismatchException("알림 기기 등록 응답 본문이 없습니다");
         }
+        if (!DeviceOwnershipTokens.isCanonical(result.ownershipToken())) {
+            throw new UpstreamContractMismatchException("알림 기기 등록 응답에 유효한 ownershipToken이 없습니다");
+        }
         revokeIfTheSessionEndedDuringRegistration(
                 claims, deviceToken, result, deviceBootstrap, legacySessionId, deadline);
         return result;

@@ -45,8 +45,13 @@ public final class DeviceOwnershipTokens {
      *                         CAS 를 잃은 넓은 삭제다
      */
     public static void requireCanonical(String ownershipToken) {
-        if (ownershipToken != null && !CANONICAL_UUID.matcher(ownershipToken).matches()) {
+        if (ownershipToken != null && !isCanonical(ownershipToken)) {
             throw new DomainException(CommonErrorCode.INVALID_PARAMETER);
         }
+    }
+
+    /** 입력·발급 응답이 다음 요청에서도 같은 CAS 값으로 사용 가능한 정규 UUID인지 판정한다. */
+    public static boolean isCanonical(String ownershipToken) {
+        return ownershipToken != null && CANONICAL_UUID.matcher(ownershipToken).matches();
     }
 }

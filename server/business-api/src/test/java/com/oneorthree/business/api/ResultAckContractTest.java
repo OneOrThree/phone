@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -63,6 +64,41 @@ class ResultAckContractTest extends UpstreamTestBase {
         return "/api/v1/me/challenge-results/" + SESSION + "/ack";
     }
 
+    static Stream<Arguments> unprotectedPrepareResponses() {
+        return Stream.of("{\"held\":false}", "{\"held\":true}",
+                "{\"held\":false,\"state\":null}", "{\"held\":true,\"state\":\"\"}",
+                "{\"held\":true,\"state\":\"UNKNOWN\"}", "{\"held\":false,\"state\":\"HELD\"}",
+                "{\"held\":true,\"state\":\"NEEDS_CONFIRM\"}", "{\"held\":false,\"state\":\"NONE\"}",
+                "{\"held\":true,\"state\":\"RELEASED\"}", "{\"held\":false,\"state\":\"COMMITTED\"}",
+                "{\"held\":true,\"state\":\"  \"}")
+                .map(Arguments::of);
+    }
+
+    @ParameterizedTest
+    @MethodSource("unprotectedPrepareResponses")
+    void unprotectedPrepareCannotCommitAndTheSameKeyCanRetry(String body) throws Exception {
+        String prepare = "POST /internal/users/" + USER + "/result-ack/prepare";
+        String dataAck = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack";
+        NOTI.on(prepare, request -> new MockUpstream.Response(200, body));
+        DATA.on(dataAck, request -> new MockUpstream.Response(200, null));
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/commit",
+                request -> new MockUpstream.Response(204, null));
+        mockMvc.perform(post(ackPath()).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-ack").contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isBadGateway());
+        assertThat(DATA.hits(dataAck)).isZero();
+        assertThat(NOTI.received()).hasSize(1);
+        NOTI.on(prepare, request -> new MockUpstream.Response(200, "{\"held\":true,\"state\":\"HELD\"}"));
+        mockMvc.perform(post(ackPath()).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-ack").contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isOk());
+        assertThat(DATA.hits(dataAck)).isEqualTo(1);
+        assertThat(NOTI.receivedFor(prepare)).hasSize(2)
+                .allSatisfy(request -> assertThat(request.header("Idempotency-Key")).isEqualTo("same-ack:ack-prepare"));
+    }
+
     @Test
     @DisplayName("빈 prepare 응답은 계약 오류이며 Data ack를 커밋하지 않는다")
     void emptyPrepareDoesNotAcknowledge() throws Exception {
@@ -102,11 +138,12 @@ class ResultAckContractTest extends UpstreamTestBase {
                 .isEqualTo("POST /internal/users/" + USER + "/result-ack/commit");
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("prepare 가 held=false 를 줘도 Data ack 는 진행한다 — 「이미 확정」일 수 있고 실패로 읽으면 확인이 막힌다")
-    void heldFalse도진행() throws Exception {
+    void confirmed면Held값과무관하게진행(boolean held) throws Exception {
         NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->
-                new MockUpstream.Response(200, "{\"held\":false,\"state\":\"COMMITTED\"}"));
+                new MockUpstream.Response(200, "{\"held\":" + held + ",\"state\":\"CONFIRMED\"}"));
         DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack",
                 request -> new MockUpstream.Response(200, null));
         NOTI.on("POST /internal/users/" + USER + "/result-ack/commit",

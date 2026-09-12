@@ -29,6 +29,61 @@ class InviteLinkContractTest extends UpstreamTestBase {
     private static final String CONFIRM_ID = "dddddddd-0000-0000-0000-000000000002";
     private static final String CLAIM_ID = "eeeeeeee-0000-0000-0000-000000000001";
 
+    static Stream<Arguments> mismatchedIssueSubjects() {
+        return Stream.of(Arguments.of(null, USER), Arguments.of(GROUP, null),
+                Arguments.of(USER, USER), Arguments.of(GROUP, GROUP));
+    }
+
+    static Stream<Arguments> absentIssueContexts() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("absentIssueContexts")
+    void absentIssueContextIsAContractErrorAndCanRetry(int code, String body) throws Exception {
+        stubActiveUser(USER);
+        String context = "GET /internal/groups/" + GROUP + "/invite-issue-context";
+        DATA.on(context, request -> new MockUpstream.Response(code, body));
+        LINK.on("POST /internal/links", request -> new MockUpstream.Response(200,
+                "{\"slug\":\"abc123\",\"url\":\"https://l/abc123\"}"));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-issue"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        assertThat(LINK.received()).isEmpty();
+        DATA.on(context, request -> new MockUpstream.Response(200, issueContext(true, true)));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-issue"))
+                .andExpect(status().isOk());
+        assertThat(LINK.hits("POST /internal/links")).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @MethodSource("mismatchedIssueSubjects")
+    void issueContextMustBelongToTheRequestedGroupAndAuthenticatedUser(UUID group, UUID inviter) throws Exception {
+        stubActiveUser(USER);
+        String invalid = issueContext(true, true)
+                .replace("\"groupId\":\"" + GROUP + "\"", "\"groupId\":" + (group == null ? "null" : "\"" + group + "\""))
+                .replace("\"inviterId\":\"" + USER + "\"", "\"inviterId\":" + (inviter == null ? "null" : "\"" + inviter + "\""));
+        String context = "GET /internal/groups/" + GROUP + "/invite-issue-context";
+        DATA.on(context, request -> new MockUpstream.Response(200, invalid));
+        LINK.on("POST /internal/links", request -> new MockUpstream.Response(200,
+                "{\"slug\":\"abc123\",\"url\":\"https://l/abc123\"}"));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-issue"))
+                .andExpect(status().isBadGateway());
+        assertThat(LINK.received()).isEmpty();
+        DATA.on(context, request -> new MockUpstream.Response(200, issueContext(true, true)));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-issue"))
+                .andExpect(status().isOk());
+        assertThat(LINK.hits("POST /internal/links")).isEqualTo(1);
+    }
+
     static Stream<Arguments> absentPendingBodies() {
         return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
                 Arguments.of(200, "{}"), Arguments.of(200, "{\"capability\":null}"),

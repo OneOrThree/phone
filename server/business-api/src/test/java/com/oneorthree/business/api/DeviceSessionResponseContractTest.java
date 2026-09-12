@@ -71,7 +71,12 @@ class DeviceSessionResponseContractTest extends UpstreamTestBase {
 
     static Stream<Arguments> incompleteRegistrationResponses() {
         return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
-                Arguments.of(200, "{}"), Arguments.of(200, "{\"ownershipToken\":null}"));
+                Arguments.of(200, "{}"), Arguments.of(200, "{\"ownershipToken\":null}"),
+                Arguments.of(200, "{\"ownershipToken\":\"\"}"),
+                Arguments.of(200, "{\"ownershipToken\":\"  \"}"),
+                Arguments.of(200, "{\"ownershipToken\":\"not-a-uuid\"}"),
+                Arguments.of(200, "{\"ownershipToken\":\"1-1-1-1-1\"}"),
+                Arguments.of(200, "{\"ownershipToken\":\" " + OWNER + "\"}"));
     }
 
     @ParameterizedTest
@@ -93,6 +98,24 @@ class DeviceSessionResponseContractTest extends UpstreamTestBase {
         assertThat(NOTI.received().get(0).header("Idempotency-Key"))
                 .isEqualTo(NOTI.received().get(1).header("Idempotency-Key"));
         assertThat(NOTI.received().get(0).body()).isEqualTo(NOTI.received().get(1).body());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"abcdefab-1234-4567-890a-abcdefabcdef", "ABCDEFAB-1234-4567-890A-ABCDEFABCDEF"})
+    void canonicalOwnershipIsPreservedAndAcceptedByTheNextWrite(String owner) throws Exception {
+        stubActiveUser(USER);
+        DATA.on(verification(true), request -> new MockUpstream.Response(200, LIVE));
+        NOTI.on("POST /internal/devices", request ->
+                new MockUpstream.Response(200, "{\"ownershipToken\":\"" + owner + "\"}"));
+        register(true).andExpect(status().isOk()).andExpect(jsonPath("$.ownershipToken").value(owner));
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, SESSION))
+                        .header("Idempotency-Key", "next-registration").contentType("application/json")
+                        .content("{\"deviceToken\":\"device\",\"deviceBootstrap\":\"bootstrap\","
+                                + "\"ownershipToken\":\"" + owner + "\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.ownershipToken").value(owner));
+        assertThat(NOTI.receivedFor("POST /internal/devices")).hasSize(2);
+        assertThat(NOTI.receivedFor("POST /internal/devices").get(1).body()).contains(owner);
     }
 
     private void stubRegistration() {

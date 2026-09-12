@@ -200,15 +200,6 @@ public class NotificationExportService {
              ORDER BY p.user_id, s.id
             """;
 
-    private static final String DUPLICATE_TOKEN_SQL = """
-            SELECT device_token, ARRAY_AGG(CAST(id AS varchar) ORDER BY id) AS user_ids
-              FROM users
-             WHERE device_token IS NOT NULL
-             GROUP BY device_token
-            HAVING COUNT(*) > 1
-             ORDER BY device_token
-            """;
-
     /**
      * 정지 창이 <b>아직 끝나지 않았다</b>는 증거 — Data 가 여전히 밖으로 내보낼 것이 남았는가.
      *
@@ -322,13 +313,18 @@ public class NotificationExportService {
         counts.put("failures", (long) failures.size());
         counts.put("queueDepth", queueDepth);
 
-        List<NotificationExportDocument.DuplicateDeviceToken> duplicates = readDuplicateDeviceTokens();
+        List<NotificationExportDocument.DuplicateDeviceToken> duplicates = duplicateDeviceTokens(devices);
         NotificationExportDocument document = new NotificationExportDocument(
                 exportedAt, migrationId, manifest, List.copyOf(records), List.copyOf(failures),
                 new NotificationExportDocument.Report(duplicates, counts, queueBreakdown,
                         inflightDrained, closedAt != null && inflightDrained && failures.isEmpty()
-                                && queueDepth == 0));
+                                && duplicates.isEmpty() && queueDepth == 0));
 
+        if (strict && !duplicates.isEmpty()) {
+            throw new IllegalStateException(
+                    "중복 기기 토큰이 " + duplicates.size() + "개 남아 전환할 수 없습니다. "
+                            + "진단 export의 report.duplicateDeviceTokens를 확인하고 소유권을 정리하세요.");
+        }
         if (strict && !failures.isEmpty()) {
             // 여기서 죽는 편이 낫다. 통과시키면 그 행들이 이관되지 않은 채 구 DB 에만 남고,
             // 컷오버 후에는 아무도 그 큐를 보지 않는다.
@@ -410,6 +406,10 @@ public class NotificationExportService {
         List<NotificationMigrationRecord> records = new ArrayList<>(rows.size());
         for (Object[] row : rows) {
             String token = String.valueOf(row[1]);
+            if (token.isBlank()) {
+                // 구 코드가 남긴 공백은 등록 가능한 기기가 아니다. 유효한 토큰의 원문은 바꾸지 않는다.
+                continue;
+            }
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("deviceToken", token);
             data.put("userId", String.valueOf(row[0]));
@@ -521,6 +521,15 @@ public class NotificationExportService {
             failures.add(fail(rowId, userId, legacyKind, status, FAIL_UNKNOWN_KIND,
                     "신 카탈로그에 없는 종류입니다 — 모르는 것을 조용히 버리면 그게 곧 유실입니다."));
             return Optional.empty();
+        }
+        if (subjectId == null) {
+            // V45는 이 5종의 target_user_id를 의도적으로 subject_id에 백필하지 않았다.
+            // 다른 종류에서는 target_user_id가 같은 대상을 뜻한다고 가정하지 않는다.
+            subjectId = switch (kind) {
+                case FRIEND_REQUEST, FRIEND_ACCEPTED, CHALLENGE_CREATED, CHALLENGE_WINDOW_END, CHALLENGE_ENDED ->
+                        toUuid(row[5]);
+                default -> null;
+            };
         }
         if (kind.subjectKind() != NotificationKind.SubjectKind.NONE && subjectId == null) {
             failures.add(fail(rowId, userId, legacyKind, status, FAIL_NO_SUBJECT,
@@ -735,16 +744,22 @@ public class NotificationExportService {
                 + MigrationCanonicalJson.sha256Hex(vector.getBytes(StandardCharsets.UTF_8));
     }
 
-    private List<NotificationExportDocument.DuplicateDeviceToken> readDuplicateDeviceTokens() {
-        @SuppressWarnings("unchecked")
-        List<Object[]> rows = entityManager.createNativeQuery(DUPLICATE_TOKEN_SQL).getResultList();
-        List<NotificationExportDocument.DuplicateDeviceToken> duplicates = new ArrayList<>(rows.size());
-        for (Object[] row : rows) {
-            String token = String.valueOf(row[0]);
-            String masked = token.length() <= 8 ? token : token.substring(0, 8) + "…";
-            duplicates.add(new NotificationExportDocument.DuplicateDeviceToken(
-                    masked, List.of((String[]) row[1])));
+    /** 실제 export되는 기기만 집계한다 — 제외한 봇·공백 토큰이 최종본을 막으면 안 된다. */
+    private static List<NotificationExportDocument.DuplicateDeviceToken> duplicateDeviceTokens(
+            List<NotificationMigrationRecord> devices) {
+        Map<String, List<String>> ownersByToken = new TreeMap<>();
+        for (NotificationMigrationRecord device : devices) {
+            String token = (String) device.data().get("deviceToken");
+            ownersByToken.computeIfAbsent(token, ignored -> new ArrayList<>())
+                    .add((String) device.data().get("userId"));
         }
+        List<NotificationExportDocument.DuplicateDeviceToken> duplicates = new ArrayList<>();
+        ownersByToken.forEach((token, owners) -> {
+            if (owners.size() > 1) {
+                String masked = token.length() <= 8 ? token : token.substring(0, 8) + "…";
+                duplicates.add(new NotificationExportDocument.DuplicateDeviceToken(masked, List.copyOf(owners)));
+            }
+        });
         return List.copyOf(duplicates);
     }
 

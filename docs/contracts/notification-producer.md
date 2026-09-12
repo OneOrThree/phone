@@ -353,19 +353,29 @@ outbox 미전달은 drain 하면 0 이 되는 값이라 게이트 조건으로 �
 relay 가 나중에 발행하는 사건이 **이관분과 겹친다**.
 
 내역은 `report.queueBreakdown` 에 전부 적는다 — 합계만 남기면 0 이 아닐 때 어디를 볼지 알 수 없다.
-### 최종 export 의 게이트 넷
+공백뿐인 구 기기 토큰은 기기 없음으로 제외하고, 유효한 토큰의 원문은 trim하지 않는다.
+중복 토큰은 실제 `device` 레코드 집합에서 검출한다. `strict=false` 진단 export는 중복 레코드와
+마스킹한 소유자 보고를 보존하지만 `finalEligible=false`이며, strict export는 중복이 있으면 실패한다.
+
+V45에서 `subject_id`를 의도적으로 비워 둔 `FRIEND_REQUEST`·`FRIEND_ACCEPTED`·`CHALLENGE_CREATED`·
+`CHALLENGE_WINDOW_END`·`CHALLENGE_ENDED` 이력은 기존 `subject_id`가 없을 때만 `target_user_id`를
+사건 대상으로 복원한다. 다른 종류에는 이 규칙을 적용하지 않는다. 코어 이력은 수정하지 않으며,
+복원된 대상과 기존 사건 시각으로 producer와 같은 키를 만들어 `SENT` 중복 억제 근거를 옮긴다.
+
+### 최종 export 의 게이트 다섯
 
 `closedAt` 없이 도는 최초 탐색 export 는 언제든 허용된다. **최종**(verify 에 쓸 수 있는) export 는
-넷을 모두 통과해야 하고, 하나라도 어긋나면 예외로 죽는다:
+다섯을 모두 통과해야 하고, 하나라도 어긋나면 예외로 죽는다:
 
 | 조건 | 근거 |
 | --- | --- |
 | `closedAt` 이 주어졌다 | 정지 창을 닫은 시각은 운영자만 안다 |
 | `--notification.migration.inflight-drained=true` | **DB 로는 알 수 없다.** 구 flush 는 선점 행을 지우고 나가므로, 그 스레드가 아직 도는지는 어떤 조회로도 보이지 않는다. 이 한 가지는 사람이 말해야 하고, 없이 통과시키면 「멈췄다고 생각한」 창 안에서 구 경로가 계속 발송한다 |
+| 실제 export 기기의 중복 토큰 0개 | 같은 토큰의 `recordKey`가 충돌한다. 탈퇴자를 포함한 비봇 기기에서 판정하며, 소유자를 임의로 선택하지 않는다 |
 | 재조립 실패 0건 | 남기면 그 행들이 구 DB 에만 남고 컷오버 후에는 아무도 그 큐를 보지 않는다 |
 | `queueDepth == 0` | 내보내지 못한 outbox 전달이 남은 채 열면 relay 가 나중에 발행하는 사건이 이관분과 겹친다 |
 
-넷을 통과했는지는 문서의 `report.finalEligible` 에 **계산해서 적어 둔다** — 읽는 쪽마다 네 조건을
+다섯을 통과했는지는 문서의 `report.finalEligible` 에 **계산해서 적어 둔다** — 읽는 쪽마다 다섯 조건을
 다시 조합하면 한 곳이 하나를 빠뜨려도 드러나지 않는다. 파일 이름으로는 탐색용과 최종본이 구분되지
 않으므로, CLI 도 둘 중 무엇을 만들었는지 로그로 분명히 남긴다.
 

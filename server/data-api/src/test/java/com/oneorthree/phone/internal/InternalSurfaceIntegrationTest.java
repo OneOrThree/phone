@@ -281,7 +281,7 @@ class InternalSurfaceIntegrationTest {
         String hash = TokenHasher.sha256Hex("device-bootstrap");
         UUID sessionId = tx().execute(status -> {
             User user = userRepository.findById(userId).orElseThrow();
-            user.setDeviceToken("other-session-token");
+            user.setDeviceToken("other-session-token-" + userId);
             return authSessionRepository.save(AuthSession.builder().userId(userId)
                     .refreshTokenHash(TokenHasher.sha256Hex("rt-" + userId))
                     .bootstrapNonceHash(hash).sessionEpoch(3L).build()).getId();
@@ -297,7 +297,7 @@ class InternalSurfaceIntegrationTest {
                 .andExpect(jsonPath("$.params.sessionId").value(sessionId.toString()))
                 .andExpect(jsonPath("$.params.bootstrapNonceHash").value(hash));
         assertThat(userRepository.findById(userId).orElseThrow().getDeviceToken())
-                .isEqualTo("other-session-token");
+                .isEqualTo("other-session-token-" + userId);
         assertThat(envelopesOf(userId, "notification.deviceToken.deleted")).singleElement()
                 .satisfies(event -> assertThat(event.getParams())
                         .containsEntry("sessionId", sessionId.toString())
@@ -308,7 +308,7 @@ class InternalSurfaceIntegrationTest {
     void deletionWithoutAnyDeviceOrSessionPreservesTheLegacyToken() throws Exception {
         UUID userId = newUser();
         tx().executeWithoutResult(status -> userRepository.findById(userId).orElseThrow()
-                .setDeviceToken("other-session-token"));
+                .setDeviceToken("other-session-token-" + userId));
         mockMvc.perform(post("/internal/users/{id}/device-token-deletions", userId)
                         .header("Authorization", "Bearer " + BIZ_TOKEN)
                         .header("X-User-Id", userId.toString())
@@ -316,7 +316,7 @@ class InternalSurfaceIntegrationTest {
                         .contentType("application/json").content("{}"))
                 .andExpect(status().isOk());
         assertThat(userRepository.findById(userId).orElseThrow().getDeviceToken())
-                .isEqualTo("other-session-token");
+                .isEqualTo("other-session-token-" + userId);
     }
 
     @Test

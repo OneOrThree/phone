@@ -1,5 +1,9 @@
 package com.oneorthree.business.upstream.notification.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+
 /**
  * 결과 ack prepare 응답 (A22 ⓓ · ㊅).
  *
@@ -11,7 +15,9 @@ package com.oneorthree.business.upstream.notification.dto;
  * Data ack 커밋은 진행한다. 이 값을 「실패」로 읽으면 정상 ack 가 막힌다.
  *
  * @param held  이번 호출이 HELD 잠금을 쥐었는가
- * @param state 알림 서버가 본 현재 상태 — {@code HELD} · {@code COMMITTED} · {@code NEEDS_CONFIRM} 등
+ * @param state 선점된 {@code HELD} 또는 이미 억제된 {@code CONFIRMED}. HELD는 held=true여야 한다.
  */
-public record ResultAckPrepareResult(boolean held, String state) {
+public record ResultAckPrepareResult(
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean held,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String state) {
 }

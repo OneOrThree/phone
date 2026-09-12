@@ -2,7 +2,6 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
-import com.oneorthree.business.common.exception.UpstreamUnavailableException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.CompatProperties;
 import com.oneorthree.business.upstream.data.DataApiClient;
@@ -66,7 +65,10 @@ public class InviteLinkUseCase {
         // 그대로 중계된다(GROUP_NOT_FOUND · NOT_MEMBER). 판정이 「살아 있지 않다」로 왔는데 코드가
         // 없으면 그건 계약 불일치다 — 조용히 발급하지 않는다.
         if (context == null) {
-            throw new UpstreamUnavailableException("Data 가 발급 컨텍스트를 주지 않았다");
+            throw new UpstreamContractMismatchException("Data 가 발급 컨텍스트를 주지 않았다");
+        }
+        if (!groupId.equals(context.groupId()) || !inviterId.equals(context.inviterId())) {
+            throw new UpstreamContractMismatchException("발급 컨텍스트가 요청한 그룹 또는 인증된 발급자와 다릅니다");
         }
         if (!context.groupActive()) {
             throw new UpstreamDomainException(HttpStatus.NOT_FOUND.value(), "GROUP_NOT_FOUND",

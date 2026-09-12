@@ -85,8 +85,11 @@ public class ResultAckUseCase {
         if (prepared == null) {
             throw new UpstreamContractMismatchException("알림 prepare 응답 본문이 없습니다");
         }
-        // held=false 를 실패로 읽지 않는다 — 「이미 확정돼 잠글 필요가 없다」일 수 있고, 그때도 Data
-        // ack 는 진행해야 사용자의 확인이 기록된다. 상태는 관측용으로만 남긴다.
+        if (!"CONFIRMED".equals(prepared.state())
+                && !("HELD".equals(prepared.state()) && prepared.held())) {
+            throw new UpstreamContractMismatchException("알림 prepare 응답이 결과 푸시 보류를 보장하지 않습니다");
+        }
+        // CONFIRMED는 이미 억제되어 held=false여도 안전하다. 새 HELD는 실제 선점이 확인되어야 한다.
         log.debug("ack prepare 완료 — sessionId={} held={} state={}",
                 sessionId, prepared.held(), prepared.state());
 

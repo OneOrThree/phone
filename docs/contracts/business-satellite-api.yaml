@@ -323,6 +323,8 @@ paths:
 
         **`X-User-Id` 가 발급자다.** `inviterId` 를 쿼리로 받지 않는다 — 받으면 Business 가 남을
         발급자로 지정할 수 있는 표면이 생긴다.
+        Business는 응답의 `groupId`가 요청 경로와, `inviterId`가 인증된 발급자와 일치하는지 확인한다.
+        2xx 빈 본문 또는 두 식별자의 누락·불일치는 502이며 Link 발급을 실행하지 않는다.
 
         판정 실패는 **`code` 를 실어** 돌려라: `GROUP_NOT_FOUND`(404) · `NOT_MEMBER`(403). 그 문자열이
         그대로 앱에 중계된다(기존 `InviteLinkErrorCode` 계약).
@@ -956,7 +958,11 @@ paths:
                 type: object
                 required: [ownershipToken]
                 properties:
-                  ownershipToken: { type: string }
+                  ownershipToken:
+                    type: string
+                    format: uuid
+                    pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                    description: 다음 등록·삭제 입력과 같은 정규 UUID. 대소문자는 보존한다.
         '409':
           description: |
             오래된 명령이라 거부했다(세대·소유권·세션 tombstone). **`code` 를 실어라.**
@@ -1095,8 +1101,9 @@ paths:
         **자동 발송 재개가 아니다**. 해제는 `commit` · `abort` · **Data 정본 ack 조회로 자기 수렴**
         세 길뿐이다.
 
-        `held=false` 를 실패로 쓰지 말라 — Business 는 그것을 「이미 확정돼 잠글 필요가 없다」로 읽고
-        Data ack 를 계속 진행한다.
+        Business는 `state=HELD, held=true` 또는 `state=CONFIRMED`일 때만 Data ack를 진행한다.
+        `CONFIRMED`는 이미 억제되어 `held=false`도 정상이다. 상태 누락·미지원 값이나
+        `HELD, held=false`는 보호를 확인할 수 없어 502로 거부하고 Data ack를 실행하지 않는다.
       parameters:
         - $ref: '#/components/parameters/UserIdPath'
         - $ref: '#/components/parameters/XUserId'
@@ -1122,7 +1129,7 @@ paths:
                   held: { type: boolean }
                   state:
                     type: string
-                    enum: [HELD, COMMITTED, NEEDS_CONFIRM, NONE]
+                    enum: [HELD, CONFIRMED]
       x-idempotent: true
       x-retryable: true
 
