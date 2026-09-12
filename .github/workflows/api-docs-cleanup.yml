@@ -10,9 +10,19 @@ name: Cleanup Feature Docs
 #
 # 접두어 목록은 api-dog-generate.yml 의 `push.branches` 와 «같아야 한다». 그쪽이 문서를 만드는
 # 브랜치와 여기서 지우는 브랜치가 어긋나면 다시 쌓이기 시작한다.
+#
+# gh-pages 에 쓰는 주체가 둘이라는 것도 같이 봐야 한다 — 여기와 api-dog-generate.yml 이다.
+# 그쪽은 peaceiris/actions-gh-pages@v4 를 쓰는데 그 액션의 push 는 재시도도 rebase 도 없는
+# 맨 `git push origin gh-pages` 다(v4 src/git-utils.ts L231-236). 그래서 브랜치를 연달아
+# 지우거나 문서 생성과 겹치면 뒤에 끝난 잡의 push 가 non-fast-forward 로 거절되고, 정작 지웠어야
+# 할 문서 디렉터리가 «조용히» 남는다. 아래 삭제 스텝이 최신 tip 에서 다시 지우는 식으로 재시도한다.
 
 on:
   delete:
+
+permissions:
+  # gh-pages 에 커밋을 push 한다. 기본값에 기대지 않고 이 잡이 쓰는 것만 명시한다.
+  contents: write
 
 jobs:
   cleanup:
@@ -40,17 +50,38 @@ jobs:
           case "$BRANCH_NAME" in
             */../*|../*|*/..|..) echo "경로 탈출 시도: $BRANCH_NAME" >&2; exit 1 ;;
           esac
-          if [ ! -d "$BRANCH_NAME" ]; then
-            echo "gh-pages 에 $BRANCH_NAME 문서가 없다 — 할 일 없음."
-            exit 0
-          fi
-          git rm -rf --quiet "$BRANCH_NAME"
-          # 접두어 디렉터리가 비면 같이 치운다(bfeat/ 만 남는 껍데기 방지).
-          PREFIX="${BRANCH_NAME%%/*}"
-          if [ -d "$PREFIX" ] && [ -z "$(ls -A "$PREFIX" 2>/dev/null)" ]; then
-            rmdir "$PREFIX"
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore: remove docs for deleted branch $BRANCH_NAME"
-          git push
+
+          # 삭제를 «최신 tip 에서 통째로 다시» 한다 — rebase 가 아니다.
+          # rebase 였다면 상대 잡이 같은 디렉터리에 파일을 «추가»한 경우 delete/modify 충돌로
+          # 멈춘다. 반면 「받아서 → 지우고 → 커밋」은 몇 번을 해도 결과가 같아(멱등) 충돌이 없다.
+          # concurrency group 으로 직렬화하지 않는 이유는 워크플로 머리말에 적어 두었다.
+          for attempt in 1 2 3 4 5; do
+            git fetch --depth=1 origin gh-pages
+            git reset --hard FETCH_HEAD
+
+            if [ ! -d "$BRANCH_NAME" ]; then
+              echo "gh-pages 에 $BRANCH_NAME 문서가 없다 — 할 일 없음."
+              exit 0
+            fi
+            git rm -rf --quiet "$BRANCH_NAME"
+            # 접두어 디렉터리가 비면 같이 치운다(bfeat/ 만 남는 껍데기 방지).
+            PREFIX="${BRANCH_NAME%%/*}"
+            if [ -d "$PREFIX" ] && [ -z "$(ls -A "$PREFIX" 2>/dev/null)" ]; then
+              rmdir "$PREFIX"
+            fi
+            git commit -m "chore: remove docs for deleted branch $BRANCH_NAME"
+
+            if git push origin HEAD:gh-pages; then
+              echo "$BRANCH_NAME 문서를 gh-pages 에서 지웠다(시도 $attempt)."
+              exit 0
+            fi
+            echo "gh-pages push 가 거절됐다(시도 $attempt) — 최신 tip 을 다시 받아 삭제를 재시도한다." >&2
+            sleep "$((attempt * 5))"
+          done
+
+          # 여기까지 왔으면 문서가 남아 있다. 조용히 끝내지 않는다 — 이 워크플로가 36회 내내
+          # skipped 로 초록이었던 탓에 아무도 못 알아챘던 게 원래 문제였다.
+          echo "gh-pages push 를 5회 재시도했지만 실패했다. $BRANCH_NAME 문서가 남아 있다." >&2
+          exit 1

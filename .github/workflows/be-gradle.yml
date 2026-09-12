@@ -1,6 +1,10 @@
 name: Backend Gradle
 
-# 백엔드 서버 넷(data-api · realtime · business-api · notification)의 Gradle 검사를 한 곳에서 돈다.
+# JVM 서버의 Gradle 검사를 한 곳에서 돈다.
+#
+# 현재 호출부는 «둘뿐»이다 — dev-ci.yml(`service: data-api`) 과 realtime-ci.yml(`service: realtime`).
+# business-api 는 아래 사유로 «의도적 예외»고, server/notification 은 아직 없다. 서버가 늘면
+# 여기로 붙이되, 이 목록도 같이 고쳐라 — 「전부 이걸 부른다」고 적어 두면 예외가 사고가 된다.
 #
 # 왜 합쳤나 — 이전의 be-check-style.yml · be-test.yml · be-spot-bugs.yml 은 `workflow_call` 전용인데
 # 입력을 하나도 선언하지 않고 `server/data-api` 를 네 곳(defaults · 캐시 키 hashFiles · 아티팩트
@@ -24,7 +28,7 @@ on:
   workflow_call:
     inputs:
       service:
-        description: "server/ 아래 디렉터리 이름 (data-api · realtime · notification)"
+        description: "server/ 아래 디렉터리 이름. 현재 넘어오는 값은 data-api · realtime 둘뿐이다"
         type: string
         required: true
       tasks:
