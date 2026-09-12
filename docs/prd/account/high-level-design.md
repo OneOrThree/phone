@@ -46,8 +46,9 @@ sequenceDiagram
     participant D as Data
     A->>B: POST /auth/sessions + 로그인 시도 ID
     B->>B: 앱 키·스키마·선택 AT 검증 및 guest 구분
-    B->>B: 실제 원 code/credential로 keyed digest 계산
-    B->>D: 시도 ID + 자격 digest + 원 선택 세션 증명으로 내구 상태 조회
+    B->>D: 시도 ID로 내구 상태 존재·고정 digest key ID 조회(결과 미반환)
+    B->>B: 고정 key ID(없으면 현재 키)로 실제 원 code/credential keyed digest 계산
+    B->>D: 시도 ID + 자격 digest + 원 선택 세션 증명으로 내구 상태 대조
     D->>D: users 먼저 잠금 → 선택 세션 활성/세대·legacy 결합 검사
     alt 검증 결과가 저장된 동일 시도
         D->>D: scope·원 자격 일치, 활성 사용자·세대/epoch·고정 만료 검사
@@ -74,9 +75,9 @@ sequenceDiagram
 
 선택 AT의 서명만으로 승격 권한을 인정하지 않는다. Data는 users 우선 잠금 아래 원 sid의 미폐기/현재 세대 또는 입증된 sidless legacy 결합·폐기 fence를 내구 조회·prepare·complete·성공 재생마다 검사한다. 개별 logout은 users 활성/gen이 그대로여도 해당 AT를 거절하게 한다. 비게스트 전환에서 두 사용자 잠금이 필요하면 UUID 정렬 후 session/attempt를 잠그며 IdP 대기 중에는 유지하지 않는다. [상세 관문](low-level-design.md#선택-at의-세션-폐기-관문)의 실제 구현/경합 검증 전 활성화하지 않는다. 유효한 선택 AT가 guest=false이면 기존 계정 전환을 허용하고 제공자 계정으로 로그인/가입한다. 이를 게스트 증명 실패로 거부하거나 두 소셜 계정을 합치지 않는다. guest=true일 때만 기존 승격 대상과 userId 보존 규칙을 적용한다. 제공자 자격 실패는 기존 6개 제공자별 *_TOKEN401을 유지하며 UNAUTHORIZED로 뭉개지 않는다.
 
-제공자 네트워크 호출은 Data TX 밖이다. 모든 요청은 실제 원 code/credential을 제시하고 Business가 digest를 계산해 내구 시도를 먼저 조회한다. 앱이 보낸 digest나 provider subject만으로 재생하지 않는다. TX1 이후 Business가 죽으면 같은 시도 ID와 같은 자격 증명으로 준비 결과를 되찾아 재개하며, 이미 소비된 일회성 code를 다시 교환하지 않는다. 성공했는데 응답만 잃었으면 고정 claims로 같은 토큰을 복원한다. Data에는 원문 토큰 대신 해시·서명 재료만 남긴다. 재개는 원래 제공자 자격의 digest와 시도 범위가 일치해야 하며 시도 ID 하나만 알아서 토큰을 얻을 수 없다. 제공자 검증 성공 직후 TX1 저장 전에 죽으면 그 검증 결과는 내구화되지 않았으므로 이 복구로 재생할 수 없다. 교환 결과가 불명확한 실행을 안전한 최초 시도로 돌려 code를 무조건 다시 쓰지 않는다. 제공자의 검증된 복구 수단이 없으면 새 제공자 자격과 새 시도로 재인증해야 하며, guest 복구·Q06 정책을 임의 대체하지 않는다. [LLD의 재개 순서와 장애 경계](low-level-design.md#제공자-교환-전에-내구-시도를-조회한다)를 따른다.
+제공자 네트워크 호출은 Data TX 밖이다. 모든 요청은 실제 원 code/credential을 제시하고, Business는 시도 ID로 고정 digest key ID를 먼저 조회한 뒤 그 키로 digest를 계산해 내구 시도와 대조한다. 앱이 보낸 digest나 provider subject만으로 재생하지 않는다. TX1 이후 Business가 죽으면 같은 시도 ID와 같은 자격 증명으로 준비 결과를 되찾아 재개하며, 이미 소비된 일회성 code를 다시 교환하지 않는다. 성공했는데 응답만 잃었으면 고정 claims로 같은 토큰을 복원한다. Data에는 원문 토큰 대신 해시·서명 재료만 남긴다. 재개는 원래 제공자 자격의 digest와 시도 범위가 일치해야 하며 시도 ID 하나만 알아서 토큰을 얻을 수 없다. 제공자 검증 성공 직후 TX1 저장 전에 죽으면 그 검증 결과는 내구화되지 않았으므로 이 복구로 재생할 수 없다. 교환 결과가 불명확한 실행을 안전한 최초 시도로 돌려 code를 무조건 다시 쓰지 않는다. 제공자의 검증된 복구 수단이 없으면 새 제공자 자격과 새 시도로 재인증해야 하며, guest 복구·Q06 정책을 임의 대체하지 않는다. [LLD의 재개 순서와 장애 경계](low-level-design.md#제공자-교환-전에-내구-시도를-조회한다)를 따른다.
 
-자격 digest는 attempt에 고정한 key ID로 계산한다. Business 배포로 digest 키가 바뀌어도 재개는 그 key ID의 이전 키로 같은 digest를 재현하고, 이전 키는 해당 attempt의 복구 창이 끝날 때까지 검증 전용으로 남긴다. 키 교체를 다른 자격으로 오판하지 않는다.
+자격 digest는 attempt에 고정한 key ID로 계산한다. Business 배포로 digest 키가 바뀌어도 재개는 그 key ID의 이전 키로 같은 digest를 재현하고, 이전 키는 완료 뒤 응답 유실을 복원하는 COMPLETED를 포함해 재생 가능한 attempt의 고정 복구 마감이 끝날 때까지 검증 전용으로 남긴다. 키 교체를 다른 자격으로 오판하지 않는다.
 
 탈퇴·세션 폐기가 먼저 확정됐으면 성공 시도라도 토큰을 다시 발급하지 않는다. 로그인 결과가 불명확하다고 매번 새 시도를 만들면 세션이 늘고 게스트 승격 경쟁이 생기므로 앱은 먼저 같은 시도를 재개한다. 로그인 CAS의 단순 경쟁 패배는 REPREPARE_REQUIRED로 분리하고 같은 attempt/자격으로 새 generation/nonce·고정 재료를 한 번 준비한다. 동시에 재개해도 같은 새 준비를 받고, 이전 nonce의 지연 완료는 거부한다. 탈퇴·epoch 폐기나 복구 창 종료는 INVALIDATED이며 재준비하지 않는다. [LLD 상태 전이](low-level-design.md#로그인-cas-충돌의-재준비-전이)를 따른다. 이는 refresh CAS 경쟁에서 진 요청을 성공 처리하는 규칙이 아니다.
 
@@ -205,6 +206,8 @@ claim 클릭의 matched_device_id·app_instance_id·ip_hash·user_agent도 같�
 사용자 활동 로그도 정상적으로 UUID를 기록하므로 별도 파기 대상이다. 중앙 TX는 내구 작업만 남기고 후속 처리자가 실제 파일/회전본/호스트/외부 sink의 연결 제거와 완료를 확인한다. sink 직전 폐기 fence와 기존 큐·지연 업로드의 완료 장벽으로 재부착을 막는다. 운영 주석만으로 S3 구성·보존 기간·파기 완료를 확정하지 않으며 구현·운영 연결을 활성 조건으로 둔다.
 
 GA4도 User-ID·app_instance_id·설치 device_id로 같은 사용자를 잇는다. 중앙 TX는 GA4 사용자 삭제 작업을 내구 기록하고, TX 밖에서 삭제 요청·지연 이벤트 뒤 재요청·완료 증거를 관리한다. 앱은 탈퇴 성공 뒤 식별자를 해제·재설정하기 전에는 사용자 연결 이벤트를 보내지 않는다.
+
+공통 인증 검사는 AT 서명·타입·만료(401) → 사용자 활성(404 `USER_NOT_FOUND`) → 세션·authGeneration(401) 순서다. 탈퇴 뒤 옛 AT는 세션 폐기와 비활성이 함께 참이라 404가 우선하며, 앱은 최초 200이나 같은 `DELETE /me` 재시도의 404를 탈퇴 확정으로 본다. 그때만 일반 로그아웃과 별도로 그 userId의 기기 로컬 버킷·마커·누끼 파일을 writer drain 뒤 지운다. 일반 로그아웃과 계정 전환의 보존 정책은 그대로다.
 
 chat/realtime은 별도 DB이므로 Data의 중앙 TX에서 커서를 직접 지우지 않는다. 읽음 보고가 먼저 로컬 잠금을 얻으면 탈퇴 소비자가 그 커서까지 삭제하고, 탈퇴가 먼저면 늦은 보고는 tombstone을 보고 거절한다. Redis 멤버십 캐시가 최대 120초 남거나 늦은 응답이 캐시를 다시 채워도 DB writer는 폐기를 재검사한다. 현 markRead는 캐시 검사 후 별도 UPSERT만 실행하므로 이 보호가 아직 없다. 소비자·모든 cursor writer 통합과 실제 경합 검증 전 파기 완료로 표시하지 않는다. 기존 메시지 본문/sender_id의 보존 정책과 우체통 읽음 표시 여부는 이 개인 이력 파기와 별개다.
 

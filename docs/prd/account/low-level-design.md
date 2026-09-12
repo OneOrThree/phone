@@ -10,7 +10,7 @@ GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [원본 예�
 | --- | --- |
 | 경로 | 정확한 7개 method/path만 추가. `/v1`·`/api/v1` 없음. 기존 Data/chat 경로 보존 |
 | 앱 자격 | 선행 1750 앱 키 검사. 외부 `X-User-Id`·내부 caller 헤더는 폐기한 뒤 검증한 주체로 새 내부 요청 생성 |
-| 사용자 자격 | 일반 5개 `/me` 계열은 유효 AT와 동기 사용자·세션 활성 검사. 로그인은 제공자 자격, logout은 RT 전용 검사 |
+| 사용자 자격 | 일반 5개 `/me` 계열은 유효 AT와 동기 사용자·세션 활성 검사. 로그인은 제공자 자격, logout은 RT 전용 검사. 검사 순서는 AT/RT 서명·타입·만료(실패 401) → 사용자 활성(비활성 404 `USER_NOT_FOUND`) → 세션·authGeneration(활성 사용자의 폐기 세션 401)으로 고정하며, 탈퇴처럼 세션 폐기와 사용자 비활성이 함께 참이면 404가 우선 |
 | 성공 | 로그인 201, 나머지 200. `Content-Type: application/json`, `{ "data": ... }`만 한 번 적용 |
 | 오류 | `{ "error": { "code": "...", "message": "...", "field": null, "retryable": false }, "requestId": "현재 요청 ID" }` |
 | 캐시 | 토큰·개인 계정·설정 응답은 `Cache-Control: no-store`. 공용 캐시 금지 |
@@ -230,7 +230,7 @@ ownership/세션을 가지므로 늦은 삭제·폐기가 새 등록이나 다�
 
 Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를 넣는다. 다른 주민이 있는 방장은 기존 400 `HOST_WITHDRAW`이고 전체 변경이 롤백된다. 성공은 200 `{ "data": { "deleted": true } }`. 원본 예상 계약의 200과 legacy DELETE `/api/v1/users/me`의 204를 구분한다.
 
-성공 후 같은 AT로 재요청하면 사용자 활성 검사에서 404 `USER_NOT_FOUND`이며 토큰 자체가 만료/위조면 401이다. 범용 receipt가 남아 있어도 폐기된 주체에게 개인 응답을 재생하지 않는다. 클라이언트는 최초 200 또는 후속 권한 폐기 확인 후 로컬 로그인 상태를 정리한다. logout의 활성 사용자 내 완료 재생 특례를 계정 탈퇴에 확대하지 않는다.
+성공 후 같은 AT로 재요청하면 공통 검사 순서에 따라 세션·authGeneration 폐기보다 사용자 비활성이 먼저 판정되어 404 `USER_NOT_FOUND`이고, 토큰 자체가 만료/위조면 401이다. 범용 receipt가 남아 있어도 폐기된 주체에게 개인 응답을 재생하지 않는다. 클라이언트는 최초 200 또는 같은 명령 재시도의 404 `USER_NOT_FOUND`를 탈퇴 확정으로 보고 아래 탈퇴 전용 로컬 파기를 실행한다. 401은 기존 refresh 흐름을 타며, 탈퇴한 계정의 refresh·logout도 같은 순서로 404 `USER_NOT_FOUND`다. logout의 활성 사용자 내 완료 재생 특례를 계정 탈퇴에 확대하지 않는다.
 
 ### 2.6 GET /me/settings
 
@@ -261,7 +261,7 @@ Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를
 | 상태/자료 | 내용·제약 |
 | --- | --- |
 | attempt scope | 로그인 시도 ID, provider, 검증된 provider subject의 비가역 digest, 선택 AT의 검증된 주체/guest·원 sessionId/세대(legacy는 입증된 결합 증거) 및 별도의 승격 대상 guest userId, termsVersion. 외부 userId는 사용하지 않음 |
-| 자격 digest | 매 요청이 실제 원 code/credential을 제시하고 Business가 provider·credential 종류와 함께 keyed digest를 계산한다. 앱이 제출한 digest를 자격으로 수락하지 않는다. 원문 자격/원문 JWT 저장 금지. attempt에 digest key ID를 함께 고정하고 복구 창 동안 이전 키를 검증 전용으로 유지 |
+| 자격 digest | 매 요청이 실제 원 code/credential을 제시하고 Business가 provider·credential 종류와 함께 keyed digest를 계산한다. 앱이 제출한 digest를 자격으로 수락하지 않는다. 원문 자격/원문 JWT 저장 금지. attempt에 digest key ID를 함께 고정하고, 재생 가능한 PENDING·REPREPARE_REQUIRED·COMPLETED의 고정 복구 마감까지 이전 키를 검증 전용으로 유지. digest는 attempt/key ID 조회 뒤 계산 |
 | 고정 서명 재료 | userId, sessionId, jti, iat, exp, guest, authGeneration, sessionEpoch, signing key ID, 직렬화 버전. AT/RT 타입별 claims 구분. bootstrap 재생에 필요한 key ID도 고정 |
 | PENDING | upsert와 서명 재료를 저장했으나 RT 미확정. 외부 사용자 세션으로 사용할 수 없음 |
 | COMPLETED | 해당 nonce의 RT hash CAS 성공. 동일 시도의 동일 결과만 재생 |
@@ -274,7 +274,7 @@ bootstrap도 로그인 성공 재개에서 같은 값이어야 한다. 기술 �
 
 같은 attempt ID의 다른 자격/본문은 409 `IDEMPOTENCY_KEY_REUSED`, 다른 실행자가 같은 준비/확정을 진행 중이면 409 `REQUEST_IN_PROGRESS`다. 실행 중인 소유자가 없는 PENDING 재개는 저장된 현재 generation/서명 재료를 사용하여 확정을 이어가며 무조건 진행 중 오류를 반복하지 않는다. 반환 field는 범용 키가 아니라 `X-Login-Attempt-Id`다. 재개 시 서명 key ID·직렬화·claims가 같아야 토큰 원문과 RT hash가 같으므로 해당 짧은 창 동안 서명 키를 제거하지 않는다. 서명 서버 시간으로 iat를 새로 찍지 않는다.
 
-자격 digest 키도 같은 규칙을 따른다. Business 배포로 keyed digest 비밀키가 바뀌어도 앱이 같은 authorizationCode/credential과 attempt ID로 재개하면 같은 digest를 재현해야 한다. 첫 준비 저장 때 attempt에 digest key ID를 고정하고, 재개는 attempt ID로 내구 상태를 먼저 찾은 뒤 **그 key ID의 키**로 원 자격 digest를 계산해 대조한다. 새 attempt만 현재 키를 쓴다. 이전 키는 그 키로 고정된 PENDING/REPREPARE_REQUIRED attempt의 복구 창(고정 AT/RT 만료 이전)이 모두 끝날 때까지 검증 전용으로 유지하고 새 digest 계산에는 쓰지 않는다. 창 종료 뒤 키를 폐기하면 해당 attempt는 복구 창 종료와 같은 결과로 새 제공자 인증을 요구하며, 키 교체나 키 부재를 다른 자격의 `IDEMPOTENCY_KEY_REUSED`로 판정하지 않는다. digest 키는 JWT 서명 키·bootstrap HMAC 키와 분리한다.
+자격 digest 키도 같은 규칙을 따른다. Business 배포로 keyed digest 비밀키가 바뀌어도 앱이 같은 authorizationCode/credential과 attempt ID로 재개하면 같은 digest를 재현해야 한다. 첫 준비 저장 때 attempt에 digest key ID를 고정한다. 모든 요청은 **attempt ID로 내구 상태 존재와 고정 key ID를 먼저 조회한 뒤** 그 키로 원 자격 digest를 계산해 대조하며, 저장된 attempt가 없을 때만 현재 키로 새 attempt digest를 만든다. 이 조회는 key ID와 존재 여부만 반환하고 digest 대조 전에는 준비/확정 결과·provider subject를 주지 않는다. 이전 키는 그 키로 고정된 attempt 중 **재생 가능한 모든 상태**(PENDING·REPREPARE_REQUIRED, 완료 뒤 201 응답 유실을 복원하는 COMPLETED)의 고정 복구 마감(고정 AT/RT 만료 이전)이 모두 끝날 때까지 검증 전용으로 유지하고 새 digest 계산에는 쓰지 않는다. INVALIDATED이거나 마감이 지난 attempt만 키 유지 대상에서 빠진다. 창 종료 뒤 키를 폐기하면 해당 attempt는 복구 창 종료와 같은 결과로 새 제공자 인증을 요구하며, 키 교체나 키 부재를 다른 자격의 `IDEMPOTENCY_KEY_REUSED`로 판정하지 않는다. digest 키는 JWT 서명 키·bootstrap HMAC 키와 분리한다.
 
 완료 CAS는 활성 사용자, 해당 sessionId, nonce, 미폐기 epoch를 한 경계에서 확인한다. 같은 시도의 성공 완료/동일 hash이면 최초 201을 복원할 수 있지만 다른 시도나 폐기된 세션의 실패를 성공으로 접지 않는다. 같은 제공자로 재가입해도 soft-deleted user를 부활시키지 않고 새 계정으로 처리한다.
 
@@ -293,8 +293,8 @@ bootstrap도 로그인 성공 재개에서 같은 값이어야 한다. 기술 �
 
 ### 제공자 교환 전에 내구 시도를 조회한다
 
-1. Business는 스키마·provider/credential 종류·선택 AT를 검증하고, 요청이 실제 제출한 원 code/credential로 keyed digest를 계산한다. `X-Login-Attempt-Id`나 digest만 받는 공개 복구 API를 만들지 않는다. provider·credential 종류·선택 AT의 검증 주체/guest·승격 대상·termsVersion 등 교환 전에 확정할 수 있는 scope를 결합한다. provider subject는 미검증 요청에서 받지 않고, 최초 검증 결과를 저장한 뒤 그 시도의 고정 scope로 사용한다.
-2. 기존 신뢰된 Business→Data 내부 인증으로 내구 시도를 **먼저 조회**한다. 저장된 검증 결과가 있으면 원 자격 digest·scope 일치와 사용자 활성·현재 authGeneration/sessionEpoch·원 선택 세션의 활성·결과 세션의 상태별 유효성(PENDING은 동일 nonce의 미폐기 준비, COMPLETED는 활성)·고정 토큰 만료/원 복구 마감·INVALIDATED 여부를 검사한 뒤 준비/확정 결과를 반환한다. provider subject는 그 일치한 내구 검증 결과에서만 복원한다. PENDING은 기존 고정 재료로 complete를 잇고 COMPLETED는 원 결과를 재생하며 REPREPARE_REQUIRED는 아래 전이를 따른다. 이 분기에서 IdP 교환 횟수는 0이다. 불일치·만료·INVALIDATED를 “시도 없음”으로 바꿔 새 로그인으로 우회하지 않는다.
+1. Business는 스키마·provider/credential 종류·선택 AT를 검증하고, 기존 신뢰된 내부 인증으로 `X-Login-Attempt-Id`의 내구 상태 존재와 고정 digest key ID를 먼저 조회한 뒤 그 키(저장된 attempt가 없으면 현재 키)로 요청이 실제 제출한 원 code/credential의 keyed digest를 계산한다. 이 조회는 key ID·존재 여부만 반환한다. `X-Login-Attempt-Id`나 digest만 받는 공개 복구 API를 만들지 않는다. provider·credential 종류·선택 AT의 검증 주체/guest·승격 대상·termsVersion 등 교환 전에 확정할 수 있는 scope를 결합한다. provider subject는 미검증 요청에서 받지 않고, 최초 검증 결과를 저장한 뒤 그 시도의 고정 scope로 사용한다.
+2. 제공자 교환 전에 그 digest와 scope로 내구 시도를 **먼저 대조**한다. 저장된 검증 결과가 있으면 원 자격 digest·scope 일치와 사용자 활성·현재 authGeneration/sessionEpoch·원 선택 세션의 활성·결과 세션의 상태별 유효성(PENDING은 동일 nonce의 미폐기 준비, COMPLETED는 활성)·고정 토큰 만료/원 복구 마감·INVALIDATED 여부를 검사한 뒤 준비/확정 결과를 반환한다. provider subject는 그 일치한 내구 검증 결과에서만 복원한다. PENDING은 기존 고정 재료로 complete를 잇고 COMPLETED는 원 결과를 재생하며 REPREPARE_REQUIRED는 아래 전이를 따른다. 이 분기에서 IdP 교환 횟수는 0이다. 불일치·만료·INVALIDATED를 “시도 없음”으로 바꿔 새 로그인으로 우회하지 않는다.
 3. 내구 검증 결과가 없고 아직 제공자 호출을 시작하지 않은 안전한 최초 실행만 동일 attempt의 실행 소유권을 확보해 IdP를 호출한다. 경합한 요청은 저장 상태를 재조회하거나 기존 REQUEST_IN_PROGRESS를 반환하고 같은 code를 동시에 교환하지 않는다. 네트워크 동안 사용자/세션 DB 잠금이나 TX를 유지하지 않는다. 검증 성공 뒤 prepareLogin TX가 provider 검증 결과·자격 digest/scope·PENDING 세션·고정 서명 재료를 함께 저장한다. 쓰기 직전에도 같은 attempt/scope와 현재 사용자 상태를 대조한다.
 4. **IdP 성공과 내구 저장 사이의 장애는 별도 한계다.** 일회성 code가 소비됐지만 검증 결과가 저장되지 않았다면 로컬 메모리나 digest만으로 provider subject/토큰을 복원할 수 없다. 실행 소유권 만료만 보고 그 요청을 미실행으로 간주하지 않는다. 제공자가 보장하는 복구 수단이 실제 검증되지 않았다면 교환 결과 불명확으로 실패시키고 새 제공자 자격·새 attempt로 재인증한다. “prepare 이후 동일 결과 재생”을 이 구간의 무손실 보장으로 확대하지 않는다. 새 시도도 기존 guest 승격/계정 연결의 활성·경쟁 검사를 따르며 자동 새 guest 생성·자산 이전으로 복구를 대신하지 않는다.
 
@@ -492,6 +492,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | 신규 auth session RT/bootstrap hash·로그인 시도 자격 digest·고정 서명 재료 | main 새 모델 없음 | legacy 승격 전용 복구 receipt/고정 재료도 탈퇴 때 폐기하고 세션 폐기와 원문 재발급을 차단. 남기는 폐기 tombstone은 최소 sessionId/epoch/만료 정보로 제한하고 사용자 연계 자격은 파기 |
 | 신규 일반 receipt·outbox·위성 projection 속 name/catColor/기기 자격 | 신규 자료 | 탈퇴 TX에서 직접 PII가 든 중앙 복사본 제거/대체, 대상별 outbox로 위성 파기. 삭제 receipt는 deleted 결과만 보유하며 개인 응답 재생 금지 |
 | user-activity user_id·APP MDC user_id 및 로컬/회전/호스트·외부 적재 로그/trace/DLT 복사본 | 정상 계측도 사용자 UUID를 남김. main 로그 설정과 운영 compose에 파일·외부 전송 경로가 있으나 실제 외부 구성/파기 구현은 미확인 | 저장소별 정상 수집 UUID·사용자 연결을 삭제/비식별화. 중앙 탈퇴의 내구 파기 작업, sink 직전 폐기 fence·기존 queue/rotate/upload 재생 차단 및 복사본별 완료 검증이 필요. maxHistory를 승인된 보존 근거로 대신하지 않음. GA4/Firebase의 user_id·app_instance_id·설치 device_id 연결과 서버 MP 전송분도 포함 |
+| 기기 AsyncStorage의 사용자별 버킷·UUID 마커와 로컬 누끼 파일 | 탈퇴 성공도 일반 triggerLogout을 타며, 일반 로그아웃은 equipmentV2·ownedItemsV2 계정별 맵을 의도적으로 보존. character(customUri·createdAt)·groupCardOrder/Emoji·userId가 든 회차 결과/정산/스크린타임 마커도 남음 | 일반 로그아웃·계정 전환의 보존 정책은 유지하고 탈퇴 확정 때만 그 userId 항목·마커·앱 소유 누끼 파일을 writer drain 뒤 제거. 다른 계정 버킷·기기 전역 값은 보존. 아래 기기 로컬 절 적용 |
 
 main User 주석은 retention→purge를 언급하지만 현재 조회한 `erasePersonalData`는 즉시 물리 삭제가 아니다. 기존 행의 보존 근거/기간 없이 무기한 보존을 새 정책으로 채택하지 않는다. 위 표에서 '추가'로 표시한 파기는 해당 소유 모델과 FK를 실제 검증해야 하며 새 catColor 하나만 null 처리하고 전수 파기 완료로 닫지 않는다.
 
@@ -751,6 +752,14 @@ MDC 및 payload의 동일 사용자 연결을 비식별화하고, 안전하게 �
 
 앱은 탈퇴 성공을 받으면 **사용자 연결 이벤트를 더 보내지 않는다.** User-ID와 계정 user property를 해제하고, Firebase 분석 자료 재설정으로 `app_instance_id`를, 설치 device_id도 재발급한 뒤에만 이후 이벤트를 보낸다. 탈퇴 확인 지표가 필요하면 식별자 해제·재설정 뒤의 비연결 이벤트나 서버 집계로 대체한다. 현행처럼 User-ID가 붙은 채 `withdrawal_confirmed`를 보내는 순서는 허용하지 않는다. 실제 GA4 속성·연결된 내보내기·삭제 권한 구성이 확인되기 전에는 GA4 파기 완료를 주장하지 않는다.
 
+#### 기기 로컬 사용자 버킷의 탈퇴 전용 파기
+
+기준 main 앱의 탈퇴 성공 경로(`AccountScreen.handleWithdraw`)는 일반 `triggerLogout()`을 부르고, `App.tsx`의 일반 로그아웃은 토큰·프로필·일부 캐시만 지운다. `equipmentV2`·`ownedItemsV2`는 마운트된 Provider의 재기록 경합과 로컬이 유일한 구매 기록이라는 이유로 계정별 맵에 **의도적으로 보존**한다. 같은 방식으로 `character`의 `{ [userId]: { choice, customUri, createdAt } }`, `groupCardOrder`·`groupCardEmoji`, 키에 userId를 담는 `sessionResultSeen`·`groupChallengeSettlementReported` 마커, `focusStreakPoppedDate`와 값에 userId를 담는 스크린타임 `syncState`·`measurementStartDate`·`effectiveGoal`·`lastClosedDate`·`windowReports`가 남는다. 재로그인해도 다른 userId 버킷이라 노출되지는 않지만 탈퇴자 UUID와 보유품·캐릭터 이미지·그룹/회차 이력이 기기에 계속 보존된다. 401 refresh 실패와 `USER_NOT_FOUND` 안내도 모두 일반 로그아웃으로 수렴한다.
+
+일반 로그아웃과 게스트→소셜 전환의 보존·인계 정책은 바꾸지 않는다. **탈퇴 확정**(최초 200, 같은 `DELETE /me` 명령 재시도의 404 `USER_NOT_FOUND`, 또는 같은 세션 세대 요청이 받은 본인 404 `USER_NOT_FOUND`)일 때만 탈퇴 전용 정리를 실행한다. 순서는 ① 세션 세대 전환으로 이전 계정의 요청·재시도 큐 소유권 폐기 ② 그 계정의 Provider와 쓰기 큐(장비·보유·캐릭터·그룹 카드·집중 업로드/취소·스크린타임 보고)의 drain 또는 언마운트 완료 확인 ③ 계정별 맵에서 그 userId 항목만 제거하고 userId를 담은 마커 키·값 삭제, 레거시 `equipment`·`ownedItems`는 `ownedItemsLegacyOwner`가 그 사용자일 때만 제거 ④ `customUri`가 가리키는 앱 소유 로컬 누끼 파일 삭제 ⑤ 위 GA4 식별자 해제·재설정과 설치 device_id 재발급이다. drain 전에 지우면 늦은 쓰기가 옛 userId 항목을 되살리므로 삭제 뒤 그 userId로의 쓰기는 거절한다. 다른 계정 버킷과 계정 무관 기기 전역 값(`locale`·`guide*`)은 보존하고 `lastAuthProvider`는 기존대로 탈퇴 때 초기화한다. 앱 종료로 중단되면 다음 실행에서 남은 정리 표지를 보고 재개하며, 표지에는 userId 외 개인 자료를 담지 않는다.
+
+이것은 앱 후속 구현 조건이며 현재 앱에 탈퇴 전용 정리가 있다고 주장하지 않는다. 서버 7개 계약과 원본 예시는 바꾸지 않는다.
+
 #### 알림 발송 이력의 파기 경계
 
 `notification_sent_logs`는 애플리케이션 로그 파일이 아니라 쿨다운·중복 발송 방지·미발송 클레임을 보관하는 기능 테이블이다. 기존 별도 보존 근거가 확인되지 않은 사용자 알림/친구 관계 이력을 무기한 보존 대상으로 추가하지 않는다. 수신자 `user_id`는 NOT NULL이므로 그 사용자 행은 nullify 대신 상태와 무관하게 hard delete한다. `target_user_id`가 탈퇴한 사용자 상대인 `FRIEND_REQUEST`/`FRIEND_ACCEPTED` 행도 파기한다. 다만 다른 활성 수신자의 `RANK_OVERTAKE`는 **target_user_id만 nullify**하고 기존 수신자·type·sent_at 및 발송 집계 근거를 보존한다. 이 삭제는 정산 결과 원장을 지우는 작업이 아니다.
@@ -848,7 +857,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 400 NICKNAME_INVALID | false | `name`, 기존 trim/길이 정책 실패 |
 | 400 UNSUPPORTED_PROVIDER | false | `provider`, 지원 집합 밖 또는 해당 provider 어댑터 미구성. 기존 AuthErrorCode 유지 |
 | 400 HOST_WITHDRAW | false | null, 남은 주민이 있는 방장 탈퇴 |
-| 401 UNAUTHORIZED | false | null, 새 공개 경로의 AT 검증 또는 로그인 시도 재개 자격 오류. 제공자/RT 검증 오류는 아래 전용 코드로 구분 |
+| 401 UNAUTHORIZED | false | null, 새 공개 경로의 AT 검증 또는 로그인 시도 재개 자격 오류. 제공자/RT 검증 오류는 아래 전용 코드로 구분. 활성 사용자의 폐기 세션·authGeneration 불일치도 401이며, 사용자 비활성이 함께 참이면 404가 우선 |
 | 401 REFRESH_TOKEN | false | null, refresh 및 RT-only logout의 RT 타입·서명·만료·해시 불일치, 일반 회전 CAS0행, 승격 복구 불가 |
 | 401 KAKAO_TOKEN | false | `provider`, Kakao 자격 검증 실패 |
 | 401 APPLE_TOKEN | false | `provider`, Apple 자격 검증 실패 |
@@ -856,7 +865,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 401 LINE_TOKEN | false | `provider`, LINE 자격 검증 실패 |
 | 401 INSTAGRAM_TOKEN | false | `provider`, Instagram 자격 검증 실패 |
 | 401 FACEBOOK_TOKEN | false | `provider`, Facebook 자격 검증 실패 |
-| 404 USER_NOT_FOUND | false | null, 비활성/없는 본인 계정. 기존 UserErrorCode와 앱 재로그인 분기를 그대로 보존하며 NOT_FOUND로 치환하지 않음 |
+| 404 USER_NOT_FOUND | false | null, 비활성/없는 본인 계정. 기존 UserErrorCode와 앱 재로그인 분기를 그대로 보존하며 NOT_FOUND로 치환하지 않음. 서명·타입·만료가 유효한 옛 AT/RT라도 계정이 비활성이면 세션 폐기 401보다 우선 |
 | 409 NICKNAME_DUPLICATE | false | `name`, 이름 경쟁/중복 |
 | 409 SOCIAL_ACCOUNT_ALREADY_LINKED | false | `provider`, 기존 게스트 승격 계정 충돌 |
 | 409 GUEST_ALREADY_PROMOTED | false | null, 기존 승격 상태 충돌 |
@@ -900,7 +909,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 이름 A→B 뒤 역순 relay·답장 유실·탈퇴/멤버십 종료 | 공유 slug는 최신 snapshotVersion만 적용, 낮은 버전 이름 복구/폐기 링크 부활0; 기존 legacy 이름 writer 회귀 유지 |
 | login 준비 후 장애·확정 응답 유실 | 실제 원 code/credential + 같은 attempt로 내구 조회를 먼저 수행, 재개 시 IdP 호출0·동일 generation이면 동일 RT·새 세션 중복0 |
 | 재개 시 원 자격 없이 attempt/digest만 제시·다른 provider/선택 주체/본문 | 준비 자료·provider subject·토큰 반환0. 앱 digest를 원 자격으로 신뢰하지 않음 |
-| 준비 저장 뒤 digest 키 교체·같은 code/attempt 재개·복구 창 뒤 이전 키 폐기 | attempt key ID로 같은 digest 재현·IdP 재교환0, 창 종료 뒤 새 제공자 인증 요구, 키 교체를 IDEMPOTENCY_KEY_REUSED로 오판0 |
+| 준비 저장 뒤 또는 완료 201 응답 유실 뒤 digest 키 교체·같은 code/attempt 재개/재생·복구 마감 뒤 이전 키 폐기 | PENDING·COMPLETED 모두 조회한 attempt key ID로 같은 digest 재현·IdP 재교환0·같은 토큰 복원, 창 종료 뒤 새 제공자 인증 요구, 키 교체를 IDEMPOTENCY_KEY_REUSED로 오판0 |
 | 재개 시 고정 만료/복구창 종료·사용자 비활성·세대/epoch 변경·INVALIDATED | IdP 재교환·새 준비로 우회0, 기존 거절 유지·복구 마감 연장0 |
 | 같은 최초 attempt 동시 실행·IdP 성공 직후 prepare 저장 전 강제 종료 | 동시에 code 교환하지 않음. 내구 결과 없는 불명확 실행을 성공 재생하지 않으며, 제공자 복구 보장 없이는 재인증 분기로 명시 실패 |
 | 로그인 CAS 경쟁·같은 attempt 동시 재준비·옛 complete 지연 | REPREPARE_REQUIRED에서 g+1을 한 번만 발급, g 토큰 반환/재활성화 0, g+1 응답 유실은 동일 재료 재생 |
@@ -950,11 +959,13 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | chat/realtime user.withdrawn 중복/역순·응답 유실·DELETE 직후 강제 실패 | tombstone·cursor DELETE·수신 완료가 함께 rollback/commit, 실패 재전달 후 제거; 대상별 완료 전 전체 위성 파기 완료 주장 금지 |
 | 탈퇴 full fixture + 강제 rollback | 전수 표 파기·보존 대조, 환불/지갑/outbox 포함 한 TX |
 | 탈퇴 후 신규 7개에 옛 자격 | 로그인 성공 재개/일반 조회·변경 차단. 정상 새 제공자 재가입은 새 userId이며 옛 계정 부활 아님 |
+| 탈퇴 직후 만료 전 옛 AT/RT로 7개 경로·refresh·logout·DELETE /me 같은 키 재시도, 활성 사용자의 logout 뒤 옛 AT | 계정 비활성은 모든 경로에서 404 USER_NOT_FOUND 우선, 만료/위조 401, 활성 사용자의 폐기 세션 401. DELETE /me 재시도 404를 앱이 탈퇴 확정·탈퇴 전용 로컬 파기로 처리 |
 | 설정 false/true 역전, 다른 필드 역전, legacy 전체 PUT 경쟁 | 필드별 version으로 유실 방지, 재전달 멱등, 원래 명령 결과 재생 |
 | 알림 서버 장애·완료 표시 유실 | outbox만 저장됐는데 200 반환 금지, 같은 commandId로 복구 |
 | 로그 캡처/에러/trace | 자격 헤더·PII·원문 제공자 payload·서명 재료 노출 0 |
 | 정상 계측 UUID·APP MDC·큐/회전/외부 upload와 탈퇴 경합 | sink별 사용자 연결 제거·늦은 재부착0, 타인 보존·실패 내구 재시도·복사본별 완료 증거, 미확인 외부 저장소 완료 주장0 |
 | GA4 User-ID·app_instance_id·설치 device_id·탈퇴 성공 뒤 앱 이벤트·서버 MP 지연 전송 | 삭제 작업 내구 기록·실패 재시도·지연 기간 뒤 재요청, 탈퇴 뒤 옛 User-ID/app_instance_id/device_id로 전송0, 미확인 GA4 구성의 완료 주장0 |
+| 탈퇴 200·응답 유실 뒤 재시도 404·다른 기기 탈퇴 뒤 404, 마운트된 Provider의 늦은 쓰기·정리 중 앱 종료, 같은 기기의 다른 계정 버킷 | 탈퇴자 userId 항목·마커·누끼 파일0, 늦은 쓰기 부활0·다음 실행 재개, 다른 계정 버킷·기기 전역 값 보존, 일반 로그아웃/계정 전환 보존 정책 불변 |
 
 기준 main 근거:
 
@@ -986,6 +997,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `server/data-api/src/main/java/com/oneorthree/phone/group/repository/domain/GroupMember.java`, `GroupRepository.java`, `GroupMemberRepository.java` | leave()의 is_left/left_reason만 변경, notificationEnabled·announcementPermission·status·role NOT NULL, is_left=false OWNER 방장 판정 |
 | `server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/domain/InviteLinkClick.java`, `InviteLinkClickRepository.java`, `invitelink/support/InviteLinkGa4Events.java`, `common/analytics/Ga4MeasurementClientImpl.java` | ip_hash NOT NULL·user_agent·matched_device_id·app_instance_id, markMatched, 기기 재시도 조회, 서버 MP app_instance_id 전송 |
 | `app/app-dev/src/store/UserContext.tsx`, `app/app-dev/src/screens/settings/AccountScreen.tsx`, `app/app-dev/src/services/analytics.ts` | GA4 setUserId(userId), 탈퇴 성공 뒤 setUserId(null) 이전의 withdrawal_confirmed, 설치 device_id 공통 파라미터·getAppInstanceId |
+| `app/app-dev/src/App.tsx`, `app/app-dev/src/types/storage.ts`, `app/app-dev/src/store/CharacterContext.tsx`, `app/app-dev/src/services/sessionErrors.ts`, `app/app-dev/src/services/api.ts` | 일반 로그아웃 multiRemove와 equipment·ownedItems 보존 주석, 계정별 맵·userId 마커 키, customUri·createdAt, USER_NOT_FOUND 안내와 401 refresh 실패의 일반 로그아웃 수렴 |
 | `server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java` | anonymizeWithdrawnUser |
 | `server/data-api/src/main/java/com/oneorthree/phone/stats/service/StatsService.java` | anonymizeWithdrawnUser |
 | `server/data-api/src/main/java/com/oneorthree/phone/screentime/service/ScreenTimeService.java` | anonymizeWithdrawnUser |

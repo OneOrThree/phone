@@ -26,7 +26,7 @@ PR 740 검토 반영: 공지 작성자 FK 파기와 생성 경합, RT-only 로�
 
 로그아웃 순서·잔존 초대 파기 보완: 기기 삭제 실패는 RT 폐기와 로컬 정리의 선행 조건이 아니다. 미완료 삭제의 기기 자격/원 키 큐를 보존하되, 검증된 sid/bootstrap 연결 등록은 기존 auth.session.revoked 내구 전달·세션 fence로 비활성화한다. 별도 DELETE 성공과 구분하고 미연결 legacy 등록의 현재 세션 연결은 앱 전환 활성 조건으로 둔다. 삭제·등록은 기존 토큰별 tombstone/최대 ownershipVersion 장벽을 함께 유지한다(㉴·㋓·㋗·㋞). 미사용 `group_invites`도 본인이 inviter/invitee인 모든 상태를 같은 탈퇴 TX에서 파기하고 타인 행·rollback을 검증한다. snapshot writer 잠금과 Redis 랭킹 파기는 후속 구현 의무이며 현재 구현 완료로 표시하지 않는다.
 
-로그인 재개 순서 보완: 실제 원 code/credential로 만든 서버 digest와 검증된 요청 scope로 내구 시도를 먼저 찾는다. 준비/확정 결과가 있으면 활성·세대·고정 만료/폐기를 확인하고 일회성 code를 다시 교환하지 않는다. IdP 성공 뒤 내구 저장 전 장애는 이 재생 보장 밖이며, 제공자 복구 보장이 없으면 새 자격으로 재인증해야 한다. Q06·약관 등 미결 정책과 원본7계약은 변경하지 않았다.
+로그인 재개 순서 보완: 내구 시도와 고정 digest key ID를 먼저 조회하고, 그 키로 실제 원 code/credential의 서버 digest를 계산해 검증된 요청 scope와 대조한다. 준비/확정 결과가 있으면 활성·세대·고정 만료/폐기를 확인하고 일회성 code를 다시 교환하지 않는다. IdP 성공 뒤 내구 저장 전 장애는 이 재생 보장 밖이며, 제공자 복구 보장이 없으면 새 자격으로 재인증해야 한다. Q06·약관 등 미결 정책과 원본7계약은 변경하지 않았다.
 
 프로필 사건 보완: 승인된 완료 판정 false→true의 user.onboarded와 실제 이름 변경의 user.displayNameChanged를 프로필/receipt와 같은 TX에 기록한다. 이름은 선행의 동기 이벤트·LinkMembershipEventService writer를 공유해 중복 구현하지 않는다. 랭킹 절대 점수 재적재·링크 snapshotVersion/폐기 대조와 생산자/소비자 회귀는 활성화 조건이며 기존 내부 사건을 공개66/섬실시간14의 추가 항목으로 세지 않는다. Q03/Q04 제품 판정은 미결 그대로다.
 
@@ -47,3 +47,5 @@ legacy 온보딩 전이 보완: 신규 PATCH와 기존 POST/PATCH 프로필 writ
 친구 관계 파기 보완: 탈퇴자가 from/to인 `friendships`를 soft delete로 남기지 않고 status·기존 deleted_at과 무관하게 같은 중앙 TX에서 hard delete하며 pin 양방향 삭제를 유지한다. 요청·pin 생성의 두 활성 users 공유 잠금과 수락/거절 행 잠금을 보존하고, 잠금 없이 읽고 UPDATE하는 친구 삭제는 행 잠금 재조회로 바꿔 삭제 경합의 500을 기존 `NOT_FRIEND`로 수렴시킨다. 이미 탈퇴한 사용자의 잔존 행 정리는 신규 탈퇴 완료 조건과 구분한다.
 
 분석 식별자·멤버십·digest 키 보완: GA4 User-ID·app_instance_id·설치 device_id 연결을 파기 범위에 넣고 탈퇴 뒤 앱 이벤트 순서와 지연 전송 재요청을 정했다. claim 클릭의 기기·GA4·IP 해시·UA 식별자를 소진 표지와 분리해 파기하고, 보존 멤버십 행의 그룹 알림·공지 권한·상태·역할을 초기화한다. 로그인 자격 digest는 attempt에 key ID를 고정해 키 교체 뒤에도 IdP 재교환 없이 재개한다.
+
+오류 우선순위·로컬 버킷·digest 재생 보완: 신규 경로의 인증 검사를 AT 검증(401) → 사용자 활성(404 `USER_NOT_FOUND`) → 세션/세대(401) 순서로 고정해 탈퇴 뒤 옛 자격은 404로 통일하고, `DELETE /me` 재시도의 404를 탈퇴 확정으로 처리한다. 탈퇴 확정 때만 기기의 계정별 버킷·UUID 마커·누끼 파일을 writer drain 뒤 지운다. digest는 attempt/key ID 조회 뒤 계산하고 COMPLETED 응답 유실 재생까지 이전 키를 유지한다.
