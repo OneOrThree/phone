@@ -22,7 +22,12 @@ echo "=========================================="
 echo " realtime  ./gradlew build"
 echo "   (checkstyle · spotbugs · test · bootJar)"
 echo "=========================================="
-SPRING_PROFILES_ACTIVE=ci ./gradlew build --stacktrace
+# clean 을 붙인다. CI 는 깨끗한 체크아웃에서 돌아 언제나 실제로 검사하지만, 로컬은 build/ 가
+# 남아 있어 소스가 그대로면 Gradle 이 UP-TO-DATE 로 건너뛴다. 소스가 아니라 «환경»(도커·
+# Testcontainers)이 바뀌거나 고장 난 경우에도 입력 해시는 그대로라, 아무 검사도 안 돈 채
+# 게이트가 초록이 된다. build 는 라이프사이클 태스크라 --rerun 을 붙일 수 없으므로 CI 와
+# 같은 «깨끗한 상태» 를 clean 으로 만든다.
+SPRING_PROFILES_ACTIVE=ci ./gradlew clean build --stacktrace
 
 echo ""
 echo "=========================================="

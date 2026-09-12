@@ -42,6 +42,14 @@ echo "   (checkstyle · spotbugs · test · bootJar)"
 echo "=========================================="
 mkdir -p "$GRADLE_HOME"
 
+# clean 을 붙인다. build/ 는 저장소에서 bind mount 되므로 앞선 실행의 결과가 그대로 남아,
+# 소스가 그대로면 test 가 UP-TO-DATE 로 건너뛰어진다. 소스가 아니라 «환경»(도커 이미지·
+# Testcontainers 네트워크)이 바뀌거나 고장 난 경우에도 Gradle 의 입력 해시는 그대로라,
+# 깨끗한 체크아웃에서 실제로 도는 CI 는 실패하는데 로컬 게이트만 초록이 된다.
+# (이 PR 에서 실제로 두 번 당했다 — 5초 만에 전 태스크 UP-TO-DATE 로 「모든 검사 통과」.)
+# build 는 라이프사이클 태스크라 --rerun 을 붙일 수 없어 CI 와 같은 깨끗한 상태를 만든다.
+# 의존성 캐시는 GRADLE_HOME 에 따로 있어 clean 이 건드리지 않는다.
+
 # ── OS 별 분기 ────────────────────────────────────────────────────────────────
 # 네트워크와 실행 사용자, 둘 다 리눅스와 macOS 에서 답이 반대다. 실측으로 확인한 내용:
 #
@@ -52,13 +60,16 @@ mkdir -p "$GRADLE_HOME"
 #   이후 일반 사용자의 ./gradlew clean 이 권한 오류로 깨진다. 그래서 CI 처럼 호스트 uid 로
 #   낮추고 docker 소켓 그룹을 더해 준다.
 #
-# macOS(Docker Desktop): 정반대로 `--network host` 를 쓰면 «깨진다». Desktop 은 게시된
-#   포트를 맥 쪽 프록시로 전달할 뿐 리눅스 VM 의 loopback 에는 열지 않아서, VM 네트워크
-#   네임스페이스에 들어간 컨테이너는 127.0.0.1:<포트> 에서 아무것도 못 본다
-#   (Ryuk 연결 거부 → Testcontainers 쓰는 2개 클래스가 통째로 실패). 그래서 기본 bridge +
-#   host.docker.internal 을 쓴다. 사용자도 낮추지 않는다 — Desktop 은 bind mount 소유자를
-#   호스트 사용자로 되매핑해 주어 root 소유 문제가 없고, 반대로 --user 로 낮추면 VM 안
-#   docker 소켓(root:root)에 닿지 못해 Testcontainers 가 죽는다.
+# macOS(Docker Desktop): 정반대로 `--network host` 를 쓰면 «깨진다». Desktop 에서 «동적으로
+#   배정된» 게시 포트는 VM 네트워크 네임스페이스에서 보이지 않는다. 프로브로 확인한 경계:
+#   포트를 명시해 게시하면(-p 5598:80 / -p 127.0.0.1:5599:80) 호스트네트워크 컨테이너에서
+#   보이지만, 동적 배정이면(-p ::80 / -p 127.0.0.1::80) 바인딩 주소와 무관하게 안 보인다.
+#   Testcontainers 는 Ryuk 을 포함해 전부 동적 포트로 띄우므로 여기에 정통으로 걸린다
+#   (Ryuk 연결 거부 → Testcontainers 쓰는 2개 클래스가 통째로 실패). bridge 에서는 네 경우
+#   모두 host.docker.internal 로 닿는다. 그래서 macOS 는 기본 bridge + host.docker.internal.
+#   사용자도 낮추지 않는다 — Desktop 은 bind mount 소유자를 호스트 사용자로 되매핑해 주어
+#   root 소유 문제가 없고, 반대로 --user 로 낮추면 VM 안 docker 소켓(root:root)에 닿지 못해
+#   Testcontainers 가 죽는다.
 DOCKER_OS_ARGS=()
 if [ "$(uname -s)" = "Linux" ]; then
     TC_HOST=127.0.0.1
@@ -79,7 +90,7 @@ docker run --rm \
     -e SPRING_PROFILES_ACTIVE=ci \
     -e TESTCONTAINERS_HOST_OVERRIDE="$TC_HOST" \
     -w "$REPO_ROOT/server/business-api" \
-    "$IMAGE" ./gradlew build --no-daemon --stacktrace
+    "$IMAGE" ./gradlew clean build --no-daemon --stacktrace
 
 echo ""
 echo "=========================================="
