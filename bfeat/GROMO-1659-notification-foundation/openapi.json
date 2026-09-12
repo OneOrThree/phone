@@ -7205,6 +7205,9 @@
           "leaseToken": {
             "type": "string",
             "format": "uuid"
+          },
+          "terminalCode": {
+            "type": "string"
           }
         },
         "required": [
@@ -10280,10 +10283,10 @@
           "focusTagName": {
             "type": "string"
           },
-          "focusing": {
+          "pinned": {
             "type": "boolean"
           },
-          "pinned": {
+          "focusing": {
             "type": "boolean"
           },
           "isPinned": {
