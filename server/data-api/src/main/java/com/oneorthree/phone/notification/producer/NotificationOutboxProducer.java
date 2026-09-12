@@ -37,6 +37,9 @@ import java.util.Optional;
  * 몫이라고 명시돼 있다. 알림 사건은 <b>결정적 키</b>라 재훑기·중복 크론이 같은 키를 다시 만드는 것이
  * 정상 동작이므로, 여기서 먼저 조회해 있으면 그대로 둔다. 이것이 구 경로의 선점
  * ({@code notification_sent_logs} UNIQUE)을 대체한다.
+ *
+ * <p>조회는 쓰기 키 하나가 아니라 {@link NotificationEventKey#duplicateKeysOf} 가 주는 <b>대조 목록</b>
+ * 으로 한다 — 시간축이 고정 버킷이라 같은 사건이 경계에서 갈릴 수 있기 때문이다.
  */
 @Slf4j
 @Service
@@ -73,9 +76,15 @@ public class NotificationOutboxProducer {
         // 소비 측은 «단조 증가»만 보고 «연속»에 기대지 않으므로 빈 번호는 무해하다.
         outboxCommandPort.allocateVersion(aggregate);
         String eventId = eventIdOf(request);
-        if (eventOutboxRepository.findByEventId(eventId).isPresent()) {
-            // 재훑기·겹치는 크론이 같은 사건을 다시 집은 것 — 정상이다.
-            return Optional.empty();
+        // 쓰기 키 하나만 보지 않는다. 시간축이 고정 버킷이라 «같은 사건»이 버킷 경계에서 갈릴 수 있고
+        // (분 축의 12:00:59 와 12:01:01), 그때 쓰기 키만 조회하면 「없다」가 나와 같은 사건이 두 번
+        // 적힌다 = 푸시가 두 번 나간다. 어디까지 대조하는지는 시간축이 정한다.
+        for (String candidate : NotificationEventKey.duplicateKeysOf(request.kind(), request.userId(),
+                request.subjectId(), request.occurredAtKeyHint())) {
+            if (eventOutboxRepository.findByEventId(candidate).isPresent()) {
+                // 재훑기·겹치는 크론이 같은 사건을 다시 집은 것 — 정상이다.
+                return Optional.empty();
+            }
         }
         // scheduledAt 은 언제나 null 이다 — 이월(DEFER)은 «발행»을 미루는 일이 아니라 «발송»을 미루는
         // 일이고, 그 판정에 필요한 조용한 시간 설정의 정본은 알림 DB 에 있다. relay 를 붙잡아 두면
