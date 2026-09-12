@@ -48,7 +48,11 @@ public class NotificationSettingsUseCase {
 
     /** 정본 조회. 읽기라 활성 검사를 걸지 않는다(§5: 읽기 전용 경로는 AT 3600s 창 수용). */
     public NotificationSettingsView read(UUID userId, Deadline deadline) {
-        return notificationApiClient.getSettings(userId, deadline);
+        NotificationSettingsView view = notificationApiClient.getSettings(userId, deadline);
+        if (view == null) {
+            throw new UpstreamContractMismatchException("알림 설정 조회 응답에 본문이 없습니다");
+        }
+        return view;
     }
 
     /**

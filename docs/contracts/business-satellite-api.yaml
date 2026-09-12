@@ -742,12 +742,13 @@ paths:
       responses:
         '200':
           description: |
-            선점 성공. 응답은 **모양을 늘릴 수 있다**(additive) — Business 는 본문을 그대로 통과시키고
-            필드를 해석하지 않는다(㉹ 제공자 선배포를 지키기 위해서다). 현재는 `{claimToken}`.
+            선점 성공. 기존 claimToken의 UUID 형식만 검증하며 추가 필드는 원문 그대로 전달한다.
+            빈 본문·누락·null·잘못된 토큰은 502 계약 오류다. 비멱등 선점은 자동 재시도하지 않는다.
           content:
             application/json:
               schema:
                 type: object
+                required: [claimToken]
                 properties:
                   claimToken: { type: string, format: uuid }
         '409':
@@ -1239,15 +1240,15 @@ paths:
                 inviterDisplayName: { type: [string, 'null'] }
       responses:
         '200':
-          description: 발급됨 — 기존 앱 응답 두 필드를 그대로 채운다
+          description: 발급됨 — slug와 url은 null·빈 문자열·공백을 허용하지 않으며 기존 값을 그대로 전달한다
           content:
             application/json:
               schema:
                 type: object
                 required: [slug, url]
                 properties:
-                  slug: { type: string, maxLength: 12 }
-                  url: { type: string }
+                  slug: { type: string, minLength: 1, maxLength: 12, pattern: '\S' }
+                  url: { type: string, minLength: 1, pattern: '\S' }
         '409':
           description: 오래된 명령이라 거부. **`code` 를 실어라**
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
+import java.util.Map;
 
 /**
  * 결과 확인(ack) ↔ 대기 중 푸시 직렬화 (A22 ⓓ · ㊅). 기존 앱 계약
@@ -58,7 +59,21 @@ public class ResultAckUseCase {
      * {@code X-User-Id} 활성 검사를 한다(§5).
      */
     public Object claimDisplay(UUID userId, UUID sessionId, UUID currentToken, Deadline deadline) {
-        return dataApiClient.claimResultDisplay(userId, sessionId, currentToken, deadline);
+        Object response = dataApiClient.claimResultDisplay(userId, sessionId, currentToken, deadline);
+        if (!(response instanceof Map<?, ?> body) || !(body.get("claimToken") instanceof String token)
+                || !validClaimToken(token)) {
+            throw new UpstreamContractMismatchException("결과 표시 선점 응답에 유효한 claimToken이 없습니다");
+        }
+        // Data의 추가 필드는 그대로 보존한다. 비멱등 선점을 여기서 재시도하지 않는다.
+        return response;
+    }
+
+    private static boolean validClaimToken(String token) {
+        try {
+            return UUID.fromString(token).toString().equalsIgnoreCase(token);
+        } catch (IllegalArgumentException malformed) {
+            return false;
+        }
     }
 
     /** 확인 표시 — prepare → Data commit → noti commit. */

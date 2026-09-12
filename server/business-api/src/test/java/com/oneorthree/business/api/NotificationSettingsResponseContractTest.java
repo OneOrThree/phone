@@ -25,6 +25,20 @@ class NotificationSettingsResponseContractTest extends UpstreamTestBase {
                 Arguments.of(200, "{\"commandId\":\"11111111-1111-4111-8111-111111111111\",\"version\":2}"));
     }
 
+    static Stream<Arguments> absentSettings() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("absentSettings")
+    void absentSettingsAreAContractError(int responseStatus, String body) throws Exception {
+        NOTI.on("GET " + INTERNAL_PATH, request -> new MockUpstream.Response(responseStatus, body));
+        mockMvc.perform(get(PUBLIC_PATH).header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
     @ParameterizedTest
     @MethodSource("incompleteCommands")
     void incompleteCommandStopsBeforeApplyAndCanRetry(int responseStatus, String body) throws Exception {

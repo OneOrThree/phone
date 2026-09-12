@@ -5,8 +5,12 @@ import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
 
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -16,6 +20,40 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /** 결과 ack 의 prepare → Data commit → noti commit 순서와 수렴 계약(A22 ⓓ · ㊅). */
 @DisplayName("결과 ack 게이트 상태 흐름")
 class ResultAckContractTest extends UpstreamTestBase {
+    static Stream<Arguments> invalidDisplayClaims() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{}"), Arguments.of(200, "[]"),
+                Arguments.of(200, "{\"claimToken\":null}"), Arguments.of(200, "{\"claimToken\":42}"),
+                Arguments.of(200, "{\"claimToken\":\"\"}"), Arguments.of(200, "{\"claimToken\":\"  \"}"),
+                Arguments.of(200, "{\"claimToken\":\"not-a-uuid\"}"),
+                Arguments.of(200, "{\"claimToken\":\"1-1-1-1-1\"}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidDisplayClaims")
+    void incompleteDisplayClaimIsRejectedWithoutAutomaticRetry(int responseStatus, String body) throws Exception {
+        String path = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/claim";
+        DATA.on(path, request -> new MockUpstream.Response(responseStatus, body));
+        mockMvc.perform(post("/api/v1/me/challenge-results/" + SESSION + "/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        assertThat(DATA.hits(path)).isEqualTo(1);
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    void validDisplayClaimKeepsAdditionalFieldsAndToken() throws Exception {
+        String path = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/claim";
+        DATA.on(path, request -> new MockUpstream.Response(200,
+                "{\"claimToken\":\"" + CLAIM_TOKEN + "\",\"extra\":{\"version\":7}}"));
+        mockMvc.perform(post("/api/v1/me/challenge-results/" + SESSION + "/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.claimToken").value(CLAIM_TOKEN.toString()))
+                .andExpect(jsonPath("$.extra.version").value(7));
+        assertThat(DATA.hits(path)).isEqualTo(1);
+    }
 
     private static final UUID USER = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000003");
     private static final UUID SESSION = UUID.fromString("ffffffff-0000-0000-0000-000000000001");

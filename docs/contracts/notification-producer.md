@@ -203,6 +203,12 @@ FCM 으로도 가고 Kafka 로도 간다.
 같고(둘 다 「확인 표시 없음」), 404 를 던지면 수렴 경로가 그 예외에 막혀 탈출구를 두고도
 빠져나오지 못한다. `{acknowledged:false, acknowledgedAt:null}` 을 그대로 돌려준다.
 
+ack 리컨실은 한 번에 최대 25건을 조회한다. 정본 조회가 실패하면 `NEEDS_CONFIRM`을 유지하고
+`next_reconcile_at`에 30초 뒤를 같은 사건 잠금 트랜잭션에서 커밋한다. 다음 tick은 아직 유예 중인
+행을 건너뛰며 `COALESCE(next_reconcile_at, updated_at)` 순서로 진행한다. 실패를 잡 상태에는
+실패로 보고하되, 그 보고로 재시도 예약을 롤백하지 않는다. 새 prepare·abort·commit은 동일 사건
+잠금 아래 이 예약을 초기화하므로 이전 조회 실패가 새 보류·확정을 덮지 않는다.
+
 ### ③ 적격성 — fail-closed
 
 모든 kind는 발송 직전 이 조회를 거친다. 요청의 `params`는 저장된 사건 params 전체이며,

@@ -309,6 +309,7 @@ class NotificationStoreTest {
         dispatch.dispatch(id);
         verifyNoInteractions(transport);
         doReturn(true).when(data).acknowledged(USER, session);
+        when(clock.instant()).thenReturn(DAY.plusSeconds(61));
         ack.reconcile();
         assertThat(status(id)).isEqualTo("SUPPRESSED");
         ack.command(USER, session, "abort", "late-abort");

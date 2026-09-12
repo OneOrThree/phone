@@ -95,7 +95,12 @@ public class InviteLinkUseCase {
                 context.snapshotVersion(),
                 context.groupName(),
                 context.inviterDisplayName());
-        return linkApiClient.issue(inviterId, command, keys.forStep("link-issue"), deadline);
+        LinkIssueResult result = linkApiClient.issue(inviterId, command, keys.forStep("link-issue"), deadline);
+        if (result == null || result.slug() == null || result.slug().isBlank()
+                || result.url() == null || result.url().isBlank()) {
+            throw new UpstreamContractMismatchException("초대 링크 발급 응답이 완전하지 않습니다");
+        }
+        return result;
     }
 
     /**

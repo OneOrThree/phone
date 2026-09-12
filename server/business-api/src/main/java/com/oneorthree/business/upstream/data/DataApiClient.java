@@ -205,7 +205,7 @@ public class DataApiClient {
      */
     public ClaimIntentAck enqueueClaimIntent(UUID userId, String slug, String idempotencyKey,
             Deadline deadline) {
-        return http.exchange(
+        ClaimIntentAck intent = http.exchange(
                 InternalCall.to(HttpMethod.POST, PATH_CLAIM_INTENTS)
                         .onBehalfOf(userId)
                         .idempotencyKey(idempotencyKey)
@@ -214,6 +214,11 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<ClaimIntentAck>() { });
+        if (intent == null || intent.commandId() == null
+                || intent.eventId() == null || intent.eventId().isBlank()) {
+            throw new UpstreamContractMismatchException("초대 claim 의도 응답이 완전하지 않습니다");
+        }
+        return intent;
     }
 
     /**
