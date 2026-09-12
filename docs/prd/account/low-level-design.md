@@ -19,7 +19,7 @@ GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [원본 예�
 | 낙관 버전 | 원본 계정 7개는 `expectedVersion`이 없다. 필수 필드로 임의 추가하지 않고 Data 잠금과 명령 멱등으로 보호 |
 | 생략/null | 요청의 생략은 미변경, 명시 null은 허용한 응답 필드를 제외하면 오류. JSON의 알 수 없는 요청 필드는 400으로 거부 |
 
-범용 receipt는 이미 수락/확정한 키에 다른 본문이 오면 409를 반환한다. 실행 전 검증 실패로 receipt가 확정되지 않은 요청은 결과 재생 보장 밖이다. 수정한 사용자 의도에는 새 키를 쓴다. 같은 성공 명령은 최초 상태 코드와 비즈니스 결과를 재생하며 requestId는 현재 요청 값이다. 탈퇴 뒤에는 범용 재생보다 폐기된 주체 차단이 우선한다.
+범용 receipt는 이미 수락/확정한 키에 다른 본문이 오면 409를 반환한다. 실행 전 검증 실패로 receipt가 확정되지 않은 요청은 결과 재생 보장 밖이다. 수정한 사용자 의도에는 새 키를 쓴다. 같은 성공 명령은 최초 상태 코드와 비즈니스 결과를 재생하며 requestId는 현재 요청 값이다. 단 PATCH `/me/settings`는 §2.7대로 최초 상태 코드만 재생하고 `notifications` 값은 응답 시점 정본의 현재 값으로 돌려준다. 탈퇴 뒤에는 범용 재생보다 폐기된 주체 차단이 우선한다.
 
 ## 2. 공개 계약 7개
 
@@ -244,7 +244,7 @@ Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를
 
 ### 2.7 PATCH /me/settings
 
-요청 `{ "notifications": false }`, 정확한 boolean 하나 필수. 생략/null/문자열은 400이다. 성공은 `{ "data": { "notifications": false } }`. 응답 값은 요청값의 복사가 아니라 **처리 뒤 알림 서버 정본의 현재 값**이다. 명령이 적용된 경우(APPLIED)에는 그 결과이고, 최초 처리부터 더 높은 필드 version이 이미 저장돼 적용되지 않은 경우(SUPERSEDED)에는 적용한 척 요청값을 돌려주지 않고 그 시점 정본 값을 돌려준다.
+요청 `{ "notifications": false }`, 정확한 boolean 하나 필수. 생략/null/문자열은 400이다. 성공은 `{ "data": { "notifications": false } }`. 응답 값은 요청값의 복사도, 최초 처리 결과의 재생도 아니라 **응답 시점 알림 서버 정본의 현재 값**이다. 최초 처리·재전달, APPLIED·SUPERSEDED를 가리지 않고 같은 규칙을 쓴다. 최초 처리부터 더 높은 필드 version이 이미 저장돼 적용되지 않은 경우(SUPERSEDED)에도 적용한 척 요청값을 돌려주지 않는다.
 
 내부 명령의 의미는 다음과 같다. 필드 이름은 공개 DTO와 내부 기존 모델을 구분한다.
 
@@ -252,7 +252,7 @@ Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를
 {"commandId":"01991930-0000-7000-8000-000000000002","version":42,"mask":["notificationEnabled"],"patch":{"notificationEnabled":false},"authGeneration":3}
 ```
 
-사용자 주체는 Business가 새로 만든 내부 위임 헤더에서 받는다. 요청 본문의 userId를 신뢰하지 않는다. Data는 같은 키 재개에서 기존 commandId/version/mask/patch를 반환하며 새로운 명령을 만들지 않는다. Notification은 자신의 사용자 폐기 tombstone과 generation을 대조하고 선택 필드의 저장 version보다 큰 경우에만 그 필드를 바꾼다. 같은 명령 재전달은 최초 결과로 멱등 응답한다. 낮은 버전은 이미 대체된 상태를 덮지 않는다. Notification은 최초 처리 결과를 APPLIED/SUPERSEDED로 명령 receipt에 확정한다. APPLIED 재전달은 최초 결과를 재생하고, SUPERSEDED 재전달은 새 적용 없이 재생 시점의 정본 현재 값을 다시 읽어 반환한다. 새 오류 코드나 응답 필드는 추가하지 않는다. 앱은 응답이 **자신이 마지막으로 보낸 설정 명령의 키**에 대한 것일 때만 로컬 값과 화면에 반영하고, 이전 키의 늦은 응답·재생은 버리며, 불일치가 의심되면 GET으로 정본을 재조회한다. 그래야 v42(false)가 v43(true)보다 늦게 처리되거나 v42 응답 유실 뒤 재시도한 결과가 앱에 false를 되돌려 쓰지 않는다.
+사용자 주체는 Business가 새로 만든 내부 위임 헤더에서 받는다. 요청 본문의 userId를 신뢰하지 않는다. Data는 같은 키 재개에서 기존 commandId/version/mask/patch를 반환하며 새로운 명령을 만들지 않는다. Notification은 자신의 사용자 폐기 tombstone과 generation을 대조하고 선택 필드의 저장 version보다 큰 경우에만 그 필드를 바꾼다. 같은 명령 재전달은 다시 적용하지 않는 멱등 처리다. 낮은 버전은 이미 대체된 상태를 덮지 않는다. Notification은 최초 처리 결과를 APPLIED/SUPERSEDED로 명령 receipt에 확정하되 이 구분은 **재적용 여부 판정에만** 쓴다. 재전달은 APPLIED·SUPERSEDED 모두 새 적용 없이 같은 로컬 판독 경계에서 정본 현재 값을 다시 읽어 반환한다. 예를 들어 v42(false)가 적용된 뒤 응답이 유실되고 다른 기기의 v43(true)이 적용됐다면 v42 재시도의 응답은 true다. Business의 범용 멱등 receipt도 이 명령에는 첫 200 본문의 값을 저장·재생하지 않고, 같은 키 재개에서 상태·명령 식별만 재생한 뒤 Notification의 현재 값을 다시 읽는다. 새 오류 코드나 응답 필드는 추가하지 않는다. 앱은 응답이 **자신이 마지막으로 보낸 설정 명령의 키**에 대한 것일 때만 로컬 값과 화면에 반영하고, 이전 키의 늦은 응답·재생은 버리며, 불일치가 의심되면 GET으로 정본을 재조회한다. 마지막 키 규칙은 같은 기기에서 앞선 요청의 늦은 응답이 뒤 요청의 응답을 덮는 것을 막고, 현재 값 응답은 다른 기기 변경 뒤 재시도한 응답이 옛 값을 되돌려 쓰는 것을 막는다. 응답 뒤에 일어난 동시 변경은 다음 GET·동기화로 수렴한다.
 
 예: v41 sound=true가 지연되고 v42 notifications=false가 먼저 와도, sound의 적용 버전이 40이면 v41은 sound만 반영한다. 전체 버전 42를 보고 v41을 통째로 버리지 않는다. legacy 5필드 전체 PUT은 mask에 5개 모두를 담고 각 필드에서 동일 비교를 한다. 이 변경은 Notification 저장/relay 계약까지 함께 구현해야 하며 Business만의 DTO 변경으로 끝나지 않는다.
 
@@ -1021,6 +1021,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 탈퇴 직후 만료 전 옛 AT/RT로 7개 경로·refresh·logout·DELETE /me 같은 키 재시도, 활성 사용자의 logout 뒤 옛 AT | 계정 비활성은 모든 경로에서 404 USER_NOT_FOUND 우선, 만료/위조 401, 활성 사용자의 폐기 세션 401. DELETE /me 재시도 404를 앱이 탈퇴 확정·탈퇴 전용 로컬 파기로 처리 |
 | 설정 false/true 역전, 다른 필드 역전, legacy 전체 PUT 경쟁 | 필드별 version으로 유실 방지, 재전달 멱등, 원래 명령 결과 재생 |
 | v42(false) 도착 전 v43(true) 적용·v42 최초 처리/재전달·v42 응답 유실 뒤 재시도·다른 기기 변경 | v42는 SUPERSEDED 확정·적용0, 응답은 정본 현재값 true·재생도 현재값, 앱은 마지막 키가 아닌 응답을 버려 false 저장0 |
+| v42(false) APPLIED 뒤 응답 유실 → 다른 기기 v43(true) 적용 → 같은 기기 v42 재시도(Business receipt 재개 포함) | 재적용0, 응답은 현재값 true, Business receipt가 첫 200의 false를 재생0, 앱 false 저장0 |
 | GET 활성 검사 통과 뒤 지연 중 탈퇴·Notification 설정 행 삭제, 누락 행 복구와 탈퇴 소비자 양방향 경합 | 탈퇴 선행이면 설정 행 재생성0·404 USER_NOT_FOUND, GET 선행이면 만든 행도 삭제에 포함, 기본값 응답도 tombstone 검사 |
 | 알림 서버 장애·완료 표시 유실 | outbox만 저장됐는데 200 반환 금지, 같은 commandId로 복구 |
 | 로그 캡처/에러/trace | 자격 헤더·PII·원문 제공자 payload·서명 재료 노출 0 |

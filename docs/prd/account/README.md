@@ -59,3 +59,5 @@ legacy 온보딩 전이 보완: 신규 PATCH와 기존 POST/PATCH 프로필 writ
 미리보기·프레즌스·재등록 보완: Business Redis의 링크 미리보기 캐시를 파기 대상에 넣고, Data→Business 전달 금지에 맞춰 탈퇴 명령 전 차단 표지·원자 대조·확정 뒤 prefix 삭제로 정했다. 집중 프레즌스의 시작 콜백·재구축 writer도 같은 Redis tombstone을 원자 대조한다. 같은 사용자 재로그인은 새 세션 bootstrap으로 기기를 재등록한 뒤 이전 세션을 정리한다.
 
 설정 응답·소유권 값·결과 식별자 보완: 설정 PATCH는 요청값이 아니라 정본 현재 값을 돌려주고 최초부터 대체된 명령을 SUPERSEDED로 구분하며, 앱은 마지막 명령의 응답만 반영한다. 설정 GET의 누락 행 복구도 tombstone·세대를 원자 대조한다. 기기 재등록은 응답의 새 ownershipToken을 토큰과 원자 저장한다. 보존한 내기 결과의 공개 DTO는 탈퇴자 userId를 null로 치환한다.
+
+설정 재시도 응답 보완: APPLIED로 이미 적용된 명령의 재시도(Business 범용 receipt 재개 포함)도 최초 결과를 재생하지 않고 응답 시점 정본 현재 값을 돌려준다. APPLIED/SUPERSEDED 구분은 재적용 판정에만 쓴다.

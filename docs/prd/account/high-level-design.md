@@ -238,7 +238,7 @@ sequenceDiagram
     D-->>B: commandId, version, mask, authGeneration
     B->>N: 동일 부분 명령 적용
     Note over N: tombstone 대조 + 선택 필드별 version 비교<br/>notificationEnabled만 원자 변경
-    Note over N: 최초부터 대체된 명령은 SUPERSEDED, 적용 척 없이 정본 현재값 반환<br/>GET 누락 행 생성도 tombstone·세대를 같은 잠금에서 대조
+    Note over N: APPLIED/SUPERSEDED는 재적용 판정에만 사용, 최초·재전달 모두 응답 시점 정본 현재값 반환<br/>GET 누락 행 생성도 tombstone·세대를 같은 잠금에서 대조
     N-->>B: 처리 결과(APPLIED/SUPERSEDED)와 정본 현재값
     B->>D: 전달 완료 기록
     B-->>A: 200 data(notifications:false)
