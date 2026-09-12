@@ -1,19 +1,24 @@
 package com.oneorthree.phone.common.support;
 
+import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.UUID;
+
 /**
- * 테스트 전역에서 공유하는 PostgreSQL 컨테이너.
+ * 테스트 JVM에서 PostgreSQL 컨테이너를 공유하되 스키마는 Spring 컨텍스트마다 격리한다.
  *
- * <p>이전엔 IntegrationTestBase 와 RepositoryTestBase 가 각자 static 컨테이너를 띄웠다. 컨테이너가 2개인 것도
- * 비용이지만 진짜 문제는 그게 아니었다 — 두 베이스의 {@code @DynamicPropertySource} 가 주입하는
- * {@code spring.datasource.url} 이 서로 달라져 <b>Spring 테스트 컨텍스트 캐시 키가 갈라졌고</b>, 결과적으로
- * 애플리케이션 컨텍스트가 두 번 부팅됐다. 컨텍스트 부팅이 컨테이너 기동보다 훨씬 비싸다.
+ * <p>서로 다른 설정·목·DynamicPropertySource 메서드는 별도 컨텍스트 캐시 항목을 만든다.
+ * 같은 스키마에 create-drop 컨텍스트를 여러 개 띄우면 하나가 LRU 퇴거될 때 생존 컨텍스트의
+ * 테이블까지 삭제된다. 새 컨텍스트의 create 역시 다른 컨텍스트 데이터를 지운다.
  *
- * <p>컨테이너를 여기 한 곳에 두면 두 베이스가 같은 JDBC URL 을 주입하므로 컨테이너를 쓰는 22 개 테스트
- * 클래스가 컨텍스트 하나를 공유한다.
- *
- * <p>JVM 종료 시 Testcontainers 의 Ryuk 사이드카가 컨테이너를 정리하므로 별도 stop 훅을 두지 않는다.
+ * <p>DynamicPropertySource 실행마다 스키마 하나를 만들고 고정 URL을 등록한다. 캐시된
+ * 컨텍스트는 그 스키마를 계속 재사용하며, 종료 시 Hibernate는 자기 테이블만 제거한다.
+ * 빈 스키마를 포함한 컨테이너의 최종 정리는 JVM 종료 시 Testcontainers Ryuk가 맡는다.
  */
 public final class TestPostgres {
 
@@ -25,6 +30,22 @@ public final class TestPostgres {
                 .withUsername("test")
                 .withPassword("test");
         INSTANCE.start();
+    }
+
+    public static void applyContextWiring(DynamicPropertyRegistry registry) {
+        String schema = "context_" + UUID.randomUUID().toString().replace("-", "");
+        try (Connection connection = DriverManager.getConnection(
+                INSTANCE.getJdbcUrl(), INSTANCE.getUsername(), INSTANCE.getPassword());
+                Statement statement = connection.createStatement()) {
+            statement.execute("CREATE SCHEMA " + schema);
+        } catch (SQLException exception) {
+            throw new IllegalStateException("Cannot create isolated test schema", exception);
+        }
+        String baseUrl = INSTANCE.getJdbcUrl();
+        String url = baseUrl + (baseUrl.contains("?") ? "&" : "?") + "currentSchema=" + schema;
+        registry.add("spring.datasource.url", () -> url);
+        registry.add("spring.datasource.username", INSTANCE::getUsername);
+        registry.add("spring.datasource.password", INSTANCE::getPassword);
     }
 
     private TestPostgres() {

@@ -3,6 +3,8 @@ package com.oneorthree.phone.internal.notification.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -25,6 +27,7 @@ public record NotificationEligibilityRequest(
         Map<String, Object> params) {
 
     public NotificationEligibilityRequest {
-        params = params == null ? Map.of() : Map.copyOf(params);
+        // 정산 결과의 voidReason 등 nullable 사건 필드는 봉투와 동일하게 보존한다.
+        params = params == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(params));
     }
 }

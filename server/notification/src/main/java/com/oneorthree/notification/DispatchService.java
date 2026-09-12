@@ -114,17 +114,20 @@ class DispatchService {
     private final DataClient data;
     private final Renderer renderer;
     private final PushTransport transport;
+    private final ResultBundleCompletion resultBundles;
     private final Clock clock;
     private final TransactionTemplate preparation;
     private final TransactionTemplate recording;
 
     DispatchService(Store store, SettingsService settings, DataClient data, Renderer renderer,
-            PushTransport transport, Clock clock, PlatformTransactionManager manager) {
+            PushTransport transport, Clock clock, PlatformTransactionManager manager,
+            ResultBundleCompletion resultBundles) {
         this.store = store;
         this.settings = settings;
         this.data = data;
         this.renderer = renderer;
         this.transport = transport;
+        this.resultBundles = resultBundles;
         this.clock = clock;
         // REQUIRES_NEW 로 못 박는다 — 나중에 누가 이 메서드를 트랜잭션 안에서 부르더라도 판정이
         // 그 트랜잭션에 합류해 외부 호출을 다시 감싸는 일이 없도록.
@@ -250,6 +253,13 @@ class DispatchService {
                 + " WHERE user_id=? AND group_id=? AND slot_at=? AND admin_actor IS NULL AND " + family.predicate()
                 + " ORDER BY " + family.order(),
                 first.get("user_id"), first.get("group_id"), first.get("slot_at"));
+        if (family.waitsForSlotClose()) {
+            if (!resultBundles.complete(first, axis)) {
+                parkForBatch((UUID) first.get("id"));
+                return List.of();
+            }
+            releaseParked(first, family);
+        }
         Set<String> declared = declaredMembers(axis);
         if (!declared.isEmpty()) {
             if (!arrived(axis).containsAll(declared)) {

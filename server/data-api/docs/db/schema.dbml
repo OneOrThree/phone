@@ -1244,3 +1244,27 @@ Ref: event_outbox_deliveries.outbox_id > event_outbox.id
 Ref: users.occupation > occupations.code
 Ref: occupation_default_tags.occupation > occupations.code
 Ref: occupation_default_tags.default_tag_id > default_tags.id
+
+
+// 결과 슬롯 완료 (V53). 서비스 간 FK 없이 사건 전달/이관 이후에도 보존한다.
+Table notification_result_bundle_members {
+  event_id varchar(200) [pk]
+  user_id uuid [not null]
+  group_id uuid [not null]
+  slot_at timestamptz [not null]
+  indexes { (group_id, slot_at, user_id) }
+}
+Table notification_result_bundle_slots {
+  group_id uuid [not null]
+  slot_at timestamptz [not null]
+  sealed_at timestamptz [not null]
+  indexes { (group_id, slot_at) [pk] }
+}
+Table notification_result_bundle_manifests {
+  user_id uuid [not null]
+  group_id uuid [not null]
+  slot_at timestamptz [not null]
+  event_ids jsonb [not null, note: '정렬한 불변 기대 사건 id 집합']
+  published_at timestamptz [note: '완료 outbox 저장과 같은 트랜잭션에서 기록']
+  indexes { (user_id, group_id, slot_at) [pk] }
+}

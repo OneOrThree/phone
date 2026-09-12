@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | 후보 판정 | **한다** (코어 DB 를 읽어야 답할 수 있는 질문이다) | 안 한다 |
 | 렌더 (제목·본문·로케일) | 안 한다 | **한다** (kind × locale 템플릿) |
-| 묶음 (bundling) | 안 한다 | **한다** (`userId` × `groupId` × `slotAt`) |
+| 묶음 (bundling) | 결과 슬롯의 **기대 사건 집합·완료 여부**를 확정한다 | **렌더·발송한다** (`userId` × `groupId` × `slotAt`) |
 | 조용한 시간 판정·이월 | 정책만 실어 보낸다 | **한다** (설정의 정본을 쥔 쪽이다) |
 | 발송·재시도·dedup 상태 | 안 한다 | **한다** |
 | 발송 이력 완료 표시 | **하지 않는다** | **한다** |
@@ -25,7 +25,7 @@ Data 가 조용한 시간을 직접 거르면 설정을 두 곳이 읽는다. �
 
 | 필드 | 값 |
 | --- | --- |
-| `type` | `notification.requested` — **단일**. 실제 종류는 `params.kind` 가 가른다 |
+| `type` | 발송 사건은 `notification.requested` (`params.kind`로 종류 구분), 결과 슬롯 완료는 `notification.resultBundle.closed` |
 | `schemaVersion` | `1` |
 | `userId` | 수신자 **하나**. fan-out 은 이미 펼쳐진 뒤다(㊢) |
 | `subjectId` | 도메인 대상 UUID 문자열. 대상 없는 kind 는 `null` |
@@ -102,11 +102,18 @@ noti:<KIND>:<userId>:<subjectId|none>:<시간축|none>
 | `CHALLENGE_SESSION_OPEN` | NONE | 회차 | **DEFER_UNTIL** | 의존 | `CHALLENGE_SESSION_OPEN` | `challengeId` · `stake` · `deferExpiresAt` |
 | `CHALLENGE_WINDOW_END` | DAY | 챌린지 | DROP | 의존 | `CHALLENGE_WINDOW_END` | `challengeId` |
 | `CHALLENGE_ENDED` | DAY | 챌린지 | DROP | 의존 | `CHALLENGE_ENDED` | `challengeId` |
-| `CHALLENGE_CREATED` | NONE | 챌린지 | DROP | 의존 | `CHALLENGE_CREATED` | `challengeId` · `groupName` · `missionLabel` |
+| `CHALLENGE_CREATED` | NONE | 챌린지 | DROP | 의존 | `CHALLENGE_CREATED` | `challengeId` · `groupName` · `mission`(목표 스냅샷) |
 | `FRIEND_REQUEST` | MINUTE | 상대 유저 | DROP | 의존 | `FRIEND_REQUEST` | `counterpartUserId` · `counterpartNickname` · `requestId` |
 | `FRIEND_ACCEPTED` | MINUTE | 상대 유저 | DROP | 무관 | `FRIEND_ACCEPTED` | `counterpartUserId` · `counterpartNickname` · `requestId` |
 
 공통 `params` 는 위에 더해 `kind` · `quietPolicy` · `groupId`(그룹 사건만) · `slotAt`(묶음 축, ISO-8601 UTC).
+
+`CHALLENGE_CREATED.mission`은 `type`(`DURATION`/`TIME_WINDOW`), `category`(`FOCUS`/`SCREEN_TIME`),
+`repeatDays`(월~일 순서의 `MON`…`SUN` 배열), 선택 `durationMinutes`와 `windowStart`·`windowEnd`를
+담는다. 창 시각은 저장된 KST 벽시계의 `HH:mm`이다. Data는 사건 생성 때 상세 행을 읽어 이 값을
+보존하고, Notification은 **실제 선택된 템플릿의 locale**로 목표 문구까지 렌더한다. 번역 템플릿이
+꺼져 한국어로 폴백할 때도 목표와 본문 언어가 같다. 상세 행·목표분이 없는 과거 데이터에는 목표를
+지어내지 않는다. 이미 기록된 `missionLabel` 전용 사건은 원문을 그대로 렌더한다.
 
 **`LEAGUE_RELEGATION_WARNING` 과 `…_EVENING` 은 문구가 완전히 같다.** kind 를 가른 이유는 오직
 dedup 축이다 — 일 09:00 과 18:00 은 *의도된 하루 2회 발송*인데 한 kind + DAY 축으로 두면 저녁분이
@@ -124,7 +131,7 @@ dedup 축이다 — 일 09:00 과 18:00 은 *의도된 하루 2회 발송*인데
 | `DEFER_UNTIL` | 이월하되 `params.deferExpiresAt` 에서 만료 — 그때 이미 참가 마감이면 버린다 | `CHALLENGE_SESSION_OPEN` |
 | `BYPASS` | 표시가 아니라 앱 기동 신호라 필터를 타지 않는다(HLD §6 예외) | `BET_SILENT_FLUSH` |
 
-## 5. 묶음 — Data 가 하지 않는다
+## 5. 묶음 — Data가 완료를 확정하고 Notification이 렌더·발송한다
 
 구 경로는 `(유저 × 그룹 × 15분 슬롯)` 으로 접어 한 건을 보냈다. 신 경로에서 Data 는
 **회차/챌린지마다 한 건씩** 적고 `groupId` 와 **원래 슬롯**(`slotAt`, 사건 시각 기준)을 실어 보낸다.
@@ -396,7 +403,7 @@ relay 가 나중에 발행하는 사건이 **이관분과 겹친다**.
 | 잡 | 이유 |
 | --- | --- |
 | `notification-rank-overtake` | A5 폐기 — 신 카탈로그에 kind 자체가 없다 |
-| `notification-bet-event-flush` | 신 모드에서 flush 는 알림 서버 소유 — Data 가 재생할 것이 없다 |
+| `notification-bet-event-flush` | 발송은 알림 서버 소유. Data는 내구 원장에서 매 5분 미완료 슬롯 봉인을 재개하므로 별도 과거 시각 재생이 필요 없다 |
 | `notification-silent-flush` | 정산이 이미 지났으면 깨워 봐야 flush 할 것이 없다. 포그라운드 sync 가 최후 보루 |
 | `group-bet-freeze-monitor` | 사용자 발송이 아니라 운영 로그 |
 
@@ -420,7 +427,7 @@ relay 가 나중에 발행하는 사건이 **이관분과 겹친다**.
 
 | 잡 | 바뀌는 것 |
 | --- | --- |
-| `notification-bet-event-flush` | **Noti 소유로 이전.** Data 쪽은 `OUTBOX` 모드에서 즉시 0 을 돌려주는 no-op — 남은 구 클레임 행을 여기서 보내면 Noti 가 이미 보낸 것을 Data 가 한 번 더 보낸다 |
+| `notification-bet-event-flush` | **실제 발송은 Noti 소유.** Data 쪽 5분 트리거는 `OUTBOX` 모드에서 재훑기 커밋 후 결과 슬롯 봉인·완료 봉투를 만든다. 구 클레임의 FCM flush는 계속 no-op이다 |
 | `notification-rank-overtake` | A5 폐기. 크론·판정은 남기되 발송 0, 판정 건수만 로그 — 「조용한 사라짐」이 아니라 「기록된 중단」 |
 | `notification-silent-flush` | 후보 판정은 **Data 잔류**(크론은 계속 돈다). 다만 재생은 하지 않는다 |
 | `group-bet-freeze-monitor` | **알림이 아니다** — 판돈 동결 운영 로그. 콘솔 알림 잡 목록에서 뺀다 |
@@ -439,3 +446,38 @@ ICU 4-locale 템플릿 seed 용이다.
 `params.bundleMembers`에 함께 싣는다. 이미 참가해 사건을 만들지 않는 회차는 해당 수신자의 집합에서 제외한다.
 Notification은 이미 `SENT`·`SUPPRESSED`인 구성원까지 수신 완료로 세고, 불완전 묶음은 보류한다.
 수신 사이에 flush가 실행되어도 먼저 도착한 일부만 발송하지 않으며, 기존 FCM 재시도와 조용한 시간 이월은 보존한다.
+
+
+### 결과·환불 슬롯의 완료 봉투
+
+`BET_RESULT`·`BET_VOID_REFUND`는 15분 경과만으로 발송하지 않는다. Data는 정산 CAS 전에
+`(groupId, slotAt)`의 PostgreSQL transaction advisory **공유 잠금**을 얻고, 잠금 획득 후
+DB `clock_timestamp()`로 `settled_at`을 정한다. 잠금 대기 중 슬롯이 바뀌면 새 슬롯에서 다시
+확인한다. 이 잠금은 참가자별 outbox와 `notification_result_bundle_members`가 같은 트랜잭션으로
+커밋될 때까지 유지한다. 정상 정산·몰수·인원 미달·24시간 환불·챌린지 삭제가 모두 이 경계를 지난다.
+벌크 CAS 이후 BEFORE_COMMIT 조회는 해당 회차만 refresh하여 낡은 OPEN 상태를 사용하지 않는다.
+
+Data의 기존 5분 flush는 OUTBOX 모드에서 재훑기를 먼저 커밋하고 슬롯 완료를 처리한다.
+15분 재훑기도 커밋 뒤 같은 처리를 호출한다. 마감 트랜잭션은 같은 슬롯의 **배타 잠금**으로
+진행 중인 정산 커밋을 기다린 뒤 수신자별 불변 eventId 집합을
+`notification_result_bundle_manifests`에 저장한다. 여기서는 USER aggregate 잠금을 얻지 않는다.
+별도 트랜잭션이 아래 완료 봉투를 outbox에 적고 manifest의 발행 표시를 함께 커밋한다.
+따라서 마감 후 발행 전 장애도 다음 실행에서 재개되며 USER→슬롯과 슬롯→USER 교착이 없다.
+
+- `type`: `notification.resultBundle.closed`, `schemaVersion`: `1`
+- `eventId`: `noti:resultBundle:<userId>:<groupId>:<slot epoch seconds>`
+- `subjectId`: 그룹 UUID, `userId`: 수신자 한 명, `aggregate`: `USER:<userId>`
+- `params`: `groupId`, 원래 `slotAt`(UTC), 정렬·중복 제거한 `eventIds` 전체 배열
+- `scheduledAt`: null. 완료 봉투는 자체 delivery나 FCM 호출을 만들지 않는다.
+
+Notification은 완료 봉투를 `result_bundle_manifests`에 멱등 저장하고, 같은 축의 delivery
+**전체 eventId 집합**이 기대 집합과 같을 때만 보낸다. SENT·SUPPRESSED도 도착한 사건으로 센다.
+완료 봉투와 개별 사건이 어느 순서로 오든, 슬롯 마감 뒤 relay/DLT 복구로 늦게 오든 조건은 같다.
+불완전 묶음은 `BUNDLE_INCOMPLETE`로 이월하고 전부 도착하면 그 보류만 해제한다.
+같은 축의 다른 기대 집합은 `RESULT_BUNDLE_MANIFEST_CONFLICT`로 거절한다.
+봉인 뒤 정본에 없던 새 사건을 과거 슬롯에 추가하는 것도 실패로 드러내며 별도 푸시로 흘리지 않는다.
+
+컷오버 전에 구 생산·발송을 정지·drain한다는 기존 전제를 유지한다. V53은 기존 결과 outbox를
+멤버 원장으로 백필하고, 완료 작업은 이관 대상 구 `notification_sent_logs`의 결과/환불 사건도
+동일 결정적 키로 포함한다. SENT·SUPPRESSED 이관분은 중복 억제와 수신 완료의 증거로 남는다.
+이 3개 Data 원장과 Notification의 완료 원장은 outbox와 함께 보존해야 한다.

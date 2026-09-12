@@ -2,6 +2,8 @@ package com.oneorthree.phone.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 
@@ -65,6 +67,20 @@ class InternalApiPropertiesTest {
         assertThatThrownBy(properties::validateWhenEnabled)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("겹칩");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {" same", "same ", "\tsame\t", "\nsame\n"})
+    @DisplayName("앞뒤 공백으로만 다른 caller 토큰은 기동에서 거절한다")
+    void paddedTokensFailBeforeCallerResolution(String padded) {
+        InternalApiProperties properties = new InternalApiProperties();
+        properties.setEnabled(true);
+        properties.getCallers().put("business", caller("same", "GET /internal/users/*/activation"));
+        properties.getCallers().put("notification", caller(padded, "GET /internal/users/*/result-ack"));
+
+        assertThatThrownBy(properties::validateWhenEnabled)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("공백");
     }
 
     @Test

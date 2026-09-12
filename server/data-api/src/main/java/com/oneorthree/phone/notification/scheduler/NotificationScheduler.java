@@ -8,6 +8,8 @@ import com.oneorthree.phone.notification.service.InactiveReturnNotificationServi
 import com.oneorthree.phone.notification.service.LeagueNotificationService;
 import com.oneorthree.phone.notification.service.NotificationBatchRetry;
 import com.oneorthree.phone.notification.service.LeagueReengagementNotificationService;
+import com.oneorthree.phone.notification.producer.ResultBundleCompletionService;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.service.RankOvertakeNotificationService;
 import com.oneorthree.phone.notification.service.SessionOpenNotificationService;
 import com.oneorthree.phone.notification.service.SilentFlushPushService;
@@ -42,6 +44,8 @@ public class NotificationScheduler {
     static final String FANOUT_LOCK = "PT1H";
 
     private final NotificationBatchRetry batchRetry;
+    private final ResultBundleCompletionService resultBundles;
+    private final NotificationDispatcher notificationDispatcher;
     private final LeagueNotificationService leagueNotificationService;
     private final InactiveReturnNotificationService inactiveReturnNotificationService;
     private final RankOvertakeNotificationService rankOvertakeNotificationService;
@@ -187,7 +191,13 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-bet-event-flush", lockAtMostFor = FANOUT_LOCK)
     public void flushBetEventNotifications() {
         try {
-            betEventNotificationService.flushDueBundles();
+            if (notificationDispatcher.isOutboxMode()) {
+                // 재훑기 커밋 뒤에 봉인한다. USER 잠금을 가진 채 슬롯 배타 잠금을 기다리지 않는다.
+                betEventNotificationService.rescanAndFlush();
+                resultBundles.flushClosedBundles();
+            } else {
+                betEventNotificationService.flushDueBundles();
+            }
         } catch (Exception e) {
             log.error("내기 사건 알림 묶음 flush 스케줄 실패", e);
         }
@@ -203,6 +213,7 @@ public class NotificationScheduler {
     public void rescanBetEventNotifications() {
         try {
             betEventNotificationService.rescanAndFlush();
+            resultBundles.flushClosedBundles();
         } catch (Exception e) {
             log.error("내기 사건 알림 재훑기 스케줄 실패", e);
         }

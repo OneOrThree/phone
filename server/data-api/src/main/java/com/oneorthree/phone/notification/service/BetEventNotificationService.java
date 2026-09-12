@@ -149,7 +149,7 @@ public class BetEventNotificationService {
     @Transactional
     public void notifySessionClosed(UUID sessionId, Instant now) {
         GroupChallengeBetSession session =
-                groupQueryService.findBetSession(sessionId).orElse(null);
+                groupQueryService.findCurrentBetSession(sessionId).orElse(null);
         if (session == null) {
             return;
         }

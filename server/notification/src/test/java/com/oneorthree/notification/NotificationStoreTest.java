@@ -16,6 +16,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -341,6 +342,8 @@ class NotificationStoreTest {
         inbound.accept(event("refund", "notification.requested", USER, 2, UUID.randomUUID().toString(),
                 Map.of("kind", "BET_VOID_REFUND", "groupId", group.toString(), "slotAt", slot)));
         store.update("UPDATE dispatch_control SET enabled=true");
+        inbound.accept(event("seal", "notification.resultBundle.closed", USER, 3, group.toString(),
+                Map.of("groupId", group.toString(), "slotAt", slot, "eventIds", List.of("result", "refund"))));
         dispatch.dispatch(delivery("result"));
         dispatch.dispatch(delivery("refund"));
         var rendered = org.mockito.ArgumentCaptor.forClass(RenderedPush.class);
@@ -356,12 +359,15 @@ class NotificationStoreTest {
     void openResultSlotWaitsAndQuietDeferralKeepsOriginalSlot() {
         register(USER, "device", "bootstrap", "register");
         String slot = DAY.toString();
+        UUID group = UUID.randomUUID();
         inbound.accept(event("slot", "notification.requested", USER, 1, UUID.randomUUID().toString(),
-                Map.of("kind", "BET_RESULT", "count", 1, "groupId", UUID.randomUUID().toString(), "slotAt", slot)));
+                Map.of("kind", "BET_RESULT", "count", 1, "groupId", group.toString(), "slotAt", slot)));
         UUID id = delivery("slot");
         store.update("UPDATE dispatch_control SET enabled=true");
         dispatch.dispatch(id);
         verifyNoInteractions(transport);
+        inbound.accept(event("slot-seal", "notification.resultBundle.closed", USER, 2, group.toString(),
+                Map.of("groupId", group.toString(), "slotAt", slot, "eventIds", List.of("slot"))));
         when(clock.instant()).thenReturn(Instant.parse("2026-09-11T15:00:00Z")); // 다음날 00:00 KST
         dispatch.dispatch(id);
         assertThat(status(id)).isEqualTo("DEFERRED");

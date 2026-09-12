@@ -11,9 +11,11 @@ import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.service.ChallengeResultAckService;
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityRequest;
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityResponse;
 import com.oneorthree.phone.internal.notification.service.NotificationEligibilityService;
+import com.oneorthree.phone.internal.notification.service.NotificationSnapshotService;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.DisplayName;
@@ -23,17 +25,23 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * 발송 직전 상태 재확인 — <b>fail-closed</b> 와 <b>일시 오류를 삼키지 않는다</b>가 전부다.
@@ -193,6 +201,42 @@ class NotificationEligibilityServiceTest {
                 .thenReturn(Optional.of(session(GroupBetStatus.OPEN, NOW)));
 
         assertThat(service().evaluate(request("BET_RESULT", SUBJECT)).reason()).isEqualTo("NOT_SETTLED");
+    }
+
+    @Test
+    @DisplayName("정상 결과의 voidReason=null 본문도 HTTP 적격성 판정을 받는다")
+    void nullableResultParamsAreAcceptedOverHttp() throws Exception {
+        userIsActive();
+        when(groupQueryService.findBetSession(SUBJECT))
+                .thenReturn(Optional.of(session(GroupBetStatus.SETTLED, NOW)));
+        when(betParticipantRepository.findBySessionIdAndUserId(SUBJECT, USER))
+                .thenReturn(Optional.of(GroupChallengeBetParticipant.builder().build()));
+        var controller = new InternalNotificationController(mock(NotificationSnapshotService.class),
+                service(), mock(ChallengeResultAckService.class));
+        var mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(post("/internal/notifications/eligibility")
+                        .contentType("application/json")
+                        .content("""
+                                {"userId":"%s","kind":"BET_RESULT","subjectId":"%s",
+                                 "params":{"voidReason":null,"count":1}}
+                                """.formatted(USER, SUBJECT)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(true));
+    }
+
+    @Test
+    @DisplayName("nullable params는 null을 보존하면서 원본 변경과 외부 수정을 막는다")
+    void nullableParamsAreAnImmutableSnapshot() {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("voidReason", null);
+        NotificationEligibilityRequest request = new NotificationEligibilityRequest(USER, "BET_RESULT", SUBJECT,
+                params);
+        params.put("voidReason", "CHANGED");
+
+        assertThat(request.params()).containsEntry("voidReason", null);
+        assertThatThrownBy(() -> request.params().put("voidReason", "CHANGED"))
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test

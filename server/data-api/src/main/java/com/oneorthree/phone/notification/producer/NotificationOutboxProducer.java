@@ -121,6 +121,7 @@ public class NotificationOutboxProducer {
 
     private final OutboxCommandPort outboxCommandPort;
     private final EventOutboxRepository eventOutboxRepository;
+    private final ResultBundleCompletionService resultBundles;
 
     /**
      * 알림 요청 하나를 outbox 에 적는다 — <b>호출부의 도메인 트랜잭션 안에서</b>.
@@ -131,6 +132,8 @@ public class NotificationOutboxProducer {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public Optional<EventEnvelope> append(NotificationRequest request) {
+        String eventId = eventIdOf(request);
+        resultBundles.protect(request);
         AggregateRef aggregate = AggregateRef.ofUser(request.userId());
         // 「있으면 두고 없으면 적는다」는 조회와 삽입 사이에 창이 있다. 그 창에 같은 결정적 키가
         // 동시에 들어오면 둘 다 「없다」를 보고 둘 다 INSERT 해, 한쪽이 UNIQUE 위반으로 죽으면서
@@ -142,7 +145,6 @@ public class NotificationOutboxProducer {
         // 대가는 version 번호가 띈다는 것이다(중복이라 append 하지 않은 호출도 번호를 하나 쓴다).
         // 소비 측은 «단조 증가»만 보고 «연속»에 기대지 않으므로 빈 번호는 무해하다.
         outboxCommandPort.allocateVersion(aggregate);
-        String eventId = eventIdOf(request);
         // 쓰기 키 하나만 보지 않는다. 시간축이 고정 버킷이라 «같은 사건»이 버킷 경계에서 갈릴 수 있고
         // (분 축의 12:00:59 와 12:01:01), 그때 쓰기 키만 조회하면 「없다」가 나와 같은 사건이 두 번
         // 적힌다 = 푸시가 두 번 나간다. 어디까지 대조하는지는 시간축이 정한다.
@@ -159,6 +161,7 @@ public class NotificationOutboxProducer {
         // 일이고, 그 판정에 필요한 조용한 시간 설정의 정본은 알림 DB 에 있다. relay 를 붙잡아 두면
         // 설정이 그사이 바뀌어도 이미 박힌 시각으로 나가고, Kafka 에 아직 없는 사건은 알림 서버가
         // 상태(설정 삭제·탈퇴·ack)를 반영할 기회조차 갖지 못한다.
+        resultBundles.register(request, eventId);
         EventEnvelope envelope = outboxCommandPort.append(new OutboxAppendCommand(
                 eventId,
                 SCHEMA_VERSION,

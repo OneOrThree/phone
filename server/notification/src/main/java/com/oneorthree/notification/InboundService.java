@@ -17,11 +17,13 @@ class InboundService {
     private final Store store;
     private final DeviceService devices;
     private final SettingsService settings;
+    private final ResultBundleCompletion resultBundles;
 
-    InboundService(Store store, DeviceService devices, SettingsService settings) {
+    InboundService(Store store, DeviceService devices, SettingsService settings, ResultBundleCompletion resultBundles) {
         this.store = store;
         this.devices = devices;
         this.settings = settings;
+        this.resultBundles = resultBundles;
     }
 
     @Transactional
@@ -55,6 +57,7 @@ class InboundService {
             case "user.withdrawn" -> devices.generation(event.userId(),
                     Json.number(params, "authGeneration"), true);
             case "notification.requested" -> enqueue(event);
+            case "notification.resultBundle.closed" -> resultBundles.accept(event);
             default -> {
                 if (!PROJECTIONS.contains(event.type())) {
                     throw new NotificationFailure(422, "UNSUPPORTED_EVENT_TYPE");
