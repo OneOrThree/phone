@@ -15,6 +15,13 @@ on:
       # 실제로 이 파일의 NODE_OPTIONS 수정이 그 상황에 걸렸다.
       - '.github/workflows/app-lint.yml'
 
+# 중간 푸시분은 어차피 다음 푸시에 무의미해지는데, 그때까지 `ci` 슬롯 3개 중 하나를 물고 있다
+# (GROMO-1797). 그룹 이름은 다른 파이프라인과 달라야 한다 — 같으면 서로를 막는다.
+concurrency:
+  group: app-lint-${{ github.ref }}
+  # PR 의 이전 실행은 취소하되, 통합 브랜치 push 는 중간에 끊지 않는다(dev-ci·realtime-ci 와 같은 규율).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     runs-on: [self-hosted, ci, spot]

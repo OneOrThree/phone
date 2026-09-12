@@ -1,0 +1,134 @@
+name: Backend Gradle
+
+# JVM 서버의 Gradle 검사를 한 곳에서 돈다.
+#
+# 현재 호출부는 «둘뿐»이다 — dev-ci.yml(`service: data-api`) 과 realtime-ci.yml(`service: realtime`).
+# business-api·notification 은 아래 사유로 «의도적 예외»라 satellite-ci.yml 이 맡는다. 서버가 늘면
+# 여기로 붙이되, 이 목록도 같이 고쳐라 — 「전부 이걸 부른다」고 적어 두면 예외가 사고가 된다.
+#
+# 왜 합쳤나 — 이전의 be-check-style.yml · be-test.yml · be-spot-bugs.yml 은 `workflow_call` 전용인데
+# 입력을 하나도 선언하지 않고 `server/data-api` 를 네 곳(defaults · 캐시 키 hashFiles · 아티팩트
+# path · jar-size 경로)에 박아 뒀다. 아티팩트 «이름»도 고정이라 두 서비스가 같이 부르면 충돌한다.
+# 그래서 realtime 도 business-api 도 이걸 못 부르고 각자 CI 파일을 새로 썼고, 서버가 늘 때마다
+# 같은 일을 다르게 쓰는 파일이 하나씩 늘었다(GROMO-1790).
+#
+# 호스트 Postgres 는 «띄우지 않는다»(GROMO-1793). 한동안 data-api 만 호스트 DB 가 필요하다고 보고
+# `needs-db` 입력과 조건부 `docker run` 스텝을 뒀는데, 실측해 보니 그 DB 를 쓰는 테스트가 한 건도
+# 없었다. 테스트는 전부 Testcontainers 로 직접 띄운다(`IntegrationTestBase`·`RepositoryTestBase` 를
+# 상속하는 63개 포함). `SPRING_DATASOURCE_URL` 을 «죽은 포트»로 두고 전체 스위트를 돌려
+# 2,152건 전부 통과하는 것을 확인하고 들어냈다.
+#
+# ⚠️ 그렇다고 `application-ci.yml` 의 `localhost:5432` 가 죽은 설정인 건 아니다 —
+#    api-dog-generate.yml 의 `generateOpenApiDocs` 는 앱을 «실제로 부팅»하므로 거기선 진짜 DB 가
+#    필요하고, 그쪽은 지금도 `services: postgres` 를 쓴다. 여기서 뺀 건 «테스트 경로»뿐이다.
+#
+# 부수 효과: 이 워크플로가 도커에 의존하지 않게 되어, 호출부가 `runs-on` 만 바꾸면 GitHub-hosted
+# 러너로 그대로 옮겨진다.
+#
+# satellite-ci.yml 의 business-api·notification 매트릭스는 이 파일을 쓰지 않는다 — business-api 의
+# PDF 미리보기 테스트가 poppler-utils 에 의존하고 그건 Dockerfile 의 `test` 스테이지가 깐다.
+# 일반 러너에서 gradle 을 돌리는 이 파일로는 대체할 수 없다.
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "server/ 아래 디렉터리 이름. 현재 넘어오는 값은 data-api · realtime 둘뿐이다"
+        type: string
+        required: true
+      runs-on:
+        description: >-
+          잡을 돌릴 러너 라벨. 워크플로 입력은 «문자열만» 받으므로 JSON 배열 문자열로 넘기고
+          아래에서 `fromJSON` 으로 푼다 — 예: '["ubuntu-latest"]'.
+          기본값은 지금까지와 같은 self-hosted 슬롯이라 호출부를 고치지 않으면 동작이 바뀌지 않는다.
+        type: string
+        default: '["self-hosted", "ci", "spot"]'
+      tasks:
+        description: "돌릴 Gradle 태스크. 기본 build 는 checkstyle·spotbugs·test·bootJar 를 전부 돈다"
+        type: string
+        default: "build"
+      artifact-name:
+        description: "업로드 아티팩트 이름. 호출부마다 달라야 한다 — 같으면 업로드가 충돌한다"
+        type: string
+        required: true
+      artifact-path:
+        description: "업로드할 경로(서비스 디렉터리 기준 상대). 비우면 업로드하지 않는다"
+        type: string
+        default: ""
+      measure-jar:
+        description: >-
+          bootJar 크기를 재서 `jar-size` 아티팩트로 올린다. dev-ci 의 PR 코멘트 생성
+          (.github/scripts/generate-pr-comment.py) 이 `jar-size/jar-size.txt` 경로를 그대로
+          읽으므로 이 아티팩트 «이름»은 바꾸면 안 된다.
+        type: boolean
+        default: false
+
+jobs:
+  gradle:
+    # `runs-on` 은 `inputs` 컨텍스트를 쓸 수 있는 자리다(GitHub 문서 「Contexts availability」의
+    # `jobs.<job_id>.runs-on` 행: github · needs · strategy · matrix · vars · **inputs**).
+    # 입력이 문자열이므로 `fromJSON` 으로 배열로 되돌린다.
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # 25 가 아니라 30 이다(옛 be-test.yml 에서 옮겨온 상한). 서비스 분리 회귀를 포함한 전체 테스트가
+    # 공유 러너에서 20분을 넘을 수 있어서, 실행이 중간에 잘리지 않고 결과·JAR 측정까지 마치도록
+    # 유한 상한을 30분으로 둔다.
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: server/${{ inputs.service }}
+    env:
+      GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+    steps:
+      - uses: actions/checkout@v4
+
+      # 같은 VM 의 다른 러너가 공유 홈에 캐시를 복원하는 동안 JAR 을 덮어쓸 수 있다.
+      # Gradle 실행과 캐시 복원을 이 잡의 임시 디렉터리로 격리한다(realtime-ci 에서 가져온 규율).
+      - name: 서비스 전용 Gradle 홈 설정
+        run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle-${{ inputs.service }}" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.GRADLE_USER_HOME }}/caches
+            ${{ env.GRADLE_USER_HOME }}/wrapper
+          # 키에 «러너 종류»가 들어가야 한다. self-hosted 와 GitHub-hosted 는 `runner.os` 가 둘 다
+          # `Linux` 라 이것만으로는 구분되지 않는데, GRADLE_USER_HOME 절대경로도 머신 구성도 달라서
+          # 같은 키를 공유하면 한쪽이 먼저 올린 캐시가 다른 쪽에 그대로 박힌다(캐시 항목은 키당
+          # 불변이라 «먼저 올린 쪽이 이긴다»). `runner.environment` 는 `self-hosted` / `github-hosted`
+          # 둘 중 하나라 이 구분에 정확히 맞는다. 러너가 낡아 이 값이 비더라도 한쪽만 비므로
+          # 구분은 유지된다.
+          key: ${{ runner.os }}-${{ runner.environment }}-${{ inputs.service }}-gradle-${{ hashFiles(format('server/{0}/**/*.gradle*', inputs.service), format('server/{0}/**/gradle-wrapper.properties', inputs.service)) }}
+          restore-keys: ${{ runner.os }}-${{ runner.environment }}-${{ inputs.service }}-gradle-
+
+      - run: chmod +x gradlew
+
+      - name: Gradle ${{ inputs.tasks }}
+        env:
+          SPRING_PROFILES_ACTIVE: ci
+        run: ./gradlew ${{ inputs.tasks }} --stacktrace
+
+      - name: JAR 크기 측정
+        if: inputs.measure-jar
+        run: |
+          set -euo pipefail
+          ./gradlew bootJar -x test
+          du -sb build/libs/*.jar | awk '{print $1}' > jar-size.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always() && inputs.measure-jar
+        with:
+          name: jar-size
+          path: server/${{ inputs.service }}/jar-size.txt
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        if: always() && inputs.artifact-path != ''
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: server/${{ inputs.service }}/${{ inputs.artifact-path }}
+          retention-days: 7
