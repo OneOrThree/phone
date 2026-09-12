@@ -347,6 +347,40 @@ class NotificationExportServiceIntegrationTest {
                         .isEqualTo(NotificationExportService.LEGACY_RANK_OVERTAKE));
     }
 
+    /**
+     * {@code users.device_token} 에는 UNIQUE 가 없다 — 로그아웃 없이 계정을 갈아탄 기기의 토큰이 이전
+     * 계정과 현재 계정에 함께 남는다. 그대로 내보내면 두 {@code device} 레코드가 같은
+     * {@code device:<토큰 해시>} 키를 갖는다: 같은 배치면 요청 전체가 실패하고, 배치가 갈리면 한 쪽이
+     * 조용히 덮인다. 검출만 하고 통과시키면 검출한 의미가 없다.
+     */
+    @Test
+    @DisplayName("중복 기기 토큰이 남아 있으면 최종 export 를 막는다 — 검출해 놓고 통과시키면 의미가 없다")
+    void duplicateDeviceTokensBlockTheFinalExport() {
+        String shared = "dup-token-" + UUID.randomUUID();
+        User previous = userRepository.save(User.builder()
+                .nickname("이전-" + UUID.randomUUID().toString().substring(0, 8))
+                .language("ko").deviceToken(shared).build());
+        extraUsers.add(previous);
+        User current = userRepository.save(User.builder()
+                .nickname("현재-" + UUID.randomUUID().toString().substring(0, 8))
+                .language("ko").deviceToken(shared).build());
+        extraUsers.add(current);
+
+        assertThatThrownBy(() -> exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("같은 기기 토큰");
+
+        // lenient 로는 문서가 나오지만 최종본이 아니다 — 잔여 큐도 실패도 0 인데 중복만 남은 경우다.
+        NotificationExportDocument lenient =
+                exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, false);
+        assertThat(lenient.failures()).isEmpty();
+        assertThat(lenient.manifest().stopWindow().queueDepth()).isZero();
+        assertThat(lenient.report().finalEligible()).isFalse();
+        assertThat(lenient.report().duplicateDeviceTokens()).anySatisfy(duplicate ->
+                assertThat(duplicate.userIds()).contains(previous.getId().toString(),
+                        current.getId().toString()));
+    }
+
     @Test
     @DisplayName("manifest 는 자원 다섯을 모두 갖고, 빈 자원도 체크섬을 갖는다")
     void manifestAlwaysCarriesAllFiveResources() {
