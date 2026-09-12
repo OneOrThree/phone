@@ -4,6 +4,10 @@ import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
+import java.util.stream.Stream;
 import org.springframework.test.context.TestPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,6 +28,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "business.compat.migration-id=mig-1"
 })
 class CompatMatchContractTest extends UpstreamTestBase {
+
+    static Stream<Arguments> absentMatchResults() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{}"), Arguments.of(200, "{\"matched\":null}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("absentMatchResults")
+    void aMissingLinkMatchDecisionNeverBecomesAnUnmatchedSuccess(int responseStatus, String body) throws Exception {
+        DATA.on("GET /internal/migrations/mig-1/invite-link-clicks/candidates",
+                request -> new MockUpstream.Response(200, "[]"));
+        LINK.on("POST /internal/links/match", request -> new MockUpstream.Response(responseStatus, body));
+        mockMvc.perform(post("/l/match").contentType("application/json").content(MATCH_BODY))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        LINK.on("POST /internal/links/match", request -> new MockUpstream.Response(200, "{\"matched\":false}"));
+        mockMvc.perform(post("/l/match").contentType("application/json").content(MATCH_BODY))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.matched").value(false));
+    }
 
     private static final String MATCH_BODY =
             "{\"os\":\"ios\",\"deviceId\":\"dev-1\",\"appInstanceId\":\"ga-1\"}";

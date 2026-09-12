@@ -131,7 +131,10 @@ public class InviteLinkUseCase {
             // ③ 링크의 잠정 기록 + 서명 자격. SLUG_NOT_FOUND(404) 는 기존 계약대로 중계된다.
             LinkClaimResult pending = linkApiClient.claim(userId, slug, keys.forStep("link-claim"), deadline);
 
-            if (pending == null || pending.claimId() == null) {
+            if (pending == null) {
+                throw new UpstreamContractMismatchException("잠정 claim 응답에 본문이 없습니다");
+            }
+            if (pending.claimId() == null) {
                 // 셀프 초대이거나 붙일 클릭이 없다 — 링크 서버가 claimId=null 을 «정상»으로 준다
                 // (link/src/lib/links.ts:145·149). 기존 InviteLinkMatchService:169-177 의 「붙일 곳이 없을
                 // 뿐 오류가 아니다」와 같은 뜻이고, 기존 컨트롤러도 boolean 을 무시하고 항상 200 이었다.

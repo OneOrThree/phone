@@ -1,5 +1,7 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
+
 import com.oneorthree.business.common.exception.CommonErrorCode;
 import com.oneorthree.business.common.exception.DomainException;
 import com.oneorthree.business.common.http.Deadline;
@@ -129,6 +131,10 @@ public class CompatMatchUseCase {
         try {
             List<FrozenClickCandidate> rows = dataApiClient.exportFrozenCandidates(migrationId, ipHash, os,
                     deadline);
+            if (required && rows == null) {
+                // 명시한 []만 후보 없음이다. 본문 유실을 그렇게 확정하면 설치 귀속을 재시도할 수 없다.
+                throw new UpstreamContractMismatchException("구 정지 스냅샷 후보 조회 응답에 본문이 없습니다");
+            }
             return rows == null ? List.of() : rows;
         } catch (RuntimeException e) {
             if (required) {

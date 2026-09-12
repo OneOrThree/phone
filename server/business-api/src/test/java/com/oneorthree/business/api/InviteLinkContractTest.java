@@ -5,8 +5,13 @@ import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -23,6 +28,53 @@ class InviteLinkContractTest extends UpstreamTestBase {
     private static final String INTENT_ID = "dddddddd-0000-0000-0000-000000000001";
     private static final String CONFIRM_ID = "dddddddd-0000-0000-0000-000000000002";
     private static final String CLAIM_ID = "eeeeeeee-0000-0000-0000-000000000001";
+
+    static Stream<Arguments> absentPendingBodies() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{}"), Arguments.of(200, "{\"capability\":null}"),
+                Arguments.of(200, "{\"claimId\":null}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("absentPendingBodies")
+    void absentPendingBodyKeepsTheIntentForRetryWithTheSameKey(int responseStatus, String body) throws Exception {
+        stubActiveUser(USER);
+        AtomicBoolean abandoned = new AtomicBoolean();
+        DATA.on("POST /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1,\"completed\":"
+                        + abandoned.get() + "}"));
+        DATA.on("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/abandoned", request -> {
+            abandoned.set(true);
+            return new MockUpstream.Response(200, "{}");
+        });
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(responseStatus, body));
+
+        var first = mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-claim")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andReturn().getResponse();
+        assertThat(abandoned).isFalse();
+        assertThat(first.getStatus()).isEqualTo(502);
+        assertThat(first.getContentAsString()).contains("UPSTREAM_CONTRACT_MISMATCH");
+        assertThat(DATA.hits("POST /internal/invite-links/claim-confirmations")).isZero();
+
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(200,
+                "{\"claimId\":\"" + CLAIM_ID + "\",\"capability\":\"cap-token\"}"));
+        DATA.on("POST /internal/invite-links/claim-confirmations", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"e2\",\"version\":2}"));
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-claim")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isOk());
+        assertThat(DATA.receivedFor("POST /internal/invite-links/claim-intents")).hasSize(2)
+                .allSatisfy(request -> assertThat(request.header("Idempotency-Key")).isEqualTo("same-claim:claim-intent"));
+        assertThat(LINK.receivedFor("POST /internal/links/abc123/claim")).hasSize(2)
+                .allSatisfy(request -> assertThat(request.header("Idempotency-Key")).isEqualTo("same-claim:link-claim"));
+        assertThat(DATA.hits("POST /internal/invite-links/claim-confirmations")).isEqualTo(1);
+        assertThat(abandoned).isFalse();
+    }
 
     /**
      * 발급 컨텍스트. ⚠️ {@code membershipEpoch == linkVersion} 이어야 한다 — 링크 서버가

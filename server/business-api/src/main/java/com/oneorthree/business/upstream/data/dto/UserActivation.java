@@ -1,5 +1,9 @@
 package com.oneorthree.business.upstream.data.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+
 /**
  * 위성 쓰기 전 활성 검사 결과 (A22 ⓖ · §5).
  *
@@ -13,5 +17,6 @@ package com.oneorthree.business.upstream.data.dto;
  *
  * @param active 이 유저가 쓰기를 해도 되는 상태인가. 탈퇴·비활성은 false
  */
-public record UserActivation(boolean active) {
+public record UserActivation(
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean active) {
 }

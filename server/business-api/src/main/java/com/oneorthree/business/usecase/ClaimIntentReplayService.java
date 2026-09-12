@@ -1,5 +1,7 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
+
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.upstream.data.DataApiClient;
@@ -168,7 +170,10 @@ public class ClaimIntentReplayService {
             LinkClaimResult pending =
                     linkApiClient.claim(intent.userId(), intent.slug(), keys.forStep("link-claim"), deadline);
 
-            if (pending != null && pending.claimId() != null) {
+            if (pending == null) {
+                throw new UpstreamContractMismatchException("잠정 claim 응답에 본문이 없습니다");
+            }
+            if (pending.claimId() != null) {
                 DurableCommandAck confirmed = dataApiClient.confirmClaim(intent.userId(), pending.claimId(),
                         intent.slug(), pending.capability(), keys.forStep("claim-confirm"), deadline);
                 log.info("claim 재개 확정 — commandId={} claimId={} version={}",

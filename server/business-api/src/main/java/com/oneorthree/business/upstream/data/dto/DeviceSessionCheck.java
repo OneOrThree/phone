@@ -1,5 +1,9 @@
 package com.oneorthree.business.upstream.data.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+
 /**
  * {@code deviceBootstrap} 이 가리키는 로그인 세션이 아직 살아 있는가 + fencing 값 (A22 ㋤ · ㋨).
  *
@@ -13,5 +17,7 @@ package com.oneorthree.business.upstream.data.dto;
  * @param active       그 세션이 아직 활성인가
  * @param sessionEpoch 원자 대조에 쓸 fencing 값. 알림 서버가 이 값보다 오래된 소유권 변경을 거부한다
  */
-public record DeviceSessionCheck(boolean active, long sessionEpoch) {
+public record DeviceSessionCheck(
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean active,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long sessionEpoch) {
 }

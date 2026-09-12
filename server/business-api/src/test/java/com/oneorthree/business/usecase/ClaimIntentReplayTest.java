@@ -4,7 +4,14 @@ import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.ValueSource;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import org.springframework.beans.factory.annotation.Autowired;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,6 +34,59 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
     private ClaimIntentReplayService runner;
 
     private static final String LEASE_TOKEN = "66666666-0000-0000-0000-000000000001";
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"items\":[]}", "{\"items\":[],\"pendingTotal\":null}",
+            "{\"pendingTotal\":0}", "{\"items\":null,\"pendingTotal\":0}"})
+    void anIncompletePendingPageCannotPassTheZeroPendingGate(String body) {
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200, body));
+        assertThatThrownBy(runner::replayAll).isInstanceOf(UpstreamContractMismatchException.class);
+        assertThat(LINK.received()).isEmpty();
+        DATA.on("GET /internal/invite-links/claim-intents",
+                request -> new MockUpstream.Response(200, "{\"items\":[],\"pendingTotal\":0}"));
+        assertThat(runner.replayAll().gatePassed()).isTrue();
+    }
+
+    static Stream<Arguments> absentPendingBodies() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{}"), Arguments.of(200, "{\"capability\":null}"),
+                Arguments.of(200, "{\"claimId\":null}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("absentPendingBodies")
+    void absentPendingBodyCannotCompleteTheIntentAndTheNextRunCanConfirmIt(int responseStatus, String body) {
+        AtomicBoolean completed = new AtomicBoolean();
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                completed.get() ? "{\"items\":[],\"nextCursor\":null,\"pendingTotal\":0}"
+                        : "{\"items\":[{\"commandId\":\"" + CMD_1 + "\",\"userId\":\"" + USER_1
+                                + "\",\"slug\":\"abc123\",\"idempotencyKey\":\"original:claim-intent\","
+                                + "\"attempts\":0}],\"nextCursor\":null,\"pendingTotal\":1}"));
+        stubLeased(true);
+        DATA.on("POST /internal/invite-links/claim-intents/" + CMD_1 + "/completed", request -> {
+            completed.set(true);
+            return new MockUpstream.Response(200, null);
+        });
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(responseStatus, body));
+
+        ClaimIntentReplayService.Result failed = runner.replayAll();
+        assertThat(completed).isFalse();
+        assertThat(failed.completed()).isZero();
+        assertThat(failed.failed()).isEqualTo(1);
+        assertThat(failed.pendingTotal()).isEqualTo(1);
+        assertThat(failed.gatePassed()).isFalse();
+
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(200,
+                "{\"claimId\":\"" + CLAIM_1 + "\",\"capability\":\"cap-token\"}"));
+        DATA.on("POST /internal/invite-links/claim-confirmations", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\",\"version\":2}"));
+        ClaimIntentReplayService.Result retried = runner.replayAll();
+        assertThat(retried.completed()).isEqualTo(1);
+        assertThat(retried.gatePassed()).isTrue();
+        assertThat(DATA.hits("POST /internal/invite-links/claim-confirmations")).isEqualTo(1);
+        assertThat(LINK.receivedFor("POST /internal/links/abc123/claim")).hasSize(2)
+                .allSatisfy(request -> assertThat(request.header("Idempotency-Key")).isEqualTo("original:link-claim"));
+    }
 
     /**
      * 첫 조회는 의도 1건 + pendingTotal 1, 그다음부터는 빈 목록 + pendingTotal 0 을 준다 —

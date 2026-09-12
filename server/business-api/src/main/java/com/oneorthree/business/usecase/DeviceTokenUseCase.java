@@ -4,6 +4,7 @@ import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.exception.CommonErrorCode;
 import com.oneorthree.business.common.exception.DomainException;
 import com.oneorthree.business.common.exception.UpstreamUnavailableException;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.validation.DeviceOwnershipTokens;
 import com.oneorthree.business.upstream.data.DataApiClient;
@@ -82,7 +83,10 @@ public class DeviceTokenUseCase {
             // 확인만으로는 TOCTOU 가 남는다 — 알림 서버가 자기 tombstone 과 이 값을 원자 대조한다.
             DeviceSessionCheck check =
                     dataApiClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline);
-            if (check == null || !check.active()) {
+            if (check == null) {
+                throw new UpstreamContractMismatchException("Data 세션 확인 응답 본문이 없습니다");
+            }
+            if (!check.active()) {
                 // 세션이 끝났다. 토큰이 없는 «소유권 이전» 요청이 여기서 막혀야 로그아웃한 계정의
                 // 지연 등록이 B 기기의 토큰을 되찾아가지 못한다.
                 log.info("deviceBootstrap 세션 비활성 — 등록 거절");
@@ -96,7 +100,10 @@ public class DeviceTokenUseCase {
             // (로그아웃은 유저 세대를 올리지 않는다 ㊼). 즉 로그아웃이 푸시를 끊지 못한다.
             DeviceSessionCheck check =
                     dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadline);
-            if (check == null || !check.active()) {
+            if (check == null) {
+                throw new UpstreamContractMismatchException("Data 세션 확인 응답 본문이 없습니다");
+            }
+            if (!check.active()) {
                 log.info("AT 의 sid 세션 비활성 — 등록 거절");
                 throw new DomainException(CommonErrorCode.USER_INACTIVE);
             }
@@ -113,6 +120,9 @@ public class DeviceTokenUseCase {
                 legacySessionId);
         DeviceRegistrationResult result = notificationApiClient.registerDevice(
                 claims.userId(), registration, keys.forStep("device-register"), deadline);
+        if (result == null) {
+            throw new UpstreamContractMismatchException("알림 기기 등록 응답 본문이 없습니다");
+        }
         revokeIfTheSessionEndedDuringRegistration(
                 claims, deviceToken, result, deviceBootstrap, legacySessionId, deadline);
         return result;
@@ -161,14 +171,17 @@ public class DeviceTokenUseCase {
             DeviceRegistrationResult result, String deviceBootstrap, String legacySessionId, Deadline deadline) {
         boolean checkedByBootstrap = deviceBootstrap != null && !deviceBootstrap.isBlank();
         boolean checkedByLegacySid = legacySessionId != null;
-        if (result == null || (!checkedByBootstrap && !checkedByLegacySid)) {
+        if (!checkedByBootstrap && !checkedByLegacySid) {
             return;
         }
         try {
             DeviceSessionCheck after = checkedByBootstrap
                     ? dataApiClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline)
                     : dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadline);
-            if (after != null && after.active()) {
+            if (after == null) {
+                throw new UpstreamContractMismatchException("Data 등록 후 세션 확인 응답 본문이 없습니다");
+            }
+            if (after.active()) {
                 return;
             }
             log.warn("등록 중 세션이 끝났다 — 방금 등록한 기기 토큰을 되돌린다. userId={}", claims.userId());
@@ -176,8 +189,9 @@ public class DeviceTokenUseCase {
                     claims.authGeneration(), RequestIdempotencyKeys.from(null).forStep("device-register-undo"),
                     deadline);
         } catch (RuntimeException e) {
-            // 폐기 사건이 도착하면 어차피 정리된다. 정상 로그인을 실패로 만들지 않는다.
-            log.warn("등록 후 세션 재확인·되돌리기 실패 — 폐기 사건 도착 시 정리된다", e);
+            // 판정 불가는 세션 폐기 증거가 아니다. 등록 응답을 보존하고 기기를 임의로 지우지 않는다.
+            // 실제 폐기 뒤 되돌리기만 실패한 경우는 내구 폐기 사건이 도착하면 정리된다.
+            log.warn("등록 후 세션 재확인·되돌리기 실패 — 확인된 등록 응답을 보존한다", e);
         }
     }
 

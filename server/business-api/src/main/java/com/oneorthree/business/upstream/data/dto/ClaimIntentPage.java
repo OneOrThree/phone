@@ -1,5 +1,9 @@
 package com.oneorthree.business.upstream.data.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -20,7 +24,10 @@ import java.util.UUID;
  * @param pendingTotal 전체 미완료 건수. <b>다른 작업자가 lease 를 쥔 행과 재시도 예정 행을 포함</b>한다.
  *                     이 값이 0 일 때만 「미완료 0」 gate 를 통과한다
  */
-public record ClaimIntentPage(List<ClaimIntent> items, String nextCursor, long pendingTotal) {
+public record ClaimIntentPage(
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<ClaimIntent> items,
+        String nextCursor,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long pendingTotal) {
 
     /**
      * 재개해야 할 claim 하나.
