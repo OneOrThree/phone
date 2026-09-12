@@ -126,6 +126,9 @@ public class CompatMatchUseCase {
             boolean required) {
         String migrationId = compatProperties.getMigrationId();
         if (migrationId == null || migrationId.isBlank()) {
+            if (required) {
+                throw new UpstreamContractMismatchException("필수 이관 후보 조회의 migrationId 설정이 없습니다");
+            }
             return List.of();
         }
         try {

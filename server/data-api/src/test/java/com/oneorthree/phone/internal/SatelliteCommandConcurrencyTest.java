@@ -6,6 +6,14 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.service.LinkMembershipEventService;
+import com.oneorthree.phone.group.service.GroupMemberService;
+import com.oneorthree.phone.group.service.GroupService;
+import com.oneorthree.phone.group.dto.UpdateGroupRequest;
+import com.oneorthree.phone.group.repository.domain.GroupStatus;
+import org.springframework.dao.OptimisticLockingFailureException;
+import com.oneorthree.phone.outbox.dto.AggregateRef;
+import com.oneorthree.phone.outbox.repository.AggregateVersionRepository;
+import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.internal.dto.ClaimIntentLeaseResponse;
 import com.oneorthree.phone.internal.service.InternalInviteLinkService;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
@@ -20,6 +28,7 @@ import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.service.UserSatelliteCommandService;
@@ -83,6 +92,8 @@ class SatelliteCommandConcurrencyTest {
     @Autowired
     UserRepository userRepository;
     @Autowired
+    UserQueryService userQueryService;
+    @Autowired
     UserNotificationSettingsRepository userNotificationSettingsRepository;
     @Autowired
     GroupRepository groupRepository;
@@ -90,6 +101,14 @@ class SatelliteCommandConcurrencyTest {
     GroupMemberRepository groupMemberRepository;
     @Autowired
     LinkMembershipEventService linkMembershipEventService;
+    @Autowired
+    GroupMemberService groupMemberService;
+    @Autowired
+    GroupService groupService;
+    @Autowired
+    AggregateVersionRepository aggregateVersionRepository;
+    @Autowired
+    OutboxCommandPort outboxCommandPort;
     @Autowired
     InternalInviteLinkService internalInviteLinkService;
     @Autowired
@@ -223,6 +242,319 @@ class SatelliteCommandConcurrencyTest {
             assertThat(renameEnvelopesFor(group.getId(), memberId)).isEmpty();
             // 남아 있는 방장에게는 그대로 나간다 — 「떠난 사람만 뺀다」다.
             assertThat(renameEnvelopesFor(group.getId(), ownerId)).hasSize(1);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("실제 강퇴와 이름 변경은 멤버십→aggregate 순서로 잠그고 이탈 상태를 보존한다")
+    void actualKickMemberDoesNotDeadlockWithGroupRename() throws Exception {
+        UUID ownerId = newUser();
+        UUID memberId = newUser();
+        Group group = newGroup(ownerId);
+        addMember(group, memberId);
+        AggregateRef axis = AggregateRef.ofLinkMembership(group.getId(), memberId);
+        // 이미 링크가 발급된 축이다. 첫 INSERT의 자동 flush가 멤버십 락을 우연히 먼저 잡는 경우를 배제한다.
+        tx().executeWithoutResult(status -> outboxCommandPort.allocateVersion(axis));
+
+        AtomicInteger kickPid = new AtomicInteger();
+        AtomicInteger renamePid = new AtomicInteger();
+        CountDownLatch kickStarted = new CountDownLatch(1);
+        CountDownLatch renameStarted = new CountDownLatch(1);
+        AtomicReference<Future<?>> kickRef = new AtomicReference<>();
+        AtomicReference<Future<?>> renameRef = new AtomicReference<>();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            tx().executeWithoutResult(status -> {
+                int blockerPid = backendPid();
+                aggregateVersionRepository.findForUpdate(axis.type(), axis.id()).orElseThrow();
+                kickRef.set(pool.submit(() -> tx().executeWithoutResult(kicking -> {
+                    kickPid.set(backendPid());
+                    kickStarted.countDown();
+                    // 테스트가 멤버십 잠금을 대신 잡지 않는다. 서비스 진입부터 커밋까지 생산 경로다.
+                    groupMemberService.kickMember(group.getId(), memberId, ownerId);
+                })));
+                try {
+                    assertThat(kickStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                    awaitBlockedBy(kickPid.get(), blockerPid);
+                    renameRef.set(pool.submit(() -> tx().executeWithoutResult(renaming -> {
+                        renamePid.set(backendPid());
+                        renameStarted.countDown();
+                        Group renamed = groupRepository.findById(group.getId()).orElseThrow();
+                        renamed.updateName("실제 강퇴와 겹친 이름");
+                        linkMembershipEventService.recordGroupRenamed(renamed);
+                    })));
+                    assertThat(renameStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                    awaitBlockedBy(renamePid.get(), kickPid.get());
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                } catch (SQLException sql) {
+                    throw new IllegalStateException(sql);
+                }
+                // 수정 전에는 rename이 멤버십을, kick이 다음 aggregate 차례를 잡았다.
+                // 이 잠금을 풀면 실제 PostgreSQL ABBA가 드러난다. 수정 후에는 rename만 멤버십에서 기다린다.
+            });
+            kickRef.get().get(30, TimeUnit.SECONDS);
+            renameRef.get().get(30, TimeUnit.SECONDS);
+
+            GroupMember after = tx().execute(status -> groupMemberRepository
+                    .findAnyByUserAndGroup(userRepository.findById(memberId).orElseThrow(),
+                            groupRepository.findById(group.getId()).orElseThrow()).orElseThrow());
+            assertThat(after.isKicked()).isTrue();
+            assertThat(after.getMembershipEpoch()).isEqualTo(2L);
+            assertThat(renameEnvelopesFor(group.getId(), memberId)).isEmpty();
+            assertThat(renameEnvelopesFor(group.getId(), ownerId)).hasSize(1);
+            String renamedName = tx().execute(status -> groupRepository.findById(group.getId()).orElseThrow().getName());
+            assertThat(renamedName).isEqualTo("실제 강퇴와 겹친 이름");
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("마지막 방장 그룹 탈퇴와 실제 이름 수정은 교착 없이 종료 상태를 보존한다")
+    void actualSoloOwnerWithdrawalDoesNotDeadlockWithGroupUpdate() throws Exception {
+        UUID ownerId = newUser();
+        Group group = newGroup(ownerId);
+        AggregateRef axis = AggregateRef.ofLinkMembership(group.getId(), ownerId);
+        // 이미 링크가 발급된 축이다. 첫 INSERT의 자동 flush가 멤버십 락을 우연히 먼저 잡는 경우를 배제한다.
+        tx().executeWithoutResult(status -> outboxCommandPort.allocateVersion(axis));
+
+        AtomicInteger withdrawPid = new AtomicInteger();
+        AtomicInteger renamePid = new AtomicInteger();
+        CountDownLatch withdrawStarted = new CountDownLatch(1);
+        CountDownLatch renameStarted = new CountDownLatch(1);
+        AtomicReference<Future<?>> withdrawRef = new AtomicReference<>();
+        AtomicReference<Future<?>> renameRef = new AtomicReference<>();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            tx().executeWithoutResult(status -> {
+                int blockerPid = backendPid();
+                aggregateVersionRepository.findForUpdate(axis.type(), axis.id()).orElseThrow();
+                withdrawRef.set(pool.submit(() -> tx().executeWithoutResult(withdrawing -> {
+                    withdrawPid.set(backendPid());
+                    withdrawStarted.countDown();
+                    // 테스트가 멤버십 잠금을 대신 잡지 않는다. 서비스 진입부터 커밋까지 생산 경로다.
+                    groupMemberService.withdrawGroup(group.getId(), ownerId);
+                })));
+                try {
+                    assertThat(withdrawStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                    awaitBlockedBy(withdrawPid.get(), blockerPid);
+                    renameRef.set(pool.submit(() -> catchThrowable(() -> tx().executeWithoutResult(renaming -> {
+                        renamePid.set(backendPid());
+                        renameStarted.countDown();
+                        UpdateGroupRequest request = new UpdateGroupRequest();
+                        ReflectionTestUtils.setField(request, "name", "그룹 종료와 겹친 이름");
+                        groupService.updateGroup(group.getId(), ownerId, request);
+                    }))));
+                    assertThat(renameStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                    awaitBlockedBy(renamePid.get(), withdrawPid.get());
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                } catch (SQLException sql) {
+                    throw new IllegalStateException(sql);
+                }
+                // 수정 전에는 rename이 groups 행을, withdraw가 멤버십 행을 쥐고 있다.
+                // aggregate 차례를 열면 group.close flush와 rename fanout의 ABBA가 드러난다.
+            });
+            withdrawRef.get().get(30, TimeUnit.SECONDS);
+            Object renameFailure = renameRef.get().get(30, TimeUnit.SECONDS);
+            if (renameFailure != null) {
+                // 종료가 먼저 커밋하면 이미 읽어 둔 Group @Version의 충돌은 정상이다.
+                assertThat(renameFailure).isInstanceOf(OptimisticLockingFailureException.class);
+            }
+
+            GroupMember after = tx().execute(status -> groupMemberRepository
+                    .findAnyByUserAndGroup(userRepository.findById(ownerId).orElseThrow(),
+                            groupRepository.findById(group.getId()).orElseThrow()).orElseThrow());
+            assertThat(after.isLeft()).isTrue();
+            assertThat(after.isKicked()).isFalse();
+            assertThat(after.getMembershipEpoch()).isEqualTo(2L);
+            assertThat(renameEnvelopesFor(group.getId(), ownerId)).isEmpty();
+            GroupStatus finalStatus = tx().execute(status -> groupRepository.findById(group.getId())
+                    .orElseThrow().getStatus());
+            assertThat(finalStatus).isEqualTo(GroupStatus.ENDED);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("계정 탈퇴의 실제 멤버십 정리도 이름 변경과 교착 없이 이탈 상태를 보존한다")
+    void actualAccountWithdrawalDetachDoesNotDeadlockWithGroupRename() throws Exception {
+        UUID ownerId = newUser();
+        UUID memberId = newUser();
+        Group group = newGroup(ownerId);
+        addMember(group, memberId);
+        AggregateRef axis = AggregateRef.ofLinkMembership(group.getId(), memberId);
+        // 이미 링크가 발급된 축이다. 첫 INSERT의 자동 flush가 멤버십 락을 우연히 먼저 잡는 경우를 배제한다.
+        tx().executeWithoutResult(status -> outboxCommandPort.allocateVersion(axis));
+
+        AtomicInteger detachPid = new AtomicInteger();
+        AtomicInteger renamePid = new AtomicInteger();
+        CountDownLatch detachStarted = new CountDownLatch(1);
+        CountDownLatch renameStarted = new CountDownLatch(1);
+        AtomicReference<Future<?>> detachRef = new AtomicReference<>();
+        AtomicReference<Future<?>> renameRef = new AtomicReference<>();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            tx().executeWithoutResult(status -> {
+                int blockerPid = backendPid();
+                aggregateVersionRepository.findForUpdate(axis.type(), axis.id()).orElseThrow();
+                detachRef.set(pool.submit(() -> tx().executeWithoutResult(detaching -> {
+                    detachPid.set(backendPid());
+                    detachStarted.countDown();
+                    // 테스트가 멤버십 잠금을 대신 잡지 않는다. 서비스 진입부터 커밋까지 생산 경로다.
+                    User withdrawingUser = userQueryService.getCallerForUpdate(memberId);
+                    groupMemberService.detachWithdrawnUser(withdrawingUser);
+                })));
+                try {
+                    assertThat(detachStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                    awaitBlockedBy(detachPid.get(), blockerPid);
+                    renameRef.set(pool.submit(() -> tx().executeWithoutResult(renaming -> {
+                        renamePid.set(backendPid());
+                        renameStarted.countDown();
+                        Group renamed = groupRepository.findById(group.getId()).orElseThrow();
+                        renamed.updateName("계정 탈퇴와 겹친 이름");
+                        linkMembershipEventService.recordGroupRenamed(renamed);
+                    })));
+                    assertThat(renameStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                    awaitBlockedBy(renamePid.get(), detachPid.get());
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                } catch (SQLException sql) {
+                    throw new IllegalStateException(sql);
+                }
+                // 수정 전에는 rename이 멤버십을, detach가 다음 aggregate 차례를 잡았다.
+                // 이 잠금을 풀면 실제 PostgreSQL ABBA가 드러난다. 수정 후에는 rename만 멤버십에서 기다린다.
+            });
+            detachRef.get().get(30, TimeUnit.SECONDS);
+            renameRef.get().get(30, TimeUnit.SECONDS);
+
+            GroupMember after = tx().execute(status -> groupMemberRepository
+                    .findAnyByUserAndGroup(userRepository.findById(memberId).orElseThrow(),
+                            groupRepository.findById(group.getId()).orElseThrow()).orElseThrow());
+            assertThat(after.isLeft()).isTrue();
+            assertThat(after.isKicked()).isFalse();
+            assertThat(after.getMembershipEpoch()).isEqualTo(2L);
+            assertThat(renameEnvelopesFor(group.getId(), memberId)).isEmpty();
+            assertThat(renameEnvelopesFor(group.getId(), ownerId)).hasSize(1);
+            String renamedName = tx().execute(status -> groupRepository.findById(group.getId()).orElseThrow().getName());
+            assertThat(renamedName).isEqualTo("계정 탈퇴와 겹친 이름");
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("이름 변경을 기다린 실제 강퇴는 이미 전진한 표시 스냅샷을 되돌리지 않는다")
+    void actualKickPreservesTheSnapshotCommittedByAnEarlierRename() throws Exception {
+        UUID ownerId = newUser();
+        UUID memberId = newUser();
+        Group group = newGroup(ownerId);
+        addMember(group, memberId);
+        tx().executeWithoutResult(status -> outboxCommandPort.allocateVersion(
+                AggregateRef.ofLinkMembership(group.getId(), memberId)));
+
+        AtomicInteger kickPid = new AtomicInteger();
+        CountDownLatch kickStarted = new CountDownLatch(1);
+        AtomicReference<Future<?>> kickRef = new AtomicReference<>();
+        AtomicReference<Long> renamedSnapshot = new AtomicReference<>();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            tx().executeWithoutResult(status -> {
+                int renamePid = backendPid();
+                Group renamed = groupRepository.findById(group.getId()).orElseThrow();
+                renamed.updateName("먼저 바뀐 이름");
+                linkMembershipEventService.recordGroupRenamed(renamed);
+                renamedSnapshot.set(groupMemberRepository.findAnyByUserAndGroup(
+                        userRepository.findById(memberId).orElseThrow(), renamed).orElseThrow().getSnapshotVersion());
+                kickRef.set(pool.submit(() -> tx().executeWithoutResult(kicking -> {
+                    kickPid.set(backendPid());
+                    kickStarted.countDown();
+                    groupMemberService.kickMember(group.getId(), memberId, ownerId);
+                })));
+                try {
+                    assertThat(kickStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                    awaitBlockedBy(kickPid.get(), renamePid);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                } catch (SQLException sql) {
+                    throw new IllegalStateException(sql);
+                }
+            });
+            kickRef.get().get(30, TimeUnit.SECONDS);
+            GroupMember after = tx().execute(status -> groupMemberRepository
+                    .findAnyByUserAndGroup(userRepository.findById(memberId).orElseThrow(),
+                            groupRepository.findById(group.getId()).orElseThrow()).orElseThrow());
+            assertThat(renamedSnapshot.get()).isGreaterThan(1L);
+            assertThat(after.getSnapshotVersion()).isEqualTo(renamedSnapshot.get());
+            assertThat(after.isKicked()).isTrue();
+            assertThat(after.getMembershipEpoch()).isEqualTo(2L);
+            assertThat(renameEnvelopesFor(group.getId(), memberId)).singleElement().satisfies(event ->
+                    assertThat(((Number) event.getParams().get("snapshotVersion")).longValue())
+                            .isEqualTo(renamedSnapshot.get()));
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("이름 변경을 기다린 계정 탈퇴 정리는 이미 전진한 표시 스냅샷을 되돌리지 않는다")
+    void actualDetachPreservesTheSnapshotCommittedByAnEarlierRename() throws Exception {
+        UUID ownerId = newUser();
+        UUID memberId = newUser();
+        Group group = newGroup(ownerId);
+        addMember(group, memberId);
+        tx().executeWithoutResult(status -> outboxCommandPort.allocateVersion(
+                AggregateRef.ofLinkMembership(group.getId(), memberId)));
+
+        AtomicInteger detachPid = new AtomicInteger();
+        CountDownLatch detachStarted = new CountDownLatch(1);
+        AtomicReference<Future<?>> detachRef = new AtomicReference<>();
+        AtomicReference<Long> renamedSnapshot = new AtomicReference<>();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            tx().executeWithoutResult(status -> {
+                int renamePid = backendPid();
+                Group renamed = groupRepository.findById(group.getId()).orElseThrow();
+                renamed.updateName("먼저 바뀐 이름");
+                linkMembershipEventService.recordGroupRenamed(renamed);
+                renamedSnapshot.set(groupMemberRepository.findAnyByUserAndGroup(
+                        userRepository.findById(memberId).orElseThrow(), renamed).orElseThrow().getSnapshotVersion());
+                detachRef.set(pool.submit(() -> tx().executeWithoutResult(detaching -> {
+                    detachPid.set(backendPid());
+                    detachStarted.countDown();
+                    User withdrawingUser = userQueryService.getCallerForUpdate(memberId);
+                    groupMemberService.detachWithdrawnUser(withdrawingUser);
+                })));
+                try {
+                    assertThat(detachStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                    awaitBlockedBy(detachPid.get(), renamePid);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                } catch (SQLException sql) {
+                    throw new IllegalStateException(sql);
+                }
+            });
+            detachRef.get().get(30, TimeUnit.SECONDS);
+            GroupMember after = tx().execute(status -> groupMemberRepository
+                    .findAnyByUserAndGroup(userRepository.findById(memberId).orElseThrow(),
+                            groupRepository.findById(group.getId()).orElseThrow()).orElseThrow());
+            assertThat(renamedSnapshot.get()).isGreaterThan(1L);
+            assertThat(after.getSnapshotVersion()).isEqualTo(renamedSnapshot.get());
+            assertThat(after.isLeft()).isTrue();
+            assertThat(after.isKicked()).isFalse();
+            assertThat(after.getMembershipEpoch()).isEqualTo(2L);
+            assertThat(renameEnvelopesFor(group.getId(), memberId)).singleElement().satisfies(event ->
+                    assertThat(((Number) event.getParams().get("snapshotVersion")).longValue())
+                            .isEqualTo(renamedSnapshot.get()));
         } finally {
             pool.shutdownNow();
         }

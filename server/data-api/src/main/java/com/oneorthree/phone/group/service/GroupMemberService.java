@@ -118,7 +118,10 @@ public class GroupMemberService {
         // 커밋되면 여기서 삭제를 관측하고 TARGET_USER_NOT_FOUND 로 거절된다(GROMO-1725).
         // GROMO-1247: transferOwner 대상과 같은 이유로 USER_NOT_FOUND 로 바꾸지 않는다(대상 유저다).
         User targetUser = userQueryService.getTargetForShare(targetUserId);
-        GroupMember target = groupQueryService.findMembership(targetUser, group)
+        // 표시정보 갱신과 같은 순서로 멤버십 → LINK aggregate를 잠근다.
+        // 더티 갱신의 flush에 맡기면 aggregate를 먼저 잡아 그룹명 변경과 교착할 수 있다.
+        GroupMember target = groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(
+                        targetUser.getId(), group.getId())
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
         // 강퇴 마킹. 진행 중 내기 판돈은 건드리지 않는다(지갑 생존 → 정산 시 정상 지급/환불, 엔진 무변경).
@@ -147,7 +150,8 @@ public class GroupMemberService {
         // 이 User 를 그대로 밀어넣는다. 락 없는 stale User 면 내기 참가 정리(#503)가 계정 탈퇴와
         // 직렬화되지 않아, 막아둔 구멍을 옆문으로 다시 여는 셈이다.
         User user = requireActiveUser(userId);
-        Group group = groupQueryService.getGroup(groupId);
+        // 마지막 멤버는 그룹도 닫는다. 이름 변경과 같은 그룹 → 멤버십 순서로 잠근다.
+        Group group = groupQueryService.getGroupForUpdate(groupId);
         GroupMember groupMember = groupQueryService.getMembership(user, group);
 
         // A-0 소프트삭제: 행을 지우지 않고 이탈 마킹(leave). findByGroup 은 활성만 세므로 마지막 1인 판정 유지.
@@ -234,8 +238,13 @@ public class GroupMemberService {
         groupBetService.freezeEvidenceForAccountErasure(user);
 
         for (GroupMember membership : groupMemberRepository.findByUser(user)) {
-            membership.leave();
-            linkMembershipEventService.recordMembershipRevoked(membership);
+            // 사용자 배타 잠금은 다른 방장의 그룹명 변경을 막지 않는다.
+            // 환불 순서는 유지하고, 이탈 직전에 멤버십 → LINK aggregate 순서를 보장한다.
+            groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(userId, membership.getGroup().getId())
+                    .ifPresent(locked -> {
+                        locked.leave();
+                        linkMembershipEventService.recordMembershipRevoked(locked);
+                    });
         }
     }
 
