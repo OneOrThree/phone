@@ -50,7 +50,7 @@ class CompatMatchMigrationIdContractTest extends UpstreamTestBase {
         DATA.on(CANDIDATES, request -> new MockUpstream.Response(200,
                 "[{\"source\":{\"slug\":\"old-invite\"},\"sourceChecksum\":\"checksum\"}]"));
         LINK.on("POST /internal/links/match",
-                request -> new MockUpstream.Response(200, "{\"matched\":true,\"slug\":\"old-invite\"}"));
+                request -> new MockUpstream.Response(200, "{\"matched\":true,\"slug\":\"old-invite\",\"groupId\":\"11111111-1111-4111-8111-111111111111\"}"));
         mockMvc.perform(post("/l/match").contentType("application/json").content(REQUEST))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.slug").value("old-invite"));
         assertThat(DATA.hits(CANDIDATES)).isEqualTo(1);

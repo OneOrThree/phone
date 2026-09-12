@@ -35,6 +35,42 @@ class InviteLinkContractTest extends UpstreamTestBase {
                 Arguments.of(200, "{\"claimId\":null}"));
     }
 
+    static Stream<Arguments> absentConfirmBodies() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"  \",\"version\":2}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("absentConfirmBodies")
+    void absentConfirmationKeepsTheIntentRetryable(int responseStatus, String body) throws Exception {
+        stubActiveUser(USER);
+        DATA.on("POST /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1,\"completed\":false}"));
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(200,
+                "{\"claimId\":\"" + CLAIM_ID + "\",\"capability\":\"cap-token\"}"));
+        DATA.on("POST /internal/invite-links/claim-confirmations",
+                request -> new MockUpstream.Response(responseStatus, body));
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "retry-confirm")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        assertThat(DATA.hits("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/abandoned")).isZero();
+        DATA.on("POST /internal/invite-links/claim-confirmations", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"e2\",\"version\":2}"));
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "retry-confirm")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isOk());
+        assertThat(DATA.receivedFor("POST /internal/invite-links/claim-confirmations")).hasSize(2)
+                .allSatisfy(request -> assertThat(request.header("Idempotency-Key"))
+                        .isEqualTo("retry-confirm:claim-confirm"));
+    }
+
     @ParameterizedTest
     @MethodSource("absentPendingBodies")
     void absentPendingBodyKeepsTheIntentForRetryWithTheSameKey(int responseStatus, String body) throws Exception {

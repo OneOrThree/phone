@@ -1,6 +1,7 @@
 package com.oneorthree.business.upstream.data;
 
 import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.InternalCall;
 import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentLease;
@@ -227,7 +228,7 @@ public class DataApiClient {
      */
     public DurableCommandAck confirmClaim(UUID userId, UUID claimId, String slug, String capability,
             String idempotencyKey, Deadline deadline) {
-        return http.exchange(
+        DurableCommandAck confirmed = http.exchange(
                 InternalCall.to(HttpMethod.POST, PATH_CLAIM_CONFIRMATIONS)
                         .onBehalfOf(userId)
                         .idempotencyKey(idempotencyKey)
@@ -236,6 +237,11 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<DurableCommandAck>() { });
+        if (confirmed == null || confirmed.commandId() == null
+                || confirmed.eventId() == null || confirmed.eventId().isBlank()) {
+            throw new UpstreamContractMismatchException("초대 claim 확정 응답이 완전하지 않습니다");
+        }
+        return confirmed;
     }
 
     /**

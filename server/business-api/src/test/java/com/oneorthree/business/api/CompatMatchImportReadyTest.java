@@ -52,7 +52,7 @@ class CompatMatchImportReadyTest extends UpstreamTestBase {
                 new MockUpstream.Response(200,
                         "[{\"source\":{\"slug\":\"old9\"},\"sourceChecksum\":\"chk-9\"}]"));
         LINK.on("POST /internal/links/match",
-                request -> new MockUpstream.Response(200, "{\"matched\":true,\"slug\":\"old9\"}"));
+                request -> new MockUpstream.Response(200, "{\"matched\":true,\"slug\":\"old9\",\"groupId\":\"11111111-1111-4111-8111-111111111111\"}"));
         mockMvc.perform(post("/l/match").header("Idempotency-Key", "same-install")
                         .contentType("application/json").content(MATCH_BODY))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.slug").value("old9"));

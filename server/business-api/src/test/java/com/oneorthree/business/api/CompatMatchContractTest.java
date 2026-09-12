@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.provider.Arguments;
 import java.util.stream.Stream;
 import org.springframework.test.context.TestPropertySource;
@@ -28,6 +29,33 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "business.compat.migration-id=mig-1"
 })
 class CompatMatchContractTest extends UpstreamTestBase {
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"matched\":true}",
+            "{\"matched\":true,\"slug\":\"invite\"}",
+            "{\"matched\":true,\"groupId\":\"11111111-1111-4111-8111-111111111111\"}",
+            "{\"matched\":true,\"slug\":null,\"groupId\":null}",
+            "{\"matched\":true,\"slug\":\"\",\"groupId\":\"11111111-1111-4111-8111-111111111111\"}",
+            "{\"matched\":true,\"slug\":\"  \",\"groupId\":\"11111111-1111-4111-8111-111111111111\"}"
+    })
+    void incompleteMatchKeepsTheInstallRetryable(String body) throws Exception {
+        DATA.on("GET /internal/migrations/mig-1/invite-link-clicks/candidates",
+                request -> new MockUpstream.Response(200, "[]"));
+        LINK.on("POST /internal/links/match", request -> new MockUpstream.Response(200, body));
+        mockMvc.perform(post("/l/match").contentType("application/json").content(MATCH_BODY))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        LINK.on("POST /internal/links/match", request -> new MockUpstream.Response(200,
+                "{\"matched\":true,\"slug\":\"invite\",\"groupId\":\"11111111-1111-4111-8111-111111111111\"}"));
+        mockMvc.perform(post("/l/match").contentType("application/json").content(MATCH_BODY))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.matched").value(true))
+                .andExpect(jsonPath("$.slug").value("invite"))
+                .andExpect(jsonPath("$.groupId").value("11111111-1111-4111-8111-111111111111"));
+        assertThat(LINK.receivedFor("POST /internal/links/match")).hasSize(2).satisfies(requests ->
+                assertThat(requests.get(0).header("Idempotency-Key"))
+                        .isEqualTo(requests.get(1).header("Idempotency-Key")));
+    }
+
 
     static Stream<Arguments> absentMatchResults() {
         return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
@@ -56,7 +84,7 @@ class CompatMatchContractTest extends UpstreamTestBase {
     void 무인증() throws Exception {
         LINK.on("POST /internal/links/match", request ->
                 new MockUpstream.Response(200,
-                        "{\"matched\":true,\"slug\":\"abc123\",\"groupId\":null}"));
+                        "{\"matched\":true,\"slug\":\"abc123\",\"groupId\":\"11111111-1111-4111-8111-111111111111\"}"));
 
         // Authorization 헤더가 없어도 401 이 아니다. 인증을 붙이면 구 앱의 매치가 전멸한다.
         mockMvc.perform(post("/l/match").contentType("application/json").content(MATCH_BODY))
@@ -118,7 +146,7 @@ class CompatMatchContractTest extends UpstreamTestBase {
         DATA.on("GET /internal/migrations/mig-1/invite-link-clicks/candidates",
                 request -> new MockUpstream.Response(500, "{}"));
         LINK.on("POST /internal/links/match", request ->
-                new MockUpstream.Response(200, "{\"matched\":true,\"slug\":\"abc123\"}"));
+                new MockUpstream.Response(200, "{\"matched\":true,\"slug\":\"abc123\",\"groupId\":\"11111111-1111-4111-8111-111111111111\"}"));
 
         mockMvc.perform(post("/l/match").contentType("application/json").content(MATCH_BODY))
                 .andExpect(status().isOk())

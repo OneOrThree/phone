@@ -66,6 +66,9 @@ public class LinkMatchCompatController {
         if (!result.matched()) {
             return ResponseEntity.ok(InviteMatchResponse.notMatched());
         }
+        if (result.slug() == null || result.slug().isBlank() || result.groupId() == null) {
+            throw new UpstreamContractMismatchException("링크 매치 성공 응답에 식별자가 없습니다");
+        }
         return ResponseEntity.ok(InviteMatchResponse.matched(result.slug(), result.groupId()));
     }
 }

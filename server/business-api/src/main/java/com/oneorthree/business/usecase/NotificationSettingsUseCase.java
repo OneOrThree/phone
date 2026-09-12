@@ -1,6 +1,7 @@
 package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.upstream.data.DataApiClient;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
@@ -60,6 +61,10 @@ public class NotificationSettingsUseCase {
 
         DurableCommandAck recorded = dataApiClient.recordNotificationSettings(
                 userId, settings, keys.forStep("settings-outbox"), deadline);
+        if (recorded == null || recorded.commandId() == null
+                || recorded.eventId() == null || recorded.eventId().isBlank()) {
+            throw new UpstreamContractMismatchException("설정 내구 명령 응답이 완전하지 않습니다");
+        }
 
         notificationApiClient.applySettings(
                 userId, settings, recorded.version(), keys.forStep("settings-apply"), deadline);

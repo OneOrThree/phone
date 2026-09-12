@@ -88,6 +88,58 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
                 .allSatisfy(request -> assertThat(request.header("Idempotency-Key")).isEqualTo("original:link-claim"));
     }
 
+    static Stream<Arguments> incompleteConfirmationBodies() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":null,\"eventId\":\"confirmed\",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"\",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\" \",\"version\":2}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("incompleteConfirmationBodies")
+    void incompleteConfirmationCannotCompleteTheIntentAndTheNextRunCanRetry(int responseStatus, String body) {
+        AtomicBoolean completed = new AtomicBoolean();
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                completed.get() ? "{\"items\":[],\"nextCursor\":null,\"pendingTotal\":0}"
+                        : "{\"items\":[{\"commandId\":\"" + CMD_1 + "\",\"userId\":\"" + USER_1
+                                + "\",\"slug\":\"abc123\",\"idempotencyKey\":\"original:claim-intent\","
+                                + "\"attempts\":0}],\"nextCursor\":null,\"pendingTotal\":1}"));
+        stubLeased(true);
+        String completePath = "POST /internal/invite-links/claim-intents/" + CMD_1 + "/completed";
+        String confirmPath = "POST /internal/invite-links/claim-confirmations";
+        DATA.on(completePath, request -> {
+            completed.set(true);
+            return new MockUpstream.Response(200, null);
+        });
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(200,
+                "{\"claimId\":\"" + CLAIM_1 + "\",\"capability\":\"cap-token\"}"));
+        DATA.on(confirmPath, request -> new MockUpstream.Response(responseStatus, body));
+
+        ClaimIntentReplayService.Result failed = runner.replayAll();
+        assertThat(completed).isFalse();
+        assertThat(DATA.hits(completePath)).isZero();
+        assertThat(failed.completed()).isZero();
+        assertThat(failed.failed()).isEqualTo(1);
+        assertThat(failed.pendingTotal()).isEqualTo(1);
+        assertThat(failed.gatePassed()).isFalse();
+
+        // 응답 복구 후 같은 의도·같은 단계 키로 다시 확정한다. 실패를 완료 표시로 지우지 않았다.
+        DATA.on(confirmPath, request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\",\"version\":2}"));
+        ClaimIntentReplayService.Result retried = runner.replayAll();
+        assertThat(retried.completed()).isEqualTo(1);
+        assertThat(retried.failed()).isZero();
+        assertThat(retried.pendingTotal()).isZero();
+        assertThat(retried.gatePassed()).isTrue();
+        assertThat(DATA.hits(completePath)).isEqualTo(1);
+        assertThat(DATA.receivedFor(confirmPath)).hasSize(2).allSatisfy(request ->
+                assertThat(request.header("Idempotency-Key")).isEqualTo("original:claim-confirm"));
+        assertThat(DATA.receivedFor(confirmPath).get(0).body())
+                .isEqualTo(DATA.receivedFor(confirmPath).get(1).body());
+    }
+
     /**
      * 첫 조회는 의도 1건 + pendingTotal 1, 그다음부터는 빈 목록 + pendingTotal 0 을 준다 —
      * 완료 후 재순회가 끝나도록. gate 는 pendingTotal 로 판정하므로 그 값이 핵심이다.

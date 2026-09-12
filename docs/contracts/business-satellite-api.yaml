@@ -1389,6 +1389,9 @@ paths:
           description: |
             소진 결과. 3시간 매치 창 · deviceId 멱등 · bot/kakao/iPad 분류 · 기존 `SHA-256(ip+salt)` 를
             보존한다(계약 §4).
+            matched=true이면 빈 값이 아닌 slug와 UUID groupId가 모두 필수다.
+            식별자 누락·null·빈 slug는 Business가 502 UPSTREAM_CONTRACT_MISMATCH로 거절한다.
+            matched=false는 두 식별자가 없어도 정상 미매치이며 200을 유지한다.
           content:
             application/json:
               schema:
