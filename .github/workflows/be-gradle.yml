@@ -31,6 +31,13 @@ on:
         description: "server/ 아래 디렉터리 이름. 현재 넘어오는 값은 data-api · realtime 둘뿐이다"
         type: string
         required: true
+      runs-on:
+        description: >-
+          잡을 돌릴 러너 라벨. 워크플로 입력은 «문자열만» 받으므로 JSON 배열 문자열로 넘기고
+          아래에서 `fromJSON` 으로 푼다 — 예: '["ubuntu-latest"]'.
+          기본값은 지금까지와 같은 self-hosted 슬롯이라 호출부를 고치지 않으면 동작이 바뀌지 않는다.
+        type: string
+        default: '["self-hosted", "ci", "spot"]'
       tasks:
         description: "돌릴 Gradle 태스크. 기본 build 는 checkstyle·spotbugs·test·bootJar 를 전부 돈다"
         type: string
@@ -59,7 +66,10 @@ on:
 
 jobs:
   gradle:
-    runs-on: [self-hosted, ci, spot]
+    # `runs-on` 은 `inputs` 컨텍스트를 쓸 수 있는 자리다(GitHub 문서 「Contexts availability」의
+    # `jobs.<job_id>.runs-on` 행: github · needs · strategy · matrix · vars · **inputs**).
+    # 입력이 문자열이므로 `fromJSON` 으로 배열로 되돌린다.
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
     timeout-minutes: 25
     defaults:
       run:
@@ -85,8 +95,14 @@ jobs:
           path: |
             ${{ env.GRADLE_USER_HOME }}/caches
             ${{ env.GRADLE_USER_HOME }}/wrapper
-          key: ${{ runner.os }}-${{ inputs.service }}-gradle-${{ hashFiles(format('server/{0}/**/*.gradle*', inputs.service), format('server/{0}/**/gradle-wrapper.properties', inputs.service)) }}
-          restore-keys: ${{ runner.os }}-${{ inputs.service }}-gradle-
+          # 키에 «러너 종류»가 들어가야 한다. self-hosted 와 GitHub-hosted 는 `runner.os` 가 둘 다
+          # `Linux` 라 이것만으로는 구분되지 않는데, GRADLE_USER_HOME 절대경로도 머신 구성도 달라서
+          # 같은 키를 공유하면 한쪽이 먼저 올린 캐시가 다른 쪽에 그대로 박힌다(캐시 항목은 키당
+          # 불변이라 «먼저 올린 쪽이 이긴다»). `runner.environment` 는 `self-hosted` / `github-hosted`
+          # 둘 중 하나라 이 구분에 정확히 맞는다. 러너가 낡아 이 값이 비더라도 한쪽만 비므로
+          # 구분은 유지된다.
+          key: ${{ runner.os }}-${{ runner.environment }}-${{ inputs.service }}-gradle-${{ hashFiles(format('server/{0}/**/*.gradle*', inputs.service), format('server/{0}/**/gradle-wrapper.properties', inputs.service)) }}
+          restore-keys: ${{ runner.os }}-${{ runner.environment }}-${{ inputs.service }}-gradle-
 
       - run: chmod +x gradlew
 
