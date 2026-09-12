@@ -116,8 +116,6 @@ export function triggerRelogin(opts?: { fromGuest?: boolean }): Promise<void> {
 interface RefreshResponse {
   accessToken: string;
   refreshToken?: string;
-  deviceBootstrap?: string;
-  sessionId?: string;
 }
 
 // 진행 중인 토큰 갱신 Promise. 동시 다발 401이 와도 갱신은 한 번만 실행되도록
@@ -171,26 +169,6 @@ async function doRefreshAccessToken(
     if (data.refreshToken) {
       await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
     }
-    if (data.deviceBootstrap)
-      await AsyncStorage.setItem(STORAGE_KEYS.deviceBootstrap, data.deviceBootstrap);
-    if (data.sessionId) {
-      // 저장된 sessionId 가 «없던» 채로 하나를 받았다면 이건 로그인 교체가 아니라 구 세션의 승격이다
-      // (서버가 첫 RT 회전에서 세션 축에 올린다). 같은 로그인·같은 사용자인데 저장 값만 null → sid 로
-      // 바뀌므로, 이 사실을 남기지 않으면 그 사이 쌓인 «세션 없는» 명령이 세션 불일치로 폐기된다.
-      // 표식은 승격 결과 sid 를 그대로 담아 스스로 만료된다 — 이후 진짜 로그인 교체가 다른 sid 를
-      // 저장하면 더 이상 일치하지 않는다.
-      const previousSessionId = await AsyncStorage.getItem(STORAGE_KEYS.authSessionId);
-      if (!previousSessionId) {
-        await AsyncStorage.setItem(
-          STORAGE_KEYS.authSessionPromotion,
-          JSON.stringify({
-            userId: getUserIdFromToken(data.accessToken),
-            sessionId: data.sessionId,
-          }),
-        );
-      }
-      await AsyncStorage.setItem(STORAGE_KEYS.authSessionId, data.sessionId);
-    }
     return data.accessToken;
   } finally {
     release?.();
@@ -221,19 +199,14 @@ const TOKEN_EXP_MARGIN_MS = 30_000;
 // 되므로, 중단·재시도는 호출부가 결정한다(코드리뷰 반영).
 export async function getFreshAccessToken(
   lease?: AuthSessionTransitionLease,
-  options: { requireSession?: boolean } = {},
 ): Promise<string | null> {
   const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
   if (!token) return null;
-  const needsSession =
-    options.requireSession && !(await AsyncStorage.getItem(STORAGE_KEYS.authSessionId));
   const expMs = getTokenExpMs(token);
-  if (!needsSession && expMs !== null && expMs - Date.now() > TOKEN_EXP_MARGIN_MS) return token;
-  const refreshed = await refreshAccessToken(lease);
-  if (options.requireSession && !(await AsyncStorage.getItem(STORAGE_KEYS.authSessionId))) {
-    throw new Error('기기 등록을 위한 로그인 세션 갱신이 완료되지 않았습니다.');
+  if (expMs !== null && expMs - Date.now() > TOKEN_EXP_MARGIN_MS) {
+    return token;
   }
-  return refreshed;
+  return refreshAccessToken(lease);
 }
 
 // 모든 백엔드 호출은 이 인스턴스를 통한다 (fetch 직접 사용 금지).
