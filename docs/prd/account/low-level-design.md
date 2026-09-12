@@ -211,14 +211,14 @@ legacy 자격은 기존 해시→세션 증명으로 구분하며 sid 부재를 
    기존 AsyncStorage multiSet 자체를 DB 원자 TX로 가정하지 않고, 세션 저장 실패 시 이전 snapshot 복구와
    준비 항목 취소를 기록한다. 앱 재시작은 내구 commit 표지·완전한 세션 snapshot의 정합을 확인한 뒤에만
    그 전환의 항목을 실행 가능으로 만든다. 미확정/rollback이면 A의 등록 삭제와 원 RT 종결을 실행하지 않는다.
-3. commit 직후 B 자격으로 결과 세션 채택 확인 요청(§3 로그인 CAS 절)을 먼저 보내고, 이어 **현재 FCM 토큰을 B 세션 bootstrap으로 다시 등록**해 새 ownership을 전환 상태에 내구 기록한다(아래 재등록 문단). commit 뒤에만 §2.4의 동일 기기 DELETE/outbox 키·fingerprint·완료 재생 경로로 A의 삭제를 시도하고
+3. commit 직후 B 자격으로 결과 세션 채택 확인 요청(§3 로그인 CAS 절)을 먼저 보내고, 이어 **현재 FCM 토큰을 B 세션 bootstrap으로 다시 등록**해 응답의 새 `ownershipToken`을 전환 상태와 기기 저장소에 원자 기록한다(아래 재등록 문단). commit 뒤에만 §2.4의 동일 기기 DELETE/outbox 키·fingerprint·완료 재생 경로로 A의 삭제를 시도하고
    A의 원 RT 세션 폐기도 독립적으로 시도한다. 두 작업의 성공 여부를 따로 보관하며 B의 토큰 저장을
    되돌리거나 전역 로그아웃시키지 않는다. DELETE 실패에도 원 RT 폐기를 시도하되 DELETE 큐를 성공 소진하지 않는다.
    검증된 sid/bootstrap 연결과 auth.session.revoked의 내구 fence는 §2.4와 같은 범위에서 적용한다.
 
-**새 세션으로의 기기 재등록.** 기준 main `PushGate`는 `useEffect(registerPushToken, [userId])`라 같은 사용자 s1→s2 재로그인에서는 등록을 다시 하지 않는다. 그 상태로 s1 DELETE나 `auth.session.revoked`가 적용되면 s1 bootstrap에 연결된 등록이 비활성화되어 다음 FCM 토큰 갱신까지 푸시가 끊긴다. 후속 앱은 등록 트리거를 userId가 아니라 **검증된 세션 식별(sid/bootstrap)**에 묶고 전환 상태에 재등록 단계를 둔다. 재등록은 §2.4 규칙대로 B의 bootstrap과 현재 소유권 CAS로 수행하며 결과 토큰·새 ownershipVersion을 내구 기록한다. 푸시 권한이나 토큰이 없으면 '대상 없음'으로 끝낸다.
+**새 세션으로의 기기 재등록.** 기준 main `PushGate`는 `useEffect(registerPushToken, [userId])`라 같은 사용자 s1→s2 재로그인에서는 등록을 다시 하지 않는다. 그 상태로 s1 DELETE나 `auth.session.revoked`가 적용되면 s1 bootstrap에 연결된 등록이 비활성화되어 다음 FCM 토큰 갱신까지 푸시가 끊긴다. 후속 앱은 등록 트리거를 userId가 아니라 **검증된 세션 식별(sid/bootstrap)**에 묶고 전환 상태에 재등록 단계를 둔다. 재등록은 §2.4 규칙대로 B의 bootstrap과 현재 소유권 CAS로 수행하고, 응답의 **새 `ownershipToken`을 FCM 토큰과 함께 원자 저장**한다. 서버 내부 순서 값인 ownershipVersion은 앱이 보관·제출하는 값이 아니다. 이후 로그아웃·계정 전환의 DELETE 큐와 다음 등록은 이 새 값을 `X-Device-Ownership`/등록 본문으로 사용하고, 같은 토큰으로 대기 중인 후속 명령은 선행 PR745 `notificationCommands.inheritOwnership`처럼 새 값을 승계한다. A의 원 DELETE 항목만은 원 ownership을 그대로 보존해 아래 대체 판정에 쓴다. 푸시 권한이나 토큰이 없으면 '대상 없음'으로 끝낸다.
 
-A의 원 RT 폐기는 재등록 성공을 조건으로 무기한 보류하지 않는다. 폐기가 먼저 적용돼 A에 연결된 행이 비활성화돼도 재등록이 B bootstrap으로 다시 연결하고, 재등록이 먼저면 행의 연결이 B로 바뀌어 A 폐기 fence 대상에서 빠진다(§2.4). A의 DELETE 항목은 기록된 재등록이 **같은 토큰**의 더 새 ownership을 확인했을 때만 '대체 완료'로 소진하며 B 등록을 지우지 않는다. 토큰이 다르거나 재등록이 없으면 기존 DELETE 규칙을 따른다. crash 뒤에는 채택 확인 → 재등록 → A 정리 순서에서 남은 단계만 재개한다.
+A의 원 RT 폐기는 재등록 성공을 조건으로 무기한 보류하지 않는다. 폐기가 먼저 적용돼 A에 연결된 행이 비활성화돼도 재등록이 B bootstrap으로 다시 연결하고, 재등록이 먼저면 행의 연결이 B로 바뀌어 A 폐기 fence 대상에서 빠진다(§2.4). A의 DELETE 항목은 그 항목 이후 **같은 토큰**의 재등록 성공과 새 `ownershipToken` 저장이 확정됐을 때만 '대체 완료'로 소진하며 B 등록을 지우지 않는다. 토큰이 다르거나 재등록이 없으면 기존 DELETE 규칙을 따른다. crash 뒤에는 채택 확인 → 재등록 → A 정리 순서에서 남은 단계만 재개한다.
 
 전달 도중 B→A 또는 제3계정 전환이 시작돼도 원 항목의 주체·대상·키는 불변이다. 새 로그인은 새로운
 ownership/세션을 가지므로 늦은 삭제·폐기가 새 등록이나 다른 기기를 지우지 않는다. 전환 generation 대조는
@@ -240,11 +240,11 @@ Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를
 
 요청 본문 없음. Business에서 동기 활성 검사 후 알림 서버 정본을 읽는다. 200은 `{ "data": { "notifications": true } }`로 boolean 하나이며 null이 아니다. 신규/legacy 사용자의 기본값은 1659 이관/초기화 계약의 `notificationEnabled`에서 읽고 Business에 별도 기본값 상수를 만들지 않는다.
 
-설정 행 누락이 정상 초기 상태면 정본 서비스의 기존 초기화 규칙으로 복구한다. 복구 실패·이관 누락을 `notifications:true` 성공으로 숨기지 않는다. 기존 compat GET의 AT 수명 읽기 창을 이 경로에 재사용하지 않는다.
+설정 행 누락이 정상 초기 상태면 정본 서비스의 기존 초기화 규칙으로 복구하되, Notification은 누락 행 생성을 **사용자 잠금 → 사용자 tombstone·authGeneration 재확인 → 행이 없을 때만 INSERT**의 로컬 원자 경계에서 수행한다. tombstone이 있거나 요청 세대가 폐기 세대면 행을 만들지 않고 사용자 부재로 끝내며 Business는 이를 404 `USER_NOT_FOUND`로 응답한다. 탈퇴 소비자는 같은 잠금 아래 tombstone 기록과 설정 행 삭제를 확정하므로 GET 선행이면 만든 행도 삭제에 포함되고, 탈퇴 선행이면 복구하지 않는다. Business 활성 검사를 통과한 뒤 지연된 GET도 이 경계를 우회하지 않으며, 행을 만들지 않고 기본값만 응답하는 구현도 같은 tombstone 검사를 적용한다. PATCH에만 둔 폐기 검사로 이 초기화 경로를 보호했다고 보지 않는다. 복구 실패·이관 누락을 `notifications:true` 성공으로 숨기지 않는다. 기존 compat GET의 AT 수명 읽기 창을 이 경로에 재사용하지 않는다.
 
 ### 2.7 PATCH /me/settings
 
-요청 `{ "notifications": false }`, 정확한 boolean 하나 필수. 생략/null/문자열은 400이다. 성공은 `{ "data": { "notifications": false } }`. 알림 서버에 적용된 해당 명령의 비즈니스 결과를 반환한다.
+요청 `{ "notifications": false }`, 정확한 boolean 하나 필수. 생략/null/문자열은 400이다. 성공은 `{ "data": { "notifications": false } }`. 응답 값은 요청값의 복사가 아니라 **처리 뒤 알림 서버 정본의 현재 값**이다. 명령이 적용된 경우(APPLIED)에는 그 결과이고, 최초 처리부터 더 높은 필드 version이 이미 저장돼 적용되지 않은 경우(SUPERSEDED)에는 적용한 척 요청값을 돌려주지 않고 그 시점 정본 값을 돌려준다.
 
 내부 명령의 의미는 다음과 같다. 필드 이름은 공개 DTO와 내부 기존 모델을 구분한다.
 
@@ -252,7 +252,7 @@ Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를
 {"commandId":"01991930-0000-7000-8000-000000000002","version":42,"mask":["notificationEnabled"],"patch":{"notificationEnabled":false},"authGeneration":3}
 ```
 
-사용자 주체는 Business가 새로 만든 내부 위임 헤더에서 받는다. 요청 본문의 userId를 신뢰하지 않는다. Data는 같은 키 재개에서 기존 commandId/version/mask/patch를 반환하며 새로운 명령을 만들지 않는다. Notification은 자신의 사용자 폐기 tombstone과 generation을 대조하고 선택 필드의 저장 version보다 큰 경우에만 그 필드를 바꾼다. 같은 명령 재전달은 최초 결과로 멱등 응답한다. 낮은 버전은 이미 대체된 상태를 덮지 않는다.
+사용자 주체는 Business가 새로 만든 내부 위임 헤더에서 받는다. 요청 본문의 userId를 신뢰하지 않는다. Data는 같은 키 재개에서 기존 commandId/version/mask/patch를 반환하며 새로운 명령을 만들지 않는다. Notification은 자신의 사용자 폐기 tombstone과 generation을 대조하고 선택 필드의 저장 version보다 큰 경우에만 그 필드를 바꾼다. 같은 명령 재전달은 최초 결과로 멱등 응답한다. 낮은 버전은 이미 대체된 상태를 덮지 않는다. Notification은 최초 처리 결과를 APPLIED/SUPERSEDED로 명령 receipt에 확정한다. APPLIED 재전달은 최초 결과를 재생하고, SUPERSEDED 재전달은 새 적용 없이 재생 시점의 정본 현재 값을 다시 읽어 반환한다. 새 오류 코드나 응답 필드는 추가하지 않는다. 앱은 응답이 **자신이 마지막으로 보낸 설정 명령의 키**에 대한 것일 때만 로컬 값과 화면에 반영하고, 이전 키의 늦은 응답·재생은 버리며, 불일치가 의심되면 GET으로 정본을 재조회한다. 그래야 v42(false)가 v43(true)보다 늦게 처리되거나 v42 응답 유실 뒤 재시도한 결과가 앱에 false를 되돌려 쓰지 않는다.
 
 예: v41 sound=true가 지연되고 v42 notifications=false가 먼저 와도, sound의 적용 버전이 40이면 v41은 sound만 반영한다. 전체 버전 42를 보고 v41을 통째로 버리지 않는다. legacy 5필드 전체 PUT은 mask에 5개 모두를 담고 각 필드에서 동일 비교를 한다. 이 변경은 Notification 저장/relay 계약까지 함께 구현해야 하며 Business만의 DTO 변경으로 끝나지 않는다.
 
@@ -484,7 +484,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | user_wallet, screen/focus/notification 설정 | hard delete | 중앙 지갑은 내기 해제 환불 뒤 삭제. 알림 이관 후 정본 삭제는 위성 명령에도 포함 |
 | focus_sessions, daily_focus_stats, daily_screen_time_stats | user 귀속 nullify | 그룹 내기 정산 증거를 먼저 동결. 통계 행 자체를 모두 지우는 동작 아님 |
 | group_challenge_members의 user_id/progress_minutes/usage_date/measured_at 및 생성/수정 시각 | 현재 탈퇴는 원본 보고 행을 유지. user_id는 NOT NULL FK | 그룹 내기 증거 동결을 먼저 검증한 뒤 해당 사용자의 원본 보고 행 전체를 같은 탈퇴 TX에서 hard delete. 단순 nullify/soft delete로 원문을 남기지 않음 |
-| group_challenge_bet_participants의 확정 achieved/achieved_at/progress_minutes/payout·회차/사용자 관계 | 기존 정산/동결 증거 보존 | 원본 날짜별 보고와 구분한 최소 정산 근거. 정산·기존 결과 복구 범위로만 사용, 탈퇴자 프로필/측정 원본 조회 금지. 보존 기간을 새로 무기한 확정하지 않음 |
+| group_challenge_bet_participants의 확정 achieved/achieved_at/progress_minutes/payout·회차/사용자 관계 | 기존 정산/동결 증거 보존 | 원본 날짜별 보고와 구분한 최소 정산 근거. 정산·기존 결과 복구 범위로만 사용, 탈퇴자 프로필/측정 원본 조회 금지. 보존 기간을 새로 무기한 확정하지 않음. 공개 결과 DTO는 탈퇴자 행의 userId를 null(목록 key는 회차별 참가 행 id 같은 비연계 값)로 치환하고 내부 정산·중복 지급 근거는 유지 |
 | group_challenge_bet_participants.acknowledged_at/display_claimed_at/display_claim_token | V49의 개인 결과 열람 시각·표시 lease이며 정산 증거와 같은 행에 있음 | 같은 탈퇴 TX에서 본인 행의 세 열만 nullify. achieved/progress/payout·정산 멱등 근거는 보존하고 claim/renew/ack 및 완료 재생은 users 생명주기 잠금으로 탈퇴와 직렬화 |
 | group_members, 혼자 소유한 group | membership leave, 필요 시 close. GroupMember.leave()는 is_left/left_reason만 바꿔 notification_enabled·announcement_permission·status·role이 그대로 남음 | 남은 주민이 있으면 HOST_WITHDRAW 전체 rollback. 관계 증거(user_id·group_id·is_left·left_reason·created_at)만 보존하고 같은 TX에서 notification_enabled=false, announcement_permission=DISALLOW, status=INACTIVE, role=MEMBER로 초기화. 아래 보존 멤버십 절 적용 |
 | group_invites.inviter_id/invitee_id 및 상태·초대/응답 시각 | V1의 두 사용자 FK가 NOT NULL. 직접 초대 기능은 미사용이나 테이블은 유지되고 현재 탈퇴 삭제 호출 없음 | inviter_id 또는 invitee_id가 탈퇴자인 행을 상태와 무관하게 같은 중앙 TX에서 hard delete. 다른 사용자끼리의 초대·그룹·기존 링크/정산 증거는 보존 |
@@ -861,6 +861,8 @@ fixture는 confirmed result의 세 필드가 찬 본인 행·타인 행을 넣�
 확인한다. claim/renew/ack와 탈퇴의 양방향 잠금 대기, 지연 결과/위성 재생 및 nullify 직후 실패에서
 열람 부활0·중복 지급0·전체 rollback을 검증한다.
 
+**보존한 결과의 공개 식별자.** 기준 main `GroupBetService.toResultParticipants`는 최근 정산·히스토리·참가자 스코프 결과 조회의 공용 변환이며, 탈퇴자는 `displayNickname`으로 닉네임만 치환하고 `GroupBetResultParticipantResponse.userId`에 실제 UUID를 `achieved`·`payout`·`progressMinutes`와 함께 담아 그룹원 전체에 반환한다. 정산 사실(명단 수·pot·판정·payout)은 보존하되 탈퇴자 행의 공개 `userId`는 null로 치환한다. 목록 key처럼 행 구분이 필요하면 회차별 참가 행 id 같은 사용자 비연계 값을 쓰고, 같은 사용자를 여러 회차에 걸쳐 잇는 안정 식별자·해시를 새로 만들지 않는다. 내부 정산·중복 지급 방지·환불 판정은 기존 user_id 참조를 그대로 쓴다. 치환은 `displayNickname`과 같은 출력 층 단일 지점에서 하고, 응답 DTO의 userId를 nullable로 계약하며 앱의 목록 key·본인 비교·프로필 이동이 null을 처리하는지 함께 검증한다. 현재 구현 완료가 아니다.
+
 #### 그룹 창형 화면시간 원본의 파기 경계
 
 기준 `GroupChallengeMember`는 user_id/group_challenge_id가 모두 NOT NULL FK이고 usage_date도 V37에서
@@ -970,7 +972,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 구 앱 AT setItem 뒤 RT setItem 전 종료 → 새 앱 업데이트 | 새 sid AT+원 legacy RT도 Ready 금지, AT 만료 전 원 RT receipt 복구·동일 subject/sid/gen 묶음 원자 commit. Q06 창 미결 유지 |
 | 정상 회전 CAS commit 뒤 AT만 저장·응답 전체 유실·프로세스 종료 | 동일 sub/sid/gen도 구 RT 혼합을 통과시키지 않음, 미검증 클라이언트/복구 미확정 경로는 회전 비활성, 원 만료 유지·일반 CAS0은401·Q06 미결 유지 |
 | 동일 사용자 s1→s2 재로그인·s3 전환 경합·rollback | commit 뒤 s1의 고정 큐/원 RT만 정리, s2/s3·다른 기기 보존, 동일 sid refresh cleanup0, rollback이면 s1 보존 |
-| 같은 사용자 s1→s2 재로그인의 재등록·s1 DELETE·auth.session.revoked 순서 역전·재등록 전후 crash·푸시 권한 없음·토큰 갱신 | s2 bootstrap 재등록 뒤 푸시 유지, s1 폐기 선행이어도 재등록이 재연결, 같은 토큰 새 ownership 확인 시에만 s1 DELETE 대체 완료·s2 등록 삭제0, 권한 없음은 대상 없음, 재개는 남은 단계만 |
+| 같은 사용자 s1→s2 재로그인의 재등록·s1 DELETE·auth.session.revoked 순서 역전·재등록 전후 crash·푸시 권한 없음·토큰 갱신 | s2 bootstrap 재등록 뒤 푸시 유지·새 ownershipToken 원자 저장으로 다음 logout/전환 DELETE CAS 성공, s1 폐기 선행이어도 재등록이 재연결, 같은 토큰 새 ownership 확인 시에만 s1 DELETE 대체 완료·s2 등록 삭제0, 권한 없음은 대상 없음, 재개는 남은 단계만 |
 | AT/RT sid·subject·authGeneration 불일치·한쪽 부재 및 지연 복구 | 로컬 generation과 서버 세대 각각 검증, 다른 세션/사용자 조합으로 Ready 또는 자동 새 guest 생성0 |
 | 강제 승격과 로그인/logout/401 경합·자격 저장 중 종료 | single-flight/generation fencing, AT/RT 혼합0·옛 응답 덮어쓰기0, 불완전 저장은 gate 미개방 |
 | legacy 게스트 승격 커밋 뒤 응답 유실·앱 원자 저장 실패·동시 같은 원RT | 같은 승격 receipt의 동일 sid/AT/RT 복구, userId/지갑/집중/그룹 보존, 새 guest·중복 세션·옛 해시 부활0 |
@@ -985,6 +987,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 추월 알림을 이번 주 2회 받은 활성 수신자·상대 탈퇴·동시 발송 writer | 상대 UUID null, 기존 카운트2/추가 발송0, 본인 탈퇴 이력 삭제 유지, nullify/위성 재전달 멱등·전체 rollback |
 | FCM 성공 → 상대 탈퇴 → 늦은 로그/중복 결과·수신자 탈퇴 | 원 발송 증거/고정 ID로 target=null 집계1회, 원 발송 주차 유지·상대 연결 복원0; 증거 없으면 허위 카운트0, 수신자 탈퇴면 재생0 |
 | 내기 결과 열람 3필드·claim/renew/ack와 탈퇴 양방향 경합 | 본인 열람/lease만 null, 정산 근거·타인 결과 불변, 지연 부활/탈퇴 결과 노출0·전체 rollback |
+| 탈퇴자가 포함된 최근 정산·히스토리·참가자 스코프 결과 조회, 여러 탈퇴자·여러 회차 | 탈퇴자 공개 userId null·닉네임 치환, 명단 수·pot·판정·payout 불변, 회차 간 동일인 연결 식별자0, 앱 목록 key·본인 비교 정상 |
 | A claim→A 탈퇴→B 동일 slug claim·지연 import/역순·양방향 경합 | UUID 파기 후 소진 표지 유지, 원 클릭 재귀속/추가 보상0, 별도 미소비 클릭 정상·전체 rollback |
 | claim 클릭의 matched_device_id·app_instance_id·ip_hash·user_agent·Link 위성/이관 복사본·같은 기기 재시도 | 탈퇴자 클릭 식별자0·matched/claimed_at 보존, 재귀속·추가 보상0, 파기 전 GA4 작업 입력 기록, 이관 대조가 파기 필드를 되살리지 않음·중간 실패 전체 rollback |
 | 본인 발급 링크·타인 claim·발급/탈퇴 경합·파기 후 rollback | inviter_id nullify, 링크/클릭 FK·타인 귀속 보존, 폐기 링크 재사용/UUID 복원0, 늦은 발급 거절, 중간 실패는 전체 rollback |
@@ -1017,6 +1020,8 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 탈퇴 후 신규 7개에 옛 자격 | 로그인 성공 재개/일반 조회·변경 차단. 정상 새 제공자 재가입은 새 userId이며 옛 계정 부활 아님 |
 | 탈퇴 직후 만료 전 옛 AT/RT로 7개 경로·refresh·logout·DELETE /me 같은 키 재시도, 활성 사용자의 logout 뒤 옛 AT | 계정 비활성은 모든 경로에서 404 USER_NOT_FOUND 우선, 만료/위조 401, 활성 사용자의 폐기 세션 401. DELETE /me 재시도 404를 앱이 탈퇴 확정·탈퇴 전용 로컬 파기로 처리 |
 | 설정 false/true 역전, 다른 필드 역전, legacy 전체 PUT 경쟁 | 필드별 version으로 유실 방지, 재전달 멱등, 원래 명령 결과 재생 |
+| v42(false) 도착 전 v43(true) 적용·v42 최초 처리/재전달·v42 응답 유실 뒤 재시도·다른 기기 변경 | v42는 SUPERSEDED 확정·적용0, 응답은 정본 현재값 true·재생도 현재값, 앱은 마지막 키가 아닌 응답을 버려 false 저장0 |
+| GET 활성 검사 통과 뒤 지연 중 탈퇴·Notification 설정 행 삭제, 누락 행 복구와 탈퇴 소비자 양방향 경합 | 탈퇴 선행이면 설정 행 재생성0·404 USER_NOT_FOUND, GET 선행이면 만든 행도 삭제에 포함, 기본값 응답도 tombstone 검사 |
 | 알림 서버 장애·완료 표시 유실 | outbox만 저장됐는데 200 반환 금지, 같은 commandId로 복구 |
 | 로그 캡처/에러/trace | 자격 헤더·PII·원문 제공자 payload·서명 재료 노출 0 |
 | 정상 계측 UUID·APP MDC·큐/회전/외부 upload와 탈퇴 경합 | sink별 사용자 연결 제거·늦은 재부착0, 타인 보존·실패 내구 재시도·복사본별 완료 증거, 미확인 외부 저장소 완료 주장0 |
@@ -1058,6 +1063,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `server/chat/src/main/java/com/oneorthree/chat/membership/MembershipService.java`, `message/service/ChatMessageService.java`, `message/service/ChatAccessGuard.java`, `config/StompAuthChannelInterceptor.java`, `auth/ChatPrincipal.java` (기준 main 529a396) | 멤버십 캐시 TTL 무효화뿐, send의 집중·멤버십 판정 뒤 저장, SUBSCRIBE·SEND의 토큰·판정, 만료 시 기존 구독 유지, sid·authGeneration 미검사. 메시지별 전달 검사·연결 레지스트리·폐기 소비자 없음 |
 | `server/realtime/src/main/java/com/oneorthree/realtime/config/ChatOutboundChannelInterceptor.java`, `config/RealtimeSessionRegistry.java` (기준 이후 머지된 PR739 `da1ae5a39`) | 기존 구독 메시지별 토큰·멤버십 재검사, 세션 ID 단위 종료만. 사용자·sid 색인·인스턴스 간 전파·폐기 fence 없음 |
 | `server/business-api/src/main/java/com/oneorthree/business/linkpreview/repository/PreviewCache.java`, `service/PreviewService.java`, `PreviewController.java` | 사용자 UUID 키·pending 90/READY 300/FAILED 30초·rate 60초, CAS complete, worker 비동기 완료, 활성 검사 없음 |
+| `server/data-api/src/main/java/com/oneorthree/phone/group/service/GroupBetService.java`(toResultParticipants·displayNickname), `group/dto/GroupBetResultParticipantResponse.java`; 선행 PR745 `9ad4236`의 `server/business-api/.../usecase/NotificationSettingsUseCase.java`·`api/dto/DeviceTokenRegisterResponse.java`·`app/app-dev/src/services/notificationCommands.ts` | 탈퇴자 닉네임만 치환·실제 userId 반환, 설정 GET 정본 조회·PUT 내구 명령 뒤 적용, 등록 응답 ownershipToken과 앱 승계·X-Device-Ownership |
 | `server/data-api/src/main/java/com/oneorthree/phone/common/port/RedisFocusPresence.java`, `focus/scheduler/FocusPresenceReconciler.java`, `app/app-dev/src/components/PushGate.tsx` | AFTER_COMMIT SET_IF_NEWER·SET_IF_ABSENT의 closed/세션 순서 비교, lease 시작 기준 13시간, 트랜잭션 밖 재구축 쓰기, 등록 effect의 [userId] 의존 |
 | `server/data-api/src/main/java/com/oneorthree/phone/invitelink/service/InviteLinkMatchService.java`, `repository/GroupInviteLinkRepository.java`, `repository/InviteLinkClickRepository.java` | claim의 무잠금 findBySlug, 클릭 PESSIMISTIC_WRITE·SKIP LOCKED, 먼저 읽은 inviterId 귀속 |
 | `server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java` | anonymizeWithdrawnUser |

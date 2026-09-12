@@ -152,7 +152,7 @@ flowchart TD
 
 비게스트 A→B 전환과 같은 사용자 s1→s2 재로그인도 이전 기기·ownership·주체·고정 키를 내구 큐에 먼저 준비한다. 준비만으로 DELETE/RT 폐기를 실행하지 않으며, 새 세션과 내구 commit 표지가 확정된 뒤에만 같은 삭제/outbox 경로와 원 세션 폐기를 실행한다. 부분 저장·rollback은 A의 등록을 보존하고, commit 뒤 재전달은 B의 자격과 새 ownership을 보존한다(LLD 계정 전환 절).
 
-commit 뒤에는 결과 세션 채택 확인에 이어 현재 FCM 토큰을 새 세션 bootstrap으로 다시 등록하고 새 ownership을 기록한다. 같은 사용자 재로그인은 userId가 같아 기존 등록 effect가 다시 돌지 않으므로, 이 단계가 없으면 이전 세션 정리 뒤 푸시가 끊긴다. 이전 세션 DELETE는 같은 토큰의 새 ownership이 확인됐을 때만 대체 완료로 소진한다.
+commit 뒤에는 결과 세션 채택 확인에 이어 현재 FCM 토큰을 새 세션 bootstrap으로 다시 등록하고 응답의 새 ownershipToken을 토큰과 함께 원자 저장해 이후 등록·삭제 CAS에 쓴다. 같은 사용자 재로그인은 userId가 같아 기존 등록 effect가 다시 돌지 않으므로, 이 단계가 없으면 이전 세션 정리 뒤 푸시가 끊긴다. 이전 세션 DELETE는 같은 토큰의 새 ownership이 확인됐을 때만 대체 완료로 소진한다.
 
 ## 탈퇴: 중앙 원자 처리와 위성 정리
 
@@ -198,6 +198,8 @@ sequenceDiagram
 
 내기 참가 행은 정산 증거를 보존하되 개인 열람/표시 lease 3열만 같은 탈퇴 TX에서 nullify한다. claim·renew·ack는 활성 users 공유 잠금으로 탈퇴와 직렬화하고, 탈퇴 뒤 미확인 결과나 발송 대상으로 부활시키지 않는다.
 
+보존한 내기 결과를 그룹원에게 보여 줄 때도 탈퇴자 행의 공개 userId는 null(목록 key는 회차별 참가 행 id 같은 비연계 값)로 치환한다. 명단 수·pot·판정·payout은 정산 사실로 유지하고 내부 중복 지급 방지는 기존 user_id 참조를 그대로 쓴다.
+
 활성 수신자의 추월 알림은 상대 탈퇴 때 target_user_id만 nullify하여 기존 주간 발송 횟수를 보존한다. 수신자 본인의 탈퇴 이력 삭제와 구분하고, 위성 파기·동시 writer도 같은 규칙을 적용한다.
 
 소비된 초대 클릭의 claimed_user_id를 익명화해도 claimed_at 소진 표지를 유지한다. Data 후보 조회와 claim은 두 값이 모두 null인 미소비 클릭만 허용하고 이관/복원도 같은 표지를 보존하여 재귀속·보상 중복을 막는다.
@@ -236,7 +238,8 @@ sequenceDiagram
     D-->>B: commandId, version, mask, authGeneration
     B->>N: 동일 부분 명령 적용
     Note over N: tombstone 대조 + 선택 필드별 version 비교<br/>notificationEnabled만 원자 변경
-    N-->>B: 해당 명령 적용 결과
+    Note over N: 최초부터 대체된 명령은 SUPERSEDED, 적용 척 없이 정본 현재값 반환<br/>GET 누락 행 생성도 tombstone·세대를 같은 잠금에서 대조
+    N-->>B: 처리 결과(APPLIED/SUPERSEDED)와 정본 현재값
     B->>D: 전달 완료 기록
     B-->>A: 200 data(notifications:false)
 ```
