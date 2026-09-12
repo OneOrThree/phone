@@ -1,6 +1,6 @@
 # 기존 채팅에서 현재 멤버십을 다시 확인하기
 
-이 작업은 기존 채팅의 `ChatAccessGuard.requireCanChat`에 **선택적으로 Data의 현재 인가 조회를 연결**한다. 기본값은 OFF다. 서비스 개명 PR739 기반이며 Data 제공자는 별도 선행 [PR753](https://github.com/OneOrThree/phone/pull/753)의 배포가 필요하다. 구현 후 관련59개 테스트를14초에 통과했고 실패0·오류0·skip0, CheckstyleMain·SpotBugsMain도 통과했다. **전체 Realtime build도1분1초 PASS**이며 테스트200개(기존141+신규59)·실패0·오류0·skip0을 확인했다. Docker는 현재 빌드 중으로 통과를 아직 기록하지 않는다.
+이 작업은 기존 채팅의 `ChatAccessGuard.requireCanChat`에 **선택적으로 Data의 현재 인가 조회를 연결**한다. 기본값은 OFF다. 서비스 개명 PR739 기반이며 Data 제공자는 별도 선행 [PR753](https://github.com/OneOrThree/phone/pull/753)의 배포가 필요하다. 구현 후 관련59개 테스트를14초에 통과했고 실패0·오류0·skip0, CheckstyleMain·SpotBugsMain도 통과했다. **전체 Realtime build도1분1초 PASS**이며 테스트200개(기존141+신규59)·실패0·오류0·skip0을 확인했다. Realtime Docker 이미지 빌드도 통과했다(로컬 검증, 게시·배포 없음).
 
 학교 반 명단을 복사해 두면 조회는 빠르지만, 전학한 학생이 잠시 남을 수 있다. 기존 채팅은 Redis에 보관한 소속 명단을 사용한다. 새 옵션을 켜면 특정 섬의 채팅을 이용하거나 전달할 때 Data에 “이 학생증과 이 반 소속이 지금도 맞나요?”를 묻는다. 전에 받은 허용 답변을 다음 메시지의 허가증으로 재사용하지 않는다.
 
@@ -129,7 +129,7 @@ ON 전에 다음 조건을 확인한다.
 
 `beforeHandle`은 큐 대기 이후 실제 handler 직전의 검사다. 그래도 HTTP의 DB snapshot 뒤 탈퇴/강퇴가 commit되거나 handler 이후 TCP로 이미 전송한 프레임이 있을 수 있다. HTTP 뒤 exp를 한 번 더 확인해도 이 DB→TCP 간극이 없어지는 것은 아니다. DB 변경과 소켓 송신의 분산 원자성, 이미 보낸 프레임의 회수까지 약속하지 않는다. 이번 client가 chat 커서 writer의 탈퇴 파기나 전체 실시간 재연결 snapshot을 완성하는 것도 아니다.
 
-관련59개(HTTP client35·CurrentMembershipVerifier10·JWT11·Config3)는14초에 실패0·오류0·skip0으로 통과했다. 전체 Realtime build는1분1초에 PASS이며200개(기존141+신규59)·실패0·오류0·skip0이다. 실제 PostgreSQL·Redis를 사용하는 기존 전체 회귀를 포함한다. CheckstyleMain·SpotBugsMain은 관련59개 실행 때 PASS 후 전체 build에서 UP-TO-DATE였고, 테스트 소스 정적 검사는 기존 설정대로 skip이다. 테스트 자체의 skip0과 정적 검사 task skip을 구분한다. Docker는 현재 빌드 중이며 PASS를 기록하지 않는다. 조정자가 확인한 실행 결과를 반영했으며 문서 작성자가 테스트를 재실행한 것은 아니다.
+관련59개(HTTP client35·CurrentMembershipVerifier10·JWT11·Config3)는14초에 실패0·오류0·skip0으로 통과했다. 전체 Realtime build는1분1초에 PASS이며200개(기존141+신규59)·실패0·오류0·skip0이다. 실제 PostgreSQL·Redis를 사용하는 기존 전체 회귀를 포함한다. CheckstyleMain·SpotBugsMain은 관련59개 실행 때 PASS 후 전체 build에서 UP-TO-DATE였고, 테스트 소스 정적 검사는 기존 설정대로 skip이다. 테스트 자체의 skip0과 정적 검사 task skip을 구분한다. Realtime Docker 이미지 빌드도 통과했다(로컬 검증, 게시·배포 없음). 조정자가 확인한 실행 결과를 반영했으며 문서 작성자가 테스트를 재실행한 것은 아니다.
 
 `beforeHandle` 검증은 실제 interceptor와 실제 TCP로 응답하는 가짜 Data 서버를 사용한다. 운영 Data 서버와 Realtime 서버 두 노드의 production 연동 시험은 아니다. Data 제공자 자체의 선행 PR753 검증과 client 회귀가 각각 있어도 실제 배포·서비스 자격·네트워크의 운영 연결 검증을 대신하지 않는다.
 

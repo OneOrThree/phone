@@ -200,7 +200,7 @@ DB 판정 뒤 beforeHandle/TCP까지의 분산 원자성이나 이미 보낸 프
 관련59개(HTTP35·verifier10·JWT11·config3)는14초에 실패0·오류0·skip0, CheckstyleMain·SpotBugsMain PASS다.
 전체 Realtime build1분1초 PASS, 테스트200개(기존141+신규59)·실패0·오류0·skip0을 확인했다.
 실제 PostgreSQL/Redis 기존 회귀를 포함한다. CheckstyleMain·SpotBugsMain은 앞선 PASS 뒤 full에서
-UP-TO-DATE였으며 테스트 소스 정적 검사 task는 기존 설정대로 skip이다. Docker는 빌드 중으로 아직 PASS가 아니다.
+UP-TO-DATE였으며 테스트 소스 정적 검사 task는 기존 설정대로 skip이다. Realtime Docker 이미지 빌드도 통과했다(로컬 검증, 게시·배포 없음).
 beforeHandle 검증은 실제 interceptor와
 실제 TCP 가짜 Data 응답의 회귀이며, 운영 Data/Realtime 두 노드 production 연동 검증이 아니다.
 ELI5의 Mermaid2개는 조정자가 CLI11.17.0으로 SVG 실렌더 exit0을 확인했다.
