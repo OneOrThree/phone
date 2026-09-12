@@ -484,12 +484,27 @@ class MigrationService {
      *   <li>{@code SNAPSHOT_REQUIRED} — 원장에 스냅샷이 둘 이상인데 매니페스트가 지목하지 않았다.
      *       전체 집계는 옛 세대의 구성원을 섞으므로 어느 쪽이 정본인지 말하게 한다.</li>
      * </ul>
+     *
+     * <h2>세대는 {@code imports} 가 아니라 «등재부»로 센다</h2>
+     * <b>전량 제거를 뜻하는 빈 스냅샷은 {@code imports} 에 행이 하나도 없다.</b> 그래서 거기서만
+     * 세면 그 세대가 통째로 보이지 않는다 — {@code snap-1} 적재 뒤 빈 {@code snap-2} 를 등재했는데
+     * 운영자가 스냅샷을 빠뜨린 매니페스트를 검증하면 세대가 하나뿐이라고 판정되고, 매니페스트가 옛
+     * {@code snap-1} 의 건수·체크섬과 맞으면 <b>검증과 개방이 그대로 통과한다</b>. 그다음
+     * {@link #retire} 도 지목이 없어 아무 행도 정리하지 않으므로, <b>최종 스냅샷에서 제거된 기기로
+     * 계속 발송된다</b>.
+     *
+     * <p>{@code apply} 가 「레코드가 0건이어도 등재한다」고 {@code migration_snapshots} 에 적어 두는
+     * 이유가 정확히 이것이다. 그 등재부를 세지 않으면 적어 둔 보람이 없다. 태그 없이 적재된 행
+     * ({@code snapshot_id=''})도 한 세대로 세던 기존 동작은 그대로 두려고 {@code imports} 쪽을
+     * 합집합으로 함께 센다 — 어느 한쪽만 보면 다른 쪽이 세대를 숨긴다.
      */
     private long snapshotGaps(String migrationId, String snapshot, int members,
             List<Map<String, Object>> failures) {
         if (snapshot.isEmpty()) {
-            long generations = ((Number) store.one("SELECT count(DISTINCT snapshot_id) AS total FROM imports"
-                    + " WHERE migration_id=?", migrationId).get("total")).longValue();
+            long generations = ((Number) store.one("SELECT count(*) AS total FROM ("
+                    + "SELECT snapshot_id FROM migration_snapshots WHERE migration_id=?"
+                    + " UNION SELECT snapshot_id FROM imports WHERE migration_id=?) generations",
+                    migrationId, migrationId).get("total")).longValue();
             if (generations > 1) {
                 failures.add(fail("SNAPSHOT_REQUIRED", "snapshot", 1L, generations));
                 return 1;

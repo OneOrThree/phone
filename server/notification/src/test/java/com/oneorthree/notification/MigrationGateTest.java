@@ -772,6 +772,33 @@ class MigrationGateTest {
                 .containsEntry("active", true);
     }
 
+    /**
+     * <b>전량 제거를 뜻하는 빈 스냅샷은 {@code imports} 에 행이 하나도 없다.</b> 세대를 거기서만 세면
+     * 그 세대가 통째로 보이지 않아, 스냅샷을 빠뜨린 매니페스트가 「세대는 하나뿐」으로 통과한다.
+     *
+     * <p>그러면 옛 {@code snap-1} 의 건수·체크섬과 맞는 매니페스트로 검증·개방이 끝나고,
+     * {@code retire} 도 지목이 없어 아무 행도 정리하지 않는다 — 최종 스냅샷에서 제거된 기기로 계속
+     * 발송된다. 등재된 공집합도 한 세대로 세야 한다.
+     */
+    @Test
+    void aRegisteredEmptySnapshotStillCountsAsAGenerationSoAnUnnamedManifestIsRejected() throws Exception {
+        List<Map<String, Object>> first = new ArrayList<>(records(true, 5));
+        load("i1", "snap-1", first);
+        // 전량 제거 — 등재는 하되 레코드는 0건이다. imports 에는 snap-2 행이 생기지 않는다.
+        load("i2", "snap-2", List.of());
+        assertThat(store.one("SELECT snapshot_id FROM migration_snapshots WHERE migration_id=? AND snapshot_id=?",
+                "m1", "snap-2"))
+                .as("등재부에는 남아야 한다 — 「선언된 공집합」과 「모르는 스냅샷」을 가르는 근거다")
+                .isNotNull();
+        assertThat(store.rows("SELECT record_key FROM imports WHERE migration_id=? AND snapshot_id=?",
+                "m1", "snap-2"))
+                .as("빈 스냅샷은 imports 에 행이 없다 — 그래서 거기서만 세면 안 보인다")
+                .isEmpty();
+
+        // 지목 없이 옛 세대의 건수·체크섬으로 검증하면 거절돼야 한다.
+        assertThat(reasons(body(verify(first, 1, 0)))).contains("SNAPSHOT_REQUIRED");
+    }
+
     /** 태그를 빠뜨린 적재는 「전량 제거」처럼 보인다. 등재된 적 없는 스냅샷 지목은 실패다. */
     @Test
     void aManifestNamingAnUnregisteredSnapshotIsRejected() throws Exception {
