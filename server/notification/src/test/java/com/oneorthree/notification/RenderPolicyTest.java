@@ -3,6 +3,7 @@ package com.oneorthree.notification;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,10 +39,40 @@ class RenderPolicyTest {
     void payloadErrorsNeverDeleteAValidRegistration() {
         assertThat(FcmTransport.isUnregistered(400, "{\"error\":{\"message\":\"INVALID_ARGUMENT\"}}"))
                 .isFalse();
-        assertThat(FcmTransport.isUnregistered(404, Json.write(Map.of("error", Map.of("details", java.util.List.of(
+        assertThat(FcmTransport.isUnregistered(404, Json.write(Map.of("error", Map.of("details", List.of(
                 Map.of("@type", "type.googleapis.com/google.firebase.fcm.v1.FcmError", "errorCode", "UNREGISTERED")))))))
                 .isTrue();
         assertThat(FcmTransport.isUnregistered(404, "UNREGISTERED")).isFalse();
+        // FCM 이 «토큰이 아닌» 필드를 짚었으면 토큰을 죽이지 않는다 — 페이로드 버그 하나로 멀쩡한
+        // 기기의 등록이 통째로 사라지면 안 된다.
+        assertThat(FcmTransport.unusableToken(400, violation("message.android.notification.color"))).isFalse();
+        // 모양을 알 수 없는 400 도 토큰 탓으로 돌리지 않는다.
+        assertThat(FcmTransport.unusableToken(400, "{\"error\":{\"message\":\"INVALID_ARGUMENT\"}}")).isFalse();
+        assertThat(FcmTransport.unusableToken(500, "{\"error\":{\"status\":\"INTERNAL\"}}")).isFalse();
+    }
+
+    /**
+     * 형식이 깨진 등록 토큰은 {@code 404 UNREGISTERED} 가 아니라 {@code 400 INVALID_ARGUMENT} 로 온다.
+     *
+     * <p>그것을 재시도로 돌리면 {@code transport_invalid} 가 찍히지 않아 그 토큰의 모든 delivery 가
+     * 매분 영구 재시도되고 미전달 행만 쌓인다. 구 {@code FcmPushNotificationClient} 는 같은 응답을
+     * 무효 토큰으로 정리해 왔다.
+     */
+    @Test
+    void invalidArgumentCausedByTheTokenTakesTheSameCleanupPathAsUnregistered() {
+        assertThat(FcmTransport.unusableToken(400, violation("message.token"))).isTrue();
+        assertThat(FcmTransport.unusableToken(400, violation("token"))).isTrue();
+        // 구 경로가 무효 토큰으로 정리하던 모양 — 어느 필드인지 짚지 않은 INVALID_ARGUMENT.
+        assertThat(FcmTransport.unusableToken(400,
+                "{\"error\":{\"status\":\"INVALID_ARGUMENT\",\"message\":\"invalid registration token\"}}"))
+                .isTrue();
+    }
+
+    /** FCM 이 어느 필드가 잘못됐는지 짚어 주는 실제 응답 모양. */
+    private static String violation(String field) {
+        return Json.write(Map.of("error", Map.of("status", "INVALID_ARGUMENT", "details", List.of(
+                Map.of("@type", "type.googleapis.com/google.rpc.BadRequest",
+                        "fieldViolations", List.of(Map.of("field", field, "description", "invalid")))))));
     }
 
     @Test

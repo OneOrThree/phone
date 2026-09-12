@@ -5,6 +5,7 @@ import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
 import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
 import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
+import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +13,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,11 +41,77 @@ import java.util.Optional;
  * 몫이라고 명시돼 있다. 알림 사건은 <b>결정적 키</b>라 재훑기·중복 크론이 같은 키를 다시 만드는 것이
  * 정상 동작이므로, 여기서 먼저 조회해 있으면 그대로 둔다. 이것이 구 경로의 선점
  * ({@code notification_sent_logs} UNIQUE)을 대체한다.
+ *
+ * <p>조회는 쓰기 키 하나가 아니라 {@link NotificationEventKey#duplicateKeysOf} 가 주는 <b>대조 목록</b>
+ * 으로 한다 — 시간축이 고정 버킷이라 같은 사건이 경계에서 갈릴 수 있기 때문이다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class NotificationOutboxProducer {
+
+    /**
+     * 찾은 행이 <b>정말로</b> 같은 사건인가 — 넓힌 대조를 실제 폭으로 되돌리는 층.
+     *
+     * <h2>왜 키만으로는 모자란가</h2>
+     * 쓰기 버킷 하나만 보면 경계에서 같은 사건이 갈리므로({@code 12:00:59} 와 {@code 12:01:01})
+     * {@link NotificationEventKey#duplicateKeysOf} 가 인접 버킷까지 넓힌다. 그런데 <b>인접 버킷은
+     * 통째로</b> 딸려 온다. {@code 12:01:59} 에 쓰면서 {@code 12:00} 버킷을 보면 118초 전의
+     * {@code 12:00:01} 사건이 잡힌다 — 거절된 뒤 <b>다시 보낸 친구 요청</b>이 「중복」으로 사라진다.
+     * {@code FriendNotificationService} 가 말하는 창은 1분이지 2분이 아니다.
+     *
+     * <h2>그래서 두 층으로 나눈다</h2>
+     * 키는 <b>넓게</b> 찾고(경계에서 놓치지 않기 위해), 찾은 행은 <b>실제 시각</b>으로 거른다.
+     * 한 층으로 합치려 하면 둘 중 하나를 포기하게 된다 — 좁히면 경계에서 중복 푸시가 나가고,
+     * 넓히면 재요청 통보가 사라진다.
+     *
+     * <p><b>쓰기 버킷에서 찾은 행은 그대로 중복이다.</b> 그 버킷은 넓힌 것이 아니라 이 사건이 실제로
+     * 속한 칸이고, 같은 칸에 든 둘은 정의상 같은 사건이다. 시각 비교는 <b>넓혀서 딸려 온</b> 인접
+     * 버킷에만 적용한다.
+     *
+     * @param request   적으려는 요청
+     * @param candidate 지금 대조한 키
+     * @param candidates 대조 목록 — 첫 원소가 쓰기 버킷이다
+     * @param existing  그 키로 찾은 행
+     * @return 실제 dedup 창 안인가
+     */
+    private boolean withinDedupWindow(NotificationRequest request, String candidate, List<String> candidates,
+            EventOutbox existing) {
+        if (candidate.equals(candidates.get(0))) {
+            return true;
+        }
+        Instant occurredAt = request.occurredAtKeyHint();
+        Instant previous = dedupAtOf(existing);
+        if (occurredAt == null || previous == null) {
+            // 시각을 알 수 없으면 «넓힌 쪽»을 믿는다. 이 경로는 dedupAt 이 실리기 전에 적힌 행에만
+            // 해당하고, 그때의 동작(버킷 단위로 접기)이 그대로 유지되는 것이 맞다 — 배포 순간에
+            // 갑자기 중복 푸시가 나가는 편보다 낫다.
+            return true;
+        }
+        return Duration.between(occurredAt, previous).abs()
+                .compareTo(NotificationSlotGranularity.MINUTE_WIDTH) <= 0;
+    }
+
+    /** @return 그 행이 적힐 때의 «원본 사건 시각». 실리지 않았거나 모양이 다르면 {@code null} */
+    private static Instant dedupAtOf(EventOutbox existing) {
+        Object raw = existing.getParams() == null ? null : existing.getParams().get(DEDUP_AT);
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return Instant.parse(raw.toString());
+        } catch (DateTimeParseException malformed) {
+            return null;
+        }
+    }
+
+    /**
+     * 중복 판정이 실제 폭을 재는 데 쓰는 «원본 사건 시각» 필드.
+     *
+     * <p>봉투의 {@code occurredAt} 은 append 시각이라 이 용도로 못 쓴다 — 재훑기가 옛 사건을 지금
+     * 적으면 둘이 크게 갈린다. 소비 측은 이 필드를 쓰지 않는다(모르는 필드는 무시한다).
+     */
+    static final String DEDUP_AT = "dedupAt";
 
     /** 정본 봉투의 {@code type} — 알림 요청은 한 종류다. 실제 종류는 {@code params.kind} 가 가른다. */
     public static final String EVENT_TYPE = "notification.requested";
@@ -73,9 +143,17 @@ public class NotificationOutboxProducer {
         // 소비 측은 «단조 증가»만 보고 «연속»에 기대지 않으므로 빈 번호는 무해하다.
         outboxCommandPort.allocateVersion(aggregate);
         String eventId = eventIdOf(request);
-        if (eventOutboxRepository.findByEventId(eventId).isPresent()) {
-            // 재훑기·겹치는 크론이 같은 사건을 다시 집은 것 — 정상이다.
-            return Optional.empty();
+        // 쓰기 키 하나만 보지 않는다. 시간축이 고정 버킷이라 «같은 사건»이 버킷 경계에서 갈릴 수 있고
+        // (분 축의 12:00:59 와 12:01:01), 그때 쓰기 키만 조회하면 「없다」가 나와 같은 사건이 두 번
+        // 적힌다 = 푸시가 두 번 나간다. 어디까지 대조하는지는 시간축이 정한다.
+        List<String> candidates = NotificationEventKey.duplicateKeysOf(request.kind(), request.userId(),
+                request.subjectId(), request.occurredAtKeyHint());
+        for (String candidate : candidates) {
+            Optional<EventOutbox> existing = eventOutboxRepository.findByEventId(candidate);
+            if (existing.isPresent() && withinDedupWindow(request, candidate, candidates, existing.get())) {
+                // 재훑기·겹치는 크론이 같은 사건을 다시 집은 것 — 정상이다.
+                return Optional.empty();
+            }
         }
         // scheduledAt 은 언제나 null 이다 — 이월(DEFER)은 «발행»을 미루는 일이 아니라 «발송»을 미루는
         // 일이고, 그 판정에 필요한 조용한 시간 설정의 정본은 알림 DB 에 있다. relay 를 붙잡아 두면
@@ -128,6 +206,13 @@ public class NotificationOutboxProducer {
         }
         if (request.slotAt() != null) {
             params.put("slotAt", request.slotAt().toString());
+        }
+        if (request.occurredAtKeyHint() != null) {
+            // 중복 판정이 «실제 1분»을 재려면 이 값이 행에 남아 있어야 한다. 봉투의 occurredAt 은
+            // append 시각이라 못 쓴다 — 재훑기가 옛 사건을 지금 적으면 둘이 크게 갈린다.
+            // 계약상 params 는 additive 허용이고(additionalProperties: true) 소비자는 모르는 필드를
+            // 무시하므로 스키마 버전은 올리지 않는다.
+            params.put(DEDUP_AT, request.occurredAtKeyHint().toString());
         }
         return params;
     }

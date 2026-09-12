@@ -145,7 +145,10 @@ class ErrorContractTest {
         // GROMO-1660 이 초대 자격·이관 판정 코드를 2개 더 늘렸다(CLAIM_INTENT_NOT_FOUND ·
         // CLAIM_INTENT_LEASE_STALE) — 재개 실행자의 「없는 항목」과 「낡은 리스」를 한 코드로 접으면
         // 정상 경합과 배선 사고가 구분되지 않는다.
-        assertThat(tests).as("실측 기준 도메인 상수 117개 + 공통 15개 — 설정 및 소유권 계약 거절 포함")
+        // 두 갈래가 각각 늘렸다: 1659 가 소유권 형식·공개 명령 계약 거절을, 1757 이 설정 계약 거절
+        // (AuthErrorCode.SESSION_NOT_ACTIVE)을 더했다. 합류하면 도메인 상수는 117개가 된다.
+        assertThat(tests)
+                .as("실측 기준 도메인 상수 117개 + 공통 15개 — 소유권 형식·공개 명령·설정 계약 거절 포함")
                 .hasSize(132);
         return tests;
     }

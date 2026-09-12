@@ -94,6 +94,114 @@ class NotificationOutboxProducerIntegrationTest {
                 .satisfies(delivery -> assertThat(delivery.getTarget()).isEqualTo(OutboxTarget.KAFKA));
     }
 
+    private static NotificationRequest friendRequest(UUID userId, UUID counterpartId, Instant occurredAt) {
+        return new NotificationRequest(NotificationKind.FRIEND_REQUEST, userId, counterpartId, null, null,
+                occurredAt, "ko", Map.of("counterpartUserId", counterpartId.toString(),
+                        "counterpartNickname", "친구", "requestId", UUID.randomUUID().toString()));
+    }
+
+    /**
+     * 분 축은 달력상의 분으로 절삭한 <b>고정 버킷</b>이지 «최근 1분»이 아니다. 버전 필드가 없는 친구
+     * 요청의 재개·수락은 동시에 처리된 둘이 각자 자기 {@code updatedAt} 을 쓰므로, 그 둘이
+     * {@code 12:00:59} 와 {@code 12:01:01} 로 갈리면 서로 다른 키가 되어 <b>outbox 두 행 · 푸시 두 번</b>이
+     * 나간다. 어느 쪽이 먼저 적히든 접혀야 한다 — 잠금이 직렬화하는 것은 순서지 시각이 아니다.
+     */
+    @Test
+    @DisplayName("분 경계에 걸친 같은 친구 사건은 한 건으로 접힌다 — 어느 쪽이 먼저 와도")
+    void aFriendEventStraddlingTheMinuteBoundaryStaysOneEvent() {
+        UUID userId = UUID.randomUUID();
+        UUID counterpart = UUID.randomUUID();
+        Instant justBefore = Instant.parse("2026-09-11T12:00:59Z");
+        Instant justAfter = Instant.parse("2026-09-11T12:01:01Z");
+
+        Optional<EventEnvelope> before = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, justBefore)));
+        Optional<EventEnvelope> after = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, justAfter)));
+        assertThat(before).isPresent();
+        assertThat(after).isEmpty();
+
+        // 반대 순서도 같다 — 잠금이 직렬화하는 것은 «순서»지 «시각»이 아니다.
+        UUID other = UUID.randomUUID();
+        Optional<EventEnvelope> laterFirst = tx().execute(status ->
+                producer.append(friendRequest(other, counterpart, justAfter)));
+        Optional<EventEnvelope> earlierSecond = tx().execute(status ->
+                producer.append(friendRequest(other, counterpart, justBefore)));
+        assertThat(laterFirst).isPresent();
+        assertThat(earlierSecond).isEmpty();
+
+        assertThat(outboxRepository.findAll().stream()
+                .filter(row -> userId.equals(row.getUserId()) || other.equals(row.getUserId()))
+                .toList()).hasSize(2);
+    }
+
+    /**
+     * 인접 버킷은 <b>통째로</b> 딸려 온다. {@code 12:01:59} 에 쓰면서 {@code 12:00} 버킷을 보면 118초
+     * 전의 {@code 12:00:01} 사건이 잡힌다 — 거절된 뒤 <b>다시 보낸</b> 친구 요청이 「중복」으로
+     * 사라진다. {@code FriendNotificationService} 가 말하는 창은 1분이지 2분이 아니다.
+     *
+     * <p>그래서 키는 넓게 찾되 찾은 행의 <b>실제 시각</b>으로 다시 거른다.
+     */
+    @Test
+    @DisplayName("인접 버킷이어도 실제로 1분을 넘겼으면 별개다 — 거절 뒤 재요청의 통보가 사라지면 안 된다")
+    void anAdjacentBucketHitThatIsActuallyMoreThanAMinuteApartIsNotADuplicate() {
+        UUID userId = UUID.randomUUID();
+        UUID counterpart = UUID.randomUUID();
+        Instant first = Instant.parse("2026-09-11T12:00:01Z");
+        // 같은 «인접 버킷» 관계지만 실제로는 118초 차다.
+        Instant resent = Instant.parse("2026-09-11T12:01:59Z");
+
+        Optional<EventEnvelope> before = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, first)));
+        Optional<EventEnvelope> after = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, resent)));
+
+        assertThat(before).isPresent();
+        assertThat(after)
+                .as("118초 떨어진 재요청은 중복이 아니다 — 접으면 그 통보가 영영 사라진다")
+                .isPresent();
+        assertThat(outboxRepository.findAll().stream()
+                .filter(row -> userId.equals(row.getUserId()))
+                .toList()).hasSize(2);
+    }
+
+    /** 경계를 사이에 두고도 «실제로» 1분 안이면 여전히 한 건이다 — 넓힌 목적이 사라지면 안 된다. */
+    @Test
+    @DisplayName("경계 너머여도 실제로 1분 안이면 한 건이다 — 거르는 층이 넓힌 층을 무력화하면 안 된다")
+    void anAdjacentBucketHitWithinTheRealMinuteIsStillADuplicate() {
+        UUID userId = UUID.randomUUID();
+        UUID counterpart = UUID.randomUUID();
+        Instant first = Instant.parse("2026-09-11T12:00:59Z");
+        Instant second = Instant.parse("2026-09-11T12:01:30Z");
+
+        Optional<EventEnvelope> before = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, first)));
+        Optional<EventEnvelope> after = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, second)));
+
+        assertThat(before).isPresent();
+        assertThat(after).as("31초 차는 여전히 같은 사건의 재감지다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("몇 분 떨어진 친구 사건은 별개다 — 폭이 넓어지면 다시 보낸 요청의 통보가 사라진다")
+    void friendEventsMinutesApartStayDistinct() {
+        UUID userId = UUID.randomUUID();
+        UUID counterpart = UUID.randomUUID();
+        Instant at = Instant.parse("2026-09-11T12:00:59Z");
+
+        Optional<EventEnvelope> first = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, at)));
+        Optional<EventEnvelope> second = tx().execute(status ->
+                producer.append(friendRequest(userId, counterpart, at.plusSeconds(180))));
+        assertThat(first).isPresent();
+        assertThat(second).isPresent();
+
+        assertThat(outboxRepository.findAll().stream()
+                .filter(row -> userId.equals(row.getUserId()))
+                .toList()).hasSize(2);
+    }
+
     @Test
     @DisplayName("같은 결정적 키를 다시 적으면 조용히 건너뛴다 — 재훑기·겹치는 크론의 정상 동작이다")
     void duplicateDeterministicKeyIsSkipped() {

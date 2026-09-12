@@ -115,6 +115,15 @@ public class InviteLinkUseCase {
                 userId, slug, keys.forStep("claim-intent"), deadline);
         // 종결된 같은 요청을 202로 다시 접수하지 않는다. 새 요청 키는 별도 PENDING 의도를 받는다.
         if (intent.completed()) {
+            // 「끝났다」에는 두 종류가 있다. 정상 확정·붙일 대상 없음은 200 이지만, 상류가 내린 종결
+            // 판정(SLUG_NOT_FOUND·USER_WITHDRAWN)으로 끝난 것은 «첫 요청이 4xx 를 받은» 것이다.
+            // completed 하나로 뭉쳐 200 을 주면 같은 Idempotency-Key 의 응답이 첫 요청과 재시도에서
+            // 갈린다 — 응답이 유실돼 앱이 그대로 재시도한 경우가 정확히 그 모양이다.
+            if (intent.terminalCode() != null) {
+                log.debug("claim 의도가 이미 판정으로 종결됐다 — 그 판정을 재생한다. slug={} code={}",
+                        slug, intent.terminalCode());
+                throw ClaimIntentTermination.replay(intent.terminalCode());
+            }
             return new ClaimOutcome(true);
         }
 
@@ -130,7 +139,8 @@ public class InviteLinkUseCase {
                 // 그래서 «의도를 닫는 손»도 여기뿐이다 — 확정 경로가 없으면 Data 도 큐를 닫아 주지
                 // 못하므로, 닫지 않으면 정상 처리된 claim 의 의도가 PENDING 으로 남아 「미완료 0」
                 // gate 를 영구히 막는다.
-                abandonIntentQuietly(userId, intent, deadline);
+                // 판정이 아니라 «정상 종결»이다 — 코드를 남기지 않아야 재생이 200 을 준다.
+                abandonIntentQuietly(userId, intent, null, deadline);
                 log.debug("claim 대상 없음 — slug={} (셀프 초대이거나 붙일 클릭 없음)", slug);
                 return new ClaimOutcome(true);
             }
@@ -155,7 +165,8 @@ public class InviteLinkUseCase {
             if (ClaimIntentTermination.isTerminal(e)) {
                 // ⚠️ 종결은 «조용히» 한다 — 실패해도 아래 throw 가 원래 상태·코드를 그대로 올린다.
                 //    앱이 분기하는 것은 상류 판정이지 우리 뒷정리 결과가 아니다.
-                abandonIntentQuietly(userId, intent, deadline);
+                // 그 판정의 코드를 원장에 남긴다 — 같은 요청 키의 재시도가 이 응답을 재생한다.
+                abandonIntentQuietly(userId, intent, e.getCode(), deadline);
                 log.debug("claim 판정 종결 — slug={} code={} commandId={}", slug, e.getCode(),
                         intent.commandId());
             } else {
@@ -190,9 +201,10 @@ public class InviteLinkUseCase {
      * <p>⚠️ 이 자리에 {@code markCommandDelivered} 를 쓰면 <b>항상 404</b> 다 — 그 경로는 봉투의
      * {@code eventId} 로 「알림 대상 전달」을 닫고, claim 의도는 outbox 행이 아니다.
      */
-    private void abandonIntentQuietly(UUID userId, ClaimIntentAck intent, Deadline deadline) {
+    private void abandonIntentQuietly(UUID userId, ClaimIntentAck intent, String terminalCode,
+            Deadline deadline) {
         try {
-            dataApiClient.abandonClaimIntent(userId, intent.commandId(), deadline);
+            dataApiClient.abandonClaimIntent(userId, intent.commandId(), terminalCode, deadline);
         } catch (RuntimeException e) {
             log.warn("claim 의도 종결 실패 — 재개 CLI 가 한 번 더 처리한다. commandId={}",
                     intent.commandId(), e);

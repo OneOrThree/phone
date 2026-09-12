@@ -204,7 +204,7 @@ public class InternalInviteLinkService {
                 .build());
         // 방금 만든 행은 PENDING 이다 — 새로 적재된 의도에 completed=true 를 주면 Business 가 아직
         // 밟지도 않은 claim 을 「끝났다」로 접는다.
-        return new ClaimIntentAck(intent.getId(), eventId, version, false);
+        return new ClaimIntentAck(intent.getId(), eventId, version, false, null);
     }
 
     /**
@@ -220,8 +220,10 @@ public class InternalInviteLinkService {
             // 않은 채 성공 응답을 받는다 — 유실과 구분되지 않는다.
             throw new OutboxException(OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
-        return new ClaimIntentAck(
-                intent.getId(), intent.getEventId(), intent.getVersion(), intent.isSettled());
+        // 종결 코드까지 함께 재생한다. completed 만 주면 「정상 확정·대상 없음」과 「상류가 내린
+        // 거절」이 한 값으로 뭉쳐, 같은 요청 키의 첫 요청은 4xx 인데 재시도는 200 이 된다.
+        return new ClaimIntentAck(intent.getId(), intent.getEventId(), intent.getVersion(),
+                intent.isSettled(), intent.getLastError());
     }
 
     /**
@@ -438,15 +440,16 @@ public class InternalInviteLinkService {
      *     코드로 접는 이유는 존재 여부가 응답으로 갈리면 그 자체가 남의 의도 id 를 탐색하는 수단이기 때문이다
      */
     @Transactional
-    public void abandonClaimIntent(UUID userId, UUID commandId) {
+    public void abandonClaimIntent(UUID userId, UUID commandId, String terminalCode) {
         // 잠근 채 읽는다 — abandon 도 「PENDING 인가」를 보고 쓰는 전이라, 무락이면 그 판정과 쓰기
         // 사이에 끼어든 확정·재선점을 못 본다(abandon 이 물려받는 완료 토큰까지 옛 값이 된다).
         InviteClaimIntent intent = inviteClaimIntentRepository
                 .findByIdAndUserIdForUpdate(commandId, userId)
                 .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.CLAIM_INTENT_NOT_FOUND));
         // 이미 확정·종결된 의도는 덮지 않는다 — abandon 이 스스로 접는다.
-        if (intent.abandon(clock.instant())) {
-            log.debug("claim 의도 종결 — 붙일 대상이 없었다. commandId={}", commandId);
+        if (intent.abandon(clock.instant(), terminalCode)) {
+            log.debug("claim 의도 종결 — commandId={} code={}", commandId,
+                    terminalCode == null ? "대상 없음" : terminalCode);
         }
     }
 
@@ -551,7 +554,8 @@ public class InternalInviteLinkService {
      *                  다시 온 종결된 의도가 {@code true} 다. 확정 경로는 항상 {@code false} 인데,
      *                  확정 응답에는 「큐에 남았는가」라는 물음 자체가 없기 때문이다
      */
-    public record ClaimIntentAck(UUID commandId, String eventId, long version, boolean completed) {
+    public record ClaimIntentAck(UUID commandId, String eventId, long version, boolean completed,
+            String terminalCode) {
 
         /**
          * 확정 경로용 3인자 생성자 — {@code completed} 는 의미가 없어 {@code false} 로 고정한다.
@@ -570,7 +574,7 @@ public class InternalInviteLinkService {
          */
         @JsonCreator(mode = JsonCreator.Mode.DISABLED)
         public ClaimIntentAck(UUID commandId, String eventId, long version) {
-            this(commandId, eventId, version, false);
+            this(commandId, eventId, version, false, null);
         }
     }
 }

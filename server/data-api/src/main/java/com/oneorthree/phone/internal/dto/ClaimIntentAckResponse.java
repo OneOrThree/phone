@@ -22,5 +22,6 @@ import java.util.UUID;
  *                  <b>{@code true} 인 의도를 202 로 접으면 안 된다</b> — 재개 sweep 은
  *                  {@code PENDING} 만 보므로 그 202 는 아무도 이어받지 않는 거짓 약속이 된다
  */
-public record ClaimIntentAckResponse(UUID commandId, String eventId, long version, boolean completed) {
+public record ClaimIntentAckResponse(UUID commandId, String eventId, long version, boolean completed,
+        String terminalCode) {
 }

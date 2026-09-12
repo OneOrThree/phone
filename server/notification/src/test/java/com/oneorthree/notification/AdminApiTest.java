@@ -79,10 +79,46 @@ class AdminApiTest {
         when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.SENT);
     }
 
+    /**
+     * 행위자는 <b>자격이 정한다</b>. 예전에는 {@code X-Console-Actor} 헤더가 필수였지만, 콘솔 사용자가
+     * 모두 같은 토큰으로 인증하는 상태에서 그 헤더는 요청자가 스스로 고른 이름일 뿐이었다 — 그래서
+     * 토큰마다 주인을 두고 인증된 신원에서 행위자를 도출한다. 헤더를 안 보내는 것은 이제 정상이고,
+     * <b>다른</b> 이름을 말하는 것만 거절된다.
+     */
+    /**
+     * 콘솔 토큰을 가진 사람이 <b>남의 이름으로</b> 기록을 남길 수 없어야 한다.
+     *
+     * <p>모두가 같은 토큰을 쓰던 동안에는 {@code member-1} 이 헤더에 {@code member-2} 를 적는 것만으로
+     * 템플릿 수정·시험 발송·재전송이 전부 남의 행위로 저장됐다 — 그러면 감사 원장이 「누가 했는가」를
+     * 말하지 못하므로 원장이 없는 것과 같다.
+     */
+    @Test
+    void oneConsoleMemberCannotWriteTheLedgerAsAnother() throws Exception {
+        // member-1 의 자격으로 member-2 를 사칭한다.
+        mvc.perform(MockMvcRequestBuilders.get("/internal/admin/templates")
+                .header("Authorization", "Bearer test-console").header("X-Console-Actor", "member-2"))
+                .andExpect(status(403));
+        assertThat(store.rows("SELECT * FROM admin_audit"))
+                .as("사칭 시도는 원장에 아무것도 남기지 못한다")
+                .isEmpty();
+
+        // 각자 «자기» 자격으로 부르면 각자의 이름으로 남는다.
+        mvc.perform(MockMvcRequestBuilders.get("/internal/admin/templates")
+                .header("Authorization", "Bearer test-console")).andExpect(status(200));
+        mvc.perform(MockMvcRequestBuilders.get("/internal/admin/templates")
+                .header("Authorization", "Bearer test-console-2")).andExpect(status(200));
+
+        assertThat(store.rows("SELECT actor FROM admin_audit ORDER BY id").stream()
+                .map(row -> row.get("actor")).toList())
+                .containsExactly("member-1", "member-2");
+    }
+
     @Test
     void consoleTokenAndActorAreBothRequiredAndEveryReadIsAudited() throws Exception {
+        // 헤더 없이도 통과한다 — 행위자는 자격에서 나온다.
         mvc.perform(MockMvcRequestBuilders.get("/internal/admin/templates")
-                .header("Authorization", "Bearer test-console")).andExpect(status(403));
+                .header("Authorization", "Bearer test-console")).andExpect(status(200));
+        // 자기 자격이 말하는 것과 «다른» 행위자를 말하면 거절한다.
         mvc.perform(MockMvcRequestBuilders.get("/internal/admin/templates")
                 .header("Authorization", "Bearer test-console").header("X-Console-Actor", "member-9"))
                 .andExpect(status(403));
@@ -90,7 +126,7 @@ class AdminApiTest {
         mvc.perform(MockMvcRequestBuilders.get("/internal/admin/templates")
                 .header("Authorization", "Bearer test-data").header("X-Console-Actor", "member-1"))
                 .andExpect(status(403));
-        assertThat(store.rows("SELECT * FROM admin_audit")).isEmpty();
+        store.update("DELETE FROM admin_audit");
         read("/internal/admin/templates");
         assertThat(store.one("SELECT actor,action FROM admin_audit ORDER BY id DESC LIMIT 1"))
                 .containsEntry("actor", "member-1").containsEntry("action", "templates.list");

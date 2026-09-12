@@ -122,6 +122,46 @@ class OutboxRelayPropertiesTest {
                 .hasMessageContaining("Kafka 는 HTTP 목적지를 갖지 않습니다");
     }
 
+    /**
+     * 「비어 있지 않다」로는 모자라다 — Spring 7 의 {@code HttpMethod} 는 enum 이 아니라서
+     * {@code HttpMethod.valueOf("POSTT")} 가 던지지 않고 그 이름의 인스턴스를 만들어 준다.
+     *
+     * <p>그래서 오타가 기동을 통과해 그대로 와이어로 나가고, 위성은 405 로 거절한다. relay 는 4xx 를
+     * permanent 로 적으므로 그 축은 <b>설정을 고칠 때까지</b> 멈춘다. HTTP method 는 대소문자를 가리니
+     * 소문자 {@code post} 도 같은 결말이다 — 둘 다 <b>기동 전에</b> 막아야 한다.
+     */
+    @Test
+    @DisplayName("표준이 아닌 HTTP method 는 기동에서 거부한다 — 오타는 첫 전달이 아니라 부팅에서 드러나야 한다")
+    void rejectsEndpointWhoseMethodIsNotAStandardHttpMethod() {
+        OutboxRelayProperties properties = fullyConfigured();
+        OutboxRelayProperties.Endpoint endpoint = new OutboxRelayProperties.Endpoint();
+        endpoint.setTarget(OutboxTarget.LINK);
+        endpoint.setUrl("http://link:3000/internal/users/{userId}/withdraw");
+        endpoint.setToken("service-token");
+        properties.getEndpoints().put("LINK_USER_WITHDRAW", endpoint);
+
+        // 기본값은 그대로 통과한다.
+        assertThatCode(properties::validateWhenEnabled).doesNotThrowAnyException();
+
+        endpoint.setMethod("POSTT");
+        assertThatThrownBy(properties::validateWhenEnabled)
+                .as("HttpMethod.valueOf 는 모르는 이름도 만들어 주므로 런타임이 잡아 주지 않는다")
+                .hasMessageContaining("표준 HTTP method");
+
+        endpoint.setMethod("post");
+        assertThatThrownBy(properties::validateWhenEnabled)
+                .as("HTTP method 는 대소문자를 가린다 — 소문자는 405 로 돌아온다")
+                .hasMessageContaining("표준 HTTP method");
+
+        endpoint.setMethod("  ");
+        assertThatThrownBy(properties::validateWhenEnabled).hasMessageContaining("method 가 필요합니다");
+
+        endpoint.setMethod("PUT");
+        assertThatCode(properties::validateWhenEnabled)
+                .as("표준 method 는 POST 말고도 받는다 — 계약이 고르는 것이지 이 검증이 고르는 것이 아니다")
+                .doesNotThrowAnyException();
+    }
+
     private static OutboxRelayProperties enabledWithoutRetry() {
         OutboxRelayProperties properties = new OutboxRelayProperties();
         properties.setEnabled(true);
