@@ -6960,6 +6960,10 @@
           "version": {
             "type": "integer",
             "format": "int64"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {}
           }
         }
       },
@@ -7071,6 +7075,10 @@
           "authGeneration": {
             "type": "integer",
             "format": "int64"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
