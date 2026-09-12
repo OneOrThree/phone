@@ -18,7 +18,9 @@ cd "$(dirname "$0")"
 
 if [ "$#" -gt 0 ]; then
     TARGETS=("$@")
+    EXPLICIT=1
 else
+    EXPLICIT=0
     TARGETS=()
     for d in */; do
         [ -x "${d}norm.sh" ] && TARGETS+=("${d%/}")
@@ -34,7 +36,14 @@ declare -a PASSED=() FAILED=()
 
 for s in "${TARGETS[@]}"; do
     if [ ! -x "$s/norm.sh" ]; then
-        echo "건너뜀: $s (norm.sh 없음 또는 실행 권한 없음)"
+        if [ "$EXPLICIT" = "1" ]; then
+            # 이름을 «찍어서» 부른 대상이 없으면 실패다. 건너뛰고 «전부 통과» 를 찍으면
+            # 오타 하나로 아무 검사도 안 돈 채 게이트가 초록이 된다.
+            echo "!! $s : norm.sh 없음 또는 실행 권한 없음 (지정한 대상이라 실패로 본다)"
+            FAILED+=("$s")
+        else
+            echo "건너뜀: $s (norm.sh 없음 또는 실행 권한 없음)"
+        fi
         continue
     fi
     echo ""

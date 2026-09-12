@@ -12,7 +12,9 @@ set -e
 
 cd "$(dirname "$0")"
 
-PG_CONTAINER="norm-postgres"
+# 고정 이름을 쓰면 «다른 체크아웃에서 같은 스크립트가 준비 중인» 컨테이너를 남의 것인 줄
+# 모르고 지운다. 실행마다 고유 이름을 만들고, 이 프로세스가 띄운 것만 정리한다.
+PG_CONTAINER="norm-postgres-$$-$(date +%s)"
 STARTED_PG=0
 
 db_ready() {
@@ -35,7 +37,6 @@ fi
 
 if ! db_ready; then
     echo "localhost:5432 에 tt_db 가 없다 — 임시 컨테이너를 띄운다."
-    docker rm -f "$PG_CONTAINER" >/dev/null 2>&1 || true
     docker run -d --name "$PG_CONTAINER" \
         -e POSTGRES_DB=tt_db -e POSTGRES_USER=ci -e POSTGRES_PASSWORD=ci \
         -p 5432:5432 postgres:16-alpine >/dev/null
