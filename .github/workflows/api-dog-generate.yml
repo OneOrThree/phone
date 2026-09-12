@@ -32,6 +32,14 @@ on:
 # 그래서 게시 스텝이 push «직전»에 브랜치 tip 을 한 번 더 확인한다(아래 「뒤처짐 확인」).
 concurrency:
   group: api-docs-${{ github.ref }}
+  # ⚠️ 여기만 `${{ github.event_name == 'pull_request' }}` 규율(dev-ci·realtime-ci·business-ci·
+  #    app-lint)을 따르지 «않는다». 이 워크플로엔 `pull_request` 트리거가 «없어서» 그 식은 언제나
+  #    false 다 — 즉 아무것도 취소되지 않아 절감이 0 이 된다. 그 규율의 «의도»는 「이미지를 올리는
+  #    실행을 중간에 끊지 마라」인데, 여기서 올리는 건 gh-pages 문서이고 중간 푸시분은 다음 푸시가
+  #    덮어쓸 것이라 끊어도 잃는 게 없다.
+  #    게다가 `true` 는 여기서 «정확성»에도 필요하다 — 뒤처진 실행을 살려 두면 최신 문서를 옛
+  #    문서로 되돌린다(아래 게시 스텝의 「뒤처짐 확인」이 2차 방어다).
+  #    하루 25회 × 7.8분이 이 취소로 줄어든다 (GROMO-1797).
   cancel-in-progress: true
 
 permissions:
