@@ -1,0 +1,105 @@
+# dev/prod와 함께 명시적으로 활성화한다. 전환 기능과 relay는 각각 별도 스위치다.
+spring:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+link:
+  capability-key: ${LINK_CAPABILITY_KEY}
+notification:
+  dispatch:
+    mode: ${NOTIFICATION_DISPATCH_MODE:LEGACY}
+
+internal:
+  api:
+    enabled: ${INTERNAL_API_ENABLED:false}
+    callers:
+      business:
+        token: ${SVC_TOKEN_BIZ_TO_DATA}
+        allow:
+          - 'GET /internal/users/*/activation'
+          - 'POST /internal/auth/device-sessions/verify'
+          - 'POST /internal/auth/sessions/verify'
+          - 'POST /internal/users/*/device-token-deletions'
+          - 'PUT /internal/users/*/notification-settings-commands'
+          - 'POST /internal/outbox-commands/*/delivered'
+          - 'GET /internal/groups/*/invite-issue-context'
+          - 'POST /internal/invite-links/claim-intents'
+          - 'GET /internal/invite-links/claim-intents'
+          - 'POST /internal/invite-links/claim-intents/*/lease'
+          - 'POST /internal/invite-links/claim-intents/*/completed'
+          - 'POST /internal/invite-links/claim-intents/*/abandoned'
+          - 'POST /internal/invite-links/claim-confirmations'
+          - 'GET /internal/migrations/*/invite-link-clicks/candidates'
+          - 'POST /internal/users/*/challenge-results/*/claim'
+          - 'POST /internal/users/*/challenge-results/*/ack'
+      notification:
+        token: ${SVC_TOKEN_NOTI_TO_DATA}
+        allow:
+          - 'GET /internal/users/notification-snapshot'
+          - 'GET /internal/users/*/result-ack'
+          - 'POST /internal/notifications/eligibility'
+outbox:
+  relay:
+    enabled: ${OUTBOX_RELAY_ENABLED:false}
+    batch-size: ${OUTBOX_RELAY_BATCH_SIZE:}
+    lease-duration: ${OUTBOX_RELAY_LEASE_DURATION:}
+    poll-interval: ${OUTBOX_RELAY_POLL_INTERVAL:}
+    retry:
+      initial-backoff: ${OUTBOX_RELAY_INITIAL_BACKOFF:}
+      max-backoff: ${OUTBOX_RELAY_MAX_BACKOFF:}
+      max-attempts: ${OUTBOX_RELAY_WARNING_ATTEMPTS:}
+    endpoints:
+      "[link.revoked]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.claimConfirmed]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.joined]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.groupClosed]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.groupRenamed]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.displayNameChanged]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.userWithdrawn]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[noti.deviceTokenDeleted]":
+        target: NOTI
+        url: ${NOTIFICATION_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_NOTI}
+      "[noti.settingsApplied]":
+        target: NOTI
+        url: ${NOTIFICATION_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_NOTI}
+      "[noti.sessionRevoked]":
+        target: NOTI
+        url: ${NOTIFICATION_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_NOTI}
+      "[noti.authGenerationBumped]":
+        target: NOTI
+        url: ${NOTIFICATION_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_NOTI}

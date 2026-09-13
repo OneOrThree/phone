@@ -10,6 +10,10 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
@@ -101,6 +105,7 @@ public class SessionOpenNotificationService {
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final UserQueryService userQueryService;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
 
     /** 소유한 클레임 1건 — 행 id 와 그 사건의 회차·수신자. */
     private record Claim(UUID rowId, User user, GroupChallengeBetSession session) {
@@ -138,6 +143,7 @@ public class SessionOpenNotificationService {
 
         int targets = 0;
         int deduped = 0;
+        int queued = 0;
         List<Claim> owned = new ArrayList<>();
         if (!due.isEmpty()) {
             Set<UUID> sessionIds = due.stream()
@@ -158,6 +164,13 @@ public class SessionOpenNotificationService {
                             .collect(Collectors.groupingBy(member -> member.getGroup().getId(),
                                     Collectors.mapping(GroupMember::getUser, Collectors.toList())));
 
+            // 신 경로는 묶음 구성원을 사건마다 실어 보낸다 — 그래야 첫 사건만 도착한 사이에 flush 가
+            // 끼어도 알림 서버가 나머지를 기다려 (유저 × 그룹 × 슬롯) 한 건 보장을 지킨다(종료 알림과
+            // 같은 규율). 이 종류의 대상은 «회차»이므로 구성원도 회차 id 집합이다.
+            Map<BundleKey, List<String>> bundleMembers = notificationDispatcher.isOutboxMode()
+                    ? openBundleMembers(due, joined, membersByGroupId)
+                    : Map.of();
+
             for (GroupChallengeBetSession session : due) {
                 Instant slotAt = slotOf(slotStartOf(session));
                 for (User member : membersByGroupId.getOrDefault(
@@ -166,6 +179,27 @@ public class SessionOpenNotificationService {
                         continue;
                     }
                     targets++;
+                    if (notificationDispatcher.isOutboxMode()) {
+                        // 신 경로: 선점도 묶음도 이월도 여기서 하지 않는다. 후보를 사건으로 적고
+                        // claim/render/send/flush 는 알림 서버가 소유한다(계약 §5).
+                        // 이월 만료(참가 마감)를 함께 실어 보낸다 — 조용한 시간이 끝났을 때 이미
+                        // 마감이면 「참여하세요」가 거짓말이 되므로 그때 버려야 한다(N44 단서).
+                        if (notificationDispatcher.enqueueOnly(new NotificationRequest(
+                                NotificationKind.CHALLENGE_SESSION_OPEN, member.getId(),
+                                session.getId(), session.getGroup().getId(), slotAt, null,
+                                member.getLanguage(),
+                                Map.of("challengeId", session.getChallenge().getId().toString(),
+                                        "stake", session.getStake(),
+                                        "deferExpiresAt", session.getJoinClosesAt().toString(),
+                                        "bundleMembers", bundleMembers.get(new BundleKey(
+                                                member.getId(), session.getGroup().getId(), slotAt)))))
+                                == NotificationDispatchOutcome.QUEUED) {
+                            queued++;
+                        } else {
+                            deduped++;
+                        }
+                        continue;
+                    }
                     UUID rowId = Generators.timeBasedEpochRandomGenerator().generate();
                     int claimed = notificationSentLogRepository.insertPendingClaim(rowId,
                             member.getId(), NotificationSentLog.TYPE_CHALLENGE_SESSION_OPEN,
@@ -178,9 +212,12 @@ public class SessionOpenNotificationService {
                 }
             }
         }
-        targets += collectCarriedClaims(owned, now);
-
-        int sent = sendBundles(owned, now);
+        // 이월 회수와 묶음 발송은 구 경로 전용이다 — 신 경로에서 부르면 Data 가 발송 이력을
+        // 완료 처리하게 되어 두 DB 의 이력이 갈린다(계약 §5).
+        if (!notificationDispatcher.isOutboxMode()) {
+            targets += collectCarriedClaims(owned, now);
+        }
+        int sent = notificationDispatcher.isOutboxMode() ? queued : sendBundles(owned, now);
         PushDispatchSummaryResponse summary =
                 summary(targets, sent, deduped, targets - sent - deduped, startedAtMillis);
         if (targets > 0) {
@@ -189,6 +226,41 @@ public class SessionOpenNotificationService {
                     summary.dedupedCount(), summary.skippedCount());
         }
         return summary;
+    }
+
+    /**
+     * 이번 스캔이 <b>수신 대상별로</b> 적을 묶음 구성원 — (유저 × 그룹 × 슬롯)마다 그 묶음에 드는
+     * 회차 id 전부.
+     *
+     * <p>구 경로의 보장은 {@link #sendBundles} 의 「한 스캔당 (유저 × 그룹 × 슬롯) 한 건」이었다.
+     * 신 경로는 그 한 건을 사건 N 개로 쪼개 outbox 에 적고 relay 가 유저별로 다른 틱에 전달하므로,
+     * 구성원을 선언하지 않으면 첫 사건만 도착한 사이에 낀 flush 가 그대로 한 건을 내보내고 나머지가
+     * 두 번째 푸시가 된다.
+     *
+     * <p>같은 묶음이라도 회차마다 마감·참가자가 다르므로 구성원은 «수신자별»로 갈린다 — 이미 참가한
+     * 사람의 회차를 남의 묶음에 넣으면 그 유저의 묶음은 영영 도착 완료가 되지 않는다.
+     *
+     * @param due             슬롯에 도달한 회차
+     * @param joined          이미 참가한 (회차, 유저) 키
+     * @param membersByGroupId 그룹별 생존 그룹원
+     * @return 묶음별 회차 id 집합
+     */
+    private static Map<BundleKey, List<String>> openBundleMembers(
+            List<GroupChallengeBetSession> due, Set<String> joined,
+            Map<UUID, List<User>> membersByGroupId) {
+        Map<BundleKey, List<String>> members = new LinkedHashMap<>();
+        for (GroupChallengeBetSession session : due) {
+            Instant slotAt = slotOf(slotStartOf(session));
+            for (User member : membersByGroupId.getOrDefault(session.getGroup().getId(), List.of())) {
+                if (joined.contains(joinKey(session.getId(), member.getId()))) {
+                    continue;
+                }
+                members.computeIfAbsent(
+                        new BundleKey(member.getId(), session.getGroup().getId(), slotAt),
+                        key -> new ArrayList<>()).add(session.getId().toString());
+            }
+        }
+        return members;
     }
 
     /**

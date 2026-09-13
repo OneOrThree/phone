@@ -9,6 +9,10 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
@@ -106,6 +110,7 @@ public class BetEventNotificationService {
     private final UserQueryService userQueryService;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
 
     /** 소유한 클레임 1건 — 행 id 와, 문구 조립에 필요한 회차·참가 스냅샷. */
     private record Claim(UUID rowId, String kind, GroupChallengeBetSession session,
@@ -144,7 +149,7 @@ public class BetEventNotificationService {
     @Transactional
     public void notifySessionClosed(UUID sessionId, Instant now) {
         GroupChallengeBetSession session =
-                groupQueryService.findBetSession(sessionId).orElse(null);
+                groupQueryService.findCurrentBetSession(sessionId).orElse(null);
         if (session == null) {
             return;
         }
@@ -226,6 +231,11 @@ public class BetEventNotificationService {
     @Transactional
     public PushDispatchSummaryResponse flushDueBundles(Instant now) {
         long startedAtMillis = System.currentTimeMillis();
+        if (notificationDispatcher.isOutboxMode()) {
+            // 신 경로에 flush 는 없다 — 구 클레임 행이 남아 있어도 여기서 보내면 알림 서버가 이미
+            // 보낸 것을 Data 가 한 번 더 보내는 이중 발송이 된다. 남은 행은 이관 export 가 옮긴다.
+            return summary(0, 0, 0, 0, startedAtMillis);
+        }
         FlushCounts flushed = flushClaims(now, now.minus(SLOT_WIDTH));
         return summary(flushed.targets(), flushed.sent(), 0, flushed.skipped(), startedAtMillis);
     }
@@ -282,7 +292,10 @@ public class BetEventNotificationService {
         List<GroupChallengeBetSession> sessions = groupChallengeBetSessionRepository
                 .findByStatusInAndSettledAtSince(NOTIFIABLE_STATUSES, now.minus(SETTLEMENT_LOOKBACK));
         ClaimCounts claimed = claimEvents(sessions, now);
-        FlushCounts flushed = flushClaims(now, immediate ? now : now.minus(SLOT_WIDTH));
+        // 신 경로에서는 재훑기가 «후보 -> outbox» 로 끝나고 flush 는 알림 서버가 소유한다(계약 §5).
+        FlushCounts flushed = notificationDispatcher.isOutboxMode()
+                ? new FlushCounts(0, claimed.claimed(), 0)
+                : flushClaims(now, immediate ? now : now.minus(SLOT_WIDTH));
         PushDispatchSummaryResponse summary = new PushDispatchSummaryResponse(
                 claimed.targets(), flushed.sent(), claimed.deduped(), flushed.skipped(),
                 System.currentTimeMillis() - startedAtMillis);
@@ -293,7 +306,44 @@ public class BetEventNotificationService {
         return summary;
     }
 
-    /** 회차 종료 상태 → 알림 kind. 알림 없는 상태(OPEN·UNUSED)는 null. */
+    /**
+     * 신 경로의 사건 하나 — 대상은 회차, 묶음 축은 그룹 × {@code settled_at} 15분 슬롯이다.
+     *
+     * <p>렌더 입력은 「승/패/몰수」를 알림 서버가 스스로 고를 수 있을 만큼만 싣는다. 코인 액수와
+     * 달성 여부는 참가 행에만 있고 알림 서버는 코어 DB 를 읽지 않으므로(계약 §2) 여기서 실어야 한다.
+     *
+     * @param participant 수신자의 참가 행
+     * @param session     정산이 끝난 회차
+     * @param kind        {@code BET_RESULT} 또는 {@code BET_VOID_REFUND}
+     * @return 적었으면 {@code QUEUED}, 같은 결정적 키가 이미 있으면 {@code DUPLICATE}
+     */
+    private NotificationDispatchOutcome enqueueEvent(GroupChallengeBetParticipant participant,
+                                                     GroupChallengeBetSession session, String kind) {
+        User user = participant.getUser();
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("challengeId", session.getChallenge().getId().toString());
+        params.put("stake", session.getStake());
+        if (NotificationSentLog.TYPE_BET_VOID_REFUND.equals(kind)) {
+            // 사유가 null 인 구 데이터가 있다 — 키는 남기고 값만 null 로 둬야 소비 측이 «필드가 아직
+            // 없는 구 스키마»와 «사유 미상»을 구분할 수 있다.
+            params.put("voidReason",
+                    session.getVoidReason() == null ? null : session.getVoidReason().name());
+            return notificationDispatcher.enqueueOnly(new NotificationRequest(
+                    NotificationKind.BET_VOID_REFUND, user.getId(), session.getId(),
+                    session.getGroup().getId(), slotOf(session.getSettledAt()), null,
+                    user.getLanguage(), params));
+        }
+        params.put("betStatus", session.getStatus().name());
+        params.put("achieved", Boolean.TRUE.equals(participant.getAchieved()));
+        params.put("payout", participant.getPayout() == null ? 0 : participant.getPayout());
+        return notificationDispatcher.enqueueOnly(new NotificationRequest(
+                NotificationKind.BET_RESULT, user.getId(), session.getId(),
+                session.getGroup().getId(), slotOf(session.getSettledAt()), null,
+                user.getLanguage(), params));
+    }
+
+    /**
+     * 회차 종료 상태 → 알림 kind. 알림 없는 상태(OPEN·UNUSED)는 null. */
     static String kindOf(GroupBetStatus status) {
         return switch (status) {
             case SETTLED, FORFEITED -> NotificationSentLog.TYPE_BET_RESULT;
@@ -332,6 +382,16 @@ public class BetEventNotificationService {
         for (GroupChallengeBetParticipant participant : targets) {
             GroupChallengeBetSession session = sessionsById.get(participant.getSession().getId());
             String kind = kindOf(session.getStatus());
+            if (notificationDispatcher.isOutboxMode()) {
+                // 신 경로: 후보 판정만 하고 사건을 적는다. 묶음(유저 x 그룹 x 슬롯)·이월·발송은
+                // 알림 서버가 한다 — 여기서 선점 행을 만들면 이관 후 두 DB 에 이력이 갈린다.
+                if (enqueueEvent(participant, session, kind) == NotificationDispatchOutcome.QUEUED) {
+                    claimed++;
+                } else {
+                    deduped++;
+                }
+                continue;
+            }
             if (claimEvent(participant.getUser().getId(), kind, session, now) == null) {
                 deduped++;
             } else {

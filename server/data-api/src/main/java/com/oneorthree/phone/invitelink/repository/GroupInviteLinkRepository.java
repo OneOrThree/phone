@@ -2,7 +2,10 @@ package com.oneorthree.phone.invitelink.repository;
 
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -38,4 +41,33 @@ public interface GroupInviteLinkRepository extends JpaRepository<GroupInviteLink
      *         최종 방어는 이 검사가 아니라 DB 유니크 제약이다
      */
     boolean existsBySlug(String slug);
+
+    /**
+     * 링크 정지 스냅샷의 원재료를 <b>한 쿼리로</b> 읽는다 (A22 ㊏ · 서비스 §7.2).
+     *
+     * <p><b>클릭이 한 번도 없던 slug 도 포함한다</b> — 클릭에서 역산하면 그런 링크가 통째로 빠지고,
+     * 이미 공유된 초대가 전환 직후 실패한다(되돌릴 수 없는 실패다).
+     *
+     * <p>도메인을 하나씩 조회해 조립하지 않는 이유는 스냅샷의 일관성이다. 링크 N건을 훑으며
+     * 그룹·멤버십을 따로 읽으면 그 사이 커밋된 탈퇴·종료가 행마다 다르게 섞인다.
+     *
+     * @param cursor 직전 페이지의 마지막 링크 id. 첫 페이지는 최소값
+     * @param limit  최대 건수
+     * @return 링크·그룹·발급자·멤버십을 같은 스냅샷으로 읽은 행들
+     */
+    @Query(value = "SELECT l.id AS linkId, l.slug AS slug, l.group_id AS groupId, "
+            + "l.inviter_id AS inviterId, l.created_at AS linkCreatedAt, "
+            + "g.name AS groupName, g.status AS groupStatus, g.deleted_at AS groupDeletedAt, "
+            + "u.nickname AS inviterName, m.membership_epoch AS membershipEpoch, "
+            + "m.transition_seq AS transitionSeq, m.snapshot_version AS snapshotVersion, "
+            + "m.is_left AS inviterLeft, "
+            + "m.updated_at AS membershipUpdatedAt "
+            + "FROM group_invite_links l "
+            + "JOIN groups g ON g.id = l.group_id "
+            + "LEFT JOIN users u ON u.id = l.inviter_id AND u.is_deleted = false "
+            + "LEFT JOIN group_members m ON m.group_id = l.group_id AND m.user_id = l.inviter_id "
+            + "WHERE l.id > CAST(:cursor AS uuid) ORDER BY l.id ASC LIMIT :limit",
+            nativeQuery = true)
+    List<FrozenLinkProjection> findFrozenSourcePage(
+            @Param("cursor") String cursor, @Param("limit") int limit);
 }

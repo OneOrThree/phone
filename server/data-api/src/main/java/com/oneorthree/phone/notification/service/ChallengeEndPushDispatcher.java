@@ -4,6 +4,10 @@ import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
@@ -15,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -52,10 +57,14 @@ class ChallengeEndPushDispatcher {
      */
     private static final int CHUNK_SIZE = 200;
 
+    /** 묶음 슬롯의 기준 시간대 — 크론·리그 도메인과 통일된 KST 고정이다. */
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
     private final GroupMemberRepository groupMemberRepository;
     private final UserQueryService userQueryService;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
 
     /** 결과 딥링크(계약 §2) — 그룹 화면까지 데려간 뒤 {@code challenge} 로 결과 모달을 연다. */
     static String resultDeepLink(UUID groupId, UUID challengeId) {
@@ -108,6 +117,12 @@ class ChallengeEndPushDispatcher {
     private Counts dispatchChunk(List<UUID> groupIds,
             Map<UUID, List<GroupChallenge>> challengesByGroupId, String pushType, PushCopy copy,
             Instant dedupSince, Map<UUID, Instant> cycleEndByChallengeId, Instant now) {
+        // pushType 문자열은 앱 계약(data.type)이자 신 경로의 kind 이름이다 — 같은 값이라 그대로 푼다.
+        NotificationKind kind = NotificationKind.find(pushType);
+        if (kind == null) {
+            // 모르는 종류를 «성공»으로 세면 이관 검증이 통과한 채로 발송이 사라진다.
+            throw new IllegalStateException("알 수 없는 챌린지 종료 푸시 종류입니다: " + pushType);
+        }
         // 탈퇴한 유저는 발송 대상이 아니다(멤버 행은 남는다).
         // 멤버 행을 그대로 들고 간다 — 가입 시각(createdAt)이 회차 참여 여부 판정에 필요하다.
         Map<UUID, List<GroupMember>> membersByGroupId = groupMemberRepository
@@ -157,7 +172,24 @@ class ChallengeEndPushDispatcher {
                 PushMessage message = compose(pending.get(0), pushType, copy, soundEnabled);
                 // 한 건의 실패가 배치를 끊지 않게 격리 — sendIfAllowed 안에서도 잡지만 문구·로그 조립까지 감싼다.
                 try {
-                    if (pushNotificationService.sendIfAllowed(user, settings, message, now)) {
+                    // 신 경로는 «챌린지마다» 사건을 적는다 — 구 경로가 (유저 x 그룹) 한 건으로 접던
+                    // 일을 알림 서버의 묶음(유저 x 그룹 x 슬롯)이 대신한다. 여기서 대표 1건만 적으면
+                    // 나머지 챌린지의 결과는 어디에도 남지 않아 다음 회차에 되살아날 근거가 사라진다.
+                    if (notificationDispatcher.isOutboxMode()) {
+                        boolean queuedAny = false;
+                        for (GroupChallenge challenge : pending) {
+                            queuedAny |= notificationDispatcher.dispatch(user, settings,
+                                    request(kind, user, challenge, pending, now), message, now)
+                                    == NotificationDispatchOutcome.QUEUED;
+                        }
+                        // 전부 중복이면 「이미 적혀 있다」 — 구 경로의 dedup 과 같은 뜻이다.
+                        if (queuedAny) {
+                            sent++;
+                        } else {
+                            deduped++;
+                        }
+                    } else if (notificationDispatcher.dispatch(user, settings,
+                            request(kind, user, pending.get(0), pending, now), message, now).recordsLegacyLog()) {
                         sent++;
                         pending.forEach(challenge -> {
                             alreadySent.add(new SentKey(user.getId(), challenge.getId()));
@@ -222,6 +254,42 @@ class ChallengeEndPushDispatcher {
     private Map<UUID, UserNotificationSettings> loadSettings(List<UUID> userIds) {
         return userQueryService.findAllNotificationSettings(userIds).stream()
                 .collect(Collectors.toMap(UserNotificationSettings::getUserId, Function.identity()));
+    }
+
+    /**
+     * 신 경로의 요청 하나 — 대상은 <b>챌린지</b>, 묶음 축은 그룹 × 그날이다.
+     *
+     * <p>슬롯을 KST 하루의 시작으로 박는다. 구 경로의 dedup 이 「당일 {@code sent_at}」이었으므로
+     * 묶음도 같은 폭이라야 창형(15분 크론)의 여러 틱이 하루 안에서 한 건으로 접힌다.
+     *
+     * <p><b>배치 메타 둘을 같이 싣는다.</b> 구 경로의 보장은 「한 배치당 (유저 × 그룹) 한 건」이고,
+     * 신 경로는 그 한 건을 사건 {@code batch.size()} 개로 쪼개 보낸다. 알림 서버가 이것을 다시
+     * 한 건으로 접으려면 <b>수신 순서에 기댈 수 없는 두 가지</b>를 알아야 한다 — relay 재전달이나
+     * 처리 경합에서 순서는 생성 순서와 갈라지고, 첫 사건만 도착한 사이에 발송이 끼면 같은 배치가
+     * 두 번 나간다:
+     * <ul>
+     *   <li>{@code bundleMembers} — 이 배치가 이 (유저 × 그룹)에 적는 <b>대상 id 전부</b>. 알림 서버는
+     *       이 집합이 다 도착했을 때만 묶음을 낸다. 개수가 아니라 집합인 것은 (유저 × 그룹 × 그날)
+     *       축에 하루 동안 여러 배치가 겹쳐 들어오기 때문이다.</li>
+     *   <li>{@code bundleRepresentative} — 딥링크에 실을 대표 챌린지(= 가장 먼저 만들어진 것).
+     *       {@code batch} 가 생성순이므로 첫 원소다.</li>
+     * </ul>
+     *
+     * @param kind      알림 종류
+     * @param user      수신자
+     * @param challenge 대상 챌린지
+     * @param batch     이 수신자에게 이번 배치로 나갈 챌린지 전부 — <b>생성순</b>이어야 한다
+     * @param now       판정 시각
+     * @return 요청
+     */
+    private static NotificationRequest request(NotificationKind kind, User user, GroupChallenge challenge,
+                                               List<GroupChallenge> batch, Instant now) {
+        Instant daySlot = now.atZone(KST).toLocalDate().atStartOfDay(KST).toInstant();
+        return new NotificationRequest(kind, user.getId(), challenge.getId(),
+                challenge.getGroup().getId(), daySlot, now, user.getLanguage(),
+                Map.of("challengeId", challenge.getId().toString(),
+                        "bundleRepresentative", batch.get(0).getId().toString(),
+                        "bundleMembers", batch.stream().map(member -> member.getId().toString()).toList()));
     }
 
     /** 푸시 문구 — 감지 경로마다 한 쌍씩 고정한다. */

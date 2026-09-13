@@ -29,7 +29,10 @@ class RequestSizeLimitFilterTest {
 
     private static FilterRegistrationBean<RequestSizeLimitFilter> focusFilter() {
         FilterRegistrationBean<RequestSizeLimitFilter> bean =
-                new FilterConfig(null, null, null).focusSessionRequestSizeFilter();
+                // 본문 크기 가드는 인증 협력자를 쓰지 않는다 — null 로 세워도 이 빈만 꺼낼 수 있다.
+                // 내부 표면 설정도 마찬가지라 빈 설정(기본값 = 꺼짐)을 넘긴다 (GROMO-1659).
+                new FilterConfig(null, null, null, new InternalApiProperties())
+                        .focusSessionRequestSizeFilter();
         assertThat(bean.getUrlPatterns()).containsExactly(FOCUS_PATH);
         return bean;
     }

@@ -1,38 +1,84 @@
-# 로컬 단독 실행. JWT_SECRET은 data-api와 동일하게 주입한다.
+# 로컬 단독 실행. prepare-satellite-deploy.py가 만든 서비스 env와 ACL 파일을 사용한다.
 name: phone-business
 services:
-  redis:
+  business-redis:
     image: redis:7-alpine
-    command: [redis-server, --maxmemory, 128mb, --maxmemory-policy, allkeys-lru, --save, '', --appendonly, 'no']
+    command:
+    - redis-server
+    - --aclfile
+    - /etc/redis/business.acl
+    - --maxmemory
+    - 128mb
+    - --maxmemory-policy
+    - allkeys-lru
+    - --save
+    - ''
+    - --appendonly
+    - 'no'
+    volumes:
+    - ${BUSINESS_REDIS_ACL_FILE:?Business Redis ACL 파일 필요}:/etc/redis/business.acl:ro
+    networks:
+    - business-cache
     mem_limit: 192m
+    restart: unless-stopped
     healthcheck:
-      test: [CMD, redis-cli, ping]
+      test:
+      - CMD
+      - redis-cli
+      - --user
+      - health
+      - --pass
+      - ''
+      - --no-auth-warning
+      - ping
       interval: 3s
       timeout: 2s
       retries: 10
   business-api:
     build: .
-    ports: ['127.0.0.1:8082:8082']
+    env_file:
+    - ${BUSINESS_API_ENV_FILE:?Business 전용 env 파일 필요}
     environment:
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET을 설정하세요}
-      GOOGLE_DRIVE_API_KEY: ${GOOGLE_DRIVE_API_KEY:-}
-      BUSINESS_REDIS_HOST: redis
+      SERVER_PORT: '8080'
+      DD_SERVICE: gromo-business-${DEPLOY_ENV:-dev}
+      BUSINESS_REDIS_HOST: business-redis
+      BUSINESS_REDIS_USERNAME: business
+    ports:
+    - '127.0.0.1:8082:8080'
+    networks:
+    - app-network
+    - business-cache
     depends_on:
-      redis:
+      business-redis:
         condition: service_healthy
-    read_only: true
-    tmpfs: ['/tmp:size=64m,mode=1777']
-    volumes: [business-logs:/app/logs]
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
     mem_limit: 2g
     cpus: 2
     pids_limit: 128
+    read_only: true
+    tmpfs:
+    - /tmp:size=64m,mode=1777
+    volumes:
+    - business-logs:/app/logs
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
     healthcheck:
-      test: [CMD, curl, -fsS, 'http://localhost:9091/actuator/health/readiness']
-      interval: 15s
+      test:
+      - CMD
+      - curl
+      - --fail
+      - --silent
+      - http://localhost:8080/health
+      interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 45s
+      retries: 30
+      start_period: 30s
+networks:
+  business-cache:
+    internal: true
+  app-network:
+    driver: bridge
 volumes:
-  business-logs:
+  business-logs: null

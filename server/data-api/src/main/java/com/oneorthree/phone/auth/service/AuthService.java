@@ -1,6 +1,9 @@
 package com.oneorthree.phone.auth.service;
 
 import com.oneorthree.phone.auth.client.SocialLoginClient;
+import com.oneorthree.phone.auth.dto.req.LogoutRequest;
+import com.oneorthree.phone.auth.repository.domain.AuthSession;
+import com.oneorthree.phone.common.support.InternalCommands;
 import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
@@ -10,6 +13,7 @@ import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.user.dto.DeviceTokenDeletionRequest;
 import com.oneorthree.phone.user.repository.domain.Provider;
 import com.oneorthree.phone.user.repository.domain.SocialAccount;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -24,6 +28,7 @@ import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
+import com.oneorthree.phone.user.service.UserSatelliteCommandService;
 import com.oneorthree.phone.auth.support.TokenHasher;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import io.jsonwebtoken.JwtException;
@@ -64,6 +69,17 @@ public class AuthService {
     private final SocialAccountRepository socialAccountRepository;
     private final JwtProvider jwtProvider;
     private final UserActivityEventLogger userActivityEventLogger;
+    /**
+     * 세션 축 (A22 ㋣ · ㋞) — {@code users.refresh_token_hash} 옆에 «병행»으로 세션 행을 쓴다.
+     * 기존 경로를 대체하지 않는 이유는 ㋪ 에 있다: 구 RT 에는 {@code sessionId} 가 없어서, 곧장
+     * 전환하면 최대 RT 수명 동안 구 토큰을 든 사용자가 전부 끊긴다(게스트에겐 계정 소실이다).
+     */
+    private final AuthSessionService authSessionService;
+    /**
+     * 기기 토큰 삭제 명령 (A22 ㋗) — 로그아웃과 같은 트랜잭션에서 적는다. 앱의 별개 {@code DELETE}
+     * 요청은 만료된 AT 로 401 이 되면 아무 기록도 남기지 못한다.
+     */
+    private final UserSatelliteCommandService userSatelliteCommandService;
     private final Map<Provider, SocialLoginClient> socialLoginClients;
 
     /**
@@ -81,6 +97,8 @@ public class AuthService {
      * @param socialAccountRepository           provider·providerId 연동 행
      * @param jwtProvider                       AT·RT 발급과 클레임 추출
      * @param userActivityEventLogger           가입·로그인 활동 로그
+     * @param authSessionService                세션 축 쓰기 — 로그인·회전·로그아웃과 같은 트랜잭션에서 돈다
+     * @param userSatelliteCommandService       기기 토큰 삭제 명령 — 로그아웃 트랜잭션에서 함께 적는다
      * @param socialLoginClients                provider 별 구현 — {@link SocialLoginClient#provider} 키로 맵을 만든다
      * @param self                              자기 프록시. 첫 로그인 유니크 위반을 새 트랜잭션으로
      *                                          재시도하기 위해 필요하다({@code @Lazy} 로 순환 주입 회피)
@@ -94,6 +112,8 @@ public class AuthService {
                        SocialAccountRepository socialAccountRepository,
                        JwtProvider jwtProvider,
                        UserActivityEventLogger userActivityEventLogger,
+                       AuthSessionService authSessionService,
+                       UserSatelliteCommandService userSatelliteCommandService,
                        List<SocialLoginClient> socialLoginClients,
                        @Lazy AuthService self) {
         this.userRepository = userRepository;
@@ -105,6 +125,8 @@ public class AuthService {
         this.socialAccountRepository = socialAccountRepository;
         this.jwtProvider = jwtProvider;
         this.userActivityEventLogger = userActivityEventLogger;
+        this.authSessionService = authSessionService;
+        this.userSatelliteCommandService = userSatelliteCommandService;
         this.socialLoginClients = socialLoginClients.stream()
                 .collect(Collectors.toMap(SocialLoginClient::provider, client -> client));
         this.self = self;
@@ -320,11 +342,17 @@ public class AuthService {
         // 트랜잭션이 방금 만든 행이라, 같은 행 재조회일 뿐 동작이 달라지지 않는다.
         user = userQueryService.getCallerForUpdate(user.getId());
 
-        // guest 클레임은 발급 시점 상태 (GROMO-1229) — 승격 직후·소셜 로그인은 isGuest=false 라 비게스트 토큰이 나간다.
-        String accessToken = jwtProvider.generateAccessToken(user.getId(), user.isGuest());
         String refreshToken = jwtProvider.generateRefreshToken(user.getId(), user.isGuest());
         // RT 원본은 응답으로만 내려가고 DB 에는 해시만 남긴다 — DB 유출 시 재사용 차단 (GROMO-713)
         user.setRefreshTokenHash(TokenHasher.sha256Hex(refreshToken));
+        // 세션 축을 «같은 트랜잭션에서» 연다(㋣). 따로 커밋하면 「RT 는 살아 있는데 세션 행은 없는」
+        // 구간이 생기고, 그 구간의 로그아웃은 끊을 대상을 못 찾는다.
+        AuthSessionService.IssuedSession session = authSessionService.open(user.getId(), refreshToken);
+        // guest 클레임은 발급 시점 상태 (GROMO-1229) — 승격 직후·소셜 로그인은 isGuest=false 라 비게스트 토큰이 나간다.
+        // gen·sid 는 additive claim 이다(㊽ · ㋞) — 앱이 로그인과 무관한 시점에 기기 토큰을 등록하므로
+        // 로그인 응답만으로는 세대를 전달할 수 없다.
+        String accessToken = jwtProvider.generateAccessToken(
+                user.getId(), user.isGuest(), user.getAuthGeneration(), session.sessionId());
 
         // 신규 유저만 가입 이벤트 발행 — 재활성화 로그인·게스트 업그레이드(isNewUser=false)는 제외
         if (isNewUser) {
@@ -334,7 +362,8 @@ public class AuthService {
         userActivityEventLogger.log(user.getId().toString(), UserActivityEvent.LOGIN_SUCCEEDED,
                 Map.of("is_new_user", isNewUser, "method", provider.name().toLowerCase()));
 
-        return new SocialLoginResponse(accessToken, refreshToken, isNewUser);
+        return new SocialLoginResponse(
+                accessToken, refreshToken, isNewUser, session.deviceBootstrap(), session.sessionId());
     }
 
     /**
@@ -364,21 +393,46 @@ public class AuthService {
         User newUser = userRepository.save(User.builder().isGuest(true).build());
         createUserSideRows(newUser.getId());
 
-        // 게스트 발급 경로 — guest=true 클레임을 실어, 승격 후 이 토큰으로 오는 요청을 판별한다 (GROMO-1229)
-        String accessToken = jwtProvider.generateAccessToken(newUser.getId(), newUser.isGuest());
         String refreshToken = jwtProvider.generateRefreshToken(newUser.getId(), newUser.isGuest());
         newUser.setRefreshTokenHash(TokenHasher.sha256Hex(refreshToken));
+        AuthSessionService.IssuedSession session = authSessionService.open(newUser.getId(), refreshToken);
+        // 게스트 발급 경로 — guest=true 클레임을 실어, 승격 후 이 토큰으로 오는 요청을 판별한다 (GROMO-1229)
+        String accessToken = jwtProvider.generateAccessToken(
+                newUser.getId(), newUser.isGuest(), newUser.getAuthGeneration(), session.sessionId());
 
         // 게스트 생성은 항상 신규 가입
         userActivityEventLogger.log(newUser.getId().toString(), UserActivityEvent.USER_SIGNED_UP,
                 Map.of("method", "guest", "is_guest", true));
         userActivityEventLogger.log(newUser.getId().toString(), UserActivityEvent.LOGIN_SUCCEEDED,
                 Map.of("is_new_user", true, "method", "guest"));
-        return new GuestLoginResponse(accessToken, refreshToken, newUser.isGuest());
+        return new GuestLoginResponse(accessToken, refreshToken, newUser.isGuest(),
+                session.deviceBootstrap(), session.sessionId());
     }
 
     /**
      * AT 재발급. RT 는 만료가 임박하면 함께 회전한다.
+     *
+     * <h2>세션 원장을 «먼저» 본다 (A22 ㋣ · codex R10 P1)</h2>
+     * {@code users.refresh_token_hash} 는 유저당 <b>하나</b>다. 같은 유저가 B 기기에서 다시 로그인하면
+     * 로그인 경로가 그 값을 B 의 해시로 덮는데, A 기기의 {@code auth_sessions} 행은 <b>여전히 활성</b>
+     * 이다. 종전 코드는 유저 해시 조회를 먼저 해서 A 의 갱신이 세션 조회에 닿기도 전에 401 이 됐고,
+     * 결국 A 는 AT 만료와 함께 강제 로그아웃됐다 — 세션을 여러 개 둔다는 계약이 유저 행 한 줄에
+     * 막혀 있었던 것이다. 그래서 <b>세션 행이 있으면 그 행이 판정·회전의 권위</b>이고, 유저 해시
+     * 검사는 <b>세션 행이 없는 구 RT</b> 에만 쓴다(㋪).
+     *
+     * <h2>왜 users 행을 «먼저» 배타 락으로 잡는가</h2>
+     * 회전이 건드리는 행은 셋이다 — {@code users}(단일 해시) · {@code aggregate_versions}(fencing 값
+     * 발급) · {@code auth_sessions}(세션). 로그아웃·탈퇴·로그인도 같은 셋을 건드리므로 순서가 갈리면
+     * 교착이다. <b>조건부 UPDATE 는 락이 아니다</b>: 술어가 안 맞으면 Postgres 는 그 행을 잠그지
+     * 않는다 — 즉 「B 가 단일 해시를 가져간 뒤의 A 회전」은 {@code users} 를 <b>전혀</b> 잠그지 않은
+     * 채 aggregate·session 을 잡으러 가고, 그때 {@code users} 를 쥔 로그아웃이 session 을 기다리면
+     * 사이클이 된다.
+     *
+     * <p>그래서 이 트랜잭션도 {@code users} 행 배타 락을 <b>가장 먼저</b> 잡는다. auth 축을 건드리는
+     * 네 경로(로그인·갱신·로그아웃·탈퇴)가 전부 같은 유저 행을 선두에서 잡으므로, 같은 유저에 대한
+     * 두 경로는 aggregate·session 근처에 <b>동시에 존재할 수 없다</b>. 회전 판정도 그 락 아래의
+     * 신선한 스냅샷으로 한다 — 세션 조회를 락 대신 쓰면 「로그아웃이 방금 끊은 세션」으로 AT 를
+     * 발급하는 창이 남는다.
      *
      * @param refreshToken 자체 발급 RT. {@code type} 이 refresh 가 아니면(access·구 토큰) 거절한다(GROMO-714)
      * @return 새 AT 와, 회전이 일어났으면 새 RT
@@ -390,24 +444,50 @@ public class AuthService {
         // (InvalidTokenException 은 RuntimeException 이라 아래 catch 에 걸리지 않는다).
         // 만료 시각도 여기서 함께 읽는다 — 아래 회전 판정이 토큰을 다시 파싱하면 그 사이 만료된
         // 토큰이 401 이 아니라 500 으로 새는 창이 생긴다.
+        UUID tokenUserId;
         Date refreshExpiresAt;
         try {
             if (!JwtProvider.TYPE_REFRESH.equals(jwtProvider.extractType(refreshToken))) {
                 throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
             }
-            jwtProvider.extractUserId(refreshToken);
+            tokenUserId = jwtProvider.extractUserId(refreshToken);
             refreshExpiresAt = jwtProvider.extractExpiration(refreshToken);
 
         } catch (JwtException e) {
             throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
         }
 
-        // 조회도 해시로 — 저장과 같은 변환을 거쳐야 매칭된다 (GROMO-713)
-        User user = userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex(refreshToken))
+        // 락을 «맨 앞»에 — 위 javadoc 의 락 순서 논증이다. 서명된 RT 가 지목한 유저이므로 이 락은
+        // 조회 결과가 아니라 토큰에서 곧장 나온다. 빈 값 = 없는 유저 or 탈퇴가 먼저 커밋됐다.
+        User user = userRepository.findActiveByIdForUpdate(tokenUserId)
                 .orElseThrow(() -> new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
 
-        // 재발급도 재발급 시점 유저 상태로 — 게스트가 승격한 뒤 갱신한 AT 는 guest=false 가 된다 (GROMO-1229)
-        String newAccessToken = jwtProvider.generateAccessToken(user.getId(), user.isGuest());
+        // 세션 조회는 락 «뒤»다 — 앞에 두면 로그아웃이 그 사이 커밋한 폐기를 못 본다.
+        Optional<AuthSession> existingSession = authSessionService.findByRefreshToken(refreshToken);
+        if (existingSession.isPresent()) {
+            return refreshOnSession(existingSession.get(), user, refreshToken, refreshExpiresAt);
+        }
+        return refreshLegacy(user, refreshToken);
+    }
+
+    /**
+     * 세션 행이 있는 RT 의 갱신 — 이 축이 판정·회전의 권위다 (A22 ㋣).
+     *
+     * <p>전제: 호출부가 {@code users} 행 배타 락을 쥐고 있고, 세션은 그 <b>락 아래에서</b> 조회됐다.
+     *
+     * @param session          그 RT 를 인정하는 세션 행
+     * @param user             락 아래에서 읽은 활성 유저 — RT 가 서명으로 지목한 그 유저다
+     * @param refreshToken     제시된 RT 원문
+     * @param refreshExpiresAt 그 RT 의 만료 시각 — 회전 판정 입력
+     * @return 새 AT 와, 회전이 일어났으면 새 RT
+     */
+    private TokenRefreshResponse refreshOnSession(AuthSession session, User user,
+                                                  String refreshToken, Date refreshExpiresAt) {
+        // 남의 세션 행을 자기 RT 로 집어가지 못하게 서명된 소유자와 대조한다 — logout 과 같은 가드다.
+        // 폐기된 세션은 되살리지 않는다(락 아래 조회라 「방금 커밋된 로그아웃」도 여기서 보인다).
+        if (!session.getUserId().equals(user.getId()) || !session.isActive()) {
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+        }
 
         // refresh 회전 (GROMO-1509) — 종전에는 refresh 를 재발급하지 않아 수명이 **로그인 시점부터
         // 고정**이었다. 매일 쓰는 유저도 만료일이 오면 그대로 로그아웃됐고, 게스트에겐 그게 곧 계정
@@ -415,47 +495,169 @@ public class AuthService {
         // 갈아끼워, 계속 쓰는 한 세션이 끊기지 않게 한다. 회전 안 하는 갱신은 refreshToken=null 로
         // 응답하고 클라이언트는 저장소를 건드리지 않는다.
         if (!jwtProvider.isRefreshRotationDue(refreshExpiresAt, user.isGuest())) {
-            return new TokenRefreshResponse(newAccessToken, null);
+            // 회전하지 않아도 AT 는 새로 나간다 — 그 AT 의 sid 는 «지금 쥔 RT 의 세션»이다.
+            return new TokenRefreshResponse(
+                    issueAccessToken(user, session.getId()), null, session.getId(), null);
         }
 
-        // 해시 교체는 엔티티가 아니라 조건부 UPDATE 로 한다 — 위 해시 조회에 락이 없어서, 엔티티에
-        // 쓰면 full-row UPDATE 가 낡은 스냅샷으로 탈퇴가 세운 is_deleted·파기된 PII 를 되살린다
-        // (User 에 @Version·@DynamicUpdate 없음 — UserRepository.rotateRefreshTokenHash 주석).
+        String currentHash = TokenHasher.sha256Hex(refreshToken);
         String rotatedRefreshToken = jwtProvider.generateRefreshToken(user.getId(), user.isGuest());
-        int rotated = userRepository.rotateRefreshTokenHash(
-                user.getId(),
-                TokenHasher.sha256Hex(refreshToken),
-                TokenHasher.sha256Hex(rotatedRefreshToken));
-        if (rotated == 0) {
-            // 그 사이 탈퇴·로그아웃·다른 기기 로그인이 먼저 커밋됐다. 끊긴 세션은 되살리지 않는다.
-            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+        // 유저 축 단일 해시는 «아직 이 RT 를 가리킬 때만» 따라 움직인다.
+        //   · 가리키고 있으면(=이 기기가 마지막 로그인) 반드시 갈아끼운다. 안 그러면 회전으로 죽은 RT 가
+        //     유저 행에 남아, 세션 행이 회전된 뒤 구 RT 승격 경로로 «되살아난다».
+        //   · 다른 기기가 가져갔으면 «건드리지 않는다». 덮으면 B 기기의 구 RT 경로가 끊긴다.
+        // 판정을 락 아래 스냅샷으로 먼저 하고, 쓰기는 조건부 UPDATE 로 좁게 낸다(full-row UPDATE 가
+        // 탈퇴가 세운 is_deleted·파기된 PII 를 되살리지 않게 — UserRepository 주석 참고).
+        // 락을 쥔 채이므로 여기서 0 행이 나오면 그것은 경합이 아니라 «불변식 위반»이다 → fail-closed.
+        if (currentHash.equals(user.getRefreshTokenHash())) {
+            int rotated = userRepository.rotateRefreshTokenHash(
+                    user.getId(), currentHash, TokenHasher.sha256Hex(rotatedRefreshToken));
+            if (rotated == 0) {
+                throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+            }
         }
-        return new TokenRefreshResponse(newAccessToken, rotatedRefreshToken);
+        // 세션 행 CAS. users 락이 같은 유저의 동시 회전을 이미 직렬화하므로 여기서 0 이 나올 수는
+        // 없지만, 락 규율이 깨지는 날 조용히 덮어쓰는 대신 끊기도록 fail-closed 로 남겨 둔다.
+        AuthSessionService.IssuedSession rotated = authSessionService
+                .rotateActive(session, refreshToken, rotatedRefreshToken)
+                .orElseThrow(() -> new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
+        return new TokenRefreshResponse(issueAccessToken(user, rotated.sessionId()), rotatedRefreshToken,
+                rotated.sessionId(), rotated.deviceBootstrap());
     }
 
     /**
-     * 로그아웃 — 저장된 RT 해시를 지워 세션을 끊는다.
+     * 세션 행이 없는 구 RT 의 갱신 — 유저 행의 단일 해시가 유일한 판정 근거다 (㋪).
      *
-     * @param refreshToken 자체 발급 RT. access 토큰으로 남의 세션을 끊지 못하도록
-     *                     {@code refreshToken()} 과 같은 타입 가드를 적용한다(GROMO-714)
+     * <p>남은 수명과 관계없이 <b>항상 회전</b>한다. 그 회전이 세션 축에 올리는 유일한 자리라,
+     * 여기서 건너뛰면 구 토큰을 든 기기가 끝까지 세션 없이 남는다.
+     *
+     * <p>이미 회전된 RT 가 여기로 떨어져도 <b>되살아나지 않는다</b> — 회전이 유저 해시를 새 값으로
+     * 갈아끼웠거나(이 기기가 마지막 로그인), 애초에 다른 기기가 그 자리를 갖고 있어 어느 쪽이든
+     * 아래 해시 대조가 어긋난다.
+     *
+     * @param user         락 아래에서 읽은 활성 유저 — RT 가 서명으로 지목한 그 유저다
+     * @param refreshToken 제시된 구 RT 원문
+     * @return 새 AT·새 RT 와 승격된 세션 값
+     */
+    private TokenRefreshResponse refreshLegacy(User user, String refreshToken) {
+        // 대조도 해시로 — 저장과 같은 변환을 거쳐야 매칭된다 (GROMO-713)
+        String currentHash = TokenHasher.sha256Hex(refreshToken);
+        if (!currentHash.equals(user.getRefreshTokenHash())) {
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+        }
+
+        String rotatedRefreshToken = jwtProvider.generateRefreshToken(user.getId(), user.isGuest());
+        int rotated = userRepository.rotateRefreshTokenHash(
+                user.getId(), currentHash, TokenHasher.sha256Hex(rotatedRefreshToken));
+        if (rotated == 0) {
+            // 락을 쥐고 대조까지 통과한 뒤라 여기까지 오면 불변식이 깨진 것이다 — 끊긴 세션은
+            // 되살리지 않는다는 계약대로 거절한다(fail-closed).
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+        }
+        // 세션 행이 여기서 승격(백필)된다(㋪) — 구 RT 는 sessionId 가 없어서, 첫 회전이 세션 축에
+        // 올리는 유일한 자리다.
+        AuthSessionService.IssuedSession session =
+                authSessionService.promoteLegacy(user.getId(), rotatedRefreshToken, user.getDeviceToken());
+        return new TokenRefreshResponse(issueAccessToken(user, session.sessionId()), rotatedRefreshToken,
+                session.sessionId(), session.deviceBootstrap());
+    }
+
+    /**
+     * 재발급 AT — 재발급 시점 유저 상태로 만든다 (GROMO-1229: 게스트가 승격하면 guest=false).
+     *
+     * <p>{@code gen}·{@code sid} 는 additive claim 이다. <b>세대는 DB 의 현재 값</b>이고, 이 값이
+     * 옛 AT 에 소급되지 않는 것이 계약이다(㊍) — 옛 AT 는 claim 이 없는 채로 만료까지 남는다.
+     */
+    private String issueAccessToken(User user, UUID sessionId) {
+        return jwtProvider.generateAccessToken(
+                user.getId(), user.isGuest(), user.getAuthGeneration(), sessionId);
+    }
+
+    /**
+     * 로그아웃 — 저장된 RT 해시를 지우고 <b>그 세션만</b> 끊는다.
+     *
+     * <p>명시한 기기 토큰 또는 구 RT에 연결한 이관 기기의 삭제를 <b>같은 트랜잭션에서</b> 남긴다(㋗ · ㊲).
+     * 앱은 토큰 {@code DELETE} 를 AT 로 인증해 별개 요청으로 보내는데, 로그아웃 직전에는 그 AT 가
+     * 이미 만료돼 401 이 되는 일이 흔하다 — 그러면 앱은 실패를 삼키고 로컬 인증을 지우므로
+     * <b>아무도 재시도하지 않고 이전 계정 푸시가 그 기기로 계속 간다</b>.
+     *
+     * <p><b>유저 축 세대는 올리지 않는다</b>(㊼) — 올리면 로그인 중인 다른 기기의 재등록이 거부된다.
+     *
+     * @param request RT 와(선택) 대상 기기 토큰·소유권 값·멱등 키. access 토큰을 보내면 타입 가드에
+     *                걸려 거절된다(GROMO-714)
      */
     @Transactional
-    public void logout(String refreshToken) {
+    public void logout(LogoutRequest request) {
+        String refreshToken = request.refreshToken();
+        UUID tokenUserId;
         // refreshToken() 과 동일한 refresh 타입 가드 — access 토큰으로 세션을 끊지 못하게 한다 (GROMO-714).
         try {
             if (!JwtProvider.TYPE_REFRESH.equals(jwtProvider.extractType(refreshToken))) {
                 throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
             }
-            jwtProvider.extractUserId(refreshToken);
+            tokenUserId = jwtProvider.extractUserId(refreshToken);
         } catch (JwtException e) {
             throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
         }
 
-        User user = userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex(refreshToken))
-                .orElseThrow(() -> new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
-
-        user.setRefreshTokenHash(null);
+        // users → session 순서로 잠근다. 같은 RT 응답 유실 재시도와 동시 로그아웃은 하나로 수렴한다.
+        User user = userRepository.findActiveByIdForUpdate(tokenUserId).orElse(null);
+        Optional<AuthSession> session = authSessionService.findByRefreshToken(refreshToken);
+        if (session.isPresent() && !session.get().getUserId().equals(tokenUserId)) {
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+        }
+        if (session.isPresent() && !session.get().isActive()) {
+            return; // 첫 요청의 삭제 명령·세션 폐기가 같은 커밋에 남아 있다.
+        }
+        String hash = TokenHasher.sha256Hex(refreshToken);
+        if (user == null || (session.isEmpty() && !hash.equals(user.getRefreshTokenHash()))) {
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+        }
+        String legacyDeviceToken = session.isEmpty() ? user.getDeviceToken()
+                : (session.get().isLegacy() ? session.get().getLegacyDeviceToken() : null);
+        if (session.isEmpty()) {
+            authSessionService.recordLegacyLogoutSession(user.getId(), refreshToken, legacyDeviceToken);
+        }
+        // A 기기의 지연 로그아웃이 B 기기의 최신 RT 를 지우지 않는다.
+        if (hash.equals(user.getRefreshTokenHash())) {
+            user.setRefreshTokenHash(null);
+        }
+        // 명시한 대상이 없으면 검증된 구 RT에 연결해 둔 기기만 삭제한다.
+        // 현재 users 토큰으로 다른 세션의 기기를 추정하지 않고, 재등록된 바인딩도 보존한다.
+        if (request.deviceToken() != null && !request.deviceToken().isBlank()) {
+            userSatelliteCommandService.recordDeviceTokenDeletion(
+                    user.getId(),
+                    new DeviceTokenDeletionRequest(
+                            request.deviceToken(), request.ownershipToken(), null),
+                    logoutIdempotencyKey(request));
+        } else if (legacyDeviceToken != null && !legacyDeviceToken.isBlank()) {
+            userSatelliteCommandService.recordLegacyLogoutDeviceTokenDeletion(
+                    user.getId(), legacyDeviceToken, logoutIdempotencyKey(request));
+        }
+        // 개별 기기 로그아웃 = «세션»이 끝나는 사건이다(㋞). 유저 축 세대는 올리지 않는다 —
+        // 올리면 로그인 중인 다른 기기의 재등록이 거부돼 그 기기 푸시가 끊긴다(㊼).
+        // 폐기 사실은 같은 트랜잭션의 outbox 로 알림 서버에 전달된다(비동기 폐기만으로는 relay 지연
+        // 사이에 도착한 지연 등록이 «미사용 1회용 자격»으로 통과한다, ㋤).
+        authSessionService.revokeByRefreshToken(refreshToken);
 
         userActivityEventLogger.log(UserActivityEvent.LOGOUT, Map.of());
+    }
+
+    /**
+     * 로그아웃의 멱등 키 — 앱이 주면 그 값, 아니면 <b>이 RT·이 토큰에 고정된</b> 값을 만든다.
+     *
+     * <p>본문에서 키를 도출하는 것이 여기서는 안전하다. ㊞ 가 금지하는 것은 <b>생성</b> 명령의 본문
+     * 유래 키다 — 「끝난 챌린지를 같은 설정으로 다시 만드는」 정상 명령이 과거 응답으로 접히기
+     * 때문이다. 기기 토큰 삭제는 같은 대상을 두 번 지워도 결과가 같으므로 접히는 편이 맞다.
+     *
+     * <p>RT 원문이 아니라 <b>해시</b>를 재료로 쓴다 — 멱등 키는 저장돼 로그·덤프에 남을 수 있고,
+     * 거기 자격증명 원문이 섞이면 그게 곧 유출이다.
+     */
+    private String logoutIdempotencyKey(LogoutRequest request) {
+        if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
+            return request.idempotencyKey().trim();
+        }
+        return "logout:" + InternalCommands.fingerprint(
+                TokenHasher.sha256Hex(request.refreshToken()), request.deviceToken());
     }
 }

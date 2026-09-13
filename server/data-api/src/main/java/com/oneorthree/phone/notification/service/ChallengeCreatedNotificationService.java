@@ -15,6 +15,10 @@ import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -31,7 +35,9 @@ import java.time.Instant;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -87,6 +93,106 @@ public class ChallengeCreatedNotificationService {
     private final UserQueryService userQueryService;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
+
+    /**
+     * 신 경로 진입점 — <b>챌린지 생성 트랜잭션 안에서</b> 그룹원별 사건을 적는다.
+     *
+     * <p>구 경로({@link #sendCreatedNotifications})는 {@code AFTER_COMMIT} + {@code @Async} 라
+     * 커밋과 리스너 사이에 프로세스가 죽으면 그 개설 알림이 <b>아무 흔적 없이 사라진다</b> —
+     * 재훑기가 없는 1회성 사건이라 회수할 길도 없다. 여기는 {@code MANDATORY} 로 원 트랜잭션에
+     * 합류하므로 커밋된 챌린지에는 반드시 사건이 따라붙는다.
+     *
+     * <p>커밋 전이라 「그사이 삭제·종료」 재검사를 하지 않는다 — 아직 일어날 수 없는 일이다.
+     * 그 뒤에 삭제되면 알림 서버가 발송 직전 {@code POST /internal/notifications/eligibility} 로
+     * 되묻는다.
+     *
+     * @param event 개설된 챌린지
+     * @return 적은 사건 수. 이미 적혀 있던 것은 세지 않는다
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int enqueueCreatedNotifications(GroupChallengeCreatedEvent event) {
+        GroupChallenge challenge = groupQueryService.findChallenge(event.challengeId()).orElse(null);
+        if (challenge == null) {
+            return 0;
+        }
+        Map<String, Object> mission = missionSnapshot(challenge);
+        int queued = 0;
+        // 수신자 순서를 «전역으로 같은 기준»으로 고정한다. OUTBOX 모드의 enqueueOnly 는 수신자마다
+        // aggregate_versions(USER, userId) 를 배타 잠금하고 그 잠금은 원 트랜잭션이 끝날 때까지
+        // 유지된다. findByGroup 에는 ORDER BY 가 없으므로, 공통 멤버가 여럿인 두 그룹에서 챌린지가
+        // 동시에 개설되면 한쪽이 A→B, 다른 쪽이 B→A 로 잠금을 잡아 PostgreSQL 이 한쪽을 deadlock
+        // 으로 중단한다 — 알림 하나가 아니라 «챌린지 개설 트랜잭션 전체»가 롤백된다.
+        // 정렬 기준은 userId 다. 그룹·멤버십 id 로 정렬하면 그룹마다 순서가 달라 같은 문제가 남는다.
+        for (GroupMember member : groupMemberRepository.findByGroup(challenge.getGroup()).stream()
+                .sorted(Comparator.comparing(candidate -> candidate.getUser().getId()))
+                .toList()) {
+            User user = member.getUser();
+            if (user.isDeleted() || user.getId().equals(event.creatorUserId())) {
+                continue;
+            }
+            if (notificationDispatcher.enqueueOnly(request(challenge, user, null, null, mission))
+                    == NotificationDispatchOutcome.QUEUED) {
+                queued++;
+            }
+        }
+        log.info("챌린지 개설 사건 적재 — challengeId={}, {}건", challenge.getId(), queued);
+        return queued;
+    }
+
+    /**
+     * 신 경로의 요청 하나 — 대상은 챌린지, 렌더 입력은 그룹명과 목표 한 줄이다.
+     *
+     * <p>신규 사건은 목표의 구조화된 스냅샷을 전달한다. Notification이 실제 선택한 템플릿의
+     * 언어로 목표까지 렌더하며, 상세 행을 다시 읽지 않는다.
+     *
+     * @param challenge    대상 챌린지
+     * @param user         수신자
+     * @param missionLabel 목표 한 줄
+     * @param keyAt        결정적 키의 시간축 힌트. 축이 없는 kind 라 {@code null} 이어도 된다
+     * @return 요청
+     */
+    private static NotificationRequest request(GroupChallenge challenge, User user, String missionLabel,
+                                               Instant keyAt) {
+        return request(challenge, user, missionLabel, keyAt, Map.of());
+    }
+
+    private static NotificationRequest request(GroupChallenge challenge, User user, String missionLabel,
+            Instant keyAt, Map<String, Object> mission) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("challengeId", challenge.getId().toString());
+        params.put("groupName", challenge.getGroup().getName());
+        if (mission.isEmpty()) {
+            params.put("missionLabel", missionLabel);
+        } else {
+            params.put("mission", mission);
+        }
+        return new NotificationRequest(NotificationKind.CHALLENGE_CREATED, user.getId(),
+                challenge.getId(), challenge.getGroup().getId(), null, keyAt, user.getLanguage(),
+                params);
+    }
+
+    private Map<String, Object> missionSnapshot(GroupChallenge challenge) {
+        Map<String, Object> mission = new LinkedHashMap<>();
+        mission.put("type", challenge.getType().name());
+        mission.put("category", challenge.getCategory().name());
+        mission.put("repeatDays", RepeatDay.listOf(challenge.getRepeatDays()).stream().map(Enum::name).toList());
+        if (challenge.getType() == MissionType.DURATION) {
+            groupChallengeDurationRepository.findByChallengeIdIn(List.of(challenge.getId())).stream().findFirst()
+                    .map(GroupChallengeDuration::getDurationMinutes)
+                    .ifPresent(minutes -> mission.put("durationMinutes", minutes));
+        } else {
+            groupChallengeWindowRepository.findByChallengeIdIn(List.of(challenge.getId())).stream().findFirst()
+                    .ifPresent(window -> {
+                        mission.put("windowStart", hhmm(window.getWindowStart()));
+                        mission.put("windowEnd", hhmm(window.getWindowEnd()));
+                        if (window.getDurationMinutes() != null) {
+                            mission.put("durationMinutes", window.getDurationMinutes());
+                        }
+                    });
+        }
+        return mission;
+    }
 
     /**
      * 발송 본체. 진입점(커밋 이후·비동기)은 {@code ChallengeCreatedNotificationListener} 가 맡는다.
@@ -145,8 +251,9 @@ public class ChallengeCreatedNotificationService {
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
             try {
                 // 알림 off·토큰 없음·야간 모드는 sendIfAllowed 가 걸러 false 를 돌려준다.
-                if (pushNotificationService.sendIfAllowed(
-                        user, settings, compose(challenge, missionLabel, soundEnabled), now)) {
+                if (notificationDispatcher.dispatch(user, settings,
+                        request(challenge, user, missionLabel, now),
+                        compose(challenge, missionLabel, soundEnabled), now).recordsLegacyLog()) {
                     sent++;
                     newLogs.add(NotificationSentLog.builder()
                             .userId(user.getId())

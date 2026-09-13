@@ -6,6 +6,10 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
@@ -71,6 +75,7 @@ public class SilentFlushPushService {
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
 
     /**
      * 스케줄러(5분)·수동 트리거 진입점.
@@ -116,6 +121,24 @@ public class SilentFlushPushService {
                 continue;
             }
             User user = participant.getUser();
+            if (notificationDispatcher.isOutboxMode()) {
+                // 신 경로는 선점 행을 만들지 않는다 — 그 자리를 결정적 사건 키가 대신한다.
+                // 슬롯은 실제 발송 시각이 아니라 설계상의 슬롯(settle_after - 15분)이라
+                // 어느 틱이 집었든 같은 값이 남는다(구 경로의 insertPendingClaim 과 같은 규칙).
+                NotificationDispatchOutcome outcome = notificationDispatcher.dispatchSilent(user,
+                        new NotificationRequest(NotificationKind.BET_SILENT_FLUSH, user.getId(),
+                                session.getId(), session.getGroup().getId(),
+                                session.getSettleAfter().minus(SETTLE_LEAD), null, user.getLanguage(),
+                                Map.of(SILENT_KEY, SILENT_VALUE)),
+                        PushMessage.silent(Map.of(SILENT_KEY, SILENT_VALUE,
+                                "groupId", session.getGroup().getId().toString())));
+                if (outcome == NotificationDispatchOutcome.QUEUED) {
+                    sent++;
+                } else {
+                    deduped++;
+                }
+                continue;
+            }
             UUID rowId = Generators.timeBasedEpochRandomGenerator().generate();
             // 선점(사건 = 유저 × BET_SILENT_FLUSH × 회차) — 15분 창을 3틱 훑어도, 다중 인스턴스가
             // 동시에 돌아도 1회만 나가게 한다. 슬롯 메타는 실제 발송 시각이 아니라 설계상의 슬롯

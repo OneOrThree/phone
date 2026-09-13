@@ -2,6 +2,7 @@ package com.oneorthree.phone.notification.listener;
 
 import com.oneorthree.phone.group.event.GroupBetSessionClosedEvent;
 import com.oneorthree.phone.config.NotificationAsyncConfig;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.service.BetEventNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class BetSessionClosedNotificationListener {
 
+    private final NotificationDispatcher notificationDispatcher;
     private final BetEventNotificationService betEventNotificationService;
 
     /**
@@ -41,6 +43,11 @@ public class BetSessionClosedNotificationListener {
     @Async(NotificationAsyncConfig.PUSH_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onSessionClosed(GroupBetSessionClosedEvent event) {
+        if (notificationDispatcher.isOutboxMode()) {
+            // 신 경로에서는 BEFORE_COMMIT 리스너가 이미 사건을 적었다. 여기서 또 처리하면 같은
+            // 알림이 FCM 으로도 가고 Kafka 로도 간다 — 회차 종료 결과가 FCM 으로도 가고 Kafka 로도 간다.
+            return;
+        }
         try {
             betEventNotificationService.notifySessionClosed(event.sessionId(), Instant.now());
         } catch (RuntimeException e) {

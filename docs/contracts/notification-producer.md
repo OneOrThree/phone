@@ -1,0 +1,617 @@
+# 알림 producer 계약 — Data 가 무엇을 적고 Notification 이 무엇을 하는가
+
+정본은 `docs/architecture/decisions.md` A22 와 `docs/contracts/notification-event-v1.json` 이다.
+이 문서는 그 둘 사이의 **종류별 구체값**을 못 박는다 — 어떤 사건이 언제 어떤 키로 적히고,
+발송 입력이 무엇이며, 조용한 시간에 걸리면 어떻게 되는가.
+
+기계가 읽을 형태는 `/tmp/gromo-notification-catalog.json`(알림 서버 템플릿 시드용)이다.
+이 문서와 그 파일이 어긋나면 **코드가 맞다** — 둘 다 `NotificationKind` 에서 나왔다.
+
+## 1. 경계
+
+| | Data | Notification |
+| --- | --- | --- |
+| 후보 판정 | **한다** (코어 DB 를 읽어야 답할 수 있는 질문이다) | 안 한다 |
+| 렌더 (제목·본문·로케일) | 안 한다 | **한다** (kind × locale 템플릿) |
+| 묶음 (bundling) | 결과 슬롯의 **기대 사건 집합·완료 여부**를 확정한다 | **렌더·발송한다** (`userId` × `groupId` × `slotAt`) |
+| 조용한 시간 판정·이월 | 정책만 실어 보낸다 | **한다** (설정의 정본을 쥔 쪽이다) |
+| 발송·재시도·dedup 상태 | 안 한다 | **한다** |
+| 발송 이력 완료 표시 | **하지 않는다** | **한다** |
+
+Data 가 조용한 시간을 직접 거르면 설정을 두 곳이 읽는다. 설정 최종 상태의 정본은 이관 후
+알림 DB 이므로, Data 가 자기 사본으로 거르면 **갱신이 늦은 쪽이 사용자의 설정을 어긴다**.
+
+## 2. 봉투
+
+| 필드 | 값 |
+| --- | --- |
+| `type` | 발송 사건은 `notification.requested` (`params.kind`로 종류 구분), 결과 슬롯 완료는 `notification.resultBundle.closed` |
+| `schemaVersion` | `1` |
+| `userId` | 수신자 **하나**. fan-out 은 이미 펼쳐진 뒤다(㊢) |
+| `subjectId` | 도메인 대상 UUID 문자열. 대상 없는 kind 는 `null` |
+| `aggregate` | `USER:<userId>` |
+| `scheduledAt` | **항상 `null`** |
+| `locale` | `users.language` (`ko`·`en`·`ja`·`zh-Hant`). 미보고는 `null` → 수신 측 `ko` 폴백 |
+| `version` | outbox 가 USER 축 행 잠금 아래 발급 |
+
+`scheduledAt` 이 항상 `null` 인 이유: 이월(`DEFER`)은 **발행**을 미루는 일이 아니라 **발송**을
+미루는 일이고, 그 판정에 필요한 조용한 시간 설정의 정본은 알림 DB 에 있다. relay 를 붙잡아 두면
+그사이 설정이 바뀌어도 이미 박힌 시각으로 나가고, Kafka 에 아직 없는 사건은 알림 서버가
+상태(설정 삭제·탈퇴·ack)를 반영할 기회조차 갖지 못한다.
+
+## 3. 결정적 사건 키
+
+```
+noti:<KIND>:<userId>:<subjectId|none>:<시간축|none>
+```
+
+조립은 `NotificationEventKey.of(...)` **한 곳**에서만 한다 — producer 와 이관 export 가 같은
+함수를 부른다. 두 곳이 각자 문자열을 만들면 구분자 하나, `none` 이라는 단어 하나가 언제든
+갈라지고, 그러면 이관분과 신규분이 서로를 중복으로 보지 못해 **사용자에게 두 번** 간다.
+
+축 넷이 전부 필요하다. kind 가 없으면 같은 회차의 결과와 환불이 한 건으로 접히고, `userId` 가
+없으면 fan-out 이 한 명으로 줄고, `subjectId` 가 없으면 서로 다른 회차가 뭉치고, 시간축이 없으면
+매일 반복되는 알림이 첫날 이후 멈춘다.
+
+### 시간축
+
+| 값 | 버킷 | 대체한 구 dedup |
+| --- | --- | --- |
+| `NONE` | `none` | 선점 UNIQUE `(user_id, kind, subject_id)` — 시간축이 없었다 |
+| `MINUTE` | 사건 시각 epoch-second (분 내림) | 「최근 1분」 조회 |
+| `QUARTER_HOUR` | 사건 시각 epoch-second (15분 내림) | (현재 쓰는 kind 없음 — 묶음 슬롯과 같은 폭) |
+| `DAY` | KST `yyyyMMdd` | 「당일 `sent_at`」 조회 / 하루 1회 크론 |
+| `WEEK` | 그 주 월요일의 KST `yyyyMMdd` | 주 1회 크론 |
+
+폭이 구 dedup 창보다 **좁으면** 중복 푸시가 나가고, **넓으면** 매일 반복되는 알림이 첫날 이후
+영영 안 나간다. 둘 다 조용히 일어나므로 kind 마다 명시적으로 고른다.
+
+**시간축이 `NONE` 이 아닌 kind 는 원본 사건 시각이 필수다.** 없으면 `IllegalArgumentException`
+으로 죽는다 — 「없으면 지금」으로 접으면 같은 원인의 재처리가 다른 키가 되어 멱등이 무너진다
+(하루 뒤 재처리 = 다음 날 알림). 이관 export 도 같은 규칙으로 `slot_at` 에서 키를 만든다.
+
+### 경합
+
+`append` 는 조회 **전에** `allocateVersion(USER:<userId>)` 로 유저 축 행을 배타 잠금한다.
+잠그지 않으면 같은 결정적 키가 동시에 들어올 때 둘 다 「없다」를 보고 둘 다 INSERT 해서,
+한쪽이 UNIQUE 위반으로 죽으며 **도메인 트랜잭션 전체를 되돌린다** — 중복 알림 하나를 막으려다
+정산·친구 요청이 롤백된다. 대가로 version 번호가 띈다(중복이라 적지 않은 호출도 번호를 하나
+쓴다). 소비 측은 단조 증가만 보고 연속에 기대지 않으므로 빈 번호는 무해하다.
+
+## 4. 종류 19 — 축·정책·렌더 입력
+
+`RANK_OVERTAKE` 와 봇 계열은 **없다**(A5 폐기). 구 코드의 크론과 판정은 남아 있지만
+`OUTBOX` 모드에서 발송하지 않고 판정 건수만 로그로 남긴다 — 폐기가 「조용한 사라짐」이 아니라
+「기록된 중단」이 되게.
+
+| kind | 시간축 | subject | 조용한 시간 | 적격성 | `data.type` | 렌더 입력(`params`) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `LEAGUE_WEEKLY_RESULT` | WEEK | — | DROP | 무관 | — | `result`(PROMOTED\|RELEGATED\|STAY) · `previousTierLevel` · `newTierLevel` |
+| `LEAGUE_DEADLINE` | DAY | — | DROP | 무관 | — | `rank` |
+| `LEAGUE_FINAL_DEADLINE` | DAY | — | DROP | 무관 | — | `rank` |
+| `LEAGUE_DEADLINE_D1` | DAY | — | DROP | 의존 | — | `shortfallSeconds` |
+| `LEAGUE_RELEGATION_WARNING` | DAY | — | DROP | 의존 | — | `shortfallSeconds` |
+| `LEAGUE_RELEGATION_WARNING_EVENING` | DAY | — | DROP | 의존 | — | `shortfallSeconds` |
+| `INACTIVE_RETURN` | DAY | — | DROP | 무관 | — | `stage`(D3\|D7\|D14) |
+| `MISSED_FOCUS_TODAY` | DAY | — | DROP | 무관 | — | (없음) |
+| `STREAK_AT_RISK` | DAY | — | DROP | 무관 | — | `streakCount` |
+| `BET_RESULT` | NONE | 회차 | **DEFER** | 의존 | `BET_RESULT` | `challengeId` · `stake` · `betStatus` · `achieved` · `payout` |
+| `BET_VOID_REFUND` | NONE | 회차 | **DEFER** | 의존 | `BET_VOID_REFUND` | `challengeId` · `stake` · `voidReason`(nullable) |
+| `BET_WON` | NONE | 회차 | DROP | 의존 | `BET_WON` | `challengeId` |
+| `BET_SILENT_FLUSH` | NONE | 회차 | **BYPASS** | 의존 | — | `silent=flush` |
+| `CHALLENGE_SESSION_OPEN` | NONE | 회차 | **DEFER_UNTIL** | 의존 | `CHALLENGE_SESSION_OPEN` | `challengeId` · `stake` · `deferExpiresAt` |
+| `CHALLENGE_WINDOW_END` | DAY | 챌린지 | DROP | 의존 | `CHALLENGE_WINDOW_END` | `challengeId` |
+| `CHALLENGE_ENDED` | DAY | 챌린지 | DROP | 의존 | `CHALLENGE_ENDED` | `challengeId` |
+| `CHALLENGE_CREATED` | NONE | 챌린지 | DROP | 의존 | `CHALLENGE_CREATED` | `challengeId` · `groupName` · `mission`(목표 스냅샷) |
+| `FRIEND_REQUEST` | MINUTE | 상대 유저 | DROP | 의존 | `FRIEND_REQUEST` | `counterpartUserId` · `counterpartNickname` · `requestId` |
+| `FRIEND_ACCEPTED` | MINUTE | 상대 유저 | DROP | 의존 | `FRIEND_ACCEPTED` | `counterpartUserId` · `counterpartNickname` · `requestId` |
+
+공통 `params` 는 위에 더해 `kind` · `quietPolicy` · `groupId`(그룹 사건만) · `slotAt`(묶음 축, ISO-8601 UTC).
+
+`FRIEND_ACCEPTED`는 발송 직전 `subjectId`가 가리키는 상대 계정이 현재 활성인지 확인한다.
+상대가 탈퇴했거나 없으면 `SUBJECT_GONE`으로 억제해 지연 outbox·DLT의 과거 닉네임을 보내지 않는다.
+수락은 이미 일어난 사실이므로 단순 친구 해제만으로 억제하지 않는다. 관리자 시험도 상대 활성
+조건을 따르며, 활성 수신자 자신을 대상으로 하는 정상 시험은 허용한다.
+
+`BET_SILENT_FLUSH`는 수신자가 회차 참가자이며 회차가 `OPEN`이고 현재 시각이 `settle_after`
+미만일 때만 허용한다. 종료 회차는 `SESSION_CLOSED`, 정산 대기 중이어도 정산 가능 시각에
+도달했으면 `EVENT_EXPIRED`로 억제한다. 관리자 시험도 이 실제 회차 조건을 우회하지 않는다.
+
+리그 위기 3종은 생성 스캔과 같은 활성·온보딩 완료 모수에서 현재 티어와 KST 현재 주간의
+확정 집중 합계를 다시 조회한다. 강등 경고 2종은 T1을 제외하고 현재 티어의 강등선 미달일 때,
+`LEAGUE_DEADLINE_D1`은 T5를 제외하고 강등 위험이 아니면서 승급선 미달일 때만 허용한다.
+임계값에 도달했거나 분기 조건이 바뀌면 `LEAGUE_CONDITION_CHANGED`로 억제한다. 주간 합계 0도
+생성 규칙에 따라 대상이 될 수 있다. 현재 티어 설정이 없으면 억제로 종결하지 않고 5xx로 재시도한다.
+사건에 `shortfallSeconds`가 있으면 현재 분기의 임계값에서 현재 주간 합계를 뺀 부족 시간과
+동일한 숫자여야 한다. 아직 위기 조건을 만족해도 집중 합계·티어 설정 변경으로 부족 시간이 달라지면
+`LEAGUE_CONDITION_CHANGED`로 억제한다. 저장된 사건의 보간값은 갱신하지 않는다. 관리자 시험도
+제공한 부족 시간에는 같은 검사를 적용하되, 빈 `params` 시험에 새 필수 입력을 요구하지 않는다.
+기존 만료 검사와 관리자 시험의 현재 상태 검사를 유지하며, 일반 마감·주간 결과 알림에
+위기 조건을 추가하지 않는다.
+
+`BET_WON`은 발송 직전 Data 정본에서 회차가 `OPEN` 또는 `SETTLED`이고 해당 참가자의
+`achieved=true`일 때만 허용한다. 조기 확정은 정산 전에도 유효하지만, `VOIDED`·`REFUNDED` 등으로
+끝난 회차는 환불 후에도 달성 기록이 남을 수 있어 회차 상태를 함께 확인한다. `achieved_at`은
+V42 이전 이력이나 최종 정산에서 판정된 승자에게 null일 수 있으므로 필수 조건으로 삼지 않는다.
+미확정·패배 참가자는 `WIN_NOT_CONFIRMED`, 무산·환불 등의 회차는 `SESSION_INVALIDATED`로 억제한다.
+
+리텐션 3종은 만료 검사에 더해 생성 때의 대상 조건을 현재 정본으로 다시 확인한다.
+`INACTIVE_RETURN`은 정식 사용자의 `last_active_at`이 KST 기준 정확히 3·7·14일 전이어야 하며,
+`stage`가 있으면 현재 단계도 일치해야 한다. `MISSED_FOCUS_TODAY`는 이번 주 집중 누적이 양수인
+랭킹 대상이며 KST 오늘 종료한 완료 세션이 없어야 한다. 취소·자동 종료는 완료로 세지 않는다.
+`STREAK_AT_RISK`는 삭제되지 않은 양수 스트릭이 오늘 이어질 수 있고 오늘 집계가 600초 미만이어야
+한다. 후자 두 종류는 12시간 이내에 시작한 미종료 세션이 있으면 `CURRENTLY_FOCUSING`으로 억제한다.
+오늘 완료한 미집중 알림은 `ALREADY_FOCUSED_TODAY`, 600초를 채운 스트릭 알림은
+`STREAK_ALREADY_PRESERVED`, 나머지 대상 조건 변경은 `RETENTION_CONDITION_CHANGED`로 거절한다.
+관리자 시험의 별도 유효기간도 이 현재 상태 검사를 생략하지 않으며, 새 필수 params는 추가하지 않는다.
+
+`CHALLENGE_CREATED.mission`은 `type`(`DURATION`/`TIME_WINDOW`), `category`(`FOCUS`/`SCREEN_TIME`),
+`repeatDays`(월~일 순서의 `MON`…`SUN` 배열), 선택 `durationMinutes`와 `windowStart`·`windowEnd`를
+담는다. 창 시각은 저장된 KST 벽시계의 `HH:mm`이다. Data는 사건 생성 때 상세 행을 읽어 이 값을
+보존하고, Notification은 **실제 선택된 템플릿의 locale**로 목표 문구까지 렌더한다. 번역 템플릿이
+꺼져 한국어로 폴백할 때도 목표와 본문 언어가 같다. 상세 행·목표분이 없는 과거 데이터에는 목표를
+지어내지 않는다. 이미 기록된 `missionLabel` 전용 사건은 원문을 그대로 렌더한다.
+
+**`LEAGUE_RELEGATION_WARNING` 과 `…_EVENING` 은 문구가 완전히 같다.** kind 를 가른 이유는 오직
+dedup 축이다 — 일 09:00 과 18:00 은 *의도된 하루 2회 발송*인데 한 kind + DAY 축으로 두면 저녁분이
+아침 키에 접혀 영영 안 나간다.
+
+`CHALLENGE_ENDED`(일 목표형)와 `CHALLENGE_WINDOW_END`(창형)의 이름이 어긋나 보이는 것은 앱의
+레거시 딥링크 폴백이 `CHALLENGE_WINDOW_END` 문자열에 걸려 있기 때문이다 — 두 이름 다 계약이다.
+
+### 조용한 시간 정책
+
+| 값 | 뜻 | 쓰는 kind |
+| --- | --- | --- |
+| `DROP` | 버린다 — 지연 도착이 거짓말이 되는 알림 | 위 표의 대부분 |
+| `DEFER` | 조용한 시간이 끝난 뒤 보낸다(N44). 묶음·dedup 은 **원래 슬롯** 유지 | `BET_RESULT` · `BET_VOID_REFUND` |
+| `DEFER_UNTIL` | 이월하되 `params.deferExpiresAt` 에서 만료 — 그때 이미 참가 마감이면 버린다 | `CHALLENGE_SESSION_OPEN` |
+| `BYPASS` | 표시가 아니라 앱 기동 신호라 필터를 타지 않는다(HLD §6 예외) | `BET_SILENT_FLUSH` |
+
+## 5. 묶음 — Data가 완료를 확정하고 Notification이 렌더·발송한다
+
+구 경로는 `(유저 × 그룹 × 15분 슬롯)` 으로 접어 한 건을 보냈다. 신 경로에서 Data 는
+**회차/챌린지마다 한 건씩** 적고 `groupId` 와 **원래 슬롯**(`slotAt`, 사건 시각 기준)을 실어 보낸다.
+접는 일은 알림 서버가 한다.
+
+내기 결과·무효 환불 묶음 키에 **kind 를 넣지 않는다.** 넣으면 한 슬롯에서 어떤 회차는 정산되고 어떤 회차는 무효화된
+경우 묶음이 둘로 갈려 푸시가 2건 나가고, 「하루 2~3건 상한」(N20)이 깨진다.
+
+`slotAt` 이 발송 시각이 아니라 **사건 시각**(`settled_at` 등)인 것도 계약이다 — 재훑기·이월이
+언제 돌아도 묶음이 같아야 한다.
+
+`CHALLENGE_WINDOW_END`와 `CHALLENGE_ENDED`는 kind별 사용자·그룹·KST 일 슬롯으로 묶는다. 각 사건의 `bundleMembers`는 이번 배치의 대상 challengeId 문자열 배열, `bundleRepresentative`는 생성순 첫 대상이다. 수신 측은 선언된 대상 집합과 실제 도착한 subjectId를 대조하고, 이미 SENT·SUPPRESSED인 구성원도 수신 완료에 포함한다. 늦은 사건을 기다릴 때는 다음 시도를 이월하여 다른 사용자의 알림을 계속 처리한다. 임의 시간이 지났다는 이유로 일부만 발송하지 않는다. 새로 도착한 구성원 때문에 대기를 해제할 때도 FCM 실패·조용한 시간의 재시도 시각은 보존한다.
+
+## 6. 요청형 사건은 `BEFORE_COMMIT`
+
+구 리스너 넷은 `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` 다. 커밋은 끝났는데
+리스너가 돌기 전에 프로세스가 죽으면 **그 알림은 아무 흔적 없이 사라진다** — 도메인 데이터는
+남았는데 알림만 없어서 나중에 어디를 봐도 「나갔어야 했다」를 알 수 없다. 내기 결과만 15분
+재훑기가 회수하고 친구 요청·챌린지 개설·승리 확정은 회수 경로 자체가 없다.
+
+`afterCommit` 안에서 outbox 만 적는 것으로도 안 된다 — 그 시점의 트랜잭션은 이미 커밋됐으므로
+새 트랜잭션이 열리고, 그것이 실패하면 같은 유실이 남는다. 원자성은 **같은 트랜잭션**에서만 나온다.
+
+그래서 `NotificationRequestOutboxListener` 가 `BEFORE_COMMIT` + `Propagation.MANDATORY` 다.
+여기서 나는 예외가 커밋을 되돌리는 것은 **의도**다 — 사건을 적지 못했다면 그 도메인 변경은
+「알림이 나갈 것」이라는 약속을 지킬 수 없다.
+
+`OUTBOX` 모드에서 구 `AFTER_COMMIT` 리스너 다섯(회차 종료 · 승리 확정 · 챌린지 개설 · 친구 요청 ·
+친구 수락)과 동기 ack 억제 리스너는 각각 조기 return 한다. 두 경로가 겹쳐 돌면 같은 사건이
+FCM 으로도 가고 Kafka 로도 간다.
+
+**친구 2종의 원본 시각은 `friendships.updated_at` 이다**(`created_at` 아님). 거절 후 재요청이
+같은 행을 `reopen`/`restore` 하므로 `created_at` 은 원래 관계의 시각으로 남고, 그걸 키에 쓰면
+재요청이 옛 키에 접혀 영영 안 나간다. `@UpdateTimestamp` 는 flush 때 채워지는데 `BEFORE_COMMIT`
+은 JPA 커밋 flush **전**이라 읽기 직전 `entityManager.flush()` 를 명시적으로 부른다.
+
+## 7. 조회 3종
+
+| | 경로 | 용도 |
+| --- | --- | --- |
+| ① | `GET /internal/users/notification-snapshot?cursor=&limit=` | 유저 투영 부트스트랩 · 새벽 리컨실 |
+| ② | `GET /internal/users/{userId}/result-ack?sessionId=` | 정본 ack — `HELD` 만료(`NEEDS_CONFIRM`)의 **유일한 탈출구** |
+| ③ | `POST /internal/notifications/eligibility` | 발송 직전 상태 재확인 |
+
+③의 HTTP 호출은 DB 트랜잭션과 기기 소유권 잠금을 놓은 뒤 수행한다. 짧은 첫 트랜잭션에서
+로컬 판정과 묶음 축을 캡처하고, 조회가 끝나면 새 트랜잭션에서 gate·탈퇴·ack·설정·기기를
+다시 확인한다. 조회 중 같은 묶음에 사건이 추가되거나 기존 행이 교체되면 그 계획 전체를
+버리고 다음 시도에서 새 입력으로 조회한다. 원격 장애는 미발송 행을 재시도 가능하게 남긴다.
+이 분리는 느린 Data가 기기 등록·삭제를 막지 않게 한다. 최종 소유권 검사와 FCM 호출 사이의
+기존 경합 창을 없애지는 않으며, 전송 전후 소유권·발송 임대 펜싱은 계속 적용한다.
+
+**개수가 계약이다.** 후보 탐색·정산·회계용 코어 조회를 하나씩 더하다 보면 알림 서버가 사실상
+코어 DB 를 읽는 상태가 되고, 그때는 DB 를 나눈 의미가 남지 않는다.
+
+**그리고 `projections` 는 이 셋을 대신하지 않는다.** 컷오버 이관이 `user`·`participation` 두 자원으로
+알림 서버의 `projections` 를 **한 번 세우지만**(승인 계획 ②′ · 이관 계약의 `UserProjectionRecord` ·
+`ParticipationProjectionRecord`), **그 투영을 갱신할 이벤트 producer 가 아직 하나도 없다** —
+`InboundService.PROJECTIONS` 6종 중 어느 것도 Data·Business 가 발행하지 않는다. 즉 적재된 값은
+**그 시점에 박제된 bootstrap** 이다.
+
+그래서 발송 판정은 계속 **코어 정본**이 소유한다: 적격성은 ③, 탈퇴·세대는 Data 명령/outbox 이벤트,
+설정은 알림 서버의 `settings` 테이블(이관 `settings` 자원이 채우고 `notification.settings.changed` 가
+갱신한다)이다. 「투영이 있으니 읽어도 되겠지」로 판정을 옮기면 **변경 피드가 없는 채로 조용히 옛
+상태로 판정**하게 된다 — 판정을 투영으로 옮기려면 **그 투영의 producer 를 먼저 배선**해야 한다.
+
+① 의 항목은 **표시명(`displayName`)·언어·설정 5필드 존재/null·탈퇴·세대**를 싣는다. 표시명은 지금
+어떤 템플릿도 쓰지 않지만 제공자를 먼저 배포해 둔다(A22 ㉹) — 템플릿이 투영 표시명을 쓰기 시작하는
+순간, 그때 비어 있으면 **개명한 적 없는 유저 전원이 빈 이름으로 렌더된다**.
+
+①의 `nextCursor`는 필수 nullable 필드다. null은 마지막 페이지이고, 다음 페이지가 있으면 현재
+`items`의 마지막 `userId`와 같은 정규 UUID여야 한다. Notification은 페이지를 적용하기 전에 이
+결합과 이전 커서보다 전진했는지 검증한다. 잘못된 커서로 다음 사용자를 건너뛰지 않고 재시도하며,
+UUID 대소문자는 같은 식별자로 처리한다.
+
+②는 `InternalNotificationController` 가 제공한다. `InternalChallengeResultController`(선점·확인,
+호출자는 Business)와 나눠 둔 이유는 **호출자가 다르기 때문**이다 — ②의 호출자는 알림 서버다.
+읽기 로직 자체는 `ChallengeResultAckService.readAckState` 하나뿐이라 「행이 없을 때」의 처리가
+두 곳에서 갈리지 않는다.
+
+**②는 행이 없어도 404 가 아니다.** 「미확인」과 「참가 행 없음」은 억제를 푸는 쪽에서 결론이
+같고(둘 다 「확인 표시 없음」), 404 를 던지면 수렴 경로가 그 예외에 막혀 탈출구를 두고도
+빠져나오지 못한다. `{acknowledged:false, acknowledgedAt:null}` 을 그대로 돌려준다.
+
+알림 서버는 `acknowledged=true`일 때 파싱 가능한 `acknowledgedAt` 시각이 함께 있어야 확정한다.
+`false`이면 시각은 null 또는 생략이어야 한다. 모순·필수값 누락·시각 형식 오류는 502 계약 오류로
+남겨 `NEEDS_CONFIRM`과 재조회 예약을 유지하며, 억제를 확정하거나 보류를 해제하지 않는다.
+
+②의 `ackDeadlineAt` 쿼리는 필수다. Noti prepare가 반환한 실제 저장 `held_until`을 Business가
+Data ACK 본문에 그대로 전달하고, abort·리스 만료 뒤에도 Noti는 같은 기한을 보존하여 조회한다.
+Data는 참가 행을 잠근 뒤 DB `clock_timestamp()`가 기한 미만인 경우에만 새 ACK를 쓴다.
+조회도 같은 행을 잠그고 새 상태를 읽는다. 이미 확인됐으면 즉시 true이며, 미확인·참가 행 부재는
+같은 DB 시각이 기한 이상일 때만 false다. 기한 전 미확인은 503으로 재조회한다. 따라서 커넥션
+대기로 아직 UPDATE를 시작하지 못한 ACK도 기한 뒤 재개되면 409 `RESULT_ACK_DEADLINE_EXPIRED`로
+거절되고, 기한 직전 쓰기를 시작했다면 조회가 commit·rollback까지 기다린다. 이미 확인된 쓰기
+재시도는 기한이 지나도 성공한다. Noti `CONFIRMED` prepare는 Business가 새 Data 쓰기 없이 종결한다.
+
+재prepare 기한은 기존 기한과 새 기한의 최댓값이며 DB에 저장된 시각 정밀도로 반환한다.
+Noti/Business 시계와 Data 시계의 차이는 기다리는 길이에만 영향을 주고 안전성은 Data DB의
+동일한 비퇴행 벽시계에 의존한다. 새 마이그레이션 없이 `held_until`을 재사용한다. 이전 버전이
+기한을 지운 `HELD`/`NEEDS_CONFIRM` 행은 최초 재조회에서만 유한 기한을 채우며 실패마다 연장하지 않는다.
+이 호환 처리는 발송 gate를 닫고 구 Business·Data의 진행 요청(HTTP·커넥션 대기 포함)을 drain한 뒤
+기한을 강제하는 Data → Noti → Business 순서로 교체하는 배포에서만 안전하다. 구 Data 프로세스를
+남긴 채 재조회를 시작하거나 gate를 다시 열지 않는다.
+
+ack 리컨실은 한 번에 최대 25건을 조회한다. 정본 조회가 실패하면 `NEEDS_CONFIRM`을 유지하고
+`next_reconcile_at`에 30초 뒤를 같은 사건 잠금 트랜잭션에서 커밋한다. 다음 tick은 아직 유예 중인
+행을 건너뛰며 `COALESCE(next_reconcile_at, updated_at)` 순서로 진행한다. 실패를 잡 상태에는
+실패로 보고하되, 그 보고로 재시도 예약을 롤백하지 않는다. 새 prepare·abort·commit은 동일 사건
+잠금 아래 이 예약을 초기화하므로 이전 조회 실패가 새 보류·확정을 덮지 않는다.
+
+### ③ 적격성 — fail-closed
+
+모든 kind는 발송 직전 이 조회를 거친다. 요청의 `params`는 저장된 사건 params 전체이며,
+시간 제한 종류에는 원래 `dedupAt`이 필요하다. 선택적인 `expiresAt`도 값 그대로 전달한다.
+관리 템플릿 시험은 일반 사건이 아니다. 알림 서버가 시험행의 `admin_actor`·`replay_of`·`created_at`을
+확인한 경우에만 별도 top-level `adminTestRequestedAt`을 보낸다. Data는 미래 시각을 거절하고
+최초 생성 후 15분 미만에만 원사건 만료를 대체한다. 일반 이벤트 params를 이 필드로 승격하지 않고,
+수동 재전송은 이 맥락을 갖지 않는다. 수신자 활성·대상 상태 등 다른 적격성은 동일하다.
+
+| 조건 | 결과 |
+| --- | --- |
+| 모르는 kind | `UNKNOWN_KIND` **거절** |
+| 수신자 없음·탈퇴 | `USER_INACTIVE` 거절 |
+| 대상이 필요한데 비어 있음 | `SUBJECT_REQUIRED` 거절 |
+| 대상이 사라짐 | `SUBJECT_GONE` 거절 |
+| 챌린지 삭제·(개설 알림만) 비활성 | `CHALLENGE_INACTIVE` 거절 |
+| 그룹원 아님 | `NOT_GROUP_MEMBER` 거절 |
+| 친구 요청이 이미 수락·거절됨 | `REQUEST_RESOLVED` 거절 |
+| 회차가 더는 `OPEN` 아님 | `SESSION_CLOSED` 거절 |
+| 참가 마감 지남 | `JOIN_CLOSED` 거절 |
+| 이미 참가함 | `ALREADY_JOINED` 거절 |
+| 그 회차 참가자 아님 | `NOT_PARTICIPANT` 거절 |
+| 회차가 아직 미종료 | `NOT_SETTLED` 거절 |
+| 시간 제한 종류의 원사건 시각 누락·형식/만료 불일치 | `EVENT_TIME_REQUIRED` · `EVENT_TIME_INVALID` 거절 |
+| 원사건 유효기간 지남 | `EVENT_EXPIRED` 거절 |
+| **DB 장애·타임아웃** | **거절이 아니라 5xx** |
+
+「모르면 일단 허용」은 새 kind 가 붙을 때마다 재확인을 조용히 건너뛴다. 반대로 거절은 발송이
+멈춰 즉시 눈에 띈다.
+
+일시 오류를 `eligible=false` 로 접지 않는 이유: 장애가 「정책상 안 보냄」으로 둔갑하면 그 동안의
+알림이 통째로 사라지고 되짚을 근거도 남지 않는다.
+
+판정 응답은 `eligible=true`와 null·생략된 `reason`, 또는 `eligible=false`와 비공백 문자열
+`reason`의 조합이어야 한다. 다른 조합은 502 계약 오류로 재시도하며 delivery를 `SUPPRESSED`로
+종결하지 않는다. 관리 시험도 같은 검사를 적용하고 새로운 거절 사유 코드는 허용한다.
+
+친구 요청의 판정 축은 `subjectId`(상대 유저)가 아니라 **`params.requestId`** 다 — 거절 후 재요청이
+같은 행을 되살리므로 상대 유저만으로는 「같은 요청」을 식별할 수 없다.
+
+## 8. 전환 스위치
+
+`notification.dispatch.mode` = `LEGACY`(기본) \| `OUTBOX`. 기본값이 코드에 있으므로
+`application-*.yml` 을 건드리지 않아도 기동한다.
+
+**되돌림 스위치가 아니다.** `OUTBOX` 로 올린 뒤 `LEGACY` 로 내리면, 그사이 알림 DB 에만 쌓인
+발송 이력을 Data 가 모르므로 **이미 나간 알림이 다시 나간다**(계약 §7 — 「kind 플래그만 legacy 로
+되돌려 두 DB 발송 이력의 차이를 무시하지 않는다」). 되돌림은 이관 절차의 일부이지 설정 한 줄이 아니다.
+
+## 9. 이관 (export · 재생)
+
+`--notification.migration.enabled=true` 로만 켜지는 CLI 다. 별도 스크립트가 아니라 같은 배포본인
+이유는 **키 조립을 다시 쓰지 않기 위해서**다 — export 가 만드는 사건 키는 producer 가 만드는 키와
+한 글자도 달라서는 안 되고, 두 곳이 각자 문자열을 조립하면 그 「한 글자」가 언제든 갈라진다.
+
+wire 계약의 정본은 알림 서버의 `MigrationRecords.java` 다. 아래는 Data 쪽 산출 규칙이다.
+
+### 산출물
+
+| 파일 | 내용 |
+| --- | --- |
+| `<이름>.json` | 진단용 전체 문서 — manifest · 레코드 전량 · 실패 목록 · report |
+| `<이름>.import-NNNN.json` | 최종 적격 strict export만 생성. `POST …/import` 본문 `{records:[…]}` — **500건씩** 나눠 둔다 |
+| `<이름>.verify.json` | 최종 적격 strict export만 생성. `POST …/verify` 본문 `{manifest:{…}}` |
+
+`lenient=true`는 조건이 충족되어도 진단 전용이다. strict 모드라도 `closedAt` 없는 최초 탐색처럼
+`report.finalEligible=false`이면 전체 진단 JSON만 쓰고 import 배치·verify 파일은 생성하지 않는다.
+따라서 실패 행을 제외한 manifest를 진단 실행의 게시용 산출물로 제공하지 않는다.
+
+같은 출력 이름의 본문·`verify.json`·`import-*.json` 중 하나라도 이미 있으면 새 파일을 쓰기 전에
+실패한다. 본문만 지운 재실행, 이전 실행의 높은 번호 배치도 포함한다. 기존 파일을 삭제하거나
+덮어쓰지 않으므로 새 출력 이름을 사용해야 한다. 정상 최종 export는 모든 import 배치를 쓴 뒤
+verify 파일을 마지막에 생성하며, 도중 실패한 산출물도 새 실행에 재사용하지 않는다.
+
+배치를 미리 나누는 이유: import 상한이 500 인데 운영 중에 손으로 자르면 **자른 자리가 검증에
+남지 않는다**.
+
+### 자원 셋
+
+| 자원 | `recordKey` | 내용 |
+| --- | --- | --- |
+| `settings` | `userId` | 5필드 + `version`(유저 축 outbox version). 시각 표기는 `HH:mm:ss` |
+| `device` | `SHA256hex(deviceToken)` | 토큰 원문 · `userId` · `authGeneration` · `active` |
+| `delivery` | `eventId` | 상태 불문 전량 |
+
+시각은 `settings` 의 조용한 시간 두 필드를 빼고 **전부 epoch milliseconds 정수**다 — 이벤트 봉투의
+ISO-8601 과 다른 축이라, 섞으면 import 가 파싱에 실패하거나 더 나쁘게는 1970년으로 해석한다.
+
+`settings` 는 **행이 실재하는 유저만** 내보낸다. 설정 행은 지연 생성이고 「행 없음」의 뜻은
+「기본값」이다 — 여기서 기본값을 만들어 보내면 「사용자가 직접 켠 것」과 구분되지 않고, 나중에
+기본값이 바뀌어도 옛 값이 박제된다.
+
+`device` 는 **탈퇴자도** 내보낸다(`active=false`). 그래야 알림 서버가 그 기기의 토큰을 정리하고,
+그러지 않으면 이전 계정 푸시가 그 기기로 계속 간다.
+
+### 체크섬
+
+- `recordChecksum` = `SHA256hex(정규형 JSON(data))`
+- `resourceChecksum` = `SHA256hex` of `"<resource>:<recordKey>=<recordChecksum>\n"` 을
+  **recordKey 오름차순**으로 이어 붙인 것. 빈 자원도 `SHA256("")` 을 채운다 — 「행이 없다」와
+  「자원을 통째로 빠뜨렸다」를 구분해야 한다.
+
+정규형 JSON 의 규칙(`MigrationCanonicalJson`, 단위 테스트가 전부 못 박고 있다):
+
+| 항목 | 규칙 |
+| --- | --- |
+| 키 순서 | **코드포인트** 오름차순 (`String.compareTo` 아님 — 보충 문자에서 갈린다) |
+| 공백 | 없음. 구분자는 `,` 와 `:` 뿐 |
+| 비 ASCII | **이스케이프하지 않는다.** UTF-8 원문 — 한글 닉네임·그룹명이 이 선택으로 갈린다 |
+| 제어문자 | `\b \f \n \r \t` 는 짧은 형태, 나머지는 **소문자** `\uXXXX` |
+| 수 | 정수는 정수로. **부동소수는 거부**(표기가 플랫폼마다 달라 체크섬이 갈린다) |
+| `null` | 키를 유지한 채 `null` — 키를 빼면 「필드가 아직 없는 구 스키마」와 섞인다 |
+
+### `SENT` 도 새 키로 옮긴다
+
+미발송만 키를 정규화하고 종결분을 구 id 로 두면, 컷오버 뒤 재훑기가 같은 사건을 **새 키**로 다시
+만들어 이미 나간 알림이 한 번 더 간다. 그래서 상태와 무관하게 같은 규칙으로 키를 만든다.
+
+시간축은 **`slot_at` 을 먼저** 본다(이월돼도 바뀌지 않게 설계된 컬럼이라 「사건이 언제 일어났는가」에
+가장 가깝다). 없으면 `sent_at` → `claimed_at` 순이다. 발송·선점 시각을 먼저 쓰면 이월분·재훑기
+회수분이 producer 가 만들 키와 어긋난다.
+
+종결분은 **다시 렌더하지 않으므로** 코어 참조를 붙이지 않는다 — 중복 억제의 근거로만 옮긴다.
+
+구 로그에 사건 당시의 보간값이 없는 리그 6종·`INACTIVE_RETURN`·`STREAK_AT_RISK`·친구 2종·
+`CHALLENGE_CREATED`의 `PENDING`/`DEFERRED`는 export wire에서 `SUPPRESSED`로 종결한다.
+현재 순위·부족 시간·닉네임·챌린지 목표를 과거 입력으로 추정하지 않으며, 빈 입력으로 미발송 상태를
+유지해 import 검증이 `RENDER_FAILED`로 막히게 하지 않는다. 결정적 사건 키·원 슬롯·시도/재시도·
+발송 시각은 보존하고 원본 Data 행은 변경하지 않는다. `SENT`는 그대로 옮긴다.
+보간 입력이 필요 없는 `MISSED_FOCUS_TODAY`와 참조로 재조립 가능한 내기·모집·종료 알림은
+정상 미발송 상태를 유지한다. 종결 근거는 재이관이나 같은 사건의 재수신으로 다시 발송되지 않는다.
+
+
+`RANK_OVERTAKE` 는 **옮기지 않는다.** 신 producer 가 만들지 않으므로 「새 키로 다시 생길」 위험이
+없고, 옮기면 신 카탈로그에 없는 kind 가 알림 DB 에 남는다.
+
+### 실패를 숨기지 않는다
+
+위에 명시한 종결 전환 외에, 참조·키를 복원할 수 없는 미발송 행은 `failures[]` 에 사유(`SESSION_GONE` ·
+`PARTICIPANT_GONE` · `CHALLENGE_GONE` · `USER_GONE` · `UNKNOWN_KIND` · `NO_SUBJECT` ·
+`NO_EVENT_TIME`)와 함께 남고, **strict 모드에서는 예외로 죽는다**. `--notification.migration.lenient=true`
+는 「무엇이 안 되는지 보기만 하는」 사전 점검 전용이다.
+
+### 정지 창 (`stopWindow`)
+
+| 필드 | 출처 |
+| --- | --- |
+| `closedAt` | **운영자 입력**(`--notification.migration.closed-at=<millis>`). Data 는 정지 창을 닫은 시각을 알 수 없다 — 지어내면 verify 의 `verifiedAt > closedAt` 검사가 아무것도 검사하지 않게 된다 |
+| `cursor` | 같은 스냅샷의 `aggregate_versions` **전 축 벡터 해시** — `"av:<축 수>:<sha256>"`. **시각이 아니다**: 시각은 발급 순서일 뿐 커밋 순서가 아니라, 그 시각 이전이 모두 커밋됐다는 뜻이 되지 않는다 |
+| `queueDepth` | **실측 합계.** 0 으로 하드코딩하지 않는다 |
+| `source` | 언제나 `"data-api"` |
+
+`queueDepth` 는 **「Data 가 아직 밖으로 내보낼 것이 남았는가」**다. 구 클레임 큐를 여기 넣으면
+안 된다 — 그 행들은 **이관할 화물**이지 잔여 작업이 아니고, 넣으면 0 이 되는 날이 영영 오지 않아
+게이트를 열 수 없다(특히 `next_attempt_at` 이 미래인 이월분은 정의상 지금 비워질 수 없다).
+
+| 항목 | 조회 | 합계 포함 |
+| --- | --- | --- |
+| `outboxKafkaUndelivered` | `event_outbox_deliveries` `target='KAFKA' AND delivered_at IS NULL` | ✅ 잔여 |
+| `outboxNotiUndelivered` | 같은 테이블 `target='NOTI' AND delivered_at IS NULL` | ✅ 잔여 |
+| `migrationPayload` | `notification_sent_logs` 의 `PENDING` + `DEFERRED` | ❌ **화물** |
+
+outbox 미전달은 drain 하면 0 이 되는 값이라 게이트 조건으로 삼을 수 있다. 그것을 남긴 채 열면
+relay 가 나중에 발행하는 사건이 **이관분과 겹친다**.
+
+내역은 `report.queueBreakdown` 에 전부 적는다 — 합계만 남기면 0 이 아닐 때 어디를 볼지 알 수 없다.
+공백뿐인 구 기기 토큰은 기기 없음으로 제외하고, 유효한 토큰의 원문은 trim하지 않는다.
+중복 토큰은 실제 `device` 레코드 집합에서 검출한다. `strict=false` 진단 export는 중복 레코드와
+마스킹한 소유자 보고를 보존하지만 `finalEligible=false`이며, strict export는 중복이 있으면 실패한다.
+
+V45에서 `subject_id`를 의도적으로 비워 둔 `FRIEND_REQUEST`·`FRIEND_ACCEPTED`·`CHALLENGE_CREATED`·
+`CHALLENGE_WINDOW_END`·`CHALLENGE_ENDED` 이력은 기존 `subject_id`가 없을 때만 `target_user_id`를
+사건 대상으로 복원한다. 다른 종류에는 이 규칙을 적용하지 않는다. 코어 이력은 수정하지 않으며,
+복원된 대상과 기존 사건 시각으로 producer와 같은 키를 만들어 `SENT` 중복 억제 근거를 옮긴다.
+
+### 최종 export 의 게이트 다섯
+
+`closedAt` 없이 도는 최초 탐색 export 는 언제든 허용된다. **최종**(verify 에 쓸 수 있는) export 는
+다섯을 모두 통과해야 하고, 하나라도 어긋나면 예외로 죽는다:
+
+| 조건 | 근거 |
+| --- | --- |
+| `closedAt` 이 주어졌다 | 정지 창을 닫은 시각은 운영자만 안다 |
+| `--notification.migration.inflight-drained=true` | **DB 로는 알 수 없다.** 구 flush 는 선점 행을 지우고 나가므로, 그 스레드가 아직 도는지는 어떤 조회로도 보이지 않는다. 이 한 가지는 사람이 말해야 하고, 없이 통과시키면 「멈췄다고 생각한」 창 안에서 구 경로가 계속 발송한다 |
+| 실제 export 기기의 중복 토큰 0개 | 같은 토큰의 `recordKey`가 충돌한다. 탈퇴자를 포함한 비봇 기기에서 판정하며, 소유자를 임의로 선택하지 않는다 |
+| 재조립 실패 0건 | 남기면 그 행들이 구 DB 에만 남고 컷오버 후에는 아무도 그 큐를 보지 않는다 |
+| `queueDepth == 0` | 내보내지 못한 outbox 전달이 남은 채 열면 relay 가 나중에 발행하는 사건이 이관분과 겹친다 |
+
+다섯을 통과했는지는 문서의 `report.finalEligible` 에 **계산해서 적어 둔다** — 읽는 쪽마다 다섯 조건을
+다시 조합하면 한 곳이 하나를 빠뜨려도 드러나지 않는다. 파일 이름으로는 탐색용과 최종본이 구분되지
+않으므로, CLI 도 둘 중 무엇을 만들었는지 로그로 분명히 남긴다.
+
+### 알려진 한계
+
+- **`SUPPRESSED` 를 구 DB 에서 유도할 수 없다.** ack tombstone 은 `consumeUnsentClaims` 가
+  `status=SENT` + `sent_at=now` 로 닫아 실제 발송과 구분되지 않는다. 둘 다 종결이라 「다시 보내지
+  않는다」는 동작이 같으므로 전부 `SENT` 로 보낸다.
+- **`attempts` 는 언제나 0 이다.** 구 테이블에 시도 횟수 컬럼이 없다. 0 을 지어낸 것이 아니라
+  「세지 않았다」를 옮긴 것이므로 이 값으로 백오프를 계산하면 안 된다.
+- **산출물에 FCM 토큰 원문이 들어간다.** wire 계약의 `device.deviceToken` 이 원문을 요구한다.
+  그래서 파일을 **만들 때부터 0600** 으로 만든다(쓰고 나서 조이면 그 사이의 창이 열려 있다).
+  사람이 읽는 `report` 쪽 중복 목록에는 앞 8자만 남긴다. POSIX 가 아닌 파일 시스템이면 권한
+  지정이 통하지 않으므로 그때는 경고를 남긴다 — 조용히 넘어가지 않는다.
+- **증분 export 를 지원하지 않는다.** 재개 커서로 쓸 만한 단조 값이 없다 — 이 프로젝트의 UUID v7
+  생성기는 호출마다 새 인스턴스라 같은 밀리초 안에서 단조롭지 않고, 시각은 커밋 순서가 아니다.
+  「이 지점 이후」로 이어 읽으면 그사이 낮은 값으로 커밋된 행을 조용히 건너뛴다.
+
+### 놓친 크론 재생
+
+알림 서버는 코어 DB 를 읽지 않아 후보를 다시 찾을 수 없고 Data 로 트리거를 부를 수도 없다
+(조회 3종뿐). 그래서 재생은 Data 쪽 CLI 다.
+
+`--notification.migration.replay=<잡 이름>@<놓친 슬롯 ISO-8601>` — **지금 시각이 아니라 놓친
+슬롯 시각**을 준다. 판정 잡은 전부 `Instant now` 를 받고 그게 순위 집계 구간이자 「정확히 N일째」의
+기준이자 결정적 키의 시간축이다. 지금으로 돌리면 오늘 날짜의 키가 나와서 원래 슬롯의 사건과
+다른 키가 되고, 이미 이관된 사건과 중복되거나 원래 슬롯이 영영 재생되지 않는다.
+
+이미 생성된 리그·리텐션·일별 챌린지 사건도 같은 유효기간을 **발송 직전**에 검사한다.
+생산자는 `params.dedupAt`에 원래 판정 시각을, `params.expiresAt`에 그 시각으로 계산한 만료를
+저장한다. `occurredAt` 봉투 필드는 outbox append 시각이므로 만료 기준으로 쓰지 않는다.
+relay·Kafka/DLT 재처리·이관은 이 params를 그대로 보존하며, 수신 시각이나 재시도 시각으로
+갱신하지 않는다. Data 적격성 조회는 원시각으로 만료를 재계산하고 `now >= expiresAt`이면
+`EVENT_EXPIRED`로 거절한다. 리그 독려·스트릭은 KST 자정, 복귀·오늘 미집중·일 목표 마감은
+KST 23시도 상한이다. 크론이 몇 분 늦게 시작해도 날짜나 조용한 시간 경계를 넘기지 않는다.
+기존 봉투처럼 `expiresAt`이 없어도 원래 `dedupAt`이 있으면 같은 정책을 적용한다.
+시간 제한 종류의 원시각 누락은 `EVENT_TIME_REQUIRED`, 형식·만료 불일치는
+`EVENT_TIME_INVALID`로 거절한다. 결과·환불 등 별도 사실 통보는 임의 TTL을 붙이지 않으며,
+회차 모집은 실제 참가 마감·참가 여부를 계속 재확인한다. 구 발송 원장 export는 기존 사건 키의
+원시각(원 슬롯 우선, 없으면 발송·선점 시각)을 같은 params로 옮긴다.
+
+유효기간이 지난 종류는 **건너뛰고 `SKIPPED_EXPIRED` 로 남긴다** — 성공으로 기록하지 않는다.
+과거 슬롯을 성공으로 기록하면 그 슬롯은 다시는 점검되지 않는다. `LEGACY` 모드에서는 아예 돌지
+않는다(`SKIPPED_LEGACY_MODE`) — 과거 슬롯의 알림이 지금 FCM 으로 곧장 나가기 때문이다.
+
+| 잡 | 유효기간 | 근거 |
+| --- | --- | --- |
+| `notification-league-weekly-results` | 7일 | 일어난 사실의 통보 — 늦어도 맞다. 다음 주가 오면 두 주 전 이야기가 된다 |
+| `notification-league-deadline` | 4시간 | 마감(월 00:00)까지 |
+| `notification-league-sunday-crisis` | 15시간 | 그날 자정까지 |
+| `notification-league-relegation-warning` | 6시간 | 마감까지 |
+| `notification-league-final-deadline` | 2시간 | 이름 그대로 |
+| `notification-inactive-return` | 13시간 | 「정확히 N일째」라 날이 바뀌면 그 유저는 이미 다른 단계다 |
+| `notification-missed-focus-today` | 2시간 | 「오늘」이 지나면 거짓 |
+| `notification-streak-at-risk` | 2시간 | 자정이면 이미 끊겼거나 지켜졌다 |
+| `notification-bet-event-rescan` | 48시간 | 자기 회복형 — 한 번 돌리면 48시간치를 스스로 회수한다 |
+| `notification-session-open` | 2시간 | 슬롯 유예. 참가 마감은 적격성 조회가 한 번 더 본다 |
+| `notification-challenge-window-end` | 24시간 | 결과 통보 |
+| `notification-challenge-duration-end` | 14시간 | 어제치 결과 통보 — 조용한 시간 진입까지 |
+
+재생 **대상이 아닌** 크론과 그 이유(목록에서 그냥 빼면 「빠뜨린 것」과 구분되지 않는다):
+
+| 잡 | 이유 |
+| --- | --- |
+| `notification-rank-overtake` | A5 폐기 — 신 카탈로그에 kind 자체가 없다 |
+| `notification-bet-event-flush` | 발송은 알림 서버 소유. Data는 내구 원장에서 매 5분 미완료 슬롯 봉인을 재개하므로 별도 과거 시각 재생이 필요 없다 |
+| `notification-silent-flush` | 정산이 이미 지났으면 깨워 봐야 flush 할 것이 없다. 포그라운드 sync 가 최후 보루 |
+| `group-bet-freeze-monitor` | 사용자 발송이 아니라 운영 로그 |
+
+## 10. Data 잔류 잡 등록부
+
+`/tmp/gromo-data-resident-jobs.json` — `NotificationScheduler.java` 를 파싱해 뽑은 실측 목록이다.
+관리 콘솔의 크론 등록부 seed 이자 재생 CLI 의 id 원본이다.
+
+실측: `@Scheduled` **17개**, 메서드 **16개**(`streak-at-risk` 에만 `@Scheduled` 가 둘 — 일요일만
+21:00 오프셋, 22:00 은 마감 2h 푸시와 겹친다). 그중 재생 가능 **12개**, 재생 대상 아님 **4개**.
+
+**kind 19 ≠ cron 12 다. kind 마다 job 을 만들면 안 된다.** 어긋나는 이유는 둘:
+
+- 한 크론이 두 kind 를 낸다 — `notification-league-sunday-crisis` 는 유저당 1건 분기로
+  `LEAGUE_RELEGATION_WARNING` 또는 `LEAGUE_DEADLINE_D1` 을 낸다.
+- 크론이 아예 없는 kind 가 있다 — `BET_WON` · `CHALLENGE_CREATED` · `FRIEND_REQUEST` ·
+  `FRIEND_ACCEPTED` 는 `BEFORE_COMMIT` 리스너로만 나고, `BET_RESULT` · `BET_VOID_REFUND` 는
+  이벤트가 주 경로이며 15분 재훑기는 **유실 회수**다.
+
+### 소유권이 바뀌는 잡
+
+| 잡 | 바뀌는 것 |
+| --- | --- |
+| `notification-bet-event-flush` | **실제 발송은 Noti 소유.** Data 쪽 5분 트리거는 `OUTBOX` 모드에서 재훑기 커밋 후 결과 슬롯 봉인·완료 봉투를 만든다. 구 클레임의 FCM flush는 계속 no-op이다 |
+| `notification-rank-overtake` | A5 폐기. 크론·판정은 남기되 발송 0, 판정 건수만 로그 — 「조용한 사라짐」이 아니라 「기록된 중단」 |
+| `notification-silent-flush` | 후보 판정은 **Data 잔류**(크론은 계속 돈다). 다만 재생은 하지 않는다 |
+| `group-bet-freeze-monitor` | **알림이 아니다** — 판돈 동결 운영 로그. 콘솔 알림 잡 목록에서 뺀다 |
+
+### 렌더 카탈로그
+
+`/tmp/gromo-notification-catalog.json` — 19 kind 의 현행 ko 문구·변수·`quietPolicy`·적격성·
+딥링크·`data.type`, 그리고 파생 규칙(티어 이름 5단계 · `shortfallText` 포맷). 알림 서버의
+ICU 4-locale 템플릿 seed 용이다.
+
+같은 파일의 `bundleRenderKinds` 에 묶음 렌더 전용 4종(`*_BUNDLE`)의 구 Data 문구를 참고값으로
+담았다 — **Data 는 이 4종을 발행하지 않는다.** 개별 사건만 낸다.
+
+
+모집(`CHALLENGE_SESSION_OPEN`)은 Data가 수신자·그룹·슬롯별로 사건을 만들 대상 `sessionId` 집합을
+`params.bundleMembers`에 함께 싣는다. 이미 참가해 사건을 만들지 않는 회차는 해당 수신자의 집합에서 제외한다.
+Notification은 이미 `SENT`·`SUPPRESSED`인 구성원까지 수신 완료로 세고, 불완전 묶음은 보류한다.
+수신 사이에 flush가 실행되어도 먼저 도착한 일부만 발송하지 않으며, 기존 FCM 재시도와 조용한 시간 이월은 보존한다.
+
+
+### 결과·환불 슬롯의 완료 봉투
+
+`BET_RESULT`·`BET_VOID_REFUND`는 15분 경과만으로 발송하지 않는다. Data는 정산 CAS 전에
+`(groupId, slotAt)`의 PostgreSQL transaction advisory **공유 잠금**을 얻고, 잠금 획득 후
+DB `clock_timestamp()`로 `settled_at`을 정한다. 잠금 대기 중 슬롯이 바뀌면 새 슬롯에서 다시
+확인한다. 이 잠금은 참가자별 outbox와 `notification_result_bundle_members`가 같은 트랜잭션으로
+커밋될 때까지 유지한다. 정상 정산·몰수·인원 미달·24시간 환불·챌린지 삭제가 모두 이 경계를 지난다.
+벌크 CAS 이후 BEFORE_COMMIT 조회는 해당 회차만 refresh하여 낡은 OPEN 상태를 사용하지 않는다.
+
+Data의 기존 5분 flush는 OUTBOX 모드에서 재훑기를 먼저 커밋하고 슬롯 완료를 처리한다.
+15분 재훑기도 커밋 뒤 같은 처리를 호출한다. 마감 트랜잭션은 같은 슬롯의 **배타 잠금**으로
+진행 중인 정산 커밋을 기다린 뒤 수신자별 불변 eventId 집합을
+`notification_result_bundle_manifests`에 저장한다. 여기서는 USER aggregate 잠금을 얻지 않는다.
+별도 트랜잭션이 아래 완료 봉투를 outbox에 적고 manifest의 발행 표시를 함께 커밋한다.
+따라서 마감 후 발행 전 장애도 다음 실행에서 재개되며 USER→슬롯과 슬롯→USER 교착이 없다.
+
+- `type`: `notification.resultBundle.closed`, `schemaVersion`: `1`
+- `eventId`: `noti:resultBundle:<userId>:<groupId>:<slot epoch seconds>`
+- `subjectId`: 그룹 UUID, `userId`: 수신자 한 명, `aggregate`: `USER:<userId>`
+- `params`: `groupId`, 원래 `slotAt`(UTC), 정렬·중복 제거한 `eventIds` 전체 배열
+- `scheduledAt`: null. 완료 봉투는 자체 delivery나 FCM 호출을 만들지 않는다.
+
+Notification은 완료 봉투를 `result_bundle_manifests`에 멱등 저장하고, 같은 축의 delivery
+**전체 eventId 집합**이 기대 집합과 같을 때만 보낸다. SENT·SUPPRESSED도 도착한 사건으로 센다.
+완료 봉투와 개별 사건이 어느 순서로 오든, 슬롯 마감 뒤 relay/DLT 복구로 늦게 오든 조건은 같다.
+불완전 묶음은 `BUNDLE_INCOMPLETE`로 이월하고 전부 도착하면 그 보류만 해제한다.
+같은 축의 다른 기대 집합은 `RESULT_BUNDLE_MANIFEST_CONFLICT`로 거절한다.
+봉인 뒤 정본에 없던 새 사건을 과거 슬롯에 추가하는 것도 실패로 드러내며 별도 푸시로 흘리지 않는다.
+
+컷오버 전에 구 생산·발송을 정지·drain한다는 기존 전제를 유지한다. V53은 기존 결과 outbox를
+멤버 원장으로 백필하고, 완료 작업은 이관 대상 구 `notification_sent_logs`의 결과/환불 사건도
+동일 결정적 키로 포함한다. SENT·SUPPRESSED 이관분은 중복 억제와 수신 완료의 증거로 남는다.
+이 3개 Data 원장과 Notification의 완료 원장은 outbox와 함께 보존해야 한다.
+
+### 구형 앱 RT-only 로그아웃
+
+`notification.legacyDeviceToken.deleted`는 기존 기기 삭제 endpoint(`noti.deviceTokenDeleted`)와 USER 순서 축을 사용하지만 별도 사건 종류다. `params.deviceToken`의 원래 이관 기기 중 같은 사용자이고 `legacy_session_id`·`bootstrap_hash`가 모두 없는 행만 비활성화한다. 새 세션 등록이나 다른 사용자에게 이동한 토큰은 보존한다. 구 소비자의 `UNSUPPORTED_EVENT_TYPE` 응답은 relay 재시도로 남으며, 새 소비자를 먼저 배포해야 한다. Data V54는 구 RT 승격 당시 기기를 보존한다. 기존 승격 세션을 현재 사용자 기기로 역채우지 않는다.

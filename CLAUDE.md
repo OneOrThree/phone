@@ -88,7 +88,10 @@ changes trigger different jobs. This list rots; the authoritative source is
 
 - **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**`;
   `app-android-build.yml` — Android build checks on native-affecting paths.
-- **Business API**: `business-ci.yml` — 독립 Gradle build(Checkstyle·SpotBugs·Redis 통합 테스트)와 Docker 빌드. main push에서만 GAR 이미지 게시. 수동 dev overlay는 `docker-compose.business.yml`.
+- **Business API · Notification**: `satellite-ci.yml` — `server/business-api/**` ·
+  `server/notification/**` 매트릭스로 독립 Gradle build(Checkstyle·SpotBugs·Testcontainers 통합
+  테스트)와 Docker 이미지 빌드. main push에서만 GAR, release push에서만 ECR 게시. 수동 dev overlay는
+  `docker-compose.business.yml`.
 - **Shared backend gate**: `be-gradle.yml` — the one reusable (`workflow_call`) workflow for JVM
   Gradle checks. Takes `service` / `runs-on` / `tasks` / `artifact-name` / `artifact-path` /
   `measure-jar`, and isolates `GRADLE_USER_HOME` per service. It starts **no database** — every
@@ -97,10 +100,10 @@ changes trigger different jobs. This list rots; the authoritative source is
   (`'["ubuntu-latest"]'`) unpacked with `fromJSON`; its default keeps the self-hosted labels, so a
   caller that omits it is unchanged.
   **Callers today are exactly two**: `dev-ci.yml` (`service: data-api`) and `realtime-ci.yml`
-  (`service: realtime`). `business-ci.yml` is a deliberate
-  **exception** — its PDF-preview tests need `poppler-utils`, installed by the `test` stage of its
-  Dockerfile, so it keeps its own container-based build; don't "simplify" it into a caller without
-  removing that dependency first. There is no `server/notification` yet.
+  (`service: realtime`). `satellite-ci.yml` (business-api + notification) is a deliberate
+  **exception** — business-api's PDF-preview tests need `poppler-utils`, installed by the `test`
+  stage of its Dockerfile, so that matrix keeps its own container-based build; don't "simplify" it
+  into a caller without removing that dependency first.
 - **Realtime**: `realtime-ci.yml` — calls `be-gradle.yml` with `service: realtime` (one
   `./gradlew build` covers Checkstyle + SpotBugs + Testcontainers tests + bootJar), plus a
   no-push Docker build, path-filtered to `server/realtime/**`.

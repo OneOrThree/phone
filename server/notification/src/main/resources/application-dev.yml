@@ -1,0 +1,27 @@
+spring:
+  datasource:
+    url: ${NOTI_DB_URL}
+    username: ${NOTI_DB_USERNAME}
+    password: ${NOTI_DB_PASSWORD}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    consumer:
+      group-id: notification-v1
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+notification:
+  tokens:
+    business: ${SVC_TOKEN_BIZ_TO_NOTI:}
+    data: ${SVC_TOKEN_DATA_TO_NOTI:}
+    console: ${SVC_TOKEN_CONSOLE_TO_NOTI:}
+  data-url: ${DATA_API_BASE_URL:}
+  data-token: ${SVC_TOKEN_NOTI_TO_DATA:}
+fcm:
+  project-id: ${FCM_PROJECT_ID:}
+  service-account-json: ${FCM_SERVICE_ACCOUNT_JSON:}

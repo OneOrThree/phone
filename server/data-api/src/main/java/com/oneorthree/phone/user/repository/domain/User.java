@@ -106,6 +106,22 @@ public class User {
 
     private String refreshTokenHash;
 
+    /**
+     * 유저 축 세대 (A22 ㊼ · ㊓ · ㊹) — <b>탈퇴와 전 기기 로그아웃에만</b> 오른다.
+     *
+     * <p>개별 기기 로그아웃에서 올리면 로그인 중인 <b>다른 기기</b>의 {@code onTokenRefresh} 재등록이
+     * 거부돼 그 기기 푸시가 끊긴다. 개별 기기의 순서 장벽은 알림 서버가 소유하는 기기 축
+     * ({@code ownershipVersion})이고, 로그인 세션의 생사는 {@code auth_sessions} 축이다 — 셋을 섞지 않는다.
+     *
+     * <p>0 은 「아직 한 번도 올린 적 없다」는 사실이다. 구 AT 에는 {@code gen} claim 이 아예 없는데
+     * (㊍), 그 「없음」을 여기서 읽은 현재 값으로 채우면 로그아웃 전에 발급된 옛 AT 가 최신 세대로
+     * 태깅돼 기기 토큰 tombstone 을 통째로 우회한다. 세대는 AT claim 에서만 온다.
+     */
+    @Column(name = "auth_generation", nullable = false,
+            columnDefinition = "bigint not null default 0")
+    @Builder.Default
+    private long authGeneration = 0L;
+
     @CreationTimestamp
     private Instant createdAt;
 
@@ -141,6 +157,20 @@ public class User {
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SocialAccount> socialAccounts = new ArrayList<>();
+
+    /**
+     * 유저 축 세대를 한 칸 올린다 — <b>탈퇴·전 기기 로그아웃 전용</b>(㊼).
+     *
+     * <p>반드시 배타 락으로 로드한 행에서 부른다. 이 엔티티에는 {@code @Version} 도
+     * {@code @DynamicUpdate} 도 없어 더티 체킹이 전 컬럼을 덮으므로, 낡은 스냅샷에서 부르면 그 사이
+     * 커밋된 다른 갱신까지 되살린다(클래스 주석).
+     *
+     * @return 올린 «뒤»의 세대 — outbox 봉투에 실을 값이다
+     */
+    public long bumpAuthGeneration() {
+        this.authGeneration = this.authGeneration + 1;
+        return this.authGeneration;
+    }
 
     // 보유 아이템·장착(item 도메인)은 여기서 매핑하지 않는다 (GROMO-1656) — 소유측이 item 쪽
     // @ManyToOne 이라 이 역방향 컬렉션은 읽는 곳이 한 군데도 없었고, user 가 item 을 컴파일

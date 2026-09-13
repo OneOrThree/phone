@@ -47,6 +47,13 @@ class DomainLayerRulesTest {
     private static final Map<String, Integer> LAYERS = new LinkedHashMap<>();
 
     static {
+        // L-1 «아무것도 참조하지 않는다» — 내구 이벤트·명령 기반(GROMO-1659·1660 공통, A21).
+        // user(L0)가 「아무도 참조하지 않는」 바닥이라면 outbox 는 「아무것도 참조하지 않는」 바닥이다:
+        // 탈퇴·로그아웃처럼 L0 의 트랜잭션도 봉투를 적어야 하므로 user 보다 «아래»여야 하고,
+        // 봉투는 도메인 타입을 하나도 모른다(userId 는 UUID, 나머지는 params JSON).
+        // LAYER_FREE 로 두지 않은 것은 의도다 — 그러면 outbox → 도메인 참조가 아무 규칙에도
+        // 안 걸려, 기반이 조용히 도메인을 끌어오기 시작해도 빌드가 초록으로 남는다.
+        LAYERS.put("outbox", -1);
         LAYERS.put("user", 0);              // 계정 — 아무도 참조하지 않는다
         LAYERS.put("currency", 1);          // 유저에게 달린 원장·보유
         LAYERS.put("item", 1);
@@ -64,6 +71,12 @@ class DomainLayerRulesTest {
         LAYERS.put("analytics", 8);
         LAYERS.put("profile", 9);           // 조립 — 영속성 없음
         LAYERS.put("withdrawal", 9);
+        // L10 «가장 위» — 서비스 간 내부 표면(GROMO-1659·1660). 이 패키지는 앱 계약이 아니라
+        // Business·알림·링크가 부르는 /internal/* 이고, 그 조합을 위해 auth(8)·group(5)·invitelink(6)·
+        // user(0)·outbox(-1) 을 «아래로» 참조한다. 그래서 표의 맨 위여야 한다 — 아무도 이 패키지를
+        // 참조하지 않아야 한다는 뜻이기도 하다. 도메인 서비스가 internal 을 부르기 시작하면
+        // 그 순간 「내부 표면」이 도메인 로직의 일부가 되어 경계가 사라진다.
+        LAYERS.put("internal", 10);
     }
 
     /**

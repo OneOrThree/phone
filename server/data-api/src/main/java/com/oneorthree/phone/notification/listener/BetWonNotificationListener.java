@@ -2,6 +2,7 @@ package com.oneorthree.phone.notification.listener;
 
 import com.oneorthree.phone.group.event.GroupBetWonEvent;
 import com.oneorthree.phone.config.NotificationAsyncConfig;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.service.BetWonNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +32,7 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class BetWonNotificationListener {
 
+    private final NotificationDispatcher notificationDispatcher;
     private final BetWonNotificationService betWonNotificationService;
 
     /**
@@ -42,6 +44,11 @@ public class BetWonNotificationListener {
     @Async(NotificationAsyncConfig.PUSH_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onBetWon(GroupBetWonEvent event) {
+        if (notificationDispatcher.isOutboxMode()) {
+            // 신 경로에서는 BEFORE_COMMIT 리스너가 이미 사건을 적었다. 여기서 또 처리하면 같은
+            // 알림이 FCM 으로도 가고 Kafka 로도 간다 — 승리 확정 축하가 두 번 도착한다.
+            return;
+        }
         try {
             betWonNotificationService.sendWonNotification(event, Instant.now());
         } catch (RuntimeException e) {

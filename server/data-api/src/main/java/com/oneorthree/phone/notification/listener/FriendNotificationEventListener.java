@@ -3,6 +3,7 @@ package com.oneorthree.phone.notification.listener;
 import com.oneorthree.phone.friend.event.FriendRequestAcceptedEvent;
 import com.oneorthree.phone.friend.event.FriendRequestSentEvent;
 import com.oneorthree.phone.config.NotificationAsyncConfig;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.service.FriendNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 @RequiredArgsConstructor
 public class FriendNotificationEventListener {
 
+    private final NotificationDispatcher notificationDispatcher;
     private final FriendNotificationService friendNotificationService;
 
     /**
@@ -47,6 +49,11 @@ public class FriendNotificationEventListener {
     @Async(NotificationAsyncConfig.PUSH_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onFriendRequestSent(FriendRequestSentEvent event) {
+        if (notificationDispatcher.isOutboxMode()) {
+            // 신 경로에서는 BEFORE_COMMIT 리스너가 이미 사건을 적었다. 여기서 또 처리하면 같은
+            // 알림이 FCM 으로도 가고 Kafka 로도 간다 — 친구 요청 알림이 두 번 도착한다.
+            return;
+        }
         try {
             friendNotificationService.notifyFriendRequest(
                     event.requestId(), event.receiverUserId(), event.senderUserId());
@@ -63,6 +70,11 @@ public class FriendNotificationEventListener {
     @Async(NotificationAsyncConfig.PUSH_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onFriendRequestAccepted(FriendRequestAcceptedEvent event) {
+        if (notificationDispatcher.isOutboxMode()) {
+            // 신 경로에서는 BEFORE_COMMIT 리스너가 이미 사건을 적었다. 여기서 또 처리하면 같은
+            // 알림이 FCM 으로도 가고 Kafka 로도 간다 — 친구 수락 알림이 두 번 도착한다.
+            return;
+        }
         try {
             friendNotificationService.notifyFriendAccepted(event.requesterUserId(), event.accepterUserId());
         } catch (Exception e) {

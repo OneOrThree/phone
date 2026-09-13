@@ -19,7 +19,7 @@ import java.util.UUID;
  *
  * <p><b>소프트 딜리트</b> — 탈퇴는 행 삭제가 아니라 {@code is_deleted=true} 다. 그래서 활성 유저만 봐야 하는
  * 경로는 이름에 그 조건이 드러난 메서드를 쓰고, 조건이 없는 메서드({@link #findByNickname},
- * {@link #findByRefreshTokenHash} 등)는 <b>탈퇴 유저까지 잡는다</b> — 호출측이 따로 걸러야 한다.
+ * {@link #existsByNicknameAndIdNot} 등)는 <b>탈퇴 유저까지 잡는다</b> — 호출측이 따로 걸러야 한다.
  *
  * <p><b>락 선택</b> — 그 트랜잭션이 users 행을 <b>변경</b>하면 처음부터 배타 락({@link #findActiveByIdForUpdate}),
  * <b>읽기만</b> 하면 공유 락({@link #findActiveByIdForShare})이다. 공유로 읽고 나중에 UPDATE 하면 락 승급
@@ -110,6 +110,39 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     int clearDeviceToken(@Param("id") UUID id, @Param("invalidToken") String invalidToken);
 
     /**
+     * 삭제 명령이 지정한 토큰만 지운다 — <b>탈퇴 유저도 대상이다</b> (A22 ㊲ · ㊨).
+     *
+     * <p>{@link #clearDeviceToken} 과 나눈 이유는 {@code isDeleted = false} 조건 하나다. 탈퇴한 계정도
+     * 자기 기기 토큰은 지워져야 한다 — 안 그러면 <b>이전 계정 푸시가 그 기기로 계속 간다</b>. 앱은
+     * 토큰 DELETE 실패를 삼키고 로컬 인증을 지우므로 아무도 재시도하지 않는다.
+     *
+     * <p>대상 토큰 조건은 그대로 둔다 — 그 사이 같은 유저가 새 토큰을 등록했으면 그것까지 지워서는
+     * 안 된다(지연된 삭제가 새 등록을 지우는 ㊨ 와 같은 이유).
+     *
+     * @param id     대상 유저
+     * @param target 삭제 명령이 지목한 <b>바로 그</b> 토큰
+     * @return 지운 행 수. 0 은 토큰이 이미 바뀐 경우이고 오류가 아니다
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = false)
+    @Query("UPDATE User u SET u.deviceToken = null"
+            + " WHERE u.id = :id AND u.deviceToken = :target")
+    int clearDeviceTokenIncludingWithdrawn(@Param("id") UUID id, @Param("target") String target);
+
+    /**
+     * 유저의 기기 토큰을 조건 없이 지운다 — <b>대상 토큰을 모를 때만</b> (A22 ㊪).
+     *
+     * <p>현 앱의 {@code DELETE /users/me/device-token} 에는 본문이 없어 어떤 토큰을 지울지 알 수 없다.
+     * 그 기간에는 유저 단위로 지우고 그 경합(같은 유저의 새 등록을 지울 수 있다)을 인정한다 —
+     * 남겨 두면 이전 계정 푸시가 계속 가는 쪽이 더 나쁘다.
+     *
+     * @param id 대상 유저
+     * @return 지운 행 수
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = false)
+    @Query("UPDATE User u SET u.deviceToken = null WHERE u.id = :id AND u.deviceToken IS NOT NULL")
+    int clearDeviceTokenUnconditionally(@Param("id") UUID id);
+
+    /**
      * 게스트 승격(loginOrRegister) 전용 — 활성 **게스트** 행만 배타 락으로 잠근다 (GROMO-801, codex 리뷰 4차).
      * isGuest 술어가 쿼리 안에 있는 이유: 비게스트 인증 상태로 다른 소셜 계정에 로그인하는 "계정 전환"
      * 에서 (버려질) 현재 유저 A 까지 잠그면 트랜잭션 하나가 users 2행(현재 A + 로그인 대상 B)을 잠가,
@@ -188,25 +221,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     boolean existsByNicknameAndIdNot(String nickname, UUID id);
 
     /**
-     * refresh 토큰 회전·검증 진입점 — 해시로 세션 주인을 찾는다.
-     *
-     * <p><b>락도 활성 조건도 없다.</b> 그래서 여기서 얻은 엔티티는 이미 낡았을 수 있고, 그 스냅샷을
-     * 더티 체킹으로 저장하면 그 사이 커밋된 탈퇴를 통째로 되살린다 — 회전은 반드시
-     * {@link #rotateRefreshTokenHash} 의 조건부 UPDATE 로 해야 한다.
-     *
-     * @param hash 클라가 제시한 refresh 토큰의 해시
-     * @return 그 해시를 들고 있는 유저. 탈퇴 유저도 잡히므로 활성 여부는 호출측이 확인한다
-     */
-    Optional<User> findByRefreshTokenHash(String hash);
-
-    /**
      * refresh 토큰 해시 조건부 교체 (GROMO-1509) — 회전 전용. 바뀐 행 수를 반환한다.
      *
-     * <p>엔티티 필드를 고쳐 dirty checking 에 맡기면 안 된다. {@link User} 에는 {@code @Version} 도
-     * {@code @DynamicUpdate} 도 없어 <b>full-row UPDATE</b> 가 나가는데, 회전 경로는 해시를 락 없이
-     * ({@link #findByRefreshTokenHash}) 읽으므로 그 스냅샷이 이미 낡았을 수 있다. 조회와 flush 사이에
-     * 탈퇴(withdraw, 배타 락)가 커밋되면 낡은 스냅샷이 {@code is_deleted=true} 와 파기된 PII 를 통째로
-     * 되살리고, 그 계정에 유효한 refresh 토큰까지 쥐여준다.
+     * <p><b>해시로 유저를 찾는 진입점은 더 이상 없다</b>(GROMO-1659 codex R10) — 유저 행의 해시는
+     * 「마지막 로그인」 하나뿐이라 세션이 여럿이면 판정 근거가 될 수 없다. 갱신은 서명된 RT 의
+     * userId 로 {@link #findActiveByIdForUpdate} 배타 락을 잡은 뒤 세션 원장으로 판정한다.
+     *
+     * <p>그 락 아래에서도 엔티티 필드를 고쳐 dirty checking 에 맡기지 않는다. {@link User} 에는
+     * {@code @Version} 도 {@code @DynamicUpdate} 도 없어 <b>full-row UPDATE</b> 가 나가는데, 한 컬럼을
+     * 바꾸자고 전 컬럼을 이 트랜잭션의 스냅샷으로 덮는 것은 같은 행을 건드리는 다른 경로(탈퇴의
+     * PII 파기 등)가 하나만 끼어도 곧장 되살림 사고가 된다. 컬럼 하나만, 그것도 조건부로 바꾼다.
      *
      * <p>그래서 해시 컬럼만, 그것도 "여전히 활성이고 해시가 그대로일 때만" 바꾸는 조건부 UPDATE 로
      * 쓴다. 다른 컬럼을 건드리지 않으니 되살릴 것이 없고, 조건이 곧 compare-and-swap 이라 탈퇴·

@@ -1,11 +1,13 @@
 package com.oneorthree.phone.notification.listener;
 
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
+import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.service.ChallengeCreatedNotificationService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.scheduling.annotation.Async;
@@ -40,8 +42,26 @@ class ChallengeCreatedNotificationListenerTest {
     @Mock
     private ChallengeCreatedNotificationService challengeCreatedNotificationService;
 
-    @InjectMocks
     private ChallengeCreatedNotificationListener listener;
+
+    @BeforeEach
+    void assembleListener() {
+        listener = new ChallengeCreatedNotificationListener(
+                legacyDispatcher(), challengeCreatedNotificationService);
+    }
+
+    /**
+     * 구 경로로 고정한 dispatcher — 이 리스너가 못박는 계약은 {@code LEGACY} 동작이다.
+     *
+     * <p>리스너는 dispatcher 에게 <b>모드만</b> 묻고 발송은 넘기지 않으므로 producer·발송부를
+     * {@code null} 로 둔다. 기본 모드가 실수로 {@code OUTBOX} 로 바뀌면 이 리스너는 발송 위임을
+     * 통째로 건너뛰므로, 아래 위임 단언이 조용히 통과하지 않고 그 자리에서 터진다.
+     *
+     * @return 구 경로 dispatcher
+     */
+    private static NotificationDispatcher legacyDispatcher() {
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, null);
+    }
 
     @Test
     @DisplayName("AFTER_COMMIT 으로 받는다 → 생성이 롤백되면 리스너까지 오지 않는다")

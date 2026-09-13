@@ -1,6 +1,8 @@
 package com.oneorthree.phone.withdrawal.service;
 
+import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.focus.service.FocusService;
+import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
 import com.oneorthree.phone.friend.service.FriendService;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.service.GroupMemberService;
@@ -8,7 +10,9 @@ import com.oneorthree.phone.screentime.service.ScreenTimeService;
 import com.oneorthree.phone.stats.service.StatsService;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.dto.DeviceTokenDeletionRequest;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.service.UserSatelliteCommandService;
 import com.oneorthree.phone.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -57,6 +61,10 @@ public class AccountWithdrawalService {
     private final ScreenTimeService screenTimeService;
     private final UserService userService;
     private final FriendService friendService;
+    private final AuthSessionService authSessionService;
+    private final UserSatelliteCommandService userSatelliteCommandService;
+    private final WithdrawalSatelliteCommandService withdrawalSatelliteCommandService;
+    private final InviteLinkClickRepository inviteLinkClickRepository;
 
     /**
      * 회원 탈퇴 — 행을 지우지 않고 PII 를 파기한 뒤 비활성 표시를 한다.
@@ -73,6 +81,29 @@ public class AccountWithdrawalService {
         // 배타 락으로 로드 (GROMO-801) — 아래 소셜 관계 정리와 새 관계 생성(친구 요청·핀)을 직렬화한다.
         // 락이 없으면 READ COMMITTED 에서 정리 스캔 이후·커밋 이전에 낀 요청이 정리를 빠져나가 유령으로 남는다.
         User user = userQueryService.getCallerForUpdate(userId);
+
+        // ── 위성 경계 정리 (A22 ⓐ · ㊼ · ㊹ · ㊲) ──────────────────────────────
+        // 여기가 «같은 트랜잭션»이어야 하는 이유: tombstone·세션 폐기·토큰 삭제가 커밋과 갈라지면,
+        // 그 사이 도착한 지연 등록·지연 claim 이 이미 탈퇴한 계정에 들러붙는다(최대 AT 수명 3600초).
+        //
+        // 세대는 «탈퇴·전 기기 로그아웃»에만 오른다(㊼). 탈퇴는 그 둘 중 하나다.
+        long authGeneration = user.bumpAuthGeneration();
+        // 전 세션 폐기 — 개별 로그아웃과 달리 여기서는 유저의 모든 세션이 끝난다(㋞).
+        authSessionService.revokeAll(userId, "WITHDRAW");
+        // 올라간 세대는 삭제 명령과 «별개 사건»으로 전달한다(㊹) — 삭제 봉투에는 증가 전 세대만
+        // 담기므로, 그것만 보내면 지연 등록이 「같은 세대」로 수락돼 토큰이 되살아난다.
+        authSessionService.publishGenerationBumped(userId, authGeneration, "WITHDRAW");
+        // 기기 토큰 삭제는 «지금» 적는다 — 아래 erasePersonalData 가 토큰을 지우고 나면 어떤 토큰을
+        // 지워야 하는지 알 수 없어 계약대로 된 명령을 만들 수 없다(㊨ · ㊪).
+        userSatelliteCommandService.recordDeviceTokenDeletion(
+                userId,
+                new DeviceTokenDeletionRequest(user.getDeviceToken(), null, authGeneration),
+                "withdraw:" + userId);
+        // 이미 박힌 초대 귀속을 끊는다(ⓐ) — tombstone 은 이후 쓰기만 막고, claim 은 최초 1회만
+        // 기록되므로 여기서 끊지 않으면 되돌릴 길이 없다.
+        inviteLinkClickRepository.anonymizeClaimedUser(userId);
+        // 위성이 자기 원장을 정리할 수 있게 탈퇴 사건을 적는다 — 알림은 Kafka, 링크는 HTTP.
+        withdrawalSatelliteCommandService.recordWithdrawn(userId, authGeneration);
 
         // 그룹: 소유 그룹 정리 → HOST_WITHDRAW 판정 → OPEN 내기 해제(환불) → 판정 근거 박제 → 멤버십 이탈.
         // 제약 ①②의 왼쪽이 여기다 — 환불은 지갑 삭제보다, 박제는 익명화보다 앞서야 한다.

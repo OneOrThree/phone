@@ -1,5 +1,16 @@
+# Gradle
 .gradle/
 build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# 로컬 전용 설정 — 시크릿이 들어간다. dev/prod/ci 는 ${ENV} 플레이스홀더뿐이라 커밋한다.
+src/main/resources/application-local.yml
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+
 logs/
 .env
 .env.*
