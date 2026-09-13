@@ -1,5 +1,7 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
+
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.upstream.data.DataApiClient;
@@ -95,7 +97,7 @@ public class ClaimIntentReplayService {
             }
         }
 
-        total.pendingTotal = pendingTotal < 0L ? 0L : pendingTotal;
+        total.pendingTotal = pendingTotal;
         return total;
     }
 
@@ -108,6 +110,9 @@ public class ClaimIntentReplayService {
                     dataApiClient.fetchPendingClaimIntents(cursor, PAGE_SIZE, Deadline.unbounded());
             if (batch == null) {
                 throw new IllegalStateException("claim 의도 조회가 본문 없이 돌아왔다 — 미완료를 판정할 수 없다");
+            }
+            if (batch.pendingTotal() < 0L) {
+                throw new UpstreamContractMismatchException("claim 의도 pendingTotal이 음수입니다");
             }
             // ⚠️ 빈 페이지여도 pendingTotal 을 기록한다 — 「지금 집을 것이 없다」와 「전부 끝났다」는 다르다.
             result.pendingTotal = batch.pendingTotal();
@@ -168,7 +173,10 @@ public class ClaimIntentReplayService {
             LinkClaimResult pending =
                     linkApiClient.claim(intent.userId(), intent.slug(), keys.forStep("link-claim"), deadline);
 
-            if (pending != null && pending.claimId() != null) {
+            if (pending == null) {
+                throw new UpstreamContractMismatchException("잠정 claim 응답에 본문이 없습니다");
+            }
+            if (pending.claimId() != null) {
                 DurableCommandAck confirmed = dataApiClient.confirmClaim(intent.userId(), pending.claimId(),
                         intent.slug(), pending.capability(), keys.forStep("claim-confirm"), deadline);
                 log.info("claim 재개 확정 — commandId={} claimId={} version={}",
@@ -198,7 +206,7 @@ public class ClaimIntentReplayService {
             }
             log.warn("claim 재개 — 상류 판정으로 종결. commandId={} code={}", intent.commandId(), e.getCode());
             try {
-                dataApiClient.completeClaimIntent(intent.commandId(), lease.leaseToken(),
+                dataApiClient.completeClaimIntent(intent.commandId(), lease.leaseToken(), e.getCode(),
                         Deadline.startingNow(PER_INTENT_BUDGET));
                 result.completed++;
             } catch (RuntimeException markFailure) {

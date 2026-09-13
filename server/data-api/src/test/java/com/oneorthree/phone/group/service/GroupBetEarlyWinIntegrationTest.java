@@ -1,6 +1,9 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
+import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityRequest;
+import com.oneorthree.phone.internal.notification.service.NotificationEligibilityService;
+import com.oneorthree.phone.group.repository.domain.SettleTrigger;
 import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
@@ -34,6 +37,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -45,6 +50,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -59,6 +65,10 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     GroupBetEarlyWinConfirmer groupBetEarlyWinConfirmer;
+    @Autowired
+    GroupBetSettler groupBetSettler;
+    @Autowired
+    NotificationEligibilityService notificationEligibilityService;
     @Autowired
     PlatformTransactionManager transactionManager;
     @Autowired
@@ -207,6 +217,87 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
     }
 
     // ── 테스트 ──────────────────────────────────────────────────────────
+
+    @ParameterizedTest
+    @EnumSource(value = GroupBetStatus.class, names = {"VOIDED", "REFUNDED"})
+    void aDelayedEarlyWinIsSuppressedAfterTheSessionRefunds(GroupBetStatus terminal) {
+        LocalDate date = LocalDate.now(KST).minusDays(2);
+        Instant now = Instant.now();
+        User winner = stakedUser("지연승리");
+        User peer = stakedUser("미확정동료");
+        GroupChallenge target = durationChallenge(MissionCategory.FOCUS);
+        Instant settleAfter = terminal == GroupBetStatus.REFUNDED
+                ? now.minus(Duration.ofHours(25)) : now.plus(Duration.ofHours(1));
+        GroupChallengeBetSession session = session(target, date,
+                now.minus(Duration.ofHours(27)), now.minus(Duration.ofHours(26)), settleAfter);
+        GroupChallengeBetParticipant mine = join(session, winner);
+        join(session, peer);
+        stats.add(dailyFocusStatRepository.save(DailyFocusStat.builder().user(winner).date(date)
+                .totalFocusSeconds(GOAL_MINUTES * 60).build()));
+
+        inTransaction.executeWithoutResult(tx -> groupBetEarlyWinConfirmer.confirmWins(winner.getId(), List.of(date)));
+        assertThat(reload(mine).getAchieved()).isTrue();
+        assertThat(reload(mine).getAchievedAt()).isNotNull();
+        assertThat(groupChallengeBetSessionRepository.findById(session.getId()).orElseThrow().getStatus())
+                .isEqualTo(GroupBetStatus.OPEN);
+        assertThat(notificationEligibilityService.evaluate(wonRequest(winner, session)).eligible()).isTrue();
+
+        if (terminal == GroupBetStatus.VOIDED) {
+            assertThat(groupBetSettler.voidOpenSessionsForChallengeDelete(target.getId())).isEqualTo(1);
+        } else {
+            assertThat(groupBetSettler.settle(session.getId(), SettleTrigger.CRON).status()).isEqualTo(terminal);
+        }
+
+        assertThat(groupChallengeBetSessionRepository.findById(session.getId()).orElseThrow().getStatus())
+                .isEqualTo(terminal);
+        assertThat(reload(mine).getAchieved()).as("환불은 조기 달성의 박제를 지우지 않는다").isTrue();
+        assertThat(reload(mine).getPayout()).isEqualTo(STAKE);
+        assertThat(userWalletRepository.findById(winner.getId()).orElseThrow().getBalance())
+                .isEqualTo(BALANCE_AFTER_STAKE + STAKE);
+        assertThat(notificationEligibilityService.evaluate(wonRequest(winner, session)).eligible())
+                .as("같은 승리 사건이 relay/DLT에서 늦게 도착해도 환불된 회차는 승리 푸시를 보내지 않는다")
+                .isFalse();
+    }
+
+    @Test
+    void participationWithoutAConfirmedWinDoesNotPermitVictoryPush() {
+        User user = stakedUser("아직미달성");
+        Instant tomorrow = Instant.now().plus(Duration.ofDays(1));
+        GroupChallengeBetSession session = session(durationChallenge(MissionCategory.FOCUS),
+                LocalDate.now(KST), tomorrow, tomorrow, tomorrow);
+        GroupChallengeBetParticipant mine = join(session, user);
+        assertThat(reload(mine).getAchieved()).isNull();
+
+        assertThat(notificationEligibilityService.evaluate(wonRequest(user, session)).eligible()).isFalse();
+        assertThat(notificationEligibilityService.evaluate(new NotificationEligibilityRequest(user.getId(),
+                "BET_SILENT_FLUSH", session.getId(), Map.of())).eligible()).isTrue();
+    }
+
+    @Test
+    void aSettledWinnerRemainsEligibleButTheLosingParticipantDoesNot() {
+        LocalDate today = LocalDate.now(KST);
+        Instant now = Instant.now();
+        User winner = stakedUser("정산승자");
+        User loser = stakedUser("정산패자");
+        GroupChallengeBetSession session = session(durationChallenge(MissionCategory.FOCUS), today,
+                now.minus(Duration.ofHours(2)), now.minus(Duration.ofHours(1)), now.minusSeconds(1));
+        GroupChallengeBetParticipant won = join(session, winner);
+        GroupChallengeBetParticipant lost = join(session, loser);
+        stats.add(dailyFocusStatRepository.save(DailyFocusStat.builder().user(winner).date(today)
+                .totalFocusSeconds(GOAL_MINUTES * 60).build()));
+        assertThat(groupBetSettler.settle(session.getId(), SettleTrigger.CRON).status())
+                .isEqualTo(GroupBetStatus.SETTLED);
+
+        assertThat(reload(won).getAchieved()).isTrue();
+        assertThat(reload(won).getAchievedAt()).as("정산에서 판정한 승자는 조기 확정 시각이 없다").isNull();
+        assertThat(reload(lost).getAchieved()).isFalse();
+        assertThat(notificationEligibilityService.evaluate(wonRequest(winner, session)).eligible()).isTrue();
+        assertThat(notificationEligibilityService.evaluate(wonRequest(loser, session)).eligible()).isFalse();
+    }
+
+    private static NotificationEligibilityRequest wonRequest(User user, GroupChallengeBetSession session) {
+        return new NotificationEligibilityRequest(user.getId(), "BET_WON", session.getId(), Map.of());
+    }
 
     @Test
     @DisplayName("FOCUS 회차만 개인 승리를 즉시 확정한다 — 같은 날짜 SCREEN_TIME 회차는 건드리지 않는다")

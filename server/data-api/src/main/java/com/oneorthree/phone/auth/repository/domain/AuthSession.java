@@ -73,6 +73,10 @@ public class AuthSession {
     @Column(name = "bootstrap_nonce_hash", length = 64)
     private String bootstrapNonceHash;
 
+    /** 구 RT 승격 당시의 단일 기기. 나중에 다른 세션이 users.device_token을 바꿔도 대상을 보존한다. */
+    @Column(name = "legacy_device_token", columnDefinition = "text", updatable = false)
+    private String legacyDeviceToken;
+
     /**
      * fencing 값 (㋨) — 알림 서버가 자기 tombstone 과 <b>원자 대조</b>해 이 값보다 오래된 소유권
      * 변경을 거부한다. 유저 축 aggregate 행 잠금 아래 발급되므로 번호 순서가 곧 커밋 순서다(㊸).

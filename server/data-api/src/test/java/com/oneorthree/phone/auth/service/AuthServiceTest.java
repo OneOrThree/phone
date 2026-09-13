@@ -110,7 +110,7 @@ class AuthServiceTest {
                 .thenReturn(new AuthSessionService.IssuedSession(SESSION_ID, 1L, "bootstrap"));
         lenient().when(authSessionService.rotateActive(any(), anyString(), anyString()))
                 .thenReturn(Optional.of(new AuthSessionService.IssuedSession(SESSION_ID, 2L, null)));
-        lenient().when(authSessionService.promoteLegacy(any(), anyString()))
+        lenient().when(authSessionService.promoteLegacy(any(), anyString(), any()))
                 .thenReturn(new AuthSessionService.IssuedSession(SESSION_ID, 2L, "promoted-bootstrap"));
         lenient().when(authSessionService.findByRefreshToken(anyString()))
                 .thenReturn(java.util.Optional.empty());
@@ -867,7 +867,7 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.refreshToken("revoked-rt"))
                 .isInstanceOf(InvalidTokenException.class);
         verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
-        verify(authSessionService, never()).promoteLegacy(any(), anyString());
+        verify(authSessionService, never()).promoteLegacy(any(), anyString(), any());
     }
 
     @Test
@@ -964,7 +964,7 @@ class AuthServiceTest {
         assertThat(response.sessionId()).isEqualTo(SESSION_ID);
         // 승격 행에는 자격이 이때 처음 발급된다
         assertThat(response.deviceBootstrap()).isEqualTo("promoted-bootstrap");
-        verify(authSessionService).promoteLegacy(USER_ID, "promoted-rt");
+        verify(authSessionService).promoteLegacy(USER_ID, "promoted-rt", null);
         verify(authSessionService, never()).rotateActive(any(), anyString(), anyString());
     }
 
@@ -982,7 +982,7 @@ class AuthServiceTest {
         // when & then
         assertThatThrownBy(() -> authService.refreshToken("orphan-rt"))
                 .isInstanceOf(InvalidTokenException.class);
-        verify(authSessionService, never()).promoteLegacy(any(), anyString());
+        verify(authSessionService, never()).promoteLegacy(any(), anyString(), any());
         verify(userRepository, never()).rotateRefreshTokenHash(any(), anyString(), anyString());
     }
 

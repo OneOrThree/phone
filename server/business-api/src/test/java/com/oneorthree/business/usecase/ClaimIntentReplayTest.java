@@ -4,7 +4,14 @@ import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.ValueSource;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import org.springframework.beans.factory.annotation.Autowired;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,6 +34,165 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
     private ClaimIntentReplayService runner;
 
     private static final String LEASE_TOKEN = "66666666-0000-0000-0000-000000000001";
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"leased\":null}"})
+    void anAbsentLeaseDecisionIsAFailureRatherThanAnotherWorkersLease(String body) {
+        stubPending("\"original:claim-intent\"", "abc123", 0);
+        DATA.on("POST /internal/invite-links/claim-intents/" + CMD_1 + "/lease",
+                request -> new MockUpstream.Response(200, body));
+        ClaimIntentReplayService.Result result = runner.replayAll();
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.skipped()).isZero();
+        assertThat(result.pendingTotal()).isEqualTo(1);
+        assertThat(result.gatePassed()).isFalse();
+        assertThat(LINK.received()).isEmpty();
+        assertThat(DATA.hits("POST /internal/invite-links/claim-intents/" + CMD_1 + "/completed")).isZero();
+    }
+
+    static Stream<Arguments> negativePendingTotals() {
+        return Stream.of(Arguments.of(-1L, false), Arguments.of(-1L, true),
+                Arguments.of(Long.MIN_VALUE, false), Arguments.of(Long.MIN_VALUE, true));
+    }
+
+    @ParameterizedTest
+    @MethodSource("negativePendingTotals")
+    void negativePendingCountStopsTheCliBeforeLeasingOrCompletingAnyIntent(long pending, boolean hasItem) {
+        String item = "{\"commandId\":\"" + CMD_1 + "\",\"userId\":\"" + USER_1
+                + "\",\"slug\":\"abc123\",\"idempotencyKey\":\"original:claim-intent\",\"attempts\":0}";
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                "{\"items\":[" + (hasItem ? item : "") + "],\"nextCursor\":null,\"pendingTotal\":" + pending + "}"));
+        stubLeased(false);
+        ClaimIntentReplayRunner cli = new ClaimIntentReplayRunner(runner);
+
+        assertThatThrownBy(() -> cli.run(null)).isInstanceOf(UpstreamContractMismatchException.class);
+        assertThat(DATA.received()).allMatch(request ->
+                "GET /internal/invite-links/claim-intents".equals(request.methodAndPath()));
+        assertThat(LINK.received()).isEmpty();
+
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                "{\"items\":[],\"nextCursor\":null,\"pendingTotal\":0}"));
+        cli.run(null);
+        assertThat(runner.replayAll().gatePassed()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"items\":[]}", "{\"items\":[],\"pendingTotal\":null}",
+            "{\"pendingTotal\":0}", "{\"items\":null,\"pendingTotal\":0}",
+            "{\"items\":[],\"pendingTotal\":0.5}", "{\"items\":[],\"pendingTotal\":-0.5}",
+            "{\"items\":[],\"pendingTotal\":9223372036854775808}",
+            "{\"items\":[],\"pendingTotal\":\"0\"}", "{\"items\":[],\"pendingTotal\":false}"})
+    void anIncompletePendingPageCannotPassTheZeroPendingGate(String body) {
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200, body));
+        assertThatThrownBy(runner::replayAll).isInstanceOf(UpstreamContractMismatchException.class);
+        assertThat(LINK.received()).isEmpty();
+        DATA.on("GET /internal/invite-links/claim-intents",
+                request -> new MockUpstream.Response(200, "{\"items\":[],\"pendingTotal\":0}"));
+        assertThat(runner.replayAll().gatePassed()).isTrue();
+    }
+
+    static Stream<Arguments> absentPendingBodies() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{}"), Arguments.of(200, "{\"capability\":null}"),
+                Arguments.of(200, "{\"claimId\":null}"),
+                Arguments.of(200, "{\"claimId\":null,\"capability\":\"signed-value\"}"),
+                Arguments.of(200, "{\"claimId\":null,\"capability\":\"\"}"),
+                Arguments.of(200, "{\"claimId\":null,\"capability\":\"  \"}"),
+                Arguments.of(200, "{\"claimId\":\"11111111-1111-4111-8111-111111111111\",\"capability\":null}"),
+                Arguments.of(200, "{\"claimId\":\"11111111-1111-4111-8111-111111111111\",\"capability\":\"\"}"),
+                Arguments.of(200, "{\"claimId\":\"11111111-1111-4111-8111-111111111111\",\"capability\":\"  \"}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("absentPendingBodies")
+    void absentPendingBodyCannotCompleteTheIntentAndTheNextRunCanConfirmIt(int responseStatus, String body) {
+        AtomicBoolean completed = new AtomicBoolean();
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                completed.get() ? "{\"items\":[],\"nextCursor\":null,\"pendingTotal\":0}"
+                        : "{\"items\":[{\"commandId\":\"" + CMD_1 + "\",\"userId\":\"" + USER_1
+                                + "\",\"slug\":\"abc123\",\"idempotencyKey\":\"original:claim-intent\","
+                                + "\"attempts\":0}],\"nextCursor\":null,\"pendingTotal\":1}"));
+        stubLeased(true);
+        DATA.on("POST /internal/invite-links/claim-intents/" + CMD_1 + "/completed", request -> {
+            completed.set(true);
+            return new MockUpstream.Response(200, null);
+        });
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(responseStatus, body));
+
+        ClaimIntentReplayService.Result failed = runner.replayAll();
+        assertThat(completed).isFalse();
+        assertThat(failed.completed()).isZero();
+        assertThat(failed.failed()).isEqualTo(1);
+        assertThat(failed.pendingTotal()).isEqualTo(1);
+        assertThat(failed.gatePassed()).isFalse();
+
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(200,
+                "{\"claimId\":\"" + CLAIM_1 + "\",\"capability\":\"cap-token\"}"));
+        DATA.on("POST /internal/invite-links/claim-confirmations", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\",\"version\":2}"));
+        ClaimIntentReplayService.Result retried = runner.replayAll();
+        assertThat(retried.completed()).isEqualTo(1);
+        assertThat(retried.gatePassed()).isTrue();
+        assertThat(DATA.hits("POST /internal/invite-links/claim-confirmations")).isEqualTo(1);
+        assertThat(LINK.receivedFor("POST /internal/links/abc123/claim")).hasSize(2)
+                .allSatisfy(request -> assertThat(request.header("Idempotency-Key")).isEqualTo("original:link-claim"));
+    }
+
+    static Stream<Arguments> incompleteConfirmationBodies() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":null,\"eventId\":\"confirmed\",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"\",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\" \",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\"}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\",\"version\":null}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\",\"version\":0}"),
+                Arguments.of(200, "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\",\"version\":-1}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("incompleteConfirmationBodies")
+    void incompleteConfirmationCannotCompleteTheIntentAndTheNextRunCanRetry(int responseStatus, String body) {
+        AtomicBoolean completed = new AtomicBoolean();
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                completed.get() ? "{\"items\":[],\"nextCursor\":null,\"pendingTotal\":0}"
+                        : "{\"items\":[{\"commandId\":\"" + CMD_1 + "\",\"userId\":\"" + USER_1
+                                + "\",\"slug\":\"abc123\",\"idempotencyKey\":\"original:claim-intent\","
+                                + "\"attempts\":0}],\"nextCursor\":null,\"pendingTotal\":1}"));
+        stubLeased(true);
+        String completePath = "POST /internal/invite-links/claim-intents/" + CMD_1 + "/completed";
+        String confirmPath = "POST /internal/invite-links/claim-confirmations";
+        DATA.on(completePath, request -> {
+            completed.set(true);
+            return new MockUpstream.Response(200, null);
+        });
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(200,
+                "{\"claimId\":\"" + CLAIM_1 + "\",\"capability\":\"cap-token\"}"));
+        DATA.on(confirmPath, request -> new MockUpstream.Response(responseStatus, body));
+
+        ClaimIntentReplayService.Result failed = runner.replayAll();
+        assertThat(completed).isFalse();
+        assertThat(DATA.hits(completePath)).isZero();
+        assertThat(failed.completed()).isZero();
+        assertThat(failed.failed()).isEqualTo(1);
+        assertThat(failed.pendingTotal()).isEqualTo(1);
+        assertThat(failed.gatePassed()).isFalse();
+
+        // 응답 복구 후 같은 의도·같은 단계 키로 다시 확정한다. 실패를 완료 표시로 지우지 않았다.
+        DATA.on(confirmPath, request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + CMD_1 + "\",\"eventId\":\"confirmed\",\"version\":2}"));
+        ClaimIntentReplayService.Result retried = runner.replayAll();
+        assertThat(retried.completed()).isEqualTo(1);
+        assertThat(retried.failed()).isZero();
+        assertThat(retried.pendingTotal()).isZero();
+        assertThat(retried.gatePassed()).isTrue();
+        assertThat(DATA.hits(completePath)).isEqualTo(1);
+        assertThat(DATA.receivedFor(confirmPath)).hasSize(2).allSatisfy(request ->
+                assertThat(request.header("Idempotency-Key")).isEqualTo("original:claim-confirm"));
+        assertThat(DATA.receivedFor(confirmPath).get(0).body())
+                .isEqualTo(DATA.receivedFor(confirmPath).get(1).body());
+    }
 
     /**
      * 첫 조회는 의도 1건 + pendingTotal 1, 그다음부터는 빈 목록 + pendingTotal 0 을 준다 —
@@ -106,24 +272,26 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
         assertThat(LINK.received()).isEmpty();
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(longs = {3, Long.MAX_VALUE})
     @DisplayName("빈 페이지라도 pendingTotal 이 남으면 gate 를 통과하지 못한다 — 「빈 페이지 = 전부 완료」가 아니다")
-    void 빈페이지는완료아님() {
+    void 빈페이지는완료아님(long pendingTotal) {
         // 지금 집을 것은 없지만(다른 작업자 lease·재시도 예정) 전체 미완료는 3건이다.
         DATA.on("GET /internal/invite-links/claim-intents", request ->
-                new MockUpstream.Response(200, "{\"items\":[],\"nextCursor\":null,\"pendingTotal\":3}"));
+                new MockUpstream.Response(200,
+                        "{\"items\":[],\"nextCursor\":null,\"pendingTotal\":" + pendingTotal + "}"));
 
         ClaimIntentReplayService.Result result = runner.replayAll();
 
         assertThat(result.failed()).isZero();
-        assertThat(result.pendingTotal()).isEqualTo(3L);
+        assertThat(result.pendingTotal()).isEqualTo(pendingTotal);
         assertThat(result.gatePassed()).isFalse();
 
         // CLI 는 그 상태를 «성공» 으로 끝내지 않는다.
         ClaimIntentReplayRunner cli = new ClaimIntentReplayRunner(runner);
         assertThatThrownBy(() -> cli.run(null))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("미완료 claim 의도 3건");
+                .hasMessageContaining("미완료 claim 의도 " + pendingTotal + "건");
     }
 
     @Test
@@ -206,6 +374,8 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
 
         assertThat(result.completed()).isEqualTo(1);
         assertThat(result.failed()).isZero();
+        assertThat(DATA.receivedFor("POST /internal/invite-links/claim-intents/" + CMD_1 + "/completed")
+                .get(0).body()).contains("\"terminalCode\":\"SLUG_NOT_FOUND\"");
     }
 
     @Test
@@ -272,6 +442,20 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
         assertThatThrownBy(() -> cli.run(null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("재개하지 못한");
+    }
+
+    @Test
+    void aConcurrentCompletionCanLeaveItemsWithAZeroCount() {
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                "{\"items\":[{\"commandId\":\"" + CMD_1 + "\",\"userId\":\"" + USER_1
+                        + "\",\"slug\":\"abc123\",\"idempotencyKey\":\"original:claim-intent\",\"attempts\":0}],"
+                        + "\"nextCursor\":null,\"pendingTotal\":0}"));
+        stubLeased(false);
+        ClaimIntentReplayService.Result result = runner.replayAll();
+        assertThat(result.skipped()).isEqualTo(1);
+        assertThat(result.pendingTotal()).isZero();
+        assertThat(result.gatePassed()).isTrue();
+        assertThat(LINK.received()).isEmpty();
     }
 
     @Test

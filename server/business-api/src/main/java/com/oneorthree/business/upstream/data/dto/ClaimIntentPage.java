@@ -1,7 +1,13 @@
 package com.oneorthree.business.upstream.data.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+
 import java.util.List;
 import java.util.UUID;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 미완료 claim 의도 한 페이지 — 재개 CLI 의 입력이다(서비스 전용 조회).
@@ -20,7 +26,22 @@ import java.util.UUID;
  * @param pendingTotal 전체 미완료 건수. <b>다른 작업자가 lease 를 쥔 행과 재시도 예정 행을 포함</b>한다.
  *                     이 값이 0 일 때만 「미완료 0」 gate 를 통과한다
  */
-public record ClaimIntentPage(List<ClaimIntent> items, String nextCursor, long pendingTotal) {
+public record ClaimIntentPage(
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<ClaimIntent> items,
+        String nextCursor,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long pendingTotal) {
+
+    /** 정수 건수만 받는다. Jackson의 소수→long 절삭이 0건 gate를 만들면 안 된다. */
+    @JsonCreator
+    public static ClaimIntentPage fromJson(
+            @JsonProperty(value = "items", required = true) @JsonSetter(nulls = Nulls.FAIL) List<ClaimIntent> items,
+            @JsonProperty("nextCursor") String nextCursor,
+            @JsonProperty(value = "pendingTotal", required = true) JsonNode pendingTotal) {
+        if (pendingTotal == null || !pendingTotal.isIntegralNumber() || !pendingTotal.canConvertToLong()) {
+            throw new IllegalArgumentException("claim 의도 pendingTotal은 int64 정수여야 합니다");
+        }
+        return new ClaimIntentPage(items, nextCursor, pendingTotal.longValue());
+    }
 
     /**
      * 재개해야 할 claim 하나.

@@ -8,6 +8,7 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.notification.producer.NotificationEventKey;
 import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationExpiry;
 import com.oneorthree.phone.notification.producer.NotificationSlotGranularity;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
@@ -200,26 +201,6 @@ public class NotificationExportService {
             """;
 
     /**
-     * 같은 기기 토큰을 들고 있는 유저 묶음 — <b>게이트 조건</b>이다(단순 보고가 아니다).
-     *
-     * <p>{@code users.device_token} 에는 UNIQUE 가 없어서 로그아웃 없이 계정을 갈아탄 기기의 토큰이
-     * 이전 계정과 현재 계정에 함께 남는다. 그대로 내보내면 두 {@code device} 레코드가 같은
-     * {@code device:<토큰 해시>} 키를 갖는다 — 같은 import 배치면 {@code DUPLICATE_RECORD_KEY} 로
-     * 요청 전체가 실패하고, 다른 배치로 갈리면 한 소유자가 조용히 덮여 manifest 검증이 깨진다.
-     *
-     * <p>범위는 {@link #DEVICE_SQL} 과 <b>같아야 한다</b>. 봇은 export 에 실리지 않으므로 봇의 토큰은
-     * 충돌을 만들 수 없는데, 여기서만 세면 열릴 수 없는 게이트가 된다.
-     */
-    private static final String DUPLICATE_TOKEN_SQL = """
-            SELECT device_token, ARRAY_AGG(CAST(id AS varchar) ORDER BY id) AS user_ids
-              FROM users
-             WHERE device_token IS NOT NULL AND is_bot = false
-             GROUP BY device_token
-            HAVING COUNT(*) > 1
-             ORDER BY device_token
-            """;
-
-    /**
      * 정지 창이 <b>아직 끝나지 않았다</b>는 증거 — Data 가 여전히 밖으로 내보낼 것이 남았는가.
      *
      * <h2>구 클레임 큐({@code PENDING}·{@code DEFERRED})는 여기 들어가지 않는다</h2>
@@ -332,20 +313,17 @@ public class NotificationExportService {
         counts.put("failures", (long) failures.size());
         counts.put("queueDepth", queueDepth);
 
-        List<NotificationExportDocument.DuplicateDeviceToken> duplicates = readDuplicateDeviceTokens();
+        List<NotificationExportDocument.DuplicateDeviceToken> duplicates = duplicateDeviceTokens(devices);
         NotificationExportDocument document = new NotificationExportDocument(
                 exportedAt, migrationId, manifest, List.copyOf(records), List.copyOf(failures),
                 new NotificationExportDocument.Report(duplicates, counts, queueBreakdown,
                         inflightDrained, closedAt != null && inflightDrained && failures.isEmpty()
-                                && queueDepth == 0 && duplicates.isEmpty()));
+                                && duplicates.isEmpty() && queueDepth == 0));
 
         if (strict && !duplicates.isEmpty()) {
-            // 검출해 놓고 통과시키면 검출한 의미가 없다. 같은 토큰이 두 유저에 남은 채 나가면 같은
-            // import 배치에서는 DUPLICATE_RECORD_KEY 로 요청 전체가 실패하고, 배치가 갈리면 한 소유자가
-            // 조용히 덮여 «어느 계정의 푸시가 사라졌는지» 아무도 모르게 된다. 옮기기 전에 정리한다.
             throw new IllegalStateException(
-                    "같은 기기 토큰을 들고 있는 유저 묶음이 " + duplicates.size() + "건 남아 전환할 수 없습니다. "
-                            + "목록은 export 문서의 report.duplicateDeviceTokens 를 보세요.");
+                    "중복 기기 토큰이 " + duplicates.size() + "개 남아 전환할 수 없습니다. "
+                            + "진단 export의 report.duplicateDeviceTokens를 확인하고 소유권을 정리하세요.");
         }
         if (strict && !failures.isEmpty()) {
             // 여기서 죽는 편이 낫다. 통과시키면 그 행들이 이관되지 않은 채 구 DB 에만 남고,
@@ -428,6 +406,10 @@ public class NotificationExportService {
         List<NotificationMigrationRecord> records = new ArrayList<>(rows.size());
         for (Object[] row : rows) {
             String token = String.valueOf(row[1]);
+            if (token.isBlank()) {
+                // 구 코드가 남긴 공백은 등록 가능한 기기가 아니다. 유효한 토큰의 원문은 바꾸지 않는다.
+                continue;
+            }
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("deviceToken", token);
             data.put("userId", String.valueOf(row[0]));
@@ -522,7 +504,7 @@ public class NotificationExportService {
         UUID rowId = toUuid(row[0]);
         UUID userId = toUuid(row[1]);
         String legacyKind = (String) row[3];
-        UUID legacyTargetId = toUuid(row[5]);
+        UUID subjectId = toUuid(row[4]);
         String status = String.valueOf(row[6]);
         Instant sentAt = toInstant(row[7]);
         Instant claimedAt = toInstant(row[8]);
@@ -540,7 +522,15 @@ public class NotificationExportService {
                     "신 카탈로그에 없는 종류입니다 — 모르는 것을 조용히 버리면 그게 곧 유실입니다."));
             return Optional.empty();
         }
-        UUID subjectId = subjectOf(kind, toUuid(row[4]), legacyTargetId);
+        if (subjectId == null) {
+            // V45는 이 5종의 target_user_id를 의도적으로 subject_id에 백필하지 않았다.
+            // 다른 종류에서는 target_user_id가 같은 대상을 뜻한다고 가정하지 않는다.
+            subjectId = switch (kind) {
+                case FRIEND_REQUEST, FRIEND_ACCEPTED, CHALLENGE_CREATED, CHALLENGE_WINDOW_END, CHALLENGE_ENDED ->
+                        toUuid(row[5]);
+                default -> null;
+            };
+        }
         if (kind.subjectKind() != NotificationKind.SubjectKind.NONE && subjectId == null) {
             failures.add(fail(rowId, userId, legacyKind, status, FAIL_NO_SUBJECT,
                     kind + " 는 대상 id 가 필요한데 비어 있습니다 — 키가 유저 × kind 로 뭉칩니다."));
@@ -560,6 +550,7 @@ public class NotificationExportService {
 
         boolean unsent = NotificationSendStatus.PENDING.name().equals(status)
                 || NotificationSendStatus.DEFERRED.name().equals(status);
+        String deliveryStatus = status;
         Map<String, Object> params;
         if (unsent) {
             Enrichment enrichment = enrich(kind, userId, subjectId, slotAt);
@@ -567,6 +558,10 @@ public class NotificationExportService {
                 failures.add(fail(rowId, userId, legacyKind, status, enrichment.reason(),
                         enrichment.detail()));
                 return Optional.empty();
+            }
+            if (enrichment.suppressionOnly()) {
+                // 구 행에 없는 원래 보간값은 지어내지 않는다. 사건 키와 이력은 남기되 재발송하지 않는다.
+                deliveryStatus = "SUPPRESSED";
             }
             params = withCommonParams(kind, enrichment.params(), groupId, slotAt);
         } else {
@@ -583,47 +578,17 @@ public class NotificationExportService {
         data.put("groupId", groupId == null ? null : groupId.toString());
         data.put("slotAt", toMillis(slotAt));
         data.put("locale", localeOf(userId));
-        data.put("status", status);
+        data.put("status", deliveryStatus);
         // 구 테이블에 시도 횟수 컬럼이 없다 — 0 을 지어내는 대신 «세지 않았다»는 사실을 그대로 0 으로
         // 옮기고 문서에 남긴다. 이 값으로 백오프를 계산하면 안 된다.
         data.put("attempts", 0L);
         data.put("nextAttemptAt", nextAttemptMillis(status, nextAttemptAt, claimedAt, slotAt, sentAt));
         data.put("sentAt", toMillis(sentAt));
+        NotificationExpiry.addTo(params, kind, occurredAt);
         data.put("params", params);
 
         return Optional.of(NotificationMigrationRecord.of(
                 NotificationMigrationRecord.RESOURCE_DELIVERY, eventId, data));
-    }
-
-    /**
-     * 사건 대상 id — 구 행은 그것을 {@code subject_id} 가 아니라 {@code target_user_id} 에 적었다.
-     *
-     * <p>V45 는 {@code subject_id} 를 도입하면서 <b>{@code BET_RESULT} 만</b> 백필했다. 나머지 구 종류는
-     * 일부러 {@code NULL} 로 남겼는데, 그때의 이유는 유니크 {@code (user_id, kind, subject_id)} 였다 —
-     * {@code CHALLENGE_WINDOW_END}·{@code CHALLENGE_ENDED} 는 매일 반복인데 채워 넣으면 이튿날 발송이
-     * 막히기 때문이다({@code CHALLENGE_CREATED}·{@code FRIEND_*} 도 구 모델이라 함께 남겼다).
-     *
-     * <p>그 이유는 <b>이관에는 적용되지 않는다</b>. 새 키는 시간축을 따로 갖고 있어
-     * ({@link NotificationEventKey}) 대상 id 를 채워도 이튿날 키와 충돌하지 않는다. 반대로 여기서
-     * {@code row[4]} 만 읽고 {@code target_user_id} 를 버리면, 그런 운영 이력이 한 건이라도 있는 순간
-     * strict export 가 {@code NO_SUBJECT} 로 죽어 컷오버할 수 없고, lenient 로 우회하면 그 발송 이력이
-     * 통째로 빠져 <b>새 스케줄러가 같은 알림을 다시 보낸다</b>.
-     *
-     * <p>두 컬럼이 동시에 차는 행은 없다 — 구 서비스는 {@code target_user_id} 만, 신 클레임 INSERT 는
-     * {@code subject_id} 만 쓴다. 그래도 <b>폴백은 좁게</b> 건다: {@code subject_id} 가 있으면 그것이
-     * 이기고, 대상이 없는 kind({@link NotificationKind.SubjectKind#NONE} — 리그·리텐션)는 손대지 않는다.
-     * 그 축은 producer 가 {@code null} 로 만들기 때문에, 여기서 값을 얹으면 같은 사건의 키가 갈린다.
-     *
-     * @param kind          신 카탈로그의 종류
-     * @param subjectId     {@code subject_id} 컬럼 — 신 파이프라인이 적은 값
-     * @param legacyTargetId {@code target_user_id} 컬럼 — 구 서비스가 적은 대상 id
-     * @return 사건 대상 id. 대상이 없는 kind 이거나 양쪽 다 비면 {@code null}
-     */
-    private static UUID subjectOf(NotificationKind kind, UUID subjectId, UUID legacyTargetId) {
-        if (subjectId != null || kind.subjectKind() == NotificationKind.SubjectKind.NONE) {
-            return subjectId;
-        }
-        return legacyTargetId;
     }
 
     /**
@@ -678,10 +643,14 @@ public class NotificationExportService {
             case BET_RESULT, BET_VOID_REFUND -> enrichBetOutcome(kind, userId, subjectId);
             case BET_WON, BET_SILENT_FLUSH -> enrichBetSimple(kind, userId, subjectId);
             case CHALLENGE_SESSION_OPEN -> enrichSessionOpen(subjectId);
-            case CHALLENGE_CREATED, CHALLENGE_WINDOW_END, CHALLENGE_ENDED -> enrichChallenge(subjectId);
-            // 리그·리텐션·친구는 그때의 값(순위·부족분·닉네임)이 렌더 입력인데 구 행에 남아 있지 않다.
-            // 알림 서버는 이관분을 «억제 근거» 로만 쓰고 새로 보내지 않는다 — 그래서 params 를 비운다.
-            default -> new Enrichment(Map.of(), null, null);
+            case CHALLENGE_WINDOW_END, CHALLENGE_ENDED -> enrichChallenge(subjectId);
+            // 보간 없는 알림은 정상 미발송 상태를 유지한다.
+            case MISSED_FOCUS_TODAY -> new Enrichment(Map.of(), null, null, false);
+            // 순위·부족분·단계·닉네임·개설 당시 목표는 구 행에 없다. 현재 값으로 사건을 재작성하지 않는다.
+            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_DEADLINE_D1,
+                    LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE,
+                    INACTIVE_RETURN, STREAK_AT_RISK, FRIEND_REQUEST, FRIEND_ACCEPTED, CHALLENGE_CREATED ->
+                    new Enrichment(Map.of(), null, null, true);
         };
     }
 
@@ -706,7 +675,7 @@ public class NotificationExportService {
             params.put("achieved", Boolean.TRUE.equals(participant.getAchieved()));
             params.put("payout", participant.getPayout() == null ? 0L : participant.getPayout().longValue());
         }
-        return new Enrichment(params, null, null);
+        return new Enrichment(params, null, null, false);
     }
 
     private Enrichment enrichBetSimple(NotificationKind kind, UUID userId, UUID sessionId) {
@@ -723,7 +692,7 @@ public class NotificationExportService {
         } else {
             params.put("challengeId", session.getChallenge().getId().toString());
         }
-        return new Enrichment(params, null, null);
+        return new Enrichment(params, null, null, false);
     }
 
     private Enrichment enrichSessionOpen(UUID sessionId) {
@@ -739,7 +708,7 @@ public class NotificationExportService {
         // 그 사건 키가 어디에도 없어, 컷오버 뒤 15분 크론이 다시 만들어 «마감된 모집»을 보낸다.
         params.put("legacySessionStatus", session.getStatus().name());
         params.put("legacyStillOpen", session.getStatus() == GroupBetStatus.OPEN);
-        return new Enrichment(params, null, null);
+        return new Enrichment(params, null, null, false);
     }
 
     private Enrichment enrichChallenge(UUID challengeId) {
@@ -750,7 +719,7 @@ public class NotificationExportService {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("challengeId", challenge.getId().toString());
         params.put("groupName", challenge.getGroup().getName());
-        return new Enrichment(params, null, null);
+        return new Enrichment(params, null, null, false);
     }
 
     private String localeOf(UUID userId) {
@@ -784,24 +753,30 @@ public class NotificationExportService {
                 + MigrationCanonicalJson.sha256Hex(vector.getBytes(StandardCharsets.UTF_8));
     }
 
-    private List<NotificationExportDocument.DuplicateDeviceToken> readDuplicateDeviceTokens() {
-        @SuppressWarnings("unchecked")
-        List<Object[]> rows = entityManager.createNativeQuery(DUPLICATE_TOKEN_SQL).getResultList();
-        List<NotificationExportDocument.DuplicateDeviceToken> duplicates = new ArrayList<>(rows.size());
-        for (Object[] row : rows) {
-            String token = String.valueOf(row[0]);
-            String masked = token.length() <= 8 ? token : token.substring(0, 8) + "…";
-            duplicates.add(new NotificationExportDocument.DuplicateDeviceToken(
-                    masked, List.of((String[]) row[1])));
+    /** 실제 export되는 기기만 집계한다 — 제외한 봇·공백 토큰이 최종본을 막으면 안 된다. */
+    private static List<NotificationExportDocument.DuplicateDeviceToken> duplicateDeviceTokens(
+            List<NotificationMigrationRecord> devices) {
+        Map<String, List<String>> ownersByToken = new TreeMap<>();
+        for (NotificationMigrationRecord device : devices) {
+            String token = (String) device.data().get("deviceToken");
+            ownersByToken.computeIfAbsent(token, ignored -> new ArrayList<>())
+                    .add((String) device.data().get("userId"));
         }
+        List<NotificationExportDocument.DuplicateDeviceToken> duplicates = new ArrayList<>();
+        ownersByToken.forEach((token, owners) -> {
+            if (owners.size() > 1) {
+                String masked = token.length() <= 8 ? token : token.substring(0, 8) + "…";
+                duplicates.add(new NotificationExportDocument.DuplicateDeviceToken(masked, List.copyOf(owners)));
+            }
+        });
         return List.copyOf(duplicates);
     }
 
-    /** 렌더 입력, 또는 재조립 불가 사유. */
-    private record Enrichment(Map<String, Object> params, String reason, String detail) {
+    /** 렌더 입력·종결 근거 여부, 또는 재조립 불가 사유. */
+    private record Enrichment(Map<String, Object> params, String reason, String detail, boolean suppressionOnly) {
 
         static Enrichment fail(String reason, String detail) {
-            return new Enrichment(Map.of(), reason, detail);
+            return new Enrichment(Map.of(), reason, detail, false);
         }
     }
 

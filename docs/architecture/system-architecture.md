@@ -137,8 +137,8 @@ A22 ㋺의 기존 미리보기 통합으로 Business 컨테이너 한도는 2 Gi
   (docs 사이트 레포)         docs.oneorthree.world — 허브 페이지
 
 server/.github/workflows/
-  dev-ci.yml        paths 매트릭스: services/<name>/** 가 바뀐 서비스만 → be-check-style / be-test / be-spot-bugs → 이미지 <name>:<sha> push
-                    ※ 공통 입력(settings.gradle · gradle wrapper · 공통 build script · .github/workflows/be-*.yml · deploy/compose·nginx) 이 바뀌면
+  dev-ci.yml        paths 매트릭스: services/<name>/** 가 바뀐 서비스만 → be-gradle.yml(재사용 1개, service 입력) → 이미지 <name>:<sha> push
+                    ※ 공통 입력(settings.gradle · gradle wrapper · 공통 build script · .github/workflows/be-gradle.yml · deploy/compose·nginx) 이 바뀌면
                       매트릭스를 전 서비스로 fan-out — 서비스 폴더 밖 변경이 검증 없이 머지되거나 이미지에 반영되지 않는 걸 막는다
                     ※ 전 서비스 fan-out 시 각 CD 가 같은 deploy/<env>.yml 을 따로 커밋하면 충돌한다 —
                       호출자 SHA 를 checkout 하는 현 dev-cd.yml 구조 그대로면 첫 CD 가 봇 커밋을 push 한 뒤

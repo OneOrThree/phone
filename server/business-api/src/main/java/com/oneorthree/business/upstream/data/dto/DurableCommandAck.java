@@ -1,6 +1,7 @@
 package com.oneorthree.business.upstream.data.dto;
 
 import java.util.UUID;
+import java.util.Map;
 
 /**
  * Data 가 내구 명령(outbox 행)을 커밋하고 돌려주는 <b>완성된 봉투</b> (A22 ㉵).
@@ -13,5 +14,8 @@ import java.util.UUID;
  * @param eventId   불변 사건 식별자 — 위성의 dedup 기준
  * @param version   aggregate 락 아래 발급된 단조 version — 위성의 역순 거부 기준
  */
-public record DurableCommandAck(UUID commandId, String eventId, long version) {
+public record DurableCommandAck(UUID commandId, String eventId, long version, Map<String, Object> params) {
+    public DurableCommandAck(UUID commandId, String eventId, long version) {
+        this(commandId, eventId, version, null);
+    }
 }

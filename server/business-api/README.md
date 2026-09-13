@@ -737,7 +737,7 @@ GET마다 명령 receipt를 적재하거나 과거 조회 결과를 재생하지
 ### 요청이 거꾸로 도착해도 다른 설정을 보존한다
 
 기존 설정에는 알림·소리·야간모드·시작시각·종료시각 5개가 있다.
-Notification `V4__settings_field_versions.sql`은 각 필드에 nullable version을 추가한다.
+Notification `V6__settings_field_versions.sql`은 각 필드에 nullable version을 추가한다.
 전체 최대 version은 호환용으로 유지하며 실제 덮어쓰기 판단은 각 필드 version으로 한다.
 예를 들어 version42의 알림 끄기 뒤 version41의 소리 끄기가 도착하면 둘 다 반영한다.
 같은 알림 필드의 version40은 뒤늦게 도착해도42를 되돌리지 못한다.
@@ -783,7 +783,7 @@ Notification의 현재 fence가 적용 여부를 판단하며 최신 세대로 �
 - Data: `InternalNotificationSettingsService`, `UserSatelliteCommandService`, 기존 `PublicCommandService`.
 - Notification: `SettingsPatch`, `SettingsService`, `MigrationService`, `DeviceService`.
 - 내부 HTTP 표면: `docs/contracts/business-satellite-api.yaml`. 새 서비스 토큰은 만들지 않고 기존 Business caller에 정확한 경로만 추가한다.
-- 배포 순서: 선행1659 → Notification V4/수신 코드 → Data 내구 명령 → Business → 세션 전환을 지원하는 앱.
+- 배포 순서: 선행1659 → Notification V6/수신 코드 → Data 내구 명령 → Business → 세션 전환을 지원하는 앱.
 - 실제 검증: Data PostgreSQL 같은 키 동시 요청/rollback/세션·설정 경합, Notification 역순/탈퇴/import/open 잠금, Business 실서명·실HTTP 순서/오류 복구/형식 검증.
 - `requestId`로 요청을 연결하고 완료 표시 실패는 commandId와 예외 종류만 기록한다. AT/RT·원문 상류 오류·설정 본문을 로그에 남기지 않는다.
 

@@ -26,6 +26,58 @@ class DeviceTokenContractTest extends UpstreamTestBase {
     private static final String OWNER_NEXT = "dddddddd-0000-0000-0000-000000000003";
 
     @Test
+    void headerlessDeleteUsesOnlyTheVerifiedAccessTokensSessionAndTheDataResolvedBootstrap() throws Exception {
+        UUID session = UUID.randomUUID();
+        String hash = "a".repeat(64);
+        DATA.on("POST /internal/users/" + USER + "/device-token-deletions", request ->
+                new MockUpstream.Response(200,
+                        "{\"commandId\":\"" + COMMAND_ID + "\",\"eventId\":\"evt\",\"version\":3,"
+                                + "\"params\":{\"sessionId\":\"" + session
+                                + "\",\"bootstrapNonceHash\":\"" + hash + "\"}}"));
+        NOTI.on("DELETE /internal/devices", request -> new MockUpstream.Response(204, null));
+        DATA.on("POST /internal/outbox-commands/" + COMMAND_ID + "/delivered",
+                request -> new MockUpstream.Response(200, null));
+
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, session))
+                        .header("X-Device-Session", UUID.randomUUID().toString())
+                        .header("X-Device-Bootstrap-Hash", "forged"))
+                .andExpect(status().isNoContent());
+        assertThat(DATA.received().get(0).body()).contains("\"sessionId\":\"" + session + "\"");
+        var deletion = NOTI.received().get(0);
+        assertThat(deletion.header("X-Device-Token")).isNull();
+        assertThat(deletion.header("X-Device-Ownership")).isNull();
+        assertThat(deletion.header("X-Device-Session")).isEqualTo(session.toString());
+        assertThat(deletion.header("X-Device-Bootstrap-Hash")).isEqualTo(hash);
+    }
+
+    @Test
+    void headerlessSessionDeletionDoesNotFallBackToAnUnscopedDeleteWhenDataFails() throws Exception {
+        DATA.on("POST /internal/users/" + USER + "/device-token-deletions",
+                request -> new MockUpstream.Response(500, "{}"));
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, UUID.randomUUID())))
+                .andExpect(status().isServiceUnavailable());
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    void headerlessOldAccessTokenWithoutSessionNeverInventsADeviceScope() throws Exception {
+        DATA.on("POST /internal/users/" + USER + "/device-token-deletions", request ->
+                new MockUpstream.Response(200,
+                        "{\"commandId\":\"" + COMMAND_ID + "\",\"eventId\":\"evt\",\"version\":3}"));
+        NOTI.on("DELETE /internal/devices", request -> new MockUpstream.Response(204, null));
+        DATA.on("POST /internal/outbox-commands/" + COMMAND_ID + "/delivered",
+                request -> new MockUpstream.Response(200, null));
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isNoContent());
+        assertThat(DATA.received().get(0).body()).contains("\"sessionId\":null");
+        assertThat(NOTI.received().get(0).header("X-Device-Session")).isNull();
+        assertThat(NOTI.received().get(0).header("X-Device-Token")).isNull();
+    }
+
+    @Test
     @DisplayName("삭제는 Data outbox 를 「먼저」 기록하고 그다음 직접 삭제한다 — 뒤집으면 둘 다 안 남는다")
     void 삭제순서() throws Exception {
         DATA.on("POST /internal/users/" + USER + "/device-token-deletions", request ->

@@ -47,6 +47,13 @@ class DeviceRegistrationSessionRaceTest extends UpstreamTestBase {
                 Deadline.startingNow(Duration.ofSeconds(10)));
     }
 
+    /** 구 앱 요청 — 자격({@code deviceBootstrap})이 없고 AT 의 {@code sid} 만 있다. */
+    private void registerAsLegacyApp() {
+        useCase.register(new AccessTokenClaims(USER, false, 1L, SESSION), TOKEN, null, null,
+                RequestIdempotencyKeys.from(UUID.randomUUID().toString()),
+                Deadline.startingNow(Duration.ofSeconds(10)));
+    }
+
     /**
      * 확인은 통과했는데 등록 뒤 다시 보니 세션이 끝나 있다 — 방금 등록한 토큰을 즉시 되돌려야 한다.
      * relay 가 폐기 사건을 나를 때까지 기다리면 그동안 그 기기로 푸시가 간다.
@@ -68,6 +75,46 @@ class DeviceRegistrationSessionRaceTest extends UpstreamTestBase {
         assertThat(NOTI.hits("DELETE /internal/devices"))
                 .as("폐기 사건을 기다리지 않고 그 자리에서 되돌린다")
                 .isEqualTo(1);
+    }
+
+    /**
+     * 같은 경합이 «구 앱 경로»에도 있다. 자격이 없어 sid 로 판정한 요청도 {@code verifySession()} 통과
+     * 직후 로그아웃될 수 있고, 그 등록은 sid 로 키가 잡힌 fence 를 쓰므로 폐기 relay 가 닿기 전까지
+     * 살아 있다 — 재확인 축이 자격 하나뿐이면 이 창이 통째로 열린 채 남는다.
+     */
+    @Test
+    @DisplayName("자격 없는 구 앱 등록도 sid 축으로 재확인해 되돌린다")
+    void aLegacySessionThatEndsDuringRegistrationIsRevokedToo() {
+        stubActiveUser(USER);
+        stubRegister();
+        AtomicInteger checks = new AtomicInteger();
+        DATA.on("POST /internal/auth/sessions/verify", request -> new MockUpstream.Response(200,
+                checks.getAndIncrement() == 0 ? "{\"active\":true,\"sessionEpoch\":1}"
+                        : "{\"active\":false,\"sessionEpoch\":2}"));
+
+        registerAsLegacyApp();
+
+        assertThat(checks.get()).as("구 앱 경로도 등록 뒤 같은 sid 를 다시 확인해야 한다").isEqualTo(2);
+        assertThat(NOTI.hits("DELETE /internal/devices"))
+                .as("확인 직후 로그아웃한 구 앱 기기의 토큰도 그 자리에서 되돌린다")
+                .isEqualTo(1);
+        assertThat(DATA.hits("POST /internal/auth/device-sessions/verify"))
+                .as("자격이 없으니 자격 축은 건드리지 않는다 — 확인한 축으로만 다시 확인한다")
+                .isZero();
+    }
+
+    /** 구 앱 세션이 멀쩡하면 되돌리지 않는다 — 재확인이 정상 로그인을 깨면 안 된다. */
+    @Test
+    @DisplayName("구 앱 세션이 살아 있으면 되돌리지 않는다")
+    void aLiveLegacySessionKeepsItsRegistration() {
+        stubActiveUser(USER);
+        stubRegister();
+        DATA.on("POST /internal/auth/sessions/verify",
+                request -> new MockUpstream.Response(200, "{\"active\":true,\"sessionEpoch\":1}"));
+
+        registerAsLegacyApp();
+
+        assertThat(NOTI.hits("DELETE /internal/devices")).isZero();
     }
 
     /** 세션이 멀쩡하면 아무것도 되돌리지 않는다 — 정상 로그인에 삭제가 끼면 안 된다. */

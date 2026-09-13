@@ -1,6 +1,9 @@
 package com.oneorthree.phone.internal.dto;
 
 import java.util.UUID;
+import java.util.Map;
+import java.util.Collections;
+import java.util.TreeMap;
 
 /**
  * 내구 명령의 <b>완성된 봉투</b> (A22 ㉵).
@@ -12,5 +15,12 @@ import java.util.UUID;
  * @param eventId   불변 사건 식별자 — 위성의 dedup 기준
  * @param version   aggregate 행 잠금 아래 발급된 단조 version(㊸) — 위성의 역순 거부 기준
  */
-public record DurableCommandAckResponse(UUID commandId, String eventId, long version) {
+public record DurableCommandAckResponse(UUID commandId, String eventId, long version, Map<String, Object> params) {
+    public DurableCommandAckResponse {
+        params = params == null ? null : Collections.unmodifiableMap(new TreeMap<>(params));
+    }
+
+    public DurableCommandAckResponse(UUID commandId, String eventId, long version) {
+        this(commandId, eventId, version, null);
+    }
 }

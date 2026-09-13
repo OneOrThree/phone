@@ -2,7 +2,13 @@ name: CI
 
 on:
   pull_request:
-    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 prod-ci가 test를 직접 호출
+    # release 대상 PR(통합→release)만 뺀다 — 그쪽은 prod-ci 가 test 를 직접 호출한다.
+    #
+    # 예전엔 `branches: [main]` 이었는데, 그러면 **base 가 다른 브랜치인 스택 PR 에서 백엔드
+    # 테스트가 한 번도 돌지 않는다**. 검사 없이 쌓이다가 base 를 통합 브랜치로 바꾸는 순간
+    # 그동안의 실패가 한꺼번에 드러난다 — PR #747 이 정확히 그렇게 터졌다(GROMO-1791).
+    # 막으려던 건 release 였지 스택 PR 이 아니었으므로 의도대로 좁힌다.
+    branches-ignore: [release]
     paths:
       - "server/data-api/**"
       - "server/scripts/docker-compose.dev.yml"
@@ -10,9 +16,7 @@ on:
       # CI 자신과 CI 가 호출하는 워크플로도 트리거에 넣는다. 안 넣으면 이 파일들만
       # 고치는 PR 에서 정작 CI 가 안 돌아 **머지해 봐야** 맞는지 안다 (GROMO-1515).
       - ".github/workflows/dev-ci.yml"
-      - ".github/workflows/be-test.yml"
-      - ".github/workflows/be-check-style.yml"
-      - ".github/workflows/be-spot-bugs.yml"
+      - ".github/workflows/be-gradle.yml"
       - ".github/workflows/dev-cd.yml"
   # squash merge 뒤에는 최종 main SHA를 다시 검사하고, 이 실행에서 배포 이미지를 만든다.
   # PR에서 채운 GAR 캐시를 사용하므로 CD에서 별도로 재빌드하지 않는다.
@@ -23,9 +27,7 @@ on:
       - "server/scripts/docker-compose.dev.yml"
       - "server/scripts/docker-compose.datadog.yml"
       - ".github/workflows/dev-ci.yml"
-      - ".github/workflows/be-test.yml"
-      - ".github/workflows/be-check-style.yml"
-      - ".github/workflows/be-spot-bugs.yml"
+      - ".github/workflows/be-gradle.yml"
       - ".github/workflows/dev-cd.yml"
 
 concurrency:
@@ -38,14 +40,53 @@ env:
   APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back
 
 jobs:
+  # 셋 다 be-gradle.yml 하나를 부른다(GROMO-1790). 아티팩트 이름 `test-results`·`jar-size` 는
+  # 아래 pr-comment 잡이 그 이름으로 내려받아 .github/scripts/generate-pr-comment.py 에 넘기므로
+  # 바꾸면 PR 코멘트가 빈 값으로 나온다.
+  #
+  # ── 러너 배치 (GROMO-1793) ───────────────────────────────────────────────────
+  # CI 가 느린 건 «실행»이 아니라 «대기»다. `ci` 라벨 self-hosted 슬롯이 gromo-dev-build-1/2/3
+  # 셋뿐인데 워크플로가 전부 그 라벨을 잡아서, 실행 6분짜리 잡이 대기 30분을 먹는다(실측:
+  # notification 검증 대기 36.1분 / 실행 6.5분, business-api 검증 대기 27.1분 / 실행 6.3분).
+  # 같은 시점에 GitHub-hosted 에서 돈 잡들은 대기 0.1분이었다.
+  #
+  # 그래서 «전부» 옮기지 않고 checkstyle · spotbugs 둘만 옮긴다. 조직 플랜이 free + private 라
+  # GitHub Actions 무료 한도가 월 2,000분인데, self-hosted 가 하루 120분을 쓰고 있어서 전면
+  # 이전은 16일이면 한도를 태운다. 둘은 각 실행 3.0분이라 PR 한 번에 약 6분 — 한도 안에서
+  # 감당되면서 대기 시간이 제일 크게 줄어드는 조합이다.
+  #
+  # ⚠️ test 는 옮기지 마라. 실행만 23.7분이라 분 소비가 checkstyle·spotbugs 를 합친 것의 네 배고,
+  #    호스트 Gradle 캐시 효과도 여기서 제일 크다. (기술적으로는 옮길 수 있다 — GROMO-1793 에서
+  #    `needs-db` 를 들어내 도커 의존이 사라졌으므로 `runs-on` 한 줄이면 된다. 막는 건 월 2,000분
+  #    한도지 기술 제약이 아니다.) 아래 build·deploy 는 «기술적으로도» 옮기면 안 된다 —
+  #    GAR 인증이 GCE 메타데이터 토큰을 쓰는데 GitHub-hosted 에는 그 메타데이터가 없다.
   checkstyle:
-    uses: ./.github/workflows/be-check-style.yml
+    uses: ./.github/workflows/be-gradle.yml
+    with:
+      service: data-api
+      # DB·도커·GAR 인증이 필요 없는 순수 정적 분석이라 GitHub-hosted 로 뺄 수 있다.
+      runs-on: '["ubuntu-latest"]'
+      tasks: checkstyleMain checkstyleTest
+      artifact-name: checkstyle-report
+      artifact-path: build/reports/checkstyle/
 
   spotbugs:
-    uses: ./.github/workflows/be-spot-bugs.yml
+    uses: ./.github/workflows/be-gradle.yml
+    with:
+      service: data-api
+      runs-on: '["ubuntu-latest"]'
+      tasks: spotbugsMain
+      artifact-name: spotbugs-report
+      artifact-path: build/reports/spotbugs/
 
   test:
-    uses: ./.github/workflows/be-test.yml
+    uses: ./.github/workflows/be-gradle.yml
+    with:
+      service: data-api
+      tasks: test
+      artifact-name: test-results
+      artifact-path: build/test-results/
+      measure-jar: true
 
   # PR에서는 merge-ref의 build 가능 여부를 검증하고 GAR 캐시만 갱신한다.
   # main에서는 최종 main SHA를 같은 캐시로 build해 GAR에 push한다. 이 job이 반환한

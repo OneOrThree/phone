@@ -46,7 +46,7 @@ class TestPostgresSchemaIsolationTest {
 
     private AnnotationConfigApplicationContext openContext() {
         Map<String, Supplier<Object>> properties = new HashMap<>();
-        TestPostgres.registerIsolatedSchema(properties::put);
+        TestPostgres.applyContextWiring(properties::put);
         String jdbcUrl = (String) properties.get("spring.datasource.url").get();
         // 실제 커넥션과 Hibernate가 여러 번 프로퍼티를 읽어도 같은 스키마를 사용해야 한다.
         assertThat(properties.get("spring.datasource.url").get()).isEqualTo(jdbcUrl);
@@ -60,10 +60,7 @@ class TestPostgresSchemaIsolationTest {
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             // 실제 운영 Group 엔티티로 Hibernate DDL과 INSERT/SELECT를 실행한다.
             factory.setManagedTypes(PersistenceManagedTypes.of(Group.class.getName()));
-            factory.setJpaPropertyMap(Map.of(
-                    "hibernate.hbm2ddl.auto", "create-drop",
-                    "hibernate.default_schema",
-                    properties.get("spring.jpa.properties.hibernate.default_schema").get()));
+            factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "create-drop"));
             return factory;
         });
         try {

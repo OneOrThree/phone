@@ -249,7 +249,9 @@ class AdminCatalog {
 
     RenderedPush renderDraft(Map<String, Object> template, Map<String, Object> params) {
         try {
-            return renderer.renderTemplate(template, params);
+            RenderedPush push = renderer.renderTemplate(template, params);
+            FcmPayload.requireFits(push, true, "template-preview");
+            return push;
         } catch (IllegalArgumentException invalid) {
             throw new NotificationFailure(400, "INVALID_TEMPLATE_SYNTAX");
         }

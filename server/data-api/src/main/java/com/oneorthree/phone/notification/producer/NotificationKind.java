@@ -81,7 +81,7 @@ public enum NotificationKind {
     /** 일 목표형 하루 마감. 이름이 {@code CHALLENGE_ENDED} 인 것은 구 앱 딥링크 폴백 때문이다. */
     CHALLENGE_ENDED(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.CHALLENGE),
 
-    /** 그룹에 새 챌린지 개설. 1회성. params: {@code groupName}·{@code missionLabel}. */
+    /** 그룹에 새 챌린지 개설. 1회성. params: {@code groupName}·구조화 목표 {@code mission}. */
     CHALLENGE_CREATED(NotificationSlotGranularity.NONE, NotificationQuietPolicy.DROP, SubjectKind.CHALLENGE),
 
     // ── 친구 (FriendNotificationService) ───────────────────────────────────────

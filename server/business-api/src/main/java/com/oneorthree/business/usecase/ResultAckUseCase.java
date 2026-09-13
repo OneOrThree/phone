@@ -1,6 +1,7 @@
 package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.upstream.data.DataApiClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.notification.dto.ResultAckPrepareResult;
@@ -8,7 +9,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.UUID;
+import java.util.Map;
 
 /**
  * 결과 확인(ack) ↔ 대기 중 푸시 직렬화 (A22 ⓓ · ㊅). 기존 앱 계약
@@ -57,7 +61,21 @@ public class ResultAckUseCase {
      * {@code X-User-Id} 활성 검사를 한다(§5).
      */
     public Object claimDisplay(UUID userId, UUID sessionId, UUID currentToken, Deadline deadline) {
-        return dataApiClient.claimResultDisplay(userId, sessionId, currentToken, deadline);
+        Object response = dataApiClient.claimResultDisplay(userId, sessionId, currentToken, deadline);
+        if (!(response instanceof Map<?, ?> body) || !(body.get("claimToken") instanceof String token)
+                || !validClaimToken(token)) {
+            throw new UpstreamContractMismatchException("결과 표시 선점 응답에 유효한 claimToken이 없습니다");
+        }
+        // Data의 추가 필드는 그대로 보존한다. 비멱등 선점을 여기서 재시도하지 않는다.
+        return response;
+    }
+
+    private static boolean validClaimToken(String token) {
+        try {
+            return UUID.fromString(token).toString().equalsIgnoreCase(token);
+        } catch (IllegalArgumentException malformed) {
+            return false;
+        }
     }
 
     /** 확인 표시 — prepare → Data commit → noti commit. */
@@ -66,17 +84,32 @@ public class ResultAckUseCase {
 
         ResultAckPrepareResult prepared = notificationApiClient.prepareResultAck(
                 userId, sessionId, keys.forStep("ack-prepare"), deadline);
-        // held=false 를 실패로 읽지 않는다 — 「이미 확정돼 잠글 필요가 없다」일 수 있고, 그때도 Data
-        // ack 는 진행해야 사용자의 확인이 기록된다. 상태는 관측용으로만 남긴다.
-        //
-        // 반면 prepared 가 «없는» 경우는 여기까지 오지 않는다 — 빈 성공 응답은 InternalHttpClient 가
-        // 계약 불일치로 끊는다. null 을 held=true 로 접어 두면 그 빈 응답이 tombstone 없는 ack 로
-        // 통과하므로, 여기에 null 분기를 다시 만들지 않는다.
+        if (prepared == null) {
+            throw new UpstreamContractMismatchException("알림 prepare 응답 본문이 없습니다");
+        }
+        if (!"CONFIRMED".equals(prepared.state())
+                && !("HELD".equals(prepared.state()) && prepared.held())) {
+            throw new UpstreamContractMismatchException("알림 prepare 응답이 결과 푸시 보류를 보장하지 않습니다");
+        }
+        // CONFIRMED는 Data 성공 뒤에만 도달하는 종결 상태다. 새 쓰기나 실행 기한이 필요 없다.
+        if ("CONFIRMED".equals(prepared.state())) {
+            return;
+        }
+        Instant ackDeadlineAt;
+        try {
+            if (prepared.ackDeadlineAt() == null) {
+                throw new UpstreamContractMismatchException("알림 prepare 응답에 ackDeadlineAt이 없습니다");
+            }
+            ackDeadlineAt = Instant.parse(prepared.ackDeadlineAt());
+        } catch (DateTimeParseException malformed) {
+            throw new UpstreamContractMismatchException("알림 prepare 응답의 ackDeadlineAt이 시각이 아닙니다");
+        }
+        // 기한을 이 서버 시계로 갱신·판정하지 않는다. Data 쓰기와 정본 조회가 같은 DB 시계로 판정한다.
         log.debug("ack prepare 완료 — sessionId={} held={} state={}",
                 sessionId, prepared.held(), prepared.state());
 
         try {
-            dataApiClient.acknowledgeResult(userId, sessionId, claimToken, deadline);
+            dataApiClient.acknowledgeResult(userId, sessionId, claimToken, ackDeadlineAt, deadline);
         } catch (RuntimeException e) {
             abortQuietly(userId, sessionId, keys, deadline);
             throw e;

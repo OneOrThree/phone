@@ -14,9 +14,15 @@ class DispatchScheduler {
         this.jobs = jobs;
     }
 
-    @Scheduled(fixedDelay = 1000)
+    @Scheduled(fixedDelay = 1000, scheduler = "notificationDispatchScheduler")
     @SchedulerLock(name = "notification-registry", lockAtMostFor = "PT1H")
     public void tick() {
         jobs.tick();
+    }
+
+    @Scheduled(fixedDelay = 1000, scheduler = "notificationSnapshotScheduler")
+    @SchedulerLock(name = "notification-user-reconcile", lockAtMostFor = "PT1H")
+    public void reconcileUsers() {
+        jobs.reconcileUsers();
     }
 }

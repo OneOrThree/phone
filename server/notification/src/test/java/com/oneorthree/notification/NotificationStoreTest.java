@@ -4,6 +4,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -39,6 +42,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.times;
 
 @SpringBootTest
+@AutoConfigureMockMvc
 @ActiveProfiles("ci")
 @Testcontainers
 class NotificationStoreTest {
@@ -53,6 +57,7 @@ class NotificationStoreTest {
         registry.add("spring.datasource.password", PG::getPassword);
     }
     @Autowired Store store;
+    @Autowired MockMvc mvc;
     @Autowired PlatformTransactionManager transactions;
     @Autowired DeviceService devices;
     @Autowired InboundService inbound;
@@ -191,7 +196,7 @@ class NotificationStoreTest {
         store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
         // 30초 만료 → 리컨실이 Data 의 «미확인» 을 읽어 보류를 푼다.
         when(clock.instant()).thenReturn(DAY.plusSeconds(31));
-        doReturn(false).when(data).acknowledged(USER, session);
+        doReturn(false).when(data).acknowledged(org.mockito.ArgumentMatchers.eq(USER), org.mockito.ArgumentMatchers.eq(session), org.mockito.ArgumentMatchers.any());
         ack.reconcile();
         assertThat(ackState(session)).isEqualTo("RELEASED");
         assertThat(ack.command(USER, session, "prepare", "same-key")).containsEntry("state", "HELD");
@@ -306,11 +311,12 @@ class NotificationStoreTest {
         UUID id = delivery("held");
         store.update("UPDATE dispatch_control SET enabled=true");
         when(clock.instant()).thenReturn(DAY.plusSeconds(31));
-        when(data.acknowledged(USER, session)).thenThrow(new IllegalStateException("Data unavailable"));
+        when(data.acknowledged(org.mockito.ArgumentMatchers.eq(USER), org.mockito.ArgumentMatchers.eq(session), org.mockito.ArgumentMatchers.any())).thenThrow(new IllegalStateException("Data unavailable"));
         assertThatThrownBy(ack::reconcile).isInstanceOf(IllegalStateException.class);
         dispatch.dispatch(id);
         verifyNoInteractions(transport);
-        doReturn(true).when(data).acknowledged(USER, session);
+        doReturn(true).when(data).acknowledged(org.mockito.ArgumentMatchers.eq(USER), org.mockito.ArgumentMatchers.eq(session), org.mockito.ArgumentMatchers.any());
+        when(clock.instant()).thenReturn(DAY.plusSeconds(61));
         ack.reconcile();
         assertThat(status(id)).isEqualTo("SUPPRESSED");
         ack.command(USER, session, "abort", "late-abort");
@@ -349,6 +355,8 @@ class NotificationStoreTest {
         inbound.accept(event("refund", "notification.requested", USER, 2, UUID.randomUUID().toString(),
                 Map.of("kind", "BET_VOID_REFUND", "groupId", group.toString(), "slotAt", slot)));
         store.update("UPDATE dispatch_control SET enabled=true");
+        inbound.accept(event("seal", "notification.resultBundle.closed", USER, 3, group.toString(),
+                Map.of("groupId", group.toString(), "slotAt", slot, "eventIds", List.of("result", "refund"))));
         dispatch.dispatch(delivery("result"));
         dispatch.dispatch(delivery("refund"));
         var rendered = org.mockito.ArgumentCaptor.forClass(RenderedPush.class);
@@ -364,12 +372,15 @@ class NotificationStoreTest {
     void openResultSlotWaitsAndQuietDeferralKeepsOriginalSlot() {
         register(USER, "device", "bootstrap", "register");
         String slot = DAY.toString();
+        UUID group = UUID.randomUUID();
         inbound.accept(event("slot", "notification.requested", USER, 1, UUID.randomUUID().toString(),
-                Map.of("kind", "BET_RESULT", "count", 1, "groupId", UUID.randomUUID().toString(), "slotAt", slot)));
+                Map.of("kind", "BET_RESULT", "count", 1, "groupId", group.toString(), "slotAt", slot)));
         UUID id = delivery("slot");
         store.update("UPDATE dispatch_control SET enabled=true");
         dispatch.dispatch(id);
         verifyNoInteractions(transport);
+        inbound.accept(event("slot-seal", "notification.resultBundle.closed", USER, 2, group.toString(),
+                Map.of("groupId", group.toString(), "slotAt", slot, "eventIds", List.of("slot"))));
         when(clock.instant()).thenReturn(Instant.parse("2026-09-11T15:00:00Z")); // 다음날 00:00 KST
         dispatch.dispatch(id);
         assertThat(status(id)).isEqualTo("DEFERRED");
@@ -588,6 +599,82 @@ class NotificationStoreTest {
         inbound.accept(event("valid-delete", "notification.deviceToken.deleted", USER, version + 1, null, valid));
         assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='device'"))
                 .containsEntry("active", false);
+    }
+
+    @Test
+    void deletionWithoutATargetNeverDisablesAnotherSession() {
+        register(USER, "first", "bootstrap-first", "first");
+        register(USER, "second", "bootstrap-second", "second");
+        devices.delete(USER, null, null, 0L, "headerless");
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active")).hasSize(2);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("deviceToken", null);
+        params.put("ownershipToken", null);
+        params.put("authGeneration", 0L);
+        inbound.accept(event("headerless-event", "notification.deviceToken.deleted", USER, 1, null, params));
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active")).hasSize(2);
+    }
+
+    @Test
+    void headerlessOutboxDeletionOnlyDisablesItsBootstrapAndLegacySession() throws Exception {
+        register(USER, "modern", "bootstrap-first", "modern");
+        register(USER, "other", "bootstrap-second", "other");
+        UUID session = UUID.randomUUID();
+        devices.register(USER, Map.of("deviceToken", "legacy", "legacySessionId", session.toString(),
+                "sessionEpoch", 1, "authGeneration", 0), "legacy");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("deviceToken", null);
+        params.put("ownershipToken", null);
+        params.put("authGeneration", 0L);
+        params.put("sessionId", session.toString());
+        params.put("bootstrapNonceHash", Json.digest("bootstrap-first"));
+        params.put("deviceToken", "  ");
+        mvc.perform(MockMvcRequestBuilders.post("/internal/events")
+                        .header("Authorization", "Bearer test-data").contentType("application/json")
+                        .content(Json.write(event("session-delete", "notification.deviceToken.deleted",
+                                USER, 1, null, params))))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active"))
+                .containsExactly(Map.of("device_token", "other"));
+        inbound.accept(event("revoke", "auth.session.revoked", USER, 2, null,
+                Map.of("sessionId", session.toString(), "bootstrapNonceHash", Json.digest("bootstrap-first"),
+                        "sessionEpoch", 1)));
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active"))
+                .containsExactly(Map.of("device_token", "other"));
+    }
+
+    @Test
+    void directHeaderlessDeletionOnlyDisablesItsBootstrapAndLegacySession() throws Exception {
+        register(USER, "modern", "bootstrap-first", "modern");
+        register(USER, "other", "bootstrap-second", "other");
+        UUID session = UUID.randomUUID();
+        devices.register(USER, Map.of("deviceToken", "legacy", "legacySessionId", session.toString(),
+                "sessionEpoch", 1, "authGeneration", 0), "legacy");
+        mvc.perform(MockMvcRequestBuilders.delete("/internal/devices")
+                        .header("Authorization", "Bearer test-business").header("X-User-Id", USER.toString())
+                        .header("Idempotency-Key", "direct-session-delete")
+                        .header("X-Device-Session", session.toString())
+                        .header("X-Device-Bootstrap-Hash", Json.digest("bootstrap-first")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active"))
+                .containsExactly(Map.of("device_token", "other"));
+    }
+
+    @Test
+    void explicitOwnershipAndTokenCannotBroadenIntoTheSuppliedSession() {
+        String first = register(USER, "first", "bootstrap-first", "first");
+        register(USER, "second", "bootstrap-second", "second");
+        UUID session = UUID.randomUUID();
+        devices.delete(USER, "second", first, 0L, session.toString(), Json.digest("bootstrap-second"), "mismatch");
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active")).hasSize(2);
+        assertThatThrownBy(() -> devices.delete(USER, null, "invalid", 0L, "corrected"))
+                .hasMessage("INVALID_ownershipToken");
+        devices.delete(USER, null, first, 0L, "corrected");
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active"))
+                .containsExactly(Map.of("device_token", "second"));
+        devices.delete(USER, "  ", null, 0L, "blank-token");
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active"))
+                .containsExactly(Map.of("device_token", "second"));
     }
 
     private String register(UUID user, String token, String bootstrap, String key) {

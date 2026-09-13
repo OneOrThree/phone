@@ -11,9 +11,13 @@ import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.service.ChallengeResultAckService;
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityRequest;
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityResponse;
 import com.oneorthree.phone.internal.notification.service.NotificationEligibilityService;
+import com.oneorthree.phone.internal.notification.service.NotificationRetentionEligibility;
+import com.oneorthree.phone.internal.notification.service.NotificationLeagueEligibility;
+import com.oneorthree.phone.internal.notification.service.NotificationSnapshotService;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.DisplayName;
@@ -23,17 +27,24 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * 발송 직전 상태 재확인 — <b>fail-closed</b> 와 <b>일시 오류를 삼키지 않는다</b>가 전부다.
@@ -68,9 +79,11 @@ class NotificationEligibilityServiceTest {
      * 그때 실패 메시지는 원인을 가리키지 않는다.
      */
     private NotificationEligibilityService service() {
+        NotificationRetentionEligibility retention = mock(NotificationRetentionEligibility.class);
+        when(retention.evaluate(any(), any(), any())).thenReturn(NotificationEligibilityResponse.allow());
         return new NotificationEligibilityService(userQueryService, groupQueryService,
                 groupMemberRepository, betParticipantRepository, friendshipRepository,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), retention, mock(NotificationLeagueEligibility.class));
     }
 
     private void userIsActive() {
@@ -78,7 +91,7 @@ class NotificationEligibilityServiceTest {
     }
 
     private static NotificationEligibilityRequest request(String kind, UUID subjectId) {
-        return new NotificationEligibilityRequest(USER, kind, subjectId, Map.of());
+        return new NotificationEligibilityRequest(USER, kind, subjectId, Map.of("dedupAt", NOW.toString()));
     }
 
     @Test
@@ -114,9 +127,10 @@ class NotificationEligibilityServiceTest {
     }
 
     @Test
-    @DisplayName("상태 무관형은 수신자만 살아 있으면 통과한다 — 판정 시점의 사실을 알리는 것이라 늦어도 참이다")
+    @DisplayName("시간 제한 종류는 유효기간 안에만 통과하고 친구 수락은 사실 통보로 유지한다")
     void stateIndependentKindsPassOnActiveUser() {
         userIsActive();
+        when(userQueryService.findActive(SUBJECT)).thenReturn(Optional.of(User.builder().id(SUBJECT).build()));
 
         assertThat(service().evaluate(request("LEAGUE_WEEKLY_RESULT", null)).eligible()).isTrue();
         assertThat(service().evaluate(request("STREAK_AT_RISK", null)).eligible()).isTrue();
@@ -165,6 +179,7 @@ class NotificationEligibilityServiceTest {
     @DisplayName("이미 참가한 사람에게 모집 알림을 보내지 않는다 — 판돈까지 낸 사람에게 「지금 참여할 수 있어요」")
     void alreadyJoinedDeniesSessionOpen() {
         userIsActive();
+        when(groupMemberRepository.existsByGroupIdAndUserId(GROUP, USER)).thenReturn(true);
         when(groupQueryService.findBetSession(SUBJECT))
                 .thenReturn(Optional.of(session(GroupBetStatus.OPEN, NOW.plusSeconds(3600))));
         when(betParticipantRepository.findBySessionIdAndUserId(SUBJECT, USER))
@@ -172,6 +187,50 @@ class NotificationEligibilityServiceTest {
 
         assertThat(service().evaluate(request("CHALLENGE_SESSION_OPEN", SUBJECT)).reason())
                 .isEqualTo("ALREADY_JOINED");
+    }
+
+    @Test
+    @DisplayName("모집 알림은 발송 시점의 그룹 멤버십을 다시 확인한다")
+    void sessionOpenRechecksMembershipAfterLeavingAndRejoining() {
+        userIsActive();
+        when(groupQueryService.findBetSession(SUBJECT))
+                .thenReturn(Optional.of(session(GroupBetStatus.OPEN, NOW.plusSeconds(3600))));
+        when(groupMemberRepository.existsByGroupIdAndUserId(GROUP, USER))
+                .thenReturn(true, false, true);
+
+        NotificationEligibilityService eligibility = service();
+        assertThat(eligibility.evaluate(request("CHALLENGE_SESSION_OPEN", SUBJECT)).eligible()).isTrue();
+        assertThat(eligibility.evaluate(request("CHALLENGE_SESSION_OPEN", SUBJECT)).reason())
+                .isEqualTo("NOT_GROUP_MEMBER");
+        assertThat(eligibility.evaluate(request("CHALLENGE_SESSION_OPEN", SUBJECT)).eligible()).isTrue();
+    }
+
+    @Test
+    @DisplayName("모집 멤버십은 이벤트 params 대신 실제 회차의 그룹으로 판정한다")
+    void sessionOpenUsesAuthoritativeSessionGroup() {
+        userIsActive();
+        UUID unrelatedGroup = UUID.randomUUID();
+        when(groupQueryService.findBetSession(SUBJECT))
+                .thenReturn(Optional.of(session(GroupBetStatus.OPEN, NOW.plusSeconds(3600))));
+        when(groupMemberRepository.existsByGroupIdAndUserId(unrelatedGroup, USER)).thenReturn(true);
+        when(groupMemberRepository.existsByGroupIdAndUserId(GROUP, USER)).thenReturn(false);
+
+        assertThat(service().evaluate(new NotificationEligibilityRequest(USER, "CHALLENGE_SESSION_OPEN",
+                SUBJECT, Map.of("groupId", unrelatedGroup.toString()))).reason())
+                .isEqualTo("NOT_GROUP_MEMBER");
+    }
+
+    @Test
+    @DisplayName("모집 멤버십 조회 장애는 재시도를 위해 전파한다")
+    void sessionOpenMembershipFailurePropagates() {
+        userIsActive();
+        when(groupQueryService.findBetSession(SUBJECT))
+                .thenReturn(Optional.of(session(GroupBetStatus.OPEN, NOW.plusSeconds(3600))));
+        when(groupMemberRepository.existsByGroupIdAndUserId(GROUP, USER))
+                .thenThrow(new org.springframework.dao.QueryTimeoutException("멤버십 조회 타임아웃"));
+
+        assertThatThrownBy(() -> service().evaluate(request("CHALLENGE_SESSION_OPEN", SUBJECT)))
+                .isInstanceOf(org.springframework.dao.QueryTimeoutException.class);
     }
 
     @Test
@@ -193,6 +252,42 @@ class NotificationEligibilityServiceTest {
                 .thenReturn(Optional.of(session(GroupBetStatus.OPEN, NOW)));
 
         assertThat(service().evaluate(request("BET_RESULT", SUBJECT)).reason()).isEqualTo("NOT_SETTLED");
+    }
+
+    @Test
+    @DisplayName("정상 결과의 voidReason=null 본문도 HTTP 적격성 판정을 받는다")
+    void nullableResultParamsAreAcceptedOverHttp() throws Exception {
+        userIsActive();
+        when(groupQueryService.findBetSession(SUBJECT))
+                .thenReturn(Optional.of(session(GroupBetStatus.SETTLED, NOW)));
+        when(betParticipantRepository.findBySessionIdAndUserId(SUBJECT, USER))
+                .thenReturn(Optional.of(GroupChallengeBetParticipant.builder().build()));
+        var controller = new InternalNotificationController(mock(NotificationSnapshotService.class),
+                service(), mock(ChallengeResultAckService.class));
+        var mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(post("/internal/notifications/eligibility")
+                        .contentType("application/json")
+                        .content("""
+                                {"userId":"%s","kind":"BET_RESULT","subjectId":"%s",
+                                 "params":{"voidReason":null,"count":1}}
+                                """.formatted(USER, SUBJECT)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(true));
+    }
+
+    @Test
+    @DisplayName("nullable params는 null을 보존하면서 원본 변경과 외부 수정을 막는다")
+    void nullableParamsAreAnImmutableSnapshot() {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("voidReason", null);
+        NotificationEligibilityRequest request = new NotificationEligibilityRequest(USER, "BET_RESULT", SUBJECT,
+                params);
+        params.put("voidReason", "CHANGED");
+
+        assertThat(request.params()).containsEntry("voidReason", null);
+        assertThatThrownBy(() -> request.params().put("voidReason", "CHANGED"))
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
@@ -248,6 +343,7 @@ class NotificationEligibilityServiceTest {
     private static GroupChallengeBetSession session(GroupBetStatus status, Instant joinClosesAt) {
         return GroupChallengeBetSession.builder()
                 .id(SUBJECT)
+                .group(Group.builder().id(GROUP).build())
                 .status(status)
                 .joinClosesAt(joinClosesAt)
                 .build();

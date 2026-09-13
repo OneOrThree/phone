@@ -34,8 +34,16 @@ class JobRegistry {
     }
 
     void tick() {
+        tick(false);
+    }
+
+    void reconcileUsers() {
+        tick(true);
+    }
+
+    private void tick(boolean usersOnly) {
         for (Map<String, Object> job : store.rows("SELECT * FROM jobs WHERE owner='NOTIFICATION' AND enabled"
-                + " ORDER BY id")) {
+                + " AND (id='user-reconcile')=? ORDER BY id", usersOnly)) {
             String id = job.get("id").toString();
             try {
                 if ("bundle-flush".equals(id) && !dispatchOpen()) {

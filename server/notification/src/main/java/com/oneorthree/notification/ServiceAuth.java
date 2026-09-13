@@ -65,12 +65,25 @@ class ServiceAuth implements WebMvcConfigurer, HandlerInterceptor {
                 continue;
             }
             int separator = pair.indexOf(':');
-            if (separator <= 0 || separator == pair.length() - 1) {
+            if (separator <= 0) {
                 throw new IllegalStateException("SVC_TOKEN_CONSOLE_TO_NOTI 는 member-N:토큰 목록이어야 합니다"
                         + " — 토큰 하나를 공유하면 감사 원장이 행위자를 구분하지 못합니다");
             }
             String actor = pair.substring(0, separator).trim();
             String token = pair.substring(separator + 1).trim();
+            // 길이로 「콜론이 끝이 아니다」만 보면 «공백뿐인 토큰»이 통과한다. trim 이 떼지 못하는
+            // 공백(U+2028 등)이 남으면 그것이 정상 토큰처럼 등재되고, 그때 두 가지가 같이 무너진다:
+            // 유효한 콘솔 자격이 없어 관리 API 가 잠기고, 빈 문자열이 등재된 경우에는
+            // "Bearer " + "" 가 뒤 공백을 보존하는 클라이언트의 `Authorization: Bearer ` 와 맞는다.
+            // 값 자체를 보고 거절한다 — 기동에서 죽는 편이 «떠 있는데 잠긴» 것보다 낫다.
+            if (token.isBlank()) {
+                throw new IllegalStateException("콘솔 토큰이 비어 있습니다: " + actor);
+            }
+            // 길이로 「콜론이 끝이 아니다」만 보면 «공백뿐인 토큰»이 통과한다. trim 이 떼지 못하는
+            // 공백(U+2028 등)이 남으면 그것이 정상 토큰처럼 등재되고, 그때 두 가지가 같이 무너진다:
+            // 유효한 콘솔 자격이 없어 관리 API 가 잠기고, 빈 문자열이 등재된 경우에는
+            // "Bearer " + "" 가 뒤 공백을 보존하는 클라이언트의 `Authorization: Bearer ` 와 맞는다.
+            // 값 자체를 보고 거절한다 — 기동에서 죽는 편이 «떠 있는데 잠긴» 것보다 낫다.
             if (!CONSOLE_ACTOR.matcher(actor).matches()) {
                 throw new IllegalStateException("콘솔 행위자 이름이 계약과 다릅니다: " + actor);
             }

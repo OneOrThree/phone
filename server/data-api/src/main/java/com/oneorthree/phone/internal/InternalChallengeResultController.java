@@ -1,10 +1,11 @@
 package com.oneorthree.phone.internal;
 
-import com.oneorthree.phone.group.dto.ChallengeResultAckRequest;
 import com.oneorthree.phone.group.dto.ChallengeResultClaimRequest;
 import com.oneorthree.phone.group.dto.ChallengeResultClaimResponse;
 import com.oneorthree.phone.group.service.ChallengeResultAckService;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
+import java.time.Instant;
 
 /**
  * 결과 표시 선점·확인의 내부 표면 (A22 ⓓ).
@@ -69,11 +71,14 @@ public class InternalChallengeResultController {
     public ResponseEntity<Void> acknowledge(
             @PathVariable UUID userId,
             @PathVariable UUID sessionId,
-            @RequestBody ChallengeResultAckRequest body) {
+            @Valid @RequestBody InternalResultAckRequest body) {
 
-        challengeResultAckService.acknowledge(userId, sessionId, body.claimToken());
+        challengeResultAckService.acknowledgeBefore(userId, sessionId, body.claimToken(), body.ackDeadlineAt());
         return ResponseEntity.ok().build();
     }
+
+    /** Noti prepare가 저장한 기한을 그대로 전달한다. 앱의 기존 ACK 요청과는 별도 계약이다. */
+    public record InternalResultAckRequest(UUID claimToken, @NotNull Instant ackDeadlineAt) { }
 
     // ⚠️ 정본 ack «조회»({@code GET /internal/users/{id}/result-ack}) 는 여기 없다.
     //    호출자가 Business 가 아니라 알림 서버이고, 알림 쪽 내부 표면은 별도 작업자가 소유한다.

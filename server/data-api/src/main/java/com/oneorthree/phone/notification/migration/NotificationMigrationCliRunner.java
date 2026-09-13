@@ -148,7 +148,7 @@ public class NotificationMigrationCliRunner implements ApplicationRunner {
      *
      * <p>본문 하나로 끝내지 않는 이유: import 는 한 번에 500 건까지라 파일 하나를 그대로 보낼 수
      * 없고, 운영 중에 손으로 자르면 <b>자른 자리가 검증에 남지 않는다</b>. 그래서 배치와 verify
-     * manifest 를 여기서 함께 떨어뜨린다.
+     * manifest 를 여기서 함께 떨어뜨린다. lenient 모드와 최종 조건 미충족 문서는 진단 JSON만 쓴다.
      *
      * @param target      본문 출력 경로. 배치·manifest 는 같은 디렉터리에 이 이름을 접두어로 놓인다
      * @param lenient     {@code true} 면 재조립 실패가 있어도 파일을 남기고 계속한다(사전 점검 전용)
@@ -167,12 +167,17 @@ public class NotificationMigrationCliRunner implements ApplicationRunner {
             log.error("재조립 불가 발송 이력 {}건 — 이 상태로 컷오버하면 그 행들은 영영 나가지 않습니다.",
                     document.failures().size());
         }
-        Path parent = target.toAbsolutePath().getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
-        }
+        requireFreshOutput(target);
         ObjectWriter writer = prettyWriter();
         writeOwnerOnly(target, writer.writeValueAsString(document));
+        if (lenient || !document.report().finalEligible()) {
+            log.warn("진단 문서만 저장했습니다 — {}. import·verify 파일은 만들지 않습니다. "
+                            + "lenient={}, closedAt={}, drain 확인={}, 실패 {}건, 중복 토큰 {}개, 잔여 {}",
+                    target.toAbsolutePath(), lenient, document.manifest().stopWindow().closedAt(),
+                    document.report().inflightDrained(), document.failures().size(),
+                    document.report().duplicateDeviceTokens().size(), document.manifest().stopWindow().queueDepth());
+            return;
+        }
 
         // import 는 한 번에 500 건까지다 — 파일 하나를 그대로 POST 할 수 없으므로 배치를 미리 나눠
         // 둔다. 운영 중에 손으로 자르면 자른 자리가 검증에 남지 않는다.
@@ -194,17 +199,31 @@ public class NotificationMigrationCliRunner implements ApplicationRunner {
         log.info("알림 이관 export 완료 — {} (레코드 {}건, import 배치 {}개, 실패 {}건)",
                 target.toAbsolutePath(), records.size(), batches, document.failures().size());
         log.info("verify manifest — {}", manifestPath.toAbsolutePath());
-        if (document.report().finalEligible()) {
-            log.info("이 문서는 최종 verify 에 쓸 수 있습니다 — "
-                    + "정지 창 확인·drain 확인·실패 0·잔여 큐 0·중복 기기 토큰 0.");
-        } else {
-            // 「탐색용인지 최종본인지」를 파일 이름으로는 구분할 수 없다. 로그로 분명히 남긴다.
-            // 다섯 조건을 «전부» 적는다 — 하나를 빼면 그것이 원인일 때 운영자가 볼 곳이 없어진다.
-            log.warn("이 문서는 최종 verify 에 쓸 수 없습니다(탐색용) — closedAt={}, drain 확인={}, "
-                            + "실패 {}건, 잔여 {}, 중복 기기 토큰 {}건",
-                    document.manifest().stopWindow().closedAt(), document.report().inflightDrained(),
-                    document.failures().size(), document.manifest().stopWindow().queueDepth(),
-                    document.report().duplicateDeviceTokens().size());
+        log.info("이 문서는 최종 verify 에 쓸 수 있습니다 — 정지 창 확인·drain 확인·실패 0·중복 토큰 0·잔여 큐 0.");
+    }
+
+    /**
+     * 같은 출력 이름의 이전 산출물이 있으면 새 진단과 섞이지 않도록 쓰기 전에 거부한다.
+     *
+     * <p>본문만 지우고 다시 실행한 경우도 포함한다. 기존 파일은 삭제하지 않고 새 이름을 요구한다.
+     * import 파일을 모두 쓴 뒤 마지막에 verify를 생성하며, 도중 실패한 묶음도 같은 이름으로 재사용하지 않는다.
+     */
+    private static void requireFreshOutput(Path target) throws IOException {
+        Path absolute = target.toAbsolutePath();
+        Path parent = absolute.getParent();
+        Files.createDirectories(parent);
+        String filename = absolute.getFileName().toString();
+        String stem = filename.replaceFirst("\\.json$", "");
+        try (var paths = Files.list(parent)) {
+            Path previous = paths.filter(path -> {
+                String name = path.getFileName().toString();
+                return name.equals(filename) || name.equals(stem + ".verify.json")
+                        || (name.startsWith(stem + ".import-") && name.endsWith(".json"));
+            }).findFirst().orElse(null);
+            if (previous != null) {
+                throw new IOException("이전 이관 산출물이 있습니다: " + previous
+                        + " — 다른 --" + ARG_EXPORT_TO + " 경로를 사용하세요.");
+            }
         }
     }
 

@@ -35,6 +35,12 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
      * 남아 있으면 이 행은 후보에서 빠진다. 앞 행이 <b>남의 리스에 잡혀 있어도</b> 여전히 미전달이므로
      * 앞지르기가 성립하지 않는다.
      *
+     * <p>추가로 Kafka 후보는 같은 축의 선행 NOTI HTTP 완료를 기다린다. 설정 끔·기기 삭제·세션
+     * 폐기의 DB 커밋 응답 전에 후행 알림이 브로커로 나가면 이전 상태로 발송될 수 있기 때문이다.
+     * 역방향은 기다리지 않는다. Kafka 완료는 브로커 ACK이지 소비 완료가 아니며, 최신 끔·삭제를
+     * 브로커 지연에 묶어 두면 보호가 늦어진다. 늦게 소비된 요청은 발송 시 최신 상태를 대조한다.
+     * LINK는 이 장벽과 독립이다.
+     *
      * <p>{@code SKIP LOCKED} 는 <b>다른 축</b>의 행을 기다리지 않기 위한 것이다 — 한 축이 막혀도 나머지
      * 축은 계속 나간다.
      *
@@ -61,7 +67,7 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
             + "    AND (c.lease_expires_at IS NULL OR c.lease_expires_at <= :now) "
             + "    AND NOT EXISTS ( "
             + "      SELECT 1 FROM event_outbox_deliveries p "
-            + "      WHERE p.target = c.target "
+            + "      WHERE (p.target = c.target OR (c.target = 'KAFKA' AND p.target = 'NOTI')) "
             + "        AND p.aggregate_type = c.aggregate_type "
             + "        AND p.aggregate_id = c.aggregate_id "
             + "        AND p.delivered_at IS NULL "
@@ -86,6 +92,25 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
     @Query("SELECT d FROM EventOutboxDelivery d WHERE d.leaseToken = :token AND d.deliveredAt IS NULL "
             + "ORDER BY d.aggregateType, d.aggregateId, d.aggregateVersion")
     List<EventOutboxDelivery> findLeased(@Param("token") UUID token);
+
+    /**
+     * 전송 직전 살아 있는 자기 리스만 갱신한다. 만료 토큰은 재선점 전까지 부활시키지 않는다.
+     *
+     * @param id 전달 행
+     * @param token 선점 때 받은 펜싱 토큰
+     * @param now 갱신 시각
+     * @param leaseUntil 새 만료 시각
+     * @return 1 = 갱신됨, 0 = 만료·소유권 상실·이미 완료됨
+     */
+    @Modifying
+    @Query("UPDATE EventOutboxDelivery d SET d.leaseExpiresAt = :leaseUntil "
+            + "WHERE d.id = :id AND d.leaseToken = :token AND d.deliveredAt IS NULL "
+            + "AND d.leaseExpiresAt > :now")
+    int renewLease(
+            @Param("id") UUID id,
+            @Param("token") UUID token,
+            @Param("now") Instant now,
+            @Param("leaseUntil") Instant leaseUntil);
 
     /**
      * 전달 완료 표시 — <b>토큰이 일치할 때만</b>.

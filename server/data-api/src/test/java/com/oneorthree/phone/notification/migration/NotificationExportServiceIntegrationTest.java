@@ -26,6 +26,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.DefaultApplicationArguments;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -33,9 +39,12 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.stream.Stream;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -198,6 +207,198 @@ class NotificationExportServiceIntegrationTest {
     }
 
     @Test
+    void lenientCliDoesNotPublishAManifestThatOmitsAnUnreconstructableRow(@TempDir Path directory) throws Exception {
+        insertLog("UNRECONSTRUCTABLE_LEGACY_KIND", "PENDING", null);
+        var runner = new NotificationMigrationCliRunner(exportService, null);
+        runner.run(new DefaultApplicationArguments(
+                "--notification.migration.id=" + MIGRATION_ID,
+                "--notification.migration.export-to=" + directory.resolve("export.json"),
+                "--notification.migration.lenient=true",
+                "--notification.migration.closed-at=" + SLOT.toEpochMilli(),
+                "--notification.migration.inflight-drained=true"));
+
+        var diagnostic = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(Files.readString(directory.resolve("export.json")));
+        assertThat(diagnostic.get("report").get("finalEligible").asBoolean()).isFalse();
+        assertThat(diagnostic.get("failures").toString()).contains("UNRECONSTRUCTABLE_LEGACY_KIND");
+        assertThat(directory.resolve("export.verify.json")).doesNotExist();
+        assertThat(directory.resolve("export.import-0000.json")).doesNotExist();
+    }
+
+    @Test
+    void duplicateDeviceKeysCannotBeMarkedAsFinalEligible() {
+        String token = "duplicate-export-token-" + UUID.randomUUID();
+        User first = addTokenUser(token, false, false);
+        User second = addTokenUser(token, false, true);
+
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, false);
+
+        assertThat(document.report().duplicateDeviceTokens()).anySatisfy(duplicate -> {
+            assertThat(duplicate.userIds()).containsExactlyInAnyOrder(
+                    first.getId().toString(), second.getId().toString());
+            assertThat(duplicate.deviceTokenPrefix()).isEqualTo("duplicat…");
+        });
+        assertThat(document.report().finalEligible()).isFalse();
+        assertThat(document.records().stream().filter(record ->
+                NotificationMigrationRecord.RESOURCE_DEVICE.equals(record.resource()))
+                .filter(record -> token.equals(record.data().get("deviceToken"))))
+                .as("진단 export에서 중복 원문을 조용히 한 계정으로 접지 않는다").hasSize(2);
+    }
+
+    @Test
+    void strictExportRejectsDuplicateDeviceOwnership() {
+        String token = "duplicate-export-token-" + UUID.randomUUID();
+        addTokenUser(token, false, false);
+        addTokenUser(token, false, false);
+
+        assertThatThrownBy(() -> exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("중복 기기 토큰");
+    }
+
+    @Test
+    void onlyExportedDevicesParticipateInDuplicateDetection() {
+        String token = "bot-shared-token-" + UUID.randomUUID();
+        User owner = addTokenUser(token, false, false);
+        addTokenUser(token, true, false);
+        addTokenUser(token, true, false);
+
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true);
+
+        assertThat(document.report().duplicateDeviceTokens()).noneSatisfy(duplicate ->
+                assertThat(duplicate.userIds()).contains(owner.getId().toString()));
+        assertThat(document.report().finalEligible()).isTrue();
+        assertThat(document.records().stream().filter(record -> token.equals(record.data().get("deviceToken"))))
+                .hasSize(1);
+    }
+
+    @Test
+    void blankLegacyTokensAreAbsentWhileNonblankTokenBytesArePreserved() {
+        User blank = addTokenUser(" \t\n", false, false);
+        User anotherBlank = addTokenUser(" \t\n", false, false);
+        String original = " unmodified-token-" + UUID.randomUUID() + " ";
+        User valid = addTokenUser(original, false, false);
+
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true);
+
+        assertThat(document.records().stream().filter(record ->
+                NotificationMigrationRecord.RESOURCE_DEVICE.equals(record.resource())))
+                .noneSatisfy(record -> assertThat(record.data().get("userId"))
+                        .isIn(blank.getId().toString(), anotherBlank.getId().toString()))
+                .anySatisfy(record -> assertThat(record.data()).containsEntry("userId", valid.getId().toString())
+                        .containsEntry("deviceToken", original));
+        assertThat(document.report().finalEligible()).isTrue();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = NotificationKind.class, names = {"FRIEND_REQUEST", "FRIEND_ACCEPTED", "CHALLENGE_CREATED",
+            "CHALLENGE_WINDOW_END", "CHALLENGE_ENDED"})
+    void legacySentRowsRecoverTheirKindSpecificSubject(NotificationKind kind) {
+        UUID target = UUID.randomUUID();
+        insertLegacyLog(kind, null, target);
+
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true);
+
+        assertThat(deliveriesOf(document)).singleElement().satisfies(record -> {
+            assertThat(record.recordKey()).isEqualTo(NotificationEventKey.of(kind, user.getId(), target, SLOT));
+            assertThat(record.data()).containsEntry("subjectId", target.toString()).containsEntry("status", "SENT");
+        });
+        assertThat(document.report().finalEligible()).isTrue();
+        Object[] original = (Object[]) entityManager.createNativeQuery(
+                        "SELECT subject_id,target_user_id FROM notification_sent_logs WHERE user_id=:userId")
+                .setParameter("userId", user.getId()).getSingleResult();
+        assertThat(original[0]).as("export는 V45의 의도적인 null을 코어에서 수정하지 않는다").isNull();
+        assertThat(original[1].toString()).isEqualTo(target.toString());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = NotificationKind.class, names = {"FRIEND_REQUEST", "FRIEND_ACCEPTED", "CHALLENGE_CREATED",
+            "CHALLENGE_WINDOW_END", "CHALLENGE_ENDED"})
+    void explicitSubjectAlwaysWinsOverTheLegacyTarget(NotificationKind kind) {
+        UUID explicit = UUID.randomUUID();
+        insertLegacyLog(kind, explicit, UUID.randomUUID());
+
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true);
+
+        assertThat(deliveriesOf(document)).singleElement().satisfies(record ->
+                assertThat(record.recordKey()).isEqualTo(NotificationEventKey.of(kind, user.getId(), explicit, SLOT)));
+    }
+
+    @Test
+    void anUnrelatedKindsTargetCannotBeInventedAsASubject() {
+        insertLegacyLog(NotificationKind.BET_WON, null, UUID.randomUUID());
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, false);
+        assertThat(document.failures()).anySatisfy(failure ->
+                assertThat(failure.reason()).isEqualTo(NotificationExportService.FAIL_NO_SUBJECT));
+        assertThat(document.report().finalEligible()).isFalse();
+    }
+
+    private User addTokenUser(String token, boolean bot, boolean withdrawn) {
+        User extra = userRepository.save(User.builder().nickname("export-token-" + UUID.randomUUID()).build());
+        extraUsers.add(extra);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                entityManager.createNativeQuery("UPDATE users SET device_token=:token,is_bot=:bot,is_deleted=:withdrawn"
+                                + " WHERE id=:id")
+                        .setParameter("token", token).setParameter("bot", bot).setParameter("withdrawn", withdrawn)
+                        .setParameter("id", extra.getId()).executeUpdate());
+        return extra;
+    }
+
+    private void insertLegacyLog(NotificationKind kind, UUID subject, UUID target) {
+        insertLog(kind.name(), "SENT", SLOT);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                entityManager.createNativeQuery("UPDATE notification_sent_logs SET subject_id=:subject,"
+                                + "target_user_id=:target,slot_at=NULL,claimed_at=NULL WHERE user_id=:userId AND kind=:kind")
+                        .setParameter("subject", subject).setParameter("target", target)
+                        .setParameter("userId", user.getId()).setParameter("kind", kind.name()).executeUpdate());
+    }
+
+    static Stream<Arguments> legacyRowsWithoutRenderInputs() {
+        return Stream.of(NotificationKind.LEAGUE_WEEKLY_RESULT, NotificationKind.LEAGUE_DEADLINE,
+                        NotificationKind.LEAGUE_DEADLINE_D1, NotificationKind.LEAGUE_RELEGATION_WARNING,
+                        NotificationKind.LEAGUE_RELEGATION_WARNING_EVENING, NotificationKind.LEAGUE_FINAL_DEADLINE,
+                        NotificationKind.INACTIVE_RETURN, NotificationKind.STREAK_AT_RISK,
+                        NotificationKind.FRIEND_REQUEST, NotificationKind.FRIEND_ACCEPTED, NotificationKind.CHALLENGE_CREATED)
+                .flatMap(kind -> Stream.of("PENDING", "DEFERRED", "SENT").map(state -> Arguments.of(kind, state)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("legacyRowsWithoutRenderInputs")
+    void missingHistoricalRenderInputsBecomeSuppressionEvidence(NotificationKind kind, String legacyStatus) {
+        insertLog(kind.name(), legacyStatus, "SENT".equals(legacyStatus) ? SLOT : null);
+        UUID subject = kind == NotificationKind.CHALLENGE_CREATED ? openSession().getChallenge().getId()
+                : kind.subjectKind() == NotificationKind.SubjectKind.NONE ? null : UUID.randomUUID();
+        new TransactionTemplate(transactionManager).executeWithoutResult(ignored ->
+                entityManager.createNativeQuery("UPDATE notification_sent_logs SET subject_id=:subject"
+                                + " WHERE user_id=:userId AND kind=:kind")
+                        .setParameter("subject", subject).setParameter("userId", user.getId())
+                        .setParameter("kind", kind.name()).executeUpdate());
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true);
+        NotificationMigrationRecord record = deliveriesOf(document).get(0);
+        assertThat(record.data()).containsEntry("status", "SENT".equals(legacyStatus) ? "SENT" : "SUPPRESSED")
+                .containsEntry("eventId", NotificationEventKey.of(kind, user.getId(), subject, SLOT))
+                .containsEntry("slotAt", SLOT.toEpochMilli())
+                .containsEntry("sentAt", "SENT".equals(legacyStatus) ? SLOT.toEpochMilli() : null)
+                .containsEntry("nextAttemptAt", "PENDING".equals(legacyStatus)
+                        ? SLOT.plusSeconds(600).toEpochMilli() : SLOT.toEpochMilli());
+        assertThat(document.report().finalEligible()).isTrue();
+        assertThat(document.failures()).isEmpty();
+        String original = new TransactionTemplate(transactionManager).execute(ignored ->
+                (String) entityManager.createNativeQuery("SELECT status FROM notification_sent_logs"
+                                + " WHERE user_id=:userId AND kind=:kind")
+                        .setParameter("userId", user.getId()).setParameter("kind", kind.name()).getSingleResult());
+        assertThat(original).isEqualTo(legacyStatus);
+    }
+
+    @Test
+    void inputFreePendingReminderRemainsSendable() {
+        insertLog(NotificationKind.MISSED_FOCUS_TODAY.name(), "PENDING", null);
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true);
+        assertThat(deliveriesOf(document)).singleElement().satisfies(record ->
+                assertThat(record.data()).containsEntry("status", "PENDING"));
+        assertThat(document.report().finalEligible()).isTrue();
+    }
+
+    @Test
     @DisplayName("미발송 행은 잔여가 아니라 «화물»이다 — queueDepth 에 들어가면 컷오버가 영영 불가능해진다")
     void unsentRowsAreCargoNotResidue() {
         insertLog(NotificationKind.STREAK_AT_RISK.name(), "PENDING", null);
@@ -211,6 +412,24 @@ class NotificationExportServiceIntegrationTest {
         // 화물이 합계에 섞이면 「미발송을 옮기려면 미발송이 0 이어야 한다」는 순환이 된다.
         assertThat(document.manifest().stopWindow().queueDepth()).isZero();
         assertThat(deliveriesOf(document)).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("이관 재시도와 선점 갱신은 원 슬롯의 만료를 연장하지 않는다")
+    void exportPreservesOriginalExpiryAcrossLaterClaims() {
+        insertLog(NotificationKind.STREAK_AT_RISK.name(), "PENDING", null);
+        NotificationMigrationRecord before = deliveriesOf(
+                exportService.export(MIGRATION_ID, null, false, true)).get(0);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                entityManager.createNativeQuery("UPDATE notification_sent_logs SET claimed_at=:later WHERE user_id=:user")
+                        .setParameter("later", SLOT.plusSeconds(86400))
+                        .setParameter("user", user.getId()).executeUpdate());
+        NotificationMigrationRecord after = deliveriesOf(
+                exportService.export(MIGRATION_ID, null, false, true)).get(0);
+        assertThat((Map<?, ?>) before.data().get("params")).isEqualTo(after.data().get("params"));
+        Map<?, ?> params = (Map<?, ?>) after.data().get("params");
+        assertThat(params.get("dedupAt")).isEqualTo(SLOT.toString());
+        assertThat(params.get("expiresAt")).isEqualTo("2026-09-11T14:00:00Z");
     }
 
     @Test

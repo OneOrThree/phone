@@ -43,6 +43,7 @@ import java.util.UUID;
 public class InternalUserController {
 
     private final UserSatelliteCommandService userSatelliteCommandService;
+    private final InternalDeviceTokenDeletionService deviceTokenDeletionService;
     private final InternalNotificationSettingsService notificationSettingsService;
 
     /**
@@ -75,7 +76,7 @@ public class InternalUserController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 
         return ResponseEntity.ok(ack(
-                userSatelliteCommandService.recordDeviceTokenDeletion(userId, request, idempotencyKey)));
+                deviceTokenDeletionService.record(userId, request, idempotencyKey)));
     }
 
     /**
@@ -117,6 +118,6 @@ public class InternalUserController {
      */
     private static DurableCommandAckResponse ack(EventEnvelope envelope) {
         return new DurableCommandAckResponse(
-                UUID.fromString(envelope.eventId()), envelope.eventId(), envelope.version());
+                UUID.fromString(envelope.eventId()), envelope.eventId(), envelope.version(), envelope.params());
     }
 }

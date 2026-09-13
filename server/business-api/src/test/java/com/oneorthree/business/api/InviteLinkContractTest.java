@@ -5,8 +5,14 @@ import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -23,6 +29,255 @@ class InviteLinkContractTest extends UpstreamTestBase {
     private static final String INTENT_ID = "dddddddd-0000-0000-0000-000000000001";
     private static final String CONFIRM_ID = "dddddddd-0000-0000-0000-000000000002";
     private static final String CLAIM_ID = "eeeeeeee-0000-0000-0000-000000000001";
+
+    static Stream<Arguments> mismatchedIssueSubjects() {
+        return Stream.of(Arguments.of(null, USER), Arguments.of(GROUP, null),
+                Arguments.of(USER, USER), Arguments.of(GROUP, GROUP));
+    }
+
+    static Stream<Arguments> absentIssueContexts() {
+        String complete = issueContext(true, true);
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, complete.replace("\"groupActive\":true,", "")),
+                Arguments.of(200, complete.replace("\"inviterActiveMember\":true,", "")),
+                Arguments.of(200, complete.replace("\"groupActive\":true", "\"groupActive\":null")),
+                Arguments.of(200, complete.replace("\"inviterActiveMember\":true", "\"inviterActiveMember\":null")),
+                Arguments.of(200, complete.replace("\"groupActive\":true,", "")
+                        .replace("\"inviterActiveMember\":true,", "")),
+                Arguments.of(200, complete.replace("\"membershipEpoch\":8,", "")),
+                Arguments.of(200, complete.replace("\"linkVersion\":8,", "")),
+                Arguments.of(200, complete.replace("\"membershipEpoch\":8,", "").replace("\"linkVersion\":8,", "")),
+                Arguments.of(200, complete.replace("\"membershipEpoch\":8", "\"membershipEpoch\":null")),
+                Arguments.of(200, complete.replace("\"linkVersion\":8", "\"linkVersion\":null")),
+                Arguments.of(200, complete.replace("\"membershipEpoch\":8", "\"membershipEpoch\":null")
+                        .replace("\"linkVersion\":8", "\"linkVersion\":null")),
+                Arguments.of(200, issueContext(true, true, 0, 0)),
+                Arguments.of(200, issueContext(true, true, -1, -1)),
+                Arguments.of(200, issueContext(true, true, Long.MIN_VALUE, Long.MIN_VALUE)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("absentIssueContexts")
+    void absentIssueContextIsAContractErrorAndCanRetry(int code, String body) throws Exception {
+        stubActiveUser(USER);
+        String context = "GET /internal/groups/" + GROUP + "/invite-issue-context";
+        DATA.on(context, request -> new MockUpstream.Response(code, body));
+        LINK.on("POST /internal/links", request -> new MockUpstream.Response(200,
+                "{\"slug\":\"abc123\",\"url\":\"https://l/abc123\"}"));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-issue"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        assertThat(LINK.received()).isEmpty();
+        DATA.on(context, request -> new MockUpstream.Response(200, issueContext(true, true)));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-issue"))
+                .andExpect(status().isOk());
+        assertThat(LINK.hits("POST /internal/links")).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @MethodSource("mismatchedIssueSubjects")
+    void issueContextMustBelongToTheRequestedGroupAndAuthenticatedUser(UUID group, UUID inviter) throws Exception {
+        stubActiveUser(USER);
+        String invalid = issueContext(true, true)
+                .replace("\"groupId\":\"" + GROUP + "\"", "\"groupId\":" + (group == null ? "null" : "\"" + group + "\""))
+                .replace("\"inviterId\":\"" + USER + "\"", "\"inviterId\":" + (inviter == null ? "null" : "\"" + inviter + "\""));
+        String context = "GET /internal/groups/" + GROUP + "/invite-issue-context";
+        DATA.on(context, request -> new MockUpstream.Response(200, invalid));
+        LINK.on("POST /internal/links", request -> new MockUpstream.Response(200,
+                "{\"slug\":\"abc123\",\"url\":\"https://l/abc123\"}"));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-issue"))
+                .andExpect(status().isBadGateway());
+        assertThat(LINK.received()).isEmpty();
+        DATA.on(context, request -> new MockUpstream.Response(200, issueContext(true, true)));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-issue"))
+                .andExpect(status().isOk());
+        assertThat(LINK.hits("POST /internal/links")).isEqualTo(1);
+    }
+
+    static Stream<Arguments> absentPendingBodies() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{}"), Arguments.of(200, "{\"capability\":null}"),
+                Arguments.of(200, "{\"claimId\":null}"),
+                Arguments.of(200, "{\"claimId\":null,\"capability\":\"signed-value\"}"),
+                Arguments.of(200, "{\"claimId\":null,\"capability\":\"\"}"),
+                Arguments.of(200, "{\"claimId\":null,\"capability\":\"  \"}"),
+                Arguments.of(200, "{\"claimId\":\"11111111-1111-4111-8111-111111111111\",\"capability\":null}"),
+                Arguments.of(200, "{\"claimId\":\"11111111-1111-4111-8111-111111111111\",\"capability\":\"\"}"),
+                Arguments.of(200, "{\"claimId\":\"11111111-1111-4111-8111-111111111111\",\"capability\":\"  \"}"));
+    }
+
+    static Stream<Arguments> incompleteIssuedLinks() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{}"), Arguments.of(200, "{\"slug\":null,\"url\":null}"),
+                Arguments.of(200, "{\"slug\":\"abc123\"}"),
+                Arguments.of(200, "{\"url\":\"https://l/abc123\"}"),
+                Arguments.of(200, "{\"slug\":\"\",\"url\":\"https://l/abc123\"}"),
+                Arguments.of(200, "{\"slug\":\"  \",\"url\":\"https://l/abc123\"}"),
+                Arguments.of(200, "{\"slug\":\"abc123\",\"url\":\"\"}"),
+                Arguments.of(200, "{\"slug\":\"abc123\",\"url\":\"  \"}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("incompleteIssuedLinks")
+    void incompleteIssuedLinkCannotBeSharedAndCanRetry(int responseStatus, String body) throws Exception {
+        stubActiveUser(USER);
+        DATA.on("GET /internal/groups/" + GROUP + "/invite-issue-context",
+                request -> new MockUpstream.Response(200, issueContext(true, true)));
+        LINK.on("POST /internal/links", request -> new MockUpstream.Response(responseStatus, body));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "retry-issue"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        String url = "https://l/abc123?g=" + GROUP;
+        LINK.on("POST /internal/links", request -> new MockUpstream.Response(200,
+                "{\"slug\":\"abc123\",\"url\":\"" + url + "\"}"));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "retry-issue"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.slug").value("abc123"))
+                .andExpect(jsonPath("$.url").value(url));
+        assertThat(LINK.receivedFor("POST /internal/links")).hasSize(2).satisfies(requests -> {
+            assertThat(requests.get(0).header("Idempotency-Key"))
+                    .isEqualTo(requests.get(1).header("Idempotency-Key"));
+            assertThat(requests.get(0).body()).isEqualTo(requests.get(1).body());
+        });
+    }
+
+    static Stream<Arguments> absentConfirmBodies() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"  \",\"version\":2}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"confirmed\"}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"confirmed\",\"version\":null}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"confirmed\",\"version\":0}"),
+                Arguments.of(200, "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"confirmed\",\"version\":-1}"));
+    }
+
+    static Stream<Arguments> incompleteIntentBodies() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{\"version\":1,\"completed\":false}"),
+                Arguments.of(200, "{\"version\":1,\"completed\":true}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID + "\",\"version\":1,\"completed\":false}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
+                        + "\",\"eventId\":\"  \",\"version\":1,\"completed\":false}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
+                        + "\",\"eventId\":\"intent\",\"version\":0,\"completed\":false}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
+                        + "\",\"eventId\":\"intent\",\"version\":-1,\"completed\":false}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
+                        + "\",\"eventId\":\"intent\",\"version\":0,\"completed\":true}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
+                        + "\",\"eventId\":\"intent\",\"version\":-1,\"completed\":true}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"intent\",\"version\":1}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
+                        + "\",\"eventId\":\"intent\",\"version\":1,\"completed\":null}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("incompleteIntentBodies")
+    void incompleteIntentCannotStartOrCompleteAClaim(int responseStatus, String body) throws Exception {
+        stubActiveUser(USER);
+        DATA.on("POST /internal/invite-links/claim-intents",
+                request -> new MockUpstream.Response(responseStatus, body));
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "retry-intent")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        assertThat(LINK.received()).isEmpty();
+        assertThat(DATA.hits("POST /internal/invite-links/claim-confirmations")).isZero();
+        DATA.on("POST /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1,\"completed\":true}"));
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "retry-intent")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isOk());
+        assertThat(LINK.received()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @MethodSource("absentConfirmBodies")
+    void absentConfirmationKeepsTheIntentRetryable(int responseStatus, String body) throws Exception {
+        stubActiveUser(USER);
+        DATA.on("POST /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1,\"completed\":false}"));
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(200,
+                "{\"claimId\":\"" + CLAIM_ID + "\",\"capability\":\"cap-token\"}"));
+        DATA.on("POST /internal/invite-links/claim-confirmations",
+                request -> new MockUpstream.Response(responseStatus, body));
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "retry-confirm")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        assertThat(DATA.hits("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/abandoned")).isZero();
+        assertThat(DATA.hits("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/completed")).isZero();
+        DATA.on("POST /internal/invite-links/claim-confirmations", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"e2\",\"version\":2}"));
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "retry-confirm")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isOk());
+        assertThat(DATA.receivedFor("POST /internal/invite-links/claim-confirmations")).hasSize(2)
+                .allSatisfy(request -> assertThat(request.header("Idempotency-Key"))
+                        .isEqualTo("retry-confirm:claim-confirm"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("absentPendingBodies")
+    void absentPendingBodyKeepsTheIntentForRetryWithTheSameKey(int responseStatus, String body) throws Exception {
+        stubActiveUser(USER);
+        AtomicBoolean abandoned = new AtomicBoolean();
+        DATA.on("POST /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"e1\",\"version\":1,\"completed\":"
+                        + abandoned.get() + "}"));
+        DATA.on("POST /internal/invite-links/claim-intents/" + INTENT_ID + "/abandoned", request -> {
+            abandoned.set(true);
+            return new MockUpstream.Response(200, "{}");
+        });
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(responseStatus, body));
+
+        var first = mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-claim")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andReturn().getResponse();
+        assertThat(abandoned).isFalse();
+        assertThat(first.getStatus()).isEqualTo(502);
+        assertThat(first.getContentAsString()).contains("UPSTREAM_CONTRACT_MISMATCH");
+        assertThat(DATA.hits("POST /internal/invite-links/claim-confirmations")).isZero();
+
+        LINK.on("POST /internal/links/abc123/claim", request -> new MockUpstream.Response(200,
+                "{\"claimId\":\"" + CLAIM_ID + "\",\"capability\":\"cap-token\"}"));
+        DATA.on("POST /internal/invite-links/claim-confirmations", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + CONFIRM_ID + "\",\"eventId\":\"e2\",\"version\":2}"));
+        mockMvc.perform(post("/api/v1/invite-links/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-claim")
+                        .contentType("application/json").content("{\"slug\":\"abc123\"}"))
+                .andExpect(status().isOk());
+        assertThat(DATA.receivedFor("POST /internal/invite-links/claim-intents")).hasSize(2)
+                .allSatisfy(request -> assertThat(request.header("Idempotency-Key")).isEqualTo("same-claim:claim-intent"));
+        assertThat(LINK.receivedFor("POST /internal/links/abc123/claim")).hasSize(2)
+                .allSatisfy(request -> assertThat(request.header("Idempotency-Key")).isEqualTo("same-claim:link-claim"));
+        assertThat(DATA.hits("POST /internal/invite-links/claim-confirmations")).isEqualTo(1);
+        assertThat(abandoned).isFalse();
+    }
 
     /**
      * 발급 컨텍스트. ⚠️ {@code membershipEpoch == linkVersion} 이어야 한다 — 링크 서버가
@@ -62,6 +317,23 @@ class InviteLinkContractTest extends UpstreamTestBase {
         assertThat(body).contains("\"linkVersion\":8", "\"membershipEpoch\":8",
                 "\"transitionSeq\":31", "\"snapshotVersion\":4");
         assertThat(body).contains("우리섬", "재영");
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1, Long.MAX_VALUE})
+    void positiveMembershipEpochsPreserveInitialZeroSequenceAndSnapshot(long epoch) throws Exception {
+        stubActiveUser(USER);
+        DATA.on("GET /internal/groups/" + GROUP + "/invite-issue-context", request -> new MockUpstream.Response(200,
+                issueContext(true, true, epoch, epoch).replace("\"transitionSeq\":31", "\"transitionSeq\":0")
+                        .replace("\"snapshotVersion\":4", "\"snapshotVersion\":0")));
+        LINK.on("POST /internal/links", request -> new MockUpstream.Response(200,
+                "{\"slug\":\"abc123\",\"url\":\"https://l/abc123\"}"));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isOk());
+        assertThat(LINK.receivedFor("POST /internal/links")).singleElement().satisfies(request ->
+                assertThat(request.body()).contains("\"membershipEpoch\":" + epoch, "\"linkVersion\":" + epoch,
+                        "\"transitionSeq\":0", "\"snapshotVersion\":0"));
     }
 
     @Test

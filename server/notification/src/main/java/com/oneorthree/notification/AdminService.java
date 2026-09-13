@@ -126,10 +126,10 @@ class AdminService {
         UUID id = UUID.randomUUID();
         // slot_at 은 비운다. 원본 묶음 슬롯을 복제하면 이월 묶음이 관리자 행과 섞인다.
         int written = store.update("INSERT INTO deliveries(id,event_id,user_id,kind,subject_id,group_id,slot_at,"
-                + "payload,locale,status,next_attempt_at,admin_actor,replay_of)"
-                + " VALUES(?,?,?,?,?,?,NULL,?::jsonb,?,'PENDING',?,?,?) ON CONFLICT DO NOTHING",
+                + "payload,locale,status,next_attempt_at,admin_actor,replay_of,created_at)"
+                + " VALUES(?,?,?,?,?,?,NULL,?::jsonb,?,'PENDING',?,?,?,?) ON CONFLICT DO NOTHING",
                 id, eventId, user, kind, subject, group, Json.write(params), locale,
-                Timestamp.from(clock.instant()), actor, replayOf);
+                Timestamp.from(clock.instant()), actor, replayOf, Timestamp.from(clock.instant()));
         if (written == 0) {
             throw new NotificationFailure(409, "DELIVERY_ALREADY_QUEUED");
         }
