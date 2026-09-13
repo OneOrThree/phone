@@ -1,33 +1,24 @@
 # CI 최적화 원격 검증 기록
 
 [구현 PR #759](https://github.com/OneOrThree/phone/pull/759)의 자동 CI 결과다.
-구현·로컬 검증·기존 실행 기록은 [기술 기록](https://github.com/OneOrThree/phone/blob/0fa767514b977c2d90928baffa16e0d64d74b58f/docs/engineering/ci-build-reuse/README.md)에 있다.
+구현·로컬 검증·기존 실행 기록은 [기술 기록](https://github.com/OneOrThree/phone/blob/c1b226bee3a276f70d8366911460d30c0c5a7e96/docs/engineering/ci-build-reuse/README.md)에 있다.
 
 ## 실행별 결과
 
 | Workflow | 결과 | HEAD | 실행 |
 | --- | --- | --- | --- |
-| Business · Notification CI | queued | `0fa767514` | [#34748888513](https://github.com/OneOrThree/phone/actions/runs/34748888513) |
-| CI | queued | `0fa767514` | [#34748888529](https://github.com/OneOrThree/phone/actions/runs/34748888529) |
-| Realtime CI | queued | `0fa767514` | [#34748888550](https://github.com/OneOrThree/phone/actions/runs/34748888550) |
+| Business · Notification CI | queued | `c1b226bee` | [#34749088064](https://github.com/OneOrThree/phone/actions/runs/34749088064) |
+| CI | queued | `c1b226bee` | [#34749088125](https://github.com/OneOrThree/phone/actions/runs/34749088125) |
+| Realtime CI | queued | `c1b226bee` | [#34749088170](https://github.com/OneOrThree/phone/actions/runs/34749088170) |
 
 **수집 시점에 CI가 진행 중이다. 대기 중인 잡과 아직 배정되지 않은 잡은 소요 시간을 확정하지 않았다.**
 
-수집 시각(UTC): 2026-09-13T09:07:04.591458+00:00, 2026-09-13T09:07:05.802887+00:00, 2026-09-13T09:07:07.134225+00:00
+수집 시각(UTC): 2026-09-13T09:12:44.709687+00:00, 2026-09-13T09:12:45.781293+00:00, 2026-09-13T09:12:46.807585+00:00
 
 ## 잡별 러너 대기와 실행
 
 | Workflow / 잡 | 대기(초) | 실행(초) | 결과 |
 | --- | ---: | ---: | --- |
-| Business · Notification CI / 위성 변경 입력 판정 | 2 | 11 | success |
-| Business · Notification CI / 공개 명령 원자성 · 계약 | 2 | — | in_progress |
-| Business · Notification CI / 서비스별 시크릿 · DB 격리 | 2 | 106 | success |
-| Business · Notification CI / notification 검증 | — | — | queued |
-| Business · Notification CI / business-api 검증 | — | — | queued |
-| CI / checkstyle / gradle | 68 | — | in_progress |
-| CI / test / gradle | — | — | queued |
-| CI / spotbugs / gradle | 6 | 71 | success |
-| Realtime CI / build / gradle | — | — | queued |
 
 이 HEAD의 JAR 전달과 이미지 조립 단계는 아직 완료되지 않았다.
 
@@ -60,7 +51,8 @@ Data-only PR에서 위성 self-hosted 잡을 생략하는 효과를 직접 측�
 
 실패한 검사가 통과했다고 처리하지 않았다. failed-only 재실행 요청은 HTTP 502를 반환했지만 원격 run_attempt는 3으로 진행돼 실제 API 상태를 다시 조회했다.
 GitHub가 이전 성공 잡에 새 check 생성 시각과 과거 시작·완료 시각을 함께 반환하는 것을 발견했다.
-측정기는 이런 기록을 이전 성공 재사용으로 표시하고 이번 대기·실행 시간에서 제외한다. 실제 응답 시각을 회귀 테스트로 추가한 후 전체 Python 78건이 통과했다.
+측정기는 이런 기록을 이전 성공 재사용으로 표시하고 이번 대기·실행 시간에서 제외한다. 실제 응답 시각을 회귀 테스트로 추가한 후 전체 Python 79건이 통과했다.
+미배정 취소 잡은 완료 시각이 생성보다 1초 앞서는 별도 이상치도 있었다. 성공 여부와 러너 배정을 확인해 이를 과거 성공 재사용으로 오분류하지 않도록 보완했다.
 이 보정 커밋을 push해 새 CI를 시작했으며, 이전 실행 기록과 최종 HEAD의 검증 결과를 구분해 보관한다.
 로컬 `gh run watch`의 네트워크 timeout도 원격 CI 실패와 구분했다. 결과는 GitHub 실행·잡 API와 완료 로그로 판정하며 진행 중인 실행을 통과로 처리하지 않는다.
 최초 실행·실패 annotation·재사용 check 원본은 evidence의 initial-* 파일에 보관한다.
