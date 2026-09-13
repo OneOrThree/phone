@@ -267,10 +267,10 @@
         <text x="225" y="282" class="mono">Play 기본 → organic</text>
         <text x="415" y="220" opacity=".6">랜딩 없음</text><text x="415" y="235" class="mono" opacity=".6">우리 서버는 클릭을 못 봄</text>
         <text x="605" y="220">Install Referrer</text>
-        <text x="605" y="238" class="mono">앱 첫 실행 → POST /l/referrer</text>
+        <text x="605" y="238" class="mono">첫 실행 로컬 판별 → 세션 뒤 저장</text>
         <text x="605" y="254" class="mono">Meta 키로 복호화 → 캠페인</text>
         <text x="605" y="268" class="mono">gclid → 채널까지만</text>
-        <text x="605" y="282" class="mono">→ install_key 로 저장</text>
+        <text x="605" y="282" class="mono">토큰 필수 · 유저당 하루 3건</text>
         <text x="792" y="220">claim 기록</text><text x="792" y="235" class="mono">attributionId + deviceId</text>
       </g>
       <g stroke="currentColor" stroke-width="1.1" marker-end="url(#a3)"><line x1="300" y1="224" x2="338" y2="224" opacity=".5"/><line x1="490" y1="224" x2="528" y2="224" opacity=".5"/><line x1="680" y1="224" x2="718" y2="224"/></g>
@@ -289,13 +289,13 @@
       </g>
       <g stroke="currentColor" stroke-width="1.1" marker-end="url(#a3)"><line x1="300" y1="330" x2="338" y2="330" opacity=".5"/><line x1="490" y1="330" x2="528" y2="330" opacity=".5"/><line x1="680" y1="330" x2="718" y2="330" opacity=".5"/></g>
     </svg>
-    <figcaption>네 타입이 같은 세 엔드포인트(랜딩·매치·claim)를 공유한다. 초록 테두리가 이번에 새로 생기는 서버 경로 둘(Referrer 수신, SKAN 수신). Android 앱은 referrer 출처가 LINK·META·GOOGLE 이면 fingerprint 매치를 건너뛴다. 매치 없음은 200, 서버 일시 장애는 503 이라 앱이 다음 실행에 다시 묻는다.</figcaption>
+    <figcaption>네 타입이 같은 세 엔드포인트(랜딩·매치·claim)를 공유한다. 초록 테두리가 이번에 새로 생기는 서버 경로 둘(Referrer 수신, SKAN 수신). Android 앱은 referrer 출처가 LINK·META·GOOGLE 이면 fingerprint 매치를 건너뛴다. 매치 없음은 200, 서버 일시 장애는 503 이라 앱이 다음 실행에 다시 묻는다. 미리보기 봇 방문은 클릭으로 세지 않고, 가입 수는 신규 유저의 claim 만 센다.</figcaption>
   </figure>
 </section>
 
 <section>
   <h2><span class="n">4</span>데이터 — 테이블 5개, 이관 없음</h2>
-  <p class="lede">기존 두 테이블은 컬럼 추가를 먼저 하고(expand), 이름 변경은 마지막 단계에서 한다(contract) — 그 전까지 모든 단계를 이전 이미지로 되돌릴 수 있다. slug·id·클릭 이력 그대로. 신설 3개는 캠페인과 바깥에서 오는 신호 2종. 캠페인 귀속은 읽기 시점에 한다. 콘솔 상태(세션·잠금·폼 토큰)는 business-api Redis 라 DB 테이블 0.</p>
+  <p class="lede">기존 두 테이블은 컬럼 추가를 먼저 하고(expand), 이름 변경은 마지막 단계에서 한다(contract). 기존 비활성 초대 링크 보정과 부분 unique 교체도 contract 에서 한다 — 그 전까지 모든 단계를 이전 이미지로 되돌릴 수 있다. slug·id·클릭 이력 그대로. 신설 3개는 캠페인과 바깥에서 오는 신호 2종. 캠페인 귀속은 읽기 시점에 한다. 콘솔 상태(세션·잠금·폼 토큰)는 business-api Redis 라 DB 테이블 0.</p>
   <figure>
     <svg viewBox="0 0 880 470" role="img" aria-label="campaigns, links, link_clicks, install_referrers, skan_postbacks 다섯 테이블과 참조 관계">
       <defs>
@@ -333,8 +333,8 @@
         <text x="339" y="128" style="fill:var(--teal)">+ status · revoked_at · reason</text>
         <text x="339" y="144">group_id · inviter_id  → nullable</text>
         <text x="339" y="160" opacity=".7">CHECK 타입별 모양</text>
-        <text x="339" y="176" opacity=".7">UNIQUE(group,inviter)</text>
-        <text x="339" y="192" opacity=".7">  WHERE INVITE AND ACTIVE</text>
+        <text x="339" y="176" opacity=".7">UNIQUE(group,inviter) 유지</text>
+        <text x="339" y="192" opacity=".7">  contract 에서 ACTIVE 부분 unique</text>
         <text x="339" y="216" opacity=".6">수명 규칙은 그룹 획득 문서</text>
 
         <text x="648" y="80">id · link_id</text>
@@ -343,16 +343,17 @@
         <text x="648" y="128">matched · matched_at · device_id</text>
         <text x="648" y="144">app_instance_id</text>
         <text x="648" y="160">claimed_user_id · claimed_at</text>
-        <text x="648" y="184" opacity=".6">탈퇴 시 claimed_user_id NULL</text>
+        <text x="648" y="176" style="fill:var(--teal)">+ claimed_as_new_user</text>
+        <text x="648" y="194" opacity=".6">탈퇴 시 claimed_user_id NULL</text>
 
         <text x="339" y="320">id · install_key unique</text>
-        <text x="339" y="336">device_id · referrer_raw</text>
+        <text x="339" y="336">device_id · reporter_user_id</text>
         <text x="339" y="352">source LINK|META|GOOGLE|ORGANIC</text>
         <text x="339" y="368">link_id · click_id  nullable</text>
-        <text x="339" y="384">gclid · meta_campaign_id</text>
-        <text x="339" y="400">meta_payload · decrypt_failed</text>
-        <text x="339" y="416">claimed_user_id · claimed_at</text>
-        <text x="339" y="438" opacity=".6">탈퇴 시 claimed_user_id NULL</text>
+        <text x="339" y="384">referrer_raw · gclid</text>
+        <text x="339" y="400">meta_campaign_id · payload</text>
+        <text x="339" y="416">claimed_user_id · as_new_user</text>
+        <text x="339" y="438" opacity=".6">탈퇴 시 claimed·reporter NULL</text>
 
         <text x="30" y="320">id · transaction_id</text>
         <text x="30" y="336">version · ad_network_id</text>
@@ -376,7 +377,7 @@
         <text x="262" y="222">meta_campaign_id</text><text x="262" y="236">= external_id</text>
       </g>
     </svg>
-    <figcaption>초록 = 추가 컬럼·신설 테이블. 실선은 FK, 점선은 읽기 시점 대응(FK 아님). Flyway 번호는 #745 가 V51·V52 를 쓰고 있어 V53 이상. install_key = 기기 + Play 설치 시작 시각이라 재설치는 새 설치.</figcaption>
+    <figcaption>초록 = 추가 컬럼·신설 테이블. 실선은 FK, 점선은 읽기 시점 대응(FK 아님). Flyway 번호는 #745 가 V51·V52 를 쓰고 있어 V53 이상. install_key = 기기 + Play 설치 시작 시각이라 재설치는 새 설치. referrer 저장은 토큰이 있는 세션만, 유저당 하루 3건.</figcaption>
   </figure>
 </section>
 
@@ -401,18 +402,18 @@
   <h2><span class="n">6</span>배포 순서</h2>
   <ol class="steps">
     <li>#745 머지 — 링크 경로는 data-api 공개 컨트롤러가 계속 서빙</li>
-    <li>data-api — 스키마 expand(기존 테이블 이름 그대로 컬럼·신설 3) · <code>invitelink</code> 일반화 · <code>/internal/*</code> · #745 data-api 링크 사장 코드 제거. 공개 컨트롤러와 V52 테이블은 남긴다</li>
-    <li>business-api — 공개 표면 · referrer · resolve · SKAN 수신(서명 통과분만 저장) · #745 business-api 링크 사장 코드 제거</li>
+    <li>data-api — 스키마 expand(기존 테이블 이름 그대로 컬럼·신설 3 · V21 전체 unique 유지) · <code>invitelink</code> 일반화 · <code>/internal/*</code> · #745 data-api 링크 사장 코드 제거. 공개 컨트롤러와 V52 테이블은 남기고 링크 폐기·재발급은 켜지 않는다</li>
+    <li>business-api — 공개 표면 · referrer · resolve · SKAN 수신(서명 통과분만 저장) · <code>/l/referrer</code> 토큰·유저 상한 · #745 business-api 링크 사장 코드 제거</li>
     <li>Infra — nginx 링크 경로 전환(reload 1회, 되돌리기도 1회 · 같은 DB 라 무손실), Cloudflare SKAN 경로 챌린지 예외 + 엣지 레이트리밋</li>
-    <li>data-api contract — 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(전환 7일 뒤, 구 경로 호출 0). 되돌리기는 LLD §1.1 복구 SQL</li>
+    <li>data-api contract — 비활성 초대 링크 REVOKED 보정 · 부분 unique 교체 · 링크 폐기·재발급 켬 · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(전환 7일 뒤, 구 경로 호출 0). 되돌리기는 LLD §1.1 복구 SQL(보정된 REVOKED 는 유지)</li>
     <li>business-api — 콘솔</li>
-    <li>앱 — ① 파서·목적지·resolve ② Install Referrer ③ SKAN 등록·전환값</li>
+    <li>앱 — ① 파서·목적지·resolve ② Install Referrer(첫 실행 로컬 판별 · 세션 뒤 저장) ③ SKAN 등록·전환값 ④ App Link <code>autoVerify</code></li>
   </ol>
 </section>
 
 <div class="note">
-  <h2>착수 전 확인 7가지</h2>
-  <p>Meta·Google SKAdNetwork 식별자 · Meta referrer 복호화 방식 · Apple SKAN 버전별 서명 규칙 · <code>link.oneorthree.world</code> 가 prod nginx 로 오는지 · Android 패키지·서명 지문·Play 게시 상태 · 개인정보처리방침 고지(출시 조건) · Flyway 번호. 상세는 LLD §11.</p>
+  <h2>착수 전 확인 목록</h2>
+  <p>Meta·Google SKAdNetwork 식별자 · Meta referrer 복호화 방식 · Apple SKAN 버전별 서명 규칙 · <code>link.oneorthree.world</code> 가 prod nginx 로 오는지 · Android 패키지·서명 지문·Play 게시 상태·App Link <code>autoVerify</code> · 개인정보처리방침 고지(출시 조건) · Flyway 번호 · 롤백 때 Flyway 미래 버전 무시 여부 · (출시 뒤) Play Integrity 필요 여부. 상세는 LLD §11.</p>
 </div>
 </main>
 </body>

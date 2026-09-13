@@ -59,7 +59,7 @@ sequenceDiagram
   participant D as data-api
   U->>B: GET /l/{slug}?g=
   B->>D: POST /internal/links/{slug}/visits {clientIp, os, userAgent}
-  D->>D: 활성 판정 → 클릭 행 기록 (ip_hash)
+  D->>D: 활성 판정 · 봇 UA 면 기록 안 함 → 클릭 행 기록 (ip_hash)
   D-->>B: LandingView {type: INVITE, clickId, groupName, inviterName}
   B-->>U: 랜딩 HTML (스킴 · 스토어 버튼)
   Note over U: 설치 → 첫 실행
@@ -96,20 +96,27 @@ sequenceDiagram
   participant D as data-api
   Src->>P: 스토어 이동 (referrer: slug·click / Meta 암호화 utm_content / Google gclid)
   P->>A: 설치
-  A->>A: 첫 실행 · InstallReferrerClient (설치 시작 시각 포함)
-  A->>B: POST /l/referrer {deviceId, referrer, 시각들}
-  B->>B: 출처 판별 · Meta 복호화
-  B->>D: POST /internal/install-referrers {source, 정규화 필드, 원문}
+  A->>A: 첫 실행 · InstallReferrerClient 로 읽어 로컬에서 출처 판별
+  alt slug 있음 (우리 링크)
+    A->>B: POST /l/resolve {slug} (무인증 · 저장 없음)
+    B-->>A: {type, destination?, groupId?} → 목적지·초대 시트
+  else Meta · Google
+    Note over A: /l/match 생략
+  else organic · 읽기 실패
+    A->>B: POST /l/match (기존 fingerprint)
+  end
+  Note over A: 로그인 또는 게스트 시작 → 세션 확보
+  A->>B: POST /l/referrer {deviceId, referrer, 시각들} (access token)
+  B->>B: 출처 판별 · Meta 복호화 · IP·유저 상한
+  B->>D: POST /internal/install-referrers {source, 정규화 필드, 원문} (X-User-Id)
   D->>D: install_key(deviceId + 설치 시작 시각) 기준 멱등 저장 · LINK 면 클릭 소진
   D-->>B: {attributionId, source, matched, type?, slug?, groupId?, destination?}
-  B-->>A: 200 (장애면 503 · 앱은 완료 값을 저장하지 않음)
-  A->>A: source 가 LINK·META·GOOGLE 이면 /l/match 생략
-  Note over A: 로그인·가입
+  B-->>A: 200 (401·429·503 이면 앱은 완료 값을 저장하지 않음)
   A->>B: POST /api/v1/invite-links/claim {attributionId, deviceId} (JWT)
-  B->>D: POST /internal/links/claims
+  B->>D: POST /internal/links/claims → claimed_as_new_user 기록
 ```
 
-설치 단위는 `install_key` 라, 같은 기기에서 앱을 지웠다가 다른 광고로 다시 깔면 새 설치로 센다.
+설치 단위는 `install_key` 라, 같은 기기에서 앱을 지웠다가 다른 광고로 다시 깔면 새 설치로 센다. 저장은 세션 확보 뒤라 첫 실행 뒤 로그인·게스트 시작 없이 앱을 떠난 설치는 우리 수치에 들어가지 않는다. 대신 토큰 없는 위조 저장이 막힌다(§5).
 
 ### 3.4 iOS 광고 — SKAN 포스트백
 
@@ -153,6 +160,9 @@ sequenceDiagram
 - **앱 계약 보존**: `/l/match`·`/l/referrer`·`/l/resolve` 는 결과가 없으면 200(`{matched:false}`)이고, **data-api 장애·타임아웃은 503, 레이트리밋은 429** 다. 현 앱은 2xx 가 아닐 때 완료 플래그를 세우지 않고 다음 실행에 다시 묻는다. 앱의 매치 타임아웃(5초) 안에 끝나도록 내부 호출 예산을 둔다.
 - **랜딩 강등**: data-api 가 응답하지 않으면 스토어 버튼만 있는 기본 랜딩을 준다. 클릭은 기록하지 않는다.
 - **SKAN**: 공개·무인증 경로라 **서명을 통과한 우리 앱 포스트백만 저장한다.** 서명 실패·모르는 버전·다른 앱은 저장 없이 200 으로 끝내고 건수만 센다. 본문 16KB 제한, IP 레이트리밋, Cloudflare 엣지 레이트리밋을 함께 둔다. 저장 실패만 5xx 로 남겨 경보한다.
+- **referrer 저장 위조**: `/l/referrer` 만 access token 을 요구한다(게스트 포함). 위조량이 게스트 생성 한도(IP 당 시간당 10회, 전체 시간당 300회)에 묶이고, 유저당 하루 3건 상한이 한 번 더 막는다. 첫 실행의 출처 판별은 앱이 로컬에서 하므로 토큰이 없어도 매치 생략·초대 시트가 늦지 않는다.
+- **미리보기 봇**: 카카오톡·Slack·Meta 의 링크 미리보기 수집기는 클릭으로 기록하지 않는다(현행 봇 판별 유지).
+- **가입 수**: 현 앱은 기존 계정 로그인에서도 claim 하므로, claim 때 유저 가입 시각으로 신규 여부를 기록해 신규만 가입 수에 넣는다.
 - **공개 경로 레이트리밋**: 인증이 없는 공개 경로는 business-api 가 IP 단위로 제한한다. 키에는 원본 IP 대신 business-api 전용 비밀로 HMAC 한 값을 쓴다.
 - **claim 과 탈퇴**: claim 은 유저 행을 공유 락으로 잡아, 유저 행을 배타 락으로 잡는 탈퇴와 직렬화된다. 탈퇴 뒤 연결이 남지 않는다.
 
@@ -176,9 +186,9 @@ sequenceDiagram
 | 단계 | 내용 | 되돌리기 |
 | --- | --- | --- |
 | 1 | PR #745 머지(링크 코드 포함). 링크 경로는 data-api 공개 컨트롤러가 계속 서빙하고, [LLD §9.1](low-level-design.md#91-머지-뒤-켜지-않는-것) 의 설정은 켜지 않는다 | — |
-| 2 | data-api: **스키마 expand**(기존 테이블 이름 그대로 컬럼·제약 추가, 신설 3) · `invitelink` 일반화(엔티티는 `@Table` 로 옛 이름) · `/internal/*` · #745 의 data-api 링크 사장 코드 제거. **기존 공개 컨트롤러와 V52 링크 테이블은 남긴다** | 이미지 롤백 — expand 스키마에서 이전 이미지가 그대로 기동 |
+| 2 | data-api: **스키마 expand**(기존 테이블 이름 그대로 컬럼·제약 추가, 신설 3, **V21 전체 unique 유지**) · `invitelink` 일반화(엔티티는 `@Table` 로 옛 이름) · `/internal/*` · #745 의 data-api 링크 사장 코드 제거. **기존 공개 컨트롤러와 V52 링크 테이블은 남기고, 링크 폐기·재발급은 켜지 않는다** | 이미지 롤백 — expand 스키마에서 이전 이미지가 그대로 기동하고, 한 `(group_id, inviter_id)` 에 INVITE 행이 하나뿐이라 이전 이미지의 단건 조회도 그대로 동작 |
 | 3 | business-api: 공개 표면 · referrer · resolve · SKAN 수신 · #745 의 business-api 링크 사장 코드 제거 | 이미지 롤백 |
 | 4 | Infra: nginx 링크 경로를 business-api 로 전환(reload 1회), Cloudflare 에서 SKAN 경로 봇 챌린지 예외 + 엣지 레이트리밋 | nginx 원복 reload — 2 단계의 공개 컨트롤러가 같은 DB 를 읽으므로 무손실 |
-| 5 | data-api **contract**: 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(행 0 확인). 전환 뒤 7일 무사고, 구 경로 호출 0 확인 뒤 | [LLD §1.1](low-level-design.md#11-마이그레이션--expand--contract) 복구 SQL 로 이름을 되돌린 뒤 이미지 롤백. 4 단계 원복은 불가해지므로 마지막에 한다 |
-| 6 | business-api: 콘솔 | 이미지 롤백 |
-| 7 | 앱: ① 파서·목적지·resolve ② Install Referrer ③ SKAN 등록·전환값. 서버는 구 앱 계약을 유지하므로 최소 지원 버전과 무관 | 앱 배포 |
+| 5 | data-api **contract**: 기존 초대 링크 중 발급자 이탈·그룹 종료 행을 `REVOKED` 로 보정 → 전체 unique 를 active 부분 unique 로 교체 → **링크 폐기·재발급 켬**(그룹 획득 LLD §2.1) · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(행 0 확인). 전환 뒤 7일 무사고, 구 경로 호출 0 확인 뒤 | [LLD §1.1](low-level-design.md#11-마이그레이션--expand--contract) 복구 SQL 로 스키마를 되돌린 뒤 이미지 롤백. 보정된 `REVOKED` 는 되돌리지 않는다. 4 단계 원복은 불가해지므로 마지막에 한다 |
+| 6 | business-api: 콘솔. 캠페인 링크와 캠페인 링크 폐기는 이때부터 생긴다(contract 뒤) | 이미지 롤백 |
+| 7 | 앱: ① 파서·목적지·resolve ② Install Referrer(첫 실행 로컬 판별 · 세션 확보 뒤 저장) ③ SKAN 등록·전환값 ④ App Link `autoVerify`. 서버는 구 앱 계약을 유지하므로 최소 지원 버전과 무관 | 앱 배포 |
