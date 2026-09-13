@@ -209,7 +209,7 @@ CREATE INDEX idx_skan_postbacks_received ON public.skan_postbacks (received_at);
 
 ### 2.4 Install Referrer 저장
 
-1. `install_key = deviceId + ":" + 설치 시작 초`. 설치 시작 초는 Play 의 `installBeginTimestampServerSeconds` 를 우선하고, 없으면 `installBeginTimestampSeconds`, 둘 다 없으면 `0` 이다. **같은 `install_key` 행이 있으면 그 행을 그대로 돌려준다**(`uq_install_referrers_install` 충돌 시 재조회). 설치 시작 시각이 다르면 재설치로 보고 새 행을 만든다.
+1. `install_key = deviceId + ":" + 설치 시작 초`. 설치 시작 초의 서버·기기 우선순위(`installBeginTimestampServerSeconds` 우선, 없으면 `installBeginTimestampSeconds`)는 **business-api 가 정해 `installBeginAt` 으로 넘기고**(§4.1), data-api 는 그 값만 쓴다. 값이 없으면 `0` 이다. **같은 `install_key` 행이 있으면 그 행을 그대로 돌려준다**(`uq_install_referrers_install` 충돌 시 재조회). 설치 시작 시각이 다르면 재설치로 보고 새 행을 만든다.
 2. `source=LINK` 로 들어왔는데 slug 가 활성 링크가 아니면 `source=UNKNOWN`, `link_id=NULL` 로 저장한다(정책 L14).
 3. `source=LINK` 이면 `click_id` 를 아래 순서로 정한다. 한 설치가 fingerprint 와 referrer 양쪽에 잡히지 않게 하려는 규칙이다.
    1. 전달된 `clickId` 가 그 링크의 **미매치** 클릭이면 그 클릭을 `PESSIMISTIC_WRITE` 로 잠가 `matched=true`·`matched_at`·`matched_device_id`·`app_instance_id` 를 채우고 `click_id` 로 둔다. 같은 클릭이 fingerprint 로 다른 기기에 다시 매치되지 않는다.
