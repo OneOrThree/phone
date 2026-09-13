@@ -55,6 +55,10 @@ on:
         description: "업로드할 경로(서비스 디렉터리 기준 상대). 비우면 업로드하지 않는다"
         type: string
         default: ""
+      publish-jar:
+        description: "검사 성공 후 같은 실행의 이미지 조립용 bootJar를 전달한다"
+        type: boolean
+        default: false
       measure-jar:
         description: >-
           bootJar 크기를 재서 `jar-size` 아티팩트로 올린다. dev-ci 의 PR 코멘트 생성
@@ -112,11 +116,17 @@ jobs:
           SPRING_PROFILES_ACTIVE: ci
         run: ./gradlew ${{ inputs.tasks }} --stacktrace
 
+      - uses: ./.github/actions/ci-jar
+        if: inputs.publish-jar
+        with:
+          service: ${{ inputs.service }}
+          operation: pack
+
       - name: JAR 크기 측정
         if: inputs.measure-jar
         run: |
           set -euo pipefail
-          ./gradlew bootJar -x test
+          if [ "${{ inputs.publish-jar }}" != "true" ]; then ./gradlew bootJar -x test; fi
           du -sb build/libs/*.jar | awk '{print $1}' > jar-size.txt
 
       - uses: actions/upload-artifact@v4

@@ -17,6 +17,8 @@ on:
       # 고치는 PR 에서 정작 CI 가 안 돌아 **머지해 봐야** 맞는지 안다 (GROMO-1515).
       - ".github/workflows/dev-ci.yml"
       - ".github/workflows/be-gradle.yml"
+      - ".github/actions/ci-jar/**"
+      - ".github/scripts/ci-jar.py"
       - ".github/workflows/dev-cd.yml"
   # squash merge 뒤에는 최종 main SHA를 다시 검사하고, 이 실행에서 배포 이미지를 만든다.
   # PR에서 채운 GAR 캐시를 사용하므로 CD에서 별도로 재빌드하지 않는다.
@@ -28,6 +30,8 @@ on:
       - "server/scripts/docker-compose.datadog.yml"
       - ".github/workflows/dev-ci.yml"
       - ".github/workflows/be-gradle.yml"
+      - ".github/actions/ci-jar/**"
+      - ".github/scripts/ci-jar.py"
       - ".github/workflows/dev-cd.yml"
 
 concurrency:
@@ -83,7 +87,8 @@ jobs:
     uses: ./.github/workflows/be-gradle.yml
     with:
       service: data-api
-      tasks: test
+      tasks: test bootJar
+      publish-jar: true
       artifact-name: test-results
       artifact-path: build/test-results/
       measure-jar: true
@@ -102,6 +107,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/ci-jar
+        with:
+          service: data-api
+          operation: verify
 
       # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud도 키 파일도 필요 없다
       - name: GAR 인증
@@ -121,6 +130,7 @@ jobs:
           context: ./server/data-api
           file: ./server/data-api/Dockerfile
           platforms: linux/amd64
+          build-args: JAR_SOURCE=prebuilt
           # PR이 만든 mutable tag를 배포 신뢰점으로 사용하지 않는다.
           # main push 실행만 최종 이미지를 push한다.
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}

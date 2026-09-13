@@ -15,6 +15,7 @@ on:
       - 'server/scripts/nginx-satellites*.example'
       - 'server/scripts/provision-notification-db.*'
       - '.github/scripts/**'
+      - '.github/actions/ci-jar/**'
       - '.github/workflows/satellite-ci.yml'
       - 'docs/contracts/**'
   push:
@@ -32,6 +33,7 @@ on:
       - 'server/scripts/nginx-satellites*.example'
       - 'server/scripts/provision-notification-db.*'
       - '.github/scripts/**'
+      - '.github/actions/ci-jar/**'
       - '.github/workflows/satellite-ci.yml'
       - 'docs/contracts/**'
 
@@ -43,6 +45,19 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: 위성 변경 입력 판정
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      services: ${{ steps.plan.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: plan
+        run: python3 .github/scripts/satellite-ci-plan.py
+
   runtime-contracts:
     name: 서비스별 시크릿 · DB 격리
     runs-on: ubuntu-latest
@@ -103,7 +118,8 @@ jobs:
   # 같이 여기서 돈다. 그 의존을 걷어내면 그때 호출부로 바꾼다.
   build:
     name: ${{ matrix.service }} 검증
-    runs-on: [self-hosted, ci, spot]
+    needs: changes
+    runs-on: ${{ fromJSON(needs.changes.outputs.services)[matrix.service] && fromJSON('["self-hosted", "ci", "spot"]') || fromJSON('["ubuntu-latest"]') }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -118,23 +134,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
+        if: matrix.service == 'notification' || fromJSON(needs.changes.outputs.services)[matrix.service]
         with:
           java-version: '17'
           distribution: temurin
       - name: 동시 러너와 Gradle 홈 분리
+        if: matrix.service == 'notification' || fromJSON(needs.changes.outputs.services)[matrix.service]
         run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle-${{ matrix.service }}" >> "$GITHUB_ENV"
       - uses: actions/cache@v4
+        if: matrix.service == 'notification' || fromJSON(needs.changes.outputs.services)[matrix.service]
         with:
           path: |
             ${{ env.GRADLE_USER_HOME }}/caches
             ${{ env.GRADLE_USER_HOME }}/wrapper
-          key: ${{ runner.os }}-${{ matrix.service }}-gradle-v1-${{ hashFiles(format('server/{0}/**/*.gradle*', matrix.service), format('server/{0}/**/gradle-wrapper.properties', matrix.service)) }}
-          restore-keys: ${{ runner.os }}-${{ matrix.service }}-gradle-v1-
+          key: ${{ runner.os }}-${{ runner.environment }}-${{ matrix.service }}-gradle-v1-${{ hashFiles(format('server/{0}/**/*.gradle*', matrix.service), format('server/{0}/**/gradle-wrapper.properties', matrix.service)) }}
+          restore-keys: ${{ runner.os }}-${{ runner.environment }}-${{ matrix.service }}-gradle-v1-
       - name: Business PDF 테스트 도구 이미지
-        if: matrix.service == 'business-api'
+        if: matrix.service == 'business-api' && fromJSON(needs.changes.outputs.services)[matrix.service]
         run: docker build --target test -t "business-api-test:${GITHUB_RUN_ID}" .
       - name: Business 실제 테스트 · 정적 검사 · bootJar
-        if: matrix.service == 'business-api'
+        if: matrix.service == 'business-api' && fromJSON(needs.changes.outputs.services)[matrix.service]
         run: |
           mkdir -p "$GRADLE_USER_HOME"
           docker run --rm --network host \
@@ -148,16 +167,24 @@ jobs:
             -w "$GITHUB_WORKSPACE/server/business-api" \
             "business-api-test:${GITHUB_RUN_ID}" ./gradlew build --no-daemon --stacktrace
       - name: Business 테스트 도구 이미지 정리
-        if: always() && matrix.service == 'business-api'
+        if: always() && matrix.service == 'business-api' && fromJSON(needs.changes.outputs.services)[matrix.service]
         run: docker image rm "business-api-test:${GITHUB_RUN_ID}" || true
+      - name: 변경 없는 Notification은 체크섬 검사에 필요한 JAR만 생성
+        if: matrix.service == 'notification' && !fromJSON(needs.changes.outputs.services)[matrix.service]
+        run: ./gradlew bootJar --no-daemon --stacktrace
       - name: Notification 실제 테스트 · 정적 검사 · bootJar
-        if: matrix.service == 'notification'
+        if: matrix.service == 'notification' && fromJSON(needs.changes.outputs.services)[matrix.service]
         run: ./gradlew build --stacktrace
       - name: Data export와 실제 Noti Jackson 체크섬 대조
         if: matrix.service == 'notification'
         run: python3 ../../.github/scripts/check-migration-checksum.py
+      - uses: ./.github/actions/ci-jar
+        if: fromJSON(needs.changes.outputs.services)[matrix.service]
+        with:
+          service: ${{ matrix.service }}
+          operation: pack
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && fromJSON(needs.changes.outputs.services)[matrix.service]
         with:
           name: ${{ matrix.service }}-test-results
           path: |
@@ -165,10 +192,14 @@ jobs:
             server/${{ matrix.service }}/build/reports/
           retention-days: 7
 
+      - name: 전체 검사 생략 기록
+        if: ${{ !fromJSON(needs.changes.outputs.services)[matrix.service] }}
+        run: echo '서비스 소스·빌드 입력 변경 없음. 전체 검사는 생략하고 관련 계약 검사는 유지한다.' >> "$GITHUB_STEP_SUMMARY"
+
   images:
     name: ${{ matrix.service }} 이미지
-    needs: [runtime-contracts, public-command-contracts, build]
-    runs-on: [self-hosted, ci, spot]
+    needs: [changes, runtime-contracts, public-command-contracts, build]
+    runs-on: ${{ fromJSON(needs.changes.outputs.services)[matrix.service] && fromJSON('["self-hosted", "ci", "spot"]') || fromJSON('["ubuntu-latest"]') }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -182,11 +213,18 @@ jobs:
       IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/${{ matrix.service }}
     steps:
       - uses: actions/checkout@v4
+        if: fromJSON(needs.changes.outputs.services)[matrix.service]
       - uses: docker/setup-qemu-action@v3
-        if: github.ref == 'refs/heads/release' || github.base_ref == 'release'
+        if: fromJSON(needs.changes.outputs.services)[matrix.service] && (github.ref == 'refs/heads/release' || github.base_ref == 'release')
+      - uses: ./.github/actions/ci-jar
+        if: fromJSON(needs.changes.outputs.services)[matrix.service]
+        with:
+          service: ${{ matrix.service }}
+          operation: verify
       - uses: docker/setup-buildx-action@v3
-      - name: main 이미지 발행용 GAR 인증
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: fromJSON(needs.changes.outputs.services)[matrix.service]
+      - name: 이미지 캐시용 GAR 인증
+        if: fromJSON(needs.changes.outputs.services)[matrix.service]
         run: |
           set -euo pipefail
           curl --fail --silent --show-error -H 'Metadata-Flavor: Google' \
@@ -194,13 +232,13 @@ jobs:
             | jq -er .access_token \
             | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
       - name: release 발행용 AWS 자격증명
-        if: github.event_name == 'push' && github.ref == 'refs/heads/release'
+        if: fromJSON(needs.changes.outputs.services)[matrix.service] && (github.event_name == 'push' && github.ref == 'refs/heads/release')
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::808715036056:role/gromo-prod-github-actions
           aws-region: ap-northeast-2
       - name: 서비스별 ECR 저장소 확인
-        if: github.event_name == 'push' && github.ref == 'refs/heads/release'
+        if: fromJSON(needs.changes.outputs.services)[matrix.service] && (github.event_name == 'push' && github.ref == 'refs/heads/release')
         env:
           SERVICE_NAME: ${{ matrix.service }}
         run: |
@@ -218,13 +256,17 @@ jobs:
           fi
           echo "IMAGE_REPOSITORY=$repository" >> "$GITHUB_ENV"
       - name: ECR 로그인
-        if: github.event_name == 'push' && github.ref == 'refs/heads/release'
+        if: fromJSON(needs.changes.outputs.services)[matrix.service] && (github.event_name == 'push' && github.ref == 'refs/heads/release')
         uses: aws-actions/amazon-ecr-login@v2
       - name: 이미지 검증 · 환경별 digest 발행
+        if: fromJSON(needs.changes.outputs.services)[matrix.service]
         id: image
         uses: docker/build-push-action@v6
         with:
           context: server/${{ matrix.service }}
+          build-args: JAR_SOURCE=prebuilt
+          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/${{ matrix.service }}:cache-${{ (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64' }}
+          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/${{ matrix.service }}:cache-${{ (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64' }},mode=max
           platforms: ${{ (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'linux/arm64' || 'linux/amd64' }}
           push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release') }}
           provenance: false
@@ -234,14 +276,17 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
       # 이 CI는 이미지까지 발행한다. 호스트의 gate·데이터 이관을 건너뛰어 서비스를 활성화하지 않는다.
       - name: 릴리즈 입력 digest 기록
-        if: github.event_name == 'push'
+        if: fromJSON(needs.changes.outputs.services)[matrix.service] && (github.event_name == 'push')
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           printf '%s@%s\n' "$IMAGE_REPOSITORY" "$IMAGE_DIGEST" > '${{ matrix.service }}-image.txt'
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'push'
+        if: fromJSON(needs.changes.outputs.services)[matrix.service] && (github.event_name == 'push')
         with:
           name: ${{ matrix.service }}-image
           path: ${{ matrix.service }}-image.txt
           retention-days: 30
+      - name: 이미지 생략 기록
+        if: ${{ !fromJSON(needs.changes.outputs.services)[matrix.service] }}
+        run: echo '서비스 소스·빌드 입력 변경 없음. 이미지를 다시 만들지 않는다.' >> "$GITHUB_STEP_SUMMARY"

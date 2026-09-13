@@ -3,6 +3,9 @@
 
 # CI 검증 도구는 러너 호스트에 설치하지 않는다. 이 스테이지 안에서 gradle 을 돌려야
 # ThumbnailRendererTest 계열이 pdftoppm·prlimit 을 찾을 수 있다.
+# 기본값은 기존 소스 빌드. CI는 같은 실행에서 검증한 JAR를 prebuilt로 전달한다.
+ARG JAR_SOURCE=builder
+
 FROM eclipse-temurin:17-jdk-jammy AS test
 RUN apt-get update \
     && apt-get install -y --no-install-recommends poppler-utils util-linux \
@@ -18,7 +21,14 @@ COPY config config
 # 의존성 해석을 소스 COPY 보다 먼저 — 소스만 바뀐 반복 빌드에서 재다운로드를 건너뛴다.
 RUN chmod +x gradlew && ./gradlew dependencies --no-daemon --quiet || true
 COPY src src
-RUN ./gradlew bootJar -x test --no-daemon
+RUN ./gradlew bootJar -x test --no-daemon \
+    && cp build/libs/business-api.jar /app/app.jar
+
+# 별도 경로를 써서 .dockerignore의 build/ 제외와 충돌하지 않는다.
+FROM scratch AS prebuilt
+COPY ci-artifact/app.jar /app/app.jar
+
+FROM ${JAR_SOURCE} AS artifact
 
 FROM eclipse-temurin:17-jre-jammy
 # curl — compose 헬스체크가 쓴다. 이 베이스에 지금은 들어 있지만 «보장»된 것이 아니다: 17-jre-jammy 는
@@ -32,7 +42,7 @@ RUN apt-get update \
     && groupadd -g 10001 business && useradd -u 10001 -g business -M business \
     && mkdir -p /app/logs && chown -R business:business /app
 WORKDIR /app
-COPY --from=builder /app/build/libs/business-api.jar app.jar
+COPY --from=artifact /app/app.jar app.jar
 USER business
 # headless — ImageIO 축소 경로가 X11 을 찾지 않게 한다.
 ENV JAVA_TOOL_OPTIONS="-Xmx512m -XX:ActiveProcessorCount=2 -Djava.awt.headless=true"

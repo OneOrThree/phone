@@ -4,6 +4,9 @@
 # 에서 돌려 gradle 을 QEMU 에뮬레이션 없이 실행하고, 산출 JAR 는 아키텍처 무관이라 최종 스테이지만
 # 타깃 아키텍처의 JRE 로 조립한다.
 # ⚠️ temurin 의 alpine 태그는 amd64 전용(arm64 매니페스트 없음) — t4g·Apple Silicon 대응으로 jammy 를 쓴다.
+# 기본값은 기존 소스 빌드. CI는 같은 실행에서 검증한 JAR를 prebuilt로 전달한다.
+ARG JAR_SOURCE=builder
+
 FROM --platform=$BUILDPLATFORM eclipse-temurin:17-jdk-jammy AS builder
 
 WORKDIR /app
@@ -19,7 +22,14 @@ RUN chmod +x gradlew && ./gradlew dependencies --no-daemon --quiet || true
 
 COPY src src
 
-RUN ./gradlew bootJar -x test --no-daemon
+RUN ./gradlew bootJar -x test --no-daemon \
+    && cp build/libs/*.jar /app/app.jar
+
+# 별도 경로를 써서 .dockerignore의 build/ 제외와 충돌하지 않는다.
+FROM scratch AS prebuilt
+COPY ci-artifact/app.jar /app/app.jar
+
+FROM ${JAR_SOURCE} AS artifact
 
 FROM eclipse-temurin:17-jre-jammy
 
@@ -35,7 +45,7 @@ WORKDIR /app
 
 ENV JAVA_OPTS="-Djava.security.egd=file:/dev/./urandom"
 
-COPY --from=builder /app/build/libs/*.jar app.jar
+COPY --from=artifact /app/app.jar app.jar
 
 # 8081 — data-api(8080)와 한 호스트에 같이 뜨므로 겹치지 않게 잡았다.
 # 관리 포트 9091 은 EXPOSE 하지 않는다: 포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단이다.
