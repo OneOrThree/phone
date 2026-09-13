@@ -89,9 +89,9 @@ noti:<KIND>:<userId>:<subjectId|none>:<시간축|none>
 | `LEAGUE_WEEKLY_RESULT` | WEEK | — | DROP | 무관 | — | `result`(PROMOTED\|RELEGATED\|STAY) · `previousTierLevel` · `newTierLevel` |
 | `LEAGUE_DEADLINE` | DAY | — | DROP | 무관 | — | `rank` |
 | `LEAGUE_FINAL_DEADLINE` | DAY | — | DROP | 무관 | — | `rank` |
-| `LEAGUE_DEADLINE_D1` | DAY | — | DROP | 무관 | — | `shortfallSeconds` |
-| `LEAGUE_RELEGATION_WARNING` | DAY | — | DROP | 무관 | — | `shortfallSeconds` |
-| `LEAGUE_RELEGATION_WARNING_EVENING` | DAY | — | DROP | 무관 | — | `shortfallSeconds` |
+| `LEAGUE_DEADLINE_D1` | DAY | — | DROP | 의존 | — | `shortfallSeconds` |
+| `LEAGUE_RELEGATION_WARNING` | DAY | — | DROP | 의존 | — | `shortfallSeconds` |
+| `LEAGUE_RELEGATION_WARNING_EVENING` | DAY | — | DROP | 의존 | — | `shortfallSeconds` |
 | `INACTIVE_RETURN` | DAY | — | DROP | 무관 | — | `stage`(D3\|D7\|D14) |
 | `MISSED_FOCUS_TODAY` | DAY | — | DROP | 무관 | — | (없음) |
 | `STREAK_AT_RISK` | DAY | — | DROP | 무관 | — | `streakCount` |
@@ -112,6 +112,18 @@ noti:<KIND>:<userId>:<subjectId|none>:<시간축|none>
 상대가 탈퇴했거나 없으면 `SUBJECT_GONE`으로 억제해 지연 outbox·DLT의 과거 닉네임을 보내지 않는다.
 수락은 이미 일어난 사실이므로 단순 친구 해제만으로 억제하지 않는다. 관리자 시험도 상대 활성
 조건을 따르며, 활성 수신자 자신을 대상으로 하는 정상 시험은 허용한다.
+
+`BET_SILENT_FLUSH`는 수신자가 회차 참가자이며 회차가 `OPEN`이고 현재 시각이 `settle_after`
+미만일 때만 허용한다. 종료 회차는 `SESSION_CLOSED`, 정산 대기 중이어도 정산 가능 시각에
+도달했으면 `EVENT_EXPIRED`로 억제한다. 관리자 시험도 이 실제 회차 조건을 우회하지 않는다.
+
+리그 위기 3종은 생성 스캔과 같은 활성·온보딩 완료 모수에서 현재 티어와 KST 현재 주간의
+확정 집중 합계를 다시 조회한다. 강등 경고 2종은 T1을 제외하고 현재 티어의 강등선 미달일 때,
+`LEAGUE_DEADLINE_D1`은 T5를 제외하고 강등 위험이 아니면서 승급선 미달일 때만 허용한다.
+임계값에 도달했거나 분기 조건이 바뀌면 `LEAGUE_CONDITION_CHANGED`로 억제한다. 주간 합계 0도
+생성 규칙에 따라 대상이 될 수 있다. 현재 티어 설정이 없으면 억제로 종결하지 않고 5xx로 재시도한다.
+기존 만료 검사와 관리자 시험의 현재 상태 검사를 유지하며, 일반 마감·주간 결과 알림에
+위기 조건을 추가하지 않는다.
 
 `BET_WON`은 발송 직전 Data 정본에서 회차가 `OPEN` 또는 `SETTLED`이고 해당 참가자의
 `achieved=true`일 때만 허용한다. 조기 확정은 정산 전에도 유효하지만, `VOIDED`·`REFUNDED` 등으로

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -42,7 +43,17 @@ class InviteLinkContractTest extends UpstreamTestBase {
                 Arguments.of(200, complete.replace("\"groupActive\":true", "\"groupActive\":null")),
                 Arguments.of(200, complete.replace("\"inviterActiveMember\":true", "\"inviterActiveMember\":null")),
                 Arguments.of(200, complete.replace("\"groupActive\":true,", "")
-                        .replace("\"inviterActiveMember\":true,", "")));
+                        .replace("\"inviterActiveMember\":true,", "")),
+                Arguments.of(200, complete.replace("\"membershipEpoch\":8,", "")),
+                Arguments.of(200, complete.replace("\"linkVersion\":8,", "")),
+                Arguments.of(200, complete.replace("\"membershipEpoch\":8,", "").replace("\"linkVersion\":8,", "")),
+                Arguments.of(200, complete.replace("\"membershipEpoch\":8", "\"membershipEpoch\":null")),
+                Arguments.of(200, complete.replace("\"linkVersion\":8", "\"linkVersion\":null")),
+                Arguments.of(200, complete.replace("\"membershipEpoch\":8", "\"membershipEpoch\":null")
+                        .replace("\"linkVersion\":8", "\"linkVersion\":null")),
+                Arguments.of(200, issueContext(true, true, 0, 0)),
+                Arguments.of(200, issueContext(true, true, -1, -1)),
+                Arguments.of(200, issueContext(true, true, Long.MIN_VALUE, Long.MIN_VALUE)));
     }
 
     @ParameterizedTest
@@ -306,6 +317,23 @@ class InviteLinkContractTest extends UpstreamTestBase {
         assertThat(body).contains("\"linkVersion\":8", "\"membershipEpoch\":8",
                 "\"transitionSeq\":31", "\"snapshotVersion\":4");
         assertThat(body).contains("우리섬", "재영");
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1, Long.MAX_VALUE})
+    void positiveMembershipEpochsPreserveInitialZeroSequenceAndSnapshot(long epoch) throws Exception {
+        stubActiveUser(USER);
+        DATA.on("GET /internal/groups/" + GROUP + "/invite-issue-context", request -> new MockUpstream.Response(200,
+                issueContext(true, true, epoch, epoch).replace("\"transitionSeq\":31", "\"transitionSeq\":0")
+                        .replace("\"snapshotVersion\":4", "\"snapshotVersion\":0")));
+        LINK.on("POST /internal/links", request -> new MockUpstream.Response(200,
+                "{\"slug\":\"abc123\",\"url\":\"https://l/abc123\"}"));
+        mockMvc.perform(post("/api/v1/groups/" + GROUP + "/invite-link")
+                        .header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isOk());
+        assertThat(LINK.receivedFor("POST /internal/links")).singleElement().satisfies(request ->
+                assertThat(request.body()).contains("\"membershipEpoch\":" + epoch, "\"linkVersion\":" + epoch,
+                        "\"transitionSeq\":0", "\"snapshotVersion\":0"));
     }
 
     @Test

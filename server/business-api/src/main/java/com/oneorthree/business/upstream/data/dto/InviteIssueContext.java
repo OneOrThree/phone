@@ -40,8 +40,8 @@ import java.util.UUID;
 public record InviteIssueContext(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean groupActive,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean inviterActiveMember,
-        long membershipEpoch,
-        long linkVersion,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long membershipEpoch,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long linkVersion,
         long transitionSeq,
         long snapshotVersion,
         String groupName,

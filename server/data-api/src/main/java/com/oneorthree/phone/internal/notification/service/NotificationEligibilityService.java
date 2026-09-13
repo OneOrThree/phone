@@ -89,6 +89,7 @@ public class NotificationEligibilityService {
     private final FriendshipRepository friendshipRepository;
     private final Clock clock;
     private final NotificationRetentionEligibility retentionEligibility;
+    private final NotificationLeagueEligibility leagueEligibility;
 
     /**
      * 지금 이 알림을 보내도 되는가.
@@ -120,15 +121,16 @@ public class NotificationEligibilityService {
             case CHALLENGE_SESSION_OPEN -> evaluateSessionOpen(request);
             case BET_RESULT, BET_VOID_REFUND -> evaluateBetResult(request);
             case BET_WON -> evaluateBetWon(request);
-            case BET_SILENT_FLUSH -> evaluateBetParticipation(request);
+            case BET_SILENT_FLUSH -> evaluateSilentFlush(request);
             case CHALLENGE_WINDOW_END, CHALLENGE_ENDED -> evaluateChallengeEnd(request);
             case FRIEND_REQUEST -> evaluateFriendRequest(request);
             case FRIEND_ACCEPTED -> evaluateFriendAccepted(request);
             case INACTIVE_RETURN, MISSED_FOCUS_TODAY, STREAK_AT_RISK ->
                     retentionEligibility.evaluate(request, user, clock.instant());
+            case LEAGUE_DEADLINE_D1, LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING ->
+                    leagueEligibility.evaluate(kind, request.userId(), clock.instant());
             // 추가 도메인 조회가 없는 종류. 시간 제한이 있는 리그·리텐션은 위에서 만료를 확인했다.
-            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_DEADLINE_D1,
-                 LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE ->
+            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_FINAL_DEADLINE ->
                     NotificationEligibilityResponse.allow();
         };
     }
@@ -267,10 +269,17 @@ public class NotificationEligibilityService {
                 : NotificationEligibilityResponse.deny(REASON_WIN_NOT_CONFIRMED);
     }
 
-    /** 사일런트 flush — 수신자가 그 회차 참가자이기만 하면 된다. */
-    private NotificationEligibilityResponse evaluateBetParticipation(NotificationEligibilityRequest request) {
-        if (groupQueryService.findBetSession(request.subjectId()).isEmpty()) {
+    /** 정산 전 업로드 촉진이므로 회차가 열려 있고 정산 가능 시각 전인 참가자에게만 보낸다. */
+    private NotificationEligibilityResponse evaluateSilentFlush(NotificationEligibilityRequest request) {
+        GroupChallengeBetSession session = groupQueryService.findBetSession(request.subjectId()).orElse(null);
+        if (session == null) {
             return NotificationEligibilityResponse.deny(REASON_SUBJECT_GONE);
+        }
+        if (session.getStatus() != GroupBetStatus.OPEN) {
+            return NotificationEligibilityResponse.deny(REASON_SESSION_CLOSED);
+        }
+        if (!clock.instant().isBefore(session.getSettleAfter())) {
+            return NotificationEligibilityResponse.deny("EVENT_EXPIRED");
         }
         return participantOrDeny(request.subjectId(), request.userId());
     }

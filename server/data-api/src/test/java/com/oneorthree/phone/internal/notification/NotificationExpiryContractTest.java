@@ -6,6 +6,7 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.internal.notification.service.NotificationEligibilityService;
 import com.oneorthree.phone.internal.notification.service.NotificationRetentionEligibility;
+import com.oneorthree.phone.internal.notification.service.NotificationLeagueEligibility;
 import com.oneorthree.phone.internal.notification.service.NotificationSnapshotService;
 import com.oneorthree.phone.group.service.ChallengeResultAckService;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -41,10 +42,12 @@ class NotificationExpiryContractTest {
         when(users.findActive(USER)).thenReturn(Optional.of(User.builder().id(USER).build()));
         NotificationRetentionEligibility retention = mock(NotificationRetentionEligibility.class);
         when(retention.evaluate(any(), any(), any())).thenReturn(NotificationEligibilityResponse.allow());
+        NotificationLeagueEligibility league = mock(NotificationLeagueEligibility.class);
+        when(league.evaluate(any(), any(), any())).thenReturn(NotificationEligibilityResponse.allow());
         NotificationEligibilityService eligibility = new NotificationEligibilityService(users,
                 mock(GroupQueryService.class), mock(GroupMemberRepository.class),
                 mock(GroupChallengeBetParticipantRepository.class), mock(FriendshipRepository.class),
-                Clock.fixed(now, ZoneOffset.UTC), retention);
+                Clock.fixed(now, ZoneOffset.UTC), retention, league);
         return MockMvcBuilders.standaloneSetup(new InternalNotificationController(
                 mock(NotificationSnapshotService.class), eligibility, mock(ChallengeResultAckService.class))).build();
     }
@@ -94,7 +97,7 @@ class NotificationExpiryContractTest {
         NotificationEligibilityService eligibility = new NotificationEligibilityService(users,
                 mock(GroupQueryService.class), mock(GroupMemberRepository.class),
                 mock(GroupChallengeBetParticipantRepository.class), mock(FriendshipRepository.class),
-                Clock.systemUTC(), retention);
+                Clock.systemUTC(), retention, mock(NotificationLeagueEligibility.class));
         MockMvc http = MockMvcBuilders.standaloneSetup(new InternalNotificationController(
                 mock(NotificationSnapshotService.class), eligibility, mock(ChallengeResultAckService.class))).build();
         http.perform(post("/internal/notifications/eligibility").contentType("application/json")

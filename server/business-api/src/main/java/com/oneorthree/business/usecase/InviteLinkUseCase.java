@@ -79,12 +79,11 @@ public class InviteLinkUseCase {
                     "그룹원만 초대 링크를 만들 수 있습니다.", null);
         }
 
-        if (context.membershipEpoch() != context.linkVersion()) {
-            // 링크 서버가 ISSUE_EPOCH_MISMATCH 400 으로 거절하는 조건이다(link/src/lib/links.ts:34).
-            // 여기서 막지 않으면 그 400 이 「코드 있는 4xx」로 앱에 중계돼 사용자에게 엉뚱한 문구가 뜬다 —
-            // 발급 경로에서 두 값이 갈리는 것은 Data 계약 위반이므로 계약 불일치(502)로 드러낸다.
+        if (context.membershipEpoch() < 1 || context.membershipEpoch() != context.linkVersion()) {
+            // 멤버십 세대는 1부터 시작하며, 발급 시 linkVersion은 같은 세대를 가리켜야 한다.
+            // 두 값이 같은 0/음수인 경우도 Data 계약 위반이므로 링크 발급 전에 502로 드러낸다.
             throw new UpstreamContractMismatchException(
-                    "발급 컨텍스트의 membershipEpoch != linkVersion — 발급 경로에서는 같아야 한다"
+                    "발급 컨텍스트의 membershipEpoch와 linkVersion은 같은 양수여야 한다"
                             + " (epoch=" + context.membershipEpoch() + ", linkVersion=" + context.linkVersion() + ")");
         }
 

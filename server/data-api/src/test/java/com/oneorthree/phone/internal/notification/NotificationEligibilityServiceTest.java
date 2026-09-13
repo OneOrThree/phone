@@ -16,6 +16,7 @@ import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityReq
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityResponse;
 import com.oneorthree.phone.internal.notification.service.NotificationEligibilityService;
 import com.oneorthree.phone.internal.notification.service.NotificationRetentionEligibility;
+import com.oneorthree.phone.internal.notification.service.NotificationLeagueEligibility;
 import com.oneorthree.phone.internal.notification.service.NotificationSnapshotService;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -82,7 +83,7 @@ class NotificationEligibilityServiceTest {
         when(retention.evaluate(any(), any(), any())).thenReturn(NotificationEligibilityResponse.allow());
         return new NotificationEligibilityService(userQueryService, groupQueryService,
                 groupMemberRepository, betParticipantRepository, friendshipRepository,
-                Clock.fixed(NOW, ZoneOffset.UTC), retention);
+                Clock.fixed(NOW, ZoneOffset.UTC), retention, mock(NotificationLeagueEligibility.class));
     }
 
     private void userIsActive() {

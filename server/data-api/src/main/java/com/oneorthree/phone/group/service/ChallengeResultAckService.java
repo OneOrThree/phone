@@ -244,8 +244,12 @@ public class ChallengeResultAckService {
      * @param sessionId 회차
      * @return 확인 여부와 시각. 행이 없으면 「미확인」
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public ResultAckState readAckState(UUID userId, UUID sessionId) {
+        // 응답 시간 초과는 ack UPDATE의 롤백을 뜻하지 않는다. 같은 참가 행을 잠근 뒤 새 SELECT로
+        // 읽어야 진행 중 쓰기의 커밋/롤백 전 false가 Notification의 보류를 해제하지 않는다.
+        // SELECT FOR UPDATE는 읽기 전용 TX에서 금지되지만 이 경로는 행을 변경하지 않는다.
+        lockParticipantRow(userId, sessionId);
         return readClaimState(userId, sessionId)
                 .map(state -> new ResultAckState(state.getAcknowledgedAt() != null, state.getAcknowledgedAt()))
                 .orElseGet(() -> new ResultAckState(false, null));

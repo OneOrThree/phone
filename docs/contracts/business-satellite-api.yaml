@@ -811,6 +811,11 @@ paths:
         해제는 `commit` · `abort` · **이 정본 조회로 자기 수렴** 세 길뿐이다. 「롤백 직후 프로세스가
         죽는 구간」에서는 abort 행이 안 생기므로 **이 조회가 유일한 탈출구**다.
 
+        미확인은 진행 중인 ack 쓰기의 커밋·롤백을 기다린 뒤 판정한다. Data는 같은 참가 행의
+        잠금을 획득한 뒤 최신 상태를 조회하므로, 응답 시간 초과 뒤에도 실행 중인 ack UPDATE를
+        미확인으로 앞질러 확정하지 않는다. 잠금 대기·조회 실패는 false로 바꾸지 않으며,
+        Notification은 NEEDS_CONFIRM 억제를 유지하고 재조회한다. 참가 행이 없으면 기존대로 false다.
+
         토큰은 `SVC_TOKEN_NOTI_TO_DATA` 이고 caller 가 다르므로 허용목록도 별개다(A22 ㊀ · ㉱).
       parameters:
         - $ref: '#/components/parameters/UserIdPath'
