@@ -97,7 +97,7 @@ public class ClaimIntentReplayService {
             }
         }
 
-        total.pendingTotal = pendingTotal < 0L ? 0L : pendingTotal;
+        total.pendingTotal = pendingTotal;
         return total;
     }
 
@@ -110,6 +110,9 @@ public class ClaimIntentReplayService {
                     dataApiClient.fetchPendingClaimIntents(cursor, PAGE_SIZE, Deadline.unbounded());
             if (batch == null) {
                 throw new IllegalStateException("claim 의도 조회가 본문 없이 돌아왔다 — 미완료를 판정할 수 없다");
+            }
+            if (batch.pendingTotal() < 0L) {
+                throw new UpstreamContractMismatchException("claim 의도 pendingTotal이 음수입니다");
             }
             // ⚠️ 빈 페이지여도 pendingTotal 을 기록한다 — 「지금 집을 것이 없다」와 「전부 끝났다」는 다르다.
             result.pendingTotal = batch.pendingTotal();

@@ -35,9 +35,38 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
 
     private static final String LEASE_TOKEN = "66666666-0000-0000-0000-000000000001";
 
+    static Stream<Arguments> negativePendingTotals() {
+        return Stream.of(Arguments.of(-1L, false), Arguments.of(-1L, true),
+                Arguments.of(Long.MIN_VALUE, false), Arguments.of(Long.MIN_VALUE, true));
+    }
+
+    @ParameterizedTest
+    @MethodSource("negativePendingTotals")
+    void negativePendingCountStopsTheCliBeforeLeasingOrCompletingAnyIntent(long pending, boolean hasItem) {
+        String item = "{\"commandId\":\"" + CMD_1 + "\",\"userId\":\"" + USER_1
+                + "\",\"slug\":\"abc123\",\"idempotencyKey\":\"original:claim-intent\",\"attempts\":0}";
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                "{\"items\":[" + (hasItem ? item : "") + "],\"nextCursor\":null,\"pendingTotal\":" + pending + "}"));
+        stubLeased(false);
+        ClaimIntentReplayRunner cli = new ClaimIntentReplayRunner(runner);
+
+        assertThatThrownBy(() -> cli.run(null)).isInstanceOf(UpstreamContractMismatchException.class);
+        assertThat(DATA.received()).allMatch(request ->
+                "GET /internal/invite-links/claim-intents".equals(request.methodAndPath()));
+        assertThat(LINK.received()).isEmpty();
+
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                "{\"items\":[],\"nextCursor\":null,\"pendingTotal\":0}"));
+        cli.run(null);
+        assertThat(runner.replayAll().gatePassed()).isTrue();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"items\":[]}", "{\"items\":[],\"pendingTotal\":null}",
-            "{\"pendingTotal\":0}", "{\"items\":null,\"pendingTotal\":0}"})
+            "{\"pendingTotal\":0}", "{\"items\":null,\"pendingTotal\":0}",
+            "{\"items\":[],\"pendingTotal\":0.5}", "{\"items\":[],\"pendingTotal\":-0.5}",
+            "{\"items\":[],\"pendingTotal\":9223372036854775808}",
+            "{\"items\":[],\"pendingTotal\":\"0\"}", "{\"items\":[],\"pendingTotal\":false}"})
     void anIncompletePendingPageCannotPassTheZeroPendingGate(String body) {
         DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200, body));
         assertThatThrownBy(runner::replayAll).isInstanceOf(UpstreamContractMismatchException.class);
@@ -228,24 +257,26 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
         assertThat(LINK.received()).isEmpty();
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(longs = {3, Long.MAX_VALUE})
     @DisplayName("빈 페이지라도 pendingTotal 이 남으면 gate 를 통과하지 못한다 — 「빈 페이지 = 전부 완료」가 아니다")
-    void 빈페이지는완료아님() {
+    void 빈페이지는완료아님(long pendingTotal) {
         // 지금 집을 것은 없지만(다른 작업자 lease·재시도 예정) 전체 미완료는 3건이다.
         DATA.on("GET /internal/invite-links/claim-intents", request ->
-                new MockUpstream.Response(200, "{\"items\":[],\"nextCursor\":null,\"pendingTotal\":3}"));
+                new MockUpstream.Response(200,
+                        "{\"items\":[],\"nextCursor\":null,\"pendingTotal\":" + pendingTotal + "}"));
 
         ClaimIntentReplayService.Result result = runner.replayAll();
 
         assertThat(result.failed()).isZero();
-        assertThat(result.pendingTotal()).isEqualTo(3L);
+        assertThat(result.pendingTotal()).isEqualTo(pendingTotal);
         assertThat(result.gatePassed()).isFalse();
 
         // CLI 는 그 상태를 «성공» 으로 끝내지 않는다.
         ClaimIntentReplayRunner cli = new ClaimIntentReplayRunner(runner);
         assertThatThrownBy(() -> cli.run(null))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("미완료 claim 의도 3건");
+                .hasMessageContaining("미완료 claim 의도 " + pendingTotal + "건");
     }
 
     @Test
@@ -396,6 +427,20 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
         assertThatThrownBy(() -> cli.run(null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("재개하지 못한");
+    }
+
+    @Test
+    void aConcurrentCompletionCanLeaveItemsWithAZeroCount() {
+        DATA.on("GET /internal/invite-links/claim-intents", request -> new MockUpstream.Response(200,
+                "{\"items\":[{\"commandId\":\"" + CMD_1 + "\",\"userId\":\"" + USER_1
+                        + "\",\"slug\":\"abc123\",\"idempotencyKey\":\"original:claim-intent\",\"attempts\":0}],"
+                        + "\"nextCursor\":null,\"pendingTotal\":0}"));
+        stubLeased(false);
+        ClaimIntentReplayService.Result result = runner.replayAll();
+        assertThat(result.skipped()).isEqualTo(1);
+        assertThat(result.pendingTotal()).isZero();
+        assertThat(result.gatePassed()).isTrue();
+        assertThat(LINK.received()).isEmpty();
     }
 
     @Test

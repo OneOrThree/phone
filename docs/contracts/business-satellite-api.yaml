@@ -452,8 +452,10 @@ paths:
                   pendingTotal:
                     type: integer
                     format: int64
+                    minimum: 0
                     description: |
                       **인플라이트를 포함한 전체 미완료 건수**(다른 작업자의 lease · 재시도 예정 포함).
+                      음수·소수는 계약 오류이며 0으로 정규화하거나 절삭하지 않는다.
                       「미완료 0」 gate 는 이 값으로만 판정한다.
                   items:
                     type: array
