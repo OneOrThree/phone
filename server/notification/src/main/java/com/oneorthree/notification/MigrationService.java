@@ -188,6 +188,8 @@ class MigrationService {
     }
 
     private Map<String, Object> apply(String migrationId, String snapshot, List<?> records) {
+        // record 순서는 자유다. gate 다음 공통 잠금을 잡아 settings/delivery 행을 먼저 잠그지 않는다.
+        store.lock("device-ownership");
         Map<String, Long> outcome = new TreeMap<>();
         List<String> seen = new ArrayList<>();
         if (!snapshot.isEmpty()) {
@@ -220,7 +222,9 @@ class MigrationService {
             // «같은 스냅샷»의 같은 체크섬만 건너뛴다 — 세대가 바뀌면 내용이 그대로여도 다시 적재해
             // snapshot_id 를 전진시킨다. 안 그러면 최종에도 그대로 있는 키가 옛 세대에 묶여
             // 구성원에서 빠지고, 그 행이 «사라진 것»으로 정리된다.
-            if (!projection && previous != null && checksum.equals(previous.get("checksum"))
+            boolean withdrawnSettings = "settings".equals(resource)
+                    && withdrawn(MigrationRecords.uuid(canonical.get("userId")));
+            if (!projection && !withdrawnSettings && previous != null && checksum.equals(previous.get("checksum"))
                     && snapshot.equals(previous.get("snapshot_id"))) {
                 outcome.merge("SKIPPED", 1L, Long::sum);
                 continue;
@@ -307,6 +311,10 @@ class MigrationService {
      */
     private String writeSettings(String migrationId, Map<String, Object> record) {
         UUID user = MigrationRecords.uuid(record.get("userId"));
+        // apply가 공통 잠금을 보유한다. 늦은 export도 탈퇴 때 삭제한 설정을 되살리지 않는다.
+        if (withdrawn(user)) {
+            return "SKIPPED";
+        }
         int written = store.update("INSERT INTO settings(user_id,version,notification_enabled,sound_enabled,"
                 + "night_mode_enabled,night_start_time,night_end_time,imported_by)"
                 + " VALUES(?,?,?,?,?,?::time,?::time,?)"
@@ -833,6 +841,8 @@ class MigrationService {
         if (snapshot == null || snapshot.isBlank()) {
             return retired;
         }
+        // open이 gate를 보유한다. 탈퇴와 같은 순서로 공통 잠금 뒤에 실제 행을 정리한다.
+        store.lock("device-ownership");
         List<Map<String, Object>> obsolete = store.rows("SELECT record_key,record::text AS record FROM imports"
                 + " WHERE migration_id=? AND snapshot_id<>? ORDER BY record_key", migrationId, snapshot);
         for (Map<String, Object> row : obsolete) {

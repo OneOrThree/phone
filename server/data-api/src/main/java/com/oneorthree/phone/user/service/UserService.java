@@ -38,7 +38,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -64,6 +63,7 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final UserSatelliteCommandService userSatelliteCommandService;
     private final UserQueryService userQueryService;
     private final UserWalletRepository userWalletRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
@@ -523,18 +523,12 @@ public class UserService {
      */
     @Transactional
     public void updateNotificationSettings(UUID userId, NotificationSettingsRequest request) {
-        // 배타 락으로 읽는다 (GROMO-1659) — 이 행에는 쓰기 주체가 둘이다. 위성 내구 명령
-        // ({@code UserSatelliteCommandService#recordNotificationSettings}) 이 같은 행을 전체 교체하면서
-        // 순서용 version 까지 발급한다. 이쪽이 락 없이 읽으면 그 커밋 뒤에 «읽어 둔» 옛 상태로 전 컬럼
-        // UPDATE 를 내보내, 행은 되돌아가고 알림 서버는 위성이 보낸 값을 유지한다.
-        UserNotificationSettings settings = userQueryService.getNotificationSettingsForUpdate(userId);
-        settings.setNotificationEnabled(request.getNotificationEnabled());
-        settings.setSoundEnabled(request.getSoundEnabled());
-        settings.setNightModeEnabled(request.getNightModeEnabled());
-        // null 입력 시 기존 값을 null 로 명시적 초기화; non-null 일 때만 parse 호출
-        settings.setNightStartTime(
-                request.getNightStartTime() == null ? null : LocalTime.parse(request.getNightStartTime()));
-        settings.setNightEndTime(
-                request.getNightEndTime() == null ? null : LocalTime.parse(request.getNightEndTime()));
+        updateNotificationSettings(userId, request, null);
+    }
+
+    /** 앱의 내구 큐가 보낸 키를 보존한다. 키 없는 구 호출은 기존 명령별 발급을 유지한다. */
+    @Transactional
+    public void updateNotificationSettings(UUID userId, NotificationSettingsRequest request, String idempotencyKey) {
+        userSatelliteCommandService.recordNotificationSettings(userId, request, idempotencyKey);
     }
 }

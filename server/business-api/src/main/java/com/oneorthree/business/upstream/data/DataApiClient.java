@@ -14,6 +14,7 @@ import com.oneorthree.business.upstream.data.dto.InviteIssueContext;
 import com.oneorthree.business.upstream.data.dto.UserActivation;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
+import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
 import java.util.List;
@@ -169,6 +170,31 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<DurableCommandAck>() { });
+    }
+
+    /** 신규 설정의 동기 사용자/세션 검사와 초기화용 mirror 스냅샷은 같은 Data TX다. */
+    public JsonNode settingsSnapshot(UUID userId, UUID sessionId, long generation, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                "/internal/users/" + userId + "/notification-settings-snapshot")
+                        .onBehalfOf(userId)
+                        .body(Map.of("sessionId", sessionId, "authGeneration", generation))
+                        .idempotentCommand()
+                        .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
+    }
+
+    /** UUID 앱 키를 그대로 Data의 공개 명령 receipt에 전달한다. */
+    public JsonNode patchSettings(UUID userId, UUID sessionId, long generation, boolean notifications,
+            UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PATCH,
+                                PATH_NOTIFICATION_SETTINGS_COMMANDS.replace("{userId}", userId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(Map.of("notifications", notifications, "sessionId", sessionId,
+                                "authGeneration", generation))
+                        .idempotentCommand()
+                        .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
     }
 
     /**

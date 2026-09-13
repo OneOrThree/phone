@@ -134,7 +134,9 @@ class ServiceAuth implements WebMvcConfigurer, HandlerInterceptor {
             case "data" -> "POST".equals(method) && "/internal/events".equals(path);
             default -> ("/internal/devices".equals(path) && ("POST".equals(method) || "DELETE".equals(method)))
                     || (path.matches("/internal/users/[0-9a-f-]{36}/notification-settings")
-                        && ("GET".equals(method) || "PUT".equals(method)))
+                        && ("GET".equals(method) || "PUT".equals(method) || "PATCH".equals(method)))
+                    || (path.matches("/internal/users/[0-9a-f-]{36}/notification-settings/initialized")
+                        && "POST".equals(method))
                     || (path.matches("/internal/users/[0-9a-f-]{36}/result-ack/(prepare|commit|abort)")
                         && "POST".equals(method));
         };

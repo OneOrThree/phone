@@ -12,6 +12,7 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
@@ -92,5 +93,22 @@ class CompatMatchImportReadyTest extends UpstreamTestBase {
         assertThat(sent).contains("\"sourceChecksum\":\"chk-9\"");
         // Data 가 준 필드가 그대로 살아 있다 — 축약하면 링크의 frozen() 검증에서 떨어진다.
         assertThat(sent).contains("old9", "ACTIVE", "\"membershipEpoch\":\"3\"", "\"transitionSeq\":\"7\"");
+    }
+
+    @Test
+    @DisplayName("준비 후에는 구 후보 조회 실패를 5xx 로 올린다 — 빈 목록으로 접으면 그 초대가 영구히 사라진다")
+    void 준비후구조회실패는5xx() throws Exception {
+        DATA.on("GET /internal/migrations/mig-9/invite-link-clicks/candidates",
+                request -> new MockUpstream.Response(500, "{}"));
+        LINK.on("POST /internal/links/match",
+                request -> new MockUpstream.Response(200, "{\"matched\":false}"));
+
+        mockMvc.perform(post("/l/match").contentType("application/json").content(MATCH_BODY))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_UNAVAILABLE"));
+
+        // 링크를 부르지 않았다. 불렀다면 frozenCandidates=[] 로 matched:false 가 확정되고,
+        // 앱(deferredInvite.ts)이 완료 마커를 세워 다음 실행에서도 재시도하지 않는다.
+        assertThat(LINK.received()).isEmpty();
     }
 }

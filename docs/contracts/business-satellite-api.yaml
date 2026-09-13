@@ -251,7 +251,59 @@ paths:
       x-idempotent: true
       x-retryable: true
 
+  /internal/users/{userId}/notification-settings-snapshot:
+    post:
+      tags:
+      - data-내구명령
+      operationId: getSettingsCommandSnapshot
+      summary: 활성 사용자·현재 세션을 검증한 설정 초기화 근거
+      parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+      - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsSessionProof'
+      responses:
+        '200':
+          description: 검증된 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsSnapshot'
+      x-idempotent: true
+      x-retryable: true
+      description: 실제 mirror5값과 사용자 aggregate version을 같은 잠금 경계에서 읽는다. sid/gen은 검증한 AT에서만 얻으며 누락을 현재값으로 보충하지 않는다.
+
   /internal/users/{userId}/notification-settings-commands:
+    patch:
+      tags:
+      - data-내구명령
+      operationId: recordPublicSettingsPatch
+      summary: 신규 알림 설정 부분 명령·동일 TX 세션 검증과 원 결과 재생
+      parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsPatchCommandRequest'
+      responses:
+        '200':
+          description: 검증된 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsPatchCommandResult'
+      x-idempotent: true
+      x-retryable: true
+      description: user → session → aggregate 잠금 아래 mirror/receipt/outbox를 함께 저장한다. baseline은 수정 후 같은 version의5값이다.
+        SESSION_NOT_ACTIVE403은 신규 Business에서만401로 매핑한다. Notification 적용 확인 전 공개200을 반환하지 않는다.
     put:
       tags: [data-내구명령]
       operationId: recordNotificationSettings
@@ -262,7 +314,7 @@ paths:
         **삼키고 「다음 변경 때」까지 재시도하지 않는다**(주석에 그렇게 적혀 있다). 그러면 사용자는
         `notificationEnabled=false` 로 보는데 서버 정본은 계속 true 라 **푸시가 무기한** 간다.
 
-        응답의 `version` 이 **역순 적용을 막는 유일한 값**이다: 「끔」이 알림 서버엔 성공했는데 완료
+        응답의 `version` 은 **필드별 적용 순서를 판정하는 값**이다: 「끔」이 알림 서버엔 성공했는데 완료
         표시만 실패하고 뒤이은 「켬」이 끝까지 성공하면, relay 가 남은 「끔」을 나중에 적용해 **사용자가
         켠 설정을 도로 끈다**(반대 순서면 끈 뒤에도 푸시가 계속 간다).
 
@@ -1059,7 +1111,68 @@ paths:
       x-idempotent: true
       x-retryable: true
 
+  /internal/users/{userId}/notification-settings/initialized:
+    post:
+      tags:
+      - noti-설정
+      operationId: initializeAndReadNotificationSettings
+      summary: 검증된 근거로 미존재 행만 생성하고 현재 정본 조회
+      parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+      - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsSnapshot'
+      responses:
+        '200':
+          description: 검증된 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettings'
+      x-idempotent: true
+      x-retryable: true
+      description: 키나 명령 응답 캐시를 만들지 않는다. ever_opened+사용자 fence 검증 후 INSERT ON CONFLICT DO NOTHING 및 strict read. 기존행을
+        baseline으로 덮어쓰지 않는다.
+
   /internal/users/{userId}/notification-settings:
+    patch:
+      tags:
+      - noti-설정
+      operationId: applyNotificationSettingsPatch
+      summary: 개방 후 필드별 단조 부분 적용
+      parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - name: version
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsPatchDelivery'
+      responses:
+        '200':
+          description: 검증된 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsApplied'
+      x-idempotent: true
+      x-retryable: true
+      description: ever_opened 확인과 사용자 fence를 같은 TX에서 잠근다. 최초행은 baseline의5값으로 초기화, 기존행은 mask만 적용한다. field version별 비교로
+        늦은 다른필드 요청을 보존한다. MIGRATION_NOT_READY409/STALE_AUTH_GENERATION409은 신규 Business에서503/401로 매핑한다. relay도 동일 병합을
+        적용하며 폐기 세대는 수신 완료 no-op이다.
     get:
       tags: [noti-설정]
       operationId: getNotificationSettings
@@ -1089,14 +1202,14 @@ paths:
       description: |
         Business 는 Data 의 내구 명령을 먼저 저장하고 그 `version` 을 여기 실어 보낸다.
 
-        ⚠️ **`version` 이 현재 저장된 값보다 낮으면 거부하라**(㋕). 안 그러면 순서가 뒤집힌다: 「끔」이
+        ⚠️ 개방 후에는 선택한 **각 필드의 version**보다 낮은 값을 적용하지 않는다(㋕). 안 그러면 순서가 뒤집힌다: 「끔」이
         여기엔 성공했는데 Data 의 완료 표시만 실패하고 뒤이은 「켬」이 끝까지 성공하면, relay 가 남은
         「끔」을 나중에 적용해 **사용자가 켠 설정을 도로 끈다**(반대 순서면 끈 뒤에도 푸시가 간다).
 
         ⚠️ **발송 게이트와 무관하게 적용하라**(㋭). `dispatch_enabled=false` 여도 설정·기기 삭제·ack
         억제 같은 **상태 변경은 계속 반영**된다. 게이트가 막는 것은 FCM 발송뿐이다.
 
-        전체 교체다 — 5필드를 그대로 덮어쓴다. 빠진 필드를 현재값으로 채우지 말라(전체 교체가 계약이고,
+        전체 교체는 5필드를 모두 선택한다. 개방 뒤 각 필드의 더 최신 변경은 보존한다. 빠진 필드를 현재값으로 채우지 말라(전체 교체가 계약이고,
         그러면 앱이 빠뜨린 필드가 조용히 다른 값으로 남는다).
       parameters:
         - $ref: '#/components/parameters/UserIdPath'
@@ -1598,6 +1711,137 @@ components:
             completed:
               type: boolean
               description: 같은 요청 키의 의도가 이미 CONSUMED 또는 ABANDONED면 true. Business는 200을 재생한다.
+
+    SettingsSessionProof:
+      type: object
+      additionalProperties: false
+      required:
+      - sessionId
+      - authGeneration
+      properties:
+        sessionId: &id001
+          type: string
+          format: uuid
+        authGeneration: &id002
+          type: integer
+          format: int64
+          minimum: 0
+    SettingsPatchCommandRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - notifications
+      - sessionId
+      - authGeneration
+      properties:
+        notifications:
+          type: boolean
+        sessionId: *id001
+        authGeneration: *id002
+    SettingsSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - authGeneration
+      - settings
+      properties:
+        version: *id002
+        authGeneration: *id002
+        settings:
+          $ref: '#/components/schemas/CompleteNotificationSettings'
+    SettingsPatchDelivery:
+      type: object
+      additionalProperties: false
+      required:
+      - mask
+      - patch
+      - baseline
+      - authGeneration
+      properties:
+        mask: &id003
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+            - notificationEnabled
+            - soundEnabled
+            - nightModeEnabled
+            - nightStartTime
+            - nightEndTime
+        patch: &id004
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            notificationEnabled:
+              type: boolean
+            soundEnabled:
+              type: boolean
+            nightModeEnabled:
+              type: boolean
+            nightStartTime:
+              type:
+              - string
+              - 'null'
+              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+            nightEndTime:
+              type:
+              - string
+              - 'null'
+              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+        baseline: &id005
+          $ref: '#/components/schemas/CompleteNotificationSettings'
+        authGeneration: *id002
+    SettingsApplied:
+      type: object
+      additionalProperties: false
+      required:
+      - applied
+      properties:
+        applied:
+          type: boolean
+          const: true
+    SettingsPatchCommandResult:
+      type: object
+      additionalProperties: false
+      required:
+      - commandId
+      - eventId
+      - version
+      - mask
+      - patch
+      - baseline
+      - authGeneration
+      - result
+      properties:
+        commandId: *id001
+        eventId:
+          type: string
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        mask: *id003
+        patch: *id004
+        baseline: *id005
+        authGeneration: *id002
+        result:
+          type: object
+          additionalProperties: false
+          required:
+          - notifications
+          properties:
+            notifications:
+              type: boolean
+
+    CompleteNotificationSettings:
+      allOf:
+        - $ref: '#/components/schemas/NotificationSettings'
+      required: [notificationEnabled, soundEnabled, nightModeEnabled, nightStartTime, nightEndTime]
+      description: Data mirror의 실제 5값. nullable 시간 키도 생략하지 않는다.
 
     NotificationSettings:
       type: object

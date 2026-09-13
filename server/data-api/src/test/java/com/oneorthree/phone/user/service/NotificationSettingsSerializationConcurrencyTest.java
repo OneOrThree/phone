@@ -149,8 +149,8 @@ class NotificationSettingsSerializationConcurrencyTest {
                 int commandPid = backendPid();
                 userSatelliteCommandService.recordNotificationSettings(userId, settings(false), "legacy-race");
 
-                // 공개 PUT /users/me/notification-settings 는 봉투를 내지 않는 «전체 교체»다. 잠금 없이
-                // 읽으면 위성 커밋 뒤에 옛 스냅샷으로 전 컬럼 UPDATE 를 내 행을 되돌린다.
+                // 공개 PUT /users/me/notification-settings 도 같은 내구 명령에 위임한다. 잠금 없이
+                // 읽으면 위성 커밋 뒤에 옛 스냅샷으로 전 컬럼 UPDATE 를 내 행과 봉투가 갈라진다.
                 // PID 는 위와 같은 이유로 «일하는 트랜잭션 안»에서 잡는다.
                 Future<?> save = pool.submit(() -> tx().execute(inner -> {
                     savePid.set(backendPid());
@@ -179,8 +179,14 @@ class NotificationSettingsSerializationConcurrencyTest {
             UserNotificationSettings after = tx().execute(status ->
                     userNotificationSettingsRepository.findById(userId).orElseThrow());
             assertThat(after.isNotificationEnabled()).isTrue();
-            // 공개 저장은 봉투를 내지 않는다(컷오버 전 설계) — 위성 명령 한 건만 남아야 한다.
-            assertThat(settingsEnvelopes(userId)).hasSize(1);
+            // 두 writer 모두 같은 내구 명령을 사용하므로 공개 저장도 새 버전의 봉투를 남긴다.
+            List<EventOutbox> envelopes = settingsEnvelopes(userId);
+            assertThat(envelopes).hasSize(2);
+            EventOutbox latest = latestSettingsEnvelope(userId);
+            assertThat(latest.getVersion()).isGreaterThan(envelopes.stream()
+                    .mapToLong(EventOutbox::getVersion).min().orElseThrow());
+            assertThat(latest.getParams().get("notificationEnabled"))
+                    .isEqualTo(after.isNotificationEnabled());
         } finally {
             pool.shutdownNow();
         }

@@ -252,6 +252,9 @@ class DispatchService {
         if (candidate == null) {
             return List.of();
         }
+        // bundleCandidates는 같은 user_id만 묶는다. 같은 사용자 opt-out·탈퇴는 이 잠금으로 «판정»과
+        // 직렬화된다 — 전송은 이 트랜잭션이 커밋한 «뒤»에 돌므로 그때까지 기다리지는 않는다.
+        store.lock("user-state:" + candidate.get("user_id"));
         List<Map<String, Object>> rows = bundleCandidates(candidate);
         for (Map<String, Object> row : rows) {
             if ("BET_RESULT".equals(row.get("kind")) && row.get("subject_id") != null) {

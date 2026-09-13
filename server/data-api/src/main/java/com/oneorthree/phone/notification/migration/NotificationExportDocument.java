@@ -58,7 +58,9 @@ public record NotificationExportDocument(
      *
      * @param duplicateDeviceTokens 실제 export 기기에서 같은 토큰을 들고 있는 유저 묶음. 토큰은 <b>앞 8자만</b>
      *                              — 여기는 사람이 읽는 자리라 원문을 남길 이유가 없다
-     *                              (import 레코드에는 계약상 원문이 필요해 그대로 실린다)
+     *                              (import 레코드에는 계약상 원문이 필요해 그대로 실린다).
+     *                              <b>비어 있지 않으면 최종본이 아니다</b> — 같은 토큰 두 레코드는
+     *                              같은 키를 갖는다({@link DuplicateDeviceToken})
      * @param counts                상태별·자원별 집계
      * @param queueBreakdown        잔여·화물 항목별 실측값. {@code migrationPayload} 는 화물이라
      *                              {@code queueDepth} 합계에서 빠진다

@@ -9,6 +9,7 @@ import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.user.dto.DeviceTokenDeletionRequest;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
+import com.oneorthree.phone.user.dto.NotificationSettingsResponse;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -196,7 +197,8 @@ public class UserSatelliteCommandService {
     @Transactional
     public EventEnvelope recordNotificationSettings(
             UUID userId, NotificationSettingsRequest request, String idempotencyKey) {
-
+        // 모든 설정 writer가 user → settings → aggregate 순서로 직렬화한다. 재생 전에도 탈퇴를 재검사한다.
+        User user = userQueryService.getCallerForUpdate(userId);
         return outboxCommandPort.runIdempotent(
                 InternalCommands.idempotency(idempotencyKey, userId, "notification-settings",
                         request.getNotificationEnabled(), request.getSoundEnabled(),
@@ -208,9 +210,9 @@ public class UserSatelliteCommandService {
                     // 먼저 커밋된 뒤 둘째는 더 높은 version 의 「켬」 봉투를 내보내지만 엔티티 스냅샷이
                     // 그대로라 Hibernate 가 UPDATE 를 생략한다. 그러면 Data 는 꺼짐 · 알림 서버는 켬이다.
                     // version 발급(append 안의 aggregate 잠금)에서만 직렬화해서는 늦다 — 그때는 이미
-                    // 낡은 값을 읽은 뒤다. 이 트랜잭션이 잡는 잠금은 설정 행 → aggregate 행 둘뿐이고,
-                    // 보장 범위도 그 판독 직렬화까지다(알림 전반의 잠금 순서 보증이 아니다 — 다중
-                    // 수신자 USER 축 교착은 GROMO-893 으로 미해결이다).
+                    // 낡은 값을 읽은 뒤다. 사용자 행 다음에 설정 행, 마지막에 aggregate 행을 잠근다.
+                    // 알림 전반의 잠금 순서 보증은 아니다 — 다중 수신자 USER 축 교착은
+                    // GROMO-893 으로 미해결이다.
                     UserNotificationSettings settings = userQueryService.getNotificationSettingsForUpdate(userId);
                     if (settings.getDeletedAt() != null) {
                         throw new UserException(UserErrorCode.USER_NOT_FOUND);
@@ -221,17 +223,46 @@ public class UserSatelliteCommandService {
                     settings.setNightStartTime(parseTime(request.getNightStartTime()));
                     settings.setNightEndTime(parseTime(request.getNightEndTime()));
 
-                    // 전체 상태를 그대로 싣는다(§5) — 필드 단위 delta 를 보내면 역순 적용 판정이
-                    // 필드마다 갈리고, 늦게 온 「끔」이 켠 필드 하나만 되돌리는 부분 회귀가 생긴다.
+                    // legacy 전체 요청은 그대로 보존한다. 소비자는 이 모양을 mask 5개로 처리해
+                    // 신규 부분 변경과 같은 필드별 버전 경계에서 병합한다.
                     Map<String, Object> params = new LinkedHashMap<>();
                     params.put("notificationEnabled", request.getNotificationEnabled());
                     params.put("soundEnabled", request.getSoundEnabled());
                     params.put("nightModeEnabled", request.getNightModeEnabled());
                     params.put("nightStartTime", request.getNightStartTime());
                     params.put("nightEndTime", request.getNightEndTime());
+                    params.put("authGeneration", user.getAuthGeneration());
                     return append(EVENT_SETTINGS_CHANGED, userId, params,
                             OutboxDeliveryRequest.toNotification(ENDPOINT_SETTINGS_APPLIED, null));
                 }).value();
+    }
+
+    /**
+     * 공개 알림 토글만 바꾸고 같은 TX에 필드 mask·patch를 적는다.
+     * 호출부는 서명된 세션을 검증하고 PublicCommandService로 결과를 내구 저장해야 한다.
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public EventEnvelope patchNotificationSettings(UUID userId, boolean enabled) {
+        User user = userQueryService.getCallerForUpdate(userId);
+        UserNotificationSettings settings = userQueryService.getNotificationSettingsForUpdate(userId);
+        if (settings.getDeletedAt() != null) {
+            throw new UserException(UserErrorCode.USER_NOT_FOUND);
+        }
+        settings.setNotificationEnabled(enabled);
+        return append(EVENT_SETTINGS_CHANGED, userId,
+                Map.of("mask", List.of("notificationEnabled"),
+                        "patch", Map.of("notificationEnabled", enabled),
+                        "baseline", snapshotOf(settings),
+                        "authGeneration", user.getAuthGeneration()),
+                OutboxDeliveryRequest.toNotification(ENDPOINT_SETTINGS_APPLIED, null));
+    }
+
+    /** 잠금으로 보호된 mirror의 실제 5필드. 기본값을 별도 생성하지 않는다. */
+    public static NotificationSettingsResponse snapshotOf(UserNotificationSettings settings) {
+        return new NotificationSettingsResponse(settings.isNotificationEnabled(), settings.isSoundEnabled(),
+                settings.isNightModeEnabled(),
+                settings.getNightStartTime() == null ? null : settings.getNightStartTime().toString(),
+                settings.getNightEndTime() == null ? null : settings.getNightEndTime().toString());
     }
 
     private static LocalTime parseTime(String value) {

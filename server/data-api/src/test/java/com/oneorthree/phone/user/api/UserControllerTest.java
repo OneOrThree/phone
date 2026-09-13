@@ -182,7 +182,7 @@ class UserControllerTest {
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
-        verify(userService).updateNotificationSettings(any(), any());
+        verify(userService).updateNotificationSettings(any(), any(), isNull());
     }
 
     @Test
@@ -360,7 +360,7 @@ class UserControllerTest {
                 .andExpect(status().isNoContent())
                 .andDo(print());
 
-        verify(userService).updateNotificationSettings(any(), any());
+        verify(userService).updateNotificationSettings(any(), any(), isNull());
     }
 
     // ── GET /users/me/notification-settings ───────────────────────────────

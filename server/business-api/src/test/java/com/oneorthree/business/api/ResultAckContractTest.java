@@ -295,6 +295,23 @@ class ResultAckContractTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("prepare 가 빈 본문으로 성공하면 Data ack 를 하지 않는다 — 빈 200/204 는 HELD 의 증거가 아니다")
+    void prepare빈본문은ack안함() throws Exception {
+        // 롤링 배포·프록시 오류가 만드는 모양이다. null 을 허용하면 tombstone 없이 ack 가 커밋돼,
+        // 그 사이 도착한 BET_RESULT 가 이미 결과를 확인한 사용자에게 발송된다.
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare",
+                request -> new MockUpstream.Response(204, null));
+
+        mockMvc.perform(post(ackPath())
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isBadGateway());
+
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @Test
     @DisplayName("선점: RESULT_CLAIM_HELD 의 retryAfterMs 를 다시 계산하지 않고 그대로 중계한다")
     void retryAfter그대로중계() throws Exception {
         DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/claim", request ->

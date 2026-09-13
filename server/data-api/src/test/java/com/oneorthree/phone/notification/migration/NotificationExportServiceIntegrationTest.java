@@ -169,17 +169,29 @@ class NotificationExportServiceIntegrationTest {
      * @param sentAt 실발송 시각. 미발송이면 {@code null}
      */
     private void insertLog(String kind, String status, Instant sentAt) {
+        insertLegacyLog(kind, status, sentAt, null);
+    }
+
+    /**
+     * 구 서비스가 남긴 모양의 행 — 대상 id 가 {@code subject_id} 가 아니라 {@code target_user_id} 에
+     * 있다. V45 가 {@code BET_RESULT} 만 백필하고 나머지 구 종류를 일부러 {@code NULL} 로 남겼기
+     * 때문이다.
+     *
+     * @param targetUserId {@code target_user_id} 컬럼. 대상이 없는 종류면 {@code null}
+     */
+    private void insertLegacyLog(String kind, String status, Instant sentAt, UUID targetUserId) {
         new TransactionTemplate(transactionManager).executeWithoutResult(state ->
                 entityManager.createNativeQuery("""
                                 INSERT INTO notification_sent_logs
                                     (id, user_id, type, kind, subject_id, target_user_id,
                                      sent_at, claimed_at, status, group_id, slot_at, next_attempt_at)
-                                VALUES (:id, :userId, :kind, :kind, NULL, NULL,
+                                VALUES (:id, :userId, :kind, :kind, NULL, :targetUserId,
                                         :sentAt, :claimedAt, :status, NULL, :slotAt, NULL)
                                 """)
                         .setParameter("id", UUID.randomUUID())
                         .setParameter("userId", user.getId())
                         .setParameter("kind", kind)
+                        .setParameter("targetUserId", targetUserId)
                         .setParameter("sentAt", sentAt)
                         .setParameter("claimedAt", SLOT)
                         .setParameter("status", status)
@@ -465,6 +477,66 @@ class NotificationExportServiceIntegrationTest {
         });
     }
 
+    /**
+     * V45 는 {@code subject_id} 를 도입하면서 {@code BET_RESULT} 만 백필했다. 창 종료·챌린지 개설·친구
+     * 계열의 대상 id 는 지금도 {@code target_user_id} 에만 있다. 그것을 버리면 그런 운영 이력이 한 건만
+     * 있어도 strict export 가 {@code NO_SUBJECT} 로 죽어 컷오버가 막히고, lenient 로 우회하면 그 이력이
+     * 빠져 새 스케줄러가 같은 알림을 다시 보낸다.
+     */
+    @Test
+    @DisplayName("구 행의 대상 id 는 target_user_id 에 있다 — 거기서 사건 키를 복원한다")
+    void legacyRowsRecoverTheSubjectFromTargetUserId() {
+        UUID challengeId = UUID.randomUUID();
+        UUID counterpartId = UUID.randomUUID();
+        insertLegacyLog(NotificationKind.CHALLENGE_ENDED.name(), "SENT", SLOT.plusSeconds(60), challengeId);
+        insertLegacyLog(NotificationKind.FRIEND_REQUEST.name(), "SENT", SLOT.plusSeconds(60), counterpartId);
+
+        // strict 로 통과한다 — 대상 id 를 복원하지 못하면 여기서 죽는다.
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, null, false, true);
+
+        assertThat(deliveriesOf(document)).extracting(NotificationMigrationRecord::recordKey)
+                .containsExactlyInAnyOrder(
+                        NotificationEventKey.of(NotificationKind.CHALLENGE_ENDED, user.getId(),
+                                challengeId, SLOT),
+                        NotificationEventKey.of(NotificationKind.FRIEND_REQUEST, user.getId(),
+                                counterpartId, SLOT));
+        assertThat(deliveriesOf(document))
+                .allSatisfy(record -> assertThat(record.data()).containsKey("subjectId"))
+                .extracting(record -> record.data().get("subjectId"))
+                .containsExactlyInAnyOrder(challengeId.toString(), counterpartId.toString());
+    }
+
+    @Test
+    @DisplayName("양쪽 컬럼이 다 비면 여전히 NO_SUBJECT 다 — 폴백을 넓히면 대상 없는 행이 조용히 통과한다")
+    void rowsWithNeitherSubjectNorTargetStillFailTheGate() {
+        insertLegacyLog(NotificationKind.CHALLENGE_ENDED.name(), "SENT", SLOT.plusSeconds(60), null);
+
+        assertThatThrownBy(() -> exportService.export(MIGRATION_ID, null, false, true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("재조립할 수 없는");
+
+        NotificationExportDocument lenient = exportService.export(MIGRATION_ID, null, false, false);
+        assertThat(lenient.failures()).anySatisfy(failure -> {
+            assertThat(failure.legacyKind()).isEqualTo(NotificationKind.CHALLENGE_ENDED.name());
+            assertThat(failure.reason()).isEqualTo(NotificationExportService.FAIL_NO_SUBJECT);
+        });
+    }
+
+    @Test
+    @DisplayName("대상이 없는 종류는 폴백을 타지 않는다 — 키에 값을 얹으면 producer 가 만들 키와 갈린다")
+    void kindsWithoutASubjectAreNeverBackfilled() {
+        insertLegacyLog(NotificationKind.STREAK_AT_RISK.name(), "SENT", SLOT.plusSeconds(60),
+                UUID.randomUUID());
+
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, null, false, true);
+
+        assertThat(deliveriesOf(document)).singleElement().satisfies(record -> {
+            assertThat(record.recordKey()).isEqualTo(NotificationEventKey.of(
+                    NotificationKind.STREAK_AT_RISK, user.getId(), null, SLOT));
+            assertThat(record.data()).containsEntry("subjectId", null);
+        });
+    }
+
     @Test
     @DisplayName("신 카탈로그에 없는 종류는 실패로 보고하고 게이트를 닫는다 — 모르는 것을 버리면 그게 곧 유실이다")
     void unknownKindFailsTheGate() {
@@ -492,6 +564,40 @@ class NotificationExportServiceIntegrationTest {
         assertThat(document.failures()).noneSatisfy(failure ->
                 assertThat(failure.legacyKind())
                         .isEqualTo(NotificationExportService.LEGACY_RANK_OVERTAKE));
+    }
+
+    /**
+     * {@code users.device_token} 에는 UNIQUE 가 없다 — 로그아웃 없이 계정을 갈아탄 기기의 토큰이 이전
+     * 계정과 현재 계정에 함께 남는다. 그대로 내보내면 두 {@code device} 레코드가 같은
+     * {@code device:<토큰 해시>} 키를 갖는다: 같은 배치면 요청 전체가 실패하고, 배치가 갈리면 한 쪽이
+     * 조용히 덮인다. 검출만 하고 통과시키면 검출한 의미가 없다.
+     */
+    @Test
+    @DisplayName("중복 기기 토큰이 남아 있으면 최종 export 를 막는다 — 검출해 놓고 통과시키면 의미가 없다")
+    void duplicateDeviceTokensBlockTheFinalExport() {
+        String shared = "dup-token-" + UUID.randomUUID();
+        User previous = userRepository.save(User.builder()
+                .nickname("이전-" + UUID.randomUUID().toString().substring(0, 8))
+                .language("ko").deviceToken(shared).build());
+        extraUsers.add(previous);
+        User current = userRepository.save(User.builder()
+                .nickname("현재-" + UUID.randomUUID().toString().substring(0, 8))
+                .language("ko").deviceToken(shared).build());
+        extraUsers.add(current);
+
+        assertThatThrownBy(() -> exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("중복 기기 토큰");
+
+        // lenient 로는 문서가 나오지만 최종본이 아니다 — 잔여 큐도 실패도 0 인데 중복만 남은 경우다.
+        NotificationExportDocument lenient =
+                exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, false);
+        assertThat(lenient.failures()).isEmpty();
+        assertThat(lenient.manifest().stopWindow().queueDepth()).isZero();
+        assertThat(lenient.report().finalEligible()).isFalse();
+        assertThat(lenient.report().duplicateDeviceTokens()).anySatisfy(duplicate ->
+                assertThat(duplicate.userIds()).contains(previous.getId().toString(),
+                        current.getId().toString()));
     }
 
     @Test

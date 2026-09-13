@@ -79,6 +79,12 @@ jobs:
           --tests '*PublicCommandIntegrationTest'
           --tests '*PublicCommandFingerprintTest'
           --tests '*OutboxCommandIntegrationTest'
+          --tests '*NotificationSettingsCommandIntegrationTest'
+          --tests '*UserServiceTest'
+          --tests '*SatelliteCommandConcurrencyTest'
+          --tests '*NotificationSettingsSerializationConcurrencyTest'
+          --tests '*InternalSurfaceIntegrationTest'
+          --tests '*SatelliteCoreContractIntegrationTest'
           --tests '*ErrorContractTest'
           --tests '*DomainLayerRulesTest'
           checkstyleMain spotbugsMain

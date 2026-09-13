@@ -73,6 +73,9 @@ class UserServiceTest {
     private UserRepository userRepository;
 
     @Mock
+    private UserSatelliteCommandService userSatelliteCommandService;
+
+    @Mock
     private UserQueryService userQueryService;
 
     @Mock
@@ -762,64 +765,22 @@ class UserServiceTest {
     // ── updateNotificationSettings ────────────────────────────────────────
 
     @Test
-    @DisplayName("알림·심야·소리 설정 저장 → notification settings 필드 반영")
+    @DisplayName("기존 알림 설정 저장은 5필드 원본을 내구 명령 소유자에 위임한다")
     void updateNotificationSettings() {
-        UserNotificationSettings settings = UserNotificationSettings.builder().userId(USER_ID).build();
-        // 저장 경로는 배타 락 조회를 쓴다 (GROMO-1659) — 락 없는 조회로 스텁하면 직렬화가 빠져도 초록이 된다.
-        given(userQueryService.getNotificationSettingsForUpdate(USER_ID)).willReturn(settings);
-
         NotificationSettingsRequest request = mock(NotificationSettingsRequest.class);
-        given(request.getNotificationEnabled()).willReturn(true);
-        given(request.getSoundEnabled()).willReturn(false);
-        given(request.getNightModeEnabled()).willReturn(true);
-        given(request.getNightStartTime()).willReturn("22:00");
-        given(request.getNightEndTime()).willReturn("07:00");
-
         userService.updateNotificationSettings(USER_ID, request);
-
-        assertThat(settings.isNotificationEnabled()).isTrue();
-        assertThat(settings.isSoundEnabled()).isFalse();
-        assertThat(settings.isNightModeEnabled()).isTrue();
-        assertThat(settings.getNightStartTime()).isEqualTo(LocalTime.of(22, 0));
-        assertThat(settings.getNightEndTime()).isEqualTo(LocalTime.of(7, 0));
+        verify(userSatelliteCommandService).recordNotificationSettings(USER_ID, request, null);
+        verify(userQueryService, never()).getNotificationSettings(USER_ID);
     }
 
     @Test
-    @DisplayName("알림 설정 저장 - 설정 없음 → UserException(NOT_FOUND)")
+    @DisplayName("기존 알림 설정 저장은 내구 명령의 본인 부재 오류를 보존한다")
     void updateNotificationSettingsNotFound() {
-        given(userQueryService.getNotificationSettingsForUpdate(USER_ID))
-                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
-
-        assertThatThrownBy(() ->
-                userService.updateNotificationSettings(USER_ID, mock(NotificationSettingsRequest.class)))
-                .isInstanceOf(UserException.class)
-                .extracting("errorCode")
-                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
-    }
-
-    @Test
-    @DisplayName("알림 설정 저장 - nightStartTime·nightEndTime null 입력 → 기존 값 null 로 초기화")
-    void updateNotificationSettingsNullNightTimesInitializeToNull() {
-        // 기존에 시각이 설정된 settings
-        UserNotificationSettings settings = UserNotificationSettings.builder()
-                .userId(USER_ID)
-                .nightStartTime(LocalTime.of(22, 0))
-                .nightEndTime(LocalTime.of(7, 0))
-                .build();
-        given(userQueryService.getNotificationSettingsForUpdate(USER_ID)).willReturn(settings);
-
         NotificationSettingsRequest request = mock(NotificationSettingsRequest.class);
-        given(request.getNotificationEnabled()).willReturn(true);
-        given(request.getSoundEnabled()).willReturn(true);
-        given(request.getNightModeEnabled()).willReturn(false);
-        given(request.getNightStartTime()).willReturn(null);
-        given(request.getNightEndTime()).willReturn(null);
-
-        userService.updateNotificationSettings(USER_ID, request);
-
-        // null 입력 시 기존 값이 null 로 초기화되어야 함
-        assertThat(settings.getNightStartTime()).isNull();
-        assertThat(settings.getNightEndTime()).isNull();
+        given(userSatelliteCommandService.recordNotificationSettings(USER_ID, request, null))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+        assertThatThrownBy(() -> userService.updateNotificationSettings(USER_ID, request))
+                .isInstanceOf(UserException.class).extracting("errorCode").isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     // ── getNotificationSettings ───────────────────────────────────────────

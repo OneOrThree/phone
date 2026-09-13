@@ -402,6 +402,7 @@ class DeviceService {
                     + " AND status IN ('PENDING','DEFERRED')",
                     user);
             store.update("DELETE FROM projections WHERE user_id=?", user);
+            store.update("DELETE FROM settings WHERE user_id=?", user);
         }
     }
 
@@ -463,6 +464,8 @@ class DeviceService {
     }
 
     private Map<String, Object> userFence(UUID user) {
+        // 세 호출부 모두 device-ownership 다음이며, 실제 행보다 앞에서 설정과 상태를 직렬화한다.
+        store.lock("user-state:" + user);
         store.update("INSERT INTO user_fences(user_id) VALUES(?) ON CONFLICT DO NOTHING", user);
         return store.one("SELECT * FROM user_fences WHERE user_id=? FOR UPDATE", user);
     }

@@ -101,6 +101,9 @@ public class CompatMatchUseCase {
         // 4단계 진입 후: 구 정지 행 «전체»를 래퍼 그대로 넘겨 링크가 반영·소진하게 한다.
         // 원본 JSON 을 손대지 않는 것이 핵심이다 — sourceChecksum 이 source 객체 전체의 체크섬이라
         // 필드를 풀어 다시 조립하면 SOURCE_CHECKSUM_MISMATCH 가 난다(migration.ts:61).
+        // 준비 후에는 이 후보가 «실제로 반영»된다. 조회 실패를 빈 목록으로 접으면 그 IP·OS 의 초대가
+        // 구 DB 에만 있을 때 링크가 matched:false 를 돌려주고, 앱은 응답을 받았다는 이유로 완료 마커를
+        // 세워 다시 시도하지 않는다 — 그 초대는 영구히 사라진다. 그래서 실패를 그대로 올린다.
         List<LinkMatchCommand.FrozenSource> frozen = exportFrozen(ipHash, os, deadline, true).stream()
                 .map(row -> new LinkMatchCommand.FrozenSource(row.source(), row.sourceChecksum()))
                 .toList();

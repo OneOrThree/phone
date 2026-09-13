@@ -126,7 +126,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 133개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 134개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -145,8 +145,8 @@ class ErrorContractTest {
         // GROMO-1660 이 초대 자격·이관 판정 코드를 2개 더 늘렸다(CLAIM_INTENT_NOT_FOUND ·
         // CLAIM_INTENT_LEASE_STALE) — 재개 실행자의 「없는 항목」과 「낡은 리스」를 한 코드로 접으면
         // 정상 경합과 배선 사고가 구분되지 않는다.
-        assertThat(tests).as("실측 기준 도메인 상수 118개 + 공통 15개 — ACK 기한 경과 및 미확정 판정 포함")
-                .hasSize(133);
+        assertThat(tests).as("실측 기준 도메인 상수 119개 + 공통 15개 — ACK 기한·미확정 및 설정 세션 거절 포함")
+                .hasSize(134);
         return tests;
     }
 

@@ -11,6 +11,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -22,6 +24,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -52,6 +58,7 @@ class NotificationStoreTest {
     }
     @Autowired Store store;
     @Autowired MockMvc mvc;
+    @Autowired PlatformTransactionManager transactions;
     @Autowired DeviceService devices;
     @Autowired InboundService inbound;
     @Autowired SettingsService settings;
@@ -403,6 +410,142 @@ class NotificationStoreTest {
         inbound.accept(event("logout", "auth.session.revoked", USER, 2, null,
                 Map.of("bootstrapNonceHash", Json.digest("bootstrap"), "sessionEpoch", 2)));
         assertThat(store.rows("SELECT * FROM device_tokens WHERE active")).isEmpty();
+    }
+
+    /**
+     * 발송이 느려도 <b>다른 사용자의</b> 설정 초기화·부분 변경은 Business 3초 예산 안에 끝난다.
+     *
+     * <p>근거가 GROMO-1659 합류로 바뀌었다. 종전에는 발송이 전역 잠금을 «쥔 채» 외부 호출을 돌았고
+     * 이 테스트는 그 잠금이 잡혀 있음을 확인한 뒤 다른 사용자만 통과함을 봤다. 지금은 판정 트랜잭션이
+     * 커밋하며 잠금을 놓고 외부 호출이 그 «밖»에서 돌므로(DispatchService#dispatch), 전송 중에는
+     * 잡힌 advisory 잠금이 아예 없다 — 그것이 다른 사용자가 막히지 않는 진짜 이유다.
+     * 그래서 「잠금이 잡혀 있다」가 아니라 「잡힌 잠금이 없다」를 단언한다. 되돌리면 이 단언이 깨진다.
+     */
+    @Test
+    void slowDispatchDoesNotBlockAnotherUsersSettingsInitializationAndPatch() throws Exception {
+        UUID other = UUID.fromString("22222222-2222-4222-8222-222222222222");
+        UUID pending = prepareSettingsRaceDelivery();
+        var sending = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        AtomicInteger dispatchPid = new AtomicInteger();
+        holdTransport(sending, release, dispatchPid);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var sent = executor.submit(() -> dispatch.dispatch(pending));
+            assertThat(sending.await(5, TimeUnit.SECONDS)).isTrue();
+            // 외부 호출은 트랜잭션·잠금 밖에서 돈다 — 이 순간 잡힌 advisory 잠금이 하나도 없어야 한다.
+            assertThat(store.rows("SELECT 1 FROM pg_locks WHERE locktype='advisory' AND granted")).isEmpty();
+            var changed = executor.submit(() -> {
+                assertThat(settings.initialize(other, Map.of("version", 0, "authGeneration", 0,
+                        "settings", preferences(true)))).containsEntry("notificationEnabled", true);
+                return settings.patch(other, settingsPatch(false), 1, "other-off");
+            });
+            // 실제 전송 TX를 열린 채 유지한다. Business 3초 예산보다 먼저 두 서비스 호출이 끝나야 한다.
+            assertThat(changed.get(2, TimeUnit.SECONDS)).containsEntry("applied", true);
+            assertThat(release.getCount()).isEqualTo(1);
+            assertThat(settings.read(other)).containsEntry("notificationEnabled", false);
+            release.countDown();
+            sent.get(5, TimeUnit.SECONDS);
+            assertThat(status(pending)).isEqualTo("SENT");
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    /**
+     * 같은 사용자의 opt-out 은 발송의 <b>판정</b>과 직렬화되고, 그 뒤의 발송은 억제된다.
+     *
+     * <p>GROMO-1659 합류로 직렬화의 «경계»가 바뀌었다. 종전에는 발송이 외부 호출까지 잠금을 쥐고
+     * 있어 opt-out 이 전송이 끝나기를 기다렸다. 지금은 판정(prepare)이 커밋하며 잠금을 놓으므로
+     * opt-out 은 전송을 기다리지 «않는다» — 이미 「보낸다」로 끝난 판정을 뒤늦은 보류가 되돌리지
+     * 못한다는 점은 종전에도 같았고, 달라진 것은 기다림뿐이다.
+     *
+     * <p>그래서 두 조각으로 나눠 못 박는다. ① 판정은 여전히 {@code user-state:<user>} 로 직렬화된다
+     * — 그 잠금을 테스트가 쥐고 있으면 dispatch 가 기다린다(prepare 에서 이 잠금을 빼면 깨진다).
+     * ② 전송 중의 opt-out 은 기다리지 않고 적용되며, 그 뒤에 선 발송은 SUPPRESSED 로 끝나 외부
+     * 호출은 진행 중이던 한 번뿐이다(설정이 발송 적격성에 반영되지 않으면 깨진다).
+     */
+    @Test
+    void sameUsersOptOutSerializesWithTheDispatchDecisionAndSuppressesTheNextDelivery() throws Exception {
+        UUID pending = prepareSettingsRaceDelivery();
+        var executor = Executors.newFixedThreadPool(2);
+        var held = new CountDownLatch(1);
+        var releaseLock = new CountDownLatch(1);
+        try {
+            // ① 판정이 쥐는 것과 «같은» 사용자 잠금을 테스트가 먼저 잡는다.
+            var holder = executor.submit(() -> new TransactionTemplate(transactions).execute(status -> {
+                store.lock("user-state:" + USER);
+                held.countDown();
+                awaitLatch(releaseLock);
+                return null;
+            }));
+            assertThat(held.await(5, TimeUnit.SECONDS)).isTrue();
+            var deciding = executor.submit(() -> dispatch.dispatch(pending));
+            long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            boolean blocked = false;
+            while (!blocked && System.nanoTime() < until) {
+                blocked = store.one("SELECT pid FROM pg_stat_activity WHERE datname=current_database()"
+                        + " AND wait_event_type='Lock' AND query LIKE '%pg_advisory_xact_lock%' LIMIT 1") != null;
+                if (!blocked) {
+                    Thread.sleep(10);
+                }
+            }
+            assertThat(blocked).as("판정은 같은 사용자 잠금으로 직렬화된다").isTrue();
+            releaseLock.countDown();
+            holder.get(5, TimeUnit.SECONDS);
+            deciding.get(10, TimeUnit.SECONDS);
+            assertThat(status(pending)).isEqualTo("SENT");
+            verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+
+            // ② 판정이 끝난 뒤의 opt-out 은 기다림 없이 적용되고, 그 뒤에 선 발송을 억제한다.
+            assertThat(settings.patch(USER, settingsPatch(false), 1, "same-user-off"))
+                    .containsEntry("applied", true);
+            inbound.accept(event("after-opt-out", "notification.requested", USER, 2,
+                    UUID.randomUUID().toString(), Map.of("kind", "BET_RESULT", "count", 1)));
+            UUID next = delivery("after-opt-out");
+            dispatch.dispatch(next);
+            assertThat(status(next)).isEqualTo("SUPPRESSED");
+            verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+        } finally {
+            releaseLock.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("테스트 잠금 해제 시간 초과");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("테스트 잠금 대기 중 인터럽트", interrupted);
+        }
+    }
+
+    private UUID prepareSettingsRaceDelivery() {
+        register(USER, "settings-race-device", "settings-race-bootstrap", "settings-race-register");
+        inbound.accept(event("settings-race-delivery", "notification.requested", USER, 1,
+                UUID.randomUUID().toString(), Map.of("kind", "BET_RESULT", "count", 1)));
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        return delivery("settings-race-delivery");
+    }
+
+    private void holdTransport(CountDownLatch sending, CountDownLatch release, AtomicInteger pid) {
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(invocation -> {
+            pid.set(((Number) store.one("SELECT pg_backend_pid() AS pid").get("pid")).intValue());
+            sending.countDown();
+            if (!release.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("전송 경합 테스트 해제 시간 초과");
+            }
+            return PushTransport.Result.SENT;
+        });
+    }
+
+    private static Map<String, Object> settingsPatch(boolean enabled) {
+        return Map.of("mask", List.of("notificationEnabled"), "patch", Map.of("notificationEnabled", enabled),
+                "baseline", preferences(enabled), "authGeneration", 0);
     }
 
     /**

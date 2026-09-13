@@ -251,12 +251,12 @@ public class NotificationExportService {
      *                    멈추고 이미 시작된 워커가 끝나기를 기다렸다」는 선언이다. DB 로는 알 수
      *                    없는 사실이라 <b>사람이 말해야만</b> 하고, {@code closedAt} 이 있는 최종
      *                    export 는 이것이 {@code true} 여야 한다
-     * @param strict      {@code true} 면 재조립 실패가 하나라도 있을 때 예외로 죽인다. <b>기본이자
-     *                    정상 운용값</b>이다 — {@code false} 는 「무엇이 안 되는지 보기만 하는」 사전
-     *                    점검용이고, 그 상태로 컷오버하면 그 행들이 영영 나가지 않는다
+     * @param strict      {@code true} 면 재조립 실패나 중복 기기 토큰이 하나라도 있을 때 예외로 죽인다.
+     *                    <b>기본이자 정상 운용값</b>이다 — {@code false} 는 「무엇이 안 되는지 보기만
+     *                    하는」 사전 점검용이고, 그 상태로 컷오버하면 그 행들이 영영 나가지 않는다
      * @return 이관 문서
-     * @throws IllegalStateException {@code strict} 인데 재조립 실패가 있거나, 정지 창을 닫았다면서
-     *     {@code queueDepth} 가 0 이 아닐 때
+     * @throws IllegalStateException {@code strict} 인데 재조립 실패나 중복 기기 토큰이 있거나, 정지 창을
+     *     닫았다면서 drain 확인이 없거나 {@code queueDepth} 가 0 이 아닐 때
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public NotificationExportDocument export(String migrationId, Long closedAt,

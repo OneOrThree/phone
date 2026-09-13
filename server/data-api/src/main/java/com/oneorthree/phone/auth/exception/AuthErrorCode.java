@@ -29,7 +29,10 @@ public enum AuthErrorCode implements ErrorCode {
     GUEST_CREATION_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "게스트 로그인 요청이 너무 많아요. 잠시 후 다시 시도해 주세요"),
 
     // 소셜 로그인 제공자에 클라이언트가 등록돼 있지 않다 (GROMO-1725, 종전 IllegalArgumentException 409).
-    UNSUPPORTED_PROVIDER(HttpStatus.BAD_REQUEST, "지원하지 않는 소셜 로그인 제공자입니다.");
+    UNSUPPORTED_PROVIDER(HttpStatus.BAD_REQUEST, "지원하지 않는 소셜 로그인 제공자입니다."),
+
+    /** 내부 사용자 세션 거절. 서비스 자격 401과 구분하며 신규 Business 경로가 공개 401로 매핑한다. */
+    SESSION_NOT_ACTIVE(HttpStatus.FORBIDDEN, "유효한 로그인 세션이 아닙니다.");
 
     private final HttpStatus status;
     private final String message;

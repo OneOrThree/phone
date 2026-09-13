@@ -678,3 +678,114 @@ API 경로의 percent encoding·matrix parameter 표기에도 인증·본문 제
 `X-Request-Id`로 HTTP 요청과 비동기 완료를 연결한다. 원본 URL·쿼리·Drive resourcekey·JWT·API 키·파일명·외부 응답 내용은 로그에 기록하지 않는다. 파일명은 외부 입력이므로 앱에서 텍스트로만 표시한다. `/actuator/health/readiness`는 Redis 장애를 반영하고 `/actuator/prometheus`에서 기본 HTTP/JVM 메트릭을 제공한다.
 
 참고: [Drive 공개 API 키](https://developers.google.com/workspace/guides/create-credentials), [파일 메타데이터·thumbnailLink 제약](https://developers.google.com/workspace/drive/api/reference/rest/v3/files), [resourcekey 전달](https://developers.google.com/workspace/drive/api/guides/resource-keys), [Apache HttpClient DNS 연결 설정](https://hc.apache.org/components/httpcomponents-client-5.2.x/5.2.3/httpclient5/apidocs/org/apache/hc/client5/http/class-use/DnsResolver.html).
+
+
+## GROMO-1757: 앱 알림 설정 2종
+
+이 구현은 계정 7종 중 `GET /me/settings`, `PATCH /me/settings` 두 경로다.
+프로필·로그인·로그아웃·계정 탈퇴의 신규 계약은 별도 구현이며,
+[계정 설계 PR740](https://github.com/OneOrThree/phone/pull/740)의 제품 미결정을 대신하지 않는다.
+기존 `/api/v1/users/me/notification-settings`의 5필드 GET/PUT은 유지한다.
+
+### 앱이 받는 값
+
+```json
+{"data":{"notifications":false}}
+```
+
+PATCH 본문은 `{"notifications":false}`이며 필수 boolean 하나만 허용한다.
+누락·명시 null·문자열·추가 필드는400, `Idempotency-Key`는 공통 UUID36자 규약이다.
+GET/PATCH 모두 검증된 AT의 실제 `sid`와 정수 `gen`을 요구한다.
+기존 토큰에 필드가 없다고 현재 세션·현재 세대로 보충하지 않는다.
+Data가 사용자 활성과 현재 세션을 같은 TX에서 확인한다. 만료/폐기 세션은401,
+본인 계정 부재는404 USER_NOT_FOUND다. 기존 경로의 호환 읽기 창은 바꾸지 않는다.
+신규 경로로 전환하는 앱은 계정 설계의 sidless 강제 refresh/원자 자격 교체 절차를 따라야 한다.
+
+### ELI5: 접수증과 실제 스위치
+
+Data는 “이 스위치를 꺼 달라는 요청을 접수했다”는 장부를 쓴다.
+Notification은 실제 알림 스위치가 있는 곳이다. 접수증만 받았다고 앱에 “꺼졌다”고 말하면 안 된다.
+Business는 실제 스위치 적용까지 확인한 뒤200을 보낸다. 응답을 잃으면 같은 키의 접수증을 꺼내
+같은 요청을 전달한다. 새 명령이나 새 버전을 만들지 않는다.
+
+```mermaid
+sequenceDiagram
+    participant A as 앱
+    participant B as Business
+    participant D as Data와 DB
+    participant N as Notification과 DB
+    A->>B: PATCH notifications + AT + UUID 키
+    B->>D: 검증된 sid/gen + 같은 키
+    Note over D: 사용자 → 세션 → 설정/aggregate 잠금
+    D->>D: mirror 변경 + 원 결과/receipt + outbox COMMIT
+    D-->>B: commandId/version/mask/patch/baseline/원 결과
+    B->>N: 같은 내구 명령 적용
+    Note over N: 이관 gate → 사용자 fence → 설정 행
+    N->>N: 선택 필드별 버전 비교 후 COMMIT
+    N-->>B: applied=true
+    B->>D: 전달 완료 표시
+    B-->>A: 원 notifications 결과
+    Note over D,N: 적용 실패는 오류 + outbox 재전달, 완료 표시만 실패하면 원 성공 유지
+```
+
+Data 명령에는 변경 직후 실제 설정5값인 `baseline`도 함께 저장한다.
+Notification에 행이 없으면 이 근거로 처음 만든다. 행이 이미 있으면 baseline으로 덮어쓰지 않는다.
+따라서 Business가 중단돼도 relay만으로 초기화와 적용을 복구할 수 있다.
+GET은 Data의 동기 검증 snapshot → Notification의 없는 행만 초기화 → 현재 정본 조회 순서다.
+GET마다 명령 receipt를 적재하거나 과거 조회 결과를 재생하지 않는다.
+
+### 요청이 거꾸로 도착해도 다른 설정을 보존한다
+
+기존 설정에는 알림·소리·야간모드·시작시각·종료시각 5개가 있다.
+Notification `V6__settings_field_versions.sql`은 각 필드에 nullable version을 추가한다.
+전체 최대 version은 호환용으로 유지하며 실제 덮어쓰기 판단은 각 필드 version으로 한다.
+예를 들어 version42의 알림 끄기 뒤 version41의 소리 끄기가 도착하면 둘 다 반영한다.
+같은 알림 필드의 version40은 뒤늦게 도착해도42를 되돌리지 못한다.
+기존 전체 PUT은 5필드를 모두 선택하는 요청으로 같은 병합을 사용한다.
+
+```mermaid
+flowchart LR
+    D[Data의 사용자 aggregate 순서] --> O[내구 outbox]
+    D --> B[Business 직접 전달]
+    O --> N[Notification 동일 병합]
+    B --> N
+    N --> F[필드별 최신 version]
+    F --> C[실제 알림 설정]
+    W[탈퇴 tombstone] --> N
+```
+
+### 이관과 탈퇴의 경계
+
+이관 manifest의 기존5필드 형식은 그대로다. 이관이 끝나기 전에 필드 version을 미리 채우지 않는다.
+`dispatch_control.ever_opened`가 처음 true가 된 뒤 첫 쓰기가 기존 scalar version으로 5개를 초기화한다.
+신규 partial/초기화는 개방 전409 MIGRATION_NOT_READY를 반환하고 Business는503으로 안내한다.
+발송을 잠시 중지해 `enabled=false`가 되어도 ever_opened는 유지되어 설정 변경은 계속 가능하다.
+
+Notification 설정은 `gate FOR SHARE → user-state:{userId} → 실제 행` 순서로 잠근다.
+기기 소유권의 기존 전역 `device-ownership` 잠금은 유지한다. 사용자 fence를 쓰는 기기 등록/삭제/세대 변경은
+`device-ownership → user-state:{userId} → 실제 행`으로 진행하고, 발송은
+`gate FOR SHARE → device-ownership → user-state:{userId} → ack/delivery` 순서다.
+발송 묶음은 같은 user_id만 포함한다. 느린 A의 외부 발송 중 B의 설정 GET/PATCH는 전역 잠금을 기다리지
+않고, 같은 A의 opt-out과 발송은 기존처럼 직렬화한다. settings가 사용자 잠금 뒤 전역 잠금을 요구하지 않는다.
+이관 import/최초 open의 정리는 `gate FOR UPDATE → device-ownership → 실제 행`을 유지한다.
+배타 gate 자체가 설정을 막으므로 이관에 다중 사용자 잠금을 추가하지 않는다.
+탈퇴는 설정을 지우고 사용자 tombstone을 남긴다. 뒤늦은 직접 요청/완료 재생은 거부하고,
+relay는 수신 완료 no-op, 이관은 SKIPPED로 처리해 설정을 다시 만들지 않는다.
+기존5필드 PUT의 세대 생략 호환은 유지하지만 탈퇴 tombstone은 항상 우선한다.
+신규 partial/초기화에는 세대가 반드시 있어야 한다.
+Data 설정 명령의 응답 세대가 현재 서명된 AT 세대보다 크면 Business는 502 계약 불일치로 거절한다.
+이때 Notification 적용과 delivered 표시는 실행하지 않는다. 과거 receipt의 세대는 원값을 유지해
+Notification의 현재 fence가 적용 여부를 판단하며 최신 세대로 덮어쓰지 않는다.
+
+### 코드와 운영 확인
+
+- Business: `AccountSettingsController`, `SettingsSessionGuard`, `AccountSettingsUseCase`, `SettingsContract`.
+- Data: `InternalNotificationSettingsService`, `UserSatelliteCommandService`, 기존 `PublicCommandService`.
+- Notification: `SettingsPatch`, `SettingsService`, `MigrationService`, `DeviceService`.
+- 내부 HTTP 표면: `docs/contracts/business-satellite-api.yaml`. 새 서비스 토큰은 만들지 않고 기존 Business caller에 정확한 경로만 추가한다.
+- 배포 순서: 선행1659 → Notification V6/수신 코드 → Data 내구 명령 → Business → 세션 전환을 지원하는 앱.
+- 실제 검증: Data PostgreSQL 같은 키 동시 요청/rollback/세션·설정 경합, Notification 역순/탈퇴/import/open 잠금, Business 실서명·실HTTP 순서/오류 복구/형식 검증.
+- `requestId`로 요청을 연결하고 완료 표시 실패는 commandId와 예외 종류만 기록한다. AT/RT·원문 상류 오류·설정 본문을 로그에 남기지 않는다.
+
+신규 커서 키나 경제 설정값은 이 두 경로에 필요하지 않다. Notification 이관 개방을 임의로 실행하지 않으며
+이 구현이 저장소 이관 완료나 운영 배포 완료를 뜻하지 않는다.

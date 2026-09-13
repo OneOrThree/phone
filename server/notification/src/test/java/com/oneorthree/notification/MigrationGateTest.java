@@ -13,6 +13,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -32,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -74,8 +77,10 @@ class MigrationGateTest {
     @Autowired MockMvc mvc;
     @Autowired Store store;
     @Autowired DataSource dataSource;
+    @Autowired PlatformTransactionManager transactions;
     @Autowired DeviceService devices;
     @Autowired SettingsService settings;
+    @Autowired InboundService inbound;
     @Autowired AckService ack;
     @Autowired DispatchService dispatch;
     @MockitoBean PushTransport transport;
@@ -130,6 +135,94 @@ class MigrationGateTest {
         assertThat(body(load("i3", List.of(reopened))).get("outcome")).isEqualTo(Map.of("SUPERSEDED", 1));
         assertThat(store.one("SELECT status,attempts FROM deliveries WHERE event_id='ev-1'"))
                 .containsEntry("status", "SENT").containsEntry("attempts", 0);
+    }
+
+    @Test
+    void lateSettingsImportAndUnchangedReimportRespectWithdrawalAndConvergeSkippedStatus() throws Exception {
+        List<Map<String, Object>> original = List.of(settingsRecord(false, 5));
+        load("before-withdraw", original);
+        inbound.accept(Map.of("eventId", "withdraw", "schemaVersion", 1, "type", "user.withdrawn",
+                "userId", USER.toString(), "version", 6, "occurredAt", DAY.toString(),
+                "params", Map.of("authGeneration", 1)));
+        assertThat(store.rows("SELECT * FROM settings")).isEmpty();
+        // 같은 snapshot/checksum이어도 기존 IMPORTED 행을 SKIPPED로 수렴시켜 verify가 누락으로 오판하지 않는다.
+        assertThat(body(load("unchanged-after-withdraw", original)).get("outcome"))
+                .isEqualTo(Map.of("SKIPPED", 1));
+        assertThat(store.one("SELECT status FROM imports WHERE record_key=?", "settings:" + USER))
+                .containsEntry("status", "SKIPPED");
+        Map<String, Object> report = body(verify(original, 1, 0));
+        assertThat(report).containsEntry("verified", true);
+        assertThat(Json.map(report.get("skippedByFence"))).containsEntry("settings", 1);
+        List<Map<String, Object>> changed = List.of(settingsRecord(true, 7));
+        assertThat(body(load("changed-after-withdraw", changed)).get("outcome"))
+                .isEqualTo(Map.of("SKIPPED", 1));
+        assertThat(body(verify(changed, 2, 0))).containsEntry("verified", true);
+        assertThat(store.rows("SELECT * FROM settings")).isEmpty();
+    }
+
+    @Test
+    void arbitraryImportRecordOrderWaitsBeforeLockingSettingsOrDeliveriesDuringWithdrawal() throws Exception {
+        for (boolean settingsFirst : List.of(true, false)) {
+            resetState();
+            load("initial", records(true, 5));
+            var held = new CountDownLatch(1);
+            var release = new CountDownLatch(1);
+            ExecutorService executor = Executors.newFixedThreadPool(2);
+            try {
+                Future<?> withdrawal = executor.submit(() -> new TransactionTemplate(transactions)
+                        .executeWithoutResult(status -> {
+                            store.lock("device-ownership");
+                            held.countDown();
+                            awaitRelease(release);
+                            inbound.accept(Map.of("eventId", "withdraw-race", "schemaVersion", 1,
+                                    "type", "user.withdrawn", "userId", USER.toString(), "version", 8,
+                                    "occurredAt", DAY.toString(), "params", Map.of("authGeneration", 4)));
+                        }));
+                assertThat(held.await(5, TimeUnit.SECONDS)).isTrue();
+                List<Map<String, Object>> batch = settingsFirst
+                        ? List.of(settingsRecord(false, 7), deliveryRecord("PENDING", 1), deviceRecord(4, true))
+                        : List.of(deliveryRecord("PENDING", 1), settingsRecord(false, 7), deviceRecord(4, true));
+                Future<MvcResult> imported = executor.submit(() -> load("race", batch));
+                long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                boolean waiting = false;
+                while (!waiting && System.nanoTime() < until) {
+                    waiting = store.one("SELECT pid FROM pg_stat_activity WHERE datname=current_database()"
+                            + " AND wait_event_type='Lock' AND query LIKE '%pg_advisory_xact_lock%' LIMIT 1") != null;
+                    if (!waiting) {
+                        Thread.sleep(10);
+                    }
+                }
+                assertThat(waiting).isTrue();
+                // 이관이 global lock 전에 첫 실제 행을 잡았다면 NOWAIT가 실패한다. sleep으로 성공을 추정하지 않는다.
+                try (Connection probe = dataSource.getConnection(); Statement sql = probe.createStatement()) {
+                    probe.setAutoCommit(false);
+                    sql.execute("SELECT user_id FROM settings WHERE user_id='" + USER + "' FOR UPDATE NOWAIT");
+                    sql.execute("SELECT id FROM deliveries WHERE event_id='ev-1' FOR UPDATE NOWAIT");
+                    probe.rollback();
+                }
+                release.countDown();
+                withdrawal.get(10, TimeUnit.SECONDS);
+                assertThat(body(imported.get(10, TimeUnit.SECONDS)).get("outcome"))
+                        .isEqualTo(Map.of("SKIPPED", 3));
+                assertThat(store.rows("SELECT * FROM settings")).isEmpty();
+                assertThat(store.one("SELECT status FROM imports WHERE record_key=?", "settings:" + USER))
+                        .containsEntry("status", "SKIPPED");
+            } finally {
+                release.countDown();
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    private static void awaitRelease(CountDownLatch release) {
+        try {
+            if (!release.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("탈퇴 경합 테스트 잠금 해제 시간 초과");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(interrupted);
+        }
     }
 
     @Test
@@ -927,6 +1020,62 @@ class MigrationGateTest {
         // 발송 이력의 참조가 남아 있으므로 삭제가 아니라 종결이다.
         assertThat(store.one("SELECT status FROM deliveries WHERE event_id='ev-1'"))
                 .containsEntry("status", "SUPPRESSED");
+    }
+
+    @Test
+    void firstOpenRetirementWaitsBeforeLockingRealRowsDuringWithdrawal() throws Exception {
+        load("initial", "snap-1", records(true, 5));
+        load("empty-final", "snap-2", List.of());
+        assertThat(body(verify("snap-2", List.of()))).containsEntry("verified", true);
+        var held = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> withdrawal = executor.submit(() -> new TransactionTemplate(transactions)
+                    .executeWithoutResult(status -> {
+                        store.lock("device-ownership");
+                        held.countDown();
+                        awaitRelease(release);
+                        inbound.accept(Map.of("eventId", "withdraw-retire-race", "schemaVersion", 1,
+                                "type", "user.withdrawn", "userId", USER.toString(), "version", 8,
+                                "occurredAt", DAY.toString(), "params", Map.of("authGeneration", 4)));
+                    }));
+            assertThat(held.await(5, TimeUnit.SECONDS)).isTrue();
+            Future<MvcResult> opened = executor.submit(() -> open("open-race", "snap-2", List.of()));
+            long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            boolean waiting = false;
+            while (!waiting && System.nanoTime() < until) {
+                waiting = store.one("SELECT pid FROM pg_stat_activity WHERE datname=current_database()"
+                        + " AND wait_event_type='Lock' AND query LIKE '%pg_advisory_xact_lock%' LIMIT 1") != null;
+                if (!waiting) {
+                    Thread.sleep(10);
+                }
+            }
+            assertThat(waiting).isTrue();
+            // retire의 정렬상 delivery가 device보다 먼저다. 공통 잠금 대기 중 어느 실제 행도 잡지 않아야 한다.
+            try (Connection probe = dataSource.getConnection(); Statement sql = probe.createStatement()) {
+                probe.setAutoCommit(false);
+                sql.execute("SELECT user_id FROM settings WHERE user_id='" + USER + "' FOR UPDATE NOWAIT");
+                sql.execute("SELECT id FROM deliveries WHERE event_id='ev-1' FOR UPDATE NOWAIT");
+                sql.execute("SELECT device_token FROM device_tokens WHERE device_token='tok-1' FOR UPDATE NOWAIT");
+                probe.rollback();
+            }
+            release.countDown();
+            withdrawal.get(10, TimeUnit.SECONDS);
+            assertThat(opened.get(10, TimeUnit.SECONDS).getResponse().getStatus()).isEqualTo(200);
+            assertThat(store.one("SELECT enabled,ever_opened FROM dispatch_control WHERE id=1"))
+                    .containsEntry("enabled", true).containsEntry("ever_opened", true);
+            assertThat(store.rows("SELECT * FROM settings")).isEmpty();
+            assertThat(store.one("SELECT withdrawn FROM user_fences WHERE user_id=?", USER))
+                    .containsEntry("withdrawn", true);
+            assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='tok-1'"))
+                    .containsEntry("active", false);
+            assertThat(store.one("SELECT status FROM deliveries WHERE event_id='ev-1'"))
+                    .containsEntry("status", "SUPPRESSED");
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
     }
 
     /** 세대를 선언하지 않은 빈 적재는 아무 뜻도 없다 — 전량 제거 선언으로 받아 주지 않는다. */

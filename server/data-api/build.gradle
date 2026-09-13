@@ -153,6 +153,22 @@ tasks.named('test') {
 	// 실제 DB 경합 테스트의 여러 Spring 컨텍스트가 기본 512 MiB 힙을 소진한다.
 	// 테스트 JVM에만 1 GiB를 허용해 컨텍스트 생성 중 GC 반복을 방지한다.
 	maxHeapSize = '1g'
+	// 스프링 테스트 컨텍스트 캐시 한도 — 기본값 32 로는 이 스위트가 넘친다.
+	//
+	// 이 브랜치가 outbox·satellite 통합 테스트를 들이면서 «자기 @DynamicPropertySource 를 직접
+	// 선언하는» 클래스가 6 → 21 개가 됐다. 그 메서드는 컨텍스트 캐시 키(DynamicPropertiesContextCustomizer)
+	// 에 들어가므로 클래스마다 별개 컨텍스트가 뜬다. @WebMvcTest 19 개까지 합치면 40 개를 넘어
+	// 기본 한도 32 를 초과한다.
+	//
+	// 한도를 넘으면 LRU 축출이 일어나고, **축출은 그 컨텍스트를 닫는다**. 그런데 CI 프로파일은
+	// ddl-auto=create-drop 이라 닫히는 순간 스키마가 드롭되는데, 그 DB(TestPostgres 의 test_db)를
+	// 다른 컨텍스트들이 아직 공유하고 있다. 그래서 살아 있는 컨텍스트의 테스트가 갑자기
+	// `relation "groups" does not exist` 로 죽는다 — 실제로 UserWithdrawGroupCleanupIntegrationTest
+	// 4 건이 이렇게 깨졌고, 한도만 올리면 같은 코드가 그대로 통과한다.
+	//
+	// 근본 해법은 create-drop 을 공유 컨테이너에서 떼는 것이다(컨텍스트별 DB 분리). 스위트가 64 를
+	// 다시 넘으면 같은 방식으로 재발하므로, 그 전에 구조를 바꿔야 한다.
+	systemProperty 'spring.test.context.cache.maxSize', '64'
 	useJUnitPlatform()
 	// 테스트 완료 후 JaCoCo 리포트 자동 생성
 	finalizedBy jacocoTestReport
