@@ -111,7 +111,7 @@ sequenceDiagram
   B->>D: POST /internal/install-referrers {source, 정규화 필드, 원문} (X-User-Id)
   D->>D: 유저 행 배타 락 · KST 당일 3건 상한 · install_key(deviceId + 설치 시작 시각, 없으면 installId) 멱등 저장 · LINK 면 클릭 소진
   D-->>B: {attributionId, source, matched, type?, slug?, groupId?, destination?}
-  B-->>A: 200 (401·429·503 이면 앱은 완료 값을 저장하지 않음)
+  B-->>A: 200 (400·401·429·503 이면 앱은 완료 값을 저장하지 않음)
   A->>B: POST /api/v1/invite-links/claim {attributionId, deviceId, installId} (JWT)
   B->>D: POST /internal/links/claims → 조건부 UPDATE 로 원자 선점 · claimed_as_new_user·signup_at 기록
 ```
