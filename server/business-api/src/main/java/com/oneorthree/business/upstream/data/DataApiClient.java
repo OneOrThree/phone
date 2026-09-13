@@ -1,6 +1,7 @@
 package com.oneorthree.business.upstream.data;
 
 import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.InternalCall;
 import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentLease;
@@ -15,6 +16,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -126,11 +128,17 @@ public class DataApiClient {
      */
     public DurableCommandAck recordDeviceTokenDeletion(UUID userId, String deviceToken, String ownershipToken,
             Long authGeneration, String idempotencyKey, Deadline deadline) {
+        return recordDeviceTokenDeletion(userId, deviceToken, ownershipToken, authGeneration,
+                null, idempotencyKey, deadline);
+    }
+
+    public DurableCommandAck recordDeviceTokenDeletion(UUID userId, String deviceToken, String ownershipToken,
+            Long authGeneration, UUID sessionId, String idempotencyKey, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, PATH_DEVICE_TOKEN_DELETIONS.replace("{userId}", userId.toString()))
                         .onBehalfOf(userId)
                         .idempotencyKey(idempotencyKey)
-                        .body(new DeviceTokenDeletionCommand(deviceToken, ownershipToken, authGeneration))
+                        .body(new DeviceTokenDeletionCommand(deviceToken, ownershipToken, authGeneration, sessionId))
                         .idempotentCommand()
                         .build(),
                 deadline,
@@ -224,7 +232,7 @@ public class DataApiClient {
      */
     public ClaimIntentAck enqueueClaimIntent(UUID userId, String slug, String idempotencyKey,
             Deadline deadline) {
-        return http.exchange(
+        ClaimIntentAck intent = http.exchange(
                 InternalCall.to(HttpMethod.POST, PATH_CLAIM_INTENTS)
                         .onBehalfOf(userId)
                         .idempotencyKey(idempotencyKey)
@@ -233,6 +241,11 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<ClaimIntentAck>() { });
+        if (intent == null || intent.commandId() == null
+                || intent.eventId() == null || intent.eventId().isBlank() || intent.version() <= 0) {
+            throw new UpstreamContractMismatchException("초대 claim 의도 응답이 완전하지 않습니다");
+        }
+        return intent;
     }
 
     /**
@@ -247,7 +260,7 @@ public class DataApiClient {
      */
     public DurableCommandAck confirmClaim(UUID userId, UUID claimId, String slug, String capability,
             String idempotencyKey, Deadline deadline) {
-        return http.exchange(
+        DurableCommandAck confirmed = http.exchange(
                 InternalCall.to(HttpMethod.POST, PATH_CLAIM_CONFIRMATIONS)
                         .onBehalfOf(userId)
                         .idempotencyKey(idempotencyKey)
@@ -256,6 +269,11 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<DurableCommandAck>() { });
+        if (confirmed == null || confirmed.commandId() == null
+                || confirmed.eventId() == null || confirmed.eventId().isBlank() || confirmed.version() <= 0) {
+            throw new UpstreamContractMismatchException("초대 claim 확정 응답이 완전하지 않습니다");
+        }
+        return confirmed;
     }
 
     /**
@@ -279,11 +297,13 @@ public class DataApiClient {
      * <p>재시도하지 않는다: {@code acknowledged_at IS NULL} 조건부 UPDATE 라 두 번째 시도는 0행이 되고,
      * 그 0행을 실패로 읽으면 이미 성공한 ack 가 실패로 보고된다.
      */
-    public void acknowledgeResult(UUID userId, UUID sessionId, UUID claimToken, Deadline deadline) {
+    public void acknowledgeResult(UUID userId, UUID sessionId, UUID claimToken, Instant ackDeadlineAt,
+            Deadline deadline) {
         http.execute(
                 InternalCall.to(HttpMethod.POST, resultPath(PATH_RESULT_ACK, userId, sessionId))
                         .onBehalfOf(userId)
-                        .body(Map.of("claimToken", claimToken == null ? "" : claimToken.toString()))
+                        .body(Map.of("claimToken", claimToken == null ? "" : claimToken.toString(),
+                                "ackDeadlineAt", ackDeadlineAt.toString()))
                         .build(),
                 deadline);
     }
@@ -349,10 +369,20 @@ public class DataApiClient {
      * <p>같은 토큰으로 다시 와도 200 이어야 한다(멱등) — 409 면 CLI 가 정상 중복을 오류로 센다.
      */
     public void completeClaimIntent(UUID commandId, UUID leaseToken, Deadline deadline) {
+        completeClaimIntent(commandId, leaseToken, null, deadline);
+    }
+
+    /** 재개 중 확정된 거절 코드도 원래 요청의 재생을 위해 전달한다. */
+    public void completeClaimIntent(UUID commandId, UUID leaseToken, String terminalCode, Deadline deadline) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("leaseToken", leaseToken.toString());
+        if (terminalCode != null) {
+            body.put("terminalCode", terminalCode);
+        }
         http.execute(
                 InternalCall.to(HttpMethod.POST,
                                 PATH_CLAIM_INTENT_COMPLETED.replace("{commandId}", commandId.toString()))
-                        .body(Map.of("leaseToken", leaseToken.toString()))
+                        .body(body)
                         .idempotentCommand()
                         .build(),
                 deadline);
@@ -394,7 +424,7 @@ public class DataApiClient {
     }
 
     /** 삭제 outbox 요청 본문. {@code authGeneration} 은 <b>없으면 null</b> 이고 채우지 않는다(㊍). */
-    record DeviceTokenDeletionCommand(String deviceToken, String ownershipToken, Long authGeneration) {
+    record DeviceTokenDeletionCommand(String deviceToken, String ownershipToken, Long authGeneration, UUID sessionId) {
     }
 
     /** claim 확정 요청 본문. */

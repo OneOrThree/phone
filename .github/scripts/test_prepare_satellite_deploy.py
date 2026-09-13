@@ -45,6 +45,7 @@ def secret() -> dict[str, str]:
     for required in WRITER.SERVICE_REQUIRED_KEYS.values():
         keys |= set(required)
     data = {key: f"secretvalue-{key.lower()}" for key in sorted(keys)}
+    data["SVC_TOKEN_CONSOLE_TO_NOTI"] = "member-1:secretvalue-console-one,member-2:secretvalue-console-two"
     # 관측 백엔드 키와 콘솔 비밀번호는 공유 시크릿에 «있지만» 어느 서비스에도 가면 안 된다.
     data["LINK_PROXY_SECRET"] = "secretvalue-link-proxy"
     data["DD_API_KEY"] = "secretvalue-dd-api-key"
@@ -73,7 +74,7 @@ class Fixture:
 
 
 def run(fixture: Fixture, *extra: str, payload: dict | None = None,
-        with_data: bool = True) -> subprocess.CompletedProcess[str]:
+        with_data: bool = True, environment: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     command = [sys.executable, str(SCRIPT), "--environment", "dev",
                "--output-dir", str(fixture.output), "--base-compose", str(fixture.base),
                "--shared-env-file", str(fixture.shared),
@@ -83,10 +84,143 @@ def run(fixture: Fixture, *extra: str, payload: dict | None = None,
         command += ["--data-image", IMAGES["--data-image"]]
     command += list(extra)
     return subprocess.run(command, input=json.dumps(secret() if payload is None else payload),
-                          text=True, capture_output=True)
+                          text=True, capture_output=True, env=environment)
 
 
 class PrepareSatelliteDeployTest(unittest.TestCase):
+
+    def test_공유_JSON의_공개_환경값도_dev_prod_준비와_프로파일에_쓸_수_있다(self) -> None:
+        for deployment in ("dev", "prod"):
+            for key in ("SPRING_PROFILES_ACTIVE", "DD_ENV", "DD_SERVICE", "DD_VERSION"):
+                with self.subTest(environment=deployment, key=key), tempfile.TemporaryDirectory() as directory:
+                    fixture = Fixture(directory)
+                    payload = {**secret(), key: deployment}
+                    result = run(fixture, "--environment", deployment, "--project-name", "public-config",
+                                 payload=payload)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    compose = (fixture.output / "compose.env").read_text()
+                    self.assertIn(f"DEPLOY_ENV='{deployment}'", compose)
+                    self.assertIn(f"DATA_API_PROFILES='{deployment},satellites'", compose)
+                    for credential in secret().values():
+                        self.assertNotIn(credential, compose + result.stdout + result.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            profiles = "prod,satellites,foo"
+            payload = {**secret(), "SPRING_PROFILES_ACTIVE": "prod,satellites",
+                       "DATA_API_PROFILES": profiles, "DEPLOY_ENV": "prod"}
+            result = run(fixture, "--environment", "prod", "--project-name", "public-config",
+                         "--data-profiles", profiles, payload=payload)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"DATA_API_PROFILES='{profiles}'", (fixture.output / "compose.env").read_text())
+
+    def test_공개값과_같은_실제_자격과_미분류_키는_누출_검사를_유지한다(self) -> None:
+        for key in ("JWT_SECRET", "DD_API_KEY", "UNCLASSIFIED_CREDENTIAL"):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                fixture.output.mkdir()
+                previous = fixture.output / "notification.env"
+                previous.write_text("previous")
+                payload = {**secret(), "SPRING_PROFILES_ACTIVE": "prod", "DD_ENV": "prod", key: "prod"}
+                result = run(fixture, "--environment", "prod", "--project-name", "public-config", payload=payload)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("DEPLOY_ENV", result.stderr)
+                self.assertEqual(previous.read_text(), "previous")
+                self.assertEqual({path.name for path in fixture.output.iterdir()}, {"notification.env"})
+
+    def test_공개_환경값이_있어도_경로에_포함된_실제_시크릿은_거부한다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            credential = "private-path-credential"
+            fixture.output = fixture.output / ("prefix-" + credential + "-suffix")
+            payload = {**secret(), "DD_ENV": "prod", "JWT_SECRET": credential}
+            result = run(fixture, "--environment", "prod", "--project-name", "public-config", payload=payload)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("BUSINESS_API_ENV_FILE", result.stderr)
+            self.assertNotIn(credential, result.stdout + result.stderr)
+            self.assertFalse((fixture.output / "compose.env").exists())
+
+    def test_필수_공유_보간의_최종_빈값은_기존_산출물_변경전에_거부한다(self) -> None:
+        entries = ("POSTGRES_DB=", "POSTGRES_DB=''", 'POSTGRES_DB=""',
+                   "POSTGRES_DB='  '", 'POSTGRES_DB="\\t"', "POSTGRES_DB='' # comment",
+                   "POSTGRES_DB=gromo\nPOSTGRES_DB=''",
+                   'POSTGRES_DB="${GROMO_TEST_EMPTY_VAR}"',
+                   "POSTGRES_DB=${GROMO_TEST_EMPTY_VAR:-}", "export POSTGRES_DB=''")
+        environment = dict(os.environ)
+        environment.pop("POSTGRES_DB", None)
+        environment.pop("GROMO_TEST_EMPTY_VAR", None)
+        for entry in entries:
+            with self.subTest(entry=entry), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                fixture.shared.write_text(entry + "\nPRIVATE_SENTINEL='never-log-this-value'\n")
+                fixture.output.mkdir()
+                previous = fixture.output / "notification.env"
+                previous.write_text("previous")
+                result = run(fixture, environment=environment)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("POSTGRES_DB", result.stderr)
+                self.assertEqual(previous.read_text(), "previous")
+                self.assertEqual({path.name for path in fixture.output.iterdir()}, {"notification.env"})
+                self.assertNotIn("never-log-this-value", result.stdout + result.stderr)
+
+    def test_쉘_보간값은_빈값도_공유와_생성_env보다_우선한다(self) -> None:
+        for key in ("POSTGRES_DB", "NOTIFICATION_ENV_FILE"):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                result = run(fixture, environment={**os.environ, key: ""})
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(key, result.stderr)
+                self.assertFalse((fixture.output / "compose.env").exists())
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.shared.write_text("POSTGRES_DB=''\n")
+            result = run(fixture, environment={**os.environ, "POSTGRES_DB": "shell-db"})
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_공유_env_해석_오류도_비밀값과_산출물을_남기지_않는다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.shared.write_text("POSTGRES_DB=${GROMO_TEST_PARSE_ERROR:?private-error-value}\n")
+            environment = dict(os.environ)
+            environment.pop("GROMO_TEST_PARSE_ERROR", None)
+            result = run(fixture, environment=environment)
+            self.assertEqual(result.returncode, 1)
+            self.assertNotIn("private-error-value", result.stdout + result.stderr)
+            self.assertFalse((fixture.output / "compose.env").exists())
+            self.assertFalse((fixture.output / "notification.env").exists())
+
+    def test_정상_dotenv_문법과_선택적_기본값은_보존한다(self) -> None:
+        environment = dict(os.environ)
+        environment.pop("POSTGRES_DB", None)
+        environment.pop("GROMO_TEST_EMPTY_VAR", None)
+        entries = ("POSTGRES_DB=gromo", " POSTGRES_DB = gromo ", "export POSTGRES_DB='gromo'",
+                   'POSTGRES_DB="gromo"', "POSTGRES_DB='${GROMO_TEST_EMPTY_VAR}'",
+                   "POSTGRES_DB='multi\nline'", "POSTGRES_DB='hash# and quote\\'value'",
+                   "DATABASE_NAME=gromo\nPOSTGRES_DB=${DATABASE_NAME}",
+                   "POSTGRES_DB=${GROMO_TEST_EMPTY_VAR:-gromo}", "POSTGRES_DB=''\nPOSTGRES_DB=gromo")
+        for entry in entries:
+            with self.subTest(entry=entry), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                fixture.shared.write_text(entry + "\nGROMO_TEST_OPTIONAL=''\n")
+                fixture.base.write_text(fixture.base.read_text()
+                                        + "      OPTIONAL: ${GROMO_TEST_OPTIONAL:-default-value}\n")
+                result = run(fixture, environment=environment)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(fixture.shared.read_text(), entry + "\nGROMO_TEST_OPTIONAL=''\n")
+
+    def test_콘솔_단일_토큰은_기존_준비_파일을_변경하지_않고_거부한다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            fixture.output.mkdir()
+            previous = fixture.output / "notification.env"
+            previous.write_text("previous")
+            payload = secret()
+            payload["SVC_TOKEN_CONSOLE_TO_NOTI"] = "private-invalid-console-token"
+            result = run(fixture, payload=payload)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("SVC_TOKEN_CONSOLE_TO_NOTI", result.stderr)
+            self.assertEqual(previous.read_text(), "previous")
+            self.assertEqual({path.name for path in fixture.output.iterdir()}, {"notification.env"})
+            self.assertNotIn(payload["SVC_TOKEN_CONSOLE_TO_NOTI"], result.stdout + result.stderr)
 
     def test_상대_출력경로도_compose에는_절대경로로_기록한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -269,11 +403,57 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                     "--data-profiles", "prod,satellites").returncode, 0)
 
     def test_satellites_프로파일이_빠진_Data_는_실패한다(self) -> None:
+        for profiles in ("dev", "dev,not-satellites", "dev,satellites-extra", "dev,SATELLITES", "", "  "):
+            with self.subTest(profiles=profiles), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                result = run(fixture, "--data-profiles", profiles)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("satellites", result.stderr)
+                self.assertFalse((fixture.output / "data-api.env").exists())
+
+    def test_선택_Data_프로파일이_env와_실제_compose에_같이_전달된다(self) -> None:
+        environment = dict(os.environ)
+        environment.pop("DATA_API_PROFILES", None)
+        for profiles in ("prod,satellites,foo", "prod, satellites ,foo"):
+            with self.subTest(profiles=profiles), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                result = run(fixture, "--environment", "prod", "--project-name", "profile-proof",
+                             "--data-profiles", profiles, environment=environment)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("SPRING_PROFILES_ACTIVE=" + WRITER.dotenv_quote(profiles),
+                              (fixture.output / "data-api.env").read_text())
+                configured = subprocess.run([
+                    "docker", "compose", "-p", "profile-proof", "-f", str(fixture.base),
+                    "-f", str(ROOT / "server/scripts/docker-compose.satellites.yml"),
+                    "-f", str(DATA_OVERLAY), "--env-file", str(fixture.shared), "--env-file",
+                    str(fixture.output / "compose.env"), "config", "--format", "json"],
+                    capture_output=True, text=True, env=environment)
+                self.assertEqual(configured.returncode, 0)
+                services = json.loads(configured.stdout)["services"]
+                self.assertEqual(services["app"]["environment"]["SPRING_PROFILES_ACTIVE"], profiles)
+                for service in ("business-api", "notification"):
+                    self.assertEqual(services[service]["environment"]["SPRING_PROFILES_ACTIVE"], "prod")
+
+    def test_다른_쉘_Data_프로파일은_선택값을_조용히_덮어쓸_수_없다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = Fixture(directory)
-            result = run(fixture, "--data-profiles", "dev")
+            result = run(fixture, environment={**os.environ, "DATA_API_PROFILES": "dev,satellites,override"})
             self.assertEqual(result.returncode, 1)
-            self.assertIn("satellites", result.stderr)
+            self.assertIn("DATA_API_PROFILES", result.stderr)
+            self.assertFalse((fixture.output / "data-api.env").exists())
+            matched = run(fixture, "--data-profiles", "dev,satellites,override",
+                          environment={**os.environ, "DATA_API_PROFILES": "dev,satellites,override"})
+            self.assertEqual(matched.returncode, 0, matched.stderr)
+
+    def test_Data를_준비하지_않으면_선택_Data_프로파일은_다른_서비스로_가지_않는다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            result = run(fixture, "--data-profiles", "dev,satellites,foo", with_data=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((fixture.output / "data-api.env").exists())
+            self.assertNotIn("DATA_API_PROFILES=", (fixture.output / "compose.env").read_text())
+            for service in ("business-api", "notification"):
+                self.assertIn("SPRING_PROFILES_ACTIVE='dev'", (fixture.output / f"{service}.env").read_text())
 
     def test_공유_env_파일을_덮어쓰려_하면_거부한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

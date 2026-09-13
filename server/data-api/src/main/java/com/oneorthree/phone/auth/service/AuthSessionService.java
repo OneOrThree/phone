@@ -153,6 +153,12 @@ public class AuthSessionService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public IssuedSession promoteLegacy(UUID userId, String newRefreshToken) {
+        return promoteLegacy(userId, newRefreshToken, null);
+    }
+
+    /** 구 단일 RT의 소유를 검증한 호출자만 당시 기기 토큰을 함께 고정한다. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public IssuedSession promoteLegacy(UUID userId, String newRefreshToken, String legacyDeviceToken) {
         long sessionEpoch = outboxCommandPort.allocateVersion(AggregateRef.ofUser(userId));
         String bootstrap = newBootstrapNonce();
         AuthSession promoted = authSessionRepository.save(AuthSession.builder()
@@ -161,6 +167,7 @@ public class AuthSessionService {
                 .bootstrapNonceHash(TokenHasher.sha256Hex(bootstrap))
                 .sessionEpoch(sessionEpoch)
                 .legacy(true)
+                .legacyDeviceToken(legacyDeviceToken)
                 .build());
         return new IssuedSession(promoted.getId(), sessionEpoch, bootstrap);
     }
@@ -185,9 +192,16 @@ public class AuthSessionService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void recordLegacyLogoutSession(UUID userId, String refreshToken) {
+        recordLegacyLogoutSession(userId, refreshToken, null);
+    }
+
+    /** RT-only 로그아웃의 원래 기기도 완료 세션에 고정한다. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordLegacyLogoutSession(UUID userId, String refreshToken, String legacyDeviceToken) {
         long epoch = outboxCommandPort.allocateVersion(AggregateRef.ofUser(userId));
         authSessionRepository.save(AuthSession.builder().userId(userId)
-                .refreshTokenHash(TokenHasher.sha256Hex(refreshToken)).sessionEpoch(epoch).legacy(true).build());
+                .refreshTokenHash(TokenHasher.sha256Hex(refreshToken)).sessionEpoch(epoch).legacy(true)
+                .legacyDeviceToken(legacyDeviceToken).build());
     }
 
     /**

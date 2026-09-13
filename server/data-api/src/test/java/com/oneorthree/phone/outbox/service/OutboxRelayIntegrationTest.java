@@ -25,6 +25,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -39,6 +41,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -55,6 +60,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class OutboxRelayIntegrationTest {
 
     private static final StubSatelliteServer LINK_SERVER = StubSatelliteServer.start("/internal/users/");
+    private static final StubSatelliteServer NOTI_SERVER = StubSatelliteServer.start("/internal/events");
+    private static final String NOTI_ENDPOINT_KEY = "NOTI_EVENT";
     private static final String SERVICE_TOKEN = "link-service-token";
     private static final String LINK_ENDPOINT_KEY = "LINK_USER_WITHDRAW";
     private static final String TOPIC = "notification-events";
@@ -63,6 +70,11 @@ class OutboxRelayIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
+        registry.add("outbox.relay.endpoints." + NOTI_ENDPOINT_KEY + ".target", () -> "NOTI");
+        registry.add("outbox.relay.endpoints." + NOTI_ENDPOINT_KEY + ".method", () -> "POST");
+        registry.add("outbox.relay.endpoints." + NOTI_ENDPOINT_KEY + ".token", () -> "noti-service-token");
+        registry.add("outbox.relay.endpoints." + NOTI_ENDPOINT_KEY + ".url",
+                () -> NOTI_SERVER.baseUrl() + "/internal/events");
         registry.add("spring.kafka.bootstrap-servers", OutboxTestKafka.INSTANCE::getBootstrapServers);
         registry.add("outbox.relay.enabled", () -> true);
         registry.add("outbox.relay.worker-id", () -> "test-worker");
@@ -86,6 +98,7 @@ class OutboxRelayIntegrationTest {
     @AfterAll
     static void stopStub() {
         LINK_SERVER.stop();
+        NOTI_SERVER.stop();
     }
 
     @Autowired
@@ -387,6 +400,90 @@ class OutboxRelayIntegrationTest {
         assertThat(countPublished(eventId))
                 .as("수신 측은 eventId 로 멱등이라 중복이 안전하다")
                 .isGreaterThanOrEqualTo(1L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"notification.settings.changed", "notification.deviceToken.deleted",
+            "auth.session.revoked", "auth.generation.bumped"})
+    void pendingNotificationStateBlocksLaterKafkaAcrossTransports(String type) throws Exception {
+        UUID user = UUID.randomUUID();
+        UUID state = appendNotificationState(user, type);
+        UUID request = appendNotificationRequest(user, "evt-after-state-" + UUID.randomUUID());
+        UUID independent = appendNotificationRequest(UUID.randomUUID(), "evt-independent-" + UUID.randomUUID());
+        UUID link = appendLinkOnly(user, "evt-link-independent-" + UUID.randomUUID()).outboxId();
+        LINK_SERVER.respondWith(200);
+        NOTI_SERVER.respondWith(200);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        NOTI_SERVER.holdResponses(entered, release);
+        var executor = Executors.newSingleThreadExecutor();
+        var stateRelay = executor.submit(() -> relayService.relayTarget(OutboxTarget.NOTI));
+        try {
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            relayService.relayTarget(OutboxTarget.KAFKA);
+            relayService.relayTarget(OutboxTarget.LINK);
+
+            assertThat(delivery(state, OutboxTarget.NOTI).getDeliveredAt()).isNull();
+            assertThat(delivery(request, OutboxTarget.KAFKA).getAttemptCount())
+                    .as("선행 상태의 HTTP 커밋 응답 전에는 후행 알림을 Kafka에 발행하지 않는다").isZero();
+            assertThat(delivery(independent, OutboxTarget.KAFKA).getDeliveredAt()).isNotNull();
+            assertThat(delivery(link, OutboxTarget.LINK).getDeliveredAt()).isNotNull();
+        } finally {
+            release.countDown();
+            stateRelay.get(5, TimeUnit.SECONDS);
+            NOTI_SERVER.resumeResponses();
+            executor.shutdownNow();
+        }
+        assertThat(delivery(state, OutboxTarget.NOTI).getDeliveredAt()).isNotNull();
+        relayService.relayTarget(OutboxTarget.KAFKA);
+        assertThat(delivery(request, OutboxTarget.KAFKA).getDeliveredAt()).isNotNull();
+    }
+
+    @Test
+    void notificationStateBackoffAlsoBlocksLaterKafkaUntilHttpRecovers() {
+        UUID user = UUID.randomUUID();
+        UUID state = appendNotificationState(user, "notification.settings.changed");
+        UUID request = appendNotificationRequest(user, "evt-backoff-" + UUID.randomUUID());
+        NOTI_SERVER.respondWith(503);
+        relayService.relayTarget(OutboxTarget.NOTI);
+        assertThat(delivery(state, OutboxTarget.NOTI).getLeaseToken()).isNull();
+        relayService.relayTarget(OutboxTarget.KAFKA);
+        assertThat(delivery(request, OutboxTarget.KAFKA).getAttemptCount()).isZero();
+
+        NOTI_SERVER.respondWith(200);
+        sleep(400);
+        relayService.relayTarget(OutboxTarget.NOTI);
+        relayService.relayTarget(OutboxTarget.KAFKA);
+        assertThat(delivery(state, OutboxTarget.NOTI).getDeliveredAt()).isNotNull();
+        assertThat(delivery(request, OutboxTarget.KAFKA).getDeliveredAt()).isNotNull();
+    }
+
+    @Test
+    void newerNotificationStateDoesNotWaitForOlderKafkaConsumption() {
+        UUID user = UUID.randomUUID();
+        UUID request = appendNotificationRequest(user, "evt-delayed-consumer-" + UUID.randomUUID());
+        UUID state = appendNotificationState(user, "notification.settings.changed");
+        // Kafka를 발행조차 하지 못한 경우도 최신 끔·삭제 상태의 HTTP 전달을 막지 않는다.
+        NOTI_SERVER.respondWith(200);
+        relayService.relayTarget(OutboxTarget.NOTI);
+        assertThat(delivery(request, OutboxTarget.KAFKA).getDeliveredAt()).isNull();
+        assertThat(delivery(state, OutboxTarget.NOTI).getDeliveredAt()).isNotNull();
+    }
+
+    private UUID appendNotificationRequest(UUID user, String eventId) {
+        EventEnvelope event = tx().execute(status -> outboxCommandPort.append(new OutboxAppendCommand(
+                eventId, 1, "notification.requested", user, "ko", null,
+                AggregateRef.ofUser(user), null, Map.of("kind", "FRIEND_REQUEST"),
+                List.of(OutboxDeliveryRequest.toKafka()))));
+        return outboxIdOf(event.eventId());
+    }
+
+    private UUID appendNotificationState(UUID user, String type) {
+        EventEnvelope event = tx().execute(status -> outboxCommandPort.append(new OutboxAppendCommand(
+                "evt-state-" + UUID.randomUUID(), 1, type, user, "ko", null,
+                AggregateRef.ofUser(user), null, Map.of(),
+                List.of(OutboxDeliveryRequest.toNotification(NOTI_ENDPOINT_KEY, null)))));
+        return outboxIdOf(event.eventId());
     }
 
     // ── 헬퍼 ────────────────────────────────────────────────────────────

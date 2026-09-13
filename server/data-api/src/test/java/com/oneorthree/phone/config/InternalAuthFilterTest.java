@@ -1,17 +1,27 @@
 package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
+import com.oneorthree.phone.internal.InternalUserController;
+import com.oneorthree.phone.user.service.UserSatelliteCommandService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * 내부 표면의 관문 (A22 ㉸ · ㉱ · ㊀).
@@ -144,6 +154,53 @@ class InternalAuthFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_FORBIDDEN);
         assertThat(chain.getRequest()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "12345678-1234-4234-8234-123456789abc;ignored=yes",
+        "%312345678-1234-4234-8234-123456789abc"
+    })
+    @DisplayName("MVC가 정규화하는 사용자 경로로 주체 대조를 우회할 수 없다")
+    void rejectsNonCanonicalUserPathsBeforeMvc(String segment) throws Exception {
+        UserSatelliteCommandService service = mock(UserSatelliteCommandService.class);
+        var mvc = MockMvcBuilders.standaloneSetup(new InternalUserController(service,
+                mock(com.oneorthree.phone.internal.InternalDeviceTokenDeletionService.class)))
+                .addFilters(new InternalAuthFilter(enabledProperties())).build();
+
+        mvc.perform(get(URI.create("/internal/users/" + segment + "/activation"))
+                        .header("Authorization", "Bearer " + BUSINESS_TOKEN)
+                        .header("X-User-Id", UUID.randomUUID().toString()))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("사용자 하위 경로의 깨진 UUID를 서비스 전용 요청으로 통과시키지 않는다")
+    void rejectsMalformedUserPath() throws Exception {
+        MockHttpServletRequest request = request("GET", "/internal/users/not-a-uuid/activation");
+        request.addHeader("Authorization", "Bearer " + BUSINESS_TOKEN);
+        request.addHeader("X-User-Id", UUID.randomUUID().toString());
+        MockFilterChain chain = new MockFilterChain();
+
+        assertThat(run(enabledProperties(), request, chain).getStatus())
+                .isEqualTo(HttpServletResponse.SC_FORBIDDEN);
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
+    @DisplayName("계약에 명시된 유저 스냅샷은 사용자 헤더 없는 컬렉션 조회를 유지한다")
+    void passesUserSnapshotWithoutDelegatedUser() throws Exception {
+        InternalApiProperties properties = enabledProperties();
+        properties.getCallers().get("notification")
+                .setAllow(List.of("GET /internal/users/notification-snapshot"));
+        MockHttpServletRequest request = request("GET", "/internal/users/notification-snapshot");
+        request.addHeader("Authorization", "Bearer " + NOTI_TOKEN);
+        MockFilterChain chain = new MockFilterChain();
+
+        assertThat(run(properties, request, chain).getStatus()).isEqualTo(HttpServletResponse.SC_OK);
+        assertThat(chain.getRequest()).isNotNull();
     }
 
     @Test

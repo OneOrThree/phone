@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -80,6 +81,37 @@ IMAGE_KEYS = {
     "data-api": "APP_IMAGE", "business-api": "BUSINESS_API_IMAGE", "notification": "NOTIFICATION_IMAGE",
 }
 
+# ServiceAuth의 String.trim()/isBlank()와 같은 집합이다. Python strip/isspace는 NBSP 등도 포함한다.
+JAVA_TRIM_CHARACTERS = "".join(chr(code) for code in range(33))
+JAVA_WHITESPACE = frozenset("\t\n\v\f\r\x1c\x1d\x1e\x1f \u1680\u2000\u2001\u2002\u2003"
+                            "\u2004\u2005\u2006\u2008\u2009\u200a\u2028\u2029\u205f\u3000")
+
+
+def validate_notification_tokens(secret: dict[str, Any]) -> None:
+    """ServiceAuth와 같은 콘솔 파싱·caller 중복 검사. 검증만 하고 출력할 원문은 바꾸지 않는다."""
+    console_key = "SVC_TOKEN_CONSOLE_TO_NOTI"
+    business_key, data_key = "SVC_TOKEN_BIZ_TO_NOTI", "SVC_TOKEN_DATA_TO_NOTI"
+    for key in (console_key, business_key, data_key):
+        if not isinstance(secret[key], str) or "${" in secret[key]:
+            raise ValueError(f"서비스 토큰 형식 오류: {key}")
+    console_tokens: set[str] = set()
+    for entry in secret[console_key].split(","):
+        pair = entry.strip(JAVA_TRIM_CHARACTERS)
+        if not pair:
+            continue
+        actor, separator, token = pair.partition(":")
+        actor, token = actor.strip(JAVA_TRIM_CHARACTERS), token.strip(JAVA_TRIM_CHARACTERS)
+        if not separator or not re.fullmatch(r"member-[1-3]", actor) or all(c in JAVA_WHITESPACE for c in token):
+            raise ValueError(f"{console_key}는 member-1~3:토큰 목록이어야 합니다")
+        if token in console_tokens:
+            raise ValueError(f"{console_key}의 토큰은 서로 달라야 합니다")
+        console_tokens.add(token)
+    if not console_tokens:
+        raise ValueError(f"필수 시크릿 누락: {console_key}")
+    business, data = secret[business_key], secret[data_key]
+    if business == data or business in console_tokens or data in console_tokens:
+        raise ValueError("알림 caller 토큰은 서로 달라야 합니다: " + ", ".join((console_key, business_key, data_key)))
+
 
 def require(secret: dict[str, Any], keys: tuple[str, ...]) -> None:
     """누락·null·빈 문자열을 값 노출 없이 실패시킨다."""
@@ -106,9 +138,11 @@ def dotenv_quote(value: Any) -> str:
 
 
 def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
-           phase: str = "transition", environment: str = "dev") -> str:
+           phase: str = "transition", environment: str = "dev", *, data_profiles: str | None = None) -> str:
     if service != "legacy":
-        return render_service(secret, app_image, service, phase, environment)
+        return render_service(secret, app_image, service, phase, environment, data_profiles=data_profiles)
+    if data_profiles is not None:
+        raise ValueError("Data 프로파일은 data-api에만 지정할 수 있습니다")
     require(secret, REQUIRED_KEYS)
 
     values: list[tuple[str, Any]] = [("APP_IMAGE", app_image)]
@@ -123,21 +157,30 @@ def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
 
 
 def render_service(secret: dict[str, Any], image: str, service: str,
-                   phase: str, environment: str) -> str:
+                   phase: str, environment: str, *, data_profiles: str | None = None) -> str:
     if service not in SERVICE_REQUIRED_KEYS:
         raise ValueError("알 수 없는 서비스")
     if phase not in ("transition", "final") or environment not in ("dev", "prod"):
         raise ValueError("지원하지 않는 배포 단계 또는 환경")
     if not image.strip():
         raise ValueError("서비스 이미지가 필요합니다")
+    profiles = environment
+    if service == "data-api":
+        profiles = data_profiles if data_profiles is not None else f"{environment},satellites"
+        if "satellites" not in {profile.strip() for profile in profiles.split(",")}:
+            raise ValueError("Data 프로파일에 satellites 항목이 필요합니다")
+    elif data_profiles is not None:
+        raise ValueError("Data 프로파일은 data-api에만 지정할 수 있습니다")
     required = SERVICE_REQUIRED_KEYS[service]
     if service == "data-api" and phase == "transition":
         required += TRANSITION_KEYS
     if service == "business-api" and environment == "prod":
         required += ("LINK_PROXY_SECRET",)
     require(secret, required)
+    if service == "notification":
+        validate_notification_tokens(secret)
     values: list[tuple[str, Any]] = [
-        (IMAGE_KEYS[service], image), ("SPRING_PROFILES_ACTIVE", environment + ",satellites" if service == "data-api" else environment),
+        (IMAGE_KEYS[service], image), ("SPRING_PROFILES_ACTIVE", profiles),
     ]
     values.extend((key, secret[key]) for key in required)
     optional = SERVICE_OPTIONAL_KEYS[service] + OBSERVABILITY_KEYS

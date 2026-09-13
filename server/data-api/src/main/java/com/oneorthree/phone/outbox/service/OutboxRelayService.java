@@ -128,6 +128,11 @@ public class OutboxRelayService {
         }
 
         OutboxTransport transport = transports.get(delivery.getTarget());
+        if (!store.renewLease(delivery.getId(), token)) {
+            log.warn("전송 전 리스를 잃어 건너뛴다 — deliveryId={} target={}",
+                    delivery.getId(), delivery.getTarget());
+            return false;
+        }
         OutboxTransportResult result;
         try {
             result = transport.send(delivery, envelope.get().getUserId());

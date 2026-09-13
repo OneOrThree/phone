@@ -106,6 +106,12 @@ public class InternalAuthFilter extends OncePerRequestFilter {
         }
 
         String path = request.getRequestURI();
+        // MVC는 matrix parameter를 제거하고 percent escape를 디코딩한다. 원문을 허용목록·주체
+        // 대조에 쓰는 이 필터와 해석이 달라지지 않도록 내부 표면은 정규 경로만 받는다.
+        if (path.indexOf(';') >= 0 || path.indexOf('%') >= 0) {
+            deny(response, HttpServletResponse.SC_FORBIDDEN, "internal path is not canonical");
+            return;
+        }
         if (!isAllowed(caller, request.getMethod(), path)) {
             log.warn("내부 호출 거부 — caller={} {} {}", caller, request.getMethod(), path);
             deny(response, HttpServletResponse.SC_FORBIDDEN, "call not in allowlist");
@@ -123,7 +129,13 @@ public class InternalAuthFilter extends OncePerRequestFilter {
             }
         }
 
-        UUID pathUserId = pathUserIdOf(path);
+        UUID pathUserId;
+        try {
+            pathUserId = pathUserIdOf(path);
+        } catch (IllegalArgumentException e) {
+            deny(response, HttpServletResponse.SC_FORBIDDEN, "path user is not a uuid");
+            return;
+        }
         if (pathUserId != null && !pathUserId.equals(userId)) {
             // 「경로의 대상 ≠ 헤더의 주체」는 언제나 배선 사고다. 통과시키면 그 순간 남의 데이터다.
             log.warn("내부 호출 거부 — caller={} 대상 불일치 {}", caller, path);
@@ -170,21 +182,18 @@ public class InternalAuthFilter extends OncePerRequestFilter {
     /**
      * {@code /internal/users/{userId}/…} 의 유저 segment. 그 모양이 아니면 {@code null} 이다.
      *
-     * <p>UUID 로 파싱되지 않으면 «유저 경로가 아니다»로 본다 — 여기서 400 을 내면 나중에
-     * {@code /internal/users/summary} 같은 비유저 경로가 생겼을 때 통째로 막힌다.
+     * <p>{@code notification-snapshot}은 계약에 명시된 컬렉션 조회다. 그 외 사용자 경로는 UUID
+     * 파싱 실패도 거절한다 — 실패를 서비스 전용 요청으로 접으면 경로 해석 차이가 주체 대조
+     * 우회로 이어진다.
      */
     private UUID pathUserIdOf(String path) {
-        if (!path.startsWith(USER_SCOPED_PREFIX)) {
+        if (!path.startsWith(USER_SCOPED_PREFIX) || path.equals(USER_SCOPED_PREFIX + "notification-snapshot")) {
             return null;
         }
         String rest = path.substring(USER_SCOPED_PREFIX.length());
         int slash = rest.indexOf('/');
         String segment = slash < 0 ? rest : rest.substring(0, slash);
-        try {
-            return UUID.fromString(segment);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
+        return UUID.fromString(segment);
     }
 
     /**

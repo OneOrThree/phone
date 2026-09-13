@@ -78,8 +78,8 @@ public enum NotificationCronReplayJob {
      *
      * <ul>
      *   <li>{@code notification-rank-overtake} — A5 폐기. 신 카탈로그에 kind 자체가 없다.</li>
-     *   <li>{@code notification-bet-event-flush} — 신 모드에서 flush 는 알림 서버 소유다. Data 가
-     *       재생할 것이 없다.</li>
+     *   <li>{@code notification-bet-event-flush} — 발송은 알림 서버 소유다. Data의 결과 슬롯 완료는
+     *       내구 원장에서 매 5분 재개하므로 별도 과거 시각 재생이 필요 없다.</li>
      *   <li>{@code notification-silent-flush} — {@code settle_after − 15분} 창의 사일런트다.
      *       정산이 이미 지났으면 깨워 봐야 flush 할 것이 없고, 포그라운드 sync 가 최후 보루다.</li>
      *   <li>{@code group-bet-freeze-monitor} — 사용자 발송이 아니라 운영 로그다.</li>

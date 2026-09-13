@@ -56,7 +56,7 @@ public record NotificationExportDocument(
     /**
      * 검증 보조 정보 — wire 에 실리지 않고 운영자가 읽는다.
      *
-     * @param duplicateDeviceTokens 같은 기기 토큰을 들고 있는 유저 묶음. 토큰은 <b>앞 8자만</b>
+     * @param duplicateDeviceTokens 실제 export 기기에서 같은 토큰을 들고 있는 유저 묶음. 토큰은 <b>앞 8자만</b>
      *                              — 여기는 사람이 읽는 자리라 원문을 남길 이유가 없다
      *                              (import 레코드에는 계약상 원문이 필요해 그대로 실린다).
      *                              <b>비어 있지 않으면 최종본이 아니다</b> — 같은 토큰 두 레코드는
@@ -67,8 +67,7 @@ public record NotificationExportDocument(
      * @param inflightDrained       운영자가 인플라이트 drain 을 확인했는가. <b>DB 로는 알 수 없는
      *                              사실</b>이라 사람이 말한 것을 그대로 기록한다
      * @param finalEligible         이 문서를 최종 verify 에 쓸 수 있는가 — 정지 창을 닫았고,
-     *                              drain 확인이 있고, 재조립 실패가 없고, 잔여 큐가 0 이고,
-     *                              중복 기기 토큰이 없을 때만 참이다.
+     *                              drain 확인이 있고, 재조립 실패·중복 기기 토큰이 없고, 잔여 큐가 0 일 때만 참이다.
      *                              <b>계산해서 적어 둔다</b>: 다섯 조건을 읽는 쪽마다 다시 조합하면
      *                              한 곳이 하나를 빠뜨려도 드러나지 않는다
      */

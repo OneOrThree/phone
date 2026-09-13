@@ -122,7 +122,10 @@ class DeviceService {
                 : Json.uuid(body, "legacySessionId");
         Map<String, Object> previous = store.one("SELECT * FROM device_tokens WHERE device_token=? FOR UPDATE", token);
         Map<String, Object> knownOwner = ownership == null ? null
-                : store.one("SELECT * FROM device_tokens WHERE ownership_token::text=? FOR UPDATE", ownership);
+                // uuid 값으로 대조한다. ::text 로 비교하면 PostgreSQL 이 소문자로 출력하므로, 앱이 같은
+                // 소유권을 대문자로 정규화해 보내는 순간 «같은 UUID 인데» CAS 가 어긋나 정상 재등록이
+                // DEVICE_OWNERSHIP_CONFLICT 로 거절된다. 형식 검사는 A-F 를 허용하므로 실제로 온다.
+                : store.one("SELECT * FROM device_tokens WHERE ownership_token=?::uuid FOR UPDATE", ownership);
         // CAS 재등록에서 자격이 생략되어도 기존 세션 연결을 버리지 않는다 — 구 앱 세션 축도 같다.
         if (hash == null && knownOwner != null && user.equals(knownOwner.get("user_id"))) {
             hash = (String) knownOwner.get("bootstrap_hash");
@@ -172,7 +175,7 @@ class DeviceService {
         }
         boolean cas = knownOwner != null && user.equals(knownOwner.get("user_id"))
                 && Boolean.TRUE.equals(knownOwner.get("active"))
-                && (previous == null || ownership.equals(previous.get("ownership_token").toString()));
+                && (previous == null || UUID.fromString(ownership).equals(previous.get("ownership_token")));
         boolean freshBootstrap = hash != null
                 && (session == null || !Boolean.TRUE.equals(session.get("used")));
         // 구 앱 세션 창. 판정 기준은 «AT 에 gen 이 실렸는가»가 아니라 «요청이 무엇을 근거로 오는가»다.
@@ -262,6 +265,12 @@ class DeviceService {
     @Transactional
     public Map<String, Object> delete(UUID user, String token, String owner, Long generation,
             String key) {
+        return delete(user, token, owner, generation, null, null, key);
+    }
+
+    @Transactional
+    public Map<String, Object> delete(UUID user, String token, String owner, Long generation,
+            String sessionId, String bootstrapHash, String key) {
         // 멱등 원장에 담기 «전»이다. 담은 뒤에 거절하면 깨진 값이 request_hash 로 굳어, 같은 키로
         // 다시 오는 «고친» 재시도가 IDEMPOTENCY_KEY_CONFLICT 로 영구히 막힌다.
         requireCanonicalOwnership(owner);
@@ -269,8 +278,12 @@ class DeviceService {
         request.put("deviceToken", token);
         request.put("ownershipToken", owner);
         request.put("authGeneration", generation);
+        if (sessionId != null) {
+            request.put("sessionId", sessionId);
+            request.put("bootstrapNonceHash", bootstrapHash);
+        }
         return store.command("device-delete:" + user, key, request, () -> {
-            deleteLocked(user, token, owner, generation);
+            deleteLocked(user, token, owner, generation, sessionId, bootstrapHash);
             return Map.of("applied", true);
         });
     }
@@ -293,9 +306,39 @@ class DeviceService {
      * </ul>
      */
     void deleteLocked(UUID user, String token, String owner, Long generation) {
+        deleteLocked(user, token, owner, generation, null, null);
+    }
+
+    void deleteLocked(UUID user, String token, String owner, Long generation,
+            String sessionId, String bootstrapHash) {
+        deleteLocked(user, token, owner, generation, sessionId, bootstrapHash, false);
+    }
+
+    void deleteLocked(UUID user, String token, String owner, Long generation,
+            String sessionId, String bootstrapHash, boolean legacyUnboundOnly) {
         if (owner != null && !CANONICAL_UUID.matcher(owner).matches()) {
             LOG.warn("기기 토큰 삭제 — 소유권 값의 형식이 깨졌다. 어느 행에도 맞지 않으므로 아무것도 지우지 않고"
                     + " 소비한다. userId={}", user);
+            return;
+        }
+        if (token == null || token.isBlank()) {
+            token = null;
+        }
+        if (legacyUnboundOnly && token == null) {
+            return; // 원래 토큰을 모르는 구 로그아웃을 세션·유저 전체 삭제로 넓히지 않는다.
+        }
+        if (token == null && owner == null) {
+            // 대상 없는 구 사건도 들어온다. 전체 기기로 넓히지 않고 안전하게 소비한다.
+            if (sessionId == null || !CANONICAL_UUID.matcher(sessionId).matches()
+                    || (bootstrapHash != null && !bootstrapHash.matches("[0-9a-f]{64}"))) {
+                return;
+            }
+            store.lock("device-ownership");
+            userFence(user);
+            store.update("UPDATE device_tokens SET active=false,ownership_version=ownership_version+1,updated_at=now()"
+                    + " WHERE user_id=? AND active AND (legacy_session_id=?::uuid OR bootstrap_hash=?)"
+                    + " AND (?::bigint IS NULL OR auth_generation IS NULL OR auth_generation<=?)",
+                    user, sessionId, bootstrapHash, generation, generation);
             return;
         }
         store.lock("device-ownership");
@@ -306,11 +349,15 @@ class DeviceService {
             store.update("INSERT INTO device_tokens(device_token,user_id,ownership_token,auth_generation,active)"
                     + " VALUES(?,?,?,?,false) ON CONFLICT DO NOTHING", token, user, tombstoneOwner, generation);
         }
+        // 소유권은 uuid 값으로 대조한다(위 knownOwner 와 같은 이유). 여기서 어긋나면 더 나쁘다 —
+        // 앞선 tombstone INSERT 는 기존 device_token 과 충돌해 아무 일도 하지 않고 이 UPDATE 도 0행이
+        // 되는데, 삭제는 «성공 응답»을 돌려주므로 기기가 활성인 채 계속 알림을 받는다.
         store.update("UPDATE device_tokens SET active=false,ownership_version=ownership_version+1,updated_at=now()"
                 + " WHERE user_id=? AND active AND (?::text IS NULL OR device_token=?)"
-                + " AND (?::text IS NULL OR ownership_token::text=?)"
-                + " AND (?::bigint IS NULL OR auth_generation IS NULL OR auth_generation<=?)",
-                user, token, token, owner, owner, generation, generation);
+                + " AND (?::uuid IS NULL OR ownership_token=?::uuid)"
+                + " AND (?::bigint IS NULL OR auth_generation IS NULL OR auth_generation<=?)"
+                + " AND (NOT ?::boolean OR (legacy_session_id IS NULL AND bootstrap_hash IS NULL))",
+                user, token, token, owner, owner, generation, generation, legacyUnboundOnly);
     }
 
     /**

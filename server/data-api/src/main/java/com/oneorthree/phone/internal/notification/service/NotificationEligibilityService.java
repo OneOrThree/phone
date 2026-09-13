@@ -7,18 +7,23 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityRequest;
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityResponse;
 import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationExpiry;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.time.DateTimeException;
 import java.util.UUID;
 
 /**
@@ -69,6 +74,10 @@ public class NotificationEligibilityService {
     static final String REASON_NOT_PARTICIPANT = "NOT_PARTICIPANT";
     /** 거절 사유 — 회차가 아직 종료되지 않았다(결과 알림 대상이 아니다). */
     static final String REASON_NOT_SETTLED = "NOT_SETTLED";
+    /** 거절 사유 — 승리 알림을 보낼 수 없는 무산·환불 등의 회차다. */
+    static final String REASON_SESSION_INVALIDATED = "SESSION_INVALIDATED";
+    /** 거절 사유 — 해당 참가자의 승리가 확정되지 않았다. */
+    static final String REASON_WIN_NOT_CONFIRMED = "WIN_NOT_CONFIRMED";
 
     /** 친구 요청 판정에 쓰는 {@code params} 키 — 요청 행 id. */
     static final String PARAM_REQUEST_ID = "requestId";
@@ -79,6 +88,8 @@ public class NotificationEligibilityService {
     private final GroupChallengeBetParticipantRepository betParticipantRepository;
     private final FriendshipRepository friendshipRepository;
     private final Clock clock;
+    private final NotificationRetentionEligibility retentionEligibility;
+    private final NotificationLeagueEligibility leagueEligibility;
 
     /**
      * 지금 이 알림을 보내도 되는가.
@@ -94,26 +105,67 @@ public class NotificationEligibilityService {
             return NotificationEligibilityResponse.deny(REASON_UNKNOWN_KIND);
         }
         // 모든 종류의 공통 전제 — 탈퇴자에게는 무엇도 보내지 않는다.
-        if (userQueryService.findActive(request.userId()).isEmpty()) {
+        User user = userQueryService.findActive(request.userId()).orElse(null);
+        if (user == null) {
             return NotificationEligibilityResponse.deny(REASON_USER_INACTIVE);
         }
         if (kind.subjectKind() != NotificationKind.SubjectKind.NONE && request.subjectId() == null) {
             return NotificationEligibilityResponse.deny(REASON_SUBJECT_REQUIRED);
         }
+        NotificationEligibilityResponse expiry = checkExpiry(request, kind);
+        if (expiry != null) {
+            return expiry;
+        }
         return switch (kind) {
             case CHALLENGE_CREATED -> evaluateChallengeCreated(request);
             case CHALLENGE_SESSION_OPEN -> evaluateSessionOpen(request);
             case BET_RESULT, BET_VOID_REFUND -> evaluateBetResult(request);
-            case BET_WON, BET_SILENT_FLUSH -> evaluateBetParticipation(request);
+            case BET_WON -> evaluateBetWon(request);
+            case BET_SILENT_FLUSH -> evaluateSilentFlush(request);
             case CHALLENGE_WINDOW_END, CHALLENGE_ENDED -> evaluateChallengeEnd(request);
             case FRIEND_REQUEST -> evaluateFriendRequest(request);
-            // 상태 무관형 — 판정 시점의 사실을 알리는 것이라 나중에 상태가 바뀌어도 문구가 거짓이
-            // 되지 않는다(수락 통보·리그 결과·마감 독려·리텐션). 수신자 활성 검사는 위에서 끝났다.
-            case FRIEND_ACCEPTED, LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_DEADLINE_D1,
-                 LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE,
-                 INACTIVE_RETURN, MISSED_FOCUS_TODAY, STREAK_AT_RISK ->
+            case FRIEND_ACCEPTED -> evaluateFriendAccepted(request);
+            case INACTIVE_RETURN, MISSED_FOCUS_TODAY, STREAK_AT_RISK ->
+                    retentionEligibility.evaluate(request, user, clock.instant());
+            case LEAGUE_DEADLINE_D1, LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING ->
+                    leagueEligibility.evaluate(kind, request, clock.instant());
+            // 추가 도메인 조회가 없는 종류. 시간 제한이 있는 리그·리텐션은 위에서 만료를 확인했다.
+            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_FINAL_DEADLINE ->
                     NotificationEligibilityResponse.allow();
         };
+    }
+
+    /** null은 시간 판정 통과다. 원시각 없는 과거 봉투를 수신 시각으로 새롭게 만들지 않는다. */
+    private NotificationEligibilityResponse checkExpiry(NotificationEligibilityRequest request, NotificationKind kind) {
+        Instant testAt = request.adminTestRequestedAt();
+        if (testAt != null) {
+            // 오직 알림 서버의 admin_actor + replay_of 정본 판정에서 오는 맥락이다.
+            // 시험도 새로고침·재시도로 수명이 늘지 않으며, 실제 수신자/대상 검사는 건너뛰지 않는다.
+            Instant now = clock.instant();
+            if (now.isBefore(testAt)) {
+                return NotificationEligibilityResponse.deny("EVENT_TIME_INVALID");
+            }
+            return now.isBefore(testAt.plusSeconds(900)) ? null
+                    : NotificationEligibilityResponse.deny("EVENT_EXPIRED");
+        }
+        if (NotificationExpiry.validity(kind) == null) {
+            return null;
+        }
+        Object original = request.params().get(NotificationExpiry.OCCURRED_AT);
+        if (!(original instanceof String occurredAt)) {
+            return NotificationEligibilityResponse.deny("EVENT_TIME_REQUIRED");
+        }
+        try {
+            Instant expiry = NotificationExpiry.expiresAt(kind, Instant.parse(occurredAt));
+            Object declared = request.params().get(NotificationExpiry.EXPIRES_AT);
+            if (declared != null && (!(declared instanceof String value)
+                    || !expiry.equals(Instant.parse(value)))) {
+                return NotificationEligibilityResponse.deny("EVENT_TIME_INVALID");
+            }
+            return clock.instant().isBefore(expiry) ? null : NotificationEligibilityResponse.deny("EVENT_EXPIRED");
+        } catch (DateTimeException | ArithmeticException invalid) {
+            return NotificationEligibilityResponse.deny("EVENT_TIME_INVALID");
+        }
     }
 
     /** 개설 알림 — 챌린지가 아직 살아 있고 수신자가 아직 그 그룹원이어야 한다(ⓩ). */
@@ -154,7 +206,8 @@ public class NotificationEligibilityService {
     }
 
     /**
-     * 모집 알림 — 회차가 아직 {@code OPEN} 이고 참가 마감 전이며 <b>아직 참가하지 않았어야</b> 한다.
+     * 모집 알림 — 현재 그룹원이며 회차가 아직 {@code OPEN} 이고 참가 마감 전이며
+     * <b>아직 참가하지 않았어야</b> 한다.
      *
      * <p>마지막 조건이 핵심이다. 구 경로는 발송 직전에 참가 여부를 다시 읽었다 — 그러지 않으면
      * 이미 판돈까지 낸 사람에게 「지금 참여할 수 있어요」가 간다.
@@ -170,6 +223,9 @@ public class NotificationEligibilityService {
         }
         if (!clock.instant().isBefore(session.getJoinClosesAt())) {
             return NotificationEligibilityResponse.deny(REASON_JOIN_CLOSED);
+        }
+        if (!groupMemberRepository.existsByGroupIdAndUserId(session.getGroup().getId(), request.userId())) {
+            return NotificationEligibilityResponse.deny(REASON_NOT_GROUP_MEMBER);
         }
         if (betParticipantRepository.findBySessionIdAndUserId(session.getId(), request.userId())
                 .isPresent()) {
@@ -191,10 +247,39 @@ public class NotificationEligibilityService {
         return participantOrDeny(session.getId(), request.userId());
     }
 
-    /** 승리 확정·사일런트 flush — 수신자가 그 회차 참가자이기만 하면 된다. */
-    private NotificationEligibilityResponse evaluateBetParticipation(NotificationEligibilityRequest request) {
-        if (groupQueryService.findBetSession(request.subjectId()).isEmpty()) {
+    /**
+     * 승리 확정 — OPEN의 조기 확정과 SETTLED의 승자는 허용하지만 무산·환불 회차는 제외한다.
+     * 환불은 achieved=true를 지우지 않으므로 회차 상태도 함께 대조해야 한다.
+     */
+    private NotificationEligibilityResponse evaluateBetWon(NotificationEligibilityRequest request) {
+        GroupChallengeBetSession session = groupQueryService.findBetSession(request.subjectId()).orElse(null);
+        if (session == null) {
             return NotificationEligibilityResponse.deny(REASON_SUBJECT_GONE);
+        }
+        if (session.getStatus() != GroupBetStatus.OPEN && session.getStatus() != GroupBetStatus.SETTLED) {
+            return NotificationEligibilityResponse.deny(REASON_SESSION_INVALIDATED);
+        }
+        GroupChallengeBetParticipant participant = betParticipantRepository
+                .findBySessionIdAndUserId(session.getId(), request.userId()).orElse(null);
+        if (participant == null) {
+            return NotificationEligibilityResponse.deny(REASON_NOT_PARTICIPANT);
+        }
+        return Boolean.TRUE.equals(participant.getAchieved())
+                ? NotificationEligibilityResponse.allow()
+                : NotificationEligibilityResponse.deny(REASON_WIN_NOT_CONFIRMED);
+    }
+
+    /** 정산 전 업로드 촉진이므로 회차가 열려 있고 정산 가능 시각 전인 참가자에게만 보낸다. */
+    private NotificationEligibilityResponse evaluateSilentFlush(NotificationEligibilityRequest request) {
+        GroupChallengeBetSession session = groupQueryService.findBetSession(request.subjectId()).orElse(null);
+        if (session == null) {
+            return NotificationEligibilityResponse.deny(REASON_SUBJECT_GONE);
+        }
+        if (session.getStatus() != GroupBetStatus.OPEN) {
+            return NotificationEligibilityResponse.deny(REASON_SESSION_CLOSED);
+        }
+        if (!clock.instant().isBefore(session.getSettleAfter())) {
+            return NotificationEligibilityResponse.deny("EVENT_EXPIRED");
         }
         return participantOrDeny(request.subjectId(), request.userId());
     }
@@ -203,6 +288,13 @@ public class NotificationEligibilityService {
         return betParticipantRepository.findBySessionIdAndUserId(sessionId, userId).isPresent()
                 ? NotificationEligibilityResponse.allow()
                 : NotificationEligibilityResponse.deny(REASON_NOT_PARTICIPANT);
+    }
+
+    /** 수락 사실은 친구 해제 뒤에도 유효하지만, 탈퇴한 상대의 보존된 닉네임은 전송하지 않는다. */
+    private NotificationEligibilityResponse evaluateFriendAccepted(NotificationEligibilityRequest request) {
+        return userQueryService.findActive(request.subjectId()).isPresent()
+                ? NotificationEligibilityResponse.allow()
+                : NotificationEligibilityResponse.deny(REASON_SUBJECT_GONE);
     }
 
     /**

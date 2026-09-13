@@ -13,7 +13,6 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Base64;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -48,11 +47,13 @@ class FcmTransport implements PushTransport {
 
     @Override
     public Result send(String token, RenderedPush push, boolean sound, String eventId) {
+        // Dispatch는 이 검사를 임대·외부 호출 전에 한다. 다른 직접 호출도 크기 초과를 전송하지 않는다.
+        Map<String, Object> payload = payload(token, push, sound, eventId);
         try {
             credentials.refreshIfExpired();
             client.post().uri("/v1/projects/{project}/messages:send", project)
                     .header("Authorization", "Bearer " + credentials.getAccessToken().getTokenValue())
-                    .contentType(MediaType.APPLICATION_JSON).body(payload(token, push, sound, eventId))
+                    .contentType(MediaType.APPLICATION_JSON).body(payload)
                     .retrieve().toBodilessEntity();
             return Result.SENT;
         } catch (RestClientResponseException failure) {
@@ -87,8 +88,8 @@ class FcmTransport implements PushTransport {
      * 오판하면 <b>페이로드 버그 하나가 멀쩡한 기기의 등록을 통째로 지운다</b> — 그래서 FCM 이 어느
      * 필드가 문제인지 짚어 줬으면 그 말을 따르고, 토큰이 아닌 필드를 짚었으면 토큰을 건드리지 않는다.
      *
-     * <p>짚어 주지 않은 {@code INVALID_ARGUMENT} 는 토큰으로 본다. 이 페이로드에서 요청마다 달라지는
-     * 값은 토큰뿐이고(나머지는 렌더 테스트가 고정한다), 구 경로도 같은 판정을 해 왔다.
+     * <p>어느 필드인지 짚지 않은 응답은 토큰 무효의 증거가 아니다. 운영 템플릿·인자·딥링크가
+     * 바뀌므로 크기 외의 페이로드 오류도 가능하다. 토큰 필드를 명시한 경우에만 정리한다.
      *
      * @param status HTTP 상태
      * @param body   응답 본문
@@ -104,7 +105,7 @@ class FcmTransport implements PushTransport {
                 return false;
             }
             List<Map<String, Object>> violations = fieldViolations(error.get("details"));
-            return violations.isEmpty() || violations.stream().anyMatch(FcmTransport::pointsAtToken);
+            return violations.stream().anyMatch(FcmTransport::pointsAtToken);
         } catch (RuntimeException invalid) {
             return false;
         }
@@ -129,7 +130,7 @@ class FcmTransport implements PushTransport {
             return false;
         }
         String name = field.toString();
-        return "token".equalsIgnoreCase(name.substring(name.lastIndexOf('.') + 1));
+        return "token".equals(name) || "message.token".equals(name);
     }
 
     static boolean isUnregistered(int status, String body) {
@@ -150,27 +151,6 @@ class FcmTransport implements PushTransport {
     }
 
     static Map<String, Object> payload(String token, RenderedPush push, boolean sound, String eventId) {
-        Map<String, Object> message = new LinkedHashMap<>();
-        Map<String, String> data = new LinkedHashMap<>(push.data());
-        data.put("eventId", eventId);
-        message.put("token", token);
-        message.put("data", data);
-        String collapse = Json.digest(eventId);
-        if (push.silent()) {
-            message.put("apns", Map.of("headers", Map.of("apns-push-type", "background", "apns-priority", "5"),
-                    "payload", Map.of("aps", Map.of("content-available", 1))));
-            message.put("android", Map.of("priority", "HIGH"));
-        } else {
-            Map<String, String> notification = new LinkedHashMap<>();
-            if (push.title() != null) {
-                notification.put("title", push.title());
-            }
-            notification.put("body", push.body());
-            message.put("notification", notification);
-            message.put("apns", Map.of("headers", Map.of("apns-collapse-id", collapse),
-                    "payload", Map.of("aps", sound ? Map.of("sound", "default") : Map.of())));
-            message.put("android", Map.of("notification", Map.of("tag", collapse)));
-        }
-        return Map.of("message", message);
+        return FcmPayload.create(token, push, sound, eventId);
     }
 }

@@ -737,7 +737,7 @@ GET마다 명령 receipt를 적재하거나 과거 조회 결과를 재생하지
 ### 요청이 거꾸로 도착해도 다른 설정을 보존한다
 
 기존 설정에는 알림·소리·야간모드·시작시각·종료시각 5개가 있다.
-Notification `V4__settings_field_versions.sql`은 각 필드에 nullable version을 추가한다.
+Notification `V6__settings_field_versions.sql`은 각 필드에 nullable version을 추가한다.
 전체 최대 version은 호환용으로 유지하며 실제 덮어쓰기 판단은 각 필드 version으로 한다.
 예를 들어 version42의 알림 끄기 뒤 version41의 소리 끄기가 도착하면 둘 다 반영한다.
 같은 알림 필드의 version40은 뒤늦게 도착해도42를 되돌리지 못한다.

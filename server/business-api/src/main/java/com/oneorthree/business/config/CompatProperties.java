@@ -34,7 +34,11 @@ public class CompatProperties {
      */
     private boolean importContractReady;
 
-    /** 이관 식별자. 호환 소진·백필이 같은 값을 공유해야 표시·감사가 맞는다. */
+    /**
+     * 이관 식별자. 호환 소진·백필이 같은 값을 공유해야 표시·감사가 맞는다.
+     * 핸들러와 import 계약이 모두 켜진 요청에서는 필수이며, null·공백이면 후보 소진 전에 502로 중단한다.
+     * import 준비 전 관측 단계에는 생략할 수 있다.
+     */
     private String migrationId;
 
     /** 구 앱 match 전체 예산 — `deferredInvite.ts:100` 의 5초. 상류 재시도까지 여기 들어간다. */

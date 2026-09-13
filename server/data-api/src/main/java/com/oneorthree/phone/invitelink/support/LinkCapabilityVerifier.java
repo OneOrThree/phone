@@ -137,11 +137,15 @@ public class LinkCapabilityVerifier {
     private LinkCapability parse(String encodedPayload) {
         try {
             JsonNode node = MAPPER.readTree(Base64.getUrlDecoder().decode(encodedPayload));
+            JsonNode slug = node.path("slug");
+            if (!slug.isTextual() || slug.textValue().isBlank()) {
+                return null;
+            }
             // membershipEpoch 는 «문자열»로 온다(발급 측이 link_version 을 그대로 싣는다).
             // asLong() 은 문자열도 읽지만, 숫자가 아니면 0 을 주므로 그 값이 실제 세대와 같아질 수
             // 있는지 확인해야 한다 — 세대는 1부터 시작하므로 0 은 어떤 멤버십과도 일치하지 않는다.
             return new LinkCapability(
-                    node.path("slug").asText(null),
+                    slug.textValue(),
                     UUID.fromString(node.path("groupId").asText()),
                     UUID.fromString(node.path("inviterId").asText()),
                     node.path("membershipEpoch").asLong(0L),

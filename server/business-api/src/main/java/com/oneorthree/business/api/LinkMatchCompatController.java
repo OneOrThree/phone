@@ -2,6 +2,7 @@ package com.oneorthree.business.api;
 
 import com.oneorthree.business.api.dto.InviteMatchRequest;
 import com.oneorthree.business.api.dto.InviteMatchResponse;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.ClientIpResolver;
 import com.oneorthree.business.common.http.IpHasher;
 import com.oneorthree.business.upstream.link.dto.LinkMatchResult;
@@ -59,8 +60,14 @@ public class LinkMatchCompatController {
         LinkMatchResult result = compatMatchUseCase.match(
                 ipHash, request.os(), request.deviceId(), request.appInstanceId(), keys);
 
-        if (result == null || !result.matched()) {
+        if (result == null) {
+            throw new UpstreamContractMismatchException("링크 매치 응답에 본문이 없습니다");
+        }
+        if (!result.matched()) {
             return ResponseEntity.ok(InviteMatchResponse.notMatched());
+        }
+        if (result.slug() == null || result.slug().isBlank() || result.groupId() == null) {
+            throw new UpstreamContractMismatchException("링크 매치 성공 응답에 식별자가 없습니다");
         }
         return ResponseEntity.ok(InviteMatchResponse.matched(result.slug(), result.groupId()));
     }

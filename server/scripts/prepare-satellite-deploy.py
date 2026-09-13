@@ -24,7 +24,9 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +82,12 @@ FORBIDDEN_EVERYWHERE = ("DD_API_KEY", "GRAFANA_ADMIN_PASSWORD", "CONSOLE_ADMIN_P
                         "CONSOLE_BASIC_PASSWORD", "SUDO_PASSWORD")
 
 
+# 공유 SecretString에는 공개 환경 식별자도 들어 있다. 키로만 구분하며, 같은 값을 가진
+# 실제 자격과 미분류 키는 여전히 검사한다. URL/접속 문자열은 자격을 담을 수 있어 제외하지 않는다.
+PUBLIC_CONFIGURATION_KEYS = frozenset({
+    "SPRING_PROFILES_ACTIVE", "DEPLOY_ENV", "DATA_API_PROFILES", "DD_ENV", "DD_SERVICE", "DD_VERSION",
+})
+
 def parse_dotenv_keys(text: str) -> list[str]:
     """dotenv 의 «키 이름만» 뽑는다. 값은 읽지도 돌려주지도 않는다."""
     keys: list[str] = []
@@ -121,6 +129,35 @@ def compose_variables(path: Path) -> tuple[set[str], set[str]]:
     return required, optional - required
 
 
+def empty_compose_values(required: set[str], shared_env: Path, generated_env: str, project: str) -> list[str]:
+    """실제 Compose 문법·shell > generated > shared 우선순위로 필수값만 해석한다. 값은 반환하지 않는다."""
+    with tempfile.TemporaryDirectory(prefix="gromo-compose-check-") as directory:
+        probe = Path(directory) / "probe.json"
+        generated = Path(directory) / "compose.env"
+        # 임시파일에는 변수 이름과 비밀 없는 생성 입력만 쓴다. 공유 env는 원본을 읽기만 한다.
+        probe.write_text(json.dumps({"services": {"probe": {"image": "scratch", "environment": {
+            key: "${" + key + "}" for key in sorted(required)
+        }}}}), encoding="utf-8")
+        generated.write_text(generated_env, encoding="utf-8")
+        try:
+            result = subprocess.run(
+                ["docker", "compose", "-p", project, "-f", str(probe),
+                 "--env-file", str(shared_env), "--env-file", str(generated), "config", "--format", "json"],
+                text=True, capture_output=True, timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError, UnicodeError):
+            raise PrepareError("필수 보간 검사에 Docker Compose CLI가 필요합니다. 읽기 전용 config 실행에 실패했습니다") from None
+        if result.returncode != 0:
+            # dotenv 오류 메시지는 값까지 담을 수 있으므로 stdout/stderr를 전달하지 않는다.
+            raise PrepareError("공유 env의 필수 보간을 Compose로 해석하지 못했습니다. env 문법을 확인하세요")
+        try:
+            values = json.loads(result.stdout)["services"]["probe"]["environment"]
+            return sorted(key for key in required
+                          if not isinstance(values.get(key), str) or not values[key].strip())
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise PrepareError("Compose 필수 보간 검사 결과를 읽지 못했습니다") from None
+
+
 def check_digest(label: str, reference: str) -> str:
     reference = reference.strip()
     if not reference:
@@ -148,7 +185,8 @@ def guard_service_env(service: str, text: str) -> None:
 
 def guard_compose_env(values: dict[str, str], secret: dict[str, Any]) -> None:
     """compose 보간 파일에 비밀이 섞이지 않았는지 확인한다. 위반 시 «키 이름만» 말한다."""
-    secrets = [v for v in secret.values() if isinstance(v, str) and v.strip()]
+    secrets = [value for key, value in secret.items()
+               if key not in PUBLIC_CONFIGURATION_KEYS and isinstance(value, str) and value.strip()]
     leaked = []
     for key, value in values.items():
         for candidate in secrets:
@@ -229,7 +267,7 @@ def main() -> None:
                 "선언하므로, 프로젝트명을 명시하지 않으면 기존 prod 스택과 «다른» 프로젝트에 컨테이너가 "
                 "생기고 기존 컨테이너는 고아가 됩니다(docker compose ls 로 현재 이름을 확인하세요)")
         args.project_name = "phone"
-    profiles = args.data_profiles or f"{args.environment},satellites"
+    profiles = args.data_profiles if args.data_profiles is not None else f"{args.environment},satellites"
 
     if not args.base_compose.is_file():
         raise PrepareError(f"기존 환경 compose 를 찾을 수 없습니다: {args.base_compose}")
@@ -267,7 +305,8 @@ def main() -> None:
             continue
         target = output_dir / ENV_FILENAMES[service]
         guard_output_path(target, args.shared_env_file)
-        text = writer.render(secret, images[service], service, args.phase, args.environment)
+        text = writer.render(secret, images[service], service, args.phase, args.environment,
+                             data_profiles=profiles if service == "data-api" else None)
         guard_service_env(service, text)
         rendered[service] = text
         written[service] = target
@@ -277,11 +316,14 @@ def main() -> None:
         active = dotenv_value(rendered["data-api"], "SPRING_PROFILES_ACTIVE")
         if active != profiles:
             raise PrepareError(
-                f"Data 프로파일 불일치: env 파일은 '{active}', 오버레이가 넘길 값은 '{profiles}'. "
+                "Data 프로파일 불일치: env 파일과 오버레이가 넘길 값이 다릅니다. "
                 "기존 compose 의 app.environment 가 env_file 을 «이깁니다» — 두 값이 갈라지면 "
                 "satellites 프로파일이 조용히 빠진 채로 뜹니다")
-        if "satellites" not in (active or ""):
+        if "satellites" not in {profile.strip() for profile in (active or "").split(",")}:
             raise PrepareError("Data 프로파일에 satellites 가 없습니다")
+        if "DATA_API_PROFILES" in os.environ and os.environ["DATA_API_PROFILES"] != profiles:
+            raise PrepareError("셸 DATA_API_PROFILES가 선택한 Data 프로파일을 덮어씁니다. "
+                               "해당 환경변수를 해제하거나 --data-profiles와 같게 지정하세요")
 
     # compose 가 보간할 값. 여기에는 비밀이 없다.
     compose_values: dict[str, str] = {"DEPLOY_ENV": args.environment}
@@ -302,16 +344,15 @@ def main() -> None:
     compose_env = output_dir / "compose.env"
     guard_output_path(compose_env, args.shared_env_file)
 
-    # 필수 보간 변수 대조 — 공유 env 의 «키 이름»만 읽는다.
-    shared_keys = set(parse_dotenv_keys(args.shared_env_file.read_text(encoding="utf-8")))
+    # 필수 보간 변수 대조 — 실제 최종값만 검사하며 값은 로그·오류로 내보내지 않는다.
     checked = [args.base_compose, SATELLITES_COMPOSE]
     if "data-api" in written:
         checked.append(DATA_OVERLAY_COMPOSE)
     required: set[str] = set()
     for path in checked:
         required |= compose_variables(path)[0]
-    available = shared_keys | set(compose_values) | {k for k, v in os.environ.items() if v}
-    missing = sorted(required - available)
+    compose_text = "".join(f"{key}={writer.dotenv_quote(value)}\n" for key, value in sorted(compose_values.items()))
+    missing = empty_compose_values(required, args.shared_env_file, compose_text, args.project_name)
     if missing:
         raise PrepareError(
             "compose 보간에 필요한 값이 없습니다 — " + ", ".join(missing)
@@ -320,8 +361,7 @@ def main() -> None:
     for service, path in written.items():
         writer.write_atomic(path, rendered[service])
     writer.write_atomic(redis_acl, acl_text, mode=0o644)
-    writer.write_atomic(compose_env, "".join(
-        f"{key}={writer.dotenv_quote(value)}\n" for key, value in sorted(compose_values.items())))
+    writer.write_atomic(compose_env, compose_text)
 
     plan = build_plan(args, compose_env, with_data="data-api" in written)
     plan_path = output_dir / "deploy-plan.txt"

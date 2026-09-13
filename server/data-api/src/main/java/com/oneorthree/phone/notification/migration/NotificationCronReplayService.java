@@ -1,6 +1,7 @@
 package com.oneorthree.phone.notification.migration;
 
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.ResultBundleCompletionService;
 import com.oneorthree.phone.notification.service.BetEventNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeDurationEndNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeWindowEndNotificationService;
@@ -43,6 +44,7 @@ import java.time.Instant;
 public class NotificationCronReplayService {
 
     private final NotificationDispatcher notificationDispatcher;
+    private final ResultBundleCompletionService resultBundles;
     private final NotificationBatchRetry batchRetry;
     private final LeagueNotificationService leagueNotificationService;
     private final LeagueReengagementNotificationService leagueReengagementNotificationService;
@@ -145,7 +147,10 @@ public class NotificationCronReplayService {
             case MISSED_FOCUS_TODAY ->
                     batchRetry.run(missedAt, leagueReengagementNotificationService::sendMissedFocusToday);
             case STREAK_AT_RISK -> batchRetry.run(missedAt, leagueReengagementNotificationService::sendStreakAtRisk);
-            case BET_EVENT_RESCAN -> betEventNotificationService.rescanAndFlush(missedAt);
+            case BET_EVENT_RESCAN -> {
+                betEventNotificationService.rescanAndFlush(missedAt);
+                resultBundles.flushClosedBundles();
+            }
             case SESSION_OPEN -> sessionOpenNotificationService.sendSessionOpenNotifications(missedAt);
             case CHALLENGE_WINDOW_END ->
                     challengeWindowEndNotificationService.sendWindowEndNotifications(missedAt);

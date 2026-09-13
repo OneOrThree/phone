@@ -1,5 +1,7 @@
 package com.oneorthree.business.upstream.link.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.UUID;
 
 /**
@@ -21,5 +23,6 @@ import java.util.UUID;
  *                   유일한 수단이다
  * @param groupId    그 링크의 그룹
  */
-public record LinkClaimResult(UUID claimId, String capability, UUID groupId) {
+public record LinkClaimResult(@JsonProperty(required = true) UUID claimId,
+        @JsonProperty(required = true) String capability, UUID groupId) {
 }

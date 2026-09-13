@@ -174,7 +174,7 @@ public class InternalInviteLinkController {
     @PostMapping("/invite-links/claim-intents/{commandId}/completed")
     public ResponseEntity<Void> completeClaimIntent(
             @PathVariable UUID commandId, @Valid @RequestBody ClaimIntentCompletionRequest request) {
-        internalInviteLinkService.completeClaimIntent(commandId, request.leaseToken());
+        internalInviteLinkService.completeClaimIntent(commandId, request.leaseToken(), request.terminalCode());
         return ResponseEntity.ok().build();
     }
 }

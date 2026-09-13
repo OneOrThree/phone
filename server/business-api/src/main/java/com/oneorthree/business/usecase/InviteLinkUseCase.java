@@ -2,7 +2,6 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
-import com.oneorthree.business.common.exception.UpstreamUnavailableException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.CompatProperties;
 import com.oneorthree.business.upstream.data.DataApiClient;
@@ -66,7 +65,10 @@ public class InviteLinkUseCase {
         // 그대로 중계된다(GROUP_NOT_FOUND · NOT_MEMBER). 판정이 「살아 있지 않다」로 왔는데 코드가
         // 없으면 그건 계약 불일치다 — 조용히 발급하지 않는다.
         if (context == null) {
-            throw new UpstreamUnavailableException("Data 가 발급 컨텍스트를 주지 않았다");
+            throw new UpstreamContractMismatchException("Data 가 발급 컨텍스트를 주지 않았다");
+        }
+        if (!groupId.equals(context.groupId()) || !inviterId.equals(context.inviterId())) {
+            throw new UpstreamContractMismatchException("발급 컨텍스트가 요청한 그룹 또는 인증된 발급자와 다릅니다");
         }
         if (!context.groupActive()) {
             throw new UpstreamDomainException(HttpStatus.NOT_FOUND.value(), "GROUP_NOT_FOUND",
@@ -77,12 +79,11 @@ public class InviteLinkUseCase {
                     "그룹원만 초대 링크를 만들 수 있습니다.", null);
         }
 
-        if (context.membershipEpoch() != context.linkVersion()) {
-            // 링크 서버가 ISSUE_EPOCH_MISMATCH 400 으로 거절하는 조건이다(link/src/lib/links.ts:34).
-            // 여기서 막지 않으면 그 400 이 「코드 있는 4xx」로 앱에 중계돼 사용자에게 엉뚱한 문구가 뜬다 —
-            // 발급 경로에서 두 값이 갈리는 것은 Data 계약 위반이므로 계약 불일치(502)로 드러낸다.
+        if (context.membershipEpoch() < 1 || context.membershipEpoch() != context.linkVersion()) {
+            // 멤버십 세대는 1부터 시작하며, 발급 시 linkVersion은 같은 세대를 가리켜야 한다.
+            // 두 값이 같은 0/음수인 경우도 Data 계약 위반이므로 링크 발급 전에 502로 드러낸다.
             throw new UpstreamContractMismatchException(
-                    "발급 컨텍스트의 membershipEpoch != linkVersion — 발급 경로에서는 같아야 한다"
+                    "발급 컨텍스트의 membershipEpoch와 linkVersion은 같은 양수여야 한다"
                             + " (epoch=" + context.membershipEpoch() + ", linkVersion=" + context.linkVersion() + ")");
         }
 
@@ -95,7 +96,12 @@ public class InviteLinkUseCase {
                 context.snapshotVersion(),
                 context.groupName(),
                 context.inviterDisplayName());
-        return linkApiClient.issue(inviterId, command, keys.forStep("link-issue"), deadline);
+        LinkIssueResult result = linkApiClient.issue(inviterId, command, keys.forStep("link-issue"), deadline);
+        if (result == null || result.slug() == null || result.slug().isBlank()
+                || result.url() == null || result.url().isBlank()) {
+            throw new UpstreamContractMismatchException("초대 링크 발급 응답이 완전하지 않습니다");
+        }
+        return result;
     }
 
     /**
@@ -131,7 +137,10 @@ public class InviteLinkUseCase {
             // ③ 링크의 잠정 기록 + 서명 자격. SLUG_NOT_FOUND(404) 는 기존 계약대로 중계된다.
             LinkClaimResult pending = linkApiClient.claim(userId, slug, keys.forStep("link-claim"), deadline);
 
-            if (pending == null || pending.claimId() == null) {
+            if (pending == null) {
+                throw new UpstreamContractMismatchException("잠정 claim 응답에 본문이 없습니다");
+            }
+            if (pending.claimId() == null) {
                 // 셀프 초대이거나 붙일 클릭이 없다 — 링크 서버가 claimId=null 을 «정상»으로 준다
                 // (link/src/lib/links.ts:145·149). 기존 InviteLinkMatchService:169-177 의 「붙일 곳이 없을
                 // 뿐 오류가 아니다」와 같은 뜻이고, 기존 컨트롤러도 boolean 을 무시하고 항상 200 이었다.

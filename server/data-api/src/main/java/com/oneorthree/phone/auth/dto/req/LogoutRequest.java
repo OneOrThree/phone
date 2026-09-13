@@ -12,12 +12,13 @@ import com.oneorthree.phone.common.support.DeviceOwnershipTokens;
  * 간다</b>. 그래서 RT 로 인증되는 이 요청이 같은 트랜잭션에서 삭제 명령까지 남긴다(㋗: 기기 토큰
  * DELETE 를 AT 만으로 인증하지 않는다).
  *
- * <p>세 필드 모두 <b>없을 수 있다</b> — 구 앱은 {@code {refreshToken}} 만 보낸다. 없으면 세션만
- * 폐기하고, 그 기간의 토큰 삭제는 종전처럼 앱의 {@code DELETE} 경로에 맡긴다.
+     * <p>세 필드 모두 <b>없을 수 있다</b> — 구 앱은 {@code {refreshToken}} 만 보낸다. 구 단일 RT에
+     * 연결한 이관 기기는 이 요청만으로 삭제를 기록한다. 이미 새 세션·bootstrap에 연결된 기기는
+     * 세션 폐기로 정리하며, 다른 세션의 토큰을 현재 유저 단일 값에서 추정하지 않는다.
  *
  * @param refreshToken   무효화할 <b>refresh</b> 토큰. access 토큰을 보내면 타입 가드에 걸려 거절된다 —
  *                       탈취한 access 토큰으로 남의 세션을 끊지 못하게 하는 장치다
- * @param deviceToken    이 기기의 FCM 토큰(㊪). 없으면 삭제 명령을 계약대로 만들 수 없다
+     * @param deviceToken    이 기기의 FCM 토큰(㊪). 없으면 검증된 구 세션의 이관 기기 또는 세션 폐기로 한정한다
  * @param ownershipToken 앱이 보관 중인 CAS 값(㊚). 롤아웃 기간엔 없을 수 있다. <b>있으면</b> 정규
  *                       UUID 표기여야 한다 — 이 값은 같은 트랜잭션의 outbox 봉투에 그대로 실려
  *                       영구 보관되므로, 형식 검사가 <b>내구 기록보다 앞</b>이어야 한다

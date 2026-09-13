@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.service;
 
+import com.oneorthree.phone.common.port.BetSettlementClock;
 import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -97,6 +98,7 @@ public class GroupBetSettler {
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
     private final ApplicationEventPublisher eventPublisher;
+    private final BetSettlementClock resultBundles;
 
     /**
      * 정산 결과.
@@ -223,7 +225,7 @@ public class GroupBetSettler {
 
         // 여기까지는 전부 읽기다 — 돈이 움직이기 직전에 상태 전이를 원자적으로 잠근다.
         int claimed = groupChallengeBetSessionRepository.compareAndSetSettled(
-                sessionId, distribution.status(), null, Instant.now());
+                sessionId, distribution.status(), null, resultBundles.settlementTime(session.getGroup().getId()));
         if (claimed == 0) {
             GroupBetStatus current = groupChallengeBetSessionRepository.findStatusById(sessionId)
                     .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
@@ -340,7 +342,8 @@ public class GroupBetSettler {
             return closeUnused(session);
         }
         if (groupChallengeBetSessionRepository.compareAndSetSettled(
-                session.getId(), GroupBetStatus.REFUNDED, reason, Instant.now()) == 0) {
+                session.getId(), GroupBetStatus.REFUNDED, reason,
+                resultBundles.settlementTime(session.getGroup().getId())) == 0) {
             // 행 잠금 아래라 도달 불가 — 도달했다면 잠금 규율이 깨진 것이다.
             throw new IllegalStateException("REFUNDED 전이 실패 — sessionId=" + session.getId());
         }
@@ -379,7 +382,8 @@ public class GroupBetSettler {
     private List<PendingRefund> voidAndCollectRefunds(GroupChallengeBetSession session,
             List<GroupChallengeBetParticipant> participants, GroupBetVoidReason reason) {
         if (groupChallengeBetSessionRepository.compareAndSetSettled(
-                session.getId(), GroupBetStatus.VOIDED, reason, Instant.now()) == 0) {
+                session.getId(), GroupBetStatus.VOIDED, reason,
+                resultBundles.settlementTime(session.getGroup().getId())) == 0) {
             throw new IllegalStateException("VOIDED 전이 실패 — sessionId=" + session.getId());
         }
         log.info("회차 무산 — sessionId={}, sessionDate={}, reason={}, 참가자={}, stake={} 환불",

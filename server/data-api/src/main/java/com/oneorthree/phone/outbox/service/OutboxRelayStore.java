@@ -56,6 +56,19 @@ public class OutboxRelayStore {
     }
 
     /**
+     * 외부 전송 직전 소유권과 만료를 대조하고 이 행의 리스를 갱신한다.
+     *
+     * @param deliveryId 전달 행
+     * @param token 선점 때 받은 펜싱 토큰
+     * @return 아직 유효한 소유자일 때만 true
+     */
+    @Transactional
+    public boolean renewLease(UUID deliveryId, UUID token) {
+        Instant now = clock.instant();
+        return deliveryRepository.renewLease(deliveryId, token, now, now.plus(properties.getLeaseDuration())) == 1;
+    }
+
+    /**
      * 전달 완료 표시 — 토큰이 일치할 때만.
      *
      * @param deliveryId 전달 행

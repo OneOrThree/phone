@@ -12,6 +12,8 @@ import com.oneorthree.phone.group.repository.domain.GroupJoinCode;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Service;
 
 import java.util.Collection;
@@ -59,6 +61,9 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class GroupQueryService {
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -153,6 +158,13 @@ public class GroupQueryService {
      */
     public Optional<GroupChallengeBetSession> findBetSession(UUID sessionId) {
         return groupChallengeBetSessionRepository.findById(sessionId);
+    }
+
+    /** 벌크 CAS 직후에는 L1의 OPEN 값을 쓰지 않는다. 다른 참가자 엔티티는 분리하지 않는다. */
+    public Optional<GroupChallengeBetSession> findCurrentBetSession(UUID sessionId) {
+        Optional<GroupChallengeBetSession> result = groupChallengeBetSessionRepository.findById(sessionId);
+        result.ifPresent(entityManager::refresh);
+        return result;
     }
 
     /**

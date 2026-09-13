@@ -37,6 +37,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -115,7 +116,7 @@ public class ChallengeCreatedNotificationService {
         if (challenge == null) {
             return 0;
         }
-        String missionLabel = missionLabel(challenge);
+        Map<String, Object> mission = missionSnapshot(challenge);
         int queued = 0;
         // 수신자 순서를 «전역으로 같은 기준»으로 고정한다. OUTBOX 모드의 enqueueOnly 는 수신자마다
         // aggregate_versions(USER, userId) 를 배타 잠금하고 그 잠금은 원 트랜잭션이 끝날 때까지
@@ -130,7 +131,7 @@ public class ChallengeCreatedNotificationService {
             if (user.isDeleted() || user.getId().equals(event.creatorUserId())) {
                 continue;
             }
-            if (notificationDispatcher.enqueueOnly(request(challenge, user, missionLabel, null))
+            if (notificationDispatcher.enqueueOnly(request(challenge, user, null, null, mission))
                     == NotificationDispatchOutcome.QUEUED) {
                 queued++;
             }
@@ -142,10 +143,8 @@ public class ChallengeCreatedNotificationService {
     /**
      * 신 경로의 요청 하나 — 대상은 챌린지, 렌더 입력은 그룹명과 목표 한 줄이다.
      *
-     * <p>목표 문구({@code missionLabel})를 <b>Data 가 만들어 싣는다</b>. 이것만은 예외인데,
-     * 목표 문장은 앱의 챌린지 카드·내기 시트와 <b>같은 문장</b>이어야 하고 그 조립 규칙이 코어의
-     * {@code GroupChallengeDuration}/{@code Window} 상세 행에 있기 때문이다. 알림 서버가 이 값을
-     * 다시 만들려면 코어 DB 를 읽어야 한다(계약 §2 금지).
+     * <p>신규 사건은 목표의 구조화된 스냅샷을 전달한다. Notification이 실제 선택한 템플릿의
+     * 언어로 목표까지 렌더하며, 상세 행을 다시 읽지 않는다.
      *
      * @param challenge    대상 챌린지
      * @param user         수신자
@@ -155,11 +154,44 @@ public class ChallengeCreatedNotificationService {
      */
     private static NotificationRequest request(GroupChallenge challenge, User user, String missionLabel,
                                                Instant keyAt) {
+        return request(challenge, user, missionLabel, keyAt, Map.of());
+    }
+
+    private static NotificationRequest request(GroupChallenge challenge, User user, String missionLabel,
+            Instant keyAt, Map<String, Object> mission) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("challengeId", challenge.getId().toString());
+        params.put("groupName", challenge.getGroup().getName());
+        if (mission.isEmpty()) {
+            params.put("missionLabel", missionLabel);
+        } else {
+            params.put("mission", mission);
+        }
         return new NotificationRequest(NotificationKind.CHALLENGE_CREATED, user.getId(),
                 challenge.getId(), challenge.getGroup().getId(), null, keyAt, user.getLanguage(),
-                Map.of("challengeId", challenge.getId().toString(),
-                        "groupName", challenge.getGroup().getName(),
-                        "missionLabel", missionLabel));
+                params);
+    }
+
+    private Map<String, Object> missionSnapshot(GroupChallenge challenge) {
+        Map<String, Object> mission = new LinkedHashMap<>();
+        mission.put("type", challenge.getType().name());
+        mission.put("category", challenge.getCategory().name());
+        mission.put("repeatDays", RepeatDay.listOf(challenge.getRepeatDays()).stream().map(Enum::name).toList());
+        if (challenge.getType() == MissionType.DURATION) {
+            groupChallengeDurationRepository.findByChallengeIdIn(List.of(challenge.getId())).stream().findFirst()
+                    .map(GroupChallengeDuration::getDurationMinutes)
+                    .ifPresent(minutes -> mission.put("durationMinutes", minutes));
+        } else {
+            groupChallengeWindowRepository.findByChallengeIdIn(List.of(challenge.getId())).stream().findFirst()
+                    .ifPresent(window -> {
+                        mission.put("windowStart", hhmm(window.getWindowStart()));
+                        mission.put("windowEnd", hhmm(window.getWindowEnd()));
+                        if (window.getDurationMinutes() != null) {
+                            mission.put("durationMinutes", window.getDurationMinutes());
+                        }
+                    });
+        }
+        return mission;
     }
 
     /**
