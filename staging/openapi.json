@@ -126,6 +126,55 @@
     }
   ],
   "paths": {
+    "/internal/users/{userId}/notification-settings-commands": {
+      "put": {
+        "tags": [
+          "internal-user-controller"
+        ],
+        "operationId": "recordNotificationSettings",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DurableCommandAckResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/me/notification-settings": {
       "get": {
         "tags": [
@@ -413,6 +462,597 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InviteMatchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/device-token-deletions": {
+      "post": {
+        "tags": [
+          "internal-user-controller"
+        ],
+        "operationId": "recordDeviceTokenDeletion",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceTokenDeletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DurableCommandAckResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/challenge-results/{sessionId}/claim": {
+      "post": {
+        "tags": [
+          "internal-challenge-result-controller"
+        ],
+        "operationId": "claimDisplay",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChallengeResultClaimRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChallengeResultClaimResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/challenge-results/{sessionId}/ack": {
+      "post": {
+        "tags": [
+          "internal-challenge-result-controller"
+        ],
+        "operationId": "acknowledge",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InternalResultAckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/internal/outbox-commands/{commandId}/delivered": {
+      "post": {
+        "tags": [
+          "internal-outbox-command-controller"
+        ],
+        "operationId": "markDelivered",
+        "parameters": [
+          {
+            "name": "commandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/internal/notifications/eligibility": {
+      "post": {
+        "tags": [
+          "internal-notification-controller"
+        ],
+        "operationId": "evaluateEligibility",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationEligibilityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationEligibilityResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/migrations/{migrationId}/invite-link-clicks/freeze": {
+      "post": {
+        "tags": [
+          "internal-migration-controller"
+        ],
+        "operationId": "freeze",
+        "parameters": [
+          {
+            "name": "migrationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/migrations/{migrationId}/invite-link-clicks/close-import": {
+      "post": {
+        "tags": [
+          "internal-migration-controller"
+        ],
+        "operationId": "closeImport",
+        "parameters": [
+          {
+            "name": "migrationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/internal/invite-links/claim-intents": {
+      "get": {
+        "tags": [
+          "internal-invite-link-controller"
+        ],
+        "operationId": "listClaimIntents",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimIntentPageResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "internal-invite-link-controller"
+        ],
+        "operationId": "enqueueClaimIntent",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimIntentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimIntentAckResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/invite-links/claim-intents/{commandId}/lease": {
+      "post": {
+        "tags": [
+          "internal-invite-link-controller"
+        ],
+        "operationId": "leaseClaimIntent",
+        "parameters": [
+          {
+            "name": "commandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimIntentLeaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimIntentLeaseResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/invite-links/claim-intents/{commandId}/completed": {
+      "post": {
+        "tags": [
+          "internal-invite-link-controller"
+        ],
+        "operationId": "completeClaimIntent",
+        "parameters": [
+          {
+            "name": "commandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimIntentCompletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/internal/invite-links/claim-intents/{commandId}/abandoned": {
+      "post": {
+        "tags": [
+          "internal-invite-link-controller"
+        ],
+        "operationId": "abandonClaimIntent",
+        "parameters": [
+          {
+            "name": "commandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimIntentAbandonRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/internal/invite-links/claim-confirmations": {
+      "post": {
+        "tags": [
+          "internal-invite-link-controller"
+        ],
+        "operationId": "confirmClaim",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimConfirmationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DurableCommandAckResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/auth/sessions/verify": {
+      "post": {
+        "tags": [
+          "internal-auth-controller"
+        ],
+        "operationId": "verifySession",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceSessionVerifyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/auth/device-sessions/verify": {
+      "post": {
+        "tags": [
+          "internal-auth-controller"
+        ],
+        "operationId": "verifyDeviceSession",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceSessionVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceSessionVerifyResponse"
                 }
               }
             }
@@ -869,7 +1509,7 @@
         ],
         "summary": "결과 표시 선점 (claim) · 렌더 직전 재검증",
         "description": "그 회차 결과를 이 기기가 표시하겠다고 선점한다. 만료가 있는 점유라 선점한 기기가 렌더 전에 죽어도 리스가 끝나면 다른 기기가 회수한다. 성공 응답의 claimToken 은 ack 에 그대로 실어 보낸다. 실패(409 RESULT_CLAIM_HELD)는 영구 거절이 아니라 \u0027이번엔 건너뛴다\u0027이며, 응답 바디의 retryAfterMs(밀리초, 상대 지연)만큼 뒤에 1회만 다시 시도하면 된다 — ⚠️ 절대 만료 시각은 주지 않는다. 기기 시계가 서버와 어긋나면 살아 있는 선점을 즉시 다시 요청해 기회를 태우거나 만료 뒤에도 한참 결과를 안 띄우기 때문이다. 이미 확인 처리된 회차는 선점 자체가 성립하지 않는다(RESULT_ALREADY_ACKED) — 이 조건이 없으면 두 기기가 함께 미확인을 조회한 뒤 한쪽이 ack 를 끝내도 다른 쪽이 같은 결과를 다시 렌더한다. 바디에 claimToken 을 실으면 최초 획득이 아니라 \u0027렌더 직전 재검증 + 리스 연장\u0027 이다(검증과 연장이 한 번의 쓰기 — 따로 두면 그 사이에 만료되는 TOCTOU 가 남는다). 내 선점이 아직 내 것이면 같은 토큰을 그대로 돌려주고(토큰은 회전하지 않는다 — 갱신 응답이 유실되면 ack 까지 막히기 때문), 그 사이 리스가 만료돼 다른 기기가 재선점했으면 409 RESULT_CLAIM_HELD 로 막는다. 이 재검증이 없으면 정지됐다 깨어난 기기가 낡은 성공 응답만 믿고 띄워 두 기기가 모두 모달을 본다. 바디는 선택이며, 바디 없는 호출은 지금처럼 최초 획득이다(additive).",
-        "operationId": "claimDisplay",
+        "operationId": "claimDisplay_1",
         "parameters": [
           {
             "name": "sessionId",
@@ -931,7 +1571,7 @@
         ],
         "summary": "결과 확인 표시 (ack)",
         "description": "모달이 실제로 노출된 뒤에 호출한다. 선점 때 받은 claimToken 을 실어 보내면 그 회차를 확인 처리해 다시 노출되지 않게 한다 — acknowledged_at IS NULL 조건부 원자 UPDATE 라 중복·동시 호출에도 최초 1회만 세팅된다. 대상 행 없음·이미 확인됨·중복 호출은 전부 no-op 이며 200 이다(멱등). 토큰이 현재 선점과 다르면 409 RESULT_CLAIM_STALE — 내 선점이 만료돼 다른 기기가 재선점한 경우라, 여기서 확인 처리하면 그 기기가 띄우려던 결과를 삼킨다. 확인이 성사되면 그 회차의 아직 안 나간 BET_RESULT 푸시 클레임도 함께 닫는다 — 안 닫으면 이미 본 결과의 푸시가 묶음 슬롯이 닫힌 뒤나 조용한 시간 이월 뒤에 도착한다.",
-        "operationId": "acknowledge",
+        "operationId": "acknowledge_1",
         "parameters": [
           {
             "name": "sessionId",
@@ -3733,6 +4373,339 @@
         }
       }
     },
+    "/internal/users/{userId}/result-ack": {
+      "get": {
+        "tags": [
+          "internal-notification-controller"
+        ],
+        "operationId": "readResultAck",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "ackDeadlineAt",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultAckStateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/activation": {
+      "get": {
+        "tags": [
+          "internal-user-controller"
+        ],
+        "operationId": "checkActivation",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserActivationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/notification-snapshot": {
+      "get": {
+        "tags": [
+          "internal-notification-controller"
+        ],
+        "operationId": "readSnapshot",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSnapshotPageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/migrations/{migrationId}/invite-links": {
+      "get": {
+        "tags": [
+          "internal-migration-link-controller"
+        ],
+        "operationId": "exportLinks",
+        "parameters": [
+          {
+            "name": "migrationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrozenPageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/migrations/{migrationId}/invite-link-clicks/manifest": {
+      "get": {
+        "tags": [
+          "internal-migration-controller"
+        ],
+        "operationId": "manifest",
+        "parameters": [
+          {
+            "name": "migrationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationManifestResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/migrations/{migrationId}/invite-link-clicks/clicks": {
+      "get": {
+        "tags": [
+          "internal-migration-controller"
+        ],
+        "operationId": "exportClicks",
+        "parameters": [
+          {
+            "name": "migrationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrozenPageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/migrations/{migrationId}/invite-link-clicks/candidates": {
+      "get": {
+        "tags": [
+          "internal-migration-controller"
+        ],
+        "operationId": "exportCandidates",
+        "parameters": [
+          {
+            "name": "migrationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ipHash",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "os",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FrozenClickCandidateResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/groups/{groupId}/invite-issue-context": {
+      "get": {
+        "tags": [
+          "internal-invite-link-controller"
+        ],
+        "operationId": "issueContext",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteIssueContextResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -5983,6 +6956,26 @@
           "soundEnabled"
         ]
       },
+      "DurableCommandAckResponse": {
+        "type": "object",
+        "properties": {
+          "commandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        }
+      },
       "DeviceTokenRegisterRequest": {
         "type": "object",
         "properties": {
@@ -6073,6 +7066,249 @@
             "format": "uuid"
           }
         }
+      },
+      "DeviceTokenDeletionRequest": {
+        "type": "object",
+        "properties": {
+          "deviceToken": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 0
+          },
+          "ownershipToken": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 0,
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "authGeneration": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ChallengeResultClaimRequest": {
+        "type": "object",
+        "properties": {
+          "claimToken": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ChallengeResultClaimResponse": {
+        "type": "object",
+        "properties": {
+          "claimToken": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "InternalResultAckRequest": {
+        "type": "object",
+        "properties": {
+          "claimToken": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ackDeadlineAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "ackDeadlineAt"
+        ]
+      },
+      "NotificationEligibilityRequest": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "subjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "adminTestRequestedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "kind",
+          "userId"
+        ]
+      },
+      "NotificationEligibilityResponse": {
+        "type": "object",
+        "properties": {
+          "eligible": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "ClaimIntentRequest": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "maxLength": 12,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      },
+      "ClaimIntentAckResponse": {
+        "type": "object",
+        "properties": {
+          "commandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "terminalCode": {
+            "type": "string"
+          }
+        }
+      },
+      "ClaimIntentLeaseRequest": {
+        "type": "object",
+        "properties": {
+          "leaseSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 3600,
+            "minimum": 1
+          }
+        }
+      },
+      "ClaimIntentLeaseResponse": {
+        "type": "object",
+        "properties": {
+          "leased": {
+            "type": "boolean"
+          },
+          "leaseToken": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "leaseExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClaimIntentCompletionRequest": {
+        "type": "object",
+        "properties": {
+          "leaseToken": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "terminalCode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseToken"
+        ]
+      },
+      "ClaimIntentAbandonRequest": {
+        "type": "object",
+        "properties": {
+          "terminalCode": {
+            "type": "string"
+          }
+        }
+      },
+      "ClaimConfirmationRequest": {
+        "type": "object",
+        "properties": {
+          "claimId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 12,
+            "minLength": 0
+          },
+          "capability": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "capability",
+          "claimId",
+          "slug"
+        ]
+      },
+      "SessionVerifyRequest": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "sessionId"
+        ]
+      },
+      "DeviceSessionVerifyResponse": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "sessionEpoch": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "DeviceSessionVerifyRequest": {
+        "type": "object",
+        "properties": {
+          "deviceBootstrap": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "deviceBootstrap"
+        ]
       },
       "UserProfileSetupRequest": {
         "type": "object",
@@ -6181,24 +7417,6 @@
         "properties": {
           "result": {
             "type": "string"
-          }
-        }
-      },
-      "ChallengeResultClaimRequest": {
-        "type": "object",
-        "properties": {
-          "claimToken": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "ChallengeResultClaimResponse": {
-        "type": "object",
-        "properties": {
-          "claimToken": {
-            "type": "string",
-            "format": "uuid"
           }
         }
       },
@@ -6815,6 +8033,13 @@
           },
           "refreshToken": {
             "type": "string"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceBootstrap": {
+            "type": "string"
           }
         }
       },
@@ -6822,6 +8047,15 @@
         "type": "object",
         "properties": {
           "refreshToken": {
+            "type": "string"
+          },
+          "deviceToken": {
+            "type": "string"
+          },
+          "ownershipToken": {
+            "type": "string"
+          },
+          "idempotencyKey": {
             "type": "string"
           }
         }
@@ -6845,6 +8079,13 @@
           },
           "isNewUser": {
             "type": "boolean"
+          },
+          "deviceBootstrap": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -6859,6 +8100,13 @@
           },
           "isNewUser": {
             "type": "boolean"
+          },
+          "deviceBootstrap": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -7159,6 +8407,228 @@
         "required": [
           "sessionId"
         ]
+      },
+      "ResultAckStateResponse": {
+        "type": "object",
+        "properties": {
+          "acknowledged": {
+            "type": "boolean"
+          },
+          "acknowledgedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "UserActivationResponse": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NotificationSnapshotItem": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "withdrawn": {
+            "type": "boolean"
+          },
+          "authGeneration": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "hasDeviceToken": {
+            "type": "boolean"
+          },
+          "settingsPresent": {
+            "type": "boolean"
+          },
+          "notificationEnabled": {
+            "type": "boolean"
+          },
+          "soundEnabled": {
+            "type": "boolean"
+          },
+          "nightModeEnabled": {
+            "type": "boolean"
+          },
+          "nightStartTime": {
+            "type": "string"
+          },
+          "nightEndTime": {
+            "type": "string"
+          },
+          "settingsUpdatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "NotificationSnapshotPageResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationSnapshotItem"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "FrozenClickCandidateResponse": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "sourceChecksum": {
+            "type": "string"
+          }
+        }
+      },
+      "FrozenPageResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FrozenClickCandidateResponse"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "MigrationManifestResponse": {
+        "type": "object",
+        "properties": {
+          "migrationId": {
+            "type": "string"
+          },
+          "expectedClicks": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sourceChecksum": {
+            "type": "string"
+          },
+          "expectedLinks": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "linkChecksum": {
+            "type": "string"
+          },
+          "importClosed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ClaimIntentItemResponse": {
+        "type": "object",
+        "properties": {
+          "commandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "leaseExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClaimIntentPageResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClaimIntentItemResponse"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "pendingTotal": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "InviteIssueContextResponse": {
+        "type": "object",
+        "properties": {
+          "groupActive": {
+            "type": "boolean"
+          },
+          "inviterActiveMember": {
+            "type": "boolean"
+          },
+          "membershipEpoch": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "linkVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "transitionSeq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "snapshotVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "groupName": {
+            "type": "string"
+          },
+          "inviterDisplayName": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "inviterId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       },
       "FocusStat": {
         "type": "object",
