@@ -7,20 +7,44 @@
 
 | Workflow | 결과 | HEAD | 실행 |
 | --- | --- | --- | --- |
-| Business · Notification CI | queued | `c1b226bee` | [#34749088064](https://github.com/OneOrThree/phone/actions/runs/34749088064) |
+| Business · Notification CI | success | `c1b226bee` | [#34749088064](https://github.com/OneOrThree/phone/actions/runs/34749088064) |
 | CI | queued | `c1b226bee` | [#34749088125](https://github.com/OneOrThree/phone/actions/runs/34749088125) |
-| Realtime CI | queued | `c1b226bee` | [#34749088170](https://github.com/OneOrThree/phone/actions/runs/34749088170) |
+| Realtime CI | success | `c1b226bee` | [#34749088170](https://github.com/OneOrThree/phone/actions/runs/34749088170) |
 
 **수집 시점에 CI가 진행 중이다. 대기 중인 잡과 아직 배정되지 않은 잡은 소요 시간을 확정하지 않았다.**
 
-수집 시각(UTC): 2026-09-13T09:12:44.709687+00:00, 2026-09-13T09:12:45.781293+00:00, 2026-09-13T09:12:46.807585+00:00
+수집 시각(UTC): 2026-09-13T11:32:16.926929+00:00, 2026-09-13T11:32:18.055124+00:00, 2026-09-13T11:32:19.189128+00:00
 
 ## 잡별 러너 대기와 실행
 
 | Workflow / 잡 | 대기(초) | 실행(초) | 결과 |
 | --- | ---: | ---: | --- |
+| Business · Notification CI / 위성 변경 입력 판정 | 29 | 12 | success |
+| Business · Notification CI / 서비스별 시크릿 · DB 격리 | 30 | 98 | success |
+| Business · Notification CI / 공개 명령 원자성 · 계약 | 29 | 237 | success |
+| Business · Notification CI / notification 검증 | 17 | 601 | success |
+| Business · Notification CI / business-api 검증 | 580 | 535 | success |
+| Business · Notification CI / notification 이미지 | 1028 | 102 | success |
+| Business · Notification CI / business-api 이미지 | 3284 | 107 | success |
+| CI / test / gradle | — | — | queued |
+| CI / checkstyle / gradle | — | — | 이전 성공 재사용 |
+| CI / spotbugs / gradle | — | — | 이전 성공 재사용 |
+| Realtime CI / build / gradle | 1163 | 506 | success |
+| Realtime CI / 채팅 이미지 build · cache | 1213 | 70 | success |
 
-이 HEAD의 JAR 전달과 이미지 조립 단계는 아직 완료되지 않았다.
+## JAR 전달과 이미지 조립 단계
+
+| Workflow / 잡 / 단계 | 실행(초) | 결과 |
+| --- | ---: | --- |
+| Business · Notification CI / notification 검증 / Run ./.github/actions/ci-jar | 11 | success |
+| Business · Notification CI / business-api 검증 / Run ./.github/actions/ci-jar | 10 | success |
+| Business · Notification CI / notification 이미지 / Run ./.github/actions/ci-jar | 34 | success |
+| Business · Notification CI / notification 이미지 / 이미지 검증 · 환경별 digest 발행 | 34 | success |
+| Business · Notification CI / business-api 이미지 / Run ./.github/actions/ci-jar | 25 | success |
+| Business · Notification CI / business-api 이미지 / 이미지 검증 · 환경별 digest 발행 | 49 | success |
+| Realtime CI / build / gradle / Run ./.github/actions/ci-jar | 12 | success |
+| Realtime CI / 채팅 이미지 build · cache / Run ./.github/actions/ci-jar | 35 | success |
+| Realtime CI / 채팅 이미지 build · cache / Build image | 8 | success |
 
 원본 필드·타임스탬프·step 상태·수집 시각은 [actions-after.json](evidence/actions-after.json)에 보관한다.
 `queued`와 생략 잡의 대기 시간을 0초로 계산하지 않는다.
@@ -60,3 +84,22 @@ GitHub가 이전 성공 잡에 새 check 생성 시각과 과거 시작·완료 
 최초 Realtime 이미지 잡은 JAR 다운로드·검증 31초, 이미지 빌드 단계 34초로 완료됐다.
 [initial-realtime-proof.json](evidence/initial-realtime-proof.json)에 검사 잡과 이미지 잡의 동일 manifest, registry cache export 관측, 이미지 잡 URL과 로그 SHA-256을 기록했다.
 이는 최초 HEAD의 1회 관측이며 현재 HEAD의 전체 성공이나 일정한 시간 단축률을 뜻하지 않는다.
+
+## 최종 HEAD의 Data 타임아웃과 재검증
+
+HEAD `c1b226bee`의 첫 Data 실행은 30분 제한을 넘어 취소됐다. 제한과 검사 항목을 그대로 유지하고 실패 잡만 재실행했다.
+취소된 실행에서 저장된 XML 81개에는 테스트 834건, 실패·오류 0건, 생략 1건이 있다. 이는 일부 결과이며 전체 통과가 아니다.
+09:49:37 UTC에 같은 VM의 3번 러너에서 OOM kill이 발생했고, Data 로그에는 housekeeper 지연 4분 1.978초 경고가 남았다.
+공유 자원 압박과 일치하는 관측이며, Data 단일 잡의 메모리 사용량을 프로파일링하거나 정확한 인과 기여도를 측정한 것은 아니다.
+Data를 GitHub-hosted로 상시 이전하는 방안도 검토했으나 기존 workflow가 명시한 월 사용량 제약을 보존해 러너 배치를 변경하지 않았다. 조회 시 3번 러너는 OOM 종료 후 offline 상태였으며 인프라 설정은 변경하지 않았다.
+[data-timeout-evidence.json](evidence/data-timeout-evidence.json)에 일부 테스트 수·실패 annotation·OOM 시각·로그 해시를 보관한다.
+[actions-before-data-retry.json](evidence/actions-before-data-retry.json)은 재실행 전 전체 상태이며, 상단 표와 actions-after.json은 최신 시도 결과다.
+Business·Notification·Realtime은 같은 HEAD에서 전체 검사와 이미지 조립을 통과했다. [three-service-proofs.json](evidence/three-service-proofs.json)에 세 서비스의 검사→이미지 manifest 일치, Gradle builder RUN 없음, registry cache export를 기록했다.
+
+## 스택 병합 후 이력 정리
+
+#751 squash merge 뒤 #752를 main으로 맞추는 과정에서 충돌 5곳을 처리하고 #753에 전파했다.
+main과 머지된 #751의 서비스 파일은 같았으며 차이는 #740 문서 6개였다. 충돌 위치의 main blob이 #751 조상 blob과 같음을 확인해 후속 PR 구현을 보존했다.
+정리 전후의 네 서비스·Dockerfile·CI 입력 tree가 기존 전체 검증본과 같고 최종 파일 차이가 해당 문서 6개뿐임을 확인했다.
+이력 정리 push도 자동 CI를 다시 만들므로, 스택 유지 작업 자체가 공유 러너 대기에 영향을 줄 수 있다. 이 작업의 추가 대기 시간을 최적화 효과로 계산하지 않는다.
+[stack-merge-repair.json](evidence/stack-merge-repair.json)에 고정 SHA, 충돌 경로, 검증 tree·로그·이미지 ID 근거를 남겼다.

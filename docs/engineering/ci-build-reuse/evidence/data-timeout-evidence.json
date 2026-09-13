@@ -1,0 +1,30 @@
+{
+  "run_id": 34749088125,
+  "attempt": 1,
+  "pr_head_sha": "c1b226bee3a276f70d8366911460d30c0c5a7e96",
+  "job_id": 103702329266,
+  "job_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103702329266",
+  "conclusion": "cancelled",
+  "annotation": "The job has exceeded the maximum execution time of 30m0s",
+  "partial_test_results": {
+    "xml_files": 81,
+    "tests": 834,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "complete_suite": false
+  },
+  "oom_observation": {
+    "unit": "actions.runner.OneOrThree-phone.gromo-dev-build-3.service",
+    "result": "oom-kill",
+    "event_at": "2026-09-13T09:49:37Z",
+    "inactive_at": "2026-09-13T09:50:06Z"
+  },
+  "data_warning": "Thread starvation or clock leap detected (housekeeper delta=4m1s978ms790µs441ns).",
+  "response": "rerun failed Data jobs only; successful static checks reused; existing self-hosted policy retained; no timeout or VM configuration changes",
+  "logs_sha256": {
+    "github-data-timeout-103702329266.log": "36263f7455f597ef5cfb043679c14a79c0bdf4ad00e1f529cfbde264518fbb77",
+    "runner3-failure.log": "f811ae891f9831b9f6048ae5b53bfdc652ac51cf7df4c76cc8e2b632e4356eed",
+    "host-after-data-timeout.log": "8c15dbab39c8cb843531551271c0d5441326dbec409b9368031a92fb470b72ed"
+  }
+}

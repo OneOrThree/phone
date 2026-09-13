@@ -1,0 +1,56 @@
+[
+  {
+    "service": "business-api",
+    "workflow_run": 34749088064,
+    "pr_head_sha": "c1b226bee3a276f70d8366911460d30c0c5a7e96",
+    "manifest": {
+      "service": "business-api",
+      "revision": "6c01ceabdc8866d584bf0d72352c54a3e38d3477",
+      "run_id": "34749088064",
+      "sha256": "49c1eb89223df7076d1239842b50f807be6f3c09c2116f30f1632408c3d83fd4"
+    },
+    "manifest_log_occurrences": 2,
+    "workflow_log_sha256": "97cbb4ee0ab90681432dee171391bb9d11d022644d7f6de41920db06d33e6253",
+    "image_job_id": 103703864025,
+    "image_job_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064/job/103703864025",
+    "gradle_steps_executed": 0,
+    "registry_cache_export_observed": true,
+    "image_log_sha256": "5ae1c358de14d8e0b8a353e43ba7843d676f5c695d7734b97b079144da51feb9"
+  },
+  {
+    "service": "notification",
+    "workflow_run": 34749088064,
+    "pr_head_sha": "c1b226bee3a276f70d8366911460d30c0c5a7e96",
+    "manifest": {
+      "service": "notification",
+      "revision": "6c01ceabdc8866d584bf0d72352c54a3e38d3477",
+      "run_id": "34749088064",
+      "sha256": "a7bac9df7eb51a115bf78d9443d776812b752e31da63b4e6fceca1cb547898f5"
+    },
+    "manifest_log_occurrences": 2,
+    "workflow_log_sha256": "97cbb4ee0ab90681432dee171391bb9d11d022644d7f6de41920db06d33e6253",
+    "image_job_id": 103703863966,
+    "image_job_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064/job/103703863966",
+    "gradle_steps_executed": 0,
+    "registry_cache_export_observed": true,
+    "image_log_sha256": "ca08caeb51be354635137e69fa8d6a8ff4fc1f9a2be338201c2d24426cf122e7"
+  },
+  {
+    "service": "realtime",
+    "workflow_run": 34749088170,
+    "pr_head_sha": "c1b226bee3a276f70d8366911460d30c0c5a7e96",
+    "manifest": {
+      "service": "realtime",
+      "revision": "6c01ceabdc8866d584bf0d72352c54a3e38d3477",
+      "run_id": "34749088170",
+      "sha256": "af5066f60a56044a55819c943e91daf11ffbaabf18a43c8c6cc183e99e305034"
+    },
+    "manifest_log_occurrences": 2,
+    "workflow_log_sha256": "d0b330d1f667c30e30724776ff75c016294405f478f3d86686de812f48219bdb",
+    "image_job_id": 103704807472,
+    "image_job_url": "https://github.com/OneOrThree/phone/actions/runs/34749088170/job/103704807472",
+    "gradle_steps_executed": 0,
+    "registry_cache_export_observed": true,
+    "image_log_sha256": "97a846e3f4ea06b0907d647b81243516ecbc5ef73c40c51f1a4c36634702cdc7"
+  }
+]

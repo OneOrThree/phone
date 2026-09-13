@@ -1,0 +1,141 @@
+{
+  "main": "0511a6cc0524355313b912890884e4a8c3425aca",
+  "previous_751": "acced385a400224d08d9bf98a5596d4f8a8ac85b",
+  "752_before": "60f6629d7d07120a6417af91667ea5a527f328a2",
+  "conflicts": [
+    "docs/contracts/business-satellite-api.yaml",
+    "server/business-api/README.md",
+    "server/business-api/src/main/java/com/oneorthree/business/upstream/data/DataApiClient.java",
+    "server/business-api/src/test/java/com/oneorthree/business/common/api/PublicApiContractTest.java",
+    "server/data-api/src/main/resources/application-satellites.yml"
+  ],
+  "resolution": "main conflict blobs equal merged PR751 ancestor; preserve all PR752 changes; add exact main account docs",
+  "only_changed_paths": [
+    "docs/prd/account/README.md",
+    "docs/prd/account/high-level-design.md",
+    "docs/prd/account/low-level-design.md",
+    "docs/prd/account/policy.md",
+    "docs/prd/account/prd.md",
+    "docs/prd/account/source-contracts.json"
+  ],
+  "validated_heads": {
+    "752": {
+      "head": "a6cf4ffb26f5fd921db5d7d45ed1db0fcff9873f",
+      "service_trees_and_ci_unchanged": true,
+      "prior_validation": {
+        "head": "c67fda88be3152f82d004a220b7aed972a286b65",
+        "services": {
+          "business-api": {
+            "tree": "73ec8e0f20baf21baedfd8037a83e656f8f1e967",
+            "testedInPr": 752,
+            "log": "/tmp/stack752-business-api-norm.log",
+            "counts": {
+              "tests": 854,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0
+            },
+            "imageId": "sha256:eda943c1b6b02daae61d02a56d5da9e26eb3aa10b5ba3bebe141ee657219f4bf"
+          },
+          "notification": {
+            "tree": "41a49b8fbc9b1c4c3431cb3470139436528d3ba8",
+            "testedInPr": 747,
+            "log": "/tmp/stack747-notification-norm.log",
+            "counts": {
+              "tests": 257,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0
+            },
+            "imageId": "sha256:9b1dd93a4b8828a2040bda9f145385d54cb58638fd8e99475386782b9ae0405e"
+          },
+          "data-api": {
+            "tree": "c8abd993d4b80757dfe746e1d4417e409b2f07b5",
+            "testedInPr": 752,
+            "log": "/tmp/stack752-data-api-norm-v3.log",
+            "counts": {
+              "tests": 2679,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 8
+            },
+            "imageId": "sha256:d13a9308c8bb0e142773bfd6f8cf7403a2edba857517966fea9c96b1d9ea2acb"
+          },
+          "realtime": {
+            "tree": "d98d72d2975b8d3fb3b30e907e2459addac057c4",
+            "testedInPr": 747,
+            "log": "/tmp/stack747-realtime-norm.log",
+            "counts": {
+              "tests": 141,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0
+            },
+            "imageId": "sha256:da0b1e867f78e9c3cf9b31ef4aa880ad2bdf3eabe2823d80d8af2f16bbf81f8f"
+          }
+        }
+      }
+    },
+    "753": {
+      "head": "8fce8edb9514a134a004f78c70b2f9a395a1090c",
+      "service_trees_and_ci_unchanged": true,
+      "prior_validation": {
+        "head": "121d53af8852e1ac87976dbc2b92edb3cf816e62",
+        "services": {
+          "business-api": {
+            "tree": "73ec8e0f20baf21baedfd8037a83e656f8f1e967",
+            "testedInPr": 752,
+            "log": "/tmp/stack752-business-api-norm.log",
+            "counts": {
+              "tests": 854,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0
+            },
+            "imageId": "sha256:eda943c1b6b02daae61d02a56d5da9e26eb3aa10b5ba3bebe141ee657219f4bf"
+          },
+          "notification": {
+            "tree": "41a49b8fbc9b1c4c3431cb3470139436528d3ba8",
+            "testedInPr": 747,
+            "log": "/tmp/stack747-notification-norm.log",
+            "counts": {
+              "tests": 257,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0
+            },
+            "imageId": "sha256:9b1dd93a4b8828a2040bda9f145385d54cb58638fd8e99475386782b9ae0405e"
+          },
+          "data-api": {
+            "tree": "da17d62e5f6ad4c47caca952690359bd21bf9c7d",
+            "testedInPr": 753,
+            "log": "/tmp/stack753-data-api-norm-v2.log",
+            "counts": {
+              "tests": 2698,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 8
+            },
+            "imageId": "sha256:d111ded5b2a29f95f4f9e4c1649e8d960bddd132487ead6035a20df8e9890337"
+          },
+          "realtime": {
+            "tree": "d98d72d2975b8d3fb3b30e907e2459addac057c4",
+            "testedInPr": 747,
+            "log": "/tmp/stack747-realtime-norm.log",
+            "counts": {
+              "tests": 141,
+              "failures": 0,
+              "errors": 0,
+              "skipped": 0
+            },
+            "imageId": "sha256:da0b1e867f78e9c3cf9b31ef4aa880ad2bdf3eabe2823d80d8af2f16bbf81f8f"
+          }
+        }
+      }
+    }
+  },
+  "github_mergeable": {
+    "752": "MERGEABLE",
+    "753": "MERGEABLE"
+  }
+}
