@@ -1121,6 +1121,36 @@
         }
       }
     },
+    "/internal/auth/sessions/logout": {
+      "post": {
+        "tags": [
+          "internal-session-logout-controller"
+        ],
+        "operationId": "logout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionLogoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionLogoutResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/auth/device-sessions/verify": {
       "post": {
         "tags": [
@@ -3543,7 +3573,7 @@
         ],
         "summary": "로그아웃",
         "description": "Refresh Token 무효화. 클라이언트는 로컬 토큰도 삭제해야 함.",
-        "operationId": "logout",
+        "operationId": "logout_1",
         "requestBody": {
           "content": {
             "application/json": {
@@ -7449,6 +7479,25 @@
           "sessionEpoch": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "SessionLogoutRequest": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          },
+          "accessToken": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionLogoutResponse": {
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "boolean"
           }
         }
       },
