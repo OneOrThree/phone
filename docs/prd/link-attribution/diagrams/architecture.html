@@ -249,7 +249,7 @@
         <text x="225" y="144">콘솔 발급</text><text x="225" y="159" class="mono">campaign_id · destination</text>
         <text x="415" y="144">/l/{slug}</text><text x="415" y="159" class="mono">Play 버튼에 slug·click</text>
         <text x="605" y="144">iOS fingerprint</text><text x="605" y="159" class="mono">Android referrer 우선</text>
-        <text x="792" y="144">claim 기록</text><text x="792" y="159" class="mono">deviceId 일치 필수</text>
+        <text x="792" y="144">claim 기록</text><text x="792" y="159" class="mono">설치된 앱은 /l/resolve</text>
       </g>
       <g stroke="currentColor" stroke-width="1.1" marker-end="url(#a3)"><line x1="300" y1="148" x2="338" y2="148"/><line x1="490" y1="148" x2="528" y2="148"/><line x1="680" y1="148" x2="718" y2="148"/></g>
 
@@ -270,7 +270,7 @@
         <text x="605" y="238" class="mono">앱 첫 실행 → POST /l/referrer</text>
         <text x="605" y="254" class="mono">Meta 키로 복호화 → 캠페인</text>
         <text x="605" y="268" class="mono">gclid → 채널까지만</text>
-        <text x="605" y="282" class="mono">→ install_referrers 행</text>
+        <text x="605" y="282" class="mono">→ install_key 로 저장</text>
         <text x="792" y="220">claim 기록</text><text x="792" y="235" class="mono">attributionId + deviceId</text>
       </g>
       <g stroke="currentColor" stroke-width="1.1" marker-end="url(#a3)"><line x1="300" y1="224" x2="338" y2="224" opacity=".5"/><line x1="490" y1="224" x2="528" y2="224" opacity=".5"/><line x1="680" y1="224" x2="718" y2="224"/></g>
@@ -284,18 +284,18 @@
       <g fill="currentColor" font-size="11" text-anchor="middle">
         <text x="225" y="326">콘솔에 캠페인 행만</text><text x="225" y="341" class="mono">링크 0개</text><text x="225" y="356" class="mono">source-id 는 네트워크가 정함</text>
         <text x="415" y="326" opacity=".6">랜딩 없음</text><text x="415" y="341" class="mono" opacity=".6">fingerprint 금지</text>
-        <text x="605" y="326">Apple → 우리 서버</text><text x="605" y="341" class="mono">/.well-known/skadnetwork/…</text><text x="605" y="356" class="mono">서명 검증 → skan_postbacks</text>
+        <text x="605" y="326">Apple → 우리 서버</text><text x="605" y="341" class="mono">/.well-known/skadnetwork/…</text><text x="605" y="356" class="mono">서명 통과분만 저장</text>
         <text x="792" y="326" opacity=".7">유저 단위 없음</text><text x="792" y="341" class="mono" opacity=".7">전환값 1=가입 2=첫집중</text><text x="792" y="356" class="mono" opacity=".7">집계로만</text>
       </g>
       <g stroke="currentColor" stroke-width="1.1" marker-end="url(#a3)"><line x1="300" y1="330" x2="338" y2="330" opacity=".5"/><line x1="490" y1="330" x2="528" y2="330" opacity=".5"/><line x1="680" y1="330" x2="718" y2="330" opacity=".5"/></g>
     </svg>
-    <figcaption>네 타입이 같은 세 엔드포인트(랜딩·매치·claim)를 공유한다. 초록 테두리가 이번에 새로 생기는 서버 경로 둘(Referrer 수신, SKAN 수신). Android 앱은 referrer 출처가 LINK·META·GOOGLE 이면 fingerprint 매치를 건너뛴다.</figcaption>
+    <figcaption>네 타입이 같은 세 엔드포인트(랜딩·매치·claim)를 공유한다. 초록 테두리가 이번에 새로 생기는 서버 경로 둘(Referrer 수신, SKAN 수신). Android 앱은 referrer 출처가 LINK·META·GOOGLE 이면 fingerprint 매치를 건너뛴다. 매치 없음은 200, 서버 일시 장애는 503 이라 앱이 다음 실행에 다시 묻는다.</figcaption>
   </figure>
 </section>
 
 <section>
   <h2><span class="n">4</span>데이터 — 테이블 5개, 이관 없음</h2>
-  <p class="lede">기존 두 테이블은 rename(+ <code>links</code> 에 컬럼 추가). slug·id·클릭 이력 그대로. 신설 3개는 캠페인과 바깥에서 오는 신호 2종. 캠페인 귀속은 읽기 시점에 한다. 콘솔 상태(세션·잠금·폼 토큰)는 business-api Redis 라 DB 테이블 0.</p>
+  <p class="lede">기존 두 테이블은 컬럼 추가를 먼저 하고(expand), 이름 변경은 마지막 단계에서 한다(contract) — 그 전까지 모든 단계를 이전 이미지로 되돌릴 수 있다. slug·id·클릭 이력 그대로. 신설 3개는 캠페인과 바깥에서 오는 신호 2종. 캠페인 귀속은 읽기 시점에 한다. 콘솔 상태(세션·잠금·폼 토큰)는 business-api Redis 라 DB 테이블 0.</p>
   <figure>
     <svg viewBox="0 0 880 470" role="img" aria-label="campaigns, links, link_clicks, install_referrers, skan_postbacks 다섯 테이블과 참조 관계">
       <defs>
@@ -310,7 +310,7 @@
       <g fill="currentColor" font-size="13" font-weight="600">
         <text x="30" y="52">campaigns</text><text x="120" y="52" font-size="10" font-weight="400" style="fill:var(--teal)">신설</text>
         <text x="339" y="52">links</text><text x="380" y="52" font-size="10" font-weight="400" opacity=".7">← group_invite_links</text>
-        <text x="648" y="52">link_clicks</text><text x="730" y="52" font-size="10" font-weight="400" opacity=".7">← rename 만</text>
+        <text x="648" y="52">link_clicks</text><text x="730" y="52" font-size="10" font-weight="400" opacity=".7">← contract 때 rename</text>
         <text x="339" y="292">install_referrers</text><text x="470" y="292" font-size="10" font-weight="400" style="fill:var(--teal)">신설 · Android</text>
         <text x="30" y="292">skan_postbacks</text><text x="150" y="292" font-size="10" font-weight="400" style="fill:var(--teal)">신설 · iOS</text>
       </g>
@@ -345,8 +345,8 @@
         <text x="648" y="160">claimed_user_id · claimed_at</text>
         <text x="648" y="184" opacity=".6">탈퇴 시 claimed_user_id NULL</text>
 
-        <text x="339" y="320">id · device_id unique</text>
-        <text x="339" y="336">referrer_raw · app_instance_id</text>
+        <text x="339" y="320">id · install_key unique</text>
+        <text x="339" y="336">device_id · referrer_raw</text>
         <text x="339" y="352">source LINK|META|GOOGLE|ORGANIC</text>
         <text x="339" y="368">link_id · click_id  nullable</text>
         <text x="339" y="384">gclid · meta_campaign_id</text>
@@ -359,9 +359,9 @@
         <text x="30" y="352">source_identifier · app_id</text>
         <text x="30" y="368">conversion_value · coarse</text>
         <text x="30" y="384">did_win · sequence_index</text>
-        <text x="30" y="400">fidelity_type · signature_valid</text>
+        <text x="30" y="400">fidelity_type · redownload</text>
         <text x="30" y="416">raw jsonb · received_at</text>
-        <text x="30" y="438" opacity=".6">기기 식별자 없음 — 집계 전용</text>
+        <text x="30" y="438" opacity=".6">서명 통과분만 저장 · 기기 식별자 없음</text>
       </g>
       <g stroke="currentColor" stroke-width="1.2" marker-end="url(#a4)" fill="none">
         <line x1="246" y1="112" x2="323" y2="112"/><line x1="555" y1="80" x2="632" y2="80"/>
@@ -376,7 +376,7 @@
         <text x="262" y="222">meta_campaign_id</text><text x="262" y="236">= external_id</text>
       </g>
     </svg>
-    <figcaption>초록 = 추가 컬럼·신설 테이블. 실선은 FK, 점선은 읽기 시점 대응(FK 아님). Flyway 번호는 #745 가 V51·V52 를 쓰고 있어 V53 이상.</figcaption>
+    <figcaption>초록 = 추가 컬럼·신설 테이블. 실선은 FK, 점선은 읽기 시점 대응(FK 아님). Flyway 번호는 #745 가 V51·V52 를 쓰고 있어 V53 이상. install_key = 기기 + Play 설치 시작 시각이라 재설치는 새 설치.</figcaption>
   </figure>
 </section>
 
@@ -391,7 +391,7 @@
       <tr><td>data-api <code>satellites</code> relay 의 <code>link.*</code> 7종</td><td>없는 서버로 전달 반복</td><td><span class="tag dead">relay 켜기 전 제거</span></td></tr>
       <tr><td><code>LINK_CAPABILITY_KEY</code> · <code>LINK_PROXY_SECRET</code> · <code>upstream.link</code></td><td>미주입 시 부팅 실패</td><td>구현 PR 이 지운다</td></tr>
       <tr><td>business <code>trusted-ip-headers</code> 기본 <code>X-Link-Client-IP</code></td><td>IP 를 못 읽음</td><td><code>X-Real-IP</code> 로</td></tr>
-      <tr><td>V52 링크 테이블 5개</td><td>—</td><td><span class="tag keep">구현 PR 이 DROP</span> 행 0 확인 후</td></tr>
+      <tr><td>V52 링크 테이블 5개</td><td>—</td><td><span class="tag keep">contract 단계에서 DROP</span> 행 0 확인 후</td></tr>
     </tbody>
   </table>
   </div>
@@ -401,12 +401,12 @@
   <h2><span class="n">6</span>배포 순서</h2>
   <ol class="steps">
     <li>#745 머지 — 링크 경로는 data-api 공개 컨트롤러가 계속 서빙</li>
-    <li>data-api — 스키마 · <code>invitelink</code> 일반화 · <code>/internal/*</code> · #745 data-api 링크 사장 코드 + V52 링크 테이블 제거. 공개 컨트롤러는 남긴다</li>
-    <li>business-api — 공개 표면 · referrer · SKAN 수신 · #745 business-api 링크 사장 코드 제거</li>
-    <li>Infra — nginx 링크 경로 전환(reload 1회, 되돌리기도 1회 · 같은 DB 라 무손실), Cloudflare SKAN 경로 예외</li>
-    <li>data-api — 링크 공개 컨트롤러 제거(전환 7일 뒤, 구 경로 호출 0)</li>
+    <li>data-api — 스키마 expand(기존 테이블 이름 그대로 컬럼·신설 3) · <code>invitelink</code> 일반화 · <code>/internal/*</code> · #745 data-api 링크 사장 코드 제거. 공개 컨트롤러와 V52 테이블은 남긴다</li>
+    <li>business-api — 공개 표면 · referrer · resolve · SKAN 수신(서명 통과분만 저장) · #745 business-api 링크 사장 코드 제거</li>
+    <li>Infra — nginx 링크 경로 전환(reload 1회, 되돌리기도 1회 · 같은 DB 라 무손실), Cloudflare SKAN 경로 챌린지 예외 + 엣지 레이트리밋</li>
+    <li>data-api contract — 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(전환 7일 뒤, 구 경로 호출 0). 되돌리기는 LLD §1.1 복구 SQL</li>
     <li>business-api — 콘솔</li>
-    <li>앱 — ① 파서·목적지 ② Install Referrer ③ SKAN 등록·전환값</li>
+    <li>앱 — ① 파서·목적지·resolve ② Install Referrer ③ SKAN 등록·전환값</li>
   </ol>
 </section>
 
