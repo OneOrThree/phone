@@ -96,7 +96,7 @@ CREATE INDEX idx_links_campaign ON public.group_invite_links (campaign_id) WHERE
 
 ### 1.4 `link_clicks` (expand 동안 물리 이름 `invite_link_clicks`)
 
-expand 에서 컬럼 셋과 기간 집계 인덱스 셋을 더하고 contract 에서 rename 한다. 기존 컬럼·인덱스(`idx_invite_clicks_match` · `idx_invite_clicks_link` · `idx_invite_clicks_device`)는 그대로다.
+expand 에서 컬럼 셋과 인덱스 넷(기간 집계 셋 · 랜딩 클릭 저장 상한 하나)을 더하고 contract 에서 rename 한다. 기존 컬럼·인덱스(`idx_invite_clicks_match` · `idx_invite_clicks_link` · `idx_invite_clicks_device`)는 그대로다.
 
 ```sql
 ALTER TABLE public.invite_link_clicks
@@ -108,6 +108,10 @@ ALTER TABLE public.invite_link_clicks
 CREATE INDEX idx_invite_clicks_link_clicked ON public.invite_link_clicks (link_id, clicked_at);
 CREATE INDEX idx_invite_clicks_link_matched ON public.invite_link_clicks (link_id, matched_at) WHERE matched;
 CREATE INDEX idx_invite_clicks_link_signup  ON public.invite_link_clicks (link_id, signup_at) WHERE signup_at IS NOT NULL;
+
+-- 랜딩 클릭 저장 상한(§2.2). 매치 여부와 무관한 창 안 전체 수를 센다 — idx_invite_clicks_match 는 matched=false 부분 인덱스라 못 세고,
+-- (link_id, clicked_at) 만으로는 인기 링크의 창 안 클릭을 전부 읽은 뒤 ip_hash·os 로 걸러야 한다
+CREATE INDEX idx_invite_clicks_recent ON public.invite_link_clicks (link_id, ip_hash, os, clicked_at);
 ```
 
  Referrer 설치는 링크가 없을 수 있어 이 테이블에 넣지 않는다(§1.5).
@@ -211,7 +215,7 @@ CREATE INDEX idx_skan_postbacks_received ON public.skan_postbacks (received_at);
 
 **봇 UA 는 기록하지 않는다.** 카카오톡·Slack·Meta 같은 링크 미리보기 수집기는 사용자가 열기 전에도 `GET /l/{slug}` 를 부른다. data-api 가 요청 바디의 `userAgent` 를 현행 `UserAgentClassifier.isBot` 으로 판별해, 봇이면 활성 링크라도 행을 넣지 않고 `clickId=null` 뷰를 돌려준다(OG 렌더는 그대로). 현행 `InviteLinkClickService.record` 와 같은 규칙이다.
 
-**같은 링크·IP 해시·OS 의 미매치 클릭은 매치 창(`LINK_MATCH_WINDOW_HOURS`) 안에서 20건까지만 새로 만든다.** 21번째 방문부터는 새 행 없이 그중 가장 최근 클릭의 id 를 `clickId` 로 돌려준다(조회는 `idx_invite_clicks_match`). `User-Agent` 는 호출자가 정상 브라우저 값으로 지어낼 수 있어 봇 판별만으로는 저장량을 막지 못한다 — 현행 `record` 에는 봇 판별만 있고 상한이 없다. 1건으로 합치지 않는 이유는 같은 와이파이(같은 공인 IP)에서 같은 OS 로 여러 사람이 같은 링크를 누를 때 각자 설치를 매치할 후보가 필요해서다. 건수 확인과 INSERT 사이에 잠금이 없어 동시 방문으로 몇 건 넘을 수 있지만, 목적이 저장량 상한이라 허용한다. business-api 의 IP 한도(§4.3)가 앞에서 한 번 더 막는다.
+**같은 링크·IP 해시·OS 의 클릭은 매치 여부와 무관하게 매치 창(`LINK_MATCH_WINDOW_HOURS`) 안에서 20건까지만 새로 만든다.** 21번째 방문부터는 새 행 없이 그중 가장 최근 클릭의 id 를 `clickId` 로 돌려준다(조회는 `idx_invite_clicks_recent`, §1.4). 미매치 클릭만 세면 방문과 공개 `/l/match` 를 번갈아 부르며 매번 다른 `deviceId` 로 후보를 소진해 건수를 20 아래로 되돌리고 계속 INSERT 할 수 있다 — 전체 수는 매치로 줄지 않는다. `User-Agent` 는 호출자가 정상 브라우저 값으로 지어낼 수 있어 봇 판별만으로는 저장량을 막지 못한다 — 현행 `record` 에는 봇 판별만 있고 상한이 없다. 1건으로 합치지 않는 이유는 같은 와이파이(같은 공인 IP)에서 같은 OS 로 여러 사람이 같은 링크를 누를 때 각자 설치를 매치할 후보가 필요해서다. 건수 확인과 INSERT 사이에 잠금이 없어 동시 방문으로 몇 건 넘을 수 있지만, 목적이 저장량 상한이라 허용한다. business-api 의 IP 한도(§4.3)가 앞에서 한 번 더 막는다.
 
 ### 2.3 fingerprint 매치
 
@@ -219,7 +223,7 @@ CREATE INDEX idx_skan_postbacks_received ON public.skan_postbacks (received_at);
 
 ### 2.4 Install Referrer 저장
 
-1. `install_key = deviceId + ":" + 설치 시작 초`. 설치 시작 초의 서버·기기 우선순위(`installBeginTimestampServerSeconds` 우선, 없으면 `installBeginTimestampSeconds`)는 **business-api 가 정해 `installBeginAt` 으로 넘기고**(§4.1), data-api 는 그 값만 쓴다. 값이 없으면 `"iid:" + installId` 를 쓴다 — Play 설치 시각이 비는 요청이 모두 `<deviceId>:0` 한 키로 모이면, Auto Backup 으로 `deviceId` 가 복원된 재설치가 과거 행을 돌려받아 새 설치·귀속이 기록되지 않는다. `installId` 는 앱이 백업 제외 저장소에 두는 설치 식별자(§5 6행)이고 **`/l/referrer` 에서 필수**다 — 새 엔드포인트라 보내지 않는 구 앱이 없고, 없으면 business-api 가 400 으로 거절해 저장하지 않는다(200 미저장으로 두면 앱이 완료로 저장해 다시 보내지 않는다). Play 설치 시각을 먼저 쓰는 이유는 사용자가 앱 데이터를 지우면 `installId` 는 새로 생기지만 같은 설치이기 때문이다. **같은 `install_key` 행이 있으면 그 행을 그대로 돌려준다**(`uq_install_referrers_install` 충돌 시 재조회). 설치 시작 시각이 다르면 재설치로 보고 새 행을 만든다.
+1. `install_key = deviceId + ":" + 설치 시작 초`. 설치 시작 초의 서버·기기 우선순위(`installBeginTimestampServerSeconds` 우선, 없으면 `installBeginTimestampSeconds`)는 **business-api 가 정해 `installBeginAt` 으로 넘기고**(§4.1), data-api 는 그 값만 쓴다. 값이 없으면 `"iid:" + installId` 를 쓴다 — Play 설치 시각이 비는 요청이 모두 `<deviceId>:0` 한 키로 모이면, Auto Backup 으로 `deviceId` 가 복원된 재설치가 과거 행을 돌려받아 새 설치·귀속이 기록되지 않는다. `installId` 는 앱이 백업 제외 저장소에 두는 설치 식별자(§5 6행)이고 **`/l/referrer` 에서 필수**다 — 새 엔드포인트라 보내지 않는 구 앱이 없고, 없으면 business-api 가 400 으로 거절해 저장하지 않는다(200 미저장으로 두면 앱이 완료로 저장해 다시 보내지 않는다). Play 설치 시각을 먼저 쓰는 이유는 Play 가 설치마다 한 번 정하는 값이 앱이 만든 식별자보다 안정적이기 때문이다. **한계**: `install_key` 는 늘 `deviceId` 를 접두사로 가지므로, 사용자가 **앱 데이터를 지우면** `deviceId`(AsyncStorage)와 `installId` 가 함께 재발급돼 Play 가 같은 설치 시작 시각을 돌려줘도 키가 `<새 deviceId>:<같은 시각>` 으로 달라지고 **같은 설치를 새 설치로 한 번 더 센다**. 기기 식별자(ANDROID_ID 등)는 쓰지 않는다. 출시 뒤 과집계가 관측되면 Play 서버 설치 시각 + referrer 원문 해시로 중복을 걸러낸다(§11-10). **같은 `install_key` 행이 있으면 그 행을 그대로 돌려준다**(`uq_install_referrers_install` 충돌 시 재조회). 설치 시작 시각이 다르면 재설치로 보고 새 행을 만든다.
 2. `source=LINK` 로 들어왔는데 slug 가 활성 링크가 아니면 `source=UNKNOWN`, `link_id=NULL` 로 저장한다(정책 L14).
 3. `source=LINK` 이면 `click_id` 를 아래 순서로 정한다. 한 설치가 fingerprint 와 referrer 양쪽에 잡히지 않게 하려는 규칙이다.
    1. 전달된 `clickId` 가 그 링크의 **미매치** 클릭이면 그 클릭을 `PESSIMISTIC_WRITE` 로 잠가 `matched=true`·`matched_at`·`matched_device_id`·`matched_install_id`·`app_instance_id` 를 채우고 `click_id` 로 둔다. 같은 클릭이 fingerprint 로 다른 기기에 다시 매치되지 않는다.
@@ -236,11 +240,22 @@ CREATE INDEX idx_skan_postbacks_received ON public.skan_postbacks (received_at);
    - 행이 없으면(저장 도중 탈퇴) 저장하지 않고 200 `{source, matched:false}`(`attributionId` 없음)로 끝낸다. 토큰은 이미 무효라 앱이 다시 보내도 401 이다.
    - 같은 `install_key` 행이 있으면 1번대로 그 행을 돌려준다. 재전송은 상한에 세지 않는다.
    - 그 밖엔 **같은 락 안에서** `reporter_user_id = :u` 이고 `received_at` 이 KST 오늘인 행을 세어, 3 이상이면 저장하지 않고 429, 아니면 INSERT 한다. 락이 count 와 INSERT 를 직렬화하므로 동시 요청으로 상한을 넘지 못한다.
-   - 탈퇴(`getCallerForUpdate` 배타 락)와도 직렬화되어, 탈퇴 커밋 뒤에 `reporter_user_id` 가 다시 기록되지 않는다. claim(공유 락)과도 직렬화되지만 앱은 referrer 저장 → claim 을 차례로 부르므로 한 요청 안에서 두 락이 섞이지 않아 교착이 없다.
+   - 탈퇴(`getCallerForUpdate` 배타 락)와도 직렬화되어, 탈퇴 커밋 뒤에 `reporter_user_id` 가 다시 기록되지 않는다. claim(같은 유저 행 배타 락, §2.5)과도 직렬화되지만 앱은 referrer 저장 → claim 을 차례로 부르므로 한 트랜잭션이 두 요청의 락을 함께 쥐지 않아 교착이 없다.
 
 ### 2.5 claim
 
-모든 claim 은 트랜잭션 첫 조회로 **요청 유저의 활성 행을 공유 락**(`SELECT … FROM users WHERE id = :u AND is_deleted = false FOR SHARE` — 구현은 기존 `UserQueryService.getCallerForShare`, 즉 `UserRepository.findActiveByIdForShare`)으로 잡고, 없으면 no-op 200 으로 끝낸다. 탈퇴(`AccountWithdrawalService.withdraw`)는 `getCallerForUpdate` 로 같은 행을 배타 락으로 잡으므로, claim 은 탈퇴 커밋 뒤에 조건을 재평가해 빈 결과가 된다(`UserRepository` 의 활성 유저 공유 락 조회와 같은 방식). 이렇게 해야 §2.7 의 UPDATE 뒤·커밋 전에 끼어든 claim 이 `claimed_user_id` 를 남기지 않는다.
+모든 claim 은 **요청 유저의 활성 행을 배타 락**(`SELECT … FROM users WHERE id = :u AND is_deleted = false FOR UPDATE` — 구현은 기존 `UserQueryService.getCallerForUpdate`, 즉 `UserRepository.findActiveByIdForUpdate`)으로 잡고, 없으면 no-op 200 으로 끝낸다. 배타 락인 이유는 둘이다.
+
+1. **탈퇴와 직렬화** — 탈퇴(`AccountWithdrawalService.withdraw`)도 `getCallerForUpdate` 로 같은 행을 잡으므로, claim 은 탈퇴 커밋 뒤에 활성 조건을 재평가해 빈 결과가 된다. §2.7 의 UPDATE 뒤·커밋 전에 끼어든 claim 이 `claimed_user_id` 를 남기지 않는다.
+2. **같은 사용자의 동시 claim 직렬화** — 공유 락이면 한 사용자가 두 `attributionId`·캠페인 slug 를 동시에 claim 할 때 두 트랜잭션이 함께 들어와 둘 다 신규 가입으로 기록한다(아래 「사용자당 신규 가입 1건」).
+
+referrer 저장(§2.4-5)도 같은 유저 행 배타 락이고 앱은 referrer 저장 → claim 을 차례로 부르므로 한 트랜잭션이 두 락을 함께 쥐지 않아 교착이 없다.
+
+**링크에 붙는 claim 은 잠근 뒤 재검증하고 UPDATE 한다.** 조건부 UPDATE 의 `EXISTS` 는 읽기만 하므로, 발급자 이탈·그룹 종료 트랜잭션이 링크 폐기를 커밋하는 사이에 claim 이 활성 스냅샷으로 커밋될 수 있다 — 발급자와 claim 사용자가 다르면 요청 유저 행 락은 이탈 트랜잭션과 충돌하지 않는다.
+
+- **INVITE** — [그룹 획득 LLD §2.1](../group/features/01-acquisition/low-level-design.md) 의 규칙 「초대 write 경로는 slug를 잠금 없이 한 번 읽어 대상 ID를 찾은 뒤 **관련 user UUID 오름차순 → groupId 오름차순의 group·membership → active link ID** 순으로 잠그고 모든 조건을 재검증한다」를 그대로 따른다. slug 분기는 slug 로, `attributionId` 분기는 referrer 행으로 링크·발급자를 잠금 없이 한 번 읽은 뒤 **요청 유저와 발급자의 user 행을 UUID 오름차순으로 배타 락**(위 첫 락이 이 단계에 포함된다) → `groups` 행 → 발급자 `group_members` 행 → `links` 행 순으로 잠그고, 그 아래에서 §2.1 활성 조건(링크 `status` · 그룹 활성 · 발급자 활성 멤버)과 셀프 초대를 재검증한 뒤 UPDATE 한다. 폐기와 claim 중 먼저 잠근 쪽이 커밋되고, 다른 쪽은 커밋된 상태를 재검증한다 — 이탈이 먼저면 claim 이 no-op, claim 이 먼저면 그 claim 은 폐기 전 감사 이력으로 남는다(그룹 획득 HLD §2 와 같다).
+- **CAMPAIGN** — 요청 유저 행 배타 락 뒤 `links` 행을 `PESSIMISTIC_WRITE` 로 잠그고 링크·캠페인 ACTIVE 를 재검증한다(콘솔 폐기와 직렬화).
+- `link_id` 가 없는 referrer(META · GOOGLE · ORGANIC · UNKNOWN)는 링크 잠금이 없다.
 
 요청은 `slug` 또는 `attributionId` 중 정확히 하나를 싣고, `attributionId` 는 `deviceId`·`installId` 와 함께 보낸다.
 
@@ -253,14 +268,18 @@ CREATE INDEX idx_skan_postbacks_received ON public.skan_postbacks (received_at);
 | `attributionId` | 조건부 UPDATE 한 번으로 **원자적으로 선점**한다(표 아래 SQL). 조건은 ① 미선점(`claimed_at IS NULL`) · 기기·설치 일치(`device_id`·`install_id` — `attributionId`·`deviceId` 는 앱 저장소라 Auto Backup 으로 복원될 수 있어, 백업되지 않는 `installId` 까지 맞아야 같은 설치다) ② 셀프 초대 거절(slug 분기와 같은 규칙) ③ **링크 활성 재검증** — `link_id` 가 없으면(META · GOOGLE · ORGANIC · UNKNOWN) 검사하지 않고, 있으면 slug 분기와 같은 §2.1 판정을 claim 시점에 다시 한다. referrer 저장 뒤 claim 전에 발급자가 이탈하거나 그룹이 끝나거나 캠페인 링크가 폐기되면 no-op 이다. 영향 행 1 이면 성공, 0 이면 no-op(이미 선점 · 기기·설치 불일치 · 셀프 초대 · 비활성 링크). 요청 유저 행 락은 사용자마다 다른 행이라 두 사용자의 동시 claim 을 막지 못하므로, 대상 행 조건으로 막는다 | 200 |
 
 ```sql
--- attributionId claim. :u·:userCreatedAt 은 같은 트랜잭션의 FOR SHARE 유저 조회에서 온다
+-- attributionId claim. :u·:userCreatedAt 은 같은 트랜잭션의 FOR UPDATE 유저 조회에서 온다
+-- 링크가 있으면 이 UPDATE 전에 위 잠금 순서로 행을 잠그고 재검증했다. 아래 EXISTS 는 잠금 아래에서 같은 조건을 한 번 더 확인하는 안전장치다
+-- :alreadyNewSignup = 같은 락 안에서 조회한, 이 사용자에게 claimed_as_new_user = true 인 link_clicks·install_referrers 행의 존재 여부
 -- :newUserGrace = NEW_USER_REPORT_GRACE(기본 10분). 설치·클릭 시각이 둘 다 없는 행에만 쓰인다
 -- contract 전 물리 이름은 group_invite_links 이고, 그 기간엔 status 가 전부 ACTIVE 라 l.status 조건은 참이다
 UPDATE public.install_referrers r
    SET claimed_user_id     = :u,
        claimed_at          = now(),
-       claimed_as_new_user = (:userCreatedAt >= COALESCE(r.install_begin_at, r.referrer_click_at, r.received_at - :newUserGrace)),
-       signup_at           = CASE WHEN :userCreatedAt >= COALESCE(r.install_begin_at, r.referrer_click_at, r.received_at - :newUserGrace)
+       claimed_as_new_user = (NOT :alreadyNewSignup
+                              AND :userCreatedAt >= COALESCE(r.install_begin_at, r.referrer_click_at, r.received_at - :newUserGrace)),
+       signup_at           = CASE WHEN NOT :alreadyNewSignup
+                                   AND :userCreatedAt >= COALESCE(r.install_begin_at, r.referrer_click_at, r.received_at - :newUserGrace)
                                   THEN :userCreatedAt END
  WHERE r.id = :attributionId
    AND r.device_id = :deviceId
@@ -283,6 +302,8 @@ UPDATE public.install_referrers r
 
 **신규 가입 여부를 claim 때 함께 기록한다.** 현 앱은 로그인 직후 `postAuthSave`(`auth.ts:170`, `isNewUser` 분기 뒤)에서 무조건 claim 을 부른다 — 광고로 설치하고 기존 계정으로 로그인한 사용자도 claim 한다. 그래서 붙이는 순간 `claimed_as_new_user = (users.created_at >= 기준 시각)` 을 채우고, 참이면 `signup_at = users.created_at` 도 저장한다. 기준 시각은 클릭이면 `clicked_at`, referrer 면 `COALESCE(install_begin_at, referrer_click_at)` 이다. **referrer 에 두 시각이 모두 없을 때만** `received_at - NEW_USER_REPORT_GRACE`(기본 10분)를 쓴다. referrer 는 로그인·게스트 시작 뒤에 저장되므로(§2.4-5) `received_at` 은 새 사용자의 `users.created_at` 보다 늦고, 그대로 비교하면 새 사용자가 전부 `false` 가 돼 가입이 영구 누락된다. 신규 사용자는 인증 직후 `postAuthSave` 에서 저장하므로 가입과 저장이 수 초 차이이고, 기존 계정 로그인·세션 복원은 가입이 며칠 이상 앞선다 — 유예가 둘을 가른다. 한계: 가입 뒤 저장이 유예보다 늦으면(오프라인 · 다음 실행 재시도) 신규를 놓친다(거짓 음성). 앱이 보낸 `isNewUser` 같은 값은 위조할 수 있어 쓰지 않는다. 기존 계정 로그인은 귀속 기록은 남기되 가입 수(§3.2)에서 빠진다. 가입 수의 기간은 `claimed_at` 이 아니라 `signup_at` 이다 — 현 앱은 claim 실패를 삼키고 다음 로그인에서 재시도하므로(`deferredInvite.ts` `claimStoredInviteAttribution`) 며칠 뒤 성공한 claim 도 가입 날에 들어가야 한다. 게스트로 시작해도 유저 행이 새로 생기므로 신규다.
 
+**사용자당 신규 가입 1건.** 신규 판정은 클릭·referrer 행마다 하므로, 가입 직후 한 사용자가 서로 다른 `attributionId`·캠페인 slug 를 claim 하면 두 행 모두 `claimed_as_new_user = true` 가 될 수 있다. 그래서 claim 은 유저 행 배타 락 아래에서 이 사용자에게 `claimed_as_new_user = true` 인 `link_clicks`·`install_referrers` 행이 이미 있는지 먼저 보고, 있으면 이번 claim 은 **`claimed_as_new_user = false`, `signup_at = NULL`** 로 기록한다(귀속 기록은 남긴다). 배타 락이 확인과 UPDATE 를 직렬화하므로 동시 claim 으로도 두 번 기록되지 않고, 탈퇴 익명화(§2.7)는 이 플래그를 지우지 않으므로 탈퇴 뒤에도 중복이 생기지 않는다.
+
 ### 2.6 SKAN 귀속 (읽기 시점)
 
 1. **채널**: `ad_network_id` 를 코드 상수 레지스트리(`SkanAdNetworks`)로 META · GOOGLE 에 대응시킨다. 없는 값은 `UNKNOWN`.
@@ -291,7 +312,7 @@ UPDATE public.install_referrers r
 
 ### 2.7 탈퇴
 
-`UserService.erasePersonalData` 를 부르기 **전에**(그 메서드는 영속성 컨텍스트를 비우는 탈퇴 절차의 마지막이다) 같은 트랜잭션에서 세 벌크 UPDATE 를 실행한다. 이 트랜잭션은 시작부터 유저 행 배타 락을 쥐고 있어 §2.5 의 claim(공유 락)·§2.4-5 의 referrer 저장(배타 락)과 직렬화된다.
+`UserService.erasePersonalData` 를 부르기 **전에**(그 메서드는 영속성 컨텍스트를 비우는 탈퇴 절차의 마지막이다) 같은 트랜잭션에서 세 벌크 UPDATE 를 실행한다. 이 트랜잭션은 시작부터 유저 행 배타 락을 쥐고 있어 §2.5 의 claim·§2.4-5 의 referrer 저장(둘 다 같은 유저 행 배타 락)과 직렬화된다.
 
 ```sql
 UPDATE public.invite_link_clicks SET claimed_user_id = NULL WHERE claimed_user_id = :userId;  -- contract 뒤 link_clicks
@@ -396,7 +417,7 @@ INVITE 링크 폐기(`ACCOUNT_WITHDRAWN`)는 contract 이미지부터 그룹 획
 | `installs.fingerprint` | `link_clicks.matched_at` 이 기간 안 이고 그 클릭을 가리키는 `install_referrers.click_id` 가 없음. 클릭 `os` 가 캠페인 `platform` 과 맞을 때만(`ALL` 은 둘 다) | 확률 |
 | `installs.referrer` | `COALESCE(install_referrers.install_begin_at, received_at)` 이 기간 안, LINK 는 링크의 캠페인(캠페인 `platform` 이 `IOS` 가 아닐 때만), META 는 `external_id` 대조. 재설치는 새 설치로 센다(§1.5) | 결정 |
 | `installs.skan` | `skan_postbacks.received_at` 이 기간 안, §2.6 으로 이 캠페인에 귀속, `postback_sequence_index` 가 0 또는 NULL | 집계·지연 |
-| `signups.claim` | `claimed_as_new_user = true` 인 `link_clicks` + `install_referrers` 중 `signup_at`(가입 시각)이 기간 안. 기존 계정 로그인 claim(`false`)은 뺀다. **`link_clicks` 쪽은 claim 된 `install_referrers` 행의 `click_id` 가 가리키는 클릭을 뺀다**(같은 설치의 가입은 referrer 원장에서만) | 확률 또는 결정 |
+| `signups.claim` | `claimed_as_new_user = true` 인 `link_clicks` + `install_referrers` 중 `signup_at`(가입 시각)이 기간 안. 기존 계정 로그인 claim(`false`)은 뺀다. **`link_clicks` 쪽은 claim 된 `install_referrers` 행의 `click_id` 가 가리키는 클릭을 뺀다**(같은 설치의 가입은 referrer 원장에서만). 사용자당 `true` 는 한 행뿐이라(§2.5) 한 사용자가 여러 링크·referrer 를 claim 해도 가입 1건 | 확률 또는 결정 |
 | `signups.skan` | `installs.skan` 과 같은 행 중 `conversion_value >= 1` 또는 `coarse_conversion_value IN ('medium','high')` | 집계·지연 |
 
 - `installs.referrer` 를 첫 실행 시각(`received_at`)으로 자르면 설치 며칠 뒤에 처음 연 사용자가 다른 날·다른 캠페인 기간에 들어간다. Play 가 준 설치 시작 시각을 먼저 쓴다.
@@ -506,7 +527,7 @@ Play 가 준 `referrer` 문자열을 URL 쿼리로 읽고 위에서부터 첫 �
 | 3 | claim: 캠페인 slug 는 `deviceId` 함께, referrer 귀속은 `/l/referrer` 응답을 받은 뒤 `{attributionId, deviceId, installId}` | 구 앱의 `{slug}` 는 INVITE 규칙 |
 | 4 | iOS: Info.plist `NSAdvertisingAttributionReportEndpoint = https://link.oneorthree.world`, `SKAdNetworkItems` 에 Meta·Google 식별자, 첫 실행 `updatePostbackConversionValue(0)` · 가입 1 · 첫 집중 완료 2 (coarse low·medium·high) | 서버 무관 |
 | 5 | Android App Links: `MainActivity` 에 **`android:autoVerify="true"`** 인 인텐트 필터(`action VIEW` · `category DEFAULT`·`BROWSABLE` · `scheme=https` · `host=link.oneorthree.world` · `pathPrefix=/l/`)를 더한다. 현 `AndroidManifest.xml` 에는 `gromo` 스킴 필터뿐이다. `autoVerify` 가 없으면 서버에 `assetlinks.json` 이 있어도 Android 12 이상에서 검증된 App Link 로 등록되지 않아 설치된 앱이 링크로 열리지 않고, `/l/resolve` 흐름이 동작하지 않는다 | 서버 assetlinks 와 짝 |
-| 6 | **설치 식별자 `installId`**: 첫 실행에 UUID 를 만들어 **Auto Backup 에서 제외되는 저장소**에 둔다 — Android 는 `Context.getNoBackupFilesDir()` 아래 전용 파일(작은 네이티브 모듈로 읽고 쓴다. AsyncStorage 는 모든 키가 한 DB 파일이라 키 하나만 백업에서 뺄 수 없다). 현 앱은 매치 요청 바디가 `{os, deviceId, appInstanceId}` 뿐이고(`deferredInvite.ts`), `deviceId` 는 AsyncStorage(`STORAGE_KEYS.deviceId`, `analytics.ts`)에 저장한 자체 발급 UUID 라 `android:allowBackup="true"` 에서 재설치 뒤 복원될 수 있으며, 백업 제외 저장소나 설치별 식별자는 없다. `/l/match`(구 앱은 없음)·`/l/referrer`(**필수**) 요청 바디에 싣는다. iOS 는 앱 샌드박스에 두고(앱 삭제 시 지워짐) 기기 전체 백업 복원으로 되살아나는 경우는 한계로 둔다 | 구 앱은 `installId` 없이 매치하고 서버는 현행 기기·창 규칙으로 처리한다 |
+| 6 | **설치 식별자 `installId`**: 첫 실행에 UUID 를 만들어 **Auto Backup 에서 제외되는 저장소**에 둔다 — Android 는 `Context.getNoBackupFilesDir()` 아래 전용 파일(작은 네이티브 모듈로 읽고 쓴다. AsyncStorage 는 모든 키가 한 DB 파일이라 키 하나만 백업에서 뺄 수 없다). 현 앱은 매치 요청 바디가 `{os, deviceId, appInstanceId}` 뿐이고(`deferredInvite.ts`), `deviceId` 는 AsyncStorage(`STORAGE_KEYS.deviceId`, `analytics.ts`)에 저장한 자체 발급 UUID 라 `android:allowBackup="true"` 에서 재설치 뒤 복원될 수 있으며, 백업 제외 저장소나 설치별 식별자는 없다. `/l/match`(구 앱은 없음)·`/l/referrer`(**필수**) 요청 바디에 싣는다. iOS 는 앱 샌드박스에 두고(앱 삭제 시 지워짐) 기기 전체 백업 복원으로 되살아나는 경우는 한계로 둔다. 앱 데이터 삭제는 `deviceId`·`installId` 를 함께 새로 만들어 같은 설치를 한 번 더 센다(§2.4-1 한계) | 구 앱은 `installId` 없이 매치하고 서버는 현행 기기·창 규칙으로 처리한다 |
 
 ## 6. 콘솔 (business-api)
 
@@ -520,8 +541,8 @@ Play 가 준 `referrer` 문자열을 URL 쿼리로 읽고 위에서부터 첫 �
 | 요소 | 규칙 |
 | --- | --- |
 | 로그인 | `POST /console/login {slot, password}` → bcrypt 대조. 없는 슬롯과 틀린 비밀번호는 같은 메시지 |
-| 쿠키 | `gromo_console = base64url(slot · issuedAt · expiresAt) + "." + HMAC-SHA256(CONSOLE_COOKIE_KEY)`. `HttpOnly` · `Secure` · `SameSite=Strict` · `Path=/console` · 30일 |
-| 필터 | `ConsoleSessionFilter` 가 `/console/**`(로그인·정적 제외)에서 서명·만료·**슬롯이 env 에 아직 있는지**를 본다. env 에서 슬롯을 지우면 그 쿠키는 즉시 무효. 적용 여부는 토큰 필터와 같은 원문 경로 정규식으로 정한다(§4.5) |
+| 쿠키 | `gromo_console = base64url(slot · credVersion · issuedAt · expiresAt) + "." + HMAC-SHA256(CONSOLE_COOKIE_KEY)`. `credVersion = hex(SHA-256(CONSOLE_SLOT_<NAME>_HASH 값))` 의 앞 16자다 — bcrypt 해시에는 매번 새 salt 가 들어가므로 같은 비밀번호로 다시 설정해도 값이 바뀐다. `HttpOnly` · `Secure` · `SameSite=Strict` · `Path=/console` · 30일 |
+| 필터 | `ConsoleSessionFilter` 가 `/console/**`(로그인·정적 제외)에서 서명·만료·**슬롯이 env 에 아직 있는지**·**쿠키의 `credVersion` 이 현재 env 해시에서 계산한 값과 같은지**를 본다. 비밀번호를 바꾸거나(해시 교체) 슬롯을 지웠다가 같은 이름으로 다시 추가하면 기존 쿠키는 즉시 무효다 — 슬롯 존재만 보면 유출된 비밀번호로 받은 쿠키가 교체 뒤에도 30일간 산다. 적용 여부는 토큰 필터와 같은 원문 경로 정규식으로 정한다(§4.5) |
 | 잠금 | Redis `console:fail:slot:<slot>` 5회/15분, `console:fail:ip:<ipHmac>` 20회/15분(`ipHmac` = `HMAC-SHA256(RATE_LIMIT_IP_KEY, ip)`). 넘으면 "15분 뒤 다시 시도하세요" |
 | 폼 | 모든 POST 폼에 1회용 `formToken`(Redis `console:form:<token>`, 1시간). 제출 때 `GETDEL`, 없으면 "이미 처리했거나 만료된 요청입니다". 키 패턴 `console:fail:*`·`console:form:*` 은 [아키텍처 A19](../../architecture/decisions.md) 네임스페이스 표와 Business API ACL 에 등록돼 있다 |
 | 헤더 | `Cache-Control: no-store` · `X-Frame-Options: DENY` · `Content-Security-Policy: default-src 'self'` |
@@ -552,7 +573,7 @@ Play 가 준 `referrer` 문자열을 URL 쿼리로 읽고 위에서부터 첫 �
 | `/l/referrer` 저장 도중 탈퇴 | 200 · 미저장 · `attributionId` 없음 | DEBUG |
 | 봇 UA 방문 | 랜딩 200 · 클릭 미기록 | DEBUG |
 | 랜딩 IP 한도 초과 | 랜딩 200 · 클릭 미기록 · `visits` 미호출 | 카운터 |
-| 같은 링크·IP 해시·OS 미매치 클릭 20건 초과 | 랜딩 200 · 가장 최근 클릭의 `clickId` | 카운터 |
+| 같은 링크·IP 해시·OS 클릭이 매치 창 안 20건 이상(매치 여부 무관) | 랜딩 200 · 가장 최근 클릭의 `clickId` | 카운터 |
 | 토큰 필터 예외에 없는 경로·메서드(원문 변형 포함) | 401 | — |
 | referrer 복호화 실패 | 200 `{source:"META", matched:false}` | `decrypt_failed=true` |
 | SKAN 본문 16KB 초과 | 413 | 카운터 |
@@ -604,8 +625,8 @@ SKAN 포스트백은 GA4 로 보내지 않는다.
 
 | 층 | 검증 |
 | --- | --- |
-| data-api (Testcontainers) | expand 뒤 기존 slug 의 방문·매치·claim 회귀 · **expand 스키마에서 이전 이미지 엔티티가 `ddl-auto=validate` 로 기동** · contract 뒤 새 이미지 기동 · `ck_links_type_shape` 위반 거절 · expand 스키마에서 전체 unique 로 동시 발급이 한 slug 로 수렴 · **expand 이미지에서 폐기·재발급이 꺼져 한 쌍에 INVITE 행이 1개** · **contract ① 보정이 발급자 이탈·그룹 종료 행만 `REVOKED` 로 바꾸고 활성 행은 건드리지 않음** · contract 뒤 폐기 → 재발급이 새 slug 행을 만들고 부분 unique 로 동시 재발급이 수렴 · 같은 `install_key` 동시 referrer 2건이 1행 · 같은 `deviceId` 에 설치 시작 시각이 다른 referrer 는 2행(재설치) · LINK referrer 가 클릭을 소진해 다른 기기 fingerprint 가 그 클릭을 못 가져감 · **같은 기기에서 `/l/match` 가 먼저 성공한 뒤 LINK referrer 가 오면 `click_id` 가 그 클릭이고 설치 합계가 1** · **referrer 뒤의 `/l/match` 가 새 클릭을 소진하지 않음** · INVITE 링크 referrer 응답에 `groupId` · 방문 응답의 `clickId` 가 저장된 클릭 id 와 같음 · 캠페인 slug claim 의 기기 불일치 no-op · `attributionId` 기기 불일치 no-op · **탈퇴 트랜잭션 진행 중 들어온 claim 이 탈퇴 커밋 뒤 no-op 이고 `claimed_user_id`·`reporter_user_id` 가 NULL** · **봇 UA 방문이 클릭 행 0** · **같은 IP·OS 에서 최신 클릭이 폐기 링크면 더 오래된 활성 클릭을 소진하지 않고 `matched:false`** · 유저당 4번째 referrer 가 429·미저장이고 같은 `install_key` 재전송은 상한 미포함 · **같은 유저가 서로 다른 `install_key` 로 동시에 5건을 보내도 저장 3건** · **탈퇴 트랜잭션 진행 중 들어온 referrer 저장이 탈퇴 커밋 뒤 미저장** · **두 사용자가 같은 `attributionId` 로 동시에 claim 하면 한 명만 성공** · **claim 이 가입 며칠 뒤 성공해도 `signup_at` 의 날(가입 날)로 집계** · **`platform=IOS` 캠페인의 `external_id` 거절** · **GOOGLE referrer 의 신규 claim 이 `channels.GOOGLE.signups.claim` 에 들어감** · INVITE 방문 응답에 `groupId` · 매치 창 밖 재설치 기기가 새 후보를 매치 · **INVITE referrer 를 발급자 본인이 `attributionId` 로 claim 하면 no-op** · 기존 계정(`created_at` 이 클릭보다 이전) claim 은 `claimed_as_new_user=false` 이고 `signups.claim` 에서 빠짐 · **referrer 저장 뒤 발급자 이탈 · 그룹 종료 · 캠페인 링크 폐기가 오면 `attributionId` claim 이 no-op** · **같은 기기가 매치 창 밖에서 같은 링크로 재설치하면 `click_id=NULL` 이고 설치 2건** · **fingerprint 매치·slug claim 뒤 같은 설치의 LINK referrer 저장·claim 이 오면 가입 1건** · **Play 설치·클릭 시각이 없는 referrer 를 가입 직후 claim 하면 `claimed_as_new_user=true`, 기존 계정(가입 며칠 전)은 `false`, 가입 뒤 저장이 10분 넘게 늦으면 `false`(한계 고정)** · **`IOS` 캠페인 링크의 Android referrer·Android fingerprint 설치와 그 가입이 캠페인 수치 0 이고 `channels.<캠페인 channel>` 에 들어감** · **같은 링크·IP 해시·OS 로 25회 방문하면 클릭 행 20, 21번째부터 같은 `clickId`** · **같은 기기가 매치 창 안에서 다른 `installId` 로 재설치해 `/l/match` 하면 기존 매치를 재반환하지 않고 새 후보를 매치** · **`installId` 없는 구 앱의 `/l/match` 는 현행대로 창 안 기기별 재반환** · **Play 설치 시각이 없는 referrer 둘은 `installId` 가 다르면 2행, 같으면 1행** · **LINK referrer 가 소진한 클릭의 `matched_install_id` 가 그 설치의 값이고 뒤이은 같은 설치의 `/l/match` 가 그 클릭을 재반환** · **claim → 탈퇴 → 다른 계정이 같은 slug·`attributionId` 로 claim 하면 no-op 이고 `claimed_at`·`signup_at` 불변** · **Auto Backup 으로 복원된 `attributionId`·`deviceId` 를 다른 `installId` 로 claim 하면 no-op** · **구 앱 NULL 매치(설치 A) 뒤 매치 창 안 재설치 B 의 LINK referrer 가 A 의 클릭(`matched_at < install_begin_at`)에 연결되지 않고 설치 2건** · **설치 시각이 없는 LINK referrer 는 NULL 매치 클릭에 연결되지 않음** · 기간 인덱스가 캠페인 집계 쿼리 계획에 쓰임(`EXPLAIN`) · SKAN 재전송 1행 · 집계의 KST 경계(`to` 날 23:59 포함, 다음 날 00:00 제외) · `installs.referrer` 가 `install_begin_at` 기준(설치 전날·첫 실행 다음 날 경계) · SKAN 끝자리 대조(`5239` 등록, 포스트백 `39` → 귀속, `5239`·`1139` 둘 다 등록이면 채널 단위, `52` 는 비귀속) |
-| business-api | referrer 판별 표(§4.1 다섯 규칙 + 깨진 인코딩 · 빈 문자열 · 변조된 Meta payload) · SKAN 서명 검증(버전별 Apple 문서 예시 포스트백을 픽스처로) · **서명 실패·다른 `app-id`·모르는 버전이 data-api 호출 0회** · 16KB 초과 413 · match·referrer·resolve 가 data-api 5xx·타임아웃이면 503 + `Retry-After`, 매치 없음은 200 · 레이트리밋 초과 429 · `/l/referrer` 토큰 없음 401·data-api 호출 0 · **`/l/referrer` `installId` 없음 400·data-api 호출 0** · **claim `attributionId` 에 `installId` 없음 400** · **Redis 키에 원본 IP 문자열이 없음** · resolve 가 클릭을 기록하지 않음 · 강등 랜딩 · 만료 랜딩의 Play URL 에 `referrer` 없음 · **콘솔 `playStoreUrl` 은 `slug` 만 든 referrer 이고 그 값이 §4.1 로 LINK** · INVITE 랜딩 스킴이 `gromo://join?g=…&s=…` · **`IOS` 캠페인의 콘솔 `playStoreUrl` 이 `null` 이고 랜딩에 Android 버튼 없음, `ANDROID` 캠페인 랜딩에 App Store 버튼 없음** · **랜딩 IP 한도 초과 시 랜딩 200 · `visits` 호출 0** · **토큰 필터: 토큰 없이 `GET /l/k3m9x2pa` · `POST /l/match` · `POST /l/resolve` · well-known 둘 · SKAN 두 경로 · `GET /link/og-invite-v2.png` · `/console/login` 은 통과, `POST /l/referrer` · `/%6C/k3m9x2pa` · `/l;x/k3m9x2pa` · `/api/v1/…` 는 401** · **slug 생성기가 예약어를 발급하지 않음** · IP 신뢰(사설 피어만) · 콘솔 잠금 · 쿠키 변조 · 슬롯 제거 즉시 무효 · 폼 토큰 재사용 거절 |
+| data-api (Testcontainers) | expand 뒤 기존 slug 의 방문·매치·claim 회귀 · **expand 스키마에서 이전 이미지 엔티티가 `ddl-auto=validate` 로 기동** · contract 뒤 새 이미지 기동 · `ck_links_type_shape` 위반 거절 · expand 스키마에서 전체 unique 로 동시 발급이 한 slug 로 수렴 · **expand 이미지에서 폐기·재발급이 꺼져 한 쌍에 INVITE 행이 1개** · **contract ① 보정이 발급자 이탈·그룹 종료 행만 `REVOKED` 로 바꾸고 활성 행은 건드리지 않음** · contract 뒤 폐기 → 재발급이 새 slug 행을 만들고 부분 unique 로 동시 재발급이 수렴 · 같은 `install_key` 동시 referrer 2건이 1행 · 같은 `deviceId` 에 설치 시작 시각이 다른 referrer 는 2행(재설치) · LINK referrer 가 클릭을 소진해 다른 기기 fingerprint 가 그 클릭을 못 가져감 · **같은 기기에서 `/l/match` 가 먼저 성공한 뒤 LINK referrer 가 오면 `click_id` 가 그 클릭이고 설치 합계가 1** · **referrer 뒤의 `/l/match` 가 새 클릭을 소진하지 않음** · INVITE 링크 referrer 응답에 `groupId` · 방문 응답의 `clickId` 가 저장된 클릭 id 와 같음 · 캠페인 slug claim 의 기기 불일치 no-op · `attributionId` 기기 불일치 no-op · **탈퇴 트랜잭션 진행 중 들어온 claim 이 탈퇴 커밋 뒤 no-op 이고 `claimed_user_id`·`reporter_user_id` 가 NULL** · **봇 UA 방문이 클릭 행 0** · **같은 IP·OS 에서 최신 클릭이 폐기 링크면 더 오래된 활성 클릭을 소진하지 않고 `matched:false`** · 유저당 4번째 referrer 가 429·미저장이고 같은 `install_key` 재전송은 상한 미포함 · **같은 유저가 서로 다른 `install_key` 로 동시에 5건을 보내도 저장 3건** · **탈퇴 트랜잭션 진행 중 들어온 referrer 저장이 탈퇴 커밋 뒤 미저장** · **두 사용자가 같은 `attributionId` 로 동시에 claim 하면 한 명만 성공** · **claim 이 가입 며칠 뒤 성공해도 `signup_at` 의 날(가입 날)로 집계** · **`platform=IOS` 캠페인의 `external_id` 거절** · **GOOGLE referrer 의 신규 claim 이 `channels.GOOGLE.signups.claim` 에 들어감** · INVITE 방문 응답에 `groupId` · 매치 창 밖 재설치 기기가 새 후보를 매치 · **INVITE referrer 를 발급자 본인이 `attributionId` 로 claim 하면 no-op** · 기존 계정(`created_at` 이 클릭보다 이전) claim 은 `claimed_as_new_user=false` 이고 `signups.claim` 에서 빠짐 · **referrer 저장 뒤 발급자 이탈 · 그룹 종료 · 캠페인 링크 폐기가 오면 `attributionId` claim 이 no-op** · **같은 기기가 매치 창 밖에서 같은 링크로 재설치하면 `click_id=NULL` 이고 설치 2건** · **fingerprint 매치·slug claim 뒤 같은 설치의 LINK referrer 저장·claim 이 오면 가입 1건** · **Play 설치·클릭 시각이 없는 referrer 를 가입 직후 claim 하면 `claimed_as_new_user=true`, 기존 계정(가입 며칠 전)은 `false`, 가입 뒤 저장이 10분 넘게 늦으면 `false`(한계 고정)** · **`IOS` 캠페인 링크의 Android referrer·Android fingerprint 설치와 그 가입이 캠페인 수치 0 이고 `channels.<캠페인 channel>` 에 들어감** · **같은 링크·IP 해시·OS 로 25회 방문하면 클릭 행 20, 21번째부터 같은 `clickId`** · **방문과 `/l/match`(매번 다른 `deviceId`)를 번갈아 25회 해도 클릭 행 20** · **발급자 이탈 트랜잭션과 INVITE claim(slug·`attributionId`)이 경합하면 이탈이 먼저면 claim no-op, claim 이 먼저면 claim 1건이 폐기 전 이력으로 남고 그 뒤 claim 은 no-op — 교착 없음** · **캠페인 링크 콘솔 폐기와 claim 경합도 한쪽만** · **한 사용자가 두 `attributionId`(또는 캠페인 slug 둘)를 동시에 claim 하면 `claimed_as_new_user=true` 는 1행이고 가입 1건** · **앱 데이터 삭제 뒤 같은 Play 설치 시각의 referrer 는 `deviceId` 가 달라 2행(한계 고정)** · **같은 기기가 매치 창 안에서 다른 `installId` 로 재설치해 `/l/match` 하면 기존 매치를 재반환하지 않고 새 후보를 매치** · **`installId` 없는 구 앱의 `/l/match` 는 현행대로 창 안 기기별 재반환** · **Play 설치 시각이 없는 referrer 둘은 `installId` 가 다르면 2행, 같으면 1행** · **LINK referrer 가 소진한 클릭의 `matched_install_id` 가 그 설치의 값이고 뒤이은 같은 설치의 `/l/match` 가 그 클릭을 재반환** · **claim → 탈퇴 → 다른 계정이 같은 slug·`attributionId` 로 claim 하면 no-op 이고 `claimed_at`·`signup_at` 불변** · **Auto Backup 으로 복원된 `attributionId`·`deviceId` 를 다른 `installId` 로 claim 하면 no-op** · **구 앱 NULL 매치(설치 A) 뒤 매치 창 안 재설치 B 의 LINK referrer 가 A 의 클릭(`matched_at < install_begin_at`)에 연결되지 않고 설치 2건** · **설치 시각이 없는 LINK referrer 는 NULL 매치 클릭에 연결되지 않음** · 기간 인덱스가 캠페인 집계 쿼리 계획에 쓰임(`EXPLAIN`) · SKAN 재전송 1행 · 집계의 KST 경계(`to` 날 23:59 포함, 다음 날 00:00 제외) · `installs.referrer` 가 `install_begin_at` 기준(설치 전날·첫 실행 다음 날 경계) · SKAN 끝자리 대조(`5239` 등록, 포스트백 `39` → 귀속, `5239`·`1139` 둘 다 등록이면 채널 단위, `52` 는 비귀속) |
+| business-api | referrer 판별 표(§4.1 다섯 규칙 + 깨진 인코딩 · 빈 문자열 · 변조된 Meta payload) · SKAN 서명 검증(버전별 Apple 문서 예시 포스트백을 픽스처로) · **서명 실패·다른 `app-id`·모르는 버전이 data-api 호출 0회** · 16KB 초과 413 · match·referrer·resolve 가 data-api 5xx·타임아웃이면 503 + `Retry-After`, 매치 없음은 200 · 레이트리밋 초과 429 · `/l/referrer` 토큰 없음 401·data-api 호출 0 · **`/l/referrer` `installId` 없음 400·data-api 호출 0** · **claim `attributionId` 에 `installId` 없음 400** · **Redis 키에 원본 IP 문자열이 없음** · resolve 가 클릭을 기록하지 않음 · 강등 랜딩 · 만료 랜딩의 Play URL 에 `referrer` 없음 · **콘솔 `playStoreUrl` 은 `slug` 만 든 referrer 이고 그 값이 §4.1 로 LINK** · INVITE 랜딩 스킴이 `gromo://join?g=…&s=…` · **`IOS` 캠페인의 콘솔 `playStoreUrl` 이 `null` 이고 랜딩에 Android 버튼 없음, `ANDROID` 캠페인 랜딩에 App Store 버튼 없음** · **랜딩 IP 한도 초과 시 랜딩 200 · `visits` 호출 0** · **토큰 필터: 토큰 없이 `GET /l/k3m9x2pa` · `POST /l/match` · `POST /l/resolve` · well-known 둘 · SKAN 두 경로 · `GET /link/og-invite-v2.png` · `/console/login` 은 통과, `POST /l/referrer` · `/%6C/k3m9x2pa` · `/l;x/k3m9x2pa` · `/api/v1/…` 는 401** · **slug 생성기가 예약어를 발급하지 않음** · IP 신뢰(사설 피어만) · 콘솔 잠금 · 쿠키 변조 · 슬롯 제거 즉시 무효 · **슬롯 비밀번호 해시 교체 · 슬롯 삭제 후 같은 이름 재추가 뒤 기존 쿠키 무효** · 폼 토큰 재사용 거절 |
 | 앱 (앱 티켓) | Auto Backup 으로 세션·`onboardingComplete` 가 복원된 재설치에서 콜드스타트 복원 성공 뒤 `/l/referrer` 가 1회 나가고 claim 이 이어짐 · 오프라인 복원(프로필 조회 실패)에서는 보내지 않고 다음 실행에 보냄 · 보고한 설치 키와 같으면 두 지점 모두 재전송 없음 · **Play 설치 시각이 없는 백업 복원 재설치는 `installId` 가 달라 referrer·fingerprint 를 다시 시도** · `postAuthSave` 경로에서 referrer 저장이 claim 보다 먼저 · **`installId` 가 백업 제외 파일에 있어 Auto Backup 복원 뒤 재설치에서 새 값이 되고 `/l/match`·`/l/referrer` 바디에 실림** |
 | 전환 리허설 (dev) | nginx 전환 전후로 같은 slug 의 클릭 → 매치 → claim 이 끊기지 않음, 원복 reload 도 같음 · expand 이미지 → 이전 이미지 롤백 · contract 직전 RDS 스냅샷 생성과 dev 복원 리허설 |
 | 실물 | Meta Android 테스트 광고 1건의 referrer 원문으로 픽스처 갱신. SKAN 은 실제 포스트백을 받기 전까지 콘솔에 "미검증"으로 표기 |
@@ -623,3 +644,4 @@ SKAN 포스트백은 GA4 로 보내지 않는다.
 | 7 | 구현 시점의 Flyway 최대 번호(열린 PR 포함). 2026-09-13 기준 #745 가 V54 까지 쓰고 #751·#752·#753 도 V53·V54 를 다른 이름으로 써서 겹친다 — 머지 순서대로 다시 매긴 뒤 V55 이상에서 확정 | §1.1 |
 | 8 | prod Flyway 가 이력의 미래 버전을 무시하는지(`ignoreMigrationPatterns`, 기본 `*:future`). 무시하지 않으면 expand 뒤 이전 이미지 롤백이 Flyway 검증에서 막힌다(contract 는 roll-forward 전용) | §1.1 · HLD §7 |
 | 9 | 출시 뒤 `installs.referrer` 가 광고 대시보드 설치 수보다 크게 부풀면 앱·설치 증명(Play Integrity API)을 `/l/referrer` 저장 조건에 더한다 | §4 · 정책 L23 |
+| 10 | 출시 뒤 앱 데이터 삭제로 인한 과집계(같은 Play 설치 시각인데 `deviceId` 만 다른 referrer 행)가 관측되면 Play 서버 설치 시각 + referrer 원문 해시로 중복을 걸러낸다 | §2.4-1 · 정책 L21 |
