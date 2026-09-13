@@ -1,6 +1,6 @@
 # 링크·어트리뷰션 상세 설계
 
-[정책](policy.md)의 결정을 테이블·API·판정 규칙으로 옮긴다. 기준 main `875a9fd89`, PR #745 는 head `a455bd182` 를 봤다. 날짜의 타임존 축은 [날짜 축 규약](../../conventions/date-axis.md)의 KST 고정을 따르고, 기간 `from`~`to` 를 시각 구간 `[from 00:00, to+1일 00:00)` KST 로 바꾸는 규칙은 이 설계가 정한다.
+[정책](policy.md)의 결정을 테이블·API·판정 규칙으로 옮긴다. 기준 main `875a9fd89`(이후 #745 머지 커밋 `1ec66e0dd` 와 합쳤다). #745 는 머지 커밋 `1ec66e0dd` 기준이다 — 앞서 대조한 head `a455bd182` 와 링크 관련 파일 차이가 없다. 날짜의 타임존 축은 [날짜 축 규약](../../conventions/date-axis.md)의 KST 고정을 따르고, 기간 `from`~`to` 를 시각 구간 `[from 00:00, to+1일 00:00)` KST 로 바꾸는 규칙은 이 설계가 정한다.
 
 ## 1. 데이터 모델
 
@@ -10,7 +10,7 @@ prod 는 `spring.jpa.hibernate.ddl-auto: validate`(`application-prod.yml`)라 �
 
 | 단계 | 파일 | 내용 | 이전 이미지로 롤백 |
 | --- | --- | --- | --- |
-| expand ([HLD §7](high-level-design.md#7-배포-순서) 2단계) | 구현 시점 최대 번호 다음 — 2026-09-13 기준 #745 가 V54(`V53__result_bundle_completion`·`V54__legacy_session_device`)까지 쓰므로 **V55 이상**. 열린 PR(#751·#752·#753)도 V53·V54 를 다른 이름으로 쓰고 있어 머지 순서대로 다시 매긴다 | **기존 테이블 이름 그대로** 컬럼·제약·인덱스 추가, 신설 3개. **V21 전체 unique 유지**, rename·DROP 없음. 이 기간엔 링크 폐기·재발급을 켜지 않는다 | 가능. 이전 엔티티가 보는 테이블·컬럼이 그대로 있고, 한 `(group_id, inviter_id)` 에 INVITE 행이 하나뿐이라 이전 이미지의 단건 조회도 그대로 동작한다 |
+| expand ([HLD §7](high-level-design.md#7-배포-순서) 2단계) | 구현 시점 최대 번호 다음 — 2026-09-13 기준 main(#745 머지)이 V54(`V53__result_bundle_completion`·`V54__legacy_session_device`)까지 쓰므로 **V55 이상**. 열린 PR(#751·#752·#753)도 V53·V54 를 다른 이름으로 쓰고 있어 머지 순서대로 다시 매긴다 | **기존 테이블 이름 그대로** 컬럼·제약·인덱스 추가, 신설 3개. **V21 전체 unique 유지**, rename·DROP 없음. 이 기간엔 링크 폐기·재발급을 켜지 않는다 | 가능. 이전 엔티티가 보는 테이블·컬럼이 그대로 있고, 한 `(group_id, inviter_id)` 에 INVITE 행이 하나뿐이라 이전 이미지의 단건 조회도 그대로 동작한다 |
 | contract (HLD §7 5단계) | 그다음 번호 | 기존 비활성 초대 링크 `REVOKED` 보정 → unique 교체 → rename 2개 → V52 링크 테이블 5개 DROP. 같은 이미지에서 폐기·재발급 코드를 켠다 | **불가 — roll-forward 전용.** 장애는 앞으로 고치는 핫픽스로 대응하고, 최후 수단은 contract 직전 RDS 스냅샷 복원이다(그 뒤 쓰기는 잃는다) |
 
 이 문서는 개념 이름으로 최종 이름(`links`·`link_clicks`)을 쓴다. expand 부터 contract 전까지 물리 이름은 `group_invite_links`·`invite_link_clicks` 이고, 그 기간의 엔티티는 `@Table` 로 옛 이름을 가리킨다. 아래 expand DDL 은 물리 이름으로 적는다.
@@ -530,7 +530,7 @@ Play 가 준 `referrer` 문자열을 URL 쿼리로 읽고 위에서부터 첫 �
 
 ### 4.5 인증 필터 예외
 
-- **현행**: main 의 business-api `RequestFilter`(`RequestFilter.java:26-43`)는 actuator 경로만 무인증이고 나머지는 전부 `Authorization` 을 검증해 없으면 401 이다. #745(head `a455bd182`)의 `AccessTokenFilter` 는 `/*` 에 등록돼 `getRequestURI()`(디코딩 전 원문)의 **정확 일치** 목록 — `/health` · `/l/match` · actuator 6개 — 만 통과시키고, `RequestEnvelopeFilter` 에는 경로 예외가 없다. 구현은 #745 머지 뒤 `AccessTokenFilter` 의 예외를 넓힌다.
+- **현행**: #745 머지 전 main 의 business-api `RequestFilter`(`RequestFilter.java:26-43`)는 actuator 경로만 무인증이고 나머지는 전부 `Authorization` 을 검증해 없으면 401 이다. #745(머지 `1ec66e0dd`)의 `AccessTokenFilter` 는 `/*` 에 등록돼 `getRequestURI()`(디코딩 전 원문)의 **정확 일치** 목록 — `/health` · `/l/match` · actuator 6개 — 만 통과시키고, `RequestEnvelopeFilter` 에는 경로 예외가 없다. 구현은 #745 머지 뒤 `AccessTokenFilter` 의 예외를 넓힌다.
 - **원칙은 그대로**: 전부 막고 (메서드, 원문 경로)로 열거한 것만 연다. 접두어나 디코딩된 경로로 고르면 `/%6C/…`·`/l;x/…` 같은 변형이 컨트롤러에는 닿고 검사는 비껴가는 우회로가 된다. 원문 정규식에 안 맞는 변형은 401 로 떨어진다(fail-closed).
 
 | 메서드 | 원문 경로 | 용도 |
@@ -628,9 +628,11 @@ SKAN 포스트백은 GA4 로 보내지 않는다.
 
 ## 9. PR #745 와의 관계
 
-정책 L15 에 따라 #745 는 링크 분리 전제 코드를 포함해 머지한다. 아래 목록은 head `a455bd182` 기준이며(`37db435d1` 이후 20커밋 동안 링크 관련 클래스는 추가·삭제 없이 내용만 바뀌었고 테스트 `CompatMatchMigrationIdContractTest` 가 새로 생겼다), **구현 PR 착수 때 머지 커밋에서 다시 뽑는다.**
+정책 L15 대로 #745 는 링크 분리 전제 코드를 포함한 채 **2026-09-13 머지됐다(`1ec66e0dd`)**. 아래 목록은 그 머지 커밋 기준이다 — 앞서 대조한 head `a455bd182` 와 링크 관련 파일 차이가 없고, `37db435d1` 이후 링크 관련 클래스는 추가·삭제 없이 내용만 바뀌었으며 테스트 `CompatMatchMigrationIdContractTest` 가 새로 생겼다. **구현 PR 착수 때 그 시점 main 에서 다시 확인한다.**
 
 ### 9.1 머지 뒤 켜지 않는 것
+
+아래는 **지금 main 에 들어 있는 설정**이다(#745 머지). 구현 PR 이 걷어내기 전까지 켜지 않는다.
 
 | #745 의 것 | 켜면 | 구현 PR 전까지 |
 | --- | --- | --- |
@@ -671,7 +673,7 @@ SKAN 포스트백은 GA4 로 보내지 않는다.
 | 4 | `link.oneorthree.world` 가 prod nginx 로 들어오는지(Infra `server_name`). AASA 를 지금 data-api 가 서빙하므로 그렇다고 보지만 문서화된 적이 없다 | HLD §7 4단계 |
 | 5 | Android 패키지명·릴리즈 서명 SHA-256, Play 스토어 게시 상태, App Link 인텐트 필터의 `autoVerify` | §4.4 · 앱 5 |
 | 6 | 개인정보처리방침의 IP 해시 · 기기 식별자 · Install Referrer 수집 고지 | 정책 L19 (출시 조건) |
-| 7 | 구현 시점의 Flyway 최대 번호(열린 PR 포함). 2026-09-13 기준 #745 가 V54 까지 쓰고 #751·#752·#753 도 V53·V54 를 다른 이름으로 써서 겹친다 — 머지 순서대로 다시 매긴 뒤 V55 이상에서 확정 | §1.1 |
+| 7 | 구현 시점의 Flyway 최대 번호(열린 PR 포함). 2026-09-13 기준 main(#745 머지)이 V54 까지 쓰고 #751·#752·#753 도 V53·V54 를 다른 이름으로 써서 겹친다 — 머지 순서대로 다시 매긴 뒤 V55 이상에서 확정 | §1.1 |
 | 8 | prod Flyway 가 이력의 미래 버전을 무시하는지(`ignoreMigrationPatterns`, 기본 `*:future`). 무시하지 않으면 expand 뒤 이전 이미지 롤백이 Flyway 검증에서 막힌다(contract 는 roll-forward 전용) | §1.1 · HLD §7 |
 | 9 | 출시 뒤 `installs.referrer` 가 광고 대시보드 설치 수보다 크게 부풀면 앱·설치 증명(Play Integrity API)을 `/l/referrer` 저장 조건에 더한다 | §4 · 정책 L23 |
 | 10 | 출시 뒤 앱 데이터 삭제로 인한 과집계(같은 Play 설치 시각인데 `deviceId` 만 다른 referrer 행)가 관측되면 Play 서버 설치 시각 + referrer 원문 해시로 중복을 걸러낸다 | §2.4-1 · 정책 L21 |

@@ -80,7 +80,7 @@
   <li><b>콘솔</b>business-api 안 Thymeleaf 3장. 알림 콘솔은 범위 밖</li>
   <li><b>광고비·클릭·CPI</b>Meta·Google 대시보드. 우리는 만들지 않음</li>
   <li><b>설치·가입</b>iOS 광고 = SKAN 복사본(집계) · Android = Install Referrer(기기)</li>
-  <li><b>PR #745</b>링크 분리 코드 포함 머지. 걷어내기는 구현 PR</li>
+  <li><b>PR #745</b>링크 분리 코드 포함 머지됨(09-13). 걷어내기는 구현 PR</li>
 </ul>
 
 <section>
@@ -382,8 +382,8 @@
 </section>
 
 <section>
-  <h2><span class="n">5</span>PR #745 — 링크 분리 코드를 안고 머지한다</h2>
-  <p class="lede">열린 PR #745(알림 기반) 가 분리안 전제 코드를 싣고 있다. 결정: 빼지 않고 그대로 머지한다. 대신 구현 PR 이 사장 코드와 V52 링크 테이블 5개를 걷어내고, 그 전까지 아래 설정은 켜지 않는다.</p>
+  <h2><span class="n">5</span>PR #745 — 링크 분리 코드를 안고 머지됐다</h2>
+  <p class="lede">PR #745(알림 기반)가 분리안 전제 코드를 실은 채 2026-09-13 머지됐다(<code>1ec66e0dd</code>). 아래 설정은 지금 main 에 들어 있다. 대신 구현 PR 이 사장 코드와 V52 링크 테이블 5개를 걷어내고, 그 전까지 아래 설정은 켜지 않는다.</p>
   <div class="tbl">
   <table>
     <thead><tr><th>#745 의 것</th><th>켜면</th><th>구현 PR 전까지</th></tr></thead>
@@ -401,7 +401,7 @@
 <section>
   <h2><span class="n">6</span>배포 순서</h2>
   <ol class="steps">
-    <li>#745 머지 — 링크 경로는 data-api 공개 컨트롤러가 계속 서빙</li>
+    <li>#745 머지됨(09-13) — 링크 경로는 data-api 공개 컨트롤러가 계속 서빙</li>
     <li>data-api — 스키마 expand(기존 테이블 이름 그대로 컬럼·신설 3 · V21 전체 unique 유지) · <code>invitelink</code> 일반화 · <code>/internal/*</code> · #745 data-api 링크 사장 코드 제거. 공개 컨트롤러와 V52 테이블은 남기고 링크 폐기·재발급은 켜지 않는다</li>
     <li>business-api — 공개 표면 · referrer · resolve · SKAN 수신(서명 통과분만 저장) · <code>/l/referrer</code> 토큰·유저 상한 · #745 business-api 링크 사장 코드 제거</li>
     <li>Infra — nginx 링크 경로 전환(reload 1회, 되돌리기도 1회 · 같은 DB 라 무손실), Cloudflare SKAN 경로 챌린지 예외 + 엣지 레이트리밋</li>

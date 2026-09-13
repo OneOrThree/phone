@@ -189,7 +189,7 @@ sequenceDiagram
 
 | 단계 | 내용 | 되돌리기 |
 | --- | --- | --- |
-| 1 | PR #745 머지(링크 코드 포함). 링크 경로는 data-api 공개 컨트롤러가 계속 서빙하고, [LLD §9.1](low-level-design.md#91-머지-뒤-켜지-않는-것) 의 설정은 켜지 않는다 | — |
+| 1 | PR #745 머지 — **완료(2026-09-13, `1ec66e0dd`)**, 링크 코드 포함. 링크 경로는 data-api 공개 컨트롤러가 계속 서빙하고, [LLD §9.1](low-level-design.md#91-머지-뒤-켜지-않는-것) 의 설정은 켜지 않는다 | — |
 | 2 | data-api: **스키마 expand**(기존 테이블 이름 그대로 컬럼·제약 추가, 신설 3, **V21 전체 unique 유지**) · `invitelink` 일반화(엔티티는 `@Table` 로 옛 이름) · `/internal/*` · #745 의 data-api 링크 사장 코드 제거. **기존 공개 컨트롤러와 V52 링크 테이블은 남기고, 링크 폐기·재발급은 켜지 않는다** | 이미지 롤백 — expand 스키마에서 이전 이미지가 그대로 기동하고, 한 `(group_id, inviter_id)` 에 INVITE 행이 하나뿐이라 이전 이미지의 단건 조회도 그대로 동작 |
 | 3 | business-api: 공개 표면 · referrer · resolve · SKAN 수신 · #745 의 business-api 링크 사장 코드 제거 | 이미지 롤백 |
 | 4 | Infra: nginx 링크 경로를 business-api 로 전환(reload 1회), Cloudflare 에서 SKAN 경로 봇 챌린지 예외 + 엣지 레이트리밋 | nginx 원복 reload — 2 단계의 공개 컨트롤러가 같은 DB 를 읽으므로 무손실 |

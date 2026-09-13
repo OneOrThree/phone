@@ -16,7 +16,7 @@ GROMO-1799 설계. [PRD](prd.md) → [정책](policy.md) → [아키텍처](high
 | [그룹 획득 HLD §2](../group/features/01-acquisition/high-level-design.md) · [LLD §2.1](../group/features/01-acquisition/low-level-design.md) | 초대 링크 수명(발급·반복 발급·폐기·재발급)과 비공개 가입 검증의 정본. 이 설계는 저장 위치와 컬럼만 제공한다 |
 | [그룹 분석 §4](../group/shared/analytics.md) | 앱 이벤트는 바꾸지 않는다. 서버 GA4 이벤트에 파라미터만 더한다([LLD §8](low-level-design.md#8-ga4-서버-이벤트)) |
 | 티켓 1660 · `mmp-custom` 저장소 | 분리 범위는 폐기한다. 그 저장소는 초대 링크·알림 콘솔·Neon 이관 코드였고 캠페인·SKAN·Referrer 코드는 없었다 |
-| PR #745 | 링크 분리 전제 코드를 포함한 채 머지한다([정책 L15](policy.md)). 머지 뒤 켜지 말아야 할 것과 걷어낼 목록은 [LLD §9](low-level-design.md#9-pr-745-와의-관계) |
+| PR #745 | 링크 분리 전제 코드를 포함한 채 **2026-09-13 머지됐다**(`1ec66e0dd`, [정책 L15](policy.md)). 머지 뒤 켜지 말아야 할 것과 걷어낼 목록은 [LLD §9](low-level-design.md#9-pr-745-와의-관계) |
 
 ## 후속
 
