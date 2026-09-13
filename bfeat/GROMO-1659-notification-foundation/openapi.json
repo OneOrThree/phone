@@ -597,7 +597,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ChallengeResultAckRequest"
+                "$ref": "#/components/schemas/InternalResultAckRequest"
               }
             }
           },
@@ -4397,6 +4397,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "ackDeadlineAt",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
           }
         ],
         "responses": {
@@ -7100,14 +7109,21 @@
           }
         }
       },
-      "ChallengeResultAckRequest": {
+      "InternalResultAckRequest": {
         "type": "object",
         "properties": {
           "claimToken": {
             "type": "string",
             "format": "uuid"
+          },
+          "ackDeadlineAt": {
+            "type": "string",
+            "format": "date-time"
           }
-        }
+        },
+        "required": [
+          "ackDeadlineAt"
+        ]
       },
       "NotificationEligibilityRequest": {
         "type": "object",
@@ -7401,6 +7417,15 @@
         "properties": {
           "result": {
             "type": "string"
+          }
+        }
+      },
+      "ChallengeResultAckRequest": {
+        "type": "object",
+        "properties": {
+          "claimToken": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
