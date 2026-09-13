@@ -165,7 +165,8 @@ class InternalAuthFilterTest {
     void rejectsNonCanonicalUserPathsBeforeMvc(String segment) throws Exception {
         UserSatelliteCommandService service = mock(UserSatelliteCommandService.class);
         var mvc = MockMvcBuilders.standaloneSetup(new InternalUserController(service,
-                mock(com.oneorthree.phone.internal.InternalDeviceTokenDeletionService.class)))
+                mock(com.oneorthree.phone.internal.InternalDeviceTokenDeletionService.class),
+                mock(com.oneorthree.phone.internal.service.InternalNotificationSettingsService.class)))
                 .addFilters(new InternalAuthFilter(enabledProperties())).build();
 
         mvc.perform(get(URI.create("/internal/users/" + segment + "/activation"))
