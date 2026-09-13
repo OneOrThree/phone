@@ -105,7 +105,7 @@ sequenceDiagram
   else organic · 읽기 실패
     A->>B: POST /l/match (기존 fingerprint)
   end
-  Note over A: 로그인 또는 게스트 시작 → 세션 확보
+  Note over A: 세션 확보 — 로그인·게스트 시작(postAuthSave) 또는 콜드스타트 세션 복원 성공
   A->>B: POST /l/referrer {deviceId, referrer, 시각들} (access token)
   B->>B: 출처 판별 · Meta 복호화 · IP·유저 상한
   B->>D: POST /internal/install-referrers {source, 정규화 필드, 원문} (X-User-Id)
@@ -116,7 +116,7 @@ sequenceDiagram
   B->>D: POST /internal/links/claims → 조건부 UPDATE 로 원자 선점 · claimed_as_new_user·signup_at 기록
 ```
 
-설치 단위는 `install_key` 라, 같은 기기에서 앱을 지웠다가 다른 광고로 다시 깔면 새 설치로 센다. 앱의 완료 값(referrer 보고와 fingerprint 매치)도 처리한 Play 설치 시작 시각으로 저장해, Auto Backup 으로 복원돼도 재설치에서 다시 시도한다. 저장은 세션 확보 뒤라 첫 실행 뒤 로그인·게스트 시작 없이 앱을 떠난 설치는 우리 수치에 들어가지 않는다. 대신 토큰 없는 위조 저장이 막힌다(§5).
+설치 단위는 `install_key` 라, 같은 기기에서 앱을 지웠다가 다른 광고로 다시 깔면 새 설치로 센다. 앱의 완료 값(referrer 보고와 fingerprint 매치)도 처리한 Play 설치 시작 시각으로 저장해, Auto Backup 으로 복원돼도 재설치에서 다시 시도한다. 저장은 세션 확보 뒤라 첫 실행 뒤 로그인·게스트 시작 없이 앱을 떠난 설치는 우리 수치에 들어가지 않는다. Auto Backup 이 로그인 세션까지 복원하면 재설치한 앱은 로그인 화면을 건너뛰므로, 저장은 **콜드스타트 세션 복원이 성공한 직후**에도 보낸다. 대신 토큰 없는 위조 저장이 막힌다(§5).
 
 ### 3.4 iOS 광고 — SKAN 포스트백
 
