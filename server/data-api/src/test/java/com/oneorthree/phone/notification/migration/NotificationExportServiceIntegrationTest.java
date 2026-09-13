@@ -587,7 +587,7 @@ class NotificationExportServiceIntegrationTest {
 
         assertThatThrownBy(() -> exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("같은 기기 토큰");
+                .hasMessageContaining("중복 기기 토큰");
 
         // lenient 로는 문서가 나오지만 최종본이 아니다 — 잔여 큐도 실패도 0 인데 중복만 남은 경우다.
         NotificationExportDocument lenient =
