@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.time.Duration;
 
 /**
  * 이관 정지 창의 <b>한시</b> {@code /l/match} 조합 (A22 ㊫ · 서비스 §7.2 3~6단계).
@@ -54,6 +55,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class CompatMatchUseCase {
 
+    private static final Duration OBSERVATION_BUDGET = Duration.ofMillis(100);
+
     private final CompatProperties compatProperties;
     private final DataApiClient dataApiClient;
     private final LinkApiClient linkApiClient;
@@ -74,18 +77,25 @@ public class CompatMatchUseCase {
         Deadline deadline = Deadline.startingNow(compatProperties.getMatchBudget());
 
         if (!compatProperties.isImportContractReady()) {
-            // 준비 전: 구 후보를 «세기만» 한다. 이 수치가 4단계 진입 판단의 입력이다.
-            int pending = exportFrozen(ipHash, os, deadline, false).size();
-            if (pending > 0) {
-                log.info("구 DB 에만 있는 후보 {}건 — import 계약 준비 전이라 소진하지 않는다", pending);
-            }
             // ⚠️ migrationId 를 «생략»한다. 링크 서버는 이 필드가 있으면 import 모드로 들어가
             //    openRun 을 요구하고(link/src/lib/links.ts:104-113) IMPORT_CLOSED 이후엔 503 을 준다 —
             //    빈 배열을 함께 보내도 마찬가지다. null 이어야 직접 매치 경로를 탄다.
-            return linkApiClient.match(
+            LinkMatchResult result = linkApiClient.match(
                     new LinkMatchCommand(ipHash, os, deviceId, appInstanceId, null, null),
                     keys.forStep("compat-match"),
                     deadline);
+            // 관측은 소진 뒤 남은 전체 예산에서 최대 100ms만 쓴다. 느린 Data가 Link의 시작·재시도
+            // 예산을 먼저 소진하거나, 이미 끝난 매치의 응답을 앱의 5초 밖으로 미뤄서는 안 된다.
+            Duration remaining = deadline.remaining();
+            if (!remaining.isZero()) {
+                Duration observation = remaining.compareTo(OBSERVATION_BUDGET) < 0
+                        ? remaining : OBSERVATION_BUDGET;
+                int pending = exportFrozen(ipHash, os, Deadline.startingNow(observation), false).size();
+                if (pending > 0) {
+                    log.info("구 DB 에만 있는 후보 {}건 — import 계약 준비 전이라 소진하지 않는다", pending);
+                }
+            }
+            return result;
         }
 
         // 4단계 진입 후: 구 정지 행 «전체»를 래퍼 그대로 넘겨 링크가 반영·소진하게 한다.
