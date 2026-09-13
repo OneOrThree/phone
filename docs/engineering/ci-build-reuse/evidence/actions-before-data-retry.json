@@ -1,0 +1,1440 @@
+[
+  {
+    "id": 34749088064,
+    "name": "Business · Notification CI",
+    "head_sha": "c1b226bee3a276f70d8366911460d30c0c5a7e96",
+    "event": "pull_request",
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "success",
+    "created_at": "2026-09-13T09:11:36Z",
+    "updated_at": "2026-09-13T10:30:00Z",
+    "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064",
+    "collected_at": "2026-09-13T11:27:33.896816+00:00",
+    "jobs": [
+      {
+        "id": 103702397899,
+        "name": "위성 변경 입력 판정",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-13T09:14:11Z",
+        "started_at": "2026-09-13T09:14:40Z",
+        "completed_at": "2026-09-13T09:14:52Z",
+        "runner_name": "GitHub Actions 1000002106",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064/job/103702397899",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 29.0,
+        "execution_seconds": 12.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:41Z",
+            "completed_at": "2026-09-13T09:14:42Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:42Z",
+            "completed_at": "2026-09-13T09:14:50Z"
+          },
+          {
+            "name": "Run python3 .github/scripts/satellite-ci-plan.py",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:50Z",
+            "completed_at": "2026-09-13T09:14:50Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:50Z",
+            "completed_at": "2026-09-13T09:14:50Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:50Z",
+            "completed_at": "2026-09-13T09:14:50Z"
+          }
+        ]
+      },
+      {
+        "id": 103702397982,
+        "name": "서비스별 시크릿 · DB 격리",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-13T09:14:11Z",
+        "started_at": "2026-09-13T09:14:41Z",
+        "completed_at": "2026-09-13T09:16:19Z",
+        "runner_name": "GitHub Actions 1000002108",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064/job/103702397982",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 30.0,
+        "execution_seconds": 98.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:42Z",
+            "completed_at": "2026-09-13T09:14:43Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:43Z",
+            "completed_at": "2026-09-13T09:14:48Z"
+          },
+          {
+            "name": "Run actions/setup-python@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:48Z",
+            "completed_at": "2026-09-13T09:14:48Z"
+          },
+          {
+            "name": "합성 SecretString의 compose 전달과 실제 Postgres 권한 확인",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:48Z",
+            "completed_at": "2026-09-13T09:16:17Z"
+          },
+          {
+            "name": "A22 위성 경계 · producer와 template 계약 검사",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:16:17Z",
+            "completed_at": "2026-09-13T09:16:17Z"
+          },
+          {
+            "name": "Post Run actions/setup-python@v5",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:16:17Z",
+            "completed_at": "2026-09-13T09:16:17Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:16:17Z",
+            "completed_at": "2026-09-13T09:16:17Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:16:17Z",
+            "completed_at": "2026-09-13T09:16:17Z"
+          }
+        ]
+      },
+      {
+        "id": 103702398028,
+        "name": "공개 명령 원자성 · 계약",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-13T09:14:11Z",
+        "started_at": "2026-09-13T09:14:40Z",
+        "completed_at": "2026-09-13T09:18:37Z",
+        "runner_name": "GitHub Actions 1000002107",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064/job/103702398028",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 29.0,
+        "execution_seconds": 237.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:40Z",
+            "completed_at": "2026-09-13T09:14:43Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:43Z",
+            "completed_at": "2026-09-13T09:14:48Z"
+          },
+          {
+            "name": "Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:48Z",
+            "completed_at": "2026-09-13T09:14:48Z"
+          },
+          {
+            "name": "Run gradle/actions/setup-gradle@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:48Z",
+            "completed_at": "2026-09-13T09:14:55Z"
+          },
+          {
+            "name": "실제 Postgres 멱등 · rollback · 재생 · 계층 검증",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:14:55Z",
+            "completed_at": "2026-09-13T09:18:32Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:18:32Z",
+            "completed_at": "2026-09-13T09:18:34Z"
+          },
+          {
+            "name": "Post Run gradle/actions/setup-gradle@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:18:34Z",
+            "completed_at": "2026-09-13T09:18:35Z"
+          },
+          {
+            "name": "Post Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:18:35Z",
+            "completed_at": "2026-09-13T09:18:35Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:18:35Z",
+            "completed_at": "2026-09-13T09:18:35Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:18:35Z",
+            "completed_at": "2026-09-13T09:18:35Z"
+          }
+        ]
+      },
+      {
+        "id": 103702427836,
+        "name": "notification 검증",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-13T09:14:52Z",
+        "started_at": "2026-09-13T09:15:09Z",
+        "completed_at": "2026-09-13T09:25:10Z",
+        "runner_name": "gromo-dev-build-3",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064/job/103702427836",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 17.0,
+        "execution_seconds": 601.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:11Z",
+            "completed_at": "2026-09-13T09:15:16Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:16Z",
+            "completed_at": "2026-09-13T09:15:18Z"
+          },
+          {
+            "name": "Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:18Z",
+            "completed_at": "2026-09-13T09:15:19Z"
+          },
+          {
+            "name": "동시 러너와 Gradle 홈 분리",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:19Z",
+            "completed_at": "2026-09-13T09:15:19Z"
+          },
+          {
+            "name": "Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:19Z",
+            "completed_at": "2026-09-13T09:15:20Z"
+          },
+          {
+            "name": "Business PDF 테스트 도구 이미지",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:15:20Z",
+            "completed_at": "2026-09-13T09:15:20Z"
+          },
+          {
+            "name": "Business 실제 테스트 · 정적 검사 · bootJar",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:15:20Z",
+            "completed_at": "2026-09-13T09:15:20Z"
+          },
+          {
+            "name": "Business 테스트 도구 이미지 정리",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:15:20Z",
+            "completed_at": "2026-09-13T09:15:20Z"
+          },
+          {
+            "name": "변경 없는 Notification은 체크섬 검사에 필요한 JAR만 생성",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:15:20Z",
+            "completed_at": "2026-09-13T09:15:20Z"
+          },
+          {
+            "name": "Notification 실제 테스트 · 정적 검사 · bootJar",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:20Z",
+            "completed_at": "2026-09-13T09:24:22Z"
+          },
+          {
+            "name": "Data export와 실제 Noti Jackson 체크섬 대조",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:24:22Z",
+            "completed_at": "2026-09-13T09:24:29Z"
+          },
+          {
+            "name": "Run ./.github/actions/ci-jar",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:24:29Z",
+            "completed_at": "2026-09-13T09:24:40Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:24:40Z",
+            "completed_at": "2026-09-13T09:24:45Z"
+          },
+          {
+            "name": "전체 검사 생략 기록",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:24:45Z",
+            "completed_at": "2026-09-13T09:24:45Z"
+          },
+          {
+            "name": "Post Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:24:45Z",
+            "completed_at": "2026-09-13T09:25:03Z"
+          },
+          {
+            "name": "Post Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:25:03Z",
+            "completed_at": "2026-09-13T09:25:04Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:25:04Z",
+            "completed_at": "2026-09-13T09:25:05Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:25:05Z",
+            "completed_at": "2026-09-13T09:25:05Z"
+          }
+        ]
+      },
+      {
+        "id": 103702427860,
+        "name": "business-api 검증",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-13T09:14:52Z",
+        "started_at": "2026-09-13T09:24:32Z",
+        "completed_at": "2026-09-13T09:33:27Z",
+        "runner_name": "gromo-dev-build-1",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064/job/103702427860",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 580.0,
+        "execution_seconds": 535.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:24:35Z",
+            "completed_at": "2026-09-13T09:24:39Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:24:39Z",
+            "completed_at": "2026-09-13T09:24:41Z"
+          },
+          {
+            "name": "Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:24:41Z",
+            "completed_at": "2026-09-13T09:24:42Z"
+          },
+          {
+            "name": "동시 러너와 Gradle 홈 분리",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:24:42Z",
+            "completed_at": "2026-09-13T09:24:42Z"
+          },
+          {
+            "name": "Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:24:42Z",
+            "completed_at": "2026-09-13T09:24:43Z"
+          },
+          {
+            "name": "Business PDF 테스트 도구 이미지",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:24:43Z",
+            "completed_at": "2026-09-13T09:24:46Z"
+          },
+          {
+            "name": "Business 실제 테스트 · 정적 검사 · bootJar",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:24:46Z",
+            "completed_at": "2026-09-13T09:32:44Z"
+          },
+          {
+            "name": "Business 테스트 도구 이미지 정리",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:32:44Z",
+            "completed_at": "2026-09-13T09:32:45Z"
+          },
+          {
+            "name": "변경 없는 Notification은 체크섬 검사에 필요한 JAR만 생성",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:32:45Z",
+            "completed_at": "2026-09-13T09:32:45Z"
+          },
+          {
+            "name": "Notification 실제 테스트 · 정적 검사 · bootJar",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:32:45Z",
+            "completed_at": "2026-09-13T09:32:45Z"
+          },
+          {
+            "name": "Data export와 실제 Noti Jackson 체크섬 대조",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:32:45Z",
+            "completed_at": "2026-09-13T09:32:45Z"
+          },
+          {
+            "name": "Run ./.github/actions/ci-jar",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:32:45Z",
+            "completed_at": "2026-09-13T09:32:55Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:32:55Z",
+            "completed_at": "2026-09-13T09:33:03Z"
+          },
+          {
+            "name": "전체 검사 생략 기록",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:33:03Z",
+            "completed_at": "2026-09-13T09:33:03Z"
+          },
+          {
+            "name": "Post Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:33:03Z",
+            "completed_at": "2026-09-13T09:33:21Z"
+          },
+          {
+            "name": "Post Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:33:21Z",
+            "completed_at": "2026-09-13T09:33:21Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:33:21Z",
+            "completed_at": "2026-09-13T09:33:22Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:33:22Z",
+            "completed_at": "2026-09-13T09:33:23Z"
+          }
+        ]
+      },
+      {
+        "id": 103703863966,
+        "name": "notification 이미지",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-13T09:33:28Z",
+        "started_at": "2026-09-13T09:50:36Z",
+        "completed_at": "2026-09-13T09:52:18Z",
+        "runner_name": "gromo-dev-build-2",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064/job/103703863966",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 1028.0,
+        "execution_seconds": 102.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:50:40Z",
+            "completed_at": "2026-09-13T09:50:46Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:50:46Z",
+            "completed_at": "2026-09-13T09:50:49Z"
+          },
+          {
+            "name": "Run docker/setup-qemu-action@v3",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:50:49Z",
+            "completed_at": "2026-09-13T09:50:49Z"
+          },
+          {
+            "name": "Run ./.github/actions/ci-jar",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:50:49Z",
+            "completed_at": "2026-09-13T09:51:23Z"
+          },
+          {
+            "name": "Run docker/setup-buildx-action@v3",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:51:23Z",
+            "completed_at": "2026-09-13T09:51:31Z"
+          },
+          {
+            "name": "이미지 캐시용 GAR 인증",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:51:31Z",
+            "completed_at": "2026-09-13T09:51:32Z"
+          },
+          {
+            "name": "release 발행용 AWS 자격증명",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:51:32Z",
+            "completed_at": "2026-09-13T09:51:32Z"
+          },
+          {
+            "name": "서비스별 ECR 저장소 확인",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:51:32Z",
+            "completed_at": "2026-09-13T09:51:32Z"
+          },
+          {
+            "name": "ECR 로그인",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:51:32Z",
+            "completed_at": "2026-09-13T09:51:32Z"
+          },
+          {
+            "name": "이미지 검증 · 환경별 digest 발행",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:51:32Z",
+            "completed_at": "2026-09-13T09:52:06Z"
+          },
+          {
+            "name": "릴리즈 입력 digest 기록",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:52:06Z",
+            "completed_at": "2026-09-13T09:52:06Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:52:06Z",
+            "completed_at": "2026-09-13T09:52:06Z"
+          },
+          {
+            "name": "이미지 생략 기록",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:52:06Z",
+            "completed_at": "2026-09-13T09:52:06Z"
+          },
+          {
+            "name": "Post 이미지 검증 · 환경별 digest 발행",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:52:06Z",
+            "completed_at": "2026-09-13T09:52:10Z"
+          },
+          {
+            "name": "Post Run docker/setup-buildx-action@v3",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:52:10Z",
+            "completed_at": "2026-09-13T09:52:12Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:52:12Z",
+            "completed_at": "2026-09-13T09:52:12Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:52:12Z",
+            "completed_at": "2026-09-13T09:52:13Z"
+          }
+        ]
+      },
+      {
+        "id": 103703864025,
+        "name": "business-api 이미지",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-13T09:33:28Z",
+        "started_at": "2026-09-13T10:28:12Z",
+        "completed_at": "2026-09-13T10:29:59Z",
+        "runner_name": "gromo-dev-build-2",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064/job/103703864025",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 3284.0,
+        "execution_seconds": 107.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:28:15Z",
+            "completed_at": "2026-09-13T10:28:24Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:28:24Z",
+            "completed_at": "2026-09-13T10:28:27Z"
+          },
+          {
+            "name": "Run docker/setup-qemu-action@v3",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T10:28:27Z",
+            "completed_at": "2026-09-13T10:28:27Z"
+          },
+          {
+            "name": "Run ./.github/actions/ci-jar",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:28:27Z",
+            "completed_at": "2026-09-13T10:28:52Z"
+          },
+          {
+            "name": "Run docker/setup-buildx-action@v3",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:28:52Z",
+            "completed_at": "2026-09-13T10:28:59Z"
+          },
+          {
+            "name": "이미지 캐시용 GAR 인증",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:28:59Z",
+            "completed_at": "2026-09-13T10:28:59Z"
+          },
+          {
+            "name": "release 발행용 AWS 자격증명",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T10:28:59Z",
+            "completed_at": "2026-09-13T10:28:59Z"
+          },
+          {
+            "name": "서비스별 ECR 저장소 확인",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T10:28:59Z",
+            "completed_at": "2026-09-13T10:28:59Z"
+          },
+          {
+            "name": "ECR 로그인",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T10:28:59Z",
+            "completed_at": "2026-09-13T10:28:59Z"
+          },
+          {
+            "name": "이미지 검증 · 환경별 digest 발행",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:28:59Z",
+            "completed_at": "2026-09-13T10:29:48Z"
+          },
+          {
+            "name": "릴리즈 입력 digest 기록",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T10:29:48Z",
+            "completed_at": "2026-09-13T10:29:48Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T10:29:48Z",
+            "completed_at": "2026-09-13T10:29:48Z"
+          },
+          {
+            "name": "이미지 생략 기록",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T10:29:48Z",
+            "completed_at": "2026-09-13T10:29:48Z"
+          },
+          {
+            "name": "Post 이미지 검증 · 환경별 digest 발행",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:29:48Z",
+            "completed_at": "2026-09-13T10:29:52Z"
+          },
+          {
+            "name": "Post Run docker/setup-buildx-action@v3",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:29:52Z",
+            "completed_at": "2026-09-13T10:29:53Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:29:53Z",
+            "completed_at": "2026-09-13T10:29:54Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:29:54Z",
+            "completed_at": "2026-09-13T10:29:54Z"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": 34749088125,
+    "name": "CI",
+    "head_sha": "c1b226bee3a276f70d8366911460d30c0c5a7e96",
+    "event": "pull_request",
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "cancelled",
+    "created_at": "2026-09-13T09:11:36Z",
+    "updated_at": "2026-09-13T09:50:37Z",
+    "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125",
+    "collected_at": "2026-09-13T11:27:35.295218+00:00",
+    "jobs": [
+      {
+        "id": 103702329161,
+        "name": "spotbugs / gradle",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-13T09:13:41Z",
+        "started_at": "2026-09-13T09:13:43Z",
+        "completed_at": "2026-09-13T09:15:07Z",
+        "runner_name": "GitHub Actions 1000002104",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103702329161",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 2.0,
+        "execution_seconds": 84.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:44Z",
+            "completed_at": "2026-09-13T09:13:45Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:45Z",
+            "completed_at": "2026-09-13T09:13:52Z"
+          },
+          {
+            "name": "서비스 전용 Gradle 홈 설정",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:52Z",
+            "completed_at": "2026-09-13T09:13:52Z"
+          },
+          {
+            "name": "Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:52Z",
+            "completed_at": "2026-09-13T09:13:53Z"
+          },
+          {
+            "name": "Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:53Z",
+            "completed_at": "2026-09-13T09:13:56Z"
+          },
+          {
+            "name": "Run chmod +x gradlew",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:56Z",
+            "completed_at": "2026-09-13T09:13:56Z"
+          },
+          {
+            "name": "Gradle spotbugsMain",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:56Z",
+            "completed_at": "2026-09-13T09:15:03Z"
+          },
+          {
+            "name": "Run ./.github/actions/ci-jar",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:15:03Z",
+            "completed_at": "2026-09-13T09:15:03Z"
+          },
+          {
+            "name": "JAR 크기 측정",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:15:03Z",
+            "completed_at": "2026-09-13T09:15:03Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:15:03Z",
+            "completed_at": "2026-09-13T09:15:03Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:03Z",
+            "completed_at": "2026-09-13T09:15:03Z"
+          },
+          {
+            "name": "Post Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:03Z",
+            "completed_at": "2026-09-13T09:15:04Z"
+          },
+          {
+            "name": "Post Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:04Z",
+            "completed_at": "2026-09-13T09:15:04Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:04Z",
+            "completed_at": "2026-09-13T09:15:04Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:04Z",
+            "completed_at": "2026-09-13T09:15:04Z"
+          }
+        ]
+      },
+      {
+        "id": 103702329254,
+        "name": "checkstyle / gradle",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-13T09:13:41Z",
+        "started_at": "2026-09-13T09:13:43Z",
+        "completed_at": "2026-09-13T09:15:40Z",
+        "runner_name": "GitHub Actions 1000002105",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103702329254",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 2.0,
+        "execution_seconds": 117.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:45Z",
+            "completed_at": "2026-09-13T09:13:46Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:46Z",
+            "completed_at": "2026-09-13T09:13:54Z"
+          },
+          {
+            "name": "서비스 전용 Gradle 홈 설정",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:54Z",
+            "completed_at": "2026-09-13T09:13:54Z"
+          },
+          {
+            "name": "Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:54Z",
+            "completed_at": "2026-09-13T09:13:54Z"
+          },
+          {
+            "name": "Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:54Z",
+            "completed_at": "2026-09-13T09:13:59Z"
+          },
+          {
+            "name": "Run chmod +x gradlew",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:59Z",
+            "completed_at": "2026-09-13T09:13:59Z"
+          },
+          {
+            "name": "Gradle checkstyleMain checkstyleTest",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:13:59Z",
+            "completed_at": "2026-09-13T09:15:36Z"
+          },
+          {
+            "name": "Run ./.github/actions/ci-jar",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:15:36Z",
+            "completed_at": "2026-09-13T09:15:36Z"
+          },
+          {
+            "name": "JAR 크기 측정",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:15:36Z",
+            "completed_at": "2026-09-13T09:15:36Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:15:36Z",
+            "completed_at": "2026-09-13T09:15:36Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:36Z",
+            "completed_at": "2026-09-13T09:15:37Z"
+          },
+          {
+            "name": "Post Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:37Z",
+            "completed_at": "2026-09-13T09:15:38Z"
+          },
+          {
+            "name": "Post Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:38Z",
+            "completed_at": "2026-09-13T09:15:38Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:38Z",
+            "completed_at": "2026-09-13T09:15:38Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:15:38Z",
+            "completed_at": "2026-09-13T09:15:38Z"
+          }
+        ]
+      },
+      {
+        "id": 103702329266,
+        "name": "test / gradle",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "cancelled",
+        "created_at": "2026-09-13T09:13:41Z",
+        "started_at": "2026-09-13T09:20:00Z",
+        "completed_at": "2026-09-13T09:50:33Z",
+        "runner_name": "gromo-dev-build-2",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103702329266",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 379.0,
+        "execution_seconds": 1833.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:20:03Z",
+            "completed_at": "2026-09-13T09:20:07Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:20:07Z",
+            "completed_at": "2026-09-13T09:20:09Z"
+          },
+          {
+            "name": "서비스 전용 Gradle 홈 설정",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:20:09Z",
+            "completed_at": "2026-09-13T09:20:09Z"
+          },
+          {
+            "name": "Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:20:09Z",
+            "completed_at": "2026-09-13T09:20:11Z"
+          },
+          {
+            "name": "Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:20:11Z",
+            "completed_at": "2026-09-13T09:20:13Z"
+          },
+          {
+            "name": "Run chmod +x gradlew",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:20:13Z",
+            "completed_at": "2026-09-13T09:20:13Z"
+          },
+          {
+            "name": "Gradle test bootJar",
+            "status": "completed",
+            "conclusion": "cancelled",
+            "started_at": "2026-09-13T09:20:13Z",
+            "completed_at": "2026-09-13T09:50:14Z"
+          },
+          {
+            "name": "Run ./.github/actions/ci-jar",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:50:14Z",
+            "completed_at": "2026-09-13T09:50:14Z"
+          },
+          {
+            "name": "JAR 크기 측정",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:50:14Z",
+            "completed_at": "2026-09-13T09:50:14Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:50:14Z",
+            "completed_at": "2026-09-13T09:50:16Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:50:16Z",
+            "completed_at": "2026-09-13T09:50:21Z"
+          },
+          {
+            "name": "Post Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:50:21Z",
+            "completed_at": "2026-09-13T09:50:21Z"
+          },
+          {
+            "name": "Post Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:50:21Z",
+            "completed_at": "2026-09-13T09:50:22Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:50:22Z",
+            "completed_at": "2026-09-13T09:50:24Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:50:24Z",
+            "completed_at": "2026-09-13T09:50:25Z"
+          }
+        ]
+      },
+      {
+        "id": 103705695772,
+        "name": "Dev 이미지 build${{ (((github.event_name == 'push') && ' · GAR push') || ' · cache') }}",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "skipped",
+        "created_at": "2026-09-13T09:50:33Z",
+        "started_at": "2026-09-13T09:50:33Z",
+        "completed_at": "2026-09-13T09:50:33Z",
+        "runner_name": null,
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103705695772",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": null,
+        "execution_seconds": null,
+        "steps": []
+      },
+      {
+        "id": 103705695777,
+        "name": "Dev CD",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "skipped",
+        "created_at": "2026-09-13T09:50:33Z",
+        "started_at": "2026-09-13T09:50:33Z",
+        "completed_at": "2026-09-13T09:50:33Z",
+        "runner_name": null,
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103705695777",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": null,
+        "execution_seconds": null,
+        "steps": []
+      },
+      {
+        "id": 103705695856,
+        "name": "pr-report",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "skipped",
+        "created_at": "2026-09-13T09:50:33Z",
+        "started_at": "2026-09-13T09:50:33Z",
+        "completed_at": "2026-09-13T09:50:33Z",
+        "runner_name": null,
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103705695856",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": null,
+        "execution_seconds": null,
+        "steps": []
+      }
+    ]
+  },
+  {
+    "id": 34749088170,
+    "name": "Realtime CI",
+    "head_sha": "c1b226bee3a276f70d8366911460d30c0c5a7e96",
+    "event": "pull_request",
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "success",
+    "created_at": "2026-09-13T09:11:36Z",
+    "updated_at": "2026-09-13T10:03:20Z",
+    "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088170",
+    "collected_at": "2026-09-13T11:27:36.399805+00:00",
+    "jobs": [
+      {
+        "id": 103702395108,
+        "name": "build / gradle",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-13T09:14:08Z",
+        "started_at": "2026-09-13T09:33:31Z",
+        "completed_at": "2026-09-13T09:41:57Z",
+        "runner_name": "gromo-dev-build-1",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088170/job/103702395108",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 1163.0,
+        "execution_seconds": 506.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:33:33Z",
+            "completed_at": "2026-09-13T09:33:37Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:33:37Z",
+            "completed_at": "2026-09-13T09:33:40Z"
+          },
+          {
+            "name": "서비스 전용 Gradle 홈 설정",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:33:40Z",
+            "completed_at": "2026-09-13T09:33:40Z"
+          },
+          {
+            "name": "Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:33:40Z",
+            "completed_at": "2026-09-13T09:33:41Z"
+          },
+          {
+            "name": "Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:33:41Z",
+            "completed_at": "2026-09-13T09:33:43Z"
+          },
+          {
+            "name": "Run chmod +x gradlew",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:33:43Z",
+            "completed_at": "2026-09-13T09:33:43Z"
+          },
+          {
+            "name": "Gradle build",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:33:43Z",
+            "completed_at": "2026-09-13T09:41:16Z"
+          },
+          {
+            "name": "Run ./.github/actions/ci-jar",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:41:16Z",
+            "completed_at": "2026-09-13T09:41:28Z"
+          },
+          {
+            "name": "JAR 크기 측정",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:41:28Z",
+            "completed_at": "2026-09-13T09:41:28Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "skipped",
+            "started_at": "2026-09-13T09:41:28Z",
+            "completed_at": "2026-09-13T09:41:28Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:41:28Z",
+            "completed_at": "2026-09-13T09:41:32Z"
+          },
+          {
+            "name": "Post Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:41:32Z",
+            "completed_at": "2026-09-13T09:41:49Z"
+          },
+          {
+            "name": "Post Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:41:49Z",
+            "completed_at": "2026-09-13T09:41:50Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:41:50Z",
+            "completed_at": "2026-09-13T09:41:51Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T09:41:51Z",
+            "completed_at": "2026-09-13T09:41:53Z"
+          }
+        ]
+      },
+      {
+        "id": 103704807472,
+        "name": "채팅 이미지 build · cache",
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-13T09:41:57Z",
+        "started_at": "2026-09-13T10:02:10Z",
+        "completed_at": "2026-09-13T10:03:20Z",
+        "runner_name": "gromo-dev-build-2",
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088170/job/103704807472",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 1213.0,
+        "execution_seconds": 70.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:02:12Z",
+            "completed_at": "2026-09-13T10:02:16Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:02:16Z",
+            "completed_at": "2026-09-13T10:02:18Z"
+          },
+          {
+            "name": "Run ./.github/actions/ci-jar",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:02:18Z",
+            "completed_at": "2026-09-13T10:02:53Z"
+          },
+          {
+            "name": "GAR 인증",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:02:53Z",
+            "completed_at": "2026-09-13T10:02:53Z"
+          },
+          {
+            "name": "Run docker/setup-buildx-action@v3",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:02:53Z",
+            "completed_at": "2026-09-13T10:03:00Z"
+          },
+          {
+            "name": "Build image",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:03:00Z",
+            "completed_at": "2026-09-13T10:03:08Z"
+          },
+          {
+            "name": "Post Build image",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:03:08Z",
+            "completed_at": "2026-09-13T10:03:13Z"
+          },
+          {
+            "name": "Post Run docker/setup-buildx-action@v3",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:03:13Z",
+            "completed_at": "2026-09-13T10:03:15Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:03:15Z",
+            "completed_at": "2026-09-13T10:03:15Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T10:03:15Z",
+            "completed_at": "2026-09-13T10:03:15Z"
+          }
+        ]
+      }
+    ]
+  }
+]
