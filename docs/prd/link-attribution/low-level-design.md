@@ -1,6 +1,6 @@
 # 링크·어트리뷰션 상세 설계
 
-[정책](policy.md)의 결정을 테이블·API·판정 규칙으로 옮긴다. 기준 main `875a9fd89`, PR #745 는 head `37db435d1` 을 봤다. 날짜 경계는 [날짜 축 규약](../../conventions/date-axis.md)을 따른다(KST 날짜 `from`~`to` = `[from 00:00, to+1일 00:00)` KST).
+[정책](policy.md)의 결정을 테이블·API·판정 규칙으로 옮긴다. 기준 main `875a9fd89`, PR #745 는 head `37db435d1` 을 봤다. 날짜의 타임존 축은 [날짜 축 규약](../../conventions/date-axis.md)의 KST 고정을 따르고, 기간 `from`~`to` 를 시각 구간 `[from 00:00, to+1일 00:00)` KST 로 바꾸는 규칙은 이 설계가 정한다.
 
 ## 1. 데이터 모델
 
@@ -178,7 +178,12 @@ CREATE INDEX idx_skan_postbacks_received ON public.skan_postbacks (received_at);
 
 1. `install_key = deviceId + ":" + 설치 시작 초`. 설치 시작 초는 Play 의 `installBeginTimestampServerSeconds` 를 우선하고, 없으면 `installBeginTimestampSeconds`, 둘 다 없으면 `0` 이다. **같은 `install_key` 행이 있으면 그 행을 그대로 돌려준다**(`uq_install_referrers_install` 충돌 시 재조회). 설치 시작 시각이 다르면 재설치로 보고 새 행을 만든다.
 2. `source=LINK` 로 들어왔는데 slug 가 활성 링크가 아니면 `source=UNKNOWN`, `link_id=NULL` 로 저장한다(정책 L14).
-3. `source=LINK` 이고 `clickId` 가 그 링크의 미매치 클릭이면 그 클릭을 `PESSIMISTIC_WRITE` 로 잠가 `matched=true`·`matched_at`·`matched_device_id`·`app_instance_id` 를 채운다. 같은 클릭이 fingerprint 로 다른 기기에 다시 매치되지 않게 하려는 것이다. 이미 매치됐거나 다른 링크의 클릭이면 `click_id=NULL` 로 저장만 한다.
+3. `source=LINK` 이면 `click_id` 를 아래 순서로 정한다. 한 설치가 fingerprint 와 referrer 양쪽에 잡히지 않게 하려는 규칙이다.
+   1. 전달된 `clickId` 가 그 링크의 **미매치** 클릭이면 그 클릭을 `PESSIMISTIC_WRITE` 로 잠가 `matched=true`·`matched_at`·`matched_device_id`·`app_instance_id` 를 채우고 `click_id` 로 둔다. 같은 클릭이 fingerprint 로 다른 기기에 다시 매치되지 않는다.
+   2. 아니면(전달값 없음 · 이미 매치됨 · 다른 링크의 클릭) **같은 링크에서 이미 이 `deviceId` 로 매치된 클릭**이 있으면 그 클릭을 `click_id` 로 둔다. 레이스로 `/l/match` 가 먼저 성공한 경우다.
+   3. 둘 다 아니면(다른 기기에 매치된 클릭뿐) `click_id=NULL` 로 저장만 한다. 그 클릭은 별개 설치다.
+
+   referrer 가 먼저 오고 `/l/match` 가 뒤에 오면, 매치는 현행 「기기별 기존 매치 재반환」으로 1-i 에서 소진된 클릭을 돌려줄 뿐 새 클릭을 소진하지 않는다.
 4. 응답 `ReferrerResult` 는 `attributionId`·`source` 에 `MatchResult` 와 같은 필드(`matched`·`type`·`slug`·INVITE 면 `groupId`·CAMPAIGN 이면 `destination`)를 싣는다. `matched` 는 **활성 링크로 귀속된 LINK 일 때만** `true` 다. INVITE 링크를 거친 Android 설치는 `/l/match` 를 건너뛰므로(정책 L12) `groupId` 가 빠지면 앱이 초대 시트를 열 수 없다. META·GOOGLE 은 `matched=false` 지만 앱은 `source` 로 fingerprint 생략을 판단한다.
 
 ### 2.5 claim
@@ -189,7 +194,7 @@ CREATE INDEX idx_skan_postbacks_received ON public.skan_postbacks (received_at);
 
 | 입력 | 규칙 | 응답 |
 | --- | --- | --- |
-| `slug` (INVITE) | 현행 그대로: 그 링크의 가장 최근 `matched=true`·미claim 클릭에 붙인다. `deviceId` 가 오면 `matched_device_id` 가 같은 클릭을 먼저 찾는다. 셀프 초대·이미 claim 은 no-op | 200. 없는 slug 는 현행 `SLUG_NOT_FOUND`(404) 유지 |
+| `slug` (INVITE) | 현행 그대로: 그 링크의 가장 최근 `matched=true`·미claim 클릭에 붙인다. `deviceId` 가 오면 `matched_device_id` 가 같은 클릭을 먼저 찾는다. 셀프 초대·이미 claim·REVOKED 등 비활성 링크(§2.1)는 no-op | 200. 없는 slug 는 현행 `SLUG_NOT_FOUND`(404) 유지 |
 | `slug` (CAMPAIGN) | `deviceId` **필수**. `matched_device_id = deviceId` 인 미claim 클릭에만 붙인다. 없으면 no-op | 200 |
 | `attributionId` | `install_referrers.id = attributionId` 이고 `device_id = deviceId` 이고 `claimed_user_id IS NULL` 일 때만 붙인다. 그 밖엔 no-op | 200 |
 
@@ -302,14 +307,14 @@ INVITE 링크 폐기(`ACCOUNT_WITHDRAWN`)는 그룹 획득 문서의 멤버십 �
 | 수치 | 정의 (기간은 KST 날짜 경계) | 신뢰도 |
 | --- | --- | --- |
 | `clicks` | `link_clicks.clicked_at` 이 기간 안 | — |
-| `installs.fingerprint` | `link_clicks.matched_at` 이 기간 안 이고 그 매치가 referrer 소진(§2.4-3)이 아님 | 확률 |
+| `installs.fingerprint` | `link_clicks.matched_at` 이 기간 안 이고 그 클릭을 가리키는 `install_referrers.click_id` 가 없음 | 확률 |
 | `installs.referrer` | `COALESCE(install_referrers.install_begin_at, received_at)` 이 기간 안, LINK 는 링크의 캠페인, META 는 `external_id` 대조. 재설치는 새 설치로 센다(§1.5) | 결정 |
 | `installs.skan` | `skan_postbacks.received_at` 이 기간 안, §2.6 으로 이 캠페인에 귀속, `postback_sequence_index` 가 0 또는 NULL | 집계·지연 |
 | `signups.claim` | `link_clicks.claimed_at` + `install_referrers.claimed_at` 이 기간 안 | 확률 또는 결정 |
 | `signups.skan` | `installs.skan` 과 같은 행 중 `conversion_value >= 1` 또는 `coarse_conversion_value IN ('medium','high')` | 집계·지연 |
 
 - `installs.referrer` 를 첫 실행 시각(`received_at`)으로 자르면 설치 며칠 뒤에 처음 연 사용자가 다른 날·다른 캠페인 기간에 들어간다. Play 가 준 설치 시작 시각을 먼저 쓴다.
-- referrer 소진 클릭을 fingerprint 에서 빼기 위해 `link_clicks` 의 소진 경로를 구분할 수 있어야 한다. `install_referrers.click_id` 로 조인해 뺀다(추가 컬럼 없음).
+- referrer 로 귀속된 설치를 fingerprint 에서 빼기 위해 `install_referrers.click_id` 로 조인해 그 클릭을 뺀다(추가 컬럼 없음). §2.4-3 규칙으로 같은 기기의 LINK 설치는 fingerprint 매치가 먼저 났든 뒤에 오든 `click_id` 가 그 클릭을 가리키므로 두 칸에 한 번씩 잡히지 않는다. 다른 기기에 매치된 클릭은 별개 설치다.
 - `signups.skan` 은 첫 측정 창(0~2일)의 포스트백만 센다. 그 뒤 가입은 누락된다 — 콘솔에 표기한다.
 - `notes`: `SKAN_DELAYED`(iOS 광고 캠페인) · `GOOGLE_CHANNEL_ONLY`(GOOGLE·ANDROID) · `SKAN_CHANNEL_ONLY`(iOS 광고인데 `skan_source_identifier` 없음).
 - `CampaignStatsList` 는 캠페인별 `totals` 와, 캠페인에 귀속되지 않은 채널 단위 합(`channels.META`·`channels.GOOGLE` 의 `installs.referrer`·`installs.skan`·`signups.skan`)을 준다.
@@ -471,7 +476,7 @@ SKAN 포스트백은 GA4 로 보내지 않는다.
 
 | 층 | 검증 |
 | --- | --- |
-| data-api (Testcontainers) | expand 뒤 기존 slug 의 방문·매치·claim 회귀 · **expand 스키마에서 이전 이미지 엔티티가 `ddl-auto=validate` 로 기동** · contract 뒤 새 이미지 기동과 복구 SQL 뒤 이전 이미지 기동 · `ck_links_type_shape` 위반 거절 · active 부분 unique 에서 동시 발급이 한 slug 로 수렴 · 같은 `install_key` 동시 referrer 2건이 1행 · 같은 `deviceId` 에 설치 시작 시각이 다른 referrer 는 2행(재설치) · LINK referrer 가 클릭을 소진해 다른 기기 fingerprint 가 그 클릭을 못 가져감 · INVITE 링크 referrer 응답에 `groupId` · 방문 응답의 `clickId` 가 저장된 클릭 id 와 같음 · 캠페인 slug claim 의 기기 불일치 no-op · `attributionId` 기기 불일치 no-op · **탈퇴 트랜잭션 진행 중 들어온 claim 이 탈퇴 커밋 뒤 no-op 이고 두 테이블 `claimed_user_id` 가 NULL** · SKAN 재전송 1행 · 집계의 KST 경계(`to` 날 23:59 포함, 다음 날 00:00 제외) · `installs.referrer` 가 `install_begin_at` 기준(설치 전날·첫 실행 다음 날 경계) · SKAN 끝자리 대조(`5239` 등록, 포스트백 `39` → 귀속, `5239`·`1139` 둘 다 등록이면 채널 단위, `52` 는 비귀속) |
+| data-api (Testcontainers) | expand 뒤 기존 slug 의 방문·매치·claim 회귀 · **expand 스키마에서 이전 이미지 엔티티가 `ddl-auto=validate` 로 기동** · contract 뒤 새 이미지 기동과 복구 SQL 뒤 이전 이미지 기동 · `ck_links_type_shape` 위반 거절 · active 부분 unique 에서 동시 발급이 한 slug 로 수렴 · 같은 `install_key` 동시 referrer 2건이 1행 · 같은 `deviceId` 에 설치 시작 시각이 다른 referrer 는 2행(재설치) · LINK referrer 가 클릭을 소진해 다른 기기 fingerprint 가 그 클릭을 못 가져감 · **같은 기기에서 `/l/match` 가 먼저 성공한 뒤 LINK referrer 가 오면 `click_id` 가 그 클릭이고 설치 합계가 1** · **referrer 뒤의 `/l/match` 가 새 클릭을 소진하지 않음** · INVITE 링크 referrer 응답에 `groupId` · 방문 응답의 `clickId` 가 저장된 클릭 id 와 같음 · 캠페인 slug claim 의 기기 불일치 no-op · `attributionId` 기기 불일치 no-op · **탈퇴 트랜잭션 진행 중 들어온 claim 이 탈퇴 커밋 뒤 no-op 이고 두 테이블 `claimed_user_id` 가 NULL** · SKAN 재전송 1행 · 집계의 KST 경계(`to` 날 23:59 포함, 다음 날 00:00 제외) · `installs.referrer` 가 `install_begin_at` 기준(설치 전날·첫 실행 다음 날 경계) · SKAN 끝자리 대조(`5239` 등록, 포스트백 `39` → 귀속, `5239`·`1139` 둘 다 등록이면 채널 단위, `52` 는 비귀속) |
 | business-api | referrer 판별 표(§4.1 다섯 규칙 + 깨진 인코딩 · 빈 문자열 · 변조된 Meta payload) · SKAN 서명 검증(버전별 Apple 문서 예시 포스트백을 픽스처로) · **서명 실패·다른 `app-id`·모르는 버전이 data-api 호출 0회** · 16KB 초과 413 · match·referrer·resolve 가 data-api 5xx·타임아웃이면 503 + `Retry-After`, 매치 없음은 200 · 레이트리밋 초과 429 · **Redis 키에 원본 IP 문자열이 없음** · resolve 가 클릭을 기록하지 않음 · 강등 랜딩 · 만료 랜딩의 Play URL 에 `referrer` 없음 · IP 신뢰(사설 피어만) · 콘솔 잠금 · 쿠키 변조 · 슬롯 제거 즉시 무효 · 폼 토큰 재사용 거절 |
 | 전환 리허설 (dev) | nginx 전환 전후로 같은 slug 의 클릭 → 매치 → claim 이 끊기지 않음, 원복 reload 도 같음 · expand 이미지 → 이전 이미지 롤백 · contract 복구 SQL → 이전 이미지 롤백 |
 | 실물 | Meta Android 테스트 광고 1건의 referrer 원문으로 픽스처 갱신. SKAN 은 실제 포스트백을 받기 전까지 콘솔에 "미검증"으로 표기 |
