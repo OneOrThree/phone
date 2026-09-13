@@ -1,0 +1,109 @@
+openapi: 3.0.3
+info:
+  title: 실시간 멤버십 현재 인가 조회
+  version: 0.1.0
+  description: |
+    GROMO-1762의 내부 조회 기반. 공개 66개 API 및 실시간 14개 사건에 항목을 추가하지 않는다.
+    요청 중 한 DB 스냅샷에서 계정·세션·섬·멤버십 조건이 함께 참인지 판정한다.
+    이 응답은 이후 프레임 전송을 보장하거나 다른 사건의 추가 인가 조건을 대신하지 않는다.
+    Data primary만 사용하고 이전 true 응답은 캐시하거나 재사용하지 않는다.
+    Realtime의 AT 서명·만료·sid/gen 파싱, 최종 프레임 가드, snapshot·재연결은 후속 구현이다.
+    기존 host-transfer-enabled=false를 유지한다.
+servers:
+  - url: http://data-api:8080
+    description: 내부 Data primary 연결 서비스. 외부 nginx에 노출하지 않는다.
+paths:
+  /internal/realtime/membership-authorization:
+    post:
+      summary: 단일 인증 주체의 현재 섬 멤버십 자격 조회
+      description: |
+        internal.api.enabled 및 전용 caller 허용목록과 별도로
+        internal.realtime.authorization.enabled가 true여야 등록되는 내부 경로다.
+        기본값은 false이다. realtime-authorization 프로필은 전용 caller를 추가할 뿐
+        내부 표면이나 공개 기능을 자동 활성화하지 않는다.
+        caller는 realtime만 허용하며 Business/Notification 토큰을 공유하지 않는다.
+        Realtime이 서명·만료를 검증한 AT에서 subject/sid/gen을 직접 추출해야 한다.
+        앱 요청의 userId 또는 임의 구독 본문을 위임 주체로 신뢰하면 안 된다.
+        오류·timeout·비정상 응답은 Realtime에서 프레임 전달 금지로 처리해야 한다.
+        false는 정상 조회의 부정 판정이며 DB/통신 오류를 false로 접지 않는다.
+      operationId: authorizeRealtimeMembership
+      security:
+        - realtimeServiceToken: []
+      parameters:
+        - name: X-User-Id
+          in: header
+          required: true
+          description: 검증된 AT의 subject. 요청 본문에 별도 대상 사용자 필드는 없다.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipAuthorizationRequest'
+      responses:
+        '200':
+          description: |
+            사용자 활성·authGeneration 일치·본인 sid 미폐기·섬 활성·현재 멤버십을
+            하나의 READ COMMITTED statement로 판정한 결과. no-store이며 한 프레임의
+            최종 검사마다 새로 요청해야 한다. 조회와 겹쳐 확정된 폐기의 프레임 회수나
+            Data 트랜잭션과 TCP 쓰기의 분산 원자성을 약속하지 않는다.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipAuthorizationResponse'
+        '400':
+          description: 필수 주체/필드 누락, UUID/세대 형식 오류 또는 잘못된 JSON.
+        '401':
+          description: 알려지지 않은 서비스 자격. 기존 내부 필터의 코드 없는 거부.
+        '403':
+          description: 허용목록 불일치 또는 realtime 이외의 caller.
+        '413':
+          description: 요청 본문이 1,024바이트를 초과한다. chunked 요청에도 동일 상한을 적용한다.
+        '415':
+          description: 요청 Content-Type이 application/json이 아니다.
+        '404':
+          description: 내부 표면 또는 전용 조회 기능이 비활성이다.
+        '500':
+          description: DB 등 내부 장애. allowed=false로 변환하지 않으며 전달 근거가 아니다.
+components:
+  securitySchemes:
+    realtimeServiceToken:
+      type: http
+      scheme: bearer
+      description: SVC_TOKEN_REALTIME_TO_DATA. AT/RT 또는 다른 서비스 토큰과 별도 발급한다.
+  schemas:
+    MembershipAuthorizationRequest:
+      type: object
+      additionalProperties: false
+      required: [sessionId, authGeneration, islandId]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          description: 검증된 AT의 sid.
+        authGeneration:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: 검증된 AT의 gen. 문자열·소수·음수는 허용하지 않는다.
+        islandId:
+          type: string
+          format: uuid
+          description: Realtime이 허용된 목적지에서 파싱한 섬 ID.
+    MembershipAuthorizationResponse:
+      type: object
+      additionalProperties: false
+      required: [allowed]
+      properties:
+        allowed:
+          type: boolean
+          description: 한 시점의 멤버십 자격. 모든 실시간 사건에 대한 허용증은 아니다.
