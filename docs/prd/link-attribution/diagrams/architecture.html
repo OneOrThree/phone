@@ -204,7 +204,7 @@
       <tr><td>설치 (iOS 광고)</td><td><span class="tag keep">준다</span> Apple 포스트백 수신자</td><td><span class="tag keep">같은 포스트백 복사본</span> 집계 · 늦게 도착</td><td>안 됨 (Apple 정책)</td></tr>
       <tr><td>설치 (Android 광고)</td><td><span class="tag keep">준다</span> Google 은 Play 직접 집계</td><td><span class="tag keep">Install Referrer</span> 기기 단위</td><td>됨</td></tr>
       <tr><td>가입 (iOS 광고)</td><td>전환값으로 뜸</td><td>복사본의 전환값 집계 · 소수면 가려짐</td><td>안 됨</td></tr>
-      <tr><td>가입 (Android 광고)</td><td><span class="tag dead">못 줌</span></td><td><span class="tag keep">claim</span> 으로 유저 연결</td><td>됨</td></tr>
+      <tr><td>가입 (Android 광고)</td><td><span class="tag dead">못 줌</span></td><td><span class="tag keep">claim</span> 으로 유저 연결 · Google 은 채널 합계</td><td>됨</td></tr>
       <tr><td>오가닉 링크 퍼널</td><td><span class="tag dead">못 줌</span></td><td><span class="tag keep">클릭 · fingerprint/referrer · claim</span></td><td>됨</td></tr>
     </tbody>
   </table>
@@ -270,7 +270,7 @@
         <text x="605" y="238" class="mono">첫 실행 로컬 판별 → 세션 뒤 저장</text>
         <text x="605" y="254" class="mono">Meta 키로 복호화 → 캠페인</text>
         <text x="605" y="268" class="mono">gclid → 채널까지만</text>
-        <text x="605" y="282" class="mono">토큰 필수 · 유저당 하루 3건</text>
+        <text x="605" y="282" class="mono">토큰 필수 · KST 당일 3건</text>
         <text x="792" y="220">claim 기록</text><text x="792" y="235" class="mono">attributionId + deviceId</text>
       </g>
       <g stroke="currentColor" stroke-width="1.1" marker-end="url(#a3)"><line x1="300" y1="224" x2="338" y2="224" opacity=".5"/><line x1="490" y1="224" x2="528" y2="224" opacity=".5"/><line x1="680" y1="224" x2="718" y2="224"/></g>
@@ -322,7 +322,7 @@
         <text x="30" y="80">id · name</text>
         <text x="30" y="96">channel   ORGANIC|META|GOOGLE</text>
         <text x="30" y="112">platform  IOS|ANDROID|ALL</text>
-        <text x="30" y="128">external_id  (Meta campaign_id)</text>
+        <text x="30" y="128">external_id  (Meta · Android)</text>
         <text x="30" y="144">skan_source_identifier (선택)</text>
         <text x="30" y="160">status · created_by</text>
         <text x="30" y="184" opacity=".6">iOS 광고 = 이 행만, 링크 0</text>
@@ -343,7 +343,7 @@
         <text x="648" y="128">matched · matched_at · device_id</text>
         <text x="648" y="144">app_instance_id</text>
         <text x="648" y="160">claimed_user_id · claimed_at</text>
-        <text x="648" y="176" style="fill:var(--teal)">+ claimed_as_new_user</text>
+        <text x="648" y="176" style="fill:var(--teal)">+ as_new_user · signup_at</text>
         <text x="648" y="194" opacity=".6">탈퇴 시 claimed_user_id NULL</text>
 
         <text x="339" y="320">id · install_key unique</text>
@@ -352,7 +352,7 @@
         <text x="339" y="368">link_id · click_id  nullable</text>
         <text x="339" y="384">referrer_raw · gclid</text>
         <text x="339" y="400">meta_campaign_id · payload</text>
-        <text x="339" y="416">claimed_user_id · as_new_user</text>
+        <text x="339" y="416">claimed · as_new_user · signup_at</text>
         <text x="339" y="438" opacity=".6">탈퇴 시 claimed·reporter NULL</text>
 
         <text x="30" y="320">id · transaction_id</text>
@@ -377,7 +377,7 @@
         <text x="262" y="222">meta_campaign_id</text><text x="262" y="236">= external_id</text>
       </g>
     </svg>
-    <figcaption>초록 = 추가 컬럼·신설 테이블. 실선은 FK, 점선은 읽기 시점 대응(FK 아님). Flyway 번호는 #745 가 V51·V52 를 쓰고 있어 V53 이상. install_key = 기기 + Play 설치 시작 시각이라 재설치는 새 설치. referrer 저장은 토큰이 있는 세션만, 유저당 하루 3건.</figcaption>
+    <figcaption>초록 = 추가 컬럼·신설 테이블. 실선은 FK, 점선은 읽기 시점 대응(FK 아님). Flyway 번호는 #745 가 V51·V52 를 쓰고 있어 V53 이상. install_key = 기기 + Play 설치 시작 시각이라 재설치는 새 설치. referrer 저장은 토큰이 있는 세션만, 유저 행 락 아래 KST 당일 3건.</figcaption>
   </figure>
 </section>
 

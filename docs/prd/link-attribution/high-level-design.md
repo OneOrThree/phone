@@ -60,8 +60,8 @@ sequenceDiagram
   U->>B: GET /l/{slug}?g=
   B->>D: POST /internal/links/{slug}/visits {clientIp, os, userAgent}
   D->>D: 활성 판정 · 봇 UA 면 기록 안 함 → 클릭 행 기록 (ip_hash)
-  D-->>B: LandingView {type: INVITE, clickId, groupName, inviterName}
-  B-->>U: 랜딩 HTML (스킴 · 스토어 버튼)
+  D-->>B: LandingView {type: INVITE, clickId, groupId, groupName, inviterName}
+  B-->>U: 랜딩 HTML (스킴 gromo://join?g=…&s=… · 스토어 버튼)
   Note over U: 설치 → 첫 실행
   U->>B: POST /l/match {os, deviceId, appInstanceId}
   B->>D: POST /internal/links/match {…, clientIp}
@@ -81,7 +81,7 @@ sequenceDiagram
 3.1 과 같은 파이프를 탄다. 다른 점은 넷이다.
 
 - 랜딩 문구에 그룹·초대자가 없고, 스킴 버튼은 캠페인의 목적지(`gromo://…`)를 연다.
-- Android 스토어 버튼이 Play 스토어 URL 의 `referrer` 파라미터에 `slug`·`click`(방문 응답의 `clickId`)을 심는다. 그래서 Android 는 3.3 의 referrer 경로로 결정적으로 귀속되고, fingerprint 는 iOS 와 Android 의 referrer 유실분만 받는다.
+- Android 스토어 버튼이 Play 스토어 URL 의 `referrer` 파라미터에 `slug`·`click`(방문 응답의 `clickId`)을 심는다. 콘솔이 캠페인 링크와 함께 주는 Play URL(광고·게시물에 직접 넣는 용)은 방문 전이라 `slug` 만 심는다. 그래서 Android 는 3.3 의 referrer 경로로 결정적으로 귀속되고, fingerprint 는 iOS 와 Android 의 referrer 유실분만 받는다.
 - 매치 응답에 `type: CAMPAIGN`·`destination` 이 붙고, 앱은 그 목적지로 이동한다. claim 은 기록만 한다.
 - **이미 앱이 깔린 사용자**가 링크를 누르면 Universal Link·App Link 가 랜딩 없이 앱을 연다. 앱은 `POST /l/resolve {slug}` 로 목적지(INVITE 면 `groupId`)를 받는다. 신규 설치가 아니므로 클릭을 기록하지 않는다.
 
@@ -109,14 +109,14 @@ sequenceDiagram
   A->>B: POST /l/referrer {deviceId, referrer, 시각들} (access token)
   B->>B: 출처 판별 · Meta 복호화 · IP·유저 상한
   B->>D: POST /internal/install-referrers {source, 정규화 필드, 원문} (X-User-Id)
-  D->>D: install_key(deviceId + 설치 시작 시각) 기준 멱등 저장 · LINK 면 클릭 소진
+  D->>D: 유저 행 배타 락 · KST 당일 3건 상한 · install_key(deviceId + 설치 시작 시각) 멱등 저장 · LINK 면 클릭 소진
   D-->>B: {attributionId, source, matched, type?, slug?, groupId?, destination?}
   B-->>A: 200 (401·429·503 이면 앱은 완료 값을 저장하지 않음)
   A->>B: POST /api/v1/invite-links/claim {attributionId, deviceId} (JWT)
-  B->>D: POST /internal/links/claims → claimed_as_new_user 기록
+  B->>D: POST /internal/links/claims → 조건부 UPDATE 로 원자 선점 · claimed_as_new_user·signup_at 기록
 ```
 
-설치 단위는 `install_key` 라, 같은 기기에서 앱을 지웠다가 다른 광고로 다시 깔면 새 설치로 센다. 저장은 세션 확보 뒤라 첫 실행 뒤 로그인·게스트 시작 없이 앱을 떠난 설치는 우리 수치에 들어가지 않는다. 대신 토큰 없는 위조 저장이 막힌다(§5).
+설치 단위는 `install_key` 라, 같은 기기에서 앱을 지웠다가 다른 광고로 다시 깔면 새 설치로 센다. 앱의 완료 값(referrer 보고와 fingerprint 매치)도 처리한 Play 설치 시작 시각으로 저장해, Auto Backup 으로 복원돼도 재설치에서 다시 시도한다. 저장은 세션 확보 뒤라 첫 실행 뒤 로그인·게스트 시작 없이 앱을 떠난 설치는 우리 수치에 들어가지 않는다. 대신 토큰 없는 위조 저장이 막힌다(§5).
 
 ### 3.4 iOS 광고 — SKAN 포스트백
 
@@ -150,7 +150,7 @@ sequenceDiagram
 | 설치 — iOS 광고 | 준다 | SKAN 복사본 집계 | 불가 | 집계·지연 |
 | 설치 — Android 광고 | 준다 | Install Referrer | 가능 | 결정 |
 | 가입 — iOS 광고 | 전환값으로 표시 | 복사본의 전환값 집계 | 불가 | 집계·지연 |
-| 가입 — Android 광고 | 못 준다 | claim | 가능 | 결정 |
+| 가입 — Android 광고 | 못 준다 | claim (Google·캠페인 미귀속 Meta 는 채널 합계) | 가능 | 결정 |
 | 오가닉 링크 퍼널 | 못 준다 | 클릭 · fingerprint 또는 referrer · claim | 가능 | 확률 또는 결정 |
 
 ## 5. 신뢰 경계와 실패
@@ -160,11 +160,11 @@ sequenceDiagram
 - **앱 계약 보존**: `/l/match`·`/l/referrer`·`/l/resolve` 는 결과가 없으면 200(`{matched:false}`)이고, **data-api 장애·타임아웃은 503, 레이트리밋은 429** 다. 현 앱은 2xx 가 아닐 때 완료 플래그를 세우지 않고 다음 실행에 다시 묻는다. 앱의 매치 타임아웃(5초) 안에 끝나도록 내부 호출 예산을 둔다.
 - **랜딩 강등**: data-api 가 응답하지 않으면 스토어 버튼만 있는 기본 랜딩을 준다. 클릭은 기록하지 않는다.
 - **SKAN**: 공개·무인증 경로라 **서명을 통과한 우리 앱 포스트백만 저장한다.** 서명 실패·모르는 버전·다른 앱은 저장 없이 200 으로 끝내고 건수만 센다. 본문 16KB 제한, IP 레이트리밋, Cloudflare 엣지 레이트리밋을 함께 둔다. 저장 실패만 5xx 로 남겨 경보한다.
-- **referrer 저장 위조**: `/l/referrer` 만 access token 을 요구한다(게스트 포함). 위조량이 게스트 생성 한도(IP 당 시간당 10회, 전체 시간당 300회)에 묶이고, 유저당 하루 3건 상한이 한 번 더 막는다. 첫 실행의 출처 판별은 앱이 로컬에서 하므로 토큰이 없어도 매치 생략·초대 시트가 늦지 않는다.
+- **referrer 저장 위조**: `/l/referrer` 만 access token 을 요구한다(게스트 포함). 위조량이 게스트 생성 한도(IP 당 시간당 10회, 전체 시간당 300회)에 묶이고, 유저 행 배타 락 아래에서 세는 KST 당일 3건 상한이 동시 요청까지 한 번 더 막는다. 첫 실행의 출처 판별은 앱이 로컬에서 하므로 토큰이 없어도 매치 생략·초대 시트가 늦지 않는다.
 - **미리보기 봇**: 카카오톡·Slack·Meta 의 링크 미리보기 수집기는 클릭으로 기록하지 않는다(현행 봇 판별 유지).
-- **가입 수**: 현 앱은 기존 계정 로그인에서도 claim 하므로, claim 때 유저 가입 시각으로 신규 여부를 기록해 신규만 가입 수에 넣는다.
+- **가입 수**: 현 앱은 기존 계정 로그인에서도 claim 하므로, claim 때 유저 가입 시각으로 신규 여부를 기록해 신규만 가입 수에 넣는다. 기간은 claim 시각이 아니라 가입 시각(`signup_at`)으로 자른다.
 - **공개 경로 레이트리밋**: 인증이 없는 공개 경로는 business-api 가 IP 단위로 제한한다. 키에는 원본 IP 대신 business-api 전용 비밀로 HMAC 한 값을 쓴다.
-- **claim 과 탈퇴**: claim 은 유저 행을 공유 락으로 잡아, 유저 행을 배타 락으로 잡는 탈퇴와 직렬화된다. 탈퇴 뒤 연결이 남지 않는다.
+- **claim·referrer 저장과 탈퇴**: claim 은 유저 행 공유 락, referrer 저장은 배타 락을 잡아 유저 행을 배타 락으로 잡는 탈퇴와 직렬화된다. 탈퇴 뒤 연결도 `reporter_user_id` 도 남지 않는다. `attributionId` claim 은 조건부 UPDATE 한 번이라 동시 요청 중 하나만 성공한다.
 
 ## 6. 기존 결정과의 관계
 
