@@ -112,11 +112,11 @@ sequenceDiagram
   D->>D: 유저 행 배타 락 · KST 당일 3건 상한 · install_key(deviceId + 설치 시작 시각, 없으면 installId) 멱등 저장 · LINK 면 클릭 소진
   D-->>B: {attributionId, source, matched, type?, slug?, groupId?, destination?}
   B-->>A: 200 (401·429·503 이면 앱은 완료 값을 저장하지 않음)
-  A->>B: POST /api/v1/invite-links/claim {attributionId, deviceId} (JWT)
+  A->>B: POST /api/v1/invite-links/claim {attributionId, deviceId, installId} (JWT)
   B->>D: POST /internal/links/claims → 조건부 UPDATE 로 원자 선점 · claimed_as_new_user·signup_at 기록
 ```
 
-설치 단위는 `install_key` 라, 같은 기기에서 앱을 지웠다가 다른 광고로 다시 깔면 새 설치로 센다. 앱의 완료 값(referrer 보고와 fingerprint 매치)도 처리한 Play 설치 시작 시각으로 저장해, Auto Backup 으로 복원돼도 재설치에서 다시 시도한다. 서버도 설치를 백업되지 않는 `installId` 로 가른다 — 매치 창 안 재설치가 복원된 `deviceId` 로 과거 매치를 돌려받지 않고, Play 설치 시각이 없는 referrer 도 설치마다 다른 키가 된다. 저장은 세션 확보 뒤라 첫 실행 뒤 로그인·게스트 시작 없이 앱을 떠난 설치는 우리 수치에 들어가지 않는다. Auto Backup 이 로그인 세션까지 복원하면 재설치한 앱은 로그인 화면을 건너뛰므로, 저장은 **콜드스타트 세션 복원이 성공한 직후**에도 보낸다. 대신 토큰 없는 위조 저장이 막힌다(§5).
+설치 단위는 `install_key` 라, 같은 기기에서 앱을 지웠다가 다른 광고로 다시 깔면 새 설치로 센다. 앱의 완료 값(referrer 보고와 fingerprint 매치)도 처리한 설치 키(Play 설치 시작 초, 없으면 `installId`)로 저장해, Auto Backup 으로 복원돼도 재설치에서 다시 시도한다. 서버도 설치를 백업되지 않는 `installId` 로 가른다 — 매치 창 안 재설치가 복원된 `deviceId` 로 과거 매치를 돌려받지 않고, Play 설치 시각이 없는 referrer 도 설치마다 다른 키가 된다. 저장은 세션 확보 뒤라 첫 실행 뒤 로그인·게스트 시작 없이 앱을 떠난 설치는 우리 수치에 들어가지 않는다. Auto Backup 이 로그인 세션까지 복원하면 재설치한 앱은 로그인 화면을 건너뛰므로, 저장은 **콜드스타트 세션 복원이 성공한 직후**에도 보낸다. 대신 토큰 없는 위조 저장이 막힌다(§5).
 
 ### 3.4 iOS 광고 — SKAN 포스트백
 
