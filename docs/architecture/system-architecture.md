@@ -1,5 +1,7 @@
 # gromo 시스템 아키텍처 (물리) — Target-1 · Target-2
 
+> **링크 서버·Vercel·Neon·컷오버 서술은 [A23](decisions.md) 으로 대체됐다** — 링크·MMP 는 별도 서버가 아니며 설계는 [`docs/prd/link-attribution/`](../prd/link-attribution/README.md).
+
 > 정본(2026-09-10 승격). 논리 구도는 `service-architecture.md`, 결정은 `decisions.md` A1~A19.
 > AS-IS 원본: 08-12 AS-IS 다이어그램(개인 보관).
 

@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>링크·어트리뷰션 아키텍처</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F5F7F9; --surface: #FFFFFF; --ink: #1A222B; --muted: #5B6672; --line: #CBD3DB;
+    --teal: #0E7C74; --teal-soft: #DDF1EE; --rust: #B5432C; --rust-soft: #F8E4DF;
+    --amber: #9A6700; --amber-soft: #FBF0D5;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F1417; --surface: #171D22; --ink: #E4E9ED; --muted: #98A4AF; --line: #33404A;
+      --teal: #35C9B8; --teal-soft: #123A36; --rust: #F08A73; --rust-soft: #40201A;
+      --amber: #E3B341; --amber-soft: #3A2E10;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F1417; --surface: #171D22; --ink: #E4E9ED; --muted: #98A4AF; --line: #33404A;
+    --teal: #35C9B8; --teal-soft: #123A36; --rust: #F08A73; --rust-soft: #40201A;
+    --amber: #E3B341; --amber-soft: #3A2E10;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.6; padding-inline: 20px; padding-block: 40px 80px; }
+  main { max-width: 920px; margin: 0 auto; }
+  header { margin-bottom: 40px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: 30px; font-weight: 700; line-height: 1.25; margin: 6px 0 12px; text-wrap: balance; }
+  header p { max-width: 62ch; color: var(--muted); margin: 0; }
+  section { margin-top: 56px; }
+  h2 { font-size: 20px; font-weight: 600; margin: 0 0 6px; display: flex; align-items: baseline; gap: 12px; }
+  h2 .n { font-family: var(--mono); font-size: 13px; color: var(--muted); font-weight: 500; }
+  .lede { color: var(--muted); max-width: 66ch; margin: 0 0 18px; }
+  figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 18px; overflow-x: auto; }
+  figure svg { display: block; width: 100%; height: auto; max-width: 100%; min-width: 640px; font-family: var(--sans); font-size: 12px; color: var(--ink); }
+  figure svg .mono { font-family: var(--mono); font-size: 11px; }
+  figcaption { margin-top: 12px; font-size: 13px; color: var(--muted); max-width: 70ch; }
+  .pair { display: grid; grid-template-columns: 1fr; gap: 18px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 22px; height: 0; border-top: 2px solid currentColor; display: inline-block; }
+  .sw.rust { color: var(--rust); border-top-style: dashed; }
+  .sw.teal { color: var(--teal); }
+  .facts { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .facts li { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
+  .facts b { display: block; font-size: 13px; color: var(--muted); font-weight: 500; margin-bottom: 4px; }
+  code { font-family: var(--mono); font-size: 12.5px; background: var(--bg); padding: 1px 5px; border-radius: 3px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 3px; }
+  .tag.dead { background: var(--rust-soft); color: var(--rust); }
+  .tag.keep { background: var(--teal-soft); color: var(--teal); }
+  .tag.no { color: var(--muted); border: 1px solid var(--line); }
+  .note { margin-top: 56px; border-left: 3px solid var(--amber); background: var(--amber-soft); padding: 14px 18px; border-radius: 0 6px 6px 0; }
+  .note h2 { font-size: 16px; margin-bottom: 6px; }
+  .note p { margin: 0; max-width: 70ch; }
+  .tbl { overflow-x: auto; }
+  ol.steps { margin: 0; padding-left: 22px; }
+  ol.steps li { margin: 4px 0; }
+  ol.steps li::marker { font-family: var(--mono); color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="eyebrow">gromo · GROMO-1799 · docs/prd/link-attribution</div>
+  <h1>링크·MMP 를 business-api / data-api 에 붙이기</h1>
+  <p>별도 레포 + Vercel + Neon 으로 가려던 링크 서버를 접고, 공개 표면은 business-api · 원장은 data-api 로 끌어온다. 광고 플랫폼이 주는 숫자는 다시 만들지 않고, Apple 이 주는 설치 신호는 우리도 직접 받는다. 글이 정본이고 이 그림은 요약이다.</p>
+</header>
+
+<ul class="facts">
+  <li><b>공개 경로</b>nginx → <code>business-api</code> 만. <code>/l/**</code> <code>/.well-known/**</code> <code>/console/**</code></li>
+  <li><b>원장·트랜잭션</b><code>data-api</code> 는 <code>/internal/*</code> 만. 공인 노출 0</li>
+  <li><b>콘솔</b>business-api 안 Thymeleaf 3장. 알림 콘솔은 범위 밖</li>
+  <li><b>광고비·클릭·CPI</b>Meta·Google 대시보드. 우리는 만들지 않음</li>
+  <li><b>설치·가입</b>iOS 광고 = SKAN 복사본(집계) · Android = Install Referrer(기기)</li>
+  <li><b>PR #745</b>링크 분리 코드 포함 머지됨(09-13). 걷어내기는 구현 PR</li>
+</ul>
+
+<section>
+  <h2><span class="n">1</span>무엇이 바뀌나 — 분리안 vs 붙임안</h2>
+  <p class="lede">붙이면 위쪽 Vercel·Neon 덩어리와 거기로 향하던 화살표가 전부 사라진다. 그 화살표 하나하나가 A22 의 불변식(epoch·서명 자격·relay·이관 정지 창)을 만들던 원인이었다. 대신 바깥에서 들어오는 신호 두 개(Apple 포스트백, Play Referrer)가 그림에 들어온다.</p>
+  <div class="pair">
+  <figure>
+    <svg viewBox="0 0 880 330" role="img" aria-label="분리안: 앱과 nginx와 business-api와 data-api 가 각각 Vercel 링크 서버로 화살표를 보내고, 링크 서버는 Neon 에 쓴다">
+      <defs>
+        <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+        <marker id="a1r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--rust)"/></marker>
+      </defs>
+      <text x="16" y="22" class="mono" fill="currentColor" opacity=".7">BEFORE · 분리안 (아키텍처 A17 · 폐기)</text>
+      <g fill="none" stroke="currentColor" stroke-width="1.2">
+        <rect x="16" y="140" width="90" height="44" rx="4"/><rect x="160" y="140" width="90" height="44" rx="4"/>
+        <rect x="304" y="140" width="110" height="44" rx="4"/><rect x="468" y="140" width="100" height="44" rx="4"/>
+        <rect x="622" y="140" width="80" height="44" rx="4"/><rect x="16" y="250" width="110" height="44" rx="4"/>
+        <rect x="468" y="40" width="130" height="44" rx="4" stroke-dasharray="4 3" style="stroke:var(--rust)"/>
+        <rect x="652" y="40" width="100" height="44" rx="4" stroke-dasharray="4 3" style="stroke:var(--rust)"/>
+      </g>
+      <g fill="currentColor" text-anchor="middle" font-size="12">
+        <text x="61" y="166">앱</text><text x="205" y="158">Cloudflare</text><text x="205" y="174">→ nginx</text>
+        <text x="359" y="166">business-api</text><text x="518" y="166">data-api</text><text x="662" y="166">RDS</text>
+        <text x="71" y="276">팀원 브라우저</text>
+      </g>
+      <g text-anchor="middle" font-size="12" style="fill:var(--rust)">
+        <text x="533" y="58">링크 서버</text><text x="533" y="74" class="mono">Vercel · Next.js</text><text x="702" y="66">Neon PG</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.2" fill="none" marker-end="url(#a1)">
+        <line x1="106" y1="162" x2="158" y2="162"/><line x1="250" y1="162" x2="302" y2="162"/>
+        <line x1="414" y1="162" x2="466" y2="162"/><line x1="568" y1="162" x2="620" y2="162"/>
+      </g>
+      <g fill="currentColor" font-size="11" class="mono" text-anchor="middle" opacity=".8">
+        <text x="132" y="152">/api</text><text x="276" y="152">/api /auth</text><text x="440" y="152">/internal</text>
+      </g>
+      <g stroke-width="1.4" fill="none" stroke-dasharray="5 3" marker-end="url(#a1r)" style="stroke:var(--rust)">
+        <path d="M61,140 C61,62 300,62 466,62"/><path d="M205,140 C205,96 400,84 466,72"/>
+        <path d="M359,140 C359,108 440,90 480,84"/><line x1="518" y1="140" x2="530" y2="86"/>
+        <line x1="598" y1="62" x2="650" y2="62"/><path d="M126,272 C300,272 420,240 430,110 C432,96 450,86 466,80"/>
+      </g>
+      <g font-size="11" class="mono" style="fill:var(--rust)">
+        <text x="110" y="50">앱 → 랜딩·/l/match (DNS 직행)</text>
+        <text x="228" y="102">nginx → /l/match 호환 프록시 + XFF 재작성 + 시크릿</text>
+        <text x="372" y="118">business → 발급·claim·match</text>
+        <text x="540" y="118">data → relay</text><text x="540" y="132">withdraw·revoked·closed</text>
+        <text x="140" y="262">콘솔 (비밀번호 2겹)</text>
+      </g>
+      <g font-size="11" fill="currentColor" opacity=".75">
+        <text x="620" y="228">이 화살표들이 요구한 것</text>
+        <text x="620" y="246" class="mono">membershipEpoch · linkVersion</text>
+        <text x="620" y="262" class="mono">LINK_CAPABILITY_KEY 서명</text>
+        <text x="620" y="278" class="mono">claim outbox + relay</text>
+        <text x="620" y="294" class="mono">클릭 이관 정지 창</text>
+        <text x="620" y="310" class="mono">서비스 토큰 3종 추가</text>
+      </g>
+    </svg>
+    <figcaption>분리안. 붉은 점선이 링크 서버가 바깥에 있어서 생기던 호출. 랜딩과 매치가 다른 엣지(Vercel vs nginx)에서 IP 를 보기 때문에 XFF 재작성·시크릿까지 필요했다.</figcaption>
+  </figure>
+
+  <figure>
+    <svg viewBox="0 0 880 360" role="img" aria-label="붙임안: 앱과 팀원 브라우저와 Apple 포스트백이 nginx 를 거쳐 business-api 로만 들어가고, business-api 가 data-api 의 internal 경로를 부르며, data-api 는 사설 영역 안에 있다. Google Play 는 Install Referrer 를 앱에 준다">
+      <defs>
+        <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+        <marker id="a2t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--teal)"/></marker>
+      </defs>
+      <text x="16" y="22" class="mono" fill="currentColor" opacity=".7">AFTER · 붙임안 (아키텍처 A23)</text>
+      <rect x="452" y="98" width="300" height="150" rx="6" fill="none" stroke-dasharray="6 4" stroke-width="1.2" style="stroke:var(--teal)"/>
+      <text x="466" y="118" class="mono" style="fill:var(--teal)">private — 공인 노출 0</text>
+      <g fill="none" stroke="currentColor" stroke-width="1.2">
+        <rect x="16" y="130" width="90" height="44" rx="4"/><rect x="16" y="210" width="110" height="44" rx="4"/>
+        <rect x="16" y="40" width="110" height="44" rx="4"/><rect x="160" y="130" width="90" height="44" rx="4"/>
+        <rect x="304" y="120" width="110" height="80" rx="4" style="stroke:var(--teal)" stroke-width="1.6"/>
+        <rect x="468" y="140" width="100" height="44" rx="4"/><rect x="622" y="130" width="110" height="80" rx="4"/>
+        <rect x="16" y="290" width="110" height="44" rx="4"/>
+      </g>
+      <g fill="currentColor" text-anchor="middle" font-size="12">
+        <text x="61" y="156">앱</text><text x="71" y="236">팀원 브라우저</text>
+        <text x="71" y="58">Apple</text><text x="71" y="74" class="mono">SKAN 포스트백</text>
+        <text x="71" y="308">Google Play</text><text x="71" y="324" class="mono">Install Referrer</text>
+        <text x="205" y="148">Cloudflare</text><text x="205" y="164">→ nginx</text>
+        <text x="359" y="142">business-api</text><text x="359" y="158" class="mono">랜딩·매치·referrer</text>
+        <text x="359" y="174" class="mono">SKAN 수신·서명검증</text><text x="359" y="190" class="mono">/console (Thymeleaf)</text>
+        <text x="518" y="166">data-api</text>
+        <text x="677" y="150">RDS</text><text x="677" y="166" class="mono">links · link_clicks</text>
+        <text x="677" y="182" class="mono">campaigns</text><text x="677" y="198" class="mono">install_referrers · skan</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.2" fill="none" marker-end="url(#a2)">
+        <line x1="106" y1="152" x2="158" y2="152"/><path d="M126,232 C150,232 150,160 158,158"/>
+        <path d="M126,62 C150,62 150,140 158,146"/><line x1="250" y1="152" x2="302" y2="152"/>
+        <line x1="568" y1="162" x2="620" y2="162"/><path d="M61,290 C61,240 61,200 61,176"/>
+      </g>
+      <g stroke-width="1.6" fill="none" marker-end="url(#a2t)" style="stroke:var(--teal)">
+        <line x1="414" y1="162" x2="466" y2="162"/>
+      </g>
+      <g fill="currentColor" font-size="11" class="mono" text-anchor="middle" opacity=".8">
+        <text x="132" y="142">/api /l</text><text x="140" y="100">/.well-known/skadnetwork/</text>
+        <text x="276" y="128">/api /auth /l</text><text x="276" y="142">/.well-known /console</text>
+        <text x="440" y="148" style="fill:var(--teal)">/internal/*</text><text x="440" y="186">서비스 토큰</text>
+        <text x="100" y="270" text-anchor="start">첫 실행에 앱이 읽음</text>
+      </g>
+      <g font-size="11" fill="currentColor" opacity=".75">
+        <text x="452" y="280">Meta·Google 대시보드는 서버에 안 붙는다 — 광고비·클릭·CPI 는 거기서.</text>
+        <text x="452" y="296">Apple 포스트백은 광고 네트워크가 받는 것과 같은 원본이 우리에게도 온다.</text>
+        <text x="452" y="312">Play Referrer 는 앱이 읽어 /l/referrer 로 올린다.</text>
+      </g>
+    </svg>
+    <figcaption>붙임안. 공개로 열린 서비스는 business-api 하나. 링크·그룹·유저가 한 DB 라 탈퇴·폐기·claim 이 한 트랜잭션으로 닫힌다. 링크용 서비스 토큰은 기존 business→data 하나로 끝난다.</figcaption>
+  </figure>
+  </div>
+  <p class="legend"><span><i class="sw rust"></i>붙이면 사라지는 호출</span><span><i class="sw teal"></i>새로 생기는 유일한 내부 계약</span><span><i class="sw"></i>그대로 · 바깥에서 오는 신호</span></p>
+</section>
+
+<section>
+  <h2><span class="n">2</span>플랫폼이 주는 것 vs 우리가 세는 것</h2>
+  <p class="lede">광고 플랫폼이 이미 세 주는 숫자는 다시 만들지 않는다. 우리가 세는 건 플랫폼이 못 주는 것(가입, 오가닉 퍼널)과 대조용 원본(Apple 포스트백 복사본)이다.</p>
+  <div class="tbl">
+  <table>
+    <thead><tr><th></th><th>Meta·Google 대시보드</th><th>우리 서버</th><th>유저 단위</th></tr></thead>
+    <tbody>
+      <tr><td>광고비·클릭·CPI</td><td><span class="tag keep">준다</span></td><td><span class="tag no">안 만듦</span></td><td>—</td></tr>
+      <tr><td>설치 (iOS 광고)</td><td><span class="tag keep">준다</span> Apple 포스트백 수신자</td><td><span class="tag keep">같은 포스트백 복사본</span> 집계 · 늦게 도착</td><td>안 됨 (Apple 정책)</td></tr>
+      <tr><td>설치 (Android 광고)</td><td><span class="tag keep">준다</span> Google 은 Play 직접 집계</td><td><span class="tag keep">Install Referrer</span> 기기 단위</td><td>됨</td></tr>
+      <tr><td>가입 (iOS 광고)</td><td>전환값으로 뜸</td><td>복사본의 전환값 집계 · 소수면 가려짐</td><td>안 됨</td></tr>
+      <tr><td>가입 (Android 광고)</td><td><span class="tag dead">못 줌</span></td><td><span class="tag keep">claim</span> 으로 유저 연결 · Google 은 채널 합계</td><td>됨</td></tr>
+      <tr><td>오가닉 링크 퍼널</td><td><span class="tag dead">못 줌</span></td><td><span class="tag keep">클릭 · fingerprint/referrer · claim</span></td><td>됨</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="lede" style="margin-top:14px">SKAN 의 캠페인 번호(source-identifier)는 <b>광고 네트워크가 정한다</b>. 그래서 iOS 광고는 기본이 채널 단위이고, 네트워크가 캠페인 대응을 알려줄 때만 콘솔에서 캠페인에 매핑한다. iOS 광고에 fingerprint 를 쓰지 않는 이유: 광고 목적지를 랜딩으로 잡아야 해서 설치 최적화가 깨지고(CPI 악화), Apple 은 fingerprinting 을 동의 받아도 금지한다(ATT · 5.1.2).</p>
+</section>
+
+<section>
+  <h2><span class="n">3</span>링크 타입 4개가 지나는 길</h2>
+  <p class="lede">INVITE 는 로직 변경 0, 자리만 이동. CAMPAIGN 오가닉은 같은 파이프에 <code>type</code>·<code>destination</code> 이 얹히고, Android 는 랜딩이 Play URL 에 slug·click 을 심어 referrer 로 결정적으로 귀속된다. Android 광고는 referrer 를 누가 채웠느냐에 따라 아는 깊이가 다르다. iOS 광고는 Apple 이 서버로 직접 쏜다.</p>
+  <figure>
+    <svg viewBox="0 0 880 400" role="img" aria-label="네 종류 링크가 진입, 랜딩, 설치 신호, 귀속 네 단계를 어떻게 지나는지 보여주는 표 형태의 흐름도">
+      <defs>
+        <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+      </defs>
+      <g class="mono" fill="currentColor" opacity=".7" font-size="11">
+        <text x="170" y="22">진입</text><text x="350" y="22">랜딩 · 클릭 기록</text><text x="540" y="22">설치 신호</text><text x="730" y="22">귀속 (claim)</text>
+      </g>
+      <line x1="16" y1="32" x2="864" y2="32" stroke="currentColor" opacity=".3"/>
+      <g fill="currentColor" font-size="12" font-weight="600">
+        <text x="16" y="74">INVITE</text>
+        <text x="16" y="150">CAMPAIGN</text><text x="16" y="166" font-weight="400" opacity=".8">오가닉</text>
+        <text x="16" y="226">CAMPAIGN</text><text x="16" y="242" font-weight="400" opacity=".8">Android 광고</text>
+        <text x="16" y="332">CAMPAIGN</text><text x="16" y="348" font-weight="400" opacity=".8">iOS 광고</text>
+      </g>
+
+      <g fill="none" stroke="currentColor" stroke-width="1.1">
+        <rect x="150" y="52" width="150" height="40" rx="4"/><rect x="340" y="52" width="150" height="40" rx="4"/><rect x="530" y="52" width="150" height="40" rx="4"/><rect x="720" y="52" width="144" height="40" rx="4"/>
+      </g>
+      <g fill="currentColor" font-size="11" text-anchor="middle">
+        <text x="225" y="68">앱 발급</text><text x="225" y="83" class="mono">/groups/{id}/invite-link</text>
+        <text x="415" y="68">/l/{slug}?g=</text><text x="415" y="83" class="mono">그룹명·초대자 렌더</text>
+        <text x="605" y="68">fingerprint 매치</text><text x="605" y="83" class="mono">ip_hash+os · 3h · SKIP LOCKED</text>
+        <text x="792" y="68">claim 기록</text><text x="792" y="83" class="mono">가입은 그룹 API</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.1" marker-end="url(#a3)"><line x1="300" y1="72" x2="338" y2="72"/><line x1="490" y1="72" x2="528" y2="72"/><line x1="680" y1="72" x2="718" y2="72"/></g>
+
+      <g fill="none" stroke="currentColor" stroke-width="1.1">
+        <rect x="150" y="128" width="150" height="40" rx="4"/><rect x="340" y="128" width="150" height="40" rx="4"/><rect x="530" y="128" width="150" height="40" rx="4"/><rect x="720" y="128" width="144" height="40" rx="4"/>
+      </g>
+      <g fill="currentColor" font-size="11" text-anchor="middle">
+        <text x="225" y="144">콘솔 발급</text><text x="225" y="159" class="mono">campaign_id · destination</text>
+        <text x="415" y="144">/l/{slug}</text><text x="415" y="159" class="mono">Play 버튼에 slug·click</text>
+        <text x="605" y="144">iOS fingerprint</text><text x="605" y="159" class="mono">Android referrer 우선</text>
+        <text x="792" y="144">claim 기록</text><text x="792" y="159" class="mono">설치된 앱은 /l/resolve</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.1" marker-end="url(#a3)"><line x1="300" y1="148" x2="338" y2="148"/><line x1="490" y1="148" x2="528" y2="148"/><line x1="680" y1="148" x2="718" y2="148"/></g>
+
+      <g fill="none" stroke="currentColor" stroke-width="1.1">
+        <rect x="150" y="204" width="150" height="86" rx="4"/>
+        <rect x="340" y="204" width="150" height="40" rx="4" stroke-dasharray="3 3" opacity=".5"/>
+        <rect x="530" y="204" width="150" height="86" rx="4" style="stroke:var(--teal)" stroke-width="1.5"/>
+        <rect x="720" y="204" width="144" height="40" rx="4"/>
+      </g>
+      <g fill="currentColor" font-size="11" text-anchor="middle">
+        <text x="225" y="220">광고 → Play 직행</text>
+        <text x="225" y="238" class="mono">referrer 를 채우는 쪽:</text>
+        <text x="225" y="254" class="mono">Meta → 암호화 campaign_id</text>
+        <text x="225" y="268" class="mono">Google → gclid 만</text>
+        <text x="225" y="282" class="mono">Play 기본 → organic</text>
+        <text x="415" y="220" opacity=".6">랜딩 없음</text><text x="415" y="235" class="mono" opacity=".6">우리 서버는 클릭을 못 봄</text>
+        <text x="605" y="220">Install Referrer</text>
+        <text x="605" y="238" class="mono">첫 실행 로컬 판별 → 세션 뒤 저장</text>
+        <text x="605" y="254" class="mono">Meta 키로 복호화 → 캠페인</text>
+        <text x="605" y="268" class="mono">gclid → 채널까지만</text>
+        <text x="605" y="282" class="mono">토큰 필수 · KST 당일 3건</text>
+        <text x="792" y="220">claim 기록</text><text x="792" y="235" class="mono">attributionId + device + installId</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.1" marker-end="url(#a3)"><line x1="300" y1="224" x2="338" y2="224" opacity=".5"/><line x1="490" y1="224" x2="528" y2="224" opacity=".5"/><line x1="680" y1="224" x2="718" y2="224"/></g>
+
+      <g fill="none" stroke="currentColor" stroke-width="1.1">
+        <rect x="150" y="310" width="150" height="56" rx="4"/>
+        <rect x="340" y="310" width="150" height="40" rx="4" stroke-dasharray="3 3" opacity=".5"/>
+        <rect x="530" y="310" width="150" height="56" rx="4" style="stroke:var(--teal)" stroke-width="1.5"/>
+        <rect x="720" y="310" width="144" height="56" rx="4" stroke-dasharray="3 3" opacity=".5"/>
+      </g>
+      <g fill="currentColor" font-size="11" text-anchor="middle">
+        <text x="225" y="326">콘솔에 캠페인 행만</text><text x="225" y="341" class="mono">링크 0개</text><text x="225" y="356" class="mono">source-id 는 네트워크가 정함</text>
+        <text x="415" y="326" opacity=".6">랜딩 없음</text><text x="415" y="341" class="mono" opacity=".6">fingerprint 금지</text>
+        <text x="605" y="326">Apple → 우리 서버</text><text x="605" y="341" class="mono">/.well-known/skadnetwork/…</text><text x="605" y="356" class="mono">서명 통과분만 저장</text>
+        <text x="792" y="326" opacity=".7">유저 단위 없음</text><text x="792" y="341" class="mono" opacity=".7">전환값 1=가입 2=첫집중</text><text x="792" y="356" class="mono" opacity=".7">집계로만</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.1" marker-end="url(#a3)"><line x1="300" y1="330" x2="338" y2="330" opacity=".5"/><line x1="490" y1="330" x2="528" y2="330" opacity=".5"/><line x1="680" y1="330" x2="718" y2="330" opacity=".5"/></g>
+    </svg>
+    <figcaption>네 타입이 같은 세 엔드포인트(랜딩·매치·claim)를 공유한다. 초록 테두리가 이번에 새로 생기는 서버 경로 둘(Referrer 수신, SKAN 수신). Android 앱은 referrer 출처가 LINK·META·GOOGLE 이면 fingerprint 매치를 건너뛴다. 매치 없음은 200, 서버 일시 장애는 503 이라 앱이 다음 실행에 다시 묻는다. 미리보기 봇 방문은 클릭으로 세지 않고, 랜딩 클릭은 IP 한도와 링크·IP·OS 당 상한 안에서만 쌓인다. 가입 수는 신규 유저의 claim 만 세고, 캠페인 플랫폼과 다른 OS 의 설치·가입은 채널 합계로 뺀다.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2><span class="n">4</span>데이터 — 테이블 5개, 이관 없음</h2>
+  <p class="lede">기존 두 테이블은 컬럼 추가를 먼저 하고(expand), 이름 변경은 마지막 단계에서 한다(contract). 기존 초대 링크 전부 폐기 보정과 부분 unique 교체도 contract 에서 한다 — 그 전까지 모든 단계를 이전 이미지로 되돌릴 수 있다. slug·id·클릭 이력 그대로. 신설 3개는 캠페인과 바깥에서 오는 신호 2종. 캠페인 귀속은 읽기 시점에 한다. 콘솔 상태(세션·잠금·폼 토큰)는 business-api Redis 라 DB 테이블 0.</p>
+  <figure>
+    <svg viewBox="0 0 880 470" role="img" aria-label="campaigns, links, link_clicks, install_referrers, skan_postbacks 다섯 테이블과 참조 관계">
+      <defs>
+        <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+      </defs>
+      <g fill="none" stroke="currentColor" stroke-width="1.2">
+        <rect x="16" y="30" width="230" height="170" rx="4"/><rect x="325" y="30" width="230" height="200" rx="4"/>
+        <rect x="634" y="30" width="230" height="170" rx="4"/>
+        <rect x="325" y="270" width="230" height="180" rx="4" style="stroke:var(--teal)"/>
+        <rect x="16" y="270" width="230" height="180" rx="4" style="stroke:var(--teal)"/>
+      </g>
+      <g fill="currentColor" font-size="13" font-weight="600">
+        <text x="30" y="52">campaigns</text><text x="120" y="52" font-size="10" font-weight="400" style="fill:var(--teal)">신설</text>
+        <text x="339" y="52">links</text><text x="380" y="52" font-size="10" font-weight="400" opacity=".7">← group_invite_links</text>
+        <text x="648" y="52">link_clicks</text><text x="730" y="52" font-size="10" font-weight="400" opacity=".7">← contract 때 rename</text>
+        <text x="339" y="292">install_referrers</text><text x="470" y="292" font-size="10" font-weight="400" style="fill:var(--teal)">신설 · Android</text>
+        <text x="30" y="292">skan_postbacks</text><text x="150" y="292" font-size="10" font-weight="400" style="fill:var(--teal)">신설 · iOS</text>
+      </g>
+      <g stroke="currentColor" opacity=".3">
+        <line x1="16" y1="60" x2="246" y2="60"/><line x1="325" y1="60" x2="555" y2="60"/><line x1="634" y1="60" x2="864" y2="60"/>
+        <line x1="325" y1="300" x2="555" y2="300"/><line x1="16" y1="300" x2="246" y2="300"/>
+      </g>
+      <g class="mono" fill="currentColor" font-size="11">
+        <text x="30" y="80">id · name</text>
+        <text x="30" y="96">channel   ORGANIC|META|GOOGLE</text>
+        <text x="30" y="112">platform  IOS|ANDROID|ALL</text>
+        <text x="30" y="128">external_id  (Meta · Android)</text>
+        <text x="30" y="144">skan_source_identifier (선택)</text>
+        <text x="30" y="160">status · created_by</text>
+        <text x="30" y="184" opacity=".6">iOS 광고 = 이 행만, 링크 0</text>
+
+        <text x="339" y="80">id · slug</text>
+        <text x="339" y="96" style="fill:var(--teal)">+ type        INVITE|CAMPAIGN</text>
+        <text x="339" y="112" style="fill:var(--teal)">+ campaign_id · destination</text>
+        <text x="339" y="128" style="fill:var(--teal)">+ status · revoked_at · reason</text>
+        <text x="339" y="144">group_id · inviter_id  → nullable</text>
+        <text x="339" y="160" opacity=".7">CHECK 타입별 모양</text>
+        <text x="339" y="176" opacity=".7">UNIQUE(group,inviter) 유지</text>
+        <text x="339" y="192" opacity=".7">  contract 에서 ACTIVE 부분 unique</text>
+        <text x="339" y="216" opacity=".6">수명 규칙은 그룹 획득 문서</text>
+
+        <text x="648" y="80">id · link_id</text>
+        <text x="648" y="96">ip_hash · os · user_agent</text>
+        <text x="648" y="112">clicked_at</text>
+        <text x="648" y="128">matched · matched_at · device_id</text>
+        <text x="648" y="144">app_instance_id <tspan style="fill:var(--teal)">+ install_id</tspan></text>
+        <text x="648" y="160">claimed_user_id · claimed_at</text>
+        <text x="648" y="176" style="fill:var(--teal)">+ as_new_user · signup_at</text>
+        <text x="648" y="194" opacity=".6">탈퇴 시 claimed_user_id NULL</text>
+
+        <text x="339" y="320">id · install_key unique</text>
+        <text x="339" y="336">device_id · reporter_user_id</text>
+        <text x="339" y="352">source LINK|META|GOOGLE|ORGANIC</text>
+        <text x="339" y="368">link_id · click_id  nullable</text>
+        <text x="339" y="384">referrer_raw · gclid</text>
+        <text x="339" y="400">meta_campaign_id · payload</text>
+        <text x="339" y="416">claimed · as_new_user · signup_at</text>
+        <text x="339" y="438" opacity=".6">탈퇴 시 claimed·reporter NULL</text>
+
+        <text x="30" y="320">id · transaction_id</text>
+        <text x="30" y="336">version · ad_network_id</text>
+        <text x="30" y="352">source_identifier · app_id</text>
+        <text x="30" y="368">conversion_value · coarse</text>
+        <text x="30" y="384">did_win · sequence_index</text>
+        <text x="30" y="400">fidelity_type · redownload</text>
+        <text x="30" y="416">raw jsonb · received_at</text>
+        <text x="30" y="438" opacity=".6">서명 통과분만 저장 · 기기 식별자 없음</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.2" marker-end="url(#a4)" fill="none">
+        <line x1="246" y1="112" x2="323" y2="112"/><line x1="555" y1="80" x2="632" y2="80"/>
+        <path d="M440,270 C440,250 440,240 440,232"/>
+        <path d="M131,270 C131,240 131,220 131,202" stroke-dasharray="4 3"/>
+        <path d="M325,384 C290,384 280,300 246,128" stroke-dasharray="4 3"/>
+      </g>
+      <g class="mono" font-size="10" fill="currentColor" opacity=".7" text-anchor="middle">
+        <text x="284" y="104">1 : n</text><text x="593" y="72">1 : n</text>
+        <text x="468" y="252">link_id</text>
+        <text x="175" y="236">읽기 시점 대응</text>
+        <text x="262" y="222">meta_campaign_id</text><text x="262" y="236">= external_id</text>
+      </g>
+    </svg>
+    <figcaption>초록 = 추가 컬럼·신설 테이블. 실선은 FK, 점선은 읽기 시점 대응(FK 아님). Flyway 번호는 구현 시점 최대 번호 다음 — 2026-09-13 기준 #745 가 V54 까지 써서 V55 이상, 열린 PR 끼리 V53·V54 가 겹쳐 머지 순서대로 다시 매긴다. install_key = 기기 + Play 설치 시작 시각(없으면 백업되지 않는 installId)이라 재설치는 새 설치. referrer 저장은 토큰이 있는 세션만, 유저 행 락 아래 KST 당일 3건.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2><span class="n">5</span>PR #745 — 링크 분리 코드를 안고 머지됐다</h2>
+  <p class="lede">PR #745(알림 기반)가 분리안 전제 코드를 실은 채 2026-09-13 머지됐다(<code>1ec66e0dd</code>). 아래 설정은 지금 main 에 들어 있다. 대신 구현 PR 이 사장 코드와 V52 링크 테이블 5개를 걷어내고, 그 전까지 아래 설정은 켜지 않는다.</p>
+  <div class="tbl">
+  <table>
+    <thead><tr><th>#745 의 것</th><th>켜면</th><th>구현 PR 전까지</th></tr></thead>
+    <tbody>
+      <tr><td>nginx 예시의 초대 발급·claim → business</td><td>없는 링크 서버로 호출 → 실패</td><td><span class="tag dead">적용 안 함</span> data-api 유지</td></tr>
+      <tr><td>data-api <code>satellites</code> relay 의 <code>link.*</code> 7종</td><td>없는 서버로 전달 반복</td><td><span class="tag dead">relay 켜기 전 제거</span></td></tr>
+      <tr><td><code>LINK_CAPABILITY_KEY</code> · <code>LINK_PROXY_SECRET</code> · <code>upstream.link</code></td><td>미주입 시 부팅 실패</td><td>구현 PR 이 지운다</td></tr>
+      <tr><td>business <code>trusted-ip-headers</code> 기본 <code>X-Link-Client-IP</code></td><td>IP 를 못 읽음</td><td><code>X-Real-IP</code> 로</td></tr>
+      <tr><td>V52 링크 테이블 5개</td><td>—</td><td><span class="tag keep">contract 단계에서 DROP</span> 행 0 확인 후</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">6</span>배포 순서</h2>
+  <ol class="steps">
+    <li>#745 머지됨(09-13) — 링크 경로는 data-api 공개 컨트롤러가 계속 서빙</li>
+    <li>data-api — 스키마 expand(기존 테이블 이름 그대로 컬럼·신설 3 · V21 전체 unique 유지) · <code>invitelink</code> 일반화 · <code>/internal/*</code> · #745 data-api 링크 사장 코드 제거. 공개 컨트롤러와 V52 테이블은 남기고 링크 폐기·재발급은 켜지 않는다</li>
+    <li>business-api — 공개 표면 · referrer · resolve · SKAN 수신(서명 통과분만 저장) · <code>/l/referrer</code> 토큰·유저 상한 · #745 business-api 링크 사장 코드 제거</li>
+    <li>Infra — nginx 링크 경로 전환(reload 1회, 되돌리기도 1회 · 같은 DB 라 무손실), Cloudflare SKAN 경로 챌린지 예외(엣지 레이트리밋 없음)</li>
+    <li>data-api contract — 기존 초대 링크 전부 REVOKED 보정(공유된 초대 링크 만료) · 부분 unique 교체 · 링크 폐기·재발급 켬 · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(전환 7일 뒤, 구 경로 호출 0). roll-forward 전용(직전 RDS 스냅샷이 최후 수단)</li>
+    <li>business-api — 콘솔(캠페인 링크 발급은 기능 플래그로 막아 두고 7단계 앱 보급 뒤 켠다)</li>
+    <li>앱 — ① 파서·목적지·resolve ② Install Referrer(첫 실행 로컬 판별 · 세션 뒤 저장) ③ SKAN 등록·전환값 ④ App Link <code>autoVerify</code></li>
+  </ol>
+</section>
+
+<div class="note">
+  <h2>착수 전 확인 목록</h2>
+  <p>Meta·Google SKAdNetwork 식별자 · Meta referrer 복호화 방식 · Apple SKAN 버전별 서명 규칙 · <code>link.oneorthree.world</code> 가 prod nginx 로 오는지 · Android 패키지·서명 지문·Play 게시 상태·App Link <code>autoVerify</code> · 개인정보처리방침 고지(출시 조건) · Flyway 번호 · 롤백 때 Flyway 미래 버전 무시 여부 · (출시 뒤) Play Integrity 필요 여부. 상세는 LLD §11.</p>
+</div>
+</main>
+</body>
+</html>
