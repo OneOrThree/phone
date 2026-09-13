@@ -405,7 +405,7 @@
     <li>data-api — 스키마 expand(기존 테이블 이름 그대로 컬럼·신설 3 · V21 전체 unique 유지) · <code>invitelink</code> 일반화 · <code>/internal/*</code> · #745 data-api 링크 사장 코드 제거. 공개 컨트롤러와 V52 테이블은 남기고 링크 폐기·재발급은 켜지 않는다</li>
     <li>business-api — 공개 표면 · referrer · resolve · SKAN 수신(서명 통과분만 저장) · <code>/l/referrer</code> 토큰·유저 상한 · #745 business-api 링크 사장 코드 제거</li>
     <li>Infra — nginx 링크 경로 전환(reload 1회, 되돌리기도 1회 · 같은 DB 라 무손실), Cloudflare SKAN 경로 챌린지 예외 + 엣지 레이트리밋</li>
-    <li>data-api contract — 비활성 초대 링크 REVOKED 보정 · 부분 unique 교체 · 링크 폐기·재발급 켬 · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(전환 7일 뒤, 구 경로 호출 0). 되돌리기는 LLD §1.1 복구 SQL(보정된 REVOKED 는 유지)</li>
+    <li>data-api contract — 비활성 초대 링크 REVOKED 보정 · 부분 unique 교체 · 링크 폐기·재발급 켬 · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(전환 7일 뒤, 구 경로 호출 0). roll-forward 전용(직전 RDS 스냅샷이 최후 수단)</li>
     <li>business-api — 콘솔</li>
     <li>앱 — ① 파서·목적지·resolve ② Install Referrer(첫 실행 로컬 판별 · 세션 뒤 저장) ③ SKAN 등록·전환값 ④ App Link <code>autoVerify</code></li>
   </ol>

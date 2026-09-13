@@ -181,7 +181,7 @@ sequenceDiagram
 
 ## 7. 배포 순서
 
-같은 DB 를 두 경로가 함께 읽으므로 **데이터 이관 창이 없다.** 공개 경로 전환은 nginx 설정 한 번이고, 되돌리기도 한 번이다. 스키마는 expand(추가만)와 contract(이름 변경·DROP)로 나눠, **5단계 전까지는 모든 단계를 이전 이미지로 되돌릴 수 있다**(prod 는 `ddl-auto: validate` 라 테이블 이름이 바뀌면 이전 이미지가 기동하지 못한다).
+같은 DB 를 두 경로가 함께 읽으므로 **데이터 이관 창이 없다.** 공개 경로 전환은 nginx 설정 한 번이고, 되돌리기도 한 번이다. 스키마는 expand(추가만)와 contract(이름 변경·DROP)로 나눠, **5단계 전까지는 모든 단계를 이전 이미지로 되돌릴 수 있다**(prod 는 `ddl-auto: validate` 라 테이블 이름이 바뀌면 이전 이미지가 기동하지 못한다). **5단계 contract 는 roll-forward 전용**이다.
 
 | 단계 | 내용 | 되돌리기 |
 | --- | --- | --- |
@@ -189,6 +189,6 @@ sequenceDiagram
 | 2 | data-api: **스키마 expand**(기존 테이블 이름 그대로 컬럼·제약 추가, 신설 3, **V21 전체 unique 유지**) · `invitelink` 일반화(엔티티는 `@Table` 로 옛 이름) · `/internal/*` · #745 의 data-api 링크 사장 코드 제거. **기존 공개 컨트롤러와 V52 링크 테이블은 남기고, 링크 폐기·재발급은 켜지 않는다** | 이미지 롤백 — expand 스키마에서 이전 이미지가 그대로 기동하고, 한 `(group_id, inviter_id)` 에 INVITE 행이 하나뿐이라 이전 이미지의 단건 조회도 그대로 동작 |
 | 3 | business-api: 공개 표면 · referrer · resolve · SKAN 수신 · #745 의 business-api 링크 사장 코드 제거 | 이미지 롤백 |
 | 4 | Infra: nginx 링크 경로를 business-api 로 전환(reload 1회), Cloudflare 에서 SKAN 경로 봇 챌린지 예외 + 엣지 레이트리밋 | nginx 원복 reload — 2 단계의 공개 컨트롤러가 같은 DB 를 읽으므로 무손실 |
-| 5 | data-api **contract**: 기존 초대 링크 중 발급자 이탈·그룹 종료 행을 `REVOKED` 로 보정 → 전체 unique 를 active 부분 unique 로 교체 → **링크 폐기·재발급 켬**(그룹 획득 LLD §2.1) · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(행 0 확인). 전환 뒤 7일 무사고, 구 경로 호출 0 확인 뒤 | [LLD §1.1](low-level-design.md#11-마이그레이션--expand--contract) 복구 SQL 로 스키마를 되돌린 뒤 이미지 롤백. 보정된 `REVOKED` 는 되돌리지 않는다. 4 단계 원복은 불가해지므로 마지막에 한다 |
+| 5 | data-api **contract**: 기존 초대 링크 중 발급자 이탈·그룹 종료 행을 `REVOKED` 로 보정 → 전체 unique 를 active 부분 unique 로 교체 → **링크 폐기·재발급 켬**(그룹 획득 LLD §2.1) · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(행 0 확인). 전환 뒤 7일 무사고 · 구 경로 호출 0 확인 · 직전 RDS 수동 스냅샷 뒤 | **불가 — roll-forward 전용.** 장애는 핫픽스로 앞으로 고치고, 최후 수단은 contract 직전 RDS 스냅샷 복원(그 뒤 쓰기 전부 손실). 진입 조건은 [LLD §1.1](low-level-design.md#11-마이그레이션--expand--contract). 4 단계 원복도 불가해지므로 마지막에 한다 |
 | 6 | business-api: 콘솔. 캠페인 링크와 캠페인 링크 폐기는 이때부터 생긴다(contract 뒤) | 이미지 롤백 |
 | 7 | 앱: ① 파서·목적지·resolve ② Install Referrer(첫 실행 로컬 판별 · 세션 확보 뒤 저장) ③ SKAN 등록·전환값 ④ App Link `autoVerify`. 서버는 구 앱 계약을 유지하므로 최소 지원 버전과 무관 | 앱 배포 |
