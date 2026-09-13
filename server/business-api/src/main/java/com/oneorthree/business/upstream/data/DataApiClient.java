@@ -15,6 +15,7 @@ import com.oneorthree.business.upstream.data.dto.UserActivation;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -270,11 +271,13 @@ public class DataApiClient {
      * <p>재시도하지 않는다: {@code acknowledged_at IS NULL} 조건부 UPDATE 라 두 번째 시도는 0행이 되고,
      * 그 0행을 실패로 읽으면 이미 성공한 ack 가 실패로 보고된다.
      */
-    public void acknowledgeResult(UUID userId, UUID sessionId, UUID claimToken, Deadline deadline) {
+    public void acknowledgeResult(UUID userId, UUID sessionId, UUID claimToken, Instant ackDeadlineAt,
+            Deadline deadline) {
         http.execute(
                 InternalCall.to(HttpMethod.POST, resultPath(PATH_RESULT_ACK, userId, sessionId))
                         .onBehalfOf(userId)
-                        .body(Map.of("claimToken", claimToken == null ? "" : claimToken.toString()))
+                        .body(Map.of("claimToken", claimToken == null ? "" : claimToken.toString(),
+                                "ackDeadlineAt", ackDeadlineAt.toString()))
                         .build(),
                 deadline);
     }

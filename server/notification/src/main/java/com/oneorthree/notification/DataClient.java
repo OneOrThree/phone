@@ -28,9 +28,9 @@ class DataClient {
                 .defaultHeader("Authorization", "Bearer " + token).build();
     }
 
-    boolean acknowledged(UUID user, UUID session) {
+    boolean acknowledged(UUID user, UUID session, Instant ackDeadlineAt) {
         String body = http.get().uri(builder -> builder.path("/internal/users/{id}/result-ack")
-                .queryParam("sessionId", session).build(user))
+                .queryParam("sessionId", session).queryParam("ackDeadlineAt", ackDeadlineAt.toString()).build(user))
                 .header("X-User-Id", user.toString()).retrieve().body(String.class);
         Map<String, Object> response = decision(body, "acknowledged");
         boolean acknowledged = (boolean) response.get("acknowledged");

@@ -35,10 +35,11 @@ class DataClientContractTest {
         server.start();
         try {
             DataClient client = new DataClient("http://127.0.0.1:" + server.getAddress().getPort(), "fixture-token");
-            assertThat(client.acknowledged(user, session)).isTrue();
+            java.time.Instant deadline = java.time.Instant.parse("2026-09-14T00:00:30.123456Z");
+            assertThat(client.acknowledged(user, session, deadline)).isTrue();
             assertThat(subject.get()).isEqualTo(user.toString());
             assertThat(authorization.get()).isEqualTo("Bearer fixture-token");
-            assertThat(query.get()).isEqualTo("sessionId=" + session);
+            assertThat(query.get()).isEqualTo("sessionId=" + session + "&ackDeadlineAt=" + deadline);
         } finally {
             server.stop(0);
         }

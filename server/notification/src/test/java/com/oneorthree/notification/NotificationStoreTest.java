@@ -189,7 +189,7 @@ class NotificationStoreTest {
         store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
         // 30초 만료 → 리컨실이 Data 의 «미확인» 을 읽어 보류를 푼다.
         when(clock.instant()).thenReturn(DAY.plusSeconds(31));
-        doReturn(false).when(data).acknowledged(USER, session);
+        doReturn(false).when(data).acknowledged(org.mockito.ArgumentMatchers.eq(USER), org.mockito.ArgumentMatchers.eq(session), org.mockito.ArgumentMatchers.any());
         ack.reconcile();
         assertThat(ackState(session)).isEqualTo("RELEASED");
         assertThat(ack.command(USER, session, "prepare", "same-key")).containsEntry("state", "HELD");
@@ -304,11 +304,11 @@ class NotificationStoreTest {
         UUID id = delivery("held");
         store.update("UPDATE dispatch_control SET enabled=true");
         when(clock.instant()).thenReturn(DAY.plusSeconds(31));
-        when(data.acknowledged(USER, session)).thenThrow(new IllegalStateException("Data unavailable"));
+        when(data.acknowledged(org.mockito.ArgumentMatchers.eq(USER), org.mockito.ArgumentMatchers.eq(session), org.mockito.ArgumentMatchers.any())).thenThrow(new IllegalStateException("Data unavailable"));
         assertThatThrownBy(ack::reconcile).isInstanceOf(IllegalStateException.class);
         dispatch.dispatch(id);
         verifyNoInteractions(transport);
-        doReturn(true).when(data).acknowledged(USER, session);
+        doReturn(true).when(data).acknowledged(org.mockito.ArgumentMatchers.eq(USER), org.mockito.ArgumentMatchers.eq(session), org.mockito.ArgumentMatchers.any());
         when(clock.instant()).thenReturn(DAY.plusSeconds(61));
         ack.reconcile();
         assertThat(status(id)).isEqualTo("SUPPRESSED");

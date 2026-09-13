@@ -2,6 +2,8 @@ package com.oneorthree.notification;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -32,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
@@ -72,7 +75,7 @@ class AckReconcileFairnessTest {
         now.set(NOW);
         when(clock.instant()).thenAnswer(ignored -> now.get());
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
-        when(data.acknowledged(any(), any())).thenAnswer(call -> {
+        when(data.acknowledged(any(), any(), any())).thenAnswer(call -> {
             UUID user = call.getArgument(0);
             if (failing.contains(user)) {
                 failedCalls.incrementAndGet();
@@ -80,6 +83,47 @@ class AckReconcileFairnessTest {
             }
             return !UNACKNOWLEDGED.equals(user);
         });
+    }
+
+    @Test
+    void prepareReturnsTheStoredDeadlineAndAbortKeepsIt() {
+        now.set(NOW.plusNanos(123456789));
+        Map<String, Object> prepared = ack.command(HEALTHY, SESSION, "prepare", "deadline");
+        Instant saved = ((Timestamp) store.one("SELECT held_until FROM result_ack WHERE user_id=?", HEALTHY)
+                .get("held_until")).toInstant();
+        assertThat(prepared).containsEntry("ackDeadlineAt", saved.toString());
+        ack.command(HEALTHY, SESSION, "abort", "abort-deadline");
+        assertThat(store.one("SELECT held_until FROM result_ack WHERE user_id=?", HEALTHY))
+                .containsEntry("held_until", Timestamp.from(saved));
+    }
+
+    @Test
+    void reprepareCannotShortenTheDeadlineWhenTheNotificationClockMovesBackwards() {
+        ack.command(HEALTHY, SESSION, "prepare", "first");
+        now.set(NOW.minusSeconds(60));
+        Map<String, Object> again = ack.command(HEALTHY, SESSION, "prepare", "second");
+        assertThat(store.one("SELECT held_until FROM result_ack WHERE user_id=?", HEALTHY))
+                .containsEntry("held_until", Timestamp.from(NOW.plusSeconds(30)));
+        assertThat(again).containsEntry("ackDeadlineAt", NOW.plusSeconds(30).toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"HELD", "NEEDS_CONFIRM"})
+    void aLegacyNullDeadlineIsInitializedOnlyOnceEvenIfCoreReadsFail(String initialState) {
+        pending(HEALTHY, NOW.minusSeconds(60));
+        store.update("UPDATE result_ack SET state=? WHERE user_id=?", initialState, HEALTHY);
+        failing.add(HEALTHY);
+        assertThatThrownBy(ack::reconcile).isInstanceOf(IllegalStateException.class);
+        assertThat(store.one("SELECT held_until FROM result_ack WHERE user_id=?", HEALTHY))
+                .containsEntry("held_until", Timestamp.from(NOW.plusSeconds(30)));
+        now.set(NOW.plusSeconds(30));
+        assertThatThrownBy(ack::reconcile).isInstanceOf(IllegalStateException.class);
+        assertThat(store.one("SELECT held_until FROM result_ack WHERE user_id=?", HEALTHY))
+                .containsEntry("held_until", Timestamp.from(NOW.plusSeconds(30)));
+        failing.clear();
+        now.set(NOW.plusSeconds(60));
+        ack.reconcile();
+        assertThat(state(HEALTHY)).isEqualTo("CONFIRMED");
     }
 
     @Test
@@ -121,7 +165,7 @@ class AckReconcileFairnessTest {
         }
         pending(HEALTHY, NOW.minusSeconds(100));
         reset(data);
-        when(data.acknowledged(any(), any())).thenAnswer(call -> {
+        when(data.acknowledged(any(), any(), any())).thenAnswer(call -> {
             if (failing.contains(call.<UUID>getArgument(0))) {
                 // 실제 HTTP 지연만큼 원시계를 전진시킨다. 첫 예약의 30초가 배치 중에 지나간다.
                 now.updateAndGet(time -> time.plusSeconds(2));
@@ -154,12 +198,12 @@ class AckReconcileFairnessTest {
         CountDownLatch prepareStarted = new CountDownLatch(1);
         AtomicInteger reconcilePid = new AtomicInteger();
         AtomicInteger preparePid = new AtomicInteger();
-        when(data.acknowledged(HEALTHY, SESSION)).thenAnswer(call -> {
+        org.mockito.Mockito.doAnswer(call -> {
             reconcilePid.set(pid());
             reading.countDown();
             assertThat(releaseFailure.await(5, TimeUnit.SECONDS)).isTrue();
             throw new IllegalStateException("Data failed during prepare");
-        });
+        }).when(data).acknowledged(eq(HEALTHY), eq(SESSION), any());
         var pool = Executors.newFixedThreadPool(2);
         try {
             var reconciling = pool.submit(() -> catchThrowable(ack::reconcile));

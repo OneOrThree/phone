@@ -128,7 +128,7 @@ public class NotificationEligibilityService {
             case INACTIVE_RETURN, MISSED_FOCUS_TODAY, STREAK_AT_RISK ->
                     retentionEligibility.evaluate(request, user, clock.instant());
             case LEAGUE_DEADLINE_D1, LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING ->
-                    leagueEligibility.evaluate(kind, request.userId(), clock.instant());
+                    leagueEligibility.evaluate(kind, request, clock.instant());
             // 추가 도메인 조회가 없는 종류. 시간 제한이 있는 리그·리텐션은 위에서 만료를 확인했다.
             case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_FINAL_DEADLINE ->
                     NotificationEligibilityResponse.allow();

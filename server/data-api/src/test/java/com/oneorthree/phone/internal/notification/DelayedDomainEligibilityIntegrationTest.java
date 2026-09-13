@@ -132,6 +132,44 @@ class DelayedDomainEligibilityIntegrationTest {
     }
 
     @ParameterizedTest
+    @CsvSource({"LEAGUE_DEADLINE_D1,600", "LEAGUE_RELEGATION_WARNING,100",
+            "LEAGUE_RELEGATION_WARNING_EVENING,100"})
+    void aStillEligibleUserCannotReceiveTheOriginalLargerShortfall(String kind, int initial) throws Exception {
+        DailyFocusStat focus = stat(TODAY, initial);
+        Map<String, Object> original = Map.of("dedupAt", NOW.toString(), "shortfallSeconds", 400);
+        call(kind, null, false, original).andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(true));
+        focus.setTotalFocusSeconds(initial + 100);
+        entityManager.flush();
+        entityManager.clear();
+        call(kind, null, false, original).andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(false))
+                .andExpect(jsonPath("$.reason").value("LEAGUE_CONDITION_CHANGED"));
+        call(kind, null, true, original).andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(false));
+        call(kind, null, false, Map.of("dedupAt", NOW.toString(), "shortfallSeconds", 300))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.eligible").value(true));
+        evaluate(kind, null, true).andExpect(jsonPath("$.eligible").value(true));
+        org.assertj.core.api.Assertions.assertThat(original.get("shortfallSeconds")).isEqualTo(400);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"LEAGUE_DEADLINE_D1,600", "LEAGUE_RELEGATION_WARNING,100",
+            "LEAGUE_RELEGATION_WARNING_EVENING,100"})
+    void aThresholdChangeAlsoInvalidatesTheOriginalShortfall(String kind, int initial) throws Exception {
+        stat(TODAY, initial);
+        Map<String, Object> original = Map.of("dedupAt", NOW.toString(), "shortfallSeconds", 400);
+        call(kind, null, false, original).andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(true));
+        jdbc.update("UPDATE league_tier_configs SET promotion_time=promotion_time+100,"
+                + "relegation_time=relegation_time+100 WHERE tier_level=2");
+        entityManager.clear();
+        call(kind, null, false, original).andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(false))
+                .andExpect(jsonPath("$.reason").value("LEAGUE_CONDITION_CHANGED"));
+    }
+
+    @ParameterizedTest
     @CsvSource({"LEAGUE_DEADLINE_D1,600,5", "LEAGUE_RELEGATION_WARNING,0,1",
             "LEAGUE_RELEGATION_WARNING_EVENING,0,1"})
     void tierChangesAreReadAtDispatchInsteadOfUsingTheOriginalShortfall(String kind, int total, int tier)
@@ -223,11 +261,16 @@ class DelayedDomainEligibilityIntegrationTest {
     }
 
     private ResultActions call(String kind, UUID subject, boolean admin) throws Exception {
+        return call(kind, subject, admin,
+                admin ? Map.of() : Map.of("dedupAt", NOW.toString()));
+    }
+
+    private ResultActions call(String kind, UUID subject, boolean admin, Map<String, Object> params) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("userId", user.getId());
         body.put("kind", kind);
         body.put("subjectId", subject);
-        body.put("params", admin ? Map.of() : Map.of("dedupAt", NOW.toString(), "shortfallSeconds", 1));
+        body.put("params", params);
         if (admin) {
             body.put("adminTestRequestedAt", NOW.toString());
         }

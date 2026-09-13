@@ -550,6 +550,7 @@ public class NotificationExportService {
 
         boolean unsent = NotificationSendStatus.PENDING.name().equals(status)
                 || NotificationSendStatus.DEFERRED.name().equals(status);
+        String deliveryStatus = status;
         Map<String, Object> params;
         if (unsent) {
             Enrichment enrichment = enrich(kind, userId, subjectId, slotAt);
@@ -557,6 +558,10 @@ public class NotificationExportService {
                 failures.add(fail(rowId, userId, legacyKind, status, enrichment.reason(),
                         enrichment.detail()));
                 return Optional.empty();
+            }
+            if (enrichment.suppressionOnly()) {
+                // 구 행에 없는 원래 보간값은 지어내지 않는다. 사건 키와 이력은 남기되 재발송하지 않는다.
+                deliveryStatus = "SUPPRESSED";
             }
             params = withCommonParams(kind, enrichment.params(), groupId, slotAt);
         } else {
@@ -573,7 +578,7 @@ public class NotificationExportService {
         data.put("groupId", groupId == null ? null : groupId.toString());
         data.put("slotAt", toMillis(slotAt));
         data.put("locale", localeOf(userId));
-        data.put("status", status);
+        data.put("status", deliveryStatus);
         // 구 테이블에 시도 횟수 컬럼이 없다 — 0 을 지어내는 대신 «세지 않았다»는 사실을 그대로 0 으로
         // 옮기고 문서에 남긴다. 이 값으로 백오프를 계산하면 안 된다.
         data.put("attempts", 0L);
@@ -638,10 +643,14 @@ public class NotificationExportService {
             case BET_RESULT, BET_VOID_REFUND -> enrichBetOutcome(kind, userId, subjectId);
             case BET_WON, BET_SILENT_FLUSH -> enrichBetSimple(kind, userId, subjectId);
             case CHALLENGE_SESSION_OPEN -> enrichSessionOpen(subjectId);
-            case CHALLENGE_CREATED, CHALLENGE_WINDOW_END, CHALLENGE_ENDED -> enrichChallenge(subjectId);
-            // 리그·리텐션·친구는 그때의 값(순위·부족분·닉네임)이 렌더 입력인데 구 행에 남아 있지 않다.
-            // 알림 서버는 이관분을 «억제 근거» 로만 쓰고 새로 보내지 않는다 — 그래서 params 를 비운다.
-            default -> new Enrichment(Map.of(), null, null);
+            case CHALLENGE_WINDOW_END, CHALLENGE_ENDED -> enrichChallenge(subjectId);
+            // 보간 없는 알림은 정상 미발송 상태를 유지한다.
+            case MISSED_FOCUS_TODAY -> new Enrichment(Map.of(), null, null, false);
+            // 순위·부족분·단계·닉네임·개설 당시 목표는 구 행에 없다. 현재 값으로 사건을 재작성하지 않는다.
+            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_DEADLINE_D1,
+                    LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE,
+                    INACTIVE_RETURN, STREAK_AT_RISK, FRIEND_REQUEST, FRIEND_ACCEPTED, CHALLENGE_CREATED ->
+                    new Enrichment(Map.of(), null, null, true);
         };
     }
 
@@ -666,7 +675,7 @@ public class NotificationExportService {
             params.put("achieved", Boolean.TRUE.equals(participant.getAchieved()));
             params.put("payout", participant.getPayout() == null ? 0L : participant.getPayout().longValue());
         }
-        return new Enrichment(params, null, null);
+        return new Enrichment(params, null, null, false);
     }
 
     private Enrichment enrichBetSimple(NotificationKind kind, UUID userId, UUID sessionId) {
@@ -683,7 +692,7 @@ public class NotificationExportService {
         } else {
             params.put("challengeId", session.getChallenge().getId().toString());
         }
-        return new Enrichment(params, null, null);
+        return new Enrichment(params, null, null, false);
     }
 
     private Enrichment enrichSessionOpen(UUID sessionId) {
@@ -699,7 +708,7 @@ public class NotificationExportService {
         // 그 사건 키가 어디에도 없어, 컷오버 뒤 15분 크론이 다시 만들어 «마감된 모집»을 보낸다.
         params.put("legacySessionStatus", session.getStatus().name());
         params.put("legacyStillOpen", session.getStatus() == GroupBetStatus.OPEN);
-        return new Enrichment(params, null, null);
+        return new Enrichment(params, null, null, false);
     }
 
     private Enrichment enrichChallenge(UUID challengeId) {
@@ -710,7 +719,7 @@ public class NotificationExportService {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("challengeId", challenge.getId().toString());
         params.put("groupName", challenge.getGroup().getName());
-        return new Enrichment(params, null, null);
+        return new Enrichment(params, null, null, false);
     }
 
     private String localeOf(UUID userId) {
@@ -763,11 +772,11 @@ public class NotificationExportService {
         return List.copyOf(duplicates);
     }
 
-    /** 렌더 입력, 또는 재조립 불가 사유. */
-    private record Enrichment(Map<String, Object> params, String reason, String detail) {
+    /** 렌더 입력·종결 근거 여부, 또는 재조립 불가 사유. */
+    private record Enrichment(Map<String, Object> params, String reason, String detail, boolean suppressionOnly) {
 
         static Enrichment fail(String reason, String detail) {
-            return new Enrichment(Map.of(), reason, detail);
+            return new Enrichment(Map.of(), reason, detail, false);
         }
     }
 

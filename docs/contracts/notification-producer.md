@@ -122,6 +122,10 @@ noti:<KIND>:<userId>:<subjectId|none>:<시간축|none>
 `LEAGUE_DEADLINE_D1`은 T5를 제외하고 강등 위험이 아니면서 승급선 미달일 때만 허용한다.
 임계값에 도달했거나 분기 조건이 바뀌면 `LEAGUE_CONDITION_CHANGED`로 억제한다. 주간 합계 0도
 생성 규칙에 따라 대상이 될 수 있다. 현재 티어 설정이 없으면 억제로 종결하지 않고 5xx로 재시도한다.
+사건에 `shortfallSeconds`가 있으면 현재 분기의 임계값에서 현재 주간 합계를 뺀 부족 시간과
+동일한 숫자여야 한다. 아직 위기 조건을 만족해도 집중 합계·티어 설정 변경으로 부족 시간이 달라지면
+`LEAGUE_CONDITION_CHANGED`로 억제한다. 저장된 사건의 보간값은 갱신하지 않는다. 관리자 시험도
+제공한 부족 시간에는 같은 검사를 적용하되, 빈 `params` 시험에 새 필수 입력을 요구하지 않는다.
 기존 만료 검사와 관리자 시험의 현재 상태 검사를 유지하며, 일반 마감·주간 결과 알림에
 위기 조건을 추가하지 않는다.
 
@@ -251,6 +255,23 @@ UUID 대소문자는 같은 식별자로 처리한다.
 알림 서버는 `acknowledged=true`일 때 파싱 가능한 `acknowledgedAt` 시각이 함께 있어야 확정한다.
 `false`이면 시각은 null 또는 생략이어야 한다. 모순·필수값 누락·시각 형식 오류는 502 계약 오류로
 남겨 `NEEDS_CONFIRM`과 재조회 예약을 유지하며, 억제를 확정하거나 보류를 해제하지 않는다.
+
+②의 `ackDeadlineAt` 쿼리는 필수다. Noti prepare가 반환한 실제 저장 `held_until`을 Business가
+Data ACK 본문에 그대로 전달하고, abort·리스 만료 뒤에도 Noti는 같은 기한을 보존하여 조회한다.
+Data는 참가 행을 잠근 뒤 DB `clock_timestamp()`가 기한 미만인 경우에만 새 ACK를 쓴다.
+조회도 같은 행을 잠그고 새 상태를 읽는다. 이미 확인됐으면 즉시 true이며, 미확인·참가 행 부재는
+같은 DB 시각이 기한 이상일 때만 false다. 기한 전 미확인은 503으로 재조회한다. 따라서 커넥션
+대기로 아직 UPDATE를 시작하지 못한 ACK도 기한 뒤 재개되면 409 `RESULT_ACK_DEADLINE_EXPIRED`로
+거절되고, 기한 직전 쓰기를 시작했다면 조회가 commit·rollback까지 기다린다. 이미 확인된 쓰기
+재시도는 기한이 지나도 성공한다. Noti `CONFIRMED` prepare는 Business가 새 Data 쓰기 없이 종결한다.
+
+재prepare 기한은 기존 기한과 새 기한의 최댓값이며 DB에 저장된 시각 정밀도로 반환한다.
+Noti/Business 시계와 Data 시계의 차이는 기다리는 길이에만 영향을 주고 안전성은 Data DB의
+동일한 비퇴행 벽시계에 의존한다. 새 마이그레이션 없이 `held_until`을 재사용한다. 이전 버전이
+기한을 지운 `HELD`/`NEEDS_CONFIRM` 행은 최초 재조회에서만 유한 기한을 채우며 실패마다 연장하지 않는다.
+이 호환 처리는 발송 gate를 닫고 구 Business·Data의 진행 요청(HTTP·커넥션 대기 포함)을 drain한 뒤
+기한을 강제하는 Data → Noti → Business 순서로 교체하는 배포에서만 안전하다. 구 Data 프로세스를
+남긴 채 재조회를 시작하거나 gate를 다시 열지 않는다.
 
 ack 리컨실은 한 번에 최대 25건을 조회한다. 정본 조회가 실패하면 `NEEDS_CONFIRM`을 유지하고
 `next_reconcile_at`에 30초 뒤를 같은 사건 잠금 트랜잭션에서 커밋한다. 다음 tick은 아직 유예 중인
@@ -382,12 +403,21 @@ ISO-8601 과 다른 축이라, 섞으면 import 가 파싱에 실패하거나 �
 
 종결분은 **다시 렌더하지 않으므로** 코어 참조를 붙이지 않는다 — 중복 억제의 근거로만 옮긴다.
 
+구 로그에 사건 당시의 보간값이 없는 리그 6종·`INACTIVE_RETURN`·`STREAK_AT_RISK`·친구 2종·
+`CHALLENGE_CREATED`의 `PENDING`/`DEFERRED`는 export wire에서 `SUPPRESSED`로 종결한다.
+현재 순위·부족 시간·닉네임·챌린지 목표를 과거 입력으로 추정하지 않으며, 빈 입력으로 미발송 상태를
+유지해 import 검증이 `RENDER_FAILED`로 막히게 하지 않는다. 결정적 사건 키·원 슬롯·시도/재시도·
+발송 시각은 보존하고 원본 Data 행은 변경하지 않는다. `SENT`는 그대로 옮긴다.
+보간 입력이 필요 없는 `MISSED_FOCUS_TODAY`와 참조로 재조립 가능한 내기·모집·종료 알림은
+정상 미발송 상태를 유지한다. 종결 근거는 재이관이나 같은 사건의 재수신으로 다시 발송되지 않는다.
+
+
 `RANK_OVERTAKE` 는 **옮기지 않는다.** 신 producer 가 만들지 않으므로 「새 키로 다시 생길」 위험이
 없고, 옮기면 신 카탈로그에 없는 kind 가 알림 DB 에 남는다.
 
 ### 실패를 숨기지 않는다
 
-미발송인데 발송 params 를 만들 수 없는 행은 `failures[]` 에 사유(`SESSION_GONE` ·
+위에 명시한 종결 전환 외에, 참조·키를 복원할 수 없는 미발송 행은 `failures[]` 에 사유(`SESSION_GONE` ·
 `PARTICIPANT_GONE` · `CHALLENGE_GONE` · `USER_GONE` · `UNKNOWN_KIND` · `NO_SUBJECT` ·
 `NO_EVENT_TIME`)와 함께 남고, **strict 모드에서는 예외로 죽는다**. `--notification.migration.lenient=true`
 는 「무엇이 안 되는지 보기만 하는」 사전 점검 전용이다.

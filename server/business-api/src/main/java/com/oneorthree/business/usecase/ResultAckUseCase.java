@@ -9,6 +9,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.UUID;
 import java.util.Map;
 
@@ -89,12 +91,25 @@ public class ResultAckUseCase {
                 && !("HELD".equals(prepared.state()) && prepared.held())) {
             throw new UpstreamContractMismatchException("알림 prepare 응답이 결과 푸시 보류를 보장하지 않습니다");
         }
-        // CONFIRMED는 이미 억제되어 held=false여도 안전하다. 새 HELD는 실제 선점이 확인되어야 한다.
+        // CONFIRMED는 Data 성공 뒤에만 도달하는 종결 상태다. 새 쓰기나 실행 기한이 필요 없다.
+        if ("CONFIRMED".equals(prepared.state())) {
+            return;
+        }
+        Instant ackDeadlineAt;
+        try {
+            if (prepared.ackDeadlineAt() == null) {
+                throw new UpstreamContractMismatchException("알림 prepare 응답에 ackDeadlineAt이 없습니다");
+            }
+            ackDeadlineAt = Instant.parse(prepared.ackDeadlineAt());
+        } catch (DateTimeParseException malformed) {
+            throw new UpstreamContractMismatchException("알림 prepare 응답의 ackDeadlineAt이 시각이 아닙니다");
+        }
+        // 기한을 이 서버 시계로 갱신·판정하지 않는다. Data 쓰기와 정본 조회가 같은 DB 시계로 판정한다.
         log.debug("ack prepare 완료 — sessionId={} held={} state={}",
                 sessionId, prepared.held(), prepared.state());
 
         try {
-            dataApiClient.acknowledgeResult(userId, sessionId, claimToken, deadline);
+            dataApiClient.acknowledgeResult(userId, sessionId, claimToken, ackDeadlineAt, deadline);
         } catch (RuntimeException e) {
             abortQuietly(userId, sessionId, keys, deadline);
             throw e;

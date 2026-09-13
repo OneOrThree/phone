@@ -30,6 +30,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -42,6 +44,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.stream.Stream;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -335,6 +338,52 @@ class NotificationExportServiceIntegrationTest {
                                 + "target_user_id=:target,slot_at=NULL,claimed_at=NULL WHERE user_id=:userId AND kind=:kind")
                         .setParameter("subject", subject).setParameter("target", target)
                         .setParameter("userId", user.getId()).setParameter("kind", kind.name()).executeUpdate());
+    }
+
+    static Stream<Arguments> legacyRowsWithoutRenderInputs() {
+        return Stream.of(NotificationKind.LEAGUE_WEEKLY_RESULT, NotificationKind.LEAGUE_DEADLINE,
+                        NotificationKind.LEAGUE_DEADLINE_D1, NotificationKind.LEAGUE_RELEGATION_WARNING,
+                        NotificationKind.LEAGUE_RELEGATION_WARNING_EVENING, NotificationKind.LEAGUE_FINAL_DEADLINE,
+                        NotificationKind.INACTIVE_RETURN, NotificationKind.STREAK_AT_RISK,
+                        NotificationKind.FRIEND_REQUEST, NotificationKind.FRIEND_ACCEPTED, NotificationKind.CHALLENGE_CREATED)
+                .flatMap(kind -> Stream.of("PENDING", "DEFERRED", "SENT").map(state -> Arguments.of(kind, state)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("legacyRowsWithoutRenderInputs")
+    void missingHistoricalRenderInputsBecomeSuppressionEvidence(NotificationKind kind, String legacyStatus) {
+        insertLog(kind.name(), legacyStatus, "SENT".equals(legacyStatus) ? SLOT : null);
+        UUID subject = kind == NotificationKind.CHALLENGE_CREATED ? openSession().getChallenge().getId()
+                : kind.subjectKind() == NotificationKind.SubjectKind.NONE ? null : UUID.randomUUID();
+        new TransactionTemplate(transactionManager).executeWithoutResult(ignored ->
+                entityManager.createNativeQuery("UPDATE notification_sent_logs SET subject_id=:subject"
+                                + " WHERE user_id=:userId AND kind=:kind")
+                        .setParameter("subject", subject).setParameter("userId", user.getId())
+                        .setParameter("kind", kind.name()).executeUpdate());
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true);
+        NotificationMigrationRecord record = deliveriesOf(document).get(0);
+        assertThat(record.data()).containsEntry("status", "SENT".equals(legacyStatus) ? "SENT" : "SUPPRESSED")
+                .containsEntry("eventId", NotificationEventKey.of(kind, user.getId(), subject, SLOT))
+                .containsEntry("slotAt", SLOT.toEpochMilli())
+                .containsEntry("sentAt", "SENT".equals(legacyStatus) ? SLOT.toEpochMilli() : null)
+                .containsEntry("nextAttemptAt", "PENDING".equals(legacyStatus)
+                        ? SLOT.plusSeconds(600).toEpochMilli() : SLOT.toEpochMilli());
+        assertThat(document.report().finalEligible()).isTrue();
+        assertThat(document.failures()).isEmpty();
+        String original = new TransactionTemplate(transactionManager).execute(ignored ->
+                (String) entityManager.createNativeQuery("SELECT status FROM notification_sent_logs"
+                                + " WHERE user_id=:userId AND kind=:kind")
+                        .setParameter("userId", user.getId()).setParameter("kind", kind.name()).getSingleResult());
+        assertThat(original).isEqualTo(legacyStatus);
+    }
+
+    @Test
+    void inputFreePendingReminderRemainsSendable() {
+        insertLog(NotificationKind.MISSED_FOCUS_TODAY.name(), "PENDING", null);
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true);
+        assertThat(deliveriesOf(document)).singleElement().satisfies(record ->
+                assertThat(record.data()).containsEntry("status", "PENDING"));
+        assertThat(document.report().finalEligible()).isTrue();
     }
 
     @Test

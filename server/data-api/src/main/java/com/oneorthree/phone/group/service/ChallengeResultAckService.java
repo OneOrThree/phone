@@ -194,6 +194,19 @@ public class ChallengeResultAckService {
         acknowledge(userId, sessionId, claimToken, Instant.now());
     }
 
+    /** 내부 2단계 ACK. 커넥션·행 잠금 대기가 끝난 뒤 기한을 검사하고 잠금을 커밋까지 유지한다. */
+    @Transactional
+    public void acknowledgeBefore(UUID userId, UUID sessionId, UUID claimToken, Instant ackDeadlineAt) {
+        lockParticipantRow(userId, sessionId);
+        if (readClaimState(userId, sessionId).map(state -> state.getAcknowledgedAt() != null).orElse(false)) {
+            return; // 이미 커밋된 ACK의 재시도는 기한 경과에도 멱등 성공이다.
+        }
+        if (!groupChallengeBetParticipantRepository.currentDatabaseTime().isBefore(ackDeadlineAt)) {
+            throw new GroupException(GroupErrorCode.RESULT_ACK_DEADLINE_EXPIRED);
+        }
+        acknowledge(userId, sessionId, claimToken, Instant.now());
+    }
+
     /**
      * 테스트에서 고정 시각을 주입하기 위한 package-private 오버로드. 트랜잭션은 public 진입점이 연다.
      *
@@ -253,6 +266,17 @@ public class ChallengeResultAckService {
         return readClaimState(userId, sessionId)
                 .map(state -> new ResultAckState(state.getAcknowledgedAt() != null, state.getAcknowledgedAt()))
                 .orElseGet(() -> new ResultAckState(false, null));
+    }
+
+    /** 쓰기가 아직 시작하지 않았어도 기한 전 false는 확정하지 않는다. 조회는 데이터를 변경하지 않는다. */
+    @Transactional
+    public ResultAckState readAckState(UUID userId, UUID sessionId, Instant ackDeadlineAt) {
+        ResultAckState state = readAckState(userId, sessionId);
+        if (!state.acknowledged()
+                && groupChallengeBetParticipantRepository.currentDatabaseTime().isBefore(ackDeadlineAt)) {
+            throw new GroupException(GroupErrorCode.RESULT_ACK_PENDING);
+        }
+        return state;
     }
 
     /**

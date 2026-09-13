@@ -60,6 +60,67 @@ class ResultAckContractTest extends UpstreamTestBase {
     private static final UUID SESSION = UUID.fromString("ffffffff-0000-0000-0000-000000000001");
     private static final UUID CLAIM_TOKEN = UUID.fromString("ffffffff-0000-0000-0000-000000000002");
 
+    private static String heldPrepare(String deadline) {
+        return "{\"held\":true,\"state\":\"HELD\",\"ackDeadlineAt\":\"" + deadline + "\"}";
+    }
+
+    static Stream<Arguments> invalidAckDeadlines() {
+        return Stream.of("", ",\"ackDeadlineAt\":null", ",\"ackDeadlineAt\":0",
+                ",\"ackDeadlineAt\":false", ",\"ackDeadlineAt\":\"\"",
+                ",\"ackDeadlineAt\":\"  \"", ",\"ackDeadlineAt\":\"2030-01-01T00:00:00\"",
+                ",\"ackDeadlineAt\":\"not-an-instant\"")
+                .map(field -> Arguments.of("{\"held\":true,\"state\":\"HELD\"" + field + "}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidAckDeadlines")
+    void heldWithoutValidDeadlineCannotWriteAndCanRetry(String body) throws Exception {
+        String prepare = "POST /internal/users/" + USER + "/result-ack/prepare";
+        String dataAck = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack";
+        NOTI.on(prepare, request -> new MockUpstream.Response(200, body));
+        DATA.on(dataAck, request -> new MockUpstream.Response(200, null));
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/commit",
+                request -> new MockUpstream.Response(204, null));
+        mockMvc.perform(post(ackPath()).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "deadline-retry").contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        assertThat(DATA.received()).isEmpty();
+        assertThat(NOTI.received()).hasSize(1);
+        String deadline = "2030-01-01T00:00:00.123456Z";
+        NOTI.on(prepare, request -> new MockUpstream.Response(200, heldPrepare(deadline)));
+        mockMvc.perform(post(ackPath()).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "deadline-retry").contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isOk());
+        assertThat(DATA.receivedFor(dataAck)).singleElement().satisfies(request ->
+                assertThat(request.body()).contains("\"ackDeadlineAt\":\"" + deadline + "\""));
+        assertThat(NOTI.receivedFor(prepare)).allSatisfy(request ->
+                assertThat(request.header("Idempotency-Key")).isEqualTo("deadline-retry:ack-prepare"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1970-01-01T00:00:00.123456Z", "2030-01-01T00:00:00.123456Z"})
+    void deadlineIsPreservedAndDataExpiryTriggersAbort(String deadline) throws Exception {
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare",
+                request -> new MockUpstream.Response(200, heldPrepare(deadline)));
+        String dataAck = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack";
+        DATA.on(dataAck, request -> new MockUpstream.Response(409,
+                "{\"code\":\"RESULT_ACK_DEADLINE_EXPIRED\",\"message\":\"확인 처리 기한이 지났어요\"}"));
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/abort",
+                request -> new MockUpstream.Response(204, null));
+        mockMvc.perform(post(ackPath()).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESULT_ACK_DEADLINE_EXPIRED"));
+        assertThat(DATA.receivedFor(dataAck)).singleElement().satisfies(request ->
+                assertThat(request.body()).contains("\"ackDeadlineAt\":\"" + deadline + "\""));
+        assertThat(NOTI.hits("POST /internal/users/" + USER + "/result-ack/abort")).isEqualTo(1);
+        assertThat(NOTI.hits("POST /internal/users/" + USER + "/result-ack/commit")).isZero();
+    }
+
     private String ackPath() {
         return "/api/v1/me/challenge-results/" + SESSION + "/ack";
     }
@@ -89,7 +150,7 @@ class ResultAckContractTest extends UpstreamTestBase {
                 .andExpect(status().isBadGateway());
         assertThat(DATA.hits(dataAck)).isZero();
         assertThat(NOTI.received()).hasSize(1);
-        NOTI.on(prepare, request -> new MockUpstream.Response(200, "{\"held\":true,\"state\":\"HELD\"}"));
+        NOTI.on(prepare, request -> new MockUpstream.Response(200, heldPrepare("2030-01-01T00:00:00.123456Z")));
         mockMvc.perform(post(ackPath()).header("Authorization", "Bearer " + Tokens.access(USER))
                         .header("Idempotency-Key", "same-ack").contentType("application/json")
                         .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
@@ -119,7 +180,7 @@ class ResultAckContractTest extends UpstreamTestBase {
     @DisplayName("정상: prepare → Data ack → commit 순서로 간다")
     void 정상순서() throws Exception {
         NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->
-                new MockUpstream.Response(200, "{\"held\":true,\"state\":\"HELD\"}"));
+                new MockUpstream.Response(200, heldPrepare("2030-01-01T00:00:00.123456Z")));
         DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack",
                 request -> new MockUpstream.Response(200, null));
         NOTI.on("POST /internal/users/" + USER + "/result-ack/commit",
@@ -140,8 +201,8 @@ class ResultAckContractTest extends UpstreamTestBase {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    @DisplayName("prepare 가 held=false 를 줘도 Data ack 는 진행한다 — 「이미 확정」일 수 있고 실패로 읽으면 확인이 막힌다")
-    void confirmed면Held값과무관하게진행(boolean held) throws Exception {
+    @DisplayName("이미 확정된 prepare는 새 Data 쓰기 없이 성공한다")
+    void confirmed면Held값과무관하게완료(boolean held) throws Exception {
         NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->
                 new MockUpstream.Response(200, "{\"held\":" + held + ",\"state\":\"CONFIRMED\"}"));
         DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack",
@@ -156,7 +217,8 @@ class ResultAckContractTest extends UpstreamTestBase {
                 .andExpect(status().isOk());
 
         assertThat(DATA.hits("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack"))
-                .isEqualTo(1);
+                .isZero();
+        assertThat(NOTI.received()).hasSize(1);
     }
 
     @Test
@@ -178,7 +240,7 @@ class ResultAckContractTest extends UpstreamTestBase {
     @DisplayName("Data ack 가 실패하면 abort 를 보내고 그 실패를 올린다 — 성공한 척하지 않는다")
     void data실패면abort() throws Exception {
         NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->
-                new MockUpstream.Response(200, "{\"held\":true,\"state\":\"HELD\"}"));
+                new MockUpstream.Response(200, heldPrepare("2030-01-01T00:00:00.123456Z")));
         DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack", request ->
                 new MockUpstream.Response(409,
                         "{\"code\":\"RESULT_CLAIM_STALE\",\"message\":\"표시 선점이 만료됐어요\"}"));
@@ -200,7 +262,7 @@ class ResultAckContractTest extends UpstreamTestBase {
     @DisplayName("abort 조차 실패해도 원래의 Data 실패를 올린다 — 해제는 NEEDS_CONFIRM 수렴에 맡긴다")
     void abort실패도원래실패() throws Exception {
         NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->
-                new MockUpstream.Response(200, "{\"held\":true,\"state\":\"HELD\"}"));
+                new MockUpstream.Response(200, heldPrepare("2030-01-01T00:00:00.123456Z")));
         DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack", request ->
                 new MockUpstream.Response(409,
                         "{\"code\":\"RESULT_ALREADY_ACKED\",\"message\":\"이미 확인한 결과예요\"}"));
@@ -219,7 +281,7 @@ class ResultAckContractTest extends UpstreamTestBase {
     @DisplayName("commit 이 실패해도 사용자 요청은 성공 — Data ack 는 이미 커밋됐고 NEEDS_CONFIRM 이 수렴한다")
     void commit실패는성공() throws Exception {
         NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->
-                new MockUpstream.Response(200, "{\"held\":true,\"state\":\"HELD\"}"));
+                new MockUpstream.Response(200, heldPrepare("2030-01-01T00:00:00.123456Z")));
         DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack",
                 request -> new MockUpstream.Response(200, null));
         NOTI.on("POST /internal/users/" + USER + "/result-ack/commit",
