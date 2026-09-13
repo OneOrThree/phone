@@ -113,7 +113,7 @@ sequenceDiagram
   D-->>B: {attributionId, source, matched, type?, slug?, groupId?, destination?}
   B-->>A: 200 (400·401·429·503 이면 앱은 완료 값을 저장하지 않음)
   A->>B: POST /api/v1/invite-links/claim {attributionId, deviceId, installId} (JWT)
-  B->>D: POST /internal/links/claims → 조건부 UPDATE 로 원자 선점 · claimed_as_new_user·signup_at 기록
+  B->>D: POST /internal/links/claims → 관련 user UUID 순 락 · 조건부 UPDATE 로 원자 선점 · claimed_as_new_user·signup_at 기록(같은 설치 클릭의 참값은 referrer 로 이전)
 ```
 
 설치 단위는 `install_key` 라, 같은 기기에서 앱을 지웠다가 다른 광고로 다시 깔면 새 설치로 센다. 앱의 완료 값(referrer 보고와 fingerprint 매치)도 처리한 설치 키(Play 설치 시작 초, 없으면 `installId`)로 저장해, Auto Backup 으로 복원돼도 재설치에서 다시 시도한다. 서버도 설치를 백업되지 않는 `installId` 로 가른다 — 매치 창 안 재설치가 복원된 `deviceId` 로 과거 매치를 돌려받지 않고, Play 설치 시각이 없는 referrer 도 설치마다 다른 키가 된다. 저장은 세션 확보 뒤라 첫 실행 뒤 로그인·게스트 시작 없이 앱을 떠난 설치는 우리 수치에 들어가지 않는다. Auto Backup 이 로그인 세션까지 복원하면 재설치한 앱은 로그인 화면을 건너뛰므로, 저장은 **콜드스타트 세션 복원이 성공한 직후**에도 보낸다. 대신 토큰 없는 위조 저장이 막힌다(§5).
@@ -165,10 +165,10 @@ sequenceDiagram
 - **랜딩 클릭 저장량**: `User-Agent` 는 위조할 수 있으므로 봇 판별만으로는 클릭 부풀림을 못 막는다. `GET /l/{slug}` 에 slug 와 무관한 IP 단위 한도를 두고(넘으면 랜딩만 보여주고 클릭 미기록), data-api 는 같은 링크·IP 해시·OS 의 클릭을 매치 여부와 무관하게 매치 창 안에서 20건까지만 새로 만든다 — 매치로 줄지 않아 방문과 `/l/match` 를 번갈아 불러도 한도가 되돌아가지 않는다. Cloudflare 엣지 한도도 같이 둔다.
 - **캠페인 플랫폼**: 캠페인의 플랫폼과 다른 OS 로 들어온 설치·가입은 그 캠페인 수치에 넣지 않고 채널 합계로 뺀다. iOS 캠페인에는 Play URL 을 발급하지 않고 랜딩에서 Android 스토어 버튼을 숨긴다.
 - **공개 경로 인증 예외**: business-api 의 토큰 필터는 전부 막고 열거한 것만 연다. 예외는 (메서드, 디코딩 전 경로) 정확 목록이고 `/l/**` 같은 와일드카드를 쓰지 않는다 — `/l/referrer` 는 같은 접두어를 쓰는 인증 경로다.
-- **가입 수**: 현 앱은 기존 계정 로그인에서도 claim 하므로, claim 때 유저 가입 시각으로 신규 여부를 기록해 신규만 가입 수에 넣는다. referrer 의 비교 기준은 Play 설치 시작 시각(없으면 Play 클릭 시각)이고, 둘 다 없을 때만 저장 시각에서 10분 유예를 뺀 값이다 — referrer 는 로그인 뒤 저장되므로 저장 시각을 그대로 쓰면 신규 사용자가 전부 기존 계정으로 판정된다. 클라이언트가 보낸 신규 여부는 쓰지 않는다. 기간은 claim 시각이 아니라 가입 시각(`signup_at`)으로 자른다. 한 사용자가 여러 링크를 claim 해도 신규 가입은 한 번만 기록한다.
+- **가입 수**: 현 앱은 기존 계정 로그인에서도 claim 하므로, claim 때 유저 가입 시각으로 신규 여부를 기록해 신규만 가입 수에 넣는다. referrer 의 비교 기준은 Play 설치 시작 시각(없으면 Play 클릭 시각)이고, 둘 다 없을 때만 저장 시각에서 10분 유예를 뺀 값이다 — referrer 는 로그인 뒤 저장되므로 저장 시각을 그대로 쓰면 신규 사용자가 전부 기존 계정으로 판정된다. 클라이언트가 보낸 신규 여부는 쓰지 않는다. 기간은 claim 시각이 아니라 가입 시각(`signup_at`)으로 자른다. 한 사용자가 여러 링크를 claim 해도 신규 가입은 한 번만 기록한다. 같은 설치에서 클릭 claim 뒤 referrer claim 이 오면 신규 가입 참값을 referrer 원장으로 옮겨, 설치 중복 제거와 함께 한 번만 센다.
 - **공개 경로 레이트리밋**: 인증이 없는 공개 경로는 business-api 가 IP 단위로 제한한다. 키에는 원본 IP 대신 business-api 전용 비밀로 HMAC 한 값을 쓴다.
 - **claim·referrer 저장과 탈퇴**: claim·referrer 저장 모두 유저 행 배타 락을 잡아 유저 행을 배타 락으로 잡는 탈퇴와 직렬화된다. 탈퇴 뒤 연결도 `reporter_user_id` 도 남지 않는다. 같은 사용자의 동시 claim 도 직렬화돼 사용자당 신규 가입은 1건만 기록된다.
-- **claim 과 링크 폐기**: 초대 링크 claim 은 그룹 획득 문서의 잠금 순서(user → group·membership → link)로 잠근 뒤 활성 조건을 재검증해, 발급자 이탈·그룹 종료의 폐기와 한쪽만 먼저 커밋되게 한다. 캠페인 링크 claim 은 링크 행을 잠가 콘솔 폐기와 직렬화한다. `attributionId` claim 은 조건부 UPDATE 한 번이라 동시 요청 중 하나만 성공한다.
+- **claim 과 링크 폐기**: claim 은 요청자 행을 먼저 잠그지 않고 관련 user(요청자·발급자)를 UUID 오름차순으로 한꺼번에 잠가, 서로의 초대 링크를 동시에 claim 해도 교착이 없다. 초대 링크 claim 은 이어서 그룹 획득 문서의 순서(group·membership → link)로 잠근 뒤 활성 조건을 재검증해, 발급자 이탈·그룹 종료의 폐기와 한쪽만 먼저 커밋되게 한다. 캠페인 링크 claim 은 campaign → link 순으로 잠가 콘솔 캠페인 보관·링크 폐기와 직렬화한다. `attributionId` claim 은 조건부 UPDATE 한 번이라 동시 요청 중 하나만 성공한다.
 
 ## 6. 기존 결정과의 관계
 
