@@ -27,17 +27,26 @@ class SnapshotReconciler {
     void reconcile() {
         String cursor = null;
         do {
+            checkInterrupted();
             Map<String, Object> page = data.snapshot(cursor, 500);
+            checkInterrupted();
             if (page == null || !(page.get("items") instanceof List<?> items)) {
                 throw new NotificationFailure(502, "INVALID_SNAPSHOT_PAGE");
             }
             String next = nextCursor(page, items, cursor);
             for (Object item : items) {
+                checkInterrupted();
                 Map<String, Object> row = Json.map(item);
                 transaction.executeWithoutResult(status -> apply(row));
             }
             cursor = next;
         } while (cursor != null);
+    }
+
+    private static void checkInterrupted() {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new NotificationFailure(503, "SNAPSHOT_RECONCILE_INTERRUPTED");
+        }
     }
 
     /** 페이지 적용 전에 다음 조회가 현재 페이지의 마지막 사용자부터 이어지는지 검증한다. */

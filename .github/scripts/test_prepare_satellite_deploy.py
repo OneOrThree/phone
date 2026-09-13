@@ -89,6 +89,56 @@ def run(fixture: Fixture, *extra: str, payload: dict | None = None,
 
 class PrepareSatelliteDeployTest(unittest.TestCase):
 
+    def test_공유_JSON의_공개_환경값도_dev_prod_준비와_프로파일에_쓸_수_있다(self) -> None:
+        for deployment in ("dev", "prod"):
+            for key in ("SPRING_PROFILES_ACTIVE", "DD_ENV", "DD_SERVICE", "DD_VERSION"):
+                with self.subTest(environment=deployment, key=key), tempfile.TemporaryDirectory() as directory:
+                    fixture = Fixture(directory)
+                    payload = {**secret(), key: deployment}
+                    result = run(fixture, "--environment", deployment, "--project-name", "public-config",
+                                 payload=payload)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    compose = (fixture.output / "compose.env").read_text()
+                    self.assertIn(f"DEPLOY_ENV='{deployment}'", compose)
+                    self.assertIn(f"DATA_API_PROFILES='{deployment},satellites'", compose)
+                    for credential in secret().values():
+                        self.assertNotIn(credential, compose + result.stdout + result.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            profiles = "prod,satellites,foo"
+            payload = {**secret(), "SPRING_PROFILES_ACTIVE": "prod,satellites",
+                       "DATA_API_PROFILES": profiles, "DEPLOY_ENV": "prod"}
+            result = run(fixture, "--environment", "prod", "--project-name", "public-config",
+                         "--data-profiles", profiles, payload=payload)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"DATA_API_PROFILES='{profiles}'", (fixture.output / "compose.env").read_text())
+
+    def test_공개값과_같은_실제_자격과_미분류_키는_누출_검사를_유지한다(self) -> None:
+        for key in ("JWT_SECRET", "DD_API_KEY", "UNCLASSIFIED_CREDENTIAL"):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                fixture.output.mkdir()
+                previous = fixture.output / "notification.env"
+                previous.write_text("previous")
+                payload = {**secret(), "SPRING_PROFILES_ACTIVE": "prod", "DD_ENV": "prod", key: "prod"}
+                result = run(fixture, "--environment", "prod", "--project-name", "public-config", payload=payload)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("DEPLOY_ENV", result.stderr)
+                self.assertEqual(previous.read_text(), "previous")
+                self.assertEqual({path.name for path in fixture.output.iterdir()}, {"notification.env"})
+
+    def test_공개_환경값이_있어도_경로에_포함된_실제_시크릿은_거부한다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            credential = "private-path-credential"
+            fixture.output = fixture.output / ("prefix-" + credential + "-suffix")
+            payload = {**secret(), "DD_ENV": "prod", "JWT_SECRET": credential}
+            result = run(fixture, "--environment", "prod", "--project-name", "public-config", payload=payload)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("BUSINESS_API_ENV_FILE", result.stderr)
+            self.assertNotIn(credential, result.stdout + result.stderr)
+            self.assertFalse((fixture.output / "compose.env").exists())
+
     def test_필수_공유_보간의_최종_빈값은_기존_산출물_변경전에_거부한다(self) -> None:
         entries = ("POSTGRES_DB=", "POSTGRES_DB=''", 'POSTGRES_DB=""',
                    "POSTGRES_DB='  '", 'POSTGRES_DB="\\t"', "POSTGRES_DB='' # comment",

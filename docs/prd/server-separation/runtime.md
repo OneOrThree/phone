@@ -127,6 +127,11 @@ V3의 실행 job은 `bundle-flush`, `ack-reconcile`, `user-reconcile`이다. 기
 따라 Data에 남기므로 문서의 과거 "22잡 이관" 숫자만 보고 메서드를 통째로 끄면 안 된다.
 `JobRegistry`가 cron과 `job_runs`의 재생 요청을 함께 소비한다. Data 소유 잡은 호출할 수 없으며,
 실행 오류는 완료로 기록하지 않는다. 다중 Notification 인스턴스는 자기 DB의 ShedLock을 공유한다.
+`user-reconcile`은 전용 단일 스레드 스케줄러와 `notification-user-reconcile` 잠금으로 실행하며,
+`bundle-flush`·`ack-reconcile`의 스케줄러와 `notification-registry` 잠금을 공유하지 않는다.
+각 실행은 완료 뒤에만 다시 예약되므로 전수 snapshot 조회가 느려도 발송·ack 회차는 계속 진행한다.
+종료 인터럽트는 페이지 조회 전후·행 적용 전에 확인하며, 중단된 회차는 완료로 기록하지 않는다.
+직접 `SnapshotReconciler.reconcile()` 호출은 기존처럼 호출 스레드에서 전수 조회를 마친다.
 Data의 리그 RR 배치는 OUTBOX 모드에서 DB 직렬화 충돌(40001)만 최대 3회 시도한다.
 전체 트랜잭션 롤백 후 동일 슬롯으로 다시 판정한다. 소진되면 스케줄 실패 로그의 슬롯을 확인하고
 `--notification.migration.replay=<잡 이름>@<놓친 슬롯 ISO-8601>`로 유효기간 안에 재생한다. LEGACY 모드는 FCM 중복을 피하기 위해 자동 재시도하지 않는다.

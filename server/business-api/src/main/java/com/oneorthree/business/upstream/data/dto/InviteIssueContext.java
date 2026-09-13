@@ -1,5 +1,9 @@
 package com.oneorthree.business.upstream.data.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+
 import java.util.UUID;
 
 /**
@@ -34,8 +38,8 @@ import java.util.UUID;
  * @param inviterId        확인된 발급자 id
  */
 public record InviteIssueContext(
-        boolean groupActive,
-        boolean inviterActiveMember,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean groupActive,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean inviterActiveMember,
         long membershipEpoch,
         long linkVersion,
         long transitionSeq,

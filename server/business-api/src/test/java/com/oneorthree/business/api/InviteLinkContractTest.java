@@ -35,7 +35,14 @@ class InviteLinkContractTest extends UpstreamTestBase {
     }
 
     static Stream<Arguments> absentIssueContexts() {
-        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"));
+        String complete = issueContext(true, true);
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, complete.replace("\"groupActive\":true,", "")),
+                Arguments.of(200, complete.replace("\"inviterActiveMember\":true,", "")),
+                Arguments.of(200, complete.replace("\"groupActive\":true", "\"groupActive\":null")),
+                Arguments.of(200, complete.replace("\"inviterActiveMember\":true", "\"inviterActiveMember\":null")),
+                Arguments.of(200, complete.replace("\"groupActive\":true,", "")
+                        .replace("\"inviterActiveMember\":true,", "")));
     }
 
     @ParameterizedTest
@@ -160,7 +167,10 @@ class InviteLinkContractTest extends UpstreamTestBase {
                 Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
                         + "\",\"eventId\":\"intent\",\"version\":0,\"completed\":true}"),
                 Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
-                        + "\",\"eventId\":\"intent\",\"version\":-1,\"completed\":true}"));
+                        + "\",\"eventId\":\"intent\",\"version\":-1,\"completed\":true}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID + "\",\"eventId\":\"intent\",\"version\":1}"),
+                Arguments.of(200, "{\"commandId\":\"" + INTENT_ID
+                        + "\",\"eventId\":\"intent\",\"version\":1,\"completed\":null}"));
     }
 
     @ParameterizedTest

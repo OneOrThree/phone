@@ -82,6 +82,12 @@ FORBIDDEN_EVERYWHERE = ("DD_API_KEY", "GRAFANA_ADMIN_PASSWORD", "CONSOLE_ADMIN_P
                         "CONSOLE_BASIC_PASSWORD", "SUDO_PASSWORD")
 
 
+# 공유 SecretString에는 공개 환경 식별자도 들어 있다. 키로만 구분하며, 같은 값을 가진
+# 실제 자격과 미분류 키는 여전히 검사한다. URL/접속 문자열은 자격을 담을 수 있어 제외하지 않는다.
+PUBLIC_CONFIGURATION_KEYS = frozenset({
+    "SPRING_PROFILES_ACTIVE", "DEPLOY_ENV", "DATA_API_PROFILES", "DD_ENV", "DD_SERVICE", "DD_VERSION",
+})
+
 def parse_dotenv_keys(text: str) -> list[str]:
     """dotenv 의 «키 이름만» 뽑는다. 값은 읽지도 돌려주지도 않는다."""
     keys: list[str] = []
@@ -179,7 +185,8 @@ def guard_service_env(service: str, text: str) -> None:
 
 def guard_compose_env(values: dict[str, str], secret: dict[str, Any]) -> None:
     """compose 보간 파일에 비밀이 섞이지 않았는지 확인한다. 위반 시 «키 이름만» 말한다."""
-    secrets = [v for v in secret.values() if isinstance(v, str) and v.strip()]
+    secrets = [value for key, value in secret.items()
+               if key not in PUBLIC_CONFIGURATION_KEYS and isinstance(value, str) and value.strip()]
     leaked = []
     for key, value in values.items():
         for candidate in secrets:

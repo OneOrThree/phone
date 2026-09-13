@@ -35,6 +35,21 @@ class ClaimIntentReplayTest extends UpstreamTestBase {
 
     private static final String LEASE_TOKEN = "66666666-0000-0000-0000-000000000001";
 
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"leased\":null}"})
+    void anAbsentLeaseDecisionIsAFailureRatherThanAnotherWorkersLease(String body) {
+        stubPending("\"original:claim-intent\"", "abc123", 0);
+        DATA.on("POST /internal/invite-links/claim-intents/" + CMD_1 + "/lease",
+                request -> new MockUpstream.Response(200, body));
+        ClaimIntentReplayService.Result result = runner.replayAll();
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.skipped()).isZero();
+        assertThat(result.pendingTotal()).isEqualTo(1);
+        assertThat(result.gatePassed()).isFalse();
+        assertThat(LINK.received()).isEmpty();
+        assertThat(DATA.hits("POST /internal/invite-links/claim-intents/" + CMD_1 + "/completed")).isZero();
+    }
+
     static Stream<Arguments> negativePendingTotals() {
         return Stream.of(Arguments.of(-1L, false), Arguments.of(-1L, true),
                 Arguments.of(Long.MIN_VALUE, false), Arguments.of(Long.MIN_VALUE, true));
