@@ -49,3 +49,7 @@ docs/
 
 - 신규 문서: `doc/prd-<기능이름>` (예: `doc/prd-challenge`)
 - 기존 문서 수정: `doc/fix-prd-<기능이름>` (예: `doc/fix-prd-challenge`)
+
+## 엔지니어링 개선 기록
+
+- [CI 중복 빌드·캐시·실행 범위 개선](engineering/ci-build-reuse/README.md) — 원인 분석, 검증 로그, 전후 측정과 성과 서술 근거.

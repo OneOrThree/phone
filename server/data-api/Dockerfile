@@ -4,6 +4,9 @@
 # builder는 $BUILDPLATFORM(빌드 머신 네이티브)에서 실행 — gradle을 QEMU 에뮬레이션 없이 돌리고,
 # 산출물 JAR는 아키텍처 무관이라 최종 스테이지만 타깃 아키텍처의 JRE 베이스로 조립된다.
 # ⚠️ temurin의 alpine 태그는 amd64 전용(arm64 매니페스트 없음) — t4g·Apple Silicon 대응으로 jammy 사용
+# 기본값은 기존 소스 빌드. CI는 같은 실행에서 검증한 JAR를 prebuilt로 전달한다.
+ARG JAR_SOURCE=builder
+
 FROM --platform=$BUILDPLATFORM eclipse-temurin:17-jdk-jammy AS builder
 
 WORKDIR /app
@@ -19,7 +22,14 @@ RUN chmod +x gradlew && ./gradlew dependencies --no-daemon --quiet || true
 
 COPY src src
 
-RUN ./gradlew bootJar -x test --no-daemon
+RUN ./gradlew bootJar -x test --no-daemon \
+    && cp build/libs/*.jar /app/app.jar
+
+# 별도 경로를 써서 .dockerignore의 build/ 제외와 충돌하지 않는다.
+FROM scratch AS prebuilt
+COPY ci-artifact/app.jar /app/app.jar
+
+FROM ${JAR_SOURCE} AS artifact
 
 FROM eclipse-temurin:17-jre-jammy
 
@@ -32,7 +42,7 @@ ENV JAVA_OPTS="-Djava.security.egd=file:/dev/./urandom"
 ADD --checksum=sha256:aeb74b05314e21211b55af13240723dd9014e18dd70422f8501fa180b1b3113b \
     https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.64.0/dd-java-agent-1.64.0.jar /opt/datadog/dd-java-agent.jar
 
-COPY --from=builder /app/build/libs/*.jar app.jar
+COPY --from=artifact /app/app.jar app.jar
 
 # Datadog Autodiscovery — Micrometer /actuator/prometheus 를 OpenMetrics 로 스크레이프 (GROMO-1489).
 # 이미지 라벨에 두는 이유: Agent 설정 파일(conf.d/openmetrics.d)로 두면 호스트에 그 파일이 있어야 하는데,

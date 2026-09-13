@@ -17,6 +17,8 @@ on:
       # 호출하는 재사용 워크플로도 넣는다 — 안 넣으면 be-gradle.yml 만 고치는 PR 에서
       # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).
       - '.github/workflows/be-gradle.yml'
+      - '.github/actions/ci-jar/**'
+      - '.github/scripts/ci-jar.py'
       - 'server/scripts/docker-compose.realtime.yml'
   push:
     branches: [main]
@@ -26,6 +28,8 @@ on:
       # 호출하는 재사용 워크플로도 넣는다 — 안 넣으면 be-gradle.yml 만 고치는 PR 에서
       # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).
       - '.github/workflows/be-gradle.yml'
+      - '.github/actions/ci-jar/**'
+      - '.github/scripts/ci-jar.py'
       - 'server/scripts/docker-compose.realtime.yml'
 
 # 통합 브랜치 푸시가 «겹치지» 않게 한다. 겹치면 늦게 끝난 «옛» 빌드가 :latest 를 되가리켜,
@@ -52,6 +56,7 @@ jobs:
     with:
       service: realtime
       tasks: build
+      publish-jar: true
       artifact-name: realtime-test-results
       artifact-path: build/test-results/
 
@@ -72,6 +77,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/ci-jar
+        with:
+          service: realtime
+          operation: verify
 
       # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud 도 키 파일도 필요 없다(dev-ci 와 같은 방식).
       # PR 에서도 로그인한다: cache-to 가 레지스트리를 쓰기 때문이다.
@@ -90,6 +99,7 @@ jobs:
         with:
           context: server/realtime
           platforms: linux/amd64
+          build-args: JAR_SOURCE=prebuilt
           # PR 이 만든 태그를 배포 신뢰점으로 삼지 않는다 — main push 실행만 올린다(dev-ci 와 같은 규율).
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           provenance: false

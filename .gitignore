@@ -20,3 +20,6 @@
 *.env
 .env*
 !.env.example
+
+# 같은 CI 실행에서 검증한 이미지 조립용 JAR
+server/*/ci-artifact/
