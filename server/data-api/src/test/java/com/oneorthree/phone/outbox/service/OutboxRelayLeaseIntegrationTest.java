@@ -194,6 +194,7 @@ class OutboxRelayLeaseIntegrationTest {
             case KAFKA -> OutboxDeliveryRequest.toKafka();
             case LINK -> OutboxDeliveryRequest.toLink("LINK_TEST", null);
             case NOTI -> OutboxDeliveryRequest.toNotification("NOTI_TEST", null);
+            case REALTIME -> OutboxDeliveryRequest.toRealtime("REALTIME_TEST", null);
         };
         tx().executeWithoutResult(status -> commands.append(new OutboxAppendCommand(
                 "lease-test-" + UUID.randomUUID(), 1, "user.withdrawn", user, "ko", null,

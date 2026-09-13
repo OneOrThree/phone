@@ -59,7 +59,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 이 축을 통과하지 못한다).
  *
  * <p>동기화는 sleep 이 아니라 <b>이름 변경 트랜잭션의 커밋 완료</b>다 — 그 완료를 기다린 «뒤»에
- * 바깥 트랜잭션이 플러시하므로, 되감기가 일어난다면 반드시 일어난다.
+ * 바깥 트랜잭션이 실제 서비스를 호출하고 플러시하므로, 되감기가 일어난다면 반드시 일어난다.
  */
 @SpringBootTest
 class GroupMemberDirtyUpdateConcurrencyTest {
@@ -103,9 +103,10 @@ class GroupMemberDirtyUpdateConcurrencyTest {
         UUID memberRow = membershipRowId(group.getId(), memberId);
 
         // 위임은 요청자·대상 «두» 멤버십 행을 함께 더티로 만든다 — 되감기 후보도 둘이다.
-        renameCommitsInsideOpenWriter(group, "위임 도중 이름", () -> {
-            groupMemberService.transferOwner(group.getId(), memberId, ownerId);
-        }, ownerRow, memberRow);
+        renameCommitsBetweenLoadAndWrite(group, "위임 도중 이름", () -> {
+            entityManager.find(GroupMember.class, ownerRow);
+            entityManager.find(GroupMember.class, memberRow);
+        }, () -> groupMemberService.transferOwner(group.getId(), memberId, ownerId), ownerRow, memberRow);
 
         // 위임 자체는 그대로 반영된다 — 「경합이면 전부 막는다」가 아니다.
         assertThat(roleOf(group.getId(), ownerId)).isEqualTo(GroupMemberRole.MEMBER);
@@ -126,11 +127,12 @@ class GroupMemberDirtyUpdateConcurrencyTest {
         addMember(group, memberId);
         UUID memberRow = membershipRowId(group.getId(), memberId);
 
-        renameCommitsInsideOpenWriter(group, "권한 변경 도중 이름", () -> {
-            groupService.updateGroupSettings(group.getId(), ownerId,
-                    new UpdateGroupSettingsRequest(
-                            List.of(new UpdateGroupSettingsRequest.AnnouncementGrant(memberId, true))));
-        }, memberRow);
+        renameCommitsBetweenLoadAndWrite(group, "권한 변경 도중 이름",
+                () -> entityManager.find(GroupMember.class, memberRow),
+                () -> groupService.updateGroupSettings(group.getId(), ownerId,
+                        new UpdateGroupSettingsRequest(
+                                List.of(new UpdateGroupSettingsRequest.AnnouncementGrant(memberId, true)))),
+                memberRow);
 
         assertThat(membershipOf(group.getId(), memberId).getAnnouncementPermission())
                 .isEqualTo(GroupAnnouncementGrant.ALLOW);
@@ -175,45 +177,27 @@ class GroupMemberDirtyUpdateConcurrencyTest {
     }
 
     /**
-     * 바깥 트랜잭션이 <b>잠금 없이 로드한 엔티티를 더티로 만든 채 열려 있는 동안</b>, 다른 커넥션의
-     * 그룹명 변경이 표시 스냅샷을 전진시키고 <b>커밋까지</b> 끝낸다. 그 뒤 바깥 트랜잭션이 커밋되며
-     * 더티 플러시가 나간다 — 전 컬럼 UPDATE 였다면 여기서 방금 전진한 값이 되감긴다.
+     * 잠금 없이 멤버십 엔티티를 로드한 뒤, 다른 커넥션의 이름 변경이 표시 스냅샷을 전진시키고
+     * 커밋할 때까지 기다린다. 그 후 실제 서비스가 같은 영속성 컨텍스트의 낡은 엔티티를 변경한다.
+     *
+     * <p>서비스가 먼저 실행되면 그룹·멤버십 잠금 또는 자동 플러시가 이름 변경을 막고, 바깥
+     * 트랜잭션은 그 이름 변경의 완료를 기다리게 된다. 따라서 실제 서비스 호출은 이름 변경 커밋
+     * 뒤에 둔다. 서비스의 생산 잠금은 그대로 사용하고, 변경 전 낡은 스냅샷 보유 여부를 단정해
+     * {@code @DynamicUpdate} 가 안 바꾼 컬럼을 덮지 않는다는 회귀 의미를 유지한다.
      *
      * @param group       대상 그룹
      * @param newName     이름 변경 트랜잭션이 넣을 새 이름
-     * @param staleWriter 바깥 트랜잭션 «안»에서 돌 더티 쓰기 — 아직 플러시되지 않은 상태로 남아야
-     *                    하므로 <b>이 안에서 JPQL·native 조회를 하지 말 것</b>(자동 플러시가 순서를
-     *                    뒤집는다). 확인은 {@code entityManager.find} 로 한다
-     * @param staleRows   이름 변경이 커밋된 «뒤»에도 옛 값을 들고 있어야 하는 멤버십 행 PK 들
+     * @param staleLoader 이름 변경 전에 잠금 없이 낡은 스냅샷을 로드하는 동작
+     * @param afterRename 이름 변경 커밋 뒤 실행할 실제 변경
+     * @param staleRows   이름 변경이 커밋된 뒤에도 옛 값을 들고 있어야 하는 멤버십 행 PK 들
      */
-    private void renameCommitsInsideOpenWriter(Group group, String newName, Runnable staleWriter,
-            UUID... staleRows) {
-        renameCommitsBetweenLoadAndWrite(group, newName, staleWriter, () -> { }, staleRows);
-    }
-
-    /**
-     * 위와 같되, <b>이름 변경이 커밋된 뒤</b>에 돌 쓰기를 하나 더 받는다.
-     *
-     * <p>이 자리가 필요한 이유가 하나 있다 — {@code recordMembershipRevoked} 처럼 <b>조회를 하는</b>
-     * 쓰기는 자동 플러시를 일으킨다. 그것을 ① 자리에서 부르면 더티 UPDATE 가 이름 변경보다 먼저
-     * 나가 행 잠금을 쥐고, 이름 변경은 그 잠금에서 멈춘다 — 그 상태로 {@code Future} 를 기다리면
-     * <b>교착</b>이다. 그래서 「낡은 로드」와 「더티 쓰기」를 이름 변경 커밋을 기준으로 나눈다:
-     * 엔티티는 ① 에서 «전진 전» 상태로 로드해 두고, 실제 변경은 ③ 이후에 건다.
-     *
-     * @param group       대상 그룹
-     * @param newName     이름 변경 트랜잭션이 넣을 새 이름
-     * @param staleWriter 이름 변경 «전»에 돌 쓰기 — 여기서 낡은 스냅샷을 로드해 둔다
-     * @param afterRename 이름 변경 커밋 «뒤»에 돌 쓰기 — 조회를 하는(자동 플러시를 부르는) 변경은
-     *                    반드시 여기에 둔다
-     * @param staleRows   이름 변경이 커밋된 «뒤»에도 옛 값을 들고 있어야 하는 멤버십 행 PK 들
-     */
-    private void renameCommitsBetweenLoadAndWrite(Group group, String newName, Runnable staleWriter,
+    private void renameCommitsBetweenLoadAndWrite(Group group, String newName, Runnable staleLoader,
             Runnable afterRename, UUID... staleRows) {
         ExecutorService pool = Executors.newSingleThreadExecutor();
         try {
             tx().executeWithoutResult(status -> {
-                // ① 잠금 없이 로드 + 더티. 아직 UPDATE 는 나가지 않았다.
-                staleWriter.run();
+                // ① 잠금 없이 낡은 멤버십을 로드한다. 실제 서비스 변경은 이름 변경 커밋 뒤다.
+                staleLoader.run();
 
                 // ② 그 사이 이름 변경이 «완전히» 커밋된다. 바깥 트랜잭션은 group_members 에 잠금을
                 //    쥐고 있지 않으므로(평범한 SELECT) 이 트랜잭션은 막히지 않고 끝난다.

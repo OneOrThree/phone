@@ -98,6 +98,12 @@ class GroupServiceTest {
      * 봉투 기록은 목으로 둔다. 「실제로 적히는가」는 실물 DB 위의 통합 테스트가 본다.
      */
     @Mock
+    private GroupMembershipMutationLocks membershipLocks;
+
+    @Mock
+    private IslandMembershipEvents membershipEvents;
+
+    @Mock
     private com.oneorthree.phone.group.service.LinkMembershipEventService linkMembershipEventService;
 
     @InjectMocks

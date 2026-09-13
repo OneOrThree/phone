@@ -164,7 +164,8 @@ public class InviteLinkMatchService {
                 .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.SLUG_NOT_FOUND));
 
         Optional<InviteLinkClick> click = clickRepository
-                .findFirstByLinkIdAndMatchedTrueAndClaimedUserIdIsNullOrderByMatchedAtDesc(link.getId());
+                .findFirstByLinkIdAndMatchedTrueAndClaimedUserIdIsNullAndClaimedAtIsNullOrderByMatchedAtDesc(
+                        link.getId());
         if (click.isEmpty()) {
             // 링크 직행(Universal Link)으로 들어온 유저는 클릭 행이 없을 수 있다 — 붙일 곳이 없을 뿐 오류가 아니다.
             log.debug("claim 대상 클릭 없음 — slug={}", slug);

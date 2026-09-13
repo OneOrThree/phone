@@ -8,6 +8,10 @@ notification:
   dispatch:
     mode: ${NOTIFICATION_DISPATCH_MODE:LEGACY}
 
+# 명령 기반만 구현했다. 전용 Realtime 수신·인가·주민 snapshot 복구 검증 전에는 열지 않는다.
+island-management:
+  host-transfer-enabled: false
+
 internal:
   api:
     enabled: ${INTERNAL_API_ENABLED:false}
@@ -19,6 +23,7 @@ internal:
           - 'POST /internal/auth/device-sessions/verify'
           - 'POST /internal/auth/sessions/verify'
           - 'POST /internal/auth/sessions/logout'
+          - 'POST /internal/islands/*/host-transfer'
           - 'POST /internal/users/*/device-token-deletions'
           - 'PUT /internal/users/*/notification-settings-commands'
           - 'PATCH /internal/users/*/notification-settings-commands'

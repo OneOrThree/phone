@@ -56,6 +56,12 @@ class AccountWithdrawalServiceTest {
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
     @Mock
+    private com.oneorthree.phone.group.service.GroupMembershipMutationLocks membershipLocks;
+
+    @Mock
+    private com.oneorthree.phone.group.service.IslandMembershipEvents membershipEvents;
+
+    @Mock
     private UserQueryService userQueryService;
     @Mock
     private GroupMemberService groupMemberService;
@@ -99,10 +105,14 @@ class AccountWithdrawalServiceTest {
 
         accountWithdrawalService.withdraw(USER_ID);
 
-        InOrder order = inOrder(userQueryService, groupMemberService, focusService, statsService,
+        InOrder order = inOrder(userQueryService, groupMemberService, authSessionService, focusService, statsService,
                 screenTimeService, userService, friendService);
         // 배타 락 로드가 맨 앞 — 이후 정리와 새 관계 생성을 직렬화한다
         order.verify(userQueryService).getCallerForUpdate(USER_ID);
+        order.verify(groupMemberService).lockGroupsForAccountWithdrawal(user);
+        // USER aggregate를 쓰는 세션 폐기·세대 사건도 그룹 선점보다 뒤여야 한다.
+        order.verify(authSessionService).revokeAll(USER_ID, "WITHDRAW");
+        order.verify(authSessionService).publishGenerationBumped(USER_ID, user.getAuthGeneration(), "WITHDRAW");
         // 그룹(해제 환불·근거 박제)이 지갑 삭제와 익명화보다 앞
         order.verify(groupMemberService).detachWithdrawnUser(user);
         order.verify(focusService).anonymizeWithdrawnUser(USER_ID);

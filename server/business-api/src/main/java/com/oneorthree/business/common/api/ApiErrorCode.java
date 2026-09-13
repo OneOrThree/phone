@@ -16,6 +16,7 @@ public enum ApiErrorCode implements ErrorCode {
     FACILITY_LOCKED(HttpStatus.FORBIDDEN, "필요한 시설을 먼저 열어 주세요.", false),
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 대상을 찾을 수 없습니다.", false),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다. 다시 로그인해 주세요.", false),
+    GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "섬을 찾을 수 없습니다.", false),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청 경로를 찾을 수 없습니다.", false),
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "상품을 찾을 수 없습니다.", false),
     SLUG_NOT_FOUND(HttpStatus.NOT_FOUND, "초대 링크를 찾을 수 없습니다.", false),

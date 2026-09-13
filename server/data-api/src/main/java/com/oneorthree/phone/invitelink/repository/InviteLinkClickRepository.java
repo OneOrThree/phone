@@ -54,7 +54,9 @@ public interface InviteLinkClickRepository extends JpaRepository<InviteLinkClick
             String ipHash, String os, Instant clickedAfter);
 
     /**
-     * claim 대상 — 해당 링크에서 매치까지 간 클릭 중 아직 유저가 안 붙은 가장 최근 1건.
+     * claim 대상 — 해당 링크에서 매치까지 갔지만 한 번도 claim 되지 않은 가장 최근 1건.
+     *
+     * <p>탈퇴 시 claimedUserId 만 익명화하므로 claimedAt 도 null 인 행만 미소진 후보로 취급한다.
      *
      * <p>매치 후보 조회와 같은 이유로 {@code PESSIMISTIC_WRITE} + {@code SKIP LOCKED} 다. 잠그지 않으면
      * 같은 slug 로 거의 동시에 claim 한 두 유저가 둘 다 {@code claimedUserId == null} 을 읽고 각자
@@ -66,7 +68,8 @@ public interface InviteLinkClickRepository extends JpaRepository<InviteLinkClick
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = SKIP_LOCKED))
-    Optional<InviteLinkClick> findFirstByLinkIdAndMatchedTrueAndClaimedUserIdIsNullOrderByMatchedAtDesc(UUID linkId);
+    Optional<InviteLinkClick>
+            findFirstByLinkIdAndMatchedTrueAndClaimedUserIdIsNullAndClaimedAtIsNullOrderByMatchedAtDesc(UUID linkId);
 
     /**
      * 이 기기가 이미 매치해 간 클릭 — 재시도 멱등의 근거.

@@ -146,6 +146,9 @@ class GroupChallengeServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private GroupMembershipMutationLocks membershipLocks;
+
     @BeforeEach
     void setUp() {
         groupBetJudge = new GroupBetJudge(
@@ -153,7 +156,7 @@ class GroupChallengeServiceTest {
                 dailyScreenTimeStatRepository, userQueryService,
                 windowFocusAggregator);
         groupChallengeService = new GroupChallengeService(
-                groupMemberRepository, groupQueryService, userQueryService, groupChallengeRepository,
+                groupMemberRepository, groupQueryService, membershipLocks, userQueryService, groupChallengeRepository,
                 groupChallengeDurationRepository, groupChallengeWindowRepository,
                 groupChallengeMemberRepository,
                 groupBetService, groupBetSettler, groupBetJoinService,

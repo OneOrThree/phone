@@ -230,6 +230,69 @@ paths:
       x-idempotent: true
       x-retryable: true
 
+  /internal/islands/{islandId}/host-transfer:
+    post:
+      tags: [data-내구명령]
+      operationId: transferIslandHost
+      summary: 섬 방장 위임의 원자 명령 기반 (활성화 전 기본 비활성)
+      description: |
+        business caller와 X-User-Id만 허용한다. 서명으로 증명된 sessionId/authGeneration의 현재
+        활성 상태를 Data TX에서 재검사한다. island-management.host-transfer-enabled 기본 false이며
+        비활성 때는 역할·version·receipt·outbox를 변경하지 않고 503 REALTIME_NOT_READY를 반환한다.
+        사용자 UUID 순서 → group → membership 잠금 아래 현재 방장에게서 같은 섬의 활성 타인으로
+        OWNER/MEMBER를 교체하고 ISLAND_MEMBERS version·최소 성공 receipt·REALTIME outbox를 함께 저장한다.
+        같은 명령은 본인 활성 인증 뒤 host 권한을 다시 행사하지 않고 원 {hostUserId,version}만 재생한다.
+        membershipEpoch와 기존 발급 링크는 유지한다. expectedVersion 입력은 추가하지 않는다.
+        REALTIME 전용 transport는 아직 등록하지 않는다. 행은 미전달로 보존하며 기존 NOTI/LINK/KAFKA에
+        보내지 않는다. 실제 수신·현재 인가·주민 snapshot·재연결 복구까지 검증하기 전 활성화하지 않는다.
+      parameters:
+        - in: path
+          name: islandId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sessionId, authGeneration, targetUserId]
+              properties:
+                sessionId: { type: string, format: uuid }
+                authGeneration: { type: integer, minimum: 0, maximum: 9007199254740991 }
+                targetUserId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 원 위임 결과 또는 활성 본인의 제한된 성공 증거 재생
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [hostUserId, version]
+                properties:
+                  hostUserId: { type: string, format: uuid }
+                  version: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        '403':
+          description: SESSION_NOT_ACTIVE 또는 새 실행의 NOT_OWNER
+        '404':
+          description: GROUP_NOT_FOUND 또는 대상 TARGET_USER_NOT_FOUND/NOT_FOUND
+        '409':
+          description: CANNOT_TRANSFER_SELF 또는 동일 키 다른 본문의 멱등 충돌
+        '503':
+          description: REALTIME_NOT_READY — 역할 및 명령 상태 변경 없음
+      x-idempotent: true
+      x-retryable: true
+
   /internal/users/{userId}/device-token-deletions:
     post:
       tags: [data-내구명령]

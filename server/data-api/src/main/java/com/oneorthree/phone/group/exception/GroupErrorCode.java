@@ -12,6 +12,9 @@ import org.springframework.http.HttpStatus;
  */
 @Getter
 public enum GroupErrorCode implements ErrorCode {
+
+    REALTIME_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "방장 위임을 아직 사용할 수 없습니다."),
+    CANNOT_TRANSFER_SELF(HttpStatus.CONFLICT, "자기 자신에게 방장을 위임할 수 없습니다."),
     // 권한
     GUEST_FORBIDDEN(HttpStatus.FORBIDDEN, "게스트는 이 작업을 수행할 권한이 없습니다."),
     NOT_OWNER(HttpStatus.FORBIDDEN, "그룹장만 수행할 수 있습니다."),

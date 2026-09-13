@@ -22,6 +22,8 @@ location = /actuator { return 404; }
 
 # 신규 앱 API: 정확한 루트와 / 하위만 연결한다. URI·쿼리·본문을 재작성하지 않는다.
 # /auth/sessions의 선택 AT/RT 등 인증 예외는 Business의 개별 계약이 결정한다.
+# POST /islands/{islandId}/host-transfer도 아래 islands 분기가 전달한다.
+# 라우팅과 기능 활성화는 별개다. Data의 위임 gate는 Realtime 준비 전까지 기본 503이다.
 # legacy 링크 IP 증명용 시크릿은 필요 없다. 앱 JWT를 검증한 Business만 내부 위임을 만든다.
 location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews)(?:/|$) {
     proxy_pass http://__BUSINESS_UPSTREAM__;

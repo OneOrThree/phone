@@ -10,7 +10,8 @@ import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.group.dto.UpdateGroupRequest;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
-import org.springframework.dao.OptimisticLockingFailureException;
+import com.oneorthree.phone.group.exception.GroupErrorCode;
+import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.repository.AggregateVersionRepository;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
@@ -362,10 +363,10 @@ class SatelliteCommandConcurrencyTest {
             });
             withdrawRef.get().get(30, TimeUnit.SECONDS);
             Object renameFailure = renameRef.get().get(30, TimeUnit.SECONDS);
-            if (renameFailure != null) {
-                // 종료가 먼저 커밋하면 이미 읽어 둔 Group @Version의 충돌은 정상이다.
-                assertThat(renameFailure).isInstanceOf(OptimisticLockingFailureException.class);
-            }
+            // 이름 변경도 그룹 잠금을 먼저 잡으므로 종료 커밋 뒤의 활성 멤버십을 읽는다.
+            // 오래된 Group의 낙관적 충돌 대신 이탈한 요청자의 권한 거절이 반드시 나와야 한다.
+            assertThat(renameFailure).isInstanceOfSatisfying(GroupException.class,
+                    failure -> assertThat(failure.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY));
 
             GroupMember after = tx().execute(status -> groupMemberRepository
                     .findAnyByUserAndGroup(userRepository.findById(ownerId).orElseThrow(),

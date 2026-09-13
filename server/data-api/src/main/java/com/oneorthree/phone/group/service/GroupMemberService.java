@@ -11,9 +11,11 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -42,6 +44,8 @@ public class GroupMemberService {
     private final UserQueryService userQueryService;
     private final UserActivityEventLogger userActivityEventLogger;
     private final GroupBetService groupBetService;
+    private final GroupMembershipMutationLocks membershipLocks;
+    private final IslandMembershipEvents membershipEvents;
     /**
      * 멤버십 전이·그룹 종료를 링크 서버로 나르는 내구 명령 (A22 ⓑ · ㋢). 같은 트랜잭션에서 적는다 —
      * 커밋 후 발행이면 응답 유실·프로세스 종료 시 보낼 주체가 사라진다.
@@ -60,33 +64,30 @@ public class GroupMemberService {
      */
     @Transactional
     public void transferOwner(UUID groupId, UUID targetUserId, UUID userId) {
-        // 요청자도 공유 락 (GROMO-1227) — 801 은 아래 대상만 고치고 요청자를 놓쳤다. 락 없는
-        // findById 면 요청자 본인의 계정 탈퇴와 직렬화되지 않아, 탈퇴가 오너 검사를 통과한 뒤에
-        // 이 위임이 끼면 탈퇴 확정 계정이 마지막 오너 권한 행사를 한 상태가 남는다.
-        User user = requireActiveUser(userId);
+        transferOwnerAndRecord(groupId, targetUserId, userId);
+    }
 
-        // 위임 대상은 활성 검증 + 공유 락 (GROMO-801, codex 리뷰) — 락 없는 findById 면 대상의 계정
-        // 탈퇴(유저 행 배타 락)와 직렬화되지 않는다. 변경 컬럼만 저장해도 활성 판정 뒤 탈퇴한 계정에
-        // OWNER 역할을 넘기는 경합은 막지 못한다. 탈퇴가 먼저 커밋되면 여기서 삭제를 관측해 거절한다.
-        //
-        // GROMO-1247: 여기는 <b>대상</b> 유저라 USER_NOT_FOUND(요청자 세션 사망 → 재로그인)로 바꾸지
-        // 않는다. 방장이 없는 유저를 지목한 것이지 내 세션이 죽은 게 아니다 — 바꾸면 앱이 멀쩡한
-        // 방장을 로그아웃시킨다. GROMO-1725: 대상 유저 부재는 TARGET_USER_NOT_FOUND, 바로 아래
-        // 멤버십 부재는 NOT_FOUND(그룹 안의 것) — 앱이 둘을 다른 문구로 가른다(1726).
-        User targetUser = userQueryService.getTargetForShare(targetUserId);
-
+    /** 새 내부 명령도 기존 역할 전이를 공유하며 봉투는 receipt에 같은 TX로 보존한다. */
+    @Transactional
+    public EventEnvelope transferOwnerAndRecord(UUID groupId, UUID targetUserId, UUID userId) {
+        var locked = GroupMemberUserLocks.lock(userQueryService, userId, targetUserId);
+        User user = locked.caller();
+        User targetUser = locked.requireTarget();
+        membershipLocks.lockGroup(groupId);
+        membershipLocks.lockMembers(groupId, List.of(userId, targetUserId));
         Group group = groupQueryService.getGroup(groupId);
-
         GroupMember hostGroupMember = groupQueryService.findMembership(user, group)
                 .filter(m -> m.getRole() == GroupMemberRole.OWNER)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER));
-
         GroupMember targetGroupMember = groupQueryService.findMembership(targetUser, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-
-        // GROMO-676: groups.host_id 폐기 — 방장 이양은 group_members.role 교체(OWNER↔MEMBER)로만 수행한다.
+        // 기존 자기 위임은 상태 변화 없는 성공이다. 신규 공개 명령은 별도409로 거절한다.
+        if (userId.equals(targetUserId)) {
+            return null;
+        }
         hostGroupMember.demoteToMember();
         targetGroupMember.promoteToOwner();
+        return membershipEvents.transferred(groupId, userId, targetUserId);
     }
 
     /**
@@ -99,7 +100,10 @@ public class GroupMemberService {
     @Transactional
     public void kickMember(UUID groupId, UUID targetUserId, UUID userId) {
         // 요청자 공유 락 (GROMO-1227) — 근거는 requireActiveUser Javadoc.
-        User user = requireActiveUser(userId);
+        var locked = GroupMemberUserLocks.lock(userQueryService, userId, targetUserId);
+        User user = locked.caller();
+        membershipLocks.lockGroup(groupId);
+        membershipLocks.lockMembers(groupId, List.of(userId, targetUserId));
 
         Group group = groupQueryService.getGroup(groupId);
 
@@ -117,7 +121,7 @@ public class GroupMemberService {
         // kick()과 계정 탈퇴의 leave()는 같은 이탈 사유를 바꾸므로 변경 컬럼만 저장해도 경합한다. 탈퇴가 먼저
         // 커밋되면 여기서 삭제를 관측하고 TARGET_USER_NOT_FOUND 로 거절된다(GROMO-1725).
         // GROMO-1247: transferOwner 대상과 같은 이유로 USER_NOT_FOUND 로 바꾸지 않는다(대상 유저다).
-        User targetUser = userQueryService.getTargetForShare(targetUserId);
+        User targetUser = locked.requireTarget();
         // 표시정보 갱신과 같은 순서로 멤버십 → LINK aggregate를 잠근다.
         // 더티 갱신의 flush에 맡기면 aggregate를 먼저 잡아 그룹명 변경과 교착할 수 있다.
         GroupMember target = groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(
@@ -130,6 +134,7 @@ public class GroupMemberService {
         // 그것이 실패했을 때 예전 slug 가 살아 «비공개 그룹 무단 가입»이 된다 — 같은 트랜잭션에서
         // outbox 를 적고 relay 가 재전달한다.
         linkMembershipEventService.recordMembershipRevoked(target);
+        membershipEvents.changed(groupId, userId, "MEMBER_REMOVED");
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
     }
 
@@ -150,7 +155,8 @@ public class GroupMemberService {
         // 이 User 를 그대로 밀어넣는다. 락 없는 stale User 면 내기 참가 정리(#503)가 계정 탈퇴와
         // 직렬화되지 않아, 막아둔 구멍을 옆문으로 다시 여는 셈이다.
         User user = requireActiveUser(userId);
-        // 마지막 멤버는 그룹도 닫는다. 이름 변경과 같은 그룹 → 멤버십 순서로 잠근다.
+        membershipLocks.lockGroup(groupId);
+        membershipLocks.lockMembers(groupId, List.of(userId));
         Group group = groupQueryService.getGroupForUpdate(groupId);
         GroupMember groupMember = groupQueryService.getMembership(user, group);
 
@@ -177,7 +183,23 @@ public class GroupMemberService {
             groupMember.leave();
             linkMembershipEventService.recordMembershipRevoked(groupMember);
         }
+        membershipEvents.changed(groupId, userId, "MEMBER_REMOVED");
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
+    }
+
+    /**
+     * 계정 탈퇴의 users 배타 잠금 직후, 세션·USER outbox보다 먼저 관련 그룹을 전부 잠근다.
+     * 챌린지 생성의 BEFORE_COMMIT 알림은 그룹 → 수신자 USER aggregate 순서이므로 탈퇴도
+     * 같은 순서를 따른다. 가입·이탈은 users 잠금과 직렬화되어 이 목록은 탈퇴 TX 동안 안정적이다.
+     *
+     * @param user 호출자가 배타 잠금으로 로드한 탈퇴 대상
+     * @return 선점한 활성 그룹 ID 목록
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<UUID> lockGroupsForAccountWithdrawal(User user) {
+        List<UUID> groupIds = groupMemberRepository.findActiveGroupIdsByUserId(user.getId());
+        membershipLocks.lockGroups(groupIds);
+        return groupIds;
     }
 
     /**
@@ -216,6 +238,11 @@ public class GroupMemberService {
     @Transactional
     public void detachWithdrawnUser(User user) {
         UUID userId = user.getId();
+        // 원 진입점은 USER outbox 전에 이미 선점했다. 직접 진입도 같은 그룹 잠금을 재확인한다.
+        // 환불은 기존대로 모든 bet ID를 먼저 잠근 뒤 수행하며 그룹별 환불 루프로 바꾸지 않는다.
+        List<UUID> groupIds = lockGroupsForAccountWithdrawal(user);
+        groupIds.stream().distinct().sorted()
+                .forEach(groupId -> membershipLocks.lockMembers(groupId, List.of(userId)));
 
         for (GroupMember ownerMembership : groupMemberRepository.findActiveOwnerMembershipsByUserId(userId)) {
             // 이탈 «전»에 포착한다 — leave() 뒤에 조회하면 isLeft 필터에 걸려 목록이 비고,
@@ -224,6 +251,7 @@ public class GroupMemberService {
             if (recipients.size() <= 1) {
                 ownerMembership.leave();
                 linkMembershipEventService.recordMembershipRevoked(ownerMembership);
+                membershipEvents.changed(ownerMembership.getGroup().getId(), userId, "MEMBER_REMOVED");
                 ownerMembership.getGroup().close();
                 // 그룹 종료도 함께 전달한다(㋢). 폐기만 보내면 그 그룹의 «다른» 발급자 링크가 남는다.
                 linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup(), recipients);
@@ -244,6 +272,7 @@ public class GroupMemberService {
                     .ifPresent(locked -> {
                         locked.leave();
                         linkMembershipEventService.recordMembershipRevoked(locked);
+                        membershipEvents.changed(locked.getGroup().getId(), userId, "MEMBER_REMOVED");
                     });
         }
     }

@@ -48,6 +48,12 @@ class GroupAnnouncementServiceTest {
     private GroupAnnouncementService groupAnnouncementService;
 
     @Mock
+    private GroupMembershipMutationLocks membershipLocks;
+
+    @Mock
+    private IslandMembershipEvents membershipEvents;
+
+    @Mock
     private GroupQueryService groupQueryService;
 
     @Mock

@@ -844,3 +844,62 @@ Data가 저장한 종료 증거의 유효성, 사용자 비활성·세대 변경
 입력 및 성공 DTO의 엄격한 검증, Data 401과 서비스 401 구분, 수신 후 응답 유실과 동일 자격 재시도를
 검증한다. Data의 DB 잠금·폐기 원자성과 재생 권한은 Data 세션 종료 테스트에서 별도로 확인한다.
 이 경로 추가가 다른 계정 API나 전체 66개 계약의 구현 완료를 뜻하지 않는다.
+
+
+## 방장 위임 명령 기반: 열쇠를 넘긴 사실까지 함께 기록하기
+
+`POST /islands/{islandId}/host-transfer`의 입력은 `{targetUserId}`와 UUID `Idempotency-Key`다.
+본인의 서명된 sid/gen을 Data에 전달하고, Data가 현재 세션과 역할을 같은 쓰기 트랜잭션에서 검사한다.
+기존 방장을 주민으로 내리는 변경과 새 방장을 올리는 변경은 함께 성공하거나 함께 취소된다.
+성공 응답은 `{data:{hostUserId,version}}`이며 version은 별도 `ISLAND_MEMBERS` 축이다.
+원본에 없는 expectedVersion을 요구하거나 초대 membershipEpoch를 올리지 않는다.
+
+**현재는 기술 기반이며 공개 활성화 완료가 아니다.** Data의
+`island-management.host-transfer-enabled`는 기본 false다. 이 상태의 새 명령은
+503 `SERVICE_UNAVAILABLE`로 끝나며 역할·receipt·version·outbox를 변경하지 않는다.
+신규 Realtime 수신/현재 인가/주민 snapshot/재연결 복구가 준비되기 전 운영에서 켜지 않는다.
+이 PR을 활성 구현 API 개수에 추가하지 않는다.
+
+```mermaid
+sequenceDiagram
+    participant App as 앱
+    participant B as Business
+    participant D as Data
+    participant DB as Data DB
+    App->>B: 위임 POST + targetUserId + 같은 UUID 키
+    B->>B: 서명 sid/gen·정확한 본문·UUID 검증
+    B->>D: 내부 위임 + 서비스 자격 + 본인·session·generation
+    alt 기본 비활성
+        D-->>B: REALTIME_NOT_READY (변경 없음)
+        B-->>App: 503 SERVICE_UNAVAILABLE
+    else 검증 환경의 명령 경로
+        D->>DB: 사용자 잠금·현재 세션 인증·원 receipt 조회
+        alt 완료 receipt 있음
+            D->>D: 현재 본인 인증과 원 명령 지문 재검사
+        else 새 명령
+            D->>DB: 그룹·멤버십 잠금 후 현재 방장·대상 확인
+            D->>DB: 역할 교체·주민 version·최소 결과·REALTIME 전달 행 저장
+        end
+        DB-->>D: 모두 커밋
+        D-->>B: hostUserId + 원 version
+        B-->>App: data 봉투
+        Note over D,DB: 전용 transport 미등록 상태에서는 미전달로 내구 보류
+    end
+```
+
+응답을 잃어도 같은 키·대상으로 재전송하면 원 결과만 재생한다. 위임 성공으로 방장 권한을 잃은 본인도
+현재 계정/세션 인증이 유효하면 비민감한 완료 증거를 받을 수 있다. 새 위임을 다시 실행하거나 target의
+현재 역할로 원 결과를 바꾸지 않는다. 같은 키 다른 대상은 충돌이며, 새 키 요청은 현재 방장 권한을 검사한다.
+
+신규 `REALTIME` 대상은 Notification/Kafka/Link로 보내지 않는다. 전용 transport가 없으면 기존 relay는
+이 대상을 선점하지 않고 전달 행을 보존한다. 기존 내부 알림 봉투와 공개 실시간 봉투는 다른 계약이다.
+기존 가입·위임·이탈·계정 탈퇴도 같은 주민 버전과 REALTIME 전달 행을 기록하므로 새 공개 위임이
+비활성이어도 보류 행은 쌓인다. 이 단계에는 자동 소진/삭제가 없으며 전용 전달 경로를 붙일 때
+보류량·가장 오래된 행과 재전달 결과를 확인해야 한다. 보류를 전달 성공으로 표시하지 않는다.
+이 대상의 내부 userId는 인증된 명령 주체 참조이며 수신자 선택 근거가 아니다. 향후 전용 어댑터는
+현재 섬 주민/권한을 확인하고 공개 `{islandId,version}`만 구성해야 한다. 내부 역할 변경 정보나 명령
+주체를 개인 알림 수신자로 재해석하지 않는다. 저장·Redis publish·실제 소켓 전달 완료를 합치지 않는다.
+
+후속 활성화 조건은 원본 주민 목록 snapshot, 구독 완료 후 재조회/버퍼 병합, 최종 outbound의 현재
+멤버십 검사, 재시작/재전달/다중 노드 검증이다. 아직 열리지 않은 가입신청 개인큐나 다른 13개 사건을
+이 위임 때문에 함께 열지 않는다. 기존 위임·가입·이탈·계정 탈퇴의 잠금과 legacy 응답 호환도 회귀 대상이다.
