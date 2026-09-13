@@ -136,6 +136,16 @@ class PlanTest(unittest.TestCase):
 
 
 class TimingsTest(unittest.TestCase):
+    def test_reused_success_is_not_counted_as_a_new_execution(self):
+        # 실제 rerun API 응답: 새 check 생성 시각보다 과거의 성공 시각이 복사된다.
+        record = timings.job_record({'status': 'completed', 'runner_name': 'gromo-dev-build-1',
+                                     'created_at': '2026-09-13T08:51:44Z',
+                                     'started_at': '2026-09-13T08:18:14Z',
+                                     'completed_at': '2026-09-13T08:28:49Z'})
+        self.assertTrue(record['reused_from_previous_attempt'])
+        self.assertIsNone(record['queue_seconds'])
+        self.assertIsNone(record['execution_seconds'])
+
     def test_unassigned_queued_job_is_not_zero_seconds_of_wait(self):
         record = timings.job_record({'status': 'queued', 'runner_name': '',
                                      'created_at': '2026-09-13T05:59:09Z',

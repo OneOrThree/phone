@@ -13,13 +13,20 @@ def seconds(start, end):
 
 
 def job_record(job):
-    fields = ('id', 'name', 'status', 'conclusion', 'created_at', 'started_at',
+    fields = ('id', 'name', 'run_attempt', 'status', 'conclusion', 'created_at', 'started_at',
               'completed_at', 'runner_name', 'html_url')
     record = {key: job.get(key) for key in fields}
+    # 실패 잡만 재실행하면 이전 성공 잡의 시간이 새 check에 복사된다.
+    # 새 created_at보다 완료가 앞선 잡은 이번 시도에서 다시 실행한 것이 아니다.
+    reused = bool(job.get('completed_at') and job.get('created_at')
+                  and seconds(job['created_at'], job['completed_at']) < 0)
+    record['reused_from_previous_attempt'] = reused
     # queued인데 started_at=created_at으로 채워지는 API 응답을 0초 대기로 오독하지 않는다.
-    started = bool(job.get('runner_name')) and job['status'] != 'queued'
+    started = bool(job.get('runner_name')) and job['status'] != 'queued' and not reused
     record['queue_seconds'] = (seconds(job['created_at'], job['started_at'])
                                if started and job.get('started_at') else None)
+    if record['queue_seconds'] is not None and record['queue_seconds'] < 0:
+        record['queue_seconds'] = None
     record['execution_seconds'] = (seconds(job['started_at'], job['completed_at'])
                                    if started and job.get('completed_at') else None)
     record['steps'] = [{key: step.get(key) for key in
