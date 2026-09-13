@@ -829,6 +829,62 @@
         }
       }
     },
+    "/internal/islands/{islandId}/host-transfer": {
+      "post": {
+        "tags": [
+          "internal-host-transfer-controller"
+        ],
+        "operationId": "transfer",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostTransferResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/invite-links/claim-intents": {
       "get": {
         "tags": [
@@ -7347,6 +7403,41 @@
           },
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "HostTransferRequest": {
+        "type": "object",
+        "properties": {
+          "targetUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authGeneration": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "authGeneration",
+          "sessionId",
+          "targetUserId"
+        ]
+      },
+      "HostTransferResponse": {
+        "type": "object",
+        "properties": {
+          "hostUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
