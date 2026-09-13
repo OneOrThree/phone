@@ -699,7 +699,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ChallengeResultAckRequest"
+                "$ref": "#/components/schemas/InternalResultAckRequest"
               }
             }
           },
@@ -4499,6 +4499,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "ackDeadlineAt",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
           }
         ],
         "responses": {
@@ -7062,6 +7071,10 @@
           "version": {
             "type": "integer",
             "format": "int64"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {}
           }
         }
       },
@@ -7226,6 +7239,10 @@
           "authGeneration": {
             "type": "integer",
             "format": "int64"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -7247,14 +7264,21 @@
           }
         }
       },
-      "ChallengeResultAckRequest": {
+      "InternalResultAckRequest": {
         "type": "object",
         "properties": {
           "claimToken": {
             "type": "string",
             "format": "uuid"
+          },
+          "ackDeadlineAt": {
+            "type": "string",
+            "format": "date-time"
           }
-        }
+        },
+        "required": [
+          "ackDeadlineAt"
+        ]
       },
       "NotificationEligibilityRequest": {
         "type": "object",
@@ -7274,6 +7298,10 @@
           "params": {
             "type": "object",
             "additionalProperties": {}
+          },
+          "adminTestRequestedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -7360,6 +7388,9 @@
           "leaseToken": {
             "type": "string",
             "format": "uuid"
+          },
+          "terminalCode": {
+            "type": "string"
           }
         },
         "required": [
@@ -7541,6 +7572,15 @@
         "properties": {
           "result": {
             "type": "string"
+          }
+        }
+      },
+      "ChallengeResultAckRequest": {
+        "type": "object",
+        "properties": {
+          "claimToken": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
