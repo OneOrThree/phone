@@ -13,6 +13,7 @@
 
 - 최초 Python 전체 77건 통과(신규 CI 회귀 12건 포함).
 - 원격 재실행 집계 보정 후 Python 전체 78건 통과(42.3초). 이전 성공 잡의 시각이 새 check에 복사된 실제 응답을 회귀 사례로 추가했다. 서비스 소스·Dockerfile·workflow는 최초 검증본과 동일하다.
+- 미배정 취소 잡의 1초 시각 역전을 재사용으로 오분류하지 않도록 보완 후 Python 전체 79건 통과(41.531초). 보관된 실제 응답의 취소 잡과 이전 성공 재사용 잡을 대조했다.
 - A22 producer 19종·template 92개 계약 통과.
 - Data/Noti canonical records 5종의 실제 Jackson 체크섬 대조 통과.
 - actionlint 1.7.12: 수정 workflow의 새 오류 없음. 기존 self-hosted 라벨을 등록하고 기존 비활성 pr-report의 `if: false` 경고만 제외. ShellCheck는 별도로 실행하지 않았다.

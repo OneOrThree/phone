@@ -18,7 +18,8 @@ def job_record(job):
     record = {key: job.get(key) for key in fields}
     # 실패 잡만 재실행하면 이전 성공 잡의 시간이 새 check에 복사된다.
     # 새 created_at보다 완료가 앞선 잡은 이번 시도에서 다시 실행한 것이 아니다.
-    reused = bool(job.get('completed_at') and job.get('created_at')
+    reused = bool(job.get('conclusion') == 'success' and job.get('runner_name')
+                  and job.get('completed_at') and job.get('created_at')
                   and seconds(job['created_at'], job['completed_at']) < 0)
     record['reused_from_previous_attempt'] = reused
     # queued인데 started_at=created_at으로 채워지는 API 응답을 0초 대기로 오독하지 않는다.

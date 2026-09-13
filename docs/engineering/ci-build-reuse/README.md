@@ -11,6 +11,8 @@
 “이미지 빌드가 느리다”는 관찰을 러너 대기와 실제 실행으로 나눠 조사했다.
 GitHub Actions Jobs API의 `created_at → started_at`을 대기,
 `started_at → completed_at`을 실행으로 계산했다. 실행에는 checkout·캐시·정리가 포함된다.
+이전 성공 잡의 시각이 새 check에 복사되면 재사용으로 표시하고 이번 대기·실행 집계에서 제외한다.
+러너를 배정받지 못한 취소 잡의 시각 역전은 성공 재사용으로 분류하지 않는다.
 `queued` 응답이 `started_at=created_at`을 반환해도 러너가 배정되지 않았으면 대기는 미확정(null)으로 둔다.
 
 ### 변경 전 실제 기록

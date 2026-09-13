@@ -12,5 +12,13 @@
     "server/realtime": "59e5dbee442dea96ca94ce9af3e6d629410e2ec9",
     ".github/workflows": "1c9f630e3c6a69ef13a8e764cbff54c826b6e161",
     ".github/actions/ci-jar": "c4c430ee1af52d2189b0b68e588f87c16b30ee6a"
+  },
+  "cancelled_placeholder_followup": {
+    "tests": 79,
+    "seconds": 41.531,
+    "exit_code": 0,
+    "log_sha256": "ab6c1a02b812a2f2eae570fd657e9e5ffe03519f0a2db999d5ecc4aee0d8b4bb",
+    "captured_cancelled_job": 103701679765,
+    "expected_reused_from_previous_attempt": false
   }
 }
