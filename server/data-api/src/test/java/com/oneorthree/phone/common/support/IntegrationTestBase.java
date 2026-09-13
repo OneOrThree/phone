@@ -7,9 +7,9 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest
 public abstract class IntegrationTestBase {
 
-    // 컨테이너만 공유하고 컨텍스트별 create-drop 스키마 수명은 격리한다.
+    // 컨테이너 비용은 공유하고 create-drop의 생성·종료는 컨텍스트별 스키마에 가둔다.
     @DynamicPropertySource
     static void overrideProperties(DynamicPropertyRegistry registry) {
-        TestPostgres.registerIsolatedSchema(registry);
+        TestPostgres.applyContextWiring(registry);
     }
 }

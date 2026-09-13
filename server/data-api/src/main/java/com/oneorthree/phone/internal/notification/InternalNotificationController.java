@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
+import java.time.Instant;
 
 /**
  * 알림 서버 → Data 조회 표면 — <b>세 종류뿐이다</b> (계약 §2 · A22).
@@ -81,10 +82,10 @@ public class InternalNotificationController {
      */
     @GetMapping("/internal/users/{userId}/result-ack")
     public ResponseEntity<ResultAckStateResponse> readResultAck(
-            @PathVariable UUID userId, @RequestParam UUID sessionId) {
+            @PathVariable UUID userId, @RequestParam UUID sessionId, @RequestParam Instant ackDeadlineAt) {
 
         ChallengeResultAckService.ResultAckState state =
-                challengeResultAckService.readAckState(userId, sessionId);
+                challengeResultAckService.readAckState(userId, sessionId, ackDeadlineAt);
         return ResponseEntity.ok(
                 new ResultAckStateResponse(state.acknowledged(), state.acknowledgedAt()));
     }

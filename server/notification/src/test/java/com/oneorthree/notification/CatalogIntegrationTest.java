@@ -34,6 +34,48 @@ class CatalogIntegrationTest {
     @MockitoBean PushTransport transport;
 
     @Test
+    void challengeGoalUsesAllFourTemplateLanguages() {
+        Map<String, Object> params = inputs();
+        params.put("mission", Map.of("type", "DURATION", "category", "FOCUS", "durationMinutes", 30));
+        Map<String, String> expected = Map.of("ko", "하루 30분 집중", "en", "30 min focus per day",
+                "ja", "毎日30分の集中", "zh-Hant", "每天30分鐘專注");
+        expected.forEach((locale, goal) -> assertThat(renderer.render("CHALLENGE_CREATED", locale, params).body())
+                .startsWith(goal));
+        assertThat(params).containsEntry("missionLabel", "20분 집중");
+    }
+
+    @Test
+    void challengeWindowKeepsDaysTimesAndCategoryInRecipientLanguage() {
+        Map<String, Object> params = inputs();
+        Map<String, Object> mission = new LinkedHashMap<>(Map.of("type", "TIME_WINDOW", "category", "SCREEN_TIME",
+                "repeatDays", List.of("MON", "WED", "FRI"), "windowStart", "21:00", "windowEnd", "23:30",
+                "durationMinutes", 30));
+        params.put("mission", mission);
+        Map<String, String> expected = Map.of("ko", "월·수·금 21:00~23:30 30분 스크린타임",
+                "en", "Mon·Wed·Fri 21:00~23:30 30 min screen time",
+                "ja", "月·水·金 21:00~23:30 30分のスクリーンタイム",
+                "zh-Hant", "週一·週三·週五 21:00~23:30 30分鐘螢幕使用時間");
+        expected.forEach((locale, goal) -> assertThat(renderer.render("CHALLENGE_CREATED", locale, params).body())
+                .startsWith(goal));
+        mission.remove("durationMinutes");
+        assertThat(renderer.render("CHALLENGE_CREATED", "en", params).body())
+                .startsWith("Mon·Wed·Fri 21:00~23:30 screen time");
+    }
+
+    @Test
+    void challengeGoalUsesActualFallbackTemplateLanguageAndMissingDetailStaysHonest() {
+        Map<String, Object> params = inputs();
+        params.put("mission", Map.of("type", "DURATION", "category", "FOCUS"));
+        assertThat(renderer.render("CHALLENGE_CREATED", "en", params).body()).startsWith("focus time");
+        store.update("UPDATE templates SET enabled=false WHERE kind='CHALLENGE_CREATED' AND locale='en'");
+        try {
+            assertThat(renderer.render("CHALLENGE_CREATED", "en", params).body()).startsWith("집중 시간");
+        } finally {
+            store.update("UPDATE templates SET enabled=true WHERE kind='CHALLENGE_CREATED' AND locale='en'");
+        }
+    }
+
+    @Test
     void actualFourLocaleCatalogRendersEveryKindIncludingSilentAndBundles() {
         Map<String, Object> params = inputs();
         List<Map<String, Object>> kinds = store.rows("SELECT id,silent FROM kinds");

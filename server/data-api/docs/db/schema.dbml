@@ -984,6 +984,7 @@ Table auth_sessions [note: '로그인 세션 한 건 — 세션 축 (V52, A22 �
   revoke_reason        varchar(30)
   logout_refresh_expires_at timestamptz [note: 'V53 신규 RT-only 로그아웃에서 확정한 원 RT 만료. 원 refresh hash와 LOGOUT 사유로만 재생하며 기존 행 NULL은 증명 아님']
   legacy               boolean     [not null, default: false, note: '구 RT 승격 행인가(㋪). 백필 행은 bootstrap nonce 가 없어 무토큰 소유권 이전 예외를 열지 않는다']
+  legacy_device_token  text        [note: 'V54: 구 RT 승격 당시의 이관 기기. 회전 뒤에도 보존하며 RT-only 로그아웃이 새 세션의 현재 기기를 추정하지 않는다. 기존 행은 역채우지 않는다']
   created_at           timestamptz [not null]
   updated_at           timestamptz [not null]
 
@@ -1245,3 +1246,27 @@ Ref: event_outbox_deliveries.outbox_id > event_outbox.id
 Ref: users.occupation > occupations.code
 Ref: occupation_default_tags.occupation > occupations.code
 Ref: occupation_default_tags.default_tag_id > default_tags.id
+
+
+// 결과 슬롯 완료 (V53). 서비스 간 FK 없이 사건 전달/이관 이후에도 보존한다.
+Table notification_result_bundle_members {
+  event_id varchar(200) [pk]
+  user_id uuid [not null]
+  group_id uuid [not null]
+  slot_at timestamptz [not null]
+  indexes { (group_id, slot_at, user_id) }
+}
+Table notification_result_bundle_slots {
+  group_id uuid [not null]
+  slot_at timestamptz [not null]
+  sealed_at timestamptz [not null]
+  indexes { (group_id, slot_at) [pk] }
+}
+Table notification_result_bundle_manifests {
+  user_id uuid [not null]
+  group_id uuid [not null]
+  slot_at timestamptz [not null]
+  event_ids jsonb [not null, note: '정렬한 불변 기대 사건 id 집합']
+  published_at timestamptz [note: '완료 outbox 저장과 같은 트랜잭션에서 기록']
+  indexes { (user_id, group_id, slot_at) [pk] }
+}

@@ -55,8 +55,11 @@ class InternalController {
             @RequestHeader(value = "X-Device-Token", required = false) String token,
             @RequestHeader(value = "X-Device-Ownership", required = false) String owner,
             @RequestHeader(value = "X-Auth-Generation", required = false) Long generation,
+            @RequestHeader(value = "X-Device-Session", required = false) String sessionId,
+            @RequestHeader(value = "X-Device-Bootstrap-Hash", required = false) String bootstrapHash,
             HttpServletRequest request) {
-        return devices.delete(ServiceAuth.delegatedUser(request), token, owner, generation, key);
+        return devices.delete(ServiceAuth.delegatedUser(request), token, owner, generation,
+                sessionId, bootstrapHash, key);
     }
 
     @GetMapping("/internal/users/{userId}/notification-settings")

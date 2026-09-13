@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -214,11 +215,22 @@ public class LinkMembershipEventService {
      * <p>활성 멤버별로 펼친다(㊢). 링크 원장은 {@code (groupId, inviterId)} 단위이고 순서도 그 축이라,
      * 한 건으로 보내면 어느 축에 적용할지 정할 수 없다.
      *
-     * @param group 종료된 그룹 — {@code close()} 가 «이미 끝난» 상태여야 한다
+     * <h2>대상을 «여기서» 조회하지 않는 이유</h2>
+     * 자동 종료 경로는 전부 <b>마지막 1인을 {@code leave()} 한 뒤</b> 이 메서드를 부른다. 그런데
+     * {@code findByGroup} 은 {@code isLeft=false} 만 조회하고, JPQL 실행 «전»에 변경이 flush 되므로
+     * 여기서 조회하면 <b>목록이 언제나 비어</b> {@code group.closed} 봉투가 한 건도 만들어지지 않는다.
+     * 별도 종료 사건이 없으면 링크 서버에 그룹 tombstone 이 남지 않아, 종료된 그룹의 slug 가 계속
+     * 랜딩·매치에 성공한다 — 이 메서드가 막으려던 바로 그 상태다.
+     *
+     * <p>그래서 대상을 <b>호출부가 이탈 «전»에 포착해</b> 넘긴다. 조회를 여기에 두면 같은 실수가
+     * 다음 호출부에서 조용히 반복된다 — 인자로 받으면 「언제 뜬 목록인가」가 호출부에 드러난다.
+     *
+     * @param group      종료된 그룹 — {@code close()} 가 «이미 끝난» 상태여야 한다
+     * @param recipients 이탈 «전»에 포착한 활성 멤버. 링크 원장의 발급자 축이 된다
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public void recordGroupClosed(Group group) {
-        for (GroupMember member : groupMemberRepository.findByGroup(group)) {
+    public void recordGroupClosed(Group group, Collection<GroupMember> recipients) {
+        for (GroupMember member : recipients) {
             UUID inviterId = member.getUser().getId();
             long transitionSeq = outboxCommandPort.allocateVersion(
                     AggregateRef.ofLinkMembership(group.getId(), inviterId));

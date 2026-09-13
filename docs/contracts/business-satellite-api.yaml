@@ -309,8 +309,11 @@ paths:
         만 싣는데(`auth.ts:384-387`), **Business 는 DB 가 없어 앞 요청의 값을 기억했다가 뒤 요청에
         전달할 수 없다**.
 
-        `deviceToken` 이 없으면(구 앱은 본문이 없다) outbox 를 계약대로 만들 수 없다 — 그 사실을
-        응답이나 로그로 드러내되 요청을 거절하지는 말라. 거절하면 구 앱의 로그아웃이 전부 실패한다.
+        토큰·소유권이 모두 없으면 Business가 검증한 AT의 `sid`를 `sessionId`로 전달한다.
+        Data는 해당 세션의 사용자 소유자를 검사하고 `sessionId`·`bootstrapNonceHash`를 사건 params와
+        응답 params에 동일하게 담는다. 직접 삭제도 이 범위를 쓰며, Data 조회 실패나 범위 없는 구 응답을
+        사용자 전체 삭제로 대체하지 않는다. sid도 없으면 안전한 no-op 사건으로 소비한다.
+        Data의 단일 legacy 토큰은 명시한 deviceToken과 일치할 때만 지운다.
       parameters:
         - $ref: '#/components/parameters/UserIdPath'
         - $ref: '#/components/parameters/XUserId'
@@ -331,6 +334,10 @@ paths:
                   maxLength: 512
                   format: uuid
                   description: CAS 값(`X-Device-Ownership`, ㊚). null 또는 정규 UUID 표기이며, 잘못된 값은 내구 기록 전에 400으로 거절한다.
+                sessionId:
+                  type: [string, 'null']
+                  format: uuid
+                  description: 토큰·CAS가 없을 때만 쓰는 검증된 AT의 sid. 클라이언트 임의 헤더에서 받지 않는다.
                 authGeneration:
                   type: [integer, 'null']
                   format: int64
@@ -470,6 +477,8 @@ paths:
 
         **`X-User-Id` 가 발급자다.** `inviterId` 를 쿼리로 받지 않는다 — 받으면 Business 가 남을
         발급자로 지정할 수 있는 표면이 생긴다.
+        Business는 응답의 `groupId`가 요청 경로와, `inviterId`가 인증된 발급자와 일치하는지 확인한다.
+        2xx 빈 본문 또는 두 식별자의 누락·불일치는 502이며 Link 발급을 실행하지 않는다.
 
         판정 실패는 **`code` 를 실어** 돌려라: `GROUP_NOT_FOUND`(404) · `NOT_MEMBER`(403). 그 문자열이
         그대로 앱에 중계된다(기존 `InviteLinkErrorCode` 계약).
@@ -597,8 +606,10 @@ paths:
                   pendingTotal:
                     type: integer
                     format: int64
+                    minimum: 0
                     description: |
                       **인플라이트를 포함한 전체 미완료 건수**(다른 작업자의 lease · 재시도 예정 포함).
+                      음수·소수는 계약 오류이며 0으로 정규화하거나 절삭하지 않는다.
                       「미완료 0」 gate 는 이 값으로만 판정한다.
                   items:
                     type: array
@@ -728,7 +739,8 @@ paths:
         오류로 세고, 그 오류가 「미완료 0」 gate 를 거짓으로 막는다.
 
         CLI 는 **상류가 도메인 판정을 내린 경우에도 완료 표시**한다(예: `SLUG_NOT_FOUND`) — 재시도해도
-        답이 같으므로, 완료로 빼지 않으면 그 한 건이 gate 를 영구히 막는다. 판정 내용은 로그에 남는다.
+        답이 같으므로, 완료로 빼지 않으면 그 한 건이 gate 를 영구히 막는다. `terminalCode`를 원장에
+        보존하여 동일 요청 키의 재시도에도 처음 판정을 반환한다. 정상 완료는 과거 재시도 오류를 지운다.
       parameters:
         - $ref: '#/components/parameters/CommandIdPath'
       requestBody:
@@ -745,6 +757,10 @@ paths:
                   description: |
                     lease 응답으로 받은 CAS 값. **현재 임대의 토큰과 다르면 거부하라** — 만료 뒤
                     깨어난 옛 작업자가 새 임대 소유자의 작업을 완료로 빼는 것을 막는 유일한 장치다.
+                terminalCode:
+                  type: string
+                  nullable: true
+                  description: 종결된 상류 거절 코드. 정상 완료이면 생략한다.
       responses:
         '200': { description: 완료 표시됨(또는 같은 토큰으로 이미 완료 — 멱등) }
         '409':
@@ -884,12 +900,13 @@ paths:
       responses:
         '200':
           description: |
-            선점 성공. 응답은 **모양을 늘릴 수 있다**(additive) — Business 는 본문을 그대로 통과시키고
-            필드를 해석하지 않는다(㉹ 제공자 선배포를 지키기 위해서다). 현재는 `{claimToken}`.
+            선점 성공. 기존 claimToken의 UUID 형식만 검증하며 추가 필드는 원문 그대로 전달한다.
+            빈 본문·누락·null·잘못된 토큰은 502 계약 오류다. 비멱등 선점은 자동 재시도하지 않는다.
           content:
             application/json:
               schema:
                 type: object
+                required: [claimToken]
                 properties:
                   claimToken: { type: string, format: uuid }
         '409':
@@ -911,6 +928,11 @@ paths:
         가 이미 본 결과를 뒤늦게 보내지 못하게 막는데, 알림 DB 분리 후엔 그 갱신 대상이
         `gromo_notification` 으로 넘어가 **같은 트랜잭션에 담을 수 없다**.
 
+        `ackDeadlineAt`은 prepare가 반환한 동일 기한이다. Data는 참가 행 잠금을 획득한 뒤
+        DB `clock_timestamp()`가 기한 전인지 확인하고 쓰며, 기한 경과는
+        `RESULT_ACK_DEADLINE_EXPIRED`(409)로 거절한다. 커넥션·행 잠금 대기 중 호출자가 시간 초과돼도
+        미확인 확정 후 늦게 쓰지 못한다. 이미 확인된 결과는 기한 경과에도 멱등 성공이다.
+
         ⚠️ **재시도 대상이 아니다.** `acknowledged_at IS NULL` 조건부 UPDATE 라 두 번째 시도는 0행이
         되고, 그 0행을 실패로 읽으면 이미 성공한 ack 가 실패로 보고된다.
 
@@ -926,13 +948,17 @@ paths:
           application/json:
             schema:
               type: object
-              required: [claimToken]
+              required: [claimToken, ackDeadlineAt]
               properties:
                 claimToken: { type: string, format: uuid }
+                ackDeadlineAt:
+                  type: string
+                  format: date-time
+                  description: Notification prepare가 저장·반환한 실행 기한. Business에서 다시 계산하지 않는다.
       responses:
         '200': { description: 확인 처리됨 }
         '409':
-          description: '`RESULT_CLAIM_STALE` 등 — 그대로 중계된다'
+          description: '`RESULT_CLAIM_STALE` · `RESULT_ACK_DEADLINE_EXPIRED` 등 — 그대로 중계된다'
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
       x-idempotent: false
       x-retryable: false
@@ -948,6 +974,19 @@ paths:
         해제는 `commit` · `abort` · **이 정본 조회로 자기 수렴** 세 길뿐이다. 「롤백 직후 프로세스가
         죽는 구간」에서는 abort 행이 안 생기므로 **이 조회가 유일한 탈출구**다.
 
+        `ackDeadlineAt`은 Notification이 보존한 prepare 기한이며 ACK 쓰기와 같은 값이다.
+        Data는 같은 참가 행 잠금 뒤 최신 상태를 읽고, 확인됨은 즉시 반환한다. 미확인은
+        DB `clock_timestamp() >= ackDeadlineAt`일 때만 확정하며 그 전에는 503으로 재시도를 요구한다.
+        쓰기의 기한 판정도 같은 DB 시계·행 잠금 아래에서 수행하므로 아직 UPDATE 전 커넥션 대기 중인
+        요청은 기한 후 거절되고, 이미 진행 중인 쓰기는 커밋·롤백까지 기다린다. 조회는 행을 변경하지 않는다.
+        잠금·조회 실패도 false로 바꾸지 않으며 Notification은 NEEDS_CONFIRM 억제를 유지한다.
+        참가 행이 없을 때도 같은 기한이 지난 뒤 false/null을 반환한다.
+
+        두 판정은 Data DB 시계의 비퇴행을 전제로 한다. Noti·Business 시계 차이는 대기 시간에 영향을
+        주지만 서로 다른 시계로 쓰기/해제 경계를 판단하지는 않는다. 발송 gate를 닫고 구 Business
+        유입과 구 Data의 커넥션 대기·진행 중 ACK 요청을 drain한 뒤 Data → Notification → Business
+        순서로 배포한다. 기한을 검사하지 않는 구 Data와 새 수렴 경로를 함께 활성화하지 않는다.
+
         토큰은 `SVC_TOKEN_NOTI_TO_DATA` 이고 caller 가 다르므로 허용목록도 별개다(A22 ㊀ · ㉱).
       parameters:
         - $ref: '#/components/parameters/UserIdPath'
@@ -955,6 +994,10 @@ paths:
           in: query
           required: true
           schema: { type: string, format: uuid }
+        - name: ackDeadlineAt
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
       responses:
         '200':
           description: 정본 ack 상태
@@ -965,7 +1008,13 @@ paths:
                 required: [acknowledged]
                 properties:
                   acknowledged: { type: boolean }
-                  acknowledgedAt: { type: [string, 'null'], format: date-time }
+                  acknowledgedAt:
+                    type: [string, 'null']
+                    format: date-time
+                    description: acknowledged=true이면 필수 시각. false이면 null 또는 생략이어야 한다.
+        '503':
+          description: ACK 실행 기한 전의 미확인 또는 조회 장애. 보류를 유지하고 재시도한다.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
       x-idempotent: true
       x-retryable: true
 
@@ -1097,7 +1146,11 @@ paths:
                 type: object
                 required: [ownershipToken]
                 properties:
-                  ownershipToken: { type: string }
+                  ownershipToken:
+                    type: string
+                    format: uuid
+                    pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                    description: 다음 등록·삭제 입력과 같은 정규 UUID. 대소문자는 보존한다.
         '409':
           description: |
             오래된 명령이라 거부했다(세대·소유권·세션 tombstone). **`code` 를 실어라.**
@@ -1133,8 +1186,8 @@ paths:
           required: false
           schema: { type: string, maxLength: 512 }
           description: |
-            삭제 대상 FCM 토큰(㊪). 구 앱은 못 보낸다 — 없으면 유저 단위 삭제로 처리하고 그 기간의
-            경합을 인정하되, **요청을 거절하지 말라**.
+            삭제 대상 FCM 토큰(㊪). 없거나 공백이면 소유권 또는 검증된 세션 범위를 사용한다.
+            어느 범위도 없으면 성공 no-op이며 사용자 전체로 넓히지 않는다.
         - name: X-Device-Ownership
           in: header
           required: false
@@ -1145,6 +1198,16 @@ paths:
           required: false
           schema: { type: integer, format: int64 }
           description: 없으면 **헤더 자체가 없다**. 빈 값이나 0 이 오지 않는다
+        - name: X-Device-Session
+          in: header
+          required: false
+          schema: { type: string, format: uuid }
+          description: 토큰·CAS가 없을 때 Data에서 소유자를 확인한 세션. legacy_session_id와 대조한다.
+        - name: X-Device-Bootstrap-Hash
+          in: header
+          required: false
+          schema: { type: string, pattern: '^[0-9a-f]{64}$' }
+          description: 같은 Data 응답의 bootstrapNonceHash. 해당 세션의 bootstrap 기기도 함께 해제한다.
       responses:
         '204': { description: 삭제됨(또는 이미 없음 — 멱등) }
       x-idempotent: true
@@ -1287,8 +1350,14 @@ paths:
         **자동 발송 재개가 아니다**. 해제는 `commit` · `abort` · **Data 정본 ack 조회로 자기 수렴**
         세 길뿐이다.
 
-        `held=false` 를 실패로 쓰지 말라 — Business 는 그것을 「이미 확정돼 잠글 필요가 없다」로 읽고
-        Data ack 를 계속 진행한다.
+        Business는 `state=HELD, held=true`이고 유효한 `ackDeadlineAt`이 있을 때만 Data ack를 진행한다.
+        기한은 기존 `held_until`에 저장하며 새 prepare에서도 이전 기한보다 줄이지 않는다.
+        응답은 DB에 저장된 실제 값을 반환해 정본 조회와 동일한 기한·정밀도를 사용한다.
+        `CONFIRMED`는 Data 확인이 끝난 종결 상태여서 `held=false`와 기한 부재도 정상이며,
+        Business는 추가 Data 쓰기 없이 성공한다. 상태 누락·미지원 값, 보호 없는 HELD,
+        HELD의 기한 누락·부실 시각은 502로 거부하고 Data ack를 실행하지 않는다.
+        abort와 리스 만료에서도 기한을 보존한다. 구 버전의 기한 없는 행은 위 배포 drain 이후
+        최초 reconcile에서 유한 기한을 한 번 저장하며, 실패 재시도마다 기한을 연장하지 않는다.
       parameters:
         - $ref: '#/components/parameters/UserIdPath'
         - $ref: '#/components/parameters/XUserId'
@@ -1314,7 +1383,19 @@ paths:
                   held: { type: boolean }
                   state:
                     type: string
-                    enum: [HELD, COMMITTED, NEEDS_CONFIRM, NONE]
+                    enum: [HELD, CONFIRMED]
+                  ackDeadlineAt:
+                    type: [string, 'null']
+                    format: date-time
+                    description: HELD에서는 필수 시각. CONFIRMED에서는 null 또는 생략 가능.
+                allOf:
+                  - if:
+                      properties:
+                        state: { const: HELD }
+                    then:
+                      required: [ackDeadlineAt]
+                      properties:
+                        ackDeadlineAt: { type: string, format: date-time }
       x-idempotent: true
       x-retryable: true
 
@@ -1432,15 +1513,15 @@ paths:
                 inviterDisplayName: { type: [string, 'null'] }
       responses:
         '200':
-          description: 발급됨 — 기존 앱 응답 두 필드를 그대로 채운다
+          description: 발급됨 — slug와 url은 null·빈 문자열·공백을 허용하지 않으며 기존 값을 그대로 전달한다
           content:
             application/json:
               schema:
                 type: object
                 required: [slug, url]
                 properties:
-                  slug: { type: string, maxLength: 12 }
-                  url: { type: string }
+                  slug: { type: string, minLength: 1, maxLength: 12, pattern: '\S' }
+                  url: { type: string, minLength: 1, pattern: '\S' }
         '409':
           description: 오래된 명령이라 거부. **`code` 를 실어라**
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
@@ -1501,6 +1582,13 @@ paths:
               schema:
                 type: object
                 required: [claimId, capability]
+                oneOf:
+                  - properties:
+                      claimId: { type: 'null' }
+                      capability: { type: 'null' }
+                  - properties:
+                      claimId: { type: string, format: uuid }
+                      capability: { type: string, minLength: 1, pattern: '\S' }
                 properties:
                   claimId:
                     type: [string, 'null']
@@ -1582,6 +1670,9 @@ paths:
           description: |
             소진 결과. 3시간 매치 창 · deviceId 멱등 · bot/kakao/iPad 분류 · 기존 `SHA-256(ip+salt)` 를
             보존한다(계약 §4).
+            matched=true이면 빈 값이 아닌 slug와 UUID groupId가 모두 필수다.
+            식별자 누락·null·빈 slug는 Business가 502 UPSTREAM_CONTRACT_MISMATCH로 거절한다.
+            matched=false는 두 식별자가 없어도 정상 미매치이며 200을 유지한다.
           content:
             application/json:
               schema:
@@ -1691,6 +1782,10 @@ components:
         내구 명령의 **완성된 봉투**(A22 ㉵). Business 에는 DB 가 없어 outbox 시퀀스를 다시 읽을 수 없으므로
         Data 가 여기까지 채워서 준다.
       properties:
+        params:
+          type: [object, 'null']
+          additionalProperties: true
+          description: 내구 명령에 확정한 입력. 세션 삭제는 최초 봉투의 sessionId·bootstrapNonceHash를 재생한다.
         commandId:
           type: string
           format: uuid
@@ -1701,8 +1796,10 @@ components:
         version:
           type: integer
           format: int64
+          minimum: 1
           description: |
-            **aggregate 행 잠금 아래** 발급된 단조 version(㊸). DB sequence 는 «할당 순서»만 보장하고
+            **aggregate 행 잠금 아래** 발급된 양수 단조 version(㊸). 0·음수 응답은 직접 적용·완료 전에
+            계약 오류로 거절한다. DB sequence 는 «할당 순서»만 보장하고
             커밋 순서를 보장하지 않아, 먼저 번호를 받고 늦게 커밋한 최신 상태가 폐기된다.
             위성은 이 값으로 역순 적용을 막고, **컬렉션 투영은 aggregate 별 version** 을 쓴다(㊂ —
             유저 단위 최대 version 하나면 지연된 앞 회차가 「오래된 것」으로 거부돼 참가 행이 영구 누락).

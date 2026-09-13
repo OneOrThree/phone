@@ -6,12 +6,15 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.sql.Timestamp;
 import java.util.Map;
 import java.util.UUID;
 
 @Service
 class AckService {
+
+    private static final long RETRY_SECONDS = 30;
 
     private final Store store;
     private final DataClient data;
@@ -58,24 +61,38 @@ class AckService {
         // abort도 정본 확인 전에는 해제하지 않는다. 응답 유실로 실제 Data commit일 수 있다.
         store.update("INSERT INTO result_ack(user_id,session_id,state,held_until) VALUES(?,?,?,?)"
                 + " ON CONFLICT(user_id,session_id) DO UPDATE SET state=EXCLUDED.state,"
-                + "held_until=EXCLUDED.held_until,updated_at=now()", user, session, state,
-                "HELD".equals(state) ? Timestamp.from(clock.instant().plusSeconds(30)) : null);
+                + "held_until=CASE WHEN EXCLUDED.state='HELD' THEN"
+                + " GREATEST(result_ack.held_until,EXCLUDED.held_until) ELSE result_ack.held_until END,"
+                + "updated_at=now(),next_reconcile_at=NULL", user, session, state,
+                Timestamp.from(clock.instant().plusSeconds(30)));
         if ("CONFIRMED".equals(state)) {
             suppress(user, session);
+        }
+        if ("HELD".equals(state)) {
+            // 실제 저장값을 반환한다. 재prepare는 이전 기한보다 짧아지지 않고 DB 시각 정밀도도 보존한다.
+            Instant deadline = ((Timestamp) store.one("SELECT held_until FROM result_ack"
+                    + " WHERE user_id=? AND session_id=?", user, session).get("held_until")).toInstant();
+            return Map.of("held", true, "state", state, "ackDeadlineAt", deadline.toString());
         }
         return Map.of("held", true, "state", state);
     }
 
     public void reconcile() {
-        store.update("UPDATE result_ack SET state='NEEDS_CONFIRM' WHERE state='HELD' AND held_until<=?",
+        store.update("UPDATE result_ack SET state='NEEDS_CONFIRM',next_reconcile_at=NULL"
+                + " WHERE state='HELD' AND (held_until IS NULL OR held_until<=?)",
                 Timestamp.from(clock.instant()));
         RuntimeException lastFailure = null;
         for (Map<String, Object> row : store.rows("SELECT user_id,session_id FROM result_ack"
-                + " WHERE state='NEEDS_CONFIRM' ORDER BY updated_at LIMIT 25")) {
+                + " WHERE state='NEEDS_CONFIRM' AND (next_reconcile_at IS NULL OR next_reconcile_at<=?)"
+                + " ORDER BY COALESCE(next_reconcile_at,updated_at),user_id,session_id LIMIT 25",
+                Timestamp.from(clock.instant()))) {
             UUID user = (UUID) row.get("user_id");
             UUID session = (UUID) row.get("session_id");
             try {
-                transaction.executeWithoutResult(ignored -> reconcileOne(user, session));
+                RuntimeException failure = transaction.execute(ignored -> reconcileOne(user, session));
+                if (failure != null) {
+                    lastFailure = failure;
+                }
             } catch (RuntimeException failure) {
                 lastFailure = failure;
             }
@@ -85,20 +102,40 @@ class AckService {
         }
     }
 
-    private void reconcileOne(UUID user, UUID session) {
+    private RuntimeException reconcileOne(UUID user, UUID session) {
         store.lock("ack:" + user + ":" + session);
-        Map<String, Object> pending = store.one("SELECT state FROM result_ack WHERE user_id=? AND session_id=?"
-                + " AND state='NEEDS_CONFIRM' FOR UPDATE SKIP LOCKED", user, session);
+        Map<String, Object> pending = store.one("SELECT state,held_until FROM result_ack"
+                + " WHERE user_id=? AND session_id=?"
+                + " AND state='NEEDS_CONFIRM' AND (next_reconcile_at IS NULL OR next_reconcile_at<=?)"
+                + " FOR UPDATE SKIP LOCKED", user, session, Timestamp.from(clock.instant()));
         if (pending == null) {
-            return;
+            return null;
         }
-        // 실패한 한 건은 억제를 유지하고 다른 유저의 수렴을 막지 않는다.
-        boolean acknowledged = data.acknowledged(user, session);
-        store.update("UPDATE result_ack SET state=?,updated_at=now() WHERE user_id=? AND session_id=?",
+        Timestamp deadline = (Timestamp) pending.get("held_until");
+        if (deadline == null) {
+            // 구 Business/Data의 진행 요청을 drain한 배포에서만 허용되는 이전 행의 1회 복구다.
+            // 실패해도 같은 TX로 저장하므로 재조회마다 기한을 연장하지 않는다.
+            deadline = Timestamp.from(clock.instant().plusSeconds(30));
+            store.update("UPDATE result_ack SET held_until=? WHERE user_id=? AND session_id=?",
+                    deadline, user, session);
+        }
+        boolean acknowledged;
+        try {
+            acknowledged = data.acknowledged(user, session, deadline.toInstant());
+        } catch (RuntimeException failure) {
+            // 이 TX 안에서 잡아야 예약도 롤백되지 않는다. 억제는 유지하고 다음 대상에 차례를 준다.
+            // prepare/commit/abort도 같은 사건 잠금을 쓰므로 새 ack의 상태·예약을 뒤늦게 덮지 않는다.
+            store.update("UPDATE result_ack SET next_reconcile_at=? WHERE user_id=? AND session_id=?",
+                    Timestamp.from(clock.instant().plusSeconds(RETRY_SECONDS)), user, session);
+            return failure;
+        }
+        store.update("UPDATE result_ack SET state=?,updated_at=now(),next_reconcile_at=NULL"
+                + " WHERE user_id=? AND session_id=?",
                 acknowledged ? "CONFIRMED" : "RELEASED", user, session);
         if (acknowledged) {
             suppress(user, session);
         }
+        return null;
     }
 
     private void suppress(UUID user, UUID session) {

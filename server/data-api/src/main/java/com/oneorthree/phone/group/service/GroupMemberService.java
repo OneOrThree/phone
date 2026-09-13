@@ -122,7 +122,10 @@ public class GroupMemberService {
         // 커밋되면 여기서 삭제를 관측하고 TARGET_USER_NOT_FOUND 로 거절된다(GROMO-1725).
         // GROMO-1247: transferOwner 대상과 같은 이유로 USER_NOT_FOUND 로 바꾸지 않는다(대상 유저다).
         User targetUser = locked.requireTarget();
-        GroupMember target = groupQueryService.findMembership(targetUser, group)
+        // 표시정보 갱신과 같은 순서로 멤버십 → LINK aggregate를 잠근다.
+        // 더티 갱신의 flush에 맡기면 aggregate를 먼저 잡아 그룹명 변경과 교착할 수 있다.
+        GroupMember target = groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(
+                        targetUser.getId(), group.getId())
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
         // 강퇴 마킹. 진행 중 내기 판돈은 건드리지 않는다(지갑 생존 → 정산 시 정상 지급/환불, 엔진 무변경).
@@ -154,7 +157,7 @@ public class GroupMemberService {
         User user = requireActiveUser(userId);
         membershipLocks.lockGroup(groupId);
         membershipLocks.lockMembers(groupId, List.of(userId));
-        Group group = groupQueryService.getGroup(groupId);
+        Group group = groupQueryService.getGroupForUpdate(groupId);
         GroupMember groupMember = groupQueryService.getMembership(user, group);
 
         // A-0 소프트삭제: 행을 지우지 않고 이탈 마킹(leave). findByGroup 은 활성만 세므로 마지막 1인 판정 유지.
@@ -173,7 +176,9 @@ public class GroupMemberService {
             group.close();
             // 그룹 종료는 폐기와 «별개 사건»이다(㋢) — 현행 랜딩·매치가 둘 다 findActiveGroup 으로
             // 실시간 판정하므로, 안 보내면 죽은 그룹의 slug 가 계속 랜딩·매치에 성공한다.
-            linkMembershipEventService.recordGroupClosed(group);
+            // 대상은 leave() «전»에 뜬 groupMembers 다. 여기서 다시 조회하면 방금 이탈한 마지막 1인이
+            // 빠져 목록이 비고, group.closed 봉투가 한 건도 만들어지지 않는다.
+            linkMembershipEventService.recordGroupClosed(group, groupMembers);
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
             groupMember.leave();
             linkMembershipEventService.recordMembershipRevoked(groupMember);
@@ -240,13 +245,16 @@ public class GroupMemberService {
                 .forEach(groupId -> membershipLocks.lockMembers(groupId, List.of(userId)));
 
         for (GroupMember ownerMembership : groupMemberRepository.findActiveOwnerMembershipsByUserId(userId)) {
-            if (groupMemberRepository.findByGroup(ownerMembership.getGroup()).size() <= 1) {
+            // 이탈 «전»에 포착한다 — leave() 뒤에 조회하면 isLeft 필터에 걸려 목록이 비고,
+            // 그러면 group.closed 봉투가 한 건도 만들어지지 않는다.
+            List<GroupMember> recipients = groupMemberRepository.findByGroup(ownerMembership.getGroup());
+            if (recipients.size() <= 1) {
                 ownerMembership.leave();
                 linkMembershipEventService.recordMembershipRevoked(ownerMembership);
                 membershipEvents.changed(ownerMembership.getGroup().getId(), userId, "MEMBER_REMOVED");
                 ownerMembership.getGroup().close();
                 // 그룹 종료도 함께 전달한다(㋢). 폐기만 보내면 그 그룹의 «다른» 발급자 링크가 남는다.
-                linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup());
+                linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup(), recipients);
             }
         }
 
@@ -258,9 +266,14 @@ public class GroupMemberService {
         groupBetService.freezeEvidenceForAccountErasure(user);
 
         for (GroupMember membership : groupMemberRepository.findByUser(user)) {
-            membership.leave();
-            linkMembershipEventService.recordMembershipRevoked(membership);
-            membershipEvents.changed(membership.getGroup().getId(), userId, "MEMBER_REMOVED");
+            // 사용자 배타 잠금은 다른 방장의 그룹명 변경을 막지 않는다.
+            // 환불 순서는 유지하고, 이탈 직전에 멤버십 → LINK aggregate 순서를 보장한다.
+            groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(userId, membership.getGroup().getId())
+                    .ifPresent(locked -> {
+                        locked.leave();
+                        linkMembershipEventService.recordMembershipRevoked(locked);
+                        membershipEvents.changed(locked.getGroup().getId(), userId, "MEMBER_REMOVED");
+                    });
         }
     }
 

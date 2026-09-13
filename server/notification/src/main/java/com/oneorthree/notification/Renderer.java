@@ -62,6 +62,9 @@ class Renderer {
         params = renderArguments(params);
         String kind = template.get("kind").toString();
         String locale = template.get("locale").toString();
+        if ("CHALLENGE_CREATED".equals(kind) && params.get("mission") instanceof Map<?, ?>) {
+            params.put("missionLabel", ChallengeMissionRenderer.render(Json.map(params.get("mission")), locale));
+        }
         Map<String, Object> deeplink = store.one("SELECT url_template,data_template::text FROM deeplinks WHERE id=?",
                 kind);
         Map<String, String> data = new LinkedHashMap<>();

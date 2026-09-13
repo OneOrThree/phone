@@ -13,6 +13,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -22,8 +23,8 @@ import java.util.UUID;
 /**
  * 외부 발송은 이 클래스 한 곳만 호출한다.
  *
- * <p><b>외부 호출은 트랜잭션 «밖»에서 돈다.</b> 판정(게이트 · 소유권 · ack · 적격성)은 짧은 트랜잭션
- * 하나로 끝내고, FCM 호출은 그것이 커밋된 뒤에 한다. 한 사용자의 활성 기기 수만큼 순차로 도는 외부
+ * <p><b>외부 호출은 트랜잭션 «밖»에서 돈다.</b> 로컬 판정·묶음 수집을 짧게 커밋한 뒤 Data 적격성을
+ * 조회하고, 새 트랜잭션에서 행 동일성·게이트·소유권·ack를 재확인한다. FCM 호출도 커밋 뒤에 한다. 한 사용자의 활성 기기 수만큼 순차로 도는 외부
  * 호출을 트랜잭션 안에 두면 두 가지가 같이 무너진다:
  *
  * <ul>
@@ -114,17 +115,20 @@ class DispatchService {
     private final DataClient data;
     private final Renderer renderer;
     private final PushTransport transport;
+    private final ResultBundleCompletion resultBundles;
     private final Clock clock;
     private final TransactionTemplate preparation;
     private final TransactionTemplate recording;
 
     DispatchService(Store store, SettingsService settings, DataClient data, Renderer renderer,
-            PushTransport transport, Clock clock, PlatformTransactionManager manager) {
+            PushTransport transport, Clock clock, PlatformTransactionManager manager,
+            ResultBundleCompletion resultBundles) {
         this.store = store;
         this.settings = settings;
         this.data = data;
         this.renderer = renderer;
         this.transport = transport;
+        this.resultBundles = resultBundles;
         this.clock = clock;
         // REQUIRES_NEW 로 못 박는다 — 나중에 누가 이 메서드를 트랜잭션 안에서 부르더라도 판정이
         // 그 트랜잭션에 합류해 외부 호출을 다시 감싸는 일이 없도록.
@@ -145,28 +149,47 @@ class DispatchService {
     /**
      * 후보 한 건(과 같은 묶음에 선 형제들)을 발송한다 — 세 걸음이다.
      *
-     * <p>① 판정 트랜잭션에서 보낼 것을 정하고 펜싱까지 걸어 커밋한다. ② 트랜잭션 밖에서 기기마다
+     * <p>① 로컬 수집 → 외부 Data 조회 → 로컬 재확인으로 보낼 것을 정하고 펜싱을 커밋한다. ② 기기마다
      * 외부 호출을 돈다. ③ 기기 하나의 결과는 그 자리에서 자기 트랜잭션에 적고, 마지막에 행 상태를 맺는다.
      *
      * @param id 발송 후보의 delivery id
      */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void dispatch(UUID id) {
-        Plan plan = preparation.execute(status -> prepare(id));
+        Inspection inspected = preparation.execute(status -> inspect(id));
+        if (inspected == null) {
+            return;
+        }
+        Map<UUID, Boolean> decisions = new LinkedHashMap<>();
+        for (Map<String, Object> row : inspected.ready()) {
+            decisions.put((UUID) row.get("id"), remotelyEligible(row));
+        }
+        Plan plan = preparation.execute(status -> prepare(inspected, decisions));
         if (plan == null) {
             return;
         }
         boolean failed = false;
         boolean fenced = false;
         for (Attempt attempt : plan.attempts()) {
+            if (!Boolean.TRUE.equals(recording.execute(status -> renewLease(plan)))) {
+                return;
+            }
             if (!Boolean.TRUE.equals(recording.execute(status -> stillOurs(attempt)))) {
-                // 판정 이후 이 기기의 소유권이 바뀌었다 — 지금 보내면 «새 주인»이 남의 알림을 받는다.
-                // 이 기기는 애초에 대상이 아니었던 것처럼 건너뛴다(실패로 세지 않는다).
+                // 같은 사용자 기기의 정상 토큰 회전이면 새 토큰에 다시 보내야 한다.
+                // 다른 계정으로 이전되거나 삭제된 기기는 더 이상 이 사용자의 수신 대상이 아니다.
+                boolean rotated = store.one("SELECT 1 FROM device_tokens WHERE device_key=? AND user_id=?"
+                        + " AND active AND NOT transport_invalid", attempt.device(), attempt.user()) != null;
+                failed |= rotated;
+                fenced |= rotated;
                 continue;
             }
             // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
             PushTransport.Result result = transport.send(attempt.token(), attempt.push(), plan.sound(),
                     plan.eventId());
-            Outcome outcome = recording.execute(status -> recordAttempt(attempt, result));
+            Outcome outcome = recording.execute(status -> recordAttempt(plan, attempt, result));
+            if (outcome == Outcome.LEASE_LOST) {
+                return;
+            }
             failed |= outcome != Outcome.DONE;
             fenced |= outcome == Outcome.OWNERSHIP_CHANGED;
         }
@@ -179,47 +202,91 @@ class DispatchService {
     }
 
     /**
-     * 판정 — 게이트·소유권·ack·적격성을 한 트랜잭션에서 보고 «보낼 계획»만 들고 나온다.
+     * 첫 판정 — 로컬 상태와 묶음 축을 캡처한다. Data 조회는 이 트랜잭션이 끝난 뒤에 한다.
      *
      * <p>판정의 부수 효과(억제·이월·기다림 표식)는 이 트랜잭션과 함께 커밋된다. 잠금은 커밋과 동시에
      * 풀리므로 외부 호출은 아무 잠금도 쥐지 않은 채 돈다.
      *
      * @param id 발송 후보의 delivery id
-     * @return 보낼 계획. 보낼 것이 없으면 {@code null}
+     * @return 조회할 행과 축 스냅샷. 조회할 것이 없으면 {@code null}
      */
-    private Plan prepare(UUID id) {
+    private Inspection inspect(UUID id) {
+        List<Map<String, Object>> rows = lockedCandidates(id);
+        List<Map<String, Object>> ready = ready(rows);
+        // bundleCandidates의 releaseParked와 로컬 hold/suppress 등 자기 변경까지 반영한 축이다.
+        return ready.isEmpty() ? null : new Inspection(id, snapshot(rows), ready);
+    }
+
+    private Plan prepare(Inspection inspected, Map<UUID, Boolean> decisions) {
+        List<Map<String, Object>> rows = lockedCandidates(inspected.id());
+        if (!inspected.axis().equals(snapshot(rows))) {
+            // 새 멤버·이관 교체·다른 워커의 변경에는 조회하지 않은 판정을 재사용하지 않는다.
+            return null;
+        }
+        List<Map<String, Object>> ready = ready(rows);
+        for (Map<String, Object> row : ready) {
+            UUID id = (UUID) row.get("id");
+            if (!decisions.containsKey(id) || !row.equals(inspected.axis().get(id))) {
+                return null;
+            }
+        }
+        List<Map<String, Object>> allowed = new ArrayList<>();
+        for (Map<String, Object> row : ready) {
+            if (Boolean.TRUE.equals(decisions.get(row.get("id")))) {
+                allowed.add(row);
+            } else {
+                suppress((UUID) row.get("id"));
+            }
+        }
+        return allowed.isEmpty() ? null : plan(allowed);
+    }
+
+    /** 잠금 순서는 두 판정 단계 모두 gate → device → ack → delivery로 같다. */
+    private List<Map<String, Object>> lockedCandidates(UUID id) {
         Map<String, Object> gate = store.one("SELECT enabled FROM dispatch_control WHERE id=1 FOR SHARE");
         if (gate == null || !Boolean.TRUE.equals(gate.get("enabled"))) {
-            return null;
+            return List.of();
         }
         store.lock("device-ownership");
         Map<String, Object> candidate = store.one("SELECT * FROM deliveries WHERE id=?", id);
         if (candidate == null) {
-            return null;
+            return List.of();
         }
         // bundleCandidates는 같은 user_id만 묶는다. 같은 사용자 opt-out·탈퇴는 이 잠금으로 «판정»과
         // 직렬화된다 — 전송은 이 트랜잭션이 커밋한 «뒤»에 돌므로 그때까지 기다리지는 않는다.
         store.lock("user-state:" + candidate.get("user_id"));
         List<Map<String, Object>> rows = bundleCandidates(candidate);
-        // 고정 순서: gate → device → user → ack → delivery. prepare와 flush는 같은 사건 잠금이다.
         for (Map<String, Object> row : rows) {
             if ("BET_RESULT".equals(row.get("kind")) && row.get("subject_id") != null) {
                 store.lock("ack:" + row.get("user_id") + ":" + row.get("subject_id"));
             }
         }
+        return rows;
+    }
+
+    private List<Map<String, Object>> ready(List<Map<String, Object>> rows) {
         List<Map<String, Object>> ready = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Map<String, Object> delivery = store.one("SELECT * FROM deliveries WHERE id=?"
                     + " AND status IN ('PENDING','DEFERRED') AND next_attempt_at<=? FOR UPDATE SKIP LOCKED",
                     row.get("id"), Timestamp.from(clock.instant()));
-            if (delivery != null && eligible(delivery)) {
+            if (delivery != null && locallyEligible(delivery)) {
                 ready.add(delivery);
             }
         }
-        if (ready.isEmpty()) {
-            return null;
+        return ready;
+    }
+
+    private Map<UUID, Map<String, Object>> snapshot(List<Map<String, Object>> rows) {
+        Map<UUID, Map<String, Object>> captured = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            UUID id = (UUID) row.get("id");
+            captured.put(id, store.one("SELECT * FROM deliveries WHERE id=?", id));
         }
-        return plan(ready);
+        return captured;
+    }
+
+    private record Inspection(UUID id, Map<UUID, Map<String, Object>> axis, List<Map<String, Object>> ready) {
     }
 
     private List<Map<String, Object>> bundleCandidates(Map<String, Object> first) {
@@ -243,6 +310,13 @@ class DispatchService {
                 + " WHERE user_id=? AND group_id=? AND slot_at=? AND admin_actor IS NULL AND " + family.predicate()
                 + " ORDER BY " + family.order(),
                 first.get("user_id"), first.get("group_id"), first.get("slot_at"));
+        if (family.waitsForSlotClose()) {
+            if (!resultBundles.complete(first, axis)) {
+                parkForBatch((UUID) first.get("id"));
+                return List.of();
+            }
+            releaseParked(first, family);
+        }
         Set<String> declared = declaredMembers(axis);
         if (!declared.isEmpty()) {
             if (!arrived(axis).containsAll(declared)) {
@@ -326,7 +400,7 @@ class DispatchService {
                 Timestamp.from(clock.instant().plusSeconds(HOLD_SECONDS)), INCOMPLETE, id, now);
     }
 
-    private boolean eligible(Map<String, Object> delivery) {
+    private boolean locallyEligible(Map<String, Object> delivery) {
         UUID id = (UUID) delivery.get("id");
         UUID user = (UUID) delivery.get("user_id");
         String kind = delivery.get("kind").toString();
@@ -368,11 +442,6 @@ class DispatchService {
                 return false;
             }
         }
-        if (Boolean.TRUE.equals(catalog.get("eligibility_required"))
-                && !data.eligible(user, kind, subject, params)) {
-            suppress(id);
-            return false;
-        }
         int cooldown = ((Number) catalog.get("cooldown_seconds")).intValue();
         if (cooldown > 0 && store.one("SELECT id FROM deliveries WHERE user_id=? AND kind=? AND status='SENT'"
                 + " AND sent_at>? LIMIT 1", user, kind,
@@ -381,6 +450,22 @@ class DispatchService {
             return false;
         }
         return true;
+    }
+
+    /** 호출자의 트랜잭션도 중단한 상태에서 Data 정본만 조회한다. 실패는 기존 PENDING 재시도로 남는다. */
+    private boolean remotelyEligible(Map<String, Object> delivery) {
+        UUID user = (UUID) delivery.get("user_id");
+        String kind = delivery.get("kind").toString();
+        String subject = (String) delivery.get("subject_id");
+        Map<String, Object> params = Json.map(delivery.get("payload").toString());
+        // 종류별 대상 상태 판정이 없어도 수신자의 현재 활성 상태는 Data에서 재확인한다.
+        // 탈퇴·세대 투영은 지연될 수 있으므로 로컬 fence만으로 발송을 허용할 수 없다.
+        // admin_actor는 콘솔 인증 경로만 쓰는 정본 컬럼이다. payload의 adminTest/adminActor는 믿지 않는다.
+        // 재전송은 replay_of가 있어 원사건 만료를 계속 따른다.
+        boolean adminTest = delivery.get("admin_actor") != null && delivery.get("replay_of") == null;
+        return adminTest
+                ? data.eligibleTest(user, kind, subject, params, ((Timestamp) delivery.get("created_at")).toInstant())
+                : data.eligible(user, kind, subject, params);
     }
 
     /**
@@ -416,8 +501,20 @@ class DispatchService {
             }
             // 렌더도 여기서 끝낸다 — 템플릿 조회가 DB 를 타므로 트랜잭션 밖으로 미룰 이유가 없고,
             // 템플릿 부재(TEMPLATE_UNAVAILABLE)는 «보내기 전»에 드러나야 한다.
+            RenderedPush push = renderer.renderBundle(unsent);
+            try {
+                FcmPayload.requireFits(push, sound, collapseEventId(ready));
+            } catch (NotificationFailure invalid) {
+                if (!"FCM_PAYLOAD_TOO_LARGE".equals(invalid.getMessage())) {
+                    throw invalid;
+                }
+                // 영구 문구 오류는 기기 폐기나 무한 재시도가 아니다. 아직 외부 발송은 시작하지 않았다.
+                deliveries.forEach(delivery -> store.update("UPDATE deliveries SET status='FAILED',last_error=?,"
+                        + "lease_token=NULL,lease_expires_at=NULL WHERE id=?", invalid.getMessage(), delivery));
+                return null;
+            }
             attempts.add(new Attempt(user, device, token.get("device_token").toString(),
-                    ((Number) token.get("ownership_version")).longValue(), renderer.renderBundle(unsent),
+                    ((Number) token.get("ownership_version")).longValue(), push,
                     unsent.stream().map(row -> (UUID) row.get("id")).toList()));
         }
         // 펜싱. 외부 호출이 도는 동안 이 행들을 후보 밖에 둔다 — 상태를 맺는 것은 settle 이고,
@@ -436,7 +533,7 @@ class DispatchService {
             store.update("UPDATE deliveries SET next_attempt_at=GREATEST(next_attempt_at,?),"
                     + "lease_token=?,lease_expires_at=? WHERE id=?", lease, leaseToken, lease, delivery);
         }
-        return new Plan(deliveries, sound, collapseEventId(ready), attempts);
+        return new Plan(deliveries, sound, collapseEventId(ready), attempts, leaseToken);
     }
 
     /**
@@ -449,7 +546,7 @@ class DispatchService {
      * @param result  전송 결과
      * @return 이 호출을 어떻게 맺었는가
      */
-    private Outcome recordAttempt(Attempt attempt, PushTransport.Result result) {
+    private Outcome recordAttempt(Plan plan, Attempt attempt, PushTransport.Result result) {
         if (!stillOurs(attempt)) {
             // 호출이 도는 사이에 소유권이 바뀌었다. 이미 나간 푸시는 되돌릴 수 없지만, 그 기기의
             // «성공 이력»으로 적으면 원래 수신자는 「이미 갔다」로 접혀 영영 못 받는다. 전송 자격
@@ -462,6 +559,9 @@ class DispatchService {
                     + " deviceKey={} user={} 세대={} deliveries={}",
                     attempt.device(), attempt.user(), attempt.ownership(), attempt.deliveries());
             return Outcome.OWNERSHIP_CHANGED;
+        }
+        if (!holdsLease(plan)) {
+            return Outcome.LEASE_LOST;
         }
         if (result == PushTransport.Result.SENT) {
             for (UUID delivery : attempt.deliveries()) {
@@ -488,7 +588,9 @@ class DispatchService {
         /** 전송이 실패했다. 같은 기기로 다시 시도한다. */
         RETRY,
         /** 발송 직후 소유권이 바뀌었다. 성공으로 적지 않고 «지금» 주인의 기기로 다시 보낸다. */
-        OWNERSHIP_CHANGED
+        OWNERSHIP_CHANGED,
+        /** 임대가 만료되거나 다른 실행자가 재선점했다. */
+        LEASE_LOST
     }
 
     /**
@@ -499,6 +601,9 @@ class DispatchService {
      * @param reason 재시도로 남길 이유 — 소유권 변경과 전송 실패를 가른다
      */
     private void settle(Plan plan, boolean failed, String reason) {
+        if (!holdsLease(plan)) {
+            return;
+        }
         for (UUID delivery : plan.deliveries()) {
             if (failed) {
                 retry(delivery, reason);
@@ -512,7 +617,7 @@ class DispatchService {
                         + "last_error=NULL WHERE id=? AND status IN ('PENDING','DEFERRED')",
                         Timestamp.from(clock.instant()), delivery);
             }
-            releaseLease(delivery);
+            releaseLease(delivery, plan.leaseToken());
         }
     }
 
@@ -524,8 +629,34 @@ class DispatchService {
      * 임대 만료({@link #SEND_LEASE_SECONDS})가 회수한다 — 그때까지는 실제로 결과를 모르는 상태가
      * 맞으므로 드레인도 기다리는 것이 옳다.
      */
-    private void releaseLease(UUID id) {
-        store.update("UPDATE deliveries SET lease_token=NULL,lease_expires_at=NULL WHERE id=?", id);
+    private void releaseLease(UUID id, UUID leaseToken) {
+        store.update("UPDATE deliveries SET lease_token=NULL,lease_expires_at=NULL WHERE id=? AND lease_token=?",
+                id, leaseToken);
+    }
+
+    /** 매 기기 호출 전에 갱신한다. 전체 기기 수와 무관하게 진행 중인 발송을 드레인이 추적한다. */
+    private boolean renewLease(Plan plan) {
+        if (!holdsLease(plan)) {
+            return false;
+        }
+        Timestamp until = Timestamp.from(clock.instant().plusSeconds(SEND_LEASE_SECONDS));
+        for (UUID id : plan.deliveries()) {
+            store.update("UPDATE deliveries SET lease_expires_at=?,next_attempt_at=GREATEST(next_attempt_at,?)"
+                    + " WHERE id=? AND lease_token=?", until, until, id, plan.leaseToken());
+        }
+        return true;
+    }
+
+    /** 행을 잠근 채 현재 임대만 결과 기록·갱신·완료를 할 수 있게 한다. */
+    private boolean holdsLease(Plan plan) {
+        for (UUID id : plan.deliveries().stream().sorted().toList()) {
+            if (store.one("SELECT 1 FROM deliveries WHERE id=? AND lease_token=?"
+                    + " AND lease_expires_at>? FOR UPDATE", id, plan.leaseToken(),
+                    Timestamp.from(clock.instant())) == null) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -557,7 +688,8 @@ class DispatchService {
     }
 
     /** 판정이 끝난 한 번의 발송 — 트랜잭션 밖으로 들고 나갈 값만 담는다. */
-    private record Plan(List<UUID> deliveries, boolean sound, String eventId, List<Attempt> attempts) {
+    private record Plan(List<UUID> deliveries, boolean sound, String eventId, List<Attempt> attempts,
+            UUID leaseToken) {
         Plan {
             deliveries = List.copyOf(deliveries);
             attempts = List.copyOf(attempts);
@@ -599,7 +731,9 @@ class DispatchService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 30)
     public void backOff(UUID id, String reason) {
-        retry(id, reason);
+        store.update("UPDATE deliveries SET attempts=attempts+1,last_error=?,next_attempt_at=? WHERE id=?"
+                + " AND (lease_expires_at IS NULL OR lease_expires_at<=?)", reason,
+                Timestamp.from(clock.instant().plusSeconds(60)), id, Timestamp.from(clock.instant()));
     }
 
     /**

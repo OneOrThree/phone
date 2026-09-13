@@ -59,6 +59,9 @@ public class UserSatelliteCommandService {
     /** 사건 종류 — 기기 토큰 삭제 명령. */
     public static final String EVENT_DEVICE_TOKEN_DELETED = "notification.deviceToken.deleted";
 
+    /** 새 세션에 연결되지 않은 이관 기기만 삭제한다. 구 소비자는 이 종류를 거절하고 재시도한다. */
+    public static final String EVENT_LEGACY_DEVICE_TOKEN_DELETED = "notification.legacyDeviceToken.deleted";
+
     /** 사건 종류 — 알림 설정 전체 교체. */
     public static final String EVENT_SETTINGS_CHANGED = "notification.settings.changed";
 
@@ -119,21 +122,27 @@ public class UserSatelliteCommandService {
     @Transactional
     public EventEnvelope recordDeviceTokenDeletion(
             UUID userId, DeviceTokenDeletionRequest request, String idempotencyKey) {
+        return recordDeviceTokenDeletion(userId, request, idempotencyKey, null);
+    }
+
+    /** 내부 표면에서 소유자를 검증한 세션 범위를 내구화한다. 명시한 토큰·CAS가 있으면 그 범위가 우선이다. */
+    @Transactional
+    public EventEnvelope recordDeviceTokenDeletion(
+            UUID userId, DeviceTokenDeletionRequest request, String idempotencyKey, String bootstrapNonceHash) {
 
         if (!DeviceOwnershipTokens.isCanonicalOrAbsent(request.ownershipToken())) {
             throw new UserException(UserErrorCode.DEVICE_OWNERSHIP_INVALID);
         }
         return outboxCommandPort.runIdempotent(
-                InternalCommands.idempotency(idempotencyKey, userId, "device-token-deletion",
-                        request.deviceToken(), request.ownershipToken(), request.authGeneration()),
+                request.sessionId() == null
+                        ? InternalCommands.idempotency(idempotencyKey, userId, "device-token-deletion",
+                                request.deviceToken(), request.ownershipToken(), request.authGeneration())
+                        : InternalCommands.idempotency(idempotencyKey, userId, "device-token-deletion",
+                                request.deviceToken(), request.ownershipToken(), request.authGeneration(),
+                                request.sessionId()),
                 EventEnvelope.class,
                 () -> {
-                    if (request.deviceToken() == null || request.deviceToken().isBlank()) {
-                        // 구 앱은 대상 토큰을 못 보낸다(㊪). 유저 단위로 지우고 그 경합을 인정한다 —
-                        // 남겨 두면 이전 계정 푸시가 계속 가는 쪽이 더 나쁘다.
-                        log.info("기기 토큰 삭제 — 대상 토큰 없음(구 앱). 유저 단위로 처리한다. userId={}", userId);
-                        userRepository.clearDeviceTokenUnconditionally(userId);
-                    } else {
+                    if (request.deviceToken() != null && !request.deviceToken().isBlank()) {
                         userRepository.clearDeviceTokenIncludingWithdrawn(userId, request.deviceToken());
                     }
                     Map<String, Object> params = new LinkedHashMap<>();
@@ -142,7 +151,32 @@ public class UserSatelliteCommandService {
                     // ⚠️ null 을 «현재 세대»로 채우지 않는다(㊍) — 로그아웃 전에 발급된 옛 AT 가 최신
                     // 세대로 태깅돼 tombstone 을 우회한다. 없으면 없는 채로 보낸다.
                     params.put("authGeneration", request.authGeneration());
+                    if ((request.deviceToken() == null || request.deviceToken().isBlank())
+                            && request.ownershipToken() == null && request.sessionId() != null) {
+                        params.put("sessionId", request.sessionId().toString());
+                        params.put("bootstrapNonceHash", bootstrapNonceHash);
+                    }
                     return append(EVENT_DEVICE_TOKEN_DELETED, userId, params,
+                            OutboxDeliveryRequest.toNotification(ENDPOINT_DEVICE_TOKEN_DELETED, null));
+                }).value();
+    }
+
+    /** 구 RT에 연결된 이관 기기만 삭제한다. 새 세션·bootstrap으로 다시 등록된 행은 대상이 아니다. */
+    @Transactional
+    public EventEnvelope recordLegacyLogoutDeviceTokenDeletion(UUID userId, String deviceToken, String key) {
+        if (deviceToken == null || deviceToken.isBlank()) {
+            throw new IllegalArgumentException("구 로그아웃의 대상 기기 토큰이 필요합니다.");
+        }
+        return outboxCommandPort.runIdempotent(
+                InternalCommands.idempotency(key, userId, "legacy-logout-device-token-deletion", deviceToken),
+                EventEnvelope.class,
+                () -> {
+                    userRepository.clearDeviceTokenIncludingWithdrawn(userId, deviceToken);
+                    Map<String, Object> params = new LinkedHashMap<>();
+                    params.put("deviceToken", deviceToken);
+                    params.put("ownershipToken", null);
+                    params.put("authGeneration", null);
+                    return append(EVENT_LEGACY_DEVICE_TOKEN_DELETED, userId, params,
                             OutboxDeliveryRequest.toNotification(ENDPOINT_DEVICE_TOKEN_DELETED, null));
                 }).value();
     }

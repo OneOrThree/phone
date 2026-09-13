@@ -2,6 +2,8 @@ package com.oneorthree.phone.invitelink.support;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -65,6 +67,23 @@ class LinkCapabilityVerifierTest {
         assertThat(result.get().groupId()).isEqualTo(groupId);
         assertThat(result.get().inviterId()).isEqualTo(inviterId);
         assertThat(result.get().membershipEpoch()).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("정상 서명이어도 필수 slug 누락은 거절한다")
+    void rejectsMissingSlug() {
+        String json = payloadJson(UUID.randomUUID(), UUID.randomUUID(), 1L, NOW.getEpochSecond() + 300)
+                .replace("\"slug\":\"abc123\",", "");
+        assertThat(verifier.verify(sign(KEY, json))).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "\"\"", "\" \\t\\n\"", "123", "true", "{}", "[]"})
+    @DisplayName("정상 서명이어도 slug는 비어 있지 않은 문자열이어야 한다")
+    void rejectsInvalidSlug(String slugJson) {
+        String json = payloadJson(UUID.randomUUID(), UUID.randomUUID(), 1L, NOW.getEpochSecond() + 300)
+                .replace("\"slug\":\"abc123\"", "\"slug\":" + slugJson);
+        assertThat(verifier.verify(sign(KEY, json))).isEmpty();
     }
 
     @Test

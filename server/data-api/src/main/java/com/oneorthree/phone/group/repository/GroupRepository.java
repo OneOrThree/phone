@@ -32,11 +32,12 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
     List<Group> findByStatus(GroupStatus status);
 
     /**
-     * 그룹 행 배타 락(SELECT … FOR UPDATE) — <b>챌린지 생성 직렬화 전용</b>(LLD §2.1 · GROMO-1422).
+     * 그룹 행 배타 락 — 챌린지 생성 직렬화(LLD §2.1 · GROMO-1422)와 그룹 탈퇴의 잠금 순서에 쓴다.
      *
      * <p>활성 4개 상한(FR-1)과 창 겹침(§A5)은 <b>그룹 전역</b> 불변식이라 행 단위 제약으로 못 지킨다 —
      * 동시 생성 2건이 둘 다 "3개네" 하고 통과하면 5개째가 들어온다(부분 유니크는 하루형 카테고리
      * 중복만 막는다). 생성은 그룹장 전용의 드문 동작이라 경합 비용은 없다시피 하다. 조회는 기존대로 무락.
+     * 그룹 탈퇴도 마지막 멤버일 때 그룹을 닫으므로 멤버십보다 이 행을 먼저 잠근다.
      *
      * @param id 잠글 그룹 id
      * @return 잠긴 그룹 행. <b>상태·삭제를 보지 않으므로</b> 종료됐거나 지워진 방도 그대로 나온다 —

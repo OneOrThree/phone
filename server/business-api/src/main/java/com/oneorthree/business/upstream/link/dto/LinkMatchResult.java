@@ -1,5 +1,9 @@
 package com.oneorthree.business.upstream.link.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+
 import java.util.UUID;
 
 /**
@@ -10,5 +14,6 @@ import java.util.UUID;
  * 플래그를 세우고 다음 실행에서 재시도하지 않으므로, 판정 불가를 false 로 주면 <b>되돌릴 수 없는</b>
  * 미매치가 된다. 그래서 상류 실패는 5xx 로 올린다(계약 §4).
  */
-public record LinkMatchResult(boolean matched, String slug, UUID groupId) {
+public record LinkMatchResult(@JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean matched,
+        String slug, UUID groupId) {
 }

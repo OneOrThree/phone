@@ -2,6 +2,8 @@ package com.oneorthree.notification;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -244,6 +246,42 @@ class MigrationGateTest {
         assertThat(reasons(body(verify(records, 1, 0)))).contains("RENDER_FAILED");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"LEAGUE_DEADLINE_D1", "STREAK_AT_RISK", "FRIEND_ACCEPTED", "CHALLENGE_CREATED"})
+    void terminalLegacyEvidenceDoesNotRequireMissingHistoricalRenderInputs(String kind) throws Exception {
+        String missingArgument = switch (kind) {
+            case "LEAGUE_DEADLINE_D1" -> "shortfallHours";
+            case "STREAK_AT_RISK" -> "streakCount";
+            case "FRIEND_ACCEPTED" -> "nickname";
+            default -> "missionLabel";
+        };
+        store.update("INSERT INTO kinds(id,quiet_policy) VALUES(?,'DROP')", kind);
+        store.update("INSERT INTO templates(id,kind,locale,title,body) VALUES(?,?,'ko','안내',?)",
+                kind + ".ko", kind, "{" + missingArgument + "}");
+        Map<String, Object> delivery = new LinkedHashMap<>(Json.map(deliveryRecord("PENDING", 0).get("data")));
+        delivery.put("kind", kind);
+        delivery.put("params", Map.of("kind", kind));
+        List<Map<String, Object>> pending = List.of(record("delivery", delivery));
+        load("pending", pending);
+        assertThat(reasons(body(verify(pending, 1, 0)))).contains("RENDER_FAILED");
+        assertThat(store.one("SELECT enabled FROM dispatch_control WHERE id=1")).containsEntry("enabled", false);
+
+        Map<String, Object> suppressedData = new LinkedHashMap<>(delivery);
+        suppressedData.put("status", "SUPPRESSED");
+        List<Map<String, Object>> suppressed = List.of(record("delivery", suppressedData));
+        load("suppressed", suppressed);
+        assertThat(body(verify(suppressed, 1, 0))).containsEntry("verified", true);
+        assertThat(Json.map(body(open("open-suppressed", suppressed, 1)).get("dispatch")))
+                .containsEntry("enabled", true);
+        assertThat(store.one("SELECT status FROM deliveries WHERE event_id='ev-1'"))
+                .containsEntry("status", "SUPPRESSED");
+        // 같은 사건이 다시 이관돼도 종결 근거가 미발송으로 돌아가지 않는다.
+        load("retry-pending", pending);
+        assertThat(store.one("SELECT status FROM deliveries WHERE event_id='ev-1'"))
+                .containsEntry("status", "SUPPRESSED");
+        org.mockito.Mockito.verify(transport, org.mockito.Mockito.never()).send(anyString(), any(), anyBoolean(), anyString());
+    }
+
     @Test
     void manifestCountAndChecksumGapsFailVerification() throws Exception {
         List<Map<String, Object>> records = records(true, 5);
@@ -415,6 +453,31 @@ class MigrationGateTest {
         store.update("UPDATE deliveries SET lease_token=NULL,lease_expires_at=NULL WHERE id=?", inflight);
         assertThat(body(post("/internal/admin/dispatch/close", "c-inflight", Map.of())))
                 .containsEntry("drained", true);
+    }
+
+    @Test
+    void failedRevalidationAlsoDrainsBeforeClearingVerification() throws Exception {
+        var records = records(true, 5);
+        load("i1", records);
+        verify(records, 1, 0);
+        open("o1", records, 1);
+        store.update("INSERT INTO deliveries(id,event_id,user_id,kind,payload,status,next_attempt_at,"
+                + "lease_token,lease_expires_at) VALUES(?,?,?,?,?::jsonb,'PENDING',now()+interval '120 seconds',"
+                + "?,now()+interval '120 seconds')", UUID.randomUUID(), "invalidating-inflight", USER,
+                "BET_RESULT", "{}", UUID.randomUUID());
+        store.update("UPDATE settings SET night_end_time='08:00:00' WHERE user_id=?", USER);
+
+        long started = System.nanoTime();
+        assertThat(code(open("o1", records, 1))).isEqualTo("VERIFICATION_FAILED");
+        assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isGreaterThanOrEqualTo(900);
+        assertThat(store.one("SELECT enabled FROM dispatch_control WHERE id=1")).containsEntry("enabled", false);
+        assertThat(store.one("SELECT verified_at FROM migration_state WHERE id='m1'"))
+                .containsEntry("verified_at", null);
+        assertThat(store.one("SELECT 1 FROM admin_audit WHERE action='dispatch.drain.timeout'"))
+                .isNotNull();
+        assertThat(store.one("SELECT request->>'drained' AS drained FROM admin_audit"
+                + " WHERE action='migration.verification.cleared' AND resource_id='m1'"))
+                .containsEntry("drained", "false");
     }
 
     @Test

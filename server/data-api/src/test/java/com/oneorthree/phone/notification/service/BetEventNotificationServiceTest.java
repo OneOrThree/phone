@@ -206,7 +206,7 @@ class BetEventNotificationServiceTest {
     /** 이벤트 경로 입력 — 회차 단건 조회 + 그 회차의 참가자. */
     private void givenEventSession(GroupChallengeBetSession session,
             List<GroupChallengeBetParticipant> participants) {
-        given(groupQueryService.findBetSession(session.getId()))
+        given(groupQueryService.findCurrentBetSession(session.getId()))
                 .willReturn(Optional.of(session));
         given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
                 .willReturn(participants);

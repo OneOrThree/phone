@@ -557,7 +557,7 @@ public class AuthService {
         // 세션 행이 여기서 승격(백필)된다(㋪) — 구 RT 는 sessionId 가 없어서, 첫 회전이 세션 축에
         // 올리는 유일한 자리다.
         AuthSessionService.IssuedSession session =
-                authSessionService.promoteLegacy(user.getId(), rotatedRefreshToken);
+                authSessionService.promoteLegacy(user.getId(), rotatedRefreshToken, user.getDeviceToken());
         return new TokenRefreshResponse(issueAccessToken(user, session.sessionId()), rotatedRefreshToken,
                 session.sessionId(), session.deviceBootstrap());
     }
@@ -576,7 +576,7 @@ public class AuthService {
     /**
      * 로그아웃 — 저장된 RT 해시를 지우고 <b>그 세션만</b> 끊는다.
      *
-     * <p>요청이 기기 토큰을 함께 실어 보내면 <b>같은 트랜잭션에서</b> 삭제 명령까지 남긴다(㋗ · ㊲).
+     * <p>명시한 기기 토큰 또는 구 RT에 연결한 이관 기기의 삭제를 <b>같은 트랜잭션에서</b> 남긴다(㋗ · ㊲).
      * 앱은 토큰 {@code DELETE} 를 AT 로 인증해 별개 요청으로 보내는데, 로그아웃 직전에는 그 AT 가
      * 이미 만료돼 401 이 되는 일이 흔하다 — 그러면 앱은 실패를 삼키고 로컬 인증을 지우므로
      * <b>아무도 재시도하지 않고 이전 계정 푸시가 그 기기로 계속 간다</b>.
@@ -613,22 +613,26 @@ public class AuthService {
         if (user == null || (session.isEmpty() && !hash.equals(user.getRefreshTokenHash()))) {
             throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
         }
+        String legacyDeviceToken = session.isEmpty() ? user.getDeviceToken()
+                : (session.get().isLegacy() ? session.get().getLegacyDeviceToken() : null);
         if (session.isEmpty()) {
-            authSessionService.recordLegacyLogoutSession(user.getId(), refreshToken);
+            authSessionService.recordLegacyLogoutSession(user.getId(), refreshToken, legacyDeviceToken);
         }
         // A 기기의 지연 로그아웃이 B 기기의 최신 RT 를 지우지 않는다.
         if (hash.equals(user.getRefreshTokenHash())) {
             user.setRefreshTokenHash(null);
         }
-        // 기기 토큰 삭제를 «여기서» 내구화한다(㋗). 값이 없으면(구 앱) 건너뛰고 종전처럼 앱의
-        // DELETE 경로에 맡긴다 — 없는 대상으로 유저 단위 삭제를 하면 방금 다른 기기가 등록한
-        // 토큰까지 지운다.
+        // 명시한 대상이 없으면 검증된 구 RT에 연결해 둔 기기만 삭제한다.
+        // 현재 users 토큰으로 다른 세션의 기기를 추정하지 않고, 재등록된 바인딩도 보존한다.
         if (request.deviceToken() != null && !request.deviceToken().isBlank()) {
             userSatelliteCommandService.recordDeviceTokenDeletion(
                     user.getId(),
                     new DeviceTokenDeletionRequest(
                             request.deviceToken(), request.ownershipToken(), null),
                     logoutIdempotencyKey(request));
+        } else if (legacyDeviceToken != null && !legacyDeviceToken.isBlank()) {
+            userSatelliteCommandService.recordLegacyLogoutDeviceTokenDeletion(
+                    user.getId(), legacyDeviceToken, logoutIdempotencyKey(request));
         }
         // 개별 기기 로그아웃 = «세션»이 끝나는 사건이다(㋞). 유저 축 세대는 올리지 않는다 —
         // 올리면 로그인 중인 다른 기기의 재등록이 거부돼 그 기기 푸시가 끊긴다(㊼).

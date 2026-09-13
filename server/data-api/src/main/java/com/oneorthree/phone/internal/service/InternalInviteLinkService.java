@@ -223,7 +223,7 @@ public class InternalInviteLinkService {
         // 종결 코드까지 함께 재생한다. completed 만 주면 「정상 확정·대상 없음」과 「상류가 내린
         // 거절」이 한 값으로 뭉쳐, 같은 요청 키의 첫 요청은 4xx 인데 재시도는 200 이 된다.
         return new ClaimIntentAck(intent.getId(), intent.getEventId(), intent.getVersion(),
-                intent.isSettled(), intent.getLastError());
+                intent.isSettled(), intent.isSettled() ? intent.getLastError() : null);
     }
 
     /**
@@ -521,6 +521,12 @@ public class InternalInviteLinkService {
      */
     @Transactional
     public void completeClaimIntent(UUID commandId, UUID leaseToken) {
+        completeClaimIntent(commandId, leaseToken, null);
+    }
+
+    /** 리스의 종결 판정을 저장하여 동일 요청 키의 응답을 보존한다. */
+    @Transactional
+    public void completeClaimIntent(UUID commandId, UUID leaseToken, String terminalCode) {
         // ⚠️ 펜싱 판정은 «잠근 뒤» 읽은 값으로만 뜻이 있다. 무락이면 리스 만료 → 재선점과 겹친 낡은
         //    보고가 재선점 «전» 행을 보고 holdsLease 를 통과해, 새 실행자가 아직 일하는 의도를
         //    끝난 것으로 덮는다(lost update). 그 귀속은 아무도 밟지 않은 채 큐에서 사라진다.
@@ -536,7 +542,11 @@ public class InternalInviteLinkService {
         if (!intent.holdsLease(leaseToken)) {
             throw new InviteLinkException(InviteLinkErrorCode.CLAIM_INTENT_LEASE_STALE);
         }
-        intent.complete(clock.instant(), leaseToken);
+        if (terminalCode == null) {
+            intent.complete(clock.instant(), leaseToken);
+        } else {
+            intent.abandon(clock.instant(), terminalCode);
+        }
     }
 
     /** 초대 관점에서 살아 있는 그룹 — 소프트삭제뿐 아니라 종료({@code ENDED})도 걸러낸다. */

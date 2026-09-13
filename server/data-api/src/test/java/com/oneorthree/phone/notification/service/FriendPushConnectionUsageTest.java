@@ -47,7 +47,7 @@ class FriendPushConnectionUsageTest {
 
     @DynamicPropertySource
     static void overrideProperties(DynamicPropertyRegistry registry) {
-        TestPostgres.registerIsolatedSchema(registry);
+        TestPostgres.applyContextWiring(registry);
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> 1);
         registry.add("spring.datasource.hikari.connection-timeout", () -> 3000);
     }

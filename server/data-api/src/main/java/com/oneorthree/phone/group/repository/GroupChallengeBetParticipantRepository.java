@@ -255,6 +255,10 @@ public interface GroupChallengeBetParticipantRepository
             @Param("sessionId") UUID sessionId,
             @Param("userId") UUID userId);
 
+    /** ACK 쓰기·미확인 확정은 같은 DB 벽시계로 실행 기한을 판정한다. */
+    @Query(value = "SELECT clock_timestamp()", nativeQuery = true)
+    Instant currentDatabaseTime();
+
     /**
      * 결과 표시 <b>선점</b>(lease) 획득·회수 — 조건부 원자 UPDATE 하나로 "비어 있음"과 "만료된 남의
      * 선점 회수"를 함께 집는다(GROMO-1577 · B17). 알림 클레임의

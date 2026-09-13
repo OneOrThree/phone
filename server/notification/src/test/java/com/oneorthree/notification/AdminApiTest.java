@@ -76,6 +76,7 @@ class AdminApiTest {
         when(clock.instant()).thenReturn(DAY);
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
         when(data.eligible(any(), anyString(), any(), any())).thenReturn(true);
+        when(data.eligibleTest(any(), anyString(), any(), any(), any())).thenReturn(true);
         when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.SENT);
     }
 
@@ -189,6 +190,28 @@ class AdminApiTest {
                 .get("version")).isEqualTo(2);
         assertThat(store.one("SELECT body FROM templates WHERE id='BET_RESULT.ko'").get("body"))
                 .isEqualTo("내기 {count}건 확정");
+    }
+
+    @Test
+    void templatesMustFitAfterUtf8RenderingAndRejectedWritesCanRetry() throws Exception {
+        Map<String, Object> multiByte = template("가".repeat(1400));
+        MvcResult rejected = put("/internal/admin/templates/BET_RESULT.ko", "oversized-template", multiByte);
+        assertThat(rejected.getResponse().getStatus()).isEqualTo(422);
+        assertThat(code(rejected)).isEqualTo("FCM_PAYLOAD_TOO_LARGE");
+        assertThat(store.one("SELECT body,version FROM templates WHERE id='BET_RESULT.ko'"))
+                .containsEntry("body", "내기 {count}건").containsEntry("version", 1L);
+
+        Map<String, Object> combined = template("a".repeat(2500));
+        combined.put("title", "b".repeat(2000));
+        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "combined-template", combined)))
+                .isEqualTo("FCM_PAYLOAD_TOO_LARGE");
+        Map<String, Object> expanded = template("{message}");
+        expanded.put("sampleParams", Map.of("message", "한".repeat(1400)));
+        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "expanded-template", expanded)))
+                .isEqualTo("FCM_PAYLOAD_TOO_LARGE");
+
+        assertThat(body(put("/internal/admin/templates/BET_RESULT.ko", "oversized-template", template("정상 본문"))))
+                .containsEntry("version", 2);
     }
 
     @Test

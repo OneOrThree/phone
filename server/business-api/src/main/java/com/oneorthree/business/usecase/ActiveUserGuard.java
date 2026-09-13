@@ -2,6 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.exception.CommonErrorCode;
 import com.oneorthree.business.common.exception.DomainException;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.upstream.data.DataApiClient;
 import com.oneorthree.business.upstream.data.dto.UserActivation;
@@ -20,7 +21,7 @@ import java.util.UUID;
  *
  * <p><b>판정 불가를 「비활성」으로 접지 않는다.</b> Data 장애 때 거부로 접으면 전원이 조용히 차단되고,
  * 기기 토큰·설정은 앱이 실패를 삼켜 영구 유실이 된다 — {@code UpstreamUnavailableException} 이 그대로
- * 503 으로 올라가게 둔다.
+ * 503 으로 올라가게 둔다. 응답 본문이나 필수 판정 값이 없으면 계약 오류(502)다.
  */
 @Component
 @RequiredArgsConstructor
@@ -30,10 +31,14 @@ public class ActiveUserGuard {
 
     /**
      * @throws DomainException 탈퇴·비활성 사용자면 {@code USER_INACTIVE}(401)
+     * @throws UpstreamContractMismatchException 판정 응답이 비어 있으면 계약 오류(502)
      */
     public void requireActive(UUID userId, Deadline deadline) {
         UserActivation activation = dataApiClient.checkActivation(userId, deadline);
-        if (activation == null || !activation.active()) {
+        if (activation == null) {
+            throw new UpstreamContractMismatchException("Data 활성 판정 응답이 비어 있습니다");
+        }
+        if (!activation.active()) {
             throw new DomainException(CommonErrorCode.USER_INACTIVE);
         }
     }

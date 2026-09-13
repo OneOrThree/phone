@@ -17,11 +17,13 @@ class InboundService {
     private final Store store;
     private final DeviceService devices;
     private final SettingsService settings;
+    private final ResultBundleCompletion resultBundles;
 
-    InboundService(Store store, DeviceService devices, SettingsService settings) {
+    InboundService(Store store, DeviceService devices, SettingsService settings, ResultBundleCompletion resultBundles) {
         this.store = store;
         this.devices = devices;
         this.settings = settings;
+        this.resultBundles = resultBundles;
     }
 
     @Transactional
@@ -46,8 +48,12 @@ class InboundService {
         Map<String, Object> params = event.params();
         switch (event.type()) {
             case "notification.deviceToken.deleted" -> devices.deleteLocked(event.userId(),
-                    Json.nullableText(params, "deviceToken"), rawOwnership(params),
-                    Json.nullableNumber(params, "authGeneration"));
+                    deletionToken(params), rawOwnership(params),
+                    Json.nullableNumber(params, "authGeneration"), Json.nullableText(params, "sessionId"),
+                    Json.nullableText(params, "bootstrapNonceHash"));
+            case "notification.legacyDeviceToken.deleted" -> devices.deleteLocked(event.userId(),
+                    deletionToken(params), rawOwnership(params),
+                    Json.nullableNumber(params, "authGeneration"), null, null, true);
             case "notification.settings.changed" -> settings.applyLocked(event.userId(), params, event.version());
             case "auth.session.revoked" -> devices.revokeSession(event.userId(), params);
             case "auth.generation.bumped" -> devices.generation(event.userId(),
@@ -55,6 +61,7 @@ class InboundService {
             case "user.withdrawn" -> devices.generation(event.userId(),
                     Json.number(params, "authGeneration"), true);
             case "notification.requested" -> enqueue(event);
+            case "notification.resultBundle.closed" -> resultBundles.accept(event);
             default -> {
                 if (!PROJECTIONS.contains(event.type())) {
                     throw new NotificationFailure(422, "UNSUPPORTED_EVENT_TYPE");
@@ -62,6 +69,12 @@ class InboundService {
                 project(event);
             }
         }
+    }
+
+    private static String deletionToken(Map<String, Object> params) {
+        Object token = params.get("deviceToken");
+        // 직접 DELETE와 같은 의미다. 공백 원문은 Data의 멱등 입력으로 보존되어 올 수 있다.
+        return token instanceof String value && value.isBlank() ? null : Json.nullableText(params, "deviceToken");
     }
 
     /**

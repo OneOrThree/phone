@@ -186,6 +186,10 @@ class InternalSurfaceIntegrationTest {
     private static String capability(String slug, UUID groupId, UUID inviterId, long epoch, long expSeconds) {
         String json = "{\"slug\":\"" + slug + "\",\"groupId\":\"" + groupId + "\",\"inviterId\":\""
                 + inviterId + "\",\"membershipEpoch\":\"" + epoch + "\",\"exp\":" + expSeconds + "}";
+        return signedCapability(json);
+    }
+
+    private static String signedCapability(String json) {
         String payload = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(json.getBytes(StandardCharsets.UTF_8));
         try {
@@ -273,6 +277,88 @@ class InternalSurfaceIntegrationTest {
                     assertThat(delivery.getEndpointKey()).isEqualTo("noti.deviceTokenDeleted");
                     assertThat(delivery.getDeliveredAt()).isNull();
                 });
+    }
+
+    @Test
+    void headerlessDeletionPreservesTheOtherDevicesLegacyTokenAndCarriesItsSessionScope() throws Exception {
+        UUID userId = newUser();
+        String hash = TokenHasher.sha256Hex("device-bootstrap");
+        UUID sessionId = tx().execute(status -> {
+            User user = userRepository.findById(userId).orElseThrow();
+            user.setDeviceToken("other-session-token-" + userId);
+            return authSessionRepository.save(AuthSession.builder().userId(userId)
+                    .refreshTokenHash(TokenHasher.sha256Hex("rt-" + userId))
+                    .bootstrapNonceHash(hash).sessionEpoch(3L).build()).getId();
+        });
+        mockMvc.perform(post("/internal/users/{id}/device-token-deletions", userId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString())
+                        .header("Idempotency-Key", "session-delete")
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":null,\"ownershipToken\":null,\"authGeneration\":0,"
+                                + "\"sessionId\":\"" + sessionId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.params.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.params.bootstrapNonceHash").value(hash));
+        assertThat(userRepository.findById(userId).orElseThrow().getDeviceToken())
+                .isEqualTo("other-session-token-" + userId);
+        assertThat(envelopesOf(userId, "notification.deviceToken.deleted")).singleElement()
+                .satisfies(event -> assertThat(event.getParams())
+                        .containsEntry("sessionId", sessionId.toString())
+                        .containsEntry("bootstrapNonceHash", hash));
+    }
+
+    @Test
+    void deletionWithoutAnyDeviceOrSessionPreservesTheLegacyToken() throws Exception {
+        UUID userId = newUser();
+        tx().executeWithoutResult(status -> userRepository.findById(userId).orElseThrow()
+                .setDeviceToken("other-session-token-" + userId));
+        mockMvc.perform(post("/internal/users/{id}/device-token-deletions", userId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString())
+                        .header("Idempotency-Key", "unscoped-delete")
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isOk());
+        assertThat(userRepository.findById(userId).orElseThrow().getDeviceToken())
+                .isEqualTo("other-session-token-" + userId);
+    }
+
+    @Test
+    void deletionRejectsAnotherUsersSessionBeforeCreatingAnOutbox() throws Exception {
+        UUID userId = newUser();
+        UUID otherUser = newUser();
+        UUID sessionId = tx().execute(status -> authSessionRepository.save(AuthSession.builder()
+                .userId(otherUser).refreshTokenHash(TokenHasher.sha256Hex("rt-" + otherUser))
+                .bootstrapNonceHash(TokenHasher.sha256Hex("other-bootstrap")).sessionEpoch(1L).build()).getId());
+        mockMvc.perform(post("/internal/users/{id}/device-token-deletions", userId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString()).header("Idempotency-Key", "foreign-session")
+                        .contentType("application/json").content("{\"sessionId\":\"" + sessionId + "\"}"))
+                .andExpect(status().isForbidden());
+        assertThat(envelopesOf(userId, "notification.deviceToken.deleted")).isEmpty();
+    }
+
+    @Test
+    void sessionDeletionReplayPreservesTheOriginalScopeAfterBootstrapPromotion() throws Exception {
+        UUID userId = newUser();
+        String refreshHash = TokenHasher.sha256Hex("rt-" + userId);
+        UUID sessionId = tx().execute(status -> authSessionRepository.save(AuthSession.builder()
+                .userId(userId).refreshTokenHash(refreshHash).sessionEpoch(1L).legacy(true).build()).getId());
+        String first = mockMvc.perform(post("/internal/users/{id}/device-token-deletions", userId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString()).header("Idempotency-Key", "legacy-session-delete")
+                        .contentType("application/json").content("{\"sessionId\":\"" + sessionId + "\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        tx().executeWithoutResult(status -> authSessionRepository.rotateIfCurrent(sessionId, refreshHash,
+                TokenHasher.sha256Hex("new-rt-" + userId), TokenHasher.sha256Hex("promoted-bootstrap"),
+                2L, Instant.now()));
+        String replay = mockMvc.perform(post("/internal/users/{id}/device-token-deletions", userId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", userId.toString()).header("Idempotency-Key", "legacy-session-delete")
+                        .contentType("application/json").content("{\"sessionId\":\"" + sessionId + "\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(replay).isEqualTo(first);
+        assertThat(envelopesOf(userId, "notification.deviceToken.deleted")).hasSize(1);
     }
 
     @Test
@@ -406,6 +492,38 @@ class InternalSurfaceIntegrationTest {
     }
 
     @Test
+    @DisplayName("서명된 자격의 slug 누락은 409로 거절하고 정상 자격으로 같은 키를 재시도할 수 있다")
+    void missingCapabilitySlugRejectsWithoutConfirmationAndAllowsRetry() throws Exception {
+        UUID ownerId = newUser();
+        UUID claimerId = newUser();
+        Group group = newGroup(ownerId);
+        UUID claimId = UUID.randomUUID();
+        long exp = Instant.now().getEpochSecond() + 300;
+        String malformed = signedCapability("{\"groupId\":\"" + group.getId() + "\",\"inviterId\":\""
+                + ownerId + "\",\"membershipEpoch\":\"1\",\"exp\":" + exp + "}");
+        String prefix = "{\"claimId\":\"" + claimId + "\",\"slug\":\"abc123\",\"capability\":\"";
+
+        mockMvc.perform(post("/internal/invite-links/claim-confirmations")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", claimerId.toString())
+                        .header("Idempotency-Key", "missing-slug")
+                        .contentType("application/json")
+                        .content(prefix + malformed + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CLAIM_CAPABILITY_INVALID"));
+        assertThat(envelopesOf(claimerId, "link.claimConfirmed")).isEmpty();
+
+        mockMvc.perform(post("/internal/invite-links/claim-confirmations")
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .header("X-User-Id", claimerId.toString())
+                        .header("Idempotency-Key", "missing-slug")
+                        .contentType("application/json")
+                        .content(prefix + capability("abc123", group.getId(), ownerId, 1L, exp) + "\"}"))
+                .andExpect(status().isOk());
+        assertThat(envelopesOf(claimerId, "link.claimConfirmed")).hasSize(1);
+    }
+
+    @Test
     @DisplayName("claim 확정은 link.claimConfirmed outbox 를 남기고, 세대가 어긋나면 CLAIM_REVOKED 다")
     void claimConfirmationRecordsOutboxAndRejectsStaleEpoch() throws Exception {
         UUID ownerId = newUser();
@@ -485,6 +603,24 @@ class InternalSurfaceIntegrationTest {
                                 + capability("abc123", group.getId(), ownerId, 1L, exp) + "\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CLAIM_CAPABILITY_INVALID"));
+    }
+
+    @Test
+    void aTerminalReplayCompletionIsReturnedOnTheOriginalRequest() throws Exception {
+        UUID user = newUser();
+        String commandId = commandIdOf(enqueueIntent(user, "gone00", "terminal-http"));
+        String lease = mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/lease", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .contentType("application/json").content("{\"leaseSeconds\":60}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        mockMvc.perform(post("/internal/invite-links/claim-intents/{id}/completed", commandId)
+                        .header("Authorization", "Bearer " + BIZ_TOKEN)
+                        .contentType("application/json")
+                        .content("{\"leaseToken\":\"" + valueOf(lease, "leaseToken")
+                                + "\",\"terminalCode\":\"SLUG_NOT_FOUND\"}"))
+                .andExpect(status().isOk());
+        assertThat(enqueueIntent(user, "gone00", "terminal-http"))
+                .contains("\"completed\":true", "\"terminalCode\":\"SLUG_NOT_FOUND\"");
     }
 
     @Test

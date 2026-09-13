@@ -1,5 +1,9 @@
 package com.oneorthree.business.upstream.notification.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+
 /**
  * 등록 응답 — <b>매번 새 {@code ownershipToken} 을 준다</b>(A22 ㊚).
  *
@@ -9,5 +13,6 @@ package com.oneorthree.business.upstream.notification.dto;
  *
  * @param ownershipToken 다음 등록·삭제 요청에 실을 CAS 값
  */
-public record DeviceRegistrationResult(String ownershipToken) {
+public record DeviceRegistrationResult(
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String ownershipToken) {
 }

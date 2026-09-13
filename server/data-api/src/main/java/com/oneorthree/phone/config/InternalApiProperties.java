@@ -104,6 +104,11 @@ public class InternalApiProperties {
             throw new IllegalStateException(property + " 미설정");
         }
         String trimmed = value.trim();
+        // 인증 헤더는 앞뒤 공백을 제거한 뒤 대조한다. 설정에서만 공백을 허용하면 별개로 검증된
+        // 자격이 요청 시 다른 caller의 토큰과 같아지므로 기동에서 거절한다.
+        if (!value.equals(trimmed)) {
+            throw new IllegalStateException(property + " 앞뒤 공백은 허용하지 않습니다.");
+        }
         if (trimmed.startsWith("${") && trimmed.endsWith("}")) {
             throw new IllegalStateException(
                     property + " 가 미해결 placeholder 입니다(" + trimmed + ") — 환경변수가 주입되지 않았습니다.");
