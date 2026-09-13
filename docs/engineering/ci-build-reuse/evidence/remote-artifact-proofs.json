@@ -15,7 +15,9 @@
     "image_job_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064/job/103703864025",
     "gradle_steps_executed": 0,
     "registry_cache_export_observed": true,
-    "image_log_sha256": "5ae1c358de14d8e0b8a353e43ba7843d676f5c695d7734b97b079144da51feb9"
+    "image_log_sha256": "5ae1c358de14d8e0b8a353e43ba7843d676f5c695d7734b97b079144da51feb9",
+    "workflow_log": "logs/github-full-34749088064.log.gz",
+    "image_log": "logs/github-image-job-103703864025.log.gz"
   },
   {
     "service": "notification",
@@ -33,7 +35,9 @@
     "image_job_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064/job/103703863966",
     "gradle_steps_executed": 0,
     "registry_cache_export_observed": true,
-    "image_log_sha256": "ca08caeb51be354635137e69fa8d6a8ff4fc1f9a2be338201c2d24426cf122e7"
+    "image_log_sha256": "ca08caeb51be354635137e69fa8d6a8ff4fc1f9a2be338201c2d24426cf122e7",
+    "workflow_log": "logs/github-full-34749088064.log.gz",
+    "image_log": "logs/github-image-job-103703863966.log.gz"
   },
   {
     "service": "data-api",
@@ -51,7 +55,9 @@
     "image_job_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103720807977",
     "gradle_steps_executed": 0,
     "registry_cache_export_observed": true,
-    "image_log_sha256": "ef6533903dc26fe0e9afe7557eaba0bec410bb917ec5a2b835cbaef1cb202835"
+    "image_log_sha256": "ef6533903dc26fe0e9afe7557eaba0bec410bb917ec5a2b835cbaef1cb202835",
+    "workflow_log": "logs/github-full-34749088125.log.gz",
+    "image_log": "logs/github-image-job-103720807977.log.gz"
   },
   {
     "service": "realtime",
@@ -69,6 +75,8 @@
     "image_job_url": "https://github.com/OneOrThree/phone/actions/runs/34749088170/job/103704807472",
     "gradle_steps_executed": 0,
     "registry_cache_export_observed": true,
-    "image_log_sha256": "97a846e3f4ea06b0907d647b81243516ecbc5ef73c40c51f1a4c36634702cdc7"
+    "image_log_sha256": "97a846e3f4ea06b0907d647b81243516ecbc5ef73c40c51f1a4c36634702cdc7",
+    "workflow_log": "logs/github-full-34749088170.log.gz",
+    "image_log": "logs/github-image-job-103704807472.log.gz"
   }
 ]

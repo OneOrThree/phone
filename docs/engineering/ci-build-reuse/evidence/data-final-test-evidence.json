@@ -16,5 +16,17 @@
   "tests": 2631,
   "failures": 0,
   "errors": 0,
-  "skipped": 8
+  "skipped": 8,
+  "archived_test_results": {
+    "path": "test-results/data-attempt-2-success.zip",
+    "sha256": "e1be0901aef428a112cab1e85902f2e4db4dda25d29c539c6963b4d63d9c94b1",
+    "xml_files": 248,
+    "counts": {
+      "tests": 2631,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 8
+    },
+    "transformation": "JUnit XML에서 system-out/system-err만 제외. 테스트 케이스·상태·집계 속성은 유지하며 원본 XML별 SHA-256을 함께 보관."
+  }
 }

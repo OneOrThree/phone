@@ -28,50 +28,114 @@
           "business-api": {
             "tree": "73ec8e0f20baf21baedfd8037a83e656f8f1e967",
             "testedInPr": 752,
-            "log": "/tmp/stack752-business-api-norm.log",
+            "log": "logs/stack752-business-api-norm.log.gz",
             "counts": {
               "tests": 854,
               "failures": 0,
               "errors": 0,
               "skipped": 0
             },
-            "imageId": "sha256:eda943c1b6b02daae61d02a56d5da9e26eb3aa10b5ba3bebe141ee657219f4bf"
+            "imageId": "sha256:eda943c1b6b02daae61d02a56d5da9e26eb3aa10b5ba3bebe141ee657219f4bf",
+            "log_sha256": "ccf00c930469f761c38548c8479f24f374a43375830c9653006fe02c31f01611",
+            "log_encoding": "gzip",
+            "image_log": "logs/stack752-image-business-api.log.gz",
+            "image_log_sha256": "0a534eb2392323057545802bc709a3fd08d35380b5b9bd0458d44caa0f97994b",
+            "test_results": {
+              "path": "test-results/stack752-business-api.zip",
+              "sha256": "bf612ea0cc6f6bce6eba79cbf06677c057b851923f0ca2c9077eaac2d0afe909",
+              "xml_files": 42,
+              "counts": {
+                "tests": 854,
+                "failures": 0,
+                "errors": 0,
+                "skipped": 0
+              },
+              "transformation": "JUnit XML에서 system-out/system-err만 제외. 테스트 케이스·상태·집계 속성은 유지하며 원본 XML별 SHA-256을 함께 보관."
+            }
           },
           "notification": {
             "tree": "41a49b8fbc9b1c4c3431cb3470139436528d3ba8",
             "testedInPr": 747,
-            "log": "/tmp/stack747-notification-norm.log",
+            "log": "logs/stack747-notification-norm.log.gz",
             "counts": {
               "tests": 257,
               "failures": 0,
               "errors": 0,
               "skipped": 0
             },
-            "imageId": "sha256:9b1dd93a4b8828a2040bda9f145385d54cb58638fd8e99475386782b9ae0405e"
+            "imageId": "sha256:9b1dd93a4b8828a2040bda9f145385d54cb58638fd8e99475386782b9ae0405e",
+            "log_sha256": "0f9e28c56dc8bb44e93e7a5cd2ba67998337ffd158af703fa5652c4ad9fc8a01",
+            "log_encoding": "gzip",
+            "image_log": "logs/stack747-image-notification.log.gz",
+            "image_log_sha256": "40dfb3011925b2bb157265fb231a32a366561c618b3a949714d062e01b02b2cf",
+            "test_results": {
+              "path": "test-results/stack747-notification.zip",
+              "sha256": "8120024df55d89500f5c4c3ad611d9e49ed44e08abc20da77ea03f9a1cb776e0",
+              "xml_files": 23,
+              "counts": {
+                "tests": 257,
+                "failures": 0,
+                "errors": 0,
+                "skipped": 0
+              },
+              "transformation": "JUnit XML에서 system-out/system-err만 제외. 테스트 케이스·상태·집계 속성은 유지하며 원본 XML별 SHA-256을 함께 보관."
+            }
           },
           "data-api": {
             "tree": "c8abd993d4b80757dfe746e1d4417e409b2f07b5",
             "testedInPr": 752,
-            "log": "/tmp/stack752-data-api-norm-v3.log",
+            "log": "logs/stack752-data-api-norm-v3.log.gz",
             "counts": {
               "tests": 2679,
               "failures": 0,
               "errors": 0,
               "skipped": 8
             },
-            "imageId": "sha256:d13a9308c8bb0e142773bfd6f8cf7403a2edba857517966fea9c96b1d9ea2acb"
+            "imageId": "sha256:d13a9308c8bb0e142773bfd6f8cf7403a2edba857517966fea9c96b1d9ea2acb",
+            "log_sha256": "0cf589430eaf96e20c77f99acc6666c77fd3995d577acd7f64385edc962fa3e3",
+            "log_encoding": "gzip",
+            "image_log": "logs/stack752-image-data-api-v3.log.gz",
+            "image_log_sha256": "4c0836a1140c269e229750e654f4e80c50a22e02284c83308da04c0f5a5ef33e",
+            "test_results": {
+              "path": "test-results/stack752-data-api.zip",
+              "sha256": "67de005f9e704bc266038a082ff447dc369094541eb904d98117f14f15bf8672",
+              "xml_files": 251,
+              "counts": {
+                "tests": 2679,
+                "failures": 0,
+                "errors": 0,
+                "skipped": 8
+              },
+              "transformation": "JUnit XML에서 system-out/system-err만 제외. 테스트 케이스·상태·집계 속성은 유지하며 원본 XML별 SHA-256을 함께 보관."
+            }
           },
           "realtime": {
             "tree": "d98d72d2975b8d3fb3b30e907e2459addac057c4",
             "testedInPr": 747,
-            "log": "/tmp/stack747-realtime-norm.log",
+            "log": "logs/stack747-realtime-norm.log.gz",
             "counts": {
               "tests": 141,
               "failures": 0,
               "errors": 0,
               "skipped": 0
             },
-            "imageId": "sha256:da0b1e867f78e9c3cf9b31ef4aa880ad2bdf3eabe2823d80d8af2f16bbf81f8f"
+            "imageId": "sha256:da0b1e867f78e9c3cf9b31ef4aa880ad2bdf3eabe2823d80d8af2f16bbf81f8f",
+            "log_sha256": "21ed48c67bbf206313f519db6b670f9717bc63d43ac1023b02c7ff182684e17f",
+            "log_encoding": "gzip",
+            "image_log": "logs/stack747-image-realtime.log.gz",
+            "image_log_sha256": "d9e6194dea26dfa44d15ceae211ae70cae51e8c4532ee02581633a95e4df5c16",
+            "test_results": {
+              "path": "test-results/stack747-realtime.zip",
+              "sha256": "4f747d93c3f2baedb6cb9260af6928f8a7ad9ef350b8b37387ae5a6c0d396f85",
+              "xml_files": 20,
+              "counts": {
+                "tests": 141,
+                "failures": 0,
+                "errors": 0,
+                "skipped": 0
+              },
+              "transformation": "JUnit XML에서 system-out/system-err만 제외. 테스트 케이스·상태·집계 속성은 유지하며 원본 XML별 SHA-256을 함께 보관."
+            }
           }
         }
       }
@@ -85,50 +149,114 @@
           "business-api": {
             "tree": "73ec8e0f20baf21baedfd8037a83e656f8f1e967",
             "testedInPr": 752,
-            "log": "/tmp/stack752-business-api-norm.log",
+            "log": "logs/stack752-business-api-norm.log.gz",
             "counts": {
               "tests": 854,
               "failures": 0,
               "errors": 0,
               "skipped": 0
             },
-            "imageId": "sha256:eda943c1b6b02daae61d02a56d5da9e26eb3aa10b5ba3bebe141ee657219f4bf"
+            "imageId": "sha256:eda943c1b6b02daae61d02a56d5da9e26eb3aa10b5ba3bebe141ee657219f4bf",
+            "log_sha256": "ccf00c930469f761c38548c8479f24f374a43375830c9653006fe02c31f01611",
+            "log_encoding": "gzip",
+            "image_log": "logs/stack752-image-business-api.log.gz",
+            "image_log_sha256": "0a534eb2392323057545802bc709a3fd08d35380b5b9bd0458d44caa0f97994b",
+            "test_results": {
+              "path": "test-results/stack752-business-api.zip",
+              "sha256": "bf612ea0cc6f6bce6eba79cbf06677c057b851923f0ca2c9077eaac2d0afe909",
+              "xml_files": 42,
+              "counts": {
+                "tests": 854,
+                "failures": 0,
+                "errors": 0,
+                "skipped": 0
+              },
+              "transformation": "JUnit XML에서 system-out/system-err만 제외. 테스트 케이스·상태·집계 속성은 유지하며 원본 XML별 SHA-256을 함께 보관."
+            }
           },
           "notification": {
             "tree": "41a49b8fbc9b1c4c3431cb3470139436528d3ba8",
             "testedInPr": 747,
-            "log": "/tmp/stack747-notification-norm.log",
+            "log": "logs/stack747-notification-norm.log.gz",
             "counts": {
               "tests": 257,
               "failures": 0,
               "errors": 0,
               "skipped": 0
             },
-            "imageId": "sha256:9b1dd93a4b8828a2040bda9f145385d54cb58638fd8e99475386782b9ae0405e"
+            "imageId": "sha256:9b1dd93a4b8828a2040bda9f145385d54cb58638fd8e99475386782b9ae0405e",
+            "log_sha256": "0f9e28c56dc8bb44e93e7a5cd2ba67998337ffd158af703fa5652c4ad9fc8a01",
+            "log_encoding": "gzip",
+            "image_log": "logs/stack747-image-notification.log.gz",
+            "image_log_sha256": "40dfb3011925b2bb157265fb231a32a366561c618b3a949714d062e01b02b2cf",
+            "test_results": {
+              "path": "test-results/stack747-notification.zip",
+              "sha256": "8120024df55d89500f5c4c3ad611d9e49ed44e08abc20da77ea03f9a1cb776e0",
+              "xml_files": 23,
+              "counts": {
+                "tests": 257,
+                "failures": 0,
+                "errors": 0,
+                "skipped": 0
+              },
+              "transformation": "JUnit XML에서 system-out/system-err만 제외. 테스트 케이스·상태·집계 속성은 유지하며 원본 XML별 SHA-256을 함께 보관."
+            }
           },
           "data-api": {
             "tree": "da17d62e5f6ad4c47caca952690359bd21bf9c7d",
             "testedInPr": 753,
-            "log": "/tmp/stack753-data-api-norm-v2.log",
+            "log": "logs/stack753-data-api-norm-v2.log.gz",
             "counts": {
               "tests": 2698,
               "failures": 0,
               "errors": 0,
               "skipped": 8
             },
-            "imageId": "sha256:d111ded5b2a29f95f4f9e4c1649e8d960bddd132487ead6035a20df8e9890337"
+            "imageId": "sha256:d111ded5b2a29f95f4f9e4c1649e8d960bddd132487ead6035a20df8e9890337",
+            "log_sha256": "9d039b7c5703f065e20ff4c6c560a1f20420ea6ab92baac4790c63033e6221d7",
+            "log_encoding": "gzip",
+            "image_log": "logs/stack753-image-data-api-v3.log.gz",
+            "image_log_sha256": "722b1f17c243a8a78918b07f5c85c75b71fcaa9f8a17224c07af242d40193fcc",
+            "test_results": {
+              "path": "test-results/stack753-data-api.zip",
+              "sha256": "eab08431dd41ad5a4f23e3724b76e2c1c8b0a49b8b4d72abc3ca895ec7928b24",
+              "xml_files": 253,
+              "counts": {
+                "tests": 2698,
+                "failures": 0,
+                "errors": 0,
+                "skipped": 8
+              },
+              "transformation": "JUnit XML에서 system-out/system-err만 제외. 테스트 케이스·상태·집계 속성은 유지하며 원본 XML별 SHA-256을 함께 보관."
+            }
           },
           "realtime": {
             "tree": "d98d72d2975b8d3fb3b30e907e2459addac057c4",
             "testedInPr": 747,
-            "log": "/tmp/stack747-realtime-norm.log",
+            "log": "logs/stack747-realtime-norm.log.gz",
             "counts": {
               "tests": 141,
               "failures": 0,
               "errors": 0,
               "skipped": 0
             },
-            "imageId": "sha256:da0b1e867f78e9c3cf9b31ef4aa880ad2bdf3eabe2823d80d8af2f16bbf81f8f"
+            "imageId": "sha256:da0b1e867f78e9c3cf9b31ef4aa880ad2bdf3eabe2823d80d8af2f16bbf81f8f",
+            "log_sha256": "21ed48c67bbf206313f519db6b670f9717bc63d43ac1023b02c7ff182684e17f",
+            "log_encoding": "gzip",
+            "image_log": "logs/stack747-image-realtime.log.gz",
+            "image_log_sha256": "d9e6194dea26dfa44d15ceae211ae70cae51e8c4532ee02581633a95e4df5c16",
+            "test_results": {
+              "path": "test-results/stack747-realtime.zip",
+              "sha256": "4f747d93c3f2baedb6cb9260af6928f8a7ad9ef350b8b37387ae5a6c0d396f85",
+              "xml_files": 20,
+              "counts": {
+                "tests": 141,
+                "failures": 0,
+                "errors": 0,
+                "skipped": 0
+              },
+              "transformation": "JUnit XML에서 system-out/system-err만 제외. 테스트 케이스·상태·집계 속성은 유지하며 원본 XML별 SHA-256을 함께 보관."
+            }
           }
         }
       }

@@ -14,5 +14,7 @@
   "registry_cache_export_observed": true,
   "gradle_builder_run_observed": false,
   "workflow_log_sha256": "d3d8a2e80dcb4ca940638f0524b107c174906def2a504901c330a65b68009990",
-  "image_log_sha256": "e30942ae8bd01ed68f45150dff4d19472b868809b1562743bf58eb8004149a23"
+  "image_log_sha256": "e30942ae8bd01ed68f45150dff4d19472b868809b1562743bf58eb8004149a23",
+  "workflow_log": "logs/github-full-34746293759.log.gz",
+  "image_log": "logs/github-image-job-103699852151.log.gz"
 }
