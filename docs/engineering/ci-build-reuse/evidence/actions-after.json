@@ -10,7 +10,7 @@
     "created_at": "2026-09-13T09:11:36Z",
     "updated_at": "2026-09-13T10:30:00Z",
     "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064",
-    "collected_at": "2026-09-13T12:06:49.696627+00:00",
+    "collected_at": "2026-09-13T12:14:41.588464+00:00",
     "jobs": [
       {
         "id": 103702397899,
@@ -790,12 +790,12 @@
     "head_sha": "c1b226bee3a276f70d8366911460d30c0c5a7e96",
     "event": "pull_request",
     "run_attempt": 2,
-    "status": "queued",
-    "conclusion": null,
+    "status": "completed",
+    "conclusion": "success",
     "created_at": "2026-09-13T09:11:36Z",
-    "updated_at": "2026-09-13T12:06:18Z",
+    "updated_at": "2026-09-13T12:14:31Z",
     "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125",
-    "collected_at": "2026-09-13T12:06:50.841072+00:00",
+    "collected_at": "2026-09-13T12:14:42.818665+00:00",
     "jobs": [
       {
         "id": 103716725426,
@@ -1167,13 +1167,123 @@
         "id": 103720807977,
         "name": "Dev 이미지 build · cache",
         "run_attempt": 2,
-        "status": "queued",
-        "conclusion": null,
+        "status": "completed",
+        "conclusion": "success",
         "created_at": "2026-09-13T12:06:18Z",
-        "started_at": "2026-09-13T12:06:18Z",
-        "completed_at": null,
-        "runner_name": null,
+        "started_at": "2026-09-13T12:13:01Z",
+        "completed_at": "2026-09-13T12:14:31Z",
+        "runner_name": "gromo-dev-build-2",
         "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103720807977",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": 403.0,
+        "execution_seconds": 90.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:13:04Z",
+            "completed_at": "2026-09-13T12:13:07Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:13:07Z",
+            "completed_at": "2026-09-13T12:13:09Z"
+          },
+          {
+            "name": "Run ./.github/actions/ci-jar",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:13:09Z",
+            "completed_at": "2026-09-13T12:13:50Z"
+          },
+          {
+            "name": "GAR 인증",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:13:50Z",
+            "completed_at": "2026-09-13T12:13:50Z"
+          },
+          {
+            "name": "Run docker/setup-buildx-action@v3",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:13:50Z",
+            "completed_at": "2026-09-13T12:13:56Z"
+          },
+          {
+            "name": "이미지 빌드 및 push",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:13:56Z",
+            "completed_at": "2026-09-13T12:14:20Z"
+          },
+          {
+            "name": "결과 요약",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:14:20Z",
+            "completed_at": "2026-09-13T12:14:20Z"
+          },
+          {
+            "name": "Post 이미지 빌드 및 push",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:14:20Z",
+            "completed_at": "2026-09-13T12:14:24Z"
+          },
+          {
+            "name": "Post Run docker/setup-buildx-action@v3",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:14:24Z",
+            "completed_at": "2026-09-13T12:14:26Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:14:26Z",
+            "completed_at": "2026-09-13T12:14:26Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:14:26Z",
+            "completed_at": "2026-09-13T12:14:26Z"
+          }
+        ]
+      },
+      {
+        "id": 103721791493,
+        "name": "Dev CD",
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "skipped",
+        "created_at": "2026-09-13T12:14:31Z",
+        "started_at": "2026-09-13T12:14:31Z",
+        "completed_at": "2026-09-13T12:14:31Z",
+        "runner_name": null,
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103721791493",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": null,
+        "execution_seconds": null,
+        "steps": []
+      },
+      {
+        "id": 103721791600,
+        "name": "pr-report",
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "skipped",
+        "created_at": "2026-09-13T12:14:31Z",
+        "started_at": "2026-09-13T12:14:31Z",
+        "completed_at": "2026-09-13T12:14:31Z",
+        "runner_name": null,
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103721791600",
         "reused_from_previous_attempt": false,
         "queue_seconds": null,
         "execution_seconds": null,
@@ -1192,7 +1302,7 @@
     "created_at": "2026-09-13T09:11:36Z",
     "updated_at": "2026-09-13T10:03:20Z",
     "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088170",
-    "collected_at": "2026-09-13T12:06:51.815277+00:00",
+    "collected_at": "2026-09-13T12:14:43.742576+00:00",
     "jobs": [
       {
         "id": 103702395108,

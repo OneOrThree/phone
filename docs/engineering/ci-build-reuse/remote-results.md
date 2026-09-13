@@ -8,12 +8,10 @@
 | Workflow | 결과 | HEAD | 실행 |
 | --- | --- | --- | --- |
 | Business · Notification CI | success | `c1b226bee` | [#34749088064](https://github.com/OneOrThree/phone/actions/runs/34749088064) |
-| CI | queued | `c1b226bee` | [#34749088125](https://github.com/OneOrThree/phone/actions/runs/34749088125) |
+| CI | success | `c1b226bee` | [#34749088125](https://github.com/OneOrThree/phone/actions/runs/34749088125) |
 | Realtime CI | success | `c1b226bee` | [#34749088170](https://github.com/OneOrThree/phone/actions/runs/34749088170) |
 
-**수집 시점에 CI가 진행 중이다. 대기 중인 잡과 아직 배정되지 않은 잡은 소요 시간을 확정하지 않았다.**
-
-수집 시각(UTC): 2026-09-13T12:06:49.696627+00:00, 2026-09-13T12:06:50.841072+00:00, 2026-09-13T12:06:51.815277+00:00
+수집 시각(UTC): 2026-09-13T12:14:41.588464+00:00, 2026-09-13T12:14:42.818665+00:00, 2026-09-13T12:14:43.742576+00:00
 
 ## 잡별 러너 대기와 실행
 
@@ -29,7 +27,9 @@
 | CI / test / gradle | 995 | 1177 | success |
 | CI / checkstyle / gradle | — | — | 이전 성공 재사용 |
 | CI / spotbugs / gradle | — | — | 이전 성공 재사용 |
-| CI / Dev 이미지 build · cache | — | — | queued |
+| CI / Dev 이미지 build · cache | 403 | 90 | success |
+| CI / Dev CD | — | — | skipped |
+| CI / pr-report | — | — | skipped |
 | Realtime CI / build / gradle | 1163 | 506 | success |
 | Realtime CI / 채팅 이미지 build · cache | 1213 | 70 | success |
 
@@ -44,6 +44,8 @@
 | Business · Notification CI / business-api 이미지 / Run ./.github/actions/ci-jar | 25 | success |
 | Business · Notification CI / business-api 이미지 / 이미지 검증 · 환경별 digest 발행 | 49 | success |
 | CI / test / gradle / Run ./.github/actions/ci-jar | 13 | success |
+| CI / Dev 이미지 build · cache / Run ./.github/actions/ci-jar | 41 | success |
+| CI / Dev 이미지 build · cache / 이미지 빌드 및 push | 24 | success |
 | Realtime CI / build / gradle / Run ./.github/actions/ci-jar | 12 | success |
 | Realtime CI / 채팅 이미지 build · cache / Run ./.github/actions/ci-jar | 35 | success |
 | Realtime CI / 채팅 이미지 build · cache / Build image | 8 | success |
@@ -67,6 +69,13 @@ Data-only PR에서 위성 self-hosted 잡을 생략하는 효과를 직접 측�
 - 변경 입력별 검증 범위를 나누면서 계약 검사와 기존 체크 이름을 유지했다.
 - 로컬 검증과 GitHub 자동 CI 결과를 분리해 원본 근거를 보관했다.
 - 시간 단축률은 동등한 부하·캐시 조건의 반복 측정 전에는 확정하지 않는다.
+
+## 원격 산출물·캐시 증거
+
+[remote-artifact-proofs.json](evidence/remote-artifact-proofs.json)에 네 서비스의 manifest와 이미지 잡 URL, 원본 로그 해시를 보관한다.
+검사 잡과 이미지 잡에서 출력한 manifest의 서비스·검증 revision·run ID·JAR SHA-256이 일치한다.
+이미지 잡 로그에는 Gradle bootJar 재실행이 없고, registry cache export가 확인됐다.
+API의 PR head SHA와 실제 checkout한 merge revision은 서로 다를 수 있으므로 각각 기록한다.
 
 ## 최초 실행의 실패와 재실행
 
