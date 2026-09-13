@@ -1,0 +1,18 @@
+{
+  "service": "realtime",
+  "workflow_run": 34746293759,
+  "pr_head_sha": "d0686e452eb607f7fb583912ea983554d933f04e",
+  "manifest": {
+    "service": "realtime",
+    "revision": "98ab6e0350301ba5c9a0a801ff2b6f7929d578a0",
+    "run_id": "34746293759",
+    "sha256": "af5066f60a56044a55819c943e91daf11ffbaabf18a43c8c6cc183e99e305034"
+  },
+  "manifest_log_occurrences": 2,
+  "image_job_id": 103699852151,
+  "image_job_url": "https://github.com/OneOrThree/phone/actions/runs/34746293759/job/103699852151",
+  "registry_cache_export_observed": true,
+  "gradle_builder_run_observed": false,
+  "workflow_log_sha256": "d3d8a2e80dcb4ca940638f0524b107c174906def2a504901c330a65b68009990",
+  "image_log_sha256": "e30942ae8bd01ed68f45150dff4d19472b868809b1562743bf58eb8004149a23"
+}
