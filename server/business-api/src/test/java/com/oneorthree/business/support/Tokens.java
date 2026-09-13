@@ -47,6 +47,11 @@ public final class Tokens {
         return build(userId, "refresh", false, null, null, 3600);
     }
 
+    /** 세션과 세대를 가진 신규 RT. */
+    public static String refreshWithSession(UUID userId, long generation, UUID sessionId) {
+        return build(userId, "refresh", false, generation, sessionId, 3600);
+    }
+
     /** 만료된 AT. */
     public static String expired(UUID userId) {
         return build(userId, "access", false, null, null, -60);

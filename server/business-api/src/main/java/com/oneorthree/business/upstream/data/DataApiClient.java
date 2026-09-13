@@ -1,5 +1,6 @@
 package com.oneorthree.business.upstream.data;
 
+import com.oneorthree.business.auth.LogoutCredentials;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.InternalCall;
@@ -60,6 +61,18 @@ public class DataApiClient {
 
     public DataApiClient(InternalHttpClient http) {
         this.http = http;
+    }
+
+    /** 원 RT의 폐기 증명으로 재시도 가능한 로그아웃. 주체는 Data가 자격에서 직접 검증한다. */
+    public JsonNode logoutSession(LogoutCredentials credentials, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, "/internal/auth/sessions/logout")
+                        .body(credentials)
+                        .endUserAuthErrors()
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<JsonNode>() { });
     }
 
     /**

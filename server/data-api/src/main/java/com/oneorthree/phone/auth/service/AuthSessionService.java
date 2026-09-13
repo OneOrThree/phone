@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -223,6 +224,27 @@ public class AuthSessionService {
             }
         });
         return found;
+    }
+
+    /** users 잠금을 먼저 가진 RT 전용 종료가 정확한 해시의 세션을 잠근다. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<AuthSession> findLogoutSessionForUpdate(String hash) {
+        return authSessionRepository.findByRefreshTokenHashForUpdate(hash);
+    }
+
+    /** 기존 users 해시로 증명한 sid 없는 RT의 종료행만 만든다. bootstrap은 발급하지 않는다. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AuthSession createLegacyLogoutSession(UUID userId, String hash) {
+        return authSessionRepository.save(AuthSession.builder().userId(userId).refreshTokenHash(hash)
+                .sessionEpoch(0L).legacy(true).build());
+    }
+
+    /** 세션 epoch·종료 증거·bootstrap 폐기 전달을 한 TX에 확정한다. 기기 삭제 명령은 없다. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void completeLogout(AuthSession session, Instant refreshExpiresAt) {
+        long epoch = outboxCommandPort.allocateVersion(AggregateRef.ofUser(session.getUserId()));
+        session.revokeForLogout(clock.instant(), refreshExpiresAt, epoch);
+        appendSessionRevoked(session);
     }
 
     /**

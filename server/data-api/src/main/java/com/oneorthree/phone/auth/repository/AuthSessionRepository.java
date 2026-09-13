@@ -29,6 +29,11 @@ public interface AuthSessionRepository extends JpaRepository<AuthSession, UUID> 
      */
     Optional<AuthSession> findByRefreshTokenHash(String refreshTokenHash);
 
+    /** RT 해시로 식별한 정확한 세션을 종료 TX에서 잠근다. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM AuthSession s WHERE s.refreshTokenHash = :hash")
+    Optional<AuthSession> findByRefreshTokenHashForUpdate(@Param("hash") String hash);
+
     /**
      * 세션 회전 — <b>조건부 UPDATE(compare-and-swap)</b> 다 (A22 ㋣ · GROMO-1659 codex R10).
      *

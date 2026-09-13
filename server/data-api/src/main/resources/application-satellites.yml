@@ -18,6 +18,7 @@ internal:
           - 'GET /internal/users/*/activation'
           - 'POST /internal/auth/device-sessions/verify'
           - 'POST /internal/auth/sessions/verify'
+          - 'POST /internal/auth/sessions/logout'
           - 'POST /internal/users/*/device-token-deletions'
           - 'PUT /internal/users/*/notification-settings-commands'
           - 'PATCH /internal/users/*/notification-settings-commands'

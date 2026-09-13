@@ -1,5 +1,6 @@
 package com.oneorthree.phone.auth.support;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Date;
 import java.util.UUID;
 
@@ -286,6 +288,47 @@ public class JwtProvider {
                 .getPayload()
                 .get(CLAIM_SESSION_ID, String.class);
         return sessionId == null ? null : UUID.fromString(sessionId);
+    }
+
+    /** 종료 경로 전용 엄격 파싱. 기존 토큰 읽기/발급 계약을 바꾸지 않는다. */
+    public LogoutToken verifyLogoutToken(String token, String expectedType) {
+        Claims claims = Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token).getPayload();
+        if (!expectedType.equals(claims.get(CLAIM_TYPE, String.class)) || claims.getExpiration() == null) {
+            throw new IllegalArgumentException("유효한 종료 자격이 필요합니다.");
+        }
+        UUID userId = canonicalUuid(claims.getSubject());
+        Object rawSession = claims.get(CLAIM_SESSION_ID);
+        UUID sessionId = rawSession == null ? null : canonicalUuid(rawSession);
+        Object rawGeneration = claims.get(CLAIM_GENERATION);
+        Long generation = null;
+        if (rawGeneration != null) {
+            if (!(rawGeneration instanceof Integer) && !(rawGeneration instanceof Long)) {
+                throw new IllegalArgumentException("유효한 자격 세대가 필요합니다.");
+            }
+            generation = ((Number) rawGeneration).longValue();
+            if (generation < 0 || generation > 9007199254740991L) {
+                throw new IllegalArgumentException("자격 세대 범위가 올바르지 않습니다.");
+            }
+        }
+        if (sessionId != null && generation == null) {
+            throw new IllegalArgumentException("세션 자격의 세대가 필요합니다.");
+        }
+        return new LogoutToken(userId, sessionId, generation, claims.getExpiration().toInstant());
+    }
+
+    private static UUID canonicalUuid(Object raw) {
+        if (!(raw instanceof String value) || value.length() != 36) {
+            throw new IllegalArgumentException("유효한 자격 식별자가 필요합니다.");
+        }
+        UUID id = UUID.fromString(value);
+        if (!id.toString().equalsIgnoreCase(value)) {
+            throw new IllegalArgumentException("자격 식별자 형식이 올바르지 않습니다.");
+        }
+        return id;
+    }
+
+    /** 검증된 식별 자료만 보관하며 토큰 원문은 포함하지 않는다. */
+    public record LogoutToken(UUID userId, UUID sessionId, Long generation, Instant expiresAt) {
     }
 
     private String buildToken(UUID userId, long expirationSeconds, String type, boolean isGuest,

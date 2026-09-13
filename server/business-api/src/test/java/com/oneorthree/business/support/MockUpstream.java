@@ -119,6 +119,11 @@ public final class MockUpstream implements AutoCloseable {
                 ? new Response(404, "{\"code\":null,\"message\":\"등록되지 않은 mock 경로\"}")
                 : handler.handle(request);
 
+        if (response.status() == 0) {
+            // 명령 수신 후 응답만 유실되는 실제 TCP 실패를 재현한다.
+            exchange.close();
+            return;
+        }
         byte[] payload = response.body() == null
                 ? new byte[0] : response.body().getBytes(StandardCharsets.UTF_8);
         if (payload.length > 0) {
@@ -148,6 +153,9 @@ public final class MockUpstream implements AutoCloseable {
     }
 
     public record Response(int status, String body) {
+        public static Response disconnected() {
+            return new Response(0, null);
+        }
     }
 
     public record RecordedRequest(

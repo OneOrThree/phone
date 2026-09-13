@@ -84,6 +84,26 @@ class UpstreamErrorContractIntegrationTest extends UpstreamTestBase {
         assertThat(DATA.hits(UPSTREAM)).isEqualTo(1);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"REFRESH_TOKEN", "UNAUTHORIZED"})
+    void ordinaryInternalCallsStillTreatAuthenticationCodesAsServiceFailure(String code) throws Exception {
+        structured(401, code);
+        mockMvc.perform(get(PUBLIC + "/sync").header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_AUTH_FAILED"));
+        assertThat(DATA.hits(UPSTREAM)).isEqualTo(1);
+    }
+
+    @Test
+    void userAuthenticationErrorOptInCannotSpreadToOtherInternalRoutes() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> InternalCall
+                .to(org.springframework.http.HttpMethod.POST, "/internal/auth/sessions/verify")
+                .endUserAuthErrors().build()).isInstanceOf(IllegalArgumentException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> InternalCall
+                .to(org.springframework.http.HttpMethod.GET, "/internal/auth/sessions/logout")
+                .endUserAuthErrors().build()).isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     void compositionIsStrictEvenWhenStartedFromLegacyExplicitContext() throws Exception {
         structured(502, "UNREGISTERED_FAILURE");

@@ -3,6 +3,7 @@ package com.oneorthree.business.config;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.auth.AccessTokenVerifier;
 import com.oneorthree.business.auth.AuthAttributes;
+import com.oneorthree.business.auth.LogoutCredentials;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.ApiResponses;
 import com.oneorthree.business.common.exception.CommonErrorCode;
@@ -45,8 +46,9 @@ import java.util.Set;
  * <b>같은 컨트롤러로 라우팅되면서 접두어 검사에는 걸리지 않는다</b>. 비교를 {@code getRequestURI()}
  * (디코딩 전 원문)의 정확 일치로 두면 그런 변형은 목록에 없으므로 fail-closed 로 401 이 된다.
  *
- * <p>열려 있는 것은 세 종류뿐이다 — 컨테이너 헬스체크({@code /health}), 이관 정지 창의 무인증 구 앱
+ * <p>무인증 공개 경로는 세 종류다 — 컨테이너 헬스체크({@code /health}), 이관 정지 창의 무인증 구 앱
  * 매치({@code /l/match}), 관리 엔드포인트(포트 9091 로 격리돼 있고 서비스 포트로 부르면 404 여야 한다).
+ * RT-only 로그아웃은 별도로 정확한 DELETE 경로에서만 AT 생략을 허용하고, Data가 RT를 검증한다.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -95,6 +97,11 @@ public class AccessTokenFilter extends OncePerRequestFilter {
             log.warn("외부 X-User-Id 헤더를 폐기했다 — path={}", request.getRequestURI());
         }
 
+        // RT가 인증 정본인 이 raw method/path만 AT 생략을 허용한다. 제공한 AT는 계속 검증한다.
+        if (LogoutCredentials.matches(request) && request.getHeader(HEADER_AUTHORIZATION) == null) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         Optional<AccessTokenClaims> claims = verifier.verify(extractToken(request));
         if (claims.isEmpty()) {
             sendUnauthorized(request, response);
@@ -109,6 +116,16 @@ public class AccessTokenFilter extends OncePerRequestFilter {
     }
 
     private String extractToken(HttpServletRequest request) {
+        if (LogoutCredentials.matches(request)) {
+            var headers = request.getHeaders(HEADER_AUTHORIZATION);
+            if (headers == null || !headers.hasMoreElements()) {
+                return null;
+            }
+            headers.nextElement();
+            if (headers.hasMoreElements()) {
+                return null;
+            }
+        }
         String header = request.getHeader(HEADER_AUTHORIZATION);
         if (header == null || header.length() > MAX_AUTHORIZATION_LENGTH || !header.startsWith(BEARER_PREFIX)) {
             return null;
