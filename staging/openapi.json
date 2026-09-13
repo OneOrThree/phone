@@ -173,6 +173,54 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "internal-user-controller"
+        ],
+        "operationId": "patchNotificationSettings",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSettingsPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettingsCommandResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/users/me/notification-settings": {
@@ -221,8 +269,18 @@
           "user"
         ],
         "summary": "알림·심야·소리 설정 저장",
-        "description": "유저 전역 알림/심야 모드/소리 설정 저장. 성공 시 204 반환.",
+        "description": "유저 전역 알림/심야 모드/소리 설정 저장. 성공 시 204 반환. 선택 Idempotency-Key를 재시도에서 유지하면 같은 명령을 재생한다.",
         "operationId": "updateNotificationSettings",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -242,6 +300,9 @@
           },
           "404": {
             "description": "유저 없음"
+          },
+          "409": {
+            "description": "같은 멱등 키에 다른 설정 본문"
           }
         }
       }
@@ -462,6 +523,47 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InviteMatchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/notification-settings-snapshot": {
+      "post": {
+        "tags": [
+          "internal-user-controller"
+        ],
+        "operationId": "notificationSettingsSnapshot",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSettingsSnapshotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettingsSnapshotResponse"
                 }
               }
             }
@@ -7067,6 +7169,59 @@
           }
         }
       },
+      "NotificationSettingsSnapshotRequest": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authGeneration": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "authGeneration",
+          "sessionId"
+        ]
+      },
+      "NotificationSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "notificationEnabled": {
+            "type": "boolean"
+          },
+          "soundEnabled": {
+            "type": "boolean"
+          },
+          "nightModeEnabled": {
+            "type": "boolean"
+          },
+          "nightStartTime": {
+            "type": "string"
+          },
+          "nightEndTime": {
+            "type": "string"
+          }
+        }
+      },
+      "NotificationSettingsSnapshotResponse": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "authGeneration": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/NotificationSettingsResponse"
+          }
+        }
+      },
       "DeviceTokenDeletionRequest": {
         "type": "object",
         "properties": {
@@ -8140,6 +8295,73 @@
           "event"
         ]
       },
+      "NotificationSettingsPatchRequest": {
+        "type": "object",
+        "properties": {
+          "notifications": {
+            "type": "boolean"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authGeneration": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "authGeneration",
+          "notifications",
+          "sessionId"
+        ]
+      },
+      "NotificationSettingsCommandResponse": {
+        "type": "object",
+        "properties": {
+          "commandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "mask": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "patch": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/NotificationSettingsResponse"
+          },
+          "authGeneration": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Result"
+          }
+        }
+      },
+      "Result": {
+        "type": "object",
+        "properties": {
+          "notifications": {
+            "type": "boolean"
+          }
+        }
+      },
       "UserProfileUpdateRequest": {
         "type": "object",
         "properties": {
@@ -8845,26 +9067,6 @@
           "linkedAt": {
             "type": "string",
             "format": "date-time"
-          }
-        }
-      },
-      "NotificationSettingsResponse": {
-        "type": "object",
-        "properties": {
-          "notificationEnabled": {
-            "type": "boolean"
-          },
-          "soundEnabled": {
-            "type": "boolean"
-          },
-          "nightModeEnabled": {
-            "type": "boolean"
-          },
-          "nightStartTime": {
-            "type": "string"
-          },
-          "nightEndTime": {
-            "type": "string"
           }
         }
       },
