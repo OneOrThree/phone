@@ -129,6 +129,7 @@ class NotificationEligibilityServiceTest {
     @DisplayName("시간 제한 종류는 유효기간 안에만 통과하고 친구 수락은 사실 통보로 유지한다")
     void stateIndependentKindsPassOnActiveUser() {
         userIsActive();
+        when(userQueryService.findActive(SUBJECT)).thenReturn(Optional.of(User.builder().id(SUBJECT).build()));
 
         assertThat(service().evaluate(request("LEAGUE_WEEKLY_RESULT", null)).eligible()).isTrue();
         assertThat(service().evaluate(request("STREAK_AT_RISK", null)).eligible()).isTrue();

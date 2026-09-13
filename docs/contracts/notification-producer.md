@@ -104,9 +104,14 @@ noti:<KIND>:<userId>:<subjectId|none>:<시간축|none>
 | `CHALLENGE_ENDED` | DAY | 챌린지 | DROP | 의존 | `CHALLENGE_ENDED` | `challengeId` |
 | `CHALLENGE_CREATED` | NONE | 챌린지 | DROP | 의존 | `CHALLENGE_CREATED` | `challengeId` · `groupName` · `mission`(목표 스냅샷) |
 | `FRIEND_REQUEST` | MINUTE | 상대 유저 | DROP | 의존 | `FRIEND_REQUEST` | `counterpartUserId` · `counterpartNickname` · `requestId` |
-| `FRIEND_ACCEPTED` | MINUTE | 상대 유저 | DROP | 무관 | `FRIEND_ACCEPTED` | `counterpartUserId` · `counterpartNickname` · `requestId` |
+| `FRIEND_ACCEPTED` | MINUTE | 상대 유저 | DROP | 의존 | `FRIEND_ACCEPTED` | `counterpartUserId` · `counterpartNickname` · `requestId` |
 
 공통 `params` 는 위에 더해 `kind` · `quietPolicy` · `groupId`(그룹 사건만) · `slotAt`(묶음 축, ISO-8601 UTC).
+
+`FRIEND_ACCEPTED`는 발송 직전 `subjectId`가 가리키는 상대 계정이 현재 활성인지 확인한다.
+상대가 탈퇴했거나 없으면 `SUBJECT_GONE`으로 억제해 지연 outbox·DLT의 과거 닉네임을 보내지 않는다.
+수락은 이미 일어난 사실이므로 단순 친구 해제만으로 억제하지 않는다. 관리자 시험도 상대 활성
+조건을 따르며, 활성 수신자 자신을 대상으로 하는 정상 시험은 허용한다.
 
 `BET_WON`은 발송 직전 Data 정본에서 회차가 `OPEN` 또는 `SETTLED`이고 해당 참가자의
 `achieved=true`일 때만 허용한다. 조기 확정은 정산 전에도 유효하지만, `VOIDED`·`REFUNDED` 등으로

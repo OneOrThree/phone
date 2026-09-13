@@ -123,10 +123,11 @@ public class NotificationEligibilityService {
             case BET_SILENT_FLUSH -> evaluateBetParticipation(request);
             case CHALLENGE_WINDOW_END, CHALLENGE_ENDED -> evaluateChallengeEnd(request);
             case FRIEND_REQUEST -> evaluateFriendRequest(request);
+            case FRIEND_ACCEPTED -> evaluateFriendAccepted(request);
             case INACTIVE_RETURN, MISSED_FOCUS_TODAY, STREAK_AT_RISK ->
                     retentionEligibility.evaluate(request, user, clock.instant());
             // 추가 도메인 조회가 없는 종류. 시간 제한이 있는 리그·리텐션은 위에서 만료를 확인했다.
-            case FRIEND_ACCEPTED, LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_DEADLINE_D1,
+            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_DEADLINE_D1,
                  LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE ->
                     NotificationEligibilityResponse.allow();
         };
@@ -278,6 +279,13 @@ public class NotificationEligibilityService {
         return betParticipantRepository.findBySessionIdAndUserId(sessionId, userId).isPresent()
                 ? NotificationEligibilityResponse.allow()
                 : NotificationEligibilityResponse.deny(REASON_NOT_PARTICIPANT);
+    }
+
+    /** 수락 사실은 친구 해제 뒤에도 유효하지만, 탈퇴한 상대의 보존된 닉네임은 전송하지 않는다. */
+    private NotificationEligibilityResponse evaluateFriendAccepted(NotificationEligibilityRequest request) {
+        return userQueryService.findActive(request.subjectId()).isPresent()
+                ? NotificationEligibilityResponse.allow()
+                : NotificationEligibilityResponse.deny(REASON_SUBJECT_GONE);
     }
 
     /**

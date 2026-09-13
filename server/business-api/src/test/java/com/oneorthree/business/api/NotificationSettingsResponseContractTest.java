@@ -19,6 +19,66 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class NotificationSettingsResponseContractTest extends UpstreamTestBase {
+    static Stream<Arguments> invalidQuietTimes() {
+        return Stream.of("nightStartTime", "nightEndTime").flatMap(field ->
+                Stream.of("25:99", "invalid", "12:34:56", "7:05", "07:5", "24:00", "", " 07:00", "07:00Z")
+                        .map(value -> Arguments.of(field, value)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidQuietTimes")
+    void invalidUpstreamTimeCannotBecomeASettingThatTheNextWriteRejects(String field, String time) throws Exception {
+        String body = ALL_DISABLED.replace("\"" + field + "\":null", "\"" + field + "\":\"" + time + "\"");
+        NOTI.on("GET " + INTERNAL_PATH, request -> new MockUpstream.Response(200, body));
+        mockMvc.perform(get(PUBLIC_PATH).header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        // 같은 값은 공개 PUT 계약에서도 유효하지 않다. GET 성공으로 노출하면 다른 토글까지 저장 못 한다.
+        mockMvc.perform(put(PUBLIC_PATH).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json").content(body))
+                .andExpect(status().isBadRequest());
+        assertThat(DATA.received()).isEmpty();
+        assertThat(NOTI.received()).hasSize(1);
+        NOTI.on("GET " + INTERNAL_PATH, request -> new MockUpstream.Response(200, ALL_DISABLED));
+        mockMvc.perform(get(PUBLIC_PATH).header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isOk());
+    }
+
+    static Stream<Arguments> validQuietTimes() {
+        return Stream.of(Arguments.of(null, null), Arguments.of("00:00", "23:59"),
+                Arguments.of("23:59", "00:00"), Arguments.of(null, "07:00"),
+                Arguments.of("22:00", null), Arguments.of("22:00", "07:00"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("validQuietTimes")
+    void aValidReadCanBeWrittenBackWhileChangingOnlyAnotherToggle(String start, String end) throws Exception {
+        String body = ALL_DISABLED.replace("\"nightStartTime\":null", "\"nightStartTime\":" + jsonTime(start))
+                .replace("\"nightEndTime\":null", "\"nightEndTime\":" + jsonTime(end));
+        NOTI.on("GET " + INTERNAL_PATH, request -> new MockUpstream.Response(200, body));
+        String read = mockMvc.perform(get(PUBLIC_PATH).header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(read).contains("\"nightStartTime\":" + jsonTime(start), "\"nightEndTime\":" + jsonTime(end));
+        stubActiveUser(USER);
+        UUID command = UUID.randomUUID();
+        DATA.on("PUT " + INTERNAL_PATH + "-commands", request -> new MockUpstream.Response(200,
+                "{\"commandId\":\"" + command + "\",\"eventId\":\"quiet-settings\",\"version\":1}"));
+        DATA.on("POST /internal/outbox-commands/" + command + "/delivered",
+                request -> new MockUpstream.Response(204, null));
+        NOTI.on("PUT " + INTERNAL_PATH, request -> new MockUpstream.Response(204, null));
+        mockMvc.perform(put(PUBLIC_PATH).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json").content(read.replace("\"soundEnabled\":false", "\"soundEnabled\":true")))
+                .andExpect(status().isNoContent());
+        assertThat(NOTI.receivedFor("PUT " + INTERNAL_PATH)).singleElement().satisfies(request ->
+                assertThat(request.body()).contains("\"soundEnabled\":true", "\"nightStartTime\":" + jsonTime(start),
+                        "\"nightEndTime\":" + jsonTime(end)));
+        assertThat(DATA.hits("POST /internal/outbox-commands/" + command + "/delivered")).isEqualTo(1);
+    }
+
+    private static String jsonTime(String time) {
+        return time == null ? "null" : "\"" + time + "\"";
+    }
+
     static Stream<Arguments> incompleteCommands() {
         String identity = "\"commandId\":\"11111111-1111-4111-8111-111111111111\",\"eventId\":\"settings\"";
         return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
