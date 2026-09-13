@@ -96,7 +96,7 @@ sequenceDiagram
   participant D as data-api
   Src->>P: 스토어 이동 (referrer: slug·click / Meta 암호화 utm_content / Google gclid)
   P->>A: 설치
-  A->>A: 첫 실행 · InstallReferrerClient 로 읽어 로컬에서 출처 판별
+  A->>A: 첫 실행 · InstallReferrerClient 로 읽어 로컬에서 출처 판별(LLD §4.1 과 같은 규칙)
   alt slug 있음 (우리 링크)
     A->>B: POST /l/resolve {slug} (무인증 · 저장 없음)
     B-->>A: {type, destination?, groupId?} → 목적지·초대 시트
@@ -135,7 +135,7 @@ sequenceDiagram
   Note over AP: 측정 창 종료 → 무작위 지연
   AP->>N: 포스트백 (광고 네트워크 대시보드 숫자)
   AP->>B: 같은 포스트백 복사본 POST /.well-known/skadnetwork/report-attribution/
-  B->>B: 크기·레이트리밋 · app-id 확인 · 서명 검증 (실패는 저장 없이 200)
+  B->>B: 크기·동시 검증 상한 · app-id 확인 · 서명 검증 (실패는 저장 없이 200)
   B->>D: POST /internal/skan-postbacks {정규화 필드, 원문}
   D->>D: 재전송 멱등 저장
   D-->>B: 201 또는 200
@@ -159,14 +159,14 @@ sequenceDiagram
 - **클라이언트 IP**: nginx 가 Cloudflare 대역 피어일 때만 `CF-Connecting-IP` 를 믿어 `X-Real-IP` 로 넘긴다(현행 `ClientIpResolver` 규칙). business-api 가 같은 규칙으로 IP 를 뽑아 `clientIp` 로 넘기고, data-api 가 솔트로 해시한다. 원본 IP 는 DB 에도 Redis 키에도 저장하지 않는다.
 - **앱 계약 보존**: `/l/match`·`/l/referrer`·`/l/resolve` 는 결과가 없으면 200(`{matched:false}`)이고, **data-api 장애·타임아웃은 503, 레이트리밋은 429** 다. 현 앱은 2xx 가 아닐 때 완료 플래그를 세우지 않고 다음 실행에 다시 묻는다. 앱의 매치 타임아웃(5초) 안에 끝나도록 내부 호출 예산을 둔다.
 - **랜딩 강등**: data-api 가 응답하지 않으면 스토어 버튼만 있는 기본 랜딩을 준다. 클릭은 기록하지 않는다.
-- **SKAN**: 공개·무인증 경로라 **서명을 통과한 우리 앱 포스트백만 저장한다.** 서명 실패·모르는 버전·다른 앱은 저장 없이 200 으로 끝내고 건수만 센다. 본문 16KB 제한, IP 레이트리밋, Cloudflare 엣지 레이트리밋을 함께 둔다. 저장 실패만 5xx 로 남겨 경보한다.
+- **SKAN**: 공개·무인증 경로라 **서명을 통과한 우리 앱 포스트백만 저장한다.** 서명 실패·모르는 버전·다른 앱은 저장 없이 200 으로 끝내고 건수만 센다. 본문 16KB 제한과 인스턴스당 동시 서명 검증 상한(32건, 넘으면 503 + `Retry-After`)만 둔다 — Apple 이 여러 설치 분을 서버 간으로 보내 발신 IP 가 사용자 식별자가 아니므로 IP·엣지 레이트리밋은 두지 않는다(두면 캠페인이 커질 때 정상 포스트백을 잘라 과소 집계한다). 저장 실패만 5xx 로 남겨 경보한다.
 - **referrer 저장 위조**: `/l/referrer` 만 access token 을 요구한다(게스트 포함). 위조량이 게스트 생성 한도(IP 당 시간당 10회, 전체 시간당 300회)에 묶이고, 유저 행 배타 락 아래에서 세는 KST 당일 3건 상한이 동시 요청까지 한 번 더 막는다. 첫 실행의 출처 판별은 앱이 로컬에서 하므로 토큰이 없어도 매치 생략·초대 시트가 늦지 않는다.
 - **미리보기 봇**: 카카오톡·Slack·Meta 의 링크 미리보기 수집기는 클릭으로 기록하지 않는다(현행 봇 판별 유지).
 - **랜딩 클릭 저장량**: `User-Agent` 는 위조할 수 있으므로 봇 판별만으로는 클릭 부풀림을 못 막는다. `GET /l/{slug}` 에 slug 와 무관한 IP 단위 한도를 두고(넘으면 랜딩만 보여주고 클릭 미기록), data-api 는 같은 링크·IP 해시·OS 의 클릭을 매치 여부와 무관하게 매치 창 안에서 20건까지만 새로 만든다 — 매치로 줄지 않아 방문과 `/l/match` 를 번갈아 불러도 한도가 되돌아가지 않는다. Cloudflare 엣지 한도도 같이 둔다.
 - **캠페인 플랫폼**: 캠페인의 플랫폼과 다른 OS 로 들어온 설치·가입은 그 캠페인 수치에 넣지 않고 채널 합계로 뺀다. iOS 캠페인에는 Play URL 을 발급하지 않고 랜딩에서 Android 스토어 버튼을 숨긴다.
 - **공개 경로 인증 예외**: business-api 의 토큰 필터는 전부 막고 열거한 것만 연다. 예외는 (메서드, 디코딩 전 경로) 정확 목록이고 `/l/**` 같은 와일드카드를 쓰지 않는다 — `/l/referrer` 는 같은 접두어를 쓰는 인증 경로다.
 - **가입 수**: 현 앱은 기존 계정 로그인에서도 claim 하므로, claim 때 유저 가입 시각으로 신규 여부를 기록해 신규만 가입 수에 넣는다. referrer 의 비교 기준은 Play 설치 시작 시각(없으면 Play 클릭 시각)이고, 둘 다 없을 때만 저장 시각에서 10분 유예를 뺀 값이다 — referrer 는 로그인 뒤 저장되므로 저장 시각을 그대로 쓰면 신규 사용자가 전부 기존 계정으로 판정된다. 클라이언트가 보낸 신규 여부는 쓰지 않는다. 기간은 claim 시각이 아니라 가입 시각(`signup_at`)으로 자른다. 한 사용자가 여러 링크를 claim 해도 신규 가입은 한 번만 기록한다. 같은 설치에서 클릭 claim 뒤 referrer claim 이 오면 신규 가입 참값을 referrer 원장으로 옮겨, 설치 중복 제거와 함께 한 번만 센다.
-- **공개 경로 레이트리밋**: 인증이 없는 공개 경로는 business-api 가 IP 단위로 제한한다. 키에는 원본 IP 대신 business-api 전용 비밀로 HMAC 한 값을 쓴다.
+- **공개 경로 레이트리밋**: 인증이 없는 공개 경로(SKAN 수신 제외)는 business-api 가 IP 단위로 제한한다. 키에는 원본 IP 대신 business-api 전용 비밀로 HMAC 한 값을 쓴다.
 - **claim·referrer 저장과 탈퇴**: claim·referrer 저장 모두 유저 행 배타 락을 잡아 유저 행을 배타 락으로 잡는 탈퇴와 직렬화된다. 탈퇴 뒤 연결도 `reporter_user_id` 도 남지 않는다. 같은 사용자의 동시 claim 도 직렬화돼 사용자당 신규 가입은 1건만 기록된다.
 - **claim 과 링크 폐기**: claim 은 요청자 행을 먼저 잠그지 않고 관련 user(요청자·발급자)를 UUID 오름차순으로 한꺼번에 잠가, 서로의 초대 링크를 동시에 claim 해도 교착이 없다. 초대 링크 claim 은 이어서 그룹 획득 문서의 순서(group·membership → link)로 잠근 뒤 활성 조건을 재검증해, 발급자 이탈·그룹 종료의 폐기와 한쪽만 먼저 커밋되게 한다. 캠페인 링크 claim 은 campaign → link 순으로 잠가 콘솔 캠페인 보관·링크 폐기와 직렬화한다. `attributionId` claim 은 조건부 UPDATE 한 번이라 동시 요청 중 하나만 성공한다.
 
@@ -192,7 +192,7 @@ sequenceDiagram
 | 1 | PR #745 머지 — **완료(2026-09-13, `1ec66e0dd`)**, 링크 코드 포함. 링크 경로는 data-api 공개 컨트롤러가 계속 서빙하고, [LLD §9.1](low-level-design.md#91-머지-뒤-켜지-않는-것) 의 설정은 켜지 않는다 | — |
 | 2 | data-api: **스키마 expand**(기존 테이블 이름 그대로 컬럼·제약 추가, 신설 3, **V21 전체 unique 유지**) · `invitelink` 일반화(엔티티는 `@Table` 로 옛 이름) · `/internal/*` · #745 의 data-api 링크 사장 코드 제거. **기존 공개 컨트롤러와 V52 링크 테이블은 남기고, 링크 폐기·재발급은 켜지 않는다** | 이미지 롤백 — expand 스키마에서 이전 이미지가 그대로 기동하고, 한 `(group_id, inviter_id)` 에 INVITE 행이 하나뿐이라 이전 이미지의 단건 조회도 그대로 동작 |
 | 3 | business-api: 공개 표면 · referrer · resolve · SKAN 수신 · #745 의 business-api 링크 사장 코드 제거 | 이미지 롤백 |
-| 4 | Infra: nginx 링크 경로를 business-api 로 전환(reload 1회), Cloudflare 에서 SKAN 경로 봇 챌린지 예외 + 엣지 레이트리밋 | nginx 원복 reload — 2 단계의 공개 컨트롤러가 같은 DB 를 읽으므로 무손실 |
+| 4 | Infra: nginx 링크 경로를 business-api 로 전환(reload 1회), Cloudflare 에서 SKAN 경로 봇 챌린지 예외(엣지 레이트리밋 없음) · `/l/*` GET 엣지 레이트리밋 | nginx 원복 reload — 2 단계의 공개 컨트롤러가 같은 DB 를 읽으므로 무손실 |
 | 5 | data-api **contract**: 기존 초대 링크 중 발급자 이탈·그룹 종료 행을 `REVOKED` 로 보정 → 전체 unique 를 active 부분 unique 로 교체 → **링크 폐기·재발급 켬**(그룹 획득 LLD §2.1) · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(행 0 확인). 전환 뒤 7일 무사고 · 구 경로 호출 0 확인 · 직전 RDS 수동 스냅샷 뒤 | **불가 — roll-forward 전용.** 장애는 핫픽스로 앞으로 고치고, 최후 수단은 contract 직전 RDS 스냅샷 복원(그 뒤 쓰기 전부 손실). 진입 조건은 [LLD §1.1](low-level-design.md#11-마이그레이션--expand--contract). 4 단계 원복도 불가해지므로 마지막에 한다 |
 | 6 | business-api: 콘솔. 캠페인 링크와 캠페인 링크 폐기는 이때부터 생긴다(contract 뒤) | 이미지 롤백 |
 | 7 | 앱: ① 파서·목적지·resolve ② Install Referrer(첫 실행 로컬 판별 · 세션 확보 뒤 저장) ③ SKAN 등록·전환값 ④ App Link `autoVerify`. 서버는 구 앱 계약을 유지하므로 최소 지원 버전과 무관 | 앱 배포 |
