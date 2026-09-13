@@ -18,6 +18,7 @@ def load(name):
 
 jar = load('ci-jar')
 planner = load('satellite-ci-plan')
+timings = load('ci-timings')
 
 
 class JarTest(unittest.TestCase):
@@ -122,6 +123,33 @@ class PlanTest(unittest.TestCase):
             selected = json.loads(output.read_text().split('=', 1)[1])
             self.assertTrue(selected['business-api'])
             self.assertFalse(selected['notification'])
+
+            # 없는 base는 생략이 아니라 전체 검사로, main/release push도 전체 검사로 간다.
+            event.write_text(json.dumps({'pull_request': {'base': {'sha': '0' * 40}, 'head': {'sha': head}}}))
+            for event_name in ('pull_request', 'push'):
+                output.write_text('')
+                subprocess.run(['python3', planner.__file__], cwd=root, check=True, capture_output=True,
+                               env={**os.environ, 'GITHUB_EVENT_PATH': str(event),
+                                    'GITHUB_EVENT_NAME': event_name, 'GITHUB_OUTPUT': str(output),
+                                    'GITHUB_STEP_SUMMARY': str(summary)})
+                self.assertTrue(all(json.loads(output.read_text().split('=', 1)[1]).values()))
+
+
+class TimingsTest(unittest.TestCase):
+    def test_unassigned_queued_job_is_not_zero_seconds_of_wait(self):
+        record = timings.job_record({'status': 'queued', 'runner_name': '',
+                                     'created_at': '2026-09-13T05:59:09Z',
+                                     'started_at': '2026-09-13T05:59:09Z'})
+        self.assertIsNone(record['queue_seconds'])
+        self.assertIsNone(record['execution_seconds'])
+
+    def test_actual_notification_record_separates_queue_from_execution(self):
+        record = timings.job_record({'status': 'completed', 'runner_name': 'gromo-dev-build-2',
+                                     'created_at': '2026-09-13T05:59:09Z',
+                                     'started_at': '2026-09-13T06:45:10Z',
+                                     'completed_at': '2026-09-13T06:49:31Z'})
+        self.assertEqual(record['queue_seconds'], 2761)
+        self.assertEqual(record['execution_seconds'], 261)
 
 
 if __name__ == '__main__':

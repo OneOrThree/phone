@@ -90,6 +90,21 @@ Python 격리/배포 계약, A22 계약, 공개 명령 원자성·동시성 검�
 **main/release push는 최종 SHA의 두 이미지를 계속 모두 검증·발행한다.**
 PR 파일 범위 판정으로 배포 입력이 사라지는 문제를 피한다. PR은 최종 이미지를 발행하지 않는다.
 
+### 기존 스택 변경 파일의 로컬 재현
+
+실제 스택 diff를 새 판정기로 재생한 결과다. GitHub에서 새 workflow를 실행한 시간 측정은 아니다.
+원본 SHA·파일 목록·결과: [stack-plan-replay.json](evidence/stack-plan-replay.json).
+
+| PR | 기존 위성 self-hosted 잡 | 새 계획의 위성 self-hosted 잡 | 이유 |
+| --- | ---: | ---: | --- |
+| #751 | 4 | 2 | Business 변경, Notification 전체 검사·이미지 생략 |
+| #752 | 4 | 4 | 공통 nginx 배포 입력 변경으로 전체 검사 유지 |
+| #753 | 4 | 0 | Data·Realtime 변경, 위성 계약 검사만 유지 |
+
+이 수치는 Data·Realtime 자체 CI 잡을 포함하지 않는다. 줄인 전체 검사 대신 남기는
+Notification JAR·체크섬 probe와 짧은 생략 기록 잡은 hosted에서 실행된다.
+다른 스택 PR에 이 효과를 적용하려면 최적화가 main에 merge된 뒤 그 workflow를 각 브랜치에도 반영해야 한다.
+
 ### 이미지 캐시
 
 Business·Notification도 동일 리전 GAR의 registry cache를 사용한다.
