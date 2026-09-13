@@ -295,7 +295,7 @@
 
 <section>
   <h2><span class="n">4</span>데이터 — 테이블 5개, 이관 없음</h2>
-  <p class="lede">기존 두 테이블은 컬럼 추가를 먼저 하고(expand), 이름 변경은 마지막 단계에서 한다(contract). 기존 비활성 초대 링크 보정과 부분 unique 교체도 contract 에서 한다 — 그 전까지 모든 단계를 이전 이미지로 되돌릴 수 있다. slug·id·클릭 이력 그대로. 신설 3개는 캠페인과 바깥에서 오는 신호 2종. 캠페인 귀속은 읽기 시점에 한다. 콘솔 상태(세션·잠금·폼 토큰)는 business-api Redis 라 DB 테이블 0.</p>
+  <p class="lede">기존 두 테이블은 컬럼 추가를 먼저 하고(expand), 이름 변경은 마지막 단계에서 한다(contract). 기존 초대 링크 전부 폐기 보정과 부분 unique 교체도 contract 에서 한다 — 그 전까지 모든 단계를 이전 이미지로 되돌릴 수 있다. slug·id·클릭 이력 그대로. 신설 3개는 캠페인과 바깥에서 오는 신호 2종. 캠페인 귀속은 읽기 시점에 한다. 콘솔 상태(세션·잠금·폼 토큰)는 business-api Redis 라 DB 테이블 0.</p>
   <figure>
     <svg viewBox="0 0 880 470" role="img" aria-label="campaigns, links, link_clicks, install_referrers, skan_postbacks 다섯 테이블과 참조 관계">
       <defs>
@@ -405,8 +405,8 @@
     <li>data-api — 스키마 expand(기존 테이블 이름 그대로 컬럼·신설 3 · V21 전체 unique 유지) · <code>invitelink</code> 일반화 · <code>/internal/*</code> · #745 data-api 링크 사장 코드 제거. 공개 컨트롤러와 V52 테이블은 남기고 링크 폐기·재발급은 켜지 않는다</li>
     <li>business-api — 공개 표면 · referrer · resolve · SKAN 수신(서명 통과분만 저장) · <code>/l/referrer</code> 토큰·유저 상한 · #745 business-api 링크 사장 코드 제거</li>
     <li>Infra — nginx 링크 경로 전환(reload 1회, 되돌리기도 1회 · 같은 DB 라 무손실), Cloudflare SKAN 경로 챌린지 예외(엣지 레이트리밋 없음)</li>
-    <li>data-api contract — 비활성 초대 링크 REVOKED 보정 · 부분 unique 교체 · 링크 폐기·재발급 켬 · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(전환 7일 뒤, 구 경로 호출 0). roll-forward 전용(직전 RDS 스냅샷이 최후 수단)</li>
-    <li>business-api — 콘솔</li>
+    <li>data-api contract — 기존 초대 링크 전부 REVOKED 보정(공유된 초대 링크 만료) · 부분 unique 교체 · 링크 폐기·재발급 켬 · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(전환 7일 뒤, 구 경로 호출 0). roll-forward 전용(직전 RDS 스냅샷이 최후 수단)</li>
+    <li>business-api — 콘솔(캠페인 링크 발급은 기능 플래그로 막아 두고 7단계 앱 보급 뒤 켠다)</li>
     <li>앱 — ① 파서·목적지·resolve ② Install Referrer(첫 실행 로컬 판별 · 세션 뒤 저장) ③ SKAN 등록·전환값 ④ App Link <code>autoVerify</code></li>
   </ol>
 </section>

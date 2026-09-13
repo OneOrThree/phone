@@ -170,7 +170,7 @@ Android 의 Play 기본값(ORGANIC)·판별 불가(UNKNOWN) referrer 는 귀속�
 - **가입 수**: 현 앱은 기존 계정 로그인에서도 claim 하므로, claim 때 유저 가입 시각으로 신규 여부를 기록해 신규만 가입 수에 넣는다. referrer 의 비교 기준은 Play 설치 시작 시각(없으면 Play 클릭 시각)이고, 둘 다 없을 때만 저장 시각에서 10분 유예를 뺀 값이다 — referrer 는 로그인 뒤 저장되므로 저장 시각을 그대로 쓰면 신규 사용자가 전부 기존 계정으로 판정된다. 클라이언트가 보낸 신규 여부는 쓰지 않는다. 기간은 claim 시각이 아니라 가입 시각(`signup_at`)으로 자른다. 한 사용자가 여러 링크를 claim 해도 신규 가입은 한 번만 기록한다. 같은 설치에서 클릭 claim 뒤 referrer claim 이 오면 신규 가입 참값을 referrer 원장으로 옮겨, 설치 중복 제거와 함께 한 번만 센다.
 - **공개 경로 레이트리밋**: 인증이 없는 공개 경로(SKAN 수신 제외)는 business-api 가 IP 단위로 제한한다. 키에는 원본 IP 대신 business-api 전용 비밀로 HMAC 한 값을 쓴다.
 - **claim·referrer 저장과 탈퇴**: claim·referrer 저장 모두 유저 행 배타 락을 잡아 유저 행을 배타 락으로 잡는 탈퇴와 직렬화된다. 탈퇴 뒤 연결도 `reporter_user_id` 도 남지 않는다. 같은 사용자의 동시 claim 도 직렬화돼 사용자당 신규 가입은 1건만 기록된다.
-- **claim 과 링크 폐기**: claim 은 요청자 행을 먼저 잠그지 않고 관련 user(요청자·발급자)를 UUID 오름차순으로 한꺼번에 잠가, 서로의 초대 링크를 동시에 claim 해도 교착이 없다. 초대 링크 claim 은 이어서 그룹 획득 문서의 순서(group·membership → link)로 잠근 뒤 활성 조건을 재검증해, 발급자 이탈·그룹 종료의 폐기와 한쪽만 먼저 커밋되게 한다. 캠페인 링크 claim 은 campaign → link 순으로 잠가 콘솔 캠페인 보관·링크 폐기와 직렬화한다. `attributionId` claim 은 조건부 UPDATE 한 번이라 동시 요청 중 하나만 성공한다.
+- **claim 과 링크 폐기**: claim 은 요청자 행을 먼저 잠그지 않고 관련 user(요청자·발급자)를 UUID 오름차순으로 한꺼번에 잠가, 서로의 초대 링크를 동시에 claim 해도 교착이 없다. 초대 링크 claim 은 이어서 그룹 획득 문서의 순서(group·membership → link)로 잠근 뒤 활성 조건을 재검증해, 발급자 이탈·그룹 종료의 폐기와 한쪽만 먼저 커밋되게 한다. 캠페인 링크 claim 은 campaign → link 순으로 잠가 콘솔 캠페인 보관·링크 폐기와 직렬화한다. 랜딩 방문도 같은 링크 쪽 행을 공유 락으로 잡아, 폐기 뒤에 클릭이 기록되거나 옛 목적지가 보이지 않는다. `attributionId` claim 은 조건부 UPDATE 한 번이라 동시 요청 중 하나만 성공한다.
 
 ## 6. 기존 결정과의 관계
 
@@ -187,7 +187,7 @@ Android 의 Play 기본값(ORGANIC)·판별 불가(UNKNOWN) referrer 는 귀속�
 
 ## 7. 배포 순서
 
-같은 DB 를 두 경로가 함께 읽으므로 **데이터 이관 창이 없다.** 공개 경로 전환은 nginx 설정 한 번이고, 되돌리기도 한 번이다. 스키마는 expand(추가만)와 contract(이름 변경·DROP)로 나눠, **5단계 전까지는 모든 단계를 이전 이미지로 되돌릴 수 있다**(prod 는 `ddl-auto: validate` 라 테이블 이름이 바뀌면 이전 이미지가 기동하지 못한다). **5단계 contract 는 roll-forward 전용**이다.
+같은 DB 를 두 경로가 함께 읽으므로 **데이터 이관 창이 없다.** 공개 경로 전환은 nginx 설정 한 번이고, 되돌리기도 한 번이다. 스키마는 expand(추가만)와 contract(이름 변경·DROP)로 나눠, **5단계 전까지는 모든 단계를 이전 이미지로 되돌릴 수 있다**(prod 는 `ddl-auto: validate` 라 테이블 이름이 바뀌면 이전 이미지가 기동하지 못한다). **5단계 contract 는 roll-forward 전용**이다. 번호는 서버 배포 순서이고, **캠페인 링크 발급을 여는 시점은 7단계 앱이 보급된 뒤**다(6단계 기능 플래그).
 
 | 단계 | 내용 | 되돌리기 |
 | --- | --- | --- |
@@ -195,6 +195,6 @@ Android 의 Play 기본값(ORGANIC)·판별 불가(UNKNOWN) referrer 는 귀속�
 | 2 | data-api: **스키마 expand**(기존 테이블 이름 그대로 컬럼·제약 추가, 신설 3, **V21 전체 unique 유지**) · `invitelink` 일반화(엔티티는 `@Table` 로 옛 이름) · `/internal/*` · #745 의 data-api 링크 사장 코드 제거. **기존 공개 컨트롤러와 V52 링크 테이블은 남기고, 링크 폐기·재발급은 켜지 않는다** | 이미지 롤백 — expand 스키마에서 이전 이미지가 그대로 기동하고, 한 `(group_id, inviter_id)` 에 INVITE 행이 하나뿐이라 이전 이미지의 단건 조회도 그대로 동작 |
 | 3 | business-api: 공개 표면 · referrer · resolve · SKAN 수신 · #745 의 business-api 링크 사장 코드 제거 | 이미지 롤백 |
 | 4 | Infra: nginx 링크 경로를 business-api 로 전환(reload 1회), Cloudflare 에서 SKAN 경로 봇 챌린지 예외(엣지 레이트리밋 없음) · `/l/*` GET 엣지 레이트리밋 | nginx 원복 reload — 2 단계의 공개 컨트롤러가 같은 DB 를 읽으므로 무손실 |
-| 5 | data-api **contract**: 기존 초대 링크 중 발급자 이탈·그룹 종료 행을 `REVOKED` 로 보정 → 전체 unique 를 active 부분 unique 로 교체 → **링크 폐기·재발급 켬**(그룹 획득 LLD §2.1) · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(행 0 확인). 전환 뒤 7일 무사고 · 구 경로 호출 0 확인 · 직전 RDS 수동 스냅샷 뒤 | **불가 — roll-forward 전용.** 장애는 핫픽스로 앞으로 고치고, 최후 수단은 contract 직전 RDS 스냅샷 복원(그 뒤 쓰기 전부 손실). 진입 조건은 [LLD §1.1](low-level-design.md#11-마이그레이션--expand--contract). 4 단계 원복도 불가해지므로 마지막에 한다 |
-| 6 | business-api: 콘솔. 캠페인 링크와 캠페인 링크 폐기는 이때부터 생긴다(contract 뒤) | 이미지 롤백 |
-| 7 | 앱: ① 파서·목적지·resolve ② Install Referrer(첫 실행 로컬 판별 · 세션 확보 뒤 저장) ③ SKAN 등록·전환값 ④ App Link `autoVerify`. 서버는 구 앱 계약을 유지하므로 최소 지원 버전과 무관 | 앱 배포 |
+| 5 | data-api **contract**: **기존 ACTIVE 초대 링크를 전부** `REVOKED` 로 보정(재가입 이력을 증명할 수 없어서 — 이미 공유된 초대 링크는 이때 모두 만료되고, 수신자는 기존 만료 안내로 새 링크를 받는다) → 전체 unique 를 active 부분 unique 로 교체 → **링크 폐기·재발급 켬**(그룹 획득 LLD §2.1) · 링크 공개 컨트롤러 제거 · 테이블 rename · V52 링크 테이블 DROP(행 0 확인). 전환 뒤 7일 무사고 · 구 경로 호출 0 확인 · 직전 RDS 수동 스냅샷 뒤 | **불가 — roll-forward 전용.** 장애는 핫픽스로 앞으로 고치고, 최후 수단은 contract 직전 RDS 스냅샷 복원(그 뒤 쓰기 전부 손실). 진입 조건은 [LLD §1.1](low-level-design.md#11-마이그레이션--expand--contract). 4 단계 원복도 불가해지므로 마지막에 한다 |
+| 6 | business-api: 콘솔. 캠페인 생성·통계는 이때부터 쓰지만 **캠페인 링크 발급은 기능 플래그 `CAMPAIGN_LINK_ISSUE_ENABLED`(기본 false)로 막아 두고, 7단계 앱이 양 스토어에 출시되고 최소 지원 버전으로 지정된 뒤 켠다**. 캠페인 링크와 그 폐기는 플래그를 켠 뒤에만 생긴다 | 이미지 롤백 · 플래그 끄기 |
+| 7 | 앱: ① 파서·목적지·resolve ② Install Referrer(첫 실행 로컬 판별 · 세션 확보 뒤 저장) ③ SKAN 등록·전환값 ④ App Link `autoVerify`. **6단계의 캠페인 링크 발급 플래그보다 먼저** 양 스토어에 출시하고 최소 지원 버전으로 지정한다 — 캠페인 링크로 설치한 구 앱은 `type`·`destination` 을 무시한 채 완료 플래그만 남겨 업데이트 뒤에도 이동·귀속이 복구되지 않는다. 초대 링크는 서버가 구 앱 계약을 유지해 최소 지원 버전과 무관 | 앱 배포 |
