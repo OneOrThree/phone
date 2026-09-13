@@ -58,8 +58,9 @@ fi
 # 우리가 띄우는 컨테이너는 «loopback 에, 호스트 포트를 고정하지 않고» 게시한다.
 #   포트를 고정하면(5432) 같은 도커 호스트에서 두 체크아웃이 동시에 돌 때 한쪽이 바인딩
 #   단계에서 즉사하고, 더 나쁘게는 한쪽 DB 를 둘이 나눠 쓰다가 ddl-auto=create-drop 이
-#   남의 테스트 도중 스키마를 갈아엎는다. CI 도 같은 이유로 be-test.yml 에서 포트를
-#   도커에 맡기고 실제 매핑 포트를 주입한다.
+#   남의 테스트 도중 스키마를 갈아엎는다. CI 도 같은 이유로 api-dog-generate.yml 에서 포트를
+#   도커에 맡기고 실제 매핑 포트를 주입한다. (be-gradle.yml 의 테스트 경로는 GROMO-1793 에서
+#   호스트 DB 를 통째로 걷어냈다 — 테스트는 전부 Testcontainers 가 띄운다.)
 #   주소를 생략하면(-p 5432) 도커는 0.0.0.0 과 [::] 에 게시한다. 자격 증명이 ci/ci 로
 #   저장소에 공개돼 있으므로, 신뢰할 수 없는 네트워크에 물린 노트북에서는 테스트가 도는
 #   동안 그 DB 가 밖에서 열린다. 이 DB 는 호스트의 Gradle 만 쓰므로 loopback 으로 족하다.
@@ -99,7 +100,7 @@ else
 fi
 
 # application-ci.yml 은 localhost:5432 를 하드코딩한다. 포트를 도커에 맡겼으므로 실제 매핑
-# 포트로 덮어쓴다 — CI 의 be-test.yml 과 같은 방식이다. (Testcontainers 를 쓰는 테스트는
+# 포트로 덮어쓴다 — CI 의 api-dog-generate.yml 과 같은 방식이다. (Testcontainers 를 쓰는 테스트는
 # @DynamicPropertySource 가 우선이라 영향 없다.)
 export SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:$PG_PORT/tt_db"
 

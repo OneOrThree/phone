@@ -14,16 +14,20 @@ import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.annotation.Propagation;
@@ -43,6 +47,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -78,8 +83,37 @@ class ChallengeCreatedNotificationServiceTest {
     @Mock
     private PushNotificationService pushNotificationService;
 
-    @InjectMocks
     private ChallengeCreatedNotificationService service;
+
+    /**
+     * 서비스는 테스트마다 새로 조립한다 — {@code @InjectMocks} 로는 아래 {@code legacyDispatcher}
+     * 처럼 «목이 아닌 실물»을 끼워 넣을 수 없다.
+     */
+    @BeforeEach
+    void assembleService() {
+        service = new ChallengeCreatedNotificationService(
+                groupQueryService,
+                groupChallengeDurationRepository,
+                groupChallengeWindowRepository,
+                groupMemberRepository,
+                userQueryService,
+                notificationSentLogRepository,
+                pushNotificationService,
+                legacyDispatcher(pushNotificationService));
+    }
+
+    /**
+     * 구 경로로 고정한 dispatcher — 이 테스트가 검증하는 것은 {@code LEGACY} 동작이다.
+     *
+     * <p>producer 를 {@code null} 로 둔다. 신 경로로 새면 곧바로 NPE 로 죽으므로, 기본 모드가
+     * 실수로 {@code OUTBOX} 로 바뀌면 이 테스트가 «조용히 통과»하지 않고 터진다.
+     *
+     * @param pushNotificationService 목으로 둔 발송부
+     * @return 구 경로 dispatcher
+     */
+    private static NotificationDispatcher legacyDispatcher(PushNotificationService pushNotificationService) {
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService);
+    }
 
     // ── 트랜잭션 경계 ─────────────────────────────────────────────────────
 
@@ -272,6 +306,34 @@ class ChallengeCreatedNotificationServiceTest {
     }
 
     // ── 문구 · 딥링크 ─────────────────────────────────────────────────────
+
+    @Test
+    void outboxCarriesStructuredMissionForRecipientLocaleRendering() {
+        NotificationDispatcher dispatcher = mock(NotificationDispatcher.class);
+        service = new ChallengeCreatedNotificationService(groupQueryService, groupChallengeDurationRepository,
+                groupChallengeWindowRepository, groupMemberRepository, userQueryService,
+                notificationSentLogRepository, pushNotificationService, dispatcher);
+        GroupChallenge challenge = durationChallenge();
+        givenChallenge(challenge);
+        givenMembers(challenge, user(CREATOR_ID),
+                User.builder().id(MEMBER_ID).language("en").build(),
+                User.builder().id(OTHER_MEMBER_ID).language("ja").build());
+        givenDurationDetail(30);
+        given(dispatcher.enqueueOnly(any())).willReturn(NotificationDispatchOutcome.QUEUED);
+
+        assertThat(service.enqueueCreatedNotifications(event())).isEqualTo(2);
+
+        ArgumentCaptor<NotificationRequest> requests = ArgumentCaptor.forClass(NotificationRequest.class);
+        verify(dispatcher, times(2)).enqueueOnly(requests.capture());
+        assertThat(requests.getAllValues()).extracting(NotificationRequest::locale).containsExactly("en", "ja");
+        for (NotificationRequest request : requests.getAllValues()) {
+            assertThat(request.params()).doesNotContainKey("missionLabel");
+            assertThat(request.params().get("mission")).isEqualTo(java.util.Map.of(
+                    "type", "DURATION", "category", "FOCUS", "durationMinutes", 30,
+                    "repeatDays", List.of("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")));
+        }
+        verify(groupChallengeDurationRepository).findByChallengeIdIn(anyCollection());
+    }
 
     @Test
     @DisplayName("DURATION 문구 — 제목에 그룹명, 본문에 목표")

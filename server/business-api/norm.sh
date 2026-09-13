@@ -1,5 +1,5 @@
 #!/bin/bash
-# CI와 동일한 검사를 로컬에서 실행 (business-ci.yml 의 build 잡)
+# CI와 동일한 검사를 로컬에서 실행 (satellite-ci.yml 의 build 잡, matrix service=business-api)
 #
 # business-api 는 다른 서버와 달리 «컨테이너 안에서» 검사한다. PDF 미리보기 테스트가
 # poppler-utils(pdftotext)·util-linux 에 의존하는데 그건 Dockerfile 의 `test` 스테이지가
@@ -76,7 +76,7 @@ mkdir -p "$GRADLE_HOME"
 # ── OS 별 분기 ────────────────────────────────────────────────────────────────
 # 네트워크와 실행 사용자, 둘 다 리눅스와 macOS 에서 답이 반대다. 실측으로 확인한 내용:
 #
-# 리눅스(= CI 러너): CI(business-ci.yml)와 똑같이 `--network host` + 127.0.0.1 이다.
+# 리눅스(= CI 러너): CI(satellite-ci.yml)와 똑같이 `--network host` + 127.0.0.1 이다.
 #   기본 bridge 에는 host.docker.internal 이 없어서 그걸 쓰면 CI 와 같은 리눅스에서
 #   여기만 연결이 실패한다. 그리고 test 스테이지엔 USER 지시가 없어 기본 사용자가 root 인데,
 #   리눅스 bind mount 는 호스트 uid 를 그대로 쓰므로 build/ 산출물이 root 소유로 남아

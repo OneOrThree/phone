@@ -32,11 +32,12 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
     List<Group> findByStatus(GroupStatus status);
 
     /**
-     * 그룹 행 배타 락(SELECT … FOR UPDATE) — <b>챌린지 생성 직렬화 전용</b>(LLD §2.1 · GROMO-1422).
+     * 그룹 행 배타 락 — 챌린지 생성 직렬화(LLD §2.1 · GROMO-1422)와 그룹 탈퇴의 잠금 순서에 쓴다.
      *
      * <p>활성 4개 상한(FR-1)과 창 겹침(§A5)은 <b>그룹 전역</b> 불변식이라 행 단위 제약으로 못 지킨다 —
      * 동시 생성 2건이 둘 다 "3개네" 하고 통과하면 5개째가 들어온다(부분 유니크는 하루형 카테고리
      * 중복만 막는다). 생성은 그룹장 전용의 드문 동작이라 경합 비용은 없다시피 하다. 조회는 기존대로 무락.
+     * 그룹 탈퇴도 마지막 멤버일 때 그룹을 닫으므로 멤버십보다 이 행을 먼저 잠근다.
      *
      * @param id 잠글 그룹 id
      * @return 잠긴 그룹 행. <b>상태·삭제를 보지 않으므로</b> 종료됐거나 지워진 방도 그대로 나온다 —
@@ -46,6 +47,22 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select g from Group g where g.id = :id")
     Optional<Group> findByIdForUpdate(@Param("id") UUID id);
+
+    /**
+     * 그룹 행 <b>공유 락</b> — 「읽은 상태가 커밋까지 유지돼야 하지만 그룹을 바꾸지는 않는」 판정용
+     * (GROMO-1660 · A22 ⓚ).
+     *
+     * <p>초대 자격 확정이 그 자리다. 무락으로 읽으면 판독 직후 커밋된 그룹 종료를 못 보고, 그 창으로
+     * <b>이미 닫힌 그룹의 초대가 유효 귀속으로 확정</b>된다. 배타 락을 쓰지 않는 이유는 이 경로가
+     * 그룹 행을 바꾸지 않기 때문이다 — 동시 확정끼리는 막을 이유가 없다.
+     *
+     * @param id 대상 그룹
+     * @return 그 그룹. 소프트삭제·종료 여부는 <b>호출부가</b> 판정한다 — 여기서 걸러 내면
+     *     「없는 그룹」과 「닫힌 그룹」이 한 값으로 뭉개진다
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select g from Group g where g.id = :id")
+    Optional<Group> findByIdForShare(@Param("id") UUID id);
 
     /**
      * GROMO-676: groups.host_id 폐기 — 방장 여부는 group_members.role=OWNER 기준으로 판단한다.

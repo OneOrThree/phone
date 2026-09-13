@@ -29,6 +29,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -44,6 +46,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -141,6 +144,55 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
         users.clear();
         sessions.clear();
         notificationRows.clear();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("ack 재조회는 응답 시간 초과 뒤에도 진행 중인 쓰기의 커밋·롤백을 기다린다")
+    void reconciliationWaitsForTheUncertainAckTransaction(boolean rollback) throws Exception {
+        GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
+        joinSettled(session, me);
+        UUID token = claim(session).claimToken();
+        CountDownLatch written = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        CompletableFuture<Void> writer = CompletableFuture.runAsync(() ->
+                transactionTemplate.executeWithoutResult(status -> {
+                    challengeResultAckService.acknowledge(me.getId(), session.getId(), token);
+                    written.countDown();
+                    try {
+                        if (!finish.await(10, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("테스트 ack 트랜잭션 해제 시간 초과");
+                        }
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(interrupted);
+                    }
+                    if (rollback) {
+                        status.setRollbackOnly();
+                    }
+                }));
+        CompletableFuture<ChallengeResultAckService.ResultAckState> reader = null;
+        try {
+            assertThat(written.await(5, TimeUnit.SECONDS)).isTrue();
+            // Business의 기다림이 끝나도 Data 트랜잭션은 아직 실행 중이다.
+            assertThatThrownBy(() -> writer.get(100, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            CountDownLatch reading = new CountDownLatch(1);
+            reader = CompletableFuture.supplyAsync(() -> {
+                reading.countDown();
+                return challengeResultAckService.readAckState(me.getId(), session.getId());
+            });
+            assertThat(reading.await(5, TimeUnit.SECONDS)).isTrue();
+            CompletableFuture<ChallengeResultAckService.ResultAckState> pending = reader;
+            assertThatThrownBy(() -> pending.get(300, TimeUnit.MILLISECONDS))
+                    .as("미커밋 ack를 false로 확정하면 Notification이 보류를 잘못 푼다")
+                    .isInstanceOf(TimeoutException.class);
+        } finally {
+            finish.countDown();
+            writer.get(5, TimeUnit.SECONDS);
+        }
+        ChallengeResultAckService.ResultAckState result = reader.get(5, TimeUnit.SECONDS);
+        assertThat(result.acknowledged()).isEqualTo(!rollback);
+        assertThat(result.acknowledgedAt() != null).isEqualTo(!rollback);
     }
 
     // ── ① 동시 선점 ─────────────────────────────────────────────────────

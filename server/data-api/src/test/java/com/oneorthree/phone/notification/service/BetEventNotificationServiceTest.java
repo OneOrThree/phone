@@ -10,6 +10,8 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
@@ -21,7 +23,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -86,8 +87,37 @@ class BetEventNotificationServiceTest {
     private NotificationSentLogRepository notificationSentLogRepository;
     @Mock
     private PushNotificationService pushNotificationService;
-    @InjectMocks
+
     private BetEventNotificationService service;
+
+    /**
+     * 서비스는 테스트마다 새로 조립한다 — {@code @InjectMocks} 로는 아래 {@code legacyDispatcher}
+     * 처럼 «목이 아닌 실물»을 끼워 넣을 수 없다.
+     */
+    @BeforeEach
+    void assembleService() {
+        service = new BetEventNotificationService(
+                groupChallengeBetSessionRepository,
+                groupQueryService,
+                groupChallengeBetParticipantRepository,
+                userQueryService,
+                notificationSentLogRepository,
+                pushNotificationService,
+                legacyDispatcher(pushNotificationService));
+    }
+
+    /**
+     * 구 경로로 고정한 dispatcher — 이 테스트가 검증하는 것은 {@code LEGACY} 동작이다.
+     *
+     * <p>producer 를 {@code null} 로 둔다. 신 경로로 새면 곧바로 NPE 로 죽으므로, 기본 모드가
+     * 실수로 {@code OUTBOX} 로 바뀌면 이 테스트가 «조용히 통과»하지 않고 터진다.
+     *
+     * @param pushNotificationService 목으로 둔 발송부
+     * @return 구 경로 dispatcher
+     */
+    private static NotificationDispatcher legacyDispatcher(PushNotificationService pushNotificationService) {
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService);
+    }
 
     /** 목이 흉내내는 클레임 저장소 — insertPendingClaim 이 넣고 findDueClaimsForUpdate 가 읽는다. */
     private final List<NotificationSentLog> recordedClaims = new ArrayList<>();
@@ -176,7 +206,7 @@ class BetEventNotificationServiceTest {
     /** 이벤트 경로 입력 — 회차 단건 조회 + 그 회차의 참가자. */
     private void givenEventSession(GroupChallengeBetSession session,
             List<GroupChallengeBetParticipant> participants) {
-        given(groupQueryService.findBetSession(session.getId()))
+        given(groupQueryService.findCurrentBetSession(session.getId()))
                 .willReturn(Optional.of(session));
         given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
                 .willReturn(participants);

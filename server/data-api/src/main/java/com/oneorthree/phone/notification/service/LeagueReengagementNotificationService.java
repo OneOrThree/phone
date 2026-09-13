@@ -1,6 +1,9 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.league.repository.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
@@ -60,6 +63,7 @@ public class LeagueReengagementNotificationService {
     private final UserStreakRepository userStreakRepository;
     private final UserQueryService userQueryService;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
     private final LeagueWeek leagueWeek;
     private final EntityManager entityManager;
 
@@ -141,7 +145,11 @@ public class LeagueReengagementNotificationService {
             }
             UserNotificationSettings settings = settingsByUserId.get(userId);
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
-            pushNotificationService.sendIfAllowed(user, settings, composeMissedFocusToday(soundEnabled), now);
+            // 렌더 입력이 없는 유일한 kind — 문구가 상수다. params 를 비워 두는 것이 계약이다.
+            notificationDispatcher.dispatch(user, settings,
+                    new NotificationRequest(NotificationKind.MISSED_FOCUS_TODAY, userId, null, null,
+                            null, now, user.getLanguage(), Map.of()),
+                    composeMissedFocusToday(soundEnabled), now);
             processedCount++;
         }
         return processedCount;
@@ -216,8 +224,11 @@ public class LeagueReengagementNotificationService {
             }
             UserNotificationSettings settings = settingsByUserId.get(streak.getUserId());
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
-            pushNotificationService.sendIfAllowed(
-                    user, settings, composeStreakAtRisk(streak.getStreakCount(), soundEnabled), now);
+            notificationDispatcher.dispatch(user, settings,
+                    new NotificationRequest(NotificationKind.STREAK_AT_RISK, streak.getUserId(), null,
+                            null, null, now, user.getLanguage(),
+                            Map.of("streakCount", streak.getStreakCount())),
+                    composeStreakAtRisk(streak.getStreakCount(), soundEnabled), now);
             processedCount++;
         }
         return processedCount;

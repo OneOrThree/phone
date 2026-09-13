@@ -14,7 +14,7 @@
     <text x="500" y="37">허브 한 장 — docs.oneorthree.world/spec/architecture</text>
     <text x="140" y="118">oneorthree/server</text><text x="140" y="140" font-size="12" font-weight="400" fill="#5E6670">JVM 5 · compose · docs</text>
     <text x="380" y="118">OneOrThree/app</text><text x="380" y="140" font-size="12" font-weight="400" fill="#5E6670">React Native · 스토어</text>
-    <text x="620" y="118">oneorthree/link</text><text x="620" y="140" font-size="12" font-weight="400" fill="#5E6670">Next.js · Vercel · Neon</text>
+    <text x="620" y="118">OneOrThree/mmp-custom</text><text x="620" y="140" font-size="12" font-weight="400" fill="#5E6670">Next.js · Vercel · Neon</text>
     <text x="860" y="118">docs 사이트</text><text x="860" y="140" font-size="12" font-weight="400" fill="#5E6670">Next.js · 허브 페이지</text>
   </g>
 </svg>

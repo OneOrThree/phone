@@ -5,7 +5,10 @@ import jakarta.persistence.LockModeType;
 import jakarta.persistence.QueryHint;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.QueryHints;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
@@ -87,4 +90,52 @@ public interface InviteLinkClickRepository extends JpaRepository<InviteLinkClick
      *         행 수만큼 그대로 메모리에 올라온다</b> — 집계가 필요해지면 카운트 쿼리로 바꿔야 한다
      */
     List<InviteLinkClick> findByLinkId(UUID linkId);
+
+    /**
+     * 정지 스냅샷의 원재료를 <b>한 쿼리로</b> 읽는다 (서비스 §7.2 · A22 ㋖).
+     *
+     * <p>커서가 시각이 아니라 PK 인 이유는 ㋖ 다 — {@code invite_link_clicks} 에는 {@code updated_at}
+     * 이 없고, 상태 변경 시각은 커밋 순서를 보장하지 않아 늦게 커밋된 전이를 영구히 건너뛴다.
+     * 이 조회는 <b>구 쓰기 정지 이후</b>의 전체 스캔용이라 커서는 페이지를 잇는 용도일 뿐이다.
+     *
+     * @param cursor 직전 페이지의 마지막 클릭 id. 첫 페이지는 「최소값보다 작은 값」을 넘긴다
+     * @param limit  최대 건수
+     * @return 클릭·링크·그룹·발급자·멤버십을 같은 스냅샷으로 읽은 행들
+     */
+    @Query(value = "SELECT c.id AS clickId, c.link_id AS linkId, l.slug AS slug, "
+            + "l.group_id AS groupId, l.inviter_id AS inviterId, l.created_at AS linkCreatedAt, "
+            + "g.name AS groupName, g.status AS groupStatus, g.deleted_at AS groupDeletedAt, "
+            + "u.nickname AS inviterName, m.membership_epoch AS membershipEpoch, "
+            + "m.transition_seq AS transitionSeq, m.snapshot_version AS snapshotVersion, "
+            + "m.is_left AS inviterLeft, "
+            + "m.updated_at AS membershipUpdatedAt, c.ip_hash AS ipHash, c.os AS os, "
+            + "c.user_agent AS userAgent, c.clicked_at AS clickedAt, c.matched AS matched, "
+            + "c.matched_at AS matchedAt, c.matched_device_id AS matchedDeviceId, "
+            + "c.app_instance_id AS appInstanceId, c.claimed_user_id AS claimedUserId, "
+            + "c.claimed_at AS claimedAt "
+            + "FROM invite_link_clicks c "
+            + "JOIN group_invite_links l ON l.id = c.link_id "
+            + "JOIN groups g ON g.id = l.group_id "
+            + "LEFT JOIN users u ON u.id = l.inviter_id AND u.is_deleted = false "
+            + "LEFT JOIN group_members m ON m.group_id = l.group_id AND m.user_id = l.inviter_id "
+            + "WHERE c.id > CAST(:cursor AS uuid) ORDER BY c.id ASC LIMIT :limit",
+            nativeQuery = true)
+    List<FrozenClickProjection> findFrozenSourcePage(
+            @Param("cursor") String cursor, @Param("limit") int limit);
+
+    /**
+     * 탈퇴 유저의 클릭 귀속을 <b>익명화</b>한다 (A22 ⓐ).
+     *
+     * <p>tombstone 은 이후 쓰기만 막는다 — 이미 박힌 {@code claimed_user_id} 는 그대로 남고,
+     * {@code InviteLinkClick.claim} 은 <b>최초 1회만</b> 기록하므로 되돌릴 길이 없다. 그래서 탈퇴
+     * 트랜잭션이 <b>같은 커밋에서</b> 끊어 줘야 한다.
+     *
+     * <p>행을 지우지 않는 이유는 다른 사람의 퍼널 집계 근거이기 때문이다 — 집중·통계 익명화와 같은 규율.
+     *
+     * @param userId 탈퇴한 유저
+     * @return 끊어 낸 행 수
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = false)
+    @Query("UPDATE InviteLinkClick c SET c.claimedUserId = null WHERE c.claimedUserId = :userId")
+    int anonymizeClaimedUser(@Param("userId") UUID userId);
 }

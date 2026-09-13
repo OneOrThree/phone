@@ -9,6 +9,7 @@ import com.oneorthree.phone.league.repository.LeagueRankSnapshotUpsertRepository
 import com.oneorthree.phone.league.repository.LeagueRankSnapshotUpsertRepository.SnapshotRank;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.support.LeagueWeek;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -65,6 +66,7 @@ public class RankOvertakeNotificationService {
     private final UserQueryService userQueryService;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
     private final LeagueWeek leagueWeek;
     private final EntityManager entityManager;
 
@@ -252,6 +254,15 @@ public class RankOvertakeNotificationService {
     }
 
     private void sendOvertakeNotifications(List<Overtake> overtakes, Instant now, LocalDate today) {
+        if (notificationDispatcher.isOutboxMode()) {
+            // A5 에서 폐기된 종류다 — 신 카탈로그에 RANK_OVERTAKE 가 없다. 그래서 신 경로로 «옮기지»
+            // 않고 여기서 멈춘다. 크론·판정 코드를 지우지 않는 이유는 계약 §7 이다(「Data 모든
+            // 스케줄러를 일괄 제거하지 않는다」) — 판정 결과는 로그로 남겨 폐기가 «조용한 사라짐»이
+            // 아니라 «기록된 중단»이 되게 한다.
+            log.info("순위 추월 푸시 — A5 폐기로 신 경로에서는 발송하지 않는다 (판정 대상 {}건, today={})",
+                    overtakes.size(), today);
+            return;
+        }
         if (overtakes.isEmpty()) {
             log.info("순위 추월 푸시 — 발송 대상 없음 (today={})", today);
             return;

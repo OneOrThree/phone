@@ -29,6 +29,7 @@ import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -48,8 +49,20 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/**
+ * 미리보기 종단 계약 — <b>실제 필터 체인 + 실제 Redis</b>.
+ *
+ * <p>{@code @ActiveProfiles("ci")} 가 필요한 이유: 이 컨텍스트에는 미리보기뿐 아니라 조합 API 의 상류
+ * 클라이언트 셋(Data · 알림 · 링크)도 함께 뜨고, 그 생성자는 base-url·service-token 이 비면 «부팅에서»
+ * 던진다(SecretFailFastTest 가 지키는 계약). ci 프로파일이 닿지 않는 더미 주소와 테스트 토큰을 채워
+ * 그 fail-fast 를 만족시킨다 — 미리보기 자체는 상류를 전혀 부르지 않는다.
+ *
+ * <p>Redis 는 프로파일이 아니라 {@link DynamicPropertySource} 로 컨테이너 주소를 넣는다. jwt.secret 과
+ * 관리 포트는 {@code properties} 로 덮어 프로파일보다 우선한다.
+ */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"jwt.secret=" + PreviewIntegrationTest.SECRET, "management.server.port=0"})
 @AutoConfigureMockMvc
+@ActiveProfiles("ci")
 @Testcontainers
 class PreviewIntegrationTest {
     static final String SECRET = "business-test-secret-at-least-32-bytes-long";
@@ -80,6 +93,15 @@ class PreviewIntegrationTest {
                 .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)));
         if (expires != null) builder.expiration(Date.from(expires));
         return "Bearer " + builder.compact();
+    }
+
+    @Test
+    void rejectsUnknownBatchField() throws Exception {
+        mvc.perform(post("/api/v1/link-previews").header("Authorization", token)
+                        .contentType("application/json")
+                        .content("{\"urls\":[\"https://example.com/doc.pdf\"],\"unexpected\":true}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     String submit(String url) throws Exception {

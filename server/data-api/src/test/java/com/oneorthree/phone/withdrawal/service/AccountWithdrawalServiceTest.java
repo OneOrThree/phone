@@ -70,6 +70,19 @@ class AccountWithdrawalServiceTest {
     @Mock
     private FriendService friendService;
 
+    /** 세션 축 폐기 (A22 ㋞·㊹) — 탈퇴는 전 세션이 끝나는 사건이다. */
+    @Mock
+    private com.oneorthree.phone.auth.service.AuthSessionService authSessionService;
+    /** 기기 토큰 삭제 명령 (A22 ㊲·㊨) — 토큰을 지우기 «전에» 적어야 한다. */
+    @Mock
+    private com.oneorthree.phone.user.service.UserSatelliteCommandService userSatelliteCommandService;
+    /** 탈퇴 사건 전달 (A22 ⓐ) — 알림은 Kafka, 링크는 HTTP. */
+    @Mock
+    private WithdrawalSatelliteCommandService withdrawalSatelliteCommandService;
+    /** 이미 박힌 초대 귀속 익명화 (A22 ⓐ) — claim 은 최초 1회만 기록돼 되돌릴 길이 없다. */
+    @Mock
+    private com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository inviteLinkClickRepository;
+
     @InjectMocks
     private AccountWithdrawalService accountWithdrawalService;
 

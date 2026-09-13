@@ -1,0 +1,47 @@
+# dev 배포용. 값은 전부 환경변수 주입이라 시크릿이 파일에 없다(그래서 커밋한다).
+#
+# ⚠️ 새 키를 저장소에 추가하는 것만으로는 컨테이너에 전달되지 않는다 — 현 dev 배포는
+#    Secrets Manager(gromo/dev/env) → write-compose-env.py(고정 허용목록) → compose 순서이고,
+#    그 생성기가 «허용목록에 있는 키만» 출력한다(A22 ㋯ · 시스템 §2.4). 아래 변수들을 그 목록에
+#    추가하는 작업은 통합 담당자(C)의 몫이며, 빠지면 이 서비스가 부팅에서 fail-fast 한다.
+jwt:
+  # legacy issuer(Data API)와 «같은 값»이어야 한다. 전환 기간에 이 서비스는 검증만 한다.
+  secret: ${JWT_SECRET}
+
+link:
+  # ⚠️ 기존 운영 값을 그대로 넘긴다. 새로 만들면 진행 중이던 매치 후보가 전부 무효가 된다(A22 ⓕ).
+  ip-salt: ${LINK_IP_SALT}
+  trusted-ip-headers: ${LINK_TRUSTED_IP_HEADERS:X-Link-Client-IP}
+  # legacy nginx 가 실어 보내는 공유 비밀. 정지 창 진입 전에 반드시 채운다(계약 §4).
+  proxy-secret: ${LINK_PROXY_SECRET:}
+
+business:
+  upstream:
+    data:
+      base-url: ${DATA_API_BASE_URL}
+      # caller 별로 «분리된» 토큰이다(A22 ㊀). 공유하면 수신 측이 호출자를 구분 못 해 허용목록이
+      # 합쳐지고 한쪽 유출이 다른 쪽 명령을 연다.
+      service-token: ${SVC_TOKEN_BIZ_TO_DATA}
+    notification:
+      base-url: ${NOTIFICATION_BASE_URL}
+      service-token: ${SVC_TOKEN_BIZ_TO_NOTI}
+    link:
+      base-url: ${LINK_BASE_URL}
+      service-token: ${SVC_TOKEN_BIZ_TO_LINK}
+  compat:
+    # 정지 창에 들어갈 때만 켠다. 컷오버 후 제거가 계약이다(A22 ㊫).
+    match-handler-enabled: ${COMPAT_MATCH_HANDLER_ENABLED:false}
+    import-contract-ready: ${COMPAT_IMPORT_CONTRACT_READY:false}
+    migration-id: ${COMPAT_MIGRATION_ID:}
+    # ⚠️ 기본 false. 재개 CLI 가 돌지 않는 평상시에 202 를 주면 큐만 쌓이고 아무도 끝내지 않는다.
+    claim-queue-replay-enabled: ${BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED:false}
+
+  # 일회성 재개 CLI. ⚠️ 서빙 컨테이너에서는 false 여야 한다 — 켜지면 부팅 직후 재개가 돌고 실패가
+  # 남으면 프로세스가 비정상 종료한다(그게 「미완료 0」 gate 다). 같은 이미지를 별도 job 으로 띄울
+  # 때만 켠다. 스케줄이 코드가 아니라 런북에 있으므로 서빙 프로세스에는 크론이 없다(§6).
+  claim-replay:
+    enabled: ${BUSINESS_CLAIM_REPLAY_ENABLED:false}
+
+logging:
+  level:
+    com.oneorthree.business: INFO

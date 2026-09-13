@@ -24,8 +24,8 @@ import java.util.UUID;
  * 그룹 멤버십을 <b>바꾸는</b> 경로 — 방장 위임·강퇴·그룹 탈퇴. 조회는 {@code GroupService} 가 맡는다.
  *
  * <p>세 경로 모두 요청자(대상이 있으면 대상까지) users 행을 공유 락으로 읽는다. 계정 탈퇴와
- * 직렬화되지 않으면 탈퇴 확정 계정이 방장을 넘겨받거나, {@code GroupMember} 에 {@code @Version}
- * 이 없어 탈퇴가 쓴 이탈 표시를 이 트랜잭션의 full-row UPDATE 가 통째로 되살린다.
+ * 직렬화되지 않으면 탈퇴 확정 계정이 방장을 넘겨받을 수 있다. 변경 컬럼만 저장하더라도
+ * 활성 계정 판정과 권한 변경의 순서는 이 공유 락으로 계속 보장해야 한다.
  *
  * <p>404 가 두 버킷으로 갈린다 — 요청자 세션이 죽었으면 {@code USER_NOT_FOUND}(재로그인),
  * 지목한 <b>대상</b>이 없으면 {@code NOT_FOUND} 다. 대상 부재를 전자로 바꾸면 앱이 멀쩡한 방장을
@@ -42,6 +42,11 @@ public class GroupMemberService {
     private final UserQueryService userQueryService;
     private final UserActivityEventLogger userActivityEventLogger;
     private final GroupBetService groupBetService;
+    /**
+     * 멤버십 전이·그룹 종료를 링크 서버로 나르는 내구 명령 (A22 ⓑ · ㋢). 같은 트랜잭션에서 적는다 —
+     * 커밋 후 발행이면 응답 유실·프로세스 종료 시 보낼 주체가 사라진다.
+     */
+    private final LinkMembershipEventService linkMembershipEventService;
 
     /**
      * 방장을 넘긴다 — 대상이 OWNER 로 오르고 요청자는 같은 트랜잭션에서 MEMBER 로 내려온다.
@@ -61,10 +66,8 @@ public class GroupMemberService {
         User user = requireActiveUser(userId);
 
         // 위임 대상은 활성 검증 + 공유 락 (GROMO-801, codex 리뷰) — 락 없는 findById 면 대상의 계정
-        // 탈퇴(유저 행 배타 락)와 직렬화되지 않는다. 탈퇴가 owner 검사·멤버십 leave 를 끝낸 뒤 이
-        // 위임이 flush 되면 GroupMember 에 @Version 이 없어 full-row UPDATE 가 is_left=false 를
-        // 되살리며 role=OWNER 를 세워, 탈퇴한 유저가 오너인(그리고 전 오너는 이미 강등된) 그룹이
-        // 남는다. 탈퇴가 먼저 커밋되면 여기서 삭제를 관측하고 기존 계약대로 NOT_FOUND 로 거절된다.
+        // 탈퇴(유저 행 배타 락)와 직렬화되지 않는다. 변경 컬럼만 저장해도 활성 판정 뒤 탈퇴한 계정에
+        // OWNER 역할을 넘기는 경합은 막지 못한다. 탈퇴가 먼저 커밋되면 여기서 삭제를 관측해 거절한다.
         //
         // GROMO-1247: 여기는 <b>대상</b> 유저라 USER_NOT_FOUND(요청자 세션 사망 → 재로그인)로 바꾸지
         // 않는다. 방장이 없는 유저를 지목한 것이지 내 세션이 죽은 게 아니다 — 바꾸면 앱이 멀쩡한
@@ -111,16 +114,22 @@ public class GroupMemberService {
         }
 
         // 강퇴 대상도 활성 검증 + 공유 락 (GROMO-1227) — 위 transferOwner 대상과 같은 논증이다.
-        // GroupMember 에 @Version 이 없어 kick() 의 full-row UPDATE 가, 대상의 계정 탈퇴가 같은
-        // 행에 이미 flush 한 변경(leave)을 stale 스냅샷으로 덮어쓴다(lost update). 탈퇴가 먼저
+        // kick()과 계정 탈퇴의 leave()는 같은 이탈 사유를 바꾸므로 변경 컬럼만 저장해도 경합한다. 탈퇴가 먼저
         // 커밋되면 여기서 삭제를 관측하고 TARGET_USER_NOT_FOUND 로 거절된다(GROMO-1725).
         // GROMO-1247: transferOwner 대상과 같은 이유로 USER_NOT_FOUND 로 바꾸지 않는다(대상 유저다).
         User targetUser = userQueryService.getTargetForShare(targetUserId);
-        GroupMember target = groupQueryService.findMembership(targetUser, group)
+        // 표시정보 갱신과 같은 순서로 멤버십 → LINK aggregate를 잠근다.
+        // 더티 갱신의 flush에 맡기면 aggregate를 먼저 잡아 그룹명 변경과 교착할 수 있다.
+        GroupMember target = groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(
+                        targetUser.getId(), group.getId())
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
         // 강퇴 마킹. 진행 중 내기 판돈은 건드리지 않는다(지갑 생존 → 정산 시 정상 지급/환불, 엔진 무변경).
         target.kick();
+        // 멤버십 전이 = 그 (그룹, 발급자) 링크의 폐기다(A22 ⓑ). Business 의 revoke 만 있으면
+        // 그것이 실패했을 때 예전 slug 가 살아 «비공개 그룹 무단 가입»이 된다 — 같은 트랜잭션에서
+        // outbox 를 적고 relay 가 재전달한다.
+        linkMembershipEventService.recordMembershipRevoked(target);
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
     }
 
@@ -141,7 +150,8 @@ public class GroupMemberService {
         // 이 User 를 그대로 밀어넣는다. 락 없는 stale User 면 내기 참가 정리(#503)가 계정 탈퇴와
         // 직렬화되지 않아, 막아둔 구멍을 옆문으로 다시 여는 셈이다.
         User user = requireActiveUser(userId);
-        Group group = groupQueryService.getGroup(groupId);
+        // 마지막 멤버는 그룹도 닫는다. 이름 변경과 같은 그룹 → 멤버십 순서로 잠근다.
+        Group group = groupQueryService.getGroupForUpdate(groupId);
         GroupMember groupMember = groupQueryService.getMembership(user, group);
 
         // A-0 소프트삭제: 행을 지우지 않고 이탈 마킹(leave). findByGroup 은 활성만 세므로 마지막 1인 판정 유지.
@@ -156,9 +166,16 @@ public class GroupMemberService {
 
         if (groupMembers.size() == 1) {
             groupMember.leave();
+            linkMembershipEventService.recordMembershipRevoked(groupMember);
             group.close();
+            // 그룹 종료는 폐기와 «별개 사건»이다(㋢) — 현행 랜딩·매치가 둘 다 findActiveGroup 으로
+            // 실시간 판정하므로, 안 보내면 죽은 그룹의 slug 가 계속 랜딩·매치에 성공한다.
+            // 대상은 leave() «전»에 뜬 groupMembers 다. 여기서 다시 조회하면 방금 이탈한 마지막 1인이
+            // 빠져 목록이 비고, group.closed 봉투가 한 건도 만들어지지 않는다.
+            linkMembershipEventService.recordGroupClosed(group, groupMembers);
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
             groupMember.leave();
+            linkMembershipEventService.recordMembershipRevoked(groupMember);
         }
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
     }
@@ -201,9 +218,15 @@ public class GroupMemberService {
         UUID userId = user.getId();
 
         for (GroupMember ownerMembership : groupMemberRepository.findActiveOwnerMembershipsByUserId(userId)) {
-            if (groupMemberRepository.findByGroup(ownerMembership.getGroup()).size() <= 1) {
+            // 이탈 «전»에 포착한다 — leave() 뒤에 조회하면 isLeft 필터에 걸려 목록이 비고,
+            // 그러면 group.closed 봉투가 한 건도 만들어지지 않는다.
+            List<GroupMember> recipients = groupMemberRepository.findByGroup(ownerMembership.getGroup());
+            if (recipients.size() <= 1) {
                 ownerMembership.leave();
+                linkMembershipEventService.recordMembershipRevoked(ownerMembership);
                 ownerMembership.getGroup().close();
+                // 그룹 종료도 함께 전달한다(㋢). 폐기만 보내면 그 그룹의 «다른» 발급자 링크가 남는다.
+                linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup(), recipients);
             }
         }
 
@@ -215,7 +238,13 @@ public class GroupMemberService {
         groupBetService.freezeEvidenceForAccountErasure(user);
 
         for (GroupMember membership : groupMemberRepository.findByUser(user)) {
-            membership.leave();
+            // 사용자 배타 잠금은 다른 방장의 그룹명 변경을 막지 않는다.
+            // 환불 순서는 유지하고, 이탈 직전에 멤버십 → LINK aggregate 순서를 보장한다.
+            groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(userId, membership.getGroup().getId())
+                    .ifPresent(locked -> {
+                        locked.leave();
+                        linkMembershipEventService.recordMembershipRevoked(locked);
+                    });
         }
     }
 

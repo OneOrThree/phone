@@ -3,7 +3,7 @@ name: Backend Gradle
 # JVM 서버의 Gradle 검사를 한 곳에서 돈다.
 #
 # 현재 호출부는 «둘뿐»이다 — dev-ci.yml(`service: data-api`) 과 realtime-ci.yml(`service: realtime`).
-# business-api 는 아래 사유로 «의도적 예외»고, server/notification 은 아직 없다. 서버가 늘면
+# business-api·notification 은 아래 사유로 «의도적 예외»라 satellite-ci.yml 이 맡는다. 서버가 늘면
 # 여기로 붙이되, 이 목록도 같이 고쳐라 — 「전부 이걸 부른다」고 적어 두면 예외가 사고가 된다.
 #
 # 왜 합쳤나 — 이전의 be-check-style.yml · be-test.yml · be-spot-bugs.yml 은 `workflow_call` 전용인데
@@ -25,8 +25,9 @@ name: Backend Gradle
 # 부수 효과: 이 워크플로가 도커에 의존하지 않게 되어, 호출부가 `runs-on` 만 바꾸면 GitHub-hosted
 # 러너로 그대로 옮겨진다.
 #
-# business-api 는 이 파일을 쓰지 않는다 — PDF 미리보기 테스트가 poppler-utils 에 의존하고 그건
-# Dockerfile 의 `test` 스테이지가 깐다. 일반 러너에서 gradle 을 돌리는 이 파일로는 대체할 수 없다.
+# satellite-ci.yml 의 business-api·notification 매트릭스는 이 파일을 쓰지 않는다 — business-api 의
+# PDF 미리보기 테스트가 poppler-utils 에 의존하고 그건 Dockerfile 의 `test` 스테이지가 깐다.
+# 일반 러너에서 gradle 을 돌리는 이 파일로는 대체할 수 없다.
 
 on:
   workflow_call:
@@ -68,7 +69,10 @@ jobs:
     # `jobs.<job_id>.runs-on` 행: github · needs · strategy · matrix · vars · **inputs**).
     # 입력이 문자열이므로 `fromJSON` 으로 배열로 되돌린다.
     runs-on: ${{ fromJSON(inputs.runs-on) }}
-    timeout-minutes: 25
+    # 25 가 아니라 30 이다(옛 be-test.yml 에서 옮겨온 상한). 서비스 분리 회귀를 포함한 전체 테스트가
+    # 공유 러너에서 20분을 넘을 수 있어서, 실행이 중간에 잘리지 않고 결과·JAR 측정까지 마치도록
+    # 유한 상한을 30분으로 둔다.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: server/${{ inputs.service }}

@@ -1,6 +1,7 @@
 package com.oneorthree.phone.notification.listener;
 
 import com.oneorthree.phone.group.event.BetResultAcknowledgedEvent;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.service.BetEventNotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
@@ -36,6 +37,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class BetResultAckSuppressionListener {
 
+    private final NotificationDispatcher notificationDispatcher;
     private final BetEventNotificationService betEventNotificationService;
 
     /**
@@ -45,6 +47,12 @@ public class BetResultAckSuppressionListener {
      */
     @EventListener
     public void onResultAcknowledged(BetResultAcknowledgedEvent event) {
+        if (notificationDispatcher.isOutboxMode()) {
+            // 신 경로에서 억제는 «알림 서버의» prepare/commit/abort 가 소유한다(A22 ⓓ). 여기서
+            // 구 tombstone 을 계속 박으면 Data 쪽 발송 이력만 자라고, 정작 발송을 막아야 할 쪽은
+            // 그 행을 보지 않는다 — 이력만 갈리고 억제는 되지 않는 가장 나쁜 조합이다.
+            return;
+        }
         betEventNotificationService.suppressResultPushOnAck(event.userId(), event.sessionId(), event.now());
     }
 }

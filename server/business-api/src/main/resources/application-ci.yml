@@ -1,0 +1,45 @@
+# 테스트 프로파일. 상류는 테스트가 «실제 HTTP mock 서버»로 갈아 끼운다.
+#
+# ⚠️ base-url 을 닿지 않는 주소로 두는 이유: 테스트가 주소를 덮어쓰지 않은 경로가 있으면 즉시 실패해야
+#    한다. 조용히 어딘가로 나가는 것보다 낫다(server/chat 의 ci 프로파일과 같은 규율).
+#
+# ⚠️ 서비스 토큰은 «값이 있어야» 부팅된다(InternalHttpClient 생성자 fail-fast). 테스트가 그 fail-fast
+#    자체를 확인할 때는 프로퍼티를 비운 컨텍스트를 따로 띄운다.
+jwt:
+  # 길이가 HMAC-SHA256 최소치(32바이트)를 넘어야 한다 — 짧으면 부팅 자체가 실패한다.
+  secret: ci-test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256
+
+link:
+  # ⚠️ 운영 salt 가 아니다. 운영 값을 바꾸면 매치가 전멸하므로(A22 ⓕ) 테스트는 자기 값을 쓴다.
+  ip-salt: ci-test-ip-salt
+  trusted-ip-headers: X-Link-Client-IP
+  # 빈 값 = 공유 비밀 겹을 적용하지 않는다. 그 겹이 «켜졌을 때»의 동작은 별도 테스트가 값을 넣어 본다.
+  proxy-secret: ""
+
+business:
+  upstream:
+    data:
+      base-url: http://localhost:1
+      service-token: ci-token-data
+      read-timeout: 300ms
+      connect-timeout: 200ms
+    notification:
+      base-url: http://localhost:1
+      service-token: ci-token-noti
+      read-timeout: 300ms
+      connect-timeout: 200ms
+    link:
+      base-url: http://localhost:1
+      service-token: ci-token-link
+      read-timeout: 300ms
+      connect-timeout: 200ms
+  compat:
+    match-handler-enabled: true
+    import-contract-ready: false
+    migration-id: ci-migration
+    match-budget: 3s
+    claim-budget: 3s
+
+logging:
+  level:
+    com.oneorthree.business: DEBUG

@@ -333,6 +333,14 @@ public class LeagueRankingQueryRepository {
         return jdbcTemplate.query(sql, parameters, this::mapRankingRow);
     }
 
+    /** 알림 발송 직전 조회. 생성 스캔과 같은 모수·주간 합계·현재 티어를 한 SQL 스냅샷으로 읽는다. */
+    public Optional<LeagueRankingRow> findWeeklyTotalForUser(UUID userId, LocalDate fromDate, LocalDate toDate) {
+        validateRange(fromDate, toDate);
+        String sql = WEEKLY_TOTALS + " AND u.id=:userId\n" + GROUP_BY_USER;
+        MapSqlParameterSource parameters = rangeParameters(fromDate, toDate).addValue("userId", userId);
+        return jdbcTemplate.query(sql, parameters, this::mapRankingRow).stream().findFirst();
+    }
+
     /**
      * 지정 유저들만의 정산용 집계 (GROMO-1239 재개 시 userIds 지정 경로). 기존 정산 쿼리의 골격
      * (WEEKLY_TOTALS — 활성·온보딩 완주 필터 포함)을 그대로 재사용하고 id IN 필터와 가입 컷오프만

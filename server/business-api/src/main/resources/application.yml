@@ -1,3 +1,13 @@
+# 모든 프로파일이 공유하는 설정 — 파일 미리보기(1747)와 Data·알림·링크 조합(1659)이 한 서비스에 있다.
+#
+# ⚠️ 상류 주소·서비스 토큰은 여기 두지 않는다. 여기에 ${SVC_TOKEN_BIZ_TO_DATA} 같은 플레이스홀더를
+#    두면 ci 프로파일에서도 그 바인딩이 일어나 환경변수가 없다며 부팅이 실패한다. 접속·자격은
+#    프로파일별 파일이 각자 채운다(server/chat 과 같은 규율).
+#
+# ⚠️ 이 서비스에 datasource·flyway 설정이 «없는 것»은 계약이다 — 도메인 DB·트랜잭션·크론·브로커를
+#    갖지 않는다(목표 아키텍처 §2 「안 하는 일」). 아래 Redis 는 그 예외가 아니라 «사본»이다:
+#    A19 네임스페이스 표의 cache:business:* 소유자로서 자기 미리보기 캐시만 담고, 비워도 다음 요청이
+#    다시 만든다. 어떤 도메인 판정도 여기에 의존하지 않는다.
 spring:
   application:
     name: business-api
@@ -5,26 +15,29 @@ spring:
     redis:
       host: ${BUSINESS_REDIS_HOST:localhost}
       port: ${BUSINESS_REDIS_PORT:6379}
+      # 배포 준비 도구가 business ACL 사용자와 암호를 주입한다. 빈 기본값은 테스트용 Redis에만 쓴다.
       username: ${BUSINESS_REDIS_USERNAME:}
       password: ${BUSINESS_REDIS_PASSWORD:}
       connect-timeout: 2s
       timeout: 2s
-  jackson:
-    deserialization:
-      fail-on-unknown-properties: true
 
 server:
-  port: 8082
+  # 루트가 배선한 compose 가 SERVER_PORT=8080 을 준다. 기본값도 8080 으로 맞춰 두 값이 갈라지지 않게 한다.
+  # ⚠️ 8082 로 두지 않는다 — 위성 배포에서 그 포트는 알림 서버 몫이다.
+  port: ${SERVER_PORT:8080}
   tomcat:
-    connection-timeout: 10s
+    # cgroup pids_limit 128에는 JVM 스레드·PDF 자식 프로세스도 포함된다.
+    # 서비스/관리 worker 합계32 + 상류/조합16 + preview/DNS8 외에 JVM·Redis·PDF 여유를 남긴다.
+    threads:
+      max: 16
+      min-spare: 4
+    # 구 앱 match 예산이 5초다. 그 안에서 상류 재시도까지 끝나야 하므로 요청 처리 자체가 늦게 시작되면
+    # 예산이 먼저 마른다 — 커넥션 대기 시간을 짧게 잡아 「대기하다 죽는」 대신 빨리 실패하게 한다.
+    connection-timeout: 3s
+    # 413 을 내린 뒤 남은 본문을 삼키지 않는다. 삼키면 거절해 놓고도 그 바이트를 다 읽게 된다.
     max-swallow-size: 0
 
-jwt:
-  secret: ${JWT_SECRET}
-
-business:
-  drive-api-key: ${GOOGLE_DRIVE_API_KEY:}
-
+# 관리 포트는 호스트에 publish 하지 않는다 — 포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단이다.
 management:
   server:
     port: 9091
@@ -36,9 +49,53 @@ management:
     health:
       probes:
         enabled: true
+      # 준비성에 «상류»는 넣지 않는다. 이 서비스의 일은 상류 장애를 503 으로 전달하는 것이고, 상류가
+      # 흔들릴 때 컨테이너를 unhealthy 로 만들면 로드밸런서가 멀쩡한 인스턴스를 빼 버려 그 503 조차
+      # 못 내려준다. 상류 건강은 서킷 메트릭으로 본다.
+      # 반면 redis 는 «자기 저장소»다 — 붙지 않으면 미리보기가 통째로 안 되므로 준비성에 넣는다.
       group:
         readiness:
           include: readinessState,redis
+
+business:
+  upstream:
+    data:
+      connect-timeout: 500ms
+      # 5초 예산 안에서 재시도 2회가 들어가도록 잡았다(1.5s × 2 + 여유).
+      read-timeout: 1500ms
+      failure-threshold: 5
+      open-duration: 10s
+    notification:
+      connect-timeout: 500ms
+      read-timeout: 1500ms
+      failure-threshold: 5
+      open-duration: 10s
+    link:
+      connect-timeout: 500ms
+      read-timeout: 1500ms
+      failure-threshold: 5
+      open-duration: 10s
+  compat:
+    # 한시 /l/match 핸들러. 컷오버 후 제거가 계약이므로 기본값은 꺼짐이다(A22 ㊫).
+    match-handler-enabled: false
+    # 구 정지 스냅샷 → Neon 이관 계약이 준비됐는가. 준비 전 구 후보 소진은 임의 이중 소진이다(A22 ㊥).
+    import-contract-ready: false
+    # deferredInvite.ts:100 의 5000ms 보다 안쪽. 상류 재시도까지 이 예산에 들어간다.
+    match-budget: 4500ms
+    # api.ts:215-218 의 전역 15초보다 안쪽.
+    claim-budget: 13000ms
+    # 202 로 접어도 되는가. 기본 꺼짐 — 재개 주체(아래 CLI)가 없을 때의 202 는 영구 대기다.
+    claim-queue-replay-enabled: false
+  # 일회성 재개 CLI. 서빙 프로세스에서는 꺼져 있어야 한다.
+  claim-replay:
+    enabled: false
+  # 공개 Drive 메타데이터 조회용. 비어 있으면 Drive 경로만 못 쓰고 나머지 미리보기는 동작한다.
+  drive-api-key: ${GOOGLE_DRIVE_API_KEY:}
+
+# legacy issuer(Data API)와 «같은 값»이어야 한다. 전환 기간에 이 서비스는 검증만 한다.
+# 프로파일별 파일(dev/prod/ci)이 각자 덮어쓰므로, 여기 값은 프로파일 없이 띄우는 로컬 compose 용이다.
+jwt:
+  secret: ${JWT_SECRET}
 
 logging:
   level:

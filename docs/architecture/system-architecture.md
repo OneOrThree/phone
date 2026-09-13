@@ -18,7 +18,7 @@ flowchart TB
   subgraph Internet
     APPc["앱"]
     CF["Cloudflare DNS · Proxy"]
-    VERCEL["Vercel — oneorthree/link<br/>랜딩 · /l/* · SKAN · 대시보드(+알림 콘솔)"]
+    VERCEL["Vercel — OneOrThree/mmp-custom<br/>랜딩 · /l/* · SKAN · 대시보드(+알림 콘솔)"]
     NEON[("Neon Postgres")]
   end
   subgraph VM["prod: AWS t4g.large · Docker Compose (dev: GCP e2-standard-2, 동일 구성 + db)"]
@@ -59,11 +59,13 @@ flowchart TB
 | `/api/v1/auth/**` — 소셜 로그인 6종 · 게스트 · refresh · logout | business-api | **없음 (pre-auth)** — AT 발급 **전**에 호출하는 경로다. 앱 현행 계약이 `/api/v1/auth/*` 이므로 Target-1 도 이 접두를 유지한다(경로를 `/auth/**` 로 옮기려면 배포된 앱이 있어 이관 절차가 따로 필요). 현 `JwtFilter` 화이트리스트 8종이 여기로 옮겨온다. **단 소셜 로그인은 「무인증」이 아니라 「선택적 인증」이다** — AT 가 실려 오면 `access` 타입인지 검증해 그 `userId` 를 Data 로그인 명령에 넘겨야 **게스트 → 소셜 승격**이 성립한다(순수 익명으로 구현하면 새 `User` 가 생겨 기존 기록을 잃는다, 서비스 §5) |
 | **`DELETE /api/v1/users/me/device-token`** | business-api | **AT 만으로는 부족** — 현 `deleteDeviceToken`(`userApi.ts:88-94`)은 **refresh 인터셉터가 없는 bare axios 에 기존 AT** 를 싣고 `App.tsx:293-306,528` 은 실패를 삼킨다. 앱을 1시간 넘게 안 쓴 뒤 로그아웃·계정 전환하면 **만료 AT 로 401 이 나 Business 에 닿지도 못해 outbox 조차 안 남고**, 뒤의 `/auth/logout` 에는 대상 토큰·소유권 값이 없어 복구 불가다. 그래서 **이 삭제만은 RT(또는 별도 기기 자격)로 인증**하거나, **세션 전환을 깨지 않는 방식으로 fresh AT 를 확보한 뒤** outbox 기록까지 끝낸다 |
 | 그 외 `/api/v1/**` · `/bff/**` | business-api | JWT (Business API 서명 검증) |
+| `/auth/sessions` 및 `/auth/sessions/**` | business-api — 무접두 신규 API, URI 그대로 전달 | 선택 AT·RT·provider 자격의 세부 인증은 계정 계약(1757)에서 구현한다. nginx의 경로 연결은 인증 예외를 만들지 않으며, 현재 `AccessTokenFilter` 기본 보호를 유지한다 |
+| `/me` · `/islands` · `/focus-sessions` · `/invitations` · `/rankings` · `/statistics` · `/screens` · `/link-previews` 및 각각의 `/` 하위 | business-api — 정확한 루트 경계만 연결(`me-other` 등 제외) | 앱 JWT 검증. 외부 `X-User-Id`·caller·링크 IP 증명 헤더는 폐기하고 내부 위임은 Business가 생성한다. 링크용 공유 시크릿 불필요. nginx upstream 재시도는 명시적으로 끈다. 기존 `/api/v1/link-previews` 계약·thumbnail URL은 유지한다 |
 | `/internal/admin/**` | notification | 서비스 토큰(콘솔 전용). Vercel egress IP 는 가변이라 IP 허용 목록 없음 |
 | `/health` | business-api (각 서비스 헬스는 compose 내부) | 없음 |
 | `/l/**` · `/.well-known/**` | **nginx 가 아니라 DNS** — `link.oneorthree.world` → Vercel | — |
-| **`/l/match` · `/l/referrer` (이관 호환)** | nginx → **Vercel 프록시** — 배포된 앱이 `${API_URL}/l/match`(= `api.oneorthree.world`)로 부르고 있어(`deferredInvite.ts`) 이 경로를 지우면 설치 매치가 실패하고 3시간 어트리뷰션 창을 잃는다. **원본 IP 를 반드시 보존한다** — 매치는 클릭 때 저장한 `ip_hash`(SHA-256(ip+salt))와 대조하는데, 그냥 프록시하면 링크 서버엔 EC2 주소가 보여 **정상 설치도 `matched:false`** 가 된다. nginx 가 `X-Forwarded-For` 를 **검증된 원본 IP 로 재작성하고**(클라이언트가 위조한 값 무시) — **`$remote_addr` 로 그냥 덮으면 안 된다**: 운영 경로가 **앱 → Cloudflare → nginx** 라 그 값은 **Cloudflare 엣지 IP** 이고, 그러면 Vercel 랜딩 때 저장한 방문자 IP 해시와 달라 **정상 설치도 `matched:false`** 가 된다. 반대로 요청의 `CF-Connecting-IP` 를 **그대로 믿으면 오리진을 직접 때린 호출자가 위조**할 수 있다. 그래서 **`set_real_ip_from` 에 Cloudflare CIDR 만 등록하고(+ 오리진 방화벽으로 CF 외 접근 차단) 그때만 `CF-Connecting-IP` 를 신뢰해 XFF 를 재작성**한다 프록시 전용 공유 시크릿 헤더를 함께 실으며, 링크 서버는 **그 시크릿이 있을 때만** XFF 첫 토큰을 신뢰한다. **시크릿이 없는 직접 요청(방문자 → Vercel)은 소켓 주소가 아니라 Vercel 이 보장하는 클라이언트 IP 헤더**를 쓴다 — 서버리스 함수의 소켓 상대는 방문자가 아니라 플랫폼 프록시이고 실행 방식에 따라 소켓 정보가 아예 없어서, 소켓을 쓰면 클릭에 방문자가 아닌 IP 가 저장돼 나중에 nginx 가 전달한 실제 IP 와 해시가 어긋난다 | 무인증(현행과 동일) + 프록시 시크릿 |
-| 그 외 `/internal/**` | **차단** | — |
+| **`/l/match` · `/l/referrer` (이관 호환)** | nginx → **Vercel 프록시** — 배포된 앱이 `${API_URL}/l/match`(= `api.oneorthree.world`)로 부르고 있어(`deferredInvite.ts`) 이 경로를 지우면 설치 매치가 실패하고 3시간 어트리뷰션 창을 잃는다. **원본 IP 를 반드시 보존한다** — 매치는 클릭 때 저장한 `ip_hash`(SHA-256(ip+salt))와 대조하는데, 그냥 프록시하면 링크 서버엔 EC2 주소가 보여 **정상 설치도 `matched:false`** 가 된다. nginx 가 `X-Forwarded-For` 를 **검증된 원본 IP 로 재작성하고**(클라이언트가 위조한 값 무시) — **`$remote_addr` 로 그냥 덮으면 안 된다**: 운영 경로가 **앱 → Cloudflare → nginx** 라 그 값은 **Cloudflare 엣지 IP** 이고, 그러면 Vercel 랜딩 때 저장한 방문자 IP 해시와 달라 **정상 설치도 `matched:false`** 가 된다. 반대로 요청의 `CF-Connecting-IP` 를 **그대로 믿으면 오리진을 직접 때린 호출자가 위조**할 수 있다. 그래서 **`set_real_ip_from` 에 Cloudflare CIDR 만 등록하고(+ 오리진 방화벽으로 CF 외 접근 차단) 그때만 `CF-Connecting-IP` 를 신뢰해 XFF 를 재작성**한다. Vercel은 수신 XFF를 플랫폼에서 덮어쓰므로 nginx는 같은 검증된 IP를 **`X-Link-Client-IP`에도 실어야 한다**. `X-Link-Proxy-Secret`에 프록시 전용 공유 시크릿을 함께 실으며, 링크 서버는 **그 시크릿이 유효할 때만 `X-Link-Client-IP`의 단일 IP를 신뢰**한다. **시크릿이 없는 직접 요청(방문자 → Vercel)은 소켓 주소가 아니라 Vercel 이 보장하는 클라이언트 IP 헤더**를 쓴다 — 서버리스 함수의 소켓 상대는 방문자가 아니라 플랫폼 프록시이고 실행 방식에 따라 소켓 정보가 아예 없어서, 소켓을 쓰면 클릭에 방문자가 아닌 IP 가 저장돼 나중에 nginx 가 전달한 실제 IP 와 해시가 어긋난다 | 무인증(현행과 동일) + 프록시 시크릿 |
+| `/internal` 및 그 외 `/internal/**` · `/actuator` 및 `/actuator/**` | **404 차단** — management 포트는 사설망 전용 | — |
 
 data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만). notification 은 `/internal/admin/*` 만 nginx 를 통해 노출.
 
@@ -74,7 +76,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | business-api | 8080 | 512 MB | DB 없음, 커넥션 풀 없음. 패스스루 라우터 + BFF |
 | data-api | 8081 | 1 GB | 현 app 그대로. 커넥션 풀 = Hikari 기본 10(prod 에 명시 설정 없음) |
 | notification | 8082 | 512 MB | FCM 풀 · 크론 풀 6+ · 커넥션 풀 작게(≤5) |
-| **kafka** (A12) | 9092 (compose 내부만) | **512 MB** + 페이지 캐시 | `apache/kafka` KRaft 단일 노드, retention 7일, **내부 토픽 복제 계수 1**(`OFFSETS_TOPIC_REPLICATION_FACTOR`·트랜잭션 사용 시 `TRANSACTION_STATE_LOG_*` 도 — 기본 3 이면 컨슈머 그룹 불가), 볼륨 필수(디스크 감시). 외부 미노출 — Vercel 은 붙지 않음 |
+| **kafka** (A12) | 9092 (compose 내부만) | **512 MB** + 페이지 캐시 | `apache/kafka` KRaft 단일 노드, retention 7일, **내부 토픽 복제 계수 1**(`OFFSETS_TOPIC_REPLICATION_FACTOR`·트랜잭션 사용 시 `TRANSACTION_STATE_LOG_*` 도 — 기본 3 이면 컨슈머 그룹 불가), `KAFKA_LOG_DIRS=/var/lib/kafka/data`와 같은 경로의 볼륨 필수(디스크 감시). 컨테이너 재생성 후 토픽·메시지 보존을 검증한다. 외부 미노출 — Vercel 은 붙지 않음 |
 | nginx · datadog-agent | 443 · 8126 | — | 현행 |
 
 힙 합계 2 GB 는 실사용으로 ≈1.3~1.5배(메타스페이스·스택·다이렉트 버퍼) = 2.6~3 GB 로 본다. dev e2-medium(4 GB)에 JVM 셋 **+ Kafka 512 MB** + Postgres + agent 는 **넘친다** — dev 는 `notification`·`business-api` 힙 256 MB, Kafka 384 MB 로 시작해도 여유가 거의 없어 **e2-standard-2(8 GB) 사이즈업을 전제**로 본다. prod 는 **A14 사이즈업(t4g.large 권장)** 전제 — 현 타입 실측 후 차이만 티켓에.
@@ -89,8 +91,12 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 
 ### 2.4 시크릿 (A11 ⑥)
 
+A22 ㋺의 기존 미리보기 통합으로 Business 컨테이너 한도는 2 GiB이며 전용 Redis 캐시는 192 MiB를 추가한다. `business-cache` 내부 네트워크에는 Business와 Redis만 연결하고, Redis 포트는 publish하지 않는다. JVM 힙은 512 MiB, PDF 프로세스 한도는 기존 값을 유지한다. PID 한도 128 안에서 JVM·Redis 연결·PDF 프로세스가 함께 동작하도록 Tomcat 요청 스레드를 최대 32·최소 대기 4로 제한한다. 이는 공유 Redis·리그 전환을 앞당기는 변경이 아니다.
+
 | 시크릿 | 보유 |
 |---|---|
+| `BUSINESS_REDIS_PASSWORD` | Business만 원문 보유. Redis에는 SHA-256 비밀번호와 키·명령 ACL 파일만 주입 |
+| `GOOGLE_DRIVE_API_KEY` | Business 미리보기 전용(선택). Data·Notification에는 전달하지 않음 |
 | `JWT_SECRET` | 최종적으로 business-api **만**. **회수 시점은 FCM(아래)과 같은 순서다** — 현 `application-prod.yml:30` 이 기본값 없는 필수 placeholder 라, 라우팅 전환보다 먼저 data-api 에서 빼거나 **직전 digest 로 롤백**하면 **Data 가 기동하지 못해 전체 API 가 멈춘다**. **business-api 에 먼저 병행 배포 → 인증 트래픽 전환과 구 인증 코드 제거 확인 → 롤백 창 종료 → 그다음 data-api 에서 회수** |
 | **`APPLE_CLIENT_ID` · `GOOGLE_CLIENT_ID`**(+ 그 밖의 provider 설정) | 최종적으로 **business-api** — IdP 토큰 검증을 옮기므로 함께 옮긴다. **회수 시점은 `JWT_SECRET`·FCM 과 같다**(병행 배포 → 인증 트래픽 전환·구 인증 코드 제거 확인 → 롤백 창 종료 → data-api 에서 회수). 현 `application-prod.yml:39·46` 이 **기본값 없는 필수 주입**이라 빠뜨리면 placeholder 해석 단계에서 **기동 자체가 실패**하고 해당 소셜 로그인이 전부 중단된다 |
 | **`API_DB_URL` · `API_DB_USERNAME` · `API_DB_PASSWORD`** (gromo) | data-api — **현 `application-prod.yml:3-5` 이 읽는 실제 이름이다**(기본값 없음). 표에 다른 이름을 적어 두면 그대로 배포했을 때 기동 실패 |
@@ -103,9 +109,17 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | 콘솔 비밀번호 4개(해시) | Vercel env (링크 레포) |
 | `LINK_IP_SALT` · SKAN 키 | 링크 서버 (Vercel env) — **기존 운영 값을 그대로 복사한다(새로 생성 금지)** |
 | **`LINK_CAPABILITY_KEY`**(§3 비공개 가입 자격 서명) | **링크 서버(발급) 와 data-api(검증) 양쪽** — HMAC 공유 비밀 또는 링크 서버 개인키/Data 공개키 쌍. 없으면 Data 는 자격의 발급자를 확인할 수 없어 **가입을 전부 실패시키거나, 서명을 안 보고 클라이언트가 준 `groupId`·`inviterId`·`membershipEpoch` 를 믿어 비공개 그룹 가입이 우회**된다. **회전은 구·신 키 병행 검증 기간을 두고**(자격 만료보다 긴 창) 그 뒤 구 키를 폐기한다 |
-| **`LINK_PROXY_SECRET`**(§2.1 의 프록시 전용 공유 시크릿) | **nginx 와 링크 서버 양쪽** — 서비스 토큰과 별개다. 이게 없으면 legacy `/l/match` 프록시가 신뢰 가능한 전달 IP 를 못 실어 링크 서버가 Vercel 이 본 EC2 주소로 해시하고, **정상 클릭도 `matched:false`** 가 된다 |
+| **`LINK_PROXY_SECRET`**(§2.1 의 프록시 전용 공유 시크릿) | **nginx·링크 서버·Business API** — 서비스 토큰과 별개다. 운영 Business는 기본값 없이 참조하므로 env 생성 전에 필수 검증한다(A22 ㋯). 이게 없으면 legacy `/l/match` 프록시가 신뢰 가능한 전달 IP 를 못 실어 링크 서버가 Vercel 이 본 EC2 주소로 해시하고, **정상 클릭도 `matched:false`** 가 된다 |
 
-prod 는 Secrets Manager(`gromo/prod/env` JSON), dev 는 GCP 메타데이터/env — 현행 방식에 키만 추가.
+**런타임 시크릿 공급 경로(A22 ㋯):** prod 는 Secrets Manager(`gromo/prod/env` JSON), **dev 도 Secrets Manager(`gromo/dev/env`)** 이다. 현 `dev-cd.yml:79-90` 은 AWS OIDC 자격으로 JSON 을 읽어 `.github/scripts/write-compose-env.py` 를 통해 checkout 밖의 `dev.env` 로 쓴다. 같은 워크플로의 GCP 메타데이터 호출(`:92-98`)은 **GAR 이미지 pull 인증용**이다.
+
+**Target-1 최초 배포 전에 공급 경로 전체를 수정한다.** 현 `write-compose-env.py:44-57` 은 `REQUIRED_KEYS` 와 Grafana 키만 출력해, JSON 에 `NOTI_DB_*`·`SVC_TOKEN_*` 를 추가해도 env 파일에는 나타나지 않는다. 구현 순서는 다음과 같다.
+
+1. 위 표의 **서비스별 보유 목록**으로 env 생성기의 출력·필수값 검증을 나눈다. 배포 단계별 병행 보유(JWT·FCM 회수 전)도 명시하고, 해당 서비스의 필수 키 누락은 배포 전에 실패시킨다. 모든 JSON 키를 모든 서비스에 전달하는 방식은 사용하지 않는다.
+2. `gromo/dev/env` 에 새 키를 등록하고, CD 가 생성하는 env 파일에 반영한다. compose 의 각 서비스 `environment` 또는 전용 `env_file` 에도 **허용된 키만** 연결한다. 표의 DB 이름·서비스 토큰 audience 와 실제 런타임 프로퍼티가 일치해야 한다.
+3. **합성 시크릿 JSON → env 생성기 → `docker compose config`** 검증을 CI 에 넣는다. `NOTI_DB_*` 와 호출자별 서비스 토큰의 전달, 다른 서비스 시크릿의 미노출, 필수 키 누락 시 실패를 확인한다. 실제 시크릿 값은 검증 로그에 출력하지 않는다. prod 의 별도 배포 경로에도 같은 서비스별 전달 검증을 적용한다.
+
+이 생성기·compose 변경은 **구현 착수 시 해야 할 작업**이며, 현 코드에 이미 새 서비스 지원이 있다는 뜻이 아니다.
 
 **`LINK_IP_SALT` 는 전환 불변식이다.** 현 `invite_link_clicks.ip_hash` 는 운영 `LINK_IP_SALT`(`application-prod.yml`)로 이미 계산돼 있어서, Vercel 에 **새 salt 를 생성하면 백필한 클릭의 해시와 설치 시 새 서버가 계산한 해시가 전부 어긋나** IP·OS 가 같은 정상 설치도 3시간 매치 창 내내 `matched:false` 가 된다. 그래서 ⓐ 이관 시 **기존 값을 그대로 옮기고** ⓑ 미매치 클릭이 남아 있는 동안(= 최소 매치 창 3시간)은 회전하지 않으며 ⓒ 나중에 회전한다면 **구·신 salt 를 모두 계산해 조회하는 기간**을 두고 그 기간이 끝난 뒤 구 salt 를 폐기한다.
 
@@ -119,7 +133,7 @@ prod 는 Secrets Manager(`gromo/prod/env` JSON), dev 는 GCP 메타데이터/env
     docs/               architecture(허브 원본) · prd · conventions
     loadtest/
   OneOrThree/app            앱 (미러 승격)
-  oneorthree/link           링크 서버 (Vercel Git 연동, 이 파이프라인 밖)
+  OneOrThree/mmp-custom           링크 서버 (Vercel Git 연동, 이 파이프라인 밖)
   (docs 사이트 레포)         docs.oneorthree.world — 허브 페이지
 
 server/.github/workflows/
@@ -197,3 +211,27 @@ server/.github/workflows/
 - 노출면: `app:8080` 직접 → nginx 가 business/notification 만. data-api 내부화.
 - 시크릿: JWT·FCM 이 각각 한 서비스로 이동.
 - 관측: 서비스 3개 `DD_SERVICE`, 알림은 메트릭 직접 계측.
+
+소비자의 실패 토픽 resolver는 배포된 `notification-events.DLT`와 같은 이름을 명시한다(A22 ㋱). Spring Kafka 4의 `-dlt` 기본값과 자동 토픽 생성에 의존하지 않는다.
+
+
+### Target-1 이관 검증 산출물
+
+Data CLI는 export마다 고유한 `manifest.snapshot`을 생성하고 모든 `*.import-####.json` 청크와 `*.verify.json`에 같은 값을 넣는다. 빈 전체 집합도 하나의 빈 import 파일을 만든다. 초기·최종 파일을 섞지 않고 최종 집합의 검증을 통과한 뒤 최초 발송 게이트를 연다(A22 ㋼).
+
+GROMO-1659의 Data export는 settings·device·delivery·user·participation 다섯 자원의 건수·체크섬을 같은 RR 스냅샷에서 생성한다. 실제 Noti bootJar의 정규화·키 유도 함수와 Data export 직렬화를 CI에서 함께 실행한다(A22 ㋳·㋶). Link 이관에는 필드별 표시 version과 LEGACY 귀속을 포함하며, 서비스별 시크릿·이미지 digest·nginx 적용 준비는 `docs/prd/server-separation/deployment.md`를 따른다(A22 ㋷·㋸).
+
+
+기기 등록 롤아웃은 두 설정을 따로 전환한다(A22 ㋲). `NOTIFICATION_GENERATION_REQUIRED`는 구 AT 수명 대기 뒤
+켜고, `NOTIFICATION_LEGACY_DEVICE_REGISTRATION`은 소유권 프로토콜 미지원 구 앱 지원 종료 뒤 끈다.
+둘은 Notification 전용 env로 주입한다. 구 앱도 새 AT의 gen·sid를 사용할 수 있으므로 gen 존재로 앱 전환을 추정하지 않는다.
+
+앱 업그레이드 호환 정리는 소유권 기록이 없는 기기의 SDK 토큰 조회에도 의존한다(A22 ㋲). SDK 조회까지 실패한 세션 미연결 구 토큰의 정리는 보장하지 않으며, 사용자 전체 삭제로 다른 기기를 비활성화하지 않는다. RT 폐기는 계속 수행한다.
+
+Business 내부 HTTP의 복구 탐침은 요청 예산 검사 후에만 획득하며, 4xx 판정·자격 거절·계약 오류·요청 구성 예외에서도 정리한다(A22 ㋽). 기존 오류 분류와 재시도 범위를 유지하고 상류 복구 뒤 후속 요청이 통과하는지 실제 HTTP 응답으로 검증한다.
+
+게이트 close는 같은 키의 재시도도 다시 닫고 발송 drain을 기다린다. open 재시도는 게이트 잠금 아래 현재 개방과 실제 데이터를 재검증하며, 이후 close로 닫혔으면 `409 DISPATCH_OPEN_REPLAY_STALE`로 거절한다. 의도적인 재개는 새 open 키를 사용한다. 실제 데이터 재검증 실패는 발송을 닫고 drain한 뒤 검증 태그를 지운다(A22 ㋾). GroupMember의 역할·권한·설정 변경은 실제 변경 컬럼만 저장해 동시 표시 버전 갱신을 보존한다(A22 ㋻).
+
+refresh는 서명된 userId의 활성 users 행을 잠근 뒤 RT 세션을 조회한다. 세션이 있으면 그 행의 소유자·폐기를 판정하고 세션 RT를 조건부 회전한다. users의 단일 해시는 세션 없는 구 RT의 승격에만 유효성 근거로 사용하며, 회전 시에도 같은 옛 해시를 가리킬 때만 동기화한다. 다른 기기의 로그인·회전·개별 로그아웃은 살아 있는 세션의 갱신을 무효화하지 않는다. (A22 ㋣)
+
+소유권 값은 null 또는 정규 UUID 표기만 받는다. 잘못된 값은 Business 상류 호출·Data 내구 기록 전에 400으로 거절하며 null로 바꿔 삭제 범위를 넓히지 않는다. 이미 내구화된 잘못된 소유권 삭제 사건은 Notification이 어떤 기기도 변경하지 않고 소비 완료해 후속 사용자 사건을 막지 않는다. (A22 ㋗)

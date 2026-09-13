@@ -194,6 +194,19 @@ public class ChallengeResultAckService {
         acknowledge(userId, sessionId, claimToken, Instant.now());
     }
 
+    /** 내부 2단계 ACK. 커넥션·행 잠금 대기가 끝난 뒤 기한을 검사하고 잠금을 커밋까지 유지한다. */
+    @Transactional
+    public void acknowledgeBefore(UUID userId, UUID sessionId, UUID claimToken, Instant ackDeadlineAt) {
+        lockParticipantRow(userId, sessionId);
+        if (readClaimState(userId, sessionId).map(state -> state.getAcknowledgedAt() != null).orElse(false)) {
+            return; // 이미 커밋된 ACK의 재시도는 기한 경과에도 멱등 성공이다.
+        }
+        if (!groupChallengeBetParticipantRepository.currentDatabaseTime().isBefore(ackDeadlineAt)) {
+            throw new GroupException(GroupErrorCode.RESULT_ACK_DEADLINE_EXPIRED);
+        }
+        acknowledge(userId, sessionId, claimToken, Instant.now());
+    }
+
     /**
      * 테스트에서 고정 시각을 주입하기 위한 package-private 오버로드. 트랜잭션은 public 진입점이 연다.
      *
@@ -228,6 +241,51 @@ public class ChallengeResultAckService {
         // 이 트랜잭션 안에서 지금 돌고, 실패하면 ack 도 함께 롤백된다 — 종전 직접 호출과 성질이 같다.
         // 커밋 이후로 미루면 그 지연 동안 5분 주기 발송 크론이 끼어든다(소비자 Javadoc 참조).
         eventPublisher.publishEvent(new BetResultAcknowledgedEvent(userId, sessionId, now));
+    }
+
+    /**
+     * 정본 ack 상태 조회 — <b>알림 서버의 자기 수렴 경로</b>다 (A22 ⓓ · 조회 3종의 두 번째).
+     *
+     * <p>없으면 영구 억제가 실재한다: {@code HELD} 리스 만료는 {@code NEEDS_CONFIRM} 으로 넘어가
+     * flush 가 계속 건너뛰는데, 해제는 {@code commit} · {@code abort} · <b>이 조회</b> 세 길뿐이다.
+     * 「롤백 직후 프로세스가 죽는 구간」에서는 abort 행이 안 생기므로 이 조회가 <b>유일한 탈출구</b>다.
+     *
+     * <p><b>행이 없어도 예외가 아니다.</b> 「아직 확인되지 않았다」와 「그 참가가 없다」는 억제를
+     * 푸는 쪽에서는 결론이 같고, 여기서 404 를 던지면 수렴 경로가 그 예외에 막힌다.
+     *
+     * @param userId    확인 주체
+     * @param sessionId 회차
+     * @return 확인 여부와 시각. 행이 없으면 「미확인」
+     */
+    @Transactional
+    public ResultAckState readAckState(UUID userId, UUID sessionId) {
+        // 응답 시간 초과는 ack UPDATE의 롤백을 뜻하지 않는다. 같은 참가 행을 잠근 뒤 새 SELECT로
+        // 읽어야 진행 중 쓰기의 커밋/롤백 전 false가 Notification의 보류를 해제하지 않는다.
+        // SELECT FOR UPDATE는 읽기 전용 TX에서 금지되지만 이 경로는 행을 변경하지 않는다.
+        lockParticipantRow(userId, sessionId);
+        return readClaimState(userId, sessionId)
+                .map(state -> new ResultAckState(state.getAcknowledgedAt() != null, state.getAcknowledgedAt()))
+                .orElseGet(() -> new ResultAckState(false, null));
+    }
+
+    /** 쓰기가 아직 시작하지 않았어도 기한 전 false는 확정하지 않는다. 조회는 데이터를 변경하지 않는다. */
+    @Transactional
+    public ResultAckState readAckState(UUID userId, UUID sessionId, Instant ackDeadlineAt) {
+        ResultAckState state = readAckState(userId, sessionId);
+        if (!state.acknowledged()
+                && groupChallengeBetParticipantRepository.currentDatabaseTime().isBefore(ackDeadlineAt)) {
+            throw new GroupException(GroupErrorCode.RESULT_ACK_PENDING);
+        }
+        return state;
+    }
+
+    /**
+     * 정본 ack 상태.
+     *
+     * @param acknowledged   확인 표시가 찍혔는가
+     * @param acknowledgedAt 확인 시각. 미확인이면 {@code null}
+     */
+    public record ResultAckState(boolean acknowledged, Instant acknowledgedAt) {
     }
 
     /** 조회 축과 같은 락 없는 활성 검증(GROMO-1230) — 잠글 대상은 참가 행이지 유저 행이 아니다. */

@@ -4,6 +4,7 @@ import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserActivityService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,14 +16,20 @@ import org.springframework.context.annotation.Configuration;
  * <p>order 는 작을수록 먼저 돈다: 본문 크기 가드(0) → {@link JwtFilter}(1) → {@link TraceIdFilter}(2).
  * TraceId 가 JWT 뒤인 건 의도적이다 — 인증이 request 에 심은 userId 를 읽어 MDC 에 넣기 때문에
  * 순서를 뒤집으면 트레이스에서 유저 식별이 빠진다.
+ *
+ * <p><b>{@code /internal/*} 은 별도 축이다</b> (A22 ㉸) — {@link InternalAuthFilter} 가 서비스 토큰과
+ * 경로 허용목록으로 지키고, {@link JwtFilter} 는 그 경로에 아예 걸리지 않는다. 앱 AT 로 내부 명령에
+ * 닿을 수 있으면 정상 사용자가 임의 {@code X-User-Id} 로 남의 데이터를 읽고 쓴다.
  */
 @Configuration
+@EnableConfigurationProperties(InternalApiProperties.class)
 @RequiredArgsConstructor
 public class FilterConfig {
 
     private final JwtProvider jwtProvider;
     private final UserActivityService userActivityService;
     private final UserRepository userRepository;
+    private final InternalApiProperties internalApiProperties;
 
     /**
      * 인증 필터를 {@code /api/*} 에만 order 1 로 건다.
@@ -37,6 +44,26 @@ public class FilterConfig {
         FilterRegistrationBean<JwtFilter> bean = new FilterRegistrationBean<>();
         bean.setFilter(new JwtFilter(jwtProvider, userActivityService, userRepository));
         bean.addUrlPatterns("/api/*");
+        bean.setOrder(1);
+        return bean;
+    }
+
+    /**
+     * 내부 표면 인증을 {@code /internal/*} 에만 order 1 로 건다 — {@link JwtFilter} 와 <b>겹치지 않는</b>
+     * URL 패턴이라 같은 order 를 써도 서로 끼어들지 않는다.
+     *
+     * <p>설정 검증을 여기서 한다. {@code enabled=true} 인데 토큰·허용목록이 비어 있으면 <b>기동을
+     * 거부</b>한다 — 빈 토큰으로 뜨면 그 자체가 「자격 없이 열린 내부 명령」이고, 그 사실은 사고가 난
+     * 뒤에야 드러난다.
+     *
+     * @return {@code /internal/*} 한정·order 1 로 설정된 {@link InternalAuthFilter} 등록 빈
+     */
+    @Bean
+    public FilterRegistrationBean<InternalAuthFilter> internalAuthFilter() {
+        internalApiProperties.validateWhenEnabled();
+        FilterRegistrationBean<InternalAuthFilter> bean = new FilterRegistrationBean<>();
+        bean.setFilter(new InternalAuthFilter(internalApiProperties));
+        bean.addUrlPatterns("/internal/*");
         bean.setOrder(1);
         return bean;
     }

@@ -46,6 +46,13 @@ import static org.mockito.Mockito.verify;
 @ExtendWith(MockitoExtension.class)
 class GroupMemberServiceTest {
 
+    /**
+     * 링크 대상 내구 명령 (GROMO-1660 · A22 ⓑ·ⓑ′·㋢·㋡) — 이 클래스의 단언은 코어 상태라
+     * 봉투 기록은 목으로 둔다. 「실제로 적히는가」는 실물 DB 위의 통합 테스트가 본다.
+     */
+    @Mock
+    private com.oneorthree.phone.group.service.LinkMembershipEventService linkMembershipEventService;
+
     @InjectMocks
     private GroupMemberService groupMemberService;
 
@@ -237,7 +244,7 @@ class GroupMemberServiceTest {
         given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(ownerMember));
-        given(groupQueryService.findMembership(target, group)).willReturn(Optional.of(targetMember));
+        given(groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(TARGET_ID, GROUP_ID)).willReturn(Optional.of(targetMember));
 
         // when
         groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID);
@@ -345,7 +352,7 @@ class GroupMemberServiceTest {
         given(userQueryService.getTargetForShare(TARGET_ID)).willReturn(target);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(owner, group)).willReturn(Optional.of(ownerMember));
-        given(groupQueryService.findMembership(target, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(TARGET_ID, GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID))
@@ -382,7 +389,7 @@ class GroupMemberServiceTest {
                 .user(user).group(group).role(GroupMemberRole.OWNER).build();
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
-        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
         given(groupQueryService.getMembership(user, group)).willReturn(member);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member));
 
@@ -395,6 +402,7 @@ class GroupMemberServiceTest {
         assertThat(member.getLeftReason()).isEqualTo(GroupLeaveReason.LEFT);
         assertThat(group.getStatus()).isEqualTo(GroupStatus.ENDED);
         verify(groupBetService).releaseFromOpenBets(user, group);
+        verify(linkMembershipEventService).recordGroupClosed(group, List.of(member));
     }
 
     @Test
@@ -409,7 +417,7 @@ class GroupMemberServiceTest {
                 .group(group).role(GroupMemberRole.OWNER).build();
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
-        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
         given(groupQueryService.getMembership(user, group)).willReturn(member);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, other));
 
@@ -449,7 +457,7 @@ class GroupMemberServiceTest {
         // given: 요청자가 게스트, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User user = User.builder().id(OWNER_ID).isGuest(true).build();
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
-        given(groupQueryService.getGroup(GROUP_ID))
+        given(groupQueryService.getGroupForUpdate(GROUP_ID))
                 .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
         // when & then
@@ -466,7 +474,7 @@ class GroupMemberServiceTest {
         User user = User.builder().id(OWNER_ID).build();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
-        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
         given(groupQueryService.getMembership(user, group))
                 .willThrow(new GroupException(GroupErrorCode.MEMBER_ONLY));
 
@@ -489,7 +497,7 @@ class GroupMemberServiceTest {
                 .group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userQueryService.getCallerForShare(OWNER_ID)).willReturn(user);
-        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.getGroupForUpdate(GROUP_ID)).willReturn(group);
         given(groupQueryService.getMembership(user, group)).willReturn(member);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, other));
 
@@ -526,6 +534,7 @@ class GroupMemberServiceTest {
         // 자동 종료된 그룹이라도 OPEN 내기 판돈이 묶이면 안 된다 — 유저 스코프 일괄 해제는
         // 멤버십·그룹 상태와 무관하게 반드시 불린다
         verify(groupBetService).releaseFromAllOpenBets(user);
+        verify(linkMembershipEventService).recordGroupClosed(soloGroup, List.of(ownerMembership));
     }
 
     @Test
@@ -542,6 +551,10 @@ class GroupMemberServiceTest {
                 .user(user).group(groupB).role(GroupMemberRole.MEMBER).build();
         given(groupRepository.existsGroupOwnedBy(WITHDRAWER_ID)).willReturn(false);
         given(groupMemberRepository.findByUser(user)).willReturn(List.of(membershipA, membershipB));
+        given(groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(WITHDRAWER_ID, groupA.getId()))
+                .willReturn(Optional.of(membershipA));
+        given(groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(WITHDRAWER_ID, groupB.getId()))
+                .willReturn(Optional.of(membershipB));
 
         groupMemberService.detachWithdrawnUser(user);
 

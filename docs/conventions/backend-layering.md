@@ -239,6 +239,7 @@ Controller  →  Service  →  Repository  →  Entity
 
 | 레이어 | 도메인 | 왜 이 높이인가 |
 | --- | --- | --- |
+| L-1 | `outbox` | 내구 이벤트·명령 기반(GROMO-1659·1660, A21). **아무것도 참조하지 않는다** — 탈퇴·로그아웃처럼 L0 의 트랜잭션도 봉투를 적어야 해서 `user` 보다 아래다. 봉투는 도메인 타입을 하나도 모른다(`userId` 는 UUID, 나머지는 `params` JSON) |
 | L0 | `user` | 계정. 다른 무엇도 전제하지 않는다 — **아무도 참조하지 않는다** |
 | L1 | `currency` · `item` | 유저에게 달린 원장·보유 |
 | L2 | `focus` · `screentime` | 유저가 만든 기록 |

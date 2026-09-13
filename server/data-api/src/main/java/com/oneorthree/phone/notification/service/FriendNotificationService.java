@@ -3,11 +3,17 @@ package com.oneorthree.phone.notification.service;
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
+import com.oneorthree.phone.friend.repository.domain.Friendship;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
+import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -70,6 +76,8 @@ public class FriendNotificationService {
     private final UserQueryService userQueryService;
     private final NotificationSentLogRepository notificationSentLogRepository;
     private final PushNotificationService pushNotificationService;
+    private final NotificationDispatcher notificationDispatcher;
+    private final EntityManager entityManager;
 
     /**
      * 친구 요청 도착 알림 — 수신자는 요청을 받은 유저.
@@ -137,6 +145,112 @@ public class FriendNotificationService {
     }
 
     /**
+     * 신 경로 진입점(요청 도착) — <b>친구 요청 트랜잭션 안에서</b> 사건을 적는다.
+     *
+     * <p>구 경로는 {@code AFTER_COMMIT} + {@code @Async} 라 커밋 직후 프로세스가 죽으면 그 알림이
+     * 사라진다. 친구 알림은 재훑기가 없어 영영 회수되지 않는다.
+     *
+     * <p>여기서는 「아직 대기 중인가」를 보지 않는다 — 커밋 전이라 아직 처리될 수 없다. 그 검사는
+     * 발송 직전 {@code POST /internal/notifications/eligibility} 가 {@code params.requestId} 로 한다.
+     *
+     * @param requestId      방금 만들어지거나 되살아난 친구 요청 행
+     * @param receiverUserId 알림을 받을 사람(요청을 받은 쪽)
+     * @param senderUserId   문구에 이름이 들어갈 사람(요청을 보낸 쪽)
+     * @return 적었으면 true
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean enqueueFriendRequestNotification(UUID requestId, UUID receiverUserId, UUID senderUserId) {
+        Friendship row = friendshipRepository.findById(requestId).orElse(null);
+        if (row == null) {
+            return false;
+        }
+        return enqueue(receiverUserId, senderUserId, NotificationKind.FRIEND_REQUEST,
+                requestId, occurredAtOf(row));
+    }
+
+    /**
+     * 신 경로 진입점(수락) — <b>수락 트랜잭션 안에서</b> 사건을 적는다.
+     *
+     * <p>수락 이벤트는 요청 행 id 를 싣지 않으므로 (보낸이, 받은이) 로 행을 되찾는다. 그 행의
+     * {@code updatedAt} 이 이번 수락의 시각이다.
+     *
+     * @param requesterUserId 알림을 받을 사람(먼저 요청했던 쪽)
+     * @param accepterUserId  문구에 이름이 들어갈 사람(수락한 쪽)
+     * @return 적었으면 true
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean enqueueFriendAcceptedNotification(UUID requesterUserId, UUID accepterUserId) {
+        User requester = userQueryService.findActive(requesterUserId).orElse(null);
+        User accepter = userQueryService.findActive(accepterUserId).orElse(null);
+        if (requester == null || accepter == null) {
+            return false;
+        }
+        Friendship row = friendshipRepository.findByFromUserAndToUser(requester, accepter).orElse(null);
+        if (row == null) {
+            return false;
+        }
+        return enqueue(requesterUserId, accepterUserId, NotificationKind.FRIEND_ACCEPTED,
+                row.getId(), occurredAtOf(row));
+    }
+
+    /**
+     * 사건의 <b>원본 발생 시각</b> — 친구 행의 {@code updatedAt}.
+     *
+     * <p>「지금」을 쓰지 않는다. 결정적 키의 분 단위 축이 호출 시각에서 나오면 같은 원인을 다시
+     * 처리할 때 <b>다른 키</b>가 되어 멱등이 무너진다. 행의 시각은 커밋된 사실이라 몇 번을 다시
+     * 읽어도 같다.
+     *
+     * <p>{@code createdAt} 이 아니라 {@code updatedAt} 인 이유는 이 도메인의 재요청이 <b>같은 행을
+     * 되살리기</b> 때문이다({@code Friendship#reopen} · {@code #restore} — 그 주석도 같은 말을 한다).
+     * {@code createdAt} 은 원래 관계의 시각으로 남으므로, 그걸 키에 쓰면 거절 후 재요청이 옛 사건 키에
+     * 접혀 <b>영영 안 나간다</b>.
+     *
+     * <p>읽기 전에 flush 한다 — {@code @UpdateTimestamp} 는 flush 때 채워지는데 이 메서드는
+     * {@code BEFORE_COMMIT} 단계, 즉 JPA 의 커밋 flush <b>전에</b> 돈다. 그냥 읽으면 방금 {@code reopen}
+     * 한 행이 옛 시각을 들고 있다.
+     *
+     * @param row 친구 요청 행
+     * @return 이번 전이의 시각. 아직 한 번도 갱신되지 않았으면 생성 시각
+     */
+    private Instant occurredAtOf(Friendship row) {
+        entityManager.flush();
+        return row.getUpdatedAt() == null ? row.getCreatedAt() : row.getUpdatedAt();
+    }
+
+    /**
+     * 사건 하나를 적는다 — 상대 닉네임을 여기서 읽어 싣는다.
+     *
+     * <p>문구의 전부가 상대 닉네임인데 알림 서버는 코어 유저를 읽지 않는다(계약 §2). 상대가 없거나
+     * 탈퇴자면 닉네임이 파기돼 <b>보낼 문구 자체가 없으므로</b> 적지 않는다.
+     *
+     * @param recipientId   수신자
+     * @param counterpartId 문구에 이름이 들어갈 상대
+     * @param kind          요청 도착인지 수락인지
+     * @param requestId     친구 요청 행 id — 발송 직전 적격성 재확인의 판정 축이다(ⓜ · ㊩)
+     * @param occurredAt    사건의 원본 발생 시각
+     * @return 적었으면 true
+     */
+    private boolean enqueue(UUID recipientId, UUID counterpartId, NotificationKind kind,
+                            UUID requestId, Instant occurredAt) {
+        User recipient = userQueryService.findActive(recipientId).orElse(null);
+        if (recipient == null) {
+            return false;
+        }
+        String counterpartNickname = userQueryService.findActive(counterpartId)
+                .map(User::getNickname)
+                .orElse(null);
+        if (counterpartNickname == null) {
+            return false;
+        }
+        return notificationDispatcher.enqueueOnly(new NotificationRequest(kind, recipientId,
+                counterpartId, null, null, occurredAt, recipient.getLanguage(),
+                Map.of("counterpartUserId", counterpartId.toString(),
+                        "counterpartNickname", counterpartNickname,
+                        "requestId", requestId.toString())))
+                == NotificationDispatchOutcome.QUEUED;
+    }
+
+    /**
      * 공통 발송 경로. 알림 on/off·토큰·quiet hours 판정은 전부
      * {@link PushNotificationService#sendIfAllowed} 에 맡기고, 여기서는 대상 확정·dedup·문구·기록만 한다.
      * 실제 발송이 성사된 건만 sent_log 에 남긴다(quiet hours 스킵을 발송으로 오기록하지 않기 위함).
@@ -172,7 +286,13 @@ public class FriendNotificationService {
                 soundEnabled,
                 Map.of("type", type));
 
-        if (pushNotificationService.sendIfAllowed(recipient, settings, message, now)) {
+        NotificationKind kind = NotificationSentLog.TYPE_FRIEND_REQUEST.equals(type)
+                ? NotificationKind.FRIEND_REQUEST : NotificationKind.FRIEND_ACCEPTED;
+        NotificationRequest request = new NotificationRequest(kind, recipientId, counterpartId, null,
+                null, now, recipient.getLanguage(),
+                Map.of("counterpartUserId", counterpartId.toString(),
+                        "counterpartNickname", counterpartNickname));
+        if (notificationDispatcher.dispatch(recipient, settings, request, message, now).recordsLegacyLog()) {
             notificationSentLogRepository.save(NotificationSentLog.builder()
                     .userId(recipientId)
                     .type(type)

@@ -35,6 +35,20 @@ public class JwtProvider {
     private static final String CLAIM_TYPE = "type";
     private static final String CLAIM_GUEST = "guest";
 
+    /**
+     * 유저 축 세대 (A22 ㊽ · ㊍) — <b>additive</b> 다. 구 토큰에는 없고, 없으면 없는 채로 흘린다.
+     *
+     * <p>앱이 로그인과 무관한 시점에 {@code PUT device-token}·{@code onTokenRefresh} 를 부르므로
+     * (㊽), 로그인 응답으로만 세대를 전달하면 그 호출들이 세대를 모른다. 그래서 AT claim 으로 나른다.
+     */
+    private static final String CLAIM_GENERATION = "gen";
+
+    /**
+     * 세션 축 식별자 — <b>additive</b> 다. 개별 기기 로그아웃이 「어느 세션인가」를 가리키는 값이고,
+     * 유저 축 세대(㊼)와 <b>다른 축</b>이다.
+     */
+    private static final String CLAIM_SESSION_ID = "sid";
+
     private final SecretKey secretKey;
     private final long accessExpiration;
     private final long refreshExpiration;
@@ -77,7 +91,25 @@ public class JwtProvider {
      * @return {@code type=access} 클레임이 실린 서명 완료 토큰. 이 값만이 {@code /api/*} 를 통과한다
      */
     public String generateAccessToken(UUID userId, boolean isGuest) {
-        return buildToken(userId, accessExpiration, TYPE_ACCESS, isGuest);
+        return buildToken(userId, accessExpiration, TYPE_ACCESS, isGuest, null, null);
+    }
+
+    /**
+     * 세대·세션이 실린 access 토큰 (A22 ㊽ · ㋞) — <b>additive</b> 추가다.
+     *
+     * <p>두 claim 은 <b>수신 측이 롤아웃 단계에 따라</b> 쓴다. 지금 발급된 토큰에만 들어 있고 구
+     * 토큰에는 없으므로, 배포 직후 최대 AT 수명(기본 3600초) 동안은 두 값이 없는 요청이 정상적으로
+     * 섞여 든다(㊍). <b>그때 수신 측이 「없으니 현재 값으로 채우자」를 하면 안 된다</b> — 로그아웃
+     * 전에 발급된 옛 AT 가 최신 세대로 태깅돼 기기 토큰 tombstone 을 우회한다.
+     *
+     * @param userId         subject
+     * @param isGuest        발급 시점 게스트 여부
+     * @param authGeneration 그 시점 유저 축 세대
+     * @param sessionId      이 토큰이 속한 로그인 세션
+     * @return {@code gen}·{@code sid} 가 더해진 access 토큰
+     */
+    public String generateAccessToken(UUID userId, boolean isGuest, long authGeneration, UUID sessionId) {
+        return buildToken(userId, accessExpiration, TYPE_ACCESS, isGuest, authGeneration, sessionId);
     }
 
     /**
@@ -94,7 +126,7 @@ public class JwtProvider {
      *         {@code /api/*} 인증에는 쓰일 수 없다
      */
     public String generateRefreshToken(UUID userId, boolean isGuest) {
-        return buildToken(userId, refreshTtlSeconds(isGuest), TYPE_REFRESH, isGuest);
+        return buildToken(userId, refreshTtlSeconds(isGuest), TYPE_REFRESH, isGuest, null, null);
     }
 
     /**
@@ -221,12 +253,61 @@ public class JwtProvider {
         }
     }
 
-    private String buildToken(UUID userId, long expirationSeconds, String type, boolean isGuest) {
+    /**
+     * {@code gen} claim (A22 ㊍) — <b>없으면 {@code null} 이고, 그 null 을 채우면 안 된다</b>.
+     *
+     * <p>숫자가 아닌 값이 들어와도 토큰 전체를 거절하지 않는다 — 그러면 claim 타입 변경이 정상 세션의
+     * 전면 401 이 된다. 「세대를 모른다」로 접고, 필수화 단계의 판정은 수신 측이 한다.
+     *
+     * @param token 서명 검증을 이미 통과한 토큰 문자열
+     * @return 발급 시점 세대, 클레임이 없는 구 토큰이면 {@code null}
+     */
+    public Long extractAuthGeneration(String token) {
+        Number generation = Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get(CLAIM_GENERATION, Number.class);
+        return generation == null ? null : generation.longValue();
+    }
+
+    /**
+     * {@code sid} claim (A22 ㋞) — 없으면 {@code null}.
+     *
+     * @param token 서명 검증을 이미 통과한 토큰 문자열
+     * @return 이 토큰이 속한 세션, 클레임이 없는 구 토큰이면 {@code null}
+     */
+    public UUID extractSessionId(String token) {
+        String sessionId = Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get(CLAIM_SESSION_ID, String.class);
+        return sessionId == null ? null : UUID.fromString(sessionId);
+    }
+
+    private String buildToken(UUID userId, long expirationSeconds, String type, boolean isGuest,
+            Long authGeneration, UUID sessionId) {
         Date now = new Date();
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(userId.toString())
                 .claim(CLAIM_TYPE, type)
-                .claim(CLAIM_GUEST, isGuest)
+                .claim(CLAIM_GUEST, isGuest);
+        // JWT 시각은 초 단위다. 같은 초의 로그인·구 RT 승격도 별도 세션 자격이어야 한다.
+        if (TYPE_REFRESH.equals(type)) {
+            builder = builder.id(UUID.randomUUID().toString());
+        }
+        // null 을 claim 으로 «싣지 않는다». 실어 두면 수신 측의 「있음/없음」 판정이 값의 null 검사로
+        // 바뀌어, 롤아웃 단계 판정이 두 갈래로 갈린다.
+        if (authGeneration != null) {
+            builder = builder.claim(CLAIM_GENERATION, authGeneration);
+        }
+        if (sessionId != null) {
+            builder = builder.claim(CLAIM_SESSION_ID, sessionId.toString());
+        }
+        return builder
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + expirationSeconds * 1000))
                 .signWith(secretKey)

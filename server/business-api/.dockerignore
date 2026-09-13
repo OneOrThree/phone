@@ -1,4 +1,12 @@
-.gradle
-build
-logs
+# 빌드 컨텍스트에서 뺄 것 — 이미지에 들어갈 이유가 없고, 캐시 무효화만 유발한다.
+.gradle/
+build/
+.git/
+.idea/
+*.iml
+.DS_Store
+docs/
+CLAUDE.md
+
+logs/
 .env*

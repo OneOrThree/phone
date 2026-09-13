@@ -1,0 +1,327 @@
+package com.oneorthree.business.api;
+
+import com.oneorthree.business.support.MockUpstream;
+import com.oneorthree.business.support.Tokens;
+import com.oneorthree.business.support.UpstreamTestBase;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.ValueSource;
+
+import java.util.UUID;
+import java.util.stream.Stream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/** 결과 ack 의 prepare → Data commit → noti commit 순서와 수렴 계약(A22 ⓓ · ㊅). */
+@DisplayName("결과 ack 게이트 상태 흐름")
+class ResultAckContractTest extends UpstreamTestBase {
+    static Stream<Arguments> invalidDisplayClaims() {
+        return Stream.of(Arguments.of(204, null), Arguments.of(200, ""), Arguments.of(200, "null"),
+                Arguments.of(200, "{}"), Arguments.of(200, "[]"),
+                Arguments.of(200, "{\"claimToken\":null}"), Arguments.of(200, "{\"claimToken\":42}"),
+                Arguments.of(200, "{\"claimToken\":\"\"}"), Arguments.of(200, "{\"claimToken\":\"  \"}"),
+                Arguments.of(200, "{\"claimToken\":\"not-a-uuid\"}"),
+                Arguments.of(200, "{\"claimToken\":\"1-1-1-1-1\"}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidDisplayClaims")
+    void incompleteDisplayClaimIsRejectedWithoutAutomaticRetry(int responseStatus, String body) throws Exception {
+        String path = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/claim";
+        DATA.on(path, request -> new MockUpstream.Response(responseStatus, body));
+        mockMvc.perform(post("/api/v1/me/challenge-results/" + SESSION + "/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        assertThat(DATA.hits(path)).isEqualTo(1);
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    void validDisplayClaimKeepsAdditionalFieldsAndToken() throws Exception {
+        String path = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/claim";
+        DATA.on(path, request -> new MockUpstream.Response(200,
+                "{\"claimToken\":\"" + CLAIM_TOKEN + "\",\"extra\":{\"version\":7}}"));
+        mockMvc.perform(post("/api/v1/me/challenge-results/" + SESSION + "/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.claimToken").value(CLAIM_TOKEN.toString()))
+                .andExpect(jsonPath("$.extra.version").value(7));
+        assertThat(DATA.hits(path)).isEqualTo(1);
+    }
+
+    private static final UUID USER = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000003");
+    private static final UUID SESSION = UUID.fromString("ffffffff-0000-0000-0000-000000000001");
+    private static final UUID CLAIM_TOKEN = UUID.fromString("ffffffff-0000-0000-0000-000000000002");
+
+    private static String heldPrepare(String deadline) {
+        return "{\"held\":true,\"state\":\"HELD\",\"ackDeadlineAt\":\"" + deadline + "\"}";
+    }
+
+    static Stream<Arguments> invalidAckDeadlines() {
+        return Stream.of("", ",\"ackDeadlineAt\":null", ",\"ackDeadlineAt\":0",
+                ",\"ackDeadlineAt\":false", ",\"ackDeadlineAt\":\"\"",
+                ",\"ackDeadlineAt\":\"  \"", ",\"ackDeadlineAt\":\"2030-01-01T00:00:00\"",
+                ",\"ackDeadlineAt\":\"not-an-instant\"")
+                .map(field -> Arguments.of("{\"held\":true,\"state\":\"HELD\"" + field + "}"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidAckDeadlines")
+    void heldWithoutValidDeadlineCannotWriteAndCanRetry(String body) throws Exception {
+        String prepare = "POST /internal/users/" + USER + "/result-ack/prepare";
+        String dataAck = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack";
+        NOTI.on(prepare, request -> new MockUpstream.Response(200, body));
+        DATA.on(dataAck, request -> new MockUpstream.Response(200, null));
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/commit",
+                request -> new MockUpstream.Response(204, null));
+        mockMvc.perform(post(ackPath()).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "deadline-retry").contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
+        assertThat(DATA.received()).isEmpty();
+        assertThat(NOTI.received()).hasSize(1);
+        String deadline = "2030-01-01T00:00:00.123456Z";
+        NOTI.on(prepare, request -> new MockUpstream.Response(200, heldPrepare(deadline)));
+        mockMvc.perform(post(ackPath()).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "deadline-retry").contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isOk());
+        assertThat(DATA.receivedFor(dataAck)).singleElement().satisfies(request ->
+                assertThat(request.body()).contains("\"ackDeadlineAt\":\"" + deadline + "\""));
+        assertThat(NOTI.receivedFor(prepare)).allSatisfy(request ->
+                assertThat(request.header("Idempotency-Key")).isEqualTo("deadline-retry:ack-prepare"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1970-01-01T00:00:00.123456Z", "2030-01-01T00:00:00.123456Z"})
+    void deadlineIsPreservedAndDataExpiryTriggersAbort(String deadline) throws Exception {
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare",
+                request -> new MockUpstream.Response(200, heldPrepare(deadline)));
+        String dataAck = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack";
+        DATA.on(dataAck, request -> new MockUpstream.Response(409,
+                "{\"code\":\"RESULT_ACK_DEADLINE_EXPIRED\",\"message\":\"확인 처리 기한이 지났어요\"}"));
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/abort",
+                request -> new MockUpstream.Response(204, null));
+        mockMvc.perform(post(ackPath()).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESULT_ACK_DEADLINE_EXPIRED"));
+        assertThat(DATA.receivedFor(dataAck)).singleElement().satisfies(request ->
+                assertThat(request.body()).contains("\"ackDeadlineAt\":\"" + deadline + "\""));
+        assertThat(NOTI.hits("POST /internal/users/" + USER + "/result-ack/abort")).isEqualTo(1);
+        assertThat(NOTI.hits("POST /internal/users/" + USER + "/result-ack/commit")).isZero();
+    }
+
+    private String ackPath() {
+        return "/api/v1/me/challenge-results/" + SESSION + "/ack";
+    }
+
+    static Stream<Arguments> unprotectedPrepareResponses() {
+        return Stream.of("{\"held\":false}", "{\"held\":true}",
+                "{\"held\":false,\"state\":null}", "{\"held\":true,\"state\":\"\"}",
+                "{\"held\":true,\"state\":\"UNKNOWN\"}", "{\"held\":false,\"state\":\"HELD\"}",
+                "{\"held\":true,\"state\":\"NEEDS_CONFIRM\"}", "{\"held\":false,\"state\":\"NONE\"}",
+                "{\"held\":true,\"state\":\"RELEASED\"}", "{\"held\":false,\"state\":\"COMMITTED\"}",
+                "{\"held\":true,\"state\":\"  \"}")
+                .map(Arguments::of);
+    }
+
+    @ParameterizedTest
+    @MethodSource("unprotectedPrepareResponses")
+    void unprotectedPrepareCannotCommitAndTheSameKeyCanRetry(String body) throws Exception {
+        String prepare = "POST /internal/users/" + USER + "/result-ack/prepare";
+        String dataAck = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack";
+        NOTI.on(prepare, request -> new MockUpstream.Response(200, body));
+        DATA.on(dataAck, request -> new MockUpstream.Response(200, null));
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/commit",
+                request -> new MockUpstream.Response(204, null));
+        mockMvc.perform(post(ackPath()).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-ack").contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isBadGateway());
+        assertThat(DATA.hits(dataAck)).isZero();
+        assertThat(NOTI.received()).hasSize(1);
+        NOTI.on(prepare, request -> new MockUpstream.Response(200, heldPrepare("2030-01-01T00:00:00.123456Z")));
+        mockMvc.perform(post(ackPath()).header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("Idempotency-Key", "same-ack").contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isOk());
+        assertThat(DATA.hits(dataAck)).isEqualTo(1);
+        assertThat(NOTI.receivedFor(prepare)).hasSize(2)
+                .allSatisfy(request -> assertThat(request.header("Idempotency-Key")).isEqualTo("same-ack:ack-prepare"));
+    }
+
+    @Test
+    @DisplayName("빈 prepare 응답은 계약 오류이며 Data ack를 커밋하지 않는다")
+    void emptyPrepareDoesNotAcknowledge() throws Exception {
+        for (int responseStatus : new int[] {200, 204}) {
+            NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare",
+                    request -> new MockUpstream.Response(responseStatus, null));
+            mockMvc.perform(post(ackPath())
+                            .header("Authorization", "Bearer " + Tokens.access(USER))
+                            .contentType("application/json")
+                            .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                    .andExpect(status().isBadGateway());
+            assertThat(DATA.received()).isEmpty();
+            assertThat(NOTI.hits("POST /internal/users/" + USER + "/result-ack/commit")).isZero();
+        }
+    }
+
+    @Test
+    @DisplayName("정상: prepare → Data ack → commit 순서로 간다")
+    void 정상순서() throws Exception {
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->
+                new MockUpstream.Response(200, heldPrepare("2030-01-01T00:00:00.123456Z")));
+        DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack",
+                request -> new MockUpstream.Response(200, null));
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/commit",
+                request -> new MockUpstream.Response(204, null));
+
+        mockMvc.perform(post(ackPath())
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(NOTI.received().get(0).methodAndPath())
+                .isEqualTo("POST /internal/users/" + USER + "/result-ack/prepare");
+        assertThat(DATA.received()).hasSize(1);
+        assertThat(NOTI.received().get(1).methodAndPath())
+                .isEqualTo("POST /internal/users/" + USER + "/result-ack/commit");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("이미 확정된 prepare는 새 Data 쓰기 없이 성공한다")
+    void confirmed면Held값과무관하게완료(boolean held) throws Exception {
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->
+                new MockUpstream.Response(200, "{\"held\":" + held + ",\"state\":\"CONFIRMED\"}"));
+        DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack",
+                request -> new MockUpstream.Response(200, null));
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/commit",
+                request -> new MockUpstream.Response(204, null));
+
+        mockMvc.perform(post(ackPath())
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(DATA.hits("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack"))
+                .isZero();
+        assertThat(NOTI.received()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("prepare 가 실패하면 Data ack 를 하지 않는다 — 억제 없이 커밋하면 대기 푸시가 그대로 나간다")
+    void prepare실패면ack안함() throws Exception {
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare",
+                request -> new MockUpstream.Response(500, "{}"));
+
+        mockMvc.perform(post(ackPath())
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isServiceUnavailable());
+
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Data ack 가 실패하면 abort 를 보내고 그 실패를 올린다 — 성공한 척하지 않는다")
+    void data실패면abort() throws Exception {
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->
+                new MockUpstream.Response(200, heldPrepare("2030-01-01T00:00:00.123456Z")));
+        DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack", request ->
+                new MockUpstream.Response(409,
+                        "{\"code\":\"RESULT_CLAIM_STALE\",\"message\":\"표시 선점이 만료됐어요\"}"));
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/abort",
+                request -> new MockUpstream.Response(204, null));
+
+        mockMvc.perform(post(ackPath())
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESULT_CLAIM_STALE"));
+
+        assertThat(NOTI.hits("POST /internal/users/" + USER + "/result-ack/abort")).isEqualTo(1);
+        assertThat(NOTI.hits("POST /internal/users/" + USER + "/result-ack/commit")).isZero();
+    }
+
+    @Test
+    @DisplayName("abort 조차 실패해도 원래의 Data 실패를 올린다 — 해제는 NEEDS_CONFIRM 수렴에 맡긴다")
+    void abort실패도원래실패() throws Exception {
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->
+                new MockUpstream.Response(200, heldPrepare("2030-01-01T00:00:00.123456Z")));
+        DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack", request ->
+                new MockUpstream.Response(409,
+                        "{\"code\":\"RESULT_ALREADY_ACKED\",\"message\":\"이미 확인한 결과예요\"}"));
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/abort",
+                request -> new MockUpstream.Response(500, "{}"));
+
+        mockMvc.perform(post(ackPath())
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESULT_ALREADY_ACKED"));
+    }
+
+    @Test
+    @DisplayName("commit 이 실패해도 사용자 요청은 성공 — Data ack 는 이미 커밋됐고 NEEDS_CONFIRM 이 수렴한다")
+    void commit실패는성공() throws Exception {
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/prepare", request ->
+                new MockUpstream.Response(200, heldPrepare("2030-01-01T00:00:00.123456Z")));
+        DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/ack",
+                request -> new MockUpstream.Response(200, null));
+        NOTI.on("POST /internal/users/" + USER + "/result-ack/commit",
+                request -> new MockUpstream.Response(500, "{}"));
+
+        mockMvc.perform(post(ackPath())
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"claimToken\":\"" + CLAIM_TOKEN + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("선점: RESULT_CLAIM_HELD 의 retryAfterMs 를 다시 계산하지 않고 그대로 중계한다")
+    void retryAfter그대로중계() throws Exception {
+        DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/claim", request ->
+                new MockUpstream.Response(409, """
+                        {"code":"RESULT_CLAIM_HELD","message":"다른 기기에서 결과를 보고 있어요",
+                         "retryAfterMs":4200}"""));
+
+        mockMvc.perform(post("/api/v1/me/challenge-results/" + SESSION + "/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESULT_CLAIM_HELD"))
+                // 값을 재계산하면 두 서버의 시계 차이가 섞인다.
+                .andExpect(jsonPath("$.retryAfterMs").value(4200));
+    }
+
+    @Test
+    @DisplayName("선점·ack 는 재시도하지 않는다 — 조건부 원자 UPDATE 라 두 번째 시도가 판정을 뒤집는다")
+    void 비멱등명령은재시도금지() throws Exception {
+        DATA.on("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/claim",
+                request -> new MockUpstream.Response(500, "{}"));
+
+        mockMvc.perform(post("/api/v1/me/challenge-results/" + SESSION + "/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isServiceUnavailable());
+
+        // 5xx 인데도 «한 번만» 갔다. retryable=false 가 실제로 재시도를 막는지 확인한다.
+        assertThat(DATA.hits("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/claim"))
+                .isEqualTo(1);
+    }
+}

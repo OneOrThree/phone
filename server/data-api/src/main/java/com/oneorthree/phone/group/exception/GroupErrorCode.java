@@ -113,6 +113,8 @@ public enum GroupErrorCode implements ErrorCode {
     // ack 토큰이 현재 선점과 다르다 — 내 선점이 만료돼 다른 기기가 재선점했다. 확인 처리하지 않는다
     // (띄우지도 못한 결과를 삼키면 어느 기기에서도 다시 못 본다).
     RESULT_CLAIM_STALE(HttpStatus.CONFLICT, "표시 선점이 만료됐어요"),
+    RESULT_ACK_DEADLINE_EXPIRED(HttpStatus.CONFLICT, "확인 요청의 처리 기한이 지났어요. 다시 시도해 주세요"),
+    RESULT_ACK_PENDING(HttpStatus.SERVICE_UNAVAILABLE, "확인 요청의 처리 결과를 아직 확정할 수 없어요"),
     // 아직 정산되지 않은 회차(OPEN)에 선점·확인을 시도했다. 앱은 /me/bet-sessions 로 OPEN 회차 id 도
     // 들고 있어 오호출이 가능한데, 여기서 확인 표시가 찍히면 그 회차가 나중에 정산됐을 때 처음부터
     // 확인된 것으로 조회돼 어느 기기에서도 안 뜬다. RESULT_CLAIM_HELD 로 접지 않는 이유는 그 코드가
