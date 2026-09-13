@@ -1,5 +1,7 @@
 # gromo 서비스 아키텍처 (논리) — Target-1 · Target-2
 
+> **링크 서버·Vercel·Neon·컷오버 서술은 [A23](decisions.md) 으로 대체됐다** — 링크·MMP 는 별도 서버가 아니며 설계는 [`docs/prd/link-attribution/`](../prd/link-attribution/README.md).
+
 > 정본(2026-09-10 승격). 결정 근거는 `decisions.md` A1~A19 · 알림 서버 설계 결정 D1~D20(`docs/prd/notification-server/policy.md`, 승격 예정) · 링크·어트리뷰션 설계 장부 v3(승격 예정).
 > **Target-1** = 이번 분리 라운드(에픽 1643 + 알림 서버 + 링크 서버) 종료 시점. **MQ = Kafka 단일 노드 컨테이너(A12 확정)** · 공유 Redis 없음(기존 파일 미리보기 전용 캐시는 A22 ㋺). **Target-2** = 관리형 MQ · Redis · 워커 분리.
 
