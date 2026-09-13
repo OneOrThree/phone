@@ -10,7 +10,7 @@
     "created_at": "2026-09-13T09:11:36Z",
     "updated_at": "2026-09-13T10:30:00Z",
     "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088064",
-    "collected_at": "2026-09-13T11:32:16.926929+00:00",
+    "collected_at": "2026-09-13T12:06:49.696627+00:00",
     "jobs": [
       {
         "id": 103702397899,
@@ -793,25 +793,131 @@
     "status": "queued",
     "conclusion": null,
     "created_at": "2026-09-13T09:11:36Z",
-    "updated_at": "2026-09-13T11:30:06Z",
+    "updated_at": "2026-09-13T12:06:18Z",
     "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125",
-    "collected_at": "2026-09-13T11:32:18.055124+00:00",
+    "collected_at": "2026-09-13T12:06:50.841072+00:00",
     "jobs": [
       {
         "id": 103716725426,
         "name": "test / gradle",
         "run_attempt": 2,
-        "status": "queued",
-        "conclusion": null,
+        "status": "completed",
+        "conclusion": "success",
         "created_at": "2026-09-13T11:30:06Z",
-        "started_at": "2026-09-13T11:30:06Z",
-        "completed_at": null,
-        "runner_name": "",
+        "started_at": "2026-09-13T11:46:41Z",
+        "completed_at": "2026-09-13T12:06:18Z",
+        "runner_name": "gromo-dev-build-2",
         "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103716725426",
         "reused_from_previous_attempt": false,
-        "queue_seconds": null,
-        "execution_seconds": null,
-        "steps": []
+        "queue_seconds": 995.0,
+        "execution_seconds": 1177.0,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T11:46:43Z",
+            "completed_at": "2026-09-13T11:46:46Z"
+          },
+          {
+            "name": "Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T11:46:46Z",
+            "completed_at": "2026-09-13T11:46:47Z"
+          },
+          {
+            "name": "서비스 전용 Gradle 홈 설정",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T11:46:47Z",
+            "completed_at": "2026-09-13T11:46:47Z"
+          },
+          {
+            "name": "Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T11:46:47Z",
+            "completed_at": "2026-09-13T11:46:48Z"
+          },
+          {
+            "name": "Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T11:46:48Z",
+            "completed_at": "2026-09-13T11:46:49Z"
+          },
+          {
+            "name": "Run chmod +x gradlew",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T11:46:49Z",
+            "completed_at": "2026-09-13T11:46:49Z"
+          },
+          {
+            "name": "Gradle test bootJar",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T11:46:49Z",
+            "completed_at": "2026-09-13T12:05:33Z"
+          },
+          {
+            "name": "Run ./.github/actions/ci-jar",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:05:33Z",
+            "completed_at": "2026-09-13T12:05:46Z"
+          },
+          {
+            "name": "JAR 크기 측정",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:05:46Z",
+            "completed_at": "2026-09-13T12:05:46Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:05:46Z",
+            "completed_at": "2026-09-13T12:05:49Z"
+          },
+          {
+            "name": "Run actions/upload-artifact@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:05:49Z",
+            "completed_at": "2026-09-13T12:05:53Z"
+          },
+          {
+            "name": "Post Run actions/cache@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:05:53Z",
+            "completed_at": "2026-09-13T12:06:12Z"
+          },
+          {
+            "name": "Post Run actions/setup-java@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:06:12Z",
+            "completed_at": "2026-09-13T12:06:12Z"
+          },
+          {
+            "name": "Post Run actions/checkout@v4",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:06:12Z",
+            "completed_at": "2026-09-13T12:06:12Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-13T12:06:12Z",
+            "completed_at": "2026-09-13T12:06:13Z"
+          }
+        ]
       },
       {
         "id": 103716726324,
@@ -1056,6 +1162,22 @@
             "completed_at": "2026-09-13T09:15:04Z"
           }
         ]
+      },
+      {
+        "id": 103720807977,
+        "name": "Dev 이미지 build · cache",
+        "run_attempt": 2,
+        "status": "queued",
+        "conclusion": null,
+        "created_at": "2026-09-13T12:06:18Z",
+        "started_at": "2026-09-13T12:06:18Z",
+        "completed_at": null,
+        "runner_name": null,
+        "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103720807977",
+        "reused_from_previous_attempt": false,
+        "queue_seconds": null,
+        "execution_seconds": null,
+        "steps": []
       }
     ]
   },
@@ -1070,7 +1192,7 @@
     "created_at": "2026-09-13T09:11:36Z",
     "updated_at": "2026-09-13T10:03:20Z",
     "html_url": "https://github.com/OneOrThree/phone/actions/runs/34749088170",
-    "collected_at": "2026-09-13T11:32:19.189128+00:00",
+    "collected_at": "2026-09-13T12:06:51.815277+00:00",
     "jobs": [
       {
         "id": 103702395108,

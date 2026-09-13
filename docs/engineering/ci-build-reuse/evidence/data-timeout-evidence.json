@@ -12,19 +12,27 @@
     "failures": 0,
     "errors": 0,
     "skipped": 1,
-    "complete_suite": false
+    "complete_suite": false,
+    "artifact_id": 10315084136,
+    "artifact_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/artifacts/10315084136",
+    "artifact_zip_sha256": "4a3213f0f3473e4bbc1bc042199ee2df72ad7955c2a3dfe98984a07833d9ff76"
   },
   "oom_observation": {
     "unit": "actions.runner.OneOrThree-phone.gromo-dev-build-3.service",
     "result": "oom-kill",
     "event_at": "2026-09-13T09:49:37Z",
-    "inactive_at": "2026-09-13T09:50:06Z"
+    "inactive_at": "2026-09-13T09:50:06Z",
+    "kernel_lines": [
+      "2026-09-13T09:49:38+0000 gromo-dev-build kernel: oom-kill:constraint=CONSTRAINT_NONE,nodemask=(null),cpuset=init.scope,mems_allowed=0,global_oom,task_memcg=/system.slice/actions.runner.OneOrThree-phone.gromo-dev-build-3.service,task=java,pid=509399,uid=1002",
+      "2026-09-13T09:49:38+0000 gromo-dev-build kernel: Out of memory: Killed process 509399 (java) total-vm:6289500kB, anon-rss:2202016kB, file-rss:116kB, shmem-rss:0kB, UID:1002 pgtables:6536kB oom_score_adj:500"
+    ]
   },
   "data_warning": "Thread starvation or clock leap detected (housekeeper delta=4m1s978ms790µs441ns).",
   "response": "rerun failed Data jobs only; successful static checks reused; existing self-hosted policy retained; no timeout or VM configuration changes",
   "logs_sha256": {
     "github-data-timeout-103702329266.log": "36263f7455f597ef5cfb043679c14a79c0bdf4ad00e1f529cfbde264518fbb77",
     "runner3-failure.log": "f811ae891f9831b9f6048ae5b53bfdc652ac51cf7df4c76cc8e2b632e4356eed",
-    "host-after-data-timeout.log": "8c15dbab39c8cb843531551271c0d5441326dbec409b9368031a92fb470b72ed"
+    "host-after-data-timeout.log": "8c15dbab39c8cb843531551271c0d5441326dbec409b9368031a92fb470b72ed",
+    "kernel-oom-full.log": "6b005819ac7c9750d4bf1cc34c9e722688e1ac28cbf00b334ea73a9e91148d41"
   }
 }

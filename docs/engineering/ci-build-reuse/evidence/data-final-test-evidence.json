@@ -1,0 +1,20 @@
+{
+  "collected_at": "2026-09-13T12:06:29.637238+00:00",
+  "run_id": 34749088125,
+  "run_attempt": 2,
+  "job_id": 103716725426,
+  "job_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103716725426",
+  "conclusion": "success",
+  "started_at": "2026-09-13T11:46:41Z",
+  "completed_at": "2026-09-13T12:06:18Z",
+  "artifact_id": 10317631805,
+  "artifact_created_at": "2026-09-13T12:05:53Z",
+  "artifact_url": "https://github.com/OneOrThree/phone/actions/runs/34749088125/artifacts/10317631805",
+  "artifact_zip_sha256": "7db41dd318066c37c4fcc3e5d33a8990fc9cc37de8873986ca5ab2baed06baf4",
+  "xml_files": 248,
+  "complete_suite": true,
+  "tests": 2631,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 8
+}

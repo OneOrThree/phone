@@ -13,7 +13,7 @@
 
 **수집 시점에 CI가 진행 중이다. 대기 중인 잡과 아직 배정되지 않은 잡은 소요 시간을 확정하지 않았다.**
 
-수집 시각(UTC): 2026-09-13T11:32:16.926929+00:00, 2026-09-13T11:32:18.055124+00:00, 2026-09-13T11:32:19.189128+00:00
+수집 시각(UTC): 2026-09-13T12:06:49.696627+00:00, 2026-09-13T12:06:50.841072+00:00, 2026-09-13T12:06:51.815277+00:00
 
 ## 잡별 러너 대기와 실행
 
@@ -26,9 +26,10 @@
 | Business · Notification CI / business-api 검증 | 580 | 535 | success |
 | Business · Notification CI / notification 이미지 | 1028 | 102 | success |
 | Business · Notification CI / business-api 이미지 | 3284 | 107 | success |
-| CI / test / gradle | — | — | queued |
+| CI / test / gradle | 995 | 1177 | success |
 | CI / checkstyle / gradle | — | — | 이전 성공 재사용 |
 | CI / spotbugs / gradle | — | — | 이전 성공 재사용 |
+| CI / Dev 이미지 build · cache | — | — | queued |
 | Realtime CI / build / gradle | 1163 | 506 | success |
 | Realtime CI / 채팅 이미지 build · cache | 1213 | 70 | success |
 
@@ -42,6 +43,7 @@
 | Business · Notification CI / notification 이미지 / 이미지 검증 · 환경별 digest 발행 | 34 | success |
 | Business · Notification CI / business-api 이미지 / Run ./.github/actions/ci-jar | 25 | success |
 | Business · Notification CI / business-api 이미지 / 이미지 검증 · 환경별 digest 발행 | 49 | success |
+| CI / test / gradle / Run ./.github/actions/ci-jar | 13 | success |
 | Realtime CI / build / gradle / Run ./.github/actions/ci-jar | 12 | success |
 | Realtime CI / 채팅 이미지 build · cache / Run ./.github/actions/ci-jar | 35 | success |
 | Realtime CI / 채팅 이미지 build · cache / Build image | 8 | success |
@@ -95,6 +97,13 @@ Data를 GitHub-hosted로 상시 이전하는 방안도 검토했으나 기존 wo
 [data-timeout-evidence.json](evidence/data-timeout-evidence.json)에 일부 테스트 수·실패 annotation·OOM 시각·로그 해시를 보관한다.
 [actions-before-data-retry.json](evidence/actions-before-data-retry.json)은 재실행 전 전체 상태이며, 상단 표와 actions-after.json은 최신 시도 결과다.
 Business·Notification·Realtime은 같은 HEAD에서 전체 검사와 이미지 조립을 통과했다. [three-service-proofs.json](evidence/three-service-proofs.json)에 세 서비스의 검사→이미지 manifest 일치, Gradle builder RUN 없음, registry cache export를 기록했다.
+
+## Data 재실행의 완료 결과
+
+시도 2의 [검사 잡](https://github.com/OneOrThree/phone/actions/runs/34749088125/job/103716725426)이 성공했다. 이번 잡의 시작·완료 사이에 생성된 `test-results` 아티팩트 ID `10317631805`를 지정해 집계했다.
+XML 248개에서 테스트 2631건, 실패 0건, 오류 0건, 생략 8건을 확인했다.
+[data-final-test-evidence.json](evidence/data-final-test-evidence.json)에 잡·아티팩트 ID, 생성 시각, ZIP SHA-256과 집계를 보관한다. 첫 시도의 일부 결과와 합산하지 않았다.
+재실행 성공은 이 revision의 검사 결과다. 서버 부하가 달라졌으므로 첫 시도 대비 시간 차이를 CI 최적화 단독 효과로 계산하지 않는다.
 
 ## 스택 병합 후 이력 정리
 
