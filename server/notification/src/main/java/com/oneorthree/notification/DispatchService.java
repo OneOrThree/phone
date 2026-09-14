@@ -433,7 +433,9 @@ class DispatchService {
         }
         // 게이트·브로커 지연 뒤 첫 판정·재시도·묶음 수집이 모두 여기를 지난다. Data 조회보다 앞이라 만료된
         // 시한부 알림은 적격성 조회 없이 끝난다. 만료가 없는 사실 통보(결과·환불)는 영향이 없다.
-        if (expired(Json.map(delivery.get("payload").toString()), clock.instant())) {
+        // 관리자 «템플릿 시험»은 복사된 과거 params 의 만료가 아니라 Data 의 시험 창(created_at 부터 15분)을 따른다.
+        if (governedByEventExpiry(delivery)
+                && expired(Json.map(delivery.get("payload").toString()), clock.instant())) {
             expire(id);
             return false;
         }
@@ -463,7 +465,8 @@ class DispatchService {
         if (!silent && !"BYPASS".equals(catalog.get("quiet_policy"))) {
             Instant quietEnd = QuietHours.endIfQuiet(preferences, clock.instant());
             if (quietEnd != null) {
-                deferOrSuppress(id, catalog, params, quietEnd);
+                deferOrSuppress(id, catalog, params, quietEnd,
+                        governedByEventExpiry(delivery) ? expiresAtOf(params) : null);
                 return false;
             }
         }
@@ -511,7 +514,10 @@ class DispatchService {
         List<UUID> deliveries = ready.stream().map(row -> (UUID) row.get("id")).toList();
         Map<UUID, Instant> expiries = new LinkedHashMap<>();
         for (Map<String, Object> row : ready) {
-            Instant expiresAt = expiresAtOf(Json.map(row.get("payload").toString()));
+            // 발송 계획·발송 직전·결과 맺기의 만료도 같은 구분을 따른다.
+            Instant expiresAt = governedByEventExpiry(row)
+                    ? expiresAtOf(Json.map(row.get("payload").toString()))
+                    : null;
             if (expiresAt != null) {
                 expiries.put((UUID) row.get("id"), expiresAt);
             }
@@ -763,9 +769,9 @@ class DispatchService {
                 + ":" + ((Timestamp) first.get("slot_at")).toInstant();
     }
 
-    private void deferOrSuppress(UUID id, Map<String, Object> catalog, Map<String, Object> params, Instant quietEnd) {
+    private void deferOrSuppress(UUID id, Map<String, Object> catalog, Map<String, Object> params, Instant quietEnd,
+            Instant expiresAt) {
         String deadline = Json.nullableText(params, "deferExpiresAt");
-        Instant expiresAt = expiresAtOf(params);
         if (!"DEFER".equals(catalog.get("quiet_policy"))
                 || (deadline != null && !quietEnd.isBefore(Instant.parse(deadline)))
                 || (expiresAt != null && !quietEnd.isBefore(expiresAt))) {
@@ -813,6 +819,21 @@ class DispatchService {
     private void expire(UUID id) {
         store.update("UPDATE deliveries SET status='SUPPRESSED',last_error=? WHERE id=?"
                 + " AND status IN ('PENDING','DEFERRED')", EXPIRED, id);
+    }
+
+    /**
+     * 원사건의 발송 만료를 따르는 행인가.
+     *
+     * <p>관리자 <b>템플릿 시험</b>({@code admin_actor} 가 있고 {@code replay_of} 가 없는 행)만 아니다. 시험은 콘솔이 넣은
+     * params 를 그대로 싣는데, 과거 사건의 params 를 복사하면 그 {@code expiresAt} 이 따라와 만든 순간부터 영영 억제된다.
+     * 시험의 수명은 {@link #remotelyEligible} 이 넘기는 {@code created_at} 으로 Data 가 15분을 잰다. 반대로
+     * <b>재전송</b>({@code replay_of} 가 있는 행)은 원사건의 알림을 다시 내보내는 것이므로 원사건 만료를 그대로 따른다.
+     *
+     * @param delivery {@code deliveries} 행
+     * @return 원사건 만료를 적용해야 하면 {@code true}
+     */
+    static boolean governedByEventExpiry(Map<String, Object> delivery) {
+        return delivery.get("admin_actor") == null || delivery.get("replay_of") != null;
     }
 
     /**
