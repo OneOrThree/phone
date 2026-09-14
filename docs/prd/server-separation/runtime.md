@@ -80,7 +80,7 @@ dev(GCP `gromo-dev-app`, e2-medium 4 GB)에서 Kafka와 Data 위성 모드를 �
 2단계 주의:
 
 - `gromo/dev/env`에 data-api 필수 자격([위 표](#서비스별-시크릿-생성))이 먼저 있어야 writer가 파일을 쓴다. 지금 legacy dev-cd가 요구하는 9개 키보다 많다.
-- `satellites.data.yml`은 app의 `environment`를 `!override`로 지우므로 `docker-compose.dev.yml`이 계산하던 `API_DB_*`·`REDIS_HOST`·`FOCUS_PRESENCE_ENABLED`는 이 파일에서만 온다. CD는 `API_DB_*` 3종이 없거나, 권한이 0600이 아니거나, 프로파일에 `dev`·`satellites`가 없으면 app을 건드리기 전에 실패한다. `!override`를 모르는 구형 Compose면 `config --quiet`에서 멈춘다.
+- `satellites.data.yml`은 app의 `environment`를 `!override`로 지우므로 `docker-compose.dev.yml`이 계산하던 `API_DB_*`·`REDIS_HOST`·`FOCUS_PRESENCE_ENABLED`는 이 파일에서만 온다. CD는 파일을 직접 읽지 않고 **Compose가 파싱한 값**(env_file 하나만 가진 임시 서비스의 `config --format json`)으로 판정하므로 인라인 주석·CRLF·따옴표 해석이 실제 컨테이너와 같다. 파일이 비었거나 0600이 아니거나, Compose가 파싱하지 못하거나, `API_DB_*` 3종 중 하나라도 없거나 비었거나(공백뿐 포함), `SPRING_PROFILES_ACTIVE`가 있는데 비었거나 `dev`·`satellites`를 빠뜨리거나 `prod`를 담으면 app을 건드리기 전에 실패한다. `dev,satellites` 기본값은 키가 **없을 때만** 쓴다. 로그에는 키 이름·프로파일 목록만 남는다. `!override`를 모르는 구형 Compose면 `config --quiet`에서 멈춘다.
 - Datadog이 켜져 있으면 CD가 `DATA_API_JAVA_OPTS`에 `-javaagent`를 유지한다. 다만 오버레이의 `DD_SERVICE`는 `gromo-data-dev`라 컨테이너 라벨의 `gromo-back-dev`와 갈린다.
 - `dev-datadog.yml`의 up/restart/down은 app을 dev(+datadog) 파일로만 재생성한다. 2단계 이후 실행하면 다음 CD 전까지 satellites 없이 뜬다.
 

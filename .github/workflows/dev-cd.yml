@@ -108,6 +108,51 @@ jobs:
           DD_SITE: us5.datadoghq.com
           IMAGE_VERSION: ${{ inputs.image_revision }}
           IMAGE_REVISION: ${{ inputs.image_revision }}
+          # Data 전용 env 판정기. argv = <env 파일> <작업 디렉터리>. 통과하면 <작업 디렉터리>/profiles 에 프로파일을 쓴다.
+          # run 블록 안 python3 -c '...' 는 YAML 들여쓰기가 남아 IndentationError 가 나므로 step env 로 둔다.
+          # 로그 원칙: Compose 의 JSON 출력(비밀 포함)은 파싱만 하고 stderr(줄 내용을 담을 수 있음)는 버린다.
+          # 오류에는 키 이름·프로파일 목록만 싣는다 — 형식이 틀린 프로파일 값은 출력하지 않는다.
+          DATA_API_ENV_PROBE_PY: |
+            import json, os, re, subprocess, sys
+            env_file, work = sys.argv[1], sys.argv[2]
+            probe = os.path.join(work, "probe.yml")
+            with open(probe, "w", encoding="utf-8") as handle:
+                json.dump({"services": {"probe": {"image": "busybox", "env_file": [env_file]}}}, handle)
+            result = subprocess.run(
+                ["docker", "compose", "-p", "gromo-data-api-env-probe", "--project-directory", work,
+                 "-f", probe, "config", "--format", "json"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            try:
+                if result.returncode != 0:
+                    raise ValueError("compose config failed")
+                env = json.loads(result.stdout)["services"]["probe"].get("environment") or {}
+                if not isinstance(env, dict):
+                    raise ValueError("unexpected environment shape")
+            except (ValueError, KeyError, TypeError, AttributeError):
+                print("::error::Compose 가 Data 전용 env 를 해석하지 못했습니다(dotenv 문법) — 서버에서 파일을 직접 확인하세요")
+                sys.exit(1)
+            blank = [key for key in ("API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD")
+                     if not isinstance(env.get(key), str) or not env[key].strip()]
+            if blank:
+                print("::error::Data 전용 env 에 없거나 비어 있는 키: " + ", ".join(blank))
+                sys.exit(1)
+            if "SPRING_PROFILES_ACTIVE" in env:
+                raw = env["SPRING_PROFILES_ACTIVE"]
+                profiles = raw.strip() if isinstance(raw, str) else ""
+                if not profiles:
+                    print("::error::SPRING_PROFILES_ACTIVE 가 있지만 비어 있습니다 — 기본값으로 대신하지 않습니다")
+                    sys.exit(1)
+            else:
+                profiles = "dev,satellites"
+            if not re.fullmatch(r"[a-z0-9-]+(,[a-z0-9-]+)*", profiles):
+                print("::error::SPRING_PROFILES_ACTIVE 형식 오류(소문자·숫자·- 항목을 쉼표로 구분) — 값은 출력하지 않습니다")
+                sys.exit(1)
+            items = profiles.split(",")
+            if "dev" not in items or "satellites" not in items or "prod" in items:
+                print("::error::Data 프로파일은 dev 와 satellites 를 정확한 항목으로 포함하고 prod 는 없어야 합니다: " + profiles)
+                sys.exit(1)
+            with open(os.path.join(work, "profiles"), "w", encoding="utf-8") as handle:
+                handle.write(profiles)
         # 오버레이는 전부 «이미 켜진 것을 유지»하는 방향으로만 붙는다 — CD 가 새로 켜는 것은 없다.
         # 조건이 하나도 성립하지 않으면 compose 입력은 이 변경 전과 똑같다(dev.yml 단독).
         #   datadog: gromo-datadog-agent 가 떠 있으면 (GROMO-1233)
@@ -147,25 +192,17 @@ jobs:
               echo "::error::Data 전용 env 권한은 0600 이어야 합니다"
               exit 1
             fi
-            # !override 가 dev.yml 의 API_DB_* 계산값을 지우므로 DB 자격은 이 파일에만 있다.
-            # 없으면 app 이 재생성된 뒤 헬스체크 300초 동안 dev 가 내려가 있게 되므로 미리 거른다.
-            for key in API_DB_URL API_DB_USERNAME API_DB_PASSWORD; do
-              if ! grep -q "^${key}=" "$DATA_API_ENV_FILE"; then
-                echo "::error::Data 전용 env 에 ${key} 가 없습니다"
-                exit 1
-              fi
-            done
-            # 프로파일의 단일 출처는 파일의 SPRING_PROFILES_ACTIVE(writer 기본 dev,satellites)다.
-            # 오버레이의 environment 가 env_file 을 이기므로 두 값이 갈라지지 않게 파일에서 읽어 넘긴다.
-            DATA_API_PROFILES=$(sed -n "s/^SPRING_PROFILES_ACTIVE=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" "$DATA_API_ENV_FILE" | tail -n 1)
-            DATA_API_PROFILES=${DATA_API_PROFILES:-dev,satellites}
-            if ! [[ "$DATA_API_PROFILES" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] \
-              || [[ ",$DATA_API_PROFILES," != *,dev,* ]] \
-              || [[ ",$DATA_API_PROFILES," != *,satellites,* ]] \
-              || [[ ",$DATA_API_PROFILES," == *,prod,* ]]; then
-              echo "::error::Data 프로파일은 dev 와 satellites 를 정확한 항목으로 포함하고 prod 는 없어야 합니다: $DATA_API_PROFILES"
+            # 내용 판정은 Compose 가 파싱한 값으로 한다 — 파일을 grep·sed 로 읽으면 인라인 주석·CRLF·따옴표에서
+            # Compose 와 해석이 갈려, 빈 DB 자격이 통과하거나 명시한 프로파일이 조용히 기본값으로 떨어졌다.
+            # env_file 하나만 가진 임시 서비스를 `config --format json` 으로 렌더한다(렌더만, 아무것도 띄우지 않음).
+            # 규칙(API_DB_* 3종 비공백, 프로파일 부재=기본·빈 값=실패)과 로그 원칙은 step env 의 DATA_API_ENV_PROBE_PY.
+            probe_dir=$(mktemp -d "${RUNNER_TEMP:-/tmp}/data-api-env-probe.XXXXXX")
+            if ! python3 -c "$DATA_API_ENV_PROBE_PY" "$DATA_API_ENV_FILE" "$probe_dir"; then
+              rm -rf "$probe_dir"
               exit 1
             fi
+            DATA_API_PROFILES=$(cat "$probe_dir/profiles")
+            rm -rf "$probe_dir"
             # satellites.data.yml 의 JAVA_OPTS 도 !override 대상이다. Datadog 이 켜져 있을 때 기본값을 쓰면
             # datadog.yml 이 넣은 -javaagent 가 조용히 빠져 APM 이 끊긴다 — 1233 과 같은 증상이라 여기서 유지한다.
             DATA_API_JAVA_OPTS="-Djava.security.egd=file:/dev/./urandom"
