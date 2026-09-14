@@ -773,9 +773,13 @@ class DispatchService {
             Instant expiresAt) {
         String deadline = Json.nullableText(params, "deferExpiresAt");
         if (!"DEFER".equals(catalog.get("quiet_policy"))
-                || (deadline != null && !quietEnd.isBefore(Instant.parse(deadline)))
-                || (expiresAt != null && !quietEnd.isBefore(expiresAt))) {
+                || (deadline != null && !quietEnd.isBefore(Instant.parse(deadline)))) {
             suppress(id);
+            return;
+        }
+        if (expiresAt != null && !quietEnd.isBefore(expiresAt)) {
+            // 조용한 시간이 끝날 때 이미 원사건의 시한이 지나 있다 — 정책 억제가 아니라 만료로 끝내 다른 만료와 같이 센다.
+            expire(id);
             return;
         }
         // slot_at은 원래 묶음 사건 축이다. 이월할 때 새로운 슬롯으로 덮지 않는다.

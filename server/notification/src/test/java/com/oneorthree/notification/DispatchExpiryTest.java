@@ -70,6 +70,7 @@ class DispatchExpiryTest {
         store.update("TRUNCATE result_bundle_manifests,delivery_devices,deliveries,inbound_events,commands,"
                 + "device_tokens,session_fences,user_fences,settings,result_ack CASCADE");
         store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        store.update("UPDATE kinds SET quiet_policy='DROP' WHERE id='LEAGUE_FINAL_DEADLINE'");
         reset(clock, data, transport);
         when(clock.instant()).thenReturn(NOW);
         when(data.eligible(any(), anyString(), any(), any())).thenReturn(true);
@@ -144,6 +145,38 @@ class DispatchExpiryTest {
         assertThat(status("deadline")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
         assertThat(status("result")).containsEntry("status", "SENT");
         assertThat(status("refund")).containsEntry("status", "SENT");
+    }
+
+    @Test
+    @DisplayName("조용한 시간이 끝나기 전에 시한이 지나는 이월 알림은 정책 억제가 아니라 만료로 끝난다")
+    void aDeferredTimedNotificationWhoseQuietHoursOutliveItsExpiryIsExpired() {
+        deferLeagueFinalDeadlineInQuietHoursUntilOneHourLater();
+        timed("deadline", "LEAGUE_FINAL_DEADLINE", NOW.plusSeconds(1800));
+
+        dispatch.dispatch(delivery("deadline"));
+
+        verifyNoInteractions(data, transport);
+        assertThat(status("deadline")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
+    }
+
+    @Test
+    @DisplayName("조용한 시간이 끝난 뒤에도 유효한 이월 알림은 만료로 끝내지 않고 조용한 시간 끝으로 이월한다")
+    void aDeferredTimedNotificationStillValidAfterQuietHoursIsCarriedOver() {
+        deferLeagueFinalDeadlineInQuietHoursUntilOneHourLater();
+        timed("deadline", "LEAGUE_FINAL_DEADLINE", NOW.plusSeconds(7200));
+
+        dispatch.dispatch(delivery("deadline"));
+
+        verifyNoInteractions(data, transport);
+        assertThat(status("deadline")).containsEntry("status", "DEFERRED");
+        assertThat(status("deadline").get("last_error")).isNull();
+    }
+
+    /** 콘솔 등록부가 이 시한부 종류를 «이월»로 바꾼 상태 + 사용자 조용한 시간 12:00–14:00 KST(지금 13:00 → 1시간 뒤 끝). */
+    private void deferLeagueFinalDeadlineInQuietHoursUntilOneHourLater() {
+        store.update("UPDATE kinds SET quiet_policy='DEFER' WHERE id='LEAGUE_FINAL_DEADLINE'");
+        store.update("INSERT INTO settings(user_id,night_mode_enabled,night_start_time,night_end_time)"
+                + " VALUES(?,true,'12:00','14:00')", USER);
     }
 
     private void timed(String id, String kind, Instant expiresAt) {

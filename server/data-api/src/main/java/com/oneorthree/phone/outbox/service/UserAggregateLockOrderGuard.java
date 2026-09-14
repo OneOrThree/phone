@@ -31,10 +31,19 @@ import java.util.UUID;
  * {@link String#compareTo} 와 {@code COLLATE "C"} 가 정확히 일치한다.
  *
  * <h2>트랜잭션마다 따로 센다</h2>
- * 이미 쥔 잠금은 트랜잭션에 묶인 동기화 객체({@link Ledger})에 적는다. 리소스 맵({@code bindResource})에
- * 두지 않는 이유는 {@code REQUIRES_NEW} 가 그 맵을 일시 중단하지 않기 때문이다 — 안쪽 트랜잭션이 바깥
- * 트랜잭션의 잠금을 «자기 것»으로 착각해 멀쩡한 획득을 위반으로 본다. 동기화 목록은 트랜잭션 매니저가
- * 트랜잭션마다 새로 만들고 중단·재개하므로 경계가 정확히 맞는다.
+ * 이미 쥔 잠금은 트랜잭션의 동기화 목록에 등록한 객체({@link Ledger})에 적는다. 장부가 트랜잭션 경계를 넘으면 안쪽
+ * 트랜잭션이 바깥이 쥔 잠금을 «자기 것»으로 보고 멀쩡한 획득을 위반으로 센다. 동기화 객체는 자기 트랜잭션과 함께 생기고
+ * 사라지므로 따로 바인드·해제·정리할 코드 없이 그 경계가 맞는다. 스프링이 실제로 하는 일(spring-tx 7.0.7):
+ * <ul>
+ *   <li>{@code REQUIRES_NEW} 로 안쪽 트랜잭션을 열면 {@code AbstractPlatformTransactionManager#suspend} 가 바깥의 동기화
+ *       목록을 떼어 두고 비운다({@code doSuspendSynchronization}). 안쪽은 빈 목록에서 시작한다.</li>
+ *   <li>안쪽이 끝나면 {@code cleanupAfterCompletion} 이 안쪽 목록을 비우고({@code TransactionSynchronizationManager#clear})
+ *       떼어 둔 바깥 목록을 다시 등록한다({@code doResumeSynchronization}).</li>
+ * </ul>
+ * 리소스 맵({@code bindResource})으로도 같은 경계를 만들 수 있지만, 매니저의 {@code doSuspend} 는 자기 리소스(JPA 는
+ * {@code EntityManagerHolder}·{@code ConnectionHolder})만 뗀다. 그 밖의 값은 함께 등록한 동기화
+ * (예: {@code ResourceHolderSynchronization#suspend})가 떼고 되돌리고 완료 때 해제해야 한다 — 동기화 객체 하나로 두면
+ * 그 수명 관리가 필요 없다.
  *
  * <h2>위반은 운영에서 로그·지표, 테스트에서 실패</h2>
  * 운영에서 예외로 막으면 순서를 어기는 새 경로가 곧장 장애가 된다. 대신 {@code outbox.user_lock.order_violation}

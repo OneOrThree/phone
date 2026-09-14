@@ -3,6 +3,7 @@ package com.oneorthree.phone.notification.service;
 import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
 import com.oneorthree.phone.notification.producer.NotificationFanOutPartiallyCommittedException;
 import com.oneorthree.phone.notification.producer.NotificationFanOutProgress;
+import com.oneorthree.phone.notification.producer.NotificationFanOutProgressTestAccess;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
@@ -30,6 +31,11 @@ class NotificationBatchRetryTest {
     private static final String JOB = "notification-league-deadline";
 
     private static NotificationBatchRetry retry(boolean outbox, MeterRegistry registry) {
+        return retry(outbox, registry, new NotificationFanOutProgress());
+    }
+
+    private static NotificationBatchRetry retry(boolean outbox, MeterRegistry registry,
+                                                NotificationFanOutProgress progress) {
         var properties = new NotificationDispatchProperties();
         if (outbox) {
             properties.setMode(NotificationDispatchProperties.Mode.OUTBOX);
@@ -38,7 +44,7 @@ class NotificationBatchRetryTest {
         ObjectProvider<MeterRegistry> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(registry);
         return new NotificationBatchRetry(properties, Clock.fixed(SLOT, ZoneOffset.UTC), provider,
-                new NotificationFanOutProgress());
+                progress);
     }
 
     @ParameterizedTest
@@ -113,6 +119,34 @@ class NotificationBatchRetryTest {
 
         assertThat(calls).containsExactly(SLOT);
         assertThat(registry.counter(NotificationBatchRetry.PARTIAL_COMMIT_METRIC, "job", JOB, "sqlState", "40P01")
+                .count()).isEqualTo(1.0);
+        assertThat(registry.find(NotificationBatchRetry.RETRY_METRIC).counter()).isNull();
+    }
+
+    @Test
+    @DisplayName("조각이 커밋된 뒤에는 잠금 충돌이 아닌 실패도 다시 돌지 않고 재생 좌표를 실은 부분 커밋으로 올린다")
+    void aNonLockFailureAfterACommittedChunkSurfacesAsPartialCommit() {
+        NotificationFanOutProgress progress = new NotificationFanOutProgress();
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        List<Instant> calls = new ArrayList<>();
+        var failure = new NullPointerException("다음 페이지 판정 실패");
+
+        assertThatThrownBy(() -> retry(true, registry, progress).run(JOB, slot -> {
+            calls.add(slot);
+            NotificationFanOutProgressTestAccess.recordCommittedChunk(progress);
+            throw failure;
+        })).isInstanceOfSatisfying(NotificationFanOutPartiallyCommittedException.class, partial -> {
+            assertThat(partial.getReplayJob()).isEqualTo(JOB);
+            assertThat(partial.getReplaySlot()).isEqualTo(SLOT);
+            assertThat(partial.getSqlState()).isNull();
+            assertThat(partial.getCommittedChunks()).isEqualTo(1);
+            assertThat(partial.getCause()).isSameAs(failure);
+            assertThat(partial.getMessage()).contains("잠금 충돌이 아닌 실패")
+                    .contains("replay(\"" + JOB + "\", Instant.parse(\"" + SLOT + "\"))");
+        });
+
+        assertThat(calls).containsExactly(SLOT);
+        assertThat(registry.counter(NotificationBatchRetry.PARTIAL_COMMIT_METRIC, "job", JOB, "sqlState", "none")
                 .count()).isEqualTo(1.0);
         assertThat(registry.find(NotificationBatchRetry.RETRY_METRIC).counter()).isNull();
     }

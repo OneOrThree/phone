@@ -26,7 +26,8 @@ import java.util.function.Consumer;
  * <h2>커밋된 조각이 있으면 다시 판정하지 않는다</h2>
  * 배치는 판정 스냅샷 하나로 후보를 고르고 적기만 짧은 조각으로 나눈다. 조각 하나라도 커밋된 뒤 새 스냅샷으로 다시
  * 판정하면 그사이 상태가 바뀐 사용자에게 <b>다른 종류</b>의 알림이 같은 슬롯에 한 번 더 적힌다 — 결정적 키가 종류를
- * 축으로 가져 접히지 않는다. 그래서 이 배치 실행에서 커밋된 조각이 있으면 재시도하지 않고
+ * 축으로 가져 접히지 않는다. 그래서 이 배치 실행에서 커밋된 조각이 있으면 실패의 종류와 무관하게(잠금 충돌이 아니어도)
+ * 재시도하지 않고
  * {@code notification.batch.partial_commit} 지표와 원래 슬롯의 재생 좌표를 남긴 채 실패를 올린다.
  *
  * <h2>구 경로는 다시 돌지 않는다</h2>
@@ -50,8 +51,11 @@ public class NotificationBatchRetry {
     /** 재시도 소진 지표. 태그: {@code job}·{@code sqlState}. */
     public static final String EXHAUSTED_METRIC = "notification.batch.retry.exhausted";
 
-    /** 커밋된 조각이 있어 재판정을 포기한 지표. 태그: {@code job}·{@code sqlState}. */
+    /** 커밋된 조각이 있어 재판정을 포기한 지표. 태그: {@code job}·{@code sqlState}(잠금 충돌이 아니면 {@code none}). */
     public static final String PARTIAL_COMMIT_METRIC = "notification.batch.partial_commit";
+
+    /** 잠금 충돌이 아닌 실패의 지표 태그 값. */
+    static final String NO_SQL_STATE = "none";
 
     private final NotificationDispatchProperties properties;
     private final Clock clock;
@@ -99,12 +103,14 @@ public class NotificationBatchRetry {
                     throw partialCommit(job, slot, partial);
                 } catch (RuntimeException failure) {
                     String sqlState = NotificationLockConflicts.sqlStateOf(failure);
-                    if (sqlState == null || !properties.isOutboxMode()) {
-                        throw failure;
-                    }
                     if (scope.committedChunks() > 0) {
+                        // 잠금 충돌이 아닌 실패도 커밋된 조각 뒤라면 그대로 올리면 안 된다 — 재생 좌표 없이 올라가면
+                        // 운영자 재생이 새 스냅샷으로 다시 판정한다. 부분 커밋으로 올리되 다시 돌지는 않는다.
                         throw partialCommit(job, slot, new NotificationFanOutPartiallyCommittedException(
                                 scope.committedChunks(), sqlState, failure));
+                    }
+                    if (sqlState == null || !properties.isOutboxMode()) {
+                        throw failure;
                     }
                     if (attempt >= limit) {
                         count(EXHAUSTED_METRIC, job, sqlState);
@@ -132,7 +138,7 @@ public class NotificationBatchRetry {
     private void count(String metric, String job, String sqlState) {
         MeterRegistry registry = meterRegistry.getIfAvailable();
         if (registry != null) {
-            registry.counter(metric, "job", job, "sqlState", sqlState).increment();
+            registry.counter(metric, "job", job, "sqlState", sqlState == null ? NO_SQL_STATE : sqlState).increment();
         }
     }
 }

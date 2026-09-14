@@ -3,10 +3,11 @@ package com.oneorthree.phone.notification.producer;
 import java.time.Instant;
 
 /**
- * 배치의 일부 조각이 이미 커밋된 뒤 잠금 충돌이 소진됐다 — <b>재판정하면 안 되는</b> 실패다 (GROMO-893).
+ * 배치의 일부 조각이 이미 커밋된 뒤 배치가 멈췄다 — <b>재판정하면 안 되는</b> 실패다 (GROMO-893).
  *
- * <p>이 예외의 원인 사슬에는 {@code 40001}·{@code 40P01} 이 그대로 있다(진단용). 그래도 배치 재시도는 이 타입을 먼저
- * 보고 다시 돌지 않는다. 새 스냅샷으로 다시 판정하면 이미 적힌 사용자에게 다른 종류의 알림이 같은 슬롯에 한 번 더
+ * <p>멈춘 원인은 잠금 충돌 소진일 수도, 잠금 충돌이 아닌 실패일 수도 있다 — 둘 다 앞 조각이 커밋된 뒤라면 같은 위험이다.
+ * 원인 사슬에는 마지막 실패가 그대로 있고(진단용, 잠금 충돌이면 {@code 40001}·{@code 40P01} 도), 배치 재시도는 이
+ * 타입을 먼저 보고 다시 돌지 않는다. 새 스냅샷으로 다시 판정하면 이미 적힌 사용자에게 다른 종류의 알림이 같은 슬롯에 한 번 더
  * 적힐 수 있기 때문이다.
  *
  * <p>대신 원래 슬롯의 재생 좌표({@code job}·{@code slot})를 싣는다. 재생 역시 새로 판정하므로, 재생할지는 커밋된
@@ -23,7 +24,7 @@ public class NotificationFanOutPartiallyCommittedException extends RuntimeExcept
 
     /**
      * @param committedChunks 이 배치에서 이미 커밋된 조각 수
-     * @param sqlState        소진된 잠금 충돌
+     * @param sqlState        소진된 잠금 충돌. 잠금 충돌이 아닌 실패면 {@code null}
      * @param cause           마지막 실패
      */
     public NotificationFanOutPartiallyCommittedException(int committedChunks, String sqlState, Throwable cause) {
@@ -53,7 +54,7 @@ public class NotificationFanOutPartiallyCommittedException extends RuntimeExcept
         return committedChunks;
     }
 
-    /** @return 소진된 잠금 충돌 SQLSTATE */
+    /** @return 소진된 잠금 충돌 SQLSTATE. 잠금 충돌이 아닌 실패면 {@code null} */
     public String getSqlState() {
         return sqlState;
     }
@@ -69,8 +70,9 @@ public class NotificationFanOutPartiallyCommittedException extends RuntimeExcept
     }
 
     private static String message(int committedChunks, String sqlState, String job, Instant slot) {
-        String base = "알림 배치의 조각 " + committedChunks + "개가 이미 커밋된 뒤 잠금 충돌(" + sqlState
-                + ")이 소진됐다 — 다시 판정하면 같은 슬롯에 다른 종류의 알림이 한 번 더 적힐 수 있어 재판정하지 않는다.";
+        String stop = sqlState == null ? "잠금 충돌이 아닌 실패로 멈췄다" : "잠금 충돌(" + sqlState + ")이 소진됐다";
+        String base = "알림 배치의 조각 " + committedChunks + "개가 이미 커밋된 뒤 " + stop
+                + " — 다시 판정하면 같은 슬롯에 다른 종류의 알림이 한 번 더 적힐 수 있어 재판정하지 않는다.";
         if (job == null) {
             return base;
         }

@@ -37,9 +37,10 @@ import java.util.UUID;
  * 슬롯에 또 적힌다(강등 경고를 받은 사용자에게 마감 D-1 이 한 번 더). 조각 트랜잭션이 없던 때에는 앞 페이지도
  * 함께 롤백됐으므로 «RR 후보 판정의 의미»가 그 성질을 지켰다 — 조각 재시도가 그것을 이어받는다.
  *
- * <p>재시도가 소진됐을 때 이 배치에서 이미 커밋된 조각이 있으면 {@link NotificationFanOutPartiallyCommittedException}
- * 을 던져 배치 재시도가 재판정하지 못하게 한다. 아직 아무 조각도 커밋되지 않았으면 원래 실패를 그대로 올린다 — 그때는
- * 부분 쓰기가 없으므로 배치 전체를 다시 판정해도 안전하다.
+ * <p>조각이 멈추면 — 재시도가 소진됐든 잠금 충돌이 아닌 실패든 — 이 배치에서 이미 커밋된 조각이 있는지 본다. 있으면
+ * {@link NotificationFanOutPartiallyCommittedException} 을 던져 배치 재시도가 재판정하지 못하게 하고 운영자에게 재생
+ * 좌표를 남긴다. 아직 아무 조각도 커밋되지 않았으면 원래 실패를 그대로 올린다 — 부분 쓰기가 없으므로 잠금 충돌이면 배치
+ * 전체를 다시 판정해도 안전하고, 그 밖의 실패는 원래대로 다시 돌지 않는다.
  *
  * <h2>producer 를 {@code REQUIRES_NEW} 로 만들지 않는다</h2>
  * 요청 경로(챌린지 개설·정산·친구 요청)는 도메인 커밋과 사건이 <b>같은 트랜잭션</b>이어야 한다. 새
@@ -90,7 +91,7 @@ public class NotificationFanOutWriter {
      * @param requests 판정이 끝난 요청
      * @param unit     갈라서는 안 되는 묶음 단위
      * @return 입력 순서 그대로의 결과 — {@code QUEUED} 또는 {@code DUPLICATE}
-     * @throws NotificationFanOutPartiallyCommittedException 이 배치에서 앞 조각이 커밋된 뒤 조각 재시도가 소진됐을 때
+     * @throws NotificationFanOutPartiallyCommittedException 이 배치에서 앞 조각이 커밋된 뒤 조각이 실패했을 때
      */
     public List<NotificationDispatchOutcome> write(List<NotificationRequest> requests, NotificationFanOutUnit unit) {
         NotificationDispatchOutcome[] outcomes = new NotificationDispatchOutcome[requests.size()];
@@ -141,20 +142,21 @@ public class NotificationFanOutWriter {
                 return;
             } catch (RuntimeException failure) {
                 String sqlState = NotificationLockConflicts.sqlStateOf(failure);
-                if (sqlState == null) {
-                    throw failure;
+                if (sqlState != null && attempt < maxAttempts) {
+                    count(CHUNK_RETRY_METRIC, sqlState);
+                    log.warn("알림 조각 잠금 충돌 — 같은 요청으로 새 트랜잭션에서 다시 적는다. sqlState={}, attempt={}, 요청 {}건",
+                            sqlState, attempt, slice.size());
+                    continue;
                 }
-                if (attempt >= maxAttempts) {
+                if (sqlState != null) {
                     count(CHUNK_EXHAUSTED_METRIC, sqlState);
-                    int committed = Math.max(committedHere, progress.committedChunks());
-                    if (committed > 0) {
-                        throw new NotificationFanOutPartiallyCommittedException(committed, sqlState, failure);
-                    }
-                    throw failure;
                 }
-                count(CHUNK_RETRY_METRIC, sqlState);
-                log.warn("알림 조각 잠금 충돌 — 같은 요청으로 새 트랜잭션에서 다시 적는다. sqlState={}, attempt={}, 요청 {}건",
-                        sqlState, attempt, slice.size());
+                // 실패의 종류와 무관하다 — 앞 조각이 커밋된 뒤라면 잠금 충돌이 아닌 실패도 재판정하면 안 되는 부분 커밋이다.
+                int committed = Math.max(committedHere, progress.committedChunks());
+                if (committed > 0) {
+                    throw new NotificationFanOutPartiallyCommittedException(committed, sqlState, failure);
+                }
+                throw failure;
             }
         }
     }

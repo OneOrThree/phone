@@ -176,7 +176,16 @@ public class NotificationRequestOutboxListener {
         PendingEvents.current().events.add(event);
     }
 
-    /** 대기열 전체를 판정하고 수신자 합집합을 한 번에 적는다 — 두 번째 호출부터는 빈 대기열이다. */
+    /**
+     * 대기열 전체를 판정하고 수신자 합집합을 한 번에 적는다 — 두 번째 호출부터는 빈 대기열이다.
+     *
+     * <h2>불변식: 이 판정·적기 중에는 도메인 사건을 발행하지 않는다</h2>
+     * 이 메서드는 커밋 직전 단계에서 돈다. 스프링은 그 단계를 시작할 때 동기화 목록의 «복사본»을 순회하므로
+     * ({@code TransactionSynchronizationUtils#triggerBeforeCommit}), 여기서 새로 발행한 사건의
+     * {@code BEFORE_COMMIT} 동기화는 수집도 flush 도 되지 않는다. 대기열도 이미 비웠다. 그래서 {@link #requestsOf} 의
+     * 요청 조립과 이어지는 적기 경로가 {@code GroupBetSessionClosedEvent} 같은 사건을 발행하면 그 알림은 예외 없이
+     * <b>조용히 사라진다</b>. 지금은 그런 경로가 없다 — 새로 붙이는 요청 조립은 읽기와 outbox 적기만 해야 한다.
+     */
     private void flush() {
         if (!notificationDispatcher.isOutboxMode()) {
             return;
@@ -219,8 +228,10 @@ public class NotificationRequestOutboxListener {
     /**
      * 한 트랜잭션에서 아직 적지 않은 도메인 사건.
      *
-     * <p>리소스 맵이 아니라 동기화 목록에 둔다 — {@code REQUIRES_NEW} 로 열린 안쪽 트랜잭션(정산은
-     * {@code REQUIRES_NEW})이 바깥 트랜잭션의 대기열을 보면 안 되는데, 동기화 목록만 트랜잭션마다 중단·재개된다.
+     * <p>트랜잭션의 동기화 목록에 등록한 객체로 둔다. 스프링은 {@code REQUIRES_NEW} 에서 바깥 목록을 떼어 두었다가
+     * ({@code AbstractPlatformTransactionManager#suspend}) 안쪽이 끝나면 비우고 되돌리며({@code cleanupAfterCompletion}·
+     * {@code doResumeSynchronization}), 트랜잭션이 끝나면 목록을 비운다. 그래서 대기열은 자기 트랜잭션과 함께 생기고
+     * 사라진다 — 안쪽 트랜잭션(정산은 {@code REQUIRES_NEW})은 빈 대기열로 시작하고, 따로 바인드·해제·정리할 코드가 없다.
      */
     private static final class PendingEvents implements TransactionSynchronization {
 
