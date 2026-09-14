@@ -170,7 +170,7 @@ migration — fix with `V<N+1>` (Flyway checksums them).
    Data API's side is `common/port/FocusPresencePort` and is **best-effort**: if the lease
    write fails, focus still starts and chat stays open for that person.
 
-3. 선택 `POST /internal/realtime/membership-authorization` — 선행 PR753 Data 제공자를 별도 배포해야 한다.
+3. 선택 `POST /internal/realtime/membership-authorization` — Data 제공자는 PR753으로 main에 있으나 기본 비활성이다. 켤 때는 Data를 먼저 활성화한다.
    전용 서비스 Bearer + 검증된 subject의 X-User-Id, body `{sessionId,authGeneration,islandId}`를 보내고
    평평한 `{allowed:boolean}`을 받는다. Data는 primary 한 SQL snapshot으로 사용자/세션/섬/소속을 확인한다.
 
@@ -194,8 +194,12 @@ application-level 재시도0, 원 토큰/개인 body 로그 금지를 지킨다.
 unknown/duplicate/trailing/빈본문/타입 오류는503이다. 초기값은 connect500ms/request1500ms/inflight16,
 상한은 timeout10초/inflight64이며 실제 운영 부하 검증 결과를 뜻하지 않는다.
 
-ON은 PR753 전용 caller/feature/env 배포, 기존 sidless AT 마이그레이션 정책·발급 전환,
-부하/용량 검증 이후에만 고려한다. 기존 sidless 자격으로 ON하면 그룹 채팅 경계에서401이 된다.
+스위치 env는 `REALTIME_AUTHORIZATION_CLIENT_ENABLED`다. Data 제공자의 `REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED`와
+**일부러 다른 이름**이다 — 합치면 공유 env 한 줄이 두 서비스를 동시에 켜서 아래 순서가 깨진다.
+켜는 순서: Data(프로필·전용 토큰·feature) → Realtime client 주입 → sid/gen 없는 AT 소진 확인·부하 검증 → Realtime ON.
+Data가 꺼진 채 Realtime만 켜면 404→503으로 그룹 채팅 경계가 전부 막힌다(ON에는 fallback이 없다).
+main의 AT 발급 경로(로그인·게스트·갱신)는 이미 전부 sid/gen을 싣는다. 그래도 그 이전에 받은 AT는 ON에서
+그룹 채팅 경계401이고, dev AT 수명은30일이다. 발급 지점 조사는 아래 문서의 「켜기 전 조건」에 있다.
 DB 판정 뒤 beforeHandle/TCP까지의 분산 원자성이나 이미 보낸 프레임의 회수는 보장하지 않는다.
 관련59개(HTTP35·verifier10·JWT11·config3)는14초에 실패0·오류0·skip0, CheckstyleMain·SpotBugsMain PASS다.
 전체 Realtime build1분1초 PASS, 테스트200개(기존141+신규59)·실패0·오류0·skip0을 확인했다.

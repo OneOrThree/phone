@@ -1,6 +1,6 @@
 # 기존 채팅에서 현재 멤버십을 다시 확인하기
 
-이 작업은 기존 채팅의 `ChatAccessGuard.requireCanChat`에 **선택적으로 Data의 현재 인가 조회를 연결**한다. 기본값은 OFF다. 서비스 개명 PR739 기반이며 Data 제공자는 별도 선행 [PR753](https://github.com/OneOrThree/phone/pull/753)의 배포가 필요하다. 구현 후 관련59개 테스트를14초에 통과했고 실패0·오류0·skip0, CheckstyleMain·SpotBugsMain도 통과했다. **전체 Realtime build도1분1초 PASS**이며 테스트200개(기존141+신규59)·실패0·오류0·skip0을 확인했다. Realtime Docker 이미지 빌드도 통과했다(로컬 검증, 게시·배포 없음).
+이 작업은 기존 채팅의 `ChatAccessGuard.requireCanChat`에 **선택적으로 Data의 현재 인가 조회를 연결**한다. 기본값은 OFF다. 서비스 개명 PR739 기반이며 Data 제공자는 [PR753](https://github.com/OneOrThree/phone/pull/753)으로 main에 머지돼 있다(기본 비활성). 켤 때는 **Data 제공자를 먼저 활성화하고 Realtime 스위치를 나중에** 켠다 — [켜기 전 조건](#켜기-전-조건). 구현 후 관련59개 테스트를14초에 통과했고 실패0·오류0·skip0, CheckstyleMain·SpotBugsMain도 통과했다. **전체 Realtime build도1분1초 PASS**이며 테스트200개(기존141+신규59)·실패0·오류0·skip0을 확인했다. Realtime Docker 이미지 빌드도 통과했다(로컬 검증, 게시·배포 없음).
 
 학교 반 명단을 복사해 두면 조회는 빠르지만, 전학한 학생이 잠시 남을 수 있다. 기존 채팅은 Redis에 보관한 소속 명단을 사용한다. 새 옵션을 켜면 특정 섬의 채팅을 이용하거나 전달할 때 Data에 “이 학생증과 이 반 소속이 지금도 맞나요?”를 묻는다. 전에 받은 허용 답변을 다음 메시지의 허가증으로 재사용하지 않는다.
 
@@ -115,15 +115,39 @@ STOMP/outbound에서 HTTP 상태를 그대로 소켓에 전송한다는 뜻은 �
 | request-timeout | 기본1,500ms, 1ms~10초의 요청 전체 deadline |
 | max-in-flight | 기본16, 양수·최대64의 동시 인가 HTTP 수 상한 |
 
-환경 변수는 `REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED`, `REALTIME_AUTHORIZATION_DATA_URL`, `SVC_TOKEN_REALTIME_TO_DATA`, `REALTIME_AUTHORIZATION_CONNECT_TIMEOUT`, `REALTIME_AUTHORIZATION_REQUEST_TIMEOUT`, `REALTIME_AUTHORIZATION_MAX_IN_FLIGHT`다. [application.yml](../../server/realtime/src/main/resources/application.yml)의 기본값과 일치시키며 부하 검증을 끝낸 운영 용량으로 오해하지 않는다. OFF에서는 새 서비스 자격을 요구하지 않지만 ON에서는 유효한 origin·전용 자격이 필수다. 비밀값 자체는 예시나 저장소에 넣지 않는다.
+환경 변수는 `REALTIME_AUTHORIZATION_CLIENT_ENABLED`, `REALTIME_AUTHORIZATION_DATA_URL`, `SVC_TOKEN_REALTIME_TO_DATA`, `REALTIME_AUTHORIZATION_CONNECT_TIMEOUT`, `REALTIME_AUTHORIZATION_REQUEST_TIMEOUT`, `REALTIME_AUTHORIZATION_MAX_IN_FLIGHT`다. [application.yml](../../server/realtime/src/main/resources/application.yml)의 기본값과 일치시키며 부하 검증을 끝낸 운영 용량으로 오해하지 않는다. OFF에서는 새 서비스 자격을 요구하지 않지만 ON에서는 유효한 origin·전용 자격이 필수다. 비밀값 자체는 예시나 저장소에 넣지 않는다.
 
-ON 전에 다음 조건을 확인한다.
+스위치 이름 `REALTIME_AUTHORIZATION_CLIENT_ENABLED`는 Data 제공자의 `REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED`(`internal.realtime.authorization.enabled`)와 **일부러 다르다**. 이름이 같으면 두 서비스가 공유하는 env 한 줄로 동시에 켜져 아래의 「Data 먼저」 순서가 깨진다. 서비스 토큰 `SVC_TOKEN_REALTIME_TO_DATA`는 양쪽이 같은 값을 가져야 하므로 이름을 공유한다.
 
-1. PR753 Data 제공자를 먼저 별도 배포한다. 그쪽 내부 표면·인가 feature·realtime caller 최소 허용목록과 `SVC_TOKEN_REALTIME_TO_DATA`를 구성한다. Realtime의 client 옵션만 켜서는 Data 경로가 생기지 않는다.
-2. Realtime client의 origin·전용 자격·timeout·용량을 실제 배포에 주입한다. Data와 이 브랜치가 서로 코드를 공유하지 않고 HTTP 계약으로 호환함을 확인한다.
-3. 기존 sidless AT의 마이그레이션 정책과 발급 전환을 완료한다. 기존 sidless 자격을 그대로 두고 옵션을 ON하면 해당 그룹 채팅 경계는401로 거절된다. 가짜 sid·현재 authGeneration 보충이나 자동 신규 계정 생성으로 우회하지 않는다. 게스트/기존 사용자 복구 정책을 임의로 확정하지 않는다.
-4. 메시지 수×수신 소켓 수에 따른 실제 요청량·Data 부하·지연·in-flight 포화·연결 종료를 검증한다. 캐시를 없앤 경로의 비용을 코드가 존재한다는 이유로 운영에 충분하다고 선언하지 않는다.
-5. host-transfer flag와 신규14종 전달/시설/snapshot/reconnect/transport를 함께 켜지 않는다. 이번 검증 범위는 기존 그룹 채팅의 지정된 경계다.
+### 켜기 전 조건
+
+순서가 핵심이다. **Data를 먼저, Realtime을 나중에** 켠다. Data 경로가 꺼진 채 Realtime만 켜면 Data가 404를 주고 Realtime은 이를 503으로 처리하므로, 그룹 채팅 경계가 전부 막힌다(ON에는 기존 캐시 fallback이 없다).
+
+1. **Data 제공자 활성화.** PR753 제공자는 main에 있지만 기본 비활성이다. Data에 `realtime-authorization` 프로필([application-realtime-authorization.yml](../../server/data-api/src/main/resources/application-realtime-authorization.yml))을 추가하고 `REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED=true`와 `SVC_TOKEN_REALTIME_TO_DATA`를 주입한다. realtime caller 최소 허용목록은 그 프로필이 소유한다. Realtime의 client 옵션만 켜서는 Data 경로가 생기지 않는다.
+2. **Realtime client 주입.** 같은 `SVC_TOKEN_REALTIME_TO_DATA`, `REALTIME_AUTHORIZATION_DATA_URL`(Data 내부 origin), timeout·용량을 실제 배포에 넣는다. 이 단계까지 `REALTIME_AUTHORIZATION_CLIENT_ENABLED`는 켜지 않는다. Data와 이 브랜치는 코드를 공유하지 않고 HTTP 계약으로만 호환한다.
+3. **sid/gen 없는 AT 소진 확인.** 옵션 ON에서 sid/gen이 없는 AT는 그룹 채팅 경계에서 401이다. 누가 그런 AT를 들고 있는지는 아래 조사에 적었다. 가짜 sid·현재 authGeneration 보충이나 자동 신규 계정 생성으로 우회하지 않는다. 게스트/기존 사용자 복구 정책을 임의로 확정하지 않는다.
+4. **부하 검증.** 메시지 수×수신 소켓 수에 따른 실제 요청량·Data 부하·지연·in-flight 포화·연결 종료를 검증한다. 캐시를 없앤 경로의 비용을 코드가 존재한다는 이유로 운영에 충분하다고 선언하지 않는다.
+5. **Realtime 스위치 ON.** 그 뒤에 `REALTIME_AUTHORIZATION_CLIENT_ENABLED=true`로 켠다. host-transfer flag와 신규14종 전달/시설/snapshot/reconnect/transport를 함께 켜지 않는다. 이번 검증 범위는 기존 그룹 채팅의 지정된 경계다.
+
+### sid/gen 없는 AT는 누가 들고 있나
+
+2026-09-15에 Data 코드를 읽어 조사했다(Data 코드는 바꾸지 않았다). **main의 운영 AT 발급 경로는 전부 sid/gen을 싣는다.** sid/gen 없는 2인자 [`JwtProvider.generateAccessToken(userId, isGuest)`](../../server/data-api/src/main/java/com/oneorthree/phone/auth/support/JwtProvider.java)(:95)를 부르는 운영 코드는 없다. 4인자 발급(:113)의 `sessionId`는 모두 방금 저장한 `auth_sessions` 행 id라 null이 아니고, `User.authGeneration`은 원시 `long`이다.
+
+| 발급 지점 ([AuthService.java](../../server/data-api/src/main/java/com/oneorthree/phone/auth/service/AuthService.java)) | 사용자 흐름 | sid/gen |
+| --- | --- | --- |
+| `:354` (`loginOrRegister`) | 소셜 로그인·재가입·게스트→소셜 승격 | 실음 — `authSessionService.open`의 sessionId |
+| `:400` (`guestLogin`) | 게스트 가입 | 실음 — `open`의 sessionId |
+| `:572` `issueAccessToken` ← `:500`·`:524` (`refreshOnSession`) | 세션 행이 있는 RT 갱신(회전 안 함·회전) | 실음 — 기존/회전된 세션 id |
+| `:572` `issueAccessToken` ← `:561` (`refreshLegacy`) | 세션 행이 없는 구 RT 갱신 | 실음 — `promoteLegacy`로 세션 행을 만든 뒤 발급 |
+| `JwtProvider.java:95` (2인자) | **운영 호출 없음.** 테스트 헬퍼만 쓴다(`InviteLinkTestSupport:131`, `GroupChallengeWindowTimeWireTest:97`, `JwtProviderTest`, `SessionLogoutIntegrationTest:167·168·198`) | 없음 |
+| `loadtest/seed/50_mint_jwt.mjs:35` | 부하 시험 토큰 사전 발급(`{sub,type,iat,exp}`, 기본 30일) | 없음 — 현재 부하 시나리오는 Realtime을 호출하지 않는다 |
+
+그래서 옵션 ON에서 401을 받는 쪽은 **새 발급 흐름이 아니라 이미 들고 있는 옛 AT**다.
+
+- **sid/gen 발급이 배포되기 전에 받은 AT.** 갱신하면 새 AT에 sid/gen이 실린다. 구 RT도 `refreshLegacy`가 세션 행을 만든 뒤 발급하므로 갱신 한 번이면 된다. 각 환경에 sid/gen 발급이 배포된 시점은 이 조사에서 확인하지 않았다.
+- **남는 기간은 AT 수명이 정한다.** prod는 `jwt.access-expiration: 3600`(1시간, `application-prod.yml:31`)이지만 **dev는 `2592000`(30일, `application-dev.yml:28`)이다.** dev에서는 발급 배포 뒤 최대 30일 동안 옛 AT가 유효하므로, 그 전에 켜면 그 사용자의 그룹 채팅 경계가 401이 된다.
+- CONNECT 주체의 토큰이 sid 없는 AT이면 outbound `beforeHandle`도 그 토큰으로 검사하므로 재연결 전까지 그룹 메시지를 받지 못한다. 앱이 이 401을 받고 갱신→재연결하는지는 앱 쪽 확인 대상이며 이 문서에서 검증하지 않았다.
+- 부하 시험 mint 토큰을 Realtime 채팅 시나리오에 재사용하면 전부 401이다. 시나리오를 추가할 때는 sid/gen을 싣거나 로그인 API로 발급한다.
 
 ## 남는 경계와 검증 계획
 
@@ -131,7 +155,7 @@ ON 전에 다음 조건을 확인한다.
 
 관련59개(HTTP client35·CurrentMembershipVerifier10·JWT11·Config3)는14초에 실패0·오류0·skip0으로 통과했다. 전체 Realtime build는1분1초에 PASS이며200개(기존141+신규59)·실패0·오류0·skip0이다. 실제 PostgreSQL·Redis를 사용하는 기존 전체 회귀를 포함한다. CheckstyleMain·SpotBugsMain은 관련59개 실행 때 PASS 후 전체 build에서 UP-TO-DATE였고, 테스트 소스 정적 검사는 기존 설정대로 skip이다. 테스트 자체의 skip0과 정적 검사 task skip을 구분한다. Realtime Docker 이미지 빌드도 통과했다(로컬 검증, 게시·배포 없음). 조정자가 확인한 실행 결과를 반영했으며 문서 작성자가 테스트를 재실행한 것은 아니다.
 
-`beforeHandle` 검증은 실제 interceptor와 실제 TCP로 응답하는 가짜 Data 서버를 사용한다. 운영 Data 서버와 Realtime 서버 두 노드의 production 연동 시험은 아니다. Data 제공자 자체의 선행 PR753 검증과 client 회귀가 각각 있어도 실제 배포·서비스 자격·네트워크의 운영 연결 검증을 대신하지 않는다.
+`beforeHandle` 검증은 실제 interceptor와 실제 TCP로 응답하는 가짜 Data 서버를 사용한다. 운영 Data 서버와 Realtime 서버 두 노드의 production 연동 시험은 아니다. Data 제공자 자체의 PR753 검증과 client 회귀가 각각 있어도 실제 배포·서비스 자격·네트워크의 운영 연결 검증을 대신하지 않는다.
 
 조정자가 Mermaid CLI11.17.0으로 이 문서의 architecture/sequence 두 그림을 실제 SVG 렌더하여 모두 exit0을 확인했다. 근거는 배치 작업 기록의 `realtime-client-focused-results.json`·`realtime-client-full-results.json`/실행 로그와 `mermaid-realtime-membership-client/render-results.json`에 보존한다. 이 개인 작업 기록은 저장소에 없는 상대 링크로 연결하지 않는다.
 
@@ -155,7 +179,8 @@ ON 전에 다음 조건을 확인한다.
 - [조건부 빈 설정](../../server/realtime/src/main/java/com/oneorthree/realtime/config/RealtimeAuthorizationConfig.java)
 - [채팅 공통 관문](../../server/realtime/src/main/java/com/oneorthree/realtime/message/service/ChatAccessGuard.java)
 - [실제 전달 직전 검사](../../server/realtime/src/main/java/com/oneorthree/realtime/config/ChatOutboundChannelInterceptor.java)
-- [PR753 Data HTTP 정본](https://github.com/OneOrThree/phone/blob/36b6705b0a14e6958b75304c47c4779b05303fa6/docs/contracts/realtime-authorization-api.yaml)
-- [PR753 Data 단일 snapshot 설명](https://github.com/OneOrThree/phone/blob/36b6705b0a14e6958b75304c47c4779b05303fa6/docs/architecture/realtime-membership-authorization.md)
+- [Data HTTP 정본 (PR753)](../contracts/realtime-authorization-api.yaml)
+- [Data 단일 snapshot 설명 (PR753)](realtime-membership-authorization.md)
+- [Data 제공자 프로필 (PR753)](../../server/data-api/src/main/resources/application-realtime-authorization.yml)
 
-PR753은 별도 선행 배포이므로 이 브랜치에 없는 Data 파일의 상대경로를 만들지 않는다. 공개 API66종 완료 수·14개 이벤트 수를 이 내부 client 때문에 추가하지 않는다.
+공개 API66종 완료 수·14개 이벤트 수를 이 내부 client 때문에 추가하지 않는다.
