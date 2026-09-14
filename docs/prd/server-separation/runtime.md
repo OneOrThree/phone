@@ -134,7 +134,7 @@ V3의 실행 job은 `bundle-flush`, `ack-reconcile`, `user-reconcile`이다. 기
 직접 `SnapshotReconciler.reconcile()` 호출은 기존처럼 호출 스레드에서 전수 조회를 마친다.
 Data의 알림 배치는 OUTBOX 모드에서 잠금 충돌 — DB 직렬화 충돌(40001)과 교착 희생자(40P01) — 을 재시도한다(GROMO-893).
 판정 스냅샷은 배치 트랜잭션에 두고 적기만 짧은 조각 트랜잭션으로 나누므로, 조각이 충돌하면 **이미 판정된 같은 요청**으로 그 조각만
-새 트랜잭션에서 최대 3회 다시 적는다(`notification.fanout.chunk.retry`). 판정 트랜잭션 자체가 충돌했고 아직 커밋된 조각이 없을 때만
+새 트랜잭션에서 다시 적는다 — 횟수는 `notification.fanout.chunk-max-attempts`(기본 3), 재시도마다 지표 `notification.fanout.chunk.retry`. 판정 트랜잭션 자체가 충돌했고 아직 커밋된 조각이 없을 때만
 전체를 롤백한 뒤 동일 슬롯으로 다시 판정한다(최대 3회). **조각이 하나라도 커밋된 뒤에는 다시 판정하지 않는다** — 새 스냅샷에서
 상태가 바뀐 사용자에게 다른 종류의 알림이 같은 슬롯에 또 적히기 때문이다. 이때 `notification.batch.partial_commit` 지표와 함께
 재생 좌표(잡 이름·원래 슬롯)를 실은 실패가 올라온다. 소진되면 스케줄 실패 로그의 슬롯을 확인하고
