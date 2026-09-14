@@ -58,6 +58,32 @@ env 파일을 통째로 공유하지 않는다. Business의 HTTP port는 8080, N
 
 이 파일만 추가해 기존 dev/prod CD가 자동으로 신규 서비스를 올리지는 않는다. 릴리즈는 이미지·DB 권한·서비스 토큰·라우팅을 검증한 매니페스트로 수행한다. Notification의 내구 발송 gate는 별도이며, 서비스가 healthy라는 사실로 gate를 열면 안 된다.
 
+## dev 에서 켜는 순서
+
+dev(GCP `gromo-dev-app`, e2-medium 4 GB)에서 Kafka와 Data 위성 모드를 켜는 순서다. 모든 단계는 사람이 명시적으로 실행한다. `dev-cd.yml`은 **이미 켜진 것을 유지만** 하고 스스로 켜거나 끄지 않는다. 스위치의 의미와 전환 조건은 [구현된 컷오버 스위치](#구현된-컷오버-스위치) 표가 정본이다.
+
+| 단계 | 하는 일 | 되돌리기 |
+|---|---|---|
+| 0 | `dev-cd.yml` 조건부 오버레이 + `dev-kafka.yml` 머지. `phone-kafka` 미실행이고 `../.gromo-runtime/data-api.env`가 없으면 배포 입력은 `docker-compose.dev.yml`(+기존 datadog) 그대로다 — **no-op** | 해당 PR revert |
+| 1 | 서버에서 `free -m` 확인 → Actions **Dev Kafka** `up`. 여유 1024 MiB 미만이면 워크플로가 거부한다. 브로커만 뜨고 토픽은 없다(자동 생성 꺼짐). 이후 CD는 `phone-kafka`가 돌면 `docker-compose.kafka.yml`을 함께 물린다 | **Dev Kafka** `down` (`kafka-data` 볼륨 보존) |
+| 2 | 러너 checkout 옆 `../.gromo-runtime/data-api.env`(0600)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. 스위치는 전부 끈 채로 둔다: `INTERNAL_API_ENABLED=false`, `OUTBOX_RELAY_ENABLED=false`, `NOTIFICATION_DISPATCH_MODE=LEGACY`. 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
+| 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 `LINK_BASE_URL`·`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다. `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
+| 4 | Notification·Business 위성 기동 — [신규 서비스 compose](#신규-서비스-compose)와 [deployment.md](deployment.md) | 해당 서비스만 제거 |
+| 5 | `NOTIFICATION_DISPATCH_MODE=OUTBOX` — [OUTBOX 선행 조건](#outbox-후보-배치-활성화-선행-조건)(GROMO-893) 해소 후에만. **단방향** | 되돌리지 않는다. OUTBOX→LEGACY는 알림을 재발송한다 |
+
+막힌 곳:
+
+- **A18 보류** — relay 재시도 값이 정해지지 않아 3단계 이후로 못 간다.
+- **4 GB VM** — kafka.yml의 512 MB 힙은 prod t4g.large(8 GB) 기준이다. dev에는 app·db·redis·(datadog-agent 512 MB)가 이미 있다. 1단계의 메모리 게이트가 첫 관문이고, 여유가 없으면 관측 스택 정리나 VM 사이즈업이 먼저다.
+- **GROMO-893** — 5단계 선행 조건.
+
+2단계 주의:
+
+- `gromo/dev/env`에 data-api 필수 자격([위 표](#서비스별-시크릿-생성))이 먼저 있어야 writer가 파일을 쓴다. 지금 legacy dev-cd가 요구하는 9개 키보다 많다.
+- `satellites.data.yml`은 app의 `environment`를 `!override`로 지우므로 `docker-compose.dev.yml`이 계산하던 `API_DB_*`·`REDIS_HOST`·`FOCUS_PRESENCE_ENABLED`는 이 파일에서만 온다. CD는 `API_DB_*` 3종이 없거나, 권한이 0600이 아니거나, 프로파일에 `dev`·`satellites`가 없으면 app을 건드리기 전에 실패한다. `!override`를 모르는 구형 Compose면 `config --quiet`에서 멈춘다.
+- Datadog이 켜져 있으면 CD가 `DATA_API_JAVA_OPTS`에 `-javaagent`를 유지한다. 다만 오버레이의 `DD_SERVICE`는 `gromo-data-dev`라 컨테이너 라벨의 `gromo-back-dev`와 갈린다.
+- `dev-datadog.yml`의 up/restart/down은 app을 dev(+datadog) 파일로만 재생성한다. 2단계 이후 실행하면 다음 CD 전까지 satellites 없이 뜬다.
+
 ## 검증과 CI
 
 ```bash

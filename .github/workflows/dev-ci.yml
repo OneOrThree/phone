@@ -13,6 +13,9 @@ on:
       - "server/data-api/**"
       - "server/scripts/docker-compose.dev.yml"
       - "server/scripts/docker-compose.datadog.yml"
+      # dev-cd 가 조건부로 물리는 오버레이 (GROMO-1658) — 바뀌면 다음 배포에 반영돼야 한다.
+      - "server/scripts/docker-compose.kafka.yml"
+      - "server/scripts/docker-compose.satellites.data.yml"
       # CI 자신과 CI 가 호출하는 워크플로도 트리거에 넣는다. 안 넣으면 이 파일들만
       # 고치는 PR 에서 정작 CI 가 안 돌아 **머지해 봐야** 맞는지 안다 (GROMO-1515).
       - ".github/workflows/dev-ci.yml"
@@ -28,6 +31,8 @@ on:
       - "server/data-api/**"
       - "server/scripts/docker-compose.dev.yml"
       - "server/scripts/docker-compose.datadog.yml"
+      - "server/scripts/docker-compose.kafka.yml"
+      - "server/scripts/docker-compose.satellites.data.yml"
       - ".github/workflows/dev-ci.yml"
       - ".github/workflows/be-gradle.yml"
       - ".github/actions/ci-jar/**"

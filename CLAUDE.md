@@ -111,7 +111,9 @@ changes trigger different jobs. This list rots; the authoritative source is
   (Checkstyle / SpotBugs / tests) on `server/data-api/**`.
   On PRs it also build-verifies the Docker image (no push); on `main` push the same
   run pushes `back:<sha>` to GAR and calls the reusable `dev-cd.yml` with the image
-  digest, which deploys to AWS dev (`dev-cd.yml` has no trigger of its own).
+  digest, which deploys to the GCP dev VM (`gromo-dev-app`, e2-medium, asia-northeast3-a) on the
+  self-hosted `dev` runner — AWS is touched only for OIDC → Secrets Manager `gromo/dev/env`
+  (`dev-cd.yml` has no trigger of its own).
 - **Prod**: `prod-ci.yml` (verifies PRs to `release`; builds + pushes the image on
   `release` push) → `prod-cd.yml` (auto-deploys via `workflow_run`, or manual
   dispatch by SHA) → `prod-rollback.yml` (manual rollback).
@@ -121,7 +123,8 @@ changes trigger different jobs. This list rots; the authoritative source is
   `refs/heads/` prefix that the `delete` event's `ref` never carries, so no
   branch deletion is cleaned and doc dirs accumulate on `gh-pages`; known gap).
 - **Observability (manual dispatch)**: `dev-datadog.yml` (Datadog APM toggle),
-  `dev-monitor.yml` (Prometheus/Grafana/Loki stack).
+  `dev-monitor.yml` (Prometheus/Grafana/Loki stack), `dev-kafka.yml` (single-node Kafka broker
+  up/status/down only — does not enable the outbox relay).
 - **Load test**: `loadtest.yml` — manual dispatch with profile/scenario inputs.
 - `claude-review.yml` — Claude PR review, triggered by an `@claude` comment.
 

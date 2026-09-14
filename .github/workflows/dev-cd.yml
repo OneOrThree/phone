@@ -32,6 +32,11 @@ env:
   GAR_HOST: asia-northeast3-docker.pkg.dev
   APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back
   RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+  # 위성 모드 Data 전용 env (GROMO-1658). CD 는 이 파일을 «만들지도 지우지도 않는다» — 사람이
+  # `write-compose-env.py --service data-api --environment dev` 로 직접 둔 경우에만 아래 배포가
+  # docker-compose.satellites.data.yml 을 마지막 -f 로 붙인다. 파일이 없으면 이 값은 어디서도 읽히지 않는다.
+  # 켜는 순서: docs/prd/server-separation/runtime.md «dev 에서 켜는 순서».
+  DATA_API_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/data-api.env
 
 jobs:
   deploy:
@@ -103,16 +108,86 @@ jobs:
           DD_SITE: us5.datadoghq.com
           IMAGE_VERSION: ${{ inputs.image_revision }}
           IMAGE_REVISION: ${{ inputs.image_revision }}
+        # 오버레이는 전부 «이미 켜진 것을 유지»하는 방향으로만 붙는다 — CD 가 새로 켜는 것은 없다.
+        # 조건이 하나도 성립하지 않으면 compose 입력은 이 변경 전과 똑같다(dev.yml 단독).
+        #   datadog: gromo-datadog-agent 가 떠 있으면 (GROMO-1233)
+        #   kafka:   phone-kafka 가 떠 있으면 — 브로커를 compose 프로젝트에서 고아로 만들지 않는다.
+        #            kafka.yml 은 app 을 재정의하지 않으므로 app 설정은 달라지지 않는다.
+        #   data:    DATA_API_ENV_FILE 이 있으면 — satellites.data.yml 은 app 의 env_file·environment 를
+        #            !override 로 통째로 바꾸므로 «반드시 마지막 -f» 다(deployment.md «Data 전용 환경 연결»).
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f server/scripts/docker-compose.dev.yml)
+          overlays=()
+          datadog=0
           if docker ps --format '{{.Names}}' | grep -Fxq gromo-datadog-agent; then
             test -n "$DD_API_KEY"
             compose+=(-f server/scripts/docker-compose.datadog.yml)
+            overlays+=(datadog)
+            datadog=1
             echo "DATADOG_OVERLAY_ENABLED=1" >> "$GITHUB_ENV"
           else
             echo "DATADOG_OVERLAY_ENABLED=0" >> "$GITHUB_ENV"
           fi
+          if docker ps --format '{{.Names}}' | grep -Fxq phone-kafka; then
+            compose+=(-f server/scripts/docker-compose.kafka.yml)
+            overlays+=(kafka)
+            echo "KAFKA_OVERLAY_ENABLED=1" >> "$GITHUB_ENV"
+          else
+            echo "KAFKA_OVERLAY_ENABLED=0" >> "$GITHUB_ENV"
+          fi
+          if [ -e "$DATA_API_ENV_FILE" ]; then
+            # 파일이 «있다»는 것은 사람이 위성 모드를 의도했다는 뜻이다. 그래서 형식이 틀리면 조용히 dev 단독으로
+            # 되돌리지 않고 app 을 건드리기 전에 멈춘다(fail-closed). 값은 로그에 남기지 않는다.
+            if [ ! -f "$DATA_API_ENV_FILE" ] || [ ! -s "$DATA_API_ENV_FILE" ]; then
+              echo "::error::Data 전용 env 가 비었거나 일반 파일이 아닙니다 — 위성 모드를 끄려면 파일을 지우세요"
+              exit 1
+            fi
+            if [ "$(stat -c '%a' "$DATA_API_ENV_FILE")" != 600 ]; then
+              echo "::error::Data 전용 env 권한은 0600 이어야 합니다"
+              exit 1
+            fi
+            # !override 가 dev.yml 의 API_DB_* 계산값을 지우므로 DB 자격은 이 파일에만 있다.
+            # 없으면 app 이 재생성된 뒤 헬스체크 300초 동안 dev 가 내려가 있게 되므로 미리 거른다.
+            for key in API_DB_URL API_DB_USERNAME API_DB_PASSWORD; do
+              if ! grep -q "^${key}=" "$DATA_API_ENV_FILE"; then
+                echo "::error::Data 전용 env 에 ${key} 가 없습니다"
+                exit 1
+              fi
+            done
+            # 프로파일의 단일 출처는 파일의 SPRING_PROFILES_ACTIVE(writer 기본 dev,satellites)다.
+            # 오버레이의 environment 가 env_file 을 이기므로 두 값이 갈라지지 않게 파일에서 읽어 넘긴다.
+            DATA_API_PROFILES=$(sed -n "s/^SPRING_PROFILES_ACTIVE=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" "$DATA_API_ENV_FILE" | tail -n 1)
+            DATA_API_PROFILES=${DATA_API_PROFILES:-dev,satellites}
+            if ! [[ "$DATA_API_PROFILES" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] \
+              || [[ ",$DATA_API_PROFILES," != *,dev,* ]] \
+              || [[ ",$DATA_API_PROFILES," != *,satellites,* ]] \
+              || [[ ",$DATA_API_PROFILES," == *,prod,* ]]; then
+              echo "::error::Data 프로파일은 dev 와 satellites 를 정확한 항목으로 포함하고 prod 는 없어야 합니다: $DATA_API_PROFILES"
+              exit 1
+            fi
+            # satellites.data.yml 의 JAVA_OPTS 도 !override 대상이다. Datadog 이 켜져 있을 때 기본값을 쓰면
+            # datadog.yml 이 넣은 -javaagent 가 조용히 빠져 APM 이 끊긴다 — 1233 과 같은 증상이라 여기서 유지한다.
+            DATA_API_JAVA_OPTS="-Djava.security.egd=file:/dev/./urandom"
+            if [ "$datadog" = 1 ]; then
+              DATA_API_JAVA_OPTS+=" -javaagent:/opt/datadog/dd-java-agent.jar"
+            fi
+            export DEPLOY_ENV=dev DATA_API_PROFILES DATA_API_JAVA_OPTS
+            compose+=(-f server/scripts/docker-compose.satellites.data.yml)
+            overlays+=("data-api($DATA_API_PROFILES)")
+            {
+              echo "DATA_API_OVERLAY_ENABLED=1"
+              echo "DEPLOY_ENV=dev"
+              echo "DATA_API_PROFILES=$DATA_API_PROFILES"
+              echo "DATA_API_JAVA_OPTS=$DATA_API_JAVA_OPTS"
+            } >> "$GITHUB_ENV"
+            # !override 는 신형 Compose 만 안다. 해석이 실패하면 app 을 재생성하기 전에 멈춘다.
+            "${compose[@]}" config --quiet
+          else
+            echo "DATA_API_OVERLAY_ENABLED=0" >> "$GITHUB_ENV"
+          fi
+          echo "적용한 compose 오버레이: ${overlays[*]:-없음 (docker-compose.dev.yml 단독)}"
+          echo "- compose 오버레이: \`${overlays[*]:-없음}\`" >> "$GITHUB_STEP_SUMMARY"
           "${compose[@]}" pull app
           "${compose[@]}" up -d app
           "${compose[@]}" ps
@@ -128,6 +203,13 @@ jobs:
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f server/scripts/docker-compose.dev.yml)
           if [ "${DATADOG_OVERLAY_ENABLED:-0}" = 1 ]; then
             compose+=(-f server/scripts/docker-compose.datadog.yml)
+          fi
+          if [ "${KAFKA_OVERLAY_ENABLED:-0}" = 1 ]; then
+            compose+=(-f server/scripts/docker-compose.kafka.yml)
+          fi
+          # 배포 step 과 같은 순서 — satellites.data.yml 은 마지막. DEPLOY_ENV·DATA_API_* 는 GITHUB_ENV 로 넘어온다.
+          if [ "${DATA_API_OVERLAY_ENABLED:-0}" = 1 ]; then
+            compose+=(-f server/scripts/docker-compose.satellites.data.yml)
           fi
           echo "앱 기동 대기 중..."
           # Datadog -javaagent 콜드스타트까지 포함한 직전 운영 계약: 최대 300초.

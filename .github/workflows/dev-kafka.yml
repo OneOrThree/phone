@@ -1,0 +1,138 @@
+name: Dev Kafka (single-node broker)
+
+# Kafka 단일 노드 브로커(docker-compose.kafka.yml)를 dev(self-hosted) 서버에 수동으로 올리고 내린다 (GROMO-1658).
+#
+# ⚠️ 먼저 읽을 것
+# - dev VM(gromo-dev-app)은 GCP e2-medium **4 GB** 다. kafka.yml 의 힙 512 MB 는 prod t4g.large(8 GB)
+#   기준으로 잡은 값이고, dev 에는 이미 app(JVM)·db·redis(와 켜져 있으면 datadog-agent 512 MB)가 올라가 있다.
+#   `up` 전에 서버에서 `free -m` 을 확인한다. 아래 up 단계도 MemAvailable 이 KAFKA_MIN_AVAILABLE_MB 미만이면 거부한다.
+# - 이 워크플로는 브로커만 올린다. **outbox relay 를 켜지 않는다**(OUTBOX_RELAY_ENABLED 기본 false).
+#   토픽도 만들지 않는다 — 브로커 자동 생성이 꺼져 있고, notification-events·.DLT 는 relay 가 켜질 때
+#   Data API 의 NewTopic 빈이 만든다. 켜는 순서: docs/prd/server-separation/runtime.md «dev 에서 켜는 순서».
+# - kafka 서비스만 대상으로 한다. `compose down` 은 프로젝트 전체(app·db)를 내리므로 쓰지 않는다.
+#   kafka 에는 depends_on 이 없어 `up -d kafka` 가 app·db 를 건드리지 않는다.
+# - 브로커가 떠 있는 동안 dev-cd.yml 은 phone-kafka 를 감지해 kafka.yml 을 함께 물린다(고아 방지).
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "동작 (up: 메모리 확인 후 브로커 기동, status: 헬스·메모리·토픽 조회, down: 브로커만 제거·볼륨 보존)"
+        type: choice
+        required: true
+        default: status
+        options: [up, status, down]
+
+# 자체 그룹 — cd-production 에 넣지 않는다.
+# - dev-datadog 이 cd-production 을 쓰는 이유는 app 을 재생성하기 때문인데, 이 워크플로는 app 을 재생성하지
+#   않는다(kafka 서비스만 이름으로 지정). CD 의 app 상태·헬스 결과를 무효화할 경로가 없다.
+# - 같은 그룹에 넣으면 GitHub 가 그룹당 «대기 1건»만 남기고 이전 대기 실행을 취소한다. Kafka 실행이 대기열에
+#   들어오는 순간 대기 중이던 배포가 취소될 수 있다 — 막을 이유 없이 배포를 잃는다.
+# - 그룹 안에서는 cancel-in-progress: false 로 Kafka 실행 두 개가 동시에 돌지 않게 직렬화한다.
+# 남는 위험: CD 가 app JVM 을 재기동하는 순간 브로커 기동이 겹치면 4 GB 에서 메모리가 몰린다. 배포 중에는 up 하지 않는다.
+concurrency:
+  group: dev-kafka
+  cancel-in-progress: false
+
+jobs:
+  kafka:
+    runs-on: [self-hosted, dev]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      # dev.yml 과 같은 프로젝트(name: phone)·네트워크(app-network)로 묶기 위해 CD 와 같은 runtime env 를 쓴다.
+      RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+      # 힙 512 MB + JVM 비힙·스레드 스택 약 200~300 MB + 최소 페이지 캐시. 이보다 적으면 app 과 OOM 을 다툰다.
+      KAFKA_MIN_AVAILABLE_MB: "1024"
+      ACTION: ${{ inputs.action }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: checkout 외부 runtime env 확인
+        run: |
+          set -euo pipefail
+          test -s "$RUNTIME_ENV_FILE"
+          test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
+
+      - name: Kafka ${{ inputs.action }}
+        if: ${{ inputs.action != 'status' }}
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.kafka.yml)
+          case "$ACTION" in
+            up)
+              echo "== 호스트 메모리 (free -m) =="
+              free -m
+              if docker ps --format '{{.Names}}' | grep -Fxq phone-kafka; then
+                # 이미 떠 있으면 up 은 설정이 바뀐 경우에만 재생성한다. 브로커 자신이 쓰는 메모리를 «부족»으로
+                # 세어 멱등 실행을 거부하지 않도록 게이트를 건너뛴다.
+                echo "phone-kafka 가 이미 실행 중 — 메모리 게이트 생략"
+              else
+                available=$(awk '/^MemAvailable:/ {print int($2 / 1024)}' /proc/meminfo)
+                echo "MemAvailable: ${available} MiB (최소 ${KAFKA_MIN_AVAILABLE_MB} MiB)"
+                if [ "$available" -lt "$KAFKA_MIN_AVAILABLE_MB" ]; then
+                  echo "::error::dev VM 여유 메모리 부족(${available} MiB) — 브로커를 올리면 app 과 OOM 을 다툰다. 관측 스택 정리 등으로 여유를 만든 뒤 다시 실행"
+                  exit 1
+                fi
+              fi
+              "${compose[@]}" pull kafka
+              "${compose[@]}" up -d kafka
+              echo "브로커 헬스 대기 (start_period 45s + interval 15s)..."
+              for i in $(seq 1 24); do
+                health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' phone-kafka 2>/dev/null || echo missing)
+                if [ "$health" = healthy ]; then
+                  echo "phone-kafka healthy"
+                  exit 0
+                fi
+                echo "대기... ($((i * 10))s, health=$health)"
+                sleep 10
+              done
+              echo "::error::phone-kafka 가 240초 안에 healthy 가 되지 않음"
+              "${compose[@]}" logs --tail=80 kafka
+              exit 1
+              ;;
+            down)
+              # 브로커 컨테이너만 중지·제거한다. kafka-data 볼륨은 지우지 않는다(rm 에 -v 없음).
+              relay=$(docker exec phone-app printenv OUTBOX_RELAY_ENABLED 2>/dev/null || true)
+              if [ "$relay" = true ]; then
+                echo "::warning::app 의 OUTBOX_RELAY_ENABLED=true — 브로커가 내려가면 Kafka 대상 행은 재시도로 쌓인다(보존됨)"
+              fi
+              "${compose[@]}" rm -sf kafka
+              docker ps -a --filter name=phone-kafka --format '{{.Names}} {{.Status}}'
+              echo "phone-kafka 제거 완료 (볼륨 kafka-data 보존). 다음 CD 부터 kafka.yml 을 물리지 않는다."
+              ;;
+          esac
+
+      - name: 상태 (헬스·메모리·토픽)
+        if: ${{ inputs.action != 'down' }}
+        run: |
+          set -uo pipefail
+          echo "== 호스트 메모리 (free -m) =="
+          free -m
+          if ! docker ps -a --format '{{.Names}}' | grep -Fxq phone-kafka; then
+            echo "::notice::phone-kafka 컨테이너가 없습니다 — 브로커가 꺼진 상태(기본값)"
+            exit 0
+          fi
+          echo "== 컨테이너 =="
+          docker inspect -f 'state={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} started={{.State.StartedAt}}' phone-kafka
+          echo "== 메모리 사용 =="
+          docker stats --no-stream phone-kafka
+          echo "== 토픽 (kafka-topics.sh --describe) =="
+          # docker exec 는 컨테이너 env 를 물려받는다 — KAFKA_HEAP_OPTS(-Xms512m) 그대로면 조회 한 번에
+          # 512 MB 짜리 JVM 이 하나 더 뜬다. 4 GB VM 이라 CLI 힙을 따로 작게 준다.
+          if ! topics=$(docker exec -e KAFKA_HEAP_OPTS="-Xmx128m -Xms64m" phone-kafka \
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe 2>&1); then
+            echo "$topics"
+            if [ "$ACTION" = up ]; then
+              echo "::error::토픽 조회 실패 — 브로커가 API 를 받지 않음"
+              exit 1
+            fi
+            echo "::warning::토픽 조회 실패 — 브로커가 아직 기동 중이거나 비정상"
+            exit 0
+          fi
+          if [ -z "$topics" ]; then
+            echo "(토픽 없음 — 정상. 자동 생성이 꺼져 있고 notification-events·.DLT 는 relay 를 켤 때 Data API 가 만든다)"
+          else
+            echo "$topics"
+          fi
