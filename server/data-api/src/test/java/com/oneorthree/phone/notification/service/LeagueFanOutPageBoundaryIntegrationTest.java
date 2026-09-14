@@ -21,10 +21,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -48,11 +50,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 흔들리지 않는다), 적기는 페이지마다 짧은 트랜잭션이다.
  */
 @SpringBootTest(properties = "notification.dispatch.mode=OUTBOX")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class LeagueFanOutPageBoundaryIntegrationTest {
+
+    /** 배치는 전역 순위의 사용자 전부를 판정·기록한다 — 이 클래스가 심은 사용자만 두려고 DB 를 따로 쓴다. */
+    private static final PostgreSQLContainer<?> POSTGRES =
+            OutboxTestPostgres.startDedicated("league_fanout_page_boundary");
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        OutboxTestPostgres.applyProductionMigrationWiring(registry);
+        OutboxTestPostgres.applyProductionMigrationWiring(registry, POSTGRES);
     }
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
@@ -115,7 +122,7 @@ class LeagueFanOutPageBoundaryIntegrationTest {
         UUID pageTwo = RANKED.get(220);
         PostgresLockWaits.ensureUserRows(jdbc, List.of(pageOne, pageTwo));
         ExecutorService pool = Executors.newFixedThreadPool(2);
-        try (RawUserLock reverse = RawUserLock.open()) {
+        try (RawUserLock reverse = RawUserLock.open(POSTGRES)) {
             reverse.lock(pageTwo);
             Future<?> batch = pool.submit(() -> league.sendDeadlineReminders(NOW));
             PostgresLockWaits.awaitBlockedBy(jdbc, reverse);
@@ -191,7 +198,7 @@ class LeagueFanOutPageBoundaryIntegrationTest {
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
         NotificationCronReplayService.ReplayResult result;
-        try (RawUserLock reverse = RawUserLock.open()) {
+        try (RawUserLock reverse = RawUserLock.open(POSTGRES)) {
             reverse.lock(high);
             Future<NotificationCronReplayService.ReplayResult> replayed =
                     pool.submit(() -> replay.replay(job, missedAt));

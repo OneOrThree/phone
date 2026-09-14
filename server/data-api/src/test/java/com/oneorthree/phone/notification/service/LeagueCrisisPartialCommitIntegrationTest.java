@@ -14,9 +14,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -34,11 +36,16 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
  * <p>조각 시도 횟수를 1 로 둬 교착 한 번이 곧 소진이 되게 한다. 설정값이지 동작을 바꾸는 목이 아니다.
  */
 @SpringBootTest(properties = {"notification.dispatch.mode=OUTBOX", "notification.fanout.chunk-max-attempts=1"})
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class LeagueCrisisPartialCommitIntegrationTest {
+
+    /** 재생은 전역 순위의 사용자 전부를 판정·기록한다 — 이 클래스가 심은 사용자만 두려고 DB 를 따로 쓴다. */
+    private static final PostgreSQLContainer<?> POSTGRES =
+            OutboxTestPostgres.startDedicated("league_crisis_partial_commit");
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        OutboxTestPostgres.applyProductionMigrationWiring(registry);
+        OutboxTestPostgres.applyProductionMigrationWiring(registry, POSTGRES);
     }
 
     @Autowired NotificationCronReplayService replay;
@@ -61,7 +68,7 @@ class LeagueCrisisPartialCommitIntegrationTest {
         ExecutionException failed;
         try {
             Future<NotificationCronReplayService.ReplayResult> replayed =
-                    LeagueCrisisDeadlockScenario.replayWithLaterChunkDeadlock(pool, jdbc, seeded, replay);
+                    LeagueCrisisDeadlockScenario.replayWithLaterChunkDeadlock(pool, jdbc, POSTGRES, seeded, replay);
             failed = catchThrowableOfType(ExecutionException.class, () -> replayed.get(300, TimeUnit.SECONDS));
         } finally {
             // 인터럽트는 JDBC 대기를 끊지 못한다 — 끝나지 않은 재생이 다음 테스트의 잠금 관측에 섞이지 않게 끝까지 기다린다.

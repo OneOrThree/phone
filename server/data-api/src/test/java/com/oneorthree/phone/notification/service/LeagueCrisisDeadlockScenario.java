@@ -13,6 +13,7 @@ import jakarta.persistence.EntityManager;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -117,10 +118,10 @@ final class LeagueCrisisDeadlockScenario {
      * @return 재생 결과 — 교착이 풀린 뒤에 끝난다
      */
     static Future<NotificationCronReplayService.ReplayResult> replayWithLaterChunkDeadlock(
-            ExecutorService pool, JdbcTemplate jdbc, Seeded seeded, NotificationCronReplayService replay)
-            throws Exception {
+            ExecutorService pool, JdbcTemplate jdbc, PostgreSQLContainer<?> database, Seeded seeded,
+            NotificationCronReplayService replay) throws Exception {
         PostgresLockWaits.ensureUserRows(jdbc, List.of(seeded.lateLow(), seeded.lateHigh()));
-        try (RawUserLock reverse = RawUserLock.open()) {
+        try (RawUserLock reverse = RawUserLock.open(database)) {
             reverse.lock(seeded.lateHigh());
             Future<NotificationCronReplayService.ReplayResult> replayed =
                     pool.submit(() -> replay.replay(JOB, seeded.missedAt()));

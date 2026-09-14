@@ -1,5 +1,7 @@
 package com.oneorthree.phone.outbox.support;
 
+import org.testcontainers.containers.PostgreSQLContainer;
+
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -32,8 +34,17 @@ public final class RawUserLock implements AutoCloseable {
      * @throws SQLException 연결 실패
      */
     public static RawUserLock open() throws SQLException {
-        Connection connection = DriverManager.getConnection(OutboxTestPostgres.INSTANCE.getJdbcUrl(),
-                OutboxTestPostgres.INSTANCE.getUsername(), OutboxTestPostgres.INSTANCE.getPassword());
+        return open(OutboxTestPostgres.INSTANCE);
+    }
+
+    /**
+     * @param database 잠금을 쥘 PostgreSQL — 클래스 전용 컨테이너를 쓰는 테스트용
+     * @return 트랜잭션을 연 새 연결
+     * @throws SQLException 연결 실패
+     */
+    public static RawUserLock open(PostgreSQLContainer<?> database) throws SQLException {
+        Connection connection = DriverManager.getConnection(database.getJdbcUrl(),
+                database.getUsername(), database.getPassword());
         connection.setAutoCommit(false);
         int pid;
         try (Statement statement = connection.createStatement()) {
