@@ -203,6 +203,21 @@ public class GroupMemberService {
     }
 
     /**
+     * 계정 탈퇴가 USER outbox 를 쓰기 «전»에 탈퇴자가 참가한 OPEN 내기 회차 행을 id 오름차순으로 전부 잠근다
+     * (GROMO-893).
+     *
+     * <p>정산({@code GroupBetSettler#settle})은 회차 행을 잠근 채 커밋 직전에 참가자 USER aggregate 를 잠근다.
+     * 탈퇴가 세션 폐기로 USER(탈퇴자)를 먼저 쥐고 {@link #detachWithdrawnUser} 의 내기 해제에서 회차 행을
+     * 기다리면, 그 회차를 정산 중인 트랜잭션과 서로를 기다린다. 그룹 선점과 같은 이유로 USER 보다 앞에 둔다.
+     *
+     * @param user 호출자가 배타 잠금으로 로드한 탈퇴 대상
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockOpenBetSessionsForAccountWithdrawal(User user) {
+        groupBetService.lockOpenSessionsForAccountWithdrawal(user);
+    }
+
+    /**
      * 계정 탈퇴자를 그룹에서 떼어낸다 (GROMO-801, GROMO-1423 · 이동 GROMO-1656).
      *
      * <p><b>이 메서드가 여기 있는 이유.</b> 종전엔 {@code UserService.withdraw} 안에 이 네 단계가

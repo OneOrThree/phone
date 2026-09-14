@@ -1,5 +1,6 @@
 package com.oneorthree.phone.notification;
 
+import com.oneorthree.phone.notification.migration.NotificationCronReplayJob;
 import com.oneorthree.phone.notification.service.InactiveReturnNotificationService;
 import com.oneorthree.phone.notification.service.LeagueNotificationService;
 import com.oneorthree.phone.notification.service.NotificationBatchRetry;
@@ -35,35 +36,40 @@ public class NotificationBatchController implements NotificationBatchControllerD
     @Override
     @PostMapping("/notifications/league/results/run")
     public ResponseEntity<Void> runWeeklyResultNotifications() {
-        batchRetry.run(leagueNotificationService::sendWeeklyResultNotifications);
+        batchRetry.run(NotificationCronReplayJob.LEAGUE_WEEKLY_RESULTS.lockName(),
+                leagueNotificationService::sendWeeklyResultNotifications);
         return ResponseEntity.noContent().build();
     }
 
     @Override
     @PostMapping("/notifications/league/deadline/run")
     public ResponseEntity<Void> runDeadlineReminders() {
-        batchRetry.run(leagueNotificationService::sendDeadlineReminders);
+        batchRetry.run(NotificationCronReplayJob.LEAGUE_DEADLINE.lockName(),
+                leagueNotificationService::sendDeadlineReminders);
         return ResponseEntity.noContent().build();
     }
 
     @Override
     @PostMapping("/notifications/league/crisis/run")
     public ResponseEntity<Void> runSundayCrisisReminders() {
-        batchRetry.run(leagueNotificationService::sendSundayCrisisReminders);
+        batchRetry.run(NotificationCronReplayJob.LEAGUE_SUNDAY_CRISIS.lockName(),
+                leagueNotificationService::sendSundayCrisisReminders);
         return ResponseEntity.noContent().build();
     }
 
     @Override
     @PostMapping("/notifications/league/relegation-warning/run")
     public ResponseEntity<Void> runRelegationWarnings() {
-        batchRetry.run(leagueNotificationService::sendRelegationWarnings);
+        batchRetry.run(NotificationCronReplayJob.LEAGUE_RELEGATION_WARNING.lockName(),
+                leagueNotificationService::sendRelegationWarnings);
         return ResponseEntity.noContent().build();
     }
 
     @Override
     @PostMapping("/notifications/league/final-deadline/run")
     public ResponseEntity<Void> runFinalDeadlineReminders() {
-        batchRetry.run(leagueNotificationService::sendFinalDeadlineReminders);
+        batchRetry.run(NotificationCronReplayJob.LEAGUE_FINAL_DEADLINE.lockName(),
+                leagueNotificationService::sendFinalDeadlineReminders);
         return ResponseEntity.noContent().build();
     }
 

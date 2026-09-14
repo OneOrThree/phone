@@ -6,6 +6,8 @@ import com.oneorthree.phone.outbox.dto.IdempotencyRequest;
 import com.oneorthree.phone.outbox.dto.IdempotentOutcome;
 import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
 
+import java.util.Collection;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
@@ -61,6 +63,17 @@ public interface OutboxCommandPort {
      * @return 새로 발급된 단조 증가 값(1부터)
      */
     long allocateVersion(AggregateRef aggregate);
+
+    /**
+     * 여러 USER aggregate 행을 <b>정본 순서로 한 번에</b> 배타 잠금한다 — 번호는 발급하지 않는다 (GROMO-893).
+     *
+     * <p>한 트랜잭션에서 여러 사용자의 봉투를 적는 fan-out 이 적기 «전»에 부른다. 수신자마다
+     * {@link #allocateVersion} 을 루프 순서대로 부르면 순서가 다른 두 트랜잭션이 A→B · B→A 로 교착한다.
+     * 이미 이 트랜잭션이 쥔 행은 건너뛴다.
+     *
+     * @param userIds 잠글 사용자 — 중복·순서 무관
+     */
+    void lockUserAggregates(Collection<UUID> userIds);
 
     /**
      * 멱등 키로 명령을 한 번만 실행하고, 재시도에는 저장된 응답을 재생한다.

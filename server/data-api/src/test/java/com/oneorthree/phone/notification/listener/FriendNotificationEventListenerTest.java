@@ -60,7 +60,7 @@ class FriendNotificationEventListenerTest {
      * @return 구 경로 dispatcher
      */
     private static NotificationDispatcher legacyDispatcher() {
-        return new NotificationDispatcher(new NotificationDispatchProperties(), null, null);
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, null, null);
     }
 
     private static final UUID RECIPIENT_ID = UUID.randomUUID();

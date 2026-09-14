@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -160,11 +161,25 @@ public class FriendNotificationService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean enqueueFriendRequestNotification(UUID requestId, UUID receiverUserId, UUID senderUserId) {
+        return enqueue(friendRequestRequest(requestId, receiverUserId, senderUserId));
+    }
+
+    /**
+     * 신 경로의 요청 도착 요청 — <b>적지 않는다.</b> 같은 트랜잭션의 다른 사건과 합쳐 적는 쪽이 한 번에 잠근다.
+     *
+     * @param requestId      방금 만들어지거나 되살아난 친구 요청 행
+     * @param receiverUserId 알림을 받을 사람(요청을 받은 쪽)
+     * @param senderUserId   문구에 이름이 들어갈 사람(요청을 보낸 쪽)
+     * @return 요청. 행·수신자·상대가 없으면 비어 있다
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<NotificationRequest> friendRequestRequest(UUID requestId, UUID receiverUserId,
+                                                              UUID senderUserId) {
         Friendship row = friendshipRepository.findById(requestId).orElse(null);
         if (row == null) {
-            return false;
+            return Optional.empty();
         }
-        return enqueue(receiverUserId, senderUserId, NotificationKind.FRIEND_REQUEST,
+        return request(receiverUserId, senderUserId, NotificationKind.FRIEND_REQUEST,
                 requestId, occurredAtOf(row));
     }
 
@@ -180,17 +195,35 @@ public class FriendNotificationService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean enqueueFriendAcceptedNotification(UUID requesterUserId, UUID accepterUserId) {
+        return enqueue(friendAcceptedRequest(requesterUserId, accepterUserId));
+    }
+
+    /**
+     * 신 경로의 수락 요청 — <b>적지 않는다.</b> 같은 트랜잭션의 다른 사건과 합쳐 적는 쪽이 한 번에 잠근다.
+     *
+     * @param requesterUserId 알림을 받을 사람(먼저 요청했던 쪽)
+     * @param accepterUserId  문구에 이름이 들어갈 사람(수락한 쪽)
+     * @return 요청. 어느 한쪽이나 행이 없으면 비어 있다
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<NotificationRequest> friendAcceptedRequest(UUID requesterUserId, UUID accepterUserId) {
         User requester = userQueryService.findActive(requesterUserId).orElse(null);
         User accepter = userQueryService.findActive(accepterUserId).orElse(null);
         if (requester == null || accepter == null) {
-            return false;
+            return Optional.empty();
         }
         Friendship row = friendshipRepository.findByFromUserAndToUser(requester, accepter).orElse(null);
         if (row == null) {
-            return false;
+            return Optional.empty();
         }
-        return enqueue(requesterUserId, accepterUserId, NotificationKind.FRIEND_ACCEPTED,
+        return request(requesterUserId, accepterUserId, NotificationKind.FRIEND_ACCEPTED,
                 row.getId(), occurredAtOf(row));
+    }
+
+    private boolean enqueue(Optional<NotificationRequest> request) {
+        return request.isPresent()
+                && notificationDispatcher.enqueueAll(List.of(request.get())).get(0)
+                        == NotificationDispatchOutcome.QUEUED;
     }
 
     /**
@@ -218,7 +251,7 @@ public class FriendNotificationService {
     }
 
     /**
-     * 사건 하나를 적는다 — 상대 닉네임을 여기서 읽어 싣는다.
+     * 사건 하나의 요청을 만든다 — 상대 닉네임을 여기서 읽어 싣는다.
      *
      * <p>문구의 전부가 상대 닉네임인데 알림 서버는 코어 유저를 읽지 않는다(계약 §2). 상대가 없거나
      * 탈퇴자면 닉네임이 파기돼 <b>보낼 문구 자체가 없으므로</b> 적지 않는다.
@@ -228,26 +261,25 @@ public class FriendNotificationService {
      * @param kind          요청 도착인지 수락인지
      * @param requestId     친구 요청 행 id — 발송 직전 적격성 재확인의 판정 축이다(ⓜ · ㊩)
      * @param occurredAt    사건의 원본 발생 시각
-     * @return 적었으면 true
+     * @return 요청. 수신자·상대가 없으면 비어 있다
      */
-    private boolean enqueue(UUID recipientId, UUID counterpartId, NotificationKind kind,
-                            UUID requestId, Instant occurredAt) {
+    private Optional<NotificationRequest> request(UUID recipientId, UUID counterpartId, NotificationKind kind,
+                                                  UUID requestId, Instant occurredAt) {
         User recipient = userQueryService.findActive(recipientId).orElse(null);
         if (recipient == null) {
-            return false;
+            return Optional.empty();
         }
         String counterpartNickname = userQueryService.findActive(counterpartId)
                 .map(User::getNickname)
                 .orElse(null);
         if (counterpartNickname == null) {
-            return false;
+            return Optional.empty();
         }
-        return notificationDispatcher.enqueueOnly(new NotificationRequest(kind, recipientId,
+        return Optional.of(new NotificationRequest(kind, recipientId,
                 counterpartId, null, null, occurredAt, recipient.getLanguage(),
                 Map.of("counterpartUserId", counterpartId.toString(),
                         "counterpartNickname", counterpartNickname,
-                        "requestId", requestId.toString())))
-                == NotificationDispatchOutcome.QUEUED;
+                        "requestId", requestId.toString())));
     }
 
     /**

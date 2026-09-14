@@ -17,6 +17,12 @@ app:
   scheduling:
     enabled: false
 
+# USER aggregate 잠금 정본 순서 감시(GROMO-893) — 운영은 경고 로그·지표만 남기고, 테스트는 순서를 거스르는
+# 획득을 즉시 실패시켜 교착 가능한 새 경로가 병합 전에 드러나게 한다.
+outbox:
+  user-lock-order:
+    enforce: true
+
 decorator:
   datasource:
     p6spy:

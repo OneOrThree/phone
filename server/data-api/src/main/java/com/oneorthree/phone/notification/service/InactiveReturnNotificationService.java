@@ -2,6 +2,7 @@ package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -95,16 +96,24 @@ public class InactiveReturnNotificationService {
                 .findAllNotificationSettings(targets.stream().map(t -> t.user().getId()).toList()).stream()
                 .collect(Collectors.toMap(UserNotificationSettings::getUserId, Function.identity()));
 
+        List<NotificationRequest> outbox = new ArrayList<>();
         for (Target target : targets) {
             User user = target.user();
             UserNotificationSettings settings = settingsByUserId.get(user.getId());
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
             // 신 경로가 싣는 것은 단계(D3·D7·D14)뿐이다 — 세 단계의 문구는 kind x locale 템플릿이 갖는다.
-            notificationDispatcher.dispatch(user, settings,
-                    new NotificationRequest(NotificationKind.INACTIVE_RETURN, user.getId(), null, null,
-                            null, now, user.getLanguage(),
-                            Map.of("stage", target.stage().name())),
-                    target.stage().compose(soundEnabled), now);
+            NotificationRequest request = new NotificationRequest(NotificationKind.INACTIVE_RETURN, user.getId(),
+                    null, null, null, now, user.getLanguage(), Map.of("stage", target.stage().name()));
+            if (notificationDispatcher.isOutboxMode()) {
+                outbox.add(request);
+            } else {
+                notificationDispatcher.dispatch(user, settings, request, target.stage().compose(soundEnabled), now);
+            }
+        }
+        // 신 경로는 D3·D7·D14 를 이어 붙인 대상 전체를 판정 트랜잭션 밖의 짧은 조각으로 적는다(GROMO-893) —
+        // 단계 순서 그대로 한 트랜잭션에서 잠그면 정렬이 없는 수신자 순서가 그대로 잠금 순서가 된다.
+        if (!outbox.isEmpty()) {
+            notificationDispatcher.writeFanOut(outbox, NotificationFanOutUnit.RECIPIENT);
         }
         log.info("미접속 복귀 푸시 — 대상 {}건 처리 완료 (today={})", targets.size(), today);
     }

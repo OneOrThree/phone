@@ -35,7 +35,6 @@ import java.time.Instant;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -116,28 +115,40 @@ public class ChallengeCreatedNotificationService {
         if (challenge == null) {
             return 0;
         }
+        int queued = (int) notificationDispatcher.enqueueAll(createdRequests(challenge, event)).stream()
+                .filter(NotificationDispatchOutcome.QUEUED::equals)
+                .count();
+        log.info("챌린지 개설 사건 적재 — challengeId={}, {}건", challenge.getId(), queued);
+        return queued;
+    }
+
+    /**
+     * 신 경로의 개설 요청들 — 개설자를 뺀 생존 그룹원 전원. <b>적지 않는다.</b>
+     *
+     * <p>수신자 순서를 여기서 정하지 않는다. 적는 쪽({@code NotificationOutboxProducer#appendAll})이 같은
+     * 트랜잭션의 다른 사건 수신자까지 합친 집합을 정본 순서로 한 번에 잠근다 — 여기서 그룹 멤버만 정렬해
+     * 하나씩 적으면 그 트랜잭션이 이미 쥔 다른 USER 잠금과의 순서가 보장되지 않는다(GROMO-893).
+     *
+     * @param event 개설된 챌린지
+     * @return 요청들. 챌린지가 사라졌으면 빈 목록
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<NotificationRequest> createdRequests(GroupChallengeCreatedEvent event) {
+        GroupChallenge challenge = groupQueryService.findChallenge(event.challengeId()).orElse(null);
+        return challenge == null ? List.of() : createdRequests(challenge, event);
+    }
+
+    private List<NotificationRequest> createdRequests(GroupChallenge challenge, GroupChallengeCreatedEvent event) {
         Map<String, Object> mission = missionSnapshot(challenge);
-        int queued = 0;
-        // 수신자 순서를 «전역으로 같은 기준»으로 고정한다. OUTBOX 모드의 enqueueOnly 는 수신자마다
-        // aggregate_versions(USER, userId) 를 배타 잠금하고 그 잠금은 원 트랜잭션이 끝날 때까지
-        // 유지된다. findByGroup 에는 ORDER BY 가 없으므로, 공통 멤버가 여럿인 두 그룹에서 챌린지가
-        // 동시에 개설되면 한쪽이 A→B, 다른 쪽이 B→A 로 잠금을 잡아 PostgreSQL 이 한쪽을 deadlock
-        // 으로 중단한다 — 알림 하나가 아니라 «챌린지 개설 트랜잭션 전체»가 롤백된다.
-        // 정렬 기준은 userId 다. 그룹·멤버십 id 로 정렬하면 그룹마다 순서가 달라 같은 문제가 남는다.
-        for (GroupMember member : groupMemberRepository.findByGroup(challenge.getGroup()).stream()
-                .sorted(Comparator.comparing(candidate -> candidate.getUser().getId()))
-                .toList()) {
+        List<NotificationRequest> requests = new ArrayList<>();
+        for (GroupMember member : groupMemberRepository.findByGroup(challenge.getGroup())) {
             User user = member.getUser();
             if (user.isDeleted() || user.getId().equals(event.creatorUserId())) {
                 continue;
             }
-            if (notificationDispatcher.enqueueOnly(request(challenge, user, null, null, mission))
-                    == NotificationDispatchOutcome.QUEUED) {
-                queued++;
-            }
+            requests.add(request(challenge, user, null, null, mission));
         }
-        log.info("챌린지 개설 사건 적재 — challengeId={}, {}건", challenge.getId(), queued);
-        return queued;
+        return requests;
     }
 
     /**

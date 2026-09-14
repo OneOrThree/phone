@@ -12,6 +12,7 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
@@ -171,6 +172,7 @@ public class SessionOpenNotificationService {
                     ? openBundleMembers(due, joined, membersByGroupId)
                     : Map.of();
 
+            List<NotificationRequest> outbox = new ArrayList<>();
             for (GroupChallengeBetSession session : due) {
                 Instant slotAt = slotOf(slotStartOf(session));
                 for (User member : membersByGroupId.getOrDefault(
@@ -184,7 +186,7 @@ public class SessionOpenNotificationService {
                         // claim/render/send/flush 는 알림 서버가 소유한다(계약 §5).
                         // 이월 만료(참가 마감)를 함께 실어 보낸다 — 조용한 시간이 끝났을 때 이미
                         // 마감이면 「참여하세요」가 거짓말이 되므로 그때 버려야 한다(N44 단서).
-                        if (notificationDispatcher.enqueueOnly(new NotificationRequest(
+                        outbox.add(new NotificationRequest(
                                 NotificationKind.CHALLENGE_SESSION_OPEN, member.getId(),
                                 session.getId(), session.getGroup().getId(), slotAt, null,
                                 member.getLanguage(),
@@ -192,12 +194,7 @@ public class SessionOpenNotificationService {
                                         "stake", session.getStake(),
                                         "deferExpiresAt", session.getJoinClosesAt().toString(),
                                         "bundleMembers", bundleMembers.get(new BundleKey(
-                                                member.getId(), session.getGroup().getId(), slotAt)))))
-                                == NotificationDispatchOutcome.QUEUED) {
-                            queued++;
-                        } else {
-                            deduped++;
-                        }
+                                                member.getId(), session.getGroup().getId(), slotAt)))));
                         continue;
                     }
                     UUID rowId = Generators.timeBasedEpochRandomGenerator().generate();
@@ -210,6 +207,14 @@ public class SessionOpenNotificationService {
                     }
                     owned.add(new Claim(rowId, member, session));
                 }
+            }
+            if (!outbox.isEmpty()) {
+                // 회차·그룹을 걸쳐 같은 멤버가 되풀이된다. 그룹 조회 순서로 한 트랜잭션에서 잠그지 않고, 수신자
+                // 한 명의 사건(=그 사람의 묶음 선언) 전부를 한 조각에 담아 정본 순서로 잠근다(GROMO-893).
+                int written = (int) notificationDispatcher.writeFanOut(outbox, NotificationFanOutUnit.RECIPIENT)
+                        .stream().filter(NotificationDispatchOutcome.QUEUED::equals).count();
+                queued += written;
+                deduped += outbox.size() - written;
             }
         }
         // 이월 회수와 묶음 발송은 구 경로 전용이다 — 신 경로에서 부르면 Data 가 발송 이력을

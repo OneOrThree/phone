@@ -10,6 +10,7 @@ import com.oneorthree.phone.league.repository.LeagueTierConfigRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.league.support.LeagueWeek;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -26,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -111,6 +113,7 @@ public class LeagueNotificationService {
         Map<UUID, User> usersById = loadUsers(userIds);
         Map<UUID, UserNotificationSettings> settingsByUserId = loadSettings(userIds);
         int processedCount = 0;
+        List<NotificationRequest> outbox = new ArrayList<>();
         for (LeagueWeeklyResult result : page) {
             User user = usersById.get(result.getUser().getId());
             if (user == null) {
@@ -131,12 +134,13 @@ public class LeagueNotificationService {
             params.put("result", result.getResult().name());
             params.put("previousTierLevel", result.getPreviousTierLevel());
             params.put("newTierLevel", result.getNewTierLevel());
-            notificationDispatcher.dispatch(user, settings,
+            dispatchOrCollect(outbox, user, settings,
                     new NotificationRequest(NotificationKind.LEAGUE_WEEKLY_RESULT, user.getId(),
                             null, null, null, now, localeOf(user), params),
                     message, now);
             processedCount++;
         }
+        writeOutbox(outbox);
         return processedCount;
     }
 
@@ -297,6 +301,7 @@ public class LeagueNotificationService {
         Map<UUID, User> usersById = loadUsers(userIds);
         Map<UUID, UserNotificationSettings> settingsByUserId = loadSettings(userIds);
         int processedCount = 0;
+        List<NotificationRequest> outbox = new ArrayList<>();
         for (LeagueRankingRow row : page) {
             User user = usersById.get(row.userId());
             if (user == null) {
@@ -312,12 +317,13 @@ public class LeagueNotificationService {
             if (crisis == null) {
                 continue; // 안전권(승급 확정권/최상위) → 무발송
             }
-            notificationDispatcher.dispatch(user, settings,
+            dispatchOrCollect(outbox, user, settings,
                     new NotificationRequest(crisis.kind(), row.userId(), null, null, null, now,
                             localeOf(user), Map.of("shortfallSeconds", crisis.shortfallSeconds())),
                     crisis.message(), now);
             processedCount++;
         }
+        writeOutbox(outbox);
         return processedCount;
     }
 
@@ -379,6 +385,7 @@ public class LeagueNotificationService {
         Map<UUID, User> usersById = loadUsers(userIds);
         Map<UUID, UserNotificationSettings> settingsByUserId = loadSettings(userIds);
         int processedCount = 0;
+        List<NotificationRequest> outbox = new ArrayList<>();
         for (int index = 0; index < page.size(); index++) {
             LeagueRankingRow row = page.get(index);
             UUID userId = row.userId();
@@ -389,12 +396,13 @@ public class LeagueNotificationService {
             UserNotificationSettings settings = settingsByUserId.get(userId);
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
             int rank = rankOffset + index + 1;
-            notificationDispatcher.dispatch(user, settings,
+            dispatchOrCollect(outbox, user, settings,
                     new NotificationRequest(kind, userId, null, null, null, now, localeOf(user),
                             Map.of("rank", rank)),
                     composer.compose(rank, soundEnabled), now);
             processedCount++;
         }
+        writeOutbox(outbox);
         return processedCount;
     }
 
@@ -402,6 +410,40 @@ public class LeagueNotificationService {
     @FunctionalInterface
     private interface DeadlineMessageComposer {
         PushMessage compose(int rank, boolean soundEnabled);
+    }
+
+    /**
+     * 신 경로에서 모은 요청을 판정 트랜잭션 «밖»의 짧은 조각으로 적는다 (GROMO-893).
+     *
+     * <p>판정은 이 서비스의 트랜잭션 스냅샷에서 끝났다. 그 트랜잭션에서 적으면 수신자 USER 잠금을 배치가 끝날
+     * 때까지 쥐고, 페이지마다 다른 정렬(순위·userId·단계)로 잡혀 다른 배치·요청과 교착하며, 그동안 같은 사용자의
+     * 로그인·토큰 갱신이 멈춘다. 조각은 자기 수신자만 정본 순서로 잠그고 커밋과 함께 놓는다.
+     *
+     * @param requests 이번 페이지의 요청
+     */
+    private void writeOutbox(List<NotificationRequest> requests) {
+        if (!requests.isEmpty()) {
+            notificationDispatcher.writeFanOut(requests, NotificationFanOutUnit.RECIPIENT);
+        }
+    }
+
+    /**
+     * 구 경로는 곧장 FCM 으로 보내고, 신 경로는 요청을 모은다 — 모은 요청은 {@link #writeOutbox} 가 적는다.
+     *
+     * @param outbox   신 경로에서 모을 목록
+     * @param user     수신자
+     * @param settings 구 경로의 알림 설정
+     * @param request  판정이 끝난 요청
+     * @param message  구 경로 문구
+     * @param now      구 경로의 조용한 시간 판정 기준 시각
+     */
+    private void dispatchOrCollect(List<NotificationRequest> outbox, User user, UserNotificationSettings settings,
+                                   NotificationRequest request, PushMessage message, Instant now) {
+        if (notificationDispatcher.isOutboxMode()) {
+            outbox.add(request);
+            return;
+        }
+        notificationDispatcher.dispatch(user, settings, request, message, now);
     }
 
     private Map<UUID, User> loadUsers(Collection<UUID> userIds) {

@@ -4,6 +4,7 @@ import com.oneorthree.phone.notification.migration.NotificationCronReplayJob;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.Map;
 
@@ -12,6 +13,8 @@ public final class NotificationExpiry {
     public static final String OCCURRED_AT = "dedupAt";
     public static final String EXPIRES_AT = "expiresAt";
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    /** 일 목표 마감 크론 시각 — {@code NotificationScheduler#sendChallengeDurationEndNotifications}. */
+    private static final LocalTime DURATION_END_CRON = LocalTime.of(9, 0);
 
     private NotificationExpiry() {
     }
@@ -40,7 +43,7 @@ public final class NotificationExpiry {
         if (validity == null) {
             return null;
         }
-        Instant expiry = occurredAt.plus(validity);
+        Instant expiry = validityBase(kind, occurredAt).plus(validity);
         var date = occurredAt.atZone(KST).toLocalDate();
         Instant calendarLimit = switch (kind) {
             case LEAGUE_DEADLINE, LEAGUE_DEADLINE_D1, LEAGUE_RELEGATION_WARNING,
@@ -51,6 +54,27 @@ public final class NotificationExpiry {
             default -> expiry;
         };
         return expiry.isBefore(calendarLimit) ? expiry : calendarLimit;
+    }
+
+    /**
+     * 유효기간을 재기 시작하는 시각.
+     *
+     * <p>일 목표 마감({@code CHALLENGE_ENDED})의 원사건 시각은 <b>회차 종료(자정)</b>다 — 결정적 키·묶음 슬롯이
+     * 실행 시각이 아닌 회차에 고정돼야 같은 회차가 한 키로 접힌다(GROMO-893 ⑦). 그런데 재생 계약의 유효기간
+     * ({@link NotificationCronReplayJob#CHALLENGE_DURATION_END})은 09:00 크론 슬롯부터 잰다. 자정부터 재면 같은
+     * 알림의 수명이 23:00 에서 14:00 으로 줄어든다. 그래서 그날 09:00 이전의 원사건 시각은 09:00 으로 올려 잰다 —
+     * 실행 시각을 원사건 시각으로 실었던 이전 사건과 같은 만료가 나온다.
+     *
+     * @param kind       알림 종류
+     * @param occurredAt 원사건 시각
+     * @return 유효기간의 시작
+     */
+    private static Instant validityBase(NotificationKind kind, Instant occurredAt) {
+        if (kind != NotificationKind.CHALLENGE_ENDED) {
+            return occurredAt;
+        }
+        Instant cronSlot = occurredAt.atZone(KST).toLocalDate().atTime(DURATION_END_CRON).atZone(KST).toInstant();
+        return occurredAt.isBefore(cronSlot) ? cronSlot : occurredAt;
     }
 
     /** @param params 저장되는 원문 params. 원본 사건 시각이 있을 때만 그 값으로 메타데이터를 만든다. */

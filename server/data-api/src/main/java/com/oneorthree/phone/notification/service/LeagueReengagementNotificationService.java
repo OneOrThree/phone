@@ -2,6 +2,7 @@ package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -27,6 +28,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -138,6 +140,7 @@ public class LeagueReengagementNotificationService {
         Map<UUID, User> usersById = loadUsers(targetIds);
         Map<UUID, UserNotificationSettings> settingsByUserId = loadSettings(targetIds);
         int processedCount = 0;
+        List<NotificationRequest> outbox = new ArrayList<>();
         for (UUID userId : targetIds) {
             User user = usersById.get(userId);
             if (user == null) {
@@ -146,12 +149,13 @@ public class LeagueReengagementNotificationService {
             UserNotificationSettings settings = settingsByUserId.get(userId);
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
             // 렌더 입력이 없는 유일한 kind — 문구가 상수다. params 를 비워 두는 것이 계약이다.
-            notificationDispatcher.dispatch(user, settings,
+            dispatchOrCollect(outbox, user, settings,
                     new NotificationRequest(NotificationKind.MISSED_FOCUS_TODAY, userId, null, null,
                             null, now, user.getLanguage(), Map.of()),
                     composeMissedFocusToday(soundEnabled), now);
             processedCount++;
         }
+        writeOutbox(outbox);
         return processedCount;
     }
 
@@ -211,6 +215,7 @@ public class LeagueReengagementNotificationService {
                 .findUserIdsWithLiveSession(userIds, now.minus(LIVE_SESSION_MAX_AGE)));
         Map<UUID, UserNotificationSettings> settingsByUserId = loadSettings(userIds);
         int processedCount = 0;
+        List<NotificationRequest> outbox = new ArrayList<>();
         for (UserStreak streak : chunk) {
             User user = usersById.get(streak.getUserId());
             if (user == null) {
@@ -224,14 +229,49 @@ public class LeagueReengagementNotificationService {
             }
             UserNotificationSettings settings = settingsByUserId.get(streak.getUserId());
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
-            notificationDispatcher.dispatch(user, settings,
+            dispatchOrCollect(outbox, user, settings,
                     new NotificationRequest(NotificationKind.STREAK_AT_RISK, streak.getUserId(), null,
                             null, null, now, user.getLanguage(),
                             Map.of("streakCount", streak.getStreakCount())),
                     composeStreakAtRisk(streak.getStreakCount(), soundEnabled), now);
             processedCount++;
         }
+        writeOutbox(outbox);
         return processedCount;
+    }
+
+    /**
+     * 신 경로에서 모은 요청을 판정 트랜잭션 «밖»의 짧은 조각으로 적는다 (GROMO-893).
+     *
+     * <p>판정은 이 서비스의 트랜잭션 스냅샷에서 끝났다. 그 트랜잭션에서 적으면 수신자 USER 잠금을 배치가 끝날
+     * 때까지 쥐고, 페이지마다 다른 정렬(순위·userId·단계)로 잡혀 다른 배치·요청과 교착하며, 그동안 같은 사용자의
+     * 로그인·토큰 갱신이 멈춘다. 조각은 자기 수신자만 정본 순서로 잠그고 커밋과 함께 놓는다.
+     *
+     * @param requests 이번 페이지의 요청
+     */
+    private void writeOutbox(List<NotificationRequest> requests) {
+        if (!requests.isEmpty()) {
+            notificationDispatcher.writeFanOut(requests, NotificationFanOutUnit.RECIPIENT);
+        }
+    }
+
+    /**
+     * 구 경로는 곧장 FCM 으로 보내고, 신 경로는 요청을 모은다 — 모은 요청은 {@link #writeOutbox} 가 적는다.
+     *
+     * @param outbox   신 경로에서 모을 목록
+     * @param user     수신자
+     * @param settings 구 경로의 알림 설정
+     * @param request  판정이 끝난 요청
+     * @param message  구 경로 문구
+     * @param now      구 경로의 조용한 시간 판정 기준 시각
+     */
+    private void dispatchOrCollect(List<NotificationRequest> outbox, User user, UserNotificationSettings settings,
+                                   NotificationRequest request, PushMessage message, Instant now) {
+        if (notificationDispatcher.isOutboxMode()) {
+            outbox.add(request);
+            return;
+        }
+        notificationDispatcher.dispatch(user, settings, request, message, now);
     }
 
     private Map<UUID, User> loadUsers(Collection<UUID> userIds) {

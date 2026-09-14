@@ -84,6 +84,9 @@ public class AccountWithdrawalService {
         // 챌린지 생성은 그룹을 잠근 채 커밋 전 수신자 USER outbox를 적는다. 그 반대 순서를
         // 만들지 않도록 세션 폐기·USER 버전 발급 전에 모든 관련 그룹을 UUID 순서로 선점한다.
         groupMemberService.lockGroupsForAccountWithdrawal(user);
+        // 정산은 회차 행 → (BEFORE_COMMIT) 참가자 USER 순서로 잠근다. 아래 세션 폐기가 USER(탈퇴자)를 쥔 뒤
+        // 내기 해제에서야 회차 행을 기다리면 정산과 AB-BA 로 교착한다 — 그룹과 같이 USER 보다 먼저 잠근다(GROMO-893).
+        groupMemberService.lockOpenBetSessionsForAccountWithdrawal(user);
 
         // ── 위성 경계 정리 (A22 ⓐ · ㊼ · ㊹ · ㊲) ──────────────────────────────
         // 여기가 «같은 트랜잭션»이어야 하는 이유: tombstone·세션 폐기·토큰 삭제가 커밋과 갈라지면,

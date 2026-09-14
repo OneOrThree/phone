@@ -124,11 +124,22 @@ public class BetWonNotificationService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean enqueueWonNotification(GroupBetWonEvent event) {
-        return notificationDispatcher.enqueueOnly(new NotificationRequest(
+        return notificationDispatcher.enqueueAll(List.of(wonRequest(event))).get(0)
+                == NotificationDispatchOutcome.QUEUED;
+    }
+
+    /**
+     * 신 경로의 승리 확정 요청 — <b>적지 않는다.</b> 같은 트랜잭션의 다른 사건과 합쳐 적는 쪽이 한 번에 잠근다.
+     *
+     * @param event 승리가 확정된 참가자
+     * @return 요청
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public NotificationRequest wonRequest(GroupBetWonEvent event) {
+        return new NotificationRequest(
                 NotificationKind.BET_WON, event.userId(), event.sessionId(), event.groupId(),
                 null, null, localeOf(event.userId()),
-                Map.of("challengeId", event.challengeId().toString())))
-                == NotificationDispatchOutcome.QUEUED;
+                Map.of("challengeId", event.challengeId().toString()));
     }
 
     /**
