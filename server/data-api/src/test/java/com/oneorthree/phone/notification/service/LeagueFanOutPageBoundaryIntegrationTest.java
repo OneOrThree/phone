@@ -5,6 +5,7 @@ import com.oneorthree.phone.focus.repository.domain.UserStreak;
 import com.oneorthree.phone.notification.migration.NotificationCronReplayJob;
 import com.oneorthree.phone.notification.migration.NotificationCronReplayService;
 import com.oneorthree.phone.notification.producer.NotificationEventKey;
+import com.oneorthree.phone.notification.producer.NotificationFanOutWriter;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.outbox.support.PostgresLockWaits;
@@ -156,14 +157,14 @@ class LeagueFanOutPageBoundaryIntegrationTest {
     }
 
     /**
-     * 조각 트랜잭션이 교착 희생자가 되면 배치 전체를 원래 슬롯으로 <b>새 트랜잭션</b>에서 다시 돈다.
+     * 조각 트랜잭션이 교착 희생자가 되면 그 조각만 <b>같은 요청</b>으로 새 트랜잭션에서 다시 적는다 — 재판정하지 않는다.
      *
      * <p>재생 진입점은 실제 시계로 유효기간을 보므로 이 사용자들은 «오늘»의 통계를 갖는다. 다른 트랜잭션이 가장 뒤
      * 사용자를 쥔 채, 조각이 앞 사용자를 쥐고 기다리기 시작하면 앞 사용자를 요청해 순환을 만든다. 먼저 기다린 조각이
      * {@code 40P01} 로 끊기고, 다시 돈 배치는 결정적 키 덕분에 사용자마다 사건을 정확히 한 건 남긴다.
      */
     @Test
-    @DisplayName("교착 희생자가 된 조각은 원래 슬롯으로 새 트랜잭션에서 다시 돌고 사건은 중복되지 않는다")
+    @DisplayName("교착 희생자가 된 조각은 같은 요청으로 새 트랜잭션에서 다시 적히고 사건은 중복되지 않는다")
     void aDeadlockVictimChunkIsRetriedInANewTransactionWithoutDuplicates() throws Exception {
         Instant missedAt = Instant.now().minusSeconds(60);
         LocalDate today = LocalDate.ofInstant(missedAt, KST);
@@ -186,6 +187,7 @@ class LeagueFanOutPageBoundaryIntegrationTest {
         PostgresLockWaits.ensureUserRows(jdbc, users);
         String job = NotificationCronReplayJob.MISSED_FOCUS_TODAY.lockName();
         double retriesBefore = retries(job);
+        double chunkRetriesBefore = chunkRetries();
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
         NotificationCronReplayService.ReplayResult result;
@@ -205,7 +207,8 @@ class LeagueFanOutPageBoundaryIntegrationTest {
         }
 
         assertThat(result.outcome()).isEqualTo(NotificationCronReplayService.Outcome.REPLAYED);
-        assertThat(retries(job)).isEqualTo(retriesBefore + 1);
+        assertThat(chunkRetries()).isEqualTo(chunkRetriesBefore + 1);
+        assertThat(retries(job)).as("배치 재판정은 돌지 않는다").isEqualTo(retriesBefore);
         assertThat(meterRegistry.find(NotificationBatchRetry.EXHAUSTED_METRIC).tag("job", job).counter()).isNull();
         for (UUID user : users) {
             assertThat(jdbc.queryForList("SELECT event_id FROM event_outbox WHERE user_id=?"
@@ -214,6 +217,12 @@ class LeagueFanOutPageBoundaryIntegrationTest {
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM event_outbox WHERE user_id::text = ANY(?)", Long.class,
                 (Object) users.stream().map(UUID::toString).toArray(String[]::new))).isEqualTo(3L);
+    }
+
+    private double chunkRetries() {
+        Counter counter = meterRegistry.find(NotificationFanOutWriter.CHUNK_RETRY_METRIC)
+                .tags("sqlState", "40P01").counter();
+        return counter == null ? 0 : counter.count();
     }
 
     private double retries(String job) {

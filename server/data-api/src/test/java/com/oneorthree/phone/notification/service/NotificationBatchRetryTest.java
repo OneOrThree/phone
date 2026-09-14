@@ -1,6 +1,8 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
+import com.oneorthree.phone.notification.producer.NotificationFanOutPartiallyCommittedException;
+import com.oneorthree.phone.notification.producer.NotificationFanOutProgress;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
@@ -35,7 +37,8 @@ class NotificationBatchRetryTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<MeterRegistry> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(registry);
-        return new NotificationBatchRetry(properties, Clock.fixed(SLOT, ZoneOffset.UTC), provider);
+        return new NotificationBatchRetry(properties, Clock.fixed(SLOT, ZoneOffset.UTC), provider,
+                new NotificationFanOutProgress());
     }
 
     @ParameterizedTest
@@ -90,6 +93,28 @@ class NotificationBatchRetryTest {
 
         assertThat(calls).containsExactly(SLOT);
         assertThat(registry.getMeters()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("커밋된 조각이 있다는 실패는 다시 판정하지 않고 원래 슬롯의 재생 좌표를 실어 올린다")
+    void aPartiallyCommittedBatchIsNeverRejudged() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        List<Instant> calls = new ArrayList<>();
+
+        assertThatThrownBy(() -> retry(true, registry).run(JOB, slot -> {
+            calls.add(slot);
+            throw new NotificationFanOutPartiallyCommittedException(2, "40P01",
+                    new IllegalStateException(new SQLException("deadlock", "40P01")));
+        })).isInstanceOfSatisfying(NotificationFanOutPartiallyCommittedException.class, partial -> {
+            assertThat(partial.getReplayJob()).isEqualTo(JOB);
+            assertThat(partial.getReplaySlot()).isEqualTo(SLOT);
+            assertThat(partial.getMessage()).contains("replay(\"" + JOB + "\", Instant.parse(\"" + SLOT + "\"))");
+        });
+
+        assertThat(calls).containsExactly(SLOT);
+        assertThat(registry.counter(NotificationBatchRetry.PARTIAL_COMMIT_METRIC, "job", JOB, "sqlState", "40P01")
+                .count()).isEqualTo(1.0);
+        assertThat(registry.find(NotificationBatchRetry.RETRY_METRIC).counter()).isNull();
     }
 
     @Test

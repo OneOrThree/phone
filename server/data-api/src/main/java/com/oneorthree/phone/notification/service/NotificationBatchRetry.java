@@ -1,26 +1,33 @@
 package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
+import com.oneorthree.phone.notification.producer.NotificationFanOutPartiallyCommittedException;
+import com.oneorthree.phone.notification.producer.NotificationFanOutProgress;
+import com.oneorthree.phone.notification.producer.NotificationLockConflicts;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Set;
 import java.util.function.Consumer;
 
 /**
- * 알림 배치의 <b>잠금 충돌</b>은 트랜잭션 전체를 원래 슬롯으로 다시 실행한다 (GROMO-893).
+ * 알림 배치의 <b>잠금 충돌</b>은 트랜잭션 전체를 원래 슬롯으로 다시 실행한다 — 단, 이미 커밋된 조각이 없을 때만
+ * (GROMO-893).
  *
  * <h2>무엇을 다시 도는가</h2>
  * {@code 40001}(RR 판정 스냅샷 이후의 동시 변경)과 {@code 40P01}(교착 희생자) 둘 다다. 둘 다 PostgreSQL 이
- * 그 트랜잭션 «전체»를 되돌린 뒤 올리는 신호이고, 결정적 사건 키가 있어 이미 커밋된 조각의 사건은 재실행에서
- * 중복으로 접힌다. 교착만 빼면 USER 잠금 순서를 어기는 경로 하나 때문에 그 슬롯의 알림이 수동 재생 전까지
- * 통째로 사라진다.
+ * 그 트랜잭션 «전체»를 되돌린 뒤 올리는 신호다. 조각 쓰기의 잠금 충돌은 {@code NotificationFanOutWriter} 가 같은
+ * 요청으로 먼저 다시 적으므로, 여기까지 오는 것은 판정 트랜잭션 자체의 충돌이거나 조각 재시도가 소진된 경우다.
+ *
+ * <h2>커밋된 조각이 있으면 다시 판정하지 않는다</h2>
+ * 배치는 판정 스냅샷 하나로 후보를 고르고 적기만 짧은 조각으로 나눈다. 조각 하나라도 커밋된 뒤 새 스냅샷으로 다시
+ * 판정하면 그사이 상태가 바뀐 사용자에게 <b>다른 종류</b>의 알림이 같은 슬롯에 한 번 더 적힌다 — 결정적 키가 종류를
+ * 축으로 가져 접히지 않는다. 그래서 이 배치 실행에서 커밋된 조각이 있으면 재시도하지 않고
+ * {@code notification.batch.partial_commit} 지표와 원래 슬롯의 재생 좌표를 남긴 채 실패를 올린다.
  *
  * <h2>구 경로는 다시 돌지 않는다</h2>
  * {@code LEGACY} 는 FCM 을 직접 부른다. 이미 나간 푸시는 롤백되지 않으므로 다시 돌면 같은 사용자에게 두 번 간다.
@@ -43,18 +50,20 @@ public class NotificationBatchRetry {
     /** 재시도 소진 지표. 태그: {@code job}·{@code sqlState}. */
     public static final String EXHAUSTED_METRIC = "notification.batch.retry.exhausted";
 
-    /** 트랜잭션 전체가 되돌려진 뒤 올라오는 SQLSTATE — 직렬화 실패·교착 희생자. */
-    private static final Set<String> RETRYABLE_SQL_STATES = Set.of("40001", "40P01");
+    /** 커밋된 조각이 있어 재판정을 포기한 지표. 태그: {@code job}·{@code sqlState}. */
+    public static final String PARTIAL_COMMIT_METRIC = "notification.batch.partial_commit";
 
     private final NotificationDispatchProperties properties;
     private final Clock clock;
     private final ObjectProvider<MeterRegistry> meterRegistry;
+    private final NotificationFanOutProgress progress;
 
     public NotificationBatchRetry(NotificationDispatchProperties properties, Clock clock,
-                                  ObjectProvider<MeterRegistry> meterRegistry) {
+                                  ObjectProvider<MeterRegistry> meterRegistry, NotificationFanOutProgress progress) {
         this.properties = properties;
         this.clock = clock;
         this.meterRegistry = meterRegistry;
+        this.progress = progress;
     }
 
     /**
@@ -73,6 +82,7 @@ public class NotificationBatchRetry {
      * @param job   ShedLock 이름 — 소진 시 재생 좌표로 남는다
      * @param slot  원래 슬롯
      * @param batch 슬롯을 받아 한 번 실행하는 배치
+     * @throws NotificationFanOutPartiallyCommittedException 커밋된 조각이 있어 재판정하지 않을 때 — 재생 좌표를 싣는다
      */
     public void run(String job, Instant slot, Consumer<Instant> batch) {
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -80,27 +90,43 @@ public class NotificationBatchRetry {
             throw new IllegalStateException("알림 배치 재시도는 트랜잭션 밖에서 시작해야 합니다");
         }
         int limit = properties.isOutboxMode() ? MAX_ATTEMPTS : 1;
-        for (int attempt = 1; ; attempt++) {
-            try {
-                batch.accept(slot);
-                return;
-            } catch (RuntimeException failure) {
-                String sqlState = retryableSqlState(failure);
-                if (sqlState == null || !properties.isOutboxMode()) {
-                    throw failure;
+        try (NotificationFanOutProgress.Scope scope = progress.open()) {
+            for (int attempt = 1; ; attempt++) {
+                try {
+                    batch.accept(slot);
+                    return;
+                } catch (NotificationFanOutPartiallyCommittedException partial) {
+                    throw partialCommit(job, slot, partial);
+                } catch (RuntimeException failure) {
+                    String sqlState = NotificationLockConflicts.sqlStateOf(failure);
+                    if (sqlState == null || !properties.isOutboxMode()) {
+                        throw failure;
+                    }
+                    if (scope.committedChunks() > 0) {
+                        throw partialCommit(job, slot, new NotificationFanOutPartiallyCommittedException(
+                                scope.committedChunks(), sqlState, failure));
+                    }
+                    if (attempt >= limit) {
+                        count(EXHAUSTED_METRIC, job, sqlState);
+                        log.error("알림 배치 재시도 소진 — job={}, 원래 슬롯={}, sqlState={}, 시도 {}회."
+                                + " 같은 슬롯으로 재생: NotificationCronReplayService.replay(\"{}\", Instant.parse(\"{}\"))",
+                                job, slot, sqlState, attempt, job, slot, failure);
+                        throw failure;
+                    }
+                    count(RETRY_METRIC, job, sqlState);
+                    log.warn("알림 배치 잠금 충돌 재시도 — job={}, slot={}, sqlState={}, attempt={}",
+                            job, slot, sqlState, attempt);
                 }
-                if (attempt >= limit) {
-                    count(EXHAUSTED_METRIC, job, sqlState);
-                    log.error("알림 배치 재시도 소진 — job={}, 원래 슬롯={}, sqlState={}, 시도 {}회."
-                            + " 같은 슬롯으로 재생: NotificationCronReplayService.replay(\"{}\", Instant.parse(\"{}\"))",
-                            job, slot, sqlState, attempt, job, slot, failure);
-                    throw failure;
-                }
-                count(RETRY_METRIC, job, sqlState);
-                log.warn("알림 배치 잠금 충돌 재시도 — job={}, slot={}, sqlState={}, attempt={}",
-                        job, slot, sqlState, attempt);
             }
         }
+    }
+
+    private RuntimeException partialCommit(String job, Instant slot,
+                                           NotificationFanOutPartiallyCommittedException partial) {
+        count(PARTIAL_COMMIT_METRIC, job, partial.getSqlState());
+        NotificationFanOutPartiallyCommittedException located = partial.withReplayCoordinates(job, slot);
+        log.error(located.getMessage(), located);
+        return located;
     }
 
     private void count(String metric, String job, String sqlState) {
@@ -108,15 +134,5 @@ public class NotificationBatchRetry {
         if (registry != null) {
             registry.counter(metric, "job", job, "sqlState", sqlState).increment();
         }
-    }
-
-    /** @return 원인 사슬에서 찾은 재시도 대상 SQLSTATE. 없으면 {@code null} */
-    private static String retryableSqlState(Throwable failure) {
-        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-            if (cause instanceof SQLException sql && RETRYABLE_SQL_STATES.contains(sql.getSQLState())) {
-                return sql.getSQLState();
-            }
-        }
-        return null;
     }
 }

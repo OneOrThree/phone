@@ -1,6 +1,10 @@
 package com.oneorthree.phone.notification.producer;
 
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
+import io.micrometer.core.instrument.MeterRegistry;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -25,26 +29,53 @@ import java.util.UUID;
  * 행에서 멈춘다.
  *
  * <p>그래서 판정(후보 스냅샷)은 호출부 트랜잭션에 그대로 두고, 적기만 조각마다 새 트랜잭션에서 한다.
- * 각 조각은 자기 수신자만 정본 순서로 잠그고 커밋과 함께 놓는다 — 조각이 쥔 잠금은 언제나 한 조각
- * 분량이다. 결정적 사건 키가 있으므로 일부 조각만 커밋된 뒤 배치 전체가 다시 돌아도 이미 적힌 사건은
- * 중복으로 접힌다.
+ * 각 조각은 자기 수신자만 정본 순서로 잠그고 커밋과 함께 놓는다 — 조각이 쥔 잠금은 언제나 한 조각 분량이다.
+ *
+ * <h2>실패한 조각은 «같은 요청»으로 다시 적는다 — 재판정하지 않는다</h2>
+ * 조각이 {@code 40001}·{@code 40P01} 로 롤백되면 이미 판정된 그 요청들을 새 트랜잭션에서 다시 적는다. 배치 전체를
+ * 새 스냅샷으로 다시 돌리면, 앞 조각이 커밋한 사용자의 상태가 그사이 바뀌었을 때 <b>다른 종류</b>의 알림이 같은
+ * 슬롯에 또 적힌다(강등 경고를 받은 사용자에게 마감 D-1 이 한 번 더). 조각 트랜잭션이 없던 때에는 앞 페이지도
+ * 함께 롤백됐으므로 «RR 후보 판정의 의미»가 그 성질을 지켰다 — 조각 재시도가 그것을 이어받는다.
+ *
+ * <p>재시도가 소진됐을 때 이 배치에서 이미 커밋된 조각이 있으면 {@link NotificationFanOutPartiallyCommittedException}
+ * 을 던져 배치 재시도가 재판정하지 못하게 한다. 아직 아무 조각도 커밋되지 않았으면 원래 실패를 그대로 올린다 — 그때는
+ * 부분 쓰기가 없으므로 배치 전체를 다시 판정해도 안전하다.
  *
  * <h2>producer 를 {@code REQUIRES_NEW} 로 만들지 않는다</h2>
  * 요청 경로(챌린지 개설·정산·친구 요청)는 도메인 커밋과 사건이 <b>같은 트랜잭션</b>이어야 한다. 새
  * 트랜잭션 경계는 «판정 전용 배치» 인 이 클래스에만 둔다.
  */
+@Slf4j
 @Component
 public class NotificationFanOutWriter {
 
     /** 한 조각이 잠그는 수신자 수 상한. */
     static final int CHUNK_RECIPIENTS = 200;
 
+    /** 조각을 같은 요청으로 다시 적을 때마다 올리는 지표. 태그: {@code sqlState}. */
+    public static final String CHUNK_RETRY_METRIC = "notification.fanout.chunk.retry";
+
+    /** 조각 재시도 소진 지표. 태그: {@code sqlState}. */
+    public static final String CHUNK_EXHAUSTED_METRIC = "notification.fanout.chunk.retry.exhausted";
+
     private final NotificationOutboxProducer producer;
     private final TransactionTemplate chunkTransaction;
+    private final NotificationFanOutProgress progress;
+    private final ObjectProvider<MeterRegistry> meterRegistry;
+    private final int maxAttempts;
 
     public NotificationFanOutWriter(NotificationOutboxProducer producer,
-                                    PlatformTransactionManager transactionManager) {
+                                    PlatformTransactionManager transactionManager,
+                                    NotificationFanOutProgress progress,
+                                    ObjectProvider<MeterRegistry> meterRegistry,
+                                    @Value("${notification.fanout.chunk-max-attempts:3}") int maxAttempts) {
+        if (maxAttempts < 1) {
+            throw new IllegalArgumentException("조각 쓰기 시도 횟수는 1 이상이어야 한다: " + maxAttempts);
+        }
         this.producer = producer;
+        this.progress = progress;
+        this.meterRegistry = meterRegistry;
+        this.maxAttempts = maxAttempts;
         this.chunkTransaction = new TransactionTemplate(transactionManager);
         // 판정 트랜잭션이 열려 있어도 조각은 그 밖에서 커밋해야 잠금이 조각 끝에서 풀린다.
         this.chunkTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -59,6 +90,7 @@ public class NotificationFanOutWriter {
      * @param requests 판정이 끝난 요청
      * @param unit     갈라서는 안 되는 묶음 단위
      * @return 입력 순서 그대로의 결과 — {@code QUEUED} 또는 {@code DUPLICATE}
+     * @throws NotificationFanOutPartiallyCommittedException 이 배치에서 앞 조각이 커밋된 뒤 조각 재시도가 소진됐을 때
      */
     public List<NotificationDispatchOutcome> write(List<NotificationRequest> requests, NotificationFanOutUnit unit) {
         NotificationDispatchOutcome[] outcomes = new NotificationDispatchOutcome[requests.size()];
@@ -66,6 +98,7 @@ public class NotificationFanOutWriter {
         for (int index = 0; index < requests.size(); index++) {
             units.computeIfAbsent(unit.keyOf(requests.get(index)), ignored -> new ArrayList<>()).add(index);
         }
+        int committedHere = 0;
         List<Integer> chunk = new ArrayList<>();
         Set<UUID> recipients = new LinkedHashSet<>();
         for (List<Integer> members : units.values()) {
@@ -74,7 +107,8 @@ public class NotificationFanOutWriter {
             Set<UUID> merged = new LinkedHashSet<>(recipients);
             merged.addAll(unitRecipients);
             if (!chunk.isEmpty() && merged.size() > CHUNK_RECIPIENTS) {
-                writeChunk(requests, chunk, outcomes);
+                writeChunk(requests, chunk, outcomes, committedHere);
+                committedHere++;
                 chunk = new ArrayList<>();
                 recipients = new LinkedHashSet<>();
             }
@@ -82,19 +116,53 @@ public class NotificationFanOutWriter {
             recipients.addAll(unitRecipients);
         }
         if (!chunk.isEmpty()) {
-            writeChunk(requests, chunk, outcomes);
+            writeChunk(requests, chunk, outcomes, committedHere);
         }
         return List.of(outcomes);
     }
 
+    /**
+     * 조각 하나를 적는다 — 잠금 충돌이면 같은 요청으로 새 트랜잭션에서 다시 적는다.
+     *
+     * @param committedHere 이 {@code write} 호출에서 앞서 커밋된 조각 수(배치 범위가 없을 때의 근거)
+     */
     private void writeChunk(List<NotificationRequest> requests, List<Integer> chunk,
-                            NotificationDispatchOutcome[] outcomes) {
+                            NotificationDispatchOutcome[] outcomes, int committedHere) {
         List<NotificationRequest> slice = chunk.stream().map(requests::get).toList();
-        List<Optional<EventEnvelope>> written = chunkTransaction.execute(status -> producer.appendAll(slice));
-        for (int position = 0; position < chunk.size(); position++) {
-            outcomes[chunk.get(position)] = written.get(position).isPresent()
-                    ? NotificationDispatchOutcome.QUEUED
-                    : NotificationDispatchOutcome.DUPLICATE;
+        for (int attempt = 1; ; attempt++) {
+            try {
+                List<Optional<EventEnvelope>> written = chunkTransaction.execute(status -> producer.appendAll(slice));
+                for (int position = 0; position < chunk.size(); position++) {
+                    outcomes[chunk.get(position)] = written.get(position).isPresent()
+                            ? NotificationDispatchOutcome.QUEUED
+                            : NotificationDispatchOutcome.DUPLICATE;
+                }
+                progress.recordCommittedChunk();
+                return;
+            } catch (RuntimeException failure) {
+                String sqlState = NotificationLockConflicts.sqlStateOf(failure);
+                if (sqlState == null) {
+                    throw failure;
+                }
+                if (attempt >= maxAttempts) {
+                    count(CHUNK_EXHAUSTED_METRIC, sqlState);
+                    int committed = Math.max(committedHere, progress.committedChunks());
+                    if (committed > 0) {
+                        throw new NotificationFanOutPartiallyCommittedException(committed, sqlState, failure);
+                    }
+                    throw failure;
+                }
+                count(CHUNK_RETRY_METRIC, sqlState);
+                log.warn("알림 조각 잠금 충돌 — 같은 요청으로 새 트랜잭션에서 다시 적는다. sqlState={}, attempt={}, 요청 {}건",
+                        sqlState, attempt, slice.size());
+            }
+        }
+    }
+
+    private void count(String metric, String sqlState) {
+        MeterRegistry registry = meterRegistry.getIfAvailable();
+        if (registry != null) {
+            registry.counter(metric, "sqlState", sqlState).increment();
         }
     }
 }
