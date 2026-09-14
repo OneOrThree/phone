@@ -197,8 +197,10 @@ class RecipientEligibilityTest {
 
     @Test
     void aLateEnvelopePreservesOriginalTimingAtTheDataBoundary() {
+        // 이 서버의 시계로는 아직 유효해 Data 에 묻는 봉투다. 수신이 늦었어도 Data 가 원시각으로 판정하게 그대로 넘긴다.
+        // (원시각의 만료가 이미 지난 봉투는 조회 없이 끝난다 — 아래 테스트)
         Map<String, Object> timing = Map.of("kind", "LEAGUE_FINAL_DEADLINE",
-                "dedupAt", "2026-09-06T13:00:00Z", "expiresAt", "2026-09-06T15:00:00Z");
+                "dedupAt", NOW.minusSeconds(3600).toString(), "expiresAt", NOW.plusSeconds(3600).toString());
         UUID id = enqueue("LEAGUE_FINAL_DEADLINE", timing);
         RESPONSE.set("{\"eligible\":false,\"reason\":\"EVENT_EXPIRED\"}");
         dispatch.dispatch(id);
@@ -208,6 +210,24 @@ class RecipientEligibilityTest {
                 .get("payload").toString())).isEqualTo(timing);
         verifyNoInteractions(transport);
         assertThat(state(id)).isEqualTo("SUPPRESSED");
+    }
+
+    /**
+     * GROMO-893 ⑧ — 게이트·브로커 지연으로 원시각의 만료가 이미 지난 뒤 소비된 시한부 알림은 적격성 조회도 발송도 없이
+     * 만료로 끝난다({@code eligibility_required=false} 종류라도). 저장된 원시각·만료는 그대로다.
+     */
+    @Test
+    void anEnvelopeConsumedAfterItsOriginalExpiryEndsWithoutAskingData() {
+        Map<String, Object> timing = Map.of("kind", "LEAGUE_FINAL_DEADLINE",
+                "dedupAt", "2026-09-06T13:00:00Z", "expiresAt", "2026-09-06T15:00:00Z");
+        UUID id = enqueue("LEAGUE_FINAL_DEADLINE", timing);
+        dispatch.dispatch(id);
+        assertThat(REQUEST.get()).isNull();
+        assertThat(Json.map(store.one("SELECT payload FROM deliveries WHERE id=?", id)
+                .get("payload").toString())).isEqualTo(timing);
+        verifyNoInteractions(transport);
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
     }
 
     @Test

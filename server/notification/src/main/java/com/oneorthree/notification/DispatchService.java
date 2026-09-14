@@ -11,6 +11,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
@@ -110,6 +111,16 @@ class DispatchService {
      */
     private static final String INCOMPLETE = "BUNDLE_INCOMPLETE";
 
+    /**
+     * 원사건의 유효기간이 지나 «보내지 않고 끝낸» 행의 사유 (GROMO-893 ⑧).
+     *
+     * <p>Data 는 시한부 알림(리그 마감·오늘 미집중·스트릭 위기 등)의 만료를 원사건 시각에 고정해
+     * {@code params.expiresAt} 으로 싣는다. 게이트가 닫혀 있었거나 브로커·relay 가 밀려 늦게 소비되면 그 시각이
+     * 이미 지났을 수 있고, 적격성 조회가 필요 없는 종류({@code eligibility_required=false})까지 포함해 모든
+     * 종류가 발송 직전에 이 값을 본다. 상태는 종결({@code SUPPRESSED})이다 — 재시도해도 다시 유효해지지 않는다.
+     */
+    static final String EXPIRED = "EXPIRED";
+
     private final Store store;
     private final SettingsService settings;
     private final DataClient data;
@@ -173,6 +184,14 @@ class DispatchService {
         for (Attempt attempt : plan.attempts()) {
             if (!Boolean.TRUE.equals(recording.execute(status -> renewLease(plan)))) {
                 return;
+            }
+            // 판정 뒤 기기 루프(기기마다 최대 6초)가 도는 사이에도 시한이 지날 수 있다 — «보내기 직전»에 다시 본다.
+            // 만료분만 들어 있으면 이 기기엔 보내지 않는다. 아직 유효한 형제와 함께 렌더된 묶음이면 만료분이 빠진
+            // 문구로 다시 렌더해야 하므로 보내지 않고 재시도로 돌린다 — 유효한 형제는 버리지 않는다.
+            List<UUID> expiredNow = plan.expiredAt(attempt.deliveries(), clock.instant());
+            if (!expiredNow.isEmpty()) {
+                failed |= expiredNow.size() < attempt.deliveries().size();
+                continue;
             }
             if (!Boolean.TRUE.equals(recording.execute(status -> stillOurs(attempt)))) {
                 // 같은 사용자 기기의 정상 토큰 회전이면 새 토큰에 다시 보내야 한다.
@@ -412,6 +431,12 @@ class DispatchService {
             suppress(id);
             return false;
         }
+        // 게이트·브로커 지연 뒤 첫 판정·재시도·묶음 수집이 모두 여기를 지난다. Data 조회보다 앞이라 만료된
+        // 시한부 알림은 적격성 조회 없이 끝난다. 만료가 없는 사실 통보(결과·환불)는 영향이 없다.
+        if (expired(Json.map(delivery.get("payload").toString()), clock.instant())) {
+            expire(id);
+            return false;
+        }
         if ("BET_RESULT".equals(kind) && subject != null) {
             Map<String, Object> ack = store.one("SELECT state,held_until FROM result_ack"
                     + " WHERE user_id=? AND session_id=?", user, UUID.fromString(subject));
@@ -484,6 +509,13 @@ class DispatchService {
                 + " FROM device_tokens WHERE user_id=? AND active AND NOT transport_invalid"
                 + " ORDER BY device_token", user);
         List<UUID> deliveries = ready.stream().map(row -> (UUID) row.get("id")).toList();
+        Map<UUID, Instant> expiries = new LinkedHashMap<>();
+        for (Map<String, Object> row : ready) {
+            Instant expiresAt = expiresAtOf(Json.map(row.get("payload").toString()));
+            if (expiresAt != null) {
+                expiries.put((UUID) row.get("id"), expiresAt);
+            }
+        }
         if (tokens.isEmpty()) {
             deliveries.forEach(delivery -> retry(delivery, "NO_ACTIVE_DEVICE"));
             return null;
@@ -533,7 +565,7 @@ class DispatchService {
             store.update("UPDATE deliveries SET next_attempt_at=GREATEST(next_attempt_at,?),"
                     + "lease_token=?,lease_expires_at=? WHERE id=?", lease, leaseToken, lease, delivery);
         }
-        return new Plan(deliveries, sound, collapseEventId(ready), attempts, leaseToken);
+        return new Plan(deliveries, sound, collapseEventId(ready), attempts, leaseToken, expiries);
     }
 
     /**
@@ -605,9 +637,21 @@ class DispatchService {
             return;
         }
         for (UUID delivery : plan.deliveries()) {
-            if (failed) {
+            boolean deliveredSomewhere =
+                    store.one("SELECT 1 FROM delivery_devices WHERE delivery_id=? LIMIT 1", delivery) != null;
+            if (!plan.expiredAt(List.of(delivery), clock.instant()).isEmpty()) {
+                // 시한이 지났다. 한 대라도 받았으면 발송으로 맺고, 아무도 못 받았으면 종결한다 — 재시도로 남기면
+                // 다음 틱이 만료를 다시 확인하는 사이 후보 상한을 차지하고, 형제의 재시도에 딸려 되살아날 여지가 남는다.
+                if (deliveredSomewhere) {
+                    store.update("UPDATE deliveries SET status='SENT',sent_at=?,attempts=attempts+1,"
+                            + "last_error=NULL WHERE id=? AND status IN ('PENDING','DEFERRED')",
+                            Timestamp.from(clock.instant()), delivery);
+                } else {
+                    expire(delivery);
+                }
+            } else if (failed) {
                 retry(delivery, reason);
-            } else if (store.one("SELECT 1 FROM delivery_devices WHERE delivery_id=? LIMIT 1", delivery) == null) {
+            } else if (!deliveredSomewhere) {
                 // UNREGISTERED는 성공이 아니다. 이 알림의 성공 이력이 전혀 없으면 정상 토큰을
                 // 기다린다. 다른 기기에 이미 성공한 알림은 무효 토큰 때문에 다시 보내지 않는다.
                 retry(delivery, "NO_ACTIVE_DEVICE");
@@ -689,10 +733,20 @@ class DispatchService {
 
     /** 판정이 끝난 한 번의 발송 — 트랜잭션 밖으로 들고 나갈 값만 담는다. */
     private record Plan(List<UUID> deliveries, boolean sound, String eventId, List<Attempt> attempts,
-            UUID leaseToken) {
+            UUID leaseToken, Map<UUID, Instant> expiries) {
         Plan {
             deliveries = List.copyOf(deliveries);
             attempts = List.copyOf(attempts);
+            expiries = Map.copyOf(expiries);
+        }
+
+        /**
+         * @param ids 볼 행
+         * @param now 지금
+         * @return 그 중 시한이 지난 행 — 만료가 없는 행은 들지 않는다
+         */
+        List<UUID> expiredAt(List<UUID> ids, Instant now) {
+            return ids.stream().filter(id -> expiries.containsKey(id) && !now.isBefore(expiries.get(id))).toList();
         }
     }
 
@@ -711,8 +765,10 @@ class DispatchService {
 
     private void deferOrSuppress(UUID id, Map<String, Object> catalog, Map<String, Object> params, Instant quietEnd) {
         String deadline = Json.nullableText(params, "deferExpiresAt");
+        Instant expiresAt = expiresAtOf(params);
         if (!"DEFER".equals(catalog.get("quiet_policy"))
-                || (deadline != null && !quietEnd.isBefore(Instant.parse(deadline)))) {
+                || (deadline != null && !quietEnd.isBefore(Instant.parse(deadline)))
+                || (expiresAt != null && !quietEnd.isBefore(expiresAt))) {
             suppress(id);
             return;
         }
@@ -751,6 +807,43 @@ class DispatchService {
 
     private void suppress(UUID id) {
         store.update("UPDATE deliveries SET status='SUPPRESSED' WHERE id=?", id);
+    }
+
+    /** 시한이 지난 행을 종결한다 — 억제와 같은 종결 상태지만 사유를 남겨 정책 억제와 가른다. */
+    private void expire(UUID id) {
+        store.update("UPDATE deliveries SET status='SUPPRESSED',last_error=? WHERE id=?"
+                + " AND status IN ('PENDING','DEFERRED')", EXPIRED, id);
+    }
+
+    /**
+     * @param params 봉투 params
+     * @param now    지금
+     * @return 원사건의 발송 만료가 지났는가. 만료가 없으면 {@code false}
+     */
+    static boolean expired(Map<String, Object> params, Instant now) {
+        Instant expiresAt = expiresAtOf(params);
+        return expiresAt != null && !now.isBefore(expiresAt);
+    }
+
+    /**
+     * 봉투에 실린 발송 만료.
+     *
+     * <p>모양이 깨졌으면 이미 지난 것으로 본다 — 시한부 알림을 «시한 없음»으로 접으면 마감이 지난 뒤에 거짓 문구가
+     * 나간다. Data 의 적격성 조회도 같은 값을 {@code EVENT_TIME_INVALID} 로 거절한다.
+     *
+     * @param params 봉투 params
+     * @return 만료 시각. 싣지 않은 종류(사실 통보)면 {@code null}
+     */
+    static Instant expiresAtOf(Map<String, Object> params) {
+        Object raw = params.get("expiresAt");
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return Instant.parse(raw.toString());
+        } catch (DateTimeParseException malformed) {
+            return Instant.EPOCH;
+        }
     }
 
     private void retry(UUID id, String reason) {

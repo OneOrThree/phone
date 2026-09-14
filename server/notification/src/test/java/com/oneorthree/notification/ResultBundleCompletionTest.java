@@ -90,6 +90,36 @@ class ResultBundleCompletionTest {
         verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
     }
 
+    /**
+     * GROMO-893 ⑥ — 같은 과거 슬롯의 결과와 환불이 사용자 축 relay 의 서로 다른 틱에 도착해도 한 건이다.
+     *
+     * <p>Data 재훑기는 48시간치를 한 번에 후보로 만들고 결과·환불 사건에 {@code bundleMembers} 를 싣지 않는다. 대신 슬롯
+     * 봉인 manifest 가 같은 (사용자 × 그룹 × 원래 슬롯)의 사건 전부를 사용자 축의 마지막 사건으로 보낸다. 슬롯이 이미
+     * 닫힌 뒤라도 첫 도착 → flush 는 보내지 않고, 두 번째 도착 → flush 도 경계가 오기 전에는 보내지 않는다.
+     */
+    @Test
+    void firstArrivalFlushSecondArrivalFlushSendsTheOldOneShotBundleExactlyOnce() {
+        requested("result", "BET_RESULT");
+        dispatch.dispatch(delivery("result"));
+        verifyNoInteractions(transport);
+
+        when(clock.instant()).thenReturn(NOW.plusSeconds(31));
+        requested("refund", "BET_VOID_REFUND");
+        dispatch.dispatch(delivery("refund"));
+        dispatch.dispatch(delivery("result"));
+        verifyNoInteractions(transport);
+
+        inbound.accept(seal("seal", List.of("result", "refund")));
+        when(clock.instant()).thenReturn(NOW.plusSeconds(62));
+        dispatch.dispatch(delivery("refund"));
+        dispatch.dispatch(delivery("result"));
+
+        verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+        assertThat(store.rows("SELECT status FROM deliveries"))
+                .hasSize(2)
+                .allSatisfy(row -> assertThat(row).containsEntry("status", "SENT"));
+    }
+
     @Test
     void sealCanArriveFirstAndSuppressedMembersStillCountAsReceived() {
         inbound.accept(seal("seal-first", List.of("refund", "result")));
