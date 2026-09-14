@@ -8,11 +8,19 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.net.URI;
 import java.time.Duration;
 
-/** 신규 모드는 기본 OFF. 잘못된 설정값을 로그에 포함하지 않는다. */
+/**
+ * 신규 모드는 기본 OFF. 잘못된 설정값을 로그에 포함하지 않는다.
+ *
+ * <p>prefix는 Data 제공자 스위치 env({@code REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED})의 완화 바인딩 형태와
+ * 겹치지 않아야 한다. 옛 {@code realtime.membership-authorization.enabled}는 그 env를 직접 읽어 yml 자리표시자를
+ * 무시했다({@code RealtimeAuthorizationConfigTest}가 회귀를 잡는다).
+ */
 @Getter
 @Setter
-@ConfigurationProperties(prefix = "realtime.membership-authorization")
+@ConfigurationProperties(prefix = RealtimeAuthorizationProperties.PREFIX)
 public class RealtimeAuthorizationProperties implements InitializingBean {
+    public static final String PREFIX = "realtime.authorization-client";
+
     private boolean enabled;
     private String baseUrl = "";
     private String serviceToken = "";

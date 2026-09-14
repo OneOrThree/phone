@@ -63,8 +63,12 @@ chat:
 # OFF에서는 기존 멤버십 캐시를 유지하며 새 서비스 자격은 필요하지 않다.
 # ⚠️ 스위치 환경변수는 Data 제공자의 REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED 와 «일부러» 다르다.
 #    같은 이름이면 공유 env 한 줄이 두 서비스를 동시에 켜서 «Data 먼저» 순서가 깨진다.
+# ⚠️ 자리표시자 이름만 바꾸면 부족하다. Spring 완화 바인딩은 env 이름을 속성 키로 «직접» 읽고
+#    (REALTIME_X_Y_Z → realtime.x-y.z) 그 값이 이 yml 자리표시자보다 우선한다. 옛 키
+#    realtime.membership-authorization.* 는 Data 의 env 한 줄로 켜졌다. 그래서 prefix 를 authorization-client 로
+#    옮겼다 — 새 키의 env 형태는 REALTIME_AUTHORIZATION_CLIENT_* 뿐이다(RealtimeAuthorizationConfigTest).
 realtime:
-  membership-authorization:
+  authorization-client:
     enabled: ${REALTIME_AUTHORIZATION_CLIENT_ENABLED:false}
     base-url: ${REALTIME_AUTHORIZATION_DATA_URL:}
     service-token: ${SVC_TOKEN_REALTIME_TO_DATA:}

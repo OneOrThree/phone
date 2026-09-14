@@ -15,14 +15,14 @@ import java.time.Clock;
 @EnableConfigurationProperties(RealtimeAuthorizationProperties.class)
 public class RealtimeAuthorizationConfig {
     @Bean
-    @ConditionalOnProperty(prefix = "realtime.membership-authorization", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = RealtimeAuthorizationProperties.PREFIX, name = "enabled", havingValue = "true")
     public RealtimeMembershipAuthorizationClient realtimeMembershipAuthorizationClient(
             RealtimeAuthorizationProperties properties) {
         return new RealtimeMembershipAuthorizationClient(properties);
     }
 
     @Bean
-    @ConditionalOnProperty(prefix = "realtime.membership-authorization", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = RealtimeAuthorizationProperties.PREFIX, name = "enabled", havingValue = "true")
     public CurrentMembershipVerifier currentMembershipVerifier(JwtValidator jwt,
             RealtimeMembershipAuthorizationClient client, Clock clock) {
         return new CurrentMembershipVerifier(jwt, client, clock);

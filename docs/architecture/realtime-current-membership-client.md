@@ -1,6 +1,6 @@
 # 기존 채팅에서 현재 멤버십을 다시 확인하기
 
-이 작업은 기존 채팅의 `ChatAccessGuard.requireCanChat`에 **선택적으로 Data의 현재 인가 조회를 연결**한다. 기본값은 OFF다. 서비스 개명 PR739 기반이며 Data 제공자는 [PR753](https://github.com/OneOrThree/phone/pull/753)으로 main에 머지돼 있다(기본 비활성). 켤 때는 **Data 제공자를 먼저 활성화하고 Realtime 스위치를 나중에** 켠다 — [켜기 전 조건](#켜기-전-조건). 구현 후 관련59개 테스트를14초에 통과했고 실패0·오류0·skip0, CheckstyleMain·SpotBugsMain도 통과했다. **전체 Realtime build도1분1초 PASS**이며 테스트200개(기존141+신규59)·실패0·오류0·skip0을 확인했다. Realtime Docker 이미지 빌드도 통과했다(로컬 검증, 게시·배포 없음).
+이 작업은 기존 채팅의 `ChatAccessGuard.requireCanChat`에 **선택적으로 Data의 현재 인가 조회를 연결**한다. 기본값은 OFF다. 서비스 개명 PR739 기반이며 Data 제공자는 [PR753](https://github.com/OneOrThree/phone/pull/753)으로 main에 머지돼 있다(기본 비활성). 켤 때는 **Data 제공자를 먼저 활성화하고 Realtime 스위치를 나중에** 켠다 — [켜기 전 조건](#켜기-전-조건). 최신 검증(2026-09-15)은 `server/realtime/norm.sh` exit 0 — CheckstyleMain·SpotBugsMain·테스트 **205개(기존141+신규64)·실패0·오류0·skip0**이다. Realtime Docker 이미지 빌드는 첫 구현 시점에 통과했다(로컬 검증, 게시·배포 없음).
 
 학교 반 명단을 복사해 두면 조회는 빠르지만, 전학한 학생이 잠시 남을 수 있다. 기존 채팅은 Redis에 보관한 소속 명단을 사용한다. 새 옵션을 켜면 특정 섬의 채팅을 이용하거나 전달할 때 Data에 “이 학생증과 이 반 소속이 지금도 맞나요?”를 묻는다. 전에 받은 허용 답변을 다음 메시지의 허가증으로 재사용하지 않는다.
 
@@ -106,7 +106,7 @@ STOMP/outbound에서 HTTP 상태를 그대로 소켓에 전송한다는 뜻은 �
 
 ## 설정과 운영 활성화 조건
 
-| `realtime.membership-authorization` 하위 키 | 역할 |
+| `realtime.authorization-client` 하위 키 | 역할 |
 | --- | --- |
 | enabled | 기본 false. true일 때 엄격 AT + 현재 Data 인가 경로 선택 |
 | base-url | 배포된 Data 내부 제공자의 origin |
@@ -117,7 +117,7 @@ STOMP/outbound에서 HTTP 상태를 그대로 소켓에 전송한다는 뜻은 �
 
 환경 변수는 `REALTIME_AUTHORIZATION_CLIENT_ENABLED`, `REALTIME_AUTHORIZATION_DATA_URL`, `SVC_TOKEN_REALTIME_TO_DATA`, `REALTIME_AUTHORIZATION_CONNECT_TIMEOUT`, `REALTIME_AUTHORIZATION_REQUEST_TIMEOUT`, `REALTIME_AUTHORIZATION_MAX_IN_FLIGHT`다. [application.yml](../../server/realtime/src/main/resources/application.yml)의 기본값과 일치시키며 부하 검증을 끝낸 운영 용량으로 오해하지 않는다. OFF에서는 새 서비스 자격을 요구하지 않지만 ON에서는 유효한 origin·전용 자격이 필수다. 비밀값 자체는 예시나 저장소에 넣지 않는다.
 
-스위치 이름 `REALTIME_AUTHORIZATION_CLIENT_ENABLED`는 Data 제공자의 `REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED`(`internal.realtime.authorization.enabled`)와 **일부러 다르다**. 이름이 같으면 두 서비스가 공유하는 env 한 줄로 동시에 켜져 아래의 「Data 먼저」 순서가 깨진다. 서비스 토큰 `SVC_TOKEN_REALTIME_TO_DATA`는 양쪽이 같은 값을 가져야 하므로 이름을 공유한다.
+스위치 이름 `REALTIME_AUTHORIZATION_CLIENT_ENABLED`는 Data 제공자의 `REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED`(`internal.realtime.authorization.enabled`)와 **일부러 다르다**. 이름이 같으면 두 서비스가 공유하는 env 한 줄로 동시에 켜져 아래의 「Data 먼저」 순서가 깨진다. **자리표시자 이름만 다르게 두는 것으로는 부족하다.** Spring 완화 바인딩은 env 이름을 속성 키로 직접 읽고(`REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED` → `realtime.membership-authorization.enabled`) 그 값이 yml 자리표시자보다 우선한다. 옛 prefix `realtime.membership-authorization`은 `REALTIME_AUTHORIZATION_CLIENT_ENABLED=false`를 명시해도 Data의 env로 켜졌고, URL·토큰이 없으면 부팅이 실패했다. 그래서 prefix를 `realtime.authorization-client`로 옮겼다. 새 키의 env 형태는 `REALTIME_AUTHORIZATION_CLIENT_*`뿐이다. 위 여섯 자리표시자 env 중 새 키와 겹치는 것은 의도한 `REALTIME_AUTHORIZATION_CLIENT_ENABLED` 하나이고, Data의 `internal.realtime.authorization.enabled`·`internal.api.callers.realtime.token`과 겹치는 env는 없다. 회귀는 `RealtimeAuthorizationConfigTest`가 두 env를 함께 둔 실제 `application.yml` 우선순위로 검사한다. 서비스 토큰 `SVC_TOKEN_REALTIME_TO_DATA`는 양쪽이 같은 값을 가져야 하므로 이름을 공유한다.
 
 ### 켜기 전 조건
 
@@ -153,7 +153,7 @@ STOMP/outbound에서 HTTP 상태를 그대로 소켓에 전송한다는 뜻은 �
 
 `beforeHandle`은 큐 대기 이후 실제 handler 직전의 검사다. 그래도 HTTP의 DB snapshot 뒤 탈퇴/강퇴가 commit되거나 handler 이후 TCP로 이미 전송한 프레임이 있을 수 있다. HTTP 뒤 exp를 한 번 더 확인해도 이 DB→TCP 간극이 없어지는 것은 아니다. DB 변경과 소켓 송신의 분산 원자성, 이미 보낸 프레임의 회수까지 약속하지 않는다. 이번 client가 chat 커서 writer의 탈퇴 파기나 전체 실시간 재연결 snapshot을 완성하는 것도 아니다.
 
-관련59개(HTTP client35·CurrentMembershipVerifier10·JWT11·Config3)는14초에 실패0·오류0·skip0으로 통과했다. 전체 Realtime build는1분1초에 PASS이며200개(기존141+신규59)·실패0·오류0·skip0이다. 실제 PostgreSQL·Redis를 사용하는 기존 전체 회귀를 포함한다. CheckstyleMain·SpotBugsMain은 관련59개 실행 때 PASS 후 전체 build에서 UP-TO-DATE였고, 테스트 소스 정적 검사는 기존 설정대로 skip이다. 테스트 자체의 skip0과 정적 검사 task skip을 구분한다. Realtime Docker 이미지 빌드도 통과했다(로컬 검증, 게시·배포 없음). 조정자가 확인한 실행 결과를 반영했으며 문서 작성자가 테스트를 재실행한 것은 아니다.
+신규64개(HTTP client35·CurrentMembershipVerifier10·JWT11·Config6·전달 가드2)를 포함한 전체 Realtime build는 `norm.sh` exit 0이며 205개(기존141+신규64)·실패0·오류0·skip0이다(2026-09-15). 실제 PostgreSQL·Redis를 사용하는 기존 전체 회귀를 포함한다. CheckstyleMain·SpotBugsMain은 전체 build에서 실행돼 통과했고, 테스트 소스 정적 검사는 기존 설정대로 skip이다. 테스트 자체의 skip0과 정적 검사 task skip을 구분한다. Realtime Docker 이미지 빌드도 통과했다(로컬 검증, 게시·배포 없음). 조정자가 확인한 실행 결과를 반영했으며 문서 작성자가 테스트를 재실행한 것은 아니다.
 
 `beforeHandle` 검증은 실제 interceptor와 실제 TCP로 응답하는 가짜 Data 서버를 사용한다. 운영 Data 서버와 Realtime 서버 두 노드의 production 연동 시험은 아니다. Data 제공자 자체의 PR753 검증과 client 회귀가 각각 있어도 실제 배포·서비스 자격·네트워크의 운영 연결 검증을 대신하지 않는다.
 

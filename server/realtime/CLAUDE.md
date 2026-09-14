@@ -176,7 +176,7 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 
 ### 선택적 현재 멤버십 인가
 
-`realtime.membership-authorization.enabled`는 기본 false다. `ChatAccessGuard.requireCanChat`은
+`realtime.authorization-client.enabled`는 기본 false다. `ChatAccessGuard.requireCanChat`은
 집중 여부를 먼저 확인하고, OFF이면 기존 캐시를 사용한다. ON이면 원 AT의 서명·subject/sid/gen/exp를
 엄격히 검증한 뒤 Data 현재 인가를 호출하고 HTTP 대기 뒤 exp를 재확인한다. 양의 승인 캐시나
 ON 실패 시 기존 캐시 fallback은 없다. `allowed:false`는 `NOT_A_MEMBER`이며 어떤 내부 조건이
@@ -196,13 +196,18 @@ unknown/duplicate/trailing/빈본문/타입 오류는503이다. 초기값은 con
 
 스위치 env는 `REALTIME_AUTHORIZATION_CLIENT_ENABLED`다. Data 제공자의 `REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED`와
 **일부러 다른 이름**이다 — 합치면 공유 env 한 줄이 두 서비스를 동시에 켜서 아래 순서가 깨진다.
+**자리표시자 이름만 다르게 두는 것으로는 막히지 않는다.** Spring 완화 바인딩은 env를 속성 키로 직접 읽고
+(`REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED` → `realtime.membership-authorization.enabled`) yml 자리표시자보다 우선한다.
+그래서 옛 prefix `realtime.membership-authorization`은 Data의 env로 켜졌고, prefix를 `realtime.authorization-client`로 옮겼다.
+키를 추가·개명하면 그 키의 env 형태(대문자·`.`/`-`→`_`)가 Data나 다른 서비스의 env와 겹치지 않는지 확인하라 —
+`RealtimeAuthorizationConfigTest`가 두 env를 함께 둔 실제 `application.yml` 우선순위로 이 회귀를 잡는다.
 켜는 순서: Data(프로필·전용 토큰·feature) → Realtime client 주입 → sid/gen 없는 AT 소진 확인·부하 검증 → Realtime ON.
 Data가 꺼진 채 Realtime만 켜면 404→503으로 그룹 채팅 경계가 전부 막힌다(ON에는 fallback이 없다).
 main의 AT 발급 경로(로그인·게스트·갱신)는 이미 전부 sid/gen을 싣는다. 그래도 그 이전에 받은 AT는 ON에서
 그룹 채팅 경계401이고, dev AT 수명은30일이다. 발급 지점 조사는 아래 문서의 「켜기 전 조건」에 있다.
 DB 판정 뒤 beforeHandle/TCP까지의 분산 원자성이나 이미 보낸 프레임의 회수는 보장하지 않는다.
-관련59개(HTTP35·verifier10·JWT11·config3)는14초에 실패0·오류0·skip0, CheckstyleMain·SpotBugsMain PASS다.
-전체 Realtime build1분1초 PASS, 테스트200개(기존141+신규59)·실패0·오류0·skip0을 확인했다.
+신규64개(HTTP35·verifier10·JWT11·config6·전달 가드2)를 포함한 전체 Realtime build는 `norm.sh` exit 0,
+테스트205개(기존141+신규64)·실패0·오류0·skip0이다(2026-09-15).
 실제 PostgreSQL/Redis 기존 회귀를 포함한다. CheckstyleMain·SpotBugsMain은 앞선 PASS 뒤 full에서
 UP-TO-DATE였으며 테스트 소스 정적 검사 task는 기존 설정대로 skip이다. Realtime Docker 이미지 빌드도 통과했다(로컬 검증, 게시·배포 없음).
 beforeHandle 검증은 실제 interceptor와
