@@ -127,6 +127,9 @@ class AdminTemplateFreshnessTest {
         event.put("version", 1L);
         event.put("locale", "ko");
         event.put("occurredAt", CREATED.toString());
+        // scheduledAt 이 없으면 원장 행의 next_attempt_at 이 DB 의 실제 now() 로 찍힌다. 벽시계가 고정 Clock(CREATED)을
+        // 넘기면 후보 조회(next_attempt_at<=clock)에서 빠져 Data 조회 자체가 일어나지 않으므로 같은 시간 축에 맞춘다.
+        event.put("scheduledAt", CREATED.toString());
         event.put("params", Map.of("kind", "MISSED_FOCUS_TODAY", "adminTest", true,
                 "adminActor", "member-1", "adminTestRequestedAt", CREATED.toString()));
         inbound.accept(event);

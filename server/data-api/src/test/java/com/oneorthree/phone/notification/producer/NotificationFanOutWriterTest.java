@@ -80,6 +80,8 @@ class NotificationFanOutWriterTest {
 
         verify(producer, times(2)).appendAll(anyList());
         assertThat(registry.find(NotificationFanOutWriter.CHUNK_RETRY_METRIC).counter()).isNull();
+        // 잠금 충돌 소진 지표는 SQLSTATE 가 있을 때만 오른다 — 비잠금 실패를 소진으로 세지 않는다.
+        assertThat(registry.find(NotificationFanOutWriter.CHUNK_EXHAUSTED_METRIC).counter()).isNull();
     }
 
     @Test
