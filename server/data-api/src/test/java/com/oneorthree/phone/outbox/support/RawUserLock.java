@@ -20,9 +20,11 @@ import java.util.UUID;
 public final class RawUserLock implements AutoCloseable {
 
     private final Connection connection;
+    private final int pid;
 
-    private RawUserLock(Connection connection) {
+    private RawUserLock(Connection connection, int pid) {
         this.connection = connection;
+        this.pid = pid;
     }
 
     /**
@@ -33,10 +35,20 @@ public final class RawUserLock implements AutoCloseable {
         Connection connection = DriverManager.getConnection(OutboxTestPostgres.INSTANCE.getJdbcUrl(),
                 OutboxTestPostgres.INSTANCE.getUsername(), OutboxTestPostgres.INSTANCE.getPassword());
         connection.setAutoCommit(false);
+        int pid;
         try (Statement statement = connection.createStatement()) {
             statement.execute("SET LOCAL deadlock_timeout = '60s'");
+            try (ResultSet rows = statement.executeQuery("SELECT pg_backend_pid()")) {
+                rows.next();
+                pid = rows.getInt(1);
+            }
         }
-        return new RawUserLock(connection);
+        return new RawUserLock(connection, pid);
+    }
+
+    /** @return 이 연결의 PostgreSQL 백엔드 pid — 누가 이 잠금에 막혔는지 가려내는 데 쓴다 */
+    public int pid() {
+        return pid;
     }
 
     /**

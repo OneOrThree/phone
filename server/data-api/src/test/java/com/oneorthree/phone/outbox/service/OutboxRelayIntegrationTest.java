@@ -357,7 +357,9 @@ class OutboxRelayIntegrationTest {
         assertThat(afterOutage.getLastError()).isNotBlank();
 
         sleep(1500);
-        for (int attempt = 0; attempt < 10; attempt++) {
+        // 멈췄다 풀린 브로커에 프로듀서가 다시 붙는 시간은 러너 부하에 따라 10초를 넘기도 한다 — 전달되면 곧바로 빠져나오므로
+        // 시한만 넉넉히 둔다(검증하려는 것은 «언젠가 다시 나간다»이지 재접속 속도가 아니다).
+        for (int attempt = 0; attempt < 60; attempt++) {
             relayService.relayTarget(OutboxTarget.KAFKA);
             if (delivery(outboxId, OutboxTarget.KAFKA).getDeliveredAt() != null) {
                 break;

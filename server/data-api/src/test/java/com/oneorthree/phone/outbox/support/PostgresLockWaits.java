@@ -40,6 +40,34 @@ public final class PostgresLockWaits {
     }
 
     /**
+     * {@code holder} 가 쥔 잠금에 막힌 백엔드가 생길 때까지 기다린다.
+     *
+     * <p>DB 전체의 대기 수를 세면 앞 테스트에서 끝나지 않은 스레드의 대기가 섞여 조건이 거짓으로 참이 되고, 판정·쓰기가
+     * 무거운 배치가 느린 러너에서 짧은 시한을 넘기면 반대로 거짓으로 실패한다. 그래서 «이 테스트의 연결이 막고 있는
+     * 백엔드»만 세고, 시한은 조건이 서면 곧바로 돌아오므로 넉넉히 둔다.
+     *
+     * @param jdbc   관찰용 연결
+     * @param holder 잠금을 쥔 테스트 연결
+     */
+    public static void awaitBlockedBy(JdbcTemplate jdbc, RawUserLock holder) {
+        long deadline = System.nanoTime() + 300_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            Integer blocked = jdbc.queryForObject("SELECT count(*) FROM pg_stat_activity"
+                    + " WHERE ? = ANY(pg_blocking_pids(pid))", Integer.class, holder.pid());
+            if (blocked != null && blocked > 0) {
+                return;
+            }
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+        }
+        throw new IllegalStateException("테스트 연결(pid " + holder.pid() + ")이 쥔 잠금에 막힌 백엔드가 없다");
+    }
+
+    /**
      * USER aggregate 행을 미리 만든다 — 잠금 대상 행이 없으면 {@code FOR UPDATE} 가 기다리지 않는다.
      *
      * @param jdbc    자동 커밋 연결

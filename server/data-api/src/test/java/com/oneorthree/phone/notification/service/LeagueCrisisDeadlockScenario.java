@@ -124,15 +124,15 @@ final class LeagueCrisisDeadlockScenario {
             reverse.lock(seeded.lateHigh());
             Future<NotificationCronReplayService.ReplayResult> replayed =
                     pool.submit(() -> replay.replay(JOB, seeded.missedAt()));
-            // 뒤 조각이 기다린다 = 앞 페이지 조각은 이미 커밋됐다.
-            PostgresLockWaits.awaitWaiting(jdbc, 1);
+            // 뒤 조각이 이 연결에 막혔다 = 앞 페이지 조각은 이미 커밋됐다.
+            PostgresLockWaits.awaitBlockedBy(jdbc, reverse);
             jdbc.update("UPDATE daily_focus_stats SET total_focus_seconds=? WHERE user_id=? AND date=?",
                     DEADLINE_D1_TOTAL, seeded.earlyUser(), seeded.today());
             Future<?> reverseOrder = pool.submit(() -> {
                 reverse.lock(seeded.lateLow());
                 reverse.commit();
             });
-            reverseOrder.get(30, TimeUnit.SECONDS);
+            reverseOrder.get(300, TimeUnit.SECONDS);
             return replayed;
         }
     }

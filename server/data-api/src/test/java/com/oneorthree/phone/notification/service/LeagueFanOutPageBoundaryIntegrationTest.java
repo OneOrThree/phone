@@ -118,15 +118,15 @@ class LeagueFanOutPageBoundaryIntegrationTest {
         try (RawUserLock reverse = RawUserLock.open()) {
             reverse.lock(pageTwo);
             Future<?> batch = pool.submit(() -> league.sendDeadlineReminders(NOW));
-            PostgresLockWaits.awaitWaiting(jdbc, 1);
+            PostgresLockWaits.awaitBlockedBy(jdbc, reverse);
             Future<?> reverseOrder = pool.submit(() -> {
                 reverse.lock(pageOne);
                 reverse.commit();
             });
-            reverseOrder.get(30, TimeUnit.SECONDS);
-            batch.get(60, TimeUnit.SECONDS);
+            reverseOrder.get(300, TimeUnit.SECONDS);
+            batch.get(300, TimeUnit.SECONDS);
         } finally {
-            pool.shutdownNow();
+            drain(pool);
         }
         assertThat(events(NotificationKind.LEAGUE_DEADLINE, RANKED)).isEqualTo(USERS);
         // 판정은 한 스냅샷이다 — 페이지를 나눠 적어도 순위가 끊기거나 겹치지 않는다.
@@ -146,10 +146,10 @@ class LeagueFanOutPageBoundaryIntegrationTest {
                     pool.submit(() -> reengagement.sendStreakAtRisk(NOW)),
                     pool.submit(() -> reengagement.sendMissedFocusToday(NOW)));
             for (Future<?> future : batches) {
-                future.get(120, TimeUnit.SECONDS);
+                future.get(300, TimeUnit.SECONDS);
             }
         } finally {
-            pool.shutdownNow();
+            drain(pool);
         }
         assertThat(events(NotificationKind.LEAGUE_FINAL_DEADLINE, RANKED)).isEqualTo(USERS);
         assertThat(events(NotificationKind.STREAK_AT_RISK, RANKED)).isEqualTo(USERS);
@@ -195,15 +195,15 @@ class LeagueFanOutPageBoundaryIntegrationTest {
             reverse.lock(high);
             Future<NotificationCronReplayService.ReplayResult> replayed =
                     pool.submit(() -> replay.replay(job, missedAt));
-            PostgresLockWaits.awaitWaiting(jdbc, 1);
+            PostgresLockWaits.awaitBlockedBy(jdbc, reverse);
             Future<?> reverseOrder = pool.submit(() -> {
                 reverse.lock(low);
                 reverse.commit();
             });
-            reverseOrder.get(30, TimeUnit.SECONDS);
-            result = replayed.get(60, TimeUnit.SECONDS);
+            reverseOrder.get(300, TimeUnit.SECONDS);
+            result = replayed.get(300, TimeUnit.SECONDS);
         } finally {
-            pool.shutdownNow();
+            drain(pool);
         }
 
         assertThat(result.outcome()).isEqualTo(NotificationCronReplayService.Outcome.REPLAYED);
@@ -217,6 +217,17 @@ class LeagueFanOutPageBoundaryIntegrationTest {
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM event_outbox WHERE user_id::text = ANY(?)", Long.class,
                 (Object) users.stream().map(UUID::toString).toArray(String[]::new))).isEqualTo(3L);
+    }
+
+    /**
+     * 풀의 작업이 끝날 때까지 기다린다 — 인터럽트는 JDBC 대기·쿼리를 끊지 못해서, 시한을 넘긴 배치가 살아남아 다음
+     * 테스트의 잠금 관측과 연결 풀에 섞인다.
+     */
+    private static void drain(ExecutorService pool) throws InterruptedException {
+        pool.shutdown();
+        if (!pool.awaitTermination(300, TimeUnit.SECONDS)) {
+            pool.shutdownNow();
+        }
     }
 
     private double chunkRetries() {

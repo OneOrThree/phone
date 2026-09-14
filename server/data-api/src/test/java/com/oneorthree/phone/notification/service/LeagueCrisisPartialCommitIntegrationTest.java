@@ -62,9 +62,13 @@ class LeagueCrisisPartialCommitIntegrationTest {
         try {
             Future<NotificationCronReplayService.ReplayResult> replayed =
                     LeagueCrisisDeadlockScenario.replayWithLaterChunkDeadlock(pool, jdbc, seeded, replay);
-            failed = catchThrowableOfType(ExecutionException.class, () -> replayed.get(120, TimeUnit.SECONDS));
+            failed = catchThrowableOfType(ExecutionException.class, () -> replayed.get(300, TimeUnit.SECONDS));
         } finally {
-            pool.shutdownNow();
+            // 인터럽트는 JDBC 대기를 끊지 못한다 — 끝나지 않은 재생이 다음 테스트의 잠금 관측에 섞이지 않게 끝까지 기다린다.
+            pool.shutdown();
+            if (!pool.awaitTermination(300, TimeUnit.SECONDS)) {
+                pool.shutdownNow();
+            }
         }
 
         assertThat(failed).isNotNull();
