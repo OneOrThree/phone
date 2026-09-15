@@ -90,6 +90,7 @@ python3 .claude/jira_assign.py meta
 승인분만 payload 로 만들어 실행한다. payload 스키마는 `.claude/jira_assign.py` 상단 docstring 에 있다.
 
 ```bash
+SCRATCH=$(mktemp -d)                    # 세션 스크래치패드가 있으면 그 경로를 써도 된다
 cat > "$SCRATCH/assign.json" <<'JSON'
 { "sprint": true, "tickets": [ ... ] }
 JSON

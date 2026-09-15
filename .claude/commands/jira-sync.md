@@ -56,11 +56,14 @@ python3 .claude/jira_assign.py meta
 
 ### 5. 생성
 승인분만 payload 로 만들어 실행한다. 스키마는 `.claude/jira_assign.py` 상단 docstring.
-`"sprint"` 는 1단계의 `--sprint` 플래그를 그대로 옮긴다 — 스크립트는 이 필드로만 스프린트 편입을 결정한다.
+스크립트는 `"sprint"` 필드로만 스프린트 편입을 결정한다.
+
+`"sprint"` 값은 `--sprint` 를 받았으면 `true`, 아니면 `false`.
 
 ```bash
+SCRATCH=$(mktemp -d)                    # 세션 스크래치패드가 있으면 그 경로를 써도 된다
 cat > "$SCRATCH/sync.json" <<'JSON'
-{ "sprint": false,                       ← `--sprint` 를 받았으면 true
+{ "sprint": false,
   "tickets": [ { "summary": "...", "domain": "...", "goal": "...", "dod": ["..."],
     "deliverable": "PR", "output_location": "...", "refs": ["..."], "labels": ["BE"] } ] }
 JSON

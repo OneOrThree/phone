@@ -66,10 +66,34 @@ def _may_substitute(command):
     return bool(UNPARSEABLE.search("".join(out)))
 
 
+_GLOBAL_VALUED = {"--repo", "-R", "--hostname"}
+
+
+def _skip_global_flags(tokens, j):
+    """`gh --repo o/r pr create` · `gh pr -R o/r create` 처럼 사이에 끼는 전역 플래그를 건너뛴다."""
+    while j < len(tokens):
+        t = tokens[j]
+        if t in _GLOBAL_VALUED:
+            j += 2
+        elif t.startswith("--repo=") or t.startswith("--hostname="):
+            j += 1
+        else:
+            break
+    return j
+
+
 def find_creates(tokens):
-    """한 Bash 호출 안의 모든 `gh pr create` 위치 — `a && gh pr create … && gh pr create …` 도 전부 검사한다."""
-    return [i + 3 for i in range(len(tokens) - 2)
-            if tokens[i] == "gh" and tokens[i + 1] == "pr" and tokens[i + 2] == "create"]
+    """한 Bash 호출 안의 모든 `gh [전역플래그] pr [전역플래그] create` 위치 — 여러 개면 전부 검사한다."""
+    found = []
+    for i, t in enumerate(tokens):
+        if t != "gh":
+            continue
+        j = _skip_global_flags(tokens, i + 1)
+        if j < len(tokens) and tokens[j] == "pr":
+            k = _skip_global_flags(tokens, j + 1)
+            if k < len(tokens) and tokens[k] == "create":
+                found.append(k + 1)
+    return found
 
 
 def parse_args(tokens):
@@ -109,7 +133,7 @@ def _has(args, *names):
 
 def check_command(command, cwd=None):
     """위반 사유 목록. 비어 있으면 통과. None 이면 검사 대상이 아니거나 파싱 불가."""
-    if "gh pr create" not in command:
+    if "gh" not in command or "create" not in command:
         return None
     try:
         tokens = shlex.split(command)
@@ -179,6 +203,8 @@ def _check_one(args, subst, cwd):
     files = _vals(args, "--body-file", "-F")
     if not bodies and not files:
         reasons.append("`--body-file`(또는 `--body`)이 없다 — 대화식 입력은 게이트가 검사할 수 없다. 템플릿 8섹션으로 명시")
+    if files and files[0] == "-":
+        reasons.append("`--body-file -`(표준 입력) 금지 — 게이트가 본문을 읽을 수 없다. 파일 경로로 준다")
     if bodies and not unknown(bodies[0]):
         body = bodies[0]
     if files and files[0] != "-" and not unknown(files[0]):
@@ -247,6 +273,9 @@ _FIXTURES = [
     ("큰따옴표 안 아포스트로피 + 백틱 → 치환 가능 → 제목 검사 스킵",
      "gh pr create --title \"[FEAT] GROMO-100 user's `whoami` fix\" --body 'normal body' --assignee @me --label enhancement", []),
     ("한 명령에 둘 — 두 번째가 draft", _OK + " && " + _OK + " --draft", ["[2번째 gh pr create] `--draft`"]),
+    ("전역 --repo 앞자리", _OK.replace("gh pr create", "gh --repo OneOrThree/phone pr create") + " --draft", ["--draft"]),
+    ("전역 -R 중간자리", _OK.replace("gh pr create", "gh pr -R OneOrThree/phone create") + " --draft", ["--draft"]),
+    ("표준 입력 본문", _OK.replace("--body '## Jira\n- [GROMO-1885](x)\n티켓 455 참고'", "--body-file -"), ["표준 입력"]),
     ("따옴표 안 백틱은 리터럴 — 제목 검사됨", _OK.replace("[CHORE] GROMO-1885 컨벤션 정본화", "`UserService` 정리"), ["제목 형식"]),
     ("따옴표 안 백틱 + 정상 제목", _OK.replace("컨벤션 정본화", "`UserService` 정리"), []),
 ]
