@@ -33,7 +33,9 @@ FULL_KEY = re.compile(r"GROMO-(\d+)")
 STOP_TOKENS = {";", "&&", "||", "|"}
 UNPARSEABLE = re.compile(r"\$\(|`|\$\{?[A-Za-z_]")
 _ANSI_C_QUOTE = re.compile(r"\$'")
-_LOOSE_CREATE = re.compile(r"\bgh\b[^;&|]*\bpr\b[^;&|]*\bcreate\b")
+_LOOSE_CREATE = re.compile(r"\bgh\b[^;&|]*\bpr\b[^;&|]*\b(?:create|new)\b")
+CREATE_WORDS = {"create", "new"}          # `gh pr new` 는 create 의 별칭
+_SHORT_VALUED = set("altbFBHrmpTR")       # 값을 받는 단축 플래그 (-a -l -t -b -F -B -H -r -m -p -T -R)
 FILL_FLAGS = {"--fill", "--fill-first", "--fill-verbose", "-f"}
 LABEL_HINT = ("FEAT→enhancement · FIX→bug · REFACTOR→refactoring · "
               "CHORE→documentation|workflow|test (내용으로 택1, 없으면 라벨 생략)")
@@ -94,9 +96,25 @@ def find_creates(tokens):
         j = _skip_global_flags(tokens, i + 1)
         if j < len(tokens) and tokens[j] == "pr":
             k = _skip_global_flags(tokens, j + 1)
-            if k < len(tokens) and tokens[k] == "create":
+            if k < len(tokens) and tokens[k] in CREATE_WORDS:
                 found.append(k + 1)
     return found
+
+
+def _expand_short(tokens):
+    """`-dl workflow` → `-d -l workflow`, `-lworkflow` → `-l workflow` (pflag 결합·부착 형태 분해)."""
+    out = []
+    for tok in tokens:
+        if re.fullmatch(r"-[A-Za-z]{2,}", tok):
+            chars = tok[1:]
+            for idx, c in enumerate(chars):
+                out.append("-" + c)
+                if c in _SHORT_VALUED and idx + 1 < len(chars):
+                    out.append(chars[idx + 1:])
+                    break
+        else:
+            out.append(tok)
+    return out
 
 
 def parse_args(tokens):
@@ -104,6 +122,7 @@ def parse_args(tokens):
     valued = {"--assignee", "-a", "--label", "-l", "--title", "-t", "--body", "-b",
               "--body-file", "-F", "--base", "-B", "--head", "-H", "--reviewer", "-r",
               "--milestone", "-m", "--project", "-p", "--template", "-T", "--repo", "-R"}
+    tokens = _expand_short(tokens)
     out = {}
     i = 0
     while i < len(tokens):
@@ -136,7 +155,7 @@ def _has(args, *names):
 
 def check_command(command, cwd=None):
     """위반 사유 목록. 비어 있으면 통과. None 이면 검사 대상이 아니거나 파싱 불가."""
-    if "gh" not in command or "create" not in command:
+    if "gh" not in command or not any(w in command for w in CREATE_WORDS):
         return None
     if _ANSI_C_QUOTE.search(command):
         return ["`$'…'`(ANSI-C 인용)은 게이트가 파싱할 수 없다 — 일반 따옴표로 다시 쓴다"]
@@ -286,6 +305,9 @@ _FIXTURES = [
     ("ANSI-C 인용 우회", "gh pr create --title $'it\\'s a trap' --draft --assignee alice --label bug", ["ANSI-C"]),
     ("따옴표 불일치", "gh pr create --title 'broken --draft --assignee alice --label bug", ["파싱할 수 없다"]),
     ("따옴표 불일치 — 무관한 명령", "echo 'broken && ls", None),
+    ("gh pr new 별칭", _OK.replace("gh pr create", "gh pr new") + " --draft", ["--draft"]),
+    ("결합 단축 플래그 -dl", "gh pr create -dl workflow -t '[CHORE] GROMO-1885 x' -b 'body' -a @me", ["--draft"]),
+    ("부착 단축 플래그 -lbug", _OK.replace("--label workflow", "-lbug"), ["안 맞는다"]),
     ("따옴표 안 백틱은 리터럴 — 제목 검사됨", _OK.replace("[CHORE] GROMO-1885 컨벤션 정본화", "`UserService` 정리"), ["제목 형식"]),
     ("따옴표 안 백틱 + 정상 제목", _OK.replace("컨벤션 정본화", "`UserService` 정리"), []),
 ]
