@@ -1,12 +1,12 @@
 # gromo
 
 집중한 시간으로 캐릭터를 키우는 시간 관리 앱입니다.
-**Spring Boot 4 REST API**(`server/data-api/`)와 React Native(Expo) 앱을 한 저장소에서 관리하는 모노레포입니다.
+네 개의 **Spring Boot 4 서버**와 React Native(Expo) 앱을 한 저장소에서 관리하는 모노레포입니다.
 
 | | |
 | --- | --- |
 | 회사 · 앱 | `oneorthree` · gromo (`1.1.0`) |
-| 서버 | Spring Boot `4.0.6` · Java 17 · PostgreSQL · 도메인 17종 · 컨트롤러 31 · 엔티티 44 |
+| 서버 | [전체 서버 문서](server/README.md) · Spring Boot `4.0.6` · Java 17 · PostgreSQL · Redis · Kafka |
 | 앱 | React Native `0.86` · Expo SDK `57` · React `19.2.3` · TypeScript(strict) |
 | 번들 id | iOS · Android 모두 `com.oneorthree.gromo` |
 | 지원 언어 | 한국어 · English · 日本語 · 繁體中文 |
@@ -17,7 +17,9 @@
 ```
 gromo/
 ├── server/
-│   ├── data-api/                # ★ Spring Boot 4 REST API (Java 17 + PostgreSQL)
+│   ├── README.md                # ★ 전체 서버 구성 · 데이터 흐름 · 실행 안내
+│   ├── business-api/            # 앱 요청 인증·조합 · 파일 미리보기
+│   ├── data-api/                # 코어 상태·트랜잭션 (Java 17 + PostgreSQL)
 │   │   ├── src/main/java/com/oneorthree/phone/
 │   │   │   ├── <domain>/        #   도메인 17종 — 각자 controller·service·repository 를 소유
 │   │   │   ├── common/          #   소유 도메인이 없는 공유물 (port·id·exception·logging)
@@ -26,8 +28,10 @@ gromo/
 │   │   ├── src/test/java/       #   테스트 클래스 199개 (Testcontainers · ArchUnit)
 │   │   ├── config/checkstyle/ · config/spotbugs/
 │   │   └── Dockerfile           #   멀티스테이지 · Datadog 에이전트 내장(비활성)
+│   ├── notification/            # 기기·설정 · 예약 알림 · FCM 발송
+│   ├── realtime/                # WebSocket/STOMP 채팅 · Redis 팬아웃
 │   ├── observability/           # Prometheus · Grafana · Loki · Promtail · Datadog 설정
-│   └── scripts/                 # docker-compose 5종 (local·dev·prod·datadog·observability)
+│   └── scripts/                 # 환경별 Compose · 배포 준비 · 데이터 이관
 ├── app/
 │   ├── app-dev/                 # React Native + Expo 앱 (TypeScript · strict)
 │   │   ├── src/                 #   화면·컴포넌트·서비스·상태 (.ts/.tsx 559개)
@@ -44,15 +48,19 @@ gromo/
 최상위에는 그 밖에 `CLAUDE.md`(개발 가이드) · `AGENTS.md`(코드 리뷰 규칙)가 있습니다.
 `doc/` · `logs/` · `app/app-dev/.docs/` 는 **개인 스크래치라 git 에 없습니다**.
 
+[서버 전체 보기](server/README.md) · [Business API](server/business-api/README.md) · [Data API](server/data-api/README.md) · [Notification](server/notification/README.md) · [Realtime](server/realtime/README.md) · [Observability](server/observability/README.md) · [Scripts](server/scripts/README.md)
+
 프론트엔드와 백엔드는 툴링을 공유하지 않습니다. 작업할 쪽 디렉토리로 들어가면 그 하위의
 `CLAUDE.md` 가 적용됩니다 — [서버](server/data-api/CLAUDE.md) · [앱](app/app-dev/.claude/CLAUDE.md).
 
 ---
 
-# 서버 — `server/data-api/`
+# 서버 — Data API 상세
 
 Spring Boot **4.0.6** / Java 17 / Gradle. PostgreSQL 단일 인스턴스에 붙는 REST API 하나이고,
 `:8080` 으로 API 를, `:9091` 로 관리 엔드포인트를 엽니다.
+
+이 절은 코어 상태를 소유하는 Data API를 설명합니다. Business·Notification·Realtime을 포함한 전체 연결과 서비스별 실행 방법은 [서버 전체 문서](server/README.md)에서 확인합니다.
 
 ## 요청이 지나가는 길
 
@@ -325,18 +333,22 @@ app/app-dev/src/
  iOS Screen Time  ─┐
  Android 사용량   ─┴─→ 네이티브 모듈 ─→ 화면 ─→ services/api.ts (axios + JWT)
                                                        │ HTTPS
+                        ┌──────────────────────────────┼─────────────────────────────┐
+                        ▼                              ▼                             ▼
+             Business API :8080              Data API :8080              Realtime :8081
+             요청 조합·미리보기               코어 상태·트랜잭션            WebSocket/STOMP 채팅
+                        │                              │                             │
+                        └──────── 내부 HTTP ───────────┤                    Redis Pub/Sub
+                                                       │
+                                      PostgreSQL · Redis · Kafka
+                                                       │
+                                                Notification :8082
+                                                       │ FCM
                                                        ▼
-                              server/data-api  :8080 (/health) · :9091 (actuator)
-                                Controller → Service → QueryService/Repository → PostgreSQL
-                                     │                                              ▲
-                                     ├─ @Scheduled + ShedLock (정산·판정·알림 22잡) ─┘
-                                     └─ FCM HTTP v1 ─→ 푸시 ─→ 앱
-
-   Flyway V1~V50 ─→ PostgreSQL 스키마 = 단일 진실 공급원
-   Actuator/micrometer :9091 ─→ Prometheus·Grafana·Loki / Datadog APM·RUM
+                                                      앱
 ```
 
-> 앱↔서버는 **REST 단방향 + 푸시**입니다. 실시간 소켓 채널은 없습니다.
+현재 기존 API와 인증 발급은 Data에 남아 있고, 신규 조합 API는 Business가 맡습니다. 채팅은 Realtime의 WebSocket/STOMP와 REST 이력 조회를 함께 사용합니다. 현재 구현과 목표 구조의 차이는 [서버 전체 문서](server/README.md)에 구분해 두었습니다.
 
 ---
 
@@ -537,8 +549,7 @@ cd app/app-dev/ios
 | 품질 | Checkstyle `10.21.4` · SpotBugs `4.8.6` · JaCoCo `0.8.12` · OWASP Dependency-Check `10.0.4` · **ArchUnit `1.3.0`** · Testcontainers `1.20.1` |
 | 보일러플레이트 | Lombok |
 
-> `spring-boot-starter-websocket` 이 의존성에 선언돼 있으나 **구현 코드는 없습니다**(사용처 0건).
-> 실시간 채널이 필요해지면 그때 배선합니다.
+> Data API의 `spring-boot-starter-websocket`은 현재 사용처가 없습니다. 실시간 채팅 구현은 독립 [Realtime 서비스](server/realtime/README.md)에 있습니다.
 
 ### 앱
 
@@ -660,6 +671,8 @@ doc/                          문서    ─┘   (통합)      (릴리스)
 
 | 찾는 것 | 위치 |
 | --- | --- |
+| **전체 서버 구성·실행 안내** | [`server/README.md`](server/README.md) |
+| 서버별 상세 문서 | [Business API](server/business-api/README.md) · [Data API](server/data-api/README.md) · [Notification](server/notification/README.md) · [Realtime](server/realtime/README.md) |
 | **백엔드 계층·패키지 배치 규약** | [`docs/conventions/backend-layering.md`](docs/conventions/backend-layering.md) — ArchUnit 규칙의 정본 |
 | **DB 스키마 정본** | `server/data-api/docs/db/schema.dbml` (추적됨) + `src/main/resources/db/migration/` |
 | 백엔드 개발 가이드 | [`server/data-api/CLAUDE.md`](server/data-api/CLAUDE.md) |
