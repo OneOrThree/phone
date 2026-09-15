@@ -24,7 +24,7 @@ payload.json 스키마 (모르는 키가 있으면 즉시 에러 — 오타가 �
           "deliverable":     "PR",           # 필수, PR|문서|조사 리포트|디자인 시안|설정 변경|데이터 작업|기타(…)
           "output_location": "server/data-api ... PR",  # 필수, 레포 경로 / PR 대상 레포 / URL / 지라 코멘트
           "estimate": "4h",                  # 팀원에게 시킬 때 필수, 내 백로그는 선택 (30m/4h/1d/2.5d)
-          "due":      "2026-09-14",          # 선택, 기본 = 활성 스프린트 종료일
+          "due":      "2026-09-14",          # 선택, 기본 = 스프린트에 넣을 때만 활성 스프린트 종료일
           "refs":     ["docs/... — 설명"],   # 선택, 참고 자료
           "labels":   ["BE"],                # 선택
           "epic":     "GROMO-123",           # 선택 (fixVersion 은 생성 시 넣지 않는다 — 완료 처리 때 붙인다)
@@ -321,7 +321,8 @@ def build_fields(t, meta, use_sprint):
     points = t.get("story_points") or (hours_to_points(hours) if hours is not None else None)
     if points:
         fields[POINTS_FIELD] = points
-    due = t.get("due") or (sprint or {}).get("end")
+    # 기본 기한은 스프린트에 넣을 때만 스프린트 종료일 — 백로그 티켓에 마감을 지어내지 않는다
+    due = t.get("due") or ((sprint or {}).get("end") if use_sprint else None)
     if due:
         fields["duedate"] = due
     if t.get("labels"):
