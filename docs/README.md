@@ -1,7 +1,20 @@
-# docs/ — 팀 공유 기능 문서
+# 문서 인덱스
 
-팀원이 함께 보는 **기능별 문서 공간**이다. git으로 추적·공유되며, 개인 작업 메모는
-여기 두지 않는다 (개인 스크래치는 gitignored `doc/`).
+팀원이 함께 보는 제품·기술 문서의 인덱스다. git으로 추적·공유되며, 개인 작업 메모는
+여기 두지 않는다(개인 스크래치는 gitignored `doc/`).
+
+## 무엇을 찾고 있나요?
+
+| 질문 | 시작할 문서 |
+| --- | --- |
+| 제품과 저장소를 빠르게 훑고 싶다 | [루트 README](../README.md) |
+| 서버 구성과 현재 데이터 흐름을 알고 싶다 | [서버 README](../server/README.md) |
+| 특정 서버를 실행하거나 구현을 찾고 싶다 | [Business](../server/business-api/README.md) · [Data](../server/data-api/README.md) · [Notification](../server/notification/README.md) · [Realtime](../server/realtime/README.md) |
+| 앱을 실행하거나 구조를 알고 싶다 | [앱 README](../app/app-dev/README.md) |
+| 목표 아키텍처와 결정 근거를 알고 싶다 | [아키텍처 인덱스](architecture/README.md) · [결정 장부](architecture/decisions.md) |
+| 기능별 요구사항·정책·API 설계를 찾고 싶다 | [`prd/`](prd/) |
+| 팀 공통 규약을 확인하고 싶다 | [`conventions/`](conventions/) |
+| 부하 테스트를 실행하거나 결과를 해석하고 싶다 | [부하 테스트 README](../loadtest/README.md) |
 
 ## 구조
 
@@ -11,6 +24,7 @@
 docs/
 ├── README.md                          # 이 파일
 ├── architecture/                      # 목표 아키텍처 정본 (서비스·시스템·결정 장부·다이어그램)
+├── contracts/                         # 서비스 사이 API·이벤트 계약
 ├── conventions/                       # 팀 전체 규약
 │   ├── git-pr-conventions.md          # 브랜치·커밋·PR 제목/본문·담당자·라벨·리뷰·머지
 │   ├── jira-conventions.md            # 지라 4축 분류 (도메인·Label·Epic·fixVersion) + 필드 id
@@ -18,6 +32,9 @@ docs/
 │   ├── date-axis.md                   # 날짜 축(로컬·KST·UTC) 규약
 │   ├── error-contract.md              # API 에러 응답 계약
 │   └── backend-layering.md            # 백엔드 레이어링 규약
+├── engineering/                       # 저장소 운영·개발 생산성 조사와 검증 기록
+├── qa/                                # 공유 QA 시나리오와 결과
+├── app-imgs/                          # 앱 화면·카피·디자인 참고 자료
 └── prd/
     └── <기능-이름>/                    # 예: challenge, focus-session
         ├── prd.md                     # PRD — 문제 정의·목표·요구사항
@@ -57,3 +74,4 @@ Git·PR 은 `git-pr-conventions.md`, 지라는 `jira-conventions.md`(분류) + `
 ## 엔지니어링 개선 기록
 
 - [CI 중복 빌드·캐시·실행 범위 개선](engineering/ci-build-reuse/README.md) — 원인 분석, 검증 로그, 전후 측정과 성과 서술 근거.
+- [README 정보구조 개선 조사](engineering/readme-information-architecture/research.md) — 루트·영역·상세 문서 분리, 접힌 섹션, 문서 사이트 도입 기준.
