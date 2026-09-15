@@ -32,14 +32,43 @@ public final class OutboxTestPostgres {
     }
 
     /**
-     * 운영 마이그레이션 배선을 테스트 컨텍스트에 건다.
+     * 운영 마이그레이션 배선을 테스트 컨텍스트에 건다 — JVM 공유 컨테이너.
      *
      * @param registry 스프링 테스트 프로퍼티 레지스트리
      */
     public static void applyProductionMigrationWiring(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", INSTANCE::getJdbcUrl);
-        registry.add("spring.datasource.username", INSTANCE::getUsername);
-        registry.add("spring.datasource.password", INSTANCE::getPassword);
+        applyProductionMigrationWiring(registry, INSTANCE);
+    }
+
+    /**
+     * 한 테스트 클래스만 쓰는 PostgreSQL 을 띄운다.
+     *
+     * <p>전역 순위처럼 «DB 의 사용자 전부»를 훑는 배치는 공유 컨테이너에서 앞선 모든 테스트가 남긴 사용자까지 판정·기록해
+     * CI 에서 분 단위로 느려진다(250명을 심어도 948명을 처리했다). 그런 클래스는 자기 사용자만 있는 DB 를 쓴다.
+     *
+     * @param databaseName DB 이름
+     * @return 시작된 컨테이너 — 사용자·비밀번호는 공유 컨테이너와 같다
+     */
+    public static PostgreSQLContainer<?> startDedicated(String databaseName) {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:16-alpine")
+                .withDatabaseName(databaseName)
+                .withUsername("outbox")
+                .withPassword("outbox");
+        container.start();
+        return container;
+    }
+
+    /**
+     * 운영 마이그레이션 배선을 주어진 컨테이너로 건다.
+     *
+     * @param registry 스프링 테스트 프로퍼티 레지스트리
+     * @param database 붙을 PostgreSQL
+     */
+    public static void applyProductionMigrationWiring(DynamicPropertyRegistry registry,
+                                                      PostgreSQLContainer<?> database) {
+        registry.add("spring.datasource.url", database::getJdbcUrl);
+        registry.add("spring.datasource.username", database::getUsername);
+        registry.add("spring.datasource.password", database::getPassword);
         // 컨텍스트 캐시마다 기본 idle 10개를 채우면 공유 PG의 max_connections를 소진한다.
         // 동시 쓰기 두 개와 잠금 관측용 연결은 허용하되 유휴 컨텍스트는 연결을 붙잡지 않는다.
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> 6);

@@ -112,7 +112,7 @@ class ChallengeCreatedNotificationServiceTest {
      * @return 구 경로 dispatcher
      */
     private static NotificationDispatcher legacyDispatcher(PushNotificationService pushNotificationService) {
-        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService);
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService, null);
     }
 
     // ── 트랜잭션 경계 ─────────────────────────────────────────────────────
@@ -319,14 +319,18 @@ class ChallengeCreatedNotificationServiceTest {
                 User.builder().id(MEMBER_ID).language("en").build(),
                 User.builder().id(OTHER_MEMBER_ID).language("ja").build());
         givenDurationDetail(30);
-        given(dispatcher.enqueueOnly(any())).willReturn(NotificationDispatchOutcome.QUEUED);
+        given(dispatcher.enqueueAll(any())).willAnswer(invocation -> ((List<?>) invocation.getArgument(0)).stream()
+                .map(ignored -> NotificationDispatchOutcome.QUEUED).toList());
 
         assertThat(service.enqueueCreatedNotifications(event())).isEqualTo(2);
 
-        ArgumentCaptor<NotificationRequest> requests = ArgumentCaptor.forClass(NotificationRequest.class);
-        verify(dispatcher, times(2)).enqueueOnly(requests.capture());
-        assertThat(requests.getAllValues()).extracting(NotificationRequest::locale).containsExactly("en", "ja");
-        for (NotificationRequest request : requests.getAllValues()) {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<NotificationRequest>> batches = ArgumentCaptor.forClass(List.class);
+        // 수신자 전원을 «한 번에» 넘긴다 — 잠금 순서는 적는 쪽이 합집합으로 정한다(GROMO-893).
+        verify(dispatcher, times(1)).enqueueAll(batches.capture());
+        List<NotificationRequest> requests = batches.getValue();
+        assertThat(requests).extracting(NotificationRequest::locale).containsExactly("en", "ja");
+        for (NotificationRequest request : requests) {
             assertThat(request.params()).doesNotContainKey("missionLabel");
             assertThat(request.params().get("mission")).isEqualTo(java.util.Map.of(
                     "type", "DURATION", "category", "FOCUS", "durationMinutes", 30,

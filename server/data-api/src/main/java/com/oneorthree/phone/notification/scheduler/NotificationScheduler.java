@@ -1,6 +1,7 @@
 package com.oneorthree.phone.notification.scheduler;
 
 import com.oneorthree.phone.group.service.GroupBetFreezeMonitor;
+import com.oneorthree.phone.notification.migration.NotificationCronReplayJob;
 import com.oneorthree.phone.notification.service.BetEventNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeDurationEndNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeWindowEndNotificationService;
@@ -43,6 +44,12 @@ public class NotificationScheduler {
      */
     static final String FANOUT_LOCK = "PT1H";
 
+    /** 5분 결과 flush 의 ShedLock 이름 — 재생 대상이 아니라 {@code NotificationCronReplayJob} 에 없다. */
+    static final String BET_EVENT_FLUSH_JOB = "notification-bet-event-flush";
+
+    /** 사일런트 flush 의 ShedLock 이름 — 재생 대상이 아니라 {@code NotificationCronReplayJob} 에 없다. */
+    static final String SILENT_FLUSH_JOB = "notification-silent-flush";
+
     private final NotificationBatchRetry batchRetry;
     private final ResultBundleCompletionService resultBundles;
     private final NotificationDispatcher notificationDispatcher;
@@ -64,7 +71,8 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-league-weekly-results", lockAtMostFor = FANOUT_LOCK)
     public void sendWeeklyResultNotifications() {
         try {
-            batchRetry.run(leagueNotificationService::sendWeeklyResultNotifications);
+            batchRetry.run(NotificationCronReplayJob.LEAGUE_WEEKLY_RESULTS.lockName(),
+                    leagueNotificationService::sendWeeklyResultNotifications);
         } catch (Exception e) {
             // 재시도 소진은 로그 감시 후 원래 슬롯으로 수동 재생한다(OUTBOX 모드).
             log.error("주간 리그 결과 알림 스케줄 실패", e);
@@ -78,7 +86,8 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-league-deadline", lockAtMostFor = FANOUT_LOCK)
     public void sendDeadlineReminders() {
         try {
-            batchRetry.run(leagueNotificationService::sendDeadlineReminders);
+            batchRetry.run(NotificationCronReplayJob.LEAGUE_DEADLINE.lockName(),
+                    leagueNotificationService::sendDeadlineReminders);
         } catch (Exception e) {
             log.error("리그 마감 임박 알림 스케줄 실패", e);
         }
@@ -91,7 +100,8 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-league-sunday-crisis", lockAtMostFor = FANOUT_LOCK)
     public void sendSundayCrisisReminders() {
         try {
-            batchRetry.run(leagueNotificationService::sendSundayCrisisReminders);
+            batchRetry.run(NotificationCronReplayJob.LEAGUE_SUNDAY_CRISIS.lockName(),
+                    leagueNotificationService::sendSundayCrisisReminders);
         } catch (Exception e) {
             log.error("일요일 위기 알림(강등 경고·마감 D-1) 스케줄 실패", e);
         }
@@ -104,7 +114,8 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-league-relegation-warning", lockAtMostFor = FANOUT_LOCK)
     public void sendRelegationWarnings() {
         try {
-            batchRetry.run(leagueNotificationService::sendRelegationWarnings);
+            batchRetry.run(NotificationCronReplayJob.LEAGUE_RELEGATION_WARNING.lockName(),
+                    leagueNotificationService::sendRelegationWarnings);
         } catch (Exception e) {
             log.error("일요일 저녁 강등 경고 재발송 스케줄 실패", e);
         }
@@ -117,7 +128,8 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-league-final-deadline", lockAtMostFor = FANOUT_LOCK)
     public void sendFinalDeadlineReminders() {
         try {
-            batchRetry.run(leagueNotificationService::sendFinalDeadlineReminders);
+            batchRetry.run(NotificationCronReplayJob.LEAGUE_FINAL_DEADLINE.lockName(),
+                    leagueNotificationService::sendFinalDeadlineReminders);
         } catch (Exception e) {
             log.error("리그 마감 2시간 전 알림 스케줄 실패", e);
         }
@@ -130,7 +142,8 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-inactive-return", lockAtMostFor = FANOUT_LOCK)
     public void sendInactiveReturnNotifications() {
         try {
-            inactiveReturnNotificationService.sendInactiveReturnNotifications();
+            batchRetry.run(NotificationCronReplayJob.INACTIVE_RETURN.lockName(),
+                    inactiveReturnNotificationService::sendInactiveReturnNotifications);
         } catch (Exception e) {
             log.error("미접속 복귀 푸시 스케줄 실패", e);
         }
@@ -157,7 +170,8 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-missed-focus-today", lockAtMostFor = FANOUT_LOCK)
     public void sendMissedFocusToday() {
         try {
-            batchRetry.run(leagueReengagementNotificationService::sendMissedFocusToday);
+            batchRetry.run(NotificationCronReplayJob.MISSED_FOCUS_TODAY.lockName(),
+                    leagueReengagementNotificationService::sendMissedFocusToday);
         } catch (Exception e) {
             log.error("오늘 미집중 푸시 스케줄 실패", e);
         }
@@ -173,7 +187,8 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-streak-at-risk", lockAtMostFor = FANOUT_LOCK)
     public void sendStreakAtRisk() {
         try {
-            batchRetry.run(leagueReengagementNotificationService::sendStreakAtRisk);
+            batchRetry.run(NotificationCronReplayJob.STREAK_AT_RISK.lockName(),
+                    leagueReengagementNotificationService::sendStreakAtRisk);
         } catch (Exception e) {
             log.error("스트릭 위기 푸시 스케줄 실패", e);
         }
@@ -188,13 +203,15 @@ public class NotificationScheduler {
      * 다른 인스턴스가 같은 flush 를 시작한다(선점 SKIP LOCKED 가 막지만 낭비다).
      */
     @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
-    @SchedulerLock(name = "notification-bet-event-flush", lockAtMostFor = FANOUT_LOCK)
+    @SchedulerLock(name = BET_EVENT_FLUSH_JOB, lockAtMostFor = FANOUT_LOCK)
     public void flushBetEventNotifications() {
         try {
             if (notificationDispatcher.isOutboxMode()) {
                 // 재훑기 커밋 뒤에 봉인한다. USER 잠금을 가진 채 슬롯 배타 잠금을 기다리지 않는다.
-                betEventNotificationService.rescanAndFlush();
-                resultBundles.flushClosedBundles();
+                batchRetry.run(BET_EVENT_FLUSH_JOB, slot -> {
+                    betEventNotificationService.rescanAndFlush(slot);
+                    resultBundles.flushClosedBundles();
+                });
             } else {
                 betEventNotificationService.flushDueBundles();
             }
@@ -212,8 +229,10 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-bet-event-rescan", lockAtMostFor = FANOUT_LOCK)
     public void rescanBetEventNotifications() {
         try {
-            betEventNotificationService.rescanAndFlush();
-            resultBundles.flushClosedBundles();
+            batchRetry.run(NotificationCronReplayJob.BET_EVENT_RESCAN.lockName(), slot -> {
+                betEventNotificationService.rescanAndFlush(slot);
+                resultBundles.flushClosedBundles();
+            });
         } catch (Exception e) {
             log.error("내기 사건 알림 재훑기 스케줄 실패", e);
         }
@@ -231,7 +250,8 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-session-open", lockAtMostFor = FANOUT_LOCK)
     public void sendSessionOpenNotifications() {
         try {
-            sessionOpenNotificationService.sendSessionOpenNotifications();
+            batchRetry.run(NotificationCronReplayJob.SESSION_OPEN.lockName(),
+                    sessionOpenNotificationService::sendSessionOpenNotifications);
         } catch (Exception e) {
             log.error("회차 모집 푸시 스케줄 실패", e);
         }
@@ -244,10 +264,10 @@ public class NotificationScheduler {
      * (HLD §6 예외 - FOCUS 하루형의 심야 정산이 이 예외로 구제된다).
      */
     @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
-    @SchedulerLock(name = "notification-silent-flush", lockAtMostFor = FANOUT_LOCK)
+    @SchedulerLock(name = SILENT_FLUSH_JOB, lockAtMostFor = FANOUT_LOCK)
     public void sendSilentFlushPushes() {
         try {
-            silentFlushPushService.sendGraceFlushPushes();
+            batchRetry.run(SILENT_FLUSH_JOB, silentFlushPushService::sendGraceFlushPushes);
         } catch (Exception e) {
             log.error("사일런트 flush 푸시 스케줄 실패", e);
         }
@@ -262,7 +282,8 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-challenge-window-end", lockAtMostFor = FANOUT_LOCK)
     public void sendChallengeWindowEndNotifications() {
         try {
-            challengeWindowEndNotificationService.sendWindowEndNotifications();
+            batchRetry.run(NotificationCronReplayJob.CHALLENGE_WINDOW_END.lockName(),
+                    challengeWindowEndNotificationService::sendWindowEndNotifications);
         } catch (Exception e) {
             log.error("챌린지 창 종료 푸시 스케줄 실패", e);
         }
@@ -277,7 +298,8 @@ public class NotificationScheduler {
     @SchedulerLock(name = "notification-challenge-duration-end", lockAtMostFor = FANOUT_LOCK)
     public void sendChallengeDurationEndNotifications() {
         try {
-            challengeDurationEndNotificationService.sendDurationEndNotifications();
+            batchRetry.run(NotificationCronReplayJob.CHALLENGE_DURATION_END.lockName(),
+                    challengeDurationEndNotificationService::sendDurationEndNotifications);
         } catch (Exception e) {
             log.error("일 목표 챌린지 마감 푸시 스케줄 실패", e);
         }

@@ -110,6 +110,8 @@ class AccountWithdrawalServiceTest {
         // 배타 락 로드가 맨 앞 — 이후 정리와 새 관계 생성을 직렬화한다
         order.verify(userQueryService).getCallerForUpdate(USER_ID);
         order.verify(groupMemberService).lockGroupsForAccountWithdrawal(user);
+        // 정산과 같은 순서(회차 행 → USER)를 지키려면 탈퇴자가 참가한 OPEN 회차도 USER 보다 먼저 잠근다.
+        order.verify(groupMemberService).lockOpenBetSessionsForAccountWithdrawal(user);
         // USER aggregate를 쓰는 세션 폐기·세대 사건도 그룹 선점보다 뒤여야 한다.
         order.verify(authSessionService).revokeAll(USER_ID, "WITHDRAW");
         order.verify(authSessionService).publishGenerationBumped(USER_ID, user.getAuthGeneration(), "WITHDRAW");

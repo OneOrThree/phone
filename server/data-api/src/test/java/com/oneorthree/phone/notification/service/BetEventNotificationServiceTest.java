@@ -116,7 +116,7 @@ class BetEventNotificationServiceTest {
      * @return 구 경로 dispatcher
      */
     private static NotificationDispatcher legacyDispatcher(PushNotificationService pushNotificationService) {
-        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService);
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService, null);
     }
 
     /** 목이 흉내내는 클레임 저장소 — insertPendingClaim 이 넣고 findDueClaimsForUpdate 가 읽는다. */

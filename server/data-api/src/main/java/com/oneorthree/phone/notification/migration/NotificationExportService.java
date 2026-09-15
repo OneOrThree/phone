@@ -1,11 +1,14 @@
 package com.oneorthree.phone.notification.migration;
 
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.service.WindowFocusAggregator;
 import com.oneorthree.phone.notification.producer.NotificationEventKey;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationExpiry;
@@ -25,15 +28,20 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 /**
  * 컷오버 이관 export — 구 상태를 <b>알림 서버의 import wire 그대로</b> 뽑는다
@@ -240,6 +248,8 @@ public class NotificationExportService {
     private final GroupQueryService groupQueryService;
     private final GroupChallengeBetParticipantRepository betParticipantRepository;
     private final UserQueryService userQueryService;
+    private final GroupChallengeWindowRepository groupChallengeWindowRepository;
+    private final WindowFocusAggregator windowFocusAggregator;
 
     /**
      * 한 스냅샷에서 전부 읽어 이관 문서를 만든다.
@@ -492,14 +502,16 @@ public class NotificationExportService {
         @SuppressWarnings("unchecked")
         List<Object[]> rows = entityManager.createNativeQuery(LOGS_SQL).getResultList();
         List<NotificationMigrationRecord> records = new ArrayList<>(rows.size());
+        Map<UUID, Optional<GroupChallengeWindow>> windows = new HashMap<>();
         for (Object[] row : rows) {
-            toDelivery(row, failures).ifPresent(records::add);
+            toDelivery(row, failures, windows).ifPresent(records::add);
         }
         return records;
     }
 
     private Optional<NotificationMigrationRecord> toDelivery(
-            Object[] row, List<NotificationExportDocument.Failure> failures) {
+            Object[] row, List<NotificationExportDocument.Failure> failures,
+            Map<UUID, Optional<GroupChallengeWindow>> windows) {
 
         UUID rowId = toUuid(row[0]);
         UUID userId = toUuid(row[1]);
@@ -545,6 +557,11 @@ public class NotificationExportService {
             failures.add(fail(rowId, userId, legacyKind, status, FAIL_NO_EVENT_TIME,
                     kind + " 는 시간축이 " + kind.slotGranularity() + " 인데 원본 사건 시각이 없습니다."));
             return Optional.empty();
+        }
+        if (kind == NotificationKind.CHALLENGE_WINDOW_END && slotAt == null) {
+            // 구 창 종료 행에는 슬롯이 없다. 발송 시각의 날짜로 키를 만들면 producer 의 «회차 종료» 키와 갈려
+            // 다음 날 회차의 새 사건을 소비 측이 중복으로 버린다(GROMO-893 ⑦).
+            occurredAt = windowCycleEndOf(subjectId, occurredAt, windows);
         }
         String eventId = NotificationEventKey.of(kind, userId, subjectId, occurredAt);
 
@@ -709,6 +726,44 @@ public class NotificationExportService {
         params.put("legacySessionStatus", session.getStatus().name());
         params.put("legacyStillOpen", session.getStatus() == GroupBetStatus.OPEN);
         return new Enrichment(params, null, null, false);
+    }
+
+    /** 구 창 종료 감지 폭 — {@code ChallengeWindowEndNotificationService#RECENTLY_ENDED_WINDOW} 와 같은 값이다. */
+    static final Duration WINDOW_END_DETECTION = Duration.ofMinutes(30);
+
+    private static final ZoneId WINDOW_ZONE = ZoneId.of("Asia/Seoul");
+
+    /**
+     * 구 창 종료 발송 이력의 사건 시각을 producer 와 같은 <b>회차 종료</b> 기준으로 되돌린다 (GROMO-893 ⑦).
+     *
+     * <h2>왜 발송 시각이면 안 되는가</h2>
+     * producer 는 창 종료 사건의 키·슬롯을 회차가 끝난 날로 만든다. 구 이력은 슬롯 없이 발송 시각만 남겼으므로 그대로
+     * 쓰면, 9/13 23:59 에 끝나 9/14 00:00 에 보낸 이력이 {@code 20260914} 키를 받는다 — 그 키는 9/14 23:59 에
+     * 끝나는 <b>다음</b> 회차의 producer 키와 같아 소비 측 {@code ON CONFLICT DO NOTHING} 이 그 회차를 버린다.
+     *
+     * <h2>되돌리는 방법</h2>
+     * 구 감지는 발송 시각 기준 {@code (발송 − 30분, 발송]} 안에 끝난 창을 잡았다. 그 챌린지의 창으로 발송일과 전날의
+     * 종료 시각을 만들어 그 구간에 든 가장 늦은 종료를 쓴다(창 경계는 진행률·정산과 같은 {@link WindowFocusAggregator}).
+     *
+     * <h2>창을 찾지 못하면</h2>
+     * {@code 발송 − 30분} 을 쓴다. 실제 종료는 언제나 그보다 늦거나 같으므로 이 날짜는 실제 회차의 날짜보다 <b>늦지
+     * 않다</b> — 다음 회차의 키와 부딪혀 진짜 알림을 버리는 쪽으로는 틀리지 않고, 틀려도 중복 발송 쪽이다.
+     *
+     * @param challengeId 챌린지
+     * @param sentAt      구 발송 시각
+     * @param windows     export 한 번 동안의 창 조회 캐시
+     * @return 회차 종료 시각
+     */
+    private Instant windowCycleEndOf(UUID challengeId, Instant sentAt,
+                                     Map<UUID, Optional<GroupChallengeWindow>> windows) {
+        Instant floor = sentAt.minus(WINDOW_END_DETECTION);
+        LocalDate sentDay = LocalDate.ofInstant(sentAt, WINDOW_ZONE);
+        return windows.computeIfAbsent(challengeId, groupChallengeWindowRepository::findById)
+                .flatMap(window -> Stream.of(sentDay.minusDays(1), sentDay)
+                        .map(day -> windowFocusAggregator.windowEndOn(day, window))
+                        .filter(end -> end.isAfter(floor) && !end.isAfter(sentAt))
+                        .max(Comparator.naturalOrder()))
+                .orElse(floor);
     }
 
     private Enrichment enrichChallenge(UUID challengeId) {

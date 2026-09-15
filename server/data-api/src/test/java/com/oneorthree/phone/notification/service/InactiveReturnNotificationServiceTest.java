@@ -81,7 +81,7 @@ class InactiveReturnNotificationServiceTest {
      * @return 구 경로 dispatcher
      */
     private static NotificationDispatcher legacyDispatcher(PushNotificationService pushNotificationService) {
-        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService);
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService, null);
     }
 
     private static Instant startOfDayKst(LocalDate date) {

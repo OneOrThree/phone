@@ -8,6 +8,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
@@ -22,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -114,6 +116,7 @@ public class SilentFlushPushService {
         int sent = 0;
         int deduped = 0;
         int skipped = 0;
+        List<NotificationRequest> outbox = new ArrayList<>();
         for (GroupChallengeBetParticipant participant : targets) {
             GroupChallengeBetSession session = sessionsById.get(participant.getSession().getId());
             if (session == null) {
@@ -125,18 +128,10 @@ public class SilentFlushPushService {
                 // 신 경로는 선점 행을 만들지 않는다 — 그 자리를 결정적 사건 키가 대신한다.
                 // 슬롯은 실제 발송 시각이 아니라 설계상의 슬롯(settle_after - 15분)이라
                 // 어느 틱이 집었든 같은 값이 남는다(구 경로의 insertPendingClaim 과 같은 규칙).
-                NotificationDispatchOutcome outcome = notificationDispatcher.dispatchSilent(user,
-                        new NotificationRequest(NotificationKind.BET_SILENT_FLUSH, user.getId(),
-                                session.getId(), session.getGroup().getId(),
-                                session.getSettleAfter().minus(SETTLE_LEAD), null, user.getLanguage(),
-                                Map.of(SILENT_KEY, SILENT_VALUE)),
-                        PushMessage.silent(Map.of(SILENT_KEY, SILENT_VALUE,
-                                "groupId", session.getGroup().getId().toString())));
-                if (outcome == NotificationDispatchOutcome.QUEUED) {
-                    sent++;
-                } else {
-                    deduped++;
-                }
+                outbox.add(new NotificationRequest(NotificationKind.BET_SILENT_FLUSH, user.getId(),
+                        session.getId(), session.getGroup().getId(),
+                        session.getSettleAfter().minus(SETTLE_LEAD), null, user.getLanguage(),
+                        Map.of(SILENT_KEY, SILENT_VALUE)));
                 continue;
             }
             UUID rowId = Generators.timeBasedEpochRandomGenerator().generate();
@@ -171,6 +166,15 @@ public class SilentFlushPushService {
                 log.warn("사일런트 flush 푸시 실패 — userId={}, sessionId={}",
                         user.getId(), session.getId(), e);
             }
+        }
+        if (!outbox.isEmpty()) {
+            // 회차가 여럿이면 같은 참가자가 회차마다 되풀이된다. 참가 행 순서로 한 트랜잭션에서 잠그지 않고
+            // 판정 트랜잭션 밖의 짧은 조각이 수신자를 정본 순서로 잠근다(GROMO-893).
+            int queued = (int) notificationDispatcher.writeFanOut(outbox, NotificationFanOutUnit.RECIPIENT).stream()
+                    .filter(NotificationDispatchOutcome.QUEUED::equals)
+                    .count();
+            sent += queued;
+            deduped += outbox.size() - queued;
         }
         PushDispatchSummaryResponse result =
                 summary(targets.size(), sent, deduped, skipped, startedAtMillis);

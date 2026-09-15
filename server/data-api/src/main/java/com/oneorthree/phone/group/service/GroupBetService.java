@@ -42,6 +42,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
@@ -442,6 +443,21 @@ public class GroupBetService {
             // 전부 releaseFromAllOpenBets(→ releaseSessions)의 "취소 마감 전" 분기 소유다. 두 책임이
             // 섞이면 마감이 지나 정산 대상으로 남긴 참가를 이 루프가 도로 환불해, 계정 탈퇴가 취소
             // 마감을 우회하는 환불 경로가 된다(FR-40 위반 — 실제로 병합 충돌 해소 중 되살아났던 회귀).
+        }
+    }
+
+    /**
+     * 탈퇴자가 참가한 OPEN 회차 행을 id 오름차순으로 전부 잠근다 — 돈도 상태도 건드리지 않는다 (GROMO-893).
+     *
+     * <p>호출부(계정 탈퇴)가 USER aggregate 를 쓰기 전에 부른다. 이후 {@link #releaseFromAllOpenBets} 가 같은
+     * 순서로 다시 잠글 때는 이미 쥔 행이라 기다리지 않는다.
+     *
+     * @param user 탈퇴 중인 유저
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockOpenSessionsForAccountWithdrawal(User user) {
+        for (UUID sessionId : groupChallengeBetSessionRepository.findOpenSessionIdsByParticipantUserId(user.getId())) {
+            groupQueryService.findBetSessionForUpdate(sessionId);
         }
     }
 

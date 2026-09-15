@@ -83,7 +83,7 @@ class BetWonNotificationServiceTest {
      * @return 구 경로 dispatcher
      */
     private static NotificationDispatcher legacyDispatcher(PushNotificationService pushNotificationService) {
-        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService);
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService, null);
     }
 
     private final User winner = User.builder()

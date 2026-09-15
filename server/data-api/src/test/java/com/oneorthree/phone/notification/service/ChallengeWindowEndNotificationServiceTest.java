@@ -16,7 +16,10 @@ import com.oneorthree.phone.group.service.WindowFocusAggregator;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
+import com.oneorthree.phone.notification.producer.NotificationFanOutWriter;
 import com.oneorthree.phone.notification.producer.NotificationOutboxProducer;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
@@ -110,7 +113,7 @@ class ChallengeWindowEndNotificationServiceTest {
      * @return 구 경로 dispatcher
      */
     private static NotificationDispatcher legacyDispatcher(PushNotificationService pushNotificationService) {
-        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService);
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService, null);
     }
 
     private static Group group() {
@@ -212,13 +215,18 @@ class ChallengeWindowEndNotificationServiceTest {
         NotificationDispatchProperties properties = new NotificationDispatchProperties();
         properties.setMode(NotificationDispatchProperties.Mode.OUTBOX);
         NotificationOutboxProducer producer = mock(NotificationOutboxProducer.class);
+        NotificationFanOutWriter writer = mock(NotificationFanOutWriter.class);
+        given(writer.write(anyList(), any())).willAnswer(invocation -> ((List<?>) invocation.getArgument(0)).stream()
+                .map(ignored -> NotificationDispatchOutcome.QUEUED).toList());
 
-        service(new NotificationDispatcher(properties, producer, pushNotificationService))
+        service(new NotificationDispatcher(properties, producer, pushNotificationService, writer))
                 .sendWindowEndNotifications(kst(2026, 8, 2, 12, 5));
 
-        ArgumentCaptor<NotificationRequest> requests = ArgumentCaptor.forClass(NotificationRequest.class);
-        verify(producer, times(2)).append(requests.capture());
-        List<NotificationRequest> sent = requests.getAllValues();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<NotificationRequest>> batches = ArgumentCaptor.forClass(List.class);
+        verify(writer).write(batches.capture(), eq(NotificationFanOutUnit.RECIPIENT));
+        verify(producer, never()).append(any());
+        List<NotificationRequest> sent = batches.getValue();
         assertThat(sent).extracting(NotificationRequest::subjectId).containsExactly(first.getId(), later.getId());
         for (NotificationRequest request : sent) {
             assertThat(request.userId()).isEqualTo(member.getId());

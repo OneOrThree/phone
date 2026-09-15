@@ -6,6 +6,7 @@ import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
@@ -146,6 +147,11 @@ class ChallengeEndPushDispatcher {
         int deduped = 0;
         int skipped = 0;
         List<NotificationSentLog> newLogs = new ArrayList<>();
+        // 신 경로 — 멤버마다 곧장 적지 않고 모았다가 판정 트랜잭션 밖의 짧은 조각으로 적는다(GROMO-893).
+        // 그룹을 걸쳐 같은 멤버가 되풀이되므로 조회 순서대로 적으면 한 트랜잭션의 잠금 순서가 그룹 순서에 끌려간다.
+        List<NotificationRequest> outbox = new ArrayList<>();
+        List<Integer> outboxOwner = new ArrayList<>();
+        int memberOrdinal = 0;
         for (UUID groupId : groupIds) {
             List<GroupChallenge> ended = challengesByGroupId.get(groupId);
             for (GroupMember member : membersByGroupId.getOrDefault(groupId, List.of())) {
@@ -167,29 +173,25 @@ class ChallengeEndPushDispatcher {
                     deduped++;
                     continue;
                 }
+                // 신 경로는 «챌린지마다» 사건을 적는다 — 구 경로가 (유저 x 그룹) 한 건으로 접던
+                // 일을 알림 서버의 묶음(유저 x 그룹 x 슬롯)이 대신한다. 여기서 대표 1건만 적으면
+                // 나머지 챌린지의 결과는 어디에도 남지 않아 다음 회차에 되살아날 근거가 사라진다.
+                if (notificationDispatcher.isOutboxMode()) {
+                    for (NotificationRequest request : endRequests(kind, user, pending, cycleEndByChallengeId, now)) {
+                        outbox.add(request);
+                        outboxOwner.add(memberOrdinal);
+                    }
+                    memberOrdinal++;
+                    continue;
+                }
                 UserNotificationSettings settings = settingsByUserId.get(user.getId());
                 boolean soundEnabled = settings == null || settings.isSoundEnabled();
                 PushMessage message = compose(pending.get(0), pushType, copy, soundEnabled);
                 // 한 건의 실패가 배치를 끊지 않게 격리 — sendIfAllowed 안에서도 잡지만 문구·로그 조립까지 감싼다.
                 try {
-                    // 신 경로는 «챌린지마다» 사건을 적는다 — 구 경로가 (유저 x 그룹) 한 건으로 접던
-                    // 일을 알림 서버의 묶음(유저 x 그룹 x 슬롯)이 대신한다. 여기서 대표 1건만 적으면
-                    // 나머지 챌린지의 결과는 어디에도 남지 않아 다음 회차에 되살아날 근거가 사라진다.
-                    if (notificationDispatcher.isOutboxMode()) {
-                        boolean queuedAny = false;
-                        for (GroupChallenge challenge : pending) {
-                            queuedAny |= notificationDispatcher.dispatch(user, settings,
-                                    request(kind, user, challenge, pending, now), message, now)
-                                    == NotificationDispatchOutcome.QUEUED;
-                        }
-                        // 전부 중복이면 「이미 적혀 있다」 — 구 경로의 dedup 과 같은 뜻이다.
-                        if (queuedAny) {
-                            sent++;
-                        } else {
-                            deduped++;
-                        }
-                    } else if (notificationDispatcher.dispatch(user, settings,
-                            request(kind, user, pending.get(0), pending, now), message, now).recordsLegacyLog()) {
+                    if (notificationDispatcher.dispatch(user, settings,
+                            endRequests(kind, user, pending, cycleEndByChallengeId, now).get(0), message, now)
+                            .recordsLegacyLog()) {
                         sent++;
                         pending.forEach(challenge -> {
                             alreadySent.add(new SentKey(user.getId(), challenge.getId()));
@@ -207,6 +209,22 @@ class ChallengeEndPushDispatcher {
                     skipped++;
                     log.warn("챌린지 종료 푸시 실패 — type={}, userId={}, challengeId={}",
                             pushType, user.getId(), pending.get(0).getId(), e);
+                }
+            }
+        }
+        if (!outbox.isEmpty()) {
+            List<NotificationDispatchOutcome> outcomes =
+                    notificationDispatcher.writeFanOut(outbox, NotificationFanOutUnit.RECIPIENT);
+            boolean[] queuedAny = new boolean[memberOrdinal];
+            for (int index = 0; index < outcomes.size(); index++) {
+                queuedAny[outboxOwner.get(index)] |= outcomes.get(index) == NotificationDispatchOutcome.QUEUED;
+            }
+            // 전부 중복이면 「이미 적혀 있다」 — 구 경로의 dedup 과 같은 뜻이다.
+            for (boolean queued : queuedAny) {
+                if (queued) {
+                    sent++;
+                } else {
+                    deduped++;
                 }
             }
         }
@@ -257,39 +275,62 @@ class ChallengeEndPushDispatcher {
     }
 
     /**
-     * 신 경로의 요청 하나 — 대상은 <b>챌린지</b>, 묶음 축은 그룹 × 그날이다.
+     * 신 경로의 요청들 — 대상은 <b>챌린지</b>, 묶음 축은 그룹 × <b>회차가 끝난 날</b>이다.
      *
-     * <p>슬롯을 KST 하루의 시작으로 박는다. 구 경로의 dedup 이 「당일 {@code sent_at}」이었으므로
-     * 묶음도 같은 폭이라야 창형(15분 크론)의 여러 틱이 하루 안에서 한 건으로 접힌다.
+     * <h2>시간축은 실행 시각이 아니라 회차 종료 시각이다 (GROMO-893 ⑦)</h2>
+     * 창 종료 감지는 30분 폭이라 23:40 에 끝난 창을 23:45 틱과 00:00 틱이 둘 다 잡는다. 키·슬롯을 «실행한
+     * 날»로 박으면 같은 회차가 두 날짜의 키로 갈려 두 번 적히고, 더 나쁘게는 00:00 틱이 박은 «다음 날» 키가
+     * 그다음 날의 진짜 회차를 중복으로 접어 삼킨다. 그래서 {@code cycleEndByChallengeId} 의 회차 종료 시각을
+     * 결정적 키의 시각·묶음 슬롯·만료의 기준으로 같이 쓴다. 일 목표형은 종료가 자정이라 실행한 날과 같은 날이다.
      *
-     * <p><b>배치 메타 둘을 같이 싣는다.</b> 구 경로의 보장은 「한 배치당 (유저 × 그룹) 한 건」이고,
-     * 신 경로는 그 한 건을 사건 {@code batch.size()} 개로 쪼개 보낸다. 알림 서버가 이것을 다시
-     * 한 건으로 접으려면 <b>수신 순서에 기댈 수 없는 두 가지</b>를 알아야 한다 — relay 재전달이나
-     * 처리 경합에서 순서는 생성 순서와 갈라지고, 첫 사건만 도착한 사이에 발송이 끼면 같은 배치가
-     * 두 번 나간다:
+     * <h2>배치 메타 둘을 같이 싣는다</h2>
+     * 구 경로의 보장은 「한 배치당 (유저 × 그룹) 한 건」이고, 신 경로는 그 한 건을 사건 여러 개로 쪼개 보낸다.
+     * 알림 서버가 이것을 다시 한 건으로 접으려면 <b>수신 순서에 기댈 수 없는 두 가지</b>를 알아야 한다:
      * <ul>
-     *   <li>{@code bundleMembers} — 이 배치가 이 (유저 × 그룹)에 적는 <b>대상 id 전부</b>. 알림 서버는
-     *       이 집합이 다 도착했을 때만 묶음을 낸다. 개수가 아니라 집합인 것은 (유저 × 그룹 × 그날)
-     *       축에 하루 동안 여러 배치가 겹쳐 들어오기 때문이다.</li>
-     *   <li>{@code bundleRepresentative} — 딥링크에 실을 대표 챌린지(= 가장 먼저 만들어진 것).
-     *       {@code batch} 가 생성순이므로 첫 원소다.</li>
+     *   <li>{@code bundleMembers} — 이 배치가 이 (유저 × 그룹 × 슬롯)에 적는 <b>대상 id 전부</b>. 알림 서버는
+     *       이 집합이 다 도착했을 때만 묶음을 낸다. 같은 틱에 잡힌 두 챌린지의 회차가 자정을 사이에 두고
+     *       다른 날에 끝났으면 슬롯이 다르므로 <b>슬롯마다</b> 따로 선언한다 — 섞으면 다른 슬롯의 대상이 영영
+     *       도착하지 않아 묶음이 완료되지 않는다.</li>
+     *   <li>{@code bundleRepresentative} — 딥링크에 실을 대표 챌린지(= 그 슬롯에서 가장 먼저 만들어진 것).</li>
      * </ul>
      *
      * @param kind      알림 종류
      * @param user      수신자
-     * @param challenge 대상 챌린지
-     * @param batch     이 수신자에게 이번 배치로 나갈 챌린지 전부 — <b>생성순</b>이어야 한다
-     * @param now       판정 시각
-     * @return 요청
+     * @param pending   이 수신자에게 이번 배치로 나갈 챌린지 전부 — <b>생성순</b>이어야 한다
+     * @param cycleEndByChallengeId 챌린지별 이번 회차 종료 시각
+     * @param now       판정 시각 — 회차 종료 시각을 모를 때만 쓴다
+     * @return 챌린지마다 하나씩, {@code pending} 순서 그대로
      */
-    private static NotificationRequest request(NotificationKind kind, User user, GroupChallenge challenge,
-                                               List<GroupChallenge> batch, Instant now) {
-        Instant daySlot = now.atZone(KST).toLocalDate().atStartOfDay(KST).toInstant();
-        return new NotificationRequest(kind, user.getId(), challenge.getId(),
-                challenge.getGroup().getId(), daySlot, now, user.getLanguage(),
-                Map.of("challengeId", challenge.getId().toString(),
-                        "bundleRepresentative", batch.get(0).getId().toString(),
-                        "bundleMembers", batch.stream().map(member -> member.getId().toString()).toList()));
+    static List<NotificationRequest> endRequests(NotificationKind kind, User user, List<GroupChallenge> pending,
+                                                 Map<UUID, Instant> cycleEndByChallengeId, Instant now) {
+        Map<Instant, List<GroupChallenge>> batchBySlot = new LinkedHashMap<>();
+        for (GroupChallenge challenge : pending) {
+            batchBySlot.computeIfAbsent(daySlotOf(cycleEndOf(challenge, cycleEndByChallengeId, now)),
+                    slot -> new ArrayList<>()).add(challenge);
+        }
+        List<NotificationRequest> requests = new ArrayList<>();
+        for (GroupChallenge challenge : pending) {
+            Instant cycleEnd = cycleEndOf(challenge, cycleEndByChallengeId, now);
+            List<GroupChallenge> batch = batchBySlot.get(daySlotOf(cycleEnd));
+            requests.add(new NotificationRequest(kind, user.getId(), challenge.getId(),
+                    challenge.getGroup().getId(), daySlotOf(cycleEnd), cycleEnd, user.getLanguage(),
+                    Map.of("challengeId", challenge.getId().toString(),
+                            "bundleRepresentative", batch.get(0).getId().toString(),
+                            "bundleMembers", batch.stream().map(member -> member.getId().toString()).toList())));
+        }
+        return requests;
+    }
+
+    /** @return 이번 회차 종료 시각. 모르면(구 호출) 판정 시각 */
+    private static Instant cycleEndOf(GroupChallenge challenge, Map<UUID, Instant> cycleEndByChallengeId,
+                                      Instant now) {
+        Instant cycleEnd = cycleEndByChallengeId.get(challenge.getId());
+        return cycleEnd == null ? now : cycleEnd;
+    }
+
+    /** @return 그 시각이 속한 KST 하루의 시작 — 구 경로 dedup 이 「당일」이었으므로 묶음도 같은 폭이다 */
+    private static Instant daySlotOf(Instant at) {
+        return at.atZone(KST).toLocalDate().atStartOfDay(KST).toInstant();
     }
 
     /** 푸시 문구 — 감지 경로마다 한 쌍씩 고정한다. */

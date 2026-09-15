@@ -5,6 +5,8 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
@@ -13,10 +15,14 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
+import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.notification.producer.NotificationEventKey;
 import com.oneorthree.phone.notification.producer.NotificationKind;
+import com.oneorthree.phone.notification.service.ChallengeWindowEndNotificationService;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -41,8 +47,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.stream.Stream;
 import java.util.List;
@@ -99,6 +108,12 @@ class NotificationExportServiceIntegrationTest {
     GroupChallengeBetSessionRepository sessionRepository;
     @Autowired
     GroupChallengeBetParticipantRepository participantRepository;
+    @Autowired
+    GroupChallengeWindowRepository challengeWindowRepository;
+    @Autowired
+    GroupMemberRepository memberRepository;
+    @Autowired
+    ChallengeWindowEndNotificationService windowEndService;
 
     private User user;
     private Group group;
@@ -504,6 +519,69 @@ class NotificationExportServiceIntegrationTest {
                 .allSatisfy(record -> assertThat(record.data()).containsKey("subjectId"))
                 .extracting(record -> record.data().get("subjectId"))
                 .containsExactlyInAnyOrder(challengeId.toString(), counterpartId.toString());
+    }
+
+    /**
+     * GROMO-893 ⑦ 재리뷰 — 구 창 종료 이력은 슬롯 없이 발송 시각만 남겼다. 23:59 에 끝난 회차를 자정 직후에 보낸 이력을
+     * 발송 시각의 날짜로 이관하면, 그 키가 producer 가 <b>다음 날 회차</b>에 만드는 키와 같아 소비 측
+     * {@code ON CONFLICT DO NOTHING} 이 다음 회차를 버린다. 둘 다 전달되려면 키가 갈려야 한다.
+     */
+    @Test
+    @DisplayName("자정 직후에 보낸 구 창 종료 이력은 그 회차의 날짜로 옮겨져 다음 날 회차의 새 사건을 삼키지 않는다")
+    void legacyWindowEndSentJustAfterMidnightDoesNotSwallowTheNextCycle() {
+        ZoneId kst = ZoneId.of("Asia/Seoul");
+        LocalDate day = LocalDate.of(2027, 6, 10);
+        group = groupRepository.save(Group.builder().name("창종료이관").maxMembers(10).build());
+        GroupChallenge challenge = challengeRepository.save(GroupChallenge.builder().group(group)
+                .category(MissionCategory.FOCUS).type(MissionType.TIME_WINDOW).build());
+        challenges.add(challenge);
+        GroupChallengeWindow window = challengeWindowRepository.save(GroupChallengeWindow.builder()
+                .challenge(challenge).windowStart(LocalTime.of(23, 0)).windowEnd(LocalTime.of(23, 59))
+                .durationMinutes(30).build());
+        GroupMember member = memberRepository.save(GroupMember.builder().group(group).user(user)
+                .role(GroupMemberRole.MEMBER).build());
+        Instant cycleEnd = day.atTime(LocalTime.of(23, 59)).atZone(kst).toInstant();
+        Instant sentAfterMidnight = day.plusDays(1).atStartOfDay(kst).plusSeconds(30).toInstant();
+        insertLegacyWindowEnd(challenge.getId(), sentAfterMidnight);
+        try {
+            NotificationExportDocument document = exportService.export(MIGRATION_ID, null, false, false);
+            String legacyKey = NotificationEventKey.of(NotificationKind.CHALLENGE_WINDOW_END, user.getId(),
+                    challenge.getId(), cycleEnd);
+            assertThat(deliveriesOf(document)).extracting(NotificationMigrationRecord::recordKey)
+                    .contains(legacyKey);
+
+            Instant nextCycleEnd = cycleEnd.plus(Duration.ofDays(1));
+            windowEndService.sendWindowEndNotifications(nextCycleEnd.plusSeconds(300));
+            String nextKey = NotificationEventKey.of(NotificationKind.CHALLENGE_WINDOW_END, user.getId(),
+                    challenge.getId(), nextCycleEnd);
+            assertThat(((Number) entityManager.createNativeQuery(
+                            "SELECT count(*) FROM event_outbox WHERE event_id = :id")
+                    .setParameter("id", nextKey).getSingleResult()).longValue()).isEqualTo(1L);
+
+            assertThat(nextKey).as("이관분과 다음 회차가 같은 키면 소비 측이 다음 회차를 버린다").isNotEqualTo(legacyKey);
+            assertThat(NotificationEventKey.of(NotificationKind.CHALLENGE_WINDOW_END, user.getId(), challenge.getId(),
+                    sentAfterMidnight)).as("발송 시각으로 만든 키는 정확히 다음 회차 키와 부딪혔다").isEqualTo(nextKey);
+        } finally {
+            memberRepository.delete(member);
+            challengeWindowRepository.delete(window);
+        }
+    }
+
+    /** 구 창 종료 발송 이력 — 슬롯 컬럼 없이 발송 시각과 {@code target_user_id} 만 남은 모양. */
+    private void insertLegacyWindowEnd(UUID challengeId, Instant sentAt) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(state ->
+                entityManager.createNativeQuery("""
+                                INSERT INTO notification_sent_logs
+                                    (id, user_id, type, kind, subject_id, target_user_id,
+                                     sent_at, claimed_at, status, group_id, slot_at, next_attempt_at)
+                                VALUES (:id, :userId, 'CHALLENGE_WINDOW_END', 'CHALLENGE_WINDOW_END', NULL, :target,
+                                        :sentAt, :sentAt, 'SENT', NULL, NULL, NULL)
+                                """)
+                        .setParameter("id", UUID.randomUUID())
+                        .setParameter("userId", user.getId())
+                        .setParameter("target", challengeId)
+                        .setParameter("sentAt", sentAt)
+                        .executeUpdate());
     }
 
     @Test

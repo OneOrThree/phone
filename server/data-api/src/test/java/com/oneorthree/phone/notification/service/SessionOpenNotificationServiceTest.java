@@ -14,7 +14,10 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
+import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
+import com.oneorthree.phone.notification.producer.NotificationFanOutWriter;
 import com.oneorthree.phone.notification.producer.NotificationOutboxProducer;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
@@ -116,7 +119,7 @@ class SessionOpenNotificationServiceTest {
      * @return 구 경로 dispatcher
      */
     private static NotificationDispatcher legacyDispatcher(PushNotificationService pushNotificationService) {
-        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService);
+        return new NotificationDispatcher(new NotificationDispatchProperties(), null, pushNotificationService, null);
     }
 
     private static Group group() {
@@ -411,29 +414,35 @@ class SessionOpenNotificationServiceTest {
         NotificationDispatchProperties properties = new NotificationDispatchProperties();
         properties.setMode(NotificationDispatchProperties.Mode.OUTBOX);
         NotificationOutboxProducer producer = mock(NotificationOutboxProducer.class);
-        given(producer.append(any())).willReturn(Optional.of(envelope()));
+        NotificationFanOutWriter writer = mock(NotificationFanOutWriter.class);
+        given(writer.write(any(), any())).willAnswer(invocation -> ((List<?>) invocation.getArgument(0)).stream()
+                .map(ignored -> NotificationDispatchOutcome.QUEUED).toList());
         SessionOpenNotificationService outbox = new SessionOpenNotificationService(
                 groupChallengeBetSessionRepository, groupQueryService,
                 groupChallengeBetParticipantRepository, groupMemberRepository,
                 notificationSentLogRepository, userQueryService, pushNotificationService,
-                new NotificationDispatcher(properties, producer, pushNotificationService));
+                new NotificationDispatcher(properties, producer, pushNotificationService, writer));
 
         PushDispatchSummaryResponse summary =
                 outbox.sendSessionOpenNotifications(DAY.atTime(8, 0).atZone(KST).toInstant());
 
         assertThat(summary.sentCount()).isEqualTo(3);
-        ArgumentCaptor<NotificationRequest> requests =
-                ArgumentCaptor.forClass(NotificationRequest.class);
-        verify(producer, times(3)).append(requests.capture());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<NotificationRequest>> batches = ArgumentCaptor.forClass(List.class);
+        // 회차·그룹을 걸친 멤버 사건 전부가 한 번에 넘어가 수신자 단위 조각으로 적힌다(GROMO-893).
+        verify(writer).write(batches.capture(), eq(NotificationFanOutUnit.RECIPIENT));
+        verify(producer, never()).append(any());
+        List<NotificationRequest> requests = batches.getValue();
+        assertThat(requests).hasSize(3);
         List<String> bothSessions = List.of(first.getId().toString(), second.getId().toString());
-        for (NotificationRequest request : requests.getAllValues()) {
+        for (NotificationRequest request : requests) {
             assertThat(request.params()).containsEntry("bundleMembers",
                     request.userId().equals(all.getId())
                             ? bothSessions
                             : List.of(first.getId().toString()));
         }
         // 참가한 회차는 사건 자체가 나가지 않는다 — 구성원에서만 빼면 그 사건이 영영 미달로 남는다.
-        assertThat(requests.getAllValues()).noneMatch(request ->
+        assertThat(requests).noneMatch(request ->
                 request.userId().equals(one.getId()) && request.subjectId().equals(second.getId()));
         // 신 경로는 구 클레임·발송을 건드리지 않는다.
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());

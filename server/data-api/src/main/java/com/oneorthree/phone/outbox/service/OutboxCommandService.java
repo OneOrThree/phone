@@ -25,9 +25,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
@@ -113,6 +115,12 @@ public class OutboxCommandService implements OutboxCommandPort {
     @Transactional(propagation = Propagation.MANDATORY)
     public long allocateVersion(AggregateRef aggregate) {
         return versionAllocator.allocate(aggregate);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockUserAggregates(Collection<UUID> userIds) {
+        versionAllocator.lockUsers(userIds);
     }
 
     @Override

@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -174,6 +175,37 @@ public class NotificationOutboxProducer {
                 paramsOf(request),
                 List.of(OutboxDeliveryRequest.toKafka())));
         return Optional.of(envelope);
+    }
+
+    /**
+     * 여러 수신자의 요청을 <b>한 트랜잭션에서</b> 적는다 — 수신자 전원을 정본 순서로 먼저 잠근 뒤 적는다
+     * (GROMO-893).
+     *
+     * <h2>왜 {@link #append} 를 루프로 부르면 안 되는가</h2>
+     * {@link #append} 는 수신자 USER 행을 잠그고 그 잠금은 트랜잭션 끝까지 간다. 루프 순서대로 하나씩 잠그면
+     * 순서가 다른 두 트랜잭션(공통 멤버를 가진 두 그룹의 챌린지 개설, 같은 사용자를 다른 정렬로 훑는 두
+     * 배치)이 A→B · B→A 로 교착해 PostgreSQL 이 한쪽 트랜잭션 «전체»를 {@code 40P01} 로 되돌린다.
+     *
+     * <h2>잠금 순서 — 결과 슬롯 공유 잠금 → USER 잠금</h2>
+     * 결과·환불 요청의 슬롯 공유 잠금을 USER 보다 먼저 전부 잡는다. 거꾸로 USER 를 쥔 채 공유 잠금을
+     * 요청하면, 앞서 대기 중인 봉인의 배타 잠금 뒤에 줄을 서게 되고 그 봉인은 USER 를 기다리는 정산의
+     * 공유 잠금이 풀리길 기다려 셋이 순환한다. 정산({@code settlementTime})도 공유 잠금을 USER 보다 먼저 잡는다.
+     *
+     * @param requests 판정이 끝난 요청들 — 수신자 중복·순서 무관
+     * @return 입력 순서 그대로 — 새로 적었으면 봉투, 같은 결정적 키가 이미 있으면 {@link Optional#empty()}
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<Optional<EventEnvelope>> appendAll(List<NotificationRequest> requests) {
+        if (requests.isEmpty()) {
+            return List.of();
+        }
+        requests.forEach(resultBundles::protect);
+        outboxCommandPort.lockUserAggregates(requests.stream().map(NotificationRequest::userId).toList());
+        List<Optional<EventEnvelope>> written = new ArrayList<>(requests.size());
+        for (NotificationRequest request : requests) {
+            written.add(append(request));
+        }
+        return written;
     }
 
     /**

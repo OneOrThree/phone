@@ -168,16 +168,47 @@ require('"CHALLENGE_WINDOW_END"' in families and '"CHALLENGE_ENDED"' in families
         'A22 ㋴: 종료 묶음 종류 또는 슬롯·ACK 보류의 후보 이월 누락')
 
 batch_retry = source('server/data-api/src/main/java/com/oneorthree/phone/notification/service/NotificationBatchRetry.java')
-require('"40001".equals(sql.getSQLState())' in batch_retry
+lock_conflicts = source('server/data-api/src/main/java/com/oneorthree/phone/notification/producer/NotificationLockConflicts.java')
+fanout_writer = source('server/data-api/src/main/java/com/oneorthree/phone/notification/producer/NotificationFanOutWriter.java')
+require('Set.of("40001", "40P01")' in lock_conflicts
+        and 'NotificationLockConflicts.sqlStateOf(failure)' in batch_retry
         and 'properties.isOutboxMode() ? MAX_ATTEMPTS : 1' in batch_retry
         and 'batch.accept(slot)' in batch_retry and 'isActualTransactionActive()' in batch_retry,
         'A22 ㋴: RR 배치의 OUTBOX 한정·동일 슬롯·트랜잭션 외부 재시도 경계 누락')
-for entry, count in [('scheduler/NotificationScheduler.java', 7),
-                     ('NotificationBatchController.java', 5),
-                     ('migration/NotificationCronReplayService.java', 7)]:
+# GROMO-893: 배치 쓰기는 판정 트랜잭션 밖 조각으로 커밋된다. 조각이 하나라도 커밋된 뒤 새 스냅샷으로 재판정하면
+# 상태가 바뀐 사용자에게 다른 종류의 알림이 같은 슬롯에 또 적힌다 — 실패 조각은 같은 요청으로만 다시 적는다.
+require('scope.committedChunks() > 0' in batch_retry
+        and 'catch (NotificationFanOutPartiallyCommittedException partial)' in batch_retry
+        and 'NotificationLockConflicts.sqlStateOf(failure)' in fanout_writer
+        and 'progress.recordCommittedChunk()' in fanout_writer,
+        'A22 ㋴: 커밋된 조각이 있는 배치를 새 스냅샷으로 재판정하거나 실패 조각을 같은 요청으로 다시 적지 않음')
+# 호출 «개수»가 아니라 리그 판정 진입점 «각각»이 재시도 경계 안에 있는지 본다. 개수로 세면 다른 배치를 감싼
+# 호출이 늘어나는 순간 리그 경로 하나가 빠져도 합계로 가려진다(893 이 모든 예약 배치를 감싸며 개수가 바뀌었다).
+# 잡과 그 판정 메서드는 «같은 호출 안에서» 짝지어져야 한다. 이름과 메서드를 따로 찾으면 WEEKLY_RESULTS 잡에
+# DEADLINE 메서드가 걸린 교차 결선도 둘 다 «어딘가에 있다»로 통과한다(#763 claude 재리뷰).
+league_entries = {
+    'LEAGUE_WEEKLY_RESULTS': 'leagueNotificationService::sendWeeklyResultNotifications',
+    'LEAGUE_DEADLINE': 'leagueNotificationService::sendDeadlineReminders',
+    'LEAGUE_SUNDAY_CRISIS': 'leagueNotificationService::sendSundayCrisisReminders',
+    'LEAGUE_RELEGATION_WARNING': 'leagueNotificationService::sendRelegationWarnings',
+    'LEAGUE_FINAL_DEADLINE': 'leagueNotificationService::sendFinalDeadlineReminders',
+}
+reengagement_entries = {
+    'MISSED_FOCUS_TODAY': 'leagueReengagementNotificationService::sendMissedFocusToday',
+    'STREAK_AT_RISK': 'leagueReengagementNotificationService::sendStreakAtRisk',
+}
+scheduled_call = r'batchRetry\.run\(NotificationCronReplayJob\.{job}\.lockName\(\),\s*{method}\)'
+replay_call = r'case\s+{job}\s*->\s*batchRetry\.run\(name,\s*missedAt,\s*{method}\)'
+direct_league_call = re.compile(r'league(Reengagement)?NotificationService\.send')
+for entry, entries, call in [
+        ('scheduler/NotificationScheduler.java', {**league_entries, **reengagement_entries}, scheduled_call),
+        ('NotificationBatchController.java', league_entries, scheduled_call),
+        ('migration/NotificationCronReplayService.java', {**league_entries, **reengagement_entries}, replay_call)]:
     body = source('server/data-api/src/main/java/com/oneorthree/phone/notification/' + entry)
-    require(body.count('batchRetry.run(') == count,
-            f'A22 ㋴: {entry}의 리그 판정 진입점이 재시도 경계를 우회함')
+    unpaired = [job for job, method in entries.items()
+                if not re.search(call.format(job=re.escape(job), method=re.escape(method)), body)]
+    require(not unpaired and not direct_league_call.search(body),
+            f'A22 ㋴: {entry}의 리그 판정 진입점이 재시도 경계를 우회하거나 잡·메서드 결선이 어긋남 {unpaired}')
 
 membership_events = source('server/data-api/src/main/java/com/oneorthree/phone/group/service/LinkMembershipEventService.java')
 member_repository = source('server/data-api/src/main/java/com/oneorthree/phone/group/repository/GroupMemberRepository.java')

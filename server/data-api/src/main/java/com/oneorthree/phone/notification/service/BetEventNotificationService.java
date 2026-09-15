@@ -11,6 +11,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
@@ -23,6 +24,7 @@ import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -153,9 +155,27 @@ public class BetEventNotificationService {
         if (session == null) {
             return;
         }
-        ClaimCounts claimed = claimEvents(List.of(session), now);
+        ClaimCounts claimed = claimEvents(List.of(session), now, false);
         log.debug("회차 종료 사건 클레임 — sessionId={}, 대상 {}건, 신규 {}건",
                 sessionId, claimed.targets(), claimed.claimed());
+    }
+
+    /**
+     * 요청 경로(신 경로) — 회차 종료 트랜잭션의 {@code BEFORE_COMMIT} 에서 참가자 전원의 결과·환불 요청을
+     * <b>만들기만</b> 한다.
+     *
+     * <p>적기는 호출부({@code NotificationRequestOutboxListener})가 같은 트랜잭션의 다른 사건과 합쳐 한 번에
+     * 한다. 챌린지 삭제는 OPEN 회차마다 사건을 내므로 회차마다 적으면 트랜잭션 전체의 USER 잠금 순서가
+     * 회차 순서에 끌려가 교착한다(GROMO-893).
+     *
+     * @param sessionId 종료된 회차. 이미 사라진 회차면 빈 목록
+     * @return 참가자별 요청
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<NotificationRequest> closedSessionRequests(UUID sessionId) {
+        GroupChallengeBetSession session =
+                groupQueryService.findCurrentBetSession(sessionId).orElse(null);
+        return session == null ? List.of() : resultRequests(List.of(session));
     }
 
     /**
@@ -291,7 +311,9 @@ public class BetEventNotificationService {
         long startedAtMillis = System.currentTimeMillis();
         List<GroupChallengeBetSession> sessions = groupChallengeBetSessionRepository
                 .findByStatusInAndSettledAtSince(NOTIFIABLE_STATUSES, now.minus(SETTLEMENT_LOOKBACK));
-        ClaimCounts claimed = claimEvents(sessions, now);
+        // 신 경로의 재훑기는 판정(이 트랜잭션의 스냅샷)만 여기서 하고, 적기는 (그룹 × 결과 슬롯) 단위의 짧은
+        // 트랜잭션 조각으로 한다 — 48시간치 수신자를 한 트랜잭션에서 잠그면 다른 배치·로그인과 교착·대기한다.
+        ClaimCounts claimed = claimEvents(sessions, now, true);
         // 신 경로에서는 재훑기가 «후보 -> outbox» 로 끝나고 flush 는 알림 서버가 소유한다(계약 §5).
         FlushCounts flushed = notificationDispatcher.isOutboxMode()
                 ? new FlushCounts(0, claimed.claimed(), 0)
@@ -312,12 +334,21 @@ public class BetEventNotificationService {
      * <p>렌더 입력은 「승/패/몰수」를 알림 서버가 스스로 고를 수 있을 만큼만 싣는다. 코인 액수와
      * 달성 여부는 참가 행에만 있고 알림 서버는 코어 DB 를 읽지 않으므로(계약 §2) 여기서 실어야 한다.
      *
+     * <h2>{@code bundleMembers} 를 싣지 않는 이유 (GROMO-893 ⑥)</h2>
+     * 모집·종료 묶음은 「이 배치가 이 수신자에게 적는 대상 전부」를 사건마다 선언해 도착 완료 경계로 쓴다.
+     * 결과·환불 묶음의 경계는 그보다 강한 <b>슬롯 봉인 manifest</b> 다
+     * ({@code ResultBundleCompletionService}) — 정산·재훑기·이관 원장 등 <b>서로 다른 배치</b>가 같은
+     * (그룹 × 원래 슬롯)에 등록한 사건 전부를 슬롯이 닫힌 뒤 한 번에 굳혀 수신자 축의 <b>마지막</b> 사건으로
+     * 보낸다. 알림 서버는 그 manifest 의 사건 id 가 전부(이미 발송·억제된 형제 포함) 도착해야만 묶음을 낸다.
+     * 재훑기 한 번의 후보 집합을 여기에 또 선언하면, 그 배치가 모르는 다른 배치의 사건과 합집합이 어긋나
+     * 영영 완료되지 않는 묶음을 만들 수 있다.
+     *
      * @param participant 수신자의 참가 행
      * @param session     정산이 끝난 회차
      * @param kind        {@code BET_RESULT} 또는 {@code BET_VOID_REFUND}
-     * @return 적었으면 {@code QUEUED}, 같은 결정적 키가 이미 있으면 {@code DUPLICATE}
+     * @return 요청
      */
-    private NotificationDispatchOutcome enqueueEvent(GroupChallengeBetParticipant participant,
+    private static NotificationRequest resultRequest(GroupChallengeBetParticipant participant,
                                                      GroupChallengeBetSession session, String kind) {
         User user = participant.getUser();
         Map<String, Object> params = new LinkedHashMap<>();
@@ -328,18 +359,18 @@ public class BetEventNotificationService {
             // 없는 구 스키마»와 «사유 미상»을 구분할 수 있다.
             params.put("voidReason",
                     session.getVoidReason() == null ? null : session.getVoidReason().name());
-            return notificationDispatcher.enqueueOnly(new NotificationRequest(
+            return new NotificationRequest(
                     NotificationKind.BET_VOID_REFUND, user.getId(), session.getId(),
                     session.getGroup().getId(), slotOf(session.getSettledAt()), null,
-                    user.getLanguage(), params));
+                    user.getLanguage(), params);
         }
         params.put("betStatus", session.getStatus().name());
         params.put("achieved", Boolean.TRUE.equals(participant.getAchieved()));
         params.put("payout", participant.getPayout() == null ? 0 : participant.getPayout());
-        return notificationDispatcher.enqueueOnly(new NotificationRequest(
+        return new NotificationRequest(
                 NotificationKind.BET_RESULT, user.getId(), session.getId(),
                 session.getGroup().getId(), slotOf(session.getSettledAt()), null,
-                user.getLanguage(), params));
+                user.getLanguage(), params);
     }
 
     /**
@@ -363,35 +394,33 @@ public class BetEventNotificationService {
      * {@link #flushClaims}. 클레임 시점에 슬롯({@code slot_at})을 사건 시각으로 박아 두므로,
      * 어느 경로가 언제 집었든 같은 슬롯으로 묶인다(N44 원래 슬롯 기준).
      */
-    private ClaimCounts claimEvents(List<GroupChallengeBetSession> sessions, Instant now) {
-        Map<UUID, GroupChallengeBetSession> sessionsById = sessions.stream()
-                .filter(s -> kindOf(s.getStatus()) != null && s.getSettledAt() != null)
-                .collect(Collectors.toMap(GroupChallengeBetSession::getId, Function.identity()));
+    private ClaimCounts claimEvents(List<GroupChallengeBetSession> sessions, Instant now,
+                                    boolean shortTransactions) {
+        if (notificationDispatcher.isOutboxMode()) {
+            // 신 경로: 후보 판정만 하고 사건을 적는다. 묶음(유저 x 그룹 x 슬롯)·이월·발송은
+            // 알림 서버가 한다 — 여기서 선점 행을 만들면 이관 후 두 DB 에 이력이 갈린다.
+            List<NotificationRequest> requests = resultRequests(sessions);
+            if (requests.isEmpty()) {
+                return new ClaimCounts(0, 0, 0);
+            }
+            // 요청 경로는 도메인 커밋과 같은 트랜잭션, 재훑기는 슬롯이 갈리지 않는 짧은 조각이다.
+            List<NotificationDispatchOutcome> outcomes = shortTransactions
+                    ? notificationDispatcher.writeFanOut(requests, NotificationFanOutUnit.RESULT_SLOT)
+                    : notificationDispatcher.enqueueAll(requests);
+            int claimed = (int) outcomes.stream().filter(NotificationDispatchOutcome.QUEUED::equals).count();
+            return new ClaimCounts(requests.size(), claimed, requests.size() - claimed);
+        }
+        Map<UUID, GroupChallengeBetSession> sessionsById = notifiableSessionsById(sessions);
         if (sessionsById.isEmpty()) {
             return new ClaimCounts(0, 0, 0);
         }
-        // 탈퇴 유저는 발송 대상이 아니다(참가 행은 정산 이력으로 남는다).
-        List<GroupChallengeBetParticipant> targets = groupChallengeBetParticipantRepository
-                .findBySessionIdIn(sessionsById.keySet()).stream()
-                .filter(p -> sessionsById.containsKey(p.getSession().getId()))
-                .filter(p -> !p.getUser().isDeleted())
-                .toList();
+        List<GroupChallengeBetParticipant> targets = targetsOf(sessionsById);
 
         int claimed = 0;
         int deduped = 0;
         for (GroupChallengeBetParticipant participant : targets) {
             GroupChallengeBetSession session = sessionsById.get(participant.getSession().getId());
             String kind = kindOf(session.getStatus());
-            if (notificationDispatcher.isOutboxMode()) {
-                // 신 경로: 후보 판정만 하고 사건을 적는다. 묶음(유저 x 그룹 x 슬롯)·이월·발송은
-                // 알림 서버가 한다 — 여기서 선점 행을 만들면 이관 후 두 DB 에 이력이 갈린다.
-                if (enqueueEvent(participant, session, kind) == NotificationDispatchOutcome.QUEUED) {
-                    claimed++;
-                } else {
-                    deduped++;
-                }
-                continue;
-            }
             if (claimEvent(participant.getUser().getId(), kind, session, now) == null) {
                 deduped++;
             } else {
@@ -399,6 +428,42 @@ public class BetEventNotificationService {
             }
         }
         return new ClaimCounts(targets.size(), claimed, deduped);
+    }
+
+    /**
+     * 종료 회차들의 (참가자 × 사건) 요청 — 참가 행 조회 순서 그대로다. 잠금 순서는 적는 쪽이 정한다.
+     *
+     * @param sessions 종료 회차
+     * @return 요청들
+     */
+    private List<NotificationRequest> resultRequests(List<GroupChallengeBetSession> sessions) {
+        Map<UUID, GroupChallengeBetSession> sessionsById = notifiableSessionsById(sessions);
+        if (sessionsById.isEmpty()) {
+            return List.of();
+        }
+        List<NotificationRequest> requests = new ArrayList<>();
+        for (GroupChallengeBetParticipant participant : targetsOf(sessionsById)) {
+            GroupChallengeBetSession session = sessionsById.get(participant.getSession().getId());
+            requests.add(resultRequest(participant, session, kindOf(session.getStatus())));
+        }
+        return requests;
+    }
+
+    private static Map<UUID, GroupChallengeBetSession> notifiableSessionsById(
+            List<GroupChallengeBetSession> sessions) {
+        return sessions.stream()
+                .filter(s -> kindOf(s.getStatus()) != null && s.getSettledAt() != null)
+                .collect(Collectors.toMap(GroupChallengeBetSession::getId, Function.identity(),
+                        (first, second) -> first, LinkedHashMap::new));
+    }
+
+    /** 탈퇴 유저는 발송 대상이 아니다(참가 행은 정산 이력으로 남는다). */
+    private List<GroupChallengeBetParticipant> targetsOf(Map<UUID, GroupChallengeBetSession> sessionsById) {
+        return groupChallengeBetParticipantRepository
+                .findBySessionIdIn(sessionsById.keySet()).stream()
+                .filter(p -> sessionsById.containsKey(p.getSession().getId()))
+                .filter(p -> !p.getUser().isDeleted())
+                .toList();
     }
 
     /**

@@ -134,28 +134,34 @@ public class NotificationCronReplayService {
      * @param missedAt 놓친 슬롯 시각
      */
     private void invoke(NotificationCronReplayJob job, Instant missedAt) {
+        // 모든 재생이 같은 재시도 규칙을 탄다 — 잠금 충돌(40001·40P01)은 새 트랜잭션에서 원래 슬롯으로 다시 돈다.
+        String name = job.lockName();
         switch (job) {
             case LEAGUE_WEEKLY_RESULTS ->
-                    batchRetry.run(missedAt, leagueNotificationService::sendWeeklyResultNotifications);
-            case LEAGUE_DEADLINE -> batchRetry.run(missedAt, leagueNotificationService::sendDeadlineReminders);
-            case LEAGUE_SUNDAY_CRISIS -> batchRetry.run(missedAt, leagueNotificationService::sendSundayCrisisReminders);
+                    batchRetry.run(name, missedAt, leagueNotificationService::sendWeeklyResultNotifications);
+            case LEAGUE_DEADLINE -> batchRetry.run(name, missedAt, leagueNotificationService::sendDeadlineReminders);
+            case LEAGUE_SUNDAY_CRISIS ->
+                    batchRetry.run(name, missedAt, leagueNotificationService::sendSundayCrisisReminders);
             case LEAGUE_RELEGATION_WARNING ->
-                    batchRetry.run(missedAt, leagueNotificationService::sendRelegationWarnings);
+                    batchRetry.run(name, missedAt, leagueNotificationService::sendRelegationWarnings);
             case LEAGUE_FINAL_DEADLINE ->
-                    batchRetry.run(missedAt, leagueNotificationService::sendFinalDeadlineReminders);
-            case INACTIVE_RETURN -> inactiveReturnNotificationService.sendInactiveReturnNotifications(missedAt);
+                    batchRetry.run(name, missedAt, leagueNotificationService::sendFinalDeadlineReminders);
+            case INACTIVE_RETURN ->
+                    batchRetry.run(name, missedAt, inactiveReturnNotificationService::sendInactiveReturnNotifications);
             case MISSED_FOCUS_TODAY ->
-                    batchRetry.run(missedAt, leagueReengagementNotificationService::sendMissedFocusToday);
-            case STREAK_AT_RISK -> batchRetry.run(missedAt, leagueReengagementNotificationService::sendStreakAtRisk);
-            case BET_EVENT_RESCAN -> {
-                betEventNotificationService.rescanAndFlush(missedAt);
+                    batchRetry.run(name, missedAt, leagueReengagementNotificationService::sendMissedFocusToday);
+            case STREAK_AT_RISK ->
+                    batchRetry.run(name, missedAt, leagueReengagementNotificationService::sendStreakAtRisk);
+            case BET_EVENT_RESCAN -> batchRetry.run(name, missedAt, slot -> {
+                betEventNotificationService.rescanAndFlush(slot);
                 resultBundles.flushClosedBundles();
-            }
-            case SESSION_OPEN -> sessionOpenNotificationService.sendSessionOpenNotifications(missedAt);
+            });
+            case SESSION_OPEN ->
+                    batchRetry.run(name, missedAt, sessionOpenNotificationService::sendSessionOpenNotifications);
             case CHALLENGE_WINDOW_END ->
-                    challengeWindowEndNotificationService.sendWindowEndNotifications(missedAt);
-            case CHALLENGE_DURATION_END ->
-                    challengeDurationEndNotificationService.sendDurationEndNotifications(missedAt);
+                    batchRetry.run(name, missedAt, challengeWindowEndNotificationService::sendWindowEndNotifications);
+            case CHALLENGE_DURATION_END -> batchRetry.run(name, missedAt,
+                    challengeDurationEndNotificationService::sendDurationEndNotifications);
         }
     }
 }
