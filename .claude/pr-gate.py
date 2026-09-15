@@ -4,7 +4,8 @@
 담당자(`@me` 만) · 라벨(제목 TYPE 과 대응, 정확히 1개 — CHORE 만 없음 허용) · `--draft` · `--fill`/`--web`
 (제목·본문을 명시해야 검사가 된다) · `--reviewer` · 제목 형식 · 세션 링크 · 구현 티켓 외의 전체 키를
 PR 이 열리기 전에 막는다. 사용자 확인창은 뜨지 않는다 — 위반 목록이 Claude 에게 돌아가고 고쳐서 다시 연다.
-규칙을 지킨 명령과 파싱할 수 없는 명령(변수·서브셸·heredoc)은 무출력으로 통과한다 — 문서가 최후 방어다.
+규칙을 지킨 명령은 무출력으로 통과한다. 변수·서브셸(`$VAR`·`$(…)`·백틱)이 든 값은 검사를 건너뛴다(문서가 최후 방어).
+따옴표가 안 맞아 파싱이 안 되는 명령과 `$'…'`(ANSI-C 인용)는 게이트가 읽을 수 없으므로 거부한다 — 통과가 아니다.
 
     python3 .claude/pr-gate.py --hook       # stdin: 훅 JSON
     python3 .claude/pr-gate.py --selftest   # 내장 픽스처
@@ -31,6 +32,8 @@ SESSION_LINK = re.compile(r"claude\.ai/code")
 FULL_KEY = re.compile(r"GROMO-(\d+)")
 STOP_TOKENS = {";", "&&", "||", "|"}
 UNPARSEABLE = re.compile(r"\$\(|`|\$\{?[A-Za-z_]")
+_ANSI_C_QUOTE = re.compile(r"\$'")
+_LOOSE_CREATE = re.compile(r"\bgh\b[^;&|]*\bpr\b[^;&|]*\bcreate\b")
 FILL_FLAGS = {"--fill", "--fill-first", "--fill-verbose", "-f"}
 LABEL_HINT = ("FEAT→enhancement · FIX→bug · REFACTOR→refactoring · "
               "CHORE→documentation|workflow|test (내용으로 택1, 없으면 라벨 생략)")
@@ -135,9 +138,13 @@ def check_command(command, cwd=None):
     """위반 사유 목록. 비어 있으면 통과. None 이면 검사 대상이 아니거나 파싱 불가."""
     if "gh" not in command or "create" not in command:
         return None
+    if _ANSI_C_QUOTE.search(command):
+        return ["`$'…'`(ANSI-C 인용)은 게이트가 파싱할 수 없다 — 일반 따옴표로 다시 쓴다"]
     try:
         tokens = shlex.split(command)
     except ValueError:
+        if _LOOSE_CREATE.search(command):
+            return ["따옴표가 맞지 않아 명령을 파싱할 수 없다 — 따옴표를 정리해 다시 연다"]
         return None
     starts = find_creates(tokens)
     if not starts:
@@ -276,6 +283,9 @@ _FIXTURES = [
     ("전역 --repo 앞자리", _OK.replace("gh pr create", "gh --repo OneOrThree/phone pr create") + " --draft", ["--draft"]),
     ("전역 -R 중간자리", _OK.replace("gh pr create", "gh pr -R OneOrThree/phone create") + " --draft", ["--draft"]),
     ("표준 입력 본문", _OK.replace("--body '## Jira\n- [GROMO-1885](x)\n티켓 455 참고'", "--body-file -"), ["표준 입력"]),
+    ("ANSI-C 인용 우회", "gh pr create --title $'it\\'s a trap' --draft --assignee alice --label bug", ["ANSI-C"]),
+    ("따옴표 불일치", "gh pr create --title 'broken --draft --assignee alice --label bug", ["파싱할 수 없다"]),
+    ("따옴표 불일치 — 무관한 명령", "echo 'broken && ls", None),
     ("따옴표 안 백틱은 리터럴 — 제목 검사됨", _OK.replace("[CHORE] GROMO-1885 컨벤션 정본화", "`UserService` 정리"), ["제목 형식"]),
     ("따옴표 안 백틱 + 정상 제목", _OK.replace("컨벤션 정본화", "`UserService` 정리"), []),
 ]

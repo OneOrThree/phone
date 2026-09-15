@@ -84,7 +84,7 @@ Jira 연동은 `GROMO-####` **전체 키**를 보고 PR 이력을 그 티켓에 
 gh pr create --assignee @me --label <라벨> --title "[TYPE] GROMO-#### 요약" --body-file body.md
 ```
 
-Claude Code 에서는 `.claude/pr-gate.py` 훅이 위 규칙을 어긴 `gh pr create` 를 거부한다 (사유를 돌려주고, 사용자 확인창은 뜨지 않는다). 담당자는 `@me` 그대로만, 라벨은 TYPE 과의 대응까지 검사하며, `--fill`·`--web`(제목·본문을 명시해야 검사가 된다)과 `--reviewer` 도 거부한다.
+Claude Code 에서는 `.claude/pr-gate.py` 훅이 위 규칙을 어긴 `gh pr create` 를 거부한다 (사유를 돌려주고, 사용자 확인창은 뜨지 않는다). 담당자는 `@me` 그대로만, 라벨은 TYPE 과의 대응까지 검사하며, `--fill`·`--web`·`--body-file -`(제목·본문을 파일로 명시해야 검사가 된다)과 `--reviewer` 도 거부한다. 변수·서브셸이 든 값은 검사를 건너뛰지만, 따옴표가 깨진 명령과 `$'…'` 인용은 읽을 수 없으므로 거부한다.
 
 ## 6. 리뷰 루프
 
