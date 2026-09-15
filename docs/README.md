@@ -12,8 +12,12 @@ docs/
 ├── README.md                          # 이 파일
 ├── architecture/                      # 목표 아키텍처 정본 (서비스·시스템·결정 장부·다이어그램)
 ├── conventions/                       # 팀 전체 규약
-│   ├── jira-conventions.md            # 지라 4축 규약 (도메인·Label·Epic·fixVersion)
-│   └── date-axis.md                   # 날짜 축(로컬·KST·UTC) 규약
+│   ├── git-pr-conventions.md          # 브랜치·커밋·PR 제목/본문·담당자·라벨·리뷰·머지
+│   ├── jira-conventions.md            # 지라 4축 분류 (도메인·Label·Epic·fixVersion) + 필드 id
+│   ├── jira-ticket-template.md        # 지라 티켓 본문 양식 + 생성 게이트
+│   ├── date-axis.md                   # 날짜 축(로컬·KST·UTC) 규약
+│   ├── error-contract.md              # API 에러 응답 계약
+│   └── backend-layering.md            # 백엔드 레이어링 규약
 └── prd/
     └── <기능-이름>/                    # 예: challenge, focus-session
         ├── prd.md                     # PRD — 문제 정의·목표·요구사항
@@ -25,9 +29,8 @@ docs/
         └── diagrams/                  # 다이어그램 (형식 자유)
 ```
 
-시스템 전체를 가로지르는 **목표 아키텍처**(서비스·시스템·결정 장부)는 `docs/architecture/` 에 둔다 — 새 서비스·통신 경로·저장소를 추가하기 전에 먼저 본다. 기능 문서가 아닌 **팀 전체 규약**은 `docs/conventions/` 에 둔다 — 현재 `jira-conventions.md`
-(티켓을 어떤 `도메인`·Label·Epic·fixVersion 으로 분류하는지)와 `date-axis.md`
-(날짜 축 규약) 둘이다.
+시스템 전체를 가로지르는 **목표 아키텍처**(서비스·시스템·결정 장부)는 `docs/architecture/` 에 둔다 — 새 서비스·통신 경로·저장소를 추가하기 전에 먼저 본다. 기능 문서가 아닌 **팀 전체 규약**은 `docs/conventions/` 에 둔다 — 위 트리의 여섯 개.
+Git·PR 은 `git-pr-conventions.md`, 지라는 `jira-conventions.md`(분류) + `jira-ticket-template.md`(본문 양식·게이트)가 정본이다.
 
 - 폴더 이름은 **kebab-case 영문** (예: `challenge`, `focus-session`, `invite-link`).
 - 문서가 다 갖춰질 필요는 없다 — 있는 것부터 커밋하고 점진적으로 채운다.
@@ -45,10 +48,11 @@ docs/
 
 ## 브랜치
 
-문서를 추가·수정할 때는 `doc/` 프리픽스 브랜치를 쓴다:
+문서를 추가·수정할 때는 `doc/` 프리픽스 브랜치를 쓴다 (전체 규칙은 `conventions/git-pr-conventions.md`):
 
 - 신규 문서: `doc/prd-<기능이름>` (예: `doc/prd-challenge`)
 - 기존 문서 수정: `doc/fix-prd-<기능이름>` (예: `doc/fix-prd-challenge`)
+- PR 제목은 `[CHORE] GROMO-#### 요약`, 라벨 `documentation`
 
 ## 엔지니어링 개선 기록
 
