@@ -305,6 +305,15 @@ def insert_rows(doc_path, rows):
 
 
 def main():
+    # 저장소 판정이 상태 조회·만료 처리보다 먼저다 — phone 밖 세션(전역 훅)이 이 저장소의
+    # 무장 상태를 읽거나 만료시키지 않도록.
+    data = json.load(sys.stdin)
+    global WS_ROOT
+    ws = phone_workspace(data.get("cwd"))
+    if not ws:
+        return  # phone(본체·worktree) 밖 세션 — 전역 훅이라 여기서 걸러진다
+    WS_ROOT = ws
+
     state = load_active()
     if not state:
         return  # 무장되지 않음 — 평소 세션에서는 여기서 끝
@@ -317,12 +326,6 @@ def main():
     if not doc or not os.path.exists(doc):
         return
 
-    data = json.load(sys.stdin)
-    global WS_ROOT
-    ws = phone_workspace(data.get("cwd"))
-    if not ws:
-        return  # phone(본체·worktree) 밖 세션 — 전역 훅이라 여기서 걸러진다
-    WS_ROOT = ws
     session = data.get("session_id") or "unknown"
     bound = state.get("session_id")
     if bound is None:

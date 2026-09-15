@@ -11,7 +11,7 @@
        **사용자에게 묻는다**(지어내지 않는다). 준수·파싱 불가·에픽·다른 프로젝트는 무출력 통과.
 
     python3 .claude/jira_gate.py --selftest
-       내장 픽스처(통과 1 · 위반 6)로 판정이 기대와 같은지 확인한다.
+       내장 픽스처(통과 1 · 위반 8 · 에픽 면제)로 판정이 기대와 같은지 확인한다.
 
 정본(사람이 읽는 양식·막는 조건): docs/conventions/jira-ticket-template.md
 """
@@ -40,7 +40,7 @@ DOD_MIN_ITEMS = 2
 DOD_VAGUE_MAX_LEN = 25        # 구체 토큰이 없어도 이 길이 이상이면 서술로 인정한다
 
 _EPIC_TYPES = {"epic", "에픽"}
-_ESTIMATE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(m|h|d)\b", re.I)
+_ESTIMATE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(m|h|d)\s*(?:\(.*\))?\s*$", re.I)   # 전체 문자열
 _LIST_MARK = re.compile(r"^\s*(?:[-*•]\s*(?:\[[ xX]\]\s*)?|\d+[.)]\s+|☐\s*|☑\s*)")
 _HEADING_MARK = re.compile(r"^\s*#{0,6}\s*")
 
@@ -200,11 +200,15 @@ def check_ticket(summary, issue_type, description, fields=None,
         if not kind:
             reasons.append("산출물 `유형:` 이 없다 — " + " | ".join(DELIVERABLE_TYPES))
         else:
-            matched = next((k for k in DELIVERABLE_TYPES if kind.upper().startswith(k.upper())), None)
-            if not matched:
-                reasons.append(f"산출물 유형 「{kind}」 은 목록 밖이다 — " + " | ".join(DELIVERABLE_TYPES))
-            elif matched == "기타" and len(kind) < len("기타") + 3:
-                reasons.append("산출물 유형 「기타」 는 무엇인지 괄호로 적는다 — 예: 기타(슬랙 공지)")
+            k = kind.strip()
+            exact = any(k.upper() == t.upper() for t in DELIVERABLE_TYPES if t != "기타")
+            if exact:
+                pass
+            elif k.startswith("기타"):
+                if not re.match(r"^기타\s*\(.+\)$", k):
+                    reasons.append("산출물 유형 「기타」 는 무엇인지 괄호로 적는다 — 예: 기타(슬랙 공지)")
+            else:
+                reasons.append(f"산출물 유형 「{kind}」 은 목록 밖이다 — 정확히 하나: " + " | ".join(DELIVERABLE_TYPES))
         if not where:
             reasons.append("산출물 `남길 위치:` 가 없다 — 레포 경로 / PR 대상 레포 / URL / 지라 코멘트")
         elif not _CONCRETE.search(where):
@@ -248,6 +252,32 @@ def _deny(reasons):
     }}, ensure_ascii=False))
 
 
+def my_account_id():
+    """토큰 주인의 accountId. 크리덴셜은 env 또는 .claude/settings.local.json. 못 구하면 None."""
+    env = dict(os.environ)
+    need = ("JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_BASE_URL")
+    if not all(env.get(k) for k in need):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.local.json")
+        try:
+            with open(path, encoding="utf-8") as fp:
+                env.update({k: v for k, v in (json.load(fp).get("env") or {}).items() if v})
+        except (OSError, ValueError):
+            return None
+    if not all(env.get(k) for k in need):
+        return None
+    import base64
+    import urllib.request
+    req = urllib.request.Request(env["JIRA_BASE_URL"].rstrip("/") + "/rest/api/3/myself")
+    token = base64.b64encode(f"{env['JIRA_EMAIL']}:{env['JIRA_API_TOKEN']}".encode()).decode()
+    req.add_header("Authorization", "Basic " + token)
+    req.add_header("Accept", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.load(resp).get("accountId")
+    except Exception:
+        return None
+
+
 def run_hook():
     try:
         data = json.load(sys.stdin)
@@ -258,12 +288,16 @@ def run_hook():
         return
     if (ti.get("projectKey") or PROJECT_KEY) != PROJECT_KEY:
         return                                   # 다른 프로젝트(RVUD 등)는 이 규약 밖
+    # 담당자가 명시됐고 그게 내가 아니면(또는 내가 누군지 확인 못 하면) 예상 시간 필수 — jira_assign 과 같은 판정
+    assignee = ti.get("assignee_account_id")
+    require_estimate = bool(assignee) and assignee != my_account_id()
     reasons = check_ticket(
         summary=ti.get("summary"),
         issue_type=ti.get("issueTypeName"),
         description=ti.get("description"),
         fields=ti.get("additional_fields") or {},
         content_format=ti.get("contentFormat"),
+        require_estimate=require_estimate,
     )
     if reasons:
         _deny(reasons)
@@ -298,6 +332,10 @@ _FIXTURES = [
     ("완료 조건 애매", "초대 링크 만료 정책 적용",
      _GOOD.replace("만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "잘 동작한다"),
      {DOMAIN_FIELD: {"id": "1"}}, ["완료 조건이 애매하다: 「잘 동작한다」"]),
+    ("예상 시간 뒤 잡문", "초대 링크 만료 정책 적용",
+     _GOOD.replace("4h\n", "4h 대략\n"), {DOMAIN_FIELD: {"id": "1"}}, ["예상 작업 시간 형식"]),
+    ("산출물 유형 부분 일치", "초대 링크 만료 정책 적용",
+     _GOOD.replace("유형: PR", "유형: PR x"), {DOMAIN_FIELD: {"id": "1"}}, ["목록 밖"]),
     ("접두·목표·도메인 없음", "[BE] 초대 링크 만료 정책 적용",
      _GOOD.split("### ✅ 완료 조건")[1].join(["### ✅ 완료 조건", ""]) if False else
      "### ✅ 완료 조건" + _GOOD.split("### ✅ 완료 조건")[1], {},

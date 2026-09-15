@@ -73,10 +73,11 @@ rejects a `gh pr create` that breaks them (reason goes back to you, no user prom
   the Jira integration attaches PR history to every full key it sees. Reference tickets are
   the number only ("ticket 455").
 - **Opening a PR**: `gh pr create --assignee @me --label <one> --title "..." --body-file ...` —
-  **never `--draft`** (codex auto-review attaches to ready PRs only). Exactly one existing
-  label: FEAT→`enhancement`, FIX→`bug`, REFACTOR→`refactoring`, CHORE→by content
-  (`documentation` docs-only, `workflow` CI/scripts/hooks, `test` tests-only, else none).
-  Never `release:*`, never create labels, no reviewers. In the same turn post an `@claude`
+  **never `--draft`**, `--fill` or `--web` (codex auto-review attaches to ready PRs only; the
+  gate needs an explicit title and body). Exactly one existing label matching the TYPE:
+  FEAT→`enhancement`, FIX→`bug`, REFACTOR→`refactoring`, CHORE→by content (`documentation`
+  docs-only, `workflow` CI/scripts/hooks, `test` tests-only, else no label). Never `release:*`,
+  never create labels, no `--reviewer`. In the same turn post an `@claude`
   review-request comment with 3–5 PR-specific points and keep watching the PR; later replies
   never mention `@claude` (it re-triggers the workflow).
 - **Merge**: four-part test at the same commit — zero unanswered root review threads; a

@@ -1,6 +1,6 @@
 ---
 description: PRD 문서를 읽어 Jira 작업 티켓을 일괄 생성한다 — 후보마다 8요소 양식을 채워 jira_assign.py 로 만든다. 생성 전 목록을 확인하고 승인 후 실행.
-argument-hint: "[PRD 파일 경로] [--label BE] [--release 1.1.0] [--sprint]"
+argument-hint: "[PRD 파일 경로] [--label BE] [--sprint]"
 allowed-tools: Bash, Read, Glob, AskUserQuestion
 ---
 
@@ -14,14 +14,14 @@ PRD 기반 Jira 티켓 자동 생성: **$ARGUMENTS**
 ### 1. 인자 파싱
 - PRD 파일 경로 (없으면 팀 공유 `docs/prd/*/prd.md` → 개인 스크래치 `doc/` 의 최근 `*-prd.md` 순으로 자동 선택)
 - `--label <값>` → 선택. 플랫폼이 명확할 때만 (`BE` · `App` · `iOS` · `Android` · `Infra`)
-- `--release <값>` → 선택. **기본 없음** — 미완료 티켓은 fixVersion 을 비운다 (`jira-conventions.md` §4)
+- fixVersion 은 **생성 시 넣지 않는다** — 미완료 티켓은 비워 두고 완료 처리 때 붙인다 (`jira-conventions.md` §4)
 - `--sprint` → 현재 활성 스프린트에 넣는다. 없으면 백로그
 
 ### 2. 메타데이터 조회 — 분류보다 먼저
 ```bash
 python3 .claude/jira_assign.py meta
 ```
-`도메인` 옵션 · 열린 릴리스 · 열린 에픽 · 활성 스프린트를 준다. **분류는 이 출력 안의 값으로만 한다** —
+`도메인` 옵션 · 열린 에픽 · 활성 스프린트를 준다. **분류는 이 출력 안의 값으로만 한다** —
 옵션은 늘고 줄고 개명된다. 크리덴셜이 없으면 스크립트가 `.claude/settings.local.json` 의 `env` 를 안내한다.
 
 ### 3. PRD 파싱 — 티켓 후보 추출
@@ -45,7 +45,7 @@ python3 .claude/jira_assign.py meta
 
 ### 4. 목록 제시 → 승인
 ```
-📋 생성 예정 (라벨: BE | 릴리스: 없음 | 스프린트: 없음)
+📋 생성 예정 (라벨: BE | 스프린트: 없음)
 ──────────────────────────────────────────
  1. 애플 로그인 API 구현            [도메인: 인증·계정]  완료 조건 3  참고 2
  2. 게스트 로그인 API 구현          [도메인: 인증·계정]  완료 조건 2  참고 1
@@ -60,7 +60,7 @@ python3 .claude/jira_assign.py meta
 ```bash
 cat > "$SCRATCH/sync.json" <<'JSON'
 { "sprint": false, "tickets": [ { "summary": "...", "domain": "...", "goal": "...", "dod": ["..."],
-    "deliverable": "PR", "output_location": "...", "refs": ["..."], "labels": ["BE"], "fix_version": "1.1.0" } ] }
+    "deliverable": "PR", "output_location": "...", "refs": ["..."], "labels": ["BE"] } ] }
 JSON
 python3 .claude/jira_assign.py create "$SCRATCH/sync.json" --dry-run   # 필드 해석만
 python3 .claude/jira_assign.py create "$SCRATCH/sync.json"
@@ -79,7 +79,6 @@ python3 .claude/jira_assign.py create "$SCRATCH/sync.json"
 
 ## 주의사항
 - 같은 PRD 로 두 번 실행하면 중복 검색이 막아 준다. 정당한 재발주만 `--allow-dup`.
-- `--release` 버전이 Jira 에 없으면 스크립트가 열린 버전 목록과 함께 중단한다 — `romance.atlassian.net` 에서 먼저 만든다.
 - 크리덴셜은 `.claude/settings.local.json` (gitignored). 토큰 갱신 시 `JIRA_API_TOKEN` 값만 교체.
 
 ## 관련 커맨드

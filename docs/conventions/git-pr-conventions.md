@@ -63,7 +63,7 @@ Jira 연동은 `GROMO-####` **전체 키**를 보고 PR 이력을 그 티켓에 
 | 항목 | 규칙 |
 | --- | --- |
 | 담당자 | **PR 작성자 본인** (`gh pr create --assignee @me`) |
-| 라벨 | **정확히 1개**, 기존 라벨만. 새 라벨을 만들지 않는다 |
+| 라벨 | **정확히 1개**, 제목 TYPE 과 대응(아래 표). `CHORE` 인데 어느 것도 맞지 않을 때만 없음. 새 라벨을 만들지 않는다 |
 | reviewer | 지정하지 않는다 — 리뷰 봇이 스스로 붙는다 |
 | draft | **쓰지 않는다** — codex 자동 리뷰는 ready PR 에만 붙는다. draft 로 열면 리뷰 0건으로 방치된다 |
 
@@ -84,7 +84,7 @@ Jira 연동은 `GROMO-####` **전체 키**를 보고 PR 이력을 그 티켓에 
 gh pr create --assignee @me --label <라벨> --title "[TYPE] GROMO-#### 요약" --body-file body.md
 ```
 
-Claude Code 에서는 `.claude/pr-gate.py` 훅이 위 규칙을 어긴 `gh pr create` 를 거부한다 (사유를 돌려주고, 사용자 확인창은 뜨지 않는다).
+Claude Code 에서는 `.claude/pr-gate.py` 훅이 위 규칙을 어긴 `gh pr create` 를 거부한다 (사유를 돌려주고, 사용자 확인창은 뜨지 않는다). 담당자는 `@me` 그대로만, 라벨은 TYPE 과의 대응까지 검사하며, `--fill`·`--web`(제목·본문을 명시해야 검사가 된다)과 `--reviewer` 도 거부한다.
 
 ## 6. 리뷰 루프
 

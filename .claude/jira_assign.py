@@ -27,8 +27,7 @@ payload.json 스키마 (모르는 키가 있으면 즉시 에러 — 오타가 �
           "due":      "2026-09-14",          # 선택, 기본 = 활성 스프린트 종료일
           "refs":     ["docs/... — 설명"],   # 선택, 참고 자료
           "labels":   ["BE"],                # 선택
-          "epic":     "GROMO-123",           # 선택
-          "fix_version": "1.1.0",            # 선택, 열린 릴리스 이름
+          "epic":     "GROMO-123",           # 선택 (fixVersion 은 생성 시 넣지 않는다 — 완료 처리 때 붙인다)
           "story_points": 3                  # 선택, 기본 = estimate 에서 환산
         }
       ]
@@ -58,7 +57,7 @@ TASK_TYPE_NAME = "작업"
 TICKET_KEYS = {
     "summary", "assignee", "domain", "goal", "dod", "deliverable",
     "output_location", "estimate", "due", "refs", "labels", "epic",
-    "fix_version", "story_points",
+    "story_points",
 }
 REQUIRED_KEYS = {
     "summary", "domain", "goal", "dod", "deliverable", "output_location",
@@ -280,9 +279,6 @@ def validate(t, meta):
                  f"   가능: {sorted(meta['domains'])}")
     if not isinstance(t["dod"], list) or not t["dod"]:
         sys.exit(f"❌ 완료 조건(dod)은 리스트여야 한다: {t['summary']!r}")
-    if t.get("fix_version") and t["fix_version"] not in {v["name"] for v in meta["versions"]}:
-        sys.exit(f"❌ 릴리스 '{t['fix_version']}' 은 열린 버전에 없다: "
-                 f"{[v['name'] for v in meta['versions']]}")
 
     # 본문 양식 게이트 — 산출물 없음 · 형식 애매 · 완료 조건 애매면 여기서 막는다.
     assignee_id = resolve_user(t.get("assignee"), meta["users"], meta["me"])
@@ -332,9 +328,6 @@ def build_fields(t, meta, use_sprint):
         fields["labels"] = t["labels"]
     if t.get("epic"):
         fields["parent"] = {"key": t["epic"]}
-    if t.get("fix_version"):
-        ver = next(v for v in meta["versions"] if v["name"] == t["fix_version"])
-        fields["fixVersions"] = [{"id": ver["id"]}]
     if use_sprint:
         if not sprint:
             sys.exit("❌ 활성 스프린트가 없다. --no-sprint 로 다시 실행하거나 "

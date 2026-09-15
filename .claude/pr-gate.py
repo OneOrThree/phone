@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """`gh pr create` 게이트 — PreToolUse(Bash) 훅.
 
-담당자 없음 · 라벨 0개/2개 이상/release:* · --draft · 제목 형식 · 세션 링크 · 구현 티켓 외의 전체 키를
+담당자(`@me` 만) · 라벨(제목 TYPE 과 대응, 정확히 1개 — CHORE 만 없음 허용) · `--draft` · `--fill`/`--web`
+(제목·본문을 명시해야 검사가 된다) · `--reviewer` · 제목 형식 · 세션 링크 · 구현 티켓 외의 전체 키를
 PR 이 열리기 전에 막는다. 사용자 확인창은 뜨지 않는다 — 위반 목록이 Claude 에게 돌아가고 고쳐서 다시 연다.
 규칙을 지킨 명령과 파싱할 수 없는 명령(변수·서브셸·heredoc)은 무출력으로 통과한다 — 문서가 최후 방어다.
 
@@ -18,11 +19,21 @@ import shlex
 import sys
 
 TITLE_RE = re.compile(r"^\[(FEAT|FIX|CHORE|REFACTOR)\] GROMO-(\d+) \S")
-LABELS_OK = {"enhancement", "bug", "refactoring", "documentation", "workflow", "test"}
+# 제목 TYPE → 허용 라벨. CHORE 는 내용으로 택1이며 어느 것도 맞지 않으면 없음(빈 라벨) 허용.
+TYPE_LABELS = {
+    "FEAT": {"enhancement"},
+    "FIX": {"bug"},
+    "REFACTOR": {"refactoring"},
+    "CHORE": {"documentation", "workflow", "test"},
+}
+LABELS_OK = set().union(*TYPE_LABELS.values())
 SESSION_LINK = re.compile(r"claude\.ai/code")
 FULL_KEY = re.compile(r"GROMO-(\d+)")
 STOP_TOKENS = {";", "&&", "||", "|"}
 UNPARSEABLE = re.compile(r"\$\(|`|\$\{?[A-Za-z_]")
+FILL_FLAGS = {"--fill", "--fill-first", "--fill-verbose", "-f"}
+LABEL_HINT = ("FEAT→enhancement · FIX→bug · REFACTOR→refactoring · "
+              "CHORE→documentation|workflow|test (내용으로 택1, 없으면 라벨 생략)")
 
 
 def find_create(tokens):
@@ -63,6 +74,10 @@ def _vals(args, *names):
     return vals
 
 
+def _has(args, *names):
+    return any(n in args for n in names)
+
+
 def check_command(command, cwd=None):
     """위반 사유 목록. 비어 있으면 통과. None 이면 검사 대상이 아니거나 파싱 불가."""
     if "gh pr create" not in command:
@@ -75,31 +90,22 @@ def check_command(command, cwd=None):
     if start is None:
         return None
     args = parse_args(tokens[start:])
-    if "--web" in args or "-w" in args:
-        return None
 
     reasons = []
-    if "--draft" in args or "-d" in args:
+    if _has(args, "--draft", "-d"):
         reasons.append("`--draft` 금지 — codex 자동 리뷰는 ready PR 에만 붙는다")
+    if _has(args, *FILL_FLAGS) or _has(args, "--web", "-w"):
+        reasons.append("`--fill`·`--web` 금지 — 제목은 `--title`, 본문은 `--body-file` 로 명시해야 게이트가 검사한다")
+    if _has(args, "--reviewer", "-r"):
+        reasons.append("`--reviewer` 지정 금지 — 리뷰 봇(@claude 코멘트·codex)이 붙는다")
 
-    if not _vals(args, "--assignee", "-a"):
+    assignees = _vals(args, "--assignee", "-a")
+    if not assignees:
         reasons.append("`--assignee @me` 가 없다 — 담당자는 PR 작성자 본인")
+    elif assignees != ["@me"]:
+        reasons.append(f"담당자는 `@me` 만 — 지금 {assignees}")
 
-    labels = []
-    for v in _vals(args, "--label", "-l"):
-        labels += [x.strip() for x in v.split(",") if x.strip()]
-    if not labels:
-        reasons.append("`--label` 이 없다 — 정확히 1개: FEAT→enhancement · FIX→bug · REFACTOR→refactoring · "
-                       "CHORE→documentation|workflow|test (내용으로 택1)")
-    elif len(labels) > 1:
-        reasons.append(f"라벨은 정확히 1개 — 지금 {len(labels)}개: {labels}")
-    else:
-        lab = labels[0]
-        if lab.startswith("release:"):
-            reasons.append(f"`{lab}` 은 PR 에 붙이지 않는다 (릴리스 라벨)")
-        elif lab not in LABELS_OK:
-            reasons.append(f"라벨 「{lab}」 은 목록 밖 — " + " · ".join(sorted(LABELS_OK)))
-
+    title_type = None
     title_key = None
     titles = _vals(args, "--title", "-t")
     if titles and not UNPARSEABLE.search(titles[0]):
@@ -108,7 +114,24 @@ def check_command(command, cwd=None):
             reasons.append("제목 형식: `[FEAT|FIX|CHORE|REFACTOR] GROMO-#### 한 줄 요약` "
                            f"— 지금 「{titles[0]}」 ([DOC]·[GROMO-####] 대체 표기 금지)")
         else:
-            title_key = m.group(2)
+            title_type, title_key = m.group(1), m.group(2)
+
+    labels = []
+    for v in _vals(args, "--label", "-l"):
+        labels += [x.strip() for x in v.split(",") if x.strip()]
+    if len(labels) > 1:
+        reasons.append(f"라벨은 정확히 1개 — 지금 {len(labels)}개: {labels}")
+    elif not labels:
+        if title_type != "CHORE":
+            reasons.append("`--label` 이 없다 — " + LABEL_HINT)
+    else:
+        lab = labels[0]
+        if lab.startswith("release:"):
+            reasons.append(f"`{lab}` 은 PR 에 붙이지 않는다 (릴리스 라벨)")
+        elif lab not in LABELS_OK:
+            reasons.append(f"라벨 「{lab}」 은 목록 밖 — " + " · ".join(sorted(LABELS_OK)))
+        elif title_type and lab not in TYPE_LABELS[title_type]:
+            reasons.append(f"제목 `[{title_type}]` 과 라벨 「{lab}」 이 안 맞는다 — " + LABEL_HINT)
 
     body = None
     bodies = _vals(args, "--body", "-b")
@@ -159,11 +182,19 @@ _OK = ("gh pr create --assignee @me --label workflow "
        "--title '[CHORE] GROMO-1885 컨벤션 정본화' --body '## Jira\n- [GROMO-1885](x)\n티켓 455 참고'")
 _FIXTURES = [
     ("통과", _OK, []),
+    ("통과 — CHORE 무라벨", _OK.replace("--label workflow ", ""), []),
+    ("통과 — FEAT+enhancement", _OK.replace("--label workflow", "--label enhancement").replace("[CHORE]", "[FEAT]"), []),
     ("무관한 명령", "ls -la && gh pr view 12", None),
     ("draft", _OK + " --draft", ["--draft"]),
+    ("fill", _OK + " --fill", ["--fill"]),
+    ("web", _OK + " --web", ["--web"]),
+    ("reviewer", _OK + " --reviewer alice", ["--reviewer"]),
     ("담당자 없음", _OK.replace("--assignee @me ", ""), ["--assignee"]),
-    ("라벨 없음", _OK.replace("--label workflow ", ""), ["--label"]),
+    ("담당자 타인", _OK.replace("--assignee @me", "--assignee alice"), ["`@me` 만"]),
+    ("라벨 없음 (FEAT)", _OK.replace("--label workflow ", "").replace("[CHORE]", "[FEAT]"), ["--label"]),
     ("라벨 2개", _OK.replace("--label workflow", "--label workflow,bug"), ["정확히 1개"]),
+    ("라벨 -l 두 번", _OK.replace("--label workflow", "-l workflow -l bug"), ["정확히 1개"]),
+    ("TYPE↔라벨 불일치", _OK.replace("--label workflow", "--label bug").replace("[CHORE]", "[FEAT]"), ["안 맞는다"]),
     ("release 라벨", _OK.replace("--label workflow", "--label release:minor"), ["릴리스 라벨"]),
     ("제목 형식", _OK.replace("[CHORE] GROMO-1885", "[GROMO-1885]"), ["제목 형식"]),
     ("세션 링크", _OK.replace("티켓 455 참고", "https://claude.ai/code/session/abc"), ["세션 링크"]),
