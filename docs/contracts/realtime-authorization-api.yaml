@@ -7,7 +7,9 @@ info:
     요청 중 한 DB 스냅샷에서 계정·세션·섬·멤버십 조건이 함께 참인지 판정한다.
     이 응답은 이후 프레임 전송을 보장하거나 다른 사건의 추가 인가 조건을 대신하지 않는다.
     Data primary만 사용하고 이전 true 응답은 캐시하거나 재사용하지 않는다.
-    Realtime의 AT 서명·만료·sid/gen 파싱, 최종 프레임 가드, snapshot·재연결은 후속 구현이다.
+    Realtime의 AT 서명·만료·sid/gen 파싱과 이 경로 호출은 realtime.authorization-client.enabled(기본 false) 뒤에
+    기존 그룹 채팅 경계 한정으로 구현됐다(docs/architecture/realtime-current-membership-client.md).
+    신규 채널의 최종 프레임 가드, snapshot·재연결은 후속 구현이다.
     기존 host-transfer-enabled=false를 유지한다.
 servers:
   - url: http://data-api:8080

@@ -2,6 +2,7 @@ package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.auth.JwtValidator;
+import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -69,7 +70,14 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
                 accessGuard.requireNotFocusing(principal.userId());
             }
             return message;
+        } catch (UpstreamRejectedCredentialException e) {
+            // 자격 자체가 무효다 — 현재 인가 조회를 기다리는 사이 AT 가 만료됐거나, sid/gen 이 없거나, Data 가 401 을 줬다.
+            // 프레임만 버리면 수신 전용 앱은 다음 메시지가 올 때까지 만료를 모른 채 갱신·재연결을 시작하지 못한다.
+            // 위 JWT 재검증과 같은 규칙으로 실제 소켓을 1008/UNAUTHORIZED 로 닫는다(CLAUDE.md 「만료된 access token」).
+            sessions.closeUnauthorized(sessionId);
+            return null;
         } catch (RuntimeException e) {
+            // 일시 장애(UpstreamUnavailable)·비멤버·집중 중은 프레임만 막고 소켓은 유지한다 — 자격은 여전히 유효하다.
             // 조회 장애도 통과시키지 않는다. 본문·토큰·원격 응답은 기록하지 않는다.
             log.debug("채팅 전달 차단 — reason={}", e.getClass().getSimpleName());
             return null;

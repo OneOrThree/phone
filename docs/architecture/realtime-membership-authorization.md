@@ -10,8 +10,8 @@
 
 ```mermaid
 flowchart LR
-    App["앱의 WebSocket 연결"] --> RT["Realtime<br/>AT 서명·만료·sid/gen 검증<br/>후속 연결"]
-    RT --> Guard["프레임별 최종 전달 가드<br/>후속 구현"]
+    App["앱의 WebSocket 연결"] --> RT["Realtime<br/>AT 서명·만료·sid/gen 검증<br/>기존 그룹 채팅 한정 · 기본 OFF"]
+    RT --> Guard["프레임별 최종 전달 가드<br/>기존 그룹 메시지는 구현 · 신규 채널은 후속"]
     Guard -->|서비스 전용 자격과 검증된 주체| API["Data 내부 인가 API<br/>기본 비활성"]
     API --> Auth["InternalAuthFilter<br/>realtime caller·경로 허용목록"]
     Auth --> Service["새 짧은 읽기 트랜잭션"]
@@ -19,12 +19,12 @@ flowchart LR
     SQL --> DB[("Primary PostgreSQL<br/>users / auth_sessions<br/>groups / group_members")]
     SQL --> Result["allowed boolean"]
     Result --> Guard
-    Guard -->|조건 모두 통과한 현재 프레임만| Socket["소켓 전송<br/>후속 구현"]
+    Guard -->|조건 모두 통과한 현재 프레임만| Socket["소켓 전송<br/>신규 채널은 후속"]
 ```
 
 앱은 이 내부 API를 직접 호출하지 않는다. Realtime은 앱의 AT를 검증한 뒤 서명으로 확인한 subject·sid·gen을 내부 요청으로 바꾼다. 클라이언트가 보낸 임의 `X-User-Id`, sessionId, authGeneration을 그대로 신뢰하지 않는다. Data가 받는 Authorization은 앱 AT가 아니라 **Realtime→Data 전용 서비스 자격**이다.
 
-현재 브랜치는 Data 제공자를 준비한다. Realtime의 AT 파서·최종 프레임 가드·이 API 호출 코드는 후속이다. 기존 chat의 인증/집중 차단이나 새 realtime 경로가 이 제공자로 자동 전환됐다고 해석하지 않는다.
+현재 브랜치는 Data 제공자를 준비한다. Realtime의 AT 파서와 이 API 호출 코드는 `realtime.authorization-client.enabled`(기본 false) 뒤에 구현됐으며, 기존 그룹 채팅의 `requireCanChat` 경계와 기존 그룹 메시지 `beforeHandle`에 한정된다([현재 멤버십 client](realtime-current-membership-client.md)). 신규 채널의 최종 프레임 가드는 후속이다. 기존 chat의 인증/집중 차단이나 새 realtime 경로가 이 제공자로 자동 전환됐다고 해석하지 않는다.
 
 ## 2. 내부 HTTP 계약
 
@@ -136,7 +136,7 @@ sequenceDiagram
 | --- | --- |
 | Data 단일 snapshot 인가 제공자·엄격 DTO·caller 경계 | 실제 HTTP/PG19건 및 전체 Data2,449건·build/static PASS |
 | 기존 Data schema·도메인 명령 의미 | 변경 없음 |
-| Realtime의 원 AT 서명/exp/sid/gen 파서·내부 호출 | 후속, 연결 완료 아님 |
+| Realtime의 원 AT 서명/exp/sid/gen 파서·내부 호출 | 구현됨 — `realtime.authorization-client.enabled`(기본 false) 뒤, 기존 그룹 채팅 경계 한정. [현재 멤버십 client](realtime-current-membership-client.md) |
 | 프레임 최종 가드·목적지별 추가 권한·구독 철회 | 후속, 모든14개 이벤트 허용 아님 |
 | 주민 snapshot·fanout·재연결 race 복구 | 후속 |
 | 운영 서비스 자격 주입·primary 연결 확인·부하 검증 | 후속 |
