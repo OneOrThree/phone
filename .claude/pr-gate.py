@@ -31,9 +31,15 @@ SESSION_LINK = re.compile(r"claude\.ai/code")
 FULL_KEY = re.compile(r"GROMO-(\d+)")
 STOP_TOKENS = {";", "&&", "||", "|"}
 UNPARSEABLE = re.compile(r"\$\(|`|\$\{?[A-Za-z_]")
+_SINGLE_QUOTED = re.compile(r"'[^']*'")
 FILL_FLAGS = {"--fill", "--fill-first", "--fill-verbose", "-f"}
 LABEL_HINT = ("FEAT→enhancement · FIX→bug · REFACTOR→refactoring · "
               "CHORE→documentation|workflow|test (내용으로 택1, 없으면 라벨 생략)")
+
+
+def _may_substitute(command):
+    """작은따옴표 밖에 `$(`·백틱·`$VAR` 가 있을 때만 셸 치환 가능성이 있다 — 따옴표 안 백틱은 리터럴."""
+    return bool(UNPARSEABLE.search(_SINGLE_QUOTED.sub("''", command)))
 
 
 def find_create(tokens):
@@ -90,6 +96,10 @@ def check_command(command, cwd=None):
     if start is None:
         return None
     args = parse_args(tokens[start:])
+    subst = _may_substitute(command)
+
+    def unknown(value):
+        return subst and UNPARSEABLE.search(value)
 
     reasons = []
     if _has(args, "--draft", "-d"):
@@ -108,7 +118,7 @@ def check_command(command, cwd=None):
     title_type = None
     title_key = None
     titles = _vals(args, "--title", "-t")
-    if titles and not UNPARSEABLE.search(titles[0]):
+    if titles and not unknown(titles[0]):
         m = TITLE_RE.match(titles[0])
         if not m:
             reasons.append("제목 형식: `[FEAT|FIX|CHORE|REFACTOR] GROMO-#### 한 줄 요약` "
@@ -135,10 +145,10 @@ def check_command(command, cwd=None):
 
     body = None
     bodies = _vals(args, "--body", "-b")
-    if bodies and not UNPARSEABLE.search(bodies[0]):
+    if bodies and not unknown(bodies[0]):
         body = bodies[0]
     files = _vals(args, "--body-file", "-F")
-    if files and files[0] != "-" and not UNPARSEABLE.search(files[0]):
+    if files and files[0] != "-" and not unknown(files[0]):
         path = files[0] if os.path.isabs(files[0]) else os.path.join(cwd or os.getcwd(), files[0])
         try:
             with open(path, encoding="utf-8") as fp:
@@ -200,6 +210,8 @@ _FIXTURES = [
     ("세션 링크", _OK.replace("티켓 455 참고", "https://claude.ai/code/session/abc"), ["세션 링크"]),
     ("타 티켓 전체 키", _OK.replace("티켓 455 참고", "GROMO-455 참고"), ["GROMO-455"]),
     ("파싱 불가", "gh pr create --title \"$TITLE\" --body \"$(cat body.md)\" --assignee @me --label bug", []),
+    ("따옴표 안 백틱은 리터럴 — 제목 검사됨", _OK.replace("[CHORE] GROMO-1885 컨벤션 정본화", "`UserService` 정리"), ["제목 형식"]),
+    ("따옴표 안 백틱 + 정상 제목", _OK.replace("컨벤션 정본화", "`UserService` 정리"), []),
 ]
 
 

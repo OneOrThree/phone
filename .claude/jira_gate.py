@@ -11,7 +11,7 @@
        **사용자에게 묻는다**(지어내지 않는다). 준수·파싱 불가·에픽·다른 프로젝트는 무출력 통과.
 
     python3 .claude/jira_gate.py --selftest
-       내장 픽스처(통과 1 · 위반 8 · 에픽 면제)로 판정이 기대와 같은지 확인한다.
+       내장 픽스처(통과 2 · 위반 11 · 에픽 면제)로 판정이 기대와 같은지 확인한다.
 
 정본(사람이 읽는 양식·막는 조건): docs/conventions/jira-ticket-template.md
 """
@@ -37,21 +37,26 @@ DELIVERABLE_TYPES = ("PR", "문서", "조사 리포트", "디자인 시안", "�
 SUMMARY_MAX = 80
 GOAL_MIN = 10
 DOD_MIN_ITEMS = 2
-DOD_VAGUE_MAX_LEN = 25        # 구체 토큰이 없어도 이 길이 이상이면 서술로 인정한다
+DOD_MIN_LEN = 8               # 이보다 짧으면 구체 토큰이 있어도 서술이 아니다
 
 _EPIC_TYPES = {"epic", "에픽"}
 _ESTIMATE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(m|h|d)\s*(?:\(.*\))?\s*$", re.I)   # 전체 문자열
 _LIST_MARK = re.compile(r"^\s*(?:[-*•]\s*(?:\[[ xX]\]\s*)?|\d+[.)]\s+|☐\s*|☑\s*)")
 _HEADING_MARK = re.compile(r"^\s*#{0,6}\s*")
 
-# 「구체적」의 정의 — 경로 · 코드 · 숫자 · HTTP 메서드 · 티켓 키 · 파일 확장자 · 대문자 식별자 · 외부 위치
+# 「구체적」의 정의 — 관찰 가능한 사실을 가리키는 토큰만. 숫자 하나·대문자 두 글자로는 부족하다.
 _CONCRETE = re.compile(
-    r"[/`]"
-    r"|\d"
-    r"|\b(?:GET|POST|PUT|PATCH|DELETE)\b"
-    r"|\b[A-Z]{2,}\b"
-    r"|\b[A-Za-z]+[A-Z][A-Za-z0-9]*\b"
-    r"|\.(?:md|java|kt|ts|tsx|js|sql|yml|yaml|json|py|swift|sh|dbml)\b"
+    r"[A-Za-z0-9_.-]+/[A-Za-z0-9_./{}-]+"          # 경로 · 엔드포인트 (docs/prd, /api/groups/{id})
+    r"|`[^`]+`"                                     # 백틱 코드
+    r"|https?://\S+"                                # URL
+    r"|\b(?:GET|POST|PUT|PATCH|DELETE)\b"           # HTTP 메서드
+    r"|\b[1-5]\d{2}\b"                             # HTTP 상태코드
+    r"|\bGROMO-\d+\b|\bV\d+__"                     # 티켓 키 · 마이그레이션
+    r"|\w+\.(?:md|java|kt|ts|tsx|js|sql|yml|yaml|json|py|swift|sh|dbml)\b"   # 파일
+    r"|\b[A-Z]{3,}\b|\b(?:PR|CI|DB|UI|QA|OS)\b"    # 대문자 식별자 (3자+ 또는 흔한 약어)
+    r"|\b[a-z]+[A-Z][A-Za-z0-9]+\b"                # camelCase 식별자
+    r"|\d+(?:\.\d+)?\s*(?:개|건|종|명|회|줄|초|분|시간|일|ms|%|px|MB|KB|GB|sp)"   # 수량+단위
+    r"|\d+\.\d+(?:\.\d+)?"                        # 버전
     r"|(?:지라|Jira)\s*코멘트|Figma|Notion|Confluence|Slack|노션|피그마|컨플루언스"
 )
 # 단독으로 쓰이면 관찰 불가능한 완료 조건
@@ -142,12 +147,13 @@ def _value_after(lines, label):
 # ---------------------------------------------------------------- 판정
 
 def is_vague(item):
+    """정형 애매구 · 8자 미만 · 구체 토큰 없음 — 셋 중 하나면 애매. 길이만으로는 통과하지 못한다."""
     core = item.strip().rstrip(".。")
     if _VAGUE_ONLY.match(core):
         return True
-    if len(core) < 8:
+    if len(core) < DOD_MIN_LEN:
         return True
-    return not _CONCRETE.search(core) and len(core) < DOD_VAGUE_MAX_LEN
+    return not _CONCRETE.search(core)
 
 
 def check_ticket(summary, issue_type, description, fields=None,
@@ -332,6 +338,20 @@ _FIXTURES = [
     ("완료 조건 애매", "초대 링크 만료 정책 적용",
      _GOOD.replace("만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "잘 동작한다"),
      {DOMAIN_FIELD: {"id": "1"}}, ["완료 조건이 애매하다: 「잘 동작한다」"]),
+    ("완료 조건 우회 — 숫자만 붙임", "초대 링크 만료 정책 적용",
+     _GOOD.replace("만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "동작하게1234"),
+     {DOMAIN_FIELD: {"id": "1"}}, ["완료 조건이 애매하다: 「동작하게1234」"]),
+    ("완료 조건 우회 — 두 글자 대문자", "초대 링크 만료 정책 적용",
+     _GOOD.replace("만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "완료함 OK 처리"),
+     {DOMAIN_FIELD: {"id": "1"}}, ["완료 조건이 애매하다: 「완료함 OK 처리」"]),
+    ("완료 조건 우회 — 길이만 채움", "초대 링크 만료 정책 적용",
+     _GOOD.replace("만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "제대로 마무리해서 확실하게 완료되도록 처리한다"),
+     {DOMAIN_FIELD: {"id": "1"}}, ["완료 조건이 애매하다: 「제대로 마무리해서"]),
+    ("통과 — 비코드 완료 조건", "온보딩 시안 제작",
+     _GOOD.replace("- [ ] POST /api/groups/{id}/invite 가 201 과 링크를 반환한다", "- [ ] 시안 3종이 Figma 온보딩 v2 페이지에 올라가 있다")
+          .replace("- [ ] 만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "- [ ] 선택안 링크가 지라 코멘트로 남아 있다")
+          .replace("유형: PR", "유형: 디자인 시안").replace("남길 위치: server/data-api — OneOrThree/phone PR", "남길 위치: https://www.figma.com/file/abc"),
+     {DOMAIN_FIELD: {"id": "1"}}, []),
     ("예상 시간 뒤 잡문", "초대 링크 만료 정책 적용",
      _GOOD.replace("4h\n", "4h 대략\n"), {DOMAIN_FIELD: {"id": "1"}}, ["예상 작업 시간 형식"]),
     ("산출물 유형 부분 일치", "초대 링크 만료 정책 적용",
@@ -348,8 +368,6 @@ def run_selftest():
     for name, summary, desc, fields, expected in _FIXTURES:
         got = check_ticket(summary, "작업", desc, fields)
         ok = (not got) if not expected else all(any(e in g for g in got) for e in expected)
-        if expected and ok and name == "통과":
-            ok = False
         mark = "✅" if ok else "❌"
         print(f"{mark} {name}: {len(got)}건")
         for g in got:
