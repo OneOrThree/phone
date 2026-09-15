@@ -6,14 +6,14 @@
 
 ## 한눈에 보기
 
-| 영역 | 구현 |
-| --- | --- |
-| 런타임 | React Native 0.86, Expo SDK 57, React 19, TypeScript strict |
-| 화면 이동 | React Navigation의 탭과 Native Stack |
-| 상태 | Context API와 hooks, AsyncStorage 영속화 |
-| 서버 통신 | axios, JWT 주입과 401 재발급 |
-| 네이티브 | iOS Screen Time 확장, Android 사용량 권한, 푸시·분석 SDK |
-| 배포 | TestFlight, Android release, hot-updater OTA |
+| 영역      | 구현                                                        |
+| --------- | ----------------------------------------------------------- |
+| 런타임    | React Native 0.86, Expo SDK 57, React 19, TypeScript strict |
+| 화면 이동 | React Navigation의 탭과 Native Stack                        |
+| 상태      | Context API와 hooks, AsyncStorage 영속화                    |
+| 서버 통신 | axios, JWT 주입과 401 재발급                                |
+| 네이티브  | iOS Screen Time 확장, Android 사용량 권한, 푸시·분석 SDK    |
+| 배포      | TestFlight, Android release, hot-updater OTA                |
 
 ## 코드 구조
 
@@ -44,14 +44,14 @@ cp .env.example .env
 npm start
 ```
 
-| 대상 | 명령 |
-| --- | --- |
-| iOS 시뮬레이터 | `npm run ios` |
-| Android 에뮬레이터 | `npm run android` |
-| 웹 디버깅 | 저장소 루트에서 `./app/scripts/local-web.command` |
-| 타입 검사 | `npm run typecheck` |
-| 린트 | `npm run lint` |
-| 테스트 | `npm test` |
+| 대상               | 명령                                              |
+| ------------------ | ------------------------------------------------- |
+| iOS 시뮬레이터     | `npm run ios`                                     |
+| Android 에뮬레이터 | `npm run android`                                 |
+| 웹 디버깅          | 저장소 루트에서 `./app/scripts/local-web.command` |
+| 타입 검사          | `npm run typecheck`                               |
+| 린트               | `npm run lint`                                    |
+| 테스트             | `npm test`                                        |
 
 ### 서버 연결
 
@@ -82,12 +82,12 @@ Android 실기기는 USB 디버깅을 켠 뒤 `npx expo run:android --device`로
 
 ## 빌드와 배포
 
-| 작업 | 시작점 |
-| --- | --- |
-| TestFlight | `ios/testflight.sh` |
+| 작업            | 시작점                       |
+| --------------- | ---------------------------- |
+| TestFlight      | `ios/testflight.sh`          |
 | Android release | `scripts/android-release.sh` |
-| OTA | hot-updater 설정과 배포 명령 |
-| Maestro E2E | `scripts/e2e.sh` |
+| OTA             | hot-updater 설정과 배포 명령 |
+| Maestro E2E     | `scripts/e2e.sh`             |
 
 서명 자산, Firebase 설정, 새 머신 준비와 배포 절차는 [.claude/DevRunbook.md](.claude/DevRunbook.md)를 정본으로 사용합니다.
 
