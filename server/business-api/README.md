@@ -1,4 +1,62 @@
-# Business API (`server/business-api`)
+# Business API
+
+> 앱 요청을 검증하고 여러 서비스의 결과를 모으며, 공유 파일의 미리보기를 만드는 서버입니다.
+
+[서버 전체 보기](../README.md) · [Data API](../data-api/README.md) · [Notification](../notification/README.md) · [내부 API 계약](../../docs/contracts/business-satellite-api.yaml)
+
+## 한눈에 보기
+
+| 영역 | 담당하는 일 |
+| --- | --- |
+| 요청 경계 | AT 검증, 신뢰할 수 있는 사용자 식별, 본문 제한, requestId |
+| 서비스 조합 | Data·Notification·Link의 내부 HTTP 호출과 오류 변환 |
+| 공통 API 기반 | 응답 봉투, 요청 키·버전·커서 검증, 화면 조합 시간 예산 |
+| 파일 미리보기 | 공개 Drive·이미지·PDF 메타데이터와 PNG 썸네일, Redis TTL 캐시 |
+| 기술 스택 | Java 17, Spring Boot 4.0.6, Redis, Poppler, 독립 Gradle·Dockerfile |
+
+Business에는 도메인 DB가 없습니다. 도메인 상태·명령 결과는 Data가 확정하고, 이 서비스의 Redis에는 다시 생성할 수 있는 미리보기 사본만 저장합니다.
+
+## 서비스 연결
+
+```mermaid
+flowchart LR
+  app["GROMO 앱"] --> boundary["JWT·요청 검증"]
+  boundary --> compose["Business · 서비스 조합"]
+  compose -->|"내부 HTTP"| data["Data · 상태 확정"]
+  compose -->|"기기·설정·결과 확인"| notification["Notification"]
+  compose -->|"링크 발급·귀속"| link["Link / MMP"]
+  boundary --> preview["파일 미리보기"]
+  preview --> guard["URL·DNS·리다이렉트 검사"]
+  guard --> source["공개 Drive·파일 서버"]
+  preview --> cache[("전용 Redis")]
+```
+
+## 현재 구현 상태
+
+- 기존 위성 조합·파일 미리보기와 신규 API 공통 기반이 함께 있습니다.
+- 알림 설정, 현재 세션 로그아웃 등 연결된 신규 경로의 세부 계약은 아래에 정리되어 있습니다.
+- 전체 BFF·인증 발급 이전은 완료되지 않았습니다. 기존 로그인·토큰 발급은 Data에 남아 있습니다.
+- 방장 위임은 명령 기반이 구현되어 있으나 Data의 활성화 플래그는 기본 false입니다.
+- 아래의 날짜·커밋을 명시한 검사 결과는 당시 기록입니다. 현재 운영 배포 완료를 뜻하지 않습니다.
+
+## 빠른 검증
+
+Java 17·Docker와 PDF 변환 도구 `pdftoppm`(Poppler)·`prlimit`(util-linux)을 준비한 환경에서 실행합니다. PDF 테스트 도구를 갖춘 Linux 환경은 아래 CI 설정을 참고합니다.
+
+```bash
+cd server/business-api
+./gradlew build
+```
+
+[위성 CI](../../.github/workflows/satellite-ci.yml)는 Dockerfile의 `test` 단계로 도구 이미지를 만든 뒤, 소스와 Docker 소켓을 마운트한 컨테이너에서 Gradle을 실행합니다. 도구 이미지 빌드만으로 테스트가 실행되지는 않습니다. 서비스 실행은 아래 상세 안내와 [배포 설정 준비](../scripts/README.md)를 참고합니다. 기본 서비스 포트는 `8080`이며 Data와 호스트에서 함께 실행할 때는 포트를 구분해야 합니다. 단독 [compose.yml](compose.yml)은 호스트 `127.0.0.1:8082`를 컨테이너 `8080`에 연결합니다.
+
+## 상세 안내
+
+아래에는 공통 계층 사용법, 외부 경로·재시도 계약, 이관 절차, 파일 미리보기와 신규 명령의 구현 설명을 보존했습니다.
+
+---
+
+## 서비스 경계와 전환 배경
 
 앱이 들어오는 유일한 표면이자 코어·위성 조합의 주체다(목표 아키텍처 §2 · A22 ㊫).
 

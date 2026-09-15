@@ -1,4 +1,52 @@
-# GROMO 관측 스택 (GROMO-546)
+# Observability
+
+> 요청이 느려진 이유를 트래픽·DB·리소스·로그에서 함께 찾는 GROMO 관측 설정입니다.
+
+[서버 전체 보기](../README.md) · [실행·배포 도구](../scripts/README.md) · [Datadog 상세](datadog/README.md) · [부하 테스트](../../loadtest/README.md)
+
+## 1. 수집 구조
+
+```mermaid
+flowchart LR
+  app["Data API · app:9091"] -->|"Actuator 메트릭"| prometheus["Prometheus"]
+  db["PostgreSQL"] --> exporter["postgres-exporter"]
+  exporter --> prometheus
+  host["호스트"] --> node["node-exporter"]
+  node --> prometheus
+  container["컨테이너"] --> cadvisor["cAdvisor"]
+  cadvisor --> prometheus
+  logs["컨테이너 stdout"] --> promtail["Promtail"]
+  promtail --> loki["Loki"]
+  prometheus --> grafana["Grafana"]
+  loki --> grafana
+  app -.->|"별도 APM 구성"| datadog["Datadog Agent"]
+```
+
+현재 [Prometheus 설정](prometheus/prometheus.yml)은 `app:9091`과 PostgreSQL·호스트·컨테이너를 수집합니다. Business·Notification·Realtime에도 관리 포트가 있지만 이 설정에 자동 등록되지는 않습니다. 신규 서비스를 관측하려면 scrape 대상과 대시보드를 추가해야 합니다.
+
+## 2. 무엇을 확인하나
+
+| 확인할 문제 | 함께 볼 신호 |
+| --- | --- |
+| API가 느려짐 | 요청량, p95·p99, 5xx, HikariCP pending |
+| DB 연결이 부족함 | active·idle·pending, DB 활성 연결과 처리량 |
+| 쿼리 비용이 커짐 | DB 캐시히트, 디스크 읽기, 필요 시 느린 쿼리 |
+| 프로세스가 바빠짐 | 호스트·컨테이너 CPU와 메모리 |
+| 오류가 반복됨 | ERROR 발생률, Loki 실시간 로그, 선택적 APM |
+
+이 지표는 병목을 좁히는 단서입니다. 성능 수치는 [부하 테스트](../../loadtest/README.md)의 시나리오·실행 조건과 함께 해석합니다.
+
+## 3. 설정 파일 지도
+
+| 위치 | 역할 |
+| --- | --- |
+| [prometheus/](prometheus/) | 수집 대상과 주기 |
+| [grafana/dashboards/](grafana/dashboards/) | 대시보드 JSON |
+| [grafana/provisioning/](grafana/provisioning/) | 데이터소스·대시보드 자동 등록 |
+| [loki/](loki/) · [promtail/](promtail/) | 로그 저장·수집 |
+| [datadog/](datadog/) | APM·OpenMetrics 연동 안내 |
+
+## 4. dev 실행과 운영
 
 dev 서버의 **로그·트래픽·쿼리 부하를 한 화면에서 실시간** 확인. Prometheus + Grafana + Loki 셀프호스트를
 docker-compose overlay 로 기존 dev 스택 위에 얹는다. 무료(컨테이너 비용뿐). 수집층은 GROMO-588(Actuator+micrometer).
@@ -8,7 +56,7 @@ docker-compose overlay 로 기존 dev 스택 위에 얹는다. 무료(컨테이�
 기존 `docker-compose.dev.yml`(app·db) **위에 overlay**로 올린다:
 
 ```bash
-cd phone
+# 저장소 루트에서 실행
 # --env-file 은 dev-cd 가 checkout 밖에 만든 runtime env (POSTGRES_*, GRAFANA_ADMIN_PASSWORD 등
 # — dev-monitor.yml 이 쓰는 것과 동일). 빼면 빈 값으로 치환돼 db 재생성·기동 실패 위험.
 docker compose --env-file ../.gromo-runtime/dev.env \
@@ -19,12 +67,15 @@ docker compose --env-file ../.gromo-runtime/dev.env \
 - 대시보드: **"GROMO — dev 관측"** (자동 프로비저닝, 5초 새로고침)
   - ※ 대시보드는 **as-code** — Grafana UI 에서 패널을 즉석 수정해도 ~10초 내 파일 버전으로 되돌아간다. 영구 변경은 `server/observability/grafana/dashboards/gromo-overview.json` 을 직접 수정.
 
-중지:
+관측 컨테이너만 중지:
 
 ```bash
 docker compose --env-file ../.gromo-runtime/dev.env \
-  -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml down
+  -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml \
+  stop prometheus grafana loki promtail postgres-exporter node-exporter cadvisor
 ```
+
+> `down`은 병합된 기본 앱·DB까지 종료하므로 관측만 중지할 때는 위 `stop`을 사용합니다.
 
 > ⚠️ 반드시 `-f` 두 개로 실행. 그래야 dev 의 `app-network`·`app`·`db` 와 같은 프로젝트/네트워크를 공유해
 > `app:9091`·`db:5432` 를 서비스명으로 스크레이프한다. `dev-cd.yml` 은 `up -d app` 만 하므로 배포와 간섭 없음.
