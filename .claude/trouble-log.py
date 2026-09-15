@@ -14,7 +14,8 @@ transcript로 알 수 없으므로 /trouble-log 가 수동으로 담당한다.
 import json, os, re, sys, time
 from datetime import datetime, timedelta
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))  # = phone/
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))  # = phone/ (본체)
+WS_ROOT = ROOT  # 이번 세션의 작업 루트(본체 또는 Orca worktree). main() 에서 cwd 로 결정.
 TSDIR = os.path.join(ROOT, "server", "data-api", "docs", "troubleshooting")
 ACTIVE = os.path.join(TSDIR, ".active.json")
 MARKER = "<!-- TIMELINE:END -->"
@@ -122,9 +123,45 @@ def is_tool_result(content):
 
 def rel(path):
     try:
-        return os.path.relpath(path, ROOT)
+        return os.path.relpath(path, WS_ROOT)
     except Exception:
         return path
+
+
+def find_repo(cwd):
+    """cwd 에서 위로 올라가며 .git 을 찾는다. (repo_root, gitdir_path) — 없으면 (None, None)."""
+    d = os.path.abspath(cwd or os.getcwd())
+    while True:
+        g = os.path.join(d, ".git")
+        if os.path.isdir(g):
+            return d, g
+        if os.path.isfile(g):
+            try:
+                with open(g, encoding="utf-8") as f:
+                    line = f.read().strip()
+                if line.startswith("gitdir:"):
+                    return d, os.path.abspath(os.path.join(d, line[7:].strip()))
+            except Exception:
+                pass
+            return d, None
+        p = os.path.dirname(d)
+        if p == d:
+            return None, None
+        d = p
+
+
+def phone_workspace(cwd):
+    """cwd 가 phone 본체 또는 phone 의 git worktree(Orca 워크스페이스)면 그 루트를 돌려준다. 아니면 None.
+    전역 Stop 훅에서 호출되므로 phone 밖 세션은 여기서 조용히 걸러진다."""
+    root, gitdir = find_repo(cwd)
+    if not root or not gitdir:
+        return None
+    main_git = os.path.join(ROOT, ".git")
+    if os.path.realpath(root) == os.path.realpath(ROOT):
+        return root
+    if os.path.realpath(gitdir).startswith(os.path.realpath(main_git) + os.sep):
+        return root  # .git 파일이 phone/.git/worktrees/<name> 을 가리키는 worktree
+    return None
 
 
 def stamp(ts):
@@ -268,6 +305,15 @@ def insert_rows(doc_path, rows):
 
 
 def main():
+    # 저장소 판정이 상태 조회·만료 처리보다 먼저다 — phone 밖 세션(전역 훅)이 이 저장소의
+    # 무장 상태를 읽거나 만료시키지 않도록.
+    data = json.load(sys.stdin)
+    global WS_ROOT
+    ws = phone_workspace(data.get("cwd"))
+    if not ws:
+        return  # phone(본체·worktree) 밖 세션 — 전역 훅이라 여기서 걸러진다
+    WS_ROOT = ws
+
     state = load_active()
     if not state:
         return  # 무장되지 않음 — 평소 세션에서는 여기서 끝
@@ -280,7 +326,6 @@ def main():
     if not doc or not os.path.exists(doc):
         return
 
-    data = json.load(sys.stdin)
     session = data.get("session_id") or "unknown"
     bound = state.get("session_id")
     if bound is None:

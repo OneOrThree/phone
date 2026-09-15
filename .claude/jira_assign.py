@@ -17,23 +17,24 @@ payload.json 스키마 (모르는 키가 있으면 즉시 에러 — 오타가 �
       "tickets": [
         {
           "summary":  "동사형 한 줄",        # 필수, 대괄호 접두 금지
-          "assignee": "안수빈",              # 필수, 표시 이름 (부분 일치 허용)
+          "assignee": "안수빈",              # 선택, 표시 이름 (부분 일치 허용) — 기본 = 나(토큰 주인)
           "domain":   "그룹",                # 필수, 도메인 드롭다운 값
           "goal":     "왜 하는가 / 무엇을 만드는가",   # 필수
-          "dod":      ["완료 조건 1", "완료 조건 2"],  # 필수, 1개 이상
-          "deliverable":     "PR",           # 필수, 산출물 유형
-          "output_location": "server/data-api ... PR",  # 필수, 결과물 남길 위치
-          "estimate": "4h",                  # 필수, 예상 작업 시간 (30m/4h/1d/2.5d)
-          "due":      "2026-09-14",          # 선택, 기본 = 활성 스프린트 종료일
+          "dod":      ["완료 조건 1", "완료 조건 2"],  # 필수, 2개 이상 · 관찰 가능한 사실
+          "deliverable":     "PR",           # 필수, PR|문서|조사 리포트|디자인 시안|설정 변경|데이터 작업|기타(…)
+          "output_location": "server/data-api ... PR",  # 필수, 레포 경로 / PR 대상 레포 / URL / 지라 코멘트
+          "estimate": "4h",                  # 팀원에게 시킬 때 필수, 내 백로그는 선택 (30m/4h/1d/2.5d)
+          "due":      "2026-09-14",          # 선택, 기본 = 스프린트에 넣을 때만 활성 스프린트 종료일
           "refs":     ["docs/... — 설명"],   # 선택, 참고 자료
           "labels":   ["BE"],                # 선택
-          "epic":     "GROMO-123",           # 선택
+          "epic":     "GROMO-123",           # 선택 (fixVersion 은 생성 시 넣지 않는다 — 완료 처리 때 붙인다)
           "story_points": 3                  # 선택, 기본 = estimate 에서 환산
         }
       ]
     }
 
-규약 정본: docs/conventions/jira-conventions.md
+본문 양식·막는 조건은 jira_gate.check_ticket() 이 판정한다 (MCP createJiraIssue 훅과 같은 규칙).
+규약 정본: docs/conventions/jira-conventions.md · docs/conventions/jira-ticket-template.md
 """
 
 import json
@@ -44,6 +45,10 @@ import uuid
 
 import requests
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import jira_gate  # noqa: E402  — 본문 양식 게이트 (훅과 같은 규칙)
+
+# 필드 id 정본: docs/conventions/jira-conventions.md 「필드 id」 표
 DOMAIN_FIELD = "customfield_10342"
 SPRINT_FIELD = "customfield_10020"
 POINTS_FIELD = "customfield_10016"
@@ -55,8 +60,7 @@ TICKET_KEYS = {
     "story_points",
 }
 REQUIRED_KEYS = {
-    "summary", "assignee", "domain", "goal", "dod", "deliverable",
-    "output_location", "estimate",
+    "summary", "domain", "goal", "dod", "deliverable", "output_location",
 }
 
 
@@ -122,6 +126,9 @@ def load_meta():
                            project=PROJECT, maxResults=50)
              if u.get("active") and u.get("accountType") == "atlassian"]
 
+    myself = _get(f"{API}/myself")
+    me = {"accountId": myself["accountId"], "name": myself.get("displayName", "")}
+
     # 보드 type 으로 거르지 않는다 — 이 프로젝트의 스크럼 보드는 type 이 "simple" 이다.
     # 스프린트를 안 쓰는 보드는 400 을 주므로 조용히 넘긴다.
     sprint = None
@@ -148,10 +155,15 @@ def load_meta():
                   fields="summary", maxResults=50).get("issues", [])]
 
     return {"task_type": task_type, "domains": domains, "users": users,
-            "sprint": sprint, "versions": versions, "epics": epics}
+            "me": me, "sprint": sprint, "versions": versions, "epics": epics}
 
 
-def resolve_user(name, users):
+def resolve_user(name, users, me=None):
+    """표시 이름 → accountId. 이름이 비면 나(토큰 주인)다."""
+    if not name:
+        if not me:
+            sys.exit("❌ 담당자가 비어 있는데 내 계정을 조회하지 못했다.")
+        return me["accountId"]
     exact = [u for u in users if u["name"] == name]
     if len(exact) == 1:
         return exact[0]["accountId"]
@@ -170,7 +182,9 @@ _EST = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(m|h|d)\s*$", re.I)
 
 
 def estimate_hours(text):
-    """'30m' · '4h' · '1d' · '2.5d' → 시간(float). 하루는 8시간."""
+    """'30m' · '4h' · '1d' · '2.5d' → 시간(float). 하루는 8시간. 비어 있으면 None."""
+    if not text:
+        return None
     m = _EST.match(str(text))
     if not m:
         sys.exit(f"❌ 예상 작업 시간 형식이 아니다: {text!r} (예: 30m · 4h · 1d · 2.5d)")
@@ -242,9 +256,10 @@ def build_description(t, hours):
         _heading("📦 산출물"),
         _bullets([f"유형: {t['deliverable']}",
                   f"남길 위치: {t['output_location']}"]),
-        _heading("⏱ 예상 작업 시간"),
-        _para(f"{t['estimate']} (약 {hours:g}시간)"),
     ]
+    if hours is not None:
+        body += [_heading("⏱ 예상 작업 시간"),
+                 _para(f"{t['estimate']} (약 {hours:g}시간)")]
     return {"version": 1, "type": "doc", "content": body}
 
 
@@ -263,7 +278,20 @@ def validate(t, meta):
         sys.exit(f"❌ 도메인 '{t['domain']}' 은 옵션에 없다.\n"
                  f"   가능: {sorted(meta['domains'])}")
     if not isinstance(t["dod"], list) or not t["dod"]:
-        sys.exit(f"❌ 완료 조건(dod)은 1개 이상의 리스트여야 한다: {t['summary']!r}")
+        sys.exit(f"❌ 완료 조건(dod)은 리스트여야 한다: {t['summary']!r}")
+
+    # 본문 양식 게이트 — 산출물 없음 · 형식 애매 · 완료 조건 애매면 여기서 막는다.
+    assignee_id = resolve_user(t.get("assignee"), meta["users"], meta["me"])
+    reasons = jira_gate.check_ticket(
+        summary=t["summary"], issue_type=TASK_TYPE_NAME,
+        description=jira_gate.ticket_to_text(t),
+        fields={DOMAIN_FIELD: t["domain"]},
+        require_estimate=assignee_id != meta["me"]["accountId"],
+    )
+    if reasons:
+        sys.exit("❌ 티켓 양식 미달 — 사용자에게 물어 채운 뒤 다시 실행한다 (지어내지 말 것). "
+                 f"티켓: {t['summary']!r}\n" + "\n".join(f"   - {r}" for r in reasons)
+                 + "\n   양식: docs/conventions/jira-ticket-template.md")
 
 
 def find_duplicates(summary):
@@ -280,18 +308,21 @@ def find_duplicates(summary):
 
 
 def build_fields(t, meta, use_sprint):
-    hours = estimate_hours(t["estimate"])
+    hours = estimate_hours(t.get("estimate"))
     sprint = meta["sprint"]
     fields = {
         "project": {"key": PROJECT},
         "issuetype": {"id": meta["task_type"]},
         "summary": t["summary"],
         "description": build_description(t, hours),
-        "assignee": {"id": resolve_user(t["assignee"], meta["users"])},
+        "assignee": {"id": resolve_user(t.get("assignee"), meta["users"], meta["me"])},
         DOMAIN_FIELD: {"id": meta["domains"][t["domain"]]},
-        POINTS_FIELD: t.get("story_points") or hours_to_points(hours),
     }
-    due = t.get("due") or (sprint or {}).get("end")
+    points = t.get("story_points") or (hours_to_points(hours) if hours is not None else None)
+    if points:
+        fields[POINTS_FIELD] = points
+    # 기본 기한은 스프린트에 넣을 때만 스프린트 종료일 — 백로그 티켓에 마감을 지어내지 않는다
+    due = t.get("due") or ((sprint or {}).get("end") if use_sprint else None)
     if due:
         fields["duedate"] = due
     if t.get("labels"):
@@ -352,8 +383,8 @@ def main():
                           timeout=30)
         if r.status_code < 300:
             key = r.json()["key"]
-            print(f"  ✅ {key}  {t['summary']}  → {t['assignee']} "
-                  f"· 마감 {fields.get('duedate', '-')} · {fields[POINTS_FIELD]}sp")
+            print(f"  ✅ {key}  {t['summary']}  → {t.get('assignee') or meta['me']['name']} "
+                  f"· 마감 {fields.get('duedate', '-')} · {fields.get(POINTS_FIELD, '-')}sp")
             ok.append(key)
         else:
             print(f"  ❌ [{r.status_code}] {t['summary']}\n     {r.text[:400]}")

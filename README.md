@@ -88,8 +88,8 @@ API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/
 | 앱 구조·실행·배포 | [app/app-dev/README.md](app/app-dev/README.md) |
 | 목표 아키텍처·결정 장부 | [docs/architecture/README.md](docs/architecture/README.md) |
 | 기능별 PRD·정책·설계 | [docs/README.md](docs/README.md) |
-| 백엔드 계층·오류·날짜 규약 | [docs/conventions/](docs/conventions/) |
+| 팀 규약 — Git·PR · 지라 티켓 · 백엔드 계층·오류·날짜 | [docs/conventions/](docs/conventions/) |
 
 ## 변경에 참여하기
 
-브랜치 이름과 커밋·PR 형식은 [CLAUDE.md](CLAUDE.md), 리뷰 언어와 심각도 표기는 [AGENTS.md](AGENTS.md)를 따릅니다. 앱과 서버는 툴링을 공유하지 않으므로 변경한 서비스 디렉터리에서 해당 검증 명령을 실행합니다.
+브랜치 이름과 커밋·PR 형식(담당자·라벨·머지 조건 포함)은 [docs/conventions/git-pr-conventions.md](docs/conventions/git-pr-conventions.md), 지라 티켓 양식은 [docs/conventions/jira-ticket-template.md](docs/conventions/jira-ticket-template.md), 리뷰 언어와 심각도 표기는 [AGENTS.md](AGENTS.md)를 따릅니다. 앱과 서버는 툴링을 공유하지 않으므로 변경한 서비스 디렉터리에서 해당 검증 명령을 실행합니다.

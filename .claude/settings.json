@@ -12,6 +12,30 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/pr-gate.py\" --hook",
+            "timeout": 10,
+            "statusMessage": "PR 게이트: gh pr create 규칙 검사"
+          }
+        ]
+      },
+      {
+        "matcher": ".*createJiraIssue$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/jira_gate.py\" --hook",
+            "timeout": 10,
+            "statusMessage": "지라 게이트: 티켓 양식 검사"
+          }
+        ]
+      }
     ]
   }
 }

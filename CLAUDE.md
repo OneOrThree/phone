@@ -51,34 +51,60 @@ Korean. Keep code identifiers (types, functions, variables) in English.
 
 ## Git & PR conventions
 
-- **Branch prefixes**: `<area><type>/` where type ∈ `feat`/`fix`/`refactor`/`chore`.
-  **Backend work prepends `b`** (`bfeat/`, `bfix/`, `brefactor/`, `bchore/`); **app/frontend
-  work prepends `a`** (`afeat/`, `afix/`, `arefactor/`, `achore/`). Bare `feat/`·`fix/`·
-  `refactor/`·`chore/` are reserved for cross-cutting/tooling work that is neither backend-
-  nor app-specific. e.g. a backend refactor is `brefactor/`, never bare `refactor/`.
-  **Docs work** (`docs/`) uses the `doc/` prefix: new docs `doc/prd-<feature>`, edits
-  `doc/fix-prd-<feature>`.
-- **Commit / PR title**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT` / `FIX` / `CHORE` / `REFACTOR`, `GROMO-####` is the Jira ticket.
-- **PR body** follows `.github/pull_request_template.md`: Jira link, change type,
-  summary, change details, and **DB schema changes** if any.
-- **Referencing tickets**: only the ticket the PR **directly implements** gets the full
-  key (`GROMO-####`) — the full key makes the Jira integration attach this PR's history to
-  that ticket. For **related/reference tickets** the PR does not implement, write the
-  **number only** so no PR history is attached (e.g. `GROMO-455` → "ticket 455").
-- **Creating Jira tickets**: follow `docs/conventions/jira-conventions.md` — every
-  task/bug/subtask needs exactly one **`도메인`** value (the domain axis, a dropdown custom
-  field); **epics do not get it** (their `[도메인]` name prefix plays that role). Epic is only
-  for time-boxed initiatives and may be left empty; no `[Tag]` prefixes in task summaries
-  (that info lives in `도메인`/Label).
-- `main` is the integration branch. **`git add`, `git commit`, and `git push` are the
-  user's to run** — never stage, commit, or push without an explicit, per-action request,
-  and ask right before each one. One approval does not carry to the next action. (Creating
-  branches, checking out, and local builds are fine without asking.)
-  **Exception (team rule)**: the initial push of a just-created branch is automatic — the
-  `.claude/settings.json` PostToolUse hook runs `git push -u origin <branch>` on
-  `checkout -b`/`switch -c` so every branch exists on origin from the start. This is part
-  of branch creation, not a content push (the new branch carries no unreviewed commits
-  beyond its base).
+The canonical rules are `docs/conventions/git-pr-conventions.md` (Korean, team-shared); when
+this summary and that file disagree, the file wins. The `.claude/pr-gate.py` PreToolUse hook
+rejects a `gh pr create` that breaks them (reason goes back to you, no user prompt).
+
+- **Branch**: `<area><type>/GROMO-####-<kebab-slug>`, type ∈ `feat`/`fix`/`refactor`/`chore`.
+  `b` = any `server/**` (data-api, realtime, business-api, notification); `a` = `app/**`; bare
+  prefix = cross-cutting (`.github/`, root scripts, `.claude/`); `doc/` = `docs/**` only (new
+  PRD `doc/prd-<feature>`, edits `doc/fix-prd-<feature>`). Branch **before the first edit**,
+  never work on `main`. A new branch is pushed to origin the moment it is created — the
+  `.claude/settings.json` PostToolUse hook does it on `checkout -b`/`switch -c`; verify with
+  `git ls-remote` and push `-u` yourself if it did not land.
+- **Commit / PR title**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT`/`FIX`/`CHORE`/`REFACTOR`,
+  exactly those four. `[DOC]` or a ticket key in place of TYPE is not allowed; docs PRs are
+  `[CHORE]`. Squash merge makes the PR title the `main` commit message.
+- **PR body**: the eight sections of `.github/pull_request_template.md`, by name — `## Jira`,
+  `## 변경 유형`, `## Summary`, `## 커밋 목록`, `## Changes`, `## 빌드/배포 영향` (app changes
+  only), `## DB 변경 (백엔드)` (schema changes only), `## 주의사항`. Jira host is
+  `romance.atlassian.net`. Never append a claude.ai session link.
+- **Ticket references**: only the ticket the PR implements gets the full key (`GROMO-####`) —
+  the Jira integration attaches PR history to every full key it sees. Reference tickets are
+  the number only ("ticket 455").
+- **Opening a PR**: `gh pr create --assignee @me --label <one> --title "..." --body-file ...` —
+  **never `--draft`**, `--fill` or `--web` (codex auto-review attaches to ready PRs only; the
+  gate needs an explicit title and body). Exactly one existing label matching the TYPE:
+  FEAT→`enhancement`, FIX→`bug`, REFACTOR→`refactoring`, CHORE→by content (`documentation`
+  docs-only, `workflow` CI/scripts/hooks, `test` tests-only, else no label). Never `release:*`,
+  never create labels, no `--reviewer`. In the same turn post an `@claude`
+  review-request comment with 3–5 PR-specific points and keep watching the PR; later replies
+  never mention `@claude` (it re-triggers the workflow).
+- **Merge**: four-part test at the same commit — zero unanswered root review threads; a
+  reviewer verdict newer than the head push (codex 👍 / "no major issues", or a
+  `**Claude finished` comment); CI **all passed** (not merely zero failures);
+  `mergeStateStatus` CLEAN. There is no formal APPROVE in this repo. **A human clicks merge**
+  — agents report the four states, never merge.
+- **git actions**: `git add`, `commit`, `push` need the user's approval **per action**, given
+  through the harness permission prompt — do not pre-ask in chat. One approval never carries
+  to the next action. Exception: the initial push of a just-created branch (part of branch
+  creation). Never commit or push to `main`/`release`; never force-push.
+- **Scope**: a server ticket never touches `app/`, and vice versa. Before starting, check the
+  top-level paths with `git diff --name-only origin/main | cut -d/ -f1 | sort -u`.
+
+## Creating Jira tickets
+
+- Classification follows `docs/conventions/jira-conventions.md`: exactly one **`도메인`** on
+  tasks/bugs/subtasks (a dropdown custom field), none on epics (their `[도메인]` name prefix
+  plays that role), Epic only for time-boxed initiatives, no `[Tag]` prefixes in summaries.
+- The body follows `docs/conventions/jira-ticket-template.md` (🎯 목표 · ✅ 완료 조건 · 📎 참고
+  자료 · 📦 산출물 · ⏱ 예상 작업 시간). `.claude/jira_gate.py` — used by `jira_assign.py` and
+  by the PreToolUse hook on `createJiraIssue` — rejects a ticket whose 산출물 or 완료 조건 is
+  missing or vague. When rejected, **ask the user for the missing pieces (AskUserQuestion,
+  batched) — never invent them.** Epics are exempt.
+- Create through `/jira-assign` (one work order) or `/jira-sync` (a PRD at once); both run
+  `.claude/jira_assign.py`. Search for duplicates first (JQL + open PRs). Never reassign
+  someone else's ticket to yourself — open a new one and link it in a comment.
 
 ## CI/CD (`.github/workflows/`)
 
@@ -134,7 +160,7 @@ iOS builds/deploys are **not in CI** — they run manually via fastlane
 ## Key docs
 
 - `docs/prd/<feature>/` — team-shared per-feature docs (PRD / policy / IA / high-level / low-level design / diagrams); structure in `docs/README.md`.
-- `docs/conventions/jira-conventions.md` — Jira 4-axis convention (`도메인` dropdown = domain, Label = platform, Epic = time-boxed initiative, fixVersion = release). Read before creating or triaging tickets.
+- `docs/conventions/` — team-wide rules: `git-pr-conventions.md` (branch · title · body · assignee/label · review · merge), `jira-conventions.md` (4-axis classification + field ids), `jira-ticket-template.md` (ticket body + creation gate), `date-axis.md`, `error-contract.md`, `backend-layering.md`.
 - `server/data-api/docs/db/schema.dbml` — canonical DB schema (DBML, **tracked** — the `docs/db/` whitelist in `server/data-api/.gitignore`, GROMO-735; keep it in sync and commit it with its migration). Schema deltas are applied by **Flyway** migrations in `server/data-api/src/main/resources/db/migration/` (`V1__baseline.sql` onward); the `run-migration-v*.sh` scripts next to it are a legacy archive.
 - `loadtest/README.md` — load-testing harness guide. `server/observability/README.md` — dev observability stack guide.
 - `server/data-api/HELP.md` — Spring Boot reference notes.

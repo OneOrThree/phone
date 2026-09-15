@@ -36,7 +36,7 @@ Steps:
    - nothing runs locally — the `local` profile has Flyway disabled
      (`ddl-auto: update`); dev/staging/prod apply migrations automatically on boot
      with `ddl-auto: validate`;
-   - the PR must flag this DB-schema change in the "DB 스키마 변경" section of
+   - the PR must flag this DB-schema change in the "DB 변경 (백엔드)" section of
      `.github/pull_request_template.md`.
 
 Create/modify files only — **do not commit, push, or run the migration against any

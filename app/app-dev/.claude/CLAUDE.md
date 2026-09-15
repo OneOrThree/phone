@@ -325,8 +325,9 @@ npm run format:fix
 
 ### Commit convention
 
-`<tag>: <Korean summary>` — e.g. `feat: 로그인 화면 UI 추가`, `fix: 안드로이드 크래시 수정`,
-`chore: 의존성 업데이트`, `refactor: API 통신 로직 정리`, `docs: README 작성`.
+Same as the repo root: `[TYPE] GROMO-#### 한 줄 요약`, TYPE ∈ `FEAT`/`FIX`/`CHORE`/`REFACTOR`
+(e.g. `[FEAT] GROMO-206 로그인 화면 UI 추가`). Branch `a<type>/GROMO-####-<slug>`. Canon:
+`docs/conventions/git-pr-conventions.md`.
 
 ### Before committing
 
@@ -351,16 +352,12 @@ Claude opens PRs directly with `gh pr create`, as a **ready PR — never `--draf
 convention, 2026-08-14). The team's codex auto-review only attaches to ready PRs, so a
 draft PR gets zero automated review.
 
-1. **Title**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT`/`FIX`/`CHORE`/`REFACTOR` (e.g.
-   `[FEAT] GROMO-206 인게임 재화 관리 기능 구현`).
-2. **Body**: follow the root [`.github/pull_request_template.md`](../../../.github/pull_request_template.md)
-   — `## Jira` (`[GROMO-####]()`), `## 변경 유형`, `## Summary` (what/why, 2–3 lines), `## Changes`,
-   `## DB 변경` (only if schema changed), `## 주의사항` (migrations/side-effects, drop if none).
-3. **Ticket references**: only the ticket this PR **directly implements** gets the full key
-   (`GROMO-####`) — the full key attaches this PR's history to that ticket in Jira. Related or
-   reference tickets the PR does not implement get the **number only** (e.g. "ticket 455"), so
-   no PR history attaches to them.
-4. Never append a claude.ai/code session link to the PR body.
+Title, body sections, assignee (`--assignee @me`), the single type label, ticket-reference
+rule (full key only for the implemented ticket, number only for the rest) and the "no
+claude.ai session link" rule are all in the root `CLAUDE.md` → "Git & PR conventions" and
+the canon `docs/conventions/git-pr-conventions.md`. App-specific: keep the template's
+`## 빌드/배포 영향` section and tick what applies (native change → new TestFlight build,
+JS-only → OTA, new dependency, new `EXPO_PUBLIC_*`, entitlements).
 
 Commits/pushes leading up to the PR still need explicit user approval — see
 "### Commit / push rule" above; opening the PR itself does not.
