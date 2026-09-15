@@ -31,22 +31,45 @@ SESSION_LINK = re.compile(r"claude\.ai/code")
 FULL_KEY = re.compile(r"GROMO-(\d+)")
 STOP_TOKENS = {";", "&&", "||", "|"}
 UNPARSEABLE = re.compile(r"\$\(|`|\$\{?[A-Za-z_]")
-_SINGLE_QUOTED = re.compile(r"'[^']*'")
 FILL_FLAGS = {"--fill", "--fill-first", "--fill-verbose", "-f"}
 LABEL_HINT = ("FEAT→enhancement · FIX→bug · REFACTOR→refactoring · "
               "CHORE→documentation|workflow|test (내용으로 택1, 없으면 라벨 생략)")
 
 
 def _may_substitute(command):
-    """작은따옴표 밖에 `$(`·백틱·`$VAR` 가 있을 때만 셸 치환 가능성이 있다 — 따옴표 안 백틱은 리터럴."""
-    return bool(UNPARSEABLE.search(_SINGLE_QUOTED.sub("''", command)))
+    """작은따옴표 밖(맨몸 또는 큰따옴표 안)에 `$(`·백틱·`$VAR` 가 있을 때만 셸 치환 가능성이 있다.
+    따옴표 문맥을 문자 단위로 추적한다 — 큰따옴표 안의 아포스트로피(user's)를 작은따옴표 시작으로 오인하지 않게."""
+    out = []
+    q = None            # None · "'" · '"'
+    i = 0
+    while i < len(command):
+        c = command[i]
+        if q is None:
+            if c == "\\" and i + 1 < len(command):
+                out.append(" "); i += 2; continue
+            if c in ("'", '"'):
+                q = c
+            else:
+                out.append(c)
+        elif q == "'":
+            if c == "'":
+                q = None
+            # 작은따옴표 안은 전부 리터럴 — 버린다
+        else:  # 큰따옴표 안: \" 이스케이프만 건너뛰고 나머지는 치환 후보
+            if c == "\\" and i + 1 < len(command):
+                out.append(" "); i += 2; continue
+            if c == '"':
+                q = None
+            else:
+                out.append(c)
+        i += 1
+    return bool(UNPARSEABLE.search("".join(out)))
 
 
-def find_create(tokens):
-    for i in range(len(tokens) - 2):
-        if tokens[i] == "gh" and tokens[i + 1] == "pr" and tokens[i + 2] == "create":
-            return i + 3
-    return None
+def find_creates(tokens):
+    """한 Bash 호출 안의 모든 `gh pr create` 위치 — `a && gh pr create … && gh pr create …` 도 전부 검사한다."""
+    return [i + 3 for i in range(len(tokens) - 2)
+            if tokens[i] == "gh" and tokens[i + 1] == "pr" and tokens[i + 2] == "create"]
 
 
 def parse_args(tokens):
@@ -92,12 +115,18 @@ def check_command(command, cwd=None):
         tokens = shlex.split(command)
     except ValueError:
         return None
-    start = find_create(tokens)
-    if start is None:
+    starts = find_creates(tokens)
+    if not starts:
         return None
-    args = parse_args(tokens[start:])
     subst = _may_substitute(command)
+    reasons = []
+    for n, start in enumerate(starts, 1):
+        tag = f"[{n}번째 gh pr create] " if len(starts) > 1 else ""
+        reasons += [tag + r for r in _check_one(parse_args(tokens[start:]), subst, cwd)]
+    return reasons
 
+
+def _check_one(args, subst, cwd):
     def unknown(value):
         return subst and UNPARSEABLE.search(value)
 
@@ -118,7 +147,9 @@ def check_command(command, cwd=None):
     title_type = None
     title_key = None
     titles = _vals(args, "--title", "-t")
-    if titles and not unknown(titles[0]):
+    if not titles:
+        reasons.append("`--title` 이 없다 — 대화식 입력은 게이트가 검사할 수 없다. `[TYPE] GROMO-#### 요약` 으로 명시")
+    elif not unknown(titles[0]):
         m = TITLE_RE.match(titles[0])
         if not m:
             reasons.append("제목 형식: `[FEAT|FIX|CHORE|REFACTOR] GROMO-#### 한 줄 요약` "
@@ -145,9 +176,11 @@ def check_command(command, cwd=None):
 
     body = None
     bodies = _vals(args, "--body", "-b")
+    files = _vals(args, "--body-file", "-F")
+    if not bodies and not files:
+        reasons.append("`--body-file`(또는 `--body`)이 없다 — 대화식 입력은 게이트가 검사할 수 없다. 템플릿 8섹션으로 명시")
     if bodies and not unknown(bodies[0]):
         body = bodies[0]
-    files = _vals(args, "--body-file", "-F")
     if files and files[0] != "-" and not unknown(files[0]):
         path = files[0] if os.path.isabs(files[0]) else os.path.join(cwd or os.getcwd(), files[0])
         try:
@@ -210,13 +243,32 @@ _FIXTURES = [
     ("세션 링크", _OK.replace("티켓 455 참고", "https://claude.ai/code/session/abc"), ["세션 링크"]),
     ("타 티켓 전체 키", _OK.replace("티켓 455 참고", "GROMO-455 참고"), ["GROMO-455"]),
     ("파싱 불가", "gh pr create --title \"$TITLE\" --body \"$(cat body.md)\" --assignee @me --label bug", []),
+    ("제목·본문 없음(대화식)", "gh pr create --assignee @me --label bug", ["`--title` 이 없다", "`--body-file`"]),
+    ("큰따옴표 안 아포스트로피 + 백틱 → 치환 가능 → 제목 검사 스킵",
+     "gh pr create --title \"[FEAT] GROMO-100 user's `whoami` fix\" --body 'normal body' --assignee @me --label enhancement", []),
+    ("한 명령에 둘 — 두 번째가 draft", _OK + " && " + _OK + " --draft", ["[2번째 gh pr create] `--draft`"]),
     ("따옴표 안 백틱은 리터럴 — 제목 검사됨", _OK.replace("[CHORE] GROMO-1885 컨벤션 정본화", "`UserService` 정리"), ["제목 형식"]),
     ("따옴표 안 백틱 + 정상 제목", _OK.replace("컨벤션 정본화", "`UserService` 정리"), []),
 ]
 
 
+_SUBST_FIXTURES = [
+    ("gh pr create --title 'a `b` c'", False),
+    ("gh pr create --title \"a `b` c\"", True),
+    ("gh pr create --title \"$T\" --body 'x'", True),
+    ("gh pr create --title \"user's `whoami`\" --body 'normal body'", True),
+    ("gh pr create --title 'it'\"'\"'s `x`' --body 'y'", False),   # 백틱은 작은따옴표 조각 안 → 리터럴
+    ("gh pr create --title 'plain' --body \"$(cat b.md)\"", True),
+    ("gh pr create --title 'plain' --body 'no subst'", False),
+]
+
+
 def run_selftest():
     failed = 0
+    for cmd, expected in _SUBST_FIXTURES:
+        got = _may_substitute(cmd)
+        print(("✅" if got == expected else "❌") + f" _may_substitute={got}: {cmd}")
+        failed += got != expected
     for name, cmd, expected in _FIXTURES:
         got = check_command(cmd, os.getcwd())
         if expected is None:

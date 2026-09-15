@@ -11,7 +11,7 @@
        **사용자에게 묻는다**(지어내지 않는다). 준수·파싱 불가·에픽·다른 프로젝트는 무출력 통과.
 
     python3 .claude/jira_gate.py --selftest
-       내장 픽스처(통과 2 · 위반 11 · 에픽 면제)로 판정이 기대와 같은지 확인한다.
+       내장 픽스처(통과 3 · 위반 13 · 에픽 면제)로 판정이 기대와 같은지 확인한다.
 
 정본(사람이 읽는 양식·막는 조건): docs/conventions/jira-ticket-template.md
 """
@@ -44,20 +44,29 @@ _ESTIMATE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(m|h|d)\s*(?:\(.*\))?\s*$",
 _LIST_MARK = re.compile(r"^\s*(?:[-*•]\s*(?:\[[ xX]\]\s*)?|\d+[.)]\s+|☐\s*|☑\s*)")
 _HEADING_MARK = re.compile(r"^\s*#{0,6}\s*")
 
-# 「구체적」의 정의 — 관찰 가능한 사실을 가리키는 토큰만. 숫자 하나·대문자 두 글자로는 부족하다.
-_CONCRETE = re.compile(
+# 「구체적」의 정의 — 두 등급. 강한 토큰은 그 자체로 관찰 가능한 대상을 가리키고,
+# 약한 토큰(수량·대문자 약어)은 애매한 서술어와 같이 있으면 인정하지 않는다(「…처리한다 1건」「… XYZ」 필러 차단).
+_STRONG = re.compile(
     r"[A-Za-z0-9_.-]+/[A-Za-z0-9_./{}-]+"          # 경로 · 엔드포인트 (docs/prd, /api/groups/{id})
     r"|`[^`]+`"                                     # 백틱 코드
     r"|https?://\S+"                                # URL
     r"|\b(?:GET|POST|PUT|PATCH|DELETE)\b"           # HTTP 메서드
     r"|\b[1-5]\d{2}\b"                             # HTTP 상태코드
     r"|\bGROMO-\d+\b|\bV\d+__"                     # 티켓 키 · 마이그레이션
-    r"|\w+\.(?:md|java|kt|ts|tsx|js|sql|yml|yaml|json|py|swift|sh|dbml)\b"   # 파일
-    r"|\b[A-Z]{3,}\b|\b(?:PR|CI|DB|UI|QA|OS)\b"    # 대문자 식별자 (3자+ 또는 흔한 약어)
+    r"|\w+\.(?:md|java|kt|ts|tsx|js|sql|yml|yaml|json|py|swift|sh|dbml|pdf|png|fig)\b"   # 파일
     r"|\b[a-z]+[A-Z][A-Za-z0-9]+\b"                # camelCase 식별자
-    r"|\d+(?:\.\d+)?\s*(?:개|건|종|명|회|줄|초|분|시간|일|ms|%|px|MB|KB|GB|sp)"   # 수량+단위
     r"|\d+\.\d+(?:\.\d+)?"                        # 버전
-    r"|(?:지라|Jira)\s*코멘트|Figma|Notion|Confluence|Slack|노션|피그마|컨플루언스"
+    r"|(?:지라|Jira)\s*코멘트|Figma|Notion|Confluence|Slack|GitHub|Discord|노션|피그마|컨플루언스|슬랙|깃허브|디스코드"
+    r"|스토어|TestFlight|테스트플라이트|플레이\s*콘솔|앱스토어"
+)
+_WEAK = re.compile(
+    r"\b[A-Z]{3,}\b|\b(?:PR|CI|DB|UI|QA|OS)\b"     # 대문자 약어
+    r"|\d+(?:\.\d+)?\s*(?:개|건|종|명|회|번|줄|쪽|장|안|곳|군데|페이지|항목|케이스|단계|세트|차|초|분|시간|일|주|ms|%|px|MB|KB|GB|sp)"
+)
+_CONCRETE = re.compile(_STRONG.pattern + "|" + _WEAK.pattern)   # 문서·테스트용 합집합
+# 항목 어디에든 있으면 「하겠다」류 서술 — 약한 토큰으로는 구제되지 않는다
+_VAGUE_ANY = re.compile(
+    r"잘\s*(?:동작|작동)|제대로|확실하게|마무리|알아서|적절히|잘\s*되도록|되도록\s*(?:처리|한다|함)|하도록\s*(?:처리|한다|함)"
 )
 # 단독으로 쓰이면 관찰 불가능한 완료 조건
 _VAGUE_ONLY = re.compile(
@@ -147,13 +156,17 @@ def _value_after(lines, label):
 # ---------------------------------------------------------------- 판정
 
 def is_vague(item):
-    """정형 애매구 · 8자 미만 · 구체 토큰 없음 — 셋 중 하나면 애매. 길이만으로는 통과하지 못한다."""
+    """정형 애매구 · 8자 미만 · 강한 토큰 없음(약한 토큰은 애매한 서술어가 없을 때만 인정) — 길이만으로는 통과하지 못한다."""
     core = item.strip().rstrip(".。")
     if _VAGUE_ONLY.match(core):
         return True
     if len(core) < DOD_MIN_LEN:
         return True
-    return not _CONCRETE.search(core)
+    if _STRONG.search(core):
+        return False
+    if _WEAK.search(core) and not _VAGUE_ANY.search(core):
+        return False
+    return True
 
 
 def check_ticket(summary, issue_type, description, fields=None,
@@ -347,6 +360,17 @@ _FIXTURES = [
     ("완료 조건 우회 — 길이만 채움", "초대 링크 만료 정책 적용",
      _GOOD.replace("만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "제대로 마무리해서 확실하게 완료되도록 처리한다"),
      {DOMAIN_FIELD: {"id": "1"}}, ["완료 조건이 애매하다: 「제대로 마무리해서"]),
+    ("완료 조건 우회 — 필러 약어", "초대 링크 만료 정책 적용",
+     _GOOD.replace("만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "제대로 마무리해서 확실하게 완료되도록 처리한다 XYZ"),
+     {DOMAIN_FIELD: {"id": "1"}}, ["완료 조건이 애매하다: 「제대로 마무리해서"]),
+    ("완료 조건 우회 — 필러 수량", "초대 링크 만료 정책 적용",
+     _GOOD.replace("만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "그렇게 되도록 처리한다 1건"),
+     {DOMAIN_FIELD: {"id": "1"}}, ["완료 조건이 애매하다: 「그렇게 되도록"]),
+    ("통과 — 한국어 비코드(단위·툴)", "경쟁사 벤치마킹",
+     _GOOD.replace("- [ ] POST /api/groups/{id}/invite 가 201 과 링크를 반환한다", "- [ ] 경쟁사 3곳 벤치마킹 리포트를 작성한다")
+          .replace("- [ ] 만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "- [ ] 카피 초안을 슬랙에 공유해 피드백을 받는다")
+          .replace("유형: PR", "유형: 조사 리포트").replace("남길 위치: server/data-api — OneOrThree/phone PR", "남길 위치: 지라 코멘트"),
+     {DOMAIN_FIELD: {"id": "1"}}, []),
     ("통과 — 비코드 완료 조건", "온보딩 시안 제작",
      _GOOD.replace("- [ ] POST /api/groups/{id}/invite 가 201 과 링크를 반환한다", "- [ ] 시안 3종이 Figma 온보딩 v2 페이지에 올라가 있다")
           .replace("- [ ] 만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "- [ ] 선택안 링크가 지라 코멘트로 남아 있다")
