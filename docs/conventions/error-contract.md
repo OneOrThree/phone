@@ -2,7 +2,7 @@
 
 > 이 문서는 GROMO-1657(공통 응답·예외 규약 통일)에서 확정한 **현재 상태**다. 계약을 지키는 테스트는
 > `server/data-api/src/test/java/com/oneorthree/phone/common/exception/ErrorContractTest.java` 이고,
-> 앱 쪽 분기는 `app/app-dev/src/services/groupApi.ts` 의 `groupErrorCode()` 가 대표다.
+> 앱 쪽 분기는 `app/legacy/app-dev/src/services/groupApi.ts` 의 `groupErrorCode()` 가 대표다.
 
 ---
 

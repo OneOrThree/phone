@@ -2,7 +2,7 @@
 
 React Native + Expo frontend for **gromo**. This file is the single source of truth for
 frontend code rules; it loads in addition to the repo-root `CLAUDE.md`.
-Run all commands from inside `app/app-dev/`.
+Run all commands from inside `app/legacy/app-dev/`.
 
 ---
 
@@ -28,14 +28,14 @@ local-only folders below.
 `screentime`. 새 기능 설계서도 `docs/prd/<기능-영문-kebab>/`에 만든다. 4종을 한 파일로
 합칠 때는 **기능 이름을 딴 파일명**(`screentime.md`) — `design.md` 금지. 문서 브랜치는
 `doc/` 프리픽스. `challenge` · `focus-session` · `group-carousel`은 공유 보류 상태로
-`app/app-dev/.docs/features/`에 남아 있다.
+`app/legacy/app-dev/.docs/features/`에 남아 있다.
 
-### Planning/design reference docs (`app/app-dev/.docs/`)
+### Planning/design reference docs (`app/legacy/app-dev/.docs/`)
 
-Original planning/design source docs live in `app/app-dev/.docs/`. **This folder is in
+Original planning/design source docs live in `app/legacy/app-dev/.docs/`. **This folder is in
 `.gitignore` (local-only)** — personal working references, not for external sharing.
 
-**[`app/app-dev/.docs/README.md`](../.docs/README.md) is the index** — read it before hunting for a doc.
+**[`app/legacy/app-dev/.docs/README.md`](../.docs/README.md) is the index** — read it before hunting for a doc.
 Folder map (그 README가 정본, 이 표는 요약):
 
 | Folder                                                                      | Purpose                                                                                                           |
@@ -101,7 +101,7 @@ All source lives under **`src/`**, and imports use the **`@/` alias** (`@` = `sr
 same-folder imports.) Entry point: root `index.ts` → `./src/App`.
 
 ```
-app/app-dev/
+app/legacy/app-dev/
 ├── index.ts                 # Expo entry → ./src/App
 ├── app.config.js            # Expo config (assets, plugins, bundle id, version)
 ├── babel.config.js          # babel-preset-expo + module-resolver (@/ alias)
@@ -146,7 +146,7 @@ app/app-dev/
 ## Quick start
 
 ```bash
-cd app/app-dev
+cd app/legacy/app-dev
 npm install
 cd ios && pod install && cd ..
 
@@ -163,8 +163,8 @@ npx expo run:ios --device     # on-device (needs p12; Jaeyoung's machine only)
 
 ### Backend connection (`.env`)
 
-`app/app-dev/.env` is a personal, untracked file. Copy from the example (`cp .env.example .env`
-from inside `app/app-dev/`). `EXPO_PUBLIC_API_URL` selects the target:
+`app/legacy/app-dev/.env` is a personal, untracked file. Copy from the example (`cp .env.example .env`
+from inside `app/legacy/app-dev/`). `EXPO_PUBLIC_API_URL` selects the target:
 
 - **Team server (default, recommended)**: `EXPO_PUBLIC_API_URL=https://oneorthree.dev.mooo.com` — no backend setup needed.
 - **Local backend**: bring up `server/data-api/` (Spring Boot) with `docker compose -f server/scripts/docker-compose.dev.yml up -d` (from the repo root), then `EXPO_PUBLIC_API_URL=http://localhost:8080` (use your Mac's LAN IP for a real device).

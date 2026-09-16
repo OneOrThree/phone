@@ -21,7 +21,7 @@
 - **iOS 시뮬레이터** (개발 용이)
 - **실기기** (p12 인증서로 서명)
 - **Docker / Docker Compose** — 로컬 백엔드(`server/data-api/`)를 직접 띄울 때만 필요 (`docker --version`, `docker compose version`)
-- **Ruby bundler + fastlane** — TestFlight 배포 시에만 필요 (아래 "TestFlight 배포" 참고, `app/app-dev/ios/Gemfile`로 설치)
+- **Ruby bundler + fastlane** — TestFlight 배포 시에만 필요 (아래 "TestFlight 배포" 참고, `app/legacy/app-dev/ios/Gemfile`로 설치)
 
 ---
 
@@ -81,7 +81,7 @@ cd Gromo
 ### 2.2 JavaScript 의존성 설치
 
 ```bash
-cd app/app-dev
+cd app/legacy/app-dev
 npm install
 ```
 
@@ -103,13 +103,13 @@ cd ..
 
 ### 3.1 환경 변수 설정
 
-**`app/app-dev/.env` 파일 생성** (`.gitignore`에 포함된 개인 설정 파일이라 새로 받으면 직접 만들어야 합니다):
+**`app/legacy/app-dev/.env` 파일 생성** (`.gitignore`에 포함된 개인 설정 파일이라 새로 받으면 직접 만들어야 합니다):
 
 ```bash
-cp app/app-dev/.env.example app/app-dev/.env
+cp app/legacy/app-dev/.env.example app/legacy/app-dev/.env
 ```
 
-> `app/app-dev/.env.example`의 기본값은 팀 서버(`https://oneorthree.dev.mooo.com`)를 가리키며 `src/services/api.ts`의 기본값과 동일합니다. 백엔드를 직접 띄우지 않아도 바로 개발을 시작할 수 있습니다 (아래 3.2의 (A) 방식).
+> `app/legacy/app-dev/.env.example`의 기본값은 팀 서버(`https://oneorthree.dev.mooo.com`)를 가리키며 `src/services/api.ts`의 기본값과 동일합니다. 백엔드를 직접 띄우지 않아도 바로 개발을 시작할 수 있습니다 (아래 3.2의 (A) 방식).
 
 ### 3.2 백엔드 연결 모드 선택
 
@@ -117,7 +117,7 @@ cp app/app-dev/.env.example app/app-dev/.env
 
 #### (A) 팀 서버 연결 — 기본, 추천
 
-`app/app-dev/.env`의 `EXPO_PUBLIC_API_URL`을 팀 서버로 설정 (3.1 참고):
+`app/legacy/app-dev/.env`의 `EXPO_PUBLIC_API_URL`을 팀 서버로 설정 (3.1 참고):
 
 ```
 EXPO_PUBLIC_API_URL=https://oneorthree.dev.mooo.com
@@ -138,7 +138,7 @@ docker compose --env-file .env -f server/scripts/docker-compose.dev.yml up -d
 - 루트 `.env` 파일에 `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` / `JWT_SECRET` 값이 필요합니다 (이미 존재).
 - 종료: `docker compose --env-file .env -f server/scripts/docker-compose.dev.yml down`
 
-**iOS 시뮬레이터**에서는 `app/app-dev/.env`를 아래처럼 설정:
+**iOS 시뮬레이터**에서는 `app/legacy/app-dev/.env`를 아래처럼 설정:
 
 ```
 EXPO_PUBLIC_API_URL=http://localhost:8080
@@ -166,7 +166,7 @@ REACT_NATIVE_PACKAGER_HOSTNAME=172.16.102.49
 ### 4.1 iOS 시뮬레이터 (권장 - 가장 쉬움)
 
 ```bash
-cd app/app-dev
+cd app/legacy/app-dev
 npm start
 # 터미널에서 'i' 입력 또는 다음 명령어 사용:
 npx expo run:ios
@@ -185,7 +185,7 @@ npx expo run:ios
 **단계**:
 
 ```bash
-cd app/app-dev
+cd app/legacy/app-dev
 npm start  # 별도 터미널 탭에서 계속 실행
 
 # 다른 터미널에서
@@ -225,16 +225,16 @@ Datadog 키를 셸 export 로 주입하고, 빌드 후 번들에 값이 박혔�
 
 > **왜 로컬 fastlane?** EAS Build 무료 한도(월 ~15회)를 다 태워서, EAS 대신 **수빈 맥에서 로컬 fastlane**으로 TestFlight에 올린다(무료·무제한). 빌드 머신 = 수빈 맥.
 
-한 방 배포는 `app/app-dev/ios/testflight.sh` 하나면 된다. 아래 **5.1 최초 셋업은 처음 한 번만**, 이후엔 **5.2만 반복**한다.
+한 방 배포는 `app/legacy/app-dev/ios/testflight.sh` 하나면 된다. 아래 **5.1 최초 셋업은 처음 한 번만**, 이후엔 **5.2만 반복**한다.
 
 ### 5.1 최초 1회 셋업
 
 #### (1) Ruby 의존성 설치 (fastlane)
 
-fastlane은 `app/app-dev/ios/Gemfile`로 관리하며 `vendor/bundle`에 설치된다 (`.bundle/config`의 `BUNDLE_PATH`).
+fastlane은 `app/legacy/app-dev/ios/Gemfile`로 관리하며 `vendor/bundle`에 설치된다 (`.bundle/config`의 `BUNDLE_PATH`).
 
 ```bash
-cd app/app-dev/ios
+cd app/legacy/app-dev/ios
 gem install bundler              # 없으면
 bundle install                   # Gemfile 의존성(fastlane) 설치 → vendor/bundle
 bundle exec fastlane --version   # 설치 확인
@@ -248,7 +248,7 @@ Apple ID 비번 대신 API Key로 인증한다 (2FA·세션 만료 없음).
 2. 키 생성 (역할 **App Manager** 이상) → `AuthKey_XXXXXX.p8` 다운로드 (**재발급 불가, 잘 보관**)
 3. 같은 화면 상단의 **Issuer ID**(UUID) 복사
 
-#### (3) `app/app-dev/ios/fastlane/.env` 작성 (`.gitignore`됨 — 커밋 금지)
+#### (3) `app/legacy/app-dev/ios/fastlane/.env` 작성 (`.gitignore`됨 — 커밋 금지)
 
 ```
 ASC_KEY_ID=XXXXXXXXXX             # .p8 파일명의 키 ID (AuthKey_XXXX 의 XXXX)
@@ -268,7 +268,7 @@ ASC_KEY_PATH=/절대/경로/AuthKey_XXXXXX.p8
 
 #### (5) Firebase 설정 파일(plist) 배치 — 없으면 빌드가 멈춘다
 
-`app/app-dev/ios/`에 **두 파일 다** 두어야 한다 (`.gitignore` — git이 아닌 별도 채널로 재영에게 받는다):
+`app/legacy/app-dev/ios/`에 **두 파일 다** 두어야 한다 (`.gitignore` — git이 아닌 별도 채널로 재영에게 받는다):
 
 | 파일                            | Firebase 프로젝트 | 쓰이는 때                           |
 | ------------------------------- | ----------------- | ----------------------------------- |
@@ -285,7 +285,7 @@ ASC_KEY_PATH=/절대/경로/AuthKey_XXXXXX.p8
 코드 위치로 보인다. 없으면 업로드만 조용히 건너뛰고 빌드는 정상 진행된다(가드 있음).
 
 ```bash
-cd app/app-dev/ios
+cd app/legacy/app-dev/ios
 cp sentry.properties.example sentry.properties
 # auth.token 에 https://oneorthree.sentry.io/settings/auth-tokens/ 에서 발급한 본인 토큰을 붙여넣는다
 ```
@@ -305,14 +305,14 @@ cp sentry.properties.example sentry.properties
 #### (7) (선택) alias 등록 — 어디서든 `testflight`
 
 ```bash
-echo 'alias testflight="/Users/soobin/phone/app/app-dev/ios/testflight.sh"' >> ~/.zshrc
+echo 'alias testflight="/Users/soobin/phone/app/legacy/app-dev/ios/testflight.sh"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
 ### 5.2 배포 실행 (매번)
 
 ```bash
-cd app/app-dev/ios
+cd app/legacy/app-dev/ios
 ./testflight.sh        # alias 등록했으면 어디서든 `testflight`
 ```
 
@@ -338,7 +338,7 @@ cd app/app-dev/ios
   ```
 - **"sandbox is not in sync with the `Podfile.lock`"** = 브랜치 전환/라이브러리 추가 후 `pod install`을 안 함. `testflight.sh`가 자동 처리하지만, 수동으로 돌릴 땐 `pod install` 후 `Pod installation complete!`를 확인.
 - **`react-native-fbsdk-next` throw** = `app.config.js`가 `EXPO_PUBLIC_FACEBOOK_APP_ID`가 없으면 플러그인에서 throw. appID가 있을 때만 플러그인을 추가하도록 조건부 처리돼 있어(없어도 빌드는 됨), 값이 비어도 배포는 진행된다.
-- **`.env`가 Release 번들에 인라인됨** = Expo는 빌드 시점의 `EXPO_PUBLIC_*` 값을 번들에 그대로 박는다. `testflight.sh`는 export로 프로덕션 서버를 강제하니 안전하지만, **`fastlane beta`를 직접 돌릴 땐** `app/app-dev/.env.production`의 `EXPO_PUBLIC_API_URL`이 프로덕션 서버인지 반드시 확인. 업로드 전 `strings <archive>/Products/Applications/gromo.app/main.jsbundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u`로 번들에 박힌 주소를 직접 검증할 수 있다.
+- **`.env`가 Release 번들에 인라인됨** = Expo는 빌드 시점의 `EXPO_PUBLIC_*` 값을 번들에 그대로 박는다. `testflight.sh`는 export로 프로덕션 서버를 강제하니 안전하지만, **`fastlane beta`를 직접 돌릴 땐** `app/legacy/app-dev/.env.production`의 `EXPO_PUBLIC_API_URL`이 프로덕션 서버인지 반드시 확인. 업로드 전 `strings <archive>/Products/Applications/gromo.app/main.jsbundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u`로 번들에 박힌 주소를 직접 검증할 수 있다.
 - **`node: command not found`**(비대화형/일부 셸) = `testflight.sh`·`scripts/android-release.sh`가 `/opt/homebrew/opt/node@24/bin`을 PATH에 보강해 둠. Homebrew의 버전 독립 심볼릭 경로라 node 패치 업그레이드로 깨지지 않는다(Cellar 실제 경로를 박으면 깨짐). node@24 자체가 없는 머신이면 `brew install node@24`.
 
 ---
@@ -355,7 +355,7 @@ cd app/app-dev/ios
 
 ### 6.1 최초 1회 셋업
 
-`app/app-dev/.env.hotupdater` 를 별도 채널로 받아 배치한다 (gitignore, 커밋 금지):
+`app/legacy/app-dev/.env.hotupdater` 를 별도 채널로 받아 배치한다 (gitignore, 커밋 금지):
 
 ```
 HOT_UPDATER_SUPABASE_URL=...
@@ -366,7 +366,7 @@ HOT_UPDATER_SUPABASE_BUCKET_NAME=...
 ### 6.2 배포 실행
 
 ```bash
-cd app/app-dev
+cd app/legacy/app-dev
 npx hot-updater deploy -p ios -t <마케팅버전> -c production -m "변경 요약"
 # 옵션 확인: npx hot-updater deploy --help
 ```
@@ -384,7 +384,7 @@ npx hot-updater deploy -p ios -t <마케팅버전> -c production -m "변경 요�
 
    ```bash
    # .env.hotupdater 를 셸에 올린 뒤 (set -a: 이후 대입을 자동 export)
-   cd app/app-dev && set -a && . ./.env.hotupdater && set +a
+   cd app/legacy/app-dev && set -a && . ./.env.hotupdater && set +a
 
    curl -X PATCH "$HOT_UPDATER_SUPABASE_URL/rest/v1/bundles?id=eq.<번들id>" \
      -H "apikey: $HOT_UPDATER_SUPABASE_SERVICE_ROLE_KEY" \
@@ -403,7 +403,7 @@ npx hot-updater deploy -p ios -t <마케팅버전> -c production -m "변경 요�
 
 ```bash
 # 6.3 과 같이 .env.hotupdater 를 셸에 올린 상태에서
-cd app/app-dev && set -a && . ./.env.hotupdater && set +a
+cd app/legacy/app-dev && set -a && . ./.env.hotupdater && set +a
 
 # 서버가 실제로 내려주는지 (새 빌드 흉내 — null 이면 안 내려감)
 curl "$HOT_UPDATER_SUPABASE_URL/functions/v1/update-server/app-version/ios/<마케팅버전>/production/<minBundleId>/<minBundleId>"
@@ -426,16 +426,16 @@ strings index.ios.bundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u
 
 ### (2) 별도 채널로 전달받아야 함 (전부 gitignore)
 
-| 파일                                            | 용도                           | 없으면                     |
-| ----------------------------------------------- | ------------------------------ | -------------------------- |
-| `app/app-dev/.env`                              | Google·LINE·Meta·Datadog 키    | 소셜 로그인·RUM 동작 안 함 |
-| `app/app-dev/.env.production`                   | prod API URL + Meta            | 릴리즈가 dev 서버를 바라봄 |
-| `app/app-dev/.env.hotupdater`                   | **OTA 배포 인증** (비밀)       | `hot-updater deploy` 불가  |
-| `app/app-dev/ios/GoogleService-Info-dev.plist`  | dev Firebase                   | **iOS 빌드 실패**          |
-| `app/app-dev/ios/GoogleService-Info-prod.plist` | prod Firebase (`release` 레인) | **iOS 빌드 실패**          |
-| `app/app-dev/android/credentials/<dev\|prod>/`  | 안드 서명 keystore + 파베 json | **안드 릴리즈 빌드 실패**  |
-| distribution `.p12` (재영 계정 인증서)          | 코드 서명                      | archive 실패               |
-| `distribution-gromo-*.mobileprovision` **7개**  | 7개 타겟 서명                  | archive 실패               |
+| 파일                                                   | 용도                           | 없으면                     |
+| ------------------------------------------------------ | ------------------------------ | -------------------------- |
+| `app/legacy/app-dev/.env`                              | Google·LINE·Meta·Datadog 키    | 소셜 로그인·RUM 동작 안 함 |
+| `app/legacy/app-dev/.env.production`                   | prod API URL + Meta            | 릴리즈가 dev 서버를 바라봄 |
+| `app/legacy/app-dev/.env.hotupdater`                   | **OTA 배포 인증** (비밀)       | `hot-updater deploy` 불가  |
+| `app/legacy/app-dev/ios/GoogleService-Info-dev.plist`  | dev Firebase                   | **iOS 빌드 실패**          |
+| `app/legacy/app-dev/ios/GoogleService-Info-prod.plist` | prod Firebase (`release` 레인) | **iOS 빌드 실패**          |
+| `app/legacy/app-dev/android/credentials/<dev\|prod>/`  | 안드 서명 keystore + 파베 json | **안드 릴리즈 빌드 실패**  |
+| distribution `.p12` (재영 계정 인증서)                 | 코드 서명                      | archive 실패               |
+| `distribution-gromo-*.mobileprovision` **7개**         | 7개 타겟 서명                  | archive 실패               |
 
 `.p12` 와 프로파일은 받은 뒤 **더블클릭으로 키체인/시스템에 설치**한다.
 비밀값(`.p12`, `.env.hotupdater`, `keystore.properties`)은 메신저 평문 대신 비밀 공유 수단을 쓸 것.
@@ -459,11 +459,11 @@ strings index.ios.bundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u
 
 ## 📂 프로젝트 구조
 
-> 코드는 전부 **TypeScript**, 소스는 `app/app-dev/src/` 아래에 있고 `@/` 별칭(`@` = `src`)으로 임포트한다. 화면/컴포넌트/상태 규칙의 정본은 [CLAUDE.md](./CLAUDE.md) "Project structure" 참고.
+> 코드는 전부 **TypeScript**, 소스는 `app/legacy/app-dev/src/` 아래에 있고 `@/` 별칭(`@` = `src`)으로 임포트한다. 화면/컴포넌트/상태 규칙의 정본은 [CLAUDE.md](./CLAUDE.md) "Project structure" 참고.
 
 ```
 Gromo/
-├── app/app-dev/                  # React Native + Expo 앱 (TypeScript)
+├── app/legacy/app-dev/                  # React Native + Expo 앱 (TypeScript)
 │   ├── package.json              # JS 의존성
 │   ├── app.config.js             # Expo 설정 (플러그인·assets)
 │   ├── .env                      # 환경 변수 (개인 설정, gitignore)
@@ -509,17 +509,17 @@ Gromo/
 
 ### 프로젝트 설정
 
-- [ ] `app/app-dev/node_modules/` 존재 (`npm install` 완료)
-- [ ] `app/app-dev/ios/Pods/` 존재 (`pod install` 완료)
-- [ ] `app/app-dev/.env` 파일 생성 및 `EXPO_PUBLIC_API_URL` 설정 확인 (팀 서버 또는 로컬 백엔드)
+- [ ] `app/legacy/app-dev/node_modules/` 존재 (`npm install` 완료)
+- [ ] `app/legacy/app-dev/ios/Pods/` 존재 (`pod install` 완료)
+- [ ] `app/legacy/app-dev/.env` 파일 생성 및 `EXPO_PUBLIC_API_URL` 설정 확인 (팀 서버 또는 로컬 백엔드)
 - [ ] (B) 로컬 백엔드 선택 시: `docker compose --env-file .env -f server/scripts/docker-compose.dev.yml ps`로 컨테이너 정상 동작 확인
 
 ### 빌드 준비
 
-- [ ] `app/app-dev/.env`의 `EXPO_PUBLIC_API_URL` 올바른지 확인
+- [ ] `app/legacy/app-dev/.env`의 `EXPO_PUBLIC_API_URL` 올바른지 확인
 - [ ] Metro가 실행 가능한지 확인:
   ```bash
-  cd app/app-dev && npm start
+  cd app/legacy/app-dev && npm start
   # 출력: "Metro waiting on exp://..."
   ```
 
@@ -531,7 +531,7 @@ Gromo/
 
 ```bash
 # 캐시 초기화 후 재시작
-cd app/app-dev
+cd app/legacy/app-dev
 rm -rf node_modules package-lock.json
 npm install
 npm start --clear
@@ -540,7 +540,7 @@ npm start --clear
 ### Pod 관련 에러
 
 ```bash
-cd app/app-dev/ios
+cd app/legacy/app-dev/ios
 rm -rf Pods Podfile.lock
 pod install --repo-update
 cd ../..
@@ -550,7 +550,7 @@ npm start
 ### Xcode에서 "Header not found" 에러
 
 ```bash
-cd app/app-dev/ios
+cd app/legacy/app-dev/ios
 xcodebuild clean
 pod install --repo-update
 cd ..
@@ -614,4 +614,4 @@ npx expo run:ios
 
 ---
 
-**최종 업데이트**: 2026-08-26 (디렉토리 구조 개편 — `app/` → `app/app-dev/`, `back/` → `server/data-api/`, compose → `server/scripts/`)
+**최종 업데이트**: 2026-08-26 (디렉토리 구조 개편 — `app/` → `app/legacy/app-dev/`, `back/` → `server/data-api/`, compose → `server/scripts/`)

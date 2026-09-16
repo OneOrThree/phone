@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 DOCS = ROOT / "docs" / "app-imgs"
 CAPTURES = DOCS / "captures"
 OUT = DOCS / "final-v2"
-ASSETS = ROOT / "app" / "app-dev" / "src" / "assets"
+ASSETS = ROOT / "app" / "legacy" / "app-dev" / "src" / "assets"
 FONT = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
 
 

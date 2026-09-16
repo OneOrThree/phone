@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+repo_root="$(cd "$(dirname "$0")/../../.." && pwd)"
 compose_file="$repo_root/server/scripts/docker-compose.local.yml"
 local_config="$repo_root/server/data-api/src/main/resources/application-local.yml"
 local_config_example="$local_config.example"
@@ -106,5 +106,5 @@ done
 
 echo "4/4 웹 앱을 시작합니다: http://localhost:$web_port"
 echo "종료하려면 Ctrl+C를 누르세요. PostgreSQL 데이터는 유지됩니다."
-cd "$repo_root/app/app-dev"
+cd "$repo_root/app/legacy/app-dev"
 npm run web -- --port "$web_port"

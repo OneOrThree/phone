@@ -1,6 +1,6 @@
 # AGENTS.md — 앱(프론트엔드)
 
-Codex(및 기타 코딩 에이전트)용 `app/app-dev/` 하위 규칙. 저장소 전역 규칙은 루트 `AGENTS.md`,
+Codex(및 기타 코딩 에이전트)용 `app/legacy/app-dev/` 하위 규칙. 저장소 전역 규칙은 루트 `AGENTS.md`,
 코드 컨벤션 상세는 `.claude/CLAUDE.md` 참고.
 
 ## 빌드 · 배포
