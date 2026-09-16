@@ -426,16 +426,16 @@ strings index.ios.bundle | grep -o 'https://[a-z.]*oneorthree[a-z.]*' | sort -u
 
 ### (2) 별도 채널로 전달받아야 함 (전부 gitignore)
 
-| 파일                                            | 용도                           | 없으면                     |
-| ----------------------------------------------- | ------------------------------ | -------------------------- |
+| 파일                                                   | 용도                           | 없으면                     |
+| ------------------------------------------------------ | ------------------------------ | -------------------------- |
 | `app/legacy/app-dev/.env`                              | Google·LINE·Meta·Datadog 키    | 소셜 로그인·RUM 동작 안 함 |
 | `app/legacy/app-dev/.env.production`                   | prod API URL + Meta            | 릴리즈가 dev 서버를 바라봄 |
 | `app/legacy/app-dev/.env.hotupdater`                   | **OTA 배포 인증** (비밀)       | `hot-updater deploy` 불가  |
 | `app/legacy/app-dev/ios/GoogleService-Info-dev.plist`  | dev Firebase                   | **iOS 빌드 실패**          |
 | `app/legacy/app-dev/ios/GoogleService-Info-prod.plist` | prod Firebase (`release` 레인) | **iOS 빌드 실패**          |
 | `app/legacy/app-dev/android/credentials/<dev\|prod>/`  | 안드 서명 keystore + 파베 json | **안드 릴리즈 빌드 실패**  |
-| distribution `.p12` (재영 계정 인증서)          | 코드 서명                      | archive 실패               |
-| `distribution-gromo-*.mobileprovision` **7개**  | 7개 타겟 서명                  | archive 실패               |
+| distribution `.p12` (재영 계정 인증서)                 | 코드 서명                      | archive 실패               |
+| `distribution-gromo-*.mobileprovision` **7개**         | 7개 타겟 서명                  | archive 실패               |
 
 `.p12` 와 프로파일은 받은 뒤 **더블클릭으로 키체인/시스템에 설치**한다.
 비밀값(`.p12`, `.env.hotupdater`, `keystore.properties`)은 메신저 평문 대신 비밀 공유 수단을 쓸 것.
