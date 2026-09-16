@@ -43,7 +43,10 @@ Data 밖:
 | 호출 | 소유 | 쓰는 화면 |
 | --- | --- | --- |
 | `GET /internal/islands/{islandId}/messages` | Realtime · island-mailbox §1 | mailbox |
-| 알림 설정 조회 | Notification · Business `AccountSettingsUseCase` 경유 | account |
+| 알림 설정 조회 | Notification · Business `NotificationApiClient.getSettings()`(순수 GET) | account |
+
+위 행이 한때 `AccountSettingsUseCase` 경유로 적혀 있었다. 그 유스케이스의 `read()` 는 POST 를 먼저 보내므로 화면 조합기의 읽기 전용 context 에서 실행하면 `/screens/account` 가 예외로 실패한다 — [Business 구현](implementation-business-api.md) §4 각주와 같은 이유다. 두 문서 중 하나만 고치면 README 안내대로 Business → Data 순으로 읽은 구현자가 이 표를 따라 다시 깨뜨린다.
+
 
 ## 3. 허용목록 (business caller)
 

@@ -91,7 +91,7 @@
 | --- | --- | --- | --- | --- |
 | buildables | GET `/v1/islands/{islandId}/construction-options` | `constructionOptions` 조각(GET `/islands/{islandId}/construction-options`) | [island-construction LLD](../island-construction/low-level-design.md) "GET `/islands/{islandId}/construction-options`" | 화면 조회로 흡수 → `constructionOptions`(town-hall) |
 | build-target | PUT `/v1/islands/{islandId}/construction-target` | PUT `/islands/{islandId}/construction-target` | [island-construction LLD](../island-construction/low-level-design.md) "PUT `/islands/{islandId}/construction-target`" | 그대로 |
-| construction | GET `/v1/islands/{islandId}/constructions/current` | `constructionOptions` 조각(진행 상태가 같은 응답에 포함) | [island-construction LLD](../island-construction/low-level-design.md) "GET `/islands/{islandId}/construction-options`"(각 옵션의 `status`) | 화면 조회로 흡수 → `constructionOptions`(town-hall) — 별도 "current" 엔드포인트 없이 같은 응답에 병합 |
+| construction | GET `/v1/islands/{islandId}/constructions/current` | — | [island-construction LLD](../island-construction/low-level-design.md) §응답 예시(:25-62)·§계약 표(:131) — `construction-options` 응답은 `selectedBuildingId` 와 옵션별 `selectable`·`buildable`·`blockedReason` 뿐이고 **진행 상태(`status`)는 없다**. `status` 는 POST `/constructions` 의 완료 응답(:88)에만 있다 | 레포에 없음(§3 신규 항목 — BG10에 없음) — 「현재 진행 중인 건설의 상태」를 화면이 필요로 하면 도메인 계약에 필드를 더해야 한다 |
 | build | POST `/v1/islands/{islandId}/constructions` | POST `/islands/{islandId}/constructions` | [island-construction LLD](../island-construction/low-level-design.md) "POST `/islands/{islandId}/constructions`" | 그대로 |
 
 ### 퀘스트·공지 (15개 계약)
@@ -154,7 +154,7 @@
 | appearance | PUT `/v1/me/appearance` | PATCH `/me/appearance` | [island-appearance LLD](../island-appearance/low-level-design.md) §1.2 | 경로만 다름 |
 | themes | GET `/v1/islands/{islandId}/themes`(목록) | — | [island-shop LLD](../island-shop/low-level-design.md) §2.2(카탈로그 `category` enum은 `personal\|island\|sound`뿐이라 "테마" 카테고리가 명시돼 있지 않다) | 레포에 없음 — island-appearance §1.4는 테마 *적용*(PATCH)만 다루고 *목록 조회*는 없다 |
 | theme-save | PUT `/v1/islands/{islandId}/themes` | PATCH `/islands/{islandId}/appearance` | [island-appearance LLD](../island-appearance/low-level-design.md) §1.4 | 경로만 다름 |
-| my-orders | GET `/v1/me/purchase-history`(섬 무관 전체) | GET `/islands/{islandId}/shop/orders?scope=personal`(섬 단위만) | [island-shop LLD](../island-shop/low-level-design.md) §2.5 | 경로만 다름 — 여러 섬을 합친 전체 내역은 없고 한 섬 범위만 된다 |
+| my-orders | GET `/v1/me/purchase-history`(섬 무관 전체) | 부분 대응: GET `/islands/{islandId}/shop/orders?scope=personal`(한 섬 범위만) | [island-shop LLD](../island-shop/low-level-design.md) §2.5 — 섬 단위 경로로만 정의됨 | **레포에 없음**(§3 신규 항목) — 여러 섬에서 산 개인 구매를 합친 전체 이력 계약이 없다. 경로 차이가 아니라 기능 차이라 `경로만 다름` 으로 두면 기획팀이 이미 제공된다고 읽는다 |
 | island-orders | GET `/v1/islands/{islandId}/purchase-history` | GET `/islands/{islandId}/shop/orders?scope=shared` | [island-shop LLD](../island-shop/low-level-design.md) §2.5 | 경로만 다름 |
 
 ### 축음기·음악 (4개 계약)
@@ -170,7 +170,7 @@
 
 아래는 §2에서 「레포에 없음」으로 표시한 항목을 원인별로 묶은 것이다. **BG10과 정확히 같은 집합인지 교차 검증**했다 — 결과는 다르다. BG10([policy.md](policy.md))과 [implementation-data-api.md](implementation-data-api.md) §4는 다음 6개만 기록한다: 친구 목록·받은/보낸 요청, 편지함·편지, 작성자 표시 정보 batch, 내 가입 대기 신청 목록, 공동 가계부, 주민별 누적 물고기.
 
-이 표의 §2 전수 대조 결과 BG10에 **없는** 항목 4종을 추가로 찾았다:
+이 표의 §2 전수 대조 결과 BG10에 **없는** 항목 6종을 추가로 찾았다:
 
 | 항목 | 기획 계약 | BG10에 있는가 | 비고 |
 | --- | --- | --- | --- |
@@ -178,8 +178,10 @@
 | 약관 재조회·재동의 | terms, consent | 아니오 | 로그인 시 `termsVersion` 필드로 최초 동의만 흡수. 약관 개정 후 기존 세션의 재동의 플로우가 없다 |
 | 퀘스트 보상 알림 | reward-notifications, reward-ack | 아니오 | `board` 화면(프레임 48·49)이 참조하지만 island-quests LLD에도, 다른 도메인에도 이 계약이 없다 |
 | 공지 댓글 삭제 | comment-delete | 아니오 | island-board LLD는 댓글 생성만 다루고 삭제 계약이 없다 |
+| 건설 진행 상태 조회 | construction | 아니오 | `construction-options` 응답에 옵션별 `status` 가 없다 — 진행 중인 건설의 상태는 POST 완료 응답에만 있다. `town-hall` 화면이 진행 상태를 그리려면 도메인 계약에 필드가 필요하다 |
+| 섬 무관 전체 구매 이력 | my-orders | 아니오 | island-shop 은 섬 단위 `orders` 만 정의한다. 여러 섬을 합친 개인 구매 이력 계약이 없다 |
 
-이 4종은 이 문서 작성 중 새로 드러난 gap이라 policy.md의 BG 표에 반영돼 있지 않다 — **policy.md는 읽기·쓰기 소유가 이 워크스트림에 있으므로 반영 여부는 재영님 확인 후 별도로 추가한다(이 산출물 자체에는 추가하지 않았다).**
+이 6종은 이 문서 작성 중 새로 드러난 gap이라 policy.md의 BG 표에 반영돼 있지 않다 — **policy.md는 읽기·쓰기 소유가 이 워크스트림에 있으므로 반영 여부는 재영님 확인 후 별도로 추가한다(이 산출물 자체에는 추가하지 않았다).**
 
 BG10과 일치하는 나머지(친구·편지·목록형 가입신청·가계부·물고기)는 §2 각 행에 "§3 BG10과 동일 항목"으로 표시했다.
 
@@ -202,8 +204,8 @@ BG10과 일치하는 나머지(친구·편지·목록형 가입신청·가계부
 | `playback` | `/screens/playback` | 3 (gramophone·audio-catalog·wallet) |
 | `raft` | `/screens/raft` | 3 (me·inventory·friend-requests) |
 | `friends` | `/screens/friends` | 3 (friend-search·friends·friend-requests) |
-| `account` | `/screens/account` | 4 (me·account·settings·terms) |
+| `account` | `/screens/account` | 3 (me·account·settings) — `terms` 는 레포에 계약이 없고(§2 인증·계정) 약관 프레임 01 은 화면 조회가 없는 단일 GET 이라 집계에서 뺀다 |
 
-합계 57 — 기획 GET 계약이 여러 화면에 걸쳐 재사용되는 경우(`me`·`wallet`·`island`·`construction` 등)가 있어 [§2](#2-대조표) 전체 GET 계약 수(약 45개, 폐기 2종·레포에 없음 다수 제외)보다 큰 값이다. 이 합계가 서로 다른 화면에서 같은 계약을 몇 번 대체했는지를 보여줄 뿐, 기획 98개 계약 수와 직접 비교되는 값은 아니다.
+합계 56 — 기획 GET 계약이 여러 화면에 걸쳐 재사용되는 경우(`me`·`wallet`·`island`·`construction` 등)가 있어 [§2](#2-대조표) 전체 GET 계약 수(약 45개, 폐기 2종·레포에 없음 다수 제외)보다 큰 값이다. 이 합계가 서로 다른 화면에서 같은 계약을 몇 번 대체했는지를 보여줄 뿐, 기획 98개 계약 수와 직접 비교되는 값은 아니다.
 
 이 중 `focus`·`library`·`board`는 `quest`·`notice`·`comments`처럼 §2에서 "화면 조회에 없음"(B21, 탭 시 별도 호출)으로 표시한 GET도 프레임 커버리지 계산에는 포함했다 — 기획 원본 프레임이 그 계약을 "이 화면에서 쓴다"고 명시했기 때문이며, 우리 설계에서 실제로 화면 최초 응답에 포함되는지는 §2의 상태 열을 따른다.

@@ -73,13 +73,15 @@ node ~/.claude/skills/archify/bin/archify.mjs deliver sequence docs/prd/bff-scre
 | `playback` | 84 · 85 | 섬 문맥 (방송기 완공) | `GET /islands/{islandId}/inventory` · `…/playback` · `…/shop/products?category=sound` · `…/shop/wallets` | 미완공은 화면 403 `FACILITY_LOCKED` |
 | `raft` | 76 · 77 | — | `GET /me` · `GET /me/inventory` · 받은 친구 요청 수(BG10) | 현재 섬 불필요 |
 | `friends` | 78 · 79 | — | 친구 목록 · 받은·보낸 요청 (BG10) | 설계 전 비활성 |
-| `account` | 80–83 | — | `GET /me` · `NotificationApiClient.getSettings()`(순수 GET, Notification) | 설정 정본은 Notification. `AccountSettingsUseCase.read()`는 재사용하지 않음(아래 각주) |
+| `account` | 80–83 | — | `GET /me` · `NotificationApiClient.getSettings()`(순수 GET, Notification) | 설정 정본은 Notification. `AccountSettingsUseCase.read()`는 재사용하지 않음. 응답은 공개 계약 모양으로 투영(아래 각주) |
 
 화면 조회가 없는 프레임: 01 약관(`GET` 1개), 08·30·62 항해(B17), 27·29 결과(B18), 56·57 공지 상세, 58 랭킹, 67 편지 상세, 74·75 구매 내역. 모두 앱이 도메인 경로를 한 번 부르거나 앞 응답으로 그린다.
 
 `focus`의 순차 단계는 세션이 있어도 `GET /islands/{islandId}`(섬 시설·역할)를 반드시 부른다. 세션의 `islandId`로 바로 병렬 조각(특히 `playback`)만 부르고 섬 문맥을 건너뛰면, 방송기 완공 여부를 판단할 재료가 없어 필수 조각 취급인 `GET /islands/{islandId}/playback`을 무조건 호출하게 되고 미완공 섬에서는 그 호출이 도메인 403을 반환한다. §5의 "N은 앞 단계 응답으로 판단해 호출 자체를 생략한다"와 policy.md B03("N은 검증된 비적용으로 조회하지 않음. 실제403은 전체 실패")에 따라 이 403은 `playback` 조각만이 아니라 화면 전체 실패로 번진다. 섬 문맥 호출로 시설 완공 여부를 먼저 확인해야 `playback` 호출 자체를 생략하고 그 조각만 N(`facility_locked`)으로 내릴 수 있다.
 
 `account` 조각은 `AccountSettingsUseCase`(§2)를 그대로 부르지 않는다. `AccountSettingsUseCase.read()`(`server/business-api/.../usecase/AccountSettingsUseCase.java:28-34`)는 내부에서 `NotificationApiClient.initializedSettings()`를 호출하고, 그 메서드는 POST `.../notification-settings/initialized`를 보낸다(`NotificationApiClient.java:136-144`). 화면 병렬 조합의 각 조각은 `UpstreamRequestContext.forReads()`가 만든 읽기 전용 context를 공유하고, `UpstreamRequestContext.validate()`가 GET 외 호출을 예외로 막는다(`UpstreamRequestContext.java:104-106`, "화면 병렬 조합은 독립 GET만 허용합니다") — 그대로 조각에 넣으면 `account` 화면이 실행 시점에 매번 실패한다. 같은 클라이언트의 `getSettings()`(`NotificationApiClient.java:105-111`)는 순수 GET `/internal/users/{userId}/notification-settings`이라 조합기 제약을 지킨다. 설정 미초기화 시 baseline을 만드는 쓰기는 화면 조회가 아니라 기존 `GET /me/settings`(`AccountSettingsController`, §2)가 별도 명령으로 계속 처리한다.
+
+**`settings` 조각은 상류 응답을 그대로 싣지 않는다.** `getSettings()` 의 반환 타입 `NotificationSettingsView`(`server/business-api/.../upstream/notification/dto/NotificationSettingsView.java:14-19`)는 `notificationEnabled`·`soundEnabled`·`nightModeEnabled`·`nightStartTime`·`nightEndTime` 5필드인데, 도메인 공개 계약 `GET /me/settings` 는 `{"data":{"notifications": true}}` 로 boolean 하나다([account LLD](../account/low-level-design.md):249). §5 의 「조각의 typed record 를 그대로 응답 키에 싣는다」를 여기에 그대로 적용하면 `/screens/account` 의 `settings` 가 같은 이름의 도메인 계약과 다른 모양이 된다. **`notificationEnabled` 를 공개 `notifications` 로 투영하는 한 단계를 조각 안에 둔다** — 나머지 4필드를 화면에 내보낼지는 공개 계약을 먼저 넓혀야 하는 별도 결정이다.
 
 ## 5. 공통 규칙
 
