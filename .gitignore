@@ -22,5 +22,22 @@
 .env*
 !.env.example
 
+# 자격 증명·의존성 — 경로와 무관하게 막는다 (GROMO-1890 앱 이동).
+# 앱 전용 무시 규칙이 app/legacy/app-dev/.gitignore 로 함께 옮겨가면서, 기존 체크아웃에
+# 남아 있던 옛 경로(app/app-dev/)의 node_modules·서명 자산이 갑자기 untracked 로 노출된다.
+# 잔재를 지우기 전에 `git add -A` 로 자격 증명이 스테이징되는 사고를 막으려면 경로가 아니라
+# 파일 종류로 걸어야 한다. 새 앱이 app/app-dev/ 로 들어오므로 그 경로 자체는 무시하지 않는다.
+**/node_modules/
+**/android/credentials/
+GoogleService-Info.plist
+GoogleService-Info-*.plist
+google-services.json
+google-services-*.json
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+
 # 같은 CI 실행에서 검증한 이미지 조립용 JAR
 server/*/ci-artifact/

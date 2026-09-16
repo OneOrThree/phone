@@ -2,7 +2,7 @@
 
 > 집중 기록, 캐릭터 성장, 친구와 섬 활동을 제공하는 React Native·Expo 앱입니다.
 
-[전체 프로젝트](../../README.md) · [서버 전체 보기](../../server/README.md) · [기능 문서](../../docs/README.md) · [프론트엔드 개발 가이드](.claude/CLAUDE.md)
+[전체 프로젝트](../../../README.md) · [서버 전체 보기](../../../server/README.md) · [기능 문서](../../../docs/README.md) · [프론트엔드 개발 가이드](.claude/CLAUDE.md)
 
 ## 한눈에 보기
 
@@ -93,7 +93,7 @@ Android 실기기는 USB 디버깅을 켠 뒤 `npx expo run:android --device`로
 
 ## 더 보기
 
-- 기능별 PRD·정책·설계: [docs/README.md](../../docs/README.md)
+- 기능별 PRD·정책·설계: [docs/README.md](../../../docs/README.md)
 - 앱 코드 규칙과 상세 구조: [.claude/CLAUDE.md](.claude/CLAUDE.md)
 - Screen Time 통합 기록: [.claude/ScreenTime_WorkLog.md](.claude/ScreenTime_WorkLog.md)
-- 서버 연결과 서비스별 실행: [server/README.md](../../server/README.md)
+- 서버 연결과 서비스별 실행: [server/README.md](../../../server/README.md)
