@@ -438,6 +438,8 @@ export function RedesignScreens({ e }: any) {
     [editing, setEditing] = useState(false),
     [capacityOpen, setCapacityOpen] = useState(false),
     [capacityPick, setCapacityPick] = useState('15명'),
+    [profileName, setProfileName] = useState(state.name),
+    [profileColor, setProfileColor] = useState<Color>(state.color),
     // 20b 회관 안내를 이번 홈 방문 동안만 띄우는 창 상태
     [hallGuideOpen, setHallGuideOpen] = useState(false),
     [discoveryIndex, setDiscoveryIndex] = useState(() => Math.floor(Math.random() * 10));
@@ -455,6 +457,11 @@ export function RedesignScreens({ e }: any) {
     setCapacityPick('15명');
     setHallGuideOpen(false);
   }, [route]);
+  useEffect(() => {
+    if (route !== 'profile') return;
+    setProfileName(state.name);
+    setProfileColor(state.color);
+  }, [route, state.name, state.color]);
   useEffect(() => {
     if (route !== 'questEdit') return;
     const q = island.quests.find((q) => q.id === detail);
@@ -572,6 +579,11 @@ export function RedesignScreens({ e }: any) {
   };
   const setTrack = (value: string) => act('TRACK', { value });
   const startFocus = () => {
+    if (!island.joined) {
+      notify('섬에 가입한 뒤 집중할 수 있어요.');
+      e.replace('chooseIsland');
+      return;
+    }
     // 카운트업 집중: 목표 시간은 받지 않는다
     act('START', { subject: text });
     go('focus');
@@ -3550,7 +3562,7 @@ export function RedesignScreens({ e }: any) {
     return (
       <IslandSheet
         bg="dock"
-        sign={'avatar/' + state.color}
+        sign={'avatar/' + profileColor}
         signKind="av"
         title="내 정보"
         tall
@@ -3558,16 +3570,17 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
         action="저장"
         actionPress={() => {
-          if (!state.name.trim()) {
+          if (!profileName.trim()) {
             notify('닉네임을 입력해 주세요.');
             return;
           }
+          act('PROFILE', { name: profileName, color: profileColor });
           notify('저장했어요.');
           back();
         }}
       >
         <Pic
-          id={'avatar/' + state.color}
+          id={'avatar/' + profileColor}
           w={96}
           style={{
             alignSelf: 'center',
@@ -3575,18 +3588,10 @@ export function RedesignScreens({ e }: any) {
             backgroundColor: C.sky,
           }}
         />
-        <AvatarGrid
-          mini
-          value={state.color}
-          onChange={(color: string) => act('PROFILE', { color })}
-        />
-        <Field
-          label="닉네임"
-          value={state.name}
-          onChange={(name: string) => act('PROFILE', { name })}
-        />
+        <AvatarGrid mini value={profileColor} onChange={setProfileColor} />
+        <Field label="닉네임" value={profileName} onChange={setProfileName} />
         <Group>
-          <Row title="연동 계정" sub={state.name + '님의 GROMO 계정 · Apple'} />
+          <Row title="연동 계정" sub={profileName + '님의 GROMO 계정 · Apple'} />
           <Row
             title="로그아웃"
             chevron

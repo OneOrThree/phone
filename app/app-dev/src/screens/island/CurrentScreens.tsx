@@ -35,6 +35,7 @@ import {
   CAPACITY_MIN,
   CAPACITY_MAX,
   inviteCodeOf,
+  findIslandByInviteCode,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite } from '@/components/CatSprite';
@@ -121,6 +122,7 @@ function Sheet({
   action,
   actionPress,
   tall = true,
+  onClose,
 }: any) {
   return (
     <IslandSheet
@@ -129,7 +131,7 @@ function Sheet({
       title={title}
       tall={tall}
       onBack={e.back}
-      onClose={e.home}
+      onClose={onClose ?? e.home}
       action={action}
       actionPress={actionPress}
       footer={footer}
@@ -263,6 +265,7 @@ function Visit({ e }: any) {
       bg="tower"
       sign="bld/observatory"
       title="바다 건너 섬"
+      onClose={s.onboarded ? e.home : () => e.replace('chooseIsland')}
       footer={
         <View style={{ gap: 8 }}>
           <Btn
@@ -424,7 +427,7 @@ function FocusFlow({ e }: any) {
         from={i.name}
         destination="낚시섬"
         duration={1900}
-        onArrive={() => e.go('fishingArrival')}
+        onArrive={() => e.replace('fishingArrival')}
       />
     );
   if (r === 'returnTravel')
@@ -651,6 +654,11 @@ function FocusFlow({ e }: any) {
             id="start-focus"
             disabled={!e.text.trim()}
             onPress={() => {
+              if (!i.joined) {
+                e.notify('섬에 가입한 뒤 집중할 수 있어요.');
+                e.replace('chooseIsland');
+                return;
+              }
               e.dispatch({ type: 'START', subject: e.text });
               e.go('focus');
             }}
@@ -951,16 +959,6 @@ function Library({ e }: any) {
   const options = [
     { id: 'me', name: '나', color: s.color, island: i },
     ...i.members.map((m) => ({ ...m, island: i })),
-    ...s.islands
-      .filter((j) => j.id !== i.id)
-      .flatMap((j) =>
-        j.members.map((m) => ({
-          ...m,
-          id: `${j.id}/${m.id}`,
-          originalId: m.id,
-          island: j,
-        })),
-      ),
   ];
   const picked = options.find((m) => m.id === member) ?? options[0],
     who = book === 'me' ? options[0] : picked;
@@ -1537,7 +1535,8 @@ function Hall({ e }: any) {
             />
             <Btn
               kind="danger"
-              title="섬 탈퇴"
+              title={host && i.members.length ? '방장을 위임한 뒤 탈퇴할 수 있어요' : '섬 탈퇴'}
+              disabled={host && i.members.length > 0}
               onPress={() =>
                 e.confirm('섬을 떠날까요?', '이 섬에서 모은 물고기는 섬에 남아요.', () => {
                   e.dispatch({ type: 'LEAVE' });
@@ -1976,9 +1975,21 @@ function Tower({ e }: any) {
   const s: State = e.state,
     i = currentIsland(s),
     [query, setQuery] = useState('');
-  const islands = s.islands.filter((j) => j.id !== i.id),
-    ranked = [...islands].sort(
+  const visibleIslands = s.islands.filter(
+      (j) => j.id !== i.id && (j.joined || j.visibility !== 'private'),
+    ),
+    ranked = [...visibleIslands].sort(
       (a, b) => islandWeeklyAverage(s, b, e.now) - islandWeeklyAverage(s, a, e.now),
+    ),
+    inviteTarget = findIslandByInviteCode(s.islands, query),
+    results = s.islands.filter(
+      (j) =>
+        j.id !== i.id &&
+        (j.id === inviteTarget?.id ||
+          ((j.joined || j.visibility !== 'private') &&
+            (!query ||
+              j.name.includes(query) ||
+              j.id.toLowerCase().includes(query.toLowerCase())))),
     );
   return (
     <Sheet
@@ -2012,27 +2023,17 @@ function Tower({ e }: any) {
         <>
           <Field value={query} onChange={setQuery} placeholder="섬 이름 또는 초대 코드" />
           <Group flat>
-            {islands
-              .filter(
-                (j) =>
-                  !query ||
-                  j.name.includes(query) ||
-                  j.id.toLowerCase().includes(query.toLowerCase()),
-              )
-              .map((j) => (
-                <Row
-                  key={j.id}
-                  title={j.name}
-                  sub={`${j.approval ? '승인 후 가입' : '바로 가입'} · ${residentCount(j)}/${capacityOf(j)}명`}
-                  tail={<Txt>{j.joined ? '가입한 섬' : '›'}</Txt>}
-                  onPress={() => e.go('visit', j.id)}
-                />
-              ))}
+            {results.map((j) => (
+              <Row
+                key={j.id}
+                title={j.name}
+                sub={`${j.approval ? '승인 후 가입' : '바로 가입'} · ${residentCount(j)}/${capacityOf(j)}명`}
+                tail={<Txt>{j.joined ? '가입한 섬' : '›'}</Txt>}
+                onPress={() => e.go('visit', j.id)}
+              />
+            ))}
           </Group>
-          {!islands.some(
-            (j) =>
-              !query || j.name.includes(query) || j.id.toLowerCase().includes(query.toLowerCase()),
-          ) && <Empty>검색 결과가 없어요.</Empty>}
+          {!results.length && <Empty>검색 결과가 없어요.</Empty>}
         </>
       )}
     </Sheet>

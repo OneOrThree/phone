@@ -598,10 +598,14 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
   const residents = residentCount(i);
   if (!residents) return 0;
   const from = weekStart(now);
+  const secondsWithinWeek = (record: RecordItem) =>
+    (record.intervals ?? [{ start: record.at - record.seconds * 1000, end: record.at }]).reduce(
+      (seconds, interval) =>
+        seconds + Math.max(0, Math.min(interval.end, now) - Math.max(interval.start, from)) / 1000,
+      0,
+    );
   const mine = i.joined
-    ? s.records
-        .filter((r) => r.islandId === i.id && r.at >= from && r.at <= now)
-        .reduce((a, r) => a + r.seconds, 0)
+    ? s.records.filter((r) => r.islandId === i.id).reduce((a, r) => a + secondsWithinWeek(r), 0)
     : 0;
   return (
     (mine +
@@ -609,8 +613,8 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
         (a, m) =>
           a +
           (m.records ?? [])
-            .filter((r) => r.islandId === i.id && r.at >= from && r.at <= now)
-            .reduce((n, r) => n + r.seconds, 0),
+            .filter((r) => r.islandId === i.id)
+            .reduce((n, r) => n + secondsWithinWeek(r), 0),
         0,
       )) /
     residents
@@ -799,48 +803,64 @@ function evaluateQuests(s: State, now: number) {
       for (const [day, round] of Object.entries(q.rounds)) {
         if (day > today) continue;
         for (const id of round.targets) {
-          if (round.achieved.includes(id)) continue;
           const member = i.members.find((m) => m.id === id);
-          const live =
-            s.session?.islandId === i.id
-              ? [
-                  {
-                    id: s.session.id,
-                    islandId: i.id,
-                    subject: s.session.subject,
-                    seconds: sessionSeconds(s.session, now),
-                    at: now,
-                    fish: 0,
-                    contributed: true,
-                    intervals: s.session.intervals
-                      ? [
-                          ...s.session.intervals,
-                          ...(s.session.status === 'active'
-                            ? [{ start: s.session.startedAt, end: now }]
-                            : []),
-                        ]
-                      : undefined,
-                  },
-                ]
-              : [];
-          const records = id === 'me' ? [...s.records, ...live] : (member?.records ?? []);
-          const screen = id === 'me' ? s.screenDays?.[day] : member?.screenDays?.[day];
-          const achieved =
-            round.kind === 'focus'
-              ? focusTotal(records, i.id, day, round) >= round.target * 60
-              : day < today && screen != null && screen <= round.target;
+          let achieved = round.achieved.includes(id);
+          if (!achieved) {
+            const live =
+              s.session?.islandId === i.id
+                ? [
+                    {
+                      id: s.session.id,
+                      islandId: i.id,
+                      subject: s.session.subject,
+                      seconds: sessionSeconds(s.session, now),
+                      at: now,
+                      fish: 0,
+                      contributed: true,
+                      intervals: s.session.intervals
+                        ? [
+                            ...s.session.intervals,
+                            ...(s.session.status === 'active'
+                              ? [{ start: s.session.startedAt, end: now }]
+                              : []),
+                          ]
+                        : undefined,
+                    },
+                  ]
+                : [];
+            const records = id === 'me' ? [...s.records, ...live] : (member?.records ?? []);
+            const screen = id === 'me' ? s.screenDays?.[day] : member?.screenDays?.[day];
+            achieved =
+              round.kind === 'focus'
+                ? focusTotal(records, i.id, day, round) >= round.target * 60
+                : day < today && screen != null && screen <= round.target;
+          }
           if (!achieved) continue;
-          round.achieved.push(id);
-          if (id === 'me')
-            s.rewards.push({
-              id: `${i.id}/${q.id}/${day}/me`,
-              islandId: i.id,
-              questId: q.id,
-              day,
-              amount: 10,
-              kind: 'personal',
-              acknowledged: false,
+          if (!round.achieved.includes(id)) round.achieved.push(id);
+          if (id === 'me') {
+            const rewardId = `${i.id}/${q.id}/${day}/me`;
+            if (!round.claimed.includes(id) && !s.rewards.some((reward) => reward.id === rewardId))
+              s.rewards.push({
+                id: rewardId,
+                islandId: i.id,
+                questId: q.id,
+                day,
+                amount: 10,
+                kind: 'personal',
+                acknowledged: false,
+              });
+          } else {
+            if (round.claimed.includes(id)) continue;
+            round.claimed.push(id);
+            i.fish = balance(i) + 10;
+            i.earned ??= {};
+            i.earned[id] = earnedBy(i, id) + 10;
+            i.ledger.unshift({
+              id: uuid(),
+              text: `${member?.name ?? '주민'} 퀘스트 달성 보상 +10마리`,
+              at: now,
             });
+          }
         }
         if (
           !round.bonus &&
@@ -980,7 +1000,7 @@ export function reducer(state: State, a: Action): State {
       s.focusSpot = a.spot;
       break;
     case 'START':
-      if (s.session) return state;
+      if (s.session || !i.joined) return state;
       s.session = {
         id: uuid(),
         islandId: s.islandId,
@@ -1317,10 +1337,11 @@ export function reducer(state: State, a: Action): State {
       });
       break;
     case 'TRANSFER':
+      if (!i.members.some((m) => m.id === a.id)) return state;
       i.members.forEach((m) => (m.role = m.id === a.id ? 'host' : 'member'));
       break;
     case 'LEAVE':
-      if (s.session) return state;
+      if (s.session || (isHost(i) && i.members.length > 0)) return state;
       i.joined = false;
       if (i.buildingQuest)
         i.buildingQuest.targets = i.buildingQuest.targets.filter((id) => id !== 'me');
