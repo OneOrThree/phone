@@ -104,8 +104,9 @@ export type Notice = {
   body: string;
   // 작성자·작성 시각. 예전 저장본에는 없을 수 있다
   author?: string;
+  authorId?: string;
   at?: number;
-  comments: { id: string; name: string; text: string; at?: number }[];
+  comments: { id: string; name: string; memberId?: string; text: string; at?: number }[];
 };
 export type Message = {
   id: string;
@@ -156,7 +157,7 @@ export type Island = {
   buildingThemes?: Record<string, string>;
   track: string;
   playing: boolean;
-  ledger: { id: string; text: string; at: number }[];
+  ledger: { id: string; text: string; at: number; memberId?: string }[];
 };
 export type Session = {
   id: string;
@@ -199,6 +200,7 @@ export type State = {
   loggedIn: boolean;
   onboarded: boolean;
   name: string;
+  profileNames?: string[];
   color: Color;
   islandId: string;
   fish: number;
@@ -380,21 +382,23 @@ const peers = (): Member[] => [
   },
 ];
 export function makeIsland(id: string, name: string, full = false, solo = false): Island {
+  const joined = full && id === 'soda';
   return {
     id,
     name,
     intro: '각자의 공부를 함께해요.',
     approval: false,
     capacity: 15,
-    joined: full && id === 'soda',
+    joined,
     visibility: 'public',
     buildings: full ? [...buildingOrder] : [],
     points: 0,
     contribution: 0,
     fish: full ? 1200 : 0,
     earned: full ? { me: 320, minji: 260, dubu: 200, sua: 165 } : {},
-    members: (solo ? [] : peers()).map((m) => ({
+    members: (solo ? [] : peers()).map((m, index) => ({
       ...m,
+      role: full && !joined && index === 0 ? 'host' : m.role,
       records: [
         {
           id: id + '/' + m.id,
@@ -429,11 +433,14 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
         id: 'welcome',
         title: '우리 섬에 온 걸 환영해요',
         body: '혼자 집중해도, 함께 집중해도 좋아요. 각자 할 일을 정하고 낚시하러 나가요.',
+        author: '민지',
+        authorId: 'minji',
         at: Date.now() - 86400000,
         comments: [
           {
             id: 'c1',
             name: '민지',
+            memberId: 'minji',
             text: '오늘도 같이 힘내요!',
             at: Date.now() - 3600000,
           },
@@ -444,23 +451,28 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
         id: 'weekly-goal',
         title: '이번 주 목표는 20시간',
         body: '이번 주에는 우리 섬 합계 20시간을 목표로 해요. 각자 할 수 있는 만큼만 보태요.',
+        author: '민지',
+        authorId: 'minji',
         at: Date.now() - 6 * 86400000,
         comments: [
           {
             id: 'c2',
             name: '민지',
+            memberId: 'minji',
             text: '좋아요, 저는 하루 한 시간!',
             at: Date.now() - 5 * 86400000,
           },
           {
             id: 'c3',
             name: '두부',
+            memberId: 'dubu',
             text: '주말에 몰아서 채울게요.',
             at: Date.now() - 5 * 86400000,
           },
           {
             id: 'c4',
             name: '수아',
+            memberId: 'sua',
             text: '같이 해요!',
             at: Date.now() - 4 * 86400000,
           },
@@ -540,6 +552,7 @@ export function initialState(full = false): State {
     loggedIn: full,
     onboarded: full,
     name: '수빈',
+    profileNames: ['수빈'],
     color: 'black',
     islandId: 'soda',
     fish: 0,
@@ -585,6 +598,12 @@ export const isFull = (i: Island) => residentCount(i) >= capacityOf(i);
 export const inviteCodeOf = (i: Island) => i.id.toUpperCase();
 export const findIslandByInviteCode = (islands: Island[], code: string) =>
   islands.find((i) => inviteCodeOf(i) === code.trim().toUpperCase());
+export const recordSecondsBetween = (record: RecordItem, from: number, until: number) =>
+  (record.intervals ?? [{ start: record.at - record.seconds * 1000, end: record.at }]).reduce(
+    (seconds, interval) =>
+      seconds + Math.max(0, Math.min(interval.end, until) - Math.max(interval.start, from)) / 1000,
+    0,
+  );
 // 이번 주 시작 = 로컬 기준 일요일 00:00
 export function weekStart(now = Date.now()) {
   const d = new Date(now);
@@ -598,14 +617,10 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
   const residents = residentCount(i);
   if (!residents) return 0;
   const from = weekStart(now);
-  const secondsWithinWeek = (record: RecordItem) =>
-    (record.intervals ?? [{ start: record.at - record.seconds * 1000, end: record.at }]).reduce(
-      (seconds, interval) =>
-        seconds + Math.max(0, Math.min(interval.end, now) - Math.max(interval.start, from)) / 1000,
-      0,
-    );
   const mine = i.joined
-    ? s.records.filter((r) => r.islandId === i.id).reduce((a, r) => a + secondsWithinWeek(r), 0)
+    ? s.records
+        .filter((r) => r.islandId === i.id)
+        .reduce((a, r) => a + recordSecondsBetween(r, from, now), 0)
     : 0;
   return (
     (mine +
@@ -614,7 +629,7 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
           a +
           (m.records ?? [])
             .filter((r) => r.islandId === i.id)
-            .reduce((n, r) => n + secondsWithinWeek(r), 0),
+            .reduce((n, r) => n + recordSecondsBetween(r, from, now), 0),
         0,
       )) /
     residents
@@ -859,6 +874,7 @@ function evaluateQuests(s: State, now: number) {
               id: uuid(),
               text: `${member?.name ?? '주민'} 퀘스트 달성 보상 +10마리`,
               at: now,
+              memberId: id,
             });
           }
         }
@@ -913,6 +929,7 @@ export function reducer(state: State, a: Action): State {
       friends: loaded.friends ?? [],
       rewards: loaded.rewards ?? [],
       screenDays: loaded.screenDays ?? {},
+      profileNames: loaded.profileNames ?? [loaded.name],
       settings: { ...loaded.settings, publicRecords: true },
       equipped: {
         ...loaded.equipped,
@@ -938,15 +955,30 @@ export function reducer(state: State, a: Action): State {
     'BUILD',
   ];
   if (hostOnly.includes(a.type) && !isHost(currentIsland(state))) return state;
+  const joinedOnly = [
+    'FOCUS_SPOT',
+    'START',
+    'COMMENT',
+    'MESSAGE',
+    'RETRY_MESSAGE',
+    'BUY',
+    'TRACK',
+    'THEME',
+    'CLAIM_MEMBER',
+  ];
+  if (joinedOnly.includes(a.type) && !currentIsland(state).joined) return state;
   const s = JSON.parse(JSON.stringify(state)) as State,
     i = currentIsland(s),
     now = a.now ?? Date.now();
-  const log = (text: string) => i.ledger.unshift({ id: uuid(), text, at: now });
+  const log = (text: string, memberId = 'me') =>
+    i.ledger.unshift({ id: uuid(), text, at: now, memberId });
   switch (a.type) {
     case 'LOGIN':
       s.loggedIn = true;
       break;
     case 'PROFILE':
+      if (a.name?.trim() && a.name.trim() !== s.name)
+        s.profileNames = [...new Set([...(s.profileNames ?? [s.name]), s.name, a.name.trim()])];
       s.name = a.name?.trim() || s.name;
       s.color = a.color || s.color;
       break;
@@ -1066,6 +1098,7 @@ export function reducer(state: State, a: Action): State {
         id: uuid(),
         text: `${s.name} · 집중 +${uncredited}마리`,
         at: now,
+        memberId: 'me',
       });
       s.resultFromRest = s.session.status === 'paused';
       s.session = null;
@@ -1125,6 +1158,7 @@ export function reducer(state: State, a: Action): State {
             id: uuid(),
             text: `${s.name} · 집중 +${diff}마리`,
             at: now,
+            memberId: 'me',
           });
         }
       }
@@ -1166,6 +1200,7 @@ export function reducer(state: State, a: Action): State {
           id: uuid(),
           text: `퀘스트 달성 보상 +${reward.amount}마리`,
           at: now,
+          memberId: 'me',
         });
       }
       reward.acknowledged = true;
@@ -1180,7 +1215,7 @@ export function reducer(state: State, a: Action): State {
       i.fish = balance(i) + 10;
       i.earned ??= {};
       i.earned[a.memberId] = earnedBy(i, a.memberId) + 10;
-      log('주민 퀘스트 달성 보상 +10마리');
+      log('주민 퀘스트 달성 보상 +10마리', a.memberId);
       break;
     }
     case 'QUEST_SAVE': {
@@ -1192,6 +1227,13 @@ export function reducer(state: State, a: Action): State {
         q.target = a.target;
         q.windowStart = a.windowStart;
         q.windowEnd = a.windowEnd;
+        const round = q.rounds?.[dayKey(now)];
+        if (round) {
+          round.kind = a.kind;
+          round.target = a.target;
+          round.windowStart = a.windowStart;
+          round.windowEnd = a.windowEnd;
+        }
       } else
         i.quests.push({
           id: uuid(),
@@ -1215,6 +1257,7 @@ export function reducer(state: State, a: Action): State {
           title: a.title,
           body: a.body,
           author: s.name,
+          authorId: 'me',
           at: now,
           comments: [],
         });
@@ -1229,6 +1272,7 @@ export function reducer(state: State, a: Action): State {
         n.comments.push({
           id: uuid(),
           name: s.name,
+          memberId: 'me',
           text: a.text.trim(),
           at: now,
         });
@@ -1403,16 +1447,30 @@ export function reducer(state: State, a: Action): State {
     }
     case 'DELETE_ACCOUNT': {
       const clean = initialState();
+      const profileNames = new Set([s.name, ...(s.profileNames ?? [])]);
       clean.islands = s.islands.map((i) => ({
         ...i,
         joined: false,
         earned: Object.fromEntries(Object.entries(i.earned ?? {}).filter(([id]) => id !== 'me')),
-        ledger: i.ledger.filter((entry) => !entry.text.includes(s.name)),
+        ledger: i.ledger.filter(
+          (entry) =>
+            entry.memberId !== 'me' &&
+            (entry.memberId != null ||
+              ![...profileNames].some((name) => entry.text.includes(name))),
+        ),
         notices: i.notices
-          .filter((notice) => notice.author !== s.name)
+          .filter(
+            (notice) =>
+              notice.authorId !== 'me' &&
+              (notice.authorId != null || !notice.author || !profileNames.has(notice.author)),
+          )
           .map((notice) => ({
             ...notice,
-            comments: notice.comments.filter((comment) => comment.name !== s.name),
+            comments: notice.comments.filter(
+              (comment) =>
+                comment.memberId !== 'me' &&
+                (comment.memberId != null || !profileNames.has(comment.name)),
+            ),
           })),
         messages: i.messages.filter((m) => m.memberId !== 'me'),
         quests: i.quests.map((quest) => ({

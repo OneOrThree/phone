@@ -249,6 +249,15 @@ function Gromo() {
     setSearch('');
     setRoute(r);
   };
+  const reset = (r: Route, id = '') => {
+    setHistory([]);
+    setDetail(id);
+    setTab('');
+    setText('');
+    setBody('');
+    setSearch('');
+    setRoute(r);
+  };
   const back = () => {
     if (modal) {
       setModal(null);
@@ -454,6 +463,7 @@ function Gromo() {
           dispatch,
           go,
           replace,
+          reset,
           home,
           back,
           notify,

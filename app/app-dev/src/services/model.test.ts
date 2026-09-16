@@ -23,6 +23,8 @@ import {
   dayKey,
   findIslandByInviteCode,
   inviteCodeOf,
+  isHost,
+  recordSecondsBetween,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
@@ -259,16 +261,23 @@ test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정�
   let s = initialState(true);
   const island = currentIsland(s);
   island.earned!.me = 999;
-  island.ledger.push({ id: 'mine', text: `${s.name} 집중 보상`, at: 1 });
+  island.ledger.push({ id: 'mine', text: `${s.name} 집중 보상`, at: 1, memberId: 'me' });
+  island.ledger.push({ id: 'legacy-mine', text: `${s.name} 예전 집중 보상`, at: 1 });
   island.ledger.push({ id: 'shared', text: '마을회관 공사 완료', at: 2 });
   island.notices.unshift({
     id: 'mine',
     title: '내 공지',
     body: '삭제 대상',
     author: s.name,
+    authorId: 'me',
     comments: [],
   });
-  island.notices[1].comments.push({ id: 'mine-comment', name: s.name, text: '내 댓글' });
+  island.notices[1].comments.push({
+    id: 'mine-comment',
+    name: s.name,
+    memberId: 'me',
+    text: '내 댓글',
+  });
   island.messages.push({
     id: 'mine',
     memberId: 'me',
@@ -294,6 +303,19 @@ test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정�
     selectedAt: 1,
     base: { me: 10, minji: 20 },
   };
+  s = act(s, 'PROFILE', { name: '새이름' });
+  currentIsland(s).notices.push({
+    id: 'legacy-old-name-notice',
+    title: '예전 이름 공지',
+    body: '삭제 대상',
+    author: '수빈',
+    comments: [],
+  });
+  currentIsland(s).notices[1].comments.push({
+    id: 'legacy-old-name-comment',
+    name: '수빈',
+    text: '예전 이름 댓글',
+  });
   s = act(s, 'DELETE_ACCOUNT');
   const scrubbed = s.islands[0];
   assert.equal(scrubbed.fish, 1200);
@@ -302,8 +324,13 @@ test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정�
     scrubbed.ledger.map((entry) => entry.id),
     ['shared'],
   );
+  assert.ok(!scrubbed.notices.some((notice) => notice.authorId === 'me'));
   assert.ok(!scrubbed.notices.some((notice) => notice.author === '수빈'));
-  assert.ok(scrubbed.notices.every((notice) => notice.comments.every((c) => c.name !== '수빈')));
+  assert.ok(
+    scrubbed.notices.every((notice) =>
+      notice.comments.every((comment) => comment.memberId !== 'me' && comment.name !== '수빈'),
+    ),
+  );
   assert.ok(scrubbed.messages.every((message) => message.memberId !== 'me'));
   assert.deepEqual(scrubbed.quests[0].rounds?.today.targets, ['minji']);
   assert.deepEqual(scrubbed.quests[0].rounds?.today.achieved, []);
@@ -347,8 +374,12 @@ test('온보딩 전에는 숨은 가입 섬이 없고 초대 코드는 실제 �
   const s = initialState();
   assert.ok(s.islands.every((island) => !island.joined));
   assert.deepEqual(act(s, 'START', { subject: '미가입 집중' }), s);
+  const strawberry = s.islands.find((island) => island.id === 'strawberry')!;
+  assert.ok(strawberry.members.some((member) => member.role === 'host'));
   const joined = act(s, 'JOIN', { id: 'strawberry' });
   assert.equal(joined.islandId, 'strawberry');
+  assert.equal(isHost(currentIsland(joined)), false);
+  assert.deepEqual(act(joined, 'MANAGE', { name: '이름 탈취' }), joined);
   assert.deepEqual(
     joined.islands.filter((island) => island.joined).map((island) => island.id),
     ['strawberry'],
@@ -583,6 +614,42 @@ test('주 경계를 넘은 집중은 일요일 00시 이후 구간만 새 주 �
     },
   ];
   assert.equal(islandWeeklyAverage(s, currentIsland(s), now), 3600);
+  assert.equal(recordSecondsBetween(s.records[0], sunday - 1800000, sunday + 1800000), 1800);
+});
+
+test('오늘 퀘스트를 수정하면 이미 열린 라운드의 기준도 같이 바뀐다', () => {
+  let s = initialState(true);
+  const now = new Date(2026, 8, 15, 12).getTime(),
+    quest = currentIsland(s).quests[0];
+  s = act(s, 'TICK', { now });
+  assert.ok(currentIsland(s).quests[0].rounds?.[dayKey(now)]);
+  s = act(s, 'QUEST_SAVE', {
+    id: quest.id,
+    title: '오후 집중',
+    kind: 'focus',
+    target: 60,
+    windowStart: '13:00',
+    windowEnd: '18:00',
+    now,
+  });
+  const round = currentIsland(s).quests[0].rounds?.[dayKey(now)]!;
+  assert.equal(round.target, 60);
+  assert.equal(round.kind, 'focus');
+  assert.equal(round.windowStart, '13:00');
+  assert.equal(round.windowEnd, '18:00');
+});
+
+test('탈퇴한 섬에서는 주민 전용 기록을 추가하거나 재화를 쓸 수 없다', () => {
+  let s = initialState(true);
+  currentIsland(s).members = [];
+  s = act(s, 'LEAVE');
+  for (const [type, data] of [
+    ['START', { subject: '집중' }],
+    ['COMMENT', { id: 'welcome', text: '댓글' }],
+    ['MESSAGE', { text: '메시지' }],
+    ['BUY', { id: 'scarf' }],
+  ] as const)
+    assert.deepEqual(act(s, type, data), s);
 });
 
 test('이미 가입한 승인제 섬에 다시 이동할 때 신청을 만들지 않는다', () => {

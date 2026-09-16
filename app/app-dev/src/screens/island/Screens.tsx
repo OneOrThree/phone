@@ -396,6 +396,7 @@ export function RedesignScreens({ e }: any) {
   const {
     dispatch,
     go,
+    reset,
     home,
     back,
     notify,
@@ -2100,8 +2101,12 @@ export function RedesignScreens({ e }: any) {
               style={{ alignSelf: 'center' }}
               onPress={() =>
                 confirm('섬에서 나갈까요?', '이 섬의 주민 목록에서 나가요.', () => {
+                  const hasOtherIsland = state.islands.some(
+                    (candidate) => candidate.joined && candidate.id !== island.id,
+                  );
                   act('LEAVE');
-                  go('chooseIsland');
+                  if (hasOtherIsland) home();
+                  else reset('chooseIsland');
                 })
               }
             />
@@ -2397,7 +2402,7 @@ export function RedesignScreens({ e }: any) {
       >
         {onNotice
           ? island.notices.map((n, i) => {
-              const author = n.author || state.name;
+              const author = n.author || '알 수 없음';
               return (
                 <NoticePaper
                   key={n.id}
@@ -2733,7 +2738,7 @@ export function RedesignScreens({ e }: any) {
           onClose={home}
         />
       );
-    const author = n.author || state.name;
+    const author = n.author || '알 수 없음';
     return (
       <IslandSheet
         keepOnBackdrop

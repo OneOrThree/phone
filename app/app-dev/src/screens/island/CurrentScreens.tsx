@@ -36,6 +36,7 @@ import {
   CAPACITY_MAX,
   inviteCodeOf,
   findIslandByInviteCode,
+  recordSecondsBetween,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite } from '@/components/CatSprite';
@@ -145,6 +146,47 @@ export function CurrentScreens({ e }: any) {
   const state: State = e.state,
     i = currentIsland(state),
     r: Route = e.route;
+  const memberRoutes: Route[] = [
+    'home',
+    'guide',
+    'focusTravel',
+    'fishingArrival',
+    'focusSetup',
+    'focus',
+    'rest',
+    'focusResult',
+    'returnTravel',
+    'hall',
+    'manage',
+    'members',
+    'ledger',
+    'construction',
+    'board',
+    'notice',
+    'noticeEdit',
+    'quest',
+    'questEdit',
+    'tower',
+    'explore',
+    'library',
+    'diary',
+    'stats',
+    'mail',
+    'chat',
+    'friendMail',
+    'shop',
+    'product',
+    'orders',
+    'sound',
+  ];
+  if (!i.joined && memberRoutes.includes(r))
+    return (
+      <Overlay close={() => e.reset('chooseIsland')}>
+        <Txt kind="h17">가입한 섬이 없어요</Txt>
+        <Txt kind="meta">섬을 선택하거나 새로 만든 뒤 이용할 수 있어요.</Txt>
+        <Btn title="첫 섬 선택으로" onPress={() => e.reset('chooseIsland')} />
+      </Overlay>
+    );
   const locked: Partial<Record<Route, Building>> = {
     library: 'library',
     diary: 'library',
@@ -968,9 +1010,9 @@ function Library({ e }: any) {
       : who.island.members.find((m) => m.id === ((who as any).originalId ?? who.id));
   const bounds = periodBounds(period, offset, e.now),
     records = (who.id === 'me' ? s.records : (resident?.records ?? [])).filter(
-      (r) => r.islandId === who.island.id && r.at >= bounds.from && r.at < bounds.until,
+      (r) => r.islandId === who.island.id && recordSecondsBetween(r, bounds.from, bounds.until) > 0,
     ),
-    total = records.reduce((n, r) => n + r.seconds, 0);
+    total = records.reduce((n, r) => n + recordSecondsBetween(r, bounds.from, bounds.until), 0);
   const screenEntries = Object.entries(
     who.id === 'me' ? (s.screenDays ?? {}) : (resident?.screenDays ?? {}),
   ).filter(([d]) => {
@@ -1039,17 +1081,11 @@ function Library({ e }: any) {
     </View>
   );
   const bins = period === '일' ? 4 : period === '주' ? 7 : new Date(bounds.until - 1).getDate();
-  const values = Array.from({ length: bins }, (_, n) =>
-    page === 0
-      ? records
-          .filter(
-            (r) =>
-              Math.min(
-                bins - 1,
-                Math.floor(((r.at - bounds.from) / (bounds.until - bounds.from)) * bins),
-              ) === n,
-          )
-          .reduce((sum, r) => sum + r.seconds / 60, 0)
+  const values = Array.from({ length: bins }, (_, n) => {
+    const binFrom = bounds.from + ((bounds.until - bounds.from) * n) / bins,
+      binUntil = bounds.from + ((bounds.until - bounds.from) * (n + 1)) / bins;
+    return page === 0
+      ? records.reduce((sum, r) => sum + recordSecondsBetween(r, binFrom, binUntil) / 60, 0)
       : known
           .filter(
             ([day]) =>
@@ -1062,8 +1098,8 @@ function Library({ e }: any) {
                 ),
               ) === n,
           )
-          .reduce((sum, [, v]) => sum + (v ?? 0), 0),
-  );
+          .reduce((sum, [, v]) => sum + (v ?? 0), 0);
+  });
   const chart = ((page === 0 && records.length > 0) ||
     (page === 1 && permission && known.length > 0)) && (
     <View
@@ -1120,7 +1156,7 @@ function Library({ e }: any) {
               key={r.id}
               title={r.subject}
               sub={date(r.at)}
-              tail={<Txt>{hoursMinutes(r.seconds)}</Txt>}
+              tail={<Txt>{hoursMinutes(recordSecondsBetween(r, bounds.from, bounds.until))}</Txt>}
             />
           ))
         ) : (
@@ -1539,8 +1575,12 @@ function Hall({ e }: any) {
               disabled={host && i.members.length > 0}
               onPress={() =>
                 e.confirm('섬을 떠날까요?', '이 섬에서 모은 물고기는 섬에 남아요.', () => {
+                  const hasOtherIsland = s.islands.some(
+                    (island) => island.joined && island.id !== i.id,
+                  );
                   e.dispatch({ type: 'LEAVE' });
-                  e.go(s.islands.some((j) => j.joined && j.id !== i.id) ? 'home' : 'chooseIsland');
+                  if (hasOtherIsland) e.home();
+                  else e.reset('chooseIsland');
                 })
               }
             />

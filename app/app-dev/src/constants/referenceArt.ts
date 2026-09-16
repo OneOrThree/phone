@@ -38,6 +38,7 @@ export const referenceArt: Record<string, ImageSourcePropType> = {
   'emote/laugh': require('@/assets/reference-v2/emote-laugh.png'),
   'emote/hearts': require('@/assets/reference-v2/emote-hearts.png'),
   fish: require('@/assets/reference-v2/fish.png'),
+  'fish/few': require('@/assets/reference-v2/fish-few.png'),
   'scarf-cat': require('@/assets/reference-v2/scarf-cat.png'),
   'boat/raft/cat-scarf': require('@/assets/reference-v2/boat-raft-cat-scarf.png'),
   'lib/room': require('@/assets/reference-v2/lib-room.jpg'),
