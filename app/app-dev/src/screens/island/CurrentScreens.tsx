@@ -32,6 +32,9 @@ import {
   questMemberRate,
   hoursMinutes,
   SECONDS_PER_FISH,
+  CAPACITY_MIN,
+  CAPACITY_MAX,
+  inviteCodeOf,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite } from '@/components/CatSprite';
@@ -314,11 +317,11 @@ function Travel({ e }: any) {
       onArrive={() => {
         if (first) {
           e.setGuideStep(0);
-          e.go('guide');
+          e.replace('guide');
         } else if (target.joined) {
           e.dispatch({ type: 'SWITCH_ISLAND', id: target.id });
           e.home();
-        } else e.go('visit', target.id);
+        } else e.replace('visit', target.id);
       }}
     />
   );
@@ -1508,8 +1511,10 @@ function Hall({ e }: any) {
                     <Wheel
                       label="정원"
                       items={Array.from(
-                        { length: 16 - Math.max(2, residentCount(i)) },
-                        (_, n) => `${n + Math.max(2, residentCount(i))}명`,
+                        {
+                          length: CAPACITY_MAX - Math.max(CAPACITY_MIN, residentCount(i)) + 1,
+                        },
+                        (_, n) => `${n + Math.max(CAPACITY_MIN, residentCount(i))}명`,
                       )}
                       value={cap}
                       onChange={(v: string) => {
@@ -1527,7 +1532,7 @@ function Hall({ e }: any) {
               kind="glass"
               title="친구 초대하기"
               onPress={() =>
-                e.confirm('섬 초대 코드', `이 섬의 코드는 ${i.id.toUpperCase()}예요.`, () => {})
+                e.confirm('섬 초대 코드', `이 섬의 코드는 ${inviteCodeOf(i)}예요.`, () => {})
               }
             />
             <Btn
@@ -1722,6 +1727,7 @@ function Hall({ e }: any) {
 function Board({ e }: any) {
   const s: State = e.state,
     i = currentIsland(s),
+    host = isHost(i),
     L = useAppLayout(),
     q = i.quests.find((q) => q.id === e.detail),
     tab = e.tab || '퀘스트',
@@ -1763,8 +1769,10 @@ function Board({ e }: any) {
         bg="board"
         sign="bld/notice-board"
         title="게시판"
-        action={tab === '퀘스트' ? '＋ 만들기' : '＋ 작성'}
-        actionPress={() => (tab === '퀘스트' ? e.newQuest() : e.go('noticeEdit'))}
+        action={host ? (tab === '퀘스트' ? '＋ 만들기' : '＋ 작성') : undefined}
+        actionPress={
+          host ? () => (tab === '퀘스트' ? e.newQuest() : e.go('noticeEdit')) : undefined
+        }
       >
         <Seg items={['퀘스트', '공지']} value={tab} onChange={e.setTab} />
         {tab === '공지' ? (
@@ -1912,14 +1920,18 @@ function Board({ e }: any) {
       bg="board"
       sign="bld/notice-board"
       title="일일 퀘스트"
-      action="수정"
-      actionPress={() => {
-        e.go('questEdit', q.id);
-        e.setText(q.title);
-        e.setBody(q.type);
-        e.setWindowStart(q.windowStart ?? '00:00');
-        e.setWindowEnd(q.windowEnd ?? '24:00');
-      }}
+      action={host ? '수정' : undefined}
+      actionPress={
+        host
+          ? () => {
+              e.go('questEdit', q.id);
+              e.setText(q.title);
+              e.setBody(q.type);
+              e.setWindowStart(q.windowStart ?? '00:00');
+              e.setWindowEnd(q.windowEnd ?? '24:00');
+            }
+          : undefined
+      }
     >
       <Txt kind="h">{q.title}</Txt>
       <Txt>{q.type === 'focus' ? `${q.target}분 집중하기` : `스크린타임 ${q.target}분 이내`}</Txt>

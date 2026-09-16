@@ -20,6 +20,8 @@ import {
   costs,
   buildMinutes,
   dayKey,
+  findIslandByInviteCode,
+  inviteCodeOf,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
@@ -37,7 +39,8 @@ test('휴식은 집중에서 제외, 보상은 집중한 섬에만 적립하고 
   assert.deepEqual(act(s, 'FINISH'), s);
 });
 test('회관→게시판은 섬 인원과 무관한 총량 고정; 차감 후 공사 시간 동안 후속 건설을 막는다', () => {
-  let s = act(initialState(), 'DEMO_CREDIT', { fish: 300 });
+  let s = act(initialState(), 'CREATE_ISLAND', { name: '건설 섬' });
+  s = act(s, 'DEMO_CREDIT', { fish: 300 });
   assert.ok(canBuild(s, 'board'));
   s = act(s, 'BUILD', { building: 'hall', now: 1000 });
   assert.equal(balance(currentIsland(s)), 300 - costs.hall);
@@ -217,10 +220,61 @@ test('친구 수락·거절 후 재신청·보낸 요청 취소·친구 삭제·
   r = act(r, 'FRIEND_REQUEST', { id: 'haneul' });
   assert.equal(r.friends?.find((f) => f.id === 'haneul')?.status, 'sent');
 });
-test('계정 삭제·탈퇴해도 기존 섬의 물고기를 삭제하지 않는다', () => {
+test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정보를 제거한다', () => {
   let s = initialState(true);
+  const island = currentIsland(s);
+  island.earned!.me = 999;
+  island.ledger.push({ id: 'mine', text: `${s.name} 집중 보상`, at: 1 });
+  island.ledger.push({ id: 'shared', text: '마을회관 공사 완료', at: 2 });
+  island.notices.unshift({
+    id: 'mine',
+    title: '내 공지',
+    body: '삭제 대상',
+    author: s.name,
+    comments: [],
+  });
+  island.notices[1].comments.push({ id: 'mine-comment', name: s.name, text: '내 댓글' });
+  island.messages.push({
+    id: 'mine',
+    memberId: 'me',
+    name: s.name,
+    color: s.color,
+    text: '내 메시지',
+    at: 1,
+    status: 'sent',
+  });
+  island.quests[0].rounds = {
+    today: {
+      targets: ['me', 'minji'],
+      achieved: ['me'],
+      claimed: ['me'],
+      bonus: false,
+      target: 30,
+      kind: 'focus',
+    },
+  };
+  island.buildingQuest = {
+    building: 'hall',
+    targets: ['me', 'minji'],
+    selectedAt: 1,
+    base: { me: 10, minji: 20 },
+  };
   s = act(s, 'DELETE_ACCOUNT');
-  assert.equal(s.islands[0].fish, 1200);
+  const scrubbed = s.islands[0];
+  assert.equal(scrubbed.fish, 1200);
+  assert.equal(scrubbed.earned?.me, undefined);
+  assert.deepEqual(
+    scrubbed.ledger.map((entry) => entry.id),
+    ['shared'],
+  );
+  assert.ok(!scrubbed.notices.some((notice) => notice.author === '수빈'));
+  assert.ok(scrubbed.notices.every((notice) => notice.comments.every((c) => c.name !== '수빈')));
+  assert.ok(scrubbed.messages.every((message) => message.memberId !== 'me'));
+  assert.deepEqual(scrubbed.quests[0].rounds?.today.targets, ['minji']);
+  assert.deepEqual(scrubbed.quests[0].rounds?.today.achieved, []);
+  assert.deepEqual(scrubbed.quests[0].rounds?.today.claimed, []);
+  assert.deepEqual(scrubbed.buildingQuest?.targets, ['minji']);
+  assert.deepEqual(scrubbed.buildingQuest?.base, { minji: 20 });
   assert.equal(s.loggedIn, false);
   assert.deepEqual(s.records, []);
 });
@@ -246,6 +300,24 @@ test('승인 요청 1회 처리·방장 위임 이후 관리 제한', () => {
   s = act(s, 'TRANSFER', { id: 'minji' });
   assert.deepEqual(act(s, 'KICK', { id: 'dubu' }), s);
   assert.deepEqual(act(s, 'MANAGE', { name: '변경' }), s);
+  assert.deepEqual(act(s, 'QUEST_SAVE', { title: '변경', kind: 'focus', target: 10 }), s);
+  assert.deepEqual(act(s, 'NOTICE_SAVE', { title: '변경', body: '내용' }), s);
+  assert.deepEqual(act(s, 'NOTICE_DELETE', { id: 'welcome' }), s);
+});
+
+test('온보딩 전에는 숨은 가입 섬이 없고 초대 코드는 실제 섬 ID로 찾는다', () => {
+  const s = initialState();
+  assert.ok(s.islands.every((island) => !island.joined));
+  const joined = act(s, 'JOIN', { id: 'strawberry' });
+  assert.equal(joined.islandId, 'strawberry');
+  assert.deepEqual(
+    joined.islands.filter((island) => island.joined).map((island) => island.id),
+    ['strawberry'],
+  );
+  const custom = { ...s.islands[0], id: 'custom-123', name: '새 섬' };
+  s.islands.push(custom);
+  assert.equal(inviteCodeOf(custom), 'CUSTOM-123');
+  assert.equal(findIslandByInviteCode(s.islands, '  custom-123  ')?.id, custom.id);
 });
 test('다른 섬 승인·집중 중 이동 차단·직렬화 후 재개', () => {
   let s = initialState(true);

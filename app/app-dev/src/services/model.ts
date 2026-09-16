@@ -386,7 +386,7 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
     intro: '각자의 공부를 함께해요.',
     approval: false,
     capacity: 15,
-    joined: id === 'soda',
+    joined: full && id === 'soda',
     visibility: 'public',
     buildings: full ? [...buildingOrder] : [],
     points: 0,
@@ -582,6 +582,9 @@ export const CAPACITY_MIN = 1,
 export const residentCount = (i: Island) => i.members.length + (i.joined ? 1 : 0);
 export const capacityOf = (i: Island) => i.capacity ?? CAPACITY_MAX;
 export const isFull = (i: Island) => residentCount(i) >= capacityOf(i);
+export const inviteCodeOf = (i: Island) => i.id.toUpperCase();
+export const findIslandByInviteCode = (islands: Island[], code: string) =>
+  islands.find((i) => inviteCodeOf(i) === code.trim().toUpperCase());
 // 이번 주 시작 = 로컬 기준 일요일 00:00
 export function weekStart(now = Date.now()) {
   const d = new Date(now);
@@ -908,6 +911,9 @@ export function reducer(state: State, a: Action): State {
     'ADD_MEMBER',
     'REJECT_MEMBER',
     'CAPACITY',
+    'QUEST_SAVE',
+    'NOTICE_SAVE',
+    'NOTICE_DELETE',
     'SELECT_BUILDING',
     'BUILD',
   ];
@@ -1379,11 +1385,40 @@ export function reducer(state: State, a: Action): State {
       clean.islands = s.islands.map((i) => ({
         ...i,
         joined: false,
+        earned: Object.fromEntries(Object.entries(i.earned ?? {}).filter(([id]) => id !== 'me')),
+        ledger: i.ledger.filter((entry) => !entry.text.includes(s.name)),
+        notices: i.notices
+          .filter((notice) => notice.author !== s.name)
+          .map((notice) => ({
+            ...notice,
+            comments: notice.comments.filter((comment) => comment.name !== s.name),
+          })),
         messages: i.messages.filter((m) => m.memberId !== 'me'),
+        quests: i.quests.map((quest) => ({
+          ...quest,
+          rounds: quest.rounds
+            ? Object.fromEntries(
+                Object.entries(quest.rounds).map(([day, round]) => [
+                  day,
+                  {
+                    ...round,
+                    targets: round.targets.filter((id) => id !== 'me'),
+                    achieved: round.achieved.filter((id) => id !== 'me'),
+                    claimed: round.claimed.filter((id) => id !== 'me'),
+                  },
+                ]),
+              )
+            : undefined,
+        })),
         buildingQuest: i.buildingQuest
           ? {
               ...i.buildingQuest,
               targets: i.buildingQuest.targets.filter((id) => id !== 'me'),
+              base: i.buildingQuest.base
+                ? Object.fromEntries(
+                    Object.entries(i.buildingQuest.base).filter(([id]) => id !== 'me'),
+                  )
+                : undefined,
             }
           : undefined,
       }));

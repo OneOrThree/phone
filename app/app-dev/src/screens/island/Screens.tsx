@@ -32,6 +32,8 @@ import {
   hoursMinutes,
   CAPACITY_MIN,
   CAPACITY_MAX,
+  inviteCodeOf,
+  findIslandByInviteCode,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
@@ -556,8 +558,7 @@ export function RedesignScreens({ e }: any) {
     } else go('arrival');
   };
   const resolveInvite = () => {
-    const id = ({ SODA: 'strawberry', CLOUD: 'cloud' } as any)[inviteCode.trim().toUpperCase()],
-      i = state.islands.find((x) => x.id === id);
+    const i = findIslandByInviteCode(state.islands, inviteCode);
     if (!i) {
       setInviteError('초대 코드를 다시 확인해 주세요.');
       return;
@@ -1812,8 +1813,8 @@ export function RedesignScreens({ e }: any) {
   if (route === 'manage' || route === 'members') {
     const shareInvite = () =>
       Share.share({
-        message: `${island.name}에 함께해요! 초대 코드: ${island.id === 'cloud' ? 'CLOUD' : 'SODA'}`,
-      }).catch(() => notify('초대 코드: ' + (island.id === 'cloud' ? 'CLOUD' : 'SODA')));
+        message: `${island.name}에 함께해요! 초대 코드: ${inviteCodeOf(island)}`,
+      }).catch(() => notify('초대 코드: ' + inviteCodeOf(island)));
     const saveEdit = () => {
       act('MANAGE', { name: text || island.name, intro: body || island.intro });
       setEditing(false);
@@ -2900,9 +2901,7 @@ export function RedesignScreens({ e }: any) {
   }
   if (route === 'explore') {
     const query = search.trim();
-    const codeTarget = ({ SODA: 'strawberry', CLOUD: 'cloud' } as Record<string, string>)[
-      query.toUpperCase()
-    ];
+    const codeTarget = findIslandByInviteCode(state.islands, query)?.id;
     // 이름 검색 결과에서 정원이 찬 섬(내가 가입하지 않은)은 뺀다. 초대 코드로 찾은 섬은 보여 주고 가입할 때 막는다
     const results = state.islands.filter(
       (i) =>

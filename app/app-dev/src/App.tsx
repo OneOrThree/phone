@@ -241,6 +241,14 @@ function Gromo() {
     setRoute(r);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
+  const replace = (r: Route, id = '') => {
+    setDetail(id);
+    setTab('');
+    setText('');
+    setBody('');
+    setSearch('');
+    setRoute(r);
+  };
   const back = () => {
     if (modal) {
       setModal(null);
@@ -445,6 +453,7 @@ function Gromo() {
           route,
           dispatch,
           go,
+          replace,
           home,
           back,
           notify,
