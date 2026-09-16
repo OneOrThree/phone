@@ -7,10 +7,10 @@ module.exports = {
     userInterfaceStyle: 'light',
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.gromo.fishcat',
+      bundleIdentifier: 'com.oneorthree.fishcat',
     },
     android: {
-      package: 'com.gromo.fishcat',
+      package: 'com.oneorthree.fishcat',
     },
     web: {
       bundler: 'metro',

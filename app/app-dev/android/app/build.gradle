@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.gromo.fishcat'
+    namespace 'com.oneorthree.fishcat'
     defaultConfig {
-        applicationId 'com.gromo.fishcat'
+        applicationId 'com.oneorthree.fishcat'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

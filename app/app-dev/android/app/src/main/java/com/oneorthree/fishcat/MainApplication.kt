@@ -1,4 +1,4 @@
-package com.gromo.fishcat
+package com.oneorthree.fishcat
 
 import android.app.Application
 import android.content.res.Configuration
