@@ -68,7 +68,7 @@ availability의 available은 해당 조각이 도메인 계약대로 조회됐�
 | BG07 | ~~Data 화면 read-model GET 제공자·정확 allowlist·strict DTO·인가/snapshot 검증~~ → B24로 폐기 | ~~A9의 D42 예외 범위와 LLD §3의 13개 GET을 대조하고 기존 query 모듈을 재사용한다. 13개 BFF controller만 추가해 완료로 계산하지 않음~~. B24 예외 화면이 생기면 그 화면에 한해 이 조건을 다시 적용한다 |
 | BG08 | PR744의 무접두 `/screens` ingress 설정 통합·배포 확인 | `/screens` 및 `/` 하위의 Business 연결과 URI 보존, 유사 접두어 제외·내부 경로 차단을 실제 배포 구성에서 검증하기 전 해당 화면 활성화 금지. 설정 예시·로컬 회귀가 운영 적용 완료의 증거는 아니다 |
 | BG09 | ~~조합 방식: B02(Data 단일 스냅샷 read-model)를 Business의 도메인 GET 병렬 조합으로 바꿀지~~ → **B24로 확정 (2026-09-15)** | 해소. 병렬 조합이 기본이고 같은 순간 값이 필요한 화면만 개별 예외 |
-| BG10 | 친구·편지 도메인 설계(레포에 LLD 없음), 가입 대기 신청 목록·공동 가계부·물고기 장 조회 계약 | `mailbox`·`friends` 전체, `raft`의 친구 요청 수, `explore`의 대기 신청, `town-hall`의 가계부, `library`의 물고기 장. 설계 전 해당 조각을 활성화하지 않는다 |
+| BG10 | ~~친구·편지 도메인 설계(레포에 LLD 없음)~~ → **해소: [친구·편지 설계](../friend-letter/)**(GROMO-1893 — 친구는 이미 구현돼 있었고 편지·요청 취소만 신규). 남은 것은 **가입 대기 신청 목록·공동 가계부·물고기 장 조회 계약**이며, 이 셋은 여전히 설계 전이라 해당 조각을 활성화하지 않는다. `mailbox`·`friends`·`raft` 의 친구·편지 조각은 friend-letter 설계의 내부 GET 과 허용목록이 들어간 뒤 켠다 |
 | BG11 | 모닥불 휴식 주민이 섬 홈 장면에 보이는지, 다른 섬 도서관을 어디서 여는지 | B17의 rest 흡수와 `library`의 타 섬 경로. 확인 전 두 부분을 구현하지 않는다 |
 | BG12 | ~~남은 이름 결정 2건~~ → **B25·B26으로 확정(09-16)**. 티켓 1888에는 기획 API v1 경로와의 대조표 전달만 남는다 | 이름이 또 바뀌면 [Business 구현](implementation-business-api.md)·[Data 구현](implementation-data-api.md)·`diagrams/`를 함께 고친다 |
 

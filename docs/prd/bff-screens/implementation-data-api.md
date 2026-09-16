@@ -42,8 +42,11 @@ Data 밖:
 
 | 호출 | 소유 | 쓰는 화면 |
 | --- | --- | --- |
-| `GET /internal/islands/{islandId}/messages` | Realtime · island-mailbox §3 | mailbox |
-| 알림 설정 조회 | Notification · Business `AccountSettingsUseCase` 경유 | account |
+| `GET /internal/islands/{islandId}/messages` | Realtime · island-mailbox §1 | mailbox |
+| 알림 설정 조회 | Notification · Business `NotificationApiClient.getSettings()`(순수 GET) | account |
+
+위 행이 한때 `AccountSettingsUseCase` 경유로 적혀 있었다. 그 유스케이스의 `read()` 는 POST 를 먼저 보내므로 화면 조합기의 읽기 전용 context 에서 실행하면 `/screens/account` 가 예외로 실패한다 — [Business 구현](implementation-business-api.md) §4 각주와 같은 이유다. 두 문서 중 하나만 고치면 README 안내대로 Business → Data 순으로 읽은 구현자가 이 표를 따라 다시 깨뜨린다.
+
 
 ## 3. 허용목록 (business caller)
 
@@ -55,7 +58,7 @@ internal:
     callers:
       business:
         allow:
-          - 'GET /internal/users/*'
+          - 'GET /internal/users/*'  # ⚠️ 아래 경고 참조 — 이 줄만으로 열지 않는다
           - 'GET /internal/users/*/islands'
           - 'GET /internal/users/*/focus-summary'
           - 'GET /internal/users/*/focus-sessions/current'
@@ -80,12 +83,14 @@ internal:
 
 `'GET /internal/islands/*'`는 `AntPathMatcher`에서 `/internal/islands/discover`도 받는다. 같은 caller의 같은 GET이라 줄을 따로 두지 않는다.
 
+**`'GET /internal/users/*'`는 `/internal/islands/*`의 경우와 다르다 — 같은 caller에 허용해도 되는 이웃 경로가 아니라 `notification` 전용 컬렉션 조회를 같이 연다.** `AntPathMatcher`는 `*`를 세그먼트 하나로 매칭하므로 이 패턴은 `GET /internal/users/{userId}`(launch·raft·account가 쓰는 `GET /me` 대응, §2)뿐 아니라 `GET /internal/users/notification-snapshot`도 함께 받는다. `InternalAuthFilter.pathUserIdOf()`(`server/data-api/src/main/java/com/oneorthree/phone/config/InternalAuthFilter.java:189-197`)는 그 리터럴 경로만 `null`을 반환해 이후의 「경로 사용자 = X-User-Id」 대조(`InternalAuthFilter.java:139-144`)를 건너뛴다 — `notification-snapshot`이 특정 사용자가 아닌 전수 컬렉션이라 원래 사용자 축 대조 대상이 아니기 때문이다(`InternalAuthFilter.java:183-188` 문서 주석). 그 결과 business caller 토큰에 이 줄을 그대로 추가하면 사용자 대조 없이 `notification` 전용 전수 스냅샷(`server/notification/.../DataClient.java:54`가 소비하는 것과 같은 응답)에 닿는다 — allowlist는 caller가 실제 인가된 만큼만 열어야 하는데, 이 한 줄이 다른 caller(§3의 `notification`)에게만 허용된 경로까지 같이 연다. `AntPathMatcher`가 세그먼트 안에서 「UUID vs 리터럴」을 구분하지 못하는 한 이 줄은 launch·raft·account를 여는 PR에 그대로 넣지 않는다 — `notification-snapshot`을 `/internal/users/*` 하위가 아닌 다른 prefix로 옮기거나 `InternalAuthFilter`가 이 리터럴을 명시적으로 거부하는 변경이 먼저 필요하며, 이 gate는 [Business 구현](implementation-business-api.md) §7의 순서 1과 함께 다시 확인한다.
+
 ## 4. 설계가 없어 먼저 보강할 재료 (BG10)
 
 | 재료 | 화면 | 지금 상태 |
 | --- | --- | --- |
-| 친구 목록·받은/보낸 요청 | friends · raft | 레포 LLD 없음. legacy `FriendController`(`/api/v1/friends…`)가 재사용 후보 |
-| 편지함·편지 | mailbox | 레포 LLD 없음 (기획 v0.6 신규) |
+| ~~친구 목록·받은/보낸 요청~~ **해소** | friends · raft | [friend-letter LLD](../friend-letter/low-level-design.md) §1.15 — `GET /internal/users/{userId}/friends`·`…/friend-requests`. 기존 `FriendController` 구현을 무접두로 재노출하는 것이라 신규 도메인 로직은 없다. **허용목록 3줄 추가가 선행**(같은 §1.15) |
+| ~~편지함·편지~~ **해소** | mailbox | [friend-letter LLD](../friend-letter/low-level-design.md) §1.12~1.15 — `letters` 테이블 신설, `GET /internal/users/{userId}/letters`. 섬 우체통 공개 메시지(island-mailbox)와 다른 도메인이다(HLD §0) |
 | 작성자 표시 정보 batch | mailbox | island-mailbox LLD §5가 요구. 계약 미정 |
 | 내 가입 대기 신청 목록 | explore | island-membership LLD는 단건 조회(§3.8)만 있다 |
 | 공동 가계부 | town-hall | 원장 조회 계약 없음 |
