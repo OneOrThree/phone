@@ -562,6 +562,25 @@ Play 가 준 `referrer` 문자열을 URL 쿼리로 읽고 위에서부터 첫 �
 - 강등 랜딩(data-api 무응답): 그룹·캠페인 문구 없이 스토어 버튼만, 클릭 미기록.
 - 목적지 허용 목록(정책 L13)은 business-api 와 data-api 가 공유하는 상수가 아니라 **data-api 가 발급 때 검증**하고, 초기값은 `gromo://`(앱 열기) 하나다.
 
+#### 4.4-1 국가별 변형 (정책 L28)
+
+- **판정 축은 방문 국가 하나**다. Cloudflare 가 모든 요청에 붙이는 `CF-IPCountry`(ISO 3166-1 alpha-2, 판정 불가는 `XX`, Tor 는 `T1`)를 쓴다.
+- **신뢰 경계는 `CF-Connecting-IP` 와 같다**(§4.3 · A23). nginx 는 원격 피어가 Cloudflare 대역일 때만 `CF-IPCountry` 를 오리진으로 넘기고, 그 밖의 피어가 보낸 같은 헤더는 **버린다**. 오리진을 직접 치는 호출자가 국가를 위조해 다른 변형을 받아 가는 길을 막는다.
+- business-api 는 헤더가 없으면 기본 변형으로 렌더한다 — nginx 설정이 빠져도 페이지는 뜬다(fail-open 이지만 국가만 잃는다).
+
+| `CF-IPCountry` | 변형 |
+| --- | --- |
+| `KR` | `ko` (기본) |
+| 그 밖의 코드 · 표에 없음 · 헤더 없음 · `XX` · `T1` | `ko` (기본) |
+
+초기 표는 기본 변형 하나다. 변형을 추가할 때 이 표에 행을 더한다 — **코드에 국가 코드를 흩어 쓰지 않는다.**
+
+- **템플릿**: `LandingRenderer` 는 생성자에서 템플릿을 한 번 읽어 둔다(요청마다 파일을 읽지 않는다). 변형이 늘면 `Map<변형, String>` 으로 읽고 요청 시 고른다. **자리표시자 목록·이름·개수는 변형 사이에 같아야 한다** — 단일 패스 치환이 변형별로 갈리면 안 채워진 자리가 빈 문자열로 새어 나간다(§4.4 위 규칙 유지). 변형 파일은 `invitelink/landing.<변형>.html` · `link/campaign-landing.<변형>.html`.
+- **국가로 갈리지 않는 것**: 클릭 기록 여부, Play URL 의 `referrer` 파라미터, App Store·Play 버튼 노출 규칙(그건 `campaignPlatform` 축이다, 정책 L24), 매치·claim, 레이트리밋 키(L25).
+- **`og:` 메타는 기본 변형 고정**이다. 미리보기 카드를 만드는 건 사람이 아니라 메신저 크롤러이고, 크롤러는 자기 리전에서 가져간다 — 국가로 가르면 공유자가 보는 카드와 받는 사람이 보는 카드가 갈린다.
+- **엣지 캐시**: `/l/*` 는 캐시하지 않는다(Cloudflare Cache Rule 에 bypass). 캐시하면 방문이 오리진에 닿지 않아 클릭이 기록되지 않는다. 훗날 캐시를 켠다면 `Vary` 로는 국가를 가르지 못하므로 **Cache Key 에 국가를 넣어야** 하고, 그 전에 클릭 기록을 엣지에서 대신할 방법이 필요하다.
+- **강등·만료 랜딩**도 같은 변형 규칙을 따른다(국가 판정은 data-api 호출과 무관하다).
+
 ### 4.5 인증 필터 예외
 
 - **현행**: #745 머지 전 main 의 business-api `RequestFilter`(`RequestFilter.java:26-43`)는 actuator 경로만 무인증이고 나머지는 전부 `Authorization` 을 검증해 없으면 401 이다. #745(머지 `1ec66e0dd`)의 `AccessTokenFilter` 는 `/*` 에 등록돼 `getRequestURI()`(디코딩 전 원문)의 **정확 일치** 목록 — `/health` · `/l/match` · actuator 6개 — 만 통과시키고, `RequestEnvelopeFilter` 에는 경로 예외가 없다. 구현은 #745 머지 뒤 `AccessTokenFilter` 의 예외를 넓힌다.
