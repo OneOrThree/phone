@@ -191,11 +191,11 @@ sid/bootstrap으로 연결하고, 기존 ownership·legacy 허용 창을 우회�
 
 기기 삭제의 내구화는 명시적 로그아웃뿐 아니라 비게스트 A→B 전환에도 적용한다
 ([기존 통신 계약](../../architecture/service-architecture.md#4-통신-방식)). 기준 main
-[App.tsx:517~528](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/legacy/app-dev/src/App.tsx#L517-L528)는
+[App.tsx:517~528](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/app-dev/src/App.tsx#L517-L528)는
 새 세션 commit 뒤 이전 AT의 DELETE 실패를 삼킨다. 이 동작만으로 내구 정리가 완료됐다고 주장하지 않는다.
 후속 앱은 **전환 전 준비 → 세션 commit과 삭제 실행 가능 상태 확정 → commit 뒤 전달**을 구분한다.
 
-기준 main의 [auth.ts:113~115](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/legacy/app-dev/src/services/auth.ts#L113-L115)는
+기준 main의 [auth.ts:113~115](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/app-dev/src/services/auth.ts#L113-L115)는
 사용자 UUID가 다를 때만 cleanup을 실행하지만, 선행의 세션별 RT는 같은 사용자 재로그인에도 별도 활성 세션을
 남길 수 있다. 후속 전환 판정은 사용자 UUID뿐 아니라 **검증된 이전/신규 sessionId**를 비교한다.
 같은 사용자 A의 s1→s2 재로그인도 아래 준비/commit/전달을 적용해 s1의 원 RT를 폐기하고 정확한 원 기기를 정리한다.
@@ -374,7 +374,7 @@ expand 순서는 세션 저장소 및 승격 전용 복구 receipt 추가 → �
 
 ### 정상 RT 회전의 클라이언트 전환 gate
 
-기준 main의 [api.ts:168~170](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/legacy/app-dev/src/services/api.ts#L168-L170)는
+기준 main의 [api.ts:168~170](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/app-dev/src/services/api.ts#L168-L170)는
 새 AT를 먼저 저장하고 RT를 나중에 저장한다. 목표 세션 형식의 정상 회전은 동일 subject/sid/authGeneration을
 유지할 수 있으므로 **그 세 필드 일치만으로 새 AT와 회전 전 RT의 혼합을 검출하거나 완전한 쌍을 증명할 수 없다.**
 이것은 목표 정상 회전의 유실 문제이며 현재 main이 이미 sid RT를 발급한다는 뜻이 아니다.
