@@ -454,7 +454,7 @@ export default function MenuScreen() {
             sub={t('menu.account.settingsSub')}
             onPress={() => navigation.navigate('SettingsAccount')}
           />
-          {/* 앱의 유일한 문의 창구다(docs/prd/inquiry/information-architecture.md §5).
+          {/* 앱의 유일한 문의 창구다(docs/prd/gromo/inquiry/information-architecture.md §5).
                다른 진입점이 생기면 inquiry_screen_viewed 의 entry_point 를 함께 넓혀야 한다. */}
           <SettingsRow
             icon="chatbubble-ellipses-outline"

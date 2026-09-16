@@ -1,4 +1,4 @@
-// inquiryContacts 상수 무결성 — docs/prd/inquiry/low-level-design.md §1의 불변식을 그대로 잠근다.
+// inquiryContacts 상수 무결성 — docs/prd/gromo/inquiry/low-level-design.md §1의 불변식을 그대로 잠근다.
 //
 // 이 테스트의 목적은 **담당자를 교체하다 계약을 깨는 것을 막는 것**이다.
 // 상수 파일은 담당자·링크가 바뀔 때마다 OTA로 손대는 파일이고(policy.md D5),

@@ -1,12 +1,12 @@
-import { Text } from '@/components/typography';
+import { Text } from '@/design-system/typography';
 import React, { useRef, useState, useEffect } from 'react';
 import { View, Image } from 'react-native';
 import { useFonts } from 'expo-font';
 import { State, currentIsland } from '@/services/model';
 import { assets } from '@/constants/assets';
 import { useAppLayout } from '@/utils/layout';
-import { Btn } from '@/components/Kit';
-import { Button, useScreenInsets } from '@/components/ui';
+import { Btn } from '@/design-system/patterns';
+import { Button, useScreenInsets } from '@/design-system/primitives';
 import { clock } from '@/screens/focus/FocusSea';
 
 // Same chair layers, reading atlas and per-user page-turn cycle as rest-group.html.

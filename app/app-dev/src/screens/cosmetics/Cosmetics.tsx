@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Image } from 'react-native';
 import Svg, { Path, Circle, Line } from 'react-native-svg';
 import { assets, cat } from '@/constants/assets';
-import { C } from '@/components/ui';
+import { C } from '@/design-system/primitives';
 import { State, Island } from '@/services/model';
 export function Scarf({ size = 60 }: { size?: number }) {
   return (

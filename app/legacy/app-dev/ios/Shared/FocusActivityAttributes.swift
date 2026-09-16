@@ -7,7 +7,7 @@
 // 구조라 한쪽만 고치면 조용히 깨짐). Shared/는 파일시스템 동기화 그룹이라 두 타겟에
 // 자동 포함된다 — 앞으로 이 파일만 고친다.
 //
-// ContentState는 PRD R4 스냅샷 스키마(docs/prd/apple-watch/)와 같은 원리다:
+// ContentState는 PRD R4 스냅샷 스키마(docs/prd/gromo/apple-watch/)와 같은 원리다:
 // 「앵커 시각 + 수신자 자체 갱신」. 상태 변화(시작·정지·재개·페이즈 전환) 때만 update하고,
 // 그 사이 렌더는 OS의 Text(timerInterval:)가 스스로 튄다. 이 스키마가 페이즈 1 워치
 // 스냅샷의 원형이 된다.

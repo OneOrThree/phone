@@ -1,5 +1,5 @@
 import { useWindowDimensions } from 'react-native';
-import { useScreenInsets } from '@/components/ui';
+import { useScreenInsets } from '@/design-system/primitives';
 
 export function useAppLayout() {
   const { width, height } = useWindowDimensions();

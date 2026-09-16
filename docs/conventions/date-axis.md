@@ -65,7 +65,7 @@ public static final ZoneId KST = ZoneId.of("Asia/Seoul");
 **리졸버를 제거했다.** 지금 `server/data-api/` 에 `CountryZoneResolver` 클래스는 존재하지 않는다.
 
 수용된 한계 **L5**: **기기의 그날 UTC 오프셋이 `+09:00` 이 아니면** "내 하루"와 앱의 하루가
-어긋난다 — 한국 타깃 서비스라 수용 (`docs/prd/challenge/prd.md` L5 · `policy.md` B3).
+어긋난다 — 한국 타깃 서비스라 수용 (`docs/prd/gromo/challenge/prd.md` L5 · `policy.md` B3).
 
 > ⚠️ **「해외 유저」가 아니라 「오프셋이 다른 기기」다.** 바로 위 문단이 *"JP 가 UTC+9 라 우연히
 > 무해"* 라고 적어 놓고 이 줄은 지역으로 일반화하고 있었다(GROMO-1497 codex 리뷰가 잡았다).

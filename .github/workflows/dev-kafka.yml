@@ -8,7 +8,7 @@ name: Dev Kafka (single-node broker)
 #   `up` 전에 서버에서 `free -m` 을 확인한다. 아래 up 단계도 MemAvailable 이 KAFKA_MIN_AVAILABLE_MB 미만이면 거부한다.
 # - 이 워크플로는 브로커만 올린다. **outbox relay 를 켜지 않는다**(OUTBOX_RELAY_ENABLED 기본 false).
 #   토픽도 만들지 않는다 — 브로커 자동 생성이 꺼져 있고, notification-events·.DLT 는 relay 가 켜질 때
-#   Data API 의 NewTopic 빈이 만든다. 켜는 순서: docs/prd/server-separation/runtime.md «dev 에서 켜는 순서».
+#   Data API 의 NewTopic 빈이 만든다. 켜는 순서: docs/prd/fishcat/server-separation/runtime.md «dev 에서 켜는 순서».
 # - kafka 서비스만 대상으로 한다. `compose down` 은 프로젝트 전체(app·db)를 내리므로 쓰지 않는다.
 #   kafka 에는 depends_on 이 없어 `up -d kafka` 가 app·db 를 건드리지 않는다.
 # - 브로커가 떠 있는 동안 dev-cd.yml 은 phone-kafka 를 감지해 kafka.yml 을 함께 물린다(고아 방지).

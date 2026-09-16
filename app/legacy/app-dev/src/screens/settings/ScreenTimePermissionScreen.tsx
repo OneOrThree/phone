@@ -311,7 +311,7 @@ export default function ScreenTimePermissionScreen() {
         await AsyncStorage.setItem(STORAGE_KEYS.selectionApplyDate, applyDate);
         await ScreenTimeModule.setPendingSelectionApplyDate(applyDate);
         setPendingApply(true); // 측정 대상 행 배지 즉시 반영
-        // 선택지 없는 결과 통보 → 토스트(정책 D8/D19 — docs/prd/motion-v2/policy.md, 상위 정본
+        // 선택지 없는 결과 통보 → 토스트(정책 D8/D19 — docs/prd/gromo/motion-v2/policy.md, 상위 정본
         // 병합 전까지 여기가 정본). 토스트엔 제목 줄이 없으므로 "즉시 반영이 아니라 **예약**"
         // 이라는 이 통보의 요점을 본문 첫 마디로 끌어온다 — 빠뜨리면 "지금 바뀌었다"로 읽힌다
         // (옛 Alert 제목이 '측정 대상 변경 예약됨'으로 하던 몫이다).

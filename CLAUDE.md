@@ -27,11 +27,11 @@ shop items. Company `oneorthree`. The frozen 1.x app uses iOS bundle id
 | `server/observability/` | Prometheus / Grafana / Loki / Datadog configs for the dev observability overlay. See `server/observability/README.md`. |
 | `server/scripts/`       | The `docker-compose.*.yml` files (`dev` / `local` / `prod` / `datadog` / `observability` / `realtime`). |
 | `loadtest/`             | k6 load-testing harness (scenarios, GCP runner terraform, trigger dashboard). See `loadtest/README.md`. |
-| `docs/`                 | **Team-shared** docs, tracked in git: `docs/prd/<feature>/` with PRD, policy, IA, high-level/low-level design, diagrams; repo-wide conventions in `docs/conventions/`. See `docs/README.md`. |
+| `docs/`                 | **Team-shared** docs, tracked in git: `docs/prd/<product>/<feature>/` with PRD, policy, IA, high-level/low-level design, diagrams; repo-wide conventions in `docs/conventions/`. See `docs/README.md`. |
 | `.github/workflows/`    | CI/CD pipelines (see below). |
 
 **`docs/` vs `doc/`**: `docs/` is the team-shared, committed documentation space
-(`docs/prd/<feature>/` — PRD · policy · IA · high-level/low-level design · diagrams).
+(`docs/prd/<product>/<feature>/` — PRD · policy · IA · high-level/low-level design · diagrams).
 `doc/` is the owner's personal planning scratch (tickets, reports, specs, drafts) —
 gitignored, never committed. Team-facing docs go in `docs/`; everything personal
 stays in `doc/`.
@@ -170,7 +170,7 @@ iOS builds/deploys are **not in CI** — they run manually via fastlane
 
 ## Key docs
 
-- `docs/prd/<feature>/` — team-shared per-feature docs (PRD / policy / IA / high-level / low-level design / diagrams); structure in `docs/README.md`.
+- `docs/prd/<product>/<feature>/` — team-shared per-feature docs (PRD / policy / IA / high-level / low-level design / diagrams); `product` is `gromo` or `fishcat`. Structure in `docs/README.md`.
 - `docs/conventions/` — team-wide rules: `git-pr-conventions.md` (branch · title · body · assignee/label · review · merge), `jira-conventions.md` (4-axis classification + field ids), `jira-ticket-template.md` (ticket body + creation gate), `date-axis.md`, `error-contract.md`, `backend-layering.md`.
 - `server/data-api/docs/db/schema.dbml` — canonical DB schema (DBML, **tracked** — the `docs/db/` whitelist in `server/data-api/.gitignore`, GROMO-735; keep it in sync and commit it with its migration). Schema deltas are applied by **Flyway** migrations in `server/data-api/src/main/resources/db/migration/` (`V1__baseline.sql` onward); the `run-migration-v*.sh` scripts next to it are a legacy archive.
 - `loadtest/README.md` — load-testing harness guide. `server/observability/README.md` — dev observability stack guide.

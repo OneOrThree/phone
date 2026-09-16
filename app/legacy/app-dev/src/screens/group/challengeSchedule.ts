@@ -1,5 +1,5 @@
 // 챌린지 요일 스케줄·날짜 표기 유틸 — 카드 요일 배지(GROMO-1274)·다음 활성일 예약(1419)·
-// 주간 일괄 참여(1276)가 같은 산출을 쓴다. 정본 규칙은 docs/prd/challenge/low-level-design.md
+// 주간 일괄 참여(1276)가 같은 산출을 쓴다. 정본 규칙은 docs/prd/gromo/challenge/low-level-design.md
 // §3.4(RepeatSchedule)·§2.1 — 서버와 같은 결과가 나와야 화면과 결제 대상이 어긋나지 않는다.
 //
 // ⚠️ 날짜 연산은 전부 'YYYY-MM-DD' 문자열 공간의 UTC 산술이다 — 날짜만 다루는 계산은 시간대가

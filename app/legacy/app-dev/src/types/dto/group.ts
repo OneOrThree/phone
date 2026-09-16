@@ -372,7 +372,7 @@ export interface CreateBetResponse {
 }
 
 // 챌린지가 도는 요일(ISO 축약 — LLD §2). 서버는 월=1…일=7 비트마스크로 접어 저장하지만
-// API 계약은 이 문자열 배열이다(docs/prd/challenge/low-level-design.md §2.1).
+// API 계약은 이 문자열 배열이다(docs/prd/gromo/challenge/low-level-design.md §2.1).
 export type ChallengeRepeatDay = 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT' | 'SUN';
 
 // POST /groups/{id}/challenges — 챌린지 생성(방장만). DURATION·TIME_WINDOW 둘 다 만든다
@@ -407,7 +407,7 @@ export interface CreateChallengeResponse {
 }
 
 // ── 챌린지 v2 — 참가자 스코프 /me 엔드포인트 (LLD §2.1, N43·N53) ───────────────────
-// 서버는 이 배치에서 병렬 구현 중이다 — shape의 정본은 docs/prd/challenge/low-level-design.md §2.
+// 서버는 이 배치에서 병렬 구현 중이다 — shape의 정본은 docs/prd/gromo/challenge/low-level-design.md §2.
 
 // 회차(bet session) 상태. UNUSED(참가 0명 마감)는 결과·내역·알림에서 제외된다(N52) —
 // /me/challenge-results에는 실리지 않지만, 모르는 상태가 와도 화면이 죽지 않게 유니온에 둔다.

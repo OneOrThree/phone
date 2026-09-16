@@ -12,7 +12,7 @@
 -- KST 통일(GROMO-1259, N8 · FR-19) 데이터 정정도 없다: 유저 존 매핑이 있던 국가는 KR · JP · GB
 -- 뿐이고 KR · JP 는 UTC+9 로 KST 와 동일 버킷이라 어긋난 행이 없으며, GB 행은 일 집계라 원본
 -- 시각이 남아 있지 않아 재버킷이 불가능하다. 해외 유저 어긋남은 알려진 한계 L5 로 수용
--- (docs/prd/challenge/prd.md L5 · policy.md B3).
+-- (docs/prd/gromo/challenge/prd.md L5 · policy.md B3).
 
 ALTER TABLE daily_screen_time_stats
     ALTER COLUMN total_screen_time_minutes DROP NOT NULL;

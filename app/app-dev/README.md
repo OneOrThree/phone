@@ -25,7 +25,8 @@ npm run web
 
 - `src/App.tsx`: 앱 상태·저장·화면 전환·음원 재생
 - `src/screens/`: 섬, 집중, 탐색, 인테리어, 꾸미기, 월드 화면
-- `src/components/`: 공용 UI·타이포그래피·캐릭터 컴포넌트
+- `src/design-system/`: UI kit 기반 토큰·타이포그래피·공용 UI·화면 조합 패턴
+- `src/components/`: 캐릭터·연출처럼 도메인에 가까운 공용 컴포넌트
 - `src/services/model.ts`: 재화·건설·집중·퀘스트·친구 정책
 - `src/hooks/`: 카메라와 사운드 훅
 - `src/utils/`: 섬 경로·카메라·월드 그리드 계산

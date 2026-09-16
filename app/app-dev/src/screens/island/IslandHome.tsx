@@ -1,4 +1,4 @@
-import { Text } from '@/components/typography';
+import { Text } from '@/design-system/typography';
 import { useIslandCamera } from '@/hooks/useIslandCamera';
 import { islandBaseScale } from '@/utils/island-camera';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
@@ -26,7 +26,7 @@ import {
   costs,
 } from '@/services/model';
 import { assets } from '@/constants/assets';
-import { C, T, Button, Progress, useScreenInsets } from '@/components/ui';
+import { C, T, Button, Progress, useScreenInsets } from '@/design-system/primitives';
 import { IslandDecor } from '@/screens/cosmetics/Cosmetics';
 import { CatSprite, catFrameBox } from '@/components/CatSprite';
 import {

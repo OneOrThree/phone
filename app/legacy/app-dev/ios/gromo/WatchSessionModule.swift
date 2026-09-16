@@ -5,7 +5,7 @@
 //       1차(GROMO-1598)는 보급률 계측용 getPairingStatus 하나만 제공한다.
 //       애플워치 컴패니언 페이즈 1에서 이 모듈이 WCSession delegate(명령 인박스)의
 //       거점으로 확장된다 — WCSession.default의 delegate는 앱 전역에서 하나뿐이므로
-//       워치 관련 네이티브 코드는 전부 이 모듈로 모은다 (docs/prd/apple-watch/ D2-④).
+//       워치 관련 네이티브 코드는 전부 이 모듈로 모은다 (docs/prd/gromo/apple-watch/ D2-④).
 //
 // 사용 방법 (JS에서):
 //   const { WatchSessionModule } = NativeModules;

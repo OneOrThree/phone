@@ -14,7 +14,7 @@ import {
   ImageStyle,
 } from 'react-native';
 import { useFonts } from 'expo-font';
-import { C, art, Txt, Pic, Chevron, Gear } from '@/components/Kit';
+import { C, art, Txt, Pic, Chevron, Gear } from '@/design-system/patterns';
 import { useAppLayout } from '@/utils/layout';
 
 // 꽉 채우는 그림. 웹(react-native-web)은 absoluteFill만 주면 원본 픽셀 크기로 그려서 폭·높이를 같이 준다

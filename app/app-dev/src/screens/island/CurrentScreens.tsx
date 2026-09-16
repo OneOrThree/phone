@@ -67,7 +67,7 @@ import {
   Toggle,
   Overlay,
   Wheel,
-} from '@/components/Kit';
+} from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 const fill = {
   position: 'absolute' as const,

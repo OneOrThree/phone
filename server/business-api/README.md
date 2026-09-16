@@ -714,7 +714,7 @@ SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
 지정해야 한다. 상류 주소·토큰과 Redis 암호가 빠지면 시작하지 않는다. Redis는 내부 네트워크에만
 붙고 호스트에 publish하지 않는다. 관리 포트 `9091`은 컨테이너 내부 전용이다.
 
-배포 절차는 [`deployment.md`](../../docs/prd/server-separation/deployment.md)를 따른다.
+배포 절차는 [`deployment.md`](../../docs/prd/fishcat/server-separation/deployment.md)를 따른다.
 `server/scripts/docker-compose.satellites.yml`과 Business 단독 compose는 같은 env/ACL 계약을 사용한다.
 `.github/workflows/satellite-ci.yml`이 Poppler를 포함한 테스트·이미지 검증을 담당한다.
 운영 활성화에는 라우팅·TLS와 Google API 키 설정이 함께 필요하다.

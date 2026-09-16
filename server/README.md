@@ -59,7 +59,7 @@ flowchart LR
 
 | 사용자 경험 · 운영 과제 | 서버에서 구현하는 내용 | 더 보기 |
 | --- | --- | --- |
-| 집중 기록과 보상이 일관되게 남기 | 집중 세션·재화 원장·정산을 코어 트랜잭션에서 관리 | [집중·휴식 설계](../docs/prd/focus-rest-session/README.md) |
+| 집중 기록과 보상이 일관되게 남기 | 집중 세션·재화 원장·정산을 코어 트랜잭션에서 관리 | [집중·휴식 설계](../docs/prd/fishcat/focus-rest-session/README.md) |
 | 응답을 놓쳐도 명령을 중복 실행하지 않기 | 같은 요청 키로 확정 결과를 재생하고 상태·receipt·outbox를 함께 저장 | [Business 공통 계층](business-api/README.md) |
 | 섬 안에서 대화하고 집중 중에는 채팅 제한하기 | 멤버십·집중 상태 검사, Redis 팬아웃, 채팅 이력과 읽음 위치 | [Realtime](realtime/README.md) |
 | 알림을 적절한 시점과 기기에 보내기 | 수신 중복 제거, 수신 동의·조용한 시간·확인 여부·발송 적격 검사 | [Notification](notification/README.md) |

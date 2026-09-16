@@ -93,7 +93,7 @@ jest.mock('@/utils/localDate', () => ({
 // 톤은 두 갈래로 갈린다: **진짜 못 한 것**(마감 지남·정산됨·권한 없음)만 tone:'error'이고,
 // '이미 …' 계열(이미 참여 중·이미 정리됨·이미 취소됨)은 원하던 상태가 이미 성립한 것이라
 // tone을 **생략**해 중립 배너로 낸다(오너 결정 2026-08-11). 아래 단언들이 그 경계를 잠근다.
-// 근거: GROMO-1491 / 정책 D19 — docs/prd/motion-v2/policy.md(상위 정본 병합 전까지 여기가 정본).
+// 근거: GROMO-1491 / 정책 D19 — docs/prd/gromo/motion-v2/policy.md(상위 정본 병합 전까지 여기가 정본).
 const mockToastShow = jest.fn();
 jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));
 // 주간 대상 산출은 '오늘'이 주(월~일) 어디냐에 따라 갈린다 — 요일을 옮기는 테스트만 이 목의

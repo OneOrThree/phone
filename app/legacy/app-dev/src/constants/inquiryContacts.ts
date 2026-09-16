@@ -1,10 +1,10 @@
 // 1:1 문의 담당자·카테고리 상수 — 단일 진실 원천.
 // 담당자·링크 교체는 이 파일만 고치면 되고, JS 변경이라 hot-updater OTA로 심사 없이 배포된다
-// (docs/prd/inquiry/policy.md D5). 여기에 import를 추가하지 말 것 — 순수 상수 모듈이다.
+// (docs/prd/gromo/inquiry/policy.md D5). 여기에 import를 추가하지 말 것 — 순수 상수 모듈이다.
 //
 // ⚠️ 이 파일은 OTA로 자주 손대는 파일이고, 손대는 사람이 PRD를 다시 읽지 않는다.
 //    계약은 inquiryContacts.test.ts가 잠근다 — 테스트가 깨지면 값을 고칠 게 아니라
-//    docs/prd/inquiry/low-level-design.md §1을 먼저 읽을 것.
+//    docs/prd/gromo/inquiry/low-level-design.md §1을 먼저 읽을 것.
 
 export type InquiryCategoryId = 'focus' | 'group' | 'etc';
 

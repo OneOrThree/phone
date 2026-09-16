@@ -1,4 +1,4 @@
-import { Text } from '@/components/typography';
+import { Text } from '@/design-system/typography';
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View,
@@ -13,7 +13,7 @@ import { useAppLayout } from '@/utils/layout';
 import { art } from '@/constants/art';
 import { assets, cat } from '@/constants/assets';
 import Svg, { Path, Ellipse } from 'react-native-svg';
-import { C, T } from '@/components/ui';
+import { C, T } from '@/design-system/primitives';
 import { State, sessionSeconds, currentIsland, Color, SECONDS_PER_FISH } from '@/services/model';
 export const clock = (n: number) =>
   `${Math.floor(n / 60)

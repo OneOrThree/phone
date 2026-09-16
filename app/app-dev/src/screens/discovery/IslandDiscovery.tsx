@@ -1,9 +1,9 @@
-import { Text } from '@/components/typography';
+import { Text } from '@/design-system/typography';
 import React, { useRef, useState } from 'react';
 import { View, Pressable, Animated } from 'react-native';
 import { Island } from '@/services/model';
 import { IslandPreview } from '@/screens/cosmetics/Cosmetics';
-import { C, H, T, Button, Avatar } from '@/components/ui';
+import { C, H, T, Button, Avatar } from '@/design-system/primitives';
 
 export function IslandDiscovery({
   islands,
