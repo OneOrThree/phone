@@ -184,6 +184,9 @@ FCM 패턴(`friend/event/FriendRequestSentEvent.java`,
 4. 새 리스너 `LetterNotificationEventListener`(`FriendNotificationEventListener`와 같은 모양,
    `@Async` + `@TransactionalEventListener(AFTER_COMMIT)`)가 발송을 맡는다.
 
+5. **OUTBOX 모드도 함께 배선한다(필수).** 알림 발송에는 두 경로가 있다. 직접 발송 모드에서는 위 `AFTER_COMMIT` 리스너가 보내지만, **OUTBOX 모드에서는 `FriendNotificationEventListener` 가 직접 발송을 건너뛰고 `NotificationRequestOutboxListener` 가 `BEFORE_COMMIT` 에서 이벤트를 outbox 로 수집한다**(`notification/listener/NotificationRequestOutboxListener.java:99-108` 이 `FriendRequestSentEvent`·`FriendRequestAcceptedEvent` 를 그렇게 다룬다). `AFTER_COMMIT` 리스너만 추가하면 OUTBOX 환경에서 편지 알림이 **아무 데도 적재되지 않아 푸시가 전혀 나가지 않는다.** 그래서 같은 클래스에 `collectLetterReceived(LetterReceivedEvent)` 를 `BEFORE_COMMIT` 으로 더한다.
+6. **알림 서버 catalog 마이그레이션이 선행돼야 한다.** 적재가 돼도 `server/notification` 의 catalog(`db/migration/V2__notification_catalog.sql` 계열)에 `LETTER_RECEIVED` 의 kind·템플릿·딥링크가 없으면 `DispatchService` 가 억제한다. 알림 서버 쪽 마이그레이션을 이 기능의 선행 작업으로 잡는다 — data-api 만 고치면 조용히 발송되지 않는다.
+
 **실시간 토픽 — 새로 만들지 않는다.** B22(`docs/prd/bff-screens/policy.md` B22)는 토픽을 정확히
 7개로 못 박았다: `events`·`focus`·`rest`·`emotes`·`playback`·`messages`·`/user/queue/events`. 편지를
 위한 8번째 토픽을 추가하지 않는다 — 근거:

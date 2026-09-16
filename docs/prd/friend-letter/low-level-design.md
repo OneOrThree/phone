@@ -5,8 +5,7 @@
 에러 응답 봉투는 저장소 전체 정본(`docs/conventions/error-contract.md`)을 따른다 —
 `{code, message}`, `code`는 에러코드 enum 상수 이름 그대로. 친구는 기존 `FriendErrorCode`
 (`friend/exception/FriendErrorCode.java`)를 그대로 쓰고, 편지는 신규 `LetterErrorCode`를
-같은 인터페이스(`common/exception/ErrorCode`)로 만든다 — 두 도메인 패키지가 다르므로 코드 이름이
-겹쳐도(`NOT_FRIEND` 등) 별도 enum을 둔다(`docs/conventions/error-contract.md` §2 규칙 그대로).
+같은 인터페이스(`common/exception/ErrorCode`)로 만든다. **상수 이름은 두 enum 사이에서도 겹치면 안 된다** — `code` 는 패키지 없이 `name()` 그대로 나가므로 같은 이름을 쓰면 앱이 원인을 구분하지 못한다(`docs/conventions/error-contract.md`:79 「상수 이름 재사용」 금지, 과거 `NOT_FOUND` 중복도 `TARGET_USER_NOT_FOUND` 등으로 개명해 해소했다). 따라서 편지에서 「친구가 아님」은 `FriendErrorCode.NOT_FRIEND`(404)와 이름이 겹치지 않도록 **`LETTER_RECIPIENT_NOT_FRIEND`** 로 둔다.
 
 ## §1. 계약별 상세
 
@@ -56,6 +55,8 @@ public void cancel() {
 }
 ```
 
+**수락 경로도 함께 막는다(필수).** `FriendService.acceptRequest`(`FriendService.java:212-227`)는 **상태를 검사하지 않는다** — 주석에도 「이 API 는 상태를 검사하지 않는다」고 적혀 있고, `ACCEPTED` 인지만 알림 중복 방지용으로 본 뒤 그대로 `accept()` 를 부른다. 그래서 `CANCELED` 를 추가하기만 하면 **발신자가 취소한 요청을 수신자가 옛 requestId 로 수락해 친구 관계가 되살아난다.** `acceptRequest` 에 `status != PENDING` 이면 `INVALID_REQUEST_STATUS`(409) 로 막는 검사를 함께 넣는다 — `rejectRequest`(`FriendService.java:238-245`)가 이미 같은 검사를 하고 있으므로 그 모양을 따른다. 수락이 관용적이었던 원래 이유(「관계를 늘리는 방향이라 파괴 경로가 없다」)는 취소 상태가 생기면 더 이상 성립하지 않는다.
+
 **서비스 로직**: `FriendService.rejectRequest`(`FriendService.java:238-245`)와 대칭이지만 검증 대상이
 반대다 — `getReceivedRequest`(수신자 검증, `:495-502`)와 짝을 이루는 `getSentRequest`(발신자 검증)를
 새로 만든다. `Friendship.getFromUser().getId().equals(me)`가 아니면 `NOT_REQUEST_SENDER`.
@@ -77,7 +78,7 @@ public void cancel() {
 | 요청 body | `{receiverId: UUID, content: String}` — 둘 다 필수. `content`는 strip 후 empty면 422 |
 | 응답 body | `LetterResponse` — `id`·`senderId`·`receiverId`·`content`·`createdAt`·`readAt`(항상 `null`, 방금 만든 편지) |
 | 성공 코드 | 201 |
-| 에러 | 400 `SELF_LETTER`(자기 자신에게) · 400/422 `INVALID_REQUEST`(본문 비어있음·1000자 초과, LLD §2.1 상한 참고) · 404 `USER_NOT_FOUND`(수신자 없음·탈퇴) · 404 `NOT_FRIEND`(친구 관계 아님, HLD §2.5) |
+| 에러 | 400 `SELF_LETTER`(자기 자신에게) · 400 `INVALID_REQUEST`(필수 누락·strip 후 빈 본문) · 422 `LETTER_CONTENT_OUT_OF_RANGE`(길이 상한 초과, §2.1) — **한 상수는 한 상태만 갖는다**(`common/exception/ErrorCode.getStatus()` 가 하나뿐이라 「400 또는 422」는 표현할 수 없다) · 404 `TARGET_USER_NOT_FOUND`(수신자 없음·탈퇴 — `UserQueryService.getTargetForShare`(`user/repository/UserQueryService.java:157`)가 던지는 코드다. 요청자 쪽 `getCallerForShare` 의 `USER_NOT_FOUND` 와 다르다) · 404 `LETTER_RECIPIENT_NOT_FRIEND`(친구 관계 아님, HLD §2.5) |
 | 권한 | 로그인 유저 = `senderId`(토큰에서 주입, 본문으로 받지 않는다 — `FriendRequestCreateRequest`와 같은 관례) |
 
 `FriendService.createRequest`의 활성 검증 순서(`FriendService.java:137-138`, `getCallerParticipant`→
@@ -90,7 +91,7 @@ public void cancel() {
 
 | 항목 | 값 |
 | --- | --- |
-| 요청 query | `type`(`received`\|`sent`, 기본 `received`) · `cursor`(직전 페이지 마지막 편지 `id`, 생략 시 첫 페이지) · `size`(기본값·상한은 `FocusService.MAX_PAGE_SIZE` 관례를 따른다) |
+| 요청 query | `type`(`received`\|`sent`, 기본 `received`) · `cursor`(직전 페이지 마지막 편지 `id`, 생략 시 첫 페이지) · `size`(**기본 20 · 허용 1~100**). `FocusService` 는 상한 100(`MAX_PAGE_SIZE`)만 정의하고 `size` 를 `@RequestParam int size` 로 **필수**로 받으므로(`FocusController.java:129`) 기본값 선례가 없다 — 편지함은 화면 조합이 파라미터 없이 부르는 조각이라 기본값이 반드시 필요해 여기서 숫자로 확정한다 |
 | 응답 body | `LetterSliceResponse{content, size, hasNext, nextCursor}` — `FocusSessionSliceResponse`(`focus/dto/FocusSessionSliceResponse.java`)와 같은 모양 |
 | `LetterItemResponse` | `id`·`counterpartUserId`(상대 — `type=received`면 발신자, `type=sent`면 수신자)·`counterpartNickname`(HLD §3 "작성자 표시 정보" — 탈퇴자는 `null`)·`content`·`isRead`(`type=sent`일 때는 항상 `false` 고정 — 내가 보낸 편지의 상대측 열람 여부는 이 계약에서 노출하지 않는다)·`createdAt` |
 | 성공 코드 | 200 |
@@ -101,11 +102,14 @@ public void cancel() {
 
 ```sql
 SELECT * FROM letters
-WHERE (:type = 'received' AND receiver_id = :me) OR (:type = 'sent' AND sender_id = :me)
+WHERE ((:type = 'received' AND receiver_id = :me)
+    OR (:type = 'sent'     AND sender_id   = :me))
   AND deleted_at IS NULL
   AND (:cursor IS NULL OR id < :cursor)
 ORDER BY id DESC
 ```
+
+**수신·발신 선택 조건 전체를 괄호로 묶는 것이 필수다.** SQL 은 `AND` 가 `OR` 보다 먼저 결합하므로 괄호가 없으면 `type='received'` 일 때 첫 절만 참이면 `deleted_at`·커서 조건을 통째로 건너뛴다 — 다음 페이지가 첫 페이지를 다시 돌려줘 페이징이 멈추고, 소프트 삭제된 편지까지 노출된다.
 
 (실제 JPA 리포지토리는 `FocusSessionRepository.findSessionsByCursor` 처럼 `type`별로 메서드를
 나누는 편이 `Slice`+`@Query` 조합에서 더 단순하다 — 구현 시 선택.)
@@ -120,7 +124,7 @@ ORDER BY id DESC
 | 성공 코드 | 200 |
 | 에러 | 404 `LETTER_NOT_FOUND` · 403 `NOT_LETTER_PARTICIPANT`(발신자도 수신자도 아님) |
 | 권한 | 발신자 또는 수신자 본인만(HLD §2.5) |
-| 부수효과 | 호출자가 **수신자**이고 `readAt IS NULL`이면 이번 호출에서 `now()`로 갱신(최초 1회, 멱등 — 이미 읽었으면 갱신 없음). 발신자 본인 조회는 `readAt`을 건드리지 않는다 |
+| 부수효과 | 호출자가 **수신자**이고 `readAt IS NULL`이면 `now()`로 갱신한다. 발신자 본인 조회는 `readAt`을 건드리지 않는다. **갱신은 원자적이어야 한다** — `UPDATE letters SET read_at = :now WHERE id = :id AND read_at IS NULL` 같은 조건부 UPDATE(또는 행 배타 락)로 쓴다. 읽고 나서 쓰면 두 기기·재시도가 동시에 `read_at IS NULL` 을 읽어 각자의 `now()` 를 덮어써 **실제 최초 열람 시각이 보존되지 않는다** |
 
 ### 1.15 — 내부 GET (B26, Business 전용)
 
@@ -132,6 +136,16 @@ HLD §3 표와 동일. 공개 계약(§1.5·1.6·1.13)과 인가만 다르다 �
 | `GET /internal/users/{userId}/friends?date=` | §1.5 | `friend/InternalFriendController`(신설) |
 | `GET /internal/users/{userId}/friend-requests?type=` | §1.6 | 위와 동일 클래스 |
 | `GET /internal/users/{userId}/letters?type=&cursor=&size=` | §1.13 | `letter/InternalLetterController`(신설) |
+
+**컨트롤러 신설만으로는 호출되지 않는다.** `InternalAuthFilter` 는 등록된 (메서드, 경로) 패턴과 정확히 맞지 않으면 403 을 준다. 현재 `application-satellites.yml` 의 business caller 허용목록(`internal.api.callers.business.allow`)에 이 세 경로가 없으므로, 구현 PR 이 다음 세 줄을 함께 추가해야 `friends`·`mailbox` 조각이 거절되지 않는다.
+
+```yaml
+          - 'GET /internal/users/*/friends'
+          - 'GET /internal/users/*/friend-requests'
+          - 'GET /internal/users/*/letters'
+```
+
+세그먼트 하나짜리 `*` 로 적는다 — `GET /internal/users/*` 처럼 넓히면 같은 접두의 다른 계약까지 함께 열린다([bff-screens 구현 문서](../bff-screens/implementation-data-api.md) §3 의 같은 경고).
 
 ## §2. Flyway 마이그레이션 계획
 
