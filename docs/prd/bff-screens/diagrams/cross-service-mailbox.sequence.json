@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "패턴 C · 서비스 교차 — GET /screens/mailbox",
+    "quality_profile": "showcase",
+    "viewBox": [1080, 600],
+    "column_fit": "spread",
+    "views": [
+      { "id": "fan-out", "label": "두 서비스 동시 호출", "focus": ["app", "biz", "realtime", "data"], "note": "편지방은 Realtime, 편지·친구는 Data가 소유한다." },
+      { "id": "authz", "label": "Realtime의 인가", "focus": ["realtime", "data"], "note": "Realtime은 Data 권한 조회로 주민·우체통 완공을 확인한다." },
+      { "id": "names", "label": "작성자 이름 붙이기", "focus": ["biz", "data", "app"], "note": "메시지에는 이름이 없어 허가된 작성자 id를 Data에 한 번에 묻는다." }
+    ]
+  },
+  "participants": [
+    { "id": "app", "type": "frontend", "label": "앱", "sublabel": "우체통" },
+    { "id": "biz", "type": "backend", "label": "ScreenReadUseCase", "sublabel": "ScreenComposer 3초" },
+    { "id": "realtime", "type": "backend", "label": "Realtime", "sublabel": "gromo_chat" },
+    { "id": "data", "type": "backend", "label": "Data API", "sublabel": "gromo" }
+  ],
+  "segments": [
+    { "from": 150, "to": 360, "label": "병렬 조각" },
+    { "from": 370, "to": 470, "label": "작성자 표시" },
+    { "from": 480, "to": 520, "label": "응답" }
+  ],
+  "messages": [
+    { "id": "open", "from": "app", "to": "biz", "y": 165, "label": "GET /screens/mailbox", "variant": "emphasis" },
+    { "id": "letters", "from": "biz", "to": "data", "y": 200, "label": "우체통 완공 · 편지함 · 친구", "variant": "emphasis" },
+    { "id": "messages", "from": "biz", "to": "realtime", "y": 232, "label": "섬 편지방 첫 페이지", "variant": "emphasis" },
+    { "id": "authz", "from": "realtime", "to": "data", "y": 264, "label": "주민 · 우체통 권한 조회", "variant": "security" },
+    { "id": "allowed", "from": "data", "to": "realtime", "y": 294, "label": "허가", "variant": "return" },
+    { "id": "msg-page", "from": "realtime", "to": "biz", "y": 326, "label": "메시지 (작성자 id)", "variant": "return" },
+    { "id": "letter-page", "from": "data", "to": "biz", "y": 354, "label": "편지함 · 친구 DTO", "variant": "return" },
+    { "id": "display", "from": "biz", "to": "data", "y": 392, "label": "작성자 표시 정보 batch", "variant": "default" },
+    { "id": "names", "from": "data", "to": "biz", "y": 424, "label": "name · catColor", "variant": "return" },
+    { "id": "reply", "from": "biz", "to": "app", "y": 500, "label": "200 {data}", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "biz", "from": 160, "to": 506, "type": "backend" },
+    { "participant": "realtime", "from": 227, "to": 332, "type": "backend" },
+    { "participant": "data", "from": 195, "to": 430, "type": "backend" }
+  ],
+  "cards": [
+    { "dot": "violet", "title": "소유가 갈린다", "items": ["섬 편지방: Realtime (gromo_chat)", "편지·친구·표시 정보: Data (gromo)", "한 DB 스냅샷이라고 부르지 않는다"] },
+    { "dot": "amber", "title": "설계가 먼저 필요", "items": ["친구·편지 도메인 LLD 없음 (BG10)", "island-mailbox LLD는 편지방만 다룬다", "그전에는 이 화면을 열지 않는다"] },
+    { "dot": "rose", "title": "실패 규칙", "items": ["Realtime 권한 거부 → 화면 전체 403", "표시 정보 장애를 탈퇴자로 바꾸지 않는다", "3초 소진 → 504"] }
+  ]
+}

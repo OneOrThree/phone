@@ -1,5 +1,7 @@
 # 아키텍처와 데이터 흐름
 
+> **2026-09-15 개정:** 아래 Data read-model 흐름은 v0.3 13종 기록이다. 현재 기본은 Business가 도메인 GET을 병렬 조합하는 방식이다([정책](policy.md) B24). 흐름 그림은 [diagrams/](diagrams/)와 [Business 구현](implementation-business-api.md) §1에 있다.
+
 BFF는 화면에 필요한 서류를 한 봉투에 넣어 주는 창구다. 서류 내용이 서로 맞아야 하므로 Data는 같은 시점의 장부를 읽는다. Business가 각 서류를 다른 시각에 받아 놓고 “같은 시점”이라고 이름만 붙이지 않는다.
 
 ```mermaid

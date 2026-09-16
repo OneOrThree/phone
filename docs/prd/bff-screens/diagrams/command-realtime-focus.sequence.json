@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "패턴 D · 명령과 실시간 — POST /focus-sessions/{sessionId}/finish",
+    "quality_profile": "showcase",
+    "viewBox": [1080, 600],
+    "column_fit": "spread",
+    "views": [
+      { "id": "command", "label": "한 TX로 정산", "focus": ["app", "biz", "data", "pg"], "note": "구간 닫기·정산·receipt·outbox를 한 트랜잭션에 쓴다." },
+      { "id": "push", "label": "사건 전달", "focus": ["data", "kafka", "realtime", "app"], "note": "커밋 뒤 relay가 사건을 보내고 Realtime이 토픽으로 방송한다." },
+      { "id": "recover", "label": "응답 유실 복구", "focus": ["app", "biz", "data"], "note": "결과 조회 GET 없이 finish를 다시 부르면 같은 결과가 온다." }
+    ]
+  },
+  "participants": [
+    { "id": "app", "type": "frontend", "label": "앱", "sublabel": "낚시섬 · 모닥불" },
+    { "id": "biz", "type": "backend", "label": "Business API", "sublabel": "명령 전달" },
+    { "id": "data", "type": "backend", "label": "Data API", "sublabel": "명령 TX" },
+    { "id": "pg", "type": "database", "label": "PostgreSQL", "sublabel": "gromo" },
+    { "id": "kafka", "type": "messagebus", "label": "Kafka", "sublabel": "outbox relay" },
+    { "id": "realtime", "type": "backend", "label": "Realtime", "sublabel": "/topic/islands/{id}/focus" }
+  ],
+  "segments": [
+    { "from": 150, "to": 320, "label": "명령" },
+    { "from": 330, "to": 420, "label": "사건 방송" },
+    { "from": 430, "to": 520, "label": "복구" }
+  ],
+  "messages": [
+    { "id": "finish", "from": "app", "to": "biz", "y": 165, "label": "finish + Idempotency-Key", "variant": "emphasis" },
+    { "id": "forward", "from": "biz", "to": "data", "y": 195, "label": "같은 키로 명령", "variant": "emphasis" },
+    { "id": "tx", "from": "data", "to": "pg", "y": 225, "label": "구간 닫기 · 정산 · receipt · outbox", "variant": "emphasis" },
+    { "id": "commit", "from": "pg", "to": "data", "y": 255, "label": "commit", "variant": "return" },
+    { "id": "view", "from": "data", "to": "biz", "y": 283, "label": "FocusFinishView", "variant": "return" },
+    { "id": "result", "from": "biz", "to": "app", "y": 311, "label": "200 결과 화면", "variant": "return" },
+    { "id": "relay", "from": "data", "to": "kafka", "y": 345, "label": "outbox 사건", "variant": "dashed" },
+    { "id": "consume", "from": "kafka", "to": "realtime", "y": 375, "label": "focus.member.updated", "variant": "dashed" },
+    { "id": "broadcast", "from": "realtime", "to": "app", "y": 405, "label": "같은 섬 주민에게 방송", "variant": "dashed" },
+    { "id": "retry", "from": "app", "to": "biz", "y": 450, "label": "응답 유실 → finish 재호출", "variant": "default" },
+    { "id": "replay", "from": "biz", "to": "data", "y": 478, "label": "완료 세션 복구", "variant": "default" },
+    { "id": "same", "from": "data", "to": "app", "y": 508, "label": "같은 결과 · 추가 정산 0", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "biz", "from": 160, "to": 317, "type": "backend" },
+    { "participant": "data", "from": 190, "to": 289, "type": "backend" },
+    { "participant": "pg", "from": 220, "to": 261, "type": "database" },
+    { "participant": "kafka", "from": 340, "to": 381, "type": "messagebus" },
+    { "participant": "realtime", "from": 370, "to": 411, "type": "backend" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "같은 패턴 명령", "items": ["집중 start · pause · resume · finish", "건설 · 구매 · 가입 승인 · 공지", "화면 GET은 사건을 만들지 않는다"] },
+    { "dot": "cyan", "title": "앱이 받는 토픽", "items": ["events · focus · rest · emotes", "playback · messages", "/user/queue/events (개인)"] },
+    { "dot": "orange", "title": "emote는 REST가 아니다", "items": ["SEND /app/islands/{islandId}/focus/emotes", "Realtime이 활성 세션을 검증해 방송", "저장·멱등 키 없음"] }
+  ]
+}
