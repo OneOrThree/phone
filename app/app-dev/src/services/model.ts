@@ -232,6 +232,7 @@ export type State = {
   screenMinutes: number;
   lastResult: RecordItem | null;
   pendingIsland: string | null;
+  pendingIslands?: string[];
   travelOrigin?: string;
   // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
   hallGuide?: 'pending' | 'done';
@@ -403,7 +404,7 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
     points: 0,
     contribution: 0,
     fish: full ? 1200 : 0,
-    earned: full ? { me: 320, minji: 260, dubu: 200, sua: 165 } : {},
+    earned: full ? { ...(joined ? { me: 320 } : {}), minji: 260, dubu: 200, sua: 165 } : {},
     members: (solo ? [] : peers()).map((m, index) => ({
       ...m,
       role: full && !joined && index === 0 ? 'host' : m.role,
@@ -437,77 +438,81 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
         claimed: false,
       },
     ],
-    notices: [
-      {
-        id: 'welcome',
-        title: '우리 섬에 온 걸 환영해요',
-        body: '혼자 집중해도, 함께 집중해도 좋아요. 각자 할 일을 정하고 낚시하러 나가요.',
-        author: '민지',
-        authorId: 'minji',
-        at: Date.now() - 86400000,
-        comments: [
+    notices: solo
+      ? []
+      : [
           {
-            id: 'c1',
-            name: '민지',
-            memberId: 'minji',
-            text: '오늘도 같이 힘내요!',
-            at: Date.now() - 3600000,
+            id: 'welcome',
+            title: '우리 섬에 온 걸 환영해요',
+            body: '혼자 집중해도, 함께 집중해도 좋아요. 각자 할 일을 정하고 낚시하러 나가요.',
+            author: '민지',
+            authorId: 'minji',
+            at: Date.now() - 86400000,
+            comments: [
+              {
+                id: 'c1',
+                name: '민지',
+                memberId: 'minji',
+                text: '오늘도 같이 힘내요!',
+                at: Date.now() - 3600000,
+              },
+            ],
+          },
+          // v2 목업과 같은 두 번째 공지 (게시판 공지 탭에 종이 두 장)
+          {
+            id: 'weekly-goal',
+            title: '이번 주 목표는 20시간',
+            body: '이번 주에는 우리 섬 합계 20시간을 목표로 해요. 각자 할 수 있는 만큼만 보태요.',
+            author: '민지',
+            authorId: 'minji',
+            at: Date.now() - 6 * 86400000,
+            comments: [
+              {
+                id: 'c2',
+                name: '민지',
+                memberId: 'minji',
+                text: '좋아요, 저는 하루 한 시간!',
+                at: Date.now() - 5 * 86400000,
+              },
+              {
+                id: 'c3',
+                name: '두부',
+                memberId: 'dubu',
+                text: '주말에 몰아서 채울게요.',
+                at: Date.now() - 5 * 86400000,
+              },
+              {
+                id: 'c4',
+                name: '수아',
+                memberId: 'sua',
+                text: '같이 해요!',
+                at: Date.now() - 4 * 86400000,
+              },
+            ],
           },
         ],
-      },
-      // v2 목업과 같은 두 번째 공지 (게시판 공지 탭에 종이 두 장)
-      {
-        id: 'weekly-goal',
-        title: '이번 주 목표는 20시간',
-        body: '이번 주에는 우리 섬 합계 20시간을 목표로 해요. 각자 할 수 있는 만큼만 보태요.',
-        author: '민지',
-        authorId: 'minji',
-        at: Date.now() - 6 * 86400000,
-        comments: [
+    messages: solo
+      ? []
+      : [
           {
-            id: 'c2',
-            name: '민지',
+            id: 'm1',
             memberId: 'minji',
-            text: '좋아요, 저는 하루 한 시간!',
-            at: Date.now() - 5 * 86400000,
+            name: '민지',
+            color: 'ginger',
+            text: '오늘 할 일 끝냈어! 같이 집중하니까 덜 미뤘다.',
+            at: Date.now() - 600000,
+            status: 'sent',
           },
           {
-            id: 'c3',
-            name: '두부',
+            id: 'm2',
             memberId: 'dubu',
-            text: '주말에 몰아서 채울게요.',
-            at: Date.now() - 5 * 86400000,
-          },
-          {
-            id: 'c4',
-            name: '수아',
-            memberId: 'sua',
-            text: '같이 해요!',
-            at: Date.now() - 4 * 86400000,
+            name: '두부',
+            color: 'cream',
+            text: '수고했어! 나는 한 번 더 하고 쉴게.',
+            at: Date.now() - 540000,
+            status: 'sent',
           },
         ],
-      },
-    ],
-    messages: [
-      {
-        id: 'm1',
-        memberId: 'minji',
-        name: '민지',
-        color: 'ginger',
-        text: '오늘 할 일 끝냈어! 같이 집중하니까 덜 미뤘다.',
-        at: Date.now() - 600000,
-        status: 'sent',
-      },
-      {
-        id: 'm2',
-        memberId: 'dubu',
-        name: '두부',
-        color: 'cream',
-        text: '수고했어! 나는 한 번 더 하고 쉴게.',
-        at: Date.now() - 540000,
-        status: 'sent',
-      },
-    ],
     sharedOwned: ['waves', 'campfire', 'forest-wind'],
     theme: 'default',
     buildingTheme: 'default',
@@ -595,6 +600,7 @@ export function initialState(full = false): State {
     screenMinutes: 90,
     lastResult: null,
     pendingIsland: null,
+    pendingIslands: [],
   };
 }
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
@@ -616,8 +622,9 @@ export const recordSecondsBetween = (record: RecordItem, from: number, until: nu
 // 이번 주 시작 = Asia/Seoul 기준 일요일 00:00
 export function weekStart(now = Date.now()) {
   const d = kstDate(now);
+  const daysSinceMonday = (d.getUTCDay() + 6) % 7;
   return (
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - d.getUTCDay()) - KST_OFFSET_MS
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - daysSinceMonday) - KST_OFFSET_MS
   );
 }
 // 섬 평균 집중(초) = 이번 주 그 섬에서 집중한 시간 합계 ÷ 그 섬 주민 수
@@ -626,11 +633,9 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
   const residents = residentCount(i);
   if (!residents) return 0;
   const from = weekStart(now);
-  const mine = i.joined
-    ? s.records
-        .filter((r) => r.islandId === i.id)
-        .reduce((a, r) => a + recordSecondsBetween(r, from, now), 0)
-    : 0;
+  const mine = s.records
+    .filter((r) => r.islandId === i.id)
+    .reduce((a, r) => a + recordSecondsBetween(r, from, now), 0);
   return (
     (mine +
       [...i.members, ...(i.formerMembers ?? [])].reduce(
@@ -707,7 +712,7 @@ export function periodBounds(period: '일' | '주' | '월', offset: number, at =
   d.setUTCHours(0, 0, 0, 0);
   if (period === '일') d.setUTCDate(d.getUTCDate() + offset);
   if (period === '주') {
-    d.setUTCDate(d.getUTCDate() - d.getUTCDay() + offset * 7);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7) + offset * 7);
   }
   if (period === '월') {
     d.setUTCDate(1);
@@ -923,6 +928,8 @@ export function reducer(state: State, a: Action): State {
         ]),
       );
     });
+    const pendingIslands =
+      loaded.pendingIslands ?? (loaded.pendingIsland ? [loaded.pendingIsland] : []);
     return {
       ...loaded,
       schema: 2,
@@ -931,6 +938,8 @@ export function reducer(state: State, a: Action): State {
       rewards: loaded.rewards ?? [],
       screenDays: loaded.screenDays ?? {},
       profileNames: loaded.profileNames ?? [loaded.name],
+      pendingIslands,
+      pendingIsland: loaded.pendingIsland ?? pendingIslands.at(-1) ?? null,
       settings: { ...loaded.settings, publicRecords: true },
       equipped: {
         ...loaded.equipped,
@@ -1002,20 +1011,26 @@ export function reducer(state: State, a: Action): State {
       s.onboarded = true;
       break;
     }
-    case 'CANCEL_JOIN':
-      return { ...s, pendingIsland: null };
+    case 'CANCEL_JOIN': {
+      const target = a.id ?? s.pendingIsland;
+      s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== target);
+      s.pendingIsland = s.pendingIslands.at(-1) ?? null;
+      break;
+    }
     case 'JOIN': {
       if (s.session) return state;
       const island = s.islands.find((x) => x.id === a.id);
       if (!island || (!island.joined && isFull(island))) return state;
       if (!island.joined && island.approval && !a.approved) {
+        s.pendingIslands = [...new Set([...(s.pendingIslands ?? []), island.id])];
         s.pendingIsland = island.id;
         break;
       }
       s.travelOrigin = s.onboarded ? i.name : '나의 뗏목';
       island.joined = true;
       s.islandId = island.id;
-      s.pendingIsland = null;
+      s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== island.id);
+      s.pendingIsland = s.pendingIslands.at(-1) ?? null;
       s.onboarded = true;
       break;
     }
@@ -1473,15 +1488,17 @@ export function reducer(state: State, a: Action): State {
     case 'DELETE_ACCOUNT': {
       const clean = initialState();
       const profileNames = new Set([s.name, ...(s.profileNames ?? [])]);
+      const isOwnLegacyLedger = (text: string) =>
+        [...profileNames].some((name) =>
+          [`${name} · 집중 `, `${name} 집중 보상`].some((prefix) => text.startsWith(prefix)),
+        );
       clean.islands = s.islands.map((i) => ({
         ...i,
         joined: false,
         earned: Object.fromEntries(Object.entries(i.earned ?? {}).filter(([id]) => id !== 'me')),
         ledger: i.ledger.filter(
           (entry) =>
-            entry.memberId !== 'me' &&
-            (entry.memberId != null ||
-              ![...profileNames].some((name) => entry.text.includes(name))),
+            entry.memberId !== 'me' && (entry.memberId != null || !isOwnLegacyLedger(entry.text)),
         ),
         notices: i.notices
           .filter(

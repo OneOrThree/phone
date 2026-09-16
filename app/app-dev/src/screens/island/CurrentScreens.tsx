@@ -288,6 +288,7 @@ function Visit({ e }: any) {
     s.islands.find((j) => j.id !== i.id) ??
     i;
   const pending = s.pendingIsland === target.id;
+  const pendingForTarget = (s.pendingIslands ?? []).includes(target.id) || pending;
   const sail = () => {
     if (s.session) return e.notify('집중을 마친 뒤 이동해 주세요.');
     e.dispatch({ type: 'TRAVEL_FROM', name: i.name });
@@ -316,15 +317,19 @@ function Visit({ e }: any) {
             title={
               target.joined
                 ? '배 타고 이동'
-                : pending
+                : pendingForTarget
                   ? '가입신청 취소'
                   : target.approval
                     ? '가입신청'
                     : '가입하기'
             }
-            disabled={!target.joined && !pending && isFull(target)}
+            disabled={!target.joined && !pendingForTarget && isFull(target)}
             onPress={
-              target.joined ? sail : pending ? () => e.dispatch({ type: 'CANCEL_JOIN' }) : join
+              target.joined
+                ? sail
+                : pendingForTarget
+                  ? () => e.dispatch({ type: 'CANCEL_JOIN', id: target.id })
+                  : join
             }
           />
           {!target.joined && <Btn title="배 타고 둘러보기" kind="glass" onPress={sail} />}
@@ -687,10 +692,10 @@ function FocusFlow({ e }: any) {
         </View>
       )}
       {r === 'focusSetup' && (
-        <Overlay close={() => e.go('fishingArrival')}>
+        <Overlay close={e.back}>
           <View style={[k.row, { justifyContent: 'space-between' }]}>
             <Txt kind="h17">오늘의 할 일</Txt>
-            <Close onPress={() => e.go('fishingArrival')} />
+            <Close onPress={e.back} />
           </View>
           <Field value={e.text} onChange={e.setText} placeholder="수학 문제 풀기" />
           <Btn
@@ -1153,7 +1158,13 @@ function Library({ e }: any) {
           />
         ))
       ) : page === 0 ? (
-        records.length ? (
+        who.id !== 'me' ? (
+          records.length ? (
+            <Row title="집중 합계" tail={<Txt>{hoursMinutes(total)}</Txt>} />
+          ) : (
+            <Empty>이 기간에 집중 기록이 없어요.</Empty>
+          )
+        ) : records.length ? (
           records.map((r) => (
             <Row
               key={r.id}
@@ -2021,9 +2032,9 @@ function Tower({ e }: any) {
   const visibleIslands = s.islands.filter(
       (j) => j.id !== i.id && (j.joined || j.visibility !== 'private'),
     ),
-    ranked = [...visibleIslands].sort(
-      (a, b) => islandWeeklyAverage(s, b, e.now) - islandWeeklyAverage(s, a, e.now),
-    ),
+    ranked = visibleIslands
+      .filter((island) => residentCount(island) >= 2)
+      .sort((a, b) => islandWeeklyAverage(s, b, e.now) - islandWeeklyAverage(s, a, e.now)),
     inviteTarget = findIslandByInviteCode(s.islands, query),
     results = s.islands.filter(
       (j) =>
@@ -2047,7 +2058,7 @@ function Tower({ e }: any) {
       {e.route === 'tower' ? (
         <>
           <Txt kind="h17">다른 섬 평균 집중 랭킹</Txt>
-          <Txt kind="meta">이번 주 · 일요일 00시 초기화</Txt>
+          <Txt kind="meta">이번 주 · 월요일 00시 초기화</Txt>
           <Group flat>
             {ranked.map((j, n) => (
               <Row

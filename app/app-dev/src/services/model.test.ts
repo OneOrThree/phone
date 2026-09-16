@@ -45,6 +45,8 @@ test('휴식은 집중에서 제외, 보상은 집중한 섬에만 적립하고 
 });
 test('회관→게시판은 섬 인원과 무관한 총량 고정; 차감 후 공사 시간 동안 후속 건설을 막는다', () => {
   let s = act(initialState(), 'CREATE_ISLAND', { name: '건설 섬' });
+  assert.deepEqual(currentIsland(s).notices, []);
+  assert.deepEqual(currentIsland(s).messages, []);
   s = act(s, 'DEMO_CREDIT', { fish: 300 });
   assert.ok(canBuild(s, 'board'));
   s = act(s, 'BUILD', { building: 'hall', now: 1000 });
@@ -264,7 +266,7 @@ test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정�
   const island = currentIsland(s);
   island.earned!.me = 999;
   island.ledger.push({ id: 'mine', text: `${s.name} 집중 보상`, at: 1, memberId: 'me' });
-  island.ledger.push({ id: 'legacy-mine', text: `${s.name} 예전 집중 보상`, at: 1 });
+  island.ledger.push({ id: 'legacy-mine', text: `${s.name} 집중 보상`, at: 1 });
   island.ledger.push({ id: 'shared', text: '마을회관 공사 완료', at: 2 });
   island.notices.unshift({
     id: 'mine',
@@ -343,6 +345,21 @@ test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정�
   assert.equal(s.loggedIn, false);
   assert.deepEqual(s.records, []);
 });
+test('레거시 원장은 닉네임의 정확한 작성자 접두어만 삭제한다', () => {
+  let s = initialState(true);
+  s.name = '수';
+  s.profileNames = ['수'];
+  currentIsland(s).ledger = [
+    { id: 'mine', text: '수 · 집중 +10마리', at: 1 },
+    { id: 'other', text: '수아 퀘스트 달성 보상 +10마리', at: 2 },
+  ];
+  currentIsland(s).members[0].role = 'host';
+  s = act(s, 'DELETE_ACCOUNT');
+  assert.deepEqual(
+    s.islands[0].ledger.map((entry) => entry.id),
+    ['other'],
+  );
+});
 test('공지·댓글·그룹 편지 실패와 재시도', () => {
   let s = initialState(true);
   s = act(s, 'NOTICE_SAVE', { title: '내일', body: '함께 집중' });
@@ -388,6 +405,7 @@ test('온보딩 전에는 숨은 가입 섬이 없고 초대 코드는 실제 �
   assert.deepEqual(act(s, 'START', { subject: '미가입 집중' }), s);
   const strawberry = s.islands.find((island) => island.id === 'strawberry')!;
   assert.ok(strawberry.members.some((member) => member.role === 'host'));
+  assert.equal(strawberry.earned?.me, undefined);
   const joined = act(s, 'JOIN', { id: 'strawberry' });
   assert.equal(joined.islandId, 'strawberry');
   assert.equal(isHost(currentIsland(joined)), false);
@@ -413,6 +431,18 @@ test('다른 섬 승인·집중 중 이동 차단·직렬화 후 재개', () => 
   const restored = JSON.parse(JSON.stringify(s));
   assert.deepEqual(restored, s);
   assert.equal(restored.session?.subject, '영어');
+});
+
+test('승인 대기 신청은 섬별로 보존하고 선택한 신청만 취소한다', () => {
+  let s = initialState(true);
+  const strawberry = s.islands.find((island) => island.id === 'strawberry')!;
+  strawberry.approval = true;
+  s = act(s, 'JOIN', { id: 'cloud' });
+  s = act(s, 'JOIN', { id: 'strawberry' });
+  assert.deepEqual(s.pendingIslands, ['cloud', 'strawberry']);
+  s = act(s, 'CANCEL_JOIN', { id: 'cloud' });
+  assert.deepEqual(s.pendingIslands, ['strawberry']);
+  assert.equal(s.pendingIsland, 'strawberry');
 });
 
 test('시간대 퀘스트는 설정 구간의 유효 시간만 산입', () => {
@@ -498,7 +528,7 @@ test('정원: 생성 기본 15·1~15 범위·주민 수 미만 불가·가득 �
   assert.equal(capacityOf(strawberry), 15);
 });
 
-test('섬 평균 집중: 이번 주(일요일 시작) 그 섬 집중 합계 ÷ 주민 수', () => {
+test('섬 평균 집중: 이번 주(월요일 시작) 그 섬 집중 합계 ÷ 주민 수', () => {
   const s = initialState(true);
   const now = new Date(2026, 8, 16, 12).getTime();
   for (const island of s.islands)
@@ -514,14 +544,14 @@ test('섬 평균 집중: 이번 주(일요일 시작) 그 섬 집중 합계 ÷ �
     contributed: false,
   });
   s.records = [
-    record('sun', 'soda', 1800, new Date(2026, 8, 13, 9).getTime()),
-    record('last-sat', 'soda', 3600, new Date(2026, 8, 12, 23).getTime()),
+    record('mon', 'soda', 1800, new Date(2026, 8, 14, 9).getTime()),
+    record('last-sun', 'soda', 3600, new Date(2026, 8, 13, 23).getTime()),
     record('other', 'strawberry', 900, now - 1000),
   ];
   // 소다 섬: 나 1800 + 민지 1320 + 두부 960 + 수아 600 = 4680 ÷ 4명
   assert.equal(islandWeeklyAverage(s, currentIsland(s), now), 1170);
-  // 가입 전 딸기 섬: 주민 3명의 시간만
-  assert.equal(islandWeeklyAverage(s, s.islands[1], now), 960);
+  // 딸기 섬: 주민 3명의 2880초 + 그 섬에서 완료한 내 900초
+  assert.equal(islandWeeklyAverage(s, s.islands[1], now), 1260);
   assert.equal(hoursMinutes(1170), '19분');
   assert.equal(hoursMinutes(15600), '4시간 20분');
 });
@@ -586,10 +616,10 @@ test('시간대 일일 퀘스트는 휴식이 낀 실제 집중 구간만 계산
   s = act(s, 'FINISH', { now: at + 9000000 });
   assert.ok(!s.rewards?.some((r) => r.kind === 'personal'));
 });
-test('일요일 00시 이전 주민 기록도 새 주간 랭킹에 남기지 않는다', () => {
+test('월요일 00시 이전 주민 기록도 새 주간 랭킹에 남기지 않는다', () => {
   const s = initialState(true);
-  const before = new Date(2026, 8, 19, 23, 59).getTime(),
-    after = new Date(2026, 8, 20, 0, 0).getTime();
+  const before = new Date(2026, 8, 20, 23, 59).getTime(),
+    after = new Date(2026, 8, 21, 0, 0).getTime();
   currentIsland(s).members.forEach((m) => {
     m.records = [
       {
@@ -607,11 +637,11 @@ test('일요일 00시 이전 주민 기록도 새 주간 랭킹에 남기지 않
   assert.equal(islandWeeklyAverage(s, currentIsland(s), after), 0);
 });
 
-test('주 경계를 넘은 집중은 일요일 00시 이후 구간만 새 주 평균에 포함', () => {
+test('주 경계를 넘은 집중은 월요일 00시 이후 구간만 새 주 평균에 포함', () => {
   const s = initialState(true),
-    saturday = new Date(2026, 8, 19, 23, 0).getTime(),
-    sunday = new Date(2026, 8, 20, 1, 0).getTime(),
-    now = new Date(2026, 8, 20, 2, 0).getTime();
+    sunday = new Date(2026, 8, 20, 23, 0).getTime(),
+    monday = new Date(2026, 8, 21, 1, 0).getTime(),
+    now = new Date(2026, 8, 21, 2, 0).getTime();
   currentIsland(s).members = [];
   s.records = [
     {
@@ -619,14 +649,14 @@ test('주 경계를 넘은 집중은 일요일 00시 이후 구간만 새 주 �
       islandId: s.islandId,
       subject: '주말 집중',
       seconds: 7200,
-      at: sunday,
+      at: monday,
       fish: 120,
       contributed: true,
-      intervals: [{ start: saturday, end: sunday }],
+      intervals: [{ start: sunday, end: monday }],
     },
   ];
   assert.equal(islandWeeklyAverage(s, currentIsland(s), now), 3600);
-  assert.equal(recordSecondsBetween(s.records[0], sunday - 1800000, sunday + 1800000), 1800);
+  assert.equal(recordSecondsBetween(s.records[0], monday - 1800000, monday + 1800000), 1800);
 });
 
 test('오늘 퀘스트를 수정하면 미수령 달성과 보상을 새 기준으로 다시 판정한다', () => {
@@ -703,10 +733,14 @@ test('강퇴한 주민을 목록에서는 제거해도 완료 기록과 기여�
 test('퀘스트 날짜와 일·주·월 경계는 기기 타임존과 무관하게 Asia/Seoul을 따른다', () => {
   const kst0030 = Date.parse('2026-09-15T15:30:00.000Z');
   assert.equal(dayKey(kst0030), '2026-09-16');
-  assert.equal(weekStart(kst0030), Date.parse('2026-09-12T15:00:00.000Z'));
+  assert.equal(weekStart(kst0030), Date.parse('2026-09-13T15:00:00.000Z'));
   assert.deepEqual(periodBounds('일', 0, kst0030), {
     from: Date.parse('2026-09-15T15:00:00.000Z'),
     until: Date.parse('2026-09-16T15:00:00.000Z'),
+  });
+  assert.deepEqual(periodBounds('주', 0, kst0030), {
+    from: Date.parse('2026-09-13T15:00:00.000Z'),
+    until: Date.parse('2026-09-20T15:00:00.000Z'),
   });
   assert.deepEqual(periodBounds('월', 0, kst0030), {
     from: Date.parse('2026-08-31T15:00:00.000Z'),
@@ -757,4 +791,25 @@ test('한 섬을 탈퇴해도 다른 소속 섬과 이전 섬의 공동 물고�
   assert.equal(s.onboarded, true);
   assert.equal(s.islandId, other.id);
   assert.equal(balance(s.islands.find((j) => j.id === previous.id)!), fish);
+});
+
+test('섬을 탈퇴해도 그 섬에서 완료한 이번 주 집중 기여는 보존한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s),
+    now = new Date(2026, 8, 16, 12).getTime();
+  for (const member of island.members) member.records = [];
+  island.members[0].role = 'host';
+  s.records = [
+    {
+      id: 'mine-before-leave',
+      islandId: island.id,
+      subject: '집중',
+      seconds: 600,
+      at: now,
+      fish: 10,
+      contributed: true,
+    },
+  ];
+  s = act(s, 'LEAVE');
+  assert.equal(islandWeeklyAverage(s, s.islands[0], now), 200);
 });

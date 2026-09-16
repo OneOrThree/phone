@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
+import { Image, Platform } from 'react-native';
 import { useAudioPlayer } from 'expo-audio';
 import { assets } from '@/constants/assets';
 // Browsers reject an in-flight play() promise when a quick track change pauses it.
@@ -17,7 +17,8 @@ export function useSoundPlayer(onError: (message: string) => void) {
       player: {
         replace(source: any) {
           el.pause();
-          el.src = typeof source === 'string' ? source : source?.uri || '';
+          el.src =
+            typeof source === 'string' ? source : (Image.resolveAssetSource(source)?.uri ?? '');
           el.load();
         },
         play() {

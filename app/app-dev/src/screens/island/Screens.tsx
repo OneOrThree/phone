@@ -2997,7 +2997,7 @@ export function RedesignScreens({ e }: any) {
     const i =
         state.islands.find((i) => i.id === (detail || visited || state.pendingIsland)) ||
         state.islands[1],
-      pending = state.pendingIsland === i.id;
+      pending = (state.pendingIslands ?? []).includes(i.id) || state.pendingIsland === i.id;
     return (
       <IslandSheet
         bg="tower"
@@ -3014,7 +3014,11 @@ export function RedesignScreens({ e }: any) {
           },
           i.joined ? '소속된 섬' : pending ? '참여 신청됨 · 취소' : '이 섬에 가입',
           () =>
-            i.joined ? notify('이미 소속된 섬이에요.') : pending ? act('CANCEL_JOIN') : join(i),
+            i.joined
+              ? notify('이미 소속된 섬이에요.')
+              : pending
+                ? act('CANCEL_JOIN', { id: i.id })
+                : join(i),
         )}
       >
         <Thumb warm h={layout.compact ? 150 : 220} />
