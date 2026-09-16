@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working in this repository. This root file applies
 everywhere. **Nested `CLAUDE.md` files load automatically** when you work inside a
-subtree — see `app/legacy/app-dev/.claude/CLAUDE.md` (frontend, 동결된 1.x) and `server/data-api/CLAUDE.md`
+subtree — see `app/legacy/app-dev/.claude/CLAUDE.md` (동결된 1.x) and `server/data-api/CLAUDE.md`
 (backend) for the details of each half. Keep this root file limited to shared,
 repo-wide concerns.
 
@@ -10,13 +10,15 @@ repo-wide concerns.
 
 **gromo** — a focus-time management + character-customization mobile app.
 Users run focus sessions, track screen time, and customize a 2D character with
-shop items. Company `oneorthree`; iOS bundle id `com.oneorthree.gromo`.
+shop items. Company `oneorthree`. The frozen 1.x app uses iOS bundle id
+`com.oneorthree.gromo`; the active 2.0 app uses `com.gromo.fishcat` on iOS and Android.
 
 ## Monorepo layout
 
 | Path                    | What it is |
 | ----------------------- | ---------- |
-| `app/legacy/app-dev/`   | **동결된 1.x 앱** (스토어 1.1.0까지). React Native + Expo frontend (TypeScript). Includes `app/legacy/app-dev/ios/` native project and the `screentimereport` Screen Time extension. See `app/legacy/app-dev/.claude/CLAUDE.md`. 2.0.0 부터는 같이숲 v2 앱이 `app/app-dev/` 에 들어온다 — 새 기능은 여기에 넣지 않는다 (GROMO-1890). |
+| `app/app-dev/`          | **활성 2.0 앱**. React Native + Expo frontend (TypeScript), native iOS/Android projects, and local mock product flows. See `app/app-dev/README.md`. |
+| `app/legacy/app-dev/`   | **동결된 1.x 앱** (스토어 1.1.0까지). Includes the old native projects and Screen Time extension. See `app/legacy/app-dev/.claude/CLAUDE.md`; do not add 2.0 features here. |
 | `app/legacy/assets/`    | 1.x 소스 디자인 에셋 (app icons, character art, videos) — tracked binaries, not bundled app resources (those live in `app/legacy/app-dev/src/assets/`). |
 | `app/legacy/scripts/`   | 1.x 로컬 웹 실행 도우미 (`local-web.sh`, `local-web.command`). |
 | `server/data-api/`      | Spring Boot 4 + Java 17 + PostgreSQL REST API. See `server/data-api/CLAUDE.md`. |
@@ -37,7 +39,7 @@ stays in `doc/`.
 Gitignored local-only dirs (machine-specific, not in git): `doc/` (personal
 planning scratch — tickets, reports, specs), `logs/` (work journals),
 `server/data-api/docs/` (local planning scratch, **except `server/data-api/docs/db/`
-which is tracked** — schema.dbml), `app/legacy/app-dev/.docs/` (app-side personal
+which is tracked** — schema.dbml), `app/app-dev/.docs/` and `app/legacy/app-dev/.docs/` (app-side personal
 planning/design docs).
 
 The frontend and backend share almost no tooling — work in the relevant subtree
@@ -114,8 +116,8 @@ changes trigger different jobs. This list rots; the authoritative source is
 
 - **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**`;
   `app-android-build.yml` — Android build checks on native-affecting paths.
-  ⚠️ **동결된 1.x 앱(`app/legacy/app-dev/**`)에는 CI가 없다** (GROMO-1890). 두 워크플로는
-  `app/app-dev/**` 만 트리거하고, 그 디렉터리가 없으면 검사를 건너뛴다. 1.x 핫픽스는 CI가
+  활성 2.0 앱은 이 두 워크플로가 검증한다. ⚠️ **동결된 1.x 앱(`app/legacy/app-dev/**`)에는
+  CI가 없다.** 1.x 핫픽스는 CI가
   검증해 주지 않으므로 `app/legacy/app-dev` 에서 `npm ci && npm run lint && npm run format:check
   && npm run typecheck && npm test && npm run gen:palette:check` 를 직접 돌려야 한다.
   마지막 `gen:palette:check` 가 빠지면 `theme.ts` 를 고치고 코드젠을 안 돌렸을 때 나머지가 전부

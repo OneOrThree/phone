@@ -1,0 +1,16 @@
+{
+  "id": "hall",
+  "name": "마을회관",
+  "status": "final",
+  "source_id": "town-hall",
+  "source": "../../island-final-6/enhanced/buildings/day/town-hall.png",
+  "canvas": [1163, 1178],
+  "files": {
+    "day": "day.png",
+    "night": "night.png"
+  },
+  "alpha_bounds": [12, 12, 1151, 1166],
+  "island_box": [949, 21, 242, 244],
+  "day_night_alpha_equal": true,
+  "npc": null
+}

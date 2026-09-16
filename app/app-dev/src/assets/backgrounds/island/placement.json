@@ -1,0 +1,62 @@
+{
+  "canvas": [1536, 1024],
+  "orderIsPreviewOnly": true,
+  "assets": [
+    {
+      "id": "town-hall",
+      "name": "마을회관",
+      "rect": [949, 21, 242, 244],
+      "time": "1분",
+      "sourceBounds": [12, 12, 1151, 1166],
+      "file": "enhanced/buildings/town-hall.png"
+    },
+    {
+      "id": "noticeboard",
+      "name": "게시판",
+      "rect": [856, 157, 80, 80],
+      "time": "3분",
+      "sourceBounds": [12, 12, 825, 865],
+      "file": "enhanced/buildings/noticeboard.png"
+    },
+    {
+      "id": "gramophone",
+      "name": "축음기",
+      "rect": [330, 391, 73, 89],
+      "time": "5분",
+      "sourceBounds": [12, 12, 620, 898],
+      "file": "enhanced/buildings/gramophone.png"
+    },
+    {
+      "id": "library",
+      "name": "도서관",
+      "rect": [1120, 288, 239, 323],
+      "time": "15분",
+      "sourceBounds": [12, 12, 802, 1166],
+      "file": "enhanced/buildings/library.png"
+    },
+    {
+      "id": "mailbox",
+      "name": "우체통",
+      "rect": [298, 520, 46, 63],
+      "time": "20분",
+      "sourceBounds": [12, 12, 538, 837],
+      "file": "enhanced/buildings/mailbox.png"
+    },
+    {
+      "id": "observatory",
+      "name": "전망대",
+      "rect": [150, 24, 112, 193],
+      "time": "30분",
+      "sourceBounds": [12, 12, 683, 1055],
+      "file": "enhanced/buildings/observatory.png"
+    },
+    {
+      "id": "shop",
+      "name": "상점",
+      "rect": [456, 580, 262, 199],
+      "time": "60분",
+      "sourceBounds": [12, 12, 1038, 862],
+      "file": "enhanced/buildings/shop.png"
+    }
+  ]
+}
