@@ -230,7 +230,7 @@ Chat never touches the `gromo` database and Data API never touches `gromo_chat`.
 신청 수신자의 현재 방장 권한, 시설 해금, focus/rest 투영 버전, 재연결 스냅샷/구독 완료 확인,
 다중 인스턴스 권한 철회가 준비되어야 각 도메인 작업에서 전달 adapter를 활성화할 수 있다.
 
-계약: `docs/prd/realtime-events/` (참고 티켓 1754). 기존 `chat:fanout` payload와 Redis 키·DB 이름·테이블은
+계약: `docs/prd/fishcat/realtime-events/` (참고 티켓 1754). 기존 `chat:fanout` payload와 Redis 키·DB 이름·테이블은
 호환 유지한다. `com.oneorthree.realtime`, `RealtimeApplication`, Gradle `realtime`과 CI/image/compose 이름만
 서비스 개명에 맞춘다. 운영 환경의 `CHAT_DB_*`, `CHAT_WS_ALLOWED_ORIGINS`, `chat.*` 설정 키도 유지한다.
 

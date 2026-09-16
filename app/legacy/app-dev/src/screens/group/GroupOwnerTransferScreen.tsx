@@ -212,7 +212,7 @@ export default function GroupOwnerTransferScreen() {
             break;
           // 두 코드 모두 **재시도해도 같은 결과**인 종결 통보다 — 사용자가 할 수 있는 조치가
           // 없으므로 확인 버튼이 필요 없는 tone:'error' 토스트로 알린다
-          // (정책 D19 — docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
+          // (정책 D19 — docs/prd/gromo/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
           // 반면 아래 default('잠시 후 다시 시도')는 재시도가 유효해 Alert로 남긴다.
           // ⚠️ 토스트 경로는 카드를 **닫고** 띄운다. Toast 는 RN Modal 아래에 깔려(Toast.tsx:20-22)
           //    카드가 열려 있으면 사용자가 실패 이유를 아예 못 본다. 토스트는 네이티브 present 가

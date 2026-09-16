@@ -91,7 +91,7 @@ Enforced by `config/checkstyle/checkstyle.xml` (Google Java Style, modified):
 ## Docs
 
 Team-shared feature docs (PRD · policy · IA · high-level/low-level design ·
-diagrams per feature) live in the **repo-root `docs/prd/<feature>/`** (tracked;
+diagrams per feature) live in the **repo-root `docs/prd/<product>/<feature>/`** (tracked;
 see `docs/README.md`). `server/data-api/docs/` stays
 local-only planning scratch — except the tracked `server/data-api/docs/db/` schema
 whitelist (GROMO-735).

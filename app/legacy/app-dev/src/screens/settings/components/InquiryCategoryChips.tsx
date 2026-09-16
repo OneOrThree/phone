@@ -3,7 +3,7 @@ import { INQUIRY_CATEGORIES, type InquiryCategoryId } from '@/constants/inquiryC
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
-// 1:1 문의 카테고리 칩(docs/prd/inquiry/low-level-design.md §4).
+// 1:1 문의 카테고리 칩(docs/prd/gromo/inquiry/low-level-design.md §4).
 // 단일 선택이고, 같은 칩을 다시 누르면 해제된다(null).
 
 interface InquiryCategoryChipsProps {

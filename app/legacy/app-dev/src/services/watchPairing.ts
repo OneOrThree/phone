@@ -1,4 +1,4 @@
-// 워치 페어링 보급률 계측 (GROMO-1598 · docs/prd/apple-watch/ R12, policy D3-ⓒ)
+// 워치 페어링 보급률 계측 (GROMO-1598 · docs/prd/gromo/apple-watch/ R12, policy D3-ⓒ)
 // 앱 기동 시 WCSession.isPaired를 읽어 GA4 사용자 속성 watch_paired로 1회 보고한다.
 // 워치 앱 출시 전에 보급률(분모)을 먼저 쌓는 것이 목적 — isPaired는 「페어링된 적 있는
 // 워치 존재」의 상한 근사치일 뿐, 워치 앱 설치·watchOS 버전·도달성을 뜻하지 않는다(PRD §5).

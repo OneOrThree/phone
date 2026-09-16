@@ -982,7 +982,7 @@ export function logLeagueResultViewed(p: { result: 'promoted' | 'maintain' | 'de
   track('league_result_viewed', p);
 }
 
-// ── 1:1 문의 [C] ── (docs/prd/inquiry/policy.md D11)
+// ── 1:1 문의 [C] ── (docs/prd/gromo/inquiry/policy.md D11)
 // 서버에 아무것도 남지 않는 기능이라(D4·D13) 이 세 이벤트가 유일한 계측 수단이다 — 빼면 영영 측정 불가.
 // contact_id 는 닉네임조차 아닌 고정 슬러그(dev-{categoryId})다 — 이 파일 상단의 PII 금지 규칙.
 export function logInquiryScreenViewed(): void {

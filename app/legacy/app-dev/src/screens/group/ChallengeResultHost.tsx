@@ -1,5 +1,5 @@
-// 챌린지 결과 모달의 **소유자** — 정본 docs/prd/challenge/policy.md D3·N56·N57·N58 ·
-// docs/prd/challenge/high-level-design.md §1 · information-architecture.md §4.3.
+// 챌린지 결과 모달의 **소유자** — 정본 docs/prd/gromo/challenge/policy.md D3·N56·N57·N58 ·
+// docs/prd/gromo/challenge/high-level-design.md §1 · information-architecture.md §4.3.
 //
 // ── 왜 화면이 아니라 루트인가 ──────────────────────────────────────────────────
 // 예전 소유자는 GroupRoomScreen이었다. 즉 트리거가 **화면 좌표**("그룹방에 들어오면")에

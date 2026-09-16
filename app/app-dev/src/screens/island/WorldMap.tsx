@@ -21,7 +21,7 @@ import { CatSprite } from '@/components/CatSprite';
 import { useAppLayout } from '@/utils/layout';
 import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
 import grids from '@/constants/world-v2.json';
-import { Btn, C, Txt, Pic } from '@/components/Kit';
+import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 const layer: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',

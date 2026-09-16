@@ -20,12 +20,12 @@ glob instead of trusting any list here.
 ### Team-shared feature docs (repo-root `docs/`)
 
 Team-facing feature docs — **PRD · policy · IA · high-level/low-level design ·
-diagrams** per feature — live in the repo-root `docs/prd/<feature>/` (tracked in
+diagrams** per feature — live in the repo-root `docs/prd/gromo/<feature>/` (tracked in
 git; see `docs/README.md`). Anything meant for teammates goes there, not in the
 local-only folders below.
 
 **이관 완료 (2026-08-09)** — `currency` · `league` · `object-character` · `onboarding` ·
-`screentime`. 새 기능 설계서도 `docs/prd/<기능-영문-kebab>/`에 만든다. 4종을 한 파일로
+`screentime`. 1.x 기능 설계서도 `docs/prd/gromo/<기능-영문-kebab>/`에 만든다. 4종을 한 파일로
 합칠 때는 **기능 이름을 딴 파일명**(`screentime.md`) — `design.md` 금지. 문서 브랜치는
 `doc/` 프리픽스. `challenge` · `focus-session` · `group-carousel`은 공유 보류 상태로
 `app/legacy/app-dev/.docs/features/`에 남아 있다.
@@ -40,7 +40,7 @@ Folder map (그 README가 정본, 이 표는 요약):
 
 | Folder                                                                      | Purpose                                                                                                           |
 | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `features/`                                                                 | 공유 보류분(`challenge/` · `focus-session/` · `group-carousel/`) — 공유된 기능 설계서는 `docs/prd/<기능>/`이 정본 |
+| `features/`                                                                 | 공유 보류분(`challenge/` · `focus-session/` · `group-carousel/`) — 공유된 1.x 기능 설계서는 `docs/prd/gromo/<기능>/`이 정본 |
 | `product/`                                                                  | Product-wide planning — 기획서, 기능명세, IA diagram, user funnel, event taxonomy                                 |
 | `qa/` · `ops/`                                                              | QA scenarios/verification · ops refs (release/OTA, data map, schema.dbml)                                         |
 | `api-성능/` · `그로스실험/`                                                 | prod API 응답시간 실측 + 서버 조립 이관 설계 · 지표 기반 실험(baseline·가설·검증)                                 |
@@ -48,7 +48,7 @@ Folder map (그 README가 정본, 이 표는 요약):
 | `pr/` · `archive/`                                                          | PR 초안 · 지난 문서 보존(현행 아님) — 티켓 초안은 파일로 안 남긴다(`jira-ticket` 스킬)                            |
 
 > New docs go in one of these folders — **never at `.docs/` root**. 단 기능 설계서는 예외로
-> 팀 공유 `docs/prd/<기능-영문-kebab>/`에 만든다 (위 섹션).
+> 팀 공유 `docs/prd/gromo/<기능-영문-kebab>/`에 만든다 (위 섹션).
 
 ### Feature work logs
 

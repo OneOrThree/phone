@@ -1,6 +1,6 @@
 # gromo 시스템 아키텍처 (물리) — Target-1 · Target-2
 
-> **링크 서버·Vercel·Neon·컷오버 서술은 [A23](decisions.md) 으로 대체됐다** — 링크·MMP 는 별도 서버가 아니며 설계는 [`docs/prd/link-attribution/`](../prd/link-attribution/README.md).
+> **링크 서버·Vercel·Neon·컷오버 서술은 [A23](decisions.md) 으로 대체됐다** — 링크·MMP 는 별도 서버가 아니며 설계는 [`docs/prd/fishcat/link-attribution/`](../prd/fishcat/link-attribution/README.md).
 
 > 정본(2026-09-10 승격). 논리 구도는 `service-architecture.md`, 결정은 `decisions.md` A1~A19.
 > AS-IS 원본: 08-12 AS-IS 다이어그램(개인 보관).
@@ -221,7 +221,7 @@ server/.github/workflows/
 
 Data CLI는 export마다 고유한 `manifest.snapshot`을 생성하고 모든 `*.import-####.json` 청크와 `*.verify.json`에 같은 값을 넣는다. 빈 전체 집합도 하나의 빈 import 파일을 만든다. 초기·최종 파일을 섞지 않고 최종 집합의 검증을 통과한 뒤 최초 발송 게이트를 연다(A22 ㋼).
 
-GROMO-1659의 Data export는 settings·device·delivery·user·participation 다섯 자원의 건수·체크섬을 같은 RR 스냅샷에서 생성한다. 실제 Noti bootJar의 정규화·키 유도 함수와 Data export 직렬화를 CI에서 함께 실행한다(A22 ㋳·㋶). Link 이관에는 필드별 표시 version과 LEGACY 귀속을 포함하며, 서비스별 시크릿·이미지 digest·nginx 적용 준비는 `docs/prd/server-separation/deployment.md`를 따른다(A22 ㋷·㋸).
+GROMO-1659의 Data export는 settings·device·delivery·user·participation 다섯 자원의 건수·체크섬을 같은 RR 스냅샷에서 생성한다. 실제 Noti bootJar의 정규화·키 유도 함수와 Data export 직렬화를 CI에서 함께 실행한다(A22 ㋳·㋶). Link 이관에는 필드별 표시 version과 LEGACY 귀속을 포함하며, 서비스별 시크릿·이미지 digest·nginx 적용 준비는 `docs/prd/fishcat/server-separation/deployment.md`를 따른다(A22 ㋷·㋸).
 
 
 기기 등록 롤아웃은 두 설정을 따로 전환한다(A22 ㋲). `NOTIFICATION_GENERATION_REQUIRED`는 구 AT 수명 대기 뒤

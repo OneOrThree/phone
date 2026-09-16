@@ -1,5 +1,5 @@
 // useStagedRanking — 서버가 새 순위 배열을 한 번에 갈아끼워도 **순서와 기록을 함께** 한 칸씩
-// 재생한다는 계약. 정본 docs/prd/motion/low-level-design.md §6.
+// 재생한다는 계약. 정본 docs/prd/gromo/motion/low-level-design.md §6.
 //
 // 잠그는 규칙:
 //   ① 여러 칸 상승은 중간 순서를 거쳐 간다 (한 번의 긴 이동이 아니다)

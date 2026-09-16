@@ -67,7 +67,7 @@ export const BET_LEAVE_CLOSED = 'BET_LEAVE_CLOSED'; // 409 시작 이후(집계 
 // 내기 히스토리(GROMO-1221, 서버 계약 #510/GROMO-1207).
 export const BET_NOT_FOUND = 'BET_NOT_FOUND'; // 404 커서가 이 챌린지의 내기가 아님(무효 커서)
 export const INVALID_PAGE_REQUEST = 'INVALID_PAGE_REQUEST'; // 400 size 범위 밖(1~100)
-// 챌린지 v2 회차 참여(정본 docs/prd/challenge/low-level-design.md §2.2 에러 표).
+// 챌린지 v2 회차 참여(정본 docs/prd/gromo/challenge/low-level-design.md §2.2 에러 표).
 export const BET_SESSION_NOT_FOUND = 'BET_SESSION_NOT_FOUND'; // 404 회차 없음 / 그룹 불일치
 export const BET_SESSION_CLOSED = 'BET_SESSION_CLOSED'; // 409 참가 마감(now ≥ joinClosesAt)
 export const BET_SCREENTIME_PERMISSION_REQUIRED = 'BET_SCREENTIME_PERMISSION_REQUIRED'; // 409 (N50)
@@ -526,7 +526,7 @@ export async function getMyOpenBetSessionsWithToken(
 }
 
 // ── 챌린지 v2 — 회차(세션) 참여 4종 + 삭제 프리플라이트 + 내 OPEN 회차 ──────────
-// 계약 정본 docs/prd/challenge/low-level-design.md §2 (서버 병렬 구현 중 — LLD가 정본).
+// 계약 정본 docs/prd/gromo/challenge/low-level-design.md §2 (서버 병렬 구현 중 — LLD가 정본).
 // 기존 내기 API(createBet·joinBet·leaveBet·cancelBet)는 N36 브리지 동안 그대로 남는다 —
 // 구서버(회차 모델 없음) 응답을 받은 화면은 종전 경로를 계속 쓴다(제거는 별도 티켓).
 

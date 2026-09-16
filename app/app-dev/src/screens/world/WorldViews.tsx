@@ -1,4 +1,4 @@
-import { Text } from '@/components/typography';
+import { Text } from '@/design-system/typography';
 import { useAppLayout } from '@/utils/layout';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import React, { useEffect, useRef, useState } from 'react';
@@ -7,7 +7,7 @@ import Svg, { Path } from 'react-native-svg';
 import { useFonts } from 'expo-font';
 import { State, currentIsland } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
-import { C, T, H, Button, useScreenInsets } from '@/components/ui';
+import { C, T, H, Button, useScreenInsets } from '@/design-system/primitives';
 import { CatSprite } from '@/components/CatSprite';
 import { growthStage } from '@/screens/island/IslandHome';
 // Geometry, colors, layers and timing follow preview/motion/sailing.html.

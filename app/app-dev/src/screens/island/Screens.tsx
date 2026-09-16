@@ -1,4 +1,4 @@
-import { Text } from '@/components/typography';
+import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -42,7 +42,7 @@ import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
 import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
-import { useScreenInsets } from '@/components/ui';
+import { useScreenInsets } from '@/design-system/primitives';
 import {
   art,
   C,
@@ -63,7 +63,7 @@ import {
   Overlay,
   Wheel,
   Graph,
-} from '@/components/Kit';
+} from '@/design-system/patterns';
 import {
   IslandSheet,
   IslandPopup,

@@ -1,6 +1,6 @@
-import { Text } from '@/components/typography';
+import { Text } from '@/design-system/typography';
 import { useAppLayout } from '@/utils/layout';
-import { Btn as NativeButton, Txt as NativeText } from '@/components/Kit';
+import { Btn as NativeButton, Txt as NativeText } from '@/design-system/patterns';
 import { CurrentScreens as RedesignScreens } from '@/screens/island/CurrentScreens';
 import React, { useState, useReducer, useEffect, useRef } from 'react';
 import {
@@ -41,7 +41,7 @@ import {
   Tabs,
   MotionContext,
   useScreenInsets,
-} from '@/components/ui';
+} from '@/design-system/primitives';
 import { assets, cat } from '@/constants/assets';
 import {
   Scarf,

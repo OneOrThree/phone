@@ -1,5 +1,5 @@
 // ChallengeComposeSheet 전송값·조합 매트릭스·안내 테스트 — 명세 docs/app/group-plan-2.md §3-2,
-// 챌린지 v2 정책 정본 docs/prd/challenge/policy.md(§A3·§A5·§A6·§A6-bis).
+// 챌린지 v2 정책 정본 docs/prd/gromo/challenge/policy.md(§A3·§A5·§A6·§A6-bis).
 //
 // 여기서 잠그는 것:
 //  1) 전송 계약(LLD §2). repeatDays(ISO 요일 배열·필수)가 항상 실리고, TIME_WINDOW는
@@ -69,7 +69,7 @@ jest.mock('@/components/DrumPicker', () => {
 });
 
 // 선택지 없는 결과 통보는 토스트로 나간다(GROMO-1491 / 정책 D8·D19 —
-// docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본) — useToast는 Provider
+// docs/prd/gromo/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본) — useToast는 Provider
 // 밖에서 throw하므로 훅 자체를 목으로 대체한다.
 const mockToastShow = jest.fn();
 jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));

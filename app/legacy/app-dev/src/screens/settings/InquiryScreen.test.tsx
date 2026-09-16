@@ -1,4 +1,4 @@
-// InquiryScreen 테스트 — docs/prd/inquiry/low-level-design.md §8.3.
+// InquiryScreen 테스트 — docs/prd/gromo/inquiry/low-level-design.md §8.3.
 //
 // 이 화면의 계약 중 문서로만 두면 반드시 깨지는 것들을 잠근다:
 //  1) 닫기 계약 — target·failed·pending을 함께 되돌린다(§5.4). 안 그러면 담당자 A의 실패가

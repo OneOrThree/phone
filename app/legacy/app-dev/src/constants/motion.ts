@@ -7,7 +7,7 @@ import type {
   CSSTransitionProperty,
 } from 'react-native-reanimated';
 
-// 모션 토큰 정본 (GROMO-1381 / 설계 docs/prd/motion/low-level-design.md §2).
+// 모션 토큰 정본 (GROMO-1381 / 설계 docs/prd/gromo/motion/low-level-design.md §2).
 // 앱의 모든 duration·이징·스프링·진입 프리셋이 여기서 나온다. 심볼은 theme.ts의 `T` 관행을 따라 `M`.
 //
 // ⚠️ 왜 theme.ts(T)가 아니라 별도 파일인가 — 정책 D1.

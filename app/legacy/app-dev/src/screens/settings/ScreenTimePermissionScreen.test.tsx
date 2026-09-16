@@ -1,5 +1,5 @@
 // ScreenTimePermissionScreen '측정 대상 앱 설정' 통보 계약 테스트 — GROMO-1491
-// (정책 D19 — docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
+// (정책 D19 — docs/prd/gromo/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
 //
 // 여기서 잠그는 것은 **통보 채널이 무엇이냐** 하나다.
 //  1) '다음날 적용' 예약 성공(A안 GROMO-942)은 선택지 없는 결과 통보라 tone:'success' 토스트다.

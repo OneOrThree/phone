@@ -1,4 +1,4 @@
-// 챌린지 결과 모달의 데이터 선택 + 1회 노출 가드 — 정본 docs/prd/challenge/ (IA §4.3 · LLD §2.1 · N53).
+// 챌린지 결과 모달의 데이터 선택 + 1회 노출 가드 — 정본 docs/prd/gromo/challenge/ (IA §4.3 · LLD §2.1 · N53).
 //
 // 소스는 참가자 스코프 `GET /me/challenge-results` **하나**다(GROMO-1279, N53) — 그룹 카드
 // 조회(오늘/어제 date 재조회)로 결과를 역산하던 구 구조는 폐기됐다:

@@ -1,4 +1,4 @@
-// openInquiryChat — 링크 열기 성공/실패 계약(docs/prd/inquiry/low-level-design.md §8.2).
+// openInquiryChat — 링크 열기 성공/실패 계약(docs/prd/gromo/inquiry/low-level-design.md §8.2).
 // `Linking`은 전역 목이 없어 `jest.spyOn`으로 갈아끼운다(components/DeepLinkGate.test.tsx와 같은 방식).
 import { Linking } from 'react-native';
 import { openInquiryChat } from './inquiryLink';

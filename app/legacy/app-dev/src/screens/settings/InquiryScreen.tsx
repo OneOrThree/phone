@@ -22,7 +22,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
-// 1:1 문의 화면(docs/prd/inquiry/low-level-design.md §5).
+// 1:1 문의 화면(docs/prd/gromo/inquiry/low-level-design.md §5).
 // 담당 개발자를 골라 카카오톡 1:1 오픈채팅방으로 나간다 — 앱의 경계는 openURL에서 끝나고,
 // 서버에는 아무것도 남지 않는다(policy.md D1 · D13). 그래서 네트워크 호출도, 로딩 상태도 없다.
 //

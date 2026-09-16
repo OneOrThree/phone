@@ -12,7 +12,7 @@ import java.time.ZoneId;
  * 그래서 저장축까지 KST 로 통일하고 리졸버를 제거했다.
  *
  * <p><b>알려진 한계 L5</b>: 해외 유저는 "내 하루"와 앱의 하루가 어긋난다 — 한국 타깃 서비스라
- * 수용한다(docs/prd/challenge/prd.md L5 · policy.md B3).
+ * 수용한다(docs/prd/gromo/challenge/prd.md L5 · policy.md B3).
  */
 public final class ZonePolicy {
 

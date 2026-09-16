@@ -1,7 +1,7 @@
-import { Text } from '@/components/typography';
+import { Text } from '@/design-system/typography';
 import React, { useState } from 'react';
 import { View, Modal, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
-import { Button, Field, H, T, C, S } from '@/components/ui';
+import { Button, Field, H, T, C, S } from '@/design-system/primitives';
 
 export function InviteEntry({
   onSubmit,

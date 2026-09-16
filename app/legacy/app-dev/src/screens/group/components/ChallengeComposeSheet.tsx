@@ -35,7 +35,7 @@ import type {
 } from '@/types/dto/group';
 
 // 챌린지 만들기 시트(방장만) — 명세 docs/app/group-plan-2.md §3-2,
-// 챌린지 v2 정책 정본 docs/prd/challenge/policy.md(§A3 요일·§A5 겹침·§A6 창 규칙·§A6-bis 상한).
+// 챌린지 v2 정책 정본 docs/prd/gromo/challenge/policy.md(§A3 요일·§A5 겹침·§A6 창 규칙·§A6-bis 상한).
 //
 // 폼 순서(ux.html §06): 카테고리 세그먼트 → 방식 세그먼트 → **요일 7토글(선택 강제, GROMO-1273)**
 // → (시간대일 때) 창 시작·종료 시각 휠 → 목표분(칩 + 직접 입력, 시간 환산 병기 GROMO-1278)
@@ -553,7 +553,7 @@ export default function ChallengeComposeSheet({
         });
       }
       // 안내는 시트가 닫힌 뒤에도 남는 토스트로 띄운다 — 시트 안 문구로 두면 곧 사라진다.
-      // 선택지 없는 결과 통보라 확인 버튼이 필요 없다(정책 D8/D19 — docs/prd/motion-v2/policy.md,
+      // 선택지 없는 결과 통보라 확인 버튼이 필요 없다(정책 D8/D19 — docs/prd/gromo/motion-v2/policy.md,
       // 상위 정본 병합 전까지 여기가 정본).
       // ⚠️ 순서 주의 — 이 시트는 SheetShell asModal(RN Modal)이라 토스트가 그 **아래**에 깔린다
       //    (Toast.tsx 헤더 주석). onCreated()로 먼저 닫고 나서 알린다.

@@ -277,7 +277,7 @@ describe('위임 확정 + source별 후속', () => {
   });
 });
 
-// 실패 통보 이관(GROMO-1491 / 정책 D19 — docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지
+// 실패 통보 이관(GROMO-1491 / 정책 D19 — docs/prd/gromo/motion-v2/policy.md, 상위 정본 병합 전까지
 // 여기가 정본) — 재시도해도 같은 결과인 종결 실패는 확인 버튼이 필요 없으므로 tone:'error'
 // 토스트로 나간다. '잠시 후 다시 시도'는 재시도가 유효해 Alert로 남는다.
 describe('위임 실패 통보', () => {

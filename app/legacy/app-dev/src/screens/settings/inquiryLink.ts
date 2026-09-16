@@ -1,4 +1,4 @@
-// 오픈채팅 링크 열기(docs/prd/inquiry/low-level-design.md §2).
+// 오픈채팅 링크 열기(docs/prd/gromo/inquiry/low-level-design.md §2).
 // 부수효과를 화면에서 떼어 내 테스트 가능하게 만든다 — 성공/실패만 돌려주고 UI는 건드리지 않는다.
 import { Linking } from 'react-native';
 

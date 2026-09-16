@@ -8,7 +8,7 @@ import {
 import { M, STANDARD_POINTS } from '@/constants/motion';
 
 // 리그 순위 재정렬 트랜지션 (GROMO-1381).
-// 타이밍 정본은 시안 docs/prd/motion/ui.html 의 `swapWithAbove` — 문서 산문과 어긋나면 시안이 맞다.
+// 타이밍 정본은 시안 docs/prd/gromo/motion/ui.html 의 `swapWithAbove` — 문서 산문과 어긋나면 시안이 맞다.
 //
 // 왜 `LinearTransition`(세로 이동만)이 아닌가 —
 //   두 행이 세로로만 스쳐 지나가면 서로 겹쳐서 "리스트가 통째로 다시 그려진 것"처럼 보인다.

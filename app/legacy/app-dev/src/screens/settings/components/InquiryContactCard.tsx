@@ -5,7 +5,7 @@ import type { InquiryContact } from '@/constants/inquiryContacts';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
-// 1:1 문의 담당자 카드(docs/prd/inquiry/low-level-design.md §3 · information-architecture.md §2.3).
+// 1:1 문의 담당자 카드(docs/prd/gromo/inquiry/low-level-design.md §3 · information-architecture.md §2.3).
 // 표시 전용이다 — props in, onPress out. 상태를 갖지 않는다.
 //
 // 카드 안의 정보 순서는 「누구인가 → 어떤 사람인가 → 행동」 셋뿐이다.

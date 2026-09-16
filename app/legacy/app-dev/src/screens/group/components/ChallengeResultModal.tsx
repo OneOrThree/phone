@@ -1,4 +1,4 @@
-// 챌린지 결과 모달 — 정본 docs/prd/challenge/information-architecture.md §4.3 (N53 · GROMO-1279).
+// 챌린지 결과 모달 — 정본 docs/prd/gromo/challenge/information-architecture.md §4.3 (N53 · GROMO-1279).
 //
 // 리그 승급화면(LeagueResultScreen)의 다크 radial 연출을 참조하되, 루트 스택 화면이 아니라
 // **그룹 화면 위 RN Modal**이다 — 네비게이션 파일을 건드리지 않기 위한 계약(A3 스펙 2).

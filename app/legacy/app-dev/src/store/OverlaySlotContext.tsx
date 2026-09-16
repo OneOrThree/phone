@@ -1,5 +1,5 @@
-// 전면 오버레이 조정자 — 정본 docs/prd/group/features/02-my-groups/low-level-design.md §"blocking
-// overlay queue" · docs/prd/challenge/policy.md D3.
+// 전면 오버레이 조정자 — 정본 docs/prd/gromo/group/features/02-my-groups/low-level-design.md §"blocking
+// overlay queue" · docs/prd/gromo/challenge/policy.md D3.
 //
 // ── 왜 "그리는 호스트"가 아니라 "허가를 주는 조정자"인가 ──────────────────────────────
 // 앱의 전면 오버레이(챌린지 결과 모달 · 그룹 덱 코치마크 · 각종 SheetShell asModal)는 전부 RN
