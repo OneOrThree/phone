@@ -4,6 +4,31 @@
 
 [전체 프로젝트](../../../README.md) · [서버 전체 보기](../../../server/README.md) · [기능 문서](../../../docs/README.md) · [프론트엔드 개발 가이드](.claude/CLAUDE.md)
 
+> ⚠️ **동결된 1.x 앱입니다** (스토어 1.1.0까지). 2.0.0부터는 같이숲 v2 앱이 `app/app-dev/`에 들어옵니다 —
+> 새 기능은 여기에 넣지 않습니다. 이 앱에는 CI가 없으므로 핫픽스는 로컬에서 직접 검증합니다
+> (`npm ci && npm run lint && npm run typecheck && npm test`).
+>
+> **앱이 이동한 커밋을 처음 받았다면 자격·설정 파일을 먼저 옮기세요.** `git mv`는 추적 파일만 옮기므로
+> `.env*` · Firebase plist · `fastlane/.env` · `sentry.properties` · `android/credentials/` 같은
+> **비추적 파일은 옛 경로 `app/app-dev/`에 그대로 남습니다.** 안 옮기면 TestFlight·Android 빌드가 자격
+> 파일 누락으로 실패하고, 나중에 v2 앱이 같은 자리에 들어오면 남은 1.x 환경 변수를 읽을 수 있습니다.
+> 저장소 루트에서 한 번만 실행합니다.
+>
+> ```sh
+> old=app/app-dev; new=app/legacy/app-dev
+> for p in .env .env.local .env.production .env.hotupdater \
+>          ios/GoogleService-Info-dev.plist ios/GoogleService-Info-prod.plist \
+>          ios/fastlane/.env ios/sentry.properties \
+>          android/sentry.properties android/credentials; do
+>   [ -e "$old/$p" ] || continue
+>   mkdir -p "$new/$(dirname "$p")"
+>   mv "$old/$p" "$new/$p"
+> done
+> rm -rf "$old"   # 남은 것은 node_modules · Pods · 빌드 산출물뿐입니다
+> ```
+>
+> iOS는 프로젝트 경로가 바뀌었으므로 다음 빌드 전에 `ios/`에서 `pod install`과 클린 빌드를 한 번 합니다.
+
 ## 한눈에 보기
 
 | 영역      | 구현                                                        |
