@@ -89,8 +89,8 @@ internal:
 
 | 재료 | 화면 | 지금 상태 |
 | --- | --- | --- |
-| 친구 목록·받은/보낸 요청 | friends · raft | 레포 LLD 없음. legacy `FriendController`(`/api/v1/friends…`)가 재사용 후보 |
-| 편지함·편지 | mailbox | 레포 LLD 없음 (기획 v0.6 신규) |
+| ~~친구 목록·받은/보낸 요청~~ **해소** | friends · raft | [friend-letter LLD](../friend-letter/low-level-design.md) §1.15 — `GET /internal/users/{userId}/friends`·`…/friend-requests`. 기존 `FriendController` 구현을 무접두로 재노출하는 것이라 신규 도메인 로직은 없다. **허용목록 3줄 추가가 선행**(같은 §1.15) |
+| ~~편지함·편지~~ **해소** | mailbox | [friend-letter LLD](../friend-letter/low-level-design.md) §1.12~1.15 — `letters` 테이블 신설, `GET /internal/users/{userId}/letters`. 섬 우체통 공개 메시지(island-mailbox)와 다른 도메인이다(HLD §0) |
 | 작성자 표시 정보 batch | mailbox | island-mailbox LLD §5가 요구. 계약 미정 |
 | 내 가입 대기 신청 목록 | explore | island-membership LLD는 단건 조회(§3.8)만 있다 |
 | 공동 가계부 | town-hall | 원장 조회 계약 없음 |

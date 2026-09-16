@@ -68,11 +68,11 @@ node ~/.claude/skills/archify/bin/archify.mjs deliver sequence docs/prd/bff-scre
 | `town-hall` | 39–44 · 41A | 섬 문맥 (`role`) | `GET /islands/{islandId}/members` · `…/shop/wallets` · `…/construction-options` · 방장이면 `…/join-requests` | 일반 주민: `joinRequestsAvailability:host_only`. 조회 뒤 위임돼 403이면 화면 403. 가계부는 BG10 |
 | `library` | 32–38 | 섬 문맥 (도서관 완공) | `GET /islands/{islandId}/statistics/focus` · `…/statistics/screen-time` | 미완공: 기록 조각 null + `facility_locked`. 물고기 장은 BG10, 타 섬 경로는 BG11 |
 | `board` | 45–55 | 섬 문맥 (게시판 완공·건설 목표) | `GET /islands/{islandId}/quests/current` · `…/notices` · `…/shop/wallets` | 미완공은 화면 403 `FACILITY_LOCKED` |
-| `mailbox` | 63–66 | 섬 문맥 (우체통 완공) | Realtime `…/messages` 첫 페이지 · Data 편지함·친구(BG10) → 작성자 표시 정보 batch | Realtime 권한 거부는 화면 403. 표시 정보 장애를 탈퇴자로 바꾸지 않는다 |
+| `mailbox` | 63–66 | 섬 문맥 (우체통 완공) | Realtime `…/messages` 첫 페이지 · Data 편지함·친구([friend-letter](../friend-letter/) 설계 완료 — BG10 해소) → 작성자 표시 정보 batch | Realtime 권한 거부는 화면 403. 표시 정보 장애를 탈퇴자로 바꾸지 않는다 |
 | `shop` | 68–73 | 섬 문맥 (상점 완공) | `GET /islands/{islandId}/shop/wallets` · `…/shop/products?category=` · `…/inventory` | 미완공은 화면 403 |
 | `playback` | 84 · 85 | 섬 문맥 (방송기 완공) | `GET /islands/{islandId}/inventory` · `…/playback` · `…/shop/products?category=sound` · `…/shop/wallets` | 미완공은 화면 403 `FACILITY_LOCKED` |
-| `raft` | 76 · 77 | — | `GET /me` · `GET /me/inventory` · 받은 친구 요청 수(BG10) | 현재 섬 불필요 |
-| `friends` | 78 · 79 | — | 친구 목록 · 받은·보낸 요청 (BG10) | 설계 전 비활성 |
+| `raft` | 76 · 77 | — | `GET /me` · `GET /me/inventory` · 받은 친구 요청 수([friend-letter](../friend-letter/) HLD §3 — 요청 배열의 길이, BG10 해소) | 현재 섬 불필요 |
+| `friends` | 78 · 79 | — | 친구 목록 · 받은·보낸 요청 ([friend-letter](../friend-letter/) §1.15 내부 GET) | 설계 완료(BG10 해소). 허용목록 3줄이 들어간 뒤 켠다 |
 | `account` | 80–83 | — | `GET /me` · `NotificationApiClient.getSettings()`(순수 GET, Notification) | 설정 정본은 Notification. `AccountSettingsUseCase.read()`는 재사용하지 않음. 응답은 공개 계약 모양으로 투영(아래 각주) |
 
 화면 조회가 없는 프레임: 01 약관(`GET` 1개), 08·30·62 항해(B17), 27·29 결과(B18), 56·57 공지 상세, 58 랭킹, 67 편지 상세, 74·75 구매 내역. 모두 앱이 도메인 경로를 한 번 부르거나 앞 응답으로 그린다.
