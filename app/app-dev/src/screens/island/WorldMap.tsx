@@ -12,6 +12,9 @@ import {
   buildingCost,
   sessionSeconds,
   buildMinutes,
+  dayKey,
+  kstDayStart,
+  recordSecondsBetween,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite } from '@/components/CatSprite';
@@ -439,9 +442,14 @@ export function FinalIsland({
     : !i.buildings.includes('board')
       ? 'board'
       : null;
-  const today = state.records
-    .filter((r) => r.islandId === i.id && r.at >= new Date().setHours(0, 0, 0, 0))
-    .reduce((n, r) => n + r.seconds, 0);
+  const todayFrom = kstDayStart(dayKey()),
+    todayUntil = todayFrom + 86400000,
+    today = state.records
+      .filter((record) => record.islandId === i.id)
+      .reduce(
+        (seconds, record) => seconds + recordSecondsBetween(record, todayFrom, todayUntil),
+        0,
+      );
   return (
     <View style={{ flex: 1 }}>
       <WorldMap state={state} onSpot={(p) => walk(p)} children={actors as any} />

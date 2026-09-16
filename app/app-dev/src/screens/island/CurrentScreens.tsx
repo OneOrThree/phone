@@ -480,7 +480,7 @@ function FocusFlow({ e }: any) {
     );
   const finish = () => {
     e.dispatch({ type: 'FINISH' });
-    e.go('focusResult');
+    e.reset('focusResult');
   };
   if (r === 'rest')
     return (
@@ -2415,6 +2415,7 @@ function ShopMusic({ e }: any) {
         title="축음기"
         bg="gram"
         sign="bld/gramophone"
+        onClose={s.session ? e.back : undefined}
         action={s.session ? undefined : '음원 사기'}
         actionPress={() => setTab('음원 사기')}
         tall={false}

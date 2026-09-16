@@ -597,7 +597,7 @@ export function RedesignScreens({ e }: any) {
       `지금까지 집중한 ${Math.floor(sessionSeconds(state.session) / 60)}분 ${Math.floor(sessionSeconds(state.session) % 60)}초를 기록해요.`,
       () => {
         act('FINISH');
-        go('focusResult');
+        reset('focusResult');
       },
     );
   const hallSwitch = (x: string) => {
@@ -1341,7 +1341,7 @@ export function RedesignScreens({ e }: any) {
         home={home}
         endRest={() => {
           act('FINISH');
-          go('focusResult');
+          reset('focusResult');
         }}
       />
     );

@@ -266,7 +266,7 @@ function Gromo() {
     if (route === 'focus' && state.session) {
       confirm('집중을 마칠까요?', '이번 집중을 기록해요.', () => {
         dispatch({ type: 'FINISH' });
-        go('focusResult');
+        reset('focusResult');
       });
       return;
     }

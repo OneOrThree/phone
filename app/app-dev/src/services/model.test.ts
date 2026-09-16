@@ -712,6 +712,29 @@ test('퀘스트 날짜와 일·주·월 경계는 기기 타임존과 무관하�
     from: Date.parse('2026-08-31T15:00:00.000Z'),
     until: Date.parse('2026-09-30T15:00:00.000Z'),
   });
+  const today = periodBounds('일', 0, kst0030);
+  assert.equal(
+    recordSecondsBetween(
+      {
+        id: 'across-kst-midnight',
+        islandId: 'soda',
+        subject: '자정 경계',
+        seconds: 3600,
+        at: Date.parse('2026-09-15T15:30:00.000Z'),
+        fish: 60,
+        contributed: true,
+        intervals: [
+          {
+            start: Date.parse('2026-09-15T14:30:00.000Z'),
+            end: Date.parse('2026-09-15T15:30:00.000Z'),
+          },
+        ],
+      },
+      today.from,
+      today.until,
+    ),
+    1800,
+  );
 });
 
 test('이미 가입한 승인제 섬에 다시 이동할 때 신청을 만들지 않는다', () => {
