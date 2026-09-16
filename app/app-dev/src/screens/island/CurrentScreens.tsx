@@ -22,6 +22,7 @@ import {
   residentCount,
   capacityOf,
   isFull,
+  shopPrerequisitesMet,
   canBuy,
   canBuild,
   products,
@@ -1379,7 +1380,7 @@ function Hall({ e }: any) {
   const room = <Image source={art['hall/room']} style={fill} resizeMode="cover" />;
   const close = (
     <View style={{ position: 'absolute', left: 16, top: L.insets.top + 16 }}>
-      <Btn small kind="glass" title="‹" onPress={r === 'hall' ? e.home : () => e.go('hall')} />
+      <Btn small kind="glass" title="‹" onPress={r === 'hall' ? e.home : e.back} />
     </View>
   );
   const panel = (title: string, body: React.ReactNode, footer?: React.ReactNode) => (
@@ -1404,7 +1405,7 @@ function Hall({ e }: any) {
       >
         <View style={[k.row, { justifyContent: 'space-between' }]}>
           <Txt kind="h17">{title}</Txt>
-          <Close onPress={() => e.go('hall')} />
+          <Close onPress={e.back} />
         </View>
         <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 8 }}>{body}</ScrollView>
         {footer}
@@ -1689,7 +1690,7 @@ function Hall({ e }: any) {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
             {all.map((b) => {
               const made = i.buildings.includes(b),
-                locked = b === 'shop' && all.some((x) => x !== 'shop' && !i.buildings.includes(x));
+                locked = b === 'shop' && !shopPrerequisitesMet(i);
               return (
                 <Pressable
                   key={b}
@@ -1718,7 +1719,7 @@ function Hall({ e }: any) {
                     {made ? ' ✓' : ''}
                   </Txt>
                   <Txt kind="meta" style={{ fontSize: 11, textAlign: 'center' }}>
-                    {locked ? '다른 시설을 모두 완공하면 열려요' : descriptions[b]}
+                    {locked ? '전망대와 우체통을 완공하면 열려요' : descriptions[b]}
                   </Txt>
                 </Pressable>
               );
@@ -2030,7 +2031,7 @@ function Tower({ e }: any) {
     i = currentIsland(s),
     [query, setQuery] = useState('');
   const visibleIslands = s.islands.filter(
-      (j) => j.id !== i.id && (j.joined || j.visibility !== 'private'),
+      (j) => !j.closed && (j.joined || j.visibility !== 'private'),
     ),
     ranked = visibleIslands
       .filter((island) => residentCount(island) >= 2)
@@ -2038,6 +2039,7 @@ function Tower({ e }: any) {
     inviteTarget = findIslandByInviteCode(s.islands, query),
     results = s.islands.filter(
       (j) =>
+        !j.closed &&
         j.id !== i.id &&
         (j.id === inviteTarget?.id ||
           ((j.joined || j.visibility !== 'private') &&
@@ -2064,10 +2066,10 @@ function Tower({ e }: any) {
               <Row
                 key={j.id}
                 title={`${n + 1}  ${j.name}`}
-                sub={`주민 ${residentCount(j)}명 · ${j.joined ? '가입한 섬' : '다른 섬'}`}
+                sub={`주민 ${residentCount(j)}명 · ${j.id === i.id ? '우리 섬' : j.joined ? '가입한 섬' : '다른 섬'}`}
                 tail={<Txt>{hoursMinutes(islandWeeklyAverage(s, j, e.now))}</Txt>}
-                chevron
-                onPress={() => e.go('visit', j.id)}
+                chevron={j.id !== i.id}
+                onPress={j.id === i.id ? undefined : () => e.go('visit', j.id)}
               />
             ))}
           </Group>

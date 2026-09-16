@@ -964,7 +964,7 @@ export function RedesignScreens({ e }: any) {
   if (route === 'joinIsland') {
     // 정원이 가득 찬 섬은 공개 섬 찾기에서 뺀다
     const candidates = state.islands.filter(
-        (i) => i.visibility !== 'private' && !i.joined && !i.approval && !isFull(i),
+        (i) => !i.closed && i.visibility !== 'private' && !i.joined && !i.approval && !isFull(i),
       ),
       i = candidates[discoveryIndex % candidates.length];
     const page = (
@@ -2831,7 +2831,7 @@ export function RedesignScreens({ e }: any) {
     const between = tab === '섬 간 랭킹';
     // 섬 간 랭킹은 주민 평균 집중(이번 주) 순서
     const islands = state.islands
-      .filter((i) => i.visibility !== 'private')
+      .filter((i) => !i.closed && i.visibility !== 'private')
       .map((i) => ({ i, avg: islandWeeklyAverage(state, i, now) }))
       .sort((a, b) => b.avg - a.avg);
     const avatar = {
@@ -2924,10 +2924,11 @@ export function RedesignScreens({ e }: any) {
     // 이름 검색 결과에서 정원이 찬 섬(내가 가입하지 않은)은 뺀다. 초대 코드로 찾은 섬은 보여 주고 가입할 때 막는다
     const results = state.islands.filter(
       (i) =>
-        (i.visibility !== 'private' &&
+        (!i.closed &&
+          i.visibility !== 'private' &&
           (!query || i.name.includes(query)) &&
           (i.joined || !isFull(i))) ||
-        i.id === codeTarget,
+        (!i.closed && i.id === codeTarget),
     );
     return (
       <IslandSheet

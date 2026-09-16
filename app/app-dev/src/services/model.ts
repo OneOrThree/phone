@@ -119,6 +119,8 @@ export type Message = {
 };
 export type Island = {
   visibility?: 'public' | 'private';
+  // 마지막 주민이 떠나 종료된 섬. 기록 참조는 남기되 탐색·검색·재가입 대상에서는 제외한다.
+  closed?: boolean;
   id: string;
   name: string;
   intro: string;
@@ -612,7 +614,7 @@ export const capacityOf = (i: Island) => i.capacity ?? CAPACITY_MAX;
 export const isFull = (i: Island) => residentCount(i) >= capacityOf(i);
 export const inviteCodeOf = (i: Island) => i.id.toUpperCase();
 export const findIslandByInviteCode = (islands: Island[], code: string) =>
-  islands.find((i) => inviteCodeOf(i) === code.trim().toUpperCase());
+  islands.find((i) => !i.closed && inviteCodeOf(i) === code.trim().toUpperCase());
 export const recordSecondsBetween = (record: RecordItem, from: number, until: number) =>
   (record.intervals ?? [{ start: record.at - record.seconds * 1000, end: record.at }]).reduce(
     (seconds, interval) =>
@@ -692,11 +694,13 @@ export function canBuild(s: State, b: Building): string | null {
       !i.buildingQuest.targets.every((id) => collectedBy(i, id) >= buildingShare(i, b))
     )
       return '대상 주민 모두가 물고기 목표를 달성해야 해요.';
-    if (b === 'shop' && buildingOrder.some((x) => x !== 'shop' && !i.buildings.includes(x)))
-      return '상점은 다른 모든 시설 완공 후 지을 수 있어요.';
+    if (b === 'shop' && !shopPrerequisitesMet(i))
+      return '상점은 전망대와 우체통 완공 후 지을 수 있어요.';
   }
   return balance(i) < buildingCost(i, b) ? '섬 물고기 잔액이 부족해요.' : null;
 }
+export const shopPrerequisitesMet = (i: Island) =>
+  (['tower', 'mail'] as Building[]).every((building) => i.buildings.includes(building));
 export function canBuy(s: State, p: Product): string | null {
   const i = currentIsland(s);
   if (!i.joined) return '이 섬 주민만 구매할 수 있어요.';
@@ -1020,7 +1024,7 @@ export function reducer(state: State, a: Action): State {
     case 'JOIN': {
       if (s.session) return state;
       const island = s.islands.find((x) => x.id === a.id);
-      if (!island || (!island.joined && isFull(island))) return state;
+      if (!island || island.closed || (!island.joined && isFull(island))) return state;
       if (!island.joined && island.approval && !a.approved) {
         s.pendingIslands = [...new Set([...(s.pendingIslands ?? []), island.id])];
         s.pendingIsland = island.id;
@@ -1134,8 +1138,7 @@ export function reducer(state: State, a: Action): State {
         !['gram', 'library', 'mail', 'tower', 'shop'].includes(b)
       )
         return state;
-      if (b === 'shop' && buildingOrder.some((x) => x !== 'shop' && !i.buildings.includes(x)))
-        return state;
+      if (b === 'shop' && !shopPrerequisitesMet(i)) return state;
       if (i.buildingQuest?.building === b) return state;
       const targets = targetIds(i);
       const prevQuest = i.buildingQuest;
@@ -1427,6 +1430,12 @@ export function reducer(state: State, a: Action): State {
     case 'LEAVE':
       if (s.session || (isHost(i) && i.members.length > 0)) return state;
       i.joined = false;
+      if (i.members.length === 0) {
+        i.closed = true;
+        i.visibility = 'private';
+        s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== i.id);
+        if (s.pendingIsland === i.id) s.pendingIsland = s.pendingIslands.at(-1) ?? null;
+      }
       if (i.buildingQuest)
         i.buildingQuest.targets = i.buildingQuest.targets.filter((id) => id !== 'me');
       const nextIsland = s.islands.find((j) => j.joined && j.id !== i.id);
@@ -1495,6 +1504,8 @@ export function reducer(state: State, a: Action): State {
       clean.islands = s.islands.map((i) => ({
         ...i,
         joined: false,
+        closed: i.closed || (i.joined && i.members.length === 0),
+        visibility: i.closed || (i.joined && i.members.length === 0) ? 'private' : i.visibility,
         earned: Object.fromEntries(Object.entries(i.earned ?? {}).filter(([id]) => id !== 'me')),
         ledger: i.ledger.filter(
           (entry) =>

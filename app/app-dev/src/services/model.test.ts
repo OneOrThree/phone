@@ -146,7 +146,7 @@ test('각자 몫은 총액을 대상 인원으로 올림 나눈 값이다', () =
   s = act(s, 'SELECT_BUILDING', { building: 'gram' });
   assert.equal(buildingShare(currentIsland(s), 'gram'), 454);
 });
-test('상점은 다른 시설 모두 완공 후에만 선택, 축음기 음원은 상점 없이 구매', () => {
+test('상점은 전망대와 우체통만 선행하며, 축음기 음원은 상점 없이 구매한다', () => {
   let s = initialState(true);
   currentIsland(s).buildings = ['hall', 'board', 'gram'];
   assert.deepEqual(act(s, 'SELECT_BUILDING', { building: 'shop' }), s);
@@ -163,6 +163,9 @@ test('상점은 다른 시설 모두 완공 후에만 선택, 축음기 음원�
   s = act(s, 'TRACK', { value: 'rain' });
   s = act(s, 'SETTING', { key: 'sound', value: false });
   assert.equal(currentIsland(s).playing, true);
+  currentIsland(s).buildings = ['hall', 'board', 'mail', 'tower'];
+  s = act(s, 'SELECT_BUILDING', { building: 'shop' });
+  assert.equal(currentIsland(s).buildingQuest?.building, 'shop');
 });
 test('의상은 섬 잔액으로 구매하고 개인 보유품으로 남긴다; 중복 결제·미보유 착용 방지', () => {
   let s = initialState(true);
@@ -791,6 +794,32 @@ test('한 섬을 탈퇴해도 다른 소속 섬과 이전 섬의 공동 물고�
   assert.equal(s.onboarded, true);
   assert.equal(s.islandId, other.id);
   assert.equal(balance(s.islands.find((j) => j.id === previous.id)!), fish);
+});
+
+test('마지막 주민이 탈퇴하면 섬을 종료해 탐색·초대 코드·재가입에서 제외한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members = [];
+  const id = island.id;
+  s = act(s, 'LEAVE');
+  const closed = s.islands.find((candidate) => candidate.id === id)!;
+  assert.equal(closed.joined, false);
+  assert.equal(closed.closed, true);
+  assert.equal(closed.visibility, 'private');
+  assert.equal(findIslandByInviteCode(s.islands, inviteCodeOf(closed)), undefined);
+  assert.deepEqual(act(s, 'JOIN', { id }), s);
+});
+
+test('계정 삭제로 마지막 주민이 떠나는 섬도 종료한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members = [];
+  const id = island.id;
+  s = act(s, 'DELETE_ACCOUNT');
+  const closed = s.islands.find((candidate) => candidate.id === id)!;
+  assert.equal(closed.closed, true);
+  assert.equal(closed.visibility, 'private');
+  assert.equal(findIslandByInviteCode(s.islands, inviteCodeOf(closed)), undefined);
 });
 
 test('섬을 탈퇴해도 그 섬에서 완료한 이번 주 집중 기여는 보존한다', () => {
