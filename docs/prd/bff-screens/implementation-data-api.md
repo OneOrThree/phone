@@ -42,7 +42,7 @@ Data 밖:
 
 | 호출 | 소유 | 쓰는 화면 |
 | --- | --- | --- |
-| `GET /internal/islands/{islandId}/messages` | Realtime · island-mailbox §3 | mailbox |
+| `GET /internal/islands/{islandId}/messages` | Realtime · island-mailbox §1 | mailbox |
 | 알림 설정 조회 | Notification · Business `AccountSettingsUseCase` 경유 | account |
 
 ## 3. 허용목록 (business caller)
@@ -55,7 +55,7 @@ internal:
     callers:
       business:
         allow:
-          - 'GET /internal/users/*'
+          - 'GET /internal/users/*'  # ⚠️ 아래 경고 참조 — 이 줄만으로 열지 않는다
           - 'GET /internal/users/*/islands'
           - 'GET /internal/users/*/focus-summary'
           - 'GET /internal/users/*/focus-sessions/current'
@@ -79,6 +79,8 @@ internal:
 ```
 
 `'GET /internal/islands/*'`는 `AntPathMatcher`에서 `/internal/islands/discover`도 받는다. 같은 caller의 같은 GET이라 줄을 따로 두지 않는다.
+
+**`'GET /internal/users/*'`는 `/internal/islands/*`의 경우와 다르다 — 같은 caller에 허용해도 되는 이웃 경로가 아니라 `notification` 전용 컬렉션 조회를 같이 연다.** `AntPathMatcher`는 `*`를 세그먼트 하나로 매칭하므로 이 패턴은 `GET /internal/users/{userId}`(launch·raft·account가 쓰는 `GET /me` 대응, §2)뿐 아니라 `GET /internal/users/notification-snapshot`도 함께 받는다. `InternalAuthFilter.pathUserIdOf()`(`server/data-api/src/main/java/com/oneorthree/phone/config/InternalAuthFilter.java:189-197`)는 그 리터럴 경로만 `null`을 반환해 이후의 「경로 사용자 = X-User-Id」 대조(`InternalAuthFilter.java:139-144`)를 건너뛴다 — `notification-snapshot`이 특정 사용자가 아닌 전수 컬렉션이라 원래 사용자 축 대조 대상이 아니기 때문이다(`InternalAuthFilter.java:183-188` 문서 주석). 그 결과 business caller 토큰에 이 줄을 그대로 추가하면 사용자 대조 없이 `notification` 전용 전수 스냅샷(`server/notification/.../DataClient.java:54`가 소비하는 것과 같은 응답)에 닿는다 — allowlist는 caller가 실제 인가된 만큼만 열어야 하는데, 이 한 줄이 다른 caller(§3의 `notification`)에게만 허용된 경로까지 같이 연다. `AntPathMatcher`가 세그먼트 안에서 「UUID vs 리터럴」을 구분하지 못하는 한 이 줄은 launch·raft·account를 여는 PR에 그대로 넣지 않는다 — `notification-snapshot`을 `/internal/users/*` 하위가 아닌 다른 prefix로 옮기거나 `InternalAuthFilter`가 이 리터럴을 명시적으로 거부하는 변경이 먼저 필요하며, 이 gate는 [Business 구현](implementation-business-api.md) §7의 순서 1과 함께 다시 확인한다.
 
 ## 4. 설계가 없어 먼저 보강할 재료 (BG10)
 
