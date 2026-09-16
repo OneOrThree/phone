@@ -48,7 +48,7 @@ npm start
 | ------------------ | ------------------------------------------------- |
 | iOS 시뮬레이터     | `npm run ios`                                     |
 | Android 에뮬레이터 | `npm run android`                                 |
-| 웹 디버깅          | 저장소 루트에서 `./app/scripts/local-web.command` |
+| 웹 디버깅          | 저장소 루트에서 `./app/legacy/scripts/local-web.command` |
 | 타입 검사          | `npm run typecheck`                               |
 | 린트               | `npm run lint`                                    |
 | 테스트             | `npm test`                                        |

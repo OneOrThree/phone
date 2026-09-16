@@ -264,7 +264,7 @@ main529a 근거(기존 동작과 신규 요구를 구분):
 - [StatsService:457](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/stats/service/StatsService.java#L457): KST 반열림·현재시각 클램프. 신규 ACTIVE 계산은 PR743 순수 구간 집계와 합류.
 - [ScreenTimeService:89/108](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/screentime/service/ScreenTimeService.java#L89): 기존 user/date upsert와 새 TX 재시도, measuredAt CAS/기기 축 없음.
 - [ScreenTimeRequest:15](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/screentime/dto/ScreenTimeRequest.java#L15): 기존 achieved/actualMinutes/reportedAt/isFinal 입력은 신규5필드가 아님.
-- [ScreenTimeModule:156/205](https://github.com/OneOrThree/phone/blob/529a396/app/app-dev/ios/gromo/ScreenTimeModule.swift#L156), [Monitor:31](https://github.com/OneOrThree/phone/blob/529a396/app/app-dev/ios/GromoScreenTimeMonitor/DeviceActivityMonitorExtension.swift#L31), [sync:45](https://github.com/OneOrThree/phone/blob/529a396/app/app-dev/src/services/screentimeSync.ts#L45): 실제15분 선택 범위 측정과 로컬 날짜 한계.
+- [ScreenTimeModule:156/205](https://github.com/OneOrThree/phone/blob/529a396/app/legacy/app-dev/ios/gromo/ScreenTimeModule.swift#L156), [Monitor:31](https://github.com/OneOrThree/phone/blob/529a396/app/legacy/app-dev/ios/GromoScreenTimeMonitor/DeviceActivityMonitorExtension.swift#L31), [sync:45](https://github.com/OneOrThree/phone/blob/529a396/app/legacy/app-dev/src/services/screentimeSync.ts#L45): 실제15분 선택 범위 측정과 로컬 날짜 한계.
 
 1769 순서: 정책/기기 바인딩 확정 → ACTIVE/귀속 기반·legacy 호환 통합 → strict DTO/기기 원본/CAS → 승인 projection/내구 후속 → 조회 snapshot/cursor → 실제 PostgreSQL·HTTP·OS fixture 회귀. BFF는 이 재료가 준비된 뒤 구성한다.
 

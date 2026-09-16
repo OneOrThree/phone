@@ -4,7 +4,7 @@
 틀리면 **비KST 기기**에서 하루씩 어긋난 화면이 나온다 — 오늘 칸을 비켜 찍힌 마커,
 빈 캘린더, 두 번 뜨는 축하 모달, 매번 1일로 리셋되는 연속 달성일.
 
-이 문서가 **앱 쪽 정본**이다. 종전엔 `app/app-dev/src/utils/localDate.ts` 주석 하나가 정본 노릇을 했고
+이 문서가 **앱 쪽 정본**이다. 종전엔 `app/legacy/app-dev/src/utils/localDate.ts` 주석 하나가 정본 노릇을 했고
 분류표는 PR #531 본문에만 있어 저장소 어디에도 없었다(GROMO-1236 → GROMO-1254).
 날짜 축은 stats·focus·group·league·screentime 을 가로지르므로 `docs/prd/<기능>/` 에 담을 수
 없다 — `docs/README.md` 의 "기능 문서가 아닌 팀 전체 규약은 `docs/conventions/`" 규정을 따른다.
@@ -128,7 +128,7 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 
 ## 3. 유틸 카탈로그
 
-### `app/app-dev/src/utils/localDate.ts`
+### `app/legacy/app-dev/src/utils/localDate.ts`
 
 | 함수 | 축 | 용도 |
 | --- | --- | --- |
@@ -140,7 +140,7 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 | `todayStrKst()` · `tomorrowStrKst()` · `yesterdayStrKst()` · `kstDateStr(date)` | KST | **서버 축**(§2) |
 | `kstLocalSameDay()` | — | 기기가 지금 UTC+9 인가 — 로컬 누적을 서버 KST 집계와 합쳐도 되는지의 게이트 |
 
-### `app/app-dev/src/utils/serverZone.ts` (GROMO-1252) — ⚠️ 1259 이전 잔재
+### `app/legacy/app-dev/src/utils/serverZone.ts` (GROMO-1252) — ⚠️ 1259 이전 잔재
 
 서버가 `timeZone` 으로 **상수 `Asia/Seoul`** 만 내려주므로(§2) 이 계열은 더 이상 정확도를
 더하지 않는다. **새 코드에서 쓰지 않는다.** 기존 소비처 3곳의 위상은 §6 G1 참고.
@@ -151,7 +151,7 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 | `serverTodayStr()` | 보관된 존 기준 오늘 |
 | `serverZoneAlignedWithLocal()` | 보관된 존의 하루 경계와 로컬 하루 경계가 지금 겹치는가 |
 
-### `app/app-dev/src/screens/stats/format.ts` (통계 그리드 앵커)
+### `app/legacy/app-dev/src/screens/stats/format.ts` (통계 그리드 앵커)
 
 | 함수 | 용도 |
 | --- | --- |
@@ -176,7 +176,7 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 
 ## 4. 전수 분류표
 
-`app/app-dev/src/legacy/**`(동결)·`app/app-dev/src/mocks/fixtures/**` 는 제외.
+`app/legacy/app-dev/src/legacy/**`(동결)·`app/legacy/app-dev/src/mocks/fixtures/**` 는 제외.
 
 ### ① 서버 결합 — 서버 축
 

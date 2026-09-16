@@ -229,7 +229,7 @@ GET `/api/v1/focus-session`에 기본 행의 `startedAt`, `endedAt`, `totalDistr
 `focusSecondsByDate`를 그대로 내려준다. 신규 상세의 시작부터 종료까지에는 REST가 들어 있으므로,
 날짜별 net만 정확히 저장해도 다음 기존 소비자는 여전히 다른 값을 계산한다.
 
-| 실제 앱 소비처 (`app/app-dev/src/` 기준) | 현재 계산 | 신규 상세에 필요한 완료 reader |
+| 실제 앱 소비처 (`app/legacy/app-dev/src/` 기준) | 현재 계산 | 신규 상세에 필요한 완료 reader |
 | --- | --- | --- |
 | `screens/focus/focusRestore.ts:29~43`, `screens/stats/LongestSessionStat.tsx:54` | `sessionFocusSeconds`가 전체 벽시계 구간에서 방해 초를 차감, 최장 세션에도 사용 | 논리 세션 하나의 확정 ACTIVE 합. REST를 방해 초로 위장하지 않음 |
 | `screens/league/useLeagueRanking.ts:75~85` | 완료 목록을 받아 `sessionFocusSeconds`로 내 주간 시간을 재합산 | 상세의 정확한 ACTIVE 구간/확정 날짜 기여를 해당 주에 합산. 서버 랭킹과 일치 |

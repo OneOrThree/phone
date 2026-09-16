@@ -1,4 +1,4 @@
-# ── 전역 규칙만 둔다 — 앱 전용은 app/app-dev/.gitignore, 서버 전용은 server/data-api/.gitignore ──
+# ── 전역 규칙만 둔다 — 앱 전용은 app/legacy/app-dev/.gitignore, 서버 전용은 server/data-api/.gitignore ──
 
 # 에디터·OS·도구 로컬 산출물
 .DS_Store

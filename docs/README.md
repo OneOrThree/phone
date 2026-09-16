@@ -10,7 +10,7 @@
 | 제품과 저장소를 빠르게 훑고 싶다 | [루트 README](../README.md) |
 | 서버 구성과 현재 데이터 흐름을 알고 싶다 | [서버 README](../server/README.md) |
 | 특정 서버를 실행하거나 구현을 찾고 싶다 | [Business](../server/business-api/README.md) · [Data](../server/data-api/README.md) · [Notification](../server/notification/README.md) · [Realtime](../server/realtime/README.md) |
-| 앱을 실행하거나 구조를 알고 싶다 | [앱 README](../app/app-dev/README.md) |
+| 앱을 실행하거나 구조를 알고 싶다 | [앱 README](../app/legacy/app-dev/README.md) |
 | 목표 아키텍처와 결정 근거를 알고 싶다 | [아키텍처 인덱스](architecture/README.md) · [결정 장부](architecture/decisions.md) |
 | 기능별 요구사항·정책·API 설계를 찾고 싶다 | [`prd/`](prd/) |
 | 팀 공통 규약을 확인하고 싶다 | [`conventions/`](conventions/) |

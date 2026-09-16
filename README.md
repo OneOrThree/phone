@@ -5,7 +5,7 @@ React Native(Expo) 앱과 네 개의 Spring Boot 서버를 한 저장소에서 �
 
 | 바로 시작하기 | 문서 |
 | --- | --- |
-| 앱을 실행하고 싶어요 | [앱 시작하기](app/app-dev/README.md#로컬-실행) |
+| 앱을 실행하고 싶어요 | [앱 시작하기](app/legacy/app-dev/README.md#로컬-실행) |
 | 서버 구성을 알고 싶어요 | [서버 전체 문서](server/README.md) |
 | 기능 정책·설계를 찾고 싶어요 | [문서 인덱스](docs/README.md) |
 | 시스템의 목표 구조를 보고 싶어요 | [서비스 아키텍처](docs/architecture/service-architecture.md) |
@@ -37,7 +37,7 @@ flowchart LR
 
 | 경로 | 역할 | 상세 문서 |
 | --- | --- | --- |
-| `app/app-dev/` | React Native·Expo 앱, iOS 확장, Android 네이티브 프로젝트 | [앱 README](app/app-dev/README.md) |
+| `app/legacy/app-dev/` | **동결된 1.x 앱**(스토어 1.1.0까지) — React Native·Expo 앱, iOS 확장, Android 네이티브 프로젝트. 2.0.0 부터는 같이숲 v2 앱이 `app/app-dev/`에 들어옵니다 | [앱 README](app/legacy/app-dev/README.md) |
 | `server/` | Business·Data·Notification·Realtime와 실행·관측 도구 | [서버 README](server/README.md) |
 | `docs/` | 기능 정책·설계, 아키텍처, 팀 규약 | [문서 인덱스](docs/README.md) |
 | `loadtest/` | k6 부하 테스트 하네스와 결과 해석 | [부하 테스트 README](loadtest/README.md) |
@@ -51,13 +51,13 @@ flowchart LR
 <summary><strong>앱 실행 명령 보기</strong></summary>
 
 ```bash
-cd app/app-dev
+cd app/legacy/app-dev
 npm install
 cp .env.example .env
 npm start
 ```
 
-네이티브 빌드, 백엔드 연결, TestFlight·Android 배포는 [앱 README](app/app-dev/README.md)를 참고합니다.
+네이티브 빌드, 백엔드 연결, TestFlight·Android 배포는 [앱 README](app/legacy/app-dev/README.md)를 참고합니다.
 
 </details>
 
@@ -85,7 +85,7 @@ API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/
 | Notification | [server/notification/README.md](server/notification/README.md) |
 | Realtime | [server/realtime/README.md](server/realtime/README.md) |
 | 관측·배포 | [Observability](server/observability/README.md) · [Scripts](server/scripts/README.md) |
-| 앱 구조·실행·배포 | [app/app-dev/README.md](app/app-dev/README.md) |
+| 앱 구조·실행·배포 | [app/legacy/app-dev/README.md](app/legacy/app-dev/README.md) |
 | 목표 아키텍처·결정 장부 | [docs/architecture/README.md](docs/architecture/README.md) |
 | 기능별 PRD·정책·설계 | [docs/README.md](docs/README.md) |
 | 팀 규약 — Git·PR · 지라 티켓 · 백엔드 계층·오류·날짜 | [docs/conventions/](docs/conventions/) |

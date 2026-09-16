@@ -115,7 +115,7 @@ legacy sid 없는 RT는 백필한 legacy 세션 축으로 대조한다. AT에도
 
 RT 헤더는 프록시·access log·HTTP client debug·trace attribute·오류 덤프에서 제거한다. 쿠키를 새로 요구하지 않는다. 로그아웃의 200은 세션/bootstrap 폐기 완료이며 푸시 기기 등록 삭제까지 뜻하지 않는다.
 
-기기 등록 정리는 별도 `DELETE /api/v1/users/me/device-token`의 소유다. 앱이 대상 `X-Device-Token`과 `X-Device-Ownership`을 보내고, Business의 기존 `DeviceTokenUseCase.delete`가 해당 토큰·소유권 값으로 Data outbox를 먼저 기록한 뒤 직접 삭제/완료 표시를 처리한다(장부 ㊲·㊨·㊪·㊿). RT subject만 보고 사용자 전체 기기를 삭제하지 않는다. 지연된 A의 삭제는 A의 ownershipToken으로만 비교하여 B 또는 재등록한 A의 최신 등록을 지우지 않는다. 헤더 누락의 legacy 허용 창은 기존 ㊟ 롤아웃 규칙이며 새 문서가 이를 필수화했다고 주장하지 않는다. 앱은 로그아웃 시작 시 대상 기기 자격·원 사용자·고정 키를 내구 큐에 보존하고 기기 DELETE를 시도한다. 삭제 성공 여부와 무관하게 원 세션의 RT-only logout과 로컬 인증 정리를 계속하며, 기기 삭제 실패 때문에 활성 세션을 남기지 않는다(장부 ㋩, `app/app-dev/src/App.tsx:293~306`). outbox·직접 삭제 둘 다 실패하면 재시도 근거가 앱에만 남으며, outbox만 성공해도 직접 삭제 실패를 성공으로 숨기지 않는다. RT-only logout을 이 별도 DELETE의 성공으로 간주하거나 두 요청 사이의 값을 무상태 Business 메모리에 보관하지 않는다. 두 기기 헤더도 자격이므로 로그에 남기지 않는다.
+기기 등록 정리는 별도 `DELETE /api/v1/users/me/device-token`의 소유다. 앱이 대상 `X-Device-Token`과 `X-Device-Ownership`을 보내고, Business의 기존 `DeviceTokenUseCase.delete`가 해당 토큰·소유권 값으로 Data outbox를 먼저 기록한 뒤 직접 삭제/완료 표시를 처리한다(장부 ㊲·㊨·㊪·㊿). RT subject만 보고 사용자 전체 기기를 삭제하지 않는다. 지연된 A의 삭제는 A의 ownershipToken으로만 비교하여 B 또는 재등록한 A의 최신 등록을 지우지 않는다. 헤더 누락의 legacy 허용 창은 기존 ㊟ 롤아웃 규칙이며 새 문서가 이를 필수화했다고 주장하지 않는다. 앱은 로그아웃 시작 시 대상 기기 자격·원 사용자·고정 키를 내구 큐에 보존하고 기기 DELETE를 시도한다. 삭제 성공 여부와 무관하게 원 세션의 RT-only logout과 로컬 인증 정리를 계속하며, 기기 삭제 실패 때문에 활성 세션을 남기지 않는다(장부 ㋩, `app/legacy/app-dev/src/App.tsx:293~306`). outbox·직접 삭제 둘 다 실패하면 재시도 근거가 앱에만 남으며, outbox만 성공해도 직접 삭제 실패를 성공으로 숨기지 않는다. RT-only logout을 이 별도 DELETE의 성공으로 간주하거나 두 요청 사이의 값을 무상태 Business 메모리에 보관하지 않는다. 두 기기 헤더도 자격이므로 로그에 남기지 않는다.
 
 #### 기기 DELETE의 동일 명령 재생
 
@@ -191,11 +191,11 @@ sid/bootstrap으로 연결하고, 기존 ownership·legacy 허용 창을 우회�
 
 기기 삭제의 내구화는 명시적 로그아웃뿐 아니라 비게스트 A→B 전환에도 적용한다
 ([기존 통신 계약](../../architecture/service-architecture.md#4-통신-방식)). 기준 main
-[App.tsx:517~528](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/app-dev/src/App.tsx#L517-L528)는
+[App.tsx:517~528](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/legacy/app-dev/src/App.tsx#L517-L528)는
 새 세션 commit 뒤 이전 AT의 DELETE 실패를 삼킨다. 이 동작만으로 내구 정리가 완료됐다고 주장하지 않는다.
 후속 앱은 **전환 전 준비 → 세션 commit과 삭제 실행 가능 상태 확정 → commit 뒤 전달**을 구분한다.
 
-기준 main의 [auth.ts:113~115](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/app-dev/src/services/auth.ts#L113-L115)는
+기준 main의 [auth.ts:113~115](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/legacy/app-dev/src/services/auth.ts#L113-L115)는
 사용자 UUID가 다를 때만 cleanup을 실행하지만, 선행의 세션별 RT는 같은 사용자 재로그인에도 별도 활성 세션을
 남길 수 있다. 후속 전환 판정은 사용자 UUID뿐 아니라 **검증된 이전/신규 sessionId**를 비교한다.
 같은 사용자 A의 s1→s2 재로그인도 아래 준비/commit/전달을 적용해 s1의 원 RT를 폐기하고 정확한 원 기기를 정리한다.
@@ -374,7 +374,7 @@ expand 순서는 세션 저장소 및 승격 전용 복구 receipt 추가 → �
 
 ### 정상 RT 회전의 클라이언트 전환 gate
 
-기준 main의 [api.ts:168~170](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/app-dev/src/services/api.ts#L168-L170)는
+기준 main의 [api.ts:168~170](https://github.com/OneOrThree/phone/blob/529a396e5f0f88cb78c172110920e1fa6b9388a9/app/legacy/app-dev/src/services/api.ts#L168-L170)는
 새 AT를 먼저 저장하고 RT를 나중에 저장한다. 목표 세션 형식의 정상 회전은 동일 subject/sid/authGeneration을
 유지할 수 있으므로 **그 세 필드 일치만으로 새 AT와 회전 전 RT의 혼합을 검출하거나 완전한 쌍을 증명할 수 없다.**
 이것은 목표 정상 회전의 유실 문제이며 현재 main이 이미 sid RT를 발급한다는 뜻이 아니다.
@@ -399,7 +399,7 @@ expand 순서는 세션 저장소 및 승격 전용 복구 receipt 추가 → �
 
 ### 유효한 sidless AT를 가진 기존 앱 설치의 진입 gate
 
-현재 `app/app-dev/src/services/api.ts:getFreshAccessToken`은 exp가 충분히 남았으면 저장된 AT를 그대로
+현재 `app/legacy/app-dev/src/services/api.ts:getFreshAccessToken`은 exp가 충분히 남았으면 저장된 AT를 그대로
 반환한다(200~209행). 그래서 RT 승격 구현만으로는 기존 설치가 새 `/me` 계열에 진입할 수 없다.
 **신규 경로를 처음 사용하기 전에 세션 형식 자격으로의 전환을 완료하는 앱 gate를 추가**한다.
 AT가 아직 유효해도 sid가 없거나 저장 RT와 사용자·sid·authGeneration이 일치하는 완전한 묶음이 아니면
@@ -1083,7 +1083,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `server/data-api/src/main/java/com/oneorthree/phone/group/service/GroupBetWindowUsageService.java` | requireActiveUser FOR SHARE·upsertWindowUsage |
 | `server/data-api/src/main/resources/db/migration/V1__baseline.sql`, `V37__group_challenge_members_cleanup.sql`, `V43__challenge_member_measured_at.sql` | FK 방향·usage_date NOT NULL·measured_at |
 | `server/data-api/src/main/java/com/oneorthree/phone/auth/exception/AuthErrorCode.java` | UNSUPPORTED_PROVIDER 400 |
-| `app/app-dev/src/services/api.ts` | getFreshAccessToken의 유효 AT 조기 반환, refresh의 개별 AT/RT setItem |
+| `app/legacy/app-dev/src/services/api.ts` | getFreshAccessToken의 유효 AT 조기 반환, refresh의 개별 AT/RT setItem |
 | `server/data-api/src/main/java/com/oneorthree/phone/group/repository/domain/GroupAnnouncement.java` | nullable user 작성자 관계 |
 | `server/data-api/src/main/java/com/oneorthree/phone/group/service/GroupAnnouncementService.java` | createAnnouncement·requireActiveUser의 getCallerForShare |
 | `server/data-api/docs/db/schema.dbml` | group_announcements.user_id: 작성자, 탈퇴 시 null |
@@ -1092,15 +1092,15 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `server/data-api/src/main/java/com/oneorthree/phone/friend/repository/FriendshipRepository.java`, `PinnedUserRepository.java` | findActiveByUserId 배타 잠금·deleted_at 조건, findPair 삭제 행 포함, deleteAllInvolving 양방향 |
 | `server/data-api/src/main/java/com/oneorthree/phone/group/repository/domain/GroupMember.java`, `GroupRepository.java`, `GroupMemberRepository.java` | leave()의 is_left/left_reason만 변경, notificationEnabled·announcementPermission·status·role NOT NULL, is_left=false OWNER 방장 판정 |
 | `server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/domain/InviteLinkClick.java`, `InviteLinkClickRepository.java`, `invitelink/support/InviteLinkGa4Events.java`, `common/analytics/Ga4MeasurementClientImpl.java` | ip_hash NOT NULL·user_agent·matched_device_id·app_instance_id, markMatched, 기기 재시도 조회, 서버 MP app_instance_id 전송 |
-| `app/app-dev/src/store/UserContext.tsx`, `app/app-dev/src/screens/settings/AccountScreen.tsx`, `app/app-dev/src/services/analytics.ts` | GA4 setUserId(userId), 탈퇴 성공 뒤 setUserId(null) 이전의 withdrawal_confirmed, 설치 device_id 공통 파라미터·getAppInstanceId |
-| `app/app-dev/src/App.tsx`, `app/app-dev/src/types/storage.ts`, `app/app-dev/src/store/CharacterContext.tsx`, `app/app-dev/src/services/sessionErrors.ts`, `app/app-dev/src/services/api.ts` | 일반 로그아웃 multiRemove와 equipment·ownedItems 보존 주석, 계정별 맵·userId 마커 키, customUri·createdAt, USER_NOT_FOUND 안내와 401 refresh 실패의 일반 로그아웃 수렴 |
+| `app/legacy/app-dev/src/store/UserContext.tsx`, `app/legacy/app-dev/src/screens/settings/AccountScreen.tsx`, `app/legacy/app-dev/src/services/analytics.ts` | GA4 setUserId(userId), 탈퇴 성공 뒤 setUserId(null) 이전의 withdrawal_confirmed, 설치 device_id 공통 파라미터·getAppInstanceId |
+| `app/legacy/app-dev/src/App.tsx`, `app/legacy/app-dev/src/types/storage.ts`, `app/legacy/app-dev/src/store/CharacterContext.tsx`, `app/legacy/app-dev/src/services/sessionErrors.ts`, `app/legacy/app-dev/src/services/api.ts` | 일반 로그아웃 multiRemove와 equipment·ownedItems 보존 주석, 계정별 맵·userId 마커 키, customUri·createdAt, USER_NOT_FOUND 안내와 401 refresh 실패의 일반 로그아웃 수렴 |
 | `server/chat/src/main/java/com/oneorthree/chat/membership/MembershipService.java`, `message/service/ChatMessageService.java`, `message/service/ChatAccessGuard.java`, `config/StompAuthChannelInterceptor.java`, `auth/ChatPrincipal.java` (기준 main 529a396) | 멤버십 캐시 TTL 무효화뿐, send의 집중·멤버십 판정 뒤 저장, SUBSCRIBE·SEND의 토큰·판정, 만료 시 기존 구독 유지, sid·authGeneration 미검사. 메시지별 전달 검사·연결 레지스트리·폐기 소비자 없음 |
 | `server/realtime/src/main/java/com/oneorthree/realtime/config/ChatOutboundChannelInterceptor.java`, `config/RealtimeSessionRegistry.java` (기준 이후 머지된 PR739 `da1ae5a39`) | 기존 구독 메시지별 토큰·멤버십 재검사, 세션 ID 단위 종료만. 사용자·sid 색인·인스턴스 간 전파·폐기 fence 없음 |
 | `server/business-api/src/main/java/com/oneorthree/business/linkpreview/repository/PreviewCache.java`, `service/PreviewService.java`, `PreviewController.java` | 사용자 UUID 키·pending 90/READY 300/FAILED 30초·rate 60초, CAS complete, worker 비동기 완료, 활성 검사 없음 |
-| `server/data-api/src/main/java/com/oneorthree/phone/group/service/GroupBetService.java`(toResultParticipants·loadCurrentBets·toSessionResponse·displayNickname), `group/dto/GroupBetResultParticipantResponse.java`·`GroupBetResponse.java`·`GroupBetParticipantResponse.java`·`GroupBetSessionParticipantResponse.java`; 선행 PR745 `9ad4236`의 `server/business-api/.../usecase/NotificationSettingsUseCase.java`·`api/dto/DeviceTokenRegisterResponse.java`·`app/app-dev/src/services/notificationCommands.ts` | 결과·현재 회차·세션 참가자 모두 탈퇴자 닉네임만 치환·실제 userId(creatorUserId 포함) 반환, 설정 GET 정본 조회·PUT 내구 명령 뒤 적용, 등록 응답 ownershipToken과 앱 승계·X-Device-Ownership |
-| `server/data-api/src/main/java/com/oneorthree/phone/common/port/RedisFocusPresence.java`, `focus/scheduler/FocusPresenceReconciler.java`, `app/app-dev/src/components/PushGate.tsx` | AFTER_COMMIT SET_IF_NEWER·SET_IF_ABSENT의 closed/세션 순서 비교, lease 시작 기준 13시간, 트랜잭션 밖 재구축 쓰기, 등록 effect의 [userId] 의존 |
-| `server/data-api/src/main/java/com/oneorthree/phone/notification/client/FcmPushNotificationClient.java`, `group/service/GroupService.java`(publishJoinAttribution·ga4JoinParams), `common/analytics/Ga4MeasurementClientImpl.java`, `app/app-dev/src/services/push.ts`·`pushBackground.ts` | 표시 알림 notification 페이로드·silent content-available, 가입 MP의 app_instance_id 미저장·user_id 없는 본문, 수신·탭·콜드스타트의 대상 미확인 saveToInbox·로컬 배너·딥링크 |
-| `app/app-dev/ios/NotificationService/NotificationService.swift`, `app/app-dev/ios/gromo.xcodeproj/project.pbxproj` | 템플릿 그대로의 NSE(제목에 [modified] 부착), NSE 타깃 CODE_SIGN_ENTITLEMENTS·App Group 없음, 서버 mutable-content 미설정 |
+| `server/data-api/src/main/java/com/oneorthree/phone/group/service/GroupBetService.java`(toResultParticipants·loadCurrentBets·toSessionResponse·displayNickname), `group/dto/GroupBetResultParticipantResponse.java`·`GroupBetResponse.java`·`GroupBetParticipantResponse.java`·`GroupBetSessionParticipantResponse.java`; 선행 PR745 `9ad4236`의 `server/business-api/.../usecase/NotificationSettingsUseCase.java`·`api/dto/DeviceTokenRegisterResponse.java`·`app/legacy/app-dev/src/services/notificationCommands.ts` | 결과·현재 회차·세션 참가자 모두 탈퇴자 닉네임만 치환·실제 userId(creatorUserId 포함) 반환, 설정 GET 정본 조회·PUT 내구 명령 뒤 적용, 등록 응답 ownershipToken과 앱 승계·X-Device-Ownership |
+| `server/data-api/src/main/java/com/oneorthree/phone/common/port/RedisFocusPresence.java`, `focus/scheduler/FocusPresenceReconciler.java`, `app/legacy/app-dev/src/components/PushGate.tsx` | AFTER_COMMIT SET_IF_NEWER·SET_IF_ABSENT의 closed/세션 순서 비교, lease 시작 기준 13시간, 트랜잭션 밖 재구축 쓰기, 등록 effect의 [userId] 의존 |
+| `server/data-api/src/main/java/com/oneorthree/phone/notification/client/FcmPushNotificationClient.java`, `group/service/GroupService.java`(publishJoinAttribution·ga4JoinParams), `common/analytics/Ga4MeasurementClientImpl.java`, `app/legacy/app-dev/src/services/push.ts`·`pushBackground.ts` | 표시 알림 notification 페이로드·silent content-available, 가입 MP의 app_instance_id 미저장·user_id 없는 본문, 수신·탭·콜드스타트의 대상 미확인 saveToInbox·로컬 배너·딥링크 |
+| `app/legacy/app-dev/ios/NotificationService/NotificationService.swift`, `app/legacy/app-dev/ios/gromo.xcodeproj/project.pbxproj` | 템플릿 그대로의 NSE(제목에 [modified] 부착), NSE 타깃 CODE_SIGN_ENTITLEMENTS·App Group 없음, 서버 mutable-content 미설정 |
 | `server/chat/src/main/java/com/oneorthree/chat/message/dto/ChatMessageResponse.java`, `message/service/ChatMessageService.java`(history), `message/service/ChatRoomService.java`(myRooms) (기준 main 529a396) | from()이 저장된 sender_id를 senderId로 그대로 반환, 전송·히스토리·방 목록 최신 메시지 공용, 탈퇴 발신자 처리 없음 |
 | `server/data-api/src/main/java/com/oneorthree/phone/invitelink/service/InviteLinkMatchService.java`, `repository/GroupInviteLinkRepository.java`, `repository/InviteLinkClickRepository.java` | claim의 무잠금 findBySlug, 클릭 PESSIMISTIC_WRITE·SKIP LOCKED, 먼저 읽은 inviterId 귀속 |
 | `server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java` | anonymizeWithdrawnUser |
@@ -1119,7 +1119,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 `focus/repository/domain/UserStreak.java`, V2의 user_id PK 전환;
 `focus/service/UserStreakService.java:103~130`, `FocusService.java:1137~1138,1317`의 현재 writer/잠금;
 `auth/service/AuthService.java:239~264`, `AuthServiceTest.nonGuestAccountSwitchIsNotBlocked`,
-`app/app-dev/src/services/auth.ts:71`의 비게스트 AT 계정 전환;
+`app/legacy/app-dev/src/services/auth.ts:71`의 비게스트 AT 계정 전환;
 `auth/exception/InvalidTokenErrorCode.java`의7개401 코드.
 미통합1659의 `AuthSessionService.rotate` 및 `AuthService.refreshToken`은 원RT 승격 결과 복구 receipt가 없는
 비교 근거이며, 후속 구현에 고정 서명 재료/복구 창/폐기 경계를 추가해야 한다.
