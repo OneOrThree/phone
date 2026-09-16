@@ -38,6 +38,9 @@ google-services-*.json
 *.p8
 *.p12
 *.mobileprovision
+# Sentry 인증 토큰 — 종전엔 ios/.gitignore·android/.gitignore(플랫폼별 중첩 파일)가 막았다.
+# 그 파일들이 앱과 함께 legacy 로 이동해, 옛 경로에 남은 잔재가 무방비가 된다 (코덱스 리뷰 P1).
+**/sentry.properties
 
 # 같은 CI 실행에서 검증한 이미지 조립용 JAR
 server/*/ci-artifact/

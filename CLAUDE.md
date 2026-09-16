@@ -108,12 +108,16 @@ rejects a `gh pr create` that breaks them (reason goes back to you, no user prom
 
 ## CI/CD (`.github/workflows/`)
 
-Pipelines are path-filtered — `app/legacy/app-dev/**` changes and `server/data-api/**`
+Pipelines are path-filtered — `app/app-dev/**` changes and `server/data-api/**`
 changes trigger different jobs. This list rots; the authoritative source is
 `ls .github/workflows/` plus each file's `name:`.
 
-- **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/legacy/app-dev/**`;
+- **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**`;
   `app-android-build.yml` — Android build checks on native-affecting paths.
+  ⚠️ **동결된 1.x 앱(`app/legacy/app-dev/**`)에는 CI가 없다** (GROMO-1890). 두 워크플로는
+  `app/app-dev/**` 만 트리거하고, 그 디렉터리가 없으면 검사를 건너뛴다. 1.x 핫픽스는 CI가
+  검증해 주지 않으므로 `app/legacy/app-dev` 에서 `npm ci && npm run lint && npm run typecheck
+  && npm test` 를 직접 돌려야 한다.
 - **Business API · Notification**: `satellite-ci.yml` — `server/business-api/**` ·
   `server/notification/**` 매트릭스로 독립 Gradle build(Checkstyle·SpotBugs·Testcontainers 통합
   테스트)와 Docker 이미지 빌드. main push에서만 GAR, release push에서만 ECR 게시. 수동 dev overlay는
