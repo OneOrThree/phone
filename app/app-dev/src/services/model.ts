@@ -148,6 +148,8 @@ export type Island = {
   contribution: number;
   nextBuilding?: Building;
   members: Member[];
+  // 강퇴·탈퇴한 주민의 완료 기록은 주민 목록과 분리해 보존한다.
+  formerMembers?: Member[];
   quests: Quest[];
   notices: Notice[];
   messages: Message[];
@@ -300,9 +302,15 @@ export const buildingReady = (i: Island) =>
     (id) => collectedBy(i, id) >= buildingShare(i, i.buildingQuest!.building),
   ) &&
   balance(i) >= buildingCost(i, i.buildingQuest.building);
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const kstDate = (at: number) => new Date(at + KST_OFFSET_MS);
 export const dayKey = (at = Date.now()) => {
-  const d = new Date(at);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const d = kstDate(at);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+};
+export const kstDayStart = (day: string) => {
+  const [year, month, date] = day.split('-').map(Number);
+  return Date.UTC(year, month - 1, date) - KST_OFFSET_MS;
 };
 export const products: Product[] = [
   {
@@ -412,6 +420,7 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
       ],
       screenDays: m.id === 'dubu' ? undefined : { [dayKey()]: 84 },
     })),
+    formerMembers: [],
     quests: [
       {
         id: 'q-focus',
@@ -604,12 +613,12 @@ export const recordSecondsBetween = (record: RecordItem, from: number, until: nu
       seconds + Math.max(0, Math.min(interval.end, until) - Math.max(interval.start, from)) / 1000,
     0,
   );
-// 이번 주 시작 = 로컬 기준 일요일 00:00
+// 이번 주 시작 = Asia/Seoul 기준 일요일 00:00
 export function weekStart(now = Date.now()) {
-  const d = new Date(now);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - d.getDay());
-  return d.getTime();
+  const d = kstDate(now);
+  return (
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - d.getUTCDay()) - KST_OFFSET_MS
+  );
 }
 // 섬 평균 집중(초) = 이번 주 그 섬에서 집중한 시간 합계 ÷ 그 섬 주민 수
 // 모든 주민의 기록을 같은 섬·같은 주간 구간으로 필터링한다.
@@ -624,7 +633,7 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
     : 0;
   return (
     (mine +
-      i.members.reduce(
+      [...i.members, ...(i.formerMembers ?? [])].reduce(
         (a, m) =>
           a +
           (m.records ?? [])
@@ -652,23 +661,16 @@ export function questRate(s: State, q: Quest, islandId = s.islandId): number | n
       : s.screenMinutes <= q.target
         ? 100
         : Math.max(0, Math.round((q.target / s.screenMinutes) * 100));
-  const now = new Date().toDateString();
-  const seconds = s.records
-    .filter((r) => r.islandId === islandId && new Date(r.at).toDateString() === now)
-    .reduce((a, r) => {
-      if (!q.windowStart || !q.windowEnd) return a + r.seconds;
-      const day = new Date(r.at);
-      day.setHours(0, 0, 0, 0);
-      const toMs = (v: string) => {
-        const [h, m] = v.split(':').map(Number);
-        return day.getTime() + (h * 60 + m) * 60000;
-      };
-      const from = toMs(q.windowStart),
-        until = toMs(q.windowEnd);
-      return (
-        a + Math.max(0, Math.min(r.at, until) - Math.max(r.at - r.seconds * 1000, from)) / 1000
-      );
-    }, 0);
+  const seconds = focusTotal(s.records, islandId, dayKey(), {
+    targets: [],
+    achieved: [],
+    claimed: [],
+    bonus: false,
+    target: q.target,
+    kind: q.type,
+    windowStart: q.windowStart,
+    windowEnd: q.windowEnd,
+  });
   return Math.min(100, Math.floor((seconds / (q.target * 60)) * 100));
 }
 export function canBuild(s: State, b: Building): string | null {
@@ -701,27 +703,25 @@ export function canBuy(s: State, p: Product): string | null {
 }
 // Period filtering is shared by the diary and ranking; no fabricated record values.
 export function periodBounds(period: '일' | '주' | '월', offset: number, at = Date.now()) {
-  const d = new Date(at);
-  d.setHours(0, 0, 0, 0);
-  if (period === '일') d.setDate(d.getDate() + offset);
+  const d = kstDate(at);
+  d.setUTCHours(0, 0, 0, 0);
+  if (period === '일') d.setUTCDate(d.getUTCDate() + offset);
   if (period === '주') {
-    d.setDate(d.getDate() - d.getDay() + offset * 7);
+    d.setUTCDate(d.getUTCDate() - d.getUTCDay() + offset * 7);
   }
   if (period === '월') {
-    d.setDate(1);
-    d.setMonth(d.getMonth() + offset);
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() + offset);
   }
-  const from = d.getTime();
-  if (period === '일') d.setDate(d.getDate() + 1);
-  if (period === '주') d.setDate(d.getDate() + 7);
-  if (period === '월') d.setMonth(d.getMonth() + 1);
-  return { from, until: d.getTime() };
+  const from = d.getTime() - KST_OFFSET_MS;
+  if (period === '일') d.setUTCDate(d.getUTCDate() + 1);
+  if (period === '주') d.setUTCDate(d.getUTCDate() + 7);
+  if (period === '월') d.setUTCMonth(d.getUTCMonth() + 1);
+  return { from, until: d.getTime() - KST_OFFSET_MS };
 }
 function focusTotal(records: RecordItem[], islandId: string, day: string, q: QuestRound) {
-  const d = new Date(day + 'T00:00:00');
-  const from = d.getTime();
-  d.setDate(d.getDate() + 1);
-  const until = d.getTime();
+  const from = kstDayStart(day),
+    until = from + 86400000;
   const clock = (v: string) => {
     const [h, m] = v.split(':').map(Number);
     return from + (h * 60 + m) * 60000;
@@ -912,6 +912,7 @@ export function reducer(state: State, a: Action): State {
     const loaded = JSON.parse(JSON.stringify(a.state)) as State;
     const retired = ['flag', 'sailboat', 'cabinboat'];
     loaded.islands.forEach((i) => {
+      i.formerMembers ??= [];
       i.fish ??= i.points + i.contribution + (i.id === loaded.islandId ? loaded.fish : 0);
       i.earned ??= Object.fromEntries(
         targetIds(i).map((id) => [
@@ -967,6 +968,11 @@ export function reducer(state: State, a: Action): State {
     'CLAIM_MEMBER',
   ];
   if (joinedOnly.includes(a.type) && !currentIsland(state).joined) return state;
+  if (
+    a.type === 'DELETE_ACCOUNT' &&
+    state.islands.some((island) => isHost(island) && island.members.length > 0)
+  )
+    return state;
   const s = JSON.parse(JSON.stringify(state)) as State,
     i = currentIsland(s),
     now = a.now ?? Date.now();
@@ -1233,6 +1239,17 @@ export function reducer(state: State, a: Action): State {
           round.target = a.target;
           round.windowStart = a.windowStart;
           round.windowEnd = a.windowEnd;
+          // 이미 지급된 보상은 보존하되, 미수령 달성은 새 기준으로 다시 판정한다.
+          const claimed = new Set(round.claimed);
+          round.achieved = round.achieved.filter((id) => claimed.has(id));
+          s.rewards = (s.rewards ?? []).filter(
+            (reward) =>
+              reward.acknowledged ||
+              reward.kind !== 'personal' ||
+              reward.islandId !== i.id ||
+              reward.questId !== q.id ||
+              reward.day !== dayKey(now),
+          );
         }
       } else
         i.quests.push({
@@ -1350,11 +1367,19 @@ export function reducer(state: State, a: Action): State {
       i.intro = a.intro ?? i.intro;
       i.approval = a.approval ?? i.approval;
       break;
-    case 'KICK':
+    case 'KICK': {
+      const kicked = i.members.find((m) => m.id === a.id);
+      if (!kicked) return state;
+      i.formerMembers ??= [];
+      i.formerMembers = [
+        ...i.formerMembers.filter((member) => member.id !== kicked.id),
+        { ...kicked, focusing: false, restStartedAt: undefined, role: 'member' },
+      ];
       i.members = i.members.filter((m) => m.id !== a.id);
       if (i.buildingQuest)
         i.buildingQuest.targets = i.buildingQuest.targets.filter((id) => id !== a.id);
       break;
+    }
     case 'REJECT_MEMBER':
       i.requestResolved = true;
       break;

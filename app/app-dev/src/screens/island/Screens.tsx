@@ -16,6 +16,7 @@ import {
   Building,
   Color,
   currentIsland,
+  isHost,
   sessionSeconds,
   questRate,
   canBuild,
@@ -396,6 +397,7 @@ export function RedesignScreens({ e }: any) {
   const {
     dispatch,
     go,
+    replace,
     reset,
     home,
     back,
@@ -2619,7 +2621,7 @@ export function RedesignScreens({ e }: any) {
               windowStart: e.windowStart,
               windowEnd: e.windowEnd,
             });
-            go('board');
+            replace('board');
           },
           undefined,
           undefined,
@@ -2793,7 +2795,7 @@ export function RedesignScreens({ e }: any) {
         actionPress={() =>
           confirm('공지를 삭제할까요?', '삭제한 공지는 되돌릴 수 없어요.', () => {
             act('NOTICE_DELETE', { id: detail });
-            go('board');
+            replace('board');
             setTab('공지');
           })
         }
@@ -2801,7 +2803,7 @@ export function RedesignScreens({ e }: any) {
           '공지 저장',
           () => {
             act('NOTICE_SAVE', { id: detail, title: text, body });
-            go('board');
+            replace('board');
             setTab('공지');
           },
           undefined,
@@ -3563,7 +3565,10 @@ export function RedesignScreens({ e }: any) {
       </IslandSheet>
     );
   }
-  if (route === 'profile')
+  if (route === 'profile') {
+    const mustTransferHost = state.islands.some(
+      (candidate) => isHost(candidate) && candidate.members.length > 0,
+    );
     return (
       <IslandSheet
         bg="dock"
@@ -3609,8 +3614,9 @@ export function RedesignScreens({ e }: any) {
           />
         </Group>
         <Btn
-          title="회원 탈퇴"
+          title={mustTransferHost ? '방장을 위임한 뒤 회원 탈퇴할 수 있어요' : '회원 탈퇴'}
           kind="danger"
+          disabled={mustTransferHost}
           style={{ alignSelf: 'center' }}
           onPress={() =>
             confirm(
@@ -3625,6 +3631,7 @@ export function RedesignScreens({ e }: any) {
         />
       </IslandSheet>
     );
+  }
   if (route === 'settings') {
     const toggle = (label: string, key: string, sub?: string) => (
       <Row

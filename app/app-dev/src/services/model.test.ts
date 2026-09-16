@@ -25,6 +25,8 @@ import {
   inviteCodeOf,
   isHost,
   recordSecondsBetween,
+  weekStart,
+  periodBounds,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
@@ -316,6 +318,7 @@ test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정�
     name: '수빈',
     text: '예전 이름 댓글',
   });
+  currentIsland(s).members[0].role = 'host';
   s = act(s, 'DELETE_ACCOUNT');
   const scrubbed = s.islands[0];
   assert.equal(scrubbed.fish, 1200);
@@ -368,6 +371,15 @@ test('승인 요청 1회 처리·방장 위임 이후 관리 제한', () => {
   assert.deepEqual(act(s, 'QUEST_SAVE', { title: '변경', kind: 'focus', target: 10 }), s);
   assert.deepEqual(act(s, 'NOTICE_SAVE', { title: '변경', body: '내용' }), s);
   assert.deepEqual(act(s, 'NOTICE_DELETE', { id: 'welcome' }), s);
+});
+
+test('주민이 남은 섬의 방장은 위임 전에 계정을 삭제할 수 없다', () => {
+  let s = initialState(true);
+  assert.ok(isHost(currentIsland(s)));
+  assert.deepEqual(act(s, 'DELETE_ACCOUNT'), s);
+  s = act(s, 'TRANSFER', { id: 'minji' });
+  s = act(s, 'DELETE_ACCOUNT');
+  assert.equal(s.loggedIn, false);
 });
 
 test('온보딩 전에는 숨은 가입 섬이 없고 초대 코드는 실제 섬 ID로 찾는다', () => {
@@ -617,12 +629,19 @@ test('주 경계를 넘은 집중은 일요일 00시 이후 구간만 새 주 �
   assert.equal(recordSecondsBetween(s.records[0], sunday - 1800000, sunday + 1800000), 1800);
 });
 
-test('오늘 퀘스트를 수정하면 이미 열린 라운드의 기준도 같이 바뀐다', () => {
+test('오늘 퀘스트를 수정하면 미수령 달성과 보상을 새 기준으로 다시 판정한다', () => {
   let s = initialState(true);
   const now = new Date(2026, 8, 15, 12).getTime(),
     quest = currentIsland(s).quests[0];
-  s = act(s, 'TICK', { now });
-  assert.ok(currentIsland(s).quests[0].rounds?.[dayKey(now)]);
+  currentIsland(s).members = [];
+  s = act(s, 'START', { subject: '집중', now: now - 30 * 60 * 1000 });
+  s = act(s, 'FINISH', { now });
+  assert.ok(currentIsland(s).quests[0].rounds?.[dayKey(now)]?.achieved.includes('me'));
+  assert.ok(
+    s.rewards?.some(
+      (reward) => reward.questId === quest.id && reward.kind === 'personal' && !reward.acknowledged,
+    ),
+  );
   s = act(s, 'QUEST_SAVE', {
     id: quest.id,
     title: '오후 집중',
@@ -637,6 +656,12 @@ test('오늘 퀘스트를 수정하면 이미 열린 라운드의 기준도 같�
   assert.equal(round.kind, 'focus');
   assert.equal(round.windowStart, '13:00');
   assert.equal(round.windowEnd, '18:00');
+  assert.ok(!round.achieved.includes('me'));
+  assert.ok(
+    !s.rewards?.some(
+      (reward) => reward.questId === quest.id && reward.kind === 'personal' && !reward.acknowledged,
+    ),
+  );
 });
 
 test('탈퇴한 섬에서는 주민 전용 기록을 추가하거나 재화를 쓸 수 없다', () => {
@@ -650,6 +675,43 @@ test('탈퇴한 섬에서는 주민 전용 기록을 추가하거나 재화를 �
     ['BUY', { id: 'scarf' }],
   ] as const)
     assert.deepEqual(act(s, type, data), s);
+});
+
+test('강퇴한 주민을 목록에서는 제거해도 완료 기록과 기여는 보존한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s),
+    member = island.members[0],
+    now = new Date(2026, 8, 16, 12).getTime();
+  for (const resident of island.members) resident.records = [];
+  member.records = [
+    {
+      id: 'completed-before-kick',
+      islandId: island.id,
+      subject: '집중',
+      seconds: 600,
+      at: now,
+      fish: 10,
+      contributed: true,
+    },
+  ];
+  s = act(s, 'KICK', { id: member.id });
+  assert.ok(!currentIsland(s).members.some((resident) => resident.id === member.id));
+  assert.equal(currentIsland(s).formerMembers?.[0].records?.[0].seconds, 600);
+  assert.equal(islandWeeklyAverage(s, currentIsland(s), now), 200);
+});
+
+test('퀘스트 날짜와 일·주·월 경계는 기기 타임존과 무관하게 Asia/Seoul을 따른다', () => {
+  const kst0030 = Date.parse('2026-09-15T15:30:00.000Z');
+  assert.equal(dayKey(kst0030), '2026-09-16');
+  assert.equal(weekStart(kst0030), Date.parse('2026-09-12T15:00:00.000Z'));
+  assert.deepEqual(periodBounds('일', 0, kst0030), {
+    from: Date.parse('2026-09-15T15:00:00.000Z'),
+    until: Date.parse('2026-09-16T15:00:00.000Z'),
+  });
+  assert.deepEqual(periodBounds('월', 0, kst0030), {
+    from: Date.parse('2026-08-31T15:00:00.000Z'),
+    until: Date.parse('2026-09-30T15:00:00.000Z'),
+  });
 });
 
 test('이미 가입한 승인제 섬에 다시 이동할 때 신청을 만들지 않는다', () => {

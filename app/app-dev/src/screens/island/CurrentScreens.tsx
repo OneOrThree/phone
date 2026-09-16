@@ -37,6 +37,7 @@ import {
   inviteCodeOf,
   findIslandByInviteCode,
   recordSecondsBetween,
+  kstDayStart,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite } from '@/components/CatSprite';
@@ -100,6 +101,7 @@ const tracks: Record<string, string> = {
 };
 const date = (at: number) =>
   new Date(at).toLocaleDateString('ko-KR', {
+    timeZone: 'Asia/Seoul',
     month: 'numeric',
     day: 'numeric',
   });
@@ -1016,7 +1018,7 @@ function Library({ e }: any) {
   const screenEntries = Object.entries(
     who.id === 'me' ? (s.screenDays ?? {}) : (resident?.screenDays ?? {}),
   ).filter(([d]) => {
-    const at = new Date(d + 'T12:00:00').getTime();
+    const at = kstDayStart(d) + 12 * 60 * 60 * 1000;
     return at >= bounds.from && at < bounds.until;
   });
   const known = screenEntries.filter(([, v]) => v != null),
@@ -1080,7 +1082,8 @@ function Library({ e }: any) {
       )}
     </View>
   );
-  const bins = period === '일' ? 4 : period === '주' ? 7 : new Date(bounds.until - 1).getDate();
+  const bins =
+    period === '일' ? 4 : period === '주' ? 7 : Number(dayKey(bounds.until - 1).slice(-2));
   const values = Array.from({ length: bins }, (_, n) => {
     const binFrom = bounds.from + ((bounds.until - bounds.from) * n) / bins,
       binUntil = bounds.from + ((bounds.until - bounds.from) * (n + 1)) / bins;
@@ -1092,7 +1095,7 @@ function Library({ e }: any) {
               Math.min(
                 bins - 1,
                 Math.floor(
-                  ((new Date(day + 'T12:00:00').getTime() - bounds.from) /
+                  ((kstDayStart(day) + 12 * 60 * 60 * 1000 - bounds.from) /
                     (bounds.until - bounds.from)) *
                     bins,
                 ),
