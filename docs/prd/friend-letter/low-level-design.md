@@ -55,7 +55,11 @@ public void cancel() {
 }
 ```
 
-**수락 경로도 함께 막는다(필수).** `FriendService.acceptRequest`(`FriendService.java:212-227`)는 **상태를 검사하지 않는다** — 주석에도 「이 API 는 상태를 검사하지 않는다」고 적혀 있고, `ACCEPTED` 인지만 알림 중복 방지용으로 본 뒤 그대로 `accept()` 를 부른다. 그래서 `CANCELED` 를 추가하기만 하면 **발신자가 취소한 요청을 수신자가 옛 requestId 로 수락해 친구 관계가 되살아난다.** `acceptRequest` 에 `status != PENDING` 이면 `INVALID_REQUEST_STATUS`(409) 로 막는 검사를 함께 넣는다 — `rejectRequest`(`FriendService.java:238-245`)가 이미 같은 검사를 하고 있으므로 그 모양을 따른다. 수락이 관용적이었던 원래 이유(「관계를 늘리는 방향이라 파괴 경로가 없다」)는 취소 상태가 생기면 더 이상 성립하지 않는다.
+**수락 경로도 함께 막는다(필수).** `FriendService.acceptRequest`(`FriendService.java:212-227`)는 **상태를 검사하지 않는다** — 주석에도 「이 API 는 상태를 검사하지 않는다」고 적혀 있고, `ACCEPTED` 인지만 알림 중복 방지용으로 본 뒤 그대로 `accept()` 를 부른다. 그래서 `CANCELED` 를 추가하기만 하면 **발신자가 취소한 요청을 수신자가 옛 requestId 로 수락해 친구 관계가 되살아난다.** `acceptRequest` 에 **`status == CANCELED` 이면** `INVALID_REQUEST_STATUS`(409) 로 막는 검사 **하나만** 넣는다.
+
+**`REJECTED` 와 `ACCEPTED` 는 지금 동작을 그대로 둔다.** `FriendService.java:200-206` 주석이 「수락은 전 상태 관용 — `REJECTED → ACCEPTED` 는 "거절했다 뒤늦게 수락" UX 로 의도된 전이라 허용하고 알린다(GROMO-719 오너 결정). `ACCEPTED → ACCEPTED` 는 멱등(무알림)」이라고 명시한다 — `status != PENDING` 을 통째로 막으면 **이 두 기존 계약이 함께 깨진다.** 이 문서의 전제(기존 친구 API 동작은 바꾸지 않는다)에도 어긋난다.
+
+`CANCELED` 만 예외인 이유: 거절은 「수신자가 한 번 거부했지만 마음을 바꿀 수 있는」 상태라 수락이 의미를 갖지만, 취소는 **발신자가 요청 자체를 거둬들인** 상태라 수신자가 되살릴 근거가 없다.
 
 **서비스 로직**: `FriendService.rejectRequest`(`FriendService.java:238-245`)와 대칭이지만 검증 대상이
 반대다 — `getReceivedRequest`(수신자 검증, `:495-502`)와 짝을 이루는 `getSentRequest`(발신자 검증)를
@@ -75,7 +79,7 @@ public void cancel() {
 
 | 항목 | 값 |
 | --- | --- |
-| 요청 body | `{receiverId: UUID, content: String}` — 둘 다 필수. `content`는 strip 후 empty면 422 |
+| 요청 body | `{receiverId: UUID, content: String}` — 둘 다 필수. `content`는 strip 후 empty면 400(아래 에러 칸과 같다) |
 | 응답 body | `LetterResponse` — `id`·`senderId`·`receiverId`·`content`·`createdAt`·`readAt`(항상 `null`, 방금 만든 편지) |
 | 성공 코드 | 201 |
 | 에러 | 400 `SELF_LETTER`(자기 자신에게) · 400 `INVALID_REQUEST`(필수 누락·strip 후 빈 본문) · 422 `LETTER_CONTENT_OUT_OF_RANGE`(길이 상한 초과, §2.1) — **한 상수는 한 상태만 갖는다**(`common/exception/ErrorCode.getStatus()` 가 하나뿐이라 「400 또는 422」는 표현할 수 없다) · 404 `TARGET_USER_NOT_FOUND`(수신자 없음·탈퇴 — `UserQueryService.getTargetForShare`(`user/repository/UserQueryService.java:157`)가 던지는 코드다. 요청자 쪽 `getCallerForShare` 의 `USER_NOT_FOUND` 와 다르다) · 404 `LETTER_RECIPIENT_NOT_FRIEND`(친구 관계 아님, HLD §2.5) |
