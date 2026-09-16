@@ -16,16 +16,25 @@
 >
 > ```sh
 > old=app/app-dev; new=app/legacy/app-dev
-> for p in .env .env.local .env.production .env.hotupdater \
->          ios/GoogleService-Info-dev.plist ios/GoogleService-Info-prod.plist \
->          ios/fastlane/.env ios/sentry.properties \
->          android/sentry.properties android/credentials; do
->   [ -e "$old/$p" ] || continue
->   mkdir -p "$new/$(dirname "$p")"
->   mv "$old/$p" "$new/$p"
+>
+> # 1) 알려진 빌드 산출물만 골라서 지웁니다
+> for a in node_modules .expo dist build web-build coverage .maestro/report \
+>          ios/Pods ios/build android/.gradle android/build android/app/build; do
+>   rm -rf "${old:?}/$a"
 > done
-> rm -rf "$old"   # 남은 것은 node_modules · Pods · 빌드 산출물뿐입니다
+>
+> # 2) 남은 것(.env* · Firebase plist · fastlane/.env · sentry.properties ·
+> #    android/credentials/ · ios/.xcode.env.local · .docs/ 등 개인 설정)을 전부 옮깁니다.
+> #    --ignore-existing: legacy 에 이미 있는 파일은 덮어쓰지 않습니다.
+> #    .gitignore 는 이 경로를 지키는 추적 파일이므로 남겨 둡니다.
+> rsync -a --remove-source-files --ignore-existing --exclude='.gitignore' "$old"/ "$new"/
+>
+> # 3) 빈 디렉터리만 정리합니다 (app/app-dev/.gitignore 는 그대로 남습니다)
+> find "$old" -depth -type d -empty -delete
 > ```
+>
+> 목록을 열거해 옮기는 대신 **산출물만 지우고 나머지는 전부 옮기는** 순서입니다 — 목록에 없는
+> 개인 파일이 조용히 사라지지 않게 하기 위해서입니다.
 >
 > iOS는 프로젝트 경로가 바뀌었으므로 다음 빌드 전에 `ios/`에서 `pod install`과 클린 빌드를 한 번 합니다.
 
