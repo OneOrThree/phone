@@ -1,0 +1,89 @@
+# 1.x 앱이 app/legacy/app-dev/ 로 이동하면서 이 경로를 지키던 .gitignore 3개
+# (app-dev/ · ios/ · android/)가 함께 떠났다. 기존 체크아웃은 추적 파일만 옮겨가고
+# node_modules·Pods·Gradle 캐시·Xcode 산출물 같은 잔재는 옛 경로에 그대로 남아,
+# 보호 규칙이 사라진 채 untracked 로 드러난다 — git add -A 사고의 입구다 (GROMO-1890).
+#
+# 규칙을 루트로 한 줄씩 올리면 계속 빠뜨리고(실제로 세 라운드에 걸쳐 새로 발견됐다) 팀 루트
+# 파일도 1.x 전용 잡동사니로 오염된다. 그래서 규칙을 **원래 있던 경로에 통째로 복원**한다.
+# 자격 증명처럼 경로와 무관하게 위험한 것들은 루트 .gitignore 에 전역으로 따로 둔다.
+#
+# 새 앱이 이 자리에 들어오면 이 파일은 그 앱의 .gitignore 로 대체된다 — 무시할 산출물은 같다.
+
+node_modules/
+.expo/
+.env*
+!.env.example
+dist/
+build/
+web-build/
+coverage/
+npm-debug.*
+*.log
+*.tsbuildinfo
+*.orig.*
+.docs
+expo-env.d.ts
+
+# Expo·hot-updater·supabase 로컬 산출물
+.hot-updater/output
+.hot-updater/log
+supabase/.temp/
+
+# Maestro E2E 실행 리포트
+.maestro/report/
+
+# 로컬 모듈 안드로이드 빌드 캐시
+modules/*/android/.gradle/
+
+# 서명·인증 자격 (루트에도 전역 규칙이 있다 — 여기서도 막는다)
+*.jks
+*.keystore
+*.p8
+AuthKey_*.p8
+*.p12
+*.key
+*.mobileprovision
+android/credentials/
+GoogleService-Info.plist
+GoogleService-Info-*.plist
+google-services.json
+google-services-*.json
+sentry.properties
+
+# ── iOS (옛 ios/.gitignore) ──
+ios/Pods/
+ios/*.pbxuser
+!ios/default.pbxuser
+ios/*.mode1v3
+!ios/default.mode1v3
+ios/*.mode2v3
+!ios/default.mode2v3
+ios/*.perspectivev3
+!ios/default.perspectivev3
+ios/xcuserdata
+ios/*.xccheckout
+ios/*.moved-aside
+ios/DerivedData
+ios/*.hmap
+ios/*.ipa
+ios/*.xcuserstate
+ios/project.xcworkspace
+ios/.xcode.env.local
+ios/*.jsbundle
+ios/*.dSYM.zip
+ios/fastlane/report.xml
+ios/fastlane/Preview.html
+ios/fastlane/screenshots
+ios/fastlane/test_output
+ios/vendor/bundle
+ios/.bundle/
+
+# ── Android (옛 android/.gitignore) ──
+android/.idea
+android/.gradle
+android/.cxx/
+android/local.properties
+android/*.iml
+android/*.hprof
+android/*.jsbundle
+android/app/src/main/java/inline/

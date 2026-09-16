@@ -43,26 +43,9 @@ google-services-*.json
 # 그 파일들이 앱과 함께 legacy 로 이동해, 옛 경로에 남은 잔재가 무방비가 된다 (코덱스 리뷰 P1).
 **/sentry.properties
 
-# 옛 앱 경로(app/app-dev/)에 남는 빌드 산출물 — 이동 전 앱 .gitignore 가 막던 것들이다.
-# 기존 체크아웃은 추적 파일만 app/legacy/ 로 옮겨가고 이 잔재는 그대로 남아 untracked 로 드러나,
-# git add -A 로 Pods·Gradle 캐시·개인 .docs 까지 스테이징될 수 있다 (코덱스 리뷰).
-# 전역(**/)이 아니라 이 경로로 한정한다 — server/**·loadtest/** 의 규칙까지 바꿀 이유가 없고,
-# 새 앱이 같은 자리에 들어와도 무시해야 할 산출물은 동일하다.
-app/app-dev/.expo/
-app/app-dev/.docs/
-app/app-dev/dist/
-app/app-dev/build/
-app/app-dev/web-build/
-app/app-dev/coverage/
-app/app-dev/.maestro/report/
-app/app-dev/ios/Pods/
-app/app-dev/ios/build/
-app/app-dev/android/.gradle/
-app/app-dev/android/build/
-app/app-dev/android/app/build/
-app/app-dev/expo-env.d.ts
-app/app-dev/**/*.log
-app/app-dev/**/*.tsbuildinfo
+# 옛 앱 경로(app/app-dev/)의 빌드 산출물 잔재는 그 경로의 `app/app-dev/.gitignore` 가 막는다.
+# 규칙을 루트로 한 줄씩 올리면 계속 빠뜨리고 팀 루트 파일도 앱 전용 잡동사니로 오염되므로,
+# 원래 있던 자리에 통째로 복원했다 (코덱스 리뷰). 루트에는 경로와 무관하게 위험한 자격 증명만 둔다.
 
 # 같은 CI 실행에서 검증한 이미지 조립용 JAR
 server/*/ci-artifact/
