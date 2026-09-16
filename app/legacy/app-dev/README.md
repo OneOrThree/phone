@@ -5,8 +5,11 @@
 [전체 프로젝트](../../../README.md) · [서버 전체 보기](../../../server/README.md) · [기능 문서](../../../docs/README.md) · [프론트엔드 개발 가이드](.claude/CLAUDE.md)
 
 > ⚠️ **동결된 1.x 앱입니다** (스토어 1.1.0까지). 2.0.0부터는 같이숲 v2 앱이 `app/app-dev/`에 들어옵니다 —
-> 새 기능은 여기에 넣지 않습니다. 이 앱에는 CI가 없으므로 핫픽스는 로컬에서 직접 검증합니다
-> (`npm ci && npm run lint && npm run typecheck && npm test`).
+> 새 기능은 여기에 넣지 않습니다. 이 앱에는 CI가 없으므로 핫픽스는 로컬에서 직접 검증합니다 —
+> `npm ci && npm run lint && npm run format:check && npm run typecheck && npm test && npm run gen:palette:check`.
+> 마지막 `gen:palette:check` 를 빼먹지 마세요: `src/constants/theme.ts` 를 고치고 코드젠을 다시
+> 돌리지 않으면 나머지 검사는 전부 통과해도 `ios/Shared/Palette.swift` 가 옛 색으로 남아, 실제 iOS
+> 화면이 TypeScript 테마와 다르게 배포됩니다. 종전에는 `app-lint.yml` 이 이 검사를 대신 해줬습니다.
 >
 > **앱이 이동한 커밋을 처음 받았다면 자격·설정 파일을 먼저 옮기세요.** `git mv`는 추적 파일만 옮기므로
 > `.env*` · Firebase plist · `fastlane/.env` · `sentry.properties` · `android/credentials/` 같은
@@ -17,11 +20,25 @@
 > ```sh
 > old=app/app-dev; new=app/legacy/app-dev
 >
-> # 1) 알려진 빌드 산출물만 골라서 지웁니다
-> for a in node_modules .expo dist build web-build coverage .maestro/report \
->          ios/Pods ios/build android/.gradle android/build android/app/build; do
->   rm -rf "${old:?}/$a"
+> # 1) 생성 산출물만 골라서 지웁니다 (복원한 app/app-dev/.gitignore 의 산출물 규칙 전체).
+> #    android/.cxx 의 CMakeCache.txt 는 옛 절대 경로를 담고 있어 옮기면 네이티브 빌드가 깨집니다.
+> #    이름 패턴은 find 로 처리합니다 — zsh 는 변수 안의 * 를 다시 확장하지 않아서,
+> #    for 루프에 glob 을 넣으면 macOS 기본 셸에서 조용히 안 지워집니다.
+> for d in node_modules .expo dist build web-build coverage \
+>          .maestro/report .hot-updater/output .hot-updater/log supabase/.temp \
+>          ios/Pods ios/build ios/DerivedData ios/xcuserdata ios/vendor/bundle ios/.bundle \
+>          ios/project.xcworkspace ios/fastlane/report.xml ios/fastlane/Preview.html \
+>          ios/fastlane/screenshots ios/fastlane/test_output \
+>          android/.gradle android/build android/app/build android/.cxx android/.idea \
+>          android/app/src/main/java/inline; do
+>   rm -rf "${old:?}/$d"
 > done
+> find "${old:?}" \( -name '*.log' -o -name '*.tsbuildinfo' -o -name 'npm-debug.*' \
+>      -o -name '*.orig.*' -o -name 'expo-env.d.ts' -o -name '*.hmap' -o -name '*.ipa' \
+>      -o -name '*.xcuserstate' -o -name '*.jsbundle' -o -name '*.dSYM.zip' \
+>      -o -name '*.moved-aside' -o -name '*.xccheckout' -o -name '*.pbxuser' \
+>      -o -name '*.iml' -o -name '*.hprof' \) -delete
+> find "${old:?}" -type d -path '*/modules/*/android/.gradle' -prune -exec rm -rf {} +
 >
 > # 2) 남은 것(.env* · Firebase plist · fastlane/.env · sentry.properties ·
 > #    android/credentials/ · ios/.xcode.env.local · .docs/ 등 개인 설정)을 전부 옮깁니다.
@@ -31,6 +48,9 @@
 >
 > # 3) 빈 디렉터리만 정리합니다 (app/app-dev/.gitignore 는 그대로 남습니다)
 > find "$old" -depth -type d -empty -delete
+>
+> # 4) 1)에서 빠진 산출물이 딸려오지 않았는지 확인합니다 — 보이면 그 경로만 지웁니다
+> git status --ignored --short "$new" | head -30
 > ```
 >
 > 목록을 열거해 옮기는 대신 **산출물만 지우고 나머지는 전부 옮기는** 순서입니다 — 목록에 없는

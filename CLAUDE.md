@@ -116,8 +116,10 @@ changes trigger different jobs. This list rots; the authoritative source is
   `app-android-build.yml` — Android build checks on native-affecting paths.
   ⚠️ **동결된 1.x 앱(`app/legacy/app-dev/**`)에는 CI가 없다** (GROMO-1890). 두 워크플로는
   `app/app-dev/**` 만 트리거하고, 그 디렉터리가 없으면 검사를 건너뛴다. 1.x 핫픽스는 CI가
-  검증해 주지 않으므로 `app/legacy/app-dev` 에서 `npm ci && npm run lint && npm run typecheck
-  && npm test` 를 직접 돌려야 한다.
+  검증해 주지 않으므로 `app/legacy/app-dev` 에서 `npm ci && npm run lint && npm run format:check
+  && npm run typecheck && npm test && npm run gen:palette:check` 를 직접 돌려야 한다.
+  마지막 `gen:palette:check` 가 빠지면 `theme.ts` 를 고치고 코드젠을 안 돌렸을 때 나머지가 전부
+  통과해도 `ios/Shared/Palette.swift` 가 옛 색으로 남는다 — 종전에는 `app-lint.yml` 이 잡아줬다.
 - **Business API · Notification**: `satellite-ci.yml` — `server/business-api/**` ·
   `server/notification/**` 매트릭스로 독립 Gradle build(Checkstyle·SpotBugs·Testcontainers 통합
   테스트)와 Docker 이미지 빌드. main push에서만 GAR, release push에서만 ECR 게시. 수동 dev overlay는
