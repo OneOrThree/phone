@@ -704,6 +704,8 @@ manage의 joinRequestsAvailability는 available|host_only다. available은현재
 
 ## 3. Data 제공자와 처리 순서
 
+> **2026-09-15 개정:** 이 절의 화면별 read-model은 [정책](policy.md) B24로 기본에서 빠졌다. 같은 순간 값이 필요한 예외 화면으로 등록될 때만 이 절을 따른다. 현재 Data 쪽 기준은 [Data 구현](implementation-data-api.md)이다.
+
 ### 단일 read-model 제공자
 
 **A9 예외의 범위:** [아키텍처 A9](../../architecture/decisions.md)의 기본은 정규 리소스와 `ids` 배치다. 기술 결정 D42는 아래 13개 화면에서 적용되는 R 재료와 현재 인가를 같은 DB snapshot으로 읽는 접근 패턴에 한해 원자 read-model을 채택했다. 단순 새 화면·필드 조합만으로 내부 API를 늘리는 일반 허가는 아니다. 기존 query 모듈을 단일 Data TX 안에서 재사용하고, 아래 정확 GET 경로 외 추가·변경은 원자 조회 필요성과 A9 예외 범위를 다시 검토한다. Business의 화면 DTO·N 상태 매핑 책임과 공개 도메인 GET은 유지한다.

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "패턴 B · 역할 확인 뒤 순차 — GET /screens/town-hall",
+    "quality_profile": "showcase",
+    "viewBox": [1080, 560],
+    "column_fit": "spread",
+    "views": [
+      { "id": "role", "label": "역할 먼저", "focus": ["app", "biz", "data"], "note": "섬 조회 응답의 role로 가입 신청 목록을 부를지 정한다." },
+      { "id": "host-only", "label": "방장 전용 조각", "focus": ["biz", "data", "pg"], "note": "Data가 역할을 다시 검사한다. 그 사이 위임되면 403으로 화면 전체가 실패한다." },
+      { "id": "reply", "label": "응답", "focus": ["biz", "app"], "note": "일반 주민이면 신청 목록 없이 host_only 상태로 응답한다." }
+    ]
+  },
+  "participants": [
+    { "id": "app", "type": "frontend", "label": "앱", "sublabel": "마을회관 책상" },
+    { "id": "biz", "type": "backend", "label": "ScreenReadUseCase", "sublabel": "ScreenComposer 3초" },
+    { "id": "data", "type": "backend", "label": "Data API", "sublabel": "도메인 내부 GET" },
+    { "id": "pg", "type": "database", "label": "PostgreSQL", "sublabel": "gromo" }
+  ],
+  "segments": [
+    { "from": 150, "to": 250, "label": "역할 확인" },
+    { "from": 260, "to": 420, "label": "나머지 조각" },
+    { "from": 430, "to": 480, "label": "응답" }
+  ],
+  "messages": [
+    { "id": "open-hall", "from": "app", "to": "biz", "y": 165, "label": "GET /screens/town-hall", "variant": "emphasis" },
+    { "id": "island", "from": "biz", "to": "data", "y": 200, "label": "섬 조회 (role 포함)", "variant": "emphasis" },
+    { "id": "role", "from": "data", "to": "biz", "y": 232, "label": "role = host", "variant": "return" },
+    { "id": "parallel", "from": "biz", "to": "data", "y": 270, "label": "주민 · 잔액 · 가계부 · 건물 선택지 (병렬)", "variant": "emphasis" },
+    { "id": "requests", "from": "biz", "to": "data", "y": 302, "label": "가입 신청 목록 (방장일 때만)", "variant": "security" },
+    { "id": "recheck", "from": "data", "to": "pg", "y": 334, "label": "현재 역할 재검사 + 읽기", "variant": "security" },
+    { "id": "rows", "from": "pg", "to": "data", "y": 364, "label": "행", "variant": "return" },
+    { "id": "dtos", "from": "data", "to": "biz", "y": 398, "label": "조각 DTO", "variant": "return" },
+    { "id": "reply", "from": "biz", "to": "app", "y": 452, "label": "200 · joinRequestsAvailability", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "biz", "from": 160, "to": 458, "type": "backend" },
+    { "participant": "data", "from": 195, "to": 404, "type": "backend" },
+    { "participant": "pg", "from": 329, "to": 370, "type": "database" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "왜 순차인가", "items": ["신청 목록은 방장만 읽는다", "도메인 403을 host_only로 바꾸지 않는다 (B03)", "역할을 먼저 보고 조회 자체를 생략한다"] },
+    { "dot": "rose", "title": "경합", "items": ["확인 뒤 위임·강퇴되면 Data가 403", "화면 전체 403 → 앱이 다시 조회", "캐시된 과거 역할로 신청자를 읽지 않는다"] },
+    { "dot": "emerald", "title": "행동은 따로", "items": ["PATCH /islands/{islandId}", "PATCH …/join-requests/{requestId}", "POST …/host-transfer · PUT …/construction-target"] }
+  ]
+}

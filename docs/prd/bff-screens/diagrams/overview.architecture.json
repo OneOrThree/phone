@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "같이숲 화면 API 전체 구성",
+    "quality_profile": "showcase",
+    "viewBox": [1120, 720],
+    "views": [
+      { "id": "screen-read", "label": "화면 조회 경로", "focus": ["app", "nginx", "biz", "data", "pg"], "note": "앱은 화면마다 GET /screens/* 한 번. Business가 Data 내부 GET을 조합한다." },
+      { "id": "cross-service", "label": "다른 서비스 조각", "focus": ["biz", "noti", "notidb", "realtime", "chatdb"], "note": "account는 알림 설정, mailbox는 섬 편지방을 다른 서비스에서 가져온다." },
+      { "id": "realtime-push", "label": "명령 뒤 실시간 반영", "focus": ["data", "kafka", "realtime", "app"], "note": "명령 TX가 남긴 outbox 사건이 Realtime 토픽으로 나간다. 화면 GET은 사건을 만들지 않는다." }
+    ]
+  },
+  "components": [
+    { "id": "app", "type": "frontend", "label": "앱", "sublabel": "React Native", "pos": [40, 260], "size": [140, 64] },
+    { "id": "nginx", "type": "cloud", "label": "nginx", "sublabel": "/screens · 명령 경로", "pos": [250, 260], "size": [150, 64] },
+    { "id": "biz", "type": "backend", "label": "Business API", "sublabel": "ScreenReadUseCase", "pos": [470, 260], "size": [160, 64], "tag": "DB 없음" },
+    { "id": "data", "type": "backend", "label": "Data API", "sublabel": "/internal 조회·명령", "pos": [710, 260], "size": [160, 64] },
+    { "id": "pg", "type": "database", "label": "PostgreSQL", "sublabel": "gromo", "pos": [950, 260], "size": [140, 64] },
+    { "id": "noti", "type": "backend", "label": "Notification", "sublabel": "알림 설정 정본", "pos": [470, 90], "size": [160, 64] },
+    { "id": "notidb", "type": "database", "label": "PostgreSQL", "sublabel": "gromo_notification", "pos": [710, 90], "size": [160, 64] },
+    { "id": "realtime", "type": "backend", "label": "Realtime", "sublabel": "STOMP 토픽 7개", "pos": [470, 440], "size": [160, 64] },
+    { "id": "chatdb", "type": "database", "label": "PostgreSQL", "sublabel": "gromo_chat", "pos": [470, 600], "size": [160, 64] },
+    { "id": "kafka", "type": "messagebus", "label": "Kafka", "sublabel": "outbox 사건", "pos": [710, 440], "size": [160, 64] }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "내부망 · 서비스 토큰 + 허용목록", "wraps": ["data", "pg", "noti", "notidb", "kafka", "chatdb"] }
+  ],
+  "connections": [
+    { "id": "app-nginx", "from": "app", "to": "nginx", "label": "HTTPS", "variant": "emphasis" },
+    { "id": "nginx-biz", "from": "nginx", "to": "biz", "label": "무접두 경로" },
+    { "id": "biz-data", "from": "biz", "to": "data", "label": "내부 GET 병렬", "variant": "emphasis" },
+    { "id": "data-pg", "from": "data", "to": "pg", "label": "TX" },
+    { "id": "biz-noti", "from": "biz", "to": "noti", "label": "설정 조회", "fromSide": "top", "toSide": "bottom" },
+    { "id": "noti-db", "from": "noti", "to": "notidb" },
+    { "id": "biz-realtime", "from": "biz", "to": "realtime", "label": "편지방 조회", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "realtime-db", "from": "realtime", "to": "chatdb", "fromSide": "bottom", "toSide": "top" },
+    { "id": "data-kafka", "from": "data", "to": "kafka", "label": "relay", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "kafka-realtime", "from": "kafka", "to": "realtime", "label": "사건", "variant": "dashed" },
+    { "id": "realtime-app", "from": "realtime", "to": "app", "label": "STOMP 구독", "variant": "dashed", "fromSide": "left", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "화면 조회 14종", "items": ["launch · explore · home · visit · focus", "town-hall · library · board · mailbox", "shop · playback · raft · friends · account"] },
+    { "dot": "cyan", "title": "조합 방식 (B24 병렬 기본)", "items": ["기본: 섬 문맥 확인 → 조각 병렬 (3초)", "town-hall: 방장일 때만 신청 목록", "account · mailbox: 다른 서비스 조각"] },
+    { "dot": "rose", "title": "지키는 경계", "items": ["외부 X-User-Id 폐기, 검증 주체로 재설정", "필수 조각 403·502는 화면 전체 실패", "쓰기는 기존 명령 API, 화면 GET은 부수효과 없음"] }
+  ]
+}

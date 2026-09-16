@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "패턴 A · 섬 문맥 확인 뒤 조각 병렬 — GET /screens/home",
+    "quality_profile": "showcase",
+    "viewBox": [1080, 560],
+    "column_fit": "spread",
+    "views": [
+      { "id": "auth", "label": "인증과 주체", "focus": ["app", "filter", "biz"], "note": "AT를 검증하고 외부 X-User-Id를 버린 뒤 검증 주체로 다시 싣는다." },
+      { "id": "context", "label": "섬 문맥", "focus": ["biz", "data"], "note": "현재 섬 id를 받고 섬 상태(시설·역할)를 읽는다. 방송기 여부로 playback 호출을 정한다." },
+      { "id": "fragments", "label": "조각 병렬", "focus": ["biz", "data", "pg"], "note": "남은 조각을 같은 deadline 안에서 동시에 부르고 {data}로 한 번 감싼다." }
+    ]
+  },
+  "participants": [
+    { "id": "app", "type": "frontend", "label": "앱", "sublabel": "홈 진입" },
+    { "id": "filter", "type": "security", "label": "AccessTokenFilter", "sublabel": "AT 검증" },
+    { "id": "biz", "type": "backend", "label": "ScreenReadUseCase", "sublabel": "ScreenComposer 3초" },
+    { "id": "data", "type": "backend", "label": "Data API", "sublabel": "도메인 내부 GET" },
+    { "id": "pg", "type": "database", "label": "PostgreSQL", "sublabel": "gromo" }
+  ],
+  "segments": [
+    { "from": 150, "to": 225, "label": "인증" },
+    { "from": 235, "to": 305, "label": "섬 문맥" },
+    { "from": 315, "to": 425, "label": "조각 병렬" },
+    { "from": 435, "to": 490, "label": "응답" }
+  ],
+  "messages": [
+    { "id": "open-home", "from": "app", "to": "filter", "y": 165, "label": "GET /screens/home", "variant": "emphasis" },
+    { "id": "subject", "from": "filter", "to": "biz", "y": 200, "label": "검증 주체 + requestId", "variant": "security" },
+    { "id": "context", "from": "biz", "to": "data", "y": 245, "label": "/me/islands → /islands/{id} (순차)", "variant": "emphasis" },
+    { "id": "context-back", "from": "data", "to": "biz", "y": 278, "label": "currentIslandId · 시설 · 역할", "variant": "return" },
+    { "id": "fragments", "from": "biz", "to": "data", "y": 322, "label": "오늘 집중 · 세션 · 모닥불 · 잔액 · 현재 곡 (병렬)", "variant": "emphasis" },
+    { "id": "reads", "from": "data", "to": "pg", "y": 352, "label": "도메인별 인가 + 읽기" },
+    { "id": "rows", "from": "pg", "to": "data", "y": 382, "label": "행", "variant": "return" },
+    { "id": "dtos", "from": "data", "to": "biz", "y": 412, "label": "조각 DTO", "variant": "return" },
+    { "id": "envelope", "from": "biz", "to": "filter", "y": 447, "label": "{data} 한 번 감싸기", "variant": "return" },
+    { "id": "reply", "from": "filter", "to": "app", "y": 477, "label": "200 no-store", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "filter", "from": 160, "to": 483, "type": "security" },
+    { "participant": "biz", "from": 195, "to": 453, "type": "backend" },
+    { "participant": "data", "from": 240, "to": 418, "type": "backend" },
+    { "participant": "pg", "from": 347, "to": 388, "type": "database" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "같은 패턴 화면", "items": ["explore · visit · focus · library", "board · shop · playback", "launch · raft · friends는 섬 문맥 없이 병렬만"] },
+    { "dot": "rose", "title": "실패 규칙", "items": ["필수 조각 401·403·502 → 화면 전체 같은 오류", "3초 소진 → 504, 큐 포화 → 503", "방송기 없음 → playback 호출 생략 (facility_locked)"] },
+    { "dot": "amber", "title": "B24 · 병렬이 기본", "items": ["어긋남은 화면 표시에만 생긴다", "돈·보유는 명령 TX가 다시 검사", "같은 순간 값이 필요한 화면만 Data 한 번 읽기"] }
+  ]
+}

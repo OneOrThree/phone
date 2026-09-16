@@ -2,6 +2,8 @@
 
 GROMO-1784 설계. 구현은1785(생활5),1786(회관·게시판·전망대4),1787(탐색·상점·내 배4)로 나눈다. [PRD](prd.md) → [정책](policy.md) → [아키텍처](high-level-design.md) → [상세 계약·13개 응답](low-level-design.md) 순서로 읽는다. 정책 충돌 시 policy.md가 정본이다.
 
+**2026-09-15 개정:** 기획 API v1 0.6-proposed와 대조해 화면 조회가 14종이 됐다([정책](policy.md) B15~B23). 조합 방식은 Business가 도메인 내부 GET을 병렬로 조합하는 것이 기본이다(B24, 2026-09-15 확정). 구현은 [Business 구현](implementation-business-api.md) → [Data 구현](implementation-data-api.md) 순서로 읽는다. 흐름 그림 원본은 [diagrams/](diagrams/)의 archify JSON이다. 아래 13종 서술과 `low-level-design.md`의 13개 응답 예시는 v0.3 기록으로 남긴다.
+
 [source-contracts.json](source-contracts.json)은 **원본66개 도메인 계약 중 필요한 GET22개**의 요청/응답과 원본 화면 연결을 그대로 보존하고, 별도로 신규13개 BFF 경로를 표시한다. HTML의 다중 GET 화면 그룹14개 중 stats는 hall의 동일 UI 상태여서13개로 합친다. 첫 항해arrival은 단일GET이며 travel44와 구분한다. 원본에13개 /screens endpoint가 이미 있었다는 뜻이 아니다.
 
 원본 GROMO-1739 HTML:154704 bytes, SHA-256 `2b56a4553d75863f1c1db50fd1c1f7123dd21ecf99bac4d38959ad945e9f9c30`. [공통 원본 보존 PR738](https://github.com/OneOrThree/phone/pull/738)을 참조한다. 원본 HTML과 canonical JSON을 이 작업에서 수정하지 않았다. 티켓의 screen-aggregation 대신 배정된 bff-screens 경로를 사용한다.
