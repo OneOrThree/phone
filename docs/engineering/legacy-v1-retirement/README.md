@@ -46,7 +46,7 @@ GROMO-1889. [A24](../../architecture/decisions.md)(1.x 데이터 이관 없음 �
 | `screentime/ScreenTimeController.java` | `/screen-time` | 1 | 대체 있음 | [island-records LLD §1](../../prd/island-records/low-level-design.md) `PUT /me/screen-time/{date}`(:80) — `ScreenTimeService.saveScreenTimeTx` 재사용 명시(:235) | — |
 | `stats/StatsController.java` | `/stats/*` | 7 | 대체 있음 | [island-records LLD §1](../../prd/island-records/low-level-design.md) `GET /islands/{islandId}/statistics/focus`(:9)·`.../statistics/screen-time`(:51) — [policy B23](../../prd/bff-screens/policy.md) "기록 조회 도서관 이동(island-records)" | heatmap/streak/today/by-category 각각의 1:1 필드 매핑은 미검증 — `series`/`records` 통합 응답으로 흡수된 것으로 보임 |
 | `user/OccupationController.java` | `/occupations` | 1 | 판단 불가 | — | island-\*/bff-screens 전수에 `직업` 인용 없음. `UserController`의 `PATCH /users/me/occupation`도 동일하게 미결 |
-| `user/UserController.java` | `/users/me*` | 15 | 대체 있음(부분) | [account LLD §2.2-2.3](../../prd/account/low-level-design.md) `GET /me`(:56)·`PATCH /me`(:74) · [§2.6-2.7](../../prd/account/low-level-design.md) `GET/PATCH /me/settings`(:247,:253, 알림설정 — "Business에서 동기 활성 검사 후 알림 서버 정본을 읽는다") | **`PUT`/`DELETE /users/me/device-token`(2개)은 삭제 금지.** account LLD:118 "기기 등록 정리는 별도 `DELETE /api/v1/users/me/device-token`의 소유다... 새로운 8번째 계정 API가 아니라 기존 DELETE 사용 규약" — Business의 `DeviceTokenUseCase.delete`가 지금도 이 legacy 경로를 직접 호출한다. `GET /users/nickname/check`(중복 사전확인)는 2.0 매핑 미확인(gap). `PATCH .../occupation`은 OccupationController 판단불가와 연동 |
+| `user/UserController.java` | `/users/me*` | 15 | 대체 있음(부분) | [account LLD §2.2-2.3](../../prd/account/low-level-design.md) `GET /me`(:56)·`PATCH /me`(:74) · [§2.6-2.7](../../prd/account/low-level-design.md) `GET/PATCH /me/settings`(:247,:253, 알림설정 — "Business에서 동기 활성 검사 후 알림 서버 정본을 읽는다") | **`PUT`/`DELETE /users/me/device-token`(2개)은 data-api 에서 삭제 대상이다 — 단 공개 경로는 보존된다.** 같은 URL 을 business-api `UserNotificationController`(`server/business-api/.../api/UserNotificationController.java:59,74`)가 이미 구현하고, nginx 가 그 URL 을 business upstream 으로 보낸다(`server/scripts/nginx-satellites.include.conf.example:58-60`). 즉 `DeviceTokenUseCase` 는 data-api 의 legacy 를 부르는 것이 아니라 business 컨트롤러가 요청을 받는다 — **보존 대상은 business 경로이고 data-api 의 두 메서드는 같이 지운다.** 지우지 않으면 공개 경로가 이미 옮겨간 뒤에도 data-api 의 죽은 구현과 테스트가 남는다. account LLD:118 "기기 등록 정리는 별도 `DELETE /api/v1/users/me/device-token`의 소유다... 새로운 8번째 계정 API가 아니라 기존 DELETE 사용 규약" — Business의 `DeviceTokenUseCase.delete`가 지금도 이 legacy 경로를 직접 호출한다. `GET /users/nickname/check`(중복 사전확인)는 2.0 매핑 미확인(gap). `PATCH .../occupation`은 OccupationController 판단불가와 연동 |
 | `withdrawal/AccountWithdrawalController.java` | `DELETE /users/me` | 1 | 대체 있음 | [account LLD §2.5](../../prd/account/low-level-design.md) `DELETE /me`(:239) — `AccountWithdrawalService.withdraw` 단일 TX 재사용 명시(:243) | 응답 코드 변경 주의: legacy는 204, 신규는 200 `{data:{deleted:true}}`(LLD:243 "원본 예상 계약의 200과 legacy DELETE `/api/v1/users/me`의 204를 구분") |
 
 집계: 대체 있음 11 · 2.0 에 없음 9 · 판단 불가 8 = 28.
@@ -88,8 +88,8 @@ GROMO-1889. [A24](../../architecture/decisions.md)(1.x 데이터 이관 없음 �
 
 §2 비고에 적었듯 서비스 클래스가 아니라 **엔드포인트 자체**가 legacy 경로 그대로 남는 경우가 둘 있다 — 도메인 PR이 컨트롤러 파일을 통째로 지우면 안 되고 메서드 단위로 남겨야 한다.
 
-- `AuthController`: `POST /auth/guest`, `POST /auth/refresh`
-- `UserController`: `PUT /users/me/device-token`, `DELETE /users/me/device-token`
+- `AuthController`: `POST /auth/guest`, `POST /auth/refresh` — account LLD 가 legacy 경로 그대로 활성 의존으로 명시.
+- ~~`UserController`: device-token 2종~~ — **철회**. 이 URL 은 이미 business-api 소유이고 nginx 가 그쪽으로 보낸다(§2 `UserController` 행). data-api 의 두 메서드는 존치가 아니라 **삭제 대상**이다.
 
 ## §4 삭제 순서
 
@@ -97,13 +97,16 @@ GROMO-1889. [A24](../../architecture/decisions.md)(1.x 데이터 이관 없음 �
 
 | 도메인 | 함께 지울 컨트롤러 | 선행(새 계약 티켓) | 딸려 지울 테스트 파일 |
 | --- | --- | --- | --- |
-| 계정·인증(account) | `AuthController`(소셜 로그인 6종만 — guest·refresh 존치), `UserController`(대부분 — device-token 2종 존치), `AccountWithdrawalController` | GROMO-1756(설계)/1757(구현) | `AuthControllerTest`,`UserControllerTest`, `auth/service/LegacyLogoutDeviceIntegrationTest`(부분 — device-token 케이스는 존치). `AccountWithdrawalController`는 컨트롤러 테스트 없음(§6) |
-| 섬 소속·관리(group→island-membership/management/board) | `GroupController` | GROMO-1758/1759(소속) · 1761/1762(관리) · 1770/1771(공지) | `GroupControllerTest` |
+| 계정·인증(account) | `AuthController`(소셜 로그인 6종만 — guest·refresh 존치), `UserController`(대부분 — device-token 2종 존치), `AccountWithdrawalController` | GROMO-1756(설계)/1757(구현) | **`AuthControllerTest` 는 부분 삭제** — 소셜 로그인·logout 케이스만 지우고 `refreshTokenSuccessReturns200`(`/api/v1/auth/refresh`)·`guestLoginWithinLimitReturns200`·`guestLoginOverLimitReturns429`(`/api/v1/auth/guest`)와 `auth.guest.rate-limit` 설정을 포함한 테스트 픽스처는 남긴다. 이 파일 말고는 두 경로를 검증하는 컨트롤러 테스트가 없어, 통째로 지우면 계속 서빙할 인증 전 엔드포인트의 회귀 방어가 사라진다. `UserControllerTest`, `auth/service/LegacyLogoutDeviceIntegrationTest`. `AccountWithdrawalController`는 컨트롤러 테스트 없음(§6) |
+| 섬 소속·관리(group→island-membership/management/board) | `GroupController` — **선행 조건 있음, 아래 P1 참조** | GROMO-1758/1759(소속) · 1761/1762(관리) · 1770/1771(공지) | `GroupControllerTest` |
 | 초대 링크(invitelink→link-attribution+island-membership) | `InviteLinkController` | GROMO-1799(link-attribution, PR #757 로 상당 부분 머지됨) · 1759(island-membership invitations) | 컨트롤러 테스트 없음(§6) — `invitelink/InviteLinkIssueTest`,`invitelink/service/InviteLinkServiceTest`,`invitelink/ClaimTest` 재검토 |
 | 보유품·외양(item→island-appearance) | `EquipmentController`,`InventoryController` | GROMO-1782(설계) · **구현 티켓 미확인** — prd.md:3 "설계 초안, 하위 선체/호환·공동 권한 결정 대기" | `EquipmentControllerTest`,`InventoryControllerTest` |
 | 재화·상점(currency→island-shop) | `InGameCurrencyController` | GROMO-1780(설계)/1781(구현) | 컨트롤러 테스트 없음(§6) — `currency/service/InGameCurrencyServiceTest` 등 서비스 테스트 재검토 |
 | 집중 세션(focus→focus-rest-session) | `FocusController`의 세션 5종만 — **태그 5종은 대응 없음, 별도 결정 없이 지우지 말 것**(§5 가 아니라 이 표에서 별도 관리) | GROMO-1763(설계)/1764(구현) | `FocusControllerTest`(부분 재작성 — 태그 케이스 분리 필요) |
 | 기록·스크린타임(stats+screentime→island-records) | `StatsController`,`ScreenTimeController` | GROMO-1768(설계)/1769(구현) | `StatsControllerTest`,`ScreenTimeControllerTest` |
+
+**`GroupController` 삭제의 선행 조건 — Realtime 이 아직 `GET /api/v1/groups` 를 부른다.**
+`server/realtime/src/main/java/com/oneorthree/realtime/membership/client/GroupClient.java:86` 의 `fetchMyGroupIds` 가 이 경로로 요청자의 활성 그룹 id 집합을 받아 `MembershipService` 의 방 목록·멤버십 판정에 쓴다. 이 컨트롤러를 먼저 지우면 그 호출이 404 가 되는데, 같은 파일의 주석이 **404 를 「빈 집합(비멤버)」이 아니라 「판정 불가」로 취급한다**고 명시한다(「400·404 는 상류가 이 유저에 대해 판정을 내린 게 아니라 우리 쪽 또는 배포가 어긋났다는 신호다」) — 즉 조용한 전원 차단은 아니지만 실시간 인가가 판정을 못 내리는 상태가 된다. 새 `POST /internal/realtime/membership-authorization` 은 기본 OFF 인 선택 기능이고 **방 목록 조회를 대체하지 않는다.** 따라서 이 도메인 PR 은 컨트롤러를 지우기 전에 Realtime 의 목록·멤버십 조회를 내부 대체 계약으로 옮기거나, 그 GET 하나를 별도로 존치해야 한다.
 
 **설계 자체가 없어 이 표에 못 들어가는 것** — 별도 시점 삭제:
 
