@@ -1,0 +1,8 @@
+node_modules/
+android/
+ios/
+build/
+dist/
+dist-all/
+.docs/
+api_spec.json

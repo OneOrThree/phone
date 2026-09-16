@@ -1,0 +1,39 @@
+{
+  "version": 3,
+  "status": "final",
+  "source": "../../../island-final-6/final-selection.json",
+  "world_size": [1536, 1024],
+  "default_camera": {
+    "center": [768, 512],
+    "visible_width": 1200
+  },
+  "stage_ids": [
+    "00-start",
+    "01-village-hall",
+    "02-notice-board",
+    "03-gramophone",
+    "04-library",
+    "05-mailbox",
+    "06-observatory",
+    "07-shop"
+  ],
+  "legacy_stage_aliases": {
+    "03a-observatory-first": 6,
+    "03b-mailbox-first": 5,
+    "04-observatory-and-mailbox": 6,
+    "05-final-shop": 7
+  },
+  "building_boxes": {
+    "hall": [949, 21, 242, 244],
+    "notice-board": [856, 157, 80, 80],
+    "gramophone": [330, 391, 73, 89],
+    "library": [1120, 288, 239, 323],
+    "mailbox": [298, 520, 46, 63],
+    "observatory": [150, 24, 112, 193],
+    "shop": [456, 580, 262, 199]
+  },
+  "dock_box": [0, 675, 365, 275],
+  "campfire_box": [350, 390, 115, 115],
+  "arrival": [285, 760],
+  "notes": "island-final-6 확정본. 모닥불은 배경과 모든 단계에 포함되어 campfire-on 레이어가 비어 있다. 단계 순서는 미리보기이며 실제 건물 선택 순서는 자유다."
+}

@@ -1,21 +1,16 @@
-# 1.x 앱이 app/legacy/app-dev/ 로 이동하면서 이 경로를 지키던 .gitignore 3개
-# (app-dev/ · ios/ · android/)가 함께 떠났다. 기존 체크아웃은 추적 파일만 옮겨가고
-# node_modules·Pods·Gradle 캐시·Xcode 산출물 같은 잔재는 옛 경로에 그대로 남아,
-# 보호 규칙이 사라진 채 untracked 로 드러난다 — git add -A 사고의 입구다 (GROMO-1890).
-#
-# 규칙을 루트로 한 줄씩 올리면 계속 빠뜨리고(실제로 세 라운드에 걸쳐 새로 발견됐다) 팀 루트
-# 파일도 1.x 전용 잡동사니로 오염된다. 그래서 규칙을 **원래 있던 경로에 통째로 복원**한다.
-# 자격 증명처럼 경로와 무관하게 위험한 것들은 루트 .gitignore 에 전역으로 따로 둔다.
-#
-# 새 앱이 이 자리에 들어오면 이 파일은 그 앱의 .gitignore 로 대체된다 — 무시할 산출물은 같다.
+# 같이숲 v2 앱의 로컬 의존성·빌드·검증 산출물
 
 node_modules/
 .expo/
+.omc/
 .env*
 !.env.example
 dist/
+dist-all/
+releases/
 build/
 web-build/
+web-preview.log
 coverage/
 npm-debug.*
 *.log
