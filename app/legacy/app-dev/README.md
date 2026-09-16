@@ -11,6 +11,18 @@
 > 돌리지 않으면 나머지 검사는 전부 통과해도 `ios/Shared/Palette.swift` 가 옛 색으로 남아, 실제 iOS
 > 화면이 TypeScript 테마와 다르게 배포됩니다. 종전에는 `app-lint.yml` 이 이 검사를 대신 해줬습니다.
 >
+> **Android(XML·Kotlin·Gradle)를 건드린 핫픽스는 위 명령만으로 부족합니다** — 전부 통과해도 네이티브가
+> 컴파일되지 않을 수 있습니다. 종전에 `app-android-build.yml` 이 하던 두 검사를 직접 돌리세요.
+>
+> ```sh
+> # XML 정합 (주석 안 `--` 같은 파싱 오류를 잡습니다)
+> python3 -c "import glob,xml.etree.ElementTree as ET; [ET.parse(f) for p in ['android/**/src/**/*.xml','modules/*/android/src/**/*.xml'] for f in glob.glob(p, recursive=True)]"
+> # Kotlin·리소스·매니페스트 병합 (안드로이드 SDK 필요)
+> (cd android && ./gradlew :app:compileDebugJavaWithJavac)
+> ```
+>
+> iOS 네이티브를 건드렸다면 `ios/` 에서 `pod install` 후 Xcode 빌드로 확인합니다.
+>
 > **앱이 이동한 커밋을 처음 받았다면 자격·설정 파일을 먼저 옮기세요.** `git mv`는 추적 파일만 옮기므로
 > `.env*` · Firebase plist · `fastlane/.env` · `sentry.properties` · `android/credentials/` 같은
 > **비추적 파일은 옛 경로 `app/app-dev/`에 그대로 남습니다.** 안 옮기면 TestFlight·Android 빌드가 자격
@@ -38,7 +50,8 @@
 >      -o -name '*.xcuserstate' -o -name '*.jsbundle' -o -name '*.dSYM.zip' \
 >      -o -name '*.moved-aside' -o -name '*.xccheckout' -o -name '*.pbxuser' \
 >      -o -name '*.iml' -o -name '*.hprof' \) -delete
-> find "${old:?}" -type d -path '*/modules/*/android/.gradle' -prune -exec rm -rf {} +
+> find "${old:?}" -type d \( -path '*/modules/*/android/.gradle' \
+>      -o -path '*/modules/*/android/build' \) -prune -exec rm -rf {} +
 >
 > # 2) 남은 것(.env* · Firebase plist · fastlane/.env · sentry.properties ·
 > #    android/credentials/ · ios/.xcode.env.local · .docs/ 등 개인 설정)을 전부 옮깁니다.

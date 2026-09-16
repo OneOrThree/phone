@@ -120,6 +120,9 @@ changes trigger different jobs. This list rots; the authoritative source is
   && npm run typecheck && npm test && npm run gen:palette:check` 를 직접 돌려야 한다.
   마지막 `gen:palette:check` 가 빠지면 `theme.ts` 를 고치고 코드젠을 안 돌렸을 때 나머지가 전부
   통과해도 `ios/Shared/Palette.swift` 가 옛 색으로 남는다 — 종전에는 `app-lint.yml` 이 잡아줬다.
+  **Android(XML·Kotlin·Gradle) 핫픽스는 여기에 더해** `app-android-build.yml` 이 하던 XML 정합 검사와
+  `(cd android && ./gradlew :app:compileDebugJavaWithJavac)` 를 직접 돌린다 — 위 명령은 전부 통과해도
+  네이티브는 컴파일되지 않을 수 있다. 절차는 `app/legacy/app-dev/README.md` 상단에 있다.
 - **Business API · Notification**: `satellite-ci.yml` — `server/business-api/**` ·
   `server/notification/**` 매트릭스로 독립 Gradle build(Checkstyle·SpotBugs·Testcontainers 통합
   테스트)와 Docker 이미지 빌드. main push에서만 GAR, release push에서만 ECR 게시. 수동 dev overlay는
