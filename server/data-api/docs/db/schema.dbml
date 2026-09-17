@@ -1302,7 +1302,7 @@ Ref: notification_sent_logs.target_user_id > users.id  // 논리 관계 — DB F
 // 내구 이벤트 · 명령 (V51)
 // event_outbox.user_id 에는 FK 가 없다 — 탈퇴 익명화 뒤에도 봉투가 남아야 relay 가 위성 정리 명령을
 // 끝까지 전달한다(A22 ⓐ). 아래 하나만 FK 다.
-Ref: event_outbox_deliveries.outbox_id > event_outbox.id
+Ref: event_outbox_deliveries.outbox_id > event_outbox.id [delete: cascade]  // V51 — 본체가 지워지면 배달 이력도 같이 지워진다
 
 // 위성 계약 (V52)
 // auth_sessions.user_id · invite_claim_* · invite_*_frozen_rows 에도 FK 를 두지 않았다 —
