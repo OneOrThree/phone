@@ -7,6 +7,9 @@ on:
       - 'server/notification/**'
       # 위성 계약은 auth·user·group·internal 등 Data 경계 전반과 테스트에 의존한다.
       - 'server/data-api/**'
+      # data-api 의 문서 변경은 위성 계약을 바꾸지 않는다 (GROMO-1925).
+      - '!server/data-api/docs/**'
+      - '!server/data-api/**/*.md'
       - 'docs/architecture/**'
       - 'server/scripts/docker-compose.satellites*.yml'
       - 'server/scripts/docker-compose.business.yml'
@@ -25,6 +28,9 @@ on:
       - 'server/notification/**'
       # PR과 main/release push에서 같은 Data 계약 검사를 실행한다.
       - 'server/data-api/**'
+      # data-api 의 문서 변경은 위성 계약을 바꾸지 않는다 (GROMO-1925).
+      - '!server/data-api/docs/**'
+      - '!server/data-api/**/*.md'
       - 'docs/architecture/**'
       - 'server/scripts/docker-compose.satellites*.yml'
       - 'server/scripts/docker-compose.business.yml'

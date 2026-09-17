@@ -59,6 +59,17 @@ class SatelliteCiPlanTest(unittest.TestCase):
         self.assert_plan(['.github/scripts/check-migration-checksum.py'], True, True)
         self.assert_plan(['.github/actions/ci-jar/action.yml'], True, True)
 
+    def test_루트_설정_파일은_전체를_켜지_않는다(self):
+        """PR #790 이 여기서 샜다 — docs 만 바꿨는데 .gitignore 한 줄이 전체 빌드를 켰다."""
+        self.assert_plan(['.gitignore'], False, False)
+        self.assert_plan(['.gitattributes'], False, False)
+        self.assert_plan(['.editorconfig'], False, False)
+
+    def test_서비스_안의_같은_이름_파일은_그_서비스를_켠다(self):
+        """루트 예외가 서비스 안까지 번지면 그 서비스 빌드가 통째로 빠진다."""
+        self.assert_plan(['server/business-api/.gitignore'], True, False)
+        self.assert_plan(['server/notification/README.md'], False, True)
+
     def test_분류하지_않은_경로는_안전한_쪽으로_간다(self):
         self.assert_plan(['server/scripts/docker-compose.dev.yml'], True, True)
         self.assert_plan(['newthing/x'], True, True)

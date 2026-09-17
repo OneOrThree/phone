@@ -13,6 +13,8 @@ on:
   pull_request:
     paths:
       - 'server/realtime/**'
+      - '!server/realtime/docs/**'
+      - '!server/realtime/**/*.md'
       - '.github/workflows/realtime-ci.yml'
       # 호출하는 재사용 워크플로도 넣는다 — 안 넣으면 be-gradle.yml 만 고치는 PR 에서
       # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).
@@ -24,6 +26,8 @@ on:
     branches: [main]
     paths:
       - 'server/realtime/**'
+      - '!server/realtime/docs/**'
+      - '!server/realtime/**/*.md'
       - '.github/workflows/realtime-ci.yml'
       # 호출하는 재사용 워크플로도 넣는다 — 안 넣으면 be-gradle.yml 만 고치는 PR 에서
       # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).

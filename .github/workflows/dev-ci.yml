@@ -11,6 +11,11 @@ on:
     branches-ignore: [release]
     paths:
       - "server/data-api/**"
+      # 문서·스크래치는 빌드를 바꾸지 않는다. 안 빼면 schema.dbml 한 줄에 checkstyle·spotbugs·
+      # test 가 전부 돌아 러너 슬롯을 물고 관계없는 PR 을 줄 세운다 (PR #790 이 실제로 그랬다).
+      # 마이그레이션은 src/main/resources 아래라 이 제외에 걸리지 않는다.
+      - "!server/data-api/docs/**"
+      - "!server/data-api/**/*.md"
       - "server/scripts/docker-compose.dev.yml"
       - "server/scripts/docker-compose.datadog.yml"
       # dev-cd 가 조건부로 물리는 오버레이 (GROMO-1658) — 바뀌면 다음 배포에 반영돼야 한다.
@@ -29,6 +34,11 @@ on:
     branches: [main]
     paths:
       - "server/data-api/**"
+      # 문서·스크래치는 빌드를 바꾸지 않는다. 안 빼면 schema.dbml 한 줄에 checkstyle·spotbugs·
+      # test 가 전부 돌아 러너 슬롯을 물고 관계없는 PR 을 줄 세운다 (PR #790 이 실제로 그랬다).
+      # 마이그레이션은 src/main/resources 아래라 이 제외에 걸리지 않는다.
+      - "!server/data-api/docs/**"
+      - "!server/data-api/**/*.md"
       - "server/scripts/docker-compose.dev.yml"
       - "server/scripts/docker-compose.datadog.yml"
       - "server/scripts/docker-compose.kafka.yml"
