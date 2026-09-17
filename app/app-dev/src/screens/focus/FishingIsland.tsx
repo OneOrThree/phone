@@ -24,6 +24,12 @@ export const LANDING = nearestLand(fishingGrid, { x: RAFT.x, y: RAFT.y - 6 });
 // 우리 섬에 축음기를 지었으면 낚시섬에도 한 대(지도 폭 6% · 시안 CSS 17:03). 낚시 자리·뗏목·올라오는 길을 피한 남동쪽 풀밭.
 export const GRAM = { x: 50, y: 70, w: 6 };
 const gramBox = { x: 12, y: 12, w: 608, h: 886 }; // buildings/gramophone/day.png(632×910) 의 그림 영역
+// 자리 고르기에서 축음기 그림 위(와 바로 앞, 앉으면 고양이가 그림에 겹치는 곳)는 앉을 수 없다.
+// 그림 높이(지도 세로 %) = 폭 6% × 그림 비율 × 지도 비율(1536/1024)
+export const nearGram = ({ x, y }: Point) =>
+  Math.abs(x - GRAM.x) <= GRAM.w / 2 + 2 &&
+  y >= GRAM.y - ((GRAM.w * gramBox.h) / gramBox.w) * (1536 / 1024) &&
+  y <= GRAM.y + 4;
 export type Spot = { x: number; y: number; face: number; bx?: number; by?: number };
 // 누른 곳에 앉히고 12% 안에서 가장 가까운 물 쪽으로 낚싯줄을 던진다. 물이 멀면 줄 없이 앉는다.
 // 좌표는 반올림하지 않는다(물가 칸 경계에서 반올림하면 물 칸이 될 수 있음).

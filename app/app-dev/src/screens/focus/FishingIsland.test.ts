@@ -3,10 +3,13 @@ import { landPath, onLand } from '@/utils/world-grid';
 import {
   LANDING,
   PEER_SPOTS,
+  DEFAULT_SPOT,
+  GRAM,
   anchorCard,
   castSpot,
   fishingCamera,
   fishingGrid,
+  nearGram,
   occupied,
 } from '@/screens/focus/FishingIsland';
 
@@ -56,6 +59,13 @@ test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치
       // 낚시 고양이 폭(지도 폭 7.7%)보다 멀리
       assert.ok(Math.hypot(q.x - p.x, ((q.y - p.y) * 1024) / 1536) > 7.7, `${n}`);
   }
+});
+
+test('축음기 그림 위·바로 앞은 앉을 수 없다', () => {
+  assert.ok(nearGram(GRAM));
+  assert.ok(nearGram({ x: GRAM.x, y: GRAM.y - 6 }));
+  assert.ok(!nearGram(DEFAULT_SPOT));
+  assert.ok(!PEER_SPOTS.some(nearGram));
 });
 
 test('다른 주민 자리 가까이는 앉을 수 없다', () => {

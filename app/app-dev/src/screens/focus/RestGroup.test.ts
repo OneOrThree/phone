@@ -18,6 +18,12 @@ test('모닥불: 6명까지는 시안 6자리 그대로', () => {
   }
 });
 
+test('모닥불: 아주 작은 화면(320×568)에서도 15명 모두 자리를 받는다', () => {
+  const { seats } = restSeats(15, 320, 568, { top: 24, bottom: 16, left: 0, right: 0 });
+  assert.equal(seats.length, 15);
+  assert.ok(seats.every((a) => Number.isFinite(a.x) && Number.isFinite(a.top) && a.n > 0));
+});
+
 test('모닥불: 정원 15명이 모두 화면 안에 서로 겹치지 않게 앉는다', () => {
   for (const { W, H, inset } of screens) {
     const { seats } = restSeats(15, W, H, inset);

@@ -27,7 +27,6 @@ import {
   canBuild,
   products,
   sessionSeconds,
-  questRate,
   dayKey,
   periodBounds,
   islandWeeklyAverage,
@@ -55,6 +54,7 @@ import {
   a11yHidden,
   anchorCard,
   labelBox,
+  nearGram,
   occupied,
   LANDING,
   OUTLINE,
@@ -587,7 +587,7 @@ function FocusFlow({ e }: any) {
   const resume = () => setVoyage('toSpot');
   // 뒤로가기: 걷기·항해(낚시섬 오가기 포함) 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
-    if (leg || voyage || r === 'focusTravel' || r === 'returnTravel') return true;
+    if (leg || voyage || walker.walking || r === 'focusTravel' || r === 'returnTravel') return true;
     if (dialog === 'reward') {
       const open = (s.rewards ?? []).filter((x) => !x.acknowledged);
       if (open[0]) e.dispatch({ type: 'CLAIM', id: open[0].id });
@@ -666,6 +666,10 @@ function FocusFlow({ e }: any) {
       e.notify('여기는 주민이 앉아 있어요. 조금 옆에 앉아 주세요.');
       return;
     }
+    if (i.buildings.includes('gram') && nearGram(p)) {
+      e.notify('여기는 축음기가 있어 앉을 수 없어요. 조금 옆에 앉아 주세요.');
+      return;
+    }
     const walked = walkTo(p, () => {
       if (latest.current.r !== 'fishingArrival') return;
       e.dispatch({ type: 'FOCUS_SPOT', spot: p });
@@ -694,9 +698,11 @@ function FocusFlow({ e }: any) {
     e.dispatch({ type: 'START', subject: e.text });
     e.go('focus');
   };
-  const today = dayKey(e.now),
+  // 결과창의 퀘스트는 집중을 마친 날 회차 기준(자정을 넘겨 봐도 그날 달성이 남는다)
+  const resultAt = result?.at ?? e.now,
+    resultDay = dayKey(resultAt),
     focusQuests = i.quests.filter((q) => q.type === 'focus'),
-    achieved = focusQuests.filter((q) => q.rounds?.[today]?.achieved.includes('me'));
+    achieved = focusQuests.filter((q) => q.rounds?.[resultDay]?.achieved.includes('me'));
   const resultModal = (
     <FiModal>
       <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>이번 집중 결과</Text>
@@ -770,7 +776,7 @@ function FocusFlow({ e }: any) {
             {achieved.length
               ? achieved.map((q) => '✓ ' + q.title).join('\n')
               : focusQuests[0]
-                ? `아직 없어요 · ${focusQuests[0].title} ${Math.floor(((questRate(s, focusQuests[0]) ?? 0) * focusQuests[0].target) / 100)}/${focusQuests[0].target}분`
+                ? `아직 없어요 · ${focusQuests[0].title} ${Math.floor(((questMemberRate(s, focusQuests[0], 'me', i.id, resultAt) ?? 0) * focusQuests[0].target) / 100)}/${focusQuests[0].target}분`
                 : '아직 없어요'}
           </Text>
         </View>

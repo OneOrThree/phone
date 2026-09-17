@@ -99,7 +99,8 @@ export function restSeats(
       wide ? { l: W - 370, t: H - 80, r: W, b: H } : { l: 0, t: H - 96, r: W, b: H },
     ],
     bounds = { l: inset.left + 4, t: inset.top + 4, r: W - inset.right - 4, b: H - inset.bottom };
-  let extra: Seat[] = [];
+  let extra: Seat[] = [],
+    last: Seat[] = [];
   for (const k of [0.85, 0.7, 0.55, 0.45]) {
     const n = BASE * s * k,
       probe = seatBox(0, 0, n),
@@ -114,6 +115,7 @@ export function restSeats(
       }
     const d = (a: Seat) => Math.hypot((a.x - fx) / RX, (a.top + (n * 300) / 512 - fy) / RY);
     candidates.sort((a, b) => d(a) - d(b));
+    last = candidates;
     extra = [];
     const taken = [...blocked];
     for (const c of candidates) {
@@ -125,6 +127,13 @@ export function restSeats(
     }
     if (extra.length === need) break;
   }
+  // 가장 작게 해도 모자라는 아주 작은 화면(예: 320×568)에서는 남은 인원을 겹침을 허용해 격자 자리에 고루 앉힌다.
+  // 격자 자리가 하나도 없으면 모닥불 앞에. 어떤 화면에서도 인원수만큼 자리를 돌려준다.
+  const rest = need - extra.length,
+    step = Math.max(1, Math.floor(last.length / rest)),
+    n = BASE * s * 0.45;
+  for (let m = 0; m < rest; m++)
+    extra.push(last[(m * step) % last.length] ?? { x: fx, top: fy - n, n, dx: 1 });
   return { x0, y0, s, seats: [...seats, ...extra] };
 }
 export function RestGroup({
@@ -175,8 +184,11 @@ export function RestGroup({
     () => restSeats(actors.length, W, H, { top: it, bottom: ib, left: il, right: ir }),
     [actors.length, W, H, it, ib, il, ir],
   );
-  const placed = actors.map((a) => {
-    const { dx, n, top, x } = seats[a.seat];
+  // 자리가 없는 인원은 건너뛴다(restSeats 는 인원수만큼 돌려주지만 렌더링이 죽지 않게 한 번 더 막는다)
+  const placed = actors.flatMap((a) => {
+    const seat = seats[a.seat];
+    if (!seat) return [];
+    const { dx, n, top, x } = seat;
     return {
       ...a,
       dx,
