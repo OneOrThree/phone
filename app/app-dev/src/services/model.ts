@@ -116,6 +116,8 @@ export type Message = {
   text: string;
   at: number;
   status: 'sent' | 'failed';
+  // 받은 편지를 읽고 닫은 시각. 있으면 받은 편지함에서 사라진다
+  readAt?: number;
 };
 export type Island = {
   visibility?: 'public' | 'private';
@@ -162,6 +164,10 @@ export type Island = {
   track: string;
   playing: boolean;
   ledger: { id: string; text: string; at: number; memberId?: string }[];
+  // 우리 섬 채팅방을 마지막으로 연 시각. 이후 다른 주민 글이 새 글이다
+  chatReadAt?: number;
+  // 방금 완공한 건물. 게시판 청사진이 완공 안내를 보여 주고, 다음 건물을 고르면 지운다
+  completed?: { building: Building; at: number };
 };
 export type Session = {
   id: string;
@@ -606,6 +612,32 @@ export function initialState(full = false): State {
   };
 }
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
+// "HH:MM" → 자정부터 분. 형식이 틀리면 null
+// 시간대 종료는 24:00까지 쓸 수 있고, 네이티브 입력의 '9:00' 같은 한 자리 시도 받는다
+export const clockMinutes = (v?: string) => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v ?? '');
+  if (!m || +m[2] >= 60 || +m[1] > 24 || (+m[1] === 24 && +m[2] > 0)) return null;
+  return +m[1] * 60 + +m[2];
+};
+// 회관에서 다음 건물로 고를 수 있는 건물. 이 건물이 완공될 때만 게시판 청사진에 완공 안내를 남긴다
+export const nextBuildings: Building[] = ['gram', 'library', 'mail', 'tower', 'shop'];
+// 친구 편지를 보낼 수 있는지: 지금 친구이고 내 섬에 우체통이 있어야 한다 (받는 섬은 상관없다)
+export const canSendLetter = (s: State, friendId: string) =>
+  s.friends?.find((f) => f.id === friendId)?.status === 'friend' &&
+  currentIsland(s).buildings.includes('mail');
+// 친구가 보내고 아직 읽고 닫지 않은 편지 (최신순)
+export const unreadLetters = (s: State) =>
+  (s.friends ?? [])
+    .filter((f) => f.status === 'friend')
+    .flatMap((f) =>
+      f.messages
+        .filter((m) => m.memberId !== 'me' && !m.readAt)
+        .map((m) => ({ friend: f, letter: m })),
+    )
+    .sort((a, b) => b.letter.at - a.letter.at);
+// 채팅방을 마지막으로 연 뒤 다른 주민이 남긴 글 수
+export const newChatCount = (i: Island) =>
+  i.messages.filter((m) => m.memberId !== 'me' && m.at > (i.chatReadAt ?? 0)).length;
 export const CAPACITY_MIN = 1,
   CAPACITY_MAX = 15;
 // 주민 수 = 다른 주민 + (내가 가입했으면) 나
@@ -979,6 +1011,8 @@ export function reducer(state: State, a: Action): State {
     'TRACK',
     'THEME',
     'CLAIM_MEMBER',
+    'COMMENT_DELETE',
+    'CHAT_READ',
   ];
   if (joinedOnly.includes(a.type) && !currentIsland(state).joined) return state;
   if (
@@ -1135,7 +1169,7 @@ export function reducer(state: State, a: Action): State {
         i.construction ||
         !i.buildings.includes('board') ||
         i.buildings.includes(b) ||
-        !['gram', 'library', 'mail', 'tower', 'shop'].includes(b)
+        !nextBuildings.includes(b)
       )
         return state;
       if (b === 'shop' && !shopPrerequisitesMet(i)) return state;
@@ -1152,6 +1186,7 @@ export function reducer(state: State, a: Action): State {
             : earnedBy(i, id);
       i.buildingQuest = { building: b, targets, selectedAt: now, base };
       i.nextBuilding = b;
+      delete i.completed;
       break;
     }
     case 'BUILD': {
@@ -1193,6 +1228,7 @@ export function reducer(state: State, a: Action): State {
           delete island.construction;
           delete island.buildingQuest;
           delete island.nextBuilding;
+          if (nextBuildings.includes(b)) island.completed = { building: b, at: now };
           island.ledger.unshift({
             id: uuid(),
             text: `${buildingNames[b]} 완공`,
@@ -1243,42 +1279,23 @@ export function reducer(state: State, a: Action): State {
       break;
     }
     case 'QUEST_SAVE': {
-      if (!Number.isFinite(a.target) || a.target < 1 || !a.title.trim()) return state;
-      const q = i.quests.find((q) => q.id === a.id);
-      if (q) {
-        q.title = a.title;
-        q.type = a.kind;
-        q.target = a.target;
-        q.windowStart = a.windowStart;
-        q.windowEnd = a.windowEnd;
-        const round = q.rounds?.[dayKey(now)];
-        if (round) {
-          round.kind = a.kind;
-          round.target = a.target;
-          round.windowStart = a.windowStart;
-          round.windowEnd = a.windowEnd;
-          // 이미 지급된 보상은 보존하되, 미수령 달성은 새 기준으로 다시 판정한다.
-          const claimed = new Set(round.claimed);
-          round.achieved = round.achieved.filter((id) => claimed.has(id));
-          s.rewards = (s.rewards ?? []).filter(
-            (reward) =>
-              reward.acknowledged ||
-              reward.kind !== 'personal' ||
-              reward.islandId !== i.id ||
-              reward.questId !== q.id ||
-              reward.day !== dayKey(now),
-          );
-        }
-      } else
-        i.quests.push({
-          id: uuid(),
-          title: a.title,
-          type: a.kind,
-          target: a.target,
-          windowStart: a.windowStart,
-          windowEnd: a.windowEnd,
-          claimed: false,
-        });
+      // 퀘스트는 저장하는 순간 시작하고, 시작한 뒤에는 수정할 수 없다
+      if (a.id || !Number.isInteger(a.target) || a.target < 1 || !a.title?.trim()) return state;
+      if (a.kind === 'focus') {
+        const start = clockMinutes(a.windowStart),
+          end = clockMinutes(a.windowEnd);
+        // 시간대 집중은 시작 < 종료이고 목표 분이 그 시간 안이어야 한다
+        if (start == null || end == null || end <= start || a.target > end - start) return state;
+      }
+      i.quests.push({
+        id: uuid(),
+        title: a.title.trim(),
+        type: a.kind,
+        target: a.target,
+        windowStart: a.kind === 'focus' ? a.windowStart : undefined,
+        windowEnd: a.kind === 'focus' ? a.windowEnd : undefined,
+        claimed: false,
+      });
       break;
     }
     case 'NOTICE_SAVE': {
@@ -1313,6 +1330,17 @@ export function reducer(state: State, a: Action): State {
         });
       break;
     }
+    case 'COMMENT_DELETE': {
+      const n = i.notices.find((x) => x.id === a.id),
+        c = n?.comments.find((x) => x.id === a.commentId);
+      // 방장은 모든 댓글을, 주민은 자기 댓글만 지운다
+      if (!n || !c || (!isHost(i) && c.memberId !== 'me')) return state;
+      n.comments = n.comments.filter((x) => x !== c);
+      break;
+    }
+    case 'CHAT_READ':
+      i.chatReadAt = now;
+      break;
     case 'MESSAGE':
       if (a.text.trim())
         i.messages.push({
@@ -1475,7 +1503,7 @@ export function reducer(state: State, a: Action): State {
     }
     case 'FRIEND_MESSAGE': {
       const f = s.friends?.find((f) => f.id === a.id);
-      if (f?.status !== 'friend' || !i.buildings.includes('mail') || !a.text.trim()) return state;
+      if (!f || !canSendLetter(state, a.id) || !a.text.trim()) return state;
       f.messages.push({
         id: uuid(),
         memberId: 'me',
@@ -1485,6 +1513,14 @@ export function reducer(state: State, a: Action): State {
         at: now,
         status: a.fail ? 'failed' : 'sent',
       });
+      break;
+    }
+    case 'LETTER_READ': {
+      const m = s.friends
+        ?.find((f) => f.id === a.friend)
+        ?.messages.find((x) => x.id === a.id && x.memberId !== 'me');
+      if (!m || m.readAt) return state;
+      m.readAt = now;
       break;
     }
     case 'FRIEND_RETRY': {

@@ -25,8 +25,8 @@ export const k = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   stack: { gap: 14 },
   grow: { flex: 1 },
-  meta: { fontSize: 13, lineHeight: 18, color: C.muted },
-  body: { fontSize: 15, lineHeight: 22.5, color: C.ink },
+  meta: { fontSize: 13, lineHeight: 18, color: C.muted, letterSpacing: -0.15 },
+  body: { fontSize: 15, lineHeight: 22.5, color: C.ink, letterSpacing: -0.15 },
   h: {
     fontSize: 22,
     lineHeight: 29,
@@ -34,7 +34,7 @@ export const k = StyleSheet.create({
     letterSpacing: -0.44,
     color: C.ink,
   },
-  h17: { fontSize: 17, lineHeight: 23, fontWeight: '700', color: C.ink },
+  h17: { fontSize: 17, lineHeight: 23, fontWeight: '700', letterSpacing: -0.15, color: C.ink },
   group: {
     backgroundColor: C.paper,
     borderWidth: 2,
@@ -52,7 +52,7 @@ export const k = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  section: { fontSize: 13, fontWeight: '700', color: C.muted, marginTop: 6 },
+  section: { fontSize: 13, fontWeight: '700', letterSpacing: 0.26, color: C.muted, marginTop: 6 },
   field: {
     minHeight: 50,
     borderWidth: 2,
@@ -182,7 +182,8 @@ export function Btn({
           style={{
             fontSize: round ? 15 : small ? 14 : 16,
             ...(round ? { lineHeight: 18 } : {}),
-            fontWeight: kind ? '700' : '800',
+            // v2 홈 집중하기(원형)는 보통 굵기
+            fontWeight: round ? '400' : kind ? '700' : '800',
             color:
               kind === 'danger'
                 ? componentTokens.button.destructiveBorder
@@ -410,7 +411,8 @@ export function Field({
   return (
     <View style={{ gap: 6 }}>
       {label && (
-        <Txt kind="meta" style={{ fontWeight: '600' }}>
+        // v2 .field label: 13px · 줄 높이 1.45
+        <Txt kind="meta" style={{ fontWeight: '600', lineHeight: 18.85 }}>
           {label}
         </Txt>
       )}
@@ -433,11 +435,12 @@ export function Field({
   );
 }
 export function Toggle({ value, onChange, label }: any) {
-  const x = useRef(new Animated.Value(value ? 20 : 0)).current;
+  // v2 .tog: 폭 46 · 켜지면 손잡이 18px 이동
+  const x = useRef(new Animated.Value(value ? 18 : 0)).current;
   const reduce = React.useContext(MotionContext);
   useEffect(() => {
     Animated.timing(x, {
-      toValue: value ? 20 : 0,
+      toValue: value ? 18 : 0,
       duration: reduce ? 0 : 140,
       useNativeDriver: true,
     }).start();
@@ -450,7 +453,7 @@ export function Toggle({ value, onChange, label }: any) {
       onPress={() => onChange(!value)}
       hitSlop={8}
       style={{
-        width: 48,
+        width: 46,
         height: 28,
         borderRadius: 999,
         backgroundColor: value ? primitiveTokens.color.success : primitiveTokens.color.controlIdle,
