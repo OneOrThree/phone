@@ -115,7 +115,7 @@ fs.mkdirSync(outputDir, { recursive: true });
     building.islands[0].fish = libraryCost + 20;
     await open('construction', { state: building });
     await p.getByRole('button', { name: '도서관', exact: true }).click();
-    await p.getByRole('button', { name: '이 건물을 다음 목표로', exact: true }).click();
+    await p.getByRole('button', { name: '이 건물을 목표로 정하기', exact: true }).click();
     s = await state();
     assert.equal(s.islands[0].fish, libraryCost + 20);
     assert.equal(s.islands[0].buildingQuest.targets.length, 4);
@@ -155,8 +155,8 @@ fs.mkdirSync(outputDir, { recursive: true });
     });
     await open('library', { state: fixture });
     await p.getByRole('button', { name: '내 일기장', exact: true }).click();
-    await p.getByRole('button', { name: '월', exact: true }).click();
-    await p.getByRole('button', { name: '→', exact: true }).click();
+    await p.getByRole('button', { name: '월 단위', exact: true }).click();
+    await p.getByRole('button', { name: '다음 장', exact: true }).click();
     assert.ok(await p.getByText('스크린타임', { exact: false }).count());
     await p.screenshot({
       path: path.join(outputDir, `${orientation}-diary-screen-interaction.png`),
