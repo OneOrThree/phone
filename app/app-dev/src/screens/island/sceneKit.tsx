@@ -27,5 +27,15 @@ export const fill = {
   width: '100%' as const,
   height: '100%' as const,
 };
+// 시안은 세로 위 52·가로 좌우 52짜리 안전영역을 기준으로 그렸다. 그보다 넓은 기기(노치·다이내믹
+// 아일랜드)에서는 넘치는 만큼만 화면 가장자리 요소를 밀어 시안 좌표(402×874·874×402)는 그대로 둔다
+export const safeOffset = (L: {
+  landscape: boolean;
+  insets: { top: number; left: number; right: number };
+}) => ({
+  top: Math.max(0, L.insets.top - (L.landscape ? 0 : 52)),
+  left: Math.max(0, L.insets.left - 52),
+  right: Math.max(0, L.insets.right - 52),
+});
 // 시안 표기: 1시간 미만 "M분", 정각은 "N시간", 그 외 "N시간 M분"
 export const hm = (seconds: number) => hoursMinutes(seconds).replace(/ 0분$/, '');

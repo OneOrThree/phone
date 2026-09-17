@@ -12,7 +12,7 @@ import {
   periodBounds,
   recordSecondsBetween,
 } from '@/services/model';
-import { BROWN, T, fill, hm, useGowun, web } from '@/screens/island/sceneKit';
+import { BROWN, T, fill, hm, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
 
 // v2 시안(036~041) 도서관: 원형 테이블 위 일기장 두 권 → 한 권씩 펼치는 책
 type Period = '일' | '주' | '월';
@@ -163,6 +163,7 @@ function Round({ title, glyph, onPress, disabled, size, style, testID }: any) {
 export function Library({ e }: any) {
   const font = useGowun();
   const L = useAppLayout(),
+    off = safeOffset(L),
     land = L.landscape,
     W = L.width,
     H = L.height;
@@ -195,8 +196,8 @@ export function Library({ e }: any) {
           onPress={e.home}
           style={{
             position: 'absolute',
-            right: land ? 56 : 16,
-            top: land ? 14 : 62,
+            right: (land ? 56 : 16) + off.right,
+            top: (land ? 14 : 62) + off.top,
             width: 42,
             height: 42,
             borderRadius: 21,

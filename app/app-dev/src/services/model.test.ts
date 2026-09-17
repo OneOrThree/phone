@@ -988,6 +988,7 @@ test('혼자 남은 방장이 섬을 떠나면 섬 공동 데이터를 지우고
   assert.deepEqual(closed.buildings, []);
   assert.equal(closed.buildingQuest, undefined);
   assert.deepEqual(closed.formerMembers, []);
+  assert.equal(closed.intro, '');
   // 구매한 공동 음원 선택도 기본 음원으로 돌아간다
   assert.equal(closed.track, 'waves');
   // 개인 주문(스카프)과 다른 섬 주문은 남고, 닫힌 섬의 공동 구매만 지운다
@@ -1032,6 +1033,7 @@ test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 �
   assert.deepEqual(cleaned.ledger, []);
   assert.deepEqual(cleaned.messages, []);
   assert.deepEqual(cleaned.formerMembers, []);
+  assert.equal(cleaned.intro, '');
   assert.equal(cleaned.track, 'waves');
   assert.equal(once.rewards?.length, 0);
   assert.deepEqual(
@@ -1096,4 +1098,31 @@ test('원장 한 줄은 내용과 끝의 +N마리·−N마리 금액으로 나�
     amount: -2720,
   });
   assert.deepEqual(ledgerParts({ text: '도서관 완공' }), { title: '도서관 완공', amount: 0 });
+});
+
+test('강퇴된 주민이 다시 가입하면 예전 기록을 이어받고, 다시 강퇴해도 그 기록이 남는다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members.find((m) => m.id === 'dubu')!.records = [
+    {
+      id: 'dubu-old',
+      islandId: island.id,
+      subject: '국어 독해',
+      seconds: 960,
+      at: 1,
+      fish: 16,
+      contributed: true,
+    },
+  ];
+  s = act(s, 'KICK', { id: 'dubu' });
+  currentIsland(s).requests = [{ id: 'dubu', name: '두부', color: 'cream' }];
+  s = act(s, 'ADD_MEMBER', { id: 'dubu' });
+  const rejoined = currentIsland(s).members.find((m) => m.id === 'dubu')!;
+  assert.equal(rejoined.records?.[0].id, 'dubu-old');
+  assert.equal(rejoined.role, 'member');
+  assert.deepEqual(currentIsland(s).formerMembers, []);
+  s = act(s, 'KICK', { id: 'dubu' });
+  const former = currentIsland(s).formerMembers!;
+  assert.equal(former.length, 1);
+  assert.equal(former[0].records?.[0].seconds, 960);
 });

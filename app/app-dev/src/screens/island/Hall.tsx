@@ -26,7 +26,7 @@ import {
   CAPACITY_MAX,
   CAPACITY_MIN,
 } from '@/services/model';
-import { BROWN, T, fill, hm, useGowun, web } from '@/screens/island/sceneKit';
+import { BROWN, T, fill, hm, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
 const CARD_INK = '#3e352e';
@@ -191,6 +191,7 @@ export function Hall({ e }: any) {
     : Math.max(W / 1024, H / 1536) / (874 / 1536);
   // 가로 패널 왼쪽: 874 폭은 시안대로 300, 좁은 폰(SE 667·640dp)은 패널 폭 558을 지키다가
   // 뒤로 버튼(오른쪽 끝 100) 옆 120까지만 줄인다. 확인창·토스트는 그보다 60 안쪽
+  const off = safeOffset(L);
   const side = Math.min(300, Math.max(120, W - 574)),
     over = side + 60;
   const sx = (x: number) => W / 2 + (x - (land ? 437 : 201)) * k,
@@ -227,8 +228,8 @@ export function Hall({ e }: any) {
       style={{
         position: 'absolute',
         zIndex: 12,
-        left: land ? 56 : 18,
-        top: land ? 14 : 46.5,
+        left: (land ? 56 : 18) + off.left,
+        top: (land ? 14 : 46.5) + off.top,
         width: 43.9,
         height: 43.9,
         borderRadius: 22,
@@ -406,8 +407,8 @@ export function Hall({ e }: any) {
           style={{
             position: 'absolute',
             zIndex: 9,
-            top: land ? 18 : 55.5,
-            left: land ? 112 : 0,
+            top: (land ? 18 : 55.5) + off.top,
+            left: land ? 112 + off.left : 0,
             right: land ? undefined : 0,
             alignItems: 'center',
           }}

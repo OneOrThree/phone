@@ -748,6 +748,8 @@ function closeIsland(s: State, i: Island) {
   Object.assign(i, {
     closed: true,
     visibility: 'private',
+    // 이름·id는 기록 참조용으로 남기고 소개 글은 공동 데이터라 지운다
+    intro: '',
     fish: 0,
     earned: {},
     ledger: [],
@@ -1500,13 +1502,19 @@ export function reducer(state: State, a: Action): State {
       if (!request || isFull(i)) return state;
       i.requests = joinRequests(i).filter((r) => r.id !== request.id);
       i.requestResolved = !i.requests.length;
+      // 강퇴·탈퇴로 떠났던 주민이 다시 들어오면 그때 기록을 이어받고 떠난 주민 목록에서 뺀다
+      i.formerMembers ??= [];
+      const former = i.formerMembers.find((m) => m.id === request.id);
+      i.formerMembers = i.formerMembers.filter((m) => m.id !== request.id);
       i.members.push({
+        ...(former ?? {}),
         id: i.members.some((m) => m.id === request.id) ? uuid() : request.id,
         name: request.name,
         color: request.color,
-        subject: '독서 과제',
-        seconds: 0,
+        subject: former?.subject ?? '독서 과제',
+        seconds: former?.seconds ?? 0,
         focusing: false,
+        restStartedAt: undefined,
         role: 'member',
       });
       break;
