@@ -912,6 +912,7 @@ test('혼자 남은 방장이 섬을 떠나면 섬 공동 데이터를 지우고
   const island = currentIsland(s);
   island.formerMembers = [{ ...island.members[0], id: 'gone' }];
   island.members = [];
+  island.track = 'rain';
   island.ledger = [{ id: 'l1', text: '집중 +10마리', at: 1 }];
   const order = (id: string, product: string, islandId: string) => ({
     id,
@@ -945,6 +946,8 @@ test('혼자 남은 방장이 섬을 떠나면 섬 공동 데이터를 지우고
   assert.deepEqual(closed.buildings, []);
   assert.equal(closed.buildingQuest, undefined);
   assert.deepEqual(closed.formerMembers, []);
+  // 구매한 공동 음원 선택도 기본 음원으로 돌아간다
+  assert.equal(closed.track, 'waves');
   // 개인 주문(스카프)과 다른 섬 주문은 남고, 닫힌 섬의 공동 구매만 지운다
   assert.deepEqual(
     s.orders.map((o) => o.id),
@@ -956,7 +959,13 @@ test('혼자 남은 방장이 섬을 떠나면 섬 공동 데이터를 지우고
 test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 지우고, 다시 LOAD해도 같다', () => {
   const saved = initialState(true);
   const old = saved.islands.find((j) => j.id === 'cloud')!;
-  Object.assign(old, { closed: true, visibility: 'private', members: [], fish: 900 });
+  Object.assign(old, {
+    closed: true,
+    visibility: 'private',
+    members: [],
+    fish: 900,
+    track: 'rain',
+  });
   old.formerMembers = [{ ...saved.islands[1].members[0], id: 'gone' }];
   old.ledger = [{ id: 'l', text: '집중 +10마리', at: 1 }];
   saved.orders = [
@@ -981,6 +990,7 @@ test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 �
   assert.deepEqual(cleaned.ledger, []);
   assert.deepEqual(cleaned.messages, []);
   assert.deepEqual(cleaned.formerMembers, []);
+  assert.equal(cleaned.track, 'waves');
   assert.equal(once.rewards?.length, 0);
   assert.deepEqual(
     once.orders.map((o) => o.id),

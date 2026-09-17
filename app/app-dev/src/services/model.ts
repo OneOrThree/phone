@@ -747,6 +747,8 @@ function closeIsland(s: State, i: Island) {
     buildingTheme: 'default',
     buildingThemes: {},
     playing: false,
+    // 구매한 공동 음원 선택도 공동 데이터라 기본 음원으로 되돌린다
+    track: 'waves',
   });
   delete i.buildingQuest;
   delete i.construction;
