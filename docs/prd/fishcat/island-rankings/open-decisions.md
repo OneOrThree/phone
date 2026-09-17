@@ -23,7 +23,7 @@
 | 게이트 | 티켓 | 상태(2026-09-18) |
 | --- | --- | --- |
 | ①② 시작 게이트 → `focus_session_details` 에 행이 생김 | **GROMO-1924** 「집중 세션 시작 게이트를 여는 선행 조건 9건을 해소하고 게이트를 연다」 | 해야 할 일 |
-| ④ 섬 컨텍스트 배선 → `current_island_id` 가 채워지고 비잠금 조회가 생김 | **GROMO-1759** 「섬 생성·조회·탐색·현재 섬 이동 API 구현 — 6종」 | 진행 중(리뷰 대기) |
+| ④ 섬 컨텍스트 배선 → `current_island_id` 가 채워지고 비잠금 조회가 생김 | **GROMO-1759** 「섬 생성·조회·탐색·현재 섬 이동 API 구현 — 6종」 | 진행 중(리뷰 대기) | (정밀도: `JpaRepository` 상속 `findById(UUID)` 는 비잠금이다 — «커스텀» 비잠금 조회가 없다는 뜻. 진짜 막는 것은 `current_island_id` 가 전부 NULL 이라는 점)
 
 ③ 은 티켓이 아니라 **RK-D05 의 결과**다 — 섬 귀속을 고르면 `focus_session_details`(①②) 를 쓰고,
 개인 전체를 고르면 `daily_focus_stats` 를 쓴다. §2.4 를 보라.
@@ -97,7 +97,7 @@ V59 번호를 잡는 결정이라 **가장 먼저 답해야 한다** — 이것�
 
 **레포 선례**
 
-- `league/service/LeagueService.java:148` — 기존 리그가 `i+1` 로 순번을 매긴다. 곧 선택지 C 이고, `low-level-design.md:205` 가 「i+1 은 공동순위 정책이 아님」이라고 **선례를 선례로 쓰지 말라**고 적어 둔 자리다.
+- `league/service/LeagueService.java:155` — 기존 리그가 `i+1` 로 순번을 매긴다. 곧 선택지 C 이고, `low-level-design.md:205` 가 「i+1 은 공동순위 정책이 아님」이라고 **선례를 선례로 쓰지 말라**고 적어 둔 자리다.
 - `league/repository/domain/LeagueRankSnapshot.java:21-26` — 유니크는 `uq_league_rank_snapshots_user_day (user_id, created_at)` 이고 필드는 `id·userId·rank·createdAt` 뿐(`:36-48`). **사용자×날짜당 rank 한 개를 덮어쓰는 저장소**라 주간 랭킹의 불변 페이지 정본으로 재사용할 수 없다(`low-level-design.md:118` 의 서술과 일치).
 
 **추천: A (1,1,3)**
@@ -182,7 +182,7 @@ RC-D01 과 **한 번에 같은 답**으로 처리해야 한다 — 따로 답하
 **레포 선례**
 
 - `../api-platform/policy.md:52` — 403 `FACILITY_LOCKED` 행(「필요한 시설 미해금. field=null, 도메인 선행 조건 확인」). (c) 의 근거.
-- `league/service/LeagueService.java:148` — 기존 리그에 「평균 표시 반올림」 선례가 없다(정수 초를 그대로 쓴다). (a) 는 **새로 정하는 것**이지 기존 규칙을 따르는 게 아니다.
+- `league/service/LeagueService.java:155` — 기존 리그에 「평균 표시 반올림」 선례가 없다(정수 초를 그대로 쓴다). (a) 는 **새로 정하는 것**이지 기존 규칙을 따르는 게 아니다.
 
 **늦어지면 못 나가는 것**: 공개 DTO 확정. 기획 v1 프레임 58(섬 간 랭킹)이 그려지지 않는다.
 (a)~(d) 는 서로 독립이라 **(b)(c)(d) 는 오늘 바로 확정 가능**하고 실제로 셋 다 이미 문서가 한 방향을 금지해 두었다.
