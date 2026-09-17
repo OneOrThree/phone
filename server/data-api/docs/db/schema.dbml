@@ -1212,7 +1212,7 @@ Ref: group_announcements.user_id > users.id
 
 // 현재 섬 컨텍스트 (GROMO-1907, V57)
 Ref: user_island_contexts.user_id - users.id
-Ref: user_island_contexts.current_island_id > groups.id
+Ref: user_island_contexts.current_island_id > groups.id [delete: set null]
 
 // 초대 링크 (V21)
 Ref: group_invite_links.group_id > groups.id

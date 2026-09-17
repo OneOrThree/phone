@@ -61,11 +61,17 @@ class UserIslandContextRaceIntegrationTest extends IntegrationTestBase {
     UserWalletRepository userWalletRepository;
 
     private User user;
+    /** 레이스 전 컨텍스트 버전 — 두 전이가 모두 남았는지를 이 값 대비 +2 로 판정한다. */
+    private long baselineContextVersion;
 
     @BeforeEach
     void setUp() {
         user = userRepository.save(User.builder().nickname("컨텍스트경합자").isGuest(false).build());
         userWalletRepository.save(UserWallet.builder().userId(user.getId()).balance(100).build());
+        // 컨텍스트 행을 미리 만들어 둔다. 없으면 첫 호출이 INSERT(@Version=0)라 두 전이의 증가분이
+        // 1 이 되어, 「하나가 유실됐는지」를 버전으로 구분할 수 없다. 미리 있으면 둘 다 UPDATE 다.
+        baselineContextVersion = userIslandContextRepository
+                .save(UserIslandContext.newFor(user.getId())).getContextVersion();
     }
 
     /**
@@ -116,8 +122,11 @@ class UserIslandContextRaceIntegrationTest extends IntegrationTestBase {
         }
 
         // 컨텍스트는 정확히 두 번 전이했다 — 유실 없이 차례로 커밋됐다는 증거다.
+        // 기준값을 setUp 에서 미리 만들어 두는 이유: 행이 없으면 첫 호출은 INSERT(@Version=0)이고
+        // 두 번째만 UPDATE 라 증가분이 1이 된다. 그러면 「두 전이가 다 남았다」를 버전으로 셀 수 없다.
+        // 미리 만들어 두면 두 호출이 모두 UPDATE 라 정확히 +2 여야 하고, 하나가 유실되면 +1 로 드러난다.
         UserIslandContext context = userIslandContextRepository.findById(user.getId()).orElseThrow();
-        assertThat(context.getContextVersion()).isEqualTo(2L);
+        assertThat(context.getContextVersion()).isEqualTo(baselineContextVersion + 2);
         assertThat(context.getCurrentIslandId()).isIn(groupIds);
 
         // tearDown 이 실제 생성된 그룹까지 지우도록 저장해 둔다.

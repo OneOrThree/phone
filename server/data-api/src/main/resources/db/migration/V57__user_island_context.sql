@@ -14,7 +14,12 @@ CREATE TABLE user_island_contexts (
     user_id           uuid PRIMARY KEY REFERENCES users (id),
     -- 아직 어떤 섬에도 속한 적 없으면 NULL. 상실 사유별 복구(IM-D06)는 미승인이라 이 컬럼 하나로
     -- "없음"과 "복구 대상"을 구분하지 않는다 — 승인되면 그때 lossReason 등을 더한다.
-    current_island_id uuid REFERENCES groups (id),
+    --
+    -- ON DELETE SET NULL: 섬 행이 사라지면 그 사람의 «현재 섬»은 없음이 되는 것이 맞는 의미다.
+    -- RESTRICT(기본)로 두면 그룹을 실제로 지우는 경로가 이 참조 때문에 막힌다 — 운영은 소프트
+    -- 삭제라 닿지 않지만 통합 테스트의 정리 단계가 그룹을 하드 삭제한다. 컨텍스트가 남의 삭제를
+    -- 거절하게 만들지 않는다.
+    current_island_id uuid REFERENCES groups (id) ON DELETE SET NULL,
     context_version   bigint NOT NULL DEFAULT 0,
     created_at        timestamp(6) with time zone NOT NULL DEFAULT now(),
     updated_at        timestamp(6) with time zone
