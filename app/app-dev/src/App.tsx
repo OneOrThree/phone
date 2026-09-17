@@ -223,8 +223,7 @@ function Gromo() {
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     mailRef = useRef<FlatList>(null);
   const island = currentIsland(state),
-    record = state.lastResult,
-    shouldPlayFocusAudio = island.playing && state.session?.status === 'active';
+    record = state.lastResult;
   const player = useSoundPlayer((message) => notify(message));
   const notify = (s: string) => {
     setToast(s);
@@ -360,24 +359,26 @@ function Gromo() {
     });
     return () => subscription.remove();
   }, [history, route, modal]);
+  // 섬 음악은 집중 중이거나 축음기 시트를 보고 있을 때 들린다. 시트를 떠나면 집중 중이 아닐 때 멈춘다
+  const islandAudioOn = island.playing && (state.session?.status === 'active' || route === 'sound');
   useEffect(() => {
     if (previewAudio) return;
     try {
       player.replace(assets[`audio/${island.track}.wav`] as number);
       player.loop = true;
-      if (shouldPlayFocusAudio) player.play();
+      if (islandAudioOn) player.play();
       else player.pause();
     } catch {}
-  }, [island.track, island.id, previewAudio, shouldPlayFocusAudio]);
+  }, [island.track, island.id, previewAudio, islandAudioOn]);
   useEffect(() => {
     if (route !== 'product') setPreviewAudio(false);
   }, [route]);
   useEffect(() => {
     try {
       player.volume = state.settings.sound ? ((state.settings as any).volume ?? 0.55) : 0;
-      shouldPlayFocusAudio ? player.play() : player.pause();
+      islandAudioOn ? player.play() : player.pause();
     } catch {}
-  }, [shouldPlayFocusAudio, state.settings.sound, (state.settings as any).volume]);
+  }, [islandAudioOn, state.settings.sound, (state.settings as any).volume]);
   useEffect(() => {
     if (route === 'travel' || route === 'arrival') {
       boatTravel.setValue(-180);

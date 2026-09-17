@@ -36,6 +36,10 @@ import {
   inviteCodeOf,
   findIslandByInviteCode,
   balance,
+  dayKey,
+  kstDayStart,
+  kstMonthDay,
+  kstHourMinute,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
@@ -103,15 +107,9 @@ const buildingArt: Record<string, string> = {
 const pad = (n: number) => String(n).padStart(2, '0');
 const hhmmss = (n: number) =>
   `${pad(Math.floor(n / 3600))}:${pad(Math.floor(n / 60) % 60)}:${pad(Math.floor(n) % 60)}`;
-// 날짜 "M/D"와 시각 "HH:MM"
-const md = (at: number) => {
-  const d = new Date(at);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-};
-const hm = (at: number) => {
-  const d = new Date(at);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
+// 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul)
+const md = kstMonthDay;
+const hm = kstHourMinute;
 function Thumb({ h = 220, warm = false }: any) {
   return (
     <View style={[k.preview, { height: h }]}>
@@ -1379,7 +1377,8 @@ export function RedesignScreens({ e }: any) {
     // 17(집중 중) = 바다 위 시트, 66(섬에서) = 축음기로 다가간 섬 위 시트 + 축음기 간판. 가로 폰은 오른쪽 540 패널
     const scene = !!state.session,
       panel = layout.compact;
-    const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+    // 오늘 = Asia/Seoul 기준 00시부터
+    const startOfToday = kstDayStart(dayKey(now));
     const today = state.records
       .filter((r) => r.at >= startOfToday)
       .reduce((a, r) => a + r.seconds, 0);

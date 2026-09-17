@@ -311,6 +311,15 @@ export const dayKey = (at = Date.now()) => {
   const d = kstDate(at);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 };
+// 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul, 기기 시간대와 무관)
+export const kstMonthDay = (at: number) => {
+  const d = kstDate(at);
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+};
+export const kstHourMinute = (at: number) => {
+  const d = kstDate(at);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+};
 export const kstDayStart = (day: string) => {
   const [year, month, date] = day.split('-').map(Number);
   return Date.UTC(year, month - 1, date) - KST_OFFSET_MS;

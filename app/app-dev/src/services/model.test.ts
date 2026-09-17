@@ -27,6 +27,9 @@ import {
   recordSecondsBetween,
   weekStart,
   periodBounds,
+  kstDayStart,
+  kstMonthDay,
+  kstHourMinute,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
@@ -750,6 +753,25 @@ test('강퇴한 주민을 목록에서는 제거해도 완료 기록과 기여�
   assert.ok(!currentIsland(s).members.some((resident) => resident.id === member.id));
   assert.equal(currentIsland(s).formerMembers?.[0].records?.[0].seconds, 600);
   assert.equal(islandWeeklyAverage(s, currentIsland(s), now), 200);
+});
+
+test('구매 내역 날짜·시각은 기기 시간대가 달라도 Asia/Seoul로 표시한다', () => {
+  // 기기 시간대 대신 UTC 게터로 계산하므로 러너 시간대와 무관하다.
+  // 로스앤젤레스 기기라면 9/15 08:30으로 보이는 순간이 한국 날짜·시각으로 나와야 한다
+  const at = Date.parse('2026-09-15T15:30:00.000Z');
+  const la = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    month: 'numeric',
+    day: 'numeric',
+  }).format(at);
+  assert.equal(la, '9/15');
+  assert.equal(kstMonthDay(at), '9/16');
+  assert.equal(kstHourMinute(at), '00:30');
+  assert.equal(kstDayStart(dayKey(at)), Date.parse('2026-09-15T15:00:00.000Z'));
+  // 한국 23:59와 다음 날 00:00 경계
+  assert.equal(kstMonthDay(Date.parse('2026-12-31T14:59:00.000Z')), '12/31');
+  assert.equal(kstHourMinute(Date.parse('2026-12-31T14:59:00.000Z')), '23:59');
+  assert.equal(kstMonthDay(Date.parse('2026-12-31T15:00:00.000Z')), '1/1');
 });
 
 test('퀘스트 날짜와 일·주·월 경계는 기기 타임존과 무관하게 Asia/Seoul을 따른다', () => {
