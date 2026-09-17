@@ -1,0 +1,16 @@
+{
+  "id": "mailbox",
+  "name": "우체통",
+  "status": "final",
+  "source_id": "mailbox",
+  "source": "../../island-final-6/enhanced/buildings/day/mailbox.png",
+  "canvas": [550, 849],
+  "files": {
+    "day": "day.png",
+    "night": "night.png"
+  },
+  "alpha_bounds": [12, 12, 538, 837],
+  "island_box": [298, 520, 46, 63],
+  "day_night_alpha_equal": true,
+  "npc": null
+}

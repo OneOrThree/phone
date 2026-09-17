@@ -1,0 +1,16 @@
+{
+  "id": "notice-board",
+  "name": "게시판",
+  "status": "final",
+  "source_id": "noticeboard",
+  "source": "../../island-final-6/enhanced/buildings/day/noticeboard.png",
+  "canvas": [837, 877],
+  "files": {
+    "day": "day.png",
+    "night": "night.png"
+  },
+  "alpha_bounds": [12, 12, 825, 865],
+  "island_box": [856, 157, 80, 80],
+  "day_night_alpha_equal": true,
+  "npc": null
+}

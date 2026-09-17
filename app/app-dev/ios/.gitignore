@@ -28,22 +28,3 @@ project.xcworkspace
 
 # CocoaPods
 /Pods/
-
-# fastlane
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots
-fastlane/test_output
-fastlane/.env
-fastlane/.env.local
-vendor/bundle
-.bundle/
-*.dSYM.zip
-
-# App Store Connect API Key / 서명 비밀 (절대 커밋 금지)
-*.p8
-AuthKey_*.p8
-*.p12
-
-# Sentry 인증 토큰 (소스맵/dSYM 업로드용 — 비밀, 커밋 금지)
-sentry.properties

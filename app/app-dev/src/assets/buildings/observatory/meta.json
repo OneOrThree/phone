@@ -1,0 +1,16 @@
+{
+  "id": "observatory",
+  "name": "전망대",
+  "status": "final",
+  "source_id": "observatory",
+  "source": "../../island-final-6/enhanced/buildings/day/observatory.png",
+  "canvas": [695, 1067],
+  "files": {
+    "day": "day.png",
+    "night": "night.png"
+  },
+  "alpha_bounds": [12, 12, 683, 1055],
+  "island_box": [150, 24, 112, 193],
+  "day_night_alpha_equal": true,
+  "npc": null
+}

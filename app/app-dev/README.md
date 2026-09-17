@@ -1,99 +1,61 @@
-# GROMO 앱
+# GROMO 2.0 앱
 
-> 집중 기록, 캐릭터 성장, 친구와 섬 활동을 제공하는 React Native·Expo 앱입니다.
-
-[전체 프로젝트](../../README.md) · [서버 전체 보기](../../server/README.md) · [기능 문서](../../docs/README.md) · [프론트엔드 개발 가이드](.claude/CLAUDE.md)
-
-## 한눈에 보기
-
-| 영역      | 구현                                                        |
-| --------- | ----------------------------------------------------------- |
-| 런타임    | React Native 0.86, Expo SDK 57, React 19, TypeScript strict |
-| 화면 이동 | React Navigation의 탭과 Native Stack                        |
-| 상태      | Context API와 hooks, AsyncStorage 영속화                    |
-| 서버 통신 | axios, JWT 주입과 401 재발급                                |
-| 네이티브  | iOS Screen Time 확장, Android 사용량 권한, 푸시·분석 SDK    |
-| 배포      | TestFlight, Android release, hot-updater OTA                |
-
-## 코드 구조
-
-```text
-src/
-  App.tsx          인증·온보딩 게이트와 Provider 구성
-  navigation/      탭·스택과 라우트 타입
-  screens/         기능별 화면
-  components/      여러 기능이 함께 쓰는 UI
-  services/        API·네이티브·외부 연동
-  store/           전역 Context 상태
-  hooks/           공용 hooks
-  constants/       테마·공용 값
-  types/           공용 TypeScript 타입
-  utils/           공용 순수 함수
-  legacy/          참조용 v1 코드
-```
-
-`@/`는 `src/`를 가리킵니다. 화면 전용 코드부터 해당 기능 폴더에 두고, 둘 이상의 기능이 함께 사용할 때 공용 폴더로 옮깁니다. 상세 배치 규칙은 [프론트엔드 개발 가이드](.claude/CLAUDE.md)를 따릅니다.
+GROMO 2.0의 활성 React Native·Expo 앱입니다. 세로·가로 레이아웃과 iOS·Android·웹을 지원하며, 현재 제품 흐름은 로컬 목업 상태와 저장소를 사용합니다.
 
 ## 로컬 실행
 
-Node.js 24 이상을 준비하고 이 디렉터리에서 실행합니다.
-
-```bash
-npm install
-cp .env.example .env
+```sh
+npm ci
 npm start
 ```
 
-| 대상               | 명령                                              |
-| ------------------ | ------------------------------------------------- |
-| iOS 시뮬레이터     | `npm run ios`                                     |
-| Android 에뮬레이터 | `npm run android`                                 |
-| 웹 디버깅          | 저장소 루트에서 `./app/scripts/local-web.command` |
-| 타입 검사          | `npm run typecheck`                               |
-| 린트               | `npm run lint`                                    |
-| 테스트             | `npm test`                                        |
+Expo 개발 서버에서 플랫폼을 선택하거나 아래 명령으로 바로 실행할 수 있습니다.
 
-### 서버 연결
-
-`.env`의 `EXPO_PUBLIC_API_URL`로 API 서버를 선택합니다. 로컬 Data API는 기본적으로 `http://localhost:8080`을 사용하며, 실기기에서는 개발 머신의 LAN IP를 지정합니다. 사용 가능한 키는 [.env.example](.env.example)을 기준으로 합니다.
-
-<details>
-<summary><strong>네이티브 첫 실행 준비 보기</strong></summary>
-
-iOS 네이티브 의존성은 처음 한 번과 네이티브 패키지가 바뀐 뒤에 설치합니다.
-
-```bash
-cd ios
-pod install
-cd ..
-npx expo run:ios --device
+```sh
+npm run ios
+npm run android
+npm run web
 ```
 
-Android 실기기는 USB 디버깅을 켠 뒤 `npx expo run:android --device`로 설치합니다. `expo prebuild`는 기존 네이티브 프로젝트를 다시 생성하므로 실행하지 않습니다.
+루트의 `RN-앱-열기.command`와 `GROMO-데모.command`는 macOS에서 개발 서버 또는 정적 웹 빌드를 여는 보조 스크립트입니다.
 
-</details>
+일반 URL은 첫 시작부터 진행합니다. `?demo=1`은 완공된 마을 체험, `?review=1`은 검증 스크립트의 상태 주입용입니다. 두 모드는 기존 로컬 저장을 읽거나 덮어쓰지 않습니다.
 
-## 인증과 플랫폼 기능
+## 구조
 
-- 앱은 카카오, Apple, Google, LINE, Meta 로그인을 노출합니다.
-- iOS Screen Time은 별도 확장 타겟과 Expo 네이티브 모듈을 사용합니다.
-- 네이티브 로그인·푸시·스크린타임은 웹 디버깅에서 비활성화됩니다.
-- API 요청은 `src/services/api.ts`의 공용 axios 인스턴스를 사용합니다. 인증 전 요청과 토큰 재발급처럼 인터셉터를 우회해야 하는 경로는 개발 가이드에 기록되어 있습니다.
+- `src/App.tsx`: 앱 상태·저장·화면 전환·음원 재생
+- `src/screens/`: 섬, 집중, 탐색, 인테리어, 꾸미기, 월드 화면
+- `src/design-system/`: UI kit 기반 토큰·타이포그래피·공용 UI·화면 조합 패턴
+- `src/components/`: 캐릭터·연출처럼 도메인에 가까운 공용 컴포넌트
+- `src/services/model.ts`: 재화·건설·집중·퀘스트·친구 정책
+- `src/hooks/`: 카메라와 사운드 훅
+- `src/utils/`: 섬 경로·카메라·월드 그리드 계산
+- `src/constants/`: 에셋 레지스트리와 월드·모션 상수
+- `src/assets/`: 앱에 번들되는 이미지·폰트·오디오
+- `ios/`, `android/`: 가져온 네이티브 프로젝트
+- `scripts/`: 화면·사용자 여정 검증 도구. 결과는 gitignored `.docs/`에 생성
 
-## 빌드와 배포
+## 검증
 
-| 작업            | 시작점                       |
-| --------------- | ---------------------------- |
-| TestFlight      | `ios/testflight.sh`          |
-| Android release | `scripts/android-release.sh` |
-| OTA             | hot-updater 설정과 배포 명령 |
-| Maestro E2E     | `scripts/e2e.sh`             |
+```sh
+npm run lint
+npm run format:check
+npm run typecheck
+npm test
+npx expo export --platform all
+```
 
-서명 자산, Firebase 설정, 새 머신 준비와 배포 절차는 [.claude/DevRunbook.md](.claude/DevRunbook.md)를 정본으로 사용합니다.
+웹 상호작용 검증은 정적 빌드를 로컬 서버로 띄운 뒤 실행합니다.
 
-## 더 보기
+```sh
+npm run build:all
+python3 -m http.server 18762 --bind 127.0.0.1 --directory dist-all
+npm run review:v2
+npm run review:v2-journeys
+```
 
-- 기능별 PRD·정책·설계: [docs/README.md](../../docs/README.md)
-- 앱 코드 규칙과 상세 구조: [.claude/CLAUDE.md](.claude/CLAUDE.md)
-- Screen Time 통합 기록: [.claude/ScreenTime_WorkLog.md](.claude/ScreenTime_WorkLog.md)
-- 서버 연결과 서비스별 실행: [server/README.md](../../server/README.md)
+## 현재 연결 범위
+
+화면 전환, 로컬 저장, 집중 구간 계산, 공동 재화, 건설 타이머와 음원 재생은 앱 안에서 동작합니다. 인증, 다른 기기의 주민·편지·가입 승인, 서버 랭킹, OS 스크린타임 수집, 푸시와 원격 음악 동기화는 아직 로컬 목업 범위입니다.
+
+앱 버전은 `2.0.0`, iOS·Android 식별자는 `com.oneorthree.fishcat`입니다. 서버 API와 인증 연결, 스토어 배포 설정은 후속 작업에서 구성합니다.

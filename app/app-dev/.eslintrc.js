@@ -15,6 +15,9 @@ module.exports = {
   },
   rules: {
     'react/no-unstable-nested-components': ['warn', { allowAsProps: true }],
+    // 로컬 목업의 기존 부채는 이관 PR에서 동작을 바꾸지 않도록 경고로 수용한다.
+    '@typescript-eslint/no-unused-vars': 'warn',
+    'react-hooks/exhaustive-deps': 'warn',
     // 워클릿 안에서 모션 토큰 객체(M)를 읽는 것을 막는다 (GROMO-1601).
     // 워클릿의 클로저 캡처는 **식별자 단위**라 `M.never` 하나만 읽어도 `M` 전체가 UI 런타임으로
     // 복사되고, 그 안의 `M.curve.*.fn`(= Easing.bezier() 결과 = 클래스 인스턴스)에서

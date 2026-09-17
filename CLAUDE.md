@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working in this repository. This root file applies
 everywhere. **Nested `CLAUDE.md` files load automatically** when you work inside a
-subtree — see `app/app-dev/.claude/CLAUDE.md` (frontend) and `server/data-api/CLAUDE.md`
+subtree — see `app/legacy/app-dev/.claude/CLAUDE.md` (동결된 1.x) and `server/data-api/CLAUDE.md`
 (backend) for the details of each half. Keep this root file limited to shared,
 repo-wide concerns.
 
@@ -10,26 +10,28 @@ repo-wide concerns.
 
 **gromo** — a focus-time management + character-customization mobile app.
 Users run focus sessions, track screen time, and customize a 2D character with
-shop items. Company `oneorthree`; iOS bundle id `com.oneorthree.gromo`.
+shop items. Company `oneorthree`. The frozen 1.x app uses iOS bundle id
+`com.oneorthree.gromo`; the active 2.0 app uses `com.oneorthree.fishcat` on iOS and Android.
 
 ## Monorepo layout
 
 | Path                    | What it is |
 | ----------------------- | ---------- |
-| `app/app-dev/`          | React Native + Expo frontend (TypeScript). Includes `app/app-dev/ios/` native project and the `screentimereport` Screen Time extension. See `app/app-dev/.claude/CLAUDE.md`. |
-| `app/assets/`           | Source design assets (app icons, character art, videos) — tracked binaries, not bundled app resources (those live in `app/app-dev/src/assets/`). |
-| `app/scripts/`          | Local web-run helpers (`local-web.sh`, `local-web.command`). |
+| `app/app-dev/`          | **활성 2.0 앱**. React Native + Expo frontend (TypeScript), native iOS/Android projects, and local mock product flows. See `app/app-dev/README.md`. |
+| `app/legacy/app-dev/`   | **동결된 1.x 앱** (스토어 1.1.0까지). Includes the old native projects and Screen Time extension. See `app/legacy/app-dev/.claude/CLAUDE.md`; do not add 2.0 features here. |
+| `app/legacy/assets/`    | 1.x 소스 디자인 에셋 (app icons, character art, videos) — tracked binaries, not bundled app resources (those live in `app/legacy/app-dev/src/assets/`). |
+| `app/legacy/scripts/`   | 1.x 로컬 웹 실행 도우미 (`local-web.sh`, `local-web.command`). |
 | `server/data-api/`      | Spring Boot 4 + Java 17 + PostgreSQL REST API. See `server/data-api/CLAUDE.md`. |
 | `server/realtime/`          | Spring Boot 4 realtime service — WebSocket/STOMP + Redis, its own `gromo_chat` DB. A **separate** Gradle project sharing no code with `data-api`. See `server/realtime/CLAUDE.md`. |
 | `server/business-api/` | 공개 파일 링크 미리보기 Spring Boot 서비스. 독립 Gradle·전용 Redis. 실행·API 계약은 `server/business-api/README.md`. |
 | `server/observability/` | Prometheus / Grafana / Loki / Datadog configs for the dev observability overlay. See `server/observability/README.md`. |
 | `server/scripts/`       | The `docker-compose.*.yml` files (`dev` / `local` / `prod` / `datadog` / `observability` / `realtime`). |
 | `loadtest/`             | k6 load-testing harness (scenarios, GCP runner terraform, trigger dashboard). See `loadtest/README.md`. |
-| `docs/`                 | **Team-shared** docs, tracked in git: `docs/prd/<feature>/` with PRD, policy, IA, high-level/low-level design, diagrams; repo-wide conventions in `docs/conventions/`. See `docs/README.md`. |
+| `docs/`                 | **Team-shared** docs, tracked in git: `docs/prd/<product>/<feature>/` with PRD, policy, IA, high-level/low-level design, diagrams; repo-wide conventions in `docs/conventions/`. See `docs/README.md`. |
 | `.github/workflows/`    | CI/CD pipelines (see below). |
 
 **`docs/` vs `doc/`**: `docs/` is the team-shared, committed documentation space
-(`docs/prd/<feature>/` — PRD · policy · IA · high-level/low-level design · diagrams).
+(`docs/prd/<product>/<feature>/` — PRD · policy · IA · high-level/low-level design · diagrams).
 `doc/` is the owner's personal planning scratch (tickets, reports, specs, drafts) —
 gitignored, never committed. Team-facing docs go in `docs/`; everything personal
 stays in `doc/`.
@@ -37,7 +39,7 @@ stays in `doc/`.
 Gitignored local-only dirs (machine-specific, not in git): `doc/` (personal
 planning scratch — tickets, reports, specs), `logs/` (work journals),
 `server/data-api/docs/` (local planning scratch, **except `server/data-api/docs/db/`
-which is tracked** — schema.dbml), `app/app-dev/.docs/` (app-side personal
+which is tracked** — schema.dbml), `app/app-dev/.docs/` and `app/legacy/app-dev/.docs/` (app-side personal
 planning/design docs).
 
 The frontend and backend share almost no tooling — work in the relevant subtree
@@ -114,6 +116,15 @@ changes trigger different jobs. This list rots; the authoritative source is
 
 - **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**`;
   `app-android-build.yml` — Android build checks on native-affecting paths.
+  활성 2.0 앱은 이 두 워크플로가 검증한다. ⚠️ **동결된 1.x 앱(`app/legacy/app-dev/**`)에는
+  CI가 없다.** 1.x 핫픽스는 CI가
+  검증해 주지 않으므로 `app/legacy/app-dev` 에서 `npm ci && npm run lint && npm run format:check
+  && npm run typecheck && npm test && npm run gen:palette:check` 를 직접 돌려야 한다.
+  마지막 `gen:palette:check` 가 빠지면 `theme.ts` 를 고치고 코드젠을 안 돌렸을 때 나머지가 전부
+  통과해도 `ios/Shared/Palette.swift` 가 옛 색으로 남는다 — 종전에는 `app-lint.yml` 이 잡아줬다.
+  **Android(XML·Kotlin·Gradle) 핫픽스는 여기에 더해** `app-android-build.yml` 이 하던 XML 정합 검사와
+  `(cd android && ./gradlew :app:compileDebugJavaWithJavac)` 를 직접 돌린다 — 위 명령은 전부 통과해도
+  네이티브는 컴파일되지 않을 수 있다. 절차는 `app/legacy/app-dev/README.md` 상단에 있다.
 - **Business API · Notification**: `satellite-ci.yml` — `server/business-api/**` ·
   `server/notification/**` 매트릭스로 독립 Gradle build(Checkstyle·SpotBugs·Testcontainers 통합
   테스트)와 Docker 이미지 빌드. main push에서만 GAR, release push에서만 ECR 게시. 수동 dev overlay는
@@ -155,11 +166,11 @@ changes trigger different jobs. This list rots; the authoritative source is
 - `claude-review.yml` — Claude PR review, triggered by an `@claude` comment.
 
 iOS builds/deploys are **not in CI** — they run manually via fastlane
-(`app/app-dev/ios/fastlane/`, lane `beta`: archive → TestFlight upload).
+(`app/legacy/app-dev/ios/fastlane/`, lane `beta`: archive → TestFlight upload).
 
 ## Key docs
 
-- `docs/prd/<feature>/` — team-shared per-feature docs (PRD / policy / IA / high-level / low-level design / diagrams); structure in `docs/README.md`.
+- `docs/prd/<product>/<feature>/` — team-shared per-feature docs (PRD / policy / IA / high-level / low-level design / diagrams); `product` is `gromo` or `fishcat`. Structure in `docs/README.md`.
 - `docs/conventions/` — team-wide rules: `git-pr-conventions.md` (branch · title · body · assignee/label · review · merge), `jira-conventions.md` (4-axis classification + field ids), `jira-ticket-template.md` (ticket body + creation gate), `date-axis.md`, `error-contract.md`, `backend-layering.md`.
 - `server/data-api/docs/db/schema.dbml` — canonical DB schema (DBML, **tracked** — the `docs/db/` whitelist in `server/data-api/.gitignore`, GROMO-735; keep it in sync and commit it with its migration). Schema deltas are applied by **Flyway** migrations in `server/data-api/src/main/resources/db/migration/` (`V1__baseline.sql` onward); the `run-migration-v*.sh` scripts next to it are a legacy archive.
 - `loadtest/README.md` — load-testing harness guide. `server/observability/README.md` — dev observability stack guide.

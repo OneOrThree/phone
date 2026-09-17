@@ -1,0 +1,569 @@
+import React, { useEffect, useRef, useState } from 'react';
+import Svg, { Defs, Pattern, Rect, Image as SvgImage } from 'react-native-svg';
+import { Animated, Image, PanResponder, Platform, Pressable, StyleSheet, View } from 'react-native';
+import {
+  State,
+  Route,
+  Building,
+  currentIsland,
+  buildingNames,
+  balance,
+  isHost,
+  buildingCost,
+  sessionSeconds,
+  buildMinutes,
+  dayKey,
+  kstDayStart,
+  recordSecondsBetween,
+} from '@/services/model';
+import { assets, cat } from '@/constants/assets';
+import { CatSprite } from '@/components/CatSprite';
+import { useAppLayout } from '@/utils/layout';
+import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
+import grids from '@/constants/world-v2.json';
+import { Btn, C, Txt, Pic } from '@/design-system/patterns';
+const layer: Record<Building, string> = {
+  hall: 'hall',
+  board: 'notice-board',
+  gram: 'gramophone',
+  library: 'library',
+  mail: 'mailbox',
+  tower: 'observatory',
+  shop: 'shop',
+};
+const doors: Record<string, { x: number; y: number; r: Route }> = {
+  hall: { x: 1030, y: 268, r: 'hall' },
+  board: { x: 891, y: 250, r: 'board' },
+  gram: { x: 380, y: 485, r: 'sound' },
+  library: { x: 1190, y: 612, r: 'library' },
+  mail: { x: 320, y: 596, r: 'mail' },
+  tower: { x: 272, y: 200, r: 'tower' },
+  shop: { x: 577, y: 783, r: 'shop' },
+  raft: { x: 274, y: 740, r: 'boat' },
+};
+const homePositions: Record<string, Point> = {};
+export function WorldMap({
+  state,
+  fishing = false,
+  onSpot,
+  emote,
+  children,
+}: {
+  state: State;
+  fishing?: boolean;
+  onSpot?: (p: Point) => void;
+  emote?: string | null;
+  children?: React.ReactNode | ((scale: number) => React.ReactNode);
+}) {
+  const L = useAppLayout(),
+    grid: Grid = fishing ? grids.fishing : grids.home;
+  const [camera, setCamera] = useState({
+    x: fishing ? 512 : 585,
+    y: fishing ? 770 : 430,
+    z: 1,
+  });
+  const base = fishing
+    ? Math.min(L.width / 680, L.height / 1140)
+    : L.landscape
+      ? (L.height / 1140) * 1.7
+      : (((L.height / 874) * 402) / 1536) * 2.4;
+  const scale = base * camera.z,
+    left = L.width / 2 - camera.x * scale,
+    top = L.height / 2 - camera.y * scale;
+  const current = useRef({
+    camera,
+    scale,
+    base,
+    left,
+    top,
+    width: L.width,
+    height: L.height,
+    onSpot,
+  });
+  current.current = {
+    camera,
+    scale,
+    base,
+    left,
+    top,
+    width: L.width,
+    height: L.height,
+    onSpot,
+  };
+  const origin = useRef({ x: 0, y: 0, z: 1, dist: 0, anchorX: 0, anchorY: 0 }),
+    frame = useRef({ x: 0, y: 0 }),
+    drag = useRef(false),
+    view = useRef<View>(null);
+  const clamp = (c: typeof camera) => ({
+    ...c,
+    x: Math.max(0, Math.min(grid.w, c.x)),
+    y: Math.max(0, Math.min(grid.h, c.y)),
+    z: Math.max(0.35, Math.min(2.6, c.z)),
+  });
+  const touches = (e: any) => e.nativeEvent.touches ?? [];
+  const dist = (t: any[]) =>
+    t.length > 1 ? Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY) : 0;
+  const midpoint = (t: any[]) => ({
+    x: (t[0].pageX + t[1].pageX) / 2 - frame.current.x,
+    y: (t[0].pageY + t[1].pageY) / 2 - frame.current.y,
+  });
+  const begin = (t: any[]) => {
+    const v = current.current,
+      c = v.camera;
+    const m = t.length > 1 ? midpoint(t) : { x: v.width / 2, y: v.height / 2 };
+    origin.current = {
+      ...c,
+      dist: dist(t),
+      anchorX: c.x + (m.x - v.width / 2) / v.scale,
+      anchorY: c.y + (m.y - v.height / 2) / v.scale,
+    };
+  };
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (e, g) =>
+        touches(e).length > 1 || Math.abs(g.dx) + Math.abs(g.dy) > 8,
+      onPanResponderGrant: (e) => {
+        begin(touches(e));
+        drag.current = true;
+      },
+      onPanResponderMove: (e, g) => {
+        const t = touches(e),
+          o = origin.current,
+          v = current.current;
+        if (t.length > 1) {
+          if (!o.dist) {
+            begin(t);
+            return;
+          }
+          const z = Math.max(0.35, Math.min(2.6, (o.z * dist(t)) / o.dist)),
+            m = midpoint(t);
+          setCamera(
+            clamp({
+              x: o.anchorX - (m.x - v.width / 2) / (v.base * z),
+              y: o.anchorY - (m.y - v.height / 2) / (v.base * z),
+              z,
+            }),
+          );
+        } else if (!o.dist)
+          setCamera(clamp({ x: o.x - g.dx / v.scale, y: o.y - g.dy / v.scale, z: o.z }));
+      },
+      onPanResponderRelease: () => {
+        setTimeout(() => {
+          drag.current = false;
+        }, 80);
+      },
+      onPanResponderTerminate: () => {
+        drag.current = false;
+      },
+    }),
+  ).current;
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const node = view.current as any;
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setCamera((c) => clamp({ ...c, z: c.z * Math.exp(-e.deltaY * 0.004) }));
+    };
+    node?.addEventListener?.('wheel', wheel, { passive: false });
+    return () => node?.removeEventListener?.('wheel', wheel);
+  }, []);
+  return (
+    <View
+      ref={view}
+      onLayout={() =>
+        view.current?.measureInWindow?.((x, y) => {
+          frame.current = { x, y };
+        })
+      }
+      {...pan.panHandlers}
+      testID={fishing ? 'fishing-world' : 'final-island-world'}
+      style={{ flex: 1, backgroundColor: '#a9d9d7', overflow: 'hidden' }}
+    >
+      {fishing ? (
+        <Image
+          source={require('@/assets/reference-v2/sea-tile.jpg')}
+          resizeMode="repeat"
+          style={StyleSheet.absoluteFill}
+        />
+      ) : (
+        <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
+          <Defs>
+            <Pattern
+              id="home-ocean"
+              width={320 * scale}
+              height={88 * scale}
+              patternUnits="userSpaceOnUse"
+            >
+              <SvgImage
+                href={assets['backgrounds/island/base/day.png']}
+                x={-800 * scale}
+                y={-936 * scale}
+                width={1536 * scale}
+                height={1024 * scale}
+                preserveAspectRatio="none"
+              />
+            </Pattern>
+          </Defs>
+          <Rect width="100%" height="100%" fill="url(#home-ocean)" />
+        </Svg>
+      )}
+      <Pressable
+        accessible={false}
+        style={{
+          position: 'absolute',
+          left,
+          top,
+          width: grid.w * scale,
+          height: grid.h * scale,
+        }}
+        onPress={(e) => {
+          if (drag.current) return;
+          const event = e.nativeEvent as any;
+          const rect =
+            Platform.OS === 'web' ? (e.currentTarget as any).getBoundingClientRect() : null;
+          const p = {
+            x: (rect ? event.clientX - rect.left : event.locationX) / scale,
+            y: (rect ? event.clientY - rect.top : event.locationY) / scale,
+          };
+          if (onLand(grid, p)) current.current.onSpot?.(p);
+        }}
+      >
+        <Image
+          source={
+            fishing
+              ? require('@/assets/reference-v2/fishing-island.png')
+              : assets['backgrounds/island/base/day.png']
+          }
+          style={{ width: '100%', height: '100%' }}
+          resizeMode="stretch"
+        />
+      </Pressable>
+      {!fishing && (
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          {currentIsland(state).buildings.map((b) => (
+            <Image
+              key={b}
+              source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
+              style={{
+                position: 'absolute',
+                left,
+                top,
+                width: grid.w * scale,
+                height: grid.h * scale,
+              }}
+              resizeMode="stretch"
+            />
+          ))}
+        </View>
+      )}
+      {!fishing && currentIsland(state).theme !== 'default' && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left,
+            top,
+            width: grid.w * scale,
+            height: grid.h * scale,
+            backgroundColor: '#ade1f8',
+            opacity: 0.12,
+          }}
+        />
+      )}
+      {!fishing && (
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          {currentIsland(state)
+            .buildings.filter(
+              (b) =>
+                currentIsland(state).buildingThemes?.[b] &&
+                currentIsland(state).buildingThemes?.[b] !== 'default',
+            )
+            .map((b) => (
+              <Image
+                key={b}
+                source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
+                style={{
+                  position: 'absolute',
+                  left,
+                  top,
+                  width: grid.w * scale,
+                  height: grid.h * scale,
+                  tintColor: '#d7829b',
+                  opacity: 0.3,
+                }}
+                resizeMode="stretch"
+              />
+            ))}
+        </View>
+      )}
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: 'absolute',
+          left,
+          top,
+          width: grid.w * scale,
+          height: grid.h * scale,
+        }}
+      >
+        {typeof children === 'function' ? (children as any)(scale) : children}
+      </View>
+    </View>
+  );
+}
+export function FinalIsland({
+  state,
+  go,
+  build,
+  showHud = true,
+  showActions = true,
+  request,
+}: {
+  state: State;
+  go: (r: Route) => void;
+  build: (b: Building) => void;
+  showHud?: boolean;
+  showActions?: boolean;
+  request?: Route | null;
+}) {
+  const i = currentIsland(state),
+    L = useAppLayout();
+  const [pos, setPos] = useState(homePositions[i.id] ?? { x: 585, y: 470 }),
+    [walking, setWalking] = useState(false);
+  const xy = useRef(new Animated.ValueXY(pos)).current,
+    token = useRef(0),
+    location = useRef(pos);
+  const walk = (target: Point, done?: () => void) => {
+    const path = landPath(grids.home, location.current, nearestLand(grids.home, target));
+    const t = ++token.current;
+    xy.stopAnimation();
+    if (!path.length) return;
+    setWalking(true);
+    let idx = 1;
+    const next = () => {
+      if (t !== token.current) return;
+      if (idx >= path.length) {
+        setWalking(false);
+        done?.();
+        return;
+      }
+      const p = path[idx++];
+      Animated.timing(xy, {
+        toValue: p,
+        duration: state.settings.reduceMotion ? 0 : 95,
+        useNativeDriver: false,
+      }).start(({ finished }) => {
+        if (finished) {
+          location.current = p;
+          setPos(p);
+          homePositions[i.id] = p;
+          next();
+        }
+      });
+    };
+    next();
+  };
+  useEffect(() => {
+    const p = homePositions[i.id] ?? { x: 585, y: 470 };
+    location.current = p;
+    xy.setValue(p);
+    setPos(p);
+    return () => {
+      token.current++;
+      xy.stopAnimation();
+    };
+  }, [i.id]);
+  useEffect(() => {
+    if (request) {
+      const d = Object.values(doors).find((d) => d.r === request);
+      if (d) walk(d, () => go(request));
+    }
+  }, [request]);
+
+  // Child positions scale with the camera, rather than being pasted onto a cropped image.
+  const actors = (s: number) => {
+    return (
+      <>
+        {Object.entries(doors)
+          .filter(([b]) => b === 'raft' || i.buildings.includes(b as Building))
+          .map(([b, d]) => (
+            <Pressable
+              key={b}
+              accessibilityRole="button"
+              accessibilityLabel={b === 'raft' ? '내 뗏목' : buildingNames[b as Building]}
+              onPress={() => walk(d, () => go(d.r))}
+              style={{
+                position: 'absolute',
+                left: (d.x - 60) * s,
+                top: (d.y - 95) * s,
+                width: 120 * s,
+                height: 125 * s,
+                minWidth: 44,
+                minHeight: 44,
+              }}
+            />
+          ))}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: Animated.multiply(xy.x, s),
+            top: Animated.multiply(xy.y, s),
+          }}
+        >
+          <CatSprite
+            color={state.color}
+            size={115 * s}
+            motion={walking ? 'walking' : 'blink'}
+            reduce={state.settings.reduceMotion}
+          />
+          <Txt
+            style={{
+              position: 'absolute',
+              top: 4,
+              left: -30,
+              width: 60,
+              textAlign: 'center',
+              fontSize: 11,
+              backgroundColor: '#fffae8bb',
+              borderRadius: 5,
+            }}
+          >
+            {state.name}
+          </Txt>
+        </Animated.View>
+      </>
+    );
+  };
+  const next = !i.buildings.includes('hall')
+    ? 'hall'
+    : !i.buildings.includes('board')
+      ? 'board'
+      : null;
+  const todayFrom = kstDayStart(dayKey()),
+    todayUntil = todayFrom + 86400000,
+    today = state.records
+      .filter((record) => record.islandId === i.id)
+      .reduce(
+        (seconds, record) => seconds + recordSecondsBetween(record, todayFrom, todayUntil),
+        0,
+      );
+  return (
+    <View style={{ flex: 1 }}>
+      <WorldMap state={state} onSpot={(p) => walk(p)} children={actors as any} />
+      {showHud && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: L.landscape ? 14 : Math.max(64, L.insets.top + 5),
+            left: L.landscape ? Math.max(56, L.insets.left + 12) : 20,
+            backgroundColor: '#FFFDFAB3',
+            borderRadius: 999,
+            paddingVertical: 6,
+            paddingLeft: 14,
+            paddingRight: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 10,
+            minWidth: 210,
+          }}
+        >
+          <Txt kind="meta" style={{ fontSize: 12, fontWeight: '600' }}>
+            오늘 집중
+          </Txt>
+          <Txt
+            style={{
+              fontSize: 22,
+              lineHeight: 27,
+              fontWeight: '700',
+              fontVariant: ['tabular-nums'],
+              marginLeft: 'auto',
+            }}
+          >
+            {[Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
+              .map((v) => String(v).padStart(2, '0'))
+              .join(':')}
+          </Txt>
+        </View>
+      )}
+      {showActions && (
+        <>
+          {(i.construction || next) && (
+            <View
+              style={{
+                position: 'absolute',
+                left: L.landscape ? Math.max(56, L.insets.left + 12) : 20,
+                width: L.landscape ? 300 : L.width * 0.52,
+                bottom: L.landscape ? 24 : Math.max(52, L.insets.bottom + 18),
+                backgroundColor: '#FFFDFAF2',
+                borderColor: '#8B6956',
+                borderWidth: 1.5,
+                borderRadius: 18,
+                paddingVertical: 12,
+                paddingHorizontal: 14,
+                gap: 8,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <Txt style={{ fontSize: 14, fontWeight: '800' }}>
+                  {buildingNames[i.construction?.building ?? next!]}{' '}
+                  {i.construction ? '공사 중' : '짓기'}
+                </Txt>
+                <Txt kind="meta" style={{ fontSize: 12 }}>
+                  {i.construction
+                    ? `${Math.max(0, Math.ceil((i.construction.endsAt - Date.now()) / 60000))}분 남음`
+                    : `${balance(i)}/${buildingCost(i, next!)} 마리`}
+                </Txt>
+              </View>
+              <View
+                style={{
+                  height: 6,
+                  backgroundColor: '#E9E1D8',
+                  borderRadius: 99,
+                  overflow: 'hidden',
+                }}
+              >
+                <View
+                  style={{
+                    height: '100%',
+                    width: `${i.construction ? Math.max(0, Math.min(100, (100 * (Date.now() - i.construction.startedAt)) / (i.construction.endsAt - i.construction.startedAt))) : Math.min(100, (balance(i) / buildingCost(i, next!)) * 100)}%`,
+                    backgroundColor: '#FFA6BC',
+                  }}
+                />
+              </View>
+              {!i.construction && next && balance(i) >= buildingCost(i, next) && isHost(i) && (
+                <Btn small title="건설하기" onPress={() => build(next)} />
+              )}
+            </View>
+          )}
+          <View
+            style={{
+              position: 'absolute',
+              right: L.landscape ? Math.max(56, L.insets.right + 12) : 20,
+              bottom: L.landscape
+                ? Math.max(22, L.insets.bottom)
+                : Math.max(44, L.insets.bottom + 10),
+            }}
+          >
+            <Btn
+              round
+              title="집중하기"
+              id="depart-focus"
+              onPress={() => walk(doors.raft, () => go('focusTravel'))}
+            />
+          </View>
+        </>
+      )}
+    </View>
+  );
+}

@@ -35,7 +35,7 @@ env:
   # 위성 모드 Data 전용 env (GROMO-1658). CD 는 이 파일을 «만들지도 지우지도 않는다» — 사람이
   # `write-compose-env.py --service data-api --environment dev` 로 직접 둔 경우에만 아래 배포가
   # docker-compose.satellites.data.yml 을 마지막 -f 로 붙인다. 파일이 없으면 이 값은 어디서도 읽히지 않는다.
-  # 켜는 순서: docs/prd/server-separation/runtime.md «dev 에서 켜는 순서».
+  # 켜는 순서: docs/prd/fishcat/server-separation/runtime.md «dev 에서 켜는 순서».
   DATA_API_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/data-api.env
 
 jobs:

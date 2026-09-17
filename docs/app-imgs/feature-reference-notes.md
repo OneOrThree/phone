@@ -5,17 +5,17 @@
 ## 확인한 브랜치·문서
 
 - `doc/prd-challenge`
-  - `docs/prd/challenge/prd.md`
-  - `docs/prd/challenge/information-architecture.md`
+  - `docs/prd/gromo/challenge/prd.md`
+  - `docs/prd/gromo/challenge/information-architecture.md`
 - `origin/doc/prd-group`
-  - `docs/prd/group/prd.md`
-  - `docs/prd/group/features/02-my-groups/prd.md`
-  - `docs/prd/group/features/02-my-groups/ux-design.md`
+  - `docs/prd/gromo/group/prd.md`
+  - `docs/prd/gromo/group/features/02-my-groups/prd.md`
+  - `docs/prd/gromo/group/features/02-my-groups/ux-design.md`
 - `origin/afeat/GROMO-1037-object-character`
   - 실제 누끼 생성·캐릭터 선택 화면 흐름과 자산 확인
 - 현행 앱 구현
-  - `app/app-dev/src/screens/group/**`
-  - `app/app-dev/src/screens/character/**`
+  - `app/legacy/app-dev/src/screens/group/**`
+  - `app/legacy/app-dev/src/screens/character/**`
 
 ## 이미지 구성에 반영한 핵심
 

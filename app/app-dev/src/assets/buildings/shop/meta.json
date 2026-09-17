@@ -1,0 +1,19 @@
+{
+  "id": "shop",
+  "name": "상점",
+  "status": "final",
+  "source_id": "shop",
+  "source": "../../island-final-6/enhanced/buildings/day/shop.png",
+  "canvas": [1050, 874],
+  "files": {
+    "day": "day.png",
+    "night": "night.png"
+  },
+  "alpha_bounds": [12, 12, 1038, 862],
+  "island_box": [456, 580, 262, 199],
+  "day_night_alpha_equal": true,
+  "npc": {
+    "species": "dog",
+    "baked_into_asset": true
+  }
+}

@@ -10,7 +10,8 @@
 | 제품과 저장소를 빠르게 훑고 싶다 | [루트 README](../README.md) |
 | 서버 구성과 현재 데이터 흐름을 알고 싶다 | [서버 README](../server/README.md) |
 | 특정 서버를 실행하거나 구현을 찾고 싶다 | [Business](../server/business-api/README.md) · [Data](../server/data-api/README.md) · [Notification](../server/notification/README.md) · [Realtime](../server/realtime/README.md) |
-| 앱을 실행하거나 구조를 알고 싶다 | [앱 README](../app/app-dev/README.md) |
+| 활성 2.0 앱을 실행하거나 구조를 알고 싶다 | [Fishcat 앱 README](../app/app-dev/README.md) |
+| 동결된 1.x 앱을 확인하고 싶다 | [GROMO 앱 README](../app/legacy/app-dev/README.md) |
 | 목표 아키텍처와 결정 근거를 알고 싶다 | [아키텍처 인덱스](architecture/README.md) · [결정 장부](architecture/decisions.md) |
 | 기능별 요구사항·정책·API 설계를 찾고 싶다 | [`prd/`](prd/) |
 | 팀 공통 규약을 확인하고 싶다 | [`conventions/`](conventions/) |
@@ -18,7 +19,7 @@
 
 ## 구조
 
-`docs/prd/` 아래에 기능(피처) 단위 폴더를 만들고, 그 안에 기획·설계 문서를 둔다:
+`docs/prd/` 아래에서 제품을 먼저 나누고, 각 제품 폴더 안에 기능 단위 기획·설계 문서를 둔다:
 
 ```
 docs/
@@ -36,20 +37,25 @@ docs/
 ├── qa/                                # 공유 QA 시나리오와 결과
 ├── app-imgs/                          # 앱 화면·카피·디자인 참고 자료
 └── prd/
-    └── <기능-이름>/                    # 예: challenge, focus-session
-        ├── prd.md                     # PRD — 문제 정의·목표·요구사항
-        ├── policy.md                  # 정책 정본 — 결정 로그·근거 (prd와 어긋나면 policy가 맞다)
-        ├── information-architecture.md # IA — 화면 구조·네비게이션·정보 구조
-        ├── high-level-design.md       # HLD — 시스템 구성·컴포넌트 간 흐름·API 개요
-        ├── low-level-design.md        # LLD — 상세 설계 (스키마·엔드포인트 명세·시퀀스)
-        ├── ux.html                    # UX 시안 (있으면)
-        └── diagrams/                  # 다이어그램 (형식 자유)
+    ├── README.md                      # 제품 세대 구분과 분류 원칙
+    ├── gromo/                         # 동결된 GROMO 1.x 기능과 호환 근거
+    │   └── <기능-이름>/
+    └── fishcat/                       # 활성 Fishcat 2.0 기능과 전환 계약
+        └── <기능-이름>/
+            ├── prd.md                 # PRD — 문제 정의·목표·요구사항
+            ├── policy.md              # 정책 정본 — 결정 로그·근거 (prd와 어긋나면 policy가 맞다)
+            ├── information-architecture.md # IA — 화면 구조·네비게이션·정보 구조
+            ├── high-level-design.md   # HLD — 시스템 구성·컴포넌트 간 흐름·API 개요
+            ├── low-level-design.md    # LLD — 상세 설계 (스키마·엔드포인트 명세·시퀀스)
+            ├── ux.html                # UX 시안 (있으면)
+            └── diagrams/              # 다이어그램 (형식 자유)
 ```
 
 시스템 전체를 가로지르는 **목표 아키텍처**(서비스·시스템·결정 장부)는 `docs/architecture/` 에 둔다 — 새 서비스·통신 경로·저장소를 추가하기 전에 먼저 본다. 기능 문서가 아닌 **팀 전체 규약**은 `docs/conventions/` 에 둔다 — 위 트리의 여섯 개.
 Git·PR 은 `git-pr-conventions.md`, 지라는 `jira-conventions.md`(분류) + `jira-ticket-template.md`(본문 양식·게이트)가 정본이다.
 
-- 폴더 이름은 **kebab-case 영문** (예: `challenge`, `focus-session`, `invite-link`).
+- 새 기능은 적용 제품에 따라 `prd/gromo/` 또는 `prd/fishcat/` 아래에 만든다. 분류 기준과 전체 목록은 [`prd/README.md`](prd/README.md)가 정본이다.
+- 기능 폴더 이름은 **kebab-case 영문** (예: `challenge`, `focus-rest-session`, `invite-link`).
 - 문서가 다 갖춰질 필요는 없다 — 있는 것부터 커밋하고 점진적으로 채운다.
 - 문서는 한국어로 쓴다 (프로젝트 언어 컨벤션).
 

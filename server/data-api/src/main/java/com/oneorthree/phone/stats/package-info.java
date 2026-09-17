@@ -87,7 +87,7 @@
  *       <b>GROMO-1259 로 재개편</b>: country_code 존 파생(CountryZoneResolver)을 폐지하고 저장·조회
  *       날짜 축을 KST 고정으로 통일(챌린지 정책 N8/FR-19 — 판정·카드·정산이 전부 KST 라 저장축이
  *       갈리면 어긋난다). <b>수용 한계 L5</b>: 해외 유저는 "내 하루"와 앱의 하루가 어긋난다 —
- *       한국 타깃 서비스라 수용(docs/prd/challenge/prd.md L5).
+ *       한국 타깃 서비스라 수용(docs/prd/gromo/challenge/prd.md L5).
  *       <p><b>forward-only 컷오버 아티팩트(수용)</b> — 아래 두 불일치는 PR 리뷰에서 제기됐으나, 변경이
  *       forward-only 이고 현재 DB 가 리셋 가능한 개발용이라 <b>수용</b>한다(소급 보정 안 함).
  *       <ul>

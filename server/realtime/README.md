@@ -2,7 +2,7 @@
 
 > 같은 섬의 주민이 대화하고 읽은 위치를 이어가는 실시간 서버입니다.
 
-[서버 전체 보기](../README.md) · [채팅 DB 스키마](docs/db/schema.dbml) · [실시간 이벤트 설계](../../docs/prd/realtime-events/high-level-design.md)
+[서버 전체 보기](../README.md) · [채팅 DB 스키마](docs/db/schema.dbml) · [실시간 이벤트 설계](../../docs/prd/fishcat/realtime-events/high-level-design.md)
 
 ## 1. 역할과 구현 범위
 
