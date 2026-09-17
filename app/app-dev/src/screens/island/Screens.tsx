@@ -13,6 +13,7 @@ import {
   Animated,
   Easing,
   Keyboard,
+  BackHandler,
 } from 'react-native';
 import Svg, { Path, Line } from 'react-native-svg';
 import {
@@ -694,11 +695,17 @@ export function RedesignScreens({ e }: any) {
   }, [route]);
   useEffect(() => {
     if (!invite) return;
+    // 안드로이드 뒤로 가기는 화면 이동 대신 초대 모달만 닫는다(App 리스너보다 나중에 등록돼 먼저 불린다)
+    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setInvite(false);
+      return true;
+    });
     const show = Keyboard.addListener('keyboardDidShow', (ev) =>
       setKeyboardHeight(ev.endCoordinates.height),
     );
     const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
     return () => {
+      backSub.remove();
       show.remove();
       hide.remove();
       setKeyboardHeight(0);
@@ -1334,10 +1341,11 @@ export function RedesignScreens({ e }: any) {
     const candidates = state.islands.filter(
       (i) =>
         !i.closed &&
-        i.visibility !== 'private' &&
         !i.joined &&
-        i.members.length > 0 &&
-        (!isFull(i) || pendings.includes(i.id)),
+        // 초대 코드로 신청한 비공개 섬은 공개 조건과 상관없이 대기 화면에 남긴다
+        ((i.visibility !== 'private' && i.members.length > 0 && !isFull(i)) ||
+          pendings.includes(i.id) ||
+          (route === 'approval' && i.id === (detail || state.pendingIsland))),
     );
     // 처음 보여줄 섬: ‹ ›로 고른 섬 → 경로로 받은 섬 → 신청 중인 섬(다시 켜도 먼저) → 무작위
     const pickId = discoveryPick ?? (detail || state.pendingIsland);
