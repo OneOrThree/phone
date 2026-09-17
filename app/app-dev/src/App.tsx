@@ -218,7 +218,9 @@ function Gromo() {
     boatTravel = useRef(new Animated.Value(-180)).current,
     toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    mailRef = useRef<FlatList>(null);
+    mailRef = useRef<FlatList>(null),
+    // 화면이 뒤로가기를 먼저 처리하면(true) 아래 기본 동작을 건너뛴다(낚시섬 걷기·항해·모달·결과 흐름)
+    backOverride = useRef<(() => boolean) | null>(null);
   const island = currentIsland(state),
     record = state.lastResult,
     shouldPlayFocusAudio = island.playing && state.session?.status === 'active';
@@ -263,6 +265,7 @@ function Gromo() {
       setModal(null);
       return;
     }
+    if (backOverride.current?.()) return;
     if (route === 'focus' && state.session) {
       confirm('집중을 마칠까요?', '이번 집중을 기록해요.', () => {
         dispatch({ type: 'FINISH' });
@@ -385,6 +388,8 @@ function Gromo() {
     if (!REVIEW || !loaded) return;
     (window as any).__gromoReview = {
       dispatch,
+      // 안드로이드 뒤로가기와 같은 동작(검수 스크립트용)
+      back,
       state,
       route,
       open: (r: Route, opts: any = {}) => {
@@ -466,6 +471,7 @@ function Gromo() {
           reset,
           home,
           back,
+          backOverride,
           notify,
           confirm,
           build,
