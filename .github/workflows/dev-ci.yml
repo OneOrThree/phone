@@ -74,6 +74,10 @@ jobs:
   #
   # ⚠️ 아래 build·deploy 는 지금도 «기술적으로» 못 옮긴다 — GAR 인증이 GCE 메타데이터 토큰을
   #    쓰는데 GitHub-hosted 에는 그 메타데이터가 없다. 공개 전환은 이 제약과 무관하다.
+  # 적용된 마이그레이션의 불변 검사는 여기 있었다가 독립 워크플로로 나갔다 (GROMO-1911).
+  # 마이그레이션을 가진 서비스가 셋(data-api · realtime · notification)인데 이 워크플로의
+  # `server/data-api/**` 경로 필터에 묶여 나머지 둘이 검사를 타지 못했다.
+  # 지금은 .github/workflows/migration-immutable.yml 이 전 서비스를 본다.
   checkstyle:
     uses: ./.github/workflows/be-gradle.yml
     with:
