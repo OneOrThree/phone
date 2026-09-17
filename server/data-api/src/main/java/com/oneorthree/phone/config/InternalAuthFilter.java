@@ -56,6 +56,18 @@ public class InternalAuthFilter extends OncePerRequestFilter {
     /** 경로에서 유저를 읽는 자리 — {@code /internal/users/{userId}/…} 하나뿐이다. */
     private static final String USER_SCOPED_PREFIX = "/internal/users/";
 
+    /**
+     * notification 전용 전수 컬렉션 조회 (GROMO-1906).
+     *
+     * <p>{@code AntPathMatcher} 는 {@code *} 를 세그먼트 하나로 매칭해 {@code GET /internal/users/*}
+     * 같은 패턴이 사용자 축 경로와 이 리터럴을 함께 연다. 그 패턴을 다른 caller(business 등)의
+     * 허용목록에 넣더라도 이 리터럴만은 여기서 이름으로 다시 막는다 — 허용목록 설계를
+     * 「이웃 경로까지 같이 여는 실수」에 기대지 않기 위해서다. (Data 문서 §3의 해소 서술 참조.)
+     */
+    private static final String NOTIFICATION_SNAPSHOT_PATH = USER_SCOPED_PREFIX + "notification-snapshot";
+
+    private static final String NOTIFICATION_CALLER = "notification";
+
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
     private final boolean enabled;
@@ -115,6 +127,13 @@ public class InternalAuthFilter extends OncePerRequestFilter {
         if (!isAllowed(caller, request.getMethod(), path)) {
             log.warn("내부 호출 거부 — caller={} {} {}", caller, request.getMethod(), path);
             deny(response, HttpServletResponse.SC_FORBIDDEN, "call not in allowlist");
+            return;
+        }
+        if (NOTIFICATION_SNAPSHOT_PATH.equals(path) && !NOTIFICATION_CALLER.equals(caller)) {
+            // notification 전용 전수 스냅샷 — 다른 caller 의 허용목록이 `/internal/users/*` 처럼
+            // 넓은 패턴으로 이 리터럴을 함께 매칭해도 여기서 다시 막는다(GROMO-1906).
+            log.warn("내부 호출 거부 — caller={} notification 전용 스냅샷 {}", caller, path);
+            deny(response, HttpServletResponse.SC_FORBIDDEN, "notification snapshot is notification-only");
             return;
         }
 

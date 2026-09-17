@@ -232,6 +232,58 @@ class InternalAuthFilterTest {
     }
 
     @Test
+    @DisplayName("GROMO-1906: business 허용목록에 와일드카드가 있어도 notification 전용 스냅샷은 못 막는다")
+    void wildcardAllowlistStillBlocksNotificationSnapshotForOtherCallers() throws Exception {
+        InternalApiProperties properties = enabledProperties();
+        // launch·raft·account 가 여는 `GET /internal/users/*` 를 business 에 흉내낸다 — 이 패턴은
+        // AntPathMatcher 상 `/internal/users/notification-snapshot` 도 세그먼트 하나로 매칭한다.
+        properties.getCallers().get("business")
+                .setAllow(List.of("GET /internal/users/*", "GET /internal/users/*/activation"));
+        MockHttpServletRequest request = request("GET", "/internal/users/notification-snapshot");
+        request.addHeader("Authorization", "Bearer " + BUSINESS_TOKEN);
+        MockFilterChain chain = new MockFilterChain();
+
+        MockHttpServletResponse response = run(properties, request, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_FORBIDDEN);
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
+    @DisplayName("GROMO-1906: notification caller 는 같은 와일드카드 허용목록 아래서도 스냅샷에 정상 접근한다")
+    void notificationCallerStillReachesSnapshotThroughWildcard() throws Exception {
+        InternalApiProperties properties = enabledProperties();
+        properties.getCallers().get("notification")
+                .setAllow(List.of("GET /internal/users/*"));
+        MockHttpServletRequest request = request("GET", "/internal/users/notification-snapshot");
+        request.addHeader("Authorization", "Bearer " + NOTI_TOKEN);
+        MockFilterChain chain = new MockFilterChain();
+
+        MockHttpServletResponse response = run(properties, request, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_OK);
+        assertThat(chain.getRequest()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("GROMO-1906: 같은 와일드카드로 business 는 사용자 축 경로엔 정상 접근한다")
+    void wildcardAllowlistStillServesUserScopedPathForBusiness() throws Exception {
+        InternalApiProperties properties = enabledProperties();
+        properties.getCallers().get("business").setAllow(List.of("GET /internal/users/*"));
+        UUID userId = UUID.randomUUID();
+        MockHttpServletRequest request = request("GET", "/internal/users/" + userId);
+        request.addHeader("Authorization", "Bearer " + BUSINESS_TOKEN);
+        request.addHeader("X-User-Id", userId.toString());
+        MockFilterChain chain = new MockFilterChain();
+
+        MockHttpServletResponse response = run(properties, request, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_OK);
+        assertThat(chain.getRequest()).isNotNull();
+        assertThat(request.getAttribute(AuthAttributes.USER_ID)).isEqualTo(userId);
+    }
+
+    @Test
     @DisplayName("* 는 한 segment 만 먹는다 — 허용목록이 아래 경로를 통째로 삼키지 않는다")
     void singleStarDoesNotSwallowDeeperPaths() throws Exception {
         UUID userId = UUID.randomUUID();
