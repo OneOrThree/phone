@@ -37,7 +37,7 @@ Headers: JWT, application/json, Idempotency-Key 필수. 최소한 하나의 외�
 |---|---|---|---|
 |clothes|현재 값 유지|해제|본인 소유+kind=clothes|
 |decor|현재 값 유지|해제|본인 소유+kind=decor|
-|hull|현재 값 유지|422|raft 또는본인 소유+kind=hull+승인된 재착용/호환 규칙|
+|hull|현재 값 유지|422|raft 또는본인 소유+kind=hull+승인된 재착용 규칙(A02 미결). **호환 조건은 없다** — A03 확정|
 |position|현재 값 유지|422|front/back만 허용|
 
 #### PATCH 존재 여부와 멱등 지문
@@ -60,9 +60,10 @@ Headers: JWT, application/json, Idempotency-Key 필수. 최소한 하나의 외�
 {"data":{"clothes":"scarf","decor":"flag","hull":"sailboat","position":"front","version":5}}
 ```
 
-모든 필드를 검증한 후 하나의 TX로 반영한다. hull이 바뀌어 현재 decor가 호환되지 않는다면 승인된 호환 정책에 따라 거절하거나
-명시된 자동 해제 정책을 써야 한다. **현재 승인되지 않은 자동 해제를 구현하지 않는다.** 원본 소품 위치 규칙은 front/back일 뿐
-선체별 좌표·애니메이션은 앱 자산이 담당한다. decor=null일 때도 position이 생략되면 기존 값을 유지한다(A04).
+모든 필드를 검증한 후 하나의 TX로 반영한다. **hull 변경은 decor 호환을 검사하지 않는다** — A03이 「모든 선체 공통」으로
+확정돼(GROMO-1909) 호환되지 않는 조합 자체가 없다. 따라서 호환 거절 분기도, 자동 해제 분기도 구현하지 않는다. 원본 소품
+위치 규칙은 front/back일 뿐 선체별 좌표·애니메이션은 앱 자산이 담당한다. decor=null일 때도 position이 생략되면 기존 값을
+유지한다(A04).
 
 같은 key/본문은 원 응답 전체와 version을 재생하고, 다른 본문은 409 IDEMPOTENCY_KEY_REUSED로 거절한다. 서버 직렬화 뒤 동일 효과인 새 요청은
 200 현재 상태와 receipt만 확정하고 추가 사건을 만들지 않는다. 미보유는 403 FORBIDDEN, 잘못된 종류/배치는 422 OUT_OF_RANGE,
@@ -124,6 +125,7 @@ null 맵/null value는 422이며 전체 삭제로 해석하지 않는다. 빈 �
 2. 활성user및해당context/멤버십/역할/시설을같은TX의공통생명주기잠금으로검증.
 3. catalog 불변 자산 정의 → inventory → appearance 순서로 읽기/잠금 규율을 지키고, 존재 mask로 복원한 제출 필드만 현재 상태에 병합. 판매 활성 publication은 외양 적용의 허가 조건이 아니다.
 4. 병합된 전체 상태의 실제 owner/kind/대상/착용 호환을 불변 자산 정의로 검증. 구매 때의 선행 조건·현재 가격·판매 여부를 소급 검사하지 않는다. 한 필드라도 실패하면 전체 rollback.
+   여기서 「착용 호환」은 **kind·ownerType·대상** 축이다 — decor 상품을 hull 자리에 넣거나 섬 소유 상품을 개인에게 입히는 것을 막는다. **선체별 소품 호환은 이 축이 아니고, A03 확정으로 아예 없다**(GROMO-1909). 두 축을 같은 말로 부르고 있어 구분해 둔다.
 5. 변경있으면appearanceversion증가+정본저장+전체상태outbox생성.변경없으면사건생략.
 6. 같은TXreceipt저장후COMMIT.추가WebSocket전달실패는outbox재전달,rollback된사건발행금지.
 
