@@ -42,6 +42,12 @@ export function useSoundPlayer(onError: (message: string) => void) {
         set loop(v: boolean) {
           el.loop = v;
         },
+        // expo-audio와 같은 모양: 곡이 끝나면 didJustFinish
+        addListener(event: string, cb: (status: { didJustFinish: boolean }) => void) {
+          const onEnded = () => cb({ didJustFinish: true });
+          if (event === 'playbackStatusUpdate') el.addEventListener('ended', onEnded);
+          return { remove: () => el.removeEventListener('ended', onEnded) };
+        },
       },
     };
   }

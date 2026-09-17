@@ -206,6 +206,9 @@ function Gromo() {
       title: string;
       text: string;
       action: () => void;
+      // 확인 버튼 글자(기본 '확인') · 파괴적 확인이면 빨간 버튼
+      ok?: string;
+      destructive?: boolean;
     } | null>(null),
     [visited, setVisited] = useState('strawberry'),
     [guideStep, setGuideStep] = useState(0),
@@ -290,8 +293,12 @@ function Gromo() {
     setHistory([]);
     setRoute('home');
   };
-  const confirm = (title: string, txt: string, action: () => void) =>
-    setModal({ title, text: txt, action });
+  const confirm = (
+    title: string,
+    txt: string,
+    action: () => void,
+    opts: { ok?: string; destructive?: boolean } = {},
+  ) => setModal({ title, text: txt, action, ...opts });
   useEffect(() => {
     (REVIEW || DEMO ? Promise.resolve(null) : AsyncStorage.getItem(STORAGE))
       .then((raw) => {
@@ -563,7 +570,7 @@ function Gromo() {
               onPress={() => setModal(null)}
               style={{
                 flex: 1,
-                backgroundColor: '#493B3955',
+                backgroundColor: '#493B3966',
                 justifyContent: 'center',
                 alignItems: 'center',
                 padding: 24,
@@ -576,29 +583,41 @@ function Gromo() {
                   S.card,
                   {
                     gap: 10,
-                    // v2 가로 확인창은 폭 400
-                    width: layout.compact ? 400 : layout.modalWidth,
+                    // v2 확인창(.dlg): 세로 좌우 24 여백, 가로 폭 400
+                    width: layout.compact
+                      ? 400
+                      : layout.tablet
+                        ? layout.modalWidth
+                        : layout.width - 48,
                     maxHeight: layout.height - layout.insets.top - layout.insets.bottom - 40,
                     borderWidth: 2,
+                    borderRadius: 22,
                     paddingTop: 22,
+                    paddingHorizontal: 20,
                     paddingBottom: 18,
                     boxShadow: '0px 6px 0px ' + C.brown,
                   },
                 ]}
               >
-                <NativeText kind="h17">{modal?.title}</NativeText>
-                <NativeText style={{ color: C.muted }}>{modal?.text}</NativeText>
-                <View style={[S.row, { justifyContent: 'flex-end' }]}>
-                  <NativeButton title="취소" kind="ghost" onPress={() => setModal(null)} />
+                <NativeText kind="h17" style={{ lineHeight: 22.95 }}>
+                  {modal?.title}
+                </NativeText>
+                {/* 한국어 문장은 단어 단위로 줄바꿈(시안 .dlg .body word-break:keep-all) */}
+                <NativeText
+                  lineBreakStrategyIOS="hangul-word"
+                  style={[
+                    { color: C.muted },
+                    Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
+                  ]}
+                >
+                  {modal?.text}
+                </NativeText>
+                <View style={[S.row, { justifyContent: 'flex-end', gap: 8, marginTop: 8 }]}>
+                  <NativeButton dialog title="취소" kind="glass" onPress={() => setModal(null)} />
                   <NativeButton
-                    title={
-                      modal.title.includes('를 살까요')
-                        ? '구매'
-                        : modal.title === '회원 탈퇴할까요?'
-                          ? '탈퇴'
-                          : '확인'
-                    }
-                    kind={modal.title === '회원 탈퇴할까요?' ? 'destructive' : ''}
+                    dialog
+                    title={modal.ok ?? '확인'}
+                    kind={modal.destructive ? 'destructive' : ''}
                     onPress={() => {
                       const action = modal?.action;
                       setModal(null);
