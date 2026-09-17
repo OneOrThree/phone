@@ -9,6 +9,11 @@ import {
   Share,
   PanResponder,
   StyleSheet,
+  Platform,
+  Animated,
+  Easing,
+  Keyboard,
+  BackHandler,
 } from 'react-native';
 import Svg, { Path, Line } from 'react-native-svg';
 import {
@@ -145,50 +150,266 @@ function Boat({ state, h = 260, scarf }: any) {
     </View>
   );
 }
-// mini = 내 정보의 6칸 작은 그리드, six = 가로 온보딩의 6칸 한 줄
+// mini = 내 정보의 6칸 작은 그리드, six = 가로 온보딩의 6칸 한 줄. v2 avgrid: 3열(세로)·6열 칸을 같은 폭으로 나눈다
 function AvatarGrid({ value, onChange, mini = false, six = false }: any) {
+  const per = mini || six ? 6 : 3,
+    gap = mini ? 6 : six ? 8 : 10,
+    size = mini ? 11 : six ? 12 : 13,
+    [width, setWidth] = useState(0);
+  // 가로 6칸은 칸이 좁아지면(작은 가로 폰) 그림을 칸 안쪽 폭(여백 2·테두리 2)에 맞춰 줄인다
+  const avatarSize = mini ? 40 : six ? (width ? Math.min(54, (width - gap * 5) / 6 - 8) : 54) : 64;
   return (
     <View
+      style={{ gap }}
+      onLayout={six ? (ev) => setWidth(ev.nativeEvent.layout.width) : undefined}
+    >
+      {[colors.slice(0, per), colors.slice(per)]
+        .filter((line) => line.length)
+        .map((line, r) => (
+          <View key={r} style={{ flexDirection: 'row', gap }}>
+            {line.map((c) => {
+              const on = c === value;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={colorNames[colors.indexOf(c)]}
+                  accessibilityState={{ selected: on }}
+                  key={c}
+                  onPress={() => onChange(c)}
+                  style={{
+                    flex: 1,
+                    alignItems: 'center',
+                    gap: 6,
+                    paddingTop: mini || six ? 6 : 10,
+                    paddingBottom: mini ? 4 : six ? 6 : 8,
+                    paddingHorizontal: mini || six ? 2 : 6,
+                    borderRadius: mini ? 12 : 18,
+                    borderWidth: 2,
+                    borderColor: on ? C.brown : 'transparent',
+                    backgroundColor: on ? C.soft : C.paper,
+                    boxShadow: on ? '0px 3px 0px ' + C.brown : 'none',
+                  }}
+                >
+                  <Pic
+                    id={'avatar/' + c}
+                    w={avatarSize}
+                    style={{ borderRadius: mini ? 10 : 16, backgroundColor: C.sky }}
+                  />
+                  <Txt
+                    style={{
+                      fontSize: size,
+                      lineHeight: size * 1.45,
+                      fontWeight: on ? '700' : '600',
+                      color: on ? C.ink : C.muted,
+                    }}
+                  >
+                    {colorNames[colors.indexOf(c)]}
+                  </Txt>
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+    </View>
+  );
+}
+// v2 온보딩 글자 단계(시안 .h22 · .h17 · .meta · .sec · .row .rs · .inp). 글자 간격 -0.15px는 Txt 기본 스타일에 있다(입력칸만 따로)
+const H22 = { fontSize: 22, lineHeight: 28.6, fontWeight: '800', letterSpacing: -0.44 } as const;
+const H17 = { fontSize: 17, lineHeight: 22.95, fontWeight: '700' } as const;
+const META = { lineHeight: 18.2 } as const;
+const RS = { lineHeight: 17.55 } as const;
+const SEC = {
+  fontSize: 13,
+  lineHeight: 18.85,
+  fontWeight: '700',
+  color: C.muted,
+  letterSpacing: 0.26,
+} as const;
+// 한 줄 입력칸 줄 높이는 웹에서만(iOS 한 줄 TextInput은 lineHeight를 주면 글자가 아래로 밀린다). 여러 줄은 모든 플랫폼
+const INP: any = { letterSpacing: -0.15, ...(Platform.OS === 'web' ? { lineHeight: 23.2 } : null) };
+const INP_TA = { lineHeight: 23.2, letterSpacing: -0.15 } as const;
+// 한국어 문장을 단어 단위로 줄바꿈(시안 word-break:keep-all). iOS는 lineBreakStrategyIOS로
+const KEEP: any = Platform.OS === 'web' ? { wordBreak: 'keep-all' } : null;
+// CSS 그라데이션: 웹은 background-image, 네이티브는 experimental_backgroundImage
+const gradient = (css: string): any =>
+  Platform.OS === 'web' ? { backgroundImage: css } : { experimental_backgroundImage: css };
+// 행 오른쪽 꺾쇠(시안 .chev 18px)
+function Chev() {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24">
+      <Path
+        d="M9 6l6 6-6 6"
+        stroke={C.brown}
+        strokeWidth={2.4}
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+// 드럼 위아래 흐림(시안 .wheel:before/:after). 드럼을 감싼 칸 안에 겹친다
+function WheelFade({ h }: { h: number }) {
+  return (
+    <>
+      {[0, 1].map((n) => (
+        <View
+          key={n}
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              left: 2,
+              right: 2,
+              height: h,
+              borderRadius: 12,
+              ...(n ? { bottom: 2 } : { top: 2 }),
+            },
+            gradient(`linear-gradient(${n ? '#FFFDFA00,#FFFDFA' : '#FFFDFA,#FFFDFA00'})`),
+          ]}
+        />
+      ))}
+    </>
+  );
+}
+// 가입 신청 대기 표시(시안 .spinner). 움직임 줄이기면 멈춘다
+function Spinner({ reduce }: { reduce: boolean }) {
+  const turn = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (reduce) return;
+    const loop = Animated.loop(
+      Animated.timing(turn, {
+        toValue: 1,
+        duration: 900,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [reduce, turn]);
+  return (
+    <Animated.View
       style={{
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: mini ? 6 : six ? 8 : 10,
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        borderWidth: 3,
+        borderColor: '#EADFD2',
+        borderTopColor: C.brown,
+        transform: [
+          { rotate: turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) },
+        ],
+      }}
+    />
+  );
+}
+// v2 온보딩 페이지: 헤더(.hdr) · 스크롤(.scroll) · 아래 고정 CTA(.ctabar, 그라데이션으로 스크롤 위에 겹침).
+// 가로 폰은 왼쪽 330px 그림 칸(.lsplit .lleft) + 오른쪽 페이지(다이내믹 아일랜드 자리 56px 비움).
+// 작은 가로 폰(667 폭 등)은 그림 칸을 폭의 38%로 줄이고 오른쪽 여백은 20px(안전 영역이 더 크면 그만큼)
+function Onboard({ title, back, left, leftBg = C.sky, cta, children }: any) {
+  const layout = useAppLayout(),
+    ins = useScreenInsets(),
+    land = layout.compact,
+    gutter = land ? 22 : 20,
+    [ctaHeight, setCtaHeight] = useState(0);
+  const page = (
+    <View
+      style={{
+        flex: 1,
+        marginRight: land ? Math.max(ins.right + 4, layout.width >= 800 ? 56 : 20) : 0,
+        width: land ? undefined : layout.contentWidth,
+        alignSelf: land ? 'stretch' : 'center',
       }}
     >
-      {colors.map((c, i) => (
+      <View
+        style={{
+          marginTop: land ? 0 : ins.top,
+          height: land ? 48 : 52,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 10,
+          paddingLeft: 8,
+          paddingRight: 12,
+        }}
+      >
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={colorNames[i]}
-          accessibilityState={{ selected: c === value }}
-          key={c}
-          onPress={() => onChange(c)}
+          accessibilityLabel="뒤로"
+          onPress={back}
+          style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Svg width={22} height={22} viewBox="0 0 24 24">
+            <Path
+              d="M15 5l-7 7 7 7"
+              stroke={C.ink}
+              strokeWidth={2.4}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </Svg>
+        </Pressable>
+        <Txt
+          numberOfLines={1}
+          style={{ flex: 1, fontSize: 20, lineHeight: 29, fontWeight: '800', letterSpacing: -0.4 }}
+        >
+          {title}
+        </Txt>
+      </View>
+      <ScrollView
+        style={{ flex: 1 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingHorizontal: gutter,
+          paddingTop: land ? 6 : 16,
+          paddingBottom: cta ? Math.max(land ? 92 : 120, ctaHeight) : land ? 28 : 48,
+          gap: land ? 12 : 14,
+        }}
+      >
+        {children}
+      </ScrollView>
+      {cta && (
+        <View
+          onLayout={(ev) => setCtaHeight(ev.nativeEvent.layout.height)}
+          style={[
+            {
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              paddingHorizontal: gutter,
+              paddingTop: land ? 8 : 14,
+              paddingBottom: land ? Math.max(22, ins.bottom + 1) : ins.bottom + 12,
+              gap: 8,
+            },
+            gradient('linear-gradient(#FFF7EB00,#FFF7EB 32%)'),
+          ]}
+        >
+          {cta}
+        </View>
+      )}
+    </View>
+  );
+  return (
+    <View style={{ flex: 1, flexDirection: land ? 'row' : 'column', backgroundColor: C.cream }}>
+      {land && (
+        <View
           style={{
-            width: mini || six ? '15%' : '31%',
+            width: Math.min(330, layout.width * 0.38),
+            borderRightWidth: 2,
+            borderColor: C.brown,
+            backgroundColor: leftBg,
             alignItems: 'center',
-            gap: 6,
-            padding: mini ? 4 : six ? 6 : 10,
-            borderRadius: mini ? 12 : 18,
-            borderWidth: 2,
-            borderColor: c === value ? C.brown : 'transparent',
-            backgroundColor: c === value ? C.soft : C.paper,
-            boxShadow: c === value ? '0px 3px 0px ' + C.brown : 'none',
+            justifyContent: 'center',
+            overflow: 'hidden',
           }}
         >
-          <Pic
-            id={'avatar/' + c}
-            w={mini ? 40 : six ? 54 : 64}
-            style={{ borderRadius: mini ? 10 : 16, backgroundColor: C.sky }}
-          />
-          <Txt
-            style={{
-              fontSize: mini ? 11 : six ? 12 : 13,
-              fontWeight: c === value ? '700' : '600',
-            }}
-          >
-            {colorNames[i]}
-          </Txt>
-        </Pressable>
-      ))}
+          {left}
+        </View>
+      )}
+      {page}
     </View>
   );
 }
@@ -385,7 +606,12 @@ function GuideBox({ text, style, children }: any) {
     >
       <View style={[k.row, { gap: 12 }]}>
         <Pic id="parrot" w={56} />
-        <Txt style={{ flex: 1, fontSize: 16, lineHeight: 21.6, fontWeight: '700' }}>{text}</Txt>
+        <Txt
+          lineBreakStrategyIOS="hangul-word"
+          style={[{ flex: 1, fontSize: 16, lineHeight: 21.6, fontWeight: '700' }, KEEP]}
+        >
+          {text}
+        </Txt>
       </View>
       <View
         style={{
@@ -445,6 +671,10 @@ export function RedesignScreens({ e }: any) {
     [invite, setInvite] = useState(false),
     [inviteCode, setInviteCode] = useState(''),
     [inviteError, setInviteError] = useState(''),
+    // 초대 모달이 놓인 칸의 높이(키보드가 뜨면 줄어든다)
+    [inviteArea, setInviteArea] = useState(layout.height),
+    // iOS는 absoluteFill 칸이 키보드만큼 줄지 않아 키보드 높이를 따로 빼야 한다
+    [keyboardHeight, setKeyboardHeight] = useState(0),
     [memberMenu, setMemberMenu] = useState<string | null>(null),
     [questHours, setQuestHours] = useState('0시간'),
     [questMins, setQuestMins] = useState('30분'),
@@ -457,7 +687,9 @@ export function RedesignScreens({ e }: any) {
     [profileColor, setProfileColor] = useState<Color>(state.color),
     // 20b 회관 안내를 이번 홈 방문 동안만 띄우는 창 상태
     [hallGuideOpen, setHallGuideOpen] = useState(false),
-    [discoveryIndex, setDiscoveryIndex] = useState(() => Math.floor(Math.random() * 10));
+    [discoveryIndex] = useState(() => Math.floor(Math.random() * 10)),
+    // 섬 찾기에서 ‹ ›·가입 신청으로 고른 섬 id
+    [discoveryPick, setDiscoveryPick] = useState<string | null>(null);
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -471,7 +703,26 @@ export function RedesignScreens({ e }: any) {
     setCapacityOpen(false);
     setCapacityPick('15명');
     setHallGuideOpen(false);
+    setDiscoveryPick(null);
   }, [route]);
+  useEffect(() => {
+    if (!invite) return;
+    // 안드로이드 뒤로 가기는 화면 이동 대신 초대 모달만 닫는다(App 리스너보다 나중에 등록돼 먼저 불린다)
+    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setInvite(false);
+      return true;
+    });
+    const show = Keyboard.addListener('keyboardDidShow', (ev) =>
+      setKeyboardHeight(ev.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => {
+      backSub.remove();
+      show.remove();
+      hide.remove();
+      setKeyboardHeight(0);
+    };
+  }, [invite]);
   useEffect(() => {
     if (route !== 'profile') return;
     setProfileName(state.name);
@@ -544,29 +795,6 @@ export function RedesignScreens({ e }: any) {
       </View>
     </>
   );
-  // 가로 폰 온보딩(lsplit): 왼쪽 330px 그림 칸 + 오른쪽 페이지
-  const splitW = layout.compact ? layout.width - 330 - ins.right : undefined;
-  const split = (left: any, page: any, bg: string = C.sky) =>
-    layout.compact ? (
-      <View style={{ flex: 1, flexDirection: 'row', backgroundColor: C.cream }}>
-        <View
-          style={{
-            width: 330,
-            borderRightWidth: 2,
-            borderColor: C.brown,
-            backgroundColor: bg,
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'hidden',
-          }}
-        >
-          {left}
-        </View>
-        <View style={{ flex: 1 }}>{page}</View>
-      </View>
-    ) : (
-      page
-    );
   const join = (i: any) => {
     if (!i.joined && isFull(i)) {
       notify('정원이 가득 찬 섬이에요');
@@ -574,9 +802,10 @@ export function RedesignScreens({ e }: any) {
     }
     setVisited(i.id);
     act('JOIN', { id: i.id });
-    if (i.approval) {
-      go('visit', i.id);
-      notify('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+    // 승인 필요 섬은 섬 찾기 화면에 가입 신청 대기 상태로 남는다(이미 주민이면 바로 도착)
+    if (i.approval && !i.joined) {
+      if (route === 'joinIsland' || route === 'approval') setDiscoveryPick(i.id);
+      else go('approval', i.id);
     } else go('arrival');
   };
   const resolveInvite = () => {
@@ -659,7 +888,7 @@ export function RedesignScreens({ e }: any) {
         accessibilityRole="checkbox"
         accessibilityState={{ checked: terms }}
         onPress={() => setTerms(!terms)}
-        style={[k.row, { minHeight: 40 }]}
+        style={[k.row, layout.compact ? { minHeight: 36, paddingVertical: 4 } : { minHeight: 40 }]}
       >
         <View
           style={{
@@ -700,7 +929,7 @@ export function RedesignScreens({ e }: any) {
             shade,
             {
               fontSize: 42,
-              lineHeight: 46,
+              lineHeight: 42,
               fontWeight: '900',
               letterSpacing: 1,
             },
@@ -708,7 +937,7 @@ export function RedesignScreens({ e }: any) {
         >
           GROMO
         </Txt>
-        <Txt style={[shade, { fontSize: 15, lineHeight: 21, fontWeight: '700' }]}>
+        <Txt style={[shade, { fontSize: 15, lineHeight: 21.75, fontWeight: '700' }]}>
           오늘의 집중이 자라는 곳
         </Txt>
       </>
@@ -718,7 +947,7 @@ export function RedesignScreens({ e }: any) {
       return (
         <View style={{ flex: 1, backgroundColor: C.sky }}>
           <Pic
-            id="welcome"
+            id="L/welcome"
             w="100%"
             h="100%"
             cover
@@ -727,7 +956,7 @@ export function RedesignScreens({ e }: any) {
           <View
             style={{
               position: 'absolute',
-              left: Math.max(56, ins.left + 12),
+              left: Math.max(56, ins.left + 4),
               top: ins.top + 22,
             }}
           >
@@ -738,7 +967,7 @@ export function RedesignScreens({ e }: any) {
             w={150}
             style={{
               position: 'absolute',
-              left: Math.max(230, ins.left + 186),
+              left: Math.max(230, ins.left + 178),
               bottom: 0,
             }}
           />
@@ -748,19 +977,20 @@ export function RedesignScreens({ e }: any) {
               right: 0,
               top: 0,
               bottom: 0,
-              width: 380 + ins.right,
+              // v2 welcome-panel: 폭 380 · 안쪽 여백 32 56 26 28(오른쪽 56은 다이내믹 아일랜드 자리)
+              width: 380,
               gap: 10,
               paddingTop: ins.top + 32,
               paddingLeft: 28,
-              paddingRight: 28 + ins.right,
-              paddingBottom: ins.bottom + 22,
+              paddingRight: Math.max(56, ins.right + 4),
+              paddingBottom: Math.max(26, ins.bottom + 5),
               backgroundColor: C.cream,
               borderLeftWidth: 2,
               borderColor: C.brown,
               boxShadow: '-5px 0px 0px #8B695640',
             }}
           >
-            <Txt kind="h" style={{ fontSize: 24, lineHeight: 31 }}>
+            <Txt kind="h" style={{ fontSize: 24, lineHeight: 31.2, letterSpacing: -0.48 }}>
               {'조금씩 집중하고,\n함께 자라요.'}
             </Txt>
             <Txt style={{ color: C.muted }}>나의 작은 배에서 시작하는 집중 습관.</Txt>
@@ -780,7 +1010,8 @@ export function RedesignScreens({ e }: any) {
       >
         <View
           style={{
-            height: layout.landscape ? '100%' : layout.tablet ? '48%' : '56%',
+            // v2 welcome-top: 402×874에서 높이 490
+            height: layout.landscape ? '100%' : layout.tablet ? '48%' : (layout.height * 490) / 874,
             width: layout.landscape ? '48%' : '100%',
             overflow: 'hidden',
             borderBottomLeftRadius: layout.landscape ? 0 : 44,
@@ -791,8 +1022,8 @@ export function RedesignScreens({ e }: any) {
           <View
             style={{
               position: 'absolute',
-              left: ins.left + 24,
-              top: ins.top + 18,
+              left: ins.left + 26,
+              top: ins.top + 12,
             }}
           >
             {logo}
@@ -816,12 +1047,13 @@ export function RedesignScreens({ e }: any) {
             style={{ width: '100%', maxWidth: 580, flex: 1 }}
             contentContainerStyle={{
               padding: 24,
+              paddingTop: 22,
               gap: 12,
               flexGrow: 1,
               justifyContent: layout.tablet ? 'center' : 'flex-start',
             }}
           >
-            <Txt kind="h" style={{ fontSize: 26, lineHeight: 34 }}>
+            <Txt kind="h" style={{ fontSize: 26, lineHeight: 33.8, letterSpacing: -0.52 }}>
               {'조금씩 집중하고,\n함께 자라요.'}
             </Txt>
             <Txt style={{ color: C.muted }}>나의 작은 배에서 시작하는 집중 습관.</Txt>
@@ -842,28 +1074,34 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'character')
-    return split(
-      <View style={{ alignItems: 'center', gap: 6 }}>
-        <Pic id="cat/black/sitting" w={170} />
-        <Txt kind="h17">반가워, 나의 고양이!</Txt>
-        <Txt kind="meta">털색은 나중에 바꿀 수 있어요</Txt>
-      </View>,
-      <Page
+    return (
+      <Onboard
         title="내 고양이"
         back={back}
-        width={splitW}
-        footer={footer('내 고양이와 시작', () => go('chooseIsland'))}
+        leftBg={C.soft}
+        left={
+          <View style={{ alignItems: 'center', gap: 6 }}>
+            <Pic id="cat/black/sitting" w={170} />
+            <Txt style={H17}>반가워, 나의 고양이!</Txt>
+            <Txt kind="meta" style={META}>
+              털색은 나중에 바꿀 수 있어요
+            </Txt>
+          </View>
+        }
+        cta={<Btn title="내 고양이와 시작" onPress={() => go('chooseIsland')} />}
       >
         {!layout.compact && (
-          <View style={[k.row, { gap: 14 }]}>
-            <Pic id={'cat/black/sitting'} w={84} />
-            <View style={{ flex: 1, gap: 4 }}>
-              <Txt kind="h">반가워, 나의 고양이!</Txt>
-              <Txt kind="meta">털색은 나중에 내 정보에서 바꿀 수 있어요</Txt>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 4 }}>
+            <Pic id="cat/black/sitting" w={84} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Txt style={H22}>반가워, 나의 고양이!</Txt>
+              <Txt kind="meta" style={META}>
+                털색은 나중에 내 정보에서 바꿀 수 있어요
+              </Txt>
             </View>
           </View>
         )}
-        <Txt kind="section">어떤 고양이로 시작할까요?</Txt>
+        <Txt style={[SEC, { marginTop: layout.compact ? 0 : 6 }]}>어떤 고양이로 시작할까요?</Txt>
         <AvatarGrid
           six={layout.compact}
           value={state.color}
@@ -873,52 +1111,178 @@ export function RedesignScreens({ e }: any) {
           label="닉네임"
           value={state.name}
           onChange={(name: string) => act('PROFILE', { name })}
+          inputStyle={INP}
         />
-      </Page>,
-      C.soft,
+      </Onboard>
     );
   if (route === 'chooseIsland')
-    return split(
-      <View style={{ alignItems: 'center', gap: 4 }}>
-        <Pic id="boat/raft" w={210} />
-        <Txt kind="h17">첫 항해를 떠나요</Txt>
-      </View>,
-      <Page title="첫 섬 선택" back={back} width={splitW}>
-        {!layout.compact && (
+    return (
+      <View style={{ flex: 1 }}>
+        {/* 초대 모달이 열리면 뒤 화면은 스크린리더에서 숨긴다 */}
+        <View
+          style={{ flex: 1 }}
+          importantForAccessibility={invite ? 'no-hide-descendants' : 'auto'}
+          accessibilityElementsHidden={invite}
+          aria-hidden={invite}
+        >
+          <Onboard
+            title="첫 섬 선택"
+            back={back}
+            left={
+              <View style={{ alignItems: 'center', gap: 4 }}>
+                <Pic id="boat/raft" w={210} />
+                <Txt style={H17}>첫 항해를 떠나요</Txt>
+              </View>
+            }
+          >
+            {!layout.compact && (
+              <View
+                style={[
+                  k.preview,
+                  {
+                    height: 120,
+                    flexDirection: 'row',
+                    justifyContent: 'flex-start',
+                    paddingHorizontal: 20,
+                    gap: 14,
+                  },
+                ]}
+              >
+                <Pic id="boat/raft" w={100} />
+                <Txt style={H17}>첫 항해를 떠나요</Txt>
+              </View>
+            )}
+            <Txt style={H22}>어디에서 시작할까요?</Txt>
+            <Group>
+              <Row
+                title="혼자 시작할 섬 만들기"
+                sub={
+                  <Txt kind="meta" style={RS}>
+                    내 이름으로 새 섬을 열어요
+                  </Txt>
+                }
+                lead={<Pic id="boat/raft" w={52} />}
+                tail={<Chev />}
+                onPress={() => go('createIsland')}
+              />
+              <Row
+                title="기존 섬 참여"
+                sub={
+                  <Txt kind="meta" style={RS}>
+                    망원경으로 공개 섬 찾기
+                  </Txt>
+                }
+                lead={<Pic id="bld/observatory" w={52} />}
+                tail={<Chev />}
+                onPress={() => go('joinIsland')}
+              />
+            </Group>
+            {/* 초대받은 섬: 코드 확인 → 승인 없는 섬은 바로 참여, 승인 필요 섬은 가입 신청 */}
+            <Btn
+              kind="sec"
+              id="invite-open"
+              title="이미 초대받은 섬이 있어요!"
+              style={{ marginTop: 6 }}
+              onPress={() => {
+                setInviteError('');
+                setInvite(true);
+              }}
+            />
+          </Onboard>
+        </View>
+        {invite && (
           <View
+            // 칸이 키보드만큼 줄지 않은 환경(iOS)에서만 남는 겹침을 아래 여백으로 빼 카드를 키보드 위에 둔다
             style={[
-              k.preview,
-              k.row,
+              StyleSheet.absoluteFill,
               {
-                height: 120,
-                justifyContent: 'flex-start',
-                paddingHorizontal: 20,
-                gap: 14,
+                paddingBottom: Math.max(0, keyboardHeight - (layout.height - inviteArea)),
               },
             ]}
+            onLayout={(ev) => setInviteArea(ev.nativeEvent.layout.height)}
           >
-            <Pic id="boat/raft" w={100} />
-            <Txt kind="h17">첫 항해를 떠나요</Txt>
+            <Pressable
+              accessible={false}
+              onPress={() => setInvite(false)}
+              style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3966' }]}
+            />
+            <View
+              pointerEvents="box-none"
+              style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+            >
+              {/* 키보드가 올라와 남은 높이가 낮아지면(가로 폰) 카드 안에서 스크롤해 확인 버튼까지 닿는다 */}
+              <View
+                accessibilityViewIsModal
+                style={{
+                  width: layout.compact || layout.tablet ? layout.modalWidth : layout.width - 48,
+                  maxHeight: Math.max(
+                    120,
+                    // 칸이 이미 줄었으면(안드로이드·웹) 그대로, 아니면 화면 높이에서 키보드를 뺀 높이
+                    inviteArea -
+                      Math.max(0, keyboardHeight - (layout.height - inviteArea)) -
+                      ins.top -
+                      ins.bottom -
+                      24,
+                  ),
+                  backgroundColor: C.paper,
+                  borderWidth: 2,
+                  borderColor: C.brown,
+                  borderRadius: 24,
+                  boxShadow: '0px 6px 0px ' + C.brown,
+                }}
+              >
+                <ScrollView
+                  style={{ flexShrink: 1 }}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{
+                    paddingHorizontal: 20,
+                    paddingTop: layout.compact ? 14 : 20,
+                    paddingBottom: layout.compact ? 14 : 18,
+                    gap: layout.compact ? 10 : 14,
+                  }}
+                >
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <Txt style={H22}>초대 코드 입력</Txt>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="닫기"
+                      hitSlop={12}
+                      onPress={() => setInvite(false)}
+                    >
+                      <Txt style={{ fontSize: 24, lineHeight: 34.8, color: C.muted }}>×</Txt>
+                    </Pressable>
+                  </View>
+                  <Field
+                    label="초대 코드"
+                    value={inviteCode}
+                    onChange={(v: string) => {
+                      setInviteCode(v);
+                      setInviteError('');
+                    }}
+                    inputStyle={INP}
+                  />
+                  <Txt
+                    kind="meta"
+                    lineBreakStrategyIOS="hangul-word"
+                    style={[META, KEEP, inviteError ? { color: C.danger } : null]}
+                  >
+                    {inviteError ||
+                      '확인하면 그 섬에 바로 참여하거나, 방장에게 가입 승인을 요청해요.'}
+                  </Txt>
+                  <Btn title="확인" onPress={resolveInvite} disabled={!inviteCode.trim()} />
+                </ScrollView>
+              </View>
+            </View>
           </View>
         )}
-        <Txt kind="h">어디에서 시작할까요?</Txt>
-        <Group>
-          <Row
-            title="혼자 시작할 섬 만들기"
-            sub="내 이름으로 새 섬을 열어요"
-            icon="boat/raft"
-            chevron
-            onPress={() => go('createIsland')}
-          />
-          <Row
-            title="기존 섬 참여"
-            sub="공개 섬을 둘러보거나 초대 코드로"
-            icon="bld/observatory"
-            chevron
-            onPress={() => go('joinIsland')}
-          />
-        </Group>
-      </Page>,
+      </View>
     );
   if (route === 'createIsland') {
     const capacityWheel = (
@@ -926,7 +1290,8 @@ export function RedesignScreens({ e }: any) {
         <Txt kind="meta" style={{ fontWeight: '600' }}>
           정원 · 최대 {CAPACITY_MAX}명
         </Txt>
-        <View style={k.row}>
+        {/* v2 드럼: 빈 라벨 칸의 아래 여백 4px(세로) · 위아래 흐림 */}
+        <View style={[k.row, { marginTop: layout.compact ? 0 : 4 }]}>
           <Wheel
             a11yLabel="정원"
             row={layout.compact ? 24 : 44}
@@ -937,6 +1302,7 @@ export function RedesignScreens({ e }: any) {
             value={capacityPick}
             onChange={setCapacityPick}
           />
+          <WheelFade h={layout.compact ? 14 : 30} />
         </View>
       </View>
     );
@@ -944,36 +1310,44 @@ export function RedesignScreens({ e }: any) {
       <Group flat>
         <Row
           title="승인 후 가입"
-          sub="방장이 확인한 뒤 주민이 돼요"
+          sub={
+            <Txt kind="meta" style={RS}>
+              방장이 확인한 뒤 주민이 돼요
+            </Txt>
+          }
           tail={<Toggle label="승인 후 가입" value={approval} onChange={setApproval} />}
         />
       </Group>
     );
-    return split(
-      <Pic id="island/whole" w="100%" h="100%" cover />,
-      <Page
+    return (
+      <Onboard
         title="새 섬 만들기"
         back={back}
-        width={splitW}
-        footer={footer(
-          '섬 만들기',
-          () => {
-            act('CREATE_ISLAND', {
-              name: text,
-              intro: body,
-              approval,
-              capacity: parseInt(capacityPick),
-            });
-            go('arrival');
-          },
-          undefined,
-          undefined,
-          undefined,
-          !text.trim(),
-        )}
+        left={<Pic id="L/home/00-start/nocat" w="100%" h="100%" cover />}
+        cta={
+          <Btn
+            title="섬 만들기"
+            disabled={!text.trim()}
+            onPress={() => {
+              act('CREATE_ISLAND', {
+                name: text,
+                intro: body,
+                approval,
+                capacity: parseInt(capacityPick),
+              });
+              go('arrival');
+            }}
+          />
+        }
       >
-        <Field label="섬 이름" value={text} onChange={setText} />
-        <Field label="섬 소개" value={body} onChange={setBody} multiline={!layout.compact} />
+        <Field label="섬 이름" value={text} onChange={setText} inputStyle={INP} />
+        <Field
+          label="섬 소개"
+          value={body}
+          onChange={setBody}
+          multiline={!layout.compact}
+          inputStyle={layout.compact ? INP : INP_TA}
+        />
         {layout.compact ? (
           // 가로: 정원 드럼과 승인 토글을 한 줄에(1 : 1.5)
           <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-end' }}>
@@ -986,101 +1360,173 @@ export function RedesignScreens({ e }: any) {
             {approvalRow}
           </>
         )}
-      </Page>,
+      </Onboard>
     );
   }
-  if (route === 'joinIsland') {
-    // 정원이 가득 찬 섬은 공개 섬 찾기에서 뺀다
+  if (route === 'joinIsland' || route === 'approval') {
+    // 망원경으로 찾은 공개 섬: 주민이 있고 정원이 남은 섬(신청 중인 섬은 가득 차도 남긴다)
+    const pendings = state.pendingIslands ?? [];
     const candidates = state.islands.filter(
-        (i) => !i.closed && i.visibility !== 'private' && !i.joined && !i.approval && !isFull(i),
-      ),
-      i = candidates[discoveryIndex % candidates.length];
-    const page = (
-      <Page
+      (i) =>
+        !i.closed &&
+        !i.joined &&
+        // 초대 코드로 신청한 비공개 섬은 공개 조건과 상관없이 대기 화면에 남긴다
+        ((i.visibility !== 'private' && i.members.length > 0 && !isFull(i)) ||
+          pendings.includes(i.id) ||
+          (route === 'approval' && i.id === (detail || state.pendingIsland))),
+    );
+    // 처음 보여줄 섬: ‹ ›로 고른 섬 → 경로로 받은 섬 → 신청 중인 섬(다시 켜도 먼저) → 무작위
+    const pickId = discoveryPick ?? (detail || state.pendingIsland);
+    const picked = candidates.findIndex((c) => c.id === pickId);
+    const index = picked >= 0 ? picked : discoveryIndex % Math.max(1, candidates.length),
+      i = candidates[index];
+    const pending = !!i && pendings.includes(i.id);
+    const move = (n: number) =>
+      setDiscoveryPick(candidates[(index + n + candidates.length) % candidates.length].id);
+    const average = i ? hoursMinutes(islandWeeklyAverage(state, i, now)).replace(/ 0분$/, '') : '';
+    return (
+      <Onboard
         title="섬 찾기"
         back={back}
-        width={splitW}
-        footer={footer(
-          i ? `${i.name}에 참여하기` : '참여하기',
-          () => i && join(i),
-          '초대 코드로 참여',
-          () => setInvite(true),
-          undefined,
-          !i,
-        )}
+        left={
+          <Pic
+            id={i?.id === 'strawberry' ? 'island/whole/warm' : 'island/whole'}
+            w="100%"
+            h="100%"
+            cover
+          />
+        }
+        cta={
+          pending ? (
+            <>
+              <Btn
+                kind="sec"
+                title="가입 신청 취소"
+                onPress={() => act('CANCEL_JOIN', { id: i.id })}
+              />
+              <Btn
+                kind="ghost"
+                title="다른 섬 보기"
+                disabled={candidates.length < 2}
+                onPress={() => move(1)}
+              />
+            </>
+          ) : (
+            <>
+              <Btn
+                title={!i ? '참여하기' : i.approval ? '가입 신청' : `${i.name}에 참여하기`}
+                disabled={!i}
+                onPress={() => i && join(i)}
+              />
+              <Btn
+                kind="ghost"
+                title="찾는 섬이 없으면 새 섬 만들기"
+                onPress={() => go('createIsland')}
+              />
+            </>
+          )
+        }
       >
         {i ? (
           <>
-            {!layout.compact && <Thumb warm h={210} />}
-            <View style={k.row}>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Txt kind="h">{i.name}</Txt>
-                <Txt kind="meta">{i.intro}</Txt>
+            {!layout.compact && <Thumb warm={i.id === 'strawberry'} h={210} />}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 50 }}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt style={H22}>{i.name}</Txt>
+                <Txt kind="meta" style={META}>
+                  {i.intro}
+                </Txt>
               </View>
               {['‹', '›'].map((v, n) => (
                 <Pressable
                   key={v}
                   accessibilityRole="button"
                   accessibilityLabel={n ? '다음 섬' : '이전 섬'}
+                  accessibilityState={{ disabled: candidates.length < 2 }}
                   disabled={candidates.length < 2}
-                  onPress={() =>
-                    setDiscoveryIndex(
-                      (x) => (x + (n ? 1 : -1) + candidates.length) % candidates.length,
-                    )
-                  }
+                  onPress={() => move(n ? 1 : -1)}
                   style={{
+                    opacity: candidates.length < 2 ? 0.45 : 1,
                     width: 44,
                     height: 44,
+                    marginTop: 6,
                     borderRadius: 22,
                     borderWidth: 2,
                     borderColor: C.brown,
                     backgroundColor: C.paper,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    opacity: candidates.length < 2 ? 0.45 : 1,
                   }}
                 >
-                  <Txt style={{ fontSize: 24 }}>{v}</Txt>
+                  <Txt
+                    style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '700', color: C.muted }}
+                  >
+                    {v}
+                  </Txt>
                 </Pressable>
               ))}
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <AvStack list={i.members.slice(0, 3).map((m) => m.color)} />
-              <Txt kind="meta" style={{ flex: 1 }}>
-                {`주민 ${residentCount(i)}/${capacityOf(i)}명 · 평균 집중 ${hoursMinutes(islandWeeklyAverage(state, i, now))} · 바로 참여`}
+              <Txt kind="meta" style={[META, { flex: 1 }]}>
+                {`주민 ${residentCount(i)}/${capacityOf(i)}명 · 평균 집중 ${average}`}
               </Txt>
             </View>
-            <Txt kind="meta">
-              {layout.compact
-                ? '승인 없이 바로 참여할 수 있는 공개 섬만 무작위로 한 곳씩 보여드려요.'
-                : '승인 없이 바로 참여할 수 있는 공개 섬만 무작위로 한 곳씩 보여드려요. 화살표로 다른 섬을 볼 수 있어요.'}
-            </Txt>
+            {/* 합류 방식 배지: 바로 참여 / 승인 필요(버튼이 가입 신청) */}
+            <View
+              style={{
+                alignSelf: 'flex-start',
+                height: 28,
+                paddingHorizontal: 12,
+                justifyContent: 'center',
+                borderRadius: 999,
+                borderWidth: 1.5,
+                borderColor: i.approval ? '#D9C6B8' : C.brown,
+                backgroundColor: i.approval ? C.paper : C.butter,
+              }}
+            >
+              <Txt
+                style={{
+                  fontSize: 13,
+                  lineHeight: 18.85,
+                  fontWeight: i.approval ? '600' : '700',
+                  color: i.approval ? C.muted : C.ink,
+                }}
+              >
+                {i.approval ? '승인 필요' : '바로 참여'}
+              </Txt>
+            </View>
+            {pending && (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  backgroundColor: '#FFF3CF',
+                  borderWidth: 1.5,
+                  borderColor: '#E7CF9A',
+                  borderRadius: 14,
+                  paddingVertical: 10,
+                  paddingHorizontal: 14,
+                }}
+              >
+                <View style={{ gap: 2 }}>
+                  <Txt style={{ fontSize: 15, lineHeight: 21.75, fontWeight: '700' }}>
+                    가입 신청 대기 중
+                  </Txt>
+                  <Txt kind="meta" style={{ lineHeight: 18.85 }}>
+                    방장이 확인하면 알려드릴게요
+                  </Txt>
+                </View>
+                <Spinner reduce={state.settings.reduceMotion} />
+              </View>
+            )}
           </>
         ) : (
           <Txt>지금 참여할 수 있는 공개 섬이 없어요.</Txt>
         )}
-      </Page>
-    );
-    const view = split(<Pic id="island/whole/warm" w="100%" h="100%" cover />, page);
-    return invite ? (
-      <Overlay
-        close={() => setInvite(false)}
-        background={
-          <View pointerEvents="none" style={{ flex: 1 }}>
-            {view}
-          </View>
-        }
-      >
-        <View style={[k.row, { justifyContent: 'space-between' }]}>
-          <Txt kind="h">초대 코드 입력</Txt>
-          <Btn title="닫기" kind="ghost" onPress={() => setInvite(false)} />
-        </View>
-        <Field label="초대 코드" value={inviteCode} onChange={setInviteCode} />
-        {!!inviteError && <Txt style={{ color: C.danger }}>{inviteError}</Txt>}
-        <Btn title="초대 확인" onPress={resolveInvite} disabled={!inviteCode.trim()} />
-      </Overlay>
-    ) : (
-      view
+      </Onboard>
     );
   }
   if (route === 'arrival' || route === 'travel')
@@ -1107,9 +1553,9 @@ export function RedesignScreens({ e }: any) {
     const lines = [
       '안녕! 섬에 온 걸 환영해! 처음 보는 얼굴이네?',
       '네가 집중하는 동안 고양이는 낚시를 할 거야!\n고양이를 도와 이 섬을 하나씩 꾸며 나가자!',
-      '부두에서 할 일을 정하고 낚시하며 집중해 봐.',
+      '집중하기를 누르면 배를 타고 낚시섬으로 가.\n도착해서 원하는 곳을 누르고 할 일을 정하면 돼!',
       '잠깐 쉬고 싶으면 모닥불로 와.',
-      '그럼 첫 낚시 다녀와!\n궁금한 게 생기면 날 불러.',
+      '그럼 첫 낚시 다녀와!\n다시 보고 싶으면 앱 설정의 튜토리얼 다시보기를 눌러.',
     ];
     const step = Math.min(guideStep, lines.length - 1),
       last = step === lines.length - 1,
@@ -1122,7 +1568,8 @@ export function RedesignScreens({ e }: any) {
           style={{
             left: (layout.width - w) / 2,
             width: w,
-            bottom: ins.bottom + 12,
+            // v2 가로 guidebox는 아래 18px
+            bottom: layout.compact ? 18 : ins.bottom + 12,
           }}
         >
           <Pressable
@@ -1131,7 +1578,14 @@ export function RedesignScreens({ e }: any) {
             hitSlop={12}
             onPress={home}
           >
-            <Txt kind="meta" style={{ fontSize: 12, textDecorationLine: 'underline' }}>
+            <Txt
+              kind="meta"
+              style={{
+                fontSize: 12,
+                lineHeight: 16.8,
+                textDecorationLine: 'underline',
+              }}
+            >
               건너뛰기
             </Txt>
           </Pressable>
@@ -1159,7 +1613,7 @@ export function RedesignScreens({ e }: any) {
               left: (layout.width - w) / 2,
               width: w,
               // 건설 카드·집중 시작 버튼 위
-              bottom: ins.bottom + (layout.compact ? 106 : 118),
+              bottom: layout.compact ? 110 : ins.bottom + 118,
             }}
           >
             <Btn

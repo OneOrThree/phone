@@ -62,11 +62,12 @@ export function WorldMap({
     y: fishing ? 770 : 430,
     z: 1,
   });
+  // 홈 카메라는 v2 시안 배경(prep-redesign-assets.py HOME_ZOOM_P 1.8 · HOME_ZOOM_L 1.3)과 같은 배율
   const base = fishing
     ? Math.min(L.width / 680, L.height / 1140)
     : L.landscape
-      ? (L.height / 1140) * 1.7
-      : (((L.height / 874) * 402) / 1536) * 2.4;
+      ? (L.height / 1140) * 1.3
+      : (((L.height / 874) * 402) / 1536) * 1.8;
   const scale = base * camera.z,
     left = L.width / 2 - camera.x * scale,
     top = L.height / 2 - camera.y * scale;
@@ -413,26 +414,13 @@ export function FinalIsland({
             top: Animated.multiply(xy.y, s),
           }}
         >
+          {/* v2 홈 시안: 고양이 100px(섬 원본 좌표) · 이름표 없음 */}
           <CatSprite
             color={state.color}
-            size={115 * s}
+            size={100 * s}
             motion={walking ? 'walking' : 'blink'}
             reduce={state.settings.reduceMotion}
           />
-          <Txt
-            style={{
-              position: 'absolute',
-              top: 4,
-              left: -30,
-              width: 60,
-              textAlign: 'center',
-              fontSize: 11,
-              backgroundColor: '#fffae8bb',
-              borderRadius: 5,
-            }}
-          >
-            {state.name}
-          </Txt>
         </Animated.View>
       </>
     );
@@ -459,7 +447,7 @@ export function FinalIsland({
           style={{
             position: 'absolute',
             top: L.landscape ? 14 : Math.max(64, L.insets.top + 5),
-            left: L.landscape ? Math.max(56, L.insets.left + 12) : 20,
+            left: L.landscape ? Math.max(56, L.insets.left + 4) : 20,
             backgroundColor: '#FFFDFAB3',
             borderRadius: 999,
             paddingVertical: 6,
@@ -471,13 +459,13 @@ export function FinalIsland({
             minWidth: 210,
           }}
         >
-          <Txt kind="meta" style={{ fontSize: 12, fontWeight: '600' }}>
+          <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
             오늘 집중
           </Txt>
           <Txt
             style={{
               fontSize: 22,
-              lineHeight: 27,
+              lineHeight: 31.9,
               fontWeight: '700',
               fontVariant: ['tabular-nums'],
               marginLeft: 'auto',
@@ -495,7 +483,7 @@ export function FinalIsland({
             <View
               style={{
                 position: 'absolute',
-                left: L.landscape ? Math.max(56, L.insets.left + 12) : 20,
+                left: L.landscape ? Math.max(56, L.insets.left + 4) : 20,
                 width: L.landscape ? 300 : L.width * 0.52,
                 bottom: L.landscape ? 24 : Math.max(52, L.insets.bottom + 18),
                 backgroundColor: '#FFFDFAF2',
@@ -515,11 +503,19 @@ export function FinalIsland({
                   gap: 6,
                 }}
               >
-                <Txt style={{ fontSize: 14, fontWeight: '800' }}>
+                <Txt style={{ fontSize: 14, lineHeight: 20.3, fontWeight: '800' }}>
                   {buildingNames[i.construction?.building ?? next!]}{' '}
                   {i.construction ? '공사 중' : '짓기'}
                 </Txt>
-                <Txt kind="meta" style={{ fontSize: 12 }}>
+                <Txt
+                  kind="meta"
+                  style={{
+                    fontSize: 12,
+                    lineHeight: 17.4,
+                    fontWeight: '600',
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
                   {i.construction
                     ? `${Math.max(0, Math.ceil((i.construction.endsAt - Date.now()) / 60000))}분 남음`
                     : `${balance(i)}/${buildingCost(i, next!)} 마리`}
@@ -528,8 +524,8 @@ export function FinalIsland({
               <View
                 style={{
                   height: 6,
-                  backgroundColor: '#E9E1D8',
-                  borderRadius: 99,
+                  backgroundColor: '#EADFD2',
+                  borderRadius: 3,
                   overflow: 'hidden',
                 }}
               >
@@ -542,14 +538,14 @@ export function FinalIsland({
                 />
               </View>
               {!i.construction && next && balance(i) >= buildingCost(i, next) && isHost(i) && (
-                <Btn small title="건설하기" onPress={() => build(next)} />
+                <Btn small title="건설하기" style={{ marginTop: 2 }} onPress={() => build(next)} />
               )}
             </View>
           )}
           <View
             style={{
               position: 'absolute',
-              right: L.landscape ? Math.max(56, L.insets.right + 12) : 20,
+              right: L.landscape ? Math.max(56, L.insets.right + 4) : 20,
               bottom: L.landscape
                 ? Math.max(22, L.insets.bottom)
                 : Math.max(44, L.insets.bottom + 10),

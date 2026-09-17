@@ -228,10 +228,8 @@ export function CurrentScreens({ e }: any) {
         />
       </Overlay>
     );
-  if (r === 'home') return <Home e={e} />;
-  if (['visit', 'approval'].includes(r)) return <Visit e={e} />;
+  if (r === 'visit') return <Visit e={e} />;
   if (['arrival', 'travel'].includes(r)) return <Travel e={e} />;
-  if (r === 'guide') return <Guide e={e} />;
   if (
     [
       'focusTravel',
@@ -288,7 +286,7 @@ function Travel({ e }: any) {
   return (
     <Sailing
       state={s}
-      from={first ? '나의 뗏목' : (s.travelOrigin ?? currentIsland(s).name)}
+      from={first ? '나의 작은 배' : (s.travelOrigin ?? currentIsland(s).name)}
       destination={target.name}
       duration={1900}
       onArrive={() => {
@@ -301,79 +299,6 @@ function Travel({ e }: any) {
         } else e.replace('visit', target.id);
       }}
     />
-  );
-}
-function Home({ e }: any) {
-  const s: State = e.state,
-    L = useAppLayout(),
-    i = currentIsland(s),
-    [guide, setGuide] = useState(s.hallGuide === 'pending');
-  useEffect(() => {
-    if (guide) e.dispatch({ type: 'HALL_GUIDE_DONE' });
-  }, []);
-  return (
-    <View style={{ flex: 1 }}>
-      <FinalIsland state={s} go={e.go} build={e.build} request={e.walkRequest} />
-      {guide && !i.buildings.includes('hall') && (
-        <View
-          style={{
-            position: 'absolute',
-            left: 24,
-            right: 24,
-            bottom: L.insets.bottom + 160,
-            padding: 18,
-            gap: 10,
-            borderWidth: 2,
-            borderColor: C.brown,
-            backgroundColor: C.cream,
-            borderRadius: 22,
-          }}
-        >
-          <Pic id="parrot" w={64} />
-          <Txt>물고기를 모아 가장 먼저 마을회관을 지어보자. {costs.hall}마리면 돼!</Txt>
-          <Btn small title="알겠어" onPress={() => setGuide(false)} />
-        </View>
-      )}
-    </View>
-  );
-}
-function Guide({ e }: any) {
-  const L = useAppLayout(),
-    lines = [
-      '우리의 하루가 함께 자라는 섬에 온 걸 환영해!',
-      '집중하는 동안 고양이가 낚시해서 물고기를 모아줘. 이 섬에 차곡차곡 쌓여!',
-      '집중하기를 누르면 낚시섬으로 떠나. 원하는 땅을 눌러 앉고 할 일을 적으면 시작이야.',
-      '잠깐 쉬고 싶으면 모닥불로 와. 함께 책을 읽다가 하던 자리로 돌아갈 수 있어.',
-      '물고기로 건물을 지으면 새로운 활동이 열려. 이 안내는 내 뗏목 설정에서 다시 볼 수 있어!',
-    ];
-  return (
-    <View style={{ flex: 1 }}>
-      <FinalIsland state={e.state} go={e.go} build={e.build} showActions={false} />
-      <View
-        style={{
-          position: 'absolute',
-          left: (L.width - L.floatingWidth) / 2,
-          width: L.floatingWidth,
-          bottom: L.insets.bottom + 30,
-          padding: 20,
-          gap: 12,
-          borderWidth: 2,
-          borderColor: C.brown,
-          backgroundColor: C.cream,
-          borderRadius: 24,
-        }}
-      >
-        <View style={k.row}>
-          <Pic id="parrot" w={76} />
-          <Btn small kind="ghost" title="건너뛸래" onPress={e.home} />
-        </View>
-        <Txt>{lines[e.guideStep] ?? lines[0]}</Txt>
-        <Btn
-          title={e.guideStep >= 4 ? '시작할게' : '다음'}
-          onPress={() => (e.guideStep >= 4 ? e.home() : e.setGuideStep(e.guideStep + 1))}
-        />
-      </View>
-    </View>
   );
 }
 function FocusFlow({ e }: any) {
