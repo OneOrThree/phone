@@ -528,7 +528,7 @@ function FocusFlow({ e }: any) {
     focusQuests = i.quests.filter((q) => q.type === 'focus'),
     achieved = focusQuests.filter((q) => q.rounds?.[resultDay]?.achieved.includes('me'));
   const resultModal = (
-    <FiModal>
+    <FiModal hidden={dialog === 'reward'}>
       <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>이번 집중 결과</Text>
       <Text style={{ fontSize: 19, lineHeight: 30.4, fontWeight: '900', color: INK }}>
         {result?.subject ?? '이번 집중'}

@@ -708,13 +708,15 @@ export function FiButton({
   );
 }
 // 낚시섬 모달(fi-modal): 반투명 막 위 가운데 카드. 가로(폭 600 이상)는 오른쪽 330px.
-export function FiModal({ children }: { children: React.ReactNode }) {
+// hidden: 위에 다른 모달(보상)이 떠 있을 때 — Android TalkBack은 형제 뷰를 자동으로 숨기지 않으므로 직접 숨긴다
+export function FiModal({ children, hidden }: { children: React.ReactNode; hidden?: boolean }) {
   const wide = useAppLayout().width >= 600,
     safe = useSafeAreaInsets();
   return (
     <View
       style={[StyleSheet.absoluteFill, { zIndex: 10, justifyContent: 'center' }]}
       accessibilityViewIsModal
+      {...a11yHidden(!!hidden)}
     >
       <View style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3940' }]} />
       {/* 낮은 화면(가로 폰)에서 내용이 카드보다 길면 카드 안에서 스크롤한다 — 아래 버튼까지 닿는다 */}
