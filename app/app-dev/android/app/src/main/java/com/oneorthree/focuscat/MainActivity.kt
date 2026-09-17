@@ -1,4 +1,4 @@
-package com.oneorthree.fishcat
+package com.oneorthree.focuscat
 
 import android.os.Build
 import android.os.Bundle

@@ -39,6 +39,14 @@ internal:
           - 'GET /internal/migrations/*/invite-link-clicks/candidates'
           - 'POST /internal/users/*/challenge-results/*/claim'
           - 'POST /internal/users/*/challenge-results/*/ack'
+          # GROMO-1764 집중 세션 수명주기 6종. AntPathMatcher 의 `*` 는 «세그먼트 하나»라
+          # 세그먼트 수를 정확히 맞춘다 — `/focus-sessions/*/pause` 는 sessionId 자리 하나만 받는다.
+          - 'POST /internal/users/*/focus-sessions'
+          - 'GET /internal/users/*/focus-sessions/current'
+          - 'POST /internal/users/*/focus-sessions/*/pause'
+          - 'POST /internal/users/*/focus-sessions/*/resume'
+          - 'POST /internal/users/*/focus-sessions/*/finish'
+          - 'GET /internal/users/*/focus-summary'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:

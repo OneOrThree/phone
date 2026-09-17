@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -16,6 +16,32 @@ import {
 import Svg, { G, Path, Polygon } from 'react-native-svg';
 import { Asset } from 'expo-asset';
 import { useFonts } from 'expo-font';
+import { useAppLayout } from '@/utils/layout';
+import {
+  Building,
+  Route,
+  State,
+  balance,
+  buildMinutes,
+  buildingCost,
+  buildingNames,
+  buildingReady,
+  buildingShare,
+  canSendLetter,
+  clockMinutes,
+  clockText,
+  collectedBy,
+  currentIsland,
+  dayKey,
+  isHost,
+  isOwnComment,
+  kstDayStart,
+  newChatCount,
+  questMemberRate,
+  residentCount,
+  targetIds,
+  unreadLetters,
+} from '@/services/model';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
 // 건물 안 장면 위에 기능 화면을 얹는 38개 시안을 RN으로 옮긴다. 수치는 원본 CSS 그대로다.
@@ -45,6 +71,10 @@ export type ArtifactProps = {
   height: number;
   reduceMotion: boolean;
   showToast: (message: string) => void;
+  // 앱 라우트 문맥(App.tsx의 e). 있으면 목업 대신 앱 상태를 그리고 라우트로 이동한다
+  e?: any;
+  // 배경 장면을 맞출 높이. 키보드로 화면이 줄어도 창 높이 기준으로 고정한다 (없으면 height)
+  sceneHeight?: number;
 };
 export type ArtifactRenderer = (props: ArtifactProps) => React.ReactElement | null;
 
@@ -69,8 +99,11 @@ export const interiorArt = {
   catBlack: require('@/assets/redesign/cat-black.png'),
   boardPaper: {
     notice: require('@/assets/interiors/ui/board-sheet-notice-v2.png'),
+    detail: require('@/assets/interiors/ui/board-sheet-notice-detail-v3.png'),
     quest: require('@/assets/interiors/ui/board-sheet-quest-v2.png'),
   },
+  blueprintReadyStamp: require('@/assets/interiors/ui/blueprint-ready-stamp-v3.png'),
+  letterEnvelope: require('@/assets/interiors/ui/letter-envelope-v1.png'),
 };
 
 // 원본 이미지 픽셀 크기 (배경은 모두 1024×1536)
@@ -101,8 +134,11 @@ export const kindCopy: Record<string, string> = {
   'island-ranking': '섬 랭킹',
   'old-map': '낡은 지도',
   'mail-home': '열린 우체통',
-  'island-room': '섬 편지방',
-  'friend-mail': '친구 편지',
+  'island-room': '섬 채팅방',
+  'received-letters': '받은 편지',
+  'letter-detail': '편지 상세',
+  'friend-select': '친구 선택',
+  'friend-compose': '편지 쓰기',
   tryon: '거울',
   counter: '진열대',
   themes: '섬 테마',
@@ -184,6 +220,12 @@ const board = (
   boardView,
 });
 
+const mailHomeItems: Item[] = [
+  ['우리 섬 채팅방', '주민 모두의 대화', '새 글 7개'],
+  ['받은 편지', '친구가 보낸 봉투', '새 편지 3통'],
+  ['편지 쓰기', '친구 한 명에게', ''],
+];
+
 export const buildings: BuildingData[] = [
   {
     id: 'hall',
@@ -261,20 +303,31 @@ export const buildings: BuildingData[] = [
       board('게시판 기본 화면', '', 'owner', 'list'),
       board('공지 목록 · 방장', 'notice', 'owner', 'list'),
       board('공지 목록 · 주민', 'notice', 'resident', 'list'),
+      board('공지 목록 · 빈 상태', 'notice', 'resident', 'empty'),
       board('공지 상세 · 방장', 'notice', 'owner', 'detail'),
       board('공지 상세 · 주민', 'notice', 'resident', 'detail'),
+      board('댓글 작성 · 주민', 'notice', 'resident', 'comment'),
+      board('댓글 작성 · 주민 · 입력 중', 'notice', 'resident', 'comment-input'),
       board('공지 작성 · 방장', 'notice', 'owner', 'write'),
+      board('공지 작성 · 방장 · 입력 중', 'notice', 'owner', 'write-input'),
       board('공지 수정 · 방장', 'notice', 'owner', 'edit'),
       board('공지 저장 실패 · 방장', 'notice', 'owner', 'write-failed'),
-      board('댓글 작성 · 주민', 'notice', 'resident', 'comment'),
       board('퀘스트 목록 · 방장', 'quest', 'owner', 'list'),
       board('퀘스트 목록 · 주민', 'quest', 'resident', 'list'),
-      board('퀘스트 자세히 보기', 'quest', 'resident', 'detail'),
-      board('일일 퀘스트 생성·수정', 'quest', 'owner', 'write'),
+      board('퀘스트 목록 · 빈 상태', 'quest', 'resident', 'empty'),
+      board('퀘스트 상세 · 시간대 집중', 'quest', 'resident', 'detail-focus'),
+      board('퀘스트 상세 · 스크린타임', 'quest', 'resident', 'detail-phone'),
+      board('스크린타임 · 측정 전', 'quest', 'resident', 'detail-unknown'),
+      board('퀘스트 만들기 · 시간대 집중', 'quest', 'owner', 'write-focus'),
+      board('퀘스트 만들기 · 시간대 집중 · 입력 중', 'quest', 'owner', 'write-focus-input'),
+      board('퀘스트 만들기 · 스크린타임', 'quest', 'owner', 'write-phone'),
+      board('퀘스트 만들기 · 스크린타임 · 입력 중', 'quest', 'owner', 'write-phone-input'),
       board('청사진 · 준비 중', 'blueprint', 'owner', 'waiting'),
       board('청사진 · 방장 건설 가능', 'blueprint', 'owner', 'ready'),
       board('청사진 · 주민 대기', 'blueprint', 'resident', 'ready'),
       board('청사진 · 공사 중', 'blueprint', 'owner', 'building'),
+      board('청사진 · 완공', 'blueprint', 'owner', 'complete'),
+      board('게시판 · 다른 섬 방문자', 'notice', 'resident', 'visitor'),
     ],
   },
   {
@@ -318,35 +371,21 @@ export const buildings: BuildingData[] = [
     name: '우체통',
     background: require('@/assets/interiors/mail-cute-v1.png'),
     concepts: [
+      { title: '열린 우체통', kind: 'mail-home', position: 'bottom', items: mailHomeItems },
+      { title: '우리 섬 채팅방', kind: 'island-room', position: 'bottom', items: mailHomeItems },
+      { title: '받은 편지함', kind: 'received-letters', position: 'middle', items: mailHomeItems },
+      { title: '받은 편지 상세', kind: 'letter-detail', position: 'middle', items: mailHomeItems },
       {
-        title: '열린 우체통',
-        kind: 'mail-home',
-        position: 'bottom',
-        items: [
-          ['우리 섬', '주민 모두의 편지방', '새 편지 7개'],
-          ['받은 편지', '친구가 보낸 봉투', '읽지 않은 편지 3개'],
-          ['편지 쓰기', '친구 한 명에게', '받는 친구를 먼저 골라요'],
-        ],
+        title: '편지 보낼 친구 선택',
+        kind: 'friend-select',
+        position: 'middle',
+        items: mailHomeItems,
       },
       {
-        title: '우리 섬 편지방',
-        kind: 'island-room',
-        position: 'bottom',
-        items: [
-          ['민지', '오늘 밤 모닥불에서 만나자', '방금'],
-          ['두부', '새 레코드 같이 들어볼 사람?', '8분 전'],
-          ['수아', '오늘 물고기 많이 잡았어', '21분 전'],
-        ],
-      },
-      {
-        title: '친구에게 보내는 편지',
-        kind: 'friend-mail',
-        position: 'bottom',
-        items: [
-          ['민지', '구름 섬 · 친구', '마지막 편지 오늘 09:12'],
-          ['밤이', '밤비 섬 · 친구', '마지막 편지 어제 22:40'],
-          ['보리', '라임 섬 · 친구', '아직 주고받은 편지 없음'],
-        ],
+        title: '친구에게 편지 쓰기',
+        kind: 'friend-compose',
+        position: 'middle',
+        items: mailHomeItems,
       },
     ],
   },
@@ -634,6 +673,13 @@ function Toast({ message, serial }: { message: string; serial: number }) {
 }
 
 const fill = { position: 'absolute' as const, left: 0, right: 0, top: 0, bottom: 0 };
+const MAIL_LAND = { left: 338, right: 36 };
+// 2:3 배경 장면을 화면에 cover로 깔고 세로 38% 지점에 맞춘다 (세로 화면은 높이에 딱 맞아 위아래 여백이 없다)
+export const interiorScene = (width: number, height: number) => {
+  const w = Math.max(width, (height * artSize.background[0]) / artSize.background[1]),
+    h = (w * artSize.background[1]) / artSize.background[0];
+  return { left: (width - w) / 2, top: (height - h) * 0.38, width: w, height: h };
+};
 
 export function InteriorScreen({
   buildingIndex,
@@ -642,6 +688,9 @@ export function InteriorScreen({
   height,
   reduceMotion = false,
   hideArtifact = false,
+  e,
+  insets,
+  sceneHeight = height,
 }: {
   buildingIndex: number;
   conceptIndex: number;
@@ -649,6 +698,9 @@ export function InteriorScreen({
   height: number;
   reduceMotion?: boolean;
   hideArtifact?: boolean;
+  e?: any;
+  insets?: { top: number; left: number };
+  sceneHeight?: number;
 }) {
   const building = buildings[buildingIndex],
     concept = building.concepts[conceptIndex];
@@ -690,22 +742,41 @@ export function InteriorScreen({
           ],
         };
   const isHall = building.id === 'hall';
-  const hotspot = building.id === 'board' ? undefined : hotspotAt[concept.kind];
+  // 핫스폿은 시안 구경용이라 앱 화면에서는 끈다
+  const hotspot = e || building.id === 'board' ? undefined : hotspotAt[concept.kind];
   const Artifact = artifacts[concept.kind];
   const modeLabel =
-    isHall || building.id === 'board'
+    isHall || building.id === 'board' || building.id === 'mail'
       ? ''
       : `${String.fromCharCode(65 + conceptIndex)}안 · ${kindCopy[concept.kind]} 중심`;
+  // 가로 우체통은 편지·채팅 종이를 오른쪽 열(폭 500)에 둔다
+  const side = building.id === 'mail' && width > sceneHeight ? MAIL_LAND : { left: 14, right: 14 };
   const wrap =
     concept.position === 'scene'
       ? fill
       : concept.position === 'bottom'
-        ? { left: 14, right: 14, bottom: 22 }
-        : { left: 14, right: 14, top: '23%' as const };
+        ? { ...side, bottom: building.id === 'mail' ? 8 : 22 }
+        : building.id === 'mail'
+          ? // 가운데에 두되, 화면보다 긴 편지는 위 12에 붙이고 아래로 넘친다
+            wrapHeight
+            ? { ...side, top: Math.max(12, (height - wrapHeight) / 2) }
+            : { ...side, top: '50%' as const, transform: [{ translateY: '-50%' }] }
+          : { left: 14, right: 14, top: '23%' as const };
   const screenGradient =
     'linear-gradient(180deg,#37271d12 0%,transparent 24%,transparent 70%,#37271d0c 100%)';
-  // background-size:auto 100% · 가운데 정렬
-  const bgWidth = (height * artSize.background[0]) / artSize.background[1];
+  // 게시판·우체통은 가로에서도 장면이 이어지게 cover로 깐다. 나머지는 원본 background-size:auto 100%
+  const coverScene = building.id === 'board' || building.id === 'mail';
+  const bg = coverScene
+    ? interiorScene(width, sceneHeight)
+    : {
+        left: (width - (height * artSize.background[0]) / artSize.background[1]) / 2,
+        top: 0,
+        width: (height * artSize.background[0]) / artSize.background[1],
+        height,
+      };
+  // 앱에서는 가짜 상태 표시줄을 빼고, 안전 영역보다 너무 위로 올라가지 않게 뒤로 가기·간판을 내린다
+  const chromeTop = Math.max(0, (insets?.top ?? 0) - 52),
+    chromeLeft = Math.max(0, (insets?.left ?? 0) - 52);
 
   return (
     <View
@@ -715,10 +786,21 @@ export function InteriorScreen({
         // 웹은 원본과 같은 CSS 배경으로 깔아야 그림 확대 결과가 픽셀까지 같다
         webOnly({
           backgroundImage: `${screenGradient},url("${assetUri(building.background)}")`,
-          backgroundSize: 'auto 100%',
-          backgroundPosition: ['hall', 'observatory', 'mail'].includes(building.id)
-            ? 'center top'
-            : 'center',
+          // 키보드로 높이가 줄면 창 높이로 계산한 위치에 그대로 둔다
+          backgroundSize:
+            sceneHeight !== height
+              ? `100% 100%,${bg.width}px ${bg.height}px`
+              : coverScene
+                ? 'cover'
+                : 'auto 100%',
+          backgroundPosition:
+            sceneHeight !== height
+              ? `0 0,${bg.left}px ${bg.top}px`
+              : coverScene
+                ? 'center 38%'
+                : ['hall', 'observatory'].includes(building.id)
+                  ? 'center top'
+                  : 'center',
         }),
       ]}
     >
@@ -727,13 +809,7 @@ export function InteriorScreen({
           <Image
             source={building.background}
             resizeMode="stretch"
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: (width - bgWidth) / 2,
-              width: bgWidth,
-              height,
-            }}
+            style={{ position: 'absolute', ...bg }}
           />
           <View style={[fill, { pointerEvents: 'none' }, gradient(screenGradient)]} />
         </>
@@ -747,30 +823,32 @@ export function InteriorScreen({
           ]}
         />
       )}
-      <View
-        testID="status-bar"
-        style={{
-          position: 'absolute',
-          zIndex: 12,
-          left: 18,
-          right: 18,
-          top: 8,
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-        }}
-      >
-        <Text style={[statusText, { fontWeight: '900' }]}>9:41</Text>
-        <Text style={statusText}>● ● ▰</Text>
-      </View>
+      {!e && (
+        <View
+          testID="status-bar"
+          style={{
+            position: 'absolute',
+            zIndex: 12,
+            left: 18,
+            right: 18,
+            top: 8,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Text style={[statusText, { fontWeight: '900' }]}>9:41</Text>
+          <Text style={statusText}>● ● ▰</Text>
+        </View>
+      )}
       <Pressable
         testID="scene-back"
         accessibilityLabel="섬으로 돌아가기"
-        onPress={() => showToast('섬으로 돌아가는 전환이 이어집니다')}
+        onPress={() => (e ? e.home() : showToast('섬으로 돌아가는 전환이 이어집니다'))}
         style={{
           position: 'absolute',
           zIndex: 12,
-          left: 14,
-          top: 36,
+          left: 14 + chromeLeft,
+          top: 36 + chromeTop,
           width: 34,
           height: 34,
           alignItems: 'center',
@@ -794,46 +872,49 @@ export function InteriorScreen({
           ‹
         </Text>
       </Pressable>
-      <View
-        testID="place-sign"
-        style={[
-          {
-            position: 'absolute',
-            zIndex: 9,
-            left: '50%',
-            top: 43,
-            minWidth: isHall ? 115 : 94,
-            paddingTop: 5,
-            paddingHorizontal: 14,
-            paddingBottom: 6,
-            transform: [{ translateX: '-50%' }, { rotate: '-1deg' }],
-            borderWidth: 1.5,
-            borderColor: '#65462f',
-            borderTopLeftRadius: 6,
-            borderTopRightRadius: 6,
-            borderBottomLeftRadius: 9,
-            borderBottomRightRadius: 9,
-            boxShadow: '0 3px 0 #65462f',
-            alignItems: 'center',
-          },
-          gradient('linear-gradient(90deg,#b87848,#d19b61,#b87848)'),
-        ]}
-      >
-        <Text
+      {/* 가로에서 키보드가 올라와 화면이 아주 낮아지면 간판이 입력 종이를 가리지 않게 뺀다 */}
+      {height >= 260 && (
+        <View
+          testID="place-sign"
           style={[
             {
-              fontFamily: BODY_FONT,
-              fontSize: isHall ? 16 : 12,
-              lineHeight: lh((isHall ? 16 : 12) * 1.6),
-              color: '#fff7e7',
-              textAlign: 'center',
+              position: 'absolute',
+              zIndex: 9,
+              left: '50%',
+              top: 43 + chromeTop,
+              minWidth: isHall ? 115 : 94,
+              paddingTop: 5,
+              paddingHorizontal: 14,
+              paddingBottom: 6,
+              transform: [{ translateX: '-50%' }, { rotate: '-1deg' }],
+              borderWidth: 1.5,
+              borderColor: '#65462f',
+              borderTopLeftRadius: 6,
+              borderTopRightRadius: 6,
+              borderBottomLeftRadius: 9,
+              borderBottomRightRadius: 9,
+              boxShadow: '0 3px 0 #65462f',
+              alignItems: 'center',
             },
-            textShadow(0, 1, '#684a34'),
+            gradient('linear-gradient(90deg,#b87848,#d19b61,#b87848)'),
           ]}
         >
-          {building.name}
-        </Text>
-      </View>
+          <Text
+            style={[
+              {
+                fontFamily: BODY_FONT,
+                fontSize: isHall ? 16 : 12,
+                lineHeight: lh((isHall ? 16 : 12) * 1.6),
+                color: '#fff7e7',
+                textAlign: 'center',
+              },
+              textShadow(0, 1, '#684a34'),
+            ]}
+          >
+            {building.name}
+          </Text>
+        </View>
+      )}
       {hotspot && (
         <Hotspot
           at={hotspot}
@@ -846,7 +927,9 @@ export function InteriorScreen({
         />
       )}
       {!hideArtifact &&
-        (concept.kind === 'village-ledger' || concept.kind === 'island-management') && (
+        (concept.kind === 'village-ledger' ||
+          concept.kind === 'island-management' ||
+          (building.id === 'mail' && conceptIndex >= 2)) && (
           <View
             style={[
               fill,
@@ -858,8 +941,11 @@ export function InteriorScreen({
       {!hideArtifact && Artifact && (
         <Animated.View
           testID="artifact-wrap"
-          onLayout={(e) => setWrapHeight(e.nativeEvent.layout.height)}
-          style={[{ position: 'absolute', zIndex: 7, ...wrap }, peekStyle as any]}
+          onLayout={(event) => setWrapHeight(event.nativeEvent.layout.height)}
+          style={[
+            { position: 'absolute', zIndex: 7, ...wrap },
+            hotspot ? (peekStyle as any) : undefined,
+          ]}
         >
           <Artifact
             building={building}
@@ -869,6 +955,8 @@ export function InteriorScreen({
             height={height}
             reduceMotion={reduceMotion}
             showToast={showToast}
+            e={e}
+            sceneHeight={sceneHeight}
           />
         </Animated.View>
       )}
@@ -922,6 +1010,63 @@ const statusText = {
   color: INK,
   ...textShadow(0, 1, '#fff8'),
 };
+
+// 앱 라우트에서 게시판(board·notice·noticeEdit·quest·questEdit)과
+// 우체통(mail·chat·friendMail)을 건물 안 장면으로 그린다. 크기는 실제 화면(키보드로 줄어든 높이 포함)을 따른다
+export function InteriorRoute({ e }: { e: any }) {
+  const [fontsLoaded, fontError] = useInteriorFonts();
+  const layout = useAppLayout();
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const r: Route = e.route;
+  const mail = r === 'mail' || r === 'chat' || r === 'friendMail';
+  const friend = (e.state as State).friends?.some(
+    (f) => f.id === e.detail && f.status === 'friend',
+  );
+  // 우체통 시안 번호: 0 열린 우체통 · 1 채팅방 · 2 받은 편지 · 3 편지 상세 · 4 친구 선택 · 5 편지 쓰기
+  const conceptIndex = !mail
+    ? 0
+    : r === 'chat'
+      ? 1
+      : r === 'friendMail'
+        ? friend
+          ? 5
+          : 4
+        : e.detail
+          ? 3
+          : e.tab === '받은 편지'
+            ? 2
+            : 0;
+  const width = size?.width ?? layout.width,
+    height = size?.height ?? layout.height;
+  // 우체통은 316×686 폰 시안 크기로 그린 뒤 더 큰 화면에서는 통째로 키운다 (작아지지는 않는다)
+  // 배율은 창 크기로 정해 키보드가 올라와 높이가 줄어도 글자 크기가 바뀌지 않게 한다
+  const k = mail ? Math.max(1, Math.min(layout.width / 316, layout.height / 686)) : 1;
+  return (
+    <View
+      style={{ flex: 1, overflow: 'hidden' }}
+      onLayout={(event) => {
+        const { width: w, height: h } = event.nativeEvent.layout;
+        setSize({ width: w, height: h });
+      }}
+    >
+      {/* 글꼴을 못 불러와도 기본 글꼴로 계속 그린다 */}
+      {(fontsLoaded || fontError) && (
+        <View style={{ transformOrigin: 'left top', transform: [{ scale: k }] }}>
+          <InteriorScreen
+            buildingIndex={mail ? 3 : 1}
+            conceptIndex={conceptIndex}
+            width={width / k}
+            height={height / k}
+            reduceMotion={e.state.settings.reduceMotion}
+            e={e}
+            insets={{ top: layout.insets.top / k, left: layout.insets.left / k }}
+            sceneHeight={Math.max(height, layout.height) / k}
+          />
+        </View>
+      )}
+    </View>
+  );
+}
 
 // 웹 비교용 화면: /?interiors=1&b=건물&c=시안&w=폭&h=높이[&noartifact=1]
 export function InteriorsReview() {
@@ -2663,8 +2808,47 @@ const hallArtifacts: Record<string, ArtifactRenderer> = {
 // 게시판 기능 화면: board-view (원본 board.js의 공지·퀘스트·청사진 상태 기계와 마크업)
 
 type Notice = { title: string; time: string; body: string; comments: [string, string][] };
-type Quest = { title: string; type: string; target: number; rate: number };
-type QuestForm = { type: string; title: string; target: string };
+type QuestType = 'focus' | 'phone';
+type Quest = {
+  title: string;
+  type: QuestType;
+  startTime?: string;
+  endTime?: string;
+  target: number;
+  rate: number;
+};
+// 화면이 그리는 모양. 목업(Notice·Quest)과 앱 상태(e) 둘 다 이 모양으로 바꿔 넘긴다
+type NoticeView = {
+  id: string;
+  title: string;
+  time: string;
+  body: string;
+  comments: { id: string; name: string; text: string; mine: boolean }[];
+};
+// rate가 null이면 아직 측정하지 못한 값이다 (0%로 그리지 않는다)
+type QuestView = Omit<Quest, 'rate'> & { id: string; rate: number | null };
+type ResidentRate = { id: string; name: string; color: Cat; rate: number | null };
+type BlueprintView = {
+  state: 'none' | 'waiting' | 'ready' | 'building' | 'complete';
+  name: string;
+  image: ImageSourcePropType;
+  price: string;
+  time: string;
+  detail: string;
+  collected: number;
+  needed: number;
+  balance: number;
+  cost: number;
+  progress: number;
+  residents: { id: string; name: string; value: string }[];
+};
+type QuestForm = {
+  type: QuestType;
+  title: string;
+  startTime: string;
+  endTime: string;
+  target: string;
+};
 type BoardState = {
   role: 'owner' | 'resident';
   panel: '' | 'notice' | 'quest' | 'blueprint';
@@ -2679,8 +2863,8 @@ type BoardState = {
   balance: number;
   deleteTarget: 'notice' | 'comment';
   commentIndex: number;
-  questEditing: boolean;
   questForm: QuestForm | null;
+  screenUnknown: boolean;
   // 원본은 상태가 바뀔 때마다 innerHTML을 새로 그려 퀘스트 종이 애니메이션이 다시 시작된다
   serial: number;
 };
@@ -2718,19 +2902,22 @@ const NOTICES: Notice[] = [
   },
 ];
 const QUESTS: Quest[] = [
-  { title: '아침 25분 집중', type: 'focus', target: 25, rate: 100 },
+  {
+    title: '아침 집중',
+    type: 'focus',
+    startTime: '07:00',
+    endTime: '09:00',
+    target: 25,
+    rate: 100,
+  },
   { title: '하루 폰 90분 이하', type: 'phone', target: 90, rate: 75 },
-  { title: '저녁 40분 집중', type: 'focus', target: 40, rate: 38 },
+  { title: '저녁 집중', type: 'focus', startTime: '19:00', endTime: '22:00', target: 60, rate: 38 },
 ];
 const RESIDENTS = [
   ['민지', 'calico'],
   ['두부', 'white'],
   ['수아', 'cream'],
 ] as const;
-const QUEST_TYPES: [string, string][] = [
-  ['focus', '집중 시간'],
-  ['phone', '하루 폰 사용'],
-];
 const HANDWRITING = [
   'M5 10 C8 2 12 4 10 10 C8 16 16 15 17 8 C18 2 24 3 22 11 C20 16 29 13 31 7 M39 10 C41 3 46 4 45 10 C44 16 51 15 53 7 C56 2 59 6 58 11 C57 16 65 13 67 7 C69 3 74 6 73 12 C73 16 81 11 85 9',
   'M6 27 C10 20 14 21 12 27 C10 33 18 31 21 24 C24 19 28 23 26 29 C24 34 33 31 35 25 C37 20 42 22 41 29 M49 26 C52 19 58 22 55 29 C53 34 63 31 64 24 C66 20 70 24 69 29 C70 33 76 30 80 26 C84 22 89 26 93 25',
@@ -2758,8 +2945,36 @@ const boardFont = (
   ...webOnly({ whiteSpace: 'normal' }),
 });
 
+// 가로(874×402 시안) 배치: 게시판 종이·상세·청사진을 오른쪽 열에 둔다
+const LAND = {
+  // 장면 글자·청사진 누름 영역 (장면 상자 기준 비율, 874×402 정본에 맞춘 값)
+  labels: {
+    position: 'absolute' as const,
+    left: '3.95%' as const,
+    top: '9.95%' as const,
+    width: '92.68%' as const,
+    height: '75.06%' as const,
+  },
+  blueprintArea: {
+    left: '59.94%' as const,
+    top: '32.53%' as const,
+    width: '18.58%' as const,
+    height: '17.07%' as const,
+  },
+  drawer: { left: 324, right: 30 },
+  overlay: { left: 338, right: 36, top: 28, maxHeight: '65%' as const },
+  blueprint: { left: 324, right: 30 },
+};
+
 function makeState(concept: Concept): BoardState {
-  const view = concept.boardView || 'list';
+  const requestedView = concept.boardView || 'list';
+  let view = requestedView;
+  if (requestedView === 'comment-input') view = 'comment';
+  if (requestedView === 'write-input') view = 'write';
+  if (requestedView.startsWith('detail-')) view = 'detail';
+  if (requestedView.startsWith('write-focus') || requestedView.startsWith('write-phone'))
+    view = 'write';
+  if (requestedView === 'empty') view = 'list';
   const state: BoardState = {
     role: concept.boardRole || 'owner',
     panel: concept.boardPanel || '',
@@ -2774,19 +2989,44 @@ function makeState(concept: Concept): BoardState {
     balance: 240,
     deleteTarget: 'notice',
     commentIndex: 0,
-    questEditing: false,
     questForm: null,
+    screenUnknown: requestedView === 'detail-unknown',
     serial: 0,
   };
-  if (['edit', 'write-failed'].includes(view)) {
+  if (['edit', 'write-failed'].includes(requestedView)) {
     state.draft = { title: NOTICES[0].title, body: NOTICES[0].body };
-    state.editing = view === 'edit';
+    state.editing = requestedView === 'edit';
   }
-  if (view === 'write-failed') {
+  if (requestedView === 'write-failed') {
     state.view = 'write';
     state.error = '저장하지 못했어요. 입력한 내용은 그대로 남아 있어요.';
   }
-  if (view === 'comment') state.commentDraft = '수아야, 어서 와! 같이 낚시하자.';
+  if (requestedView === 'comment' || requestedView === 'comment-input')
+    state.commentDraft = '수아야, 어서 와! 같이 낚시하자.';
+  if (requestedView === 'write-input')
+    state.draft = {
+      title: '내일도 우리 같이 힘내요',
+      body: '아침 집중은 각자 편한 시간에 시작해요.',
+    };
+  if (requestedView === 'detail-phone' || requestedView === 'detail-unknown') state.questIndex = 1;
+  if (requestedView.startsWith('write-focus')) {
+    state.questForm = {
+      type: 'focus',
+      title: '저녁 집중',
+      startTime: '19:00',
+      endTime: '22:00',
+      target: '50',
+    };
+  }
+  if (requestedView.startsWith('write-phone')) {
+    state.questForm = {
+      type: 'phone',
+      title: '하루 폰 90분 이하',
+      startTime: '19:00',
+      endTime: '22:00',
+      target: '90',
+    };
+  }
   return state;
 }
 
@@ -2884,28 +3124,13 @@ function Handwriting({ short }: { short?: boolean }) {
 // 스크롤 패널: 웹은 원본처럼 overflow-y:auto 인 div (ScrollView는 translateZ(0)을 붙여 그리기가 달라진다)
 // overscroll-behavior 는 원본처럼 공지 패널에만 준다: 붙이면 크롬이 패널을 합성 레이어로 올려 색이 1씩 달라진다
 function Scroll({ style, children }: { style: any; children: React.ReactNode }) {
-  if (Platform.OS !== 'web') return <ScrollView style={style}>{children}</ScrollView>;
+  if (Platform.OS !== 'web')
+    return (
+      <ScrollView style={style} keyboardShouldPersistTaps="handled">
+        {children}
+      </ScrollView>
+    );
   return <View style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}>{children}</View>;
-}
-
-// .artifact-tag (게시판 크기)
-function BoardTag({ label }: { label: string }) {
-  return (
-    <View
-      style={{
-        alignSelf: 'flex-start',
-        marginBottom: 7,
-        paddingVertical: 3,
-        paddingHorizontal: 9,
-        borderWidth: 1,
-        borderColor: '#7f624f',
-        borderRadius: 99,
-        backgroundColor: '#fff8e9',
-      }}
-    >
-      <Text style={boardFont(12, 1.6, '800')}>{label}</Text>
-    </View>
-  );
 }
 
 // .board-primary · .board-outline
@@ -3081,6 +3306,48 @@ function PaperAction({
   );
 }
 
+// 공지 종이 위의 주요 동작은 앱 버튼 대신 잉크 도장을 찍은 것처럼 보이게 한다.
+function PaperStamp({
+  label,
+  onPress,
+  testID,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  testID: string;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          alignSelf: 'flex-end',
+          minHeight: 44,
+          marginTop: 5,
+          paddingVertical: 8,
+          paddingHorizontal: 17,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderWidth: 2,
+          borderColor: '#9a6557',
+          borderRadius: 4,
+          backgroundColor: '#fffaf1',
+          transform: [{ rotate: '-1deg' }],
+        },
+        disabled && { opacity: 0.42 },
+        pressed && { opacity: 0.55, transform: [{ rotate: '-1deg' }, { scale: 0.98 }] },
+      ]}
+    >
+      <Text style={boardFont(16, 1.2, '400', '#8d5b50', 'BoardHand-Bold')}>{label}</Text>
+    </Pressable>
+  );
+}
+
 // .quest-card-track
 function Track({ rate, color, style }: { rate: number; color: string; style?: any }) {
   return (
@@ -3094,6 +3361,37 @@ function Track({ rate, color, style }: { rate: number; color: string; style?: an
         style={{ width: `${rate}%`, height: '100%', borderRadius: 99, backgroundColor: color }}
       />
     </View>
+  );
+}
+
+function BlueprintReadyStamp({ reduceMotion }: { reduceMotion: boolean }) {
+  const impact = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  useEffect(() => {
+    if (reduceMotion) return;
+    Animated.timing(impact, {
+      toValue: 1,
+      duration: 240,
+      easing: Easing.out(Easing.back(1.8)),
+      useNativeDriver: false,
+    }).start();
+  }, [impact, reduceMotion]);
+  return (
+    <Animated.View
+      style={{
+        width: 126,
+        height: 126,
+        opacity: impact,
+        transform: [
+          { scale: impact.interpolate({ inputRange: [0, 0.82, 1], outputRange: [1.65, 0.94, 1] }) },
+        ],
+      }}
+    >
+      <Picture
+        source={interiorArt.blueprintReadyStamp}
+        label="준비 완료 도장"
+        style={{ width: '100%', height: '100%' }}
+      />
+    </Animated.View>
   );
 }
 
@@ -3123,23 +3421,25 @@ const inputStyle = (): any => ({
   lineHeight: lh(14 * 1.5),
 });
 
-// <select>: 웹은 브라우저 기본 모양(화살표)까지 같도록 실제 select를 그린다
-function Choice({
+function QuestTimeInput({
   testID,
-  options,
+  label,
   value,
   onChange,
 }: {
   testID: string;
-  options: [string, string][];
+  label: string;
   value: string;
   onChange: (value: string) => void;
 }) {
   if (Platform.OS === 'web')
     return (
-      <select
+      <input
         data-testid={testID}
-        value={value}
+        aria-label={label}
+        type="time"
+        // 웹 time 입력은 HH:MM만 읽는다. "9:00"으로 저장된 예전 값도 보이게 맞춰서 넘긴다
+        value={clockText(value)}
         onChange={(event) => onChange(event.target.value)}
         style={{
           boxSizing: 'border-box',
@@ -3154,26 +3454,73 @@ function Choice({
           color: INK,
           font: '14px/1.5 Gowun',
         }}
-      >
-        {options.map(([option, label]) => (
-          <option key={option} value={option}>
-            {label}
-          </option>
-        ))}
-      </select>
+      />
     );
-  const index = Math.max(
-    0,
-    options.findIndex(([option]) => option === value),
-  );
   return (
-    <Pressable
+    <TextInput
       testID={testID}
-      onPress={() => onChange(options[(index + 1) % options.length][0])}
-      style={[inputStyle(), { justifyContent: 'center' }]}
-    >
-      <Text style={boardFont(14, 1.5, '400', INK, GOWUN)}>{`${options[index][1]} ▾`}</Text>
-    </Pressable>
+      accessibilityLabel={label}
+      value={value}
+      onChangeText={onChange}
+      onEndEditing={() => onChange(clockText(value))}
+      placeholder="00:00"
+      placeholderTextColor="#757575"
+      keyboardType="numbers-and-punctuation"
+      maxLength={5}
+      style={inputStyle()}
+    />
+  );
+}
+
+function QuestTypeChoice({
+  value,
+  onChange,
+}: {
+  value: QuestType;
+  onChange: (value: QuestType) => void;
+}) {
+  const options: [QuestType, string, string][] = [
+    ['focus', '시간대 집중', '정한 시간 안에 집중'],
+    ['phone', '하루 폰 사용', '하루 사용량 상한'],
+  ];
+  return (
+    <View testID="board-quest-type" style={{ flexDirection: 'row', gap: 8 }}>
+      {options.map(([option, label, note]) => {
+        const selected = option === value;
+        return (
+          <Pressable
+            key={option}
+            testID={`board-quest-type-${option}`}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            onPress={() => onChange(option)}
+            style={({ pressed }) => ({
+              flex: 1,
+              minHeight: 64,
+              paddingVertical: 9,
+              paddingHorizontal: 8,
+              justifyContent: 'center',
+              borderWidth: 1.5,
+              borderColor: selected ? '#8b6956' : '#c8aa86',
+              borderRadius: 9,
+              backgroundColor: selected ? '#fff0b9' : '#fffdf5',
+              boxShadow: selected ? '0 3px 0 #8b6956' : 'none',
+              opacity: pressed ? 0.65 : 1,
+            })}
+          >
+            <Text style={[boardFont(14, 1.35, '700'), { textAlign: 'center' }]}>{label}</Text>
+            <Text
+              style={[
+                boardFont(11, 1.35, '400', '#786151', GOWUN),
+                { marginTop: 3, textAlign: 'center' },
+              ]}
+            >
+              {note}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -3181,17 +3528,13 @@ function Choice({
 function QuestCard({
   quest,
   index,
-  owner,
   reduceMotion,
   onDetail,
-  onEdit,
 }: {
-  quest: Quest;
+  quest: QuestView;
   index: number;
-  owner: boolean;
   reduceMotion: boolean;
   onDetail: () => void;
-  onEdit: () => void;
 }) {
   const t = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -3241,133 +3584,591 @@ function QuestCard({
       >
         <Text style={boardFont(18, 1.2, '400', INK, 'BoardHand-Bold')}>{quest.title}</Text>
       </View>
+      <Text style={[boardFont(12, 1.45, '400', '#786147', GOWUN), { marginTop: 5 }]}>
+        {quest.type === 'phone'
+          ? `하루 폰 사용 ${quest.target}분 이하`
+          : quest.startTime
+            ? `${quest.startTime}–${quest.endTime} · ${quest.target}분 집중`
+            : `${quest.target}분 집중`}
+      </Text>
       <View
         style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginVertical: 7 }}
       >
         <Text style={boardFont(13, 1.6, '400', '#786147')}>내 달성률</Text>
-        <Text style={boardFont(13, 1.6, '700')}>{`${quest.rate}%`}</Text>
+        <Text style={boardFont(13, 1.6, '700')}>
+          {quest.rate == null ? '측정 전' : `${quest.rate}%`}
+        </Text>
       </View>
       <Track
-        rate={quest.rate}
+        rate={quest.rate ?? 0}
         color={complete ? '#7eaa71' : '#c9943f'}
         style={{ height: 5, backgroundColor: '#b99e5b33' }}
       />
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginTop: 7 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 7 }}>
         <Link testID={`board-quest-detail-${index}`} label="자세히 보기 ›" onPress={onDetail} />
-        {owner && <Link testID={`board-quest-edit-${index}`} label="수정" onPress={onEdit} />}
       </View>
     </Animated.View>
   );
 }
 
-function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
-  const [s, setS] = useState(() => makeState(concept));
-  const [notices, setNotices] = useState(NOTICES);
-  const [quests, setQuests] = useState(QUESTS);
-  const owner = s.role === 'owner';
-  const user = owner ? OWNER : '두부';
-  const render = (change: Partial<BoardState>) => setS({ ...s, ...change, serial: s.serial + 1 });
+// 앱 라우트의 게시판 탭 이름 ↔ 종이
+const boardTabs = { notice: '공지', quest: '퀘스트', blueprint: '청사진' } as const;
+// 건물 → 청사진 설명(buildOptions)과 완공 후 이동할 라우트
+const blueprintOption: Partial<Record<Building, string>> = {
+  library: 'library',
+  tower: 'observatory',
+  mail: 'mailbox',
+  gram: 'gramophone',
+  shop: 'shop',
+};
+const buildingRoute: Partial<Record<Building, Route>> = {
+  library: 'library',
+  tower: 'tower',
+  mail: 'mail',
+  gram: 'sound',
+  shop: 'shop',
+};
+// 받침이 있으면 앞 조사, 없으면 뒤 조사 (으로/로는 ㄹ받침도 '로')
+export const josa = (word: string, withFinal: string, without: string) => {
+  const code = word.charCodeAt(word.length - 1) - 0xac00;
+  const final = code >= 0 && code <= 11171 ? code % 28 : 0;
+  return word + (final && !(without === '로' && final === 8) ? withFinal : without);
+};
+const minutesLabel = (m: number) => (m % 60 ? `${m}분` : `${m / 60}시간`);
+// 공지 작성일: 오늘 · 어제 · M월 D일 (Asia/Seoul)
+const dayLabel = (at: number | undefined, now: number) => {
+  if (!at) return '';
+  const diff = Math.round((kstDayStart(dayKey(now)) - kstDayStart(dayKey(at))) / 86400000);
+  if (diff === 0) return '오늘';
+  if (diff === 1) return '어제';
+  const [, month, date] = dayKey(at).split('-').map(Number);
+  return `${month}월 ${date}일`;
+};
+// 퀘스트 만들기 입력 검사 (목업·앱 공통)
+const questError = (form: QuestForm) => {
+  const target = Number(form.target);
+  if (!form.title.trim() || !Number.isInteger(target) || target <= 0)
+    return '제목과 목표 시간을 입력해주세요.';
+  if (form.type === 'phone') return '';
+  const start = clockMinutes(form.startTime),
+    end = clockMinutes(form.endTime);
+  if (start === null || end === null) return '시작·종료 시간을 입력해주세요.';
+  if (end <= start) return '종료 시간은 시작 시간보다 늦어야 해요.';
+  if (target > end - start) return '목표 집중 시간은 진행 시간 안으로 정해주세요.';
+  return '';
+};
 
-  const publish = () => {
-    if (!owner) return;
-    const draft = s.draft;
-    if (!draft?.title.trim() || !draft.body.trim())
-      return render({ error: '제목과 본문을 입력해주세요.', view: 'write' });
-    const next = { title: draft.title.trim(), body: draft.body.trim() };
-    if (s.editing && notices[s.noticeIndex]) {
-      setNotices(
-        notices.map((notice, i) => (i === s.noticeIndex ? { ...notice, ...next } : notice)),
-      );
-      return render({ view: 'detail', error: '', editing: false, draft: null });
-    }
-    setNotices([...notices, { ...next, time: '오늘', comments: [] }]);
-    render({ noticeIndex: notices.length, view: 'detail', error: '', editing: false, draft: null });
+// 앱 상태(e)를 게시판이 그리는 모양으로 바꾼다
+function boardFromApp(e: any) {
+  const state: State = e.state,
+    i = currentIsland(state),
+    now: number = e.now;
+  const member = (id: string) => i.members.find((m) => m.id === id);
+  const notices: NoticeView[] = i.notices.map((n) => ({
+    id: n.id,
+    title: n.title,
+    time: dayLabel(n.at, now),
+    body: n.body,
+    comments: n.comments.map((c) => ({
+      id: c.id,
+      name: c.name,
+      text: c.text,
+      mine: isOwnComment(state, c),
+    })),
+  }));
+  const quests: QuestView[] = i.quests.map((q) => ({
+    id: q.id,
+    title: q.title,
+    type: q.type === 'screen' ? 'phone' : 'focus',
+    startTime: q.windowStart,
+    endTime: q.windowEnd,
+    target: q.target,
+    rate: questMemberRate(state, q, 'me', i.id, now),
+  }));
+  // 오늘 회차가 있으면 보상 판정과 같은 대상 스냅숏으로, 회차 전이면 지금 주민으로 보여 준다
+  const ratesOf = (quest: QuestView): ResidentRate[] => {
+    const q = i.quests.find((x) => x.id === quest.id);
+    const targets = q?.rounds?.[dayKey(now)]?.targets ?? targetIds(i);
+    return targets.map((id) => {
+      const who = member(id) ?? i.formerMembers?.find((m) => m.id === id);
+      return {
+        id,
+        name: id === 'me' ? `${state.name} · 나` : (who?.name ?? '떠난 주민'),
+        color: id === 'me' ? state.color : (who?.color ?? 'gray'),
+        rate: q ? questMemberRate(state, q, id, i.id, now) : null,
+      };
+    });
+  };
+  const goal = i.buildingQuest,
+    work = i.construction,
+    b = work?.building ?? goal?.building ?? i.completed?.building;
+  const option = buildOptions.find((o) => o.id === (b && blueprintOption[b]));
+  const share = b ? buildingShare(i, b) : 0,
+    targets = goal?.targets ?? [];
+  const blueprint: BlueprintView = {
+    // 회관·게시판처럼 청사진 설명이 없는 건물은 보여 줄 청사진이 없다
+    state: !option
+      ? 'none'
+      : work
+        ? 'building'
+        : goal
+          ? buildingReady(i)
+            ? 'ready'
+            : 'waiting'
+          : i.completed
+            ? 'complete'
+            : 'none',
+    name: b ? buildingNames[b] : '',
+    image: option?.image ?? interiorArt.buildings.library,
+    price: `1인당 ${share}마리`,
+    time: `공사 ${b ? minutesLabel(buildMinutes[b]) : ''}`,
+    detail: option?.detail ?? '',
+    collected: targets.reduce((n, id) => n + Math.min(share, Math.max(0, collectedBy(i, id))), 0),
+    needed: share * targets.length,
+    balance: balance(i),
+    cost: b ? buildingCost(i, b) : 0,
+    progress: work
+      ? Math.round(
+          Math.min(1, Math.max(0, (now - work.startedAt) / (work.endsAt - work.startedAt))) * 100,
+        )
+      : 0,
+    residents: targets.map((id) => {
+      const got = Math.max(0, collectedBy(i, id));
+      return {
+        id,
+        name: id === 'me' ? state.name : (member(id)?.name ?? '탈퇴한 주민'),
+        value: `${got} / ${share}마리${got >= share ? ' ✓' : ''}`,
+      };
+    }),
+  };
+  return {
+    island: i,
+    owner: isHost(i),
+    notices,
+    quests,
+    ratesOf,
+    blueprint,
+    building: b,
+  };
+}
+
+function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }: ArtifactProps) {
+  const [local, setS] = useState(() => makeState(concept));
+  const [mockNotices, setNotices] = useState(() =>
+    concept.boardPanel === 'notice' && concept.boardView === 'empty' ? [] : NOTICES,
+  );
+  const [mockQuests, setQuests] = useState(() =>
+    concept.boardPanel === 'quest' && concept.boardView === 'empty' ? [] : QUESTS,
+  );
+  // 앱 라우트에서도 화면 안에서만 잠깐 쓰는 상태: 댓글 입력 열림 · 삭제 확인 · 목표 분 · 오류
+  const [ui, setUi] = useState({
+    comment: false,
+    confirm: null as null | { target: 'notice' | 'comment'; index: number },
+    target: '',
+    error: '',
+  });
+  // 매초 오는 now로 다시 계산하지 않게, 상태가 바뀌거나 날짜가 넘어갈 때만 계산한다
+  // (집중·공사 중에는 달성률·공사 진행률이 시간에 따라 변하므로 매번 계산)
+  const live = !!e && (!!e.state.session || !!currentIsland(e.state).construction);
+  const app = useMemo(
+    () => (e ? boardFromApp(e) : null),
+    [e?.state, e ? dayKey(e.now) : '', live ? e.now : 0],
+  );
+  const routeKey = e ? `${e.route}/${e.detail}/${e.tab}` : '';
+  useEffect(() => {
+    if (!e) return;
+    // 퀘스트 수정으로 들어오면 목표 분을 기존 값으로 채운다 (나머지 값은 App의 text·body·시간대)
+    const editing =
+      e.route === 'questEdit' && e.detail
+        ? currentIsland(e.state).quests.find((q) => q.id === e.detail)
+        : undefined;
+    setUi((prev) => ({
+      ...prev,
+      comment: false,
+      confirm: null,
+      error: '',
+      target: editing ? String(editing.target) : prev.target,
+    }));
+  }, [routeKey]);
+
+  const owner = app ? app.owner : local.role === 'owner';
+  const user = owner ? OWNER : '두부';
+  const notices: NoticeView[] =
+    app?.notices ??
+    mockNotices.map((notice, i) => ({
+      ...notice,
+      id: String(i),
+      comments: notice.comments.map(([name, text], j) => ({
+        id: String(j),
+        name,
+        text,
+        mine: name === user,
+      })),
+    }));
+  const quests: QuestView[] = app?.quests ?? mockQuests.map((q, i) => ({ ...q, id: String(i) }));
+  const residentsOf = (quest: QuestView): ResidentRate[] =>
+    app?.ratesOf(quest) ??
+    RESIDENTS.map(([name, color], i) => ({
+      id: name,
+      name: name === user ? `${name} · 나` : name,
+      color,
+      rate: local.screenUnknown && quest.type === 'phone' ? null : i < 2 ? quest.rate : 48,
+    }));
+  const mockReady = local.ready && local.balance >= 60;
+  const blueprintView: BlueprintView = app?.blueprint ?? {
+    ...buildOptions[0],
+    state: ['building', 'complete'].includes(local.view)
+      ? (local.view as 'building' | 'complete')
+      : mockReady
+        ? 'ready'
+        : 'waiting',
+    collected: local.ready ? 60 : 50,
+    needed: 60,
+    balance: local.balance,
+    cost: 60,
+    progress: 35,
+    residents: RESIDENTS.map(([name], i) => ({
+      id: name,
+      name,
+      value: `${local.ready ? 20 : [20, 18, 12][i]} / 20마리${local.ready || i === 0 ? ' ✓' : ''}`,
+    })),
   };
 
-  // 원본 handleBulletinClick 의 data-bulletin 동작
-  const act = (action: string, index = 0) => {
-    if (
-      [
-        'notice-new',
-        'notice-edit',
-        'notice-delete',
-        'quest-new',
-        'quest-edit',
-        'build-start',
-      ].includes(action) &&
-      !owner
-    )
-      return;
-    const comments = notices[s.noticeIndex]?.comments ?? [];
-    switch (action) {
-      case 'notice-new':
+  // 없는 공지·퀘스트 id로 상세를 열면 목록을 보여 주고 라우트도 목록으로 바꾼다
+  const missing =
+    !!e &&
+    (((e.route === 'notice' || (e.route === 'noticeEdit' && e.detail)) &&
+      !notices.some((n) => n.id === e.detail)) ||
+      (((e.route === 'quest' && e.detail !== 'building') ||
+        (e.route === 'questEdit' && e.detail)) &&
+        !quests.some((q) => q.id === e.detail)));
+  useEffect(() => {
+    if (!missing) return;
+    e.replace('board');
+    e.setTab(e.route === 'quest' || e.route === 'questEdit' ? boardTabs.quest : boardTabs.notice);
+  }, [missing]);
+  // 앱 라우트 → 게시판 상태. 공지·퀘스트·청사진 종이와 상세·작성 화면은 route/detail/tab으로 정해진다
+  const s: BoardState = (() => {
+    if (!e) return local;
+    const r = e.route,
+      detail: string = e.detail;
+    const panel: BoardState['panel'] =
+      r === 'notice' || r === 'noticeEdit'
+        ? 'notice'
+        : r === 'questEdit' || (r === 'quest' && detail !== 'building')
+          ? 'quest'
+          : r === 'quest'
+            ? 'blueprint'
+            : ((Object.keys(boardTabs) as (keyof typeof boardTabs)[]).find(
+                (k) => boardTabs[k] === e.tab,
+              ) ?? '');
+    const view = missing
+      ? 'list'
+      : ui.confirm
+        ? 'confirm'
+        : r === 'notice'
+          ? ui.comment
+            ? 'comment'
+            : 'detail'
+          : r === 'noticeEdit'
+            ? detail
+              ? 'edit'
+              : 'write'
+            : r === 'questEdit'
+              ? 'write'
+              : panel === 'quest' && r === 'quest'
+                ? 'detail'
+                : panel === 'blueprint'
+                  ? blueprintView.state
+                  : 'list';
+    return {
+      ...local,
+      role: owner ? 'owner' : 'resident',
+      panel,
+      view,
+      noticeIndex: Math.max(
+        0,
+        notices.findIndex((n) => n.id === detail),
+      ),
+      questIndex: Math.max(
+        0,
+        quests.findIndex((q) => q.id === detail),
+      ),
+      draft: r === 'noticeEdit' ? { title: e.text, body: e.body } : null,
+      commentDraft: e.text,
+      error: ui.error,
+      editing: (r === 'noticeEdit' || r === 'questEdit') && !!detail,
+      deleteTarget: ui.confirm?.target ?? 'notice',
+      commentIndex: ui.confirm?.index ?? 0,
+      questForm:
+        r === 'questEdit'
+          ? {
+              type: e.body === 'screen' ? 'phone' : 'focus',
+              title: e.text,
+              startTime: e.windowStart,
+              endTime: e.windowEnd,
+              target: ui.target,
+            }
+          : null,
+    };
+  })();
+  const render = (change: Partial<BoardState>) => setS({ ...s, ...change, serial: s.serial + 1 });
+  const setError = (error: string) =>
+    e ? setUi((prev) => ({ ...prev, error })) : render({ error });
+  const failCopy = '저장하지 못했어요. 입력한 내용은 그대로 남아 있어요.';
+
+  // 화면 동작. 목업은 로컬 상태를, 앱은 라우트 이동과 reducer 액션을 쓴다
+  const nav = {
+    open: (panel: BoardState['panel']) => {
+      if (!e) {
+        if (s.panel === panel) return render({ panel: '', view: 'list', error: '' });
         return render({
-          view: 'write',
-          editing: false,
-          draft: s.draft ?? { title: '', body: '' },
+          panel,
+          view: panel === 'blueprint' ? (s.ready ? 'ready' : 'waiting') : 'list',
           error: '',
         });
-      case 'notice-edit':
+      }
+      // 열린 종이를 다시 누르면 닫고, 다른 종이는 기록을 쌓지 않고 바꿔 연다
+      if (s.panel === panel) return e.back();
+      if (s.panel) e.replace('board');
+      else e.go('board');
+      if (panel) e.setTab(boardTabs[panel]);
+    },
+    closePanel: () => (e ? e.back() : render({ panel: '' })),
+    openNotice: (index: number) =>
+      e
+        ? e.go('notice', notices[index].id)
+        : render({ noticeIndex: index, view: 'detail', error: '' }),
+    backToNotices: () => (e ? e.back() : render({ view: 'list', commentDraft: '', error: '' })),
+    newNotice: () => {
+      if (!owner) return;
+      if (e) return e.go('noticeEdit');
+      render({
+        view: 'write',
+        editing: false,
+        draft: s.draft ?? { title: '', body: '' },
+        error: '',
+      });
+    },
+    editNotice: () => {
+      if (!owner) return;
+      const notice = notices[s.noticeIndex];
+      if (!e)
         return render({
           editing: true,
-          draft: { title: notices[s.noticeIndex].title, body: notices[s.noticeIndex].body },
+          draft: { title: notice.title, body: notice.body },
           view: 'edit',
           error: '',
         });
-      case 'notice-delete':
-        return render({ deleteTarget: 'notice', view: 'confirm' });
-      case 'comment-delete':
-        if (!owner && comments[index][0] !== user) return;
-        return render({ deleteTarget: 'comment', commentIndex: index, view: 'confirm' });
-      case 'delete-confirm':
-        if (s.deleteTarget === 'notice') {
-          setNotices(notices.filter((_, i) => i !== s.noticeIndex));
-          return render({ noticeIndex: 0, view: 'list' });
+      e.go('noticeEdit', notice.id);
+      e.setText(notice.title);
+      e.setBody(notice.body);
+    },
+    cancelEditor: () => (e ? e.back() : render({ view: s.editing ? 'detail' : 'list', error: '' })),
+    setDraft: (patch: { title?: string; body?: string }) => {
+      if (!e)
+        return setS((prev) => ({
+          ...prev,
+          draft: { ...(prev.draft ?? { title: '', body: '' }), ...patch },
+        }));
+      if (patch.title !== undefined) e.setText(patch.title);
+      if (patch.body !== undefined) e.setBody(patch.body);
+    },
+    publish: () => {
+      if (!owner) return;
+      const draft = s.draft;
+      if (!draft?.title.trim() || !draft.body.trim())
+        return setError('제목과 본문을 입력해주세요.');
+      const next = { title: draft.title.trim(), body: draft.body.trim() };
+      if (e) {
+        // 목업 서버: 다음 저장을 실패로 만들면 입력을 그대로 두고 문구만 보여 준다
+        if (e.failNext) {
+          e.setFailNext(false);
+          return setError(failCopy);
         }
-        if (!owner && comments[s.commentIndex][0] !== user) return;
+        e.dispatch({ type: 'NOTICE_SAVE', id: e.detail, ...next });
+        return e.back();
+      }
+      if (s.editing && mockNotices[s.noticeIndex]) {
         setNotices(
-          notices.map((notice, i) =>
-            i === s.noticeIndex
-              ? { ...notice, comments: notice.comments.filter((_, j) => j !== s.commentIndex) }
-              : notice,
-          ),
+          mockNotices.map((notice, i) => (i === s.noticeIndex ? { ...notice, ...next } : notice)),
         );
-        return render({ view: 'detail' });
-      case 'quest-edit':
-        return render({ questIndex: index, questEditing: true, questForm: null, view: 'write' });
-      case 'build-start':
-        if (!s.ready || s.balance < 60) return;
-        return render({ balance: s.balance - 60, view: 'building' });
-    }
-  };
-
-  const submitComment = () => {
-    const text = s.commentDraft.trim();
-    if (!text) return;
-    setNotices(
-      notices.map((notice, i) =>
-        i === s.noticeIndex ? { ...notice, comments: [...notice.comments, [user, text]] } : notice,
-      ),
-    );
-    render({ commentDraft: '', view: 'detail', error: '' });
-  };
-
-  const submitQuest = (form: QuestForm) => {
-    if (!owner) return;
-    const title = form.title.trim(),
-      target = Number(form.target);
-    if (!title || !(target > 0)) return;
-    const quest = { title, target, type: form.type, rate: 0 };
-    setQuests(
-      s.questEditing
-        ? quests.map((item, i) => (i === s.questIndex ? quest : item))
-        : [...quests, quest],
-    );
-    render({ view: 'list', questEditing: false, questForm: null });
+        return render({ view: 'detail', error: '', editing: false, draft: null });
+      }
+      setNotices([...mockNotices, { ...next, time: '오늘', comments: [] }]);
+      render({
+        noticeIndex: mockNotices.length,
+        view: 'detail',
+        error: '',
+        editing: false,
+        draft: null,
+      });
+    },
+    askDelete: (target: 'notice' | 'comment', index = 0) => {
+      if (target === 'notice' ? !owner : !owner && !notices[s.noticeIndex].comments[index].mine)
+        return;
+      if (e) return setUi((prev) => ({ ...prev, confirm: { target, index } }));
+      render(
+        target === 'notice'
+          ? { deleteTarget: 'notice', view: 'confirm' }
+          : { deleteTarget: 'comment', commentIndex: index, view: 'confirm' },
+      );
+    },
+    cancelDelete: () =>
+      e ? setUi((prev) => ({ ...prev, confirm: null })) : render({ view: 'detail' }),
+    confirmDelete: () => {
+      const notice = notices[s.noticeIndex];
+      if (!notice) return;
+      if (s.deleteTarget === 'notice') {
+        if (!owner) return;
+        if (e) {
+          e.dispatch({ type: 'NOTICE_DELETE', id: notice.id });
+          return e.back();
+        }
+        setNotices(mockNotices.filter((_, i) => i !== s.noticeIndex));
+        return render({ noticeIndex: 0, view: 'list' });
+      }
+      const comment = notice.comments[s.commentIndex];
+      if (!comment || (!owner && !comment.mine)) return;
+      if (e) {
+        e.dispatch({ type: 'COMMENT_DELETE', id: notice.id, commentId: comment.id });
+        return setUi((prev) => ({ ...prev, confirm: null }));
+      }
+      setNotices(
+        mockNotices.map((n, i) =>
+          i === s.noticeIndex
+            ? { ...n, comments: n.comments.filter((_, j) => j !== s.commentIndex) }
+            : n,
+        ),
+      );
+      render({ view: 'detail' });
+    },
+    openComment: () =>
+      e ? setUi((prev) => ({ ...prev, comment: true })) : render({ view: 'comment', error: '' }),
+    cancelComment: () => {
+      if (!e) return render({ view: 'detail', commentDraft: '', error: '' });
+      e.setText('');
+      setUi((prev) => ({ ...prev, comment: false }));
+    },
+    setCommentDraft: (commentDraft: string) =>
+      e ? e.setText(commentDraft) : setS((prev) => ({ ...prev, commentDraft })),
+    submitComment: () => {
+      const text = s.commentDraft.trim(),
+        notice = notices[s.noticeIndex];
+      if (!text || !notice) return;
+      if (e) {
+        e.dispatch({ type: 'COMMENT', id: notice.id, text });
+        e.setText('');
+        return setUi((prev) => ({ ...prev, comment: false }));
+      }
+      setNotices(
+        mockNotices.map((n, i) =>
+          i === s.noticeIndex ? { ...n, comments: [...n.comments, [user, text]] } : n,
+        ),
+      );
+      render({ commentDraft: '', view: 'detail', error: '' });
+    },
+    openQuest: (index: number) =>
+      e
+        ? e.go('quest', quests[index].id)
+        : render({ questIndex: index, view: 'detail', screenUnknown: false }),
+    backToQuests: () =>
+      e
+        ? e.back()
+        : render({ view: s.editing ? 'detail' : 'list', questForm: null, editing: false }),
+    newQuest: () => {
+      if (!owner) return;
+      if (!e) return render({ view: 'write', questForm: null, editing: false, error: '' });
+      e.go('questEdit');
+      e.setBody('focus');
+      e.setWindowStart('');
+      e.setWindowEnd('');
+      setUi((prev) => ({ ...prev, target: '' }));
+    },
+    // 방장만: 기존 값을 채운 만들기 종이를 연다. 저장하면 상세로 돌아온다
+    editQuest: (quest: QuestView) => {
+      if (!owner) return;
+      const form: QuestForm = {
+        type: quest.type,
+        title: quest.title,
+        startTime: quest.startTime ?? '',
+        endTime: quest.endTime ?? '',
+        target: String(quest.target),
+      };
+      if (!e) return render({ view: 'write', editing: true, questForm: form, error: '' });
+      e.go('questEdit', quest.id);
+      e.setText(form.title);
+      e.setBody(quest.type === 'phone' ? 'screen' : 'focus');
+      e.setWindowStart(form.startTime);
+      e.setWindowEnd(form.endTime);
+    },
+    setQuestForm: (form: QuestForm, patch: Partial<QuestForm>) => {
+      if (!e)
+        return setS((prev) => ({
+          ...prev,
+          error: '',
+          questForm: { ...form, ...prev.questForm, ...patch },
+        }));
+      if (patch.type) e.setBody(patch.type === 'phone' ? 'screen' : 'focus');
+      if (patch.title !== undefined) e.setText(patch.title);
+      if (patch.startTime !== undefined) e.setWindowStart(patch.startTime);
+      if (patch.endTime !== undefined) e.setWindowEnd(patch.endTime);
+      // 목표 분은 정수만 받는다
+      setUi((prev) => ({
+        ...prev,
+        error: '',
+        target: patch.target === undefined ? prev.target : patch.target.replace(/\D/g, ''),
+      }));
+    },
+    submitQuest: (form: QuestForm) => {
+      if (!owner) return;
+      const error = questError(form);
+      if (error) return e ? setError(error) : render({ view: 'write', questForm: form, error });
+      const title = form.title.trim(),
+        target = Number(form.target);
+      if (e) {
+        e.dispatch({
+          type: 'QUEST_SAVE',
+          id: s.editing ? e.detail : undefined,
+          title,
+          kind: form.type === 'phone' ? 'screen' : 'focus',
+          target,
+          windowStart: clockText(form.startTime),
+          windowEnd: clockText(form.endTime),
+        });
+        return e.back();
+      }
+      const next: Quest =
+        form.type === 'phone'
+          ? { title, type: 'phone', target, rate: 0 }
+          : {
+              title,
+              type: 'focus',
+              startTime: form.startTime,
+              endTime: form.endTime,
+              target,
+              rate: 0,
+            };
+      if (s.editing && mockQuests[s.questIndex]) {
+        setQuests(mockQuests.map((q, i) => (i === s.questIndex ? { ...next, rate: q.rate } : q)));
+        return render({ view: 'detail', questForm: null, editing: false, error: '' });
+      }
+      setQuests([...mockQuests, next]);
+      render({ view: 'list', questForm: null, error: '' });
+    },
+    build: () => {
+      if (!owner || blueprintView.state !== 'ready') return;
+      if (e) return app?.building && e.build(app.building);
+      if (s.balance < 60) return;
+      render({ balance: s.balance - 60, view: 'building' });
+    },
+    openBuilding: () => {
+      const r = app?.building && buildingRoute[app.building];
+      if (r) e.go(r);
+    },
   };
 
   const h4 = boardFont(20, 1.35, '700', INK, GOWUN);
-  const author = boardFont(13, 1.6, '400', '#786151');
   const body = [boardFont(14, 1.6), webOnly({ whiteSpace: 'pre-line', overflowWrap: 'anywhere' })];
   const muted = (style: any) => [boardFont(14, 1.5, '400', '#786151'), style];
   const formError = s.error !== '' && (
@@ -3393,7 +4194,7 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
     <View>
       <View>
         <Text style={[boardFont(14, 1.2, '400', '#9b7058', 'BoardHand'), { marginBottom: 1 }]}>
-          소다 섬 게시판
+          {app ? `${app.island.name} 게시판` : '소다 섬 게시판'}
         </Text>
         <View
           style={{
@@ -3411,11 +4212,7 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
             </Text>
           </Text>
           {owner && (
-            <PaperAction
-              testID="board-notice-new"
-              label="+ 새 공지"
-              onPress={() => act('notice-new')}
-            />
+            <PaperAction testID="board-notice-new" label="+ 새 공지" onPress={nav.newNotice} />
           )}
         </View>
       </View>
@@ -3423,10 +4220,10 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
         {notices.length ? (
           notices.map((notice, i) => (
             <Pressable
-              key={i}
+              key={notice.id}
               testID={`board-notice-item-${i}`}
               accessibilityRole="button"
-              onPress={() => render({ noticeIndex: i, view: 'detail', error: '' })}
+              onPress={() => nav.openNotice(i)}
               style={({ pressed }) => ({
                 minHeight: 66,
                 gap: 5,
@@ -3455,9 +4252,7 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                   gap: 8,
                 }}
               >
-                <Text
-                  style={boardFont(12, 1.3, '400', '#786151', GOWUN)}
-                >{`${OWNER} · ${notice.time}`}</Text>
+                <Text style={boardFont(12, 1.3, '400', '#786151', GOWUN)}>{notice.time}</Text>
                 <Text
                   style={[
                     boardFont(12, 1.3, '400', '#786151', GOWUN),
@@ -3493,47 +4288,30 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
     return (
       <View>
         {detailHead(
-          <PaperAction
-            testID="board-notice-back"
-            label="← 목록"
-            onPress={() => render({ view: 'list' })}
-          />,
+          <PaperAction testID="board-notice-back" label="← 목록" onPress={nav.backToNotices} />,
         )}
-        <View
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            gap: 8,
-            marginTop: 4,
-            marginBottom: 10,
-          }}
-        >
-          <Text style={author}>{OWNER}</Text>
-          <Text style={author}>{notice.time}</Text>
-        </View>
         <Text
           style={[
             boardFont(23, 1.2, '400', INK, 'BoardHand-Bold'),
-            { marginTop: 4, marginBottom: 12 },
+            { marginTop: 4, marginBottom: 3 },
             webOnly({ wordBreak: 'keep-all', textWrap: 'pretty' }),
           ]}
           lineBreakStrategyIOS="hangul-word"
         >
           {notice.title}
         </Text>
+        <Text
+          style={[boardFont(11, 1.45, '400', '#8a7364', GOWUN), { marginBottom: 14 }]}
+        >{`작성일 · ${notice.time}`}</Text>
         <Text style={[body, { marginBottom: 14 }]}>{notice.body}</Text>
         {owner && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 14 }}>
-            <PaperAction
-              testID="board-notice-edit"
-              label="수정"
-              onPress={() => act('notice-edit')}
-            />
+            <PaperAction testID="board-notice-edit" label="수정" onPress={nav.editNotice} />
             <Link
               testID="board-notice-delete"
               label="삭제"
               danger
-              onPress={() => act('notice-delete')}
+              onPress={() => nav.askDelete('notice')}
             />
           </View>
         )}
@@ -3551,17 +4329,59 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
             주민 댓글{' '}
             <Text style={{ marginLeft: 4, color: '#99644f' }}>{notice.comments.length}</Text>
           </Text>
-          <PaperAction
-            testID="board-comment-new"
-            label="+ 댓글 쓰기"
-            onPress={() => render({ view: 'comment', error: '' })}
-          />
+          {s.view === 'comment' ? (
+            <PaperAction testID="board-comment-cancel" label="취소" onPress={nav.cancelComment} />
+          ) : (
+            <PaperAction testID="board-comment-new" label="+ 댓글 쓰기" onPress={nav.openComment} />
+          )}
         </View>
+        {s.view === 'comment' && (
+          <View
+            style={{
+              gap: 8,
+              marginBottom: 14,
+              paddingBottom: 14,
+              borderBottomWidth: 1,
+              borderColor: '#d7bea0',
+            }}
+          >
+            <TextInput
+              testID="board-comment-input"
+              accessibilityLabel="댓글 내용"
+              autoFocus
+              multiline
+              textAlignVertical="top"
+              value={s.commentDraft}
+              onChangeText={nav.setCommentDraft}
+              placeholder="댓글을 적어주세요"
+              placeholderTextColor="#8d796a"
+              style={[
+                inputStyle(),
+                {
+                  height: 76,
+                  borderWidth: 0,
+                  borderBottomWidth: 1.5,
+                  borderRadius: 0,
+                  paddingHorizontal: 2,
+                  backgroundColor: 'transparent',
+                },
+              ]}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+              <PaperAction
+                testID="board-comment-submit"
+                label="등록 →"
+                onPress={nav.submitComment}
+                style={!s.commentDraft.trim() && { opacity: 0.38 }}
+              />
+            </View>
+          </View>
+        )}
         <View>
           {comments.length ? (
-            comments.map(([[name, text], commentIndex]) => (
+            comments.map(([{ id, name, text, mine }, commentIndex]) => (
               <View
-                key={commentIndex}
+                key={id}
                 style={{
                   flexDirection: 'row',
                   gap: 8,
@@ -3580,14 +4400,14 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                   >
                     {text}
                   </Text>
-                  {(owner || name === user) && (
+                  {(owner || mine) && (
                     <View style={{ flexDirection: 'row', marginTop: 5 }}>
                       <Link
                         testID={`board-comment-delete-${commentIndex}`}
                         label="삭제"
                         danger
                         size={12}
-                        onPress={() => act('comment-delete', commentIndex)}
+                        onPress={() => nav.askDelete('comment', commentIndex)}
                       />
                     </View>
                   )}
@@ -3605,21 +4425,16 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
   const noticeEditor = () => {
     if (!owner) return noticeList();
     const draft = s.draft ?? { title: '', body: '' };
-    const setDraft = (patch: Partial<typeof draft>) =>
-      setS((prev) => ({
-        ...prev,
-        draft: { ...(prev.draft ?? { title: '', body: '' }), ...patch },
-      }));
+    const setDraft = nav.setDraft;
     return (
       <View>
         {detailHead(
-          <Back
+          <PaperAction
             testID="board-notice-cancel"
-            label="‹ 돌아가기"
-            onPress={() => render({ view: s.editing ? 'detail' : 'list', error: '' })}
+            label={s.editing ? '← 공지' : '← 목록'}
+            onPress={nav.cancelEditor}
           />,
         )}
-        <BoardTag label={OWNER} />
         <Text
           style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}
         >{`공지 ${s.editing ? '수정' : '쓰기'}`}</Text>
@@ -3627,6 +4442,7 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
           <BoardField label="제목">
             <TextInput
               testID="board-notice-title"
+              accessibilityLabel="공지 제목"
               value={draft.title}
               onChangeText={(title) => setDraft({ title })}
               placeholder="공지 제목을 적어주세요"
@@ -3637,6 +4453,7 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
           <BoardField label="본문">
             <TextInput
               testID="board-notice-body"
+              accessibilityLabel="공지 본문"
               multiline
               textAlignVertical="top"
               value={draft.body}
@@ -3647,63 +4464,46 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
             />
           </BoardField>
           {formError}
-          <BoardPill
+          <PaperStamp
             testID="board-notice-submit"
             label={s.editing ? '수정 저장' : '게시하기'}
-            primary
-            style={{ marginTop: 4 }}
-            onPress={publish}
+            onPress={nav.publish}
           />
         </View>
       </View>
     );
   };
 
-  const commentView = () => (
-    <View>
-      {detailHead(
-        <Back
-          testID="board-comment-cancel"
-          label="‹ 공지로"
-          onPress={() => render({ view: 'detail' })}
-        />,
-      )}
-      <Text style={[h4, { marginRight: 34, marginBottom: 12 }]}>댓글 쓰기</Text>
-      <Text style={muted({ marginBottom: 14 })}>{notices[s.noticeIndex]?.title || '공지'}</Text>
-      <BoardTag label={user} />
-      <View style={{ gap: 12 }}>
-        <TextInput
-          testID="board-comment-input"
-          accessibilityLabel="댓글 내용"
-          multiline
-          textAlignVertical="top"
-          value={s.commentDraft}
-          onChangeText={(commentDraft) => setS((prev) => ({ ...prev, commentDraft }))}
-          placeholder="주민들에게 따뜻한 말을 남겨주세요"
-          placeholderTextColor="#757575"
-          style={[inputStyle(), { height: 85 }]}
-        />
-        {formError}
-        <BoardPill
-          testID="board-comment-submit"
-          label="댓글 등록"
-          primary
-          disabled={!s.commentDraft.trim()}
-          onPress={submitComment}
-        />
-      </View>
-    </View>
-  );
-
   const noticeContent = () => {
+    if (s.view === 'visitor') {
+      return (
+        <View
+          style={{
+            marginVertical: 34,
+            paddingVertical: 24,
+            paddingHorizontal: 18,
+            borderWidth: 1.5,
+            borderColor: '#b49472',
+            borderStyle: 'dashed',
+            borderRadius: 10,
+            alignItems: 'center',
+          }}
+        >
+          <Text style={[h4, { marginBottom: 7, textAlign: 'center' }]}>
+            우리 섬 주민만 볼 수 있어요
+          </Text>
+          <Text style={muted({ textAlign: 'center' })}>
+            이 게시판의 공지와 퀘스트는 소다 섬 주민에게만 열려요.
+          </Text>
+        </View>
+      );
+    }
     switch (s.view) {
       case 'detail':
         return noticeDetail();
       case 'write':
       case 'edit':
         return noticeEditor();
-      case 'comment':
-        return commentView();
       case 'confirm':
         return (
           <View>
@@ -3718,14 +4518,14 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                 testID="board-delete-cancel"
                 label="취소"
                 style={{ flex: 1 }}
-                onPress={() => render({ view: 'detail' })}
+                onPress={nav.cancelDelete}
               />
               <BoardPill
                 testID="board-delete-confirm"
                 label="삭제"
                 primary
                 style={{ flex: 1 }}
-                onPress={() => act('delete-confirm')}
+                onPress={nav.confirmDelete}
               />
             </View>
           </View>
@@ -3738,30 +4538,48 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
   const questBack = (
     <Back
       testID="board-quest-back"
-      label="‹ 퀘스트 목록"
-      onPress={() => render({ view: 'list', questEditing: false, questForm: null })}
-      style={s.view === 'detail' && { alignSelf: 'flex-start', marginBottom: 10 }}
+      label={s.editing ? '‹ 퀘스트' : '‹ 퀘스트 목록'}
+      onPress={nav.backToQuests}
     />
   );
 
-  const questContent = () => {
-    if (s.view === 'detail') {
+  const questContent = (listOnly = false) => {
+    if (!listOnly && s.view === 'detail') {
       const quest = quests[s.questIndex] ?? quests[0];
+      if (!quest) return questContent(true);
       return (
         <>
-          {questBack}
-          <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}>
+          {detailHead(
+            <PaperAction testID="board-quest-back" label="← 목록" onPress={nav.backToQuests} />,
+          )}
+          <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 4 }]}>
             {quest.title}
           </Text>
+          <Text style={[boardFont(13, 1.55, '400', '#786151', GOWUN), { marginBottom: 12 }]}>
+            {quest.type === 'phone'
+              ? `하루 폰 사용 ${quest.target}분 이하`
+              : quest.startTime
+                ? `${quest.startTime}부터 ${quest.endTime}까지 · 목표 ${quest.target}분 집중`
+                : `목표 ${quest.target}분 집중`}
+          </Text>
+          {owner && (
+            <View style={{ flexDirection: 'row', marginTop: -6, marginBottom: 4 }}>
+              <PaperAction
+                testID="board-quest-edit"
+                label="수정"
+                onPress={() => nav.editQuest(quest)}
+              />
+            </View>
+          )}
           <Text style={[boardFont(13, 1.65, '400', '#786151'), { marginBottom: 4 }]}>
             주민별 달성률
           </Text>
           <View>
-            {RESIDENTS.map(([name, color], i) => {
-              const rate = i < 2 ? quest.rate : 48;
+            {residentsOf(quest).map(({ id, name, color, rate }) => {
+              const unknown = rate == null;
               return (
                 <View
-                  key={name}
+                  key={id}
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -3780,12 +4598,12 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                     style={{ width: 42, height: 42 }}
                   />
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={boardFont(14, 1.6, '700')}>
-                      {name === user ? `${name} · 나` : name}
-                    </Text>
-                    <Track rate={rate} color="#91b67e" style={{ marginTop: 7 }} />
+                    <Text style={boardFont(14, 1.6, '700')}>{name}</Text>
+                    {!unknown && <Track rate={rate} color="#91b67e" style={{ marginTop: 7 }} />}
                   </View>
-                  <Text style={[boardFont(14, 1.6, '700'), { width: 42 }]}>{`${rate}%`}</Text>
+                  <Text style={[boardFont(14, 1.6, '700'), { width: unknown ? 52 : 42 }]}>
+                    {unknown ? '측정 전' : `${rate}%`}
+                  </Text>
                 </View>
               );
             })}
@@ -3793,55 +4611,140 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
         </>
       );
     }
-    if (s.view === 'write') {
-      const editing = s.questEditing && quests[s.questIndex];
+    if (!listOnly && s.view === 'write') {
       const form = s.questForm ?? {
-        type: editing && editing.type === 'phone' ? 'phone' : 'focus',
-        title: editing ? editing.title : '',
-        target: String(editing ? editing.target : 25),
+        type: 'focus',
+        title: '',
+        startTime: '19:00',
+        endTime: '22:00',
+        target: '50',
       };
-      const setForm = (patch: Partial<QuestForm>) =>
-        setS((prev) => ({ ...prev, questForm: { ...form, ...prev.questForm, ...patch } }));
+      const setForm = (patch: Partial<QuestForm>) => nav.setQuestForm(form, patch);
       return (
         <>
           {questBack}
-          <Text
-            style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}
-          >{`일일 퀘스트 ${s.questEditing ? '수정' : '만들기'}`}</Text>
+          <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}>
+            {s.editing ? '퀘스트 수정' : '퀘스트 만들기'}
+          </Text>
           <View style={{ gap: 12 }}>
-            <BoardField label="종류">
-              <Choice
-                testID="board-quest-type"
-                options={QUEST_TYPES}
-                value={form.type}
-                onChange={(type) => setForm({ type })}
-              />
+            <BoardField label="퀘스트 종류">
+              <QuestTypeChoice value={form.type} onChange={(type) => setForm({ type })} />
             </BoardField>
             <BoardField label="퀘스트 제목">
               <TextInput
                 testID="board-quest-title"
+                accessibilityLabel="퀘스트 제목"
                 value={form.title}
                 onChangeText={(title) => setForm({ title })}
-                placeholder="예: 저녁 40분 집중"
+                placeholder={form.type === 'focus' ? '예: 저녁 집중' : '예: 하루 폰 90분 이하'}
                 placeholderTextColor="#757575"
                 style={inputStyle()}
               />
             </BoardField>
-            <BoardField label="목표 시간 · 분">
+            {form.type === 'focus' && (
+              <BoardField label="진행 시간">
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>시작</Text>
+                    <QuestTimeInput
+                      testID="board-quest-start"
+                      label="시작 시간"
+                      value={form.startTime}
+                      onChange={(startTime) => setForm({ startTime })}
+                    />
+                  </View>
+                  <Text
+                    style={[boardFont(16, 1.4, '400', '#786151', GOWUN), { paddingBottom: 10 }]}
+                  >
+                    →
+                  </Text>
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>종료</Text>
+                      {/* 웹 시간 입력은 24:00을 받지 못해 자정까지는 따로 고른다. 라벨 줄 높이 안에 둔다 */}
+                      <Pressable
+                        testID="board-quest-midnight"
+                        accessibilityRole="checkbox"
+                        accessibilityLabel="자정(24:00)까지"
+                        aria-checked={form.endTime === '24:00'}
+                        hitSlop={14}
+                        onPress={() =>
+                          setForm({ endTime: form.endTime === '24:00' ? '' : '24:00' })
+                        }
+                      >
+                        <Text
+                          style={[
+                            boardFont(
+                              11,
+                              1.4,
+                              form.endTime === '24:00' ? '700' : '400',
+                              form.endTime === '24:00' ? INK : '#786151',
+                              GOWUN,
+                            ),
+                            { textDecorationLine: 'underline' },
+                          ]}
+                        >
+                          {form.endTime === '24:00' ? '자정까지 ✓' : '자정까지'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    {form.endTime === '24:00' ? (
+                      <View
+                        testID="board-quest-end"
+                        accessibilityLabel="종료 시간 24:00"
+                        style={[inputStyle(), { justifyContent: 'center' }]}
+                      >
+                        <Text style={boardFont(14, 1.5, '400', INK, GOWUN)}>24:00</Text>
+                      </View>
+                    ) : (
+                      <QuestTimeInput
+                        testID="board-quest-end"
+                        label="종료 시간"
+                        value={form.endTime}
+                        onChange={(endTime) => setForm({ endTime })}
+                      />
+                    )}
+                  </View>
+                </View>
+              </BoardField>
+            )}
+            <BoardField
+              label={form.type === 'focus' ? '목표 집중 시간 · 분' : '하루 폰 사용 상한 · 분'}
+            >
               <TextInput
                 testID="board-quest-target"
+                accessibilityLabel={
+                  form.type === 'focus' ? '목표 집중 시간(분)' : '하루 폰 사용 상한(분)'
+                }
                 keyboardType="number-pad"
                 value={form.target}
                 onChangeText={(target) => setForm({ target })}
                 style={inputStyle()}
               />
             </BoardField>
-            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>매일 새 회차로 진행해요.</Text>
+            {formError}
+            <Text
+              style={[
+                muted({ marginTop: 4, marginBottom: 14 }),
+                webOnly({ wordBreak: 'keep-all' }),
+              ]}
+              lineBreakStrategyIOS="hangul-word"
+            >
+              {form.type === 'focus'
+                ? '설정한 시간 안에서 목표 집중 시간을 채워요. 매일 00시에 새 회차로 시작해요.'
+                : '하루 동안 폰 사용 시간이 상한 이하이면 달성해요. 매일 00시에 새 회차로 시작해요.'}
+            </Text>
             <BoardPill
               testID="board-quest-save"
-              label="퀘스트 저장"
+              label={s.editing ? '수정 저장' : '퀘스트 시작'}
               primary
-              onPress={() => submitQuest(form)}
+              onPress={() => nav.submitQuest(form)}
             />
           </View>
         </>
@@ -3851,7 +4754,7 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
       <>
         <View style={{ marginBottom: 4 }}>
           <Text style={[boardFont(14, 1.2, '400', '#98713d', 'BoardHand'), { marginBottom: 1 }]}>
-            매일 한 장씩
+            매일 새 도전
           </Text>
           <View
             style={{
@@ -3862,39 +4765,56 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
             }}
           >
             <Text style={boardFont(27, 1.15, '400', INK, 'BoardHand-Bold')}>
-              오늘의 퀘스트{' '}
+              퀘스트{' '}
               <Text style={{ fontSize: 16, lineHeight: lh(16 * 1.15), color: '#92713f' }}>
                 {quests.length}
               </Text>
             </Text>
             {owner && (
-              <PaperAction
-                testID="board-quest-new"
-                label="+ 만들기"
-                onPress={() => render({ view: 'write', questEditing: false, questForm: null })}
-              />
+              <PaperAction testID="board-quest-new" label="+ 만들기" onPress={nav.newQuest} />
             )}
           </View>
         </View>
-        <View key={s.serial} style={[{ paddingHorizontal: 2 }, webOnly({ perspective: 700 })]}>
-          {quests.map((quest, i) => (
-            <QuestCard
-              key={i}
-              quest={quest}
-              index={i}
-              owner={owner}
-              reduceMotion={reduceMotion}
-              onDetail={() => render({ questIndex: i, view: 'detail' })}
-              onEdit={() => act('quest-edit', i)}
-            />
-          ))}
+        <View
+          key={e ? routeKey : s.serial}
+          style={[{ paddingHorizontal: 2 }, webOnly({ perspective: 700 })]}
+        >
+          {quests.length ? (
+            quests.map((quest, i) => (
+              <QuestCard
+                key={quest.id}
+                quest={quest}
+                index={i}
+                reduceMotion={reduceMotion}
+                onDetail={() => nav.openQuest(i)}
+              />
+            ))
+          ) : (
+            <View style={{ paddingVertical: 28, alignItems: 'center' }}>
+              <Text style={[h4, { marginBottom: 7, textAlign: 'center' }]}>
+                진행 중인 퀘스트가 없어요
+              </Text>
+              <Text style={muted({ textAlign: 'center' })}>
+                방장이 일일 퀘스트를 만들면 여기에 붙어요.
+              </Text>
+            </View>
+          )}
         </View>
       </>
     );
   };
 
   const blueprint = () => {
-    const ready = s.ready && s.balance >= 60;
+    const bp = blueprintView,
+      stamp = bp.state === 'ready' || bp.state === 'building';
+    if (bp.state === 'none')
+      return (
+        <Text
+          style={[boardFont(14, 1.6, '700', '#f7fcff'), { paddingTop: 32, textAlign: 'center' }]}
+        >
+          회관에서 다음 건물을 골라 주세요.
+        </Text>
+      );
     const light = '#f7fcff';
     const dashed = { borderStyle: 'dashed' as const, borderColor: exact('#dff7ffaa') };
     const copyRow = (label: string, value: string) => (
@@ -3922,36 +4842,7 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
     );
     return (
       <>
-        <View style={[{ paddingBottom: 14, borderBottomWidth: 1 }, dashed]}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 10,
-              paddingRight: 38,
-              marginBottom: 10,
-            }}
-          >
-            <Text style={[boardFont(12, 1.6, '400', '#e8faff'), { letterSpacing: 0.48 }]}>
-              BUILDING PLAN · 01
-            </Text>
-            <Text
-              style={[
-                boardFont(11, 1.6, '800', light),
-                {
-                  paddingVertical: 3,
-                  paddingHorizontal: 8,
-                  borderWidth: 1,
-                  borderColor: exact('#dff7ffaa'),
-                  borderRadius: 99,
-                  backgroundColor: exact('#eaf8fb1f'),
-                },
-              ]}
-            >
-              {s.view === 'building' ? '공사 중' : ready ? '준비 완료' : '건설 준비'}
-            </Text>
-          </View>
+        <View style={[{ paddingTop: 32, paddingBottom: 14, borderBottomWidth: 1 }, dashed]}>
           <View style={{ flexDirection: 'row', gap: 10, minHeight: 142 }}>
             <View
               style={{
@@ -4004,8 +4895,8 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                 }}
               >
                 <Picture
-                  source={interiorArt.buildings.library}
-                  label="도서관 건물 미리보기"
+                  source={bp.image}
+                  label={`${bp.name} 건물 미리보기`}
                   shadow="0 4px 2px #244c5c80"
                   style={{ zIndex: 1, width: 94, maxWidth: '100%', height: 104 }}
                 />
@@ -4027,12 +4918,12 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                 예상 모습
               </Text>
             </View>
-            <View style={{ flex: 1, minWidth: 0, alignSelf: 'center' }}>
+            <View style={{ position: 'relative', flex: 1, minWidth: 0, alignSelf: 'center' }}>
               <Text style={[boardFont(22, 1.1, '700', light, GOWUN), { marginBottom: 7 }]}>
-                도서관
+                {bp.name}
               </Text>
-              {copyRow('가격', '1인당 20마리')}
-              {copyRow('시간', '공사 15분')}
+              {copyRow('가격', bp.price)}
+              {copyRow('시간', bp.time)}
               <Text
                 style={[
                   boardFont(12, 1.45, '400', light),
@@ -4040,17 +4931,36 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                   dashed,
                 ]}
               >
-                나와 주민들의 집중 기록, 스크린타임, 누적 물고기를 일·주·월로 확인해요.
+                {bp.detail}
               </Text>
+              {stamp && (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    zIndex: 2,
+                    left: '50%',
+                    top: '50%',
+                    marginLeft: -63,
+                    marginTop: -63,
+                  }}
+                >
+                  <BlueprintReadyStamp reduceMotion={reduceMotion} />
+                </View>
+              )}
             </View>
           </View>
         </View>
-        {s.view === 'building' ? (
+        {bp.state === 'building' ? (
           <View style={{ gap: 10, paddingTop: 16, paddingHorizontal: 2, paddingBottom: 2 }}>
-            <Text style={boardFont(21, 1.25, '700', light, GOWUN)}>도서관을 짓고 있어요</Text>
-            <Text style={boardFont(13, 1.6, '400', '#e8faff')}>공사 진행률 · 35%</Text>
+            <Text style={boardFont(21, 1.25, '700', light, GOWUN)}>
+              {`${josa(bp.name, '을', '를')} 짓고 있어요`}
+            </Text>
+            <Text
+              style={boardFont(13, 1.6, '400', '#e8faff')}
+            >{`공사 진행률 · ${bp.progress}%`}</Text>
             <Track
-              rate={35}
+              rate={bp.progress}
               color="#f3d16d"
               style={{
                 height: 10,
@@ -4059,14 +4969,50 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                 backgroundColor: '#eaf8fb',
               }}
             />
-            <Text style={boardFont(14, 1.5, '400', light)}>
-              섬 물고기 60마리를 사용했어요. 공사가 끝나면 다음 건물 목표를 고를 수 있어요.
-            </Text>
           </View>
+        ) : bp.state === 'complete' ? (
+          <View style={{ gap: 10, paddingTop: 16, paddingHorizontal: 2, paddingBottom: 2 }}>
+            <Text style={boardFont(21, 1.25, '700', light, GOWUN)}>
+              {`${josa(bp.name, '이', '가')} 완공됐어요`}
+            </Text>
+            <Text style={boardFont(13, 1.6, '400', '#e8faff')}>
+              {bp.name === '도서관'
+                ? '이제 도서관에서 주민들의 기록을 펼쳐볼 수 있어요.'
+                : `이제 ${josa(bp.name, '을', '를')} 이용할 수 있어요.`}
+            </Text>
+            <BoardPill
+              testID="board-open-library"
+              label={`${josa(bp.name, '으로', '로')} 이동`}
+              primary
+              onPress={nav.openBuilding}
+            />
+          </View>
+        ) : bp.state === 'ready' ? (
+          owner ? (
+            <View style={{ alignItems: 'center', paddingTop: 14 }}>
+              <BoardPill
+                testID="board-build-start"
+                label="건설하기"
+                primary
+                style={{ backgroundColor: '#ffa6bc' }}
+                onPress={nav.build}
+              />
+            </View>
+          ) : (
+            // 시안의 빈 바닥 여백 안에 들어가게 작게 붙인다
+            <Text
+              style={[
+                boardFont(12, 1.35, '400', '#e8faff'),
+                { paddingTop: 3, textAlign: 'center' },
+              ]}
+            >
+              방장이 건설할 수 있어요
+            </Text>
+          )
         ) : (
           <View style={{ paddingTop: 14 }}>
             <View style={{ gap: 7 }}>
-              {fishRow('주민 준비량', `${s.ready ? 60 : 50} / 60마리`)}
+              {fishRow('주민 준비량', `${bp.collected} / ${bp.needed}마리`)}
               <View
                 style={{
                   height: 10,
@@ -4080,20 +5026,21 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                 {/* 웹은 원본 <u>처럼 쌓임 맥락 없는 블록으로 둔다: 100%로 가득 차면 둥근 잘림의 가장자리 픽셀이 달라진다 */}
                 <View
                   style={[
-                    { width: s.ready ? '100%' : '83%', height: '100%', backgroundColor: '#f3d16d' },
+                    {
+                      width: `${bp.needed ? (bp.collected / bp.needed) * 100 : 0}%`,
+                      height: '100%',
+                      backgroundColor: '#f3d16d',
+                    },
                     webOnly({ position: 'static', zIndex: 'auto' }),
                   ]}
                 />
               </View>
-              {fishRow('섬 잔액 / 공사 가격', `${s.balance} / 60마리`)}
+              {fishRow('섬 잔액 / 공사 가격', `${bp.balance} / ${bp.cost}마리`)}
             </View>
-            <Text style={[boardFont(14, 1.6, '700', light), { marginTop: 14, marginBottom: 8 }]}>
-              목표 선택 당시 주민 3명 · 1인당 20마리
-            </Text>
-            <View style={{ gap: 7 }}>
-              {RESIDENTS.map(([name], i) => (
+            <View style={{ gap: 7, marginTop: 14 }}>
+              {bp.residents.map(({ id, name, value }) => (
                 <View
-                  key={name}
+                  key={id}
                   style={{
                     flexDirection: 'row',
                     justifyContent: 'space-between',
@@ -4106,45 +5053,18 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                   }}
                 >
                   <Text style={boardFont(13, 1.6, '400', '#395e70')}>{name}</Text>
-                  <Text
-                    style={boardFont(13, 1.6, '700', '#395e70')}
-                  >{`${s.ready ? 20 : [20, 18, 12][i]} / 20마리${s.ready || i === 0 ? ' ✓' : ''}`}</Text>
+                  <Text style={boardFont(13, 1.6, '700', '#395e70')}>{value}</Text>
                 </View>
               ))}
             </View>
-            {ready && (
-              <View
-                style={{
-                  alignSelf: 'center',
-                  marginTop: 13,
-                  paddingVertical: 4,
-                  paddingHorizontal: 12,
-                  borderWidth: 2,
-                  borderColor: '#e6f4d8',
-                  borderRadius: 7,
-                }}
-              >
-                <Text style={boardFont(23, 1.2, '400', '#f0ffdc', 'BoardHand-Bold')}>
-                  준비 완료
-                </Text>
-              </View>
-            )}
-            {owner && (
-              <BoardPill
-                testID="board-build-start"
-                label="60마리로 건설하기"
-                primary
-                disabled={!ready}
-                style={{ marginTop: 16, backgroundColor: '#ffa6bc' }}
-                onPress={() => act('build-start')}
-              />
-            )}
-            <Text style={[boardFont(13, 1.5, '400', light), { marginTop: 12 }]}>
-              {ready
-                ? owner
-                  ? '전원 준비와 섬 잔액이 충족됐어요.'
-                  : '방장이 건설을 시작할 수 있어요.'
-                : '주민 전원이 요구량을 채워야 건설할 수 있어요.'}
+            <Text
+              style={[
+                boardFont(12, 1.45, '400', '#e8faff'),
+                { marginTop: 10, textAlign: 'center' },
+              ]}
+              lineBreakStrategyIOS="hangul-word"
+            >
+              주민 전원이 요구량을 채워야 건설할 수 있어요.
             </Text>
           </View>
         )}
@@ -4152,121 +5072,153 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
     );
   };
 
+  // 장면(2:3)은 배경과 같은 cover · 세로 38% 기준으로 놓는다. 세로 화면에서는 높이에 딱 맞는다
+  const scene = interiorScene(width, sceneHeight),
+    land = width > sceneHeight;
   // 장면 속 청사진 종이 위 도서관 그림: grid 행 높이가 그림 비율로 정해지는 원본 계산을 그대로 따른다
-  const planeWidth = lu((height * 2) / 3);
+  const planeWidth = lu((sceneHeight * 2) / 3);
   const blueprintInner = lu(planeWidth * 0.19) - 10;
   const libraryWidth = lu(blueprintInner * 0.82);
   const libraryRow = lu((libraryWidth * artSize.library[1]) / artSize.library[0]);
   const libraryHeight = lu(libraryRow * 0.92);
-  const open = (panel: BoardState['panel']) => {
-    if (s.panel === panel) return render({ panel: '', view: 'list', error: '' });
-    return render({
-      panel,
-      view: panel === 'blueprint' ? (s.ready ? 'ready' : 'waiting') : 'list',
-      error: '',
-    });
-  };
   const pressedFilter = (panel: BoardState['panel']) =>
     s.panel === panel && webOnly({ filter: 'brightness(1.08)' });
   const paperPanel = s.panel === 'notice' || s.panel === 'quest';
-  const noticeDetailOpen = s.panel === 'notice' && s.view === 'detail';
+  const noticeDetailOpen = s.panel === 'notice' && (s.view === 'detail' || s.view === 'comment');
+  const noticeEditorOpen = s.panel === 'notice' && (s.view === 'write' || s.view === 'edit');
+  const noticeOverlayOpen = noticeDetailOpen || noticeEditorOpen;
+  const dismissNoticeOverlay = () =>
+    e ? e.back() : render({ view: noticeEditorOpen && s.editing ? 'detail' : 'list', error: '' });
+  const questDetailOpen = s.panel === 'quest' && s.view === 'detail';
+  const dismissQuestDetail = () => (e ? e.back() : render({ view: 'list', error: '' }));
   const paperSource =
     s.panel === 'quest' ? interiorArt.boardPaper.quest : interiorArt.boardPaper.notice;
+  const blueprintPanelContentHeight = {
+    complete: 380,
+    building: 326,
+    ready: owner ? 300 : 236,
+    waiting: 430,
+    none: 236,
+  }[blueprintView.state];
+  const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
+  // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다
+  const sheetHeight = Math.min(height * 0.58, 492);
+  const sheetCramped = sheetHeight - 89 < 140;
+  const paperHeight = sheetCramped ? Math.max(0, height - 8) : sheetHeight;
+  const paperPad = sheetCramped ? { top: 30, bottom: 20 } : { top: 58, bottom: 31 };
+  const paperScroll = Math.max(0, paperHeight - paperPad.top - paperPad.bottom);
+  // 가운데 상세 종이: 스크롤 높이는 틀 안쪽(위아래 여백 64) 이하로, 모자라면 위쪽에 붙인다
+  const overlayFrame = height * (land ? 0.65 : 0.58);
+  const overlayCramped = overlayFrame - 64 < 140;
+  const overlayScroll = overlayCramped
+    ? Math.max(0, height - 8 - 64)
+    : Math.min(height * 0.49, overlayFrame - 64);
+  const blueprintPanelTop = Math.max(24, (height - blueprintPanelHeight) / 2);
 
   return (
     <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
-      <View
-        style={{
-          position: 'absolute',
-          left: '50%',
-          top: 0,
-          height: '100%',
-          aspectRatio: 2 / 3,
-          transform: [{ translateX: '-50%' }],
-        }}
-      >
-        <Pressable
-          testID="board-notice-area"
-          accessibilityRole="button"
-          accessibilityLabel="공지"
-          onPress={() => open('notice')}
-          style={[
-            {
-              position: 'absolute',
-              left: '22.3%',
-              top: '23.5%',
-              width: '25.3%',
-              height: '22.6%',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 9,
-              padding: 12,
-            },
-            pressedFilter('notice'),
-          ]}
-        >
-          <Text
-            style={[boardFont(28, 1.1, '400', '#76503c', 'BoardHand'), { letterSpacing: 0.56 }]}
-          >
-            공지
-          </Text>
-          <Handwriting />
-        </Pressable>
-        <Pressable
-          testID="board-quest-area"
-          accessibilityRole="button"
-          accessibilityLabel="퀘스트 목록 펼치기"
-          onPress={() => open('quest')}
-          style={[
-            {
-              position: 'absolute',
-              left: '51%',
-              top: '24%',
-              width: '27%',
-              height: '9%',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 3,
-              paddingTop: 8,
-              paddingHorizontal: 10,
-              paddingBottom: 4,
-            },
-            pressedFilter('quest'),
-          ]}
-        >
-          <Text style={boardFont(22, 1.1, '400', '#82652c', 'BoardHand-Bold')}>퀘스트</Text>
-          <Handwriting short />
-        </Pressable>
-        <Pressable
-          testID="board-blueprint-area"
-          accessibilityRole="button"
-          accessibilityLabel="도서관 건설 현황 보기"
-          onPress={() => open('blueprint')}
-          style={[
-            {
-              position: 'absolute',
-              zIndex: 2,
-              left: '61%',
-              top: '34.2%',
-              width: '19%',
-              height: '12.8%',
-            },
-            pressedFilter('blueprint'),
-          ]}
-        >
+      <View testID="board-scene" style={{ position: 'absolute', ...scene }}>
+        {/* 가로에서는 배경에 그려진 공지 종이만 보인다 */}
+        {!land && (
           <Picture
-            source={interiorArt.buildings.library}
-            label="도서관"
-            shadow="0 2px 2px #173e5140"
+            source={interiorArt.boardPaper.notice}
+            label=""
             style={{
               position: 'absolute',
-              left: 5 + lu((blueprintInner - libraryWidth) / 2),
-              top: 5 + lu((libraryRow - libraryHeight) / 2),
-              width: libraryWidth,
-              height: libraryHeight,
+              zIndex: 1,
+              left: '19.7%',
+              top: '20.5%',
+              width: '30.5%',
+              height: '27.5%',
             }}
           />
-        </Pressable>
+        )}
+        <View style={[land ? LAND.labels : fill, { zIndex: 2 }]}>
+          <Pressable
+            testID="board-notice-area"
+            accessibilityRole="button"
+            accessibilityLabel="공지"
+            onPress={() => nav.open('notice')}
+            style={[
+              {
+                position: 'absolute',
+                zIndex: 2,
+                left: '22.3%',
+                top: '23.5%',
+                width: '25.3%',
+                height: '22.6%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 9,
+                padding: 12,
+              },
+              pressedFilter('notice'),
+            ]}
+          >
+            <Text
+              style={[boardFont(28, 1.1, '400', '#76503c', 'BoardHand'), { letterSpacing: 0.56 }]}
+            >
+              공지
+            </Text>
+            <Handwriting />
+          </Pressable>
+          <Pressable
+            testID="board-quest-area"
+            accessibilityRole="button"
+            accessibilityLabel="퀘스트 목록 펼치기"
+            onPress={() => nav.open('quest')}
+            style={[
+              {
+                position: 'absolute',
+                left: '51%',
+                top: '24%',
+                width: '27%',
+                height: '9%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 3,
+                paddingTop: 8,
+                paddingHorizontal: 10,
+                paddingBottom: 4,
+              },
+              pressedFilter('quest'),
+            ]}
+          >
+            <Text style={boardFont(22, 1.1, '400', '#82652c', 'BoardHand-Bold')}>퀘스트</Text>
+            <Handwriting short />
+          </Pressable>
+          <Pressable
+            testID="board-blueprint-area"
+            accessibilityRole="button"
+            accessibilityLabel={`${blueprintView.name || '다음 건물'} 건설 현황 보기`}
+            onPress={() => nav.open('blueprint')}
+            style={[
+              {
+                position: 'absolute',
+                zIndex: 2,
+                ...(land
+                  ? LAND.blueprintArea
+                  : { left: '61%', top: '34.2%', width: '19%', height: '12.8%' }),
+              },
+              pressedFilter('blueprint'),
+            ]}
+          >
+            {blueprintView.state !== 'none' && (
+              <Picture
+                source={blueprintView.image}
+                label={blueprintView.name}
+                shadow="0 2px 2px #173e5140"
+                style={{
+                  position: 'absolute',
+                  left: 5 + lu((blueprintInner - libraryWidth) / 2),
+                  top: 5 + lu((libraryRow - libraryHeight) / 2),
+                  width: libraryWidth,
+                  height: libraryHeight,
+                }}
+              />
+            )}
+          </Pressable>
+        </View>
       </View>
       <View
         testID="board-drawer"
@@ -4274,17 +5226,26 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
           {
             position: 'absolute',
             zIndex: 4,
-            left: 0,
-            right: 0,
-            bottom: 10,
-            maxHeight: height - 105,
             padding: 16,
             borderWidth: 2,
             borderColor: '#75533d',
-            borderTopLeftRadius: 18,
-            borderTopRightRadius: 18,
             backgroundColor: '#fff2d8',
             boxShadow: '0 8px 18px #3b281b77',
+            ...(s.panel === 'blueprint'
+              ? {
+                  ...(land ? LAND.blueprint : { left: 14, right: 14 }),
+                  top: blueprintPanelTop,
+                  height: blueprintPanelHeight,
+                  maxHeight: blueprintPanelHeight,
+                  borderRadius: 18,
+                }
+              : {
+                  ...(land ? LAND.drawer : { left: 0, right: 0 }),
+                  ...(paperPanel && sheetCramped ? { top: 4 } : { bottom: 10 }),
+                  maxHeight: paperPanel && sheetCramped ? paperHeight : height - 105,
+                  borderTopLeftRadius: 18,
+                  borderTopRightRadius: 18,
+                }),
           },
           // 닫힘: 높이 50%(좁은 화면 74%)로 아래로 내려가 투명
           s.panel
@@ -4296,11 +5257,11 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                 transform: [{ translateY: '125%' }],
               },
           paperPanel && {
-            height: Math.min(height * 0.58, 492),
+            height: paperHeight,
             minHeight: 0,
-            paddingTop: 58,
+            paddingTop: paperPad.top,
             paddingHorizontal: 30,
-            paddingBottom: 31,
+            paddingBottom: paperPad.bottom,
             borderWidth: 0,
             borderRadius: 0,
             backgroundColor: 'transparent',
@@ -4309,12 +5270,12 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
         ]}
       >
         {paperPanel && <BoardPaper source={paperSource} />}
-        {!paperPanel && (
+        {s.panel === 'blueprint' && (
           <Pressable
             testID="board-drawer-close"
             accessibilityRole="button"
             accessibilityLabel="내용 닫기"
-            onPress={() => render({ panel: '' })}
+            onPress={nav.closePanel}
             style={({ pressed }) => ({
               position: 'absolute',
               zIndex: 3,
@@ -4324,14 +5285,10 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
               height: 44,
               alignItems: 'center',
               justifyContent: 'center',
-              borderWidth: 1,
-              borderColor: '#dff7ff',
-              borderRadius: 22,
-              backgroundColor: '#eaf8fb',
-              opacity: pressed ? 0.55 : 1,
+              opacity: pressed ? 0.45 : 1,
             })}
           >
-            <Text style={[boardFont(23, 1.6, '400', '#395e70'), { textAlign: 'center' }]}>×</Text>
+            <Text style={[boardFont(21, 1.4, '400', '#dff7ff'), { textAlign: 'center' }]}>×</Text>
           </Pressable>
         )}
         {s.panel === 'notice' && (
@@ -4341,29 +5298,29 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
                 flexGrow: 1,
                 flexShrink: 1,
                 minHeight: 0,
-                maxHeight: Math.min(height * 0.58, 492) - 89,
+                maxHeight: paperScroll,
               },
               webOnly({ overscrollBehavior: 'contain' }),
             ]}
           >
-            {noticeDetailOpen ? noticeList() : noticeContent()}
+            {noticeOverlayOpen ? noticeList() : noticeContent()}
           </Scroll>
         )}
         {s.panel === 'quest' && (
-          <Scroll style={{ maxHeight: Math.min(height * 0.58, 492) - 89 }}>{questContent()}</Scroll>
+          <Scroll style={{ maxHeight: paperScroll }}>{questContent(questDetailOpen)}</Scroll>
         )}
         {s.panel === 'blueprint' && (
           <Scroll
             style={[
               {
+                flex: 1,
                 margin: -16,
                 padding: 16,
-                minHeight: 241,
-                maxHeight: height - 109,
+                minHeight: Math.min(241, blueprintPanelHeight),
+                maxHeight: blueprintPanelHeight,
                 borderWidth: 2,
                 borderColor: '#d9f3f7',
-                borderTopLeftRadius: 16,
-                borderTopRightRadius: 16,
+                borderRadius: 16,
                 backgroundColor: '#4f94b1',
                 boxShadow: 'inset 0 0 0 4px #4a899f,0 12px 26px #273c4666',
               },
@@ -4377,12 +5334,12 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
           </Scroll>
         )}
       </View>
-      {noticeDetailOpen && (
+      {noticeOverlayOpen && (
         <>
           <Pressable
             testID="board-notice-overlay-scrim"
-            accessibilityLabel="공지 상세 닫기"
-            onPress={() => render({ view: 'list' })}
+            accessibilityLabel="공지 창 닫기"
+            onPress={dismissNoticeOverlay}
             style={{
               position: 'absolute',
               zIndex: 5,
@@ -4399,10 +5356,8 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
             style={{
               position: 'absolute',
               zIndex: 6,
-              left: 32,
-              right: 32,
-              top: '20%',
-              maxHeight: '58%',
+              ...(land ? LAND.overlay : { left: 32, right: 32, top: '20%', maxHeight: '58%' }),
+              ...(overlayCramped && { top: 4, maxHeight: height - 8 }),
               paddingTop: 37,
               paddingHorizontal: 22,
               paddingBottom: 27,
@@ -4410,16 +5365,61 @@ function Board({ concept, width, height, reduceMotion }: ArtifactProps) {
             }}
           >
             <BoardPaper
-              source={interiorArt.boardPaper.notice}
+              source={interiorArt.boardPaper.detail}
               style={{ left: -28, right: -28, top: -32, bottom: -26 }}
             />
             <Scroll
               style={[
-                { minHeight: 0, maxHeight: height * 0.49 },
+                { minHeight: 0, maxHeight: overlayScroll },
                 webOnly({ overscrollBehavior: 'contain' }),
               ]}
             >
-              {noticeDetail()}
+              {noticeDetailOpen ? noticeDetail() : noticeEditor()}
+            </Scroll>
+          </View>
+        </>
+      )}
+      {questDetailOpen && (
+        <>
+          <Pressable
+            testID="board-quest-overlay-scrim"
+            accessibilityLabel="퀘스트 상세 닫기"
+            onPress={dismissQuestDetail}
+            style={{
+              position: 'absolute',
+              zIndex: 5,
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              backgroundColor: exact('#3f302f2b'),
+            }}
+          />
+          <View
+            testID="board-quest-overlay"
+            accessibilityViewIsModal
+            style={{
+              position: 'absolute',
+              zIndex: 6,
+              ...(land ? LAND.overlay : { left: 32, right: 32, top: '20%', maxHeight: '58%' }),
+              ...(overlayCramped && { top: 4, maxHeight: height - 8 }),
+              paddingTop: 37,
+              paddingHorizontal: 22,
+              paddingBottom: 27,
+              boxShadow: '0 8px 18px #2f211d45',
+            }}
+          >
+            <BoardPaper
+              source={interiorArt.boardPaper.detail}
+              style={{ left: -28, right: -28, top: -32, bottom: -26 }}
+            />
+            <Scroll
+              style={[
+                { minHeight: 0, maxHeight: overlayScroll },
+                webOnly({ overscrollBehavior: 'contain' }),
+              ]}
+            >
+              {questContent()}
             </Scroll>
           </View>
         </>
@@ -5098,82 +6098,436 @@ function OldMap({ concept, reduceMotion, showToast }: ArtifactProps) {
   );
 }
 
-function MailHome({ concept, reduceMotion, showToast }: ArtifactProps) {
-  const [selected, setSelected] = useState(0);
-  const [opened, setOpened] = useState(false);
+type MailRoute = 'home' | 'island' | 'inbox' | 'letter' | 'friend-select' | 'compose';
+// 화면이 그리는 모양. 목업과 앱 상태(e) 둘 다 이 모양으로 바꿔 넘긴다
+type LetterView = {
+  id: string;
+  friendId: string;
+  from: string;
+  island: string;
+  color: Cat;
+  time: string;
+  body: string;
+};
+type FriendView = { id: string; name: string; island: string; color: Cat };
+type ChatView = {
+  id: string;
+  name: string;
+  text: string;
+  time: string;
+  color: Cat;
+  mine: boolean;
+  failed?: boolean;
+};
+
+const receivedLetters: LetterView[] = [
+  {
+    id: '0',
+    friendId: '0',
+    from: '민지',
+    island: '구름 섬',
+    color: 'ginger',
+    time: '오늘 09:12',
+    body: '섬에 새 꽃이 피었어.\n다음에 놀러 와서 같이 보자.',
+  },
+  {
+    id: '1',
+    friendId: '1',
+    from: '밤이',
+    island: '밤비 섬',
+    color: 'black',
+    time: '어제 22:40',
+    body: '오늘도 수고 많았어!\n내일도 같이 천천히 해보자.',
+  },
+  {
+    id: '2',
+    friendId: '2',
+    from: '보리',
+    island: '라임 섬',
+    color: 'calico',
+    time: '월요일',
+    body: '새 레코드 들어봤어?\n모닥불 옆에서 들으면 정말 좋아.',
+  },
+];
+
+const letterFriends: FriendView[] = [
+  { id: '0', name: '민지', island: '구름 섬', color: 'ginger' },
+  { id: '1', name: '밤이', island: '밤비 섬', color: 'black' },
+  { id: '2', name: '보리', island: '라임 섬', color: 'calico' },
+];
+
+const groupMessages: ChatView[] = [
+  {
+    id: '0',
+    name: '민지',
+    text: '오늘 밤 모닥불에서 만나자',
+    time: '방금',
+    color: 'ginger',
+    mine: false,
+  },
+  {
+    id: '1',
+    name: '두부',
+    text: '새 레코드 같이 들어볼 사람?',
+    time: '8분 전',
+    color: 'black',
+    mine: false,
+  },
+  {
+    id: '2',
+    name: '수아',
+    text: '오늘 물고기 많이 잡았어',
+    time: '21분 전',
+    color: 'calico',
+    mine: false,
+  },
+];
+
+const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+const kstClock = (at: number) => {
+  const d = new Date(at + 9 * 3600000);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+};
+// 받은 편지 시각: 오늘 09:12 · 어제 22:40 · 일주일 안이면 요일 · 그 전은 M월 D일
+const letterTime = (at: number, now: number) => {
+  const days = Math.round((kstDayStart(dayKey(now)) - kstDayStart(dayKey(at))) / 86400000);
+  if (days === 0) return `오늘 ${kstClock(at)}`;
+  if (days === 1) return `어제 ${kstClock(at)}`;
+  const [year, month, date] = dayKey(at).split('-').map(Number);
+  if (days < 7) return `${weekdays[new Date(Date.UTC(year, month - 1, date)).getUTCDay()]}요일`;
+  return `${month}월 ${date}일`;
+};
+// 채팅 시각: 방금 · N분 전 · N시간 전 · 그 전은 M월 D일
+const chatTime = (at: number, now: number) => {
+  const minutes = Math.floor((now - at) / 60000);
+  if (minutes < 1) return '방금';
+  if (minutes < 60) return `${minutes}분 전`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}시간 전`;
+  const [, month, date] = dayKey(at).split('-').map(Number);
+  return `${month}월 ${date}일`;
+};
+
+function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps) {
+  const mailFont = (
+    fontSize: number,
+    factor: number,
+    color: string = INK,
+    fontWeight: '400' | '700' | '800' | '900' = '400',
+  ) => obsFont(Math.max(8, Math.round(fontSize * 1.3)), factor, color, fontWeight);
+  const initialRoute: MailRoute =
+    concept.kind === 'island-room'
+      ? 'island'
+      : concept.kind === 'received-letters'
+        ? 'inbox'
+        : concept.kind === 'letter-detail'
+          ? 'letter'
+          : concept.kind === 'friend-select'
+            ? 'friend-select'
+            : concept.kind === 'friend-compose'
+              ? 'compose'
+              : 'home';
+  const [localRoute, setRoute] = useState<MailRoute>(initialRoute);
+  const [selectedFriend, setSelectedFriend] = useState('0');
+  const [selectedLetter, setSelectedLetter] = useState('0');
+  const [groupText, setGroupText] = useState('오늘도 같이 집중할래?');
+  const [groupSent, setGroupSent] = useState(false);
+  const [letterText, setLetterText] = useState('섬에 새 꽃이 피었어. 다음에 놀러 와서 같이 보자.');
+  const [deletedLetters, setDeletedLetters] = useState<string[]>([]);
   const [reactTransform, react] = useReact(reduceMotion);
-  const item = concept.items[selected];
-  // .mail-opened 의 눌린 칸: @keyframes pull-mail .55s ease both (50% 위로 13px·-2deg → 끝 위로 4px)
-  const pull = useRef(new Animated.Value(0)).current;
+  // 앱에서는 안내를 앱 알림으로 띄운다 (장면 토스트는 동작 줄이기에서 그려지지 않는다)
+  const say = (message: string) => (e ? e.notify(message) : showToast(message));
+
+  // 앱 상태 → 우체통 화면. 채팅방=chat, 받은 편지=mail+tab, 편지 상세=mail+detail, 친구 선택·편지 쓰기=friendMail
+  const state: State | null = e?.state ?? null,
+    island = state && currentIsland(state),
+    now: number = e?.now ?? 0;
+  const friends: FriendView[] = state
+    ? (state.friends ?? [])
+        .filter((f) => f.status === 'friend')
+        .map((f) => ({ id: f.id, name: f.name, island: f.island, color: f.color }))
+    : letterFriends;
+  const letters: LetterView[] = state
+    ? unreadLetters(state).map(({ friend, letter }) => ({
+        id: letter.id,
+        friendId: friend.id,
+        from: friend.name,
+        island: friend.island,
+        color: friend.color,
+        time: letterTime(letter.at, now),
+        body: letter.text,
+      }))
+    : receivedLetters.filter((letter) => !deletedLetters.includes(letter.id));
+  // 읽음 처리한 편지도 상세 화면이 열려 있는 동안은 보여 준다
+  const openedLetter: LetterView | undefined = state
+    ? (state.friends ?? [])
+        .flatMap((f) =>
+          f.messages
+            .filter((m) => m.id === e.detail && m.memberId !== 'me')
+            .map((m) => ({
+              id: m.id,
+              friendId: f.id,
+              from: f.name,
+              island: f.island,
+              color: f.color,
+              time: letterTime(m.at, now),
+              body: m.text,
+            })),
+        )
+        .at(0)
+    : receivedLetters.find((letter) => letter.id === selectedLetter);
+  // 채팅방은 최신 글이 위에 온다
+  const chat: ChatView[] = island
+    ? [...island.messages].reverse().map((m) => ({
+        id: m.id,
+        name: m.name,
+        text: m.text,
+        time: chatTime(m.at, now),
+        color: m.color,
+        mine: m.memberId === 'me',
+        failed: m.status === 'failed',
+      }))
+    : groupSent
+      ? [
+          ...groupMessages,
+          {
+            ...groupMessages[0],
+            id: 'sent',
+            name: '나',
+            text: groupText,
+            time: '방금',
+            mine: true,
+          },
+        ]
+      : groupMessages;
+  const friendOf = (id: string) => friends.find((f) => f.id === id);
+  const route: MailRoute = !e
+    ? localRoute
+    : e.route === 'chat'
+      ? 'island'
+      : e.route === 'friendMail'
+        ? friendOf(e.detail)
+          ? 'compose'
+          : 'friend-select'
+        : e.detail && openedLetter
+          ? 'letter'
+          : e.tab === '받은 편지'
+            ? 'inbox'
+            : 'home';
+  const chosen = friendOf(selectedFriend) ?? friends[0];
+  const composeTo = e ? friendOf(e.detail) : chosen;
+  // 보내지 못한 편지: 이 친구에게 쓴 마지막 실패 편지
+  const failedLetter =
+    state && composeTo
+      ? state.friends
+          ?.find((f) => f.id === composeTo.id)
+          ?.messages.filter((m) => m.memberId === 'me' && m.status === 'failed')
+          .at(-1)
+      : undefined;
+  const text = e ? e.text : route === 'island' ? groupText : letterText;
+  const setText = (value: string) => {
+    if (e) return e.setText(value);
+    if (route === 'island') {
+      setGroupText(value);
+      setGroupSent(false);
+    } else setLetterText(value);
+  };
+
+  // 채팅방을 열어 둔 동안 들어온 글은 읽은 것으로 본다
+  const chatLength = island?.messages.length ?? 0;
   useEffect(() => {
-    pull.setValue(0);
-    if (reduceMotion || !opened) return;
-    Animated.sequence([
-      Animated.timing(pull, { toValue: 0.5, duration: 275, easing: ease, useNativeDriver: false }),
-      Animated.timing(pull, { toValue: 1, duration: 275, easing: ease, useNativeDriver: false }),
-    ]).start();
-  }, [opened, selected, reduceMotion, pull]);
-  const slot = (i: number) => {
-    const on = selected === i,
-      first = i === 0;
-    const pressed =
-      opened && !reduceMotion
-        ? [
-            {
-              translateY: pull.interpolate({ inputRange: [0, 0.5, 1], outputRange: [-3, -13, -4] }),
-            },
-            {
-              rotate: pull.interpolate({
-                inputRange: [0, 0.5, 1],
-                outputRange: ['0deg', '-2deg', '0deg'],
-              }),
-            },
-          ]
-        : [{ translateY: -3 }, { rotate: '0deg' }];
+    if (e && route === 'island') e.dispatch({ type: 'CHAT_READ' });
+  }, [route, chatLength]);
+  // 받은 편지는 여는 순간 읽음 처리한다. 어떤 방법으로 나가도 받은 편지함에서 사라진다
+  useEffect(() => {
+    if (e && route === 'letter' && openedLetter)
+      e.dispatch({ type: 'LETTER_READ', friend: openedLetter.friendId, id: openedLetter.id });
+  }, [route, e?.detail]);
+
+  const go = (next: MailRoute, toast?: string) => {
+    react();
+    if (!e) {
+      setRoute(next);
+      if (toast) showToast(toast);
+      return;
+    }
+    if (next === 'island') e.go('chat');
+    else if (next === 'inbox') {
+      e.go('mail');
+      e.setTab('받은 편지');
+    } else if (next === 'friend-select') e.go('friendMail', 'list');
+  };
+  const back = (to: MailRoute) => (e ? e.back() : go(to));
+
+  const catAvatar = (color: Cat, size = 34) => (
+    <View
+      style={{
+        width: size,
+        height: size,
+        overflow: 'hidden',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1.2,
+        borderColor: '#6d5545',
+        borderRadius: size / 2,
+        backgroundColor: '#f5dfbd',
+        boxShadow: '0 2px 0 #b58f6b',
+      }}
+    >
+      <Image
+        source={interiorArt.avatars[color]}
+        resizeMode="cover"
+        style={{ width: size, height: size }}
+      />
+    </View>
+  );
+
+  const paperButton = (label: string, onPress: () => void, active = false) => (
+    <Pressable
+      testID="island-message-send"
+      accessibilityRole="button"
+      onPress={onPress}
+      style={{
+        minHeight: 28,
+        paddingVertical: 5,
+        paddingHorizontal: 9,
+        justifyContent: 'center',
+        borderWidth: 1.2,
+        borderColor: '#795642',
+        borderRadius: 7,
+        backgroundColor: active ? '#efc56f' : '#fff8e8',
+        boxShadow: '0 2px 0 #795642',
+      }}
+    >
+      <Text style={[mailFont(7, 1.35, INK, '800'), { textAlign: 'center' }]}>{label}</Text>
+    </Pressable>
+  );
+
+  // 보내지 못한 글·편지 아래에 작게 붙는 "보내지 못했어요 · 다시 보내기"
+  const failedLine = (
+    testID: string,
+    onRetry: () => void,
+    align: 'left' | 'right' | 'center' = 'right',
+  ) => (
+    <Text style={[mailFont(5.5, 1.25, '#a35952', '700'), { marginTop: 2, textAlign: align }]}>
+      보내지 못했어요 ·{' '}
+      <Text
+        testID={testID}
+        accessibilityRole="button"
+        onPress={onRetry}
+        style={{ textDecorationLine: 'underline' }}
+      >
+        다시 보내기
+      </Text>
+    </Text>
+  );
+
+  const header = (title: string, note: string, to: MailRoute = 'home') => (
+    <View style={{ marginBottom: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 7 }}>
+        <Pressable
+          testID="mail-back"
+          accessibilityRole="button"
+          accessibilityLabel="이전 화면으로 돌아가기"
+          hitSlop={9}
+          onPress={() => back(to)}
+          style={{
+            width: 27,
+            height: 27,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderWidth: 1.2,
+            borderColor: '#795642',
+            borderRadius: 14,
+            backgroundColor: '#fff8e8',
+          }}
+        >
+          <Text style={{ fontFamily: GOWUN, fontSize: 17, lineHeight: 19, color: INK }}>‹</Text>
+        </Pressable>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: GOWUN, fontSize: 17, lineHeight: lh(21), color: INK }}>
+            {title}
+          </Text>
+          {note ? <Text style={mailFont(6.5, 1.35, '#826c5b')}>{note}</Text> : null}
+        </View>
+      </View>
+    </View>
+  );
+
+  // 우체통 주 버튼 (전망대 Stamp와 같은 모양)
+  const stamp = (label: string, onPress: () => void) => (
+    <Pressable
+      testID="stamp-action"
+      accessibilityRole="button"
+      onPress={onPress}
+      style={{
+        minHeight: 34,
+        marginTop: 9,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        justifyContent: 'center',
+        borderWidth: 1.5,
+        borderColor: OUTLINE,
+        borderRadius: 9,
+        backgroundColor: '#f1c46f',
+        boxShadow: `0 2px 0 ${OUTLINE}`,
+      }}
+    >
+      <Text style={[obsFont(9, 1.6, INK, '800'), { textAlign: 'center' }]}>{label}</Text>
+    </Pressable>
+  );
+
+  const newChat = island ? newChatCount(island) : 7,
+    newLetters = state ? letters.length : 3;
+  const homeItems: [string, string][] = [
+    ['우리 섬 채팅방', newChat ? `새 글 ${newChat}개` : ''],
+    ['받은 편지', newLetters ? `새 편지 ${newLetters}통` : ''],
+    ['편지 쓰기', ''],
+  ];
+  const homeSlot = (i: number) => {
+    const first = i === 0;
+    const routes: MailRoute[] = ['island', 'inbox', 'friend-select'];
+    const colors = ['#dce8c1', '#bddde0', '#efbcc4'];
+    const [title, note] = homeItems[i];
     return (
-      <AnimatedPressable
-        key={i}
-        testID={`choice-${i}`}
-        onPress={() => {
-          setSelected(i);
-          react();
-          showToast(`${concept.items[i][0]} 선택`);
-        }}
+      <Pressable
+        key={title}
+        testID={`mail-home-${i}`}
+        accessibilityRole="button"
+        accessibilityLabel={`${title} 열기`}
+        onPress={() => go(routes[i], `${title}을 열었어요`)}
         style={[
           {
-            minHeight: first ? 135 : 64,
-            paddingTop: first ? 78 : 23,
-            paddingHorizontal: 5,
-            paddingBottom: 7,
+            minHeight: first ? 151 : 72,
+            paddingTop: first ? 88 : 29,
+            paddingHorizontal: 7,
+            paddingBottom: 9,
             justifyContent: 'center',
             borderWidth: 1.5,
             borderColor: '#684434',
-            borderRadius: 4,
-            backgroundColor: ['#dce8c1', '#bddde0', '#efbcc4'][i],
+            borderRadius: 5,
+            backgroundColor: colors[i],
             boxShadow: 'inset 0 -8px #c99870,0 3px 0 #3f1d18',
+            transform: [{ rotate: i === 1 ? '1deg' : '-1deg' }],
           },
           first && webOnly({ gridRow: 'span 2' }),
-          on
-            ? {
-                transform: pressed,
-                outlineWidth: 3,
-                outlineStyle: 'solid',
-                outlineColor: '#fff4ce',
-                outlineOffset: -5,
-              }
-            : { transform: [{ rotate: i === 1 ? '1deg' : '-1deg' }] },
         ]}
       >
-        <ChoiceLabel label={concept.items[i][0]} />
-        {/* ::before는 position:absolute라 글자보다 나중에 그려진다 (그림자가 글자 윗부분을 덮음) */}
+        <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>{title}</Text>
+        {note ? (
+          <Text
+            style={[mailFont(6.5, 1.35, '#705b4e', '700'), { marginTop: 2, textAlign: 'center' }]}
+          >
+            {note}
+          </Text>
+        ) : null}
         <View
           style={[
             {
               position: 'absolute',
-              left: 7,
-              right: 7,
-              top: first ? 16 : 7,
-              height: first ? 58 : 22,
+              left: 8,
+              right: 8,
+              top: first ? 17 : 8,
+              height: first ? 66 : 25,
             },
             first
               ? [
@@ -5189,9 +6543,536 @@ function MailHome({ concept, reduceMotion, showToast }: ArtifactProps) {
             webOnly({ filter: 'drop-shadow(0 2px 1px #65402a33)' }),
           ]}
         />
-      </AnimatedPressable>
+      </Pressable>
     );
   };
+
+  const home = (
+    <>
+      <View
+        style={[
+          {
+            flexDirection: 'row',
+            columnGap: 7,
+            rowGap: 7,
+            padding: 8,
+            borderWidth: 1.5,
+            borderColor: '#4c241f',
+            borderRadius: 8,
+            backgroundColor: '#57251f',
+          },
+          webOnly({ display: 'grid', gridTemplateColumns: '1.2fr 1fr' }),
+        ]}
+      >
+        {Platform.OS === 'web' ? (
+          [homeSlot(0), homeSlot(1), homeSlot(2)]
+        ) : (
+          <>
+            <View style={{ flex: 1.2 }}>{homeSlot(0)}</View>
+            <View style={{ flex: 1, rowGap: 7 }}>
+              {homeSlot(1)}
+              {homeSlot(2)}
+            </View>
+          </>
+        )}
+      </View>
+    </>
+  );
+
+  const sendGroup = () => {
+    if (!text.trim()) return say('남길 말을 적어 주세요');
+    if (e) {
+      // 목업 서버: 다음 보내기를 실패로 만들면 글에 실패 표시와 다시 보내기가 붙는다
+      e.dispatch({ type: 'MESSAGE', text, fail: e.failNext });
+      if (e.failNext) e.setFailNext(false);
+      return e.setText('');
+    }
+    setGroupSent(true);
+    showToast('소다 섬 주민 모두에게 남겼어요');
+  };
+  const islandRoom = (
+    <>
+      {header(
+        '우리 섬 채팅방',
+        island
+          ? `${island.name} 주민 ${residentCount(island)}명이 함께 봐요`
+          : '소다 섬 주민 8명이 함께 봐요',
+      )}
+      <Scroll style={{ maxHeight: e ? height * 0.4 : undefined }}>
+        <View style={{ rowGap: 7 }}>
+          {chat.map((m) =>
+            m.mine ? (
+              <View
+                key={m.id}
+                style={{
+                  alignSelf: 'flex-end',
+                  maxWidth: '82%',
+                  paddingVertical: 7,
+                  paddingHorizontal: 9,
+                  borderRadius: 11,
+                  backgroundColor: '#dce9d7',
+                  boxShadow: '0 2px 0 #a8bfa8',
+                }}
+              >
+                <Text style={mailFont(8, 1.45, INK, '700')}>{m.text}</Text>
+                {m.failed ? (
+                  failedLine(`chat-retry-${m.id}`, () =>
+                    e.dispatch({ type: 'RETRY_MESSAGE', id: m.id }),
+                  )
+                ) : (
+                  <Text
+                    style={[
+                      mailFont(5.5, 1.25, '#78806f', '700'),
+                      { marginTop: 2, textAlign: 'right' },
+                    ]}
+                  >
+                    나 · {m.time}
+                  </Text>
+                )}
+              </View>
+            ) : (
+              <View
+                key={m.id}
+                style={{ flexDirection: 'row', alignItems: 'flex-start', columnGap: 7 }}
+              >
+                {catAvatar(m.color, 30)}
+                <View
+                  style={{
+                    flex: 1,
+                    paddingVertical: 7,
+                    paddingHorizontal: 9,
+                    borderTopLeftRadius: 3,
+                    borderTopRightRadius: 11,
+                    borderBottomRightRadius: 11,
+                    borderBottomLeftRadius: 11,
+                    backgroundColor: '#fff9eb',
+                    boxShadow: '0 2px 0 #c7aa83',
+                  }}
+                >
+                  <View
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', columnGap: 6 }}
+                  >
+                    <Text style={mailFont(7, 1.25, INK, '900')}>{m.name}</Text>
+                    <Text style={mailFont(5.5, 1.25, '#9b8878', '700')}>{m.time}</Text>
+                  </View>
+                  <Text style={[mailFont(8, 1.45, '#5f5148', '700'), { marginTop: 2 }]}>
+                    {m.text}
+                  </Text>
+                </View>
+              </View>
+            ),
+          )}
+        </View>
+      </Scroll>
+      <View
+        style={{
+          marginTop: 5,
+          padding: 7,
+          borderWidth: 1.2,
+          borderColor: '#b58f6b',
+          borderRadius: 8,
+          backgroundColor: '#fffaf0',
+        }}
+      >
+        <TextInput
+          testID="island-message-input"
+          accessibilityLabel="섬 주민 모두에게 남길 말"
+          value={text}
+          onChangeText={setText}
+          placeholder="섬 주민 모두에게 남길 말"
+          placeholderTextColor="#a28e7f"
+          multiline
+          style={
+            {
+              minHeight: 44,
+              padding: 4,
+              fontFamily: GOWUN,
+              fontSize: 11,
+              lineHeight: lh(16),
+              color: INK,
+              outlineStyle: 'none',
+            } as any
+          }
+        />
+        <View style={{ alignSelf: 'flex-end', minWidth: 74 }}>
+          {paperButton(groupSent ? '남겼어요 ✓' : '편지 남기기', sendGroup, groupSent)}
+        </View>
+      </View>
+    </>
+  );
+
+  // 가운데 종이 화면은 머리·본문·바닥으로 나눈다. 본문만 스크롤하고 주 버튼은 바닥에 고정한다
+  type Pane = { head: React.ReactNode; body: React.ReactNode; foot: React.ReactNode };
+  const inbox: Pane = {
+    head: header('받은 편지', `아직 열지 않은 편지 ${letters.length}통`),
+    body: (
+      <View style={{ rowGap: 7 }}>
+        {letters.length ? (
+          letters.map((letter, i) => (
+            <Pressable
+              key={letter.id}
+              testID={`received-letter-${i}`}
+              accessibilityRole="button"
+              accessibilityLabel={`${letter.from}의 편지 열기`}
+              onPress={() => {
+                if (e) return e.go('mail', letter.id);
+                setSelectedLetter(letter.id);
+                setDeletedLetters((prev) => [...prev, letter.id]);
+                go('letter', `${letter.from}의 편지를 열었어요`);
+              }}
+              style={{
+                minHeight: 56,
+                paddingVertical: 10,
+                paddingRight: 9,
+                paddingLeft: 50,
+                justifyContent: 'center',
+                borderWidth: 1.2,
+                borderColor: '#ad8765',
+                borderRadius: 7,
+                backgroundColor: '#fff8e8',
+                boxShadow: '0 2px 0 #b58f6b',
+              }}
+            >
+              <Image
+                source={interiorArt.letterEnvelope}
+                resizeMode="contain"
+                style={{
+                  position: 'absolute',
+                  left: 8,
+                  top: 8,
+                  width: 39,
+                  height: 39,
+                  transform: [{ rotate: i % 2 ? '2deg' : '-2deg' }],
+                }}
+              />
+              <Text style={mailFont(9, 1.3, INK, '900')}>{letter.from}</Text>
+            </Pressable>
+          ))
+        ) : (
+          <View style={{ paddingVertical: 35, alignItems: 'center' }}>
+            <Image
+              source={interiorArt.letterEnvelope}
+              resizeMode="contain"
+              style={{ width: 48, height: 48 }}
+            />
+            <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { marginTop: 7 }]}>
+              기다리는 편지가 없어요.
+            </Text>
+          </View>
+        )}
+      </View>
+    ),
+    foot: (
+      <Text style={[mailFont(5.8, 1.4, '#856f5f'), { marginTop: 5, textAlign: 'center' }]}>
+        받은 편지는 열었다가 닫으면 사라져요.
+      </Text>
+    ),
+  };
+
+  const letter: Pane | undefined = openedLetter && {
+    head: header('받은 편지', '읽고 닫으면 이 편지는 사라져요', 'inbox'),
+    body: (
+      <View
+        style={[
+          {
+            minHeight: 280,
+            paddingTop: 18,
+            paddingHorizontal: 16,
+            paddingBottom: 14,
+            borderWidth: 1.2,
+            borderColor: '#b68d68',
+            boxShadow: '0 3px 5px #4d291e3d',
+            transform: [{ rotate: '-0.5deg' }],
+          },
+          webOnly({ backgroundImage: 'repeating-linear-gradient(#fff9e9 0 22px,#eadbc2 23px)' }),
+          Platform.OS !== 'web' && { backgroundColor: '#fff9e9' },
+        ]}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 9 }}>
+          {catAvatar(openedLetter.color, 40)}
+          <View>
+            <Text style={mailFont(7, 1.4, '#8d715e', '800')}>FROM.</Text>
+            <Text
+              style={{
+                marginTop: 1,
+                fontFamily: GOWUN,
+                fontSize: 18,
+                lineHeight: lh(23),
+                color: INK,
+              }}
+            >
+              {openedLetter.from}
+            </Text>
+            <Text style={[mailFont(6, 1.4, '#9b8878'), { marginTop: 1 }]}>
+              {openedLetter.island} · {openedLetter.time}
+            </Text>
+          </View>
+        </View>
+        <Text
+          style={{ marginTop: 28, fontFamily: GOWUN, fontSize: 13, lineHeight: lh(23), color: INK }}
+        >
+          {openedLetter.body}
+        </Text>
+        <Text style={[mailFont(7, 1.4, '#8d715e', '800'), { marginTop: 24, textAlign: 'right' }]}>
+          TO. 나
+        </Text>
+      </View>
+    ),
+    foot: (
+      <View style={{ marginTop: 9, flexDirection: 'row', columnGap: 7 }}>
+        <Pressable
+          testID="reply-to-letter"
+          accessibilityRole="button"
+          onPress={() => {
+            if (e) return e.replace('friendMail', openedLetter.friendId);
+            setSelectedFriend(openedLetter.friendId);
+            go('compose', `${openedLetter.from}에게 답장을 써요`);
+          }}
+          style={{
+            minHeight: 34,
+            flex: 1,
+            paddingVertical: 7,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderWidth: 1.5,
+            borderColor: '#7b493f',
+            borderRadius: 9,
+            backgroundColor: '#f1c46f',
+            boxShadow: '0 2px 0 #7b493f',
+          }}
+        >
+          <Text style={mailFont(8, 1.4, '#54352f', '900')}>답장하기</Text>
+        </Pressable>
+        <Pressable
+          testID="close-letter"
+          accessibilityRole="button"
+          onPress={() => {
+            back('inbox');
+            if (!e) showToast('편지를 닫았어요');
+          }}
+          style={{
+            minHeight: 34,
+            flex: 1,
+            paddingVertical: 7,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderWidth: 1.5,
+            borderColor: '#7b493f',
+            borderRadius: 9,
+            backgroundColor: '#fff8e8',
+            boxShadow: '0 2px 0 #7b493f',
+          }}
+        >
+          <Text style={mailFont(8, 1.4, '#54352f', '900')}>닫기</Text>
+        </Pressable>
+      </View>
+    ),
+  };
+
+  const friendSelect: Pane = {
+    head: header('편지 보낼 친구 선택', ''),
+    body: (
+      <View style={{ rowGap: 7 }}>
+        {friends.map((friend, i) => (
+          <Pressable
+            key={friend.id}
+            testID={`letter-friend-${i}`}
+            accessibilityRole="button"
+            accessibilityLabel={`${friend.name} · ${friend.island}`}
+            accessibilityState={{ selected: chosen === friend }}
+            onPress={() => {
+              setSelectedFriend(friend.id);
+              if (!e) showToast(`${friend.name}를 받는 친구로 골랐어요`);
+            }}
+            style={{
+              minHeight: 57,
+              padding: 8,
+              flexDirection: 'row',
+              alignItems: 'center',
+              columnGap: 9,
+              borderWidth: chosen === friend ? 2 : 1.2,
+              borderColor: chosen === friend ? '#9a654d' : '#b79273',
+              borderRadius: 9,
+              backgroundColor: chosen === friend ? '#fff0cf' : '#fff9ea',
+              transform: chosen === friend ? [{ translateX: 3 }] : undefined,
+            }}
+          >
+            {catAvatar(friend.color, 38)}
+            <View style={{ flex: 1 }}>
+              <Text style={mailFont(9, 1.3, INK, '900')}>{friend.name}</Text>
+              <Text style={[mailFont(6.5, 1.35, '#826c5b'), { marginTop: 2 }]}>
+                {friend.island} · 친구
+              </Text>
+            </View>
+            <Text style={mailFont(10, 1.2, chosen === friend ? '#9a654d' : '#c5ad99', '900')}>
+              {chosen === friend ? '✓' : '›'}
+            </Text>
+          </Pressable>
+        ))}
+        {!friends.length && (
+          <Text
+            style={[
+              mailFont(8, 1.4, '#826c5b', '800'),
+              { paddingVertical: 24, textAlign: 'center' },
+            ]}
+          >
+            내 뗏목에서 친구를 추가해 주세요.
+          </Text>
+        )}
+      </View>
+    ),
+    foot:
+      chosen &&
+      stamp(`${chosen.name}에게 편지 쓰기`, () => {
+        if (e) return e.go('friendMail', chosen.id);
+        go('compose', `${chosen.name}에게 쓸 편지를 펼쳤어요`);
+      }),
+  };
+
+  const sendLetter = () => {
+    if (!composeTo) return;
+    if (!text.trim()) return say('편지 내용을 적어 주세요');
+    if (!e) {
+      react();
+      return showToast(`${composeTo.name}에게 편지를 보냈어요`);
+    }
+    // reducer가 거절할 편지(친구 아님·내 섬에 우체통 없음)는 보냈다고 하지 않는다
+    if (!canSendLetter(e.state, composeTo.id))
+      return say('지금은 이 친구에게 편지를 보낼 수 없어요');
+    react();
+    e.dispatch({ type: 'FRIEND_MESSAGE', id: composeTo.id, text, fail: e.failNext });
+    e.setText('');
+    if (e.failNext) return e.setFailNext(false);
+    e.notify(`${composeTo.name}에게 편지를 보냈어요`);
+    e.reset('mail');
+  };
+  const retryLetter = () => {
+    if (!composeTo || !failedLetter) return;
+    e.dispatch({ type: 'FRIEND_RETRY', id: failedLetter.id, friend: composeTo.id });
+    e.notify(`${composeTo.name}에게 편지를 보냈어요`);
+    e.reset('mail');
+  };
+  // 편지지 입력칸은 남은 높이에 맞춰 줄인다 (머리·편지지 여백·버튼·안내가 약 213)
+  const letterInput = Math.max(64, Math.min(210, height - 14 - 213));
+  const compose: Pane | undefined = composeTo && {
+    head: header('친구에게 편지 쓰기', `${composeTo.name} · ${composeTo.island}`, 'friend-select'),
+    body: (
+      <View
+        style={[
+          {
+            minHeight: letterInput + 90,
+            paddingTop: 14,
+            paddingHorizontal: 13,
+            paddingBottom: 12,
+            borderWidth: 1.2,
+            borderColor: '#b68d68',
+            boxShadow: '0 3px 5px #4d291e3d',
+            transform: [{ rotate: '-0.4deg' }],
+          },
+          webOnly({ backgroundImage: 'repeating-linear-gradient(#fff9e9 0 22px,#eadbc2 23px)' }),
+          Platform.OS !== 'web' && { backgroundColor: '#fff9e9' },
+        ]}
+      >
+        <View
+          style={{
+            position: 'absolute',
+            right: 10,
+            top: 9,
+            width: 31,
+            height: 36,
+            borderWidth: 1,
+            borderStyle: 'dashed',
+            borderColor: '#ba6c62',
+            backgroundColor: '#e7a097',
+          }}
+        />
+        <Text style={mailFont(7, 1.4, '#8d715e', '800')}>TO. {composeTo.name}</Text>
+        <TextInput
+          testID="friend-letter-input"
+          accessibilityLabel={`${composeTo.name}에게 쓸 편지`}
+          value={text}
+          onChangeText={setText}
+          placeholder="친구에게 남길 편지를 써 주세요"
+          placeholderTextColor="#a28e7f"
+          multiline
+          style={
+            {
+              minHeight: letterInput,
+              marginTop: 18,
+              padding: 0,
+              fontFamily: GOWUN,
+              fontSize: 13,
+              lineHeight: lh(23),
+              color: INK,
+              textAlignVertical: 'top',
+              outlineStyle: 'none',
+            } as any
+          }
+        />
+        <Text style={[mailFont(7, 1.4, '#8d715e', '800'), { textAlign: 'right' }]}>FROM. 나</Text>
+      </View>
+    ),
+    foot: (
+      <>
+        {stamp('접어서 편지 보내기', sendLetter)}
+        {failedLetter ? (
+          <View style={{ alignItems: 'center' }}>
+            {failedLine('letter-retry', retryLetter, 'center')}
+          </View>
+        ) : (
+          <Text style={[mailFont(5.8, 1.35, '#856f5f'), { marginTop: 5, textAlign: 'center' }]}>
+            친구의 섬에 우체통이 없어도 배달돼요.
+          </Text>
+        )}
+      </>
+    ),
+  };
+
+  const pane: Pane | undefined =
+    route === 'inbox'
+      ? inbox
+      : route === 'letter'
+        ? (letter ?? inbox)
+        : route === 'friend-select'
+          ? friendSelect
+          : route === 'compose'
+            ? (compose ?? friendSelect)
+            : undefined;
+
+  if (route !== 'home') {
+    return (
+      <Animated.View style={{ transform: reactTransform }}>
+        <View
+          style={[
+            {
+              padding: 11,
+              borderWidth: 1.2,
+              borderColor: '#b38c68',
+              borderRadius: 9,
+              backgroundColor: '#fff1d0',
+              boxShadow: '0 8px 18px #3a1d1766',
+            },
+            // 가운데 종이는 화면 안(위 12·아래 2)에 들어오게 하고 넘치는 본문만 스크롤한다
+            pane && { maxHeight: height - 14 },
+          ]}
+        >
+          {pane ? (
+            <>
+              {pane.head}
+              {/* 기운 종이·그림자가 스크롤 테두리에 잘리지 않게 안쪽 여백을 주고 같은 만큼 바깥으로 뺀다 */}
+              <Scroll style={{ flexShrink: 1, minHeight: 0, margin: -8, padding: 8 }}>
+                {pane.body}
+              </Scroll>
+              {pane.foot}
+            </>
+          ) : (
+            islandRoom
+          )}
+        </View>
+      </Animated.View>
+    );
+  }
+
   return (
     <Animated.View
       style={{
@@ -5219,409 +7100,7 @@ function MailHome({ concept, reduceMotion, showToast }: ArtifactProps) {
           boxShadow: 'inset 0 5px 10px #32110c88',
         }}
       />
-      <ObsTag label={kindCopy[concept.kind]} inline background="#fff0cf" />
-      {/* 원본은 아래 안내 줄의 margin-top 5px이 이 9px과 겹쳐 사라진다 */}
-      <Selection
-        title={item[1]}
-        note={item[2]}
-        size={16}
-        noteSize={8}
-        color="#fff4df"
-        noteColor="#f6d2bf"
-        style={{ paddingHorizontal: 5, marginBottom: 9 }}
-      />
-      <Text
-        style={[
-          obsFont(7, 1.6, '#ffe9cf', '800'),
-          { marginBottom: 7, paddingLeft: 5, letterSpacing: 0.42 },
-        ]}
-      >
-        누가 볼 수 있나요?
-      </Text>
-      {/* grid 1.2fr 1fr · 첫 칸은 두 줄 차지. 웹은 CSS grid 그대로 (fr 칸 폭의 1/64px 반올림까지 원본과 같게), 네이티브는 여백 없는 두 기둥 */}
-      <View
-        style={[
-          {
-            flexDirection: 'row',
-            columnGap: 7,
-            rowGap: 7,
-            padding: 8,
-            borderWidth: 1.5,
-            borderColor: '#4c241f',
-            borderRadius: 8,
-            backgroundColor: '#57251f',
-          },
-          webOnly({ display: 'grid', gridTemplateColumns: '1.2fr 1fr' }),
-        ]}
-      >
-        {Platform.OS === 'web' ? (
-          [slot(0), slot(1), slot(2)]
-        ) : (
-          <>
-            <View style={{ flex: 1.2 }}>{slot(0)}</View>
-            <View style={{ flex: 1, rowGap: 7 }}>
-              {slot(1)}
-              {slot(2)}
-            </View>
-          </>
-        )}
-      </View>
-      <Stamp
-        label="선택한 칸 열기"
-        background="#f1c46f"
-        onPress={() => {
-          setOpened((prev) => !prev);
-          showToast(`${item[0]} 칸을 열었어요`);
-        }}
-      />
-    </Animated.View>
-  );
-}
-
-function IslandRoom({ concept, reduceMotion, showToast }: ArtifactProps) {
-  const [selected, setSelected] = useState(0);
-  // 처음엔 시간만, 편지를 누르면 data-note("이름 · 시간")로 바뀐다
-  const [note, setNote] = useState(concept.items[0][2]);
-  const [sent, setSent] = useState(false);
-  const [reactTransform, react] = useReact(reduceMotion);
-  const stamps = ['●', '▲', '◆'];
-  return (
-    <Animated.View
-      style={[
-        {
-          paddingTop: 14,
-          paddingHorizontal: 13,
-          paddingBottom: 13,
-          borderWidth: 1.5,
-          borderColor: '#633a2e',
-          borderTopLeftRadius: 5,
-          borderTopRightRadius: 8,
-          borderBottomRightRadius: 4,
-          borderBottomLeftRadius: 6,
-          backgroundColor: '#fff1d0',
-          boxShadow: '0 7px 16px #43251a55',
-          transform: reactTransform,
-        },
-        webOnly({
-          clipPath:
-            'polygon(1% 0,99% 1%,100% 98%,96% 100%,89% 98%,81% 100%,72% 98%,64% 100%,56% 98%,47% 100%,39% 98%,31% 100%,23% 98%,15% 100%,7% 98%,0 100%)',
-        }),
-      ]}
-    >
-      <View style={{ marginBottom: 9 }}>
-        <ObsTag label="주민 모두에게" />
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-          <Text
-            style={{
-              flex: 1,
-              fontFamily: GOWUN,
-              fontSize: 16,
-              lineHeight: lh(16 * 1.15),
-              color: INK,
-            }}
-          >
-            우리 섬 편지방
-          </Text>
-          <Text style={obsFont(7, 1.6, '#806b58')}>소다 섬 주민 8명</Text>
-        </View>
-      </View>
-      <View style={{ rowGap: 6, marginBottom: 8 }}>
-        {concept.items.map((letter, i) => (
-          <Pressable
-            key={letter[0]}
-            testID={`choice-${i}`}
-            onPress={() => {
-              setSelected(i);
-              setNote(`${letter[0]} · ${letter[2]}`);
-              react();
-              showToast(`${stamps[i]} 선택`);
-            }}
-            style={{
-              minHeight: 45,
-              paddingVertical: 6,
-              paddingHorizontal: 7,
-              borderTopLeftRadius: 7,
-              borderTopRightRadius: 12,
-              borderBottomRightRadius: 12,
-              borderBottomLeftRadius: 7,
-              backgroundColor: selected === i ? '#dce9d7' : '#fffaf0',
-              boxShadow: '0 2px 0 #c7aa83',
-              transform: selected === i ? [{ translateX: 3 }] : undefined,
-            }}
-          >
-            {/* grid 27px 1fr auto · 막대(i)는 둘째 줄 첫 칸 가운데 */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 6 }}>
-              <View
-                style={{
-                  width: 26,
-                  height: 26,
-                  marginRight: 1,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderWidth: 1.5,
-                  borderColor: '#6d5545',
-                  borderTopLeftRadius: '42%',
-                  borderTopRightRadius: '48%',
-                  borderBottomRightRadius: '45%',
-                  borderBottomLeftRadius: '50%',
-                  backgroundColor: ['#b8d8ca', '#e8bdc5', '#efd78a'][i],
-                }}
-              >
-                <Text style={obsFont(8, 1.25, '#6d5545', '800')}>{stamps[i]}</Text>
-              </View>
-              <View style={{ flex: 1, rowGap: 1 }}>
-                <Text style={obsFont(8, 1.25, INK, '900')}>{letter[0]}</Text>
-                <Text numberOfLines={1} style={obsFont(8, 1.25, '#5f5148', '800')}>
-                  {letter[1]}
-                </Text>
-              </View>
-              <Text
-                style={[
-                  obsFont(6, 1.25, '#9b8878', '800'),
-                  { alignSelf: 'flex-start', paddingTop: 2 },
-                ]}
-              >
-                {letter[2]}
-              </Text>
-            </View>
-            <View
-              style={{
-                width: 11,
-                height: 3,
-                marginTop: 10,
-                marginLeft: 8,
-                borderRadius: 99,
-                backgroundColor: exact('#7f624f55'),
-              }}
-            />
-          </Pressable>
-        ))}
-      </View>
-      <Selection
-        title={concept.items[selected][1]}
-        note={note}
-        size={11}
-        noteSize={7}
-        style={{
-          marginHorizontal: 2,
-          marginBottom: 8,
-          paddingLeft: 7,
-          borderLeftWidth: 2,
-          borderLeftColor: '#c39067',
-        }}
-      />
-      <View
-        style={{
-          rowGap: 3,
-          paddingVertical: 8,
-          paddingHorizontal: 10,
-          borderWidth: 1.5,
-          borderStyle: 'dashed',
-          borderColor: '#b58f6b',
-          borderRadius: 6,
-          backgroundColor: '#fffaf0',
-        }}
-      >
-        <Text style={obsFont(7, 1.6, '#9d755b')}>우리 섬 모두에게</Text>
-        <Text style={{ fontFamily: GOWUN, fontSize: 10, lineHeight: lh(10 * 1.35), color: INK }}>
-          오늘도 같이 집중할래?
-        </Text>
-      </View>
-      <Stamp
-        label={sent ? '모두에게 남겼어요 ✓' : '편지 남기기'}
-        background={sent ? '#a9d9c2' : '#f1c46f'}
-        onPress={() => {
-          setSent(true);
-          showToast('소다 섬 주민 모두에게 편지를 남겼어요');
-        }}
-      />
-    </Animated.View>
-  );
-}
-
-function FriendMail({ concept, reduceMotion, showToast }: ArtifactProps) {
-  const [selected, setSelected] = useState(0);
-  const [sent, setSent] = useState(false);
-  const [reactTransform, react] = useReact(reduceMotion);
-  const item = concept.items[selected];
-  // .letter-sent .writing-paper: transition .45s 로 접혀 사라진다
-  const fold = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!sent) return;
-    if (reduceMotion) fold.setValue(1);
-    else
-      Animated.timing(fold, {
-        toValue: 1,
-        duration: 450,
-        easing: ease,
-        useNativeDriver: false,
-      }).start();
-  }, [sent, reduceMotion, fold]);
-  const folded = (outputRange: any[]) => fold.interpolate({ inputRange: [0, 1], outputRange });
-  return (
-    <Animated.View
-      style={{
-        padding: 13,
-        borderWidth: 1.5,
-        borderColor: '#633a2e',
-        borderRadius: 10,
-        backgroundColor: '#b7784e',
-        boxShadow: 'inset 0 0 0 3px #d9a36e,0 7px 16px #43251a66',
-        transform: reactTransform,
-      }}
-    >
-      <View style={{ marginBottom: 9, paddingHorizontal: 3 }}>
-        <ObsTag label="한 친구에게" color="#5d463a" />
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-          <Text
-            style={{
-              flex: 1,
-              fontFamily: GOWUN,
-              fontSize: 16,
-              lineHeight: lh(16 * 1.15),
-              color: '#fff5df',
-            }}
-          >
-            친구 편지
-          </Text>
-          <Text style={obsFont(7, 1.6, '#f3ddc4')}>실시간 대화가 아닌 편지예요</Text>
-        </View>
-      </View>
-      {/* 원본 margin-top 9px은 위 제목의 margin-bottom 9px과 겹친다 */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'flex-end',
-          columnGap: 6,
-          marginBottom: 8,
-          paddingTop: 8,
-          paddingHorizontal: 7,
-          borderRadius: 7,
-          backgroundColor: '#6c432f',
-          opacity: sent ? 0.45 : 1,
-        }}
-      >
-        {concept.items.map((friend, i) => (
-          <Pressable
-            key={friend[0]}
-            testID={`choice-${i}`}
-            onPress={() => {
-              setSelected(i);
-              react();
-              showToast(`${friend[0]} 선택`);
-            }}
-            style={[
-              {
-                flex: 1,
-                minHeight: 58,
-                paddingTop: 25,
-                paddingHorizontal: 4,
-                paddingBottom: 5,
-                justifyContent: 'center',
-                borderWidth: 1.5,
-                borderColor: '#5f4032',
-                borderTopLeftRadius: 4,
-                borderTopRightRadius: 4,
-                borderBottomLeftRadius: 1,
-                borderBottomRightRadius: 1,
-                backgroundColor: ['#f0dca9', '#bfdde0', '#edbec5'][i],
-                boxShadow: 'inset 0 -8px #c58f68,0 2px 0 #4d2e22',
-              },
-              selected === i && {
-                transform: [{ translateY: -5 }],
-                outlineWidth: 2,
-                outlineStyle: 'solid',
-                outlineColor: '#fff2c7',
-                outlineOffset: -4,
-              },
-            ]}
-          >
-            <View
-              style={[
-                { position: 'absolute', left: 6, right: 6, top: 6, height: 22 },
-                gradient(
-                  'linear-gradient(145deg,transparent 49%,#d2b878 50%),linear-gradient(215deg,transparent 49%,#ead69f 50%)',
-                ),
-              ]}
-            />
-            <ChoiceLabel label={friend[0]} />
-          </Pressable>
-        ))}
-      </View>
-      <Selection
-        title={item[1]}
-        note={item[2]}
-        size={11}
-        noteSize={7}
-        color="#fff8e8"
-        noteColor="#f1d6c1"
-        style={{ marginHorizontal: 4, marginBottom: 7 }}
-      />
-      <Animated.View
-        style={[
-          // transform이 있는 편지지는 뒤의 버튼보다 나중에 그려져 그림자가 버튼 윗변에 얹힌다
-          {
-            zIndex: 1,
-            minHeight: 118,
-            paddingTop: 12,
-            paddingHorizontal: 12,
-            paddingBottom: 10,
-            borderWidth: 1,
-            borderColor: '#b68d68',
-            boxShadow: '0 3px 5px #4d291e3d',
-            opacity: folded([1, 0]),
-            transform: [
-              { translateY: folded([0, -45]) },
-              { scale: folded([1, 0.55]) },
-              { rotate: folded(['-1deg', '8deg']) },
-            ],
-          },
-          webOnly({ backgroundImage: 'repeating-linear-gradient(#fff9e9 0 19px,#eadbc2 20px)' }),
-          Platform.OS !== 'web' && { backgroundColor: '#fff9e9' },
-        ]}
-      >
-        {/* 가상 요소라 content-box: 25×29에 테두리가 더해진다 */}
-        <View
-          style={{
-            position: 'absolute',
-            right: 10,
-            top: 9,
-            width: 27,
-            height: 31,
-            borderWidth: 1,
-            borderStyle: 'dashed',
-            borderColor: '#ba6c62',
-            backgroundColor: '#e7a097',
-          }}
-        />
-        {/* span은 부모 줄 상자(15px/1.6) 안의 inline이라 바깥 Text가 그 줄 높이를 만든다 */}
-        <Text style={obsFont(15, 1.6)}>
-          <Text style={{ fontSize: 8, lineHeight: lh(8 * 1.6), letterSpacing: 0.48 }}>
-            TO. <Text style={{ fontWeight: '700' }}>{item[0]}</Text>
-          </Text>
-        </Text>
-        <Text
-          style={{
-            marginTop: 14,
-            marginBottom: 10,
-            fontFamily: GOWUN,
-            fontSize: 10,
-            lineHeight: lh(10 * 1.8),
-            color: INK,
-          }}
-        >
-          {'섬에 새 꽃이 피었어.\n다음에 놀러 와서 같이 보자.'}
-        </Text>
-        <Text style={[obsFont(7, 1.6), { textAlign: 'right' }]}>FROM. 나</Text>
-      </Animated.View>
-      <Stamp
-        label={sent ? '우체통에 넣었어요 ✓' : '접어서 편지 보내기'}
-        background={sent ? '#a9d9c2' : '#f1c46f'}
-        onPress={() => {
-          setSent(true);
-          showToast(`${item[0]}에게 편지를 보냈어요`);
-        }}
-      />
+      {home}
     </Animated.View>
   );
 }
@@ -5631,8 +7110,11 @@ const observatoryMailArtifacts: Record<string, ArtifactRenderer> = {
   'island-ranking': IslandRanking,
   'old-map': OldMap,
   'mail-home': MailHome,
-  'island-room': IslandRoom,
-  'friend-mail': FriendMail,
+  'island-room': MailHome,
+  'received-letters': MailHome,
+  'letter-detail': MailHome,
+  'friend-select': MailHome,
+  'friend-compose': MailHome,
 };
 
 // ───────────── 상점·축음기 ─────────────

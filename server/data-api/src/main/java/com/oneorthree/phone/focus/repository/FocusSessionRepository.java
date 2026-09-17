@@ -142,13 +142,6 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
                                                   @Param("liveSince") Instant liveSince);
 
     /**
-     * orphan 정리용(GROMO-610) — 앱 강제종료 등으로 threshold 이전에 시작됐으나 아직 미종료인 세션.
-     * 스케줄러가 조회해 시작+상한으로 종료시각을 채워 '영원히 집중중' 오염을 제거한다.
-     *
-     * @param threshold 이 시각 <b>이전</b>에 시작한 미종료 세션만 — 보통 {@code now - ORPHAN_TIMEOUT(12h)}
-     * @return 스윕 후보. 상태는 아직 ACTIVE 이고 실제 마감은 {@link #markAutoClosedIfOpen} 이 조건부로 한다
-     */
-    /**
      * <b>아직 orphan 이 아닌</b> 진행 중 세션 — {@code startedAt} 이 임계 시각 «이후»인 미종료 마커.
      *
      * <p>프레즌스 재구축이 쓴다(GROMO-292). 「미종료 전부」로 잡으면 <b>이미 orphan 인 세션</b>까지
@@ -160,7 +153,23 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     @EntityGraph(attributePaths = "user")
     List<FocusSession> findByEndedAtIsNullAndStartedAtAfter(Instant threshold);
 
-    List<FocusSession> findByEndedAtIsNullAndStartedAtBefore(Instant threshold);
+    /**
+     * orphan 스윕 후보 (GROMO-610) — threshold 이전에 시작했고 아직 미종료인 <b>레거시</b> 마커.
+     *
+     * <p><b>v0.3 상세({@code focus_session_details})가 달린 세션은 제외한다</b>(GROMO-1764, LLD §5
+     * "v0.3 상세는 기존 orphan 스윕의 12h AUTO_CLOSED 대상에서 제외한다"). 새 수명주기의 PAUSED 세션도
+     * 레거시 마커는 {@code status=ACTIVE}·{@code endedAt IS NULL} 그대로라, 이 조건이 없으면 13시간
+     * 쉰 사용자의 세션을 스윕이 {@code AUTO_CLOSED} 로 닫아 {@code focus_session_details.lifecycle} 과
+     * 어긋난다 — 상세는 PAUSED 인데 마커는 마감된 상태가 되어 resume/finish 가 갈 곳을 잃는다.
+     * 새 프로토콜 세션의 정리 주체는 FR-D06 의 종료/복구 정책이 정한다.
+     *
+     * @param threshold 이 시각 <b>이전</b>에 시작한 미종료 세션만 — 보통 {@code now - ORPHAN_TIMEOUT(12h)}
+     * @return 스윕 후보. 상태는 아직 ACTIVE 이고 실제 마감은 {@link #markAutoClosedIfOpen} 이 조건부로 한다
+     */
+    @Query("SELECT s FROM FocusSession s "
+            + "WHERE s.endedAt IS NULL AND s.startedAt < :threshold "
+            + "AND NOT EXISTS (SELECT 1 FROM FocusSessionDetail d WHERE d.sessionId = s.id)")
+    List<FocusSession> findLegacyOrphanCandidates(@Param("threshold") Instant threshold);
 
     /**
      * 방금 리스를 놓아 준 세션들 중 <b>그 사이 끝난 것</b> — 프레즌스 재구축의 되묻기(GROMO-292).

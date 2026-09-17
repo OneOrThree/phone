@@ -67,6 +67,11 @@ class AccountWithdrawalServiceTest {
     private GroupMemberService groupMemberService;
     @Mock
     private FocusService focusService;
+    /** v0.3 집중 세션(GROMO-1764) 상세·구간 — 레거시와 달리 자유 입력 subject 까지 남는다. */
+    @Mock
+    private com.oneorthree.phone.focus.repository.FocusSessionDetailRepository focusSessionDetailRepository;
+    @Mock
+    private com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository focusSessionIntervalRepository;
     @Mock
     private StatsService statsService;
     @Mock
@@ -105,7 +110,8 @@ class AccountWithdrawalServiceTest {
 
         accountWithdrawalService.withdraw(USER_ID);
 
-        InOrder order = inOrder(userQueryService, groupMemberService, authSessionService, focusService, statsService,
+        InOrder order = inOrder(userQueryService, groupMemberService, authSessionService, focusService,
+                focusSessionIntervalRepository, focusSessionDetailRepository, statsService,
                 screenTimeService, userService, friendService);
         // 배타 락 로드가 맨 앞 — 이후 정리와 새 관계 생성을 직렬화한다
         order.verify(userQueryService).getCallerForUpdate(USER_ID);
@@ -118,6 +124,10 @@ class AccountWithdrawalServiceTest {
         // 그룹(해제 환불·근거 박제)이 지갑 삭제와 익명화보다 앞
         order.verify(groupMemberService).detachWithdrawnUser(user);
         order.verify(focusService).anonymizeWithdrawnUser(USER_ID);
+        // v0.3 상세·구간: 구간 닫기 → 상세 종결 → user_id·subject 파기. 마지막이 앞서면 나머지가 대상을 잃는다.
+        order.verify(focusSessionIntervalRepository).closeOpenIntervalsOfUser(eq(USER_ID), any(Instant.class));
+        order.verify(focusSessionDetailRepository).abandonProgressingOfUser(eq(USER_ID), any(Instant.class));
+        order.verify(focusSessionDetailRepository).anonymizeWithdrawnUser(USER_ID);
         order.verify(statsService).anonymizeWithdrawnUser(USER_ID);
         order.verify(screenTimeService).anonymizeWithdrawnUser(USER_ID);
         order.verify(userService).deleteWalletAndSettings(USER_ID);
@@ -151,6 +161,7 @@ class AccountWithdrawalServiceTest {
                 .isEqualTo(GroupErrorCode.HOST_WITHDRAW);
 
         verify(focusService, never()).anonymizeWithdrawnUser(any());
+        verify(focusSessionDetailRepository, never()).anonymizeWithdrawnUser(any());
         verify(statsService, never()).anonymizeWithdrawnUser(any());
         verify(screenTimeService, never()).anonymizeWithdrawnUser(any());
         verify(userService, never()).deleteWalletAndSettings(any());

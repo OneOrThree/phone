@@ -116,6 +116,8 @@ export type Message = {
   text: string;
   at: number;
   status: 'sent' | 'failed';
+  // 받은 편지를 읽고 닫은 시각. 있으면 받은 편지함에서 사라진다
+  readAt?: number;
 };
 export type Island = {
   visibility?: 'public' | 'private';
@@ -164,6 +166,10 @@ export type Island = {
   track: string;
   playing: boolean;
   ledger: { id: string; text: string; at: number; memberId?: string }[];
+  // 우리 섬 채팅방을 마지막으로 연 시각. 이후 다른 주민 글이 새 글이다
+  chatReadAt?: number;
+  // 방금 완공한 건물. 게시판 청사진이 완공 안내를 보여 주고, 다음 건물을 고르면 지운다
+  completed?: { building: Building; at: number };
 };
 export type Session = {
   id: string;
@@ -241,6 +247,8 @@ export type State = {
   travelOrigin?: string;
   // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
   hallGuide?: 'pending' | 'done';
+  // 이 시각까지 받은 편지는 읽은 것으로 본다. 받은 편지 읽음(readAt)이 생기기 전 저장본을 불러온 시각이 들어간다
+  lettersReadAt?: number;
 };
 export const colors: Color[] = ['black', 'ginger', 'cream', 'gray', 'white', 'calico'];
 export const colorNames = ['검정', '치즈', '크림', '회색', '흰색', '삼색'];
@@ -542,6 +550,7 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
     track: 'waves',
     playing: false,
     ledger: [],
+    chatReadAt: 0,
   };
 }
 export function initialState(full = false): State {
@@ -624,9 +633,49 @@ export function initialState(full = false): State {
     lastResult: null,
     pendingIsland: null,
     pendingIslands: [],
+    lettersReadAt: 0,
   };
 }
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
+// "HH:MM" → 자정부터 분. 형식이 틀리면 null
+// 시간대 종료는 24:00까지 쓸 수 있고, 네이티브 입력의 '9:00' 같은 한 자리 시도 받는다
+export const clockMinutes = (v?: string) => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v ?? '');
+  if (!m || +m[2] >= 60 || +m[1] > 24 || (+m[1] === 24 && +m[2] > 0)) return null;
+  return +m[1] * 60 + +m[2];
+};
+// 회관에서 다음 건물로 고를 수 있는 건물. 이 건물이 완공될 때만 게시판 청사진에 완공 안내를 남긴다
+export const nextBuildings: Building[] = ['gram', 'library', 'mail', 'tower', 'shop'];
+// 친구 편지를 보낼 수 있는지: 지금 친구이고 내 섬에 우체통이 있어야 한다 (받는 섬은 상관없다)
+export const canSendLetter = (s: State, friendId: string) =>
+  s.friends?.find((f) => f.id === friendId)?.status === 'friend' &&
+  currentIsland(s).buildings.includes('mail');
+// 친구가 보내고 아직 읽고 닫지 않은 편지 (최신순)
+export const unreadLetters = (s: State) =>
+  (s.friends ?? [])
+    .filter((f) => f.status === 'friend')
+    .flatMap((f) =>
+      f.messages
+        .filter((m) => m.memberId !== 'me' && !m.readAt && m.at > (s.lettersReadAt ?? 0))
+        .map((m) => ({ friend: f, letter: m })),
+    )
+    .sort((a, b) => b.letter.at - a.letter.at);
+// 채팅방을 마지막으로 연 뒤 다른 주민이 남긴 글 수
+// 내 댓글인지: memberId가 없던 예전 저장본은 작성자 이름을 내 이름(바꾼 이름 포함)과 비교한다
+// 주민 찾기: 지금 주민이 아니면 떠난 주민(기록 보존)에서 찾는다. 달성률·보상 판정이 같은 기록을 본다
+export const memberOf = (i: Island, id: string) =>
+  i.members.find((m) => m.id === id) ?? i.formerMembers?.find((m) => m.id === id);
+// "9:00" 같은 입력을 "09:00"으로 맞춘다 (형식이 틀리면 입력 그대로)
+export const clockText = (value: string) => {
+  const m = clockMinutes(value);
+  return m == null
+    ? value
+    : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+};
+export const isOwnComment = (s: State, c: { memberId?: string; name: string }) =>
+  c.memberId != null ? c.memberId === 'me' : [s.name, ...(s.profileNames ?? [])].includes(c.name);
+export const newChatCount = (i: Island) =>
+  i.messages.filter((m) => m.memberId !== 'me' && m.at > (i.chatReadAt ?? 0)).length;
 export const CAPACITY_MIN = 1,
   CAPACITY_MAX = 15;
 // 주민 수 = 다른 주민 + (내가 가입했으면) 나
@@ -845,7 +894,7 @@ export function questMemberRate(
   now = Date.now(),
 ): number | null {
   const i = s.islands.find((i) => i.id === islandId)!;
-  const member = i.members.find((m) => m.id === id);
+  const member = memberOf(i, id);
   if (q.type === 'screen') {
     const v =
       id === 'me'
@@ -910,7 +959,7 @@ function evaluateQuests(s: State, now: number) {
       for (const [day, round] of Object.entries(q.rounds)) {
         if (day > today) continue;
         for (const id of round.targets) {
-          const member = i.members.find((m) => m.id === id);
+          const member = memberOf(i, id);
           let achieved = round.achieved.includes(id);
           if (!achieved) {
             const live =
@@ -1003,8 +1052,11 @@ export function reducer(state: State, a: Action): State {
   if (a.type === 'LOAD') {
     const loaded = JSON.parse(JSON.stringify(a.state)) as State;
     const retired = ['flag', 'sailboat', 'cabinboat'];
+    const loadedAt = a.now ?? Date.now();
     loaded.islands.forEach((i) => {
       i.formerMembers ??= [];
+      // 채팅 읽음 기준이 없던 저장본은 지금까지의 글을 모두 읽은 것으로 본다
+      i.chatReadAt ??= Math.max(loadedAt, ...i.messages.map((m) => m.at));
       // 예전 저장본: 가입 신청 목록이 없으면 빈 목록(가짜 새봄 신청을 띄우지 않는다)
       i.requests ??= [];
       // 예전 규칙(전망대·우체통만 선행)으로 고른 상점 목표는 지금 규칙에 안 맞으면 해제한다
@@ -1032,6 +1084,10 @@ export function reducer(state: State, a: Action): State {
       rewards: loaded.rewards ?? [],
       screenDays: loaded.screenDays ?? {},
       profileNames: loaded.profileNames ?? [loaded.name],
+      // 받은 편지 읽음 기준이 없던 저장본은 이미 받은 편지를 모두 읽은 것으로 본다
+      lettersReadAt:
+        loaded.lettersReadAt ??
+        Math.max(loadedAt, ...(loaded.friends ?? []).flatMap((f) => f.messages.map((m) => m.at))),
       pendingIslands,
       pendingIsland: loaded.pendingIsland ?? pendingIslands.at(-1) ?? null,
       settings: { ...loaded.settings, publicRecords: true },
@@ -1072,6 +1128,8 @@ export function reducer(state: State, a: Action): State {
     'TRACK',
     'THEME',
     'CLAIM_MEMBER',
+    'COMMENT_DELETE',
+    'CHAT_READ',
   ];
   if (joinedOnly.includes(a.type) && !currentIsland(state).joined) return state;
   if (
@@ -1238,6 +1296,7 @@ export function reducer(state: State, a: Action): State {
             : earnedBy(i, id);
       i.buildingQuest = { building: b, targets, selectedAt: now, base };
       i.nextBuilding = b;
+      delete i.completed;
       break;
     }
     case 'BUILD': {
@@ -1263,6 +1322,7 @@ export function reducer(state: State, a: Action): State {
           delete island.construction;
           delete island.buildingQuest;
           delete island.nextBuilding;
+          if (nextBuildings.includes(b)) island.completed = { building: b, at: now };
           island.ledger.unshift({
             id: uuid(),
             text: `${buildingNames[b]} 완공`,
@@ -1314,20 +1374,33 @@ export function reducer(state: State, a: Action): State {
       break;
     }
     case 'QUEST_SAVE': {
-      if (!Number.isFinite(a.target) || a.target < 1 || !a.title.trim()) return state;
-      const q = i.quests.find((q) => q.id === a.id);
+      // 일일 퀘스트: 방장이 만들고 수정한다(주민은 hostOnly에서 막힌다). 매일 새 회차로 평가한다
+      if (!Number.isInteger(a.target) || a.target < 1 || !a.title?.trim()) return state;
+      if (a.kind === 'focus') {
+        const start = clockMinutes(a.windowStart),
+          end = clockMinutes(a.windowEnd);
+        // 시간대 집중은 시작 < 종료이고 목표 분이 그 시간 안이어야 한다
+        if (start == null || end == null || end <= start || a.target > end - start) return state;
+      }
+      const title = a.title.trim(),
+        // 시간대는 언제나 HH:MM으로 저장한다 (웹 time 입력이 "9:00"을 못 읽는다)
+        windowStart = a.kind === 'focus' ? clockText(a.windowStart) : undefined,
+        windowEnd = a.kind === 'focus' ? clockText(a.windowEnd) : undefined;
+      const q = a.id ? i.quests.find((x) => x.id === a.id) : undefined;
+      if (a.id && !q) return state;
       if (q) {
-        q.title = a.title;
+        q.title = title;
         q.type = a.kind;
         q.target = a.target;
-        q.windowStart = a.windowStart;
-        q.windowEnd = a.windowEnd;
+        q.windowStart = windowStart;
+        q.windowEnd = windowEnd;
+        // 오늘 회차는 대상(targets) 스냅숏을 그대로 두고 기준만 바꿔 바로 다시 평가한다
         const round = q.rounds?.[dayKey(now)];
         if (round) {
           round.kind = a.kind;
           round.target = a.target;
-          round.windowStart = a.windowStart;
-          round.windowEnd = a.windowEnd;
+          round.windowStart = windowStart;
+          round.windowEnd = windowEnd;
           // 이미 지급된 보상은 보존하되, 미수령 달성은 새 기준으로 다시 판정한다.
           const claimed = new Set(round.claimed);
           round.achieved = round.achieved.filter((id) => claimed.has(id));
@@ -1343,25 +1416,29 @@ export function reducer(state: State, a: Action): State {
       } else
         i.quests.push({
           id: uuid(),
-          title: a.title,
+          title,
           type: a.kind,
           target: a.target,
-          windowStart: a.windowStart,
-          windowEnd: a.windowEnd,
+          windowStart,
+          windowEnd,
           claimed: false,
         });
       break;
     }
     case 'NOTICE_SAVE': {
+      // 제목·본문은 공백만 있으면 저장하지 않는다
+      if (!a.title?.trim() || !a.body?.trim()) return state;
+      const title = a.title.trim(),
+        body = a.body.trim();
       const n = i.notices.find((x) => x.id === a.id);
       if (n) {
-        n.title = a.title;
-        n.body = a.body;
+        n.title = title;
+        n.body = body;
       } else
         i.notices.unshift({
           id: uuid(),
-          title: a.title,
-          body: a.body,
+          title,
+          body,
           author: s.name,
           authorId: 'me',
           at: now,
@@ -1384,6 +1461,23 @@ export function reducer(state: State, a: Action): State {
         });
       break;
     }
+    case 'COMMENT_DELETE': {
+      const n = i.notices.find((x) => x.id === a.id),
+        c = n?.comments.find((x) => x.id === a.commentId);
+      // 방장은 모든 댓글을, 주민은 자기 댓글만 지운다
+      if (!n || !c || (!isHost(i) && !isOwnComment(s, c))) return state;
+      n.comments = n.comments.filter((x) => x !== c);
+      break;
+    }
+    case 'CHAT_READ':
+      // 읽음 기준은 뒤로 가지 않는다 — LOAD가 미래 시각 메시지까지 읽은 것으로 올려 둔 값을 지키기 위해.
+      // 방을 연 채 도착한 시계 오차(미래 시각) 메시지도 이미 본 것이므로 기준에 넣는다
+      i.chatReadAt = Math.max(
+        i.chatReadAt ?? 0,
+        now,
+        ...i.messages.filter((m) => m.memberId !== 'me').map((m) => m.at),
+      );
+      break;
     case 'MESSAGE':
       if (a.text.trim())
         i.messages.push({
@@ -1556,7 +1650,7 @@ export function reducer(state: State, a: Action): State {
     }
     case 'FRIEND_MESSAGE': {
       const f = s.friends?.find((f) => f.id === a.id);
-      if (f?.status !== 'friend' || !i.buildings.includes('mail') || !a.text.trim()) return state;
+      if (!f || !canSendLetter(state, a.id) || !a.text.trim()) return state;
       f.messages.push({
         id: uuid(),
         memberId: 'me',
@@ -1566,6 +1660,14 @@ export function reducer(state: State, a: Action): State {
         at: now,
         status: a.fail ? 'failed' : 'sent',
       });
+      break;
+    }
+    case 'LETTER_READ': {
+      const m = s.friends
+        ?.find((f) => f.id === a.friend)
+        ?.messages.find((x) => x.id === a.id && x.memberId !== 'me');
+      if (!m || m.readAt) return state;
+      m.readAt = now;
       break;
     }
     case 'FRIEND_RETRY': {
