@@ -12,6 +12,10 @@
   맞다는 뜻은 아니다. 축을 늘릴 때는 dbml 쪽 표기 규약부터 정해야 한다 — 읽기만 하고
   비교하지 않는 값을 남기면 검사한다는 «착각»만 남는다(ON DELETE 가 실제로 그랬다).
 
+이 도구가 «전제»하는 dbml 규약 — schema.dbml 머리의 6·7번과 짝이다
+  한 컬럼에는 Ref 를 하나만 적는다 · 관계는 항상 단독 `Ref:` 줄로 적는다.
+  전제가 깨지면 오탐(실제 FK 가 있는 컬럼의 두 번째 논리 Ref)이나 미탐(인라인 `[ref:]`)이 난다.
+
 환경변수
   SCRATCH   : real_columns.txt · real_fks.txt 가 있는 디렉터리
   DBML_PATH : schema.dbml 경로
@@ -80,8 +84,11 @@ for m in re.finditer(r'^Table\s+(\w+)[^\n{]*\{(.*?)^\}', text, re.S | re.M):
 # `[delete: cascade]` 를 «읽기만 하고 비교하지 않으면» 읽을 이유가 없다. 표기가 없는 Ref 는
 # 읽는 사람이 기본 동작으로 이해하므로 NO ACTION 으로 놓고 실제 delete_rule 과 맞춰 본다.
 dbml_fks = collections.defaultdict(dict)
+# 컬럼 줄은 `//` 를 먼저 잘라내고 `[...]` 를 통째로 잡는데, Ref 줄만 «첫 `]` 에서 멈추는» 정규식을
+# 쓰고 있었다. 같은 파일을 읽는 두 경로가 다른 규칙을 쓰면 한쪽에서만 조용히 새므로 맞춘다.
+ref_text = re.sub(r'//[^\n]*', '', text)
 for m in re.finditer(
-        r'^Ref:\s*(\w+)\.(\w+)\s*[<>-]\s*(\w+)\.(\w+)\s*(\[[^\]]*\])?', text, re.M):
+        r'^Ref:\s*(\w+)\.(\w+)\s*[<>-]\s*(\w+)\.(\w+)\s*(\[.*\])?', ref_text, re.M):
     child, ccol, parent, pcol, attrs = m.groups()
     rule = "NO ACTION"
     for tok in attr_tokens(attrs or ""):
