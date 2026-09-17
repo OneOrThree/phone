@@ -436,7 +436,7 @@ const nameText = (me: boolean) => ({
   textShadowOffset: { width: 0, height: 0 },
   textShadowRadius: 5,
 });
-// 낚시하는 고양이(fi-actor): 지도 폭 7.7% · 발 기준점(256,464)/512 · 머리 위 과목·시간표(이모티콘은 그 위에 3초 겹침) · 아래 이름.
+// 낚시하는 고양이(fi-actor): 지도 폭 7.7% · 발 기준점(256,464)/512 · 머리 위 과목·시간표(이모티콘이 오면 그 자리에 3초) · 아래 이름.
 // 집중 화면에는 잡은 수를 숫자로 보이지 않는다(더미 그림만: 1마리부터 한 마리, 8마리부터 작은 더미, 24마리부터 큰 더미).
 export function FishingActor({
   spot,
@@ -515,42 +515,41 @@ export function FishingActor({
         style={{ position: 'absolute', bottom: a * 1.05, left: a / 2 - 100, width: 200 }}
         pointerEvents="none"
       >
-        {subject != null && (
+        {/* 이모티콘이 오면 3초 동안 과목·시간표 자리를 대신한다(축소해 이름만 보이는 배율에서도 뜬다) */}
+        {emote ? (
           <View
             style={{
               alignSelf: 'center',
-              maxWidth: 120,
-              backgroundColor: '#FFFDFAB8',
-              borderRadius: 10,
+              backgroundColor: '#FFFDFA',
+              borderWidth: 2,
+              borderColor: OUTLINE,
+              borderRadius: 15,
               paddingVertical: 4,
               paddingHorizontal: 8,
             }}
           >
-            <Text numberOfLines={1} style={label}>
-              {subject}
-            </Text>
-            <Text style={[label, { fontWeight: '900', fontVariant: ['tabular-nums'] }]}>
-              {hms(seconds)}
-            </Text>
+            <Image source={art[`emote/${emote}`]} style={{ width: 30, height: 30 }} />
           </View>
-        )}
-        {emote && (
-          <View
-            style={{ position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' }}
-          >
+        ) : (
+          subject != null && (
             <View
               style={{
-                backgroundColor: '#FFFDFA',
-                borderWidth: 2,
-                borderColor: OUTLINE,
-                borderRadius: 15,
+                alignSelf: 'center',
+                maxWidth: 120,
+                backgroundColor: '#FFFDFAB8',
+                borderRadius: 10,
                 paddingVertical: 4,
                 paddingHorizontal: 8,
               }}
             >
-              <Image source={art[`emote/${emote}`]} style={{ width: 30, height: 30 }} />
+              <Text numberOfLines={1} style={label}>
+                {subject}
+              </Text>
+              <Text style={[label, { fontWeight: '900', fontVariant: ['tabular-nums'] }]}>
+                {hms(seconds)}
+              </Text>
             </View>
-          </View>
+          )
         )}
       </View>
       <View style={{ position: 'absolute', top: a * 0.98, left: a / 2 - 100, width: 200 }}>
