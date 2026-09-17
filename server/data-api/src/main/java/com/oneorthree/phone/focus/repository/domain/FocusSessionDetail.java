@@ -64,8 +64,14 @@ public class FocusSessionDetail {
     @Column(nullable = false, length = 10)
     private FocusSessionLifecycle lifecycle;
 
-    /** 낙관 버전 — pause/resume/finish마다 +1. expectedVersion 검사 대상(FR-P07). */
-    @Column(nullable = false)
+    /**
+     * 낙관 버전 — pause/resume/finish마다 +1. expectedVersion 검사 대상(FR-P07).
+     *
+     * <p>{@code columnDefinition}으로 DB 기본값까지 선언한다. local 은 Flyway 를 끄고
+     * {@code ddl-auto: update} 를 쓰므로, 빠뜨리면 local 스키마에만 기본값이 없어
+     * V58 이 만든 스키마와 조용히 어긋난다.
+     */
+    @Column(nullable = false, columnDefinition = "bigint not null default 1")
     @Builder.Default
     private long version = 1L;
 
@@ -87,7 +93,9 @@ public class FocusSessionDetail {
     @Column(name = "rest_seat")
     private Integer restSeat;
 
+    /** 값은 {@link CreationTimestamp}가 채우지만, DB 기본값도 V58 과 같게 선언해 둔다(위 version 주석 참조). */
     @CreationTimestamp
+    @Column(columnDefinition = "timestamptz not null default now()")
     private Instant createdAt;
 
     /** pause 전이 — REST 구간을 연 t로 lifecycle·restSeat·version·lastTransitionAt을 한 번에 전진시킨다. */
